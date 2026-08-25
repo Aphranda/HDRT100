@@ -1,8 +1,10 @@
+from pathlib import Path
+
 from tools.calibration_ring_validate.calibration_sck_train import (
     DESTINATION_REQUIRED_FLAGS,
     FLAG_DIAGNOSTIC_ONLY,
     FLAG_DMA_COMPLETE,
-    FLAG_HARDWARE_MARKER,
+    FLAG_HARDWARE_SCK_ORIGIN,
     FLAG_HARDWARE_SCK_CAPTURE,
     SCK_FIELDS,
     build_sck_offset_matrix,
@@ -18,7 +20,7 @@ def make_row(**overrides: int) -> dict[str, int | str]:
     row: dict[str, int | str] = {field: 0 for field in SCK_FIELDS}
     row.update({
         "tag": "SCKTRN",
-        "version": 1,
+        "version": 3,
         "state": 3,
         "source_node": 0,
         "destination_node": 1,
@@ -33,9 +35,8 @@ def make_row(**overrides: int) -> dict[str, int | str]:
         "profile_crc32": 12,
         "schedule_crc32": 13,
         "sample_period_ns": 4,
-        "marker_to_sck_samples": 1000,
-        "source_marker_offset_sample_count": 1,
-        "destination_marker_offset_sample_count": -1,
+        "sck_launch_guard_sample_count": 32,
+        "link_base_delay_ns": 40,
         "configured_sck_offset_sample_count": 0,
         "search_start_offset_sample": -10,
         "search_end_offset_sample": 10,
@@ -52,22 +53,25 @@ def encode(row: dict[str, int | str]) -> str:
 
 def test_parse_sck_status_reassembles_ticks() -> None:
     row = make_row(board_id_lo=2, board_id_hi=1,
-                   marker_capture_tick_lo=3, marker_capture_tick_hi=2,
-                   sck_capture_tick_lo=4, sck_capture_tick_hi=2)
+                   sck_capture_origin_tick_lo=3,
+                   sck_capture_origin_tick_hi=2,
+                   sck_code_capture_tick_lo=4,
+                   sck_code_capture_tick_hi=2)
     parsed = parse_sck_status(encode(row))
     assert parsed["board_unique_id"] == (1 << 32) + 2
-    assert parsed["marker_capture_tick"] == (2 << 32) + 3
-    assert parsed["sck_capture_tick"] == (2 << 32) + 4
+    assert parsed["sck_capture_origin_tick"] == (2 << 32) + 3
+    assert parsed["sck_code_capture_tick"] == (2 << 32) + 4
 
 
 def test_sck_arm_accepts_fixed_four_field_scpi_response() -> None:
     assert scpi_response_matches_command(
-        "CALibration:SCK:ARM 0,1,0,7,7,101,1000,1,-1,0,-10,10,0,512,0",
+        "CALibration:SCK:ARM 0,1,0,7,7,101,32,40,0,-10,10,0,512,0",
         "0,1,7,101") is True
 
 
 def test_validate_link_uses_destination_correlation() -> None:
-    source = make_row(flags=FLAG_DIAGNOSTIC_ONLY | FLAG_HARDWARE_MARKER |
+    source = make_row(flags=FLAG_DIAGNOSTIC_ONLY |
+                      FLAG_HARDWARE_SCK_ORIGIN |
                       FLAG_HARDWARE_SCK_CAPTURE | FLAG_DMA_COMPLETE,
                       observed_crc32=0)
     destination = make_row(topology_generation=20,
@@ -107,12 +111,52 @@ def test_sck_offset_matrix_is_complete_for_all_nodes() -> None:
     assert len(summary["offset_matrix"]["rows"]) == 16
 
 
+def test_sck_offset_matrix_recommends_weighted_mode() -> None:
+    trials = []
+    distributions = ((0, 0, 0, 1), (1, 1, 0, 1),
+                     (-1, -1, -1, 0), (2, 2, 1, 2))
+    for link, offsets in enumerate(distributions):
+        for offset in offsets:
+            trials.append({
+                "link": link,
+                "source_node": link,
+                "destination_node": (link + 1) % 4,
+                "passed": True,
+                "calibrated_sck_offset_sample_count": offset,
+            })
+    matrix = build_sck_offset_matrix(trials, 4, 4)
+    assert matrix["schema"] == "HAOFV_SCK_OFFSET_MATRIX_V2"
+    assert matrix["recommended_offset_sample_counts_by_node"] == [2, 0, 1, -1]
+    active = matrix["rows"][matrix["active_row_id"]]
+    assert active["sck_offset_sample_counts_by_node"] == [2, 0, 1, -1]
+
+
 def test_sck_capture_summary_is_raw_only() -> None:
     summary = summarize_sck_capture({
-        "schema": "HAOFV_SCK_TRAIN_CAPTURE_V1",
+        "schema": "HAOFV_SCK_TRAIN_CAPTURE_V3",
+        "link_base_delay_ns": 40,
         "raw_word_count": 1,
         "raw_sample_count": 5,
         "raw_words": [0b00110],
     })
     assert summary["transition_count"] == 2
     assert summary["sample_count"] == 5
+
+
+def test_sck_source_phase_patch_preserves_origin_pulse() -> None:
+    pio_source = Path("components/tdma/src/tdma_pio_spi.pio").read_text(
+        encoding="utf-8")
+    program = pio_source.split(
+        ".program tdma_pio_spi_sck_train_source", 1)[1].split(
+            ".program tdma_pio_spi_sck_train_sink", 1)[0]
+    program_init = pio_source.split(
+        "static inline void tdma_pio_spi_sck_train_source_program_init", 1
+    )[1].split(
+        "static inline void tdma_pio_spi_sck_train_sink_program_init", 1
+    )[0]
+    assert "mov y, x" in program
+    assert "set pins, 1\nsck_train_source_origin_wait:" in program
+    assert "jmp y-- sck_train_source_origin_wait\n    set pins, 0" in program
+    assert "pio->instr_mem[offset + 10u]" in program_init
+    assert "pio->instr_mem[offset + 8u]" not in program_init
+    assert "sm_config_set_set_pins(&c, tx_sck_pin, 1u)" in program_init

@@ -18,8 +18,7 @@ static bool calibration_training_data_request_valid(
         request->profile_crc32 == 0u || request->schedule_crc32 == 0u ||
         request->sample_period_ns == 0u ||
         request->marker_to_data_samples == 0u ||
-        request->base_delay_ns == 0u ||
-        request->base_delay_ns % request->sample_period_ns != 0u ||
+        request->link_base_delay_ns == 0u ||
         request->marker_offset_sample_count <
             CALIBRATION_TRAINING_DATA_MIN_OFFSET_SAMPLES ||
         request->marker_offset_sample_count >
@@ -39,7 +38,7 @@ static bool calibration_training_data_request_valid(
         request->expected_polarity > 1u) {
         return false;
     }
-    const int64_t earliest_ns = (int64_t)request->base_delay_ns +
+    const int64_t earliest_ns = (int64_t)request->link_base_delay_ns +
         ((int64_t)request->configured_data_offset_sample_count +
          (int64_t)request->search_start_offset_sample -
          (int64_t)request->guard_sample_count) * request->sample_period_ns;
@@ -68,7 +67,7 @@ static void calibration_training_data_snapshot_from_request(
     snapshot->schedule_crc32 = request->schedule_crc32;
     snapshot->sample_period_ns = request->sample_period_ns;
     snapshot->marker_to_data_samples = request->marker_to_data_samples;
-    snapshot->base_delay_ns = request->base_delay_ns;
+    snapshot->link_base_delay_ns = request->link_base_delay_ns;
     snapshot->marker_offset_sample_count =
         request->marker_offset_sample_count;
     snapshot->configured_data_offset_sample_count =
@@ -237,20 +236,25 @@ bool calibration_training_data_evaluate_core1(
             (int32_t)evidence->best_lag_sample;
         next.resolved_offset_ns = next.resolved_offset_sample_count *
                                   (int32_t)request->sample_period_ns;
-        next.training_window_start_ns = (int32_t)request->base_delay_ns +
+        next.training_window_start_ns =
+            (int32_t)request->link_base_delay_ns +
             (request->configured_data_offset_sample_count +
              next.resolved_offset_sample_count -
              (int32_t)request->guard_sample_count) *
                 (int32_t)request->sample_period_ns;
-        next.training_window_end_ns = (int32_t)request->base_delay_ns +
+        next.training_window_end_ns =
+            (int32_t)request->link_base_delay_ns +
             (request->configured_data_offset_sample_count +
              next.resolved_offset_sample_count +
              (int32_t)request->guard_sample_count) *
                 (int32_t)request->sample_period_ns;
+        const int64_t link_base_delay_samples =
+            ((int64_t)request->link_base_delay_ns +
+             request->sample_period_ns / 2u) /
+            request->sample_period_ns;
         const int64_t expected_delta_samples =
             (int64_t)request->marker_to_data_samples +
-            4 * (int64_t)(request->base_delay_ns /
-                          request->sample_period_ns) +
+            4 * link_base_delay_samples +
             request->configured_data_offset_sample_count +
             next.resolved_offset_sample_count;
         const int64_t observed_delta_samples =

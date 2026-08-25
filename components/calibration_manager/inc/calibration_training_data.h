@@ -4,11 +4,16 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define CALIBRATION_TRAINING_DATA_SNAPSHOT_VERSION 2u
+#include "calibration_training_phase.h"
+
+#define CALIBRATION_TRAINING_DATA_SNAPSHOT_VERSION 3u
 #define CALIBRATION_TRAINING_DATA_SNAPSHOT_READ_ATTEMPTS 64u
-#define CALIBRATION_TRAINING_DATA_MAX_NODES 8u
-#define CALIBRATION_TRAINING_DATA_MIN_OFFSET_SAMPLES (-10)
-#define CALIBRATION_TRAINING_DATA_MAX_OFFSET_SAMPLES 10
+#define CALIBRATION_TRAINING_DATA_MAX_NODES \
+    CALIBRATION_TRAINING_PHASE_MAX_NODES
+#define CALIBRATION_TRAINING_DATA_MIN_OFFSET_SAMPLES \
+    CALIBRATION_TRAINING_PHASE_MIN_OFFSET_SAMPLES
+#define CALIBRATION_TRAINING_DATA_MAX_OFFSET_SAMPLES \
+    CALIBRATION_TRAINING_PHASE_MAX_OFFSET_SAMPLES
 #define CALIBRATION_TRAINING_DATA_MAX_GUARD_SAMPLES 64u
 
 typedef enum {
@@ -72,7 +77,7 @@ typedef struct {
     uint32_t schedule_crc32;
     uint32_t sample_period_ns;
     uint32_t marker_to_data_samples;
-    uint32_t base_delay_ns;
+    uint32_t link_base_delay_ns;
     int32_t marker_offset_sample_count;
     int32_t configured_data_offset_sample_count;
     int32_t search_start_offset_sample;
@@ -130,7 +135,7 @@ typedef struct {
     uint32_t schedule_crc32;
     uint32_t sample_period_ns;
     uint32_t marker_to_data_samples;
-    uint32_t base_delay_ns;
+    uint32_t link_base_delay_ns;
     int32_t marker_offset_sample_count;
     int32_t configured_data_offset_sample_count;
     int32_t search_start_offset_sample;

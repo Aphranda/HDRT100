@@ -112,6 +112,7 @@ def marker_row(node: int, count: int = 4, *, sequence: int = 11,
         "profile_crc32": 0x3456789A,
         "schedule_crc32": 0x456789AB,
         "tick_resolution_ns": 4,
+        "link_base_delay_ns": 40,
         "offset_sample_count": 0,
         "marker_capture_tick_lo": 1400 if node == 0 else 1000 + node * 100,
         "marker_forward_tick_lo": 1000 if node == 0 else 1012 + node * 100,
@@ -164,10 +165,10 @@ def test_validate_ring_accepts_common_epoch_and_order() -> None:
     assert result["diagnostic_only"] is True
     assert result["errors"] == []
     assert result["link_offset_model"] == (
-        "marker_capture + base_half_chip + per_link_offset")
+        "link_base_delay + destination_node_offset")
     offsets = result["link_offset_candidates"]
     assert len(offsets) == 3
-    assert offsets[0]["base_half_chip_ns"] == 40
+    assert offsets[0]["link_base_delay_ns"] == 40
     assert offsets[0]["offset_sample_count"] == 0
     assert offsets[0]["offset_ns"] == 0
     assert offsets[0]["sample_anchor_after_marker_ns"] == 40
@@ -286,11 +287,12 @@ def test_offset_matrix_can_retain_sparse_execution_values() -> None:
     assert matrix[-1]["offset_ns_by_node"] == [20, 20, 20, 20]
 
 
-def test_capture_delay_mapping_checks_codebook_specific_pio_bounds() -> None:
-    assert capture_phase_delay_cycles(1, -10) == 0
-    assert capture_phase_delay_cycles(1, 10) == 20
+def test_capture_delay_mapping_uses_explicit_link_base() -> None:
+    assert capture_phase_delay_cycles(40, -10) == 0
+    assert capture_phase_delay_cycles(40, 10) == 20
+    assert capture_phase_delay_cycles(41, 0) == 10
     with pytest.raises(ValueError, match="outside PIO delay"):
-        capture_phase_delay_cycles(0, -10)
+        capture_phase_delay_cycles(20, -10)
 
 
 def test_fixed_epoch_matrix_changes_only_generation_identity() -> None:

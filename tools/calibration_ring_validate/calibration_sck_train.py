@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Train per-Node SCK phase from already accepted MARK offsets.
+"""Train per-Node SCK phase from an independent PIO-owned SCK origin.
 
-The source emits a PIO-owned MARK and known SCK code.  The destination starts
-raw rx_sck capture from that received MARK edge.  Host time never participates
-in phase measurement; this tool only loads parameters, downloads SD evidence,
-and builds the complete observed SCK offset matrix for 2..8 Nodes.
+The source emits a qualified SCK origin pulse and then a known SCK code after
+an internal PIO launch event. The destination starts raw rx_sck capture from
+SCK's own origin falling edge. Host time and
+MARK offsets never participate in phase measurement; this tool only loads
+parameters, downloads SD evidence, and builds the complete observed SCK offset
+matrix for 2..8 Nodes.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
-import itertools
 import json
 import statistics
 import sys
@@ -31,6 +32,9 @@ if str(ROOT / "tools" / "tdma_ring_monitor") not in sys.path:
 from calibration_ring_validate.calibration_data_train import (  # noqa: E402
     parse_storage_read,
 )
+from calibration_ring_validate.calibration_clk_codebook_eval import (  # noqa: E402
+    marker_raw_waveform,
+)
 from calibration_ring_validate.calibration_marker_train import (  # noqa: E402
     Board,
     board_command,
@@ -38,6 +42,17 @@ from calibration_ring_validate.calibration_marker_train import (  # noqa: E402
     marker_action_args,
     order_boards_by_board_no,
     prepare_ring,
+)
+from calibration_ring_validate.calibration_marker_waveform import (  # noqa: E402
+    expand_zero_order_hold,
+    firmware_correlate,
+    render_alignment_svg,
+)
+from calibration_ring_validate.calibration_phase import (  # noqa: E402
+    build_observed_offset_matrix,
+    build_phase_training_contract,
+    link_base_delay_ns,
+    phase_delay_samples,
 )
 
 
@@ -48,26 +63,26 @@ SCK_FIELDS = (
     "sck_codebook_id", "sck_crc32", "observed_crc32",
     "calibration_generation", "topology_generation", "topology_crc32",
     "profile_crc32", "schedule_crc32", "sample_period_ns",
-    "marker_to_sck_samples", "source_marker_offset_sample_count",
-    "destination_marker_offset_sample_count",
+    "sck_launch_guard_sample_count",
+    "link_base_delay_ns",
     "configured_sck_offset_sample_count",
     "search_start_offset_sample", "search_end_offset_sample",
     "guard_sample_count", "polarity", "correlation_reject_reason",
     "best_lag_sample", "best_distance", "second_lag_sample",
     "second_distance", "margin", "resolved_offset_sample_count",
     "resolved_offset_ns", "training_window_start_ns",
-    "training_window_end_ns", "marker_sck_skew_ns",
+    "training_window_end_ns",
     "captured_sample_count", "expected_sample_count",
     "dma_overrun_count", "pio_stall_count", "timeout_count",
-    "marker_capture_tick_lo", "marker_capture_tick_hi",
-    "sck_capture_tick_lo", "sck_capture_tick_hi",
+    "sck_capture_origin_tick_lo", "sck_capture_origin_tick_hi",
+    "sck_code_capture_tick_lo", "sck_code_capture_tick_hi",
 )
 
 STATE_PREPARED = 1
 STATE_ACCEPTED = 3
 STATE_REJECTED = 4
 FLAG_DIAGNOSTIC_ONLY = 1 << 0
-FLAG_HARDWARE_MARKER = 1 << 1
+FLAG_HARDWARE_SCK_ORIGIN = 1 << 1
 FLAG_HARDWARE_SCK_CAPTURE = 1 << 2
 FLAG_DMA_COMPLETE = 1 << 3
 FLAG_CRC_VALID = 1 << 4
@@ -75,12 +90,12 @@ FLAG_EPOCH_VALID = 1 << 5
 FLAG_SEQUENCE_VALID = 1 << 6
 FLAG_POLARITY_VALID = 1 << 7
 DESTINATION_REQUIRED_FLAGS = (
-    FLAG_HARDWARE_MARKER | FLAG_HARDWARE_SCK_CAPTURE |
+    FLAG_HARDWARE_SCK_ORIGIN | FLAG_HARDWARE_SCK_CAPTURE |
     FLAG_DMA_COMPLETE | FLAG_CRC_VALID | FLAG_EPOCH_VALID |
     FLAG_SEQUENCE_VALID | FLAG_POLARITY_VALID
 )
-SCK_CAPTURE_SCHEMA = "HAOFV_SCK_TRAIN_CAPTURE_V1"
-SCK_MATRIX_SCHEMA = "HAOFV_SCK_OFFSET_MATRIX_V1"
+SCK_CAPTURE_SCHEMA = "HAOFV_SCK_TRAIN_CAPTURE_V3"
+SCK_MATRIX_SCHEMA = "HAOFV_SCK_OFFSET_MATRIX_V2"
 
 
 def _u64(row: dict[str, int | str], low: str, high: str) -> int:
@@ -100,10 +115,10 @@ def parse_sck_status(raw: str) -> dict[str, int | str]:
     result["board_unique_id"] = _u64(
         result, "board_id_lo", "board_id_hi")
     result["build_id"] = _u64(result, "build_id_lo", "build_id_hi")
-    result["marker_capture_tick"] = _u64(
-        result, "marker_capture_tick_lo", "marker_capture_tick_hi")
-    result["sck_capture_tick"] = _u64(
-        result, "sck_capture_tick_lo", "sck_capture_tick_hi")
+    result["sck_capture_origin_tick"] = _u64(
+        result, "sck_capture_origin_tick_lo", "sck_capture_origin_tick_hi")
+    result["sck_code_capture_tick"] = _u64(
+        result, "sck_code_capture_tick_lo", "sck_code_capture_tick_hi")
     return result
 
 
@@ -139,6 +154,74 @@ def summarize_sck_capture(capture: object) -> dict[str, object]:
     }
 
 
+def analyze_sck_waveform(capture: dict[str, object],
+                         svg_path: Path) -> dict[str, object]:
+    words = capture["raw_words"]
+    assert isinstance(words, list)
+    sample_count = int(capture["raw_sample_count"])
+    tick_ns = int(capture["sample_period_ns"])
+    samples = [
+        (int(words[index >> 5]) >> (index & 31)) & 1
+        for index in range(sample_count)
+    ]
+    expected, _ = marker_raw_waveform(
+        codebook_id=int(capture["sck_codebook_id"]),
+        epoch=int(capture["epoch"]),
+        source_node=int(capture["source_node"]), polarity=0)
+    correlation = firmware_correlate(
+        expected, samples, max_best_distance=len(expected), min_margin=0)
+    if "best_lag_sample" not in correlation:
+        raise ValueError("SCK capture is too short for codeword correlation")
+    best_lag = int(correlation["best_lag_sample"])
+    launch_guard = int(capture["sck_launch_guard_sample_count"])
+    link_base_ns = int(capture["link_base_delay_ns"])
+    link_base_samples = phase_delay_samples(
+        link_base_ns=link_base_ns, sample_period_ns=tick_ns,
+        node_offset_samples=0)
+    configured = int(capture["configured_sck_offset_sample_count"])
+    nominal_lag = launch_guard - link_base_samples
+    residual = best_lag - nominal_lag
+    recommended = configured + residual
+    reference_1ns = expand_zero_order_hold(expected, tick_ns, 1)
+    candidate_1ns = expand_zero_order_hold(samples, tick_ns, 1)
+    best_delay_ns = best_lag * tick_ns
+    svg = render_alignment_svg(
+        reference_1ns, candidate_1ns, step_ns=1,
+        measured_tick_ns=tick_ns, best_delay_ns=best_delay_ns,
+        window_start_ns=None, window_duration_ns=1000,
+        title=(f"SCK independent baseline link{int(capture['link_index'])} "
+               f"node{int(capture['source_node'])}->"
+               f"node{int(capture['destination_node'])}: "
+               f"delay {best_delay_ns:+d} ns, guard "
+               f"{launch_guard * tick_ns} ns, link base "
+               f"{link_base_ns} ns, residual "
+               f"{residual:+d} samples, recommended offset "
+               f"{recommended:+d} samples"))
+    svg_path.write_text(svg, encoding="utf-8")
+    compact = {key: value for key, value in correlation.items()
+               if key != "scan"}
+    return {
+        "schema": "HAOFV_SCK_TRAIN_WAVEFORM_ANALYSIS_V1",
+        "svg": str(svg_path),
+        "window_duration_ns": 1000,
+        "sample_period_ns": tick_ns,
+        "capture_buffer_delay_sample_count": best_lag,
+        "capture_buffer_delay_ns": best_delay_ns,
+        "sck_launch_guard_sample_count": launch_guard,
+        "sck_launch_guard_ns": launch_guard * tick_ns,
+        "link_base_delay_sample_count": link_base_samples,
+        "link_base_delay_ns": link_base_ns,
+        "nominal_code_lag_sample_count": nominal_lag,
+        "nominal_code_lag_ns": nominal_lag * tick_ns,
+        "residual_offset_sample_count": residual,
+        "residual_offset_ns": residual * tick_ns,
+        "recommended_sck_offset_sample_count": recommended,
+        "recommended_sck_offset_ns": recommended * tick_ns,
+        "move_candidate_by_ns": -best_delay_ns,
+        "correlation": compact,
+    }
+
+
 def validate_link(source: dict[str, int | str],
                   destination: dict[str, int | str]) -> dict[str, object]:
     errors: list[str] = []
@@ -146,9 +229,9 @@ def validate_link(source: dict[str, int | str],
         "source_node", "destination_node", "train_epoch", "train_sequence",
         "sck_codebook_id", "sck_crc32", "calibration_generation",
         "topology_crc32", "profile_crc32",
-        "schedule_crc32", "sample_period_ns", "marker_to_sck_samples",
-        "source_marker_offset_sample_count",
-        "destination_marker_offset_sample_count",
+        "schedule_crc32", "sample_period_ns",
+        "sck_launch_guard_sample_count",
+        "link_base_delay_ns",
         "configured_sck_offset_sample_count", "search_start_offset_sample",
         "search_end_offset_sample", "guard_sample_count",
     )
@@ -163,7 +246,7 @@ def validate_link(source: dict[str, int | str],
         errors.append("source_state")
     if int(source["reject_reason"]) != 0:
         errors.append("source_reject_reason")
-    source_flags = (FLAG_DIAGNOSTIC_ONLY | FLAG_HARDWARE_MARKER |
+    source_flags = (FLAG_DIAGNOSTIC_ONLY | FLAG_HARDWARE_SCK_ORIGIN |
                     FLAG_HARDWARE_SCK_CAPTURE | FLAG_DMA_COMPLETE)
     if (int(source["flags"]) & source_flags) != source_flags:
         errors.append("source_flags")
@@ -196,7 +279,6 @@ def validate_link(source: dict[str, int | str],
         "calibrated_sck_offset_sample_count": calibrated,
         "calibrated_sck_offset_ns": (
             calibrated * int(destination["sample_period_ns"])),
-        "marker_sck_skew_ns": int(destination["marker_sck_skew_ns"]),
         "source": source,
         "destination": destination,
     }
@@ -205,48 +287,25 @@ def validate_link(source: dict[str, int | str],
 def build_sck_offset_matrix(trials: list[dict[str, object]],
                             node_count: int,
                             sample_period_ns: int) -> dict[str, object]:
-    candidates: list[list[int]] = [[] for _ in range(node_count)]
+    accepted_by_node: list[list[int]] = [[] for _ in range(node_count)]
     for trial in trials:
-        if not bool(trial.get("passed")):
+        if bool(trial.get("passed")):
+            value = int(trial["calibrated_sck_offset_sample_count"])
+        elif "svg_recommended_sck_offset_sample_count" in trial:
+            value = int(trial["svg_recommended_sck_offset_sample_count"])
+        else:
             continue
         destination = int(trial["destination_node"])
-        value = int(trial["calibrated_sck_offset_sample_count"])
-        if value not in candidates[destination]:
-            candidates[destination].append(value)
-    missing = [node for node, values in enumerate(candidates) if not values]
-    if missing:
-        return {
-            "schema": SCK_MATRIX_SCHEMA,
-            "sample_period_ns": sample_period_ns,
-            "candidate_values_by_node": candidates,
-            "full_matrix_row_count": 0,
-            "active_row_id": -1,
-            "rows": [],
-            "missing_nodes": missing,
-        }
-    candidates = [sorted(values) for values in candidates]
-    selected = [values[len(values) // 2] for values in candidates]
-    rows: list[dict[str, object]] = []
-    active_row_id = -1
-    for row_id, values in enumerate(itertools.product(*candidates)):
-        row_values = list(values)
-        if row_values == selected:
-            active_row_id = row_id
-        rows.append({
-            "row_id": row_id,
-            "sck_offset_sample_counts_by_node": row_values,
-            "sck_offset_ns_by_node": [
-                value * sample_period_ns for value in row_values],
-        })
-    return {
-        "schema": SCK_MATRIX_SCHEMA,
-        "sample_period_ns": sample_period_ns,
-        "candidate_values_by_node": candidates,
-        "full_matrix_row_count": len(rows),
-        "active_row_id": active_row_id,
-        "rows": rows,
-        "missing_nodes": [],
-    }
+        accepted_by_node[destination].append(value)
+    matrix = build_observed_offset_matrix(
+        signal="SCK", values_by_node=accepted_by_node,
+        sample_period_ns=sample_period_ns)
+    matrix["schema"] = SCK_MATRIX_SCHEMA
+    for row in matrix["rows"]:
+        row["sck_offset_sample_counts_by_node"] = list(
+            row["offset_sample_counts_by_node"])
+        row["sck_offset_ns_by_node"] = list(row["offset_ns_by_node"])
+    return matrix
 
 
 def summarize_repeat_matrix(trials: list[dict[str, object]], node_count: int,
@@ -343,11 +402,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epoch", type=int, default=1)
     parser.add_argument("--sequence", type=int)
     parser.add_argument("--generation", type=int, default=1)
-    parser.add_argument("--marker-to-sck-samples", type=int, default=1000)
+    parser.add_argument("--sck-launch-guard-samples", type=int, default=32,
+                        help="PIO-owned quiet samples before SCK code launch")
     parser.add_argument("--sample-period-ns", type=int, default=4)
-    parser.add_argument("--node-marker-offset-samples", type=int,
-                        action="append", required=True,
-                        help="accepted MARK offset for each Node")
+    parser.add_argument(
+        "--link-delay-ns", type=int, action="append", required=True,
+        help="measured end-to-end delay; repeat once per physical link")
     parser.add_argument("--node-sck-offset-samples", type=int,
                         action="append",
                         help="current SCK matrix row; defaults to all zero")
@@ -357,7 +417,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-best-distance", type=int, default=512)
     parser.add_argument("--min-margin", type=int, default=0)
     parser.add_argument("--all-links", action="store_true")
-    parser.add_argument("--repeats", type=int, default=1)
+    parser.add_argument("--repeats", type=int, default=8)
     parser.add_argument("--max-offset-span", type=int, default=1)
     parser.add_argument("--level", type=int, default=7)
     parser.add_argument("--reuse-ring-identity", action="store_true")
@@ -380,13 +440,6 @@ def validate_hil_args(args: argparse.Namespace) -> list[str]:
     count = len(board_ids)
     if not 2 <= count <= 8 or len(set(board_ids)) != count:
         raise SystemExit("board IDs must contain 2..8 unique entries")
-    marker_offsets = list(args.node_marker_offset_samples)
-    if (len(marker_offsets) != count or
-            any(not -10 <= value <= 10 for value in marker_offsets)):
-        raise SystemExit(
-            "node-marker-offset-samples must provide one -10..+10 value "
-            "per Node")
-    args.node_marker_offset_samples = marker_offsets
     sck_offsets = list(args.node_sck_offset_samples or [0] * count)
     if (len(sck_offsets) != count or
             any(not -10 <= value <= 10 for value in sck_offsets)):
@@ -394,12 +447,26 @@ def validate_hil_args(args: argparse.Namespace) -> list[str]:
             "node-sck-offset-samples must provide one -10..+10 value "
             "per Node")
     args.node_sck_offset_samples = sck_offsets
+    link_delays = list(args.link_delay_ns)
+    if len(link_delays) != count:
+        raise SystemExit("link-delay-ns must provide one value per link")
+    try:
+        args.link_base_delay_ns = [
+            link_base_delay_ns(value) for value in link_delays]
+        for link, base_ns in enumerate(args.link_base_delay_ns):
+            phase_delay_samples(
+                link_base_ns=base_ns,
+                sample_period_ns=args.sample_period_ns,
+                node_offset_samples=sck_offsets[(link + 1) % count],
+                max_delay_samples=30)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     if not 0 <= args.link_index < count:
         raise SystemExit("link-index outside physical link range")
     if not 0 <= args.reference_node < count:
         raise SystemExit("reference-node outside physical Node order")
     if not (0 <= args.codebook <= 3 and 1 <= args.epoch <= 255 and
-            args.generation > 0 and args.marker_to_sck_samples > 0 and
+            args.generation > 0 and args.sck_launch_guard_samples > 0 and
             args.sample_period_ns > 0 and
             -10 <= args.search_start <= args.search_end <= 10 and
             1 <= args.repeats <= 1000 and
@@ -435,9 +502,8 @@ def sck_arm(board: Board, args: argparse.Namespace) -> str:
     command = (
         f"CALibration:SCK:ARM {args.source_node},{args.destination_node},"
         f"{args.codebook},{args.epoch},{sequence},{args.generation},"
-        f"{args.marker_to_sck_samples},"
-        f"{args.source_marker_offset_sample},"
-        f"{args.destination_marker_offset_sample},"
+        f"{args.sck_launch_guard_samples},"
+        f"{args.link_base_delay_ns_current},"
         f"{args.configured_sck_offset_sample},"
         f"{args.search_start},{args.search_end},{args.guard_samples},"
         f"{args.max_best_distance},{args.min_margin}")
@@ -522,8 +588,13 @@ def download_sck_capture(board: Board, capture_file: dict[str, object],
     local_path = args.out_dir / (
         f"node{args.destination_node}_link{args.link_index}_sck_capture.json")
     local_path.write_bytes(data)
+    waveform = analyze_sck_waveform(
+        capture, local_path.with_name(
+            f"node{args.destination_node}_link{args.link_index}_"
+            "sck_capture_replay_1us.svg"))
     return {"sd_path": path, "local_path": str(local_path),
-            "size": len(data), "path_hash": path_hash, **analysis}
+            "size": len(data), "path_hash": path_hash, **analysis,
+            "waveform": waveform}
 
 
 def run_link_trial(args: argparse.Namespace, ordered: list[Board],
@@ -531,12 +602,10 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
     count = len(ordered)
     args.source_node = args.link_index
     args.destination_node = (args.link_index + 1) % count
-    args.source_marker_offset_sample = int(
-        args.node_marker_offset_samples[args.source_node])
-    args.destination_marker_offset_sample = int(
-        args.node_marker_offset_samples[args.destination_node])
     args.configured_sck_offset_sample = int(
         args.node_sck_offset_samples[args.destination_node])
+    args.link_base_delay_ns_current = int(
+        args.link_base_delay_ns[args.link_index])
     plan: dict[str, object] = {
         "phase": "TRN-SCK",
         "diagnostic_only": True,
@@ -544,17 +613,19 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
         "link": args.link_index,
         "source_node": args.source_node,
         "destination_node": args.destination_node,
-        "measurement_direction": "mark_forward_sck_forward",
-        "node_marker_offset_samples": list(args.node_marker_offset_samples),
-        "source_marker_offset_sample_count":
-            args.source_marker_offset_sample,
-        "destination_marker_offset_sample_count":
-            args.destination_marker_offset_sample,
+        "measurement_direction": "sck_forward_independent",
         "node_sck_offset_samples": list(args.node_sck_offset_samples),
         "configured_sck_offset_sample_count":
             args.configured_sck_offset_sample,
-        "marker_to_sck_samples": args.marker_to_sck_samples,
+        "sck_launch_guard_sample_count": args.sck_launch_guard_samples,
+        "link_delay_ns": int(args.link_delay_ns[args.link_index]),
+        "link_base_delay_ns": args.link_base_delay_ns_current,
         "sample_period_ns": args.sample_period_ns,
+        "unified_phase_training": build_phase_training_contract(
+            signal="SCK", link_delay_ns_by_link=args.link_delay_ns,
+            node_offset_samples=args.node_sck_offset_samples,
+            sample_period_ns=args.sample_period_ns,
+            capture_origin="rx_sck_pio_edge", max_delay_samples=30),
         "search_offset_samples": [args.search_start, args.search_end],
         "reused_ring_identity": bool(args.reuse_ring_identity),
         "boards": {board.address: asdict(board) for board in ordered},
@@ -578,6 +649,12 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
         if not injection.startswith("OK"):
             raise RuntimeError(
                 f"{source.address}: SCK INJECT rejected: {injection!r}")
+        print(json.dumps({"sck_inject": {
+            "board": source.address,
+            "response": injection,
+            "source_node": args.source_node,
+            "destination_node": args.destination_node,
+        }}, ensure_ascii=False), flush=True)
         completed = wait_states(active, args, (STATE_ACCEPTED, STATE_REJECTED))
         validation = validate_link(completed[0], completed[1])
         capture_file = save_sck_capture(destination, args)
@@ -586,7 +663,14 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
     finally:
         for board in active:
             board_command(board, "CALibration:SCK:STOP", args)
-    return {**plan, **validation, "actions": actions, "arms": arms,
+    waveform = capture_download["waveform"]
+    assert isinstance(waveform, dict)
+    return {**plan, **validation,
+            "svg_recommended_sck_offset_sample_count": int(
+                waveform["recommended_sck_offset_sample_count"]),
+            "svg_recommended_sck_offset_ns": int(
+                waveform["recommended_sck_offset_ns"]),
+            "actions": actions, "arms": arms,
             "armed": armed, "injection": injection, "completed": completed,
             "capture_file": capture_file,
             "capture_download": capture_download}
@@ -660,10 +744,11 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         "max_offset_span_sample": args.max_offset_span,
         "calibration_generation": args.generation,
         "training_parameters": {
-            "node_marker_offset_samples": list(
-                args.node_marker_offset_samples),
             "node_sck_offset_samples": list(args.node_sck_offset_samples),
-            "marker_to_sck_samples": args.marker_to_sck_samples,
+            "sck_launch_guard_sample_count":
+                args.sck_launch_guard_samples,
+            "link_delay_ns_by_link": list(args.link_delay_ns),
+            "link_base_delay_ns_by_link": list(args.link_base_delay_ns),
             "sample_period_ns": args.sample_period_ns,
         },
         "initial_epoch": args.epoch,

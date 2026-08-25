@@ -278,6 +278,9 @@ int main(void)
             .link_budget_cycles = 48u,
             .loop_delay_cycles = 8u,
             .sample_period_ns = 4u,
+            .link_base_delay_ns = 40u,
+            .marker_phase_delay_cycles = 10u,
+            .sck_phase_delay_cycles = 10u,
             .data_phase_delay_cycles = 1u,
         };
         tdma_ring_calibration_stage_t readback;

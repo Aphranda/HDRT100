@@ -61,6 +61,8 @@ LINK_FIELDS = (
     "sck_offset_sample_count",
     "data_offset_sample_count",
     "sample_period_ns",
+    "link_base_delay_ns",
+    "marker_phase_delay_cycles",
     "sck_phase_delay_cycles",
     "data_phase_delay_cycles",
 )
@@ -91,7 +93,6 @@ LINK_QUERY_FIELDS = (
 )
 REQUIRED_EVIDENCE_FLAGS = 0x1F
 DIAGNOSTIC_ONLY_FLAG = 1 << 31
-SCK_PHASE_BASE_NS = 40
 
 
 def parse_args() -> argparse.Namespace:
@@ -201,15 +202,23 @@ def load_config(path: Path, offset_row_id: int | None = None) -> dict[str, Any]:
             sck_offsets[sck_destination])
         link["data_offset_sample_count"] = int(
             data_offsets[data_destination])
-        sck_offset_ns = (SCK_PHASE_BASE_NS +
+        marker_offset_ns = (
+            link["link_base_delay_ns"] +
+            link["marker_offset_sample_count"] *
+            link["sample_period_ns"])
+        sck_offset_ns = (link["link_base_delay_ns"] +
                          link["sck_offset_sample_count"] *
                          link["sample_period_ns"])
-        if sck_offset_ns < 0:
-            raise ValueError("SCK offset is below the runtime delay baseline")
+        if marker_offset_ns < 0 or sck_offset_ns < 0:
+            raise ValueError("MARK/SCK phase is below the link baseline")
+        link["marker_phase_delay_cycles"] = (
+            marker_offset_ns + link["instruction_period_ns"] // 2
+        ) // link["instruction_period_ns"]
         link["sck_phase_delay_cycles"] = (
             sck_offset_ns + link["instruction_period_ns"] // 2
         ) // link["instruction_period_ns"]
-        offset_ns = (link["data_offset_sample_count"] *
+        offset_ns = (link["link_base_delay_ns"] +
+                     link["data_offset_sample_count"] *
                      link["sample_period_ns"])
         if offset_ns < 0:
             raise ValueError("negative DATA offset cannot map to delay-only PIO")
@@ -233,6 +242,7 @@ def load_config(path: Path, offset_row_id: int | None = None) -> dict[str, Any]:
             raise ValueError(
                 f"link{link['link_index']} budget expires before replay")
         if link["sample_period_ns"] == 0 or \
+                link["marker_phase_delay_cycles"] > 31 or \
                 link["sck_phase_delay_cycles"] > 31 or \
                 link["data_phase_delay_cycles"] > 31:
             raise ValueError(

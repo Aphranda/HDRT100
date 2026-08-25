@@ -267,6 +267,52 @@ data_train_sink_wait:
     in pins, 1
 .wrap
 
+; Independent SCK training follows the CS PIO launch sequence, but the local
+; CS pin is used only as an internal source gate. Its driver stays disabled, so
+; no MARK/CS edge reaches the cable or participates in SCK measurement.
+.program tdma_pio_spi_sck_train_trigger
+    pull block
+.wrap_target
+    out pins, 1
+.wrap
+
+; Core1 preloads the quiet launch guard minus one into the source FIFO. The
+; source waits for the local PIO CS launch edge, holds a physical SCK origin
+; pulse for the same bounded interval, returns SCK low, applies the guard, then
+; emits the complete known SCK codeword.  The destination anchors capture on
+; the origin falling edge, matching the robust CS edge sequence without using
+; CS itself as the SCK timing reference.
+.program tdma_pio_spi_sck_train_source
+    pull block
+    mov x, osr
+    out null, 32
+    mov y, x
+    wait 1 gpio 0
+    wait 0 gpio 0
+    set pins, 1
+sck_train_source_origin_wait:
+    jmp y-- sck_train_source_origin_wait
+    set pins, 0
+sck_train_source_wait:
+    jmp x-- sck_train_source_wait
+    nop
+.wrap_target
+    out pins, 1
+.wrap
+
+; The destination establishes its origin from SCK itself: it qualifies the
+; physical RX SCK rising level, anchors on the following falling edge, applies
+; the patched phase delay, then captures one raw sample per clk_sys cycle.
+; CS/MARK is not observed.
+.program tdma_pio_spi_sck_train_sink
+    wait 0 gpio 0
+    wait 1 gpio 0
+    wait 0 gpio 0
+    nop
+.wrap_target
+    in pins, 1
+.wrap
+
 ; P3 link initiator. SYNC is asserted for the complete forward burst. Four PIO
 ; cycles form one forward-line period with two high and two low cycles. The RX SM is
 ; enabled in sync with this SM and samples the returned DATA pin at clk_sys.
@@ -770,11 +816,11 @@ static inline void tdma_pio_spi_data_train_source_program_init(
     PIO pio, uint sm, uint offset, uint32_t tx_csn_pin,
     uint32_t tx_data_pin, uint32_t phase_delay_cycles)
 {
-    pio->instr_mem[offset + 3u] =
-        (uint16_t)pio_encode_wait_gpio(true, tx_csn_pin);
     pio->instr_mem[offset + 4u] =
+        (uint16_t)pio_encode_wait_gpio(true, tx_csn_pin);
+    pio->instr_mem[offset + 5u] =
         (uint16_t)pio_encode_wait_gpio(false, tx_csn_pin);
-    pio->instr_mem[offset + 6u] = (uint16_t)(
+    pio->instr_mem[offset + 8u] = (uint16_t)(
         pio_encode_nop() | pio_encode_delay(phase_delay_cycles - 1u));
     pio_sm_set_pins_with_mask64(pio, sm, 0ull, 1ull << tx_data_pin);
     pio_gpio_init(pio, tx_csn_pin);
@@ -815,6 +861,74 @@ static inline void tdma_pio_spi_data_train_sink_program_init(
         tdma_pio_spi_data_train_sink_program_get_default_config(offset);
     sm_config_set_in_pins(&c, rx_data_pin);
     sm_config_set_in_shift(&c, true, true, 32u);
+    sm_config_set_clkdiv(&c, 1.0f);
+    pio_sm_init(pio, sm, offset, &c);
+}
+
+static inline void tdma_pio_spi_sck_train_trigger_program_init(
+    PIO pio, uint sm, uint offset, uint32_t tx_csn_pin)
+{
+    pio_sm_set_pins_with_mask64(pio, sm, 1ull << tx_csn_pin,
+                                1ull << tx_csn_pin);
+    pio_gpio_init(pio, tx_csn_pin);
+    pio_sm_config c =
+        tdma_pio_spi_sck_train_trigger_program_get_default_config(offset);
+    sm_config_set_out_pins(&c, tx_csn_pin, 1u);
+    sm_config_set_out_shift(&c, true, true, 32u);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+    sm_config_set_clkdiv(&c, 1.0f);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_pins_with_mask64(pio, sm, 1ull << tx_csn_pin,
+                                1ull << tx_csn_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, tx_csn_pin, 1u, true);
+}
+
+static inline void tdma_pio_spi_sck_train_source_program_init(
+    PIO pio, uint sm, uint offset, uint32_t tx_csn_pin,
+    uint32_t tx_sck_pin, uint32_t phase_delay_cycles)
+{
+    pio->instr_mem[offset + 4u] =
+        (uint16_t)pio_encode_wait_gpio(true, tx_csn_pin);
+    pio->instr_mem[offset + 5u] =
+        (uint16_t)pio_encode_wait_gpio(false, tx_csn_pin);
+    pio->instr_mem[offset + 10u] = (uint16_t)(
+        pio_encode_nop() | pio_encode_delay(phase_delay_cycles - 1u));
+    pio_sm_set_pins_with_mask64(pio, sm, 0ull, 1ull << tx_sck_pin);
+    pio_gpio_init(pio, tx_sck_pin);
+    pio_gpio_init(pio, tx_csn_pin);
+    gpio_pull_up(tx_csn_pin);
+    pio_sm_config c =
+        tdma_pio_spi_sck_train_source_program_get_default_config(offset);
+    sm_config_set_set_pins(&c, tx_sck_pin, 1u);
+    sm_config_set_out_pins(&c, tx_sck_pin, 1u);
+    sm_config_set_out_shift(&c, true, true, 32u);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+    sm_config_set_clkdiv(&c, 1.0f);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_pins_with_mask64(pio, sm, 0ull, 1ull << tx_sck_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, tx_sck_pin, 1u, true);
+}
+
+static inline void tdma_pio_spi_sck_train_sink_program_init(
+    PIO pio, uint sm, uint offset, uint32_t rx_sck_pin,
+    uint32_t phase_delay_cycles)
+{
+    pio->instr_mem[offset + 0u] =
+        (uint16_t)pio_encode_wait_gpio(false, rx_sck_pin);
+    pio->instr_mem[offset + 1u] =
+        (uint16_t)pio_encode_wait_gpio(true, rx_sck_pin);
+    pio->instr_mem[offset + 2u] =
+        (uint16_t)pio_encode_wait_gpio(false, rx_sck_pin);
+    pio->instr_mem[offset + 3u] = (uint16_t)(
+        pio_encode_nop() | pio_encode_delay(phase_delay_cycles - 1u));
+    pio_gpio_init(pio, rx_sck_pin);
+    gpio_pull_down(rx_sck_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, rx_sck_pin, 1u, false);
+    pio_sm_config c =
+        tdma_pio_spi_sck_train_sink_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, rx_sck_pin);
+    sm_config_set_in_shift(&c, true, true, 32u);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
     sm_config_set_clkdiv(&c, 1.0f);
     pio_sm_init(pio, sm, offset, &c);
 }

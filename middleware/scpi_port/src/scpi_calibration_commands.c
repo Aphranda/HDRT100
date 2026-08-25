@@ -86,6 +86,7 @@ scpi_result_t scpi_calibration_marker_arm(scpi_t *context)
     uint32_t train_sequence = 0u;
     uint32_t marker_id = 0u;
     uint32_t calibration_generation = 0u;
+    uint32_t link_base_delay_ns = 0u;
     uint32_t origin_node = UINT32_MAX;
     int32_t offset_sample_count = 0;
     if (SCPI_ParamUInt32(context, &codebook_id, TRUE) != TRUE ||
@@ -93,6 +94,7 @@ scpi_result_t scpi_calibration_marker_arm(scpi_t *context)
         SCPI_ParamUInt32(context, &train_sequence, TRUE) != TRUE ||
         SCPI_ParamUInt32(context, &marker_id, TRUE) != TRUE ||
         SCPI_ParamUInt32(context, &calibration_generation, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &link_base_delay_ns, TRUE) != TRUE ||
         SCPI_ParamInt32(context, &offset_sample_count, TRUE) != TRUE) {
         scpi_port_push_exec_error(context, "CAL_MARKER_ARM_REJECTED");
         return SCPI_RES_ERR;
@@ -102,7 +104,8 @@ scpi_result_t scpi_calibration_marker_arm(scpi_t *context)
     if (
         !calibration_manager_request_marker_training(
             codebook_id, train_epoch, train_sequence, marker_id,
-            calibration_generation, offset_sample_count, origin_node)) {
+            calibration_generation, link_base_delay_ns,
+            offset_sample_count, origin_node)) {
         scpi_port_push_exec_error(context, "CAL_MARKER_ARM_REJECTED");
         return SCPI_RES_ERR;
     }
@@ -111,6 +114,7 @@ scpi_result_t scpi_calibration_marker_arm(scpi_t *context)
     SCPI_ResultUInt32(context, train_sequence);
     SCPI_ResultUInt32(context, marker_id);
     SCPI_ResultUInt32(context, calibration_generation);
+    SCPI_ResultUInt32(context, link_base_delay_ns);
     SCPI_ResultInt32(context, offset_sample_count);
     if (origin_node_provided) {
         SCPI_ResultUInt32(context, origin_node);
@@ -168,6 +172,7 @@ scpi_result_t scpi_calibration_marker_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.profile_crc32);
     SCPI_ResultUInt32(context, snapshot.schedule_crc32);
     SCPI_ResultUInt32(context, snapshot.tick_resolution_ns);
+    SCPI_ResultUInt32(context, snapshot.link_base_delay_ns);
     SCPI_ResultInt32(context, snapshot.offset_sample_count);
     scpi_calibration_result_u64(context, snapshot.marker_capture_tick);
     scpi_calibration_result_u64(context, snapshot.marker_forward_tick);
@@ -201,7 +206,7 @@ scpi_result_t scpi_calibration_data_arm(scpi_t *context)
     uint32_t source_node = 0u, destination_node = 0u, codebook_id = 0u;
     uint32_t train_epoch = 0u, train_sequence = 0u;
     uint32_t calibration_generation = 0u, marker_to_data_samples = 0u;
-    uint32_t base_delay_ns = 0u, guard_sample_count = 0u;
+    uint32_t link_base_delay_ns = 0u, guard_sample_count = 0u;
     uint32_t max_best_distance = 0u, min_margin = 0u;
     int32_t marker_offset_sample_count = 0;
     int32_t configured_data_offset_sample_count = 0;
@@ -214,7 +219,7 @@ scpi_result_t scpi_calibration_data_arm(scpi_t *context)
         SCPI_ParamUInt32(context, &train_sequence, TRUE) != TRUE ||
         SCPI_ParamUInt32(context, &calibration_generation, TRUE) != TRUE ||
         SCPI_ParamUInt32(context, &marker_to_data_samples, TRUE) != TRUE ||
-        SCPI_ParamUInt32(context, &base_delay_ns, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &link_base_delay_ns, TRUE) != TRUE ||
         SCPI_ParamInt32(context, &marker_offset_sample_count, TRUE) != TRUE ||
         SCPI_ParamInt32(
             context, &configured_data_offset_sample_count, TRUE) != TRUE ||
@@ -226,7 +231,7 @@ scpi_result_t scpi_calibration_data_arm(scpi_t *context)
         !calibration_manager_request_data_training(
             source_node, destination_node, codebook_id, train_epoch,
             train_sequence, calibration_generation, marker_to_data_samples,
-            base_delay_ns, marker_offset_sample_count,
+            link_base_delay_ns, marker_offset_sample_count,
             configured_data_offset_sample_count,
             search_start_offset_sample,
             search_end_offset_sample, guard_sample_count,
@@ -283,7 +288,7 @@ scpi_result_t scpi_calibration_data_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.schedule_crc32);
     SCPI_ResultUInt32(context, snapshot.sample_period_ns);
     SCPI_ResultUInt32(context, snapshot.marker_to_data_samples);
-    SCPI_ResultUInt32(context, snapshot.base_delay_ns);
+    SCPI_ResultUInt32(context, snapshot.link_base_delay_ns);
     SCPI_ResultInt32(context, snapshot.marker_offset_sample_count);
     SCPI_ResultInt32(
         context, snapshot.configured_data_offset_sample_count);
@@ -331,11 +336,11 @@ scpi_result_t scpi_calibration_sck_arm(scpi_t *context)
 {
     uint32_t source_node = 0u, destination_node = 0u, codebook_id = 0u;
     uint32_t train_epoch = 0u, train_sequence = 0u;
-    uint32_t calibration_generation = 0u, marker_to_sck_samples = 0u;
+    uint32_t calibration_generation = 0u;
+    uint32_t sck_launch_guard_sample_count = 0u;
+    uint32_t link_base_delay_ns = 0u;
     uint32_t guard_sample_count = 0u, max_best_distance = 0u;
     uint32_t min_margin = 0u;
-    int32_t source_marker_offset_sample_count = 0;
-    int32_t destination_marker_offset_sample_count = 0;
     int32_t configured_sck_offset_sample_count = 0;
     int32_t search_start_offset_sample = 0;
     int32_t search_end_offset_sample = 0;
@@ -345,11 +350,9 @@ scpi_result_t scpi_calibration_sck_arm(scpi_t *context)
         SCPI_ParamUInt32(context, &train_epoch, TRUE) != TRUE ||
         SCPI_ParamUInt32(context, &train_sequence, TRUE) != TRUE ||
         SCPI_ParamUInt32(context, &calibration_generation, TRUE) != TRUE ||
-        SCPI_ParamUInt32(context, &marker_to_sck_samples, TRUE) != TRUE ||
-        SCPI_ParamInt32(
-            context, &source_marker_offset_sample_count, TRUE) != TRUE ||
-        SCPI_ParamInt32(
-            context, &destination_marker_offset_sample_count, TRUE) != TRUE ||
+        SCPI_ParamUInt32(
+            context, &sck_launch_guard_sample_count, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &link_base_delay_ns, TRUE) != TRUE ||
         SCPI_ParamInt32(
             context, &configured_sck_offset_sample_count, TRUE) != TRUE ||
         SCPI_ParamInt32(context, &search_start_offset_sample, TRUE) != TRUE ||
@@ -359,9 +362,9 @@ scpi_result_t scpi_calibration_sck_arm(scpi_t *context)
         SCPI_ParamUInt32(context, &min_margin, TRUE) != TRUE ||
         !calibration_manager_request_sck_training(
             source_node, destination_node, codebook_id, train_epoch,
-            train_sequence, calibration_generation, marker_to_sck_samples,
-            source_marker_offset_sample_count,
-            destination_marker_offset_sample_count,
+            train_sequence, calibration_generation,
+            sck_launch_guard_sample_count,
+            link_base_delay_ns,
             configured_sck_offset_sample_count,
             search_start_offset_sample, search_end_offset_sample,
             guard_sample_count, max_best_distance, min_margin)) {
@@ -416,10 +419,8 @@ scpi_result_t scpi_calibration_sck_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.profile_crc32);
     SCPI_ResultUInt32(context, snapshot.schedule_crc32);
     SCPI_ResultUInt32(context, snapshot.sample_period_ns);
-    SCPI_ResultUInt32(context, snapshot.marker_to_sck_samples);
-    SCPI_ResultInt32(context, snapshot.source_marker_offset_sample_count);
-    SCPI_ResultInt32(
-        context, snapshot.destination_marker_offset_sample_count);
+    SCPI_ResultUInt32(context, snapshot.sck_launch_guard_sample_count);
+    SCPI_ResultUInt32(context, snapshot.link_base_delay_ns);
     SCPI_ResultInt32(context, snapshot.configured_sck_offset_sample_count);
     SCPI_ResultInt32(context, snapshot.search_start_offset_sample);
     SCPI_ResultInt32(context, snapshot.search_end_offset_sample);
@@ -435,14 +436,13 @@ scpi_result_t scpi_calibration_sck_q(scpi_t *context)
     SCPI_ResultInt32(context, snapshot.resolved_offset_ns);
     SCPI_ResultInt32(context, snapshot.training_window_start_ns);
     SCPI_ResultInt32(context, snapshot.training_window_end_ns);
-    SCPI_ResultInt32(context, snapshot.marker_sck_skew_ns);
     SCPI_ResultUInt32(context, snapshot.captured_sample_count);
     SCPI_ResultUInt32(context, snapshot.expected_sample_count);
     SCPI_ResultUInt32(context, snapshot.dma_overrun_count);
     SCPI_ResultUInt32(context, snapshot.pio_stall_count);
     SCPI_ResultUInt32(context, snapshot.timeout_count);
-    scpi_calibration_result_u64(context, snapshot.marker_capture_tick);
-    scpi_calibration_result_u64(context, snapshot.sck_capture_tick);
+    scpi_calibration_result_u64(context, snapshot.sck_capture_origin_tick);
+    scpi_calibration_result_u64(context, snapshot.sck_code_capture_tick);
     return SCPI_RES_OK;
 }
 
@@ -566,6 +566,8 @@ scpi_result_t scpi_calibration_training_stage_link(scpi_t *context)
     int32_t sck_offset_sample_count = 0;
     int32_t data_offset_sample_count = 0;
     uint32_t sample_period_ns = 0u;
+    uint32_t link_base_delay_ns = 0u;
+    uint32_t marker_phase_delay_cycles = 0u;
     uint32_t sck_phase_delay_cycles = 0u;
     uint32_t data_phase_delay_cycles = 0u;
     for (uint32_t i = 0u; i < 14u; i++) {
@@ -577,6 +579,8 @@ scpi_result_t scpi_calibration_training_stage_link(scpi_t *context)
         SCPI_ParamInt32(context, &sck_offset_sample_count, TRUE) != TRUE ||
         SCPI_ParamInt32(context, &data_offset_sample_count, TRUE) != TRUE ||
         SCPI_ParamUInt32(context, &sample_period_ns, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &link_base_delay_ns, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &marker_phase_delay_cycles, TRUE) != TRUE ||
         SCPI_ParamUInt32(context, &sck_phase_delay_cycles, TRUE) != TRUE ||
         SCPI_ParamUInt32(context, &data_phase_delay_cycles, TRUE) != TRUE) {
         return SCPI_RES_ERR;
@@ -587,6 +591,7 @@ scpi_result_t scpi_calibration_training_stage_link(scpi_t *context)
             values[10], values[11], values[12], values[13],
             marker_offset_sample_count, sck_offset_sample_count,
             data_offset_sample_count, sample_period_ns,
+            link_base_delay_ns, marker_phase_delay_cycles,
             sck_phase_delay_cycles, data_phase_delay_cycles)) {
         scpi_port_push_exec_error(context, "CAL_TRAIN_STAGE_LINK_REJECTED");
         return SCPI_RES_ERR;
@@ -662,6 +667,8 @@ scpi_result_t scpi_calibration_training_stage_link_q(scpi_t *context)
     SCPI_ResultInt32(context, link->sck_offset_sample_count);
     SCPI_ResultInt32(context, link->data_offset_sample_count);
     SCPI_ResultUInt32(context, link->sample_period_ns);
+    SCPI_ResultUInt32(context, link->link_base_delay_ns);
+    SCPI_ResultUInt32(context, link->marker_phase_delay_cycles);
     SCPI_ResultUInt32(context, link->sck_phase_delay_cycles);
     SCPI_ResultUInt32(context, link->data_phase_delay_cycles);
     return SCPI_RES_OK;

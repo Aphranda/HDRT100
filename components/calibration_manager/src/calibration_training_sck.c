@@ -1,7 +1,33 @@
 #include "calibration_training_sck.h"
 
-#include <limits.h>
 #include <string.h>
+
+#include "calibration_training_phase.h"
+
+bool calibration_training_sck_map_offset_to_phase_cycles(
+    uint32_t link_base_delay_ns,
+    uint32_t sample_period_ns,
+    int32_t configured_offset_sample_count,
+    uint32_t *source_phase_delay_cycles,
+    uint32_t *destination_phase_delay_cycles)
+{
+    uint32_t effective_delay_samples = 0u;
+    if (source_phase_delay_cycles == NULL ||
+        destination_phase_delay_cycles == NULL ||
+        !calibration_training_phase_delay_samples(
+            link_base_delay_ns, sample_period_ns,
+            configured_offset_sample_count,
+            UINT32_MAX - CALIBRATION_TRAINING_SCK_CAPTURE_PIPELINE_SAMPLES,
+            &effective_delay_samples)) {
+        return false;
+    }
+    *source_phase_delay_cycles =
+        CALIBRATION_TRAINING_SCK_CAPTURE_PIPELINE_SAMPLES;
+    *destination_phase_delay_cycles =
+        CALIBRATION_TRAINING_SCK_CAPTURE_PIPELINE_SAMPLES +
+        effective_delay_samples;
+    return true;
+}
 
 static bool calibration_training_sck_request_valid(
     const calibration_training_sck_request_t *request)
@@ -17,15 +43,12 @@ static bool calibration_training_sck_request_valid(
            request->topology_generation != 0u && request->topology_crc32 != 0u &&
            request->profile_crc32 != 0u && request->schedule_crc32 != 0u &&
            request->sample_period_ns != 0u &&
-           request->marker_to_sck_samples != 0u &&
-           request->source_marker_offset_sample_count >=
-               CALIBRATION_TRAINING_SCK_MIN_OFFSET_SAMPLES &&
-           request->source_marker_offset_sample_count <=
-               CALIBRATION_TRAINING_SCK_MAX_OFFSET_SAMPLES &&
-           request->destination_marker_offset_sample_count >=
-               CALIBRATION_TRAINING_SCK_MIN_OFFSET_SAMPLES &&
-           request->destination_marker_offset_sample_count <=
-               CALIBRATION_TRAINING_SCK_MAX_OFFSET_SAMPLES &&
+           request->sck_launch_guard_sample_count != 0u &&
+           request->link_base_delay_ns != 0u &&
+           request->sck_launch_guard_sample_count >
+               ((uint64_t)request->link_base_delay_ns +
+                request->sample_period_ns / 2u) /
+                   request->sample_period_ns &&
            request->configured_sck_offset_sample_count >=
                CALIBRATION_TRAINING_SCK_MIN_OFFSET_SAMPLES &&
            request->configured_sck_offset_sample_count <=
@@ -61,11 +84,9 @@ static void calibration_training_sck_snapshot_from_request(
     snapshot->profile_crc32 = request->profile_crc32;
     snapshot->schedule_crc32 = request->schedule_crc32;
     snapshot->sample_period_ns = request->sample_period_ns;
-    snapshot->marker_to_sck_samples = request->marker_to_sck_samples;
-    snapshot->source_marker_offset_sample_count =
-        request->source_marker_offset_sample_count;
-    snapshot->destination_marker_offset_sample_count =
-        request->destination_marker_offset_sample_count;
+    snapshot->sck_launch_guard_sample_count =
+        request->sck_launch_guard_sample_count;
+    snapshot->link_base_delay_ns = request->link_base_delay_ns;
     snapshot->configured_sck_offset_sample_count =
         request->configured_sck_offset_sample_count;
     snapshot->search_start_offset_sample = request->search_start_offset_sample;
@@ -181,15 +202,19 @@ static uint32_t calibration_training_sck_reject_reason(
     if (evidence->margin < request->min_margin) {
         return CALIBRATION_TRAINING_SCK_REJECT_MARGIN;
     }
-    const uint32_t search_samples = (uint32_t)(
-        request->search_end_offset_sample -
-        request->search_start_offset_sample + 1);
-    if (evidence->best_lag_sample >= search_samples ||
-        evidence->second_lag_sample >= search_samples) {
+    const int32_t nominal_lag =
+        (int32_t)request->sck_launch_guard_sample_count -
+        (int32_t)(((uint64_t)request->link_base_delay_ns +
+                   request->sample_period_ns / 2u) /
+                  request->sample_period_ns);
+    const int32_t resolved =
+        (int32_t)evidence->best_lag_sample - nominal_lag;
+    if (resolved < request->search_start_offset_sample ||
+        resolved > request->search_end_offset_sample) {
         return CALIBRATION_TRAINING_SCK_REJECT_SEARCH_RANGE;
     }
-    if (evidence->marker_capture_tick == 0u ||
-        evidence->sck_capture_tick < evidence->marker_capture_tick) {
+    if (evidence->sck_capture_origin_tick == 0u ||
+        evidence->sck_code_capture_tick < evidence->sck_capture_origin_tick) {
         return CALIBRATION_TRAINING_SCK_REJECT_EDGE_ORDER;
     }
     return CALIBRATION_TRAINING_SCK_REJECT_NONE;
@@ -220,41 +245,32 @@ bool calibration_training_sck_evaluate_core1(
     next.dma_overrun_count = evidence->dma_overrun_count;
     next.pio_stall_count = evidence->pio_stall_count;
     next.timeout_count = evidence->timeout_count;
-    next.marker_capture_tick = evidence->marker_capture_tick;
-    next.sck_capture_tick = evidence->sck_capture_tick;
+    next.sck_capture_origin_tick = evidence->sck_capture_origin_tick;
+    next.sck_code_capture_tick = evidence->sck_code_capture_tick;
     next.reject_reason =
         calibration_training_sck_reject_reason(request, evidence);
 
     if (next.reject_reason == CALIBRATION_TRAINING_SCK_REJECT_NONE) {
+        const int32_t nominal_lag =
+            (int32_t)request->sck_launch_guard_sample_count -
+            (int32_t)(((uint64_t)request->link_base_delay_ns +
+                       request->sample_period_ns / 2u) /
+                      request->sample_period_ns);
         next.resolved_offset_sample_count =
-            request->search_start_offset_sample +
-            (int32_t)evidence->best_lag_sample;
+            (int32_t)evidence->best_lag_sample - nominal_lag;
         next.resolved_offset_ns = next.resolved_offset_sample_count *
                                   (int32_t)request->sample_period_ns;
         const int32_t calibrated =
             request->configured_sck_offset_sample_count +
             next.resolved_offset_sample_count;
         next.training_window_start_ns =
+            (int32_t)request->link_base_delay_ns +
             (calibrated - (int32_t)request->guard_sample_count) *
-            (int32_t)request->sample_period_ns;
+                (int32_t)request->sample_period_ns;
         next.training_window_end_ns =
+            (int32_t)request->link_base_delay_ns +
             (calibrated + (int32_t)request->guard_sample_count) *
-            (int32_t)request->sample_period_ns;
-        const int64_t expected_delta_samples =
-            (int64_t)request->marker_to_sck_samples +
-            request->destination_marker_offset_sample_count + calibrated -
-            request->source_marker_offset_sample_count;
-        const int64_t observed_delta_samples =
-            (int64_t)(evidence->sck_capture_tick -
-                      evidence->marker_capture_tick);
-        const int64_t skew_ns =
-            (observed_delta_samples - expected_delta_samples) *
-            request->sample_period_ns;
-        if (skew_ns < INT32_MIN || skew_ns > INT32_MAX) {
-            next.reject_reason = CALIBRATION_TRAINING_SCK_REJECT_EDGE_ORDER;
-        } else {
-            next.marker_sck_skew_ns = (int32_t)skew_ns;
-        }
+                (int32_t)request->sample_period_ns;
     }
 
     next.state = next.reject_reason == CALIBRATION_TRAINING_SCK_REJECT_NONE

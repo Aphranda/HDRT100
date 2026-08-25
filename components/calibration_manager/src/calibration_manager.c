@@ -6,6 +6,7 @@
 #include "board.h"
 #include "board_config.h"
 #include "board_identity.h"
+#include "calibration_training_phase.h"
 #include "ota_crc32.h"
 #include "osal.h"
 #include "project_config.h"
@@ -777,7 +778,8 @@ static uint32_t calibration_manager_marker_extract_rx(
         s_marker_workspace.marker.half_chip_samples;
     uint32_t phase_delay_cycles = 0u;
     if (!calibration_training_marker_capture_delay_cycles(
-            s_marker_workspace.marker.half_chip_samples,
+            s_marker_active_request.link_base_delay_ns,
+            s_marker_active_request.tick_resolution_ns,
             offset_sample_count, &phase_delay_cycles)) {
         return 0u;
     }
@@ -1055,7 +1057,7 @@ static void calibration_manager_sck_finish_core1(
                     ? CALIBRATION_TRAINING_SCK_REJECT_NONE
                     : CALIBRATION_TRAINING_SCK_REJECT_DMA;
             snapshot.flags |=
-                CALIBRATION_TRAINING_SCK_FLAG_HARDWARE_MARKER |
+                CALIBRATION_TRAINING_SCK_FLAG_HARDWARE_SCK_ORIGIN |
                 CALIBRATION_TRAINING_SCK_FLAG_HARDWARE_SCK_CAPTURE;
             if ((raw->flags &
                  TDMA_PIO_SPI_DATA_TRAIN_FLAG_DATA_DMA_COMPLETE) != 0u &&
@@ -1066,8 +1068,8 @@ static void calibration_manager_sck_finish_core1(
             snapshot.dma_overrun_count = raw->dma_overrun_count;
             snapshot.pio_stall_count = raw->pio_stall_count;
             snapshot.timeout_count = raw->timeout_count;
-            snapshot.marker_capture_tick = raw->marker_capture_tick;
-            snapshot.sck_capture_tick = raw->data_capture_tick;
+            snapshot.sck_capture_origin_tick = raw->marker_capture_tick;
+            snapshot.sck_code_capture_tick = raw->data_capture_tick;
             (void)calibration_training_sck_publish_core1(
                 &s_sck_store, &snapshot);
         }
@@ -1081,9 +1083,23 @@ static void calibration_manager_sck_finish_core1(
         tdma_runtime_owner_copy_sck_train_capture_core1(
             s_sck_capture, TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS,
             &capture_words);
-    const uint32_t search_samples = (uint32_t)(
-        s_sck_active_request.search_end_offset_sample -
-        s_sck_active_request.search_start_offset_sample + 1);
+    uint32_t link_base_delay_samples = 0u;
+    if (!calibration_training_phase_delay_samples(
+            s_sck_active_request.link_base_delay_ns,
+            s_sck_active_request.sample_period_ns, 0, UINT32_MAX,
+            &link_base_delay_samples)) {
+        __atomic_store_n(&s_sck_active, false, __ATOMIC_RELEASE);
+        return;
+    }
+    const int32_t nominal_lag =
+        (int32_t)s_sck_active_request.sck_launch_guard_sample_count -
+        (int32_t)link_base_delay_samples;
+    const uint32_t min_lag = (uint32_t)(
+        nominal_lag +
+        s_sck_active_request.search_start_offset_sample);
+    const uint32_t max_lag = (uint32_t)(
+        nominal_lag +
+        s_sck_active_request.search_end_offset_sample + 4);
     const calibration_clk_marker_config_t config = {
         .version = CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
         .codebook_id = (uint8_t)s_sck_active_request.sck_codebook_id,
@@ -1092,8 +1108,8 @@ static void calibration_manager_sck_finish_core1(
         .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
     };
     const calibration_clk_correlation_gate_t gate = {
-        .min_lag_sample = 0u,
-        .max_lag_sample = search_samples - 1u,
+        .min_lag_sample = min_lag,
+        .max_lag_sample = max_lag,
         .max_best_distance = s_sck_active_request.max_best_distance,
         .min_margin = s_sck_active_request.min_margin,
     };
@@ -1105,8 +1121,8 @@ static void calibration_manager_sck_finish_core1(
         s_sck_capture, raw->capture_sample_count, &gate, &correlation);
 
     uint32_t flags = CALIBRATION_TRAINING_SCK_FLAG_DIAGNOSTIC_ONLY;
-    if ((raw->flags & TDMA_PIO_SPI_DATA_TRAIN_FLAG_HARDWARE_MARKER) != 0u) {
-        flags |= CALIBRATION_TRAINING_SCK_FLAG_HARDWARE_MARKER;
+    if ((raw->flags & TDMA_PIO_SPI_DATA_TRAIN_FLAG_HARDWARE_ORIGIN) != 0u) {
+        flags |= CALIBRATION_TRAINING_SCK_FLAG_HARDWARE_SCK_ORIGIN;
     }
     if ((raw->flags & TDMA_PIO_SPI_DATA_TRAIN_FLAG_HARDWARE_DATA) != 0u) {
         flags |= CALIBRATION_TRAINING_SCK_FLAG_HARDWARE_SCK_CAPTURE;
@@ -1152,9 +1168,9 @@ static void calibration_manager_sck_finish_core1(
         .dma_overrun_count = raw->dma_overrun_count,
         .pio_stall_count = raw->pio_stall_count,
         .timeout_count = raw->timeout_count,
-        .marker_capture_tick = raw->marker_capture_tick,
-        .sck_capture_tick = raw->data_capture_tick +
-                            correlation.best_lag_sample,
+        .sck_capture_origin_tick = raw->marker_capture_tick,
+        .sck_code_capture_tick = raw->data_capture_tick +
+                                 correlation.best_lag_sample,
     };
     (void)calibration_training_sck_evaluate_core1(
         &s_sck_store, &s_sck_active_request, &evidence);
@@ -1331,9 +1347,12 @@ void calibration_manager_service_core1(void)
                 if (tdma_runtime_owner_get_staged_ring_config(&staged)) {
                     const bool local_initiator = staged.local_slot_id ==
                                                  data_intent.request.source_node;
-                    const uint32_t base_samples =
-                        data_intent.request.base_delay_ns /
-                        data_intent.request.sample_period_ns;
+                    uint32_t base_samples = 0u;
+                    const bool base_valid =
+                        calibration_training_phase_delay_samples(
+                            data_intent.request.link_base_delay_ns,
+                            data_intent.request.sample_period_ns, 0,
+                            UINT32_MAX, &base_samples);
                     /* The DATA response traverses two physical links after
                      * the locally generated marker: CS source->responder,
                      * then DATA responder->initiator.  base_delay is one
@@ -1345,14 +1364,25 @@ void calibration_manager_service_core1(void)
                     const uint32_t initiator_wait_samples =
                         data_intent.request.marker_to_data_samples +
                         2u * base_samples;
-                    const int32_t marker_phase =
-                        (int32_t)descriptor.half_chip_samples +
-                        data_intent.request.marker_offset_sample_count;
+                    uint32_t marker_phase = 0u;
+                    uint32_t data_phase = 0u;
+                    const bool phase_valid = base_valid &&
+                        calibration_training_phase_delay_samples(
+                            data_intent.request.link_base_delay_ns,
+                            data_intent.request.sample_period_ns,
+                            data_intent.request.marker_offset_sample_count,
+                            TDMA_PIO_SPI_DATA_TRAIN_MAX_PHASE_CYCLES,
+                            &marker_phase) &&
+                        calibration_training_phase_delay_samples(
+                            data_intent.request.link_base_delay_ns,
+                            data_intent.request.sample_period_ns,
+                            data_intent.request.
+                                configured_data_offset_sample_count,
+                            TDMA_PIO_SPI_DATA_TRAIN_MAX_PHASE_CYCLES,
+                            &data_phase);
                     const int32_t initiator_capture_phase =
-                        marker_phase +
-                        (int32_t)(2u * base_samples) +
-                        data_intent.request.
-                            configured_data_offset_sample_count +
+                        (int32_t)marker_phase + (int32_t)base_samples +
+                        (int32_t)data_phase +
                         data_intent.request.search_start_offset_sample;
                     const uint32_t search_samples = (uint32_t)(
                         data_intent.request.search_end_offset_sample -
@@ -1381,7 +1411,7 @@ void calibration_manager_service_core1(void)
                                 ? initiator_wait_samples
                                 : data_intent.request.marker_to_data_samples,
                         .source_phase_delay_cycles =
-                            (uint32_t)marker_phase,
+                            marker_phase,
                         .phase_delay_cycles = local_initiator
                                                   ? (uint32_t)
                                                         initiator_capture_phase
@@ -1389,7 +1419,10 @@ void calibration_manager_service_core1(void)
                         .epoch = data_intent.request.train_epoch,
                     };
                     s_data_workspace.marker = descriptor;
-                    if (calibration_training_data_prepare_core1(
+                    if (phase_valid && initiator_capture_phase >= 0 &&
+                        initiator_capture_phase <=
+                            (int32_t)TDMA_PIO_SPI_DATA_TRAIN_MAX_PHASE_CYCLES &&
+                        calibration_training_data_prepare_core1(
                             &s_data_store, &data_intent.request) &&
                         tdma_runtime_owner_data_train_arm_core1(
                             &raw_request)) {
@@ -1458,33 +1491,38 @@ void calibration_manager_service_core1(void)
                 if (tdma_runtime_owner_get_staged_ring_config(&staged)) {
                     const bool local_source = staged.local_slot_id ==
                                               sck_intent.request.source_node;
-                    const int32_t source_phase =
-                        (int32_t)descriptor.half_chip_samples +
-                        sck_intent.request.
-                            source_marker_offset_sample_count;
-                    const int32_t destination_phase =
-                        (int32_t)descriptor.half_chip_samples +
-                        sck_intent.request.
-                            destination_marker_offset_sample_count +
-                        sck_intent.request.
-                            configured_sck_offset_sample_count +
-                        sck_intent.request.search_start_offset_sample;
-                    const uint32_t search_samples = (uint32_t)(
-                        sck_intent.request.search_end_offset_sample -
-                        sck_intent.request.search_start_offset_sample + 1);
-                    if (source_phase > 0 && destination_phase > 0 &&
-                        source_phase <= (int32_t)
+                    uint32_t source_phase = 0u;
+                    uint32_t destination_phase = 0u;
+                    uint32_t link_base_delay_samples = 0u;
+                    const bool base_valid =
+                        calibration_training_phase_delay_samples(
+                            sck_intent.request.link_base_delay_ns,
+                            sck_intent.request.sample_period_ns, 0,
+                            UINT32_MAX, &link_base_delay_samples);
+                    const int32_t nominal_lag =
+                        (int32_t)sck_intent.request.
+                            sck_launch_guard_sample_count -
+                        (int32_t)link_base_delay_samples;
+                    const uint32_t max_capture_lag = (uint32_t)(
+                        nominal_lag +
+                        sck_intent.request.search_end_offset_sample + 4);
+                    if (base_valid && nominal_lag >= 0 &&
+                        calibration_training_sck_map_offset_to_phase_cycles(
+                            sck_intent.request.link_base_delay_ns,
+                            sck_intent.request.sample_period_ns,
+                            sck_intent.request.
+                                configured_sck_offset_sample_count,
+                            &source_phase, &destination_phase) &&
+                        source_phase <=
                             TDMA_PIO_SPI_DATA_TRAIN_MAX_PHASE_CYCLES &&
-                        destination_phase <= (int32_t)
+                        destination_phase <=
                             TDMA_PIO_SPI_DATA_TRAIN_MAX_PHASE_CYCLES) {
                         const tdma_pio_spi_data_train_request_t raw_request = {
                             .role = local_source
                                 ? TDMA_PIO_SPI_DATA_TRAIN_ROLE_SCK_SOURCE
                                 : TDMA_PIO_SPI_DATA_TRAIN_ROLE_SCK_DESTINATION,
-                            .marker_words = local_source
-                                ? s_sck_workspace.expected_words : NULL,
-                            .marker_word_count = local_source
-                                ? descriptor.raw_words : 0u,
+                            .marker_words = NULL,
+                            .marker_word_count = 0u,
                             .data_words = local_source
                                 ? s_sck_workspace.expected_words : NULL,
                             .data_word_count = local_source
@@ -1493,21 +1531,22 @@ void calibration_manager_service_core1(void)
                             .capture_sample_count = local_source
                                 ? 0u
                                 : descriptor.raw_samples +
-                                      search_samples - 1u,
+                                      max_capture_lag,
                             .marker_to_data_delay_cycles =
-                                sck_intent.request.marker_to_sck_samples,
+                                sck_intent.request.
+                                    sck_launch_guard_sample_count,
                             .source_phase_delay_cycles =
-                                (uint32_t)source_phase,
+                                source_phase,
                             .phase_delay_cycles = local_source
-                                ? (uint32_t)source_phase
-                                : (uint32_t)destination_phase,
+                                ? source_phase
+                                : destination_phase,
                             .epoch = sck_intent.request.train_epoch,
                         };
                         s_sck_workspace.marker = descriptor;
-                        if (calibration_training_sck_prepare_core1(
-                                &s_sck_store, &sck_intent.request) &&
-                            tdma_runtime_owner_sck_train_arm_core1(
-                                &raw_request)) {
+                        if (tdma_runtime_owner_sck_train_arm_core1(
+                                &raw_request) &&
+                            calibration_training_sck_prepare_core1(
+                                &s_sck_store, &sck_intent.request)) {
                             s_sck_active_request = sck_intent.request;
                             __atomic_store_n(&s_sck_active, true,
                                              __ATOMIC_RELEASE);
@@ -1515,17 +1554,30 @@ void calibration_manager_service_core1(void)
                     }
                 }
             }
-        } else if (sck_intent.opcode == CALIBRATION_SCK_INTENT_INJECT &&
-                   stopped &&
-                   __atomic_load_n(&s_sck_active, __ATOMIC_ACQUIRE) &&
-                   tdma_runtime_owner_sck_train_inject_core1()) {
+        } else if (sck_intent.opcode == CALIBRATION_SCK_INTENT_INJECT) {
+            const bool active =
+                __atomic_load_n(&s_sck_active, __ATOMIC_ACQUIRE);
+            const bool injected = stopped && active &&
+                tdma_runtime_owner_sck_train_inject_core1();
             calibration_training_sck_snapshot_t running;
-            if (calibration_training_sck_get_snapshot(
+            if (!calibration_training_sck_get_snapshot(
                     &s_sck_store, &running)) {
-                running.state = CALIBRATION_TRAINING_SCK_RUNNING;
-                (void)calibration_training_sck_publish_core1(
+                (void)calibration_training_sck_prepare_core1(
+                    &s_sck_store, &s_sck_active_request);
+                (void)calibration_training_sck_get_snapshot(
                     &s_sck_store, &running);
             }
+            if (injected) {
+                running.state = CALIBRATION_TRAINING_SCK_RUNNING;
+            } else {
+                running.state = CALIBRATION_TRAINING_SCK_REJECTED;
+                running.reject_reason =
+                    CALIBRATION_TRAINING_SCK_REJECT_BAD_ARGUMENT;
+                running.timeout_count = active ? 0u : 1u;
+                __atomic_store_n(&s_sck_active, false, __ATOMIC_RELEASE);
+            }
+            (void)calibration_training_sck_publish_core1(
+                &s_sck_store, &running);
         }
         __atomic_store_n(&s_sck_intent_consumed_sequence,
                          sck_intent.sequence, __ATOMIC_RELEASE);
@@ -1571,7 +1623,8 @@ void calibration_manager_service_core1(void)
                     &marker_config, s_marker_workspace.expected_words,
                     CALIBRATION_CLK_MARKER_MAX_RAW_WORDS, &descriptor) &&
                 calibration_training_marker_capture_delay_cycles(
-                    descriptor.half_chip_samples,
+                    marker_intent.request.link_base_delay_ns,
+                    marker_intent.request.tick_resolution_ns,
                     marker_intent.request.offset_sample_count,
                     &capture_phase_delay_cycles) &&
                 calibration_training_marker_prepare_core1(
@@ -1828,6 +1881,8 @@ bool calibration_manager_stage_training_link(
     int32_t sck_offset_sample_count,
     int32_t data_offset_sample_count,
     uint32_t sample_period_ns,
+    uint32_t link_base_delay_ns,
+    uint32_t marker_phase_delay_cycles,
     uint32_t sck_phase_delay_cycles,
     uint32_t data_phase_delay_cycles)
 {
@@ -1863,6 +1918,8 @@ bool calibration_manager_stage_training_link(
         .sck_offset_sample_count = sck_offset_sample_count,
         .data_offset_sample_count = data_offset_sample_count,
         .sample_period_ns = sample_period_ns,
+        .link_base_delay_ns = link_base_delay_ns,
+        .marker_phase_delay_cycles = marker_phase_delay_cycles,
         .sck_phase_delay_cycles = sck_phase_delay_cycles,
         .data_phase_delay_cycles = data_phase_delay_cycles,
     };
@@ -1935,6 +1992,7 @@ bool calibration_manager_request_marker_training(
     uint32_t train_sequence,
     uint32_t marker_id,
     uint32_t calibration_generation,
+    uint32_t link_base_delay_ns,
     int32_t offset_sample_count,
     uint32_t origin_node)
 {
@@ -1949,7 +2007,8 @@ bool calibration_manager_request_marker_training(
             CALIBRATION_TRAINING_MARKER_MIN_OFFSET_SAMPLES ||
         offset_sample_count >
             CALIBRATION_TRAINING_MARKER_MAX_OFFSET_SAMPLES ||
-        calibration_generation == 0u || BOARD_SYS_CLOCK_HZ == 0u ||
+        calibration_generation == 0u || link_base_delay_ns == 0u ||
+        BOARD_SYS_CLOCK_HZ == 0u ||
         (UINT32_C(1000000000) % BOARD_SYS_CLOCK_HZ) != 0u ||
         !calibration_manager_parse_hex_u64(board_identity_serial(),
                                            &board_unique_id) ||
@@ -1974,6 +2033,15 @@ bool calibration_manager_request_marker_training(
         origin_node = staged.reference_slot_id;
     }
     if (origin_node >= staged.node_count) {
+        return false;
+    }
+
+    const uint32_t sample_period_ns =
+        UINT32_C(1000000000) / BOARD_SYS_CLOCK_HZ;
+    uint32_t capture_delay_cycles = 0u;
+    if (!calibration_training_marker_capture_delay_cycles(
+            link_base_delay_ns, sample_period_ns, offset_sample_count,
+            &capture_delay_cycles)) {
         return false;
     }
 
@@ -2018,7 +2086,8 @@ bool calibration_manager_request_marker_training(
         .topology_crc32 = staged.ring_profile_crc32,
         .profile_crc32 = staged.operating_profile_crc32,
         .schedule_crc32 = staged.schedule_crc32,
-        .tick_resolution_ns = UINT32_C(1000000000) / BOARD_SYS_CLOCK_HZ,
+        .tick_resolution_ns = sample_period_ns,
+        .link_base_delay_ns = link_base_delay_ns,
         .offset_sample_count = offset_sample_count,
     };
     calibration_manager_marker_publish(CALIBRATION_MARKER_INTENT_ARM,
@@ -2062,7 +2131,7 @@ bool calibration_manager_request_data_training(
     uint32_t train_sequence,
     uint32_t calibration_generation,
     uint32_t marker_to_data_samples,
-    uint32_t base_delay_ns,
+    uint32_t link_base_delay_ns,
     int32_t marker_offset_sample_count,
     int32_t configured_data_offset_sample_count,
     int32_t search_start_offset_sample,
@@ -2080,7 +2149,7 @@ bool calibration_manager_request_data_training(
         train_sequence == 0u || calibration_generation == 0u ||
         marker_to_data_samples == 0u ||
         marker_to_data_samples > TDMA_PIO_SPI_DATA_TRAIN_MAX_DELAY_CYCLES ||
-        base_delay_ns == 0u || BOARD_SYS_CLOCK_HZ == 0u ||
+        link_base_delay_ns == 0u || BOARD_SYS_CLOCK_HZ == 0u ||
         (UINT32_C(1000000000) % BOARD_SYS_CLOCK_HZ) != 0u ||
         search_start_offset_sample <
             CALIBRATION_TRAINING_DATA_MIN_OFFSET_SAMPLES ||
@@ -2118,8 +2187,12 @@ bool calibration_manager_request_data_training(
     }
     const uint32_t sample_period_ns =
         UINT32_C(1000000000) / BOARD_SYS_CLOCK_HZ;
-    if (base_delay_ns % sample_period_ns != 0u) return false;
-    const uint32_t base_samples = base_delay_ns / sample_period_ns;
+    uint32_t base_samples = 0u;
+    if (!calibration_training_phase_delay_samples(
+            link_base_delay_ns, sample_period_ns, 0, UINT32_MAX,
+            &base_samples)) {
+        return false;
+    }
     if ((uint64_t)marker_to_data_samples + 2ull * base_samples >
         TDMA_PIO_SPI_DATA_TRAIN_MAX_DELAY_CYCLES) {
         return false;
@@ -2139,21 +2212,27 @@ bool calibration_manager_request_data_training(
             &descriptor)) {
         return false;
     }
+    uint32_t marker_phase = 0u;
+    uint32_t data_phase = 0u;
+    if (!calibration_training_phase_delay_samples(
+            link_base_delay_ns, sample_period_ns,
+            marker_offset_sample_count,
+            TDMA_PIO_SPI_DATA_TRAIN_MAX_PHASE_CYCLES, &marker_phase) ||
+        !calibration_training_phase_delay_samples(
+            link_base_delay_ns, sample_period_ns,
+            configured_data_offset_sample_count,
+            TDMA_PIO_SPI_DATA_TRAIN_MAX_PHASE_CYCLES, &data_phase)) {
+        return false;
+    }
     const int32_t initiator_capture_phase =
-        (int32_t)descriptor.half_chip_samples +
-        marker_offset_sample_count +
-        (int32_t)(2u * base_samples) +
-        configured_data_offset_sample_count +
-        search_start_offset_sample;
-    const int32_t marker_phase =
-        (int32_t)descriptor.half_chip_samples + marker_offset_sample_count;
+        (int32_t)marker_phase + (int32_t)base_samples +
+        (int32_t)data_phase + search_start_offset_sample;
     if (marker_offset_sample_count <
             CALIBRATION_TRAINING_DATA_MIN_OFFSET_SAMPLES ||
         marker_offset_sample_count >
             CALIBRATION_TRAINING_DATA_MAX_OFFSET_SAMPLES ||
-        marker_phase <= 0 ||
-        marker_phase > (int32_t)TDMA_PIO_SPI_DATA_TRAIN_MAX_PHASE_CYCLES ||
-        initiator_capture_phase < marker_phase ||
+        marker_phase == 0u ||
+        initiator_capture_phase < (int32_t)marker_phase ||
         initiator_capture_phase <= 0 ||
         initiator_capture_phase >
             (int32_t)TDMA_PIO_SPI_DATA_TRAIN_MAX_PHASE_CYCLES) {
@@ -2178,7 +2257,7 @@ bool calibration_manager_request_data_training(
         .schedule_crc32 = staged.schedule_crc32,
         .sample_period_ns = sample_period_ns,
         .marker_to_data_samples = marker_to_data_samples,
-        .base_delay_ns = base_delay_ns,
+        .link_base_delay_ns = link_base_delay_ns,
         .marker_offset_sample_count = marker_offset_sample_count,
         .configured_data_offset_sample_count =
             configured_data_offset_sample_count,
@@ -2234,9 +2313,8 @@ bool calibration_manager_request_sck_training(
     uint32_t train_epoch,
     uint32_t train_sequence,
     uint32_t calibration_generation,
-    uint32_t marker_to_sck_samples,
-    int32_t source_marker_offset_sample_count,
-    int32_t destination_marker_offset_sample_count,
+    uint32_t sck_launch_guard_sample_count,
+    uint32_t link_base_delay_ns,
     int32_t configured_sck_offset_sample_count,
     int32_t search_start_offset_sample,
     int32_t search_end_offset_sample,
@@ -2251,18 +2329,12 @@ bool calibration_manager_request_sck_training(
     if (codebook_id > CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_32 ||
         train_epoch == 0u || train_epoch > UINT8_MAX ||
         train_sequence == 0u || calibration_generation == 0u ||
-        marker_to_sck_samples == 0u ||
-        marker_to_sck_samples > TDMA_PIO_SPI_DATA_TRAIN_MAX_DELAY_CYCLES ||
+        sck_launch_guard_sample_count == 0u ||
+        sck_launch_guard_sample_count >
+            TDMA_PIO_SPI_DATA_TRAIN_MAX_DELAY_CYCLES ||
+        link_base_delay_ns == 0u ||
         BOARD_SYS_CLOCK_HZ == 0u ||
         (UINT32_C(1000000000) % BOARD_SYS_CLOCK_HZ) != 0u ||
-        source_marker_offset_sample_count <
-            CALIBRATION_TRAINING_SCK_MIN_OFFSET_SAMPLES ||
-        source_marker_offset_sample_count >
-            CALIBRATION_TRAINING_SCK_MAX_OFFSET_SAMPLES ||
-        destination_marker_offset_sample_count <
-            CALIBRATION_TRAINING_SCK_MIN_OFFSET_SAMPLES ||
-        destination_marker_offset_sample_count >
-            CALIBRATION_TRAINING_SCK_MAX_OFFSET_SAMPLES ||
         configured_sck_offset_sample_count <
             CALIBRATION_TRAINING_SCK_MIN_OFFSET_SAMPLES ||
         configured_sck_offset_sample_count >
@@ -2298,6 +2370,15 @@ bool calibration_manager_request_sck_training(
 
     const uint32_t sample_period_ns =
         UINT32_C(1000000000) / BOARD_SYS_CLOCK_HZ;
+    uint32_t link_base_delay_samples = 0u;
+    if (!calibration_training_phase_delay_samples(
+            link_base_delay_ns, sample_period_ns, 0, UINT32_MAX,
+            &link_base_delay_samples) ||
+        (int32_t)sck_launch_guard_sample_count -
+                (int32_t)link_base_delay_samples +
+                search_start_offset_sample < 0) {
+        return false;
+    }
     uint32_t sck_words[CALIBRATION_CLK_MARKER_MAX_RAW_WORDS];
     calibration_clk_marker_descriptor_t descriptor;
     const calibration_clk_marker_config_t config = {
@@ -2312,17 +2393,14 @@ bool calibration_manager_request_sck_training(
             &descriptor)) {
         return false;
     }
-    const int32_t source_phase =
-        (int32_t)descriptor.half_chip_samples +
-        source_marker_offset_sample_count;
-    const int32_t destination_phase =
-        (int32_t)descriptor.half_chip_samples +
-        destination_marker_offset_sample_count +
-        configured_sck_offset_sample_count + search_start_offset_sample;
-    if (source_phase <= 0 || destination_phase <= 0 ||
-        source_phase > (int32_t)TDMA_PIO_SPI_DATA_TRAIN_MAX_PHASE_CYCLES ||
-        destination_phase >
-            (int32_t)TDMA_PIO_SPI_DATA_TRAIN_MAX_PHASE_CYCLES) {
+    uint32_t source_phase = 0u;
+    uint32_t destination_phase = 0u;
+    if (!calibration_training_sck_map_offset_to_phase_cycles(
+            link_base_delay_ns, sample_period_ns,
+            configured_sck_offset_sample_count,
+            &source_phase, &destination_phase) ||
+        source_phase > TDMA_PIO_SPI_DATA_TRAIN_MAX_PHASE_CYCLES ||
+        destination_phase > TDMA_PIO_SPI_DATA_TRAIN_MAX_PHASE_CYCLES) {
         return false;
     }
 
@@ -2343,11 +2421,8 @@ bool calibration_manager_request_sck_training(
         .profile_crc32 = staged.operating_profile_crc32,
         .schedule_crc32 = staged.schedule_crc32,
         .sample_period_ns = sample_period_ns,
-        .marker_to_sck_samples = marker_to_sck_samples,
-        .source_marker_offset_sample_count =
-            source_marker_offset_sample_count,
-        .destination_marker_offset_sample_count =
-            destination_marker_offset_sample_count,
+        .sck_launch_guard_sample_count = sck_launch_guard_sample_count,
+        .link_base_delay_ns = link_base_delay_ns,
         .configured_sck_offset_sample_count =
             configured_sck_offset_sample_count,
         .search_start_offset_sample = search_start_offset_sample,
@@ -2429,7 +2504,7 @@ bool calibration_manager_save_sck_capture(
     int written = snprintf(
         s_sck_capture_payload, sizeof(s_sck_capture_payload),
         "{\n"
-        "  \"schema\": \"HAOFV_SCK_TRAIN_CAPTURE_V1\",\n"
+        "  \"schema\": \"HAOFV_SCK_TRAIN_CAPTURE_V3\",\n"
         "  \"source_node\": %lu,\n"
         "  \"destination_node\": %lu,\n"
         "  \"link_index\": %lu,\n"
@@ -2438,15 +2513,14 @@ bool calibration_manager_save_sck_capture(
         "  \"epoch\": %lu,\n"
         "  \"sck_codebook_id\": %lu,\n"
         "  \"sample_period_ns\": %lu,\n"
-        "  \"marker_to_sck_samples\": %lu,\n"
-        "  \"source_marker_offset_sample_count\": %ld,\n"
-        "  \"destination_marker_offset_sample_count\": %ld,\n"
+        "  \"sck_launch_guard_sample_count\": %lu,\n"
+        "  \"link_base_delay_ns\": %lu,\n"
         "  \"configured_sck_offset_sample_count\": %ld,\n"
         "  \"search_start_offset_sample\": %ld,\n"
         "  \"search_end_offset_sample\": %ld,\n"
         "  \"resolved_offset_sample_count\": %ld,\n"
         "  \"resolved_offset_ns\": %ld,\n"
-        "  \"capture_anchor\": \"physical_rx_csn_falling_edge_pio_delay\",\n"
+        "  \"capture_anchor\": \"physical_rx_sck_origin_falling_edge\",\n"
         "  \"sck_input\": \"physical_rx_sck\",\n"
         "  \"raw_word_count\": %lu,\n"
         "  \"raw_sample_count\": %lu,\n"
@@ -2459,9 +2533,8 @@ bool calibration_manager_save_sck_capture(
         (unsigned long)snapshot.train_epoch,
         (unsigned long)snapshot.sck_codebook_id,
         (unsigned long)snapshot.sample_period_ns,
-        (unsigned long)snapshot.marker_to_sck_samples,
-        (long)snapshot.source_marker_offset_sample_count,
-        (long)snapshot.destination_marker_offset_sample_count,
+        (unsigned long)snapshot.sck_launch_guard_sample_count,
+        (unsigned long)snapshot.link_base_delay_ns,
         (long)snapshot.configured_sck_offset_sample_count,
         (long)snapshot.search_start_offset_sample,
         (long)snapshot.search_end_offset_sample,
@@ -2539,7 +2612,7 @@ bool calibration_manager_save_data_capture(
     int written = snprintf(
         s_data_capture_payload, sizeof(s_data_capture_payload),
         "{\n"
-        "  \"schema\": \"HAOFV_DATA_TRAIN_CAPTURE_V1\",\n"
+        "  \"schema\": \"HAOFV_DATA_TRAIN_CAPTURE_V2\",\n"
         "  \"source_node\": %lu,\n"
         "  \"destination_node\": %lu,\n"
         "  \"marker_source_node\": %lu,\n"
@@ -2553,7 +2626,7 @@ bool calibration_manager_save_data_capture(
         "  \"data_codebook_id\": %lu,\n"
         "  \"sample_period_ns\": %lu,\n"
         "  \"marker_to_data_samples\": %lu,\n"
-        "  \"base_delay_ns\": %lu,\n"
+        "  \"link_base_delay_ns\": %lu,\n"
         "  \"marker_offset_sample_count\": %ld,\n"
         "  \"configured_data_offset_sample_count\": %ld,\n"
         "  \"search_start_offset_sample\": %ld,\n"
@@ -2577,7 +2650,7 @@ bool calibration_manager_save_data_capture(
         (unsigned long)snapshot.data_codebook_id,
         (unsigned long)snapshot.sample_period_ns,
         (unsigned long)snapshot.marker_to_data_samples,
-        (unsigned long)snapshot.base_delay_ns,
+        (unsigned long)snapshot.link_base_delay_ns,
         (long)snapshot.marker_offset_sample_count,
         (long)snapshot.configured_data_offset_sample_count,
         (long)snapshot.search_start_offset_sample,
@@ -2796,7 +2869,7 @@ bool calibration_manager_save_marker_capture(
     int written = snprintf(
         s_marker_capture_payload, sizeof(s_marker_capture_payload),
         "{\n"
-        "  \"schema\": \"HAOFV_MARKER_CAPTURE_V1\",\n"
+        "  \"schema\": \"HAOFV_MARKER_CAPTURE_V2\",\n"
         "  \"node\": %lu,\n"
         "  \"incoming_link\": %lu,\n"
         "  \"incoming_link_source_node\": %lu,\n"
@@ -2804,6 +2877,7 @@ bool calibration_manager_save_marker_capture(
         "  \"build_id\": %llu,\n"
         "  \"calibration_generation\": %lu,\n"
         "  \"epoch\": %lu,\n"
+        "  \"link_base_delay_ns\": %lu,\n"
         "  \"offset_sample_count\": %ld,\n"
         "  \"marker_start_model\": \"tx_fifo_virtual_rx_csn\",\n"
         "  \"capture_anchor\": \"physical_rx_csn_falling_edge\",\n"
@@ -2822,6 +2896,7 @@ bool calibration_manager_save_marker_capture(
         (unsigned long long)snapshot.build_id,
         (unsigned long)snapshot.calibration_generation,
         (unsigned long)snapshot.train_epoch,
+        (unsigned long)snapshot.link_base_delay_ns,
         (long)snapshot.offset_sample_count,
         (unsigned long)snapshot.tick_resolution_ns,
         (unsigned long)raw_word_count,

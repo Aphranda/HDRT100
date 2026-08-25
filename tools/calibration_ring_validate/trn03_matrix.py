@@ -33,7 +33,7 @@ PROFILE_TRAIN_CYCLES = 4096
 PROFILE_FLAGS = 0
 FNV_OFFSET = 2166136261
 FNV_PRIME = 16777619
-SCK_PHASE_BASE_NS = 40
+SCK_MATRIX_SCHEMA = "HAOFV_SCK_OFFSET_MATRIX_V2"
 
 # Mirrors s_tdma_operating_profiles for the fixed TRN-02 profile ladder.
 # tests/python/test_trn03_matrix.py checks these facts against the C sources.
@@ -163,6 +163,7 @@ def build_matrix(level: int, data: dict[str, Any],
     sck_offset_candidates_by_node: list[list[int]] = [
         [0] for _ in range(count)]
     selected_sck_offsets_by_node = [0] * count
+    sck_link_bases: list[int] | None = None
     if sck is not None:
         if not bool(sck.get("passed")) or node_order(sck) != nodes:
             raise ValueError("SCK evidence gate failed")
@@ -184,6 +185,8 @@ def build_matrix(level: int, data: dict[str, Any],
         sck_offsets = sck_matrix_gate.get("offset_matrix")
         if not isinstance(sck_offsets, dict):
             raise ValueError("SCK offset matrix is missing")
+        if sck_offsets.get("schema") != SCK_MATRIX_SCHEMA:
+            raise ValueError("SCK offset matrix is not independently trained V2 evidence")
         raw_candidates = sck_offsets.get("candidate_values_by_node")
         if (not isinstance(raw_candidates, list) or
                 len(raw_candidates) != count):
@@ -212,6 +215,16 @@ def build_matrix(level: int, data: dict[str, Any],
             raise ValueError("SCK active row dimensions are invalid")
         selected_sck_offsets_by_node = [int(value)
                                         for value in selected_values]
+        training_parameters = sck.get("training_parameters")
+        if not isinstance(training_parameters, dict):
+            raise ValueError("SCK training parameters are missing")
+        raw_sck_bases = training_parameters.get("link_base_delay_ns_by_link")
+        if (not isinstance(raw_sck_bases, list) or
+                len(raw_sck_bases) != count or
+                any(isinstance(value, bool) or not isinstance(value, int) or
+                    value <= 0 for value in raw_sck_bases)):
+            raise ValueError("SCK per-link bases are invalid")
+        sck_link_bases = [int(value) for value in raw_sck_bases]
     links: list[dict[str, Any]] = []
     marker_offsets_by_node = [0] * count
     data_offset_candidates_by_node: list[list[int]] = [[] for _ in range(count)]
@@ -230,6 +243,7 @@ def build_matrix(level: int, data: dict[str, Any],
         codeword_samples: list[int] = []
         guard_samples: list[int] = []
         marker_offsets: list[int] = []
+        link_base_delays: list[int] = []
         calibrated_data_offsets: list[int] = []
         for trial in link_trials:
             source = trial.get("source")
@@ -241,6 +255,7 @@ def build_matrix(level: int, data: dict[str, Any],
             codeword_samples.append(int(source["expected_sample_count"]))
             guard_samples.append(int(source["guard_sample_count"]))
             marker_offsets.append(int(trial["link_marker_offset_sample"]))
+            link_base_delays.append(int(source["link_base_delay_ns"]))
             calibrated_data_offsets.append(int(
                 trial["calibrated_data_offset_sample_count"]))
         if (min(window_starts) <= 0 or
@@ -249,8 +264,15 @@ def build_matrix(level: int, data: dict[str, Any],
                 len(set(marker_to_data_samples)) != 1 or
                 len(set(codeword_samples)) != 1 or
                 len(set(guard_samples)) != 1 or
-                len(set(marker_offsets)) != 1):
+                len(set(marker_offsets)) != 1 or
+                len(set(link_base_delays)) != 1):
             raise ValueError(f"link{index} DATA timing fields are inconsistent")
+        link_base_delay_ns = link_base_delays[0]
+        if link_base_delay_ns <= 0:
+            raise ValueError(f"link{index} base delay is invalid")
+        if sck_link_bases is not None and \
+                sck_link_bases[index] != link_base_delay_ns:
+            raise ValueError(f"link{index} SCK/DATA base mismatch")
 
         # Repeated TRN-02 results may straddle one 4 ns sample bucket. Select
         # the deterministic median while preserving every observed value in
@@ -258,10 +280,10 @@ def build_matrix(level: int, data: dict[str, Any],
         # quantization into the currently loaded PIO instruction period.
         selected_data_offset = sorted(calibrated_data_offsets)[
             len(calibrated_data_offsets) // 2]
-        data_offset_ns = selected_data_offset * sample_period_ns
+        data_offset_ns = (link_base_delay_ns +
+                          selected_data_offset * sample_period_ns)
         if data_offset_ns < 0:
-            raise ValueError(
-                f"link{index} DATA phase cannot be represented by delay-only PIO")
+            raise ValueError(f"link{index} DATA phase is below link base")
         data_phase_delay_cycles = (
             data_offset_ns + facts["instruction_period_ns"] // 2
         ) // facts["instruction_period_ns"]
@@ -271,7 +293,7 @@ def build_matrix(level: int, data: dict[str, Any],
         data_destination = int(data_link["data_destination_node"])
         sck_destination = marker_destination
         selected_sck_offset = selected_sck_offsets_by_node[sck_destination]
-        sck_delay_ns = SCK_PHASE_BASE_NS + (
+        sck_delay_ns = link_base_delay_ns + (
             selected_sck_offset * sample_period_ns)
         if sck_delay_ns < 0:
             raise ValueError(
@@ -281,6 +303,15 @@ def build_matrix(level: int, data: dict[str, Any],
         ) // facts["instruction_period_ns"]
         if sck_phase_delay_cycles > 31:
             raise ValueError(f"link{index} SCK phase exceeds PIO delay field")
+        marker_delay_ns = link_base_delay_ns + (
+            marker_offsets[0] * sample_period_ns)
+        if marker_delay_ns < 0:
+            raise ValueError(f"link{index} MARK phase is below link base")
+        marker_phase_delay_cycles = (
+            marker_delay_ns + facts["instruction_period_ns"] // 2
+        ) // facts["instruction_period_ns"]
+        if marker_phase_delay_cycles > 31:
+            raise ValueError(f"link{index} MARK phase exceeds PIO delay field")
         marker_offsets_by_node[marker_destination] = marker_offsets[0]
         data_offset_candidates_by_node[data_destination] = sorted(
             set(calibrated_data_offsets))
@@ -320,6 +351,8 @@ def build_matrix(level: int, data: dict[str, Any],
             "sck_offset_sample_count": selected_sck_offset,
             "data_offset_sample_count": selected_data_offset,
             "sample_period_ns": sample_period_ns,
+            "link_base_delay_ns": link_base_delay_ns,
+            "marker_phase_delay_cycles": marker_phase_delay_cycles,
             "sck_phase_delay_cycles": sck_phase_delay_cycles,
             "data_phase_delay_cycles": data_phase_delay_cycles,
             "source_node": int(residence_link["source_node"]),
@@ -424,7 +457,7 @@ def main() -> int:
     parser.add_argument("--residence", type=Path, required=True,
                         help="same-identity TRN-01 residence-matrix summary")
     parser.add_argument("--sck", type=Path,
-                        help="same-identity MARK-anchored SCK matrix summary")
+                        help="same-identity independently trained SCK matrix summary")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     data = load_summary(args.data)

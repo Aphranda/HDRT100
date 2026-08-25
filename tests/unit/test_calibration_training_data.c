@@ -51,7 +51,7 @@ static calibration_training_data_request_t make_request(void)
         .schedule_crc32 = 0x456789ABu,
         .sample_period_ns = 4u,
         .marker_to_data_samples = 6420u,
-        .base_delay_ns = 40u,
+        .link_base_delay_ns = 40u,
         .marker_offset_sample_count = -1,
         .configured_data_offset_sample_count = 0,
         .search_start_offset_sample = -2,
@@ -239,10 +239,10 @@ static int test_bad_request_rejected(void)
         "same node", calibration_training_data_prepare_core1(
                          &store, &request), false);
     request = make_request();
-    request.base_delay_ns = 41u;
+    request.link_base_delay_ns = 41u;
     failed += expect_bool(
-        "unquantized base", calibration_training_data_prepare_core1(
-                                &store, &request), false);
+        "41 ns base maps to nearest 4 ns sample",
+        calibration_training_data_prepare_core1(&store, &request), true);
     request = make_request();
     request.configured_data_offset_sample_count = 11;
     failed += expect_bool(

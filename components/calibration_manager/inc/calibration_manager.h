@@ -108,6 +108,7 @@ bool calibration_manager_request_marker_training(
     uint32_t train_sequence,
     uint32_t marker_id,
     uint32_t calibration_generation,
+    uint32_t link_base_delay_ns,
     int32_t offset_sample_count,
     uint32_t origin_node);
 bool calibration_manager_inject_marker_training(void);
@@ -124,7 +125,7 @@ bool calibration_manager_request_data_training(
     uint32_t train_sequence,
     uint32_t calibration_generation,
     uint32_t marker_to_data_samples,
-    uint32_t base_delay_ns,
+    uint32_t link_base_delay_ns,
     int32_t marker_offset_sample_count,
     int32_t configured_data_offset_sample_count,
     int32_t search_start_offset_sample,
@@ -145,9 +146,8 @@ bool calibration_manager_request_sck_training(
     uint32_t train_epoch,
     uint32_t train_sequence,
     uint32_t calibration_generation,
-    uint32_t marker_to_sck_samples,
-    int32_t source_marker_offset_sample_count,
-    int32_t destination_marker_offset_sample_count,
+    uint32_t sck_launch_guard_sample_count,
+    uint32_t link_base_delay_ns,
     int32_t configured_sck_offset_sample_count,
     int32_t search_start_offset_sample,
     int32_t search_end_offset_sample,
@@ -202,6 +202,8 @@ bool calibration_manager_stage_training_link(
     int32_t sck_offset_sample_count,
     int32_t data_offset_sample_count,
     uint32_t sample_period_ns,
+    uint32_t link_base_delay_ns,
+    uint32_t marker_phase_delay_cycles,
     uint32_t sck_phase_delay_cycles,
     uint32_t data_phase_delay_cycles);
 bool calibration_manager_get_training_stage(

@@ -207,7 +207,7 @@ def aggregate_summaries(summaries: list[dict[str, object]]) -> dict[str, object]
         offsets = [int(row["offset_ns"]) for row in accepted]
         anchors = [int(row["sample_anchor_after_marker_ns"])
                    for row in accepted]
-        bases = {int(row["base_half_chip_ns"]) for row in accepted}
+        bases = {int(row["link_base_delay_ns"]) for row in accepted}
         ticks = {int(row["tick_resolution_ns"]) for row in accepted}
         reject_histogram: dict[str, int] = {}
         for row in rejected:
@@ -223,7 +223,7 @@ def aggregate_summaries(summaries: list[dict[str, object]]) -> dict[str, object]
             "accepted_evidence_count": len(accepted),
             "rejected_evidence_count": len(rejected),
             "reject_histogram": reject_histogram,
-            "base_half_chip_ns": next(iter(bases)) if len(bases) == 1 else None,
+            "link_base_delay_ns": next(iter(bases)) if len(bases) == 1 else None,
             "tick_resolution_ns": next(iter(ticks)) if len(ticks) == 1 else None,
             "offset_min_ns": min(offsets) if offsets else None,
             "offset_max_ns": max(offsets) if offsets else None,
@@ -238,7 +238,7 @@ def aggregate_summaries(summaries: list[dict[str, object]]) -> dict[str, object]
     return {
         "phase": "TRN-02_OFFSET_CANDIDATE",
         "diagnostic_only": True,
-        "offset_model": "marker_capture + base_half_chip + per_link_offset",
+        "offset_model": "link_base_delay(link) + node_offset(node)",
         "board_ids_in_physical_order": board_order,
         "summary_count": len(summaries),
         "complete_link_count": sum(bool(link["consistent"]) for link in links),
@@ -319,7 +319,7 @@ def aggregate_pair_summaries(
             name = str(row["correlation_reject_name"])
             reject_histogram[name] = reject_histogram.get(name, 0) + 1
 
-        bases = {int(row["base_half_chip_ns"]) for row in evidence}
+        bases = {int(row["link_base_delay_ns"]) for row in evidence}
         ticks = {int(row["tick_resolution_ns"]) for row in evidence}
         base_ns = next(iter(bases)) if len(bases) == 1 else None
         tick_ns = next(iter(ticks)) if len(ticks) == 1 else None
@@ -352,7 +352,7 @@ def aggregate_pair_summaries(
             "accepted_evidence_count": len(accepted),
             "rejected_evidence_count": len(rejected),
             "reject_histogram": reject_histogram,
-            "base_half_chip_ns": base_ns,
+            "link_base_delay_ns": base_ns,
             "tick_resolution_ns": tick_ns,
             "offset_accepted": bool(accepted),
             "accepted_offset_sample_counts": accepted_offsets,
@@ -368,7 +368,7 @@ def aggregate_pair_summaries(
     return {
         "phase": "TRN-02_DIRECTED_PAIR_OFFSET_SEARCH",
         "diagnostic_only": True,
-        "offset_model": "marker_capture + base_half_chip + per_link_offset",
+        "offset_model": "link_base_delay(link) + node_offset(node)",
         "offsets_are_independent_per_directed_link_and_node_state": True,
         "failed_trials_are_search_evidence": True,
         "failed_correlation_lag_is_not_offset": True,

@@ -58,6 +58,7 @@ def evidence(level: int = 9) -> tuple[dict, dict]:
                     "marker_to_data_samples": 1000,
                     "expected_sample_count": 3210,
                     "guard_sample_count": 0,
+                    "link_base_delay_ns": 40,
                 },
             })
     data = {
@@ -107,6 +108,32 @@ def evidence(level: int = 9) -> tuple[dict, dict]:
     return data, residence
 
 
+def sck_evidence(data: dict) -> dict:
+    identity = dict(data["matrix"]["identity"])
+    return {
+        "phase": "TRN-SCK_OFFSET_MATRIX",
+        "passed": True,
+        "node_ids_in_loop_order": list(data["node_ids_in_loop_order"]),
+        "training_parameters": {
+            "link_base_delay_ns_by_link": [40, 40, 40, 40],
+        },
+        "matrix": {
+            "passed": True,
+            "identity": identity,
+            "offset_matrix": {
+                "schema": "HAOFV_SCK_OFFSET_MATRIX_V2",
+                "candidate_values_by_node": [[0], [0], [0], [0]],
+                "full_matrix_row_count": 1,
+                "active_row_id": 0,
+                "rows": [{
+                    "row_id": 0,
+                    "sck_offset_sample_counts_by_node": [0, 0, 0, 0],
+                }],
+            },
+        },
+    }
+
+
 def test_build_matrix_derives_residence_and_budget(tmp_path: Path) -> None:
     data, residence = evidence()
     matrix = build_matrix(9, data, residence)
@@ -122,7 +149,9 @@ def test_build_matrix_derives_residence_and_budget(tmp_path: Path) -> None:
     assert link0["sck_offset_sample_count"] == 0
     assert link0["data_offset_sample_count"] == 5
     assert link0["sample_period_ns"] == 4
-    assert link0["data_phase_delay_cycles"] == 3
+    assert link0["link_base_delay_ns"] == 40
+    assert link0["marker_phase_delay_cycles"] == 6
+    assert link0["data_phase_delay_cycles"] == 10
     assert link0["sck_phase_delay_cycles"] == 7
     assert matrix["offset_matrix"]["full_matrix_row_count"] == 1
     assert matrix["offset_matrix"]["rows"][0][
@@ -137,6 +166,19 @@ def test_build_matrix_derives_residence_and_budget(tmp_path: Path) -> None:
     path = tmp_path / "matrix.json"
     path.write_text(__import__("json").dumps(matrix), encoding="utf-8")
     assert load_config(path)["node_count"] == 4
+
+
+def test_build_matrix_requires_independent_sck_v2_schema() -> None:
+    data, residence = evidence()
+    sck = sck_evidence(data)
+    matrix = build_matrix(9, data, residence, sck=sck)
+    assert matrix["offset_matrix"]["rows"][0][
+        "sck_offset_sample_counts_by_node"] == [0, 0, 0, 0]
+
+    sck["matrix"]["offset_matrix"]["schema"] = \
+        "HAOFV_SCK_OFFSET_MATRIX_V1"
+    with pytest.raises(ValueError, match="independently trained V2"):
+        build_matrix(9, data, residence, sck=sck)
 
 
 def test_build_matrix_rejects_mismatched_residence_identity() -> None:

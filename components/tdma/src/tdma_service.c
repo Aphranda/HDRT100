@@ -704,7 +704,9 @@ bool tdma_service_stage_calibration_link(
         link->clk_sys_hz == 0u || link->instruction_period_ns == 0u ||
         link->bit_cycles == 0u || link->marker_to_data_cycles == 0u ||
         link->codeword_cycles == 0u || link->link_budget_cycles == 0u ||
-        link->sample_period_ns == 0u ||
+        link->sample_period_ns == 0u || link->link_base_delay_ns == 0u ||
+        link->marker_phase_delay_cycles > 31u ||
+        link->sck_phase_delay_cycles > 31u ||
         link->data_phase_delay_cycles > 31u) {
         return false;
     }

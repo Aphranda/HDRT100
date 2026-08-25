@@ -24,14 +24,18 @@ from calibration_ring_validate.calibration_marker_waveform import (  # noqa: E40
 )
 
 
-DATA_CAPTURE_SCHEMA = "HAOFV_DATA_TRAIN_CAPTURE_V1"
+DATA_CAPTURE_SCHEMAS = {
+    "HAOFV_DATA_TRAIN_CAPTURE_V1",
+    "HAOFV_DATA_TRAIN_CAPTURE_V2",
+}
 DIRECTION_CHOICES = ("forward", "reverse")
 
 
 def unpack_data_capture(capture: object) -> tuple[dict[str, object], list[int]]:
     if (not isinstance(capture, dict) or
-            capture.get("schema") != DATA_CAPTURE_SCHEMA):
-        raise ValueError(f"capture schema must be {DATA_CAPTURE_SCHEMA}")
+            capture.get("schema") not in DATA_CAPTURE_SCHEMAS):
+        raise ValueError(
+            f"capture schema must be one of {sorted(DATA_CAPTURE_SCHEMAS)}")
     words = capture.get("raw_words")
     word_count = int(capture.get("raw_word_count", -1))
     sample_count = int(capture.get("raw_sample_count", -1))
@@ -75,7 +79,8 @@ def render_data_waveform(
         int(correlation["margin"]) >= 0)
     best_lag_sample = int(correlation["best_lag_sample"])
     best_delay_ns = best_lag_sample * tick_ns
-    base_delay_ns = int(capture.get("base_delay_ns", 0))
+    base_delay_ns = int(capture.get(
+        "link_base_delay_ns", capture.get("base_delay_ns", 0)))
     configured_offset_samples = int(
         capture.get("configured_data_offset_sample_count", 0))
     residual_offset_ns = int(
@@ -137,7 +142,7 @@ def render_data_waveform(
             capture.get("resolved_offset_sample_count", 0)),
         "expected_sample_count": len(expected),
         "captured_sample_count": len(samples),
-        "base_delay_ns": base_delay_ns,
+        "link_base_delay_ns": base_delay_ns,
         "configured_data_offset_ns": configured_offset_samples * tick_ns,
         "residual_data_offset_ns": residual_offset_ns,
         "calibrated_alignment_delay_ns": calibrated_alignment_delay_ns,

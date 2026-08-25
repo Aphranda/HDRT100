@@ -4,12 +4,18 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define CALIBRATION_TRAINING_SCK_SNAPSHOT_VERSION 1u
+#include "calibration_training_phase.h"
+
+#define CALIBRATION_TRAINING_SCK_SNAPSHOT_VERSION 3u
 #define CALIBRATION_TRAINING_SCK_SNAPSHOT_READ_ATTEMPTS 64u
-#define CALIBRATION_TRAINING_SCK_MAX_NODES 8u
-#define CALIBRATION_TRAINING_SCK_MIN_OFFSET_SAMPLES (-10)
-#define CALIBRATION_TRAINING_SCK_MAX_OFFSET_SAMPLES 10
+#define CALIBRATION_TRAINING_SCK_MAX_NODES \
+    CALIBRATION_TRAINING_PHASE_MAX_NODES
+#define CALIBRATION_TRAINING_SCK_MIN_OFFSET_SAMPLES \
+    CALIBRATION_TRAINING_PHASE_MIN_OFFSET_SAMPLES
+#define CALIBRATION_TRAINING_SCK_MAX_OFFSET_SAMPLES \
+    CALIBRATION_TRAINING_PHASE_MAX_OFFSET_SAMPLES
 #define CALIBRATION_TRAINING_SCK_MAX_GUARD_SAMPLES 64u
+#define CALIBRATION_TRAINING_SCK_CAPTURE_PIPELINE_SAMPLES 1u
 
 typedef enum {
     CALIBRATION_TRAINING_SCK_IDLE = 0u,
@@ -40,7 +46,7 @@ typedef enum {
 } calibration_training_sck_reject_reason_t;
 
 #define CALIBRATION_TRAINING_SCK_FLAG_DIAGNOSTIC_ONLY (1u << 0u)
-#define CALIBRATION_TRAINING_SCK_FLAG_HARDWARE_MARKER (1u << 1u)
+#define CALIBRATION_TRAINING_SCK_FLAG_HARDWARE_SCK_ORIGIN (1u << 1u)
 #define CALIBRATION_TRAINING_SCK_FLAG_HARDWARE_SCK_CAPTURE (1u << 2u)
 #define CALIBRATION_TRAINING_SCK_FLAG_DMA_COMPLETE (1u << 3u)
 #define CALIBRATION_TRAINING_SCK_FLAG_CRC_VALID (1u << 4u)
@@ -48,7 +54,7 @@ typedef enum {
 #define CALIBRATION_TRAINING_SCK_FLAG_SEQUENCE_VALID (1u << 6u)
 #define CALIBRATION_TRAINING_SCK_FLAG_POLARITY_VALID (1u << 7u)
 #define CALIBRATION_TRAINING_SCK_REQUIRED_FLAGS \
-    (CALIBRATION_TRAINING_SCK_FLAG_HARDWARE_MARKER | \
+    (CALIBRATION_TRAINING_SCK_FLAG_HARDWARE_SCK_ORIGIN | \
      CALIBRATION_TRAINING_SCK_FLAG_HARDWARE_SCK_CAPTURE | \
      CALIBRATION_TRAINING_SCK_FLAG_DMA_COMPLETE | \
      CALIBRATION_TRAINING_SCK_FLAG_CRC_VALID | \
@@ -71,9 +77,8 @@ typedef struct {
     uint32_t profile_crc32;
     uint32_t schedule_crc32;
     uint32_t sample_period_ns;
-    uint32_t marker_to_sck_samples;
-    int32_t source_marker_offset_sample_count;
-    int32_t destination_marker_offset_sample_count;
+    uint32_t sck_launch_guard_sample_count;
+    uint32_t link_base_delay_ns;
     int32_t configured_sck_offset_sample_count;
     int32_t search_start_offset_sample;
     int32_t search_end_offset_sample;
@@ -105,8 +110,8 @@ typedef struct {
     uint32_t dma_overrun_count;
     uint32_t pio_stall_count;
     uint32_t timeout_count;
-    uint64_t marker_capture_tick;
-    uint64_t sck_capture_tick;
+    uint64_t sck_capture_origin_tick;
+    uint64_t sck_code_capture_tick;
 } calibration_training_sck_evidence_t;
 
 typedef struct {
@@ -129,9 +134,8 @@ typedef struct {
     uint32_t profile_crc32;
     uint32_t schedule_crc32;
     uint32_t sample_period_ns;
-    uint32_t marker_to_sck_samples;
-    int32_t source_marker_offset_sample_count;
-    int32_t destination_marker_offset_sample_count;
+    uint32_t sck_launch_guard_sample_count;
+    uint32_t link_base_delay_ns;
     int32_t configured_sck_offset_sample_count;
     int32_t search_start_offset_sample;
     int32_t search_end_offset_sample;
@@ -147,14 +151,13 @@ typedef struct {
     int32_t resolved_offset_ns;
     int32_t training_window_start_ns;
     int32_t training_window_end_ns;
-    int32_t marker_sck_skew_ns;
     uint32_t captured_sample_count;
     uint32_t expected_sample_count;
     uint32_t dma_overrun_count;
     uint32_t pio_stall_count;
     uint32_t timeout_count;
-    uint64_t marker_capture_tick;
-    uint64_t sck_capture_tick;
+    uint64_t sck_capture_origin_tick;
+    uint64_t sck_code_capture_tick;
 } calibration_training_sck_snapshot_t;
 
 typedef struct {
@@ -170,6 +173,12 @@ bool calibration_training_sck_publish_core1(
 bool calibration_training_sck_get_snapshot(
     const calibration_training_sck_store_t *store,
     calibration_training_sck_snapshot_t *snapshot);
+bool calibration_training_sck_map_offset_to_phase_cycles(
+    uint32_t link_base_delay_ns,
+    uint32_t sample_period_ns,
+    int32_t configured_offset_sample_count,
+    uint32_t *source_phase_delay_cycles,
+    uint32_t *destination_phase_delay_cycles);
 bool calibration_training_sck_prepare_core1(
     calibration_training_sck_store_t *store,
     const calibration_training_sck_request_t *request);

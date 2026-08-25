@@ -1,22 +1,19 @@
 #include "calibration_training_marker.h"
 
+#include "calibration_training_phase.h"
+
 #include <string.h>
 
 bool calibration_training_marker_capture_delay_cycles(
-    uint32_t half_chip_samples,
+    uint32_t link_base_delay_ns,
+    uint32_t sample_period_ns,
     int32_t offset_sample_count,
     uint32_t *capture_delay_cycles)
 {
-    if (capture_delay_cycles == NULL) {
-        return false;
-    }
-    const int64_t delay = (int64_t)half_chip_samples + offset_sample_count;
-    if (delay < 0 ||
-        delay > CALIBRATION_TRAINING_MARKER_MAX_CAPTURE_DELAY_CYCLES) {
-        return false;
-    }
-    *capture_delay_cycles = (uint32_t)delay;
-    return true;
+    return calibration_training_phase_delay_samples(
+        link_base_delay_ns, sample_period_ns, offset_sample_count,
+        CALIBRATION_TRAINING_MARKER_MAX_CAPTURE_DELAY_CYCLES,
+        capture_delay_cycles);
 }
 
 static bool calibration_training_marker_request_valid(
@@ -45,7 +42,8 @@ static bool calibration_training_marker_request_valid(
            request->calibration_generation != 0u &&
            request->topology_generation != 0u &&
            request->topology_crc32 != 0u && request->profile_crc32 != 0u &&
-           request->schedule_crc32 != 0u && request->tick_resolution_ns != 0u;
+           request->schedule_crc32 != 0u && request->tick_resolution_ns != 0u &&
+           request->link_base_delay_ns != 0u;
 }
 
 static void calibration_training_marker_snapshot_from_request(
@@ -73,6 +71,7 @@ static void calibration_training_marker_snapshot_from_request(
     snapshot->profile_crc32 = request->profile_crc32;
     snapshot->schedule_crc32 = request->schedule_crc32;
     snapshot->tick_resolution_ns = request->tick_resolution_ns;
+    snapshot->link_base_delay_ns = request->link_base_delay_ns;
     snapshot->offset_sample_count = request->offset_sample_count;
 }
 

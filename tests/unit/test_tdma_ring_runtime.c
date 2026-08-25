@@ -161,6 +161,8 @@ int main(void)
         calibration.links[i].link_budget_cycles = 64u;
         calibration.links[i].loop_delay_cycles = 8u;
         calibration.links[i].sample_period_ns = 4u;
+        calibration.links[i].link_base_delay_ns = 40u;
+        calibration.links[i].marker_phase_delay_cycles = 10u;
         calibration.links[i].sck_phase_delay_cycles = 10u;
         calibration.links[i].data_phase_delay_cycles = 1u;
     }

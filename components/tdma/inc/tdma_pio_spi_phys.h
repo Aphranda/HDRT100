@@ -138,7 +138,11 @@ typedef enum {
     TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN = 11u,
     TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER = 12u,
     TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER = 13u,
+    TDMA_PIO_SPI_PROGRAM_PERSONA_SCK_TRAIN = 14u,
 } tdma_pio_spi_program_persona_t;
+
+#define TDMA_PIO_SPI_PROGRAM_PERSONA_MAX \
+    TDMA_PIO_SPI_PROGRAM_PERSONA_SCK_TRAIN
 
 typedef enum {
     TDMA_PIO_SPI_DATA_TRAIN_IDLE = 0u,
@@ -154,11 +158,9 @@ typedef enum {
     TDMA_PIO_SPI_DATA_TRAIN_ROLE_INITIATOR = 1u,
     /* The responder waits for incoming CS and emits DATA upstream. */
     TDMA_PIO_SPI_DATA_TRAIN_ROLE_RESPONDER = 2u,
-    /* MARK-anchored SCK calibration source. It emits a local CS marker and
-     * the known SCK code on the same forward link using separate DMA feeds. */
+    /* Independent SCK source released by an internal PIO IRQ. */
     TDMA_PIO_SPI_DATA_TRAIN_ROLE_SCK_SOURCE = 3u,
-    /* MARK-anchored SCK calibration destination. It starts raw rx_sck
-     * capture from the received CS edge; no software edge is involved. */
+    /* Independent destination whose capture origin is the RX SCK edge. */
     TDMA_PIO_SPI_DATA_TRAIN_ROLE_SCK_DESTINATION = 4u,
 } tdma_pio_spi_data_train_role_t;
 
@@ -173,7 +175,9 @@ typedef enum {
 } tdma_pio_spi_data_train_reject_t;
 
 #define TDMA_PIO_SPI_DATA_TRAIN_FLAG_DIAGNOSTIC_ONLY (1u << 0u)
-#define TDMA_PIO_SPI_DATA_TRAIN_FLAG_HARDWARE_MARKER (1u << 1u)
+#define TDMA_PIO_SPI_DATA_TRAIN_FLAG_HARDWARE_ORIGIN (1u << 1u)
+#define TDMA_PIO_SPI_DATA_TRAIN_FLAG_HARDWARE_MARKER \
+    TDMA_PIO_SPI_DATA_TRAIN_FLAG_HARDWARE_ORIGIN
 #define TDMA_PIO_SPI_DATA_TRAIN_FLAG_HARDWARE_DATA (1u << 2u)
 #define TDMA_PIO_SPI_DATA_TRAIN_FLAG_MARKER_DMA_COMPLETE (1u << 3u)
 #define TDMA_PIO_SPI_DATA_TRAIN_FLAG_DATA_DMA_COMPLETE (1u << 4u)
@@ -497,6 +501,7 @@ typedef struct {
     int32_t flight_marker_offset_sample_count;
     int32_t flight_sck_offset_sample_count;
     int32_t flight_data_offset_sample_count;
+    uint32_t flight_marker_phase_delay_cycles;
     uint32_t flight_sck_phase_delay_cycles;
     uint32_t flight_data_phase_delay_cycles;
     /* Live PIO diagnostics for TRN-03B flight bring-up.  tx_sm/rx_sm keep
@@ -567,6 +572,7 @@ typedef struct {
     int32_t flight_marker_offset_sample_count;
     int32_t flight_sck_offset_sample_count;
     int32_t flight_data_offset_sample_count;
+    uint32_t flight_marker_phase_delay_cycles;
     uint32_t flight_sck_phase_delay_cycles;
     uint32_t flight_data_phase_delay_cycles;
     /* Physical output pins. CS/SCK are forward; DATA is reverse. */
@@ -623,6 +629,7 @@ bool tdma_pio_spi_phys_set_flight_offsets(
     int32_t marker_offset_sample_count,
     int32_t sck_offset_sample_count,
     int32_t data_offset_sample_count,
+    uint32_t marker_phase_delay_cycles,
     uint32_t sck_phase_delay_cycles,
     uint32_t data_phase_delay_cycles);
 bool tdma_pio_spi_phys_prepare_process_overlay(

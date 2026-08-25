@@ -29,6 +29,12 @@ from calibration_ring_validate.calibration_marker_train import (  # noqa: E402
     order_boards_by_board_no,
     prepare_ring,
 )
+from calibration_ring_validate.calibration_phase import (  # noqa: E402
+    build_observed_offset_matrix,
+    build_phase_training_contract,
+    link_base_delay_ns,
+    phase_delay_samples,
+)
 
 
 DATA_FIELDS = (
@@ -38,7 +44,7 @@ DATA_FIELDS = (
     "data_codebook_id", "data_crc32", "observed_crc32",
     "calibration_generation", "topology_generation", "topology_crc32",
     "profile_crc32", "schedule_crc32", "sample_period_ns",
-    "marker_to_data_samples", "base_delay_ns",
+    "marker_to_data_samples", "link_base_delay_ns",
     "marker_offset_sample_count",
     "configured_data_offset_sample_count",
     "search_start_offset_sample", "search_end_offset_sample",
@@ -56,7 +62,10 @@ DATA_FIELDS = (
 STATE_PREPARED = 1
 STATE_ACCEPTED = 3
 STATE_REJECTED = 4
-DATA_CAPTURE_SCHEMA = "HAOFV_DATA_TRAIN_CAPTURE_V1"
+DATA_CAPTURE_SCHEMAS = {
+    "HAOFV_DATA_TRAIN_CAPTURE_V1",  # legacy generic base field
+    "HAOFV_DATA_TRAIN_CAPTURE_V2",  # explicit per-link base field
+}
 FLAG_DIAGNOSTIC_ONLY = 1 << 0
 FLAG_HARDWARE_MARKER = 1 << 1
 FLAG_HARDWARE_DATA_CAPTURE = 1 << 2
@@ -140,9 +149,9 @@ def parse_storage_read(raw: str, expected_offset: int) -> dict[str, object]:
 
 def summarize_data_capture(capture: object) -> dict[str, object]:
     if (not isinstance(capture, dict) or
-            capture.get("schema") != DATA_CAPTURE_SCHEMA):
+            capture.get("schema") not in DATA_CAPTURE_SCHEMAS):
         raise ValueError(
-            f"capture schema must be {DATA_CAPTURE_SCHEMA}")
+            f"capture schema must be one of {sorted(DATA_CAPTURE_SCHEMAS)}")
     words = capture.get("raw_words")
     sample_count = capture.get("raw_sample_count")
     word_count = capture.get("raw_word_count")
@@ -179,7 +188,7 @@ def validate_link(source: dict[str, int | str],
         "source_node", "destination_node", "train_epoch", "train_sequence",
         "data_codebook_id", "data_crc32", "calibration_generation",
         "topology_crc32", "profile_crc32", "schedule_crc32",
-        "sample_period_ns", "marker_to_data_samples", "base_delay_ns",
+        "sample_period_ns", "marker_to_data_samples", "link_base_delay_ns",
         "marker_offset_sample_count",
         "configured_data_offset_sample_count",
         "search_start_offset_sample", "search_end_offset_sample",
@@ -217,6 +226,8 @@ def validate_link(source: dict[str, int | str],
         for field in ("dma_overrun_count", "pio_stall_count", "timeout_count"):
             if int(record[field]) != 0:
                 errors.append(f"{prefix}_{field}")
+    calibrated = (
+        int(source["configured_data_offset_sample_count"]) + resolved)
     return {
         "phase": "TRN-02B",
         "passed": not errors,
@@ -224,6 +235,9 @@ def validate_link(source: dict[str, int | str],
         "errors": errors,
         "resolved_offset_sample_count": resolved,
         "resolved_offset_ns": int(source["resolved_offset_ns"]),
+        "calibrated_data_offset_sample_count": calibrated,
+        "calibrated_data_offset_ns": (
+            calibrated * int(source["sample_period_ns"])),
         "marker_data_skew_ns": int(source["marker_data_skew_ns"]),
         "source": source,
         "destination": destination,
@@ -331,6 +345,27 @@ def summarize_repeat_matrix(
         gate_failures.append("mixed_generation_or_profile")
     if not all(bool(row["passed"]) for row in link_summaries):
         gate_failures.append("link_repeat_gate")
+    values_by_node: list[list[int]] = [[] for _ in range(node_count)]
+    for trial in trials:
+        if bool(trial.get("passed")):
+            destination = int(trial["data_destination_node"])
+            calibrated = trial.get("calibrated_data_offset_sample_count")
+            if calibrated is None:
+                calibrated = (
+                    int(trial["source"].get(
+                        "configured_data_offset_sample_count", 0)) +
+                    int(trial["resolved_offset_sample_count"]))
+            values_by_node[destination].append(int(calibrated))
+    offset_matrix = build_observed_offset_matrix(
+        signal="DATA", values_by_node=values_by_node,
+        sample_period_ns=(next(iter(identity_sets["sample_period_ns"]))
+                          if identity_sets["sample_period_ns"] else 4))
+    for row in offset_matrix["rows"]:
+        row["data_offset_sample_counts_by_node"] = list(
+            row["offset_sample_counts_by_node"])
+        row["data_offset_ns_by_node"] = list(row["offset_ns_by_node"])
+    if offset_matrix["missing_nodes"]:
+        gate_failures.append("data_offset_matrix_incomplete")
     return {
         "expected_trial_count": expected_trial_count,
         "trial_count": len(trials),
@@ -340,6 +375,7 @@ def summarize_repeat_matrix(
         },
         "identity_failures": identity_failures,
         "links": link_summaries,
+        "offset_matrix": offset_matrix,
         "gate_failures": gate_failures,
         "passed": not gate_failures,
     }
@@ -365,7 +401,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sequence", type=int)
     parser.add_argument("--generation", type=int, default=1)
     parser.add_argument("--marker-to-data-samples", type=int, default=1000)
-    parser.add_argument("--base-delay-ns", type=int, default=40)
+    parser.add_argument(
+        "--link-delay-ns", type=int, action="append", required=True,
+        help=("measured end-to-end delay; repeat once per physical link; "
+              "the training base is link-delay/2"))
     parser.add_argument("--sample-period-ns", type=int, default=4,
                         help="runtime PIO sampling period used by offsets")
     parser.add_argument(
@@ -416,7 +455,7 @@ def data_arm(board: Board, args: argparse.Namespace) -> str:
     command = (
         f"CALibration:DATA:ARM {args.source_node},{args.destination_node},"
         f"{args.codebook},{args.epoch},{sequence},{args.generation},"
-        f"{args.marker_to_data_samples},{args.base_delay_ns},"
+        f"{args.marker_to_data_samples},{args.link_base_delay_ns_current},"
         f"{args.link_marker_offset_sample},"
         f"{args.link_data_offset_sample},"
         f"{args.search_start},{args.search_end},{args.guard_samples},"
@@ -542,6 +581,27 @@ def validate_hil_args(args: argparse.Namespace) -> list[str]:
             "node-data-offset-samples must provide one -10..+10 value "
             "per board")
     args.node_data_offset_samples = data_offsets
+    link_delays = list(args.link_delay_ns)
+    if len(link_delays) != count:
+        raise SystemExit("link-delay-ns must provide one value per physical link")
+    try:
+        args.link_base_delay_ns = [
+            link_base_delay_ns(value) for value in link_delays]
+        for link, base_ns in enumerate(args.link_base_delay_ns):
+            marker_destination = direction_endpoints(
+                link, count, args.marker_direction)[1]
+            data_destination = direction_endpoints(
+                link, count, args.data_direction)[1]
+            phase_delay_samples(
+                link_base_ns=base_ns,
+                sample_period_ns=args.sample_period_ns,
+                node_offset_samples=marker_offsets[marker_destination])
+            phase_delay_samples(
+                link_base_ns=base_ns,
+                sample_period_ns=args.sample_period_ns,
+                node_offset_samples=data_offsets[data_destination])
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     if not 0 <= args.link_index < count:
         raise SystemExit("link-index outside physical link range")
     marker_nodes = direction_endpoints(
@@ -561,8 +621,7 @@ def validate_hil_args(args: argparse.Namespace) -> list[str]:
         raise SystemExit("reference-node outside board order")
     if not (0 <= args.codebook <= 3 and 1 <= args.epoch <= 255 and
             args.generation > 0 and args.marker_to_data_samples > 0 and
-            args.sample_period_ns > 0 and args.base_delay_ns > 0 and
-            args.base_delay_ns % args.sample_period_ns == 0 and
+            args.sample_period_ns > 0 and
             -10 <= args.search_start <= args.search_end <= 10 and
             args.guard_samples >= 0):
         raise SystemExit("invalid bounded TRN-02 search parameters")
@@ -593,12 +652,15 @@ def discover_ordered(args: argparse.Namespace,
 def run_link_trial(args: argparse.Namespace, ordered: list[Board],
                    prepare: bool) -> dict[str, object]:
     board_ids = list(args.board_id)
+    node_count = len(board_ids)
     args.link_marker_offset_sample = int(
         args.node_marker_offset_samples[args.destination_node])
     args.link_data_offset_sample = int(
         args.node_data_offset_samples[args.data_destination_node])
+    args.link_base_delay_ns_current = int(
+        args.link_base_delay_ns[args.link_index])
     args.configured_window_center_ns = (
-        args.base_delay_ns +
+        args.link_base_delay_ns_current +
         args.link_data_offset_sample * args.sample_period_ns)
     if args.configured_window_center_ns <= 0:
         raise ValueError("configured DATA offset makes base delay non-positive")
@@ -617,7 +679,8 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
         "data_direction": args.data_direction,
         "measurement_direction": "configured_bidirectional_link",
         "reused_ring_identity": bool(args.reuse_ring_identity),
-        "nominal_base_delay_ns": args.base_delay_ns,
+        "link_delay_ns": int(args.link_delay_ns[args.link_index]),
+        "link_base_delay_ns": args.link_base_delay_ns_current,
         "configured_window_center_ns": args.configured_window_center_ns,
         "sample_period_ns": args.sample_period_ns,
         "search_offset_samples": [args.search_start, args.search_end],
@@ -627,6 +690,14 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
         "node_data_offset_samples": list(args.node_data_offset_samples),
         "configured_data_offset_sample_count": args.link_data_offset_sample,
         "boards": {board.address: asdict(board) for board in ordered},
+        "unified_phase_training": build_phase_training_contract(
+            signal="DATA", link_delay_ns_by_link=args.link_delay_ns,
+            node_offset_samples=args.node_data_offset_samples,
+            sample_period_ns=args.sample_period_ns,
+            destination_node_by_link=[direction_endpoints(
+                link, node_count, args.data_direction)[1]
+                for link in range(node_count)],
+            capture_origin="rx_csn_pio_edge"),
     }
     if args.dry_run:
         return {**plan, "passed": False, "dry_run": True}
@@ -781,7 +852,8 @@ def run_repeat_matrix(args: argparse.Namespace) -> dict[str, object]:
             "node_data_offset_samples": list(
                 args.node_data_offset_samples),
             "sample_period_ns": args.sample_period_ns,
-            "nominal_base_delay_ns": args.base_delay_ns,
+            "link_delay_ns_by_link": list(args.link_delay_ns),
+            "link_base_delay_ns_by_link": list(args.link_base_delay_ns),
         },
         "initial_epoch": args.epoch,
         "actions": actions,

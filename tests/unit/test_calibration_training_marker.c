@@ -55,6 +55,7 @@ static calibration_training_marker_request_t make_request(void)
         .profile_crc32 = 0x3456789Au,
         .schedule_crc32 = 0x456789ABu,
         .tick_resolution_ns = 4u,
+        .link_base_delay_ns = 40u,
     };
     return request;
 }
@@ -233,20 +234,29 @@ static int test_capture_delay_cycle_bounds(void)
     int failed = 0;
     failed += expect_bool(
         "40 ns base accepts -10",
-        calibration_training_marker_capture_delay_cycles(10u, -10, &delay),
+        calibration_training_marker_capture_delay_cycles(
+            40u, 4u, -10, &delay),
         true);
     failed += expect_u32("40 ns base -10 maps to zero", delay, 0u);
     failed += expect_bool(
+        "41 ns base accepts nearest-sample mapping",
+        calibration_training_marker_capture_delay_cycles(
+            41u, 4u, 0, &delay), true);
+    failed += expect_u32("41 ns base maps to 10 samples", delay, 10u);
+    failed += expect_bool(
         "20 ns base rejects -10",
-        calibration_training_marker_capture_delay_cycles(5u, -10, &delay),
+        calibration_training_marker_capture_delay_cycles(
+            20u, 4u, -10, &delay),
         false);
     failed += expect_bool(
         "capture delay above instruction field rejected",
-        calibration_training_marker_capture_delay_cycles(24u, 8, &delay),
+        calibration_training_marker_capture_delay_cycles(
+            96u, 4u, 8, &delay),
         false);
     failed += expect_bool(
         "null capture delay rejected",
-        calibration_training_marker_capture_delay_cycles(10u, 0, NULL),
+        calibration_training_marker_capture_delay_cycles(
+            40u, 4u, 0, NULL),
         false);
     return failed;
 }

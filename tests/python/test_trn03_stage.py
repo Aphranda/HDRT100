@@ -51,6 +51,8 @@ def matrix() -> dict[str, object]:
             "sck_offset_sample_count": 0,
             "data_offset_sample_count": 5,
             "sample_period_ns": 4,
+            "link_base_delay_ns": 40,
+            "marker_phase_delay_cycles": 10,
             "sck_phase_delay_cycles": 10,
             "data_phase_delay_cycles": 5,
             "marker_destination_node": (link_index + 1) % 4,
@@ -93,6 +95,9 @@ def test_load_config_and_commands_use_node_link_terms(tmp_path: Path) -> None:
     command = stage_link_command(config["links"][2])
     assert command.startswith("CALibration:TRAINing:STAGe:LINK 2,")
     assert "slot" not in command.lower()
+    assert config["links"][0]["marker_phase_delay_cycles"] == 9
+    assert config["links"][0]["sck_phase_delay_cycles"] == 10
+    assert config["links"][0]["data_phase_delay_cycles"] == 15
 
 
 def test_load_config_rejects_missing_node(tmp_path: Path) -> None:

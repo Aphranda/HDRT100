@@ -423,6 +423,7 @@ set(PROJECT_APP_SOURCES
         components/calibration_manager/src/calibration_clk_marker.c
         components/calibration_manager/src/calibration_training_data.c
         components/calibration_manager/src/calibration_training_marker.c
+        components/calibration_manager/src/calibration_training_phase.c
         components/calibration_manager/src/calibration_training_sck.c
         components/calibration_manager/src/calibration_pio_loopback.c
         components/board_identity/src/board_identity.c

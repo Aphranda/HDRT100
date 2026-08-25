@@ -37,7 +37,10 @@ from calibration_ring_validate.calibration_clk_codebook_eval import (  # noqa: E
 )
 
 
-CAPTURE_SCHEMA = "HAOFV_MARKER_CAPTURE_V1"
+CAPTURE_SCHEMAS = {
+    "HAOFV_MARKER_CAPTURE_V1",  # legacy half-chip-base evidence
+    "HAOFV_MARKER_CAPTURE_V2",  # explicit per-link base evidence
+}
 CHANNEL_INDEX = {
     "forward_output": 0,
     "incoming_link": 1,
@@ -175,8 +178,9 @@ def download_capture(args: argparse.Namespace) -> dict[str, object]:
 
 
 def validate_capture(capture: object) -> dict[str, object]:
-    if not isinstance(capture, dict) or capture.get("schema") != CAPTURE_SCHEMA:
-        raise ValueError(f"capture schema must be {CAPTURE_SCHEMA}")
+    if not isinstance(capture, dict) or capture.get("schema") not in CAPTURE_SCHEMAS:
+        raise ValueError(
+            f"capture schema must be one of {sorted(CAPTURE_SCHEMAS)}")
     words = capture.get("raw_interleaved_words")
     if not isinstance(words, list) or not words:
         raise ValueError("capture has no raw_interleaved_words")
@@ -330,7 +334,18 @@ def firmware_rx_samples(capture: dict[str, object], channel: str, *,
     offset = int(capture.get("offset_sample_count", 0))
     if not -10 <= offset <= 10:
         raise ValueError("capture offset_sample_count is outside [-10, 10]")
-    phase_delay_cycles = half_chip_samples + offset
+    tick_ns = int(capture.get("tick_resolution_ns", 0))
+    if tick_ns <= 0:
+        raise ValueError("capture tick_resolution_ns must be positive")
+    if "link_base_delay_ns" in capture:
+        link_base_ns = int(capture["link_base_delay_ns"])
+        if link_base_ns <= 0:
+            raise ValueError("capture link base must be positive")
+        phase_base_samples = (link_base_ns + tick_ns // 2) // tick_ns
+    else:
+        # V1 evidence predates explicit per-link bases.
+        phase_base_samples = half_chip_samples
+    phase_delay_cycles = phase_base_samples + offset
     if not 0 <= phase_delay_cycles <= 31:
         raise ValueError("capture phase delay is outside the PIO [0, 31] range")
     prefix = half_chip_samples + 1 + phase_delay_cycles

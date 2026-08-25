@@ -43,7 +43,7 @@ def make_row(**overrides: int) -> dict[str, int | str]:
         "schedule_crc32": 13,
         "sample_period_ns": 4,
         "marker_to_data_samples": 1000,
-        "base_delay_ns": 40,
+        "link_base_delay_ns": 40,
         "marker_offset_sample_count": -1,
         "configured_data_offset_sample_count": 0,
         "search_start_offset_sample": -10,

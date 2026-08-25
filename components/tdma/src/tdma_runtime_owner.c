@@ -68,6 +68,7 @@ static bool tdma_runtime_owner_flight_phys_arm(
             marker->marker_offset_sample_count,
             marker->sck_offset_sample_count,
             data->data_offset_sample_count,
+            marker->marker_phase_delay_cycles,
             marker->sck_phase_delay_cycles,
             data->data_phase_delay_cycles)) {
         return false;

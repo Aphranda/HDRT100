@@ -31,6 +31,12 @@ from tdma_start_ring import (  # noqa: E402
     board_command,
     discover,
 )
+from calibration_ring_validate.calibration_phase import (  # noqa: E402
+    build_offset_rows,
+    build_phase_training_contract,
+    link_base_delay_ns,
+    phase_delay_samples,
+)
 
 
 MARKER_FIELDS = (
@@ -43,7 +49,7 @@ MARKER_FIELDS = (
     "best_distance",
     "calibration_generation", "topology_generation", "topology_crc32",
     "profile_crc32", "schedule_crc32", "tick_resolution_ns",
-    "offset_sample_count",
+    "link_base_delay_ns", "offset_sample_count",
     "marker_capture_tick_lo", "marker_capture_tick_hi",
     "marker_forward_tick_lo", "marker_forward_tick_hi",
     "marker_return_tick_lo", "marker_return_tick_hi",
@@ -109,20 +115,13 @@ CORRELATION_REJECT_NAMES = {
 }
 
 
-def capture_phase_delay_cycles(codebook: int, offset_samples: int) -> int:
-    if codebook not in HALF_CHIP_NS_BY_CODEBOOK:
-        raise ValueError("codebook must be 0..3")
-    if not MIN_OFFSET_SAMPLES <= offset_samples <= MAX_OFFSET_SAMPLES:
-        raise ValueError(
-            f"offset_sample_count is outside [{MIN_OFFSET_SAMPLES}, "
-            f"{MAX_OFFSET_SAMPLES}]")
-    delay = HALF_CHIP_NS_BY_CODEBOOK[codebook] // SAMPLE_PERIOD_NS + offset_samples
-    if not 0 <= delay <= MAX_CAPTURE_DELAY_CYCLES:
-        raise ValueError(
-            f"codebook {codebook} with offset {offset_samples} requires "
-            f"capture delay {delay}, outside PIO delay [0, "
-            f"{MAX_CAPTURE_DELAY_CYCLES}]")
-    return delay
+def capture_phase_delay_cycles(link_base_ns: int,
+                               offset_samples: int) -> int:
+    return phase_delay_samples(
+        link_base_ns=link_base_ns,
+        sample_period_ns=SAMPLE_PERIOD_NS,
+        node_offset_samples=offset_samples,
+        max_delay_samples=MAX_CAPTURE_DELAY_CYCLES)
 
 
 def derive_link_offset_candidates(
@@ -143,12 +142,12 @@ def derive_link_offset_candidates(
         applied_offset_samples = int(record.get("offset_sample_count", 0))
         offset_samples = applied_offset_samples if accepted else None
         offset_ns = offset_samples * tick_ns if offset_samples is not None else None
-        base_ns = HALF_CHIP_NS_BY_CODEBOOK.get(codebook)
+        base_ns = int(record["link_base_delay_ns"])
         reject_reason = int(record["correlation_reject_reason"])
         candidates.append({
             "source_node": int(record["predecessor_node"]),
             "destination_node": int(record["local_node"]),
-            "base_half_chip_ns": base_ns,
+            "link_base_delay_ns": base_ns,
             "offset_sample_count": offset_samples,
             "offset_ns": offset_ns,
             "sample_anchor_after_marker_ns": (
@@ -289,7 +288,7 @@ def validate_ring(records: list[dict[str, int | str]]) -> dict[str, object]:
         "board_count": len(records),
         "train_epoch": int(records[0]["train_epoch"]) if records else None,
         "train_sequence": int(records[0]["train_sequence"]) if records else None,
-        "link_offset_model": "marker_capture + base_half_chip + per_link_offset",
+        "link_offset_model": "link_base_delay + destination_node_offset",
         "link_offset_candidates": derive_link_offset_candidates(records),
         "errors": errors,
         "records": records,
@@ -325,6 +324,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--node-offset-samples", type=int, action="append",
         help="one -10..+10 marker-window offset per board in physical order")
+    parser.add_argument(
+        "--link-delay-ns", type=int, action="append",
+        help=("measured end-to-end delay; repeat once per physical link; "
+              "the training base is link-delay/2"))
     parser.add_argument(
         "--offset-matrix", action="store_true",
         help="traverse the configured offset matrix, optionally filtered")
@@ -492,13 +495,14 @@ def marker_action_args(args: argparse.Namespace) -> argparse.Namespace:
 
 
 def arm_marker(board: Board, args: argparse.Namespace,
-               offset_sample_count: int) -> str:
+               link_base_ns: int, offset_sample_count: int) -> str:
     command = (f"CALibration:MARKer:ARM {args.codebook},{args.epoch},"
                f"{args.epoch},{args.epoch},{args.generation},"
-               f"{offset_sample_count},{args.origin_node}")
+               f"{link_base_ns},{offset_sample_count},{args.origin_node}")
     response = board_command(board, command, marker_action_args(args))
     expected = [args.codebook, args.epoch, args.epoch, args.epoch,
-                args.generation, offset_sample_count, args.origin_node]
+                args.generation, link_base_ns, offset_sample_count,
+                args.origin_node]
     try:
         actual = [int(value.strip().strip('"'), 0)
                   for value in next(csv.reader([response]), [])]
@@ -611,10 +615,17 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
             for offset in offsets):
         raise SystemExit(
             "node-offset-samples must provide one -10..+10 value per board")
-    half_chip_samples = HALF_CHIP_NS_BY_CODEBOOK[args.codebook] // SAMPLE_PERIOD_NS
+    link_delays = list(args.link_delay_ns or [])
+    if len(link_delays) != len(board_ids):
+        raise SystemExit("link-delay-ns must provide one value per physical link")
     try:
-        capture_delays = [capture_phase_delay_cycles(args.codebook, offset)
-                          for offset in offsets]
+        link_bases = [link_base_delay_ns(value) for value in link_delays]
+        incoming_link_by_node = [
+            (node - 1) % len(board_ids) for node in range(len(board_ids))]
+        capture_delays = [
+            capture_phase_delay_cycles(
+                link_bases[incoming_link_by_node[node]], offsets[node])
+            for node in range(len(board_ids))]
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
     timing_budget = physical_timing_budget(args)
@@ -622,6 +633,8 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
             float(timing_budget["half_chip_after_transceiver_pwd_ns"]) <= 0):
         raise SystemExit("transceiver PWD exhausts the selected half-chip")
     args.board_ids = board_ids
+    args.link_delay_ns = link_delays
+    args.link_base_delay_ns = link_bases
     boards = discover(args)
     missing = set(board_ids) - set(boards)
     if missing:
@@ -648,9 +661,15 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
         "node_offset_samples": offsets,
         "node_offset_ns": [offset * SAMPLE_PERIOD_NS for offset in offsets],
         "offset_application": "PIO_CAPTURE_PHASE_DELAY_ONLY_FORWARD_FIXED",
-        "base_half_chip_ns": HALF_CHIP_NS_BY_CODEBOOK[args.codebook],
+        "link_delay_ns_by_link": link_delays,
+        "link_base_delay_ns_by_link": link_bases,
         "pio_forward_phase_delay_cycles": [1 for _ in offsets],
         "pio_capture_phase_delay_cycles": capture_delays,
+        "unified_phase_training": build_phase_training_contract(
+            signal="MARK", link_delay_ns_by_link=link_delays,
+            node_offset_samples=offsets,
+            sample_period_ns=SAMPLE_PERIOD_NS,
+            capture_origin="rx_csn_pio_edge"),
         "physical_timing_budget": timing_budget,
         "boards": {board.address: asdict(board) for board in ordered},
     }
@@ -669,14 +688,23 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
         # originator TX SM also remains blocked on an empty PIO TX FIFO.
         for board in followers:
             node = ordered.index(board)
+            incoming_link = (node - 1) % len(ordered)
             arms.append({"board": board.address,
+                         "incoming_link": incoming_link,
+                         "link_base_delay_ns": link_bases[incoming_link],
                          "offset_sample_count": offsets[node],
                          "response": arm_marker(
-                             board, args, offsets[node])})
+                             board, args, link_bases[incoming_link],
+                             offsets[node])})
+        origin_incoming_link = (args.origin_node - 1) % len(ordered)
         arms.append({"board": originator.address,
+                     "incoming_link": origin_incoming_link,
+                     "link_base_delay_ns": link_bases[origin_incoming_link],
                      "offset_sample_count": offsets[args.origin_node],
                      "response": arm_marker(
-                         originator, args, offsets[args.origin_node])})
+                         originator, args,
+                         link_bases[origin_incoming_link],
+                         offsets[args.origin_node])})
         armed = wait_marker_armed(ordered, args)
         injection = {
             "board": originator.address,
@@ -696,12 +724,9 @@ def build_offset_matrix(
         node_count: int,
         values: tuple[int, ...] = DEFAULT_MATRIX_OFFSET_VALUES,
 ) -> list[dict[str, object]]:
-    return [{
-        "row_id": row_id,
-        "offset_sample_counts_by_node": list(offsets),
-        "offset_ns_by_node": [offset * SAMPLE_PERIOD_NS for offset in offsets],
-    } for row_id, offsets in enumerate(
-        itertools.product(values, repeat=node_count))]
+    return build_offset_rows(
+        node_count=node_count, values_by_node=[values] * node_count,
+        sample_period_ns=SAMPLE_PERIOD_NS)
 
 
 def parse_matrix_filters(raw_filters: list[str], node_count: int,
@@ -822,6 +847,14 @@ def run_offset_matrix(args: argparse.Namespace) -> dict[str, object]:
     board_ids = list(args.board_id or [])
     if len(board_ids) < 2:
         raise SystemExit("offset matrix requires board-id inputs")
+    link_delays = list(args.link_delay_ns or [])
+    if len(link_delays) != len(board_ids):
+        raise SystemExit("link-delay-ns must provide one value per physical link")
+    try:
+        args.link_base_delay_ns = [
+            link_base_delay_ns(value) for value in link_delays]
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     raw_values = args.matrix_offset_value or DEFAULT_MATRIX_OFFSET_VALUES
     matrix_values = tuple(dict.fromkeys(int(value) for value in raw_values))
     if not matrix_values or any(
@@ -836,8 +869,11 @@ def run_offset_matrix(args: argparse.Namespace) -> dict[str, object]:
         for node, offset in filters.items())]
     try:
         for row in selected:
-            for offset in row["offset_sample_counts_by_node"]:
-                capture_phase_delay_cycles(args.codebook, int(offset))
+            for node, offset in enumerate(
+                    row["offset_sample_counts_by_node"]):
+                incoming_link = (node - 1) % len(board_ids)
+                capture_phase_delay_cycles(
+                    args.link_base_delay_ns[incoming_link], int(offset))
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
     epoch_start = args.matrix_epoch_start or args.epoch
@@ -914,13 +950,22 @@ def run_offset_matrix(args: argparse.Namespace) -> dict[str, object]:
     return {
         "phase": "TRN-01_FOUR_NODE_OFFSET_MATRIX",
         "diagnostic_only": True,
-        "offset_model": "marker_capture + base_half_chip + per_node_offset_samples*4ns",
+        "offset_model": "link_base_delay(link) + node_offset(node)",
         "offset_application": "PIO_CAPTURE_PHASE_DELAY_ONLY_FORWARD_FIXED",
-        "base_half_chip_ns": HALF_CHIP_NS_BY_CODEBOOK[args.codebook],
-        "pio_capture_phase_delay_mapping": {
-            str(value): capture_phase_delay_cycles(args.codebook, value)
+        "link_delay_ns_by_link": list(args.link_delay_ns),
+        "link_base_delay_ns_by_link": list(args.link_base_delay_ns),
+        "unified_phase_training": build_phase_training_contract(
+            signal="MARK", link_delay_ns_by_link=args.link_delay_ns,
+            node_offset_samples=(
+                recommended_row["offset_sample_counts_by_node"]
+                if recommended_row is not None else [0] * len(board_ids)),
+            sample_period_ns=SAMPLE_PERIOD_NS,
+            capture_origin="rx_csn_pio_edge"),
+        "pio_capture_phase_delay_mapping_by_node": [{
+            str(value): capture_phase_delay_cycles(
+                args.link_base_delay_ns[(node - 1) % len(board_ids)], value)
             for value in matrix_values
-        },
+        } for node in range(len(board_ids))],
         "pio_forward_phase_delay_cycles": 1,
         "node_ids_in_loop_order": board_ids,
         "matrix_values": list(matrix_values),
