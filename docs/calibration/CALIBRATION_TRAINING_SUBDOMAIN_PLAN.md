@@ -14,6 +14,7 @@ Last updated: 2026-08-25
 
 - 确认相邻节点的同步线和数据线都可捕获；
 - 用 marker 建立接收端本地时间零点，消除公共传播延迟对绝对等待的依赖；
+- 对 SCK 使用独立训练 burst、捕获原点和 offset 矩阵，不把 marker 的采样量化误差叠加到 SCK；
 - 通过已知 codeword、相关峰、CRC 和 epoch/sequence 判断 DATA 是否被正确采样；
 - CS marker 识别成功后由 core1 立即 cut-through 转发给下一个节点，不等待完整 TDMA 帧和 core0 解析；
 - 输出每条相邻链路的相对偏移、有效窗口、置信度和拒绝原因；
@@ -111,8 +112,8 @@ forward residence 和 guard 的组合，不得替代任何单条 `link_i_delay`�
 的接收端组成应命名为 `node1_receiver_delay`；禁止把 receiver delay 归到 source node，或把
 driver/receiver datasheet delay 在端到端实测值上重复相加。
 
-当前训练 offset 是按 source node 装载到 PIO capture 相位的独立状态量；forward delay 保持
-固定。矩阵必须保留
+当前训练 offset 是按 destination node 装载到该节点 PIO capture 相位的独立状态量；forward
+delay 保持固定。矩阵必须保留
 所有节点维度的笛卡尔积；当前代码事实源为
 `tools/calibration_ring_validate/calibration_marker_train.py::build_offset_matrix()`。筛选参数只决定
 本轮执行哪些矩阵行，不能从输出中删除未执行行或把固定为零的维度降掉。每行至少保存：
@@ -127,6 +128,31 @@ normal/inverted distance, marker flags, raw capture reference
 固定一个 origin 的单次多节点 trial，直接得到 successor 方向的若干 `link` capture 和该 origin
 的一个 `loop` capture；它不是“全部 link 都已独立测量”。要完成全量 directed-link 判断，必须
 轮换 reference/origin，使每条 `link_i` 至少一次成为可直接与本地期望 marker 对照的测量对象。
+
+### 2.1.1 MARK 与 SCK 独立 offset 矩阵
+
+MARK/CS 和 SCK 是两条独立物理信号路径。二者可以共享 accepted topology、profile identity、
+epoch 分配和证据格式，但不能共享采样相位事实。MARK 训练通过只表示 MARK 自身可识别，并为
+后续训练提供安全启停与环路身份；它不能作为 SCK 相关器的数学时间零点。否则 MARK 在 raw
+sample 网格上的量化误差会再次进入 SCK 结果，使两个独立的一拍误差发生叠加。
+
+SCK 必须独立执行两级训练：
+
+```text
+SCK-TRN-01: PIO 内部启动已知 SCK burst -> 各 node 原始捕获/cut-through -> 返回环路证据
+SCK-TRN-02: 以 SCK 自身 capture origin 搜索相位 -> 重复统计 -> per-node SCK offset 矩阵
+```
+
+每个 node 的 `sck_offset_sample_count` 必须从 SCK 自身的相关峰、拍差直方图、众数/中位数和
+拒绝比例产生；容量引用 `TDMA_RING_NODE_MAX`。单张 SVG 只用于解释候选方向和搜索区间，
+不能直接替代重复门禁。每次 repeat 必须是独立的 `STOP -> ARM -> inject -> capture`，因为
+重新 ARM 后环路可能落入相邻 raw sample 相位状态。
+
+MARK 与 SCK 均 accepted 后才计算 `mark_sck_skew`。该值只用于产品 persona 的 guard/window
+验收和 stale 检查，不得回写为 MARK 或 SCK 的物理 offset。当前实现中的
+`source_marker_offset_sample_count`、`destination_marker_offset_sample_count` 和
+`marker_to_sck_samples` 仍把 MARK offset 代入 SCK 期望相位；在替换为 SCK 自身原点并完成
+四板重复 HIL 前，相关结果只能保持 `DIAGNOSTIC_ONLY`，不得进入 TRN-03 active staging。
 
 ## 2.2 收发驱动器时序预算与去嵌入
 
@@ -320,7 +346,7 @@ P1/P2 只限制搜索范围，P3 只提供每跳传播预算；真正决定 DATA
 |---|---|---|---|---|
 | `TRN-01` | Ring Marker Capture & Cut-Through（环路 marker 捕获与切通） | accepted topology、P2 marker codebook、marker line 角色、epoch/sequence | 每个节点的 marker capture/forward tick、cut-through residence、整圈 marker RTT、缺失/重复/乱序原因 | 所有节点捕获同一 marker；顺序正确；每跳 forward residence 有界；reference 捕获返回 marker；PIO/DMA fault 为零 |
 | `TRN-02` | Marker-Anchored DATA Window Training（marker 锚定 DATA 窗口训练） | TRN-01 marker origin、P3 `path_delay` diagnostic candidate、PIO sample period、DATA codeword | 每条 link 的 `data_offset`、`training_window`、`guard`、`marker_data_skew`、correlation/margin/CRC 证据 | 单跳先通过；四条 directed link 均在同一 generation/profile 下重复通过；窗口达到当前 PIO 分辨率或明确拒绝原因 |
-| `TRN-03` | TDMA Short-Frame/FIFO Closed Loop（TDMA 短帧/FIFO 闭环接入） | TRN-02 per-link window、PIO instruction-cycle profile、loop-delay/residence 汇总、topology/profile/schedule CRC | TDMA per-link staging、ARM gate、link/forward budget、短帧 TX/RX FIFO 计数、sequence/CRC/feedback evidence、active candidate | 全部链路 accepted 且指令周期预算可重放后才能 ARM；四板 up/down、FIFO、sequence/CRC 同时增长；失败统一 STOPPED 并保持旧 active generation |
+| `TRN-03` | TDMA Short-Frame/FIFO Closed Loop（TDMA 短帧/FIFO 闭环接入） | TRN-02 per-link DATA window、独立 SCK offset matrix、PIO instruction-cycle profile、loop-delay/residence 汇总、topology/profile/schedule CRC | TDMA per-link staging、ARM gate、link/forward budget、短帧 TX/RX FIFO 计数、sequence/CRC/feedback evidence、active candidate | MARK、SCK 和 DATA 链路均 accepted 且指令周期预算可重放后才能 ARM；四板 up/down、FIFO、sequence/CRC 同时增长；失败统一 STOPPED 并保持旧 active generation |
 
 ### TRN-01：环路 marker 捕获与切通
 
@@ -367,7 +393,7 @@ staging 必须同时保存 `base_half_chip_ns`、`offset_sample_count`、`sample
 
 第三阶段才装载按 ring role 配置的产品 cyclic flight persona，把 TRN-02 的 per-link window 绑定到 TDMA adapter，
 并通过显式 `STOP -> stage -> validate -> ARM -> START` 接入短帧和 TX/RX FIFO。ARM 前
-必须冻结本次 profile 的 PIO 指令周期预算；core1
+必须同时加载独立 accepted 的 MARK、SCK 和 DATA offset matrix，并冻结本次 profile 的 PIO 指令周期预算；core1
 负责 PIO/SM/DMA、飞行转发和 FIFO 搬运；core0 只处理已完成帧和 guarded snapshot。
 
 TRN-03 replay matrix 必须由固化工具
@@ -528,7 +554,8 @@ raw evidence 必须保留；Calibration 只在质量门禁完成后发布 candid
 ## 7. 搜索与收敛算法
 
 1. 使用 P3 path-delay candidate 和 accepted topology 建立有界初始区间，并记录 `DIAGNOSTIC_ONLY` 来源。
-2. 在区间内以 codeword 相关峰搜索 `N` 和采样相位，先保证 marker、DATA、CRC 三者同时通过。
+2. 在各信号自己的区间内以 codeword 相关峰搜索 `N` 和采样相位；MARK、SCK、DATA 分别形成
+   自身 capture origin 和 offset evidence，禁止把前一信号的 offset 加入后一信号搜索公式。
 3. 对通过点重复 trial，统计 best lag、second peak、margin、skew、DMA/stall 和频率/占空比。
 4. 每个失败点也是有效训练 evidence，必须保存搜索区间、best/second lag、normal/inverted distance、
    polarity、marker flags、reject reason 和节点状态。`SEARCH_RANGE/CAPTURE_TRUNCATED` 用于扩大或

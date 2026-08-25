@@ -10,6 +10,54 @@ Last updated: 2026-08-25
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20260825-008 - MARK 扩样检查点与 SCK 独立训练决策
+
+- 状态：已完成 MARK 矩阵工具归因修复、固定 identity 的零 offset 扩样和离线 SVG 对齐；
+  已确认 SCK 必须使用自身 capture origin 独立完成两级训练。SCK 解耦尚未实现，本检查点
+  不继续刷板、不发布 active calibration，TRN-03A 恢复为进行中。
+- 代码检查点：当前分支与远端均为提交 `b69f1a8`；板端仍运行 build `20260825083548`。
+  本轮没有固件修改，因此没有重新构建或 OTA。
+- MARK 工具修复：
+  - `calibration_marker_train.py` 与 `calibration_marker_offsets.py` 将 offset 归因从错误的
+    `source_node` 改为实际加载 capture offset 的 `destination_node`；matrix 默认固定
+    epoch/codeword，并让每个 row 进行多次独立 `STOP -> ARM -> inject`。
+  - 默认 repeat 数、逐 node gate、distance 统计和推荐 row 已固化在工具中；本地
+    `topology_generation` 不再错误要求跨板相同，topology/profile/schedule CRC 仍必须一致。
+  - 定向回归为本轮诊断快照：`43 passed`，pytest 目录为
+    `out/pytest/mark_matrix_repeat_fix/`。
+- MARK 零 offset 扩样（诊断快照，非事实源）：固定 codebook `1`、epoch `91` 和
+  `[0,0,0,0]`，共执行 `32` 次独立 trial。证据目录为
+  `out/training/mark_baseline_0000_repeat8_cb1_e91_g136_20260825/` 与
+  `out/training/mark_baseline_0000_repeat24_cb1_e91_g144_20260825/`。
+
+| Node | accepted | best lag 分布 | distance median | distance max |
+|---|---:|---|---:|---:|
+| node0 | 25/32 | `0:29, 1:3` | 441.5 | 1202 |
+| node1 | 32/32 | `0:15, 1:17` | 1 | 228 |
+| node2 | 32/32 | `0:25, 1:7` | 37.5 | 480 |
+| node3 | 29/32 | `0:27, 1:5` | 129.5 | 954 |
+
+- 解释：独立 ARM 后环路会落入相邻的 raw sample 相位状态，一拍量化变化属于正常观测；
+  静态 offset 必须依据更大样本的拍差直方图、众数/中位数和拒绝比例选择，不能要求每次
+  distance 完全相同，也不能凭单张 SVG 决定最终矩阵。node0 返回和 node3 的拒绝必须保留
+  为有效失败 evidence。
+- SVG 对齐：g136、g137、g138 的候选 delay 分别为 `[-4,0,0,-4] ns`、
+  `[+4,+4,+4,+4] ns` 和 `[-4,0,-4,-4] ns`；换算关系为
+  `offset_delta_samples = -candidate_delay_ns / sample_period_ns`，本轮 sample period 快照为
+  `4 ns`。JSON/SVG 位于基线目录的 `baseline_analysis/g136/`、`g137/`、`g138/`。
+- 失败搜索证据：`[+3,-2,0,+2]` 与 `[+2,-2,0,+2]` 两个候选 row 均各执行独立 repeat，
+  因 node0 返回重复门禁失败；证据分别位于
+  `out/training/mark_matrix_repeat8_p3m2p0p2_cb1_e91_g120_20260825/` 和
+  `out/training/mark_matrix_repeat8_p2m2p0p2_cb1_e91_g128_20260825/`。失败不从训练集删除。
+- SCK 架构审计：当前 `calibration_training_sck.c` 和 `calibration_sck_train.py` 的公式/请求
+  仍包含 `source_marker_offset_sample_count`、`destination_marker_offset_sample_count` 和
+  `marker_to_sck_samples`，会把 MARK 的一拍量化误差叠加到 SCK。正确路径是 SCK 使用 PIO
+  内部启动、已知 SCK burst 和返回 raw capture，独立形成 SCK-TRN-01/02 offset matrix；
+  `mark_sck_skew` 只作为最终 guard/window 验收，不回写任一信号的物理 offset。
+- 下一步：先移除 SCK 相位公式对 MARK offset 的依赖并补 host 回归；随后用固定 identity、
+  独立 repeat 和全量 node matrix 运行四板 SCK 基线，保存 SD raw capture、逐 node `1 us` SVG、
+  拍差分布和失败比例；完成后重新生成并验证 TRN-03A staging，再进入 raw-flight。
+
 ## CAL-TASK-20260825-007 - TRN-03B 原始短帧飞行 persona 接通
 
 - 状态：完成 raw byte-level flight 的代码、工具分级、host 单测和固件构建；尚未刷入四板，
