@@ -38,7 +38,7 @@ def matrix() -> dict[str, object]:
             "pio_persona": 1,
             "clkdiv_q16": 65536,
             "clk_sys_hz": 150_000_000,
-            "instruction_period_ns": 4,
+            "instruction_period_ns": 17,
             "bit_cycles": 25,
             "marker_to_data_cycles": 10,
             "forward_residence_cycles": 5,

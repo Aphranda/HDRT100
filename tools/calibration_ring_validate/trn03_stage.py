@@ -212,19 +212,19 @@ def load_config(path: Path, offset_row_id: int | None = None) -> dict[str, Any]:
         if marker_offset_ns < 0 or sck_offset_ns < 0:
             raise ValueError("MARK/SCK phase is below the link baseline")
         link["marker_phase_delay_cycles"] = (
-            marker_offset_ns + link["instruction_period_ns"] // 2
-        ) // link["instruction_period_ns"]
+            marker_offset_ns + link["sample_period_ns"] // 2
+        ) // link["sample_period_ns"]
         link["sck_phase_delay_cycles"] = (
-            sck_offset_ns + link["instruction_period_ns"] // 2
-        ) // link["instruction_period_ns"]
+            sck_offset_ns + link["sample_period_ns"] // 2
+        ) // link["sample_period_ns"]
         offset_ns = (link["link_base_delay_ns"] +
                      link["data_offset_sample_count"] *
                      link["sample_period_ns"])
         if offset_ns < 0:
             raise ValueError("negative DATA offset cannot map to delay-only PIO")
         link["data_phase_delay_cycles"] = (
-            offset_ns + link["instruction_period_ns"] // 2
-        ) // link["instruction_period_ns"]
+            offset_ns + link["sample_period_ns"] // 2
+        ) // link["sample_period_ns"]
         if ((link["evidence_flags"] & REQUIRED_EVIDENCE_FLAGS) !=
                 REQUIRED_EVIDENCE_FLAGS or
                 link["evidence_flags"] & DIAGNOSTIC_ONLY_FLAG):

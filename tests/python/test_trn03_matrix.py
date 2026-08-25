@@ -153,9 +153,9 @@ def test_build_matrix_derives_residence_and_budget(tmp_path: Path) -> None:
     assert link0["data_offset_sample_count"] == 5
     assert link0["sample_period_ns"] == 4
     assert link0["link_base_delay_ns"] == 40
-    assert link0["marker_phase_delay_cycles"] == 6
-    assert link0["data_phase_delay_cycles"] == 10
-    assert link0["sck_phase_delay_cycles"] == 7
+    assert link0["marker_phase_delay_cycles"] == 9
+    assert link0["data_phase_delay_cycles"] == 15
+    assert link0["sck_phase_delay_cycles"] == 10
     assert matrix["offset_matrix"]["full_matrix_row_count"] == 1
     assert matrix["offset_matrix"]["rows"][0][
         "marker_offset_sample_counts_by_node"] == [1, -1, 0, 1]

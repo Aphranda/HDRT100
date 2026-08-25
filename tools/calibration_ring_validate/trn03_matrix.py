@@ -271,10 +271,11 @@ def build_matrix(level: int, data: dict[str, Any],
                 sck_link_bases[index] != link_base_delay_ns:
             raise ValueError(f"link{index} SCK/DATA base mismatch")
 
-        # Repeated TRN-02 results may straddle one 4 ns sample bucket. Select
-        # the deterministic median while preserving every observed value in
-        # source_evidence. The profile mapping below converts that training
-        # quantization into the currently loaded PIO instruction period.
+        # Repeated TRN-02 results may straddle one clk_sys sample bucket.
+        # Select the deterministic median while preserving every observed
+        # value in source_evidence. Flight MARK/SCK/DATA delay fields execute
+        # in clkdiv=1 PIO state machines, so phase cycles use the training
+        # sample period, not the slower operating-profile instruction period.
         selected_data_offset = sorted(calibrated_data_offsets)[
             len(calibrated_data_offsets) // 2]
         data_offset_ns = (link_base_delay_ns +
@@ -282,8 +283,8 @@ def build_matrix(level: int, data: dict[str, Any],
         if data_offset_ns < 0:
             raise ValueError(f"link{index} DATA phase is below link base")
         data_phase_delay_cycles = (
-            data_offset_ns + facts["instruction_period_ns"] // 2
-        ) // facts["instruction_period_ns"]
+            data_offset_ns + sample_period_ns // 2
+        ) // sample_period_ns
         if data_phase_delay_cycles > 31:
             raise ValueError(f"link{index} DATA phase exceeds PIO delay field")
         marker_destination = int(data_link["marker_destination_node"])
@@ -296,8 +297,8 @@ def build_matrix(level: int, data: dict[str, Any],
             raise ValueError(
                 f"link{index} SCK phase is below the delay baseline")
         sck_phase_delay_cycles = (
-            sck_delay_ns + facts["instruction_period_ns"] // 2
-        ) // facts["instruction_period_ns"]
+            sck_delay_ns + sample_period_ns // 2
+        ) // sample_period_ns
         if sck_phase_delay_cycles > 31:
             raise ValueError(f"link{index} SCK phase exceeds PIO delay field")
         marker_delay_ns = link_base_delay_ns + (
@@ -305,8 +306,8 @@ def build_matrix(level: int, data: dict[str, Any],
         if marker_delay_ns < 0:
             raise ValueError(f"link{index} MARK phase is below link base")
         marker_phase_delay_cycles = (
-            marker_delay_ns + facts["instruction_period_ns"] // 2
-        ) // facts["instruction_period_ns"]
+            marker_delay_ns + sample_period_ns // 2
+        ) // sample_period_ns
         if marker_phase_delay_cycles > 31:
             raise ValueError(f"link{index} MARK phase exceeds PIO delay field")
         marker_offsets_by_node[marker_destination] = marker_offsets[0]
