@@ -110,6 +110,9 @@ def evidence(level: int = 9) -> tuple[dict, dict]:
 
 def sck_evidence(data: dict) -> dict:
     identity = dict(data["matrix"]["identity"])
+    topology_generation = identity.pop("topology_generation")[0]
+    identity["topology_generation_by_node"] = {
+        str(node): [topology_generation] for node in range(4)}
     return {
         "phase": "TRN-SCK_OFFSET_MATRIX",
         "passed": True,

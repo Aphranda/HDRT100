@@ -816,11 +816,19 @@ static inline void tdma_pio_spi_data_train_source_program_init(
     PIO pio, uint sm, uint offset, uint32_t tx_csn_pin,
     uint32_t tx_data_pin, uint32_t phase_delay_cycles)
 {
-    pio->instr_mem[offset + 4u] =
+    enum {
+        DATA_TRAIN_SOURCE_WAIT_HIGH_INSTRUCTION = 3u,
+        DATA_TRAIN_SOURCE_WAIT_LOW_INSTRUCTION = 4u,
+        DATA_TRAIN_SOURCE_PHASE_DELAY_INSTRUCTION = 6u,
+    };
+    pio->instr_mem[
+        offset + DATA_TRAIN_SOURCE_WAIT_HIGH_INSTRUCTION] =
         (uint16_t)pio_encode_wait_gpio(true, tx_csn_pin);
-    pio->instr_mem[offset + 5u] =
+    pio->instr_mem[
+        offset + DATA_TRAIN_SOURCE_WAIT_LOW_INSTRUCTION] =
         (uint16_t)pio_encode_wait_gpio(false, tx_csn_pin);
-    pio->instr_mem[offset + 8u] = (uint16_t)(
+    pio->instr_mem[
+        offset + DATA_TRAIN_SOURCE_PHASE_DELAY_INSTRUCTION] = (uint16_t)(
         pio_encode_nop() | pio_encode_delay(phase_delay_cycles - 1u));
     pio_sm_set_pins_with_mask64(pio, sm, 0ull, 1ull << tx_data_pin);
     pio_gpio_init(pio, tx_csn_pin);

@@ -31,6 +31,27 @@ def singleton_identity(summary: dict[str, Any], *, residence: bool = False
     identity = matrix.get("identity", {})
     result: dict[str, int] = {}
     for field in IDENTITY_FIELDS:
+        if field == "topology_generation" and field not in identity:
+            per_node = identity.get("topology_generation_by_node")
+            expected_nodes = {
+                str(node) for node in range(len(node_order(summary)))}
+            if (not isinstance(per_node, dict) or
+                    set(per_node) != expected_nodes):
+                raise ValueError(
+                    "topology_generation_by_node: expected every Node")
+            node_values: list[int] = []
+            for node in sorted(expected_nodes, key=int):
+                values = per_node[node]
+                if not isinstance(values, list) or len(values) != 1:
+                    raise ValueError(
+                        f"topology_generation_by_node[{node}]: "
+                        "expected one identity value")
+                node_values.append(int(values[0]))
+            if len(set(node_values)) != 1:
+                raise ValueError(
+                    "topology_generation_by_node: mixed identity values")
+            result[field] = node_values[0]
+            continue
         values = identity.get(field, [])
         if not isinstance(values, list) or len(values) != 1:
             raise ValueError(f"{field}: expected one identity value")

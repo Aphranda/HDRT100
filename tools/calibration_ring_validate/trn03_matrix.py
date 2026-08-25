@@ -11,14 +11,18 @@ from typing import Any
 
 try:
     from .trn02_profile_gate import (
+        IDENTITY_FIELDS,
         load_summary,
         node_order,
+        singleton_identity,
         validate_profile_pair,
     )
 except ImportError:  # Direct execution from this directory.
     from trn02_profile_gate import (  # type: ignore[no-redef]
+        IDENTITY_FIELDS,
         load_summary,
         node_order,
+        singleton_identity,
         validate_profile_pair,
     )
 
@@ -171,16 +175,9 @@ def build_matrix(level: int, data: dict[str, Any],
         if not isinstance(sck_matrix_gate, dict) or not bool(
                 sck_matrix_gate.get("passed")):
             raise ValueError("SCK repeat matrix is not accepted")
-        sck_identity = sck_matrix_gate.get("identity")
-        if not isinstance(sck_identity, dict):
-            raise ValueError("SCK identity is missing")
-        for field in (
-                "calibration_generation", "topology_generation",
-                "topology_crc32", "profile_crc32", "schedule_crc32",
-                "sample_period_ns"):
-            values = sck_identity.get(field)
-            if not isinstance(values, list) or len(values) != 1 or \
-                    int(values[0]) != int(identity[field]):
+        sck_identity = singleton_identity(sck)
+        for field in (*IDENTITY_FIELDS, "sample_period_ns"):
+            if int(sck_identity[field]) != int(identity[field]):
                 raise ValueError(f"sck_{field}_mismatch")
         sck_offsets = sck_matrix_gate.get("offset_matrix")
         if not isinstance(sck_offsets, dict):

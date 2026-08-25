@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from tools.calibration_ring_validate.trn02_profile_gate import aggregate
 
 
@@ -51,6 +53,9 @@ def _summary(tmp_path: Path, level: int, generation: int, profile: int) -> Path:
 def _residence(tmp_path: Path, level: int, generation: int,
                profile: int) -> Path:
     identity = _identity(generation, profile, 200 + level)
+    topology_generation = identity.pop("topology_generation")[0]
+    identity["topology_generation_by_node"] = {
+        str(node): [topology_generation] for node in range(4)}
     identity["tick_resolution_ns"] = identity.pop("sample_period_ns")
     value = {
         "phase": "TRN-01_RESIDENCE_MATRIX",
@@ -117,3 +122,13 @@ def test_profile_gate_rejects_residence_from_wrong_generation(tmp_path: Path) ->
     assert result["passed"] is False
     assert "level7:residence_calibration_generation_mismatch" in \
         result["gate_failures"]
+
+
+def test_profile_gate_rejects_mixed_node_topology_generation(
+        tmp_path: Path) -> None:
+    profiles, residences = _evidence(tmp_path)
+    residence = json.loads(residences[0][1].read_text(encoding="utf-8"))
+    residence["matrix"]["identity"]["topology_generation_by_node"]["3"] = [99]
+    residences[0][1].write_text(json.dumps(residence), encoding="utf-8")
+    with pytest.raises(ValueError, match="mixed identity values"):
+        aggregate(profiles, residences)
