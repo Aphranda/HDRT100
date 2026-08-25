@@ -495,7 +495,7 @@ def correlate_capture(args: argparse.Namespace) -> dict[str, object]:
         role = "origin" if node == args.master_node else "follower"
     expected, vector = marker_raw_waveform(
         codebook_id=args.codebook_id, epoch=epoch,
-        master_slot=args.master_node, polarity=0)
+        source_node=args.master_node, polarity=0)
     sample_count_source = "capture"
     replay_capture = capture
     if "raw_interleaved_sample_count" not in capture:

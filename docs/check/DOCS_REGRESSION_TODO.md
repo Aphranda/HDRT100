@@ -56,6 +56,8 @@ Last updated: 2026-08-24
 | T25 | 外部绝对路径清理：`D:\Work\ADS_AUTO_SIM\docs` 3 处（docs/README.md:18、docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md:11、docs/docs/DOCS_MIGRATION_TODO.md:107）改相对/仓库根 | 2026-08-24 二次审查 P2 | pending | — |
 | T26 | docs/README.md:166 过期描述：temp/HAOFV_REFRESH_PLAN.md「8-26 截止」→ 已闭环（T18 08-24 done） | 2026-08-24 二次审查 P3 | pending | — |
 | T27 | docs/arch/HAOFV_MAINTENANCE_TODO.md:423 硬数字「约 190 条」补代码符号/快照标注（对照 RISK_EVALUATION 的 s_ecc_table[] 证据） | 2026-08-24 二次审查 P3 | pending | — |
+| T28 | 归档 2026-08-24 项目状态审查快照：域进度、Calibration TRN-02、VDC 常驻闭环、RefMem completion、HAOFV 合规和当前在制改动边界 | 用户要求“将评审内容计入文档检查” | done | `docs/check/DOCS_PROJECT_STATUS_REVIEW_20260824.md` 已建立；不新增冻结契约，不改变 registry status |
+| T29 | 修复本次审查发现的治理覆盖盲区：旧格式 contract ID 必须显式校验或迁移为 superseded；补 module 锚点存在性检查；清理外部绝对路径、过期截止日期和未标注硬数字 | 2026-08-24 项目状态审查 | pending | 与 T24-T27 合并跟踪；完成后补正向/反向 pytest 和交叉审核 |
 
 ## 每步反馈记录
 

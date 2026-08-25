@@ -601,9 +601,50 @@ bool tdma_service_set_loop_delay_ns(tdma_service_service_t *service,
     return true;
 }
 
+bool tdma_service_stage_calibration(
+    tdma_service_service_t *service,
+    const tdma_ring_calibration_stage_t *stage)
+{
+    tdma_ring_runtime_reason_t reason = TDMA_RING_RUNTIME_REASON_NONE;
+    tdma_ring_runtime_snapshot_t snapshot;
+    if (service == NULL || stage == NULL ||
+        !tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot) ||
+        snapshot.enabled != 0u ||
+        !tdma_ring_runtime_validate_calibration_stage(
+            stage, service->ring_staged_config.node_count, &reason)) {
+        return false;
+    }
+    service->calibration_stage = *stage;
+    service->calibration_gate_required = 1u;
+    return true;
+}
+
+bool tdma_service_clear_calibration_stage(tdma_service_service_t *service)
+{
+    tdma_ring_runtime_snapshot_t snapshot;
+    if (service == NULL ||
+        !tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot) ||
+        snapshot.enabled != 0u) {
+        return false;
+    }
+    memset(&service->calibration_stage, 0,
+           sizeof(service->calibration_stage));
+    service->calibration_gate_required = 0u;
+    return true;
+}
+
 bool tdma_service_ring_arm(tdma_service_service_t *service)
 {
-    return service != NULL && service->ring_staged_config.enabled != 0u &&
+    if (service == NULL || service->ring_staged_config.enabled == 0u) {
+        return false;
+    }
+    if (service->calibration_gate_required != 0u &&
+        !tdma_ring_runtime_validate_calibration_stage(
+            &service->calibration_stage,
+            service->ring_staged_config.node_count, NULL)) {
+        return false;
+    }
+    return
            tdma_service_configure_ring_runtime(
                service, &service->ring_staged_config);
 }

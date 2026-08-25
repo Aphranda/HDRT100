@@ -142,6 +142,52 @@ bool tdma_ring_runtime_validate_config(
     return true;
 }
 
+bool tdma_ring_runtime_validate_calibration_stage(
+    const tdma_ring_calibration_stage_t *stage,
+    uint32_t expected_node_count,
+    tdma_ring_runtime_reason_t *reason)
+{
+    tdma_ring_runtime_set_reason(reason, TDMA_RING_RUNTIME_REASON_NONE);
+    if (stage == NULL || stage->enabled == 0u) {
+        tdma_ring_runtime_set_reason(reason,
+                                     TDMA_RING_RUNTIME_REASON_BAD_CONFIG);
+        return false;
+    }
+    if (expected_node_count < 2u ||
+        expected_node_count > TDMA_RING_CALIBRATION_LINK_MAX ||
+        stage->node_count != expected_node_count ||
+        stage->calibration_generation == 0u ||
+        stage->topology_generation == 0u || stage->topology_crc32 == 0u ||
+        stage->profile_crc32 == 0u || stage->schedule_crc32 == 0u) {
+        tdma_ring_runtime_set_reason(reason,
+                                     TDMA_RING_RUNTIME_REASON_BAD_CONFIG);
+        return false;
+    }
+    for (uint32_t i = 0u; i < expected_node_count; i++) {
+        const tdma_ring_calibration_link_t *link = &stage->links[i];
+        const uint64_t budget = (uint64_t)link->marker_to_data_cycles +
+            link->forward_residence_cycles + link->rx_arm_lead_cycles +
+            link->codeword_cycles + link->guard_cycles +
+            link->loop_delay_cycles;
+        if (link->valid == 0u || link->link_index != i ||
+            link->calibration_generation != stage->calibration_generation ||
+            link->topology_generation != stage->topology_generation ||
+            link->topology_crc32 != stage->topology_crc32 ||
+            link->profile_crc32 != stage->profile_crc32 ||
+            link->schedule_crc32 != stage->schedule_crc32 ||
+            link->pio_persona == 0u || link->clkdiv_q16 == 0u ||
+            link->clk_sys_hz == 0u || link->instruction_period_ns == 0u ||
+            link->bit_cycles == 0u || link->marker_to_data_cycles == 0u ||
+            link->codeword_cycles == 0u || link->link_budget_cycles == 0u ||
+            budget > link->link_budget_cycles) {
+            tdma_ring_runtime_set_reason(
+                reason, TDMA_RING_RUNTIME_REASON_BAD_CONFIG);
+            return false;
+        }
+    }
+    return true;
+}
+
 bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
                                  const tdma_ring_runtime_config_t *config)
 {

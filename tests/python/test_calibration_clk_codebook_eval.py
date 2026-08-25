@@ -57,7 +57,7 @@ def test_candidate_marker_golden_vector():
         version=CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
         codebook_id=CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_20,
         epoch=0x5A,
-        master_slot=3,
+        source_node=3,
         polarity=0,
     )
     assert marker_header(0, 0, 0x5A, 3, 0) == 0x05A6

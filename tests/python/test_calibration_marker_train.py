@@ -27,7 +27,7 @@ from tools.calibration_ring_validate.calibration_marker_offsets import (
 from tools.scpi_common.scpi_serial import scpi_response_matches_command
 
 
-def marker_row(slot: int, count: int = 4, *, sequence: int = 11,
+def marker_row(node: int, count: int = 4, *, sequence: int = 11,
                flags: int = REQUIRED_FLAGS | FLAG_DIAGNOSTIC_ONLY) -> str:
     values: dict[str, int | str] = {field: 0 for field in MARKER_FIELDS}
     values.update({
@@ -35,13 +35,13 @@ def marker_row(slot: int, count: int = 4, *, sequence: int = 11,
         "version": 1,
         "state": 3,
         "flags": flags,
-        "board_id_lo": slot + 1,
+        "board_id_lo": node + 1,
         "build_id_lo": 0x101,
-        "role": 1 if slot == 0 else 2,
-        "logical_slot": slot,
-        "reference_slot": 0,
-        "predecessor_slot": (slot - 1) % count,
-        "successor_slot": (slot + 1) % count,
+        "role": 1 if node == 0 else 2,
+        "local_node": node,
+        "reference_node": 0,
+        "predecessor_node": (node - 1) % count,
+        "successor_node": (node + 1) % count,
         "train_epoch": 7,
         "train_sequence": sequence,
         "marker_id": 3,
@@ -50,8 +50,8 @@ def marker_row(slot: int, count: int = 4, *, sequence: int = 11,
         "observed_crc32": 0x12345678,
         "marker_flags": 0x3F,
         "correlation_reject_reason": 0,
-        "best_lag_sample": 17 + slot,
-        "best_distance": slot,
+        "best_lag_sample": 17 + node,
+        "best_distance": node,
         "calibration_generation": 4,
         "topology_generation": 5,
         "topology_crc32": 0x23456789,
@@ -59,11 +59,11 @@ def marker_row(slot: int, count: int = 4, *, sequence: int = 11,
         "schedule_crc32": 0x456789AB,
         "tick_resolution_ns": 4,
         "offset_sample_count": 0,
-        "marker_capture_tick_lo": 1400 if slot == 0 else 1000 + slot * 100,
-        "marker_forward_tick_lo": 1000 if slot == 0 else 1012 + slot * 100,
-        "marker_return_tick_lo": 1400 if slot == 0 else 0,
-        "forward_residence_ticks_lo": 0 if slot == 0 else 12,
-        "loop_rtt_ticks_lo": 400 if slot == 0 else 0,
+        "marker_capture_tick_lo": 1400 if node == 0 else 1000 + node * 100,
+        "marker_forward_tick_lo": 1000 if node == 0 else 1012 + node * 100,
+        "marker_return_tick_lo": 1400 if node == 0 else 0,
+        "forward_residence_ticks_lo": 0 if node == 0 else 12,
+        "loop_rtt_ticks_lo": 400 if node == 0 else 0,
         "dma_capture_count": 1,
     })
     return ",".join(str(values[field]) for field in MARKER_FIELDS)
@@ -104,8 +104,8 @@ def test_marker_control_uses_calibration_inject_not_business_trigger() -> None:
 
 
 def test_validate_ring_accepts_common_epoch_and_order() -> None:
-    result = validate_ring([parse_marker_status(marker_row(slot))
-                            for slot in range(4)])
+    result = validate_ring([parse_marker_status(marker_row(node))
+                            for node in range(4)])
     assert result["passed"] is True
     assert result["diagnostic_only"] is True
     assert result["errors"] == []
@@ -228,16 +228,16 @@ def test_matrix_aggregate_groups_incoming_link_by_source_node_offset() -> None:
 
 
 def test_aggregate_rotated_references_covers_every_directed_link() -> None:
-    board_ids = [f"board-{slot}" for slot in range(4)]
+    board_ids = [f"board-{node}" for node in range(4)]
     summaries = []
     for reference in range(4):
-        records = [parse_marker_status(marker_row(slot)) for slot in range(4)]
-        accepted_slot = (reference + 2) % 4
+        records = [parse_marker_status(marker_row(node)) for node in range(4)]
+        accepted_node = (reference + 2) % 4
         for record in records:
-            slot = int(record["logical_slot"])
-            record["reference_slot"] = reference
-            record["role"] = 1 if slot == reference else 2
-            if slot != accepted_slot:
+            node = int(record["local_node"])
+            record["reference_node"] = reference
+            record["role"] = 1 if node == reference else 2
+            if node != accepted_node:
                 record["state"] = 4
                 record["correlation_reject_reason"] = 4
             else:
@@ -245,7 +245,7 @@ def test_aggregate_rotated_references_covers_every_directed_link() -> None:
                 record["offset_sample_count"] = 1
         summaries.append({
             "board_ids_in_physical_order": board_ids,
-            "reference_slot": reference,
+            "reference_node": reference,
             "epoch": 10 + reference,
             "generation": 10 + reference,
             "records": records,
@@ -260,20 +260,20 @@ def test_aggregate_rotated_references_covers_every_directed_link() -> None:
 
 
 def test_aggregate_pair_trials_keeps_four_offsets_independent() -> None:
-    ring_board_ids = [f"board-{slot}" for slot in range(4)]
+    ring_board_ids = [f"board-{node}" for node in range(4)]
     summaries = []
-    for source_slot, source_board_id in enumerate(ring_board_ids):
-        destination_board_id = ring_board_ids[(source_slot + 1) % 4]
-        records = [parse_marker_status(marker_row(slot, count=2))
-                   for slot in range(2)]
+    for source_node, source_board_id in enumerate(ring_board_ids):
+        destination_board_id = ring_board_ids[(source_node + 1) % 4]
+        records = [parse_marker_status(marker_row(node, count=2))
+                   for node in range(2)]
         records[1]["state"] = 4
         records[1]["correlation_reject_reason"] = 6
-        records[1]["best_lag_sample"] = source_slot * 5
+        records[1]["best_lag_sample"] = source_node * 5
         summaries.append({
             "board_ids_in_physical_order": [source_board_id, destination_board_id],
-            "reference_slot": 0,
-            "epoch": 20 + source_slot,
-            "generation": 20 + source_slot,
+            "reference_node": 0,
+            "epoch": 20 + source_node,
+            "generation": 20 + source_node,
             "records": records,
         })
 

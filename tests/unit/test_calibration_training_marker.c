@@ -40,10 +40,10 @@ static calibration_training_marker_request_t make_request(void)
         .board_unique_id = 0x0010071E65B5CB38ull,
         .build_id = 0x20260824010101ull,
         .role = CALIBRATION_TRAINING_MARKER_ROLE_FOLLOWER,
-        .logical_slot = 1u,
-        .reference_slot = 0u,
-        .predecessor_slot = 0u,
-        .successor_slot = 2u,
+        .local_node = 1u,
+        .reference_node = 0u,
+        .predecessor_node = 0u,
+        .successor_node = 2u,
         .train_epoch = 7u,
         .train_sequence = 11u,
         .marker_id = 3u,
@@ -200,7 +200,7 @@ static int test_rejects_invalid_request(void)
     const calibration_training_marker_evidence_t evidence = make_evidence();
     int failed = 0;
     calibration_training_marker_store_init(&store);
-    request.successor_slot = request.logical_slot;
+    request.successor_node = request.local_node;
     failed += expect_bool("invalid prepare",
                           calibration_training_marker_prepare_core1(
                               &store, &request), false);
@@ -258,10 +258,10 @@ static int test_originator_return_order(void)
     calibration_training_marker_request_t request = make_request();
     calibration_training_marker_evidence_t evidence = make_evidence();
     request.role = CALIBRATION_TRAINING_MARKER_ROLE_ORIGINATOR;
-    request.logical_slot = 0u;
-    request.reference_slot = 0u;
-    request.predecessor_slot = 3u;
-    request.successor_slot = 1u;
+    request.local_node = 0u;
+    request.reference_node = 0u;
+    request.predecessor_node = 3u;
+    request.successor_node = 1u;
     evidence.marker_forward_tick = 100u;
     evidence.marker_capture_tick = 220u;
     evidence.marker_return_tick = 220u;

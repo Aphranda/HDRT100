@@ -65,7 +65,7 @@ def render_data_waveform(
     tick_ns = int(capture["sample_period_ns"])
     expected, _ = marker_raw_waveform(
         codebook_id=codebook_id, epoch=epoch,
-        master_slot=source_node, polarity=0)
+        source_node=source_node, polarity=0)
     correlation = firmware_correlate(expected, samples)
     if "best_lag_sample" not in correlation:
         raise ValueError("DATA capture is too short for codeword correlation")

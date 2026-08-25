@@ -10,6 +10,24 @@ Last updated: 2026-08-24
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20260824-004 - TRN-02 profile gate、offset 故障注入与 TRN-03A staging
+
+- 状态：TRN-02 的三组 profile 证据已由固化工具聚合；offset 故障注入已增加离线回归，
+  但 TRN-02B/D 仍不能宣称完成，因为 forward residence 尚未与每个 profile 的同一
+  calibration generation 绑定。无 residence 或 generation/profile 不匹配时，gate 明确失败。
+- 固化工具：`tools/calibration_ring_validate/trn02_profile_gate.py` 汇总 level 7/8/9
+  的 12/12 link trials、profile identity 和 residence 兼容性；
+  `tools/calibration_ring_validate/trn02_offset_fault.py` 生成偏移故障的预期失败类别。
+  当 offset 将窗口推出边界时，预期为 `TIMEOUT_EXPECTED_WINDOW_MISSED`；结果禁止
+  active candidate 和 TRN-03 staging。
+- TRN-03A 代码入口已增加 2..8 节点的 per-link calibration stage、generation/topology/
+  profile/schedule identity、PIO 时序字段和 link budget 检查；缺链路、混合身份或
+  不可重放预算在 ARM 前拒绝，并保持 STOPPED。当前仍需补齐板端 stage/query 编排和
+  四板 HIL，因此 TRN-03A/B/C/D 不改变为完成。
+- 验证：`out/training/trn02_profile_gate_20260824.json` 明确记录当前 gate failure；
+  Python calibration tests 10/10、TRN-02 offset fault manifest、C training-data 和
+  TDMA ring-runtime host tests 均通过。
+
 ## CAL-TASK-20260824-003 - TRN-02 四链路单 profile 收敛与 TRN-03 入口审计
 
 - 状态：`TRN-02A` 和 `TRN-02C` 已完成；`TRN-02B` 和 `TRN-02D` 仍为进行中。当前

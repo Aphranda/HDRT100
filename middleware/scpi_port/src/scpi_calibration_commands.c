@@ -137,10 +137,10 @@ scpi_result_t scpi_calibration_marker_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.role);
     scpi_calibration_result_u64(context, snapshot.board_unique_id);
     scpi_calibration_result_u64(context, snapshot.build_id);
-    SCPI_ResultUInt32(context, snapshot.logical_slot);
-    SCPI_ResultUInt32(context, snapshot.reference_slot);
-    SCPI_ResultUInt32(context, snapshot.predecessor_slot);
-    SCPI_ResultUInt32(context, snapshot.successor_slot);
+    SCPI_ResultUInt32(context, snapshot.local_node);
+    SCPI_ResultUInt32(context, snapshot.reference_node);
+    SCPI_ResultUInt32(context, snapshot.predecessor_node);
+    SCPI_ResultUInt32(context, snapshot.successor_node);
     SCPI_ResultUInt32(context, snapshot.train_epoch);
     SCPI_ResultUInt32(context, snapshot.train_sequence);
     SCPI_ResultUInt32(context, snapshot.marker_id);
@@ -400,7 +400,7 @@ scpi_result_t scpi_calibration_clk_coded_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.flags);
     scpi_calibration_result_u64(context, snapshot.board_unique_id);
     scpi_calibration_result_u64(context, snapshot.build_id);
-    SCPI_ResultUInt32(context, snapshot.logical_slot);
+    SCPI_ResultUInt32(context, snapshot.local_node);
     SCPI_ResultUInt32(context, snapshot.train_epoch);
     SCPI_ResultUInt32(context, snapshot.train_sequence);
     SCPI_ResultUInt32(context, snapshot.calibration_generation);

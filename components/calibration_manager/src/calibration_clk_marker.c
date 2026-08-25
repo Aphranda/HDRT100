@@ -46,7 +46,7 @@ bool calibration_clk_marker_config_valid(
     return config != NULL &&
            config->version <= 3u &&
            calibration_clk_marker_half_chip_samples(config->codebook_id) != 0u &&
-           config->master_slot <= 7u &&
+           config->source_node <= 7u &&
            config->polarity <= CALIBRATION_CLK_POLARITY_INVERTED;
 }
 
@@ -59,7 +59,7 @@ uint16_t calibration_clk_marker_pack_header(
     return (uint16_t)(((uint16_t)(config->version & 0x03u) << 14u) |
                       ((uint16_t)(config->codebook_id & 0x03u) << 12u) |
                       ((uint16_t)config->epoch << 4u) |
-                      ((uint16_t)(config->master_slot & 0x07u) << 1u) |
+                      ((uint16_t)(config->source_node & 0x07u) << 1u) |
                       (uint16_t)(config->polarity & 0x01u));
 }
 

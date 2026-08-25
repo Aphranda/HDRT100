@@ -222,6 +222,10 @@ static int test_required_reject_matrix(void)
     evidence.dma_overrun_count = 1u;
     failed += expect_reject("dma", request, evidence,
                             CALIBRATION_TRAINING_DATA_REJECT_DMA);
+    evidence = make_evidence();
+    evidence.timeout_count = 1u;
+    failed += expect_reject("offset timeout", request, evidence,
+                            CALIBRATION_TRAINING_DATA_REJECT_TIMEOUT);
     return failed;
 }
 

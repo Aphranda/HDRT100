@@ -31,7 +31,7 @@ static calibration_clk_marker_config_t make_config(void)
         .version = CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
         .codebook_id = CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_20,
         .epoch = 0x5Au,
-        .master_slot = 3u,
+        .source_node = 3u,
         .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
     };
     return config;
@@ -342,7 +342,7 @@ static calibration_clk_coded_request_t make_coded_request(void)
     const calibration_clk_coded_request_t request = {
         .board_unique_id = 0x0010071E65B5CB38ull,
         .build_id = 0x20260821021250ull,
-        .logical_slot = 3u,
+        .local_node = 3u,
         .train_epoch = 0x5Au,
         .train_sequence = 11u,
         .calibration_generation = 4u,

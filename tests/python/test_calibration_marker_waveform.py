@@ -106,7 +106,7 @@ def _capture_from_incoming(samples: list[int], *, offset: int = 0) -> dict[str, 
 
 def test_firmware_replay_accepts_follower_marker_and_flags() -> None:
     expected, vector = marker_raw_waveform(
-        codebook_id=1, epoch=68, master_slot=0)
+        codebook_id=1, epoch=68, source_node=0)
     offset = -3
     prefix = vector.half_chip_samples + 1 + vector.half_chip_samples + offset
     capture = _capture_from_incoming(expected[prefix:] + [0] * 32,
@@ -127,7 +127,7 @@ def test_firmware_replay_accepts_follower_marker_and_flags() -> None:
 
 def test_firmware_replay_detects_inverted_polarity() -> None:
     expected, _ = marker_raw_waveform(
-        codebook_id=0, epoch=3, master_slot=0)
+        codebook_id=0, epoch=3, source_node=0)
     observed = [bit ^ 1 for bit in expected] + [0] * 16
     result = firmware_correlate(expected, observed)
     assert result["detected_polarity"] == "inverted"
@@ -158,7 +158,7 @@ def test_svg_contains_reference_comparison_and_best_in_1us_window() -> None:
 
 def test_firmware_replay_svg_uses_capture_offset_and_firmware_lag(tmp_path) -> None:
     expected, vector = marker_raw_waveform(
-        codebook_id=1, epoch=68, master_slot=0)
+        codebook_id=1, epoch=68, source_node=0)
     offset = -3
     prefix = vector.half_chip_samples + 1 + vector.half_chip_samples + offset
     capture = _capture_from_incoming(expected[prefix:] + [0] * 32,
@@ -192,7 +192,7 @@ def test_firmware_replay_svg_uses_capture_offset_and_firmware_lag(tmp_path) -> N
 
 def test_global_replay_finds_signed_overlap_beyond_firmware_window(tmp_path) -> None:
     expected, _ = marker_raw_waveform(
-        codebook_id=1, epoch=68, master_slot=0)
+        codebook_id=1, epoch=68, source_node=0)
     delayed = [0] * 420 + expected[:-420]
     capture = _capture_from_incoming(delayed)
     capture["raw_interleaved_sample_count"] = len(delayed)

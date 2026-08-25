@@ -46,7 +46,7 @@ bool calibration_clk_coded_begin_coarse_core1(
     const calibration_clk_coded_request_t *request)
 {
     if (store == NULL || request == NULL ||
-        request->logical_slot > 7u || request->train_epoch > 0xFFu ||
+        request->local_node > 7u || request->train_epoch > 0xFFu ||
         request->sample_period_ns == 0u ||
         request->coarse_min_sample >= request->coarse_max_sample ||
         request->coarse_max_sample - request->coarse_min_sample + 1u >
@@ -57,7 +57,7 @@ bool calibration_clk_coded_begin_coarse_core1(
         .version = CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
         .codebook_id = (uint8_t)request->codebook_id,
         .epoch = (uint8_t)request->train_epoch,
-        .master_slot = (uint8_t)request->logical_slot,
+        .source_node = (uint8_t)request->local_node,
         .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
     };
     if (!calibration_clk_marker_config_valid(&config)) return false;
@@ -70,7 +70,7 @@ bool calibration_clk_coded_begin_coarse_core1(
                  CALIBRATION_CLK_CODED_FLAG_COARSE_BRACKET_VALID;
     next.board_unique_id = request->board_unique_id;
     next.build_id = request->build_id;
-    next.logical_slot = request->logical_slot;
+    next.local_node = request->local_node;
     next.train_epoch = request->train_epoch;
     next.train_sequence = request->train_sequence;
     next.calibration_generation = request->calibration_generation;
@@ -191,7 +191,7 @@ bool calibration_clk_coded_process_core1(
         .version = CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
         .codebook_id = (uint8_t)next.codebook_id,
         .epoch = (uint8_t)next.train_epoch,
-        .master_slot = (uint8_t)next.logical_slot,
+        .source_node = (uint8_t)next.local_node,
         .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
     };
     if (!calibration_clk_marker_build(

@@ -21,7 +21,7 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 
 | 阶段 | 目标 | 当前状态 | 交付物 |
 |---|---|---|---|
-| P0T | 线序、邻接矩阵和环路顺序校准 | `[~]` | accepted topology snapshot、slot map 和 freshness |
+| P0T | 线序、邻接矩阵和环路顺序校准 | `[~]` | accepted topology snapshot、node map 和 freshness |
 | P0 | 硬件 latch、证据 transport 和 owner 边界 | `[~]` | 可关联的 `t1..t4` hardware-latched evidence |
 | P1 | CLK RTT 粗捕获收尾 | `[~]` | diagnostic bracket、过渡抖动和拒绝原因 |
 | P2 | 编码 marker、过采样和相关测距 | `[~]` | accepted/rejected coded RTT snapshot |
@@ -39,8 +39,8 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 | 阶段 | 阶段目标 | 主要输入 | 阶段输出 | 进入下一阶段 |
 |---|---|---|---|---|
 | `TRN-01` | 环路 marker 捕获与 core1/PIO cut-through | accepted topology、P2 codebook、epoch/sequence | 每跳 capture/forward tick、residence、整圈 marker RTT | 四节点同 epoch 捕获、顺序正确、每跳延迟有界、无 PIO/DMA fault |
-| `TRN-02` | marker 锚定 DATA 码元时隙 | TRN-01 local origin、P3 `path_delay` candidate、PIO sample period | per-link `data_offset`、window、guard、skew、correlation/margin | 单跳和四条 directed link 重复通过，generation/profile 一致 |
-| `TRN-03` | TDMA 短帧/FIFO 闭环接入 | TRN-02 windows、PIO instruction-cycle profile、loop-delay/residence、topology/profile CRC | staging/ARM、slot/forward budget、短帧 TX/RX FIFO、sequence/CRC、active candidate | 四板 up/down 和 FIFO 同时增长，且周期预算可重放；失败统一 STOPPED |
+| `TRN-02` | marker 锚定 DATA 码元时隙 | TRN-01 local origin、P3 `path_delay` candidate、PIO sample period | per-link `data_offset`、window、guard、skew、correlation/margin | 单跳和四条 directed link 重复通过，generation/profile/residence 一致 |
+| `TRN-03` | TDMA 短帧/FIFO 闭环接入 | TRN-02 windows、PIO instruction-cycle profile、loop-delay/residence、topology/profile CRC | staging/ARM、link/forward budget、短帧 TX/RX FIFO、sequence/CRC、active candidate | 四板 up/down 和 FIFO 同时增长，且周期预算可重放；失败统一 STOPPED |
 
 ### TRN-01：环路 marker 捕获与切通
 
@@ -64,8 +64,8 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 
 | ID | 待办 | 状态 | 退出门禁 |
 |---|---|---|---|
-| TRN-03A | 增加 TDMA per-link staging 和 ARM gate，绑定实际 PIO persona 的 `clkdiv`、`clk_sys_hz`、`pio_instruction_period_ns`、`bit_cycles`、`marker_to_data_cycles`、`forward_residence_cycles`、`rx_arm_lead_cycles`、`codeword_cycles`、`guard_cycles`、`slot_budget_cycles` 和 `loop_delay_cycles` | [ ] | 缺一条链路、generation/CRC/freshness 不一致或周期预算无法重放时 ARM 拒绝 |
-| TRN-03B | 恢复 NORMAL persona 后启动 TDMA 短帧，按 `slot_budget_cycles` 验证 core1 TX/RX FIFO、飞行转发和 bounded RTOS service | [ ] | 四板 up/down、sequence、CRC、RX/TX/FIFO 计数同时增长，且不依赖 core0 调度边沿 |
+| TRN-03A | 增加 TDMA per-link staging 和 ARM gate，绑定实际 PIO persona 的 `clkdiv`、`clk_sys_hz`、`pio_instruction_period_ns`、`bit_cycles`、`marker_to_data_cycles`、`forward_residence_cycles`、`rx_arm_lead_cycles`、`codeword_cycles`、`guard_cycles`、`link_budget_cycles` 和 `loop_delay_cycles` | [ ] | 缺一条链路、generation/CRC/freshness 不一致或周期预算无法重放时 ARM 拒绝 |
+| TRN-03B | 恢复 NORMAL persona 后启动 TDMA 短帧，按 `link_budget_cycles` 验证 core1 TX/RX FIFO、飞行转发和 bounded RTOS service | [ ] | 四板 up/down、sequence、CRC、RX/TX/FIFO 计数同时增长，且不依赖 core0 调度边沿 |
 | TRN-03C | 汇总 per-link path-delay、residence、loop-delay、PIO 周期预算和 residual，形成 active candidate gate | [ ] | bias、hardware latch、freshness、CRC、周期重放、重复性和 rollback 全部通过 |
 | TRN-03D | 故障注入与长稳：marker timeout、低 margin、CRC/epoch 错、DMA overrun、PIO stall、掉线；固化工具和 SD/Flash 输入格式 | [ ] | 失败统一 STOPPED，active generation 不被污染，工具按 `*IDN?` 地址工作 |
 
@@ -82,17 +82,17 @@ TRN-01A..D
 
 ## 二、P0T 线序与环路顺序校准
 
-- [x] 将有向线序/邻接矩阵、单闭环判定、anchor 旋转和 slot map 的 owner 迁入校准域；
+- [x] 将有向线序/邻接矩阵、单闭环判定、anchor 旋转和 node map 的 owner 迁入校准域；
   TDMA 只提供隔离 probe persona、RX/TX counters 和 raw physical evidence。
 - [x] 将 host 工具迁移为
   `tools/calibration_ring_validate/calibration_ring_topology.py`，并把第一阶段及码本工具统一
   改为 `calibration_*` 命名。
 - [x] 按 `*IDN?` 唯一地址生成 directed adjacency；只有全部 active 节点形成一个闭环才
-  允许生成 `ring_order/slot_map`。COM 号不得进入 topology key。
+  允许生成 `ring_order/node_map`。COM 号不得进入 topology key。
 - [x] NO 提交从 TDMA START 中移除；只有 accepted topology 可以写入 NO，且支持写后读回
   和重启持久化复核。
 - [ ] 实现板内 `CalibrationTopologySnapshot`：active board set、predecessor/successor、
-  direction、slot map、topology CRC、generation、freshness、accepted/rejected reason 和
+  direction、node map、topology CRC、generation、freshness、accepted/rejected reason 和
   raw evidence index。
 - [ ] 固化重复 probe 和质量门禁：frame/word/edge evidence、timeout、bad header、误触发、
   跨轮一致性和 profile identity；阈值冻结前继续由显式参数/profile 提供。
@@ -106,7 +106,7 @@ TRN-01A..D
 - `[~]` 将校准测量 owner 从现有 `calibration_manager` 状态壳升级为
   `CalibrationAO / CalibrationFB / CalibrationVector`，保留 guarded snapshot 和
   active/staging/rollback 语义。
-- [ ] 冻结 `CalibrationEvidence` 字段：板卡唯一地址、logical slot、link key、
+- [ ] 冻结 `CalibrationEvidence` 字段：板卡唯一地址、logical node、link key、
   `train_epoch`、`train_seq`、方向、topology/profile CRC、硬件时间源、分辨率、flags、
   DMA 状态、质量结果、generation 和 freshness。
 - `[~]` 定义 `t1..t4` 的 latch source、resolution、overrun、window miss、epoch/sequence
@@ -130,7 +130,7 @@ TRN-01A..D
   wiring/profile 快照，不是通用精度事实源。
 - [x] 将第一阶段默认阶梯收敛为 operating profile level 7/8/9 对应的
   `10 -> 25 -> 30 MHz`；更高或更低兼容档仅允许显式实验，不进入默认训练定义。
-- [x] 固化四主轮换的唯一板卡地址、logical slot、STOP/ARM/STOP 收尾和恢复普通 persona
+- [x] 固化四主轮换的唯一板卡地址、logical node、STOP/ARM/STOP 收尾和恢复普通 persona
   检查；任一失败不得留下持续 CLK 环。
 - [ ] 补齐第一阶段 rejected sample 分类：返回缺失、重复、超时、marker 不完整、
   overlap/mixed 和 topology/profile 变化。

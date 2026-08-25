@@ -93,8 +93,8 @@ PIO persona、时钟、收发器使能序列或链路条件改变，只使关联
 
 物理拓扑只使用 `node`、`link` 和 `loop`：`node_i` 是第 `i` 个物理节点，`link_i` 是
 `node_i -> node_(i+1 mod node_count)` 的有向物理链路，`node_i_loop` 是以 `node_i` 为
-origin、经过全部 link 后返回该节点的完整环路。`slot` 只允许表示 TDMA 调度或 wire 字段，
-不得用来命名物理测量对象。
+origin、经过全部 link 后返回该节点的完整环路。训练层不得使用 `slot`；跨到 RefMem/TDMA
+已有插槽字段时，只允许在边界执行 `node_index <-> slot_id` 显式映射。
 
 每条有向链路的延迟分解固定为：
 
@@ -319,8 +319,8 @@ P1/P2 只限制搜索范围，P3 只提供每跳传播预算；真正决定 DATA
 | 新阶段 | 名称 | 主要输入 | 主要输出 | 进入下一阶段的门禁 |
 |---|---|---|---|---|
 | `TRN-01` | Ring Marker Capture & Cut-Through（环路 marker 捕获与切通） | accepted topology、P2 marker codebook、marker line 角色、epoch/sequence | 每个节点的 marker capture/forward tick、cut-through residence、整圈 marker RTT、缺失/重复/乱序原因 | 所有节点捕获同一 marker；顺序正确；每跳 forward residence 有界；reference 捕获返回 marker；PIO/DMA fault 为零 |
-| `TRN-02` | Marker-Anchored DATA Slot Training（marker 锚定 DATA 码元时隙） | TRN-01 marker origin、P3 `path_delay` diagnostic candidate、PIO sample period、DATA codeword | 每条 link 的 `data_offset`、`training_window`、`guard`、`marker_data_skew`、correlation/margin/CRC 证据 | 单跳先通过；四条 directed link 均在同一 generation/profile 下重复通过；窗口达到当前 PIO 分辨率或明确拒绝原因 |
-| `TRN-03` | TDMA Short-Frame/FIFO Closed Loop（TDMA 短帧/FIFO 闭环接入） | TRN-02 per-link window、PIO instruction-cycle profile、loop-delay/residence 汇总、topology/profile/schedule CRC | TDMA per-link staging、ARM gate、slot/forward budget、短帧 TX/RX FIFO 计数、sequence/CRC/feedback evidence、active candidate | 全部链路 accepted 且指令周期预算可重放后才能 ARM；四板 up/down、FIFO、sequence/CRC 同时增长；失败统一 STOPPED 并保持旧 active generation |
+| `TRN-02` | Marker-Anchored DATA Window Training（marker 锚定 DATA 窗口训练） | TRN-01 marker origin、P3 `path_delay` diagnostic candidate、PIO sample period、DATA codeword | 每条 link 的 `data_offset`、`training_window`、`guard`、`marker_data_skew`、correlation/margin/CRC 证据 | 单跳先通过；四条 directed link 均在同一 generation/profile 下重复通过；窗口达到当前 PIO 分辨率或明确拒绝原因 |
+| `TRN-03` | TDMA Short-Frame/FIFO Closed Loop（TDMA 短帧/FIFO 闭环接入） | TRN-02 per-link window、PIO instruction-cycle profile、loop-delay/residence 汇总、topology/profile/schedule CRC | TDMA per-link staging、ARM gate、link/forward budget、短帧 TX/RX FIFO 计数、sequence/CRC/feedback evidence、active candidate | 全部链路 accepted 且指令周期预算可重放后才能 ARM；四板 up/down、FIFO、sequence/CRC 同时增长；失败统一 STOPPED 并保持旧 active generation |
 
 ### TRN-01：环路 marker 捕获与切通
 
@@ -380,7 +380,7 @@ pio_instruction_period_ns = derived from clkdiv and clock_get_hz(clk_sys)
 tdma_bit_period_ns         = bit_cycles * pio_instruction_period_ns
 marker_to_data_cycles  = marker_gap_cycles + local_pipeline_cycles
 forward_residence_cycles = forward_rx_cycles + forward_tx_cycles
-slot_budget_cycles     = rx_arm_lead_cycles
+link_budget_cycles     = rx_arm_lead_cycles
                          + marker_to_data_cycles
                          + codeword_cycles
                          + forward_residence_cycles
@@ -400,7 +400,7 @@ loop_delay_cycles      = ceil(loop_delay_ns / pio_instruction_period_ns)
 ```text
 pio_program/persona_id, clkdiv, clk_sys_hz, pio_instruction_period_ns
 bit_cycles, marker_to_data_cycles, forward_residence_cycles
-rx_arm_lead_cycles, codeword_cycles, guard_cycles, slot_budget_cycles
+rx_arm_lead_cycles, codeword_cycles, guard_cycles, link_budget_cycles
 loop_delay_ns, loop_delay_tolerance_ns, loop_delay_cycles
 cycle_period_ns, baud_hz, profile_crc32, schedule_crc32
 ```
@@ -414,7 +414,7 @@ instruction period；core1 的 RTOS service 只允许在已预留的 bounded bud
 
 - 四条 directed link 均有同一 topology/profile/calibration generation 的 accepted window；
 - `loop_delay` 只用于整圈返回预算、反馈窗口和 timeout，不替代 per-link `data_offset`；
-- 每个 slot 的 `slot_budget_cycles`、`rx_arm_lead_cycles`、`forward_residence_cycles` 和
+- 每条 link 的 `link_budget_cycles`、`rx_arm_lead_cycles`、`forward_residence_cycles` 和
   `loop_delay_cycles` 均能由当前 PIO persona 重放，不能依赖一次性的 core0/RTOS 调度时刻；
 - 短帧的 TX/RX FIFO、sequence、CRC、up/down 状态同时增长；
 - 任一链路失败、窗口过期或 generation 不一致，ARM 必须拒绝并恢复 STOPPED；
@@ -469,7 +469,7 @@ codeword 必须具有足够 transition density，正向和反向 pattern 可区�
 每次 trial 必须发布：
 
 ```text
-board_unique_id, logical_slot, predecessor/successor slot
+board_unique_id, logical_node, predecessor/successor node
 topology_generation, topology_crc32, profile_crc32, schedule_crc32
 train_epoch, train_sequence, codebook_id
 marker_capture_tick, marker_forward_tick

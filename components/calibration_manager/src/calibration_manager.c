@@ -711,8 +711,8 @@ static void calibration_manager_marker_finish_core1(
                     .codebook_id = (uint8_t)
                         s_marker_active_request.marker_codebook_id,
                     .epoch = (uint8_t)s_marker_active_request.train_epoch,
-                    .master_slot =
-                        (uint8_t)s_marker_active_request.reference_slot,
+                    .source_node =
+                        (uint8_t)s_marker_active_request.reference_node,
                     .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
                 },
                 s_marker_workspace.expected_words,
@@ -829,7 +829,7 @@ static void calibration_manager_data_finish_core1(
         .version = CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
         .codebook_id = (uint8_t)s_data_active_request.data_codebook_id,
         .epoch = (uint8_t)s_data_active_request.train_epoch,
-        .master_slot = (uint8_t)s_data_active_request.source_node,
+        .source_node = (uint8_t)s_data_active_request.source_node,
         .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
     };
     const calibration_clk_correlation_gate_t gate = {
@@ -942,7 +942,7 @@ void calibration_manager_service_core1(void)
                 .codebook_id =
                     (uint8_t)data_intent.request.data_codebook_id,
                 .epoch = (uint8_t)data_intent.request.train_epoch,
-                .master_slot = (uint8_t)data_intent.request.source_node,
+                .source_node = (uint8_t)data_intent.request.source_node,
                 .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
             };
             calibration_clk_marker_descriptor_t descriptor;
@@ -1068,7 +1068,7 @@ void calibration_manager_service_core1(void)
                 .codebook_id = (uint8_t)
                     marker_intent.request.marker_codebook_id,
                 .epoch = (uint8_t)marker_intent.request.train_epoch,
-                .master_slot = (uint8_t)marker_intent.request.reference_slot,
+                .source_node = (uint8_t)marker_intent.request.reference_node,
                 .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
             };
             calibration_clk_marker_descriptor_t descriptor;
@@ -1177,7 +1177,7 @@ void calibration_manager_service_core1(void)
                 .version = CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
                 .codebook_id = (uint8_t)intent.request.codebook_id,
                 .epoch = (uint8_t)intent.request.train_epoch,
-                .master_slot = (uint8_t)intent.request.logical_slot,
+                .source_node = (uint8_t)intent.request.local_node,
                 .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
             };
             calibration_clk_marker_descriptor_t marker;
@@ -1368,7 +1368,7 @@ bool calibration_manager_request_marker_training(
         ring.enabled != 0u ||
         !tdma_runtime_owner_get_staged_ring_config(&staged) ||
         staged.node_count < 2u ||
-        staged.node_count > CALIBRATION_TRAINING_MARKER_MAX_SLOTS ||
+        staged.node_count > CALIBRATION_TRAINING_MARKER_MAX_NODES ||
         staged.local_slot_id >= staged.node_count ||
         staged.reference_slot_id >= staged.node_count ||
         staged.ring_profile_crc32 == 0u ||
@@ -1387,7 +1387,7 @@ bool calibration_manager_request_marker_training(
         .version = CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
         .codebook_id = (uint8_t)codebook_id,
         .epoch = (uint8_t)train_epoch,
-        .master_slot = (uint8_t)staged.reference_slot_id,
+        .source_node = (uint8_t)staged.reference_slot_id,
         .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
     };
     if (!calibration_clk_marker_build(
@@ -1401,11 +1401,12 @@ bool calibration_manager_request_marker_training(
         .role = staged.local_slot_id == staged.reference_slot_id
                     ? CALIBRATION_TRAINING_MARKER_ROLE_ORIGINATOR
                     : CALIBRATION_TRAINING_MARKER_ROLE_FOLLOWER,
-        .logical_slot = staged.local_slot_id,
-        .reference_slot = staged.reference_slot_id,
-        .predecessor_slot = (staged.local_slot_id + staged.node_count - 1u) %
+        /* Explicit TDMA slot -> training node boundary mapping. */
+        .local_node = staged.local_slot_id,
+        .reference_node = staged.reference_slot_id,
+        .predecessor_node = (staged.local_slot_id + staged.node_count - 1u) %
                             staged.node_count,
-        .successor_slot = (staged.local_slot_id + 1u) % staged.node_count,
+        .successor_node = (staged.local_slot_id + 1u) % staged.node_count,
         .train_epoch = train_epoch,
         .train_sequence = train_sequence,
         .marker_id = marker_id,
@@ -1530,7 +1531,7 @@ bool calibration_manager_request_data_training(
         .version = CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
         .codebook_id = (uint8_t)codebook_id,
         .epoch = (uint8_t)train_epoch,
-        .master_slot = (uint8_t)source_node,
+        .source_node = (uint8_t)source_node,
         .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
     };
     if (!calibration_clk_marker_build(
@@ -1767,17 +1768,17 @@ bool calibration_manager_save_marker_capture(
         raw_word_count != snapshot.dma_capture_count) {
         return false;
     }
-    const uint32_t incoming_link = snapshot.predecessor_slot;
+    const uint32_t incoming_link = snapshot.predecessor_node;
     const int path_written = snapshot.role ==
             CALIBRATION_TRAINING_MARKER_ROLE_ORIGINATOR
         ? snprintf(path, path_size,
                    "/cal/marker_node%lu_loop_g%lu_e%lu.json",
-                   (unsigned long)snapshot.logical_slot,
+                   (unsigned long)snapshot.local_node,
                    (unsigned long)snapshot.calibration_generation,
                    (unsigned long)snapshot.train_epoch)
         : snprintf(path, path_size,
                    "/cal/marker_node%lu_link%lu_g%lu_e%lu.json",
-                   (unsigned long)snapshot.logical_slot,
+                   (unsigned long)snapshot.local_node,
                    (unsigned long)incoming_link,
                    (unsigned long)snapshot.calibration_generation,
                    (unsigned long)snapshot.train_epoch);
@@ -1805,10 +1806,10 @@ bool calibration_manager_save_marker_capture(
         "  \"channel_1\": \"incoming_link\",\n"
         "  \"link_delay_model\": \"source_node_driver_delay + link_path_delay + destination_node_receiver_delay + link_capture_quantization\",\n"
         "  \"raw_interleaved_words\": [",
-        (unsigned long)snapshot.logical_slot,
+        (unsigned long)snapshot.local_node,
         (unsigned long)incoming_link,
-        (unsigned long)snapshot.predecessor_slot,
-        (unsigned long)snapshot.logical_slot,
+        (unsigned long)snapshot.predecessor_node,
+        (unsigned long)snapshot.local_node,
         (unsigned long long)snapshot.build_id,
         (unsigned long)snapshot.calibration_generation,
         (unsigned long)snapshot.train_epoch,
@@ -1865,10 +1866,10 @@ bool calibration_manager_start_clk_coded(
         .version = CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
         .codebook_id = (uint8_t)request->codebook_id,
         .epoch = (uint8_t)request->train_epoch,
-        .master_slot = (uint8_t)request->logical_slot,
+        .source_node = (uint8_t)request->local_node,
         .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
     };
-    if (request->logical_slot > 7u ||
+    if (request->local_node > 7u ||
         request->train_epoch > UINT8_MAX || request->codebook_id > UINT8_MAX ||
         request->sample_period_ns == 0u ||
         request->coarse_min_sample >= request->coarse_max_sample ||
@@ -1919,7 +1920,7 @@ bool calibration_manager_request_clk_coded(
     const calibration_clk_coded_request_t request = {
         .board_unique_id = board_unique_id,
         .build_id = calibration_manager_build_id_value(g_project_build_id),
-        .logical_slot = staged.local_slot_id,
+        .local_node = staged.local_slot_id,
         .train_epoch = sequence & UINT8_MAX,
         .train_sequence = sequence,
         .calibration_generation = sequence,

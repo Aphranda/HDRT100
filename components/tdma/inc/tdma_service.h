@@ -395,6 +395,8 @@ typedef struct {
     tdma_flight_engine_t flight_engine;
     tdma_ring_runtime_t ring_runtime;
     tdma_service_ring_runtime_config_t ring_staged_config;
+    tdma_ring_calibration_stage_t calibration_stage;
+    uint32_t calibration_gate_required;
     tdma_operating_profile_t operating_profile;
     uint32_t ring_base_schedule_crc32;
     tdma_traffic_scheduler_t *traffic_scheduler;
@@ -433,6 +435,10 @@ bool tdma_service_set_operating_profile(
 bool tdma_service_set_loop_delay_ns(tdma_service_service_t *service,
                                     uint32_t loop_delay_ns,
                                     uint32_t tolerance_ns);
+bool tdma_service_stage_calibration(
+    tdma_service_service_t *service,
+    const tdma_ring_calibration_stage_t *stage);
+bool tdma_service_clear_calibration_stage(tdma_service_service_t *service);
 bool tdma_service_ring_arm(tdma_service_service_t *service);
 bool tdma_service_ring_train_clock(tdma_service_service_t *service,
                                    uint32_t cycles);

@@ -48,7 +48,7 @@ typedef struct {
     uint8_t version;
     uint8_t codebook_id;
     uint8_t epoch;
-    uint8_t master_slot;
+    uint8_t source_node;
     uint8_t polarity;
 } calibration_clk_marker_config_t;
 

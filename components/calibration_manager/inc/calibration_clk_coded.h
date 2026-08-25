@@ -31,7 +31,7 @@ typedef struct {
     uint32_t flags;
     uint64_t board_unique_id;
     uint64_t build_id;
-    uint32_t logical_slot;
+    uint32_t local_node;
     uint32_t train_epoch;
     uint32_t train_sequence;
     uint32_t calibration_generation;
@@ -79,7 +79,7 @@ typedef enum {
 typedef struct {
     uint64_t board_unique_id;
     uint64_t build_id;
-    uint32_t logical_slot;
+    uint32_t local_node;
     uint32_t train_epoch;
     uint32_t train_sequence;
     uint32_t calibration_generation;

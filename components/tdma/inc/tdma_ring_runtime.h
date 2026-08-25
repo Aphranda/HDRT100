@@ -7,6 +7,7 @@
 #include "tdma_profile.h"
 
 #define TDMA_RING_RUNTIME_VERSION 5u
+#define TDMA_RING_CALIBRATION_LINK_MAX 8u
 #define TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY 0x00000001u
 #define TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED 0x00000002u
 
@@ -21,6 +22,39 @@ typedef enum {
     TDMA_RING_RUNTIME_REASON_WINDOW_MISSED = 7u,
     TDMA_RING_RUNTIME_REASON_RESOURCE_CONFLICT = 8u,
 } tdma_ring_runtime_reason_t;
+
+typedef struct {
+    uint32_t valid;
+    uint32_t link_index;
+    uint32_t calibration_generation;
+    uint32_t topology_generation;
+    uint32_t topology_crc32;
+    uint32_t profile_crc32;
+    uint32_t schedule_crc32;
+    uint32_t pio_persona;
+    uint32_t clkdiv_q16;
+    uint32_t clk_sys_hz;
+    uint32_t instruction_period_ns;
+    uint32_t bit_cycles;
+    uint32_t marker_to_data_cycles;
+    uint32_t forward_residence_cycles;
+    uint32_t rx_arm_lead_cycles;
+    uint32_t codeword_cycles;
+    uint32_t guard_cycles;
+    uint32_t link_budget_cycles;
+    uint32_t loop_delay_cycles;
+} tdma_ring_calibration_link_t;
+
+typedef struct {
+    uint32_t enabled;
+    uint32_t node_count;
+    uint32_t calibration_generation;
+    uint32_t topology_generation;
+    uint32_t topology_crc32;
+    uint32_t profile_crc32;
+    uint32_t schedule_crc32;
+    tdma_ring_calibration_link_t links[TDMA_RING_CALIBRATION_LINK_MAX];
+} tdma_ring_calibration_stage_t;
 
 typedef struct {
     uint32_t enabled;
@@ -200,6 +234,10 @@ typedef struct {
 bool tdma_ring_runtime_init(tdma_ring_runtime_t *runtime);
 bool tdma_ring_runtime_validate_config(
     const tdma_ring_runtime_config_t *config,
+    tdma_ring_runtime_reason_t *reason);
+bool tdma_ring_runtime_validate_calibration_stage(
+    const tdma_ring_calibration_stage_t *stage,
+    uint32_t expected_node_count,
     tdma_ring_runtime_reason_t *reason);
 bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
                                  const tdma_ring_runtime_config_t *config);

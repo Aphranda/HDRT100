@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/README.md`
 Related: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-08-21
+Last updated: 2026-08-24
 
 本文档是 `docs/` 的总入口。新文档的命名、层级、元数据和迁移规则以
 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
@@ -118,6 +118,7 @@ docs/
 | `docs/check/DOCS_REGRESSION_PLAN.md` | 文档自回归体系实施规格（v3 归档版，源方案）。 |
 | `docs/check/DOCS_REGRESSION_TODO.md` | 文档自回归体系实施待办，跟踪 T1-T15 执行状态与每步反馈。 |
 | `docs/check/DOCS_REGRESSION_REVIEW.md` | 文档自回归体系实施经验总结（问题清单 + 解法 + 维护建议）。 |
+| `docs/check/DOCS_PROJECT_STATUS_REVIEW_20260824.md` | 2026-08-24 项目状态审查快照：域进度、关键闭环、治理门禁和在制改动边界；不作为冻结契约或代码事实源。 |
 | `docs/check/submissions/README.md` | 核验提交单归档目录说明 + 模板（层间逐级核验，C11 交叉审核）。 |
 | `docs/check/submissions/TDMA_CROSS_REVIEW_01.md` | 首份核验提交单：HAOFV-879 seqlock 偏差（ACCEPT_WITH_DEVIATION，2026-08-19）。 |
 | `docs/check/submissions/ARCH_FLASH_CROSS_REVIEW_01.md` | Flash v2 首次层间核验：硬件/构建/实现/域文档一致性与当前 v1 偏差。 |

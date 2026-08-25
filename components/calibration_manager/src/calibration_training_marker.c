@@ -26,16 +26,16 @@ static bool calibration_training_marker_request_valid(
            request->build_id != 0u &&
            (request->role == CALIBRATION_TRAINING_MARKER_ROLE_ORIGINATOR ||
             request->role == CALIBRATION_TRAINING_MARKER_ROLE_FOLLOWER) &&
-           request->logical_slot < CALIBRATION_TRAINING_MARKER_MAX_SLOTS &&
-           request->reference_slot < CALIBRATION_TRAINING_MARKER_MAX_SLOTS &&
-           request->predecessor_slot < CALIBRATION_TRAINING_MARKER_MAX_SLOTS &&
-           request->successor_slot < CALIBRATION_TRAINING_MARKER_MAX_SLOTS &&
+           request->local_node < CALIBRATION_TRAINING_MARKER_MAX_NODES &&
+           request->reference_node < CALIBRATION_TRAINING_MARKER_MAX_NODES &&
+           request->predecessor_node < CALIBRATION_TRAINING_MARKER_MAX_NODES &&
+           request->successor_node < CALIBRATION_TRAINING_MARKER_MAX_NODES &&
            ((request->role == CALIBRATION_TRAINING_MARKER_ROLE_ORIGINATOR &&
-             request->logical_slot == request->reference_slot) ||
+             request->local_node == request->reference_node) ||
             (request->role == CALIBRATION_TRAINING_MARKER_ROLE_FOLLOWER &&
-             request->logical_slot != request->reference_slot)) &&
-           request->predecessor_slot != request->logical_slot &&
-           request->successor_slot != request->logical_slot &&
+             request->local_node != request->reference_node)) &&
+           request->predecessor_node != request->local_node &&
+           request->successor_node != request->local_node &&
            request->train_epoch != 0u && request->train_sequence != 0u &&
            request->marker_id != 0u &&
            request->offset_sample_count >=
@@ -58,10 +58,10 @@ static void calibration_training_marker_snapshot_from_request(
     snapshot->board_unique_id = request->board_unique_id;
     snapshot->build_id = request->build_id;
     snapshot->role = request->role;
-    snapshot->logical_slot = request->logical_slot;
-    snapshot->reference_slot = request->reference_slot;
-    snapshot->predecessor_slot = request->predecessor_slot;
-    snapshot->successor_slot = request->successor_slot;
+    snapshot->local_node = request->local_node;
+    snapshot->reference_node = request->reference_node;
+    snapshot->predecessor_node = request->predecessor_node;
+    snapshot->successor_node = request->successor_node;
     snapshot->train_epoch = request->train_epoch;
     snapshot->train_sequence = request->train_sequence;
     snapshot->marker_id = request->marker_id;

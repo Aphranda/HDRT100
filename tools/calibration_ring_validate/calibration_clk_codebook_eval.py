@@ -32,7 +32,7 @@ class MarkerVector:
     version: int
     codebook_id: int
     epoch: int
-    master_slot: int
+    source_node: int
     polarity: int
     header: int
     header_inverse: int
@@ -69,7 +69,7 @@ class Evaluation:
 
 
 def marker_header(version: int, codebook_id: int, epoch: int,
-                  master_slot: int, polarity: int) -> int:
+                  source_node: int, polarity: int) -> int:
     if not 0 <= version <= 3:
         raise ValueError("version must fit two bits")
     if codebook_id not in (
@@ -80,12 +80,12 @@ def marker_header(version: int, codebook_id: int, epoch: int,
         raise ValueError("unsupported candidate codebook")
     if not 0 <= epoch <= 0xFF:
         raise ValueError("epoch must fit eight bits")
-    if not 0 <= master_slot <= 7:
-        raise ValueError("master_slot must fit three bits")
+    if not 0 <= source_node <= 7:
+        raise ValueError("source_node must fit three bits")
     if polarity not in (0, 1):
         raise ValueError("polarity must fit one bit")
     return ((version & 0x3) << 14) | ((codebook_id & 0x3) << 12) | \
-        (epoch << 4) | ((master_slot & 0x7) << 1) | polarity
+        (epoch << 4) | ((source_node & 0x7) << 1) | polarity
 
 
 def crc8_atm(data: bytes) -> int:
@@ -105,10 +105,10 @@ def _msb_bits(value: int, width: int) -> list[int]:
 def marker_logical_bits(version: int = CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
                         codebook_id: int =
                         CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_20,
-                        epoch: int = 0, master_slot: int = 0,
+                        epoch: int = 0, source_node: int = 0,
                         polarity: int = 0) -> tuple[list[int], int, int]:
     header = marker_header(
-        version, codebook_id, epoch, master_slot, polarity)
+        version, codebook_id, epoch, source_node, polarity)
     header_inverse = header ^ 0xFFFF
     header_bytes = bytes((header >> 8, header & 0xFF,
                           header_inverse >> 8, header_inverse & 0xFF))
@@ -131,7 +131,7 @@ def marker_logical_bits(version: int = CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
 def marker_raw_waveform(
         version: int = CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
         codebook_id: int = CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_20,
-        epoch: int = 0, master_slot: int = 0,
+        epoch: int = 0, source_node: int = 0,
         polarity: int = 0) -> tuple[list[int], MarkerVector]:
     half_chip_samples = {
         CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_20: 5,
@@ -142,7 +142,7 @@ def marker_raw_waveform(
     if half_chip_samples is None:
         raise ValueError("unsupported candidate codebook")
     bits, header, header_crc8 = marker_logical_bits(
-        version, codebook_id, epoch, master_slot, polarity)
+        version, codebook_id, epoch, source_node, polarity)
     raw = encode(bits, "manchester", half_chip_samples)
     digest = 0x811C9DC5
     for sample in raw:
@@ -151,7 +151,7 @@ def marker_raw_waveform(
         version=version,
         codebook_id=codebook_id,
         epoch=epoch,
-        master_slot=master_slot,
+        source_node=source_node,
         polarity=polarity,
         header=header,
         header_inverse=header ^ 0xFFFF,

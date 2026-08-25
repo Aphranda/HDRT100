@@ -101,6 +101,9 @@ int main(void)
     int failed = 0;
     tdma_ring_runtime_t runtime;
     tdma_ring_runtime_snapshot_t snapshot;
+    tdma_ring_calibration_stage_t calibration = {0};
+    tdma_ring_runtime_reason_t calibration_reason =
+        TDMA_RING_RUNTIME_REASON_NONE;
     fake_ring_adapter_t adapter = {0};
     const tdma_ring_runtime_config_t bad_direction = {
         .enabled = 1u,
@@ -125,6 +128,55 @@ int main(void)
     valid.down_group_id = 2u;
 
     failed += expect_bool("init", tdma_ring_runtime_init(&runtime), true);
+    calibration.enabled = 1u;
+    calibration.node_count = 4u;
+    calibration.calibration_generation = 61u;
+    calibration.topology_generation = 13u;
+    calibration.topology_crc32 = 0x11223344u;
+    calibration.profile_crc32 = 0x55667788u;
+    calibration.schedule_crc32 = 0x99AABBCCu;
+    for (uint32_t i = 0u; i < calibration.node_count; i++) {
+        calibration.links[i].valid = 1u;
+        calibration.links[i].link_index = i;
+        calibration.links[i].calibration_generation =
+            calibration.calibration_generation;
+        calibration.links[i].topology_generation =
+            calibration.topology_generation;
+        calibration.links[i].topology_crc32 = calibration.topology_crc32;
+        calibration.links[i].profile_crc32 = calibration.profile_crc32;
+        calibration.links[i].schedule_crc32 = calibration.schedule_crc32;
+        calibration.links[i].pio_persona = 1u;
+        calibration.links[i].clkdiv_q16 = 1u << 16;
+        calibration.links[i].clk_sys_hz = 250000000u;
+        calibration.links[i].instruction_period_ns = 4u;
+        calibration.links[i].bit_cycles = 6u;
+        calibration.links[i].marker_to_data_cycles = 10u;
+        calibration.links[i].forward_residence_cycles = 1u;
+        calibration.links[i].rx_arm_lead_cycles = 1u;
+        calibration.links[i].codeword_cycles = 32u;
+        calibration.links[i].guard_cycles = 2u;
+        calibration.links[i].link_budget_cycles = 64u;
+        calibration.links[i].loop_delay_cycles = 8u;
+    }
+    failed += expect_bool("valid calibration stage",
+                          tdma_ring_runtime_validate_calibration_stage(
+                              &calibration, 4u, &calibration_reason),
+                          true);
+    calibration.links[2].profile_crc32++;
+    failed += expect_bool("mixed calibration identity rejected",
+                          tdma_ring_runtime_validate_calibration_stage(
+                              &calibration, 4u, &calibration_reason),
+                          false);
+    failed += expect_u32("calibration gate reason",
+                         calibration_reason,
+                         TDMA_RING_RUNTIME_REASON_BAD_CONFIG);
+    calibration.links[2].profile_crc32 = calibration.profile_crc32;
+    calibration.links[0].link_budget_cycles = 1u;
+    failed += expect_bool("unreplayable budget rejected",
+                          tdma_ring_runtime_validate_calibration_stage(
+                              &calibration, 4u, &calibration_reason),
+                          false);
+    calibration.links[0].link_budget_cycles = 64u;
     failed += expect_bool("reject direction conflict",
                           tdma_ring_runtime_configure(&runtime, &bad_direction),
                           false);

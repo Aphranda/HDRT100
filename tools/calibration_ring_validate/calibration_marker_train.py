@@ -3,7 +3,7 @@
 
 This tool deliberately does not synthesize edge timestamps.  It accepts only
 firmware status rows whose capture/forward ticks are hardware-latched, checks
-the common epoch/generation bundle, and verifies the directed ring slot order.
+the common epoch/generation bundle, and verifies the directed ring node order.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ from tdma_start_ring import (  # noqa: E402
 MARKER_FIELDS = (
     "tag", "version", "state", "reject_reason", "flags", "role",
     "board_id_lo", "board_id_hi", "build_id_lo", "build_id_hi",
-    "logical_slot", "reference_slot", "predecessor_slot", "successor_slot",
+    "local_node", "reference_node", "predecessor_node", "successor_node",
     "train_epoch", "train_sequence", "marker_id", "marker_codebook_id",
     "marker_crc32", "observed_crc32", "polarity",
     "marker_flags", "correlation_reject_reason", "best_lag_sample",
@@ -123,8 +123,8 @@ def derive_link_offset_candidates(
         base_ns = HALF_CHIP_NS_BY_CODEBOOK.get(codebook)
         reject_reason = int(record["correlation_reject_reason"])
         candidates.append({
-            "source_slot": int(record["predecessor_slot"]),
-            "destination_slot": int(record["logical_slot"]),
+            "source_node": int(record["predecessor_node"]),
+            "destination_node": int(record["local_node"]),
             "base_half_chip_ns": base_ns,
             "offset_sample_count": offset_samples,
             "offset_ns": offset_ns,
@@ -189,14 +189,14 @@ def validate_ring(records: list[dict[str, int | str]]) -> dict[str, object]:
     errors: list[str] = []
     if not 2 <= len(records) <= 8:
         errors.append("board_count")
-    slots = [int(record["logical_slot"]) for record in records]
-    if sorted(slots) != list(range(len(records))):
-        errors.append("slot_set")
+    nodes = [int(record["local_node"]) for record in records]
+    if sorted(nodes) != list(range(len(records))):
+        errors.append("node_set")
     if len({int(record["board_unique_id"]) for record in records}) != len(records):
         errors.append("board_identity")
 
     common_fields = (
-        "reference_slot", "train_epoch", "train_sequence", "marker_id",
+        "reference_node", "train_epoch", "train_sequence", "marker_id",
         "marker_codebook_id", "marker_crc32", "calibration_generation",
         "profile_crc32", "schedule_crc32", "tick_resolution_ns",
     )
@@ -204,28 +204,28 @@ def validate_ring(records: list[dict[str, int | str]]) -> dict[str, object]:
         if len({int(record[field]) for record in records}) != 1:
             errors.append(field)
 
-    by_slot = {int(record["logical_slot"]): record for record in records}
-    reference_slots = {int(record["reference_slot"]) for record in records}
-    reference_slot = next(iter(reference_slots)) if len(reference_slots) == 1 else -1
+    by_node = {int(record["local_node"]): record for record in records}
+    reference_nodes = {int(record["reference_node"]) for record in records}
+    reference_node = next(iter(reference_nodes)) if len(reference_nodes) == 1 else -1
     originators = [record for record in records
                    if int(record["role"]) == ROLE_ORIGINATOR]
     if len(originators) != 1 or (originators and
-            int(originators[0]["logical_slot"]) != reference_slot):
+            int(originators[0]["local_node"]) != reference_node):
         errors.append("originator")
-    for slot, record in by_slot.items():
+    for node, record in by_node.items():
         if int(record["state"]) != STATE_ACCEPTED:
-            errors.append(f"slot_{slot}_state")
+            errors.append(f"node_{node}_state")
         if int(record["reject_reason"]) != 0:
-            errors.append(f"slot_{slot}_reject_reason")
+            errors.append(f"node_{node}_reject_reason")
         if (int(record["flags"]) & REQUIRED_FLAGS) != REQUIRED_FLAGS:
-            errors.append(f"slot_{slot}_flags")
+            errors.append(f"node_{node}_flags")
         if int(record["marker_crc32"]) != int(record["observed_crc32"]):
-            errors.append(f"slot_{slot}_crc")
+            errors.append(f"node_{node}_crc")
         if int(record["dma_capture_count"]) == 0:
-            errors.append(f"slot_{slot}_dma_capture")
+            errors.append(f"node_{node}_dma_capture")
         for field in ("dma_overrun_count", "pio_stall_count", "timeout_count"):
             if int(record[field]) != 0:
-                errors.append(f"slot_{slot}_{field}")
+                errors.append(f"node_{node}_{field}")
         capture = int(record["marker_capture_tick"])
         forward = int(record["marker_forward_tick"])
         returned = int(record["marker_return_tick"])
@@ -235,22 +235,22 @@ def validate_ring(records: list[dict[str, int | str]]) -> dict[str, object]:
         if role == ROLE_ORIGINATOR:
             if (forward == 0 or capture != returned or returned < forward or
                     residence != 0 or loop_rtt != returned - forward):
-                errors.append(f"slot_{slot}_tick_order")
+                errors.append(f"node_{node}_tick_order")
         elif role == ROLE_FOLLOWER:
             if (capture == 0 or forward < capture or
                     residence != forward - capture or returned != 0 or
                     loop_rtt != 0):
-                errors.append(f"slot_{slot}_tick_order")
+                errors.append(f"node_{node}_tick_order")
         else:
-            errors.append(f"slot_{slot}_role")
+            errors.append(f"node_{node}_role")
         if len(records) >= 2:
-            if int(record["predecessor_slot"]) != (slot - 1) % len(records):
-                errors.append(f"slot_{slot}_predecessor")
-            if int(record["successor_slot"]) != (slot + 1) % len(records):
-                errors.append(f"slot_{slot}_successor")
+            if int(record["predecessor_node"]) != (node - 1) % len(records):
+                errors.append(f"node_{node}_predecessor")
+            if int(record["successor_node"]) != (node + 1) % len(records):
+                errors.append(f"node_{node}_successor")
         if (int(record["topology_generation"]) == 0 or
                 int(record["topology_crc32"]) == 0):
-            errors.append(f"slot_{slot}_topology")
+            errors.append(f"node_{node}_topology")
 
     diagnostic_only = all(
         (int(record["flags"]) & FLAG_DIAGNOSTIC_ONLY) != 0
@@ -283,7 +283,7 @@ def parse_args() -> argparse.Namespace:
                         help="optional UTF-8 JSON summary path")
     parser.add_argument("--expected-build")
     parser.add_argument("--level", type=int, default=7)
-    parser.add_argument("--reference-slot", type=int, default=0)
+    parser.add_argument("--reference-node", type=int, default=0)
     parser.add_argument("--codebook", type=int, default=0)
     parser.add_argument("--epoch", type=int, default=1)
     parser.add_argument("--generation", type=int, default=1)
@@ -333,14 +333,14 @@ def marker_status(board: Board, args: argparse.Namespace) -> dict[str, int | str
         board, "READ:CALibration:MARKer?", args))
 
 
-def topology_matches(status: dict[str, int], node_count: int, slot: int,
-                     reference_slot: int) -> bool:
+def topology_matches(status: dict[str, int], node_count: int, node: int,
+                     reference_node: int) -> bool:
     return (
         status.get("ring_enabled") == 1 and
         status.get("ring_adapter_started") == 1 and
         status.get("ring_node_count") == node_count and
-        status.get("ring_local_slot_id") == slot and
-        status.get("ring_reference_slot_id") == reference_slot
+        status.get("ring_local_slot_id") == node and
+        status.get("ring_reference_slot_id") == reference_node
     )
 
 
@@ -391,11 +391,11 @@ def prepare_ring(ordered: list[Board], args: argparse.Namespace) -> list[dict[st
     actions: list[dict[str, object]] = []
     node_count = len(ordered)
     start_order = [
-        ((args.reference_slot + offset) % node_count,
-         ordered[(args.reference_slot + offset) % node_count])
+        ((args.reference_node + offset) % node_count,
+         ordered[(args.reference_node + offset) % node_count])
         for offset in range(1, node_count)
     ]
-    start_order.append((args.reference_slot, ordered[args.reference_slot]))
+    start_order.append((args.reference_node, ordered[args.reference_node]))
     for board in ordered:
         actions.append({"board": board.address, "command": "STOP",
                         "response": board_command(
@@ -406,14 +406,14 @@ def prepare_ring(ordered: list[Board], args: argparse.Namespace) -> list[dict[st
         actions.append({"board": board.address, "command": "OPMODE_APPLY",
                         "response": board_command(
                             board, "SYSTem:TDMA:OPMode:APPLy", args)})
-    for slot, board in enumerate(ordered):
+    for node, board in enumerate(ordered):
         actions.append({"board": board.address, "command": "TOPOLOGY",
                         "response": board_command(
                             board, f"SYSTem:TDMA:RING:TOPology "
-                            f"{node_count},{slot},{args.reference_slot}", args)})
+                            f"{node_count},{node},{args.reference_node}", args)})
     if args.topology_retries < 1:
         raise SystemExit("topology-retries must be at least 1")
-    for slot, board in start_order:
+    for node, board in start_order:
         last_error = ""
         status: dict[str, int] = {}
         for attempt in range(1, args.topology_retries + 1):
@@ -425,7 +425,7 @@ def prepare_ring(ordered: list[Board], args: argparse.Namespace) -> list[dict[st
                 status = {}
                 last_error = str(exc)
             matched = topology_matches(
-                status, node_count, slot, args.reference_slot)
+                status, node_count, node, args.reference_node)
             actions.append({"board": board.address, "command": "ARM",
                             "attempt": attempt, "response": response,
                             "topology_matched": matched, "status": status,
@@ -435,7 +435,7 @@ def prepare_ring(ordered: list[Board], args: argparse.Namespace) -> list[dict[st
             board_command(board, "SYSTem:TDMA:RING:STOP", args)
             board_command(
                 board, f"SYSTem:TDMA:RING:TOPology "
-                       f"{node_count},{slot},{args.reference_slot}", args)
+                       f"{node_count},{node},{args.reference_node}", args)
             time.sleep(args.gap)
         else:
             raise RuntimeError(
@@ -562,8 +562,8 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
     board_ids = list(args.board_id or [])
     if len(board_ids) < 2 or len(board_ids) > 8 or len(set(board_ids)) != len(board_ids):
         raise SystemExit("board IDs must contain 2..8 unique entries")
-    if not 0 <= args.reference_slot < len(board_ids):
-        raise SystemExit("reference-slot outside board order")
+    if not 0 <= args.reference_node < len(board_ids):
+        raise SystemExit("reference-node outside board order")
     if not 0 <= args.codebook <= 3 or not 1 <= args.epoch <= 255:
         raise SystemExit("codebook must be 0..3 and epoch must be 1..255")
     offsets = list(args.node_offset_samples or [0] * len(board_ids))
@@ -598,7 +598,7 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
         "phase": "TRN-01",
         "diagnostic_only": True,
         "node_ids_in_loop_order": board_ids,
-        "reference_node": args.reference_slot,
+        "reference_node": args.reference_node,
         "codebook": args.codebook,
         "epoch": args.epoch,
         "generation": args.generation,
@@ -614,26 +614,26 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
     if args.dry_run:
         return {**plan, "passed": False, "dry_run": True}
     actions = prepare_ring(ordered, args)
-    follower_slots = [
-        (args.reference_slot + offset) % len(ordered)
+    follower_nodes = [
+        (args.reference_node + offset) % len(ordered)
         for offset in range(1, len(ordered))
     ]
-    followers = [ordered[slot] for slot in follower_slots]
-    originator = ordered[args.reference_slot]
+    followers = [ordered[node] for node in follower_nodes]
+    originator = ordered[args.reference_node]
     arms: list[dict[str, str | int]] = []
     try:
         # Every node first arms RX DMA and its physical rx_csn WAIT gate.  The
         # originator TX SM also remains blocked on an empty PIO TX FIFO.
         for board in followers:
-            slot = ordered.index(board)
+            node = ordered.index(board)
             arms.append({"board": board.address,
-                         "offset_sample_count": offsets[slot],
+                         "offset_sample_count": offsets[node],
                          "response": arm_marker(
-                             board, args, offsets[slot])})
+                             board, args, offsets[node])})
         arms.append({"board": originator.address,
-                     "offset_sample_count": offsets[args.reference_slot],
+                     "offset_sample_count": offsets[args.reference_node],
                      "response": arm_marker(
-                         originator, args, offsets[args.reference_slot])})
+                         originator, args, offsets[args.reference_node])})
         armed = wait_marker_armed(ordered, args)
         injection = {
             "board": originator.address,
@@ -743,13 +743,13 @@ def run_offset_matrix(args: argparse.Namespace) -> dict[str, object]:
             "epoch": trial_args.epoch,
             "generation": trial_args.generation,
             "passed": bool(result.get("passed")),
-            "accepted_nodes": [int(record["logical_slot"]) for record in records
+            "accepted_nodes": [int(record["local_node"]) for record in records
                                if int(record["state"]) == STATE_ACCEPTED],
             "nodes": [{
-                "node": int(record["logical_slot"]),
+                "node": int(record["local_node"]),
                 "incoming_link": {
-                    "source_node": int(record["predecessor_slot"]),
-                    "destination_node": int(record["logical_slot"]),
+                    "source_node": int(record["predecessor_node"]),
+                    "destination_node": int(record["local_node"]),
                 },
                 "state": int(record["state"]),
                 "correlation_reject_reason": int(

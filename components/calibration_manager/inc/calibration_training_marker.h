@@ -6,7 +6,7 @@
 
 #define CALIBRATION_TRAINING_MARKER_SNAPSHOT_VERSION 2u
 #define CALIBRATION_TRAINING_MARKER_SNAPSHOT_READ_ATTEMPTS 64u
-#define CALIBRATION_TRAINING_MARKER_MAX_SLOTS 8u
+#define CALIBRATION_TRAINING_MARKER_MAX_NODES 8u
 #define CALIBRATION_TRAINING_MARKER_MIN_OFFSET_SAMPLES (-10)
 #define CALIBRATION_TRAINING_MARKER_MAX_OFFSET_SAMPLES 10
 #define CALIBRATION_TRAINING_MARKER_MAX_CAPTURE_DELAY_CYCLES 31u
@@ -68,10 +68,10 @@ typedef struct {
     uint64_t board_unique_id;
     uint64_t build_id;
     uint32_t role;
-    uint32_t logical_slot;
-    uint32_t reference_slot;
-    uint32_t predecessor_slot;
-    uint32_t successor_slot;
+    uint32_t local_node;
+    uint32_t reference_node;
+    uint32_t predecessor_node;
+    uint32_t successor_node;
     uint32_t train_epoch;
     uint32_t train_sequence;
     uint32_t marker_id;
@@ -120,10 +120,10 @@ typedef struct {
     uint64_t board_unique_id;
     uint64_t build_id;
     uint32_t role;
-    uint32_t logical_slot;
-    uint32_t reference_slot;
-    uint32_t predecessor_slot;
-    uint32_t successor_slot;
+    uint32_t local_node;
+    uint32_t reference_node;
+    uint32_t predecessor_node;
+    uint32_t successor_node;
     uint32_t train_epoch;
     uint32_t train_sequence;
     uint32_t marker_id;

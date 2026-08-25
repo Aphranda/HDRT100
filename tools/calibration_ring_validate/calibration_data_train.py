@@ -358,8 +358,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--data-direction", choices=DIRECTION_CHOICES, required=True,
         help="runtime TRN-02 parameter relative to physical node order")
-    parser.add_argument("--reference-node", dest="reference_slot",
-                        type=int, default=0)
+    parser.add_argument("--reference-node", type=int, default=0)
     parser.add_argument("--codebook", type=int, default=0)
     parser.add_argument("--epoch", type=int, default=1)
     parser.add_argument("--sequence", type=int)
@@ -553,7 +552,7 @@ def validate_hil_args(args: argparse.Namespace) -> list[str]:
         raise SystemExit(
             "current TRN-02 persona requires DATA direction opposite MARK")
     args.data_source_node, args.data_destination_node = data_nodes
-    if not 0 <= args.reference_slot < count:
+    if not 0 <= args.reference_node < count:
         raise SystemExit("reference-node outside board order")
     if not (0 <= args.codebook <= 3 and 1 <= args.epoch <= 255 and
             args.generation > 0 and args.marker_to_data_samples > 0 and

@@ -18,6 +18,9 @@ from tools.calibration_ring_validate.calibration_data_waveform import (
 from tools.calibration_ring_validate.calibration_clk_codebook_eval import (
     marker_raw_waveform,
 )
+from tools.calibration_ring_validate.trn02_offset_fault import (
+    classify_offset_fault,
+)
 
 
 def make_row(**overrides: int) -> dict[str, int | str]:
@@ -100,6 +103,31 @@ def test_validate_link_rejects_out_of_range_result() -> None:
     assert "source_offset_range" in result["errors"]
 
 
+def test_validate_link_rejects_offset_induced_timeout() -> None:
+    source = make_row(flags=FLAG_DIAGNOSTIC_ONLY |
+                      DESTINATION_REQUIRED_FLAGS,
+                      timeout_count=1)
+    destination = make_row(flags=FLAG_DIAGNOSTIC_ONLY |
+                           FLAG_HARDWARE_MARKER | FLAG_DMA_COMPLETE,
+                           observed_crc32=0)
+    result = validate_link(source, destination)
+    assert result["passed"] is False
+    assert "source_timeout_count" in result["errors"]
+
+
+def test_offset_fault_is_never_promoted_to_trn03() -> None:
+    result = classify_offset_fault(0, 11, -10, 10, 0)
+    assert result["expected_failure"] == "ARM_REJECTED_OFFSET_RANGE"
+    assert result["accepted"] is False
+    assert result["active_candidate_allowed"] is False
+    assert result["trn03_staging_allowed"] is False
+
+
+def test_offset_fault_can_expect_window_timeout() -> None:
+    result = classify_offset_fault(0, 9, -4, 4, 1)
+    assert result["expected_failure"] == "TIMEOUT_EXPECTED_WINDOW_MISSED"
+
+
 def test_parse_storage_read_and_summarize_capture() -> None:
     page = parse_storage_read(
         'OK,7,0,2,2,2,1,123,0,"0102"', 0)
@@ -170,7 +198,7 @@ def test_repeat_matrix_requires_one_generation_and_bounded_offset_span() -> None
 
 def test_data_waveform_renders_expected_capture(tmp_path) -> None:
     expected, _ = marker_raw_waveform(
-        codebook_id=0, epoch=7, master_slot=0, polarity=0)
+        codebook_id=0, epoch=7, source_node=0, polarity=0)
     samples = [0] * 5 + expected + [0] * 5
     words = []
     for start in range(0, len(samples), 32):

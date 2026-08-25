@@ -177,8 +177,8 @@ def aggregate_summaries(summaries: list[dict[str, object]]) -> dict[str, object]
     if len(board_order) < 2 or any(order != board_order for order in board_orders):
         raise ValueError("all summaries must have the same physical board order")
 
-    expected = {(slot, (slot + 1) % len(board_order))
-                for slot in range(len(board_order))}
+    expected = {(node, (node + 1) % len(board_order))
+                for node in range(len(board_order))}
     grouped: dict[tuple[int, int], list[dict[str, object]]] = {
         link: [] for link in expected
     }
@@ -187,20 +187,20 @@ def aggregate_summaries(summaries: list[dict[str, object]]) -> dict[str, object]
         if not isinstance(records, list):
             raise ValueError(f"summary {summary_index} has no records list")
         for candidate in derive_link_offset_candidates(records):
-            link = (int(candidate["source_slot"]),
-                    int(candidate["destination_slot"]))
+            link = (int(candidate["source_node"]),
+                    int(candidate["destination_node"]))
             if link in grouped:
                 grouped[link].append({
                     **candidate,
-                    "reference_slot": summary.get("reference_slot"),
+                    "reference_node": summary.get("reference_node"),
                     "epoch": summary.get("epoch"),
                     "generation": summary.get("generation"),
                     "summary_index": summary_index,
                 })
 
     links: list[dict[str, object]] = []
-    for source_slot, destination_slot in sorted(expected):
-        evidence = grouped[(source_slot, destination_slot)]
+    for source_node, destination_node in sorted(expected):
+        evidence = grouped[(source_node, destination_node)]
         accepted = [row for row in evidence if row["correlation_accepted"]]
         rejected = [row for row in evidence if not row["correlation_accepted"]]
         offsets = [int(row["offset_ns"]) for row in accepted]
@@ -214,10 +214,10 @@ def aggregate_summaries(summaries: list[dict[str, object]]) -> dict[str, object]
             reject_histogram[name] = reject_histogram.get(name, 0) + 1
         consistent = bool(accepted) and len(bases) == 1 and len(ticks) == 1
         links.append({
-            "source_slot": source_slot,
-            "destination_slot": destination_slot,
-            "source_board_id": board_order[source_slot],
-            "destination_board_id": board_order[destination_slot],
+            "source_node": source_node,
+            "destination_node": destination_node,
+            "source_board_id": board_order[source_node],
+            "destination_board_id": board_order[destination_node],
             "trial_evidence_count": len(evidence),
             "accepted_evidence_count": len(accepted),
             "rejected_evidence_count": len(rejected),
@@ -261,10 +261,10 @@ def aggregate_pair_summaries(
     if len(ring_board_order) < 2 or len(set(ring_board_order)) != len(ring_board_order):
         raise ValueError("ring board order must contain unique board IDs")
 
-    ring_slot = {board_id: slot for slot, board_id in enumerate(ring_board_order)}
+    ring_node = {board_id: node for node, board_id in enumerate(ring_board_order)}
     expected = {
-        (ring_board_order[slot], ring_board_order[(slot + 1) % len(ring_board_order)])
-        for slot in range(len(ring_board_order))
+        (ring_board_order[node], ring_board_order[(node + 1) % len(ring_board_order)])
+        for node in range(len(ring_board_order))
     }
     grouped: dict[tuple[str, str], list[dict[str, object]]] = {
         link: [] for link in expected
@@ -287,8 +287,8 @@ def aggregate_pair_summaries(
         candidates = derive_link_offset_candidates(records)
         destination_candidates = [
             candidate for candidate in candidates
-            if int(candidate["source_slot"]) == 0
-            and int(candidate["destination_slot"]) == 1
+            if int(candidate["source_node"]) == 0
+            and int(candidate["destination_node"]) == 1
         ]
         if len(destination_candidates) != 1:
             raise ValueError(
@@ -298,18 +298,18 @@ def aggregate_pair_summaries(
             **candidate,
             "source_board_id": directed_link[0],
             "destination_board_id": directed_link[1],
-            "source_ring_slot": ring_slot[directed_link[0]],
-            "destination_ring_slot": ring_slot[directed_link[1]],
-            "reference_slot": summary.get("reference_slot"),
+            "source_ring_node": ring_node[directed_link[0]],
+            "destination_ring_node": ring_node[directed_link[1]],
+            "reference_node": summary.get("reference_node"),
             "epoch": summary.get("epoch"),
             "generation": summary.get("generation"),
             "summary_index": summary_index,
         })
 
     links: list[dict[str, object]] = []
-    for source_slot, source_board_id in enumerate(ring_board_order):
-        destination_slot = (source_slot + 1) % len(ring_board_order)
-        destination_board_id = ring_board_order[destination_slot]
+    for source_node, source_board_id in enumerate(ring_board_order):
+        destination_node = (source_node + 1) % len(ring_board_order)
+        destination_board_id = ring_board_order[destination_node]
         evidence = grouped[(source_board_id, destination_board_id)]
         accepted = [row for row in evidence if row["correlation_accepted"]]
         rejected = [row for row in evidence if not row["correlation_accepted"]]
@@ -343,8 +343,8 @@ def aggregate_pair_summaries(
             "training_state": row.get("training_state"),
         } for row in evidence]
         links.append({
-            "source_slot": source_slot,
-            "destination_slot": destination_slot,
+            "source_node": source_node,
+            "destination_node": destination_node,
             "source_board_id": source_board_id,
             "destination_board_id": destination_board_id,
             "trial_evidence_count": len(evidence),
