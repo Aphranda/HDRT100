@@ -9,15 +9,32 @@ ROOT = Path(__file__).resolve().parents[2]
 HEADER = ROOT / "middleware/scpi_port/inc/scpi_communication_uart_commands.h"
 SOURCE = ROOT / "middleware/scpi_port/src/scpi_communication_uart_commands.c"
 DRIVER = ROOT / "drivers/mcu/uart/src/drv_rs485.c"
+MODBUS_COMPONENT = ROOT / "components/communication/rs485_modbus"
+COMMUNICATION_HEADER = MODBUS_COMPONENT / "inc/rs485_communication.h"
+COMMUNICATION_SOURCE = MODBUS_COMPONENT / "src/rs485_communication.c"
 COMMANDS = ROOT / "docs/interface/SCPI_COMMANDS.md"
 PROBE = ROOT / "tools/scpi_query/rs485_scpi_loopback_probe.scpi"
+VALIDATOR = ROOT / "tools/rs485_modbus_validate/rs485_modbus_validate.py"
 
 
 def test_usb_scpi_mode_commands_are_registered_for_uart_rs485_channel():
     header = HEADER.read_text(encoding="utf-8")
     assert '"COMMunication:SERial:UART#:MODE"' in header
     assert '"COMMunication:SERial:UART#:MODE?"' in header
+    assert '"COMMunication:SERial:UART#:BAUD"' in header
     assert "scpi_cmd_uart_mode" in header
+
+
+def test_baud_configuration_is_owned_by_communication_component():
+    header = COMMUNICATION_HEADER.read_text(encoding="utf-8")
+    source = COMMUNICATION_SOURCE.read_text(encoding="utf-8")
+    scpi = SOURCE.read_text(encoding="utf-8")
+    board_config = (ROOT / "config/project_config.h").read_text(encoding="utf-8")
+    assert "rs485_communication_set_baud_hz" in header
+    assert "rs485_communication_baud_hz" in header
+    assert "RS485_MODBUS_MASTER_WAITING" in source
+    assert "rs485_communication_set_baud_hz(baud)" in scpi
+    assert "#define BOARD_UART_BAUD_HZ 115200u" in board_config
 
 
 def test_mode_selection_is_explicit_and_defaults_to_scpi():
@@ -40,7 +57,28 @@ def test_rx_status_projects_dma_backend_and_echo_health():
     assert "UART1:RX:STATus?" in PROBE.read_text(encoding="utf-8")
 
 
-def test_mode_does_not_claim_backend_ready():
+def test_modbus_master_diagnostics_projects_frame_boundary_reasons():
+    header = (ROOT / "middleware/scpi_port/inc/scpi_communication_uart_commands.h").read_text(
+        encoding="utf-8"
+    )
+    source = (ROOT / "middleware/scpi_port/src/scpi_communication_uart_commands.c").read_text(
+        encoding="utf-8"
+    )
+    modbus = (MODBUS_COMPONENT / "inc/rs485_modbus.h").read_text(encoding="utf-8")
+    assert '"COMMunication:SERial:UART#:MODBus:MASTER:DIAGnostic?"' in header
+    assert "scpi_cmd_uart_modbus_master_diagnostics_q" in source
+    assert "last_frame_length" in modbus
+    assert "last_frame_prefix" in modbus
+
+
+def test_modbus_peer_validator_keeps_binary_frames_intact():
+    tool = VALIDATOR.read_text(encoding="utf-8")
+    assert "expected_length=8" in tool
+    assert "response_hold_s" in tool
+    assert "def write_all" in tool
+
+
+def test_mode_readiness_is_distinct_from_ota_readiness():
     docs = (ROOT / "docs/communication/COMMUNICATION_RS485_ARCHITECTURE.md").read_text(
         encoding="utf-8"
     )
@@ -48,13 +86,29 @@ def test_mode_does_not_claim_backend_ready():
         encoding="utf-8"
     )
     assert "不得宣称 RS485 数据面已 ready" in docs
-    assert "PENDING_BACKEND" in todo
+    assert "V2 OTA ingress" in todo
+    assert "`[ ]`" in todo
+
+
+def test_modbus_protocol_and_service_live_in_communication_component():
+    header = (MODBUS_COMPONENT / "inc/rs485_modbus.h").read_text(encoding="utf-8")
+    source = (MODBUS_COMPONENT / "src/rs485_modbus.c").read_text(encoding="utf-8")
+    service = (MODBUS_COMPONENT / "src/rs485_communication.c").read_text(encoding="utf-8")
+    assert "RS485_MODBUS_ROLE_MASTER" in header
+    assert "RS485_MODBUS_ROLE_SLAVE" in header
+    assert "rs485_modbus_master_read_holding" in source
+    assert "rs485_modbus_master_write_single" in source
+    assert "drv_rs485_modbus_frame_gap_us" in source
+    assert "rs485_modbus_service_poll" in service
+    assert "rs485_modbus_device_init" in service
+    assert "Flash" not in source
 
 
 def test_rs485_driver_owns_direction_and_bounded_test_frame():
     source = DRIVER.read_text(encoding="utf-8")
     assert "gpio_put(s_config.de_pin, 1u)" in source
-    assert "uart_tx_wait_blocking" in source
+    assert "drv_rs485_service" in source
+    assert "s_tx_active" in source
     assert "gpio_put(s_config.de_pin, 0u)" in source
     assert "size > 256u" in source
     assert "RS485_ECHO_IDLE_US" in source
@@ -67,6 +121,7 @@ def test_rs485_driver_owns_direction_and_bounded_test_frame():
     assert "dma_channel_configure" in source
     assert "rs485_dma_partial_limit" in source
     assert "s_dma_last_activity_us" in source
+    assert "drv_rs485_set_baud_hz" in source
 
 
 def test_scpi_query_filters_printable_rs485_loopback_payload_before_ack():

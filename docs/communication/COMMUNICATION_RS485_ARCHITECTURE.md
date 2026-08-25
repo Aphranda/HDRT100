@@ -4,7 +4,7 @@ Status: Active
 Domain: Communication / RS485
 Canonical: `docs/communication/COMMUNICATION_RS485_ARCHITECTURE.md`
 Related: `docs/communication/COMMUNICATION_RS485_TODO.md`, `docs/communication/COMMUNICATION_RS485_TASK_PROGRESS.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/interface/SCPI_COMMANDS.md`
-Last updated: 2026-08-24
+Last updated: 2026-08-25
 
 本文定义 DHRT100 的 RS485 半双工通信边界和后续 OTA 联调入口。它只冻结 owner、生命周期和
 fail-closed 原则；波特率、引脚、收发器 DE/RE 时序等板级数值必须来自实际 board 配置或硬件
@@ -23,6 +23,10 @@ fail-closed 原则；波特率、引脚、收发器 DE/RE 时序等板级数值�
 - RS485/UART# 的维护协议由 USB 上的 SCPI 配置：`COMMunication:SERial:UART#:MODE SCPI`
   或 `MODE MODBUS`。默认保持 SCPI 兼容；选择 `MODBUS` 后才允许 Modbus RTU adapter 接管
   RS485 数据面，不能靠总线上的业务帧隐式切换。
+- UART 波特率配置由 `rs485_communication` owner 统一持有。启动值来自 board 配置符号
+  `BOARD_UART_BAUD_HZ`；`BAUD <rate>` 只在发送 lease 和 Modbus master outstanding transaction
+  均为空闲时生效，查询返回硬件实际分频后的值。driver 的 DMA、3.5 字符间隔和 DE release
+  deadline 都从同一当前值派生，控制面不得直接调用 UART driver setter。
 
 ## 2. HAOFV owner 与生命周期
 
@@ -48,8 +52,9 @@ RS485 UART/DMA + DE/RE owner
 - 控制面沿用 SCPI 行命令；二进制 OPEN/DATA 负载沿用固定 little-endian stream wire，RS485
   只改变 transport framing，不改变 session token、generation、package/object、target slot
   或 durable offset 语义。
-- 当前联调阶段优先实现 Modbus RTU；SCPI 仍是 USB 配置和诊断入口。未完成 Modbus adapter
-  前，`MODE?` 可以报告选择，但不得宣称 RS485 数据面已 ready。
+- 当前联调阶段优先实现 Modbus RTU；SCPI 仍是 USB 配置和诊断入口。V2 OTA ingress 仍未完成
+  时，`MODE?`/`STATus?` 的 ready 只表示 UART/Modbus 维护 adapter 已初始化；不得宣称 RS485 数据面已 ready
+  为 OTA ingress ready。
 - 每个 RS485 数据帧包含可校验的长度、序号/offset、payload CRC 和 ACK 关联信息；具体 wire
   字段以 `pota_stream_wire.h` 和生成测试为事实源。
 - 半双工总线上同一时刻只允许一个发送 owner。DE 拉高到首字节前、最后一个停止位后释放的

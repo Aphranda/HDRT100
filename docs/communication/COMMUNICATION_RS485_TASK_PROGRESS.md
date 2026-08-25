@@ -4,7 +4,7 @@ Status: Active
 Domain: Communication / RS485
 Canonical: `docs/communication/COMMUNICATION_RS485_TASK_PROGRESS.md`
 Related: `docs/communication/COMMUNICATION_RS485_ARCHITECTURE.md`, `docs/communication/COMMUNICATION_RS485_TODO.md`, `docs/arch/HAOFV_FLASH_TASK_PROGRESS.md`
-Last updated: 2026-08-24
+Last updated: 2026-08-25
 
 本文只追加 RS485 的提交、构建、host/HIL 原始证据、失败、回退和阻塞记录；不在此冻结新契约，
 也不替代 Architecture/TODO 的事实边界。
@@ -84,6 +84,63 @@ Last updated: 2026-08-24
 - 已补充未满 DMA buffer 的 idle-gap partial drain；短 SCPI 行不再等待整块 buffer 完成，
   仍由 `drv_rs485_read()` 的有界 service 消费，避免 DMA 接入后控制面无响应。
 
+## COMM-RS485-20260824-006 - DHRT100 电源更换后回显修复闭环
+
+- 修复 `drv_rs485` 的 diagnostic TX echo 生命周期：DMA/FIFO guard 丢弃自身回显时同步
+  消费 pattern 剩余计数；guard 跨越帧边界时不再把残留 `0x55` 候选重新注入 SCPI parser；
+  `RX:STATus?` 的 echo pending 投影也防止 matcher 清除后的无符号下溢。
+- 构建：`cmake --build --preset pico2-v2-factory-candidate -j 4` 通过，FlashMap、
+  persistence、wire、Boot/App A/App B/Recovery link gates 和签名工件均通过；Python
+  `tests/python/test_rs485_scpi_mode.py` 6 项通过。
+- DHRT100：使用固化 `tools/picotool_flash/picotool_flash.py` load/verify，未执行 full
+  erase；原始烧录记录为
+  `out/flash_hil/dhrt100_rs485_echo_consume_flash_20260824.txt`。
+- COM11 固化探针闭环通过：`*IDN?` 返回 DHRT100 身份，`MODE SCPI`、`TX:TEST 8,85`、
+  `TX:TEST?`、`RX:COUNt?`、`RX:STATus?`、`UART1:ERRor?` 和 `SYSTem:ERRor?` 均有响应；
+  最终为 `DMA_PINGPONG`、overrun `0`、UART error `0`、echo pending `0`、系统错误
+  `0,"No error"`。原始记录为
+  `out/flash_hil/dhrt100_power_change_rs485_probe_echo_fix_success_20260824.txt`。
+- 电源更换后的烧录与运行期间没有观察到 watchdog timeout；一次受控 picotool reboot
+  的 reset evidence 单独保留，不作为故障证据。Modbus adapter、RS485 OTA 数据面和
+  真实断电验证仍未完成。
+
+## COMM-RS485-20260825-007 - 波特率配置收敛到 communication owner
+
+- 代码：新增 `rs485_communication_set_baud_hz()` / `rs485_communication_baud_hz()`，SCPI
+  `COMMunication:SERial:UART#:BAUD` 不再直接调用 UART driver。owner 在 Modbus master
+  outstanding transaction 或 TX lease 活跃时拒绝改速率；driver 同时拒绝 active TX，避免
+  修改 divisor 时破坏半双工帧。
+- 默认：board 配置符号 `BOARD_UART_BAUD_HZ` 继续作为启动默认值（当前代码值见
+  `config/project_config.h`）；查询返回 SDK 实际分频后的波特率。
+- 计算链：字符时间、Modbus 3.5 字符间隔、主站 wire timeout 和 DE release deadline 都读取
+  同一 driver 当前值，避免 setter 后残留旧时序。
+- 验证：`tests/python/test_rs485_scpi_mode.py` 增加 owner/default 静态门禁；V2 主工程构建、
+  文档门禁和 DHRT100 闭环 transcript：
+  `out/flash_hil/dhrt100_rs485_baud_owner_flash_20260825.txt`、
+  `out/flash_hil/dhrt100_rs485_baud_owner_probe_20260825.txt`、
+  `out/flash_hil/dhrt100_rs485_baud_owner_restore_20260825.txt`。
+
+## COMM-RS485-20260825-008 - Modbus 主站诊断与 peer 工具帧完整性修复
+
+- 工具修复：`rs485_modbus_validate.py --peer` 对主站请求使用固定 8 字节读取，不再把
+  请求的地址高字节误当成 `0x03` 响应 byte-count；响应写入使用 `write_all()`、t3.5 等待和
+  完整响应 wire-time 保持，避免 USB-RS485 适配器短写/提前关闭造成首字节截断。
+- 固件：新增 `COMMunication:SERial:UART#:MODBus:MASTER:DIAGnostic?`，由 communication
+  component owner 投影最近帧长度、期望长度、CRC/协议/超时计数和帧前缀，不暴露 Flash 或
+  DMA 内部可写状态。
+- 构建/烧录：V2 factory candidate、签名、FlashMap/link gate 通过；使用固化
+  `tools/picotool_flash/picotool_flash.py` load/verify，未执行 full erase。证据：
+  `out/flash_hil/dhrt100_rs485_diag_prefix_flash_20260825.txt`。
+- DHRT100：peer 工具已确认收到完整请求并生成合法 CRC 响应，但板端诊断仍显示
+  `last_frame_length=1`、`expected_length=9`、`last_frame_prefix=0`、CRC 错误递增；将该
+  结果定性为 RS485 回传方向/电气链路未把完整 peer 响应送入 DHRT100，不把工具或 parser
+  误判为闭环通过。原始证据：
+  `out/flash_hil/dhrt100_modbus_master_peer_writeall_20260825.json`、
+  `out/flash_hil/dhrt100_modbus_master_prefix2ms_read_20260825.txt`。
+- 回归：同一工件切回 Modbus slave 后，read/write、CRC reject 均通过；证据：
+  `out/flash_hil/dhrt100_modbus_slave_postdiag_20260825.json`。DHRT100 已恢复为 SCPI
+  maintenance mode，`SYSTem:ERRor?` 保持无错误。
+
 ## 证据索引
 
 | 证据 | 状态 | 说明 |
@@ -91,7 +148,7 @@ Last updated: 2026-08-24
 | `tools/ota_stream_send/ota_stream_send.py` | 基线 | 现有 USB CDC stream sender，待增加 RS485 profile |
 | `third_party/portable_ota/include/pota_stream_ingress.h` | 基线 | 已定义 RS485 ingress source enum |
 | `tools/scpi_query/rs485_mode_probe.scpi` | 已固化 | 通过 USB SCPI 选择/查询 UART1 的 SCPI 模式并读取 backend 状态 |
-| COM11 transcript | 未开始 | 等待 RS485 adapter/工具固化后产生 |
+| `out/flash_hil/dhrt100_power_change_rs485_probe_echo_fix_success_20260824.txt` | 通过 | DHRT100 COM11 SCPI 回环、DMA、错误队列和 echo guard 闭环 |
 | DHRT100 V2 RS485 OTA | 未开始 | 必须在 host/build gate 后执行 |
 
 ## 回退与边界

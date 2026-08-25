@@ -5,6 +5,7 @@
 #include "scpi_port_internal.h"
 
 scpi_result_t scpi_cmd_uart_baud_q(scpi_t *context);
+scpi_result_t scpi_cmd_uart_baud(scpi_t *context);
 scpi_result_t scpi_cmd_uart_mode(scpi_t *context);
 scpi_result_t scpi_cmd_uart_mode_q(scpi_t *context);
 scpi_result_t scpi_cmd_uart_format_q(scpi_t *context);
@@ -15,10 +16,17 @@ scpi_result_t scpi_cmd_uart_tx_test_q(scpi_t *context);
 scpi_result_t scpi_cmd_uart_rx_count_q(scpi_t *context);
 scpi_result_t scpi_cmd_uart_rx_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_uart_error_q(scpi_t *context);
+scpi_result_t scpi_cmd_uart_modbus_role(scpi_t *context);
+scpi_result_t scpi_cmd_uart_modbus_role_q(scpi_t *context);
+scpi_result_t scpi_cmd_uart_modbus_master_read(scpi_t *context);
+scpi_result_t scpi_cmd_uart_modbus_master_write(scpi_t *context);
+scpi_result_t scpi_cmd_uart_modbus_master_status_q(scpi_t *context);
+scpi_result_t scpi_cmd_uart_modbus_master_diagnostics_q(scpi_t *context);
 bool scpi_uart_mode_is_scpi(void);
+bool scpi_uart_mode_is_modbus(void);
 
 #define SCPI_COMMUNICATION_UART_COMMANDS \
-    {.pattern = "COMMunication:SERial:UART#:BAUD", .callback = scpi_port_result_accepted}, \
+    {.pattern = "COMMunication:SERial:UART#:BAUD", .callback = scpi_cmd_uart_baud}, \
     {.pattern = "COMMunication:SERial:UART#:BAUD?", .callback = scpi_cmd_uart_baud_q}, \
     {.pattern = "COMMunication:SERial:UART#:MODE", .callback = scpi_cmd_uart_mode}, \
     {.pattern = "COMMunication:SERial:UART#:MODE?", .callback = scpi_cmd_uart_mode_q}, \
@@ -31,6 +39,12 @@ bool scpi_uart_mode_is_scpi(void);
     {.pattern = "COMMunication:SERial:UART#:TX:TEST?", .callback = scpi_cmd_uart_tx_test_q}, \
     {.pattern = "COMMunication:SERial:UART#:RX:COUNt?", .callback = scpi_cmd_uart_rx_count_q}, \
     {.pattern = "COMMunication:SERial:UART#:RX:STATus?", .callback = scpi_cmd_uart_rx_status_q}, \
-    {.pattern = "COMMunication:SERial:UART#:ERRor?", .callback = scpi_cmd_uart_error_q}
+    {.pattern = "COMMunication:SERial:UART#:ERRor?", .callback = scpi_cmd_uart_error_q}, \
+    {.pattern = "COMMunication:SERial:UART#:MODBus:ROLE", .callback = scpi_cmd_uart_modbus_role}, \
+    {.pattern = "COMMunication:SERial:UART#:MODBus:ROLE?", .callback = scpi_cmd_uart_modbus_role_q}, \
+    {.pattern = "COMMunication:SERial:UART#:MODBus:MASTER:READ", .callback = scpi_cmd_uart_modbus_master_read}, \
+    {.pattern = "COMMunication:SERial:UART#:MODBus:MASTER:WRITE", .callback = scpi_cmd_uart_modbus_master_write}, \
+    {.pattern = "COMMunication:SERial:UART#:MODBus:MASTER:STATus?", .callback = scpi_cmd_uart_modbus_master_status_q}, \
+    {.pattern = "COMMunication:SERial:UART#:MODBus:MASTER:DIAGnostic?", .callback = scpi_cmd_uart_modbus_master_diagnostics_q}
 
 #endif

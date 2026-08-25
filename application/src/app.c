@@ -1,11 +1,8 @@
 #include "app.h"
 
-#include <string.h>
-
 #include "calibration_manager.h"
 #include "board_identity.h"
 #include "diagnostics.h"
-#include "drv_rs485.h"
 #include "drv_watchdog.h"
 #include "distributed_config.h"
 #include "distributed_refmem.h"
@@ -17,6 +14,7 @@
 #include "product_config.h"
 #include "resource_arbiter.h"
 #include "scpi_port.h"
+#include "rs485_communication.h"
 #include "storage_manager.h"
 #include "system_manager.h"
 #include "sync_trigger.h"
@@ -31,46 +29,6 @@
 
 static bool s_app_ready;
 static bool s_app_control_plane_ready;
-static char s_rs485_scpi_line[256];
-static size_t s_rs485_scpi_line_len;
-
-static void app_rs485_scpi_service(void)
-{
-    if (!scpi_uart_mode_is_scpi()) {
-        s_rs485_scpi_line_len = 0u;
-        return;
-    }
-    uint8_t input[64];
-    const uint32_t count = drv_rs485_read(input, sizeof(input));
-    for (uint32_t index = 0u; index < count; ++index) {
-        const char ch = (char)input[index];
-        if (ch == '\n' || ch == '\r') {
-            if (s_rs485_scpi_line_len == 0u) {
-                continue;
-            }
-            char response[256];
-            char command[sizeof(s_rs485_scpi_line) + 1u];
-            size_t response_len = 0u;
-            memcpy(command, s_rs485_scpi_line, s_rs485_scpi_line_len);
-            command[s_rs485_scpi_line_len] = '\n';
-            if (scpi_port_execute(command,
-                                  s_rs485_scpi_line_len + 1u,
-                                  response, sizeof(response),
-                                  &response_len) && response_len > 0u) {
-                (void)drv_rs485_write((const uint8_t *)response,
-                                      (uint32_t)response_len);
-            }
-            s_rs485_scpi_line_len = 0u;
-            continue;
-        }
-        if (s_rs485_scpi_line_len + 1u >= sizeof(s_rs485_scpi_line)) {
-            s_rs485_scpi_line_len = 0u;
-            continue;
-        }
-        s_rs485_scpi_line[s_rs485_scpi_line_len++] = ch;
-    }
-}
-
 bool app_init(void)
 {
     s_app_ready = false;
@@ -104,6 +62,11 @@ bool app_init(void)
 
     if (!scpi_port_init()) {
         diagnostics_mark_fault("scpi", "SCPI initialization failed");
+        return false;
+    }
+
+    if (!rs485_communication_init()) {
+        diagnostics_mark_fault("rs485", "RS485 communication initialization failed");
         return false;
     }
 
@@ -219,7 +182,7 @@ void app_usb_device_service(void)
 
 void app_scpi_service(void)
 {
-    app_rs485_scpi_service();
+    rs485_communication_service();
 #if !PROJECT_ENABLE_USB_RUNTIME_SWITCH
     scpi_port_service();
 #endif

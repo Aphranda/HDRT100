@@ -4,7 +4,7 @@ Status: Active
 Domain: SCPI
 Canonical: `docs/interface/SCPI_COMMANDS.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/storage/SD_TODO.md`, `docs/interface/SCPI_USB_INTERFACE_DESIGN.md`
-Last updated: 2026-08-24
+Last updated: 2026-08-25
 
 成品默认 SCPI 服务通过 USBTMC/USB488 接入。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
 
@@ -101,7 +101,7 @@ UART/RS485/BiSS-C 等外部或板间通信能力统一归入 `COMMunication:*`�
 
 | 命令 | 说明 |
 |---|---|
-| `COMMunication:SERial:UART#:BAUD <baud>` / `BAUD?` | 设置或查询 UART# 波特率；当前 UART 后端待接入，查询返回默认配置。 |
+| `COMMunication:SERial:UART#:BAUD <baud>` / `BAUD?` | 由 RS485 communication owner 设置或查询 UART# 实际波特率；启动值来自 `BOARD_UART_BAUD_HZ`（代码事实源为 `config/project_config.h`）。总线发送 lease 或 Modbus master transaction 未空闲时拒绝修改。 |
 | `COMMunication:SERial:UART#:MODE <SCPI|MODBUS>` / `MODE?` | 通过 USB SCPI 选择 RS485/UART# 维护面协议；默认 `SCPI`，切换为 `MODBUS` 后由 Modbus RTU adapter 接管数据面。当前固件先持久化选择并报告，实际 adapter 接入前保持 `PENDING_BACKEND`。 |
 | `COMMunication:SERial:UART#:FORMat <data_bits>,<parity>,<stop_bits>` / `FORMat?` | 设置或查询 UART# 帧格式，`parity=NONE/EVEN/ODD`。 |
 | `COMMunication:SERial:UART#:STATe <0|1>` / `STATe?` | 使能或关闭 UART# 维护端口。 |
@@ -110,6 +110,7 @@ UART/RS485/BiSS-C 等外部或板间通信能力统一归入 `COMMunication:*`�
 | `COMMunication:SERial:UART#:RX:COUNt?` | 查询 UART# 接收字节计数和帧计数。 |
 | `COMMunication:SERial:UART#:RX:STATus?` | 查询 UART# RX backend（`DMA_PINGPONG`/`UART_FIFO`）、接收计数、DMA overrun 和待处理回显字节。 |
 | `COMMunication:SERial:UART#:ERRor?` | 查询 UART# 错误计数和最近错误文本。 |
+| `COMMunication:SERial:UART#:MODBus:MASTER:DIAGnostic?` | 查询 Modbus 主站最近帧长/期望帧长、CRC/协议/超时计数和最近帧前缀；只读诊断，不改变事务状态。 |
 
 ## 实时 IO 维护域
 
