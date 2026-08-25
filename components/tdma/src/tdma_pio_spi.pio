@@ -728,16 +728,31 @@ static inline void tdma_pio_spi_flight_origin_clock_rx_program_init(
 
 static inline void tdma_pio_spi_flight_origin_data_tx_program_init(
     PIO pio, uint sm, uint offset, uint tx_data_pin, uint rx_data_pin,
-    uint rx_csn_pin, uint rx_sck_pin)
+    uint rx_csn_pin, uint rx_sck_pin, uint32_t data_phase_delay_cycles)
 {
-    pio->instr_mem[offset + 0u] =
+    enum {
+        FLIGHT_ORIGIN_DATA_WAIT_CSN_HIGH_INSTRUCTION = 0u,
+        FLIGHT_ORIGIN_DATA_WAIT_CSN_LOW_INSTRUCTION = 1u,
+        FLIGHT_ORIGIN_DATA_WAIT_SCK_LOW_INSTRUCTION = 6u,
+        FLIGHT_ORIGIN_DATA_WAIT_SCK_HIGH_INSTRUCTION = 8u,
+    };
+    pio->instr_mem[
+        offset + FLIGHT_ORIGIN_DATA_WAIT_CSN_HIGH_INSTRUCTION] =
         (uint16_t)pio_encode_wait_gpio(true, rx_csn_pin);
-    pio->instr_mem[offset + 1u] =
+    pio->instr_mem[
+        offset + FLIGHT_ORIGIN_DATA_WAIT_CSN_LOW_INSTRUCTION] =
         (uint16_t)pio_encode_wait_gpio(false, rx_csn_pin);
-    pio->instr_mem[offset + 6u] =
+    pio->instr_mem[
+        offset + FLIGHT_ORIGIN_DATA_WAIT_SCK_LOW_INSTRUCTION] =
         (uint16_t)pio_encode_wait_gpio(false, rx_sck_pin);
-    pio->instr_mem[offset + 8u] =
-        (uint16_t)pio_encode_wait_gpio(true, rx_sck_pin);
+    /* Match the follower receive path: once the returned SCK reaches its high
+     * level, consume the incoming DATA link's trained phase before IN.  The
+     * delay lives on WAIT rather than a persona-specific extra instruction,
+     * so both personas use the same staged matrix value and PIO time base. */
+    pio->instr_mem[
+        offset + FLIGHT_ORIGIN_DATA_WAIT_SCK_HIGH_INSTRUCTION] =
+        (uint16_t)(pio_encode_wait_gpio(true, rx_sck_pin) |
+                   pio_encode_delay(data_phase_delay_cycles));
     pio_gpio_init(pio, tx_data_pin);
     pio_gpio_init(pio, rx_data_pin);
     pio_gpio_init(pio, rx_csn_pin);

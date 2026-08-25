@@ -130,6 +130,28 @@ def test_origin_data_waits_csn_once_per_counted_frame() -> None:
     assert "jmp y-- flight_origin_data_byte" in program
 
 
+def test_origin_data_rx_consumes_staged_data_phase() -> None:
+    pio_source = (ROOT / "components" / "tdma" / "src" /
+                  "tdma_pio_spi.pio").read_text(encoding="utf-8")
+    init = pio_source.split(
+        "static inline void tdma_pio_spi_flight_origin_data_tx_program_init",
+        1,
+    )[1].split("static inline void", 1)[0]
+    assert "FLIGHT_ORIGIN_DATA_WAIT_SCK_HIGH_INSTRUCTION = 8u" in init
+    assert "pio_encode_wait_gpio(true, rx_sck_pin)" in init
+    assert "pio_encode_delay(data_phase_delay_cycles)" in init
+
+    phys_source = (ROOT / "components" / "tdma" / "src" /
+                   "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    configure = phys_source.split(
+        "static bool tdma_pio_spi_phys_configure_flight", 1
+    )[1].split("static bool", 1)[0]
+    origin_call = configure.split(
+        "tdma_pio_spi_flight_origin_data_tx_program_init", 1
+    )[1].split(");", 1)[0]
+    assert "phys->flight_data_phase_delay_cycles" in origin_call
+
+
 def test_origin_queues_frame_byte_count_before_payload_dma() -> None:
     source = (ROOT / "components" / "tdma" / "src" /
               "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
