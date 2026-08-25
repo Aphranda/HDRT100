@@ -47,6 +47,44 @@ bool tdma_flight_fifo_init(tdma_flight_fifo_t *fifo)
     return true;
 }
 
+bool tdma_flight_fifo_reset_stopped(tdma_flight_fifo_t *fifo)
+{
+    if (fifo == NULL) {
+        return false;
+    }
+
+    for (uint32_t i = 0u; i < TDMA_FLIGHT_TX_IMAGE_SLOT_COUNT; i++) {
+        tdma_flight_store_u32(&fifo->tx_slots[i].owner,
+                              TDMA_FLIGHT_TX_OWNER_CORE0_INACTIVE);
+        tdma_flight_store_u32(&fifo->tx_slots[i].generation, 0u);
+        tdma_flight_store_u32(&fifo->tx_slots[i].sequence, 0u);
+        tdma_flight_store_u32(&fifo->tx_slots[i].segment_mask, 0u);
+        tdma_flight_store_u32(&fifo->tx_slots[i].data_size, 0u);
+        memset(&fifo->tx_ring[i], 0, sizeof(fifo->tx_ring[i]));
+    }
+    for (uint32_t i = 0u; i < TDMA_FLIGHT_RX_FRAME_SLOT_COUNT; i++) {
+        tdma_flight_store_u32(&fifo->rx_slots[i].owner,
+                              TDMA_FLIGHT_RX_OWNER_FREE);
+        tdma_flight_store_u32(&fifo->rx_slots[i].generation, 0u);
+        tdma_flight_store_u32(&fifo->rx_slots[i].sequence, 0u);
+        tdma_flight_store_u32(&fifo->rx_slots[i].segment_mask, 0u);
+        tdma_flight_store_u32(&fifo->rx_slots[i].data_size, 0u);
+        __atomic_store_n(&fifo->rx_slots[i].timestamp_ns,
+                         0ull,
+                         __ATOMIC_RELEASE);
+        tdma_flight_store_u32(&fifo->rx_slots[i].quality_flags, 0u);
+        memset(&fifo->rx_ring[i], 0, sizeof(fifo->rx_ring[i]));
+    }
+    tdma_flight_store_u32(&fifo->tx_head, 0u);
+    tdma_flight_store_u32(&fifo->tx_tail, 0u);
+    tdma_flight_store_u32(&fifo->rx_head, 0u);
+    tdma_flight_store_u32(&fifo->rx_tail, 0u);
+    tdma_flight_store_u32(&fifo->tx_active_generation, 0u);
+    tdma_flight_store_u32(&fifo->tx_active_slot,
+                          TDMA_FLIGHT_NO_ACTIVE_SLOT);
+    return true;
+}
+
 static int32_t tdma_flight_find_tx_inactive_slot(tdma_flight_fifo_t *fifo)
 {
     for (uint32_t i = 0u; i < TDMA_FLIGHT_TX_IMAGE_SLOT_COUNT; i++) {

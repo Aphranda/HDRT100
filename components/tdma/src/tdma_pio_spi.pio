@@ -93,8 +93,8 @@ clk_burst_loop:
 flight_follower_bit:
     wait 1 gpio 0        side 0
     nop                  side 1
+    in pins, 1           side 1
     wait 0 gpio 0        side 1
-    in pins, 1           side 0
     out pins, 1          side 0
     jmp x-- flight_follower_bit side 0
     mov osr, isr         side 0
@@ -124,8 +124,13 @@ flight_origin_clock_bit:
 ; the timing path.
 .program tdma_pio_spi_flight_origin_data_tx
 .wrap_target
+    ; Core1 queues wire_bytes-1 before the frame payload.  Wait for returned
+    ; CS once per frame, then let Y keep the inner byte loop away from CS.
     wait 1 gpio 0
     wait 0 gpio 0
+    pull block
+    mov y, osr
+flight_origin_data_byte:
     pull block
     set x, 7
 flight_origin_data_bit:
@@ -134,6 +139,7 @@ flight_origin_data_bit:
     wait 1 gpio 1
     in pins, 1
     jmp x-- flight_origin_data_bit
+    jmp y-- flight_origin_data_byte
 .wrap
 
 ; Second-stage coded calibration RX. One returned CLK sample is captured per
@@ -520,9 +526,11 @@ static inline void tdma_pio_spi_flight_follower_program_init(
     uint rx_sck_pin, uint tx_sck_pin)
 {
     pio->instr_mem[offset + 4u] =
-        (uint16_t)pio_encode_wait_gpio(true, rx_sck_pin);
-    pio->instr_mem[offset + 6u] =
-        (uint16_t)pio_encode_wait_gpio(false, rx_sck_pin);
+        (uint16_t)(pio_encode_wait_gpio(true, rx_sck_pin) |
+                   pio_encode_sideset(1u, 0u));
+    pio->instr_mem[offset + 7u] =
+        (uint16_t)(pio_encode_wait_gpio(false, rx_sck_pin) |
+                   pio_encode_sideset(1u, 1u));
     pio_gpio_init(pio, rx_data_pin);
     pio_gpio_init(pio, tx_data_pin);
     pio_gpio_init(pio, rx_sck_pin);
@@ -577,9 +585,9 @@ static inline void tdma_pio_spi_flight_origin_data_tx_program_init(
         (uint16_t)pio_encode_wait_gpio(true, rx_csn_pin);
     pio->instr_mem[offset + 1u] =
         (uint16_t)pio_encode_wait_gpio(false, rx_csn_pin);
-    pio->instr_mem[offset + 4u] =
-        (uint16_t)pio_encode_wait_gpio(false, rx_sck_pin);
     pio->instr_mem[offset + 6u] =
+        (uint16_t)pio_encode_wait_gpio(false, rx_sck_pin);
+    pio->instr_mem[offset + 8u] =
         (uint16_t)pio_encode_wait_gpio(true, rx_sck_pin);
     pio_gpio_init(pio, tx_data_pin);
     pio_gpio_init(pio, rx_data_pin);

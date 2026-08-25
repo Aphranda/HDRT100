@@ -1406,6 +1406,25 @@ bool tdma_service_get_flight_fifo_snapshot(
     return tdma_flight_fifo_get_snapshot(&service->flight_fifo, snapshot);
 }
 
+bool tdma_service_reset_flight_fifo(tdma_service_service_t *service)
+{
+    if (service == NULL) {
+        return false;
+    }
+    tdma_ring_runtime_snapshot_t ring_snapshot;
+    tdma_flight_engine_snapshot_t engine_snapshot;
+    if (!tdma_ring_runtime_get_snapshot(&service->ring_runtime,
+                                        &ring_snapshot) ||
+        !tdma_flight_engine_get_snapshot(&service->flight_engine,
+                                         &engine_snapshot) ||
+        ring_snapshot.enabled != 0u ||
+        ring_snapshot.adapter_started != 0u ||
+        engine_snapshot.active != 0u) {
+        return false;
+    }
+    return tdma_flight_fifo_reset_stopped(&service->flight_fifo);
+}
+
 bool tdma_service_configure_flight_map(
     tdma_service_service_t *service,
     const tdma_process_image_map_t *map)

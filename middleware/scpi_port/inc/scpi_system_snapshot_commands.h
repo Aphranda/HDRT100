@@ -44,6 +44,7 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_vdc_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_tdma_abort(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_flight_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_flight_fifo_q(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_flight_fifo_reset(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_flight_process_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_flight_tx(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_flight_rx_q(scpi_t *context);
@@ -53,6 +54,7 @@ scpi_result_t scpi_cmd_system_tdma_ring_loop_delay(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_loop_delay_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_arm(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_arm_status_q(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_ring_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_train(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_train_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_start(scpi_t *context);
@@ -127,6 +129,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:REFMEM:SYNC:TDMA:ABORt", .callback = scpi_cmd_refmem_sync_tdma_abort}, \
     {.pattern = "SYSTem:REFMEM:SYNC:FLIGHT?", .callback = scpi_cmd_refmem_sync_flight_q}, \
     {.pattern = "SYSTem:TDMA:FLIGHT:FIFO?", .callback = scpi_cmd_system_tdma_flight_fifo_q}, \
+    {.pattern = "SYSTem:TDMA:FLIGHT:FIFO:RESet", .callback = scpi_cmd_system_tdma_flight_fifo_reset}, \
     {.pattern = "SYSTem:TDMA:FLIGHT:PROCess?", .callback = scpi_cmd_system_tdma_flight_process_q}, \
     {.pattern = "SYSTem:TDMA:FLIGHT:TX", .callback = scpi_cmd_system_tdma_flight_tx}, \
     {.pattern = "SYSTem:TDMA:FLIGHT:RX?", .callback = scpi_cmd_system_tdma_flight_rx_q}, \
@@ -135,6 +138,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:TDMA:RING:LOOP:DELay", .callback = scpi_cmd_system_tdma_ring_loop_delay}, \
     {.pattern = "SYSTem:TDMA:RING:LOOP:DELay?", .callback = scpi_cmd_system_tdma_ring_loop_delay_q}, \
     {.pattern = "SYSTem:TDMA:RING:ARM:STATus?", .callback = scpi_cmd_system_tdma_ring_arm_status_q}, \
+    {.pattern = "SYSTem:TDMA:RING:STATus?", .callback = scpi_cmd_system_tdma_ring_status_q}, \
     {.pattern = "SYSTem:TDMA:RING:ARM", .callback = scpi_cmd_system_tdma_ring_arm}, \
     {.pattern = "SYSTem:TDMA:RING:TRAIN", .callback = scpi_cmd_system_tdma_ring_train}, \
     {.pattern = "SYSTem:TDMA:RING:TRAIN:STATus?", .callback = scpi_cmd_system_tdma_ring_train_status_q}, \

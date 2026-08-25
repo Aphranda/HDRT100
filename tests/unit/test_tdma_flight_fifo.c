@@ -228,6 +228,73 @@ int main(void)
                               &fifo, rx_view.slot_index),
                           true);
 
+    failed += expect_bool("publish tx before stopped reset",
+                          tdma_flight_fifo_core0_publish_tx(&fifo,
+                                                            tx0,
+                                                            sizeof(tx0),
+                                                            20u,
+                                                            300u,
+                                                            0x1u),
+                          true);
+    failed += expect_bool("acquire active tx before stopped reset",
+                          tdma_flight_fifo_core1_acquire_tx(&fifo, &tx_view),
+                          true);
+    failed += expect_bool("publish ready tx before stopped reset",
+                          tdma_flight_fifo_core0_publish_tx(&fifo,
+                                                            tx1,
+                                                            sizeof(tx1),
+                                                            21u,
+                                                            301u,
+                                                            0x2u),
+                          true);
+    failed += expect_bool("publish rx before stopped reset",
+                          tdma_flight_fifo_core1_publish_rx(&fifo,
+                                                            rx0,
+                                                            sizeof(rx0),
+                                                            22u,
+                                                            302u,
+                                                            0x10u,
+                                                            123856ull,
+                                                            0u),
+                          true);
+    const uint32_t publish_count_before_reset = fifo.tx_publish_count;
+    const uint32_t rx_publish_count_before_reset = fifo.rx_publish_count;
+    failed += expect_bool("stopped reset",
+                          tdma_flight_fifo_reset_stopped(&fifo),
+                          true);
+    failed += expect_bool("snapshot after stopped reset",
+                          tdma_flight_fifo_get_snapshot(&fifo, &snapshot),
+                          true);
+    failed += expect_u32("reset tx ready empty", snapshot.tx_ready_count, 0u);
+    failed += expect_u32("reset tx active none",
+                         snapshot.tx_active_slot,
+                         UINT32_MAX);
+    failed += expect_u32("reset tx active generation",
+                         snapshot.tx_active_generation,
+                         0u);
+    failed += expect_u32("reset rx queued empty", snapshot.rx_queued_count, 0u);
+    failed += expect_u32("reset rx parse empty", snapshot.rx_parse_count, 0u);
+    failed += expect_u32("reset preserves tx counters",
+                         snapshot.tx_publish_count,
+                         publish_count_before_reset);
+    failed += expect_u32("reset preserves rx counters",
+                         snapshot.rx_publish_count,
+                         rx_publish_count_before_reset);
+    failed += expect_bool("no tx after stopped reset",
+                          tdma_flight_fifo_core1_acquire_tx(&fifo, &tx_view),
+                          false);
+    failed += expect_bool("no rx after stopped reset",
+                          tdma_flight_fifo_core0_acquire_rx(&fifo, &rx_view),
+                          false);
+    failed += expect_bool("publish tx after stopped reset",
+                          tdma_flight_fifo_core0_publish_tx(&fifo,
+                                                            tx2,
+                                                            sizeof(tx2),
+                                                            23u,
+                                                            303u,
+                                                            0x4u),
+                          true);
+
     if (failed != 0) {
         return 1;
     }

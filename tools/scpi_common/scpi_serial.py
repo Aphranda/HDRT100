@@ -27,6 +27,10 @@ MARKER_CAPTURE_SAVE_HEADERS = {
     "CAL:RING:CAPT:SAVE", "CALIBRATION:RING:CAPTURE:SAVE",
 }
 STORAGE_COMPOSITE_QUERY_HEADERS = COMPOSITE_ACK_HEADERS - MARKER_CAPTURE_SAVE_HEADERS
+SCALAR_ONE_QUERY_HEADERS = {
+    "SYST:BOARD:NO?", "SYSTEM:BOARD:NO?",
+    "SYST:TDMA:RING:ARM:STATUS?", "SYSTEM:TDMA:RING:ARM:STATUS?",
+}
 
 
 @contextmanager
@@ -130,7 +134,7 @@ def scpi_response_matches_command(command: str, line: str) -> bool:
         return re.fullmatch(r'"[^"]+"', text) is not None
     if header == "*IDN?":
         return text.count(",") >= 3
-    if header in {"SYST:BOARD:NO?", "SYSTEM:BOARD:NO?"}:
+    if header in SCALAR_ONE_QUERY_HEADERS:
         return re.fullmatch(r"[0-8]", text) is not None
     if header in {"SYST:OTA:SLOT?", "SYSTEM:OTA:SLOT?"}:
         return _csv_uints_match(text, 5)
@@ -185,9 +189,8 @@ def read_scpi_response(ser: serial.Serial,
         if (require_match and not preserve_composite_ack and
                 not scpi_response_matches_command(command, line)):
             continue
-        scalar_one_queries = {"SYST:BOARD:NO?", "SYSTEM:BOARD:NO?"}
         if (is_scpi_query(command) and line in {'"OK"', "OK", "1"} and
-                header not in scalar_one_queries):
+                header not in SCALAR_ONE_QUERY_HEADERS):
             continue
         return line
     return "<timeout>"

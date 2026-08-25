@@ -24,9 +24,7 @@ from tdma_start_ring import (  # noqa: E402
     board_command,
     discover,
     train,
-    wait_started,
 )
-from tdma_field_parse import FIELDS as TDMA_FIELDS  # noqa: E402
 from flight_bitmap_validate import (  # noqa: E402
     FIFO_FIELDS,
     PROCESS_FIELDS,
@@ -164,13 +162,32 @@ def checked_ring_action(board: Board, action: str, command: str,
 def runtime_snapshot(board: Board, args: argparse.Namespace,
                      node_index: int) -> dict[str, int]:
     raw = parse_snapshot(
-        board_command(board, "SYSTem:REFMEM:SYNC:TDMA:STATus?", args),
-        tuple(TDMA_FIELDS), board.address)
-    selected = {field: raw[field] for field in RUNTIME_FIELDS}
+        board_command(board, "SYSTem:TDMA:RING:STATus?", args),
+        RUNTIME_FIELDS, board.address)
+    selected = dict(raw)
     selected["ring_local_node"] = selected.pop("ring_local_slot_id")
     selected["ring_reference_node"] = selected.pop("ring_reference_slot_id")
     selected["node_index"] = node_index
     return selected
+
+
+def wait_runtime_started(board: Board, args: argparse.Namespace,
+                         node_index: int) -> dict[str, int]:
+    deadline = time.monotonic() + args.arm_wait
+    last: dict[str, int] = {}
+    last_error = ""
+    while time.monotonic() < deadline:
+        try:
+            last = runtime_snapshot(board, args, node_index)
+        except (OSError, RuntimeError) as exc:
+            last_error = str(exc)
+            time.sleep(0.1)
+            continue
+        if last["ring_enabled"] == 1 and last["ring_adapter_started"] == 1:
+            return last
+        time.sleep(0.05)
+    raise RuntimeError(
+        f"{board.address}: ARM timeout, last={last}, last_error={last_error}")
 
 
 def flight_snapshot(board: Board, args: argparse.Namespace) -> dict[str, Any]:
@@ -235,6 +252,21 @@ def validate_tx_seed(flight_before: dict[str, Any],
     return errors, deltas
 
 
+def validate_fifo_reset(flight: dict[str, Any]) -> list[str]:
+    """Require a fully reclaimed STOPPED-session FIFO before priming."""
+    fifo = flight["fifo"]
+    checks = (
+        (fifo["tx_ready_count"] == 0, "fifo_reset_tx_ready"),
+        (fifo["tx_active_buffer"] == 0xFFFFFFFF,
+         "fifo_reset_tx_active"),
+        (fifo["tx_active_generation"] == 0,
+         "fifo_reset_tx_generation"),
+        (fifo["rx_queued_count"] == 0, "fifo_reset_rx_queued"),
+        (fifo["rx_parse_count"] == 0, "fifo_reset_rx_parse"),
+    )
+    return [error for passed, error in checks if not passed]
+
+
 def validate_node(node_index: int, node_count: int,
                    runtime_before: dict[str, int],
                    runtime_after: dict[str, int],
@@ -273,6 +305,17 @@ def validate_node(node_index: int, node_count: int,
         process_delta_fields)
     fifo_deltas = counter_deltas(
         flight_before["fifo"], flight_after["fifo"], fifo_delta_fields)
+    feedback_sequence_gap = u32_delta(
+        runtime_after["ring_down_rx_sequence"],
+        runtime_after["ring_up_tx_sequence"])
+    feedback_sequence_ok = (
+        feedback_sequence_gap <= 1 if node_index == 0 else
+        feedback_sequence_gap == 0)
+    feedback_crc_comparable = feedback_sequence_gap == 0
+    feedback_crc_match = (
+        not feedback_crc_comparable or
+        runtime_after["ring_up_tx_frame_crc32"] ==
+        runtime_after["ring_down_rx_frame_crc32"])
 
     checks = [
         (runtime_after["ring_enabled"] == 1, "ring_not_enabled"),
@@ -303,8 +346,8 @@ def validate_node(node_index: int, node_count: int,
          "tx_crc_missing"),
         (runtime_after["ring_down_rx_frame_crc32"] != 0,
          "rx_crc_missing"),
-        (runtime_after["ring_up_tx_frame_crc32"] ==
-         runtime_after["ring_down_rx_frame_crc32"], "crc_mismatch"),
+        (feedback_sequence_ok, "feedback_sequence_out_of_window"),
+        (feedback_crc_match, "crc_mismatch"),
         (runtime_after["ring_adapter_last_error"] == 0,
          "adapter_error"),
     ]
@@ -350,6 +393,13 @@ def validate_node(node_index: int, node_count: int,
         "runtime": runtime_deltas,
         "process": process_deltas,
         "fifo": fifo_deltas,
+        "feedback_identity": {
+            "tx_sequence": runtime_after["ring_up_tx_sequence"],
+            "rx_sequence": runtime_after["ring_down_rx_sequence"],
+            "sequence_gap": feedback_sequence_gap,
+            "crc_comparable": feedback_crc_comparable,
+            "crc_match": feedback_crc_match,
+        },
         "fifo_seed": seed_deltas or {},
         "fifo_gauges": {
             "before": {
@@ -464,6 +514,7 @@ def main() -> int:
     actions: list[dict[str, Any]] = []
     stage_results: list[dict[str, Any]] = []
     nodes: dict[str, Any] = {}
+    fifo_reset: dict[str, Any] = {}
     fifo_seed: dict[str, Any] = {}
     stopped: dict[str, Any] = {}
     ring_capture: dict[str, Any] = {}
@@ -475,6 +526,25 @@ def main() -> int:
             actions.append({"node": board.address, "action": "STOP",
                             "response": board_command(
                                 board, "SYSTem:TDMA:RING:STOP", args)})
+        if args.stage == "process-image":
+            for board in ordered:
+                response = board_command(
+                    board, "SYSTem:TDMA:FLIGHT:FIFO:RESet", args)
+                readback = flight_snapshot(board, args)
+                reset_errors = validate_fifo_reset(readback)
+                fifo_reset[board.address] = {
+                    "passed": not reset_errors,
+                    "errors": reset_errors,
+                    "readback": readback,
+                }
+                actions.append({
+                    "node": board.address,
+                    "action": "FIFO_RESET",
+                    "response": response,
+                    "errors": reset_errors,
+                })
+            if not all(item["passed"] for item in fifo_reset.values()):
+                raise RuntimeError("FIFO STOPPED-session reset failed")
         for node_index, board in enumerate(ordered):
             actions.append(checked_ring_action(
                 board, "PROFILE_STAGE",
@@ -521,7 +591,7 @@ def main() -> int:
         for board in start_order:
             actions.append(arm_with_evidence(board, args))
         for board in start_order:
-            wait_started(board, args)
+            wait_runtime_started(board, args, board_ids.index(board.address))
         if args.clock_train:
             for board in start_order:
                 actions.append({
@@ -603,6 +673,7 @@ def main() -> int:
         "error": error,
         "boards": {board.address: asdict(board) for board in ordered},
         "stage_results": stage_results,
+        "fifo_reset": fifo_reset,
         "fifo_seed": fifo_seed,
         "nodes": nodes,
         "ring_capture": ring_capture,

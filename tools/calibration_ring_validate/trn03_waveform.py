@@ -9,6 +9,7 @@ import html
 import json
 import sys
 import time
+import zlib
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -27,6 +28,38 @@ CAPTURE_SCHEMAS = {
     "HAOFV_TRN03_RING_CAPTURE_V2",
 }
 DEFAULT_WINDOW_NS = 1000
+
+TRANSPORT_RESULT_OK = "OK"
+TRANSPORT_HEADER_SIZE = 32
+
+
+def _transport_identity_crc32(transport: bytes | bytearray) -> int:
+    identity_input = (
+        transport[0:14] + transport[15:16] + transport[16:24])
+    return zlib.crc32(identity_input) & 0xFFFFFFFF
+
+
+def _transport_packet_crc32(transport: bytes | bytearray) -> int:
+    crc_input = bytearray(transport)
+    crc_input[28:32] = b"\0\0\0\0"
+    return zlib.crc32(crc_input) & 0xFFFFFFFF
+
+
+def _single_bit_repairs(transport: bytes, observed_crc32: int, *,
+                        identity: bool) -> list[dict[str, int]]:
+    offsets = (list(range(14)) + list(range(15, 24)) if identity else
+               list(range(28)) + list(range(32, len(transport))))
+    crc_function = (_transport_identity_crc32 if identity else
+                    _transport_packet_crc32)
+    repairs: list[dict[str, int]] = []
+    candidate = bytearray(transport)
+    for offset in offsets:
+        for bit in range(8):
+            candidate[offset] ^= 1 << bit
+            if crc_function(candidate) == observed_crc32:
+                repairs.append({"transport_byte_offset": offset, "bit": bit})
+            candidate[offset] ^= 1 << bit
+    return repairs
 
 
 def validate_capture(value: object) -> dict[str, Any]:
@@ -192,13 +225,104 @@ def byte_bits(values: Sequence[int]) -> list[int]:
 
 def latest_complete_packet(values: Sequence[int]) -> list[int] | None:
     """Return the newest complete 0x54,0x44,length packet in a byte stream."""
+    fallback: list[int] | None = None
     for start in range(len(values) - 4, -1, -1):
         if values[start] != 0x54 or values[start + 1] != 0x44:
             continue
         frame_bytes = 4 + int(values[start + 2]) + (int(values[start + 3]) << 8)
         if frame_bytes >= 4 and start + frame_bytes <= len(values):
-            return [int(value) for value in values[start:start + frame_bytes]]
-    return None
+            packet = [int(value)
+                      for value in values[start:start + frame_bytes]]
+            # PHY and transport intentionally share the 0x54,0x44 magic.  A
+            # backward-only search otherwise mistakes the nested transport
+            # header for a newer PHY packet (version/class look like length).
+            # Prefer the candidate whose payload is a self-consistent TDMA
+            # transport frame, while retaining V1/generic capture support.
+            if (frame_bytes >= 4 + TRANSPORT_HEADER_SIZE and
+                    packet[4:6] == [0x54, 0x44] and
+                    packet[6] == 1 and
+                    packet[10] == TRANSPORT_HEADER_SIZE and
+                    packet[8] + (packet[9] << 8) == frame_bytes - 4):
+                return packet
+            if fallback is None:
+                fallback = packet
+    return fallback
+
+
+def decode_transport_evidence(
+        physical_packet: Sequence[int] | None) -> dict[str, Any] | None:
+    """Decode and CRC-check the TDMA transport frame inside a PHY packet."""
+    if physical_packet is None:
+        return None
+    packet = bytes(int(value) for value in physical_packet)
+    if len(packet) < 4:
+        return {"valid": False, "result": "PHY_HEADER_TOO_SHORT"}
+    frame_size = packet[2] | (packet[3] << 8)
+    if packet[:2] != b"TD" or len(packet) != 4 + frame_size:
+        return {"valid": False, "result": "PHY_HEADER_MISMATCH"}
+    transport = packet[4:]
+    if len(transport) < TRANSPORT_HEADER_SIZE:
+        return {"valid": False, "result": "TRANSPORT_HEADER_TOO_SHORT"}
+    if transport[:2] != b"TD":
+        return {"valid": False, "result": "BAD_MAGIC"}
+    if transport[2] != 1:
+        return {"valid": False, "result": "BAD_VERSION"}
+    if transport[6] != TRANSPORT_HEADER_SIZE:
+        return {"valid": False, "result": "BAD_HEADER"}
+    packet_size = transport[4] | (transport[5] << 8)
+    if packet_size != len(transport):
+        return {"valid": False, "result": "BAD_PACKET_SIZE",
+                "packet_size": packet_size}
+
+    read_u32 = lambda offset: int.from_bytes(
+        transport[offset:offset + 4], "little")
+    identity_crc32 = _transport_identity_crc32(transport)
+    observed_identity_crc32 = read_u32(24)
+    transport_crc32 = _transport_packet_crc32(transport)
+    observed_transport_crc32 = read_u32(28)
+    identity_repairs = _single_bit_repairs(
+        transport, observed_identity_crc32, identity=True)
+    transport_repairs = _single_bit_repairs(
+        transport, observed_transport_crc32, identity=False)
+    transport_repairs_after_identity: list[dict[str, object]] = []
+    for identity_repair in identity_repairs:
+        repaired = bytearray(transport)
+        repaired[identity_repair["transport_byte_offset"]] ^= (
+            1 << identity_repair["bit"])
+        for remaining in _single_bit_repairs(
+                bytes(repaired), observed_transport_crc32, identity=False):
+            transport_repairs_after_identity.append({
+                "identity_repair": identity_repair,
+                "remaining_transport_repair": remaining,
+            })
+    result = (TRANSPORT_RESULT_OK
+              if transport_crc32 == observed_transport_crc32 and
+              identity_crc32 == observed_identity_crc32 else
+              "TRANSPORT_CRC_MISMATCH"
+              if transport_crc32 != observed_transport_crc32 else
+              "IDENTITY_CRC_MISMATCH")
+    return {
+        "valid": result == TRANSPORT_RESULT_OK,
+        "result": result,
+        "packet_size": packet_size,
+        "origin_node": transport[7],
+        "sequence": read_u32(8),
+        "payload_class": transport[12],
+        "flags": transport[13],
+        "hop_count": transport[14],
+        "hop_limit": transport[15],
+        "schedule_crc32": read_u32(16),
+        "profile_crc32": read_u32(20),
+        "identity_crc32": observed_identity_crc32,
+        "expected_identity_crc32": identity_crc32,
+        "identity_crc_xor": observed_identity_crc32 ^ identity_crc32,
+        "identity_single_bit_repairs": identity_repairs,
+        "transport_crc32": observed_transport_crc32,
+        "expected_transport_crc32": transport_crc32,
+        "transport_crc_xor": observed_transport_crc32 ^ transport_crc32,
+        "transport_single_bit_repairs": transport_repairs,
+        "transport_repairs_after_identity": transport_repairs_after_identity,
+    }
 
 
 def _display_bits(values: Sequence[int], window_bits: int) -> list[int]:
@@ -287,6 +411,9 @@ def render_node_svg(config: dict[str, Any],
     observed_packet = latest_complete_packet(observed_raw)
     logical_packet = latest_complete_packet(logical_raw)
     physical_packet = latest_complete_packet(physical_raw)
+    observed_transport = decode_transport_evidence(observed_packet)
+    logical_transport = decode_transport_evidence(logical_packet)
+    physical_transport = decode_transport_evidence(physical_packet)
     observed = byte_bits(observed_packet) if observed_packet is not None else []
     logical = byte_bits(logical_packet) if logical_packet is not None else []
     physical = byte_bits(physical_packet) if physical_packet is not None else []
@@ -333,6 +460,8 @@ def render_node_svg(config: dict[str, Any],
               "RX samples captured but no complete 0x54,0x44 frame was found"
               if observed_packet is None else
               "complete RX and source frames captured")
+    if observed_transport is not None and not observed_transport["valid"]:
+        status += f'; RX transport {observed_transport["result"]}'
     svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="500" '
         'viewBox="0 0 1400 500">\n'
@@ -366,6 +495,9 @@ def render_node_svg(config: dict[str, Any],
         "physical_alignment": physical_alignment,
         "logical_best_delay_ns": logical_delay,
         "physical_best_delay_ns": physical_delay,
+        "rx_transport": observed_transport,
+        "logical_reference_transport": logical_transport,
+        "physical_source_transport": physical_transport,
         "status": status,
         "svg": str(svg_path),
     }

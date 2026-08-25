@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import zlib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,6 +10,7 @@ from tools.calibration_ring_validate.trn03_waveform import (
     analyze_capture_set,
     best_alignment,
     byte_bits,
+    decode_transport_evidence,
     latest_complete_packet,
     save_ring_capture,
     validate_capture,
@@ -86,6 +88,47 @@ def test_latest_complete_packet_uses_newest_frame_boundary() -> None:
     stream = [0, 0, 0x54, 0x44, 1, 0, 0x11,
               0x54, 0x44, 2, 0, 0x22, 0x33]
     assert latest_complete_packet(stream) == [0x54, 0x44, 2, 0, 0x22, 0x33]
+
+
+def transport_packet() -> list[int]:
+    transport = bytearray(36)
+    transport[0:2] = b"TD"
+    transport[2] = 1
+    transport[3] = 1
+    transport[4:6] = len(transport).to_bytes(2, "little")
+    transport[6] = 32
+    transport[7] = 0
+    transport[8:12] = (17).to_bytes(4, "little")
+    transport[12] = 1
+    transport[13] = 2
+    transport[15] = 4
+    transport[16:20] = (0x12345678).to_bytes(4, "little")
+    transport[20:24] = (0x9ABCDEF0).to_bytes(4, "little")
+    identity_input = transport[0:14] + transport[15:16] + transport[16:24]
+    transport[24:28] = zlib.crc32(identity_input).to_bytes(4, "little")
+    transport[32:36] = b"data"
+    transport_crc_input = bytearray(transport)
+    transport_crc_input[28:32] = b"\0\0\0\0"
+    transport[28:32] = zlib.crc32(transport_crc_input).to_bytes(4, "little")
+    return [0x54, 0x44, len(transport), 0, *transport]
+
+
+def test_transport_evidence_distinguishes_valid_and_corrupted_frames() -> None:
+    packet = transport_packet()
+    assert latest_complete_packet(packet) == packet
+    evidence = decode_transport_evidence(packet)
+    assert evidence is not None
+    assert evidence["valid"] is True
+    assert evidence["result"] == "OK"
+    assert evidence["sequence"] == 17
+    assert evidence["hop_limit"] == 4
+    packet[-1] ^= 1
+    corrupted = decode_transport_evidence(packet)
+    assert corrupted is not None
+    assert corrupted["valid"] is False
+    assert corrupted["result"] == "TRANSPORT_CRC_MISMATCH"
+    assert corrupted["transport_single_bit_repairs"] == [
+        {"transport_byte_offset": 35, "bit": 0}]
 
 
 def test_ring_capture_scpi_composite_responses_are_preserved() -> None:

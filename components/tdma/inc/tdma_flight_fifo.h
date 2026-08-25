@@ -117,6 +117,10 @@ typedef struct {
 } tdma_flight_fifo_t;
 
 bool tdma_flight_fifo_init(tdma_flight_fifo_t *fifo);
+/* Reclaim all queue entries while preserving lifetime diagnostic counters.
+ * The caller owns the session boundary and must ensure that core1 is stopped
+ * and that no core0 FIFO operation is in progress. */
+bool tdma_flight_fifo_reset_stopped(tdma_flight_fifo_t *fifo);
 bool tdma_flight_fifo_core0_publish_tx(tdma_flight_fifo_t *fifo,
                                        const uint8_t *data,
                                        size_t data_size,

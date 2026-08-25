@@ -1073,8 +1073,12 @@ static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
                     tdma_pio_spi_phys_rx_ring_aligned_byte(
                         candidate + i, bit_shift);
             }
-            s_tdma_pio_spi_rx_scan_produced =
-                candidate + total_words + alignment_extra;
+            /* A shifted aligned byte uses raw[i] and raw[i+1].  The final
+             * raw word is therefore also the first word for the next aligned
+             * byte/frame; consuming alignment_extra here skips every next
+             * frame when the origin capture has no idle raw byte between
+             * frames. */
+            s_tdma_pio_spi_rx_scan_produced = candidate + total_words;
             if (bit_shift == 0u) {
                 phys->snapshot.rx_magic_at_zero++;
             } else {
@@ -3171,6 +3175,9 @@ static bool tdma_pio_spi_phys_flight_origin_tx(
     const uint32_t clock_txstall_mask =
         tdma_pio_spi_phys_txstall_mask(phys->rx_sm);
     pio_interrupt_clear(BOARD_TDMA_SPI_PIO, 1u);
+    /* The DATA SM consumes one frame control word before the DMA payload.
+     * This keeps CS in the outer PIO loop and bytes in the inner loop. */
+    pio_sm_put_blocking(BOARD_TDMA_SPI_PIO, phys->tx_sm, wire_bytes - 1u);
     dma_start_channel_mask(1u << (uint)s_tdma_pio_spi_tx_dma_channel);
     const uint64_t tx_edge_timestamp_ns = vdc_timestamp_clock_now_ns();
     gpio_put(phys->tx_csn_pin, false);

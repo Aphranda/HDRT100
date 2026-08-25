@@ -2242,6 +2242,17 @@ scpi_result_t scpi_cmd_system_tdma_flight_fifo_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_system_tdma_flight_fifo_reset(scpi_t *context)
+{
+    tdma_service_service_t *owner = tdma_runtime_owner_get();
+    if (owner == NULL || !tdma_service_reset_flight_fifo(owner)) {
+        scpi_port_push_exec_error(context, "TDMA_FLIGHT_FIFO_RESET");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_system_tdma_flight_process_q(scpi_t *context)
 {
     tdma_service_service_t *owner = tdma_runtime_owner_get();
@@ -2410,6 +2421,36 @@ scpi_result_t scpi_cmd_system_tdma_ring_arm_status_q(scpi_t *context)
 {
     SCPI_ResultUInt32(
         context, (uint32_t)distributed_refmem_tdma_ring_arm_last_result());
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_ring_status_q(scpi_t *context)
+{
+    tdma_ring_runtime_snapshot_t snapshot;
+    if (!tdma_runtime_owner_get_ring_snapshot(&snapshot)) {
+        scpi_port_push_exec_error(context, "TDMA_RING_STATUS");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, snapshot.enabled);
+    SCPI_ResultUInt32(context, snapshot.node_count);
+    SCPI_ResultUInt32(context, snapshot.local_slot_id);
+    SCPI_ResultUInt32(context, snapshot.reference_slot_id);
+    SCPI_ResultUInt32(context, snapshot.up_running);
+    SCPI_ResultUInt32(context, snapshot.down_running);
+    SCPI_ResultUInt32(context, snapshot.ring_seq);
+    SCPI_ResultUInt32(context, snapshot.last_reason);
+    SCPI_ResultUInt32(context, snapshot.adapter_started);
+    SCPI_ResultUInt32(context, snapshot.adapter_service_count);
+    SCPI_ResultUInt32(context, snapshot.up_tx_sequence);
+    SCPI_ResultUInt32(context, snapshot.down_rx_sequence);
+    SCPI_ResultUInt32(context, snapshot.up_tx_frame_crc32);
+    SCPI_ResultUInt32(context, snapshot.down_rx_frame_crc32);
+    SCPI_ResultUInt32(context, snapshot.idle_beacon_tx_count);
+    SCPI_ResultUInt32(context, snapshot.idle_beacon_rx_count);
+    SCPI_ResultUInt32(context, snapshot.adapter_last_error);
+    SCPI_ResultUInt32(context, snapshot.adapter_tx_count);
+    SCPI_ResultUInt32(context, snapshot.adapter_rx_count);
+    SCPI_ResultUInt32(context, snapshot.adapter_rx_bad_count);
     return SCPI_RES_OK;
 }
 
