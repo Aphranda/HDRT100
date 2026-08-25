@@ -49,6 +49,11 @@ def test_arm_status_query_accepts_scalar_success() -> None:
         "SYSTem:TDMA:RING:ARM:STATus?", "1")
 
 
+def test_raw_flight_mode_query_accepts_scalar_one() -> None:
+    assert scpi_response_matches_command(
+        "SYSTem:TDMA:FLIGHT:MODE?", "1")
+
+
 def test_follower_wait_patch_preserves_sck_sideset() -> None:
     source = (ROOT / "components" / "tdma" / "src" /
               "tdma_pio_spi.pio").read_text(encoding="utf-8")
