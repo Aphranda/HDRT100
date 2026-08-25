@@ -98,7 +98,7 @@ def aggregate_matrix_summary(summary: dict[str, object]) -> dict[str, object]:
             incoming = node["incoming_link"]
             source = int(incoming["source_node"])
             destination = int(incoming["destination_node"])
-            source_offset = int(offsets[source])
+            capture_offset = int(offsets[destination])
             evidence = {
                 "state": int(node["state"]),
                 "correlation_reject_reason": int(node["correlation_reject_reason"]),
@@ -106,7 +106,8 @@ def aggregate_matrix_summary(summary: dict[str, object]) -> dict[str, object]:
                 "best_distance": int(node["best_distance"]),
                 "polarity": int(node["polarity"]),
             }
-            grouped.setdefault((source, destination, source_offset), []).append(evidence)
+            grouped.setdefault(
+                (source, destination, capture_offset), []).append(evidence)
             row_nodes.append({
                 "node": int(node["node"]),
                 "incoming_link": {
@@ -126,7 +127,7 @@ def aggregate_matrix_summary(summary: dict[str, object]) -> dict[str, object]:
         })
 
     links: list[dict[str, object]] = []
-    for (source, destination, source_offset), evidence in sorted(grouped.items()):
+    for (source, destination, capture_offset), evidence in sorted(grouped.items()):
         distances = [row["best_distance"] for row in evidence]
         lags = [row["best_lag_sample"] for row in evidence]
         reject_histogram: dict[str, int] = {}
@@ -136,8 +137,8 @@ def aggregate_matrix_summary(summary: dict[str, object]) -> dict[str, object]:
         links.append({
             "source_node": source,
             "destination_node": destination,
-            "source_node_offset_sample_count": source_offset,
-            "source_node_offset_ns": source_offset * 4,
+            "destination_node_capture_offset_sample_count": capture_offset,
+            "destination_node_capture_offset_ns": capture_offset * 4,
             "observation_count": len(evidence),
             "accepted_count": sum(row["state"] == 3 and
                                   row["correlation_reject_reason"] == 0
@@ -162,7 +163,7 @@ def aggregate_matrix_summary(summary: dict[str, object]) -> dict[str, object]:
         "all_capture_files_saved": all(
             row["capture_file_count"] == len(node_ids) for row in rows),
         "rows": rows,
-        "incoming_link_effects_by_source_node_offset": links,
+        "incoming_link_effects_by_destination_node_capture_offset": links,
     }
 
 

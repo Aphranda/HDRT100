@@ -5,16 +5,23 @@ from pathlib import Path
 
 import pytest
 
+import tools.calibration_ring_validate.calibration_marker_train as marker_train
+
 from tools.calibration_ring_validate.calibration_marker_train import (
     FLAG_DIAGNOSTIC_ONLY,
     MARKER_FIELDS,
     REQUIRED_FLAGS,
+    Board,
     build_offset_matrix,
     capture_phase_delay_cycles,
     derive_link_offset_candidates,
     matrix_trial_identity,
+    order_boards_by_board_no,
     parse_marker_status,
     physical_timing_budget,
+    prepare_ring,
+    select_recommended_matrix_row,
+    summarize_matrix_row_trials,
     summarize_residence_matrix,
     topology_matches,
     validate_ring,
@@ -26,6 +33,52 @@ from tools.calibration_ring_validate.calibration_marker_offsets import (
     derive_link_delay_offset_plan,
 )
 from tools.scpi_common.scpi_serial import scpi_response_matches_command
+
+
+def test_board_no_defines_one_based_physical_loop_order(monkeypatch) -> None:
+    boards = {
+        "board-a": Board("COM3", "board-a", "idn-a", "build"),
+        "board-b": Board("COM4", "board-b", "idn-b", "build"),
+        "board-c": Board("COM5", "board-c", "idn-c", "build"),
+        "board-d": Board("COM6", "board-d", "idn-d", "build"),
+    }
+    numbers = {"board-a": 1, "board-b": 4, "board-c": 2, "board-d": 3}
+    monkeypatch.setattr(
+        marker_train, "board_command",
+        lambda board, command, args: str(numbers[board.address]))
+    ordered = order_boards_by_board_no(
+        boards, list(boards), argparse.Namespace())
+    assert [board.address for board in ordered] == [
+        "board-a", "board-c", "board-d", "board-b"]
+
+
+def test_training_preparation_stages_topology_without_flight_arm(
+        monkeypatch) -> None:
+    ordered = [
+        Board(f"COM{node + 3}", f"board-{node}", "idn", "build")
+        for node in range(4)
+    ]
+    commands: list[tuple[str, str]] = []
+
+    def fake_command(board, command, args):
+        commands.append((board.address, command))
+        if command == "SYSTem:TDMA:OPMode?":
+            return "7,10000000"
+        if command == "SYSTem:BOARD:NO?":
+            return str(ordered.index(board) + 1)
+        return "OK"
+
+    monkeypatch.setattr(marker_train, "board_command", fake_command)
+    monkeypatch.setattr(marker_train.time, "sleep", lambda seconds: None)
+    actions = prepare_ring(
+        ordered, argparse.Namespace(reference_node=0, level=7, gap=0.0))
+    command_texts = [command for _, command in commands]
+    assert not any("RING:ARM" in command for command in command_texts)
+    assert command_texts.count("SYSTem:TDMA:RING:STOP") == 4
+    assert sum(command.startswith("SYSTem:TDMA:RING:TOPology 4,")
+               for command in command_texts) == 4
+    assert [row["board_no"] for row in actions
+            if row["command"] == "BOARD_NO_READBACK"] == [1, 2, 3, 4]
 
 
 def marker_row(node: int, count: int = 4, *, sequence: int = 11,
@@ -121,12 +174,30 @@ def test_validate_ring_accepts_common_epoch_and_order() -> None:
     assert offsets[0]["observed_best_lag_sample"] == 18
 
 
+def test_validate_ring_allows_stable_local_topology_generations() -> None:
+    records = [parse_marker_status(marker_row(node)) for node in range(4)]
+    for node, record in enumerate(records):
+        record["topology_generation"] = 20 + node
+    result = validate_ring(records)
+    assert result["passed"] is True
+    assert "topology_generation" not in result["errors"]
+
+
+def test_validate_ring_rejects_mixed_topology_crc() -> None:
+    records = [parse_marker_status(marker_row(node)) for node in range(4)]
+    records[3]["topology_crc32"] += 1
+    result = validate_ring(records)
+    assert result["passed"] is False
+    assert "topology_crc32" in result["errors"]
+
+
 def test_residence_matrix_covers_all_four_physical_links() -> None:
     trials = []
     for origin in range(4):
         records = [parse_marker_status(marker_row(node)) for node in range(4)]
         for record in records:
             node = int(record["local_node"])
+            record["topology_generation"] = 20 + node
             record["reference_node"] = origin
             if node == origin:
                 record["role"] = 1
@@ -157,6 +228,30 @@ def test_residence_matrix_covers_all_four_physical_links() -> None:
     assert all(link["selected_forward_residence_ticks"] == 12
                for link in result["links"])
     assert result["full_ring_marker_passed_count"] == 0
+    assert result["identity"]["topology_generation_by_node"] == {
+        "0": [20], "1": [21], "2": [22], "3": [23]}
+
+
+def test_residence_matrix_rejects_changed_local_topology_generation() -> None:
+    trials = []
+    for origin in range(4):
+        records = [parse_marker_status(marker_row(node)) for node in range(4)]
+        for record in records:
+            node = int(record["local_node"])
+            record["topology_generation"] = 20 + node
+            record["reference_node"] = origin
+            record["role"] = 1 if node == origin else 2
+            record["marker_capture_tick"] = 1400 if node == origin else 1000
+            record["marker_forward_tick"] = 1000 if node == origin else 1012
+            record["marker_return_tick"] = 1400 if node == origin else 0
+            record["forward_residence_ticks"] = 0 if node == origin else 12
+            record["loop_rtt_ticks"] = 400 if node == origin else 0
+        trials.append({"passed": True, "origin_node": origin,
+                       "records": records})
+    trials[3]["records"][2]["topology_generation"] = 99
+    result = summarize_residence_matrix(trials, 4)
+    assert result["passed"] is False
+    assert "topology_generation_node2" in result["failures"]
 
 
 def test_link_offset_candidate_rejects_uncorrelated_lag() -> None:
@@ -230,7 +325,7 @@ def test_per_link_base_preserves_quantization_residual() -> None:
     assert link["resolved_window_delay_ns"] == 29.0
 
 
-def test_matrix_aggregate_groups_incoming_link_by_source_node_offset() -> None:
+def test_matrix_aggregate_groups_by_destination_capture_offset() -> None:
     summary = {
         "phase": "TRN-01_FOUR_NODE_OFFSET_MATRIX",
         "node_ids_in_loop_order": ["node0", "node1"],
@@ -245,7 +340,7 @@ def test_matrix_aggregate_groups_incoming_link_by_source_node_offset() -> None:
         summary["trial_results"].append({
             "row_id": row_id,
             "epoch": 20 + row_id,
-            "offset_sample_counts_by_node": [offset, 0],
+            "offset_sample_counts_by_node": [0, offset],
             "accepted_nodes": [1] if distance == 10 else [],
             "passed": False,
             "capture_files": [{}, {}],
@@ -261,9 +356,47 @@ def test_matrix_aggregate_groups_incoming_link_by_source_node_offset() -> None:
         })
     result = aggregate_matrix_summary(summary)
     assert result["all_capture_files_saved"] is True
-    effects = result["incoming_link_effects_by_source_node_offset"]
-    assert [effect["source_node_offset_sample_count"] for effect in effects] == [-1, 1]
+    effects = result[
+        "incoming_link_effects_by_destination_node_capture_offset"]
+    assert [effect["destination_node_capture_offset_sample_count"]
+            for effect in effects] == [-1, 1]
     assert [effect["accepted_count"] for effect in effects] == [0, 1]
+
+
+def test_matrix_row_requires_every_fresh_arm_repeat() -> None:
+    row = {"row_id": 7, "offset_sample_counts_by_node": [-1, 1]}
+    trials = []
+    for repeat in range(3):
+        trials.append({
+            "passed": repeat != 2,
+            "nodes": [{
+                "node": node,
+                "state": 3 if repeat != 2 else 4,
+                "correlation_reject_reason": 0 if repeat != 2 else 11,
+                "best_lag_sample": repeat % 2,
+                "best_distance": 10 + repeat,
+            } for node in range(2)],
+        })
+    result = summarize_matrix_row_trials(row, trials, 3)
+    assert result["passed"] is False
+    assert "ring_repeat_gate" in result["failures"]
+    assert result["nodes"][0]["accepted_count"] == 2
+    assert result["nodes"][1]["capture_offset_sample_count"] == 1
+
+
+def test_matrix_recommendation_minimizes_worst_repeat_distance() -> None:
+    rows = [{
+        "row_id": row_id,
+        "offset_sample_counts_by_node": offsets,
+        "passed": True,
+        "nodes": [{"best_distance_max": worst,
+                   "best_distance_mean": mean}],
+    } for row_id, offsets, worst, mean in (
+        (1, [0, 0], 300, 100),
+        (2, [-1, 1], 200, 150),
+        (3, [0, 1], 200, 120),
+    )]
+    assert select_recommended_matrix_row(rows)["row_id"] == 3
 
 
 def test_aggregate_rotated_references_covers_every_directed_link() -> None:

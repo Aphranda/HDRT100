@@ -58,8 +58,10 @@ LINK_FIELDS = (
     "link_budget_cycles",
     "loop_delay_cycles",
     "marker_offset_sample_count",
+    "sck_offset_sample_count",
     "data_offset_sample_count",
     "sample_period_ns",
+    "sck_phase_delay_cycles",
     "data_phase_delay_cycles",
 )
 STAGE_QUERY_FIELDS = (
@@ -89,6 +91,7 @@ LINK_QUERY_FIELDS = (
 )
 REQUIRED_EVIDENCE_FLAGS = 0x1F
 DIAGNOSTIC_ONLY_FLAG = 1 << 31
+SCK_PHASE_BASE_NS = 40
 
 
 def parse_args() -> argparse.Namespace:
@@ -162,13 +165,16 @@ def load_config(path: Path, offset_row_id: int | None = None) -> dict[str, Any]:
     selected_row = matches[0]
     marker_offsets = selected_row.get(
         "marker_offset_sample_counts_by_node")
+    sck_offsets = selected_row.get("sck_offset_sample_counts_by_node")
     data_offsets = selected_row.get("data_offset_sample_counts_by_node")
     if (not isinstance(marker_offsets, list) or
+            not isinstance(sck_offsets, list) or
             not isinstance(data_offsets, list) or
             len(marker_offsets) != node_count or
+            len(sck_offsets) != node_count or
             len(data_offsets) != node_count or
             any(isinstance(value, bool) or not isinstance(value, int)
-                for value in marker_offsets + data_offsets)):
+                for value in marker_offsets + sck_offsets + data_offsets)):
         raise ValueError("offset matrix row dimensions are invalid")
 
     links: list[dict[str, int]] = []
@@ -178,19 +184,31 @@ def load_config(path: Path, offset_row_id: int | None = None) -> dict[str, Any]:
         link = {
             field: (signed_integer_field(raw_link, field)
                     if field in ("marker_offset_sample_count",
+                                 "sck_offset_sample_count",
                                  "data_offset_sample_count")
                     else integer_field(raw_link, field))
             for field in LINK_FIELDS
         }
         marker_destination = integer_field(
             raw_link, "marker_destination_node")
+        sck_destination = marker_destination
         data_destination = integer_field(raw_link, "data_destination_node")
         if marker_destination >= node_count or data_destination >= node_count:
             raise ValueError("offset matrix destination node is invalid")
         link["marker_offset_sample_count"] = int(
             marker_offsets[marker_destination])
+        link["sck_offset_sample_count"] = int(
+            sck_offsets[sck_destination])
         link["data_offset_sample_count"] = int(
             data_offsets[data_destination])
+        sck_offset_ns = (SCK_PHASE_BASE_NS +
+                         link["sck_offset_sample_count"] *
+                         link["sample_period_ns"])
+        if sck_offset_ns < 0:
+            raise ValueError("SCK offset is below the runtime delay baseline")
+        link["sck_phase_delay_cycles"] = (
+            sck_offset_ns + link["instruction_period_ns"] // 2
+        ) // link["instruction_period_ns"]
         offset_ns = (link["data_offset_sample_count"] *
                      link["sample_period_ns"])
         if offset_ns < 0:
@@ -215,6 +233,7 @@ def load_config(path: Path, offset_row_id: int | None = None) -> dict[str, Any]:
             raise ValueError(
                 f"link{link['link_index']} budget expires before replay")
         if link["sample_period_ns"] == 0 or \
+                link["sck_phase_delay_cycles"] > 31 or \
                 link["data_phase_delay_cycles"] > 31:
             raise ValueError(
                 f"link{link['link_index']} PIO phase mapping is invalid")

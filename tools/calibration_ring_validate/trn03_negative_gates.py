@@ -137,6 +137,7 @@ def stage_link_command(link_index: int, evidence_flags: int,
         link_index, evidence_flags, 1, 65536, 150_000_000, 4, 25,
         marker_to_data_cycles, forward_residence_cycles, rx_arm_lead_cycles,
         codeword_cycles, guard_cycles, link_budget_cycles, loop_delay_cycles,
+        0, 0, 5, 4, 10, 5,
     )
     return "CALibration:TRAINing:STAGe:LINK " + ",".join(map(str, values))
 

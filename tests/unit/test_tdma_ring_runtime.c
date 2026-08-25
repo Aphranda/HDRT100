@@ -160,6 +160,9 @@ int main(void)
         calibration.links[i].guard_cycles = 2u;
         calibration.links[i].link_budget_cycles = 64u;
         calibration.links[i].loop_delay_cycles = 8u;
+        calibration.links[i].sample_period_ns = 4u;
+        calibration.links[i].sck_phase_delay_cycles = 10u;
+        calibration.links[i].data_phase_delay_cycles = 1u;
     }
     failed += expect_bool("valid calibration stage",
                           tdma_ring_runtime_validate_calibration_stage(

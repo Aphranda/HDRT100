@@ -57,8 +57,10 @@ typedef struct {
     uint32_t link_budget_cycles;
     uint32_t loop_delay_cycles;
     int32_t marker_offset_sample_count;
+    int32_t sck_offset_sample_count;
     int32_t data_offset_sample_count;
     uint32_t sample_period_ns;
+    uint32_t sck_phase_delay_cycles;
     uint32_t data_phase_delay_cycles;
 } tdma_ring_calibration_link_t;
 

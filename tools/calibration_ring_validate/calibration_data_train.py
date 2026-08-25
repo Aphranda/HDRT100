@@ -26,6 +26,7 @@ from calibration_ring_validate.calibration_marker_train import (  # noqa: E402
     board_command,
     discover,
     marker_action_args,
+    order_boards_by_board_no,
     prepare_ring,
 )
 
@@ -579,7 +580,8 @@ def discover_ordered(args: argparse.Namespace,
     missing = set(board_ids) - set(boards)
     if missing:
         raise SystemExit(f"boards not found by *IDN?: {', '.join(sorted(missing))}")
-    ordered = [boards[address] for address in board_ids]
+    ordered = order_boards_by_board_no(boards, board_ids, args)
+    args.board_id = [board.address for board in ordered]
     if args.expected_build:
         wrong = {board.address: board.build for board in ordered
                  if board.build != args.expected_build}
@@ -687,6 +689,7 @@ def run_repeat_matrix(args: argparse.Namespace) -> dict[str, object]:
     if args.epoch + trial_count - 1 > 255:
         raise SystemExit("repeat matrix exceeds the uint8 training epoch range")
     ordered = discover_ordered(args, board_ids)
+    board_ids = list(args.board_id)
     root_out = args.out_dir or (
         ROOT / "out" / "training" /
         f"trn02_data_matrix_{datetime.now().strftime('%Y%m%d_%H%M%S')}")

@@ -23,7 +23,7 @@ except ImportError:  # Direct execution from this directory.
     )
 
 
-MATRIX_SCHEMA = "HAOFV_TRN03_REPLAY_MATRIX_V1"
+MATRIX_SCHEMA = "HAOFV_TRN03_REPLAY_MATRIX_V2"
 REQUIRED_EVIDENCE_FLAGS = 0x1F
 NORMAL_PIO_PERSONA = 1
 NORMAL_PIO_BIT_CYCLES = 6
@@ -33,6 +33,7 @@ PROFILE_TRAIN_CYCLES = 4096
 PROFILE_FLAGS = 0
 FNV_OFFSET = 2166136261
 FNV_PRIME = 16777619
+SCK_PHASE_BASE_NS = 40
 
 # Mirrors s_tdma_operating_profiles for the fixed TRN-02 profile ladder.
 # tests/python/test_trn03_matrix.py checks these facts against the C sources.
@@ -124,7 +125,9 @@ def indexed(items: object, field: str, count: int, label: str
 
 def build_matrix(level: int, data: dict[str, Any],
                  residence: dict[str, Any], *,
-                 data_path: str = "", residence_path: str = ""
+                 sck: dict[str, Any] | None = None,
+                 data_path: str = "", residence_path: str = "",
+                 sck_path: str = ""
                  ) -> dict[str, Any]:
     identity, failures = validate_profile_pair(data, residence)
     if failures:
@@ -157,6 +160,58 @@ def build_matrix(level: int, data: dict[str, Any],
     facts = pio_facts(level)
     clkdiv_q16 = facts["clkdiv_q16"]
     sample_period_ns = identity["sample_period_ns"]
+    sck_offset_candidates_by_node: list[list[int]] = [
+        [0] for _ in range(count)]
+    selected_sck_offsets_by_node = [0] * count
+    if sck is not None:
+        if not bool(sck.get("passed")) or node_order(sck) != nodes:
+            raise ValueError("SCK evidence gate failed")
+        sck_matrix_gate = sck.get("matrix")
+        if not isinstance(sck_matrix_gate, dict) or not bool(
+                sck_matrix_gate.get("passed")):
+            raise ValueError("SCK repeat matrix is not accepted")
+        sck_identity = sck_matrix_gate.get("identity")
+        if not isinstance(sck_identity, dict):
+            raise ValueError("SCK identity is missing")
+        for field in (
+                "calibration_generation", "topology_generation",
+                "topology_crc32", "profile_crc32", "schedule_crc32",
+                "sample_period_ns"):
+            values = sck_identity.get(field)
+            if not isinstance(values, list) or len(values) != 1 or \
+                    int(values[0]) != int(identity[field]):
+                raise ValueError(f"sck_{field}_mismatch")
+        sck_offsets = sck_matrix_gate.get("offset_matrix")
+        if not isinstance(sck_offsets, dict):
+            raise ValueError("SCK offset matrix is missing")
+        raw_candidates = sck_offsets.get("candidate_values_by_node")
+        if (not isinstance(raw_candidates, list) or
+                len(raw_candidates) != count):
+            raise ValueError("SCK candidate dimensions are invalid")
+        sck_offset_candidates_by_node = []
+        for node, values in enumerate(raw_candidates):
+            if (not isinstance(values, list) or not values or
+                    any(isinstance(value, bool) or not isinstance(value, int)
+                        for value in values)):
+                raise ValueError(f"SCK node{node} candidates are invalid")
+            sck_offset_candidates_by_node.append(sorted(set(values)))
+        sck_rows = sck_offsets.get("rows")
+        active_sck_row = int(sck_offsets.get("active_row_id", -1))
+        if (not isinstance(sck_rows, list) or
+                int(sck_offsets.get("full_matrix_row_count", -1)) !=
+                len(sck_rows)):
+            raise ValueError("SCK full matrix is incomplete")
+        matches = [row for row in sck_rows if isinstance(row, dict) and
+                   int(row.get("row_id", -1)) == active_sck_row]
+        if len(matches) != 1:
+            raise ValueError("SCK active row is unavailable")
+        selected_values = matches[0].get(
+            "sck_offset_sample_counts_by_node")
+        if (not isinstance(selected_values, list) or
+                len(selected_values) != count):
+            raise ValueError("SCK active row dimensions are invalid")
+        selected_sck_offsets_by_node = [int(value)
+                                        for value in selected_values]
     links: list[dict[str, Any]] = []
     marker_offsets_by_node = [0] * count
     data_offset_candidates_by_node: list[list[int]] = [[] for _ in range(count)]
@@ -214,6 +269,18 @@ def build_matrix(level: int, data: dict[str, Any],
             raise ValueError(f"link{index} DATA phase exceeds PIO delay field")
         marker_destination = int(data_link["marker_destination_node"])
         data_destination = int(data_link["data_destination_node"])
+        sck_destination = marker_destination
+        selected_sck_offset = selected_sck_offsets_by_node[sck_destination]
+        sck_delay_ns = SCK_PHASE_BASE_NS + (
+            selected_sck_offset * sample_period_ns)
+        if sck_delay_ns < 0:
+            raise ValueError(
+                f"link{index} SCK phase is below the delay baseline")
+        sck_phase_delay_cycles = (
+            sck_delay_ns + facts["instruction_period_ns"] // 2
+        ) // facts["instruction_period_ns"]
+        if sck_phase_delay_cycles > 31:
+            raise ValueError(f"link{index} SCK phase exceeds PIO delay field")
         marker_offsets_by_node[marker_destination] = marker_offsets[0]
         data_offset_candidates_by_node[data_destination] = sorted(
             set(calibrated_data_offsets))
@@ -250,8 +317,10 @@ def build_matrix(level: int, data: dict[str, Any],
                 "instruction_period_ns", "bit_cycles")},
             **cycles,
             "marker_offset_sample_count": marker_offsets[0],
+            "sck_offset_sample_count": selected_sck_offset,
             "data_offset_sample_count": selected_data_offset,
             "sample_period_ns": sample_period_ns,
+            "sck_phase_delay_cycles": sck_phase_delay_cycles,
             "data_phase_delay_cycles": data_phase_delay_cycles,
             "source_node": int(residence_link["source_node"]),
             "destination_node": int(residence_link["destination_node"]),
@@ -268,6 +337,8 @@ def build_matrix(level: int, data: dict[str, Any],
             "source_evidence": {
                 "data_offset_histogram": data_link.get("offset_histogram", {}),
                 "marker_offset_sample_counts": marker_offsets,
+                "sck_offset_sample_counts":
+                    sck_offset_candidates_by_node[sck_destination],
                 "calibrated_data_offset_sample_counts":
                     calibrated_data_offsets,
                 "data_window_start_ns": window_starts,
@@ -284,19 +355,25 @@ def build_matrix(level: int, data: dict[str, Any],
 
     offset_rows = []
     active_row_id = -1
-    for row_id, data_offsets in enumerate(itertools.product(
-            *data_offset_candidates_by_node)):
+    combined_rows = itertools.product(
+        itertools.product(*sck_offset_candidates_by_node),
+        itertools.product(*data_offset_candidates_by_node))
+    for row_id, (sck_offsets, data_offsets) in enumerate(combined_rows):
         row = {
             "row_id": row_id,
             "marker_offset_sample_counts_by_node":
                 list(marker_offsets_by_node),
+            "sck_offset_sample_counts_by_node": list(sck_offsets),
             "data_offset_sample_counts_by_node": list(data_offsets),
             "marker_offset_ns_by_node": [
                 value * sample_period_ns for value in marker_offsets_by_node],
             "data_offset_ns_by_node": [
                 value * sample_period_ns for value in data_offsets],
+            "sck_offset_ns_by_node": [
+                value * sample_period_ns for value in sck_offsets],
         }
-        if list(data_offsets) == selected_data_offsets_by_node:
+        if (list(sck_offsets) == selected_sck_offsets_by_node and
+                list(data_offsets) == selected_data_offsets_by_node):
             active_row_id = row_id
         offset_rows.append(row)
     if active_row_id < 0:
@@ -322,6 +399,7 @@ def build_matrix(level: int, data: dict[str, Any],
         "node_ids_in_loop_order": nodes,
         "derivation": {
             "data_summary": data_path,
+            "sck_summary": sck_path,
             "residence_summary": residence_path,
             "sample_period_ns": sample_period_ns,
             "pio_fact_anchors": [
@@ -345,13 +423,17 @@ def main() -> int:
                         help="TRN-02D repeat-matrix summary")
     parser.add_argument("--residence", type=Path, required=True,
                         help="same-identity TRN-01 residence-matrix summary")
+    parser.add_argument("--sck", type=Path,
+                        help="same-identity MARK-anchored SCK matrix summary")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     data = load_summary(args.data)
     residence = load_summary(args.residence)
+    sck = load_summary(args.sck) if args.sck is not None else None
     result = build_matrix(
-        args.level, data, residence,
-        data_path=str(args.data), residence_path=str(args.residence))
+        args.level, data, residence, sck=sck,
+        data_path=str(args.data), residence_path=str(args.residence),
+        sck_path=str(args.sck) if args.sck is not None else "")
     encoded = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(encoded, encoding="utf-8")

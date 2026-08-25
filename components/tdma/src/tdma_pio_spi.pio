@@ -118,6 +118,9 @@ flight_process_command:
     pull block           side 0
     out x, 1             side 0
     jmp !x flight_process_data side 0
+    ; Keep Y across CS boundaries. The first PASS byte of the next physical
+    ; frame must emit the preceding tail byte to preserve the continuous
+    ; one-byte elastic pipeline; ARM/restart initializes Y exactly once.
     wait 1 gpio 0        side 0
     wait 0 gpio 0        side 0
     jmp flight_process_command side 0
@@ -566,7 +569,8 @@ static inline void tdma_pio_spi_clk_oversample_program_init(PIO pio,
 
 static inline void tdma_pio_spi_flight_follower_program_init(
     PIO pio, uint sm, uint offset, uint rx_data_pin, uint tx_data_pin,
-    uint rx_sck_pin, uint tx_sck_pin, uint32_t data_phase_delay_cycles)
+    uint rx_sck_pin, uint tx_sck_pin, uint32_t sck_phase_delay_cycles,
+    uint32_t data_phase_delay_cycles)
 {
     pio->instr_mem[offset + 5u] =
         (uint16_t)(pio_encode_nop() |
@@ -574,7 +578,8 @@ static inline void tdma_pio_spi_flight_follower_program_init(
                    pio_encode_delay(data_phase_delay_cycles));
     pio->instr_mem[offset + 4u] =
         (uint16_t)(pio_encode_wait_gpio(true, rx_sck_pin) |
-                   pio_encode_sideset(1u, 0u));
+                   pio_encode_sideset(1u, 0u) |
+                   pio_encode_delay(sck_phase_delay_cycles));
     pio->instr_mem[offset + 7u] =
         (uint16_t)(pio_encode_wait_gpio(false, rx_sck_pin) |
                    pio_encode_sideset(1u, 1u));
@@ -607,7 +612,7 @@ static inline void tdma_pio_spi_flight_follower_program_init(
 static inline void tdma_pio_spi_flight_process_follower_program_init(
     PIO pio, uint sm, uint offset, uint rx_data_pin, uint tx_data_pin,
     uint rx_csn_pin, uint rx_sck_pin, uint tx_sck_pin,
-    uint32_t data_phase_delay_cycles)
+    uint32_t sck_phase_delay_cycles, uint32_t data_phase_delay_cycles)
 {
     pio->instr_mem[offset + 16u] =
         (uint16_t)(pio_encode_nop() |
@@ -621,7 +626,8 @@ static inline void tdma_pio_spi_flight_process_follower_program_init(
                    pio_encode_sideset(1u, 0u));
     pio->instr_mem[offset + 15u] =
         (uint16_t)(pio_encode_wait_gpio(true, rx_sck_pin) |
-                   pio_encode_sideset(1u, 0u));
+                   pio_encode_sideset(1u, 0u) |
+                   pio_encode_delay(sck_phase_delay_cycles));
     pio->instr_mem[offset + 18u] =
         (uint16_t)(pio_encode_wait_gpio(false, rx_sck_pin) |
                    pio_encode_sideset(1u, 1u));

@@ -448,6 +448,17 @@ static void distributed_refmem_tdma_flight_sync_publish(
     if (now_ms - s_tdma_flight_sync.last_publish_ms < publish_interval_ms) {
         return;
     }
+
+    /* TX is a latest-value process image, not an event log. Keep at most one
+     * prepared image behind the core1-active image and coalesce while that
+     * descriptor is pending. Calling publish against the occupied two-buffer
+     * state turns normal bounded backpressure into a reject counter and can
+     * also create artificial sequence gaps. */
+    tdma_flight_fifo_snapshot_t fifo;
+    if (!tdma_service_get_flight_fifo_snapshot(owner, &fifo) ||
+        fifo.tx_ready_count != 0u) {
+        return;
+    }
     s_tdma_flight_sync.last_publish_ms = now_ms;
 
     uint8_t frame[DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE];

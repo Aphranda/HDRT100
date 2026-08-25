@@ -12,6 +12,7 @@ import argparse
 import csv
 import itertools
 import json
+import statistics
 import sys
 import time
 from dataclasses import asdict
@@ -29,7 +30,6 @@ from tdma_start_ring import (  # noqa: E402
     Board,
     board_command,
     discover,
-    wait_started,
 )
 
 
@@ -71,6 +71,29 @@ REQUIRED_FLAGS = (
     FLAG_CRC_VALID | FLAG_EPOCH_VALID | FLAG_SEQUENCE_VALID |
     FLAG_POLARITY_VALID | FLAG_DMA_COMPLETE
 )
+
+
+def order_boards_by_board_no(
+        boards: dict[str, Board], board_ids: list[str],
+        args: argparse.Namespace) -> list[Board]:
+    """Resolve physical loop order from persistent NO.1..NO.8 identity."""
+    numbered: list[tuple[int, Board]] = []
+    for address in board_ids:
+        board = boards[address]
+        raw = board_command(board, "SYSTem:BOARD:NO?", args)
+        try:
+            board_no = int(raw.strip().strip('"'), 0)
+        except ValueError as exc:
+            raise RuntimeError(
+                f"{board.address}: invalid BOARD:NO response {raw!r}") from exc
+        numbered.append((board_no, board))
+    expected = list(range(1, len(board_ids) + 1))
+    observed = sorted(board_no for board_no, _ in numbered)
+    if observed != expected:
+        raise RuntimeError(
+            "BOARD:NO values must be unique and contiguous from 1 through "
+            f"{len(board_ids)}; observed={observed}")
+    return [board for _, board in sorted(numbered, key=lambda item: item[0])]
 HALF_CHIP_NS_BY_CODEBOOK = {0: 20, 1: 40, 2: 24, 3: 32}
 SAMPLE_PERIOD_NS = 4
 MIN_OFFSET_SAMPLES = -10
@@ -198,7 +221,7 @@ def validate_ring(records: list[dict[str, int | str]]) -> dict[str, object]:
     common_fields = (
         "reference_node", "train_epoch", "train_sequence", "marker_id",
         "marker_codebook_id", "marker_crc32", "calibration_generation",
-        "topology_generation", "profile_crc32", "schedule_crc32",
+        "topology_crc32", "profile_crc32", "schedule_crc32",
         "tick_resolution_ns",
     )
     for field in common_fields:
@@ -314,9 +337,13 @@ def parse_args() -> argparse.Namespace:
         help="select a current matrix subset as NODE=OFFSET; full matrix is retained")
     parser.add_argument("--matrix-epoch-start", type=int)
     parser.add_argument(
-        "--matrix-fixed-epoch", action="store_true",
+        "--matrix-fixed-epoch", action=argparse.BooleanOptionalAction,
+        default=True,
         help=("hold epoch/codeword constant across matrix rows and increment "
-              "calibration generation for unique SD captures"))
+              "calibration generation for unique SD captures (default: true)"))
+    parser.add_argument(
+        "--matrix-repeats", type=int, default=8,
+        help="fresh ARM/inject repetitions required for every selected row")
     parser.add_argument("--matrix-generation-start", type=int)
     parser.add_argument("--observed-link-delay-ns", type=float)
     parser.add_argument("--driver-propagation-typ-ns", type=float)
@@ -417,12 +444,6 @@ def active_operating_level(board: Board, args: argparse.Namespace) -> int:
 def prepare_ring(ordered: list[Board], args: argparse.Namespace) -> list[dict[str, object]]:
     actions: list[dict[str, object]] = []
     node_count = len(ordered)
-    start_order = [
-        ((args.reference_node + offset) % node_count,
-         ordered[(args.reference_node + offset) % node_count])
-        for offset in range(1, node_count)
-    ]
-    start_order.append((args.reference_node, ordered[args.reference_node]))
     for board in ordered:
         actions.append({"board": board.address, "command": "STOP",
                         "response": board_command(
@@ -446,42 +467,20 @@ def prepare_ring(ordered: list[Board], args: argparse.Namespace) -> list[dict[st
         actions.append({"board": board.address, "command": "TOPOLOGY",
                         "response": board_command(
                             board, f"SYSTem:TDMA:RING:TOPology "
-                            f"{node_count},{node},{args.reference_node}", args)})
-    if args.topology_retries < 1:
-        raise SystemExit("topology-retries must be at least 1")
-    for node, board in start_order:
-        last_error = ""
-        status: dict[str, int] = {}
-        for attempt in range(1, args.topology_retries + 1):
-            response = board_command(board, "SYSTem:TDMA:RING:ARM", args)
-            try:
-                status = wait_started(board, args)
-                last_error = ""
-            except RuntimeError as exc:
-                status = {}
-                last_error = str(exc)
-            matched = topology_matches(
-                status, node_count, node, args.reference_node)
-            actions.append({"board": board.address, "command": "ARM",
-                            "attempt": attempt, "response": response,
-                            "topology_matched": matched, "status": status,
-                            "error": last_error})
-            if matched:
-                break
-            board_command(board, "SYSTem:TDMA:RING:STOP", args)
-            board_command(
-                board, f"SYSTem:TDMA:RING:TOPology "
-                       f"{node_count},{node},{args.reference_node}", args)
-            time.sleep(args.gap)
-        else:
+                            f"{node_count},{node},{args.reference_node}", args),
+                        "node": node, "board_no": node + 1})
+        board_no_raw = board_command(board, "SYSTem:BOARD:NO?", args)
+        board_no = int(board_no_raw.strip().strip('"'), 0)
+        if board_no != node + 1:
             raise RuntimeError(
-                f"{board.address}: topology readback mismatch after "
-                f"{args.topology_retries} attempts: {status}; "
-                f"last_error={last_error}")
-    for board in ordered:
-        actions.append({"board": board.address, "command": "STOP_AFTER_ARM",
-                        "response": board_command(
-                            board, "SYSTem:TDMA:RING:STOP", args)})
+                f"{board.address}: BOARD:NO changed during topology staging: "
+                f"expected {node + 1}, observed {board_no}")
+        actions.append({"board": board.address,
+                        "command": "BOARD_NO_READBACK",
+                        "board_no": board_no})
+    # Calibration owns PIO/SM/DMA directly.  Do not ARM the flight adapter
+    # here: flight runtime requires a complete MARK+SCK+DATA calibration
+    # stage, while this preparation path exists to create that stage.
     time.sleep(args.gap)
     return actions
 
@@ -627,7 +626,9 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
     missing = set(board_ids) - set(boards)
     if missing:
         raise SystemExit(f"boards not found by *IDN?: {', '.join(sorted(missing))}")
-    ordered = [boards[address] for address in board_ids]
+    ordered = order_boards_by_board_no(boards, board_ids, args)
+    board_ids = [board.address for board in ordered]
+    args.board_id = list(board_ids)
     if args.expected_build:
         wrong = {board.address: board.build for board in ordered
                  if board.build != args.expected_build}
@@ -729,6 +730,94 @@ def matrix_trial_identity(*, trial_index: int, epoch_start: int,
             generation_start + trial_index if fixed_epoch else generation_start)
 
 
+def summarize_matrix_row_trials(
+        row: dict[str, object], trials: list[dict[str, object]],
+        repeats: int) -> dict[str, object]:
+    """Require one stable accepted observation per Node for every repeat."""
+    offsets = [int(value) for value in row["offset_sample_counts_by_node"]]
+    node_count = len(offsets)
+    nodes: list[dict[str, object]] = []
+    failures: list[str] = []
+    if len(trials) != repeats:
+        failures.append("repeat_count")
+    for node in range(node_count):
+        evidence = [
+            record
+            for trial in trials
+            for record in trial.get("nodes", [])
+            if int(record["node"]) == node
+        ]
+        distances = [int(record["best_distance"]) for record in evidence]
+        lags = [int(record["best_lag_sample"]) for record in evidence]
+        accepted_count = sum(
+            int(record["state"]) == STATE_ACCEPTED and
+            int(record["correlation_reject_reason"]) == 0
+            for record in evidence)
+        lag_span = max(lags) - min(lags) if lags else None
+        passed = (
+            len(evidence) == repeats and accepted_count == repeats and
+            lag_span is not None and lag_span <= 1)
+        if not passed:
+            failures.append(f"node_{node}_repeat_gate")
+        nodes.append({
+            "node": node,
+            "incoming_link": {
+                "source_node": (node - 1) % node_count,
+                "destination_node": node,
+            },
+            "capture_offset_sample_count": offsets[node],
+            "capture_offset_ns": offsets[node] * SAMPLE_PERIOD_NS,
+            "observation_count": len(evidence),
+            "accepted_count": accepted_count,
+            "best_lag_sample_min": min(lags) if lags else None,
+            "best_lag_sample_max": max(lags) if lags else None,
+            "best_lag_sample_span": lag_span,
+            "best_distance_min": min(distances) if distances else None,
+            "best_distance_max": max(distances) if distances else None,
+            "best_distance_mean": (
+                statistics.fmean(distances) if distances else None),
+            "passed": passed,
+        })
+    if any(not bool(trial.get("passed")) for trial in trials):
+        failures.append("ring_repeat_gate")
+    return {
+        **row,
+        "repeat_count": len(trials),
+        "required_repeat_count": repeats,
+        "nodes": nodes,
+        "failures": failures,
+        "passed": not failures,
+    }
+
+
+def select_recommended_matrix_row(
+        rows: list[dict[str, object]]) -> dict[str, object] | None:
+    passed = [row for row in rows if bool(row.get("passed"))]
+    if not passed:
+        return None
+
+    def score(row: dict[str, object]) -> tuple[float, float, int, int]:
+        nodes = list(row["nodes"])
+        worst = max(float(node["best_distance_max"]) for node in nodes)
+        mean = statistics.fmean(
+            float(node["best_distance_mean"]) for node in nodes)
+        offset_norm = sum(abs(int(value)) for value in
+                          row["offset_sample_counts_by_node"])
+        return worst, mean, offset_norm, int(row["row_id"])
+
+    selected = min(passed, key=score)
+    return {
+        "row_id": int(selected["row_id"]),
+        "offset_sample_counts_by_node": list(
+            selected["offset_sample_counts_by_node"]),
+        "selection_score": {
+            "worst_best_distance": score(selected)[0],
+            "mean_best_distance": score(selected)[1],
+            "offset_l1_norm": score(selected)[2],
+        },
+    }
+
+
 def run_offset_matrix(args: argparse.Namespace) -> dict[str, object]:
     board_ids = list(args.board_id or [])
     if len(board_ids) < 2:
@@ -753,9 +842,12 @@ def run_offset_matrix(args: argparse.Namespace) -> dict[str, object]:
         raise SystemExit(str(exc)) from exc
     epoch_start = args.matrix_epoch_start or args.epoch
     generation_start = args.matrix_generation_start or args.generation
+    if args.matrix_repeats < 1:
+        raise SystemExit("matrix-repeats must be at least 1")
+    execution_count = len(selected) * args.matrix_repeats
     if (epoch_start < 1 or
             (not args.matrix_fixed_epoch and
-             epoch_start + len(selected) - 1 > 255)):
+             epoch_start + execution_count - 1 > 255)):
         raise SystemExit("selected matrix rows exceed the marker epoch range")
     if generation_start < 1:
         raise SystemExit("matrix generation start must be positive")
@@ -764,46 +856,61 @@ def run_offset_matrix(args: argparse.Namespace) -> dict[str, object]:
         f"trn01_marker_matrix_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     matrix_out.mkdir(parents=True, exist_ok=True)
     trial_results: list[dict[str, object]] = []
-    for trial_index, row in enumerate(selected):
-        trial_args = argparse.Namespace(**vars(args))
-        trial_args.offset_matrix = False
-        trial_args.epoch, trial_args.generation = matrix_trial_identity(
-            trial_index=trial_index,
-            epoch_start=epoch_start,
-            generation_start=generation_start,
-            fixed_epoch=args.matrix_fixed_epoch)
-        trial_args.node_offset_samples = list(
-            row["offset_sample_counts_by_node"])
-        trial_args.out_dir = matrix_out / f"row_{int(row['row_id']):03d}"
-        result = run_hil(trial_args)
-        encoded = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
-        trial_args.out_dir.mkdir(parents=True, exist_ok=True)
-        (trial_args.out_dir / "summary.json").write_text(encoded, encoding="utf-8")
-        records = list(result.get("records", []))
-        trial_results.append({
-            **row,
-            "epoch": trial_args.epoch,
-            "generation": trial_args.generation,
-            "passed": bool(result.get("passed")),
-            "accepted_nodes": [int(record["local_node"]) for record in records
-                               if int(record["state"]) == STATE_ACCEPTED],
-            "nodes": [{
-                "node": int(record["local_node"]),
-                "incoming_link": {
-                    "source_node": int(record["predecessor_node"]),
-                    "destination_node": int(record["local_node"]),
-                },
-                "state": int(record["state"]),
-                "correlation_reject_reason": int(
-                    record["correlation_reject_reason"]),
-                "best_lag_sample": int(record["best_lag_sample"]),
-                "best_distance": int(record["best_distance"]),
-                "polarity": int(record["polarity"]),
-            } for record in records],
-            "capture_files": result.get("capture_files", []),
-            "summary": str(trial_args.out_dir / "summary.json"),
-        })
-    passed_rows = [row["row_id"] for row in trial_results if row["passed"]]
+    row_results: list[dict[str, object]] = []
+    execution_index = 0
+    for row in selected:
+        row_trials: list[dict[str, object]] = []
+        for repeat_index in range(1, args.matrix_repeats + 1):
+            trial_args = argparse.Namespace(**vars(args))
+            trial_args.offset_matrix = False
+            trial_args.epoch, trial_args.generation = matrix_trial_identity(
+                trial_index=execution_index,
+                epoch_start=epoch_start,
+                generation_start=generation_start,
+                fixed_epoch=args.matrix_fixed_epoch)
+            execution_index += 1
+            trial_args.node_offset_samples = list(
+                row["offset_sample_counts_by_node"])
+            trial_args.out_dir = (
+                matrix_out / f"row_{int(row['row_id']):06d}" /
+                f"repeat_{repeat_index:02d}_g{trial_args.generation}")
+            result = run_hil(trial_args)
+            encoded = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
+            trial_args.out_dir.mkdir(parents=True, exist_ok=True)
+            (trial_args.out_dir / "summary.json").write_text(
+                encoded, encoding="utf-8")
+            records = list(result.get("records", []))
+            trial = {
+                **row,
+                "repeat_index": repeat_index,
+                "epoch": trial_args.epoch,
+                "generation": trial_args.generation,
+                "passed": bool(result.get("passed")),
+                "accepted_nodes": [
+                    int(record["local_node"]) for record in records
+                    if int(record["state"]) == STATE_ACCEPTED],
+                "nodes": [{
+                    "node": int(record["local_node"]),
+                    "incoming_link": {
+                        "source_node": int(record["predecessor_node"]),
+                        "destination_node": int(record["local_node"]),
+                    },
+                    "state": int(record["state"]),
+                    "correlation_reject_reason": int(
+                        record["correlation_reject_reason"]),
+                    "best_lag_sample": int(record["best_lag_sample"]),
+                    "best_distance": int(record["best_distance"]),
+                    "polarity": int(record["polarity"]),
+                } for record in records],
+                "capture_files": result.get("capture_files", []),
+                "summary": str(trial_args.out_dir / "summary.json"),
+            }
+            row_trials.append(trial)
+            trial_results.append(trial)
+        row_results.append(summarize_matrix_row_trials(
+            row, row_trials, args.matrix_repeats))
+    passed_rows = [row["row_id"] for row in row_results if row["passed"]]
+    recommended_row = select_recommended_matrix_row(row_results)
     return {
         "phase": "TRN-01_FOUR_NODE_OFFSET_MATRIX",
         "diagnostic_only": True,
@@ -827,8 +934,12 @@ def run_offset_matrix(args: argparse.Namespace) -> dict[str, object]:
         "matrix_fixed_epoch": bool(args.matrix_fixed_epoch),
         "epoch_start": epoch_start,
         "generation_start": generation_start,
+        "repeats_per_row": args.matrix_repeats,
+        "expected_trial_count": execution_count,
         "trial_results": trial_results,
+        "row_results": row_results,
         "passed_row_ids": passed_rows,
+        "recommended_row": recommended_row,
         "passed": bool(passed_rows),
     }
 
@@ -838,10 +949,12 @@ def summarize_residence_matrix(
         node_count: int,
 ) -> dict[str, object]:
     identity_fields = (
-        "calibration_generation", "topology_generation", "topology_crc32",
+        "calibration_generation", "topology_crc32",
         "profile_crc32", "schedule_crc32", "tick_resolution_ns",
     )
     identity = {field: set() for field in identity_fields}
+    topology_generation_by_node: dict[int, set[int]] = {
+        node: set() for node in range(node_count)}
     residence_by_node: dict[int, list[int]] = {
         node: [] for node in range(node_count)}
     loop_delay_by_node: dict[int, list[int]] = {
@@ -868,6 +981,8 @@ def summarize_residence_matrix(
             for field in identity_fields:
                 identity[field].add(int(record[field]))
             node = int(record["local_node"])
+            topology_generation_by_node.setdefault(node, set()).add(
+                int(record["topology_generation"]))
             if int(record["role"]) == ROLE_FOLLOWER:
                 if (int(record["state"]) != STATE_ACCEPTED or
                         int(record["reject_reason"]) != 0 or
@@ -885,6 +1000,14 @@ def summarize_residence_matrix(
     for field, values in identity.items():
         if len(values) != 1 or 0 in values:
             failures.append(field)
+    identity_summary["topology_generation_by_node"] = {
+        str(node): sorted(topology_generation_by_node.get(node, set()))
+        for node in range(node_count)
+    }
+    for node in range(node_count):
+        values = topology_generation_by_node.get(node, set())
+        if len(values) != 1 or 0 in values:
+            failures.append(f"topology_generation_node{node}")
 
     links: list[dict[str, object]] = []
     expected_residence_count = max(1, node_count - 1)

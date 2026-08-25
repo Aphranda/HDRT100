@@ -154,6 +154,12 @@ typedef enum {
     TDMA_PIO_SPI_DATA_TRAIN_ROLE_INITIATOR = 1u,
     /* The responder waits for incoming CS and emits DATA upstream. */
     TDMA_PIO_SPI_DATA_TRAIN_ROLE_RESPONDER = 2u,
+    /* MARK-anchored SCK calibration source. It emits a local CS marker and
+     * the known SCK code on the same forward link using separate DMA feeds. */
+    TDMA_PIO_SPI_DATA_TRAIN_ROLE_SCK_SOURCE = 3u,
+    /* MARK-anchored SCK calibration destination. It starts raw rx_sck
+     * capture from the received CS edge; no software edge is involved. */
+    TDMA_PIO_SPI_DATA_TRAIN_ROLE_SCK_DESTINATION = 4u,
 } tdma_pio_spi_data_train_role_t;
 
 typedef enum {
@@ -489,7 +495,9 @@ typedef struct {
     uint32_t program_switch_count;
     uint32_t program_switch_fail_count;
     int32_t flight_marker_offset_sample_count;
+    int32_t flight_sck_offset_sample_count;
     int32_t flight_data_offset_sample_count;
+    uint32_t flight_sck_phase_delay_cycles;
     uint32_t flight_data_phase_delay_cycles;
     /* Live PIO diagnostics for TRN-03B flight bring-up.  tx_sm/rx_sm keep
      * their role-dependent meanings from tdma_pio_spi_phys_t; the raw PC,
@@ -557,7 +565,9 @@ typedef struct {
     uint32_t flight_alignment_byte_shift;
     uint32_t flight_alignment_bit_shift;
     int32_t flight_marker_offset_sample_count;
+    int32_t flight_sck_offset_sample_count;
     int32_t flight_data_offset_sample_count;
+    uint32_t flight_sck_phase_delay_cycles;
     uint32_t flight_data_phase_delay_cycles;
     /* Physical output pins. CS/SCK are forward; DATA is reverse. */
     uint32_t tx_sm;
@@ -611,7 +621,9 @@ bool tdma_pio_spi_phys_set_process_image_mode(
 bool tdma_pio_spi_phys_set_flight_offsets(
     tdma_pio_spi_phys_t *phys,
     int32_t marker_offset_sample_count,
+    int32_t sck_offset_sample_count,
     int32_t data_offset_sample_count,
+    uint32_t sck_phase_delay_cycles,
     uint32_t data_phase_delay_cycles);
 bool tdma_pio_spi_phys_prepare_process_overlay(
     void *context,
@@ -676,6 +688,22 @@ bool tdma_pio_spi_phys_get_data_train_snapshot(
     const tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_data_train_snapshot_t *snapshot);
 bool tdma_pio_spi_phys_copy_data_train_capture(
+    const tdma_pio_spi_phys_t *phys,
+    uint32_t *capture_words,
+    size_t capture_word_capacity,
+    size_t *capture_word_count);
+/* SCK training uses the same bounded raw-sample engine as DATA training but
+ * has distinct source/destination roles and physical SCK pin ownership. */
+bool tdma_pio_spi_phys_sck_train_arm(
+    tdma_pio_spi_phys_t *phys,
+    const tdma_pio_spi_data_train_request_t *request);
+bool tdma_pio_spi_phys_sck_train_inject(tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_sck_train_stop(tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_sck_train_service(tdma_pio_spi_phys_t *phys);
+bool tdma_pio_spi_phys_get_sck_train_snapshot(
+    const tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_data_train_snapshot_t *snapshot);
+bool tdma_pio_spi_phys_copy_sck_train_capture(
     const tdma_pio_spi_phys_t *phys,
     uint32_t *capture_words,
     size_t capture_word_capacity,

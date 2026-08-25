@@ -11,6 +11,7 @@
 #include "calibration_clk_coded.h"
 #include "calibration_training_marker.h"
 #include "calibration_training_data.h"
+#include "calibration_training_sck.h"
 #include "tdma_pio_spi_phys.h"
 
 typedef struct {
@@ -137,6 +138,28 @@ bool calibration_manager_get_data_training_snapshot(
     calibration_training_data_snapshot_t *snapshot);
 bool calibration_manager_save_data_capture(
     uint32_t *job_id, char *path, size_t path_size);
+bool calibration_manager_request_sck_training(
+    uint32_t source_node,
+    uint32_t destination_node,
+    uint32_t codebook_id,
+    uint32_t train_epoch,
+    uint32_t train_sequence,
+    uint32_t calibration_generation,
+    uint32_t marker_to_sck_samples,
+    int32_t source_marker_offset_sample_count,
+    int32_t destination_marker_offset_sample_count,
+    int32_t configured_sck_offset_sample_count,
+    int32_t search_start_offset_sample,
+    int32_t search_end_offset_sample,
+    uint32_t guard_sample_count,
+    uint32_t max_best_distance,
+    uint32_t min_margin);
+bool calibration_manager_inject_sck_training(void);
+void calibration_manager_stop_sck_training(void);
+bool calibration_manager_get_sck_training_snapshot(
+    calibration_training_sck_snapshot_t *snapshot);
+bool calibration_manager_save_sck_capture(
+    uint32_t *job_id, char *path, size_t path_size);
 /* Freeze the bounded NORMAL-persona RX/TX byte history and queue it to SD for
  * TRN-03B offline waveform reconstruction. The ring remains running. */
 bool calibration_manager_save_ring_capture(
@@ -176,8 +199,10 @@ bool calibration_manager_stage_training_link(
     uint32_t link_budget_cycles,
     uint32_t loop_delay_cycles,
     int32_t marker_offset_sample_count,
+    int32_t sck_offset_sample_count,
     int32_t data_offset_sample_count,
     uint32_t sample_period_ns,
+    uint32_t sck_phase_delay_cycles,
     uint32_t data_phase_delay_cycles);
 bool calibration_manager_get_training_stage(
     tdma_ring_calibration_stage_t *stage,

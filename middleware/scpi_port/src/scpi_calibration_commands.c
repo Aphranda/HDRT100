@@ -327,6 +327,140 @@ scpi_result_t scpi_calibration_data_capture_save(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_calibration_sck_arm(scpi_t *context)
+{
+    uint32_t source_node = 0u, destination_node = 0u, codebook_id = 0u;
+    uint32_t train_epoch = 0u, train_sequence = 0u;
+    uint32_t calibration_generation = 0u, marker_to_sck_samples = 0u;
+    uint32_t guard_sample_count = 0u, max_best_distance = 0u;
+    uint32_t min_margin = 0u;
+    int32_t source_marker_offset_sample_count = 0;
+    int32_t destination_marker_offset_sample_count = 0;
+    int32_t configured_sck_offset_sample_count = 0;
+    int32_t search_start_offset_sample = 0;
+    int32_t search_end_offset_sample = 0;
+    if (SCPI_ParamUInt32(context, &source_node, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &destination_node, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &codebook_id, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &train_epoch, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &train_sequence, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &calibration_generation, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &marker_to_sck_samples, TRUE) != TRUE ||
+        SCPI_ParamInt32(
+            context, &source_marker_offset_sample_count, TRUE) != TRUE ||
+        SCPI_ParamInt32(
+            context, &destination_marker_offset_sample_count, TRUE) != TRUE ||
+        SCPI_ParamInt32(
+            context, &configured_sck_offset_sample_count, TRUE) != TRUE ||
+        SCPI_ParamInt32(context, &search_start_offset_sample, TRUE) != TRUE ||
+        SCPI_ParamInt32(context, &search_end_offset_sample, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &guard_sample_count, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &max_best_distance, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &min_margin, TRUE) != TRUE ||
+        !calibration_manager_request_sck_training(
+            source_node, destination_node, codebook_id, train_epoch,
+            train_sequence, calibration_generation, marker_to_sck_samples,
+            source_marker_offset_sample_count,
+            destination_marker_offset_sample_count,
+            configured_sck_offset_sample_count,
+            search_start_offset_sample, search_end_offset_sample,
+            guard_sample_count, max_best_distance, min_margin)) {
+        scpi_port_push_exec_error(context, "CAL_SCK_ARM_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, source_node);
+    SCPI_ResultUInt32(context, destination_node);
+    SCPI_ResultUInt32(context, train_epoch);
+    SCPI_ResultUInt32(context, calibration_generation);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_sck_inject(scpi_t *context)
+{
+    if (!calibration_manager_inject_sck_training()) {
+        scpi_port_push_exec_error(context, "CAL_SCK_INJECT_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_calibration_sck_stop(scpi_t *context)
+{
+    calibration_manager_stop_sck_training();
+    return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_calibration_sck_q(scpi_t *context)
+{
+    calibration_training_sck_snapshot_t snapshot;
+    if (!calibration_manager_get_sck_training_snapshot(&snapshot)) {
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "SCKTRN");
+    SCPI_ResultUInt32(context, snapshot.version);
+    SCPI_ResultUInt32(context, snapshot.state);
+    SCPI_ResultUInt32(context, snapshot.reject_reason);
+    SCPI_ResultUInt32(context, snapshot.flags);
+    scpi_calibration_result_u64(context, snapshot.board_unique_id);
+    scpi_calibration_result_u64(context, snapshot.build_id);
+    SCPI_ResultUInt32(context, snapshot.source_node);
+    SCPI_ResultUInt32(context, snapshot.destination_node);
+    SCPI_ResultUInt32(context, snapshot.train_epoch);
+    SCPI_ResultUInt32(context, snapshot.train_sequence);
+    SCPI_ResultUInt32(context, snapshot.sck_codebook_id);
+    SCPI_ResultUInt32(context, snapshot.sck_crc32);
+    SCPI_ResultUInt32(context, snapshot.observed_crc32);
+    SCPI_ResultUInt32(context, snapshot.calibration_generation);
+    SCPI_ResultUInt32(context, snapshot.topology_generation);
+    SCPI_ResultUInt32(context, snapshot.topology_crc32);
+    SCPI_ResultUInt32(context, snapshot.profile_crc32);
+    SCPI_ResultUInt32(context, snapshot.schedule_crc32);
+    SCPI_ResultUInt32(context, snapshot.sample_period_ns);
+    SCPI_ResultUInt32(context, snapshot.marker_to_sck_samples);
+    SCPI_ResultInt32(context, snapshot.source_marker_offset_sample_count);
+    SCPI_ResultInt32(
+        context, snapshot.destination_marker_offset_sample_count);
+    SCPI_ResultInt32(context, snapshot.configured_sck_offset_sample_count);
+    SCPI_ResultInt32(context, snapshot.search_start_offset_sample);
+    SCPI_ResultInt32(context, snapshot.search_end_offset_sample);
+    SCPI_ResultUInt32(context, snapshot.guard_sample_count);
+    SCPI_ResultUInt32(context, snapshot.polarity);
+    SCPI_ResultUInt32(context, snapshot.correlation_reject_reason);
+    SCPI_ResultUInt32(context, snapshot.best_lag_sample);
+    SCPI_ResultUInt32(context, snapshot.best_distance);
+    SCPI_ResultUInt32(context, snapshot.second_lag_sample);
+    SCPI_ResultUInt32(context, snapshot.second_distance);
+    SCPI_ResultUInt32(context, snapshot.margin);
+    SCPI_ResultInt32(context, snapshot.resolved_offset_sample_count);
+    SCPI_ResultInt32(context, snapshot.resolved_offset_ns);
+    SCPI_ResultInt32(context, snapshot.training_window_start_ns);
+    SCPI_ResultInt32(context, snapshot.training_window_end_ns);
+    SCPI_ResultInt32(context, snapshot.marker_sck_skew_ns);
+    SCPI_ResultUInt32(context, snapshot.captured_sample_count);
+    SCPI_ResultUInt32(context, snapshot.expected_sample_count);
+    SCPI_ResultUInt32(context, snapshot.dma_overrun_count);
+    SCPI_ResultUInt32(context, snapshot.pio_stall_count);
+    SCPI_ResultUInt32(context, snapshot.timeout_count);
+    scpi_calibration_result_u64(context, snapshot.marker_capture_tick);
+    scpi_calibration_result_u64(context, snapshot.sck_capture_tick);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_sck_capture_save(scpi_t *context)
+{
+    uint32_t job_id = 0u;
+    char path[96];
+    if (!calibration_manager_save_sck_capture(
+            &job_id, path, sizeof(path))) {
+        scpi_port_push_exec_error(context, "CAL_SCK_CAPTURE_SAVE_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, job_id);
+    SCPI_ResultText(context, path);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_calibration_ring_capture_save(scpi_t *context)
 {
     uint32_t calibration_generation = 0u;
@@ -429,8 +563,10 @@ scpi_result_t scpi_calibration_training_stage_link(scpi_t *context)
 {
     uint32_t values[14] = {0u};
     int32_t marker_offset_sample_count = 0;
+    int32_t sck_offset_sample_count = 0;
     int32_t data_offset_sample_count = 0;
     uint32_t sample_period_ns = 0u;
+    uint32_t sck_phase_delay_cycles = 0u;
     uint32_t data_phase_delay_cycles = 0u;
     for (uint32_t i = 0u; i < 14u; i++) {
         if (SCPI_ParamUInt32(context, &values[i], TRUE) != TRUE) {
@@ -438,8 +574,10 @@ scpi_result_t scpi_calibration_training_stage_link(scpi_t *context)
         }
     }
     if (SCPI_ParamInt32(context, &marker_offset_sample_count, TRUE) != TRUE ||
+        SCPI_ParamInt32(context, &sck_offset_sample_count, TRUE) != TRUE ||
         SCPI_ParamInt32(context, &data_offset_sample_count, TRUE) != TRUE ||
         SCPI_ParamUInt32(context, &sample_period_ns, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &sck_phase_delay_cycles, TRUE) != TRUE ||
         SCPI_ParamUInt32(context, &data_phase_delay_cycles, TRUE) != TRUE) {
         return SCPI_RES_ERR;
     }
@@ -447,8 +585,9 @@ scpi_result_t scpi_calibration_training_stage_link(scpi_t *context)
             values[0], values[1], values[2], values[3], values[4],
             values[5], values[6], values[7], values[8], values[9],
             values[10], values[11], values[12], values[13],
-            marker_offset_sample_count, data_offset_sample_count,
-            sample_period_ns, data_phase_delay_cycles)) {
+            marker_offset_sample_count, sck_offset_sample_count,
+            data_offset_sample_count, sample_period_ns,
+            sck_phase_delay_cycles, data_phase_delay_cycles)) {
         scpi_port_push_exec_error(context, "CAL_TRAIN_STAGE_LINK_REJECTED");
         return SCPI_RES_ERR;
     }
@@ -520,8 +659,10 @@ scpi_result_t scpi_calibration_training_stage_link_q(scpi_t *context)
     SCPI_ResultUInt32(context, link->link_budget_cycles);
     SCPI_ResultUInt32(context, link->loop_delay_cycles);
     SCPI_ResultInt32(context, link->marker_offset_sample_count);
+    SCPI_ResultInt32(context, link->sck_offset_sample_count);
     SCPI_ResultInt32(context, link->data_offset_sample_count);
     SCPI_ResultUInt32(context, link->sample_period_ns);
+    SCPI_ResultUInt32(context, link->sck_phase_delay_cycles);
     SCPI_ResultUInt32(context, link->data_phase_delay_cycles);
     return SCPI_RES_OK;
 }

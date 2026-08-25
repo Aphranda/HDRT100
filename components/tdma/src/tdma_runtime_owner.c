@@ -66,7 +66,9 @@ static bool tdma_runtime_owner_flight_phys_arm(
         !tdma_pio_spi_phys_set_flight_offsets(
             phys,
             marker->marker_offset_sample_count,
+            marker->sck_offset_sample_count,
             data->data_offset_sample_count,
+            marker->sck_phase_delay_cycles,
             data->data_phase_delay_cycles)) {
         return false;
     }
@@ -648,6 +650,56 @@ bool tdma_runtime_owner_copy_data_train_capture_core1(
 {
     return s_tdma_runtime_owner_initialized &&
            tdma_pio_spi_phys_copy_data_train_capture(
+               &s_tdma_pio_spi_phys, capture_words,
+               capture_word_capacity, capture_word_count);
+}
+
+bool tdma_runtime_owner_sck_train_arm_core1(
+    const tdma_pio_spi_data_train_request_t *request)
+{
+    tdma_ring_runtime_snapshot_t ring;
+    return s_tdma_runtime_owner_initialized && request != NULL &&
+           tdma_ring_runtime_get_snapshot(
+               &s_tdma_runtime_owner.ring_runtime, &ring) &&
+           ring.enabled == 0u &&
+           tdma_pio_spi_phys_sck_train_arm(&s_tdma_pio_spi_phys, request);
+}
+
+bool tdma_runtime_owner_sck_train_inject_core1(void)
+{
+    return s_tdma_runtime_owner_initialized &&
+           tdma_pio_spi_phys_sck_train_inject(&s_tdma_pio_spi_phys);
+}
+
+void tdma_runtime_owner_sck_train_stop_core1(void)
+{
+    if (s_tdma_runtime_owner_initialized) {
+        tdma_pio_spi_phys_sck_train_stop(&s_tdma_pio_spi_phys);
+    }
+}
+
+void tdma_runtime_owner_sck_train_service_core1(void)
+{
+    if (s_tdma_runtime_owner_initialized) {
+        tdma_pio_spi_phys_sck_train_service(&s_tdma_pio_spi_phys);
+    }
+}
+
+bool tdma_runtime_owner_get_sck_train_snapshot(
+    tdma_pio_spi_data_train_snapshot_t *snapshot)
+{
+    return s_tdma_runtime_owner_initialized &&
+           tdma_pio_spi_phys_get_sck_train_snapshot(
+               &s_tdma_pio_spi_phys, snapshot);
+}
+
+bool tdma_runtime_owner_copy_sck_train_capture_core1(
+    uint32_t *capture_words,
+    size_t capture_word_capacity,
+    size_t *capture_word_count)
+{
+    return s_tdma_runtime_owner_initialized &&
+           tdma_pio_spi_phys_copy_sck_train_capture(
                &s_tdma_pio_spi_phys, capture_words,
                capture_word_capacity, capture_word_count);
 }

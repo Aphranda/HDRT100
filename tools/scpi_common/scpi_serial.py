@@ -17,6 +17,7 @@ except ImportError as exc:  # pragma: no cover - bench dependency
 COMPOSITE_ACK_HEADERS = {
     "CAL:MARK:CAPT:SAVE", "CALIBRATION:MARKER:CAPTURE:SAVE",
     "CAL:DATA:CAPT:SAVE", "CALIBRATION:DATA:CAPTURE:SAVE",
+    "CAL:SCK:CAPT:SAVE", "CALIBRATION:SCK:CAPTURE:SAVE",
     "CAL:RING:CAPT:SAVE", "CALIBRATION:RING:CAPTURE:SAVE",
     "SYST:STOR:FILE:READ?", "SYSTEM:STORAGE:FILE:READ?",
     "SYST:STOR:FILE:INFO?", "SYSTEM:STORAGE:FILE:INFO?",
@@ -24,12 +25,16 @@ COMPOSITE_ACK_HEADERS = {
 MARKER_CAPTURE_SAVE_HEADERS = {
     "CAL:MARK:CAPT:SAVE", "CALIBRATION:MARKER:CAPTURE:SAVE",
     "CAL:DATA:CAPT:SAVE", "CALIBRATION:DATA:CAPTURE:SAVE",
+    "CAL:SCK:CAPT:SAVE", "CALIBRATION:SCK:CAPTURE:SAVE",
     "CAL:RING:CAPT:SAVE", "CALIBRATION:RING:CAPTURE:SAVE",
 }
 STORAGE_COMPOSITE_QUERY_HEADERS = COMPOSITE_ACK_HEADERS - MARKER_CAPTURE_SAVE_HEADERS
 SCALAR_ONE_QUERY_HEADERS = {
     "SYST:BOARD:NO?", "SYSTEM:BOARD:NO?",
     "SYST:TDMA:RING:ARM:STATUS?", "SYSTEM:TDMA:RING:ARM:STATUS?",
+}
+SCK_ARM_HEADERS = {
+    "CAL:SCK:ARM", "CALIBRATION:SCK:ARM",
 }
 
 
@@ -136,6 +141,8 @@ def scpi_response_matches_command(command: str, line: str) -> bool:
         return text.count(",") >= 3
     if header in SCALAR_ONE_QUERY_HEADERS:
         return re.fullmatch(r"[0-8]", text) is not None
+    if header in SCK_ARM_HEADERS:
+        return _csv_uints_match(text, 4)
     if header in {"SYST:OTA:SLOT?", "SYSTEM:OTA:SLOT?"}:
         return _csv_uints_match(text, 5)
     if header in {"SYST:OTA:TXN?", "SYSTEM:OTA:TXN?"}:

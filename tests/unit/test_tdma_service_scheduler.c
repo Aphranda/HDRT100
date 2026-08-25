@@ -277,6 +277,8 @@ int main(void)
             .guard_cycles = 2u,
             .link_budget_cycles = 48u,
             .loop_delay_cycles = 8u,
+            .sample_period_ns = 4u,
+            .data_phase_delay_cycles = 1u,
         };
         tdma_ring_calibration_stage_t readback;
         bool complete = true;

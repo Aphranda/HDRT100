@@ -75,6 +75,42 @@ def test_follower_samples_data_on_rising_edge_before_falling_edge() -> None:
     assert high < sample < low < forward
 
 
+def test_process_follower_retains_elastic_byte_across_frame_boundary() -> None:
+    source = (ROOT / "components" / "tdma" / "src" /
+              "tdma_pio_spi.pio").read_text(encoding="utf-8")
+    program = source.split(
+        ".program tdma_pio_spi_flight_process_follower", 1
+    )[1].split(".program", 1)[0]
+    assert "flight_process_pass:\n    ; Y retains" in program
+    assert "mov osr, y" in program
+    assert "mov y, isr" in program
+    end_wait_high = program.index("wait 1 gpio 0")
+    next_frame_start = program.index("wait 0 gpio 0", end_wait_high)
+    next_command = program.index("jmp flight_process_command", end_wait_high)
+    boundary = program[end_wait_high:next_command]
+    assert "Keep Y across CS boundaries" in program
+    assert "set y, 0" not in boundary
+    assert end_wait_high < next_frame_start < next_command
+    assert program.count("set y, 0") == 1
+
+    init = source.split(
+        "static inline void tdma_pio_spi_flight_process_follower_program_init",
+        1,
+    )[1]
+    assert "instr_mem[offset + 7u]" in init
+    assert "pio_encode_wait_gpio(false, rx_csn_pin)" in init
+    assert "instr_mem[offset + 15u]" in init
+    assert "pio_encode_wait_gpio(true, rx_sck_pin)" in init
+    assert "instr_mem[offset + 16u]" in init
+    assert "pio_encode_nop()" in init
+    assert "instr_mem[offset + 18u]" in init
+    assert "pio_encode_wait_gpio(false, rx_sck_pin)" in init
+
+    overlay = (ROOT / "components" / "tdma" / "src" /
+               "tdma_flight_overlay.c").read_text(encoding="utf-8")
+    assert "alignment_byte_shift + 1u +" in overlay
+
+
 def test_origin_data_waits_csn_once_per_counted_frame() -> None:
     source = (ROOT / "components" / "tdma" / "src" /
               "tdma_pio_spi.pio").read_text(encoding="utf-8")

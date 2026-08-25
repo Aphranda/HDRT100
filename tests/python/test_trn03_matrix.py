@@ -50,6 +50,8 @@ def evidence(level: int = 9) -> tuple[dict, dict]:
                 "link": link,
                 "repeat_index": repeat,
                 "passed": True,
+                "link_marker_offset_sample": [-1, 0, 1, 1][link],
+                "calibrated_data_offset_sample_count": 5,
                 "source": {
                     "training_window_start_ns": 60,
                     "training_window_end_ns": 60,
@@ -116,6 +118,17 @@ def test_build_matrix_derives_residence_and_budget(tmp_path: Path) -> None:
     assert link0["guard_cycles"] == 0
     assert link0["loop_delay_cycles"] == 8
     assert link0["link_budget_cycles"] == 3049
+    assert link0["marker_offset_sample_count"] == -1
+    assert link0["sck_offset_sample_count"] == 0
+    assert link0["data_offset_sample_count"] == 5
+    assert link0["sample_period_ns"] == 4
+    assert link0["data_phase_delay_cycles"] == 3
+    assert link0["sck_phase_delay_cycles"] == 7
+    assert matrix["offset_matrix"]["full_matrix_row_count"] == 1
+    assert matrix["offset_matrix"]["rows"][0][
+        "marker_offset_sample_counts_by_node"] == [1, -1, 0, 1]
+    assert matrix["offset_matrix"]["rows"][0][
+        "sck_offset_sample_counts_by_node"] == [0, 0, 0, 0]
     assert link0["marker_source_node"] == 0
     assert link0["marker_destination_node"] == 1
     assert link0["data_source_node"] == 1

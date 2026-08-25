@@ -47,6 +47,14 @@ def matrix() -> dict[str, object]:
             "guard_cycles": 2,
             "link_budget_cycles": 48,
             "loop_delay_cycles": 8,
+            "marker_offset_sample_count": 0,
+            "sck_offset_sample_count": 0,
+            "data_offset_sample_count": 5,
+            "sample_period_ns": 4,
+            "sck_phase_delay_cycles": 10,
+            "data_phase_delay_cycles": 5,
+            "marker_destination_node": (link_index + 1) % 4,
+            "data_destination_node": link_index,
         })
     return {
         "node_count": 4,
@@ -56,6 +64,17 @@ def matrix() -> dict[str, object]:
         "topology_crc32": 0x1234,
         "profile_crc32": 0x5678,
         "schedule_crc32": 0x9ABC,
+        "offset_matrix": {
+            "sample_period_ns": 4,
+            "full_matrix_row_count": 1,
+            "active_row_id": 0,
+            "rows": [{
+                "row_id": 0,
+                "marker_offset_sample_counts_by_node": [1, -1, 0, 1],
+                "sck_offset_sample_counts_by_node": [0, 0, 0, 0],
+                "data_offset_sample_counts_by_node": [5, 5, 5, 5],
+            }],
+        },
         "links": links,
     }
 
@@ -101,9 +120,17 @@ def test_load_config_supports_eight_nodes(tmp_path: Path) -> None:
     value = matrix()
     value["node_count"] = 8
     value["links"] = [
-        {**value["links"][index % 4], "link_index": index}
+        {**value["links"][index % 4], "link_index": index,
+         "marker_destination_node": (index + 1) % 8,
+         "data_destination_node": index}
         for index in range(8)
     ]
+    value["offset_matrix"]["rows"][0][
+        "marker_offset_sample_counts_by_node"] = [1, -1, 0, 1] * 2
+    value["offset_matrix"]["rows"][0][
+        "sck_offset_sample_counts_by_node"] = [0] * 8
+    value["offset_matrix"]["rows"][0][
+        "data_offset_sample_counts_by_node"] = [5] * 8
     config = load_config(write_matrix(tmp_path, value))
     assert len(config["links"]) == 8
 
