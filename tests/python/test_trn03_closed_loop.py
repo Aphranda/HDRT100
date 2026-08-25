@@ -142,7 +142,8 @@ def test_origin_data_rx_consumes_staged_sck_and_data_phase() -> None:
     assert "pio_encode_wait_gpio(true, rx_sck_pin)" in init
     assert "pio_encode_delay(sck_phase_delay_cycles)" in init
     assert "pio_encode_nop()" in init
-    assert "pio_encode_delay(data_phase_delay_cycles)" in init
+    assert "tdma_pio_spi_flight_data_residual_delay_cycles" in init
+    assert "pio_encode_delay(data_residual_delay_cycles)" in init
 
     phys_source = (ROOT / "components" / "tdma" / "src" /
                    "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
@@ -154,6 +155,11 @@ def test_origin_data_rx_consumes_staged_sck_and_data_phase() -> None:
     )[1].split(");", 1)[0]
     assert "phys->flight_sck_phase_delay_cycles" in origin_call
     assert "phys->flight_data_phase_delay_cycles" in origin_call
+
+    setter = phys_source.split(
+        "bool tdma_pio_spi_phys_set_flight_offsets", 1
+    )[1].split("bool tdma_pio_spi_phys_prepare_process_overlay", 1)[0]
+    assert "data_phase_delay_cycles <= sck_phase_delay_cycles" in setter
 
 
 def test_origin_queues_frame_byte_count_before_payload_dma() -> None:

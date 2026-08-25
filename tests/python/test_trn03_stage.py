@@ -121,6 +121,15 @@ def test_load_config_rejects_diagnostic_only_evidence(tmp_path: Path) -> None:
         load_config(write_matrix(tmp_path, value))
 
 
+def test_load_config_rejects_data_phase_not_after_incoming_sck(
+        tmp_path: Path) -> None:
+    value = matrix()
+    value["offset_matrix"]["rows"][0][
+        "data_offset_sample_counts_by_node"] = [0, 0, 0, 0]
+    with pytest.raises(ValueError, match="DATA phase must follow"):
+        load_config(write_matrix(tmp_path, value))
+
+
 def test_load_config_supports_eight_nodes(tmp_path: Path) -> None:
     value = matrix()
     value["node_count"] = 8

@@ -614,15 +614,29 @@ static inline void tdma_pio_spi_clk_oversample_program_init(PIO pio,
     pio_sm_init(pio, sm, offset, &c);
 }
 
+/* SCK and DATA are trained independently against the same incoming SCK edge,
+ * so both staged phase values are absolute clk_sys sample positions.  The
+ * flight programs execute the SCK WAIT and DATA NOP serially; convert the DATA
+ * absolute phase into the delay field that remains after the SCK WAIT.  One
+ * cycle is already consumed by the DATA NOP itself. */
+static inline uint32_t tdma_pio_spi_flight_data_residual_delay_cycles(
+    uint32_t sck_phase_delay_cycles, uint32_t data_phase_delay_cycles)
+{
+    return data_phase_delay_cycles - sck_phase_delay_cycles - 1u;
+}
+
 static inline void tdma_pio_spi_flight_follower_program_init(
     PIO pio, uint sm, uint offset, uint rx_data_pin, uint tx_data_pin,
     uint rx_sck_pin, uint tx_sck_pin, uint32_t sck_phase_delay_cycles,
     uint32_t data_phase_delay_cycles)
 {
+    const uint32_t data_residual_delay_cycles =
+        tdma_pio_spi_flight_data_residual_delay_cycles(
+            sck_phase_delay_cycles, data_phase_delay_cycles);
     pio->instr_mem[offset + 5u] =
         (uint16_t)(pio_encode_nop() |
                    pio_encode_sideset(1u, 1u) |
-                   pio_encode_delay(data_phase_delay_cycles));
+                   pio_encode_delay(data_residual_delay_cycles));
     pio->instr_mem[offset + 4u] =
         (uint16_t)(pio_encode_wait_gpio(true, rx_sck_pin) |
                    pio_encode_sideset(1u, 0u) |
@@ -661,10 +675,13 @@ static inline void tdma_pio_spi_flight_process_follower_program_init(
     uint rx_csn_pin, uint rx_sck_pin, uint tx_sck_pin,
     uint32_t sck_phase_delay_cycles, uint32_t data_phase_delay_cycles)
 {
+    const uint32_t data_residual_delay_cycles =
+        tdma_pio_spi_flight_data_residual_delay_cycles(
+            sck_phase_delay_cycles, data_phase_delay_cycles);
     pio->instr_mem[offset + 16u] =
         (uint16_t)(pio_encode_nop() |
                    pio_encode_sideset(1u, 1u) |
-                   pio_encode_delay(data_phase_delay_cycles));
+                   pio_encode_delay(data_residual_delay_cycles));
     pio->instr_mem[offset + 6u] =
         (uint16_t)(pio_encode_wait_gpio(true, rx_csn_pin) |
                    pio_encode_sideset(1u, 0u));
@@ -739,6 +756,9 @@ static inline void tdma_pio_spi_flight_origin_data_tx_program_init(
         FLIGHT_ORIGIN_DATA_WAIT_SCK_HIGH_INSTRUCTION = 8u,
         FLIGHT_ORIGIN_DATA_PHASE_DELAY_INSTRUCTION = 9u,
     };
+    const uint32_t data_residual_delay_cycles =
+        tdma_pio_spi_flight_data_residual_delay_cycles(
+            sck_phase_delay_cycles, data_phase_delay_cycles);
     pio->instr_mem[
         offset + FLIGHT_ORIGIN_DATA_WAIT_CSN_HIGH_INSTRUCTION] =
         (uint16_t)pio_encode_wait_gpio(true, rx_csn_pin);
@@ -759,7 +779,7 @@ static inline void tdma_pio_spi_flight_origin_data_tx_program_init(
     pio->instr_mem[
         offset + FLIGHT_ORIGIN_DATA_PHASE_DELAY_INSTRUCTION] =
         (uint16_t)(pio_encode_nop() |
-                   pio_encode_delay(data_phase_delay_cycles));
+                   pio_encode_delay(data_residual_delay_cycles));
     pio_gpio_init(pio, tx_data_pin);
     pio_gpio_init(pio, rx_data_pin);
     pio_gpio_init(pio, rx_csn_pin);

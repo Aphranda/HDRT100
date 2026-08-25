@@ -250,11 +250,19 @@ def load_config(path: Path, offset_row_id: int | None = None) -> dict[str, Any]:
         links.append(link)
     if sorted(link["link_index"] for link in links) != list(range(node_count)):
         raise ValueError("link_index must cover [0, node_count) exactly")
+    ordered_links = sorted(links, key=lambda item: item["link_index"])
+    for node in range(node_count):
+        marker_link = ordered_links[(node + node_count - 1) % node_count]
+        data_link = ordered_links[node]
+        if (data_link["data_phase_delay_cycles"] <=
+                marker_link["sck_phase_delay_cycles"]):
+            raise ValueError(
+                f"node{node} DATA phase must follow its incoming SCK phase")
     return {
         **header,
         "offset_row_id": selected_row_id,
         "offset_row": selected_row,
-        "links": sorted(links, key=lambda item: item["link_index"]),
+        "links": ordered_links,
     }
 
 
