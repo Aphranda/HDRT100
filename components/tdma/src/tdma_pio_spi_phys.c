@@ -906,6 +906,7 @@ static bool tdma_pio_spi_phys_configure_flight(
             phys->rx_pin,
             phys->rx_csn_pin,
             phys->rx_sck_pin,
+            phys->flight_sck_phase_delay_cycles,
             phys->flight_data_phase_delay_cycles);
         gpio_init(phys->tx_csn_pin);
         gpio_set_dir(phys->tx_csn_pin, GPIO_OUT);
