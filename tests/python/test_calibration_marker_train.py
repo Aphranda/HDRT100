@@ -301,7 +301,7 @@ def test_validate_ring_rejects_sequence_and_flags() -> None:
     result = validate_ring(records)
     assert result["passed"] is False
     assert "train_sequence" in result["errors"]
-    assert "slot_3_flags" in result["errors"]
+    assert "node_3_flags" in result["errors"]
 
 
 def test_validate_ring_rejects_premature_active_evidence() -> None:
