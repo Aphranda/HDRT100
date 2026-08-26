@@ -161,7 +161,16 @@ def test_load_config_rejects_data_phase_not_after_incoming_sck(
     value = matrix()
     value["offset_matrix"]["rows"][0][
         "data_offset_sample_counts_by_node"] = [0, 0, 0, 0]
-    with pytest.raises(ValueError, match="DATA phase must follow"):
+    with pytest.raises(ValueError, match="DATA phase must leave one serial"):
+        load_config(write_matrix(tmp_path, value))
+
+
+def test_load_config_rejects_only_one_cycle_between_sck_and_data(
+        tmp_path: Path) -> None:
+    value = matrix()
+    value["offset_matrix"]["rows"][0][
+        "data_offset_sample_counts_by_node"] = [1, 1, 1, 1]
+    with pytest.raises(ValueError, match="DATA phase must leave one serial"):
         load_config(write_matrix(tmp_path, value))
 
 

@@ -327,9 +327,10 @@ def validate_config(raw: object,
         marker_link = ordered_links[(node + node_count - 1) % node_count]
         data_link = ordered_links[node]
         if (data_link["data_phase_delay_cycles"] <=
-                marker_link["sck_phase_delay_cycles"]):
+                marker_link["sck_phase_delay_cycles"] + 1):
             raise ValueError(
-                f"node{node} DATA phase must follow its incoming SCK phase")
+                f"node{node} DATA phase must leave one serial PIO cycle "
+                "after its incoming SCK phase")
     return {
         **header,
         "baud_hz": baud_hz,

@@ -673,15 +673,14 @@ static inline void tdma_pio_spi_clk_oversample_program_init(PIO pio,
     pio_sm_init(pio, sm, offset, &c);
 }
 
-/* SCK and DATA are trained independently against the same incoming SCK edge,
- * so both staged phase values are absolute clk_sys sample positions. PIO delay
- * fields exclude the instruction's own cycle: an absolute N-cycle phase on a
- * WAIT/NOP is therefore encoded as N-1. The serial DATA NOP similarly needs
- * the remaining absolute interval minus its own instruction cycle. */
+/* SCK and DATA are trained independently against the same incoming SCK edge.
+ * Flight SCK keeps the established WAIT-delay encoding that preserves the
+ * trained waveform duty cycle. DATA sampling follows that WAIT with a serial
+ * NOP, so its residual excludes both the SCK phase and the NOP's own cycle. */
 static inline uint32_t tdma_pio_spi_flight_data_residual_delay_cycles(
     uint32_t sck_phase_delay_cycles, uint32_t data_phase_delay_cycles)
 {
-    return data_phase_delay_cycles - sck_phase_delay_cycles - 1u;
+    return data_phase_delay_cycles - sck_phase_delay_cycles - 2u;
 }
 
 static inline void tdma_pio_spi_flight_follower_program_init(
@@ -699,7 +698,7 @@ static inline void tdma_pio_spi_flight_follower_program_init(
     pio->instr_mem[offset + 4u] =
         (uint16_t)(pio_encode_wait_gpio(true, rx_sck_pin) |
                    pio_encode_sideset(1u, 0u) |
-                   pio_encode_delay(sck_phase_delay_cycles - 1u));
+                   pio_encode_delay(sck_phase_delay_cycles));
     pio->instr_mem[offset + 7u] =
         (uint16_t)(pio_encode_wait_gpio(false, rx_sck_pin) |
                    pio_encode_sideset(1u, 1u));
@@ -734,16 +733,12 @@ static inline void tdma_pio_spi_flight_process_follower_program_init(
     uint rx_csn_pin, uint rx_sck_pin,
     uint32_t sck_phase_delay_cycles, uint32_t data_phase_delay_cycles)
 {
-    const uint32_t data_residual_delay_cycles =
-        tdma_pio_spi_flight_data_residual_delay_cycles(
-            sck_phase_delay_cycles, data_phase_delay_cycles);
-    const uint32_t data_sample_phase_cycles =
-        sck_phase_delay_cycles + data_residual_delay_cycles + 1u;
+    (void)sck_phase_delay_cycles;
     pio->instr_mem[offset + 5u] =
         (uint16_t)pio_encode_wait_gpio(true, rx_csn_pin);
     pio->instr_mem[offset + 11u] =
         (uint16_t)(pio_encode_wait_gpio(true, rx_sck_pin) |
-                   pio_encode_delay(data_sample_phase_cycles - 1u));
+                   pio_encode_delay(data_phase_delay_cycles - 1u));
     pio->instr_mem[offset + 13u] =
         (uint16_t)pio_encode_wait_gpio(false, rx_sck_pin);
     pio_gpio_init(pio, rx_data_pin);
@@ -782,10 +777,10 @@ static inline void tdma_pio_spi_flight_control_forward_program_init(
                    pio_encode_delay(marker_phase_delay_cycles));
     pio->instr_mem[offset + 4u] =
         (uint16_t)(pio_encode_wait_gpio(true, rx_sck_pin) |
-                   pio_encode_delay(sck_phase_delay_cycles - 1u));
+                   pio_encode_delay(sck_phase_delay_cycles));
     pio->instr_mem[offset + 6u] =
         (uint16_t)(pio_encode_wait_gpio(false, rx_sck_pin) |
-                   pio_encode_delay(sck_phase_delay_cycles - 1u));
+                   pio_encode_delay(sck_phase_delay_cycles));
     pio->instr_mem[offset + 9u] =
         (uint16_t)(pio_encode_wait_gpio(true, rx_csn_pin) |
                    pio_encode_delay(marker_phase_delay_cycles));
@@ -890,14 +885,12 @@ static inline void tdma_pio_spi_flight_origin_data_tx_program_init(
     pio->instr_mem[
         offset + FLIGHT_ORIGIN_DATA_WAIT_SCK_LOW_INSTRUCTION] =
         (uint16_t)pio_encode_wait_gpio(false, rx_sck_pin);
-    /* Match the follower receive path exactly: once returned SCK is high,
-     * consume the incoming SCK phase and then the remaining DATA phase before
-     * IN. The WAIT and NOP instruction cycles are included in those absolute
-     * phases, matching the independent training personas. */
+    /* Match the follower receive path exactly: keep the trained SCK WAIT
+     * encoding, then consume the DATA-only residual before IN. */
     pio->instr_mem[
         offset + FLIGHT_ORIGIN_DATA_WAIT_SCK_HIGH_INSTRUCTION] =
         (uint16_t)(pio_encode_wait_gpio(true, rx_sck_pin) |
-                   pio_encode_delay(sck_phase_delay_cycles - 1u));
+                   pio_encode_delay(sck_phase_delay_cycles));
     pio->instr_mem[
         offset + FLIGHT_ORIGIN_DATA_PHASE_DELAY_INSTRUCTION] =
         (uint16_t)(pio_encode_nop() |

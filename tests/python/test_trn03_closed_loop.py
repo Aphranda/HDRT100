@@ -129,9 +129,7 @@ def test_process_follower_retains_elastic_byte_across_frame_boundary() -> None:
     assert "instr_mem[offset + 6u]" not in init
     assert "instr_mem[offset + 11u]" in init
     assert "pio_encode_wait_gpio(true, rx_sck_pin)" in init
-    assert "data_sample_phase_cycles" in init
-    assert "sck_phase_delay_cycles + data_residual_delay_cycles + 1u" in init
-    assert "pio_encode_delay(data_sample_phase_cycles - 1u)" in init
+    assert "pio_encode_delay(data_phase_delay_cycles - 1u)" in init
     assert "instr_mem[offset + 13u]" in init
     assert "pio_encode_wait_gpio(false, rx_sck_pin)" in init
     bit_loop = program.split("flight_process_bit:", 1)[1].split(
@@ -177,7 +175,7 @@ def test_process_follower_forwards_control_on_independent_pio_sm() -> None:
     )[1].split("static inline void", 1)[0]
     assert "pio_encode_delay(marker_phase_delay_cycles)" in control_init
     assert control_init.count(
-        "pio_encode_delay(sck_phase_delay_cycles - 1u)") == 2
+        "pio_encode_delay(sck_phase_delay_cycles)") == 2
     assert "data_phase_delay_cycles" not in control_init
     assert "sm_config_set_set_pins(&c, tx_sck_pin, 2u)" in control_init
 
@@ -303,13 +301,13 @@ def test_origin_data_rx_consumes_staged_sck_and_data_phase() -> None:
     assert "FLIGHT_ORIGIN_DATA_WAIT_SCK_HIGH_INSTRUCTION = 8u" in init
     assert "FLIGHT_ORIGIN_DATA_PHASE_DELAY_INSTRUCTION = 9u" in init
     assert "pio_encode_wait_gpio(true, rx_sck_pin)" in init
-    assert "pio_encode_delay(sck_phase_delay_cycles - 1u)" in init
+    assert "pio_encode_delay(sck_phase_delay_cycles)" in init
     assert "pio_encode_nop()" in init
     assert "tdma_pio_spi_flight_data_residual_delay_cycles" in init
     assert "pio_encode_delay(data_residual_delay_cycles)" in init
 
 
-def test_all_flight_sck_data_phases_include_instruction_cycle() -> None:
+def test_flight_preserves_sck_and_advances_serial_data_one_cycle() -> None:
     source = (ROOT / "components" / "tdma" / "src" /
               "tdma_pio_spi.pio").read_text(encoding="utf-8")
     follower = source.split(
@@ -327,12 +325,17 @@ def test_all_flight_sck_data_phases_include_instruction_cycle() -> None:
         "static inline void tdma_pio_spi_flight_origin_data_tx_program_init",
         1,
     )[1].split("static inline void", 1)[0]
-    assert "pio_encode_delay(sck_phase_delay_cycles - 1u)" in follower
+    helper = source.split(
+        "static inline uint32_t "
+        "tdma_pio_spi_flight_data_residual_delay_cycles", 1
+    )[1].split("static inline void", 1)[0]
+    assert "data_phase_delay_cycles - sck_phase_delay_cycles - 2u" in helper
+    assert "pio_encode_delay(sck_phase_delay_cycles)" in follower
     assert "pio_encode_delay(data_residual_delay_cycles)" in follower
-    assert "pio_encode_delay(data_sample_phase_cycles - 1u)" in process
+    assert "pio_encode_delay(data_phase_delay_cycles - 1u)" in process
     assert control.count(
-        "pio_encode_delay(sck_phase_delay_cycles - 1u)") == 2
-    assert "pio_encode_delay(sck_phase_delay_cycles - 1u)" in origin
+        "pio_encode_delay(sck_phase_delay_cycles)") == 2
+    assert "pio_encode_delay(sck_phase_delay_cycles)" in origin
     assert "pio_encode_delay(data_residual_delay_cycles)" in origin
 
     phys_source = (ROOT / "components" / "tdma" / "src" /
@@ -349,7 +352,8 @@ def test_all_flight_sck_data_phases_include_instruction_cycle() -> None:
     setter = phys_source.split(
         "bool tdma_pio_spi_phys_set_flight_offsets", 1
     )[1].split("bool tdma_pio_spi_phys_prepare_process_overlay", 1)[0]
-    assert "data_phase_delay_cycles <= sck_phase_delay_cycles" in setter
+    assert (
+        "data_phase_delay_cycles <= sck_phase_delay_cycles + 1u" in setter)
     arm = phys_source.split("bool tdma_pio_spi_phys_arm", 1)[1].split(
         "void tdma_pio_spi_phys_disarm", 1)[0]
     assert "TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES" in arm

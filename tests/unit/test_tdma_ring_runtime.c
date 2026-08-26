@@ -178,6 +178,14 @@ int main(void)
                           tdma_ring_runtime_validate_calibration_stage(
                               &calibration, 4u, &calibration_reason),
                           true);
+    calibration.links[0].data_offset_sample_count = 1;
+    calibration.links[0].data_phase_delay_cycles = 11u;
+    failed += expect_bool("one-cycle sck data gap rejected",
+                          tdma_ring_runtime_validate_calibration_stage(
+                              &calibration, 4u, &calibration_reason),
+                          false);
+    calibration.links[0].data_offset_sample_count = 5;
+    calibration.links[0].data_phase_delay_cycles = 15u;
     calibration.links[2].marker_offset_sample_count = -1;
     failed += expect_bool("marker offset and phase mismatch rejected",
                           tdma_ring_runtime_validate_calibration_stage(
