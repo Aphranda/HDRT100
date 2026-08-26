@@ -489,6 +489,16 @@ NORMAL、`FLIGHT_ORIGIN` 和 `FLIGHT_FOLLOWER` 的可诊断 wire capture。TDMA 
 方向矩阵生成每节点 SVG。分析窗口由 host 参数提供；当前 HIL 使用的 `1 us` 仅是本轮证据
 快照，不是协议常量。
 
+原始 SCK 记录必须在帧解析之外独立统计周期、频率、高/低电平宽度和占空比；这些指标直接
+来自 SD 中的 PIO raw sample，不得用 transport frame 计数或 core0 时间戳反推。只有 SCK
+frequency/duty gate 通过后，DATA/CRC/FIFO 失败才可归入帧内容或 overlay 路径。
+
+process follower 在某帧未及时解析时允许边界服务为后继帧提交一帧 PASS，保证 wire loop 不因
+单帧失败停在 PIO `pull block`。若前一帧的解析结果在 PASS 已提交且 CS 处于空闲高电平时才
+到达，该结果已经错过可替换窗口，必须计入 `overlay_late_coalesce_count` 并丢弃，不能再次
+启动 DMA、阻塞 core1 或记为新的物理装载失败；真实装载失败仍由
+`overlay_prepare_fail_count` 独立记录。
+
 捕获 intent 使用 sequence 区分重试并采用 latest-wins：新的诊断请求可以覆盖仍处于
 `PENDING` 的旧请求，generation/epoch 继续阻止旧 snapshot 被保存。查询必须同时发布
 `core1_service_count`、`intent_read_fail_count`、`last_seen_sequence`、

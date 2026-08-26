@@ -10,6 +10,41 @@ Last updated: 2026-08-26
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20260826-010 - TRN-03A/B 四板短帧与 process-image 闭环
+
+- 状态：TRN-03A staging/ARM gate、TRN-03B raw-flight 和 process-image/FIFO 四板闭环已通过；
+  本任务仍保持 `DIAGNOSTIC_ONLY`，下一阶段进入 TRN-03C active candidate gate。
+- 代码闭环：process follower 的 END 路径在 PIO IRQ 后显式回到 command pull，避免落入 PASS
+  多采一个 raw byte；RX DMA absolute producer 使用 fixed-frame boundary 重建并保持单调；单帧
+  解析失败排入 PASS 维持环路，迟到结果通过 `overlay_late_coalesce_count` 与真实
+  `overlay_prepare_fail_count` 分离。
+- staging/拒绝证据：TRN-03A 写后读回、ARM 和负门禁目录为
+  `out/training/trn03a_g210_stage_after_data_fix_20260826/` 与
+  `out/training/trn03a_negative_gates_final_20260825/`；训练输入统一来自
+  `out/training/trn03a_g210_matrix_clk_sys_phase_20260826.json` 的 row0。
+- raw-flight 证据：四板产品 flight persona 的最近复验证据位于
+  `out/training/trn03b_g210_raw_flight_after_data_fix_retry2_20260826/`，与 process-image 使用同一
+  calibration/topology/profile/schedule identity。
+- 最终 process-image HIL（诊断快照，非事实源）：release build 为 `20260826055402`，四板异步
+  OTA 目录为 `out/ota/trn03-process-late-coalesce-v9-20260826/`；STOP -> ARM 重复通过证据为
+  `out/training/trn03b_process_late_coalesce_v9_row0_retry1_20260826/`。四节点 up/down、sequence、
+  transport CRC、TX/RX FIFO、map apply 和 bitmap 均增长，follower replacement 增长，adapter
+  bad 与 overlay prepare failure 均不增长，finally STOPPED 通过。
+- PIO 计数证据（同一诊断快照）：follower 的 absolute producer 与
+  `overlay_frame_boundary_count * overlay_physical_byte_count` 保持同一 fixed-frame 坐标，
+  alignment byte/bit 在观测窗口前后不漂移。Node2 的迟到解析被计入 late coalesce，不再阻塞
+  core1 或污染物理失败计数。
+- SD raw SCK 证据（同一诊断快照）：四节点 `ring_capture_analysis.json` 均通过 frequency gate，
+  period/high/low/duty 由 PIO raw sample 独立派生；逐节点 `1 us` SVG 位于最终证据目录的
+  `analysis/`，不依赖 transport frame 是否能在局部窗口完整解码。
+- 回归与交付：定向 Python 回归结果为
+  `out/pytest/trn03-process-late-coalesce-results.xml`；release 构建目录为
+  `out/build/trn03-process-late-coalesce-v9/`。代码提交 `c81defc` 已推送到
+  `feature/rtos-multicore-haofv`。
+- 下一步：TRN-03C 汇总 per-link path/residence/loop delay、PIO cycle budget 与 residual，执行
+  bias、hardware latch、freshness、CRC、重复性和 rollback 门禁；通过前不得发布 active
+  calibration。
+
 ## CAL-TASK-20260826-009 - MARK/SCK/DATA 统一相位训练路径
 
 - 状态：已完成代码与 host 工具收敛，并完成本 build 的四板 OTA、SCK 零 offset 基线及
