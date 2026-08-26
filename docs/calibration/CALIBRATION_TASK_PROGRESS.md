@@ -4,11 +4,45 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_TASK_PROGRESS.md`
 Related: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_TASK_PROGRESS.md`
-Last updated: 2026-08-26
+Last updated: 2026-08-27
 
 本文档记录校准域从方案、粗捕获到双向测距和 VDC/DPLL 接入的实际进展。记录中的 HIL
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
+
+## CAL-TASK-20260827-011 - TRN-03D DATA 线端 CRC/epoch 故障证据
+
+- 状态：TRN-03D 已进入进行中；DATA 的旧 epoch、header CRC 错误和无故障正向控制已完成
+  当前 release build 的四板异步 OTA 与单链路线端 HIL。marker timeout、DMA overrun、PIO
+  stall、Node dropout、stale identity/rollback 和长稳仍待完成，因此不发布 active calibration。
+- 代码闭环：marker 公共相关原语返回实际解码的 header、header inverse 和 header CRC8；DATA
+  evaluator 从有效线端 header 重建语义 codeword 后独立计算 `observed_crc32`，不再用请求中的
+  expected CRC 回填 observed evidence。每次 ARM 的 responder 故障配置随 request 固化，状态和
+  SD capture 同时保留门限、故障参数、observed header/CRC 及 correlation reject reason。
+- 拒绝优先级：distance/margin 先拒绝；header CRC 失败映射到
+  `CALIBRATION_TRAINING_DATA_REJECT_CRC`；合法但旧 epoch 的 header mismatch 映射到
+  `CALIBRATION_TRAINING_DATA_REJECT_EPOCH`；其余相关错误保持 correlation 拒绝。离线 SVG replay
+  执行相同的 inverse/CRC/epoch gate，不能仅凭 Hamming distance 标记 accepted。
+- 构建与 OTA（本轮诊断快照，非事实源）：release build 目录为
+  `out/build/trn03d-wire-evidence/`，build ID 为 `20260826212611`；四板异步 OTA 证据为
+  `out/ota/trn03d-wire-evidence_20260827/summary.json`，四个按 `*IDN?` 识别的 Node 均更新成功。
+- HIL（本轮诊断快照，非事实源）：旧 epoch 试验位于
+  `out/training/trn03d_data_epoch_link0_g214_e224_20260827/`，线端 header CRC 有效且 observed epoch
+  为请求前一 epoch，最终按 EPOCH 拒绝；单独 CRC8 扰动位于
+  `out/training/trn03d_data_crc_link0_g215_e225_20260827/`，inverse 有效且按 CRC 拒绝；正向控制位于
+  `out/training/trn03d_data_positive_link0_g216_e226_20260827/`，线端 `data_crc32` 与
+  `observed_crc32` 相同并 accepted。正向控制的 configured offset 为 `+4` 拍、residual 为 `+1`
+  拍，最终 Node offset 为 `+5` 拍；物理 base 仍来自该 link 的 `measured_link_delay / 2`，没有
+  为 DATA 另造 base。
+- 原始证据：三组试验均保存板端 `/cal/data_node0_link0_*.json`、host 下载的
+  `node0_link0_capture.json`、`1 us` SVG 和 waveform analysis JSON；它们分别位于对应 HIL 目录，
+  可从 observed header、CRC 和 raw waveform 重放拒绝结论。
+- 回归与交付：C host 的 marker/data 单测通过；TRN-03 训练、矩阵和波形相关 Python 回归为
+  `154 passed`，报告在 `out/pytest/trn03d-wire-evidence-final-recheck.xml`。代码提交 `4e6911d`
+  已推送到 `feature/rtos-multicore-haofv`。
+- 保护边界：本轮 `active_unchanged` 只证明现有 active raw record/CRC 未变化；manager 尚未接入
+  完整 calibration candidate/active/previous generation，因此不能据此宣称 TRN-03C rollback 或
+  active-generation 保护已经完成。
 
 ## CAL-TASK-20260826-010 - TRN-03A/B 四板短帧与 process-image 闭环
 
