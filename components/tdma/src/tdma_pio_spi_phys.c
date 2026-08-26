@@ -2233,6 +2233,7 @@ void tdma_pio_spi_phys_cal_loopback_service(tdma_pio_spi_phys_t *phys)
     phys->cal_loopback_start_pending = false;
     tdma_pio_spi_phys_cal_write_end(phys);
     pio_sm_put(BOARD_TDMA_SPI_PIO, tx_sm, 15u);
+    pio_sm_put(BOARD_TDMA_SPI_PIO, responder_sm, 15u);
     dma_start_channel_mask(1u << (uint)s_tdma_pio_spi_rx_dma_channel);
     pio_enable_sm_mask_in_sync(BOARD_TDMA_SPI_PIO,
                                (1u << tx_sm) | (1u << responder_sm) |
@@ -3685,11 +3686,11 @@ static void tdma_pio_spi_phys_p3_decode(tdma_pio_spi_phys_t *phys)
     uint32_t clock_high_count = 0u;
     uint32_t clock_low_count = 0u;
     uint64_t data_rise = 0u;
-    uint64_t data_fall = 0u;
+    uint64_t data_high_sum = 0u;
+    uint32_t data_high_count = 0u;
     bool have_clock_rise = false;
     bool have_clock_fall = false;
     bool have_data_rise = false;
-    bool have_data_fall = false;
     /* signal_group selects the physical line used for the forward leg.
      * The return leg is always DATA for the current P3 wiring.  The third
      * line is only a sync marker and is intentionally absent from t1..t4. */
@@ -3733,14 +3734,14 @@ static void tdma_pio_spi_phys_p3_decode(tdma_pio_spi_phys_t *phys)
                 clock_high_sum += timestamp - clock_rise;
                 clock_high_count++;
             }
-            if ((rising & data_mask) != 0u && !have_data_rise) {
+            if ((rising & data_mask) != 0u) {
                 data_rise = timestamp;
                 have_data_rise = true;
             }
-            if ((falling & data_mask) != 0u && have_data_rise &&
-                !have_data_fall) {
-                data_fall = timestamp;
-                have_data_fall = true;
+            if ((falling & data_mask) != 0u && have_data_rise) {
+                data_high_sum += timestamp - data_rise;
+                data_high_count++;
+                have_data_rise = false;
             }
             if (phys->p3.role == TDMA_PIO_SPI_P3_ROLE_INITIATOR) {
                 const uint32_t tx_mask = forward_mask;
@@ -3781,9 +3782,11 @@ static void tdma_pio_spi_phys_p3_decode(tdma_pio_spi_phys_t *phys)
         phys->p3.clock_low_ns = (uint32_t)(
             (clock_low_sum + clock_low_count / 2u) / clock_low_count);
     }
-    if (have_data_rise && have_data_fall) {
-        phys->p3.data_high_ns = (uint32_t)(data_fall - data_rise);
+    if (data_high_count != 0u) {
+        phys->p3.data_high_ns = (uint32_t)(
+            (data_high_sum + data_high_count / 2u) / data_high_count);
     }
+    phys->p3.data_pulse_count = data_high_count;
 }
 
 bool tdma_pio_spi_phys_p3_start(
@@ -3860,6 +3863,8 @@ bool tdma_pio_spi_phys_p3_start(
             BOARD_TDMA_SPI_PIO, capture_sm,
             s_tdma_pio_spi_p3_responder_capture_offset,
             sync_rx_pin);
+        pio_sm_put(BOARD_TDMA_SPI_PIO, tx_sm,
+                   request->pulse_count - 1u);
     }
 
     memset(s_tdma_pio_spi_cal_ring, 0, sizeof(s_tdma_pio_spi_cal_ring));

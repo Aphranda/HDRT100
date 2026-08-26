@@ -857,6 +857,7 @@ scpi_result_t scpi_calibration_p3_q(scpi_t *context)
     scpi_calibration_result_u64(context, raw->t3_data_tx);
     scpi_calibration_result_u64(context, raw->t4_data_rx);
     SCPI_ResultUInt32(context, snapshot.result_valid);
+    SCPI_ResultUInt32(context, raw->data_pulse_count);
     return SCPI_RES_OK;
 }
 

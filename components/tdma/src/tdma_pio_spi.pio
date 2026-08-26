@@ -394,17 +394,21 @@ p3_clk_loop:
 .wrap
 
 ; P3 link responder. The init function patches the sync and forward-line WAIT
-; GPIO operands plus the DATA-high delay. t2 is the accepted forward-line
-; rising edge; t3 is the following SET DATA instruction, so residence is one
-; clk_sys cycle. DATA high duration is rounded to the closest clk_sys cycle.
+; GPIO operands plus the DATA-high delay.  One DATA pulse is returned for each
+; forward pulse so the capture gate can reduce a burst instead of trusting one
+; asynchronous pulse. t2/t3 remain the first accepted forward/DATA edges.
 .program tdma_pio_spi_p3_responder
 .wrap_target
+    pull block
+    mov x, osr
     wait 0 gpio 0
     wait 1 gpio 0
+p3_data_loop:
     wait 0 gpio 1
     wait 1 gpio 1
     set pins, 1
     set pins, 0
+    jmp x-- p3_data_loop
     irq set 1
 .wrap
 
@@ -1128,17 +1132,17 @@ static inline void tdma_pio_spi_p3_responder_program_init(
 {
     const uint32_t high_cycles =
         tdma_pio_spi_p3_data_high_cycles(baud_hz);
-    pio->instr_mem[offset + 0u] =
+    pio->instr_mem[offset + 2u] =
         (uint16_t)pio_encode_wait_gpio(false, sync_rx_pin);
-    pio->instr_mem[offset + 1u] =
+    pio->instr_mem[offset + 3u] =
         (uint16_t)pio_encode_wait_gpio(true, sync_rx_pin);
     /* The second input is the selected forward measurement line.  Its
      * physical label may be CLK or CS; the caller supplies the mapping. */
-    pio->instr_mem[offset + 2u] =
-        (uint16_t)pio_encode_wait_gpio(false, forward_rx_pin);
-    pio->instr_mem[offset + 3u] =
-        (uint16_t)pio_encode_wait_gpio(true, forward_rx_pin);
     pio->instr_mem[offset + 4u] =
+        (uint16_t)pio_encode_wait_gpio(false, forward_rx_pin);
+    pio->instr_mem[offset + 5u] =
+        (uint16_t)pio_encode_wait_gpio(true, forward_rx_pin);
+    pio->instr_mem[offset + 6u] =
         (uint16_t)(pio_encode_set(pio_pins, 1u) |
                    pio_encode_delay(high_cycles - 1u));
     pio_gpio_init(pio, sync_rx_pin);
@@ -1152,6 +1156,7 @@ static inline void tdma_pio_spi_p3_responder_program_init(
     pio_sm_config c =
         tdma_pio_spi_p3_responder_program_get_default_config(offset);
     sm_config_set_set_pins(&c, data_tx_pin, 1u);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
     sm_config_set_clkdiv(&c, 1.0f);
     pio_sm_init(pio, sm, offset, &c);
     pio_sm_set_pins(pio, sm, 0u);

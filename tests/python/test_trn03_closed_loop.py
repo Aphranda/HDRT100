@@ -487,6 +487,31 @@ def test_p3_reference_capture_uses_persona_loaded_program_offset() -> None:
     assert "TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL" in service
 
 
+def test_p3_responder_returns_and_measures_complete_data_burst() -> None:
+    pio_source = (ROOT / "components" / "tdma" / "src" /
+                  "tdma_pio_spi.pio").read_text(encoding="utf-8")
+    program = pio_source.split(
+        ".program tdma_pio_spi_p3_responder", 1
+    )[1].split(".program tdma_pio_spi_p3_responder_capture", 1)[0]
+    assert "pull block" in program
+    assert "mov x, osr" in program
+    assert "p3_data_loop:" in program
+    assert "jmp x-- p3_data_loop" in program
+
+    phys_source = (ROOT / "components" / "tdma" / "src" /
+                   "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    start = phys_source.split(
+        "bool tdma_pio_spi_phys_p3_start", 1
+    )[1].split("void tdma_pio_spi_phys_p3_stop", 1)[0]
+    assert "request->pulse_count - 1u" in start
+    decode = phys_source.split(
+        "static void tdma_pio_spi_phys_p3_decode", 1
+    )[1].split("bool tdma_pio_spi_phys_p3_start", 1)[0]
+    assert "data_high_sum += timestamp - data_rise" in decode
+    assert "phys->p3.data_pulse_count = data_high_count" in decode
+    assert "data_high_sum + data_high_count / 2u" in decode
+
+
 def test_process_rx_reconstructs_absolute_fixed_frame_sequence() -> None:
     source = (ROOT / "components" / "tdma" / "src" /
               "tdma_pio_spi_phys.c").read_text(encoding="utf-8")

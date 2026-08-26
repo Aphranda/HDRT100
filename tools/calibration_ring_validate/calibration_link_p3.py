@@ -40,6 +40,14 @@ P3_FIELDS = (
     "edge_mask", "dma_overrun_count", "pio_stall_count", "clock_high_ns",
     "clock_low_ns", "data_high_ns", "t1_lo", "t1_hi", "t2_lo", "t2_hi",
     "t3_lo", "t3_hi", "t4_lo", "t4_hi", "result_valid",
+    "data_pulse_count",
+)
+P3_V1_FIELDS = (
+    "state", "role", "signal_group", "flags", "reject_reason", "baud_hz", "epoch",
+    "sample_period_ns", "pulse_count", "requested_words", "produced_words",
+    "edge_mask", "dma_overrun_count", "pio_stall_count", "clock_high_ns",
+    "clock_low_ns", "data_high_ns", "t1_lo", "t1_hi", "t2_lo", "t2_hi",
+    "t3_lo", "t3_hi", "t4_lo", "t4_hi", "result_valid",
 )
 P3_LEGACY_FIELDS = (
     "state", "role", "flags", "reject_reason", "baud_hz", "epoch",
@@ -93,14 +101,20 @@ def parse_args() -> argparse.Namespace:
 
 def parse_p3_status(raw: str) -> dict[str, int]:
     row = next(csv.reader([raw]), [])
-    fields = P3_FIELDS if len(row) == len(P3_FIELDS) else P3_LEGACY_FIELDS
-    if len(row) not in (len(P3_FIELDS), len(P3_LEGACY_FIELDS)):
+    fields_by_count = {
+        len(P3_FIELDS): P3_FIELDS,
+        len(P3_V1_FIELDS): P3_V1_FIELDS,
+        len(P3_LEGACY_FIELDS): P3_LEGACY_FIELDS,
+    }
+    fields = fields_by_count.get(len(row))
+    if fields is None:
         raise RuntimeError(
             f"P3 status field count {len(row)} not in "
-            f"({len(P3_FIELDS)}, {len(P3_LEGACY_FIELDS)}): {raw!r}")
+            f"{tuple(sorted(fields_by_count))}: {raw!r}")
     values = [int(value.strip().strip('"'), 0) for value in row]
     result = dict(zip(fields, values))
     result.setdefault("signal_group", P3_GROUP_CLK_DATA)
+    result.setdefault("data_pulse_count", 1)
     for prefix in ("t1", "t2", "t3", "t4"):
         result[prefix + "_ns"] = (
             result[prefix + "_lo"] | (result[prefix + "_hi"] << 32))
@@ -194,6 +208,7 @@ def timing_metrics(snapshot: dict[str, int], target_hz: int,
         "frequency_error_percent": frequency_error_percent,
         "duty_percent": duty_percent,
         "data_high_ns": snapshot["data_high_ns"],
+        "data_pulse_count": snapshot.get("data_pulse_count", 1),
         "expected_data_high_ns": expected_data_high_ns,
         "data_high_error_ns": data_high_error_ns,
         "frequency_ok": (not primary_timing_valid or
@@ -202,6 +217,8 @@ def timing_metrics(snapshot: dict[str, int], target_hz: int,
                      abs(duty_percent - 50.0) <= duty_tolerance_percent),
         "primary_timing_valid": primary_timing_valid,
         "data_high_ok": data_high_error_ns <= sample_period_ns,
+        "data_burst_ok": snapshot.get("data_pulse_count", 1) >= max(
+            2, snapshot.get("pulse_count", 1) - 1),
     }
 
 
@@ -256,12 +273,16 @@ def evaluate_pair(initiator: dict[str, int], responder: dict[str, int],
         failures.append("initiator_duty")
     if not source_timing["data_high_ok"]:
         failures.append("initiator_data_width")
+    if not source_timing["data_burst_ok"]:
+        failures.append("initiator_data_burst")
     if not responder_timing["frequency_ok"]:
         failures.append("responder_frequency")
     if not responder_timing["duty_ok"]:
         failures.append("responder_duty")
     if not responder_timing["data_high_ok"]:
         failures.append("responder_data_width")
+    if not responder_timing["data_burst_ok"]:
+        failures.append("responder_data_burst")
     return {
         "source_rtt_ns": source_rtt_ns,
         "residence_ns": residence_ns,

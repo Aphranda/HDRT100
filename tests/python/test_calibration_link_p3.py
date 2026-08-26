@@ -30,6 +30,7 @@ def make_snapshot(role: int, edge_mask: int, signal_group: int = 0) -> dict[str,
         "clock_high_ns": 20,
         "clock_low_ns": 20,
         "data_high_ns": 20,
+        "data_pulse_count": 32,
         "t1_ns": 100,
         "t2_ns": 200,
         "t3_ns": 204,
@@ -39,29 +40,44 @@ def make_snapshot(role: int, edge_mask: int, signal_group: int = 0) -> dict[str,
 
 
 def test_parse_p3_status_reconstructs_u64() -> None:
-    fields = [2, 1, 15, 0, 10_000_000, 9, 4, 32, 256, 256, 9,
-              0, 0, 50, 50, 48, 1, 2, 3, 4, 5, 6, 7, 8, 1]
+    fields = [2, 1, 0, 15, 0, 10_000_000, 9, 4, 32, 256, 256, 9,
+              0, 0, 50, 50, 48, 1, 2, 3, 4, 5, 6, 7, 8, 1, 31]
     parsed = parse_p3_status(",".join(str(value) for value in fields))
     assert parsed["t1_ns"] == 1 | (2 << 32)
     assert parsed["t4_ns"] == 7 | (8 << 32)
+    assert parsed["data_pulse_count"] == 31
 
 
 def test_timing_metrics_checks_frequency_and_duty() -> None:
     metrics = timing_metrics(
         {"clock_high_ns": 20, "clock_low_ns": 20, "data_high_ns": 20,
+         "data_pulse_count": 32, "pulse_count": 32,
          "sample_period_ns": 4}, 25_000_000, 5.0, 10.0)
     assert metrics["actual_hz"] == 25_000_000
     assert metrics["duty_percent"] == 50.0
     assert metrics["frequency_ok"] and metrics["duty_ok"]
     assert metrics["data_high_ok"]
+    assert metrics["data_burst_ok"]
 
 
 def test_timing_metrics_rejects_short_return_data_pulse() -> None:
     metrics = timing_metrics(
         {"clock_high_ns": 16, "clock_low_ns": 17, "data_high_ns": 8,
+         "data_pulse_count": 32, "pulse_count": 32,
          "sample_period_ns": 4}, 30_000_000, 5.0, 10.0)
     assert metrics["frequency_ok"] and metrics["duty_ok"]
     assert not metrics["data_high_ok"]
+
+
+def test_evaluate_pair_rejects_truncated_data_burst() -> None:
+    initiator = make_snapshot(1, 0x09)
+    responder = make_snapshot(2, 0x06)
+    initiator["data_pulse_count"] = 1
+    args = Namespace(frequency_tolerance_percent=5.0,
+                     duty_tolerance_percent=10.0)
+    result = evaluate_pair(initiator, responder, 25_000_000, args)
+    assert "initiator_data_burst" in result["failures"]
+    assert not result["passed"]
 
 
 def test_evaluate_pair_subtracts_residence() -> None:

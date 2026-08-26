@@ -351,6 +351,7 @@ typedef struct {
     uint32_t clock_high_ns;
     uint32_t clock_low_ns;
     uint32_t data_high_ns;
+    uint32_t data_pulse_count;
     /* ABI-compatible names retained for SCPI/tool parsing.  Semantics are
      * t1=forward TX, t2=forward RX, t3=return(DATA) TX, t4=return RX. */
     uint64_t t1_clk_tx;
