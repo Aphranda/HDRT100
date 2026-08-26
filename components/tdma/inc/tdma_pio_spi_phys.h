@@ -61,6 +61,11 @@ typedef enum {
 #define TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_WORDS 8u
 #define TDMA_PIO_SPI_FLIGHT_SCK_SAMPLES_PER_WORD 32u
 #define TDMA_PIO_SPI_FLIGHT_SCK_SAMPLE_PERIOD_NS 4u
+/* Continuous flight followers must return to their next edge WAIT before the
+ * source toggles again. These counts include the post-delay PIO instructions
+ * visible in tdma_pio_spi_flight_control_forward/process_follower. */
+#define TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES 2u
+#define TDMA_PIO_SPI_FLIGHT_DATA_REARM_CYCLES 5u
 #define TDMA_PIO_SPI_TX_DMA_CHANNEL \
     TDMA_PROFILE_DEFAULT_TX_DMA_CHANNEL_ID
 #define TDMA_PIO_SPI_RX_DMA_CHANNEL \

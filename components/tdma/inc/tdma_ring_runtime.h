@@ -268,6 +268,8 @@ bool tdma_ring_runtime_validate_calibration_stage(
     const tdma_ring_calibration_stage_t *stage,
     uint32_t expected_node_count,
     tdma_ring_runtime_reason_t *reason);
+bool tdma_ring_runtime_validate_calibration_link_phase(
+    const tdma_ring_calibration_link_t *link);
 bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
                                  const tdma_ring_runtime_config_t *config);
 bool tdma_ring_runtime_bind_adapter(tdma_ring_runtime_t *runtime,

@@ -162,14 +162,23 @@ int main(void)
         calibration.links[i].loop_delay_cycles = 8u;
         calibration.links[i].sample_period_ns = 4u;
         calibration.links[i].link_base_delay_ns = 40u;
+        calibration.links[i].marker_offset_sample_count = 0;
+        calibration.links[i].sck_offset_sample_count = 0;
+        calibration.links[i].data_offset_sample_count = 5;
         calibration.links[i].marker_phase_delay_cycles = 10u;
         calibration.links[i].sck_phase_delay_cycles = 10u;
-        calibration.links[i].data_phase_delay_cycles = 1u;
+        calibration.links[i].data_phase_delay_cycles = 15u;
     }
     failed += expect_bool("valid calibration stage",
                           tdma_ring_runtime_validate_calibration_stage(
                               &calibration, 4u, &calibration_reason),
                           true);
+    calibration.links[2].data_offset_sample_count = 4;
+    failed += expect_bool("offset and phase mismatch rejected",
+                          tdma_ring_runtime_validate_calibration_stage(
+                              &calibration, 4u, &calibration_reason),
+                          false);
+    calibration.links[2].data_offset_sample_count = 5;
     calibration.links[2].profile_crc32++;
     failed += expect_bool("mixed calibration identity rejected",
                           tdma_ring_runtime_validate_calibration_stage(

@@ -993,9 +993,6 @@ static uint32_t tdma_pio_spi_phys_txstall_mask(uint32_t sm)
     return 1u << (PIO_FDEBUG_TXSTALL_LSB + sm);
 }
 
-#define TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES 2u
-#define TDMA_PIO_SPI_FLIGHT_DATA_REARM_CYCLES 5u
-
 static void tdma_pio_spi_phys_flight_origin_recover(
     tdma_pio_spi_phys_t *phys)
 {

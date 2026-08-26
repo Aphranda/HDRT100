@@ -279,9 +279,12 @@ int main(void)
             .loop_delay_cycles = 8u,
             .sample_period_ns = 4u,
             .link_base_delay_ns = 40u,
+            .marker_offset_sample_count = 0,
+            .sck_offset_sample_count = 0,
+            .data_offset_sample_count = 5,
             .marker_phase_delay_cycles = 10u,
             .sck_phase_delay_cycles = 10u,
-            .data_phase_delay_cycles = 1u,
+            .data_phase_delay_cycles = 15u,
         };
         tdma_ring_calibration_stage_t readback;
         bool complete = true;
@@ -292,6 +295,12 @@ int main(void)
         failed += expect_u32("incomplete matrix blocks arm",
                              tdma_service_ring_arm(&service), 0u);
         link.link_index = 0u;
+        link.data_offset_sample_count = 4;
+        failed += expect_u32("inconsistent offset phase rejected",
+                             tdma_service_stage_calibration_link(
+                                 &service, &link),
+                             0u);
+        link.data_offset_sample_count = 5;
         failed += expect_u32("stage link0",
                              tdma_service_stage_calibration_link(
                                  &service, &link),

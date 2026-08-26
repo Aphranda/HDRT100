@@ -55,7 +55,9 @@ def matrix() -> dict[str, object]:
             "marker_phase_delay_cycles": 10,
             "sck_phase_delay_cycles": 10,
             "data_phase_delay_cycles": 5,
+            "marker_source_node": link_index,
             "marker_destination_node": (link_index + 1) % 4,
+            "data_source_node": (link_index + 1) % 4,
             "data_destination_node": link_index,
         })
     return {
@@ -139,12 +141,33 @@ def test_load_config_rejects_sck_phase_that_cannot_rearm(tmp_path: Path) -> None
         load_config(write_matrix(tmp_path, value))
 
 
+def test_load_config_rejects_node_offset_loaded_on_wrong_link(
+        tmp_path: Path) -> None:
+    value = matrix()
+    value["links"][1]["marker_destination_node"] = 3
+    with pytest.raises(ValueError, match="Node direction"):
+        load_config(write_matrix(tmp_path, value))
+
+
+def test_load_config_rejects_duplicate_or_partial_matrix_rows(
+        tmp_path: Path) -> None:
+    value = matrix()
+    duplicate = dict(value["offset_matrix"]["rows"][0])
+    duplicate["row_id"] = 1
+    value["offset_matrix"]["rows"].append(duplicate)
+    value["offset_matrix"]["full_matrix_row_count"] = 2
+    with pytest.raises(ValueError, match="duplicate row"):
+        load_config(write_matrix(tmp_path, value))
+
+
 def test_load_config_supports_eight_nodes(tmp_path: Path) -> None:
     value = matrix()
     value["node_count"] = 8
     value["links"] = [
         {**value["links"][index % 4], "link_index": index,
+         "marker_source_node": index,
          "marker_destination_node": (index + 1) % 8,
+         "data_source_node": (index + 1) % 8,
          "data_destination_node": index}
         for index in range(8)
     ]
@@ -180,6 +203,15 @@ def test_negative_gate_expired_budget_is_one_cycle_short() -> None:
     fields = [int(value) for value in values.split(",")]
     required = sum(fields[index] for index in (7, 8, 9, 10, 11, 13))
     assert fields[12] == required - 1
+
+
+def test_negative_gate_can_inject_offset_phase_mismatch() -> None:
+    values = negative_stage_link_command(
+        0, REQUIRED_EVIDENCE_FLAGS,
+        offset_phase_mismatch=True).split(maxsplit=1)[1]
+    fields = [int(value) for value in values.split(",")]
+    assert fields[16] == 4
+    assert fields[21] == 15
 
 
 def test_error_is_clear_parses_scpi_queue_response() -> None:

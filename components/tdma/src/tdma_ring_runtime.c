@@ -143,6 +143,36 @@ bool tdma_ring_runtime_validate_config(
     return true;
 }
 
+bool tdma_ring_runtime_validate_calibration_link_phase(
+    const tdma_ring_calibration_link_t *link)
+{
+    if (link == NULL || link->sample_period_ns == 0u ||
+        link->link_base_delay_ns == 0u) {
+        return false;
+    }
+    const int64_t base_samples = (int64_t)(
+        ((uint64_t)link->link_base_delay_ns +
+         link->sample_period_ns / 2u) / link->sample_period_ns);
+    const int32_t offsets[] = {
+        link->marker_offset_sample_count,
+        link->sck_offset_sample_count,
+        link->data_offset_sample_count,
+    };
+    const uint32_t phases[] = {
+        link->marker_phase_delay_cycles,
+        link->sck_phase_delay_cycles,
+        link->data_phase_delay_cycles,
+    };
+    for (uint32_t i = 0u; i < 3u; i++) {
+        const int64_t expected = base_samples + offsets[i];
+        if (expected < 0 || expected > 31 ||
+            phases[i] != (uint32_t)expected) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool tdma_ring_runtime_validate_calibration_stage(
     const tdma_ring_calibration_stage_t *stage,
     uint32_t expected_node_count,
@@ -193,6 +223,7 @@ bool tdma_ring_runtime_validate_calibration_stage(
             link->marker_phase_delay_cycles > 31u ||
             link->sck_phase_delay_cycles > 31u ||
             link->data_phase_delay_cycles > 31u ||
+            !tdma_ring_runtime_validate_calibration_link_phase(link) ||
             budget > link->link_budget_cycles) {
             tdma_ring_runtime_set_reason(
                 reason, TDMA_RING_RUNTIME_REASON_BAD_CONFIG);

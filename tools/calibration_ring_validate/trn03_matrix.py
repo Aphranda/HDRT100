@@ -229,6 +229,17 @@ def build_matrix(level: int, data: dict[str, Any],
     for index in range(count):
         data_link = data_links[index]
         residence_link = residence_links[index]
+        next_node = (index + 1) % count
+        if (int(data_link.get("marker_source_node", -1)) != index or
+                int(data_link.get("marker_destination_node", -1)) !=
+                next_node or
+                int(data_link.get("data_source_node", -1)) != next_node or
+                int(data_link.get("data_destination_node", -1)) != index or
+                int(residence_link.get("source_node", -1)) != index or
+                int(residence_link.get("destination_node", -1)) !=
+                next_node):
+            raise ValueError(
+                f"link{index} evidence direction does not match loop order")
         link_trials = trials_by_link[index]
         expected_repeats = int(data_link["trial_count"])
         if len(link_trials) != expected_repeats:
@@ -410,7 +421,7 @@ def build_matrix(level: int, data: dict[str, Any],
     if active_row_id < 0:
         raise ValueError("selected TRN-03 offset row is absent from full matrix")
 
-    return {
+    result = {
         "schema": MATRIX_SCHEMA,
         "node_count": count,
         "evidence_flags": REQUIRED_EVIDENCE_FLAGS,
@@ -445,6 +456,15 @@ def build_matrix(level: int, data: dict[str, Any],
             "loop_selection": "max(loop_delay_ticks) per source node",
         },
     }
+    # The active row is the default row every staging/closed-loop command
+    # will load.  Reject an unsafe or structurally inconsistent recommendation
+    # while retaining non-active rows as meaningful negative search evidence.
+    try:
+        from .trn03_stage import validate_config
+    except ImportError:  # Direct execution from this directory.
+        from trn03_stage import validate_config  # type: ignore[no-redef]
+    validate_config(result)
+    return result
 
 
 def main() -> int:

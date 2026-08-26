@@ -136,8 +136,9 @@ def signed_integer_field(source: dict[str, Any], field: str) -> int:
     return value
 
 
-def load_config(path: Path, offset_row_id: int | None = None) -> dict[str, Any]:
-    raw = json.loads(path.read_text(encoding="utf-8"))
+def validate_config(raw: object,
+                    offset_row_id: int | None = None) -> dict[str, Any]:
+    """Validate and resolve exactly one replay row from a full matrix."""
     if not isinstance(raw, dict):
         raise ValueError("config root must be an object")
     header = {field: integer_field(raw, field) for field in HEADER_FIELDS}
@@ -163,6 +164,50 @@ def load_config(path: Path, offset_row_id: int | None = None) -> dict[str, Any]:
     if (not isinstance(rows, list) or not rows or
             int(matrix.get("full_matrix_row_count", -1)) != len(rows)):
         raise ValueError("offset_matrix rows are incomplete")
+    matrix_sample_period_ns = integer_field(matrix, "sample_period_ns")
+    row_ids: list[int] = []
+    row_signatures: set[tuple[tuple[int, ...], tuple[int, ...],
+                              tuple[int, ...]]] = set()
+    marker_signature: tuple[int, ...] | None = None
+    sck_values_by_node: list[set[int]] = [set() for _ in range(node_count)]
+    data_values_by_node: list[set[int]] = [set() for _ in range(node_count)]
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("every offset matrix row must be an object")
+        row_id = integer_field(row, "row_id")
+        marker_values = row.get("marker_offset_sample_counts_by_node")
+        sck_values = row.get("sck_offset_sample_counts_by_node")
+        data_values = row.get("data_offset_sample_counts_by_node")
+        if (not isinstance(marker_values, list) or
+                not isinstance(sck_values, list) or
+                not isinstance(data_values, list) or
+                len(marker_values) != node_count or
+                len(sck_values) != node_count or
+                len(data_values) != node_count or
+                any(isinstance(value, bool) or not isinstance(value, int) or
+                    value < -10 or value > 10
+                    for value in marker_values + sck_values + data_values)):
+            raise ValueError("offset matrix row dimensions are invalid")
+        signature = (tuple(marker_values), tuple(sck_values),
+                     tuple(data_values))
+        if signature in row_signatures:
+            raise ValueError("offset matrix contains a duplicate row")
+        if marker_signature is None:
+            marker_signature = signature[0]
+        elif signature[0] != marker_signature:
+            raise ValueError("MARK offsets must remain fixed across TRN-03 rows")
+        row_ids.append(row_id)
+        row_signatures.add(signature)
+        for node in range(node_count):
+            sck_values_by_node[node].add(sck_values[node])
+            data_values_by_node[node].add(data_values[node])
+    if sorted(row_ids) != list(range(len(rows))):
+        raise ValueError("offset matrix row_id must cover every row exactly")
+    expected_row_count = 1
+    for values in (*sck_values_by_node, *data_values_by_node):
+        expected_row_count *= len(values)
+    if expected_row_count != len(rows):
+        raise ValueError("offset matrix is not the full SCK/DATA Cartesian set")
     selected_row_id = (int(matrix.get("active_row_id", -1))
                        if offset_row_id is None else offset_row_id)
     matches = [row for row in rows if isinstance(row, dict) and
@@ -170,19 +215,9 @@ def load_config(path: Path, offset_row_id: int | None = None) -> dict[str, Any]:
     if len(matches) != 1:
         raise ValueError(f"offset matrix row {selected_row_id} is unavailable")
     selected_row = matches[0]
-    marker_offsets = selected_row.get(
-        "marker_offset_sample_counts_by_node")
-    sck_offsets = selected_row.get("sck_offset_sample_counts_by_node")
-    data_offsets = selected_row.get("data_offset_sample_counts_by_node")
-    if (not isinstance(marker_offsets, list) or
-            not isinstance(sck_offsets, list) or
-            not isinstance(data_offsets, list) or
-            len(marker_offsets) != node_count or
-            len(sck_offsets) != node_count or
-            len(data_offsets) != node_count or
-            any(isinstance(value, bool) or not isinstance(value, int)
-                for value in marker_offsets + sck_offsets + data_offsets)):
-        raise ValueError("offset matrix row dimensions are invalid")
+    marker_offsets = selected_row["marker_offset_sample_counts_by_node"]
+    sck_offsets = selected_row["sck_offset_sample_counts_by_node"]
+    data_offsets = selected_row["data_offset_sample_counts_by_node"]
 
     links: list[dict[str, int]] = []
     for raw_link in raw_links:
@@ -196,12 +231,28 @@ def load_config(path: Path, offset_row_id: int | None = None) -> dict[str, Any]:
                     else integer_field(raw_link, field))
             for field in LINK_FIELDS
         }
+        link_index = link["link_index"]
+        if link_index >= node_count:
+            raise ValueError("link_index is outside the physical ring")
+        marker_source = integer_field(raw_link, "marker_source_node")
         marker_destination = integer_field(
             raw_link, "marker_destination_node")
+        data_source = integer_field(raw_link, "data_source_node")
         sck_destination = marker_destination
         data_destination = integer_field(raw_link, "data_destination_node")
-        if marker_destination >= node_count or data_destination >= node_count:
+        if (marker_source >= node_count or marker_destination >= node_count or
+                data_source >= node_count or data_destination >= node_count):
             raise ValueError("offset matrix destination node is invalid")
+        expected_next_node = (link_index + 1) % node_count
+        if (marker_source != link_index or
+                marker_destination != expected_next_node or
+                data_source != expected_next_node or
+                data_destination != link_index):
+            raise ValueError(
+                f"link{link_index} Node direction does not match loop order")
+        if link["sample_period_ns"] != matrix_sample_period_ns:
+            raise ValueError(
+                f"link{link_index} sample period does not match offset matrix")
         link["marker_offset_sample_count"] = int(
             marker_offsets[marker_destination])
         link["sck_offset_sample_count"] = int(
@@ -285,6 +336,11 @@ def load_config(path: Path, offset_row_id: int | None = None) -> dict[str, Any]:
         "offset_row": selected_row,
         "links": ordered_links,
     }
+
+
+def load_config(path: Path, offset_row_id: int | None = None) -> dict[str, Any]:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    return validate_config(raw, offset_row_id)
 
 
 def stage_begin_command(config: dict[str, Any]) -> str:

@@ -11,7 +11,11 @@ from tools.calibration_ring_validate.trn03_matrix import (
     build_matrix,
     profile_crc32,
 )
-from tools.calibration_ring_validate.trn03_stage import load_config
+from tools.calibration_ring_validate.trn03_stage import (
+    FLIGHT_DATA_REARM_SAMPLES,
+    FLIGHT_SCK_REARM_SAMPLES,
+    load_config,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -139,15 +143,19 @@ def sck_evidence(data: dict) -> dict:
 
 def test_build_matrix_derives_residence_and_budget(tmp_path: Path) -> None:
     data, residence = evidence()
-    matrix = build_matrix(9, data, residence)
+    with pytest.raises(ValueError, match="SCK replay phase cannot re-arm"):
+        build_matrix(9, data, residence)
+
+    data, residence = evidence(7)
+    matrix = build_matrix(7, data, residence)
     link0 = matrix["links"][0]
-    assert link0["marker_to_data_cycles"] == 720
+    assert link0["marker_to_data_cycles"] == 240
     assert link0["forward_residence_cycles"] == 1
-    assert link0["rx_arm_lead_cycles"] == 11
-    assert link0["codeword_cycles"] == 2309
+    assert link0["rx_arm_lead_cycles"] == 4
+    assert link0["codeword_cycles"] == 771
     assert link0["guard_cycles"] == 0
-    assert link0["loop_delay_cycles"] == 8
-    assert link0["link_budget_cycles"] == 3049
+    assert link0["loop_delay_cycles"] == 3
+    assert link0["link_budget_cycles"] == 1019
     assert link0["marker_offset_sample_count"] == -1
     assert link0["sck_offset_sample_count"] == 0
     assert link0["data_offset_sample_count"] == 5
@@ -168,26 +176,20 @@ def test_build_matrix_derives_residence_and_budget(tmp_path: Path) -> None:
     assert link0["source_evidence"]["forward_residence_ticks"] == [1, 1, 1]
     path = tmp_path / "matrix.json"
     path.write_text(__import__("json").dumps(matrix), encoding="utf-8")
-    with pytest.raises(ValueError, match="SCK replay phase cannot re-arm"):
-        load_config(path)
-
-    level7_data, level7_residence = evidence(7)
-    level7 = build_matrix(7, level7_data, level7_residence)
-    path.write_text(__import__("json").dumps(level7), encoding="utf-8")
     assert load_config(path)["node_count"] == 4
 
 
 def test_build_matrix_requires_independent_sck_v2_schema() -> None:
-    data, residence = evidence()
+    data, residence = evidence(7)
     sck = sck_evidence(data)
-    matrix = build_matrix(9, data, residence, sck=sck)
+    matrix = build_matrix(7, data, residence, sck=sck)
     assert matrix["offset_matrix"]["rows"][0][
         "sck_offset_sample_counts_by_node"] == [0, 0, 0, 0]
 
     sck["matrix"]["offset_matrix"]["schema"] = \
         "HAOFV_SCK_OFFSET_MATRIX_V1"
     with pytest.raises(ValueError, match="independently trained V2"):
-        build_matrix(9, data, residence, sck=sck)
+        build_matrix(7, data, residence, sck=sck)
 
 
 def test_build_matrix_rejects_mismatched_residence_identity() -> None:
@@ -195,6 +197,13 @@ def test_build_matrix_rejects_mismatched_residence_identity() -> None:
     residence["matrix"]["identity"]["schedule_crc32"] = [201]
     with pytest.raises(ValueError, match="residence_schedule_crc32_mismatch"):
         build_matrix(9, data, residence)
+
+
+def test_build_matrix_rejects_evidence_loaded_on_wrong_physical_link() -> None:
+    data, residence = evidence(7)
+    data["matrix"]["links"][1]["marker_destination_node"] = 3
+    with pytest.raises(ValueError, match="direction does not match loop order"):
+        build_matrix(7, data, residence)
 
 
 def test_matrix_runtime_facts_match_code_sources() -> None:
@@ -209,6 +218,10 @@ def test_matrix_runtime_facts_match_code_sources() -> None:
     assert f"BOARD_SYS_CLOCK_HZ  {BOARD_SYS_CLOCK_HZ}u" in board
     assert f"const uint32_t bit_cycles = {NORMAL_PIO_BIT_CYCLES}u" in pio
     assert f"TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL = {NORMAL_PIO_PERSONA}u" in header
+    assert (f"TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES "
+            f"{FLIGHT_SCK_REARM_SAMPLES}u" in header)
+    assert (f"TDMA_PIO_SPI_FLIGHT_DATA_REARM_CYCLES "
+            f"{FLIGHT_DATA_REARM_SAMPLES}u" in header)
     for level, row in ((7, "{10000000u, 1000000u, 4096u, 0u}"),
                        (8, "{25000000u, 1000000u, 4096u, 0u}"),
                        (9, "{30000000u, 1000000u, 4096u, 0u}")):

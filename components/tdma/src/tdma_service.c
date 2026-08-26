@@ -707,7 +707,8 @@ bool tdma_service_stage_calibration_link(
         link->sample_period_ns == 0u || link->link_base_delay_ns == 0u ||
         link->marker_phase_delay_cycles > 31u ||
         link->sck_phase_delay_cycles > 31u ||
-        link->data_phase_delay_cycles > 31u) {
+        link->data_phase_delay_cycles > 31u ||
+        !tdma_ring_runtime_validate_calibration_link_phase(link)) {
         return false;
     }
     const uint64_t required_cycles =
