@@ -6,7 +6,7 @@
 
 #include "calibration_training_phase.h"
 
-#define CALIBRATION_TRAINING_DATA_SNAPSHOT_VERSION 3u
+#define CALIBRATION_TRAINING_DATA_SNAPSHOT_VERSION 4u
 #define CALIBRATION_TRAINING_DATA_SNAPSHOT_READ_ATTEMPTS 64u
 #define CALIBRATION_TRAINING_DATA_MAX_NODES \
     CALIBRATION_TRAINING_PHASE_MAX_NODES
@@ -86,12 +86,19 @@ typedef struct {
     uint32_t expected_polarity;
     uint32_t max_best_distance;
     uint32_t min_margin;
+    uint32_t diagnostic_fault_flags;
+    uint32_t diagnostic_wire_epoch;
+    uint32_t diagnostic_header_crc8_xor;
 } calibration_training_data_request_t;
 
 typedef struct {
     uint32_t train_epoch;
     uint32_t train_sequence;
     uint32_t observed_crc32;
+    uint32_t observed_header_fields_valid;
+    uint32_t observed_header;
+    uint32_t observed_header_inverse;
+    uint32_t observed_header_crc8;
     uint32_t calibration_generation;
     uint32_t topology_generation;
     uint32_t topology_crc32;
@@ -128,6 +135,10 @@ typedef struct {
     uint32_t data_codebook_id;
     uint32_t data_crc32;
     uint32_t observed_crc32;
+    uint32_t observed_header_fields_valid;
+    uint32_t observed_header;
+    uint32_t observed_header_inverse;
+    uint32_t observed_header_crc8;
     uint32_t calibration_generation;
     uint32_t topology_generation;
     uint32_t topology_crc32;
@@ -141,6 +152,11 @@ typedef struct {
     int32_t search_start_offset_sample;
     int32_t search_end_offset_sample;
     uint32_t guard_sample_count;
+    uint32_t max_best_distance;
+    uint32_t min_margin;
+    uint32_t diagnostic_fault_flags;
+    uint32_t diagnostic_wire_epoch;
+    uint32_t diagnostic_header_crc8_xor;
     uint32_t polarity;
     uint32_t correlation_reject_reason;
     uint32_t best_lag_sample;

@@ -442,7 +442,7 @@ def validate_marker_window(samples: Sequence[int], marker_start: int, *,
     }
 
 
-def _reject_from_flags(flags: int) -> int:
+def correlation_reject_from_marker_flags(flags: int) -> int:
     for bit, reason in ((1 << 1, 6), (1 << 0, 5), (1 << 2, 7),
                         (1 << 3, 8), (1 << 4, 9), (1 << 5, 10)):
         if flags & bit == 0:
@@ -532,7 +532,8 @@ def correlate_capture(args: argparse.Namespace) -> dict[str, object]:
             observed, int(correlation["best_lag_sample"]),
             half_chip_samples=vector.half_chip_samples,
             expected_header=vector.header)
-        reason = _reject_from_flags(int(validation["flags"]))
+        reason = correlation_reject_from_marker_flags(
+            int(validation["flags"]))
         if reason == 0 and int(correlation["best_distance"]) > args.max_best_distance:
             reason = 11
         if reason == 0 and int(correlation["margin"]) < args.min_margin:

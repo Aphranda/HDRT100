@@ -17,16 +17,20 @@ from calibration_ring_validate.calibration_clk_codebook_eval import (  # noqa: E
     marker_raw_waveform,
 )
 from calibration_ring_validate.calibration_marker_waveform import (  # noqa: E402
+    CORRELATION_REJECT_NAMES,
     DEFAULT_SVG_WINDOW_NS,
+    correlation_reject_from_marker_flags,
     expand_zero_order_hold,
     firmware_correlate,
     render_alignment_svg,
+    validate_marker_window,
 )
 
 
 DATA_CAPTURE_SCHEMAS = {
     "HAOFV_DATA_TRAIN_CAPTURE_V1",
     "HAOFV_DATA_TRAIN_CAPTURE_V2",
+    "HAOFV_DATA_TRAIN_CAPTURE_V3",
 }
 DIRECTION_CHOICES = ("forward", "reverse")
 
@@ -67,16 +71,32 @@ def render_data_waveform(
     destination_node = int(capture["destination_node"])
     epoch = int(capture["epoch"])
     tick_ns = int(capture["sample_period_ns"])
-    expected, _ = marker_raw_waveform(
+    expected, vector = marker_raw_waveform(
         codebook_id=codebook_id, epoch=epoch,
         source_node=source_node, polarity=0)
-    correlation = firmware_correlate(expected, samples)
+    max_best_distance = int(capture.get("max_best_distance", 512))
+    min_margin = int(capture.get("min_margin", 0))
+    correlation = firmware_correlate(
+        expected, samples, max_best_distance=max_best_distance,
+        min_margin=min_margin)
     if "best_lag_sample" not in correlation:
         raise ValueError("DATA capture is too short for codeword correlation")
-    correlation["accepted"] = bool(
-        int(correlation.get("reject_reason", 1)) == 0 and
-        int(correlation["best_distance"]) <= 512 and
-        int(correlation["margin"]) >= 0)
+    if correlation.get("detected_polarity") == "normal":
+        validation = validate_marker_window(
+            samples, int(correlation["best_lag_sample"]),
+            half_chip_samples=vector.half_chip_samples,
+            expected_header=vector.header)
+        reason = correlation_reject_from_marker_flags(
+            int(validation["flags"]))
+        if reason == 0 and int(
+                correlation["best_distance"]) > max_best_distance:
+            reason = 11
+        if reason == 0 and int(correlation["margin"]) < min_margin:
+            reason = 12
+        correlation["marker_validation"] = validation
+        correlation["reject_reason"] = reason
+        correlation["reject_name"] = CORRELATION_REJECT_NAMES[reason]
+        correlation["accepted"] = reason == 0
     best_lag_sample = int(correlation["best_lag_sample"])
     best_delay_ns = best_lag_sample * tick_ns
     base_delay_ns = int(capture.get(
@@ -106,6 +126,7 @@ def render_data_waveform(
                f"{int(capture.get('marker_offset_sample_count', 0)):+d}, "
                f"DATA offset "
                f"{int(capture.get('resolved_offset_sample_count', 0)):+d}; "
+               f"gate {correlation['reject_name']}; "
                f"calibrated delay {calibrated_alignment_delay_ns:+d} ns "
                f"(base {base_delay_ns:+d} ns + residual "
                f"{residual_offset_ns:+d} ns); physical capture center "
@@ -119,7 +140,7 @@ def render_data_waveform(
         key: value for key, value in correlation.items() if key != "scan"
     }
     return {
-        "schema": "HAOFV_DATA_TRAIN_WAVEFORM_ANALYSIS_V1",
+        "schema": "HAOFV_DATA_TRAIN_WAVEFORM_ANALYSIS_V2",
         "capture": str(capture.get("capture_path", "")),
         "svg": str(svg_path),
         "source_node": source_node,
@@ -154,6 +175,18 @@ def render_data_waveform(
         "best_candidate_delay_ns": best_delay_ns,
         "move_candidate_by_ns": alignment_move_ns,
         "correlation": compact_correlation,
+        "firmware_evidence": {
+            key: int(capture[key]) for key in (
+                "state", "reject_reason", "flags",
+                "correlation_reject_reason",
+                "observed_header_fields_valid", "observed_header",
+                "observed_header_inverse", "observed_header_crc8",
+                "data_crc32", "observed_crc32") if key in capture
+        },
+        "firmware_correlation_consistent": (
+            "correlation_reject_reason" not in capture or
+            int(capture["correlation_reject_reason"]) ==
+            int(correlation["reject_reason"])),
         "window_start_ns": window_start_ns,
         "window_duration_ns": window_duration_ns,
     }

@@ -63,6 +63,23 @@ uint16_t calibration_clk_marker_pack_header(
                       (uint16_t)(config->polarity & 0x01u));
 }
 
+bool calibration_clk_marker_unpack_header(
+    uint16_t header,
+    calibration_clk_marker_config_t *config)
+{
+    if (config == NULL) return false;
+    const calibration_clk_marker_config_t decoded = {
+        .version = (uint8_t)((header >> 14u) & 0x03u),
+        .codebook_id = (uint8_t)((header >> 12u) & 0x03u),
+        .epoch = (uint8_t)((header >> 4u) & 0xFFu),
+        .source_node = (uint8_t)((header >> 1u) & 0x07u),
+        .polarity = (uint8_t)(header & 0x01u),
+    };
+    if (!calibration_clk_marker_config_valid(&decoded)) return false;
+    *config = decoded;
+    return true;
+}
+
 uint8_t calibration_clk_marker_crc8(const uint8_t *bytes, size_t size)
 {
     uint8_t crc = 0u;
@@ -173,18 +190,44 @@ static bool calibration_clk_marker_build_logical(
     return offset == CALIBRATION_CLK_MARKER_LOGICAL_BITS;
 }
 
-bool calibration_clk_marker_build(
+bool calibration_clk_marker_build_diagnostic_fault(
     const calibration_clk_marker_config_t *config,
+    const calibration_clk_marker_fault_config_t *fault,
     uint32_t *raw_words,
     size_t raw_word_capacity,
     calibration_clk_marker_descriptor_t *descriptor)
 {
     uint8_t logical_bits[CALIBRATION_CLK_MARKER_LOGICAL_BYTES];
     calibration_clk_marker_descriptor_t next;
+    calibration_clk_marker_config_t effective;
+    if (!calibration_clk_marker_config_valid(config) ||
+        (fault != NULL &&
+         ((fault->flags & ~CALIBRATION_CLK_MARKER_FAULT_ALL) != 0u ||
+          (((fault->flags & CALIBRATION_CLK_MARKER_FAULT_HEADER_CRC8_XOR) !=
+            0u) != (fault->header_crc8_xor != 0u))))) {
+        return false;
+    }
+    effective = *config;
+    if (fault != NULL &&
+        (fault->flags & CALIBRATION_CLK_MARKER_FAULT_EPOCH_OVERRIDE) != 0u) {
+        effective.epoch = fault->epoch_override;
+    }
     if (raw_words == NULL || descriptor == NULL ||
-        !calibration_clk_marker_build_logical(config, logical_bits, &next) ||
+        !calibration_clk_marker_build_logical(
+            &effective, logical_bits, &next) ||
         next.raw_words > raw_word_capacity) {
         return false;
+    }
+    if (fault != NULL &&
+        (fault->flags & CALIBRATION_CLK_MARKER_FAULT_HEADER_CRC8_XOR) != 0u) {
+        next.header_crc8 ^= fault->header_crc8_xor;
+        size_t crc_offset = CALIBRATION_CLK_MARKER_CRC_OFFSET;
+        for (uint32_t bit = CALIBRATION_CLK_MARKER_CRC_BITS;
+             bit > 0u; bit--) {
+            calibration_clk_marker_set_logical_bit(
+                logical_bits, crc_offset++,
+                (next.header_crc8 >> (bit - 1u)) & 1u);
+        }
     }
     memset(raw_words, 0, next.raw_words * sizeof(raw_words[0]));
     size_t raw_index = 0u;
@@ -201,6 +244,16 @@ bool calibration_clk_marker_build(
     }
     *descriptor = next;
     return raw_index == next.raw_samples;
+}
+
+bool calibration_clk_marker_build(
+    const calibration_clk_marker_config_t *config,
+    uint32_t *raw_words,
+    size_t raw_word_capacity,
+    calibration_clk_marker_descriptor_t *descriptor)
+{
+    return calibration_clk_marker_build_diagnostic_fault(
+        config, NULL, raw_words, raw_word_capacity, descriptor);
 }
 
 bool calibration_clk_marker_get_raw_sample(const uint32_t *raw_words,
@@ -274,22 +327,25 @@ static bool calibration_clk_marker_decode_msb_field(
     return true;
 }
 
-bool calibration_clk_marker_validate_capture(
+bool calibration_clk_marker_observe_capture(
     const calibration_clk_marker_config_t *expected,
     const uint32_t *capture_words,
     size_t capture_sample_count,
     size_t marker_start_sample,
-    uint32_t *marker_flags)
+    uint32_t *marker_flags,
+    calibration_clk_marker_observation_t *observation)
 {
     uint8_t ignored[CALIBRATION_CLK_MARKER_LOGICAL_BYTES];
     calibration_clk_marker_descriptor_t descriptor;
-    if (marker_flags == NULL || capture_words == NULL ||
+    if (marker_flags == NULL || observation == NULL ||
+        capture_words == NULL ||
         !calibration_clk_marker_build_logical(expected, ignored, &descriptor) ||
         marker_start_sample > capture_sample_count ||
         descriptor.raw_samples > capture_sample_count - marker_start_sample) {
         return false;
     }
 
+    memset(observation, 0, sizeof(*observation));
     uint32_t flags = CALIBRATION_CLK_MARKER_FLAG_MANCHESTER_VALID;
     bool sof_valid = true;
     bool eof_valid = true;
@@ -333,6 +389,10 @@ bool calibration_clk_marker_validate_capture(
     if (!fields_valid) {
         flags &= ~CALIBRATION_CLK_MARKER_FLAG_MANCHESTER_VALID;
     } else {
+        observation->fields_valid = 1u;
+        observation->header = (uint16_t)header;
+        observation->header_inverse = (uint16_t)header_inverse;
+        observation->header_crc8 = (uint8_t)crc;
         if ((((uint16_t)header) ^ ((uint16_t)header_inverse)) == 0xFFFFu) {
             flags |= CALIBRATION_CLK_MARKER_FLAG_HEADER_INVERSE_VALID;
         }
@@ -349,6 +409,19 @@ bool calibration_clk_marker_validate_capture(
     }
     *marker_flags = flags;
     return true;
+}
+
+bool calibration_clk_marker_validate_capture(
+    const calibration_clk_marker_config_t *expected,
+    const uint32_t *capture_words,
+    size_t capture_sample_count,
+    size_t marker_start_sample,
+    uint32_t *marker_flags)
+{
+    calibration_clk_marker_observation_t observation;
+    return calibration_clk_marker_observe_capture(
+        expected, capture_words, capture_sample_count, marker_start_sample,
+        marker_flags, &observation);
 }
 
 static uint32_t calibration_clk_marker_distance(
@@ -467,9 +540,10 @@ bool calibration_clk_marker_correlate(
         result->reject_reason = CALIBRATION_CLK_CORRELATION_REJECT_POLARITY;
         return true;
     }
-    if (!calibration_clk_marker_validate_capture(
+    if (!calibration_clk_marker_observe_capture(
             expected, capture_words, capture_sample_count,
-            result->best_lag_sample, &result->marker_flags)) {
+            result->best_lag_sample, &result->marker_flags,
+            &result->observation)) {
         result->reject_reason =
             CALIBRATION_CLK_CORRELATION_REJECT_CAPTURE_TRUNCATED;
         return true;

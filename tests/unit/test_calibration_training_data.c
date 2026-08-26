@@ -141,6 +141,10 @@ static int test_normal_codeword_accepts(void)
                          snapshot.marker_offset_sample_count, -1);
     failed += expect_i32("configured DATA offset",
                          snapshot.configured_data_offset_sample_count, 0);
+    failed += expect_u32("max distance readback", snapshot.max_best_distance,
+                         request.max_best_distance);
+    failed += expect_u32("minimum margin readback", snapshot.min_margin,
+                         request.min_margin);
     failed += expect_i32("marker data skew", snapshot.marker_data_skew_ns, 0);
     failed += expect_u32(
         "diagnostic only",
@@ -255,6 +259,23 @@ static int test_correlation_root_cause_precedes_crc(void)
         CALIBRATION_TRAINING_DATA_REJECT_DISTANCE);
 
     evidence = make_evidence();
+    evidence.observed_crc32 = 0u;
+    evidence.flags &= ~CALIBRATION_TRAINING_DATA_FLAG_CRC_VALID;
+    evidence.correlation_reject_reason =
+        CALIBRATION_CLK_CORRELATION_REJECT_HEADER_CRC;
+    failed += expect_reject(
+        "wire header CRC precedes generic correlation", request, evidence,
+        CALIBRATION_TRAINING_DATA_REJECT_CRC);
+
+    evidence = make_evidence();
+    evidence.train_epoch--;
+    evidence.correlation_reject_reason =
+        CALIBRATION_CLK_CORRELATION_REJECT_HEADER_MISMATCH;
+    failed += expect_reject(
+        "observed wire epoch precedes generic correlation", request, evidence,
+        CALIBRATION_TRAINING_DATA_REJECT_EPOCH);
+
+    evidence = make_evidence();
     evidence.observed_crc32 ^= 1u;
     failed += expect_reject(
         "CRC mismatch after usable correlation", request, evidence,
@@ -287,6 +308,23 @@ static int test_bad_request_rejected(void)
     failed += expect_bool(
         "negative window", calibration_training_data_prepare_core1(
                                &store, &request), false);
+    request = make_request();
+    request.diagnostic_fault_flags =
+        CALIBRATION_CLK_MARKER_FAULT_EPOCH_OVERRIDE;
+    failed += expect_bool(
+        "epoch fault requires explicit wire epoch",
+        calibration_training_data_prepare_core1(&store, &request), false);
+    request.diagnostic_wire_epoch = 91u;
+    failed += expect_bool(
+        "explicit epoch fault request",
+        calibration_training_data_prepare_core1(&store, &request), true);
+    request = make_request();
+    request.diagnostic_fault_flags =
+        CALIBRATION_CLK_MARKER_FAULT_HEADER_CRC8_XOR;
+    request.diagnostic_header_crc8_xor = 0x100u;
+    failed += expect_bool(
+        "CRC fault mask is uint8",
+        calibration_training_data_prepare_core1(&store, &request), false);
     return failed;
 }
 

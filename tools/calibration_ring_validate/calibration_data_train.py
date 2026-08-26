@@ -35,6 +35,9 @@ from calibration_ring_validate.calibration_phase import (  # noqa: E402
     link_base_delay_ns,
     phase_delay_samples,
 )
+from calibration_ring_validate.calibration_clk_codebook_eval import (  # noqa: E402
+    crc8_atm,
+)
 
 
 DATA_FIELDS = (
@@ -42,13 +45,18 @@ DATA_FIELDS = (
     "board_id_lo", "board_id_hi", "build_id_lo", "build_id_hi",
     "source_node", "destination_node", "train_epoch", "train_sequence",
     "data_codebook_id", "data_crc32", "observed_crc32",
+    "observed_header_fields_valid", "observed_header",
+    "observed_header_inverse", "observed_header_crc8",
     "calibration_generation", "topology_generation", "topology_crc32",
     "profile_crc32", "schedule_crc32", "sample_period_ns",
     "marker_to_data_samples", "link_base_delay_ns",
     "marker_offset_sample_count",
     "configured_data_offset_sample_count",
     "search_start_offset_sample", "search_end_offset_sample",
-    "guard_sample_count", "polarity", "correlation_reject_reason",
+    "guard_sample_count", "max_best_distance", "min_margin",
+    "diagnostic_fault_flags", "diagnostic_wire_epoch",
+    "diagnostic_header_crc8_xor", "polarity",
+    "correlation_reject_reason",
     "best_lag_sample", "best_distance", "second_lag_sample",
     "second_distance", "margin", "resolved_offset_sample_count",
     "resolved_offset_ns", "training_window_start_ns",
@@ -65,7 +73,10 @@ STATE_REJECTED = 4
 DATA_CAPTURE_SCHEMAS = {
     "HAOFV_DATA_TRAIN_CAPTURE_V1",  # legacy generic base field
     "HAOFV_DATA_TRAIN_CAPTURE_V2",  # explicit per-link base field
+    "HAOFV_DATA_TRAIN_CAPTURE_V3",  # observed header and fault evidence
 }
+FAULT_EPOCH_OVERRIDE = 1 << 0
+FAULT_HEADER_CRC8_XOR = 1 << 1
 FLAG_DIAGNOSTIC_ONLY = 1 << 0
 FLAG_HARDWARE_MARKER = 1 << 1
 FLAG_HARDWARE_DATA_CAPTURE = 1 << 2
@@ -134,6 +145,63 @@ def parse_data_status(raw: str) -> dict[str, int | str]:
     result["data_capture_tick"] = _u64(
         result, "data_capture_tick_lo", "data_capture_tick_hi")
     return result
+
+
+def decode_observed_header(row: dict[str, int | str]) -> dict[str, int]:
+    if int(row["observed_header_fields_valid"]) == 0:
+        raise ValueError("observed marker header fields are unavailable")
+    header = int(row["observed_header"])
+    inverse = int(row["observed_header_inverse"])
+    crc8 = int(row["observed_header_crc8"])
+    if not (0 <= header <= 0xFFFF and 0 <= inverse <= 0xFFFF and
+            0 <= crc8 <= 0xFF):
+        raise ValueError("observed marker header fields exceed wire widths")
+    calculated_crc8 = crc8_atm(bytes((
+        header >> 8, header & 0xFF, inverse >> 8, inverse & 0xFF)))
+    return {
+        "version": (header >> 14) & 0x03,
+        "codebook_id": (header >> 12) & 0x03,
+        "epoch": (header >> 4) & 0xFF,
+        "source_node": (header >> 1) & 0x07,
+        "polarity": header & 0x01,
+        "header": header,
+        "header_inverse": inverse,
+        "header_crc8": crc8,
+        "calculated_header_crc8": calculated_crc8,
+        "inverse_valid": int((header ^ inverse) == 0xFFFF),
+        "crc8_valid": int(crc8 == calculated_crc8),
+    }
+
+
+def validate_responder_wire_fault(
+        receiver: dict[str, int | str], *, expected_epoch: int,
+        expected_source_node: int, wire_epoch: int = 0,
+        header_crc8_xor: int = 0) -> list[str]:
+    errors: list[str] = []
+    try:
+        observed = decode_observed_header(receiver)
+    except ValueError:
+        return ["receiver_observed_header_unavailable"]
+    if observed["inverse_valid"] == 0:
+        errors.append("receiver_observed_header_inverse")
+    if observed["source_node"] != expected_source_node:
+        errors.append("receiver_observed_source_node")
+    if wire_epoch != 0:
+        if observed["epoch"] != wire_epoch or wire_epoch == expected_epoch:
+            errors.append("receiver_observed_wire_epoch")
+        if observed["crc8_valid"] == 0:
+            errors.append("receiver_observed_epoch_crc8")
+        if int(receiver["correlation_reject_reason"]) != 9:
+            errors.append("receiver_epoch_correlation_reason")
+    elif header_crc8_xor != 0:
+        if observed["epoch"] != expected_epoch:
+            errors.append("receiver_crc_fault_epoch")
+        if observed["header_crc8"] != (
+                observed["calculated_header_crc8"] ^ header_crc8_xor):
+            errors.append("receiver_observed_crc8_xor")
+        if int(receiver["correlation_reject_reason"]) != 8:
+            errors.append("receiver_crc_correlation_reason")
+    return errors
 
 
 def parse_storage_read(raw: str, expected_offset: int) -> dict[str, object]:
@@ -514,6 +582,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-best-distance", type=int, default=512)
     parser.add_argument("--min-margin", type=int, default=0)
     parser.add_argument(
+        "--responder-wire-epoch", type=int,
+        help=("TRN-03D only: responder transmits this stale epoch while "
+              "both endpoints retain the requested epoch identity"))
+    parser.add_argument(
+        "--responder-header-crc8-xor", type=lambda value: int(value, 0),
+        default=0,
+        help=("TRN-03D only: XOR mask applied to the responder's transmitted "
+              "header CRC8"))
+    parser.add_argument(
         "--expect-reject-reason", choices=sorted(DATA_REJECT_CODES),
         help=("TRN-03D fault mode: pass only when the DATA receiving endpoint "
               "rejects with this exact reason and the responder accepts"))
@@ -547,7 +624,10 @@ def data_status(board: Board, args: argparse.Namespace) -> dict[str, int | str]:
         board, "READ:CALibration:DATA?", args))
 
 
-def data_arm(board: Board, args: argparse.Namespace) -> str:
+def data_arm(board: Board, args: argparse.Namespace, *,
+             diagnostic_fault_flags: int = 0,
+             diagnostic_wire_epoch: int = 0,
+             diagnostic_header_crc8_xor: int = 0) -> str:
     sequence = args.sequence or args.epoch
     command = (
         f"CALibration:DATA:ARM {args.source_node},{args.destination_node},"
@@ -556,7 +636,9 @@ def data_arm(board: Board, args: argparse.Namespace) -> str:
         f"{args.link_marker_offset_sample},"
         f"{args.link_data_offset_sample},"
         f"{args.search_start},{args.search_end},{args.guard_samples},"
-        f"{args.max_best_distance},{args.min_margin}")
+        f"{args.max_best_distance},{args.min_margin},"
+        f"{diagnostic_fault_flags},{diagnostic_wire_epoch},"
+        f"{diagnostic_header_crc8_xor}")
     response = board_command(board, command, marker_action_args(args))
     if not (response.startswith(
             f"{args.source_node},{args.destination_node},{args.epoch},"
@@ -744,6 +826,29 @@ def validate_hil_args(args: argparse.Namespace) -> list[str]:
     if args.expect_reject_reason and (args.all_links or args.repeats != 1):
         raise SystemExit(
             "expect-reject-reason requires one explicit link and one trial")
+    wire_epoch = args.responder_wire_epoch
+    crc8_xor = args.responder_header_crc8_xor
+    if wire_epoch is not None and crc8_xor != 0:
+        raise SystemExit("select exactly one responder wire fault per trial")
+    if wire_epoch is not None and not (
+            1 <= wire_epoch <= 255 and wire_epoch != args.epoch):
+        raise SystemExit(
+            "responder-wire-epoch must be in [1,255] and differ from epoch")
+    if not 0 <= crc8_xor <= 0xFF:
+        raise SystemExit("responder-header-crc8-xor must fit uint8")
+    if (wire_epoch is not None or crc8_xor != 0) and \
+            args.expect_reject_reason not in {"EPOCH", "CRC"}:
+        raise SystemExit(
+            "responder wire faults require the matching EPOCH or CRC gate")
+    if wire_epoch is not None and args.expect_reject_reason != "EPOCH":
+        raise SystemExit("responder-wire-epoch requires expected EPOCH reject")
+    if crc8_xor != 0 and args.expect_reject_reason != "CRC":
+        raise SystemExit("responder-header-crc8-xor requires expected CRC reject")
+    args.diagnostic_fault_flags = (
+        FAULT_EPOCH_OVERRIDE if wire_epoch is not None else
+        FAULT_HEADER_CRC8_XOR if crc8_xor != 0 else 0)
+    args.diagnostic_wire_epoch = wire_epoch or 0
+    args.diagnostic_header_crc8_xor = crc8_xor
     return board_ids
 
 
@@ -804,6 +909,13 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
         "link_marker_offset_sample": args.link_marker_offset_sample,
         "node_data_offset_samples": list(args.node_data_offset_samples),
         "configured_data_offset_sample_count": args.link_data_offset_sample,
+        "max_best_distance": args.max_best_distance,
+        "min_margin": args.min_margin,
+        "responder_wire_fault": {
+            "flags": args.diagnostic_fault_flags,
+            "wire_epoch": args.diagnostic_wire_epoch,
+            "header_crc8_xor": args.diagnostic_header_crc8_xor,
+        },
         "boards": {board.address: asdict(board) for board in ordered},
         "unified_phase_training": build_phase_training_contract(
             signal="DATA", link_delay_ns_by_link=args.link_delay_ns,
@@ -828,9 +940,20 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
     active = [source, destination]
     arms: list[dict[str, str]] = []
     try:
-        arms.append({"board": destination.address,
-                     "response": data_arm(destination, args)})
+        arms.append({
+            "board": destination.address,
+            "role": "responder",
+            "diagnostic_fault_flags": args.diagnostic_fault_flags,
+            "response": data_arm(
+                destination, args,
+                diagnostic_fault_flags=args.diagnostic_fault_flags,
+                diagnostic_wire_epoch=args.diagnostic_wire_epoch,
+                diagnostic_header_crc8_xor=
+                    args.diagnostic_header_crc8_xor),
+        })
         arms.append({"board": source.address,
+                     "role": "initiator",
+                     "diagnostic_fault_flags": 0,
                      "response": data_arm(source, args)})
         armed = wait_states(active, args, (STATE_PREPARED,))
         injection = board_command(
@@ -858,6 +981,8 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
                 "search_start_offset_sample": args.search_start,
                 "search_end_offset_sample": args.search_end,
                 "guard_sample_count": args.guard_samples,
+                "max_best_distance": args.max_best_distance,
+                "min_margin": args.min_margin,
             }
         if args.expect_reject_reason:
             validation = validate_expected_rejection(
@@ -869,6 +994,25 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
                     if int(record[field]) != expected:
                         validation["errors"].append(
                             f"{endpoint}_{field}_readback")
+            fault_readback = {
+                "diagnostic_fault_flags": args.diagnostic_fault_flags,
+                "diagnostic_wire_epoch": args.diagnostic_wire_epoch,
+                "diagnostic_header_crc8_xor":
+                    args.diagnostic_header_crc8_xor,
+            }
+            for field, expected in fault_readback.items():
+                if int(destination_row[field]) != expected:
+                    validation["errors"].append(
+                        f"destination_{field}_readback")
+                if int(source_row[field]) != 0:
+                    validation["errors"].append(
+                        f"source_{field}_readback")
+            if args.diagnostic_fault_flags != 0:
+                validation["errors"].extend(validate_responder_wire_fault(
+                    source_row, expected_epoch=args.epoch,
+                    expected_source_node=args.source_node,
+                    wire_epoch=args.diagnostic_wire_epoch,
+                    header_crc8_xor=args.diagnostic_header_crc8_xor))
             validation["passed"] = not validation["errors"]
         else:
             validation = validate_link(

@@ -40,6 +40,7 @@ static char s_marker_capture_payload[8192];
 static volatile bool s_marker_active;
 static calibration_training_data_store_t s_data_store;
 static calibration_clk_coded_workspace_t s_data_workspace;
+static uint32_t s_data_observed_words[CALIBRATION_CLK_MARKER_MAX_RAW_WORDS];
 static uint32_t s_data_capture[TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS];
 static volatile uint32_t s_data_capture_word_count;
 static volatile uint32_t s_data_capture_sample_count;
@@ -1002,6 +1003,28 @@ static void calibration_manager_data_finish_core1(
         s_data_workspace.marker.raw_samples,
         s_data_capture, raw->capture_sample_count, &gate, &correlation);
 
+    calibration_clk_marker_config_t observed_config;
+    calibration_clk_marker_descriptor_t observed_descriptor;
+    const bool observed_header_valid = correlated &&
+        correlation.observation.fields_valid != 0u &&
+        (correlation.marker_flags &
+         (CALIBRATION_CLK_MARKER_FLAG_HEADER_INVERSE_VALID |
+          CALIBRATION_CLK_MARKER_FLAG_HEADER_CRC_VALID)) ==
+            (CALIBRATION_CLK_MARKER_FLAG_HEADER_INVERSE_VALID |
+             CALIBRATION_CLK_MARKER_FLAG_HEADER_CRC_VALID) &&
+        calibration_clk_marker_unpack_header(
+            correlation.observation.header, &observed_config);
+    const bool observed_digest_valid = observed_header_valid &&
+        calibration_clk_marker_build(
+            &observed_config, s_data_observed_words,
+            CALIBRATION_CLK_MARKER_MAX_RAW_WORDS, &observed_descriptor);
+    const uint32_t observed_crc32 = observed_digest_valid
+        ? ota_crc32_compute(
+              (const uint8_t *)s_data_observed_words,
+              observed_descriptor.raw_words *
+                  sizeof(s_data_observed_words[0]))
+        : 0u;
+
     uint32_t flags = CALIBRATION_TRAINING_DATA_FLAG_DIAGNOSTIC_ONLY;
     if ((raw->flags & TDMA_PIO_SPI_DATA_TRAIN_FLAG_HARDWARE_MARKER) != 0u) {
         flags |= CALIBRATION_TRAINING_DATA_FLAG_HARDWARE_MARKER;
@@ -1013,22 +1036,32 @@ static void calibration_manager_data_finish_core1(
         (raw->flags & TDMA_PIO_SPI_DATA_TRAIN_FLAG_DATA_DMA_COMPLETE) != 0u) {
         flags |= CALIBRATION_TRAINING_DATA_FLAG_DMA_COMPLETE;
     }
+    if (observed_digest_valid) {
+        flags |= CALIBRATION_TRAINING_DATA_FLAG_CRC_VALID;
+        if (observed_config.epoch ==
+            (uint8_t)s_data_active_request.train_epoch) {
+            flags |= CALIBRATION_TRAINING_DATA_FLAG_EPOCH_VALID;
+        }
+    }
     if (correlated && correlation.accepted != 0u &&
         correlation.marker_flags == CALIBRATION_CLK_MARKER_FLAG_ALL) {
-        flags |= CALIBRATION_TRAINING_DATA_FLAG_CRC_VALID |
-                 CALIBRATION_TRAINING_DATA_FLAG_EPOCH_VALID |
-                 CALIBRATION_TRAINING_DATA_FLAG_SEQUENCE_VALID;
+        flags |= CALIBRATION_TRAINING_DATA_FLAG_SEQUENCE_VALID;
         if (correlation.detected_polarity ==
             s_data_active_request.expected_polarity) {
             flags |= CALIBRATION_TRAINING_DATA_FLAG_POLARITY_VALID;
         }
     }
     const calibration_training_data_evidence_t evidence = {
-        .train_epoch = s_data_active_request.train_epoch,
+        .train_epoch = observed_header_valid
+                           ? observed_config.epoch
+                           : s_data_active_request.train_epoch,
         .train_sequence = s_data_active_request.train_sequence,
-        .observed_crc32 = correlated && correlation.accepted != 0u
-                              ? s_data_active_request.data_crc32
-                              : 0u,
+        .observed_crc32 = observed_crc32,
+        .observed_header_fields_valid =
+            correlation.observation.fields_valid,
+        .observed_header = correlation.observation.header,
+        .observed_header_inverse = correlation.observation.header_inverse,
+        .observed_header_crc8 = correlation.observation.header_crc8,
         .calibration_generation =
             s_data_active_request.calibration_generation,
         .topology_generation = s_data_active_request.topology_generation,
@@ -1366,8 +1399,17 @@ void calibration_manager_service_core1(void)
                 .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
             };
             calibration_clk_marker_descriptor_t descriptor;
-            if (calibration_clk_marker_build(
-                    &config, s_data_workspace.expected_words,
+            const calibration_clk_marker_fault_config_t fault = {
+                .flags = data_intent.request.diagnostic_fault_flags,
+                .epoch_override = (uint8_t)
+                    data_intent.request.diagnostic_wire_epoch,
+                .header_crc8_xor = (uint8_t)
+                    data_intent.request.diagnostic_header_crc8_xor,
+            };
+            if (calibration_clk_marker_build_diagnostic_fault(
+                    &config,
+                    fault.flags != 0u ? &fault : NULL,
+                    s_data_workspace.expected_words,
                     CALIBRATION_CLK_MARKER_MAX_RAW_WORDS, &descriptor)) {
                 tdma_service_ring_runtime_config_t staged;
                 if (tdma_runtime_owner_get_staged_ring_config(&staged)) {
@@ -2164,7 +2206,10 @@ bool calibration_manager_request_data_training(
     int32_t search_end_offset_sample,
     uint32_t guard_sample_count,
     uint32_t max_best_distance,
-    uint32_t min_margin)
+    uint32_t min_margin,
+    uint32_t diagnostic_fault_flags,
+    uint32_t diagnostic_wire_epoch,
+    uint32_t diagnostic_header_crc8_xor)
 {
     tdma_ring_runtime_snapshot_t ring;
     tdma_service_ring_runtime_config_t staged;
@@ -2187,6 +2232,15 @@ bool calibration_manager_request_data_training(
             CALIBRATION_TRAINING_DATA_MAX_OFFSET_SAMPLES ||
         search_start_offset_sample > search_end_offset_sample ||
         guard_sample_count > CALIBRATION_TRAINING_DATA_MAX_GUARD_SAMPLES ||
+        (diagnostic_fault_flags & ~CALIBRATION_CLK_MARKER_FAULT_ALL) != 0u ||
+        diagnostic_wire_epoch > UINT8_MAX ||
+        (((diagnostic_fault_flags &
+           CALIBRATION_CLK_MARKER_FAULT_EPOCH_OVERRIDE) != 0u) !=
+         (diagnostic_wire_epoch != 0u)) ||
+        diagnostic_header_crc8_xor > UINT8_MAX ||
+        (((diagnostic_fault_flags &
+           CALIBRATION_CLK_MARKER_FAULT_HEADER_CRC8_XOR) != 0u) !=
+         (diagnostic_header_crc8_xor != 0u)) ||
         !calibration_manager_parse_hex_u64(board_identity_serial(),
                                            &board_unique_id) ||
         !tdma_runtime_owner_get_ring_snapshot(&ring) || ring.enabled != 0u ||
@@ -2202,6 +2256,8 @@ bool calibration_manager_request_data_training(
         staged.ring_profile_crc32 == 0u ||
         staged.operating_profile_crc32 == 0u ||
         staged.schedule_crc32 == 0u ||
+        (diagnostic_fault_flags != 0u &&
+         staged.local_slot_id != destination_node) ||
         __atomic_load_n(&s_data_active, __ATOMIC_ACQUIRE) ||
         __atomic_load_n(&s_sck_active, __ATOMIC_ACQUIRE) ||
         __atomic_load_n(&s_marker_active, __ATOMIC_ACQUIRE) ||
@@ -2293,6 +2349,9 @@ bool calibration_manager_request_data_training(
         .expected_polarity = CALIBRATION_CLK_POLARITY_NORMAL,
         .max_best_distance = max_best_distance,
         .min_margin = min_margin,
+        .diagnostic_fault_flags = diagnostic_fault_flags,
+        .diagnostic_wire_epoch = diagnostic_wire_epoch,
+        .diagnostic_header_crc8_xor = diagnostic_header_crc8_xor,
     };
     calibration_training_data_store_t validation_store;
     calibration_training_data_store_init(&validation_store);
@@ -2638,7 +2697,7 @@ bool calibration_manager_save_data_capture(
     int written = snprintf(
         s_data_capture_payload, sizeof(s_data_capture_payload),
         "{\n"
-        "  \"schema\": \"HAOFV_DATA_TRAIN_CAPTURE_V2\",\n"
+        "  \"schema\": \"HAOFV_DATA_TRAIN_CAPTURE_V3\",\n"
         "  \"source_node\": %lu,\n"
         "  \"destination_node\": %lu,\n"
         "  \"marker_source_node\": %lu,\n"
@@ -2649,7 +2708,11 @@ bool calibration_manager_save_data_capture(
         "  \"build_id\": %llu,\n"
         "  \"calibration_generation\": %lu,\n"
         "  \"epoch\": %lu,\n"
+        "  \"state\": %lu,\n"
+        "  \"reject_reason\": %lu,\n"
+        "  \"flags\": %lu,\n"
         "  \"data_codebook_id\": %lu,\n"
+        "  \"data_crc32\": %lu,\n"
         "  \"sample_period_ns\": %lu,\n"
         "  \"marker_to_data_samples\": %lu,\n"
         "  \"link_base_delay_ns\": %lu,\n"
@@ -2659,6 +2722,22 @@ bool calibration_manager_save_data_capture(
         "  \"search_end_offset_sample\": %ld,\n"
         "  \"resolved_offset_sample_count\": %ld,\n"
         "  \"resolved_offset_ns\": %ld,\n"
+        "  \"max_best_distance\": %lu,\n"
+        "  \"min_margin\": %lu,\n"
+        "  \"diagnostic_fault_flags\": %lu,\n"
+        "  \"diagnostic_wire_epoch\": %lu,\n"
+        "  \"diagnostic_header_crc8_xor\": %lu,\n"
+        "  \"observed_header_fields_valid\": %lu,\n"
+        "  \"observed_header\": %lu,\n"
+        "  \"observed_header_inverse\": %lu,\n"
+        "  \"observed_header_crc8\": %lu,\n"
+        "  \"observed_crc32\": %lu,\n"
+        "  \"correlation_reject_reason\": %lu,\n"
+        "  \"best_lag_sample\": %lu,\n"
+        "  \"best_distance\": %lu,\n"
+        "  \"second_lag_sample\": %lu,\n"
+        "  \"second_distance\": %lu,\n"
+        "  \"margin\": %lu,\n"
         "  \"capture_anchor\": \"physical_rx_csn_falling_edge_pio_delay\",\n"
         "  \"data_input\": \"physical_rx_data\",\n"
         "  \"raw_word_count\": %lu,\n"
@@ -2673,7 +2752,11 @@ bool calibration_manager_save_data_capture(
         (unsigned long long)snapshot.build_id,
         (unsigned long)snapshot.calibration_generation,
         (unsigned long)snapshot.train_epoch,
+        (unsigned long)snapshot.state,
+        (unsigned long)snapshot.reject_reason,
+        (unsigned long)snapshot.flags,
         (unsigned long)snapshot.data_codebook_id,
+        (unsigned long)snapshot.data_crc32,
         (unsigned long)snapshot.sample_period_ns,
         (unsigned long)snapshot.marker_to_data_samples,
         (unsigned long)snapshot.link_base_delay_ns,
@@ -2683,6 +2766,22 @@ bool calibration_manager_save_data_capture(
         (long)snapshot.search_end_offset_sample,
         (long)snapshot.resolved_offset_sample_count,
         (long)snapshot.resolved_offset_ns,
+        (unsigned long)snapshot.max_best_distance,
+        (unsigned long)snapshot.min_margin,
+        (unsigned long)snapshot.diagnostic_fault_flags,
+        (unsigned long)snapshot.diagnostic_wire_epoch,
+        (unsigned long)snapshot.diagnostic_header_crc8_xor,
+        (unsigned long)snapshot.observed_header_fields_valid,
+        (unsigned long)snapshot.observed_header,
+        (unsigned long)snapshot.observed_header_inverse,
+        (unsigned long)snapshot.observed_header_crc8,
+        (unsigned long)snapshot.observed_crc32,
+        (unsigned long)snapshot.correlation_reject_reason,
+        (unsigned long)snapshot.best_lag_sample,
+        (unsigned long)snapshot.best_distance,
+        (unsigned long)snapshot.second_lag_sample,
+        (unsigned long)snapshot.second_distance,
+        (unsigned long)snapshot.margin,
         (unsigned long)word_count,
         (unsigned long)sample_count);
     if (written <= 0 ||

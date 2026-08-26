@@ -208,6 +208,9 @@ scpi_result_t scpi_calibration_data_arm(scpi_t *context)
     uint32_t calibration_generation = 0u, marker_to_data_samples = 0u;
     uint32_t link_base_delay_ns = 0u, guard_sample_count = 0u;
     uint32_t max_best_distance = 0u, min_margin = 0u;
+    uint32_t diagnostic_fault_flags = 0u;
+    uint32_t diagnostic_wire_epoch = 0u;
+    uint32_t diagnostic_header_crc8_xor = 0u;
     int32_t marker_offset_sample_count = 0;
     int32_t configured_data_offset_sample_count = 0;
     int32_t search_start_offset_sample = 0;
@@ -228,6 +231,10 @@ scpi_result_t scpi_calibration_data_arm(scpi_t *context)
         SCPI_ParamUInt32(context, &guard_sample_count, TRUE) != TRUE ||
         SCPI_ParamUInt32(context, &max_best_distance, TRUE) != TRUE ||
         SCPI_ParamUInt32(context, &min_margin, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &diagnostic_fault_flags, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &diagnostic_wire_epoch, TRUE) != TRUE ||
+        SCPI_ParamUInt32(
+            context, &diagnostic_header_crc8_xor, TRUE) != TRUE ||
         !calibration_manager_request_data_training(
             source_node, destination_node, codebook_id, train_epoch,
             train_sequence, calibration_generation, marker_to_data_samples,
@@ -235,7 +242,8 @@ scpi_result_t scpi_calibration_data_arm(scpi_t *context)
             configured_data_offset_sample_count,
             search_start_offset_sample,
             search_end_offset_sample, guard_sample_count,
-            max_best_distance, min_margin)) {
+            max_best_distance, min_margin, diagnostic_fault_flags,
+            diagnostic_wire_epoch, diagnostic_header_crc8_xor)) {
         scpi_port_push_exec_error(context, "CAL_DATA_ARM_REJECTED");
         return SCPI_RES_ERR;
     }
@@ -281,6 +289,10 @@ scpi_result_t scpi_calibration_data_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.data_codebook_id);
     SCPI_ResultUInt32(context, snapshot.data_crc32);
     SCPI_ResultUInt32(context, snapshot.observed_crc32);
+    SCPI_ResultUInt32(context, snapshot.observed_header_fields_valid);
+    SCPI_ResultUInt32(context, snapshot.observed_header);
+    SCPI_ResultUInt32(context, snapshot.observed_header_inverse);
+    SCPI_ResultUInt32(context, snapshot.observed_header_crc8);
     SCPI_ResultUInt32(context, snapshot.calibration_generation);
     SCPI_ResultUInt32(context, snapshot.topology_generation);
     SCPI_ResultUInt32(context, snapshot.topology_crc32);
@@ -295,6 +307,11 @@ scpi_result_t scpi_calibration_data_q(scpi_t *context)
     SCPI_ResultInt32(context, snapshot.search_start_offset_sample);
     SCPI_ResultInt32(context, snapshot.search_end_offset_sample);
     SCPI_ResultUInt32(context, snapshot.guard_sample_count);
+    SCPI_ResultUInt32(context, snapshot.max_best_distance);
+    SCPI_ResultUInt32(context, snapshot.min_margin);
+    SCPI_ResultUInt32(context, snapshot.diagnostic_fault_flags);
+    SCPI_ResultUInt32(context, snapshot.diagnostic_wire_epoch);
+    SCPI_ResultUInt32(context, snapshot.diagnostic_header_crc8_xor);
     SCPI_ResultUInt32(context, snapshot.polarity);
     SCPI_ResultUInt32(context, snapshot.correlation_reject_reason);
     SCPI_ResultUInt32(context, snapshot.best_lag_sample);

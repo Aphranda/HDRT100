@@ -4,6 +4,7 @@ from tools.calibration_ring_validate.calibration_data_train import (
     FLAG_DIAGNOSTIC_ONLY,
     FLAG_DMA_COMPLETE,
     FLAG_HARDWARE_MARKER,
+    decode_observed_header,
     direction_endpoints,
     parse_data_status,
     parse_storage_read,
@@ -11,6 +12,7 @@ from tools.calibration_ring_validate.calibration_data_train import (
     summarize_repeat_matrix,
     validate_expected_rejection,
     validate_link,
+    validate_responder_wire_fault,
 )
 from tools.calibration_ring_validate.calibration_data_waveform import (
     render_data_waveform,
@@ -68,6 +70,40 @@ def test_parse_data_status_reassembles_u64_fields() -> None:
     assert parsed["board_unique_id"] == 0x0123456789ABCDEF
     assert parsed["marker_capture_tick"] == (1 << 32) + 2
     assert parsed["data_capture_tick"] == (1 << 32) + 8
+
+
+def test_observed_wire_header_proves_epoch_and_crc_faults() -> None:
+    header = (0 << 14) | (0 << 12) | (6 << 4) | (0 << 1) | 0
+    inverse = header ^ 0xFFFF
+    from tools.calibration_ring_validate.calibration_clk_codebook_eval import (
+        crc8_atm,
+    )
+    calculated = crc8_atm(bytes((
+        header >> 8, header & 0xFF, inverse >> 8, inverse & 0xFF)))
+    epoch_row = make_row(
+        observed_header_fields_valid=1,
+        observed_header=header,
+        observed_header_inverse=inverse,
+        observed_header_crc8=calculated,
+        correlation_reject_reason=9)
+    assert decode_observed_header(epoch_row)["epoch"] == 6
+    assert validate_responder_wire_fault(
+        epoch_row, expected_epoch=7, expected_source_node=0,
+        wire_epoch=6) == []
+
+    crc_row = make_row(
+        observed_header_fields_valid=1,
+        observed_header=header,
+        observed_header_inverse=inverse,
+        observed_header_crc8=calculated ^ 0x01,
+        correlation_reject_reason=8)
+    assert validate_responder_wire_fault(
+        crc_row, expected_epoch=6, expected_source_node=0,
+        header_crc8_xor=0x01) == []
+    crc_row["observed_header_crc8"] = calculated
+    assert validate_responder_wire_fault(
+        crc_row, expected_epoch=6, expected_source_node=0,
+        header_crc8_xor=0x01) == ["receiver_observed_crc8_xor"]
 
 
 def test_runtime_direction_parameter_resolves_each_physical_link() -> None:
@@ -170,7 +206,7 @@ def test_parse_storage_read_and_summarize_capture() -> None:
     assert page["eof"] is True
 
     summary = summarize_data_capture({
-        "schema": "HAOFV_DATA_TRAIN_CAPTURE_V1",
+        "schema": "HAOFV_DATA_TRAIN_CAPTURE_V3",
         "raw_word_count": 1,
         "raw_sample_count": 5,
         "raw_words": [0b00110],
@@ -321,3 +357,57 @@ def test_data_waveform_renders_expected_capture(tmp_path) -> None:
     assert svg_text.startswith("<svg")
     assert "DATA reverse node1-&gt;node0" in svg_text
     assert "MARK forward node0-&gt;node1" in svg_text
+
+
+def test_data_waveform_applies_header_epoch_and_crc_gates(tmp_path) -> None:
+    expected, _ = marker_raw_waveform(
+        codebook_id=0, epoch=7, source_node=0, polarity=0)
+    stale, _ = marker_raw_waveform(
+        codebook_id=0, epoch=6, source_node=0, polarity=0)
+
+    def make_capture(samples: list[int]) -> tuple[dict[str, object], list[int]]:
+        padded = [0] * 2 + samples
+        words = []
+        for start in range(0, len(padded), 32):
+            word = 0
+            for bit, value in enumerate(padded[start:start + 32]):
+                word |= int(value) << bit
+            words.append(word)
+        return unpack_data_capture({
+            "schema": "HAOFV_DATA_TRAIN_CAPTURE_V3",
+            "source_node": 0,
+            "destination_node": 1,
+            "epoch": 7,
+            "calibration_generation": 214,
+            "sample_period_ns": 4,
+            "link_base_delay_ns": 40,
+            "max_best_distance": 512,
+            "min_margin": 0,
+            "raw_word_count": len(words),
+            "raw_sample_count": len(padded),
+            "raw_words": words,
+        })
+
+    capture, samples = make_capture(stale)
+    stale_result = render_data_waveform(
+        capture, samples, codebook_id=0, svg_path=tmp_path / "stale.svg",
+        window_start_ns=0, window_duration_ns=1000,
+        marker_direction="forward", data_direction="reverse")
+    assert stale_result["correlation"]["accepted"] is False
+    assert stale_result["correlation"]["reject_name"] == "HEADER_MISMATCH"
+    decoded_stale_header = int(
+        stale_result["correlation"]["marker_validation"]["decoded_header"])
+    assert ((decoded_stale_header >> 4) & 0xFF) == 6
+
+    bad_crc = list(expected)
+    crc_logical_bit = 13 + 16 + 16 + 7
+    raw_start = crc_logical_bit * 2 * 5
+    for index in range(raw_start, raw_start + 2 * 5):
+        bad_crc[index] ^= 1
+    capture, samples = make_capture(bad_crc)
+    crc_result = render_data_waveform(
+        capture, samples, codebook_id=0, svg_path=tmp_path / "crc.svg",
+        window_start_ns=0, window_duration_ns=1000,
+        marker_direction="forward", data_direction="reverse")
+    assert crc_result["correlation"]["accepted"] is False
+    assert crc_result["correlation"]["reject_name"] == "HEADER_CRC"

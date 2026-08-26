@@ -132,7 +132,10 @@ bool calibration_manager_request_data_training(
     int32_t search_end_offset_sample,
     uint32_t guard_sample_count,
     uint32_t max_best_distance,
-    uint32_t min_margin);
+    uint32_t min_margin,
+    uint32_t diagnostic_fault_flags,
+    uint32_t diagnostic_wire_epoch,
+    uint32_t diagnostic_header_crc8_xor);
 bool calibration_manager_inject_data_training(void);
 void calibration_manager_stop_data_training(void);
 bool calibration_manager_get_data_training_snapshot(

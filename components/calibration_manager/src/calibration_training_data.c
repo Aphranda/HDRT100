@@ -37,7 +37,17 @@ static bool calibration_training_data_request_valid(
             request->search_end_offset_sample ||
         request->guard_sample_count >
             CALIBRATION_TRAINING_DATA_MAX_GUARD_SAMPLES ||
-        request->expected_polarity > 1u) {
+        request->expected_polarity > 1u ||
+        (request->diagnostic_fault_flags &
+         ~CALIBRATION_CLK_MARKER_FAULT_ALL) != 0u ||
+        request->diagnostic_wire_epoch > UINT8_MAX ||
+        (((request->diagnostic_fault_flags &
+           CALIBRATION_CLK_MARKER_FAULT_EPOCH_OVERRIDE) != 0u) !=
+         (request->diagnostic_wire_epoch != 0u)) ||
+        request->diagnostic_header_crc8_xor > UINT8_MAX ||
+        (((request->diagnostic_fault_flags &
+           CALIBRATION_CLK_MARKER_FAULT_HEADER_CRC8_XOR) != 0u) !=
+         (request->diagnostic_header_crc8_xor != 0u))) {
         return false;
     }
     const int64_t earliest_ns = (int64_t)request->link_base_delay_ns +
@@ -78,6 +88,12 @@ static void calibration_training_data_snapshot_from_request(
         request->search_start_offset_sample;
     snapshot->search_end_offset_sample = request->search_end_offset_sample;
     snapshot->guard_sample_count = request->guard_sample_count;
+    snapshot->max_best_distance = request->max_best_distance;
+    snapshot->min_margin = request->min_margin;
+    snapshot->diagnostic_fault_flags = request->diagnostic_fault_flags;
+    snapshot->diagnostic_wire_epoch = request->diagnostic_wire_epoch;
+    snapshot->diagnostic_header_crc8_xor =
+        request->diagnostic_header_crc8_xor;
 }
 
 void calibration_training_data_store_init(
@@ -146,12 +162,6 @@ static uint32_t calibration_training_data_reject_reason(
         request->schedule_crc32 != evidence->schedule_crc32) {
         return CALIBRATION_TRAINING_DATA_REJECT_GENERATION;
     }
-    if (request->train_epoch != evidence->train_epoch) {
-        return CALIBRATION_TRAINING_DATA_REJECT_EPOCH;
-    }
-    if (request->train_sequence != evidence->train_sequence) {
-        return CALIBRATION_TRAINING_DATA_REJECT_SEQUENCE;
-    }
     if (evidence->correlation_reject_reason ==
         CALIBRATION_CLK_CORRELATION_REJECT_DISTANCE) {
         return CALIBRATION_TRAINING_DATA_REJECT_DISTANCE;
@@ -159,6 +169,16 @@ static uint32_t calibration_training_data_reject_reason(
     if (evidence->correlation_reject_reason ==
         CALIBRATION_CLK_CORRELATION_REJECT_MARGIN) {
         return CALIBRATION_TRAINING_DATA_REJECT_MARGIN;
+    }
+    if (evidence->correlation_reject_reason ==
+        CALIBRATION_CLK_CORRELATION_REJECT_HEADER_CRC) {
+        return CALIBRATION_TRAINING_DATA_REJECT_CRC;
+    }
+    if (request->train_epoch != evidence->train_epoch) {
+        return CALIBRATION_TRAINING_DATA_REJECT_EPOCH;
+    }
+    if (request->train_sequence != evidence->train_sequence) {
+        return CALIBRATION_TRAINING_DATA_REJECT_SEQUENCE;
     }
     if (evidence->correlation_reject_reason !=
             CALIBRATION_CLK_CORRELATION_REJECT_NONE ||
@@ -224,6 +244,11 @@ bool calibration_training_data_evaluate_core1(
     calibration_training_data_snapshot_from_request(&next, request);
     next.flags |= evidence->flags;
     next.observed_crc32 = evidence->observed_crc32;
+    next.observed_header_fields_valid =
+        evidence->observed_header_fields_valid;
+    next.observed_header = evidence->observed_header;
+    next.observed_header_inverse = evidence->observed_header_inverse;
+    next.observed_header_crc8 = evidence->observed_header_crc8;
     next.polarity = evidence->polarity;
     next.correlation_reject_reason = evidence->correlation_reject_reason;
     next.best_lag_sample = evidence->best_lag_sample;

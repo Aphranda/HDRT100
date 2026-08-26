@@ -64,6 +64,25 @@ typedef struct {
     uint32_t timing_samples;
 } calibration_clk_marker_descriptor_t;
 
+typedef struct {
+    uint32_t fields_valid;
+    uint16_t header;
+    uint16_t header_inverse;
+    uint8_t header_crc8;
+} calibration_clk_marker_observation_t;
+
+#define CALIBRATION_CLK_MARKER_FAULT_EPOCH_OVERRIDE (1u << 0u)
+#define CALIBRATION_CLK_MARKER_FAULT_HEADER_CRC8_XOR (1u << 1u)
+#define CALIBRATION_CLK_MARKER_FAULT_ALL \
+    (CALIBRATION_CLK_MARKER_FAULT_EPOCH_OVERRIDE | \
+     CALIBRATION_CLK_MARKER_FAULT_HEADER_CRC8_XOR)
+
+typedef struct {
+    uint32_t flags;
+    uint8_t epoch_override;
+    uint8_t header_crc8_xor;
+} calibration_clk_marker_fault_config_t;
+
 #define CALIBRATION_CLK_MARKER_FLAG_SOF_VALID (1u << 0u)
 #define CALIBRATION_CLK_MARKER_FLAG_MANCHESTER_VALID (1u << 1u)
 #define CALIBRATION_CLK_MARKER_FLAG_HEADER_INVERSE_VALID (1u << 2u)
@@ -114,15 +133,25 @@ typedef struct {
     uint32_t inverted_best_lag_sample;
     uint32_t inverted_best_distance;
     uint32_t detected_polarity;
+    calibration_clk_marker_observation_t observation;
 } calibration_clk_correlation_result_t;
 
 bool calibration_clk_marker_config_valid(
     const calibration_clk_marker_config_t *config);
 uint16_t calibration_clk_marker_pack_header(
     const calibration_clk_marker_config_t *config);
+bool calibration_clk_marker_unpack_header(
+    uint16_t header,
+    calibration_clk_marker_config_t *config);
 uint8_t calibration_clk_marker_crc8(const uint8_t *bytes, size_t size);
 bool calibration_clk_marker_build(
     const calibration_clk_marker_config_t *config,
+    uint32_t *raw_words,
+    size_t raw_word_capacity,
+    calibration_clk_marker_descriptor_t *descriptor);
+bool calibration_clk_marker_build_diagnostic_fault(
+    const calibration_clk_marker_config_t *config,
+    const calibration_clk_marker_fault_config_t *fault,
     uint32_t *raw_words,
     size_t raw_word_capacity,
     calibration_clk_marker_descriptor_t *descriptor);
@@ -136,6 +165,13 @@ bool calibration_clk_marker_validate_capture(
     size_t capture_sample_count,
     size_t marker_start_sample,
     uint32_t *marker_flags);
+bool calibration_clk_marker_observe_capture(
+    const calibration_clk_marker_config_t *expected,
+    const uint32_t *capture_words,
+    size_t capture_sample_count,
+    size_t marker_start_sample,
+    uint32_t *marker_flags,
+    calibration_clk_marker_observation_t *observation);
 bool calibration_clk_marker_correlate(
     const calibration_clk_marker_config_t *expected,
     const uint32_t *expected_words,

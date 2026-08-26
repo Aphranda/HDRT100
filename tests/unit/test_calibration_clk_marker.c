@@ -168,6 +168,16 @@ static int test_bounded_correlation_accepts_exact_lag(void)
     failed += expect_bool("positive margin", result.margin > 0u, true);
     failed += expect_u32("marker flags", result.marker_flags,
                          CALIBRATION_CLK_MARKER_FLAG_ALL);
+    failed += expect_u32("observed fields valid",
+                         result.observation.fields_valid, 1u);
+    failed += expect_u32("observed header", result.observation.header,
+                         descriptor.header);
+    failed += expect_u32("observed header inverse",
+                         result.observation.header_inverse,
+                         descriptor.header_inverse);
+    failed += expect_u32("observed header crc",
+                         result.observation.header_crc8,
+                         descriptor.header_crc8);
     return failed;
 }
 
@@ -215,6 +225,84 @@ static int test_rejects_inverted_and_stale_marker(void)
     failed += expect_u32("stale accepted", result.accepted, 0u);
     failed += expect_u32("stale reason", result.reject_reason,
                          CALIBRATION_CLK_CORRELATION_REJECT_HEADER_MISMATCH);
+    failed += expect_u32("stale observed header",
+                         result.observation.header,
+                         stale_descriptor.header);
+    calibration_clk_marker_config_t observed;
+    failed += expect_bool("unpack stale observed header",
+                          calibration_clk_marker_unpack_header(
+                              result.observation.header, &observed), true);
+    failed += expect_u32("stale observed epoch", observed.epoch,
+                         (uint32_t)config.epoch + 1u);
+    return failed;
+}
+
+static int test_diagnostic_faults_are_observed_on_wire(void)
+{
+    const calibration_clk_marker_config_t config = make_config();
+    uint32_t expected[CALIBRATION_CLK_MARKER_MAX_RAW_WORDS];
+    uint32_t faulted[CALIBRATION_CLK_MARKER_MAX_RAW_WORDS];
+    uint32_t capture[TEST_CAPTURE_WORDS];
+    calibration_clk_marker_descriptor_t expected_descriptor;
+    calibration_clk_marker_descriptor_t fault_descriptor;
+    calibration_clk_correlation_result_t result;
+    const calibration_clk_correlation_gate_t gate = {
+        .min_lag_sample = 5u,
+        .max_lag_sample = 9u,
+        .max_best_distance = UINT32_MAX,
+        .min_margin = 0u,
+    };
+    int failed = 0;
+    (void)calibration_clk_marker_build(
+        &config, expected, CALIBRATION_CLK_MARKER_MAX_RAW_WORDS,
+        &expected_descriptor);
+
+    const calibration_clk_marker_fault_config_t epoch_fault = {
+        .flags = CALIBRATION_CLK_MARKER_FAULT_EPOCH_OVERRIDE,
+        .epoch_override = (uint8_t)(config.epoch - 1u),
+    };
+    failed += expect_bool(
+        "build stale diagnostic marker",
+        calibration_clk_marker_build_diagnostic_fault(
+            &config, &epoch_fault, faulted,
+            CALIBRATION_CLK_MARKER_MAX_RAW_WORDS, &fault_descriptor), true);
+    make_capture(faulted, fault_descriptor.raw_samples, capture,
+                 TEST_CAPTURE_SAMPLES, 7u, false);
+    failed += expect_bool(
+        "correlate stale diagnostic marker",
+        calibration_clk_marker_correlate(
+            &config, expected, expected_descriptor.raw_samples,
+            capture, TEST_CAPTURE_SAMPLES, &gate, &result), true);
+    failed += expect_u32("stale diagnostic reason", result.reject_reason,
+                         CALIBRATION_CLK_CORRELATION_REJECT_HEADER_MISMATCH);
+    failed += expect_u32("stale diagnostic observed header",
+                         result.observation.header, fault_descriptor.header);
+
+    const calibration_clk_marker_fault_config_t crc_fault = {
+        .flags = CALIBRATION_CLK_MARKER_FAULT_HEADER_CRC8_XOR,
+        .header_crc8_xor = 1u,
+    };
+    failed += expect_bool(
+        "build CRC diagnostic marker",
+        calibration_clk_marker_build_diagnostic_fault(
+            &config, &crc_fault, faulted,
+            CALIBRATION_CLK_MARKER_MAX_RAW_WORDS, &fault_descriptor), true);
+    make_capture(faulted, fault_descriptor.raw_samples, capture,
+                 TEST_CAPTURE_SAMPLES, 7u, false);
+    failed += expect_bool(
+        "correlate CRC diagnostic marker",
+        calibration_clk_marker_correlate(
+            &config, expected, expected_descriptor.raw_samples,
+            capture, TEST_CAPTURE_SAMPLES, &gate, &result), true);
+    failed += expect_u32("CRC diagnostic reason", result.reject_reason,
+                         CALIBRATION_CLK_CORRELATION_REJECT_HEADER_CRC);
+    failed += expect_u32("CRC diagnostic observed byte",
+                         result.observation.header_crc8,
+                         fault_descriptor.header_crc8);
+    failed += expect_u32("CRC diagnostic inverse remains valid",
+                         result.marker_flags &
+                             CALIBRATION_CLK_MARKER_FLAG_HEADER_INVERSE_VALID,
+                         CALIBRATION_CLK_MARKER_FLAG_HEADER_INVERSE_VALID);
     return failed;
 }
 
@@ -506,6 +594,7 @@ int main(void)
     failed += test_intermediate_codebooks();
     failed += test_bounded_correlation_accepts_exact_lag();
     failed += test_rejects_inverted_and_stale_marker();
+    failed += test_diagnostic_faults_are_observed_on_wire();
     failed += test_rejects_missing_and_repeated_samples();
     failed += test_capture_and_search_bounds();
     failed += test_coded_snapshot_store();
