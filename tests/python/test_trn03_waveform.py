@@ -107,6 +107,38 @@ def test_v3_capture_measures_raw_sck_frequency_and_duty() -> None:
     assert timing["period_ns"] == 100.0
     assert timing["clock_high_ns"] == 24.0
     assert timing["clock_low_ns"] == 76.0
+    assert timing["frequency_ok"] is True
+    assert timing["duty_ok"] is False
+    assert timing["passed"] is False
+    assert timing["gate_failures"] == ["duty"]
+
+
+def test_v3_capture_accepts_quantized_ten_mhz_sck() -> None:
+    value = capture(0, [0xAA], [])
+    samples = [0] * 10 + ([1] * 12 + [0] * 13) * 10
+    samples = samples[:256]
+    words = []
+    for start in range(0, len(samples), 32):
+        word = 0
+        for bit, sample in enumerate(samples[start:start + 32]):
+            word |= sample << bit
+        words.append(word)
+    value.update({
+        "schema": "HAOFV_TRN03_RING_CAPTURE_V3",
+        "capture_version": 3,
+        "tx_complete_frame_count": 0,
+        "sck_sample_period_ns": 4,
+        "sck_sample_count": len(samples),
+        "sck_word_count": len(words),
+        "rx_sck_words": words,
+    })
+    timing = analyze_sck_timing(validate_capture(value))
+    assert timing["period_ns"] == 100.0
+    assert timing["duty_percent"] == 48.0
+    assert timing["period_span_ns"] == 0
+    assert timing["frequency_ok"] is True
+    assert timing["duty_ok"] is True
+    assert timing["passed"] is True
 
 
 def test_latest_complete_packet_uses_newest_frame_boundary() -> None:

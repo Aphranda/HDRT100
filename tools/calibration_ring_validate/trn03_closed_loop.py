@@ -94,6 +94,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--capture-timeout", type=float, default=10.0)
     parser.add_argument("--capture-latch-retries", type=int, default=1)
     parser.add_argument("--waveform-window-ns", type=int, default=1000)
+    parser.add_argument("--sck-frequency-tolerance-percent", type=float,
+                        default=5.0)
+    parser.add_argument("--sck-duty-tolerance-percent", type=float,
+                        default=10.0)
     parser.add_argument(
         "--stage", choices=("raw-flight", "process-image"),
         default="process-image",
@@ -485,7 +489,9 @@ def analyze_ring_waveforms(capture: dict[str, Any], config: dict[str, Any],
     return analyze_capture_set(
         config,
         [Path(str(row["local_path"])) for row in downloaded],
-        out_dir / "analysis", args.waveform_window_ns)
+        out_dir / "analysis", args.waveform_window_ns,
+        frequency_tolerance_percent=args.sck_frequency_tolerance_percent,
+        duty_tolerance_percent=args.sck_duty_tolerance_percent)
 
 
 def main() -> int:
@@ -502,7 +508,9 @@ def main() -> int:
         raise SystemExit("cycles must be an 8-cycle multiple in [8, 65536]")
     if (args.window_s <= 0 or args.start_wait < 0 or
             args.capture_timeout <= 0 or args.capture_latch_retries < 0 or
-            args.waveform_window_ns <= 0):
+            args.waveform_window_ns <= 0 or
+            args.sck_frequency_tolerance_percent < 0 or
+            args.sck_duty_tolerance_percent < 0):
         raise SystemExit("window-s must be positive and start-wait non-negative")
     args.board_ids = board_ids
     plan = {
@@ -517,6 +525,9 @@ def main() -> int:
         "clock_train": args.clock_train,
         "window_s": args.window_s,
         "waveform_window_ns": args.waveform_window_ns,
+        "sck_frequency_tolerance_percent":
+            args.sck_frequency_tolerance_percent,
+        "sck_duty_tolerance_percent": args.sck_duty_tolerance_percent,
         "stage": args.stage,
     }
     if args.dry_run:
@@ -726,7 +737,9 @@ def main() -> int:
                     "error": f"{type(exc).__name__}: {exc}",
                 }
     passed = (
-        not error and not capture_error and len(nodes) == len(ordered) and
+        not error and not capture_error and not analysis_error and
+        bool(ring_analysis.get("passed")) and
+        len(nodes) == len(ordered) and
         all(node["passed"] for node in nodes.values()) and
         all(bool(item.get("passed")) for item in stopped.values())
     )

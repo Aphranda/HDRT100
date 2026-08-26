@@ -247,7 +247,10 @@ def raw_sck_samples(capture: dict[str, Any]) -> list[int]:
     ]
 
 
-def analyze_sck_timing(capture: dict[str, Any]) -> dict[str, Any]:
+def analyze_sck_timing(
+        capture: dict[str, Any], *,
+        frequency_tolerance_percent: float = 5.0,
+        duty_tolerance_percent: float = 10.0) -> dict[str, Any]:
     samples = raw_sck_samples(capture)
     tick_ns = int(capture.get("sck_sample_period_ns", 0))
     if not samples or tick_ns <= 0:
@@ -286,9 +289,12 @@ def analyze_sck_timing(capture: dict[str, Any]) -> dict[str, Any]:
             return float(ordered[middle])
         return (ordered[middle - 1] + ordered[middle]) / 2.0
 
-    period_samples = median([row["period_samples"] for row in cycles])
-    high_samples = median([row["high_samples"] for row in cycles])
-    low_samples = median([row["low_samples"] for row in cycles])
+    period_values = [row["period_samples"] for row in cycles]
+    high_values = [row["high_samples"] for row in cycles]
+    low_values = [row["low_samples"] for row in cycles]
+    period_samples = median(period_values)
+    high_samples = median(high_values)
+    low_samples = median(low_values)
     period_ns = period_samples * tick_ns
     high_ns = high_samples * tick_ns
     low_ns = low_samples * tick_ns
@@ -296,6 +302,16 @@ def analyze_sck_timing(capture: dict[str, Any]) -> dict[str, Any]:
     target_hz = int(capture.get("baud_hz", 0))
     frequency_error_percent = (None if target_hz <= 0 else
                                100.0 * abs(actual_hz - target_hz) / target_hz)
+    duty_percent = 100.0 * high_ns / period_ns
+    duty_error_percent = abs(duty_percent - 50.0)
+    frequency_ok = (frequency_error_percent is not None and
+                    frequency_error_percent <= frequency_tolerance_percent)
+    duty_ok = duty_error_percent <= duty_tolerance_percent
+    failures = []
+    if not frequency_ok:
+        failures.append("frequency")
+    if not duty_ok:
+        failures.append("duty")
     return {
         "available": True,
         "sample_period_ns": tick_ns,
@@ -305,10 +321,23 @@ def analyze_sck_timing(capture: dict[str, Any]) -> dict[str, Any]:
         "clock_high_ns": high_ns,
         "clock_low_ns": low_ns,
         "actual_hz": actual_hz,
+        "target_hz": target_hz,
         "frequency_error_percent": frequency_error_percent,
-        "frequency_ok": (frequency_error_percent is not None and
-                         frequency_error_percent <= 5.0),
-        "duty_percent": 100.0 * high_ns / period_ns,
+        "frequency_tolerance_percent": frequency_tolerance_percent,
+        "frequency_ok": frequency_ok,
+        "duty_percent": duty_percent,
+        "duty_error_percent": duty_error_percent,
+        "duty_tolerance_percent": duty_tolerance_percent,
+        "duty_ok": duty_ok,
+        "period_min_ns": min(period_values) * tick_ns,
+        "period_max_ns": max(period_values) * tick_ns,
+        "period_span_ns": (max(period_values) - min(period_values)) * tick_ns,
+        "clock_high_min_ns": min(high_values) * tick_ns,
+        "clock_high_max_ns": max(high_values) * tick_ns,
+        "clock_low_min_ns": min(low_values) * tick_ns,
+        "clock_low_max_ns": max(low_values) * tick_ns,
+        "passed": not failures,
+        "gate_failures": failures,
         "cycles": cycles,
     }
 
@@ -623,7 +652,9 @@ def render_node_svg(config: dict[str, Any],
 
 
 def analyze_capture_set(config: dict[str, Any], capture_paths: Sequence[Path],
-                        out_dir: Path, window_duration_ns: int
+                        out_dir: Path, window_duration_ns: int, *,
+                        frequency_tolerance_percent: float = 5.0,
+                        duty_tolerance_percent: float = 10.0
                         ) -> dict[str, Any]:
     captures: dict[int, dict[str, Any]] = {}
     for path in capture_paths:
@@ -642,10 +673,26 @@ def analyze_capture_set(config: dict[str, Any], capture_paths: Sequence[Path],
             window_duration_ns=window_duration_ns)
         for node in range(node_count)
     ]
+    for analysis in analyses:
+        analysis["sck_timing"] = analyze_sck_timing(
+            captures[int(analysis["node"])],
+            frequency_tolerance_percent=frequency_tolerance_percent,
+            duty_tolerance_percent=duty_tolerance_percent)
+    gate_failures = [
+        f"node{analysis['node']}:sck_{reason}"
+        for analysis in analyses
+        for reason in (
+            analysis["sck_timing"].get("gate_failures", [])
+            if analysis["sck_timing"].get("available") else ["unavailable"])
+    ]
     result = {
         "schema": "HAOFV_TRN03_RING_WAVEFORM_ANALYSIS_V1",
         "calibration_generation": int(config["calibration_generation"]),
         "window_duration_ns": window_duration_ns,
+        "frequency_tolerance_percent": frequency_tolerance_percent,
+        "duty_tolerance_percent": duty_tolerance_percent,
+        "passed": not gate_failures,
+        "gate_failures": gate_failures,
         "nodes": analyses,
     }
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -662,22 +709,29 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out-dir", required=True, type=Path)
     parser.add_argument("--window-duration-ns", type=int,
                         default=DEFAULT_WINDOW_NS)
+    parser.add_argument("--frequency-tolerance-percent", type=float,
+                        default=5.0)
+    parser.add_argument("--duty-tolerance-percent", type=float, default=10.0)
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     try:
-        if args.window_duration_ns <= 0:
-            raise ValueError("window-duration-ns must be positive")
+        if (args.window_duration_ns <= 0 or
+                args.frequency_tolerance_percent < 0 or
+                args.duty_tolerance_percent < 0):
+            raise ValueError("window and timing tolerances must be non-negative")
         result = analyze_capture_set(
             json.loads(args.config.read_text(encoding="utf-8")),
-            args.capture, args.out_dir, args.window_duration_ns)
+            args.capture, args.out_dir, args.window_duration_ns,
+            frequency_tolerance_percent=args.frequency_tolerance_percent,
+            duty_tolerance_percent=args.duty_tolerance_percent)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"FAILED: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0
+    return 0 if result["passed"] else 1
 
 
 if __name__ == "__main__":
