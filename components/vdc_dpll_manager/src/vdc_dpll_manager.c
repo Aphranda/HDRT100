@@ -1153,7 +1153,8 @@ bool vdc_dpll_manager_publish_calibration_path_snapshot(
 
     osal_critical_enter();
     const uint32_t node_count = s_vdc_domain.schedule.ring_binding.node_count;
-    if (node_count == 0u || snapshot->link_count != node_count) {
+    if (node_count == 0u || snapshot->link_count != node_count ||
+        snapshot->schedule_crc32 != s_vdc_domain.schedule.schedule_crc32) {
         osal_critical_exit();
         return false;
     }

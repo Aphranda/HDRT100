@@ -28,8 +28,9 @@
  * the ring is up.
  */
 
-#define TDMA_PIO_SPI_RING_ADAPTER_VERSION 1u
+#define TDMA_PIO_SPI_RING_ADAPTER_VERSION 2u
 #define TDMA_PIO_SPI_RING_ADAPTER_RX_QUEUE_DEPTH 8u
+#define TDMA_PIO_SPI_RING_ADAPTER_TX_EVIDENCE_DEPTH 8u
 
 typedef enum {
     TDMA_PIO_SPI_RING_ADAPTER_ERROR_NONE = 0u,
@@ -117,6 +118,8 @@ typedef struct {
     uint32_t rx_drop_count;
     uint32_t timestamp_resolution_ns;
     uint32_t timestamp_flags;
+    uint32_t feedback_reference_sequence;
+    uint32_t feedback_reference_frame_crc32;
     uint64_t reference_tx_timestamp_ns;
     uint64_t feedback_rx_timestamp_ns;
     uint64_t last_rx_service_ns;
@@ -174,6 +177,8 @@ typedef struct {
     uint32_t rx_drop_count;
     uint32_t timestamp_resolution_ns;
     uint32_t timestamp_flags;
+    uint32_t feedback_reference_sequence;
+    uint32_t feedback_reference_frame_crc32;
     uint64_t reference_tx_timestamp_ns;
     uint64_t feedback_rx_timestamp_ns;
     uint64_t last_rx_service_ns;
@@ -182,6 +187,12 @@ typedef struct {
     size_t last_rx_packet_size;
     uint64_t next_tx_deadline_ns;
     uint64_t rx_ready_timestamp_ns;
+    struct {
+        uint32_t sequence;
+        uint32_t identity_crc32;
+        uint64_t timestamp_ns;
+        bool valid;
+    } reference_tx_evidence[TDMA_PIO_SPI_RING_ADAPTER_TX_EVIDENCE_DEPTH];
     struct {
         uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
         size_t packet_size;

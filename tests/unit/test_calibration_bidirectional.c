@@ -259,8 +259,10 @@ static int test_path_snapshot_gate(void)
     calibration_path_link_evidence_t links[4] = {0};
     calibration_path_gate_t gate = {
         .expected_topology_generation = 7u,
+        .expected_topology_crc32 = 0x5678u,
         .expected_bias_generation = 9u,
         .expected_profile_crc32 = 0x1234u,
+        .expected_schedule_crc32 = 0x9ABCu,
         .calibration_generation = 11u,
         .freshness_us = 100u,
         .max_residual_ns = 1u,
@@ -295,12 +297,33 @@ static int test_path_snapshot_gate(void)
     failed += expect_u64("path cumulative delay",
                          snapshot.cumulative_delay_ns, 40u);
     failed += expect_u64("path residual", snapshot.residual_ns, 0u);
-    failed += expect_bool("path snapshot valid",
-                          calibration_path_snapshot_validate(&snapshot), true);
+    failed += expect_bool("path candidate valid",
+                          calibration_path_snapshot_validate_candidate(
+                              &snapshot), true);
+    failed += expect_bool("path candidate not active",
+                          calibration_path_snapshot_validate(&snapshot), false);
+    const calibration_path_activation_gate_t activation_gate = {
+        .expected_topology_generation = gate.expected_topology_generation,
+        .expected_topology_crc32 = gate.expected_topology_crc32,
+        .expected_bias_generation = gate.expected_bias_generation,
+        .expected_profile_crc32 = gate.expected_profile_crc32,
+        .expected_schedule_crc32 = gate.expected_schedule_crc32,
+        .evidence_age_us = gate.freshness_us,
+    };
+    calibration_path_snapshot_t active;
+    calibration_path_snapshot_t rollbackable;
+    failed += expect_bool("path candidate activate",
+                          calibration_path_snapshot_activate(
+                              &snapshot, NULL, &activation_gate,
+                              &active, &rollbackable), true);
+    failed += expect_bool("path active valid",
+                          calibration_path_snapshot_validate(&active), true);
+    failed += expect_u32("initial rollback empty", rollbackable.valid, 0u);
     snapshot.flags &= ~CALIBRATION_PATH_FLAG_HARDWARE_LATCHED;
     snapshot.table_crc32 = calibration_path_snapshot_crc32(&snapshot);
     failed += expect_bool("path latch required",
-                          calibration_path_snapshot_validate(&snapshot), false);
+                          calibration_path_snapshot_validate_candidate(
+                              &snapshot), false);
     links[2].bias_generation++;
     failed += expect_bool("path generation rejected",
                           calibration_path_snapshot_build(links, 4u, 40u,
@@ -315,6 +338,97 @@ static int test_path_snapshot_gate(void)
     return failed;
 }
 
+static int test_path_snapshot_activation_and_rollback(void)
+{
+    calibration_path_link_evidence_t links[2] = {0};
+    calibration_path_gate_t gate = {
+        .expected_topology_generation = 7u,
+        .expected_topology_crc32 = 0x5678u,
+        .expected_bias_generation = 9u,
+        .expected_profile_crc32 = 0x1234u,
+        .expected_schedule_crc32 = 0x9ABCu,
+        .calibration_generation = 11u,
+        .freshness_us = 100u,
+        .max_residual_ns = 1u,
+        .require_hardware_latch = true,
+        .require_repeat_statistics = true,
+        .require_asymmetry_bound = true,
+        .require_ring_round_trip = true,
+    };
+    for (uint32_t i = 0u; i < 2u; i++) {
+        links[i].source_node = i;
+        links[i].destination_node = (i + 1u) % 2u;
+        links[i].profile_crc32 = gate.expected_profile_crc32;
+        links[i].topology_generation = gate.expected_topology_generation;
+        links[i].bias_generation = gate.expected_bias_generation;
+        links[i].sample_count = 3u;
+        links[i].accepted_count = 3u;
+        links[i].measurement.reference_accepted = true;
+        links[i].measurement.active_eligible = true;
+        links[i].measurement.corrected_path_sum_ns = 20;
+        links[i].measurement.delay_estimate_ns = 10;
+    }
+    calibration_path_activation_gate_t activation_gate = {
+        .expected_topology_generation = gate.expected_topology_generation,
+        .expected_topology_crc32 = gate.expected_topology_crc32,
+        .expected_bias_generation = gate.expected_bias_generation,
+        .expected_profile_crc32 = gate.expected_profile_crc32,
+        .expected_schedule_crc32 = gate.expected_schedule_crc32,
+        .evidence_age_us = 10u,
+    };
+    calibration_path_snapshot_t candidate1;
+    calibration_path_snapshot_t active1;
+    calibration_path_snapshot_t empty;
+    calibration_path_snapshot_t candidate2;
+    calibration_path_snapshot_t active2;
+    calibration_path_snapshot_t rollback1;
+    calibration_path_snapshot_t restored1;
+    calibration_path_snapshot_t rollback2;
+    int failed = 0;
+
+    failed += expect_bool("build candidate 1",
+                          calibration_path_snapshot_build(
+                              links, 2u, 20u, &gate, &candidate1), true);
+    failed += expect_bool("activate candidate 1",
+                          calibration_path_snapshot_activate(
+                              &candidate1, NULL, &activation_gate,
+                              &active1, &empty), true);
+    gate.calibration_generation = 12u;
+    failed += expect_bool("build candidate 2",
+                          calibration_path_snapshot_build(
+                              links, 2u, 20u, &gate, &candidate2), true);
+    failed += expect_bool("activate candidate 2",
+                          calibration_path_snapshot_activate(
+                              &candidate2, &active1, &activation_gate,
+                              &active2, &rollback1), true);
+    failed += expect_bool("rollback 1 valid",
+                          calibration_path_snapshot_validate_rollbackable(
+                              &rollback1), true);
+    failed += expect_u32("active generation 2",
+                         active2.calibration_generation, 12u);
+    failed += expect_bool("explicit rollback",
+                          calibration_path_snapshot_rollback(
+                              &active2, &rollback1, &activation_gate,
+                              &restored1, &rollback2), true);
+    failed += expect_u32("restored generation 1",
+                         restored1.calibration_generation, 11u);
+    failed += expect_u32("displaced generation 2",
+                         rollback2.calibration_generation, 12u);
+
+    activation_gate.evidence_age_us = gate.freshness_us + 1u;
+    failed += expect_bool("stale candidate rejected",
+                          calibration_path_snapshot_activate(
+                              &candidate2, &active1, &activation_gate,
+                              &active2, &rollback1), false);
+    activation_gate.evidence_age_us = 10u;
+    candidate2.table_crc32 ^= 1u;
+    failed += expect_bool("bad candidate CRC rejected",
+                          calibration_path_snapshot_activate(
+                              &candidate2, &active1, &activation_gate,
+                              &active2, &rollback1), false);
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -324,6 +438,7 @@ int main(void)
     failed += test_hardware_sample_can_be_active_eligible();
     failed += test_reject_gate_matrix();
     failed += test_path_snapshot_gate();
+    failed += test_path_snapshot_activation_and_rollback();
     if (failed != 0) {
         return 1;
     }

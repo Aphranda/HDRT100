@@ -26,6 +26,8 @@ typedef enum {
 #define CALIBRATION_PATH_FLAG_REPEAT_GATE (1u << 5u)
 #define CALIBRATION_PATH_FLAG_ASYMMETRY_VALID (1u << 6u)
 #define CALIBRATION_PATH_FLAG_DIAGNOSTIC_ONLY (1u << 7u)
+#define CALIBRATION_PATH_FLAG_CANDIDATE (1u << 8u)
+#define CALIBRATION_PATH_FLAG_ROLLBACKABLE (1u << 9u)
 
 typedef struct {
     uint32_t source_node;
@@ -48,8 +50,10 @@ typedef struct {
     uint32_t reject_reason;
     uint32_t link_count;
     uint32_t topology_generation;
+    uint32_t topology_crc32;
     uint32_t bias_generation;
     uint32_t profile_crc32;
+    uint32_t schedule_crc32;
     uint32_t calibration_generation;
     uint32_t freshness_us;
     uint64_t cumulative_delay_ns;
@@ -61,8 +65,10 @@ typedef struct {
 
 typedef struct {
     uint32_t expected_topology_generation;
+    uint32_t expected_topology_crc32;
     uint32_t expected_bias_generation;
     uint32_t expected_profile_crc32;
+    uint32_t expected_schedule_crc32;
     uint32_t calibration_generation;
     uint32_t freshness_us;
     uint32_t max_residual_ns;
@@ -74,6 +80,15 @@ typedef struct {
     bool require_ring_round_trip;
 } calibration_path_gate_t;
 
+typedef struct {
+    uint32_t expected_topology_generation;
+    uint32_t expected_topology_crc32;
+    uint32_t expected_bias_generation;
+    uint32_t expected_profile_crc32;
+    uint32_t expected_schedule_crc32;
+    uint32_t evidence_age_us;
+} calibration_path_activation_gate_t;
+
 uint32_t calibration_path_snapshot_crc32(
     const calibration_path_snapshot_t *snapshot);
 bool calibration_path_snapshot_build(
@@ -82,7 +97,23 @@ bool calibration_path_snapshot_build(
     uint64_t ring_round_trip_ns,
     const calibration_path_gate_t *gate,
     calibration_path_snapshot_t *snapshot);
+bool calibration_path_snapshot_validate_candidate(
+    const calibration_path_snapshot_t *snapshot);
 bool calibration_path_snapshot_validate(
     const calibration_path_snapshot_t *snapshot);
+bool calibration_path_snapshot_validate_rollbackable(
+    const calibration_path_snapshot_t *snapshot);
+bool calibration_path_snapshot_activate(
+    const calibration_path_snapshot_t *candidate,
+    const calibration_path_snapshot_t *current_active,
+    const calibration_path_activation_gate_t *gate,
+    calibration_path_snapshot_t *next_active,
+    calibration_path_snapshot_t *rollbackable);
+bool calibration_path_snapshot_rollback(
+    const calibration_path_snapshot_t *current_active,
+    const calibration_path_snapshot_t *rollbackable,
+    const calibration_path_activation_gate_t *gate,
+    calibration_path_snapshot_t *next_active,
+    calibration_path_snapshot_t *next_rollbackable);
 
 #endif

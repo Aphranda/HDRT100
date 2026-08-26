@@ -62,10 +62,11 @@ static bool tdma_ring_runtime_feedback_correlated(
     }
     if (runtime == NULL || status == NULL || round_trip_ns == NULL ||
         status->up_running == 0u || status->down_running == 0u ||
-        status->up_tx_sequence == 0u ||
-        status->up_tx_sequence != status->down_rx_sequence ||
-        status->up_tx_frame_crc32 == 0u ||
-        status->up_tx_frame_crc32 != status->down_rx_frame_crc32 ||
+        status->feedback_reference_sequence == 0u ||
+        status->feedback_reference_sequence != status->down_rx_sequence ||
+        status->feedback_reference_frame_crc32 == 0u ||
+        status->feedback_reference_frame_crc32 !=
+            status->down_rx_frame_crc32 ||
         status->schedule_crc32 != runtime->schedule_crc32 ||
         status->timestamp_resolution_ns == 0u ||
         status->timestamp_resolution_ns > 100u ||

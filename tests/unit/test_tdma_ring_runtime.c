@@ -224,6 +224,8 @@ int main(void)
     adapter.status.down_rx_sequence = 7u;
     adapter.status.up_tx_frame_crc32 = 0xAABBCCDDu;
     adapter.status.down_rx_frame_crc32 = 0xAABBCCDDu;
+    adapter.status.feedback_reference_sequence = 7u;
+    adapter.status.feedback_reference_frame_crc32 = 0xAABBCCDDu;
     adapter.status.schedule_crc32 = valid.schedule_crc32;
     adapter.status.timestamp_resolution_ns = 1000u;
     adapter.status.timestamp_flags =
@@ -259,6 +261,7 @@ int main(void)
         TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED;
     adapter.status.up_tx_sequence = 8u;
     adapter.status.down_rx_sequence = 8u;
+    adapter.status.feedback_reference_sequence = 8u;
     tdma_ring_runtime_service(&runtime);
     (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
     failed += expect_u32("hardware feedback accepted",
@@ -283,6 +286,7 @@ int main(void)
     adapter.status.feedback_rx_timestamp_ns = 1020000ull;
     adapter.status.up_tx_sequence = 9u;
     adapter.status.down_rx_sequence = 9u;
+    adapter.status.feedback_reference_sequence = 9u;
     tdma_ring_runtime_service(&runtime);
     (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
     failed += expect_u32("feedback timeout rejects evidence",
@@ -295,6 +299,7 @@ int main(void)
     adapter.status.feedback_rx_timestamp_ns = 1000300ull;
     adapter.status.up_tx_sequence = 12u;
     adapter.status.down_rx_sequence = 12u;
+    adapter.status.feedback_reference_sequence = 12u;
     tdma_ring_runtime_service(&runtime);
     (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
     failed += expect_u32("loop delay lower bound rejects early feedback",
@@ -304,6 +309,7 @@ int main(void)
     adapter.status.feedback_rx_timestamp_ns = 1000500ull;
     adapter.status.up_tx_sequence = 10u;
     adapter.status.down_rx_sequence = 11u;
+    adapter.status.feedback_reference_sequence = 10u;
     tdma_ring_runtime_service(&runtime);
     (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
     failed += expect_u32("sequence mismatch rejects feedback",

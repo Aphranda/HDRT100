@@ -2474,6 +2474,15 @@ scpi_result_t scpi_cmd_system_tdma_ring_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.down_rx_frame_crc32);
     SCPI_ResultUInt32(context, snapshot.idle_beacon_tx_count);
     SCPI_ResultUInt32(context, snapshot.idle_beacon_rx_count);
+    SCPI_ResultUInt32(context, snapshot.feedback_round_trip_ns);
+    SCPI_ResultUInt32(context, snapshot.timestamp_resolution_ns);
+    SCPI_ResultUInt32(context, snapshot.timestamp_flags);
+    SCPI_ResultUInt32(context, (uint32_t)snapshot.reference_tx_timestamp_ns);
+    SCPI_ResultUInt32(context,
+                      (uint32_t)(snapshot.reference_tx_timestamp_ns >> 32u));
+    SCPI_ResultUInt32(context, (uint32_t)snapshot.feedback_rx_timestamp_ns);
+    SCPI_ResultUInt32(context,
+                      (uint32_t)(snapshot.feedback_rx_timestamp_ns >> 32u));
     SCPI_ResultUInt32(context, snapshot.adapter_last_error);
     SCPI_ResultUInt32(context, snapshot.adapter_tx_count);
     SCPI_ResultUInt32(context, snapshot.adapter_rx_count);

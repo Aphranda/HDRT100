@@ -69,8 +69,10 @@ uint32_t calibration_path_snapshot_crc32(
     hash = hash_u32(hash, snapshot->flags);
     hash = hash_u32(hash, snapshot->link_count);
     hash = hash_u32(hash, snapshot->topology_generation);
+    hash = hash_u32(hash, snapshot->topology_crc32);
     hash = hash_u32(hash, snapshot->bias_generation);
     hash = hash_u32(hash, snapshot->profile_crc32);
+    hash = hash_u32(hash, snapshot->schedule_crc32);
     hash = hash_u32(hash, snapshot->calibration_generation);
     hash = hash_u32(hash, snapshot->freshness_us);
     hash = hash_u64(hash, snapshot->cumulative_delay_ns);
@@ -87,8 +89,14 @@ uint32_t calibration_path_snapshot_crc32(
         hash = hash_u32(hash, link->accepted_count);
         hash = hash_u32(hash, link->jitter_ns);
         hash = hash_u32(hash, link->asymmetry_ns);
+        hash = hash_u64(hash, link->measurement.residence_ns);
+        hash = hash_u64(hash, link->measurement.raw_path_sum_ns);
         hash = hash_u64(hash, (uint64_t)link->measurement.delay_estimate_ns);
         hash = hash_u64(hash, (uint64_t)link->measurement.corrected_path_sum_ns);
+        hash = hash_u64(hash, link->measurement.clock_rate_error_bound_ns);
+        hash = hash_u32(hash, link->measurement.reject_reason);
+        hash = hash_u32(hash, link->measurement.reference_accepted ? 1u : 0u);
+        hash = hash_u32(hash, link->measurement.active_eligible ? 1u : 0u);
     }
     return hash;
 }
@@ -110,6 +118,8 @@ bool calibration_path_snapshot_build(
     snapshot->ring_round_trip_ns = ring_round_trip_ns;
     snapshot->freshness_us = gate->freshness_us;
     snapshot->calibration_generation = gate->calibration_generation;
+    snapshot->topology_crc32 = gate->expected_topology_crc32;
+    snapshot->schedule_crc32 = gate->expected_schedule_crc32;
     for (uint32_t i = 0u; i < link_count; i++) {
         const calibration_path_link_evidence_t *link = &links[i];
         if (link->source_node >= link_count ||
@@ -161,9 +171,9 @@ bool calibration_path_snapshot_build(
         return false;
     }
     snapshot->valid = 1u;
-    snapshot->active = 1u;
+    snapshot->active = 0u;
     snapshot->flags = CALIBRATION_PATH_FLAG_VALID |
-                      CALIBRATION_PATH_FLAG_ACTIVE |
+                      CALIBRATION_PATH_FLAG_CANDIDATE |
                       CALIBRATION_PATH_FLAG_HARDWARE_LATCHED |
                       CALIBRATION_PATH_FLAG_BIAS_VALID |
                       CALIBRATION_PATH_FLAG_TOPOLOGY_FRESH |
@@ -173,20 +183,18 @@ bool calibration_path_snapshot_build(
     return true;
 }
 
-bool calibration_path_snapshot_validate(
+static bool calibration_path_snapshot_validate_common(
     const calibration_path_snapshot_t *snapshot)
 {
     return snapshot != NULL && snapshot->version == CALIBRATION_PATH_SNAPSHOT_VERSION &&
-           snapshot->valid != 0u && snapshot->active != 0u &&
+           snapshot->valid != 0u &&
            (snapshot->flags & (CALIBRATION_PATH_FLAG_VALID |
-                               CALIBRATION_PATH_FLAG_ACTIVE |
                                CALIBRATION_PATH_FLAG_HARDWARE_LATCHED |
                                CALIBRATION_PATH_FLAG_BIAS_VALID |
                                CALIBRATION_PATH_FLAG_TOPOLOGY_FRESH |
                                CALIBRATION_PATH_FLAG_REPEAT_GATE |
                                CALIBRATION_PATH_FLAG_ASYMMETRY_VALID)) ==
                (CALIBRATION_PATH_FLAG_VALID |
-                CALIBRATION_PATH_FLAG_ACTIVE |
                 CALIBRATION_PATH_FLAG_HARDWARE_LATCHED |
                 CALIBRATION_PATH_FLAG_BIAS_VALID |
                 CALIBRATION_PATH_FLAG_TOPOLOGY_FRESH |
@@ -195,8 +203,139 @@ bool calibration_path_snapshot_validate(
            snapshot->link_count >= 2u &&
            snapshot->link_count <= CALIBRATION_PATH_MAX_LINKS &&
            snapshot->topology_generation != 0u &&
+           snapshot->topology_crc32 != 0u &&
            snapshot->bias_generation != 0u &&
            snapshot->profile_crc32 != 0u &&
+           snapshot->schedule_crc32 != 0u &&
+           snapshot->calibration_generation != 0u &&
            snapshot->freshness_us != 0u &&
            snapshot->table_crc32 == calibration_path_snapshot_crc32(snapshot);
+}
+
+bool calibration_path_snapshot_validate_candidate(
+    const calibration_path_snapshot_t *snapshot)
+{
+    return calibration_path_snapshot_validate_common(snapshot) &&
+           snapshot->active == 0u &&
+           (snapshot->flags & CALIBRATION_PATH_FLAG_CANDIDATE) != 0u &&
+           (snapshot->flags & (CALIBRATION_PATH_FLAG_ACTIVE |
+                               CALIBRATION_PATH_FLAG_ROLLBACKABLE |
+                               CALIBRATION_PATH_FLAG_DIAGNOSTIC_ONLY)) == 0u;
+}
+
+bool calibration_path_snapshot_validate(
+    const calibration_path_snapshot_t *snapshot)
+{
+    return calibration_path_snapshot_validate_common(snapshot) &&
+           snapshot->active != 0u &&
+           (snapshot->flags & CALIBRATION_PATH_FLAG_ACTIVE) != 0u &&
+           (snapshot->flags & (CALIBRATION_PATH_FLAG_CANDIDATE |
+                               CALIBRATION_PATH_FLAG_ROLLBACKABLE |
+                               CALIBRATION_PATH_FLAG_DIAGNOSTIC_ONLY)) == 0u;
+}
+
+bool calibration_path_snapshot_validate_rollbackable(
+    const calibration_path_snapshot_t *snapshot)
+{
+    return calibration_path_snapshot_validate_common(snapshot) &&
+           snapshot->active == 0u &&
+           (snapshot->flags & CALIBRATION_PATH_FLAG_ROLLBACKABLE) != 0u &&
+           (snapshot->flags & (CALIBRATION_PATH_FLAG_ACTIVE |
+                               CALIBRATION_PATH_FLAG_CANDIDATE |
+                               CALIBRATION_PATH_FLAG_DIAGNOSTIC_ONLY)) == 0u;
+}
+
+static bool calibration_path_activation_gate_accepts(
+    const calibration_path_snapshot_t *snapshot,
+    const calibration_path_activation_gate_t *gate)
+{
+    return snapshot != NULL && gate != NULL &&
+           gate->expected_topology_generation != 0u &&
+           gate->expected_topology_crc32 != 0u &&
+           gate->expected_bias_generation != 0u &&
+           gate->expected_profile_crc32 != 0u &&
+           gate->expected_schedule_crc32 != 0u &&
+           snapshot->topology_generation ==
+               gate->expected_topology_generation &&
+           snapshot->topology_crc32 == gate->expected_topology_crc32 &&
+           snapshot->bias_generation == gate->expected_bias_generation &&
+           snapshot->profile_crc32 == gate->expected_profile_crc32 &&
+           snapshot->schedule_crc32 == gate->expected_schedule_crc32 &&
+           gate->evidence_age_us <= snapshot->freshness_us;
+}
+
+static void calibration_path_snapshot_set_role(
+    const calibration_path_snapshot_t *source,
+    uint32_t role_flag,
+    calibration_path_snapshot_t *destination)
+{
+    *destination = *source;
+    destination->active = role_flag == CALIBRATION_PATH_FLAG_ACTIVE ? 1u : 0u;
+    destination->flags &= ~(CALIBRATION_PATH_FLAG_ACTIVE |
+                            CALIBRATION_PATH_FLAG_CANDIDATE |
+                            CALIBRATION_PATH_FLAG_ROLLBACKABLE);
+    destination->flags |= role_flag;
+    destination->table_crc32 = calibration_path_snapshot_crc32(destination);
+}
+
+bool calibration_path_snapshot_activate(
+    const calibration_path_snapshot_t *candidate,
+    const calibration_path_snapshot_t *current_active,
+    const calibration_path_activation_gate_t *gate,
+    calibration_path_snapshot_t *next_active,
+    calibration_path_snapshot_t *rollbackable)
+{
+    if (next_active == NULL || rollbackable == NULL ||
+        !calibration_path_snapshot_validate_candidate(candidate) ||
+        !calibration_path_activation_gate_accepts(candidate, gate)) {
+        return false;
+    }
+    const bool has_active = current_active != NULL &&
+        calibration_path_snapshot_validate(current_active);
+    if ((current_active != NULL && !has_active) ||
+        (has_active && candidate->calibration_generation <=
+                       current_active->calibration_generation)) {
+        return false;
+    }
+
+    calibration_path_snapshot_t activated;
+    calibration_path_snapshot_t previous = {0};
+    calibration_path_snapshot_set_role(candidate,
+                                       CALIBRATION_PATH_FLAG_ACTIVE,
+                                       &activated);
+    if (has_active) {
+        calibration_path_snapshot_set_role(current_active,
+                                           CALIBRATION_PATH_FLAG_ROLLBACKABLE,
+                                           &previous);
+    }
+    *next_active = activated;
+    *rollbackable = previous;
+    return true;
+}
+
+bool calibration_path_snapshot_rollback(
+    const calibration_path_snapshot_t *current_active,
+    const calibration_path_snapshot_t *rollbackable,
+    const calibration_path_activation_gate_t *gate,
+    calibration_path_snapshot_t *next_active,
+    calibration_path_snapshot_t *next_rollbackable)
+{
+    if (next_active == NULL || next_rollbackable == NULL ||
+        !calibration_path_snapshot_validate(current_active) ||
+        !calibration_path_snapshot_validate_rollbackable(rollbackable) ||
+        !calibration_path_activation_gate_accepts(rollbackable, gate)) {
+        return false;
+    }
+
+    calibration_path_snapshot_t restored;
+    calibration_path_snapshot_t displaced;
+    calibration_path_snapshot_set_role(rollbackable,
+                                       CALIBRATION_PATH_FLAG_ACTIVE,
+                                       &restored);
+    calibration_path_snapshot_set_role(current_active,
+                                       CALIBRATION_PATH_FLAG_ROLLBACKABLE,
+                                       &displaced);
+    *next_active = restored;
+    *next_rollbackable = displaced;
+    return true;
 }

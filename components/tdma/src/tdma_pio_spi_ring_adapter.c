@@ -251,6 +251,8 @@ static bool tdma_pio_spi_ring_adapter_start(
     adapter->down_rx_sequence = 0u;
     adapter->up_tx_frame_crc32 = 0u;
     adapter->down_rx_frame_crc32 = 0u;
+    adapter->feedback_reference_sequence = 0u;
+    adapter->feedback_reference_frame_crc32 = 0u;
     adapter->reference_tx_timestamp_ns = 0ull;
     adapter->rx_ready_timestamp_ns = 0ull;
     adapter->feedback_rx_timestamp_ns = 0ull;
@@ -258,6 +260,9 @@ static bool tdma_pio_spi_ring_adapter_start(
     adapter->last_rx_packet_size = 0u;
     adapter->rx_queue_head = 0u;
     adapter->rx_queue_count = 0u;
+    memset(adapter->reference_tx_evidence,
+           0,
+           sizeof(adapter->reference_tx_evidence));
     adapter->next_tx_deadline_ns = 0ull;
     adapter->last_error = TDMA_PIO_SPI_RING_ADAPTER_ERROR_NONE;
     tdma_pio_spi_ring_adapter_snapshot_write_end(adapter);
@@ -281,6 +286,8 @@ static void tdma_pio_spi_ring_adapter_stop(void *context)
     adapter->down_rx_sequence = 0u;
     adapter->up_tx_frame_crc32 = 0u;
     adapter->down_rx_frame_crc32 = 0u;
+    adapter->feedback_reference_sequence = 0u;
+    adapter->feedback_reference_frame_crc32 = 0u;
     adapter->reference_tx_timestamp_ns = 0ull;
     adapter->rx_ready_timestamp_ns = 0ull;
     adapter->feedback_rx_timestamp_ns = 0ull;
@@ -288,6 +295,9 @@ static void tdma_pio_spi_ring_adapter_stop(void *context)
     adapter->last_rx_packet_size = 0u;
     adapter->rx_queue_head = 0u;
     adapter->rx_queue_count = 0u;
+    memset(adapter->reference_tx_evidence,
+           0,
+           sizeof(adapter->reference_tx_evidence));
     tdma_pio_spi_ring_adapter_snapshot_write_end(adapter);
 }
 
@@ -385,9 +395,6 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
     adapter->up_sequence = sequence;
     adapter->tx_count++;
     adapter->idle_beacon_tx_count++;
-    /* Only a physical-layer timestamp may serve as reference TX evidence.
-     * A zero timestamp keeps the correlation gate closed (TIMESTAMP_MISSING). */
-    adapter->reference_tx_timestamp_ns = tx_timestamp_ns;
     if (tx_timestamp_ns != 0ull && adapter->config.loop_delay_ns != 0u) {
         const uint32_t tolerance = adapter->config.loop_delay_tolerance_ns;
         const uint32_t lower_bound =
@@ -408,6 +415,15 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
                                     &view,
                                     &result)) {
         adapter->up_tx_frame_crc32 = view.identity_crc32;
+        const uint32_t evidence_index =
+            sequence % TDMA_PIO_SPI_RING_ADAPTER_TX_EVIDENCE_DEPTH;
+        adapter->reference_tx_evidence[evidence_index].sequence = sequence;
+        adapter->reference_tx_evidence[evidence_index].identity_crc32 =
+            view.identity_crc32;
+        adapter->reference_tx_evidence[evidence_index].timestamp_ns =
+            tx_timestamp_ns;
+        adapter->reference_tx_evidence[evidence_index].valid =
+            tx_timestamp_ns != 0ull;
     }
     return true;
 }
@@ -435,6 +451,28 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
     adapter->down_rx_sequence = view.transport_sequence;
     adapter->down_rx_frame_crc32 = view.identity_crc32;
     adapter->feedback_rx_timestamp_ns = rx_timestamp_ns;
+    if (adapter->role == TDMA_PIO_SPI_RING_ROLE_REFERENCE) {
+        /* The current RX commonly trails the latest TX by one frame in the
+         * cut-through ring.  Select the physical TX latch by transport
+         * sequence instead of pairing RX with the latest TX opportunistically. */
+        adapter->feedback_reference_sequence = 0u;
+        adapter->feedback_reference_frame_crc32 = 0u;
+        adapter->reference_tx_timestamp_ns = 0ull;
+        const uint32_t evidence_index =
+            view.transport_sequence %
+            TDMA_PIO_SPI_RING_ADAPTER_TX_EVIDENCE_DEPTH;
+        if (adapter->reference_tx_evidence[evidence_index].valid &&
+            adapter->reference_tx_evidence[evidence_index].sequence ==
+                view.transport_sequence &&
+            adapter->reference_tx_evidence[evidence_index].identity_crc32 ==
+                view.identity_crc32) {
+            adapter->feedback_reference_sequence = view.transport_sequence;
+            adapter->feedback_reference_frame_crc32 = view.identity_crc32;
+            adapter->reference_tx_timestamp_ns =
+                adapter->reference_tx_evidence[evidence_index].timestamp_ns;
+            adapter->reference_tx_evidence[evidence_index].valid = false;
+        }
+    }
     adapter->rx_count++;
     if ((view.flags & TDMA_TRANSPORT_FLAG_IDLE_BEACON) != 0u) {
         adapter->idle_beacon_rx_count++;
@@ -958,6 +996,10 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
     status->tx_count = adapter->tx_count;
     status->rx_count = adapter->rx_count;
     status->rx_bad_count = adapter->rx_bad_count;
+    status->feedback_reference_sequence =
+        adapter->feedback_reference_sequence;
+    status->feedback_reference_frame_crc32 =
+        adapter->feedback_reference_frame_crc32;
     status->reference_tx_timestamp_ns = adapter->reference_tx_timestamp_ns;
     status->feedback_rx_timestamp_ns = adapter->feedback_rx_timestamp_ns;
     return true;
@@ -1026,6 +1068,10 @@ bool tdma_pio_spi_ring_adapter_get_snapshot(
         snapshot->rx_drop_count = adapter->rx_drop_count;
         snapshot->timestamp_resolution_ns = adapter->timestamp_resolution_ns;
         snapshot->timestamp_flags = adapter->timestamp_flags;
+        snapshot->feedback_reference_sequence =
+            adapter->feedback_reference_sequence;
+        snapshot->feedback_reference_frame_crc32 =
+            adapter->feedback_reference_frame_crc32;
         snapshot->reference_tx_timestamp_ns = adapter->reference_tx_timestamp_ns;
         snapshot->feedback_rx_timestamp_ns = adapter->feedback_rx_timestamp_ns;
         snapshot->last_rx_service_ns = adapter->last_rx_service_ns;

@@ -120,6 +120,12 @@ typedef struct {
     uint32_t tx_count;
     uint32_t rx_count;
     uint32_t rx_bad_count;
+    /* TX identity selected by the adapter from its hardware-latched
+     * sequence history for the current feedback RX frame.  These fields
+     * deliberately differ from up_tx_* when one or more frames are in
+     * flight around the ring. */
+    uint32_t feedback_reference_sequence;
+    uint32_t feedback_reference_frame_crc32;
     uint64_t reference_tx_timestamp_ns;
     uint64_t feedback_rx_timestamp_ns;
 } tdma_ring_adapter_status_t;

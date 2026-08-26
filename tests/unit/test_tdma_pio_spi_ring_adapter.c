@@ -51,6 +51,67 @@ typedef struct {
     bool suppress_echo;
 } loopback_phys_t;
 
+/* One-frame flight stub: TX N makes TX N-1 available to RX.  This models the
+ * hardware ring observed on four boards, where the reference has already
+ * launched the next process frame before the prior sequence returns. */
+typedef struct {
+    uint8_t latest_tx[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+    size_t latest_tx_size;
+    uint64_t latest_tx_timestamp_ns;
+    uint8_t pending_rx[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+    size_t pending_rx_size;
+    uint64_t pending_rx_timestamp_ns;
+    uint32_t tx_calls;
+    bool rx_pending;
+} flight_phys_t;
+
+static bool flight_tx(void *context,
+                      const uint8_t *packet,
+                      size_t packet_size,
+                      uint64_t *tx_timestamp_ns)
+{
+    flight_phys_t *phys = (flight_phys_t *)context;
+    if (phys == NULL || packet == NULL || packet_size == 0u ||
+        packet_size > sizeof(phys->latest_tx)) {
+        return false;
+    }
+    if (phys->latest_tx_size != 0u) {
+        memcpy(phys->pending_rx, phys->latest_tx, phys->latest_tx_size);
+        phys->pending_rx_size = phys->latest_tx_size;
+        phys->pending_rx_timestamp_ns = phys->latest_tx_timestamp_ns + 500ull;
+        phys->rx_pending = true;
+    }
+    phys->latest_tx_timestamp_ns = 1000000ull +
+        (uint64_t)phys->tx_calls * 2000ull;
+    memcpy(phys->latest_tx, packet, packet_size);
+    phys->latest_tx_size = packet_size;
+    phys->tx_calls++;
+    if (tx_timestamp_ns != NULL) {
+        *tx_timestamp_ns = phys->latest_tx_timestamp_ns;
+    }
+    return true;
+}
+
+static bool flight_rx(void *context,
+                      uint8_t *packet,
+                      size_t packet_capacity,
+                      size_t *packet_size,
+                      uint64_t *rx_timestamp_ns)
+{
+    flight_phys_t *phys = (flight_phys_t *)context;
+    if (phys == NULL || packet == NULL || packet_size == NULL ||
+        rx_timestamp_ns == NULL || !phys->rx_pending ||
+        phys->pending_rx_size == 0u ||
+        phys->pending_rx_size > packet_capacity) {
+        return false;
+    }
+    memcpy(packet, phys->pending_rx, phys->pending_rx_size);
+    *packet_size = phys->pending_rx_size;
+    *rx_timestamp_ns = phys->pending_rx_timestamp_ns;
+    phys->rx_pending = false;
+    return true;
+}
+
 static bool loopback_tx(void *context,
                         const uint8_t *packet,
                         size_t packet_size,
@@ -728,6 +789,57 @@ int main(void)
                              fwd_view.origin_slot_id, 0u);
         failed += expect_u32("forwarded sequence preserved",
                              fwd_view.transport_sequence, 7u);
+    }
+
+    /* --- Sequence-indexed TX latch survives one in-flight frame. --- */
+    {
+        tdma_ring_runtime_t runtime;
+        tdma_ring_runtime_snapshot_t snapshot;
+        tdma_pio_spi_ring_adapter_t adapter;
+        flight_phys_t phys;
+        const tdma_ring_runtime_config_t config = make_valid_config();
+
+        memset(&phys, 0, sizeof(phys));
+        failed += expect_bool("flight runtime init",
+                              tdma_ring_runtime_init(&runtime), true);
+        failed += expect_bool("flight configure",
+                              tdma_ring_runtime_configure(&runtime, &config),
+                              true);
+        failed += expect_bool("flight adapter init",
+                              tdma_pio_spi_ring_adapter_init(&adapter), true);
+        tdma_pio_spi_ring_adapter_set_phys(&adapter,
+                                           flight_tx,
+                                           flight_rx,
+                                           &phys);
+        tdma_pio_spi_ring_adapter_set_timestamp_metadata(
+            &adapter,
+            4u,
+            TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED);
+        failed += expect_bool("flight bind",
+                              tdma_ring_runtime_bind_adapter(
+                                  &runtime,
+                                  tdma_pio_spi_ring_adapter_ops(),
+                                  &adapter),
+                              true);
+        failed += expect_bool("flight start", start_ring_data(&runtime), true);
+
+        /* Phase, TX1, throttle, TX2+RX1. */
+        for (uint32_t i = 0u; i < 4u; i++) {
+            tdma_ring_runtime_service(&runtime);
+        }
+        (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
+        failed += expect_u32("flight latest tx sequence",
+                             snapshot.up_tx_sequence, 2u);
+        failed += expect_u32("flight returned sequence",
+                             snapshot.down_rx_sequence, 1u);
+        failed += expect_u32("flight sequence-correlated evidence",
+                             snapshot.simultaneous_feedback_loop_evidence, 1u);
+        failed += expect_u32("flight sequence-correlated RTT",
+                             snapshot.feedback_round_trip_ns, 500u);
+        failed += expect_u64("flight matched TX latch",
+                             snapshot.reference_tx_timestamp_ns, 1000000ull);
+        failed += expect_u64("flight matched RX latch",
+                             snapshot.feedback_rx_timestamp_ns, 1000500ull);
     }
 
     /* --- Product follower: PIO has already forwarded the bytes before the
