@@ -3,6 +3,8 @@
 #include <limits.h>
 #include <string.h>
 
+#include "calibration_clk_marker.h"
+
 static bool calibration_training_data_request_valid(
     const calibration_training_data_request_t *request)
 {
@@ -150,6 +152,21 @@ static uint32_t calibration_training_data_reject_reason(
     if (request->train_sequence != evidence->train_sequence) {
         return CALIBRATION_TRAINING_DATA_REJECT_SEQUENCE;
     }
+    if (evidence->correlation_reject_reason ==
+        CALIBRATION_CLK_CORRELATION_REJECT_DISTANCE) {
+        return CALIBRATION_TRAINING_DATA_REJECT_DISTANCE;
+    }
+    if (evidence->correlation_reject_reason ==
+        CALIBRATION_CLK_CORRELATION_REJECT_MARGIN) {
+        return CALIBRATION_TRAINING_DATA_REJECT_MARGIN;
+    }
+    if (evidence->correlation_reject_reason !=
+            CALIBRATION_CLK_CORRELATION_REJECT_NONE ||
+        evidence->second_distance < evidence->best_distance ||
+        evidence->margin !=
+            evidence->second_distance - evidence->best_distance) {
+        return CALIBRATION_TRAINING_DATA_REJECT_CORRELATION;
+    }
     if (request->data_crc32 != evidence->observed_crc32 ||
         (evidence->flags & CALIBRATION_TRAINING_DATA_FLAG_CRC_VALID) == 0u) {
         return CALIBRATION_TRAINING_DATA_REJECT_CRC;
@@ -157,12 +174,6 @@ static uint32_t calibration_training_data_reject_reason(
     if ((evidence->flags & CALIBRATION_TRAINING_DATA_REQUIRED_FLAGS) !=
         CALIBRATION_TRAINING_DATA_REQUIRED_FLAGS) {
         return CALIBRATION_TRAINING_DATA_REJECT_EVIDENCE_FLAGS;
-    }
-    if (evidence->correlation_reject_reason != 0u ||
-        evidence->second_distance < evidence->best_distance ||
-        evidence->margin !=
-            evidence->second_distance - evidence->best_distance) {
-        return CALIBRATION_TRAINING_DATA_REJECT_CORRELATION;
     }
     if (evidence->polarity != request->expected_polarity) {
         return CALIBRATION_TRAINING_DATA_REJECT_POLARITY;

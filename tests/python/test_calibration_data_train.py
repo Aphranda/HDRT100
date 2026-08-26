@@ -9,6 +9,7 @@ from tools.calibration_ring_validate.calibration_data_train import (
     parse_storage_read,
     summarize_data_capture,
     summarize_repeat_matrix,
+    validate_expected_rejection,
     validate_link,
 )
 from tools.calibration_ring_validate.calibration_data_waveform import (
@@ -131,6 +132,22 @@ def test_validate_link_rejects_stale_requested_offset_readback() -> None:
         "source_configured_data_offset_sample_count_readback",
         "destination_configured_data_offset_sample_count_readback",
     ]
+
+
+def test_expected_margin_rejection_requires_receiver_role_and_exact_reason(
+        ) -> None:
+    receiver = make_row(state=4, reject_reason=14)
+    responder = make_row(state=3, reject_reason=0)
+    result = validate_expected_rejection(receiver, responder, 14)
+    assert result["passed"] is True
+    assert result["accepted"] is False
+    assert result["expected_reject_name"] == "MARGIN"
+    assert result["active_candidate_allowed"] is False
+
+    wrong_endpoint = validate_expected_rejection(responder, receiver, 14)
+    assert wrong_endpoint["passed"] is False
+    assert "receiver_state" in wrong_endpoint["errors"]
+    assert "responder_state" in wrong_endpoint["errors"]
 
 
 def test_offset_fault_is_never_promoted_to_trn03() -> None:

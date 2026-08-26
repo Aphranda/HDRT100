@@ -3,6 +3,8 @@
 #include <stdbool.h>
 #include <stdio.h>
 
+#include "calibration_clk_marker.h"
+
 static int expect_bool(const char *name, bool actual, bool expected)
 {
     if (actual != expected) {
@@ -229,6 +231,37 @@ static int test_required_reject_matrix(void)
     return failed;
 }
 
+static int test_correlation_root_cause_precedes_crc(void)
+{
+    const calibration_training_data_request_t request = make_request();
+    calibration_training_data_evidence_t evidence = make_evidence();
+    int failed = 0;
+
+    evidence.observed_crc32 = 0u;
+    evidence.flags &= ~CALIBRATION_TRAINING_DATA_FLAG_CRC_VALID;
+    evidence.correlation_reject_reason =
+        CALIBRATION_CLK_CORRELATION_REJECT_MARGIN;
+    failed += expect_reject(
+        "correlation margin precedes unavailable CRC", request, evidence,
+        CALIBRATION_TRAINING_DATA_REJECT_MARGIN);
+
+    evidence = make_evidence();
+    evidence.observed_crc32 = 0u;
+    evidence.flags &= ~CALIBRATION_TRAINING_DATA_FLAG_CRC_VALID;
+    evidence.correlation_reject_reason =
+        CALIBRATION_CLK_CORRELATION_REJECT_DISTANCE;
+    failed += expect_reject(
+        "correlation distance precedes unavailable CRC", request, evidence,
+        CALIBRATION_TRAINING_DATA_REJECT_DISTANCE);
+
+    evidence = make_evidence();
+    evidence.observed_crc32 ^= 1u;
+    failed += expect_reject(
+        "CRC mismatch after usable correlation", request, evidence,
+        CALIBRATION_TRAINING_DATA_REJECT_CRC);
+    return failed;
+}
+
 static int test_bad_request_rejected(void)
 {
     calibration_training_data_store_t store;
@@ -264,6 +297,7 @@ int main(void)
     failed += test_shifted_codeword_resolves_offset();
     failed += test_configured_offset_centers_residual_search();
     failed += test_required_reject_matrix();
+    failed += test_correlation_root_cause_precedes_crc();
     failed += test_bad_request_rejected();
     if (failed != 0) {
         (void)printf("calibration_training_data tests failed: %d\n", failed);

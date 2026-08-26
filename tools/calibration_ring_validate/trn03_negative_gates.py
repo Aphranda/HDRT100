@@ -13,6 +13,7 @@ import argparse
 import csv
 import json
 import sys
+import time
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -25,6 +26,11 @@ for import_path in (ROOT / "tools", ROOT / "tools" / "tdma_ring_monitor"):
 
 from tdma_field_parse import FIELDS as TDMA_FIELDS  # noqa: E402
 from tdma_start_ring import Board, board_command, discover  # noqa: E402
+from trn03_stage import (  # noqa: E402
+    load_config as load_replay_config,
+    stage_begin_command as replay_stage_begin_command,
+    stage_link_command as replay_stage_link_command,
+)
 
 
 REQUIRED_EVIDENCE_FLAGS = 0x1F
@@ -41,6 +47,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--board-id", action="append", required=True,
                         help="exact *IDN? address in physical node order")
     parser.add_argument("--expected-build", required=True)
+    parser.add_argument(
+        "--config", type=Path,
+        help=("validated TRN-03 replay matrix; enables stale identity and "
+              "active-record protection cases"))
+    parser.add_argument(
+        "--offset-row-id", type=int,
+        help="explicit full-matrix row to replay (defaults to active_row_id)")
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=1.0)
     parser.add_argument("--settle", type=float, default=0.2)
@@ -76,6 +89,33 @@ def error_is_clear(raw: str) -> bool:
 
 def error_is_rejection(raw: str) -> bool:
     return not error_is_clear(raw)
+
+
+def active_record(board: Board, args: argparse.Namespace) -> dict[str, Any]:
+    """Read the existing Calibration active record without changing it.
+
+    The legacy query does not yet expose a calibration generation.  Preserve
+    the complete raw response and its CRC field so the HIL report cannot claim
+    stronger generation evidence than the firmware actually publishes.
+    """
+    raw = board_command(board, "READ:CALibration:ACTive?", args)
+    row = next(csv.reader([raw]), [])
+    if len(row) != 6:
+        raise RuntimeError(
+            f"{board.address}: invalid active calibration response: {raw!r}")
+    try:
+        active_crc32 = int(row[2].strip().strip('"'), 0)
+        ready = int(row[3].strip().strip('"'), 0)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"{board.address}: invalid active calibration response: {raw!r}") \
+            from exc
+    return {
+        "raw": raw,
+        "active_crc32": active_crc32,
+        "ready": ready,
+        "calibration_generation_exposed": False,
+    }
 
 
 def drain_errors(board: Board, args: argparse.Namespace) -> list[str]:
@@ -151,6 +191,13 @@ def stage_link_command(link_index: int, evidence_flags: int,
     return "CALibration:TRAINing:STAGe:LINK " + ",".join(map(str, values))
 
 
+def mutated_replay_begin_command(
+        config: dict[str, Any], **overrides: int) -> str:
+    mutated = dict(config)
+    mutated.update(overrides)
+    return replay_stage_begin_command(mutated)
+
+
 def stage_snapshot(board: Board, args: argparse.Namespace) -> dict[str, Any]:
     raw = board_command(board, "READ:CALibration:TRAINing:STAGe?", args)
     if raw.strip().strip('"') == "EMPTY":
@@ -218,11 +265,104 @@ def arm_must_reject(board: Board, args: argparse.Namespace) -> dict[str, Any]:
     return action
 
 
+def wait_ring_enabled(board: Board, expected: bool,
+                      args: argparse.Namespace) -> dict[str, int]:
+    deadline = time.monotonic() + max(args.settle, 0.2) + 3.0
+    last = ring_values(board, args)
+    while time.monotonic() < deadline:
+        if bool(last["ring_enabled"]) == expected and (
+                not expected or last["ring_adapter_started"] == 1):
+            return last
+        time.sleep(0.05)
+        last = ring_values(board, args)
+    return last
+
+
+def stop_and_snapshot(board: Board,
+                      args: argparse.Namespace) -> dict[str, Any]:
+    action = action_with_error(board, "SYSTem:TDMA:RING:STOP", args)
+    status = wait_ring_enabled(board, False, args)
+    action["ring_status_after"] = status
+    action["passed"] = (
+        error_is_clear(action["error_after"]) and
+        status["ring_enabled"] == 0 and
+        status["ring_adapter_started"] == 0)
+    return action
+
+
+def replay_identity_cases(board: Board, config: dict[str, Any],
+                          args: argparse.Namespace) -> list[dict[str, Any]]:
+    """Exercise real-matrix identity gates without synthesizing evidence."""
+    cases: list[dict[str, Any]] = []
+
+    # First prove that the unmodified replay matrix is admissible on this
+    # exact board/build/profile.  Negative results are meaningful only after
+    # this positive control succeeds.
+    clear = action_with_error(board, "CALibration:TRAINing:STAGe:CLEar", args)
+    begin = action_with_error(
+        board, replay_stage_begin_command(config), args)
+    links = [action_with_error(
+        board, replay_stage_link_command(link), args)
+        for link in config["links"]]
+    stage = stage_snapshot(board, args)
+    arm = action_with_error(board, "SYSTem:TDMA:RING:ARM", args)
+    armed_status = wait_ring_enabled(board, True, args)
+    stop = stop_and_snapshot(board, args)
+    cases.append({
+        "name": "valid_replay_positive_control",
+        "clear": clear,
+        "begin": begin,
+        "links": links,
+        "stage": stage,
+        "arm": arm,
+        "armed_status": armed_status,
+        "stop": stop,
+        "passed": (
+            error_is_clear(begin["error_after"]) and
+            all(error_is_clear(link["error_after"]) for link in links) and
+            stage.get("complete") == 1 and
+            armed_status["ring_enabled"] == 1 and
+            armed_status["ring_adapter_started"] == 1 and
+            stop["passed"]),
+    })
+
+    # Header identity must match the currently staged operating profile and
+    # TDMA schedule.  BEGIN itself must fail and leave no partial stage.
+    for name, field in (("stale_profile", "profile_crc32"),
+                        ("stale_schedule", "schedule_crc32")):
+        clear = action_with_error(
+            board, "CALibration:TRAINing:STAGe:CLEar", args)
+        command = mutated_replay_begin_command(
+            config, **{field: int(config[field]) ^ 1})
+        action = action_with_error(board, command, args)
+        stage = stage_snapshot(board, args)
+        status = ring_values(board, args)
+        cases.append({
+            "name": f"{name}_header_rejected",
+            "clear": clear,
+            "action": action,
+            "stage": stage,
+            "ring_status_after": status,
+            "passed": (
+                error_is_rejection(action["error_after"]) and
+                stage.get("tag") == "EMPTY" and
+                status["ring_enabled"] == 0 and
+                status["ring_adapter_started"] == 0),
+        })
+
+    return cases
+
+
 def run_board(board: Board, node_count: int, node_index: int,
-              args: argparse.Namespace) -> dict[str, Any]:
+              args: argparse.Namespace,
+              config: dict[str, Any] | None = None) -> dict[str, Any]:
     identity, setup = discover_runtime_identity(
         board, node_count, node_index, args)
+    active_before = active_record(board, args)
     cases: list[dict[str, Any]] = []
+
+    if config is not None:
+        cases.extend(replay_identity_cases(board, config, args))
 
     # The header itself is explicitly diagnostic and must be rejected.
     clear = action_with_error(board, "CALibration:TRAINing:STAGe:CLEar", args)
@@ -327,6 +467,9 @@ def run_board(board: Board, node_count: int, node_index: int,
 
     final_clear = action_with_error(
         board, "CALibration:TRAINing:STAGe:CLEar", args)
+    final_stop = stop_and_snapshot(board, args)
+    active_after = active_record(board, args)
+    active_unchanged = active_before == active_after
     return {
         "board_id": board.address,
         "physical_node_index": node_index,
@@ -334,13 +477,22 @@ def run_board(board: Board, node_count: int, node_index: int,
         "setup": setup,
         "cases": cases,
         "final_clear": final_clear,
-        "passed": all(case["passed"] for case in cases),
+        "final_stop": final_stop,
+        "active_before": active_before,
+        "active_after": active_after,
+        "active_unchanged": active_unchanged,
+        "passed": (all(case["passed"] for case in cases) and
+                   final_stop["passed"] and active_unchanged),
     }
 
 
 def main() -> int:
     args = parse_args()
+    config = (load_replay_config(args.config, args.offset_row_id)
+              if args.config else None)
     board_ids = list(args.board_id)
+    if config is not None and len(board_ids) != int(config["node_count"]):
+        raise SystemExit("board count must equal replay config node_count")
     if len(board_ids) < 2 or len(board_ids) > 8:
         raise SystemExit("board count must be in [2, 8]")
     if len(set(board_ids)) != len(board_ids):
@@ -361,7 +513,7 @@ def main() -> int:
     try:
         for node_index, board in enumerate(ordered):
             results.append(run_board(
-                board, len(ordered), node_index, args))
+                board, len(ordered), node_index, args, config))
     except Exception as exc:  # noqa: BLE001 - preserve partial HIL evidence
         error = f"{type(exc).__name__}: {exc}"
     passed = (not error and len(results) == len(ordered) and
@@ -370,6 +522,10 @@ def main() -> int:
         "phase": "TRN-03A-negative-gates",
         "diagnostic_only": True,
         "reusable_as_admission_evidence": False,
+        "replay_config": str(args.config) if args.config else None,
+        "offset_row_id": (int(config["offset_row_id"])
+                          if config is not None else None),
+        "identity_fault_cases_enabled": config is not None,
         "expected_build": args.expected_build,
         "board_ids_in_physical_node_order": board_ids,
         "passed": passed,

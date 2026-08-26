@@ -24,6 +24,7 @@ from trn03_negative_gates import (  # noqa: E402
     REQUIRED_EVIDENCE_FLAGS,
     error_is_clear,
     error_is_rejection,
+    mutated_replay_begin_command,
     stage_begin_command as negative_stage_begin_command,
     stage_link_command as negative_stage_link_command,
 )
@@ -265,6 +266,16 @@ def test_negative_gate_can_inject_each_offset_phase_mismatch(
     fields = [int(value) for value in values.split(",")]
     assert fields[offset_field] == offset
     assert fields[phase_field] == phase
+
+
+def test_negative_gate_mutates_real_replay_identity_only(
+        tmp_path: Path) -> None:
+    config = load_config(write_matrix(tmp_path, matrix()))
+    begin = mutated_replay_begin_command(
+        config, profile_crc32=config["profile_crc32"] ^ 1)
+    begin_fields = [int(value) for value in begin.split(maxsplit=1)[1].split(",")]
+    assert begin_fields[5] == config["profile_crc32"] ^ 1
+    assert begin_fields[6] == config["schedule_crc32"]
 
 
 def test_error_is_clear_parses_scpi_queue_response() -> None:

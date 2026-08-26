@@ -80,6 +80,24 @@ DESTINATION_REQUIRED_FLAGS = (
     FLAG_SEQUENCE_VALID | FLAG_POLARITY_VALID
 )
 DIRECTION_CHOICES = ("forward", "reverse")
+DATA_REJECT_NAMES = {
+    2: "GENERATION",
+    3: "EPOCH",
+    4: "SEQUENCE",
+    5: "CRC",
+    6: "EVIDENCE_FLAGS",
+    7: "CORRELATION",
+    8: "POLARITY",
+    9: "CAPTURE_TRUNCATED",
+    10: "DMA",
+    11: "PIO_STALL",
+    12: "TIMEOUT",
+    13: "DISTANCE",
+    14: "MARGIN",
+    15: "SEARCH_RANGE",
+    16: "EDGE_ORDER",
+}
+DATA_REJECT_CODES = {name: code for code, name in DATA_REJECT_NAMES.items()}
 
 
 def direction_endpoints(link: int, node_count: int,
@@ -247,6 +265,42 @@ def validate_link(source: dict[str, int | str],
         "calibrated_data_offset_ns": (
             calibrated * int(source["sample_period_ns"])),
         "marker_data_skew_ns": int(source["marker_data_skew_ns"]),
+        "source": source,
+        "destination": destination,
+    }
+
+
+def validate_expected_rejection(
+        source: dict[str, int | str],
+        destination: dict[str, int | str],
+        expected_reason: int) -> dict[str, object]:
+    """Validate a deliberate failure at the DATA receiving endpoint."""
+    errors: list[str] = []
+    if expected_reason not in DATA_REJECT_NAMES:
+        raise ValueError("unknown DATA rejection reason")
+    if int(source["state"]) != STATE_REJECTED:
+        errors.append("receiver_state")
+    if int(source["reject_reason"]) != expected_reason:
+        errors.append("receiver_reject_reason")
+    if int(destination["state"]) != STATE_ACCEPTED:
+        errors.append("responder_state")
+    if int(destination["reject_reason"]) != 0:
+        errors.append("responder_reject_reason")
+    if int(source["calibration_generation"]) != int(
+            destination["calibration_generation"]):
+        errors.append("calibration_generation")
+    if int(source["train_epoch"]) != int(destination["train_epoch"]):
+        errors.append("train_epoch")
+    return {
+        "phase": "TRN-03D_DATA_FAULT",
+        "passed": not errors,
+        "accepted": False,
+        "diagnostic_only": True,
+        "active_candidate_allowed": False,
+        "trn03_staging_allowed": False,
+        "expected_reject_reason": expected_reason,
+        "expected_reject_name": DATA_REJECT_NAMES[expected_reason],
+        "errors": errors,
         "source": source,
         "destination": destination,
     }
@@ -459,6 +513,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--guard-samples", type=int, default=0)
     parser.add_argument("--max-best-distance", type=int, default=512)
     parser.add_argument("--min-margin", type=int, default=0)
+    parser.add_argument(
+        "--expect-reject-reason", choices=sorted(DATA_REJECT_CODES),
+        help=("TRN-03D fault mode: pass only when the DATA receiving endpoint "
+              "rejects with this exact reason and the responder accepts"))
     parser.add_argument("--all-links", action="store_true",
                         help="run every directed physical link")
     parser.add_argument("--repeats", type=int, default=1,
@@ -529,6 +587,18 @@ def wait_states(boards: list[Board], args: argparse.Namespace,
         time.sleep(0.05)
         last = [data_status(board, args) for board in boards]
     raise RuntimeError(f"DATA state timeout, accepted={accepted}: {last}")
+
+
+def wait_idle(boards: list[Board],
+              args: argparse.Namespace) -> list[dict[str, int | str]]:
+    deadline = time.monotonic() + args.marker_timeout
+    last = [data_status(board, args) for board in boards]
+    while time.monotonic() < deadline:
+        if all(int(row["state"]) == 0 for row in last):
+            return last
+        time.sleep(0.05)
+        last = [data_status(board, args) for board in boards]
+    raise RuntimeError(f"DATA STOP did not restore IDLE: {last}")
 
 
 def save_data_capture(board: Board, args: argparse.Namespace) -> dict[str, object]:
@@ -668,6 +738,12 @@ def validate_hil_args(args: argparse.Namespace) -> list[str]:
         raise SystemExit("repeats must be in [1, 1000]")
     if not 0 <= args.max_offset_span <= 20:
         raise SystemExit("max-offset-span must be in [0, 20]")
+    if not (0 <= args.max_best_distance <= 0xFFFFFFFF and
+            0 <= args.min_margin <= 0xFFFFFFFF):
+        raise SystemExit("distance and margin gates must fit uint32")
+    if args.expect_reject_reason and (args.all_links or args.repeats != 1):
+        raise SystemExit(
+            "expect-reject-reason requires one explicit link and one trial")
     return board_ids
 
 
@@ -742,6 +818,11 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
         return {**plan, "passed": False, "dry_run": True}
 
     actions = prepare_ring(ordered, args) if prepare else []
+    active_before = {
+        board.address: board_command(
+            board, "READ:CALibration:ACTive?", args)
+        for board in ordered
+    }
     source = ordered[args.source_node]
     destination = ordered[args.destination_node]
     active = [source, destination]
@@ -761,9 +842,7 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
             active, args, (STATE_ACCEPTED, STATE_REJECTED))
         source_row = completed[0]
         destination_row = completed[1]
-        validation = validate_link(
-            source_row, destination_row,
-            expected_config={
+        expected_config = {
                 "source_node": args.source_node,
                 "destination_node": args.destination_node,
                 "train_epoch": args.epoch,
@@ -779,28 +858,60 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
                 "search_start_offset_sample": args.search_start,
                 "search_end_offset_sample": args.search_end,
                 "guard_sample_count": args.guard_samples,
-            })
+            }
+        if args.expect_reject_reason:
+            validation = validate_expected_rejection(
+                source_row, destination_row,
+                DATA_REJECT_CODES[args.expect_reject_reason])
+            for field, expected in expected_config.items():
+                for endpoint, record in (("source", source_row),
+                                         ("destination", destination_row)):
+                    if int(record[field]) != expected:
+                        validation["errors"].append(
+                            f"{endpoint}_{field}_readback")
+            validation["passed"] = not validation["errors"]
+        else:
+            validation = validate_link(
+                source_row, destination_row,
+                expected_config=expected_config)
         capture_file = save_data_capture(source, args)
         capture_download = download_data_capture(
             source, capture_file, args)
     finally:
         for board in active:
             board_command(board, "CALibration:DATA:STOP", args)
-    residual_offset = int(validation["resolved_offset_sample_count"])
-    return {
+        idle = wait_idle(active, args)
+    active_after = {
+        board.address: board_command(
+            board, "READ:CALibration:ACTive?", args)
+        for board in ordered
+    }
+    active_unchanged = active_before == active_after
+    result = {
         **plan,
         **validation,
-        "residual_offset_sample_count": residual_offset,
-        "calibrated_data_offset_sample_count": (
-            args.link_data_offset_sample + residual_offset),
+        "expected_failure": bool(args.expect_reject_reason),
         "actions": actions,
         "arms": arms,
         "armed": armed,
         "injection": injection,
         "completed": completed,
+        "idle_after_stop": idle,
+        "active_before": active_before,
+        "active_after": active_after,
+        "active_unchanged": active_unchanged,
         "capture_file": capture_file,
         "capture_download": capture_download,
     }
+    if not active_unchanged:
+        result["errors"].append("active_record_changed")
+        result["passed"] = False
+    if not args.expect_reject_reason:
+        residual_offset = int(validation["resolved_offset_sample_count"])
+        result["residual_offset_sample_count"] = residual_offset
+        result["calibrated_data_offset_sample_count"] = (
+            args.link_data_offset_sample + residual_offset)
+    return result
 
 
 def run_hil(args: argparse.Namespace) -> dict[str, object]:
