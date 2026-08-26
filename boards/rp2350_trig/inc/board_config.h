@@ -96,6 +96,9 @@
  * DMA channel, so the runtime owner keeps the two profile-declared DMA
  * channels exclusively on the wire DATA path. */
 #define BOARD_TDMA_SPI_CAPTURE_SM 2u
+/* Reference-only relative RTT latch.  It observes the local TX CS edge and
+ * returned RX CS edge entirely in PIO; no core timestamp is in the interval. */
+#define BOARD_TDMA_SPI_RTT_SM 3u
 #define BOARD_TDMA_SPI_UPLINK_CSN_PIN 27u
 #define BOARD_TDMA_SPI_UPLINK_RX_PIN 24u
 #define BOARD_TDMA_SPI_UPLINK_SCK_PIN 28u

@@ -90,6 +90,16 @@ void tdma_pio_spi_ring_adapter_set_phys(tdma_pio_spi_ring_adapter_t *adapter,
     adapter->phys_context = phys_context;
 }
 
+void tdma_pio_spi_ring_adapter_set_phys_feedback(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_pio_spi_ring_feedback_fn feedback)
+{
+    if (adapter == NULL || adapter->started != 0u) {
+        return;
+    }
+    adapter->phys_feedback = feedback;
+}
+
 void tdma_pio_spi_ring_adapter_set_phys_ctrl(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_phys_arm_fn arm,
@@ -253,6 +263,8 @@ static bool tdma_pio_spi_ring_adapter_start(
     adapter->down_rx_frame_crc32 = 0u;
     adapter->feedback_reference_sequence = 0u;
     adapter->feedback_reference_frame_crc32 = 0u;
+    adapter->feedback_timestamp_resolution_ns = 0u;
+    adapter->feedback_timestamp_flags = 0u;
     adapter->reference_tx_timestamp_ns = 0ull;
     adapter->rx_ready_timestamp_ns = 0ull;
     adapter->feedback_rx_timestamp_ns = 0ull;
@@ -288,6 +300,8 @@ static void tdma_pio_spi_ring_adapter_stop(void *context)
     adapter->down_rx_frame_crc32 = 0u;
     adapter->feedback_reference_sequence = 0u;
     adapter->feedback_reference_frame_crc32 = 0u;
+    adapter->feedback_timestamp_resolution_ns = 0u;
+    adapter->feedback_timestamp_flags = 0u;
     adapter->reference_tx_timestamp_ns = 0ull;
     adapter->rx_ready_timestamp_ns = 0ull;
     adapter->feedback_rx_timestamp_ns = 0ull;
@@ -434,6 +448,16 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
     size_t packet_size,
     uint64_t rx_timestamp_ns)
 {
+    uint32_t hardware_round_trip_ns = 0u;
+    uint32_t hardware_resolution_ns = 0u;
+    uint32_t hardware_flags = 0u;
+    const bool hardware_round_trip_valid =
+        adapter->role == TDMA_PIO_SPI_RING_ROLE_REFERENCE &&
+        adapter->phys_feedback != NULL &&
+        adapter->phys_feedback(adapter->phys_context,
+                               &hardware_round_trip_ns,
+                               &hardware_resolution_ns,
+                               &hardware_flags);
     tdma_transport_frame_view_t view;
     tdma_transport_result_t result = TDMA_TRANSPORT_OK;
     if (!tdma_transport_frame_decode(packet,
@@ -457,6 +481,8 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
          * sequence instead of pairing RX with the latest TX opportunistically. */
         adapter->feedback_reference_sequence = 0u;
         adapter->feedback_reference_frame_crc32 = 0u;
+        adapter->feedback_timestamp_resolution_ns = 0u;
+        adapter->feedback_timestamp_flags = 0u;
         adapter->reference_tx_timestamp_ns = 0ull;
         const uint32_t evidence_index =
             view.transport_sequence %
@@ -466,10 +492,43 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
                 view.transport_sequence &&
             adapter->reference_tx_evidence[evidence_index].identity_crc32 ==
                 view.identity_crc32) {
-            adapter->feedback_reference_sequence = view.transport_sequence;
-            adapter->feedback_reference_frame_crc32 = view.identity_crc32;
-            adapter->reference_tx_timestamp_ns =
+            const uint64_t matched_tx_timestamp_ns =
                 adapter->reference_tx_evidence[evidence_index].timestamp_ns;
+            if (hardware_round_trip_valid && hardware_round_trip_ns != 0u &&
+                hardware_resolution_ns != 0u &&
+                (hardware_flags &
+                 TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED) != 0u &&
+                (hardware_flags &
+                 TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) == 0u &&
+                UINT64_MAX - matched_tx_timestamp_ns >=
+                    (uint64_t)hardware_round_trip_ns) {
+                adapter->feedback_reference_sequence =
+                    view.transport_sequence;
+                adapter->feedback_reference_frame_crc32 = view.identity_crc32;
+                adapter->feedback_timestamp_resolution_ns =
+                    hardware_resolution_ns;
+                adapter->feedback_timestamp_flags = hardware_flags;
+                adapter->reference_tx_timestamp_ns = matched_tx_timestamp_ns;
+                adapter->feedback_rx_timestamp_ns = matched_tx_timestamp_ns +
+                    (uint64_t)hardware_round_trip_ns;
+            } else if (adapter->phys_feedback == NULL &&
+                       adapter->feedback_rx_timestamp_ns >=
+                           matched_tx_timestamp_ns &&
+                       adapter->timestamp_resolution_ns != 0u &&
+                       (adapter->timestamp_flags &
+                        TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED) != 0u &&
+                       (adapter->timestamp_flags &
+                        TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) == 0u) {
+                /* Host/alternate physical layers may already return a pair
+                 * of absolute hardware latches through phys_tx/phys_rx. */
+                adapter->feedback_reference_sequence =
+                    view.transport_sequence;
+                adapter->feedback_reference_frame_crc32 = view.identity_crc32;
+                adapter->feedback_timestamp_resolution_ns =
+                    adapter->timestamp_resolution_ns;
+                adapter->feedback_timestamp_flags = adapter->timestamp_flags;
+                adapter->reference_tx_timestamp_ns = matched_tx_timestamp_ns;
+            }
             adapter->reference_tx_evidence[evidence_index].valid = false;
         }
     }
@@ -988,8 +1047,14 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
     status->down_rx_sequence = adapter->down_rx_sequence;
     status->up_tx_frame_crc32 = adapter->up_tx_frame_crc32;
     status->down_rx_frame_crc32 = adapter->down_rx_frame_crc32;
-    status->timestamp_resolution_ns = adapter->timestamp_resolution_ns;
-    status->timestamp_flags = adapter->timestamp_flags;
+    status->timestamp_resolution_ns =
+        adapter->feedback_reference_sequence != 0u
+            ? adapter->feedback_timestamp_resolution_ns
+            : adapter->timestamp_resolution_ns;
+    status->timestamp_flags =
+        adapter->feedback_reference_sequence != 0u
+            ? adapter->feedback_timestamp_flags
+            : adapter->timestamp_flags;
     status->idle_beacon_tx_count = adapter->idle_beacon_tx_count;
     status->idle_beacon_rx_count = adapter->idle_beacon_rx_count;
     status->last_error = adapter->last_error;
@@ -1066,8 +1131,14 @@ bool tdma_pio_spi_ring_adapter_get_snapshot(
         snapshot->rx_count = adapter->rx_count;
         snapshot->rx_bad_count = adapter->rx_bad_count;
         snapshot->rx_drop_count = adapter->rx_drop_count;
-        snapshot->timestamp_resolution_ns = adapter->timestamp_resolution_ns;
-        snapshot->timestamp_flags = adapter->timestamp_flags;
+        snapshot->timestamp_resolution_ns =
+            adapter->feedback_reference_sequence != 0u
+                ? adapter->feedback_timestamp_resolution_ns
+                : adapter->timestamp_resolution_ns;
+        snapshot->timestamp_flags =
+            adapter->feedback_reference_sequence != 0u
+                ? adapter->feedback_timestamp_flags
+                : adapter->timestamp_flags;
         snapshot->feedback_reference_sequence =
             adapter->feedback_reference_sequence;
         snapshot->feedback_reference_frame_crc32 =

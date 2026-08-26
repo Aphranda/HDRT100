@@ -188,6 +188,26 @@ flight_control_bit:
     in pins, 1
 .wrap
 
+; Reference-node hardware RTT latch. The host supplies UINT32_MAX before each
+; launch. TX CS falling starts the counter; RX CS falling stops it and pushes
+; the remaining count. The high-path loop is exactly two clk_sys cycles, so
+; the edge interval has 8 ns resolution at 250 MHz and contains no core code.
+.program tdma_pio_spi_flight_origin_rtt
+.wrap_target
+flight_origin_rtt_restart:
+    pull block
+    mov x, osr
+    wait 1 gpio 0
+    wait 0 gpio 0
+flight_origin_rtt_count:
+    jmp pin flight_origin_rtt_high
+    mov isr, x
+    push block
+    jmp flight_origin_rtt_restart
+flight_origin_rtt_high:
+    jmp x-- flight_origin_rtt_count
+.wrap
+
 ; Cyclic reference clock source. Core1 supplies the total clock-bit count
 ; minus one. Returned DATA is captured by origin_data_tx against the real
 ; returned CS/SCK, so the byte boundary does not depend on local loop phase.
@@ -808,6 +828,20 @@ static inline void tdma_pio_spi_flight_sck_capture_program_init(
     sm_config_set_in_pins(&c, rx_sck_pin);
     sm_config_set_in_shift(&c, true, true, 32u);
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+    sm_config_set_clkdiv(&c, 1.0f);
+    pio_sm_init(pio, sm, offset, &c);
+}
+
+static inline void tdma_pio_spi_flight_origin_rtt_program_init(
+    PIO pio, uint sm, uint offset, uint tx_csn_pin, uint rx_csn_pin)
+{
+    pio->instr_mem[offset + 2u] =
+        (uint16_t)pio_encode_wait_gpio(true, tx_csn_pin);
+    pio->instr_mem[offset + 3u] =
+        (uint16_t)pio_encode_wait_gpio(false, tx_csn_pin);
+    pio_sm_config c =
+        tdma_pio_spi_flight_origin_rtt_program_get_default_config(offset);
+    sm_config_set_jmp_pin(&c, rx_csn_pin);
     sm_config_set_clkdiv(&c, 1.0f);
     pio_sm_init(pio, sm, offset, &c);
 }

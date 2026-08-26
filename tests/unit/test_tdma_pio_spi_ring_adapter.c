@@ -423,6 +423,8 @@ int main(void)
                              snapshot.idle_beacon_rx_count, 1u);
         failed += expect_u32("throttled feedback closed",
                              snapshot.simultaneous_feedback_loop_evidence, 0u);
+        failed += expect_u32("throttled feedback RTT remains readable",
+                             snapshot.feedback_round_trip_ns, 500u);
 
         /* The following service round emits the next beacon and feedback
          * correlates. */

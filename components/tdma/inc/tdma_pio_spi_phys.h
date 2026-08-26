@@ -773,5 +773,13 @@ bool tdma_pio_spi_phys_rx(void *context,
                           size_t packet_capacity,
                           size_t *packet_size,
                           uint64_t *rx_timestamp_ns);
+/* Pop the oldest reference-node TX-CS -> returned-RX-CS duration latched by
+ * the dedicated PIO counter.  False means no complete hardware edge pair is
+ * available for the just-received frame. */
+bool tdma_pio_spi_phys_feedback_round_trip(
+    void *context,
+    uint32_t *round_trip_ns,
+    uint32_t *resolution_ns,
+    uint32_t *flags);
 
 #endif

@@ -379,11 +379,11 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
         up_group != down_group &&
         (flags & TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN) != 0u;
 
+    const uint32_t previous_down_rx_sequence = runtime->down_rx_sequence;
     tdma_ring_adapter_status_t adapter_status;
     memset(&adapter_status, 0, sizeof(adapter_status));
     bool adapter_service_ok = false;
     tdma_ring_runtime_reason_t reason = TDMA_RING_RUNTIME_REASON_NONE;
-    const uint32_t previous_down_rx_sequence = runtime->down_rx_sequence;
     const uint64_t now_ns = tdma_ring_runtime_now_ns();
     uint32_t train_request_seq = runtime->train_request_seq;
     uint32_t train_accepted_seq = runtime->train_accepted_seq;
@@ -475,12 +475,20 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
         }
     }
 
-    uint32_t round_trip_ns = 0u;
-    const bool feedback_correlated = adapter_service_ok &&
-        adapter_status.down_rx_sequence != previous_down_rx_sequence &&
+    uint32_t correlated_round_trip_ns = 0u;
+    uint32_t round_trip_ns = runtime->feedback_round_trip_ns;
+    const bool feedback_updated = adapter_service_ok &&
+        adapter_status.down_rx_sequence != previous_down_rx_sequence;
+    const bool feedback_correlated = feedback_updated &&
         tdma_ring_runtime_feedback_correlated(runtime,
                                               &adapter_status,
-                                              &round_trip_ns);
+                                              &correlated_round_trip_ns);
+    if (feedback_updated) {
+        round_trip_ns = feedback_correlated ? correlated_round_trip_ns : 0u;
+    } else if (!adapter_service_ok || adapter_status.up_running == 0u ||
+               adapter_status.down_running == 0u) {
+        round_trip_ns = 0u;
+    }
     if (adapter_service_ok && adapter_status.up_running != 0u &&
         adapter_status.down_running != 0u && !feedback_correlated &&
         reason == TDMA_RING_RUNTIME_REASON_NONE) {

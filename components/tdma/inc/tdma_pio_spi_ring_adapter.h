@@ -98,6 +98,10 @@ typedef bool (*tdma_pio_spi_ring_rx_fn)(void *context,
                                         size_t packet_capacity,
                                         size_t *packet_size,
                                         uint64_t *rx_timestamp_ns);
+typedef bool (*tdma_pio_spi_ring_feedback_fn)(void *context,
+                                              uint32_t *round_trip_ns,
+                                              uint32_t *resolution_ns,
+                                              uint32_t *flags);
 
 typedef struct {
     uint32_t version;
@@ -149,6 +153,7 @@ typedef struct {
     bool configured;
     tdma_pio_spi_ring_tx_fn phys_tx;
     tdma_pio_spi_ring_rx_fn phys_rx;
+    tdma_pio_spi_ring_feedback_fn phys_feedback;
     void *phys_context;
     tdma_pio_spi_ring_phys_arm_fn phys_arm;
     tdma_pio_spi_ring_phys_disarm_fn phys_disarm;
@@ -177,6 +182,8 @@ typedef struct {
     uint32_t rx_drop_count;
     uint32_t timestamp_resolution_ns;
     uint32_t timestamp_flags;
+    uint32_t feedback_timestamp_resolution_ns;
+    uint32_t feedback_timestamp_flags;
     uint32_t feedback_reference_sequence;
     uint32_t feedback_reference_frame_crc32;
     uint64_t reference_tx_timestamp_ns;
@@ -208,6 +215,9 @@ void tdma_pio_spi_ring_adapter_set_phys(tdma_pio_spi_ring_adapter_t *adapter,
                                         tdma_pio_spi_ring_tx_fn tx,
                                         tdma_pio_spi_ring_rx_fn rx,
                                         void *phys_context);
+void tdma_pio_spi_ring_adapter_set_phys_feedback(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_pio_spi_ring_feedback_fn feedback);
 void tdma_pio_spi_ring_adapter_set_phys_ctrl(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_phys_arm_fn arm,
