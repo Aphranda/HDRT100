@@ -26,6 +26,18 @@ from trn03_closed_loop import (  # noqa: E402
 )
 
 
+def pio_instruction_count(source: str, program_name: str) -> int:
+    """Count assembled instructions in one source-level PIO program."""
+    program = source.split(f".program {program_name}", 1)[1].split(
+        ".program", 1)[0]
+    assembly = program.split("% c-sdk", 1)[0]
+    return sum(
+        1 for raw in assembly.splitlines()
+        if (line := raw.strip()) and not line.startswith((";", "."))
+        and not line.endswith(":")
+    )
+
+
 class FakeBoard:
     address = "node0"
 
@@ -128,15 +140,15 @@ def test_process_follower_retains_elastic_byte_across_frame_boundary() -> None:
     assert "instr_mem[offset + 6u]" not in init
     assert "instr_mem[offset + 11u]" in init
     assert "pio_encode_wait_gpio(true, rx_sck_pin)" in init
-    assert "pio_encode_delay(data_phase_delay_cycles - 1u)" in init
-    assert "instr_mem[offset + 14u]" in init
+    assert "pio_encode_delay(data_phase_delay_cycles)" in init
+    assert "instr_mem[offset + 13u]" in init
     assert "pio_encode_wait_gpio(false, rx_sck_pin)" in init
     bit_loop = program.split("flight_process_bit:", 1)[1].split(
         "mov y, isr", 1)[0]
     assert "wait 0 gpio 1" in bit_loop
     assert "out pins, 1" in bit_loop
-    assert bit_loop.index("wait 1 gpio 1") < bit_loop.index("nop")
-    assert bit_loop.index("nop") < bit_loop.index("in pins, 1")
+    assert "nop" not in bit_loop
+    assert bit_loop.index("wait 1 gpio 1") < bit_loop.index("in pins, 1")
     assert bit_loop.index("in pins, 1") < bit_loop.index("wait 0 gpio 1")
     assert "mov isr, null" not in program
 
@@ -185,6 +197,21 @@ def test_process_follower_forwards_control_on_independent_pio_sm() -> None:
             "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
     assert "control_bits - 1u" in phys
     assert "phys->tx_sm,\n                            control_bits - 1u" in phys
+
+
+def test_flight_personas_fit_shared_pio_instruction_memory() -> None:
+    source = (ROOT / "components" / "tdma" / "src" /
+              "tdma_pio_spi.pio").read_text(encoding="utf-8")
+    shared = pio_instruction_count(
+        source, "tdma_pio_spi_flight_control_forward")
+    capture = pio_instruction_count(
+        source, "tdma_pio_spi_flight_sck_capture")
+    raw_data = pio_instruction_count(
+        source, "tdma_pio_spi_flight_data_follower")
+    process_data = pio_instruction_count(
+        source, "tdma_pio_spi_flight_process_follower")
+    assert shared + capture + raw_data <= 32
+    assert shared + capture + process_data <= 32
 
 
 def test_raw_sck_capture_starts_at_first_sck_edge() -> None:
@@ -341,7 +368,7 @@ def test_flight_preserves_sck_and_advances_serial_data_one_cycle() -> None:
     assert "pio_encode_delay(data_phase_delay_cycles - 1u)" in follower
     assert "tx_sck_pin" not in follower
     assert "sm_config_set_sideset_pins" not in follower
-    assert "pio_encode_delay(data_phase_delay_cycles - 1u)" in process
+    assert "pio_encode_delay(data_phase_delay_cycles)" in process
     assert control.count(
         "pio_encode_delay(sck_phase_delay_cycles)") == 2
     assert "pio_encode_delay(sck_phase_delay_cycles)" in origin
