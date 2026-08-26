@@ -88,6 +88,7 @@ scpi_result_t scpi_calibration_marker_arm(scpi_t *context)
     uint32_t calibration_generation = 0u;
     uint32_t link_base_delay_ns = 0u;
     uint32_t origin_node = UINT32_MAX;
+    uint32_t diagnostic_fault_flags = 0u;
     int32_t offset_sample_count = 0;
     if (SCPI_ParamUInt32(context, &codebook_id, TRUE) != TRUE ||
         SCPI_ParamUInt32(context, &train_epoch, TRUE) != TRUE ||
@@ -101,11 +102,14 @@ scpi_result_t scpi_calibration_marker_arm(scpi_t *context)
     }
     const bool origin_node_provided =
         SCPI_ParamUInt32(context, &origin_node, FALSE) == TRUE;
+    const bool diagnostic_fault_provided =
+        SCPI_ParamUInt32(context, &diagnostic_fault_flags, FALSE) == TRUE;
     if (
+        (diagnostic_fault_provided && !origin_node_provided) ||
         !calibration_manager_request_marker_training(
             codebook_id, train_epoch, train_sequence, marker_id,
             calibration_generation, link_base_delay_ns,
-            offset_sample_count, origin_node)) {
+            offset_sample_count, origin_node, diagnostic_fault_flags)) {
         scpi_port_push_exec_error(context, "CAL_MARKER_ARM_REJECTED");
         return SCPI_RES_ERR;
     }
@@ -118,6 +122,9 @@ scpi_result_t scpi_calibration_marker_arm(scpi_t *context)
     SCPI_ResultInt32(context, offset_sample_count);
     if (origin_node_provided) {
         SCPI_ResultUInt32(context, origin_node);
+    }
+    if (diagnostic_fault_provided) {
+        SCPI_ResultUInt32(context, diagnostic_fault_flags);
     }
     return SCPI_RES_OK;
 }
@@ -174,6 +181,7 @@ scpi_result_t scpi_calibration_marker_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.tick_resolution_ns);
     SCPI_ResultUInt32(context, snapshot.link_base_delay_ns);
     SCPI_ResultInt32(context, snapshot.offset_sample_count);
+    SCPI_ResultUInt32(context, snapshot.diagnostic_fault_flags);
     scpi_calibration_result_u64(context, snapshot.marker_capture_tick);
     scpi_calibration_result_u64(context, snapshot.marker_forward_tick);
     scpi_calibration_result_u64(context, snapshot.marker_return_tick);

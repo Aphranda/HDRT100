@@ -6,7 +6,7 @@
 
 #include "calibration_training_phase.h"
 
-#define CALIBRATION_TRAINING_MARKER_SNAPSHOT_VERSION 3u
+#define CALIBRATION_TRAINING_MARKER_SNAPSHOT_VERSION 4u
 #define CALIBRATION_TRAINING_MARKER_SNAPSHOT_READ_ATTEMPTS 64u
 #define CALIBRATION_TRAINING_MARKER_MAX_NODES \
     CALIBRATION_TRAINING_PHASE_MAX_NODES
@@ -91,6 +91,7 @@ typedef struct {
     uint32_t tick_resolution_ns;
     uint32_t link_base_delay_ns;
     int32_t offset_sample_count;
+    uint32_t diagnostic_fault_flags;
 } calibration_training_marker_request_t;
 
 typedef struct {
@@ -150,6 +151,7 @@ typedef struct {
     uint32_t tick_resolution_ns;
     uint32_t link_base_delay_ns;
     int32_t offset_sample_count;
+    uint32_t diagnostic_fault_flags;
     uint64_t marker_capture_tick;
     uint64_t marker_forward_tick;
     uint64_t marker_return_tick;

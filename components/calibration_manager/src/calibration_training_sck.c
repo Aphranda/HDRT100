@@ -160,6 +160,15 @@ static uint32_t calibration_training_sck_reject_reason(
         request->schedule_crc32 != evidence->schedule_crc32) {
         return CALIBRATION_TRAINING_SCK_REJECT_GENERATION;
     }
+    if (evidence->pio_stall_count != 0u) {
+        return CALIBRATION_TRAINING_SCK_REJECT_PIO_STALL;
+    }
+    if (evidence->dma_overrun_count != 0u) {
+        return CALIBRATION_TRAINING_SCK_REJECT_DMA;
+    }
+    if (evidence->timeout_count != 0u) {
+        return CALIBRATION_TRAINING_SCK_REJECT_TIMEOUT;
+    }
     if (request->train_epoch != evidence->train_epoch) {
         return CALIBRATION_TRAINING_SCK_REJECT_EPOCH;
     }
@@ -186,15 +195,6 @@ static uint32_t calibration_training_sck_reject_reason(
     if (evidence->expected_sample_count == 0u ||
         evidence->captured_sample_count < evidence->expected_sample_count) {
         return CALIBRATION_TRAINING_SCK_REJECT_CAPTURE_TRUNCATED;
-    }
-    if (evidence->dma_overrun_count != 0u) {
-        return CALIBRATION_TRAINING_SCK_REJECT_DMA;
-    }
-    if (evidence->pio_stall_count != 0u) {
-        return CALIBRATION_TRAINING_SCK_REJECT_PIO_STALL;
-    }
-    if (evidence->timeout_count != 0u) {
-        return CALIBRATION_TRAINING_SCK_REJECT_TIMEOUT;
     }
     if (evidence->best_distance > request->max_best_distance) {
         return CALIBRATION_TRAINING_SCK_REJECT_DISTANCE;

@@ -303,6 +303,21 @@ static int test_diagnostic_faults_are_observed_on_wire(void)
                          result.marker_flags &
                              CALIBRATION_CLK_MARKER_FLAG_HEADER_INVERSE_VALID,
                          CALIBRATION_CLK_MARKER_FLAG_HEADER_INVERSE_VALID);
+
+    const calibration_clk_marker_fault_config_t idle_fault = {
+        .flags = CALIBRATION_CLK_MARKER_FAULT_IDLE_HIGH,
+    };
+    failed += expect_bool(
+        "build idle-high diagnostic marker",
+        calibration_clk_marker_build_diagnostic_fault(
+            &config, &idle_fault, faulted,
+            CALIBRATION_CLK_MARKER_MAX_RAW_WORDS, &fault_descriptor), true);
+    for (size_t sample = 0u; sample < fault_descriptor.raw_samples;
+         sample++) {
+        failed += expect_u32(
+            "idle-high diagnostic sample",
+            raw_sample(faulted, fault_descriptor.raw_samples, sample), 1u);
+    }
     return failed;
 }
 

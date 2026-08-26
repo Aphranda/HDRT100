@@ -32,6 +32,7 @@ static uint32_t s_clk_coded_request_sequence;
 static calibration_manager_p3_snapshot_t s_p3_snapshot;
 static calibration_training_marker_store_t s_marker_store;
 static calibration_clk_coded_workspace_t s_marker_workspace;
+static uint32_t s_marker_tx_words[CALIBRATION_CLK_MARKER_MAX_RAW_WORDS];
 static uint32_t s_marker_raw_capture[TDMA_PIO_SPI_MARKER_BUFFER_WORDS];
 static uint32_t s_marker_bit_capture[TDMA_PIO_SPI_MARKER_BUFFER_WORDS];
 static volatile uint32_t s_marker_raw_word_count;
@@ -428,6 +429,7 @@ bool calibration_manager_init(void)
     memset(&s_p3_intent, 0, sizeof(s_p3_intent));
     calibration_training_marker_store_init(&s_marker_store);
     memset(&s_marker_workspace, 0, sizeof(s_marker_workspace));
+    memset(s_marker_tx_words, 0, sizeof(s_marker_tx_words));
     memset(s_marker_raw_capture, 0, sizeof(s_marker_raw_capture));
     memset(s_marker_bit_capture, 0, sizeof(s_marker_bit_capture));
     __atomic_store_n(&s_marker_raw_word_count, 0u, __ATOMIC_RELEASE);
@@ -937,6 +939,58 @@ static void calibration_manager_marker_finish_core1(
     __atomic_store_n(&s_marker_active, false, __ATOMIC_RELEASE);
 }
 
+static uint32_t calibration_manager_data_reject_from_raw(
+    const tdma_pio_spi_data_train_snapshot_t *raw)
+{
+    if (raw->state == TDMA_PIO_SPI_DATA_TRAIN_COMPLETE) {
+        return CALIBRATION_TRAINING_DATA_REJECT_NONE;
+    }
+    if (raw->pio_stall_count != 0u ||
+        raw->reject_reason == TDMA_PIO_SPI_DATA_TRAIN_REJECT_PIO_STALL) {
+        return CALIBRATION_TRAINING_DATA_REJECT_PIO_STALL;
+    }
+    if (raw->dma_overrun_count != 0u ||
+        raw->reject_reason == TDMA_PIO_SPI_DATA_TRAIN_REJECT_DMA ||
+        raw->reject_reason == TDMA_PIO_SPI_DATA_TRAIN_REJECT_RESOURCE) {
+        return CALIBRATION_TRAINING_DATA_REJECT_DMA;
+    }
+    if (raw->timeout_count != 0u ||
+        raw->reject_reason == TDMA_PIO_SPI_DATA_TRAIN_REJECT_TIMEOUT) {
+        return CALIBRATION_TRAINING_DATA_REJECT_TIMEOUT;
+    }
+    if (raw->reject_reason ==
+        TDMA_PIO_SPI_DATA_TRAIN_REJECT_CAPTURE_SHORT) {
+        return CALIBRATION_TRAINING_DATA_REJECT_CAPTURE_TRUNCATED;
+    }
+    return CALIBRATION_TRAINING_DATA_REJECT_BAD_ARGUMENT;
+}
+
+static uint32_t calibration_manager_sck_reject_from_raw(
+    const tdma_pio_spi_data_train_snapshot_t *raw)
+{
+    if (raw->state == TDMA_PIO_SPI_DATA_TRAIN_COMPLETE) {
+        return CALIBRATION_TRAINING_SCK_REJECT_NONE;
+    }
+    if (raw->pio_stall_count != 0u ||
+        raw->reject_reason == TDMA_PIO_SPI_DATA_TRAIN_REJECT_PIO_STALL) {
+        return CALIBRATION_TRAINING_SCK_REJECT_PIO_STALL;
+    }
+    if (raw->dma_overrun_count != 0u ||
+        raw->reject_reason == TDMA_PIO_SPI_DATA_TRAIN_REJECT_DMA ||
+        raw->reject_reason == TDMA_PIO_SPI_DATA_TRAIN_REJECT_RESOURCE) {
+        return CALIBRATION_TRAINING_SCK_REJECT_DMA;
+    }
+    if (raw->timeout_count != 0u ||
+        raw->reject_reason == TDMA_PIO_SPI_DATA_TRAIN_REJECT_TIMEOUT) {
+        return CALIBRATION_TRAINING_SCK_REJECT_TIMEOUT;
+    }
+    if (raw->reject_reason ==
+        TDMA_PIO_SPI_DATA_TRAIN_REJECT_CAPTURE_SHORT) {
+        return CALIBRATION_TRAINING_SCK_REJECT_CAPTURE_TRUNCATED;
+    }
+    return CALIBRATION_TRAINING_SCK_REJECT_BAD_ARGUMENT;
+}
+
 static void calibration_manager_data_finish_core1(
     const tdma_pio_spi_data_train_snapshot_t *raw)
 {
@@ -951,9 +1005,7 @@ static void calibration_manager_data_finish_core1(
                                  ? CALIBRATION_TRAINING_DATA_ACCEPTED
                                  : CALIBRATION_TRAINING_DATA_REJECTED;
             snapshot.reject_reason =
-                raw->state == TDMA_PIO_SPI_DATA_TRAIN_COMPLETE
-                    ? CALIBRATION_TRAINING_DATA_REJECT_NONE
-                    : CALIBRATION_TRAINING_DATA_REJECT_DMA;
+                calibration_manager_data_reject_from_raw(raw);
             snapshot.flags |=
                 CALIBRATION_TRAINING_DATA_FLAG_HARDWARE_MARKER;
             if ((raw->flags &
@@ -1112,9 +1164,7 @@ static void calibration_manager_sck_finish_core1(
                                  ? CALIBRATION_TRAINING_SCK_ACCEPTED
                                  : CALIBRATION_TRAINING_SCK_REJECTED;
             snapshot.reject_reason =
-                raw->state == TDMA_PIO_SPI_DATA_TRAIN_COMPLETE
-                    ? CALIBRATION_TRAINING_SCK_REJECT_NONE
-                    : CALIBRATION_TRAINING_SCK_REJECT_DMA;
+                calibration_manager_sck_reject_from_raw(raw);
             snapshot.flags |=
                 CALIBRATION_TRAINING_SCK_FLAG_HARDWARE_SCK_ORIGIN |
                 CALIBRATION_TRAINING_SCK_FLAG_HARDWARE_SCK_CAPTURE;
@@ -1686,10 +1736,21 @@ void calibration_manager_service_core1(void)
                 .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
             };
             calibration_clk_marker_descriptor_t descriptor;
+            calibration_clk_marker_descriptor_t tx_descriptor;
+            const calibration_clk_marker_fault_config_t fault = {
+                .flags = marker_intent.request.diagnostic_fault_flags,
+            };
             uint32_t capture_phase_delay_cycles = 0u;
             if (calibration_clk_marker_build(
                     &marker_config, s_marker_workspace.expected_words,
                     CALIBRATION_CLK_MARKER_MAX_RAW_WORDS, &descriptor) &&
+                calibration_clk_marker_build_diagnostic_fault(
+                    &marker_config,
+                    fault.flags != 0u ? &fault : NULL,
+                    s_marker_tx_words,
+                    CALIBRATION_CLK_MARKER_MAX_RAW_WORDS, &tx_descriptor) &&
+                tx_descriptor.raw_words == descriptor.raw_words &&
+                tx_descriptor.raw_samples == descriptor.raw_samples &&
                 calibration_training_marker_capture_delay_cycles(
                     marker_intent.request.link_base_delay_ns,
                     marker_intent.request.tick_resolution_ns,
@@ -1703,8 +1764,8 @@ void calibration_manager_service_core1(void)
                                     CALIBRATION_TRAINING_MARKER_ROLE_ORIGINATOR
                                 ? TDMA_PIO_SPI_MARKER_ROLE_ORIGINATOR
                                 : TDMA_PIO_SPI_MARKER_ROLE_FOLLOWER,
-                    .tx_words = s_marker_workspace.expected_words,
-                    .tx_word_count = descriptor.raw_words,
+                    .tx_words = s_marker_tx_words,
+                    .tx_word_count = tx_descriptor.raw_words,
                     .marker_sample_count = descriptor.raw_samples,
                     .capture_sample_count = descriptor.raw_samples +
                         (marker_intent.request.role ==
@@ -2062,7 +2123,8 @@ bool calibration_manager_request_marker_training(
     uint32_t calibration_generation,
     uint32_t link_base_delay_ns,
     int32_t offset_sample_count,
-    uint32_t origin_node)
+    uint32_t origin_node,
+    uint32_t diagnostic_fault_flags)
 {
     tdma_ring_runtime_snapshot_t ring;
     tdma_service_ring_runtime_config_t staged;
@@ -2075,6 +2137,8 @@ bool calibration_manager_request_marker_training(
             CALIBRATION_TRAINING_MARKER_MIN_OFFSET_SAMPLES ||
         offset_sample_count >
             CALIBRATION_TRAINING_MARKER_MAX_OFFSET_SAMPLES ||
+        (diagnostic_fault_flags &
+         ~CALIBRATION_CLK_MARKER_FAULT_MARKER_ALL) != 0u ||
         calibration_generation == 0u || link_base_delay_ns == 0u ||
         BOARD_SYS_CLOCK_HZ == 0u ||
         (UINT32_C(1000000000) % BOARD_SYS_CLOCK_HZ) != 0u ||
@@ -2157,6 +2221,7 @@ bool calibration_manager_request_marker_training(
         .tick_resolution_ns = sample_period_ns,
         .link_base_delay_ns = link_base_delay_ns,
         .offset_sample_count = offset_sample_count,
+        .diagnostic_fault_flags = diagnostic_fault_flags,
     };
     calibration_manager_marker_publish(CALIBRATION_MARKER_INTENT_ARM,
                                        &request);
@@ -2232,7 +2297,8 @@ bool calibration_manager_request_data_training(
             CALIBRATION_TRAINING_DATA_MAX_OFFSET_SAMPLES ||
         search_start_offset_sample > search_end_offset_sample ||
         guard_sample_count > CALIBRATION_TRAINING_DATA_MAX_GUARD_SAMPLES ||
-        (diagnostic_fault_flags & ~CALIBRATION_CLK_MARKER_FAULT_ALL) != 0u ||
+        (diagnostic_fault_flags &
+         ~CALIBRATION_CLK_MARKER_FAULT_DATA_ALL) != 0u ||
         diagnostic_wire_epoch > UINT8_MAX ||
         (((diagnostic_fault_flags &
            CALIBRATION_CLK_MARKER_FAULT_EPOCH_OVERRIDE) != 0u) !=

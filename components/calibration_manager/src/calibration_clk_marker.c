@@ -230,6 +230,12 @@ bool calibration_clk_marker_build_diagnostic_fault(
         }
     }
     memset(raw_words, 0, next.raw_words * sizeof(raw_words[0]));
+    if (fault != NULL &&
+        (fault->flags & CALIBRATION_CLK_MARKER_FAULT_IDLE_HIGH) != 0u) {
+        memset(raw_words, 0xFF, next.raw_words * sizeof(raw_words[0]));
+        *descriptor = next;
+        return true;
+    }
     size_t raw_index = 0u;
     for (size_t logical = 0u;
          logical < CALIBRATION_CLK_MARKER_LOGICAL_BITS; logical++) {

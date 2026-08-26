@@ -110,7 +110,8 @@ bool calibration_manager_request_marker_training(
     uint32_t calibration_generation,
     uint32_t link_base_delay_ns,
     int32_t offset_sample_count,
-    uint32_t origin_node);
+    uint32_t origin_node,
+    uint32_t diagnostic_fault_flags);
 bool calibration_manager_inject_marker_training(void);
 void calibration_manager_stop_marker_training(void);
 bool calibration_manager_get_marker_training_snapshot(

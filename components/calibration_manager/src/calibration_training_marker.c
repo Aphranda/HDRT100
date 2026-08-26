@@ -1,6 +1,7 @@
 #include "calibration_training_marker.h"
 
 #include "calibration_training_phase.h"
+#include "calibration_clk_marker.h"
 
 #include <string.h>
 
@@ -43,7 +44,11 @@ static bool calibration_training_marker_request_valid(
            request->topology_generation != 0u &&
            request->topology_crc32 != 0u && request->profile_crc32 != 0u &&
            request->schedule_crc32 != 0u && request->tick_resolution_ns != 0u &&
-           request->link_base_delay_ns != 0u;
+           request->link_base_delay_ns != 0u &&
+           (request->diagnostic_fault_flags &
+            ~CALIBRATION_CLK_MARKER_FAULT_MARKER_ALL) == 0u &&
+           (request->role == CALIBRATION_TRAINING_MARKER_ROLE_ORIGINATOR ||
+            request->diagnostic_fault_flags == 0u);
 }
 
 static void calibration_training_marker_snapshot_from_request(
@@ -73,6 +78,7 @@ static void calibration_training_marker_snapshot_from_request(
     snapshot->tick_resolution_ns = request->tick_resolution_ns;
     snapshot->link_base_delay_ns = request->link_base_delay_ns;
     snapshot->offset_sample_count = request->offset_sample_count;
+    snapshot->diagnostic_fault_flags = request->diagnostic_fault_flags;
 }
 
 void calibration_training_marker_store_init(
@@ -141,6 +147,18 @@ static uint32_t calibration_training_marker_reject_reason(
         request->schedule_crc32 != evidence->schedule_crc32) {
         return CALIBRATION_TRAINING_MARKER_REJECT_GENERATION;
     }
+    /* Transport root causes must precede the semantic symptoms they create.
+     * A stalled PIO also leaves DMA incomplete, and a timeout necessarily
+     * lacks CRC/correlation evidence. */
+    if (evidence->pio_stall_count != 0u) {
+        return CALIBRATION_TRAINING_MARKER_REJECT_PIO_STALL;
+    }
+    if (evidence->dma_overrun_count != 0u) {
+        return CALIBRATION_TRAINING_MARKER_REJECT_DMA;
+    }
+    if (evidence->timeout_count != 0u) {
+        return CALIBRATION_TRAINING_MARKER_REJECT_TIMEOUT;
+    }
     if (request->train_epoch != evidence->train_epoch) {
         return CALIBRATION_TRAINING_MARKER_REJECT_EPOCH;
     }
@@ -157,15 +175,6 @@ static uint32_t calibration_training_marker_reject_reason(
     if ((evidence->flags & CALIBRATION_TRAINING_MARKER_REQUIRED_FLAGS) !=
         CALIBRATION_TRAINING_MARKER_REQUIRED_FLAGS) {
         return CALIBRATION_TRAINING_MARKER_REJECT_EVIDENCE_FLAGS;
-    }
-    if (evidence->dma_overrun_count != 0u) {
-        return CALIBRATION_TRAINING_MARKER_REJECT_DMA;
-    }
-    if (evidence->pio_stall_count != 0u) {
-        return CALIBRATION_TRAINING_MARKER_REJECT_PIO_STALL;
-    }
-    if (evidence->timeout_count != 0u) {
-        return CALIBRATION_TRAINING_MARKER_REJECT_TIMEOUT;
     }
     if (request->role == CALIBRATION_TRAINING_MARKER_ROLE_FOLLOWER &&
         (evidence->marker_capture_tick == 0u ||

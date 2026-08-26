@@ -24,6 +24,7 @@ from tools.calibration_ring_validate.calibration_marker_train import (
     summarize_matrix_row_trials,
     summarize_residence_matrix,
     topology_matches,
+    validate_idle_high_timeout,
     validate_ring,
 )
 from tools.calibration_ring_validate.calibration_marker_offsets import (
@@ -142,6 +143,31 @@ def test_parse_marker_status_rejects_field_drift() -> None:
         parse_marker_status(marker_row(0) + ",0")
     with pytest.raises(ValueError, match="tag"):
         parse_marker_status(marker_row(0).replace("MARKERTRN", "CLKTRAIN", 1))
+
+
+def test_idle_high_fault_requires_origin_timeout_and_untouched_followers(
+        ) -> None:
+    records = [parse_marker_status(marker_row(node)) for node in range(4)]
+    for node, record in enumerate(records):
+        record["state"] = 1
+        record["reject_reason"] = 0
+        record["diagnostic_fault_flags"] = 0
+        record["timeout_count"] = 0
+        record["marker_capture_tick"] = 0
+    records[0]["state"] = 4
+    records[0]["reject_reason"] = 11
+    records[0]["diagnostic_fault_flags"] = 1 << 2
+    records[0]["timeout_count"] = 1
+    result = validate_idle_high_timeout(records, 0)
+    assert result["passed"] is True
+    assert result["accepted"] is False
+    assert result["active_candidate_allowed"] is False
+
+    records[1]["state"] = 3
+    result = validate_idle_high_timeout(records, 0)
+    assert result["passed"] is False
+    assert "node_1_state" in result["errors"]
+    assert "node_1_accepted" in result["errors"]
 
 
 def test_marker_capture_save_accepts_composite_scpi_response() -> None:

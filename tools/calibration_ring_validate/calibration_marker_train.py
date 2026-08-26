@@ -49,7 +49,7 @@ MARKER_FIELDS = (
     "best_distance",
     "calibration_generation", "topology_generation", "topology_crc32",
     "profile_crc32", "schedule_crc32", "tick_resolution_ns",
-    "link_base_delay_ns", "offset_sample_count",
+    "link_base_delay_ns", "offset_sample_count", "diagnostic_fault_flags",
     "marker_capture_tick_lo", "marker_capture_tick_hi",
     "marker_forward_tick_lo", "marker_forward_tick_hi",
     "marker_return_tick_lo", "marker_return_tick_hi",
@@ -61,8 +61,11 @@ MARKER_FIELDS = (
 
 STATE_ACCEPTED = 3
 STATE_PREPARED = 1
+STATE_REJECTED = 4
 ROLE_ORIGINATOR = 1
 ROLE_FOLLOWER = 2
+MARKER_REJECT_TIMEOUT = 11
+FAULT_IDLE_HIGH = 1 << 2
 FLAG_DIAGNOSTIC_ONLY = 1 << 0
 FLAG_HARDWARE_LATCHED = 1 << 1
 FLAG_CAPTURE_VALID = 1 << 2
@@ -329,6 +332,10 @@ def parse_args() -> argparse.Namespace:
         help=("measured end-to-end delay; repeat once per physical link; "
               "the training base is link-delay/2"))
     parser.add_argument(
+        "--fault-idle-high", action="store_true",
+        help=("TRN-03D marker-timeout trial: originator sends no falling "
+              "edge and must be rejected by the PIO watchdog"))
+    parser.add_argument(
         "--offset-matrix", action="store_true",
         help="traverse the configured offset matrix, optionally filtered")
     parser.add_argument(
@@ -495,14 +502,16 @@ def marker_action_args(args: argparse.Namespace) -> argparse.Namespace:
 
 
 def arm_marker(board: Board, args: argparse.Namespace,
-               link_base_ns: int, offset_sample_count: int) -> str:
+               link_base_ns: int, offset_sample_count: int,
+               diagnostic_fault_flags: int = 0) -> str:
     command = (f"CALibration:MARKer:ARM {args.codebook},{args.epoch},"
                f"{args.epoch},{args.epoch},{args.generation},"
-               f"{link_base_ns},{offset_sample_count},{args.origin_node}")
+               f"{link_base_ns},{offset_sample_count},{args.origin_node},"
+               f"{diagnostic_fault_flags}")
     response = board_command(board, command, marker_action_args(args))
     expected = [args.codebook, args.epoch, args.epoch, args.epoch,
                 args.generation, link_base_ns, offset_sample_count,
-                args.origin_node]
+                args.origin_node, diagnostic_fault_flags]
     try:
         actual = [int(value.strip().strip('"'), 0)
                   for value in next(csv.reader([response]), [])]
@@ -551,15 +560,69 @@ def wait_marker(ordered: list[Board], args: argparse.Namespace) -> list[dict[str
     raise RuntimeError(f"marker completion timeout: {last}")
 
 
-def stop_marker(ordered: list[Board], args: argparse.Namespace) -> None:
+def wait_marker_timeout(ordered: list[Board], args: argparse.Namespace
+                        ) -> list[dict[str, int | str]]:
+    deadline = time.monotonic() + args.marker_timeout
+    last = [marker_status(board, args) for board in ordered]
+    while time.monotonic() < deadline:
+        origin = last[args.origin_node]
+        if (int(origin["state"]) == STATE_REJECTED and
+                int(origin["train_epoch"]) == args.epoch):
+            return last
+        time.sleep(0.05)
+        last = [marker_status(board, args) for board in ordered]
+    raise RuntimeError(f"marker timeout fault did not terminate origin: {last}")
+
+
+def validate_idle_high_timeout(
+        records: list[dict[str, int | str]], origin_node: int
+        ) -> dict[str, object]:
+    errors: list[str] = []
+    if not 2 <= len(records) <= 8:
+        errors.append("board_count")
+    for node, record in enumerate(records):
+        expected_fault = FAULT_IDLE_HIGH if node == origin_node else 0
+        if int(record["diagnostic_fault_flags"]) != expected_fault:
+            errors.append(f"node_{node}_fault_readback")
+        if node == origin_node:
+            if int(record["state"]) != STATE_REJECTED:
+                errors.append("origin_state")
+            if int(record["reject_reason"]) != MARKER_REJECT_TIMEOUT:
+                errors.append("origin_reject_reason")
+            if int(record["timeout_count"]) == 0:
+                errors.append("origin_timeout_count")
+            if int(record["marker_capture_tick"]) != 0:
+                errors.append("origin_unexpected_input_edge")
+        else:
+            if int(record["state"]) != STATE_PREPARED:
+                errors.append(f"node_{node}_state")
+            if int(record["timeout_count"]) != 0:
+                errors.append(f"node_{node}_timeout_count")
+        if int(record["state"]) == STATE_ACCEPTED:
+            errors.append(f"node_{node}_accepted")
+    return {
+        "phase": "TRN-03D_MARKER_TIMEOUT",
+        "passed": not errors,
+        "accepted": False,
+        "diagnostic_only": True,
+        "active_candidate_allowed": False,
+        "expected_reject_reason": MARKER_REJECT_TIMEOUT,
+        "fault": "IDLE_HIGH_NO_MARKER_EDGE",
+        "errors": errors,
+        "records": records,
+    }
+
+
+def stop_marker(ordered: list[Board], args: argparse.Namespace
+                ) -> list[dict[str, int | str]]:
     action_args = marker_action_args(args)
     for board in ordered:
         board_command(board, "CALibration:MARKer:STOP", action_args)
     deadline = time.monotonic() + args.marker_timeout
     while time.monotonic() < deadline:
-        if all(int(marker_status(board, args)["state"]) == 0
-               for board in ordered):
-            return
+        snapshots = [marker_status(board, args) for board in ordered]
+        if all(int(snapshot["state"]) == 0 for snapshot in snapshots):
+            return snapshots
         time.sleep(0.05)
     raise RuntimeError("marker STOP did not restore IDLE on every board")
 
@@ -658,6 +721,8 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
         "codebook": args.codebook,
         "epoch": args.epoch,
         "generation": args.generation,
+        "diagnostic_fault": (
+            "IDLE_HIGH_NO_MARKER_EDGE" if args.fault_idle_high else None),
         "node_offset_samples": offsets,
         "node_offset_ns": [offset * SAMPLE_PERIOD_NS for offset in offsets],
         "offset_application": "PIO_CAPTURE_PHASE_DELAY_ONLY_FORWARD_FIXED",
@@ -676,6 +741,11 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
     if args.dry_run:
         return {**plan, "passed": False, "dry_run": True}
     actions = [] if args.reuse_ring_identity else prepare_ring(ordered, args)
+    active_before = {
+        board.address: board_command(
+            board, "READ:CALibration:ACTive?", args)
+        for board in ordered
+    }
     follower_nodes = [
         (args.origin_node + offset) % len(ordered)
         for offset in range(1, len(ordered))
@@ -695,7 +765,7 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
                          "offset_sample_count": offsets[node],
                          "response": arm_marker(
                              board, args, link_bases[incoming_link],
-                             offsets[node])})
+                             offsets[node], 0)})
         origin_incoming_link = (args.origin_node - 1) % len(ordered)
         arms.append({"board": originator.address,
                      "incoming_link": origin_incoming_link,
@@ -704,19 +774,39 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
                      "response": arm_marker(
                          originator, args,
                          link_bases[origin_incoming_link],
-                         offsets[args.origin_node])})
+                         offsets[args.origin_node],
+                         FAULT_IDLE_HIGH if args.fault_idle_high else 0)})
         armed = wait_marker_armed(ordered, args)
         injection = {
             "board": originator.address,
             "response": inject_marker(originator, args),
         }
-        records = wait_marker(ordered, args)
-        validation = validate_ring(records)
-        capture_files = [save_marker_capture(board, args) for board in ordered]
+        if args.fault_idle_high:
+            records = wait_marker_timeout(ordered, args)
+            validation = validate_idle_high_timeout(
+                records, args.origin_node)
+            capture_files = []
+        else:
+            records = wait_marker(ordered, args)
+            validation = validate_ring(records)
+            capture_files = [
+                save_marker_capture(board, args) for board in ordered]
     finally:
-        stop_marker(ordered, args)
+        idle = stop_marker(ordered, args)
+    active_after = {
+        board.address: board_command(
+            board, "READ:CALibration:ACTive?", args)
+        for board in ordered
+    }
+    if active_before != active_after:
+        validation["errors"].append("active_record_changed")
+        validation["passed"] = False
     return {**plan, **validation, "actions": actions, "arms": arms,
             "armed": armed, "injection": injection,
+            "idle_after_stop": idle,
+            "active_before": active_before,
+            "active_after": active_after,
+            "active_unchanged": active_before == active_after,
             "capture_files": capture_files}
 
 
@@ -1149,6 +1239,10 @@ def main() -> int:
     if args.board_id is not None:
         if args.residence_matrix and args.offset_matrix:
             raise SystemExit("residence-matrix and offset-matrix are exclusive")
+        if args.fault_idle_high and (
+                args.residence_matrix or args.offset_matrix):
+            raise SystemExit(
+                "fault-idle-high requires one explicit marker trial")
         result = (run_residence_matrix(args) if args.residence_matrix else
                   run_offset_matrix(args) if args.offset_matrix else
                   run_hil(args))

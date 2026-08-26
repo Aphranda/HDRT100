@@ -232,6 +232,21 @@ static int test_required_reject_matrix(void)
     evidence.timeout_count = 1u;
     failed += expect_reject("offset timeout", request, evidence,
                             CALIBRATION_TRAINING_DATA_REJECT_TIMEOUT);
+    evidence = make_evidence();
+    evidence.observed_crc32 = 0u;
+    evidence.flags = 0u;
+    evidence.correlation_reject_reason =
+        CALIBRATION_CLK_CORRELATION_REJECT_BAD_ARGUMENT;
+    evidence.timeout_count = 1u;
+    failed += expect_reject(
+        "timeout precedes unavailable correlation", request, evidence,
+        CALIBRATION_TRAINING_DATA_REJECT_TIMEOUT);
+    evidence = make_evidence();
+    evidence.dma_overrun_count = 1u;
+    evidence.pio_stall_count = 1u;
+    failed += expect_reject(
+        "pio stall precedes derivative dma overrun", request, evidence,
+        CALIBRATION_TRAINING_DATA_REJECT_PIO_STALL);
     return failed;
 }
 
@@ -318,6 +333,12 @@ static int test_bad_request_rejected(void)
     failed += expect_bool(
         "explicit epoch fault request",
         calibration_training_data_prepare_core1(&store, &request), true);
+    request = make_request();
+    request.diagnostic_fault_flags =
+        CALIBRATION_CLK_MARKER_FAULT_IDLE_HIGH;
+    failed += expect_bool(
+        "MARK idle-high fault is rejected by DATA training",
+        calibration_training_data_prepare_core1(&store, &request), false);
     request = make_request();
     request.diagnostic_fault_flags =
         CALIBRATION_CLK_MARKER_FAULT_HEADER_CRC8_XOR;

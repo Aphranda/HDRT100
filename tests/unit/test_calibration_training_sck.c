@@ -134,6 +134,31 @@ int main(void)
                     &store, &request, &evidence),
                 false);
 
+    evidence = make_evidence();
+    evidence.observed_crc32 = 0u;
+    evidence.flags = 0u;
+    evidence.timeout_count = 1u;
+    expect_true("SCK timeout rejected",
+                calibration_training_sck_evaluate_core1(
+                    &store, &request, &evidence),
+                false);
+    (void)calibration_training_sck_get_snapshot(&store, &snapshot);
+    expect_u32("SCK timeout precedes semantic symptoms",
+               snapshot.reject_reason,
+               CALIBRATION_TRAINING_SCK_REJECT_TIMEOUT);
+
+    evidence = make_evidence();
+    evidence.dma_overrun_count = 1u;
+    evidence.pio_stall_count = 1u;
+    expect_true("SCK PIO stall rejected",
+                calibration_training_sck_evaluate_core1(
+                    &store, &request, &evidence),
+                false);
+    (void)calibration_training_sck_get_snapshot(&store, &snapshot);
+    expect_u32("SCK PIO stall precedes derivative DMA",
+               snapshot.reject_reason,
+               CALIBRATION_TRAINING_SCK_REJECT_PIO_STALL);
+
     request.sck_launch_guard_sample_count = 0u;
     expect_true("zero launch guard rejected",
                 calibration_training_sck_prepare_core1(&store, &request),

@@ -1,4 +1,5 @@
 #include "calibration_training_marker.h"
+#include "calibration_clk_marker.h"
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -191,6 +192,19 @@ static int test_reject_matrix(void)
     evidence.timeout_count = 1u;
     failed += expect_reject("timeout", request, evidence,
                             CALIBRATION_TRAINING_MARKER_REJECT_TIMEOUT);
+    evidence = make_evidence();
+    evidence.observed_crc32 = 0u;
+    evidence.flags = 0u;
+    evidence.timeout_count = 1u;
+    failed += expect_reject(
+        "timeout precedes missing semantic evidence", request, evidence,
+        CALIBRATION_TRAINING_MARKER_REJECT_TIMEOUT);
+    evidence = make_evidence();
+    evidence.dma_overrun_count = 1u;
+    evidence.pio_stall_count = 1u;
+    failed += expect_reject(
+        "pio stall precedes derivative dma overrun", request, evidence,
+        CALIBRATION_TRAINING_MARKER_REJECT_PIO_STALL);
     return failed;
 }
 
@@ -225,6 +239,23 @@ static int test_rejects_invalid_request(void)
     failed += expect_bool("negative offset underflow rejected",
                           calibration_training_marker_prepare_core1(
                               &store, &request), false);
+    request = make_request();
+    request.diagnostic_fault_flags =
+        CALIBRATION_CLK_MARKER_FAULT_IDLE_HIGH;
+    failed += expect_bool(
+        "follower cannot own marker wire fault",
+        calibration_training_marker_prepare_core1(&store, &request), false);
+    request.role = CALIBRATION_TRAINING_MARKER_ROLE_ORIGINATOR;
+    request.local_node = request.reference_node;
+    request.predecessor_node = 3u;
+    request.successor_node = 1u;
+    failed += expect_bool(
+        "origin accepts idle-high diagnostic fault",
+        calibration_training_marker_prepare_core1(&store, &request), true);
+    request.diagnostic_fault_flags = 1u << 31u;
+    failed += expect_bool(
+        "unknown marker wire fault rejected",
+        calibration_training_marker_prepare_core1(&store, &request), false);
     return failed;
 }
 

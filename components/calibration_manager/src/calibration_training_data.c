@@ -39,7 +39,7 @@ static bool calibration_training_data_request_valid(
             CALIBRATION_TRAINING_DATA_MAX_GUARD_SAMPLES ||
         request->expected_polarity > 1u ||
         (request->diagnostic_fault_flags &
-         ~CALIBRATION_CLK_MARKER_FAULT_ALL) != 0u ||
+         ~CALIBRATION_CLK_MARKER_FAULT_DATA_ALL) != 0u ||
         request->diagnostic_wire_epoch > UINT8_MAX ||
         (((request->diagnostic_fault_flags &
            CALIBRATION_CLK_MARKER_FAULT_EPOCH_OVERRIDE) != 0u) !=
@@ -162,6 +162,15 @@ static uint32_t calibration_training_data_reject_reason(
         request->schedule_crc32 != evidence->schedule_crc32) {
         return CALIBRATION_TRAINING_DATA_REJECT_GENERATION;
     }
+    if (evidence->pio_stall_count != 0u) {
+        return CALIBRATION_TRAINING_DATA_REJECT_PIO_STALL;
+    }
+    if (evidence->dma_overrun_count != 0u) {
+        return CALIBRATION_TRAINING_DATA_REJECT_DMA;
+    }
+    if (evidence->timeout_count != 0u) {
+        return CALIBRATION_TRAINING_DATA_REJECT_TIMEOUT;
+    }
     if (evidence->correlation_reject_reason ==
         CALIBRATION_CLK_CORRELATION_REJECT_DISTANCE) {
         return CALIBRATION_TRAINING_DATA_REJECT_DISTANCE;
@@ -201,15 +210,6 @@ static uint32_t calibration_training_data_reject_reason(
     if (evidence->expected_sample_count == 0u ||
         evidence->captured_sample_count < evidence->expected_sample_count) {
         return CALIBRATION_TRAINING_DATA_REJECT_CAPTURE_TRUNCATED;
-    }
-    if (evidence->dma_overrun_count != 0u) {
-        return CALIBRATION_TRAINING_DATA_REJECT_DMA;
-    }
-    if (evidence->pio_stall_count != 0u) {
-        return CALIBRATION_TRAINING_DATA_REJECT_PIO_STALL;
-    }
-    if (evidence->timeout_count != 0u) {
-        return CALIBRATION_TRAINING_DATA_REJECT_TIMEOUT;
     }
     if (evidence->best_distance > request->max_best_distance) {
         return CALIBRATION_TRAINING_DATA_REJECT_DISTANCE;
