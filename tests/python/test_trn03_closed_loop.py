@@ -279,6 +279,22 @@ def test_origin_data_rx_consumes_staged_sck_and_data_phase() -> None:
         "bool tdma_pio_spi_phys_set_flight_offsets", 1
     )[1].split("bool tdma_pio_spi_phys_prepare_process_overlay", 1)[0]
     assert "data_phase_delay_cycles <= sck_phase_delay_cycles" in setter
+    arm = phys_source.split("bool tdma_pio_spi_phys_arm", 1)[1].split(
+        "void tdma_pio_spi_phys_disarm", 1)[0]
+    assert "TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES" in arm
+    assert "half_period_cycles" in arm
+    assert "TDMA_PIO_SPI_FLIGHT_DATA_REARM_CYCLES" in arm
+    assert "period_cycles" in arm
+
+
+def test_closed_loop_stops_calibration_personas_before_ring_staging() -> None:
+    source = (ROOT / "tools" / "calibration_ring_validate" /
+              "trn03_closed_loop.py").read_text(encoding="utf-8")
+    bias_stop = source.index('"CALibration:BIAS:STOP"')
+    loopback_stop = source.index('"CALibration:LOOPback:STOP"', bias_stop)
+    ring_stop = source.index('"SYSTem:TDMA:RING:STOP"', loopback_stop)
+    topology = source.index('f"SYSTem:TDMA:RING:TOPology', ring_stop)
+    assert bias_stop < loopback_stop < ring_stop < topology
 
 
 def test_origin_queues_frame_byte_count_before_payload_dma() -> None:
@@ -302,6 +318,21 @@ def test_shifted_rx_scanner_preserves_shared_raw_boundary_word() -> None:
     assert ("s_tdma_pio_spi_rx_scan_produced = candidate + total_words;"
             in capture)
     assert "candidate + total_words + alignment_extra;" not in capture
+
+
+def test_p3_reference_capture_uses_persona_loaded_program_offset() -> None:
+    source = (ROOT / "components" / "tdma" / "src" /
+              "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    service = source.split(
+        "void tdma_pio_spi_phys_cal_loopback_service", 1
+    )[1].split("static uint32_t tdma_pio_spi_cal_sample_byte", 1)[0]
+    capture_init = service.split(
+        "tdma_pio_spi_cal_loopback_capture_program_init", 1
+    )[1].split(");", 1)[0]
+    assert "BOARD_TDMA_SPI_CAPTURE_SM" in service
+    assert "s_tdma_pio_spi_p3_capture_offset" in capture_init
+    assert "s_tdma_pio_spi_cal_capture_offset" not in capture_init
+    assert "TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL" in service
 
 
 def test_process_rx_reconstructs_absolute_fixed_frame_sequence() -> None:

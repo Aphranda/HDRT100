@@ -53,10 +53,13 @@ def config() -> dict:
 
 
 def closed_loop(rtt: int = 400) -> dict:
+    selected_row = deepcopy(config()["offset_matrix"]["rows"][0])
     return {
         "passed": True,
         "stage": "process-image",
         "calibration_generation": 210,
+        "offset_row_id": 0,
+        "offset_row": selected_row,
         "board_ids_in_physical_node_order": list(BOARD_ORDER),
         "ring_capture": {"capture_completed": True},
         "ring_analysis": {"passed": True},
@@ -166,3 +169,14 @@ def test_candidate_rejects_path_base_residual() -> None:
         maximum_path_base_residual_ns=4)
     assert result["passed"] is False
     assert "link1:path_base_residual" in result["gate_failures"]
+
+
+def test_candidate_rejects_closed_loop_from_different_offset_row() -> None:
+    wrong_row = closed_loop()
+    wrong_row["offset_row_id"] = 31
+    wrong_row["offset_row"]["row_id"] = 31
+    result = build_candidate(
+        config(), [wrong_row, closed_loop()], p3(), bias_set())
+    assert result["passed"] is False
+    assert "closed_loop0:offset_row_id" in result["gate_failures"]
+    assert "closed_loop0:offset_row" in result["gate_failures"]

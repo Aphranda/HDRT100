@@ -135,6 +135,12 @@ def validate_closed_loops(
     failures: list[str] = []
     rtt_values: list[int] = []
     board_order: list[str] = []
+    matrix = config.get("offset_matrix")
+    if not isinstance(matrix, dict):
+        raise ValueError("offset_matrix must be an object")
+    expected_row_id = _integer(matrix.get("active_row_id"),
+                               "offset_matrix.active_row_id")
+    expected_row = _selected_row(config)
     if len(summaries) < minimum_repeats:
         failures.append("closed_loop_repeat_count")
     for repeat, summary in enumerate(summaries):
@@ -152,6 +158,10 @@ def validate_closed_loops(
             failures.append(prefix + ":gate")
         if summary.get("stage") != "process-image":
             failures.append(prefix + ":stage")
+        if int(summary.get("offset_row_id", -1)) != expected_row_id:
+            failures.append(prefix + ":offset_row_id")
+        if summary.get("offset_row") != expected_row:
+            failures.append(prefix + ":offset_row")
         if _integer(summary.get("calibration_generation"),
                     prefix + ".generation") != _integer(
                         config.get("calibration_generation"),

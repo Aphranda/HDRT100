@@ -570,9 +570,22 @@ def main() -> int:
     error = ""
     try:
         for board in ordered:
+            actions.append({
+                "node": board.address,
+                "action": "CALIBRATION_BIAS_STOP",
+                "response": board_command(
+                    board, "CALibration:BIAS:STOP", args),
+            })
+            actions.append({
+                "node": board.address,
+                "action": "CALIBRATION_LOOPBACK_STOP",
+                "response": board_command(
+                    board, "CALibration:LOOPback:STOP", args),
+            })
             actions.append({"node": board.address, "action": "STOP",
                             "response": board_command(
                                 board, "SYSTem:TDMA:RING:STOP", args)})
+        time.sleep(args.settle)
         expected_mode = 2 if args.stage == "process-image" else 1
         for board in ordered:
             response = board_command(

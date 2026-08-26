@@ -93,6 +93,9 @@ LINK_QUERY_FIELDS = (
 )
 REQUIRED_EVIDENCE_FLAGS = 0x1F
 DIAGNOSTIC_ONLY_FLAG = 1 << 31
+FLIGHT_SCK_REARM_SAMPLES = 2
+FLIGHT_DATA_REARM_SAMPLES = 5
+FLIGHT_REFERENCE_NODE = 0
 
 
 def parse_args() -> argparse.Namespace:
@@ -138,6 +141,9 @@ def load_config(path: Path, offset_row_id: int | None = None) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise ValueError("config root must be an object")
     header = {field: integer_field(raw, field) for field in HEADER_FIELDS}
+    baud_hz = integer_field(raw, "baud_hz")
+    if baud_hz == 0:
+        raise ValueError("baud_hz must be non-zero")
     node_count = header["node_count"]
     if node_count < 2 or node_count > 8:
         raise ValueError("node_count must be in [2, 8]")
@@ -247,6 +253,20 @@ def load_config(path: Path, offset_row_id: int | None = None) -> dict[str, Any]:
                 link["data_phase_delay_cycles"] > 31:
             raise ValueError(
                 f"link{link['link_index']} PIO phase mapping is invalid")
+        period_samples = 1_000_000_000 // (
+            baud_hz * link["sample_period_ns"])
+        half_period_samples = period_samples // 2
+        if (marker_destination != FLIGHT_REFERENCE_NODE and
+                link["sck_phase_delay_cycles"] +
+                FLIGHT_SCK_REARM_SAMPLES > half_period_samples):
+            raise ValueError(
+                f"link{link['link_index']} SCK replay phase cannot re-arm "
+                "before the opposite edge")
+        if (link["data_phase_delay_cycles"] +
+                FLIGHT_DATA_REARM_SAMPLES > period_samples):
+            raise ValueError(
+                f"link{link['link_index']} DATA replay phase cannot re-arm "
+                "before the next symbol")
         links.append(link)
     if sorted(link["link_index"] for link in links) != list(range(node_count)):
         raise ValueError("link_index must cover [0, node_count) exactly")
@@ -260,6 +280,7 @@ def load_config(path: Path, offset_row_id: int | None = None) -> dict[str, Any]:
                 f"node{node} DATA phase must follow its incoming SCK phase")
     return {
         **header,
+        "baud_hz": baud_hz,
         "offset_row_id": selected_row_id,
         "offset_row": selected_row,
         "links": ordered_links,

@@ -521,6 +521,21 @@ void calibration_manager_service(void)
     calibration_pio_loopback_snapshot_t raw;
     if (calibration_pio_loopback_get_snapshot(&raw) && raw.complete != 0u &&
         raw.epoch != s_loopback_processed_epoch) {
+        tdma_pio_spi_phys_snapshot_t phys_snapshot;
+        tdma_ring_calibration_stage_t training_stage;
+        bool training_stage_complete = false;
+        const bool identity_available =
+            tdma_runtime_owner_get_phys_snapshot(&phys_snapshot) &&
+            tdma_runtime_owner_get_calibration_stage(
+                &training_stage, &training_stage_complete) &&
+            training_stage_complete;
+        uint32_t sample_flags =
+            CALIBRATION_BIDIRECTIONAL_FLAG_DMA_COMPLETE |
+            CALIBRATION_BIDIRECTIONAL_FLAG_REFERENCE_LOOPBACK;
+        if ((raw.flags & TDMA_PIO_SPI_CAL_LOOPBACK_FLAG_PIO_DMA) != 0u) {
+            sample_flags |=
+                CALIBRATION_BIDIRECTIONAL_FLAG_HARDWARE_LATCHED;
+        }
         calibration_bidirectional_sample_t sample = {
             .t1_clk_tx = raw.t1_clk_tx,
             .t2_clk_rx = raw.t2_clk_rx,
@@ -528,11 +543,9 @@ void calibration_manager_service(void)
             .t4_data_rx = raw.t4_data_rx,
             .train_epoch = raw.epoch,
             .train_sequence = raw.epoch,
-            .persona_generation = 1u,
-            .sample_flags = CALIBRATION_BIDIRECTIONAL_FLAG_HARDWARE_LATCHED |
-                            CALIBRATION_BIDIRECTIONAL_FLAG_DIAGNOSTIC_ONLY |
-                            CALIBRATION_BIDIRECTIONAL_FLAG_DMA_COMPLETE |
-                            CALIBRATION_BIDIRECTIONAL_FLAG_REFERENCE_LOOPBACK,
+            .persona_generation = identity_available
+                ? phys_snapshot.program_persona : 0u,
+            .sample_flags = sample_flags,
             .edge_mask = raw.edge_mask,
             .clock_rate_error_bound_ns = raw.sample_period_ns,
             .reference_loopback = true,
@@ -545,7 +558,8 @@ void calibration_manager_service(void)
                                      CALIBRATION_BIDIRECTIONAL_FLAG_DMA_COMPLETE |
                                      CALIBRATION_BIDIRECTIONAL_FLAG_SYNC_MATCH,
             .required_edge_mask = CALIBRATION_BIDIRECTIONAL_EDGE_ALL,
-            .expected_persona_generation = 1u,
+            .expected_persona_generation =
+                TDMA_PIO_SPI_PROGRAM_PERSONA_P3_REFERENCE,
             .max_clock_rate_error_bound_ns = raw.sample_period_ns,
             .allow_reference_loopback = true,
         };
@@ -563,9 +577,12 @@ void calibration_manager_service(void)
             const calibration_bias_sample_t bias_sample = {
                 .raw_path_sum_ns = next.result.raw_path_sum_ns,
                 .clock_error_bound_ns = raw.sample_period_ns,
-                .persona_generation = 1u,
-                .profile_crc32 = 0u,
-                .topology_generation = 0u,
+                .persona_generation = identity_available
+                    ? phys_snapshot.program_persona : 0u,
+                .profile_crc32 = identity_available
+                    ? training_stage.profile_crc32 : 0u,
+                .topology_generation = identity_available
+                    ? training_stage.topology_generation : 0u,
                 .sample_flags = sample.sample_flags,
                 .epoch = raw.epoch,
                 .reference_loopback = true,
@@ -632,13 +649,22 @@ bool calibration_manager_start_bias(uint32_t expected_path_sum_ns,
                                     uint32_t maximum_spread_ns,
                                     uint32_t maximum_clock_error_ns)
 {
+    tdma_ring_calibration_stage_t training_stage;
+    bool training_stage_complete = false;
     if (minimum_samples == 0u || maximum_samples < minimum_samples ||
-        maximum_samples > 1024u || s_bias_active) {
+        maximum_samples > 1024u || s_bias_active ||
+        !tdma_runtime_owner_get_calibration_stage(
+            &training_stage, &training_stage_complete) ||
+        !training_stage_complete || training_stage.profile_crc32 == 0u ||
+        training_stage.topology_generation == 0u) {
         return false;
     }
     calibration_bias_gate_t gate = {
         .expected_path_sum_ns = expected_path_sum_ns,
-        .expected_persona_generation = 1u,
+        .expected_persona_generation =
+            TDMA_PIO_SPI_PROGRAM_PERSONA_P3_REFERENCE,
+        .expected_profile_crc32 = training_stage.profile_crc32,
+        .expected_topology_generation = training_stage.topology_generation,
         .minimum_samples = minimum_samples,
         .maximum_samples = maximum_samples,
         .maximum_spread_ns = maximum_spread_ns,

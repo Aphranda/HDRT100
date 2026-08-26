@@ -60,6 +60,7 @@ def matrix() -> dict[str, object]:
         })
     return {
         "node_count": 4,
+        "baud_hz": 10_000_000,
         "evidence_flags": 0x1F,
         "calibration_generation": 88,
         "topology_generation": 61,
@@ -127,6 +128,14 @@ def test_load_config_rejects_data_phase_not_after_incoming_sck(
     value["offset_matrix"]["rows"][0][
         "data_offset_sample_counts_by_node"] = [0, 0, 0, 0]
     with pytest.raises(ValueError, match="DATA phase must follow"):
+        load_config(write_matrix(tmp_path, value))
+
+
+def test_load_config_rejects_sck_phase_that_cannot_rearm(tmp_path: Path) -> None:
+    value = matrix()
+    value["offset_matrix"]["rows"][0][
+        "sck_offset_sample_counts_by_node"] = [1, 1, 1, 1]
+    with pytest.raises(ValueError, match="SCK replay phase cannot re-arm"):
         load_config(write_matrix(tmp_path, value))
 
 

@@ -86,7 +86,10 @@ typedef enum {
 #define TDMA_PIO_SPI_DATA_TRAIN_TIMEOUT_NS 3000000000ull
 #define TDMA_PIO_SPI_CLK_TRAIN_SNAPSHOT_VERSION 1u
 #define TDMA_PIO_SPI_CAL_LOOPBACK_MAX_WORDS 256u
-#define TDMA_PIO_SPI_CAL_LOOPBACK_DEFAULT_HZ 50000000u
+/* P3 endpoint-reference capture runs directly at clk_sys.  Keeping this at
+ * the same 4 ns sample grid as per-link P3 prevents a coarser reference from
+ * being promoted into the active path table. */
+#define TDMA_PIO_SPI_CAL_LOOPBACK_DEFAULT_HZ 250000000u
 #define TDMA_PIO_SPI_CAL_LOOPBACK_DEFAULT_WORDS 128u
 #define TDMA_PIO_SPI_CAL_LOOPBACK_FLAG_PIO_DMA (1u << 0u)
 #define TDMA_PIO_SPI_CAL_LOOPBACK_FLAG_DIAGNOSTIC_ONLY (1u << 1u)
@@ -142,10 +145,11 @@ typedef enum {
     TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER = 12u,
     TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER = 13u,
     TDMA_PIO_SPI_PROGRAM_PERSONA_SCK_TRAIN = 14u,
+    TDMA_PIO_SPI_PROGRAM_PERSONA_P3_REFERENCE = 15u,
 } tdma_pio_spi_program_persona_t;
 
 #define TDMA_PIO_SPI_PROGRAM_PERSONA_MAX \
-    TDMA_PIO_SPI_PROGRAM_PERSONA_SCK_TRAIN
+    TDMA_PIO_SPI_PROGRAM_PERSONA_P3_REFERENCE
 
 typedef enum {
     TDMA_PIO_SPI_DATA_TRAIN_IDLE = 0u,

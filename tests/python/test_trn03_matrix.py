@@ -168,6 +168,12 @@ def test_build_matrix_derives_residence_and_budget(tmp_path: Path) -> None:
     assert link0["source_evidence"]["forward_residence_ticks"] == [1, 1, 1]
     path = tmp_path / "matrix.json"
     path.write_text(__import__("json").dumps(matrix), encoding="utf-8")
+    with pytest.raises(ValueError, match="SCK replay phase cannot re-arm"):
+        load_config(path)
+
+    level7_data, level7_residence = evidence(7)
+    level7 = build_matrix(7, level7_data, level7_residence)
+    path.write_text(__import__("json").dumps(level7), encoding="utf-8")
     assert load_config(path)["node_count"] == 4
 
 

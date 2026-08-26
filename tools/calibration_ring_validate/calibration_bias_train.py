@@ -28,6 +28,13 @@ BIAS_FIELDS = (
     "mean_bias_ns", "spread_ns", "table_crc32",
 )
 REQUIRED_BIAS_FLAGS = 0x1F
+LOOPBACK_FIELDS = (
+    "armed", "complete", "sample_hz", "sample_period_ns",
+    "produced_words", "edge_mask", "flags", "reject_reason", "epoch",
+    "t1_ns", "t2_ns", "t3_ns", "t4_ns", "result_valid",
+    "residence_ns", "raw_path_sum_ns", "delay_estimate_ns",
+    "active_eligible",
+)
 
 
 def parse_bias_snapshot(raw: str) -> dict[str, int]:
@@ -37,6 +44,15 @@ def parse_bias_snapshot(raw: str) -> dict[str, int]:
             f"bias field count {len(row)}, expected {len(BIAS_FIELDS)}")
     values = [int(value.strip().strip('"'), 0) for value in row]
     return dict(zip(BIAS_FIELDS, values))
+
+
+def parse_loopback_snapshot(raw: str) -> dict[str, int]:
+    row = next(csv.reader([raw]), [])
+    if len(row) != len(LOOPBACK_FIELDS):
+        raise ValueError(
+            f"loopback field count {len(row)}, expected {len(LOOPBACK_FIELDS)}")
+    values = [int(value.strip().strip('"'), 0) for value in row]
+    return dict(zip(LOOPBACK_FIELDS, values))
 
 
 def bias_snapshot_passed(snapshot: dict[str, int]) -> bool:
@@ -78,6 +94,8 @@ def train_board(board: Board, node: int, expected_path_sum_ns: int,
     board_command(board, "CALibration:BIAS:STOP", args)
     final = parse_bias_snapshot(
         board_command(board, "READ:CALibration:BIAS?", args))
+    last_loopback = parse_loopback_snapshot(
+        board_command(board, "READ:CALibration:LOOPback?", args))
     passed = bias_snapshot_passed(final)
     save_response = ""
     if args.save and passed:
@@ -90,6 +108,7 @@ def train_board(board: Board, node: int, expected_path_sum_ns: int,
         "expected_path_sum_ns": expected_path_sum_ns,
         "start_response": response,
         "poll_count": len(snapshots),
+        "last_loopback": last_loopback,
         **final,
         "passed": passed,
         "save_response": save_response,
