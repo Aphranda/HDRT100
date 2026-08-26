@@ -26,6 +26,8 @@ static int expect_u32(const char *name, uint32_t actual, uint32_t expected)
 
 typedef struct {
     bool started;
+    bool disable_during_start;
+    tdma_ring_runtime_t *runtime;
     uint32_t start_count;
     uint32_t stop_count;
     uint32_t train_count;
@@ -43,6 +45,9 @@ static bool fake_ring_start(void *context,
     }
     adapter->started = true;
     adapter->start_count++;
+    if (adapter->disable_during_start && adapter->runtime != NULL) {
+        (void)tdma_ring_runtime_configure(adapter->runtime, NULL);
+    }
     return true;
 }
 
@@ -358,6 +363,51 @@ int main(void)
                          snapshot.up_running | snapshot.down_running,
                          0u);
     failed += expect_u32("adapter stopped", adapter.stop_count, 1u);
+    failed += expect_u32("disabled generation acknowledged",
+                         snapshot.applied_config_seq,
+                         snapshot.config_seq);
+
+    /* A STOP may supersede an ARM while the physical start callback is in
+     * progress on core1. The stale generation must be revoked in the same
+     * service turn and may never be published as applied. */
+    {
+        tdma_ring_runtime_t race_runtime;
+        tdma_ring_runtime_snapshot_t race_snapshot;
+        fake_ring_adapter_t race_adapter = {0};
+        race_adapter.runtime = &race_runtime;
+        race_adapter.disable_during_start = true;
+        failed += expect_bool("race runtime init",
+                              tdma_ring_runtime_init(&race_runtime), true);
+        failed += expect_bool("race runtime bind",
+                              tdma_ring_runtime_bind_adapter(
+                                  &race_runtime, &s_fake_ring_ops,
+                                  &race_adapter),
+                              true);
+        failed += expect_bool("race runtime configure",
+                              tdma_ring_runtime_configure(
+                                  &race_runtime, &valid),
+                              true);
+        tdma_ring_runtime_service(&race_runtime);
+        failed += expect_bool("race first snapshot",
+                              tdma_ring_runtime_get_snapshot(
+                                  &race_runtime, &race_snapshot),
+                              true);
+        failed += expect_u32("stale start revoked",
+                             race_snapshot.adapter_started, 0u);
+        failed += expect_u32("stale physical start counted",
+                             race_adapter.start_count, 1u);
+        failed += expect_u32("stale physical stop counted",
+                             race_adapter.stop_count, 1u);
+        failed += expect_u32("stop generation not acknowledged early",
+                             race_snapshot.applied_config_seq, 0u);
+        failed += expect_u32("stop generation published",
+                             race_snapshot.config_seq, 2u);
+        tdma_ring_runtime_service(&race_runtime);
+        (void)tdma_ring_runtime_get_snapshot(&race_runtime, &race_snapshot);
+        failed += expect_u32("stop generation acknowledged by core1",
+                             race_snapshot.applied_config_seq,
+                             race_snapshot.config_seq);
+    }
 
     /* Training is a core0 -> core1 command slot. Submission must not invoke
      * the physical adapter inline, and START must restore the normal adapter

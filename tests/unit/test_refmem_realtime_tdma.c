@@ -136,6 +136,61 @@ static int test_init_snapshot(void)
     failed += expect_u32("timestamp diagnostic flag",
                          snapshot.timestamp_flags,
                          REFMEM_REALTIME_TDMA_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY);
+
+    service.scheduler->ring_runtime.adapter_rx_transport_bad_count = 11u;
+    service.scheduler->ring_runtime.adapter_rx_schedule_bad_count = 12u;
+    service.scheduler->ring_runtime.adapter_rx_profile_bad_count = 13u;
+    service.scheduler->ring_runtime.adapter_last_bad_transport_result = 9u;
+    service.scheduler->ring_runtime.adapter_last_bad_sequence = 14u;
+    service.scheduler->ring_runtime.adapter_last_bad_schedule_crc32 =
+        0x11223344u;
+    service.scheduler->ring_runtime.adapter_last_bad_profile_crc32 =
+        0x55667788u;
+    service.scheduler->ring_runtime.adapter_last_bad_header_diff_count = 2u;
+    service.scheduler->ring_runtime.adapter_last_bad_header_first_diff_offset =
+        12u;
+    service.scheduler->ring_runtime.adapter_last_bad_header_expected_byte =
+        0xA5u;
+    service.scheduler->ring_runtime.adapter_last_bad_header_observed_byte =
+        0xA1u;
+    failed += expect_bool("classified snapshot",
+                          refmem_realtime_tdma_get_snapshot(
+                              &service, &snapshot),
+                          true);
+    failed += expect_u32("transport bad count",
+                         snapshot.ring_adapter_rx_transport_bad_count,
+                         11u);
+    failed += expect_u32("schedule bad count",
+                         snapshot.ring_adapter_rx_schedule_bad_count,
+                         12u);
+    failed += expect_u32("profile bad count",
+                         snapshot.ring_adapter_rx_profile_bad_count,
+                         13u);
+    failed += expect_u32("last bad transport result",
+                         snapshot.ring_adapter_last_bad_transport_result,
+                         9u);
+    failed += expect_u32("last bad sequence",
+                         snapshot.ring_adapter_last_bad_sequence,
+                         14u);
+    failed += expect_u32("last bad schedule crc",
+                         snapshot.ring_adapter_last_bad_schedule_crc32,
+                         0x11223344u);
+    failed += expect_u32("last bad profile crc",
+                         snapshot.ring_adapter_last_bad_profile_crc32,
+                         0x55667788u);
+    failed += expect_u32("last bad header diff count",
+                         snapshot.ring_adapter_last_bad_header_diff_count,
+                         2u);
+    failed += expect_u32(
+        "last bad header first diff offset",
+        snapshot.ring_adapter_last_bad_header_first_diff_offset,
+        12u);
+    failed += expect_u32("last bad header expected byte",
+                         snapshot.ring_adapter_last_bad_header_expected_byte,
+                         0xA5u);
+    failed += expect_u32("last bad header observed byte",
+                         snapshot.ring_adapter_last_bad_header_observed_byte,
+                         0xA1u);
     return failed;
 }
 

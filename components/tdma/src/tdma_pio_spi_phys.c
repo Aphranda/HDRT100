@@ -10,6 +10,7 @@
 #include "pico/time.h"
 #include "tdma_flight_overlay.h"
 #include "tdma_pio_spi.pio.h"
+#include "tdma_rx_sequence.h"
 #include "vdc_timestamp_clock.h"
 
 #define TDMA_PIO_SPI_DEFAULT_BAUD_HZ 1000000u
@@ -103,10 +104,8 @@ static volatile uint32_t s_tdma_pio_spi_tx_history_produced;
 static volatile uint32_t s_tdma_pio_spi_tx_history_guard;
 static volatile uint32_t s_tdma_pio_spi_tx_last_frame_bytes;
 static volatile uint32_t s_tdma_pio_spi_tx_complete_frame_count;
-static uint32_t s_tdma_pio_spi_rx_scan_produced;
-static uint32_t s_tdma_pio_spi_rx_produced_seq;
-static uint32_t s_tdma_pio_spi_rx_last_write_index;
-static bool s_tdma_pio_spi_rx_write_index_valid;
+static uint64_t s_tdma_pio_spi_rx_scan_produced;
+static tdma_rx_sequence_tracker_t s_tdma_pio_spi_rx_sequence;
 /* Assembled frame (magic-aligned) copied out of the continuous DMA ring. */
 static uint32_t s_tdma_pio_spi_rx_frame[TDMA_PIO_SPI_RX_DMA_WORD_MAX];
 
@@ -1135,13 +1134,10 @@ static bool tdma_pio_spi_phys_configure_flight(
     return true;
 }
 
-static bool tdma_pio_spi_phys_start_overlay_script(
-    tdma_pio_spi_phys_t *phys,
-    uint32_t script_words)
+static bool tdma_pio_spi_phys_wait_overlay_dma_idle(
+    tdma_pio_spi_phys_t *phys)
 {
-    if (phys == NULL || script_words == 0u ||
-        script_words > TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS ||
-        s_tdma_pio_spi_tx_dma_channel < 0) {
+    if (phys == NULL || s_tdma_pio_spi_tx_dma_channel < 0) {
         if (phys != NULL) {
             phys->snapshot.overlay_last_error =
                 TDMA_PIO_SPI_OVERLAY_ERROR_DMA_START_INVALID;
@@ -1194,6 +1190,28 @@ static bool tdma_pio_spi_phys_start_overlay_script(
     phys->snapshot.overlay_tx_dma_busy = 0u;
     phys->snapshot.overlay_prepare_wait_us =
         (uint32_t)(tdma_pio_spi_phys_now_us() - wait_start_us);
+    return true;
+}
+
+static bool tdma_pio_spi_phys_start_overlay_script(
+    tdma_pio_spi_phys_t *phys,
+    uint32_t script_words)
+{
+    if (phys == NULL || script_words == 0u ||
+        script_words > TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS ||
+        s_tdma_pio_spi_tx_dma_channel < 0) {
+        if (phys != NULL) {
+            phys->snapshot.overlay_last_error =
+                TDMA_PIO_SPI_OVERLAY_ERROR_DMA_START_INVALID;
+        }
+        return false;
+    }
+    /* All scripts share one backing array. Callers wait before mutating that
+     * array; retain this second check so a future caller cannot reconfigure
+     * the DMA while it is still consuming the preceding script. */
+    if (!tdma_pio_spi_phys_wait_overlay_dma_idle(phys)) {
+        return false;
+    }
     dma_channel_config dma_cfg = dma_channel_get_default_config(
         (uint)s_tdma_pio_spi_tx_dma_channel);
     channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
@@ -1219,6 +1237,9 @@ static bool tdma_pio_spi_phys_prepare_pass_overlay(
     if (phys == NULL || phys->flight_physical_byte_count == 0u ||
         phys->flight_physical_byte_count + 1u >
             TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS) {
+        return false;
+    }
+    if (!tdma_pio_spi_phys_wait_overlay_dma_idle(phys)) {
         return false;
     }
     memset(s_tdma_pio_spi_flight_overlay_script,
@@ -1340,6 +1361,14 @@ bool tdma_pio_spi_phys_prepare_process_overlay(
          !dma_channel_is_busy((uint)s_tdma_pio_spi_tx_dma_channel))) {
         phys->flight_overlay_pass_committed = false;
     }
+    /* The DMA reads directly from the shared script array. Waiting after
+     * tdma_flight_overlay_build() is too late: rewriting the array while the
+     * preceding script is still in flight produces a valid physical header
+     * followed by an intermittently corrupted payload/CRC. */
+    if (!tdma_pio_spi_phys_wait_overlay_dma_idle(phys)) {
+        phys->snapshot.overlay_prepare_fail_count++;
+        return false;
+    }
     phys->snapshot.overlay_alignment_byte_shift =
         phys->flight_alignment_byte_shift;
     phys->snapshot.overlay_alignment_bit_shift =
@@ -1437,9 +1466,12 @@ static bool tdma_pio_spi_phys_rx_arm(tdma_pio_spi_phys_t *phys)
     tdma_pio_spi_phys_rx_prepare(phys);
     memset(s_tdma_pio_spi_rx_ring, 0, sizeof(s_tdma_pio_spi_rx_ring));
     s_tdma_pio_spi_rx_scan_produced = 0u;
-    s_tdma_pio_spi_rx_produced_seq = 0u;
-    s_tdma_pio_spi_rx_last_write_index = 0u;
-    s_tdma_pio_spi_rx_write_index_valid = false;
+    if (!tdma_rx_sequence_reset(&s_tdma_pio_spi_rx_sequence,
+                                TDMA_PIO_SPI_RX_RING_WORDS,
+                                0u,
+                                0u)) {
+        return false;
+    }
     dma_channel_config dma_cfg =
         dma_channel_get_default_config((uint)s_tdma_pio_spi_rx_dma_channel);
     channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
@@ -1478,75 +1510,42 @@ static uint32_t tdma_pio_spi_phys_rx_write_index(void)
                       sizeof(uint32_t));
 }
 
-static uint32_t tdma_pio_spi_phys_rx_produced_words(
+static uint64_t tdma_pio_spi_phys_rx_produced_words(
     const tdma_pio_spi_phys_t *phys)
 {
     const uint32_t write_index = tdma_pio_spi_phys_rx_write_index();
-    if (phys != NULL && phys->process_image_enabled &&
-        phys->flight_physical_byte_count != 0u &&
-        phys->flight_physical_byte_count < TDMA_PIO_SPI_RX_RING_WORDS) {
-        /* Endless DMA does not decrement TRANS_COUNT on RP2350. Recover the
-         * absolute sequence from a hardware-proven complete-frame count and
-         * the ring's current modulo position instead. The origin increments
-         * tx_count after its complete returned burst; each follower consumes
-         * IRQ3 after the corresponding fixed-byte CS frame. */
-        const uint32_t complete_frames =
-            phys->role == TDMA_PIO_SPI_ROLE_MASTER
-                ? phys->snapshot.tx_count
-                : phys->snapshot.overlay_frame_boundary_count;
-        const uint32_t frame_base =
-            complete_frames * phys->flight_physical_byte_count;
-        const uint32_t sequence_floor =
-            s_tdma_pio_spi_rx_produced_seq > frame_base
-                ? s_tdma_pio_spi_rx_produced_seq
-                : frame_base;
-        const uint32_t ring_delta =
-            (write_index -
-             (sequence_floor & (TDMA_PIO_SPI_RX_RING_WORDS - 1u))) &
-            (TDMA_PIO_SPI_RX_RING_WORDS - 1u);
-        /* FRAME_BASE repairs a complete modulo wrap that happened between
-         * observations; SEQUENCE_FLOOR prevents a boundary/read race from
-         * moving the producer behind the scanner. Mapping the live write
-         * index at or above that floor then restores the exact ring address. */
-        s_tdma_pio_spi_rx_produced_seq = sequence_floor + ring_delta;
-        s_tdma_pio_spi_rx_last_write_index = write_index;
-        s_tdma_pio_spi_rx_write_index_valid = true;
-        return s_tdma_pio_spi_rx_produced_seq;
+    const bool fixed_frames = phys != NULL && phys->process_image_enabled &&
+        phys->flight_physical_byte_count != 0u;
+    const uint32_t complete_frames = !fixed_frames
+        ? 0u
+        : (phys->role == TDMA_PIO_SPI_ROLE_MASTER
+               ? phys->snapshot.tx_count
+               : phys->snapshot.overlay_frame_boundary_count);
+    const uint32_t frame_words = fixed_frames
+        ? phys->flight_physical_byte_count : 0u;
+    uint64_t produced = s_tdma_pio_spi_rx_sequence.produced_words;
+    if (!tdma_rx_sequence_observe(&s_tdma_pio_spi_rx_sequence,
+                                  write_index,
+                                  complete_frames,
+                                  frame_words,
+                                  &produced)) {
+        return s_tdma_pio_spi_rx_sequence.produced_words;
     }
-
-    /* Variable-length/non-process personas retain modulo accumulation. Their
-     * service cadence must remain shorter than one 1024-word ring; process
-     * image traffic uses the fixed-frame path above and is immune to a full
-     * modulo wrap between observations. */
-    if (!s_tdma_pio_spi_rx_write_index_valid) {
-        s_tdma_pio_spi_rx_last_write_index = write_index;
-        s_tdma_pio_spi_rx_write_index_valid = true;
-        return s_tdma_pio_spi_rx_produced_seq;
-    }
-    if (write_index != s_tdma_pio_spi_rx_last_write_index) {
-        const uint32_t last = s_tdma_pio_spi_rx_last_write_index;
-        const uint32_t delta =
-            write_index >= last
-                ? write_index - last
-                : (TDMA_PIO_SPI_RX_RING_WORDS - last) + write_index;
-        s_tdma_pio_spi_rx_produced_seq += delta;
-        s_tdma_pio_spi_rx_last_write_index = write_index;
-    }
-    return s_tdma_pio_spi_rx_produced_seq;
+    return produced;
 }
 
-static uint32_t tdma_pio_spi_phys_rx_ring_word(uint32_t produced)
+static uint32_t tdma_pio_spi_phys_rx_ring_word(uint64_t produced)
 {
     return s_tdma_pio_spi_rx_ring[produced &
                                   (TDMA_PIO_SPI_RX_RING_WORDS - 1u)];
 }
 
-static uint8_t tdma_pio_spi_phys_rx_ring_byte(uint32_t produced)
+static uint8_t tdma_pio_spi_phys_rx_ring_byte(uint64_t produced)
 {
     return (uint8_t)(tdma_pio_spi_phys_rx_ring_word(produced) & 0xFFu);
 }
 
-static uint8_t tdma_pio_spi_phys_rx_ring_aligned_byte(uint32_t produced,
+static uint8_t tdma_pio_spi_phys_rx_ring_aligned_byte(uint64_t produced,
                                                       uint32_t bit_shift)
 {
     const uint8_t first = tdma_pio_spi_phys_rx_ring_byte(produced);
@@ -1559,7 +1558,7 @@ static uint8_t tdma_pio_spi_phys_rx_ring_aligned_byte(uint32_t produced,
 }
 
 static bool tdma_pio_spi_phys_transport_header_matches(
-    uint32_t packet_start,
+    uint64_t packet_start,
     uint32_t bit_shift,
     uint16_t frame_size)
 {
@@ -1604,9 +1603,10 @@ static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
         !phys->rx_capture_active) {
         return false;
     }
-    const uint32_t produced = tdma_pio_spi_phys_rx_produced_words(phys);
-    phys->snapshot.rx_dma_produced_words = produced;
-    phys->snapshot.rx_scan_produced_words = s_tdma_pio_spi_rx_scan_produced;
+    const uint64_t produced = tdma_pio_spi_phys_rx_produced_words(phys);
+    phys->snapshot.rx_dma_produced_words = (uint32_t)produced;
+    phys->snapshot.rx_scan_produced_words =
+        (uint32_t)s_tdma_pio_spi_rx_scan_produced;
     phys->snapshot.rx_dma_write_index = tdma_pio_spi_phys_rx_write_index();
     phys->snapshot.rx_dma_channel = (uint32_t)s_tdma_pio_spi_rx_dma_channel;
     if (produced <= s_tdma_pio_spi_rx_scan_produced) {
@@ -1620,7 +1620,7 @@ static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
             produced - TDMA_PIO_SPI_RX_RING_WORDS;
     }
 
-    uint32_t candidate = s_tdma_pio_spi_rx_scan_produced;
+    uint64_t candidate = s_tdma_pio_spi_rx_scan_produced;
     while (candidate + TDMA_PIO_SPI_PACKET_HEADER_SIZE <= produced) {
         for (uint32_t bit_shift = 0u; bit_shift < 8u; bit_shift++) {
             const uint32_t alignment_extra = bit_shift == 0u ? 0u : 1u;
@@ -1674,7 +1674,8 @@ static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
             if (phys->process_image_enabled &&
                 phys->flight_physical_byte_count != 0u) {
                 phys->flight_alignment_byte_shift =
-                    candidate % phys->flight_physical_byte_count;
+                    (uint32_t)(candidate %
+                               phys->flight_physical_byte_count);
                 phys->flight_alignment_bit_shift = bit_shift;
             }
             if (bit_shift == 0u) {
@@ -1689,8 +1690,8 @@ static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
     }
     /* Keep two trailing raw bytes so a shifted two-byte magic can be
      * completed by the next DMA sample. */
-    const uint32_t bad_start = s_tdma_pio_spi_rx_scan_produced;
-    const uint32_t bad_available = produced - bad_start;
+    const uint64_t bad_start = s_tdma_pio_spi_rx_scan_produced;
+    const uint64_t bad_available = produced - bad_start;
     phys->snapshot.last_bad_header0 =
         bad_available > 0u ? tdma_pio_spi_phys_rx_ring_word(bad_start) : 0u;
     phys->snapshot.last_bad_header1 =
@@ -1699,7 +1700,7 @@ static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
         bad_available > 2u ? tdma_pio_spi_phys_rx_ring_word(bad_start + 2u) : 0u;
     phys->snapshot.last_bad_header3 =
         bad_available > 3u ? tdma_pio_spi_phys_rx_ring_word(bad_start + 3u) : 0u;
-    phys->snapshot.last_bad_words = bad_available;
+    phys->snapshot.last_bad_words = (uint32_t)bad_available;
     phys->snapshot.rx_magic_fail_count++;
     s_tdma_pio_spi_rx_scan_produced = produced > 2u ? produced - 2u : 0u;
     return false;

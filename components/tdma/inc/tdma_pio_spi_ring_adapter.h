@@ -28,7 +28,7 @@
  * the ring is up.
  */
 
-#define TDMA_PIO_SPI_RING_ADAPTER_VERSION 2u
+#define TDMA_PIO_SPI_RING_ADAPTER_VERSION 3u
 #define TDMA_PIO_SPI_RING_ADAPTER_RX_QUEUE_DEPTH 8u
 #define TDMA_PIO_SPI_RING_ADAPTER_TX_EVIDENCE_DEPTH 8u
 
@@ -119,6 +119,17 @@ typedef struct {
     uint32_t tx_count;
     uint32_t rx_count;
     uint32_t rx_bad_count;
+    uint32_t rx_transport_bad_count;
+    uint32_t rx_schedule_bad_count;
+    uint32_t rx_profile_bad_count;
+    uint32_t last_bad_transport_result;
+    uint32_t last_bad_sequence;
+    uint32_t last_bad_schedule_crc32;
+    uint32_t last_bad_profile_crc32;
+    uint32_t last_bad_header_diff_count;
+    uint32_t last_bad_header_first_diff_offset;
+    uint32_t last_bad_header_expected_byte;
+    uint32_t last_bad_header_observed_byte;
     uint32_t rx_drop_count;
     uint32_t timestamp_resolution_ns;
     uint32_t timestamp_flags;
@@ -179,6 +190,17 @@ typedef struct {
     uint32_t tx_count;
     uint32_t rx_count;
     uint32_t rx_bad_count;
+    uint32_t rx_transport_bad_count;
+    uint32_t rx_schedule_bad_count;
+    uint32_t rx_profile_bad_count;
+    uint32_t last_bad_transport_result;
+    uint32_t last_bad_sequence;
+    uint32_t last_bad_schedule_crc32;
+    uint32_t last_bad_profile_crc32;
+    uint32_t last_bad_header_diff_count;
+    uint32_t last_bad_header_first_diff_offset;
+    uint32_t last_bad_header_expected_byte;
+    uint32_t last_bad_header_observed_byte;
     uint32_t rx_drop_count;
     uint32_t timestamp_resolution_ns;
     uint32_t timestamp_flags;
@@ -198,6 +220,7 @@ typedef struct {
         uint32_t sequence;
         uint32_t identity_crc32;
         uint64_t timestamp_ns;
+        uint8_t header[TDMA_TRANSPORT_FRAME_HEADER_SIZE];
         bool valid;
     } reference_tx_evidence[TDMA_PIO_SPI_RING_ADAPTER_TX_EVIDENCE_DEPTH];
     struct {

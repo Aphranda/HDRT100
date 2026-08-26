@@ -249,6 +249,28 @@ static void refmem_realtime_tdma_from_service_snapshot(
     target->ring_adapter_tx_count = source->ring_adapter_tx_count;
     target->ring_adapter_rx_count = source->ring_adapter_rx_count;
     target->ring_adapter_rx_bad_count = source->ring_adapter_rx_bad_count;
+    target->ring_adapter_rx_transport_bad_count =
+        source->ring_adapter_rx_transport_bad_count;
+    target->ring_adapter_rx_schedule_bad_count =
+        source->ring_adapter_rx_schedule_bad_count;
+    target->ring_adapter_rx_profile_bad_count =
+        source->ring_adapter_rx_profile_bad_count;
+    target->ring_adapter_last_bad_transport_result =
+        source->ring_adapter_last_bad_transport_result;
+    target->ring_adapter_last_bad_sequence =
+        source->ring_adapter_last_bad_sequence;
+    target->ring_adapter_last_bad_schedule_crc32 =
+        source->ring_adapter_last_bad_schedule_crc32;
+    target->ring_adapter_last_bad_profile_crc32 =
+        source->ring_adapter_last_bad_profile_crc32;
+    target->ring_adapter_last_bad_header_diff_count =
+        source->ring_adapter_last_bad_header_diff_count;
+    target->ring_adapter_last_bad_header_first_diff_offset =
+        source->ring_adapter_last_bad_header_first_diff_offset;
+    target->ring_adapter_last_bad_header_expected_byte =
+        source->ring_adapter_last_bad_header_expected_byte;
+    target->ring_adapter_last_bad_header_observed_byte =
+        source->ring_adapter_last_bad_header_observed_byte;
     target->ring_up_tx_sequence = source->ring_up_tx_sequence;
     target->ring_down_rx_sequence = source->ring_down_rx_sequence;
     target->ring_up_tx_frame_crc32 = source->ring_up_tx_frame_crc32;

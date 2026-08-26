@@ -28,6 +28,7 @@ if str(ROOT / "tools" / "tdma_ring_monitor") not in sys.path:
 from scpi_common.scpi_serial import open_serial_port  # noqa: E402
 from scpi_common.board_identity import parse_idn_response  # noqa: E402
 from ring_rate_measure import PHYS_FIELDS, parse_named  # noqa: E402
+from tdma_field_parse import FIELDS as TDMA_FIELDS  # noqa: E402
 from tdma_ring_monitor import (  # noqa: E402
     RING_ADAPTER_LAST_ERROR,
     RING_ADAPTER_RX_BAD_COUNT,
@@ -264,7 +265,8 @@ def main() -> int:
 
     failures: list[str] = []
     if len(samples) < 2:
-        failures.append("fewer than two valid 110-field TDMA samples")
+        failures.append(
+            f"fewer than two valid {len(TDMA_FIELDS)}-field TDMA samples")
         first = last = {"tdma": [], "phys": {}}
     else:
         first, last = samples[0], samples[-1]

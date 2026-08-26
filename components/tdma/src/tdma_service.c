@@ -1338,6 +1338,28 @@ bool tdma_service_get_snapshot(const tdma_service_service_t *service,
     snapshot->ring_adapter_tx_count = ring_snapshot.adapter_tx_count;
     snapshot->ring_adapter_rx_count = ring_snapshot.adapter_rx_count;
     snapshot->ring_adapter_rx_bad_count = ring_snapshot.adapter_rx_bad_count;
+    snapshot->ring_adapter_rx_transport_bad_count =
+        ring_snapshot.adapter_rx_transport_bad_count;
+    snapshot->ring_adapter_rx_schedule_bad_count =
+        ring_snapshot.adapter_rx_schedule_bad_count;
+    snapshot->ring_adapter_rx_profile_bad_count =
+        ring_snapshot.adapter_rx_profile_bad_count;
+    snapshot->ring_adapter_last_bad_transport_result =
+        ring_snapshot.adapter_last_bad_transport_result;
+    snapshot->ring_adapter_last_bad_sequence =
+        ring_snapshot.adapter_last_bad_sequence;
+    snapshot->ring_adapter_last_bad_schedule_crc32 =
+        ring_snapshot.adapter_last_bad_schedule_crc32;
+    snapshot->ring_adapter_last_bad_profile_crc32 =
+        ring_snapshot.adapter_last_bad_profile_crc32;
+    snapshot->ring_adapter_last_bad_header_diff_count =
+        ring_snapshot.adapter_last_bad_header_diff_count;
+    snapshot->ring_adapter_last_bad_header_first_diff_offset =
+        ring_snapshot.adapter_last_bad_header_first_diff_offset;
+    snapshot->ring_adapter_last_bad_header_expected_byte =
+        ring_snapshot.adapter_last_bad_header_expected_byte;
+    snapshot->ring_adapter_last_bad_header_observed_byte =
+        ring_snapshot.adapter_last_bad_header_observed_byte;
     snapshot->ring_up_tx_sequence = ring_snapshot.up_tx_sequence;
     snapshot->ring_down_rx_sequence = ring_snapshot.down_rx_sequence;
     snapshot->ring_up_tx_frame_crc32 = ring_snapshot.up_tx_frame_crc32;

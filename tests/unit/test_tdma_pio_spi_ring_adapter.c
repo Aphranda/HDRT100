@@ -588,6 +588,73 @@ int main(void)
                              TDMA_RING_RUNTIME_REASON_TIMESTAMP_MISSING);
     }
 
+    /* --- Reference bad-header evidence: correlate the returned sequence
+     * with the exact TX header and retain the first changed byte. --- */
+    {
+        tdma_ring_runtime_t runtime;
+        tdma_ring_runtime_snapshot_t snapshot;
+        tdma_pio_spi_ring_adapter_t adapter;
+        loopback_phys_t phys;
+        const tdma_ring_runtime_config_t config = make_valid_config();
+
+        memset(&phys, 0, sizeof(phys));
+        phys.tx_timestamp_ns = 1000000ull;
+        phys.rx_timestamp_ns = 1000500ull;
+        phys.suppress_echo = true;
+        tdma_ring_runtime_init(&runtime);
+        tdma_ring_runtime_configure(&runtime, &config);
+        tdma_pio_spi_ring_adapter_init(&adapter);
+        tdma_pio_spi_ring_adapter_set_phys(&adapter,
+                                           loopback_tx,
+                                           loopback_rx,
+                                           &phys);
+        tdma_pio_spi_ring_adapter_set_timestamp_metadata(
+            &adapter,
+            100u,
+            TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED);
+        tdma_ring_runtime_bind_adapter(&runtime,
+                                       tdma_pio_spi_ring_adapter_ops(),
+                                       &adapter);
+        failed += expect_bool("start bad-header evidence ring",
+                              start_ring_data(&runtime), true);
+        tdma_ring_runtime_service(&runtime);
+        tdma_ring_runtime_service(&runtime);
+
+        uint8_t bad_header[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+        const uint32_t corrupt_offset = 16u;
+        memcpy(bad_header, phys.last_tx, phys.last_tx_size);
+        const uint8_t expected_byte = bad_header[corrupt_offset];
+        bad_header[corrupt_offset] ^= 0x04u;
+        const uint8_t observed_byte = bad_header[corrupt_offset];
+        failed += expect_bool("inject correlated bad header",
+                              tdma_pio_spi_ring_adapter_inject_rx(
+                                  &adapter, bad_header, phys.last_tx_size,
+                                  0ull),
+                              true);
+        tdma_ring_runtime_service(&runtime);
+        failed += expect_bool("snapshot correlated bad header",
+                              tdma_ring_runtime_get_snapshot(
+                                  &runtime, &snapshot),
+                              true);
+        failed += expect_u32("correlated transport result",
+                             snapshot.adapter_last_bad_transport_result,
+                             TDMA_TRANSPORT_CRC_MISMATCH);
+        failed += expect_u32("correlated bad sequence",
+                             snapshot.adapter_last_bad_sequence, 1u);
+        failed += expect_u32("correlated header diff count",
+                             snapshot.adapter_last_bad_header_diff_count,
+                             1u);
+        failed += expect_u32("correlated header first diff offset",
+                             snapshot.adapter_last_bad_header_first_diff_offset,
+                             corrupt_offset);
+        failed += expect_u32("correlated header expected byte",
+                             snapshot.adapter_last_bad_header_expected_byte,
+                             expected_byte);
+        failed += expect_u32("correlated header observed byte",
+                             snapshot.adapter_last_bad_header_observed_byte,
+                             observed_byte);
+    }
+
     /* --- Adapter snapshot and error accounting. --- */
     {
         tdma_pio_spi_ring_adapter_t adapter;
@@ -654,9 +721,91 @@ int main(void)
                              ring_snap.ring_seq, 1u);
         failed += expect_u32("adapter rx bad count",
                              adapter.rx_bad_count, 1u);
+        failed += expect_u32("transport bad count",
+                             ring_snap.adapter_rx_transport_bad_count, 1u);
+        failed += expect_u32("schedule bad count",
+                             ring_snap.adapter_rx_schedule_bad_count, 0u);
+        failed += expect_u32("profile bad count",
+                             ring_snap.adapter_rx_profile_bad_count, 0u);
+        failed += expect_u32("last bad transport result",
+                             ring_snap.adapter_last_bad_transport_result,
+                             TDMA_TRANSPORT_BAD_MAGIC);
         failed += expect_u32("adapter last error",
                              adapter.last_error,
                              TDMA_PIO_SPI_RING_ADAPTER_ERROR_RX_BAD_FRAME);
+
+        /* A decodable frame with a foreign schedule is classified separately
+         * and retains its identity fields for four-board diagnosis. */
+        uint8_t identity_bad[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+        size_t identity_bad_size = 0u;
+        tdma_transport_result_t transport_result = TDMA_TRANSPORT_OK;
+        tdma_transport_frame_build_t identity_build = {
+            .frame_class = TDMA_TRANSPORT_FRAME_CLASS_SHORT,
+            .origin_slot_id = 0u,
+            .transport_sequence = 77u,
+            .payload_class = TDMA_PAYLOAD_CLASS_IDLE_BEACON,
+            .flags = TDMA_TRANSPORT_FLAG_IDLE_BEACON,
+            .schedule_crc32 = config.schedule_crc32 + 1u,
+            .ring_profile_crc32 = config.ring_profile_crc32,
+            .hop_limit = config.node_count,
+            .payload = NULL,
+            .payload_size = 0u,
+        };
+        failed += expect_bool("encode schedule mismatch",
+                              tdma_transport_frame_encode(
+                                  &identity_build,
+                                  identity_bad,
+                                  sizeof(identity_bad),
+                                  &identity_bad_size,
+                                  &transport_result),
+                              true);
+        failed += expect_bool("inject schedule mismatch",
+                              tdma_pio_spi_ring_adapter_inject_rx(
+                                  &adapter, identity_bad, identity_bad_size,
+                                  0ull),
+                              true);
+        tdma_ring_runtime_service(&runtime);
+        (void)tdma_ring_runtime_get_snapshot(&runtime, &ring_snap);
+        failed += expect_u32("schedule mismatch total",
+                             ring_snap.adapter_rx_bad_count, 2u);
+        failed += expect_u32("schedule mismatch classified",
+                             ring_snap.adapter_rx_schedule_bad_count, 1u);
+        failed += expect_u32("schedule mismatch sequence",
+                             ring_snap.adapter_last_bad_sequence, 77u);
+        failed += expect_u32("schedule mismatch observed crc",
+                             ring_snap.adapter_last_bad_schedule_crc32,
+                             config.schedule_crc32 + 1u);
+        failed += expect_u32("schedule mismatch decode result",
+                             ring_snap.adapter_last_bad_transport_result,
+                             TDMA_TRANSPORT_OK);
+
+        identity_build.transport_sequence = 78u;
+        identity_build.schedule_crc32 = config.schedule_crc32;
+        identity_build.ring_profile_crc32 = config.ring_profile_crc32 + 1u;
+        failed += expect_bool("encode profile mismatch",
+                              tdma_transport_frame_encode(
+                                  &identity_build,
+                                  identity_bad,
+                                  sizeof(identity_bad),
+                                  &identity_bad_size,
+                                  &transport_result),
+                              true);
+        failed += expect_bool("inject profile mismatch",
+                              tdma_pio_spi_ring_adapter_inject_rx(
+                                  &adapter, identity_bad, identity_bad_size,
+                                  0ull),
+                              true);
+        tdma_ring_runtime_service(&runtime);
+        (void)tdma_ring_runtime_get_snapshot(&runtime, &ring_snap);
+        failed += expect_u32("profile mismatch total",
+                             ring_snap.adapter_rx_bad_count, 3u);
+        failed += expect_u32("profile mismatch classified",
+                             ring_snap.adapter_rx_profile_bad_count, 1u);
+        failed += expect_u32("profile mismatch sequence",
+                             ring_snap.adapter_last_bad_sequence, 78u);
+        failed += expect_u32("profile mismatch observed crc",
+                             ring_snap.adapter_last_bad_profile_crc32,
+                             config.ring_profile_crc32 + 1u);
 
         /* Recover: the next emitted beacon is echoed by the physical stub. */
         tdma_ring_runtime_service(&runtime);

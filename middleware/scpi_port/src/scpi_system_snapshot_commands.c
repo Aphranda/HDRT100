@@ -1862,6 +1862,22 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.ring_adapter_tx_count);
     SCPI_ResultUInt32(context, snapshot.ring_adapter_rx_count);
     SCPI_ResultUInt32(context, snapshot.ring_adapter_rx_bad_count);
+    SCPI_ResultUInt32(context, snapshot.ring_adapter_rx_transport_bad_count);
+    SCPI_ResultUInt32(context, snapshot.ring_adapter_rx_schedule_bad_count);
+    SCPI_ResultUInt32(context, snapshot.ring_adapter_rx_profile_bad_count);
+    SCPI_ResultUInt32(context,
+                      snapshot.ring_adapter_last_bad_transport_result);
+    SCPI_ResultUInt32(context, snapshot.ring_adapter_last_bad_sequence);
+    SCPI_ResultUInt32(context, snapshot.ring_adapter_last_bad_schedule_crc32);
+    SCPI_ResultUInt32(context, snapshot.ring_adapter_last_bad_profile_crc32);
+    SCPI_ResultUInt32(
+        context, snapshot.ring_adapter_last_bad_header_diff_count);
+    SCPI_ResultUInt32(
+        context, snapshot.ring_adapter_last_bad_header_first_diff_offset);
+    SCPI_ResultUInt32(
+        context, snapshot.ring_adapter_last_bad_header_expected_byte);
+    SCPI_ResultUInt32(
+        context, snapshot.ring_adapter_last_bad_header_observed_byte);
     return SCPI_RES_OK;
 }
 
@@ -2487,6 +2503,20 @@ scpi_result_t scpi_cmd_system_tdma_ring_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.adapter_tx_count);
     SCPI_ResultUInt32(context, snapshot.adapter_rx_count);
     SCPI_ResultUInt32(context, snapshot.adapter_rx_bad_count);
+    SCPI_ResultUInt32(context, snapshot.adapter_rx_transport_bad_count);
+    SCPI_ResultUInt32(context, snapshot.adapter_rx_schedule_bad_count);
+    SCPI_ResultUInt32(context, snapshot.adapter_rx_profile_bad_count);
+    SCPI_ResultUInt32(context, snapshot.adapter_last_bad_transport_result);
+    SCPI_ResultUInt32(context, snapshot.adapter_last_bad_sequence);
+    SCPI_ResultUInt32(context, snapshot.adapter_last_bad_schedule_crc32);
+    SCPI_ResultUInt32(context, snapshot.adapter_last_bad_profile_crc32);
+    SCPI_ResultUInt32(context, snapshot.adapter_last_bad_header_diff_count);
+    SCPI_ResultUInt32(
+        context, snapshot.adapter_last_bad_header_first_diff_offset);
+    SCPI_ResultUInt32(context, snapshot.adapter_last_bad_header_expected_byte);
+    SCPI_ResultUInt32(context, snapshot.adapter_last_bad_header_observed_byte);
+    SCPI_ResultUInt32(context, snapshot.config_seq);
+    SCPI_ResultUInt32(context, snapshot.applied_config_seq);
     return SCPI_RES_OK;
 }
 

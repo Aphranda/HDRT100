@@ -502,6 +502,7 @@ scpi_result_t scpi_cmd_sync_vdc_tdma_phys_q(scpi_t *context)
     SCPI_ResultInt32(context, snapshot.flight_marker_offset_sample_count);
     SCPI_ResultInt32(context, snapshot.flight_sck_offset_sample_count);
     SCPI_ResultInt32(context, snapshot.flight_data_offset_sample_count);
+    SCPI_ResultUInt32(context, snapshot.flight_marker_phase_delay_cycles);
     SCPI_ResultUInt32(context, snapshot.flight_sck_phase_delay_cycles);
     SCPI_ResultUInt32(context, snapshot.flight_data_phase_delay_cycles);
     SCPI_ResultUInt32(context, snapshot.pio_irq_flags);

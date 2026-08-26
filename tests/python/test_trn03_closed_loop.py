@@ -15,9 +15,11 @@ from tools.scpi_common.scpi_serial import scpi_response_matches_command  # noqa:
 from trn03_closed_loop import (  # noqa: E402
     arm_with_evidence,
     counter_deltas,
+    expected_flight_phase,
     parse_active_profile,
     parse_snapshot,
     u32_delta,
+    validate_flight_phase_readback,
     validate_node,
     validate_fifo_reset,
     validate_tx_seed,
@@ -47,6 +49,23 @@ def test_arm_with_evidence_requires_explicit_success(monkeypatch) -> None:
 def test_arm_status_query_accepts_scalar_success() -> None:
     assert scpi_response_matches_command(
         "SYSTem:TDMA:RING:ARM:STATus?", "1")
+
+
+def test_wait_runtime_stopped_requires_core1_generation_ack(monkeypatch) -> None:
+    snapshots = [
+        {"ring_enabled": 0, "ring_adapter_started": 0,
+         "ring_config_seq": 8, "ring_applied_config_seq": 7},
+        {"ring_enabled": 0, "ring_adapter_started": 0,
+         "ring_config_seq": 8, "ring_applied_config_seq": 8},
+    ]
+    monkeypatch.setattr(
+        trn03, "runtime_snapshot",
+        lambda board, args, node_index: snapshots.pop(0))
+    args = type("Args", (), {"arm_wait": 1.0})()
+    observed = trn03.wait_runtime_stopped(FakeBoard(), args, 0)
+    assert observed["passed"] == 1
+    assert observed["ring_applied_config_seq"] == 8
+    assert not snapshots
 
 
 def test_raw_flight_mode_query_accepts_scalar_one() -> None:
@@ -235,6 +254,30 @@ def test_process_follower_coalesces_late_overlay_behind_committed_pass() -> None
     assert "return true;" in prepare[coalesced:overlay_build]
 
 
+def test_overlay_script_waits_for_dma_before_mutating_shared_buffer() -> None:
+    phys = (ROOT / "components" / "tdma" / "src" /
+            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    pass_overlay = phys.split(
+        "static bool tdma_pio_spi_phys_prepare_pass_overlay", 1
+    )[1].split(
+        "bool tdma_pio_spi_phys_service_process_overlay_boundary", 1
+    )[0]
+    pass_wait = pass_overlay.index(
+        "tdma_pio_spi_phys_wait_overlay_dma_idle")
+    pass_write = pass_overlay.index(
+        "memset(s_tdma_pio_spi_flight_overlay_script")
+    assert pass_wait < pass_write
+
+    prepare = phys.split(
+        "bool tdma_pio_spi_phys_prepare_process_overlay", 1
+    )[1].split("static void tdma_pio_spi_phys_set_line_drivers", 1)[0]
+    prepare_wait = prepare.index(
+        "if (!tdma_pio_spi_phys_wait_overlay_dma_idle")
+    overlay_build = prepare.index("if (!tdma_flight_overlay_build(")
+    assert prepare_wait < overlay_build
+    assert "Waiting after\n     * tdma_flight_overlay_build() is too late" in prepare
+
+
 def test_origin_data_waits_csn_once_per_counted_frame() -> None:
     source = (ROOT / "components" / "tdma" / "src" /
               "tdma_pio_spi.pio").read_text(encoding="utf-8")
@@ -339,14 +382,23 @@ def test_process_rx_reconstructs_absolute_fixed_frame_sequence() -> None:
     source = (ROOT / "components" / "tdma" / "src" /
               "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
     produced = source.split(
-        "static uint32_t tdma_pio_spi_phys_rx_produced_words", 1
+        "static uint64_t tdma_pio_spi_phys_rx_produced_words", 1
     )[1].split("static uint32_t tdma_pio_spi_phys_rx_ring_word", 1)[0]
     assert "snapshot.overlay_frame_boundary_count" in produced
     assert "snapshot.tx_count" in produced
-    assert "complete_frames * phys->flight_physical_byte_count" in produced
-    assert "s_tdma_pio_spi_rx_produced_seq > frame_base" in produced
-    assert "sequence_floor + ring_delta" in produced
+    assert "tdma_rx_sequence_observe" in produced
+    assert "phys->flight_physical_byte_count : 0u" in produced
+    assert "sequence_floor" not in produced
     assert "transfer_count" not in produced
+
+
+def test_process_rx_only_restores_a_proven_complete_ring() -> None:
+    source = (ROOT / "components" / "tdma" / "src" /
+              "tdma_rx_sequence.c").read_text(encoding="utf-8")
+    assert "modulo_delta" in source
+    assert "complete_rings" in source
+    assert "error <= fixed_frame_words" in source
+    assert "tracker->produced_words += observed_delta" in source
 
 
 def test_arm_with_evidence_exposes_rejection_stage(monkeypatch) -> None:
@@ -386,6 +438,19 @@ def runtime() -> dict[str, int]:
         "ring_adapter_tx_count": 20,
         "ring_adapter_rx_count": 20,
         "ring_adapter_rx_bad_count": 0,
+        "ring_adapter_rx_transport_bad_count": 0,
+        "ring_adapter_rx_schedule_bad_count": 0,
+        "ring_adapter_rx_profile_bad_count": 0,
+        "ring_adapter_last_bad_transport_result": 0,
+        "ring_adapter_last_bad_sequence": 0,
+        "ring_adapter_last_bad_schedule_crc32": 0,
+        "ring_adapter_last_bad_profile_crc32": 0,
+        "ring_adapter_last_bad_header_diff_count": 0,
+        "ring_adapter_last_bad_header_first_diff_offset": 0xFFFFFFFF,
+        "ring_adapter_last_bad_header_expected_byte": 0,
+        "ring_adapter_last_bad_header_observed_byte": 0,
+        "ring_config_seq": 7,
+        "ring_applied_config_seq": 7,
         "node_index": 2,
     }
 
@@ -427,6 +492,100 @@ def test_parse_snapshot_requires_exact_field_count() -> None:
     assert parse_snapshot("1,2", ("a", "b"), "x") == {"a": 1, "b": 2}
 
 
+def test_physical_snapshot_has_one_canonical_complete_phase_schema() -> None:
+    phase_fields = (
+        "flight_marker_offset_sample_count",
+        "flight_sck_offset_sample_count",
+        "flight_data_offset_sample_count",
+        "flight_marker_phase_delay_cycles",
+        "flight_sck_phase_delay_cycles",
+        "flight_data_phase_delay_cycles",
+    )
+    start = trn03.PHYS_FIELDS.index(phase_fields[0])
+    assert trn03.PHYS_FIELDS[start:start + len(phase_fields)] == phase_fields
+    source = (ROOT / "middleware" / "scpi_port" / "src" /
+              "scpi_sync_commands.c").read_text(encoding="utf-8")
+    query = source.split("scpi_cmd_sync_vdc_tdma_phys_q", 1)[1].split(
+        "scpi_cmd_sync_vdc_path_delay_q", 1)[0]
+    positions = [query.index(f"snapshot.{field}") for field in phase_fields]
+    assert positions == sorted(positions)
+
+
+def test_expected_flight_phase_uses_incoming_control_and_reverse_data_links(
+        ) -> None:
+    config = {
+        "node_count": 4,
+        "links": [{
+            "marker_offset_sample_count": 10 + link,
+            "sck_offset_sample_count": 20 + link,
+            "data_offset_sample_count": 30 + link,
+            "marker_phase_delay_cycles": 40 + link,
+            "sck_phase_delay_cycles": 50 + link,
+            "data_phase_delay_cycles": 60 + link,
+        } for link in range(4)],
+    }
+    assert expected_flight_phase(config, 0) == {
+        "flight_marker_offset_sample_count": 13,
+        "flight_sck_offset_sample_count": 23,
+        "flight_data_offset_sample_count": 30,
+        "flight_marker_phase_delay_cycles": 43,
+        "flight_sck_phase_delay_cycles": 53,
+        "flight_data_phase_delay_cycles": 60,
+    }
+    assert expected_flight_phase(config, 2) == {
+        "flight_marker_offset_sample_count": 11,
+        "flight_sck_offset_sample_count": 21,
+        "flight_data_offset_sample_count": 32,
+        "flight_marker_phase_delay_cycles": 41,
+        "flight_sck_phase_delay_cycles": 51,
+        "flight_data_phase_delay_cycles": 62,
+    }
+
+
+@pytest.mark.parametrize("field", (
+    "flight_marker_offset_sample_count",
+    "flight_sck_offset_sample_count",
+    "flight_data_offset_sample_count",
+    "flight_marker_phase_delay_cycles",
+    "flight_sck_phase_delay_cycles",
+    "flight_data_phase_delay_cycles",
+))
+def test_every_loaded_offset_and_phase_mismatch_fails_closed(field: str) -> None:
+    expected = {name: index for index, name in enumerate(
+        trn03.PHYS_FIELDS) if name.startswith("flight_") and
+        ("offset_sample_count" in name or "phase_delay_cycles" in name)}
+    physical = dict(expected)
+    physical[field] += 1
+    assert validate_flight_phase_readback(physical, expected) == [
+        field.removeprefix("flight_") + "_mismatch"]
+
+
+def test_runtime_status_exposes_bad_frame_classification() -> None:
+    expected = (
+        "ring_adapter_rx_transport_bad_count",
+        "ring_adapter_rx_schedule_bad_count",
+        "ring_adapter_rx_profile_bad_count",
+        "ring_adapter_last_bad_transport_result",
+        "ring_adapter_last_bad_sequence",
+        "ring_adapter_last_bad_schedule_crc32",
+        "ring_adapter_last_bad_profile_crc32",
+        "ring_adapter_last_bad_header_diff_count",
+        "ring_adapter_last_bad_header_first_diff_offset",
+        "ring_adapter_last_bad_header_expected_byte",
+        "ring_adapter_last_bad_header_observed_byte",
+        "ring_config_seq",
+        "ring_applied_config_seq",
+    )
+    assert trn03.RUNTIME_FIELDS[-len(expected):] == expected
+    source = (ROOT / "middleware" / "scpi_port" / "src" /
+              "scpi_system_snapshot_commands.c").read_text(encoding="utf-8")
+    status = source.split(
+        "scpi_cmd_system_tdma_ring_status_q", 1
+    )[1].split("scpi_cmd_system_tdma_ring_train", 1)[0]
+    for field in expected:
+        assert f"snapshot.{field.removeprefix('ring_')}" in status
+
+
 def test_parse_active_profile_accepts_extended_status() -> None:
     profile = parse_active_profile(
         "7,10000000,1000000,4096,3,1234,99,98,97,96", "x")
@@ -440,7 +599,11 @@ def test_validate_node_accepts_growing_runtime_and_fifo() -> None:
     for field in ("ring_enabled", "ring_node_count", "ring_local_node",
                   "ring_reference_node", "ring_up_running",
                   "ring_down_running", "ring_adapter_started",
-                  "ring_adapter_rx_bad_count", "ring_adapter_last_error"):
+                  "ring_adapter_rx_bad_count",
+                  "ring_adapter_rx_transport_bad_count",
+                  "ring_adapter_rx_schedule_bad_count",
+                  "ring_adapter_rx_profile_bad_count",
+                  "ring_adapter_last_error"):
         after_runtime[field] = before_runtime[field]
     after_runtime["ring_up_tx_frame_crc32"] = 0x5678
     after_runtime["ring_down_rx_frame_crc32"] = 0x5678
@@ -533,7 +696,11 @@ def test_validate_raw_flight_accepts_no_fifo_exchange() -> None:
     for field in ("ring_enabled", "ring_node_count", "ring_local_node",
                   "ring_reference_node", "ring_up_running",
                   "ring_down_running", "ring_adapter_started",
-                  "ring_adapter_rx_bad_count", "ring_adapter_last_error"):
+                  "ring_adapter_rx_bad_count",
+                  "ring_adapter_rx_transport_bad_count",
+                  "ring_adapter_rx_schedule_bad_count",
+                  "ring_adapter_rx_profile_bad_count",
+                  "ring_adapter_last_error"):
         after_runtime[field] = before_runtime[field]
     after_runtime["ring_up_tx_frame_crc32"] = 0x5678
     after_runtime["ring_down_rx_frame_crc32"] = 0x5678
@@ -553,7 +720,11 @@ def test_reference_accepts_one_in_flight_sequence_without_false_crc_mismatch(
     for field in ("ring_enabled", "ring_node_count", "ring_local_node",
                   "ring_reference_node", "ring_up_running",
                   "ring_down_running", "ring_adapter_started",
-                  "ring_adapter_rx_bad_count", "ring_adapter_last_error"):
+                  "ring_adapter_rx_bad_count",
+                  "ring_adapter_rx_transport_bad_count",
+                  "ring_adapter_rx_schedule_bad_count",
+                  "ring_adapter_rx_profile_bad_count",
+                  "ring_adapter_last_error"):
         after_runtime[field] = before_runtime[field]
     after_runtime["ring_local_node"] = 0
     after_runtime["ring_up_tx_sequence"] = 105
@@ -583,7 +754,11 @@ def test_validate_raw_flight_ignores_process_image_backpressure() -> None:
     for field in ("ring_enabled", "ring_node_count", "ring_local_node",
                   "ring_reference_node", "ring_up_running",
                   "ring_down_running", "ring_adapter_started",
-                  "ring_adapter_rx_bad_count", "ring_adapter_last_error"):
+                  "ring_adapter_rx_bad_count",
+                  "ring_adapter_rx_transport_bad_count",
+                  "ring_adapter_rx_schedule_bad_count",
+                  "ring_adapter_rx_profile_bad_count",
+                  "ring_adapter_last_error"):
         after_runtime[field] = before_runtime[field]
     after_runtime["ring_up_tx_frame_crc32"] = 0x5678
     after_runtime["ring_down_rx_frame_crc32"] = 0x5678
@@ -605,7 +780,11 @@ def test_validate_raw_flight_requires_role_persona() -> None:
     for field in ("ring_enabled", "ring_node_count", "ring_local_node",
                   "ring_reference_node", "ring_up_running",
                   "ring_down_running", "ring_adapter_started",
-                  "ring_adapter_rx_bad_count", "ring_adapter_last_error"):
+                  "ring_adapter_rx_bad_count",
+                  "ring_adapter_rx_transport_bad_count",
+                  "ring_adapter_rx_schedule_bad_count",
+                  "ring_adapter_rx_profile_bad_count",
+                  "ring_adapter_last_error"):
         after_runtime[field] = before_runtime[field]
     after_runtime["ring_up_tx_frame_crc32"] = 0x5678
     after_runtime["ring_down_rx_frame_crc32"] = 0x5678
@@ -624,7 +803,11 @@ def test_validate_node_requires_rx_acquire_and_release() -> None:
     for field in ("ring_enabled", "ring_node_count", "ring_local_node",
                   "ring_reference_node", "ring_up_running",
                   "ring_down_running", "ring_adapter_started",
-                  "ring_adapter_rx_bad_count", "ring_adapter_last_error"):
+                  "ring_adapter_rx_bad_count",
+                  "ring_adapter_rx_transport_bad_count",
+                  "ring_adapter_rx_schedule_bad_count",
+                  "ring_adapter_rx_profile_bad_count",
+                  "ring_adapter_last_error"):
         after_runtime[field] = before_runtime[field]
     after_runtime["ring_up_tx_frame_crc32"] = 0x5678
     after_runtime["ring_down_rx_frame_crc32"] = 0x5678

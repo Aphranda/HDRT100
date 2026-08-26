@@ -22,54 +22,13 @@ if str(ROOT / "tools" / "tdma_ring_monitor") not in sys.path:
     sys.path.insert(0, str(ROOT / "tools" / "tdma_ring_monitor"))
 
 from scpi_common.scpi_serial import open_serial_port, read_scpi_response  # noqa: E402
-from tdma_field_parse import FIELDS as TDMA_FIELDS  # noqa: E402
+from tdma_field_parse import FIELDS as TDMA_FIELDS, PHYS_FIELDS  # noqa: E402
 
-FIELD_TX = 99   # ring_idle_beacon_tx_count (0-based)
-FIELD_RX = 100  # ring_idle_beacon_rx_count
-FIELD_TXC = 107  # ring_adapter_tx_count
-FIELD_RXC = 108  # ring_adapter_rx_count
-FIELD_BAD = 109  # ring_adapter_rx_bad_count
-
-PHYS_FIELDS = [
-    "armed", "role", "baud_hz", "tx_count", "rx_count", "rx_bad_count",
-    "tx_busy_count", "rx_partial_count", "rx_stall_count",
-    "tx_timeout_count", "last_error", "last_rx_size", "tx_sck_pin",
-    "tx_pin", "rx_sck_pin", "rx_pin", "last_bad_header0",
-    "last_bad_header1", "last_bad_header2", "last_bad_header3",
-    "last_bad_words", "rx_busy_count", "rx_magic_fail_count",
-    "rx_busy_word0", "rx_busy_word1", "rx_busy_word2", "rx_busy_word3",
-    "rx_busy_moved", "rx_magic_at_zero", "rx_magic_at_shift",
-    "tx_csn_pin", "rx_csn_pin", "rx_ring_overrun_count",
-    "rx_dma_produced_words", "rx_scan_produced_words", "rx_dma_write_index",
-    "rx_dma_channel", "tx_edge_count", "rx_edge_count",
-    "last_tx_edge_timestamp_ns_lo", "last_tx_edge_timestamp_ns_hi",
-    "last_tx_done_timestamp_ns_lo", "last_tx_done_timestamp_ns_hi",
-    "last_rx_edge_timestamp_ns_lo", "last_rx_edge_timestamp_ns_hi",
-    "last_rx_extract_timestamp_ns_lo", "last_rx_extract_timestamp_ns_hi",
-    "program_persona", "program_switch_count", "program_switch_fail_count",
-    "flight_marker_offset_sample_count", "flight_sck_offset_sample_count",
-    "flight_data_offset_sample_count", "flight_sck_phase_delay_cycles",
-    "flight_data_phase_delay_cycles",
-    "pio_irq_flags", "pio_fdebug", "tx_sm_pc", "rx_sm_pc",
-    "tx_sm_tx_fifo_level", "tx_sm_rx_fifo_level",
-    "rx_sm_tx_fifo_level", "rx_sm_rx_fifo_level", "gpio_input_levels",
-    "origin_done_irq_count", "origin_done_txstall_count",
-    "origin_clock_timeout_count", "origin_data_timeout_count",
-    "origin_recovery_count",
-    "overlay_prepare_count", "overlay_prepare_fail_count",
-    "overlay_replacement_byte_count", "overlay_alignment_byte_shift",
-    "overlay_alignment_bit_shift", "overlay_physical_byte_count",
-    "overlay_last_error", "overlay_tx_dma_remaining",
-    "overlay_tx_dma_busy", "overlay_tx_fifo_level_at_fail",
-    "overlay_prepare_wait_us",
-    "overlay_program_offset", "overlay_tx_dma_read_index",
-    "overlay_tx_dma_ctrl", "overlay_sm_shiftctrl", "overlay_sm_execctrl",
-    "overlay_sm_pc_at_fail", "overlay_pio_ctrl_at_fail",
-    "overlay_pio_fstat_at_fail", "overlay_pio_fdebug_at_fail",
-    "overlay_frame_boundary_count", "overlay_pass_recovery_count",
-    "overlay_late_coalesce_count",
-]
-
+FIELD_TX = TDMA_FIELDS.index("ring_idle_beacon_tx_count")
+FIELD_RX = TDMA_FIELDS.index("ring_idle_beacon_rx_count")
+FIELD_TXC = TDMA_FIELDS.index("ring_adapter_tx_count")
+FIELD_RXC = TDMA_FIELDS.index("ring_adapter_rx_count")
+FIELD_BAD = TDMA_FIELDS.index("ring_adapter_rx_bad_count")
 
 def query(ser, cmd: str, timeout_s: float) -> str:
     ser.reset_input_buffer()

@@ -143,6 +143,61 @@ bool tdma_ring_runtime_validate_config(
     return true;
 }
 
+static bool tdma_ring_runtime_read_config(
+    const tdma_ring_runtime_t *runtime,
+    tdma_ring_runtime_config_t *config,
+    uint32_t *config_seq)
+{
+    if (runtime == NULL || config == NULL || config_seq == NULL) {
+        return false;
+    }
+    for (uint32_t attempt = 0u;
+         attempt < TDMA_RING_RUNTIME_SNAPSHOT_RETRY_LIMIT;
+         attempt++) {
+        const uint32_t guard_begin =
+            tdma_ring_runtime_load(&runtime->config_guard);
+        if ((guard_begin & 1u) != 0u) {
+            continue;
+        }
+        *config_seq = tdma_ring_runtime_load(&runtime->config_seq);
+        config->enabled = tdma_ring_runtime_load(&runtime->enabled);
+        config->node_count = tdma_ring_runtime_load(&runtime->node_count);
+        config->local_slot_id =
+            tdma_ring_runtime_load(&runtime->local_slot_id);
+        config->reference_slot_id =
+            tdma_ring_runtime_load(&runtime->reference_slot_id);
+        config->up_group_id = tdma_ring_runtime_load(&runtime->up_group_id);
+        config->down_group_id =
+            tdma_ring_runtime_load(&runtime->down_group_id);
+        config->flags = tdma_ring_runtime_load(&runtime->flags);
+        config->ring_profile_crc32 =
+            tdma_ring_runtime_load(&runtime->ring_profile_crc32);
+        config->schedule_crc32 =
+            tdma_ring_runtime_load(&runtime->schedule_crc32);
+        config->operating_profile_crc32 =
+            tdma_ring_runtime_load(&runtime->operating_profile_crc32);
+        config->baud_hz = tdma_ring_runtime_load(&runtime->baud_hz);
+        config->cycle_period_ns =
+            tdma_ring_runtime_load(&runtime->cycle_period_ns);
+        config->loop_delay_ns =
+            tdma_ring_runtime_load(&runtime->loop_delay_ns);
+        config->loop_delay_tolerance_ns =
+            tdma_ring_runtime_load(&runtime->loop_delay_tolerance_ns);
+        config->feedback_timeout_ns =
+            tdma_ring_runtime_load(&runtime->feedback_timeout_ns);
+        config->tx_dma_channel_id =
+            tdma_ring_runtime_load(&runtime->tx_dma_channel_id);
+        config->rx_dma_channel_id =
+            tdma_ring_runtime_load(&runtime->rx_dma_channel_id);
+        const uint32_t guard_end =
+            tdma_ring_runtime_load(&runtime->config_guard);
+        if (guard_begin == guard_end && (guard_end & 1u) == 0u) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool tdma_ring_runtime_validate_calibration_link_phase(
     const tdma_ring_calibration_link_t *link)
 {
@@ -401,10 +456,16 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
         return;
     }
 
-    const uint32_t enabled = tdma_ring_runtime_load(&runtime->enabled);
-    const uint32_t up_group = tdma_ring_runtime_load(&runtime->up_group_id);
-    const uint32_t down_group = tdma_ring_runtime_load(&runtime->down_group_id);
-    const uint32_t flags = tdma_ring_runtime_load(&runtime->flags);
+    tdma_ring_runtime_config_t service_config;
+    uint32_t service_config_seq = 0u;
+    if (!tdma_ring_runtime_read_config(runtime, &service_config,
+                                       &service_config_seq)) {
+        return;
+    }
+    const uint32_t enabled = service_config.enabled;
+    const uint32_t up_group = service_config.up_group_id;
+    const uint32_t down_group = service_config.down_group_id;
+    const uint32_t flags = service_config.flags;
     const bool up_down_config_ready =
         enabled != 0u && up_group != 0u && down_group != 0u &&
         up_group != down_group &&
@@ -422,44 +483,42 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
     uint32_t train_start_count = runtime->train_start_count;
     uint32_t train_reject_count = runtime->train_reject_count;
     uint32_t training_dirty = runtime->training_dirty;
+    uint32_t applied_config_seq = runtime->applied_config_seq;
     if (!up_down_config_ready) {
         tdma_ring_runtime_stop_adapter(runtime);
         if (enabled != 0u) {
             reason = TDMA_RING_RUNTIME_REASON_BAD_CONFIG;
+        } else if (tdma_ring_runtime_load(&runtime->config_seq) ==
+                       service_config_seq &&
+                   tdma_ring_runtime_load(&runtime->enabled) == 0u) {
+            applied_config_seq = service_config_seq;
         }
     } else if (runtime->adapter_ops == NULL) {
         reason = TDMA_RING_RUNTIME_REASON_ADAPTER_MISSING;
     } else {
         if (runtime->adapter_started == 0u ||
-            runtime->adapter_config_seq != runtime->config_seq) {
+            runtime->adapter_config_seq != service_config_seq) {
             tdma_ring_runtime_stop_adapter(runtime);
-            tdma_ring_runtime_config_t config = {
-                .enabled = enabled,
-                .node_count = runtime->node_count,
-                .local_slot_id = runtime->local_slot_id,
-                .reference_slot_id = runtime->reference_slot_id,
-                .up_group_id = up_group,
-                .down_group_id = down_group,
-                .flags = flags,
-                .ring_profile_crc32 = runtime->ring_profile_crc32,
-                .schedule_crc32 = runtime->schedule_crc32,
-                .operating_profile_crc32 = runtime->operating_profile_crc32,
-                .baud_hz = runtime->baud_hz,
-                .cycle_period_ns = runtime->cycle_period_ns,
-                .loop_delay_ns = runtime->loop_delay_ns,
-                .loop_delay_tolerance_ns = runtime->loop_delay_tolerance_ns,
-                .feedback_timeout_ns = runtime->feedback_timeout_ns,
-                .tx_dma_channel_id = runtime->tx_dma_channel_id,
-                .rx_dma_channel_id = runtime->rx_dma_channel_id,
-            };
             if (runtime->adapter_ops->start(runtime->adapter_context,
-                                            &config)) {
+                                            &service_config)) {
                 runtime->adapter_started = 1u;
-                runtime->adapter_config_seq = runtime->config_seq;
+                runtime->adapter_config_seq = service_config_seq;
                 runtime->adapter_start_count++;
+                if (tdma_ring_runtime_load(&runtime->config_seq) !=
+                        service_config_seq ||
+                    tdma_ring_runtime_load(&runtime->enabled) == 0u) {
+                    /* Core0 superseded this generation while the physical
+                     * ARM callback was running.  Revoke it before publishing
+                     * an acknowledgement for the stale configuration. */
+                    tdma_ring_runtime_stop_adapter(runtime);
+                } else {
+                    applied_config_seq = service_config_seq;
+                }
             } else {
                 reason = TDMA_RING_RUNTIME_REASON_ADAPTER_MISSING;
             }
+        } else {
+            applied_config_seq = service_config_seq;
         }
         const uint32_t data_enabled =
             tdma_ring_runtime_load(&runtime->data_enabled);
@@ -543,6 +602,7 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
 
     tdma_ring_runtime_write_guard(&runtime->result_guard);
     runtime->service_seq++;
+    runtime->applied_config_seq = applied_config_seq;
     runtime->up_configured = adapter_service_ok
                                  ? adapter_status.up_configured
                                  : (up_group != 0u ? 1u : 0u);
@@ -570,6 +630,25 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
     runtime->adapter_tx_count = adapter_status.tx_count;
     runtime->adapter_rx_count = adapter_status.rx_count;
     runtime->adapter_rx_bad_count = adapter_status.rx_bad_count;
+    runtime->adapter_rx_transport_bad_count =
+        adapter_status.rx_transport_bad_count;
+    runtime->adapter_rx_schedule_bad_count = adapter_status.rx_schedule_bad_count;
+    runtime->adapter_rx_profile_bad_count = adapter_status.rx_profile_bad_count;
+    runtime->adapter_last_bad_transport_result =
+        adapter_status.last_bad_transport_result;
+    runtime->adapter_last_bad_sequence = adapter_status.last_bad_sequence;
+    runtime->adapter_last_bad_schedule_crc32 =
+        adapter_status.last_bad_schedule_crc32;
+    runtime->adapter_last_bad_profile_crc32 =
+        adapter_status.last_bad_profile_crc32;
+    runtime->adapter_last_bad_header_diff_count =
+        adapter_status.last_bad_header_diff_count;
+    runtime->adapter_last_bad_header_first_diff_offset =
+        adapter_status.last_bad_header_first_diff_offset;
+    runtime->adapter_last_bad_header_expected_byte =
+        adapter_status.last_bad_header_expected_byte;
+    runtime->adapter_last_bad_header_observed_byte =
+        adapter_status.last_bad_header_observed_byte;
     runtime->train_request_seq = train_request_seq;
     __atomic_store_n(&runtime->train_accepted_seq,
                      train_accepted_seq,
@@ -641,6 +720,7 @@ bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime,
         }
         snapshot->config_reject_count = runtime->config_reject_count;
         snapshot->service_seq = runtime->service_seq;
+        snapshot->applied_config_seq = runtime->applied_config_seq;
         snapshot->up_configured = runtime->up_configured;
         snapshot->down_configured = runtime->down_configured;
         snapshot->up_running = runtime->up_running;
@@ -668,6 +748,28 @@ bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime,
         snapshot->adapter_tx_count = runtime->adapter_tx_count;
         snapshot->adapter_rx_count = runtime->adapter_rx_count;
         snapshot->adapter_rx_bad_count = runtime->adapter_rx_bad_count;
+        snapshot->adapter_rx_transport_bad_count =
+            runtime->adapter_rx_transport_bad_count;
+        snapshot->adapter_rx_schedule_bad_count =
+            runtime->adapter_rx_schedule_bad_count;
+        snapshot->adapter_rx_profile_bad_count =
+            runtime->adapter_rx_profile_bad_count;
+        snapshot->adapter_last_bad_transport_result =
+            runtime->adapter_last_bad_transport_result;
+        snapshot->adapter_last_bad_sequence =
+            runtime->adapter_last_bad_sequence;
+        snapshot->adapter_last_bad_schedule_crc32 =
+            runtime->adapter_last_bad_schedule_crc32;
+        snapshot->adapter_last_bad_profile_crc32 =
+            runtime->adapter_last_bad_profile_crc32;
+        snapshot->adapter_last_bad_header_diff_count =
+            runtime->adapter_last_bad_header_diff_count;
+        snapshot->adapter_last_bad_header_first_diff_offset =
+            runtime->adapter_last_bad_header_first_diff_offset;
+        snapshot->adapter_last_bad_header_expected_byte =
+            runtime->adapter_last_bad_header_expected_byte;
+        snapshot->adapter_last_bad_header_observed_byte =
+            runtime->adapter_last_bad_header_observed_byte;
         snapshot->train_request_seq = runtime->train_request_seq;
         snapshot->train_accepted_seq = runtime->train_accepted_seq;
         snapshot->train_request_cycles = runtime->train_request_cycles;

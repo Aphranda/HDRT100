@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Parse the 110-field SYSTem:REFMEM:SYNC:TDMA:STATus? response into named fields."""
+"""Canonical field schemas for TDMA status and physical snapshots."""
 import sys
 
 FIELDS = [
@@ -46,7 +46,58 @@ FIELDS = [
     "ring_feedback_rx_timestamp_ns_lo", "ring_feedback_rx_timestamp_ns_hi",
     "ring_adapter_last_error", "ring_adapter_tx_count",
     "ring_adapter_rx_count", "ring_adapter_rx_bad_count",
+    "ring_adapter_rx_transport_bad_count",
+    "ring_adapter_rx_schedule_bad_count",
+    "ring_adapter_rx_profile_bad_count",
+    "ring_adapter_last_bad_transport_result",
+    "ring_adapter_last_bad_sequence",
+    "ring_adapter_last_bad_schedule_crc32",
+    "ring_adapter_last_bad_profile_crc32",
+    "ring_adapter_last_bad_header_diff_count",
+    "ring_adapter_last_bad_header_first_diff_offset",
+    "ring_adapter_last_bad_header_expected_byte",
+    "ring_adapter_last_bad_header_observed_byte",
 ]
+
+PHYS_FIELDS = (
+    "armed", "role", "baud_hz", "tx_count", "rx_count", "rx_bad_count",
+    "tx_busy_count", "rx_partial_count", "rx_stall_count",
+    "tx_timeout_count", "last_error", "last_rx_size", "tx_sck_pin",
+    "tx_pin", "rx_sck_pin", "rx_pin", "last_bad_header0",
+    "last_bad_header1", "last_bad_header2", "last_bad_header3",
+    "last_bad_words", "rx_busy_count", "rx_magic_fail_count",
+    "rx_busy_word0", "rx_busy_word1", "rx_busy_word2", "rx_busy_word3",
+    "rx_busy_moved", "rx_magic_at_zero", "rx_magic_at_shift",
+    "tx_csn_pin", "rx_csn_pin", "rx_ring_overrun_count",
+    "rx_dma_produced_words", "rx_scan_produced_words", "rx_dma_write_index",
+    "rx_dma_channel", "tx_edge_count", "rx_edge_count",
+    "last_tx_edge_timestamp_ns_lo", "last_tx_edge_timestamp_ns_hi",
+    "last_tx_done_timestamp_ns_lo", "last_tx_done_timestamp_ns_hi",
+    "last_rx_edge_timestamp_ns_lo", "last_rx_edge_timestamp_ns_hi",
+    "last_rx_extract_timestamp_ns_lo", "last_rx_extract_timestamp_ns_hi",
+    "program_persona", "program_switch_count", "program_switch_fail_count",
+    "flight_marker_offset_sample_count", "flight_sck_offset_sample_count",
+    "flight_data_offset_sample_count", "flight_marker_phase_delay_cycles",
+    "flight_sck_phase_delay_cycles", "flight_data_phase_delay_cycles",
+    "pio_irq_flags", "pio_fdebug", "tx_sm_pc", "rx_sm_pc",
+    "tx_sm_tx_fifo_level", "tx_sm_rx_fifo_level",
+    "rx_sm_tx_fifo_level", "rx_sm_rx_fifo_level", "gpio_input_levels",
+    "origin_done_irq_count", "origin_done_txstall_count",
+    "origin_clock_timeout_count", "origin_data_timeout_count",
+    "origin_recovery_count",
+    "overlay_prepare_count", "overlay_prepare_fail_count",
+    "overlay_replacement_byte_count", "overlay_alignment_byte_shift",
+    "overlay_alignment_bit_shift", "overlay_physical_byte_count",
+    "overlay_last_error", "overlay_tx_dma_remaining",
+    "overlay_tx_dma_busy", "overlay_tx_fifo_level_at_fail",
+    "overlay_prepare_wait_us",
+    "overlay_program_offset", "overlay_tx_dma_read_index",
+    "overlay_tx_dma_ctrl", "overlay_sm_shiftctrl", "overlay_sm_execctrl",
+    "overlay_sm_pc_at_fail", "overlay_pio_ctrl_at_fail",
+    "overlay_pio_fstat_at_fail", "overlay_pio_fdebug_at_fail",
+    "overlay_frame_boundary_count", "overlay_pass_recovery_count",
+    "overlay_late_coalesce_count",
+)
 
 KEY = [
     "service_count", "ring_enabled", "ring_config_seq", "ring_node_count",
@@ -58,6 +109,17 @@ KEY = [
     "ring_idle_beacon_tx_count", "ring_idle_beacon_rx_count",
     "ring_adapter_last_error", "ring_adapter_tx_count",
     "ring_adapter_rx_count", "ring_adapter_rx_bad_count",
+    "ring_adapter_rx_transport_bad_count",
+    "ring_adapter_rx_schedule_bad_count",
+    "ring_adapter_rx_profile_bad_count",
+    "ring_adapter_last_bad_transport_result",
+    "ring_adapter_last_bad_sequence",
+    "ring_adapter_last_bad_schedule_crc32",
+    "ring_adapter_last_bad_profile_crc32",
+    "ring_adapter_last_bad_header_diff_count",
+    "ring_adapter_last_bad_header_first_diff_offset",
+    "ring_adapter_last_bad_header_expected_byte",
+    "ring_adapter_last_bad_header_observed_byte",
     "simultaneous_feedback_loop_evidence",
 ]
 

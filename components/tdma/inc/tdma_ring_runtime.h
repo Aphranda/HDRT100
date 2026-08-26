@@ -6,7 +6,7 @@
 
 #include "tdma_profile.h"
 
-#define TDMA_RING_RUNTIME_VERSION 6u
+#define TDMA_RING_RUNTIME_VERSION 7u
 #define TDMA_RING_CALIBRATION_LINK_MAX 8u
 #define TDMA_RING_CALIBRATION_FLAG_ACCEPTED (1u << 0u)
 #define TDMA_RING_CALIBRATION_FLAG_HARDWARE_LATCHED (1u << 1u)
@@ -120,6 +120,17 @@ typedef struct {
     uint32_t tx_count;
     uint32_t rx_count;
     uint32_t rx_bad_count;
+    uint32_t rx_transport_bad_count;
+    uint32_t rx_schedule_bad_count;
+    uint32_t rx_profile_bad_count;
+    uint32_t last_bad_transport_result;
+    uint32_t last_bad_sequence;
+    uint32_t last_bad_schedule_crc32;
+    uint32_t last_bad_profile_crc32;
+    uint32_t last_bad_header_diff_count;
+    uint32_t last_bad_header_first_diff_offset;
+    uint32_t last_bad_header_expected_byte;
+    uint32_t last_bad_header_observed_byte;
     /* TX identity selected by the adapter from its hardware-latched
      * sequence history for the current feedback RX frame.  These fields
      * deliberately differ from up_tx_* when one or more frames are in
@@ -144,6 +155,7 @@ typedef struct {
     uint32_t version;
     uint32_t enabled;
     uint32_t config_seq;
+    uint32_t applied_config_seq;
     uint32_t config_reject_count;
     uint32_t service_seq;
     uint32_t node_count;
@@ -187,6 +199,17 @@ typedef struct {
     uint32_t adapter_tx_count;
     uint32_t adapter_rx_count;
     uint32_t adapter_rx_bad_count;
+    uint32_t adapter_rx_transport_bad_count;
+    uint32_t adapter_rx_schedule_bad_count;
+    uint32_t adapter_rx_profile_bad_count;
+    uint32_t adapter_last_bad_transport_result;
+    uint32_t adapter_last_bad_sequence;
+    uint32_t adapter_last_bad_schedule_crc32;
+    uint32_t adapter_last_bad_profile_crc32;
+    uint32_t adapter_last_bad_header_diff_count;
+    uint32_t adapter_last_bad_header_first_diff_offset;
+    uint32_t adapter_last_bad_header_expected_byte;
+    uint32_t adapter_last_bad_header_observed_byte;
     uint32_t train_request_seq;
     uint32_t train_accepted_seq;
     uint32_t train_request_cycles;
@@ -220,6 +243,7 @@ typedef struct {
     volatile uint32_t tx_dma_channel_id;
     volatile uint32_t rx_dma_channel_id;
     volatile uint32_t service_seq;
+    volatile uint32_t applied_config_seq;
     volatile uint32_t up_configured;
     volatile uint32_t down_configured;
     volatile uint32_t up_running;
@@ -245,6 +269,17 @@ typedef struct {
     volatile uint32_t adapter_tx_count;
     volatile uint32_t adapter_rx_count;
     volatile uint32_t adapter_rx_bad_count;
+    volatile uint32_t adapter_rx_transport_bad_count;
+    volatile uint32_t adapter_rx_schedule_bad_count;
+    volatile uint32_t adapter_rx_profile_bad_count;
+    volatile uint32_t adapter_last_bad_transport_result;
+    volatile uint32_t adapter_last_bad_sequence;
+    volatile uint32_t adapter_last_bad_schedule_crc32;
+    volatile uint32_t adapter_last_bad_profile_crc32;
+    volatile uint32_t adapter_last_bad_header_diff_count;
+    volatile uint32_t adapter_last_bad_header_first_diff_offset;
+    volatile uint32_t adapter_last_bad_header_expected_byte;
+    volatile uint32_t adapter_last_bad_header_observed_byte;
     volatile uint32_t data_enabled;
     volatile uint32_t train_command_seq;
     volatile uint32_t train_command_cycles;

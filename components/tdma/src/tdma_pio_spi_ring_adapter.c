@@ -256,6 +256,17 @@ static bool tdma_pio_spi_ring_adapter_start(
     adapter->tx_count = 0u;
     adapter->rx_count = 0u;
     adapter->rx_bad_count = 0u;
+    adapter->rx_transport_bad_count = 0u;
+    adapter->rx_schedule_bad_count = 0u;
+    adapter->rx_profile_bad_count = 0u;
+    adapter->last_bad_transport_result = TDMA_TRANSPORT_OK;
+    adapter->last_bad_sequence = 0u;
+    adapter->last_bad_schedule_crc32 = 0u;
+    adapter->last_bad_profile_crc32 = 0u;
+    adapter->last_bad_header_diff_count = 0u;
+    adapter->last_bad_header_first_diff_offset = UINT32_MAX;
+    adapter->last_bad_header_expected_byte = 0u;
+    adapter->last_bad_header_observed_byte = 0u;
     adapter->rx_drop_count = 0u;
     adapter->up_sequence = 0u;
     adapter->down_rx_sequence = 0u;
@@ -436,6 +447,9 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
             view.identity_crc32;
         adapter->reference_tx_evidence[evidence_index].timestamp_ns =
             tx_timestamp_ns;
+        memcpy(adapter->reference_tx_evidence[evidence_index].header,
+               packet,
+               TDMA_TRANSPORT_FRAME_HEADER_SIZE);
         adapter->reference_tx_evidence[evidence_index].valid =
             tx_timestamp_ns != 0ull;
     }
@@ -460,13 +474,61 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
                                &hardware_flags);
     tdma_transport_frame_view_t view;
     tdma_transport_result_t result = TDMA_TRANSPORT_OK;
-    if (!tdma_transport_frame_decode(packet,
-                                     packet_size,
-                                     &view,
-                                     &result) ||
-        view.schedule_crc32 != adapter->config.schedule_crc32 ||
-        view.ring_profile_crc32 != adapter->config.ring_profile_crc32) {
+    const bool decoded = tdma_transport_frame_decode(packet,
+                                                     packet_size,
+                                                     &view,
+                                                     &result);
+    const bool schedule_bad = decoded &&
+        view.schedule_crc32 != adapter->config.schedule_crc32;
+    const bool profile_bad = decoded && !schedule_bad &&
+        view.ring_profile_crc32 != adapter->config.ring_profile_crc32;
+    if (!decoded || schedule_bad || profile_bad) {
         adapter->rx_bad_count++;
+        if (!decoded) {
+            adapter->rx_transport_bad_count++;
+        } else if (schedule_bad) {
+            adapter->rx_schedule_bad_count++;
+        } else {
+            adapter->rx_profile_bad_count++;
+        }
+        /* Decode deliberately zeroes view before inspecting the packet, so
+         * early header failures publish zero identity fields while CRC-stage
+         * failures retain the observed sequence and frozen identities. */
+        adapter->last_bad_transport_result = (uint32_t)result;
+        adapter->last_bad_sequence = view.transport_sequence;
+        adapter->last_bad_schedule_crc32 = view.schedule_crc32;
+        adapter->last_bad_profile_crc32 = view.ring_profile_crc32;
+        adapter->last_bad_header_diff_count = 0u;
+        adapter->last_bad_header_first_diff_offset = UINT32_MAX;
+        adapter->last_bad_header_expected_byte = 0u;
+        adapter->last_bad_header_observed_byte = 0u;
+        if (adapter->role == TDMA_PIO_SPI_RING_ROLE_REFERENCE &&
+            packet_size >= TDMA_TRANSPORT_FRAME_HEADER_SIZE &&
+            view.transport_sequence != 0u) {
+            const uint32_t evidence_index =
+                view.transport_sequence %
+                TDMA_PIO_SPI_RING_ADAPTER_TX_EVIDENCE_DEPTH;
+            if (adapter->reference_tx_evidence[evidence_index].valid &&
+                adapter->reference_tx_evidence[evidence_index].sequence ==
+                    view.transport_sequence) {
+                for (uint32_t i = 0u;
+                     i < TDMA_TRANSPORT_FRAME_HEADER_SIZE;
+                     i++) {
+                    const uint8_t expected =
+                        adapter->reference_tx_evidence[evidence_index].header[i];
+                    const uint8_t observed = packet[i];
+                    if (expected == observed) {
+                        continue;
+                    }
+                    if (adapter->last_bad_header_diff_count == 0u) {
+                        adapter->last_bad_header_first_diff_offset = i;
+                        adapter->last_bad_header_expected_byte = expected;
+                        adapter->last_bad_header_observed_byte = observed;
+                    }
+                    adapter->last_bad_header_diff_count++;
+                }
+            }
+        }
         tdma_pio_spi_ring_adapter_set_error(
             adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_RX_BAD_FRAME);
         return false;
@@ -1061,6 +1123,21 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
     status->tx_count = adapter->tx_count;
     status->rx_count = adapter->rx_count;
     status->rx_bad_count = adapter->rx_bad_count;
+    status->rx_transport_bad_count = adapter->rx_transport_bad_count;
+    status->rx_schedule_bad_count = adapter->rx_schedule_bad_count;
+    status->rx_profile_bad_count = adapter->rx_profile_bad_count;
+    status->last_bad_transport_result = adapter->last_bad_transport_result;
+    status->last_bad_sequence = adapter->last_bad_sequence;
+    status->last_bad_schedule_crc32 = adapter->last_bad_schedule_crc32;
+    status->last_bad_profile_crc32 = adapter->last_bad_profile_crc32;
+    status->last_bad_header_diff_count =
+        adapter->last_bad_header_diff_count;
+    status->last_bad_header_first_diff_offset =
+        adapter->last_bad_header_first_diff_offset;
+    status->last_bad_header_expected_byte =
+        adapter->last_bad_header_expected_byte;
+    status->last_bad_header_observed_byte =
+        adapter->last_bad_header_observed_byte;
     status->feedback_reference_sequence =
         adapter->feedback_reference_sequence;
     status->feedback_reference_frame_crc32 =
@@ -1130,6 +1207,23 @@ bool tdma_pio_spi_ring_adapter_get_snapshot(
         snapshot->tx_count = adapter->tx_count;
         snapshot->rx_count = adapter->rx_count;
         snapshot->rx_bad_count = adapter->rx_bad_count;
+        snapshot->rx_transport_bad_count = adapter->rx_transport_bad_count;
+        snapshot->rx_schedule_bad_count = adapter->rx_schedule_bad_count;
+        snapshot->rx_profile_bad_count = adapter->rx_profile_bad_count;
+        snapshot->last_bad_transport_result =
+            adapter->last_bad_transport_result;
+        snapshot->last_bad_sequence = adapter->last_bad_sequence;
+        snapshot->last_bad_schedule_crc32 =
+            adapter->last_bad_schedule_crc32;
+        snapshot->last_bad_profile_crc32 = adapter->last_bad_profile_crc32;
+        snapshot->last_bad_header_diff_count =
+            adapter->last_bad_header_diff_count;
+        snapshot->last_bad_header_first_diff_offset =
+            adapter->last_bad_header_first_diff_offset;
+        snapshot->last_bad_header_expected_byte =
+            adapter->last_bad_header_expected_byte;
+        snapshot->last_bad_header_observed_byte =
+            adapter->last_bad_header_observed_byte;
         snapshot->rx_drop_count = adapter->rx_drop_count;
         snapshot->timestamp_resolution_ns =
             adapter->feedback_reference_sequence != 0u

@@ -29,7 +29,7 @@ from flight_bitmap_validate import (  # noqa: E402
     FIFO_FIELDS,
     PROCESS_FIELDS,
 )
-from tdma_frequency_sweep import PHYS_FIELDS  # noqa: E402
+from tdma_field_parse import PHYS_FIELDS  # noqa: E402
 from trn03_stage import (  # noqa: E402
     checked_action,
     drain_errors,
@@ -72,6 +72,19 @@ RUNTIME_FIELDS = (
     "ring_adapter_tx_count",
     "ring_adapter_rx_count",
     "ring_adapter_rx_bad_count",
+    "ring_adapter_rx_transport_bad_count",
+    "ring_adapter_rx_schedule_bad_count",
+    "ring_adapter_rx_profile_bad_count",
+    "ring_adapter_last_bad_transport_result",
+    "ring_adapter_last_bad_sequence",
+    "ring_adapter_last_bad_schedule_crc32",
+    "ring_adapter_last_bad_profile_crc32",
+    "ring_adapter_last_bad_header_diff_count",
+    "ring_adapter_last_bad_header_first_diff_offset",
+    "ring_adapter_last_bad_header_expected_byte",
+    "ring_adapter_last_bad_header_observed_byte",
+    "ring_config_seq",
+    "ring_applied_config_seq",
 )
 
 
@@ -204,6 +217,30 @@ def wait_runtime_started(board: Board, args: argparse.Namespace,
         f"{board.address}: ARM timeout, last={last}, last_error={last_error}")
 
 
+def wait_runtime_stopped(board: Board, args: argparse.Namespace,
+                         node_index: int) -> dict[str, int]:
+    """Wait for Core1 to acknowledge the exact STOP configuration generation."""
+    deadline = time.monotonic() + args.arm_wait
+    last: dict[str, int] = {}
+    last_error = ""
+    while time.monotonic() < deadline:
+        try:
+            last = runtime_snapshot(board, args, node_index)
+        except (OSError, RuntimeError) as exc:
+            last_error = str(exc)
+            time.sleep(0.1)
+            continue
+        if (last["ring_enabled"] == 0 and
+                last["ring_adapter_started"] == 0 and
+                last["ring_applied_config_seq"] == last["ring_config_seq"]):
+            last["passed"] = 1
+            return last
+        time.sleep(0.05)
+    raise RuntimeError(
+        f"{board.address}: STOP acknowledgement timeout, last={last}, "
+        f"last_error={last_error}")
+
+
 def flight_snapshot(board: Board, args: argparse.Namespace) -> dict[str, Any]:
     process = parse_snapshot(
         board_command(board, "SYSTem:TDMA:FLIGHT:PROCess?", args),
@@ -281,6 +318,43 @@ def validate_fifo_reset(flight: dict[str, Any]) -> list[str]:
     return [error for passed, error in checks if not passed]
 
 
+def expected_flight_phase(config: dict[str, Any],
+                          node_index: int) -> dict[str, int]:
+    """Resolve the exact matrix row fields that one physical Node must load."""
+    node_count = int(config["node_count"])
+    if not 0 <= node_index < node_count:
+        raise ValueError("node index is outside the physical loop")
+    links = config.get("links")
+    if not isinstance(links, list) or len(links) != node_count:
+        raise ValueError("resolved config links are incomplete")
+    marker_link = links[(node_index + node_count - 1) % node_count]
+    data_link = links[node_index]
+    return {
+        "flight_marker_offset_sample_count":
+            int(marker_link["marker_offset_sample_count"]),
+        "flight_sck_offset_sample_count":
+            int(marker_link["sck_offset_sample_count"]),
+        "flight_data_offset_sample_count":
+            int(data_link["data_offset_sample_count"]),
+        "flight_marker_phase_delay_cycles":
+            int(marker_link["marker_phase_delay_cycles"]),
+        "flight_sck_phase_delay_cycles":
+            int(marker_link["sck_phase_delay_cycles"]),
+        "flight_data_phase_delay_cycles":
+            int(data_link["data_phase_delay_cycles"]),
+    }
+
+
+def validate_flight_phase_readback(
+        physical: dict[str, int], expected: dict[str, int]) -> list[str]:
+    """Fail closed if runtime PIO parameters differ from the selected row."""
+    errors: list[str] = []
+    for field, value in expected.items():
+        if physical.get(field) != value:
+            errors.append(field.removeprefix("flight_") + "_mismatch")
+    return errors
+
+
 def validate_node(node_index: int, node_count: int,
                    runtime_before: dict[str, int],
                    runtime_after: dict[str, int],
@@ -289,7 +363,8 @@ def validate_node(node_index: int, node_count: int,
                    seed_errors: list[str] | None = None,
                    seed_deltas: dict[str, int] | None = None,
                    *, require_process_image: bool = True,
-                   physical_after: dict[str, int] | None = None
+                   physical_after: dict[str, int] | None = None,
+                   expected_physical: dict[str, int] | None = None
                    ) -> tuple[list[str], dict[str, Any]]:
     errors: list[str] = []
     if seed_errors:
@@ -299,6 +374,9 @@ def validate_node(node_index: int, node_count: int,
         "ring_down_rx_sequence", "ring_idle_beacon_tx_count",
         "ring_idle_beacon_rx_count", "ring_adapter_tx_count",
         "ring_adapter_rx_count", "ring_adapter_rx_bad_count",
+        "ring_adapter_rx_transport_bad_count",
+        "ring_adapter_rx_schedule_bad_count",
+        "ring_adapter_rx_profile_bad_count",
     )
     runtime_deltas = counter_deltas(
         runtime_before, runtime_after, runtime_delta_fields)
@@ -398,6 +476,9 @@ def validate_node(node_index: int, node_count: int,
         checks.append((
             physical_after.get("program_persona") == expected_persona,
             "physical_flight_persona_mismatch"))
+        if expected_physical is not None:
+            errors.extend(validate_flight_phase_readback(
+                physical_after, expected_physical))
         if require_process_image and node_index != 0:
             checks.extend((
                 (physical_after.get("overlay_prepare_count", 0) > 0,
@@ -585,6 +666,16 @@ def main() -> int:
             actions.append({"node": board.address, "action": "STOP",
                             "response": board_command(
                                 board, "SYSTem:TDMA:RING:STOP", args)})
+        stop_ack = {
+            board.address: wait_runtime_stopped(board, args, node_index)
+            for node_index, board in enumerate(ordered)
+        }
+        actions.extend({
+            "node": address,
+            "action": "STOP_ACK",
+            "config_seq": snapshot["ring_config_seq"],
+            "applied_config_seq": snapshot["ring_applied_config_seq"],
+        } for address, snapshot in stop_ack.items())
         time.sleep(args.settle)
         expected_mode = 2 if args.stage == "process-image" else 1
         for board in ordered:
@@ -698,7 +789,8 @@ def main() -> int:
                 fifo_seed[board.address]["errors"],
                 fifo_seed[board.address]["deltas"],
                 require_process_image=args.stage == "process-image",
-                physical_after=after[board.address]["physical"])
+                physical_after=after[board.address]["physical"],
+                expected_physical=expected_flight_phase(config, node_index))
             nodes[board.address] = {
                 "node_index": node_index,
                 "passed": not node_errors,
@@ -749,7 +841,7 @@ def main() -> int:
                 actions.append({"node": board.address, "action": "STOP_FINAL",
                                 "response": board_command(
                                     board, "SYSTem:TDMA:RING:STOP", args)})
-                stopped[board.address] = stopped_snapshot(
+                stopped[board.address] = wait_runtime_stopped(
                     board, args, board_ids.index(board.address))
             except Exception as exc:  # noqa: BLE001
                 stopped[board.address] = {

@@ -219,6 +219,17 @@ typedef struct {
     uint32_t ring_adapter_tx_count;
     uint32_t ring_adapter_rx_count;
     uint32_t ring_adapter_rx_bad_count;
+    uint32_t ring_adapter_rx_transport_bad_count;
+    uint32_t ring_adapter_rx_schedule_bad_count;
+    uint32_t ring_adapter_rx_profile_bad_count;
+    uint32_t ring_adapter_last_bad_transport_result;
+    uint32_t ring_adapter_last_bad_sequence;
+    uint32_t ring_adapter_last_bad_schedule_crc32;
+    uint32_t ring_adapter_last_bad_profile_crc32;
+    uint32_t ring_adapter_last_bad_header_diff_count;
+    uint32_t ring_adapter_last_bad_header_first_diff_offset;
+    uint32_t ring_adapter_last_bad_header_expected_byte;
+    uint32_t ring_adapter_last_bad_header_observed_byte;
     uint32_t ring_up_tx_sequence;
     uint32_t ring_down_rx_sequence;
     uint32_t ring_up_tx_frame_crc32;
