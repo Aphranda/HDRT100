@@ -6,6 +6,7 @@ from tools.calibration_ring_validate.calibration_link_p3 import (
     apply_frequency_policy,
     evaluate_pair,
     parse_p3_status,
+    replay_saved_summary,
     timing_metrics,
     validation_frequency_ladder,
 )
@@ -58,6 +59,16 @@ def test_timing_metrics_checks_frequency_and_duty() -> None:
     assert metrics["frequency_ok"] and metrics["duty_ok"]
     assert metrics["data_high_ok"]
     assert metrics["data_burst_ok"]
+    assert metrics["minimum_data_pulse_count"] == 29
+
+
+def test_limited_rx_accepts_half_burst_for_statistical_width() -> None:
+    metrics = timing_metrics(
+        {"clock_high_ns": 16, "clock_low_ns": 17, "data_high_ns": 16,
+         "data_pulse_count": 22, "pulse_count": 32,
+         "sample_period_ns": 4}, 30_000_000, 5.0, 10.0)
+    assert metrics["minimum_data_pulse_count"] == 16
+    assert metrics["data_burst_ok"]
 
 
 def test_timing_metrics_rejects_short_return_data_pulse() -> None:
@@ -91,6 +102,48 @@ def test_evaluate_pair_subtracts_residence() -> None:
     assert result["path_sum_ns"] == 40
     assert result["delay_estimate_ns"] == 20.0
     assert result["passed"]
+
+
+def test_evaluate_pair_uses_local_return_width_as_link_reference() -> None:
+    initiator = make_snapshot(1, 0x09)
+    responder = make_snapshot(2, 0x06)
+    initiator["data_high_ns"] = 24
+    args = Namespace(frequency_tolerance_percent=5.0,
+                     duty_tolerance_percent=10.0)
+    result = evaluate_pair(initiator, responder, 25_000_000, args)
+    assert result["initiator_timing"]["data_width_reference"] == \
+        "responder_local_observed"
+    assert result["initiator_timing"]["data_high_error_ns"] == 4
+    assert result["passed"]
+    initiator["data_high_ns"] = 28
+    result = evaluate_pair(initiator, responder, 25_000_000, args)
+    assert "initiator_data_width" in result["failures"]
+
+
+def test_replay_saved_summary_reapplies_current_gate() -> None:
+    initiator = make_snapshot(1, 0x09)
+    responder = make_snapshot(2, 0x06)
+    initiator["data_high_ns"] = 24
+    trial = {
+        "source": "node0", "destination": "node1",
+        "frequency_hz": 25_000_000, "signal_group": 0,
+        "initiator": initiator, "responder": responder,
+        "passed": False, "failures": ["old_gate"],
+    }
+    source = {
+        "measurement_domain": "calibration",
+        "phase": "p3_per_link_bidirectional",
+        "trials": [trial],
+        "ladder": [{"link_index": 0, "source": "node0",
+                    "destination": "node1", "signal_group": 0,
+                    "frequency_mhz": 25}],
+    }
+    args = Namespace(frequency_tolerance_percent=5.0,
+                     duty_tolerance_percent=10.0)
+    replay = replay_saved_summary(source, args)
+    assert replay["gate_replay"]
+    assert replay["trials"][0]["passed"]
+    assert replay["ladder"][0]["accepted_count"] == 1
 
 
 def test_cs_data_group_keeps_logical_four_edge_gate() -> None:

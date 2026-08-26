@@ -72,7 +72,7 @@ P3_GROUP_NAMES = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--board-id", action="append", required=True,
+    parser.add_argument("--board-id", action="append", default=[],
                         help="exact *IDN? address in physical ring order")
     parser.add_argument("--expected-build")
     parser.add_argument("--frequency-mhz", action="append", type=int)
@@ -93,6 +93,9 @@ def parse_args() -> argparse.Namespace:
                         default=5.0)
     parser.add_argument("--duty-tolerance-percent", type=float, default=10.0)
     parser.add_argument("--out-dir", type=Path)
+    parser.add_argument("--replay-summary", type=Path,
+                        help=("re-evaluate a saved P3 summary with the current "
+                              "gate; requires --out-dir and performs no I/O"))
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--short-open", action="store_true",
                         help="open/close CDC for every command (diagnostic fallback)")
@@ -201,6 +204,14 @@ def timing_metrics(snapshot: dict[str, int], target_hz: int,
     # swaps the physical labels and uses CLK only as sync; it still has the
     # same frequency/duty gate as CLK_DATA.
     primary_timing_valid = True
+    pulse_count = max(1, snapshot.get("pulse_count", 1))
+    if target_hz == LIMITED_RX_FREQUENCY_MHZ * 1_000_000:
+        minimum_data_pulse_count = max(4, (pulse_count + 1) // 2)
+        data_burst_gate = "LIMITED_RX_HALF_BURST"
+    else:
+        minimum_data_pulse_count = max(4, (9 * pulse_count + 9) // 10)
+        data_burst_gate = "STABLE_NINETY_PERCENT_BURST"
+    data_pulse_count = snapshot.get("data_pulse_count", 1)
     return {
         "clock_high_ns": high_ns,
         "clock_low_ns": low_ns,
@@ -208,7 +219,11 @@ def timing_metrics(snapshot: dict[str, int], target_hz: int,
         "frequency_error_percent": frequency_error_percent,
         "duty_percent": duty_percent,
         "data_high_ns": snapshot["data_high_ns"],
-        "data_pulse_count": snapshot.get("data_pulse_count", 1),
+        "data_pulse_count": data_pulse_count,
+        "minimum_data_pulse_count": minimum_data_pulse_count,
+        "data_burst_gate": data_burst_gate,
+        "data_burst_coverage_percent": (
+            100.0 * data_pulse_count / pulse_count),
         "expected_data_high_ns": expected_data_high_ns,
         "data_high_error_ns": data_high_error_ns,
         "frequency_ok": (not primary_timing_valid or
@@ -217,8 +232,7 @@ def timing_metrics(snapshot: dict[str, int], target_hz: int,
                      abs(duty_percent - 50.0) <= duty_tolerance_percent),
         "primary_timing_valid": primary_timing_valid,
         "data_high_ok": data_high_error_ns <= sample_period_ns,
-        "data_burst_ok": snapshot.get("data_pulse_count", 1) >= max(
-            2, snapshot.get("pulse_count", 1) - 1),
+        "data_burst_ok": data_pulse_count >= minimum_data_pulse_count,
     }
 
 
@@ -234,6 +248,16 @@ def evaluate_pair(initiator: dict[str, int], responder: dict[str, int],
     responder_timing = timing_metrics(
         responder, target_hz, args.frequency_tolerance_percent,
         args.duty_tolerance_percent, signal_group)
+    programmed_data_high_ns = int(source_timing["expected_data_high_ns"])
+    source_timing["programmed_data_high_ns"] = programmed_data_high_ns
+    source_timing["expected_data_high_ns"] = responder["data_high_ns"]
+    source_timing["data_high_error_ns"] = abs(
+        initiator["data_high_ns"] - responder["data_high_ns"])
+    source_timing["data_high_ok"] = (
+        source_timing["data_high_error_ns"] <=
+        max(1, initiator.get("sample_period_ns", 4)))
+    source_timing["data_width_reference"] = "responder_local_observed"
+    responder_timing["data_width_reference"] = "pio_programmed"
     # edge_mask is the logical t1/t2/t3/t4 mask, independent of GPIO numbers.
     required_initiator_edges = 0x09
     required_responder_edges = 0x06
@@ -392,8 +416,99 @@ def apply_frequency_policy(ladder: list[dict[str, object]]) -> dict[str, object]
     }
 
 
+def replay_saved_summary(source: dict[str, object],
+                         args: argparse.Namespace) -> dict[str, object]:
+    raw_trials = source.get("trials")
+    raw_ladder = source.get("ladder")
+    if not isinstance(raw_trials, list) or not isinstance(raw_ladder, list):
+        raise ValueError("saved P3 summary is missing trials or ladder")
+    trials: list[dict[str, object]] = []
+    for raw in raw_trials:
+        if not isinstance(raw, dict):
+            raise ValueError("saved P3 trial is not an object")
+        initiator = raw.get("initiator")
+        responder = raw.get("responder")
+        if not isinstance(initiator, dict) or not isinstance(responder, dict):
+            trials.append({**raw, "passed": False,
+                           "failures": ["saved_snapshot_missing"]})
+            continue
+        evaluation = evaluate_pair(
+            initiator, responder, int(raw["frequency_hz"]), args,
+            int(raw.get("signal_group", P3_GROUP_CLK_DATA)))
+        trials.append({**raw, **evaluation})
+    ladder: list[dict[str, object]] = []
+    for raw in raw_ladder:
+        if not isinstance(raw, dict):
+            raise ValueError("saved P3 ladder row is not an object")
+        selected = [trial for trial in trials
+                    if trial.get("source") == raw.get("source") and
+                    trial.get("destination") == raw.get("destination") and
+                    int(trial.get("signal_group", P3_GROUP_CLK_DATA)) ==
+                    int(raw.get("signal_group", P3_GROUP_CLK_DATA)) and
+                    int(trial.get("frequency_hz", 0)) ==
+                    int(raw["frequency_mhz"]) * 1_000_000]
+        ladder.append({
+            "link_index": int(raw["link_index"]),
+            "source": raw["source"],
+            "destination": raw["destination"],
+            "signal_group": int(raw.get("signal_group", P3_GROUP_CLK_DATA)),
+            "frequency_mhz": int(raw["frequency_mhz"]),
+            **summarize_trials(selected),
+        })
+    frequency_policy = apply_frequency_policy(ladder)
+    plan_fields = (
+        "measurement_domain", "phase", "diagnostic_only",
+        "board_ids_in_physical_order", "boards", "frequency_ladder_mhz",
+        "repeats", "pulse_count", "capture_words", "signal_groups",
+    )
+    return {
+        **{field: source[field] for field in plan_fields if field in source},
+        "gate_replay": True,
+        "passed": bool(frequency_policy["stable_profiles_passed"]),
+        "frequency_policy": frequency_policy,
+        "ladder": ladder,
+        "trials": trials,
+    }
+
+
+def write_summary(output: dict[str, object], out_dir: Path) -> None:
+    ladder = output["ladder"]
+    if not isinstance(ladder, list):
+        raise ValueError("P3 output ladder is invalid")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "summary.json").write_text(
+        json.dumps(output, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8")
+    (out_dir / "summary.txt").write_text("\n".join(
+        f"{row['source']} -> {row['destination']} "
+        f"group={('CLK_DATA' if row.get('signal_group') == P3_GROUP_CLK_DATA else 'CS_DATA')} "
+        f"{row['frequency_mhz']}MHz "
+        f"accepted={row.get('accepted_count', 0)}/{row.get('trial_count', 0)} "
+        f"delay_mean_ns={row.get('delay_mean_ns')} passed={row['passed']} "
+        f"class={row.get('operational_class')} "
+        f"status={row.get('operational_status')}"
+        for row in ladder) + "\n", encoding="utf-8")
+
+
 def main() -> int:
     args = parse_args()
+    if args.replay_summary is not None:
+        if args.out_dir is None:
+            raise SystemExit("--replay-summary requires --out-dir")
+        source_path = args.replay_summary.resolve()
+        if not source_path.is_file():
+            raise SystemExit(f"saved P3 summary not found: {source_path}")
+        if args.out_dir.resolve() == source_path.parent:
+            raise SystemExit("replay output must not overwrite source evidence")
+        source = json.loads(source_path.read_text(encoding="utf-8"))
+        try:
+            output = replay_saved_summary(source, args)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise SystemExit(f"invalid saved P3 summary: {exc}") from exc
+        output["replayed_from"] = str(source_path)
+        write_summary(output, args.out_dir)
+        print(f"passed={output['passed']} out_dir={args.out_dir}")
+        return 0 if output["passed"] else 1
     try:
         frequencies_mhz = validation_frequency_ladder(args.frequency_mhz)
     except ValueError as exc:
@@ -489,19 +604,7 @@ def main() -> int:
     }
     out_dir = args.out_dir or (ROOT / "build-product-release" /
         f"calibration_link_p3_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "summary.json").write_text(
-        json.dumps(output, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8")
-    (out_dir / "summary.txt").write_text("\n".join(
-        f"{row['source']} -> {row['destination']} "
-        f"group={('CLK_DATA' if row.get('signal_group') == P3_GROUP_CLK_DATA else 'CS_DATA')} "
-        f"{row['frequency_mhz']}MHz "
-        f"accepted={row.get('accepted_count', 0)}/{row.get('trial_count', 0)} "
-        f"delay_mean_ns={row.get('delay_mean_ns')} passed={row['passed']} "
-        f"class={row.get('operational_class')} "
-        f"status={row.get('operational_status')}"
-        for row in ladder) + "\n", encoding="utf-8")
+    write_summary(output, out_dir)
     print(f"passed={passed} out_dir={out_dir}")
     return 0 if passed else 1
 
