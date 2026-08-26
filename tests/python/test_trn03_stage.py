@@ -174,6 +174,17 @@ def test_load_config_rejects_only_one_cycle_between_sck_and_data(
         load_config(write_matrix(tmp_path, value))
 
 
+def test_load_config_rejects_raw_follower_sck_duty_underflow(
+        tmp_path: Path) -> None:
+    value = matrix()
+    value["offset_matrix"]["rows"][0][
+        "sck_offset_sample_counts_by_node"] = [-2, -2, -2, -2]
+    value["offset_matrix"]["rows"][0][
+        "data_offset_sample_counts_by_node"] = [10, 10, 10, 10]
+    with pytest.raises(ValueError, match="cannot preserve SCK duty"):
+        load_config(write_matrix(tmp_path, value))
+
+
 def test_load_config_rejects_sck_phase_that_cannot_rearm(tmp_path: Path) -> None:
     value = matrix()
     value["offset_matrix"]["rows"][0][

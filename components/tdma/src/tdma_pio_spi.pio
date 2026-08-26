@@ -683,14 +683,33 @@ static inline uint32_t tdma_pio_spi_flight_data_residual_delay_cycles(
     return data_phase_delay_cycles - sck_phase_delay_cycles - 2u;
 }
 
+/* The combined raw follower reaches WAIT-low only after its DATA sample. If
+ * the physical falling edge has already arrived, remove those consumed cycles
+ * from the falling-edge phase so the regenerated SCK keeps one half-period
+ * high time. */
+static inline uint32_t tdma_pio_spi_flight_sck_falling_delay_cycles(
+    uint32_t sck_phase_delay_cycles, uint32_t data_phase_delay_cycles,
+    uint32_t half_period_cycles)
+{
+    if (data_phase_delay_cycles + 1u <= half_period_cycles) {
+        return sck_phase_delay_cycles;
+    }
+    return sck_phase_delay_cycles + half_period_cycles -
+        data_phase_delay_cycles - 1u;
+}
+
 static inline void tdma_pio_spi_flight_follower_program_init(
     PIO pio, uint sm, uint offset, uint rx_data_pin, uint tx_data_pin,
     uint rx_sck_pin, uint tx_sck_pin, uint32_t sck_phase_delay_cycles,
-    uint32_t data_phase_delay_cycles)
+    uint32_t data_phase_delay_cycles, uint32_t half_period_cycles)
 {
     const uint32_t data_residual_delay_cycles =
         tdma_pio_spi_flight_data_residual_delay_cycles(
             sck_phase_delay_cycles, data_phase_delay_cycles);
+    const uint32_t sck_falling_delay_cycles =
+        tdma_pio_spi_flight_sck_falling_delay_cycles(
+            sck_phase_delay_cycles, data_phase_delay_cycles,
+            half_period_cycles);
     pio->instr_mem[offset + 5u] =
         (uint16_t)(pio_encode_nop() |
                    pio_encode_sideset(1u, 1u) |
@@ -701,7 +720,8 @@ static inline void tdma_pio_spi_flight_follower_program_init(
                    pio_encode_delay(sck_phase_delay_cycles));
     pio->instr_mem[offset + 7u] =
         (uint16_t)(pio_encode_wait_gpio(false, rx_sck_pin) |
-                   pio_encode_sideset(1u, 1u));
+                   pio_encode_sideset(1u, 1u) |
+                   pio_encode_delay(sck_falling_delay_cycles));
     pio_gpio_init(pio, rx_data_pin);
     pio_gpio_init(pio, tx_data_pin);
     pio_gpio_init(pio, rx_sck_pin);

@@ -330,8 +330,16 @@ def test_flight_preserves_sck_and_advances_serial_data_one_cycle() -> None:
         "tdma_pio_spi_flight_data_residual_delay_cycles", 1
     )[1].split("static inline void", 1)[0]
     assert "data_phase_delay_cycles - sck_phase_delay_cycles - 2u" in helper
+    falling_helper = source.split(
+        "static inline uint32_t "
+        "tdma_pio_spi_flight_sck_falling_delay_cycles", 1
+    )[1].split("static inline void", 1)[0]
+    assert "data_phase_delay_cycles + 1u <= half_period_cycles" in falling_helper
+    assert "sck_phase_delay_cycles + half_period_cycles -" in falling_helper
+    assert "data_phase_delay_cycles - 1u" in falling_helper
     assert "pio_encode_delay(sck_phase_delay_cycles)" in follower
     assert "pio_encode_delay(data_residual_delay_cycles)" in follower
+    assert "pio_encode_delay(sck_falling_delay_cycles)" in follower
     assert "pio_encode_delay(data_phase_delay_cycles - 1u)" in process
     assert control.count(
         "pio_encode_delay(sck_phase_delay_cycles)") == 2
@@ -360,6 +368,8 @@ def test_flight_preserves_sck_and_advances_serial_data_one_cycle() -> None:
     assert "half_period_cycles" in arm
     assert "TDMA_PIO_SPI_FLIGHT_DATA_REARM_CYCLES" in arm
     assert "period_cycles" in arm
+    assert "!phys->process_image_enabled" in arm
+    assert "flight_sck_phase_delay_cycles + half_period_cycles" in arm
 
 
 def test_closed_loop_stops_calibration_personas_before_ring_staging() -> None:

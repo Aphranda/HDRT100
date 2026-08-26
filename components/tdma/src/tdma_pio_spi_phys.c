@@ -1095,7 +1095,8 @@ static bool tdma_pio_spi_phys_configure_flight(
                 phys->rx_sck_pin,
                 phys->tx_sck_pin,
                 phys->flight_sck_phase_delay_cycles,
-                phys->flight_data_phase_delay_cycles);
+                phys->flight_data_phase_delay_cycles,
+                clock_get_hz(clk_sys) / (2u * phys->baud_hz));
         }
         if (phys->process_image_enabled) {
             tdma_pio_spi_flight_control_forward_program_init(
@@ -1731,7 +1732,11 @@ bool tdma_pio_spi_phys_arm(void *context,
     if (period_cycles == 0u || half_period_cycles == 0u ||
         (phys->role == TDMA_PIO_SPI_ROLE_SLAVE &&
          phys->flight_sck_phase_delay_cycles +
-             TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES > half_period_cycles) ||
+              TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES > half_period_cycles) ||
+        (phys->role == TDMA_PIO_SPI_ROLE_SLAVE &&
+         !phys->process_image_enabled &&
+         phys->flight_data_phase_delay_cycles >=
+             phys->flight_sck_phase_delay_cycles + half_period_cycles) ||
         phys->flight_data_phase_delay_cycles +
             TDMA_PIO_SPI_FLIGHT_DATA_REARM_CYCLES > period_cycles) {
         return false;
