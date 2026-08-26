@@ -111,6 +111,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout", type=float, default=3.0)
     parser.add_argument("--settle", type=float, default=0.2)
     parser.add_argument("--arm-wait", type=float, default=3.0)
+    parser.add_argument(
+        "--owner-action-retries", type=int, default=3,
+        help=("bounded retries for STOPPED-only profile/topology owner "
+              "mutations; every rejected attempt is retained as evidence"))
     parser.add_argument("--capture-timeout", type=float, default=10.0)
     parser.add_argument("--capture-latch-retries", type=int, default=1)
     parser.add_argument("--waveform-window-ns", type=int, default=1000)
@@ -239,6 +243,37 @@ def wait_runtime_stopped(board: Board, args: argparse.Namespace,
     raise RuntimeError(
         f"{board.address}: STOP acknowledgement timeout, last={last}, "
         f"last_error={last_error}")
+
+
+def checked_stopped_ring_action(
+        board: Board, action: str, command: str, args: argparse.Namespace,
+        node_index: int) -> dict[str, Any]:
+    """Retry an idempotent owner mutation only after proving STOPPED again."""
+    retry_limit = int(getattr(args, "owner_action_retries", 3))
+    if retry_limit <= 0:
+        raise ValueError("owner action retries must be positive")
+    rejected_attempts: list[dict[str, Any]] = []
+    last_error = ""
+    for attempt in range(1, retry_limit + 1):
+        try:
+            evidence = checked_ring_action(board, action, command, args)
+            evidence["attempt_count"] = attempt
+            evidence["rejected_attempts"] = rejected_attempts
+            return evidence
+        except RuntimeError as exc:
+            last_error = str(exc)
+            if attempt == retry_limit:
+                break
+            stopped = wait_runtime_stopped(board, args, node_index)
+            rejected_attempts.append({
+                "attempt": attempt,
+                "error": last_error,
+                "stopped_readback": stopped,
+            })
+            time.sleep(0.1 * attempt)
+    raise RuntimeError(
+        f"{board.address}: {action} rejected after {retry_limit} STOPPED "
+        f"attempts: {last_error}; rejected_attempts={rejected_attempts}")
 
 
 def flight_snapshot(board: Board, args: argparse.Namespace) -> dict[str, Any]:
@@ -722,17 +757,18 @@ def main() -> int:
             actions.append(checked_ring_action(
                 board, "PROFILE_STAGE",
                 f"SYSTem:TDMA:OPMode:STAGe {level}", args))
-            actions.append(checked_ring_action(
-                board, "PROFILE_APPLY", "SYSTem:TDMA:OPMode:APPLy", args))
+            actions.append(checked_stopped_ring_action(
+                board, "PROFILE_APPLY", "SYSTem:TDMA:OPMode:APPLy", args,
+                node_index))
             active = parse_active_profile(
                 board_command(board, "SYSTem:TDMA:OPMode?", args),
                 f"{board.address}:profile")
             if active["level"] != level or active["profile_crc32"] != config["profile_crc32"]:
                 raise RuntimeError(f"{board.address}: profile mismatch {active}")
-            actions.append(checked_ring_action(
+            actions.append(checked_stopped_ring_action(
                 board, "TOPOLOGY",
                 f"SYSTem:TDMA:RING:TOPology {len(ordered)},{node_index},0",
-                args))
+                args, node_index))
         stage_results = [stage_board(board, config, args) for board in ordered]
         if not all(result["passed"] for result in stage_results):
             raise RuntimeError("matrix write/readback failed")

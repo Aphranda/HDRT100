@@ -14,6 +14,7 @@ import trn03_closed_loop as trn03  # noqa: E402
 from tools.scpi_common.scpi_serial import scpi_response_matches_command  # noqa: E402
 from trn03_closed_loop import (  # noqa: E402
     arm_with_evidence,
+    checked_stopped_ring_action,
     counter_deltas,
     expected_flight_phase,
     parse_active_profile,
@@ -78,6 +79,49 @@ def test_wait_runtime_stopped_requires_core1_generation_ack(monkeypatch) -> None
     assert observed["passed"] == 1
     assert observed["ring_applied_config_seq"] == 8
     assert not snapshots
+
+
+def test_stopped_owner_action_retries_with_readback_evidence(monkeypatch) -> None:
+    attempts = []
+    stopped = []
+
+    def checked(board, action, command, args):
+        attempts.append(command)
+        if len(attempts) < 3:
+            raise RuntimeError(f"transient-{len(attempts)}")
+        return {"node": board.address, "action": action,
+                "command": command, "error_after": '0,"No error"'}
+
+    monkeypatch.setattr(trn03, "checked_ring_action", checked)
+    monkeypatch.setattr(
+        trn03, "wait_runtime_stopped",
+        lambda board, args, node_index: stopped.append(node_index) or {
+            "ring_enabled": 0, "ring_adapter_started": 0,
+            "ring_config_seq": 9, "ring_applied_config_seq": 9,
+            "passed": 1})
+    monkeypatch.setattr(trn03.time, "sleep", lambda delay: None)
+    args = type("Args", (), {"owner_action_retries": 3})()
+    evidence = checked_stopped_ring_action(
+        FakeBoard(), "TOPOLOGY", "topology", args, 0)
+    assert evidence["attempt_count"] == 3
+    assert len(evidence["rejected_attempts"]) == 2
+    assert stopped == [0, 0]
+
+
+def test_stopped_owner_action_does_not_hide_persistent_rejection(
+        monkeypatch) -> None:
+    monkeypatch.setattr(
+        trn03, "checked_ring_action",
+        lambda board, action, command, args: (_ for _ in ()).throw(
+            RuntimeError("persistent")))
+    monkeypatch.setattr(
+        trn03, "wait_runtime_stopped",
+        lambda board, args, node_index: {"passed": 1})
+    monkeypatch.setattr(trn03.time, "sleep", lambda delay: None)
+    args = type("Args", (), {"owner_action_retries": 3})()
+    with pytest.raises(RuntimeError, match="after 3 STOPPED attempts"):
+        checked_stopped_ring_action(
+            FakeBoard(), "PROFILE_APPLY", "apply", args, 0)
 
 
 def test_raw_flight_mode_query_accepts_scalar_one() -> None:
