@@ -142,6 +142,10 @@ flight_process_byte:
     set y, 7
 flight_process_bit:
     wait 1 gpio 1
+    ; Match the raw-flight DATA follower exactly.  The trained phase ends at
+    ; this serial NOP; IN then samples one cycle later, away from the returned
+    ; DATA transition at the SCK edge.
+    nop
     in pins, 1
     wait 0 gpio 1
     out pins, 1
@@ -724,7 +728,7 @@ static inline void tdma_pio_spi_flight_process_follower_program_init(
     pio->instr_mem[offset + 11u] =
         (uint16_t)(pio_encode_wait_gpio(true, rx_sck_pin) |
                    pio_encode_delay(data_phase_delay_cycles - 1u));
-    pio->instr_mem[offset + 13u] =
+    pio->instr_mem[offset + 14u] =
         (uint16_t)pio_encode_wait_gpio(false, rx_sck_pin);
     pio_gpio_init(pio, rx_data_pin);
     pio_gpio_init(pio, tx_data_pin);

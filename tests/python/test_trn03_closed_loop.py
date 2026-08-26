@@ -129,12 +129,15 @@ def test_process_follower_retains_elastic_byte_across_frame_boundary() -> None:
     assert "instr_mem[offset + 11u]" in init
     assert "pio_encode_wait_gpio(true, rx_sck_pin)" in init
     assert "pio_encode_delay(data_phase_delay_cycles - 1u)" in init
-    assert "instr_mem[offset + 13u]" in init
+    assert "instr_mem[offset + 14u]" in init
     assert "pio_encode_wait_gpio(false, rx_sck_pin)" in init
     bit_loop = program.split("flight_process_bit:", 1)[1].split(
         "mov y, isr", 1)[0]
     assert "wait 0 gpio 1" in bit_loop
     assert "out pins, 1" in bit_loop
+    assert bit_loop.index("wait 1 gpio 1") < bit_loop.index("nop")
+    assert bit_loop.index("nop") < bit_loop.index("in pins, 1")
+    assert bit_loop.index("in pins, 1") < bit_loop.index("wait 0 gpio 1")
     assert "mov isr, null" not in program
 
     phys = (ROOT / "components" / "tdma" / "src" /
