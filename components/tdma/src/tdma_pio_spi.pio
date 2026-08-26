@@ -142,11 +142,11 @@ flight_process_byte:
     set y, 7
 flight_process_bit:
     wait 1 gpio 1
-    ; Match the raw-flight DATA follower sample point without spending another
-    ; instruction: program_init folds that follower's serial NOP cycle into
-    ; this WAIT delay.  The process persona then remains within PIO's shared
-    ; 32-instruction memory while IN still samples one cycle after the trained
-    ; phase ends.
+    ; Process-image replacement already adds a command-path pipeline cycle
+    ; before this serial loop. Keep the trained DATA phase on the wire by
+    ; encoding the same phase-minus-one WAIT used by the raw follower, without
+    ; adding another instruction. The process persona therefore remains within
+    ; PIO's shared 32-instruction memory and does not double-count that cycle.
     in pins, 1
     wait 0 gpio 1
     out pins, 1
@@ -728,7 +728,7 @@ static inline void tdma_pio_spi_flight_process_follower_program_init(
         (uint16_t)pio_encode_wait_gpio(true, rx_csn_pin);
     pio->instr_mem[offset + 11u] =
         (uint16_t)(pio_encode_wait_gpio(true, rx_sck_pin) |
-                   pio_encode_delay(data_phase_delay_cycles));
+                   pio_encode_delay(data_phase_delay_cycles - 1u));
     pio->instr_mem[offset + 13u] =
         (uint16_t)pio_encode_wait_gpio(false, rx_sck_pin);
     pio_gpio_init(pio, rx_data_pin);

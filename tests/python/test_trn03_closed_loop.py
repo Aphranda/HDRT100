@@ -140,7 +140,7 @@ def test_process_follower_retains_elastic_byte_across_frame_boundary() -> None:
     assert "instr_mem[offset + 6u]" not in init
     assert "instr_mem[offset + 11u]" in init
     assert "pio_encode_wait_gpio(true, rx_sck_pin)" in init
-    assert "pio_encode_delay(data_phase_delay_cycles)" in init
+    assert "pio_encode_delay(data_phase_delay_cycles - 1u)" in init
     assert "instr_mem[offset + 13u]" in init
     assert "pio_encode_wait_gpio(false, rx_sck_pin)" in init
     bit_loop = program.split("flight_process_bit:", 1)[1].split(
@@ -368,7 +368,7 @@ def test_flight_preserves_sck_and_advances_serial_data_one_cycle() -> None:
     assert "pio_encode_delay(data_phase_delay_cycles - 1u)" in follower
     assert "tx_sck_pin" not in follower
     assert "sm_config_set_sideset_pins" not in follower
-    assert "pio_encode_delay(data_phase_delay_cycles)" in process
+    assert "pio_encode_delay(data_phase_delay_cycles - 1u)" in process
     assert control.count(
         "pio_encode_delay(sck_phase_delay_cycles)") == 2
     assert "pio_encode_delay(sck_phase_delay_cycles)" in origin
