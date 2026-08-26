@@ -10,19 +10,21 @@ Last updated: 2026-08-27
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
-## CAL-TASK-20260827-011 - TRN-03D DATA 线端 CRC/epoch 故障证据
+## CAL-TASK-20260827-011 - TRN-03D DATA 线端与 MARK timeout 故障证据
 
-- 状态：TRN-03D 已进入进行中；DATA 的旧 epoch、header CRC 错误和无故障正向控制已完成
-  当前 release build 的四板异步 OTA 与单链路线端 HIL。marker timeout、DMA overrun、PIO
-  stall、Node dropout、stale identity/rollback 和长稳仍待完成，因此不发布 active calibration。
+- 状态：TRN-03D 已进入进行中；DATA 的旧 epoch、header CRC 错误、无故障正向控制和 MARK
+  无下降沿 timeout 已完成各自 release build 的四板异步 OTA 与 HIL。DMA overrun、PIO stall、
+  Node dropout、stale identity/rollback 和长稳仍待完成，因此不发布 active calibration。
 - 代码闭环：marker 公共相关原语返回实际解码的 header、header inverse 和 header CRC8；DATA
   evaluator 从有效线端 header 重建语义 codeword 后独立计算 `observed_crc32`，不再用请求中的
   expected CRC 回填 observed evidence。每次 ARM 的 responder 故障配置随 request 固化，状态和
   SD capture 同时保留门限、故障参数、observed header/CRC 及 correlation reject reason。
-- 拒绝优先级：distance/margin 先拒绝；header CRC 失败映射到
-  `CALIBRATION_TRAINING_DATA_REJECT_CRC`；合法但旧 epoch 的 header mismatch 映射到
-  `CALIBRATION_TRAINING_DATA_REJECT_EPOCH`；其余相关错误保持 correlation 拒绝。离线 SVG replay
-  执行相同的 inverse/CRC/epoch gate，不能仅凭 Hamming distance 标记 accepted。
+- 拒绝优先级：generation identity 先于物理执行结果；随后按 PIO stall、DMA、timeout 保留首个
+  根因，避免缺失的 CRC/correlation evidence 覆盖物理失败，且 PIO stall 同时引出的 DMA overrun
+  仍归因于 PIO。没有物理错误时，DATA 的 header CRC 失败映射到
+  `CALIBRATION_TRAINING_DATA_REJECT_CRC`，合法但旧 epoch 的 header mismatch 映射到
+  `CALIBRATION_TRAINING_DATA_REJECT_EPOCH`，其余相关错误保持 correlation/distance/margin 拒绝。
+  离线 SVG replay 执行相同的 inverse/CRC/epoch gate，不能仅凭 Hamming distance 标记 accepted。
 - 构建与 OTA（本轮诊断快照，非事实源）：release build 目录为
   `out/build/trn03d-wire-evidence/`，build ID 为 `20260826212611`；四板异步 OTA 证据为
   `out/ota/trn03d-wire-evidence_20260827/summary.json`，四个按 `*IDN?` 识别的 Node 均更新成功。
@@ -37,9 +39,19 @@ Last updated: 2026-08-27
 - 原始证据：三组试验均保存板端 `/cal/data_node0_link0_*.json`、host 下载的
   `node0_link0_capture.json`、`1 us` SVG 和 waveform analysis JSON；它们分别位于对应 HIL 目录，
   可从 observed header、CRC 和 raw waveform 重放拒绝结论。
-- 回归与交付：C host 的 marker/data 单测通过；TRN-03 训练、矩阵和波形相关 Python 回归为
-  `154 passed`，报告在 `out/pytest/trn03d-wire-evidence-final-recheck.xml`。代码提交 `4e6911d`
-  已推送到 `feature/rtos-multicore-haofv`。
+- MARK timeout（本轮诊断快照，非事实源）：release build 目录为
+  `out/build/trn03d-marker-timeout/`，build ID 为 `20260826221138`；四板异步 OTA 证据位于
+  `out/ota/trn03d-marker-timeout_20260827/`。故障 trial 位于
+  `out/training/trn03d_marker_timeout_g217_e227_20260827/`：Node0 发送 idle-high、没有下降沿，
+  最终按 `CALIBRATION_TRAINING_MARKER_REJECT_TIMEOUT` 拒绝且 timeout counter 增长；其余 Node
+  保持 PREPARED，统一 STOP 后四板恢复 IDLE，active record 前后一致。
+- 无边沿证据边界：originator 在首个 PIO 输入边沿前进入 watchdog timeout，没有 raw DMA sample，
+  因此本 trial 明确保存状态、counter、fault readback、STOP 和 active-before/after，且
+  `capture_files` 为空；不生成或伪造 SD raw waveform/SVG。
+- 回归与交付：DATA 线端闭环的 C/Python 证据和提交 `4e6911d` 保持不变；MARK timeout 闭环使用
+  仓库固化 C 测试脚本，MARK/SCK/DATA/码字四组均通过，定向 Python 回归报告位于
+  `out/pytest/trn03d-marker-timeout/python-results.xml`。代码提交 `b24e10e` 已推送到
+  `feature/rtos-multicore-haofv`。
 - 保护边界：本轮 `active_unchanged` 只证明现有 active raw record/CRC 未变化；manager 尚未接入
   完整 calibration candidate/active/previous generation，因此不能据此宣称 TRN-03C rollback 或
   active-generation 保护已经完成。
