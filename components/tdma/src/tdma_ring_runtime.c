@@ -220,7 +220,7 @@ bool tdma_ring_runtime_validate_calibration_link_phase(
     };
     for (uint32_t i = 0u; i < 3u; i++) {
         const int64_t expected = base_samples + offsets[i];
-        if (expected < 0 || expected > 31 ||
+        if (expected <= 0 || expected > 31 ||
             phases[i] != (uint32_t)expected) {
             return false;
         }

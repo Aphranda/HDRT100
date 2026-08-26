@@ -313,6 +313,14 @@ int main(void)
                                  &service, &link),
                              0u);
         link.data_offset_sample_count = 5;
+        link.marker_offset_sample_count = -10;
+        link.marker_phase_delay_cycles = 0u;
+        failed += expect_u32("zero-cycle phase rejected",
+                             tdma_service_stage_calibration_link(
+                                 &service, &link),
+                             0u);
+        link.marker_offset_sample_count = 0;
+        link.marker_phase_delay_cycles = 10u;
         failed += expect_u32("stage link0",
                              tdma_service_stage_calibration_link(
                                  &service, &link),

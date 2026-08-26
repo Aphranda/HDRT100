@@ -1309,7 +1309,9 @@ bool tdma_pio_spi_phys_set_flight_offsets(
     uint32_t sck_phase_delay_cycles,
     uint32_t data_phase_delay_cycles)
 {
-    if (phys == NULL || phys->armed || marker_phase_delay_cycles > 31u ||
+    if (phys == NULL || phys->armed || marker_phase_delay_cycles == 0u ||
+        sck_phase_delay_cycles == 0u || data_phase_delay_cycles == 0u ||
+        marker_phase_delay_cycles > 31u ||
         sck_phase_delay_cycles > 31u ||
         data_phase_delay_cycles > 31u ||
         data_phase_delay_cycles <= sck_phase_delay_cycles) {

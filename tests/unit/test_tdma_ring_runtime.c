@@ -196,6 +196,14 @@ int main(void)
                               &calibration, 4u, &calibration_reason),
                           false);
     calibration.links[2].data_offset_sample_count = 5;
+    calibration.links[2].marker_offset_sample_count = -10;
+    calibration.links[2].marker_phase_delay_cycles = 0u;
+    failed += expect_bool("zero-cycle phase rejected",
+                          tdma_ring_runtime_validate_calibration_stage(
+                              &calibration, 4u, &calibration_reason),
+                          false);
+    calibration.links[2].marker_offset_sample_count = 0;
+    calibration.links[2].marker_phase_delay_cycles = 10u;
     calibration.links[2].profile_crc32++;
     failed += expect_bool("mixed calibration identity rejected",
                           tdma_ring_runtime_validate_calibration_stage(

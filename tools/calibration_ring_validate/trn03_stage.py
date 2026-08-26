@@ -266,8 +266,8 @@ def validate_config(raw: object,
         sck_offset_ns = (link["link_base_delay_ns"] +
                          link["sck_offset_sample_count"] *
                          link["sample_period_ns"])
-        if marker_offset_ns < 0 or sck_offset_ns < 0:
-            raise ValueError("MARK/SCK phase is below the link baseline")
+        if marker_offset_ns <= 0 or sck_offset_ns <= 0:
+            raise ValueError("MARK/SCK phase must be positive")
         link["marker_phase_delay_cycles"] = (
             marker_offset_ns + link["sample_period_ns"] // 2
         ) // link["sample_period_ns"]
@@ -277,8 +277,9 @@ def validate_config(raw: object,
         offset_ns = (link["link_base_delay_ns"] +
                      link["data_offset_sample_count"] *
                      link["sample_period_ns"])
-        if offset_ns < 0:
-            raise ValueError("negative DATA offset cannot map to delay-only PIO")
+        if offset_ns <= 0:
+            raise ValueError(
+                "non-positive DATA phase cannot map to delay-only PIO")
         link["data_phase_delay_cycles"] = (
             offset_ns + link["sample_period_ns"] // 2
         ) // link["sample_period_ns"]

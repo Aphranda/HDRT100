@@ -173,6 +173,17 @@ def test_load_config_rejects_sck_phase_that_cannot_rearm(tmp_path: Path) -> None
         load_config(write_matrix(tmp_path, value))
 
 
+@pytest.mark.parametrize(
+    ("signal", "node"), (("marker", 1), ("sck", 1), ("data", 0)))
+def test_load_config_rejects_zero_cycle_active_phase(
+        tmp_path: Path, signal: str, node: int) -> None:
+    value = matrix()
+    value["offset_matrix"]["rows"][0][
+        f"{signal}_offset_sample_counts_by_node"][node] = -10
+    with pytest.raises(ValueError, match="phase"):
+        load_config(write_matrix(tmp_path, value))
+
+
 def test_load_config_rejects_node_offset_loaded_on_wrong_link(
         tmp_path: Path) -> None:
     value = matrix()
