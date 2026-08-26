@@ -295,8 +295,20 @@ int main(void)
         failed += expect_u32("incomplete matrix blocks arm",
                              tdma_service_ring_arm(&service), 0u);
         link.link_index = 0u;
+        link.marker_offset_sample_count = -1;
+        failed += expect_u32("inconsistent marker offset phase rejected",
+                             tdma_service_stage_calibration_link(
+                                 &service, &link),
+                             0u);
+        link.marker_offset_sample_count = 0;
+        link.sck_offset_sample_count = -1;
+        failed += expect_u32("inconsistent sck offset phase rejected",
+                             tdma_service_stage_calibration_link(
+                                 &service, &link),
+                             0u);
+        link.sck_offset_sample_count = 0;
         link.data_offset_sample_count = 4;
-        failed += expect_u32("inconsistent offset phase rejected",
+        failed += expect_u32("inconsistent data offset phase rejected",
                              tdma_service_stage_calibration_link(
                                  &service, &link),
                              0u);

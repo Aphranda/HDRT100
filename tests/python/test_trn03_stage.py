@@ -103,6 +103,38 @@ def test_load_config_and_commands_use_node_link_terms(tmp_path: Path) -> None:
     assert config["links"][0]["data_phase_delay_cycles"] == 15
 
 
+def test_load_config_replaces_stale_values_for_every_node_and_signal(
+        tmp_path: Path) -> None:
+    value = matrix()
+    value["offset_matrix"]["rows"][0][
+        "sck_offset_sample_counts_by_node"] = [0, -1, 0, -1]
+    value["offset_matrix"]["rows"][0][
+        "data_offset_sample_counts_by_node"] = [5, 6, 4, 5]
+    for link in value["links"]:
+        link["marker_offset_sample_count"] = 9
+        link["sck_offset_sample_count"] = 9
+        link["data_offset_sample_count"] = 9
+        link["marker_phase_delay_cycles"] = 19
+        link["sck_phase_delay_cycles"] = 19
+        link["data_phase_delay_cycles"] = 19
+
+    config = load_config(write_matrix(tmp_path, value))
+    observed = [(
+        link["marker_offset_sample_count"],
+        link["sck_offset_sample_count"],
+        link["data_offset_sample_count"],
+        link["marker_phase_delay_cycles"],
+        link["sck_phase_delay_cycles"],
+        link["data_phase_delay_cycles"],
+    ) for link in config["links"]]
+    assert observed == [
+        (-1, -1, 5, 9, 9, 15),
+        (0, 0, 6, 10, 10, 16),
+        (1, -1, 4, 11, 9, 14),
+        (1, 0, 5, 11, 10, 15),
+    ]
+
+
 def test_load_config_rejects_missing_node(tmp_path: Path) -> None:
     value = matrix()
     value["links"] = value["links"][:-1]
@@ -205,13 +237,21 @@ def test_negative_gate_expired_budget_is_one_cycle_short() -> None:
     assert fields[12] == required - 1
 
 
-def test_negative_gate_can_inject_offset_phase_mismatch() -> None:
+@pytest.mark.parametrize(
+    ("signal", "offset_field", "phase_field", "offset", "phase"),
+    (("marker", 14, 19, -1, 10),
+     ("sck", 15, 20, -1, 10),
+     ("data", 16, 21, 4, 15)),
+)
+def test_negative_gate_can_inject_each_offset_phase_mismatch(
+        signal: str, offset_field: int, phase_field: int,
+        offset: int, phase: int) -> None:
     values = negative_stage_link_command(
         0, REQUIRED_EVIDENCE_FLAGS,
-        offset_phase_mismatch=True).split(maxsplit=1)[1]
+        offset_phase_mismatch=signal).split(maxsplit=1)[1]
     fields = [int(value) for value in values.split(",")]
-    assert fields[16] == 4
-    assert fields[21] == 15
+    assert fields[offset_field] == offset
+    assert fields[phase_field] == phase
 
 
 def test_error_is_clear_parses_scpi_queue_response() -> None:

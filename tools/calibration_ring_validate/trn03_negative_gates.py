@@ -117,7 +117,7 @@ def stage_begin_command(node_count: int, evidence_flags: int,
 
 def stage_link_command(link_index: int, evidence_flags: int,
                        expired: bool = False,
-                       offset_phase_mismatch: bool = False) -> str:
+                       offset_phase_mismatch: str | None = None) -> str:
     # Diagnostic constants describe a synthetic replay workload only.  The
     # deliberate incomplete/invalid cases below prevent it from becoming an
     # admissible matrix.
@@ -134,12 +134,19 @@ def stage_link_command(link_index: int, evidence_flags: int,
                            guard_cycles,
                            loop_delay_cycles))
     link_budget_cycles = required_cycles - 1 if expired else required_cycles
-    data_offset_sample_count = 4 if offset_phase_mismatch else 5
+    if offset_phase_mismatch not in (None, "marker", "sck", "data"):
+        raise ValueError(
+            "offset_phase_mismatch must be marker, sck, data, or None")
+    marker_offset_sample_count = (
+        -1 if offset_phase_mismatch == "marker" else 0)
+    sck_offset_sample_count = -1 if offset_phase_mismatch == "sck" else 0
+    data_offset_sample_count = 4 if offset_phase_mismatch == "data" else 5
     values = (
         link_index, evidence_flags, 1, 65536, 150_000_000, 4, 25,
         marker_to_data_cycles, forward_residence_cycles, rx_arm_lead_cycles,
         codeword_cycles, guard_cycles, link_budget_cycles, loop_delay_cycles,
-        0, 0, data_offset_sample_count, 4, 40, 10, 10, 15,
+        marker_offset_sample_count, sck_offset_sample_count,
+        data_offset_sample_count, 4, 40, 10, 10, 15,
     )
     return "CALibration:TRAINing:STAGe:LINK " + ",".join(map(str, values))
 
@@ -297,23 +304,26 @@ def run_board(board: Board, node_count: int, node_index: int,
     })
 
     # The reported Node offset and the phase actually patched into PIO must
-    # remain the same base+offset value.  A mismatched pair must not enter the
-    # staged bitmap even when every identity and budget field is otherwise
-    # valid.
-    clear = action_with_error(board, "CALibration:TRAINing:STAGe:CLEar", args)
-    begin = action_with_error(board, stage_begin_command(
-        node_count, REQUIRED_EVIDENCE_FLAGS, identity), args)
-    link = action_with_error(board, stage_link_command(
-        0, REQUIRED_EVIDENCE_FLAGS, offset_phase_mismatch=True), args)
-    snapshot = stage_snapshot(board, args)
-    arm = arm_must_reject(board, args)
-    cases.append({
-        "name": "offset_phase_mismatch_rejected",
-        "clear": clear, "begin": begin, "link": link,
-        "stage": snapshot, "arm": arm,
-        "passed": (error_is_rejection(link["error_after"]) and
-                   snapshot.get("valid_link_bitmap") == 0 and arm["passed"]),
-    })
+    # remain the same base+offset value for every independently trained
+    # signal.  Exercise each field separately so a future MARK, SCK, or DATA
+    # validation regression cannot hide behind the other two valid pairs.
+    for signal in ("marker", "sck", "data"):
+        clear = action_with_error(
+            board, "CALibration:TRAINing:STAGe:CLEar", args)
+        begin = action_with_error(board, stage_begin_command(
+            node_count, REQUIRED_EVIDENCE_FLAGS, identity), args)
+        link = action_with_error(board, stage_link_command(
+            0, REQUIRED_EVIDENCE_FLAGS, offset_phase_mismatch=signal), args)
+        snapshot = stage_snapshot(board, args)
+        arm = arm_must_reject(board, args)
+        cases.append({
+            "name": f"{signal}_offset_phase_mismatch_rejected",
+            "clear": clear, "begin": begin, "link": link,
+            "stage": snapshot, "arm": arm,
+            "passed": (error_is_rejection(link["error_after"]) and
+                       snapshot.get("valid_link_bitmap") == 0 and
+                       arm["passed"]),
+        })
 
     final_clear = action_with_error(
         board, "CALibration:TRAINing:STAGe:CLEar", args)

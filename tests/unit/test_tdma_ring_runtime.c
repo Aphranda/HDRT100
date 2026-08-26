@@ -173,8 +173,20 @@ int main(void)
                           tdma_ring_runtime_validate_calibration_stage(
                               &calibration, 4u, &calibration_reason),
                           true);
+    calibration.links[2].marker_offset_sample_count = -1;
+    failed += expect_bool("marker offset and phase mismatch rejected",
+                          tdma_ring_runtime_validate_calibration_stage(
+                              &calibration, 4u, &calibration_reason),
+                          false);
+    calibration.links[2].marker_offset_sample_count = 0;
+    calibration.links[2].sck_offset_sample_count = -1;
+    failed += expect_bool("sck offset and phase mismatch rejected",
+                          tdma_ring_runtime_validate_calibration_stage(
+                              &calibration, 4u, &calibration_reason),
+                          false);
+    calibration.links[2].sck_offset_sample_count = 0;
     calibration.links[2].data_offset_sample_count = 4;
-    failed += expect_bool("offset and phase mismatch rejected",
+    failed += expect_bool("data offset and phase mismatch rejected",
                           tdma_ring_runtime_validate_calibration_stage(
                               &calibration, 4u, &calibration_reason),
                           false);
