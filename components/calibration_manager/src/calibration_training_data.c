@@ -39,15 +39,24 @@ static bool calibration_training_data_request_valid(
             CALIBRATION_TRAINING_DATA_MAX_GUARD_SAMPLES ||
         request->expected_polarity > 1u ||
         (request->diagnostic_fault_flags &
-         ~CALIBRATION_CLK_MARKER_FAULT_DATA_ALL) != 0u ||
+         ~CALIBRATION_TRAINING_DATA_FAULT_ALL) != 0u ||
         request->diagnostic_wire_epoch > UINT8_MAX ||
         (((request->diagnostic_fault_flags &
-           CALIBRATION_CLK_MARKER_FAULT_EPOCH_OVERRIDE) != 0u) !=
+           CALIBRATION_TRAINING_DATA_FAULT_WIRE_EPOCH_OVERRIDE) != 0u) !=
          (request->diagnostic_wire_epoch != 0u)) ||
         request->diagnostic_header_crc8_xor > UINT8_MAX ||
         (((request->diagnostic_fault_flags &
-           CALIBRATION_CLK_MARKER_FAULT_HEADER_CRC8_XOR) != 0u) !=
+           CALIBRATION_TRAINING_DATA_FAULT_WIRE_HEADER_CRC8_XOR) != 0u) !=
          (request->diagnostic_header_crc8_xor != 0u))) {
+        return false;
+    }
+    const uint32_t wire_faults = request->diagnostic_fault_flags &
+        CALIBRATION_TRAINING_DATA_FAULT_WIRE_ALL;
+    const uint32_t transport_faults = request->diagnostic_fault_flags &
+        CALIBRATION_TRAINING_DATA_FAULT_TRANSPORT_ALL;
+    if ((wire_faults != 0u && transport_faults != 0u) ||
+        (transport_faults != 0u &&
+         (transport_faults & (transport_faults - 1u)) != 0u)) {
         return false;
     }
     const int64_t earliest_ns = (int64_t)request->link_base_delay_ns +

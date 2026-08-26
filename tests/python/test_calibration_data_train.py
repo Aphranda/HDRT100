@@ -1,6 +1,8 @@
 from tools.calibration_ring_validate.calibration_data_train import (
     DATA_FIELDS,
     DESTINATION_REQUIRED_FLAGS,
+    FAULT_DMA_OVERRUN,
+    FAULT_PIO_STALL,
     FLAG_DIAGNOSTIC_ONLY,
     FLAG_DMA_COMPLETE,
     FLAG_HARDWARE_MARKER,
@@ -13,6 +15,7 @@ from tools.calibration_ring_validate.calibration_data_train import (
     validate_expected_rejection,
     validate_link,
     validate_responder_wire_fault,
+    validate_transport_fault,
 )
 from tools.calibration_ring_validate.calibration_data_waveform import (
     render_data_waveform,
@@ -184,6 +187,47 @@ def test_expected_margin_rejection_requires_receiver_role_and_exact_reason(
     assert wrong_endpoint["passed"] is False
     assert "receiver_state" in wrong_endpoint["errors"]
     assert "responder_state" in wrong_endpoint["errors"]
+
+
+def test_transport_pio_stall_belongs_to_initiator_and_keeps_root_cause() -> None:
+    receiver = make_row(
+        state=4, reject_reason=11,
+        diagnostic_fault_flags=FAULT_PIO_STALL,
+        pio_stall_count=1, dma_overrun_count=1, timeout_count=0)
+    responder = make_row(
+        state=3, reject_reason=0, diagnostic_fault_flags=0)
+    result = validate_transport_fault(
+        receiver, responder, expected_reason=11,
+        expected_fault_flags=FAULT_PIO_STALL)
+    assert result["passed"] is True
+    assert result["expected_reject_name"] == "PIO_STALL"
+    assert result["active_candidate_allowed"] is False
+
+
+def test_transport_pio_stall_rejects_timeout_override() -> None:
+    receiver = make_row(
+        state=4, reject_reason=11,
+        diagnostic_fault_flags=FAULT_PIO_STALL,
+        pio_stall_count=1, timeout_count=1)
+    responder = make_row(state=3, reject_reason=0)
+    result = validate_transport_fault(
+        receiver, responder, expected_reason=11,
+        expected_fault_flags=FAULT_PIO_STALL)
+    assert result["passed"] is False
+    assert "receiver_timeout_overrode_pio_stall" in result["errors"]
+
+
+def test_transport_dma_short_keeps_partial_evidence_on_initiator() -> None:
+    receiver = make_row(
+        state=4, reject_reason=10,
+        diagnostic_fault_flags=FAULT_DMA_OVERRUN,
+        dma_overrun_count=1, captured_sample_count=640)
+    responder = make_row(state=3, reject_reason=0)
+    result = validate_transport_fault(
+        receiver, responder, expected_reason=10,
+        expected_fault_flags=FAULT_DMA_OVERRUN)
+    assert result["passed"] is True
+    assert result["expected_reject_name"] == "DMA"
 
 
 def test_offset_fault_is_never_promoted_to_trn03() -> None:

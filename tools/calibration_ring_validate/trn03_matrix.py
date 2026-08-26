@@ -17,6 +17,7 @@ try:
         singleton_identity,
         validate_profile_pair,
     )
+    from .trn03_stage import sck_replay_phase_margin
 except ImportError:  # Direct execution from this directory.
     from trn02_profile_gate import (  # type: ignore[no-redef]
         IDENTITY_FIELDS,
@@ -25,6 +26,7 @@ except ImportError:  # Direct execution from this directory.
         singleton_identity,
         validate_profile_pair,
     )
+    from trn03_stage import sck_replay_phase_margin  # type: ignore[no-redef]
 
 
 MATRIX_SCHEMA = "HAOFV_TRN03_REPLAY_MATRIX_V2"
@@ -110,6 +112,86 @@ def pio_facts(level: int) -> dict[str, int]:
     }
 
 
+def _sck_row_replay_safety(
+        offsets_by_node: tuple[int, ...], link_bases_ns: list[int],
+        baud_hz: int, sample_period_ns: int,
+        reference_node: int = 0) -> tuple[bool, int | None]:
+    """Check one SCK candidate row against every directed-link budget.
+
+    The candidate row remains a raw training result; this helper only decides
+    whether the row can be replayed by the selected flight profile.  The
+    returned margin is the smallest follower margin, with the reference link
+    excluded because it owns the origin rather than a re-arm path.
+    """
+    if len(offsets_by_node) != len(link_bases_ns):
+        return False, -1
+    margins: list[int] = []
+    for link_index, base_ns in enumerate(link_bases_ns):
+        destination = (link_index + 1) % len(offsets_by_node)
+        phase_ns = int(base_ns) + int(offsets_by_node[destination]) * sample_period_ns
+        if phase_ns < 0:
+            return False, -1
+        phase_cycles = (phase_ns + sample_period_ns // 2) // sample_period_ns
+        margin = sck_replay_phase_margin(
+            phase_delay_cycles=phase_cycles,
+            baud_hz=baud_hz,
+            sample_period_ns=sample_period_ns,
+            destination_node=destination)
+        if margin is None:
+            continue
+        margins.append(margin)
+        if margin < 0:
+            return False, min(margins)
+    return True, (min(margins) if margins else None)
+
+
+def _select_sck_replay_row(
+        candidates_by_node: list[list[int]], requested: list[int],
+        link_bases_ns: list[int], baud_hz: int,
+        sample_period_ns: int) -> tuple[list[int], dict[str, Any]]:
+    """Select the nearest replay-safe SCK row without dropping candidates."""
+    candidate_rows = [tuple(int(value) for value in row)
+                      for row in itertools.product(*candidates_by_node)]
+    safe_rows: list[tuple[tuple[int, ...], int | None]] = []
+    for row in candidate_rows:
+        safe, margin = _sck_row_replay_safety(
+            row, link_bases_ns, baud_hz, sample_period_ns)
+        if safe:
+            safe_rows.append((row, margin))
+    if not safe_rows:
+        raise ValueError(
+            "no SCK offset candidate row can satisfy the flight re-arm "
+            "budget")
+    requested_tuple = tuple(int(value) for value in requested)
+    if requested_tuple in {row for row, _ in safe_rows}:
+        selected = requested_tuple
+        reason = "observed_row_replay_safe"
+    else:
+        # Prefer the smallest change from the measured recommendation, then
+        # the widest remaining follower margin, then lexical order for a
+        # stable row ID.  Every rejected row remains in the full matrix.
+        selected, selected_margin = min(
+            safe_rows,
+            key=lambda item: (
+                sum(abs(value - wanted)
+                    for value, wanted in zip(item[0], requested_tuple)),
+                -(item[1] if item[1] is not None else 0),
+                item[0]))
+        reason = "observed_row_retimed_to_replay_safe_candidate"
+    selected_margin = next(margin for row, margin in safe_rows
+                           if row == selected)
+    return list(selected), {
+        "requested_offset_sample_counts_by_node": list(requested),
+        "selected_offset_sample_counts_by_node": list(selected),
+        "requested_row_replay_safe": requested_tuple in {
+            row for row, _ in safe_rows},
+        "selection_reason": reason,
+        "selected_min_follower_margin_samples": selected_margin,
+        "safe_candidate_row_count": len(safe_rows),
+        "candidate_row_count": len(candidate_rows),
+    }
+
+
 def indexed(items: object, field: str, count: int, label: str
             ) -> dict[int, dict[str, Any]]:
     if not isinstance(items, list) or len(items) != count:
@@ -168,6 +250,17 @@ def build_matrix(level: int, data: dict[str, Any],
         [0] for _ in range(count)]
     selected_sck_offsets_by_node = [0] * count
     sck_link_bases: list[int] | None = None
+    sck_selection: dict[str, Any] = {
+        "requested_offset_sample_counts_by_node":
+            list(selected_sck_offsets_by_node),
+        "selected_offset_sample_counts_by_node":
+            list(selected_sck_offsets_by_node),
+        "requested_row_replay_safe": True,
+        "selection_reason": "no_independent_sck_evidence",
+        "selected_min_follower_margin_samples": None,
+        "safe_candidate_row_count": 1,
+        "candidate_row_count": 1,
+    }
     if sck is not None:
         if not bool(sck.get("passed")) or node_order(sck) != nodes:
             raise ValueError("SCK evidence gate failed")
@@ -222,6 +315,13 @@ def build_matrix(level: int, data: dict[str, Any],
                     value <= 0 for value in raw_sck_bases)):
             raise ValueError("SCK per-link bases are invalid")
         sck_link_bases = [int(value) for value in raw_sck_bases]
+        (selected_sck_offsets_by_node, sck_selection) = \
+            _select_sck_replay_row(
+                sck_offset_candidates_by_node,
+                selected_sck_offsets_by_node,
+                sck_link_bases,
+                facts["baud_hz"],
+                sample_period_ns)
     links: list[dict[str, Any]] = []
     marker_offsets_by_node = [0] * count
     data_offset_candidates_by_node: list[list[int]] = [[] for _ in range(count)]
@@ -454,6 +554,7 @@ def build_matrix(level: int, data: dict[str, Any],
             "max_offset_span_sample": int(data["max_offset_span_sample"]),
             "residence_selection": "matrix.selected_forward_residence_ticks",
             "loop_selection": "max(loop_delay_ticks) per source node",
+            "sck_replay_selection": sck_selection,
         },
     }
     # The active row is the default row every staging/closed-loop command

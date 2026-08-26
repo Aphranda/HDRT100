@@ -85,7 +85,7 @@ typedef enum {
 #define TDMA_PIO_SPI_MARKER_MAX_CAPTURE_DELAY_CYCLES 31u
 #define TDMA_PIO_SPI_MARKER_TIMEOUT_NS 3000000000ull
 #define TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS 256u
-#define TDMA_PIO_SPI_DATA_TRAIN_SNAPSHOT_VERSION 1u
+#define TDMA_PIO_SPI_DATA_TRAIN_SNAPSHOT_VERSION 2u
 #define TDMA_PIO_SPI_DATA_TRAIN_MAX_PHASE_CYCLES 32u
 #define TDMA_PIO_SPI_DATA_TRAIN_MAX_DELAY_CYCLES 1000000u
 #define TDMA_PIO_SPI_DATA_TRAIN_TIMEOUT_NS 3000000000ull
@@ -195,6 +195,12 @@ typedef enum {
 #define TDMA_PIO_SPI_DATA_TRAIN_FLAG_DATA_DMA_COMPLETE (1u << 4u)
 #define TDMA_PIO_SPI_DATA_TRAIN_FLAG_SOURCE_IRQ (1u << 5u)
 
+#define TDMA_PIO_SPI_DATA_TRAIN_FAULT_RX_DMA_PAUSE (1u << 0u)
+#define TDMA_PIO_SPI_DATA_TRAIN_FAULT_RX_DMA_SHORT (1u << 1u)
+#define TDMA_PIO_SPI_DATA_TRAIN_FAULT_ALL \
+    (TDMA_PIO_SPI_DATA_TRAIN_FAULT_RX_DMA_PAUSE | \
+     TDMA_PIO_SPI_DATA_TRAIN_FAULT_RX_DMA_SHORT)
+
 typedef struct {
     uint32_t role;
     const uint32_t *marker_words;
@@ -207,6 +213,7 @@ typedef struct {
     uint32_t source_phase_delay_cycles;
     uint32_t phase_delay_cycles;
     uint32_t epoch;
+    uint32_t diagnostic_fault_flags;
 } tdma_pio_spi_data_train_request_t;
 
 typedef struct {
@@ -229,6 +236,7 @@ typedef struct {
     uint32_t dma_overrun_count;
     uint32_t pio_stall_count;
     uint32_t timeout_count;
+    uint32_t diagnostic_fault_flags;
     uint64_t marker_capture_tick;
     uint64_t data_capture_tick;
 } tdma_pio_spi_data_train_snapshot_t;

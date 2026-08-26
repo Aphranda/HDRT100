@@ -77,6 +77,10 @@ DATA_CAPTURE_SCHEMAS = {
 }
 FAULT_EPOCH_OVERRIDE = 1 << 0
 FAULT_HEADER_CRC8_XOR = 1 << 1
+FAULT_PIO_STALL = 1 << 2
+FAULT_DMA_OVERRUN = 1 << 3
+FAULT_WIRE_ALL = FAULT_EPOCH_OVERRIDE | FAULT_HEADER_CRC8_XOR
+FAULT_TRANSPORT_ALL = FAULT_PIO_STALL | FAULT_DMA_OVERRUN
 FLAG_DIAGNOSTIC_ONLY = 1 << 0
 FLAG_HARDWARE_MARKER = 1 << 1
 FLAG_HARDWARE_DATA_CAPTURE = 1 << 2
@@ -202,6 +206,54 @@ def validate_responder_wire_fault(
         if int(receiver["correlation_reject_reason"]) != 8:
             errors.append("receiver_crc_correlation_reason")
     return errors
+
+
+def validate_transport_fault(
+        receiver: dict[str, int | str], responder: dict[str, int | str], *,
+        expected_reason: int, expected_fault_flags: int) -> dict[str, object]:
+    """Validate an initiator-side RX transport fault.
+
+    The marker source is the DATA receiver/initiator in the current
+    marker-forward/data-return persona.  PIO/DMA faults therefore belong to
+    that source endpoint; the opposite endpoint remains a normal responder.
+    """
+    errors: list[str] = []
+    if expected_reason not in DATA_REJECT_NAMES:
+        raise ValueError("unknown DATA rejection reason")
+    if int(receiver["state"]) != STATE_REJECTED:
+        errors.append("receiver_state")
+    if int(receiver["reject_reason"]) != expected_reason:
+        errors.append("receiver_reject_reason")
+    if int(responder["state"]) != STATE_ACCEPTED:
+        errors.append("responder_state")
+    if int(responder["reject_reason"]) != 0:
+        errors.append("responder_reject_reason")
+    if int(receiver["diagnostic_fault_flags"]) != expected_fault_flags:
+        errors.append("receiver_transport_fault_readback")
+    if int(responder["diagnostic_fault_flags"]) != 0:
+        errors.append("responder_transport_fault_readback")
+    if expected_reason == DATA_REJECT_CODES["PIO_STALL"]:
+        if int(receiver["pio_stall_count"]) == 0:
+            errors.append("receiver_pio_stall_evidence")
+        if int(receiver["timeout_count"]) != 0:
+            errors.append("receiver_timeout_overrode_pio_stall")
+    elif expected_reason == DATA_REJECT_CODES["DMA"]:
+        if int(receiver["dma_overrun_count"]) == 0:
+            errors.append("receiver_dma_evidence")
+    return {
+        "phase": "TRN-03D_DATA_TRANSPORT_FAULT",
+        "passed": not errors,
+        "accepted": False,
+        "diagnostic_only": True,
+        "active_candidate_allowed": False,
+        "trn03_staging_allowed": False,
+        "expected_reject_reason": expected_reason,
+        "expected_reject_name": DATA_REJECT_NAMES[expected_reason],
+        "expected_transport_fault_flags": expected_fault_flags,
+        "errors": errors,
+        "receiver": receiver,
+        "responder": responder,
+    }
 
 
 def parse_storage_read(raw: str, expected_offset: int) -> dict[str, object]:
@@ -591,6 +643,14 @@ def parse_args() -> argparse.Namespace:
         help=("TRN-03D only: XOR mask applied to the responder's transmitted "
               "header CRC8"))
     parser.add_argument(
+        "--fault-pio-stall", action="store_true",
+        help=("TRN-03D only: pause the initiator RX DMA and require a real "
+              "PIO RX FIFO stall"))
+    parser.add_argument(
+        "--fault-dma-overrun", action="store_true",
+        help=("TRN-03D only: arm the initiator RX DMA one word short and "
+              "require a DMA rejection"))
+    parser.add_argument(
         "--expect-reject-reason", choices=sorted(DATA_REJECT_CODES),
         help=("TRN-03D fault mode: pass only when the DATA receiving endpoint "
               "rejects with this exact reason and the responder accepts"))
@@ -844,9 +904,27 @@ def validate_hil_args(args: argparse.Namespace) -> list[str]:
         raise SystemExit("responder-wire-epoch requires expected EPOCH reject")
     if crc8_xor != 0 and args.expect_reject_reason != "CRC":
         raise SystemExit("responder-header-crc8-xor requires expected CRC reject")
-    args.diagnostic_fault_flags = (
+    transport_fault_flags = (
+        FAULT_PIO_STALL if args.fault_pio_stall else 0) | (
+            FAULT_DMA_OVERRUN if args.fault_dma_overrun else 0)
+    if transport_fault_flags and (wire_epoch is not None or crc8_xor != 0):
+        raise SystemExit(
+            "wire and transport faults cannot be combined in one DATA trial")
+    if args.fault_pio_stall and args.fault_dma_overrun:
+        raise SystemExit("select exactly one initiator transport fault")
+    if args.fault_pio_stall and args.expect_reject_reason != "PIO_STALL":
+        raise SystemExit("fault-pio-stall requires expected PIO_STALL reject")
+    if args.fault_dma_overrun and args.expect_reject_reason != "DMA":
+        raise SystemExit("fault-dma-overrun requires expected DMA reject")
+    if transport_fault_flags and not args.expect_reject_reason:
+        raise SystemExit(
+            "initiator transport faults require --expect-reject-reason")
+    args.diagnostic_wire_fault_flags = (
         FAULT_EPOCH_OVERRIDE if wire_epoch is not None else
         FAULT_HEADER_CRC8_XOR if crc8_xor != 0 else 0)
+    args.diagnostic_transport_fault_flags = transport_fault_flags
+    args.diagnostic_fault_flags = (
+        args.diagnostic_wire_fault_flags | args.diagnostic_transport_fault_flags)
     args.diagnostic_wire_epoch = wire_epoch or 0
     args.diagnostic_header_crc8_xor = crc8_xor
     return board_ids
@@ -912,9 +990,14 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
         "max_best_distance": args.max_best_distance,
         "min_margin": args.min_margin,
         "responder_wire_fault": {
-            "flags": args.diagnostic_fault_flags,
+            "flags": args.diagnostic_wire_fault_flags,
             "wire_epoch": args.diagnostic_wire_epoch,
             "header_crc8_xor": args.diagnostic_header_crc8_xor,
+        },
+        "initiator_transport_fault": {
+            "flags": args.diagnostic_transport_fault_flags,
+            "pio_stall": bool(args.fault_pio_stall),
+            "dma_overrun": bool(args.fault_dma_overrun),
         },
         "boards": {board.address: asdict(board) for board in ordered},
         "unified_phase_training": build_phase_training_contract(
@@ -943,18 +1026,22 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
         arms.append({
             "board": destination.address,
             "role": "responder",
-            "diagnostic_fault_flags": args.diagnostic_fault_flags,
+            "diagnostic_fault_flags": args.diagnostic_wire_fault_flags,
             "response": data_arm(
                 destination, args,
-                diagnostic_fault_flags=args.diagnostic_fault_flags,
+                diagnostic_fault_flags=args.diagnostic_wire_fault_flags,
                 diagnostic_wire_epoch=args.diagnostic_wire_epoch,
                 diagnostic_header_crc8_xor=
                     args.diagnostic_header_crc8_xor),
         })
         arms.append({"board": source.address,
                      "role": "initiator",
-                     "diagnostic_fault_flags": 0,
-                     "response": data_arm(source, args)})
+                     "diagnostic_fault_flags":
+                         args.diagnostic_transport_fault_flags,
+                     "response": data_arm(
+                         source, args,
+                         diagnostic_fault_flags=
+                             args.diagnostic_transport_fault_flags)})
         armed = wait_states(active, args, (STATE_PREPARED,))
         injection = board_command(
             source, "CALibration:DATA:INJect", marker_action_args(args))
@@ -985,9 +1072,16 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
                 "min_margin": args.min_margin,
             }
         if args.expect_reject_reason:
-            validation = validate_expected_rejection(
-                source_row, destination_row,
-                DATA_REJECT_CODES[args.expect_reject_reason])
+            expected_reason = DATA_REJECT_CODES[args.expect_reject_reason]
+            if args.diagnostic_transport_fault_flags:
+                validation = validate_transport_fault(
+                    source_row, destination_row,
+                    expected_reason=expected_reason,
+                    expected_fault_flags=
+                        args.diagnostic_transport_fault_flags)
+            else:
+                validation = validate_expected_rejection(
+                    source_row, destination_row, expected_reason)
             for field, expected in expected_config.items():
                 for endpoint, record in (("source", source_row),
                                          ("destination", destination_row)):
@@ -995,19 +1089,24 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
                         validation["errors"].append(
                             f"{endpoint}_{field}_readback")
             fault_readback = {
-                "diagnostic_fault_flags": args.diagnostic_fault_flags,
-                "diagnostic_wire_epoch": args.diagnostic_wire_epoch,
-                "diagnostic_header_crc8_xor":
+                "source_diagnostic_fault_flags":
+                    args.diagnostic_transport_fault_flags,
+                "destination_diagnostic_fault_flags":
+                    args.diagnostic_wire_fault_flags,
+                "source_diagnostic_wire_epoch": 0,
+                "destination_diagnostic_wire_epoch":
+                    args.diagnostic_wire_epoch,
+                "source_diagnostic_header_crc8_xor": 0,
+                "destination_diagnostic_header_crc8_xor":
                     args.diagnostic_header_crc8_xor,
             }
             for field, expected in fault_readback.items():
-                if int(destination_row[field]) != expected:
+                endpoint, field_name = field.split("_", 1)
+                record = source_row if endpoint == "source" else destination_row
+                if int(record[field_name]) != expected:
                     validation["errors"].append(
-                        f"destination_{field}_readback")
-                if int(source_row[field]) != 0:
-                    validation["errors"].append(
-                        f"source_{field}_readback")
-            if args.diagnostic_fault_flags != 0:
+                        f"{endpoint}_{field_name}_readback")
+            if args.diagnostic_wire_fault_flags != 0:
                 validation["errors"].extend(validate_responder_wire_fault(
                     source_row, expected_epoch=args.epoch,
                     expected_source_node=args.source_node,
@@ -1018,9 +1117,17 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
             validation = validate_link(
                 source_row, destination_row,
                 expected_config=expected_config)
-        capture_file = save_data_capture(source, args)
-        capture_download = download_data_capture(
-            source, capture_file, args)
+        if (args.diagnostic_transport_fault_flags == FAULT_PIO_STALL and
+                int(source_row["captured_sample_count"]) == 0):
+            capture_file = {
+                "skipped": True,
+                "reason": "PIO_STALL_NO_RAW_CAPTURE",
+            }
+            capture_download = None
+        else:
+            capture_file = save_data_capture(source, args)
+            capture_download = download_data_capture(
+                source, capture_file, args)
     finally:
         for board in active:
             board_command(board, "CALibration:DATA:STOP", args)

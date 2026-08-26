@@ -1028,10 +1028,14 @@ static void calibration_manager_data_finish_core1(
 
     size_t capture_words = 0u;
     memset(s_data_capture, 0, sizeof(s_data_capture));
-    const bool copied = raw->state == TDMA_PIO_SPI_DATA_TRAIN_COMPLETE &&
-        tdma_runtime_owner_copy_data_train_capture_core1(
-            s_data_capture, TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS,
-            &capture_words);
+    const bool copied = tdma_runtime_owner_copy_data_train_capture_core1(
+        s_data_capture, TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS,
+        &capture_words);
+    const uint32_t captured_sample_count = copied
+        ? ((uint64_t)capture_words * 32u < raw->capture_sample_count
+               ? (uint32_t)((uint64_t)capture_words * 32u)
+               : raw->capture_sample_count)
+        : 0u;
     const uint32_t search_samples = (uint32_t)(
         s_data_active_request.search_end_offset_sample -
         s_data_active_request.search_start_offset_sample + 1);
@@ -1052,8 +1056,8 @@ static void calibration_manager_data_finish_core1(
     memset(&correlation, 0, sizeof(correlation));
     const bool correlated = copied && calibration_clk_marker_correlate(
         &config, s_data_workspace.expected_words,
-        s_data_workspace.marker.raw_samples,
-        s_data_capture, raw->capture_sample_count, &gate, &correlation);
+        s_data_workspace.marker.raw_samples, s_data_capture,
+        captured_sample_count, &gate, &correlation);
 
     calibration_clk_marker_config_t observed_config;
     calibration_clk_marker_descriptor_t observed_descriptor;
@@ -1130,7 +1134,7 @@ static void calibration_manager_data_finish_core1(
         .second_lag_sample = correlation.second_lag_sample,
         .second_distance = correlation.second_distance,
         .margin = correlation.margin,
-        .captured_sample_count = copied ? raw->capture_sample_count : 0u,
+        .captured_sample_count = captured_sample_count,
         .expected_sample_count = s_data_workspace.marker.raw_samples,
         .dma_overrun_count = raw->dma_overrun_count,
         .pio_stall_count = raw->pio_stall_count,
@@ -1145,7 +1149,7 @@ static void calibration_manager_data_finish_core1(
                      copied ? (uint32_t)capture_words : 0u,
                      __ATOMIC_RELEASE);
     __atomic_store_n(&s_data_capture_sample_count,
-                     copied ? raw->capture_sample_count : 0u,
+                     captured_sample_count,
                      __ATOMIC_RELEASE);
     __atomic_store_n(&s_data_active, false, __ATOMIC_RELEASE);
 }
@@ -1450,7 +1454,17 @@ void calibration_manager_service_core1(void)
             };
             calibration_clk_marker_descriptor_t descriptor;
             const calibration_clk_marker_fault_config_t fault = {
-                .flags = data_intent.request.diagnostic_fault_flags,
+                .flags =
+                    ((data_intent.request.diagnostic_fault_flags &
+                      CALIBRATION_TRAINING_DATA_FAULT_WIRE_EPOCH_OVERRIDE) !=
+                             0u
+                         ? CALIBRATION_CLK_MARKER_FAULT_EPOCH_OVERRIDE
+                         : 0u) |
+                    ((data_intent.request.diagnostic_fault_flags &
+                      CALIBRATION_TRAINING_DATA_FAULT_WIRE_HEADER_CRC8_XOR) !=
+                             0u
+                         ? CALIBRATION_CLK_MARKER_FAULT_HEADER_CRC8_XOR
+                         : 0u),
                 .epoch_override = (uint8_t)
                     data_intent.request.diagnostic_wire_epoch,
                 .header_crc8_xor = (uint8_t)
@@ -1531,10 +1545,22 @@ void calibration_manager_service_core1(void)
                         .source_phase_delay_cycles =
                             marker_phase,
                         .phase_delay_cycles = local_initiator
-                                                  ? (uint32_t)
-                                                        initiator_capture_phase
-                                                  : (uint32_t)marker_phase,
+                                                   ? (uint32_t)
+                                                         initiator_capture_phase
+                                                   : (uint32_t)marker_phase,
                         .epoch = data_intent.request.train_epoch,
+                        .diagnostic_fault_flags = local_initiator
+                            ? (((data_intent.request.diagnostic_fault_flags &
+                                 CALIBRATION_TRAINING_DATA_FAULT_PIO_STALL) !=
+                                        0u
+                                    ? TDMA_PIO_SPI_DATA_TRAIN_FAULT_RX_DMA_PAUSE
+                                    : 0u) |
+                               ((data_intent.request.diagnostic_fault_flags &
+                                 CALIBRATION_TRAINING_DATA_FAULT_DMA_OVERRUN) !=
+                                        0u
+                                    ? TDMA_PIO_SPI_DATA_TRAIN_FAULT_RX_DMA_SHORT
+                                    : 0u))
+                            : 0u,
                     };
                     s_data_workspace.marker = descriptor;
                     if (phase_valid && initiator_capture_phase >= 0 &&
@@ -2298,14 +2324,14 @@ bool calibration_manager_request_data_training(
         search_start_offset_sample > search_end_offset_sample ||
         guard_sample_count > CALIBRATION_TRAINING_DATA_MAX_GUARD_SAMPLES ||
         (diagnostic_fault_flags &
-         ~CALIBRATION_CLK_MARKER_FAULT_DATA_ALL) != 0u ||
+         ~CALIBRATION_TRAINING_DATA_FAULT_ALL) != 0u ||
         diagnostic_wire_epoch > UINT8_MAX ||
         (((diagnostic_fault_flags &
-           CALIBRATION_CLK_MARKER_FAULT_EPOCH_OVERRIDE) != 0u) !=
+           CALIBRATION_TRAINING_DATA_FAULT_WIRE_EPOCH_OVERRIDE) != 0u) !=
          (diagnostic_wire_epoch != 0u)) ||
         diagnostic_header_crc8_xor > UINT8_MAX ||
         (((diagnostic_fault_flags &
-           CALIBRATION_CLK_MARKER_FAULT_HEADER_CRC8_XOR) != 0u) !=
+           CALIBRATION_TRAINING_DATA_FAULT_WIRE_HEADER_CRC8_XOR) != 0u) !=
          (diagnostic_header_crc8_xor != 0u)) ||
         !calibration_manager_parse_hex_u64(board_identity_serial(),
                                            &board_unique_id) ||
@@ -2322,8 +2348,12 @@ bool calibration_manager_request_data_training(
         staged.ring_profile_crc32 == 0u ||
         staged.operating_profile_crc32 == 0u ||
         staged.schedule_crc32 == 0u ||
-        (diagnostic_fault_flags != 0u &&
+        (((diagnostic_fault_flags &
+           CALIBRATION_TRAINING_DATA_FAULT_WIRE_ALL) != 0u) &&
          staged.local_slot_id != destination_node) ||
+        (((diagnostic_fault_flags &
+           CALIBRATION_TRAINING_DATA_FAULT_TRANSPORT_ALL) != 0u) &&
+         staged.local_slot_id != source_node) ||
         __atomic_load_n(&s_data_active, __ATOMIC_ACQUIRE) ||
         __atomic_load_n(&s_sck_active, __ATOMIC_ACQUIRE) ||
         __atomic_load_n(&s_marker_active, __ATOMIC_ACQUIRE) ||

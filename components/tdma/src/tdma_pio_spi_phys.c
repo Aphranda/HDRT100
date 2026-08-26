@@ -3119,6 +3119,13 @@ bool tdma_pio_spi_phys_data_train_arm(
         request->phase_delay_cycles == 0u ||
         request->phase_delay_cycles >
             TDMA_PIO_SPI_DATA_TRAIN_MAX_PHASE_CYCLES ||
+        (request->diagnostic_fault_flags &
+         ~TDMA_PIO_SPI_DATA_TRAIN_FAULT_ALL) != 0u ||
+        (request->diagnostic_fault_flags != 0u &&
+         request->role != TDMA_PIO_SPI_DATA_TRAIN_ROLE_INITIATOR) ||
+        (request->diagnostic_fault_flags != 0u &&
+         (request->diagnostic_fault_flags &
+          (request->diagnostic_fault_flags - 1u)) != 0u) ||
         (request->role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_INITIATOR &&
          request->phase_delay_cycles < request->source_phase_delay_cycles) ||
         request->data_sample_count == 0u ||
@@ -3127,9 +3134,12 @@ bool tdma_pio_spi_phys_data_train_arm(
           request->marker_word_count == 0u ||
           request->marker_word_count > TDMA_PIO_SPI_MARKER_BUFFER_WORDS ||
           request->capture_sample_count < request->data_sample_count ||
-          request->capture_sample_count == 0u ||
-          request->capture_sample_count >
-              TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS * 32u)) ||
+           request->capture_sample_count == 0u ||
+           request->capture_sample_count >
+               TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS * 32u ||
+           (((request->diagnostic_fault_flags &
+              TDMA_PIO_SPI_DATA_TRAIN_FAULT_RX_DMA_SHORT) != 0u) &&
+            request->capture_sample_count <= 32u))) ||
         (request->role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_RESPONDER &&
          (request->data_words == NULL || request->data_word_count == 0u ||
           request->data_word_count > TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS ||
@@ -3207,6 +3217,14 @@ bool tdma_pio_spi_phys_data_train_arm(
 
     const uint32_t capture_words =
         (request->capture_sample_count + 31u) / 32u;
+    const bool inject_rx_dma_pause =
+        (request->diagnostic_fault_flags &
+         TDMA_PIO_SPI_DATA_TRAIN_FAULT_RX_DMA_PAUSE) != 0u;
+    const bool inject_rx_dma_short =
+        (request->diagnostic_fault_flags &
+         TDMA_PIO_SPI_DATA_TRAIN_FAULT_RX_DMA_SHORT) != 0u;
+    const uint32_t capture_dma_words =
+        inject_rx_dma_short ? capture_words - 1u : capture_words;
     if (request->role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_INITIATOR) {
         memcpy(s_tdma_pio_spi_marker_tx, request->marker_words,
                request->marker_word_count * sizeof(request->marker_words[0]));
@@ -3245,9 +3263,9 @@ bool tdma_pio_spi_phys_data_train_arm(
             &capture_dc,
             pio_get_dreq(BOARD_TDMA_SPI_PIO, phys->rx_sm, false));
         dma_channel_configure((uint)s_tdma_pio_spi_rx_dma_channel,
-                              &capture_dc, s_tdma_pio_spi_data_train_rx,
-                              &BOARD_TDMA_SPI_PIO->rxf[phys->rx_sm],
-                              capture_words, false);
+                               &capture_dc, s_tdma_pio_spi_data_train_rx,
+                               &BOARD_TDMA_SPI_PIO->rxf[phys->rx_sm],
+                               capture_dma_words, false);
     } else if (request->role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_RESPONDER) {
         memcpy(s_tdma_pio_spi_data_train_tx, request->data_words,
                request->data_word_count * sizeof(request->data_words[0]));
@@ -3348,7 +3366,9 @@ bool tdma_pio_spi_phys_data_train_arm(
     phys->data_train.data_dma_remaining =
         (request->role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_RESPONDER ||
          request->role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_SCK_SOURCE)
-            ? request->data_word_count : capture_words;
+            ? request->data_word_count : capture_dma_words;
+    phys->data_train.diagnostic_fault_flags =
+        request->diagnostic_fault_flags;
     /* A destination may be armed several seconds before the source while
      * four USB CDC endpoints are configured sequentially.  Like the TRN-01
      * follower, it starts its transfer timeout only after RX DMA proves that
@@ -3356,7 +3376,9 @@ bool tdma_pio_spi_phys_data_train_arm(
     phys->data_train_deadline_ns = 0u;
     tdma_pio_spi_phys_data_train_write_end(phys);
 
-    dma_start_channel_mask(1u << (uint)s_tdma_pio_spi_rx_dma_channel);
+    if (!inject_rx_dma_pause) {
+        dma_start_channel_mask(1u << (uint)s_tdma_pio_spi_rx_dma_channel);
+    }
     tdma_pio_spi_phys_data_train_set_drivers(request->role);
     if (request->role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_INITIATOR ||
         request->role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_SCK_SOURCE) {
@@ -3462,8 +3484,15 @@ void tdma_pio_spi_phys_data_train_service(tdma_pio_spi_phys_t *phys)
      * for CS. Only an undrained initiator RX FIFO represents capture loss. */
     const bool stalled = initiator &&
         pio_sm_is_rx_fifo_full(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+    const bool inject_rx_dma_short =
+        (phys->data_train.diagnostic_fault_flags &
+         TDMA_PIO_SPI_DATA_TRAIN_FAULT_RX_DMA_SHORT) != 0u;
+    const uint32_t armed_capture_words =
+        inject_rx_dma_short && phys->data_train.capture_word_count != 0u
+            ? phys->data_train.capture_word_count - 1u
+            : phys->data_train.capture_word_count;
     const bool capture_started = initiator &&
-        data_remaining < phys->data_train.capture_word_count;
+        data_remaining < armed_capture_words;
     const bool timed_out = phys->data_train_deadline_ns != 0u &&
         vdc_timestamp_clock_now_ns() >= phys->data_train_deadline_ns &&
         ((initiator && data_remaining != 0u) ||
@@ -3499,16 +3528,37 @@ void tdma_pio_spi_phys_data_train_service(tdma_pio_spi_phys_t *phys)
     if (responder_done) {
         phys->data_train.flags |= TDMA_PIO_SPI_DATA_TRAIN_FLAG_SOURCE_IRQ;
     }
-    if (stalled && data_remaining != 0u) {
+    if (inject_rx_dma_short && data_remaining == 0u) {
+        /* A deliberately short RX transfer is a DMA boundary fault even if
+         * the PIO FIFO happens to drain before it becomes full. */
+        if (phys->data_train.dma_overrun_count == 0u) {
+            phys->data_train.dma_overrun_count++;
+        }
+    } else if (stalled && data_remaining != 0u) {
+        /* A paused RX DMA is only classified as PIO_STALL after the real PIO
+         * RX FIFO reports backpressure.  The DMA count is derivative evidence
+         * and must not replace the physical root cause. */
         phys->data_train.pio_stall_count++;
         phys->data_train.dma_overrun_count++;
     }
-    if (timed_out) {
+    if (inject_rx_dma_short &&
+        phys->data_train.dma_overrun_count != 0u) {
+        phys->data_train.state = TDMA_PIO_SPI_DATA_TRAIN_ERROR;
+        phys->data_train.reject_reason = TDMA_PIO_SPI_DATA_TRAIN_REJECT_DMA;
+    } else if (stalled && data_remaining != 0u &&
+               (phys->data_train.diagnostic_fault_flags &
+                TDMA_PIO_SPI_DATA_TRAIN_FAULT_RX_DMA_PAUSE) != 0u) {
+        /* Do not let the watchdog turn an observed FIFO blockage into a
+         * generic timeout.  The injected pause is diagnostic-only; the
+         * physical FIFO full indication is the required root-cause evidence. */
+        phys->data_train.state = TDMA_PIO_SPI_DATA_TRAIN_ERROR;
+        phys->data_train.reject_reason = TDMA_PIO_SPI_DATA_TRAIN_REJECT_PIO_STALL;
+    } else if (timed_out) {
         phys->data_train.timeout_count++;
         phys->data_train.state = TDMA_PIO_SPI_DATA_TRAIN_ERROR;
         phys->data_train.reject_reason =
             TDMA_PIO_SPI_DATA_TRAIN_REJECT_TIMEOUT;
-    } else if ((initiator && marker_remaining == 0u &&
+    } else if ((initiator && !inject_rx_dma_short && marker_remaining == 0u &&
                 data_remaining == 0u) ||
                (!initiator && responder_done && data_remaining == 0u)) {
         if (phys->data_train.pio_stall_count != 0u) {
@@ -3570,13 +3620,24 @@ bool tdma_pio_spi_phys_copy_data_train_capture(
         !tdma_pio_spi_phys_get_data_train_snapshot(phys, &snapshot) ||
         (snapshot.role != TDMA_PIO_SPI_DATA_TRAIN_ROLE_INITIATOR &&
          snapshot.role != TDMA_PIO_SPI_DATA_TRAIN_ROLE_SCK_DESTINATION) ||
-        snapshot.state != TDMA_PIO_SPI_DATA_TRAIN_COMPLETE ||
-        snapshot.capture_word_count > capture_word_capacity) {
+        (snapshot.state != TDMA_PIO_SPI_DATA_TRAIN_COMPLETE &&
+         !(snapshot.state == TDMA_PIO_SPI_DATA_TRAIN_ERROR &&
+           snapshot.reject_reason == TDMA_PIO_SPI_DATA_TRAIN_REJECT_DMA &&
+           (snapshot.diagnostic_fault_flags &
+            TDMA_PIO_SPI_DATA_TRAIN_FAULT_RX_DMA_SHORT) != 0u &&
+           snapshot.dma_overrun_count != 0u))) {
+        return false;
+    }
+    const size_t available_words =
+        snapshot.state == TDMA_PIO_SPI_DATA_TRAIN_COMPLETE
+            ? snapshot.capture_word_count
+            : snapshot.capture_word_count - 1u;
+    if (available_words == 0u || available_words > capture_word_capacity) {
         return false;
     }
     memcpy(capture_words, s_tdma_pio_spi_data_train_rx,
-           snapshot.capture_word_count * sizeof(capture_words[0]));
-    *capture_word_count = snapshot.capture_word_count;
+           available_words * sizeof(capture_words[0]));
+    *capture_word_count = available_words;
     return true;
 }
 

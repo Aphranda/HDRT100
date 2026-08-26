@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ from tools.calibration_ring_validate.trn03_stage import (
     FLIGHT_DATA_REARM_SAMPLES,
     FLIGHT_SCK_REARM_SAMPLES,
     load_config,
+    sck_replay_phase_is_safe,
 )
 
 
@@ -190,6 +192,44 @@ def test_build_matrix_requires_independent_sck_v2_schema() -> None:
         "HAOFV_SCK_OFFSET_MATRIX_V1"
     with pytest.raises(ValueError, match="independently trained V2"):
         build_matrix(7, data, residence, sck=sck)
+
+
+def test_build_matrix_retimes_unsafe_observed_sck_row() -> None:
+    data, residence = evidence(7)
+    sck = sck_evidence(data)
+    offset = sck["matrix"]["offset_matrix"]
+    candidates = [[1], [0, 1], [0, 1], [0, 1]]
+    rows = [
+        {"row_id": row_id,
+         "sck_offset_sample_counts_by_node": list(values)}
+        for row_id, values in enumerate(itertools.product(*candidates))
+    ]
+    offset["candidate_values_by_node"] = candidates
+    offset["full_matrix_row_count"] = len(rows)
+    offset["active_row_id"] = len(rows) - 1
+    offset["rows"] = rows
+
+    matrix = build_matrix(7, data, residence, sck=sck)
+    selection = matrix["derivation"]["sck_replay_selection"]
+    assert selection["requested_offset_sample_counts_by_node"] == [1, 1, 1, 1]
+    assert selection["selected_offset_sample_counts_by_node"] == [1, 0, 0, 0]
+    assert selection["requested_row_replay_safe"] is False
+    assert selection["selection_reason"] == (
+        "observed_row_retimed_to_replay_safe_candidate")
+    assert matrix["offset_matrix"]["active_row_id"] == 0
+    assert matrix["offset_matrix"]["full_matrix_row_count"] == 8
+
+
+def test_sck_rearm_boundary_uses_raw_sample_grid() -> None:
+    assert sck_replay_phase_is_safe(
+        phase_delay_cycles=10, baud_hz=10_000_000,
+        sample_period_ns=4, destination_node=1)
+    assert not sck_replay_phase_is_safe(
+        phase_delay_cycles=11, baud_hz=10_000_000,
+        sample_period_ns=4, destination_node=1)
+    assert sck_replay_phase_is_safe(
+        phase_delay_cycles=11, baud_hz=10_000_000,
+        sample_period_ns=4, destination_node=0)
 
 
 def test_build_matrix_rejects_mismatched_residence_identity() -> None:

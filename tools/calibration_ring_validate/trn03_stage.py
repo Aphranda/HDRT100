@@ -98,6 +98,42 @@ FLIGHT_DATA_REARM_SAMPLES = 5
 FLIGHT_REFERENCE_NODE = 0
 
 
+def sck_replay_phase_margin(*, phase_delay_cycles: int, baud_hz: int,
+                            sample_period_ns: int,
+                            destination_node: int) -> int | None:
+    """Return remaining raw-sample margin before the opposite edge.
+
+    The reference Node owns the SCK origin and does not re-arm a forwarded
+    edge, so it has no follower re-arm constraint.  Follower timing is
+    evaluated on the same integer raw-sample grid used by the PIO phase
+    fields.  Keeping this predicate shared by matrix generation and config
+    validation prevents an observed SCK row from becoming an un-replayable
+    active row.
+    """
+    if destination_node == FLIGHT_REFERENCE_NODE:
+        return None
+    if phase_delay_cycles < 0 or baud_hz <= 0 or sample_period_ns <= 0:
+        return -1
+    period_samples = 1_000_000_000 // (baud_hz * sample_period_ns)
+    half_period_samples = period_samples // 2
+    if period_samples == 0 or half_period_samples == 0:
+        return -1
+    return (half_period_samples - phase_delay_cycles -
+            FLIGHT_SCK_REARM_SAMPLES)
+
+
+def sck_replay_phase_is_safe(*, phase_delay_cycles: int, baud_hz: int,
+                             sample_period_ns: int,
+                             destination_node: int) -> bool:
+    """Return whether a follower SCK phase leaves the opposite-edge budget."""
+    margin = sck_replay_phase_margin(
+        phase_delay_cycles=phase_delay_cycles,
+        baud_hz=baud_hz,
+        sample_period_ns=sample_period_ns,
+        destination_node=destination_node)
+    return margin is None or margin >= 0
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--board-id", action="append", required=True,
@@ -305,15 +341,16 @@ def validate_config(raw: object,
                 link["data_phase_delay_cycles"] > 31:
             raise ValueError(
                 f"link{link['link_index']} PIO phase mapping is invalid")
-        period_samples = 1_000_000_000 // (
-            baud_hz * link["sample_period_ns"])
-        half_period_samples = period_samples // 2
-        if (marker_destination != FLIGHT_REFERENCE_NODE and
-                link["sck_phase_delay_cycles"] +
-                FLIGHT_SCK_REARM_SAMPLES > half_period_samples):
+        if not sck_replay_phase_is_safe(
+                phase_delay_cycles=link["sck_phase_delay_cycles"],
+                baud_hz=baud_hz,
+                sample_period_ns=link["sample_period_ns"],
+                destination_node=marker_destination):
             raise ValueError(
                 f"link{link['link_index']} SCK replay phase cannot re-arm "
                 "before the opposite edge")
+        period_samples = 1_000_000_000 // (
+            baud_hz * link["sample_period_ns"])
         if (link["data_phase_delay_cycles"] +
                 FLIGHT_DATA_REARM_SAMPLES > period_samples):
             raise ValueError(

@@ -325,7 +325,7 @@ static int test_bad_request_rejected(void)
                                &store, &request), false);
     request = make_request();
     request.diagnostic_fault_flags =
-        CALIBRATION_CLK_MARKER_FAULT_EPOCH_OVERRIDE;
+        CALIBRATION_TRAINING_DATA_FAULT_WIRE_EPOCH_OVERRIDE;
     failed += expect_bool(
         "epoch fault requires explicit wire epoch",
         calibration_training_data_prepare_core1(&store, &request), false);
@@ -335,16 +335,41 @@ static int test_bad_request_rejected(void)
         calibration_training_data_prepare_core1(&store, &request), true);
     request = make_request();
     request.diagnostic_fault_flags =
-        CALIBRATION_CLK_MARKER_FAULT_IDLE_HIGH;
+        1u << 4u;
     failed += expect_bool(
         "MARK idle-high fault is rejected by DATA training",
         calibration_training_data_prepare_core1(&store, &request), false);
     request = make_request();
     request.diagnostic_fault_flags =
-        CALIBRATION_CLK_MARKER_FAULT_HEADER_CRC8_XOR;
+        CALIBRATION_TRAINING_DATA_FAULT_WIRE_HEADER_CRC8_XOR;
     request.diagnostic_header_crc8_xor = 0x100u;
     failed += expect_bool(
         "CRC fault mask is uint8",
+        calibration_training_data_prepare_core1(&store, &request), false);
+    request = make_request();
+    request.diagnostic_fault_flags = CALIBRATION_TRAINING_DATA_FAULT_PIO_STALL;
+    failed += expect_bool(
+        "PIO stall transport fault is accepted",
+        calibration_training_data_prepare_core1(&store, &request), true);
+    request = make_request();
+    request.diagnostic_fault_flags = CALIBRATION_TRAINING_DATA_FAULT_DMA_OVERRUN;
+    failed += expect_bool(
+        "DMA overrun transport fault is accepted",
+        calibration_training_data_prepare_core1(&store, &request), true);
+    request = make_request();
+    request.diagnostic_fault_flags =
+        CALIBRATION_TRAINING_DATA_FAULT_PIO_STALL |
+        CALIBRATION_TRAINING_DATA_FAULT_DMA_OVERRUN;
+    failed += expect_bool(
+        "multiple transport faults are rejected",
+        calibration_training_data_prepare_core1(&store, &request), false);
+    request = make_request();
+    request.diagnostic_fault_flags =
+        CALIBRATION_TRAINING_DATA_FAULT_WIRE_HEADER_CRC8_XOR |
+        CALIBRATION_TRAINING_DATA_FAULT_DMA_OVERRUN;
+    request.diagnostic_header_crc8_xor = 1u;
+    failed += expect_bool(
+        "wire and transport faults are rejected",
         calibration_training_data_prepare_core1(&store, &request), false);
     return failed;
 }
