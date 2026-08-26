@@ -156,33 +156,15 @@ def test_load_config_rejects_diagnostic_only_evidence(tmp_path: Path) -> None:
         load_config(write_matrix(tmp_path, value))
 
 
-def test_load_config_rejects_data_phase_not_after_incoming_sck(
-        tmp_path: Path) -> None:
+@pytest.mark.parametrize("data_offset", [0, 1, 10])
+def test_load_config_keeps_data_phase_independent_from_sck(
+        tmp_path: Path, data_offset: int) -> None:
     value = matrix()
     value["offset_matrix"]["rows"][0][
-        "data_offset_sample_counts_by_node"] = [0, 0, 0, 0]
-    with pytest.raises(ValueError, match="DATA phase must leave one serial"):
-        load_config(write_matrix(tmp_path, value))
-
-
-def test_load_config_rejects_only_one_cycle_between_sck_and_data(
-        tmp_path: Path) -> None:
-    value = matrix()
-    value["offset_matrix"]["rows"][0][
-        "data_offset_sample_counts_by_node"] = [1, 1, 1, 1]
-    with pytest.raises(ValueError, match="DATA phase must leave one serial"):
-        load_config(write_matrix(tmp_path, value))
-
-
-def test_load_config_rejects_raw_follower_sck_duty_underflow(
-        tmp_path: Path) -> None:
-    value = matrix()
-    value["offset_matrix"]["rows"][0][
-        "sck_offset_sample_counts_by_node"] = [-2, -2, -2, -2]
-    value["offset_matrix"]["rows"][0][
-        "data_offset_sample_counts_by_node"] = [10, 10, 10, 10]
-    with pytest.raises(ValueError, match="cannot preserve SCK duty"):
-        load_config(write_matrix(tmp_path, value))
+        "data_offset_sample_counts_by_node"] = [data_offset] * 4
+    loaded = load_config(write_matrix(tmp_path, value))
+    assert [link["data_phase_delay_cycles"]
+            for link in loaded["links"]] == [10 + data_offset] * 4
 
 
 def test_load_config_rejects_sck_phase_that_cannot_rearm(tmp_path: Path) -> None:

@@ -323,22 +323,6 @@ def validate_config(raw: object,
     if sorted(link["link_index"] for link in links) != list(range(node_count)):
         raise ValueError("link_index must cover [0, node_count) exactly")
     ordered_links = sorted(links, key=lambda item: item["link_index"])
-    for node in range(node_count):
-        marker_link = ordered_links[(node + node_count - 1) % node_count]
-        data_link = ordered_links[node]
-        node_half_period_samples = 1_000_000_000 // (
-            baud_hz * data_link["sample_period_ns"]) // 2
-        if (data_link["data_phase_delay_cycles"] <=
-                marker_link["sck_phase_delay_cycles"] + 1):
-            raise ValueError(
-                f"node{node} DATA phase must leave one serial PIO cycle "
-                "after its incoming SCK phase")
-        if (data_link["data_phase_delay_cycles"] + 2 >
-                marker_link["sck_phase_delay_cycles"] +
-                node_half_period_samples):
-            raise ValueError(
-                f"node{node} raw follower cannot preserve SCK duty after "
-                "the DATA sample")
     return {
         **header,
         "baud_hz": baud_hz,

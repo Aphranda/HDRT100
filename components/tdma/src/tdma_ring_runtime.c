@@ -285,16 +285,6 @@ bool tdma_ring_runtime_validate_calibration_stage(
             return false;
         }
     }
-    for (uint32_t node = 0u; node < expected_node_count; node++) {
-        const uint32_t marker_link =
-            (node + expected_node_count - 1u) % expected_node_count;
-        if (stage->links[node].data_phase_delay_cycles <=
-            stage->links[marker_link].sck_phase_delay_cycles + 1u) {
-            tdma_ring_runtime_set_reason(
-                reason, TDMA_RING_RUNTIME_REASON_BAD_CONFIG);
-            return false;
-        }
-    }
     return true;
 }
 

@@ -584,7 +584,7 @@ typedef struct {
     uint32_t node_count;
     uint32_t flight_tail_bytes;
     bool process_image_enabled;
-    uint32_t process_image_payload_size;
+    uint32_t flight_payload_size;
     uint32_t flight_physical_byte_count;
     uint32_t flight_alignment_byte_shift;
     uint32_t flight_alignment_bit_shift;

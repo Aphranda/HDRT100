@@ -67,7 +67,7 @@ static uint s_tdma_pio_spi_p3_capture_offset;
 static uint s_tdma_pio_spi_p3_responder_capture_offset;
 static uint s_tdma_pio_spi_flight_origin_clock_offset;
 static uint s_tdma_pio_spi_flight_origin_data_offset;
-static uint s_tdma_pio_spi_flight_follower_offset;
+static uint s_tdma_pio_spi_flight_data_follower_offset;
 static uint s_tdma_pio_spi_flight_process_follower_offset;
 static uint s_tdma_pio_spi_flight_control_forward_offset;
 static uint s_tdma_pio_spi_flight_sck_capture_offset;
@@ -435,27 +435,29 @@ static bool tdma_pio_spi_phys_load_flight_origin_programs(void)
 static bool tdma_pio_spi_phys_load_flight_follower_programs(void)
 {
     if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_marker_forward_program)) {
+                             &tdma_pio_spi_flight_control_forward_program)) {
         return false;
     }
-    s_tdma_pio_spi_marker_forward_offset = (uint)pio_add_program(
-        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_marker_forward_program);
+    s_tdma_pio_spi_flight_control_forward_offset = (uint)pio_add_program(
+        BOARD_TDMA_SPI_PIO,
+        &tdma_pio_spi_flight_control_forward_program);
     if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_flight_follower_program)) {
+                             &tdma_pio_spi_flight_data_follower_program)) {
         pio_remove_program(BOARD_TDMA_SPI_PIO,
-                           &tdma_pio_spi_marker_forward_program,
-                           s_tdma_pio_spi_marker_forward_offset);
+                           &tdma_pio_spi_flight_control_forward_program,
+                           s_tdma_pio_spi_flight_control_forward_offset);
         return false;
     }
-    s_tdma_pio_spi_flight_follower_offset = (uint)pio_add_program(
-        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_flight_follower_program);
+    s_tdma_pio_spi_flight_data_follower_offset = (uint)pio_add_program(
+        BOARD_TDMA_SPI_PIO,
+        &tdma_pio_spi_flight_data_follower_program);
     if (!tdma_pio_spi_phys_load_flight_sck_capture_program()) {
         pio_remove_program(BOARD_TDMA_SPI_PIO,
-                           &tdma_pio_spi_flight_follower_program,
-                           s_tdma_pio_spi_flight_follower_offset);
+                           &tdma_pio_spi_flight_data_follower_program,
+                           s_tdma_pio_spi_flight_data_follower_offset);
         pio_remove_program(BOARD_TDMA_SPI_PIO,
-                           &tdma_pio_spi_marker_forward_program,
-                           s_tdma_pio_spi_marker_forward_offset);
+                           &tdma_pio_spi_flight_control_forward_program,
+                           s_tdma_pio_spi_flight_control_forward_offset);
         return false;
     }
     return true;
@@ -740,11 +742,11 @@ static void tdma_pio_spi_phys_unload_programs(void)
             &tdma_pio_spi_flight_sck_capture_program,
             s_tdma_pio_spi_flight_sck_capture_offset);
         pio_remove_program(BOARD_TDMA_SPI_PIO,
-                           &tdma_pio_spi_flight_follower_program,
-                           s_tdma_pio_spi_flight_follower_offset);
+                           &tdma_pio_spi_flight_data_follower_program,
+                           s_tdma_pio_spi_flight_data_follower_offset);
         pio_remove_program(BOARD_TDMA_SPI_PIO,
-                           &tdma_pio_spi_marker_forward_program,
-                           s_tdma_pio_spi_marker_forward_offset);
+                           &tdma_pio_spi_flight_control_forward_program,
+                           s_tdma_pio_spi_flight_control_forward_offset);
         break;
     case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER:
         pio_remove_program(
@@ -1067,8 +1069,8 @@ static bool tdma_pio_spi_phys_configure_flight(
             return false;
         }
     } else {
-        /* rx_sm performs DATA capture/reverse forwarding and forward SCK;
-         * tx_sm independently regenerates the forward CS marker. */
+        /* rx_sm performs DATA capture/reverse forwarding. tx_sm independently
+         * regenerates the complete forward MARK/SCK control pair. */
         phys->rx_sm = BOARD_TDMA_SPI_MASTER_SM;
         phys->tx_sm = BOARD_TDMA_SPI_SLAVE_SM;
         if (phys->process_image_enabled) {
@@ -1086,38 +1088,25 @@ static bool tdma_pio_spi_phys_configure_flight(
                 return false;
             }
         } else {
-            tdma_pio_spi_flight_follower_program_init(
+            tdma_pio_spi_flight_data_follower_program_init(
                 BOARD_TDMA_SPI_PIO,
                 phys->rx_sm,
-                s_tdma_pio_spi_flight_follower_offset,
+                s_tdma_pio_spi_flight_data_follower_offset,
                 phys->rx_pin,
                 phys->tx_pin,
                 phys->rx_sck_pin,
-                phys->tx_sck_pin,
-                phys->flight_sck_phase_delay_cycles,
-                phys->flight_data_phase_delay_cycles,
-                clock_get_hz(clk_sys) / (2u * phys->baud_hz));
+                phys->flight_data_phase_delay_cycles);
         }
-        if (phys->process_image_enabled) {
-            tdma_pio_spi_flight_control_forward_program_init(
-                BOARD_TDMA_SPI_PIO,
-                phys->tx_sm,
-                s_tdma_pio_spi_flight_control_forward_offset,
-                phys->rx_csn_pin,
-                phys->rx_sck_pin,
-                phys->tx_sck_pin,
-                phys->tx_csn_pin,
-                phys->flight_marker_phase_delay_cycles,
-                phys->flight_sck_phase_delay_cycles);
-        } else {
-            tdma_pio_spi_marker_forward_program_init(
-                BOARD_TDMA_SPI_PIO,
-                phys->tx_sm,
-                s_tdma_pio_spi_marker_forward_offset,
-                phys->rx_csn_pin,
-                phys->tx_csn_pin,
-                phys->flight_marker_phase_delay_cycles);
-        }
+        tdma_pio_spi_flight_control_forward_program_init(
+            BOARD_TDMA_SPI_PIO,
+            phys->tx_sm,
+            s_tdma_pio_spi_flight_control_forward_offset,
+            phys->rx_csn_pin,
+            phys->rx_sck_pin,
+            phys->tx_sck_pin,
+            phys->tx_csn_pin,
+            phys->flight_marker_phase_delay_cycles,
+            phys->flight_sck_phase_delay_cycles);
     }
     tdma_pio_spi_flight_sck_capture_program_init(
         BOARD_TDMA_SPI_PIO,
@@ -1292,12 +1281,12 @@ bool tdma_pio_spi_phys_set_process_image_mode(
     uint32_t payload_size)
 {
     if (phys == NULL || phys->armed ||
-        (enabled && (payload_size == 0u ||
-                     payload_size > TDMA_TRANSPORT_SHORT_PAYLOAD_MAX))) {
+        payload_size > TDMA_TRANSPORT_SHORT_PAYLOAD_MAX ||
+        (enabled && payload_size == 0u)) {
         return false;
     }
     phys->process_image_enabled = enabled;
-    phys->process_image_payload_size = enabled ? payload_size : 0u;
+    phys->flight_payload_size = payload_size;
     return true;
 }
 
@@ -1314,8 +1303,7 @@ bool tdma_pio_spi_phys_set_flight_offsets(
         sck_phase_delay_cycles == 0u || data_phase_delay_cycles == 0u ||
         marker_phase_delay_cycles > 31u ||
         sck_phase_delay_cycles > 31u ||
-        data_phase_delay_cycles > 31u ||
-        data_phase_delay_cycles <= sck_phase_delay_cycles + 1u) {
+        data_phase_delay_cycles > 31u) {
         return false;
     }
     phys->flight_marker_offset_sample_count = marker_offset_sample_count;
@@ -1733,10 +1721,6 @@ bool tdma_pio_spi_phys_arm(void *context,
         (phys->role == TDMA_PIO_SPI_ROLE_SLAVE &&
          phys->flight_sck_phase_delay_cycles +
               TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES > half_period_cycles) ||
-        (phys->role == TDMA_PIO_SPI_ROLE_SLAVE &&
-         !phys->process_image_enabled &&
-         phys->flight_data_phase_delay_cycles + 2u >
-             phys->flight_sck_phase_delay_cycles + half_period_cycles) ||
         phys->flight_data_phase_delay_cycles +
             TDMA_PIO_SPI_FLIGHT_DATA_REARM_CYCLES > period_cycles) {
         return false;
@@ -1749,18 +1733,18 @@ bool tdma_pio_spi_phys_arm(void *context,
             : (phys->process_image_enabled
                    ? TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER
                    : TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER);
+    const uint32_t flight_payload_size = phys->flight_payload_size != 0u
+        ? phys->flight_payload_size : TDMA_TRANSPORT_SHORT_PAYLOAD_MAX;
+    phys->flight_physical_byte_count =
+        TDMA_PIO_SPI_PACKET_HEADER_SIZE +
+        TDMA_TRANSPORT_FRAME_HEADER_SIZE +
+        flight_payload_size +
+        phys->flight_tail_bytes;
     if (phys->process_image_enabled) {
-        phys->flight_physical_byte_count =
-            TDMA_PIO_SPI_PACKET_HEADER_SIZE +
-            TDMA_TRANSPORT_FRAME_HEADER_SIZE +
-            phys->process_image_payload_size +
-            phys->flight_tail_bytes;
         if (phys->flight_physical_byte_count + 1u >
             TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS) {
             return false;
         }
-    } else {
-        phys->flight_physical_byte_count = 0u;
     }
     phys->flight_alignment_byte_shift = 0u;
     phys->flight_alignment_bit_shift = 0u;
@@ -1784,8 +1768,7 @@ bool tdma_pio_spi_phys_arm(void *context,
         tdma_pio_spi_phys_set_line_drivers(false);
         return false;
     }
-    if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE &&
-        phys->process_image_enabled) {
+    if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE) {
         const uint32_t control_bits = phys->flight_physical_byte_count * 8u;
         if (control_bits == 0u) {
             dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);

@@ -73,16 +73,15 @@ def test_raw_flight_mode_query_accepts_scalar_one() -> None:
         "SYSTem:TDMA:FLIGHT:MODE?", "1")
 
 
-def test_follower_wait_patch_preserves_sck_sideset() -> None:
+def test_data_follower_wait_patch_does_not_own_sck_output() -> None:
     source = (ROOT / "components" / "tdma" / "src" /
               "tdma_pio_spi.pio").read_text(encoding="utf-8")
     init = source.split(
-        "static inline void tdma_pio_spi_flight_follower_program_init", 1
+        "static inline void tdma_pio_spi_flight_data_follower_program_init", 1
     )[1].split("static inline void", 1)[0]
     assert "pio_encode_wait_gpio(true, rx_sck_pin) |" in init
-    assert "pio_encode_sideset(1u, 0u)" in init
-    assert "pio_encode_wait_gpio(false, rx_sck_pin) |" in init
-    assert "pio_encode_sideset(1u, 1u)" in init
+    assert "pio_encode_delay(data_phase_delay_cycles - 1u)" in init
+    assert "pio_encode_sideset" not in init
     assert "pio->instr_mem[offset + 7u]" in init
 
 
@@ -90,7 +89,7 @@ def test_follower_samples_data_on_rising_edge_before_falling_edge() -> None:
     source = (ROOT / "components" / "tdma" / "src" /
               "tdma_pio_spi.pio").read_text(encoding="utf-8")
     program = source.split(
-        ".program tdma_pio_spi_flight_follower", 1
+        ".program tdma_pio_spi_flight_data_follower", 1
     )[1].split(".program", 1)[0]
     high = program.index("wait 1 gpio 0")
     sample = program.index("in pins, 1")
@@ -311,12 +310,13 @@ def test_flight_preserves_sck_and_advances_serial_data_one_cycle() -> None:
     source = (ROOT / "components" / "tdma" / "src" /
               "tdma_pio_spi.pio").read_text(encoding="utf-8")
     follower_program = source.split(
-        ".program tdma_pio_spi_flight_follower", 1
+        ".program tdma_pio_spi_flight_data_follower", 1
     )[1].split(".program tdma_pio_spi_flight_process_follower", 1)[0]
-    assert "out pins, 1          side 1" in follower_program
-    assert "jmp x-- flight_follower_bit side 0" in follower_program
+    assert ".side_set" not in follower_program
+    assert "out pins, 1" in follower_program
+    assert "jmp x-- flight_follower_bit" in follower_program
     follower = source.split(
-        "static inline void tdma_pio_spi_flight_follower_program_init", 1
+        "static inline void tdma_pio_spi_flight_data_follower_program_init", 1
     )[1].split("static inline void", 1)[0]
     process = source.split(
         "static inline void tdma_pio_spi_flight_process_follower_program_init",
@@ -335,17 +335,9 @@ def test_flight_preserves_sck_and_advances_serial_data_one_cycle() -> None:
         "tdma_pio_spi_flight_data_residual_delay_cycles", 1
     )[1].split("static inline void", 1)[0]
     assert "data_phase_delay_cycles - sck_phase_delay_cycles - 2u" in helper
-    falling_helper = source.split(
-        "static inline uint32_t "
-        "tdma_pio_spi_flight_sck_high_hold_delay_cycles", 1
-    )[1].split("static inline void", 1)[0]
-    assert "data_phase_delay_cycles + 1u <= half_period_cycles" in falling_helper
-    assert "sck_phase_delay_cycles + half_period_cycles -" in falling_helper
-    assert "data_phase_delay_cycles - 2u" in falling_helper
-    assert "pio_encode_delay(sck_phase_delay_cycles)" in follower
-    assert "pio_encode_delay(data_residual_delay_cycles)" in follower
-    assert "pio_encode_out(pio_pins, 1u)" in follower
-    assert "pio_encode_delay(sck_high_hold_delay_cycles)" in follower
+    assert "pio_encode_delay(data_phase_delay_cycles - 1u)" in follower
+    assert "tx_sck_pin" not in follower
+    assert "sm_config_set_sideset_pins" not in follower
     assert "pio_encode_delay(data_phase_delay_cycles - 1u)" in process
     assert control.count(
         "pio_encode_delay(sck_phase_delay_cycles)") == 2
@@ -363,19 +355,14 @@ def test_flight_preserves_sck_and_advances_serial_data_one_cycle() -> None:
     assert "phys->flight_sck_phase_delay_cycles" in origin_call
     assert "phys->flight_data_phase_delay_cycles" in origin_call
 
-    setter = phys_source.split(
-        "bool tdma_pio_spi_phys_set_flight_offsets", 1
-    )[1].split("bool tdma_pio_spi_phys_prepare_process_overlay", 1)[0]
-    assert (
-        "data_phase_delay_cycles <= sck_phase_delay_cycles + 1u" in setter)
     arm = phys_source.split("bool tdma_pio_spi_phys_arm", 1)[1].split(
         "void tdma_pio_spi_phys_disarm", 1)[0]
     assert "TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES" in arm
     assert "half_period_cycles" in arm
     assert "TDMA_PIO_SPI_FLIGHT_DATA_REARM_CYCLES" in arm
     assert "period_cycles" in arm
-    assert "!phys->process_image_enabled" in arm
-    assert "flight_sck_phase_delay_cycles + half_period_cycles" in arm
+    assert "phys->flight_physical_byte_count * 8u" in arm
+    assert "if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE)" in arm
 
 
 def test_closed_loop_stops_calibration_personas_before_ring_staging() -> None:

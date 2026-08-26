@@ -180,10 +180,10 @@ int main(void)
                           true);
     calibration.links[0].data_offset_sample_count = 1;
     calibration.links[0].data_phase_delay_cycles = 11u;
-    failed += expect_bool("one-cycle sck data gap rejected",
+    failed += expect_bool("independent sck and data phases accepted",
                           tdma_ring_runtime_validate_calibration_stage(
                               &calibration, 4u, &calibration_reason),
-                          false);
+                          true);
     calibration.links[0].data_offset_sample_count = 5;
     calibration.links[0].data_phase_delay_cycles = 15u;
     calibration.links[2].marker_offset_sample_count = -1;
