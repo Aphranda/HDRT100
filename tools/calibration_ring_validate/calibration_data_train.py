@@ -182,7 +182,9 @@ def summarize_data_capture(capture: object) -> dict[str, object]:
 
 
 def validate_link(source: dict[str, int | str],
-                  destination: dict[str, int | str]) -> dict[str, object]:
+                  destination: dict[str, int | str], *,
+                  expected_config: dict[str, int] | None = None
+                  ) -> dict[str, object]:
     errors: list[str] = []
     common = (
         "source_node", "destination_node", "train_epoch", "train_sequence",
@@ -197,6 +199,12 @@ def validate_link(source: dict[str, int | str],
     for field in common:
         if int(source[field]) != int(destination[field]):
             errors.append(f"common_{field}")
+    if expected_config is not None:
+        for field, expected in expected_config.items():
+            for endpoint, record in (("source", source),
+                                     ("destination", destination)):
+                if int(record[field]) != expected:
+                    errors.append(f"{endpoint}_{field}_readback")
     if int(source["state"]) != STATE_ACCEPTED:
         errors.append("source_state")
     if int(source["reject_reason"]) != 0:
@@ -246,11 +254,19 @@ def validate_link(source: dict[str, int | str],
 
 def summarize_repeat_matrix(
         trials: list[dict[str, object]], node_count: int, repeats: int,
-        max_offset_span: int) -> dict[str, object]:
-    """Gate a complete directed-link repeat matrix without averaging links."""
-    expected_trial_count = node_count * repeats
+        max_offset_span: int, *, selected_links: list[int] | None = None
+        ) -> dict[str, object]:
+    """Gate a complete matrix or a repeat set for selected physical links."""
+    links_to_summarize = (list(range(node_count)) if selected_links is None
+                          else list(selected_links))
+    if (not links_to_summarize or len(set(links_to_summarize)) !=
+            len(links_to_summarize) or
+            any(link < 0 or link >= node_count for link in links_to_summarize)):
+        raise ValueError("selected links must be unique physical link indices")
+    complete_matrix = links_to_summarize == list(range(node_count))
+    expected_trial_count = len(links_to_summarize) * repeats
     grouped: dict[int, list[dict[str, object]]] = {
-        link: [] for link in range(node_count)
+        link: [] for link in links_to_summarize
     }
     for trial in trials:
         link = int(trial.get("link", -1))
@@ -262,6 +278,15 @@ def summarize_repeat_matrix(
         accepted = [row for row in rows if bool(row.get("passed"))]
         offsets = [int(row["resolved_offset_sample_count"])
                    for row in accepted]
+        calibrated_offsets: list[int] = []
+        for row in accepted:
+            calibrated = row.get("calibrated_data_offset_sample_count")
+            if calibrated is None:
+                configured = int(row["source"].get(
+                    "configured_data_offset_sample_count", 0))
+                calibrated = configured + int(
+                    row["resolved_offset_sample_count"])
+            calibrated_offsets.append(int(calibrated))
         distances = [int(row["source"]["best_distance"])
                      for row in accepted]
         margins = [int(row["source"]["margin"])
@@ -308,11 +333,23 @@ def summarize_repeat_matrix(
                 str(key): value
                 for key, value in sorted(Counter(offsets).items())
             },
+            "residual_offset_histogram": {
+                str(key): value
+                for key, value in sorted(Counter(offsets).items())
+            },
+            "calibrated_offset_histogram": {
+                str(key): value
+                for key, value in sorted(Counter(calibrated_offsets).items())
+            },
             "offset_min_sample": min(offsets) if offsets else None,
             "offset_max_sample": max(offsets) if offsets else None,
             "offset_mean_sample": (
                 statistics.fmean(offsets) if offsets else None),
             "offset_span_sample": offset_span,
+            "calibrated_offset_min_sample": (
+                min(calibrated_offsets) if calibrated_offsets else None),
+            "calibrated_offset_max_sample": (
+                max(calibrated_offsets) if calibrated_offsets else None),
             "best_distance_max": max(distances) if distances else None,
             "margin_min": min(margins) if margins else None,
             "marker_data_skew_ns": sorted(set(skews)),
@@ -364,9 +401,11 @@ def summarize_repeat_matrix(
         row["data_offset_sample_counts_by_node"] = list(
             row["offset_sample_counts_by_node"])
         row["data_offset_ns_by_node"] = list(row["offset_ns_by_node"])
-    if offset_matrix["missing_nodes"]:
+    if complete_matrix and offset_matrix["missing_nodes"]:
         gate_failures.append("data_offset_matrix_incomplete")
     return {
+        "selected_links": links_to_summarize,
+        "complete_node_matrix": complete_matrix,
         "expected_trial_count": expected_trial_count,
         "trial_count": len(trials),
         "accepted_count": len(accepted),
@@ -722,7 +761,25 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
             active, args, (STATE_ACCEPTED, STATE_REJECTED))
         source_row = completed[0]
         destination_row = completed[1]
-        validation = validate_link(source_row, destination_row)
+        validation = validate_link(
+            source_row, destination_row,
+            expected_config={
+                "source_node": args.source_node,
+                "destination_node": args.destination_node,
+                "train_epoch": args.epoch,
+                "train_sequence": args.sequence or args.epoch,
+                "calibration_generation": args.generation,
+                "sample_period_ns": args.sample_period_ns,
+                "marker_to_data_samples": args.marker_to_data_samples,
+                "link_base_delay_ns": args.link_base_delay_ns_current,
+                "marker_offset_sample_count":
+                    args.link_marker_offset_sample,
+                "configured_data_offset_sample_count":
+                    args.link_data_offset_sample,
+                "search_start_offset_sample": args.search_start,
+                "search_end_offset_sample": args.search_end,
+                "guard_sample_count": args.guard_samples,
+            })
         capture_file = save_data_capture(source, args)
         capture_download = download_data_capture(
             source, capture_file, args)
@@ -756,7 +813,9 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
 def run_repeat_matrix(args: argparse.Namespace) -> dict[str, object]:
     board_ids = validate_hil_args(args)
     node_count = len(board_ids)
-    trial_count = node_count * args.repeats
+    selected_links = (list(range(node_count)) if args.all_links else
+                      [args.link_index])
+    trial_count = len(selected_links) * args.repeats
     if args.epoch + trial_count - 1 > 255:
         raise SystemExit("repeat matrix exceeds the uint8 training epoch range")
     ordered = discover_ordered(args, board_ids)
@@ -780,7 +839,7 @@ def run_repeat_matrix(args: argparse.Namespace) -> dict[str, object]:
                prepare_ring(ordered, args))
     trials: list[dict[str, object]] = []
     trial_index = 0
-    for link in range(node_count):
+    for link in selected_links:
         for repeat_index in range(1, args.repeats + 1):
             trial_args = argparse.Namespace(**vars(args))
             trial_args.link_index = link
@@ -825,8 +884,10 @@ def run_repeat_matrix(args: argparse.Namespace) -> dict[str, object]:
                     "repeat_index": repeat_index,
                     "epoch": trial_args.epoch,
                     "passed": bool(trial.get("passed")),
-                    "offset_sample": trial.get(
+                    "residual_offset_sample": trial.get(
                         "resolved_offset_sample_count"),
+                    "calibrated_offset_sample": trial.get(
+                        "calibrated_data_offset_sample_count"),
                     "error": trial.get("error", ""),
                 }
             }, ensure_ascii=False), flush=True)
@@ -834,13 +895,16 @@ def run_repeat_matrix(args: argparse.Namespace) -> dict[str, object]:
             time.sleep(args.gap)
 
     matrix = summarize_repeat_matrix(
-        trials, node_count, args.repeats, args.max_offset_span)
+        trials, node_count, args.repeats, args.max_offset_span,
+        selected_links=selected_links)
     return {
-        "phase": "TRN-02D_REPEAT_MATRIX",
+        "phase": ("TRN-02D_REPEAT_MATRIX" if args.all_links else
+                  "TRN-02B_SELECTED_LINK_REPEAT"),
         "diagnostic_only": True,
         "node_ids_in_loop_order": board_ids,
         "boards": {board.address: asdict(board) for board in ordered},
         "repeats": args.repeats,
+        "selected_links": selected_links,
         "max_offset_span_sample": args.max_offset_span,
         "calibration_generation": args.generation,
         "reused_ring_identity": bool(args.reuse_ring_identity),
@@ -871,7 +935,7 @@ def main() -> int:
         f"{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     args.out_dir.mkdir(parents=True, exist_ok=True)
     result = (run_repeat_matrix(args)
-              if args.all_links else run_hil(args))
+              if args.all_links or args.repeats > 1 else run_hil(args))
     encoded = json.dumps(result, ensure_ascii=False, indent=2)
     print(encoded)
     (args.out_dir / "summary.json").write_text(

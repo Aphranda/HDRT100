@@ -115,6 +115,24 @@ def test_validate_link_rejects_offset_induced_timeout() -> None:
     assert "source_timeout_count" in result["errors"]
 
 
+def test_validate_link_rejects_stale_requested_offset_readback() -> None:
+    source = make_row(flags=FLAG_DIAGNOSTIC_ONLY |
+                      DESTINATION_REQUIRED_FLAGS,
+                      configured_data_offset_sample_count=5)
+    destination = make_row(flags=FLAG_DIAGNOSTIC_ONLY |
+                           FLAG_HARDWARE_MARKER | FLAG_DMA_COMPLETE,
+                           observed_crc32=0,
+                           configured_data_offset_sample_count=5)
+    result = validate_link(
+        source, destination,
+        expected_config={"configured_data_offset_sample_count": 4})
+    assert result["passed"] is False
+    assert result["errors"] == [
+        "source_configured_data_offset_sample_count_readback",
+        "destination_configured_data_offset_sample_count_readback",
+    ]
+
+
 def test_offset_fault_is_never_promoted_to_trn03() -> None:
     result = classify_offset_fault(0, 11, -10, 10, 0)
     assert result["expected_failure"] == "ARM_REJECTED_OFFSET_RANGE"
@@ -194,6 +212,49 @@ def test_repeat_matrix_requires_one_generation_and_bounded_offset_span() -> None
     rejected = summarize_repeat_matrix(trials, 4, 2, 1)
     assert rejected["passed"] is False
     assert "calibration_generation" in rejected["identity_failures"]
+
+
+def test_selected_link_repeats_form_stable_window_without_fake_full_matrix(
+        ) -> None:
+    trials = []
+    for repeat, calibrated in enumerate((3, 4, 4, 3), 1):
+        trials.append({
+            "link": 0,
+            "repeat_index": repeat,
+            "passed": True,
+            "marker_source_node": 0,
+            "marker_destination_node": 1,
+            "data_source_node": 1,
+            "data_destination_node": 0,
+            "marker_direction": "forward",
+            "data_direction": "reverse",
+            "resolved_offset_sample_count": calibrated - 4,
+            "calibrated_data_offset_sample_count": calibrated,
+            "marker_data_skew_ns": 0,
+            "source": {
+                "best_distance": 10,
+                "margin": 100,
+                "calibration_generation": 210,
+                "topology_generation": 3,
+                "topology_crc32": 22,
+                "profile_crc32": 23,
+                "schedule_crc32": 24,
+                "sample_period_ns": 4,
+            },
+        })
+    summary = summarize_repeat_matrix(
+        trials, 4, 4, 1, selected_links=[0])
+    assert summary["passed"] is True
+    assert summary["selected_links"] == [0]
+    assert summary["complete_node_matrix"] is False
+    assert summary["links"][0]["offset_histogram"] == {"-1": 2, "0": 2}
+    assert summary["links"][0]["residual_offset_histogram"] == {
+        "-1": 2, "0": 2}
+    assert summary["links"][0]["calibrated_offset_histogram"] == {
+        "3": 2, "4": 2}
+    assert summary["offset_matrix"]["candidate_values_by_node"][0] == [3, 4]
+    assert summary["offset_matrix"]["missing_nodes"] == [1, 2, 3]
+    assert "data_offset_matrix_incomplete" not in summary["gate_failures"]
 
 
 def test_data_waveform_renders_expected_capture(tmp_path) -> None:
