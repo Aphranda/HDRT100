@@ -333,7 +333,7 @@ def validate_config(raw: object,
             raise ValueError(
                 f"node{node} DATA phase must leave one serial PIO cycle "
                 "after its incoming SCK phase")
-        if (data_link["data_phase_delay_cycles"] >=
+        if (data_link["data_phase_delay_cycles"] + 2 >
                 marker_link["sck_phase_delay_cycles"] +
                 node_half_period_samples):
             raise ValueError(

@@ -310,6 +310,11 @@ def test_origin_data_rx_consumes_staged_sck_and_data_phase() -> None:
 def test_flight_preserves_sck_and_advances_serial_data_one_cycle() -> None:
     source = (ROOT / "components" / "tdma" / "src" /
               "tdma_pio_spi.pio").read_text(encoding="utf-8")
+    follower_program = source.split(
+        ".program tdma_pio_spi_flight_follower", 1
+    )[1].split(".program tdma_pio_spi_flight_process_follower", 1)[0]
+    assert "out pins, 1          side 1" in follower_program
+    assert "jmp x-- flight_follower_bit side 0" in follower_program
     follower = source.split(
         "static inline void tdma_pio_spi_flight_follower_program_init", 1
     )[1].split("static inline void", 1)[0]
@@ -332,14 +337,15 @@ def test_flight_preserves_sck_and_advances_serial_data_one_cycle() -> None:
     assert "data_phase_delay_cycles - sck_phase_delay_cycles - 2u" in helper
     falling_helper = source.split(
         "static inline uint32_t "
-        "tdma_pio_spi_flight_sck_falling_delay_cycles", 1
+        "tdma_pio_spi_flight_sck_high_hold_delay_cycles", 1
     )[1].split("static inline void", 1)[0]
     assert "data_phase_delay_cycles + 1u <= half_period_cycles" in falling_helper
     assert "sck_phase_delay_cycles + half_period_cycles -" in falling_helper
-    assert "data_phase_delay_cycles - 1u" in falling_helper
+    assert "data_phase_delay_cycles - 2u" in falling_helper
     assert "pio_encode_delay(sck_phase_delay_cycles)" in follower
     assert "pio_encode_delay(data_residual_delay_cycles)" in follower
-    assert "pio_encode_delay(sck_falling_delay_cycles)" in follower
+    assert "pio_encode_out(pio_pins, 1u)" in follower
+    assert "pio_encode_delay(sck_high_hold_delay_cycles)" in follower
     assert "pio_encode_delay(data_phase_delay_cycles - 1u)" in process
     assert control.count(
         "pio_encode_delay(sck_phase_delay_cycles)") == 2

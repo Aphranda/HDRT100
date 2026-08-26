@@ -95,7 +95,10 @@ flight_follower_bit:
     nop                  side 1
     in pins, 1           side 1
     wait 0 gpio 0        side 1
-    out pins, 1          side 0
+    ; DATA changes immediately after the physical falling edge.  The patched
+    ; delay holds regenerated SCK high until the following JMP applies side 0,
+    ; so SCK duty correction never moves the trained DATA launch instant.
+    out pins, 1          side 1
     jmp x-- flight_follower_bit side 0
     mov osr, isr         side 0
     push noblock         side 0
@@ -683,19 +686,18 @@ static inline uint32_t tdma_pio_spi_flight_data_residual_delay_cycles(
     return data_phase_delay_cycles - sck_phase_delay_cycles - 2u;
 }
 
-/* The combined raw follower reaches WAIT-low only after its DATA sample. If
- * the physical falling edge has already arrived, remove those consumed cycles
- * from the falling-edge phase so the regenerated SCK keeps one half-period
- * high time. */
-static inline uint32_t tdma_pio_spi_flight_sck_falling_delay_cycles(
+/* The combined raw follower reaches WAIT-low only after its DATA sample.  The
+ * OUT instruction changes DATA at its start and uses this delay field only to
+ * hold SCK high; the following JMP applies side 0. */
+static inline uint32_t tdma_pio_spi_flight_sck_high_hold_delay_cycles(
     uint32_t sck_phase_delay_cycles, uint32_t data_phase_delay_cycles,
     uint32_t half_period_cycles)
 {
     if (data_phase_delay_cycles + 1u <= half_period_cycles) {
-        return sck_phase_delay_cycles;
+        return sck_phase_delay_cycles - 1u;
     }
     return sck_phase_delay_cycles + half_period_cycles -
-        data_phase_delay_cycles - 1u;
+        data_phase_delay_cycles - 2u;
 }
 
 static inline void tdma_pio_spi_flight_follower_program_init(
@@ -706,8 +708,8 @@ static inline void tdma_pio_spi_flight_follower_program_init(
     const uint32_t data_residual_delay_cycles =
         tdma_pio_spi_flight_data_residual_delay_cycles(
             sck_phase_delay_cycles, data_phase_delay_cycles);
-    const uint32_t sck_falling_delay_cycles =
-        tdma_pio_spi_flight_sck_falling_delay_cycles(
+    const uint32_t sck_high_hold_delay_cycles =
+        tdma_pio_spi_flight_sck_high_hold_delay_cycles(
             sck_phase_delay_cycles, data_phase_delay_cycles,
             half_period_cycles);
     pio->instr_mem[offset + 5u] =
@@ -720,8 +722,11 @@ static inline void tdma_pio_spi_flight_follower_program_init(
                    pio_encode_delay(sck_phase_delay_cycles));
     pio->instr_mem[offset + 7u] =
         (uint16_t)(pio_encode_wait_gpio(false, rx_sck_pin) |
+                   pio_encode_sideset(1u, 1u));
+    pio->instr_mem[offset + 8u] =
+        (uint16_t)(pio_encode_out(pio_pins, 1u) |
                    pio_encode_sideset(1u, 1u) |
-                   pio_encode_delay(sck_falling_delay_cycles));
+                   pio_encode_delay(sck_high_hold_delay_cycles));
     pio_gpio_init(pio, rx_data_pin);
     pio_gpio_init(pio, tx_data_pin);
     pio_gpio_init(pio, rx_sck_pin);

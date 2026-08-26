@@ -1735,7 +1735,7 @@ bool tdma_pio_spi_phys_arm(void *context,
               TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES > half_period_cycles) ||
         (phys->role == TDMA_PIO_SPI_ROLE_SLAVE &&
          !phys->process_image_enabled &&
-         phys->flight_data_phase_delay_cycles >=
+         phys->flight_data_phase_delay_cycles + 2u >
              phys->flight_sck_phase_delay_cycles + half_period_cycles) ||
         phys->flight_data_phase_delay_cycles +
             TDMA_PIO_SPI_FLIGHT_DATA_REARM_CYCLES > period_cycles) {
