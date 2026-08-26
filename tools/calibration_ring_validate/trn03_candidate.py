@@ -30,6 +30,12 @@ CANDIDATE_SCHEMA = "HAOFV_TRN03_ACTIVE_CANDIDATE_V1"
 BIAS_SET_SCHEMA = "HAOFV_CALIBRATION_BIAS_SET_V1"
 REQUIRED_BIAS_FLAGS = 0x1F
 P3_GROUP_CLK_DATA = 0
+P3_STATE_COMPLETE = 2
+P3_ROLE_INITIATOR = 1
+P3_ROLE_RESPONDER = 2
+P3_REQUIRED_FLAGS = 0x0F
+P3_INITIATOR_EDGE_MASK = 0x09
+P3_RESPONDER_EDGE_MASK = 0x06
 
 
 def _integer(value: object, label: str) -> int:
@@ -55,11 +61,13 @@ def _indexed(items: object, field: str, count: int,
     return result
 
 
-def _selected_row(config: dict[str, Any]) -> dict[str, Any]:
+def _selected_row(config: dict[str, Any],
+                  offset_row_id: int | None = None) -> dict[str, Any]:
     matrix = config.get("offset_matrix")
     if not isinstance(matrix, dict):
         raise ValueError("offset_matrix is missing")
-    active_row = _integer(matrix.get("active_row_id"), "active_row_id")
+    active_row = (_integer(matrix.get("active_row_id"), "active_row_id")
+                  if offset_row_id is None else int(offset_row_id))
     rows = matrix.get("rows")
     if not isinstance(rows, list):
         raise ValueError("offset rows are missing")
@@ -70,11 +78,11 @@ def _selected_row(config: dict[str, Any]) -> dict[str, Any]:
     return matches[0]
 
 
-def replay_matrix(config: dict[str, Any]) -> tuple[list[dict[str, Any]],
-                                                    list[str]]:
+def replay_matrix(config: dict[str, Any], offset_row_id: int | None = None
+                  ) -> tuple[list[dict[str, Any]], list[str]]:
     count = _integer(config.get("node_count"), "node_count")
     links = _indexed(config.get("links"), "link_index", count, "links")
-    row = _selected_row(config)
+    row = _selected_row(config, offset_row_id)
     failures: list[str] = []
     replay: list[dict[str, Any]] = []
     for index in range(count):
@@ -131,16 +139,18 @@ def replay_matrix(config: dict[str, Any]) -> tuple[list[dict[str, Any]],
 
 def validate_closed_loops(
         summaries: Sequence[dict[str, Any]], config: dict[str, Any],
-        minimum_repeats: int) -> tuple[list[str], list[int], list[str]]:
+        minimum_repeats: int, offset_row_id: int | None = None
+        ) -> tuple[list[str], list[int], list[str]]:
     failures: list[str] = []
     rtt_values: list[int] = []
     board_order: list[str] = []
     matrix = config.get("offset_matrix")
     if not isinstance(matrix, dict):
         raise ValueError("offset_matrix must be an object")
-    expected_row_id = _integer(matrix.get("active_row_id"),
-                               "offset_matrix.active_row_id")
-    expected_row = _selected_row(config)
+    expected_row_id = (_integer(matrix.get("active_row_id"),
+                                "offset_matrix.active_row_id")
+                       if offset_row_id is None else int(offset_row_id))
+    expected_row = _selected_row(config, expected_row_id)
     if len(summaries) < minimum_repeats:
         failures.append("closed_loop_repeat_count")
     for repeat, summary in enumerate(summaries):
@@ -243,12 +253,45 @@ def validate_paths(
     for index in range(count):
         source = board_order[index]
         destination = board_order[(index + 1) % count]
-        accepted = [trial for trial in trials if isinstance(trial, dict) and
+        matching = [trial for trial in trials if isinstance(trial, dict) and
                     trial.get("source") == source and
                     trial.get("destination") == destination and
                     int(trial.get("frequency_hz", 0)) == frequency_hz and
-                    int(trial.get("signal_group", -1)) == P3_GROUP_CLK_DATA and
-                    bool(trial.get("passed"))]
+                    int(trial.get("signal_group", -1)) == P3_GROUP_CLK_DATA]
+        accepted: list[dict[str, Any]] = []
+        for repeat, trial in enumerate(matching):
+            initiator = trial.get("initiator")
+            responder = trial.get("responder")
+            hardware_ok = (
+                isinstance(initiator, dict) and
+                isinstance(responder, dict) and
+                int(initiator.get("state", -1)) == P3_STATE_COMPLETE and
+                int(responder.get("state", -1)) == P3_STATE_COMPLETE and
+                int(initiator.get("role", -1)) == P3_ROLE_INITIATOR and
+                int(responder.get("role", -1)) == P3_ROLE_RESPONDER and
+                (int(initiator.get("flags", 0)) & P3_REQUIRED_FLAGS) ==
+                P3_REQUIRED_FLAGS and
+                (int(responder.get("flags", 0)) & P3_REQUIRED_FLAGS) ==
+                P3_REQUIRED_FLAGS and
+                (int(initiator.get("edge_mask", 0)) &
+                 P3_INITIATOR_EDGE_MASK) == P3_INITIATOR_EDGE_MASK and
+                (int(responder.get("edge_mask", 0)) &
+                 P3_RESPONDER_EDGE_MASK) == P3_RESPONDER_EDGE_MASK and
+                int(initiator.get("result_valid", 0)) == 1 and
+                int(responder.get("result_valid", 0)) == 1 and
+                int(initiator.get("dma_overrun_count", -1)) == 0 and
+                int(responder.get("dma_overrun_count", -1)) == 0 and
+                int(initiator.get("pio_stall_count", -1)) == 0 and
+                int(responder.get("pio_stall_count", -1)) == 0 and
+                int(initiator.get("epoch", -1)) ==
+                int(responder.get("epoch", -2)) ==
+                int(trial.get("epoch", -3)))
+            if not hardware_ok:
+                failures.append(f"link{index}:path_hardware_repeat{repeat}")
+            elif bool(trial.get("passed")):
+                accepted.append(trial)
+        if matching and len(accepted) != len(matching):
+            failures.append(f"link{index}:path_repeat_gate")
         if len(accepted) < minimum_repeats:
             failures.append(f"link{index}:path_repeats")
             continue
@@ -298,13 +341,14 @@ def build_candidate(
         minimum_path_repeats: int = 3,
         maximum_path_base_residual_ns: float = 4.0,
         evidence_ages_seconds: Sequence[float] = (),
-        maximum_evidence_age_seconds: float = 3600.0
+        maximum_evidence_age_seconds: float = 3600.0,
+        offset_row_id: int | None = None
         ) -> dict[str, Any]:
     failures: list[str] = []
-    replay, replay_failures = replay_matrix(config)
+    replay, replay_failures = replay_matrix(config, offset_row_id)
     failures.extend(replay_failures)
     loop_failures, rtt_values, board_order = validate_closed_loops(
-        closed_loops, config, minimum_closed_loop_repeats)
+        closed_loops, config, minimum_closed_loop_repeats, offset_row_id)
     failures.extend(loop_failures)
     bias_nodes, bias_failures = validate_bias_set(bias_set, board_order)
     failures.extend(bias_failures)
@@ -328,7 +372,10 @@ def build_candidate(
         "topology_crc32": int(config["topology_crc32"]),
         "profile_crc32": int(config["profile_crc32"]),
         "schedule_crc32": int(config["schedule_crc32"]),
-        "offset_row_id": int(config["offset_matrix"]["active_row_id"]),
+        "offset_row_id": (int(config["offset_matrix"]["active_row_id"])
+                          if offset_row_id is None else int(offset_row_id)),
+        "source_active_offset_row_id":
+            int(config["offset_matrix"]["active_row_id"]),
         "matrix_replay": replay,
         "closed_loop_repeat_count": len(closed_loops),
         "loop_round_trip_ns": rtt_values,
@@ -367,12 +414,13 @@ def _load(path: Path) -> dict[str, Any]:
     return value
 
 
-def _source(path: Path) -> dict[str, Any]:
+def _source(path: Path, *, freshness_checked: bool) -> dict[str, Any]:
     data = path.read_bytes()
     return {
         "path": str(path),
         "sha256": hashlib.sha256(data).hexdigest(),
         "age_seconds": max(0.0, time.time() - path.stat().st_mtime),
+        "freshness_checked": freshness_checked,
     }
 
 
@@ -389,6 +437,9 @@ def parse_args() -> argparse.Namespace:
                         default=4.0)
     parser.add_argument("--maximum-evidence-age-seconds", type=float,
                         default=3600.0)
+    parser.add_argument(
+        "--offset-row-id", type=int,
+        help="tested full-matrix row to promote as the active candidate")
     parser.add_argument("--out-dir", type=Path, required=True)
     return parser.parse_args()
 
@@ -402,18 +453,32 @@ def main() -> int:
                 args.maximum_evidence_age_seconds <= 0):
             raise ValueError("candidate thresholds are outside allowed range")
         # load_config performs the same matrix gate used by board staging.
-        load_config(args.config)
+        resolved_config = load_config(args.config, args.offset_row_id)
+        config = _load(args.config)
+        # trn03_stage resolves the selected row into the per-link phase
+        # fields.  Reuse that canonical replay rather than the source
+        # matrix's previously selected row, while retaining the host-side
+        # physical source/destination mapping that is not sent over SCPI.
+        source_links = _indexed(
+            config.get("links"), "link_index", int(config["node_count"]),
+            "links")
+        config["links"] = [
+            {**source_links[int(link["link_index"])], **link}
+            for link in resolved_config["links"]]
         paths = [args.config, *args.closed_loop, args.p3, args.bias_set]
-        sources = [_source(path) for path in paths]
+        sources = [_source(path, freshness_checked=index != 0)
+                   for index, path in enumerate(paths)]
         candidate = build_candidate(
-            _load(args.config), [_load(path) for path in args.closed_loop],
+            config, [_load(path) for path in args.closed_loop],
             _load(args.p3), _load(args.bias_set),
             minimum_closed_loop_repeats=args.minimum_closed_loop_repeats,
             minimum_path_repeats=args.minimum_path_repeats,
             maximum_path_base_residual_ns=
                 args.maximum_path_base_residual_ns,
-            evidence_ages_seconds=[source["age_seconds"] for source in sources],
-            maximum_evidence_age_seconds=args.maximum_evidence_age_seconds)
+            evidence_ages_seconds=[source["age_seconds"] for source in sources
+                                   if source["freshness_checked"]],
+            maximum_evidence_age_seconds=args.maximum_evidence_age_seconds,
+            offset_row_id=args.offset_row_id)
         candidate["sources"] = sources
         refresh_candidate_crc32(candidate)
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:

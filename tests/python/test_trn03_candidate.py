@@ -87,6 +87,27 @@ def p3() -> dict:
                 "signal_group": 0,
                 "repeat_index": repeat + 1,
                 "path_sum_ns": 180,
+                "epoch": repeat + 1,
+                "initiator": {
+                    "state": 2,
+                    "role": 1,
+                    "flags": 0x0F,
+                    "edge_mask": 0x09,
+                    "result_valid": 1,
+                    "dma_overrun_count": 0,
+                    "pio_stall_count": 0,
+                    "epoch": repeat + 1,
+                },
+                "responder": {
+                    "state": 2,
+                    "role": 2,
+                    "flags": 0x0F,
+                    "edge_mask": 0x06,
+                    "result_valid": 1,
+                    "dma_overrun_count": 0,
+                    "pio_stall_count": 0,
+                    "epoch": repeat + 1,
+                },
                 "passed": True,
             })
     return {
@@ -169,6 +190,32 @@ def test_candidate_rejects_path_base_residual() -> None:
         maximum_path_base_residual_ns=4)
     assert result["passed"] is False
     assert "link1:path_base_residual" in result["gate_failures"]
+
+
+def test_candidate_replays_explicit_non_active_offset_row() -> None:
+    selected = config()
+    row0 = deepcopy(selected["offset_matrix"]["rows"][0])
+    row31 = deepcopy(row0)
+    row31["row_id"] = 31
+    row31["data_offset_sample_counts_by_node"] = [5, 5, 5, 5]
+    selected["offset_matrix"]["active_row_id"] = 31
+    selected["offset_matrix"]["rows"] = [row0, row31]
+    result = build_candidate(
+        selected, [closed_loop(), closed_loop(404)], p3(), bias_set(),
+        evidence_ages_seconds=[1, 2, 3], offset_row_id=0)
+    assert result["passed"] is True
+    assert result["offset_row_id"] == 0
+    assert result["source_active_offset_row_id"] == 31
+
+
+def test_candidate_rejects_p3_without_replayable_hardware_latch() -> None:
+    bad_p3 = deepcopy(p3())
+    bad_p3["trials"][0]["initiator"]["flags"] = 0x01
+    result = build_candidate(
+        config(), [closed_loop(), closed_loop()], bad_p3, bias_set())
+    assert result["passed"] is False
+    assert "link0:path_hardware_repeat0" in result["gate_failures"]
+    assert "link0:path_repeat_gate" in result["gate_failures"]
 
 
 def test_candidate_rejects_closed_loop_from_different_offset_row() -> None:
