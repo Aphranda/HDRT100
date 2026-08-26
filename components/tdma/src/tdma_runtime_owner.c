@@ -189,7 +189,8 @@ bool tdma_runtime_owner_init(void)
             &s_tdma_pio_spi_phys);
         tdma_pio_spi_ring_adapter_set_phys_overlay(
             &s_tdma_pio_spi_ring_adapter,
-            tdma_pio_spi_phys_prepare_process_overlay);
+            tdma_pio_spi_phys_prepare_process_overlay,
+            tdma_pio_spi_phys_service_process_overlay_boundary);
         tdma_pio_spi_ring_adapter_set_flight_fifo(
             &s_tdma_pio_spi_ring_adapter,
             &s_tdma_runtime_owner.flight_fifo);

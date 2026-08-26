@@ -80,6 +80,7 @@ typedef bool (*tdma_pio_spi_ring_phys_overlay_fn)(
     const uint8_t *incoming_packet,
     const uint8_t *processed_packet,
     size_t packet_size);
+typedef bool (*tdma_pio_spi_ring_phys_overlay_boundary_fn)(void *context);
 
 /* phys_tx pushes one complete packet onto the wire. On success it may fill
  * *tx_timestamp_ns with the hardware latch timestamp (0 means no hardware
@@ -151,6 +152,7 @@ typedef struct {
     tdma_pio_spi_ring_phys_train_fn phys_train;
     tdma_pio_spi_ring_phys_train_service_fn phys_train_service;
     tdma_pio_spi_ring_phys_overlay_fn phys_prepare_overlay;
+    tdma_pio_spi_ring_phys_overlay_boundary_fn phys_service_overlay_boundary;
     void *phys_ctrl_context;
     tdma_flight_fifo_t *flight_fifo;
     tdma_flight_engine_t *flight_engine;
@@ -204,7 +206,8 @@ void tdma_pio_spi_ring_adapter_set_phys_ctrl(
     void *phys_ctrl_context);
 void tdma_pio_spi_ring_adapter_set_phys_overlay(
     tdma_pio_spi_ring_adapter_t *adapter,
-    tdma_pio_spi_ring_phys_overlay_fn prepare_overlay);
+    tdma_pio_spi_ring_phys_overlay_fn prepare_overlay,
+    tdma_pio_spi_ring_phys_overlay_boundary_fn service_overlay_boundary);
 void tdma_pio_spi_ring_adapter_set_timestamp_metadata(
     tdma_pio_spi_ring_adapter_t *adapter,
     uint32_t resolution_ns,

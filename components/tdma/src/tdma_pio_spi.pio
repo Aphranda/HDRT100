@@ -104,49 +104,88 @@ flight_follower_bit:
 .wrap
 
 ; Process-image follower. TX DMA supplies one command word per physical byte:
-; bit31 END, bit30 REPLACE, bits29..22 replacement data. PASS keeps the
+; bit31 REPLACE, bit30 END, bits29..22 replacement data. PASS keeps the
 ; existing one-byte elastic forwarding behavior. END is consumed after the
 ; final tail byte and holds the SM at the next CS boundary until the following
 ; frame script is ready; core1 never services an individual wire edge.
 .program tdma_pio_spi_flight_process_follower
-.side_set 1
-    set y, 0             side 0
-    mov osr, y           side 0
-    out null, 24         side 0
 .wrap_target
 flight_process_command:
-    pull block           side 0
-    out x, 1             side 0
-    jmp !x flight_process_data side 0
+    pull block
+    ; PASS is the hot path: a zero first bit branches directly to the saved
+    ; tail byte. REPLACE/END consume the second bit only on the slow path.
+    out x, 1
+    jmp !x flight_process_pass
+    out x, 1
+    jmp !x flight_process_byte
     ; Keep Y across CS boundaries. The first PASS byte of the next physical
     ; frame must emit the preceding tail byte to preserve the continuous
     ; one-byte elastic pipeline; ARM/restart initializes Y exactly once.
-    wait 1 gpio 0        side 0
-    wait 0 gpio 0        side 0
-    jmp flight_process_command side 0
-flight_process_data:
-    out x, 1             side 0
-    jmp !x flight_process_pass side 0
-    jmp flight_process_byte side 0
+    ; Raise the boundary as soon as the completed frame releases CS. The next
+    ; command PULL is the inter-frame gate, so waiting for the following CS
+    ; falling edge here only shortens the core1 preparation window.
+    wait 1 gpio 0
+    ; IRQ3 is the physical frame-boundary evidence consumed by core1. If
+    ; the just-finished raw frame cannot be decoded, core1 still queues one
+    ; PASS script before the following frame instead of leaving this SM
+    ; permanently blocked at PULL. The explicit jump is required: hardware
+    ; wrap occurs only after the final PUSH, so falling through here would
+    ; execute PASS once without consuming a command and add one RX word per
+    ; physical frame.
+    irq set 3
+    jmp flight_process_command
 flight_process_pass:
     ; Y retains the byte captured during the preceding command. PUSH does not
     ; provide storage for the next PASS command, because ISR must be cleared
     ; before sampling the current byte.
-    mov osr, y           side 0
-    out null, 24         side 0
+    mov osr, y
+    out null, 24
 flight_process_byte:
-    set y, 7             side 0
+    set y, 7
 flight_process_bit:
-    wait 1 gpio 1        side 0
-    nop                  side 1
-    in pins, 1           side 1
-    wait 0 gpio 1        side 1
-    out pins, 1          side 0
-    jmp y-- flight_process_bit side 0
-    mov y, isr           side 0
-    push noblock         side 0
-    mov isr, null        side 0
-    jmp flight_process_command side 0
+    wait 1 gpio 1
+    in pins, 1
+    wait 0 gpio 1
+    out pins, 1
+    jmp y-- flight_process_bit
+    mov y, isr
+    push noblock
+    ; PUSH resets the input shift count. Stale upper ISR bits are irrelevant:
+    ; the next eight left shifts replace the low byte used by PASS and RX DMA.
+.wrap
+
+; Process-image control follower.  CS and SCK remain independent of overlay
+; command timing and DATA contents.  Core1 primes the fixed physical bit count
+; once at ARM; OSR retains that count across frames.  GPIO25/26 are contiguous,
+; so SET pins writes {CS,SCK}: 2=idle, 0=active/low, 1=active/high.
+.program tdma_pio_spi_flight_control_forward
+    pull block
+.wrap_target
+    wait 0 gpio 0
+    set pins, 0
+    mov x, osr
+flight_control_bit:
+    wait 1 gpio 1
+    ; Apply the trained SCK phase to both physical edges.  Keeping the two
+    ; delays symmetric preserves the incoming duty cycle while translating
+    ; the complete clock waveform onto this node's outgoing link.
+    set pins, 1
+    wait 0 gpio 1
+    set pins, 0
+    jmp x-- flight_control_bit
+    wait 1 gpio 0
+    set pins, 2
+.wrap
+
+; Diagnostic-only raw flight SCK capture. The SM starts on the first physical
+; RX SCK rising edge, then samples RX SCK every clk_sys cycle. Autopush and the
+; joined eight-word RX FIFO retain 256 raw samples (1.024 us at 250 MHz)
+; without another DMA channel or any core intervention in the edge path.
+.program tdma_pio_spi_flight_sck_capture
+    wait 0 gpio 0
+    wait 1 gpio 0
+.wrap_target
+    in pins, 1
 .wrap
 
 ; Cyclic reference clock source. Core1 supplies the total clock-bit count
@@ -672,34 +711,25 @@ static inline void tdma_pio_spi_flight_follower_program_init(
 
 static inline void tdma_pio_spi_flight_process_follower_program_init(
     PIO pio, uint sm, uint offset, uint rx_data_pin, uint tx_data_pin,
-    uint rx_csn_pin, uint rx_sck_pin, uint tx_sck_pin,
+    uint rx_csn_pin, uint rx_sck_pin,
     uint32_t sck_phase_delay_cycles, uint32_t data_phase_delay_cycles)
 {
     const uint32_t data_residual_delay_cycles =
         tdma_pio_spi_flight_data_residual_delay_cycles(
             sck_phase_delay_cycles, data_phase_delay_cycles);
-    pio->instr_mem[offset + 16u] =
-        (uint16_t)(pio_encode_nop() |
-                   pio_encode_sideset(1u, 1u) |
-                   pio_encode_delay(data_residual_delay_cycles));
-    pio->instr_mem[offset + 6u] =
-        (uint16_t)(pio_encode_wait_gpio(true, rx_csn_pin) |
-                   pio_encode_sideset(1u, 0u));
-    pio->instr_mem[offset + 7u] =
-        (uint16_t)(pio_encode_wait_gpio(false, rx_csn_pin) |
-                   pio_encode_sideset(1u, 0u));
-    pio->instr_mem[offset + 15u] =
+    const uint32_t data_sample_delay_cycles =
+        sck_phase_delay_cycles + data_residual_delay_cycles + 1u;
+    pio->instr_mem[offset + 5u] =
+        (uint16_t)pio_encode_wait_gpio(true, rx_csn_pin);
+    pio->instr_mem[offset + 11u] =
         (uint16_t)(pio_encode_wait_gpio(true, rx_sck_pin) |
-                   pio_encode_sideset(1u, 0u) |
-                   pio_encode_delay(sck_phase_delay_cycles));
-    pio->instr_mem[offset + 18u] =
-        (uint16_t)(pio_encode_wait_gpio(false, rx_sck_pin) |
-                   pio_encode_sideset(1u, 1u));
+                   pio_encode_delay(data_sample_delay_cycles));
+    pio->instr_mem[offset + 13u] =
+        (uint16_t)pio_encode_wait_gpio(false, rx_sck_pin);
     pio_gpio_init(pio, rx_data_pin);
     pio_gpio_init(pio, tx_data_pin);
     pio_gpio_init(pio, rx_csn_pin);
     pio_gpio_init(pio, rx_sck_pin);
-    pio_gpio_init(pio, tx_sck_pin);
     gpio_pull_down(rx_data_pin);
     gpio_pull_up(rx_csn_pin);
     gpio_pull_down(rx_sck_pin);
@@ -707,21 +737,79 @@ static inline void tdma_pio_spi_flight_process_follower_program_init(
     pio_sm_set_consecutive_pindirs(pio, sm, rx_csn_pin, 1u, false);
     pio_sm_set_consecutive_pindirs(pio, sm, rx_sck_pin, 1u, false);
     pio_sm_set_consecutive_pindirs(pio, sm, tx_data_pin, 1u, true);
-    pio_sm_set_consecutive_pindirs(pio, sm, tx_sck_pin, 1u, true);
 
     pio_sm_config c =
         tdma_pio_spi_flight_process_follower_program_get_default_config(
             offset);
     sm_config_set_in_pins(&c, rx_data_pin);
     sm_config_set_out_pins(&c, tx_data_pin, 1u);
-    sm_config_set_sideset_pins(&c, tx_sck_pin);
     sm_config_set_in_shift(&c, false, false, 32u);
     sm_config_set_out_shift(&c, false, false, 32u);
     sm_config_set_clkdiv(&c, 1.0f);
     pio_sm_init(pio, sm, offset, &c);
     pio_sm_set_pins_with_mask64(
         pio, sm, 0ull,
-        (1ull << tx_data_pin) | (1ull << tx_sck_pin));
+        1ull << tx_data_pin);
+}
+
+static inline void tdma_pio_spi_flight_control_forward_program_init(
+    PIO pio, uint sm, uint offset, uint rx_csn_pin, uint rx_sck_pin,
+    uint tx_sck_pin, uint tx_csn_pin, uint32_t marker_phase_delay_cycles,
+    uint32_t sck_phase_delay_cycles)
+{
+    pio->instr_mem[offset + 1u] =
+        (uint16_t)(pio_encode_wait_gpio(false, rx_csn_pin) |
+                   pio_encode_delay(marker_phase_delay_cycles));
+    pio->instr_mem[offset + 4u] =
+        (uint16_t)(pio_encode_wait_gpio(true, rx_sck_pin) |
+                   pio_encode_delay(sck_phase_delay_cycles));
+    pio->instr_mem[offset + 6u] =
+        (uint16_t)(pio_encode_wait_gpio(false, rx_sck_pin) |
+                   pio_encode_delay(sck_phase_delay_cycles));
+    pio->instr_mem[offset + 9u] =
+        (uint16_t)(pio_encode_wait_gpio(true, rx_csn_pin) |
+                   pio_encode_delay(marker_phase_delay_cycles));
+    pio_sm_set_pins_with_mask64(pio, sm, 1ull << tx_csn_pin,
+                                (1ull << tx_sck_pin) |
+                                    (1ull << tx_csn_pin));
+    pio_gpio_init(pio, rx_csn_pin);
+    pio_gpio_init(pio, rx_sck_pin);
+    pio_gpio_init(pio, tx_sck_pin);
+    pio_gpio_init(pio, tx_csn_pin);
+    gpio_pull_up(rx_csn_pin);
+    gpio_pull_down(rx_sck_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, rx_csn_pin, 1u, false);
+    pio_sm_set_consecutive_pindirs(pio, sm, rx_sck_pin, 1u, false);
+    pio_sm_set_consecutive_pindirs(pio, sm, tx_sck_pin, 2u, true);
+
+    pio_sm_config c =
+        tdma_pio_spi_flight_control_forward_program_get_default_config(offset);
+    sm_config_set_set_pins(&c, tx_sck_pin, 2u);
+    sm_config_set_clkdiv(&c, 1.0f);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_pins_with_mask64(pio, sm, 1ull << tx_csn_pin,
+                                (1ull << tx_sck_pin) |
+                                    (1ull << tx_csn_pin));
+}
+
+static inline void tdma_pio_spi_flight_sck_capture_program_init(
+    PIO pio, uint sm, uint offset, uint rx_sck_pin)
+{
+    pio->instr_mem[offset] =
+        (uint16_t)pio_encode_wait_gpio(false, rx_sck_pin);
+    pio->instr_mem[offset + 1u] =
+        (uint16_t)pio_encode_wait_gpio(true, rx_sck_pin);
+    pio_gpio_init(pio, rx_sck_pin);
+    gpio_pull_down(rx_sck_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, rx_sck_pin, 1u, false);
+
+    pio_sm_config c =
+        tdma_pio_spi_flight_sck_capture_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, rx_sck_pin);
+    sm_config_set_in_shift(&c, true, true, 32u);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+    sm_config_set_clkdiv(&c, 1.0f);
+    pio_sm_init(pio, sm, offset, &c);
 }
 
 static inline void tdma_pio_spi_flight_origin_clock_rx_program_init(

@@ -57,7 +57,10 @@ typedef enum {
  * complete frame accepted by the local TX FIFO, including its packet header.
  * The buffer is larger than a maximum short packet so TX keeps its boundary. */
 #define TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES 512u
-#define TDMA_PIO_SPI_NORMAL_CAPTURE_VERSION 2u
+#define TDMA_PIO_SPI_NORMAL_CAPTURE_VERSION 3u
+#define TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_WORDS 8u
+#define TDMA_PIO_SPI_FLIGHT_SCK_SAMPLES_PER_WORD 32u
+#define TDMA_PIO_SPI_FLIGHT_SCK_SAMPLE_PERIOD_NS 4u
 #define TDMA_PIO_SPI_TX_DMA_CHANNEL \
     TDMA_PROFILE_DEFAULT_TX_DMA_CHANNEL_ID
 #define TDMA_PIO_SPI_RX_DMA_CHANNEL \
@@ -545,6 +548,9 @@ typedef struct {
     uint32_t overlay_pio_ctrl_at_fail;
     uint32_t overlay_pio_fstat_at_fail;
     uint32_t overlay_pio_fdebug_at_fail;
+    uint32_t overlay_frame_boundary_count;
+    uint32_t overlay_pass_recovery_count;
+    uint32_t overlay_late_coalesce_count;
 } tdma_pio_spi_phys_snapshot_t;
 
 typedef struct {
@@ -556,6 +562,10 @@ typedef struct {
     uint32_t rx_produced_bytes;
     uint32_t tx_produced_bytes;
     uint32_t tx_complete_frame_count;
+    uint32_t sck_sample_period_ns;
+    uint32_t sck_sample_count;
+    uint32_t sck_word_count;
+    uint32_t sck_words[TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_WORDS];
 } tdma_pio_spi_normal_capture_snapshot_t;
 
 typedef struct {
@@ -569,6 +579,8 @@ typedef struct {
     uint32_t flight_physical_byte_count;
     uint32_t flight_alignment_byte_shift;
     uint32_t flight_alignment_bit_shift;
+    bool flight_overlay_next_prepared;
+    bool flight_overlay_pass_committed;
     int32_t flight_marker_offset_sample_count;
     int32_t flight_sck_offset_sample_count;
     int32_t flight_data_offset_sample_count;
@@ -637,6 +649,11 @@ bool tdma_pio_spi_phys_prepare_process_overlay(
     const uint8_t *incoming_packet,
     const uint8_t *processed_packet,
     size_t packet_size);
+/* Core1-only frame-boundary service.  A failed raw-frame decode must remain
+ * visible in RX evidence, but it must not strand the process follower at its
+ * next blocking PULL.  This queues exactly one PASS script when IRQ3 proves
+ * that a frame ended without a prepared successor. */
+bool tdma_pio_spi_phys_service_process_overlay_boundary(void *context);
 /* Submit first-stage SPI CLK training on the TDMA owner/core1 path. A forward
  * node enters RX-CLK -> TX-CLK regeneration. The reference node starts an
  * autonomous CLK burst and return-edge overlap detector. */

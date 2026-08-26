@@ -110,12 +110,14 @@ void tdma_pio_spi_ring_adapter_set_phys_ctrl(
 
 void tdma_pio_spi_ring_adapter_set_phys_overlay(
     tdma_pio_spi_ring_adapter_t *adapter,
-    tdma_pio_spi_ring_phys_overlay_fn prepare_overlay)
+    tdma_pio_spi_ring_phys_overlay_fn prepare_overlay,
+    tdma_pio_spi_ring_phys_overlay_boundary_fn service_overlay_boundary)
 {
     if (adapter == NULL || adapter->started != 0u) {
         return;
     }
     adapter->phys_prepare_overlay = prepare_overlay;
+    adapter->phys_service_overlay_boundary = service_overlay_boundary;
 }
 
 void tdma_pio_spi_ring_adapter_set_timestamp_metadata(
@@ -892,17 +894,28 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
              * here would create a second frame and destroy cut-through. */
             rx_ok = tdma_pio_spi_ring_adapter_rx_poll(adapter, now_ns);
             tx_ok = true;
+            bool process_overlay_ok = true;
             if (rx_ok) {
                 if (adapter->forwarding_mode ==
                         TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE &&
                     !tdma_pio_spi_ring_adapter_prepare_process_overlay(
                         adapter)) {
-                    return false;
+                    process_overlay_ok = false;
                 }
                 adapter->up_sequence = adapter->down_rx_sequence;
                 adapter->up_tx_frame_crc32 = adapter->down_rx_frame_crc32;
                 adapter->forward_count++;
                 adapter->tx_count++;
+            }
+            if (adapter->forwarding_mode ==
+                    TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE &&
+                (adapter->phys_service_overlay_boundary == NULL ||
+                 !adapter->phys_service_overlay_boundary(
+                     adapter->phys_ctrl_context))) {
+                process_overlay_ok = false;
+            }
+            if (!process_overlay_ok) {
+                return false;
             }
         } else {
             tx_ok = tdma_pio_spi_ring_adapter_forward_poll(adapter, &rx_ok);

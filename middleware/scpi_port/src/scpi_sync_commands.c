@@ -538,6 +538,9 @@ scpi_result_t scpi_cmd_sync_vdc_tdma_phys_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.overlay_pio_ctrl_at_fail);
     SCPI_ResultUInt32(context, snapshot.overlay_pio_fstat_at_fail);
     SCPI_ResultUInt32(context, snapshot.overlay_pio_fdebug_at_fail);
+    SCPI_ResultUInt32(context, snapshot.overlay_frame_boundary_count);
+    SCPI_ResultUInt32(context, snapshot.overlay_pass_recovery_count);
+    SCPI_ResultUInt32(context, snapshot.overlay_late_coalesce_count);
     return SCPI_RES_OK;
 }
 

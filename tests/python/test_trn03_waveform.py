@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import tools.calibration_ring_validate.trn03_waveform as waveform_module
 from tools.calibration_ring_validate.trn03_waveform import (
     analyze_capture_set,
+    analyze_sck_timing,
     best_alignment,
     byte_bits,
     decode_transport_evidence,
@@ -78,6 +79,34 @@ def test_v2_capture_accepts_raw_tx_without_frame_judgment() -> None:
                                                      0x12, 0x34]
     value["tx_bytes"] = [0, 0, 0, 0, 0, 0]
     assert validate_capture(value)["tx_bytes"] == [0, 0, 0, 0, 0, 0]
+
+
+def test_v3_capture_measures_raw_sck_frequency_and_duty() -> None:
+    value = capture(1, [0xAA], [])
+    # 4 ns samples, repeated 24 ns high / 76 ns low at 10 MHz.
+    samples = [0] * 10 + ([1] * 6 + [0] * 19) * 10
+    samples = samples[:256]
+    words = []
+    for start in range(0, len(samples), 32):
+        word = 0
+        for bit, sample in enumerate(samples[start:start + 32]):
+            word |= sample << bit
+        words.append(word)
+    value.update({
+        "schema": "HAOFV_TRN03_RING_CAPTURE_V3",
+        "capture_version": 3,
+        "tx_complete_frame_count": 0,
+        "sck_sample_period_ns": 4,
+        "sck_sample_count": len(samples),
+        "sck_word_count": len(words),
+        "rx_sck_words": words,
+    })
+    validated = validate_capture(value)
+    timing = analyze_sck_timing(validated)
+    assert timing["available"] is True
+    assert timing["period_ns"] == 100.0
+    assert timing["clock_high_ns"] == 24.0
+    assert timing["clock_low_ns"] == 76.0
 
 
 def test_latest_complete_packet_uses_newest_frame_boundary() -> None:

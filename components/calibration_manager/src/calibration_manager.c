@@ -2731,7 +2731,7 @@ bool calibration_manager_save_ring_capture(
     int written = snprintf(
         s_ring_capture_payload, sizeof(s_ring_capture_payload),
         "{\n"
-        "  \"schema\": \"HAOFV_TRN03_RING_CAPTURE_V2\",\n"
+        "  \"schema\": \"HAOFV_TRN03_RING_CAPTURE_V3\",\n"
         "  \"node\": %lu,\n"
         "  \"node_count\": %lu,\n"
         "  \"build_id\": \"%s\",\n"
@@ -2747,6 +2747,11 @@ bool calibration_manager_save_ring_capture(
         "  \"rx_produced_bytes\": %lu,\n"
         "  \"tx_produced_bytes\": %lu,\n"
         "  \"tx_complete_frame_count\": %lu,\n"
+        "  \"sck_capture_anchor\": \"physical_rx_sck_first_rising_edge\",\n"
+        "  \"sck_input\": \"physical_rx_sck\",\n"
+        "  \"sck_sample_period_ns\": %lu,\n"
+        "  \"sck_sample_count\": %lu,\n"
+        "  \"sck_word_count\": %lu,\n"
         "  \"rx_byte_count\": %lu,\n"
         "  \"tx_byte_count\": %lu,\n"
         "  \"rx_bytes\": [",
@@ -2761,6 +2766,9 @@ bool calibration_manager_save_ring_capture(
         (unsigned long)capture.rx_produced_bytes,
         (unsigned long)capture.tx_produced_bytes,
         (unsigned long)capture.tx_complete_frame_count,
+        (unsigned long)capture.sck_sample_period_ns,
+        (unsigned long)capture.sck_sample_count,
+        (unsigned long)capture.sck_word_count,
         (unsigned long)capture.rx_byte_count,
         (unsigned long)capture.tx_byte_count);
     if (written <= 0 ||
@@ -2795,6 +2803,27 @@ bool calibration_manager_save_ring_capture(
             sizeof(s_ring_capture_payload) - used,
             "%s%lu", index == 0u ? "" : ",",
             (unsigned long)s_ring_capture_tx[index]);
+        if (written <= 0 ||
+            (size_t)written >= sizeof(s_ring_capture_payload) - used) {
+            return false;
+        }
+        used += (size_t)written;
+    }
+    written = snprintf(
+        s_ring_capture_payload + used,
+        sizeof(s_ring_capture_payload) - used,
+        "],\n  \"rx_sck_words\": [");
+    if (written <= 0 ||
+        (size_t)written >= sizeof(s_ring_capture_payload) - used) {
+        return false;
+    }
+    used += (size_t)written;
+    for (uint32_t index = 0u; index < capture.sck_word_count; index++) {
+        written = snprintf(
+            s_ring_capture_payload + used,
+            sizeof(s_ring_capture_payload) - used,
+            "%s%lu", index == 0u ? "" : ",",
+            (unsigned long)capture.sck_words[index]);
         if (written <= 0 ||
             (size_t)written >= sizeof(s_ring_capture_payload) - used) {
             return false;

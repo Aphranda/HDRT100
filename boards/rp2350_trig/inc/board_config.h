@@ -92,6 +92,10 @@
 #define BOARD_TDMA_SPI_PIO pio2
 #define BOARD_TDMA_SPI_MASTER_SM 0u
 #define BOARD_TDMA_SPI_SLAVE_SM 1u
+/* Diagnostic-only flight SCK sampler. It uses the joined RX FIFO without a
+ * DMA channel, so the runtime owner keeps the two profile-declared DMA
+ * channels exclusively on the wire DATA path. */
+#define BOARD_TDMA_SPI_CAPTURE_SM 2u
 #define BOARD_TDMA_SPI_UPLINK_CSN_PIN 27u
 #define BOARD_TDMA_SPI_UPLINK_RX_PIN 24u
 #define BOARD_TDMA_SPI_UPLINK_SCK_PIN 28u

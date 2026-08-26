@@ -26,6 +26,7 @@ from tdma_start_ring import Board, board_command  # noqa: E402
 CAPTURE_SCHEMAS = {
     "HAOFV_TRN03_RING_CAPTURE_V1",
     "HAOFV_TRN03_RING_CAPTURE_V2",
+    "HAOFV_TRN03_RING_CAPTURE_V3",
 }
 DEFAULT_WINDOW_NS = 1000
 
@@ -90,6 +91,18 @@ def validate_capture(value: object) -> dict[str, Any]:
     if (int(value.get("capture_version", 0)) >= 2 and
             int(value.get("tx_complete_frame_count", -1)) < 0):
         raise ValueError("invalid TX capture counter")
+    if int(value.get("capture_version", 0)) >= 3:
+        sck_words = value.get("rx_sck_words")
+        sck_word_count = int(value.get("sck_word_count", -1))
+        sck_sample_count = int(value.get("sck_sample_count", -1))
+        sck_sample_period_ns = int(value.get("sck_sample_period_ns", 0))
+        if (not isinstance(sck_words, list) or
+                sck_word_count != len(sck_words) or
+                not 0 <= sck_sample_count <= sck_word_count * 32 or
+                sck_sample_period_ns <= 0 or
+                any(not isinstance(word, int) or
+                    not 0 <= word <= 0xFFFFFFFF for word in sck_words)):
+            raise ValueError("invalid raw SCK capture metadata")
     return value
 
 
@@ -221,6 +234,83 @@ def download_ring_capture(board: Board, capture_file: dict[str, object],
 def byte_bits(values: Sequence[int]) -> list[int]:
     return [((int(value) >> shift) & 1)
             for value in values for shift in range(7, -1, -1)]
+
+
+def raw_sck_samples(capture: dict[str, Any]) -> list[int]:
+    words = capture.get("rx_sck_words")
+    sample_count = int(capture.get("sck_sample_count", 0))
+    if not isinstance(words, list) or sample_count <= 0:
+        return []
+    return [
+        (int(words[index >> 5]) >> (index & 31)) & 1
+        for index in range(sample_count)
+    ]
+
+
+def analyze_sck_timing(capture: dict[str, Any]) -> dict[str, Any]:
+    samples = raw_sck_samples(capture)
+    tick_ns = int(capture.get("sck_sample_period_ns", 0))
+    if not samples or tick_ns <= 0:
+        return {
+            "available": False,
+            "reason": "raw SCK samples are absent from this capture version",
+        }
+    rising = [index for index in range(1, len(samples))
+              if samples[index - 1] == 0 and samples[index] == 1]
+    cycles: list[dict[str, int]] = []
+    for rise, next_rise in zip(rising, rising[1:]):
+        falling = next((index for index in range(rise + 1, next_rise)
+                        if samples[index - 1] == 1 and samples[index] == 0),
+                       None)
+        if falling is None:
+            continue
+        cycles.append({
+            "period_samples": next_rise - rise,
+            "high_samples": falling - rise,
+            "low_samples": next_rise - falling,
+        })
+    if not cycles:
+        return {
+            "available": False,
+            "reason": "raw SCK window has no complete high/low cycle",
+            "sample_count": len(samples),
+            "transition_count": sum(
+                samples[index] != samples[index - 1]
+                for index in range(1, len(samples))),
+        }
+
+    def median(values: list[int]) -> float:
+        ordered = sorted(values)
+        middle = len(ordered) // 2
+        if len(ordered) % 2:
+            return float(ordered[middle])
+        return (ordered[middle - 1] + ordered[middle]) / 2.0
+
+    period_samples = median([row["period_samples"] for row in cycles])
+    high_samples = median([row["high_samples"] for row in cycles])
+    low_samples = median([row["low_samples"] for row in cycles])
+    period_ns = period_samples * tick_ns
+    high_ns = high_samples * tick_ns
+    low_ns = low_samples * tick_ns
+    actual_hz = 1_000_000_000.0 / period_ns
+    target_hz = int(capture.get("baud_hz", 0))
+    frequency_error_percent = (None if target_hz <= 0 else
+                               100.0 * abs(actual_hz - target_hz) / target_hz)
+    return {
+        "available": True,
+        "sample_period_ns": tick_ns,
+        "sample_count": len(samples),
+        "complete_cycle_count": len(cycles),
+        "period_ns": period_ns,
+        "clock_high_ns": high_ns,
+        "clock_low_ns": low_ns,
+        "actual_hz": actual_hz,
+        "frequency_error_percent": frequency_error_percent,
+        "frequency_ok": (frequency_error_percent is not None and
+                         frequency_error_percent <= 5.0),
+        "duty_percent": 100.0 * high_ns / period_ns,
+        "cycles": cycles,
+    }
 
 
 def latest_complete_packet(values: Sequence[int]) -> list[int] | None:
@@ -421,8 +511,10 @@ def render_node_svg(config: dict[str, Any],
     physical = byte_bits(physical_raw)
     logical_alignment = best_alignment(logical, observed)
     physical_alignment = best_alignment(physical, observed)
+    sck_samples = raw_sck_samples(local)
+    sck_timing = analyze_sck_timing(local)
 
-    width, height = 1400, 500
+    width, height = 1400, 620
     x0, plot_width = 250.0, 1100.0
     bit_width = plot_width / window_bits
     tracks = [
@@ -431,8 +523,25 @@ def render_node_svg(config: dict[str, Any],
         (f"node{node} raw loop RX observation", observed_raw, "#4e9a06"),
     ]
     paths: list[str] = []
+    sck_y = 155.0
+    paths.append(
+        f'<text x="20" y="{sck_y + 18:.0f}" class="label">'
+        f'node{node} physical RX SCK from node{marker_source}</text>')
+    if sck_samples:
+        shown_sck_samples = sck_samples[:max(
+            1, window_duration_ns // int(local["sck_sample_period_ns"]))]
+        sck_sample_width = (
+            plot_width * int(local["sck_sample_period_ns"]) /
+            window_duration_ns)
+        paths.append(
+            f'<path d="{_step_path(shown_sck_samples, x0=x0, y0=sck_y, bit_width=sck_sample_width, height=45)}" '
+            f'stroke="#cc0000" fill="none" stroke-width="2"/>')
+    else:
+        paths.append(
+            f'<text x="{x0:.0f}" y="{sck_y + 25:.0f}" class="missing">'
+            f'NO RAW SCK SAMPLES</text>')
     for index, (label, bits, color) in enumerate(tracks):
-        y = 150.0 + index * 105.0
+        y = 260.0 + index * 105.0
         shown = _display_bits(bits, window_bits)
         paths.append(
             f'<text x="20" y="{y + 18:.0f}" class="label">'
@@ -446,12 +555,13 @@ def render_node_svg(config: dict[str, Any],
                 f'<text x="{x0:.0f}" y="{y + 25:.0f}" class="missing">'
                 f'NO SAMPLES</text>')
     ticks = []
-    for bit in range(window_bits + 1):
-        x = x0 + bit * bit_width
+    tick_step_ns = max(100, window_duration_ns // 10)
+    for tick_ns in range(0, window_duration_ns + 1, tick_step_ns):
+        x = x0 + plot_width * tick_ns / window_duration_ns
         ticks.append(
-            f'<line x1="{x:.2f}" y1="120" x2="{x:.2f}" y2="390" '
-            f'class="grid"/><text x="{x:.2f}" y="420" class="tick">'
-            f'{bit * bit_period_ns}</text>')
+            f'<line x1="{x:.2f}" y1="125" x2="{x:.2f}" y2="515" '
+            f'class="grid"/><text x="{x:.2f}" y="545" class="tick">'
+            f'{tick_ns}</text>')
     logical_delay = (None if logical_alignment is None else
                      logical_alignment["lag_bits"] * bit_period_ns)
     physical_delay = (None if physical_alignment is None else
@@ -463,9 +573,15 @@ def render_node_svg(config: dict[str, Any],
               "raw loop windows captured; local frame decoding available")
     if observed_transport is not None and not observed_transport["valid"]:
         status += f'; RX transport {observed_transport["result"]}'
+    sck_note = (f'SCK {float(sck_timing["actual_hz"]) / 1_000_000:.3f} MHz; '
+                f'high/low {float(sck_timing["clock_high_ns"]):g}/'
+                f'{float(sck_timing["clock_low_ns"]):g} ns; '
+                f'duty {float(sck_timing["duty_percent"]):.2f}%'
+                if sck_timing.get("available") else
+                f'SCK timing unavailable: {sck_timing.get("reason", "unknown")}')
     svg = (
-        '<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="500" '
-        'viewBox="0 0 1400 500">\n'
+        '<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="620" '
+        'viewBox="0 0 1400 620">\n'
         '<style>.title{font:700 20px sans-serif}.note,.label{font:15px sans-serif}'
         '.tick{font:12px monospace;text-anchor:middle}.grid{stroke:#ddd;stroke-width:1}'
         '.missing{font:700 18px monospace;fill:#c00}</style>\n'
@@ -474,13 +590,14 @@ def render_node_svg(config: dict[str, Any],
         f'<text x="20" y="58" class="note">window {window_duration_ns / 1000:g} us; '
         f'bit period {bit_period_ns} ns; marker source node{marker_source}; '
         f'DATA source node{data_source}</text>\n'
-        f'<text x="20" y="83" class="note">marker-source raw shift '
+        f'<text x="20" y="83" class="note">{html.escape(sck_note)}</text>\n'
+        f'<text x="20" y="108" class="note">marker-source raw shift '
         f'{logical_delay if logical_delay is not None else "N/A"} ns; '
         f'DATA-source raw shift '
         f'{physical_delay if physical_delay is not None else "N/A"} ns; '
         f'{html.escape(status)}</text>\n'
         + "".join(ticks) + "".join(paths) +
-        '<text x="800" y="455" class="tick">time (ns)</text>\n</svg>\n')
+        '<text x="800" y="590" class="tick">time (ns)</text>\n</svg>\n')
     svg_path.parent.mkdir(parents=True, exist_ok=True)
     svg_path.write_text(svg, encoding="utf-8")
     return {
@@ -496,6 +613,7 @@ def render_node_svg(config: dict[str, Any],
         "physical_alignment": physical_alignment,
         "logical_best_delay_ns": logical_delay,
         "physical_best_delay_ns": physical_delay,
+        "sck_timing": sck_timing,
         "rx_transport": observed_transport,
         "logical_reference_transport": logical_transport,
         "physical_source_transport": physical_transport,

@@ -66,6 +66,8 @@ PHYS_FIELDS = [
     "overlay_tx_dma_ctrl", "overlay_sm_shiftctrl", "overlay_sm_execctrl",
     "overlay_sm_pc_at_fail", "overlay_pio_ctrl_at_fail",
     "overlay_pio_fstat_at_fail", "overlay_pio_fdebug_at_fail",
+    "overlay_frame_boundary_count", "overlay_pass_recovery_count",
+    "overlay_late_coalesce_count",
 ]
 
 

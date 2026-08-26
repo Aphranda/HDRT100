@@ -90,30 +90,149 @@ def test_process_follower_retains_elastic_byte_across_frame_boundary() -> None:
     assert "mov osr, y" in program
     assert "mov y, isr" in program
     end_wait_high = program.index("wait 1 gpio 0")
-    next_frame_start = program.index("wait 0 gpio 0", end_wait_high)
-    next_command = program.index("jmp flight_process_command", end_wait_high)
-    boundary = program[end_wait_high:next_command]
+    boundary_irq = program.index("irq set 3", end_wait_high)
+    command_jump = program.index("jmp flight_process_command", boundary_irq)
+    pass_label = program.index("flight_process_pass:", command_jump)
+    boundary = program[end_wait_high:boundary_irq]
     assert "Keep Y across CS boundaries" in program
     assert "set y, 0" not in boundary
-    assert end_wait_high < next_frame_start < next_command
-    assert program.count("set y, 0") == 1
+    assert "wait 0 gpio 0" not in boundary
+    assert end_wait_high < boundary_irq < command_jump < pass_label
+    assert "hardware\n    ; wrap occurs only after the final PUSH" in program
+    assert "set y, 0" not in program
 
     init = source.split(
         "static inline void tdma_pio_spi_flight_process_follower_program_init",
         1,
-    )[1]
-    assert "instr_mem[offset + 7u]" in init
-    assert "pio_encode_wait_gpio(false, rx_csn_pin)" in init
-    assert "instr_mem[offset + 15u]" in init
+    )[1].split("static inline void", 1)[0]
+    assert "instr_mem[offset + 5u]" in init
+    assert "pio_encode_wait_gpio(true, rx_csn_pin)" in init
+    assert "instr_mem[offset + 6u]" not in init
+    assert "instr_mem[offset + 11u]" in init
     assert "pio_encode_wait_gpio(true, rx_sck_pin)" in init
-    assert "instr_mem[offset + 16u]" in init
-    assert "pio_encode_nop()" in init
-    assert "instr_mem[offset + 18u]" in init
+    assert "data_sample_delay_cycles" in init
+    assert "sck_phase_delay_cycles + data_residual_delay_cycles + 1u" in init
+    assert "instr_mem[offset + 13u]" in init
     assert "pio_encode_wait_gpio(false, rx_sck_pin)" in init
+    bit_loop = program.split("flight_process_bit:", 1)[1].split(
+        "mov y, isr", 1)[0]
+    assert "wait 0 gpio 1" in bit_loop
+    assert "out pins, 1" in bit_loop
+    assert "mov isr, null" not in program
+
+    phys = (ROOT / "components" / "tdma" / "src" /
+            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    configure = phys.split(
+        "static bool tdma_pio_spi_phys_configure_flight", 1
+    )[1].split("static bool", 1)[0]
+    assert "pio_encode_set(pio_y, 0u)" in configure
 
     overlay = (ROOT / "components" / "tdma" / "src" /
                "tdma_flight_overlay.c").read_text(encoding="utf-8")
     assert "alignment_byte_shift + 1u +" in overlay
+
+
+def test_process_follower_forwards_control_on_independent_pio_sm() -> None:
+    source = (ROOT / "components" / "tdma" / "src" /
+              "tdma_pio_spi.pio").read_text(encoding="utf-8")
+    data_program = source.split(
+        ".program tdma_pio_spi_flight_process_follower", 1
+    )[1].split(".program", 1)[0]
+    control_program = source.split(
+        ".program tdma_pio_spi_flight_control_forward", 1
+    )[1].split(".program", 1)[0]
+    assert ".side_set" not in data_program
+    assert "set pins" not in data_program
+    assert "pull block" in control_program
+    assert "mov x, osr" in control_program
+    assert "jmp x-- flight_control_bit" in control_program
+    assert "wait 0 gpio 0" in control_program
+    assert "wait 1 gpio 0" in control_program
+    assert "wait 1 gpio 1" in control_program
+    assert "wait 0 gpio 1" in control_program
+
+    control_init = source.split(
+        "static inline void tdma_pio_spi_flight_control_forward_program_init",
+        1,
+    )[1].split("static inline void", 1)[0]
+    assert "pio_encode_delay(marker_phase_delay_cycles)" in control_init
+    assert control_init.count(
+        "pio_encode_delay(sck_phase_delay_cycles)") == 2
+    assert "data_phase_delay_cycles" not in control_init
+    assert "sm_config_set_set_pins(&c, tx_sck_pin, 2u)" in control_init
+
+    phys = (ROOT / "components" / "tdma" / "src" /
+            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    assert "control_bits - 1u" in phys
+    assert "phys->tx_sm,\n                            control_bits - 1u" in phys
+
+
+def test_raw_sck_capture_starts_at_first_sck_edge() -> None:
+    source = (ROOT / "components" / "tdma" / "src" /
+              "tdma_pio_spi.pio").read_text(encoding="utf-8")
+    program = source.split(
+        ".program tdma_pio_spi_flight_sck_capture", 1
+    )[1].split(".program", 1)[0]
+    assert "wait 0 gpio 0" in program
+    assert "wait 1 gpio 0" in program
+    assert program.index("wait 0 gpio 0") < program.index("wait 1 gpio 0")
+    assert "in pins, 1" in program
+
+    capture_init = source.split(
+        "static inline void tdma_pio_spi_flight_sck_capture_program_init",
+        1,
+    )[1].split("static inline void", 1)[0]
+    assert "pio_encode_wait_gpio(false, rx_sck_pin)" in capture_init
+    assert "pio_encode_wait_gpio(true, rx_sck_pin)" in capture_init
+    assert "rx_csn_pin" not in capture_init
+    assert "PIO_FIFO_JOIN_RX" in capture_init
+
+
+def test_process_follower_disarm_releases_overlay_tx_dma() -> None:
+    phys = (ROOT / "components" / "tdma" / "src" /
+            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    disarm = phys.split("void tdma_pio_spi_phys_disarm", 1)[1].split(
+        "static bool tdma_pio_spi_phys_tx_put", 1)[0]
+    tx_abort = disarm.index(
+        "dma_channel_abort((uint)s_tdma_pio_spi_tx_dma_channel)")
+    rx_abort = disarm.index(
+        "dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel)")
+    disable = disarm.index("pio_sm_set_enabled")
+    assert tx_abort < disable
+    assert rx_abort < disable
+
+
+def test_process_follower_recovers_pass_script_after_bad_frame() -> None:
+    phys = (ROOT / "components" / "tdma" / "src" /
+            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    service = phys.split(
+        "bool tdma_pio_spi_phys_service_process_overlay_boundary", 1
+    )[1].split("bool tdma_pio_spi_phys_set_process_image_mode", 1)[0]
+    assert "pio_interrupt_get(BOARD_TDMA_SPI_PIO, 3u)" in service
+    assert "pio_interrupt_clear(BOARD_TDMA_SPI_PIO, 3u)" in service
+    assert "phys->flight_overlay_next_prepared" in service
+    assert "tdma_pio_spi_phys_prepare_pass_overlay(phys)" in service
+    assert "overlay_pass_recovery_count++" in service
+    assert "flight_overlay_pass_committed = true" in service
+
+    adapter = (ROOT / "components" / "tdma" / "src" /
+               "tdma_pio_spi_ring_adapter.c").read_text(encoding="utf-8")
+    assert "phys_service_overlay_boundary" in adapter
+
+
+def test_process_follower_coalesces_late_overlay_behind_committed_pass() -> None:
+    phys = (ROOT / "components" / "tdma" / "src" /
+            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    prepare = phys.split(
+        "bool tdma_pio_spi_phys_prepare_process_overlay", 1
+    )[1].split("static void tdma_pio_spi_phys_set_line_drivers", 1)[0]
+    committed = prepare.index("phys->flight_overlay_pass_committed")
+    dma_busy = prepare.index("dma_channel_is_busy", committed)
+    idle_high = prepare.index("gpio_get(phys->rx_csn_pin)", dma_busy)
+    coalesced = prepare.index("overlay_late_coalesce_count++", idle_high)
+    overlay_build = prepare.index("tdma_flight_overlay_build", coalesced)
+    assert committed < dma_busy < idle_high < coalesced < overlay_build
+    assert "return true;" in prepare[coalesced:overlay_build]
 
 
 def test_origin_data_waits_csn_once_per_counted_frame() -> None:
@@ -183,6 +302,20 @@ def test_shifted_rx_scanner_preserves_shared_raw_boundary_word() -> None:
     assert ("s_tdma_pio_spi_rx_scan_produced = candidate + total_words;"
             in capture)
     assert "candidate + total_words + alignment_extra;" not in capture
+
+
+def test_process_rx_reconstructs_absolute_fixed_frame_sequence() -> None:
+    source = (ROOT / "components" / "tdma" / "src" /
+              "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    produced = source.split(
+        "static uint32_t tdma_pio_spi_phys_rx_produced_words", 1
+    )[1].split("static uint32_t tdma_pio_spi_phys_rx_ring_word", 1)[0]
+    assert "snapshot.overlay_frame_boundary_count" in produced
+    assert "snapshot.tx_count" in produced
+    assert "complete_frames * phys->flight_physical_byte_count" in produced
+    assert "s_tdma_pio_spi_rx_produced_seq > frame_base" in produced
+    assert "sequence_floor + ring_delta" in produced
+    assert "transfer_count" not in produced
 
 
 def test_arm_with_evidence_exposes_rejection_stage(monkeypatch) -> None:
