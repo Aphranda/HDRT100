@@ -1047,6 +1047,8 @@ def test_soak_timeline_gates_every_interval() -> None:
     for node in result["nodes"].values():
         assert node["interval_count"] == 2
         assert node["unhealthy_sample_count"] == 0
+        assert node["observation_failure_count"] == 0
+        assert node["runtime_unhealthy_sample_count"] == 0
         assert node["down_event_count"] == 0
         assert node["recovery_count"] == 0
         quality = node["receive_quality"]
@@ -1095,6 +1097,8 @@ def test_soak_timeline_retains_down_and_recovery() -> None:
     node = result["nodes"]["node1"]
     assert result["passed"] is False
     assert node["unhealthy_sample_count"] == 1
+    assert node["observation_failure_count"] == 0
+    assert node["runtime_unhealthy_sample_count"] == 1
     assert node["down_event_count"] == 1
     assert node["recovery_count"] == 1
     assert node["errors"] == [
@@ -1153,6 +1157,14 @@ def test_soak_timeline_retains_per_node_sampling_failure() -> None:
         timeline, board_ids, soak_config(), require_process_image=True)
     node = result["nodes"]["node0"]
     assert result["passed"] is False
+    assert node["observation_failure_count"] == 1
+    assert node["runtime_unhealthy_sample_count"] == 0
+    assert node["down_event_count"] == 0
+    assert node["recovery_count"] == 0
+    assert node["errors"] == [
+        "periodic_observation_missing",
+        "periodic_interval_gate_failed",
+    ]
     assert node["samples"][1]["errors"] == [
         "sample_transport:TimeoutError: query timeout"]
     assert [interval["errors"] for interval in node["intervals"]] == [

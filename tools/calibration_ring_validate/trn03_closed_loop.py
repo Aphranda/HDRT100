@@ -713,29 +713,41 @@ def validate_soak_timeline(
     for node_index, address in enumerate(board_ids):
         samples: list[dict[str, Any]] = []
         unhealthy_sample_count = 0
+        observation_failure_count = 0
+        runtime_unhealthy_sample_count = 0
         down_event_count = 0
         recovery_count = 0
-        previous_healthy: bool | None = None
+        previous_runtime_healthy: bool | None = None
         for entry in timeline:
             transport_error = entry.get("errors", {}).get(address, "")
             snapshot = entry.get("nodes", {}).get(address)
-            health_errors = ([f"sample_transport:{transport_error}"]
-                             if transport_error or snapshot is None else
-                             snapshot_health_errors(
-                                 snapshot, node_index, len(board_ids),
-                                 require_process_image=require_process_image))
-            healthy = not health_errors
-            if not healthy:
+            observation_missing = bool(transport_error or snapshot is None)
+            if observation_missing:
+                health_errors = [
+                    f"sample_transport:{transport_error or 'snapshot_missing'}"]
+                observation_failure_count += 1
+            else:
+                health_errors = snapshot_health_errors(
+                    snapshot, node_index, len(board_ids),
+                    require_process_image=require_process_image)
+                runtime_healthy = not health_errors
+                if not runtime_healthy:
+                    runtime_unhealthy_sample_count += 1
+                if (previous_runtime_healthy is True and
+                        not runtime_healthy):
+                    down_event_count += 1
+                if (previous_runtime_healthy is False and
+                        runtime_healthy):
+                    recovery_count += 1
+                previous_runtime_healthy = runtime_healthy
+            sample_passed = not health_errors
+            if not sample_passed:
                 unhealthy_sample_count += 1
-            if previous_healthy is True and not healthy:
-                down_event_count += 1
-            if previous_healthy is False and healthy:
-                recovery_count += 1
-            previous_healthy = healthy
             samples.append({
                 "sample_index": entry["sample_index"],
                 "elapsed_s": entry["elapsed_s"],
-                "passed": healthy,
+                "passed": sample_passed,
+                "observation_missing": observation_missing,
                 "errors": health_errors,
             })
 
@@ -797,7 +809,9 @@ def validate_soak_timeline(
                 "physical_fault_deltas": fault_deltas,
             })
         node_errors: list[str] = []
-        if unhealthy_sample_count:
+        if observation_failure_count:
+            node_errors.append("periodic_observation_missing")
+        if runtime_unhealthy_sample_count:
             node_errors.append("unhealthy_periodic_sample")
         if any(not interval["passed"] for interval in intervals):
             node_errors.append("periodic_interval_gate_failed")
@@ -846,6 +860,9 @@ def validate_soak_timeline(
             "sample_count": len(samples),
             "interval_count": len(intervals),
             "unhealthy_sample_count": unhealthy_sample_count,
+            "observation_failure_count": observation_failure_count,
+            "runtime_unhealthy_sample_count":
+                runtime_unhealthy_sample_count,
             "down_event_count": down_event_count,
             "recovery_count": recovery_count,
             "counter_regressions": counter_regressions,
