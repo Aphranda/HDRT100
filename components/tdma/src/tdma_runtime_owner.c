@@ -306,6 +306,19 @@ bool tdma_runtime_owner_set_flight_process_image_mode(bool enabled)
     return true;
 }
 
+bool tdma_runtime_owner_set_clock_evidence_enabled(bool enabled)
+{
+    tdma_ring_runtime_snapshot_t ring;
+    if (!s_tdma_runtime_owner_initialized ||
+        !tdma_ring_runtime_get_snapshot(&s_tdma_runtime_owner.ring_runtime,
+                                        &ring) ||
+        ring.enabled != 0u || ring.adapter_started != 0u) {
+        return false;
+    }
+    return tdma_pio_spi_ring_adapter_set_clock_evidence_enabled(
+        &s_tdma_pio_spi_ring_adapter, enabled);
+}
+
 bool tdma_runtime_owner_copy_normal_capture_core1(
     uint32_t *rx_bytes,
     size_t rx_capacity,

@@ -29,7 +29,7 @@
  * the ring is up.
  */
 
-#define TDMA_PIO_SPI_RING_ADAPTER_VERSION 6u
+#define TDMA_PIO_SPI_RING_ADAPTER_VERSION 7u
 #define TDMA_PIO_SPI_RING_ADAPTER_RX_QUEUE_DEPTH 8u
 #define TDMA_PIO_SPI_RING_ADAPTER_TX_EVIDENCE_DEPTH 8u
 #define TDMA_PIO_SPI_RING_ADAPTER_RX_EVIDENCE_DEPTH 8u
@@ -137,6 +137,17 @@ typedef struct {
     uint32_t last_bad_header_first_diff_offset;
     uint32_t last_bad_header_expected_byte;
     uint32_t last_bad_header_observed_byte;
+    uint32_t last_bad_packet_diff_count;
+    uint32_t last_bad_packet_first_diff_offset;
+    uint32_t last_bad_packet_expected_byte;
+    uint32_t last_bad_packet_observed_byte;
+    uint32_t last_bad_clock_evidence;
+    uint32_t last_bad_expected_transport_crc32;
+    uint32_t last_bad_observed_transport_crc32;
+    uint32_t last_bad_recomputed_transport_crc32;
+    uint32_t last_bad_expected_payload_crc32;
+    uint32_t last_bad_observed_payload_crc32;
+    uint32_t clock_evidence_enabled;
     uint32_t rx_drop_count;
     uint32_t timestamp_resolution_ns;
     uint32_t timestamp_flags;
@@ -225,6 +236,17 @@ typedef struct {
     uint32_t last_bad_header_first_diff_offset;
     uint32_t last_bad_header_expected_byte;
     uint32_t last_bad_header_observed_byte;
+    uint32_t last_bad_packet_diff_count;
+    uint32_t last_bad_packet_first_diff_offset;
+    uint32_t last_bad_packet_expected_byte;
+    uint32_t last_bad_packet_observed_byte;
+    uint32_t last_bad_clock_evidence;
+    uint32_t last_bad_expected_transport_crc32;
+    uint32_t last_bad_observed_transport_crc32;
+    uint32_t last_bad_recomputed_transport_crc32;
+    uint32_t last_bad_expected_payload_crc32;
+    uint32_t last_bad_observed_payload_crc32;
+    uint32_t clock_evidence_enabled;
     uint32_t rx_drop_count;
     uint32_t timestamp_resolution_ns;
     uint32_t timestamp_flags;
@@ -250,7 +272,9 @@ typedef struct {
         uint32_t sequence;
         uint32_t identity_crc32;
         uint64_t timestamp_ns;
-        uint8_t header[TDMA_TRANSPORT_FRAME_HEADER_SIZE];
+        uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+        size_t packet_size;
+        bool clock_evidence;
         bool valid;
     } reference_tx_evidence[TDMA_PIO_SPI_RING_ADAPTER_TX_EVIDENCE_DEPTH];
     struct {
@@ -308,6 +332,8 @@ void tdma_pio_spi_ring_adapter_set_flight_engine(
 bool tdma_pio_spi_ring_adapter_set_forwarding_mode(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_forwarding_mode_t mode);
+bool tdma_pio_spi_ring_adapter_set_clock_evidence_enabled(
+    tdma_pio_spi_ring_adapter_t *adapter, bool enabled);
 bool tdma_pio_spi_ring_adapter_inject_rx(tdma_pio_spi_ring_adapter_t *adapter,
                                          const uint8_t *packet,
                                          size_t packet_size,

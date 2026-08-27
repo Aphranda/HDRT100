@@ -93,8 +93,8 @@ static int s_tdma_pio_spi_tx_dma_channel = -1;
 static int s_tdma_pio_spi_rx_dma_channel = -1;
 static uint32_t s_tdma_pio_spi_rx_ring[TDMA_PIO_SPI_RX_RING_WORDS]
     __attribute__((aligned(TDMA_PIO_SPI_RX_RING_WORDS * sizeof(uint32_t))));
-static uint32_t s_tdma_pio_spi_flight_tx_words[TDMA_PIO_SPI_RX_DMA_WORD_MAX]
-    __attribute__((aligned(4)));
+static uint32_t s_tdma_pio_spi_flight_tx_words[
+    TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS] __attribute__((aligned(4)));
 static uint32_t s_tdma_pio_spi_flight_overlay_script[
     TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS] __attribute__((aligned(4)));
 static uint32_t s_tdma_pio_spi_tx_last_frame[
@@ -4202,10 +4202,20 @@ static bool tdma_pio_spi_phys_flight_origin_tx(
     };
     const uint32_t wire_bytes =
         (uint32_t)packet_size + TDMA_PIO_SPI_PACKET_HEADER_SIZE;
-    for (uint32_t index = 0u; index < wire_bytes; index++) {
-        const uint8_t value = index < TDMA_PIO_SPI_PACKET_HEADER_SIZE
-            ? header[index]
-            : packet[index - TDMA_PIO_SPI_PACKET_HEADER_SIZE];
+    const uint32_t clock_bytes = wire_bytes + phys->flight_tail_bytes;
+    if (clock_bytes == 0u ||
+        clock_bytes != phys->flight_physical_byte_count ||
+        clock_bytes > TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS) {
+        tdma_pio_spi_phys_set_error(phys,
+                                    TDMA_PIO_SPI_PHYS_ERROR_BAD_ARGUMENT);
+        return false;
+    }
+    for (uint32_t index = 0u; index < clock_bytes; index++) {
+        const uint8_t value = index >= wire_bytes
+            ? 0u
+            : (index < TDMA_PIO_SPI_PACKET_HEADER_SIZE
+                   ? header[index]
+                   : packet[index - TDMA_PIO_SPI_PACKET_HEADER_SIZE]);
         s_tdma_pio_spi_flight_tx_words[index] = ((uint32_t)value) << 24u;
     }
 
@@ -4222,20 +4232,16 @@ static bool tdma_pio_spi_phys_flight_origin_tx(
         &dma_cfg,
         &BOARD_TDMA_SPI_PIO->txf[phys->tx_sm],
         s_tdma_pio_spi_flight_tx_words,
-        wire_bytes,
+        clock_bytes,
         false);
 
-    const uint32_t clock_bytes = wire_bytes + phys->flight_tail_bytes;
     const uint32_t clock_bits = clock_bytes * 8u;
-    if (clock_bits == 0u) {
-        return false;
-    }
     const uint32_t clock_txstall_mask =
         tdma_pio_spi_phys_txstall_mask(phys->rx_sm);
     pio_interrupt_clear(BOARD_TDMA_SPI_PIO, 1u);
     /* The DATA SM consumes one frame control word before the DMA payload.
      * This keeps CS in the outer PIO loop and bytes in the inner loop. */
-    pio_sm_put_blocking(BOARD_TDMA_SPI_PIO, phys->tx_sm, wire_bytes - 1u);
+    pio_sm_put_blocking(BOARD_TDMA_SPI_PIO, phys->tx_sm, clock_bytes - 1u);
     dma_start_channel_mask(1u << (uint)s_tdma_pio_spi_tx_dma_channel);
     if (pio_sm_is_tx_fifo_full(BOARD_TDMA_SPI_PIO,
                                BOARD_TDMA_SPI_RTT_SM)) {

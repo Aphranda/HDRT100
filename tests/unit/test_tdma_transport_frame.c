@@ -122,6 +122,27 @@ int main(void)
                                                       &view,
                                                       &result),
                           true);
+    uint32_t calculated_transport_crc32 = 0u;
+    failed += expect_bool("calculate transport crc",
+                          tdma_transport_frame_calculate_transport_crc32(
+                              packet, packet_size,
+                              &calculated_transport_crc32),
+                          true);
+    failed += expect_u32("calculated transport crc",
+                         calculated_transport_crc32,
+                         view.transport_crc32);
+    failed += expect_u32("payload crc helper deterministic",
+                         tdma_transport_crc32_compute(payload,
+                                                      sizeof(payload)),
+                         tdma_transport_crc32_compute(
+                             packet + TDMA_TRANSPORT_FRAME_HEADER_SIZE,
+                             sizeof(payload)));
+    failed += expect_bool("reject short crc calculation",
+                          tdma_transport_frame_calculate_transport_crc32(
+                              packet,
+                              TDMA_TRANSPORT_FRAME_HEADER_SIZE - 1u,
+                              &calculated_transport_crc32),
+                          false);
     corpus_packet[TDMA_TRANSPORT_FRAME_HEADER_SIZE] ^= 0x01u;
     failed += expect_bool("decode after mutation corpus",
                           tdma_transport_frame_decode(packet,

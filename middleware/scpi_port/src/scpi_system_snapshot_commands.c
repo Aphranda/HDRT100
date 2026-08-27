@@ -2312,6 +2312,57 @@ scpi_result_t scpi_cmd_system_tdma_flight_mode_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_system_tdma_flight_clock_evidence(scpi_t *context)
+{
+    uint32_t enabled = 0u;
+    if (!scpi_port_read_u32(context, &enabled) || enabled > 1u ||
+        !tdma_runtime_owner_set_clock_evidence_enabled(enabled != 0u)) {
+        scpi_port_push_exec_error(context, "TDMA_FLIGHT_CLOCK_EVIDENCE");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, enabled);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_flight_clock_evidence_q(scpi_t *context)
+{
+    tdma_pio_spi_ring_adapter_t *adapter =
+        tdma_runtime_owner_get_ring_adapter();
+    tdma_pio_spi_ring_adapter_snapshot_t snapshot;
+    if (adapter == NULL ||
+        !tdma_pio_spi_ring_adapter_get_snapshot(adapter, &snapshot)) {
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, snapshot.clock_evidence_enabled);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_flight_crc_diagnostic_q(scpi_t *context)
+{
+    tdma_pio_spi_ring_adapter_t *adapter =
+        tdma_runtime_owner_get_ring_adapter();
+    tdma_pio_spi_ring_adapter_snapshot_t snapshot;
+    if (adapter == NULL ||
+        !tdma_pio_spi_ring_adapter_get_snapshot(adapter, &snapshot)) {
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, snapshot.clock_evidence_enabled);
+    SCPI_ResultUInt32(context, snapshot.last_bad_sequence);
+    SCPI_ResultUInt32(context, snapshot.last_bad_transport_result);
+    SCPI_ResultUInt32(context, snapshot.last_bad_clock_evidence);
+    SCPI_ResultUInt32(context, snapshot.last_bad_packet_diff_count);
+    SCPI_ResultUInt32(context, snapshot.last_bad_packet_first_diff_offset);
+    SCPI_ResultUInt32(context, snapshot.last_bad_packet_expected_byte);
+    SCPI_ResultUInt32(context, snapshot.last_bad_packet_observed_byte);
+    SCPI_ResultUInt32(context, snapshot.last_bad_expected_transport_crc32);
+    SCPI_ResultUInt32(context, snapshot.last_bad_observed_transport_crc32);
+    SCPI_ResultUInt32(context, snapshot.last_bad_recomputed_transport_crc32);
+    SCPI_ResultUInt32(context, snapshot.last_bad_expected_payload_crc32);
+    SCPI_ResultUInt32(context, snapshot.last_bad_observed_payload_crc32);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_system_tdma_flight_process_q(scpi_t *context)
 {
     tdma_service_service_t *owner = tdma_runtime_owner_get();

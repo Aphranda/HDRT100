@@ -685,6 +685,101 @@ int main(void)
                              observed_byte);
     }
 
+    /* --- Full-packet diagnostic: a clock-evidence payload mutation must be
+     * classified independently from the unchanged transport header. --- */
+    {
+        tdma_pio_spi_ring_adapter_t adapter;
+        tdma_pio_spi_ring_adapter_snapshot_t snapshot;
+        loopback_phys_t phys;
+        tdma_ring_adapter_status_t status;
+        tdma_ring_runtime_config_t config = make_valid_config();
+        memset(&phys, 0, sizeof(phys));
+        phys.tx_timestamp_ns = 1000000ull;
+        phys.suppress_echo = true;
+        failed += expect_bool("packet diagnostic init",
+                              tdma_pio_spi_ring_adapter_init(&adapter), true);
+        failed += expect_u32("clock evidence defaults enabled",
+                             adapter.clock_evidence_enabled, 1u);
+        failed += expect_bool("clock evidence disable while stopped",
+                              tdma_pio_spi_ring_adapter_set_clock_evidence_enabled(
+                                  &adapter, false), true);
+        failed += expect_bool("clock evidence re-enable while stopped",
+                              tdma_pio_spi_ring_adapter_set_clock_evidence_enabled(
+                                  &adapter, true), true);
+        tdma_pio_spi_ring_adapter_set_phys(&adapter,
+                                           loopback_tx,
+                                           loopback_rx,
+                                           &phys);
+        tdma_pio_spi_ring_adapter_set_timestamp_metadata(
+            &adapter, 8u, TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED);
+        failed += expect_bool("packet diagnostic start",
+                              tdma_pio_spi_ring_adapter_ops()->start(
+                                  &adapter, &config), true);
+        failed += expect_bool("clock evidence reject change while running",
+                              tdma_pio_spi_ring_adapter_set_clock_evidence_enabled(
+                                  &adapter, false), false);
+        for (uint32_t tick = 0u; tick < 32u && adapter.tx_count < 2u; tick++) {
+            (void)tdma_pio_spi_ring_adapter_ops()->service(
+                &adapter, (uint64_t)tick * 1000000ull, &status);
+        }
+        tdma_transport_frame_view_t evidence_view;
+        tdma_transport_result_t evidence_result = TDMA_TRANSPORT_OK;
+        failed += expect_bool("clock evidence tx decode",
+                              tdma_transport_frame_decode(
+                                  phys.last_tx, phys.last_tx_size,
+                                  &evidence_view, &evidence_result), true);
+        failed += expect_u32("clock evidence tx sequence",
+                             evidence_view.transport_sequence, 2u);
+        failed += expect_u32("clock evidence tx payload size",
+                             evidence_view.payload_size,
+                             TDMA_TRANSPORT_SHORT_PAYLOAD_MAX);
+        uint8_t corrupted[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+        memcpy(corrupted, phys.last_tx, phys.last_tx_size);
+        const uint32_t corrupt_offset =
+            TDMA_TRANSPORT_FRAME_HEADER_SIZE + 20u;
+        const uint8_t expected_byte = corrupted[corrupt_offset];
+        corrupted[corrupt_offset] ^= 0x08u;
+        const uint8_t observed_byte = corrupted[corrupt_offset];
+        failed += expect_bool("inject bad clock evidence payload",
+                              tdma_pio_spi_ring_adapter_inject_rx(
+                                  &adapter, corrupted, phys.last_tx_size,
+                                  1000500ull), true);
+        (void)tdma_pio_spi_ring_adapter_ops()->service(
+            &adapter, 33000000ull, &status);
+        failed += expect_bool("packet diagnostic snapshot",
+                              tdma_pio_spi_ring_adapter_get_snapshot(
+                                  &adapter, &snapshot), true);
+        failed += expect_u32("payload bad transport result",
+                             snapshot.last_bad_transport_result,
+                             TDMA_TRANSPORT_CRC_MISMATCH);
+        failed += expect_u32("payload header unchanged",
+                             snapshot.last_bad_header_diff_count, 0u);
+        failed += expect_u32("payload packet diff count",
+                             snapshot.last_bad_packet_diff_count, 1u);
+        failed += expect_u32("payload first diff offset",
+                             snapshot.last_bad_packet_first_diff_offset,
+                             corrupt_offset);
+        failed += expect_u32("payload expected byte",
+                             snapshot.last_bad_packet_expected_byte,
+                             expected_byte);
+        failed += expect_u32("payload observed byte",
+                             snapshot.last_bad_packet_observed_byte,
+                             observed_byte);
+        failed += expect_u32("payload classified clock evidence",
+                             snapshot.last_bad_clock_evidence, 1u);
+        failed += expect_bool("payload CRC differs",
+                              snapshot.last_bad_expected_payload_crc32 !=
+                                  snapshot.last_bad_observed_payload_crc32,
+                              true);
+        failed += expect_u32("wire transport CRC unchanged",
+                             snapshot.last_bad_expected_transport_crc32,
+                             snapshot.last_bad_observed_transport_crc32);
+        failed += expect_bool("recomputed transport CRC differs",
+                              snapshot.last_bad_recomputed_transport_crc32 !=
+                                  snapshot.last_bad_observed_transport_crc32,
+                              true);
+    }
+
     /* --- Adapter snapshot and error accounting. --- */
     {
         tdma_pio_spi_ring_adapter_t adapter;
@@ -1276,11 +1371,14 @@ int main(void)
     {
         tdma_ring_runtime_t runtime;
         tdma_pio_spi_ring_adapter_t adapter;
+        tdma_flight_engine_t engine;
         loopback_phys_t phys;
         const tdma_ring_runtime_config_t config = make_valid_config();
+        tdma_process_image_map_t map = make_flight_map();
         tdma_transport_frame_view_t view;
         tdma_transport_result_t result = TDMA_TRANSPORT_OK;
-        uint8_t expected[TDMA_TRANSPORT_SHORT_PAYLOAD_MAX];
+        tdma_ring_adapter_status_t status;
+        uint8_t expected[64];
 
         memset(&phys, 0, sizeof(phys));
         phys.tx_timestamp_ns = 3000000ull;
@@ -1295,11 +1393,16 @@ int main(void)
                               true);
         failed += expect_bool("fixed flight adapter init",
                               tdma_pio_spi_ring_adapter_init(&adapter), true);
+        failed += expect_bool("fixed flight engine init",
+                              tdma_flight_engine_init(&engine), true);
+        failed += expect_bool("fixed flight map config",
+                              tdma_flight_engine_configure(&engine, &map), true);
         set_test_sequential_topology(&adapter, config.node_count);
         tdma_pio_spi_ring_adapter_set_phys(&adapter,
                                            loopback_tx,
                                            loopback_rx,
                                            &phys);
+        tdma_pio_spi_ring_adapter_set_flight_engine(&adapter, &engine);
         failed += expect_bool(
             "fixed flight forwarding mode",
             tdma_pio_spi_ring_adapter_set_forwarding_mode(
@@ -1314,6 +1417,10 @@ int main(void)
                               true);
         failed += expect_bool("fixed flight start",
                               start_ring_data(&runtime), true);
+        failed += expect_bool("raw flight engine remains inactive",
+                              tdma_flight_engine_is_active(&engine), false);
+        failed += expect_u32("raw flight receive gate remains disabled",
+                             adapter.receive_health.configured, 0u);
         tdma_ring_runtime_service(&runtime);
         tdma_ring_runtime_service(&runtime);
         failed += expect_bool("fixed flight decode",
@@ -1325,12 +1432,28 @@ int main(void)
                               true);
         failed += expect_u32("fixed flight idle payload size",
                              (uint32_t)view.payload_size,
-                             TDMA_TRANSPORT_SHORT_PAYLOAD_MAX);
+                             (uint32_t)sizeof(expected));
         failed += expect_bool("fixed flight idle alignment symbols",
                               memcmp(view.payload,
                                      expected,
                                      sizeof(expected)) == 0,
                               true);
+        for (uint32_t tick = 0u; tick < 32u && adapter.tx_count < 2u; tick++) {
+            (void)tdma_pio_spi_ring_adapter_ops()->service(
+                &adapter, (uint64_t)tick * 1000000ull, &status);
+        }
+        failed += expect_bool("fixed clock evidence decode",
+                              tdma_transport_frame_decode(
+                                  phys.last_tx,
+                                  phys.last_tx_size,
+                                  &view,
+                                  &result),
+                              true);
+        failed += expect_u32("fixed clock evidence sequence",
+                             view.transport_sequence, 2u);
+        failed += expect_u32("fixed clock evidence payload size",
+                             (uint32_t)view.payload_size,
+                             (uint32_t)sizeof(expected));
     }
 
     /* Process-image origin expands one local 32-byte FIFO mailbox into the

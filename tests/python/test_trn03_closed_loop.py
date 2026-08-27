@@ -21,6 +21,7 @@ from trn03_closed_loop import (  # noqa: E402
     parse_active_profile,
     parse_snapshot,
     resolve_profile_level,
+    scalar_readback_with_retry,
     u32_delta,
     validate_flight_phase_readback,
     validate_node,
@@ -127,9 +128,60 @@ def test_stopped_owner_action_does_not_hide_persistent_rejection(
             FakeBoard(), "PROFILE_APPLY", "apply", args, 0)
 
 
+def test_scalar_readback_retries_timeout_and_mismatch(monkeypatch) -> None:
+    responses = iter(("<timeout>", "0", "1"))
+    monkeypatch.setattr(
+        trn03, "board_command",
+        lambda board, command, args: next(responses))
+    monkeypatch.setattr(trn03.time, "sleep", lambda delay: None)
+    args = type("Args", (), {"owner_action_retries": 3})()
+    evidence = scalar_readback_with_retry(
+        FakeBoard(), "SYSTem:TDMA:FLIGHT:CLOCK:EVIDence?", args, 1,
+        "clock evidence")
+    assert evidence["value"] == 1
+    assert evidence["attempt_count"] == 3
+    assert evidence["rejected_readbacks"] == [
+        {"attempt": 1, "response": "<timeout>",
+         "error": "non-integer scalar"},
+        {"attempt": 2, "response": "0", "observed": 0,
+         "expected": 1, "error": "readback mismatch"},
+    ]
+
+
+def test_scalar_readback_reports_all_bounded_failures(monkeypatch) -> None:
+    monkeypatch.setattr(
+        trn03, "board_command",
+        lambda board, command, args: "<timeout>")
+    monkeypatch.setattr(trn03.time, "sleep", lambda delay: None)
+    args = type("Args", (), {"owner_action_retries": 2})()
+    with pytest.raises(RuntimeError, match=(
+            "clock evidence readback did not reach 1 after 2 attempts")):
+        scalar_readback_with_retry(
+            FakeBoard(), "SYSTem:TDMA:FLIGHT:CLOCK:EVIDence?", args, 1,
+            "clock evidence")
+
+
 def test_raw_flight_mode_query_accepts_scalar_one() -> None:
     assert scpi_response_matches_command(
         "SYSTem:TDMA:FLIGHT:MODE?", "1")
+
+
+def test_clock_evidence_query_accepts_scalar_one() -> None:
+    assert scpi_response_matches_command(
+        "SYSTem:TDMA:FLIGHT:CLOCK:EVIDence?", "1")
+
+
+def test_origin_data_dma_covers_complete_physical_tail() -> None:
+    source = (ROOT / "components" / "tdma" / "src" /
+              "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    origin = source.split(
+        "static bool tdma_pio_spi_phys_flight_origin_tx", 1
+    )[1].split("bool tdma_pio_spi_phys_tx", 1)[0]
+    assert "clock_bytes != phys->flight_physical_byte_count" in origin
+    assert "index < clock_bytes" in origin
+    assert "s_tdma_pio_spi_flight_tx_words,\n        clock_bytes," in origin
+    assert "phys->tx_sm, clock_bytes - 1u" in origin
+    assert "phys->tx_sm, wire_bytes - 1u" not in origin
 
 
 def test_data_follower_wait_patch_does_not_own_sck_output() -> None:
@@ -479,14 +531,14 @@ def test_closed_loop_stops_calibration_personas_before_ring_staging() -> None:
     assert bias_stop < loopback_stop < ring_stop < topology
 
 
-def test_origin_queues_frame_byte_count_before_payload_dma() -> None:
+def test_origin_queues_physical_byte_count_before_payload_dma() -> None:
     source = (ROOT / "components" / "tdma" / "src" /
               "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
     function = source.split(
         "static bool tdma_pio_spi_phys_flight_origin_tx", 1
     )[1].split("bool tdma_pio_spi_phys_tx", 1)[0]
     count_put = function.index(
-        "pio_sm_put_blocking(BOARD_TDMA_SPI_PIO, phys->tx_sm, wire_bytes - 1u)")
+        "pio_sm_put_blocking(BOARD_TDMA_SPI_PIO, phys->tx_sm, clock_bytes - 1u)")
     dma_start = function.index("dma_start_channel_mask", count_put)
     assert count_put < dma_start
 

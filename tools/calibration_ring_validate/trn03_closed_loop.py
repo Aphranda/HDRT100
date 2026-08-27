@@ -88,6 +88,22 @@ RUNTIME_FIELDS = (
     "ring_applied_config_seq",
 )
 
+CRC_DIAGNOSTIC_FIELDS = (
+    "clock_evidence_enabled",
+    "last_bad_sequence",
+    "last_bad_transport_result",
+    "last_bad_clock_evidence",
+    "last_bad_packet_diff_count",
+    "last_bad_packet_first_diff_offset",
+    "last_bad_packet_expected_byte",
+    "last_bad_packet_observed_byte",
+    "last_bad_expected_transport_crc32",
+    "last_bad_observed_transport_crc32",
+    "last_bad_recomputed_transport_crc32",
+    "last_bad_expected_payload_crc32",
+    "last_bad_observed_payload_crc32",
+)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -105,7 +121,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--clock-train", action="store_true",
         help=("run the optional coarse CLK burst before cyclic START; "
-              "default keeps the already armed flight persona intact"))
+               "default keeps the already armed flight persona intact"))
+    parser.add_argument(
+        "--clock-evidence", choices=("enabled", "disabled"),
+        default="enabled",
+        help=("enable the periodic DPLL clock-evidence payload or disable it "
+              "for an explicit transport A/B run"))
     parser.add_argument("--window-s", type=float, default=3.0)
     parser.add_argument(
         "--sample-interval-s", type=float, default=1.0,
@@ -294,6 +315,46 @@ def checked_stopped_ring_action(
         f"attempts: {last_error}; rejected_attempts={rejected_attempts}")
 
 
+def scalar_readback_with_retry(
+        board: Board, command: str, args: argparse.Namespace,
+        expected: int, label: str) -> dict[str, Any]:
+    """Read one scalar with bounded retries and retain invalid responses."""
+    retry_limit = int(getattr(args, "owner_action_retries", 3))
+    if retry_limit <= 0:
+        raise ValueError("owner action retries must be positive")
+    rejected_readbacks: list[dict[str, Any]] = []
+    for attempt in range(1, retry_limit + 1):
+        raw = board_command(board, command, args)
+        normalized = raw.strip().strip('"')
+        try:
+            observed = int(normalized, 0)
+        except ValueError:
+            rejected_readbacks.append({
+                "attempt": attempt,
+                "response": raw,
+                "error": "non-integer scalar",
+            })
+        else:
+            if observed == expected:
+                return {
+                    "value": observed,
+                    "attempt_count": attempt,
+                    "rejected_readbacks": rejected_readbacks,
+                }
+            rejected_readbacks.append({
+                "attempt": attempt,
+                "response": raw,
+                "observed": observed,
+                "expected": expected,
+                "error": "readback mismatch",
+            })
+        if attempt < retry_limit:
+            time.sleep(0.1 * attempt)
+    raise RuntimeError(
+        f"{board.address}: {label} readback did not reach {expected} after "
+        f"{retry_limit} attempts; rejected_readbacks={rejected_readbacks}")
+
+
 def flight_snapshot(board: Board, args: argparse.Namespace) -> dict[str, Any]:
     process = parse_snapshot(
         board_command(board, "SYSTem:TDMA:FLIGHT:PROCess?", args),
@@ -312,12 +373,20 @@ def physical_snapshot(board: Board, args: argparse.Namespace) -> dict[str, int]:
         PHYS_FIELDS, f"{board.address}:physical")
 
 
+def crc_diagnostic_snapshot(board: Board,
+                            args: argparse.Namespace) -> dict[str, int]:
+    return parse_snapshot(
+        board_command(board, "SYSTem:TDMA:FLIGHT:CRC:DIAGnostic?", args),
+        CRC_DIAGNOSTIC_FIELDS, f"{board.address}:crc_diagnostic")
+
+
 def sample_node(board: Board, args: argparse.Namespace,
                 node_index: int) -> dict[str, Any]:
     return {
         "runtime": runtime_snapshot(board, args, node_index),
         "flight": flight_snapshot(board, args),
         "physical": physical_snapshot(board, args),
+        "crc_diagnostic": crc_diagnostic_snapshot(board, args),
     }
 
 
@@ -1040,6 +1109,7 @@ def main() -> int:
         "offset_row": config["offset_row"],
         "cycles": args.cycles,
         "clock_train": args.clock_train,
+        "clock_evidence": args.clock_evidence,
         "window_s": args.window_s,
         "sample_interval_s": args.sample_interval_s,
         "waveform_window_ns": args.waveform_window_ns,
@@ -1116,7 +1186,18 @@ def main() -> int:
         } for address, snapshot in stop_ack.items())
         time.sleep(args.settle)
         expected_mode = 2 if args.stage == "process-image" else 1
-        for board in ordered:
+        for node_index, board in enumerate(ordered):
+            evidence_enabled = 1 if args.clock_evidence == "enabled" else 0
+            evidence_action = checked_stopped_ring_action(
+                board, "CLOCK_EVIDENCE",
+                f"SYSTem:TDMA:FLIGHT:CLOCK:EVIDence {evidence_enabled}",
+                args, node_index)
+            evidence_readback = scalar_readback_with_retry(
+                board, "SYSTem:TDMA:FLIGHT:CLOCK:EVIDence?", args,
+                evidence_enabled, "clock evidence")
+            evidence_action["enabled"] = evidence_readback["value"]
+            evidence_action["readback"] = evidence_readback
+            actions.append(evidence_action)
             response = board_command(
                 board,
                 f"SYSTem:TDMA:FLIGHT:MODE {1 if args.stage == 'process-image' else 0}",
@@ -1252,6 +1333,10 @@ def main() -> int:
                 "flight_after": after[board.address]["flight"],
                 "physical_before": before[board.address]["physical"],
                 "physical_after": after[board.address]["physical"],
+                "crc_diagnostic_before":
+                    before[board.address]["crc_diagnostic"],
+                "crc_diagnostic_after":
+                    after[board.address]["crc_diagnostic"],
             }
         capture_attempted = True
         try:

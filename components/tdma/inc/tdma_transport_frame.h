@@ -88,6 +88,10 @@ bool tdma_transport_frame_decode(const uint8_t *packet,
                                  size_t packet_size,
                                  tdma_transport_frame_view_t *view,
                                  tdma_transport_result_t *result);
+uint32_t tdma_transport_crc32_compute(const uint8_t *data, size_t size);
+bool tdma_transport_frame_calculate_transport_crc32(const uint8_t *packet,
+                                                     size_t packet_size,
+                                                     uint32_t *crc32);
 tdma_transport_route_t tdma_transport_frame_route(
     const tdma_transport_frame_view_t *view,
     uint32_t local_slot_id);

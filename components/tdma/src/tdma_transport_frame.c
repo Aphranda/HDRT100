@@ -74,6 +74,14 @@ static uint32_t tdma_transport_crc32_update(uint32_t crc,
     return crc;
 }
 
+uint32_t tdma_transport_crc32_compute(const uint8_t *data, size_t size)
+{
+    if (data == NULL && size != 0u) {
+        return 0u;
+    }
+    return ~tdma_transport_crc32_update(UINT32_MAX, data, size);
+}
+
 static uint32_t tdma_transport_crc32_update_u8(uint32_t crc, uint32_t value)
 {
     const uint8_t encoded = (uint8_t)value;
@@ -135,7 +143,7 @@ static uint32_t tdma_transport_identity_crc32(
 }
 
 static uint32_t tdma_transport_packet_crc32(const uint8_t *packet,
-                                            size_t packet_size)
+                                             size_t packet_size)
 {
     static const uint8_t zero_crc[4] = {0u, 0u, 0u, 0u};
     uint32_t crc = UINT32_MAX;
@@ -157,6 +165,19 @@ static uint32_t tdma_transport_packet_crc32(const uint8_t *packet,
         packet + TDMA_TRANSPORT_FRAME_HEADER_SIZE,
         packet_size - TDMA_TRANSPORT_FRAME_HEADER_SIZE);
     return ~crc;
+}
+
+bool tdma_transport_frame_calculate_transport_crc32(const uint8_t *packet,
+                                                     size_t packet_size,
+                                                     uint32_t *crc32)
+{
+    if (packet == NULL || crc32 == NULL ||
+        packet_size < TDMA_TRANSPORT_FRAME_HEADER_SIZE ||
+        packet_size > TDMA_TRANSPORT_LONG_PACKET_MAX) {
+        return false;
+    }
+    *crc32 = tdma_transport_packet_crc32(packet, packet_size);
+    return true;
 }
 
 static bool tdma_transport_build_valid(
