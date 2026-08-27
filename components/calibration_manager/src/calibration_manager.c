@@ -69,6 +69,7 @@ static volatile bool s_sck_active;
 static uint32_t s_ring_capture_rx[TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES];
 static uint32_t s_ring_capture_tx[TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES];
 static char s_ring_capture_payload[8192];
+static bool s_training_restore_suppressed;
 
 typedef struct {
     volatile uint32_t guard;
@@ -513,13 +514,15 @@ bool calibration_manager_init(void)
     s_loopback_processed_epoch = 0u;
     s_bias_active = false;
     s_bias_next_epoch = 1u;
+    s_training_restore_suppressed = false;
     s_status.last_service_ms = now_ms;
     s_status.command_seq = 1u;
     s_status.link_count = 1u;
     s_status.delay_count = 1u;
     s_status.active_crc32 = CALIBRATION_MANAGER_DEFAULT_CRC32;
     s_ready = false;
-    return calibration_pio_loopback_init();
+    return calibration_training_store_init() &&
+           calibration_pio_loopback_init();
 }
 
 static void calibration_manager_set_path_reject(uint32_t reason)
@@ -1001,6 +1004,26 @@ void calibration_manager_service(void)
     s_status.ready = s_ready;
     s_status.state = 0u;
     osal_critical_exit();
+
+    /* Boot restore is intentionally context-bound. CalibrationManager reads
+     * the record during init, then waits until TDMA has a stopped topology,
+     * schedule and operating profile whose identities accept the record. */
+    if (!s_training_restore_suppressed) {
+        calibration_training_store_status_t store_status;
+        calibration_training_store_get_status(&store_status);
+        if (store_status.persisted_valid != 0u &&
+            store_status.loaded == 0u) {
+            tdma_ring_calibration_stage_t persisted;
+            if (calibration_training_store_get_stage(&persisted) &&
+                tdma_runtime_owner_set_calibration_stage(&persisted)) {
+                calibration_training_store_set_loaded(
+                    true, CALIBRATION_TRAINING_STORE_REJECT_NONE);
+            } else {
+                calibration_training_store_set_loaded(
+                    false, CALIBRATION_TRAINING_STORE_REJECT_CONTEXT);
+            }
+        }
+    }
 
     calibration_pio_loopback_snapshot_t raw;
     if (calibration_pio_loopback_get_snapshot(&raw) && raw.complete != 0u &&
@@ -2485,6 +2508,9 @@ bool calibration_manager_begin_training_stage(
     uint32_t profile_crc32,
     uint32_t schedule_crc32)
 {
+    s_training_restore_suppressed = true;
+    calibration_training_store_set_loaded(
+        false, CALIBRATION_TRAINING_STORE_REJECT_CONTEXT);
     const tdma_ring_calibration_stage_t header = {
         .enabled = 1u,
         .node_count = node_count,
@@ -2577,9 +2603,33 @@ bool calibration_manager_get_training_stage(
     return tdma_runtime_owner_get_calibration_stage(stage, complete);
 }
 
+bool calibration_manager_commit_training_stage(void)
+{
+    tdma_ring_calibration_stage_t stage;
+    bool complete = false;
+    if (!tdma_runtime_owner_get_calibration_stage(&stage, &complete) ||
+        !complete || !calibration_training_store_commit(&stage)) {
+        return false;
+    }
+    s_training_restore_suppressed = false;
+    return true;
+}
+
+void calibration_manager_get_training_store_status(
+    calibration_training_store_status_t *status)
+{
+    calibration_training_store_get_status(status);
+}
+
 bool calibration_manager_clear_training_stage(void)
 {
-    return tdma_runtime_owner_clear_calibration_stage();
+    if (!tdma_runtime_owner_clear_calibration_stage()) return false;
+    /* RAM clear is a diagnostic operation. Keep the accepted Flash record,
+     * but do not immediately undo the caller's clear until the next boot. */
+    s_training_restore_suppressed = true;
+    calibration_training_store_set_loaded(
+        false, CALIBRATION_TRAINING_STORE_REJECT_CONTEXT);
+    return true;
 }
 
 bool calibration_manager_set_topology_probe_mode(

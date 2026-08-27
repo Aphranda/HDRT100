@@ -487,6 +487,18 @@ bool tdma_runtime_owner_begin_calibration_stage(
     return true;
 }
 
+bool tdma_runtime_owner_set_calibration_stage(
+    const tdma_ring_calibration_stage_t *stage)
+{
+    if (!s_tdma_runtime_owner_initialized ||
+        !tdma_service_stage_calibration(&s_tdma_runtime_owner, stage) ||
+        !tdma_pio_spi_ring_adapter_set_calibration_topology(
+            &s_tdma_pio_spi_ring_adapter, stage)) {
+        return false;
+    }
+    return true;
+}
+
 bool tdma_runtime_owner_stage_calibration_link(
     const tdma_ring_calibration_link_t *link)
 {

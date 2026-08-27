@@ -13,6 +13,7 @@
 #include "calibration_training_marker.h"
 #include "calibration_training_data.h"
 #include "calibration_training_sck.h"
+#include "calibration_training_store.h"
 #include "tdma_pio_spi_phys.h"
 
 typedef struct {
@@ -246,6 +247,9 @@ bool calibration_manager_stage_training_link(
 bool calibration_manager_get_training_stage(
     tdma_ring_calibration_stage_t *stage,
     bool *complete);
+bool calibration_manager_commit_training_stage(void);
+void calibration_manager_get_training_store_status(
+    calibration_training_store_status_t *status);
 bool calibration_manager_clear_training_stage(void);
 bool calibration_manager_set_topology_probe_mode(
     bool enabled, uint32_t phase_delay_cycles);

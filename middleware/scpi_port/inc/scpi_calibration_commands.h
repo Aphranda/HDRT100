@@ -47,6 +47,9 @@ scpi_result_t scpi_calibration_training_stage_begin(scpi_t *context);
 scpi_result_t scpi_calibration_training_stage_link(scpi_t *context);
 scpi_result_t scpi_calibration_training_stage_q(scpi_t *context);
 scpi_result_t scpi_calibration_training_stage_link_q(scpi_t *context);
+scpi_result_t scpi_calibration_training_stage_commit(scpi_t *context);
+scpi_result_t scpi_calibration_training_stage_persistence_q(
+    scpi_t *context);
 scpi_result_t scpi_calibration_training_stage_clear(scpi_t *context);
 scpi_result_t scpi_calibration_topology_probe(scpi_t *context);
 scpi_result_t scpi_calibration_path_candidate_begin(scpi_t *context);
@@ -107,6 +110,8 @@ scpi_result_t scpi_calibration_sma_cable_rtt_responder_q(scpi_t *context);
     {.pattern = "CALibration:TRAINing:STAGe:LINK", .callback = scpi_calibration_training_stage_link}, \
     {.pattern = "READ:CALibration:TRAINing:STAGe?", .callback = scpi_calibration_training_stage_q}, \
     {.pattern = "READ:CALibration:TRAINing:STAGe:LINK?", .callback = scpi_calibration_training_stage_link_q}, \
+    {.pattern = "CALibration:TRAINing:STAGe:COMMit", .callback = scpi_calibration_training_stage_commit}, \
+    {.pattern = "READ:CALibration:TRAINing:STAGe:PERSistence?", .callback = scpi_calibration_training_stage_persistence_q}, \
     {.pattern = "CALibration:TRAINing:STAGe:CLEar", .callback = scpi_calibration_training_stage_clear}, \
     {.pattern = "CALibration:TOPology:PROBe", .callback = scpi_calibration_topology_probe}, \
     {.pattern = "CALibration:PATH:CANDidate:BEGin", .callback = scpi_calibration_path_candidate_begin}, \

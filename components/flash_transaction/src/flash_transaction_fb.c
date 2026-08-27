@@ -361,6 +361,23 @@ static uint32_t flash_transaction_validate(
             return FLASH_TRANSACTION_ERROR_PERMISSION;
         }
     } else if (request->requester ==
+               FLASH_TRANSACTION_REQUESTER_CALIBRATION) {
+        const uint32_t store_begin =
+            FLASH_DEPLOYMENT_MAP_CALIBRATION_STORE_RELATIVE_OFFSET;
+        const uint32_t store_size =
+            FLASH_DEPLOYMENT_MAP_CALIBRATION_STORE_SIZE;
+        if (request->partition_id !=
+                FLASH_DEPLOYMENT_MAP_CALIBRATION_STORE_PARTITION_ID ||
+            request->relative_offset < store_begin ||
+            request->relative_offset - store_begin >= store_size ||
+            request->length >
+                store_size - (request->relative_offset - store_begin) ||
+            (request->operation == FLASH_TRANSACTION_OPERATION_ERASE
+                 ? request->length != FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE
+                 : request->length != FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE)) {
+            return FLASH_TRANSACTION_ERROR_PERMISSION;
+        }
+    } else if (request->requester ==
                FLASH_TRANSACTION_REQUESTER_OTA_METADATA) {
         if (request->partition_id != FLASH_DEPLOYMENT_MAP_BOOT_CONTROL_ID) {
             return FLASH_TRANSACTION_ERROR_PERMISSION;

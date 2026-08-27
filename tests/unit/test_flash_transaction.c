@@ -115,7 +115,8 @@ static bool fake_policy(uint32_t requester)
     return s_policy_ok &&
            (requester == FLASH_TRANSACTION_REQUESTER_OTA_IMAGE ||
             requester == FLASH_TRANSACTION_REQUESTER_OTA_METADATA ||
-            requester == FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG
+            requester == FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG ||
+            requester == FLASH_TRANSACTION_REQUESTER_CALIBRATION
 #if PROJECT_ENABLE_FLASH_VALIDATION
             || requester == FLASH_TRANSACTION_REQUESTER_VALIDATION
 #endif
@@ -944,6 +945,71 @@ static void test_product_config_policy_and_owned_payload(void)
                   FLASH_TRANSACTION_ERROR_PERMISSION);
 }
 
+static flash_transaction_request_t calibration_store_request(
+    uint32_t operation, uint32_t relative_offset, const uint8_t *data)
+{
+    const flash_transaction_request_t request = {
+        .requester = FLASH_TRANSACTION_REQUESTER_CALIBRATION,
+        .partition_id =
+            FLASH_DEPLOYMENT_MAP_CALIBRATION_STORE_PARTITION_ID,
+        .operation = operation,
+        .relative_offset = relative_offset,
+        .length = operation == FLASH_TRANSACTION_OPERATION_ERASE
+                      ? FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE
+                      : FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE,
+        .data = data,
+        .provider_generation =
+            operation == FLASH_TRANSACTION_OPERATION_PROGRAM ? 9u : 0u,
+        .store_generation = 210u,
+    };
+    return request;
+}
+
+static void test_calibration_store_is_bounded_to_compat_tail(void)
+{
+    flash_transaction_fb_t context;
+    init_context(&context);
+    const uint32_t begin =
+        FLASH_DEPLOYMENT_MAP_CALIBRATION_STORE_RELATIVE_OFFSET;
+    uint8_t page[FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE];
+    memset(page, 0x5Au, sizeof(page));
+
+    flash_transaction_request_t request = calibration_store_request(
+        FLASH_TRANSACTION_OPERATION_ERASE, begin, NULL);
+    flash_transaction_vector_t vector = run_request(&context, &request);
+    assert(vector.state == FLASH_TRANSACTION_STATE_COMPLETE);
+    assert(s_last_offset == FLASH_DEPLOYMENT_MAP_CALIBRATION_STORE_OFFSET);
+
+    request = calibration_store_request(
+        FLASH_TRANSACTION_OPERATION_PROGRAM, begin, page);
+    vector = run_request(&context, &request);
+    assert(vector.state == FLASH_TRANSACTION_STATE_COMPLETE);
+
+    request = calibration_store_request(
+        FLASH_TRANSACTION_OPERATION_ERASE,
+        begin + FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE, NULL);
+    vector = run_request(&context, &request);
+    assert(vector.state == FLASH_TRANSACTION_STATE_COMPLETE);
+
+    request = calibration_store_request(
+        FLASH_TRANSACTION_OPERATION_PROGRAM,
+        begin - FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE, page);
+    assert_failed(run_request(&context, &request),
+                  FLASH_TRANSACTION_ERROR_PERMISSION);
+
+    request = calibration_store_request(
+        FLASH_TRANSACTION_OPERATION_PROGRAM,
+        begin + FLASH_DEPLOYMENT_MAP_CALIBRATION_STORE_SIZE, page);
+    assert_failed(run_request(&context, &request),
+                  FLASH_TRANSACTION_ERROR_RANGE);
+
+    request = calibration_store_request(
+        FLASH_TRANSACTION_OPERATION_PROGRAM, begin, page);
+    request.partition_id = FLASH_DEPLOYMENT_MAP_APP_B_ID;
+    assert_failed(run_request(&context, &request),
+                  FLASH_TRANSACTION_ERROR_PERMISSION);
+}
+
 #if PROJECT_ENABLE_FLASH_VALIDATION
 static flash_transaction_request_t validation_request(uint32_t operation,
                                                        const uint8_t *data)
@@ -1229,6 +1295,7 @@ int main(void)
     test_terminal_completion_is_stable_and_duplicate_abort_is_rejected();
     test_terminal_job_id_replay_is_rejected();
     test_product_config_policy_and_owned_payload();
+    test_calibration_store_is_bounded_to_compat_tail();
 #if PROJECT_ENABLE_FLASH_VALIDATION
     test_validation_is_scratch_only();
 #endif

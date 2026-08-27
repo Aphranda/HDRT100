@@ -85,6 +85,21 @@ STAGE_QUERY_FIELDS = (
     "schedule_crc32",
     "valid_link_bitmap",
 )
+PERSISTENCE_QUERY_FIELDS = (
+    "tag",
+    "persisted_valid",
+    "loaded",
+    "restore_pending",
+    "reject_reason",
+    "record_generation",
+    "record_sequence",
+    "payload_crc32",
+    "calibration_generation",
+    "topology_generation",
+    "topology_crc32",
+    "profile_crc32",
+    "schedule_crc32",
+)
 LINK_QUERY_FIELDS = (
     "tag",
     "valid",
@@ -153,6 +168,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--expected-build")
     parser.add_argument("--arm-gate", action="store_true",
                         help="ARM every node after the full matrix query")
+    parser.add_argument("--commit", action="store_true",
+                        help="commit the validated matrix to Flash")
+    parser.add_argument("--reboot-verify", action="store_true",
+                        help=("commit, reboot, restore only TDMA context, and "
+                              "verify automatic Flash loading"))
+    parser.add_argument("--reboot-wait", type=float, default=3.0)
     parser.add_argument("--clear", action="store_true",
                         help="clear the staged matrix instead of staging")
     parser.add_argument("--dry-run", action="store_true")
@@ -472,6 +493,40 @@ def stage_board(board: Board, config: dict[str, Any],
     for link in config["links"]:
         command = stage_link_command(link)
         actions.append(checked_action(board, command, args))
+    observed = verify_board(board, config, args)
+    return {
+        "board_id": board.address,
+        "actions": actions,
+        **observed,
+    }
+
+
+def persistence_status(board: Board,
+                       args: argparse.Namespace) -> dict[str, Any]:
+    return parse_query(board_command(
+        board,
+        "READ:CALibration:TRAINing:STAGe:PERSistence?",
+        args), PERSISTENCE_QUERY_FIELDS, "TRN03NVS")
+
+
+def persistence_matches(status: dict[str, Any],
+                        config: dict[str, Any], *, loaded: bool) -> bool:
+    return (
+        status["persisted_valid"] == 1 and
+        status["loaded"] == int(loaded) and
+        status["restore_pending"] == int(not loaded) and
+        status["reject_reason"] == (0 if loaded else 7) and
+        status["record_generation"] == config["calibration_generation"] and
+        status["record_sequence"] > 0 and
+        status["payload_crc32"] != 0 and
+        all(status[field] == config[field] for field in (
+            "calibration_generation", "topology_generation",
+            "topology_crc32", "profile_crc32", "schedule_crc32"))
+    )
+
+
+def verify_board(board: Board, config: dict[str, Any],
+                 args: argparse.Namespace) -> dict[str, Any]:
     stage = parse_query(
         board_command(board, "READ:CALibration:TRAINing:STAGe?", args),
         STAGE_QUERY_FIELDS, "TRN03STG")
@@ -491,8 +546,6 @@ def stage_board(board: Board, config: dict[str, Any],
             for field in HEADER_FIELDS[2:])
         for observed, expected in zip(links, config["links"]))
     return {
-        "board_id": board.address,
-        "actions": actions,
         "stage": stage,
         "links": links,
         "passed": stage["complete"] == 1 and
@@ -500,6 +553,19 @@ def stage_board(board: Board, config: dict[str, Any],
                   all(link["valid"] == 1 for link in links) and
                   stage_matches and links_match,
     }
+
+
+def wait_persistence_loaded(board: Board, config: dict[str, Any],
+                            args: argparse.Namespace) -> dict[str, Any]:
+    deadline = time.monotonic() + args.arm_wait
+    last: dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        last = persistence_status(board, args)
+        if persistence_matches(last, config, loaded=True):
+            return last
+        time.sleep(0.03)
+    raise RuntimeError(
+        f"{board.address}: persisted matrix did not auto-load: {last}")
 
 
 def runtime_status_for_node(raw: dict[str, int], node_index: int) -> dict[str, int]:
@@ -611,8 +677,12 @@ def main() -> int:
         "board_ids_requested": board_ids,
         "config": config,
         "arm_gate": args.arm_gate,
+        "commit": args.commit or args.reboot_verify,
+        "reboot_verify": args.reboot_verify,
         "clear": args.clear,
     }
+    if args.clear and (args.commit or args.reboot_verify):
+        raise SystemExit("--clear cannot be combined with persistence options")
     if args.dry_run:
         print(json.dumps(plan, ensure_ascii=False, indent=2))
         return 0
@@ -653,6 +723,40 @@ def main() -> int:
             results = [stage_board(board, config, args) for board in ordered]
             for result, context in zip(results, contexts):
                 result["tdma_context"] = context
+            if ((args.commit or args.reboot_verify) and
+                    all(result["passed"] for result in results)):
+                for board, result in zip(ordered, results):
+                    result["commit_action"] = checked_action(
+                        board, "CALibration:TRAINing:STAGe:COMMit", args)
+                    result["persistence_after_commit"] = persistence_status(
+                        board, args)
+                    result["commit_passed"] = persistence_matches(
+                        result["persistence_after_commit"], config,
+                        loaded=True)
+            if (args.reboot_verify and all(
+                    bool(result.get("commit_passed")) for result in results)):
+                for board, result in zip(ordered, results):
+                    result["reboot_response"] = board_command(
+                        board, "SYSTem:BOOT:RESet", args)
+                time.sleep(max(args.reboot_wait, 3.0))
+                rebooted = discover(args)
+                missing_after_reboot = set(board_ids) - set(rebooted)
+                if missing_after_reboot:
+                    raise RuntimeError(
+                        "boards missing after reboot: " +
+                        ", ".join(sorted(missing_after_reboot)))
+                ordered = order_boards_by_board_no(
+                    rebooted, board_ids, args)
+                for node_index, (board, result) in enumerate(
+                        zip(ordered, results)):
+                    result["reboot_context"] = prepare_board_context(
+                        board, config, node_index, args)
+                    result["persistence_after_reboot"] = \
+                        wait_persistence_loaded(board, config, args)
+                    result["reboot_readback"] = verify_board(
+                        board, config, args)
+                    result["reboot_passed"] = bool(
+                        result["reboot_readback"]["passed"])
             if args.arm_gate and all(result["passed"] for result in results):
                 try:
                     for board, result in zip(ordered, results):
@@ -679,6 +783,9 @@ def main() -> int:
         error = f"{type(exc).__name__}: {exc}"
     passed = not error and len(results) == len(ordered) and all(
         bool(result.get("passed")) and
+        (not (args.commit or args.reboot_verify) or
+         bool(result.get("commit_passed"))) and
+        (not args.reboot_verify or bool(result.get("reboot_passed"))) and
         (not args.arm_gate or (
             bool(result.get("arm_passed")) and
             bool(result.get("stop_passed"))))

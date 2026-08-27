@@ -1161,6 +1161,42 @@ scpi_result_t scpi_calibration_training_stage_link_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_calibration_training_stage_commit(scpi_t *context)
+{
+    if (!calibration_manager_commit_training_stage()) {
+        scpi_port_push_exec_error(context, "CAL_TRAIN_STAGE_COMMIT_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    calibration_training_store_status_t status;
+    calibration_manager_get_training_store_status(&status);
+    SCPI_ResultText(context, "TRN03NVS");
+    SCPI_ResultUInt32(context, status.record_generation);
+    SCPI_ResultUInt32(context, status.record_sequence);
+    SCPI_ResultUInt32(context, status.payload_crc32);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_training_stage_persistence_q(
+    scpi_t *context)
+{
+    calibration_training_store_status_t status;
+    calibration_manager_get_training_store_status(&status);
+    SCPI_ResultText(context, "TRN03NVS");
+    SCPI_ResultUInt32(context, status.persisted_valid);
+    SCPI_ResultUInt32(context, status.loaded);
+    SCPI_ResultUInt32(context, status.restore_pending);
+    SCPI_ResultUInt32(context, status.reject_reason);
+    SCPI_ResultUInt32(context, status.record_generation);
+    SCPI_ResultUInt32(context, status.record_sequence);
+    SCPI_ResultUInt32(context, status.payload_crc32);
+    SCPI_ResultUInt32(context, status.calibration_generation);
+    SCPI_ResultUInt32(context, status.topology_generation);
+    SCPI_ResultUInt32(context, status.topology_crc32);
+    SCPI_ResultUInt32(context, status.profile_crc32);
+    SCPI_ResultUInt32(context, status.schedule_crc32);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_calibration_training_stage_clear(scpi_t *context)
 {
     if (!calibration_manager_clear_training_stage()) {

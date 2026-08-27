@@ -17,11 +17,14 @@
 #define PRODUCT_CONFIG_SLOTS_PER_SECTOR \
     (PRODUCT_CONFIG_SECTOR_SIZE / PRODUCT_CONFIG_SLOT_SIZE)
 #define PRODUCT_CONFIG_SECTOR_COUNT \
-    (OTA_PRODUCT_CONFIG_SIZE / PRODUCT_CONFIG_SECTOR_SIZE)
+    (FLASH_DEPLOYMENT_MAP_PRODUCT_CONFIG_STORE_SIZE / \
+     PRODUCT_CONFIG_SECTOR_SIZE)
 
-_Static_assert((OTA_PRODUCT_CONFIG_SIZE % PRODUCT_CONFIG_SLOT_SIZE) == 0u,
+_Static_assert((FLASH_DEPLOYMENT_MAP_PRODUCT_CONFIG_STORE_SIZE %
+                PRODUCT_CONFIG_SLOT_SIZE) == 0u,
                "Product Config store must contain whole program-page slots");
-_Static_assert((OTA_PRODUCT_CONFIG_SIZE % PRODUCT_CONFIG_SECTOR_SIZE) == 0u,
+_Static_assert((FLASH_DEPLOYMENT_MAP_PRODUCT_CONFIG_STORE_SIZE %
+                PRODUCT_CONFIG_SECTOR_SIZE) == 0u,
                "Product Config store must contain whole erase sectors");
 
 typedef struct {
@@ -171,7 +174,9 @@ static bool product_config_find_latest(product_config_record_t *latest,
     bool found = false;
     uint32_t found_slot = 0u;
     uint32_t first_erased = UINT32_MAX;
-    const uint32_t slot_count = OTA_PRODUCT_CONFIG_SIZE / PRODUCT_CONFIG_SLOT_SIZE;
+    const uint32_t slot_count =
+        FLASH_DEPLOYMENT_MAP_PRODUCT_CONFIG_STORE_SIZE /
+        PRODUCT_CONFIG_SLOT_SIZE;
     for (uint32_t slot = 0u; slot < slot_count; slot++) {
         product_config_record_t candidate;
         if (!drv_flash_read(OTA_PRODUCT_CONFIG_OFFSET +

@@ -19,6 +19,7 @@ if (-not $hostCc) {
 
 $scripts = @(
     "run_biss_protocol_tests.ps1",
+    "run_calibration_training_store_tests.ps1",
     "run_drv_flash_geometry_tests.ps1",
     "run_flash_map_tests.ps1",
     "run_flash_transaction_tests.ps1",

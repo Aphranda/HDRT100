@@ -105,6 +105,18 @@
       "target_api": "FlashMapReadView"
     },
     {
+      "file": "components/calibration_manager/src/calibration_training_store.c",
+      "owner": "CalibrationStoreReadView",
+      "contexts": ["app"],
+      "core": "core0",
+      "modes": ["idle", "maintenance"],
+      "partitions": ["v1_product_nvs_calibration_compat", "v2_calibration_nvs"],
+      "operations": ["xip_ptr"],
+      "write_frequency": "read_only",
+      "power_cut_semantics": "select_latest_version_crc_and_commit_valid_matrix",
+      "target_api": "FlashMapReadView"
+    },
+    {
       "file": "middleware/scpi_port/src/scpi_system_diagnostics_commands.c",
       "owner": "FlashValidationService",
       "contexts": ["app"],

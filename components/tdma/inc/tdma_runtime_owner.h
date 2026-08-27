@@ -58,6 +58,8 @@ bool tdma_runtime_owner_set_loop_delay_ns(uint32_t loop_delay_ns,
                                           uint32_t tolerance_ns);
 bool tdma_runtime_owner_begin_calibration_stage(
     const tdma_ring_calibration_stage_t *header);
+bool tdma_runtime_owner_set_calibration_stage(
+    const tdma_ring_calibration_stage_t *stage);
 bool tdma_runtime_owner_stage_calibration_link(
     const tdma_ring_calibration_link_t *link);
 bool tdma_runtime_owner_get_calibration_stage(

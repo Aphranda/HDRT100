@@ -14,6 +14,8 @@ if str(TOOL_DIR) not in sys.path:
 import trn03_stage as stage_module  # noqa: E402
 from trn03_stage import (  # noqa: E402
     load_config,
+    parse_query,
+    persistence_matches,
     prepare_board_context,
     runtime_is_armed,
     runtime_is_stopped,
@@ -306,6 +308,21 @@ def test_runtime_status_is_exposed_with_node_terms() -> None:
     armed["ring_enabled"] = 0
     armed["ring_adapter_started"] = 0
     assert runtime_is_stopped(armed)
+
+
+def test_persistence_status_requires_identity_crc_and_loaded_state() -> None:
+    config = matrix()
+    raw = (
+        '"TRN03NVS",1,1,0,0,88,2,305419896,88,61,4660,22136,39612')
+    status = parse_query(
+        raw, stage_module.PERSISTENCE_QUERY_FIELDS, "TRN03NVS")
+    assert persistence_matches(status, config, loaded=True)
+    status["loaded"] = 0
+    status["restore_pending"] = 1
+    status["reject_reason"] = 7
+    assert persistence_matches(status, config, loaded=False)
+    status["profile_crc32"] ^= 1
+    assert not persistence_matches(status, config, loaded=False)
 
 
 def test_prepare_context_restores_profile_and_topology(

@@ -46,6 +46,7 @@ static uint32_t flash_transaction_policy_check(uint32_t requester,
     if (requester != FLASH_TRANSACTION_REQUESTER_OTA_IMAGE &&
         requester != FLASH_TRANSACTION_REQUESTER_OTA_METADATA &&
         requester != FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG &&
+        requester != FLASH_TRANSACTION_REQUESTER_CALIBRATION &&
         requester != FLASH_TRANSACTION_REQUESTER_OTA_JOURNAL &&
         requester != FLASH_TRANSACTION_REQUESTER_OTA_MANIFEST &&
         !(PROJECT_ENABLE_FLASH_VALIDATION &&
