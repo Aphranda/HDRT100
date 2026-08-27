@@ -16,6 +16,7 @@ def test_repository_cycle_schedule_is_disjoint_and_bounded() -> None:
     assert schedule.wire_max_cycles == 61_400
     assert schedule.tdma_software_margin_cycles == 30_000
     assert schedule.phases[0].wcet_cycles >= 91_400
+    assert schedule.phases[0].window_cycles > schedule.phases[0].wcet_cycles
     assert schedule.phases[0].name == "TDMA"
     assert schedule.phases[-1].name == "GUARD"
 
