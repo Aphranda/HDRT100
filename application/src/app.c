@@ -368,6 +368,9 @@ static bool app_realtime_run_phase(
     }
 
     const bool optional_load = load_id >= 0;
+    const bool warmup_cycle =
+        s_realtime_schedule.cycle_count <=
+        PROJECT_CORE1_SCHEDULE_WARMUP_CYCLES;
     const uint32_t load_bit = optional_load
         ? 1u << (uint32_t)load_id : 0u;
     const uint32_t enabled_mask = __atomic_load_n(
@@ -385,11 +388,11 @@ static bool app_realtime_run_phase(
     if (phase_start >= contract->end_cycle ||
         contract->wcet_cycles > contract->end_cycle - phase_start) {
         app_realtime_record_skip(phase_id, true);
-        (void)__atomic_fetch_or(&s_realtime_load_quarantined_mask,
-                                optional_load
-                                    ? load_bit
-                                    : APP_REALTIME_LOAD_ALL_MASK,
-                                __ATOMIC_ACQ_REL);
+        if (optional_load && !warmup_cycle) {
+            (void)__atomic_fetch_or(&s_realtime_load_quarantined_mask,
+                                    load_bit,
+                                    __ATOMIC_ACQ_REL);
+        }
         return false;
     }
 
@@ -423,12 +426,12 @@ static bool app_realtime_run_phase(
     }
     app_realtime_schedule_write_end();
 
-    if (overrun || deadline_missed) {
+    if ((overrun || deadline_missed) && optional_load && !warmup_cycle) {
         (void)__atomic_fetch_or(&s_realtime_load_quarantined_mask,
-                                optional_load
-                                    ? load_bit
-                                    : APP_REALTIME_LOAD_ALL_MASK,
+                                load_bit,
                                 __ATOMIC_ACQ_REL);
+    }
+    if (overrun || deadline_missed) {
         return false;
     }
     return true;

@@ -100,6 +100,10 @@ _Static_assert(PROJECT_CORE1_PHASE_TDMA_END_CYCLE <=
 _Static_assert(APP_REALTIME_WIRE_MAX_CYCLES <=
                    PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES,
                "maximum flight wire time must fit the TDMA phase WCET");
+_Static_assert(APP_REALTIME_WIRE_MAX_CYCLES +
+                       PROJECT_CORE1_TDMA_SOFTWARE_MARGIN_CYCLES <=
+                   PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES,
+               "TDMA wire time and software margin must fit its WCET");
 _Static_assert(TDMA_FLIGHT_SHORT_PAYLOAD_SIZE <=
                    TDMA_TRANSPORT_SHORT_PAYLOAD_MAX,
                "fixed process image must fit one short transport payload");

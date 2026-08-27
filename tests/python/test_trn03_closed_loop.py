@@ -420,7 +420,9 @@ def test_core1_overrun_quarantines_only_the_faulting_load() -> None:
     assert "phase_overrun_count[phase_id]++" in bounded
     assert "__atomic_fetch_or(&s_realtime_load_quarantined_mask" in bounded
     assert "optional_load" in bounded
-    assert "APP_REALTIME_LOAD_ALL_MASK" in bounded
+    assert "APP_REALTIME_LOAD_ALL_MASK" not in bounded
+    assert "PROJECT_CORE1_SCHEDULE_WARMUP_CYCLES" in bounded
+    assert "optional_load && !warmup_cycle" in bounded
 
     commands = (ROOT / "middleware" / "scpi_port" / "inc" /
                 "scpi_system_snapshot_commands.h").read_text(encoding="utf-8")

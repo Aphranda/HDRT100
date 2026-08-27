@@ -47,6 +47,7 @@ class TdmaCycleSchedule:
     spi_cycles_per_bit: int
     wire_max_bytes: int
     wire_max_cycles: int
+    tdma_software_margin_cycles: int
     phases: tuple[TdmaCyclePhase, ...]
 
 
@@ -146,6 +147,8 @@ def load_schedule(
         spi_cycles_per_bit=spi_cycles_per_bit,
         wire_max_bytes=wire_max_bytes,
         wire_max_cycles=wire_max_bytes * 8 * spi_cycles_per_bit,
+        tdma_software_margin_cycles=_evaluate(
+            "PROJECT_CORE1_TDMA_SOFTWARE_MARGIN_CYCLES", definitions),
         phases=phases,
     )
 
@@ -179,8 +182,9 @@ def validate_schedule(schedule: TdmaCycleSchedule) -> list[str]:
                  if phase.name == "TDMA"), None)
     if tdma is None:
         errors.append("TDMA phase missing")
-    elif schedule.wire_max_cycles > tdma.wcet_cycles:
-        errors.append("maximum wire serialization exceeds TDMA WCET")
+    elif (schedule.wire_max_cycles + schedule.tdma_software_margin_cycles >
+          tdma.wcet_cycles):
+        errors.append("wire serialization plus software margin exceeds TDMA WCET")
     return errors
 
 
@@ -193,6 +197,7 @@ def render_markdown(schedule: TdmaCycleSchedule) -> str:
     lines = [
         f"cycle={schedule.cycle_cycles} cycles; clk_sys={schedule.sys_clock_hz} Hz; "
         f"wire_max={schedule.wire_max_cycles} cycles; "
+        f"tdma_software_margin={schedule.tdma_software_margin_cycles} cycles; "
         f"status={'FAIL' if errors else 'PASS'}",
         "",
         "| phase | start_cycle | end_cycle | window_cycles | WCET_cycles | "
@@ -228,6 +233,7 @@ def render_svg(schedule: TdmaCycleSchedule) -> str:
         f'{schedule.cycle_cycles} clk_sys cycles</text>',
         f'<text x="24" y="52" class="small">clk_sys={schedule.sys_clock_hz} Hz; '
         f'max wire={schedule.wire_max_cycles} cycles; '
+        f'TDMA software margin={schedule.tdma_software_margin_cycles} cycles; '
         f'status={"FAIL" if errors else "PASS"}</text>',
     ]
     for index, phase in enumerate(schedule.phases):
