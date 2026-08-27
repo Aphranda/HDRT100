@@ -120,10 +120,12 @@ bool calibration_path_snapshot_build(
     snapshot->calibration_generation = gate->calibration_generation;
     snapshot->topology_crc32 = gate->expected_topology_crc32;
     snapshot->schedule_crc32 = gate->expected_schedule_crc32;
+    uint32_t source_bitmap = 0u;
     for (uint32_t i = 0u; i < link_count; i++) {
         const calibration_path_link_evidence_t *link = &links[i];
         if (link->source_node >= link_count ||
             link->destination_node != ((link->source_node + 1u) % link_count) ||
+            (source_bitmap & (1u << link->source_node)) != 0u ||
             !gate_link(link, gate) ||
             link->measurement.corrected_path_sum_ns < 0 ||
             link->measurement.delay_estimate_ns < 0) {
@@ -131,6 +133,7 @@ bool calibration_path_snapshot_build(
             snapshot->table_crc32 = calibration_path_snapshot_crc32(snapshot);
             return false;
         }
+        source_bitmap |= 1u << link->source_node;
         if (i == 0u) {
             snapshot->topology_generation = link->topology_generation;
             snapshot->bias_generation = link->bias_generation;
@@ -150,6 +153,11 @@ bool calibration_path_snapshot_build(
             return false;
         }
         snapshot->cumulative_delay_ns += delay;
+    }
+    if (source_bitmap != ((1u << link_count) - 1u)) {
+        snapshot->reject_reason = CALIBRATION_PATH_REJECT_LINK;
+        snapshot->table_crc32 = calibration_path_snapshot_crc32(snapshot);
+        return false;
     }
     if (gate->require_ring_round_trip && ring_round_trip_ns == 0u) {
         snapshot->reject_reason = CALIBRATION_PATH_REJECT_ARGUMENT;
@@ -261,6 +269,8 @@ static bool calibration_path_activation_gate_accepts(
            snapshot->bias_generation == gate->expected_bias_generation &&
            snapshot->profile_crc32 == gate->expected_profile_crc32 &&
            snapshot->schedule_crc32 == gate->expected_schedule_crc32 &&
+           gate->calibration_generation != 0u &&
+           snapshot->calibration_generation == gate->calibration_generation &&
            gate->evidence_age_us <= snapshot->freshness_us;
 }
 

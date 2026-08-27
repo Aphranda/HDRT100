@@ -308,6 +308,7 @@ static int test_path_snapshot_gate(void)
         .expected_bias_generation = gate.expected_bias_generation,
         .expected_profile_crc32 = gate.expected_profile_crc32,
         .expected_schedule_crc32 = gate.expected_schedule_crc32,
+        .calibration_generation = gate.calibration_generation,
         .evidence_age_us = gate.freshness_us,
     };
     calibration_path_snapshot_t active;
@@ -374,6 +375,7 @@ static int test_path_snapshot_activation_and_rollback(void)
         .expected_bias_generation = gate.expected_bias_generation,
         .expected_profile_crc32 = gate.expected_profile_crc32,
         .expected_schedule_crc32 = gate.expected_schedule_crc32,
+        .calibration_generation = gate.calibration_generation,
         .evidence_age_us = 10u,
     };
     calibration_path_snapshot_t candidate1;
@@ -397,6 +399,7 @@ static int test_path_snapshot_activation_and_rollback(void)
     failed += expect_bool("build candidate 2",
                           calibration_path_snapshot_build(
                               links, 2u, 20u, &gate, &candidate2), true);
+    activation_gate.calibration_generation = candidate2.calibration_generation;
     failed += expect_bool("activate candidate 2",
                           calibration_path_snapshot_activate(
                               &candidate2, &active1, &activation_gate,
@@ -406,6 +409,7 @@ static int test_path_snapshot_activation_and_rollback(void)
                               &rollback1), true);
     failed += expect_u32("active generation 2",
                          active2.calibration_generation, 12u);
+    activation_gate.calibration_generation = rollback1.calibration_generation;
     failed += expect_bool("explicit rollback",
                           calibration_path_snapshot_rollback(
                               &active2, &rollback1, &activation_gate,
@@ -421,6 +425,12 @@ static int test_path_snapshot_activation_and_rollback(void)
                               &candidate2, &active1, &activation_gate,
                               &active2, &rollback1), false);
     activation_gate.evidence_age_us = 10u;
+    activation_gate.calibration_generation = candidate2.calibration_generation - 1u;
+    failed += expect_bool("generation gate rejects mismatched expected generation",
+                          calibration_path_snapshot_activate(
+                              &candidate2, &active1, &activation_gate,
+                              &active2, &rollback1), false);
+    activation_gate.calibration_generation = candidate2.calibration_generation;
     candidate2.table_crc32 ^= 1u;
     failed += expect_bool("bad candidate CRC rejected",
                           calibration_path_snapshot_activate(

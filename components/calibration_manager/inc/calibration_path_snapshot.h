@@ -86,6 +86,7 @@ typedef struct {
     uint32_t expected_bias_generation;
     uint32_t expected_profile_crc32;
     uint32_t expected_schedule_crc32;
+    uint32_t calibration_generation;
     uint32_t evidence_age_us;
 } calibration_path_activation_gate_t;
 

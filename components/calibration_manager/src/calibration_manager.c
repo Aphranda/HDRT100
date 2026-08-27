@@ -573,6 +573,7 @@ calibration_manager_path_activation_gate(
         .expected_bias_generation = snapshot->bias_generation,
         .expected_profile_crc32 = snapshot->profile_crc32,
         .expected_schedule_crc32 = snapshot->schedule_crc32,
+        .calibration_generation = snapshot->calibration_generation,
         /* The snapshot is accepted only after the host freshness gate.  A
          * zero age here means activation does not manufacture a second clock
          * for evidence; the snapshot's freshness bound remains authoritative. */
@@ -615,6 +616,7 @@ bool calibration_manager_activate_path_candidate(void)
     osal_critical_enter();
     s_path_active = next_active;
     s_path_rollback = next_rollback;
+    memset(&s_path_candidate, 0, sizeof(s_path_candidate));
     s_status.active_crc32 = next_active.table_crc32;
     s_status.last_error = CALIBRATION_PATH_REJECT_NONE;
     osal_critical_exit();
@@ -652,6 +654,7 @@ bool calibration_manager_rollback_path(void)
     osal_critical_enter();
     s_path_active = next_active;
     s_path_rollback = next_rollback;
+    memset(&s_path_candidate, 0, sizeof(s_path_candidate));
     s_status.active_crc32 = next_active.table_crc32;
     s_status.last_error = CALIBRATION_PATH_REJECT_NONE;
     osal_critical_exit();
