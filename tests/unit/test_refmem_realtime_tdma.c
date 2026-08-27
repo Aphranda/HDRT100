@@ -153,6 +153,24 @@ static int test_init_snapshot(void)
         0xA5u;
     service.scheduler->ring_runtime.adapter_last_bad_header_observed_byte =
         0xA1u;
+    service.scheduler->ring_runtime.clock_observation.valid = 1u;
+    service.scheduler->ring_runtime.clock_observation.node_count = 5u;
+    service.scheduler->ring_runtime.clock_observation.source_node = 2u;
+    service.scheduler->ring_runtime.clock_observation.reference_node = 0u;
+    service.scheduler->ring_runtime.clock_observation.correlated_sequence = 31u;
+    service.scheduler->ring_runtime.clock_observation.frame_crc32 =
+        0x12345678u;
+    service.scheduler->ring_runtime.clock_observation.schedule_crc32 =
+        0x89ABCDEFu;
+    service.scheduler->ring_runtime.clock_observation.timestamp_resolution_ns =
+        8u;
+    service.scheduler->ring_runtime.clock_observation.timestamp_flags = 2u;
+    service.scheduler->ring_runtime.clock_observation
+        .correlated_frame_evidence = 1u;
+    service.scheduler->ring_runtime.clock_observation
+        .reference_tx_timestamp_ns = UINT64_C(0x1122334455667788);
+    service.scheduler->ring_runtime.clock_observation.local_rx_timestamp_ns =
+        UINT64_C(0x8877665544332211);
     failed += expect_bool("classified snapshot",
                           refmem_realtime_tdma_get_snapshot(
                               &service, &snapshot),
@@ -191,6 +209,48 @@ static int test_init_snapshot(void)
     failed += expect_u32("last bad header observed byte",
                          snapshot.ring_adapter_last_bad_header_observed_byte,
                          0xA1u);
+    failed += expect_u32("clock observation valid",
+                         snapshot.ring_clock_observation_valid,
+                         1u);
+    failed += expect_u32("clock observation node count",
+                         snapshot.ring_clock_observation_node_count,
+                         5u);
+    failed += expect_u32("clock observation source node",
+                         snapshot.ring_clock_observation_source_node,
+                         2u);
+    failed += expect_u32("clock observation reference node",
+                         snapshot.ring_clock_observation_reference_node,
+                         0u);
+    failed += expect_u32("clock observation sequence",
+                         snapshot.ring_clock_observation_sequence,
+                         31u);
+    failed += expect_u32("clock observation frame crc",
+                         snapshot.ring_clock_observation_frame_crc32,
+                         0x12345678u);
+    failed += expect_u32("clock observation schedule crc",
+                         snapshot.ring_clock_observation_schedule_crc32,
+                         0x89ABCDEFu);
+    failed += expect_u32("clock observation resolution",
+                         snapshot.ring_clock_observation_resolution_ns,
+                         8u);
+    failed += expect_u32("clock observation flags",
+                         snapshot.ring_clock_observation_flags,
+                         2u);
+    failed += expect_u32("clock observation correlated",
+                         snapshot.ring_clock_observation_correlated,
+                         1u);
+    failed += expect_u32("clock reference timestamp low",
+                         snapshot.ring_clock_reference_tx_timestamp_ns_lo,
+                         0x55667788u);
+    failed += expect_u32("clock reference timestamp high",
+                         snapshot.ring_clock_reference_tx_timestamp_ns_hi,
+                         0x11223344u);
+    failed += expect_u32("clock local timestamp low",
+                         snapshot.ring_clock_local_rx_timestamp_ns_lo,
+                         0x44332211u);
+    failed += expect_u32("clock local timestamp high",
+                         snapshot.ring_clock_local_rx_timestamp_ns_hi,
+                         0x88776655u);
     return failed;
 }
 

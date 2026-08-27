@@ -224,8 +224,8 @@ bool tdma_runtime_owner_init(void)
         (void)vdc_timestamp_clock_init();
         tdma_pio_spi_ring_adapter_set_timestamp_metadata(
             &s_tdma_pio_spi_ring_adapter,
-            vdc_timestamp_clock_resolution_ns(),
-            TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY);
+            vdc_timestamp_clock_resolution_ns() * 2u,
+            TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED);
         initialized = true;
     }
     if (!initialized) {

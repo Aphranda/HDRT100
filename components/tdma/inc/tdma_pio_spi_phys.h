@@ -516,6 +516,9 @@ typedef struct {
     uint64_t last_tx_done_timestamp_ns;
     uint64_t last_rx_edge_timestamp_ns;
     uint64_t last_rx_extract_timestamp_ns;
+    uint32_t clock_latch_resolution_ns;
+    uint32_t clock_latch_count;
+    uint32_t clock_latch_miss_count;
     uint32_t program_persona;
     uint32_t program_switch_count;
     uint32_t program_switch_fail_count;
@@ -605,6 +608,9 @@ typedef struct {
     uint32_t flight_marker_phase_delay_cycles;
     uint32_t flight_sck_phase_delay_cycles;
     uint32_t flight_data_phase_delay_cycles;
+    uint64_t flight_clock_latch_epoch_ns;
+    uint32_t flight_clock_latch_resolution_ns;
+    bool flight_clock_latch_armed;
     /* Physical output pins. CS/SCK are forward; DATA is reverse. */
     uint32_t tx_sm;
     uint32_t tx_sck_pin;

@@ -432,6 +432,7 @@ bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
     runtime->feedback_round_trip_ns = 0u;
     runtime->reference_tx_timestamp_ns = 0ull;
     runtime->feedback_rx_timestamp_ns = 0ull;
+    memset(&runtime->clock_observation, 0, sizeof(runtime->clock_observation));
     runtime->feedback_evidence_valid = 0u;
     runtime->feedback_evidence_service_ns = 0ull;
     runtime->feedback_evidence_sequence = 0u;
@@ -753,6 +754,7 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
         adapter_status.reference_tx_timestamp_ns;
     runtime->feedback_rx_timestamp_ns =
         adapter_status.feedback_rx_timestamp_ns;
+    runtime->clock_observation = adapter_status.clock_observation;
     tdma_ring_runtime_write_guard(&runtime->result_guard);
 }
 
@@ -872,6 +874,7 @@ bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime,
             runtime->reference_tx_timestamp_ns;
         snapshot->feedback_rx_timestamp_ns =
             runtime->feedback_rx_timestamp_ns;
+        snapshot->clock_observation = runtime->clock_observation;
         const uint32_t guard_end =
             tdma_ring_runtime_load(&runtime->result_guard);
         if (guard_begin == guard_end && (guard_end & 1u) == 0u) {

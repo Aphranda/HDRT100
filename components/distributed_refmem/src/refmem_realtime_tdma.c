@@ -271,6 +271,34 @@ static void refmem_realtime_tdma_from_service_snapshot(
         source->ring_adapter_last_bad_header_expected_byte;
     target->ring_adapter_last_bad_header_observed_byte =
         source->ring_adapter_last_bad_header_observed_byte;
+    target->ring_clock_observation_valid =
+        source->ring_clock_observation_valid;
+    target->ring_clock_observation_node_count =
+        source->ring_clock_observation_node_count;
+    target->ring_clock_observation_source_node =
+        source->ring_clock_observation_source_node;
+    target->ring_clock_observation_reference_node =
+        source->ring_clock_observation_reference_node;
+    target->ring_clock_observation_sequence =
+        source->ring_clock_observation_sequence;
+    target->ring_clock_observation_frame_crc32 =
+        source->ring_clock_observation_frame_crc32;
+    target->ring_clock_observation_schedule_crc32 =
+        source->ring_clock_observation_schedule_crc32;
+    target->ring_clock_observation_resolution_ns =
+        source->ring_clock_observation_resolution_ns;
+    target->ring_clock_observation_flags =
+        source->ring_clock_observation_flags;
+    target->ring_clock_observation_correlated =
+        source->ring_clock_observation_correlated;
+    target->ring_clock_reference_tx_timestamp_ns_lo =
+        source->ring_clock_reference_tx_timestamp_ns_lo;
+    target->ring_clock_reference_tx_timestamp_ns_hi =
+        source->ring_clock_reference_tx_timestamp_ns_hi;
+    target->ring_clock_local_rx_timestamp_ns_lo =
+        source->ring_clock_local_rx_timestamp_ns_lo;
+    target->ring_clock_local_rx_timestamp_ns_hi =
+        source->ring_clock_local_rx_timestamp_ns_hi;
     target->ring_up_tx_sequence = source->ring_up_tx_sequence;
     target->ring_down_rx_sequence = source->ring_down_rx_sequence;
     target->ring_up_tx_frame_crc32 = source->ring_up_tx_frame_crc32;

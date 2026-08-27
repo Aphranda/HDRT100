@@ -92,6 +92,20 @@ static bool flight_tx(void *context,
     return true;
 }
 
+static void test_put_u32_le(uint8_t *dst, uint32_t value)
+{
+    for (uint32_t i = 0u; i < 4u; i++) {
+        dst[i] = (uint8_t)(value >> (i * 8u));
+    }
+}
+
+static void test_put_u64_le(uint8_t *dst, uint64_t value)
+{
+    for (uint32_t i = 0u; i < 8u; i++) {
+        dst[i] = (uint8_t)(value >> (i * 8u));
+    }
+}
+
 static bool flight_rx(void *context,
                       uint8_t *packet,
                       size_t packet_capacity,
@@ -438,7 +452,7 @@ int main(void)
         failed += expect_u32("throttled beacon rx unchanged",
                              snapshot.idle_beacon_rx_count, 1u);
         failed += expect_u32("throttled feedback closed",
-                             snapshot.simultaneous_feedback_loop_evidence, 0u);
+                             snapshot.simultaneous_feedback_loop_evidence, 1u);
         failed += expect_u32("throttled feedback RTT remains readable",
                              snapshot.feedback_round_trip_ns, 500u);
 
@@ -1880,6 +1894,116 @@ int main(void)
                              engine_snapshot.rx_bitmap_hit_count, 6u);
         failed += expect_u32("flight bitmap duplicates",
                              engine_snapshot.rx_bitmap_duplicate_count, 1u);
+    }
+
+    /* --- A follower correlates reference TX evidence carried by the next
+     * idle beacon with its cached local RX latch for the original frame. --- */
+    {
+        tdma_pio_spi_ring_adapter_t adapter;
+        tdma_pio_spi_ring_adapter_snapshot_t snapshot;
+        loopback_phys_t phys;
+        tdma_ring_runtime_config_t config = make_valid_config();
+        uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+        size_t packet_size = 0u;
+        tdma_transport_result_t result = TDMA_TRANSPORT_OK;
+        tdma_transport_frame_view_t view;
+
+        memset(&phys, 0, sizeof(phys));
+        phys.suppress_echo = true;
+        config.local_slot_id = 1u;
+        failed += expect_bool("clock follower init",
+                              tdma_pio_spi_ring_adapter_init(&adapter), true);
+        set_test_sequential_topology(&adapter, config.node_count);
+        tdma_pio_spi_ring_adapter_set_phys(&adapter,
+                                           loopback_tx,
+                                           loopback_rx,
+                                           &phys);
+        tdma_pio_spi_ring_adapter_set_timestamp_metadata(
+            &adapter, 8u, TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED);
+        failed += expect_bool("clock follower start",
+                              tdma_pio_spi_ring_adapter_ops()->start(
+                                  &adapter, &config), true);
+
+        tdma_transport_frame_build_t build = {
+            .frame_class = TDMA_TRANSPORT_FRAME_CLASS_SHORT,
+            .origin_slot_id = 0u,
+            .transport_sequence = 1u,
+            .payload_class = TDMA_PAYLOAD_CLASS_IDLE_BEACON,
+            .flags = TDMA_TRANSPORT_FLAG_IDLE_BEACON,
+            .schedule_crc32 = config.schedule_crc32,
+            .ring_profile_crc32 = config.ring_profile_crc32,
+            .hop_limit = config.node_count - 1u,
+            .payload = NULL,
+            .payload_size = 0u,
+        };
+        failed += expect_bool("clock source frame encode",
+                              tdma_transport_frame_encode(
+                                  &build, packet, sizeof(packet), &packet_size,
+                                  &result), true);
+        failed += expect_bool("clock source frame decode",
+                              tdma_transport_frame_decode(
+                                  packet, packet_size, &view, &result), true);
+        const uint32_t source_frame_crc32 = view.identity_crc32;
+        failed += expect_bool("clock source frame inject",
+                              tdma_pio_spi_ring_adapter_inject_rx(
+                                  &adapter, packet, packet_size, 2000100ull),
+                              true);
+        tdma_ring_adapter_status_t status;
+        failed += expect_bool("clock source frame service",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 1000ull, &status), true);
+
+        uint8_t payload[TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_SIZE] = {0};
+        test_put_u32_le(&payload[0],
+                        TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_MAGIC);
+        payload[4] = TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_VERSION;
+        payload[6] = TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_SIZE;
+        test_put_u32_le(&payload[8], 1u);
+        test_put_u32_le(&payload[12], source_frame_crc32);
+        test_put_u64_le(&payload[16], 2000000ull);
+        test_put_u32_le(&payload[24], 8u);
+        test_put_u32_le(&payload[28],
+                        TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED);
+        build.transport_sequence = 2u;
+        build.payload = payload;
+        build.payload_size = sizeof(payload);
+        failed += expect_bool("clock evidence frame encode",
+                              tdma_transport_frame_encode(
+                                  &build, packet, sizeof(packet), &packet_size,
+                                  &result), true);
+        failed += expect_bool("clock evidence frame inject",
+                              tdma_pio_spi_ring_adapter_inject_rx(
+                                  &adapter, packet, packet_size, 2002100ull),
+                              true);
+        failed += expect_bool("clock evidence frame service",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 2000ull, &status), true);
+        failed += expect_bool("clock follower snapshot",
+                              tdma_pio_spi_ring_adapter_get_snapshot(
+                                  &adapter, &snapshot), true);
+        failed += expect_u32("clock observation valid",
+                             snapshot.clock_observation.valid, 1u);
+        failed += expect_u32("clock observation sequence",
+                             snapshot.clock_observation.correlated_sequence,
+                             1u);
+        failed += expect_u32("clock observation frame crc",
+                             snapshot.clock_observation.frame_crc32,
+                             source_frame_crc32);
+        failed += expect_u64("clock observation reference tx",
+                             snapshot.clock_observation
+                                 .reference_tx_timestamp_ns,
+                             2000000ull);
+        failed += expect_u64("clock observation local rx",
+                             snapshot.clock_observation.local_rx_timestamp_ns,
+                             2000100ull);
+        failed += expect_u32("clock observation resolution",
+                             snapshot.clock_observation
+                                 .timestamp_resolution_ns,
+                             8u);
+        failed += expect_u32("clock observation count",
+                             snapshot.clock_observation_count, 1u);
+        failed += expect_u32("clock observation rejects",
+                             snapshot.clock_observation_reject_count, 0u);
     }
 
     if (failed != 0) {

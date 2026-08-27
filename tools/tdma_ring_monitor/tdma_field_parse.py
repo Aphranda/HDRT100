@@ -57,6 +57,20 @@ FIELDS = [
     "ring_adapter_last_bad_header_first_diff_offset",
     "ring_adapter_last_bad_header_expected_byte",
     "ring_adapter_last_bad_header_observed_byte",
+    "ring_clock_observation_valid",
+    "ring_clock_observation_node_count",
+    "ring_clock_observation_source_node",
+    "ring_clock_observation_reference_node",
+    "ring_clock_observation_sequence",
+    "ring_clock_observation_frame_crc32",
+    "ring_clock_observation_schedule_crc32",
+    "ring_clock_observation_resolution_ns",
+    "ring_clock_observation_flags",
+    "ring_clock_observation_correlated",
+    "ring_clock_reference_tx_timestamp_ns_lo",
+    "ring_clock_reference_tx_timestamp_ns_hi",
+    "ring_clock_local_rx_timestamp_ns_lo",
+    "ring_clock_local_rx_timestamp_ns_hi",
 ]
 
 PHYS_FIELDS = (
@@ -97,6 +111,8 @@ PHYS_FIELDS = (
     "overlay_pio_fstat_at_fail", "overlay_pio_fdebug_at_fail",
     "overlay_frame_boundary_count", "overlay_pass_recovery_count",
     "overlay_late_coalesce_count",
+    "clock_latch_resolution_ns", "clock_latch_count",
+    "clock_latch_miss_count",
 )
 
 KEY = [

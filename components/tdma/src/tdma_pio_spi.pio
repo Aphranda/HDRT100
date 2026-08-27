@@ -163,7 +163,6 @@ flight_process_bit:
 ; retains that count across frames.  GPIO25/26 are contiguous, so SET pins
 ; writes {CS,SCK}: 2=idle, 0=active/low, 1=active/high.
 .program tdma_pio_spi_flight_control_forward
-    pull block
 .wrap_target
     wait 0 gpio 0
     set pins, 0
@@ -181,15 +180,20 @@ flight_control_bit:
     set pins, 2
 .wrap
 
-; Diagnostic-only raw flight SCK capture. The SM starts on the first physical
-; RX SCK rising edge, then samples RX SCK every clk_sys cycle. Autopush and the
-; joined eight-word RX FIFO retain 256 raw samples (1.024 us at 250 MHz)
-; without another DMA channel or any core intervention in the edge path.
-.program tdma_pio_spi_flight_sck_capture
-    wait 0 gpio 0
-    wait 1 gpio 0
+; Product clock latch. X is seeded to UINT32_MAX immediately before enabling
+; the SM. While CS is high, one countdown step takes exactly two clk_sys
+; cycles. The first low observation pushes the remaining count; PUSH noblock
+; then fills the FIFO while CS stays low, preserving the first edge latch for
+; core1 to consume after the complete frame. Core1 rearms this SM between
+; frames, so low-level loop timing never accumulates into the next timestamp.
+.program tdma_pio_spi_flight_clock_latch
 .wrap_target
-    in pins, 1
+flight_clock_latch_loop:
+    jmp pin flight_clock_latch_high
+    mov isr, x
+    push noblock
+flight_clock_latch_high:
+    jmp x-- flight_clock_latch_loop
 .wrap
 
 ; Reference-node hardware RTT latch. The host supplies UINT32_MAX before each
@@ -801,22 +805,15 @@ static inline void tdma_pio_spi_flight_control_forward_program_init(
                                     (1ull << tx_csn_pin));
 }
 
-static inline void tdma_pio_spi_flight_sck_capture_program_init(
-    PIO pio, uint sm, uint offset, uint rx_sck_pin)
+static inline void tdma_pio_spi_flight_clock_latch_program_init(
+    PIO pio, uint sm, uint offset, uint csn_pin)
 {
-    pio->instr_mem[offset] =
-        (uint16_t)pio_encode_wait_gpio(false, rx_sck_pin);
-    pio->instr_mem[offset + 1u] =
-        (uint16_t)pio_encode_wait_gpio(true, rx_sck_pin);
-    pio_gpio_init(pio, rx_sck_pin);
-    gpio_pull_down(rx_sck_pin);
-    pio_sm_set_consecutive_pindirs(pio, sm, rx_sck_pin, 1u, false);
-
+    pio_gpio_init(pio, csn_pin);
+    gpio_pull_up(csn_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, csn_pin, 1u, false);
     pio_sm_config c =
-        tdma_pio_spi_flight_sck_capture_program_get_default_config(offset);
-    sm_config_set_in_pins(&c, rx_sck_pin);
-    sm_config_set_in_shift(&c, true, true, 32u);
-    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+        tdma_pio_spi_flight_clock_latch_program_get_default_config(offset);
+    sm_config_set_jmp_pin(&c, csn_pin);
     sm_config_set_clkdiv(&c, 1.0f);
     pio_sm_init(pio, sm, offset, &c);
 }

@@ -29,9 +29,14 @@
  * the ring is up.
  */
 
-#define TDMA_PIO_SPI_RING_ADAPTER_VERSION 5u
+#define TDMA_PIO_SPI_RING_ADAPTER_VERSION 6u
 #define TDMA_PIO_SPI_RING_ADAPTER_RX_QUEUE_DEPTH 8u
 #define TDMA_PIO_SPI_RING_ADAPTER_TX_EVIDENCE_DEPTH 8u
+#define TDMA_PIO_SPI_RING_ADAPTER_RX_EVIDENCE_DEPTH 8u
+#define TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_MAGIC 0x314B4C43u
+#define TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_VERSION 1u
+#define TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_SIZE 32u
+#define TDMA_PIO_SPI_RING_CLOCK_EVIDENCE_INTERVAL 16u
 
 typedef enum {
     TDMA_PIO_SPI_RING_ADAPTER_ERROR_NONE = 0u,
@@ -141,6 +146,9 @@ typedef struct {
     uint64_t feedback_rx_timestamp_ns;
     uint64_t last_rx_service_ns;
     uint64_t last_service_ns;
+    tdma_ring_clock_observation_t clock_observation;
+    uint32_t clock_observation_count;
+    uint32_t clock_observation_reject_count;
     uint32_t last_error;
     uint32_t local_slot_id;
     uint32_t schedule_crc32;
@@ -228,6 +236,9 @@ typedef struct {
     uint64_t feedback_rx_timestamp_ns;
     uint64_t last_rx_service_ns;
     uint64_t last_service_ns;
+    tdma_ring_clock_observation_t clock_observation;
+    uint32_t clock_observation_count;
+    uint32_t clock_observation_reject_count;
     uint32_t last_error;
     uint8_t last_rx_packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
     size_t last_rx_packet_size;
@@ -242,6 +253,12 @@ typedef struct {
         uint8_t header[TDMA_TRANSPORT_FRAME_HEADER_SIZE];
         bool valid;
     } reference_tx_evidence[TDMA_PIO_SPI_RING_ADAPTER_TX_EVIDENCE_DEPTH];
+    struct {
+        uint32_t sequence;
+        uint32_t identity_crc32;
+        uint64_t timestamp_ns;
+        bool valid;
+    } local_rx_evidence[TDMA_PIO_SPI_RING_ADAPTER_RX_EVIDENCE_DEPTH];
     struct {
         uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
         size_t packet_size;

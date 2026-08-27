@@ -6,7 +6,7 @@
 
 #include "tdma_profile.h"
 
-#define TDMA_RING_RUNTIME_VERSION 8u
+#define TDMA_RING_RUNTIME_VERSION 9u
 #define TDMA_RING_CALIBRATION_LINK_MAX 8u
 #define TDMA_RING_CALIBRATION_FLAG_ACCEPTED (1u << 0u)
 #define TDMA_RING_CALIBRATION_FLAG_HARDWARE_LATCHED (1u << 1u)
@@ -22,6 +22,23 @@
      TDMA_RING_CALIBRATION_FLAG_FORWARD_RESIDENCE_VALID)
 #define TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY 0x00000001u
 #define TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED 0x00000002u
+
+/* Correlated reference-TX/local-RX evidence published by the transport.
+ * TDMA owns the wire correlation; clock policy remains in VDC. */
+typedef struct {
+    uint32_t valid;
+    uint32_t node_count;
+    uint32_t source_node;
+    uint32_t reference_node;
+    uint32_t correlated_sequence;
+    uint32_t frame_crc32;
+    uint32_t schedule_crc32;
+    uint32_t timestamp_resolution_ns;
+    uint32_t timestamp_flags;
+    uint32_t correlated_frame_evidence;
+    uint64_t reference_tx_timestamp_ns;
+    uint64_t local_rx_timestamp_ns;
+} tdma_ring_clock_observation_t;
 
 typedef enum {
     TDMA_RING_RUNTIME_REASON_NONE = 0u,
@@ -146,6 +163,7 @@ typedef struct {
     uint32_t feedback_reference_frame_crc32;
     uint64_t reference_tx_timestamp_ns;
     uint64_t feedback_rx_timestamp_ns;
+    tdma_ring_clock_observation_t clock_observation;
 } tdma_ring_adapter_status_t;
 
 typedef struct {
@@ -225,6 +243,7 @@ typedef struct {
     uint32_t training_dirty;
     uint64_t reference_tx_timestamp_ns;
     uint64_t feedback_rx_timestamp_ns;
+    tdma_ring_clock_observation_t clock_observation;
 } tdma_ring_runtime_snapshot_t;
 
 typedef struct {
@@ -298,6 +317,7 @@ typedef struct {
     volatile uint32_t training_dirty;
     volatile uint64_t reference_tx_timestamp_ns;
     volatile uint64_t feedback_rx_timestamp_ns;
+    tdma_ring_clock_observation_t clock_observation;
     /* A correlated hardware-latched feedback sample remains valid between
      * frame arrivals for one configured feedback timeout.  This prevents the
      * evidence bit from flickering low on every core1 service tick while the

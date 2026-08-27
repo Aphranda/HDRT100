@@ -222,7 +222,7 @@ def test_process_follower_forwards_control_on_independent_pio_sm() -> None:
     )[1].split(".program", 1)[0]
     assert ".side_set" not in data_program
     assert "set pins" not in data_program
-    assert "pull block" in control_program
+    assert "pull block" not in control_program
     assert "mov x, osr" in control_program
     assert "jmp x-- flight_control_bit" in control_program
     assert "wait 0 gpio 0" in control_program
@@ -244,6 +244,7 @@ def test_process_follower_forwards_control_on_independent_pio_sm() -> None:
             "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
     assert "control_bits - 1u" in phys
     assert "phys->tx_sm,\n                            control_bits - 1u" in phys
+    assert "pio_encode_pull(false, true)" in phys
 
 
 def test_flight_personas_fit_shared_pio_instruction_memory() -> None:
@@ -252,7 +253,7 @@ def test_flight_personas_fit_shared_pio_instruction_memory() -> None:
     shared = pio_instruction_count(
         source, "tdma_pio_spi_flight_control_forward")
     capture = pio_instruction_count(
-        source, "tdma_pio_spi_flight_sck_capture")
+        source, "tdma_pio_spi_flight_clock_latch")
     raw_data = pio_instruction_count(
         source, "tdma_pio_spi_flight_data_follower")
     process_data = pio_instruction_count(
@@ -261,25 +262,23 @@ def test_flight_personas_fit_shared_pio_instruction_memory() -> None:
     assert shared + capture + process_data <= 32
 
 
-def test_raw_sck_capture_starts_at_first_sck_edge() -> None:
+def test_product_clock_latch_captures_first_csn_edge() -> None:
     source = (ROOT / "components" / "tdma" / "src" /
               "tdma_pio_spi.pio").read_text(encoding="utf-8")
     program = source.split(
-        ".program tdma_pio_spi_flight_sck_capture", 1
+        ".program tdma_pio_spi_flight_clock_latch", 1
     )[1].split(".program", 1)[0]
-    assert "wait 0 gpio 0" in program
-    assert "wait 1 gpio 0" in program
-    assert program.index("wait 0 gpio 0") < program.index("wait 1 gpio 0")
-    assert "in pins, 1" in program
+    assert "jmp pin flight_clock_latch_high" in program
+    assert "mov isr, x" in program
+    assert "push noblock" in program
+    assert "jmp x-- flight_clock_latch_loop" in program
 
     capture_init = source.split(
-        "static inline void tdma_pio_spi_flight_sck_capture_program_init",
+        "static inline void tdma_pio_spi_flight_clock_latch_program_init",
         1,
     )[1].split("static inline void", 1)[0]
-    assert "pio_encode_wait_gpio(false, rx_sck_pin)" in capture_init
-    assert "pio_encode_wait_gpio(true, rx_sck_pin)" in capture_init
-    assert "rx_csn_pin" not in capture_init
-    assert "PIO_FIFO_JOIN_RX" in capture_init
+    assert "sm_config_set_jmp_pin(&c, csn_pin)" in capture_init
+    assert "gpio_pull_up(csn_pin)" in capture_init
 
 
 def test_process_follower_disarm_releases_overlay_tx_dma() -> None:

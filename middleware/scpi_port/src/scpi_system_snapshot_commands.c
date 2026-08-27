@@ -1878,6 +1878,22 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_status_q(scpi_t *context)
         context, snapshot.ring_adapter_last_bad_header_expected_byte);
     SCPI_ResultUInt32(
         context, snapshot.ring_adapter_last_bad_header_observed_byte);
+    SCPI_ResultUInt32(context, snapshot.ring_clock_observation_valid);
+    SCPI_ResultUInt32(context, snapshot.ring_clock_observation_node_count);
+    SCPI_ResultUInt32(context, snapshot.ring_clock_observation_source_node);
+    SCPI_ResultUInt32(context, snapshot.ring_clock_observation_reference_node);
+    SCPI_ResultUInt32(context, snapshot.ring_clock_observation_sequence);
+    SCPI_ResultUInt32(context, snapshot.ring_clock_observation_frame_crc32);
+    SCPI_ResultUInt32(context, snapshot.ring_clock_observation_schedule_crc32);
+    SCPI_ResultUInt32(context, snapshot.ring_clock_observation_resolution_ns);
+    SCPI_ResultUInt32(context, snapshot.ring_clock_observation_flags);
+    SCPI_ResultUInt32(context, snapshot.ring_clock_observation_correlated);
+    SCPI_ResultUInt32(
+        context, snapshot.ring_clock_reference_tx_timestamp_ns_lo);
+    SCPI_ResultUInt32(
+        context, snapshot.ring_clock_reference_tx_timestamp_ns_hi);
+    SCPI_ResultUInt32(context, snapshot.ring_clock_local_rx_timestamp_ns_lo);
+    SCPI_ResultUInt32(context, snapshot.ring_clock_local_rx_timestamp_ns_hi);
     return SCPI_RES_OK;
 }
 
