@@ -22,6 +22,14 @@ static bool s_ready;
 static calibration_path_snapshot_t s_path_candidate;
 static calibration_path_snapshot_t s_path_active;
 static calibration_path_snapshot_t s_path_rollback;
+static calibration_path_import_header_t s_path_import_header;
+static calibration_path_link_evidence_t s_path_import_links[CALIBRATION_PATH_MAX_LINKS];
+static uint32_t s_path_import_valid_link_bitmap;
+static bool s_path_import_active;
+static uint32_t s_path_import_reject_reason;
+static uint32_t s_path_import_calculated_table_crc32;
+static uint32_t s_path_candidate_staged_ms;
+static uint32_t s_path_candidate_initial_age_us;
 static calibration_manager_loopback_snapshot_t s_loopback_snapshot;
 static uint32_t s_loopback_processed_epoch;
 static calibration_bias_accumulator_t s_bias_accumulator;
@@ -425,6 +433,14 @@ bool calibration_manager_init(void)
     memset(&s_path_candidate, 0, sizeof(s_path_candidate));
     memset(&s_path_active, 0, sizeof(s_path_active));
     memset(&s_path_rollback, 0, sizeof(s_path_rollback));
+    memset(&s_path_import_header, 0, sizeof(s_path_import_header));
+    memset(s_path_import_links, 0, sizeof(s_path_import_links));
+    s_path_import_valid_link_bitmap = 0u;
+    s_path_import_active = false;
+    s_path_import_reject_reason = CALIBRATION_PATH_REJECT_NONE;
+    s_path_import_calculated_table_crc32 = 0u;
+    s_path_candidate_staged_ms = 0u;
+    s_path_candidate_initial_age_us = 0u;
     memset(&s_loopback_snapshot, 0, sizeof(s_loopback_snapshot));
     memset(&s_bias_accumulator, 0, sizeof(s_bias_accumulator));
     memset(&s_bias_snapshot, 0, sizeof(s_bias_snapshot));
@@ -506,21 +522,303 @@ bool calibration_manager_init(void)
     return calibration_pio_loopback_init();
 }
 
-bool calibration_manager_stage_path_candidate(
-    const calibration_path_snapshot_t *candidate)
+static void calibration_manager_set_path_reject(uint32_t reason)
+{
+    osal_critical_enter();
+    s_path_import_reject_reason = reason;
+    s_status.last_error = reason;
+    osal_critical_exit();
+}
+
+static uint32_t calibration_manager_path_context_reject(
+    uint32_t link_count,
+    uint32_t topology_generation,
+    uint32_t topology_crc32,
+    uint32_t bias_generation,
+    uint32_t profile_crc32,
+    uint32_t schedule_crc32,
+    uint32_t calibration_generation)
+{
+    tdma_ring_calibration_stage_t stage;
+    bool stage_complete = false;
+    if (!calibration_manager_get_training_stage(&stage, &stage_complete) ||
+        !stage_complete || stage.node_count != link_count ||
+        stage.calibration_generation != calibration_generation ||
+        stage.profile_crc32 != profile_crc32 ||
+        stage.schedule_crc32 != schedule_crc32) {
+        return CALIBRATION_PATH_REJECT_STAGE;
+    }
+    if (stage.topology_generation != topology_generation ||
+        stage.topology_crc32 != topology_crc32) {
+        return CALIBRATION_PATH_REJECT_TOPOLOGY;
+    }
+
+    calibration_bias_snapshot_t bias;
+    if (!calibration_manager_get_bias_snapshot(&bias) ||
+        !calibration_bias_snapshot_validate(&bias) ||
+        bias.generation != bias_generation ||
+        bias.profile_crc32 != profile_crc32 ||
+        bias.topology_generation != topology_generation) {
+        return CALIBRATION_PATH_REJECT_BIAS;
+    }
+
+    calibration_path_snapshot_t active;
+    calibration_path_snapshot_t candidate;
+    osal_critical_enter();
+    active = s_path_active;
+    candidate = s_path_candidate;
+    osal_critical_exit();
+    if ((calibration_path_snapshot_validate(&active) &&
+         calibration_generation <= active.calibration_generation) ||
+        (calibration_path_snapshot_validate_candidate(&candidate) &&
+         calibration_generation <= candidate.calibration_generation)) {
+        return CALIBRATION_PATH_REJECT_REPLAY;
+    }
+    return CALIBRATION_PATH_REJECT_NONE;
+}
+
+static bool calibration_manager_stage_path_candidate_at_age(
+    const calibration_path_snapshot_t *candidate,
+    uint32_t evidence_age_us)
 {
     if (!calibration_path_snapshot_validate_candidate(candidate)) {
-        osal_critical_enter();
-        s_status.last_error = candidate != NULL &&
+        calibration_manager_set_path_reject(
+            candidate != NULL &&
             candidate->reject_reason != CALIBRATION_PATH_REJECT_NONE
                 ? candidate->reject_reason
-                : CALIBRATION_PATH_REJECT_ARGUMENT;
-        osal_critical_exit();
+                : CALIBRATION_PATH_REJECT_ARGUMENT);
+        return false;
+    }
+    const uint32_t context_reject = calibration_manager_path_context_reject(
+        candidate->link_count,
+        candidate->topology_generation,
+        candidate->topology_crc32,
+        candidate->bias_generation,
+        candidate->profile_crc32,
+        candidate->schedule_crc32,
+        candidate->calibration_generation);
+    if (context_reject != CALIBRATION_PATH_REJECT_NONE) {
+        calibration_manager_set_path_reject(context_reject);
+        return false;
+    }
+    if (evidence_age_us > candidate->freshness_us) {
+        calibration_manager_set_path_reject(CALIBRATION_PATH_REJECT_FRESHNESS);
         return false;
     }
     osal_critical_enter();
     s_path_candidate = *candidate;
+    s_path_candidate_staged_ms = board_uptime_ms();
+    s_path_candidate_initial_age_us = evidence_age_us;
+    s_path_import_reject_reason = CALIBRATION_PATH_REJECT_NONE;
     s_status.last_error = CALIBRATION_PATH_REJECT_NONE;
+    osal_critical_exit();
+    return true;
+}
+
+bool calibration_manager_stage_path_candidate(
+    const calibration_path_snapshot_t *candidate)
+{
+    return calibration_manager_stage_path_candidate_at_age(candidate, 0u);
+}
+
+bool calibration_manager_begin_path_import(
+    const calibration_path_import_header_t *header)
+{
+    if (header == NULL || header->link_count < 2u ||
+        header->link_count > CALIBRATION_PATH_MAX_LINKS ||
+        header->topology_generation == 0u || header->topology_crc32 == 0u ||
+        header->bias_generation == 0u || header->profile_crc32 == 0u ||
+        header->schedule_crc32 == 0u || header->calibration_generation == 0u ||
+        header->freshness_us == 0u ||
+        header->evidence_age_us > header->freshness_us ||
+        header->ring_round_trip_ns == 0u ||
+        header->forwarding_residence_ns == 0u ||
+        header->max_residual_ns == 0u ||
+        header->max_jitter_ns == 0u || header->max_asymmetry_ns == 0u ||
+        header->expected_table_crc32 == 0u) {
+        calibration_manager_set_path_reject(CALIBRATION_PATH_REJECT_ARGUMENT);
+        return false;
+    }
+    const uint32_t context_reject = calibration_manager_path_context_reject(
+        header->link_count,
+        header->topology_generation,
+        header->topology_crc32,
+        header->bias_generation,
+        header->profile_crc32,
+        header->schedule_crc32,
+        header->calibration_generation);
+    if (context_reject != CALIBRATION_PATH_REJECT_NONE) {
+        calibration_manager_set_path_reject(context_reject);
+        return false;
+    }
+    osal_critical_enter();
+    s_path_import_header = *header;
+    memset(s_path_import_links, 0, sizeof(s_path_import_links));
+    s_path_import_valid_link_bitmap = 0u;
+    s_path_import_reject_reason = CALIBRATION_PATH_REJECT_NONE;
+    s_path_import_calculated_table_crc32 = 0u;
+    s_path_import_active = true;
+    s_status.last_error = CALIBRATION_PATH_REJECT_NONE;
+    osal_critical_exit();
+    return true;
+}
+
+bool calibration_manager_import_path_link(
+    uint32_t link_index,
+    const calibration_path_link_evidence_t *link)
+{
+    if (link == NULL || link_index >= CALIBRATION_PATH_MAX_LINKS) {
+        calibration_manager_set_path_reject(CALIBRATION_PATH_REJECT_ARGUMENT);
+        return false;
+    }
+    osal_critical_enter();
+    if (!s_path_import_active || link_index >= s_path_import_header.link_count ||
+        (s_path_import_valid_link_bitmap & (1u << link_index)) != 0u) {
+        s_path_import_reject_reason = CALIBRATION_PATH_REJECT_LINK;
+        s_status.last_error = CALIBRATION_PATH_REJECT_LINK;
+        osal_critical_exit();
+        return false;
+    }
+    if (link->source_node != link_index ||
+        link->destination_node !=
+            ((link_index + 1u) % s_path_import_header.link_count) ||
+        link->profile_crc32 != s_path_import_header.profile_crc32 ||
+        link->topology_generation != s_path_import_header.topology_generation ||
+        link->bias_generation != s_path_import_header.bias_generation) {
+        s_path_import_reject_reason = CALIBRATION_PATH_REJECT_GENERATION;
+        s_status.last_error = CALIBRATION_PATH_REJECT_GENERATION;
+        osal_critical_exit();
+        return false;
+    }
+    s_path_import_links[link_index] = *link;
+    s_path_import_valid_link_bitmap |= 1u << link_index;
+    s_path_import_reject_reason = CALIBRATION_PATH_REJECT_NONE;
+    s_status.last_error = CALIBRATION_PATH_REJECT_NONE;
+    osal_critical_exit();
+    return true;
+}
+
+bool calibration_manager_finalize_path_import(void)
+{
+    calibration_path_import_header_t header;
+    calibration_path_link_evidence_t links[CALIBRATION_PATH_MAX_LINKS];
+    uint32_t valid_bitmap;
+    osal_critical_enter();
+    if (!s_path_import_active) {
+        s_path_import_reject_reason = CALIBRATION_PATH_REJECT_ARGUMENT;
+        s_status.last_error = CALIBRATION_PATH_REJECT_ARGUMENT;
+        osal_critical_exit();
+        return false;
+    }
+    header = s_path_import_header;
+    memcpy(links, s_path_import_links, sizeof(links));
+    valid_bitmap = s_path_import_valid_link_bitmap;
+    osal_critical_exit();
+
+    if (valid_bitmap != ((1u << header.link_count) - 1u)) {
+        calibration_manager_set_path_reject(CALIBRATION_PATH_REJECT_LINK);
+        return false;
+    }
+    const uint32_t context_reject = calibration_manager_path_context_reject(
+        header.link_count,
+        header.topology_generation,
+        header.topology_crc32,
+        header.bias_generation,
+        header.profile_crc32,
+        header.schedule_crc32,
+        header.calibration_generation);
+    if (context_reject != CALIBRATION_PATH_REJECT_NONE) {
+        calibration_manager_set_path_reject(context_reject);
+        return false;
+    }
+    const calibration_path_gate_t gate = {
+        .expected_topology_generation = header.topology_generation,
+        .expected_topology_crc32 = header.topology_crc32,
+        .expected_bias_generation = header.bias_generation,
+        .expected_profile_crc32 = header.profile_crc32,
+        .expected_schedule_crc32 = header.schedule_crc32,
+        .calibration_generation = header.calibration_generation,
+        .freshness_us = header.freshness_us,
+        .max_residual_ns = header.max_residual_ns,
+        .max_jitter_ns = header.max_jitter_ns,
+        .max_asymmetry_ns = header.max_asymmetry_ns,
+        .require_hardware_latch = true,
+        .require_repeat_statistics = true,
+        .require_asymmetry_bound = true,
+        .require_ring_round_trip = true,
+    };
+    calibration_path_snapshot_t candidate = {0};
+    const bool built = calibration_path_snapshot_build(
+        links, header.link_count, header.ring_round_trip_ns,
+        header.forwarding_residence_ns, &gate, &candidate);
+    osal_critical_enter();
+    s_path_import_calculated_table_crc32 = candidate.table_crc32;
+    osal_critical_exit();
+    if (!built) {
+        calibration_manager_set_path_reject(
+            candidate.reject_reason != CALIBRATION_PATH_REJECT_NONE
+                ? candidate.reject_reason
+                : CALIBRATION_PATH_REJECT_ARGUMENT);
+        return false;
+    }
+    if (candidate.table_crc32 != header.expected_table_crc32) {
+        calibration_manager_set_path_reject(CALIBRATION_PATH_REJECT_CRC);
+        return false;
+    }
+    if (!calibration_manager_stage_path_candidate_at_age(
+            &candidate, header.evidence_age_us)) {
+        return false;
+    }
+    osal_critical_enter();
+    s_path_import_active = false;
+    s_path_import_reject_reason = CALIBRATION_PATH_REJECT_NONE;
+    osal_critical_exit();
+    return true;
+}
+
+bool calibration_manager_clear_path_import(void)
+{
+    osal_critical_enter();
+    memset(&s_path_import_header, 0, sizeof(s_path_import_header));
+    memset(s_path_import_links, 0, sizeof(s_path_import_links));
+    s_path_import_valid_link_bitmap = 0u;
+    s_path_import_active = false;
+    s_path_import_reject_reason = CALIBRATION_PATH_REJECT_NONE;
+    s_path_import_calculated_table_crc32 = 0u;
+    osal_critical_exit();
+    return true;
+}
+
+bool calibration_manager_get_path_import_status(
+    calibration_path_import_status_t *status)
+{
+    if (status == NULL) return false;
+    osal_critical_enter();
+    memset(status, 0, sizeof(*status));
+    status->active = s_path_import_active ? 1u : 0u;
+    status->valid_link_bitmap = s_path_import_valid_link_bitmap;
+    status->reject_reason = s_path_import_reject_reason;
+    status->header = s_path_import_header;
+    status->complete = s_path_import_header.link_count >= 2u &&
+        s_path_import_valid_link_bitmap ==
+            ((1u << s_path_import_header.link_count) - 1u);
+    status->expected_table_crc32 = s_path_import_header.expected_table_crc32;
+    status->calculated_table_crc32 = s_path_import_calculated_table_crc32;
+    osal_critical_exit();
+    return true;
+}
+
+bool calibration_manager_get_path_import_link(
+    uint32_t link_index,
+    calibration_path_link_evidence_t *link,
+    bool *valid)
+{
+    if (link == NULL || valid == NULL || link_index >= CALIBRATION_PATH_MAX_LINKS) {
+        return false;
+    }
+    osal_critical_enter();
+    *link = s_path_import_links[link_index];
+    *valid = (s_path_import_valid_link_bitmap & (1u << link_index)) != 0u;
     osal_critical_exit();
     return true;
 }
@@ -529,6 +827,8 @@ bool calibration_manager_clear_path_candidate(void)
 {
     osal_critical_enter();
     memset(&s_path_candidate, 0, sizeof(s_path_candidate));
+    s_path_candidate_staged_ms = 0u;
+    s_path_candidate_initial_age_us = 0u;
     osal_critical_exit();
     return true;
 }
@@ -565,7 +865,8 @@ bool calibration_manager_get_rollback_path(
 
 static calibration_path_activation_gate_t
 calibration_manager_path_activation_gate(
-    const calibration_path_snapshot_t *snapshot)
+    const calibration_path_snapshot_t *snapshot,
+    uint32_t evidence_age_us)
 {
     return (calibration_path_activation_gate_t){
         .expected_topology_generation = snapshot->topology_generation,
@@ -574,11 +875,23 @@ calibration_manager_path_activation_gate(
         .expected_profile_crc32 = snapshot->profile_crc32,
         .expected_schedule_crc32 = snapshot->schedule_crc32,
         .calibration_generation = snapshot->calibration_generation,
-        /* The snapshot is accepted only after the host freshness gate.  A
-         * zero age here means activation does not manufacture a second clock
-         * for evidence; the snapshot's freshness bound remains authoritative. */
-        .evidence_age_us = 0u,
+        .evidence_age_us = evidence_age_us,
     };
+}
+
+static uint32_t calibration_manager_path_candidate_age_us(void)
+{
+    uint32_t staged_ms;
+    uint32_t initial_age_us;
+    osal_critical_enter();
+    staged_ms = s_path_candidate_staged_ms;
+    initial_age_us = s_path_candidate_initial_age_us;
+    osal_critical_exit();
+    const uint32_t elapsed_ms = board_uptime_ms() - staged_ms;
+    if (elapsed_ms > UINT32_MAX / 1000u) return UINT32_MAX;
+    const uint32_t elapsed_us = elapsed_ms * 1000u;
+    if (initial_age_us > UINT32_MAX - elapsed_us) return UINT32_MAX;
+    return initial_age_us + elapsed_us;
 }
 
 bool calibration_manager_activate_path_candidate(void)
@@ -594,8 +907,10 @@ bool calibration_manager_activate_path_candidate(void)
         return false;
     }
     const bool has_active = calibration_manager_get_active_path(&active);
+    const uint32_t evidence_age_us =
+        calibration_manager_path_candidate_age_us();
     const calibration_path_activation_gate_t gate =
-        calibration_manager_path_activation_gate(&candidate);
+        calibration_manager_path_activation_gate(&candidate, evidence_age_us);
     if (!calibration_path_snapshot_activate(
             &candidate, has_active ? &active : NULL, &gate,
             &next_active, &next_rollback)) {
@@ -617,6 +932,8 @@ bool calibration_manager_activate_path_candidate(void)
     s_path_active = next_active;
     s_path_rollback = next_rollback;
     memset(&s_path_candidate, 0, sizeof(s_path_candidate));
+    s_path_candidate_staged_ms = 0u;
+    s_path_candidate_initial_age_us = 0u;
     s_status.active_crc32 = next_active.table_crc32;
     s_status.last_error = CALIBRATION_PATH_REJECT_NONE;
     osal_critical_exit();
@@ -637,7 +954,7 @@ bool calibration_manager_rollback_path(void)
         return false;
     }
     const calibration_path_activation_gate_t gate =
-        calibration_manager_path_activation_gate(&rollbackable);
+        calibration_manager_path_activation_gate(&rollbackable, 0u);
     if (!calibration_path_snapshot_rollback(
             &active, &rollbackable, &gate, &next_active, &next_rollback)) {
         osal_critical_enter();
@@ -655,6 +972,8 @@ bool calibration_manager_rollback_path(void)
     s_path_active = next_active;
     s_path_rollback = next_rollback;
     memset(&s_path_candidate, 0, sizeof(s_path_candidate));
+    s_path_candidate_staged_ms = 0u;
+    s_path_candidate_initial_age_us = 0u;
     s_status.active_crc32 = next_active.table_crc32;
     s_status.last_error = CALIBRATION_PATH_REJECT_NONE;
     osal_critical_exit();

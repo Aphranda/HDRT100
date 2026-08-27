@@ -291,12 +291,18 @@ static int test_path_snapshot_gate(void)
     calibration_path_snapshot_t snapshot;
     int failed = 0;
     failed += expect_bool("path snapshot accepted",
-                          calibration_path_snapshot_build(links, 4u, 40u,
+                          calibration_path_snapshot_build(links, 4u, 44u, 4u,
                                                           &gate, &snapshot),
                           true);
     failed += expect_u64("path cumulative delay",
                          snapshot.cumulative_delay_ns, 40u);
+    failed += expect_u64("path forwarding residence",
+                         snapshot.forwarding_residence_ns, 4u);
+    failed += expect_u64("path predicted ring RTT",
+                         snapshot.predicted_ring_round_trip_ns, 44u);
     failed += expect_u64("path residual", snapshot.residual_ns, 0u);
+    failed += expect_u32("path snapshot CRC golden", snapshot.table_crc32,
+                         0x33AE8F3Fu);
     failed += expect_bool("path candidate valid",
                           calibration_path_snapshot_validate_candidate(
                               &snapshot), true);
@@ -327,13 +333,13 @@ static int test_path_snapshot_gate(void)
                               &snapshot), false);
     links[2].bias_generation++;
     failed += expect_bool("path generation rejected",
-                          calibration_path_snapshot_build(links, 4u, 40u,
+                          calibration_path_snapshot_build(links, 4u, 44u, 4u,
                                                           &gate, &snapshot),
                           false);
     links[2].bias_generation--;
     links[2].asymmetry_ns = gate.max_asymmetry_ns + 1u;
     failed += expect_bool("path asymmetry rejected",
-                          calibration_path_snapshot_build(links, 4u, 40u,
+                          calibration_path_snapshot_build(links, 4u, 44u, 4u,
                                                           &gate, &snapshot),
                           false);
     return failed;
@@ -390,7 +396,7 @@ static int test_path_snapshot_activation_and_rollback(void)
 
     failed += expect_bool("build candidate 1",
                           calibration_path_snapshot_build(
-                              links, 2u, 20u, &gate, &candidate1), true);
+                              links, 2u, 20u, 0u, &gate, &candidate1), true);
     failed += expect_bool("activate candidate 1",
                           calibration_path_snapshot_activate(
                               &candidate1, NULL, &activation_gate,
@@ -398,7 +404,7 @@ static int test_path_snapshot_activation_and_rollback(void)
     gate.calibration_generation = 12u;
     failed += expect_bool("build candidate 2",
                           calibration_path_snapshot_build(
-                              links, 2u, 20u, &gate, &candidate2), true);
+                              links, 2u, 20u, 0u, &gate, &candidate2), true);
     activation_gate.calibration_generation = candidate2.calibration_generation;
     failed += expect_bool("activate candidate 2",
                           calibration_path_snapshot_activate(

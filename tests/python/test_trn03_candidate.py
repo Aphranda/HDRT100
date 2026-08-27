@@ -10,6 +10,12 @@ from tools.calibration_ring_validate.trn03_candidate import (
     rollback_candidate,
     refresh_candidate_crc32,
 )
+from tools.calibration_ring_validate.trn03_candidate_import import (
+    begin_command,
+    candidate_to_import,
+    link_command,
+    snapshot_crc32,
+)
 
 
 BOARD_ORDER = ["n0", "n1", "n2", "n3"]
@@ -79,7 +85,7 @@ def closed_loop(rtt: int = 400) -> dict:
     }
 
 
-def p3() -> dict:
+def p3(generation: int = 210) -> dict:
     trials = []
     for link, source in enumerate(BOARD_ORDER):
         destination = BOARD_ORDER[(link + 1) % 4]
@@ -113,10 +119,27 @@ def p3() -> dict:
                     "epoch": repeat + 1,
                 },
                 "passed": True,
+                "residence_ns": 20,
+                "asymmetry_ns": 1,
+                "clock_rate_error_bound_ns": 4,
             })
     return {
         "passed": True,
         "board_ids_in_physical_order": list(BOARD_ORDER),
+        "whole_ring_path_evidence": {
+            "persona": "P3_PATH_V1",
+            "hardware_latched": True,
+            "board_ids_in_physical_node_order": list(BOARD_ORDER),
+            "calibration_generation": generation,
+            "topology_generation": 3,
+            "topology_crc32": 100,
+            "profile_crc32": 200,
+            "schedule_crc32": 300,
+            "sample_count": 3,
+            "accepted_count": 3,
+            "ring_round_trip_ns": [340, 340, 340],
+            "forwarding_residence_ns": [20, 20, 20],
+        },
         "trials": trials,
     }
 
@@ -153,6 +176,10 @@ def test_candidate_accepts_replayed_hardware_evidence() -> None:
     assert [link["delay_ns"] for link in result["path_links"]] == [80] * 4
     assert all(link["path_base_residual_ns"] == 0
                for link in result["path_links"])
+    assert result["whole_ring_path"]["cumulative_delay_ns"] == 320
+    assert result["whole_ring_path"]["forwarding_residence_ns"] == 20
+    assert result["whole_ring_path"]["ring_round_trip_ns"] == 340
+    assert result["whole_ring_path"]["residual_ns"] == 0
     assert result["candidate_crc32"] != 0
     original_crc = result["candidate_crc32"]
     result["sources"] = [{"sha256": "abc"}]
@@ -196,6 +223,17 @@ def test_candidate_rejects_path_base_residual() -> None:
     assert "link1:path_base_residual" in result["gate_failures"]
 
 
+def test_candidate_rejects_missing_same_persona_ring_and_asymmetry() -> None:
+    bad_p3 = deepcopy(p3())
+    del bad_p3["whole_ring_path_evidence"]
+    del bad_p3["trials"][0]["asymmetry_ns"]
+    result = build_candidate(
+        config(), [closed_loop(), closed_loop()], bad_p3, bias_set())
+    assert result["passed"] is False
+    assert "whole_ring_path_evidence" in result["gate_failures"]
+    assert "link0:path_hardware_repeat0" in result["gate_failures"]
+
+
 def test_candidate_replays_explicit_non_active_offset_row() -> None:
     selected = config()
     row0 = deepcopy(selected["offset_matrix"]["rows"][0])
@@ -233,6 +271,104 @@ def test_candidate_rejects_closed_loop_from_different_offset_row() -> None:
     assert "closed_loop0:offset_row" in result["gate_failures"]
 
 
+def test_candidate_converts_to_board_import_and_crc_commands() -> None:
+    candidate = build_candidate(
+        config(), [closed_loop(), closed_loop(404)], p3(), bias_set(),
+        evidence_ages_seconds=[1, 2, 3, 4])
+    package = candidate_to_import(
+        candidate, now=float(candidate["generated_unix_seconds"]))
+    header = package["header"]
+    assert package["schema"] == "HAOFV_TRN03_BOARD_IMPORT_V1"
+    assert header["link_count"] == 4
+    assert header["evidence_age_us"] == 4_000_000
+    assert header["ring_round_trip_ns"] == 340
+    assert header["forwarding_residence_ns"] == 20
+    assert header["expected_table_crc32"] == snapshot_crc32(
+        package["expected_snapshot"])
+    assert begin_command(package).startswith(
+        "CALibration:PATH:CANDidate:BEGin 4,3,100,7,200,300,210,")
+    assert link_command(package["links"][0]).startswith(
+        "CALibration:PATH:CANDidate:LINK 0,0,1,200,3,7,3,3,")
+
+
+def test_candidate_import_rejects_rejected_or_stale_package() -> None:
+    candidate = build_candidate(
+        config(), [closed_loop(), closed_loop()], p3(), bias_set(),
+        evidence_ages_seconds=[1])
+    candidate["passed"] = False
+    refresh_candidate_crc32(candidate)
+    try:
+        candidate_to_import(candidate)
+    except ValueError as exc:
+        assert "admissible inactive" in str(exc)
+    else:
+        raise AssertionError("rejected staging package was imported")
+
+    candidate = build_candidate(
+        config(), [closed_loop(), closed_loop()], p3(), bias_set(),
+        evidence_ages_seconds=[3599], maximum_evidence_age_seconds=3600)
+    try:
+        candidate_to_import(
+            candidate, now=float(candidate["generated_unix_seconds"]) + 2)
+    except ValueError as exc:
+        assert "stale" in str(exc)
+    else:
+        raise AssertionError("stale package was imported")
+
+
+def test_candidate_import_rejects_bad_json_crc() -> None:
+    candidate = build_candidate(
+        config(), [closed_loop(), closed_loop()], p3(), bias_set(),
+        evidence_ages_seconds=[1])
+    candidate["candidate_crc32"] ^= 1
+    try:
+        candidate_to_import(candidate)
+    except ValueError as exc:
+        assert "admissible inactive" in str(exc)
+    else:
+        raise AssertionError("candidate with bad JSON CRC was imported")
+
+
+def test_candidate_import_rejects_missing_and_duplicate_links() -> None:
+    candidate = build_candidate(
+        config(), [closed_loop(), closed_loop()], p3(), bias_set(),
+        evidence_ages_seconds=[1])
+    candidate["path_links"].pop()
+    refresh_candidate_crc32(candidate)
+    try:
+        candidate_to_import(candidate)
+    except ValueError as exc:
+        assert "incomplete" in str(exc)
+    else:
+        raise AssertionError("candidate with a missing link was imported")
+
+    candidate = build_candidate(
+        config(), [closed_loop(), closed_loop()], p3(), bias_set(),
+        evidence_ages_seconds=[1])
+    candidate["path_links"][-1]["link_index"] = 0
+    refresh_candidate_crc32(candidate)
+    try:
+        candidate_to_import(candidate)
+    except ValueError as exc:
+        assert "duplicated" in str(exc)
+    else:
+        raise AssertionError("candidate with a duplicate link was imported")
+
+
+def test_candidate_import_rejects_wrong_whole_ring_persona() -> None:
+    candidate = build_candidate(
+        config(), [closed_loop(), closed_loop()], p3(), bias_set(),
+        evidence_ages_seconds=[1])
+    candidate["whole_ring_path"]["persona"] = "PROCESS_IMAGE_V1"
+    refresh_candidate_crc32(candidate)
+    try:
+        candidate_to_import(candidate)
+    except ValueError as exc:
+        assert "P3_PATH_V1" in str(exc)
+    else:
+        raise AssertionError("candidate with a mismatched persona was imported")
+
+
 def test_candidate_lifecycle_activate_and_rollback() -> None:
     candidate1 = build_candidate(
         config(), [closed_loop(), closed_loop(404)], p3(), bias_set())
@@ -249,7 +385,7 @@ def test_candidate_lifecycle_activate_and_rollback() -> None:
     for loop in next_loops:
         loop["calibration_generation"] = 211
     candidate2 = build_candidate(
-        next_config, next_loops, p3(), bias_set())
+        next_config, next_loops, p3(211), bias_set())
     active2, rollback1 = activate_candidate(candidate2, active1)
     assert active2["calibration_generation"] == 211
     assert rollback1["state"] == "rollbackable"

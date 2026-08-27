@@ -238,7 +238,8 @@ def validate_bias_set(
 def validate_paths(
         p3: dict[str, Any], config: dict[str, Any],
         board_order: Sequence[str], bias_nodes: dict[int, dict[str, Any]],
-        minimum_repeats: int, maximum_residual_ns: float
+        minimum_repeats: int, maximum_residual_ns: float,
+        maximum_jitter_ns: float, maximum_asymmetry_ns: int
         ) -> tuple[list[dict[str, Any]], list[str]]:
     failures: list[str] = []
     count = len(board_order)
@@ -287,7 +288,16 @@ def validate_paths(
                 int(responder.get("pio_stall_count", -1)) == 0 and
                 int(initiator.get("epoch", -1)) ==
                 int(responder.get("epoch", -2)) ==
-                int(trial.get("epoch", -3)))
+                int(trial.get("epoch", -3)) and
+                not isinstance(trial.get("asymmetry_ns"), bool) and
+                isinstance(trial.get("asymmetry_ns"), int) and
+                0 <= int(trial["asymmetry_ns"]) <= maximum_asymmetry_ns and
+                not isinstance(trial.get("clock_rate_error_bound_ns"), bool) and
+                isinstance(trial.get("clock_rate_error_bound_ns"), int) and
+                int(trial["clock_rate_error_bound_ns"]) >= 0 and
+                not isinstance(trial.get("residence_ns"), bool) and
+                isinstance(trial.get("residence_ns"), int) and
+                int(trial["residence_ns"]) >= 0)
             if not hardware_ok:
                 failures.append(f"link{index}:path_hardware_repeat{repeat}")
             elif bool(trial.get("passed")):
@@ -308,6 +318,16 @@ def validate_paths(
             continue
         delays = [value / 2.0 for value in corrected_path_sums]
         delay_ns = statistics.median(delays)
+        jitter_span_ns = max(delays) - min(delays)
+        if jitter_span_ns > maximum_jitter_ns:
+            failures.append(f"link{index}:path_jitter")
+        asymmetry_ns = max(int(trial["asymmetry_ns"])
+                           for trial in accepted)
+        residence_values = [int(trial["residence_ns"])
+                            for trial in accepted]
+        clock_error_bound_ns = max(
+            int(trial["clock_rate_error_bound_ns"])
+            for trial in accepted)
         base_delay_ns = int(links[index]["link_base_delay_ns"])
         residual_ns = delay_ns - 2.0 * base_delay_ns
         if abs(residual_ns) > maximum_residual_ns:
@@ -322,10 +342,13 @@ def validate_paths(
             "accepted_count": len(accepted),
             "raw_path_sum_ns": [float(trial["path_sum_ns"])
                                 for trial in accepted],
+            "residence_ns": residence_values,
             "endpoint_bias_ns": endpoint_bias,
             "corrected_path_sum_ns": corrected_path_sums,
             "delay_ns": delay_ns,
-            "jitter_span_ns": max(delays) - min(delays),
+            "jitter_span_ns": jitter_span_ns,
+            "asymmetry_ns": asymmetry_ns,
+            "clock_rate_error_bound_ns": clock_error_bound_ns,
             "link_base_delay_ns": base_delay_ns,
             "path_base_residual_ns": residual_ns,
             "forward_residence_cycles":
@@ -336,12 +359,73 @@ def validate_paths(
     return results, failures
 
 
+def validate_whole_ring_path(
+        p3: dict[str, Any], config: dict[str, Any],
+        board_order: Sequence[str], paths: Sequence[dict[str, Any]],
+        minimum_repeats: int, maximum_residual_ns: int
+        ) -> tuple[dict[str, Any], list[str]]:
+    evidence = p3.get("whole_ring_path_evidence")
+    if not isinstance(evidence, dict):
+        return {}, ["whole_ring_path_evidence"]
+    failures: list[str] = []
+    if (evidence.get("persona") != "P3_PATH_V1" or
+            not bool(evidence.get("hardware_latched"))):
+        failures.append("whole_ring:persona")
+    if evidence.get("board_ids_in_physical_node_order") != list(board_order):
+        failures.append("whole_ring:node_order")
+    for field in ("calibration_generation", "topology_generation",
+                  "topology_crc32", "profile_crc32", "schedule_crc32"):
+        if int(evidence.get(field, 0)) != int(config[field]):
+            failures.append(f"whole_ring:{field}")
+    sample_count = int(evidence.get("sample_count", 0))
+    accepted_count = int(evidence.get("accepted_count", 0))
+    rtt_values = evidence.get("ring_round_trip_ns")
+    residence_values = evidence.get("forwarding_residence_ns")
+    if (sample_count < minimum_repeats or accepted_count != sample_count or
+            not isinstance(rtt_values, list) or
+            not isinstance(residence_values, list) or
+            len(rtt_values) != sample_count or
+            len(residence_values) != sample_count or
+            any(isinstance(value, bool) or not isinstance(value, int) or
+                value <= 0 for value in rtt_values) or
+            any(isinstance(value, bool) or not isinstance(value, int) or
+                value <= 0 for value in residence_values)):
+        return {}, failures + ["whole_ring:repeat_gate"]
+    cumulative_delay_ns = sum(float(path["delay_ns"]) for path in paths)
+    forwarding_residence_ns = float(statistics.median(residence_values))
+    ring_round_trip_ns = float(statistics.median(rtt_values))
+    predicted_ring_round_trip_ns = (
+        cumulative_delay_ns + forwarding_residence_ns)
+    residual_ns = abs(ring_round_trip_ns - predicted_ring_round_trip_ns)
+    if residual_ns > maximum_residual_ns:
+        failures.append("whole_ring:residual")
+    integer_values = (
+        cumulative_delay_ns, forwarding_residence_ns,
+        ring_round_trip_ns, predicted_ring_round_trip_ns, residual_ns)
+    if any(not value.is_integer() for value in integer_values):
+        failures.append("whole_ring:sub_ns_quantization")
+    return {
+        "persona": "P3_PATH_V1",
+        "sample_count": sample_count,
+        "accepted_count": accepted_count,
+        "cumulative_delay_ns": int(cumulative_delay_ns),
+        "forwarding_residence_ns": int(forwarding_residence_ns),
+        "predicted_ring_round_trip_ns": int(predicted_ring_round_trip_ns),
+        "ring_round_trip_ns": int(ring_round_trip_ns),
+        "residual_ns": int(residual_ns),
+        "maximum_residual_ns": maximum_residual_ns,
+    }, failures
+
+
 def build_candidate(
         config: dict[str, Any], closed_loops: Sequence[dict[str, Any]],
         p3: dict[str, Any], bias_set: dict[str, Any], *,
         minimum_closed_loop_repeats: int = 2,
         minimum_path_repeats: int = 3,
         maximum_path_base_residual_ns: float = 4.0,
+        maximum_path_jitter_ns: float = 4.0,
+        maximum_path_asymmetry_ns: int = 4,
+        maximum_whole_ring_residual_ns: int = 8,
         evidence_ages_seconds: Sequence[float] = (),
         maximum_evidence_age_seconds: float = 3600.0,
         offset_row_id: int | None = None
@@ -356,8 +440,13 @@ def build_candidate(
     failures.extend(bias_failures)
     paths, path_failures = validate_paths(
         p3, config, board_order, bias_nodes, minimum_path_repeats,
-        maximum_path_base_residual_ns)
+        maximum_path_base_residual_ns, maximum_path_jitter_ns,
+        maximum_path_asymmetry_ns)
     failures.extend(path_failures)
+    whole_ring, whole_ring_failures = validate_whole_ring_path(
+        p3, config, board_order, paths, minimum_path_repeats,
+        maximum_whole_ring_residual_ns)
+    failures.extend(whole_ring_failures)
     ages = [float(age) for age in evidence_ages_seconds]
     if any(age < 0 or age > maximum_evidence_age_seconds for age in ages):
         failures.append("freshness")
@@ -382,6 +471,7 @@ def build_candidate(
         "closed_loop_repeat_count": len(closed_loops),
         "loop_round_trip_ns": rtt_values,
         "path_links": paths,
+        "whole_ring_path": whole_ring,
         "bias_generation": (int(next(iter(bias_nodes.values()))[
             "generation"]) if bias_nodes else 0),
         "freshness": {
@@ -393,7 +483,12 @@ def build_candidate(
             "minimum_path_repeats": minimum_path_repeats,
             "maximum_path_base_residual_ns":
                 maximum_path_base_residual_ns,
+            "maximum_path_jitter_ns": maximum_path_jitter_ns,
+            "maximum_path_asymmetry_ns": maximum_path_asymmetry_ns,
+            "maximum_whole_ring_residual_ns":
+                maximum_whole_ring_residual_ns,
         },
+        "generated_unix_seconds": time.time(),
     }
     encoded = json.dumps(result, sort_keys=True, separators=(",", ":")).encode()
     result["candidate_crc32"] = zlib.crc32(encoded) & 0xFFFFFFFF
@@ -524,6 +619,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--minimum-path-repeats", type=int, default=3)
     parser.add_argument("--maximum-path-base-residual-ns", type=float,
                         default=4.0)
+    parser.add_argument("--maximum-path-jitter-ns", type=float, default=4.0)
+    parser.add_argument("--maximum-path-asymmetry-ns", type=int, default=4)
+    parser.add_argument("--maximum-whole-ring-residual-ns", type=int,
+                        default=8)
     parser.add_argument("--maximum-evidence-age-seconds", type=float,
                         default=3600.0)
     parser.add_argument(
@@ -537,9 +636,12 @@ def main() -> int:
     args = parse_args()
     try:
         if (args.minimum_closed_loop_repeats < 2 or
-                args.minimum_path_repeats < 2 or
-                args.maximum_path_base_residual_ns < 0 or
-                args.maximum_evidence_age_seconds <= 0):
+            args.minimum_path_repeats < 2 or
+            args.maximum_path_base_residual_ns < 0 or
+            args.maximum_path_jitter_ns <= 0 or
+            args.maximum_path_asymmetry_ns <= 0 or
+            args.maximum_whole_ring_residual_ns <= 0 or
+            args.maximum_evidence_age_seconds <= 0):
             raise ValueError("candidate thresholds are outside allowed range")
         # load_config performs the same matrix gate used by board staging.
         resolved_config = load_config(args.config, args.offset_row_id)
@@ -564,6 +666,10 @@ def main() -> int:
             minimum_path_repeats=args.minimum_path_repeats,
             maximum_path_base_residual_ns=
                 args.maximum_path_base_residual_ns,
+            maximum_path_jitter_ns=args.maximum_path_jitter_ns,
+            maximum_path_asymmetry_ns=args.maximum_path_asymmetry_ns,
+            maximum_whole_ring_residual_ns=
+                args.maximum_whole_ring_residual_ns,
             evidence_ages_seconds=[source["age_seconds"] for source in sources
                                    if source["freshness_checked"]],
             maximum_evidence_age_seconds=args.maximum_evidence_age_seconds,

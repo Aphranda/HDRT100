@@ -65,6 +65,34 @@ typedef struct {
     uint32_t consumed_sequence;
 } calibration_ring_capture_debug_t;
 
+typedef struct {
+    uint32_t link_count;
+    uint32_t topology_generation;
+    uint32_t topology_crc32;
+    uint32_t bias_generation;
+    uint32_t profile_crc32;
+    uint32_t schedule_crc32;
+    uint32_t calibration_generation;
+    uint32_t freshness_us;
+    uint32_t evidence_age_us;
+    uint64_t ring_round_trip_ns;
+    uint64_t forwarding_residence_ns;
+    uint32_t max_residual_ns;
+    uint32_t max_jitter_ns;
+    uint32_t max_asymmetry_ns;
+    uint32_t expected_table_crc32;
+} calibration_path_import_header_t;
+
+typedef struct {
+    uint32_t active;
+    uint32_t complete;
+    uint32_t valid_link_bitmap;
+    uint32_t reject_reason;
+    uint32_t expected_table_crc32;
+    uint32_t calculated_table_crc32;
+    calibration_path_import_header_t header;
+} calibration_path_import_status_t;
+
 bool calibration_manager_init(void);
 void calibration_manager_set_ready(bool ready);
 void calibration_manager_service(void);
@@ -234,6 +262,19 @@ bool calibration_manager_get_active_path(
     calibration_path_snapshot_t *active);
 bool calibration_manager_get_rollback_path(
     calibration_path_snapshot_t *rollbackable);
+bool calibration_manager_begin_path_import(
+    const calibration_path_import_header_t *header);
+bool calibration_manager_import_path_link(
+    uint32_t link_index,
+    const calibration_path_link_evidence_t *link);
+bool calibration_manager_finalize_path_import(void);
+bool calibration_manager_clear_path_import(void);
+bool calibration_manager_get_path_import_status(
+    calibration_path_import_status_t *status);
+bool calibration_manager_get_path_import_link(
+    uint32_t link_index,
+    calibration_path_link_evidence_t *link,
+    bool *valid);
 bool calibration_manager_activate_path_candidate(void);
 bool calibration_manager_rollback_path(void);
 

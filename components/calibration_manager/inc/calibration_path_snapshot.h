@@ -16,6 +16,10 @@ typedef enum {
     CALIBRATION_PATH_REJECT_GENERATION = 4u,
     CALIBRATION_PATH_REJECT_RING_RESIDUAL = 5u,
     CALIBRATION_PATH_REJECT_FRESHNESS = 6u,
+    CALIBRATION_PATH_REJECT_STAGE = 7u,
+    CALIBRATION_PATH_REJECT_BIAS = 8u,
+    CALIBRATION_PATH_REJECT_CRC = 9u,
+    CALIBRATION_PATH_REJECT_REPLAY = 10u,
 } calibration_path_reject_reason_t;
 
 #define CALIBRATION_PATH_FLAG_VALID (1u << 0u)
@@ -57,6 +61,8 @@ typedef struct {
     uint32_t calibration_generation;
     uint32_t freshness_us;
     uint64_t cumulative_delay_ns;
+    uint64_t forwarding_residence_ns;
+    uint64_t predicted_ring_round_trip_ns;
     uint64_t ring_round_trip_ns;
     uint64_t residual_ns;
     uint32_t table_crc32;
@@ -96,6 +102,7 @@ bool calibration_path_snapshot_build(
     const calibration_path_link_evidence_t *links,
     uint32_t link_count,
     uint64_t ring_round_trip_ns,
+    uint64_t forwarding_residence_ns,
     const calibration_path_gate_t *gate,
     calibration_path_snapshot_t *snapshot);
 bool calibration_path_snapshot_validate_candidate(

@@ -708,6 +708,202 @@ scpi_result_t scpi_calibration_training_stage_clear(scpi_t *context)
     return scpi_port_result_ok(context);
 }
 
+scpi_result_t scpi_calibration_path_candidate_begin(scpi_t *context)
+{
+    calibration_path_import_header_t header = {0};
+    if (SCPI_ParamUInt32(context, &header.link_count, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &header.topology_generation, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &header.topology_crc32, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &header.bias_generation, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &header.profile_crc32, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &header.schedule_crc32, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &header.calibration_generation, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &header.freshness_us, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &header.evidence_age_us, TRUE) != TRUE ||
+        SCPI_ParamUInt64(context, &header.ring_round_trip_ns, TRUE) != TRUE ||
+        SCPI_ParamUInt64(context,
+                        &header.forwarding_residence_ns, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &header.max_residual_ns, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &header.max_jitter_ns, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &header.max_asymmetry_ns, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &header.expected_table_crc32, TRUE) != TRUE ||
+        !calibration_manager_begin_path_import(&header)) {
+        scpi_port_push_exec_error(context, "CAL_PATH_BEGIN_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, header.link_count);
+    SCPI_ResultUInt32(context, header.calibration_generation);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_path_candidate_link(scpi_t *context)
+{
+    uint32_t link_index = 0u;
+    calibration_path_link_evidence_t link = {0};
+    uint32_t reference_accepted = 0u;
+    uint32_t active_eligible = 0u;
+    if (SCPI_ParamUInt32(context, &link_index, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &link.source_node, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &link.destination_node, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &link.profile_crc32, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &link.topology_generation, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &link.bias_generation, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &link.sample_count, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &link.accepted_count, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &link.jitter_ns, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &link.asymmetry_ns, TRUE) != TRUE ||
+        SCPI_ParamUInt64(context, &link.measurement.residence_ns, TRUE) != TRUE ||
+        SCPI_ParamUInt64(context, &link.measurement.raw_path_sum_ns, TRUE) != TRUE ||
+        SCPI_ParamInt64(context,
+                       &link.measurement.corrected_path_sum_ns, TRUE) != TRUE ||
+        SCPI_ParamInt64(context,
+                       &link.measurement.delay_estimate_ns, TRUE) != TRUE ||
+        SCPI_ParamUInt64(context,
+                        &link.measurement.clock_rate_error_bound_ns,
+                        TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &link.measurement.reject_reason, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &reference_accepted, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &active_eligible, TRUE) != TRUE ||
+        reference_accepted > 1u || active_eligible > 1u) {
+        scpi_port_push_exec_error(context, "CAL_PATH_LINK_ARGUMENT");
+        return SCPI_RES_ERR;
+    }
+    link.measurement.reference_accepted = reference_accepted != 0u;
+    link.measurement.active_eligible = active_eligible != 0u;
+    if (!calibration_manager_import_path_link(link_index, &link)) {
+        scpi_port_push_exec_error(context, "CAL_PATH_LINK_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, link_index);
+    SCPI_ResultUInt32(context, link.source_node);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_path_candidate_finalize(scpi_t *context)
+{
+    if (!calibration_manager_finalize_path_import()) {
+        scpi_port_push_exec_error(context, "CAL_PATH_FINALIZE_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_calibration_path_candidate_clear(scpi_t *context)
+{
+    if (!calibration_manager_clear_path_import() ||
+        !calibration_manager_clear_path_candidate()) {
+        scpi_port_push_exec_error(context, "CAL_PATH_CLEAR_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_ok(context);
+}
+
+static scpi_result_t scpi_calibration_path_snapshot_result(
+    scpi_t *context, const char *tag,
+    const calibration_path_snapshot_t *snapshot, bool valid)
+{
+    SCPI_ResultText(context, tag);
+    SCPI_ResultBool(context, valid ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, valid ? snapshot->link_count : 0u);
+    SCPI_ResultUInt32(context, valid ? snapshot->topology_generation : 0u);
+    SCPI_ResultUInt32(context, valid ? snapshot->topology_crc32 : 0u);
+    SCPI_ResultUInt32(context, valid ? snapshot->bias_generation : 0u);
+    SCPI_ResultUInt32(context, valid ? snapshot->profile_crc32 : 0u);
+    SCPI_ResultUInt32(context, valid ? snapshot->schedule_crc32 : 0u);
+    SCPI_ResultUInt32(context, valid ? snapshot->calibration_generation : 0u);
+    SCPI_ResultUInt32(context, valid ? snapshot->freshness_us : 0u);
+    SCPI_ResultUInt64(context, valid ? snapshot->cumulative_delay_ns : 0u);
+    SCPI_ResultUInt64(context,
+                      valid ? snapshot->forwarding_residence_ns : 0u);
+    SCPI_ResultUInt64(context,
+                      valid ? snapshot->predicted_ring_round_trip_ns : 0u);
+    SCPI_ResultUInt64(context, valid ? snapshot->ring_round_trip_ns : 0u);
+    SCPI_ResultUInt64(context, valid ? snapshot->residual_ns : 0u);
+    SCPI_ResultUInt32(context, valid ? snapshot->table_crc32 : 0u);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_path_candidate_q(scpi_t *context)
+{
+    calibration_path_import_status_t import_status;
+    calibration_path_snapshot_t candidate;
+    const bool candidate_valid = calibration_manager_get_path_candidate(&candidate);
+    if (!calibration_manager_get_path_import_status(&import_status)) {
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "CALPATHCAND");
+    SCPI_ResultUInt32(context, import_status.active);
+    SCPI_ResultUInt32(context, import_status.complete);
+    SCPI_ResultBool(context, candidate_valid ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, import_status.header.link_count);
+    SCPI_ResultUInt32(context, import_status.valid_link_bitmap);
+    SCPI_ResultUInt32(context, import_status.reject_reason);
+    SCPI_ResultUInt32(context, import_status.header.topology_generation);
+    SCPI_ResultUInt32(context, import_status.header.topology_crc32);
+    SCPI_ResultUInt32(context, import_status.header.bias_generation);
+    SCPI_ResultUInt32(context, import_status.header.profile_crc32);
+    SCPI_ResultUInt32(context, import_status.header.schedule_crc32);
+    SCPI_ResultUInt32(context, import_status.header.calibration_generation);
+    SCPI_ResultUInt32(context, import_status.header.freshness_us);
+    SCPI_ResultUInt32(context, import_status.header.evidence_age_us);
+    SCPI_ResultUInt64(context, import_status.header.ring_round_trip_ns);
+    SCPI_ResultUInt64(context,
+                      import_status.header.forwarding_residence_ns);
+    SCPI_ResultUInt32(context, import_status.header.expected_table_crc32);
+    SCPI_ResultUInt32(context, import_status.calculated_table_crc32);
+    SCPI_ResultUInt32(context, candidate_valid ? candidate.table_crc32 : 0u);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_path_candidate_link_q(scpi_t *context)
+{
+    uint32_t link_index = 0u;
+    calibration_path_link_evidence_t link;
+    bool valid = false;
+    if (SCPI_ParamUInt32(context, &link_index, TRUE) != TRUE ||
+        !calibration_manager_get_path_import_link(link_index, &link, &valid)) {
+        scpi_port_push_exec_error(context, "CAL_PATH_LINK_QUERY");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "CALPATHLINK");
+    SCPI_ResultBool(context, valid ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, link_index);
+    SCPI_ResultUInt32(context, link.source_node);
+    SCPI_ResultUInt32(context, link.destination_node);
+    SCPI_ResultUInt32(context, link.profile_crc32);
+    SCPI_ResultUInt32(context, link.topology_generation);
+    SCPI_ResultUInt32(context, link.bias_generation);
+    SCPI_ResultUInt32(context, link.sample_count);
+    SCPI_ResultUInt32(context, link.accepted_count);
+    SCPI_ResultUInt32(context, link.jitter_ns);
+    SCPI_ResultUInt32(context, link.asymmetry_ns);
+    SCPI_ResultUInt64(context, link.measurement.residence_ns);
+    SCPI_ResultUInt64(context, link.measurement.raw_path_sum_ns);
+    SCPI_ResultInt64(context, link.measurement.corrected_path_sum_ns);
+    SCPI_ResultInt64(context, link.measurement.delay_estimate_ns);
+    SCPI_ResultUInt64(context, link.measurement.clock_rate_error_bound_ns);
+    SCPI_ResultUInt32(context, link.measurement.reject_reason);
+    SCPI_ResultBool(context, link.measurement.reference_accepted ? TRUE : FALSE);
+    SCPI_ResultBool(context, link.measurement.active_eligible ? TRUE : FALSE);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_path_active_q(scpi_t *context)
+{
+    calibration_path_snapshot_t snapshot = {0};
+    const bool valid = calibration_manager_get_active_path(&snapshot);
+    return scpi_calibration_path_snapshot_result(
+        context, "CALPATHACTIVE", &snapshot, valid);
+}
+
+scpi_result_t scpi_calibration_path_rollback_q(scpi_t *context)
+{
+    calibration_path_snapshot_t snapshot = {0};
+    const bool valid = calibration_manager_get_rollback_path(&snapshot);
+    return scpi_calibration_path_snapshot_result(
+        context, "CALPATHROLLBACK", &snapshot, valid);
+}
+
 scpi_result_t scpi_calibration_bias_start(scpi_t *context)
 {
     uint32_t expected_path_ns = 0u;

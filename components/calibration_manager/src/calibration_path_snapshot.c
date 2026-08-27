@@ -3,7 +3,7 @@
 #include <limits.h>
 #include <string.h>
 
-#define CALIBRATION_PATH_SNAPSHOT_VERSION 1u
+#define CALIBRATION_PATH_SNAPSHOT_VERSION 2u
 #define CALIBRATION_PATH_CRC_OFFSET 2166136261u
 #define CALIBRATION_PATH_CRC_PRIME 16777619u
 
@@ -76,6 +76,8 @@ uint32_t calibration_path_snapshot_crc32(
     hash = hash_u32(hash, snapshot->calibration_generation);
     hash = hash_u32(hash, snapshot->freshness_us);
     hash = hash_u64(hash, snapshot->cumulative_delay_ns);
+    hash = hash_u64(hash, snapshot->forwarding_residence_ns);
+    hash = hash_u64(hash, snapshot->predicted_ring_round_trip_ns);
     hash = hash_u64(hash, snapshot->ring_round_trip_ns);
     hash = hash_u64(hash, snapshot->residual_ns);
     for (uint32_t i = 0u; i < CALIBRATION_PATH_MAX_LINKS; i++) {
@@ -105,6 +107,7 @@ bool calibration_path_snapshot_build(
     const calibration_path_link_evidence_t *links,
     uint32_t link_count,
     uint64_t ring_round_trip_ns,
+    uint64_t forwarding_residence_ns,
     const calibration_path_gate_t *gate,
     calibration_path_snapshot_t *snapshot)
 {
@@ -116,6 +119,7 @@ bool calibration_path_snapshot_build(
     snapshot->version = CALIBRATION_PATH_SNAPSHOT_VERSION;
     snapshot->link_count = link_count;
     snapshot->ring_round_trip_ns = ring_round_trip_ns;
+    snapshot->forwarding_residence_ns = forwarding_residence_ns;
     snapshot->freshness_us = gate->freshness_us;
     snapshot->calibration_generation = gate->calibration_generation;
     snapshot->topology_crc32 = gate->expected_topology_crc32;
@@ -164,9 +168,18 @@ bool calibration_path_snapshot_build(
         snapshot->table_crc32 = calibration_path_snapshot_crc32(snapshot);
         return false;
     }
-    snapshot->residual_ns = ring_round_trip_ns >= snapshot->cumulative_delay_ns
-                                ? ring_round_trip_ns - snapshot->cumulative_delay_ns
-                                : snapshot->cumulative_delay_ns - ring_round_trip_ns;
+    if (UINT64_MAX - snapshot->cumulative_delay_ns <
+        snapshot->forwarding_residence_ns) {
+        snapshot->reject_reason = CALIBRATION_PATH_REJECT_ARGUMENT;
+        snapshot->table_crc32 = calibration_path_snapshot_crc32(snapshot);
+        return false;
+    }
+    snapshot->predicted_ring_round_trip_ns =
+        snapshot->cumulative_delay_ns + snapshot->forwarding_residence_ns;
+    snapshot->residual_ns =
+        ring_round_trip_ns >= snapshot->predicted_ring_round_trip_ns
+            ? ring_round_trip_ns - snapshot->predicted_ring_round_trip_ns
+            : snapshot->predicted_ring_round_trip_ns - ring_round_trip_ns;
     if (gate->max_residual_ns != 0u &&
         snapshot->residual_ns > gate->max_residual_ns) {
         snapshot->reject_reason = CALIBRATION_PATH_REJECT_RING_RESIDUAL;
