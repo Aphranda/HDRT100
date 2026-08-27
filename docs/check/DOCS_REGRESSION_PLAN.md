@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_REGRESSION_PLAN.md`
 Related: `docs/check/DOCS_REGISTRY.md`, `docs/check/DOCS_REGRESSION_TODO.md`
-Last updated: 2026-08-24
+Last updated: 2026-08-27
 
 > 本文件由工作区 `doc-skill/方案_文档自回归体系.md` 归档而来；执行状态与最终调整见 `docs/check/DOCS_REGRESSION_TODO.md`。
 > 设计依据一句话：需求追溯矩阵思想（契约登记）+ docs-as-code 门禁（commit 拦截）。
@@ -52,6 +52,7 @@ Last updated: 2026-08-24
 | C10 | 冲突裁决 | 任何下级文档/代码与本节冲突时，以本节为准并同步修正 | — |
 | C11 | 状态变更需交叉审核 | 登记表 status 变更（新契约登记、VIOLATED→OK）必须由**独立于作者的审核方**确认（agent 交叉 / 文档交叉 / 层间交叉），提交单记录审核方+方式+结论；禁止自审自批 | 提交单字段必填 |
 | C12 | 域文档标准三件套 | 具有架构、实施清单和实施证据的域必须分别维护 Architecture、TODO、Task Progress；语义、状态、证据不得跨文件复制充当事实源 | 文档审查 + DOCS-FLASH-01 |
+| C13 | 三件套最小格式 | Architecture、TODO、Task Progress 必须使用本节定义的最小结构、稳定 ID 和文件接口；新增文件立即执行，既有文件在实质修改时迁移，禁止继续扩散无 ID 清单和混合状态格式 | 文档审查 + DOCS-TRIPLETFORMAT-01 |
 
 约束传递方向（单向收敛）：
 
@@ -69,6 +70,19 @@ Last updated: 2026-08-24
 | `*_TASK_PROGRESS.md` | 提交、构建/HIL、报告、失败、回退、阻塞 | 冻结新契约、擅自改变 registry status、替代 TODO 状态 |
 
 三件套必须互相引用；语义变更先更新架构并登记，状态变更更新 TODO，实施证据只追加到任务进度。
+
+### 三件套最小格式
+
+| 文件类型 | 必备结构 | 稳定索引 | 状态/记录格式 |
+|---|---|---|---|
+| `*_ARCHITECTURE.md` | 文档接口、范围与边界、owner/不变量、数据或状态模型、跨域契约、失败与恢复、验证映射 | 条款 ID 或契约 ID | 只描述稳定语义；不得记录单次 build、HIL 结果或当前执行状态 |
+| `*_TODO.md` | 文档接口、状态规则、已有基线、当前主线、里程碑总览、分阶段任务表、当前阻塞项、统一完成定义 | 每个任务使用域内唯一且稳定的 task ID | 状态只使用 `DONE`、`IN PROGRESS`、`PENDING`、`BLOCKED`；任务表固定为 `ID / 任务 / 状态 / 完成或退出门禁` |
+| `*_TASK_PROGRESS.md` | 文档接口、当前 checkpoint、按时间追加的任务记录、验证与证据索引、失败/回退、下一 gate | 每条记录必须引用 TODO task ID，并使用唯一 progress ID | 记录必须包含日期、变更/提交、构建或验证、结果、证据位置和下一步；不得替代 TODO 状态或冻结架构契约 |
+
+格式约束不要求把三份文档写成相同正文；它只统一导航、状态和追溯接口。`TODO` 中不得复制
+单次 build/HIL 数值，`TASK_PROGRESS` 中不得自行宣布契约生效，`ARCHITECTURE` 中不得使用
+执行清单替代稳定语义。旧文档在未实质修改前允许保持原格式，但一旦重排状态或新增里程碑，
+必须在同一文档变更中迁移到本表格式。
 
 ## §1 docs/check/DOCS_REGISTRY.md（完整内容）
 

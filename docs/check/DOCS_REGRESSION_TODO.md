@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_REGRESSION_TODO.md`
 Related: `docs/check/DOCS_REGISTRY.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`
-Last updated: 2026-08-24
+Last updated: 2026-08-27
 
 > 方案: `doc-skill/方案_文档自回归体系.md`（工作区，T13 归档入本项目）
 > 工作流: 方案审核 → 待办 → 逐条执行 + 每步反馈
@@ -58,6 +58,7 @@ Last updated: 2026-08-24
 | T27 | docs/arch/HAOFV_MAINTENANCE_TODO.md:423 硬数字「约 190 条」补代码符号/快照标注（对照 RISK_EVALUATION 的 s_ecc_table[] 证据） | 2026-08-24 二次审查 P3 | pending | — |
 | T28 | 归档 2026-08-24 项目状态审查快照：域进度、Calibration TRN-02、VDC 常驻闭环、RefMem completion、HAOFV 合规和当前在制改动边界 | 用户要求“将评审内容计入文档检查” | done | `docs/check/DOCS_PROJECT_STATUS_REVIEW_20260824.md` 已建立；不新增冻结契约，不改变 registry status |
 | T29 | 修复本次审查发现的治理覆盖盲区：旧格式 contract ID 必须显式校验或迁移为 superseded；补 module 锚点存在性检查；清理外部绝对路径、过期截止日期和未标注硬数字 | 2026-08-24 项目状态审查 | pending | 与 T24-T27 合并跟踪；完成后补正向/反向 pytest 和交叉审核 |
+| T30 | 定义并迁移域文档三件套最小格式：稳定 ID、统一状态、文件接口、TODO 任务表和 Task Progress 证据记录 | DOCS-TRIPLETFORMAT-01 / C13 | in_progress | C13 与 pending 契约已登记，Calibration TODO 作为首个迁移实例；其余域按实质修改逐步迁移，自动检查和 C11 激活审核待完成 |
 
 ## 每步反馈记录
 
