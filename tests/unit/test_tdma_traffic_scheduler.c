@@ -298,6 +298,97 @@ static int test_short_long_class_gate(void)
     return failed;
 }
 
+static int test_cycle_change_requires_explicit_cancel(void)
+{
+    int failed = 0;
+    tdma_foundation_profile_t profile;
+    tdma_traffic_scheduler_t scheduler;
+    tdma_traffic_scheduler_slot_t slots[TDMA_TRAFFIC_SCHEDULER_SLOT_COUNT];
+    tdma_traffic_scheduler_snapshot_t snapshot;
+    const uint64_t now_ns = 5000000ull;
+    uint32_t canceled_count = UINT32_MAX;
+
+    (void)tdma_foundation_profile_default(
+        &profile, 1u, 0u, 0u, TDMA_ADAPTER_PIO_SPI);
+    (void)tdma_traffic_scheduler_init(
+        &scheduler, slots, TDMA_TRAFFIC_SCHEDULER_SLOT_COUNT);
+    (void)tdma_traffic_scheduler_configure(&scheduler, &profile);
+
+    tdma_traffic_request_t vdc =
+        make_request(TDMA_PAYLOAD_CLASS_VDC_SYNC_SAMPLE, 15u, now_ns);
+    tdma_traffic_request_t refmem =
+        make_request(TDMA_PAYLOAD_CLASS_REFMEM_DELTA, 16u, now_ns);
+    tdma_traffic_request_t config =
+        make_request(TDMA_PAYLOAD_CLASS_CONFIG_CONTROL, 17u, now_ns);
+    (void)tdma_traffic_scheduler_enqueue(&scheduler, &vdc);
+    (void)tdma_traffic_scheduler_enqueue(&scheduler, &refmem);
+    (void)tdma_traffic_scheduler_enqueue(&scheduler, &config);
+
+    failed += expect_bool("nonempty queue blocks cycle change",
+                          tdma_traffic_scheduler_set_cycle_period(
+                              &scheduler, 1000000u),
+                          false);
+    failed += expect_bool("explicit cancel",
+                          tdma_traffic_scheduler_cancel_pending(
+                              &scheduler, &canceled_count),
+                          true);
+    failed += expect_u32("three canceled requests", canceled_count, 3u);
+    failed += expect_bool("cycle change after cancel",
+                          tdma_traffic_scheduler_set_cycle_period(
+                              &scheduler, 1000000u),
+                          true);
+    (void)tdma_traffic_scheduler_get_snapshot(&scheduler, &snapshot);
+    failed += expect_u32("vdc depth cleared",
+                         snapshot.traffic[TDMA_TRAFFIC_VDC_REALTIME]
+                             .current_depth,
+                         0u);
+    failed += expect_u32("refmem depth cleared",
+                         snapshot.traffic[TDMA_TRAFFIC_REFMEM_REALTIME]
+                             .current_depth,
+                         0u);
+    failed += expect_u32("config depth cleared",
+                         snapshot.traffic[TDMA_TRAFFIC_CONFIG_CONTROL]
+                             .current_depth,
+                         0u);
+    failed += expect_u32("vdc cancel evidence",
+                         snapshot.traffic[TDMA_TRAFFIC_VDC_REALTIME]
+                             .canceled_count,
+                         1u);
+    failed += expect_u32("refmem cancel evidence",
+                         snapshot.traffic[TDMA_TRAFFIC_REFMEM_REALTIME]
+                             .canceled_count,
+                         1u);
+    failed += expect_u32("config cancel evidence",
+                         snapshot.traffic[TDMA_TRAFFIC_CONFIG_CONTROL]
+                             .canceled_count,
+                         1u);
+    failed += expect_u32("cancel is not a drop",
+                         snapshot.traffic[TDMA_TRAFFIC_VDC_REALTIME]
+                             .drop_count +
+                             snapshot.traffic[TDMA_TRAFFIC_REFMEM_REALTIME]
+                                 .drop_count +
+                             snapshot.traffic[TDMA_TRAFFIC_CONFIG_CONTROL]
+                                 .drop_count,
+                         0u);
+    failed += expect_bool("suspend scheduler",
+                          tdma_traffic_scheduler_suspend(&scheduler, NULL),
+                          true);
+    failed += expect_u32("suspended admission rejects enqueue",
+                         tdma_traffic_scheduler_enqueue(&scheduler, &vdc),
+                         TDMA_TRAFFIC_SCHEDULER_GATE_CLOSED);
+    failed += expect_bool("resume scheduler",
+                          tdma_traffic_scheduler_resume(&scheduler),
+                          true);
+    failed += expect_u32("resumed admission accepts enqueue",
+                         tdma_traffic_scheduler_enqueue(&scheduler, &vdc),
+                         TDMA_TRAFFIC_SCHEDULER_OK);
+    (void)tdma_traffic_scheduler_get_snapshot(&scheduler, &snapshot);
+    failed += expect_u32("admission evidence open",
+                         snapshot.admission_open,
+                         1u);
+    return failed;
+}
+
 static int test_budget_and_deadline(void)
 {
     int failed = 0;
@@ -371,6 +462,7 @@ int main(void)
     failed += test_overflow_policies();
     failed += test_budget_and_deadline();
     failed += test_short_long_class_gate();
+    failed += test_cycle_change_requires_explicit_cancel();
     if (failed != 0) {
         return 1;
     }

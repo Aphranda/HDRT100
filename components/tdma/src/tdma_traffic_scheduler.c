@@ -258,6 +258,31 @@ static bool tdma_traffic_scheduler_dispatch_head(
     return true;
 }
 
+static uint32_t tdma_traffic_scheduler_cancel_pending_locked(
+    tdma_traffic_scheduler_t *scheduler)
+{
+    uint32_t total_canceled = 0u;
+    for (uint32_t i = 0u; i < TDMA_TRAFFIC_CLASS_COUNT; i++) {
+        tdma_traffic_scheduler_queue_t *queue = &scheduler->queue[i];
+        const uint32_t class_canceled = queue->count;
+        total_canceled += class_canceled;
+        scheduler->quality[i].canceled_count += class_canceled;
+        scheduler->quality[i].current_depth = 0u;
+        queue->read_index = 0u;
+        queue->write_index = 0u;
+        queue->count = 0u;
+    }
+    if (scheduler->slot != NULL && scheduler->slot_capacity != 0u) {
+        memset(scheduler->slot,
+               0,
+               sizeof(tdma_traffic_scheduler_slot_t) *
+                   scheduler->slot_capacity);
+    }
+    scheduler->cycle_bytes = 0u;
+    scheduler->cycle_number = UINT64_MAX;
+    return total_canceled;
+}
+
 bool tdma_traffic_scheduler_init(
     tdma_traffic_scheduler_t *scheduler,
     tdma_traffic_scheduler_slot_t *slot_storage,
@@ -308,6 +333,7 @@ bool tdma_traffic_scheduler_configure(
         slot_base += profile->resource.traffic[i].queue_depth;
     }
     scheduler->configured = 1u;
+    scheduler->admission_open = 1u;
     scheduler->config_seq++;
     scheduler->enqueue_seq = 0u;
     scheduler->dispatch_seq = 0u;
@@ -357,6 +383,50 @@ bool tdma_traffic_scheduler_set_cycle_period(
     return true;
 }
 
+bool tdma_traffic_scheduler_cancel_pending(
+    tdma_traffic_scheduler_t *scheduler,
+    uint32_t *canceled_count)
+{
+    if (scheduler == NULL || !tdma_traffic_scheduler_try_lock(scheduler)) {
+        return false;
+    }
+
+    const uint32_t total_canceled =
+        tdma_traffic_scheduler_cancel_pending_locked(scheduler);
+    if (canceled_count != NULL) {
+        *canceled_count = total_canceled;
+    }
+    tdma_traffic_scheduler_unlock(scheduler);
+    return true;
+}
+
+bool tdma_traffic_scheduler_suspend(
+    tdma_traffic_scheduler_t *scheduler,
+    uint32_t *canceled_count)
+{
+    if (scheduler == NULL || !tdma_traffic_scheduler_try_lock(scheduler)) {
+        return false;
+    }
+    scheduler->admission_open = 0u;
+    const uint32_t total_canceled =
+        tdma_traffic_scheduler_cancel_pending_locked(scheduler);
+    if (canceled_count != NULL) {
+        *canceled_count = total_canceled;
+    }
+    tdma_traffic_scheduler_unlock(scheduler);
+    return true;
+}
+
+bool tdma_traffic_scheduler_resume(tdma_traffic_scheduler_t *scheduler)
+{
+    if (scheduler == NULL || !tdma_traffic_scheduler_try_lock(scheduler)) {
+        return false;
+    }
+    scheduler->admission_open = 1u;
+    tdma_traffic_scheduler_unlock(scheduler);
+    return true;
+}
+
 tdma_traffic_scheduler_result_t tdma_traffic_scheduler_enqueue(
     tdma_traffic_scheduler_t *scheduler,
     const tdma_traffic_request_t *request)
@@ -372,6 +442,12 @@ tdma_traffic_scheduler_result_t tdma_traffic_scheduler_enqueue(
     if (scheduler->configured == 0u) {
         tdma_traffic_scheduler_unlock(scheduler);
         return TDMA_TRAFFIC_SCHEDULER_NOT_CONFIGURED;
+    }
+    if (scheduler->admission_open == 0u) {
+        (void)tdma_traffic_scheduler_note_result(
+            scheduler, UINT32_MAX, TDMA_TRAFFIC_SCHEDULER_GATE_CLOSED);
+        tdma_traffic_scheduler_unlock(scheduler);
+        return TDMA_TRAFFIC_SCHEDULER_GATE_CLOSED;
     }
 
     uint32_t traffic_class = UINT32_MAX;
@@ -644,6 +720,7 @@ bool tdma_traffic_scheduler_get_snapshot(
     memset(snapshot, 0, sizeof(*snapshot));
     snapshot->version = TDMA_TRAFFIC_SCHEDULER_VERSION;
     snapshot->configured = scheduler->configured;
+    snapshot->admission_open = scheduler->admission_open;
     snapshot->config_seq = scheduler->config_seq;
     snapshot->enqueue_seq = scheduler->enqueue_seq;
     snapshot->dispatch_seq = scheduler->dispatch_seq;

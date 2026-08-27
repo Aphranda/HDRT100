@@ -364,6 +364,8 @@ int main(void)
         failed += expect_u32("clear calibration matrix",
                              tdma_service_clear_calibration_stage(&service),
                              1u);
+        failed += expect_u32("rearm after calibration stop",
+                             tdma_service_ring_arm(&service), 1u);
     }
 
     tdma_service_intent_config_t config = make_intent(
@@ -535,6 +537,35 @@ int main(void)
         failed += expect_u32("unregistered adapter not running",
                              ring_snap.up_running | ring_snap.down_running,
                              0u);
+
+        /* STOP closes admission and cancels queued load so automatic
+         * producers cannot refill the scheduler before profile apply. */
+        failed += expect_u32("stop uart ring",
+                             tdma_service_ring_stop(&service), 1u);
+        tdma_service_intent_config_t pending_config = make_intent(
+            TDMA_PAYLOAD_CLASS_CONFIG_CONTROL, config_frame);
+        failed += expect_u32("stopped ring rejects producer refill",
+                             tdma_service_submit_tx(&service,
+                                                    &pending_config),
+                             0u);
+        failed += expect_u32("profile change after stop cancel",
+                             tdma_service_set_operating_profile(
+                                 &service, &operating_profile),
+                             1u);
+        failed += expect_u32("snapshot after stop cancel",
+                             tdma_service_get_snapshot(&service, &snapshot),
+                             1u);
+        failed += expect_u32("stop leaves scheduler queue empty",
+                             snapshot.traffic_scheduler_queued_count,
+                             0u);
+        failed += expect_u32("arm reopens scheduler admission",
+                             tdma_service_ring_arm(&service), 1u);
+        failed += expect_u32("armed ring accepts producer load",
+                             tdma_service_submit_tx(&service,
+                                                    &pending_config),
+                             1u);
+        failed += expect_u32("final stop cancels producer load",
+                             tdma_service_ring_stop(&service), 1u);
     }
 
     if (failed != 0) {

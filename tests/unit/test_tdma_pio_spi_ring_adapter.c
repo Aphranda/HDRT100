@@ -1819,7 +1819,8 @@ int main(void)
         memset(tx_mailbox, 0x80, sizeof(tx_mailbox));
         incoming[0] = 0x52u;
         incoming[1] = 0x46u;
-        incoming[2] = 1u;
+        incoming[TDMA_FLIGHT_MAILBOX_VERSION_OFFSET] =
+            TDMA_FLIGHT_MAILBOX_VERSION;
         incoming[4] = 0u;
         incoming[5] = 1u << 1u;
         incoming[6] = 1u;

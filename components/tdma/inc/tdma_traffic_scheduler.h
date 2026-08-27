@@ -7,7 +7,7 @@
 
 #include "tdma_profile.h"
 
-#define TDMA_TRAFFIC_SCHEDULER_VERSION 1u
+#define TDMA_TRAFFIC_SCHEDULER_VERSION 2u
 #define TDMA_TRAFFIC_SCHEDULER_SLOT_COUNT 32u
 #define TDMA_TRAFFIC_SCHEDULER_RUNTIME_SLOT_COUNT 8u
 #define TDMA_TRAFFIC_SCHEDULER_FRAME_MAX 1024u
@@ -81,6 +81,7 @@ typedef struct {
     uint32_t backpressure_count;
     uint32_t retry_count;
     uint32_t drop_count;
+    uint32_t canceled_count;
     uint32_t adapter_error_count;
     uint32_t queue_high_watermark;
     uint32_t current_depth;
@@ -93,6 +94,7 @@ typedef struct {
 typedef struct {
     uint32_t version;
     uint32_t configured;
+    uint32_t admission_open;
     uint32_t config_seq;
     uint32_t enqueue_seq;
     uint32_t dispatch_seq;
@@ -149,6 +151,7 @@ typedef struct {
 typedef struct {
     volatile uint32_t lock;
     uint32_t configured;
+    uint32_t admission_open;
     uint32_t config_seq;
     uint32_t enqueue_seq;
     uint32_t dispatch_seq;
@@ -182,6 +185,13 @@ bool tdma_traffic_scheduler_configure(
 bool tdma_traffic_scheduler_set_cycle_period(
     tdma_traffic_scheduler_t *scheduler,
     uint32_t cycle_period_ns);
+bool tdma_traffic_scheduler_cancel_pending(
+    tdma_traffic_scheduler_t *scheduler,
+    uint32_t *canceled_count);
+bool tdma_traffic_scheduler_suspend(
+    tdma_traffic_scheduler_t *scheduler,
+    uint32_t *canceled_count);
+bool tdma_traffic_scheduler_resume(tdma_traffic_scheduler_t *scheduler);
 tdma_traffic_scheduler_result_t tdma_traffic_scheduler_enqueue(
     tdma_traffic_scheduler_t *scheduler,
     const tdma_traffic_request_t *request);

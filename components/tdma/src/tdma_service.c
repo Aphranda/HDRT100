@@ -537,7 +537,7 @@ bool tdma_service_configure_foundation_profile(
     tdma_service_apply_profile_adapter(service, profile->resource.adapter_type);
     /* Product links start explicitly after both boards have roles assigned.
      * Keep the adapter and all ISO1452 drivers stopped at boot/profile load. */
-    return tdma_service_configure_ring_runtime(service, NULL);
+    return tdma_service_ring_stop(service);
 }
 
 bool tdma_service_set_operating_profile(
@@ -778,9 +778,16 @@ bool tdma_service_ring_arm(tdma_service_service_t *service)
              service->ring_staged_config.node_count, NULL))) {
         return false;
     }
-    return
-           tdma_service_configure_ring_runtime(
-               service, &service->ring_staged_config);
+    if (!tdma_service_configure_ring_runtime(
+            service, &service->ring_staged_config)) {
+        return false;
+    }
+    if (service->traffic_scheduler == NULL ||
+        tdma_traffic_scheduler_resume(service->traffic_scheduler)) {
+        return true;
+    }
+    (void)tdma_service_configure_ring_runtime(service, NULL);
+    return false;
 }
 
 bool tdma_service_ring_train_clock(tdma_service_service_t *service,
@@ -798,8 +805,12 @@ bool tdma_service_ring_start(tdma_service_service_t *service)
 
 bool tdma_service_ring_stop(tdma_service_service_t *service)
 {
-    return service != NULL &&
-           tdma_service_configure_ring_runtime(service, NULL);
+    if (service == NULL ||
+        !tdma_service_configure_ring_runtime(service, NULL)) {
+        return false;
+    }
+    return service->traffic_scheduler == NULL ||
+           tdma_traffic_scheduler_suspend(service->traffic_scheduler, NULL);
 }
 
 bool tdma_service_submit_tx(tdma_service_service_t *service,
