@@ -109,6 +109,13 @@ typedef bool (*tdma_pio_spi_ring_feedback_fn)(void *context,
                                               uint32_t *round_trip_ns,
                                               uint32_t *resolution_ns,
                                               uint32_t *flags);
+/* Optional readiness probe for the physical timestamp spine. The adapter
+ * calls this only after phys_arm() succeeds and uses the returned metadata for
+ * DPLL admission. A false result keeps timestamps diagnostic/invalid. */
+typedef bool (*tdma_pio_spi_ring_phys_timestamp_ready_fn)(
+    void *context,
+    uint32_t *resolution_ns,
+    uint32_t *flags);
 
 typedef struct {
     uint32_t version;
@@ -200,6 +207,7 @@ typedef struct {
     void *phys_context;
     tdma_pio_spi_ring_phys_arm_fn phys_arm;
     tdma_pio_spi_ring_phys_disarm_fn phys_disarm;
+    tdma_pio_spi_ring_phys_timestamp_ready_fn phys_timestamp_ready;
     tdma_pio_spi_ring_phys_train_fn phys_train;
     tdma_pio_spi_ring_phys_train_service_fn phys_train_service;
     tdma_pio_spi_ring_phys_overlay_fn phys_prepare_overlay;
@@ -315,6 +323,9 @@ void tdma_pio_spi_ring_adapter_set_phys_ctrl(
     tdma_pio_spi_ring_phys_train_fn train,
     tdma_pio_spi_ring_phys_train_service_fn train_service,
     void *phys_ctrl_context);
+void tdma_pio_spi_ring_adapter_set_phys_timestamp_ready(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_pio_spi_ring_phys_timestamp_ready_fn timestamp_ready);
 void tdma_pio_spi_ring_adapter_set_phys_overlay(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_phys_overlay_fn prepare_overlay,

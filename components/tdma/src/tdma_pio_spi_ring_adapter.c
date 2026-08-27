@@ -344,6 +344,16 @@ void tdma_pio_spi_ring_adapter_set_phys_ctrl(
     adapter->phys_ctrl_context = phys_ctrl_context;
 }
 
+void tdma_pio_spi_ring_adapter_set_phys_timestamp_ready(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_pio_spi_ring_phys_timestamp_ready_fn timestamp_ready)
+{
+    if (adapter == NULL || adapter->started != 0u) {
+        return;
+    }
+    adapter->phys_timestamp_ready = timestamp_ready;
+}
+
 void tdma_pio_spi_ring_adapter_set_phys_overlay(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_phys_overlay_fn prepare_overlay,
@@ -558,13 +568,38 @@ static bool tdma_pio_spi_ring_adapter_start(
     } else {
         tdma_receive_health_reset_stopped(&adapter->receive_health);
     }
+    /* A metadata declaration made during boot is not proof that the PIO
+     * timestamp spine is armed.  Once a readiness probe is installed, keep
+     * the adapter fail-closed until the physical arm has established the
+     * latch.  Test/alternate physical layers without a probe retain their
+     * explicitly supplied metadata for backwards compatibility. */
+    if (adapter->phys_timestamp_ready != NULL) {
+        tdma_pio_spi_ring_adapter_set_timestamp_metadata(
+            adapter, 0u, TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY);
+    }
     if (adapter->phys_arm != NULL &&
         !adapter->phys_arm(adapter->phys_ctrl_context, config)) {
+        if (adapter->phys_disarm != NULL) {
+            adapter->phys_disarm(adapter->phys_ctrl_context);
+        }
         tdma_flight_engine_deactivate(adapter->flight_engine);
         tdma_pio_spi_ring_adapter_set_error(
             adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_PHYS_MISSING);
         tdma_pio_spi_ring_adapter_snapshot_write_end(adapter);
         return false;
+    }
+    if (adapter->phys_timestamp_ready != NULL) {
+        uint32_t resolution_ns = 0u;
+        uint32_t flags = TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
+        if (adapter->phys_timestamp_ready(adapter->phys_ctrl_context,
+                                          &resolution_ns,
+                                          &flags) &&
+            resolution_ns != 0u &&
+            (flags & TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED) != 0u &&
+            (flags & TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) == 0u) {
+            tdma_pio_spi_ring_adapter_set_timestamp_metadata(
+                adapter, resolution_ns, flags);
+        }
     }
     adapter->started = 1u;
     /* These counters describe one armed ring session.  Keeping values from a
@@ -624,6 +659,10 @@ static void tdma_pio_spi_ring_adapter_stop(void *context)
     tdma_pio_spi_ring_adapter_snapshot_write_begin(adapter);
     if (adapter->started != 0u && adapter->phys_disarm != NULL) {
         adapter->phys_disarm(adapter->phys_ctrl_context);
+    }
+    if (adapter->phys_timestamp_ready != NULL) {
+        tdma_pio_spi_ring_adapter_set_timestamp_metadata(
+            adapter, 0u, TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY);
     }
     tdma_flight_engine_deactivate(adapter->flight_engine);
     adapter->started = 0u;
@@ -1074,7 +1113,15 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
                 adapter->feedback_timestamp_flags = adapter->timestamp_flags;
                 adapter->reference_tx_timestamp_ns = matched_tx_timestamp_ns;
             }
-            adapter->reference_tx_evidence[evidence_index].valid = false;
+            /* Keep the reference TX record alive after feedback correlation.
+             * The next clock-evidence beacon is intentionally one frame
+             * behind the TX sequence (and is selected by exact sequence), so
+             * clearing the record here can race the payload builder: on a
+             * short ring the feedback for sequence N commonly arrives before
+             * sequence N+1 is emitted.  The bounded evidence ring replaces a
+             * record only when the same modulo index is reused; exact
+             * sequence matching still makes an overwritten/stale record
+             * fail closed. */
         }
     }
     adapter->rx_count++;

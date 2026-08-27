@@ -97,6 +97,28 @@ static bool tdma_runtime_owner_flight_phys_arm(
     return tdma_pio_spi_phys_arm(context, config);
 }
 
+static bool tdma_runtime_owner_flight_phys_timestamp_ready(
+    void *context,
+    uint32_t *resolution_ns,
+    uint32_t *flags)
+{
+    const tdma_pio_spi_phys_t *phys = (const tdma_pio_spi_phys_t *)context;
+    if (resolution_ns != NULL) {
+        *resolution_ns = 0u;
+    }
+    if (flags != NULL) {
+        *flags = TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
+    }
+    if (phys == NULL || resolution_ns == NULL || flags == NULL ||
+        !phys->armed || !phys->flight_clock_latch_armed ||
+        phys->flight_clock_latch_resolution_ns == 0u) {
+        return false;
+    }
+    *resolution_ns = phys->flight_clock_latch_resolution_ns;
+    *flags = TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED;
+    return true;
+}
+
 static void tdma_runtime_owner_cal_intent_write_begin(void)
 {
     (void)__atomic_add_fetch(&s_tdma_cal_loopback_intent.guard,
@@ -203,6 +225,9 @@ bool tdma_runtime_owner_init(void)
             tdma_pio_spi_phys_train_clock,
             tdma_pio_spi_phys_train_clock_service,
             &s_tdma_pio_spi_phys);
+        tdma_pio_spi_ring_adapter_set_phys_timestamp_ready(
+            &s_tdma_pio_spi_ring_adapter,
+            tdma_runtime_owner_flight_phys_timestamp_ready);
         tdma_pio_spi_ring_adapter_set_phys(
             &s_tdma_pio_spi_ring_adapter,
             tdma_pio_spi_phys_tx,
@@ -224,8 +249,8 @@ bool tdma_runtime_owner_init(void)
         (void)vdc_timestamp_clock_init();
         tdma_pio_spi_ring_adapter_set_timestamp_metadata(
             &s_tdma_pio_spi_ring_adapter,
-            vdc_timestamp_clock_resolution_ns() * 2u,
-            TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED);
+            0u,
+            TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY);
         initialized = true;
     }
     if (!initialized) {

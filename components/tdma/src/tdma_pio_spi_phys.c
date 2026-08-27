@@ -1949,7 +1949,16 @@ bool tdma_pio_spi_phys_arm(void *context,
 void tdma_pio_spi_phys_disarm(void *context)
 {
     tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
-    if (phys == NULL || !phys->armed) {
+    if (phys == NULL) {
+        return;
+    }
+    if (!phys->armed) {
+        /* An arm attempt may have established the standalone clock-latch SM
+         * before a later PIO/DMA step failed.  Disarm is also the rollback
+         * path for that partial setup, so never leave hardware eligibility
+         * asserted while the resident persona is stopped. */
+        phys->flight_clock_latch_armed = false;
+        tdma_pio_spi_phys_fill_static_snapshot(phys);
         return;
     }
     /* Process-image followers keep the overlay TX DMA blocked on the PIO TX
@@ -1983,6 +1992,7 @@ void tdma_pio_spi_phys_disarm(void *context)
     gpio_set_dir(phys->rx_csn_pin, GPIO_IN);
     gpio_set_dir(phys->rx_pin, GPIO_IN);
     phys->armed = false;
+    phys->flight_clock_latch_armed = false;
     phys->rx_capture_active = false;
     tdma_pio_spi_phys_clk_train_reset(phys);
     tdma_pio_spi_phys_fill_static_snapshot(phys);

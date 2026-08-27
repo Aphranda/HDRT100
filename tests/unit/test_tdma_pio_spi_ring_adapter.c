@@ -106,6 +106,14 @@ static void test_put_u64_le(uint8_t *dst, uint64_t value)
     }
 }
 
+static uint32_t test_get_u32_le(const uint8_t *src)
+{
+    return (uint32_t)src[0] |
+           ((uint32_t)src[1] << 8u) |
+           ((uint32_t)src[2] << 16u) |
+           ((uint32_t)src[3] << 24u);
+}
+
 static bool flight_rx(void *context,
                       uint8_t *packet,
                       size_t packet_capacity,
@@ -174,6 +182,10 @@ typedef struct {
     uint32_t *disarm_calls;
     uint32_t *arm_schedule_crc;
     uint32_t *arm_result;
+    bool timestamp_ready;
+    uint32_t timestamp_resolution_ns;
+    uint32_t timestamp_flags;
+    uint32_t *timestamp_ready_calls;
 } phys_ctrl_stub_t;
 
 static bool phys_ctrl_stub_arm(void *context,
@@ -196,6 +208,22 @@ static void phys_ctrl_stub_disarm(void *context)
     if (ctrl != NULL && ctrl->disarm_calls != NULL) {
         (*ctrl->disarm_calls)++;
     }
+}
+
+static bool phys_timestamp_stub_ready(void *context,
+                                      uint32_t *resolution_ns,
+                                      uint32_t *flags)
+{
+    phys_ctrl_stub_t *stub = (phys_ctrl_stub_t *)context;
+    if (stub == NULL || resolution_ns == NULL || flags == NULL) {
+        return false;
+    }
+    if (stub->timestamp_ready_calls != NULL) {
+        (*stub->timestamp_ready_calls)++;
+    }
+    *resolution_ns = stub->timestamp_resolution_ns;
+    *flags = stub->timestamp_flags;
+    return stub->timestamp_ready;
 }
 
 static tdma_ring_runtime_config_t make_valid_config(void)
@@ -1119,6 +1147,120 @@ int main(void)
                              snapshot.feedback_rx_timestamp_ns, 1000500ull);
     }
 
+    /* --- A feedback edge may be consumed before the next evidence beacon is
+     * built. The exact-sequence record must remain available for that later
+     * clock payload, while stale/identity-mismatched records stay closed. --- */
+    {
+        tdma_pio_spi_ring_adapter_t adapter;
+        tdma_pio_spi_ring_adapter_snapshot_t snapshot;
+        tdma_ring_adapter_status_t status;
+        loopback_phys_t phys;
+        const tdma_ring_runtime_config_t config = make_valid_config();
+        uint8_t first_packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+        size_t first_packet_size = 0u;
+        bool evidence_seen = false;
+
+        memset(&phys, 0, sizeof(phys));
+        phys.tx_timestamp_ns = 1000000ull;
+        phys.rx_timestamp_ns = 1000500ull;
+        failed += expect_bool("delayed evidence init",
+                              tdma_pio_spi_ring_adapter_init(&adapter), true);
+        tdma_pio_spi_ring_adapter_set_phys(&adapter,
+                                           loopback_tx,
+                                           loopback_rx,
+                                           &phys);
+        tdma_pio_spi_ring_adapter_set_timestamp_metadata(
+            &adapter, 8u, TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED);
+        failed += expect_bool("delayed evidence start",
+                              tdma_pio_spi_ring_adapter_ops()->start(
+                                  &adapter, &config), true);
+
+        for (uint32_t frame = 0u; frame < 20u; frame++) {
+            failed += expect_bool("delayed evidence service",
+                                  tdma_pio_spi_ring_adapter_ops()->service(
+                                      &adapter,
+                                      (uint64_t)frame * 2000ull,
+                                      &status),
+                                  true);
+            tdma_transport_frame_view_t view;
+            tdma_transport_result_t result = TDMA_TRANSPORT_OK;
+            const bool decoded = tdma_transport_frame_decode(phys.last_tx,
+                                                              phys.last_tx_size,
+                                                              &view,
+                                                              &result);
+            if (decoded &&
+                view.transport_sequence == 1u && first_packet_size == 0u) {
+                first_packet_size = phys.last_tx_size;
+                memcpy(first_packet, phys.last_tx, first_packet_size);
+            }
+            if (decoded && view.transport_sequence == 16u &&
+                view.payload_size >= TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_SIZE &&
+                test_get_u32_le(&view.payload[0]) ==
+                    TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_MAGIC) {
+                evidence_seen = test_get_u32_le(&view.payload[8]) == 15u;
+            }
+        }
+        failed += expect_bool("feedback-before-evidence payload",
+                              evidence_seen, true);
+
+        /* Sequence 1 was overwritten by sequence 9 in the modulo-8 ring;
+         * injecting that stale frame must not recreate feedback evidence. */
+        phys.suppress_echo = true;
+        failed += expect_bool("stale sequence inject",
+                              tdma_pio_spi_ring_adapter_inject_rx(
+                                  &adapter, first_packet, first_packet_size,
+                                  1000500ull),
+                              true);
+        failed += expect_bool("stale sequence service",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 40000ull, &status), true);
+        failed += expect_bool("stale sequence snapshot",
+                              tdma_pio_spi_ring_adapter_get_snapshot(
+                                  &adapter, &snapshot), true);
+        failed += expect_u32("stale sequence feedback closed",
+                             snapshot.feedback_reference_sequence, 0u);
+
+        /* A valid frame with the current sequence but a different identity is
+         * equally ineligible. */
+        uint8_t mismatch_packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+        size_t mismatch_size = 0u;
+        const uint8_t mismatch_payload[] = {0xA5u};
+        const tdma_transport_frame_build_t mismatch_build = {
+            .frame_class = TDMA_TRANSPORT_FRAME_CLASS_SHORT,
+            .origin_slot_id = config.local_slot_id,
+            .transport_sequence = 17u,
+            .payload_class = TDMA_PAYLOAD_CLASS_IDLE_BEACON,
+            .flags = TDMA_TRANSPORT_FLAG_IDLE_BEACON,
+            .schedule_crc32 = config.schedule_crc32,
+            .ring_profile_crc32 = config.ring_profile_crc32,
+            .hop_limit = config.node_count - 1u,
+            .payload = mismatch_payload,
+            .payload_size = sizeof(mismatch_payload),
+        };
+        tdma_transport_result_t mismatch_result = TDMA_TRANSPORT_OK;
+        failed += expect_bool("identity mismatch encode",
+                              tdma_transport_frame_encode(
+                                  &mismatch_build,
+                                  mismatch_packet,
+                                  sizeof(mismatch_packet),
+                                  &mismatch_size,
+                                  &mismatch_result),
+                              true);
+        failed += expect_bool("identity mismatch inject",
+                              tdma_pio_spi_ring_adapter_inject_rx(
+                                  &adapter, mismatch_packet, mismatch_size,
+                                  1000500ull),
+                              true);
+        failed += expect_bool("identity mismatch service",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 42000ull, &status), true);
+        failed += expect_bool("identity mismatch snapshot",
+                              tdma_pio_spi_ring_adapter_get_snapshot(
+                                  &adapter, &snapshot), true);
+        failed += expect_u32("identity mismatch feedback closed",
+                             snapshot.feedback_reference_sequence, 0u);
+    }
+
     /* --- Product follower: PIO has already forwarded the bytes before the
      * complete RX frame is parsed. The service path must not call phys_tx and
      * create a duplicate store-and-forward frame. --- */
@@ -1260,6 +1402,90 @@ int main(void)
         tdma_ring_runtime_configure(&runtime, NULL);
         tdma_ring_runtime_service(&runtime);
         failed += expect_u32("phys disarm called on stop", disarm_calls, 1u);
+    }
+
+    /* --- Hardware timestamp eligibility follows the physical arm lifetime.
+     * A ready probe that is false must not leak boot metadata into DPLL; a
+     * later arm may publish the latch and STOP must revoke it again. --- */
+    {
+        tdma_pio_spi_ring_adapter_t adapter;
+        tdma_pio_spi_ring_adapter_snapshot_t snapshot;
+        loopback_phys_t phys;
+        const tdma_ring_runtime_config_t config = make_valid_config();
+        uint32_t arm_calls = 0u;
+        uint32_t disarm_calls = 0u;
+        uint32_t arm_schedule_crc = 0u;
+        uint32_t arm_result = 1u;
+        uint32_t timestamp_ready_calls = 0u;
+        phys_ctrl_stub_t ctrl = {
+            .arm_calls = &arm_calls,
+            .disarm_calls = &disarm_calls,
+            .arm_schedule_crc = &arm_schedule_crc,
+            .arm_result = &arm_result,
+            .timestamp_ready = false,
+            .timestamp_resolution_ns = 8u,
+            .timestamp_flags = TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED,
+            .timestamp_ready_calls = &timestamp_ready_calls,
+        };
+
+        memset(&phys, 0, sizeof(phys));
+        failed += expect_bool("timestamp lifetime init",
+                              tdma_pio_spi_ring_adapter_init(&adapter), true);
+        tdma_pio_spi_ring_adapter_set_phys(&adapter,
+                                           loopback_tx,
+                                           loopback_rx,
+                                           &phys);
+        tdma_pio_spi_ring_adapter_set_phys_ctrl(&adapter,
+                                                phys_ctrl_stub_arm,
+                                                phys_ctrl_stub_disarm,
+                                                NULL,
+                                                NULL,
+                                                &ctrl);
+        tdma_pio_spi_ring_adapter_set_phys_timestamp_ready(
+            &adapter, phys_timestamp_stub_ready);
+        /* Simulate stale boot metadata; start must revoke it before arm. */
+        tdma_pio_spi_ring_adapter_set_timestamp_metadata(
+            &adapter, 8u, TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED);
+        failed += expect_bool("timestamp lifetime start without latch",
+                              tdma_pio_spi_ring_adapter_ops()->start(
+                                  &adapter, &config), true);
+        failed += expect_bool("timestamp lifetime snapshot",
+                              tdma_pio_spi_ring_adapter_get_snapshot(
+                                  &adapter, &snapshot), true);
+        failed += expect_u32("timestamp not eligible before latch",
+                             snapshot.timestamp_resolution_ns, 0u);
+        failed += expect_u32("timestamp diagnostic before latch",
+                             snapshot.timestamp_flags,
+                             TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY);
+        failed += expect_u32("timestamp ready probe called",
+                             timestamp_ready_calls, 1u);
+
+        tdma_pio_spi_ring_adapter_ops()->stop(&adapter);
+        failed += expect_u32("timestamp disarm after first stop",
+                             disarm_calls, 1u);
+        ctrl.timestamp_ready = true;
+        failed += expect_bool("timestamp lifetime start with latch",
+                              tdma_pio_spi_ring_adapter_ops()->start(
+                                  &adapter, &config), true);
+        failed += expect_bool("timestamp ready snapshot",
+                              tdma_pio_spi_ring_adapter_get_snapshot(
+                                  &adapter, &snapshot), true);
+        failed += expect_u32("timestamp resolution after latch",
+                             snapshot.timestamp_resolution_ns, 8u);
+        failed += expect_u32("timestamp hardware after latch",
+                             snapshot.timestamp_flags,
+                             TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED);
+        tdma_pio_spi_ring_adapter_ops()->stop(&adapter);
+        failed += expect_u32("timestamp disarm after second stop",
+                             disarm_calls, 2u);
+        failed += expect_bool("timestamp stopped snapshot",
+                              tdma_pio_spi_ring_adapter_get_snapshot(
+                                  &adapter, &snapshot), true);
+        failed += expect_u32("timestamp revoked on stop",
+                             snapshot.timestamp_resolution_ns, 0u);
+        failed += expect_u32("timestamp diagnostic on stop",
+                             snapshot.timestamp_flags,
+                             TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY);
     }
 
     /* --- Reference hop limit follows the deployed ring node count. --- */
