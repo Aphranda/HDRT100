@@ -218,6 +218,10 @@ bool calibration_manager_begin_training_stage(
     uint32_t schedule_crc32);
 bool calibration_manager_stage_training_link(
     uint32_t link_index,
+    uint32_t marker_source_node,
+    uint32_t marker_destination_node,
+    uint32_t data_source_node,
+    uint32_t data_destination_node,
     uint32_t evidence_flags,
     uint32_t pio_persona,
     uint32_t clkdiv_q16,
@@ -243,6 +247,8 @@ bool calibration_manager_get_training_stage(
     tdma_ring_calibration_stage_t *stage,
     bool *complete);
 bool calibration_manager_clear_training_stage(void);
+bool calibration_manager_set_topology_probe_mode(
+    bool enabled, uint32_t phase_delay_cycles);
 bool calibration_manager_request_p3(
     uint32_t role, uint32_t baud_hz, uint32_t pulse_count,
     uint32_t capture_words, uint32_t epoch, uint32_t signal_group);

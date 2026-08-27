@@ -693,6 +693,15 @@ bool tdma_service_stage_calibration_link(
         (link->evidence_flags &
          TDMA_RING_CALIBRATION_FLAG_DIAGNOSTIC_ONLY) != 0u ||
         link->link_index >= service->calibration_stage.node_count ||
+        link->marker_source_node >= service->calibration_stage.node_count ||
+        link->marker_destination_node >=
+            service->calibration_stage.node_count ||
+        link->data_source_node >= service->calibration_stage.node_count ||
+        link->data_destination_node >=
+            service->calibration_stage.node_count ||
+        link->marker_source_node == link->marker_destination_node ||
+        link->data_source_node != link->marker_destination_node ||
+        link->data_destination_node != link->marker_source_node ||
         link->calibration_generation !=
             service->calibration_stage.calibration_generation ||
         link->topology_generation !=

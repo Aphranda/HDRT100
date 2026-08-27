@@ -54,8 +54,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--verbose", action="store_true",
                         help="print full snapshots; summary.json always keeps them")
     parser.add_argument("--assign-no", action="store_true",
-                        help=("commit NO.1..NO.8 only after Calibration accepts "
-                              "a single closed ring"))
+                        help=("compatibility alias: assignment is now the "
+                              "default after the line-order matrix passes"))
+    parser.add_argument("--no-assign", action="store_true",
+                        help="diagnostic only: do not commit the measured NO map")
     parser.add_argument("--reboot-verify-no", action="store_true",
                         help=("with --assign-no, reboot all boards and verify "
                               "the persisted Calibration node map"))
@@ -64,6 +66,9 @@ def parse_args() -> argparse.Namespace:
                         dest="adjacency_only", action="store_true",
                         help=("measure directed link adjacency with resident "
                               "TDMA frames only; do not issue clock TRAIN"))
+    parser.add_argument("--probe-phase-cycles", type=int, default=10,
+                        help=("baseline PIO phase used only by step-1 line "
+                              "probing; default 10 samples = 40 ns"))
     return parser.parse_args()
 
 
@@ -125,8 +130,8 @@ def main() -> int:
         raise SystemExit("board IDs must be unique")
     if args.anchor_id and args.anchor_id not in board_ids:
         raise SystemExit("anchor-id must be one of the board IDs")
-    if args.reboot_verify_no and not args.assign_no:
-        raise SystemExit("--reboot-verify-no requires --assign-no")
+    if args.reboot_verify_no and args.no_assign:
+        raise SystemExit("--reboot-verify-no cannot be combined with --no-assign")
     if args.cycles <= 0 or args.cycles > 65536 or args.cycles % 8:
         raise SystemExit("cycles must be an 8-cycle multiple in [8, 65536]")
     if (args.train_chunk_cycles < 0 or
@@ -136,6 +141,8 @@ def main() -> int:
         raise SystemExit(
             "train-chunk-cycles must be 0 or an 8-cycle multiple not greater "
             "than cycles")
+    if not 1 <= args.probe_phase_cycles <= 31:
+        raise SystemExit("probe-phase-cycles must be in [1, 31]")
     args.board_ids = board_ids
 
     boards = discover(args)
@@ -156,6 +163,9 @@ def main() -> int:
             board, f"SYSTem:TDMA:OPMode:STAGe {args.level}", args)
         apply_response = board_command(
             board, "SYSTem:TDMA:OPMode:APPLy", args)
+        probe_response = board_command(
+            board,
+            f"CALibration:TOPology:PROBe 1,{args.probe_phase_cycles}", args)
         active_response = board_command(
             board, "SYSTem:TDMA:OPMode?", args)
         active_level = int(active_response.split(",", 1)[0].strip().strip('"'), 0)
@@ -165,6 +175,7 @@ def main() -> int:
             "active_level": active_level,
             "stage_response": stage_response,
             "apply_response": apply_response,
+            "probe_response": probe_response,
             "passed": active_level == args.level,
         })
     if not all(item["passed"] for item in profile_apply):
@@ -240,6 +251,8 @@ def main() -> int:
             try:
                 _ = board_command(
                     boards[address], "SYSTem:TDMA:RING:STOP", args)
+                _ = board_command(
+                    boards[address], "CALibration:TOPology:PROBe 0", args)
             except Exception:  # pragma: no cover - best effort bench cleanup
                 pass
 
@@ -248,7 +261,7 @@ def main() -> int:
     passed = len(ring_order) == len(board_ids)
     assignments: list[dict[str, object]] = []
     reboot_readback: list[dict[str, object]] = []
-    if passed and args.assign_no:
+    if passed and not args.no_assign:
         for index, address in enumerate(ring_order):
             write_response = board_command(
                 boards[address], f"SYSTem:BOARD:NO {index + 1}", args)
@@ -298,11 +311,17 @@ def main() -> int:
                       "address": address}
                      for index, address in enumerate(ring_order)],
         "assignments": assignments,
+        "node_discovery": {
+            "step": "line_order_matrix",
+            "committed": bool(assignments),
+            "numbering": "NO.1..NO.N along measured directed ring",
+        },
         "reboot_readback": reboot_readback,
         "adjacency": adjacency,
         "boards": {address: asdict(boards[address]) for address in board_ids},
         "pair_results": pair_results,
         "adjacency_only": args.adjacency_only,
+        "probe_phase_cycles": args.probe_phase_cycles,
     }
     out_dir = args.out_dir or (
         ROOT / "out" / "training" /

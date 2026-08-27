@@ -194,7 +194,7 @@ def test_load_config_rejects_node_offset_loaded_on_wrong_link(
         tmp_path: Path) -> None:
     value = matrix()
     value["links"][1]["marker_destination_node"] = 3
-    with pytest.raises(ValueError, match="Node direction"):
+    with pytest.raises(ValueError, match="topology"):
         load_config(write_matrix(tmp_path, value))
 
 
@@ -212,11 +212,12 @@ def test_load_config_rejects_duplicate_or_partial_matrix_rows(
 def test_load_config_supports_eight_nodes(tmp_path: Path) -> None:
     value = matrix()
     value["node_count"] = 8
+    marker_next = [5, 6, 7, 4, 0, 2, 3, 1]
     value["links"] = [
         {**value["links"][index % 4], "link_index": index,
          "marker_source_node": index,
-         "marker_destination_node": (index + 1) % 8,
-         "data_source_node": (index + 1) % 8,
+         "marker_destination_node": marker_next[index],
+         "data_source_node": marker_next[index],
          "data_destination_node": index}
         for index in range(8)
     ]
@@ -228,6 +229,8 @@ def test_load_config_supports_eight_nodes(tmp_path: Path) -> None:
         "data_offset_sample_counts_by_node"] = [5] * 8
     config = load_config(write_matrix(tmp_path, value))
     assert len(config["links"]) == 8
+    assert [link["marker_destination_node"]
+            for link in config["links"]] == marker_next
 
 
 def test_negative_gate_commands_are_node_link_scoped() -> None:
@@ -242,7 +245,7 @@ def test_negative_gate_commands_are_node_link_scoped() -> None:
         4, REQUIRED_EVIDENCE_FLAGS | DIAGNOSTIC_ONLY_FLAG, identity)
     link = negative_stage_link_command(2, REQUIRED_EVIDENCE_FLAGS)
     assert begin.startswith("CALibration:TRAINing:STAGe:BEGin 4,2147483679,")
-    assert link.startswith("CALibration:TRAINing:STAGe:LINK 2,31,")
+    assert link.startswith("CALibration:TRAINing:STAGe:LINK 2,2,3,3,2,31,")
     assert "slot" not in (begin + link).lower()
 
 
@@ -250,15 +253,15 @@ def test_negative_gate_expired_budget_is_one_cycle_short() -> None:
     values = negative_stage_link_command(
         0, REQUIRED_EVIDENCE_FLAGS, expired=True).split(maxsplit=1)[1]
     fields = [int(value) for value in values.split(",")]
-    required = sum(fields[index] for index in (7, 8, 9, 10, 11, 13))
-    assert fields[12] == required - 1
+    required = sum(fields[index] for index in (11, 12, 13, 14, 15, 17))
+    assert fields[16] == required - 1
 
 
 @pytest.mark.parametrize(
     ("signal", "offset_field", "phase_field", "offset", "phase"),
-    (("marker", 14, 19, -1, 10),
-     ("sck", 15, 20, -1, 10),
-     ("data", 16, 21, 4, 15)),
+    (("marker", 18, 23, -1, 10),
+     ("sck", 19, 24, -1, 10),
+     ("data", 20, 25, 4, 15)),
 )
 def test_negative_gate_can_inject_each_offset_phase_mismatch(
         signal: str, offset_field: int, phase_field: int,

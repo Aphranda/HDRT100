@@ -144,6 +144,12 @@ int main(void)
     for (uint32_t i = 0u; i < calibration.node_count; i++) {
         calibration.links[i].valid = 1u;
         calibration.links[i].link_index = i;
+        calibration.links[i].marker_source_node = i;
+        calibration.links[i].marker_destination_node =
+            (i + 1u) % calibration.node_count;
+        calibration.links[i].data_source_node =
+            calibration.links[i].marker_destination_node;
+        calibration.links[i].data_destination_node = i;
         calibration.links[i].evidence_flags =
             TDMA_RING_CALIBRATION_REQUIRED_FLAGS;
         calibration.links[i].calibration_generation =
@@ -178,6 +184,26 @@ int main(void)
                           tdma_ring_runtime_validate_calibration_stage(
                               &calibration, 4u, &calibration_reason),
                           true);
+    {
+        static const uint32_t marker_next[8] = {
+            5u, 6u, 7u, 4u, 0u, 2u, 3u, 1u,
+        };
+        tdma_ring_calibration_stage_t eight_node = calibration;
+        eight_node.node_count = 8u;
+        for (uint32_t node = 0u; node < eight_node.node_count; node++) {
+            eight_node.links[node] = calibration.links[0];
+            eight_node.links[node].link_index = node;
+            eight_node.links[node].marker_source_node = node;
+            eight_node.links[node].marker_destination_node =
+                marker_next[node];
+            eight_node.links[node].data_source_node = marker_next[node];
+            eight_node.links[node].data_destination_node = node;
+        }
+        failed += expect_bool(
+            "eight Node measured topology accepted",
+            tdma_ring_runtime_validate_calibration_stage(
+                &eight_node, 8u, &calibration_reason), true);
+    }
     calibration.links[0].data_offset_sample_count = 1;
     calibration.links[0].data_phase_delay_cycles = 11u;
     failed += expect_bool("independent sck and data phases accepted",

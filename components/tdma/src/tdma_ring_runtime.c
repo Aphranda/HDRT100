@@ -253,6 +253,12 @@ bool tdma_ring_runtime_validate_calibration_stage(
                                      TDMA_RING_RUNTIME_REASON_BAD_CONFIG);
         return false;
     }
+    uint32_t marker_source_mask = 0u;
+    uint32_t marker_destination_mask = 0u;
+    uint32_t data_source_mask = 0u;
+    uint32_t data_destination_mask = 0u;
+    uint32_t marker_next[TDMA_RING_CALIBRATION_LINK_MAX] = {0u};
+    uint32_t data_next[TDMA_RING_CALIBRATION_LINK_MAX] = {0u};
     for (uint32_t i = 0u; i < expected_node_count; i++) {
         const tdma_ring_calibration_link_t *link = &stage->links[i];
         const uint64_t budget = (uint64_t)link->marker_to_data_cycles +
@@ -260,6 +266,13 @@ bool tdma_ring_runtime_validate_calibration_stage(
             link->codeword_cycles + link->guard_cycles +
             link->loop_delay_cycles;
         if (link->valid == 0u || link->link_index != i ||
+            link->marker_source_node >= expected_node_count ||
+            link->marker_destination_node >= expected_node_count ||
+            link->data_source_node >= expected_node_count ||
+            link->data_destination_node >= expected_node_count ||
+            link->marker_source_node == link->marker_destination_node ||
+            link->data_source_node != link->marker_destination_node ||
+            link->data_destination_node != link->marker_source_node ||
             (link->evidence_flags &
              TDMA_RING_CALIBRATION_REQUIRED_FLAGS) !=
                 TDMA_RING_CALIBRATION_REQUIRED_FLAGS ||
@@ -284,6 +297,61 @@ bool tdma_ring_runtime_validate_calibration_stage(
                 reason, TDMA_RING_RUNTIME_REASON_BAD_CONFIG);
             return false;
         }
+        const uint32_t marker_source_bit =
+            1u << link->marker_source_node;
+        const uint32_t marker_destination_bit =
+            1u << link->marker_destination_node;
+        const uint32_t data_source_bit = 1u << link->data_source_node;
+        const uint32_t data_destination_bit =
+            1u << link->data_destination_node;
+        if ((marker_source_mask & marker_source_bit) != 0u ||
+            (marker_destination_mask & marker_destination_bit) != 0u ||
+            (data_source_mask & data_source_bit) != 0u ||
+            (data_destination_mask & data_destination_bit) != 0u) {
+            tdma_ring_runtime_set_reason(
+                reason, TDMA_RING_RUNTIME_REASON_BAD_CONFIG);
+            return false;
+        }
+        marker_source_mask |= marker_source_bit;
+        marker_destination_mask |= marker_destination_bit;
+        data_source_mask |= data_source_bit;
+        data_destination_mask |= data_destination_bit;
+        marker_next[link->marker_source_node] =
+            link->marker_destination_node;
+        data_next[link->data_source_node] = link->data_destination_node;
+    }
+    const uint32_t expected_mask = (1u << expected_node_count) - 1u;
+    if (marker_source_mask != expected_mask ||
+        marker_destination_mask != expected_mask ||
+        data_source_mask != expected_mask ||
+        data_destination_mask != expected_mask) {
+        tdma_ring_runtime_set_reason(
+            reason, TDMA_RING_RUNTIME_REASON_BAD_CONFIG);
+        return false;
+    }
+    uint32_t marker_visited = 0u;
+    uint32_t data_visited = 0u;
+    uint32_t marker_node = 0u;
+    uint32_t data_node = 0u;
+    for (uint32_t hop = 0u; hop < expected_node_count; hop++) {
+        const uint32_t marker_bit = 1u << marker_node;
+        const uint32_t data_bit = 1u << data_node;
+        if ((marker_visited & marker_bit) != 0u ||
+            (data_visited & data_bit) != 0u) {
+            tdma_ring_runtime_set_reason(
+                reason, TDMA_RING_RUNTIME_REASON_BAD_CONFIG);
+            return false;
+        }
+        marker_visited |= marker_bit;
+        data_visited |= data_bit;
+        marker_node = marker_next[marker_node];
+        data_node = data_next[data_node];
+    }
+    if (marker_node != 0u || data_node != 0u ||
+        marker_visited != expected_mask || data_visited != expected_mask) {
+        tdma_ring_runtime_set_reason(
+            reason, TDMA_RING_RUNTIME_REASON_BAD_CONFIG);
+        return false;
     }
     return true;
 }

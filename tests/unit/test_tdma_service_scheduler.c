@@ -259,6 +259,10 @@ int main(void)
         };
         tdma_ring_calibration_link_t link = {
             .valid = 1u,
+            .marker_source_node = 0u,
+            .marker_destination_node = 1u,
+            .data_source_node = 1u,
+            .data_destination_node = 0u,
             .evidence_flags = TDMA_RING_CALIBRATION_REQUIRED_FLAGS,
             .calibration_generation = stage_header.calibration_generation,
             .topology_generation = stage_header.topology_generation,
@@ -328,6 +332,10 @@ int main(void)
         failed += expect_u32("partial matrix still blocks arm",
                              tdma_service_ring_arm(&service), 0u);
         link.link_index = 1u;
+        link.marker_source_node = 1u;
+        link.marker_destination_node = 0u;
+        link.data_source_node = 0u;
+        link.data_destination_node = 1u;
         link.profile_crc32++;
         failed += expect_u32("mixed link identity rejected",
                              tdma_service_stage_calibration_link(

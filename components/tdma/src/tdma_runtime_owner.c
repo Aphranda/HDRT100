@@ -40,6 +40,7 @@ static tdma_traffic_scheduler_slot_t
     s_tdma_traffic_slots[TDMA_TRAFFIC_SCHEDULER_SLOT_COUNT];
 #endif
 static bool s_tdma_runtime_owner_initialized;
+static uint32_t s_tdma_topology_probe_phase_delay_cycles;
 
 static bool tdma_runtime_owner_flight_phys_arm(
     void *context,
@@ -48,20 +49,40 @@ static bool tdma_runtime_owner_flight_phys_arm(
     tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
     const tdma_ring_calibration_stage_t *stage =
         &s_tdma_runtime_owner.calibration_stage;
-    if (phys == NULL || config == NULL || stage->enabled == 0u ||
-        stage->node_count != config->node_count ||
+    if (phys == NULL || config == NULL ||
+        config->local_slot_id >= config->node_count) {
+        return false;
+    }
+    if (stage->enabled == 0u) {
+        const uint32_t phase = s_tdma_topology_probe_phase_delay_cycles;
+        return phase != 0u && phase <= 31u &&
+               tdma_pio_spi_phys_set_flight_offsets(
+                   phys, 0, 0, 0, phase, phase, phase) &&
+               tdma_pio_spi_phys_arm(context, config);
+    }
+    if (stage->node_count != config->node_count ||
         config->local_slot_id >= stage->node_count) {
         return false;
     }
-    /* At the TDMA boundary local_slot_id maps explicitly to the physical
-     * Node index. Marker arrives on the previous forward link, while reverse
-     * DATA arrives on the link whose marker source is this Node. */
+    /* Calibration step 1 freezes the directed link endpoints.  Search those
+     * endpoints; never infer physical wiring from the numeric Node value. */
     const uint32_t node = config->local_slot_id;
-    const uint32_t marker_link =
-        (node + stage->node_count - 1u) % stage->node_count;
+    uint32_t marker_link = stage->node_count;
+    uint32_t data_link = stage->node_count;
+    for (uint32_t link = 0u; link < stage->node_count; link++) {
+        if (stage->links[link].marker_destination_node == node) {
+            marker_link = link;
+        }
+        if (stage->links[link].data_destination_node == node) {
+            data_link = link;
+        }
+    }
+    if (marker_link >= stage->node_count || data_link >= stage->node_count) {
+        return false;
+    }
     const tdma_ring_calibration_link_t *marker =
         &stage->links[marker_link];
-    const tdma_ring_calibration_link_t *data = &stage->links[node];
+    const tdma_ring_calibration_link_t *data = &stage->links[data_link];
     if (marker->valid == 0u || data->valid == 0u ||
         !tdma_pio_spi_phys_set_flight_offsets(
             phys,
@@ -456,16 +477,31 @@ bool tdma_runtime_owner_set_loop_delay_ns(uint32_t loop_delay_ns,
 bool tdma_runtime_owner_begin_calibration_stage(
     const tdma_ring_calibration_stage_t *header)
 {
-    return s_tdma_runtime_owner_initialized &&
-           tdma_service_begin_calibration_stage(&s_tdma_runtime_owner,
-                                                header);
+    if (!s_tdma_runtime_owner_initialized ||
+        !tdma_service_begin_calibration_stage(&s_tdma_runtime_owner,
+                                              header)) {
+        return false;
+    }
+    tdma_pio_spi_ring_adapter_clear_calibration_topology(
+        &s_tdma_pio_spi_ring_adapter);
+    return true;
 }
 
 bool tdma_runtime_owner_stage_calibration_link(
     const tdma_ring_calibration_link_t *link)
 {
-    return s_tdma_runtime_owner_initialized &&
-           tdma_service_stage_calibration_link(&s_tdma_runtime_owner, link);
+    if (!s_tdma_runtime_owner_initialized ||
+        !tdma_service_stage_calibration_link(&s_tdma_runtime_owner, link)) {
+        return false;
+    }
+    tdma_ring_calibration_stage_t stage;
+    bool complete = false;
+    if (!tdma_service_get_calibration_stage(&s_tdma_runtime_owner,
+                                            &stage, &complete)) {
+        return false;
+    }
+    return !complete || tdma_pio_spi_ring_adapter_set_calibration_topology(
+                            &s_tdma_pio_spi_ring_adapter, &stage);
 }
 
 bool tdma_runtime_owner_get_calibration_stage(
@@ -479,8 +515,32 @@ bool tdma_runtime_owner_get_calibration_stage(
 
 bool tdma_runtime_owner_clear_calibration_stage(void)
 {
-    return s_tdma_runtime_owner_initialized &&
-           tdma_service_clear_calibration_stage(&s_tdma_runtime_owner);
+    if (!s_tdma_runtime_owner_initialized ||
+        !tdma_service_clear_calibration_stage(&s_tdma_runtime_owner)) {
+        return false;
+    }
+    tdma_pio_spi_ring_adapter_clear_calibration_topology(
+        &s_tdma_pio_spi_ring_adapter);
+    return true;
+}
+
+bool tdma_runtime_owner_set_topology_probe_mode(bool enabled,
+                                                uint32_t phase_delay_cycles)
+{
+    tdma_ring_runtime_snapshot_t ring;
+    if (!s_tdma_runtime_owner_initialized ||
+        !tdma_ring_runtime_get_snapshot(
+            &s_tdma_runtime_owner.ring_runtime, &ring) ||
+        ring.enabled != 0u || ring.adapter_started != 0u ||
+        (enabled && (phase_delay_cycles == 0u ||
+                     phase_delay_cycles > 31u)) ||
+        !tdma_pio_spi_ring_adapter_set_topology_probe_mode(
+            &s_tdma_pio_spi_ring_adapter, enabled)) {
+        return false;
+    }
+    s_tdma_topology_probe_phase_delay_cycles =
+        enabled ? phase_delay_cycles : 0u;
+    return true;
 }
 
 bool tdma_runtime_owner_get_staged_ring_config(

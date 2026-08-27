@@ -16,6 +16,13 @@ def _snapshot() -> dict[str, dict[str, int]]:
         "local_slot": 1,
         "payload_size": 256,
         "local_segment_count": 1,
+        "receive_version": 1,
+        "receive_configured": 1,
+        "receive_state": 1,
+        "receive_expected_segment_mask": 1,
+        "receive_accepted_segment_mask": 1,
+        "receive_expected_wkc": 1,
+        "receive_accepted_wkc": 1,
     })
     fifo = dict.fromkeys(FIFO_FIELDS, 0)
     fifo["version"] = 2
@@ -35,7 +42,7 @@ def test_parse_process_snapshot_exact_field_count() -> None:
     raw = ",".join(str(index) for index in range(len(PROCESS_FIELDS)))
     parsed = parse_snapshot(raw, PROCESS_FIELDS, "board-a")
     assert parsed["version"] == 0
-    assert parsed["rx_bitmap_duplicate_count"] == len(PROCESS_FIELDS) - 1
+    assert parsed["receive_stale_age_ns"] == len(PROCESS_FIELDS) - 1
 
 
 def test_validate_board_accepts_complete_bitmap_pipeline() -> None:
@@ -46,6 +53,7 @@ def test_validate_board_accepts_complete_bitmap_pipeline() -> None:
         "rx_bitmap_scan_count": 20,
         "rx_bitmap_hit_count": 9,
         "rx_bitmap_duplicate_count": 11,
+        "receive_accepted_count": 10,
     })
     after["refmem"].update({
         "tx_publish_count": 10,
@@ -60,6 +68,7 @@ def test_validate_board_rejects_scan_without_delivery() -> None:
     after["process"].update({
         "map_apply_count": 10,
         "rx_bitmap_scan_count": 20,
+        "receive_accepted_count": 10,
     })
     after["refmem"]["tx_publish_count"] = 10
     errors = validate_board(before, after)
@@ -74,6 +83,7 @@ def test_validate_board_rejects_drop_and_bad_mailbox_growth() -> None:
         "map_apply_count": 10,
         "rx_bitmap_scan_count": 20,
         "rx_bitmap_hit_count": 8,
+        "receive_accepted_count": 8,
     })
     after["fifo"]["rx_mirror_drop_count"] = 1
     after["refmem"].update({
@@ -96,6 +106,7 @@ def test_validate_reference_accepts_classify_without_flight_apply() -> None:
         "map_apply_count": 0,
         "rx_bitmap_scan_count": 20,
         "rx_bitmap_hit_count": 8,
+        "receive_accepted_count": 8,
     })
     after["refmem"].update({
         "local_slot": 0,

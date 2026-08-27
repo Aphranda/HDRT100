@@ -80,34 +80,72 @@ static bool tdma_flight_engine_fast_mailbox_header(
     return true;
 }
 
-/* Core1 fast RX classifier. It only reads the fixed mailbox header; the
- * payload remains opaque and is parsed by core0. */
-static bool tdma_flight_engine_fast_mailbox_match(
+/* Core1 fast RX inspector. It only reads the fixed mailbox header; the
+ * payload remains opaque and is parsed by core0.  Presence and novelty are
+ * separate facts: an unchanged mailbox still contributes to full-frame WKC. */
+static bool tdma_flight_engine_inspect_input_map(
     tdma_flight_engine_t *engine,
-    const uint8_t *payload,
-    const tdma_process_image_segment_t *segment,
-    uint32_t local_slot_id)
+    const uint8_t *incoming,
+    size_t incoming_size,
+    const tdma_process_image_map_t *map,
+    uint32_t local_slot_id,
+    uint32_t expected_owner_mask,
+    uint32_t *present_segment_mask,
+    uint32_t *new_segment_mask,
+    uint32_t *expected_segment_mask,
+    bool count_evidence)
 {
-    if (engine == NULL || payload == NULL || segment == NULL ||
-        segment->segment_id >= TDMA_PROCESS_IMAGE_SEGMENT_COUNT ||
-        segment->byte_length < TDMA_FLIGHT_MAILBOX_FAST_HEADER_SIZE) {
+    if (engine == NULL || incoming == NULL || map == NULL ||
+        incoming_size != map->payload_size || present_segment_mask == NULL ||
+        new_segment_mask == NULL || expected_segment_mask == NULL ||
+        expected_owner_mask == 0u ||
+        (expected_owner_mask &
+         ~((1u << TDMA_TRANSPORT_FRAME_MAX_SLOT_COUNT) - 1u)) != 0u) {
         return false;
     }
-
-    tdma_flight_engine_counter_inc(&engine->rx_bitmap_scan_count);
-    uint16_t seq16 = 0u;
-    if (!tdma_flight_engine_fast_mailbox_header(payload,
-                                                segment,
-                                                local_slot_id,
-                                                &seq16)) {
-        return false;
+    uint32_t present = 0u;
+    uint32_t fresh = 0u;
+    uint32_t expected = 0u;
+    for (uint32_t i = 0u; i < TDMA_PROCESS_IMAGE_SEGMENT_COUNT; i++) {
+        const tdma_process_image_segment_t *segment = &map->segment[i];
+        if (segment->used == 0u ||
+            segment->owner_slot_id == local_slot_id ||
+            (expected_owner_mask & (1u << segment->owner_slot_id)) == 0u ||
+            segment->segment_id >= 32u) {
+            continue;
+        }
+        const uint32_t segment_mask = 1u << segment->segment_id;
+        expected |= segment_mask;
+        if (count_evidence) {
+            tdma_flight_engine_counter_inc(&engine->rx_bitmap_scan_count);
+        }
+        uint16_t seq16 = 0u;
+        if (!tdma_flight_engine_fast_mailbox_header(incoming,
+                                                    segment,
+                                                    local_slot_id,
+                                                    &seq16)) {
+            continue;
+        }
+        present |= segment_mask;
+        if (count_evidence) {
+            tdma_flight_engine_counter_inc(&engine->rx_bitmap_present_count);
+        }
+        if ((engine->rx_seen_segment_mask & segment_mask) != 0u &&
+            engine->rx_last_seq16_by_segment[segment->segment_id] == seq16) {
+            if (count_evidence) {
+                tdma_flight_engine_counter_inc(
+                    &engine->rx_bitmap_duplicate_count);
+            }
+            continue;
+        }
+        fresh |= segment_mask;
     }
-    const uint32_t segment_mask = 1u << segment->segment_id;
-    if ((engine->rx_seen_segment_mask & segment_mask) != 0u &&
-        engine->rx_last_seq16_by_segment[segment->segment_id] == seq16) {
-        tdma_flight_engine_counter_inc(&engine->rx_bitmap_duplicate_count);
-        return false;
+    if (count_evidence && present != expected) {
+        tdma_flight_engine_counter_inc(&engine->rx_bitmap_incomplete_count);
     }
+    *present_segment_mask = present;
+    *new_segment_mask = fresh;
+    *expected_segment_mask = expected;
     return true;
 }
 
@@ -118,25 +156,25 @@ static uint32_t tdma_flight_engine_classify_input_map(
     const tdma_process_image_map_t *map,
     uint32_t local_slot_id)
 {
-    if (engine == NULL || incoming == NULL || map == NULL ||
-        incoming_size != map->payload_size) {
+    uint32_t present = 0u;
+    uint32_t fresh = 0u;
+    uint32_t expected = 0u;
+    if (!tdma_flight_engine_inspect_input_map(
+            engine,
+            incoming,
+            incoming_size,
+            map,
+            local_slot_id,
+            (1u << TDMA_TRANSPORT_FRAME_MAX_SLOT_COUNT) - 1u,
+            &present,
+            &fresh,
+            &expected,
+            true)) {
         return 0u;
     }
-    uint32_t mask = 0u;
-    for (uint32_t i = 0u; i < TDMA_PROCESS_IMAGE_SEGMENT_COUNT; i++) {
-        const tdma_process_image_segment_t *segment = &map->segment[i];
-        if (segment->used == 0u ||
-            segment->owner_slot_id == local_slot_id) {
-            continue;
-        }
-        if (tdma_flight_engine_fast_mailbox_match(engine,
-                                                  incoming,
-                                                  segment,
-                                                  local_slot_id)) {
-            mask |= 1u << segment->segment_id;
-        }
-    }
-    return mask;
+    (void)present;
+    (void)expected;
+    return fresh;
 }
 
 static bool tdma_flight_engine_lock_map(tdma_flight_engine_t *engine,
@@ -289,14 +327,17 @@ bool tdma_flight_engine_is_active(const tdma_flight_engine_t *engine)
            __atomic_load_n(&engine->active, __ATOMIC_ACQUIRE) != 0u;
 }
 
-bool tdma_flight_engine_apply(tdma_flight_engine_t *engine,
-                              const uint8_t *incoming,
-                              size_t incoming_size,
-                              const tdma_flight_tx_view_t *tx_view,
-                              uint8_t *output,
-                              size_t output_capacity,
-                              tdma_flight_engine_apply_t *applied,
-                              tdma_flight_engine_result_t *result)
+static bool tdma_flight_engine_apply_impl(
+    tdma_flight_engine_t *engine,
+    const uint8_t *incoming,
+    size_t incoming_size,
+    uint32_t preclassified_input_segment_mask,
+    bool input_preclassified,
+    const tdma_flight_tx_view_t *tx_view,
+    uint8_t *output,
+    size_t output_capacity,
+    tdma_flight_engine_apply_t *applied,
+    tdma_flight_engine_result_t *result)
 {
     if (applied != NULL) {
         memset(applied, 0, sizeof(*applied));
@@ -325,12 +366,13 @@ bool tdma_flight_engine_apply(tdma_flight_engine_t *engine,
         return false;
     }
 
-    const uint32_t input_segment_mask =
-        tdma_flight_engine_classify_input_map(engine,
-                                              incoming,
-                                              incoming_size,
-                                              &map,
-                                              local_slot_id);
+    const uint32_t input_segment_mask = input_preclassified
+        ? preclassified_input_segment_mask
+        : tdma_flight_engine_classify_input_map(engine,
+                                                incoming,
+                                                incoming_size,
+                                                &map,
+                                                local_slot_id);
     memcpy(output, incoming, incoming_size);
     for (uint32_t i = 0u; i < TDMA_PROCESS_IMAGE_SEGMENT_COUNT; i++) {
         const tdma_process_image_segment_t *segment = &map.segment[i];
@@ -433,6 +475,117 @@ bool tdma_flight_engine_classify_input(
     return true;
 }
 
+bool tdma_flight_engine_apply(tdma_flight_engine_t *engine,
+                              const uint8_t *incoming,
+                              size_t incoming_size,
+                              const tdma_flight_tx_view_t *tx_view,
+                              uint8_t *output,
+                              size_t output_capacity,
+                              tdma_flight_engine_apply_t *applied,
+                              tdma_flight_engine_result_t *result)
+{
+    return tdma_flight_engine_apply_impl(engine, incoming, incoming_size,
+                                         0u, false, tx_view, output,
+                                         output_capacity, applied, result);
+}
+
+bool tdma_flight_engine_apply_preclassified(
+    tdma_flight_engine_t *engine,
+    const uint8_t *incoming,
+    size_t incoming_size,
+    uint32_t input_segment_mask,
+    const tdma_flight_tx_view_t *tx_view,
+    uint8_t *output,
+    size_t output_capacity,
+    tdma_flight_engine_apply_t *applied,
+    tdma_flight_engine_result_t *result)
+{
+    return tdma_flight_engine_apply_impl(engine, incoming, incoming_size,
+                                         input_segment_mask, true, tx_view,
+                                         output, output_capacity, applied,
+                                         result);
+}
+
+bool tdma_flight_engine_inspect_input(
+    tdma_flight_engine_t *engine,
+    const uint8_t *incoming,
+    size_t incoming_size,
+    uint32_t expected_owner_mask,
+    uint32_t *present_segment_mask,
+    uint32_t *new_segment_mask,
+    uint32_t *expected_segment_mask)
+{
+    if (present_segment_mask != NULL) {
+        *present_segment_mask = 0u;
+    }
+    if (new_segment_mask != NULL) {
+        *new_segment_mask = 0u;
+    }
+    if (expected_segment_mask != NULL) {
+        *expected_segment_mask = 0u;
+    }
+    if (engine == NULL || incoming == NULL ||
+        present_segment_mask == NULL || new_segment_mask == NULL ||
+        expected_segment_mask == NULL ||
+        !tdma_flight_engine_is_active(engine)) {
+        return false;
+    }
+    tdma_process_image_map_t map;
+    uint32_t local_slot_id = 0u;
+    if (!tdma_flight_engine_read_map(engine,
+                                     &map,
+                                     &local_slot_id,
+                                     NULL)) {
+        return false;
+    }
+    return tdma_flight_engine_inspect_input_map(engine,
+                                                incoming,
+                                                incoming_size,
+                                                &map,
+                                                local_slot_id,
+                                                expected_owner_mask,
+                                                present_segment_mask,
+                                                new_segment_mask,
+                                                expected_segment_mask,
+                                                true);
+}
+
+bool tdma_flight_engine_expected_input_mask(
+    const tdma_flight_engine_t *engine,
+    uint32_t expected_owner_mask,
+    uint32_t *expected_segment_mask)
+{
+    if (expected_segment_mask != NULL) {
+        *expected_segment_mask = 0u;
+    }
+    if (engine == NULL || expected_segment_mask == NULL ||
+        expected_owner_mask == 0u ||
+        (expected_owner_mask &
+         ~((1u << TDMA_TRANSPORT_FRAME_MAX_SLOT_COUNT) - 1u)) != 0u ||
+        !tdma_flight_engine_is_active(engine)) {
+        return false;
+    }
+    tdma_process_image_map_t map;
+    uint32_t local_slot_id = 0u;
+    if (!tdma_flight_engine_read_map(engine,
+                                     &map,
+                                     &local_slot_id,
+                                     NULL)) {
+        return false;
+    }
+    uint32_t expected = 0u;
+    for (uint32_t i = 0u; i < TDMA_PROCESS_IMAGE_SEGMENT_COUNT; i++) {
+        const tdma_process_image_segment_t *segment = &map.segment[i];
+        if (segment->used != 0u && segment->segment_id < 32u &&
+            (expected_owner_mask & (1u << segment->owner_slot_id)) != 0u &&
+            segment->owner_slot_id != local_slot_id) {
+            expected |= 1u << segment->segment_id;
+        }
+    }
+    *expected_segment_mask = expected;
+    return expected != 0u;
+}
+
 bool tdma_flight_engine_commit_input(
     tdma_flight_engine_t *engine,
     const uint8_t *incoming,
@@ -530,5 +683,9 @@ bool tdma_flight_engine_get_snapshot(
         __atomic_load_n(&engine->rx_bitmap_hit_count, __ATOMIC_RELAXED);
     snapshot->rx_bitmap_duplicate_count =
         __atomic_load_n(&engine->rx_bitmap_duplicate_count, __ATOMIC_RELAXED);
+    snapshot->rx_bitmap_present_count =
+        __atomic_load_n(&engine->rx_bitmap_present_count, __ATOMIC_RELAXED);
+    snapshot->rx_bitmap_incomplete_count =
+        __atomic_load_n(&engine->rx_bitmap_incomplete_count, __ATOMIC_RELAXED);
     return true;
 }

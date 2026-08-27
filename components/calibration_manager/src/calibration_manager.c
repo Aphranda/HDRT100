@@ -2500,6 +2500,10 @@ bool calibration_manager_begin_training_stage(
 
 bool calibration_manager_stage_training_link(
     uint32_t link_index,
+    uint32_t marker_source_node,
+    uint32_t marker_destination_node,
+    uint32_t data_source_node,
+    uint32_t data_destination_node,
     uint32_t evidence_flags,
     uint32_t pio_persona,
     uint32_t clkdiv_q16,
@@ -2532,6 +2536,10 @@ bool calibration_manager_stage_training_link(
     const tdma_ring_calibration_link_t link = {
         .valid = 1u,
         .link_index = link_index,
+        .marker_source_node = marker_source_node,
+        .marker_destination_node = marker_destination_node,
+        .data_source_node = data_source_node,
+        .data_destination_node = data_destination_node,
         .evidence_flags = evidence_flags,
         .calibration_generation = stage.calibration_generation,
         .topology_generation = stage.topology_generation,
@@ -2572,6 +2580,13 @@ bool calibration_manager_get_training_stage(
 bool calibration_manager_clear_training_stage(void)
 {
     return tdma_runtime_owner_clear_calibration_stage();
+}
+
+bool calibration_manager_set_topology_probe_mode(
+    bool enabled, uint32_t phase_delay_cycles)
+{
+    return tdma_runtime_owner_set_topology_probe_mode(
+        enabled, phase_delay_cycles);
 }
 
 bool calibration_manager_request_p3(

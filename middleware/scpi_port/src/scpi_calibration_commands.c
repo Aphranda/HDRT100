@@ -586,7 +586,7 @@ scpi_result_t scpi_calibration_training_stage_begin(scpi_t *context)
 
 scpi_result_t scpi_calibration_training_stage_link(scpi_t *context)
 {
-    uint32_t values[14] = {0u};
+    uint32_t values[18] = {0u};
     int32_t marker_offset_sample_count = 0;
     int32_t sck_offset_sample_count = 0;
     int32_t data_offset_sample_count = 0;
@@ -595,7 +595,7 @@ scpi_result_t scpi_calibration_training_stage_link(scpi_t *context)
     uint32_t marker_phase_delay_cycles = 0u;
     uint32_t sck_phase_delay_cycles = 0u;
     uint32_t data_phase_delay_cycles = 0u;
-    for (uint32_t i = 0u; i < 14u; i++) {
+    for (uint32_t i = 0u; i < 18u; i++) {
         if (SCPI_ParamUInt32(context, &values[i], TRUE) != TRUE) {
             return SCPI_RES_ERR;
         }
@@ -613,7 +613,8 @@ scpi_result_t scpi_calibration_training_stage_link(scpi_t *context)
     if (!calibration_manager_stage_training_link(
             values[0], values[1], values[2], values[3], values[4],
             values[5], values[6], values[7], values[8], values[9],
-            values[10], values[11], values[12], values[13],
+            values[10], values[11], values[12], values[13], values[14],
+            values[15], values[16], values[17],
             marker_offset_sample_count, sck_offset_sample_count,
             data_offset_sample_count, sample_period_ns,
             link_base_delay_ns, marker_phase_delay_cycles,
@@ -670,6 +671,10 @@ scpi_result_t scpi_calibration_training_stage_link_q(scpi_t *context)
     SCPI_ResultText(context, "TRN03LNK");
     SCPI_ResultUInt32(context, link->valid);
     SCPI_ResultUInt32(context, link->link_index);
+    SCPI_ResultUInt32(context, link->marker_source_node);
+    SCPI_ResultUInt32(context, link->marker_destination_node);
+    SCPI_ResultUInt32(context, link->data_source_node);
+    SCPI_ResultUInt32(context, link->data_destination_node);
     SCPI_ResultUInt32(context, link->evidence_flags);
     SCPI_ResultUInt32(context, link->calibration_generation);
     SCPI_ResultUInt32(context, link->topology_generation);
@@ -706,6 +711,27 @@ scpi_result_t scpi_calibration_training_stage_clear(scpi_t *context)
         return SCPI_RES_ERR;
     }
     return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_calibration_topology_probe(scpi_t *context)
+{
+    uint32_t enabled = 0u;
+    uint32_t phase_delay_cycles = 0u;
+    if (SCPI_ParamUInt32(context, &enabled, TRUE) != TRUE || enabled > 1u) {
+        return SCPI_RES_ERR;
+    }
+    if (enabled != 0u &&
+        SCPI_ParamUInt32(context, &phase_delay_cycles, TRUE) != TRUE) {
+        return SCPI_RES_ERR;
+    }
+    if (!calibration_manager_set_topology_probe_mode(
+            enabled != 0u, phase_delay_cycles)) {
+        scpi_port_push_exec_error(context, "CAL_TOPOLOGY_PROBE_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, enabled);
+    SCPI_ResultUInt32(context, phase_delay_cycles);
+    return SCPI_RES_OK;
 }
 
 scpi_result_t scpi_calibration_path_candidate_begin(scpi_t *context)

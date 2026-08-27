@@ -209,6 +209,22 @@ static tdma_ring_runtime_config_t make_valid_config(void)
     return config;
 }
 
+static void set_test_sequential_topology(
+    tdma_pio_spi_ring_adapter_t *adapter, uint32_t node_count)
+{
+    memset(&adapter->topology, 0, sizeof(adapter->topology));
+    adapter->topology.valid = 1u;
+    adapter->topology.node_count = node_count;
+    adapter->topology.topology_generation = 1u;
+    adapter->topology.topology_crc32 = 1u;
+    for (uint32_t node = 0u; node < node_count; node++) {
+        adapter->topology.marker_next_node[node] =
+            (node + 1u) % node_count;
+        adapter->topology.data_next_node[node] =
+            (node + node_count - 1u) % node_count;
+    }
+}
+
 static bool start_ring_data(tdma_ring_runtime_t *runtime)
 {
     if (runtime == NULL) {
@@ -958,6 +974,7 @@ int main(void)
                               true);
         failed += expect_bool("flight adapter init",
                               tdma_pio_spi_ring_adapter_init(&adapter), true);
+        set_test_sequential_topology(&adapter, config.node_count);
         tdma_pio_spi_ring_adapter_set_phys(&adapter,
                                            flight_tx,
                                            flight_rx,
@@ -1027,7 +1044,7 @@ int main(void)
 
         uint8_t beacon[TDMA_TRANSPORT_SHORT_PACKET_MAX];
         size_t beacon_size = 0u;
-        const tdma_transport_frame_build_t build = {
+        tdma_transport_frame_build_t build = {
             .frame_class = TDMA_TRANSPORT_FRAME_CLASS_SHORT,
             .origin_slot_id = 0u,
             .transport_sequence = 11u,
@@ -1265,6 +1282,7 @@ int main(void)
                               true);
         failed += expect_bool("process origin adapter init",
                               tdma_pio_spi_ring_adapter_init(&adapter), true);
+        set_test_sequential_topology(&adapter, config.node_count);
         failed += expect_bool("process origin fifo init",
                               tdma_flight_fifo_init(&fifo), true);
         failed += expect_bool("process origin engine init",
@@ -1468,6 +1486,115 @@ int main(void)
         }
     }
 
+    /* Calibration step 1 may assign Node values in an order unrelated to
+     * wiring.  Freeze a deliberately permuted physical cycle so a future
+     * refactor cannot derive receive masks from numeric Node adjacency. */
+    {
+        static const uint32_t marker_next[4] = {3u, 2u, 0u, 1u};
+        static const uint32_t expected_by_node[4] = {
+            (1u << 1u) | (1u << 2u) | (1u << 3u),
+            (1u << 0u) | (1u << 2u),
+            (1u << 0u),
+            (1u << 0u) | (1u << 1u) | (1u << 2u),
+        };
+        for (uint32_t local_node = 0u; local_node < 4u; local_node++) {
+            tdma_ring_runtime_t runtime;
+            tdma_pio_spi_ring_adapter_t adapter;
+            tdma_pio_spi_ring_adapter_snapshot_t snapshot;
+            tdma_flight_engine_t engine;
+            loopback_phys_t phys;
+            tdma_ring_runtime_config_t config = make_valid_config();
+            tdma_process_image_map_t map = make_eight_slot_flight_map();
+            tdma_ring_calibration_stage_t topology;
+            memset(&phys, 0, sizeof(phys));
+            memset(&topology, 0, sizeof(topology));
+            phys.suppress_echo = true;
+            config.node_count = 4u;
+            config.local_slot_id = local_node;
+            config.reference_slot_id = 0u;
+            config.feedback_timeout_ns = config.cycle_period_ns * 4u;
+            topology.enabled = 1u;
+            topology.node_count = 4u;
+            topology.evidence_flags = TDMA_RING_CALIBRATION_REQUIRED_FLAGS;
+            topology.calibration_generation = 1u;
+            topology.topology_generation = 2u;
+            topology.topology_crc32 = 3u;
+            topology.profile_crc32 = 4u;
+            topology.schedule_crc32 = 5u;
+            for (uint32_t link_index = 0u; link_index < 4u; link_index++) {
+                tdma_ring_calibration_link_t *link =
+                    &topology.links[link_index];
+                link->valid = 1u;
+                link->link_index = link_index;
+                link->marker_source_node = link_index;
+                link->marker_destination_node = marker_next[link_index];
+                link->data_source_node = marker_next[link_index];
+                link->data_destination_node = link_index;
+                link->evidence_flags = topology.evidence_flags;
+                link->calibration_generation = topology.calibration_generation;
+                link->topology_generation = topology.topology_generation;
+                link->topology_crc32 = topology.topology_crc32;
+                link->profile_crc32 = topology.profile_crc32;
+                link->schedule_crc32 = topology.schedule_crc32;
+                link->pio_persona = 1u;
+                link->clkdiv_q16 = 1u;
+                link->clk_sys_hz = 1u;
+                link->instruction_period_ns = 4u;
+                link->bit_cycles = 1u;
+                link->marker_to_data_cycles = 1u;
+                link->codeword_cycles = 1u;
+                link->link_budget_cycles = 2u;
+                link->sample_period_ns = 4u;
+                link->link_base_delay_ns = 40u;
+                link->marker_phase_delay_cycles = 10u;
+                link->sck_phase_delay_cycles = 10u;
+                link->data_phase_delay_cycles = 10u;
+            }
+
+            failed += expect_bool("reverse mask engine init",
+                                  tdma_flight_engine_init(&engine), true);
+            failed += expect_bool("reverse mask map configure",
+                                  tdma_flight_engine_configure(&engine, &map),
+                                  true);
+            failed += expect_bool("reverse mask runtime init",
+                                  tdma_ring_runtime_init(&runtime), true);
+            failed += expect_bool("reverse mask runtime configure",
+                                  tdma_ring_runtime_configure(&runtime,
+                                                              &config),
+                                  true);
+            failed += expect_bool("reverse mask adapter init",
+                                  tdma_pio_spi_ring_adapter_init(&adapter),
+                                  true);
+            failed += expect_bool(
+                "measured topology loaded",
+                tdma_pio_spi_ring_adapter_set_calibration_topology(
+                    &adapter, &topology), true);
+            tdma_pio_spi_ring_adapter_set_phys(&adapter,
+                                               loopback_tx,
+                                               loopback_rx,
+                                               &phys);
+            tdma_pio_spi_ring_adapter_set_flight_engine(&adapter, &engine);
+            failed += expect_bool("reverse mask bind",
+                                  tdma_ring_runtime_bind_adapter(
+                                      &runtime,
+                                      tdma_pio_spi_ring_adapter_ops(),
+                                      &adapter),
+                                  true);
+            failed += expect_bool("reverse mask start",
+                                  start_ring_data(&runtime), true);
+            failed += expect_bool("reverse mask snapshot",
+                                  tdma_pio_spi_ring_adapter_get_snapshot(
+                                      &adapter, &snapshot),
+                                  true);
+            failed += expect_u32("reverse expected segment mask",
+                                 snapshot.receive_health.expected_segment_mask,
+                                 expected_by_node[local_node]);
+            failed += expect_u64("receive stale timeout is four rings",
+                                 adapter.receive_health.config.stale_timeout_ns,
+                                 (uint64_t)config.feedback_timeout_ns * 4ull);
+        }
+    }
+
     /* --- Fixed-offset follower flight processing. The complete TX image is
      * acquired once at frame boundary and shared by all local write slices. */
     {
@@ -1500,7 +1627,7 @@ int main(void)
         phys.suppress_echo = true;
         config.local_slot_id = 1u;
         config.reference_slot_id = 0u;
-        const tdma_transport_frame_build_t build = {
+        tdma_transport_frame_build_t build = {
             .frame_class = TDMA_TRANSPORT_FRAME_CLASS_SHORT,
             .origin_slot_id = 0u,
             .transport_sequence = 41u,
@@ -1526,6 +1653,7 @@ int main(void)
                               tdma_ring_runtime_configure(&runtime, &config), true);
         failed += expect_bool("flight forward adapter init",
                               tdma_pio_spi_ring_adapter_init(&adapter), true);
+        set_test_sequential_topology(&adapter, config.node_count);
         tdma_pio_spi_ring_adapter_set_phys(&adapter,
                                            loopback_tx,
                                            loopback_rx,
@@ -1665,15 +1793,9 @@ int main(void)
         failed += expect_u32("flight active reconfigure reject count",
                              adapter_snapshot.flight_map_reject_count, 1u);
 
-        failed += expect_bool("flight restore payload encode",
-                              tdma_transport_frame_encode(&build,
-                                                          incoming_packet,
-                                                          sizeof(incoming_packet),
-                                                          &incoming_packet_size,
-                                                          &transport_result),
-                              true);
         for (uint32_t i = 0u; i <= TDMA_FLIGHT_RX_FRAME_SLOT_COUNT; i++) {
             incoming[6] = (uint8_t)(i + 2u);
+            build.transport_sequence = 42u + i;
             failed += expect_bool("flight rx fill encode",
                                   tdma_transport_frame_encode(
                                       &build,
@@ -1705,6 +1827,15 @@ int main(void)
         failed += expect_bool("flight release retry space",
                               tdma_flight_fifo_core0_release_rx(
                                   &fifo, rx_view.slot_index),
+                              true);
+        build.transport_sequence++;
+        failed += expect_bool("flight retry encode",
+                              tdma_transport_frame_encode(
+                                  &build,
+                                  incoming_packet,
+                                  sizeof(incoming_packet),
+                                  &incoming_packet_size,
+                                  &transport_result),
                               true);
         failed += expect_bool("flight retry uncommitted mailbox",
                               tdma_pio_spi_ring_adapter_inject_rx(

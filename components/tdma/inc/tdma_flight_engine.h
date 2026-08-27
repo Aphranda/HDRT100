@@ -8,7 +8,7 @@
 #include "tdma_flight_fifo.h"
 #include "tdma_process_image_map.h"
 
-#define TDMA_FLIGHT_ENGINE_VERSION 2u
+#define TDMA_FLIGHT_ENGINE_VERSION 3u
 #define TDMA_FLIGHT_MAP_SNAPSHOT_RETRY_MAX 64u
 
 #define TDMA_FLIGHT_SHORT_SLOT_COUNT 8u
@@ -59,6 +59,8 @@ typedef struct {
     uint32_t rx_bitmap_scan_count;
     uint32_t rx_bitmap_hit_count;
     uint32_t rx_bitmap_duplicate_count;
+    uint32_t rx_bitmap_present_count;
+    uint32_t rx_bitmap_incomplete_count;
 } tdma_flight_engine_snapshot_t;
 
 typedef struct {
@@ -80,6 +82,8 @@ typedef struct {
     volatile uint32_t rx_bitmap_scan_count;
     volatile uint32_t rx_bitmap_hit_count;
     volatile uint32_t rx_bitmap_duplicate_count;
+    volatile uint32_t rx_bitmap_present_count;
+    volatile uint32_t rx_bitmap_incomplete_count;
 } tdma_flight_engine_t;
 
 bool tdma_flight_engine_init(tdma_flight_engine_t *engine);
@@ -100,11 +104,38 @@ bool tdma_flight_engine_apply(tdma_flight_engine_t *engine,
                               size_t output_capacity,
                               tdma_flight_engine_apply_t *applied,
                               tdma_flight_engine_result_t *result);
+/* Adapter path after inspect_input(): use the physical-ring-qualified new
+ * mailbox mask instead of classifying all wire-image mailboxes again. */
+bool tdma_flight_engine_apply_preclassified(
+    tdma_flight_engine_t *engine,
+    const uint8_t *incoming,
+    size_t incoming_size,
+    uint32_t input_segment_mask,
+    const tdma_flight_tx_view_t *tx_view,
+    uint8_t *output,
+    size_t output_capacity,
+    tdma_flight_engine_apply_t *applied,
+    tdma_flight_engine_result_t *result);
 bool tdma_flight_engine_classify_input(
     tdma_flight_engine_t *engine,
     const uint8_t *incoming,
     size_t incoming_size,
     uint32_t *input_segment_mask);
+/* Inspect every active remote mailbox without treating an unchanged mailbox
+ * sequence as absent. present_segment_mask is the WKC/Node-bitmap evidence
+ * for this wire frame; new_segment_mask is the subset core0 has not consumed. */
+bool tdma_flight_engine_inspect_input(
+    tdma_flight_engine_t *engine,
+    const uint8_t *incoming,
+    size_t incoming_size,
+    uint32_t expected_owner_mask,
+    uint32_t *present_segment_mask,
+    uint32_t *new_segment_mask,
+    uint32_t *expected_segment_mask);
+bool tdma_flight_engine_expected_input_mask(
+    const tdma_flight_engine_t *engine,
+    uint32_t expected_owner_mask,
+    uint32_t *expected_segment_mask);
 bool tdma_flight_engine_commit_input(
     tdma_flight_engine_t *engine,
     const uint8_t *incoming,

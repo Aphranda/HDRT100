@@ -74,7 +74,55 @@ bool tdma_pio_spi_ring_adapter_init(tdma_pio_spi_ring_adapter_t *adapter)
         return false;
     }
     memset(adapter, 0, sizeof(*adapter));
+    (void)tdma_receive_health_init(&adapter->receive_health);
     return true;
+}
+
+bool tdma_pio_spi_ring_adapter_set_calibration_topology(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    const tdma_ring_calibration_stage_t *stage)
+{
+    if (adapter == NULL || adapter->started != 0u || stage == NULL ||
+        !tdma_ring_runtime_validate_calibration_stage(
+            stage, stage->node_count, NULL)) {
+        return false;
+    }
+    tdma_pio_spi_ring_topology_t topology;
+    memset(&topology, 0, sizeof(topology));
+    topology.valid = 1u;
+    topology.node_count = stage->node_count;
+    topology.topology_generation = stage->topology_generation;
+    topology.topology_crc32 = stage->topology_crc32;
+    for (uint32_t link_index = 0u; link_index < stage->node_count;
+         link_index++) {
+        const tdma_ring_calibration_link_t *link =
+            &stage->links[link_index];
+        topology.marker_next_node[link->marker_source_node] =
+            link->marker_destination_node;
+        topology.data_next_node[link->data_source_node] =
+            link->data_destination_node;
+    }
+    adapter->topology = topology;
+    adapter->topology_probe_mode = 0u;
+    return true;
+}
+
+bool tdma_pio_spi_ring_adapter_set_topology_probe_mode(
+    tdma_pio_spi_ring_adapter_t *adapter, bool enabled)
+{
+    if (adapter == NULL || adapter->started != 0u) {
+        return false;
+    }
+    adapter->topology_probe_mode = enabled ? 1u : 0u;
+    return true;
+}
+
+void tdma_pio_spi_ring_adapter_clear_calibration_topology(
+    tdma_pio_spi_ring_adapter_t *adapter)
+{
+    if (adapter != NULL && adapter->started == 0u) {
+        memset(&adapter->topology, 0, sizeof(adapter->topology));
+    }
 }
 
 void tdma_pio_spi_ring_adapter_set_phys(tdma_pio_spi_ring_adapter_t *adapter,
@@ -197,6 +245,37 @@ bool tdma_pio_spi_ring_adapter_inject_rx(tdma_pio_spi_ring_adapter_t *adapter,
                                                 rx_timestamp_ns);
 }
 
+static uint32_t tdma_pio_spi_ring_adapter_expected_owner_mask(
+    const tdma_pio_spi_ring_adapter_t *adapter,
+    const tdma_ring_runtime_config_t *config)
+{
+    if (adapter == NULL || config == NULL || config->node_count < 2u ||
+        config->node_count > TDMA_TRANSPORT_FRAME_MAX_SLOT_COUNT ||
+        config->local_slot_id >= config->node_count ||
+        config->reference_slot_id >= config->node_count ||
+        adapter->topology.valid == 0u ||
+        adapter->topology.node_count != config->node_count) {
+        return 0u;
+    }
+    const uint32_t active_mask = (1u << config->node_count) - 1u;
+    if (config->local_slot_id == config->reference_slot_id) {
+        return active_mask & ~(1u << config->local_slot_id);
+    }
+    uint32_t owner_mask = 0u;
+    uint32_t node = config->reference_slot_id;
+    for (uint32_t hop = 0u; hop < config->node_count; hop++) {
+        if (node == config->local_slot_id) {
+            break;
+        }
+        owner_mask |= 1u << node;
+        node = adapter->topology.data_next_node[node];
+        if (node >= config->node_count) {
+            return 0u;
+        }
+    }
+    return owner_mask;
+}
+
 static bool tdma_pio_spi_ring_adapter_start(
     void *context,
     const tdma_ring_runtime_config_t *config)
@@ -237,6 +316,52 @@ static bool tdma_pio_spi_ring_adapter_start(
             adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_BAD_ARGUMENT);
         tdma_pio_spi_ring_adapter_snapshot_write_end(adapter);
         return false;
+    }
+    if (adapter->topology_probe_mode != 0u &&
+        adapter->flight_engine != NULL &&
+        tdma_flight_engine_is_active(adapter->flight_engine)) {
+        tdma_flight_engine_deactivate(adapter->flight_engine);
+        tdma_receive_health_reset_stopped(&adapter->receive_health);
+    } else if (adapter->flight_engine != NULL &&
+        tdma_flight_engine_is_active(adapter->flight_engine)) {
+        tdma_flight_engine_snapshot_t engine_snapshot;
+        uint32_t expected_segment_mask = 0u;
+        const uint32_t expected_owner_mask =
+            tdma_pio_spi_ring_adapter_expected_owner_mask(adapter, config);
+        if (!tdma_flight_engine_get_snapshot(adapter->flight_engine,
+                                              &engine_snapshot) ||
+            !tdma_flight_engine_expected_input_mask(
+                adapter->flight_engine,
+                expected_owner_mask,
+                &expected_segment_mask)) {
+            tdma_flight_engine_deactivate(adapter->flight_engine);
+            tdma_pio_spi_ring_adapter_set_error(
+                adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_FLIGHT_MAP_REJECT);
+            tdma_pio_spi_ring_adapter_snapshot_write_end(adapter);
+            return false;
+        }
+        const tdma_receive_health_config_t receive_config = {
+            .schedule_crc32 = config->schedule_crc32,
+            .ring_profile_crc32 = config->ring_profile_crc32,
+            .map_generation = engine_snapshot.map_generation,
+            .expected_payload_size = engine_snapshot.payload_size,
+            .expected_segment_mask = expected_segment_mask,
+            /* V1 is a diagnostic bring-up gate. Keep four complete cyclic
+             * opportunities before declaring MISSING; product policy may
+             * tighten this after the raw link and scheduler are frozen. */
+            .stale_timeout_ns =
+                (uint64_t)config->feedback_timeout_ns * 4ull,
+        };
+        if (!tdma_receive_health_configure_stopped(&adapter->receive_health,
+                                                   &receive_config)) {
+            tdma_flight_engine_deactivate(adapter->flight_engine);
+            tdma_pio_spi_ring_adapter_set_error(
+                adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_FLIGHT_MAP_REJECT);
+            tdma_pio_spi_ring_adapter_snapshot_write_end(adapter);
+            return false;
+        }
+    } else {
+        tdma_receive_health_reset_stopped(&adapter->receive_health);
     }
     if (adapter->phys_arm != NULL &&
         !adapter->phys_arm(adapter->phys_ctrl_context, config)) {
@@ -280,6 +405,7 @@ static bool tdma_pio_spi_ring_adapter_start(
     adapter->rx_ready_timestamp_ns = 0ull;
     adapter->feedback_rx_timestamp_ns = 0ull;
     adapter->last_rx_service_ns = 0ull;
+    adapter->last_service_ns = 0ull;
     adapter->last_rx_packet_size = 0u;
     adapter->rx_queue_head = 0u;
     adapter->rx_queue_count = 0u;
@@ -317,9 +443,11 @@ static void tdma_pio_spi_ring_adapter_stop(void *context)
     adapter->rx_ready_timestamp_ns = 0ull;
     adapter->feedback_rx_timestamp_ns = 0ull;
     adapter->last_rx_service_ns = 0ull;
+    adapter->last_service_ns = 0ull;
     adapter->last_rx_packet_size = 0u;
     adapter->rx_queue_head = 0u;
     adapter->rx_queue_count = 0u;
+    tdma_receive_health_reset_stopped(&adapter->receive_health);
     memset(adapter->reference_tx_evidence,
            0,
            sizeof(adapter->reference_tx_evidence));
@@ -360,14 +488,16 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
          * would provide no useful edges for raw-loop alignment analysis. */
         tdma_flight_engine_fill_alignment_symbols(
             empty_process_payload, engine_snapshot.payload_size);
-        if (!tdma_flight_engine_apply(adapter->flight_engine,
-                                      empty_process_payload,
-                                      engine_snapshot.payload_size,
-                                      &tx_view,
-                                      process_payload,
-                                      sizeof(process_payload),
-                                      &applied,
-                                      &engine_result) ||
+        if (!tdma_flight_engine_apply_preclassified(
+                adapter->flight_engine,
+                empty_process_payload,
+                engine_snapshot.payload_size,
+                0u,
+                &tx_view,
+                process_payload,
+                sizeof(process_payload),
+                &applied,
+                &engine_result) ||
             applied.output_segment_mask == 0u) {
             tdma_pio_spi_ring_adapter_set_error(
                 adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_FLIGHT_MAP_REJECT);
@@ -462,6 +592,14 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
     size_t packet_size,
     uint64_t rx_timestamp_ns)
 {
+    adapter->last_rx_gate_accepted = false;
+    adapter->last_rx_new_segment_mask = 0u;
+    /* Receive-health age belongs to the adapter service clock domain. The
+     * physical RX timestamp is a separate hardware-latch domain used for
+     * RTT/FIFO evidence and cannot be subtracted from service now_ns. */
+    const uint64_t health_observation_ns = adapter->last_service_ns != 0ull
+        ? adapter->last_service_ns
+        : rx_timestamp_ns;
     uint32_t hardware_round_trip_ns = 0u;
     uint32_t hardware_resolution_ns = 0u;
     uint32_t hardware_flags = 0u;
@@ -483,6 +621,16 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
     const bool profile_bad = decoded && !schedule_bad &&
         view.ring_profile_crc32 != adapter->config.ring_profile_crc32;
     if (!decoded || schedule_bad || profile_bad) {
+        if (adapter->receive_health.configured != 0u) {
+            tdma_receive_reason_t receive_reason = TDMA_RECEIVE_REASON_NONE;
+            (void)tdma_receive_health_evaluate(
+                &adapter->receive_health,
+                decoded ? &view : NULL,
+                result,
+                0u,
+                health_observation_ns,
+                &receive_reason);
+        }
         adapter->rx_bad_count++;
         if (!decoded) {
             adapter->rx_transport_bad_count++;
@@ -532,6 +680,44 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
         tdma_pio_spi_ring_adapter_set_error(
             adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_RX_BAD_FRAME);
         return false;
+    }
+
+    bool receive_health_rejected = false;
+    uint32_t inspected_new_mask = 0u;
+    if ((!receive_health_rejected ||
+         adapter->receive_health.configured == 0u) &&
+        view.payload_class == TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE &&
+        adapter->receive_health.configured != 0u) {
+        uint32_t present_mask = 0u;
+        uint32_t expected_mask = 0u;
+        const uint32_t expected_owner_mask =
+            tdma_pio_spi_ring_adapter_expected_owner_mask(
+                adapter, &adapter->config);
+        const bool inspected = tdma_flight_engine_inspect_input(
+            adapter->flight_engine,
+            view.payload,
+            view.payload_size,
+            expected_owner_mask,
+            &present_mask,
+            &inspected_new_mask,
+            &expected_mask);
+        tdma_receive_reason_t receive_reason = TDMA_RECEIVE_REASON_NONE;
+        const bool receive_health_accepted = tdma_receive_health_evaluate(
+            &adapter->receive_health,
+            &view,
+            result,
+            present_mask,
+            health_observation_ns,
+            &receive_reason);
+        adapter->last_rx_gate_accepted =
+            inspected && receive_health_accepted;
+        adapter->last_rx_new_segment_mask = inspected_new_mask;
+        receive_health_rejected = !adapter->last_rx_gate_accepted;
+        (void)expected_mask;
+        if (receive_health_rejected) {
+            tdma_pio_spi_ring_adapter_set_error(
+                adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_RX_GATE_REJECT);
+        }
     }
 
     adapter->down_rx_sequence = view.transport_sequence;
@@ -607,26 +793,38 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
              TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE ||
          adapter->flight_engine == NULL ||
          !tdma_flight_engine_is_active(adapter->flight_engine))) {
-        uint32_t input_mask = 0u;
-        if (adapter->flight_engine != NULL &&
+        uint32_t input_mask = inspected_new_mask;
+        if (adapter->receive_health.configured == 0u &&
+            adapter->flight_engine != NULL &&
             tdma_flight_engine_is_active(adapter->flight_engine)) {
             (void)tdma_flight_engine_classify_input(adapter->flight_engine,
                                                     view.payload,
                                                     view.payload_size,
                                                     &input_mask);
         }
-        if (input_mask != 0u ||
-            adapter->flight_engine == NULL ||
-            !tdma_flight_engine_is_active(adapter->flight_engine)) {
+        if ((!receive_health_rejected ||
+             adapter->receive_health.configured == 0u) &&
+            (input_mask != 0u ||
+             adapter->flight_engine == NULL ||
+             !tdma_flight_engine_is_active(adapter->flight_engine))) {
+            const uint32_t rx_generation =
+                adapter->receive_health.configured != 0u
+                    ? adapter->receive_health.config.map_generation
+                    : view.transport_sequence;
+            const uint32_t rx_quality =
+                adapter->timestamp_flags |
+                (adapter->receive_health.configured != 0u
+                     ? adapter->receive_health.quality_flags
+                     : 0u);
             const bool published = tdma_flight_fifo_core1_publish_rx(
                 adapter->flight_fifo,
                 view.payload,
                 view.payload_size,
-                view.transport_sequence,
+                rx_generation,
                 view.transport_sequence,
                 input_mask,
                 rx_timestamp_ns,
-                adapter->timestamp_flags);
+                rx_quality);
             if (published && input_mask != 0u &&
                 adapter->flight_engine != NULL &&
                 tdma_flight_engine_is_active(adapter->flight_engine)) {
@@ -642,7 +840,9 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
         memcpy(adapter->last_rx_packet, packet, packet_size);
         adapter->last_rx_packet_size = packet_size;
     }
-    adapter->last_error = TDMA_PIO_SPI_RING_ADAPTER_ERROR_NONE;
+    if (!receive_health_rejected) {
+        adapter->last_error = TDMA_PIO_SPI_RING_ADAPTER_ERROR_NONE;
+    }
     return true;
 }
 
@@ -684,14 +884,16 @@ static bool tdma_pio_spi_ring_adapter_tx_forward(
         tdma_flight_engine_apply_t applied;
         tdma_flight_engine_result_t engine_result =
             TDMA_FLIGHT_ENGINE_BAD_ARGUMENT;
-        if (tdma_flight_engine_apply(adapter->flight_engine,
-                                     incoming_view.payload,
-                                     incoming_view.payload_size,
-                                     has_tx ? &tx_view : NULL,
-                                     processed_payload,
-                                     sizeof(processed_payload),
-                                     &applied,
-                                     &engine_result)) {
+        if (tdma_flight_engine_apply_preclassified(
+                adapter->flight_engine,
+                incoming_view.payload,
+                incoming_view.payload_size,
+                adapter->last_rx_new_segment_mask,
+                has_tx ? &tx_view : NULL,
+                processed_payload,
+                sizeof(processed_payload),
+                &applied,
+                &engine_result)) {
             if (!tdma_transport_frame_patch_flight_payload(
                     packet,
                     packet_size,
@@ -704,17 +906,28 @@ static bool tdma_pio_spi_ring_adapter_tx_forward(
                 return false;
             }
             if (adapter->flight_fifo != NULL &&
+                (adapter->receive_health.configured == 0u ||
+                 adapter->last_rx_gate_accepted) &&
                 applied.input_segment_mask != 0u) {
+                const uint32_t rx_generation =
+                    adapter->receive_health.configured != 0u
+                        ? adapter->receive_health.config.map_generation
+                        : (has_tx ? tx_view.generation
+                                  : incoming_view.transport_sequence);
+                const uint32_t rx_quality =
+                    adapter->timestamp_flags |
+                    (adapter->receive_health.configured != 0u
+                         ? adapter->receive_health.quality_flags
+                         : 0u);
                 const bool published = tdma_flight_fifo_core1_publish_rx(
                     adapter->flight_fifo,
                     incoming_view.payload,
                     incoming_view.payload_size,
-                    has_tx ? tx_view.generation
-                           : incoming_view.transport_sequence,
+                    rx_generation,
                     incoming_view.transport_sequence,
                     applied.input_segment_mask,
                     adapter->feedback_rx_timestamp_ns,
-                    adapter->timestamp_flags);
+                    rx_quality);
                 if (published) {
                     (void)tdma_flight_engine_commit_input(
                         adapter->flight_engine,
@@ -913,10 +1126,11 @@ static bool tdma_pio_spi_ring_adapter_prepare_process_overlay(
         tdma_flight_engine_apply_t applied;
         tdma_flight_engine_result_t engine_result =
             TDMA_FLIGHT_ENGINE_BAD_ARGUMENT;
-        applied_ok = tdma_flight_engine_apply(
+        applied_ok = tdma_flight_engine_apply_preclassified(
             adapter->flight_engine,
             view.payload,
             view.payload_size,
+            adapter->last_rx_new_segment_mask,
             has_tx ? &tx_view : NULL,
             processed_payload,
             sizeof(processed_payload),
@@ -952,6 +1166,7 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
     }
     memset(status, 0, sizeof(*status));
     adapter->service_count++;
+    adapter->last_service_ns = now_ns;
 
     if (adapter->started == 0u || !adapter->configured) {
         tdma_pio_spi_ring_adapter_set_error(
@@ -1085,6 +1300,8 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
     }
     if (rx_ok) {
         adapter->last_rx_service_ns = now_ns;
+    } else if (adapter->receive_health.configured != 0u) {
+        tdma_receive_health_observe_missing(&adapter->receive_health, now_ns);
     }
 
     status->up_running = 1u;
@@ -1275,5 +1492,21 @@ bool tdma_pio_spi_ring_adapter_get_snapshot(
                 engine_snapshot.tx_unavailable_count;
         }
     }
+    (void)tdma_receive_health_get_snapshot(&adapter->receive_health,
+                                           adapter->last_service_ns,
+                                           &snapshot->receive_health);
     return true;
+}
+
+bool tdma_pio_spi_ring_adapter_read_accepted_image(
+    const tdma_pio_spi_ring_adapter_t *adapter,
+    uint64_t now_ns,
+    tdma_receive_image_t *image)
+{
+    if (adapter == NULL || image == NULL) {
+        return false;
+    }
+    return tdma_receive_health_read_image(&adapter->receive_health,
+                                          now_ns,
+                                          image);
 }

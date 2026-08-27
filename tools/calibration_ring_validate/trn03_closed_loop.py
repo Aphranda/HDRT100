@@ -23,6 +23,7 @@ from tdma_start_ring import (  # noqa: E402
     Board,
     board_command,
     discover,
+    order_boards_by_board_no,
     train,
 )
 from flight_bitmap_validate import (  # noqa: E402
@@ -430,8 +431,20 @@ def expected_flight_phase(config: dict[str, Any],
     links = config.get("links")
     if not isinstance(links, list) or len(links) != node_count:
         raise ValueError("resolved config links are incomplete")
-    marker_link = links[(node_index + node_count - 1) % node_count]
-    data_link = links[node_index]
+    marker_links = [
+        link for link in links
+        if int(link["marker_destination_node"]) == node_index
+    ]
+    data_links = [
+        link for link in links
+        if int(link["data_destination_node"]) == node_index
+    ]
+    if len(marker_links) != 1 or len(data_links) != 1:
+        raise ValueError(
+            "resolved topology must provide exactly one MARK and DATA input "
+            "per Node")
+    marker_link = marker_links[0]
+    data_link = data_links[0]
     return {
         "flight_marker_offset_sample_count":
             int(marker_link["marker_offset_sample_count"]),
@@ -488,6 +501,9 @@ def validate_node(node_index: int, node_count: int,
         "map_reject_count", "length_reject_count",
         "tx_unavailable_count", "rx_bitmap_scan_count",
         "rx_bitmap_hit_count", "rx_bitmap_duplicate_count",
+        "rx_bitmap_present_count", "rx_bitmap_incomplete_count",
+        "receive_accepted_count", "receive_rejected_count",
+        "receive_missing_count",
     )
     fifo_delta_fields = (
         "tx_publish_count", "tx_publish_reject_count", "tx_acquire_count",
@@ -554,6 +570,34 @@ def validate_node(node_index: int, node_count: int,
              "flight_map_not_active"),
             (flight_after["process"]["local_node"] == node_index,
              "flight_local_node_mismatch"),
+            (flight_after["process"]["receive_version"] >= 1,
+             "receive_health_version_invalid"),
+            (flight_after["process"]["receive_configured"] == 1,
+             "receive_health_not_configured"),
+            (flight_after["process"]["receive_state"] == 1,
+             "receive_image_not_valid"),
+            (flight_after["process"]["receive_consecutive_failure_count"] == 0,
+             "receive_failure_streak_active"),
+            (flight_after["process"]["receive_accepted_segment_mask"] ==
+             flight_after["process"]["receive_expected_segment_mask"],
+             "receive_segment_bitmap_incomplete"),
+            (flight_after["process"]["receive_accepted_wkc"] ==
+             flight_after["process"]["receive_expected_wkc"],
+             "receive_wkc_incomplete"),
+            (flight_after["process"]["receive_accepted_map_generation"] ==
+             flight_after["process"]["map_generation"],
+             "receive_map_generation_mismatch"),
+            (flight_after["process"]["receive_accepted_payload_size"] ==
+             flight_after["process"]["payload_size"],
+             "receive_payload_size_mismatch"),
+            (process_deltas["receive_accepted_count"] > 0,
+             "receive_image_not_accepted"),
+            (process_deltas["receive_rejected_count"] == 0,
+             "receive_reject_grew"),
+            (process_deltas["receive_missing_count"] == 0,
+             "receive_missing_grew"),
+            (process_deltas["rx_bitmap_incomplete_count"] == 0,
+             "receive_bitmap_incomplete_grew"),
             (fifo_deltas["tx_publish_reject_count"] == 0,
              "fifo_tx_reject_grew"),
             (fifo_deltas["rx_mirror_drop_count"] == 0,
@@ -658,6 +702,17 @@ def snapshot_health_errors(
             errors.append("flight_map_not_active")
         if process["local_node"] != node_index:
             errors.append("flight_local_node_mismatch")
+        if process["receive_configured"] != 1:
+            errors.append("receive_health_not_configured")
+        if process["receive_state"] != 1:
+            errors.append("receive_image_not_valid")
+        if process["receive_consecutive_failure_count"] != 0:
+            errors.append("receive_failure_streak_active")
+        if (process["receive_accepted_segment_mask"] !=
+                process["receive_expected_segment_mask"]):
+            errors.append("receive_segment_bitmap_incomplete")
+        if process["receive_accepted_wkc"] != process["receive_expected_wkc"]:
+            errors.append("receive_wkc_incomplete")
     return errors
 
 
@@ -694,7 +749,9 @@ def validate_soak_timeline(
         "map_apply_count", "input_bytes", "output_bytes",
         "map_reject_count", "length_reject_count", "tx_unavailable_count",
         "rx_bitmap_scan_count", "rx_bitmap_hit_count",
-        "rx_bitmap_duplicate_count",
+        "rx_bitmap_duplicate_count", "rx_bitmap_present_count",
+        "rx_bitmap_incomplete_count", "receive_accepted_count",
+        "receive_rejected_count", "receive_missing_count",
     )
     fifo_counters = (
         "tx_publish_count", "tx_publish_reject_count", "tx_acquire_count",
@@ -975,7 +1032,7 @@ def main() -> int:
     args.board_ids = board_ids
     plan = {
         "phase": "TRN-03B",
-        "board_ids_in_physical_node_order": board_ids,
+        "board_ids_requested": board_ids,
         "profile_level": level,
         "config": str(args.config),
         "calibration_generation": config["calibration_generation"],
@@ -1003,7 +1060,13 @@ def main() -> int:
     missing = set(board_ids) - set(boards)
     if missing:
         raise SystemExit(f"boards not found by *IDN?: {', '.join(sorted(missing))}")
-    ordered = [boards[board_id] for board_id in board_ids]
+    ordered = order_boards_by_board_no(boards, board_ids, args)
+    board_ids = [board.address for board in ordered]
+    plan["board_ids_in_physical_node_order"] = board_ids
+    expected_order = config.get("node_ids_in_loop_order")
+    if expected_order is not None and list(expected_order) != board_ids:
+        raise SystemExit(
+            "matrix topology identity does not match calibrated BOARD:NO order")
     if args.expected_build:
         wrong = {board.address: board.build for board in ordered
                  if board.build != args.expected_build}

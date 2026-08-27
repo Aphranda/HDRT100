@@ -601,6 +601,29 @@ def flight() -> dict:
             "length_reject_count": 0, "tx_unavailable_count": 0,
             "rx_bitmap_scan_count": 5, "rx_bitmap_hit_count": 5,
             "rx_bitmap_duplicate_count": 0,
+            "rx_bitmap_present_count": 5,
+            "rx_bitmap_incomplete_count": 0,
+            "map_generation": 1, "payload_size": 256,
+            "receive_version": 1, "receive_configured": 1,
+            "receive_state": 1, "receive_last_reason": 0,
+            "receive_last_transport_result": 0,
+            "receive_quality_flags": 0x8000003f,
+            "receive_accepted_count": 5,
+            "receive_rejected_count": 0, "receive_missing_count": 0,
+            "receive_consecutive_failure_count": 0,
+            "receive_image_generation": 5,
+            "receive_accepted_sequence": 5,
+            "receive_accepted_identity_crc32": 1,
+            "receive_accepted_schedule_crc32": 1,
+            "receive_accepted_profile_crc32": 1,
+            "receive_accepted_map_generation": 1,
+            "receive_accepted_segment_mask": 1,
+            "receive_expected_segment_mask": 1,
+            "receive_accepted_wkc": 1, "receive_expected_wkc": 1,
+            "receive_accepted_payload_size": 256,
+            "receive_last_accept_timestamp_ns": 1,
+            "receive_last_observation_timestamp_ns": 1,
+            "receive_stale_age_ns": 0,
         },
         "fifo": {
             "tx_publish_count": 1, "tx_publish_reject_count": 0,
@@ -624,13 +647,15 @@ def soak_config(node_count: int = 2) -> dict:
     return {
         "node_count": node_count,
         "links": [{
+            "marker_destination_node": (link + 1) % node_count,
+            "data_destination_node": link,
             "marker_offset_sample_count": 0,
             "sck_offset_sample_count": 0,
             "data_offset_sample_count": 0,
             "marker_phase_delay_cycles": 10,
             "sck_phase_delay_cycles": 10,
             "data_phase_delay_cycles": 10,
-        } for _ in range(node_count)],
+        } for link in range(node_count)],
     }
 
 
@@ -651,7 +676,8 @@ def soak_snapshot(node_index: int, step: int) -> dict:
     current_flight = copy.deepcopy(flight())
     current_flight["process"]["local_node"] = node_index
     for field in ("map_apply_count", "input_bytes", "output_bytes",
-                  "rx_bitmap_scan_count", "rx_bitmap_hit_count"):
+                  "rx_bitmap_scan_count", "rx_bitmap_hit_count",
+                  "rx_bitmap_present_count", "receive_accepted_count"):
         current_flight["process"][field] += step
     for field in ("tx_acquire_count", "tx_reuse_count",
                   "rx_publish_count", "rx_acquire_count",
@@ -709,6 +735,8 @@ def test_expected_flight_phase_uses_incoming_control_and_reverse_data_links(
     config = {
         "node_count": 4,
         "links": [{
+            "marker_destination_node": (link + 1) % 4,
+            "data_destination_node": link,
             "marker_offset_sample_count": 10 + link,
             "sck_offset_sample_count": 20 + link,
             "data_offset_sample_count": 30 + link,
@@ -733,6 +761,46 @@ def test_expected_flight_phase_uses_incoming_control_and_reverse_data_links(
         "flight_sck_phase_delay_cycles": 51,
         "flight_data_phase_delay_cycles": 62,
     }
+
+
+def test_expected_flight_phase_follows_frozen_eight_node_topology() -> None:
+    marker_destinations = [5, 6, 7, 4, 0, 2, 3, 1]
+    config = {
+        "node_count": 8,
+        "links": [{
+            "marker_destination_node": destination,
+            "data_destination_node": source,
+            "marker_offset_sample_count": 10 + source,
+            "sck_offset_sample_count": 20 + source,
+            "data_offset_sample_count": 30 + source,
+            "marker_phase_delay_cycles": 40 + source,
+            "sck_phase_delay_cycles": 50 + source,
+            "data_phase_delay_cycles": 60 + source,
+        } for source, destination in enumerate(marker_destinations)],
+    }
+    assert expected_flight_phase(config, 1) == {
+        "flight_marker_offset_sample_count": 17,
+        "flight_sck_offset_sample_count": 27,
+        "flight_data_offset_sample_count": 31,
+        "flight_marker_phase_delay_cycles": 47,
+        "flight_sck_phase_delay_cycles": 57,
+        "flight_data_phase_delay_cycles": 61,
+    }
+
+
+def test_expected_flight_phase_rejects_missing_node_endpoint() -> None:
+    config = {
+        "node_count": 2,
+        "links": [{
+            "marker_destination_node": 0,
+            "data_destination_node": 0,
+        }, {
+            "marker_destination_node": 0,
+            "data_destination_node": 1,
+        }],
+    }
+    with pytest.raises(ValueError, match="exactly one MARK and DATA input"):
+        expected_flight_phase(config, 0)
 
 
 @pytest.mark.parametrize("field", (
@@ -812,8 +880,20 @@ def test_validate_node_accepts_growing_runtime_and_fifo() -> None:
         "process": increment(before_flight["process"], 3),
         "fifo": increment(before_flight["fifo"], 3),
     }
-    for field in ("configured", "active", "local_node",
-                  "map_reject_count", "length_reject_count"):
+    for field in ("configured", "active", "local_node", "map_generation",
+                  "payload_size",
+                  "map_reject_count", "length_reject_count",
+                  "rx_bitmap_incomplete_count", "receive_version",
+                  "receive_configured", "receive_state",
+                  "receive_last_reason", "receive_last_transport_result",
+                  "receive_quality_flags", "receive_rejected_count",
+                  "receive_missing_count",
+                  "receive_consecutive_failure_count",
+                  "receive_accepted_map_generation",
+                  "receive_accepted_segment_mask",
+                  "receive_expected_segment_mask",
+                  "receive_accepted_wkc", "receive_expected_wkc",
+                  "receive_accepted_payload_size"):
         after_flight["process"][field] = before_flight["process"][field]
     for field in ("tx_publish_reject_count", "rx_mirror_drop_count",
                   "rx_publish_drop_count"):

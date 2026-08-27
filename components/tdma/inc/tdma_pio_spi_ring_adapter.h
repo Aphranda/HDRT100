@@ -7,6 +7,7 @@
 
 #include "tdma_flight_fifo.h"
 #include "tdma_flight_engine.h"
+#include "tdma_receive_health.h"
 #include "tdma_ring_runtime.h"
 #include "tdma_transport_frame.h"
 
@@ -28,7 +29,7 @@
  * the ring is up.
  */
 
-#define TDMA_PIO_SPI_RING_ADAPTER_VERSION 3u
+#define TDMA_PIO_SPI_RING_ADAPTER_VERSION 5u
 #define TDMA_PIO_SPI_RING_ADAPTER_RX_QUEUE_DEPTH 8u
 #define TDMA_PIO_SPI_RING_ADAPTER_TX_EVIDENCE_DEPTH 8u
 
@@ -40,6 +41,7 @@ typedef enum {
     TDMA_PIO_SPI_RING_ADAPTER_ERROR_RX_BAD_FRAME = 4u,
     TDMA_PIO_SPI_RING_ADAPTER_ERROR_RX_QUEUE_FULL = 5u,
     TDMA_PIO_SPI_RING_ADAPTER_ERROR_FLIGHT_MAP_REJECT = 6u,
+    TDMA_PIO_SPI_RING_ADAPTER_ERROR_RX_GATE_REJECT = 7u,
 } tdma_pio_spi_ring_adapter_error_t;
 
 /* Ring node role (derived from the active ring config):
@@ -138,6 +140,7 @@ typedef struct {
     uint64_t reference_tx_timestamp_ns;
     uint64_t feedback_rx_timestamp_ns;
     uint64_t last_rx_service_ns;
+    uint64_t last_service_ns;
     uint32_t last_error;
     uint32_t local_slot_id;
     uint32_t schedule_crc32;
@@ -157,7 +160,17 @@ typedef struct {
     uint32_t flight_map_reject_count;
     uint32_t flight_length_reject_count;
     uint32_t flight_tx_unavailable_count;
+    tdma_receive_health_snapshot_t receive_health;
 } tdma_pio_spi_ring_adapter_snapshot_t;
+
+typedef struct {
+    uint32_t valid;
+    uint32_t node_count;
+    uint32_t topology_generation;
+    uint32_t topology_crc32;
+    uint32_t marker_next_node[TDMA_RING_CALIBRATION_LINK_MAX];
+    uint32_t data_next_node[TDMA_RING_CALIBRATION_LINK_MAX];
+} tdma_pio_spi_ring_topology_t;
 
 typedef struct {
     tdma_ring_runtime_config_t config;
@@ -175,6 +188,9 @@ typedef struct {
     void *phys_ctrl_context;
     tdma_flight_fifo_t *flight_fifo;
     tdma_flight_engine_t *flight_engine;
+    tdma_receive_health_t receive_health;
+    tdma_pio_spi_ring_topology_t topology;
+    uint32_t topology_probe_mode;
     volatile uint32_t snapshot_guard;
     tdma_pio_spi_ring_role_t role;
     tdma_pio_spi_ring_forwarding_mode_t forwarding_mode;
@@ -211,9 +227,12 @@ typedef struct {
     uint64_t reference_tx_timestamp_ns;
     uint64_t feedback_rx_timestamp_ns;
     uint64_t last_rx_service_ns;
+    uint64_t last_service_ns;
     uint32_t last_error;
     uint8_t last_rx_packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
     size_t last_rx_packet_size;
+    bool last_rx_gate_accepted;
+    uint32_t last_rx_new_segment_mask;
     uint64_t next_tx_deadline_ns;
     uint64_t rx_ready_timestamp_ns;
     struct {
@@ -234,6 +253,13 @@ typedef struct {
 } tdma_pio_spi_ring_adapter_t;
 
 bool tdma_pio_spi_ring_adapter_init(tdma_pio_spi_ring_adapter_t *adapter);
+bool tdma_pio_spi_ring_adapter_set_calibration_topology(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    const tdma_ring_calibration_stage_t *stage);
+void tdma_pio_spi_ring_adapter_clear_calibration_topology(
+    tdma_pio_spi_ring_adapter_t *adapter);
+bool tdma_pio_spi_ring_adapter_set_topology_probe_mode(
+    tdma_pio_spi_ring_adapter_t *adapter, bool enabled);
 void tdma_pio_spi_ring_adapter_set_phys(tdma_pio_spi_ring_adapter_t *adapter,
                                         tdma_pio_spi_ring_tx_fn tx,
                                         tdma_pio_spi_ring_rx_fn rx,
@@ -273,5 +299,9 @@ const tdma_ring_adapter_ops_t *tdma_pio_spi_ring_adapter_ops(void);
 bool tdma_pio_spi_ring_adapter_get_snapshot(
     const tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_adapter_snapshot_t *snapshot);
+bool tdma_pio_spi_ring_adapter_read_accepted_image(
+    const tdma_pio_spi_ring_adapter_t *adapter,
+    uint64_t now_ns,
+    tdma_receive_image_t *image);
 
 #endif

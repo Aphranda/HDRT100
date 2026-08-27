@@ -2299,9 +2299,14 @@ scpi_result_t scpi_cmd_system_tdma_flight_mode_q(scpi_t *context)
 scpi_result_t scpi_cmd_system_tdma_flight_process_q(scpi_t *context)
 {
     tdma_service_service_t *owner = tdma_runtime_owner_get();
+    tdma_pio_spi_ring_adapter_t *adapter =
+        tdma_runtime_owner_get_ring_adapter();
     tdma_flight_engine_snapshot_t snapshot;
+    tdma_pio_spi_ring_adapter_snapshot_t adapter_snapshot;
     if (owner == NULL ||
-        !tdma_service_get_flight_engine_snapshot(owner, &snapshot)) {
+        adapter == NULL ||
+        !tdma_service_get_flight_engine_snapshot(owner, &snapshot) ||
+        !tdma_pio_spi_ring_adapter_get_snapshot(adapter, &adapter_snapshot)) {
         return SCPI_RES_ERR;
     }
 
@@ -2323,6 +2328,34 @@ scpi_result_t scpi_cmd_system_tdma_flight_process_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.rx_bitmap_scan_count);
     SCPI_ResultUInt32(context, snapshot.rx_bitmap_hit_count);
     SCPI_ResultUInt32(context, snapshot.rx_bitmap_duplicate_count);
+    SCPI_ResultUInt32(context, snapshot.rx_bitmap_present_count);
+    SCPI_ResultUInt32(context, snapshot.rx_bitmap_incomplete_count);
+    const tdma_receive_health_snapshot_t *health =
+        &adapter_snapshot.receive_health;
+    SCPI_ResultUInt32(context, health->version);
+    SCPI_ResultUInt32(context, health->configured);
+    SCPI_ResultUInt32(context, health->state);
+    SCPI_ResultUInt32(context, health->last_reason);
+    SCPI_ResultUInt32(context, health->last_transport_result);
+    SCPI_ResultUInt32(context, health->quality_flags);
+    SCPI_ResultUInt32(context, health->accepted_count);
+    SCPI_ResultUInt32(context, health->rejected_count);
+    SCPI_ResultUInt32(context, health->missing_count);
+    SCPI_ResultUInt32(context, health->consecutive_failure_count);
+    SCPI_ResultUInt32(context, health->image_generation);
+    SCPI_ResultUInt32(context, health->accepted_sequence);
+    SCPI_ResultUInt32(context, health->accepted_identity_crc32);
+    SCPI_ResultUInt32(context, health->accepted_schedule_crc32);
+    SCPI_ResultUInt32(context, health->accepted_profile_crc32);
+    SCPI_ResultUInt32(context, health->accepted_map_generation);
+    SCPI_ResultUInt32(context, health->accepted_segment_mask);
+    SCPI_ResultUInt32(context, health->expected_segment_mask);
+    SCPI_ResultUInt32(context, health->accepted_wkc);
+    SCPI_ResultUInt32(context, health->expected_wkc);
+    SCPI_ResultUInt32(context, health->accepted_payload_size);
+    SCPI_ResultUInt64(context, health->last_accept_timestamp_ns);
+    SCPI_ResultUInt64(context, health->last_observation_timestamp_ns);
+    SCPI_ResultUInt64(context, health->stale_age_ns);
     return SCPI_RES_OK;
 }
 

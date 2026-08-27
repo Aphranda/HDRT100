@@ -64,6 +64,8 @@ bool tdma_runtime_owner_get_calibration_stage(
     tdma_ring_calibration_stage_t *stage,
     bool *complete);
 bool tdma_runtime_owner_clear_calibration_stage(void);
+bool tdma_runtime_owner_set_topology_probe_mode(bool enabled,
+                                                uint32_t phase_delay_cycles);
 /* Core0-facing guarded intent publication.  Only
  * tdma_runtime_owner_cal_loopback_service() on core1 may touch PIO/SM/DMA. */
 bool tdma_runtime_owner_cal_loopback_start(uint32_t sample_hz,

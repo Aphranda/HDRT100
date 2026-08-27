@@ -29,6 +29,7 @@ from tdma_start_ring import (  # noqa: E402
     Board,
     board_command,
     discover,
+    order_boards_by_board_no,
     status as ring_status,
     wait_started,
 )
@@ -45,6 +46,10 @@ HEADER_FIELDS = (
 )
 LINK_FIELDS = (
     "link_index",
+    "marker_source_node",
+    "marker_destination_node",
+    "data_source_node",
+    "data_destination_node",
     "evidence_flags",
     "pio_persona",
     "clkdiv_q16",
@@ -84,13 +89,17 @@ LINK_QUERY_FIELDS = (
     "tag",
     "valid",
     "link_index",
+    "marker_source_node",
+    "marker_destination_node",
+    "data_source_node",
+    "data_destination_node",
     "evidence_flags",
     "calibration_generation",
     "topology_generation",
     "topology_crc32",
     "profile_crc32",
     "schedule_crc32",
-    *LINK_FIELDS[2:],
+    *LINK_FIELDS[6:],
 )
 REQUIRED_EVIDENCE_FLAGS = 0x1F
 DIAGNOSTIC_ONLY_FLAG = 1 << 31
@@ -281,13 +290,6 @@ def validate_config(raw: object,
         if (marker_source >= node_count or marker_destination >= node_count or
                 data_source >= node_count or data_destination >= node_count):
             raise ValueError("offset matrix destination node is invalid")
-        expected_next_node = (link_index + 1) % node_count
-        if (marker_source != link_index or
-                marker_destination != expected_next_node or
-                data_source != expected_next_node or
-                data_destination != link_index):
-            raise ValueError(
-                f"link{link_index} Node direction does not match loop order")
         if link["sample_period_ns"] != matrix_sample_period_ns:
             raise ValueError(
                 f"link{link_index} sample period does not match offset matrix")
@@ -362,6 +364,33 @@ def validate_config(raw: object,
     if sorted(link["link_index"] for link in links) != list(range(node_count)):
         raise ValueError("link_index must cover [0, node_count) exactly")
     ordered_links = sorted(links, key=lambda item: item["link_index"])
+    marker_edges = {
+        (link["marker_source_node"], link["marker_destination_node"])
+        for link in ordered_links
+    }
+    data_edges = {
+        (link["data_source_node"], link["data_destination_node"])
+        for link in ordered_links
+    }
+    if (len(marker_edges) != node_count or
+            {source for source, _ in marker_edges} != set(range(node_count)) or
+            {destination for _, destination in marker_edges} !=
+            set(range(node_count))):
+        raise ValueError("MARK topology is not one directed Node cycle")
+    if data_edges != {(destination, source)
+                      for source, destination in marker_edges}:
+        raise ValueError("DATA topology must be the measured reverse link cycle")
+
+    visited = {0}
+    current = 0
+    marker_next = dict(marker_edges)
+    for _ in range(node_count - 1):
+        current = marker_next[current]
+        if current in visited:
+            raise ValueError("MARK topology closes before visiting every Node")
+        visited.add(current)
+    if marker_next[current] != 0 or len(visited) != node_count:
+        raise ValueError("MARK topology does not form one closed loop")
     return {
         **header,
         "baud_hz": baud_hz,
@@ -369,6 +398,7 @@ def validate_config(raw: object,
         "offset_row_id": selected_row_id,
         "offset_row": selected_row,
         "links": ordered_links,
+        "node_ids_in_loop_order": raw.get("node_ids_in_loop_order"),
     }
 
 
@@ -578,7 +608,7 @@ def main() -> int:
         raise SystemExit("board IDs must be unique")
     plan = {
         "phase": "TRN-03A",
-        "board_ids_in_physical_node_order": board_ids,
+        "board_ids_requested": board_ids,
         "config": config,
         "arm_gate": args.arm_gate,
         "clear": args.clear,
@@ -592,7 +622,13 @@ def main() -> int:
     missing = set(board_ids) - set(boards)
     if missing:
         raise SystemExit(f"boards not found by *IDN?: {', '.join(sorted(missing))}")
-    ordered = [boards[board_id] for board_id in board_ids]
+    ordered = order_boards_by_board_no(boards, board_ids, args)
+    board_ids = [board.address for board in ordered]
+    plan["board_ids_in_physical_node_order"] = board_ids
+    expected_order = config.get("node_ids_in_loop_order")
+    if expected_order is not None and list(expected_order) != board_ids:
+        raise SystemExit(
+            "matrix topology identity does not match calibrated BOARD:NO order")
     if args.expected_build:
         wrong = {board.address: board.build for board in ordered
                  if board.build != args.expected_build}

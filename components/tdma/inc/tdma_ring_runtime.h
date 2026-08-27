@@ -6,7 +6,7 @@
 
 #include "tdma_profile.h"
 
-#define TDMA_RING_RUNTIME_VERSION 7u
+#define TDMA_RING_RUNTIME_VERSION 8u
 #define TDMA_RING_CALIBRATION_LINK_MAX 8u
 #define TDMA_RING_CALIBRATION_FLAG_ACCEPTED (1u << 0u)
 #define TDMA_RING_CALIBRATION_FLAG_HARDWARE_LATCHED (1u << 1u)
@@ -38,6 +38,13 @@ typedef enum {
 typedef struct {
     uint32_t valid;
     uint32_t link_index;
+    /* Frozen by Calibration step 1 (line-order matrix).  Node identifiers
+     * are assigned only after that matrix closes; runtime code must follow
+     * these directed endpoints instead of deriving wiring from Node values. */
+    uint32_t marker_source_node;
+    uint32_t marker_destination_node;
+    uint32_t data_source_node;
+    uint32_t data_destination_node;
     uint32_t evidence_flags;
     uint32_t calibration_generation;
     uint32_t topology_generation;

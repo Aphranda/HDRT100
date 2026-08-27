@@ -181,8 +181,12 @@ def stage_link_command(link_index: int, evidence_flags: int,
         -1 if offset_phase_mismatch == "marker" else 0)
     sck_offset_sample_count = -1 if offset_phase_mismatch == "sck" else 0
     data_offset_sample_count = 4 if offset_phase_mismatch == "data" else 5
+    marker_source_node = link_index
+    marker_destination_node = (link_index + 1) % 4
     values = (
-        link_index, evidence_flags, 1, 65536, 150_000_000, 4, 25,
+        link_index, marker_source_node, marker_destination_node,
+        marker_destination_node, marker_source_node,
+        evidence_flags, 1, 65536, 150_000_000, 4, 25,
         marker_to_data_cycles, forward_residence_cycles, rx_arm_lead_cycles,
         codeword_cycles, guard_cycles, link_budget_cycles, loop_delay_cycles,
         marker_offset_sample_count, sck_offset_sample_count,

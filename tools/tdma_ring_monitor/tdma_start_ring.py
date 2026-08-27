@@ -174,6 +174,30 @@ def discover(args: argparse.Namespace) -> dict[str, Board]:
     return found
 
 
+def order_boards_by_board_no(
+        boards: dict[str, Board], board_ids: list[str],
+        args: argparse.Namespace) -> list[Board]:
+    """Load the Node order frozen by Calibration step 1."""
+    numbered: list[tuple[int, Board]] = []
+    for address in board_ids:
+        board = boards[address]
+        raw = board_command(board, "SYSTem:BOARD:NO?", args)
+        try:
+            board_no = int(raw.strip().strip('"'), 0)
+        except ValueError as exc:
+            raise RuntimeError(
+                f"{board.address}: invalid BOARD:NO response {raw!r}") from exc
+        numbered.append((board_no, board))
+    expected = list(range(1, len(board_ids) + 1))
+    observed = sorted(board_no for board_no, _ in numbered)
+    if observed != expected:
+        raise RuntimeError(
+            "Calibration step 1 is incomplete: BOARD:NO values must be "
+            f"unique and contiguous from 1 through {len(board_ids)}; "
+            f"observed={observed}")
+    return [board for _, board in sorted(numbered, key=lambda item: item[0])]
+
+
 def _board_command_on_serial(board: Board, text: str,
                             args: argparse.Namespace,
                             ser: serial.Serial) -> str:

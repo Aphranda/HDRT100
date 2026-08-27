@@ -14,6 +14,15 @@ def test_render_ring_order_from_unique_cycle():
 def test_render_ring_order_rejects_branch_or_open_chain():
     assert render_ring_order({"A": ["B", "C"], "B": ["A"], "C": []},
                              "A", 3) == []
+
+
+def test_render_ring_order_supports_eight_node_permuted_cycle():
+    adjacency = {
+        "A": ["F"], "F": ["C"], "C": ["H"], "H": ["B"],
+        "B": ["G"], "G": ["D"], "D": ["E"], "E": ["A"],
+    }
+    assert render_ring_order(adjacency, "A", 8) == [
+        "A", "F", "C", "H", "B", "G", "D", "E"]
     assert render_ring_order({"A": ["B"], "B": ["C"], "C": []},
                              "A", 3) == []
 
