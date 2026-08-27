@@ -121,3 +121,24 @@ def test_five_board_phase_repeat_spread_wraps_at_half_turn():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     assert module.phase_repeat_spread_mdeg([179_000, -179_000, 178_000]) == 3_000
+    assert module.phase_repeat_spread_mdeg([0, 90_000, 180_000, 270_000]) == 270_000
+
+
+def test_five_board_diagnostic_svg_marks_noncoherent_boundary(tmp_path):
+    spec = importlib.util.spec_from_file_location(
+        "sma_cable_five_board_validate_svg", FIVE_BOARD_SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    records = [
+        {"frequency_hz": frequency, "channel": channel,
+         "valid_count": 4, "phase_spread_mdeg": channel * 10_000}
+        for frequency in (2_000_000, 4_000_000)
+        for channel in range(1, 5)
+    ]
+    output = tmp_path / "repeatability.svg"
+    module.write_diagnostic_svg(output, records)
+    text = output.read_text(encoding="utf-8")
+    assert "phase-slope delay fit blocked" in text
+    assert "NO4 → IN4" in text

@@ -84,8 +84,105 @@ def wrapped_phase_delta_mdeg(value: int, reference: int) -> int:
 def phase_repeat_spread_mdeg(values: list[int]) -> int | None:
     if not values:
         return None
-    deltas = [wrapped_phase_delta_mdeg(value, values[0]) for value in values]
-    return max(deltas) - min(deltas)
+    normalized = sorted(value % 360_000 for value in values)
+    gaps = [current - previous
+            for previous, current in zip(normalized, normalized[1:])]
+    gaps.append(normalized[0] + 360_000 - normalized[-1])
+    return 360_000 - max(gaps)
+
+
+def write_diagnostic_svg(path: Path,
+                         repeatability: list[dict[str, object]]) -> None:
+    width = 960
+    height = 560
+    left = 90
+    top = 75
+    plot_width = 820
+    plot_height = 390
+    frequencies = sorted({int(item["frequency_hz"])
+                          for item in repeatability})
+    colors = ("#2563eb", "#dc2626", "#16a34a", "#9333ea")
+
+    def x_position(frequency_hz: int) -> float:
+        if len(frequencies) == 1:
+            return left + plot_width / 2
+        return (left + (frequency_hz - frequencies[0]) * plot_width /
+                (frequencies[-1] - frequencies[0]))
+
+    def y_position(spread_mdeg: int) -> float:
+        return top + plot_height - spread_mdeg * plot_height / 360_000
+
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" '
+        f'height="{height}" viewBox="0 0 {width} {height}">',
+        '<rect width="100%" height="100%" fill="#ffffff"/>',
+        '<text x="480" y="30" text-anchor="middle" font-size="20">'
+        'Five-board SMA phase repeatability</text>',
+        '<text x="480" y="54" text-anchor="middle" font-size="13" '
+        'fill="#b91c1c">Independent clocks: diagnostic only; '
+        'phase-slope delay fit blocked</text>',
+    ]
+    for degree in range(0, 361, 60):
+        y = y_position(degree * 1000)
+        parts.extend((
+            f'<line x1="{left}" y1="{y:.2f}" x2="{left + plot_width}" '
+            f'y2="{y:.2f}" stroke="#e2e8f0"/>',
+            f'<text x="{left - 12}" y="{y + 4:.2f}" text-anchor="end" '
+            f'font-size="12">{degree}°</text>',
+        ))
+    for frequency_hz in frequencies:
+        x = x_position(frequency_hz)
+        parts.extend((
+            f'<line x1="{x:.2f}" y1="{top}" x2="{x:.2f}" '
+            f'y2="{top + plot_height}" stroke="#f1f5f9"/>',
+            f'<text x="{x:.2f}" y="{top + plot_height + 24}" '
+            f'text-anchor="middle" font-size="12">'
+            f'{frequency_hz / 1_000_000:g}</text>',
+        ))
+    parts.extend((
+        f'<line x1="{left}" y1="{top}" x2="{left}" '
+        f'y2="{top + plot_height}" stroke="#334155"/>',
+        f'<line x1="{left}" y1="{top + plot_height}" '
+        f'x2="{left + plot_width}" y2="{top + plot_height}" '
+        'stroke="#334155"/>',
+        f'<text x="{left + plot_width / 2}" y="{height - 40}" '
+        'text-anchor="middle">Frequency (MHz)</text>',
+        f'<text x="22" y="{top + plot_height / 2}" '
+        'text-anchor="middle" transform="rotate(-90 22 '
+        f'{top + plot_height / 2})">Circular phase spread</text>',
+    ))
+    for channel in SOURCE_BOARD_NOS:
+        channel_items = sorted(
+            (item for item in repeatability if item["channel"] == channel),
+            key=lambda item: int(item["frequency_hz"]),
+        )
+        points = " ".join(
+            f'{x_position(int(item["frequency_hz"])):.2f},'
+            f'{y_position(int(item["phase_spread_mdeg"])):.2f}'
+            for item in channel_items
+            if item["phase_spread_mdeg"] is not None
+        )
+        parts.append(
+            f'<polyline points="{points}" fill="none" '
+            f'stroke="{colors[channel - 1]}" stroke-width="2"/>')
+        for item in channel_items:
+            if item["phase_spread_mdeg"] is None:
+                continue
+            x = x_position(int(item["frequency_hz"]))
+            y = y_position(int(item["phase_spread_mdeg"]))
+            parts.append(
+                f'<circle cx="{x:.2f}" cy="{y:.2f}" r="3" '
+                f'fill="{colors[channel - 1]}"/>')
+        legend_x = left + (channel - 1) * 180
+        parts.extend((
+            f'<line x1="{legend_x}" y1="{height - 12}" '
+            f'x2="{legend_x + 25}" y2="{height - 12}" '
+            f'stroke="{colors[channel - 1]}" stroke-width="3"/>',
+            f'<text x="{legend_x + 32}" y="{height - 8}" '
+            f'font-size="12">NO{channel} → IN{channel}</text>',
+        ))
+    parts.append('</svg>')
+    path.write_text("".join(parts), encoding="utf-8")
 
 
 def main() -> int:
@@ -203,6 +300,22 @@ def main() -> int:
                 "phase_spread_mdeg": phase_repeat_spread_mdeg(phase_values),
             })
 
+    expected_valid_count = len(frequencies) * len(SOURCE_BOARD_NOS) * args.repeats
+    actual_valid_count = sum(int(item["valid_count"])
+                             for item in repeatability)
+    spreads = [int(item["phase_spread_mdeg"])
+               for item in repeatability
+               if item["phase_spread_mdeg"] is not None]
+    summary = {
+        "expected_channel_measurements": expected_valid_count,
+        "valid_channel_measurements": actual_valid_count,
+        "all_edges_valid": actual_valid_count == expected_valid_count,
+        "minimum_phase_spread_mdeg": min(spreads) if spreads else None,
+        "maximum_phase_spread_mdeg": max(spreads) if spreads else None,
+        "phase_coherence_passed": False,
+        "delay_fit_block_reason": "independent_clock_phase_not_coherent",
+    }
+
     output = {
         "schema": "sma-cable-delay/five-board-diagnostic-v1",
         "wire_order_gate": {
@@ -221,6 +334,7 @@ def main() -> int:
         "cable_only_delay_valid": False,
         "measurement_boundary": "source output + cable + NO5 input",
         "coarse_equal_cable_relative_baseline_ps": [0, 0, 0, 0],
+        "summary": summary,
         "repeatability": repeatability,
         "records": records,
     }
@@ -228,6 +342,10 @@ def main() -> int:
     result_path.write_text(
         json.dumps(output, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
+    )
+    write_diagnostic_svg(
+        args.output_dir / "sma_cable_five_board_phase_repeatability.svg",
+        repeatability,
     )
     print(result_path)
     return 0
