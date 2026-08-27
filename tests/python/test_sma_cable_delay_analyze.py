@@ -142,3 +142,20 @@ def test_five_board_diagnostic_svg_marks_noncoherent_boundary(tmp_path):
     text = output.read_text(encoding="utf-8")
     assert "phase-slope delay fit blocked" in text
     assert "NO4 → IN4" in text
+
+
+def test_five_board_validator_parser_includes_frequency_and_duty():
+    spec = importlib.util.spec_from_file_location(
+        "sma_cable_five_board_validate_parser", FIVE_BOARD_SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    values = [2_000_000, 1_984_126, 250_000_000, 126, 512]
+    for channel in range(4):
+        values.extend((1, -1000 * channel, 32, 33,
+                       1_984_126 + channel, 500_000 + channel))
+    result = module.parse_validator_response(",".join(map(str, values)))
+    assert result["channels"][2]["falling_edge_count"] == 33
+    assert result["channels"][3]["observed_frequency_hz"] == 1_984_129
+    assert result["channels"][3]["duty_cycle_ppm"] == 500_003

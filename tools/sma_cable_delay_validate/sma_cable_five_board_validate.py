@@ -38,6 +38,9 @@ from tdma_start_ring import discover  # noqa: E402
 SOURCE_BOARD_NOS = (1, 2, 3, 4)
 VALIDATOR_BOARD_NO = 5
 WIRE_ORDER_TOOL = HERE / "sma_cable_wire_order.py"
+VALIDATOR_RESPONSE_FIELD_COUNT = 29
+MAX_FREQUENCY_ERROR_PPM = 20_000
+MAX_DUTY_ERROR_PPM = 50_000
 
 
 def require_wire_order_result(path: Path) -> dict[str, object]:
@@ -89,6 +92,37 @@ def phase_repeat_spread_mdeg(values: list[int]) -> int | None:
             for previous, current in zip(normalized, normalized[1:])]
     gaps.append(normalized[0] + 360_000 - normalized[-1])
     return 360_000 - max(gaps)
+
+
+def parse_validator_response(text: str) -> dict[str, object]:
+    try:
+        fields = [int(part.strip().strip('"'), 0) for part in text.split(",")]
+    except ValueError as exc:
+        raise ValueError(f"malformed SMA validator response: {text!r}") from exc
+    if len(fields) != VALIDATOR_RESPONSE_FIELD_COUNT:
+        raise ValueError(
+            f"SMA validator response has {len(fields)} fields, "
+            f"expected {VALIDATOR_RESPONSE_FIELD_COUNT}")
+    channels = []
+    for channel in range(4):
+        base = 5 + channel * 6
+        channels.append({
+            "channel": channel + 1,
+            "valid": fields[base] != 0,
+            "phase_mdeg": fields[base + 1],
+            "rising_edge_count": fields[base + 2],
+            "falling_edge_count": fields[base + 3],
+            "observed_frequency_hz": fields[base + 4],
+            "duty_cycle_ppm": fields[base + 5],
+        })
+    return {
+        "requested_frequency_hz": fields[0],
+        "actual_frequency_hz": fields[1],
+        "sample_rate_hz": fields[2],
+        "period_samples": fields[3],
+        "capture_word_count": fields[4],
+        "channels": channels,
+    }
 
 
 def write_diagnostic_svg(path: Path,
@@ -266,10 +300,11 @@ def main() -> int:
                     response = query_ints(
                         validator,
                         f"READ:CAL:SMA:CABL:VAL? {frequency_hz},{args.capture_words}",
-                        17,
+                        VALIDATOR_RESPONSE_FIELD_COUNT,
                         args.timeout,
                     )
-                    parsed = parse_response(",".join(str(value) for value in response))
+                    parsed = parse_validator_response(
+                        ",".join(str(value) for value in response))
                     parsed["repeat"] = repeat
                     parsed["source_actual_frequency_hz"] = source_actual_hz
                     records.append(parsed)
@@ -306,12 +341,42 @@ def main() -> int:
     spreads = [int(item["phase_spread_mdeg"])
                for item in repeatability
                if item["phase_spread_mdeg"] is not None]
+    frequency_errors_ppm = []
+    duty_errors_ppm = []
+    for record in records:
+        for channel in SOURCE_BOARD_NOS:
+            channel_result = record["channels"][channel - 1]
+            if not channel_result["valid"]:
+                continue
+            source_frequency_hz = int(
+                record["source_actual_frequency_hz"][channel])
+            observed_frequency_hz = int(
+                channel_result["observed_frequency_hz"])
+            frequency_errors_ppm.append(
+                abs(observed_frequency_hz - source_frequency_hz) *
+                1_000_000 // source_frequency_hz)
+            duty_errors_ppm.append(
+                abs(int(channel_result["duty_cycle_ppm"]) - 500_000))
+    maximum_frequency_error_ppm = (
+        max(frequency_errors_ppm) if frequency_errors_ppm else None)
+    maximum_duty_error_ppm = max(duty_errors_ppm) if duty_errors_ppm else None
+    transport_quality_passed = bool(
+        actual_valid_count == expected_valid_count and
+        maximum_frequency_error_ppm is not None and
+        maximum_frequency_error_ppm <= MAX_FREQUENCY_ERROR_PPM and
+        maximum_duty_error_ppm is not None and
+        maximum_duty_error_ppm <= MAX_DUTY_ERROR_PPM)
     summary = {
         "expected_channel_measurements": expected_valid_count,
         "valid_channel_measurements": actual_valid_count,
         "all_edges_valid": actual_valid_count == expected_valid_count,
         "minimum_phase_spread_mdeg": min(spreads) if spreads else None,
         "maximum_phase_spread_mdeg": max(spreads) if spreads else None,
+        "maximum_frequency_error_ppm": maximum_frequency_error_ppm,
+        "maximum_duty_error_ppm": maximum_duty_error_ppm,
+        "frequency_error_limit_ppm": MAX_FREQUENCY_ERROR_PPM,
+        "duty_error_limit_ppm": MAX_DUTY_ERROR_PPM,
+        "transport_quality_passed": transport_quality_passed,
         "phase_coherence_passed": False,
         "delay_fit_block_reason": "independent_clock_phase_not_coherent",
     }
@@ -334,6 +399,7 @@ def main() -> int:
         "cable_only_delay_valid": False,
         "measurement_boundary": "source output + cable + NO5 input",
         "coarse_equal_cable_relative_baseline_ps": [0, 0, 0, 0],
+        "coarse_relative_baseline_accepted": transport_quality_passed,
         "summary": summary,
         "repeatability": repeatability,
         "records": records,

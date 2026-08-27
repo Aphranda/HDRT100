@@ -204,6 +204,7 @@ bool sma_cable_delay_extract_phase_from_capture(
     size_t capture_word_count,
     uint32_t logical_channel,
     uint32_t period_samples,
+    uint32_t sample_rate_hz,
     bool reverse_input_bits,
     sma_cable_delay_phase_extract_t *phase)
 {
@@ -212,7 +213,7 @@ bool sma_cable_delay_extract_phase_from_capture(
     }
     if (capture_words == NULL || phase == NULL || capture_word_count == 0u ||
         logical_channel >= SMA_CABLE_DELAY_CHANNEL_COUNT ||
-        period_samples < 4u) {
+        period_samples < 4u || sample_rate_hz == 0u) {
         return false;
     }
 
@@ -225,6 +226,10 @@ bool sma_cable_delay_extract_phase_from_capture(
     int64_t phase_position_sum = 0;
     int32_t anchor_position = -1;
     uint32_t edge_count = 0u;
+    uint32_t falling_edge_count = 0u;
+    size_t first_rising_sample = 0u;
+    size_t last_rising_sample = 0u;
+    size_t high_sample_count = previous ? 1u : 0u;
 
     for (size_t sample_index = 1u;
          sample_index < sample_count;
@@ -234,7 +239,14 @@ bool sma_cable_delay_extract_phase_from_capture(
                                             sample_index,
                                             reverse_input_bits) &
              channel_mask) != 0u;
+        if (level) {
+            high_sample_count++;
+        }
         if (level && !previous) {
+            if (edge_count == 0u) {
+                first_rising_sample = sample_index;
+            }
+            last_rising_sample = sample_index;
             const int32_t position =
                 (int32_t)(sample_index % period_samples);
             if (anchor_position < 0) {
@@ -250,6 +262,8 @@ bool sma_cable_delay_extract_phase_from_capture(
             }
             phase_position_sum += (int64_t)anchor_position + delta;
             edge_count++;
+        } else if (!level && previous) {
+            falling_edge_count++;
         }
         previous = level;
     }
@@ -275,7 +289,17 @@ bool sma_cable_delay_extract_phase_from_capture(
 
     phase->phase_mdeg = (int32_t)phase_mdeg;
     phase->rising_edge_count = edge_count;
+    phase->falling_edge_count = falling_edge_count;
     phase->period_samples = period_samples;
+    const size_t rising_span = last_rising_sample - first_rising_sample;
+    phase->observed_frequency_hz = rising_span == 0u
+        ? 0u
+        : (uint32_t)((((uint64_t)edge_count - 1ull) * sample_rate_hz +
+                      rising_span / 2u) /
+                     rising_span);
+    phase->duty_cycle_ppm = (uint32_t)(
+        ((uint64_t)high_sample_count * 1000000ull + sample_count / 2u) /
+        sample_count);
     phase->valid = true;
     return true;
 }

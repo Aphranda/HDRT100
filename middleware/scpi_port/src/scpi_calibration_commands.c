@@ -159,6 +159,7 @@ scpi_result_t scpi_calibration_sma_cable_phase_q(scpi_t *context)
                 capture.captured_word_count,
                 channel,
                 capture.period_samples,
+                capture.sample_rate_hz,
                 capture.reverse_input_bits,
                 &phases[channel])) {
             any_phase_valid = true;
@@ -305,6 +306,7 @@ scpi_result_t scpi_calibration_sma_cable_validator_q(scpi_t *context)
                 capture.captured_word_count,
                 channel,
                 capture.period_samples,
+                capture.sample_rate_hz,
                 capture.reverse_input_bits,
                 &phases[channel])) {
             any_phase_valid = true;
@@ -327,6 +329,9 @@ scpi_result_t scpi_calibration_sma_cable_validator_q(scpi_t *context)
         SCPI_ResultBool(context, phases[channel].valid ? TRUE : FALSE);
         SCPI_ResultInt32(context, phases[channel].phase_mdeg);
         SCPI_ResultUInt32(context, phases[channel].rising_edge_count);
+        SCPI_ResultUInt32(context, phases[channel].falling_edge_count);
+        SCPI_ResultUInt32(context, phases[channel].observed_frequency_hz);
+        SCPI_ResultUInt32(context, phases[channel].duty_cycle_ppm);
     }
     return SCPI_RES_OK;
 }

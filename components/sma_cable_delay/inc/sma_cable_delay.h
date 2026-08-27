@@ -66,7 +66,10 @@ typedef struct {
 typedef struct {
     int32_t phase_mdeg;
     uint32_t rising_edge_count;
+    uint32_t falling_edge_count;
     uint32_t period_samples;
+    uint32_t observed_frequency_hz;
+    uint32_t duty_cycle_ppm;
     bool valid;
 } sma_cable_delay_phase_extract_t;
 
@@ -104,6 +107,7 @@ bool sma_cable_delay_extract_phase_from_capture(
     size_t capture_word_count,
     uint32_t logical_channel,
     uint32_t period_samples,
+    uint32_t sample_rate_hz,
     bool reverse_input_bits,
     sma_cable_delay_phase_extract_t *phase);
 

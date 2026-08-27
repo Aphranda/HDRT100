@@ -139,9 +139,12 @@ static void test_packed_capture_phase_extracts_logical_channel(void)
 
     sma_cable_delay_phase_extract_t phase;
     assert(sma_cable_delay_extract_phase_from_capture(
-        words, 8u, 0u, period_samples, true, &phase));
+        words, 8u, 0u, period_samples, 250000000u, true, &phase));
     assert(phase.valid);
     assert(phase.rising_edge_count >= 3u);
+    assert(phase.falling_edge_count == 4u);
+    assert(phase.observed_frequency_hz == 15625000u);
+    assert(phase.duty_cycle_ppm == 500000u);
     assert(phase.phase_mdeg == -67500);
 }
 
