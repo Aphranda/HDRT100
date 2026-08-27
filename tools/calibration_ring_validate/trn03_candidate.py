@@ -428,6 +428,16 @@ def _validate_lifecycle_candidate(candidate: dict[str, Any]) -> None:
         raise ValueError("candidate is not a valid inactive package")
 
 
+def stage_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
+    """Freeze a validated evidence package as an inactive staged candidate."""
+    _validate_lifecycle_candidate(candidate)
+    staged = copy.deepcopy(candidate)
+    staged["state"] = "staged"
+    staged["active"] = False
+    refresh_candidate_crc32(staged)
+    return staged
+
+
 def activate_candidate(
         candidate: dict[str, Any],
         current_active: dict[str, Any] | None = None
