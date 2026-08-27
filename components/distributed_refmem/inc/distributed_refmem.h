@@ -57,6 +57,7 @@
 #include "refmem_command.h"
 #include "refmem_realtime_tdma.h"
 #include "refmem_sync.h"
+#include "refmem_vdc_vector.h"
 
 typedef bool (*distributed_refmem_node_load_owner_t)(uint32_t instance_id,
                                                      uint32_t slot_id,
@@ -238,6 +239,12 @@ typedef struct {
     uint32_t last_mailbox_crc16;
 } distributed_refmem_tdma_flight_sync_snapshot_t;
 
+/* Read-only stable copies of the core1-owned VDC/DPLL vector regions.  The
+ * aliases intentionally expose the fixed wire payload without exposing the
+ * mutable region/seqlock storage itself. */
+typedef refmem_vdc_vector_payload_t distributed_refmem_vdc_vector_snapshot_t;
+typedef refmem_dpll_vector_payload_t distributed_refmem_dpll_vector_snapshot_t;
+
 bool distributed_refmem_init(void);
 void distributed_refmem_service(void);
 void distributed_refmem_realtime_run_once(void);
@@ -246,6 +253,10 @@ bool distributed_refmem_get_node(uint32_t node_id, distributed_refmem_node_snaps
 void distributed_refmem_get_core_vector(distributed_refmem_core_vector_snapshot_t *snapshot);
 void distributed_refmem_get_runtime_protection(distributed_refmem_runtime_protection_snapshot_t *snapshot);
 bool distributed_refmem_get_realtime_tdma(refmem_realtime_tdma_snapshot_t *snapshot);
+bool distributed_refmem_get_vdc_vector_snapshot(
+    distributed_refmem_vdc_vector_snapshot_t *snapshot);
+bool distributed_refmem_get_dpll_vector_snapshot(
+    distributed_refmem_dpll_vector_snapshot_t *snapshot);
 bool distributed_refmem_get_realtime_tdma_frame(uint8_t *frame,
                                                size_t frame_capacity,
                                                size_t *frame_size);

@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "distributed_refmem.h"
+#include "refmem_vdc_vector.h"
 
 #define REFMEM_VECTOR_MAGIC          0x44565431u
 #define REFMEM_VECTOR_END_MAGIC      0x454E4400u
@@ -91,13 +92,50 @@ typedef struct {
     uint8_t reserved[DISTRIBUTED_REFMEM_NODE_SLOT_SIZE - 9u * sizeof(uint32_t)];
 } refmem_vector_node_region_t;
 
+/* The payloads are written by core1 and read by core0/diagnostic clients.
+ * Keep the seqlock outside the CRC-covered payload so an in-progress write is
+ * unambiguously rejected by readers.  The reserved tail keeps the fixed
+ * DistributedVectorTable directory ABI unchanged. */
+typedef struct {
+    volatile uint32_t seqlock;
+    /* Keep the payload naturally aligned without changing the fixed 2 KiB
+     * region ABI.  Both payloads contain uint64_t fields and therefore need
+     * an explicit four-byte pad after the seqlock word on RP2350. */
+    uint8_t payload_alignment_pad[
+        _Alignof(refmem_vdc_vector_payload_t) > sizeof(uint32_t)
+            ? _Alignof(refmem_vdc_vector_payload_t) - sizeof(uint32_t)
+            : 0u];
+    refmem_vdc_vector_payload_t payload;
+    uint8_t reserved[DISTRIBUTED_REFMEM_VDC_SIZE -
+                     sizeof(uint32_t) -
+                     (_Alignof(refmem_vdc_vector_payload_t) > sizeof(uint32_t)
+                          ? _Alignof(refmem_vdc_vector_payload_t) - sizeof(uint32_t)
+                          : 0u) -
+                     sizeof(refmem_vdc_vector_payload_t)];
+} refmem_vdc_vector_region_t;
+
+typedef struct {
+    volatile uint32_t seqlock;
+    uint8_t payload_alignment_pad[
+        _Alignof(refmem_dpll_vector_payload_t) > sizeof(uint32_t)
+            ? _Alignof(refmem_dpll_vector_payload_t) - sizeof(uint32_t)
+            : 0u];
+    refmem_dpll_vector_payload_t payload;
+    uint8_t reserved[DISTRIBUTED_REFMEM_DPLL_SIZE -
+                     sizeof(uint32_t) -
+                     (_Alignof(refmem_dpll_vector_payload_t) > sizeof(uint32_t)
+                          ? _Alignof(refmem_dpll_vector_payload_t) - sizeof(uint32_t)
+                          : 0u) -
+                     sizeof(refmem_dpll_vector_payload_t)];
+} refmem_dpll_vector_region_t;
+
 typedef struct {
     refmem_vector_header_region_t header;
     uint8_t system[DISTRIBUTED_REFMEM_SYSTEM_SIZE];
     uint8_t role[DISTRIBUTED_REFMEM_ROLE_SIZE];
-    uint8_t vdc[DISTRIBUTED_REFMEM_VDC_SIZE];
+    refmem_vdc_vector_region_t vdc;
     uint8_t loop[DISTRIBUTED_REFMEM_LOOP_SIZE];
-    uint8_t dpll[DISTRIBUTED_REFMEM_DPLL_SIZE];
+    refmem_dpll_vector_region_t dpll;
     refmem_vector_node_region_t node[DISTRIBUTED_REFMEM_NODE_COUNT];
     uint8_t trigger[DISTRIBUTED_REFMEM_TRIGGER_SIZE];
     uint8_t io[DISTRIBUTED_REFMEM_IO_SIZE];

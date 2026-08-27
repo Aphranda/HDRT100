@@ -65,6 +65,23 @@ static const char g_project_build_id[] = "dev";
 #define PROJECT_CORE1_PHASE_REFMEM_END_CYCLE 221000u
 #define PROJECT_CORE1_PHASE_REFMEM_WCET_CYCLES 3000u
 
+/* The VDC/DPLL RefMem mirror is a fixed part of the realtime contract.  Its
+ * cost is expressed in clk_sys cycles so a larger payload cannot silently
+ * consume the following MODEL/trigger phases.  The byte costs are a
+ * conservative upper-bound for the volatile copy and payload CRC loops; the
+ * fixed term covers seqlock/field assembly and publication.  Keep the
+ * resulting WCET below the phase WCET and change both values together when
+ * the vector schema changes. */
+#define PROJECT_CORE1_REFMEM_VECTOR_MIRROR_MAX_PAYLOAD_BYTES 448u
+#define PROJECT_CORE1_REFMEM_VECTOR_MIRROR_COPY_CYCLES_PER_BYTE 2u
+#define PROJECT_CORE1_REFMEM_VECTOR_MIRROR_CRC_CYCLES_PER_BYTE 2u
+#define PROJECT_CORE1_REFMEM_VECTOR_MIRROR_FIXED_CYCLES 256u
+#define PROJECT_CORE1_REFMEM_VECTOR_MIRROR_WCET_CYCLES \
+    (PROJECT_CORE1_REFMEM_VECTOR_MIRROR_FIXED_CYCLES + \
+     PROJECT_CORE1_REFMEM_VECTOR_MIRROR_MAX_PAYLOAD_BYTES * \
+         (PROJECT_CORE1_REFMEM_VECTOR_MIRROR_COPY_CYCLES_PER_BYTE + \
+          PROJECT_CORE1_REFMEM_VECTOR_MIRROR_CRC_CYCLES_PER_BYTE))
+
 #define PROJECT_CORE1_PHASE_MODEL_START_CYCLE 221000u
 #define PROJECT_CORE1_PHASE_MODEL_END_CYCLE 224000u
 #define PROJECT_CORE1_PHASE_MODEL_WCET_CYCLES 3000u

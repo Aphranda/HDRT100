@@ -24,13 +24,17 @@ if str(ROOT / "tools") not in sys.path:
 
 from scpi_common.board_identity import parse_idn_response  # noqa: E402
 from scpi_common.scpi_serial import read_scpi_response  # noqa: E402
+from tdma_field_parse import (  # noqa: E402
+    FIELDS as TDMA_FIELDS,
+    parse_status_fields,
+)
 
 
-RING_LOCAL_SLOT = 57
-RING_REFERENCE_SLOT = 58
-RING_UP_RUNNING = 63
-RING_DOWN_RUNNING = 64
-TDMA_STATUS_FIELD_COUNT = 110
+RING_LOCAL_SLOT = TDMA_FIELDS.index("ring_local_slot_id")
+RING_REFERENCE_SLOT = TDMA_FIELDS.index("ring_reference_slot_id")
+RING_UP_RUNNING = TDMA_FIELDS.index("ring_up_running")
+RING_DOWN_RUNNING = TDMA_FIELDS.index("ring_down_running")
+TDMA_STATUS_FIELD_COUNT = len(TDMA_FIELDS)
 
 
 @dataclass(frozen=True)
@@ -117,9 +121,10 @@ def read_status(board: Board, args: argparse.Namespace) -> dict[str, int]:
             raise RuntimeError(
                 f"{board.port}: identity changed to {identity.address}, expected {board.address}")
         raw = command(ser, "SYSTem:REFMEM:SYNC:TDMA:STATus?", args.timeout)
-    fields = [int(value.strip().strip('"'), 0) for value in raw.split(",")]
-    if len(fields) != TDMA_STATUS_FIELD_COUNT:
-        raise RuntimeError(f"{board.address}: TDMA status field count {len(fields)}")
+    try:
+        fields = parse_status_fields(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{board.address}: invalid TDMA status: {exc}") from exc
     return {
         "local_slot": fields[RING_LOCAL_SLOT],
         "reference_slot": fields[RING_REFERENCE_SLOT],

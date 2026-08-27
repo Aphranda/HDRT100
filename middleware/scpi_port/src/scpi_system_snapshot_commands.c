@@ -3481,6 +3481,93 @@ scpi_result_t scpi_cmd_core_vector_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+/* Compact read-only views of the core1-owned RefMem vectors.  The complete
+ * payload remains available to in-process consumers through the seqlock
+ * getter; SCPI exposes only the fields needed by NO5/maintenance monitoring so
+ * the command cannot become a realtime data path. */
+scpi_result_t scpi_cmd_refmem_vdc_vector_q(scpi_t *context)
+{
+    distributed_refmem_vdc_vector_snapshot_t snapshot;
+    if (!distributed_refmem_get_vdc_vector_snapshot(&snapshot)) {
+        SCPI_ResultText(context, "UNAVAILABLE");
+        return SCPI_RES_OK;
+    }
+
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, snapshot.flags);
+    SCPI_ResultUInt32(context, snapshot.stable_sequence);
+    SCPI_ResultUInt32(context, snapshot.publish_sequence);
+    SCPI_ResultUInt32(context, snapshot.source_update_seq);
+    SCPI_ResultUInt32(context, snapshot.source_service_count);
+    SCPI_ResultUInt32(context, snapshot.schedule_epoch);
+    SCPI_ResultUInt32(context, snapshot.local_node_id);
+    SCPI_ResultUInt32(context, snapshot.reference_node_id);
+    SCPI_ResultUInt32(context, snapshot.node_count);
+    SCPI_ResultUInt32(context, snapshot.schedule_crc32);
+    SCPI_ResultUInt32(context, snapshot.servo_profile_crc32);
+    SCPI_ResultUInt32(context, snapshot.path_delay_table_crc32);
+    SCPI_ResultUInt32(context, snapshot.path_delay_generation);
+    SCPI_ResultUInt32(context, snapshot.dpll_state);
+    SCPI_ResultInt32(context, snapshot.dpll_last_phase_error_ns);
+    SCPI_ResultInt32(context, snapshot.dpll_last_frequency_error_ppb);
+    SCPI_ResultInt32(context, snapshot.clock_phase_offset_ns);
+    SCPI_ResultInt32(context, snapshot.clock_period_adjust_ppb);
+    SCPI_ResultUInt32(context, snapshot.quality_health_state);
+    SCPI_ResultUInt32(context, snapshot.quality_lock_quality_tier);
+    SCPI_ResultUInt32(context, snapshot.quality_last_timestamp_source);
+    SCPI_ResultUInt32(context, snapshot.quality_last_timestamp_resolution_ns);
+    SCPI_ResultUInt32(context, snapshot.quality_last_timestamp_flags);
+    SCPI_ResultUInt32(context, snapshot.gate_passed);
+    SCPI_ResultUInt32(context, snapshot.gate_reject_code);
+    SCPI_ResultUInt32(context, snapshot.payload_crc32);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_dpll_vector_q(scpi_t *context)
+{
+    distributed_refmem_dpll_vector_snapshot_t snapshot;
+    if (!distributed_refmem_get_dpll_vector_snapshot(&snapshot)) {
+        SCPI_ResultText(context, "UNAVAILABLE");
+        return SCPI_RES_OK;
+    }
+
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, snapshot.flags);
+    SCPI_ResultUInt32(context, snapshot.stable_sequence);
+    SCPI_ResultUInt32(context, snapshot.publish_sequence);
+    SCPI_ResultUInt32(context, snapshot.source_update_seq);
+    SCPI_ResultUInt32(context, snapshot.source_service_count);
+    SCPI_ResultUInt32(context, snapshot.ready);
+    SCPI_ResultUInt32(context, snapshot.schedule_epoch);
+    SCPI_ResultUInt32(context, snapshot.local_node_id);
+    SCPI_ResultUInt32(context, snapshot.reference_node_id);
+    SCPI_ResultUInt32(context, snapshot.node_count);
+    SCPI_ResultUInt32(context, snapshot.schedule_crc32);
+    SCPI_ResultUInt32(context, snapshot.servo_profile_crc32);
+    SCPI_ResultUInt32(context, snapshot.state);
+    SCPI_ResultUInt32(context, snapshot.dpll_update_seq);
+    SCPI_ResultInt32(context, snapshot.last_phase_error_ns);
+    SCPI_ResultInt32(context, snapshot.last_frequency_error_ppb);
+    SCPI_ResultInt32(context, snapshot.last_offset_ns);
+    SCPI_ResultUInt32(context, snapshot.dco_valid);
+    SCPI_ResultUInt32(context, snapshot.dco_update_seq);
+    SCPI_ResultUInt32(context, snapshot.dco_source_model_seq);
+    SCPI_ResultUInt32(context, snapshot.dco_lock_state);
+    SCPI_ResultInt32(context, snapshot.dco_phase_offset_ns);
+    SCPI_ResultInt32(context, snapshot.dco_period_adjust_ppb);
+    SCPI_ResultUInt32(context, snapshot.quality_health_state);
+    SCPI_ResultUInt32(context, snapshot.quality_lock_quality_tier);
+    SCPI_ResultUInt32(context, snapshot.quality_last_timestamp_source);
+    SCPI_ResultUInt32(context, snapshot.quality_last_timestamp_resolution_ns);
+    SCPI_ResultUInt32(context, snapshot.quality_last_timestamp_flags);
+    SCPI_ResultUInt32(context, snapshot.gate_passed);
+    SCPI_ResultUInt32(context, snapshot.gate_reject_code);
+    SCPI_ResultUInt32(context, snapshot.path_delay_table_crc32);
+    SCPI_ResultUInt32(context, snapshot.path_delay_generation);
+    SCPI_ResultUInt32(context, snapshot.payload_crc32);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_runtime_protection_q(scpi_t *context)
 {
     distributed_refmem_runtime_protection_snapshot_t snapshot;

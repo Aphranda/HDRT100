@@ -6,8 +6,62 @@ _Static_assert(sizeof(refmem_vector_header_region_t) == DISTRIBUTED_REFMEM_HEADE
                "refmem header region must be 1 KB");
 _Static_assert(sizeof(refmem_vector_node_region_t) == DISTRIBUTED_REFMEM_NODE_SLOT_SIZE,
                "refmem node region must be 512 bytes");
+_Static_assert(sizeof(refmem_vdc_vector_region_t) == DISTRIBUTED_REFMEM_VDC_SIZE,
+               "refmem VDC region must be 2 KB");
+_Static_assert(sizeof(refmem_dpll_vector_region_t) == DISTRIBUTED_REFMEM_DPLL_SIZE,
+               "refmem DPLL region must be 2 KB");
 _Static_assert(sizeof(refmem_vector_table_t) == DISTRIBUTED_REFMEM_TABLE_SIZE,
                "DistributedVectorTable must be exactly 64 KB");
+
+uint32_t refmem_vdc_vector_payload_crc(const refmem_vdc_vector_payload_t *payload)
+{
+    if (payload == NULL) {
+        return 0u;
+    }
+    return refmem_vector_fast_crc32(payload,
+                                    offsetof(refmem_vdc_vector_payload_t,
+                                             payload_crc32));
+}
+
+uint32_t refmem_dpll_vector_payload_crc(const refmem_dpll_vector_payload_t *payload)
+{
+    if (payload == NULL) {
+        return 0u;
+    }
+    return refmem_vector_fast_crc32(payload,
+                                    offsetof(refmem_dpll_vector_payload_t,
+                                             payload_crc32));
+}
+
+int refmem_vdc_vector_payload_validate(const refmem_vdc_vector_payload_t *payload)
+{
+    if (payload == NULL ||
+        payload->layout_version != REFMEM_VDC_VECTOR_LAYOUT_VERSION ||
+        payload->writer != REFMEM_VECTOR_WRITER_CORE1 ||
+        payload->stable_sequence == 0u ||
+        (payload->stable_sequence & 1u) != 0u ||
+        (payload->flags & REFMEM_VECTOR_FLAG_STALE) != 0u ||
+        (payload->flags & REFMEM_VECTOR_FLAG_VALID) == 0u ||
+        payload->payload_crc32 != refmem_vdc_vector_payload_crc(payload)) {
+        return 0;
+    }
+    return 1;
+}
+
+int refmem_dpll_vector_payload_validate(const refmem_dpll_vector_payload_t *payload)
+{
+    if (payload == NULL ||
+        payload->layout_version != REFMEM_DPLL_VECTOR_LAYOUT_VERSION ||
+        payload->writer != REFMEM_VECTOR_WRITER_CORE1 ||
+        payload->stable_sequence == 0u ||
+        (payload->stable_sequence & 1u) != 0u ||
+        (payload->flags & REFMEM_VECTOR_FLAG_STALE) != 0u ||
+        (payload->flags & REFMEM_VECTOR_FLAG_VALID) == 0u ||
+        payload->payload_crc32 != refmem_dpll_vector_payload_crc(payload)) {
+        return 0;
+    }
+    return 1;
+}
 
 void refmem_vector_table_clear(refmem_vector_table_t *table)
 {

@@ -12,6 +12,7 @@
 #include "pico/stdlib.h"
 #include "pico/time.h"
 #include "project_config.h"
+#include "refmem_vdc_vector.h"
 #include "tdma_pio_spi_phys.h"
 #include "tdma_flight_engine.h"
 #include "tdma_process_image_layout.h"
@@ -97,6 +98,27 @@ _Static_assert(PROJECT_CORE1_PHASE_TDMA_END_CYCLE <=
                PROJECT_CORE1_PHASE_GUARD_END_CYCLE ==
                    PROJECT_CORE1_CYCLE_CYCLES,
                "core1 phases must be ordered, disjoint, and fill the cycle");
+
+#define APP_REFMEM_VECTOR_PAYLOAD_BYTES \
+    (sizeof(refmem_vdc_vector_payload_t) + \
+     sizeof(refmem_dpll_vector_payload_t))
+#define APP_REFMEM_VECTOR_MIRROR_ESTIMATED_CYCLES \
+    (PROJECT_CORE1_REFMEM_VECTOR_MIRROR_FIXED_CYCLES + \
+     APP_REFMEM_VECTOR_PAYLOAD_BYTES * \
+         (PROJECT_CORE1_REFMEM_VECTOR_MIRROR_COPY_CYCLES_PER_BYTE + \
+          PROJECT_CORE1_REFMEM_VECTOR_MIRROR_CRC_CYCLES_PER_BYTE))
+_Static_assert(APP_REFMEM_VECTOR_PAYLOAD_BYTES <=
+                   PROJECT_CORE1_REFMEM_VECTOR_MIRROR_MAX_PAYLOAD_BYTES,
+               "VDC/DPLL vector payload exceeds its realtime mirror budget");
+_Static_assert(APP_REFMEM_VECTOR_MIRROR_ESTIMATED_CYCLES <=
+                   PROJECT_CORE1_REFMEM_VECTOR_MIRROR_WCET_CYCLES,
+               "VDC/DPLL vector mirror estimate exceeds configured WCET");
+_Static_assert(PROJECT_CORE1_REFMEM_VECTOR_MIRROR_WCET_CYCLES <=
+                   PROJECT_CORE1_PHASE_REFMEM_WCET_CYCLES,
+               "VDC/DPLL vector mirror does not fit the RefMem phase");
+#undef APP_REFMEM_VECTOR_MIRROR_ESTIMATED_CYCLES
+#undef APP_REFMEM_VECTOR_PAYLOAD_BYTES
+
 _Static_assert(APP_REALTIME_WIRE_MAX_CYCLES <=
                    PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES,
                "maximum flight wire time must fit the TDMA phase WCET");

@@ -1,6 +1,49 @@
 #!/usr/bin/env python3
-"""Canonical field schemas for TDMA status and physical snapshots."""
+"""Canonical field schemas for TDMA status and physical snapshots.
+
+The field order is the wire order emitted by
+``scpi_cmd_refmem_sync_tdma_status_q``.  Keep this module as the single host
+side source of truth: the SCPI response is positional and silently accepting
+an older field count turns valid hardware evidence into a false failure (or,
+worse, associates a counter with the wrong field).
+"""
+import csv
 import sys
+
+
+class TdmaStatusParseError(ValueError):
+    """Raised when a TDMA status response is not the current schema."""
+
+
+def parse_status_fields(response: str) -> list[int]:
+    """Parse one complete ``REFMEM:SYNC:TDMA:STATus?`` response.
+
+    The response is deliberately required to contain exactly ``len(FIELDS)``
+    values.  A short/old response must be reported to the caller instead of
+    being padded, because padding would make the ring and timestamp gates use
+    unrelated positions.
+    """
+    try:
+        fields = next(csv.reader([response], skipinitialspace=True))
+    except csv.Error as exc:
+        raise TdmaStatusParseError(f"invalid CSV TDMA status: {response!r}") from exc
+    if len(fields) != len(FIELDS):
+        raise TdmaStatusParseError(
+            f"field count {len(fields)} != {len(FIELDS)}")
+    values: list[int] = []
+    for field in fields:
+        try:
+            values.append(int(field.strip().strip('"'), 0))
+        except ValueError as exc:
+            raise TdmaStatusParseError(
+                f"non-integer TDMA status field: {field!r}") from exc
+    return values
+
+
+def parse_status_named(response: str) -> dict[str, int]:
+    """Return a validated TDMA status response keyed by field name."""
+    values = parse_status_fields(response)
+    return dict(zip(FIELDS, values, strict=True))
 
 FIELDS = [
     "state", "owner_core", "armed", "service_count", "intent_seq",

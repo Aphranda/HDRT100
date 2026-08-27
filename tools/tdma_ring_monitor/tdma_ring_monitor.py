@@ -42,40 +42,50 @@ from scpi_common.board_identity import (  # noqa: E402
     normalize_build_response,
     parse_idn_response,
 )
+from tdma_field_parse import (  # noqa: E402
+    FIELDS as TDMA_FIELDS,
+    TdmaStatusParseError,
+    parse_status_fields,
+)
 
-TDMA_STATUS_FIELD_COUNT = 110
 
-RING_ENABLED = 54
-RING_NODE_COUNT = 56
-RING_LOCAL_SLOT = 57
-RING_REFERENCE_SLOT = 58
-RING_UP_RUNNING = 63
-RING_DOWN_RUNNING = 64
-RING_SEQ = 65
-RING_LAST_ERROR = 66
-SIMULTANEOUS = 67
-RING_FEEDBACK_TIMEOUT_NS = 88
-RING_ADAPTER_STARTED = 89
-RING_ADAPTER_START_COUNT = 90
-RING_ADAPTER_STOP_COUNT = 91
-RING_ADAPTER_SERVICE_COUNT = 92
-RING_UP_TX_SEQUENCE = 93
-RING_DOWN_RX_SEQUENCE = 94
-RING_UP_TX_FRAME_CRC = 95
-RING_DOWN_RX_FRAME_CRC = 96
-RING_TS_RESOLUTION_NS = 97
-RING_TS_FLAGS = 98
-RING_IDLE_TX = 99
-RING_IDLE_RX = 100
-RING_ROUND_TRIP_NS = 101
-RING_REF_TX_TS_LO = 102
-RING_REF_TX_TS_HI = 103
-RING_FB_RX_TS_LO = 104
-RING_FB_RX_TS_HI = 105
-RING_ADAPTER_LAST_ERROR = 106
-RING_ADAPTER_TX_COUNT = 107
-RING_ADAPTER_RX_COUNT = 108
-RING_ADAPTER_RX_BAD_COUNT = 109
+def _field_index(name: str) -> int:
+    """Resolve a SCPI field by the canonical schema name."""
+    return TDMA_FIELDS.index(name)
+
+
+TDMA_STATUS_FIELD_COUNT = len(TDMA_FIELDS)
+RING_ENABLED = _field_index("ring_enabled")
+RING_NODE_COUNT = _field_index("ring_node_count")
+RING_LOCAL_SLOT = _field_index("ring_local_slot_id")
+RING_REFERENCE_SLOT = _field_index("ring_reference_slot_id")
+RING_UP_RUNNING = _field_index("ring_up_running")
+RING_DOWN_RUNNING = _field_index("ring_down_running")
+RING_SEQ = _field_index("ring_seq")
+RING_LAST_ERROR = _field_index("ring_last_error")
+SIMULTANEOUS = _field_index("simultaneous_feedback_loop_evidence")
+RING_FEEDBACK_TIMEOUT_NS = _field_index("ring_feedback_timeout_ns")
+RING_ADAPTER_STARTED = _field_index("ring_adapter_started")
+RING_ADAPTER_START_COUNT = _field_index("ring_adapter_start_count")
+RING_ADAPTER_STOP_COUNT = _field_index("ring_adapter_stop_count")
+RING_ADAPTER_SERVICE_COUNT = _field_index("ring_adapter_service_count")
+RING_UP_TX_SEQUENCE = _field_index("ring_up_tx_sequence")
+RING_DOWN_RX_SEQUENCE = _field_index("ring_down_rx_sequence")
+RING_UP_TX_FRAME_CRC = _field_index("ring_up_tx_frame_crc32")
+RING_DOWN_RX_FRAME_CRC = _field_index("ring_down_rx_frame_crc32")
+RING_TS_RESOLUTION_NS = _field_index("ring_timestamp_resolution_ns")
+RING_TS_FLAGS = _field_index("ring_timestamp_flags")
+RING_IDLE_TX = _field_index("ring_idle_beacon_tx_count")
+RING_IDLE_RX = _field_index("ring_idle_beacon_rx_count")
+RING_ROUND_TRIP_NS = _field_index("ring_feedback_round_trip_ns")
+RING_REF_TX_TS_LO = _field_index("ring_reference_tx_timestamp_ns_lo")
+RING_REF_TX_TS_HI = _field_index("ring_reference_tx_timestamp_ns_hi")
+RING_FB_RX_TS_LO = _field_index("ring_feedback_rx_timestamp_ns_lo")
+RING_FB_RX_TS_HI = _field_index("ring_feedback_rx_timestamp_ns_hi")
+RING_ADAPTER_LAST_ERROR = _field_index("ring_adapter_last_error")
+RING_ADAPTER_TX_COUNT = _field_index("ring_adapter_tx_count")
+RING_ADAPTER_RX_COUNT = _field_index("ring_adapter_rx_count")
+RING_ADAPTER_RX_BAD_COUNT = _field_index("ring_adapter_rx_bad_count")
 
 REASON_NAMES = {
     0: "NONE",
@@ -165,14 +175,10 @@ def parse_csv_response(response: str) -> list[str]:
 
 
 def tdma_status_fields(response: str) -> list[int]:
-    fields = parse_csv_response(response)
-    if len(fields) != TDMA_STATUS_FIELD_COUNT:
-        raise AssertionError(
-            f"field count {len(fields)} != {TDMA_STATUS_FIELD_COUNT}: {response}")
     try:
-        return [int(field.strip().strip('"'), 0) for field in fields]
-    except ValueError as exc:
-        raise AssertionError(f"non-integer TDMA status: {response}") from exc
+        return parse_status_fields(response)
+    except TdmaStatusParseError as exc:
+        raise AssertionError(f"invalid TDMA status: {exc}: {response}") from exc
 
 
 def timestamp_iso() -> str:
