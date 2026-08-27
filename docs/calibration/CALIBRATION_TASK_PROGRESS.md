@@ -4,11 +4,29 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_TASK_PROGRESS.md`
 Related: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_TASK_PROGRESS.md`
-Last updated: 2026-08-27
+Last updated: 2026-08-28
 
 本文档记录校准域从方案、粗捕获到双向测距和 VDC/DPLL 接入的实际进展。记录中的 HIL
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
+
+## CAL-TASK-20260828-016 - TDMA 基础负载前置与训练接口基线
+
+- 对应 TODO：训练子域 `TRN-03` 的 TDMA 周期预算前置，以及 `P4-DBG` 的 transport 依赖。
+- 状态：TDMA 基础负载闭环完成；校准域仍保持 staging/diagnostic-only，不改变 active
+  calibration gate。
+- 日期：2026-08-28。
+- 结果：五板统一 OTA 后，TDMA 固定周期先装入 VDC/DPLL、SYNC_CAPTURE、REFMEM 和
+  SYNC_TRIGGER 基础负载；CALIBRATION、MODEL、TRIGGER_MEASURE 未因运行时余量而临时加入。
+  固定 Node mailbox 的 mandatory 区域、CRC 和可选诊断容量由同一 layout/预算工具生成，校准
+  训练继续只消费 TDMA 发布的 raw evidence、窗口和质量快照。
+- 验证：release A/B 构建、定向 pytest、五板 OTA/HIL 均通过；基础 schedule 两轮快照无
+  schedule miss，证据为诊断快照而非 DPLL 正式锁相结论。
+- 证据位置：`out/tdma_process_image_budget/current.md`、
+  `out/tdma_cycle_schedule/foundation_sync_trigger21.md`、
+  `out/ota/tdma_foundation_sync21_final_20260828/summary.json`。
+- 下一步：保持基础 schedule 不变，补齐 SD 原始波形的频率/占空比长期证据；随后逐 phase
+  评估 TRN-03C/D 所需的校准或恢复负载，只有静态 WCET/wire/guard 预算明确允许时才启用。
 
 ## CAL-TASK-20260827-015 - DPLL/VDC 快速调试路径与原始链路错误压降边界
 

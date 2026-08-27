@@ -38,9 +38,9 @@ OTA/HIL 的任务不得标为 `DONE`；运行时临时剩余容量不得用于�
 
 | ID | 里程碑 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
-| TDMA-M1 | 拍级 schedule 与编译门禁 | IN PROGRESS | 静态 gate 全绿，五板实测 WCET 不超合同。 |
-| TDMA-M2 | mandatory-first SHORT process image | IN PROGRESS | 固定布局、publisher/parser、CRC、SCPI 与多板 HIL 全闭环。 |
-| TDMA-M3 | DPLL/VDC 最小负载 | PENDING | 硬件 latch 样本可追溯，节点锁相且发布 VDC。 |
+| TDMA-M1 | 拍级 schedule 与编译门禁 | DONE | 静态 gate 全绿，五板实测 WCET 不超合同。 |
+| TDMA-M2 | mandatory-first SHORT process image | DONE | 固定布局、publisher/parser、CRC、SCPI 与多板 HIL 全闭环。 |
+| TDMA-M3 | DPLL/VDC 最小负载 | IN PROGRESS | 基础字段已随固定周期运行；仍需硬件 latch 样本可追溯、节点锁相且发布 VDC。 |
 | TDMA-M4 | completion/reliability | PENDING | ACK/fence/retry/fail-closed 与长期错误率门禁成立。 |
 | TDMA-M5 | T2 reservation 与控制 | PENDING | 预算内 PREPARE/READY/fence/completion 五板闭环。 |
 
@@ -50,11 +50,11 @@ OTA/HIL 的任务不得标为 `DONE`；运行时临时剩余容量不得用于�
 |---|---|---|---|
 | TDMA-DET-001 | 拍级 phase table 与唯一时间单位 | DONE | `APP_REALTIME_PHASE_TABLE` 和编译期邻接/周期闭合检查存在。 |
 | TDMA-DET-002 | schedule 与最大 wire 编译门禁 | DONE | phase、WCET、SPI 整拍和最大 SHORT wire 超限均拒绝构建。 |
-| TDMA-DET-003 | 拍级 runtime/SCPI evidence | IN PROGRESS | SCPI 字段已接入；待五板采集 start/runtime/WCET/miss。 |
+| TDMA-DET-003 | 拍级 runtime/SCPI evidence | DONE | 五板异步 OTA 后已采集两轮 start/runtime/WCET/miss，schedule miss 为零。 |
 | TDMA-DET-004 | 拆分 prepare/preload/hardware-launch/wire/feedback | PENDING | 首边沿由 PIO/硬件事件触发，各子 phase 有独立拍级合同。 |
 | TDMA-DET-005 | active topology/baud/tail 动态容量门禁 | PENDING | profile 激活前重算 wire，超出 TDMA WCET fail closed。 |
 | TDMA-PAYLOAD-001 | mandatory-first Node body 预算与固定布局 | DONE | `tdma_process_image_layout.h`、编译断言和预算工具一致。 |
-| TDMA-PAYLOAD-002 | compact VDC/DPLL publisher/parser evidence | IN PROGRESS | 最小字段已上 wire；待五板回读和量化/饱和 HIL。 |
+| TDMA-PAYLOAD-002 | compact VDC/DPLL publisher/parser evidence | IN PROGRESS | 最小字段已上 wire 并通过五板运行计数；量化/饱和及硬件 latch HIL 待完成。 |
 | TDMA-PAYLOAD-003 | critical RefMem 与 ACK/fence/quality | IN PROGRESS | baseline delta 与 ACK 摘要已上 wire；待正式 commit/fence 闭环。 |
 | TDMA-PAYLOAD-004 | 最小控制 token | IN PROGRESS | 固定 token 已预留；待 owner、opcode 与 completion 接入。 |
 | TDMA-PAYLOAD-005 | optional 静态余量准入门禁 | DONE | optional 只使用 mandatory 后余量，layout 不保留 runtime-free 字节。 |

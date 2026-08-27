@@ -16,15 +16,18 @@ Last updated: 2026-08-28
 
 ## 当前 checkpoint
 
-拍级 Core1 schedule 与 mandatory-first Node mailbox 已形成代码/host 基线。当前尚未执行五板
-OTA/HIL，因此 `TDMA-DET-003`、`TDMA-PAYLOAD-002`、`TDMA-PAYLOAD-003` 和
-`TDMA-PAYLOAD-004` 保持 `IN PROGRESS`。
+拍级 Core1 schedule、mandatory-first Node mailbox 与五板异步 OTA/HIL 已形成闭环基线。
+`TDMA-DET-001`、`TDMA-DET-002`、`TDMA-DET-003`、`TDMA-PAYLOAD-001` 和
+`TDMA-PAYLOAD-005` 已完成；VDC/DPLL 最小字段已运行，但量化/饱和、硬件边沿 latch 和正式
+active calibration 仍未完成，因此 `TDMA-PAYLOAD-002`、`TDMA-PAYLOAD-003` 和
+`TDMA-PAYLOAD-004` 继续保持 `IN PROGRESS`。
 
 ## 验证与证据索引
 
 | progress ID | TODO task ID | 证据 |
 |---|---|---|
 | TDMA-PROGRESS-20260828-001 | TDMA-DET-001..003、TDMA-PAYLOAD-001..005 | `out/tdma_cycle_schedule/`、`out/tdma_process_image_budget/`、`out/build/pico2-release/`、`out/pytest/`。 |
+| TDMA-PROGRESS-20260828-002 | TDMA-M1、TDMA-M2、TDMA-DET-003、TDMA-PAYLOAD-001/005 | `out/tdma_cycle_schedule/foundation_sync_trigger21.md`、`out/tdma_process_image_budget/current.md`、`out/ota/tdma_foundation_sync21_final_20260828/`。 |
 
 ## 失败与回退
 
@@ -34,8 +37,9 @@ OTA/HIL，因此 `TDMA-DET-003`、`TDMA-PAYLOAD-002`、`TDMA-PAYLOAD-003` 和
 
 ## 下一 gate
 
-使用统一 package 对 NO.1..NO.5 OTA，先跑 TDMA-only schedule/频率/占空比和 SD 原始波形，再逐
-phase 启用 VDC/DPLL、RefMem 与控制载荷。
+基础负载的五板 OTA/HIL 已通过；下一 gate 是先保持该固定 schedule，补齐 TDMA-only 频率/占空比
+与 SD 原始波形长期证据，再逐 phase 启用仍在 staging 的校准、模型和触发测量负载。任何新增
+负载必须先通过静态预算和编译门禁，不能运行时借用 guard 或“看起来有余量”的拍。
 
 ## 按时间追加的任务记录
 
@@ -52,6 +56,29 @@ phase 启用 VDC/DPLL、RefMem 与控制载荷。
 - 证据位置：`out/tdma_process_image_budget/tdma_process_image_budget.md`、
   `out/build/pico2-release/DHRT100_UPDATE.pkg`、`out/pytest/tdma-mandatory-load/`。
 - 下一步：完成全量定向回归与文档门禁，再进行五板异步 OTA/HIL。
+
+### TDMA-PROGRESS-20260828-002 - 基础负载优先与次优先负载准入
+
+- TODO task ID：`TDMA-M1`、`TDMA-M2`、`TDMA-DET-003`、`TDMA-PAYLOAD-001`、`TDMA-PAYLOAD-005`。
+- 日期：2026-08-28。
+- 变更/提交：`d656718`（预算与 Sync Trigger 基础负载闭环）；工具恢复提交为
+  `cbbd791`、`88145d0`。
+- 结果：固定 Node mailbox 和拍级 Core1 schedule 已按 mandatory-first 运行。本轮运行快照中的
+  基础掩码为 `0x5B`（VDC、DPLL、SYNC_CAPTURE、REFMEM、SYNC_TRIGGER）；CALIBRATION、MODEL、
+  TRIGGER_MEASURE 作为次优先负载默认关闭。Node mailbox 仍无 runtime-free 字节，mandatory
+  后仅保留静态诊断容量；不得临时扩帧、追加第二帧、借用 guard 或抢占其他 Node 段。
+- 构建/验证：release A/B 构建、定向 pytest、release check 和 pre-commit 均通过；五板统一
+  OTA 全部通过，`enabled_mask=91`、`quarantined_mask=0`、`schedule_miss_count=0`，两轮
+  schedule snapshot 的运行计数单调增加。
+- 证据位置：`out/tdma_process_image_budget/current.md`、
+  `out/tdma_cycle_schedule/foundation_sync_trigger21.md`、
+  `out/ota/tdma_foundation_sync21_final_20260828/summary.json` 及各 Node 的
+  `*_schedule_verify*.txt`。
+- 边界：本轮证明的是确定性基础负载和准入闭环，不等同于硬件边沿 latch、DPLL 正式锁相或
+  active calibration。次优先负载只有在新的静态 profile 明确给出完整 WCET、wire 和 guard
+  余量后才能启用。
+- 下一步：在不改变基础 schedule 的前提下补齐 SD 原始波形的频率/占空比长期证据，然后按
+  phase 单独加载待办负载并执行每轮 OTA/HIL 回归。
 
 ### TDMA-TASK-20260825-001 - PIO-SPI raw-flight persona 运行路径
 

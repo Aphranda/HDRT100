@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/calibration/CALIBRATION_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-08-27
+Last updated: 2026-08-28
 
 本文档把 [`CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`](CALIBRATION_TDMA_CLK_TRAINING_PLAN.md) 和
 [`CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`](CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md)
@@ -48,6 +48,12 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 
 当前不能把第一阶段的 CLK RTT bracket、软件 timer 或 diagnostic latch 直接用于 VDC/DPLL。
 正式校准必须同时满足硬件 latch、质量门禁、重复统计、拓扑/profile freshness 和恢复流程。
+
+TDMA 基础负载前置已完成：固定短帧优先承载 VDC/DPLL 最小字段、critical RefMem、ACK/fence/
+quality 和最小控制 token；静态余量不足时不加载校准、模型或触发测量等次优先内容。校准训练
+仍只能消费 TDMA 发布的 transport/window/raw evidence，不得因基础负载通过而绕过硬件 latch、
+generation 或 active calibration gate。对应构建、OTA 和 schedule 证据见
+`docs/tdma/TDMA_TASK_PROGRESS.md` 的 `TDMA-PROGRESS-20260828-002`。
 
 ### 1.3 当前主线
 
