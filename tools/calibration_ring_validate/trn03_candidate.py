@@ -10,6 +10,7 @@ staging evidence.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import statistics
@@ -27,6 +28,7 @@ from tools.calibration_ring_validate.trn03_stage import load_config  # noqa: E40
 
 
 CANDIDATE_SCHEMA = "HAOFV_TRN03_ACTIVE_CANDIDATE_V1"
+LIFECYCLE_SCHEMA = "HAOFV_TRN03_CANDIDATE_LIFECYCLE_V1"
 BIAS_SET_SCHEMA = "HAOFV_CALIBRATION_BIAS_SET_V1"
 REQUIRED_BIAS_FLAGS = 0x1F
 P3_GROUP_CLK_DATA = 0
@@ -405,6 +407,83 @@ def refresh_candidate_crc32(candidate: dict[str, Any]) -> int:
         encoded_value, sort_keys=True, separators=(",", ":")).encode()
     candidate["candidate_crc32"] = zlib.crc32(encoded) & 0xFFFFFFFF
     return int(candidate["candidate_crc32"])
+
+
+def candidate_crc32_valid(candidate: dict[str, Any]) -> bool:
+    """Verify the immutable evidence checksum before a lifecycle transition."""
+    if not isinstance(candidate, dict) or not isinstance(
+            candidate.get("candidate_crc32"), int):
+        return False
+    expected = int(candidate["candidate_crc32"])
+    checked = copy.deepcopy(candidate)
+    return refresh_candidate_crc32(checked) == expected
+
+
+def _validate_lifecycle_candidate(candidate: dict[str, Any]) -> None:
+    if (candidate.get("schema") != CANDIDATE_SCHEMA or
+            not bool(candidate.get("passed")) or
+            candidate.get("state") not in ("active_candidate", "staged") or
+            bool(candidate.get("active")) or
+            not candidate_crc32_valid(candidate)):
+        raise ValueError("candidate is not a valid inactive package")
+
+
+def activate_candidate(
+        candidate: dict[str, Any],
+        current_active: dict[str, Any] | None = None
+        ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Promote a validated candidate and return (active, rollbackable).
+
+    Activation is a pure host-side state transition.  The board owner must
+    still enforce its current topology/profile/schedule gate before applying
+    the returned active snapshot.
+    """
+    _validate_lifecycle_candidate(candidate)
+    if current_active is not None:
+        if (current_active.get("schema") != LIFECYCLE_SCHEMA or
+                not bool(current_active.get("active")) or
+                not candidate_crc32_valid(current_active)):
+            raise ValueError("current active package is invalid")
+        if int(candidate["calibration_generation"]) <= int(
+                current_active["calibration_generation"]):
+            raise ValueError("candidate generation is not newer than active")
+    active = copy.deepcopy(candidate)
+    active["state"] = "active"
+    active["active"] = True
+    active["source_state"] = candidate.get("state")
+    refresh_candidate_crc32(active)
+    rollback = copy.deepcopy(current_active) if current_active is not None else None
+    if rollback is not None:
+        rollback["state"] = "rollbackable"
+        rollback["active"] = False
+        refresh_candidate_crc32(rollback)
+    active["schema"] = LIFECYCLE_SCHEMA
+    refresh_candidate_crc32(active)
+    return active, rollback
+
+
+def rollback_candidate(
+        current_active: dict[str, Any],
+        rollbackable: dict[str, Any]
+        ) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Restore the previous package and retain the displaced active package."""
+    if (current_active.get("schema") != LIFECYCLE_SCHEMA or
+            not bool(current_active.get("active")) or
+            not candidate_crc32_valid(current_active) or
+            rollbackable.get("schema") != LIFECYCLE_SCHEMA or
+            bool(rollbackable.get("active")) or
+            rollbackable.get("state") != "rollbackable" or
+            not candidate_crc32_valid(rollbackable)):
+        raise ValueError("active/rollbackable package is invalid")
+    restored = copy.deepcopy(rollbackable)
+    restored["state"] = "active"
+    restored["active"] = True
+    displaced = copy.deepcopy(current_active)
+    displaced["state"] = "rollbackable"
+    displaced["active"] = False
+    refresh_candidate_crc32(restored)
+    refresh_candidate_crc32(displaced)
+    return restored, displaced
 
 
 def _load(path: Path) -> dict[str, Any]:

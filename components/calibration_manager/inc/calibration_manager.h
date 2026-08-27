@@ -8,6 +8,7 @@
 #include "calibration_pio_loopback.h"
 #include "calibration_bidirectional.h"
 #include "calibration_bias.h"
+#include "calibration_path_snapshot.h"
 #include "calibration_clk_coded.h"
 #include "calibration_training_marker.h"
 #include "calibration_training_data.h"
@@ -220,5 +221,20 @@ bool calibration_manager_request_p3(
 void calibration_manager_stop_p3(void);
 bool calibration_manager_get_p3_snapshot(
     calibration_manager_p3_snapshot_t *snapshot);
+
+/* TRN-03C path lifecycle.  CalibrationManager owns these snapshots on
+ * core0; callers submit only a fully validated candidate produced by the
+ * calibration owner.  Staging never changes the active snapshot. */
+bool calibration_manager_stage_path_candidate(
+    const calibration_path_snapshot_t *candidate);
+bool calibration_manager_clear_path_candidate(void);
+bool calibration_manager_get_path_candidate(
+    calibration_path_snapshot_t *candidate);
+bool calibration_manager_get_active_path(
+    calibration_path_snapshot_t *active);
+bool calibration_manager_get_rollback_path(
+    calibration_path_snapshot_t *rollbackable);
+bool calibration_manager_activate_path_candidate(void);
+bool calibration_manager_rollback_path(void);
 
 #endif

@@ -19,6 +19,9 @@ scpi_result_t scpi_calibration_bias_start(scpi_t *context);
 scpi_result_t scpi_calibration_bias_stop(scpi_t *context);
 scpi_result_t scpi_calibration_bias_q(scpi_t *context);
 scpi_result_t scpi_calibration_save(scpi_t *context);
+scpi_result_t scpi_calibration_activate(scpi_t *context);
+scpi_result_t scpi_calibration_rollback(scpi_t *context);
+scpi_result_t scpi_calibration_clear(scpi_t *context);
 scpi_result_t scpi_calibration_clk_coded_start(scpi_t *context);
 scpi_result_t scpi_calibration_clk_coded_stop(scpi_t *context);
 scpi_result_t scpi_calibration_clk_coded_q(scpi_t *context);
@@ -101,9 +104,9 @@ scpi_result_t scpi_calibration_p3_q(scpi_t *context);
     {.pattern = "CALibration:SAVE", .callback = scpi_calibration_save}, \
     {.pattern = "CALibration:STOP", .callback = scpi_port_result_accepted}, \
     {.pattern = "CALibration:LOAD", .callback = scpi_port_result_accepted}, \
-    {.pattern = "CALibration:ACTivate", .callback = scpi_port_result_accepted}, \
-    {.pattern = "CALibration:ROLLback", .callback = scpi_port_result_accepted}, \
-    {.pattern = "CALibration:CLEAr", .callback = scpi_port_result_accepted}, \
+    {.pattern = "CALibration:ACTivate", .callback = scpi_calibration_activate}, \
+    {.pattern = "CALibration:ROLLback", .callback = scpi_calibration_rollback}, \
+    {.pattern = "CALibration:CLEAr", .callback = scpi_calibration_clear}, \
     {.pattern = "READ:CALibration:LIST?", .callback = scpi_calibration_list_q}, \
     {.pattern = "READ:CALibration:ACTive?", .callback = scpi_calibration_active_q}, \
     {.pattern = "CONFigure:CALibration:META", .callback = scpi_port_result_accepted}, \

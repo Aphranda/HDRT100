@@ -13,11 +13,15 @@
 #include "resource_arbiter.h"
 #include "storage_manager.h"
 #include "tdma_runtime_owner.h"
+#include "vdc_dpll_manager.h"
 
 #define CALIBRATION_MANAGER_DEFAULT_CRC32 0x10000003u
 
 static calibration_manager_status_t s_status;
 static bool s_ready;
+static calibration_path_snapshot_t s_path_candidate;
+static calibration_path_snapshot_t s_path_active;
+static calibration_path_snapshot_t s_path_rollback;
 static calibration_manager_loopback_snapshot_t s_loopback_snapshot;
 static uint32_t s_loopback_processed_epoch;
 static calibration_bias_accumulator_t s_bias_accumulator;
@@ -418,6 +422,9 @@ bool calibration_manager_init(void)
     const uint32_t now_ms = board_uptime_ms();
 
     memset(&s_status, 0, sizeof(s_status));
+    memset(&s_path_candidate, 0, sizeof(s_path_candidate));
+    memset(&s_path_active, 0, sizeof(s_path_active));
+    memset(&s_path_rollback, 0, sizeof(s_path_rollback));
     memset(&s_loopback_snapshot, 0, sizeof(s_loopback_snapshot));
     memset(&s_bias_accumulator, 0, sizeof(s_bias_accumulator));
     memset(&s_bias_snapshot, 0, sizeof(s_bias_snapshot));
@@ -497,6 +504,158 @@ bool calibration_manager_init(void)
     s_status.active_crc32 = CALIBRATION_MANAGER_DEFAULT_CRC32;
     s_ready = false;
     return calibration_pio_loopback_init();
+}
+
+bool calibration_manager_stage_path_candidate(
+    const calibration_path_snapshot_t *candidate)
+{
+    if (!calibration_path_snapshot_validate_candidate(candidate)) {
+        osal_critical_enter();
+        s_status.last_error = candidate != NULL &&
+            candidate->reject_reason != CALIBRATION_PATH_REJECT_NONE
+                ? candidate->reject_reason
+                : CALIBRATION_PATH_REJECT_ARGUMENT;
+        osal_critical_exit();
+        return false;
+    }
+    osal_critical_enter();
+    s_path_candidate = *candidate;
+    s_status.last_error = CALIBRATION_PATH_REJECT_NONE;
+    osal_critical_exit();
+    return true;
+}
+
+bool calibration_manager_clear_path_candidate(void)
+{
+    osal_critical_enter();
+    memset(&s_path_candidate, 0, sizeof(s_path_candidate));
+    osal_critical_exit();
+    return true;
+}
+
+bool calibration_manager_get_path_candidate(
+    calibration_path_snapshot_t *candidate)
+{
+    if (candidate == NULL) return false;
+    osal_critical_enter();
+    *candidate = s_path_candidate;
+    osal_critical_exit();
+    return calibration_path_snapshot_validate_candidate(candidate);
+}
+
+bool calibration_manager_get_active_path(
+    calibration_path_snapshot_t *active)
+{
+    if (active == NULL) return false;
+    osal_critical_enter();
+    *active = s_path_active;
+    osal_critical_exit();
+    return calibration_path_snapshot_validate(active);
+}
+
+bool calibration_manager_get_rollback_path(
+    calibration_path_snapshot_t *rollbackable)
+{
+    if (rollbackable == NULL) return false;
+    osal_critical_enter();
+    *rollbackable = s_path_rollback;
+    osal_critical_exit();
+    return calibration_path_snapshot_validate_rollbackable(rollbackable);
+}
+
+static calibration_path_activation_gate_t
+calibration_manager_path_activation_gate(
+    const calibration_path_snapshot_t *snapshot)
+{
+    return (calibration_path_activation_gate_t){
+        .expected_topology_generation = snapshot->topology_generation,
+        .expected_topology_crc32 = snapshot->topology_crc32,
+        .expected_bias_generation = snapshot->bias_generation,
+        .expected_profile_crc32 = snapshot->profile_crc32,
+        .expected_schedule_crc32 = snapshot->schedule_crc32,
+        /* The snapshot is accepted only after the host freshness gate.  A
+         * zero age here means activation does not manufacture a second clock
+         * for evidence; the snapshot's freshness bound remains authoritative. */
+        .evidence_age_us = 0u,
+    };
+}
+
+bool calibration_manager_activate_path_candidate(void)
+{
+    calibration_path_snapshot_t candidate;
+    calibration_path_snapshot_t active;
+    calibration_path_snapshot_t next_active;
+    calibration_path_snapshot_t next_rollback;
+    if (!calibration_manager_get_path_candidate(&candidate)) {
+        osal_critical_enter();
+        s_status.last_error = CALIBRATION_PATH_REJECT_ARGUMENT;
+        osal_critical_exit();
+        return false;
+    }
+    const bool has_active = calibration_manager_get_active_path(&active);
+    const calibration_path_activation_gate_t gate =
+        calibration_manager_path_activation_gate(&candidate);
+    if (!calibration_path_snapshot_activate(
+            &candidate, has_active ? &active : NULL, &gate,
+            &next_active, &next_rollback)) {
+        osal_critical_enter();
+        s_status.last_error = CALIBRATION_PATH_REJECT_GENERATION;
+        osal_critical_exit();
+        return false;
+    }
+    /* Publishing to VDC is part of activation, not candidate staging.  If
+     * the consumer rejects the identity or schedule, retain the previous
+     * active snapshot and report a failed activation. */
+    if (!vdc_dpll_manager_publish_calibration_path_snapshot(&next_active)) {
+        osal_critical_enter();
+        s_status.last_error = CALIBRATION_PATH_REJECT_GENERATION;
+        osal_critical_exit();
+        return false;
+    }
+    osal_critical_enter();
+    s_path_active = next_active;
+    s_path_rollback = next_rollback;
+    s_status.active_crc32 = next_active.table_crc32;
+    s_status.last_error = CALIBRATION_PATH_REJECT_NONE;
+    osal_critical_exit();
+    return true;
+}
+
+bool calibration_manager_rollback_path(void)
+{
+    calibration_path_snapshot_t active;
+    calibration_path_snapshot_t rollbackable;
+    calibration_path_snapshot_t next_active;
+    calibration_path_snapshot_t next_rollback;
+    if (!calibration_manager_get_active_path(&active) ||
+        !calibration_manager_get_rollback_path(&rollbackable)) {
+        osal_critical_enter();
+        s_status.last_error = CALIBRATION_PATH_REJECT_ARGUMENT;
+        osal_critical_exit();
+        return false;
+    }
+    const calibration_path_activation_gate_t gate =
+        calibration_manager_path_activation_gate(&rollbackable);
+    if (!calibration_path_snapshot_rollback(
+            &active, &rollbackable, &gate, &next_active, &next_rollback)) {
+        osal_critical_enter();
+        s_status.last_error = CALIBRATION_PATH_REJECT_GENERATION;
+        osal_critical_exit();
+        return false;
+    }
+    if (!vdc_dpll_manager_publish_calibration_path_snapshot(&next_active)) {
+        osal_critical_enter();
+        s_status.last_error = CALIBRATION_PATH_REJECT_GENERATION;
+        osal_critical_exit();
+        return false;
+    }
+    osal_critical_enter();
+    s_path_active = next_active;
+    s_path_rollback = next_rollback;
+    s_status.active_crc32 = next_active.table_crc32;
+    s_status.last_error = CALIBRATION_PATH_REJECT_NONE;
+    osal_critical_exit();
+    return true;
 }
 
 void calibration_manager_set_ready(bool ready)

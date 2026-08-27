@@ -3,7 +3,10 @@ from __future__ import annotations
 from copy import deepcopy
 
 from tools.calibration_ring_validate.trn03_candidate import (
+    activate_candidate,
     build_candidate,
+    candidate_crc32_valid,
+    rollback_candidate,
     refresh_candidate_crc32,
 )
 
@@ -227,3 +230,58 @@ def test_candidate_rejects_closed_loop_from_different_offset_row() -> None:
     assert result["passed"] is False
     assert "closed_loop0:offset_row_id" in result["gate_failures"]
     assert "closed_loop0:offset_row" in result["gate_failures"]
+
+
+def test_candidate_lifecycle_activate_and_rollback() -> None:
+    candidate1 = build_candidate(
+        config(), [closed_loop(), closed_loop(404)], p3(), bias_set())
+    active1, rollback0 = activate_candidate(candidate1)
+    assert rollback0 is None
+    assert active1["state"] == "active"
+    assert active1["active"] is True
+    assert active1["schema"] == "HAOFV_TRN03_CANDIDATE_LIFECYCLE_V1"
+    assert candidate_crc32_valid(active1)
+
+    next_config = config()
+    next_config["calibration_generation"] = 211
+    next_loops = [closed_loop(), closed_loop(404)]
+    for loop in next_loops:
+        loop["calibration_generation"] = 211
+    candidate2 = build_candidate(
+        next_config, next_loops, p3(), bias_set())
+    active2, rollback1 = activate_candidate(candidate2, active1)
+    assert active2["calibration_generation"] == 211
+    assert rollback1["state"] == "rollbackable"
+    assert rollback1["active"] is False
+    assert candidate_crc32_valid(rollback1)
+
+    restored, displaced = rollback_candidate(active2, rollback1)
+    assert restored["calibration_generation"] == active1["calibration_generation"]
+    assert restored["state"] == "active"
+    assert displaced["calibration_generation"] == active2["calibration_generation"]
+    assert displaced["state"] == "rollbackable"
+    assert candidate_crc32_valid(restored)
+    assert candidate_crc32_valid(displaced)
+
+
+def test_candidate_lifecycle_rejects_bad_crc_and_generation_replay() -> None:
+    candidate = build_candidate(
+        config(), [closed_loop(), closed_loop(404)], p3(), bias_set())
+    candidate["candidate_crc32"] ^= 1
+    assert not candidate_crc32_valid(candidate)
+    try:
+        activate_candidate(candidate)
+    except ValueError as exc:
+        assert "valid inactive" in str(exc)
+    else:
+        raise AssertionError("bad candidate CRC was activated")
+
+    candidate = build_candidate(
+        config(), [closed_loop(), closed_loop(404)], p3(), bias_set())
+    active, _ = activate_candidate(candidate)
+    try:
+        activate_candidate(candidate, active)
+    except ValueError as exc:
+        assert "not newer" in str(exc)
+    else:
+        raise AssertionError("generation replay was activated")

@@ -773,6 +773,33 @@ scpi_result_t scpi_calibration_save(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_calibration_activate(scpi_t *context)
+{
+    if (!calibration_manager_activate_path_candidate()) {
+        scpi_port_push_exec_error(context, "CAL_ACTIVATE_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_calibration_rollback(scpi_t *context)
+{
+    if (!calibration_manager_rollback_path()) {
+        scpi_port_push_exec_error(context, "CAL_ROLLBACK_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_calibration_clear(scpi_t *context)
+{
+    if (!calibration_manager_clear_path_candidate()) {
+        scpi_port_push_exec_error(context, "CAL_CLEAR_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_ok(context);
+}
+
 scpi_result_t scpi_calibration_clk_coded_stop(scpi_t *context)
 {
     calibration_manager_stop_clk_coded();
@@ -967,14 +994,21 @@ scpi_result_t scpi_calibration_list_q(scpi_t *context)
 scpi_result_t scpi_calibration_active_q(scpi_t *context)
 {
     calibration_manager_status_t status;
+    calibration_path_snapshot_t active;
+    calibration_path_snapshot_t rollbackable;
     calibration_manager_get_status(&status);
+    const bool active_valid = calibration_manager_get_active_path(&active);
+    const bool rollback_valid =
+        calibration_manager_get_rollback_path(&rollbackable);
 
-    SCPI_ResultText(context, "FIELD_DEFAULT");
-    SCPI_ResultText(context, "FIELD_DEFAULT");
-    SCPI_ResultUInt32(context, status.active_crc32);
-    SCPI_ResultBool(context, status.ready ? TRUE : FALSE);
-    SCPI_ResultBool(context, FALSE);
-    SCPI_ResultText(context, "ACK");
+    /* Keep the six-field response shape used by existing diagnostics while
+     * replacing the old fixed record with the manager-owned path snapshot. */
+    SCPI_ResultText(context, active_valid ? "PATH" : "NONE");
+    SCPI_ResultText(context, active_valid ? "ACTIVE" : "EMPTY");
+    SCPI_ResultUInt32(context, active_valid ? active.table_crc32 : 0u);
+    SCPI_ResultBool(context, active_valid ? TRUE : FALSE);
+    SCPI_ResultBool(context, rollback_valid ? TRUE : FALSE);
+    SCPI_ResultText(context, active_valid ? "ACK" : "NO_ACTIVE");
     return SCPI_RES_OK;
 }
 
