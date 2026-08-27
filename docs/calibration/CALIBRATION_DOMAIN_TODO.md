@@ -72,7 +72,8 @@ P0T topology + P0 evidence owner
 1. 切换为每板本地三线 reference loopback 接线，完成 endpoint bias generation。
 2. 使用有效 bias 重跑 fresh P3 完整 link 集，并通过受控 evidence 导入形成 candidate。
 3. 完成 TRN-03C 的实板 activate/rollback/persistence/VDC consumer 闭环。
-4. 完成 `mark_sck_skew`、TRN-03D 剩余故障注入与长稳。
+4. 按 `TRN-03D-PHY -> RXGATE -> RETRY -> HEALTH -> FAULT -> SOAK` 完成原始误帧压降、
+   确定性接收恢复、故障注入与长稳；原始链路未过门限前不得用重发结论替代物理收敛。
 
 ## 二、训练子域：MARK / DATA / TDMA
 
@@ -126,6 +127,59 @@ P0T topology + P0 evidence owner
 | TRN-03D-RETRY | 建立调度预算约束下的恢复与重发策略 | `PENDING` | cyclic 全状态帧默认由下一周期自然刷新；只有剩余预算容纳完整 frame、guard 和 deadline 时才允许有界显式重发；重发次数、原 sequence/新 attempt identity 和失败原因可追溯 |
 | TRN-03D-HEALTH | 建立可配置滑动窗口、连续错误和状态降级策略 | `PENDING` | 阈值随 operating profile/candidate staging 并受 generation/CRC 保护；状态按 valid/stale/degraded/stopped fail closed，恢复必须重新满足 ARM/identity gate，旧 active generation 不变 |
 | TRN-03D-SOAK | 以最差 Node/link 完成长稳验收，不使用环路平均值稀释错误 | `IN PROGRESS` | 周期快照覆盖瞬时 down/error、恢复次数、counter 单调性、原始 FER/BER、WKC/bitmap、重发和 stale 消费；任一坏帧被消费、identity 错误、未解释 down/recovery 或错误率越 profile 门限即失败 |
+
+#### TRN-03D-PHY：先降低原始链路错误
+
+| ID | 任务 | 状态 | 完成/退出门禁 |
+|---|---|---|---|
+| TRN-03D-PHY-01 | 固化逐 Node、有向 link 的原始接收质量基线 | `IN PROGRESS` | 每个接收机会分别记录完整帧、transport CRC/header/length 错误、未收到、重复、late 和启动期/稳态；同时保留分子、分母、原始 FER、零错误统计上界和最差 Node/link，禁止只报四 Node 平均值 |
+| TRN-03D-PHY-02 | 使用全量 offset 矩阵扩大最差 Node 的 DATA 稳定窗口 | `IN PROGRESS` | 固定 build、topology/profile/generation、线缆和 MARK/SCK，只改变一个候选 DATA offset；相邻候选使用同等且足够大的接收机会复测，矩阵写后读回一致，失败候选也保留证据 |
+| TRN-03D-PHY-03 | 对错误帧做相位与 bit 位置归因 | `PENDING` | SD 只采集整个 loop 原始流量；离线工具按 Node 输出 reference/capture/best-delay SVG、bit/byte 错误直方图、首帧与稳态对照，并联合检查 CS/SCK/DATA 相位、SCK 频率/占空比、driver/link path/receiver 边界 |
+| TRN-03D-PHY-04 | 冻结每个 operating profile 的物理接收门限 | `PENDING` | 选择最小原始 FER 且窗口两侧有余量的矩阵；门限、最小样本量和统计置信规则进入 candidate staging 并绑定 generation/CRC，不在 host 工具硬编码；冷启动、重复 OTA 启动和长稳复测均通过后才允许进入恢复策略验收 |
+
+#### TRN-03D-RXGATE：EtherCAT 风格的逐帧验收与镜像保持
+
+| ID | 任务 | 状态 | 完成/退出门禁 |
+|---|---|---|---|
+| TRN-03D-RXGATE-01 | 在 TDMA owner 内形成单一 frame verdict | `PENDING` | transport CRC、frame length、sequence、schedule/profile CRC、calibration generation、Node bitmap/WKC 和 deadline 逐项给出 reason；任一项失败即 rejected，Calibration 和 host 不旁路消费 raw frame |
+| TRN-03D-RXGATE-02 | 原子发布 accepted process-image | `PENDING` | 仅完整 verdict 通过后以 sequence/generation 一次提交新镜像；失败、截断或晚到帧绝不部分覆盖，reader 不可观察到同一帧的新旧 Node 数据混合 |
+| TRN-03D-RXGATE-03 | 保留上一 accepted 镜像并显式标 stale | `PENDING` | rejected/missing 周期保持上一镜像的数据和原 accepted identity，同时单独发布 stale age、当前失败 reason 和连续失败次数；消费者可区分“旧但完整”与“新且有效”，不得把保持值冒充本周期新数据 |
+| TRN-03D-RXGATE-04 | 校验完整 Node 集与身份 | `PENDING` | expected Node bitmap、实际 bitmap、WKC、topology generation 和 frame identity 一致才接受；Node dropout、重复 Node、错环序、旧 generation 或旧 sequence 均 fail closed |
+
+#### TRN-03D-RETRY：周期刷新优先、显式重发有界
+
+| ID | 任务 | 状态 | 完成/退出门禁 |
+|---|---|---|---|
+| TRN-03D-RETRY-01 | 以下一 TDMA 周期的全状态帧作为默认恢复 | `PENDING` | 单次 rejected/missing 后不消费坏帧、不阻塞 core1 飞行路径；上一镜像保持 stale，下一周期新帧通过完整 RX gate 后自然恢复 VALID |
+| TRN-03D-RETRY-02 | 对显式重发执行可证明的周期预算门禁 | `PENDING` | 仅当 profile 明确允许且剩余窗口容纳完整 frame、guard、flight budget 和 deadline 时发起；次数上限、backoff 和预算来自 staged profile，预算不足直接跳过而不挤占下一确定性周期 |
+| TRN-03D-RETRY-03 | 绑定 original sequence 与 attempt identity | `PENDING` | 每次 attempt 可追溯到原 sequence，接收端只提交首个通过 RX gate 的结果；晚到、重复或跨 generation attempt 被拒绝，不允许重复应用同一 process-image |
+| TRN-03D-RETRY-04 | 重发耗尽后保持确定性失败语义 | `PENDING` | exhausted/late/budget-rejected 分别计数并进入 HEALTH；不得无界循环、静默改 sequence 或复用未验收 payload，active calibration generation 不因传输恢复而改变 |
+
+#### TRN-03D-HEALTH：接收质量状态机与看门狗
+
+| ID | 任务 | 状态 | 完成/退出门禁 |
+|---|---|---|---|
+| TRN-03D-HEALTH-01 | 定义受 profile 管理的接收质量配置 | `PENDING` | 滑动窗口长度、原始 FER/丢帧/late 门限、连续失败门限、stale age、显式重发预算和恢复滞回随 candidate staging，配置完整性受 generation/CRC 保护 |
+| TRN-03D-HEALTH-02 | 实现 `VALID -> STALE -> DEGRADED -> STOPPED` fail-closed 状态机 | `PENDING` | 单次错误进入 STALE；窗口或连续错误越限进入 DEGRADED；identity/WKC、超龄或持续越限进入 STOPPED；恢复转换和 reason 全部可单测，不因一次好帧无滞回抖回 VALID |
+| TRN-03D-HEALTH-03 | 发布逐 Node/link 质量快照 | `PENDING` | good/bad/missing/duplicate/late、WKC/bitmap、retry、stale age、状态转换、最后错误和最差 Node/link 均为单调或 generation 有界事实；host 只汇总，不重算板端 verdict |
+| TRN-03D-HEALTH-04 | 将 STOPPED 与 watchdog、ARM 恢复闭环 | `PENDING` | STOPPED 停止发布新 process-image 并保留故障证据；重启必须重新通过 topology/profile/calibration identity、矩阵 readback 和 ARM gate，watchdog reset 后可读取 reset reason，不能静默沿用失配 staging |
+
+#### TRN-03D-FAULT / SOAK：故障矩阵与最终长稳
+
+| ID | 任务 | 状态 | 完成/退出门禁 |
+|---|---|---|---|
+| TRN-03D-FAULT-01 | 注入 transport bit flip、截断、坏 CRC、重复 sequence 和 late frame | `PENDING` | 每类故障命中唯一 RX reason；坏帧零消费，上一镜像 stale，下一周期刷新和可选有界重发均按 profile 执行 |
+| TRN-03D-FAULT-02 | 注入 Node dropout、恢复和 bitmap/WKC 不完整 | `PENDING` | 任一缺失 Node 均不能被其他 Node 的正常数据掩盖；状态按门限降级/STOP，Node 回归后重新经过 identity/ARM gate，环序仍按 accepted NO 映射 |
+| TRN-03D-FAULT-03 | 注入旧 topology/profile/calibration generation 和矩阵失配 | `PENDING` | stale identity 在消费前被拒，active calibration generation 保持不变，staging 不被隐式激活；恢复后读回的全量 MARK/SCK/DATA offset 矩阵与 candidate 一致 |
+| TRN-03D-FAULT-04 | 注入重发预算不足、重发耗尽、DMA overrun、PIO stall 和 watchdog reset | `PENDING` | 每类故障有确定的 stale/degraded/stopped 转换、counter、SD/SCPI 证据和 persona 恢复；不存在无界重试、死循环或未解释的 down/recovery |
+| TRN-03D-SOAK-01 | 在候选冻结前完成最差 Node/link 的原始误帧长稳 | `IN PROGRESS` | 使用 PHY-04 规定的样本量和统计规则报告 raw FER、丢帧率及置信上界；物理门限独立判定，关闭显式重发也必须通过，禁止用 accepted FER 代替 raw FER |
+| TRN-03D-SOAK-02 | 在候选冻结后完成接收恢复长稳 | `PENDING` | 开启 RXGATE/HEALTH 和 profile 允许的恢复策略，周期检查坏帧零消费、stale age、状态转换、恢复、deadline、WKC/bitmap、counter 单调性和 active generation；最差 Node/link 任一门禁失败即整轮失败 |
+| TRN-03D-SOAK-03 | 固化可复跑证据与发布判定 | `PENDING` | release build、四板异步 OTA、完整矩阵 readback、HIL timeline、SD raw capture、逐 Node SVG、JUnit 和 summary 均进入 `out/`；冷启动复跑一致且全部故障恢复后才允许 TRN-03D 标记 DONE |
+
+EtherCAT 借鉴边界：本阶段借鉴逐帧 CRC/sequence/identity 验收、WKC/完整从站集合检查、坏帧不消费、
+上一 process-image 保持、周期性新帧自然刷新和 watchdog/fail-closed。显式重发不是这里声称的
+EtherCAT 原生 cyclic 恢复机制，而是本产品仅在 TDMA 预算可证明时允许的扩展；它不得参与
+`TRN-03D-PHY` 的原始误帧达标判定。
 
 实施顺序固定为：
 
