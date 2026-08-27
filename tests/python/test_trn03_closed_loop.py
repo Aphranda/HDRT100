@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import sys
 from pathlib import Path
 
@@ -19,10 +20,12 @@ from trn03_closed_loop import (  # noqa: E402
     expected_flight_phase,
     parse_active_profile,
     parse_snapshot,
+    resolve_profile_level,
     u32_delta,
     validate_flight_phase_readback,
     validate_node,
     validate_fifo_reset,
+    validate_soak_timeline,
     validate_tx_seed,
 )
 
@@ -617,6 +620,62 @@ def increment(value: dict, amount: int = 1) -> dict:
     return {key: item + amount for key, item in value.items()}
 
 
+def soak_config(node_count: int = 2) -> dict:
+    return {
+        "node_count": node_count,
+        "links": [{
+            "marker_offset_sample_count": 0,
+            "sck_offset_sample_count": 0,
+            "data_offset_sample_count": 0,
+            "marker_phase_delay_cycles": 10,
+            "sck_phase_delay_cycles": 10,
+            "data_phase_delay_cycles": 10,
+        } for _ in range(node_count)],
+    }
+
+
+def soak_snapshot(node_index: int, step: int) -> dict:
+    current_runtime = runtime()
+    current_runtime.update({
+        "ring_node_count": 2,
+        "ring_local_node": node_index,
+        "node_index": node_index,
+        "ring_seq": 10 + step,
+        "ring_adapter_service_count": 100 + step,
+        "ring_up_tx_sequence": 20 + step,
+        "ring_down_rx_sequence": 20 + step,
+        "ring_adapter_tx_count": 20 + step,
+        "ring_adapter_rx_count": 20 + step,
+        "ring_last_error": 0,
+    })
+    current_flight = copy.deepcopy(flight())
+    current_flight["process"]["local_node"] = node_index
+    for field in ("map_apply_count", "input_bytes", "output_bytes",
+                  "rx_bitmap_scan_count", "rx_bitmap_hit_count"):
+        current_flight["process"][field] += step
+    for field in ("tx_acquire_count", "tx_reuse_count",
+                  "rx_publish_count", "rx_acquire_count",
+                  "rx_release_count"):
+        current_flight["fifo"][field] += step
+    physical = {field: 0 for field in trn03.PHYS_FIELDS}
+    physical.update({
+        "program_persona": 11 if node_index == 0 else 13,
+        "overlay_prepare_count": step + 1,
+        "overlay_replacement_byte_count": step + 1,
+        "flight_marker_offset_sample_count": 0,
+        "flight_sck_offset_sample_count": 0,
+        "flight_data_offset_sample_count": 0,
+        "flight_marker_phase_delay_cycles": 10,
+        "flight_sck_phase_delay_cycles": 10,
+        "flight_data_phase_delay_cycles": 10,
+    })
+    return {
+        "runtime": current_runtime,
+        "flight": current_flight,
+        "physical": physical,
+    }
+
+
 def test_u32_delta_wraps() -> None:
     assert u32_delta(0xFFFFFFFE, 1) == 3
     assert counter_deltas({"x": 8}, {"x": 11}, ("x",)) == {"x": 3}
@@ -725,6 +784,13 @@ def test_parse_active_profile_accepts_extended_status() -> None:
         "7,10000000,1000000,4096,3,1234,99,98,97,96", "x")
     assert profile["level"] == 7
     assert profile["profile_crc32"] == 1234
+
+
+def test_profile_override_cannot_detach_frozen_matrix_identity() -> None:
+    assert resolve_profile_level(7, None) == 7
+    assert resolve_profile_level(7, 7) == 7
+    with pytest.raises(ValueError, match="conflicts with frozen config"):
+        resolve_profile_level(7, 9)
 
 
 def test_validate_node_accepts_growing_runtime_and_fifo() -> None:
@@ -961,3 +1027,95 @@ def test_validate_node_requires_rx_acquire_and_release() -> None:
         2, 4, before_runtime, after_runtime, before_flight, after_flight)
     assert "fifo_rx_not_acquired" in errors
     assert "fifo_rx_not_released" in errors
+
+
+def test_soak_timeline_gates_every_interval() -> None:
+    board_ids = ["node0", "node1"]
+    timeline = [{
+        "sample_index": step,
+        "elapsed_s": float(step),
+        "errors": {},
+        "nodes": {
+            address: soak_snapshot(node_index, step)
+            for node_index, address in enumerate(board_ids)
+        },
+    } for step in range(3)]
+    result = validate_soak_timeline(
+        timeline, board_ids, soak_config(), require_process_image=True)
+    assert result["passed"] is True
+    assert result["timeline_sample_count"] == 3
+    for node in result["nodes"].values():
+        assert node["interval_count"] == 2
+        assert node["unhealthy_sample_count"] == 0
+        assert node["down_event_count"] == 0
+        assert node["recovery_count"] == 0
+
+
+def test_soak_timeline_retains_sticky_start_reason_without_false_down() -> None:
+    board_ids = ["node0", "node1"]
+    timeline = [{
+        "sample_index": step,
+        "elapsed_s": float(step),
+        "errors": {},
+        "nodes": {
+            address: soak_snapshot(node_index, step)
+            for node_index, address in enumerate(board_ids)
+        },
+    } for step in range(2)]
+    timeline[0]["nodes"]["node0"]["runtime"]["ring_last_error"] = 2
+    timeline[1]["nodes"]["node0"]["runtime"]["ring_last_error"] = 2
+    timeline[0]["nodes"]["node1"]["runtime"]["ring_last_error"] = 5
+    timeline[1]["nodes"]["node1"]["runtime"]["ring_last_error"] = 5
+    result = validate_soak_timeline(
+        timeline, board_ids, soak_config(), require_process_image=True)
+    assert result["passed"] is True
+
+
+def test_soak_timeline_retains_down_and_recovery() -> None:
+    board_ids = ["node0", "node1"]
+    timeline = [{
+        "sample_index": step,
+        "elapsed_s": float(step),
+        "errors": {},
+        "nodes": {
+            address: soak_snapshot(node_index, step)
+            for node_index, address in enumerate(board_ids)
+        },
+    } for step in range(3)]
+    timeline[1]["nodes"]["node1"]["runtime"]["ring_down_running"] = 0
+    result = validate_soak_timeline(
+        timeline, board_ids, soak_config(), require_process_image=True)
+    node = result["nodes"]["node1"]
+    assert result["passed"] is False
+    assert node["unhealthy_sample_count"] == 1
+    assert node["down_event_count"] == 1
+    assert node["recovery_count"] == 1
+    assert node["errors"] == [
+        "unhealthy_periodic_sample",
+        "periodic_interval_gate_failed",
+        "runtime_down_event",
+        "runtime_recovery_observed",
+    ]
+
+
+def test_soak_timeline_retains_per_node_sampling_failure() -> None:
+    board_ids = ["node0", "node1"]
+    timeline = [{
+        "sample_index": step,
+        "elapsed_s": float(step),
+        "errors": {},
+        "nodes": {
+            address: soak_snapshot(node_index, step)
+            for node_index, address in enumerate(board_ids)
+        },
+    } for step in range(3)]
+    del timeline[1]["nodes"]["node0"]
+    timeline[1]["errors"]["node0"] = "TimeoutError: query timeout"
+    result = validate_soak_timeline(
+        timeline, board_ids, soak_config(), require_process_image=True)
+    node = result["nodes"]["node0"]
+    assert result["passed"] is False
+    assert node["samples"][1]["errors"] == [
+        "sample_transport:TimeoutError: query timeout"]
+    assert [interval["errors"] for interval in node["intervals"]] == [
+        ["sample_missing"], ["sample_missing"]]

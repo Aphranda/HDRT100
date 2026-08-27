@@ -106,6 +106,10 @@ def parse_args() -> argparse.Namespace:
         help=("run the optional coarse CLK burst before cyclic START; "
               "default keeps the already armed flight persona intact"))
     parser.add_argument("--window-s", type=float, default=3.0)
+    parser.add_argument(
+        "--sample-interval-s", type=float, default=1.0,
+        help=("periodic soak snapshot interval; every interval is gated, "
+              "not only the first and last snapshot"))
     parser.add_argument("--start-wait", type=float, default=1.0)
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
@@ -155,6 +159,19 @@ def parse_active_profile(raw: str, label: str) -> dict[str, int]:
             f"{label}: profile field count {len(values)}, expected at least "
             f"{len(fields)}")
     return dict(zip(fields, values[:len(fields)]))
+
+
+def resolve_profile_level(config_level: Any,
+                          requested_level: int | None) -> int:
+    """Keep operating-profile identity inseparable from the frozen matrix."""
+    if not isinstance(config_level, int):
+        raise ValueError("profile_level is required in config")
+    if requested_level is not None and requested_level != config_level:
+        raise ValueError(
+            f"--level {requested_level} conflicts with frozen config "
+            f"profile_level {config_level}; regenerate the staging matrix "
+            "for another profile")
+    return config_level
 
 
 def arm_with_evidence(board: Board, args: argparse.Namespace) -> dict[str, Any]:
@@ -312,6 +329,57 @@ def sample_all(ordered: list[Board], args: argparse.Namespace
         }
         return {address: future.result()
                 for address, future in futures.items()}
+
+
+def sample_all_with_evidence(
+        ordered: list[Board], args: argparse.Namespace
+        ) -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
+    """Sample all Nodes while retaining a per-Node transport failure."""
+    snapshots: dict[str, dict[str, Any]] = {}
+    errors: dict[str, str] = {}
+    with ThreadPoolExecutor(max_workers=len(ordered)) as pool:
+        futures = {
+            board.address: pool.submit(sample_node, board, args, node_index)
+            for node_index, board in enumerate(ordered)
+        }
+        for address, future in futures.items():
+            try:
+                snapshots[address] = future.result()
+            except Exception as exc:  # noqa: BLE001 - evidence must survive
+                errors[address] = f"{type(exc).__name__}: {exc}"
+    return snapshots, errors
+
+
+def collect_soak_timeline(
+        ordered: list[Board], args: argparse.Namespace, *,
+        initial: dict[str, dict[str, Any]], window_s: float,
+        sample_interval_s: float) -> list[dict[str, Any]]:
+    """Collect an anchored periodic timeline including both endpoints."""
+    started = time.monotonic()
+    timeline: list[dict[str, Any]] = [{
+        "sample_index": 0,
+        "elapsed_s": 0.0,
+        "nodes": initial,
+        "errors": {},
+    }]
+    targets: list[float] = []
+    target = sample_interval_s
+    while target < window_s:
+        targets.append(target)
+        target += sample_interval_s
+    targets.append(window_s)
+    for sample_index, target_s in enumerate(targets, start=1):
+        remaining = started + target_s - time.monotonic()
+        if remaining > 0:
+            time.sleep(remaining)
+        nodes, errors = sample_all_with_evidence(ordered, args)
+        timeline.append({
+            "sample_index": sample_index,
+            "elapsed_s": round(time.monotonic() - started, 6),
+            "nodes": nodes,
+            "errors": errors,
+        })
+    return timeline
 
 
 def u32_delta(before: int, after: int) -> int:
@@ -562,6 +630,204 @@ def validate_node(node_index: int, node_count: int,
     }
 
 
+def snapshot_health_errors(
+        snapshot: dict[str, Any], node_index: int, node_count: int, *,
+        require_process_image: bool) -> list[str]:
+    """Classify a single periodic sample without relying on later recovery."""
+    runtime = snapshot["runtime"]
+    flight = snapshot["flight"]
+    physical = snapshot["physical"]
+    checks = (
+        (runtime["ring_enabled"] == 1, "ring_not_enabled"),
+        (runtime["ring_adapter_started"] == 1, "adapter_not_started"),
+        (runtime["ring_node_count"] == node_count, "node_count_mismatch"),
+        (runtime["ring_local_node"] == node_index, "local_node_mismatch"),
+        (runtime["ring_reference_node"] == 0, "reference_node_mismatch"),
+        (runtime["ring_up_running"] == 1, "up_not_running"),
+        (runtime["ring_down_running"] == 1, "down_not_running"),
+        (runtime["ring_adapter_last_error"] == 0, "adapter_error"),
+        (physical["last_error"] == 0, "physical_error"),
+        (physical["overlay_last_error"] == 0, "overlay_error"),
+    )
+    errors = [reason for passed, reason in checks if not passed]
+    if require_process_image:
+        process = flight["process"]
+        if process["configured"] != 1:
+            errors.append("flight_map_not_configured")
+        if process["active"] != 1:
+            errors.append("flight_map_not_active")
+        if process["local_node"] != node_index:
+            errors.append("flight_local_node_mismatch")
+    return errors
+
+
+def _counter_regressions(
+        before: dict[str, int], after: dict[str, int],
+        fields: tuple[str, ...], group: str) -> list[str]:
+    """Reject a counter reset while still allowing a natural uint32 wrap."""
+    regressions: list[str] = []
+    for field in fields:
+        if after[field] < before[field] and u32_delta(
+                before[field], after[field]) > 0x7FFFFFFF:
+            regressions.append(f"{group}.{field}")
+    return regressions
+
+
+def validate_soak_timeline(
+        timeline: list[dict[str, Any]], board_ids: list[str],
+        config: dict[str, Any], *, require_process_image: bool
+        ) -> dict[str, Any]:
+    """Gate every soak interval and retain down/recovery/error evidence."""
+    if len(timeline) < 2:
+        return {"passed": False, "errors": ["timeline_too_short"],
+                "nodes": {}}
+    runtime_counters = (
+        "ring_seq", "ring_adapter_service_count", "ring_up_tx_sequence",
+        "ring_down_rx_sequence", "ring_idle_beacon_tx_count",
+        "ring_idle_beacon_rx_count", "ring_adapter_tx_count",
+        "ring_adapter_rx_count", "ring_adapter_rx_bad_count",
+        "ring_adapter_rx_transport_bad_count",
+        "ring_adapter_rx_schedule_bad_count",
+        "ring_adapter_rx_profile_bad_count",
+    )
+    process_counters = (
+        "map_apply_count", "input_bytes", "output_bytes",
+        "map_reject_count", "length_reject_count", "tx_unavailable_count",
+        "rx_bitmap_scan_count", "rx_bitmap_hit_count",
+        "rx_bitmap_duplicate_count",
+    )
+    fifo_counters = (
+        "tx_publish_count", "tx_publish_reject_count", "tx_acquire_count",
+        "tx_image_stale_count", "tx_reuse_count", "tx_release_count",
+        "rx_publish_count", "rx_mirror_drop_count", "rx_publish_drop_count",
+        "rx_acquire_count", "rx_release_count",
+    )
+    physical_fault_counters = (
+        "rx_bad_count", "rx_partial_count", "rx_stall_count",
+        "tx_timeout_count", "program_switch_fail_count",
+        "origin_clock_timeout_count", "origin_data_timeout_count",
+        "origin_recovery_count", "overlay_prepare_fail_count",
+    )
+    node_results: dict[str, Any] = {}
+    all_errors: list[str] = []
+    for node_index, address in enumerate(board_ids):
+        samples: list[dict[str, Any]] = []
+        unhealthy_sample_count = 0
+        down_event_count = 0
+        recovery_count = 0
+        previous_healthy: bool | None = None
+        for entry in timeline:
+            transport_error = entry.get("errors", {}).get(address, "")
+            snapshot = entry.get("nodes", {}).get(address)
+            health_errors = ([f"sample_transport:{transport_error}"]
+                             if transport_error or snapshot is None else
+                             snapshot_health_errors(
+                                 snapshot, node_index, len(board_ids),
+                                 require_process_image=require_process_image))
+            healthy = not health_errors
+            if not healthy:
+                unhealthy_sample_count += 1
+            if previous_healthy is True and not healthy:
+                down_event_count += 1
+            if previous_healthy is False and healthy:
+                recovery_count += 1
+            previous_healthy = healthy
+            samples.append({
+                "sample_index": entry["sample_index"],
+                "elapsed_s": entry["elapsed_s"],
+                "passed": healthy,
+                "errors": health_errors,
+            })
+
+        intervals: list[dict[str, Any]] = []
+        counter_regressions: list[dict[str, Any]] = []
+        physical_fault_growth: list[dict[str, Any]] = []
+        for before_entry, after_entry in zip(timeline, timeline[1:]):
+            before = before_entry.get("nodes", {}).get(address)
+            after = after_entry.get("nodes", {}).get(address)
+            interval_errors: list[str] = []
+            deltas: dict[str, Any] = {}
+            regressions: list[str] = []
+            fault_deltas: dict[str, int] = {}
+            if before is None or after is None:
+                interval_errors.append("sample_missing")
+            else:
+                interval_errors, deltas = validate_node(
+                    node_index, len(board_ids), before["runtime"],
+                    after["runtime"], before["flight"], after["flight"],
+                    require_process_image=require_process_image,
+                    physical_after=after["physical"],
+                    expected_physical=expected_flight_phase(
+                        config, node_index))
+                regressions.extend(_counter_regressions(
+                    before["runtime"], after["runtime"], runtime_counters,
+                    "runtime"))
+                regressions.extend(_counter_regressions(
+                    before["flight"]["process"],
+                    after["flight"]["process"], process_counters,
+                    "process"))
+                regressions.extend(_counter_regressions(
+                    before["flight"]["fifo"], after["flight"]["fifo"],
+                    fifo_counters, "fifo"))
+                fault_deltas = counter_deltas(
+                    before["physical"], after["physical"],
+                    physical_fault_counters)
+                if any(fault_deltas.values()):
+                    interval_errors.append("physical_fault_counter_grew")
+                    physical_fault_growth.append({
+                        "from_sample": before_entry["sample_index"],
+                        "to_sample": after_entry["sample_index"],
+                        "deltas": fault_deltas,
+                    })
+                if regressions:
+                    interval_errors.append("counter_regression")
+                    counter_regressions.append({
+                        "from_sample": before_entry["sample_index"],
+                        "to_sample": after_entry["sample_index"],
+                        "fields": regressions,
+                    })
+            intervals.append({
+                "from_sample": before_entry["sample_index"],
+                "to_sample": after_entry["sample_index"],
+                "duration_s": round(
+                    after_entry["elapsed_s"] - before_entry["elapsed_s"], 6),
+                "passed": not interval_errors,
+                "errors": interval_errors,
+                "deltas": deltas,
+                "physical_fault_deltas": fault_deltas,
+            })
+        node_errors: list[str] = []
+        if unhealthy_sample_count:
+            node_errors.append("unhealthy_periodic_sample")
+        if any(not interval["passed"] for interval in intervals):
+            node_errors.append("periodic_interval_gate_failed")
+        if down_event_count:
+            node_errors.append("runtime_down_event")
+        if recovery_count:
+            node_errors.append("runtime_recovery_observed")
+        node_results[address] = {
+            "node_index": node_index,
+            "passed": not node_errors,
+            "errors": node_errors,
+            "sample_count": len(samples),
+            "interval_count": len(intervals),
+            "unhealthy_sample_count": unhealthy_sample_count,
+            "down_event_count": down_event_count,
+            "recovery_count": recovery_count,
+            "counter_regressions": counter_regressions,
+            "physical_fault_growth": physical_fault_growth,
+            "samples": samples,
+            "intervals": intervals,
+        }
+        all_errors.extend(f"{address}:{error}" for error in node_errors)
+    return {
+        "passed": not all_errors,
+        "errors": all_errors,
+        "timeline_sample_count": len(timeline),
+        "nodes": node_results,
+    }
+
+
 def stopped_snapshot(board: Board, args: argparse.Namespace,
                      node_index: int) -> dict[str, int]:
     snapshot = runtime_snapshot(board, args, node_index)
@@ -624,12 +890,15 @@ def main() -> int:
     board_ids = list(args.board_id)
     if len(board_ids) != config["node_count"] or len(set(board_ids)) != len(board_ids):
         raise SystemExit("board IDs must be unique and match config node_count")
-    level = args.level if args.level is not None else raw_config.get("profile_level")
-    if not isinstance(level, int):
-        raise SystemExit("profile level is required in config or --level")
+    try:
+        level = resolve_profile_level(
+            raw_config.get("profile_level"), args.level)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     if args.cycles <= 0 or args.cycles > 65536 or args.cycles % 8:
         raise SystemExit("cycles must be an 8-cycle multiple in [8, 65536]")
-    if (args.window_s <= 0 or args.start_wait < 0 or
+    if (args.window_s <= 0 or args.sample_interval_s <= 0 or
+            args.start_wait < 0 or
             args.capture_timeout <= 0 or args.capture_latch_retries < 0 or
             args.waveform_window_ns <= 0 or
             args.sck_frequency_tolerance_percent < 0 or
@@ -647,6 +916,7 @@ def main() -> int:
         "cycles": args.cycles,
         "clock_train": args.clock_train,
         "window_s": args.window_s,
+        "sample_interval_s": args.sample_interval_s,
         "waveform_window_ns": args.waveform_window_ns,
         "sck_frequency_tolerance_percent":
             args.sck_frequency_tolerance_percent,
@@ -680,6 +950,8 @@ def main() -> int:
     stopped: dict[str, Any] = {}
     ring_capture: dict[str, Any] = {}
     ring_analysis: dict[str, Any] = {}
+    soak_timeline: list[dict[str, Any]] = []
+    soak_validation: dict[str, Any] = {}
     capture_error = ""
     analysis_error = ""
     capture_attempted = False
@@ -814,8 +1086,19 @@ def main() -> int:
                                 board, "SYSTem:TDMA:RING:START", args)})
         time.sleep(args.start_wait)
         before = sample_all(ordered, args)
-        time.sleep(args.window_s)
-        after = sample_all(ordered, args)
+        soak_timeline = collect_soak_timeline(
+            ordered, args, initial=before, window_s=args.window_s,
+            sample_interval_s=args.sample_interval_s)
+        final_nodes = soak_timeline[-1]["nodes"]
+        missing_final = set(board_ids) - set(final_nodes)
+        if missing_final:
+            raise RuntimeError(
+                "final periodic samples missing: " +
+                ", ".join(sorted(missing_final)))
+        after = final_nodes
+        soak_validation = validate_soak_timeline(
+            soak_timeline, board_ids, config,
+            require_process_image=args.stage == "process-image")
         for node_index, board in enumerate(ordered):
             node_errors, deltas = validate_node(
                 node_index, len(ordered), before[board.address]["runtime"],
@@ -886,6 +1169,7 @@ def main() -> int:
                 }
     passed = (
         not error and not capture_error and not analysis_error and
+        bool(soak_validation.get("passed")) and
         bool(ring_analysis.get("passed")) and
         len(nodes) == len(ordered) and
         all(node["passed"] for node in nodes.values()) and
@@ -900,6 +1184,8 @@ def main() -> int:
         "fifo_reset": fifo_reset,
         "fifo_seed": fifo_seed,
         "nodes": nodes,
+        "soak_timeline": soak_timeline,
+        "soak_validation": soak_validation,
         "ring_capture": ring_capture,
         "ring_capture_error": capture_error,
         "ring_analysis": ring_analysis,
