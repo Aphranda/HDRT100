@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from tools.calibration_ring_validate.calibration_data_train import (
     DATA_FIELDS,
     DESTINATION_REQUIRED_FLAGS,
@@ -17,6 +19,9 @@ from tools.calibration_ring_validate.calibration_data_train import (
     validate_responder_wire_fault,
     validate_transport_fault,
 )
+
+
+ROOT = Path(__file__).resolve().parents[2]
 from tools.calibration_ring_validate.calibration_data_waveform import (
     render_data_waveform,
     unpack_data_capture,
@@ -228,6 +233,15 @@ def test_transport_dma_short_keeps_partial_evidence_on_initiator() -> None:
         expected_fault_flags=FAULT_DMA_OVERRUN)
     assert result["passed"] is True
     assert result["expected_reject_name"] == "DMA"
+
+
+def test_paused_rx_dma_keeps_logical_remainder_until_fifo_stalls() -> None:
+    source = (ROOT / "components" / "tdma" / "src" /
+              "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    assert "const uint32_t hardware_data_remaining" in source
+    assert "const uint32_t data_remaining = inject_rx_dma_pause" in source
+    assert "? phys->data_train.capture_word_count" in source
+    assert "PIO FIFO-full evidence" in source
 
 
 def test_offset_fault_is_never_promoted_to_trn03() -> None:

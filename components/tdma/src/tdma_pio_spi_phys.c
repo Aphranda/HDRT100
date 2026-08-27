@@ -3474,7 +3474,7 @@ void tdma_pio_spi_phys_data_train_service(tdma_pio_spi_phys_t *phys)
         injects_dma_origin && s_tdma_pio_spi_tx_dma_channel >= 0
             ? dma_hw->ch[(uint)s_tdma_pio_spi_tx_dma_channel].transfer_count
             : 0u;
-    const uint32_t data_remaining =
+    const uint32_t hardware_data_remaining =
         dma_hw->ch[(uint)s_tdma_pio_spi_rx_dma_channel].transfer_count;
     const uint32_t responder_stall_mask =
         1u << (PIO_FDEBUG_TXSTALL_LSB + phys->rx_sm);
@@ -3487,6 +3487,19 @@ void tdma_pio_spi_phys_data_train_service(tdma_pio_spi_phys_t *phys)
     const bool inject_rx_dma_short =
         (phys->data_train.diagnostic_fault_flags &
          TDMA_PIO_SPI_DATA_TRAIN_FAULT_RX_DMA_SHORT) != 0u;
+    /* RX_DMA_PAUSE deliberately leaves the channel untriggered.  On the
+     * target DMA implementation an untriggered channel may report a zero
+     * hardware transfer_count even though the configured capture has not
+     * consumed a single word.  Treating that value as completion races the
+     * real PIO FIFO-full evidence and turns the requested PIO_STALL fault
+     * into a false COMPLETE/correlation result.  Keep the logical remainder
+     * at the requested capture size until the FIFO reports backpressure. */
+    const bool inject_rx_dma_pause =
+        (phys->data_train.diagnostic_fault_flags &
+         TDMA_PIO_SPI_DATA_TRAIN_FAULT_RX_DMA_PAUSE) != 0u;
+    const uint32_t data_remaining = inject_rx_dma_pause
+                                        ? phys->data_train.capture_word_count
+                                        : hardware_data_remaining;
     const uint32_t armed_capture_words =
         inject_rx_dma_short && phys->data_train.capture_word_count != 0u
             ? phys->data_train.capture_word_count - 1u
