@@ -84,6 +84,12 @@ def selected_application_device_visible(output: str, serial_number: str | None) 
     )
 
 
+def bootsel_device_visible(output: str) -> bool:
+    """Return true when the selected probe is already in ROM BOOTSEL."""
+    normalized = output.lower()
+    return "boot type:" in normalized and "bootsel" in normalized
+
+
 def main() -> int:
     args = parse_args()
     artifact = args.artifact if args.artifact.is_absolute() else ROOT / args.artifact
@@ -100,18 +106,24 @@ def main() -> int:
     if info.returncode != 0 and "USB serial" not in info.stdout:
         return finish(records, args.out, info.returncode)
 
-    reboot_args = ["reboot", *selection, "-f", "-u"]
-    reboot = run(picotool, reboot_args, args.command_timeout)
-    records.append(f"$ picotool {' '.join(reboot_args)}\n{reboot.stdout}")
-    time.sleep(args.settle)
+    if bootsel_device_visible(info.stdout):
+        # Do not reboot an already mounted BOOTSEL device: a second reboot can
+        # detach the USB target while the subsequent load is being prepared.
+        bootsel_probe = info
+        records.append("selected device is already in BOOTSEL; skipping reboot\n")
+    else:
+        reboot_args = ["reboot", *selection, "-f", "-u"]
+        reboot = run(picotool, reboot_args, args.command_timeout)
+        records.append(f"$ picotool {' '.join(reboot_args)}\n{reboot.stdout}")
+        time.sleep(args.settle)
 
-    # picotool may wait forever for the USB handle it just reset.  A timeout
-    # is acceptable only when a fresh BOOTSEL probe succeeds; otherwise the
-    # workflow remains fail-closed and does not erase anything.
-    bootsel_probe = run(picotool, ["info", "-a", *selection], args.command_timeout)
-    records.append(
-        f"$ picotool info -a {' '.join(selection)} after reboot\n{bootsel_probe.stdout}"
-    )
+        # picotool may wait forever for the USB handle it just reset.  A
+        # timeout is acceptable only when a fresh BOOTSEL probe succeeds;
+        # otherwise the workflow remains fail-closed and does not erase.
+        bootsel_probe = run(picotool, ["info", "-a", *selection], args.command_timeout)
+        records.append(
+            f"$ picotool info -a {' '.join(selection)} after reboot\n{bootsel_probe.stdout}"
+        )
     app_fallback = selected_application_device_visible(
         bootsel_probe.stdout, args.serial_number
     )

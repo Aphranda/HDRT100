@@ -5,6 +5,7 @@ import sys
 from tools.picotool_flash.picotool_flash import (
     build_full_erase_args,
     build_full_erase_range_args,
+    bootsel_device_visible,
     parse_args,
     selected_application_device_visible,
 )
@@ -42,3 +43,10 @@ def test_forced_load_fallback_requires_selected_application_device() -> None:
     assert selected_application_device_visible(output, "839E1AE79EA20F31")
     assert not selected_application_device_visible(output, None)
     assert not selected_application_device_visible("unrelated failure", "serial")
+
+
+def test_bootsel_device_visible_detects_existing_rom_mode() -> None:
+    assert bootsel_device_visible("boot type:              bootsel\n")
+    assert not bootsel_device_visible(
+        "appears to have a USB serial connection, not in BOOTSEL mode"
+    )
