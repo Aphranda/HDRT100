@@ -393,6 +393,61 @@ def test_process_follower_recovers_pass_script_after_bad_frame() -> None:
     assert "phys_service_overlay_boundary" in adapter
 
 
+def test_core1_services_tdma_before_bounded_dpll_load() -> None:
+    app = (ROOT / "application" / "src" / "app.c").read_text(
+        encoding="utf-8")
+    realtime = app.split("void app_realtime_run_once", 1)[1]
+    tdma = realtime.index("APP_REALTIME_PHASE_TDMA")
+    vdc = realtime.index("APP_REALTIME_PHASE_VDC")
+    dpll = realtime.index("APP_REALTIME_PHASE_DPLL")
+    refmem = realtime.index("APP_REALTIME_PHASE_REFMEM")
+    assert tdma < vdc < dpll < refmem
+    assert "app_realtime_run_phase" in realtime
+
+    runtime = (ROOT / "application" / "src" /
+               "app_runtime.c").read_text(encoding="utf-8")
+    assert "PROJECT_CORE1_CYCLE_CYCLES" in runtime
+    assert "app_realtime_cycle_counter_init();" in runtime
+    assert "APP_REALTIME_PHASE_TABLE(APP_REALTIME_ASSERT_PHASE)" in runtime
+
+
+def test_core1_overrun_quarantines_only_the_faulting_load() -> None:
+    app = (ROOT / "application" / "src" / "app.c").read_text(
+        encoding="utf-8")
+    bounded = app.split("static bool app_realtime_run_phase", 1)[1]
+    bounded = bounded.split("static void app_realtime_tdma_phase", 1)[0]
+    assert "runtime_cycles > contract->wcet_cycles" in bounded
+    assert "phase_overrun_count[phase_id]++" in bounded
+    assert "__atomic_fetch_or(&s_realtime_load_quarantined_mask" in bounded
+    assert "optional_load" in bounded
+    assert "APP_REALTIME_LOAD_ALL_MASK" in bounded
+
+    commands = (ROOT / "middleware" / "scpi_port" / "inc" /
+                "scpi_system_snapshot_commands.h").read_text(encoding="utf-8")
+    assert 'SYSTem:TDMA:LOAD:MASK?' in commands
+    assert 'SYSTem:TDMA:SCHEDule?' in commands
+
+
+def test_core1_static_phase_schedule_fits_with_tdma_and_guard() -> None:
+    config = (ROOT / "config" / "project_config.h").read_text(
+        encoding="utf-8")
+    for symbol in (
+        "PROJECT_CORE1_CYCLE_CYCLES",
+        "PROJECT_CORE1_PHASE_TDMA_START_CYCLE",
+        "PROJECT_CORE1_PHASE_TDMA_END_CYCLE",
+        "PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES",
+        "PROJECT_CORE1_PHASE_VDC_WCET_CYCLES",
+        "PROJECT_CORE1_PHASE_DPLL_WCET_CYCLES",
+        "PROJECT_CORE1_PHASE_GUARD_END_CYCLE",
+    ):
+        assert symbol in config
+    runtime = (ROOT / "application" / "src" /
+               "app_runtime.c").read_text(encoding="utf-8")
+    assert "APP_REALTIME_WIRE_MAX_CYCLES" in runtime
+    assert "WCET must fit its own phase" in runtime
+    assert "phases must be ordered, disjoint, and fill the cycle" in runtime
+
+
 def test_process_follower_coalesces_late_overlay_behind_committed_pass() -> None:
     phys = (ROOT / "components" / "tdma" / "src" /
             "tdma_pio_spi_phys.c").read_text(encoding="utf-8")

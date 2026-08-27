@@ -225,6 +225,17 @@ typedef struct {
     uint32_t last_seq32;
     uint32_t last_value_u32;
     uint32_t last_error;
+    uint32_t wire_layout_version;
+    int32_t last_vdc_phase_offset_ns;
+    int32_t last_vdc_rate_adjust_ppb;
+    uint32_t last_vdc_lock_state;
+    uint32_t last_vdc_quality;
+    uint32_t last_ack_seq16;
+    uint32_t last_ack_flags;
+    uint32_t last_control_opcode;
+    uint32_t last_control_seq8;
+    uint32_t last_optional_diagnostic;
+    uint32_t last_mailbox_crc16;
 } distributed_refmem_tdma_flight_sync_snapshot_t;
 
 bool distributed_refmem_init(void);

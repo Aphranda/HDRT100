@@ -10,7 +10,12 @@
 
 #define VDC_TDMA_PAYLOAD_MAGIC 0x54434456u
 #define VDC_TDMA_PAYLOAD_VERSION 1u
-#define VDC_TDMA_PAYLOAD_FRAME_SIZE 216u
+/* Maintenance/bring-up envelope only. Product cyclic traffic must publish a
+ * compact VDC subset inside TDMA_FLIGHT_MAILBOX_BODY_SIZE together with the
+ * Node's critical RefMem and control fields; this diagnostic frame must not
+ * become a dedicated product process-image payload. */
+#define VDC_TDMA_DIAGNOSTIC_FRAME_SIZE 216u
+#define VDC_TDMA_PAYLOAD_FRAME_SIZE VDC_TDMA_DIAGNOSTIC_FRAME_SIZE
 
 typedef enum {
     VDC_TDMA_PAYLOAD_OK = 0u,

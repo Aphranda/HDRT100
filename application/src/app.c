@@ -1,5 +1,6 @@
 #include "app.h"
 
+#include "board_config.h"
 #include "calibration_manager.h"
 #include "board_identity.h"
 #include "diagnostics.h"
@@ -12,6 +13,7 @@
 #include "model_turntable.h"
 #include "ota_ao.h"
 #include "product_config.h"
+#include "project_config.h"
 #include "resource_arbiter.h"
 #include "scpi_port.h"
 #include "rs485_communication.h"
@@ -23,6 +25,9 @@
 #include "trigger_measure.h"
 #include "ui_manager.h"
 #include "vdc_dpll_manager.h"
+#include "hardware/regs/m33.h"
+#include "hardware/structs/systick.h"
+#include "pico/stdlib.h"
 #if PROJECT_ENABLE_USBTMC || PROJECT_ENABLE_USB_RUNTIME_SWITCH
 #include "usbtmc_scpi_port.h"
 #endif
@@ -213,30 +218,326 @@ void app_storage_service(void)
     storage_manager_service(250u);
 }
 
-void app_realtime_run_once(void)
+typedef void (*app_realtime_load_service_fn)(void);
+
+static volatile uint32_t s_realtime_schedule_guard;
+static volatile uint32_t s_realtime_load_enabled_mask =
+    APP_REALTIME_LOAD_ALL_MASK;
+static volatile uint32_t s_realtime_load_quarantined_mask;
+
+#define APP_REALTIME_PHASE_CONTRACT_INIT(name, start, end, wcet) \
+    [APP_REALTIME_PHASE_##name] = {start, end, wcet},
+static const app_realtime_phase_contract_t
+    s_realtime_phase_contract[APP_REALTIME_PHASE_COUNT] = {
+        APP_REALTIME_PHASE_TABLE(APP_REALTIME_PHASE_CONTRACT_INIT)
+    };
+#undef APP_REALTIME_PHASE_CONTRACT_INIT
+
+#define APP_REALTIME_PHASE_VALUE_INIT(name, start, end, wcet) \
+    [APP_REALTIME_PHASE_##name] = start,
+#define APP_REALTIME_PHASE_END_INIT(name, start, end, wcet) \
+    [APP_REALTIME_PHASE_##name] = end,
+#define APP_REALTIME_PHASE_WCET_INIT(name, start, end, wcet) \
+    [APP_REALTIME_PHASE_##name] = wcet,
+static app_realtime_schedule_snapshot_t s_realtime_schedule = {
+    .version = APP_REALTIME_SCHEDULE_VERSION,
+    .sys_clock_hz = BOARD_SYS_CLOCK_HZ,
+    .cycle_cycles = PROJECT_CORE1_CYCLE_CYCLES,
+    .phase_count = APP_REALTIME_PHASE_COUNT,
+    .phase_start_cycle = {
+        APP_REALTIME_PHASE_TABLE(APP_REALTIME_PHASE_VALUE_INIT)
+    },
+    .phase_end_cycle = {
+        APP_REALTIME_PHASE_TABLE(APP_REALTIME_PHASE_END_INIT)
+    },
+    .phase_wcet_cycles = {
+        APP_REALTIME_PHASE_TABLE(APP_REALTIME_PHASE_WCET_INIT)
+    },
+};
+#undef APP_REALTIME_PHASE_VALUE_INIT
+#undef APP_REALTIME_PHASE_END_INIT
+#undef APP_REALTIME_PHASE_WCET_INIT
+
+static void app_realtime_schedule_write_begin(void)
 {
+    (void)__atomic_add_fetch(&s_realtime_schedule_guard,
+                             1u,
+                             __ATOMIC_ACQ_REL);
+}
+
+static void app_realtime_schedule_write_end(void)
+{
+    (void)__atomic_add_fetch(&s_realtime_schedule_guard,
+                             1u,
+                             __ATOMIC_RELEASE);
+}
+
+void app_realtime_cycle_counter_init(void)
+{
+    /* SysTick is core-local on RP2350. Core0's FreeRTOS tick is therefore not
+     * touched by this core1-only free-running clk_sys cycle counter. */
+    systick_hw->csr = 0u;
+    systick_hw->rvr = M33_SYST_RVR_RELOAD_BITS;
+    systick_hw->cvr = 0u;
+    systick_hw->csr = M33_SYST_CSR_CLKSOURCE_BITS |
+                      M33_SYST_CSR_ENABLE_BITS;
+}
+
+static uint32_t app_realtime_cycle_now(void)
+{
+    return (M33_SYST_RVR_RELOAD_BITS - systick_hw->cvr) &
+           M33_SYST_RVR_RELOAD_BITS;
+}
+
+static uint32_t app_realtime_elapsed_cycles(uint32_t start_cycle,
+                                            uint32_t end_cycle)
+{
+    return (end_cycle - start_cycle) & M33_SYST_RVR_RELOAD_BITS;
+}
+
+bool app_realtime_set_load_mask(uint32_t enabled_mask)
+{
+    if ((enabled_mask & ~APP_REALTIME_LOAD_ALL_MASK) != 0u) {
+        return false;
+    }
+    __atomic_store_n(&s_realtime_load_enabled_mask,
+                     enabled_mask,
+                     __ATOMIC_RELEASE);
+    /* Re-enabling a quarantined load is an explicit operator decision. */
+    __atomic_store_n(&s_realtime_load_quarantined_mask,
+                     0u,
+                     __ATOMIC_RELEASE);
+    return true;
+}
+
+bool app_realtime_get_schedule_snapshot(
+    app_realtime_schedule_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) {
+        return false;
+    }
+    for (uint32_t attempt = 0u; attempt < 64u; attempt++) {
+        const uint32_t begin = __atomic_load_n(
+            &s_realtime_schedule_guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) {
+            continue;
+        }
+        *snapshot = s_realtime_schedule;
+        const uint32_t end = __atomic_load_n(
+            &s_realtime_schedule_guard, __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) {
+            snapshot->enabled_mask = __atomic_load_n(
+                &s_realtime_load_enabled_mask, __ATOMIC_ACQUIRE);
+            snapshot->quarantined_mask = __atomic_load_n(
+                &s_realtime_load_quarantined_mask, __ATOMIC_ACQUIRE);
+            return true;
+        }
+    }
+    return false;
+}
+
+static void app_realtime_record_skip(app_realtime_phase_id_t phase_id,
+                                     bool start_missed)
+{
+    app_realtime_schedule_write_begin();
+    s_realtime_schedule.phase_skip_count[phase_id]++;
+    if (start_missed) {
+        s_realtime_schedule.phase_start_miss_count[phase_id]++;
+        s_realtime_schedule.schedule_miss_count++;
+    }
+    app_realtime_schedule_write_end();
+}
+
+static bool app_realtime_run_phase(
+    uint32_t cycle_epoch,
+    app_realtime_phase_id_t phase_id,
+    int32_t load_id,
+    app_realtime_load_service_fn service)
+{
+    if (phase_id >= APP_REALTIME_PHASE_COUNT || service == NULL) {
+        return false;
+    }
+    const app_realtime_phase_contract_t *contract =
+        &s_realtime_phase_contract[phase_id];
+    uint32_t phase_start = app_realtime_elapsed_cycles(
+        cycle_epoch, app_realtime_cycle_now());
+    while (phase_start < contract->start_cycle) {
+        tight_loop_contents();
+        phase_start = app_realtime_elapsed_cycles(
+            cycle_epoch, app_realtime_cycle_now());
+    }
+
+    const bool optional_load = load_id >= 0;
+    const uint32_t load_bit = optional_load
+        ? 1u << (uint32_t)load_id : 0u;
+    const uint32_t enabled_mask = __atomic_load_n(
+        &s_realtime_load_enabled_mask, __ATOMIC_ACQUIRE);
+    const uint32_t quarantined_mask = __atomic_load_n(
+        &s_realtime_load_quarantined_mask, __ATOMIC_ACQUIRE);
+    if (optional_load && ((enabled_mask & load_bit) == 0u ||
+                          (quarantined_mask & load_bit) != 0u)) {
+        app_realtime_record_skip(phase_id, false);
+        return true;
+    }
+
+    /* A phase may consume only its own [start,end) interval. If its declared
+     * WCET no longer fits, it is skipped instead of borrowing a later phase. */
+    if (phase_start >= contract->end_cycle ||
+        contract->wcet_cycles > contract->end_cycle - phase_start) {
+        app_realtime_record_skip(phase_id, true);
+        (void)__atomic_fetch_or(&s_realtime_load_quarantined_mask,
+                                optional_load
+                                    ? load_bit
+                                    : APP_REALTIME_LOAD_ALL_MASK,
+                                __ATOMIC_ACQ_REL);
+        return false;
+    }
+
+    const uint32_t start_counter = app_realtime_cycle_now();
+    service();
+    const uint32_t end_counter = app_realtime_cycle_now();
+    const uint32_t runtime_cycles = app_realtime_elapsed_cycles(
+        start_counter, end_counter);
+    const uint32_t phase_end = app_realtime_elapsed_cycles(
+        cycle_epoch, end_counter);
+    const bool overrun = runtime_cycles > contract->wcet_cycles;
+    const bool deadline_missed = phase_end > contract->end_cycle;
+
+    app_realtime_schedule_write_begin();
+    s_realtime_schedule.phase_last_start_cycle[phase_id] = phase_start;
+    s_realtime_schedule.phase_last_runtime_cycles[phase_id] = runtime_cycles;
+    s_realtime_schedule.phase_run_count[phase_id]++;
+    if (runtime_cycles >
+        s_realtime_schedule.phase_max_runtime_cycles[phase_id]) {
+        s_realtime_schedule.phase_max_runtime_cycles[phase_id] =
+            runtime_cycles;
+    }
+    if (overrun) {
+        s_realtime_schedule.phase_overrun_count[phase_id]++;
+    }
+    if (deadline_missed) {
+        s_realtime_schedule.phase_deadline_miss_count[phase_id]++;
+    }
+    if (overrun || deadline_missed) {
+        s_realtime_schedule.schedule_miss_count++;
+    }
+    app_realtime_schedule_write_end();
+
+    if (overrun || deadline_missed) {
+        (void)__atomic_fetch_or(&s_realtime_load_quarantined_mask,
+                                optional_load
+                                    ? load_bit
+                                    : APP_REALTIME_LOAD_ALL_MASK,
+                                __ATOMIC_ACQ_REL);
+        return false;
+    }
+    return true;
+}
+
+static void app_realtime_tdma_phase(void)
+{
+    tdma_component_core1_service();
     drv_watchdog_mark_progress(1u, 0x0101u);
     diagnostics_record_core1_loop();
     diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_CORE1);
+    drv_watchdog_mark_progress(1u, 0x0103u);
+}
+
+static void app_realtime_vdc_phase(void)
+{
     vdc_dpll_manager_set_vdc_ready(true);
-    drv_watchdog_mark_progress(1u, 0x0111u);
     vdc_sync_ao_service();
+    drv_watchdog_mark_progress(1u, 0x0111u);
+}
+
+static void app_realtime_dpll_phase(void)
+{
     drv_watchdog_mark_progress(1u, 0x0102u);
     vdc_dpll_manager_set_dpll_ready(true);
-    drv_watchdog_mark_progress(1u, 0x0112u);
     sync_dpll_fb_service();
-    drv_watchdog_mark_progress(1u, 0x0103u);
-    tdma_component_core1_service();
+    drv_watchdog_mark_progress(1u, 0x0112u);
+}
+
+static void app_realtime_calibration_phase(void)
+{
     calibration_manager_service_core1();
     drv_watchdog_mark_progress(1u, 0x0104u);
+}
+
+static void app_realtime_sync_capture_phase(void)
+{
     sync_io_capture_latch_service_core1();
     drv_watchdog_mark_progress(1u, 0x0105u);
+}
+
+static void app_realtime_refmem_phase(void)
+{
     distributed_refmem_realtime_run_once();
     drv_watchdog_mark_progress(1u, 0x0106u);
+}
+
+static void app_realtime_model_phase(void)
+{
     model_turntable_service();
     drv_watchdog_mark_progress(1u, 0x0107u);
+}
+
+static void app_realtime_sync_trigger_phase(void)
+{
     sync_trigger_service();
     drv_watchdog_mark_progress(1u, 0x0108u);
-    trigger_measure_service();   /* 同步自检: 门控测量非阻塞服务 */
+}
+
+static void app_realtime_trigger_measure_phase(void)
+{
+    trigger_measure_service(); /* 同步自检: 门控测量非阻塞服务 */
     drv_watchdog_mark_progress(1u, 0x0109u);
+}
+
+void app_realtime_run_once(void)
+{
+    const uint32_t cycle_epoch = app_realtime_cycle_now();
+    app_realtime_schedule_write_begin();
+    s_realtime_schedule.cycle_count++;
+    app_realtime_schedule_write_end();
+
+    /* Every call is released only inside its own fixed phase. Early finish
+     * waits for the next start; late work is quarantined and cannot change a
+     * later phase's declared start/end/WCET contract. */
+    (void)app_realtime_run_phase(cycle_epoch,
+                                 APP_REALTIME_PHASE_TDMA,
+                                 -1,
+                                 app_realtime_tdma_phase);
+    (void)app_realtime_run_phase(cycle_epoch,
+                                 APP_REALTIME_PHASE_VDC,
+                                 APP_REALTIME_LOAD_VDC,
+                                 app_realtime_vdc_phase);
+    (void)app_realtime_run_phase(cycle_epoch,
+                                 APP_REALTIME_PHASE_DPLL,
+                                 APP_REALTIME_LOAD_DPLL,
+                                 app_realtime_dpll_phase);
+    (void)app_realtime_run_phase(cycle_epoch,
+                                 APP_REALTIME_PHASE_CALIBRATION,
+                                 APP_REALTIME_LOAD_CALIBRATION,
+                                 app_realtime_calibration_phase);
+    (void)app_realtime_run_phase(cycle_epoch,
+                                 APP_REALTIME_PHASE_SYNC_CAPTURE,
+                                 APP_REALTIME_LOAD_SYNC_CAPTURE,
+                                 app_realtime_sync_capture_phase);
+    (void)app_realtime_run_phase(cycle_epoch,
+                                 APP_REALTIME_PHASE_REFMEM,
+                                 APP_REALTIME_LOAD_REFMEM,
+                                 app_realtime_refmem_phase);
+    (void)app_realtime_run_phase(cycle_epoch,
+                                 APP_REALTIME_PHASE_MODEL,
+                                 APP_REALTIME_LOAD_MODEL,
+                                 app_realtime_model_phase);
+    (void)app_realtime_run_phase(cycle_epoch,
+                                 APP_REALTIME_PHASE_SYNC_TRIGGER,
+                                 APP_REALTIME_LOAD_SYNC_TRIGGER,
+                                 app_realtime_sync_trigger_phase);
+    (void)app_realtime_run_phase(cycle_epoch,
+                                 APP_REALTIME_PHASE_TRIGGER_MEASURE,
+                                 APP_REALTIME_LOAD_TRIGGER_MEASURE,
+                                 app_realtime_trigger_measure_phase);
 }

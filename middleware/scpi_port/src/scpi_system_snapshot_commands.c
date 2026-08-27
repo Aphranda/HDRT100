@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "app.h"
 #include "board_config.h"
 #include "distributed_config.h"
 #include "distributed_refmem.h"
@@ -2242,6 +2243,17 @@ scpi_result_t scpi_cmd_refmem_sync_flight_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.last_seq32);
     SCPI_ResultUInt32(context, snapshot.last_value_u32);
     SCPI_ResultUInt32(context, snapshot.last_error);
+    SCPI_ResultUInt32(context, snapshot.wire_layout_version);
+    SCPI_ResultInt32(context, snapshot.last_vdc_phase_offset_ns);
+    SCPI_ResultInt32(context, snapshot.last_vdc_rate_adjust_ppb);
+    SCPI_ResultUInt32(context, snapshot.last_vdc_lock_state);
+    SCPI_ResultUInt32(context, snapshot.last_vdc_quality);
+    SCPI_ResultUInt32(context, snapshot.last_ack_seq16);
+    SCPI_ResultUInt32(context, snapshot.last_ack_flags);
+    SCPI_ResultUInt32(context, snapshot.last_control_opcode);
+    SCPI_ResultUInt32(context, snapshot.last_control_seq8);
+    SCPI_ResultUInt32(context, snapshot.last_optional_diagnostic);
+    SCPI_ResultUInt32(context, snapshot.last_mailbox_crc16);
     return SCPI_RES_OK;
 }
 
@@ -2335,6 +2347,63 @@ scpi_result_t scpi_cmd_system_tdma_flight_clock_evidence_q(scpi_t *context)
         return SCPI_RES_ERR;
     }
     SCPI_ResultUInt32(context, snapshot.clock_evidence_enabled);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_load_mask(scpi_t *context)
+{
+    uint32_t enabled_mask = 0u;
+    if (!scpi_port_read_u32(context, &enabled_mask) ||
+        !app_realtime_set_load_mask(enabled_mask)) {
+        scpi_port_push_exec_error(context, "TDMA_LOAD_MASK");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, enabled_mask);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_load_mask_q(scpi_t *context)
+{
+    app_realtime_schedule_snapshot_t snapshot;
+    if (!app_realtime_get_schedule_snapshot(&snapshot)) {
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, snapshot.enabled_mask);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_schedule_q(scpi_t *context)
+{
+    app_realtime_schedule_snapshot_t snapshot;
+    if (!app_realtime_get_schedule_snapshot(&snapshot)) {
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, snapshot.version);
+    SCPI_ResultUInt32(context, snapshot.sys_clock_hz);
+    SCPI_ResultUInt32(context, snapshot.cycle_cycles);
+    SCPI_ResultUInt32(context, snapshot.phase_count);
+    SCPI_ResultUInt32(context, snapshot.enabled_mask);
+    SCPI_ResultUInt32(context, snapshot.quarantined_mask);
+    SCPI_ResultUInt32(context, snapshot.cycle_count);
+    SCPI_ResultUInt32(context, snapshot.schedule_miss_count);
+    for (uint32_t phase = 0u; phase < APP_REALTIME_PHASE_COUNT; phase++) {
+        SCPI_ResultUInt32(context, snapshot.phase_start_cycle[phase]);
+        SCPI_ResultUInt32(context, snapshot.phase_end_cycle[phase]);
+        SCPI_ResultUInt32(context, snapshot.phase_wcet_cycles[phase]);
+        SCPI_ResultUInt32(context, snapshot.phase_last_start_cycle[phase]);
+        SCPI_ResultUInt32(context,
+                          snapshot.phase_last_runtime_cycles[phase]);
+        SCPI_ResultUInt32(context,
+                          snapshot.phase_max_runtime_cycles[phase]);
+        SCPI_ResultUInt32(context, snapshot.phase_run_count[phase]);
+        SCPI_ResultUInt32(context, snapshot.phase_skip_count[phase]);
+        SCPI_ResultUInt32(context,
+                          snapshot.phase_start_miss_count[phase]);
+        SCPI_ResultUInt32(context, snapshot.phase_overrun_count[phase]);
+        SCPI_ResultUInt32(context,
+                          snapshot.phase_deadline_miss_count[phase]);
+    }
     return SCPI_RES_OK;
 }
 

@@ -64,6 +64,10 @@ REFMEM_FIELDS = (
     "rx_reject_count", "rx_duplicate_skip_count", "rx_bad_mailbox_count",
     "last_rx_result", "last_frame_type", "last_source_slot", "last_seq32",
     "last_value_u32", "last_error",
+    "wire_layout_version", "last_vdc_phase_offset_ns",
+    "last_vdc_rate_adjust_ppb", "last_vdc_lock_state", "last_vdc_quality",
+    "last_ack_seq16", "last_ack_flags", "last_control_opcode",
+    "last_control_seq8", "last_optional_diagnostic", "last_mailbox_crc16",
 )
 
 

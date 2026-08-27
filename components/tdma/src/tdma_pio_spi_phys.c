@@ -1806,6 +1806,9 @@ bool tdma_pio_spi_phys_arm(void *context,
     }
     phys->node_count = config->node_count;
     phys->flight_tail_bytes = tdma_pio_spi_phys_flight_tail_bytes(config);
+    if (phys->flight_tail_bytes > TDMA_PIO_SPI_FLIGHT_MAX_TAIL_BYTES) {
+        return false;
+    }
     const tdma_pio_spi_program_persona_t flight_persona =
         phys->role == TDMA_PIO_SPI_ROLE_MASTER
             ? TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN
