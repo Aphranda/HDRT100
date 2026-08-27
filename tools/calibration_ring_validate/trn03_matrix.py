@@ -209,11 +209,89 @@ def indexed(items: object, field: str, count: int, label: str
     return result
 
 
+def derive_data_refinement_candidates(
+        data: dict[str, Any],
+        refinements: list[tuple[str, dict[str, Any]]]
+        ) -> tuple[dict[int, list[int]], list[dict[str, Any]]]:
+    """Derive non-active search rows from accepted selected-link evidence."""
+    nodes = node_order(data)
+    count = len(nodes)
+    base_identity = singleton_identity(data)
+    parsed: dict[int, set[int]] = {}
+    records: list[dict[str, Any]] = []
+    for path, summary in refinements:
+        if (not bool(summary.get("passed")) or
+                summary.get("phase") != "TRN-02B_SELECTED_LINK_REPEAT"):
+            raise ValueError(
+                f"DATA refinement evidence is not accepted: {path}")
+        if node_order(summary) != nodes:
+            raise ValueError(
+                f"DATA refinement node order mismatch: {path}")
+        selected_links = summary.get("selected_links")
+        matrix = summary.get("matrix")
+        parameters = summary.get("training_parameters")
+        if (not isinstance(selected_links, list) or
+                len(selected_links) != 1 or
+                not isinstance(matrix, dict) or
+                not bool(matrix.get("passed")) or
+                matrix.get("identity_failures") or
+                matrix.get("gate_failures") or
+                not isinstance(parameters, dict)):
+            raise ValueError(
+                f"DATA refinement selected-link gate failed: {path}")
+        link_index = int(selected_links[0])
+        links = matrix.get("links")
+        offsets = parameters.get("node_data_offset_samples")
+        if (not 0 <= link_index < count or
+                not isinstance(links, list) or len(links) != 1 or
+                int(links[0].get("link", -1)) != link_index or
+                not bool(links[0].get("passed")) or
+                not isinstance(offsets, list) or len(offsets) != count):
+            raise ValueError(
+                f"DATA refinement dimensions are invalid: {path}")
+        destination_node = int(links[0].get("data_destination_node", -1))
+        if not 0 <= destination_node < count:
+            raise ValueError(
+                f"DATA refinement destination Node is invalid: {path}")
+        candidate = int(offsets[destination_node])
+        if not -10 <= candidate <= 10:
+            raise ValueError(
+                f"DATA refinement candidate offset is outside -10..+10: {path}")
+        refinement_identity = singleton_identity(summary)
+        # Topology generation is a local staging counter and may advance when
+        # the selected-link refinement prepares the same physical ring.  The
+        # topology CRC and every portable profile identity must remain equal.
+        for field in (*IDENTITY_FIELDS, "sample_period_ns"):
+            if field == "topology_generation":
+                continue
+            if int(refinement_identity[field]) != int(base_identity[field]):
+                raise ValueError(
+                    f"DATA refinement {field} mismatch: {path}")
+        parsed.setdefault(destination_node, set()).add(candidate)
+        records.append({
+            "path": path,
+            "link_index": link_index,
+            "destination_node": destination_node,
+            "configured_offset_sample_count": candidate,
+            "repeat_count": int(summary.get("repeats", 0)),
+            "accepted_count": int(matrix.get("accepted_count", 0)),
+            "calibrated_offset_histogram": links[0].get(
+                "calibrated_offset_histogram", {}),
+            "topology_generation": int(
+                refinement_identity["topology_generation"]),
+            "topology_crc32": int(refinement_identity["topology_crc32"]),
+        })
+    return ({node: sorted(values) for node, values in sorted(parsed.items())},
+            records)
+
+
 def build_matrix(level: int, data: dict[str, Any],
                  residence: dict[str, Any], *,
                  sck: dict[str, Any] | None = None,
                  data_path: str = "", residence_path: str = "",
-                 sck_path: str = ""
+                 sck_path: str = "",
+                 data_refinement_candidates: dict[int, list[int]] | None = None,
+                 data_refinement_evidence: list[dict[str, Any]] | None = None,
                  ) -> dict[str, Any]:
     identity, failures = validate_profile_pair(data, residence)
     if failures:
@@ -495,6 +573,34 @@ def build_matrix(level: int, data: dict[str, Any],
             },
         })
 
+    refinement_candidates = data_refinement_candidates or {}
+    normalized_refinement_candidates: dict[str, list[int]] = {}
+    for node, requested_values in sorted(refinement_candidates.items()):
+        if not 0 <= node < count:
+            raise ValueError(
+                f"DATA refinement candidate node {node} is outside matrix")
+        observed_values = data_offset_candidates_by_node[node]
+        if not observed_values:
+            raise ValueError(
+                f"DATA node{node} has no accepted TRN-02 candidate")
+        accepted_refinements: list[int] = []
+        for value in sorted(set(requested_values)):
+            if not -10 <= value <= 10:
+                raise ValueError(
+                    f"DATA refinement candidate offset {value} is outside -10..+10")
+            if value in observed_values:
+                raise ValueError(
+                    f"DATA node{node} refinement candidate {value} is already observed")
+            if min(abs(value - observed) for observed in observed_values) != 1:
+                raise ValueError(
+                    f"DATA node{node} refinement candidate {value} must be "
+                    "adjacent to accepted TRN-02 evidence")
+            accepted_refinements.append(value)
+        if accepted_refinements:
+            data_offset_candidates_by_node[node] = sorted(
+                set(observed_values + accepted_refinements))
+            normalized_refinement_candidates[str(node)] = accepted_refinements
+
     offset_rows = []
     active_row_id = -1
     combined_rows = itertools.product(
@@ -555,6 +661,11 @@ def build_matrix(level: int, data: dict[str, Any],
             "residence_selection": "matrix.selected_forward_residence_ticks",
             "loop_selection": "max(loop_delay_ticks) per source node",
             "sck_replay_selection": sck_selection,
+            "data_refinement_candidates_by_node":
+                normalized_refinement_candidates,
+            "data_refinement_policy": (
+                "non_active_adjacent_search_rows_from_accepted_trn02_window"),
+            "data_refinement_evidence": data_refinement_evidence or [],
         },
     }
     # The active row is the default row every staging/closed-loop command
@@ -577,15 +688,26 @@ def main() -> int:
                         help="same-identity TRN-01 residence-matrix summary")
     parser.add_argument("--sck", type=Path,
                         help="same-identity independently trained SCK matrix summary")
+    parser.add_argument(
+        "--data-refinement-evidence", type=Path, action="append", default=[],
+        help=("accepted TRN-02 selected-link repeat summary whose configured "
+              "DATA offset is appended as a non-active adjacent search row; "
+              "repeat as needed"))
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     data = load_summary(args.data)
     residence = load_summary(args.residence)
     sck = load_summary(args.sck) if args.sck is not None else None
+    refinement_candidates, refinement_records = \
+        derive_data_refinement_candidates(data, [
+            (str(path), load_summary(path))
+            for path in args.data_refinement_evidence])
     result = build_matrix(
         args.level, data, residence, sck=sck,
         data_path=str(args.data), residence_path=str(args.residence),
-        sck_path=str(args.sck) if args.sck is not None else "")
+        sck_path=str(args.sck) if args.sck is not None else "",
+        data_refinement_candidates=refinement_candidates,
+        data_refinement_evidence=refinement_records)
     encoded = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(encoded, encoding="utf-8")

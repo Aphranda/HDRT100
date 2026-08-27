@@ -10,6 +10,7 @@ from tools.calibration_ring_validate.trn03_matrix import (
     NORMAL_PIO_BIT_CYCLES,
     NORMAL_PIO_PERSONA,
     build_matrix,
+    derive_data_refinement_candidates,
     profile_crc32,
 )
 from tools.calibration_ring_validate.trn03_stage import (
@@ -218,6 +219,93 @@ def test_build_matrix_retimes_unsafe_observed_sck_row() -> None:
         "observed_row_retimed_to_replay_safe_candidate")
     assert matrix["offset_matrix"]["active_row_id"] == 0
     assert matrix["offset_matrix"]["full_matrix_row_count"] == 8
+
+
+def test_build_matrix_retains_adjacent_data_refinement_as_non_active_row(
+        tmp_path: Path) -> None:
+    data, residence = evidence(7)
+    matrix = build_matrix(
+        7, data, residence,
+        data_refinement_candidates={0: [6]})
+    offset_matrix = matrix["offset_matrix"]
+    assert offset_matrix["full_matrix_row_count"] == 2
+    active = offset_matrix["rows"][offset_matrix["active_row_id"]]
+    assert active["data_offset_sample_counts_by_node"] == [5, 5, 5, 5]
+    refinement = next(
+        row for row in offset_matrix["rows"]
+        if row["data_offset_sample_counts_by_node"] == [6, 5, 5, 5])
+    assert refinement["row_id"] != offset_matrix["active_row_id"]
+    assert matrix["derivation"]["data_refinement_candidates_by_node"] == {
+        "0": [6]}
+    path = tmp_path / "matrix.json"
+    path.write_text(__import__("json").dumps(matrix), encoding="utf-8")
+    replay = load_config(path, offset_row_id=refinement["row_id"])
+    assert replay["links"][0]["data_offset_sample_count"] == 6
+
+
+def test_build_matrix_rejects_unbounded_data_refinement() -> None:
+    data, residence = evidence(7)
+    with pytest.raises(ValueError, match="must be adjacent"):
+        build_matrix(
+            7, data, residence,
+            data_refinement_candidates={0: [7]})
+    with pytest.raises(ValueError, match="already observed"):
+        build_matrix(
+            7, data, residence,
+            data_refinement_candidates={0: [5]})
+
+
+def data_refinement_evidence(data: dict, configured_offset: int = 6) -> dict:
+    identity = dict(data["matrix"]["identity"])
+    identity["topology_generation"] = [99]
+    return {
+        "phase": "TRN-02B_SELECTED_LINK_REPEAT",
+        "passed": True,
+        "node_ids_in_loop_order": list(data["node_ids_in_loop_order"]),
+        "repeats": 32,
+        "selected_links": [0],
+        "training_parameters": {
+            "node_data_offset_samples": [configured_offset, 5, 5, 5],
+        },
+        "matrix": {
+            "passed": True,
+            "accepted_count": 32,
+            "identity": identity,
+            "identity_failures": [],
+            "gate_failures": [],
+            "links": [{
+                "link": 0,
+                "data_destination_node": 0,
+                "passed": True,
+                "calibrated_offset_histogram": {"4": 9, "5": 23},
+            }],
+        },
+    }
+
+
+def test_derive_data_refinement_candidates_requires_accepted_evidence() -> None:
+    data, _ = evidence(7)
+    refinement = data_refinement_evidence(data)
+    candidates, records = derive_data_refinement_candidates(
+        data, [("refinement.json", refinement)])
+    assert candidates == {0: [6]}
+    assert records[0]["path"] == "refinement.json"
+    assert records[0]["accepted_count"] == 32
+    assert records[0]["calibrated_offset_histogram"] == {"4": 9, "5": 23}
+
+    refinement["matrix"]["identity"]["profile_crc32"] = [1]
+    with pytest.raises(ValueError, match="profile_crc32 mismatch"):
+        derive_data_refinement_candidates(
+            data, [("refinement.json", refinement)])
+
+
+def test_derive_data_refinement_candidates_rejects_failed_summary() -> None:
+    data, _ = evidence(7)
+    refinement = data_refinement_evidence(data)
+    refinement["passed"] = False
+    with pytest.raises(ValueError, match="not accepted"):
+        derive_data_refinement_candidates(
+            data, [("refinement.json", refinement)])
 
 
 def test_sck_rearm_boundary_uses_raw_sample_grid() -> None:
