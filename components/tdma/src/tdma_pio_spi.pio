@@ -205,7 +205,6 @@ flight_clock_latch_high:
 flight_origin_rtt_restart:
     pull block
     mov x, osr
-    wait 1 gpio 0
     wait 0 gpio 0
 flight_origin_rtt_count:
     jmp pin flight_origin_rtt_high
@@ -216,19 +215,23 @@ flight_origin_rtt_high:
     jmp x-- flight_origin_rtt_count
 .wrap
 
-; Cyclic reference clock source. Core1 supplies the total clock-bit count
-; minus one. Returned DATA is captured by origin_data_tx against the real
-; returned CS/SCK, so the byte boundary does not depend on local loop phase.
+; Cyclic reference control source. Core1 supplies the total clock-bit count
+; minus one, but the PIO owns both outgoing CS and SCK so the frame edge and
+; first clock edge share one deterministic timing domain. Both pins use the
+; same explicit SET group ({CS,SCK}: 2=idle, 0=active/low, 1=active/high),
+; matching the follower control program and avoiding a separate side-set path.
+; Returned DATA is captured by origin_data_tx against the real returned
+; CS/SCK, so the byte boundary does not depend on local loop phase.
 .program tdma_pio_spi_flight_origin_clock_rx
-.side_set 1
 .wrap_target
-    pull block           side 0
-    mov x, osr           side 0
+    pull block
+    mov x, osr
+    set pins, 0 [1]
 flight_origin_clock_bit:
-    nop                  side 0 [1]
-    nop                  side 1 [2]
-    jmp x-- flight_origin_clock_bit side 0
-    irq set 1            side 0
+    set pins, 1 [2]
+    set pins, 0 [1]
+    jmp x-- flight_origin_clock_bit
+    set pins, 2
 .wrap
 
 ; Cyclic reference DATA source.  The complete frame is preloaded by DMA.  The
@@ -770,16 +773,16 @@ static inline void tdma_pio_spi_flight_control_forward_program_init(
     uint tx_sck_pin, uint tx_csn_pin, uint32_t marker_phase_delay_cycles,
     uint32_t sck_phase_delay_cycles)
 {
-    pio->instr_mem[offset + 1u] =
+    pio->instr_mem[offset + 0u] =
         (uint16_t)(pio_encode_wait_gpio(false, rx_csn_pin) |
                    pio_encode_delay(marker_phase_delay_cycles));
-    pio->instr_mem[offset + 4u] =
+    pio->instr_mem[offset + 3u] =
         (uint16_t)(pio_encode_wait_gpio(true, rx_sck_pin) |
                    pio_encode_delay(sck_phase_delay_cycles));
-    pio->instr_mem[offset + 6u] =
+    pio->instr_mem[offset + 5u] =
         (uint16_t)(pio_encode_wait_gpio(false, rx_sck_pin) |
                    pio_encode_delay(sck_phase_delay_cycles));
-    pio->instr_mem[offset + 9u] =
+    pio->instr_mem[offset + 8u] =
         (uint16_t)(pio_encode_wait_gpio(true, rx_csn_pin) |
                    pio_encode_delay(marker_phase_delay_cycles));
     pio_sm_set_pins_with_mask64(pio, sm, 1ull << tx_csn_pin,
@@ -810,7 +813,10 @@ static inline void tdma_pio_spi_flight_clock_latch_program_init(
 {
     pio_gpio_init(pio, csn_pin);
     gpio_pull_up(csn_pin);
-    pio_sm_set_consecutive_pindirs(pio, sm, csn_pin, 1u, false);
+    /* This observer must not own line direction. On followers CS is already
+     * an RX input; on the origin the same pad is the TX output driven by the
+     * control SM. Forcing input here silently disconnects origin CS while
+     * leaving SCK active. */
     pio_sm_config c =
         tdma_pio_spi_flight_clock_latch_program_get_default_config(offset);
     sm_config_set_jmp_pin(&c, csn_pin);
@@ -822,8 +828,6 @@ static inline void tdma_pio_spi_flight_origin_rtt_program_init(
     PIO pio, uint sm, uint offset, uint tx_csn_pin, uint rx_csn_pin)
 {
     pio->instr_mem[offset + 2u] =
-        (uint16_t)pio_encode_wait_gpio(true, tx_csn_pin);
-    pio->instr_mem[offset + 3u] =
         (uint16_t)pio_encode_wait_gpio(false, tx_csn_pin);
     pio_sm_config c =
         tdma_pio_spi_flight_origin_rtt_program_get_default_config(offset);
@@ -834,22 +838,25 @@ static inline void tdma_pio_spi_flight_origin_rtt_program_init(
 
 static inline void tdma_pio_spi_flight_origin_clock_rx_program_init(
     PIO pio, uint sm, uint offset, uint rx_data_pin, uint tx_sck_pin,
-    uint32_t baud_hz)
+    uint tx_csn_pin, uint32_t baud_hz)
 {
     pio_gpio_init(pio, rx_data_pin);
     pio_gpio_init(pio, tx_sck_pin);
+    pio_gpio_init(pio, tx_csn_pin);
     gpio_pull_down(rx_data_pin);
     pio_sm_set_consecutive_pindirs(pio, sm, rx_data_pin, 1u, false);
-    pio_sm_set_consecutive_pindirs(pio, sm, tx_sck_pin, 1u, true);
+    pio_sm_set_consecutive_pindirs(pio, sm, tx_sck_pin, 2u, true);
 
     pio_sm_config c =
         tdma_pio_spi_flight_origin_clock_rx_program_get_default_config(offset);
     sm_config_set_in_pins(&c, rx_data_pin);
-    sm_config_set_sideset_pins(&c, tx_sck_pin);
+    sm_config_set_set_pins(&c, tx_sck_pin, 2u);
     sm_config_set_in_shift(&c, false, true, 8u);
     sm_config_set_clkdiv(&c, tdma_pio_spi_clkdiv_for_baud(baud_hz));
     pio_sm_init(pio, sm, offset, &c);
-    pio_sm_set_pins_with_mask64(pio, sm, 0ull, 1ull << tx_sck_pin);
+    pio_sm_set_pins_with_mask64(pio, sm, 1ull << tx_csn_pin,
+                                (1ull << tx_sck_pin) |
+                                    (1ull << tx_csn_pin));
 }
 
 static inline void tdma_pio_spi_flight_origin_data_tx_program_init(

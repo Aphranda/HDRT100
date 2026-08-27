@@ -1075,7 +1075,6 @@ static void tdma_pio_spi_phys_flight_origin_recover(
     if (s_tdma_pio_spi_tx_dma_channel >= 0) {
         dma_channel_abort((uint)s_tdma_pio_spi_tx_dma_channel);
     }
-    gpio_put(phys->tx_csn_pin, true);
     const uint32_t sm_mask = (1u << phys->tx_sm) | (1u << phys->rx_sm) |
                              (1u << BOARD_TDMA_SPI_RTT_SM);
     pio_set_sm_mask_enabled(BOARD_TDMA_SPI_PIO, sm_mask, false);
@@ -1085,6 +1084,14 @@ static void tdma_pio_spi_phys_flight_origin_recover(
     pio_sm_restart(BOARD_TDMA_SPI_PIO, phys->tx_sm);
     pio_sm_restart(BOARD_TDMA_SPI_PIO, phys->rx_sm);
     pio_sm_restart(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_RTT_SM);
+    /* Recovery preserves the flight contract: core1 never drives a control
+     * edge. Restore {CS=1,SCK=0} through the origin control SM before it is
+     * re-enabled at its blocking PULL. */
+    pio_sm_set_pins_with_mask64(
+        BOARD_TDMA_SPI_PIO,
+        phys->rx_sm,
+        1ull << phys->tx_csn_pin,
+        (1ull << phys->tx_sck_pin) | (1ull << phys->tx_csn_pin));
     pio_interrupt_clear(BOARD_TDMA_SPI_PIO, 1u);
     BOARD_TDMA_SPI_PIO->fdebug =
         tdma_pio_spi_phys_txstall_mask(phys->rx_sm);
@@ -1117,6 +1124,7 @@ static bool tdma_pio_spi_phys_configure_flight(
             s_tdma_pio_spi_flight_origin_clock_offset,
             phys->rx_pin,
             phys->tx_sck_pin,
+            phys->tx_csn_pin,
             phys->baud_hz);
         tdma_pio_spi_flight_origin_data_tx_program_init(
             BOARD_TDMA_SPI_PIO,
@@ -1134,9 +1142,6 @@ static bool tdma_pio_spi_phys_configure_flight(
             s_tdma_pio_spi_flight_origin_rtt_offset,
             phys->tx_csn_pin,
             phys->rx_csn_pin);
-        gpio_init(phys->tx_csn_pin);
-        gpio_set_dir(phys->tx_csn_pin, GPIO_OUT);
-        gpio_put(phys->tx_csn_pin, true);
         if (!tdma_pio_spi_phys_ensure_tx_dma()) {
             return false;
         }
@@ -4241,7 +4246,8 @@ static bool tdma_pio_spi_phys_flight_origin_tx(
     }
     pio_sm_put(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_RTT_SM, UINT32_MAX);
     const uint64_t tx_edge_diagnostic_ns = vdc_timestamp_clock_now_ns();
-    gpio_put(phys->tx_csn_pin, false);
+    /* This FIFO word is the sole launch event. The control PIO consumes it,
+     * lowers CS, generates every SCK edge, then restores idle CS atomically. */
     pio_sm_put(BOARD_TDMA_SPI_PIO, phys->rx_sm, clock_bits - 1u);
     /* The clock SM was parked at its blocking PULL before the word above.
      * Clear that old sticky TXSTALL only after releasing the PULL. */
@@ -4253,10 +4259,8 @@ static bool tdma_pio_spi_phys_flight_origin_tx(
     const uint64_t wait_start_us = tdma_pio_spi_phys_now_us();
     const uint64_t expected_done_us = wait_start_us + nominal_us;
     const uint64_t deadline_us = expected_done_us + 1000ull;
-    bool clock_done_irq = false;
     bool clock_done_txstall = false;
-    while (!clock_done_irq && !clock_done_txstall) {
-        clock_done_irq = pio_interrupt_get(BOARD_TDMA_SPI_PIO, 1u);
+    while (!clock_done_txstall) {
         const uint64_t now_us = tdma_pio_spi_phys_now_us();
         clock_done_txstall = now_us >= expected_done_us &&
             (BOARD_TDMA_SPI_PIO->fdebug & clock_txstall_mask) != 0u;
@@ -4269,14 +4273,9 @@ static bool tdma_pio_spi_phys_flight_origin_tx(
             return false;
         }
     }
-    if (clock_done_irq) {
-        phys->snapshot.origin_done_irq_count++;
-    } else {
-        phys->snapshot.origin_done_txstall_count++;
-    }
+    phys->snapshot.origin_done_txstall_count++;
     pio_interrupt_clear(BOARD_TDMA_SPI_PIO, 1u);
     BOARD_TDMA_SPI_PIO->fdebug = clock_txstall_mask;
-    gpio_put(phys->tx_csn_pin, true);
     uint64_t tx_edge_timestamp_ns = 0ull;
     (void)tdma_pio_spi_phys_clock_latch_read_and_rearm(
         phys, &tx_edge_timestamp_ns);

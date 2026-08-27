@@ -1270,6 +1270,69 @@ int main(void)
         }
     }
 
+    /* Physical flight PIO is armed for one fixed-size short frame. Even the
+     * first idle beacon (before timestamp evidence exists) must carry enough
+     * alignment symbols to satisfy that physical byte count. */
+    {
+        tdma_ring_runtime_t runtime;
+        tdma_pio_spi_ring_adapter_t adapter;
+        loopback_phys_t phys;
+        const tdma_ring_runtime_config_t config = make_valid_config();
+        tdma_transport_frame_view_t view;
+        tdma_transport_result_t result = TDMA_TRANSPORT_OK;
+        uint8_t expected[TDMA_TRANSPORT_SHORT_PAYLOAD_MAX];
+
+        memset(&phys, 0, sizeof(phys));
+        phys.tx_timestamp_ns = 3000000ull;
+        phys.rx_timestamp_ns = 3000500ull;
+        tdma_flight_engine_fill_alignment_symbols(expected,
+                                                  sizeof(expected));
+
+        failed += expect_bool("fixed flight runtime init",
+                              tdma_ring_runtime_init(&runtime), true);
+        failed += expect_bool("fixed flight runtime config",
+                              tdma_ring_runtime_configure(&runtime, &config),
+                              true);
+        failed += expect_bool("fixed flight adapter init",
+                              tdma_pio_spi_ring_adapter_init(&adapter), true);
+        set_test_sequential_topology(&adapter, config.node_count);
+        tdma_pio_spi_ring_adapter_set_phys(&adapter,
+                                           loopback_tx,
+                                           loopback_rx,
+                                           &phys);
+        failed += expect_bool(
+            "fixed flight forwarding mode",
+            tdma_pio_spi_ring_adapter_set_forwarding_mode(
+                &adapter,
+                TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_FLIGHT),
+            true);
+        failed += expect_bool("fixed flight bind",
+                              tdma_ring_runtime_bind_adapter(
+                                  &runtime,
+                                  tdma_pio_spi_ring_adapter_ops(),
+                                  &adapter),
+                              true);
+        failed += expect_bool("fixed flight start",
+                              start_ring_data(&runtime), true);
+        tdma_ring_runtime_service(&runtime);
+        tdma_ring_runtime_service(&runtime);
+        failed += expect_bool("fixed flight decode",
+                              tdma_transport_frame_decode(
+                                  phys.last_tx,
+                                  phys.last_tx_size,
+                                  &view,
+                                  &result),
+                              true);
+        failed += expect_u32("fixed flight idle payload size",
+                             (uint32_t)view.payload_size,
+                             TDMA_TRANSPORT_SHORT_PAYLOAD_MAX);
+        failed += expect_bool("fixed flight idle alignment symbols",
+                              memcmp(view.payload,
+                                     expected,
+                                     sizeof(expected)) == 0,
+                              true);
+    }
+
     /* Process-image origin expands one local 32-byte FIFO mailbox into the
      * fixed map-sized wire image before the first PIO flight cycle. */
     {

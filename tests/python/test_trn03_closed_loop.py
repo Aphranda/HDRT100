@@ -239,6 +239,13 @@ def test_process_follower_forwards_control_on_independent_pio_sm() -> None:
         "pio_encode_delay(sck_phase_delay_cycles)") == 2
     assert "data_phase_delay_cycles" not in control_init
     assert "sm_config_set_set_pins(&c, tx_sck_pin, 2u)" in control_init
+    # The control program no longer has a leading PULL. Keep the four runtime
+    # GPIO patches on WAIT instructions 0/3/5/8; the stale 1/4/6/9 indices
+    # overwrite SET pins and stop physical forwarding after the first node.
+    for instruction in (0, 3, 5, 8):
+        assert f"instr_mem[offset + {instruction}u]" in control_init
+    for instruction in (1, 4, 6, 9):
+        assert f"instr_mem[offset + {instruction}u]" not in control_init
 
     phys = (ROOT / "components" / "tdma" / "src" /
             "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
@@ -482,6 +489,49 @@ def test_origin_queues_frame_byte_count_before_payload_dma() -> None:
         "pio_sm_put_blocking(BOARD_TDMA_SPI_PIO, phys->tx_sm, wire_bytes - 1u)")
     dma_start = function.index("dma_start_channel_mask", count_put)
     assert count_put < dma_start
+
+
+def test_flight_origin_control_edges_are_owned_by_one_pio_sm() -> None:
+    pio_source = (ROOT / "components" / "tdma" / "src" /
+                  "tdma_pio_spi.pio").read_text(encoding="utf-8")
+    program = pio_source.split(
+        ".program tdma_pio_spi_flight_origin_clock_rx", 1
+    )[1].split(".program", 1)[0]
+    assert ".side_set" not in program
+    assert "pull block" in program
+    assert "mov x, osr" in program
+    assert "set pins, 0 [1]" in program
+    assert "set pins, 1 [2]" in program
+    assert "set pins, 2" in program
+
+    init = pio_source.split(
+        "static inline void tdma_pio_spi_flight_origin_clock_rx_program_init",
+        1,
+    )[1].split("static inline void", 1)[0]
+    assert "sm_config_set_set_pins(&c, tx_sck_pin, 2u)" in init
+
+    rtt_program = pio_source.split(
+        ".program tdma_pio_spi_flight_origin_rtt", 1
+    )[1].split(".program", 1)[0]
+    assert "wait 1 gpio 0" not in rtt_program
+    assert "wait 0 gpio 0" in rtt_program
+
+    latch_init = pio_source.split(
+        "static inline void tdma_pio_spi_flight_clock_latch_program_init", 1
+    )[1].split("static inline void", 1)[0]
+    assert "pio_sm_set_consecutive_pindirs" not in latch_init
+    assert "sm_config_set_jmp_pin(&c, csn_pin)" in latch_init
+    assert ("pio_sm_set_consecutive_pindirs(pio, sm, tx_sck_pin, 2u, true)"
+            in init)
+
+    phys_source = (ROOT / "components" / "tdma" / "src" /
+                   "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    flight_tx = phys_source.split(
+        "static bool tdma_pio_spi_phys_flight_origin_tx", 1
+    )[1].split("bool tdma_pio_spi_phys_tx", 1)[0]
+    assert "gpio_put(phys->tx_csn_pin" not in flight_tx
+    assert ("pio_sm_put(BOARD_TDMA_SPI_PIO, phys->rx_sm, clock_bits - 1u)"
+            in flight_tx)
 
 
 def test_shifted_rx_scanner_preserves_shared_raw_boundary_word() -> None:

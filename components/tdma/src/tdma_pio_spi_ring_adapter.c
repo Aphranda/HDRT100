@@ -630,6 +630,19 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
     uint8_t clock_payload[TDMA_TRANSPORT_SHORT_PAYLOAD_MAX];
     tdma_flight_engine_fill_alignment_symbols(clock_payload,
                                                sizeof(clock_payload));
+    size_t fixed_flight_payload_size = sizeof(clock_payload);
+    if (adapter->forwarding_mode ==
+            TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE &&
+        adapter->flight_engine != NULL) {
+        tdma_flight_engine_snapshot_t engine_snapshot;
+        if (tdma_flight_engine_get_snapshot(adapter->flight_engine,
+                                             &engine_snapshot) &&
+            engine_snapshot.payload_size >=
+                TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_SIZE &&
+            engine_snapshot.payload_size <= sizeof(clock_payload)) {
+            fixed_flight_payload_size = engine_snapshot.payload_size;
+        }
+    }
     const bool clock_payload_ready =
         tdma_pio_spi_ring_adapter_build_clock_payload(adapter, clock_payload);
     const bool emit_clock_evidence = clock_payload_ready &&
@@ -638,21 +651,21 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
     const bool emit_process_image = has_flight_tx && !emit_clock_evidence;
     const uint8_t *wire_payload = emit_process_image ? tx_view.data : NULL;
     size_t wire_payload_size = emit_process_image ? tx_view.data_size : 0u;
-    if (emit_clock_evidence) {
-        size_t fixed_payload_size = sizeof(clock_payload);
-        if (adapter->flight_engine != NULL) {
-            tdma_flight_engine_snapshot_t clock_engine_snapshot;
-            if (tdma_flight_engine_get_snapshot(adapter->flight_engine,
-                                                 &clock_engine_snapshot) &&
-                clock_engine_snapshot.payload_size >=
-                    TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_SIZE &&
-                clock_engine_snapshot.payload_size <=
-                    sizeof(clock_payload)) {
-                fixed_payload_size = clock_engine_snapshot.payload_size;
-            }
-        }
+    if (!emit_process_image &&
+        (adapter->forwarding_mode ==
+             TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_FLIGHT ||
+         adapter->forwarding_mode ==
+             TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE)) {
+        /* Flight PIO consumes a fixed physical byte count configured at ARM.
+         * An empty IDLE_BEACON would make every follower wait forever for
+         * absent symbols after the first frame. Keep the frame full even
+         * before clock evidence or a process-image mailbox is available. */
         wire_payload = clock_payload;
-        wire_payload_size = fixed_payload_size;
+        wire_payload_size = fixed_flight_payload_size;
+    }
+    if (emit_clock_evidence) {
+        wire_payload = clock_payload;
+        wire_payload_size = fixed_flight_payload_size;
     }
     if (emit_process_image &&
         adapter->forwarding_mode ==
