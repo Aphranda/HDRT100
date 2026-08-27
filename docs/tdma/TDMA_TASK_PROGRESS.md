@@ -4,9 +4,54 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_TASK_PROGRESS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
-Last updated: 2026-08-25
+Last updated: 2026-08-28
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
+
+## 文档接口
+
+- 架构语义：`TDMA_DOMAIN_ARCHITECTURE.md`。
+- 任务状态与门禁：`TDMA_DOMAIN_TODO.md`。
+- 本文件只追加构建、测试、OTA/HIL、失败、回退和证据位置，不改变契约状态。
+
+## 当前 checkpoint
+
+拍级 Core1 schedule 与 mandatory-first Node mailbox 已形成代码/host 基线。当前尚未执行五板
+OTA/HIL，因此 `TDMA-DET-003`、`TDMA-PAYLOAD-002`、`TDMA-PAYLOAD-003` 和
+`TDMA-PAYLOAD-004` 保持 `IN PROGRESS`。
+
+## 验证与证据索引
+
+| progress ID | TODO task ID | 证据 |
+|---|---|---|
+| TDMA-PROGRESS-20260828-001 | TDMA-DET-001..003、TDMA-PAYLOAD-001..005 | `out/tdma_cycle_schedule/`、`out/tdma_process_image_budget/`、`out/build/pico2-release/`、`out/pytest/`。 |
+
+## 失败与回退
+
+- 新 mailbox wire version 与旧固件不兼容；多板验证必须使用同一 package 异步 OTA 完成后再 START。
+- HIL 若出现 CRC、RefMem accept、TDMA deadline 或波形回归，回退整个 wire-layout 提交，不允许
+  运行时关闭 mandatory 字段或借用 guard。
+
+## 下一 gate
+
+使用统一 package 对 NO.1..NO.5 OTA，先跑 TDMA-only schedule/频率/占空比和 SD 原始波形，再逐
+phase 启用 VDC/DPLL、RefMem 与控制载荷。
+
+## 按时间追加的任务记录
+
+### TDMA-PROGRESS-20260828-001 - 拍级 schedule 与基础载荷预算
+
+- TODO task ID：`TDMA-DET-001`、`TDMA-DET-002`、`TDMA-DET-003`、
+  `TDMA-PAYLOAD-001`..`TDMA-PAYLOAD-005`。
+- 日期：2026-08-28。
+- 变更/提交：代码提交 `5582877`。
+- 构建或验证：pico2 release A/B 与 OTA package 构建通过，package CRC 快照为
+  `0xEF3AA1C4`（快照，非事实源）；TDMA/TRN-03 定向 pytest `89 passed`（快照，非事实源）。
+- 结果：基础字段优先装入固定 Node body；mandatory 后的唯一静态余量用于诊断摘要，运行态
+  无 opportunistic 空间。SCPI 在旧字段后追加 layout/VDC/ACK/control/CRC evidence。
+- 证据位置：`out/tdma_process_image_budget/tdma_process_image_budget.md`、
+  `out/build/pico2-release/DHRT100_UPDATE.pkg`、`out/pytest/tdma-mandatory-load/`。
+- 下一步：完成全量定向回归与文档门禁，再进行五板异步 OTA/HIL。
 
 ### TDMA-TASK-20260825-001 - PIO-SPI raw-flight persona 运行路径
 

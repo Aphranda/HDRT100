@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-08-27
+Last updated: 2026-08-28
 Version: 4
 
 本文档定义 Distributed Hard Real-Time Trigger System 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
@@ -150,7 +150,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | 跨核共享事实 | core0/core1 共享字段必须有唯一 writer，快照必须使用 seqlock、双缓冲或等价 sequence/version 机制，并使用 `__atomic` 或 DMB 屏障。 |
 | 分布式共同事实 | 不引入完整 IEC 61499 分布式运行时；多节点状态、命令、ACK/NACK、版本、质量和证据统一由 Distributed RefMem / RefMem Sync 内部主域承接。 |
 | 分布式共同时间 | VDC Domain 是共同时间唯一 owner；SYNC DPLL 维护 VDC offset/rate，Angle DPLL 只生成扫描预测时间，不能写 VDC offset/rate。 |
-| 分布式确定性通讯 | TDMA Foundation 是上行/下行 TDMA runtime、payload registry、adapter 和环路 completion evidence 的唯一 owner；VDC、RefMem、Trigger、OTA 只能通过注册 payload、提交 intent 或读取 snapshot 使用它。 |
+| 分布式确定性通讯 | TDMA Foundation 是上行/下行 TDMA runtime、payload registry、adapter 和环路 completion evidence 的唯一 owner；`clk_sys` 拍数是 Core1 schedule 唯一时间事实源；产品 SHORT process image 按 mandatory-first 静态装配，运行时不得临时使用余量、guard 或第二帧。VDC、RefMem、Trigger、OTA 只能通过注册 payload、提交 intent 或读取 snapshot 使用它。 |
 | Vector 字段契约 | 每个 Vector 字段或字段块必须定义 writer、value domain、lifecycle、snapshot-needed；不得把 Vector 当作全局变量自由读写。 |
 | 时间回绕 | `uint32_t timestamp_ms` 只能用于短时间差；时间差必须使用回绕安全写法 `int32_t diff = (int32_t)(t1 - t0)`，长时间事实需要 epoch 扩展。 |
 | Metadata failsafe | Bootloader 必须定义 metadata 双副本无效的强制恢复路径，禁止继续启动未知镜像。 |
@@ -174,6 +174,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | contract_id | 契约 | 域文档位置 | 状态 |
 |---|---|---|---|
 | `TDMA-FLIGHTBITMAP-01` | SHORT process image 固定 8×32 B，slot 前 8 B 由 core1 生成 RX 位图 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:235,490` | pending |
+| `TDMA-PROCESSIMAGE-01` | Node mailbox 按 VDC/DPLL、critical RefMem、ACK/fence/quality、control、CRC 顺序 mandatory-first 静态装配 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` | pending |
 | `TDMA-OPMODE-01` | SPI 速率与 TDMA 周期按离散 operating profile 成对切换，STOP 后生效 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:606-610` | pending |
 | `ARCH-FLASHMAP-01` | FlashMap v2 是 Boot/linker/App/factory/tool 的唯一分区词汇 | `docs/arch/HAOFV_FLASH_ARCHITECTURE.md` | pending |
 | `ARCH-FLASHOWNER-01` | App erase/program 仅 core0 FlashTransactionAO；Boot 使用最小 BootFlashService | `docs/arch/HAOFV_FLASH_ARCHITECTURE.md` | pending |

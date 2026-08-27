@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-08-25
+Last updated: 2026-08-28
 
 本文档定义 TDMA 在 HAOFV 下的基础件主域。TDMA 是分布式硬实时系统的确定性通讯骨架，负责在 core1/PIO/DMA 侧按窗口执行上行、下行、payload、timestamp 和 completion；VDC、RefMem、OTA、诊断等域只挂载 payload 或消费 evidence，不能拥有 TDMA 物理环路。
 
@@ -190,7 +190,10 @@ segment CRC，不能让 VDC 直接写 RefMem 段或让 RefMem 直接写 VDC 段�
 - `VDC_REALTIME`、`REFMEM_REALTIME` 只能进入 `SHORT` 队列。
 - reliable bulk、LOG best effort 只能进入 `LONG` 队列；配置流可按数据量选择短帧或长帧。
 - `LONG` 不得在严格自动同步阶段运行；只有 TDMA owner 打开 maintenance gate 且 active schedule 有足够 budget/guard 时才允许发送。
-- 当前 VDC 内帧为 216 B，加 32 B transport header 后为 248 B，满足 292 B 短帧上限。
+- `VDC_TDMA_DIAGNOSTIC_FRAME_SIZE` 只定义维护态 VDC 诊断内帧，不得进入产品周期
+  process image。产品态 VDC/DPLL 只能发布 VDC 合成共同时间所需的 compact 元素，并与
+  critical RefMem、ACK/quality 和少量控制字段共享 Node 段；容量事实引用
+  `TDMA_FLIGHT_MAILBOX_BODY_SIZE`，不得从诊断帧大小反推产品载荷。
 - 当前 RefMem 内帧理论最大为 292 B，不能直接再套短帧外层。PIO ring adapter 接入前必须把 critical delta 的 RefMem 内帧限制为 260 B，其中 RefMem 头 36 B、净 delta 最多 224 B；更大事实使用分片、background delta 或后续专用 bulk class。
 - RefMem 不做周期整表刷新。TDMA short queue 只接收由 dirty fact 触发、已经局部编码的 critical delta；首次加入或失步恢复的 full snapshot 只能走 maintenance long-frame 分片。
 - `hop_limit` 防止错误拓扑无限转发；origin 收到 `hop_count > 0` 且 identity 匹配的返回帧后停止转发，并形成 feedback candidate。
@@ -446,7 +449,9 @@ Domain AO / FB local fact commit
 - 状态事实可合并为最新 generation；command/event 使用独立有界队列，不塞进可覆盖的状态段。
 - `FLIGHT_MUTABLE` 只允许 `SHORT`。identity CRC 不覆盖可变 payload；每个 segment 自带 owner CRC/version，transport CRC 覆盖当前 hop 的完整 packet。
 - origin TX 与 feedback RX 的闭环相关使用 immutable identity CRC、sequence、schedule CRC 和 ring CRC，不能比较飞行前后的 mutable payload CRC。
-- 当前 216 B VDC 诊断内帧可作为 bring-up 的独立短帧，但不是最终 process-image 形态；产品飞行帧应使用 compact VDC sample，把余量留给 critical RefMem delta 和 ACK/quality。
+- `VDC_TDMA_DIAGNOSTIC_FRAME_SIZE` 对应的 VDC 诊断内帧可作为 bring-up 的独立短帧，
+  但不是最终 process-image 形态；产品飞行帧必须使用 compact VDC/DPLL 元素，把同一
+  Node 段的剩余容量留给 critical RefMem delta、ACK/quality 和控制字段。
 - RP2350 首版可以先实现有界 byte/block cut-through；只有 PIO/DMA 实测证明 RX/TX 重叠和固定 pipeline delay 后，才宣称飞行模式成立。
 
 #### T2 预约 process-image 分发
@@ -529,6 +534,92 @@ TransportAdapter 是可替换物理承载，不改变 TDMA 语义。
 | Future bus | 后续扩展。 | 只要满足 frame boundary、timestamp 和 completion contract，即可挂载。 |
 
 Adapter 不得直接写 VDC、RefMem 或 Trigger active fact。它只能返回 TX/RX 执行结果、frame、timestamp metadata 和错误计数。
+
+## 拍级确定性周期
+
+### TDMA-DET-01：唯一时间单位
+
+TDMA/Core1 调度的唯一事实源是 `clk_sys` 拍数。板级时钟引用
+`BOARD_SYS_CLOCK_HZ`，周期引用 `PROJECT_CORE1_CYCLE_CYCLES`。ns/us 只能按板级时钟
+派生用于显示、报告和 SDK 等待接口，不能作为 admission、phase 边界或 WCET 的输入。
+
+每个 phase 独立声明 `start_cycle`、`end_cycle` 和 `wcet_cycles`。正式表由
+`APP_REALTIME_PHASE_TABLE` 聚合；各执行项分别引用 `PROJECT_CORE1_PHASE_TDMA_*`、
+`PROJECT_CORE1_PHASE_VDC_*`、`PROJECT_CORE1_PHASE_DPLL_*`、
+`PROJECT_CORE1_PHASE_CALIBRATION_*`、`PROJECT_CORE1_PHASE_SYNC_CAPTURE_*`、
+`PROJECT_CORE1_PHASE_REFMEM_*`、`PROJECT_CORE1_PHASE_MODEL_*`、
+`PROJECT_CORE1_PHASE_SYNC_TRIGGER_*`、`PROJECT_CORE1_PHASE_TRIGGER_MEASURE_*` 和
+`PROJECT_CORE1_PHASE_GUARD_*`。其中 `DPLL` 只推进节点锁相与 VDC 必需的 DCO/lock 输出，
+不执行维护、历史重算或全域复制；`GUARD` 禁止承载任何负载。
+
+硬不变量：
+
+- phase 按表顺序排列、互不重叠、首 phase 从拍零开始、末 phase 结束于
+  `PROJECT_CORE1_CYCLE_CYCLES`。
+- `wcet_cycles <= end_cycle - start_cycle`；提前完成必须等待下一 phase，剩余拍不得借用。
+- phase 开始时若自己的 WCET 已无法在 `end_cycle` 前完成，则本次不执行并记录
+  `phase_start_miss_count`；执行超过 WCET 或 deadline 后隔离责任负载。TDMA phase 失败时隔离
+  全部可选负载，不能通过放宽 TDMA 时序掩盖问题。
+- `SYSTem:TDMA:SCHEDule?` 只读发布每个 phase 的合同、实际 start/runtime、最大 runtime、
+  skip/start-miss/overrun/deadline-miss；字段单位全部为拍。
+- 编译门禁验证 phase 有序、不重叠、周期闭合、WCET 容纳和最大 wire serialization 容纳。
+  `tools/tdma_ring_monitor/tdma_cycle_schedule.py` 从同一代码符号生成表格、JSON 或 SVG，
+  并可用实测 runtime 做 WCET 回归判定。
+
+### TDMA-DET-02：wire phase 与 CPU phase 分离
+
+`TDMA` phase 的最大 wire 下限由 `TDMA_PIO_SPI_PACKET_HEADER_SIZE`、
+`TDMA_TRANSPORT_SHORT_PACKET_MAX`、`TDMA_PIO_SPI_FLIGHT_MAX_TAIL_BYTES`、
+`BOARD_TDMA_SPI_BAUD_HZ` 和 `BOARD_SYS_CLOCK_HZ` 推导，不允许另写微秒常量。active topology、
+baud、tail 或 process-image 变化时，DeploymentGate 必须重新计算并拒绝超出 TDMA WCET 的
+profile。
+
+当前 `tdma_component_core1_service()` 仍包含 frame prepare、PIO launch、wire wait 和 completion
+的组合调用，因此本阶段只能约束整个 `TDMA` phase。下一阶段必须拆成“上一周期构建 shadow
+image → DMA/FIFO preload → PIO hardware launch → wire → feedback/commit”子 phase；CS/SCK/DATA
+首边沿由 PIO/硬件事件产生，Core1 只能提前预装，不能靠函数调用到达时间决定物理起点。
+
+### TDMA-DET-03：基础载荷优先的静态装配
+
+Core1 的 `DPLL` 执行 phase 与 wire 上的 DPLL/VDC 数据不是同一个“负载”。wire 产品态只有
+一张固定 SHORT process image，容量由 `TDMA_FLIGHT_SHORT_PAYLOAD_SIZE` 冻结；每个 Node 固定
+段由 `TDMA_FLIGHT_MAILBOX_FAST_HEADER_SIZE` 和 `TDMA_FLIGHT_MAILBOX_BODY_SIZE` 组成。
+
+System Pack 生成布局时必须按以下顺序静态装配：
+
+1. 先放入 mandatory 基础载荷：节点锁相后供 VDC 合成共同时间所需的最小
+   update/lock/phase/rate/quality 元素、critical RefMem、ACK/fence/quality 和最小控制 token。
+2. 计算每个 Node body 与整张 process image 的剩余容量。
+3. 只有同优先级、固定周期、固定最大长度且已声明 owner/CRC/completion 的元素，才能在
+   构建阶段加入剩余容量；加入后成为固定布局，不再是运行时 opportunistic 流量。
+4. 容量之和超出 `TDMA_FLIGHT_MAILBOX_BODY_SIZE` 或
+   `TDMA_FLIGHT_SHORT_PAYLOAD_SIZE` 时，构建/DeploymentGate 立即拒绝。
+
+禁止为 DPLL 建立独立全状态周期帧，禁止把 `vdc_domain_snapshot_t`、DCO 完整诊断镜像或
+`VDC_TDMA_DIAGNOSTIC_FRAME_SIZE` 直接放入 process image。禁止运行时因为“本周期看起来有余量”
+临时扩帧、追加第二帧、借用 guard 或抢占另一 Node 的段。低优先级内容只能进入明确的
+maintenance phase。
+
+产品 Node mailbox 的当前固定布局由 `tdma_process_image_layout.h` 独占定义，域文档只引用
+符号，不复制字节数。`TDMA_PROCESS_IMAGE_MANDATORY_BODY_SIZE` 先由下列 mandatory 区域组成，
+`TDMA_PROCESS_IMAGE_OPTIONAL_BODY_CAPACITY` 再决定可否装入 optional 区域：
+
+| 区域 | 偏移/容量事实源 | 内容与 owner |
+|---|---|---|
+| VDC/DPLL minimum | `TDMA_PROCESS_IMAGE_VDC_OFFSET/SIZE` | phase、rate、lock、quality；VDC 是唯一 writer。 |
+| critical RefMem | `TDMA_PROCESS_IMAGE_REFMEM_OFFSET/SIZE` | generation、field ID、单个 critical `u32`；RefMem 是唯一 writer。 |
+| ACK/fence/quality | `TDMA_PROCESS_IMAGE_ACK_QUALITY_OFFSET/SIZE` | 可见性确认、fence 位和质量摘要；RefMem completion owner 写。 |
+| minimal control token | `TDMA_PROCESS_IMAGE_CONTROL_OFFSET/SIZE` | opcode 与有界 token sequence；控制 owner 只写 shadow。 |
+| mailbox CRC | `TDMA_PROCESS_IMAGE_CRC_OFFSET/SIZE` | 覆盖固定 Node mailbox，parser 校验后才展开域字段。 |
+| optional diagnostic | `TDMA_PROCESS_IMAGE_OPTIONAL_DIAGNOSTIC_OFFSET/SIZE` | 仅因 mandatory 后仍有静态余量而准入；不得承载闭环控制。 |
+
+`TDMA_PROCESS_IMAGE_CONFIGURED_BODY_SIZE` 必须精确等于
+`TDMA_FLIGHT_MAILBOX_BODY_SIZE`，因此当前 layout 没有 runtime-free 字节。VDC phase/rate 使用
+`TDMA_PROCESS_IMAGE_VDC_PHASE_QUANTUM_NS` 和
+`TDMA_PROCESS_IMAGE_VDC_RATE_QUANTUM_PPB` 有符号量化；饱和只影响 wire 摘要，不能回写或改变
+本地 DPLL。fast header 的 sequence 是 mailbox generation，RefMem 仍保留独立 generation，
+不得把 core1 的去重序号冒充 RefMem commit/ACK。布局变化必须提升 wire/layout version、通过
+`tools/tdma_ring_monitor/tdma_process_image_budget.py` 和编译断言，并重新执行多板 HIL。
 
 ## TSN-style 资源治理与流控
 

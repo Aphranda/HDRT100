@@ -4,9 +4,83 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_TODO.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`
-Last updated: 2026-08-25
+Last updated: 2026-08-28
 
 本文档维护 TDMA foundation 的独立待办。这里记录影响上/下行 TDMA、ring runtime、payload registry、adapter、completion、quality、HAOFV system node 和 HIL 验收的事项。
+
+## 文档接口
+
+- 稳定语义和跨域契约：`TDMA_DOMAIN_ARCHITECTURE.md`。
+- 当前任务状态和退出门禁：本文件。
+- 构建、测试、OTA/HIL、失败与回退证据：`TDMA_TASK_PROGRESS.md`。
+- 契约登记状态：`docs/check/DOCS_REGISTRY.md`。
+
+## 状态规则
+
+任务状态只使用 `DONE`、`IN PROGRESS`、`PENDING`、`BLOCKED`。代码和 host test 通过但尚未
+OTA/HIL 的任务不得标为 `DONE`；运行时临时剩余容量不得用于改变静态 payload 布局。
+
+## 已有基线
+
+- TDMA owner、ring runtime、traffic scheduler、双 FIFO、固定 process image 和 raw-flight
+  persona 已有代码基线；单次构建/HIL 数值只在任务进度文档保存。
+- 校准训练的测量、矩阵和 raw waveform 归 Calibration Domain；TDMA 只拥有 transport、窗口和
+  completion evidence。
+- 产品 SHORT 使用固定 Node mailbox；VDC 诊断帧不是产品 process-image payload。
+
+## 当前主线
+
+先完成拍级确定性 schedule 和 mandatory-first SHORT process image，再以五板 TDMA-only HIL
+冻结 WCET/波形基线；随后逐 phase 加载 DPLL/VDC、RefMem 与最小控制。任何负载回归都修复责任
+负载，不放宽 TDMA phase。
+
+## 里程碑总览
+
+| ID | 里程碑 | 状态 | 完成或退出门禁 |
+|---|---|---|---|
+| TDMA-M1 | 拍级 schedule 与编译门禁 | IN PROGRESS | 静态 gate 全绿，五板实测 WCET 不超合同。 |
+| TDMA-M2 | mandatory-first SHORT process image | IN PROGRESS | 固定布局、publisher/parser、CRC、SCPI 与多板 HIL 全闭环。 |
+| TDMA-M3 | DPLL/VDC 最小负载 | PENDING | 硬件 latch 样本可追溯，节点锁相且发布 VDC。 |
+| TDMA-M4 | completion/reliability | PENDING | ACK/fence/retry/fail-closed 与长期错误率门禁成立。 |
+| TDMA-M5 | T2 reservation 与控制 | PENDING | 预算内 PREPARE/READY/fence/completion 五板闭环。 |
+
+## 当前任务表
+
+| ID | 任务 | 状态 | 完成或退出门禁 |
+|---|---|---|---|
+| TDMA-DET-001 | 拍级 phase table 与唯一时间单位 | DONE | `APP_REALTIME_PHASE_TABLE` 和编译期邻接/周期闭合检查存在。 |
+| TDMA-DET-002 | schedule 与最大 wire 编译门禁 | DONE | phase、WCET、SPI 整拍和最大 SHORT wire 超限均拒绝构建。 |
+| TDMA-DET-003 | 拍级 runtime/SCPI evidence | IN PROGRESS | SCPI 字段已接入；待五板采集 start/runtime/WCET/miss。 |
+| TDMA-DET-004 | 拆分 prepare/preload/hardware-launch/wire/feedback | PENDING | 首边沿由 PIO/硬件事件触发，各子 phase 有独立拍级合同。 |
+| TDMA-DET-005 | active topology/baud/tail 动态容量门禁 | PENDING | profile 激活前重算 wire，超出 TDMA WCET fail closed。 |
+| TDMA-PAYLOAD-001 | mandatory-first Node body 预算与固定布局 | DONE | `tdma_process_image_layout.h`、编译断言和预算工具一致。 |
+| TDMA-PAYLOAD-002 | compact VDC/DPLL publisher/parser evidence | IN PROGRESS | 最小字段已上 wire；待五板回读和量化/饱和 HIL。 |
+| TDMA-PAYLOAD-003 | critical RefMem 与 ACK/fence/quality | IN PROGRESS | baseline delta 与 ACK 摘要已上 wire；待正式 commit/fence 闭环。 |
+| TDMA-PAYLOAD-004 | 最小控制 token | IN PROGRESS | 固定 token 已预留；待 owner、opcode 与 completion 接入。 |
+| TDMA-PAYLOAD-005 | optional 静态余量准入门禁 | DONE | optional 只使用 mandatory 后余量，layout 不保留 runtime-free 字节。 |
+| TDMA-HIL-001 | 五板 TDMA-only WCET/频率/占空比/SD 波形基线 | PENDING | OTA 后原始波形、SVG、schedule snapshot 与零错误基线归档。 |
+| TDMA-HIL-002 | 逐 phase 开载且 TDMA 零回归 | PENDING | 依次启用 VDC/DPLL/RefMem/control，TDMA deadline/error 不增加。 |
+| TDMA-DPLL-001 | PIO/DMA hardware latch correlation | PENDING | 同圈 sequence/CRC/TX-RX latch/path delay 形成 eligible sample。 |
+| TDMA-DPLL-002 | 节点 DPLL lock 与 VDC 发布 | PENDING | NO.1..NO.4 锁相，NO.5 观测指定间隔和同时触发。 |
+| TDMA-REL-001 | ACK/fence/retry 和长期稳定性策略 | PENDING | 原始错误率先收敛，再以有界重发/修复完成 EtherCAT-style 验收。 |
+| TDMA-T2-001 | REFMEM + 部分控制后的 T2 最小载荷预算 | PENDING | 不超固定 SHORT/body 和 phase WCET，编译期拒绝 overcommit。 |
+
+## 当前阻塞项
+
+- `TDMA-HIL-001` 尚未执行，因此拍级 phase 和新 wire layout 只能视为代码/host 基线。
+- `TDMA-DET-004` 未完成前，CPU phase 仍包住组合 TDMA service，尚不能证明物理首边沿完全不受
+  其他负载调用路径影响。
+- formal ACK/fence 与 control owner 尚未接入，新布局中的对应字段当前只提供固定基础语义。
+
+## 统一完成定义
+
+任务只有同时满足架构 owner、不变量、编译/pytest、OTA 多板实测、SD 原始波形/分析、失败回退
+证据和文档门禁，才可标为 `DONE`。HIL 未执行时必须停留在 `IN PROGRESS`。
+
+## 迁移前历史任务索引（快照，非状态事实源）
+
+以下旧 P0-P7 清单仅保留迁移追溯；当前状态以上述稳定 ID 任务表为唯一事实源，单次证据以
+`TDMA_TASK_PROGRESS.md` 为准。
 
 ## 产品样板迁移
 
