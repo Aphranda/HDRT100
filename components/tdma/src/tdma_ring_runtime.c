@@ -432,6 +432,9 @@ bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
     runtime->feedback_round_trip_ns = 0u;
     runtime->reference_tx_timestamp_ns = 0ull;
     runtime->feedback_rx_timestamp_ns = 0ull;
+    runtime->feedback_evidence_valid = 0u;
+    runtime->feedback_evidence_service_ns = 0ull;
+    runtime->feedback_evidence_sequence = 0u;
     runtime->data_enabled = 0u;
     runtime->train_request_seq =
         tdma_ring_runtime_load(&runtime->train_command_seq);
@@ -637,14 +640,35 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
     uint32_t round_trip_ns = runtime->feedback_round_trip_ns;
     const bool feedback_updated = adapter_service_ok &&
         adapter_status.down_rx_sequence != previous_down_rx_sequence;
-    const bool feedback_correlated = feedback_updated &&
-        tdma_ring_runtime_feedback_correlated(runtime,
-                                              &adapter_status,
-                                              &correlated_round_trip_ns);
+    bool feedback_correlated = false;
     if (feedback_updated) {
+        feedback_correlated = tdma_ring_runtime_feedback_correlated(
+            runtime, &adapter_status, &correlated_round_trip_ns);
+        runtime->feedback_evidence_valid = feedback_correlated ? 1u : 0u;
+        runtime->feedback_evidence_service_ns = feedback_correlated
+            ? now_ns
+            : 0ull;
+        runtime->feedback_evidence_sequence = feedback_correlated
+            ? adapter_status.feedback_reference_sequence
+            : 0u;
         round_trip_ns = feedback_correlated ? correlated_round_trip_ns : 0u;
-    } else if (!adapter_service_ok || adapter_status.up_running == 0u ||
-               adapter_status.down_running == 0u) {
+    } else if (adapter_service_ok && adapter_status.up_running != 0u &&
+               adapter_status.down_running != 0u &&
+               runtime->feedback_evidence_valid != 0u &&
+               runtime->feedback_evidence_service_ns != 0ull &&
+               now_ns >= runtime->feedback_evidence_service_ns &&
+               now_ns - runtime->feedback_evidence_service_ns <=
+                   (uint64_t)runtime->feedback_timeout_ns) {
+        /* Hold the latest correlated sample until the next deterministic
+         * opportunity or timeout.  It is still the same sequence; no new
+         * frame is counted or consumed by this retention path. */
+        feedback_correlated = true;
+        correlated_round_trip_ns = runtime->feedback_round_trip_ns;
+        round_trip_ns = runtime->feedback_round_trip_ns;
+    } else {
+        runtime->feedback_evidence_valid = 0u;
+        runtime->feedback_evidence_service_ns = 0ull;
+        runtime->feedback_evidence_sequence = 0u;
         round_trip_ns = 0u;
     }
     if (adapter_service_ok && adapter_status.up_running != 0u &&

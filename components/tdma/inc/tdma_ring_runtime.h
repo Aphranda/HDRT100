@@ -298,6 +298,13 @@ typedef struct {
     volatile uint32_t training_dirty;
     volatile uint64_t reference_tx_timestamp_ns;
     volatile uint64_t feedback_rx_timestamp_ns;
+    /* A correlated hardware-latched feedback sample remains valid between
+     * frame arrivals for one configured feedback timeout.  This prevents the
+     * evidence bit from flickering low on every core1 service tick while the
+     * ring is otherwise healthy. */
+    volatile uint32_t feedback_evidence_valid;
+    volatile uint64_t feedback_evidence_service_ns;
+    volatile uint32_t feedback_evidence_sequence;
     const tdma_ring_adapter_ops_t *adapter_ops;
     void *adapter_context;
 } tdma_ring_runtime_t;

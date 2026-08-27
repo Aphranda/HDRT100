@@ -340,12 +340,25 @@ int main(void)
                          500u);
     tdma_ring_runtime_service(&runtime);
     (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
-    failed += expect_u32("hardware feedback event is not counted twice",
+    failed += expect_u32("hardware feedback evidence is retained between frames",
                          snapshot.simultaneous_feedback_loop_evidence,
-                         0u);
+                         1u);
     failed += expect_u32("feedback round trip remains readable",
                          snapshot.feedback_round_trip_ns,
                          500u);
+    for (uint32_t service = 0u; service < 11u; service++) {
+        tdma_ring_runtime_service(&runtime);
+    }
+    (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
+    failed += expect_u32("retained feedback expires at configured timeout",
+                         snapshot.simultaneous_feedback_loop_evidence,
+                         0u);
+    failed += expect_u32("expired feedback round trip is cleared",
+                         snapshot.feedback_round_trip_ns,
+                         0u);
+    failed += expect_u32("expired feedback reports evidence missing",
+                         snapshot.last_reason,
+                         TDMA_RING_RUNTIME_REASON_EVIDENCE_MISSING);
     failed += expect_u32("loop delay staged",
                          snapshot.loop_delay_ns,
                          700u);
