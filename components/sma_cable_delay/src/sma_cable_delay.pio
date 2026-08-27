@@ -1,0 +1,54 @@
+.program sma_cable_delay_source
+.wrap_target
+    set pins, 1
+    set pins, 0
+.wrap
+
+.program sma_cable_delay_capture
+.wrap_target
+    in pins, 4
+.wrap
+
+% c-sdk {
+
+static inline void sma_cable_delay_source_program_init(PIO pio,
+                                                        uint sm,
+                                                        uint offset,
+                                                        uint output_pin,
+                                                        float clkdiv)
+{
+    pio_gpio_init(pio, output_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, output_pin, 1u, true);
+
+    pio_sm_config config =
+        sma_cable_delay_source_program_get_default_config(offset);
+    sm_config_set_set_pins(&config, output_pin, 1u);
+    sm_config_set_clkdiv(&config, clkdiv);
+    pio_sm_init(pio, sm, offset, &config);
+    pio_sm_set_pins(pio, sm, 0u);
+}
+
+static inline void sma_cable_delay_capture_program_init(PIO pio,
+                                                         uint sm,
+                                                         uint offset,
+                                                         uint input_base_pin)
+{
+    for (uint pin = input_base_pin; pin < input_base_pin + 4u; ++pin) {
+        pio_gpio_init(pio, pin);
+    }
+    pio_sm_set_consecutive_pindirs(pio,
+                                   sm,
+                                   input_base_pin,
+                                   4u,
+                                   false);
+
+    pio_sm_config config =
+        sma_cable_delay_capture_program_get_default_config(offset);
+    sm_config_set_in_pins(&config, input_base_pin);
+    sm_config_set_in_shift(&config, false, true, 32u);
+    sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_RX);
+    sm_config_set_clkdiv(&config, 1.0f);
+    pio_sm_init(pio, sm, offset, &config);
+}
+
+%}

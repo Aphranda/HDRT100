@@ -60,6 +60,8 @@ scpi_result_t scpi_calibration_path_rollback_q(scpi_t *context);
 scpi_result_t scpi_calibration_p3_start(scpi_t *context);
 scpi_result_t scpi_calibration_p3_stop(scpi_t *context);
 scpi_result_t scpi_calibration_p3_q(scpi_t *context);
+scpi_result_t scpi_calibration_sma_cable_phase_q(scpi_t *context);
+scpi_result_t scpi_calibration_sma_cable_coarse_q(scpi_t *context);
 
 #define SCPI_CALIBRATION_COMMANDS \
     {.pattern = "CONFigure:CALibration:LINK:ADD", .callback = scpi_port_result_accepted}, \
@@ -113,6 +115,8 @@ scpi_result_t scpi_calibration_p3_q(scpi_t *context);
     {.pattern = "CALibration:P3:STARt", .callback = scpi_calibration_p3_start}, \
     {.pattern = "CALibration:P3:STOP", .callback = scpi_calibration_p3_stop}, \
     {.pattern = "READ:CALibration:P3?", .callback = scpi_calibration_p3_q}, \
+    {.pattern = "READ:CALibration:SMA:CABLe:PHASe?", .callback = scpi_calibration_sma_cable_phase_q}, \
+    {.pattern = "READ:CALibration:SMA:CABLe:COARse?", .callback = scpi_calibration_sma_cable_coarse_q}, \
     {.pattern = "READ:CALibration:STATe?", .callback = scpi_calibration_result_q}, \
     {.pattern = "READ:CALibration:RESult?", .callback = scpi_calibration_result_q}, \
     {.pattern = "CONFigure:CALibration:PARameter:ADD", .callback = scpi_port_result_accepted}, \

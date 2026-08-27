@@ -475,6 +475,8 @@ set(PROJECT_APP_SOURCES
         third_party/portable_ota/src/pota_session.c
         third_party/portable_ota/src/pota_package.c
         components/resource_arbiter/src/resource_arbiter.c
+        components/sma_cable_delay/src/sma_cable_delay.c
+        components/sma_cable_delay/src/sma_cable_delay_pio.c
         components/storage_manager/src/storage_manager.c
         components/system_manager/src/system_manager.c
         components/sync_trigger/src/biss_node_io.c
@@ -617,6 +619,7 @@ function(project_configure_app_target target_name app_name linker_script)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/biss_tap_rx.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/distributed_refmem/src/refmem_spi_physical.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/tdma/src/tdma_pio_spi.pio)
+    pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sma_cable_delay/src/sma_cable_delay.pio)
 
     pico_enable_stdio_uart(${target_name} ${PROJECT_ENABLE_UART_STDIO})
     pico_enable_stdio_usb(${target_name} ${PROJECT_EFFECTIVE_USB_STDIO})
@@ -639,6 +642,7 @@ function(project_configure_app_target target_name app_name linker_script)
         ${CMAKE_CURRENT_LIST_DIR}/components/ota_manager/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/product_config/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/resource_arbiter/inc
+        ${CMAKE_CURRENT_LIST_DIR}/components/sma_cable_delay/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/storage_manager/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/system_manager/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/sync_trigger/inc
