@@ -231,8 +231,10 @@ def status(board: Board, args: argparse.Namespace) -> dict[str, int]:
         raise RuntimeError(
             f"{board.address}: TDMA field count {len(values)}, "
             f"expected {len(TDMA_FIELDS)}")
-    keys = ("ring_enabled", "ring_node_count", "ring_local_slot_id",
+    keys = ("ring_enabled", "ring_config_seq", "ring_node_count",
+            "ring_local_slot_id",
             "ring_reference_slot_id",
+            "ring_profile_crc32", "ring_schedule_crc32",
             "ring_adapter_started", "ring_up_running", "ring_down_running",
             "ring_adapter_tx_count", "ring_adapter_rx_count",
             "ring_adapter_rx_bad_count")

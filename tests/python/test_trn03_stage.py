@@ -11,8 +11,10 @@ TOOL_DIR = ROOT / "tools" / "calibration_ring_validate"
 if str(TOOL_DIR) not in sys.path:
     sys.path.insert(0, str(TOOL_DIR))
 
+import trn03_stage as stage_module  # noqa: E402
 from trn03_stage import (  # noqa: E402
     load_config,
+    prepare_board_context,
     runtime_is_armed,
     runtime_is_stopped,
     runtime_status_for_node,
@@ -63,6 +65,7 @@ def matrix() -> dict[str, object]:
         })
     return {
         "node_count": 4,
+        "profile_level": 7,
         "baud_hz": 10_000_000,
         "evidence_flags": 0x1F,
         "calibration_generation": 88,
@@ -300,3 +303,69 @@ def test_runtime_status_is_exposed_with_node_terms() -> None:
     armed["ring_enabled"] = 0
     armed["ring_adapter_started"] = 0
     assert runtime_is_stopped(armed)
+
+
+def test_prepare_context_restores_profile_and_topology(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    config = matrix()
+    config["profile_level"] = 7
+    config["baud_hz"] = 10_000_000
+    commands: list[str] = []
+    board = type("Board", (), {"address": "node2"})()
+    args = type("Args", (), {"arm_wait": 1.0})()
+
+    monkeypatch.setattr(
+        stage_module, "checked_action",
+        lambda board, command, args: commands.append(command) or {
+            "command": command, "passed": True})
+    monkeypatch.setattr(
+        stage_module, "wait_stopped",
+        lambda board, args, node_index: {
+            "node_index": node_index, "ring_enabled": 0,
+            "ring_adapter_started": 0})
+    monkeypatch.setattr(
+        stage_module, "board_command",
+        lambda board, command, args:
+            ('1' if command.endswith('FLIGHT:MODE?') else
+             f'7,10000000,100,1,0,{config["profile_crc32"]},0,0,0,0,0,0'))
+    monkeypatch.setattr(
+        stage_module, "ring_status",
+        lambda board, args: {
+            "ring_node_count": 4,
+            "ring_local_slot_id": 2,
+            "ring_reference_slot_id": 0,
+            "ring_profile_crc32": config["profile_crc32"],
+            "ring_schedule_crc32": config["schedule_crc32"],
+        })
+
+    context = prepare_board_context(board, config, 2, args)
+    assert context["passed"] is True
+    assert commands == [
+        "SYSTem:TDMA:RING:STOP",
+        "SYSTem:TDMA:FLIGHT:MODE 0",
+        "SYSTem:TDMA:OPMode:STAGe 7",
+        "SYSTem:TDMA:OPMode:APPLy",
+        "SYSTem:TDMA:RING:TOPology 4,2,0",
+    ]
+
+
+def test_prepare_context_rejects_non_raw_flight_mode(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    config = matrix()
+    config["profile_level"] = 7
+    config["baud_hz"] = 10_000_000
+    board = type("Board", (), {"address": "node0"})()
+    args = type("Args", (), {"arm_wait": 1.0})()
+    monkeypatch.setattr(
+        stage_module, "checked_action",
+        lambda board, command, args: {"command": command})
+    monkeypatch.setattr(
+        stage_module, "wait_stopped",
+        lambda board, args, node_index: {})
+    monkeypatch.setattr(
+        stage_module, "board_command",
+        lambda board, command, args:
+            ('2' if command.endswith('FLIGHT:MODE?') else
+             f'7,10000000,100,1,0,{config["profile_crc32"]},0,0,0,0,0,0'))
+    with pytest.raises(RuntimeError, match="raw-flight mode not active"):
+        prepare_board_context(board, config, 0, args)

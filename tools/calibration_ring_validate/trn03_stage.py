@@ -13,6 +13,7 @@ import argparse
 import csv
 import json
 import sys
+import time
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -179,6 +180,7 @@ def validate_config(raw: object,
         raise ValueError("config root must be an object")
     header = {field: integer_field(raw, field) for field in HEADER_FIELDS}
     baud_hz = integer_field(raw, "baud_hz")
+    profile_level = integer_field(raw, "profile_level")
     if baud_hz == 0:
         raise ValueError("baud_hz must be non-zero")
     node_count = header["node_count"]
@@ -363,6 +365,7 @@ def validate_config(raw: object,
     return {
         **header,
         "baud_hz": baud_hz,
+        "profile_level": profile_level,
         "offset_row_id": selected_row_id,
         "offset_row": selected_row,
         "links": ordered_links,
@@ -499,6 +502,72 @@ def runtime_is_stopped(status: dict[str, int]) -> bool:
         status["ring_adapter_started"] == 0
 
 
+def active_profile(raw: str) -> dict[str, int]:
+    row = next(csv.reader([raw]), [])
+    if len(row) < 6:
+        raise RuntimeError(f"invalid TDMA operating profile: {raw!r}")
+    values = [int(value.strip().strip('"'), 0) for value in row[:6]]
+    return dict(zip(("level", "baud_hz", "cycle_period_ns", "train_cycles",
+                     "flags", "profile_crc32"), values))
+
+
+def wait_stopped(board: Board, args: argparse.Namespace,
+                 node_index: int) -> dict[str, int]:
+    deadline = time.monotonic() + args.arm_wait
+    last: dict[str, int] = {}
+    while time.monotonic() < deadline:
+        last = runtime_status_for_node(ring_status(board, args), node_index)
+        if runtime_is_stopped(last):
+            return last
+        time.sleep(0.03)
+    raise RuntimeError(f"{board.address}: TDMA did not stop: {last}")
+
+
+def prepare_board_context(board: Board, config: dict[str, Any],
+                          node_index: int,
+                          args: argparse.Namespace) -> dict[str, Any]:
+    """Restore the TDMA owner context required by Calibration staging."""
+    profile_level = config.get("profile_level")
+    if not isinstance(profile_level, int) or profile_level < 0:
+        raise ValueError("profile_level is required for board staging")
+    actions = [checked_action(board, "SYSTem:TDMA:RING:STOP", args)]
+    stopped_before = wait_stopped(board, args, node_index)
+    actions.append(checked_action(
+        board, "SYSTem:TDMA:FLIGHT:MODE 0", args))
+    flight_mode_raw = board_command(
+        board, "SYSTem:TDMA:FLIGHT:MODE?", args).strip().strip('"')
+    try:
+        flight_mode = int(flight_mode_raw, 0)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"{board.address}: invalid flight mode {flight_mode_raw!r}") from exc
+    if flight_mode != 1:
+        raise RuntimeError(
+            f"{board.address}: raw-flight mode not active: {flight_mode}")
+    actions.append(checked_action(
+        board, f"SYSTem:TDMA:OPMode:STAGe {profile_level}", args))
+    actions.append(checked_action(board, "SYSTem:TDMA:OPMode:APPLy", args))
+    profile = active_profile(
+        board_command(board, "SYSTem:TDMA:OPMode?", args))
+    if (profile["level"] != profile_level or
+            profile["baud_hz"] != config["baud_hz"] or
+            profile["profile_crc32"] != config["profile_crc32"]):
+        raise RuntimeError(f"{board.address}: profile mismatch {profile}")
+    actions.append(checked_action(
+        board,
+        f"SYSTem:TDMA:RING:TOPology {config['node_count']},{node_index},0",
+        args))
+    stopped_after = wait_stopped(board, args, node_index)
+    return {
+        "actions": actions,
+        "stopped_before": stopped_before,
+        "profile": profile,
+        "flight_mode": flight_mode,
+        "stopped_after": stopped_after,
+        "passed": True,
+    }
+
+
 def main() -> int:
     args = parse_args()
     config = load_config(args.config)
@@ -541,7 +610,13 @@ def main() -> int:
                                 "clear_response": response,
                                 "passed": True})
         else:
+            contexts = [
+                prepare_board_context(board, config, node_index, args)
+                for node_index, board in enumerate(ordered)
+            ]
             results = [stage_board(board, config, args) for board in ordered]
+            for result, context in zip(results, contexts):
+                result["tdma_context"] = context
             if args.arm_gate and all(result["passed"] for result in results):
                 try:
                     for board, result in zip(ordered, results):
