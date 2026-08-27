@@ -23,6 +23,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("artifact", type=Path, help="UF2 artifact to load")
     parser.add_argument("--picotool", type=Path, default=DEFAULT_PICOTOOL)
     parser.add_argument("--serial-number", help="expected RP2350 unique serial")
+    parser.add_argument("--bus", type=int, help="explicit USB bus selector")
+    parser.add_argument("--address", type=int, help="explicit USB address selector")
     parser.add_argument("--settle", type=float, default=1.0)
     parser.add_argument(
         "--command-timeout", type=float, default=180.0,
@@ -90,6 +92,21 @@ def bootsel_device_visible(output: str) -> bool:
     return "boot type:" in normalized and "bootsel" in normalized
 
 
+def build_device_selection(args: argparse.Namespace) -> list[str]:
+    if args.bus is not None and args.bus < 0:
+        raise ValueError("bus must be non-negative")
+    if args.address is not None and args.address < 0:
+        raise ValueError("address must be non-negative")
+    if (args.bus is None) != (args.address is None):
+        raise ValueError("bus and address must be provided together")
+    selection: list[str] = []
+    if args.serial_number:
+        selection.extend(["--ser", args.serial_number])
+    if args.bus is not None:
+        selection.extend(["--bus", str(args.bus), "--address", str(args.address)])
+    return selection
+
+
 def main() -> int:
     args = parse_args()
     artifact = args.artifact if args.artifact.is_absolute() else ROOT / args.artifact
@@ -100,13 +117,19 @@ def main() -> int:
         raise SystemExit(f"picotool not found: {picotool}")
 
     records: list[str] = []
-    selection = ["--ser", args.serial_number] if args.serial_number else []
+    try:
+        selection = build_device_selection(args)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    explicit_usb_selector = args.bus is not None
     info = run(picotool, ["info", "-a", *selection], args.command_timeout)
     records.append(f"$ picotool info -a {' '.join(selection)}\n{info.stdout}")
-    if info.returncode != 0 and "USB serial" not in info.stdout:
+    if (info.returncode != 0 and "USB serial" not in info.stdout and
+            not (explicit_usb_selector and "BOOTSEL mode" in info.stdout)):
         return finish(records, args.out, info.returncode)
 
-    if bootsel_device_visible(info.stdout):
+    if bootsel_device_visible(info.stdout) or (
+            explicit_usb_selector and "BOOTSEL mode" in info.stdout):
         # Do not reboot an already mounted BOOTSEL device: a second reboot can
         # detach the USB target while the subsequent load is being prepared.
         bootsel_probe = info

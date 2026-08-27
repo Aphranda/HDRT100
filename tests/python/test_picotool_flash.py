@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import argparse
 import sys
 
 from tools.picotool_flash.picotool_flash import (
     build_full_erase_args,
     build_full_erase_range_args,
+    build_device_selection,
     bootsel_device_visible,
     parse_args,
     selected_application_device_visible,
@@ -50,3 +52,8 @@ def test_bootsel_device_visible_detects_existing_rom_mode() -> None:
     assert not bootsel_device_visible(
         "appears to have a USB serial connection, not in BOOTSEL mode"
     )
+
+
+def test_explicit_usb_selector_is_complete_and_stable() -> None:
+    args = argparse.Namespace(serial_number=None, bus=2, address=59)
+    assert build_device_selection(args) == ["--bus", "2", "--address", "59"]
