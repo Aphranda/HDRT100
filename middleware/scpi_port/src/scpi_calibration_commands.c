@@ -124,8 +124,10 @@ scpi_result_t scpi_calibration_sma_cable_phase_q(scpi_t *context)
 
     const sma_cable_delay_pio_config_t config = {
         .role = SMA_CABLE_DELAY_PIO_ROLE_SELF_LOOP,
+        .timing = SMA_CABLE_DELAY_PIO_TIMING_FREE_RUNNING,
         .output_index = output_channel - 1u,
         .input_base_pin = BOARD_SYNC_INPUT_BASE_PIN,
+        .appointment_marker_pin = BOARD_SYNC_INPUT_BASE_PIN,
         .reverse_input_bits = BOARD_SYNC_INPUT_BITS_REVERSED != 0,
     };
     sma_cable_delay_pio_status_t status = sma_cable_delay_pio_open(&config);
@@ -196,10 +198,16 @@ scpi_result_t scpi_calibration_sma_cable_source_start(scpi_t *context)
 
     uint32_t frequency_hz = 0u;
     uint32_t output_channel = 0u;
+    uint32_t appointment_mode = 0u;
     if (SCPI_ParamUInt32(context, &frequency_hz, TRUE) != TRUE ||
         SCPI_ParamUInt32(context, &output_channel, TRUE) != TRUE ||
         frequency_hz == 0u || output_channel == 0u ||
         output_channel > BOARD_SYNC_OUTPUT_PIN_COUNT) {
+        scpi_port_push_exec_error(context, "SMA_CABLE_BAD_ARGUMENT");
+        return SCPI_RES_ERR;
+    }
+    (void)SCPI_ParamUInt32(context, &appointment_mode, FALSE);
+    if (appointment_mode > 1u) {
         scpi_port_push_exec_error(context, "SMA_CABLE_BAD_ARGUMENT");
         return SCPI_RES_ERR;
     }
@@ -213,8 +221,12 @@ scpi_result_t scpi_calibration_sma_cable_source_start(scpi_t *context)
 
     const sma_cable_delay_pio_config_t config = {
         .role = SMA_CABLE_DELAY_PIO_ROLE_SOURCE,
+        .timing = appointment_mode != 0u
+            ? SMA_CABLE_DELAY_PIO_TIMING_MARK_APPOINTMENT
+            : SMA_CABLE_DELAY_PIO_TIMING_FREE_RUNNING,
         .output_index = output_channel - 1u,
         .input_base_pin = BOARD_SYNC_INPUT_BASE_PIN,
+        .appointment_marker_pin = BOARD_SYNC_INPUT_BASE_PIN,
         .reverse_input_bits = BOARD_SYNC_INPUT_BITS_REVERSED != 0,
     };
     sma_cable_delay_pio_status_t status = sma_cable_delay_pio_open(&config);
@@ -257,22 +269,33 @@ scpi_result_t scpi_calibration_sma_cable_validator_q(scpi_t *context)
 
     uint32_t frequency_hz = 0u;
     uint32_t capture_word_count = SCPI_SMA_CABLE_CAPTURE_DEFAULT_WORDS;
+    uint32_t appointment_mode = 0u;
     if (SCPI_ParamUInt32(context, &frequency_hz, TRUE) != TRUE) {
         scpi_port_push_exec_error(context, "SMA_CABLE_BAD_ARGUMENT");
         return SCPI_RES_ERR;
     }
     (void)SCPI_ParamUInt32(context, &capture_word_count, FALSE);
+    (void)SCPI_ParamUInt32(context, &appointment_mode, FALSE);
     if (frequency_hz == 0u ||
         capture_word_count < SMA_CABLE_DELAY_PIO_MIN_CAPTURE_WORDS ||
-        capture_word_count > SCPI_SMA_CABLE_CAPTURE_MAX_WORDS) {
+        capture_word_count > SCPI_SMA_CABLE_CAPTURE_MAX_WORDS ||
+        appointment_mode > 1u) {
         scpi_port_push_exec_error(context, "SMA_CABLE_BAD_ARGUMENT");
         return SCPI_RES_ERR;
     }
 
     const sma_cable_delay_pio_config_t config = {
         .role = SMA_CABLE_DELAY_PIO_ROLE_VALIDATOR,
+        .timing = appointment_mode != 0u
+            ? SMA_CABLE_DELAY_PIO_TIMING_MARK_APPOINTMENT
+            : SMA_CABLE_DELAY_PIO_TIMING_FREE_RUNNING,
         .output_index = 0u,
         .input_base_pin = BOARD_SYNC_INPUT_BASE_PIN,
+        .appointment_marker_pin =
+            BOARD_SYNC_INPUT_BASE_PIN +
+            (BOARD_SYNC_INPUT_BITS_REVERSED != 0
+                ? SMA_CABLE_DELAY_CHANNEL_COUNT - 1u
+                : 0u),
         .reverse_input_bits = BOARD_SYNC_INPUT_BITS_REVERSED != 0,
     };
     sma_cable_delay_pio_status_t status = sma_cable_delay_pio_open(&config);

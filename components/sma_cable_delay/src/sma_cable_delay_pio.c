@@ -22,17 +22,22 @@ typedef struct {
     bool resources_owned;
     bool source_program_added;
     bool capture_program_added;
+    bool trigger_program_added;
     bool pins_configured;
     bool pins_snapshotted;
     int source_sm;
     int capture_sm;
+    int trigger_sm;
     int dma_channel;
     sma_cable_delay_pio_role_t role;
+    sma_cable_delay_pio_timing_t timing;
     uint32_t resource_mask;
     uint source_offset;
     uint capture_offset;
+    uint trigger_offset;
     uint output_pin;
     uint input_base_pin;
+    uint appointment_marker_pin;
     bool reverse_input_bits;
     gpio_function_t output_function;
     bool output_sio_dir_out;
@@ -49,6 +54,7 @@ typedef struct {
 static sma_cable_delay_pio_context_t s_persona = {
     .source_sm = -1,
     .capture_sm = -1,
+    .trigger_sm = -1,
     .dma_channel = -1,
 };
 
@@ -138,6 +144,13 @@ static void sma_cable_delay_pio_restore_pins(void)
 
 void sma_cable_delay_pio_close(void)
 {
+    if (s_persona.trigger_sm >= 0) {
+        pio_sm_set_enabled(SMA_CABLE_DELAY_PIO_INSTANCE,
+                           (uint)s_persona.trigger_sm,
+                           false);
+        pio_sm_clear_fifos(SMA_CABLE_DELAY_PIO_INSTANCE,
+                           (uint)s_persona.trigger_sm);
+    }
     if (s_persona.source_sm >= 0) {
         pio_sm_set_enabled(SMA_CABLE_DELAY_PIO_INSTANCE,
                            (uint)s_persona.source_sm,
@@ -161,14 +174,31 @@ void sma_cable_delay_pio_close(void)
 
     sma_cable_delay_pio_restore_pins();
 
-    if (s_persona.capture_program_added) {
+    if (s_persona.trigger_program_added) {
+        const pio_program_t *program =
+            s_persona.role == SMA_CABLE_DELAY_PIO_ROLE_SOURCE
+                ? &sma_cable_delay_source_appointment_mark_program
+                : &sma_cable_delay_capture_appointment_mark_program;
         pio_remove_program(SMA_CABLE_DELAY_PIO_INSTANCE,
-                           &sma_cable_delay_capture_program,
+                           program,
+                           s_persona.trigger_offset);
+    }
+    if (s_persona.capture_program_added) {
+        const pio_program_t *program =
+            s_persona.timing == SMA_CABLE_DELAY_PIO_TIMING_MARK_APPOINTMENT
+                ? &sma_cable_delay_capture_appointed_program
+                : &sma_cable_delay_capture_program;
+        pio_remove_program(SMA_CABLE_DELAY_PIO_INSTANCE,
+                           program,
                            s_persona.capture_offset);
     }
     if (s_persona.source_program_added) {
+        const pio_program_t *program =
+            s_persona.timing == SMA_CABLE_DELAY_PIO_TIMING_MARK_APPOINTMENT
+                ? &sma_cable_delay_source_appointed_program
+                : &sma_cable_delay_source_program;
         pio_remove_program(SMA_CABLE_DELAY_PIO_INSTANCE,
-                           &sma_cable_delay_source_program,
+                           program,
                            s_persona.source_offset);
     }
     if (s_persona.dma_channel >= 0) {
@@ -177,6 +207,10 @@ void sma_cable_delay_pio_close(void)
     if (s_persona.capture_sm >= 0) {
         pio_sm_unclaim(SMA_CABLE_DELAY_PIO_INSTANCE,
                        (uint)s_persona.capture_sm);
+    }
+    if (s_persona.trigger_sm >= 0) {
+        pio_sm_unclaim(SMA_CABLE_DELAY_PIO_INSTANCE,
+                       (uint)s_persona.trigger_sm);
     }
     if (s_persona.source_sm >= 0) {
         pio_sm_unclaim(SMA_CABLE_DELAY_PIO_INSTANCE,
@@ -190,6 +224,7 @@ void sma_cable_delay_pio_close(void)
     memset(&s_persona, 0, sizeof(s_persona));
     s_persona.source_sm = -1;
     s_persona.capture_sm = -1;
+    s_persona.trigger_sm = -1;
     s_persona.dma_channel = -1;
 }
 
@@ -198,10 +233,16 @@ sma_cable_delay_pio_status_t sma_cable_delay_pio_open(
 {
     if (config == NULL ||
         config->role > SMA_CABLE_DELAY_PIO_ROLE_VALIDATOR ||
+        config->timing > SMA_CABLE_DELAY_PIO_TIMING_MARK_APPOINTMENT ||
+        (config->role == SMA_CABLE_DELAY_PIO_ROLE_SELF_LOOP &&
+         config->timing != SMA_CABLE_DELAY_PIO_TIMING_FREE_RUNNING) ||
         (sma_cable_delay_pio_role_has_source(config->role) &&
          config->output_index >= BOARD_SYNC_OUTPUT_PIN_COUNT) ||
         (sma_cable_delay_pio_role_has_capture(config->role) &&
-         config->input_base_pin > 26u)) {
+         config->input_base_pin > 26u) ||
+        (config->timing == SMA_CABLE_DELAY_PIO_TIMING_MARK_APPOINTMENT &&
+         config->role == SMA_CABLE_DELAY_PIO_ROLE_VALIDATOR &&
+         config->appointment_marker_pin >= 30u)) {
         return SMA_CABLE_DELAY_PIO_INVALID_ARGUMENT;
     }
     if (s_persona.open || s_persona.capture_active) {
@@ -212,9 +253,19 @@ sma_cable_delay_pio_status_t sma_cable_delay_pio_open(
     s_persona.input_base_pin = config->input_base_pin;
     s_persona.reverse_input_bits = config->reverse_input_bits;
     s_persona.role = config->role;
+    s_persona.timing = config->timing;
+    s_persona.appointment_marker_pin = config->appointment_marker_pin;
     s_persona.resource_mask = RESOURCE_ARBITER_RESOURCE_PIO0;
     if (sma_cable_delay_pio_role_has_capture(config->role)) {
         s_persona.resource_mask |= RESOURCE_ARBITER_RESOURCE_DMA;
+    }
+    if (config->timing == SMA_CABLE_DELAY_PIO_TIMING_MARK_APPOINTMENT) {
+        s_persona.trigger_sm =
+            pio_claim_unused_sm(SMA_CABLE_DELAY_PIO_INSTANCE, false);
+        if (s_persona.trigger_sm < 0) {
+            sma_cable_delay_pio_close();
+            return SMA_CABLE_DELAY_PIO_NO_STATE_MACHINE;
+        }
     }
 
     if (!resource_arbiter_acquire_owned(s_persona.resource_mask,
@@ -250,27 +301,48 @@ sma_cable_delay_pio_status_t sma_cable_delay_pio_open(
     }
 
     if (sma_cable_delay_pio_role_has_source(config->role)) {
+        const pio_program_t *program =
+            config->timing == SMA_CABLE_DELAY_PIO_TIMING_MARK_APPOINTMENT
+                ? &sma_cable_delay_source_appointed_program
+                : &sma_cable_delay_source_program;
         if (!pio_can_add_program(SMA_CABLE_DELAY_PIO_INSTANCE,
-                                 &sma_cable_delay_source_program)) {
+                                 program)) {
             sma_cable_delay_pio_close();
             return SMA_CABLE_DELAY_PIO_NO_INSTRUCTION_SPACE;
         }
         s_persona.source_offset =
             pio_add_program(SMA_CABLE_DELAY_PIO_INSTANCE,
-                            &sma_cable_delay_source_program);
+                            program);
         s_persona.source_program_added = true;
     }
 
     if (sma_cable_delay_pio_role_has_capture(config->role)) {
+        const pio_program_t *program =
+            config->timing == SMA_CABLE_DELAY_PIO_TIMING_MARK_APPOINTMENT
+                ? &sma_cable_delay_capture_appointed_program
+                : &sma_cable_delay_capture_program;
         if (!pio_can_add_program(SMA_CABLE_DELAY_PIO_INSTANCE,
-                                 &sma_cable_delay_capture_program)) {
+                                 program)) {
             sma_cable_delay_pio_close();
             return SMA_CABLE_DELAY_PIO_NO_INSTRUCTION_SPACE;
         }
         s_persona.capture_offset =
             pio_add_program(SMA_CABLE_DELAY_PIO_INSTANCE,
-                            &sma_cable_delay_capture_program);
+                            program);
         s_persona.capture_program_added = true;
+    }
+    if (config->timing == SMA_CABLE_DELAY_PIO_TIMING_MARK_APPOINTMENT) {
+        const pio_program_t *program =
+            config->role == SMA_CABLE_DELAY_PIO_ROLE_SOURCE
+                ? &sma_cable_delay_source_appointment_mark_program
+                : &sma_cable_delay_capture_appointment_mark_program;
+        if (!pio_can_add_program(SMA_CABLE_DELAY_PIO_INSTANCE, program)) {
+            sma_cable_delay_pio_close();
+            return SMA_CABLE_DELAY_PIO_NO_INSTRUCTION_SPACE;
+        }
+        s_persona.trigger_offset =
+            pio_add_program(SMA_CABLE_DELAY_PIO_INSTANCE, program);
+        s_persona.trigger_program_added = true;
     }
     s_persona.open = true;
     return SMA_CABLE_DELAY_PIO_OK;
@@ -317,19 +389,43 @@ sma_cable_delay_pio_status_t sma_cable_delay_pio_capture_frequency(
     capture->captured_word_count = (uint32_t)capture_word_count;
     capture->reverse_input_bits = s_persona.reverse_input_bits;
     capture->phase_coherent =
-        s_persona.role == SMA_CABLE_DELAY_PIO_ROLE_SELF_LOOP;
+        s_persona.role == SMA_CABLE_DELAY_PIO_ROLE_SELF_LOOP ||
+        s_persona.timing == SMA_CABLE_DELAY_PIO_TIMING_MARK_APPOINTMENT;
 
     const uint capture_sm = (uint)s_persona.capture_sm;
     const uint dma_channel = (uint)s_persona.dma_channel;
     pio_sm_set_enabled(SMA_CABLE_DELAY_PIO_INSTANCE, capture_sm, false);
     pio_sm_clear_fifos(SMA_CABLE_DELAY_PIO_INSTANCE, capture_sm);
     pio_sm_restart(SMA_CABLE_DELAY_PIO_INSTANCE, capture_sm);
+    if (s_persona.trigger_sm >= 0) {
+        pio_sm_set_enabled(SMA_CABLE_DELAY_PIO_INSTANCE,
+                           (uint)s_persona.trigger_sm,
+                           false);
+        pio_sm_clear_fifos(SMA_CABLE_DELAY_PIO_INSTANCE,
+                           (uint)s_persona.trigger_sm);
+        pio_sm_restart(SMA_CABLE_DELAY_PIO_INSTANCE,
+                       (uint)s_persona.trigger_sm);
+    }
 
     sma_cable_delay_pio_snapshot_pins();
-    sma_cable_delay_capture_program_init(SMA_CABLE_DELAY_PIO_INSTANCE,
-                                         capture_sm,
-                                         s_persona.capture_offset,
-                                         s_persona.input_base_pin);
+    if (s_persona.timing ==
+        SMA_CABLE_DELAY_PIO_TIMING_MARK_APPOINTMENT) {
+        sma_cable_delay_capture_appointed_program_init(
+            SMA_CABLE_DELAY_PIO_INSTANCE,
+            capture_sm,
+            s_persona.capture_offset,
+            s_persona.input_base_pin);
+        sma_cable_delay_capture_appointment_mark_program_init(
+            SMA_CABLE_DELAY_PIO_INSTANCE,
+            (uint)s_persona.trigger_sm,
+            s_persona.trigger_offset,
+            s_persona.appointment_marker_pin);
+    } else {
+        sma_cable_delay_capture_program_init(SMA_CABLE_DELAY_PIO_INSTANCE,
+                                             capture_sm,
+                                             s_persona.capture_offset,
+                                             s_persona.input_base_pin);
+    }
     s_persona.pins_configured = true;
 
     dma_channel_abort(dma_channel);
@@ -349,6 +445,7 @@ sma_cable_delay_pio_status_t sma_cable_delay_pio_capture_frequency(
         false);
 
     s_persona.capture_active = true;
+    pio_interrupt_clear(SMA_CABLE_DELAY_PIO_INSTANCE, 0u);
     dma_start_channel_mask(1u << dma_channel);
     if (s_persona.role == SMA_CABLE_DELAY_PIO_ROLE_SELF_LOOP) {
         const uint source_sm = (uint)s_persona.source_sm;
@@ -363,7 +460,16 @@ sma_cable_delay_pio_status_t sma_cable_delay_pio_capture_frequency(
         pio_enable_sm_mask_in_sync(SMA_CABLE_DELAY_PIO_INSTANCE,
                                    (1u << source_sm) | (1u << capture_sm));
     } else {
-        pio_sm_set_enabled(SMA_CABLE_DELAY_PIO_INSTANCE, capture_sm, true);
+        if (s_persona.timing ==
+            SMA_CABLE_DELAY_PIO_TIMING_MARK_APPOINTMENT) {
+            pio_enable_sm_mask_in_sync(
+                SMA_CABLE_DELAY_PIO_INSTANCE,
+                (1u << capture_sm) | (1u << (uint)s_persona.trigger_sm));
+        } else {
+            pio_sm_set_enabled(SMA_CABLE_DELAY_PIO_INSTANCE,
+                               capture_sm,
+                               true);
+        }
     }
 
     const uint64_t deadline_us = time_us_64() + timeout_us;
@@ -372,6 +478,11 @@ sma_cable_delay_pio_status_t sma_cable_delay_pio_capture_frequency(
     }
 
     pio_sm_set_enabled(SMA_CABLE_DELAY_PIO_INSTANCE, capture_sm, false);
+    if (s_persona.trigger_sm >= 0) {
+        pio_sm_set_enabled(SMA_CABLE_DELAY_PIO_INSTANCE,
+                           (uint)s_persona.trigger_sm,
+                           false);
+    }
     if (s_persona.role == SMA_CABLE_DELAY_PIO_ROLE_SELF_LOOP) {
         const uint source_sm = (uint)s_persona.source_sm;
         pio_sm_set_enabled(SMA_CABLE_DELAY_PIO_INSTANCE, source_sm, false);
@@ -417,13 +528,42 @@ sma_cable_delay_pio_status_t sma_cable_delay_pio_source_start(
     pio_sm_clear_fifos(SMA_CABLE_DELAY_PIO_INSTANCE, source_sm);
     pio_sm_restart(SMA_CABLE_DELAY_PIO_INSTANCE, source_sm);
     sma_cable_delay_pio_snapshot_pins();
-    sma_cable_delay_source_program_init(SMA_CABLE_DELAY_PIO_INSTANCE,
-                                        source_sm,
-                                        s_persona.source_offset,
-                                        s_persona.output_pin,
-                                        (float)half_period_cycles);
+    if (s_persona.timing ==
+        SMA_CABLE_DELAY_PIO_TIMING_MARK_APPOINTMENT) {
+        const uint trigger_sm = (uint)s_persona.trigger_sm;
+        pio_sm_set_enabled(SMA_CABLE_DELAY_PIO_INSTANCE,
+                           trigger_sm,
+                           false);
+        pio_sm_clear_fifos(SMA_CABLE_DELAY_PIO_INSTANCE, trigger_sm);
+        pio_sm_restart(SMA_CABLE_DELAY_PIO_INSTANCE, trigger_sm);
+        sma_cable_delay_source_appointed_program_init(
+            SMA_CABLE_DELAY_PIO_INSTANCE,
+            source_sm,
+            s_persona.source_offset,
+            s_persona.output_pin,
+            (float)half_period_cycles);
+        sma_cable_delay_source_appointment_mark_program_init(
+            SMA_CABLE_DELAY_PIO_INSTANCE,
+            trigger_sm,
+            s_persona.trigger_offset,
+            s_persona.output_pin);
+    } else {
+        sma_cable_delay_source_program_init(SMA_CABLE_DELAY_PIO_INSTANCE,
+                                            source_sm,
+                                            s_persona.source_offset,
+                                            s_persona.output_pin,
+                                            (float)half_period_cycles);
+    }
     s_persona.pins_configured = true;
-    pio_sm_set_enabled(SMA_CABLE_DELAY_PIO_INSTANCE, source_sm, true);
+    pio_interrupt_clear(SMA_CABLE_DELAY_PIO_INSTANCE, 0u);
+    if (s_persona.timing ==
+        SMA_CABLE_DELAY_PIO_TIMING_MARK_APPOINTMENT) {
+        pio_enable_sm_mask_in_sync(
+            SMA_CABLE_DELAY_PIO_INSTANCE,
+            (1u << source_sm) | (1u << (uint)s_persona.trigger_sm));
+    } else {
+        pio_sm_set_enabled(SMA_CABLE_DELAY_PIO_INSTANCE, source_sm, true);
+    }
     s_persona.source_running = true;
     *actual_frequency_hz = system_hz / (2u * half_period_cycles);
     return SMA_CABLE_DELAY_PIO_OK;
@@ -440,6 +580,11 @@ void sma_cable_delay_pio_source_stop(void)
     const uint source_sm = (uint)s_persona.source_sm;
     pio_sm_set_enabled(SMA_CABLE_DELAY_PIO_INSTANCE, source_sm, false);
     pio_sm_set_pins(SMA_CABLE_DELAY_PIO_INSTANCE, source_sm, 0u);
+    if (s_persona.trigger_sm >= 0) {
+        pio_sm_set_enabled(SMA_CABLE_DELAY_PIO_INSTANCE,
+                           (uint)s_persona.trigger_sm,
+                           false);
+    }
     s_persona.source_running = false;
 }
 

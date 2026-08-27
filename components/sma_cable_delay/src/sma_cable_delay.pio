@@ -9,6 +9,41 @@
     in pins, 4
 .wrap
 
+; Reference source protocol: a 16 ns mark, then a 40 ns appointment gap.
+; The source and validator use symmetric IRQ handoff paths after mark end.
+.program sma_cable_delay_source_appointment_mark
+    set pins, 1 [3]
+    set pins, 0 [7]
+    irq set 0
+mark_halt:
+    jmp mark_halt
+
+.program sma_cable_delay_source_appointed
+    wait 1 irq 0
+    irq clear 0
+.wrap_target
+    set pins, 1
+    set pins, 0
+.wrap
+
+.program sma_cable_delay_capture_appointment_mark
+wait_mark_high:
+    jmp pin wait_mark_low
+    jmp wait_mark_high
+wait_mark_low:
+    jmp pin wait_mark_low
+    nop [7]
+    irq set 0
+capture_mark_halt:
+    jmp capture_mark_halt
+
+.program sma_cable_delay_capture_appointed
+    wait 1 irq 0
+    irq clear 0
+.wrap_target
+    in pins, 4
+.wrap
+
 % c-sdk {
 
 static inline void sma_cable_delay_source_program_init(PIO pio,
@@ -44,6 +79,75 @@ static inline void sma_cable_delay_capture_program_init(PIO pio,
 
     pio_sm_config config =
         sma_cable_delay_capture_program_get_default_config(offset);
+    sm_config_set_in_pins(&config, input_base_pin);
+    sm_config_set_in_shift(&config, false, true, 32u);
+    sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_RX);
+    sm_config_set_clkdiv(&config, 1.0f);
+    pio_sm_init(pio, sm, offset, &config);
+}
+
+static inline void sma_cable_delay_source_appointment_mark_program_init(
+    PIO pio,
+    uint sm,
+    uint offset,
+    uint output_pin)
+{
+    pio_gpio_init(pio, output_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, output_pin, 1u, true);
+    pio_sm_config config =
+        sma_cable_delay_source_appointment_mark_program_get_default_config(
+            offset);
+    sm_config_set_set_pins(&config, output_pin, 1u);
+    sm_config_set_clkdiv(&config, 1.0f);
+    pio_sm_init(pio, sm, offset, &config);
+    pio_sm_set_pins(pio, sm, 0u);
+}
+
+static inline void sma_cable_delay_source_appointed_program_init(
+    PIO pio,
+    uint sm,
+    uint offset,
+    uint output_pin,
+    float clkdiv)
+{
+    pio_gpio_init(pio, output_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, output_pin, 1u, true);
+    pio_sm_config config =
+        sma_cable_delay_source_appointed_program_get_default_config(offset);
+    sm_config_set_set_pins(&config, output_pin, 1u);
+    sm_config_set_clkdiv(&config, clkdiv);
+    pio_sm_init(pio, sm, offset, &config);
+    pio_sm_set_pins(pio, sm, 0u);
+}
+
+static inline void sma_cable_delay_capture_appointment_mark_program_init(
+    PIO pio,
+    uint sm,
+    uint offset,
+    uint marker_pin)
+{
+    pio_gpio_init(pio, marker_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, marker_pin, 1u, false);
+    pio_sm_config config =
+        sma_cable_delay_capture_appointment_mark_program_get_default_config(
+            offset);
+    sm_config_set_jmp_pin(&config, marker_pin);
+    sm_config_set_clkdiv(&config, 1.0f);
+    pio_sm_init(pio, sm, offset, &config);
+}
+
+static inline void sma_cable_delay_capture_appointed_program_init(
+    PIO pio,
+    uint sm,
+    uint offset,
+    uint input_base_pin)
+{
+    for (uint pin = input_base_pin; pin < input_base_pin + 4u; ++pin) {
+        pio_gpio_init(pio, pin);
+    }
+    pio_sm_set_consecutive_pindirs(pio, sm, input_base_pin, 4u, false);
+    pio_sm_config config =
+        sma_cable_delay_capture_appointed_program_get_default_config(offset);
     sm_config_set_in_pins(&config, input_base_pin);
     sm_config_set_in_shift(&config, false, true, 32u);
     sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_RX);

@@ -12,6 +12,8 @@ extern "C" {
 #define SMA_CABLE_DELAY_PIO_INPUT_COUNT 4u
 #define SMA_CABLE_DELAY_PIO_SAMPLES_PER_WORD 8u
 #define SMA_CABLE_DELAY_PIO_MIN_CAPTURE_WORDS 16u
+#define SMA_CABLE_DELAY_PIO_MARK_WIDTH_NS 16u
+#define SMA_CABLE_DELAY_PIO_APPOINTMENT_NS 40u
 
 typedef enum {
     SMA_CABLE_DELAY_PIO_OK = 0,
@@ -33,10 +35,17 @@ typedef enum {
     SMA_CABLE_DELAY_PIO_ROLE_VALIDATOR,
 } sma_cable_delay_pio_role_t;
 
+typedef enum {
+    SMA_CABLE_DELAY_PIO_TIMING_FREE_RUNNING = 0,
+    SMA_CABLE_DELAY_PIO_TIMING_MARK_APPOINTMENT,
+} sma_cable_delay_pio_timing_t;
+
 typedef struct {
     sma_cable_delay_pio_role_t role;
+    sma_cable_delay_pio_timing_t timing;
     uint32_t output_index;
     uint32_t input_base_pin;
+    uint32_t appointment_marker_pin;
     bool reverse_input_bits;
 } sma_cable_delay_pio_config_t;
 

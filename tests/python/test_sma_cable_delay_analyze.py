@@ -11,6 +11,8 @@ SWEEP_SCRIPT = ROOT / "tools" / "sma_cable_delay_validate" / "sma_cable_delay_sw
 WIRE_SCRIPT = ROOT / "tools" / "sma_cable_delay_validate" / "sma_cable_wire_order.py"
 FIVE_BOARD_SCRIPT = (ROOT / "tools" / "sma_cable_delay_validate" /
                      "sma_cable_five_board_validate.py")
+APPOINTMENT_SCRIPT = (ROOT / "tools" / "sma_cable_delay_validate" /
+                      "sma_cable_appointment_validate.py")
 
 
 def _load_module():
@@ -159,3 +161,27 @@ def test_five_board_validator_parser_includes_frequency_and_duty():
     assert result["channels"][2]["falling_edge_count"] == 33
     assert result["channels"][3]["observed_frequency_hz"] == 1_984_129
     assert result["channels"][3]["duty_cycle_ppm"] == 500_003
+
+
+def test_mark_appointment_summary_gates_signal_quality():
+    spec = importlib.util.spec_from_file_location(
+        "sma_cable_appointment_validate", APPOINTMENT_SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    records = []
+    for _ in range(3):
+        records.append({
+            "source_actual_frequency_hz": 2_000_000,
+            "channels": [{
+                "valid": True,
+                "observed_frequency_hz": 2_000_001,
+                "duty_cycle_ppm": 500_100,
+            }],
+        })
+    summary = module.summarize_appointment(records, 3)
+    assert summary["signal_quality_passed"] is True
+    records[0]["channels"][0]["duty_cycle_ppm"] = 600_000
+    summary = module.summarize_appointment(records, 3)
+    assert summary["signal_quality_passed"] is False
