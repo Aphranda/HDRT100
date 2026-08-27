@@ -43,8 +43,8 @@ Last updated: 2026-08-27
 | P0 topology | host 工具已有唯一 ID 枚举、邻接探测、环序判定和 NO 提交 | 缺板内 bootstrap discovery persona、重复一致性、topology snapshot 和分布式 commit |
 | P1 CLK RTT | `SYSTem:TDMA:RING:TRAIN`、CLK burst/forward/capture 和四板 HIL 已有 | 完整多 master 搜索仍由 host 编排，未接入单指令协调器 |
 | P2 coded | `CALibration:CLOCk:CODEd:*`、PIO/DMA raw capture 和 core1 有界相关已有 | 缺 reference 协调、板内重复统计以及 `PREPARE/ACK/commit` |
-| P3 bidirectional | `CALibration:P3:*`、`t1..t4` 和逐链路 HIL 已有 | 缺 endpoint bias、topology freshness、整环 residual 和 active/staging gate |
-| Calibration manager | 已有 core0 intent、core1 service 和 guarded 子功能 snapshot | 总状态仍是阶段壳，缺 `CalibrationAutoAO/FB/Vector` 和统一 transaction snapshot |
+| P3 bidirectional | `CALibration:P3:*`、`t1..t4`、逐链路 HIL 以及 path snapshot candidate/active/rollback 门禁已有 | 缺 endpoint bias、fresh repeated P3、整环 residual、受控 evidence 导入和真实 lifecycle HIL |
+| Calibration manager | 已有 core0 intent、core1 service、guarded 子功能 snapshot 和 path candidate/active/rollback owner | 自动校准总状态仍是阶段壳，缺 `CalibrationAutoAO/FB/Vector`、统一 transaction snapshot 和分布式 commit |
 | 产品 SCPI | 对外文档已有 `CALibration:STARt/STOP/SAVE/ACTivate` 生命周期 | `ACTivate/ROLLback` 已连接到 CalibrationManager path snapshot 门禁；candidate 导入、SAVE/LOAD 和完整分布式 ACK 仍待完成 |
 
 现有 P1/P2/P3 SCPI 保留为工程诊断入口。产品自动校准不得在这些 callback 上继续叠加同步
@@ -606,7 +606,8 @@ core0 storage owner 执行，并先获得 core1 park/lockout ACK。校准热路�
 
 ### A5：P3 bias 与逐 link 自动化
 
-- [ ] 在同一 P3 persona 下完成每板 reference loopback 和 bias generation。
+- `[!]` 在同一 P3 persona 下完成每板 reference loopback 和 bias generation；当前
+  四板环路接线不是本板 TX->RX 三线短接，需切换 bench 接线后重测。
 - [ ] 按 P0 order 自动执行全部 link 的 initiator/responder `t1..t4`。
 - [ ] 强制完整频率阶梯和 limited RX/fallback 策略。
 - [ ] 完成四边沿、clock/data timing、DMA/stall、asymmetry 和 freshness gate。
@@ -614,9 +615,13 @@ core0 storage owner 执行，并先获得 core1 park/lockout ACK。校准热路�
 
 ### A6：质量、staging 和 VDC gate
 
-- [ ] 形成 topology/bias/profile/calibration generation chain 和 staging CRC。
-- [ ] 只有 bias valid、topology fresh、非 diagnostic-only 才设置 active eligible。
-- [ ] 实现 SAVE/LOAD/ACTivate/ROLLback 和分布式 ACK。
+- `[~]` 形成 topology/bias/profile/calibration generation chain 和 staging CRC；path snapshot
+  已绑定 calibration generation、topology/profile/schedule/freshness 和完整 link 集合，缺 bias
+  与受控 package import。
+- `[~]` 只有 bias valid、topology fresh、非 diagnostic-only 才设置 active eligible；host
+  candidate gate 已实现，当前硬件 bias/P3 证据依门禁正确停在 `rejected_staging`。
+- `[~]` 实现 SAVE/LOAD/ACTivate/ROLLback 和分布式 ACK；ACTivate/ROLLback 已接入
+  manager path lifecycle，candidate import、Flash persistence、重启恢复和分布式 ACK 待完成。
 - [ ] ACTivate 后使旧 SYNC check 失效，验证 VDC/DPLL 不消费 stale calibration。
 
 ### A7：SCPI 与工具

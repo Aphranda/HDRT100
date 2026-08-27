@@ -10,6 +10,46 @@ Last updated: 2026-08-27
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20260827-013 - TRN-03B 复核与 TRN-03C path gate 证据更新
+
+- 状态：TRN-03A 和 TRN-03B 保持完成；本轮在最新 path gate 固件上重复验证
+  process-image、SD raw capture 和逐 Node SVG，不再将 endpoint-bias/P3-3 缺失计入
+  TRN-03B。TRN-03C 已进入进行中，但尚未产生可激活的硬件 candidate。
+- 代码进展：host 工具 `trn03_candidate_lifecycle.py` 已固化 candidate stage/activate/
+  rollback JSON 生命周期；提交 `b5fd5fd` 使 `calibration_path_activation_gate_t` 必须
+  匹配 candidate `calibration_generation`，并使 `calibration_path_snapshot_build()` 拒绝重复或
+  缺失 source link。manager 激活/回滚成功后清除旧 candidate，防止重放。
+- 验证：定向 Python/JUnit 报告为 `out/pytest/trn03c-path-gate.xml`，C host 双向
+  校准回归由仓库固化脚本执行通过。本轮代码提交为 `9052d09` 和
+  `b5fd5fd`，均已推送。
+- 构建与 OTA（本轮诊断快照，非事实源）：构建产物位于
+  `out/build/trn03-sck-safe-20260827/`。首次四板 OTA 在尾部传输阶段停留于
+  `RECEIVING`，现场保存在 `out/ota/ota-stuck-20260827-0940/`；执行受控
+  `SYST:OTA:ABOR` 后重新异步 OTA，恢复证据为
+  `out/ota/trn03-sck-safe-recovery-20260827/`。随后 path-gate 固件的四板结果为
+  `out/ota/trn03-path-gate-b5fd5fd-20260827/summary.json`，所有板卡按 `*IDN?`
+  身份核对后完成更新。
+- 四板闭环（本轮诊断快照，非事实源）：使用
+  `out/training/trn03a_g210_matrix_clk_sys_phase_safe_20260827.json` 的完整矩阵 row，
+  两次独立 process-image 闭环分别位于
+  `out/training/trn03c_path_gate_process_b5fd5fd_retry1_20260827/` 和
+  `out/training/trn03c_path_gate_process_b5fd5fd_repeat2_retry1_20260827/`。两次均完成四个
+  Node 门禁、SD 原始环路流量下载、waveform replay 和逐 Node `1 us` SVG。
+- 保留失败证据：第二次首次尝试位于
+  `out/training/trn03c_path_gate_process_b5fd5fd_repeat2_20260827/`，Node0 在 stopped
+  状态下幂等重配置已有 flight map 时遇到瞬时 map 锁竞争，`arm_result`
+  返回 `DISTRIBUTED_REFMEM_TDMA_ARM_FLIGHT_MAP_REJECTED`。失败后四板均恢复
+  STOPPED，同条件全新会话重试通过；该样本不计入 candidate repeat，并保留为
+  并发回归输入。
+- TRN-03C 当前拒绝原因：现有 P3 burst 包含 data burst/width 失败 trial，现有
+  bias set 均为 `valid=0` 且无 accepted sample。原始 reference snapshot 只有本地
+  TX 边沿，与四板环路接线不是本板 TX->RX 三线短接一致。下一步必须先
+  切换本板 `CLK/SYNC/DATA` reference loopback 接线，生成有效 bias generation，
+  再重测 fresh P3 和 candidate；不得放宽门禁或用 TRN-03B 短帧波形代替 bias。
+- 未完成边界：evidence package 到 manager 的受控分段导入、四板真实
+  stage/activate/VDC readback/rollback、掉电持久化，以及 TRN-03D 的 DMA overrun、
+  PIO stall、Node dropout、stale identity 和长稳仍待完成。
+
 ## CAL-TASK-20260827-012 - TRN-03C candidate lifecycle owner 接入
 
 - 状态：TRN-03C 生命周期边界已接入代码，但完整四板 candidate evidence、现场激活和回滚

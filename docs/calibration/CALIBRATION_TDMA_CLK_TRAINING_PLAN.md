@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION / TDMA Clock Training
 Canonical: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`
 Related: `docs/calibration/README.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-08-25
+Last updated: 2026-08-27
 
 本文档是校准域维护的多板 TDMA SPI CLK 训练事实源。校准域拥有 CLK/DATA/SYNC
 物理测量、双向时间传递、residence、endpoint bias、path-delay candidate、统计质量、
@@ -27,6 +27,18 @@ CLK 往返粗捕获；第二阶段规划使用编码 marker、PIO 过采样和�
   边沿级动作；PC 工具只做按唯一板卡地址的维护态编排、采集和评分。
 - 上电不得自动注入训练时钟。训练由显式指令触发，失败后统一回到 STOPPED；恢复普通
   DATA/CS PIO persona 后，仍需显式 START 才进入周期 TDMA。
+
+## 当前前置能力边界
+
+| 前置阶段 | 已具备能力 | 仍然缺失的 active 门禁 |
+|---|---|---|
+| P0T/P0 | host 按唯一板卡 ID 建立有向环序；PIO/DMA/core1 发布 guarded raw evidence | 板内 topology transaction snapshot、分布式 ACK/commit 和完整 stale 传播 |
+| P1/P2 | CLK bracket、coded persona、硬件 capture origin、相关结果和四板诊断 HIL | 单指令协调、冻结重复统计和非 `DIAGNOSTIC_ONLY` 接受门禁 |
+| P3 | 逐 link `t1..t4`、residence/path-sum、路径 snapshot CRC/generation/freshness 和 candidate/active/rollback owner | 每板同 persona 的 endpoint-bias generation、fresh P3 完整证据、受控 candidate 导入与四板激活/持久化/VDC HIL |
+
+训练子域可以在 diagnostic P3 candidate 上完成 MARK/SCK/DATA 搜索和 TDMA
+raw-flight/process-image 验证，但只有上表最后一列全部闭环后，才能将
+TRN-03C 产物发布为 active calibration。
 
 ## 校准阶段归属
 
@@ -703,15 +715,21 @@ link 的 `t1..t4` 证据，也不能把整圈 aggregate 平均分摊为 link del
 
 - [x] P3-1：为相反方向 CLK/DATA/SYNC 定义同 epoch 的 PIO marker 和四边沿 capture origin。
 - [x] P3-2：实现 `t1..t4` 证据关联、residence 扣除、path-sum 和 clock-rate error bound。
-- [ ] P3-3：完成同一 PIO persona 的板内 endpoint bias/reference loopback 校准。
+- `[!]` P3-3：完成同一 PIO persona 的板内 endpoint bias/reference loopback
+  校准。当前四板环路接线下 reference persona 只能捕获本地 TX 起始边沿；必须将
+  每板 `CLK_TX/SYNC_TX/DATA_TX` 与本板对应 RX 三线短接，重测有效 bias
+  generation，不得以四板短帧回环或零值代替。
 - [~] P3-4：双向计算 unit 和四条相邻段 HIL 已完成；继续补 fault injection，覆盖缺边沿、乱序、重复、
   极性、SYNC/CRC 错、DMA overrun/stall、频率偏差和方向 asymmetry。
 - [~] P3-5：四板逐链路三档诊断 HIL 已完成（最新 DHRT100 build 为 36/36 accepted）；P3 验证入口现已固定
   `calibration_link_frequency_policy.REQUIRED_FREQUENCY_LADDER_MHZ`，稳定档为
   `STABLE_REQUIRED`，`LIMITED_RX_FREQUENCY_MHZ` 为每轮必测的 `LIMITED_RX`。继续完成
   cumulative/整圈 residual 对比，固化 8 节点扩展前的 profile acceptance threshold。
-- [ ] P3-6：只有四时间戳 hardware latch、bias generation、重复统计和拓扑 freshness 全部
-  通过后，才生成 active per-link delay，清除对应 diagnostic-only 标志并交给 VDC/DPLL。
+- `[~]` P3-6：路径 snapshot 已实现 candidate/active/rollback、table CRC、
+  calibration generation、topology/profile/schedule/freshness 和完整 source-link 集合门禁，
+  并且 Calibration manager 只在激活时向 VDC 发布。仍需 P3-3、fresh repeated
+  P3 evidence、受控导入、四板 activate/rollback/persistence 和 VDC/DPLL HIL；
+  完成前不清除 `DIAGNOSTIC_ONLY`。
 
 P3 HIL bench 快照（非事实源）：build `20260821100236` 上，physical order
 `0010071E65B5CB38 -> FB276192BEF9CCE1 -> 2BD5090FE009FA2A -> A1E549202D18ED6A`

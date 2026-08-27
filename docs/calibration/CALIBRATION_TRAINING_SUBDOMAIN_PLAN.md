@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION / TRAINING
 Canonical: `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`
-Last updated: 2026-08-26
+Last updated: 2026-08-27
 
 本文档把“先发送同步 marker，再按本地 PIO 周期发送编码 DATA，并在接收端按 marker 建立相对时间基准”的方案收敛为校准域下的独立训练子域。本文档是实施方案和待冻结候选接口，不把当前诊断值直接提升为 active calibration，也不允许训练子域绕过 TDMA core1 owner 直接操作 PIO、SM 或 DMA。
 
@@ -356,6 +356,12 @@ P1/P2 只限制搜索范围，P3 只提供每跳传播预算；真正决定 DATA
 | `TRN-02` | Marker-Anchored DATA Window Training（marker 锚定 DATA 窗口训练） | TRN-01 marker origin、P3 `path_delay` diagnostic candidate、PIO sample period、DATA codeword | 每条 link 的 `data_offset`、`training_window`、`guard`、`marker_data_skew`、correlation/margin/CRC 证据 | 单跳先通过；四条 directed link 均在同一 generation/profile 下重复通过；窗口达到当前 PIO 分辨率或明确拒绝原因 |
 | `TRN-03` | TDMA Short-Frame/FIFO Closed Loop（TDMA 短帧/FIFO 闭环接入） | TRN-02 per-link DATA window、独立 SCK offset matrix、PIO instruction-cycle profile、loop-delay/residence 汇总、topology/profile/schedule CRC | TDMA per-link staging、ARM gate、link/forward budget、短帧 TX/RX FIFO 计数、sequence/CRC/feedback evidence、active candidate | MARK、SCK 和 DATA 链路均 accepted 且指令周期预算可重放后才能 ARM；四板 up/down、FIFO、sequence/CRC 同时增长；失败统一 STOPPED 并保持旧 active generation |
 
+TRN-01/02/03 不重新定义校准域的 topology、P3 path-delay 或 endpoint bias。
+`CALIBRATION_TDMA_CLK_TRAINING_PLAN.md` 是这些前置的事实源：TRN-03B 可以在
+diagnostic P3 粗窗口上证明短帧和 process-image 闭环，但 TRN-03C 只能在有效
+endpoint-bias generation、fresh repeated P3、完整 generation/CRC/freshness 和回滚门禁上
+发布 active candidate。
+
 ### TRN-01：环路 marker 捕获与切通
 
 第一阶段不解析完整 DATA，也不试图生成运行态 RX window。reference 发出带
@@ -670,7 +676,8 @@ TRN-02-B 四条 directed link window 训练
 TRN-03-A TDMA per-link staging/ARM gate
 TRN-03-B1 四板 TDMA raw-flight 闭环
 TRN-03-B2 四板 TDMA process-image/FIFO 闭环
-TRN-03-C path-delay/loop-delay 汇总、active gate、长稳与持久化
+TRN-03-C path-delay/loop-delay 汇总、candidate lifecycle、激活/回滚/持久化与 VDC gate
+TRN-03-D 故障注入、Node dropout、stale identity 保护与长稳
 ```
 
 任何阶段未通过都保持 `DIAGNOSTIC_ONLY`，不得直接进入 DPLL。

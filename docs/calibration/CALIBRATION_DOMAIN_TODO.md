@@ -26,10 +26,19 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 | P1 | CLK RTT 粗捕获收尾 | `[~]` | diagnostic bracket、过渡抖动和拒绝原因 |
 | P2 | 编码 marker、过采样和相关测距 | `[~]` | accepted/rejected coded RTT snapshot |
 | P3 | 双向同时对比、residence 和 per-link delay | `[~]` | generic forward/return/sync 映射已接入；diagnostic per-link evidence 已形成；active/staging 待 bias/freshness gate |
-| P4 | VDC/DPLL 接入与长时间验证 | [ ] | calibration-to-VDC gate evidence |
+| P4 | VDC/DPLL 接入与长时间验证 | `[~]` | manager 激活路径已调用 VDC publish gate；真实 active consumer 与长稳 HIL 待完成 |
 
 当前不能把第一阶段的 CLK RTT bracket、软件 timer 或 diagnostic latch 直接用于 VDC/DPLL。
 正式校准必须同时满足硬件 latch、质量门禁、重复统计、拓扑/profile freshness 和恢复流程。
+
+### 训练子域的校准前置门禁
+
+| 前置 | 当前状态 | 对 TRN-01/02/03 的约束 |
+|---|---|---|
+| accepted physical order | `[~]` host 四板环序和 NO 映射可重放，板内 topology transaction/freshness 仍待闭环 | 训练只能按 `*IDN?` 唯一地址和 accepted node order 执行 |
+| P3 path candidate | `[~]` 逐 link diagnostic `t1..t4` 和 path-sum 已有，endpoint bias 未有效 | 可用于 MARK/SCK/DATA 有界搜索，不得变成 active delay |
+| phase matrix | `[x]` MARK/SCK/DATA 全量 Node offset matrix 已经进入四板 TDMA 短帧闭环 | 仍必须连同 per-link base、generation 和 residual 重放，不能只加逻辑 offset |
+| active lifecycle | `[~]` host/manager candidate、active、rollback 及 generation/link completeness 门禁已实现 | 受控 evidence 导入、真实 HIL、持久化与 VDC 消费前，所有训练仍为 staging/diagnostic evidence |
 
 ## 训练子域三阶段待办：Marker/Data/TDMA
 
@@ -65,7 +74,7 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 | ID | 待办 | 状态 | 退出门禁 |
 |---|---|---|---|
 | PHASE-TRN-BASE | MARK、SCK、DATA 共用 `link_base_delay = measured_link_delay / 2` 与 `base_samples + node_offset`，codebook half-chip 仅用于波形编码 | `[x]` | C 共用原语、host 共用计划 schema 和 MARK/SCK/DATA 专项回归通过；范围和容量引用 `CALIBRATION_TRAINING_PHASE_*` |
-| PHASE-TRN-MATRIX | 三种信号共用零 offset 基线、SD raw capture、离线相关/SVG、全量 Node 笛卡尔矩阵、动态加载和 residual repeat gate | `[~]` | 共用矩阵生成器和 DATA/SCK observed matrix 已接入；四板 SCK/DATA 新固件 HIL 尚待执行，失败 trial 必须保留 |
+| PHASE-TRN-MATRIX | 三种信号共用零 offset 基线、SD raw capture、离线相关/SVG、全量 Node 笛卡尔矩阵、动态加载和 residual repeat gate | `[x]` | MARK/SCK/DATA 全量矩阵、独立 SCK 四板 HIL 和 DATA 矩阵已接入同 generation TRN-03B 闭环；失败 trial 与 SD/SVG 原始证据仍必须保留 |
 | SCK-TRN-01 | 使用 SCK 自身 PIO 启动、已知 burst 和 raw capture 完成独立环路捕获，不引用 MARK offset 计算相位 | `[x]` | request/snapshot/SCPI/PIO/host 已移除 MARK phase 输入，SCK 使用自身 origin、per-link base 和 Node offset |
 | SCK-TRN-02 | 沿 accepted topology 对每个 destination node 执行独立 STOP/ARM/inject repeat，生成全量 SCK offset matrix | `[x]` | 四板零 offset 基线与推荐矩阵动态加载均完成独立 repeat；raw capture、逐 Node SVG、直方图、众数/中位数和 residual 门禁见任务记录 |
 | SCK-TRN-GATE | 在 MARK 与 SCK 分别 accepted 后验证 `mark_sck_skew` | [ ] | skew 只进入产品 guard/window 验收，不回写任一物理 offset；generation/profile/topology/stale 与 rollback 门禁通过 |
@@ -76,7 +85,7 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 |---|---|---|---|
 | TRN-03A | 增加 TDMA per-link staging 和 ARM gate，绑定实际 PIO persona 的周期预算以及 MARK/SCK/DATA 统一相位字段 | `[x]` | 完整矩阵写后读回、四板 ARM 以及缺 link、diagnostic-only、矩阵/预算过期拒绝与 STOPPED 回退均已复验；证据索引见 `CAL-TASK-20260826-010` |
 | TRN-03B | 按 ring role 装载产品 flight persona 后启动 TDMA 短帧；先过 `raw-flight`，再过 `process-image` | `[x]` | 四板 raw-flight 与 process-image 均通过；固定 segment replacement、bitmap/WKC、尾部 CRC、TX/RX FIFO、map apply、SD raw capture 和逐 node SVG 形成同 generation 闭环；证据索引见 `CAL-TASK-20260826-010` |
-| TRN-03C | 汇总 per-link path-delay、residence、loop-delay、PIO 周期预算和 residual，形成 active candidate gate | [ ] | bias、hardware latch、freshness、CRC、周期重放、重复性和 rollback 全部通过 |
+| TRN-03C | 汇总 per-link path-delay、residence、loop-delay、PIO 周期预算和 residual，形成 active candidate gate | `[~]` | host candidate/lifecycle、manager candidate/active/rollback owner、CRC、calibration generation 和完整 link 集合门禁已完成；缺 endpoint bias、fresh P3、受控导入、四板激活/回滚/持久化/VDC HIL |
 | TRN-03D | 故障注入与长稳：marker timeout、低 margin、CRC/epoch 错、DMA overrun、PIO stall、掉线；固化工具和 SD/Flash 输入格式 | `[~]` | DATA 线端旧 epoch/header CRC/正向控制及 MARK 无下降沿 timeout 均已完成 release build、四板 OTA 和 HIL；有边沿的 DATA 故障保留 SD raw/SVG replay，无边沿 timeout 保留状态/counter/STOP/active 证据；其余物理故障、完整 active generation 保护和长稳仍待完成，证据索引见 `CAL-TASK-20260827-011` |
 
 实施顺序固定为：
@@ -126,8 +135,9 @@ TRN-01A..D
   core1 service 入口和 raw evidence 发布方式；core0/USB/日志不得进入边沿热路径。
 - [ ] 定义 endpoint bias reference loopback 的 profile、board identity、bias generation
   和失效策略；bias 未生成时只允许发布 observed value。
-- [ ] 定义 active/staging calibration 的 CRC、generation、topology freshness、
-  rollback 和 VDC/DPLL 消费门禁。
+- `[~]` 定义 active/staging calibration 的 CRC、generation、topology freshness、
+  rollback 和 VDC/DPLL 消费门禁；path snapshot 与 manager lifecycle 已实现，
+  evidence package 受控导入、持久化和四板 consumer HIL 待完成。
 
 ## 四、P1 第一阶段 CLK RTT 粗捕获
 
@@ -233,8 +243,9 @@ path_sum_AB = (t4 - t1) - residence_B
 - [x] P3-1：定义 `CLK/DATA/SYNC` 同 epoch marker、四边沿 capture origin 和方向字段。
 - [x] P3-2：实现 `t1..t4` 关联、residence 扣除、path-sum、clock-rate error bound、
   不确定度和短窗口频率偏差处理。
-- [ ] P3-3：完成同一 PIO persona 的板内 endpoint bias/reference loopback，并发布 bias
-  generation、质量和失效原因。
+- `[!]` P3-3：完成同一 PIO persona 的板内 endpoint bias/reference loopback，
+  并发布 bias generation、质量和失效原因。当前四板环线不是本板三线短接，
+  reference capture 只有本地 TX 边沿，必须切换 bench 接线后重测。
 - `[~]` P3-4：四板相邻段的 10/25/30 MHz 最小 HIL 已完成（最新复测 36/36 accepted）；继续补故障注入，覆盖缺边沿、乱序、重复、
   极性、SYNC/CRC 错、
   DMA overrun/stall、频率偏差和方向 asymmetry。
@@ -270,10 +281,11 @@ path_sum_AB = (t4 - t1) - residence_B
 
 ## 七、P4 VDC/DPLL 集成门禁
 
-- [ ] 校准域只向 VDC 发布 accepted calibration snapshot，不直接写 DPLL 状态或 VDC time。
-- [ ] VDC 消费 path-delay、residence、bias、generation、quality、freshness 和 topology
+- `[~]` 校准域只向 VDC 发布 accepted calibration snapshot，不直接写 DPLL 状态或 VDC time；
+  manager 激活代码路径已接入，缺真实 active HIL。
+- `[~]` VDC 消费 path-delay、residence、bias、generation、quality、freshness 和 topology
   CRC，建立 `local_tick_raw <-> vdc_time` 映射；DPLL 的 LOCKED/HOLDOVER/RELOCK 仍由 VDC
-  owner 决策。
+  owner 决策；path publish bridge 已有，consumer readback 与拒绝矩阵 HIL 待完成。
 - [ ] 验证未 hardware-latched、`DIAGNOSTIC_ONLY`、stale、CRC 错、generation 不一致、
   topology 变化和 rejected sample 都会阻止 calibration 进入 active/VDC。
 - [ ] 验证重新训练后必须显式提交/激活新 generation，旧 active calibration 在新证据未
@@ -300,10 +312,11 @@ path_sum_AB = (t4 - t1) - residence_B
 
 当前关键阻塞项：
 
-- `[!]` 统一相位代码路径已形成，但新固件尚未进行四板 MARK/SCK/DATA 零 offset 基线、矩阵
-  动态加载与 residual repeat；HIL 通过前不能把 host 推荐矩阵提升为 active calibration。
-- `[!]` P3 已有 4 ns PIO/DMA edge evidence 接口，但 endpoint bias、active/staging
-  generation 和 topology/profile freshness 尚未补齐，不能进入正式 active calibration。
+- `[x]` MARK/SCK/DATA 统一 per-link base 与全量 Node offset 矩阵已完成四板动态
+  加载和 TRN-03B residual/process-image 闭环；这项不再是当前阻塞。
+- `[!]` P3 已有 PIO/DMA edge evidence 和 path snapshot lifecycle 门禁，但当前 bench
+  没有本板三线 reference loopback，endpoint bias 样本全部被拒绝；受控 candidate
+  导入、四板 activate/rollback/persistence 和 VDC HIL 也未完成。
 - `[!]` 第二阶段 marker wire layout、CRC、阈值和产品级训练 SCPI 尚未冻结。
 - `[!]` endpoint bias/reference loopback、双向 asymmetry 和 topology freshness 尚未形成
   active calibration gate。

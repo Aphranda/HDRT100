@@ -4,11 +4,18 @@ Status: Draft
 Domain: CALIBRATION
 Canonical: `docs/calibration/README.md`
 Related: `docs/README.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/calibration/CALIBRATION_RING_AUTOCALIBRATION_PLAN.md`, `docs/interface/SCPI_COMMAND_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-08-25
+Last updated: 2026-08-27
 
 本目录是 CAL link、物理 topology、delay、校准参数、active/staging、版本和质量管理的
 目标入口。有向线序/邻接矩阵、环路顺序、node map、训练物理测量与接受门禁属于本域；
 TDMA 只承载隔离 probe/训练 persona 和实时资源编排。
+
+阅读和实施顺序固定为：先以 `CALIBRATION_TDMA_CLK_TRAINING_PLAN.md` 和
+`CALIBRATION_RING_AUTOCALIBRATION_PLAN.md` 建立 P0T/P0/P1/P2/P3 的 topology、hardware
+latch、endpoint bias、path-delay 和 generation/freshness 前置条件；再执行
+`CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md` 的 TRN-01/02/03。TRN-03B 短帧回环通过只证明
+TDMA transport/process-image 闭环，不会替代 P3 endpoint-bias 或自动形成 active
+calibration。
 
 ## 当前状态
 
@@ -24,8 +31,9 @@ TDMA 只承载隔离 probe/训练 persona 和实时资源编排。
 | `CALIBRATION_TASK_PROGRESS.md` | 校准域方案、粗捕获、编码测距和双向测距的任务记录与证据规则。 |
 
 校准域 host 工具统一使用 `calibration_*` 命名并放在
-`tools/calibration_ring_validate/`。当前包括物理 topology、第一阶段 CLK bracket 和码本
-评估工具；`tools/tdma_ring_monitor/` 只保留 TDMA transport/runtime 工具。
+`tools/calibration_ring_validate/`。当前包括物理 topology、CLK/coded/P3/bias、
+MARK/SCK/DATA 相位矩阵、TRN-03 staging/closed-loop/waveform/candidate lifecycle 工具；
+`tools/tdma_ring_monitor/` 只保留 TDMA transport/runtime 工具。
 
 ## 待补 canonical
 
