@@ -10,6 +10,36 @@ Last updated: 2026-08-27
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20260827-015 - DPLL/VDC 快速调试路径与原始链路错误压降边界
+
+- 对应 TODO：`P4-DBG-01..03`、`P4-LIVE-01..02`、`P4-REL-01`、
+  `TRN-03D-PHY`、`TRN-03D-RXGATE`、`TRN-03D-RETRY` 和 `TRN-03D-HEALTH`。
+- TDMA 当前状态足以支撑 DPLL/VDC 的快速接口和算法调试：四板短帧
+  `process-image/FIFO` 闭环、sequence/CRC、逐 Node 质量汇总、SD 原始波形/SVG、
+  `VdcSyncAO/SyncDpllFB` snapshot 和 `DIAGNOSTIC_ONLY` sample admission 均已有可复核路径。
+  因此可以并行开发 trace replay、offset/rate/lock 曲线、参数扫描和 reject 分类。
+- 当前状态仍不足以宣称真实产品级 DPLL 锁定：TDMA 文档基线仍要求真实 PIO 边沿
+  hardware latch、`HARDWARE_TICK`、分辨率门限、非 `DIAGNOSTIC_ONLY` 和
+  `simultaneous_feedback_loop_evidence`；软件 drain 时间戳只能用于诊断。endpoint bias、
+  fresh P3 active calibration、RX health/retry/watchdog 和发布级长稳也未全部完成。
+- 验证阶段的最小硬门槛已明确：sample identity/sequence/source/resolution/CRC 可追溯，坏样本
+  不进入 DPLL，offset/rate 只有 VDC owner 写，debug/provisional 结果不得进入正式 RUN。
+  完整 EtherCAT 风格 RX gate、stale image、有限重发、降级/STOP、持久化和故障矩阵属于
+  `P4-REL`，不阻塞 `P4-DBG`；但原始 FER 必须先独立收敛，不能用重试掩盖物理错误。
+- 最新四板证据（诊断快照，非产品精度承诺）：
+  `out/training/trn03d_node0_data_offset6_refinement32_g210_20260827/summary.json`
+  中 Node0 DATA `+6` 候选 32/32 次 accepted，残差为 `+4` 9 次、`+5` 23 次、`+6` 0 次；
+  `out/training/trn03d_node0_data_offset6_periodic_soak60_rerun_build041331_20260827/summary.json`
+  为四板 61 点、总接收机会 64444、各 Node 原始 bad=0，最差 Node 零错误 FER 的 95% 上界约
+  `1.86e-4`（约 186 ppm）。该样本只能说明本轮未观察到坏帧，不能替代更长时间的产品级
+  BER/FER 目标；Node0..3 的 SD 原始流量和 1 us SVG 已生成。
+- 文档结论：先以冻结矩阵和 `+6` 候选继续扩大 raw FER 样本、再接入硬件 latch 的
+  `P4-LIVE`；调试路径与产品安全路径分离，避免前期因完整恢复闭环未完成而停止算法推进。
+- 验证：文档门禁 `docs_check --strict-names`、`doc_regression_check`、文档 pytest 18 项和
+  pre-commit 均通过；登记表既有 `TDMA-FLIGHT-BITMAP-01` 格式警告保持未混入本任务。
+- 下一步：固化 P4-DBG replay/servo evidence 工具；完成最小 TDMA RX verdict 与 accepted/stale
+  image owner；随后执行真实 PIO latch HIL，再补齐 P4-REL 的 retry/health/fault/soak 门禁。
+
 ## CAL-TASK-20260827-014 - TRN-03D 周期长稳与原始误帧压降基线
 
 - 对应 TODO：`TRN-03D-PHY`、`TRN-03D-RXGATE`、`TRN-03D-RETRY`、

@@ -52,11 +52,24 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 ### 1.3 当前主线
 
 ```text
+产品发布主线：
 P0T topology + P0 evidence owner
   -> P1 coarse bracket -> P2 coded RTT -> P3 path/bias candidate
        -> TRN-01 MARK -> TRN-02 DATA/SCK -> TRN-03A/B short frame
-            -> TRN-03C active candidate -> TRN-03D fault/soak -> P4 VDC/DPLL
+            -> TRN-03C active candidate -> TRN-03D fault/soak -> P4-REL VDC/DPLL
+
+验证阶段快车道：
+TRN-03B short frame + frozen phase matrix + raw capture/replay
+  -> P4-DBG 算法与接口调试
+       -> P4-LIVE 真实 hardware-latched observation 调试
+            -> 汇入 P4-REL 产品门禁
 ```
+
+两条路径不改变最终产品门禁。`P4-DBG` 可以使用明确标为 `DIAGNOSTIC_ONLY` 的录制或实时样本，
+用于快速开发状态机、sample admission、offset/rate 更新、参数扫描、曲线和证据工具；它不得发布
+正式 `LOCKED/HEALTHY/RUN`。`P4-LIVE` 必须使用真实 PIO 边沿 latch，但在 endpoint bias、完整
+active calibration 和 TRN-03D 产品安全闭环完成前仍只形成 provisional 调试结论。只有 `P4-REL`
+需要等待产品发布主线的全部门禁。
 
 ### 1.4 训练子域的校准前置门禁
 
@@ -74,6 +87,8 @@ P0T topology + P0 evidence owner
 3. 完成 TRN-03C 的实板 activate/rollback/persistence/VDC consumer 闭环。
 4. 按 `TRN-03D-PHY -> RXGATE -> RETRY -> HEALTH -> FAULT -> SOAK` 完成原始误帧压降、
    确定性接收恢复、故障注入与长稳；原始链路未过门限前不得用重发结论替代物理收敛。
+5. 与上述工作并行启动 `P4-DBG`；优先打通 trace replay、DPLL sample admission、offset/rate/lock
+   曲线和参数扫描。`P4-LIVE` 只等待真实边沿 latch，不等待完整重试、watchdog、持久化和发布门禁。
 
 ## 二、训练子域：MARK / DATA / TDMA
 
@@ -277,6 +292,23 @@ P3 的 signal group、方向、`t1..t4` 方程和 profile policy 以训练方案
 
 ## 八、P4 VDC/DPLL 集成门禁
 
+### 8.1 验证阶段快车道
+
+| ID | 任务 | 状态 | 完成/退出门禁 |
+|---|---|---|---|
+| P4-DBG-01 | 建立 `DIAGNOSTIC_ONLY` 的 DPLL/VDC 调试模式 | `IN PROGRESS` | 可以消费有完整 sample identity、sequence、source、resolution、CRC 和 reject reason 的录制/实时样本；缺失或坏样本只能 reject，不能补零；输出始终带 debug/provisional 身份且不能进入正式 RUN gate |
+| P4-DBG-02 | 固化 SD/TDMA 原始证据到 DPLL 的 replay 调参路径 | `PENDING` | 同一 evidence 可确定性重放；参数变化输出 accepted/rejected、lock time、offset RMS/peak、rate、outlier 和 saturation，host 只配置与记录，不参与实时计算 |
+| P4-DBG-03 | 在现有四板短帧环路上联调 VDC owner、TDMA payload 和 DCO snapshot | `PENDING` | TDMA sequence/CRC/process-image 持续推进且无 DMA/PIO overrun 时可联调接口；原始 FER、missing 和 reject 单独记账，算法结果不得掩盖物理错误或升级 calibration 身份 |
+| P4-LIVE-01 | 接入连续真实 PIO 边沿 latch observation | `PENDING` | timestamp 来自硬件 latch 而非 core1 drain/host 时间；source、resolution、flags、window、frame identity 和 path-delay 输入可回溯，允许开始真实 jitter/servo 调参，但结论保持 provisional |
+| P4-LIVE-02 | 完成多 Node 真实输入的粗锁、频锁和相锁调试 | `PENDING` | 分别验证 initial sync、frequency pull、phase pull、outlier reject、holdover/relock；任何 sample identity、CRC、sequence 或 freshness 失败都不能更新 offset/rate |
+
+验证阶段只保留会污染算法结论的硬门槛：样本身份可追溯、坏样本不进入 DPLL、真实调参使用
+hardware latch、offset/rate 只有 VDC owner 写、调试输出不能进入产品 RUN。完整 RX health 状态机、
+显式重发、watchdog、持久化、发布级阈值和全部故障矩阵安排在 `P4-REL` 前补齐，不阻塞
+`P4-DBG`；其中 CRC/sequence/identity 的最小拒绝仍应尽早复用现有 TDMA gate。
+
+### 8.2 产品发布门禁
+
 | ID | 任务 | 状态 | 完成/退出门禁 |
 |---|---|---|---|
 | P4-01 | 校准域只向 VDC 发布 accepted calibration snapshot | `IN PROGRESS` | manager publish gate 已接入；仍需真实 active HIL，校准域不直接写 DPLL/VDC time |
@@ -284,6 +316,7 @@ P3 的 signal group、方向、`t1..t4` 方程和 profile policy 以训练方案
 | P4-03 | 验证非法 calibration 一律不能 active/VDC | `PENDING` | 非 hardware latch、diagnostic、stale、CRC/generation/topology 错和 rejected sample 全部 fail closed |
 | P4-04 | 验证 retraining、显式 activation 和 rollback | `PENDING` | 新 generation 不半更新；旧 active 仅按明确 rollback/invalid policy 使用 |
 | P4-05 | 完成 VDC/DPLL observation window HIL | `PENDING` | 多 Node offset/rate、lock、holdover、relock、late、CRC/sequence 和 generation 可回溯 |
+| P4-REL-01 | 将调试路径收敛到产品接收与恢复门禁 | `PENDING` | TRN-03D-PHY/RXGATE/RETRY/HEALTH/FAULT/SOAK、active calibration、watchdog、持久化和发布阈值全部通过；debug/provisional 结果不能被原地提升为正式 active/LOCKED，必须基于合格新观测重新验收 |
 
 ## 九、验证、故障与发布
 
@@ -302,7 +335,7 @@ P3 的 signal group、方向、`t1..t4` 方程和 profile policy 以训练方案
 | ID | 阻塞范围 | 阻塞条件 | 解除条件 |
 |---|---|---|---|
 | BLK-01 | P3-03 / P3-LB-06 | 当前四板环线不是每板本地三线 reference loopback，bias capture 缺有效 RX 边沿 | 每板完成本地 TX->RX 三线连接并重跑 endpoint-bias，形成 accepted bias generation |
-| BLK-02 | TRN-03C / P4 | fresh P3 依赖 BLK-01，当前不能形成可激活的完整 candidate | 使用有效 bias 重跑完整 link 集，经受控导入通过 activate/rollback/persistence/VDC HIL |
+| BLK-02 | TRN-03C / P4-REL | fresh P3 依赖 BLK-01，当前不能形成可激活的完整 candidate；不阻塞 P4-DBG，接入真实 latch 后也不阻塞 provisional P4-LIVE | 使用有效 bias 重跑完整 link 集，经受控导入通过 activate/rollback/persistence/VDC HIL |
 | BLK-03 | P2 产品化 | marker wire layout、CRC、阈值和产品级训练 SCPI 尚未冻结 | 完成正反回归、跨域评审与契约登记 |
 | BLK-04 | active calibration | endpoint bias、asymmetry 和 topology freshness 尚未共同进入 active gate | candidate 对全部 identity、quality、freshness 和完整 link 集 fail closed |
 
