@@ -4,7 +4,7 @@ Status: Draft
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_RING_AUTOCALIBRATION_PLAN.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`, `docs/arch/HAOFV_ARCHITECTURE.md`
-Last updated: 2026-08-25
+Last updated: 2026-08-27
 
 本文档细化“板卡接收一条 SCPI 指令后，在硬件内完成板卡顺序搜索和 P1--P3 path-delay
 训练”的目标架构。板卡顺序搜索定义为 P0，必须先于 CLK RTT 粗捕获、编码 marker 和

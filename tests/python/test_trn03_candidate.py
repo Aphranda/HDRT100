@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from pathlib import Path
 
 from tools.calibration_ring_validate.trn03_candidate import (
     activate_candidate,
@@ -285,3 +286,16 @@ def test_candidate_lifecycle_rejects_bad_crc_and_generation_replay() -> None:
         assert "not newer" in str(exc)
     else:
         raise AssertionError("generation replay was activated")
+
+
+def test_firmware_calibration_lifecycle_is_not_an_unconditional_stub() -> None:
+    root = Path(__file__).resolve().parents[2]
+    header = (root / "middleware" / "scpi_port" / "inc" /
+              "scpi_calibration_commands.h").read_text(encoding="utf-8")
+    assert '.pattern = "CALibration:ACTivate", .callback = scpi_calibration_activate' in header
+    assert '.pattern = "CALibration:ROLLback", .callback = scpi_calibration_rollback' in header
+    assert '.pattern = "CALibration:CLEAr", .callback = scpi_calibration_clear' in header
+    source = (root / "middleware" / "scpi_port" / "src" /
+              "scpi_calibration_commands.c").read_text(encoding="utf-8")
+    assert "calibration_manager_activate_path_candidate()" in source
+    assert "calibration_manager_rollback_path()" in source
