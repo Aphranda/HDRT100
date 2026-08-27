@@ -442,6 +442,33 @@ def test_core1_overrun_quarantines_only_the_faulting_load() -> None:
     assert 'SYSTem:TDMA:SCHEDule?' in commands
 
 
+def test_core1_boots_with_only_vdc_publication_foundation_loads() -> None:
+    header = (ROOT / "application" / "inc" / "app.h").read_text(
+        encoding="utf-8")
+    foundation = header.split(
+        "#define APP_REALTIME_LOAD_FOUNDATION_MASK", 1
+    )[1].split("#define APP_REALTIME_LOAD_SECONDARY_MASK", 1)[0]
+    for load in (
+        "APP_REALTIME_LOAD_VDC",
+        "APP_REALTIME_LOAD_DPLL",
+        "APP_REALTIME_LOAD_SYNC_CAPTURE",
+        "APP_REALTIME_LOAD_REFMEM",
+        "APP_REALTIME_LOAD_SYNC_TRIGGER",
+    ):
+        assert load in foundation
+    for load in (
+        "APP_REALTIME_LOAD_CALIBRATION",
+        "APP_REALTIME_LOAD_MODEL",
+        "APP_REALTIME_LOAD_TRIGGER_MEASURE",
+    ):
+        assert load not in foundation
+
+    app = (ROOT / "application" / "src" / "app.c").read_text(
+        encoding="utf-8")
+    assert "s_realtime_load_enabled_mask =\n    " \
+           "APP_REALTIME_LOAD_FOUNDATION_MASK;" in app
+
+
 def test_core1_static_phase_schedule_fits_with_tdma_and_guard() -> None:
     config = (ROOT / "config" / "project_config.h").read_text(
         encoding="utf-8")

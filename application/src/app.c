@@ -222,7 +222,7 @@ typedef void (*app_realtime_load_service_fn)(void);
 
 static volatile uint32_t s_realtime_schedule_guard;
 static volatile uint32_t s_realtime_load_enabled_mask =
-    APP_REALTIME_LOAD_ALL_MASK;
+    APP_REALTIME_LOAD_FOUNDATION_MASK;
 static volatile uint32_t s_realtime_load_quarantined_mask;
 
 #define APP_REALTIME_PHASE_CONTRACT_INIT(name, start, end, wcet) \
