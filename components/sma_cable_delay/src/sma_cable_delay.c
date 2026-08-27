@@ -304,6 +304,31 @@ bool sma_cable_delay_extract_phase_from_capture(
     return true;
 }
 
+bool sma_cable_delay_resolve_symmetric_rtt(
+    uint32_t raw_round_trip_cycles,
+    uint32_t responder_turnaround_cycles,
+    uint32_t sample_period_ps,
+    sma_cable_delay_symmetric_rtt_t *result)
+{
+    if (result != NULL) {
+        memset(result, 0, sizeof(*result));
+    }
+    if (result == NULL || sample_period_ps == 0u ||
+        raw_round_trip_cycles <= responder_turnaround_cycles) {
+        return false;
+    }
+
+    const uint64_t path_cycles =
+        (uint64_t)raw_round_trip_cycles - responder_turnaround_cycles;
+    result->raw_round_trip_cycles = raw_round_trip_cycles;
+    result->responder_turnaround_cycles = responder_turnaround_cycles;
+    result->sample_period_ps = sample_period_ps;
+    result->path_sum_ps = path_cycles * sample_period_ps;
+    result->mean_leg_delay_ps = result->path_sum_ps / 2u;
+    result->valid = true;
+    return true;
+}
+
 const char *sma_cable_delay_status_string(sma_cable_delay_status_t status)
 {
     switch (status) {

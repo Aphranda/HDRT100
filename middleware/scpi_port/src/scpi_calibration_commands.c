@@ -10,8 +10,25 @@
 #define SCPI_SMA_CABLE_CAPTURE_MAX_WORDS 512u
 #define SCPI_SMA_CABLE_CAPTURE_DEFAULT_WORDS 256u
 #define SCPI_SMA_CABLE_CAPTURE_TIMEOUT_US 100000u
+#define SCPI_SMA_CABLE_RTT_RESPONDER_TIMEOUT_US 2000000u
 
 static uint32_t s_scpi_sma_cable_capture[SCPI_SMA_CABLE_CAPTURE_MAX_WORDS];
+
+static bool scpi_sma_cable_input_pin(uint32_t input_channel,
+                                     uint32_t *input_pin)
+{
+    if (input_pin == NULL || input_channel == 0u ||
+        input_channel > BOARD_SYNC_INPUT_PIN_COUNT) {
+        return false;
+    }
+#if BOARD_SYNC_INPUT_BITS_REVERSED
+    *input_pin = BOARD_SYNC_INPUT_BASE_PIN +
+                 BOARD_SYNC_INPUT_PIN_COUNT - input_channel;
+#else
+    *input_pin = BOARD_SYNC_INPUT_BASE_PIN + input_channel - 1u;
+#endif
+    return true;
+}
 
 static void scpi_calibration_result_u64(scpi_t *context, uint64_t value)
 {
@@ -385,6 +402,137 @@ scpi_result_t scpi_calibration_sma_cable_coarse_q(scpi_t *context)
             context,
             (int32_t)coarse.channels[channel].relative_delay_ps);
     }
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_sma_cable_rtt_q(scpi_t *context)
+{
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t output_channel = 0u;
+    uint32_t input_channel = 0u;
+    uint32_t capture_word_count = SCPI_SMA_CABLE_CAPTURE_DEFAULT_WORDS;
+    uint32_t input_pin = 0u;
+    if (SCPI_ParamUInt32(context, &output_channel, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &input_channel, TRUE) != TRUE) {
+        scpi_port_push_exec_error(context, "SMA_CABLE_RTT_BAD_ARGUMENT");
+        return SCPI_RES_ERR;
+    }
+    (void)SCPI_ParamUInt32(context, &capture_word_count, FALSE);
+    if (output_channel == 0u ||
+        output_channel > BOARD_SYNC_OUTPUT_PIN_COUNT ||
+        !scpi_sma_cable_input_pin(input_channel, &input_pin) ||
+        capture_word_count < SMA_CABLE_DELAY_PIO_MIN_CAPTURE_WORDS ||
+        capture_word_count > SCPI_SMA_CABLE_CAPTURE_MAX_WORDS) {
+        scpi_port_push_exec_error(context, "SMA_CABLE_RTT_BAD_ARGUMENT");
+        return SCPI_RES_ERR;
+    }
+
+    const sma_cable_delay_pio_config_t config = {
+        .role = SMA_CABLE_DELAY_PIO_ROLE_RTT_INITIATOR,
+        .timing = SMA_CABLE_DELAY_PIO_TIMING_FREE_RUNNING,
+        .output_index = output_channel - 1u,
+        .input_base_pin = input_pin,
+        .appointment_marker_pin = input_pin,
+        .reverse_input_bits = false,
+    };
+    sma_cable_delay_pio_status_t status = sma_cable_delay_pio_open(&config);
+    if (status != SMA_CABLE_DELAY_PIO_OK) {
+        scpi_port_push_exec_error(context,
+                                  sma_cable_delay_pio_status_string(status));
+        return SCPI_RES_ERR;
+    }
+
+    sma_cable_delay_pio_rtt_capture_t capture;
+    status = sma_cable_delay_pio_rtt_initiate(
+        s_scpi_sma_cable_capture,
+        capture_word_count,
+        SCPI_SMA_CABLE_CAPTURE_TIMEOUT_US,
+        &capture);
+    sma_cable_delay_pio_close();
+    if (status != SMA_CABLE_DELAY_PIO_OK) {
+        scpi_port_push_exec_error(context,
+                                  sma_cable_delay_pio_status_string(status));
+        return SCPI_RES_ERR;
+    }
+
+    sma_cable_delay_symmetric_rtt_t result;
+    if (!sma_cable_delay_resolve_symmetric_rtt(
+            capture.raw_round_trip_cycles,
+            capture.responder_turnaround_cycles,
+            capture.sample_period_ps,
+            &result)) {
+        scpi_port_push_exec_error(context, "SMA_CABLE_RTT_INVALID_RESULT");
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, output_channel);
+    SCPI_ResultUInt32(context, input_channel);
+    SCPI_ResultUInt32(context, capture.sample_rate_hz);
+    SCPI_ResultUInt32(context, capture.sample_period_ps);
+    SCPI_ResultUInt32(context, capture.response_sample_index);
+    SCPI_ResultUInt32(context, capture.raw_round_trip_cycles);
+    SCPI_ResultUInt32(context, capture.responder_turnaround_cycles);
+    scpi_calibration_result_u64(context, result.path_sum_ps);
+    scpi_calibration_result_u64(context, result.mean_leg_delay_ps);
+    SCPI_ResultBool(context, result.valid ? TRUE : FALSE);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_sma_cable_rtt_responder_q(scpi_t *context)
+{
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t input_channel = 0u;
+    uint32_t output_channel = 0u;
+    uint32_t input_pin = 0u;
+    if (SCPI_ParamUInt32(context, &input_channel, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &output_channel, TRUE) != TRUE ||
+        output_channel == 0u ||
+        output_channel > BOARD_SYNC_OUTPUT_PIN_COUNT ||
+        !scpi_sma_cable_input_pin(input_channel, &input_pin)) {
+        scpi_port_push_exec_error(context, "SMA_CABLE_RTT_BAD_ARGUMENT");
+        return SCPI_RES_ERR;
+    }
+
+    const sma_cable_delay_pio_config_t config = {
+        .role = SMA_CABLE_DELAY_PIO_ROLE_RTT_RESPONDER,
+        .timing = SMA_CABLE_DELAY_PIO_TIMING_FREE_RUNNING,
+        .output_index = output_channel - 1u,
+        .input_base_pin = input_pin,
+        .appointment_marker_pin = input_pin,
+        .reverse_input_bits = false,
+    };
+    sma_cable_delay_pio_status_t status = sma_cable_delay_pio_open(&config);
+    if (status != SMA_CABLE_DELAY_PIO_OK) {
+        scpi_port_push_exec_error(context,
+                                  sma_cable_delay_pio_status_string(status));
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t turnaround_cycles = 0u;
+    status = sma_cable_delay_pio_rtt_respond(
+        SCPI_SMA_CABLE_RTT_RESPONDER_TIMEOUT_US,
+        &turnaround_cycles);
+    sma_cable_delay_pio_close();
+    if (status != SMA_CABLE_DELAY_PIO_OK) {
+        scpi_port_push_exec_error(context,
+                                  sma_cable_delay_pio_status_string(status));
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, input_channel);
+    SCPI_ResultUInt32(context, output_channel);
+    SCPI_ResultUInt32(context, turnaround_cycles);
+    SCPI_ResultUInt32(context, SMA_CABLE_DELAY_PIO_MARK_WIDTH_NS);
     return SCPI_RES_OK;
 }
 

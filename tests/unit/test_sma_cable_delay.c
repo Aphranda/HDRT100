@@ -148,6 +148,20 @@ static void test_packed_capture_phase_extracts_logical_channel(void)
     assert(phase.phase_mdeg == -67500);
 }
 
+static void test_symmetric_rtt_subtracts_responder_turnaround(void)
+{
+    sma_cable_delay_symmetric_rtt_t result;
+    assert(sma_cable_delay_resolve_symmetric_rtt(18u, 10u, 4000u,
+                                                 &result));
+    assert(result.valid);
+    assert(result.path_sum_ps == 32000u);
+    assert(result.mean_leg_delay_ps == 16000u);
+
+    assert(!sma_cable_delay_resolve_symmetric_rtt(10u, 10u, 4000u,
+                                                  &result));
+    assert(!result.valid);
+}
+
 int main(void)
 {
     test_phase_slope_unwraps_and_fits_delay();
@@ -155,6 +169,7 @@ int main(void)
     test_channel_resolution_preserves_measurement_boundary();
     test_equal_cable_coarse_result_is_explicit();
     test_packed_capture_phase_extracts_logical_channel();
+    test_symmetric_rtt_subtracts_responder_turnaround();
     puts("sma_cable_delay tests passed");
     return 0;
 }

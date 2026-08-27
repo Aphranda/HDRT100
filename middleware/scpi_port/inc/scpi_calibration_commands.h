@@ -65,6 +65,8 @@ scpi_result_t scpi_calibration_sma_cable_source_start(scpi_t *context);
 scpi_result_t scpi_calibration_sma_cable_source_stop(scpi_t *context);
 scpi_result_t scpi_calibration_sma_cable_validator_q(scpi_t *context);
 scpi_result_t scpi_calibration_sma_cable_coarse_q(scpi_t *context);
+scpi_result_t scpi_calibration_sma_cable_rtt_q(scpi_t *context);
+scpi_result_t scpi_calibration_sma_cable_rtt_responder_q(scpi_t *context);
 
 #define SCPI_CALIBRATION_COMMANDS \
     {.pattern = "CONFigure:CALibration:LINK:ADD", .callback = scpi_port_result_accepted}, \
@@ -123,6 +125,8 @@ scpi_result_t scpi_calibration_sma_cable_coarse_q(scpi_t *context);
     {.pattern = "CALibration:SMA:CABLe:SOURce:STOP", .callback = scpi_calibration_sma_cable_source_stop}, \
     {.pattern = "READ:CALibration:SMA:CABLe:VALidator?", .callback = scpi_calibration_sma_cable_validator_q}, \
     {.pattern = "READ:CALibration:SMA:CABLe:COARse?", .callback = scpi_calibration_sma_cable_coarse_q}, \
+    {.pattern = "READ:CALibration:SMA:CABLe:RTT:RESPonder?", .callback = scpi_calibration_sma_cable_rtt_responder_q}, \
+    {.pattern = "READ:CALibration:SMA:CABLe:RTT?", .callback = scpi_calibration_sma_cable_rtt_q}, \
     {.pattern = "READ:CALibration:STATe?", .callback = scpi_calibration_result_q}, \
     {.pattern = "READ:CALibration:RESult?", .callback = scpi_calibration_result_q}, \
     {.pattern = "CONFigure:CALibration:PARameter:ADD", .callback = scpi_port_result_accepted}, \

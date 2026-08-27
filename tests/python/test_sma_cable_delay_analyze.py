@@ -13,6 +13,8 @@ FIVE_BOARD_SCRIPT = (ROOT / "tools" / "sma_cable_delay_validate" /
                      "sma_cable_five_board_validate.py")
 APPOINTMENT_SCRIPT = (ROOT / "tools" / "sma_cable_delay_validate" /
                       "sma_cable_appointment_validate.py")
+SYMMETRIC_RTT_SCRIPT = (ROOT / "tools" / "sma_cable_delay_validate" /
+                        "sma_cable_symmetric_rtt.py")
 
 
 def _load_module():
@@ -185,3 +187,69 @@ def test_mark_appointment_summary_gates_signal_quality():
     records[0]["channels"][0]["duty_cycle_ppm"] = 600_000
     summary = module.summarize_appointment(records, 3)
     assert summary["signal_quality_passed"] is False
+
+
+def test_symmetric_rtt_infers_all_bidirectional_routes():
+    spec = importlib.util.spec_from_file_location(
+        "sma_cable_symmetric_rtt_routes", SYMMETRIC_RTT_SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    scans = {}
+    for node_no in range(1, 5):
+        forward = []
+        reverse = []
+        for output_channel in range(1, 5):
+            forward.append({
+                "output_channel": output_channel,
+                "detected_input_channels": (
+                    [node_no] if output_channel == 1 else []),
+            })
+            reverse.append({
+                "output_channel": output_channel,
+                "detected_input_channels": (
+                    [1] if output_channel == 5 - node_no else []),
+            })
+        scans[node_no] = {
+            "node_to_validator": forward,
+            "validator_to_node": reverse,
+        }
+    routes, passed = module.infer_routes(scans)
+    assert passed is True
+    assert [(item.node_output_channel,
+             item.validator_input_channel,
+             item.validator_output_channel,
+             item.node_input_channel) for item in routes] == [
+        (1, 1, 4, 1),
+        (1, 2, 3, 1),
+        (1, 3, 2, 1),
+        (1, 4, 1, 1),
+    ]
+
+
+def test_symmetric_rtt_parser_and_summary_keep_quantized_values():
+    spec = importlib.util.spec_from_file_location(
+        "sma_cable_symmetric_rtt_summary", SYMMETRIC_RTT_SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    values = [1, 1, 250_000_000, 4000, 17, 18, 10,
+              32_000, 0, 16_000, 0, 1]
+    parsed = module.parse_rtt_response(values)
+    assert parsed["path_sum_ps"] == 32_000
+    assert parsed["mean_leg_delay_ps"] == 16_000
+    records = []
+    for node_no in range(1, 5):
+        for delay in (12_000, 16_000, 16_000):
+            records.append({
+                "node_no": node_no,
+                "valid": True,
+                "mean_leg_delay_ps": delay,
+            })
+    summary = module.summarize_records(records, 3)
+    assert summary["passed"] is True
+    assert summary["nodes"][0]["median_mean_leg_delay_ps"] == 16_000
+    assert summary["nodes"][0]["quantized_delay_histogram"] == {
+        "12000": 1, "16000": 2}

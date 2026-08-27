@@ -73,6 +73,15 @@ typedef struct {
     bool valid;
 } sma_cable_delay_phase_extract_t;
 
+typedef struct {
+    uint32_t raw_round_trip_cycles;
+    uint32_t responder_turnaround_cycles;
+    uint32_t sample_period_ps;
+    uint64_t path_sum_ps;
+    uint64_t mean_leg_delay_ps;
+    bool valid;
+} sma_cable_delay_symmetric_rtt_t;
+
 /* Fit phase(f) = phase0 - 2*pi*f*delay. Input phase is wrapped to one turn. */
 sma_cable_delay_status_t sma_cable_delay_fit_phase_slope(
     const sma_cable_delay_phase_point_t *points,
@@ -110,6 +119,18 @@ bool sma_cable_delay_extract_phase_from_capture(
     uint32_t sample_rate_hz,
     bool reverse_input_bits,
     sma_cable_delay_phase_extract_t *phase);
+
+/*
+ * Resolve a two-way measurement made entirely in the initiator clock domain.
+ * path_sum_ps contains forward + reverse electrical path delay.  The
+ * mean_leg_delay_ps result assumes reciprocal paths; cable-only delay still
+ * requires endpoint driver/receiver fixture subtraction.
+ */
+bool sma_cable_delay_resolve_symmetric_rtt(
+    uint32_t raw_round_trip_cycles,
+    uint32_t responder_turnaround_cycles,
+    uint32_t sample_period_ps,
+    sma_cable_delay_symmetric_rtt_t *result);
 
 const char *sma_cable_delay_status_string(sma_cable_delay_status_t status);
 
