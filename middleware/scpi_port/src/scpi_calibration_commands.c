@@ -123,7 +123,154 @@ scpi_result_t scpi_calibration_sma_cable_phase_q(scpi_t *context)
     }
 
     const sma_cable_delay_pio_config_t config = {
+        .role = SMA_CABLE_DELAY_PIO_ROLE_SELF_LOOP,
         .output_index = output_channel - 1u,
+        .input_base_pin = BOARD_SYNC_INPUT_BASE_PIN,
+        .reverse_input_bits = BOARD_SYNC_INPUT_BITS_REVERSED != 0,
+    };
+    sma_cable_delay_pio_status_t status = sma_cable_delay_pio_open(&config);
+    if (status != SMA_CABLE_DELAY_PIO_OK) {
+        scpi_port_push_exec_error(context,
+                                  sma_cable_delay_pio_status_string(status));
+        return SCPI_RES_ERR;
+    }
+
+    sma_cable_delay_pio_capture_t capture;
+    status = sma_cable_delay_pio_capture_frequency(
+        frequency_hz,
+        s_scpi_sma_cable_capture,
+        capture_word_count,
+        SCPI_SMA_CABLE_CAPTURE_TIMEOUT_US,
+        &capture);
+    if (status != SMA_CABLE_DELAY_PIO_OK) {
+        sma_cable_delay_pio_close();
+        scpi_port_push_exec_error(context,
+                                  sma_cable_delay_pio_status_string(status));
+        return SCPI_RES_ERR;
+    }
+
+    sma_cable_delay_phase_extract_t phases[SMA_CABLE_DELAY_CHANNEL_COUNT];
+    bool any_phase_valid = false;
+    for (uint32_t channel = 0u;
+         channel < SMA_CABLE_DELAY_CHANNEL_COUNT;
+         ++channel) {
+        if (sma_cable_delay_extract_phase_from_capture(
+                s_scpi_sma_cable_capture,
+                capture.captured_word_count,
+                channel,
+                capture.period_samples,
+                capture.reverse_input_bits,
+                &phases[channel])) {
+            any_phase_valid = true;
+        }
+    }
+    sma_cable_delay_pio_close();
+    if (!any_phase_valid) {
+        scpi_port_push_exec_error(context, "SMA_CABLE_NO_EDGE");
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, capture.requested_frequency_hz);
+    SCPI_ResultUInt32(context, capture.actual_frequency_hz);
+    SCPI_ResultUInt32(context, capture.sample_rate_hz);
+    SCPI_ResultUInt32(context, capture.period_samples);
+    SCPI_ResultUInt32(context, capture.captured_word_count);
+    for (uint32_t channel = 0u;
+         channel < SMA_CABLE_DELAY_CHANNEL_COUNT;
+         ++channel) {
+        SCPI_ResultBool(context, phases[channel].valid ? TRUE : FALSE);
+        SCPI_ResultInt32(context, phases[channel].phase_mdeg);
+        SCPI_ResultUInt32(context, phases[channel].rising_edge_count);
+    }
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_sma_cable_source_start(scpi_t *context)
+{
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t frequency_hz = 0u;
+    uint32_t output_channel = 0u;
+    if (SCPI_ParamUInt32(context, &frequency_hz, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &output_channel, TRUE) != TRUE ||
+        frequency_hz == 0u || output_channel == 0u ||
+        output_channel > BOARD_SYNC_OUTPUT_PIN_COUNT) {
+        scpi_port_push_exec_error(context, "SMA_CABLE_BAD_ARGUMENT");
+        return SCPI_RES_ERR;
+    }
+
+    sync_io_sma_frequency_tx_status_t frequency_tx;
+    sync_io_sma_frequency_tx_get_status(&frequency_tx);
+    if (frequency_tx.running) {
+        scpi_port_push_exec_error(context, "SMA_FREQUENCY_TX_ACTIVE");
+        return SCPI_RES_ERR;
+    }
+
+    const sma_cable_delay_pio_config_t config = {
+        .role = SMA_CABLE_DELAY_PIO_ROLE_SOURCE,
+        .output_index = output_channel - 1u,
+        .input_base_pin = BOARD_SYNC_INPUT_BASE_PIN,
+        .reverse_input_bits = BOARD_SYNC_INPUT_BITS_REVERSED != 0,
+    };
+    sma_cable_delay_pio_status_t status = sma_cable_delay_pio_open(&config);
+    if (status != SMA_CABLE_DELAY_PIO_OK) {
+        scpi_port_push_exec_error(context,
+                                  sma_cable_delay_pio_status_string(status));
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t actual_frequency_hz = 0u;
+    status = sma_cable_delay_pio_source_start(frequency_hz,
+                                               &actual_frequency_hz);
+    if (status != SMA_CABLE_DELAY_PIO_OK) {
+        sma_cable_delay_pio_close();
+        scpi_port_push_exec_error(context,
+                                  sma_cable_delay_pio_status_string(status));
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, frequency_hz);
+    SCPI_ResultUInt32(context, actual_frequency_hz);
+    SCPI_ResultUInt32(context, output_channel);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_sma_cable_source_stop(scpi_t *context)
+{
+    sma_cable_delay_pio_source_stop();
+    sma_cable_delay_pio_close();
+    return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_calibration_sma_cable_validator_q(scpi_t *context)
+{
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t frequency_hz = 0u;
+    uint32_t capture_word_count = SCPI_SMA_CABLE_CAPTURE_DEFAULT_WORDS;
+    if (SCPI_ParamUInt32(context, &frequency_hz, TRUE) != TRUE) {
+        scpi_port_push_exec_error(context, "SMA_CABLE_BAD_ARGUMENT");
+        return SCPI_RES_ERR;
+    }
+    (void)SCPI_ParamUInt32(context, &capture_word_count, FALSE);
+    if (frequency_hz == 0u ||
+        capture_word_count < SMA_CABLE_DELAY_PIO_MIN_CAPTURE_WORDS ||
+        capture_word_count > SCPI_SMA_CABLE_CAPTURE_MAX_WORDS) {
+        scpi_port_push_exec_error(context, "SMA_CABLE_BAD_ARGUMENT");
+        return SCPI_RES_ERR;
+    }
+
+    const sma_cable_delay_pio_config_t config = {
+        .role = SMA_CABLE_DELAY_PIO_ROLE_VALIDATOR,
+        .output_index = 0u,
         .input_base_pin = BOARD_SYNC_INPUT_BASE_PIN,
         .reverse_input_bits = BOARD_SYNC_INPUT_BITS_REVERSED != 0,
     };

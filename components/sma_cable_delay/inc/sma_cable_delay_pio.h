@@ -24,9 +24,17 @@ typedef enum {
     SMA_CABLE_DELAY_PIO_BUSY,
     SMA_CABLE_DELAY_PIO_FREQUENCY_OUT_OF_RANGE,
     SMA_CABLE_DELAY_PIO_CAPTURE_TIMEOUT,
+    SMA_CABLE_DELAY_PIO_WRONG_ROLE,
 } sma_cable_delay_pio_status_t;
 
+typedef enum {
+    SMA_CABLE_DELAY_PIO_ROLE_SELF_LOOP = 0,
+    SMA_CABLE_DELAY_PIO_ROLE_SOURCE,
+    SMA_CABLE_DELAY_PIO_ROLE_VALIDATOR,
+} sma_cable_delay_pio_role_t;
+
 typedef struct {
+    sma_cable_delay_pio_role_t role;
     uint32_t output_index;
     uint32_t input_base_pin;
     bool reverse_input_bits;
@@ -39,6 +47,7 @@ typedef struct {
     uint32_t period_samples;
     uint32_t captured_word_count;
     bool reverse_input_bits;
+    bool phase_coherent;
 } sma_cable_delay_pio_capture_t;
 
 /* Dynamic persona: owns its claimed PIO SM/program space/DMA only while open. */
@@ -51,6 +60,12 @@ sma_cable_delay_pio_status_t sma_cable_delay_pio_capture_frequency(
     size_t capture_word_count,
     uint32_t timeout_us,
     sma_cable_delay_pio_capture_t *capture);
+
+sma_cable_delay_pio_status_t sma_cable_delay_pio_source_start(
+    uint32_t frequency_hz,
+    uint32_t *actual_frequency_hz);
+
+void sma_cable_delay_pio_source_stop(void);
 
 void sma_cable_delay_pio_close(void);
 bool sma_cable_delay_pio_is_open(void);

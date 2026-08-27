@@ -9,6 +9,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "tools" / "sma_cable_delay_validate" / "sma_cable_delay_analyze.py"
 SWEEP_SCRIPT = ROOT / "tools" / "sma_cable_delay_validate" / "sma_cable_delay_sweep.py"
 WIRE_SCRIPT = ROOT / "tools" / "sma_cable_delay_validate" / "sma_cable_wire_order.py"
+FIVE_BOARD_SCRIPT = (ROOT / "tools" / "sma_cable_delay_validate" /
+                     "sma_cable_five_board_validate.py")
 
 
 def _load_module():
@@ -79,3 +81,43 @@ def test_wire_order_inference_requires_one_to_one_diagonal():
     inferred, passed = module.infer_wire_order(measurements)
     assert inferred == [1, 2, 3, 4]
     assert passed is True
+
+
+def test_five_board_validation_requires_passing_wire_order(tmp_path):
+    spec = importlib.util.spec_from_file_location(
+        "sma_cable_five_board_validate", FIVE_BOARD_SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    result_path = tmp_path / "wire.json"
+    result_path.write_text(json.dumps({
+        "schema": "sma-cable-delay/wire-order-v1",
+        "passed": True,
+        "inferred_source_to_input": [1, 2, 3, 4],
+    }), encoding="utf-8")
+    result = module.require_wire_order_result(result_path)
+    assert result["passed"] is True
+
+    result_path.write_text(json.dumps({
+        "schema": "sma-cable-delay/wire-order-v1",
+        "passed": False,
+        "inferred_source_to_input": [2, 1, 3, 4],
+    }), encoding="utf-8")
+    try:
+        module.require_wire_order_result(result_path)
+    except RuntimeError as exc:
+        assert "preflight failed" in str(exc)
+    else:
+        raise AssertionError("crossed wiring must block dynamic validation")
+
+
+def test_five_board_phase_repeat_spread_wraps_at_half_turn():
+    spec = importlib.util.spec_from_file_location(
+        "sma_cable_five_board_validate_spread", FIVE_BOARD_SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    assert module.phase_repeat_spread_mdeg([179_000, -179_000, 178_000]) == 3_000
