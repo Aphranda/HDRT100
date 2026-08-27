@@ -388,11 +388,10 @@ static bool app_realtime_run_phase(
     if (phase_start >= contract->end_cycle ||
         contract->wcet_cycles > contract->end_cycle - phase_start) {
         app_realtime_record_skip(phase_id, true);
-        if (optional_load && !warmup_cycle) {
-            (void)__atomic_fetch_or(&s_realtime_load_quarantined_mask,
-                                    load_bit,
-                                    __ATOMIC_ACQ_REL);
-        }
+        /* A phase-start miss is inherited lateness, not proof that this
+         * load exceeded its own WCET.  Skip it without borrowing time from
+         * the next phase; quarantine only after this load actually runs and
+         * overruns its own contract below. */
         return false;
     }
 
