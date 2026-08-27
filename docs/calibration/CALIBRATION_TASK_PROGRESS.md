@@ -10,6 +10,25 @@ Last updated: 2026-08-27
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20260827-012 - TRN-03C candidate lifecycle owner 接入
+
+- 状态：TRN-03C 生命周期边界已接入代码，但完整四板 candidate evidence、现场激活和回滚
+  HIL 仍未完成，因此继续禁止发布 active calibration。
+- host 工具：`tools/calibration_ring_validate/trn03_candidate.py` 新增 candidate CRC 校验、
+  `activate_candidate()` 和 `rollback_candidate()`；generation 重放、坏 CRC、无效 active/
+  rollbackable 包均拒绝。纯 Python 生命周期用例并入 `test_trn03_candidate.py`。
+- 固件 owner：`CalibrationManager` 现在持有 candidate、active、rollback 三份 path snapshot；
+  candidate staging 不改变 active，激活/回滚使用 `calibration_path_snapshot` 的 generation、
+  topology/profile/schedule/freshness 门禁，并在成功激活后向 VDC 发布 accepted snapshot。
+  `CALibration:ACTivate`、`CALibration:ROLLback` 不再使用无条件 accepted stub，失败进入 SCPI
+  error queue；`READ:CALibration:ACTive?` 读取 manager-owned active 状态。
+- 验证：构建目录为 `out/build/trn03-sck-safe-20260827/`，package 由该构建重新生成；定向
+  Python 回归报告为 `out/pytest/trn03c-path-lifecycle.xml`（101 passed）；双向 C host unit
+  为 `tools/tests/run_calibration_bidirectional_tests.ps1`（passed）。本轮四板异步 OTA 因
+  当前 USB 端口会话未完成，未形成新的 HIL 证据，不能将此提交标记为 OTA 通过。
+- 未完成边界：还需实现从 TRN-03C evidence package 到 manager candidate 的受控导入、真实
+  四板 activate/rollback、掉电持久化和 VDC/DPLL 消费验证；当前代码提交为 `a59eeb3`。
+
 ## CAL-TASK-20260827-011 - TRN-03D DATA 线端与 MARK timeout 故障证据
 
 - 状态：TRN-03D 已进入进行中；DATA 的旧 epoch、header CRC 错误、无故障正向控制和 MARK

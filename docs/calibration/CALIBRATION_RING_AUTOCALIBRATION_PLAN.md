@@ -45,7 +45,7 @@ Last updated: 2026-08-25
 | P2 coded | `CALibration:CLOCk:CODEd:*`、PIO/DMA raw capture 和 core1 有界相关已有 | 缺 reference 协调、板内重复统计以及 `PREPARE/ACK/commit` |
 | P3 bidirectional | `CALibration:P3:*`、`t1..t4` 和逐链路 HIL 已有 | 缺 endpoint bias、topology freshness、整环 residual 和 active/staging gate |
 | Calibration manager | 已有 core0 intent、core1 service 和 guarded 子功能 snapshot | 总状态仍是阶段壳，缺 `CalibrationAutoAO/FB/Vector` 和统一 transaction snapshot |
-| 产品 SCPI | 对外文档已有 `CALibration:STARt/STOP/SAVE/ACTivate` 生命周期 | 当前 `CALibration:STARt` 仍映射到查询 callback，`STOP/SAVE/ACTivate/ROLLback` 仍为 accepted stub |
+| 产品 SCPI | 对外文档已有 `CALibration:STARt/STOP/SAVE/ACTivate` 生命周期 | `ACTivate/ROLLback` 已连接到 CalibrationManager path snapshot 门禁；candidate 导入、SAVE/LOAD 和完整分布式 ACK 仍待完成 |
 
 现有 P1/P2/P3 SCPI 保留为工程诊断入口。产品自动校准不得在这些 callback 上继续叠加同步
 等待，而应新增一个统一 command mailbox 和板内非阻塞协调器。
@@ -622,7 +622,8 @@ core0 storage owner 执行，并先获得 core1 park/lockout ACK。校准热路�
 ### A7：SCPI 与工具
 
 - [ ] 实现 `CALibration:RING:*` candidate command，并保持 callback 短事务。
-- [ ] 修复当前 `CALibration:STARt/STOP/SAVE/ACTivate` stub 与产品接口语义偏差。
+- `[~]` 修复当前 `CALibration:ACTivate/ROLLback` stub 与产品接口语义偏差；candidate 导入、
+  `STARt/STOP/SAVE/LOAD` 的完整事务和分布式 ACK 仍待完成。
 - [ ] 固化 state/result/node/link 固定字段及解析测试。
 - [ ] 新增 host 工具只做 `STARt -> 低频查询 -> 导出 evidence -> SAVE/ACTivate`。
 - [ ] 所有工具先用 `*IDN?` 校验本地端点，不使用 COM 号作为板卡身份。
