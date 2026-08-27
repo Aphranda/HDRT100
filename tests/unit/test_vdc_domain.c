@@ -1,4 +1,5 @@
 #include "vdc_domain.h"
+#include "vdc_ring_observer.h"
 #include "vdc_sync_io_adapter.h"
 #include "vdc_tdma_payload.h"
 
@@ -2491,6 +2492,70 @@ static int test_quality_age_updates_on_service(void)
     return failed;
 }
 
+static int test_ring_observer_expands_correlated_feedback(void)
+{
+    int failed = 0;
+    vdc_tdma_schedule_profile_t schedule;
+    vdc_tdma_timestamp_evidence_t evidence;
+    vdc_ring_observation_t observation;
+
+    vdc_domain_default_schedule(&schedule, 1u, 0u);
+    memset(&observation, 0, sizeof(observation));
+    observation.node_count = schedule.ring_binding.node_count;
+    observation.source_node = schedule.local_slot_id;
+    observation.reference_node = schedule.reference_slot_id;
+    observation.correlated_sequence = 17u;
+    observation.frame_crc32 = 0x12345678u;
+    observation.schedule_crc32 = schedule.schedule_crc32;
+    observation.timestamp_resolution_ns = 4u;
+    observation.timestamp_flags =
+        VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE;
+    observation.correlated_frame_evidence = 1u;
+    observation.link_delay_ns = 480u;
+    observation.reference_tx_timestamp_ns = 2000000ull;
+    observation.local_rx_timestamp_ns = 2000496ull;
+
+    failed += expect_bool("ring feedback expands",
+                          vdc_ring_observer_expand(&schedule,
+                                                   &observation,
+                                                   &evidence),
+                          true);
+    failed += expect_u32("ring feedback sequence",
+                         evidence.sample_seq,
+                         observation.correlated_sequence);
+    failed += expect_u32("ring feedback payload",
+                         evidence.payload_class,
+                         VDC_DOMAIN_PAYLOAD_IDLE_BEACON);
+    failed += expect_i32("ring feedback residual",
+                         evidence.phase_error_ns,
+                         16);
+    failed += expect_u32("ring feedback delay",
+                         evidence.delay_ns,
+                         observation.link_delay_ns);
+    failed += expect_u32("ring feedback source",
+                         evidence.timestamp_source,
+                         VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK);
+    failed += expect_u32("ring feedback window",
+                         (uint32_t)evidence.expected_window_start_ns,
+                         2000000u + schedule.observation_window_offset_ns);
+
+    observation.source_node = observation.reference_node;
+    failed += expect_bool("reference RTT cannot masquerade as Node phase",
+                          vdc_ring_observer_expand(&schedule,
+                                                   &observation,
+                                                   &evidence),
+                          false);
+    observation.source_node = schedule.local_slot_id;
+    observation.timestamp_flags |=
+        VDC_DOMAIN_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
+    failed += expect_bool("diagnostic ring feedback rejected",
+                          vdc_ring_observer_expand(&schedule,
+                                                   &observation,
+                                                   &evidence),
+                          false);
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -2521,6 +2586,7 @@ int main(void)
     failed += test_dpll_slews_phase_and_pulls_rate_after_lock();
     failed += test_dpll_acquisition_accepts_large_initial_phase();
     failed += test_dpll_large_step_does_not_fine_lock_same_sample();
+    failed += test_ring_observer_expands_correlated_feedback();
     if (failed != 0) {
         (void)printf("vdc_domain tests failed: %d\n", failed);
         return 1;

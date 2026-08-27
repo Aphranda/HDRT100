@@ -509,6 +509,7 @@ set(PROJECT_APP_SOURCES
         components/ui_manager/src/ui_key_input.c
         components/ui_manager/src/ui_manager.c
         components/vdc_domain/src/vdc_domain.c
+        components/vdc_domain/src/vdc_ring_observer.c
         components/vdc_domain/src/vdc_sync_io_adapter.c
         components/vdc_domain/src/vdc_tdma_payload.c
         components/vdc_domain/src/vdc_timestamp_clock.c
