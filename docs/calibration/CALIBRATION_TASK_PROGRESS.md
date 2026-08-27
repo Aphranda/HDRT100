@@ -10,6 +10,41 @@ Last updated: 2026-08-27
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20260827-014 - TRN-03D 周期长稳与原始误帧压降基线
+
+- 对应 TODO：`TRN-03D-PHY`、`TRN-03D-RXGATE`、`TRN-03D-RETRY`、
+  `TRN-03D-HEALTH`、`TRN-03D-SOAK` 和 `VAL-04`。
+- 状态：最新 release build 的四板 process-image 在短闭环后继续执行长稳；本轮证明坏帧能够被
+  transport CRC 拦截且不会计入 accepted RX，但最差 Node 原始误帧尚未收敛，因此长稳不通过，
+  不得用重试或四 Node 平均值掩盖该物理/采样层问题。
+- 工具进展：`tools/calibration_ring_validate/trn03_closed_loop.py` 已加入 anchored 周期快照，逐间隔
+  保存 up/down、adapter/FIFO/process-image/physical counter、瞬时错误、恢复次数和 counter
+  单调性；冻结 matrix 的 profile level 与命令行冲突时在触碰硬件前拒绝。sticky 的
+  `tdma_ring_runtime_reason_t` 只作为最近启动 reason 保留，不再误判为当前 down；在线健康仍由
+  up/down、adapter/physical 状态和错误 counter 增量决定。
+- 回归：周期采样、单 Node 查询失败、down/recovery、sticky reason 和原有短帧/SVG 用例已纳入
+  `tests/python/test_trn03_closed_loop.py`；JUnit 位于
+  `out/pytest/trn03_periodic_soak_sticky_reason.xml`。
+- 首轮长稳（诊断快照，非事实源）：证据位于
+  `out/training/trn03d_process_image_soak60_build041331_level7_20260827/`。四 Node sequence、FIFO、
+  process-image 和 bitmap 持续增长，SD 原始流量及逐 Node SVG 均生成；SCK 波形分析全部通过。
+  最差 Node0 在本轮接收机会中检出两个 `TDMA_TRANSPORT_CRC_MISMATCH`，其余 Node 未增长。
+  最近错误的冻结 header 只在 transport CRC 字段出现一个 bit 差异；坏帧没有发布为有效镜像。
+- 周期复测（诊断快照，非事实源）：证据位于
+  `out/training/trn03d_process_image_periodic_soak60_build041331_20260827/`。周期工具保存首尾在内的
+  完整 timeline；Node0 的一个 transport CRC 错误落在首个采样间隔，其余间隔和其余 Node 未见
+  adapter bad counter 增长。四 Node SD/SVG 的频率和占空比门禁继续通过。
+- 判定修正：本轮 HIL summary 仍由修正前工具把 sticky startup reason 计为 unhealthy；原始
+  timeline、逐间隔 CRC 增量和最终 Node gate 均保留，修正后的分类器已有回归，下一轮 HIL 必须
+  重新生成不含该误报的 summary，不能手工改写旧证据。
+- 接收策略：先通过相邻 DATA offset、首帧启动和 CS/SCK/DATA 相位复测降低原始 FER；其后按
+  EtherCAT 的确定性验收原则实现 CRC/sequence/identity/Node bitmap/WKC/deadline 全门禁、上一
+  accepted image 的显式 stale、下一周期自然刷新、预算内有界重发、滑动窗口降级和 watchdog
+  STOP。阈值必须进入 profile/candidate staging 并绑定 generation/CRC，不能成为 host 硬编码。
+- 下一 gate：使用同一矩阵分别长跑 Node0 DATA offset 相邻候选，比较最差 Node 原始误帧与错误
+  bit 分布；随后完成 RX gate/retry/health owner 设计、单测、release build、四板异步 OTA 和
+  故障 HIL。
+
 ## CAL-TASK-20260827-013 - TRN-03B 复核与 TRN-03C path gate 证据更新
 
 - 状态：TRN-03A 和 TRN-03B 保持完成；本轮在最新 path gate 固件上重复验证

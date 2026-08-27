@@ -120,7 +120,12 @@ P0T topology + P0 evidence owner
 | TRN-03A | 增加 TDMA per-link staging 和 ARM gate，绑定实际 PIO persona 的周期预算以及 MARK/SCK/DATA 统一相位字段 | `DONE` | 完整矩阵写后读回、四板 ARM 以及缺 link、diagnostic-only、矩阵/预算过期拒绝与 STOPPED 回退均已复验；证据索引见 `CAL-TASK-20260826-010` |
 | TRN-03B | 按 ring role 装载产品 flight persona 后启动 TDMA 短帧；先过 `raw-flight`，再过 `process-image` | `DONE` | 四板 raw-flight 与 process-image 均通过；固定 segment replacement、bitmap/WKC、尾部 CRC、TX/RX FIFO、map apply、SD raw capture 和逐 Node SVG 形成同 generation 闭环；证据索引见 `CAL-TASK-20260826-010` |
 | TRN-03C | 汇总 per-link path-delay、residence、loop-delay、PIO 周期预算和 residual，形成 active candidate gate | `IN PROGRESS` | host candidate/lifecycle、manager candidate/active/rollback owner、CRC、calibration generation 和完整 link 集合门禁已完成；缺 endpoint bias、fresh P3、受控导入、四板激活/回滚/持久化/VDC HIL |
-| TRN-03D | 故障注入与长稳：marker timeout、低 margin、CRC/epoch 错、DMA overrun、PIO stall、掉线；固化工具和 SD/Flash 输入格式 | `IN PROGRESS` | 已覆盖部分 DATA/MARK 故障；仍需 DMA overrun、PIO stall、Node dropout、stale identity、active generation 保护和长稳；证据索引见 `CAL-TASK-20260827-011` |
+| TRN-03D | 故障注入、原始链路误帧压降、确定性接收恢复与长稳 | `IN PROGRESS` | DATA/MARK、DMA overrun 和 PIO stall 已有闭环；以下 TRN-03D 子项、Node dropout、stale identity、active generation 保护和长稳全部通过后退出；证据索引见 `CAL-TASK-20260827-011`、`CAL-TASK-20260827-014` |
+| TRN-03D-PHY | 逐 Node/link 建立原始误帧基线并优先降低物理/采样层错误率 | `IN PROGRESS` | 固化周期采样；比较相邻 DATA offset、首帧启动、CS/SCK/DATA 相位和错误 bit 位置；每个候选均保存最差 Node 的 frame/bit error、SD 原始波形和 SVG，不能用重试掩盖未收敛链路 |
+| TRN-03D-RXGATE | 建立 EtherCAT 风格的确定性逐帧接收门禁 | `PENDING` | CRC、sequence、schedule/profile/calibration generation、Node bitmap/WKC 和 deadline 全部通过才发布 process-image；坏帧绝不覆盖上一 accepted image，并显式发布 stale/quality reason |
+| TRN-03D-RETRY | 建立调度预算约束下的恢复与重发策略 | `PENDING` | cyclic 全状态帧默认由下一周期自然刷新；只有剩余预算容纳完整 frame、guard 和 deadline 时才允许有界显式重发；重发次数、原 sequence/新 attempt identity 和失败原因可追溯 |
+| TRN-03D-HEALTH | 建立可配置滑动窗口、连续错误和状态降级策略 | `PENDING` | 阈值随 operating profile/candidate staging 并受 generation/CRC 保护；状态按 valid/stale/degraded/stopped fail closed，恢复必须重新满足 ARM/identity gate，旧 active generation 不变 |
+| TRN-03D-SOAK | 以最差 Node/link 完成长稳验收，不使用环路平均值稀释错误 | `IN PROGRESS` | 周期快照覆盖瞬时 down/error、恢复次数、counter 单调性、原始 FER/BER、WKC/bitmap、重发和 stale 消费；任一坏帧被消费、identity 错误、未解释 down/recovery 或错误率越 profile 门限即失败 |
 
 实施顺序固定为：
 
@@ -233,7 +238,7 @@ P3 的 signal group、方向、`t1..t4` 方程和 profile policy 以训练方案
 | VAL-01 | 完成完整 directed link 集的 P3 HIL | `IN PROGRESS` | `t1..t4`、residence、path-sum、endpoint bias 和拒绝故障注入全部通过 |
 | VAL-02 | 完成多 Node cumulative residual 验证 | `IN PROGRESS` | 不把 aggregate 平均分摊成 link delay；profile/fallback 评分按 policy 执行 |
 | VAL-03 | 扩展到 `TDMA_RING_NODE_MAX` 前复核 profile/topology gate | `PENDING` | Node 数变化不破坏 identity、矩阵容量、freshness 和完整 link 集门禁 |
-| VAL-04 | 完成长时间验证 | `PENDING` | latch、accept/reject、margin、DMA/stall、freshness、generation、VDC 和 watchdog/fault 可追溯 |
+| VAL-04 | 完成长时间验证 | `IN PROGRESS` | 按 `TRN-03D-PHY/RXGATE/RETRY/HEALTH/SOAK` 覆盖最差 Node/link 原始错误率、坏帧不消费、stale/重发/降级/STOP、latch、DMA/stall、freshness、generation、VDC 和 watchdog/fault |
 | VAL-05 | 完成发布门禁 | `PENDING` | CRC、version bundle、active/staging/rollback、SCPI、SD/OTA 持久化和报告字段一致；失败统一 STOP 并恢复 persona |
 
 ## 十、当前阻塞项与统一完成定义
