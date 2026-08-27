@@ -805,6 +805,40 @@ def validate_soak_timeline(
             node_errors.append("runtime_down_event")
         if recovery_count:
             node_errors.append("runtime_recovery_observed")
+        first_snapshot = timeline[0].get("nodes", {}).get(address)
+        last_snapshot = timeline[-1].get("nodes", {}).get(address)
+        receive_quality: dict[str, Any] = {}
+        if first_snapshot is not None and last_snapshot is not None:
+            runtime_delta = counter_deltas(
+                first_snapshot["runtime"], last_snapshot["runtime"],
+                ("ring_adapter_rx_count", "ring_adapter_rx_bad_count",
+                 "ring_adapter_rx_transport_bad_count",
+                 "ring_adapter_rx_schedule_bad_count",
+                 "ring_adapter_rx_profile_bad_count"))
+            good_frames = runtime_delta["ring_adapter_rx_count"]
+            bad_frames = runtime_delta["ring_adapter_rx_bad_count"]
+            total_frames = good_frames + bad_frames
+            observed_rate = bad_frames / total_frames if total_frames else None
+            receive_quality = {
+                "rx_good_frame_count": good_frames,
+                "rx_bad_frame_count": bad_frames,
+                "rx_total_frame_count": total_frames,
+                "rx_transport_bad_frame_count": runtime_delta[
+                    "ring_adapter_rx_transport_bad_count"],
+                "rx_schedule_bad_frame_count": runtime_delta[
+                    "ring_adapter_rx_schedule_bad_count"],
+                "rx_profile_bad_frame_count": runtime_delta[
+                    "ring_adapter_rx_profile_bad_count"],
+                "observed_frame_error_rate": observed_rate,
+                "observed_frame_error_ppm": (
+                    observed_rate * 1_000_000.0
+                    if observed_rate is not None else None),
+                "mean_frames_per_error": (
+                    total_frames / bad_frames if bad_frames else None),
+                "zero_error_95_upper_bound_frame_error_rate": (
+                    min(1.0, 3.0 / total_frames)
+                    if total_frames and bad_frames == 0 else None),
+            }
         node_results[address] = {
             "node_index": node_index,
             "passed": not node_errors,
@@ -816,14 +850,31 @@ def validate_soak_timeline(
             "recovery_count": recovery_count,
             "counter_regressions": counter_regressions,
             "physical_fault_growth": physical_fault_growth,
+            "receive_quality": receive_quality,
             "samples": samples,
             "intervals": intervals,
         }
         all_errors.extend(f"{address}:{error}" for error in node_errors)
+    quality_rows = [
+        (address, node["receive_quality"])
+        for address, node in node_results.items()
+        if node["receive_quality"].get("observed_frame_error_rate") is not None
+    ]
+    worst_receive_quality = {}
+    if quality_rows:
+        worst_address, worst_quality = max(
+            quality_rows,
+            key=lambda row: row[1]["observed_frame_error_rate"])
+        worst_receive_quality = {
+            "board_id": worst_address,
+            "node_index": node_results[worst_address]["node_index"],
+            **worst_quality,
+        }
     return {
         "passed": not all_errors,
         "errors": all_errors,
         "timeline_sample_count": len(timeline),
+        "worst_receive_quality": worst_receive_quality,
         "nodes": node_results,
     }
 

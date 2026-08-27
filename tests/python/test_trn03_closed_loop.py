@@ -1049,6 +1049,13 @@ def test_soak_timeline_gates_every_interval() -> None:
         assert node["unhealthy_sample_count"] == 0
         assert node["down_event_count"] == 0
         assert node["recovery_count"] == 0
+        quality = node["receive_quality"]
+        assert quality["rx_good_frame_count"] == 2
+        assert quality["rx_bad_frame_count"] == 0
+        assert quality["rx_total_frame_count"] == 2
+        assert quality["observed_frame_error_rate"] == 0.0
+        assert quality["zero_error_95_upper_bound_frame_error_rate"] == 1.0
+    assert result["worst_receive_quality"]["board_id"] == "node0"
 
 
 def test_soak_timeline_retains_sticky_start_reason_without_false_down() -> None:
@@ -1096,6 +1103,37 @@ def test_soak_timeline_retains_down_and_recovery() -> None:
         "runtime_down_event",
         "runtime_recovery_observed",
     ]
+
+
+def test_soak_timeline_reports_worst_node_frame_error_rate() -> None:
+    board_ids = ["node0", "node1"]
+    timeline = [{
+        "sample_index": step,
+        "elapsed_s": float(step),
+        "errors": {},
+        "nodes": {
+            address: soak_snapshot(node_index, step)
+            for node_index, address in enumerate(board_ids)
+        },
+    } for step in range(3)]
+    timeline[1]["nodes"]["node1"]["runtime"][
+        "ring_adapter_rx_bad_count"] += 1
+    timeline[1]["nodes"]["node1"]["runtime"][
+        "ring_adapter_rx_transport_bad_count"] += 1
+    timeline[2]["nodes"]["node1"]["runtime"][
+        "ring_adapter_rx_bad_count"] += 1
+    timeline[2]["nodes"]["node1"]["runtime"][
+        "ring_adapter_rx_transport_bad_count"] += 1
+    result = validate_soak_timeline(
+        timeline, board_ids, soak_config(), require_process_image=True)
+    quality = result["nodes"]["node1"]["receive_quality"]
+    assert quality["rx_good_frame_count"] == 2
+    assert quality["rx_bad_frame_count"] == 1
+    assert quality["rx_total_frame_count"] == 3
+    assert quality["observed_frame_error_ppm"] == pytest.approx(
+        1_000_000 / 3)
+    assert quality["mean_frames_per_error"] == 3
+    assert result["worst_receive_quality"]["board_id"] == "node1"
 
 
 def test_soak_timeline_retains_per_node_sampling_failure() -> None:
