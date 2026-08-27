@@ -661,6 +661,14 @@ bool tdma_pio_spi_phys_set_process_image_mode(
     tdma_pio_spi_phys_t *phys,
     bool enabled,
     uint32_t payload_size);
+/* Freeze the transport payload length used by the resident flight persona.
+ * The TDMA ProcessImage map is the single source of truth for this value;
+ * the physical layer must use the same length as the adapter when calculating
+ * its fixed CS/SCK burst.  A zero value restores the legacy maximum-short
+ * fallback used by standalone topology diagnostics. */
+bool tdma_pio_spi_phys_set_flight_payload_size(
+    tdma_pio_spi_phys_t *phys,
+    uint32_t payload_size);
 bool tdma_pio_spi_phys_set_flight_offsets(
     tdma_pio_spi_phys_t *phys,
     int32_t marker_offset_sample_count,

@@ -53,6 +53,29 @@ static bool tdma_runtime_owner_flight_phys_arm(
         config->local_slot_id >= config->node_count) {
         return false;
     }
+
+    /* The adapter and PIO must agree on one fixed flight payload length.  A
+     * configured ProcessImage map is available before the runtime arm and is
+     * therefore the authoritative source; do not let the physical layer fall
+     * back to the transport maximum (260 B) while the adapter emits the map
+     * payload (currently 256 B).  Keep the fallback only for standalone
+     * topology/calibration probes that deliberately have no map yet. */
+    tdma_flight_engine_snapshot_t engine_snapshot;
+    const bool have_flight_map =
+        tdma_flight_engine_get_snapshot(&s_tdma_runtime_owner.flight_engine,
+                                        &engine_snapshot) &&
+        engine_snapshot.configured != 0u &&
+        engine_snapshot.payload_size != 0u;
+    if (have_flight_map &&
+        !tdma_pio_spi_phys_set_flight_payload_size(
+            phys, engine_snapshot.payload_size)) {
+        return false;
+    }
+    if (stage->enabled != 0u && !have_flight_map) {
+        /* Product ring stages require a frozen map.  Failing here keeps an
+         * unconfigured physical length from masquerading as a live ring. */
+        return false;
+    }
     if (stage->enabled == 0u) {
         const uint32_t phase = s_tdma_topology_probe_phase_delay_cycles;
         return phase != 0u && phase <= 31u &&

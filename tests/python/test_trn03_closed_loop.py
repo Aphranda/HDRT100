@@ -641,6 +641,29 @@ def test_origin_queues_physical_byte_count_before_payload_dma() -> None:
     assert count_put < dma_start
 
 
+def test_product_flight_arm_uses_configured_process_image_payload() -> None:
+    """The adapter map and PIO burst must share one frozen payload length."""
+    runtime = (ROOT / "components" / "tdma" / "src" /
+               "tdma_runtime_owner.c").read_text(encoding="utf-8")
+    arm = runtime.split(
+        "static bool tdma_runtime_owner_flight_phys_arm", 1
+    )[1].split("static bool tdma_runtime_owner_flight_phys_timestamp_ready", 1)[0]
+    snapshot = arm.index("tdma_flight_engine_get_snapshot")
+    payload_set = arm.index("tdma_pio_spi_phys_set_flight_payload_size")
+    product_gate = arm.index("stage->enabled != 0u && !have_flight_map")
+    phys_arm = arm.index("tdma_pio_spi_phys_arm(context, config)")
+    assert snapshot < payload_set < phys_arm
+    assert product_gate < phys_arm
+
+    phys = (ROOT / "components" / "tdma" / "src" /
+            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    setter = phys.split(
+        "bool tdma_pio_spi_phys_set_flight_payload_size", 1
+    )[1].split("bool tdma_pio_spi_phys_set_flight_offsets", 1)[0]
+    assert "phys->armed" in setter
+    assert "TDMA_TRANSPORT_SHORT_PAYLOAD_MAX" in setter
+
+
 def test_flight_origin_control_edges_are_owned_by_one_pio_sm() -> None:
     pio_source = (ROOT / "components" / "tdma" / "src" /
                   "tdma_pio_spi.pio").read_text(encoding="utf-8")

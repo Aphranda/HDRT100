@@ -1369,6 +1369,18 @@ bool tdma_pio_spi_phys_set_process_image_mode(
     return true;
 }
 
+bool tdma_pio_spi_phys_set_flight_payload_size(
+    tdma_pio_spi_phys_t *phys,
+    uint32_t payload_size)
+{
+    if (phys == NULL || phys->armed ||
+        payload_size > TDMA_TRANSPORT_SHORT_PAYLOAD_MAX) {
+        return false;
+    }
+    phys->flight_payload_size = payload_size;
+    return true;
+}
+
 bool tdma_pio_spi_phys_set_flight_offsets(
     tdma_pio_spi_phys_t *phys,
     int32_t marker_offset_sample_count,
