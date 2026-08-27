@@ -423,6 +423,8 @@ def test_core1_overrun_quarantines_only_the_faulting_load() -> None:
     assert "APP_REALTIME_LOAD_ALL_MASK" not in bounded
     assert "PROJECT_CORE1_SCHEDULE_WARMUP_CYCLES" in bounded
     assert "optional_load && !warmup_cycle" in bounded
+    assert "inherited_lateness" in bounded
+    assert "own_deadline_missed" in bounded
     before_service = bounded.split(
         "const uint32_t start_counter = app_realtime_cycle_now();", 1
     )[0]

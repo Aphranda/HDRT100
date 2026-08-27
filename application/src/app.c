@@ -404,6 +404,8 @@ static bool app_realtime_run_phase(
         cycle_epoch, end_counter);
     const bool overrun = runtime_cycles > contract->wcet_cycles;
     const bool deadline_missed = phase_end > contract->end_cycle;
+    const bool inherited_lateness = phase_start > contract->start_cycle;
+    const bool own_deadline_missed = deadline_missed && !inherited_lateness;
 
     app_realtime_schedule_write_begin();
     s_realtime_schedule.phase_last_start_cycle[phase_id] = phase_start;
@@ -425,7 +427,7 @@ static bool app_realtime_run_phase(
     }
     app_realtime_schedule_write_end();
 
-    if ((overrun || deadline_missed) && optional_load && !warmup_cycle) {
+    if ((overrun || own_deadline_missed) && optional_load && !warmup_cycle) {
         (void)__atomic_fetch_or(&s_realtime_load_quarantined_mask,
                                 load_bit,
                                 __ATOMIC_ACQ_REL);
