@@ -2013,16 +2013,33 @@ bool tdma_pio_spi_phys_train_clock(void *context, uint32_t cycles)
         return false;
     }
 
+    /* Clock training replaces the complete resident flight persona.  The
+     * product persona may have both the process-overlay TX DMA and the
+     * independent CS clock-latch SM active, while the reference also owns
+     * the RTT SM.  Quiesce every TDMA-owned execution resource before asking
+     * the PIO allocator to remove and replace the program set. */
+    if (s_tdma_pio_spi_tx_dma_channel >= 0) {
+        dma_channel_abort((uint)s_tdma_pio_spi_tx_dma_channel);
+    }
     if (s_tdma_pio_spi_rx_dma_channel >= 0) {
         dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
     }
     phys->rx_capture_active = false;
-    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->tx_sm, false);
-    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->rx_sm, false);
-    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->tx_sm);
-    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->rx_sm);
-    pio_sm_restart(BOARD_TDMA_SPI_PIO, phys->tx_sm);
-    pio_sm_restart(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+    phys->flight_clock_latch_armed = false;
+    const uint32_t owned_sm_mask =
+        (1u << BOARD_TDMA_SPI_MASTER_SM) |
+        (1u << BOARD_TDMA_SPI_SLAVE_SM) |
+        (1u << BOARD_TDMA_SPI_CAPTURE_SM) |
+        (1u << BOARD_TDMA_SPI_RTT_SM);
+    pio_set_sm_mask_enabled(BOARD_TDMA_SPI_PIO, owned_sm_mask, false);
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM);
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM);
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM);
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_RTT_SM);
+    pio_sm_restart(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM);
+    pio_sm_restart(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM);
+    pio_sm_restart(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM);
+    pio_sm_restart(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_RTT_SM);
     if (!tdma_pio_spi_phys_select_program_persona(
             phys, TDMA_PIO_SPI_PROGRAM_PERSONA_CLOCK_COARSE)) {
         tdma_pio_spi_phys_set_error(

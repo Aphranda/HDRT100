@@ -295,6 +295,27 @@ def test_process_follower_disarm_releases_overlay_tx_dma() -> None:
     assert rx_abort < disable
 
 
+def test_clock_training_quiesces_complete_flight_persona() -> None:
+    phys = (ROOT / "components" / "tdma" / "src" /
+            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    train = phys.split("bool tdma_pio_spi_phys_train_clock", 1)[1].split(
+        "void tdma_pio_spi_phys_train_clock_service", 1)[0]
+    select = train.index("tdma_pio_spi_phys_select_program_persona")
+    assert train.index(
+        "dma_channel_abort((uint)s_tdma_pio_spi_tx_dma_channel)") < select
+    assert train.index(
+        "dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel)") < select
+    assert train.index("phys->flight_clock_latch_armed = false") < select
+    for state_machine in (
+        "BOARD_TDMA_SPI_MASTER_SM",
+        "BOARD_TDMA_SPI_SLAVE_SM",
+        "BOARD_TDMA_SPI_CAPTURE_SM",
+        "BOARD_TDMA_SPI_RTT_SM",
+    ):
+        assert f"pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, {state_machine})" in train
+        assert f"pio_sm_restart(BOARD_TDMA_SPI_PIO, {state_machine})" in train
+
+
 def test_process_follower_recovers_pass_script_after_bad_frame() -> None:
     phys = (ROOT / "components" / "tdma" / "src" /
             "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
