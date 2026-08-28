@@ -35,6 +35,25 @@ Last updated: 2026-08-28
 91 项 TRN-03 Python 回归通过。四板 HIL 需在下一轮 OTA 后重新执行，不能把此 host-side 修复
 等同于实板通过。
 
+## CAL-TASK-20260828-018 - 四板短帧稳态与 SD 捕获侵入预算复测
+
+- 对应 TODO：`TRN-03B`、`TRN-03D-PHY-01..03`、`TRN-03D-SOAK-01`。
+- 环境：四板重新异步 OTA/重启后运行 build `20260828072954`，使用冻结 calibration
+  generation/profile/matrix 和 process-image stage；OTA 证据为
+  `out/ota/trn03-reset-before-hil_20260828/`。
+- 短帧结果：`out/training/trn03b_clean_hil_20260828/summary.json` 显示四 Node
+  sequence、TX/RX FIFO、process-image map apply/accepted 和 bitmap 持续增长；各 Node
+  原始 `rx_bad/partial/stall`、adapter bad、sequence gap 和 CRC mismatch 均为 0。
+  这确认当前短帧数据路径本身没有观察到错误帧消费或 FIFO 停滞。
+- SD/调度结果：Node0 的原始 SCK/RX 采集仍使 calibration phase `last_runtime_cycles=43853`，
+  超过固定 `wcet_cycles=34000`，并产生 start miss、deadline miss、overrun 和 quarantine；
+  工具保存了捕获前后完整 schedule 与增量。由于 schedule gate 失败，本轮没有生成可接受的
+  四 Node SVG/SD 分析包，不能将短帧或 TRN-03B 标记 DONE。
+- 结论：短帧稳态与捕获诊断必须分离验收；下一步继续优化捕获的 PIO/SD 原始证据搬运，或将
+  采集安排到不占用 TDMA calibration phase 的独立预算窗口。禁止通过放宽 `34000` WCET、
+  关闭 quarantine 或忽略 schedule delta 来宣称完成；DPLL 闭环仍等待 TRN-03 短帧和捕获无扰
+  门禁全部通过。
+
 ## CAL-TASK-20260828-016 - TDMA 基础负载前置与训练接口基线
 
 - 对应 TODO：训练子域 `TRN-03` 的 TDMA 周期预算前置，以及 `P4-DBG` 的 transport 依赖。
