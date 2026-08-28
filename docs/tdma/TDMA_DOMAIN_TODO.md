@@ -65,9 +65,42 @@ NO5 环外观测冻结 WCET/波形基线；随后逐 phase 加载 DPLL/VDC、Ref
 | TDMA-HIL-002 | 逐 phase 开载且 TDMA 零回归 | PENDING | 依次启用 VDC/DPLL/RefMem/control，TDMA deadline/error 不增加。 |
 | TDMA-DPLL-001 | PIO/DMA hardware latch correlation | IN PROGRESS | reference TX latch 已作为固定 process-image trailer 关联上一帧 sequence；仍需 active PATH_DELAY、四板同圈 eligible sample 和 wrap/失配 HIL。 |
 | TDMA-DPLL-002 | 节点 DPLL lock 与 VDC 发布 | IN PROGRESS | 四节点 TDMA 同时收发和参考反馈已实测；NO1..NO4 仍为 CHECKING，NO5 观测工具已固化，待 eligible sample 后验证指定间隔/同时触发。 |
+| TDMA-DPLL-003 | active calibration path matrix 前置门禁 | PENDING | NO1..NO4 线序、loop/link/node 顺序、path-delay/offset matrix、generation/freshness 全部一致；运行态禁止按物理环序推算或 fallback 累加。 |
+| TDMA-DPLL-004 | 硬件 timestamp spine 与 SCK 独立校准 | PENDING | CS/SCK/DATA 的硬件 latch、4 ns 量化、sequence lag、wrap/失配拒绝和 SCK 独立 offset matrix 通过 host/C/HIL；软件时间戳不得进入 eligible evidence。 |
+| TDMA-DPLL-005 | DPLL eligible evidence parser/quality gate | PENDING | 只接受 hardware tick、分辨率门禁、active matrix identity 匹配且 sequence 连续的样本；invalid/out-of-order/duplicate/diagnostic-only 样本只增加 quality 计数，不推进 LOCKED。 |
+| TDMA-DPLL-006 | 最小 DPLL servo 与 VDC compact publish | PENDING | 仅在 DPLL/VDC phase 执行锁相所需 servo、path-delay compensation、lock/holdover 和 compact phase/rate/quality 发布；WCET 和 TDMA 错误计数无回归。 |
+| TDMA-HIL-003 | 四节点闭环与 NO5 观测验收 | PENDING | NO1..NO4 同圈短帧稳定，NO5 只读观测指定间隔/同时触发，VDC 接收 compact output，DPLL lock evidence 可追溯；波形诊断不侵入实时 phase。 |
+| TDMA-DPLL-007 | DPLL 故障注入、holdover、relock 与长稳 | PENDING | 单链路错误、timestamp invalid、matrix generation 变化和 recovery 注入均 fail-closed；恢复后重新取得 eligible 样本并锁相，长稳无 TDMA 时序回归。 |
 | TDMA-REL-001 | ACK/fence/retry 和长期稳定性策略 | PENDING | 原始错误率先收敛，再以有界重发/修复完成 EtherCAT-style 验收。 |
 | TDMA-REL-002 | 原 Node 位置 recovery 双 buffer 与固定预算 | IN PROGRESS | Core0 准备数据、Core1 在固定窗口选择并装载 FIFO、PIO 发送；双 buffer 交替、每周期最多一帧、独立静态预算、ACK/有界 retry/backpressure/fail-closed 和双/四/八节点 HIL 证据齐全。 |
 | TDMA-T2-001 | REFMEM + 部分控制后的 T2 最小载荷预算 | PENDING | 不超固定 SHORT/body 和 phase WCET，编译期拒绝 overcommit。 |
+
+## DPLL 基础件到闭环的执行顺序
+
+以下顺序是当前最稳健的主线；每一阶段必须通过自己的 gate 后才能进入下一阶段，不能用后续
+DPLL/诊断结果掩盖前一阶段 TDMA 或校准失败。
+
+| 阶段 | 目标 | 执行动作 | 退出门禁 |
+|---|---|---|---|
+| P0 实时路径隔离 | 恢复可重复的 TDMA 基线 | 默认不启用 `--capture-waveforms`；SD/SVG 仅走独立 Core0/维护工具；保持固定 SHORT、phase、recovery 预算。 | 四板 OTA 后 NO1–NO4 短帧持续运行，CRC/sequence/FIFO/bitmap/WKC/deadline/overrun 均无新增。 |
+| P1 基线与物理健康 | 先证明通讯骨架没有被 DPLL 负载污染 | 用 `tools/cmake_build_auto` 构建并把产物写入 `out`；用 `tools/ota_multi_update` 同包异步刷入；用 `tools/tdma_ring_monitor/tdma_start_ring.py` 运行基线；SD 波形另行采集。 | schedule miss 为零、TDMA phase runtime 在 WCET 内、频率/占空比和 raw waveform 可追溯；NO5 不进入环路。 |
+| P2 校准事实加载 | 建立 DPLL 唯一可接受的路径事实 | 通过 Calibration active topology/path matrix 加载 loop/link/node 顺序、每段 delay、offset matrix、generation/freshness；启动前检查 profile/matrix/calibration identity。 | 四节点使用同一 active matrix；任一缺失、过期或 CRC 不一致直接拒绝 eligible，不允许物理环序累加 fallback。 |
+| P3 硬件 evidence | 只建立可靠观测，不运行 servo | 验证 CS/SCK/DATA PIO latch、reference TX 与 feedback RX 关联；SCK 按独立训练流程校准；检查 4 ns 量化、sequence lag、wrap 和方向。 | 每个有效样本均为硬件 tick、非 diagnostic-only、matrix identity 匹配；invalid、duplicate、out-of-order 样本被拒绝并计数。 |
+| P4 eligible parser | 形成 DPLL 输入门禁 | VDC/DPLL 只消费固定 trailer 和 compact Node output；解析放在非 PIO 快路径，拒绝错误样本，不猜测 epoch 或路径。 | host/C 单测覆盖 valid、missing、wrap、profile mismatch、generation mismatch、duplicate 和超时；eligible 样本连续可追溯。 |
+| P5 最小锁相 | 先实现 DPLL 基础件 | 只在既定 DPLL phase 执行 path-delay compensation、phase/rate servo、lock/holdover/relock；不得执行历史重算、SD、SVG、全域复制。 | DPLL phase WCET 不超合同，TDMA transport/bitmap/WKC/deadline 无回归；NO1–NO4 能从 CHECKING 进入可解释的锁相状态。 |
+| P6 VDC 发布与 NO5 验收 | 完成第一次真实闭环 | VDC owner 发布 compact phase/rate/lock/quality；NO5 通过 `tools/dpll_vdc_monitor/dpll_vdc_monitor.py` 只读观察指定间隔和同时触发；波形用 `trn03_waveform.py` 离线分析。 | NO5 观测与 TDMA sequence 对齐，VDC 只接受合格 evidence，四节点短帧仍零实时错误；生成 JSON/CSV/SVG 证据。 |
+| P7 故障与长稳 | 证明闭环不会反过来破坏 TDMA | 注入单次 CRC/timeout/timestamp invalid/matrix generation 变化和 recovery 事件；验证 holdover、fail-closed、relock 与双 buffer。再执行长稳和回归。 | 异常只影响 quality/lock/recovery，不改变 SHORT 帧型、长度、序列或节拍；恢复后重新取得 eligible 样本，长稳证据归档。 |
+
+### 每阶段统一工具与交付物
+
+- 构建脚本使用 `tools/cmake_build_auto/cmake_build_auto.py`，build、pytest、预算和报告产物统一写入 `out/`。
+- 多板验证使用 `tools/ota_multi_update/ota_multi_update.py`，所有参与板必须运行同一 package 后才允许 START。
+- TDMA 基线使用 `tools/tdma_ring_monitor/tdma_start_ring.py`；DPLL/NO5 只读观测使用
+  `tools/dpll_vdc_monitor/dpll_vdc_monitor.py`。
+- 原始波形采集和离线比较使用 `tools/calibration_ring_validate/trn03_waveform.py`，不得把
+  SVG/SD 分析挂到 Core1 TDMA 或 calibration realtime phase。
+- 每个阶段完成后更新本文件状态和 `TDMA_TASK_PROGRESS.md` 证据；代码/文档分离提交，重大代码变更
+  必须重新 build、pytest、异步 OTA 和 HIL。
 
 ## 当前阻塞项
 
