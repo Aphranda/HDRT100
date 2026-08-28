@@ -454,6 +454,120 @@ static int test_budget_and_deadline(void)
     return failed;
 }
 
+static int test_recovery_ping_pong_budget(void)
+{
+    int failed = 0;
+    tdma_foundation_profile_t profile;
+    tdma_traffic_scheduler_t scheduler;
+    tdma_traffic_scheduler_slot_t slots[TDMA_TRAFFIC_SCHEDULER_SLOT_COUNT];
+    tdma_traffic_dispatch_t dispatch;
+    tdma_traffic_scheduler_snapshot_t snapshot;
+    const uint64_t now_ns = 6000000ull;
+
+    (void)tdma_foundation_profile_default(
+        &profile, 1u, 0u, 0u, TDMA_ADAPTER_PIO_SPI);
+    profile.resource.traffic[TDMA_TRAFFIC_REFMEM_REALTIME].deadline_ns =
+        5000000u;
+    profile.profile_crc32 = tdma_foundation_profile_crc32(&profile);
+    (void)tdma_traffic_scheduler_init(
+        &scheduler, slots, TDMA_TRAFFIC_SCHEDULER_SLOT_COUNT);
+    failed += expect_bool("configure recovery profile",
+                          tdma_traffic_scheduler_configure(&scheduler,
+                                                           &profile),
+                          true);
+
+    tdma_traffic_request_t first =
+        make_request(TDMA_PAYLOAD_CLASS_REFMEM_DELTA, 0xD1u, now_ns);
+    tdma_traffic_request_t second =
+        make_request(TDMA_PAYLOAD_CLASS_REFMEM_DELTA, 0xD2u, now_ns);
+    tdma_traffic_request_t third =
+        make_request(TDMA_PAYLOAD_CLASS_REFMEM_DELTA, 0xD3u, now_ns);
+    first.frame_size = 64u;
+    second.frame_size = 64u;
+    third.frame_size = 64u;
+
+    failed += expect_u32(
+        "recovery buffer a",
+        tdma_traffic_scheduler_enqueue_recovery(
+            &scheduler, &first, TDMA_TRAFFIC_REFMEM_REALTIME,
+            1u, 11u, 2u, 101u),
+        TDMA_TRAFFIC_SCHEDULER_OK);
+    failed += expect_u32(
+        "recovery buffer b",
+        tdma_traffic_scheduler_enqueue_recovery(
+            &scheduler, &second, TDMA_TRAFFIC_REFMEM_REALTIME,
+            2u, 12u, 3u, 102u),
+        TDMA_TRAFFIC_SCHEDULER_OK);
+    failed += expect_u32(
+        "recovery buffers bounded",
+        tdma_traffic_scheduler_enqueue_recovery(
+            &scheduler, &third, TDMA_TRAFFIC_REFMEM_REALTIME,
+            3u, 13u, 4u, 103u),
+        TDMA_TRAFFIC_SCHEDULER_BACKPRESSURE);
+
+    failed += expect_u32(
+        "first recovery dispatch",
+        tdma_traffic_scheduler_select(&scheduler, now_ns, false, &dispatch),
+        TDMA_TRAFFIC_SCHEDULER_OK);
+    failed += expect_u32("dispatch recovery flag", dispatch.is_recovery, 1u);
+    failed += expect_u32("first recovery node", dispatch.recovery_node_id, 1u);
+    failed += expect_u32("first recovery marker", dispatch.frame[0], 0xD1u);
+    failed += expect_bool(
+        "first recovery completion",
+        tdma_traffic_scheduler_complete(
+            &scheduler, dispatch.traffic_class, TDMA_TRAFFIC_COMPLETION_SENT),
+        true);
+    failed += expect_u32(
+        "one recovery per cycle",
+        tdma_traffic_scheduler_select(&scheduler, now_ns, false, &dispatch),
+        TDMA_TRAFFIC_SCHEDULER_GATE_CLOSED);
+    failed += expect_u32(
+        "second recovery next cycle",
+        tdma_traffic_scheduler_select(
+            &scheduler, now_ns + profile.resource.cycle_period_ns,
+            false, &dispatch),
+        TDMA_TRAFFIC_SCHEDULER_OK);
+    failed += expect_u32("second recovery node", dispatch.recovery_node_id, 2u);
+    failed += expect_bool(
+        "second recovery retry",
+        tdma_traffic_scheduler_complete(
+            &scheduler, dispatch.traffic_class, TDMA_TRAFFIC_COMPLETION_RETRY),
+        true);
+    failed += expect_u32(
+        "retry waits for next cycle",
+        tdma_traffic_scheduler_select(
+            &scheduler, now_ns + profile.resource.cycle_period_ns,
+            false, &dispatch),
+        TDMA_TRAFFIC_SCHEDULER_GATE_CLOSED);
+    failed += expect_u32(
+        "retry dispatches once",
+        tdma_traffic_scheduler_select(
+            &scheduler, now_ns + 2ull * profile.resource.cycle_period_ns,
+            false, &dispatch),
+        TDMA_TRAFFIC_SCHEDULER_OK);
+    failed += expect_bool(
+        "retry completion",
+        tdma_traffic_scheduler_complete(
+            &scheduler, dispatch.traffic_class, TDMA_TRAFFIC_COMPLETION_SENT),
+        true);
+
+    failed += expect_bool("recovery snapshot",
+                          tdma_traffic_scheduler_get_snapshot(&scheduler,
+                                                              &snapshot),
+                          true);
+    failed += expect_u32("recovery reserve",
+                         snapshot.recovery_reserved_bytes_per_cycle,
+                         TDMA_RECOVERY_RESERVED_BYTES_PER_CYCLE);
+    failed += expect_u32("recovery depth", snapshot.recovery.current_depth, 0u);
+    failed += expect_u32("recovery high watermark",
+                         snapshot.recovery.queue_high_watermark, 2u);
+    failed += expect_u32("recovery sent", snapshot.recovery.sent_count, 2u);
+    failed += expect_u32("recovery retry", snapshot.recovery.retry_count, 1u);
+    failed += expect_u32("recovery backpressure",
+                         snapshot.recovery.backpressure_count, 1u);
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -463,6 +577,7 @@ int main(void)
     failed += test_budget_and_deadline();
     failed += test_short_long_class_gate();
     failed += test_cycle_change_requires_explicit_cancel();
+    failed += test_recovery_ping_pong_budget();
     if (failed != 0) {
         return 1;
     }

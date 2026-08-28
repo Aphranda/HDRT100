@@ -1895,6 +1895,17 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_status_q(scpi_t *context)
         context, snapshot.ring_clock_reference_tx_timestamp_ns_hi);
     SCPI_ResultUInt32(context, snapshot.ring_clock_local_rx_timestamp_ns_lo);
     SCPI_ResultUInt32(context, snapshot.ring_clock_local_rx_timestamp_ns_hi);
+    SCPI_ResultUInt32(context, snapshot.recovery_reserved_bytes_per_cycle);
+    SCPI_ResultUInt32(context, snapshot.recovery_buffer_count);
+    SCPI_ResultUInt32(context, snapshot.recovery_max_frames_per_cycle);
+    SCPI_ResultUInt32(context, snapshot.recovery_current_depth);
+    SCPI_ResultUInt32(context, snapshot.recovery_queue_high_watermark);
+    SCPI_ResultUInt32(context, snapshot.recovery_queued_count);
+    SCPI_ResultUInt32(context, snapshot.recovery_dispatched_count);
+    SCPI_ResultUInt32(context, snapshot.recovery_sent_count);
+    SCPI_ResultUInt32(context, snapshot.recovery_retry_count);
+    SCPI_ResultUInt32(context, snapshot.recovery_exhausted_count);
+    SCPI_ResultUInt32(context, snapshot.recovery_backpressure_count);
     return SCPI_RES_OK;
 }
 

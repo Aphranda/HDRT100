@@ -2,6 +2,10 @@
 
 #include <string.h>
 
+static void tdma_traffic_scheduler_copy_slot_to_dispatch(
+    const tdma_traffic_scheduler_slot_t *slot,
+    tdma_traffic_dispatch_t *dispatch);
+
 static bool tdma_traffic_scheduler_try_lock(tdma_traffic_scheduler_t *scheduler)
 {
     uint32_t expected = 0u;
@@ -98,6 +102,8 @@ static void tdma_traffic_scheduler_refresh_cycle(
     scheduler->cycle_number = cycle_number;
     scheduler->cycle_seq++;
     scheduler->cycle_bytes = 0u;
+    scheduler->recovery_quality.cycle_bytes = 0u;
+    scheduler->recovery_quality.cycle_frames = 0u;
     for (uint32_t i = 0u; i < TDMA_TRAFFIC_CLASS_COUNT; i++) {
         scheduler->quality[i].cycle_bytes = 0u;
         scheduler->quality[i].cycle_frames = 0u;
@@ -216,8 +222,61 @@ static bool tdma_traffic_scheduler_dispatch_head(
         return false;
     }
     memset(dispatch, 0, sizeof(*dispatch));
+    tdma_traffic_scheduler_copy_slot_to_dispatch(slot, dispatch);
+
+    tdma_traffic_scheduler_pop_head(scheduler, traffic_class);
+    scheduler->dispatch_seq++;
+    scheduler->cycle_bytes += slot->frame_size;
+    scheduler->quality[traffic_class].dispatched_count++;
+    scheduler->quality[traffic_class].last_dispatched_sequence =
+        slot->sequence;
+    scheduler->quality[traffic_class].cycle_bytes += slot->frame_size;
+    scheduler->quality[traffic_class].cycle_frames++;
+    return true;
+}
+
+static void tdma_traffic_scheduler_copy_request_to_slot(
+    tdma_traffic_scheduler_slot_t *slot,
+    const tdma_traffic_request_t *request,
+    uint32_t traffic_class,
+    uint32_t sequence)
+{
+    memset(slot, 0, sizeof(*slot));
+    slot->sequence = sequence;
+    slot->traffic_class = traffic_class;
+    slot->intent_type = request->intent_type;
+    slot->role = request->role;
+    slot->baud_hz = request->baud_hz;
+    slot->rx_pin = request->rx_pin;
+    slot->csn_pin = request->csn_pin;
+    slot->sck_pin = request->sck_pin;
+    slot->tx_pin = request->tx_pin;
+    slot->deadline_us = request->deadline_us;
+    slot->frame_class = request->frame_class;
+    slot->payload_class = request->payload_class;
+    slot->window_epoch = request->window_epoch;
+    slot->window_index = request->window_index;
+    slot->scheduled_window_valid = request->scheduled_window_valid;
+    slot->scheduled_window_class = request->scheduled_window_class;
+    slot->schedule_crc32 = request->schedule_crc32;
+    slot->scheduled_window_start_ns = request->scheduled_window_start_ns;
+    slot->scheduled_window_end_ns = request->scheduled_window_end_ns;
+    slot->scheduled_guard_start_ns = request->scheduled_guard_start_ns;
+    slot->scheduled_guard_end_ns = request->scheduled_guard_end_ns;
+    slot->enqueue_time_ns = request->enqueue_time_ns;
+    slot->estimated_duration_ns = request->estimated_duration_ns;
+    slot->frame_size = (uint32_t)request->frame_size;
+    if (request->frame_size != 0u) {
+        memcpy(slot->frame, request->frame, request->frame_size);
+    }
+}
+
+static void tdma_traffic_scheduler_copy_slot_to_dispatch(
+    const tdma_traffic_scheduler_slot_t *slot,
+    tdma_traffic_dispatch_t *dispatch)
+{
     dispatch->sequence = slot->sequence;
-    dispatch->traffic_class = traffic_class;
+    dispatch->traffic_class = slot->traffic_class;
     dispatch->request.intent_type = slot->intent_type;
     dispatch->request.role = slot->role;
     dispatch->request.baud_hz = slot->baud_hz;
@@ -246,16 +305,6 @@ static bool tdma_traffic_scheduler_dispatch_head(
         memcpy(dispatch->frame, slot->frame, slot->frame_size);
     }
     dispatch->request.frame = dispatch->frame;
-
-    tdma_traffic_scheduler_pop_head(scheduler, traffic_class);
-    scheduler->dispatch_seq++;
-    scheduler->cycle_bytes += slot->frame_size;
-    scheduler->quality[traffic_class].dispatched_count++;
-    scheduler->quality[traffic_class].last_dispatched_sequence =
-        slot->sequence;
-    scheduler->quality[traffic_class].cycle_bytes += slot->frame_size;
-    scheduler->quality[traffic_class].cycle_frames++;
-    return true;
 }
 
 static uint32_t tdma_traffic_scheduler_cancel_pending_locked(
@@ -278,6 +327,12 @@ static uint32_t tdma_traffic_scheduler_cancel_pending_locked(
                sizeof(tdma_traffic_scheduler_slot_t) *
                    scheduler->slot_capacity);
     }
+    total_canceled += scheduler->recovery_quality.current_depth;
+    scheduler->recovery_quality.current_depth = 0u;
+    memset(scheduler->recovery, 0, sizeof(scheduler->recovery));
+    scheduler->recovery_read_index = 0u;
+    scheduler->recovery_write_index = 0u;
+    scheduler->recovery_in_flight_index = UINT32_MAX;
     scheduler->cycle_bytes = 0u;
     scheduler->cycle_number = UINT64_MAX;
     return total_canceled;
@@ -299,6 +354,7 @@ bool tdma_traffic_scheduler_init(
     scheduler->slot = slot_storage;
     scheduler->slot_capacity = slot_capacity;
     scheduler->last_traffic_class = UINT32_MAX;
+    scheduler->recovery_in_flight_index = UINT32_MAX;
     return true;
 }
 
@@ -351,6 +407,14 @@ bool tdma_traffic_scheduler_configure(
         profile->resource.long_frame_capacity;
     scheduler->cycle_bytes = 0u;
     scheduler->fault_latched = 0u;
+    scheduler->recovery_read_index = 0u;
+    scheduler->recovery_write_index = 0u;
+    scheduler->recovery_in_flight_index = UINT32_MAX;
+    scheduler->recovery_sequence = 0u;
+    memset(scheduler->recovery, 0, sizeof(scheduler->recovery));
+    memset(&scheduler->recovery_quality,
+           0,
+           sizeof(scheduler->recovery_quality));
     scheduler->last_result = TDMA_TRAFFIC_SCHEDULER_OK;
     scheduler->last_traffic_class = UINT32_MAX;
     tdma_traffic_scheduler_unlock(scheduler);
@@ -375,6 +439,10 @@ bool tdma_traffic_scheduler_set_cycle_period(
             return false;
         }
     }
+    if (scheduler->recovery_quality.current_depth != 0u) {
+        tdma_traffic_scheduler_unlock(scheduler);
+        return false;
+    }
     scheduler->cycle_period_ns = cycle_period_ns;
     scheduler->cycle_number = UINT64_MAX;
     scheduler->cycle_bytes = 0u;
@@ -390,7 +458,6 @@ bool tdma_traffic_scheduler_cancel_pending(
     if (scheduler == NULL || !tdma_traffic_scheduler_try_lock(scheduler)) {
         return false;
     }
-
     const uint32_t total_canceled =
         tdma_traffic_scheduler_cancel_pending_locked(scheduler);
     if (canceled_count != NULL) {
@@ -520,35 +587,9 @@ tdma_traffic_scheduler_result_t tdma_traffic_scheduler_enqueue(
 
     tdma_traffic_scheduler_slot_t *slot =
         &scheduler->slot[queue->base + queue->write_index];
-    memset(slot, 0, sizeof(*slot));
     scheduler->enqueue_seq++;
-    slot->sequence = scheduler->enqueue_seq;
-    slot->traffic_class = traffic_class;
-    slot->intent_type = request->intent_type;
-    slot->role = request->role;
-    slot->baud_hz = request->baud_hz;
-    slot->rx_pin = request->rx_pin;
-    slot->csn_pin = request->csn_pin;
-    slot->sck_pin = request->sck_pin;
-    slot->tx_pin = request->tx_pin;
-    slot->deadline_us = request->deadline_us;
-    slot->frame_class = request->frame_class;
-    slot->payload_class = request->payload_class;
-    slot->window_epoch = request->window_epoch;
-    slot->window_index = request->window_index;
-    slot->scheduled_window_valid = request->scheduled_window_valid;
-    slot->scheduled_window_class = request->scheduled_window_class;
-    slot->schedule_crc32 = request->schedule_crc32;
-    slot->scheduled_window_start_ns = request->scheduled_window_start_ns;
-    slot->scheduled_window_end_ns = request->scheduled_window_end_ns;
-    slot->scheduled_guard_start_ns = request->scheduled_guard_start_ns;
-    slot->scheduled_guard_end_ns = request->scheduled_guard_end_ns;
-    slot->enqueue_time_ns = request->enqueue_time_ns;
-    slot->estimated_duration_ns = request->estimated_duration_ns;
-    slot->frame_size = (uint32_t)request->frame_size;
-    if (request->frame_size != 0u) {
-        memcpy(slot->frame, request->frame, request->frame_size);
-    }
+    tdma_traffic_scheduler_copy_request_to_slot(
+        slot, request, traffic_class, scheduler->enqueue_seq);
     queue->write_index = (queue->write_index + 1u) % queue->depth;
     queue->count++;
     scheduler->quality[traffic_class].queued_count++;
@@ -561,6 +602,141 @@ tdma_traffic_scheduler_result_t tdma_traffic_scheduler_enqueue(
                                              enqueue_result);
     tdma_traffic_scheduler_unlock(scheduler);
     return enqueue_result;
+}
+
+tdma_traffic_scheduler_result_t tdma_traffic_scheduler_enqueue_recovery(
+    tdma_traffic_scheduler_t *scheduler,
+    const tdma_traffic_request_t *request,
+    uint32_t traffic_class,
+    uint32_t node_id,
+    uint32_t generation,
+    uint32_t reason,
+    uint32_t original_sequence)
+{
+    if (scheduler == NULL || request == NULL ||
+        traffic_class >= TDMA_TRAFFIC_CLASS_COUNT ||
+        node_id >= TDMA_RING_NODE_MAX || request->frame == NULL ||
+        request->frame_size == 0u ||
+        request->frame_size > TDMA_RECOVERY_FRAME_MAX ||
+        request->frame_class != TDMA_TRAFFIC_SCHEDULER_FRAME_CLASS_SHORT) {
+        return TDMA_TRAFFIC_SCHEDULER_BAD_ARGUMENT;
+    }
+    if (!tdma_traffic_scheduler_try_lock(scheduler)) {
+        return TDMA_TRAFFIC_SCHEDULER_BUSY;
+    }
+    if (scheduler->configured == 0u) {
+        tdma_traffic_scheduler_unlock(scheduler);
+        return TDMA_TRAFFIC_SCHEDULER_NOT_CONFIGURED;
+    }
+    if (scheduler->admission_open == 0u) {
+        tdma_traffic_scheduler_unlock(scheduler);
+        return TDMA_TRAFFIC_SCHEDULER_GATE_CLOSED;
+    }
+    if ((scheduler->profile[traffic_class].flags &
+         TDMA_TRAFFIC_FLAG_RELIABLE) == 0u &&
+        request->payload_class != TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE) {
+        tdma_traffic_scheduler_unlock(scheduler);
+        return TDMA_TRAFFIC_SCHEDULER_CLASS_REJECTED;
+    }
+
+    tdma_recovery_buffer_t *buffer =
+        &scheduler->recovery[scheduler->recovery_write_index];
+    if (buffer->state != TDMA_RECOVERY_BUFFER_EMPTY) {
+        scheduler->recovery_quality.backpressure_count++;
+        tdma_traffic_scheduler_unlock(scheduler);
+        return TDMA_TRAFFIC_SCHEDULER_BACKPRESSURE;
+    }
+
+    memset(buffer, 0, sizeof(*buffer));
+    scheduler->recovery_sequence++;
+    buffer->state = TDMA_RECOVERY_BUFFER_READY;
+    buffer->sequence = scheduler->recovery_sequence;
+    buffer->traffic_class = traffic_class;
+    buffer->node_id = node_id;
+    buffer->generation = generation;
+    buffer->reason = reason;
+    buffer->original_sequence = original_sequence;
+    tdma_traffic_scheduler_copy_request_to_slot(
+        &buffer->slot, request, traffic_class, buffer->sequence);
+    buffer->slot.scheduled_window_valid = 0u;
+    scheduler->recovery_write_index =
+        (scheduler->recovery_write_index + 1u) % TDMA_RECOVERY_BUFFER_COUNT;
+    scheduler->recovery_quality.queued_count++;
+    scheduler->recovery_quality.current_depth++;
+    if (scheduler->recovery_quality.current_depth >
+        scheduler->recovery_quality.queue_high_watermark) {
+        scheduler->recovery_quality.queue_high_watermark =
+            scheduler->recovery_quality.current_depth;
+    }
+    scheduler->recovery_quality.last_original_sequence = original_sequence;
+    scheduler->recovery_quality.last_node_id = node_id;
+    scheduler->recovery_quality.last_generation = generation;
+    scheduler->recovery_quality.last_reason = reason;
+    tdma_traffic_scheduler_unlock(scheduler);
+    return TDMA_TRAFFIC_SCHEDULER_OK;
+}
+
+static bool tdma_traffic_scheduler_dispatch_recovery(
+    tdma_traffic_scheduler_t *scheduler,
+    uint64_t now_ns,
+    tdma_traffic_dispatch_t *dispatch)
+{
+    if (scheduler->recovery_in_flight_index != UINT32_MAX ||
+        scheduler->recovery_quality.cycle_frames >=
+            TDMA_RECOVERY_MAX_FRAMES_PER_CYCLE) {
+        return false;
+    }
+    for (uint32_t offset = 0u; offset < TDMA_RECOVERY_BUFFER_COUNT; offset++) {
+        const uint32_t index =
+            (scheduler->recovery_read_index + offset) %
+            TDMA_RECOVERY_BUFFER_COUNT;
+        tdma_recovery_buffer_t *buffer = &scheduler->recovery[index];
+        if (buffer->state != TDMA_RECOVERY_BUFFER_READY) {
+            continue;
+        }
+        const uint32_t deadline_ns =
+            scheduler->profile[buffer->traffic_class].deadline_ns;
+        if (deadline_ns != 0u && now_ns > buffer->slot.enqueue_time_ns &&
+            now_ns - buffer->slot.enqueue_time_ns > deadline_ns) {
+            memset(buffer, 0, sizeof(*buffer));
+            scheduler->recovery_quality.current_depth--;
+            scheduler->recovery_quality.exhausted_count++;
+            scheduler->fault_latched = 1u;
+            scheduler->recovery_read_index =
+                (index + 1u) % TDMA_RECOVERY_BUFFER_COUNT;
+            continue;
+        }
+        if (buffer->slot.frame_size >
+                TDMA_RECOVERY_RESERVED_BYTES_PER_CYCLE -
+                    scheduler->recovery_quality.cycle_bytes ||
+            scheduler->cycle_bytes + buffer->slot.frame_size >
+                scheduler->usable_cycle_bytes ||
+            !tdma_traffic_scheduler_before_higher_priority_guard(
+                scheduler, &buffer->slot, now_ns, 1u)) {
+            return false;
+        }
+
+        memset(dispatch, 0, sizeof(*dispatch));
+        tdma_traffic_scheduler_copy_slot_to_dispatch(&buffer->slot, dispatch);
+        dispatch->is_recovery = 1u;
+        dispatch->recovery_node_id = buffer->node_id;
+        dispatch->recovery_generation = buffer->generation;
+        dispatch->recovery_reason = buffer->reason;
+        dispatch->original_sequence = buffer->original_sequence;
+        buffer->state = TDMA_RECOVERY_BUFFER_IN_FLIGHT;
+        scheduler->recovery_in_flight_index = index;
+        scheduler->recovery_read_index =
+            (index + 1u) % TDMA_RECOVERY_BUFFER_COUNT;
+        scheduler->dispatch_seq++;
+        scheduler->cycle_bytes += buffer->slot.frame_size;
+        scheduler->recovery_quality.dispatched_count++;
+        scheduler->recovery_quality.cycle_bytes += buffer->slot.frame_size;
+        scheduler->recovery_quality.cycle_frames++;
+        scheduler->quality[buffer->traffic_class].last_dispatched_sequence =
+            buffer->original_sequence;
+        return true;
+    }
+    return false;
 }
 
 tdma_traffic_scheduler_result_t tdma_traffic_scheduler_select(
@@ -586,7 +762,7 @@ tdma_traffic_scheduler_result_t tdma_traffic_scheduler_select(
     }
 
     for (uint32_t i = TDMA_TRAFFIC_VDC_REALTIME;
-         i <= TDMA_TRAFFIC_REFMEM_REALTIME;
+         i <= TDMA_TRAFFIC_VDC_REALTIME;
          i++) {
         tdma_traffic_scheduler_slot_t *slot =
             tdma_traffic_scheduler_queue_head(scheduler, i);
@@ -599,14 +775,6 @@ tdma_traffic_scheduler_result_t tdma_traffic_scheduler_select(
         if (!gate_open) {
             continue;
         }
-        if (i == TDMA_TRAFFIC_REFMEM_REALTIME &&
-            !tdma_traffic_scheduler_before_higher_priority_guard(
-                scheduler,
-                slot,
-                now_ns,
-                TDMA_TRAFFIC_REFMEM_REALTIME)) {
-            continue;
-        }
         if (!tdma_traffic_scheduler_budget_available(scheduler, slot)) {
             tdma_traffic_scheduler_note_budget_overrun(scheduler, i);
             (void)tdma_traffic_scheduler_note_result(
@@ -617,6 +785,47 @@ tdma_traffic_scheduler_result_t tdma_traffic_scheduler_select(
         (void)tdma_traffic_scheduler_dispatch_head(scheduler, i, dispatch);
         (void)tdma_traffic_scheduler_note_result(
             scheduler, i, TDMA_TRAFFIC_SCHEDULER_OK);
+        tdma_traffic_scheduler_unlock(scheduler);
+        return TDMA_TRAFFIC_SCHEDULER_OK;
+    }
+
+    if (tdma_traffic_scheduler_dispatch_recovery(
+            scheduler, now_ns, dispatch)) {
+        (void)tdma_traffic_scheduler_note_result(
+            scheduler,
+            dispatch->traffic_class,
+            TDMA_TRAFFIC_SCHEDULER_OK);
+        tdma_traffic_scheduler_unlock(scheduler);
+        return TDMA_TRAFFIC_SCHEDULER_OK;
+    }
+
+    tdma_traffic_scheduler_slot_t *refmem_slot =
+        tdma_traffic_scheduler_queue_head(
+            scheduler, TDMA_TRAFFIC_REFMEM_REALTIME);
+    if (refmem_slot != NULL &&
+        (refmem_slot->scheduled_window_valid == 0u ||
+         now_ns >= refmem_slot->scheduled_guard_start_ns) &&
+        tdma_traffic_scheduler_before_higher_priority_guard(
+            scheduler,
+            refmem_slot,
+            now_ns,
+            TDMA_TRAFFIC_REFMEM_REALTIME)) {
+        if (!tdma_traffic_scheduler_budget_available(scheduler, refmem_slot)) {
+            tdma_traffic_scheduler_note_budget_overrun(
+                scheduler, TDMA_TRAFFIC_REFMEM_REALTIME);
+            (void)tdma_traffic_scheduler_note_result(
+                scheduler,
+                TDMA_TRAFFIC_REFMEM_REALTIME,
+                TDMA_TRAFFIC_SCHEDULER_BUDGET_EXHAUSTED);
+            tdma_traffic_scheduler_unlock(scheduler);
+            return TDMA_TRAFFIC_SCHEDULER_BUDGET_EXHAUSTED;
+        }
+        (void)tdma_traffic_scheduler_dispatch_head(
+            scheduler, TDMA_TRAFFIC_REFMEM_REALTIME, dispatch);
+        (void)tdma_traffic_scheduler_note_result(
+            scheduler,
+            TDMA_TRAFFIC_REFMEM_REALTIME,
+            TDMA_TRAFFIC_SCHEDULER_OK);
         tdma_traffic_scheduler_unlock(scheduler);
         return TDMA_TRAFFIC_SCHEDULER_OK;
     }
@@ -670,6 +879,33 @@ bool tdma_traffic_scheduler_complete(
     }
     tdma_traffic_class_quality_t *quality = &scheduler->quality[traffic_class];
     quality->last_completed_sequence = quality->last_dispatched_sequence;
+    if (scheduler->recovery_in_flight_index != UINT32_MAX) {
+        const uint32_t index = scheduler->recovery_in_flight_index;
+        tdma_recovery_buffer_t *buffer = &scheduler->recovery[index];
+        if (buffer->state != TDMA_RECOVERY_BUFFER_IN_FLIGHT ||
+            buffer->traffic_class != traffic_class) {
+            tdma_traffic_scheduler_unlock(scheduler);
+            return false;
+        }
+        if (completion == TDMA_TRAFFIC_COMPLETION_SENT ||
+            completion == TDMA_TRAFFIC_COMPLETION_LATE) {
+            scheduler->recovery_quality.sent_count++;
+            memset(buffer, 0, sizeof(*buffer));
+            scheduler->recovery_quality.current_depth--;
+        } else if ((completion == TDMA_TRAFFIC_COMPLETION_RETRY ||
+                    completion == TDMA_TRAFFIC_COMPLETION_ADAPTER_ERROR) &&
+                   buffer->retry_attempt < TDMA_RECOVERY_RETRY_LIMIT) {
+            buffer->retry_attempt++;
+            buffer->state = TDMA_RECOVERY_BUFFER_READY;
+            scheduler->recovery_quality.retry_count++;
+        } else {
+            scheduler->recovery_quality.exhausted_count++;
+            scheduler->fault_latched = 1u;
+            memset(buffer, 0, sizeof(*buffer));
+            scheduler->recovery_quality.current_depth--;
+        }
+        scheduler->recovery_in_flight_index = UINT32_MAX;
+    }
     switch (completion) {
     case TDMA_TRAFFIC_COMPLETION_SENT:
         quality->sent_count++;
@@ -735,6 +971,12 @@ bool tdma_traffic_scheduler_get_snapshot(
     snapshot->fault_latched = scheduler->fault_latched;
     snapshot->last_result = scheduler->last_result;
     snapshot->last_traffic_class = scheduler->last_traffic_class;
+    snapshot->recovery_reserved_bytes_per_cycle =
+        TDMA_RECOVERY_RESERVED_BYTES_PER_CYCLE;
+    snapshot->recovery_buffer_count = TDMA_RECOVERY_BUFFER_COUNT;
+    snapshot->recovery_max_frames_per_cycle =
+        TDMA_RECOVERY_MAX_FRAMES_PER_CYCLE;
+    snapshot->recovery = scheduler->recovery_quality;
     memcpy(snapshot->traffic,
            scheduler->quality,
            sizeof(snapshot->traffic));

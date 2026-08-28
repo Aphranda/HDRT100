@@ -387,6 +387,9 @@ bool tdma_foundation_profile_validate(const tdma_foundation_profile_t *profile,
         queue_bytes += (uint64_t)traffic->queue_depth *
                        (uint64_t)profile->resource.long_frame_capacity;
     }
+    reserved_bytes += TDMA_RECOVERY_RESERVED_BYTES_PER_CYCLE;
+    queue_bytes += (uint64_t)TDMA_RECOVERY_BUFFER_COUNT *
+                   TDMA_RECOVERY_FRAME_MAX;
     if (reserved_bytes > (uint64_t)profile->resource.cycle_capacity_bytes -
                              profile->resource.guard_band_bytes ||
         queue_bytes > profile->resource.queue_memory_capacity_bytes) {

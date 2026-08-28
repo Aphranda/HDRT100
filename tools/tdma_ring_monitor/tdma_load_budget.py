@@ -16,6 +16,15 @@ DEFAULT_NODE_COUNT = (2, 3, 4, 8)
 PHYSICAL_HEADER_BYTES = 4
 TRANSPORT_HEADER_BYTES = 32
 PROCESS_IMAGE_BYTES = 256
+# These are the firmware's deterministic TDMA reservations.  Keep the values
+# here as a host-side projection of the compile-time contract in
+# ``components/tdma/inc/tdma_profile.h``; they are deliberately not an
+# additional traffic class on the wire.
+NORMAL_RESERVED_BYTES_PER_CYCLE = 712
+RECOVERY_RESERVED_BYTES_PER_CYCLE = 128
+RECOVERY_BUFFER_COUNT = 2
+RECOVERY_MAX_FRAMES_PER_CYCLE = 1
+USABLE_CYCLE_CAPACITY_BYTES = 896  # 1024-byte cycle capacity - 128-byte guard
 
 
 @dataclass(frozen=True)
@@ -36,6 +45,13 @@ class TdmaLoadBudget:
     store_forward_per_node_margin_us: float
     cut_through_total_margin_us: float
     cut_through_per_forward_node_budget_us: float
+    normal_reserved_bytes_per_cycle: int
+    recovery_reserved_bytes_per_cycle: int
+    planned_reserved_bytes_per_cycle: int
+    usable_cycle_capacity_bytes: int
+    planned_headroom_bytes: int
+    recovery_buffer_count: int
+    recovery_max_frames_per_cycle: int
 
 
 def calculate_budget(
@@ -84,14 +100,25 @@ def calculate_budget(
         store_forward_per_node_margin_us=store_forward_margin_us,
         cut_through_total_margin_us=margin_us,
         cut_through_per_forward_node_budget_us=per_node_margin_us,
+        normal_reserved_bytes_per_cycle=NORMAL_RESERVED_BYTES_PER_CYCLE,
+        recovery_reserved_bytes_per_cycle=RECOVERY_RESERVED_BYTES_PER_CYCLE,
+        planned_reserved_bytes_per_cycle=(
+            NORMAL_RESERVED_BYTES_PER_CYCLE + RECOVERY_RESERVED_BYTES_PER_CYCLE),
+        usable_cycle_capacity_bytes=USABLE_CYCLE_CAPACITY_BYTES,
+        planned_headroom_bytes=(
+            USABLE_CYCLE_CAPACITY_BYTES - NORMAL_RESERVED_BYTES_PER_CYCLE -
+            RECOVERY_RESERVED_BYTES_PER_CYCLE),
+        recovery_buffer_count=RECOVERY_BUFFER_COUNT,
+        recovery_max_frames_per_cycle=RECOVERY_MAX_FRAMES_PER_CYCLE,
     )
 
 
 def render_markdown(rows: list[TdmaLoadBudget]) -> str:
     lines = [
         "| SPI | 周期 | 节点 | wire | 串行化 | 链路负载 | 80%门禁 | "
-        "store-forward环回 | SF门禁 | SF每节点余量 | cut-through每节点预算 |",
-        "|---:|---:|---:|---:|---:|---:|:---:|---:|:---:|---:|---:|",
+        "store-forward环回 | SF门禁 | SF每节点余量 | cut-through每节点预算 | "
+        "固定预算（正常/恢复/计划/余量） |",
+        "|---:|---:|---:|---:|---:|---:|:---:|---:|:---:|---:|---:|---:|",
     ]
     for row in rows:
         lines.append(
@@ -103,7 +130,11 @@ def render_markdown(rows: list[TdmaLoadBudget]) -> str:
             f"{row.store_forward_round_trip_us:.3f} us | "
             f"{'PASS' if row.store_forward_pass else 'FAIL'} | "
             f"{row.store_forward_per_node_margin_us:.3f} us | "
-            f"{row.cut_through_per_forward_node_budget_us:.3f} us |"
+            f"{row.cut_through_per_forward_node_budget_us:.3f} us | "
+            f"{row.normal_reserved_bytes_per_cycle}/"
+            f"{row.recovery_reserved_bytes_per_cycle}/"
+            f"{row.planned_reserved_bytes_per_cycle}/"
+            f"{row.planned_headroom_bytes} B |"
         )
     return "\n".join(lines) + "\n"
 

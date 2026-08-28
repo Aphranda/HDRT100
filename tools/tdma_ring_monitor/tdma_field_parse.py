@@ -114,6 +114,17 @@ FIELDS = [
     "ring_clock_reference_tx_timestamp_ns_hi",
     "ring_clock_local_rx_timestamp_ns_lo",
     "ring_clock_local_rx_timestamp_ns_hi",
+    "recovery_reserved_bytes_per_cycle",
+    "recovery_buffer_count",
+    "recovery_max_frames_per_cycle",
+    "recovery_current_depth",
+    "recovery_queue_high_watermark",
+    "recovery_queued_count",
+    "recovery_dispatched_count",
+    "recovery_sent_count",
+    "recovery_retry_count",
+    "recovery_exhausted_count",
+    "recovery_backpressure_count",
 ]
 
 PHYS_FIELDS = (

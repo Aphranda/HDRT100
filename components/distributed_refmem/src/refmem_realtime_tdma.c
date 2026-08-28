@@ -360,6 +360,20 @@ static void refmem_realtime_tdma_from_service_snapshot(
     memcpy(target->traffic_scheduler_completed_seq,
            source->traffic_scheduler_completed_seq,
            sizeof(target->traffic_scheduler_completed_seq));
+    target->recovery_reserved_bytes_per_cycle =
+        source->recovery_reserved_bytes_per_cycle;
+    target->recovery_buffer_count = source->recovery_buffer_count;
+    target->recovery_max_frames_per_cycle =
+        source->recovery_max_frames_per_cycle;
+    target->recovery_current_depth = source->recovery_current_depth;
+    target->recovery_queue_high_watermark =
+        source->recovery_queue_high_watermark;
+    target->recovery_queued_count = source->recovery_queued_count;
+    target->recovery_dispatched_count = source->recovery_dispatched_count;
+    target->recovery_sent_count = source->recovery_sent_count;
+    target->recovery_retry_count = source->recovery_retry_count;
+    target->recovery_exhausted_count = source->recovery_exhausted_count;
+    target->recovery_backpressure_count = source->recovery_backpressure_count;
 }
 
 bool refmem_realtime_tdma_init(refmem_realtime_tdma_service_t *service)

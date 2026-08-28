@@ -215,6 +215,17 @@ typedef struct {
     uint32_t traffic_scheduler_last_result;
     uint32_t traffic_scheduler_last_class;
     uint32_t traffic_scheduler_completed_seq[TDMA_TRAFFIC_CLASS_COUNT];
+    uint32_t recovery_reserved_bytes_per_cycle;
+    uint32_t recovery_buffer_count;
+    uint32_t recovery_max_frames_per_cycle;
+    uint32_t recovery_current_depth;
+    uint32_t recovery_queue_high_watermark;
+    uint32_t recovery_queued_count;
+    uint32_t recovery_dispatched_count;
+    uint32_t recovery_sent_count;
+    uint32_t recovery_retry_count;
+    uint32_t recovery_exhausted_count;
+    uint32_t recovery_backpressure_count;
 } refmem_realtime_tdma_snapshot_t;
 
 typedef struct {

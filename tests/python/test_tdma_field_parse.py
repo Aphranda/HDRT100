@@ -20,7 +20,8 @@ def test_status_schema_matches_current_scpi_field_count() -> None:
     assert named["ring_enabled"] == FIELDS.index("ring_enabled")
     assert named["ring_clock_observation_valid"] == FIELDS.index(
         "ring_clock_observation_valid")
-    assert named["ring_clock_local_rx_timestamp_ns_hi"] == len(FIELDS) - 1
+    assert named["ring_clock_local_rx_timestamp_ns_hi"] < len(FIELDS) - 1
+    assert named["recovery_backpressure_count"] == len(FIELDS) - 1
 
 
 def test_status_schema_accepts_scpi_quoted_values() -> None:

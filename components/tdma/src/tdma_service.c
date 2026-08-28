@@ -320,6 +320,7 @@ bool tdma_service_init(tdma_service_service_t *service)
     service->state = tdma_service_STATE_IDLE;
     service->owner_core = tdma_service_OWNER_CORE1;
     service->last_result = tdma_service_RESULT_NONE;
+    service->active_traffic_class = UINT32_MAX;
     if (!tdma_payload_registry_init(&service->payload_registry,
                                     TDMA_SERVICE_SHORT_FRAME_MAX,
                                     TDMA_SERVICE_LONG_FRAME_MAX)) {
@@ -885,6 +886,7 @@ static bool tdma_service_dispatch_next_scheduled(
     service->submit_time_ns = dispatch.request.enqueue_time_ns;
     service->active_traffic_class = dispatch.traffic_class;
     service->active_scheduler_sequence = dispatch.sequence;
+    service->active_is_recovery = dispatch.is_recovery;
     if (dispatch.request.frame_size != 0u) {
         memcpy(service->frame,
                dispatch.frame,
@@ -926,6 +928,50 @@ static void tdma_service_complete_scheduled(
     (void)tdma_traffic_scheduler_complete(service->traffic_scheduler,
                                           traffic_class,
                                           completion);
+}
+
+static void tdma_service_stage_active_recovery(
+    tdma_service_service_t *service)
+{
+    if (service == NULL || service->traffic_scheduler == NULL ||
+        service->active_is_recovery != 0u ||
+        service->active_traffic_class >= TDMA_TRAFFIC_CLASS_COUNT ||
+        service->intent_type != tdma_service_INTENT_TX_FRAME ||
+        service->frame_size == 0u ||
+        service->frame_size > TDMA_RECOVERY_FRAME_MAX) {
+        return;
+    }
+    const uint64_t now_ns = tdma_service_now_ns();
+    const tdma_traffic_request_t request = {
+        .intent_type = service->intent_type,
+        .role = service->role,
+        .baud_hz = service->baud_hz,
+        .rx_pin = service->rx_pin,
+        .csn_pin = service->csn_pin,
+        .sck_pin = service->sck_pin,
+        .tx_pin = service->tx_pin,
+        .deadline_us = service->deadline_us,
+        .frame_class = service->frame_class,
+        .payload_class = service->payload_class,
+        .window_epoch = service->window_epoch,
+        .window_index = service->window_index,
+        .schedule_crc32 = service->schedule_crc32,
+        .enqueue_time_ns = now_ns,
+        .estimated_duration_ns =
+            service->deadline_us > UINT32_MAX / 1000u
+                ? UINT32_MAX
+                : service->deadline_us * 1000u,
+        .frame_size = service->frame_size,
+        .frame = service->frame,
+    };
+    (void)tdma_traffic_scheduler_enqueue_recovery(
+        service->traffic_scheduler,
+        &request,
+        service->active_traffic_class,
+        tdma_service_load(&service->ring_runtime.local_slot_id),
+        service->window_epoch,
+        service->last_error,
+        service->active_scheduler_sequence);
 }
 
 void tdma_service_core1_service(tdma_service_service_t *service)
@@ -1146,6 +1192,7 @@ void tdma_service_core1_service(tdma_service_service_t *service)
         service->timeout_count++;
         service->last_result = tdma_service_RESULT_TIMEOUT;
         service->state = tdma_service_STATE_ERROR;
+        tdma_service_stage_active_recovery(service);
         tdma_service_complete_scheduled(service,
                                         TDMA_TRAFFIC_COMPLETION_RETRY);
     } else {
@@ -1444,6 +1491,28 @@ bool tdma_service_get_snapshot(const tdma_service_service_t *service,
             scheduler_snapshot.last_result;
         snapshot->traffic_scheduler_last_class =
             scheduler_snapshot.last_traffic_class;
+        snapshot->recovery_reserved_bytes_per_cycle =
+            scheduler_snapshot.recovery_reserved_bytes_per_cycle;
+        snapshot->recovery_buffer_count =
+            scheduler_snapshot.recovery_buffer_count;
+        snapshot->recovery_max_frames_per_cycle =
+            scheduler_snapshot.recovery_max_frames_per_cycle;
+        snapshot->recovery_current_depth =
+            scheduler_snapshot.recovery.current_depth;
+        snapshot->recovery_queue_high_watermark =
+            scheduler_snapshot.recovery.queue_high_watermark;
+        snapshot->recovery_queued_count =
+            scheduler_snapshot.recovery.queued_count;
+        snapshot->recovery_dispatched_count =
+            scheduler_snapshot.recovery.dispatched_count;
+        snapshot->recovery_sent_count =
+            scheduler_snapshot.recovery.sent_count;
+        snapshot->recovery_retry_count =
+            scheduler_snapshot.recovery.retry_count;
+        snapshot->recovery_exhausted_count =
+            scheduler_snapshot.recovery.exhausted_count;
+        snapshot->recovery_backpressure_count =
+            scheduler_snapshot.recovery.backpressure_count;
         uint32_t queued_count = 0u;
         for (uint32_t i = 0u; i < TDMA_TRAFFIC_CLASS_COUNT; i++) {
             queued_count += scheduler_snapshot.traffic[i].current_depth;

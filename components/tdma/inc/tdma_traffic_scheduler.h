@@ -7,7 +7,7 @@
 
 #include "tdma_profile.h"
 
-#define TDMA_TRAFFIC_SCHEDULER_VERSION 2u
+#define TDMA_TRAFFIC_SCHEDULER_VERSION 3u
 #define TDMA_TRAFFIC_SCHEDULER_SLOT_COUNT 32u
 #define TDMA_TRAFFIC_SCHEDULER_RUNTIME_SLOT_COUNT 8u
 #define TDMA_TRAFFIC_SCHEDULER_FRAME_MAX 1024u
@@ -67,6 +67,11 @@ typedef struct {
 typedef struct {
     uint32_t sequence;
     uint32_t traffic_class;
+    uint32_t is_recovery;
+    uint32_t recovery_node_id;
+    uint32_t recovery_generation;
+    uint32_t recovery_reason;
+    uint32_t original_sequence;
     tdma_traffic_request_t request;
     uint8_t frame[TDMA_TRAFFIC_SCHEDULER_FRAME_MAX];
 } tdma_traffic_dispatch_t;
@@ -92,6 +97,23 @@ typedef struct {
 } tdma_traffic_class_quality_t;
 
 typedef struct {
+    uint32_t queued_count;
+    uint32_t dispatched_count;
+    uint32_t sent_count;
+    uint32_t retry_count;
+    uint32_t exhausted_count;
+    uint32_t backpressure_count;
+    uint32_t current_depth;
+    uint32_t queue_high_watermark;
+    uint32_t cycle_bytes;
+    uint32_t cycle_frames;
+    uint32_t last_original_sequence;
+    uint32_t last_node_id;
+    uint32_t last_generation;
+    uint32_t last_reason;
+} tdma_recovery_quality_t;
+
+typedef struct {
     uint32_t version;
     uint32_t configured;
     uint32_t admission_open;
@@ -109,6 +131,10 @@ typedef struct {
     uint32_t fault_latched;
     uint32_t last_result;
     uint32_t last_traffic_class;
+    uint32_t recovery_reserved_bytes_per_cycle;
+    uint32_t recovery_buffer_count;
+    uint32_t recovery_max_frames_per_cycle;
+    tdma_recovery_quality_t recovery;
     tdma_traffic_class_quality_t traffic[TDMA_TRAFFIC_CLASS_COUNT];
 } tdma_traffic_scheduler_snapshot_t;
 
@@ -148,6 +174,24 @@ typedef struct {
     uint32_t count;
 } tdma_traffic_scheduler_queue_t;
 
+typedef enum {
+    TDMA_RECOVERY_BUFFER_EMPTY = 0u,
+    TDMA_RECOVERY_BUFFER_READY = 1u,
+    TDMA_RECOVERY_BUFFER_IN_FLIGHT = 2u,
+} tdma_recovery_buffer_state_t;
+
+typedef struct {
+    uint32_t state;
+    uint32_t sequence;
+    uint32_t traffic_class;
+    uint32_t node_id;
+    uint32_t generation;
+    uint32_t reason;
+    uint32_t original_sequence;
+    uint32_t retry_attempt;
+    tdma_traffic_scheduler_slot_t slot;
+} tdma_recovery_buffer_t;
+
 typedef struct {
     volatile uint32_t lock;
     uint32_t configured;
@@ -167,6 +211,12 @@ typedef struct {
     uint32_t fault_latched;
     uint32_t last_result;
     uint32_t last_traffic_class;
+    uint32_t recovery_write_index;
+    uint32_t recovery_read_index;
+    uint32_t recovery_in_flight_index;
+    uint32_t recovery_sequence;
+    tdma_recovery_quality_t recovery_quality;
+    tdma_recovery_buffer_t recovery[TDMA_RECOVERY_BUFFER_COUNT];
     tdma_traffic_class_profile_t profile[TDMA_TRAFFIC_CLASS_COUNT];
     uint64_t budget_reported_cycle[TDMA_TRAFFIC_CLASS_COUNT];
     tdma_traffic_scheduler_queue_t queue[TDMA_TRAFFIC_CLASS_COUNT];
@@ -195,6 +245,14 @@ bool tdma_traffic_scheduler_resume(tdma_traffic_scheduler_t *scheduler);
 tdma_traffic_scheduler_result_t tdma_traffic_scheduler_enqueue(
     tdma_traffic_scheduler_t *scheduler,
     const tdma_traffic_request_t *request);
+tdma_traffic_scheduler_result_t tdma_traffic_scheduler_enqueue_recovery(
+    tdma_traffic_scheduler_t *scheduler,
+    const tdma_traffic_request_t *request,
+    uint32_t traffic_class,
+    uint32_t node_id,
+    uint32_t generation,
+    uint32_t reason,
+    uint32_t original_sequence);
 tdma_traffic_scheduler_result_t tdma_traffic_scheduler_select(
     tdma_traffic_scheduler_t *scheduler,
     uint64_t now_ns,

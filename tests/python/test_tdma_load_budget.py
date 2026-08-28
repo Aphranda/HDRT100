@@ -46,3 +46,14 @@ def test_markdown_contains_gate_results() -> None:
     assert "292 B" in text
     assert "PASS" in text
     assert "FAIL" in text
+
+
+def test_recovery_budget_is_two_buffer_single_frame_and_has_headroom() -> None:
+    budget = calculate_budget(25_000_000, 1000.0, 4)
+    assert budget.normal_reserved_bytes_per_cycle == 712
+    assert budget.recovery_reserved_bytes_per_cycle == 128
+    assert budget.planned_reserved_bytes_per_cycle == 840
+    assert budget.usable_cycle_capacity_bytes == 896
+    assert budget.planned_headroom_bytes == 56
+    assert budget.recovery_buffer_count == 2
+    assert budget.recovery_max_frames_per_cycle == 1

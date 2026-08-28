@@ -286,6 +286,17 @@ typedef struct {
     uint32_t traffic_scheduler_last_result;
     uint32_t traffic_scheduler_last_class;
     uint32_t traffic_scheduler_completed_seq[TDMA_TRAFFIC_CLASS_COUNT];
+    uint32_t recovery_reserved_bytes_per_cycle;
+    uint32_t recovery_buffer_count;
+    uint32_t recovery_max_frames_per_cycle;
+    uint32_t recovery_current_depth;
+    uint32_t recovery_queue_high_watermark;
+    uint32_t recovery_queued_count;
+    uint32_t recovery_dispatched_count;
+    uint32_t recovery_sent_count;
+    uint32_t recovery_retry_count;
+    uint32_t recovery_exhausted_count;
+    uint32_t recovery_backpressure_count;
     uint32_t traffic_class_last_result[TDMA_TRAFFIC_CLASS_COUNT];
     uint32_t traffic_class_last_error[TDMA_TRAFFIC_CLASS_COUNT];
     uint32_t traffic_class_timestamp_source[TDMA_TRAFFIC_CLASS_COUNT];
@@ -360,6 +371,7 @@ typedef struct {
     volatile uint32_t scheduler_submit_seq;
     volatile uint32_t active_traffic_class;
     volatile uint32_t active_scheduler_sequence;
+    volatile uint32_t active_is_recovery;
     volatile uint32_t maintenance_gate_open;
     volatile uint64_t submit_time_ns;
     volatile uint32_t foundation_profile_crc32;
