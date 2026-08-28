@@ -27,7 +27,7 @@ table{width:100%;border-collapse:collapse;font-size:10.8px;margin-bottom:7px}th{
       <div class="card"><b>Core1 deterministic cycle</b><span>250,000 拍</span><small>250 MHz clk_sys · 4 ns/拍 · 1 ms 周期</small></div>
       <div class="card"><b>REFMEM phase</b><span>4,000 / 3,000 拍</span><small>窗口 / WCET · 剩余 1,000 拍（4 µs）</small></div>
       <div class="card"><b>Process image</b><span>8 × 32 B = 256 B</span><small>每节点 10 B REFMEM critical 区，共 80 B</small></div>
-      <div class="card"><b>REFMEM realtime class</b><span>292 B / 周期</span><small>最多 1 帧 · 队列深度 3 · deadline 1 ms</small></div>
+      <div class="card"><b>Node recovery lane（规划）</b><span>128 B / 周期</span><small>双冗余 buffer · 每周期最多 1 帧 · 不借用其他 phase</small></div>
     </div>
     <div class="h2">A. 单节点 SHORT process-image 固定布局（按 byte，不是运行时可借用空间）</div>
     <table class="tight"><thead><tr><th>区域</th><th>优先级</th><th class="c">offset</th><th class="c">size</th><th>内容 / owner</th></tr></thead><tbody>
@@ -79,11 +79,12 @@ table{width:100%;border-collapse:collapse;font-size:10.8px;margin-bottom:7px}th{
   <div class="head"><span>Distributed Hard Real-Time Trigger System</span><span>Cycle / Wire / Admission Budget</span></div>
   <div class="main">
     <h1>流量类别、线速与超限准入</h1>
-    <div class="sub">本页描述 REFMEM realtime frame 的字节预算、串行化代价和运行时不可突破的硬约束。</div>
+    <div class="sub">本页描述正常流量与单 Node recovery 负载的字节预算、串行化代价和运行时不可突破的硬约束；recovery lane 为规划项，待 profile/code/HIL 落地后转为 active。</div>
     <div class="h2">C. Traffic class / cycle capacity</div>
     <table class="tight"><thead><tr><th>class</th><th class="c">reserved B/cycle</th><th class="c">max frame</th><th class="c">queue</th><th class="c">deadline</th><th>策略</th></tr></thead><tbody>
       <tr><td class="b">VDC_REALTIME</td><td class="c">292</td><td class="c">1</td><td class="c">2</td><td class="c">10 µs</td><td>strict/time-aware/fault</td></tr>
       <tr><td class="b">REFMEM_REALTIME</td><td class="c">292</td><td class="c">1</td><td class="c">3</td><td class="c">1 ms</td><td>strict/time-aware/reliable/backpressure</td></tr>
+      <tr><td class="b">NODE_RECOVERY（规划）</td><td class="c">128</td><td class="c">1</td><td class="c">2</td><td class="c">继承原帧</td><td>fixed window / ping-pong / no borrow</td></tr>
       <tr><td>CONFIG_CONTROL</td><td class="c">128</td><td class="c">1</td><td class="c">1</td><td class="c">100 ms</td><td>shaped/preemptible</td></tr>
       <tr><td>RELIABLE_BULK</td><td class="c">0</td><td class="c">1</td><td class="c">1</td><td class="c">—</td><td>LONG/maintenance</td></tr>
       <tr><td>LOG_BEST_EFFORT</td><td class="c">0</td><td class="c">1</td><td class="c">1</td><td class="c">—</td><td>drop-oldest</td></tr>
@@ -92,16 +93,20 @@ table{width:100%;border-collapse:collapse;font-size:10.8px;margin-bottom:7px}th{
       <tr><td>cycle capacity</td><td class="c">1,024 B</td><td>profile upper bound</td></tr>
       <tr><td>guard band</td><td class="c">128 B</td><td>不可承载业务</td></tr>
       <tr><td>usable capacity</td><td class="c">896 B</td><td>1,024 − 128</td></tr>
-      <tr><td>reserved total</td><td class="c">712 B</td><td>292 + 292 + 128</td></tr>
-      <tr><td>unreserved headroom</td><td class="c">184 B</td><td>仅可在 profile 重算后使用</td></tr>
+      <tr><td>nominal reserved total</td><td class="c">712 B</td><td>VDC 292 + REFMEM 292 + CONFIG 128</td></tr>
+      <tr><td>recovery budget（规划）</td><td class="c">128 B</td><td>单 Node、双 buffer、每周期最多 1 帧</td></tr>
+      <tr><td>planned reserved total</td><td class="c">840 B</td><td>712 + 128</td></tr>
+      <tr><td>planned headroom</td><td class="c">56 B</td><td>896 − 840；不可运行时借用</td></tr>
     </tbody></table>
     <div class="h2">D. REFMEM realtime frame 和硬约束</div>
     <table class="tight"><thead><tr><th>项目</th><th>当前快照</th><th>约束与含义</th></tr></thead><tbody>
       <tr><td class="b">SHORT wire</td><td>292 B packet = 32 B transport header + 260 B payload</td><td>REFMEM 内帧 header 36 B，因此 critical delta 净载荷最多 224 B；更大事实必须分片或走 LONG maintenance。</td></tr>
+      <tr><td class="b">single-node recovery</td><td>32 B mailbox → 64 B transport packet；含物理头尾约 79 B，按 128 B 对齐预留</td><td>两个冗余 buffer 交替填充/发送，但每周期只发送一帧；重传保留原 payload class 和 sequence/generation。</td></tr>
       <tr><td class="b">10 MHz / 1 ms wire</td><td>292 B 实际 cyclic image：233.6 µs、23.36%；工具最大线预算含 4 B physical header + 11 B tail：307 B、245.6 µs</td><td>短帧必须在 TDMA phase 内完成；8 节点不能采用 store-and-forward 作为 1 ms 环回方案，应使用 PIO/core1 cut-through。</td></tr>
-      <tr><td class="b">超限处理</td><td>构建/DeploymentGate 拒绝</td><td>禁止运行时临时扩帧、追加第二帧、借用 guard 或挤占 VDC/REFMEM mandatory 区域；队列超限按 class policy 背压/故障/丢弃并留 evidence。</td></tr>
+      <tr><td class="b">multi-hop recovery</td><td>每条 link 计入 128 B recovery 预算；端到端串行化代价随实际 hop 数增加</td><td>同周期第二个错误留在另一 buffer；若超过 deadline，发布 NACK/fault，不追加第二帧。</td></tr>
+      <tr><td class="b">超限处理</td><td>构建/DeploymentGate 拒绝</td><td>禁止运行时临时扩帧、追加第二帧、借用 guard 或挤占 VDC/REFMEM mandatory 区域；buffer 满、retry 超限或 deadline miss 按 backpressure/NACK/fault 留 evidence。</td></tr>
     </tbody></table>
-    <div class="bar">最终判断：<em>当前 REFMEM 一拍预算可支持固定 critical mirror + 1 个 realtime delta frame；是否增加负载必须先改静态 profile/layout，并重新通过预算工具、构建门禁和多板 HIL。</em></div>
+    <div class="bar">最终判断：<em>重新规划后，正常流量维持 712 B，单 Node recovery lane 静态预留 128 B，双冗余 buffer 交替使用；规划总预留 840 B，剩余 56 B。落地前必须更新 profile/layout、预算工具、构建门禁并完成多板 HIL。</em></div>
   </div>
   <div class="foot"><span>Source: config/project_config.h · tdma_profile.c · tdma_transport_frame.h · generated budget JSON</span><span>3 / 3</span></div>
 </section>
