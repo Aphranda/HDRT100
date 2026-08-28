@@ -49,7 +49,18 @@ static uint32_t s_marker_raw_capture[TDMA_PIO_SPI_MARKER_BUFFER_WORDS];
 static uint32_t s_marker_bit_capture[TDMA_PIO_SPI_MARKER_BUFFER_WORDS];
 static volatile uint32_t s_marker_raw_word_count;
 static volatile uint32_t s_marker_raw_sample_count;
-static char s_marker_capture_payload[8192];
+/* Calibration capture exports are serialized through the Core0 maintenance
+ * path.  These payloads are never live concurrently; keep their historical
+ * names while giving them one bounded storage owner. */
+typedef union {
+    char marker[8192];
+    char data[8192];
+    char sck[8192];
+    char ring[8192];
+} calibration_capture_payload_storage_t;
+
+static calibration_capture_payload_storage_t s_capture_payload_storage;
+#define s_marker_capture_payload (s_capture_payload_storage.marker)
 static volatile bool s_marker_active;
 static calibration_training_data_store_t s_data_store;
 static calibration_clk_coded_workspace_t s_data_workspace;
@@ -57,18 +68,18 @@ static uint32_t s_data_observed_words[CALIBRATION_CLK_MARKER_MAX_RAW_WORDS];
 static uint32_t s_data_capture[TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS];
 static volatile uint32_t s_data_capture_word_count;
 static volatile uint32_t s_data_capture_sample_count;
-static char s_data_capture_payload[8192];
+#define s_data_capture_payload (s_capture_payload_storage.data)
 static volatile bool s_data_active;
 static calibration_training_sck_store_t s_sck_store;
 static calibration_clk_coded_workspace_t s_sck_workspace;
 static uint32_t s_sck_capture[TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS];
 static volatile uint32_t s_sck_capture_word_count;
 static volatile uint32_t s_sck_capture_sample_count;
-static char s_sck_capture_payload[8192];
+#define s_sck_capture_payload (s_capture_payload_storage.sck)
 static volatile bool s_sck_active;
 static uint32_t s_ring_capture_rx[TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES];
 static uint32_t s_ring_capture_tx[TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES];
-static char s_ring_capture_payload[8192];
+#define s_ring_capture_payload (s_capture_payload_storage.ring)
 static bool s_training_restore_suppressed;
 
 typedef struct {
