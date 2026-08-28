@@ -153,6 +153,32 @@ def test_ring_sequence_consistency_excludes_out_of_ring_observer() -> None:
     assert _ring_sequence_consistency(samples, tolerance=1) == (True, 1)
 
 
+def test_ring_sequence_consistency_does_not_mix_reference_local_counter() -> None:
+    def sample(name: str, *, local: int, reference: int,
+               ring_seq: int, observation: int = 0) -> BoardSample:
+        return BoardSample(
+            ts_utc="2026-08-28T00:00:00+00:00", elapsed_s=1.0,
+            board=name, port="COM", tdma={
+                "ring_enabled": 1, "ring_seq": ring_seq,
+                "ring_local_slot_id": local,
+                "ring_reference_slot_id": reference,
+                "ring_clock_observation_valid": int(observation > 0),
+                "ring_clock_observation_sequence": observation,
+            }, vdc_status={}, dpll_status={}, readiness={}, vdc_vector={},
+            dpll_vector={}, trigger_sequence=ring_seq,
+            trigger_interval_ms=None, simultaneous_feedback=False)
+
+    samples = {
+        "NO1": [sample("NO1", local=0, reference=0, ring_seq=900000)],
+        "NO2": [sample("NO2", local=1, reference=0, ring_seq=900100,
+                       observation=225000)],
+        "NO3": [sample("NO3", local=2, reference=0, ring_seq=900200,
+                       observation=225001)],
+        "NO5": [sample("NO5", local=4, reference=0, ring_seq=0)],
+    }
+    assert _ring_sequence_consistency(samples, tolerance=1) == (True, 1)
+
+
 def test_monitor_svg_is_read_only_observation_report() -> None:
     svg = _svg({"NO5": []}, [{
         "board": "NO5",

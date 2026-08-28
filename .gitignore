@@ -9,6 +9,7 @@ out/*
 .tmp/
 .tmp-doc-tests/
 DOC/
+docs/temp/
 
 # CMake generated files
 CMakeFiles/

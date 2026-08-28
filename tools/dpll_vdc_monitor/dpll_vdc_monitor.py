@@ -312,6 +312,13 @@ def _board_summary(samples: list[BoardSample], *, expected_interval_ms: float,
                              TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) and
                         (latest.readiness.get("timestamp_flags", 0) &
                          TIMESTAMP_FLAG_DPLL_ELIGIBLE))
+    # The reference node is the only in-ring node expected to expose the
+    # complete TX->RX feedback proof.  Followers prove their own correlated
+    # observation; requiring ``simultaneous_feedback`` on every follower would
+    # incorrectly mark a healthy ring as failed.
+    reference_node = bool(latest and latest.tdma and
+                          latest.tdma.get("ring_local_slot_id", -1) ==
+                          latest.tdma.get("ring_reference_slot_id", -2))
     return {
         "board": latest.board if latest else "",
         "role": "observer" if observer else "ring_node",
@@ -320,6 +327,7 @@ def _board_summary(samples: list[BoardSample], *, expected_interval_ms: float,
         "ring_up_running": bool(latest and latest.tdma.get("ring_up_running")),
         "ring_down_running": bool(latest and latest.tdma.get("ring_down_running")),
         "simultaneous_feedback": bool(latest and latest.simultaneous_feedback),
+        "reference_node": reference_node,
         "trigger_sequence": latest.trigger_sequence if latest else 0,
         "trigger_sequence_monotonic": sequence_monotonic,
         "trigger_intervals_ms": intervals,
@@ -344,14 +352,29 @@ def _board_summary(samples: list[BoardSample], *, expected_interval_ms: float,
 
 def _ring_sequence_consistency(samples_by_board: dict[str, list[BoardSample]],
                                *, tolerance: int) -> tuple[bool, int | None]:
-    """Compare the latest TDMA sequence only across in-ring participants."""
-    values: list[int] = []
-    for samples in samples_by_board.values():
-        if not samples:
-            continue
-        value = _ring_sequence(samples[-1])
-        if value is not None:
-            values.append(value)
+    """Compare only counters that share one wire-identity domain.
+
+    A follower's ``ring_clock_observation_sequence`` is the sequence carried
+    by the reference frame.  The reference node itself has no such
+    observation (it originates the frame), so mixing it with its local service
+    counter produces a false several-hundred-thousand-frame skew.  Prefer the
+    correlated observation domain whenever at least two participants expose
+    it; use legacy local ring counters only when no observation is available.
+    The out-of-ring NO5 observer is never included.
+    """
+    ring_samples = [samples[-1] for name, samples in samples_by_board.items()
+                    if samples and name.upper() != "NO5" and
+                    samples[-1].tdma.get("ring_enabled", 0)]
+    observed_values = [
+        int(sample.tdma.get("ring_clock_observation_sequence", 0))
+        for sample in ring_samples
+        if sample.tdma.get("ring_clock_observation_valid", 0) and
+        sample.tdma.get("ring_clock_observation_sequence", 0) > 0
+    ]
+    values = observed_values if len(observed_values) >= 2 else [
+        value for sample in ring_samples
+        for value in [_ring_sequence(sample)] if value is not None
+    ]
     if len(values) < 2:
         return True, 0 if values else None
     skew = max(values) - min(values)
@@ -380,7 +403,10 @@ def _svg(samples_by_board: dict[str, list[BoardSample]], summaries: list[dict[st
         status = (summary["vector_valid"] and summary["timestamp_eligible"] and
                   summary["trigger_interval_ok"] and
                   summary.get("trigger_sequence_monotonic", False) and
-                  (observer or summary["simultaneous_feedback"]))
+                  (observer or (summary.get("ring_up_running") and
+                                summary.get("ring_down_running") and
+                                (not summary.get("reference_node") or
+                                 summary["simultaneous_feedback"]))))
         color = "ok" if status else "bad"
         chunks.append(
             f'<text x="24" y="{y}" class="label">{escape(summary["board"])} '
@@ -388,6 +414,7 @@ def _svg(samples_by_board: dict[str, list[BoardSample]], summaries: list[dict[st
             f'up={int(summary["ring_up_running"])} down={int(summary["ring_down_running"])} '
             f'simultaneous={int(summary["simultaneous_feedback"])} '
             f'vector={int(summary["vector_valid"])} timestamp={int(summary["timestamp_eligible"])} '
+            f'reference={int(summary.get("reference_node", False))} '
             f'dpll_state={summary["dpll_state"]}</text>')
         chunks.append(
             f'<text x="24" y="{y + 22}" class="small {color}">'
@@ -492,7 +519,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         summary.get("trigger_sequence_monotonic", False) and
         (summary.get("role") == "observer" or
          (summary["ring_up_running"] and summary["ring_down_running"] and
-          summary["simultaneous_feedback"]))
+          (not summary.get("reference_node", False) or
+           summary["simultaneous_feedback"])))
         for summary in summaries)
     result = {
         "schema": "HAOFV_DPLL_VDC_MONITOR_V1",

@@ -1114,6 +1114,51 @@ static bool tdma_pio_spi_phys_restore_clock_latch(
     return !rearm || tdma_pio_spi_phys_clock_latch_rearm(phys);
 }
 
+/* Capture-only asynchronous restore. Reinstalling the resident latch persona
+ * touches PIO control registers and four instruction words; doing it as one
+ * call can exceed the calibration phase WCET. */
+static bool tdma_pio_spi_phys_capture_restore_step(
+    tdma_pio_spi_phys_t *phys, bool *complete)
+{
+    if (phys == NULL || complete == NULL) return false;
+    *complete = false;
+    const uint sm = BOARD_TDMA_SPI_CAPTURE_SM;
+    const uint offset = s_tdma_pio_spi_flight_clock_latch_offset;
+    switch (phys->flight_normal_capture_restore_stage) {
+    case 0u:
+        pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, sm, false);
+        pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, sm);
+        pio_sm_restart(BOARD_TDMA_SPI_PIO, sm);
+        phys->flight_normal_capture_restore_stage = 1u;
+        return true;
+    case 1u:
+    case 2u:
+    case 3u:
+    case 4u: {
+        const uint32_t index =
+            phys->flight_normal_capture_restore_stage - 1u;
+        BOARD_TDMA_SPI_PIO->instr_mem[offset + index] =
+            phys->flight_sck_waveform_saved_instructions[index];
+        phys->flight_normal_capture_restore_stage++;
+        return true;
+    }
+    case 5u:
+        tdma_pio_spi_flight_clock_latch_program_init(
+            BOARD_TDMA_SPI_PIO, sm, offset,
+            phys->role == TDMA_PIO_SPI_ROLE_MASTER
+                ? phys->tx_csn_pin : phys->rx_csn_pin);
+        phys->flight_sck_waveform_capture_deadline_us = 0ull;
+        phys->flight_sck_waveform_capture_state =
+            TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_IDLE;
+        phys->flight_clock_latch_armed = false;
+        phys->flight_normal_capture_restore_stage = 6u;
+        *complete = true;
+        return true;
+    default:
+        return false;
+    }
+}
+
 bool tdma_pio_spi_phys_begin_ring_waveform_capture(
     tdma_pio_spi_phys_t *phys)
 {
@@ -1139,6 +1184,8 @@ bool tdma_pio_spi_phys_begin_ring_waveform_capture(
     phys->flight_sck_waveform_capture_state =
         TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_REQUESTED;
     phys->flight_normal_capture_copy_stage = 0u;
+    phys->flight_normal_capture_sck_cursor = 0u;
+    phys->flight_normal_capture_restore_stage = 0u;
     phys->flight_normal_capture_rx_produced = 0u;
     phys->flight_normal_capture_rx_start = 0u;
     phys->flight_normal_capture_rx_count = 0u;
@@ -2077,6 +2124,8 @@ bool tdma_pio_spi_phys_arm(void *context,
         TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_IDLE;
     phys->flight_sck_waveform_capture_deadline_us = 0ull;
     phys->flight_normal_capture_copy_stage = 0u;
+    phys->flight_normal_capture_sck_cursor = 0u;
+    phys->flight_normal_capture_restore_stage = 0u;
     phys->flight_normal_capture_rx_produced = 0u;
     phys->flight_normal_capture_rx_start = 0u;
     phys->flight_normal_capture_rx_count = 0u;
@@ -4973,44 +5022,58 @@ tdma_pio_spi_phys_copy_normal_capture(
             TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_READY) {
             return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_FAILED;
         }
+        phys->flight_normal_capture_sck_cursor = 0u;
+        phys->flight_normal_capture_copy_stage = 1u;
+        return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_PENDING;
+    }
+
+    /* Drain one SCK evidence word per scheduled beat. */
+    if (phys->flight_normal_capture_copy_stage == 1u) {
         pio_sm_set_enabled(
             BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM, false);
-        uint32_t sck_word_count = pio_sm_get_rx_fifo_level(
+        const uint32_t sck_word_count = pio_sm_get_rx_fifo_level(
             BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM);
-        if (sck_word_count != TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_WORDS) {
+        if (sck_word_count != TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_WORDS ||
+            phys->flight_normal_capture_sck_cursor >= sck_word_count) {
             (void)tdma_pio_spi_phys_restore_clock_latch(phys, true);
             phys->flight_sck_waveform_capture_state =
                 TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_FAILED;
             return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_FAILED;
         }
-        for (uint32_t index = 0u; index < sck_word_count; index++) {
-            snapshot->sck_words[index] = pio_sm_get(
-                BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM);
+        const uint32_t index = phys->flight_normal_capture_sck_cursor++;
+        snapshot->sck_words[index] = pio_sm_get(
+            BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM);
+        if (phys->flight_normal_capture_sck_cursor < sck_word_count) {
+            return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_PENDING;
         }
         snapshot->sck_word_count = sck_word_count;
         snapshot->sck_sample_count =
             sck_word_count * TDMA_PIO_SPI_FLIGHT_SCK_SAMPLES_PER_WORD;
         snapshot->sck_sample_period_ns =
             TDMA_PIO_SPI_FLIGHT_SCK_SAMPLE_PERIOD_NS;
-        phys->flight_normal_capture_copy_stage = 1u;
+        phys->flight_normal_capture_copy_stage = 2u;
         return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_PENDING;
     }
 
-    /* Restore the resident clock-latch program in its own beat. Rearming the
-     * timestamp counter is deliberately deferred to the next beat. */
-    if (phys->flight_normal_capture_copy_stage == 1u) {
-        if (!tdma_pio_spi_phys_restore_clock_latch(phys, false)) {
+    /* Restore the resident clock-latch program in its own beat. */
+    if (phys->flight_normal_capture_copy_stage == 2u) {
+        bool restore_complete = false;
+        if (!tdma_pio_spi_phys_capture_restore_step(
+                phys, &restore_complete)) {
             phys->flight_sck_waveform_capture_state =
                 TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_FAILED;
             return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_FAILED;
         }
-        phys->flight_normal_capture_copy_stage = 2u;
+        if (!restore_complete) {
+            return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_PENDING;
+        }
+        phys->flight_normal_capture_copy_stage = 3u;
         return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_PENDING;
     }
 
     /* Rearm separately, then freeze the raw RX history boundary retained by
      * all subsequent fixed-size chunk copies. */
-    if (phys->flight_normal_capture_copy_stage == 2u) {
+    if (phys->flight_normal_capture_copy_stage == 3u) {
         if (!tdma_pio_spi_phys_clock_latch_rearm(phys)) {
             phys->flight_sck_waveform_capture_state =
                 TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_FAILED;
@@ -5029,11 +5092,11 @@ tdma_pio_spi_phys_copy_normal_capture(
         snapshot->rx_byte_count = phys->flight_normal_capture_rx_count;
         snapshot->rx_produced_bytes =
             phys->flight_normal_capture_rx_produced;
-        phys->flight_normal_capture_copy_stage = 3u;
+        phys->flight_normal_capture_copy_stage = 4u;
         return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_PENDING;
     }
 
-    if (phys->flight_normal_capture_copy_stage == 3u) {
+    if (phys->flight_normal_capture_copy_stage == 4u) {
         const uint32_t remaining = phys->flight_normal_capture_rx_count -
             phys->flight_normal_capture_rx_cursor;
         const uint32_t count =
@@ -5050,11 +5113,11 @@ tdma_pio_spi_phys_copy_normal_capture(
             phys->flight_normal_capture_rx_count) {
             return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_PENDING;
         }
-        phys->flight_normal_capture_copy_stage = 4u;
+        phys->flight_normal_capture_copy_stage = 5u;
         return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_PENDING;
     }
 
-    if (phys->flight_normal_capture_copy_stage != 4u) {
+    if (phys->flight_normal_capture_copy_stage != 5u) {
         return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_FAILED;
     }
 

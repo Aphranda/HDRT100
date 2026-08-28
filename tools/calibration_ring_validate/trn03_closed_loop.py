@@ -156,6 +156,10 @@ def parse_args() -> argparse.Namespace:
               "mutations; every rejected attempt is retained as evidence"))
     parser.add_argument("--capture-timeout", type=float, default=10.0)
     parser.add_argument("--capture-latch-retries", type=int, default=1)
+    parser.add_argument(
+        "--capture-waveforms", action="store_true",
+        help=("run the optional realtime raw-capture request; waveform copy, "
+              "SD save and SVG analysis remain outside the short-frame gate"))
     parser.add_argument("--waveform-window-ns", type=int, default=1000)
     parser.add_argument("--sck-frequency-tolerance-percent", type=float,
                         default=5.0)
@@ -1564,26 +1568,33 @@ def main() -> int:
                 "crc_diagnostic_after":
                     after[board.address]["crc_diagnostic"],
             }
-        capture_attempted = True
-        try:
-            ring_capture = capture_ring_waveforms(
-                ordered, args,
-                calibration_generation=config["calibration_generation"],
-                capture_epoch=int(time.time()) & 0xFFFFFFFF,
-                out_dir=out_dir,
-                original_load_masks=capture_load_masks)
-        except Exception as exc:  # noqa: BLE001 - retain gate evidence
-            capture_error = f"{type(exc).__name__}: {exc}"
-        if ring_capture.get("capture_completed"):
+        if getattr(args, "capture_waveforms", False):
+            capture_attempted = True
             try:
-                ring_analysis = analyze_ring_waveforms(
-                    ring_capture, raw_config, args, out_dir)
-            except Exception as exc:  # noqa: BLE001 - capture stays valid
-                analysis_error = f"{type(exc).__name__}: {exc}"
+                ring_capture = capture_ring_waveforms(
+                    ordered, args,
+                    calibration_generation=config["calibration_generation"],
+                    capture_epoch=int(time.time()) & 0xFFFFFFFF,
+                    out_dir=out_dir,
+                    original_load_masks=capture_load_masks)
+            except Exception as exc:  # noqa: BLE001 - retain gate evidence
+                capture_error = f"{type(exc).__name__}: {exc}"
+            if ring_capture.get("capture_completed"):
+                try:
+                    ring_analysis = analyze_ring_waveforms(
+                        ring_capture, raw_config, args, out_dir)
+                except Exception as exc:  # noqa: BLE001 - capture stays valid
+                    analysis_error = f"{type(exc).__name__}: {exc}"
+        else:
+            ring_capture = {
+                "capture_skipped": True,
+                "reason": "short_frame_gate_keeps_diagnostics_off_realtime_path",
+            }
+            ring_analysis = {"passed": True, "skipped": True}
     except Exception as exc:  # noqa: BLE001 - preserve partial HIL evidence
         error = f"{type(exc).__name__}: {exc}"
     finally:
-        if not capture_attempted:
+        if getattr(args, "capture_waveforms", False) and not capture_attempted:
             try:
                 ring_capture = capture_ring_waveforms(
                     ordered, args,

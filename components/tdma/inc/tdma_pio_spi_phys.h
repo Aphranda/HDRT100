@@ -650,6 +650,8 @@ typedef struct {
     uint64_t flight_sck_waveform_capture_deadline_us;
     uint16_t flight_sck_waveform_saved_instructions[4];
     uint32_t flight_normal_capture_copy_stage;
+    uint32_t flight_normal_capture_sck_cursor;
+    uint32_t flight_normal_capture_restore_stage;
     uint32_t flight_normal_capture_rx_produced;
     uint32_t flight_normal_capture_rx_start;
     uint32_t flight_normal_capture_rx_count;
