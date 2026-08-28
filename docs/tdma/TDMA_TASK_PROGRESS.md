@@ -22,7 +22,9 @@ Last updated: 2026-08-28
 `TDMA-PAYLOAD-005` 已完成；DPLL observation 已改为固定 process-image trailer，启用后四板
 transport bad 保持为零，但 NO1–NO3 mailbox bitmap 仍不完整，NO1 SD capture latch 仍超时。
 因此硬件 observation 尚不能进入正式 VDC，`TDMA-PAYLOAD-002`、`TDMA-PAYLOAD-003` 和
-`TDMA-PAYLOAD-004` 继续保持 `IN PROGRESS`。
+`TDMA-PAYLOAD-004` 继续保持 `IN PROGRESS`。本次架构固化明确：正常 SHORT 不增加冗余
+Node mailbox；recovery 使用独立双 buffer 和独立预算，并在发送时复用原 Node 固定 segment
+offset；短帧诊断只保留基础摘要。
 
 ## 验证与证据索引
 
@@ -32,12 +34,22 @@ transport bad 保持为零，但 NO1–NO3 mailbox bitmap 仍不完整，NO1 SD 
 | TDMA-PROGRESS-20260828-002 | TDMA-M1、TDMA-M2、TDMA-DET-003、TDMA-PAYLOAD-001/005 | `out/tdma_cycle_schedule/foundation_sync_trigger21.md`、`out/tdma_process_image_budget/current.md`、`out/ota/tdma_foundation_sync21_final_20260828/`。 |
 | TDMA-PROGRESS-20260828-003 | TDMA-M4、TDMA-DET-003 | `out/build/recovery-20260828/DHRT100_UPDATE.pkg`、`out/ota/tdma-recovery-20260828-r2/summary.json`、`out/tdma/ring-baseline-20260828-four/`、`out/tdma/tdma_recovery_budget_20260828.md`。 |
 | TDMA-PROGRESS-20260828-004 | TDMA-PAYLOAD-002、TDMA-DPLL-001、TDMA-HIL-002 | `out/build/dpll-load-20260828/`、`out/ota/dpll-fixed-load-20260828/`、`out/training/trn03b_four_dpll_fixed_load_20260828/summary.json`、`out/tdma_process_image_budget/dpll_fixed_load_20260828.md`。 |
+| TDMA-PROGRESS-20260828-005 | TDMA-REL-002、TDMA-PAYLOAD-006 | 本次架构/TODO/登记同步；代码和 HIL 待按新 recovery owner 边界补齐。 |
 
 ## 失败与回退
 
 - 新 mailbox wire version 与旧固件不兼容；多板验证必须使用同一 package 异步 OTA 完成后再 START。
 - HIL 若出现 CRC、RefMem accept、TDMA deadline 或波形回归，回退整个 wire-layout 提交，不允许
   运行时关闭 mandatory 字段或借用 guard。
+
+### TDMA-PROGRESS-20260828-005 - 固化原 Node 位置 recovery 与基础诊断边界
+
+- TODO task ID：`TDMA-REL-002`、`TDMA-PAYLOAD-006`。
+- 日期：2026-08-28。
+- 变更/提交：本次仅更新 TDMA Architecture/TODO/Task Progress、登记表和 HAOFV 顶层可见性；未混入用户已有代码修改。
+- 结果：明确 Core0 准备 recovery 数据，Core1 在固定 recovery window 选择 buffer 并装载 TX FIFO，PIO/DMA 负责发送；双 buffer 交替、每周期最多一帧、独立静态 recovery 预算、ACK/有界 retry/backpressure/fail-closed，以及原 Node 固定 segment offset 重传。
+- 诊断边界：短帧和 recovery 只保留 CRC、sequence、FIFO、bitmap/WKC、profile identity、deadline/overrun/missing 和基础 quality；SD、SVG、原始波形和详细归因留在 Core0 或 maintenance/LONG 路径。
+- 验证状态：本记录是架构固化，不宣称代码/HIL 完成；下一步先更新 recovery 与 process-image owner 的代码/工具，再执行构建、pytest、OTA 和四板 HIL。
 
 ## 下一 gate
 

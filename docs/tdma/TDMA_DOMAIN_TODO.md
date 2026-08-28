@@ -26,13 +26,15 @@ OTA/HIL 的任务不得标为 `DONE`；运行时临时剩余容量不得用于�
   persona 已有代码基线；单次构建/HIL 数值只在任务进度文档保存。
 - 校准训练的测量、矩阵和 raw waveform 归 Calibration Domain；TDMA 只拥有 transport、窗口和
   completion evidence。
-- 产品 SHORT 使用固定 Node mailbox；VDC 诊断帧不是产品 process-image payload。
+- 产品 SHORT 使用固定 Node mailbox；VDC 诊断帧不是产品 process-image payload。重传使用
+  Core0 准备、Core1 有界装载、PIO 发送的双 recovery buffer，并复用原 Node 固定位置。
 
 ## 当前主线
 
 先完成拍级确定性 schedule 和 mandatory-first SHORT process image，再以 NO1–NO4 四板环路和
 NO5 环外观测冻结 WCET/波形基线；随后逐 phase 加载 DPLL/VDC、RefMem 与最小控制。任何负载回归都修复责任
-负载，不放宽 TDMA phase。
+负载，不放宽 TDMA phase。短帧重传必须保持固定原 Node offset，并使用独立 recovery 预算，不能临时
+扩帧或借用 guard。
 
 ## 里程碑总览
 
@@ -58,12 +60,13 @@ NO5 环外观测冻结 WCET/波形基线；随后逐 phase 加载 DPLL/VDC、Ref
 | TDMA-PAYLOAD-003 | critical RefMem 与 ACK/fence/quality | IN PROGRESS | baseline delta 与 ACK 摘要已上 wire；待正式 commit/fence 闭环。 |
 | TDMA-PAYLOAD-004 | 最小控制 token | IN PROGRESS | 固定 token 已预留；待 owner、opcode 与 completion 接入。 |
 | TDMA-PAYLOAD-005 | optional 静态余量准入门禁 | DONE | optional 只使用 mandatory 后余量，layout 不保留 runtime-free 字节。 |
+| TDMA-PAYLOAD-006 | 短帧基础诊断压缩与实时路径隔离 | IN PROGRESS | 短帧只保留 CRC/sequence/FIFO/bitmap/WKC/profile/deadline 基础摘要；SD、SVG、原始波形和详细归因不进入 Core1 或 recovery frame。 |
 | TDMA-HIL-001 | 四板 TDMA 环路 + NO5 环外观测的 WCET/频率/占空比/SD 波形基线 | PENDING | OTA 后原始波形、SVG、schedule snapshot 与零错误基线归档；NO5 不进入环路 bitmap/WKC。 |
 | TDMA-HIL-002 | 逐 phase 开载且 TDMA 零回归 | PENDING | 依次启用 VDC/DPLL/RefMem/control，TDMA deadline/error 不增加。 |
 | TDMA-DPLL-001 | PIO/DMA hardware latch correlation | IN PROGRESS | reference TX latch 已作为固定 process-image trailer 关联上一帧 sequence；仍需 active PATH_DELAY、四板同圈 eligible sample 和 wrap/失配 HIL。 |
 | TDMA-DPLL-002 | 节点 DPLL lock 与 VDC 发布 | IN PROGRESS | 四节点 TDMA 同时收发和参考反馈已实测；NO1..NO4 仍为 CHECKING，NO5 观测工具已固化，待 eligible sample 后验证指定间隔/同时触发。 |
 | TDMA-REL-001 | ACK/fence/retry 和长期稳定性策略 | PENDING | 原始错误率先收敛，再以有界重发/修复完成 EtherCAT-style 验收。 |
-| TDMA-REL-002 | 单 Node recovery 双冗余 buffer 与固定预算 | PENDING | 静态 recovery budget、双 buffer 交替填充/发送、每周期最多一帧；构建/DeploymentGate、双/四/八节点 HIL 和超限回退证据齐全。 |
+| TDMA-REL-002 | 原 Node 位置 recovery 双 buffer 与固定预算 | IN PROGRESS | Core0 准备数据、Core1 在固定窗口选择并装载 FIFO、PIO 发送；双 buffer 交替、每周期最多一帧、独立静态预算、ACK/有界 retry/backpressure/fail-closed 和双/四/八节点 HIL 证据齐全。 |
 | TDMA-T2-001 | REFMEM + 部分控制后的 T2 最小载荷预算 | PENDING | 不超固定 SHORT/body 和 phase WCET，编译期拒绝 overcommit。 |
 
 ## 当前阻塞项
@@ -230,7 +233,7 @@ NO5 环外观测冻结 WCET/波形基线；随后逐 phase 加载 DPLL/VDC、Ref
 - [x] DeploymentGate 首版校验总周期预算、guard band、short/long MTU、queue RAM、PIO/SM/DMA/IO/IP claim，不允许 profile overcommit；后续补板级 DMA channel/PIO block 全局仲裁表。
 - [ ] OTA 支持续传和 producer pause；LOG 允许 drop-oldest，但二者都不得阻塞 core1 或侵占 guard band。
 - [ ] 按 RefMem region/slot criticality 拆分 critical delta 与 background delta，避免全部 64 KB 事实同步都占用硬预留窗口。
-- [ ] 多环/冗余阶段评估 FRER-style sequence 与 duplicate elimination；首版不宣称冗余能力。
+- [ ] 多环/多路径阶段评估 FRER-style sequence 与 duplicate elimination；当前 recovery 是同一路径的有界重传，不宣称路径冗余能力。
 
 ## P3 - 上/下行同时运行
 
@@ -267,6 +270,8 @@ NO5 环外观测冻结 WCET/波形基线；随后逐 phase 加载 DPLL/VDC、Ref
 
 - [x] 将 result/error/timestamp/frame completion 按 traffic class 持久化，不能让后完成的 RefMem/maintenance 帧覆盖 VDC observation metadata。
 - [ ] 为 RefMem AUTO NodeLoad 增加 ACK/重发/fence completion。
+- [ ] 将 recovery 的双 buffer 状态、原 Node segment offset、original sequence/generation、retry/reason
+  与 ACK/fence 接入正式 process-image/recovery owner；不得把 recovery buffer 当作新增物理 Node。
 - [ ] TDMA 每条 delta 必须有 `origin_encoded -> queued -> sent -> received -> validated -> committed -> acked/fenced` evidence。
 - [ ] `WINDOW_MISSED`、RX timeout、duplicate seq、CRC error 必须触发有界 retry/backoff 或明确 NACK。
 - [ ] 增加 quality table 映射：timeout、late、drop、overrun、direction conflict、timestamp missing。

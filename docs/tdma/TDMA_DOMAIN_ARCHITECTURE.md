@@ -227,7 +227,9 @@ OTA、SD 或 LOG 的内部格式。首版 wire header 固定为 32 B、小端编
 产品飞行模式把多个域的固定小段放入同一个 `CYCLIC_PROCESS_IMAGE` 短帧；各段仍由
 `TdmaProcessImageMap` 和 `tdma_process_image_layout.h` 明确 owner、offset、length、generation
 和 CRC。共享一张 wire image 不等于共享 writer：VDC 不能写 RefMem 段，RefMem 不能写 VDC
-段，TDMA adapter 只负责机械搬运、局部 overlay 和 timestamp evidence。
+段，TDMA adapter 只负责机械搬运、局部 overlay 和 timestamp evidence。错误恢复不扩展这张
+短帧的 mailbox 数量，也不改变其固定 wire plan；Core0 准备的 recovery 数据在发送时复用原
+Node 的固定 segment offset。
 
 硬约束：
 
@@ -466,6 +468,32 @@ byte 32 开始。节点若在 CRC 已经发出后修改后续 payload，就无�
 | downstream PIO/DMA 无法按 deadline 接收 | 中止或标记当前帧并增加 hard realtime fault；不得等待 core0恢复。 |
 | 输入尾部 CRC 错误 | 已飞行的下行帧不能撤回；本地副本无效并增加 CRC fault，origin 最终拒绝该周期。 |
 
+#### 有界 recovery 重传
+
+Recovery 是 TDMA owner 管理的独立、有界恢复路径，不是新的物理 Node，也不是对
+`CYCLIC_PROCESS_IMAGE` 追加的动态 mailbox。其跨核职责固定如下：
+
+```text
+Core0：准备重传数据 → inactive recovery buffer A/B
+Core1：在固定 recovery window 选择 buffer → 预装 TX FIFO
+PIO/DMA：按硬件时序发送 recovery frame
+```
+
+Recovery 使用 `TDMA_RECOVERY_BUFFER_COUNT` 个独立缓冲，状态为
+`EMPTY/READY/IN_FLIGHT`，写入和发送索引交替推进。每周期最多发送
+`TDMA_RECOVERY_MAX_FRAMES_PER_CYCLE` 条 recovery frame，预算由
+`TDMA_RECOVERY_RESERVED_BYTES_PER_CYCLE` 独立保留；不能借用 TDMA、VDC、DPLL、REFMEM
+或 GUARD phase 的剩余拍/字节。
+
+Recovery frame 的业务目标仍是原 Node 的固定 mailbox/segment offset，并携带独立的
+original sequence、generation、retry 和 reason 事实。ACK 成功才清空 buffer；允许的
+重试次数由 `TDMA_RECOVERY_RETRY_LIMIT` 限制，超时、重试耗尽或两个 buffer 均占用时
+必须 backpressure/fail-closed，不得覆盖 `IN_FLIGHT` 数据。
+
+Recovery 只承担有界重传，不承载 SD、SVG、原始波形或详细错误归因。复杂诊断由 Core0
+或 maintenance/LONG 路径处理，短帧实时路径只保留 CRC、sequence、FIFO、bitmap/WKC、
+profile identity、deadline/overrun/missing 和基础 quality 计数。
+
 管理面 STOP/ARM/TRAIN/START、role、process-image map 和 buffer pool 配置由 core0
 提交，但只在 STOP/ARM 边界生效。START 后 core1 是 wire fast path 唯一 owner；SCPI、
 UI、LOG 和 core0 domain task 只能读取 snapshot 或通过 FIFO 发布下一周期数据。
@@ -507,6 +535,8 @@ Domain AO / FB local fact commit
 - `VDC_TDMA_DIAGNOSTIC_FRAME_SIZE` 对应的 VDC 诊断内帧可作为 bring-up 的独立短帧，
   但不是最终 process-image 形态；产品飞行帧必须使用 compact VDC/DPLL 元素，把同一
   Node 段的剩余容量留给 critical RefMem delta、ACK/quality 和控制字段。
+- 短帧 mailbox 只保留基础诊断摘要；SD/SVG、波形复制、波形比较、bit/byte 归因和历史
+  统计不得作为实时 payload 或 recovery frame 负载。
 - RP2350 首版可以先实现有界 byte/block cut-through；只有 PIO/DMA 实测证明 RX/TX 重叠和固定 pipeline delay 后，才宣称飞行模式成立。
 
 #### T2 预约 process-image 分发
