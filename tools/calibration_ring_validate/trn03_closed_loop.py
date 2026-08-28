@@ -125,8 +125,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--clock-evidence", choices=("enabled", "disabled"),
         default="enabled",
-        help=("enable the periodic DPLL clock-evidence payload or disable it "
-              "for an explicit transport A/B run"))
+        help=("enable the fixed process-image DPLL observation trailer or "
+              "clear its valid bit for an explicit A/B run; frame type, "
+              "length and cadence remain unchanged"))
     parser.add_argument("--window-s", type=float, default=3.0)
     parser.add_argument(
         "--sample-interval-s", type=float, default=1.0,
