@@ -30,6 +30,11 @@ Last updated: 2026-08-28
   应用确认，再逐拍取得 schedule 快照，继续拆分或优化超 WCET 的捕获 stage。未完成前不得
   将诊断 SD/SVG 证据或旧四板短帧证据升级为新的 TRN-03B/TRN-03D 完成结论。
 
+补充：工具提交 `f279637` 已将 `PROFILE_APPLY/TOPOLOGY` 等 STOPPED owner mutation
+的成功条件扩展为等待 `ring_config_seq == ring_applied_config_seq`，并把该确认保存在动作证据中；
+91 项 TRN-03 Python 回归通过。四板 HIL 需在下一轮 OTA 后重新执行，不能把此 host-side 修复
+等同于实板通过。
+
 ## CAL-TASK-20260828-016 - TDMA 基础负载前置与训练接口基线
 
 - 对应 TODO：训练子域 `TRN-03` 的 TDMA 周期预算前置，以及 `P4-DBG` 的 transport 依赖。
