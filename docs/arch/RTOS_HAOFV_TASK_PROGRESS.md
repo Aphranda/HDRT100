@@ -116,6 +116,29 @@ CAL/SYNC staging + ACK/NACK、RJ45_SYNC_RING 和 `FIRE_LOAD/T2` 闭环。
 
 ## 任务记录
 
+### RTOS-DIST-TASK-20260828-004 - DPLL-LONG-001 P0 OTA 启动保持失败
+
+- 状态：阻塞；发送阶段完成，启动/提交保持未通过。
+- 日期：2026-08-28
+- 任务目标：对当前 P0 固件执行五板异步 OTA，验证新镜像能稳定启动并提供 core/RTOS 水位，作为进入 TDMA 基线和 active matrix 的前置条件。
+- 完成内容：
+  - COM3、COM4、COM5、COM6 的统一 package 发送均达到 `READY_TO_REBOOT`；COM25 在发送前返回 `INVALID_STATE`，未继续强行操作。
+  - COM3 受控复现新镜像短暂启动后回滚；已保留 send、boot/commit 和只读 smoke 全部输出。
+- 验证结果：
+  - `out/ota/dpll-long-p0-send-20260828/summary.json` 记录发送结果和每板序列号/build。
+  - 新 build `20260828125440` 在 COM3 曾可读到，但随后 `SYST:OTA:RES?` 变为 `MAX_ATTEMPTS`，当前回到旧 build；五板 core1 heartbeat 只读快照均增长。
+  - 由于新镜像未保持运行，尚未把 `SYST:RTOS:STAT?` 水位作为新固件证据，也未启动 NO1–NO4 新固件 TDMA 基线。
+- 还需完成：
+  - 定位启动保持失败（优先检查任务创建/heap、core1 heartbeat、异常复位和 OTA boot-attempt 记录），避免继续消耗尝试次数。
+  - 恢复 COM25 的 OTA 状态后重新执行全体 OTA；新 build 稳定前不进入 DPLL P1/P2。
+- 关联文件：
+  - `out/ota/dpll-long-p0-send-20260828/`
+  - `out/ota/dpll-long-p0-resend-com3-20260828/`
+  - `out/ota/dpll-long-p0-baseline-20260828/`
+  - `tools/ota_multi_update/ota_multi_update.py`
+  - `tools/ota_boot_commit/ota_boot_commit.py`
+- 下一步：以单板受控方式分析回滚原因，修复后重新 build/pytest，再从 P0 OTA gate 开始。
+
 ### RTOS-DIST-TASK-20260828-003 - 发布 DPLL 基础件到闭环长期任务并完成 P0 静态门禁
 
 - 状态：长期任务已发布；P0 代码与 host 验证完成，待五板 OTA、板端水位和 TDMA HIL。

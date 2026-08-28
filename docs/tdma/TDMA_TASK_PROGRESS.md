@@ -45,6 +45,7 @@ NO5 观测仍未完成，因此 DPLL 尚不能进入 active matrix/eligible/serv
 | TDMA-PROGRESS-20260828-008 | TDMA-HIL-001、TDMA-DPLL-001/002 | `out/build/dpll-p0-staging-pool-20260828/`、`out/pytest/dpll-p0-staging-pool-20260828/`；RefMem staging lease 回收重复维护缓冲，pytest 506 passed/1 skipped，链接余量 65640 B，仍未达 SRAM 发布门禁。 |
 | TDMA-PROGRESS-20260828-009 | TDMA-HIL-001、TDMA-DPLL-001/002 | `out/build/dpll-p0-cal-workspace-20260828/`、`out/pytest/dpll-p0-cal-workspace-20260828/`；任务栈/heap 收敛及 TDMA 校准 workspace union 后 RAM gate `98356 B` PASS，pytest `506 passed, 1 skipped`，尚待 OTA/HIL。 |
 | TDMA-PROGRESS-20260828-010 | DPLL-LONG-001 / P0 | `out/build/dpll-p0-shared-sync-workspace-20260828/`、`out/pytest/dpll-p0-shared-sync-workspace-20260828/`；共享 SyncIO 维护 workspace 后 A/B/Boot/link contract 通过，RAM gate `98348 B` PASS，pytest `506 passed, 1 skipped`，长期任务已发布，尚待五板 OTA/HIL。 |
+| TDMA-PROGRESS-20260828-011 | DPLL-LONG-001 / P0-P1 OTA gate | `out/ota/dpll-long-p0-send-20260828/`、`out/ota/dpll-long-p0-resend-com3-20260828/`、`out/ota/dpll-long-p0-baseline-20260828/`；COM3/4/5/6 发送达到 READY_TO_REBOOT，但新镜像提交后回滚，COM25 为 INVALID_STATE；P1 未放行。 |
 
 ## 失败与回退
 
@@ -100,6 +101,30 @@ NO5 观测仍未完成，因此 DPLL 尚不能进入 active matrix/eligible/serv
 通过静态预算和编译门禁，不能运行时借用 guard 或“看起来有余量”的拍。
 
 ## 按时间追加的任务记录
+
+### TDMA-PROGRESS-20260828-011 - P0/P1 异步 OTA 与启动保持门禁未通过
+
+- TODO task ID：`DPLL-LONG-001`、`TDMA-HIL-001`。
+- 日期：2026-08-28。
+- 任务目标：使用 P0 package 对 NO1–NO5 完成发送、重启、提交和逐板启动状态验证，确认新镜像稳定后再启动四节点 TDMA 基线。
+- 执行动作：
+  - 通过 `tools/ota_multi_update/ota_multi_update.py --send-only` 对 COM3/COM4/COM5/COM6/COM25 发送统一 package；所有写入产物保存在 `out/ota/`。
+  - 按工具既有的 boot/reconnect/commit 流程复核 COM3；新 build 曾短暂读到 `20260828125440`，随后回滚。
+  - 通过 `tools/multicore_board_validate/multicore_board_validate.py` 对当前旧 build 做只读基线快照，确认五板 core1 heartbeat 增长；VDC/DPLL skeleton service count 在部分旧固件上停滞，不作为 P1 TDMA 通过条件。
+- 验证结果：
+  - `out/ota/dpll-long-p0-send-20260828/summary.json`：COM3/4/5/6 发送成功并达到 `READY_TO_REBOOT`；COM25 发送前返回 `FAILED,2,"INVALID_STATE",4`。该 summary 的 `failed_count=1` 仅表示 COM25，不能把其它四板发送误判为失败。
+  - COM3 新镜像启动后读取到 `SYST:FW:BUILD? = 20260828125440`，但提交/后续复核后恢复到 `20260828072954`，`SYST:OTA:RES?` 为 `MAX_ATTEMPTS`；证据位于 `out/ota/dpll-long-p0-resend-com3-20260828/`。
+  - 当前五板仍为旧 build：COM3/4/5/6=`20260828072954`，COM25=`20260828025009`；未启动 NO1–NO4 新固件 TDMA 环路。
+- 结论：P0 静态 build/RAM/pytest 通过，但板端启动保持和 OTA commit 未通过，DPLL-LONG-001 停留在 P0；不进入 active matrix、hardware latch、eligible gate 或 servo。
+- 还需完成：
+  - 先定位新镜像回滚原因（板端 heap/stack、水位、启动异常和 OTA boot-attempt 记录），必要时用单板受控复现；不得反复消耗 boot attempt。
+  - 清理/恢复 COM25 的 OTA 状态后，再重新执行全体 send-only → boot/reconnect/commit，并保存逐板 `SYST:FW:BUILD?`、`SYST:CORE?`、`SYST:RTOS:STAT?`、`SYST:OTA:RES?`。
+- 关联文件：
+  - `out/ota/dpll-long-p0-send-20260828/summary.json`
+  - `out/ota/dpll-long-p0-baseline-20260828/`
+  - `tools/ota_multi_update/ota_multi_update.py`
+  - `tools/ota_boot_commit/ota_boot_commit.py`
+- 下一步：暂停 P1 TDMA 训练，先解决 OTA 启动保持门禁；修复后重新 build/pytest 并从 P0 重跑。
 
 ### TDMA-PROGRESS-20260828-010 - 发布 DPLL 基础件到闭环长期主线并完成 P0 静态复核
 

@@ -55,7 +55,7 @@ VdcSyncAO
   - 与 TDMA/RTOS 文档统一 NO1–NO4 环路、NO5 环外只读观测、active matrix、Core0/Core1/PIO/DMA 分工和短帧预算约束。
 - 验证结果：
   - P0 构建、RAM gate、host pytest 已通过，证据见 `out/build/dpll-p0-shared-sync-workspace-20260828/` 和 `out/pytest/dpll-p0-shared-sync-workspace-20260828/`。
-  - 当前尚未完成五板 OTA、四节点 TDMA 长稳、硬件 latch 连续样本和 eligible gate，因此 NO1–NO4 仍保持 `CHECKING`，不得发布 `LOCKED/HEALTHY`。
+  - 五板 OTA 发送阶段已完成四板，COM3 新镜像启动后回滚并报告 `MAX_ATTEMPTS`，COM25 发送前为 `INVALID_STATE`；因此当前尚未完成新固件的五板启动保持、四节点 TDMA 长稳、硬件 latch 连续样本和 eligible gate，NO1–NO4 仍保持 `CHECKING`，不得发布 `LOCKED/HEALTHY`。
 - 还需完成：
   - 先完成 P0/P1 板端水位和四节点基线，再接收 Calibration active path-delay/offset matrix；随后验证 CS/SCK/DATA hardware timestamp 与 sequence/CRC/window gate。
   - 只有 eligible 样本连续成立后才实现/调节最小 servo，并由 NO5 只读观察 VdcVector。

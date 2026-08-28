@@ -132,8 +132,9 @@ DPLL/诊断结果掩盖前一阶段 TDMA 或校准失败。
 ## 当前阻塞项
 
 - `TDMA-HIL-001` 尚未执行，因此拍级 phase 和新 wire layout 只能视为代码/host 基线。
-- P0 的静态 SRAM 发布门禁已通过（2026-08-28，`link_free_bytes=98356 B`）；当前阻塞转为
-  板端 `SYST:RTOS:STATus?` heap/stack 水位、异步 OTA 和 NO1–NO4 TDMA 基线 HIL。水位或
+- P0 的静态 SRAM 发布门禁已通过（2026-08-28，当前构建 `link_free_bytes=98348 B`）；当前阻塞转为
+  板端 `SYST:RTOS:STATus?` heap/stack 水位和异步 OTA/HIL。四板发送阶段已完成，但提交后新镜像
+  回滚为旧 build（COM3 已复现 `MAX_ATTEMPTS`，COM25 发送前即为 `INVALID_STATE`）；水位或
   HIL 未通过前，不得进入 active calibration、hardware latch 或 DPLL servo，也不得降低
   `98304 B` 门禁阈值。
 - `TDMA-DET-004` 未完成前，CPU phase 仍包住组合 TDMA service，尚不能证明物理首边沿完全不受
