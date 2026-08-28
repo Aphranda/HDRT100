@@ -10,6 +10,22 @@ Last updated: 2026-08-28
 
 2026-08-28 阶段性事实：四节点 TDMA Foundation 已能在固件内同时运行上行/下行并形成参考反馈，NO5 只读监视器、PIO/DMA completion-latch 回收和 VDC/DPLL vector 发布路径已接通；本次五板 OTA 后实测 TDMA `up/down` 稳定且 `rx_bad=0`，但因 active Calibration `PATH_DELAY` 未加载、timestamp eligibility 尚未成立，NO1..NO4 DPLL 仍为 `CHECKING`，不得标记为 `LOCKED` 或 `HEALTHY`。证据与代码事实见 `docs/tdma/TDMA_TASK_PROGRESS.md` 的 `TDMA-PROGRESS-20260828-003`。
 
+## 阶段性长期任务发布：DPLL-LONG-001
+
+VDC 作为 DPLL 闭环的算法与事实发布 owner，按以下依赖顺序推进：
+
+`TDMA 基线 → active calibration matrix → CS/SCK/DATA hardware timestamp → eligible parser/gate → 最小 SyncDpllFB → VdcVector 发布 → NO5 观测验收 → HOLDOVER/RELOCK/故障注入/长稳`。
+
+当前状态为 `ACTIVE / P0`：静态 build、RAM gate、host pytest 已通过；板端水位、四节点长期 TDMA 基线和 active matrix 尚待实测。未完成前，VDC 必须保持 `CHECKING`，不能通过 sample count、默认零延迟表或软件时间戳伪造 `LOCKED`。
+
+阶段性不变量：
+
+- `VdcSyncAO` 只管理 schedule/profile/calibration binding，`SyncDpllFB` 唯一写 offset/rate/lock/DCO，`VdcVector` 只发布稳定快照。
+- TDMA/Calibration 是前置域：VDC 不拥有 TDMA scheduler，不按物理环序推算 delay，不绕过 active topology/path-delay/offset matrix。
+- 只有同一 TDMA ring sequence 的 hardware-latch evidence 才能进入 DPLL；invalid、duplicate、out-of-order、stale 或 matrix mismatch 只更新 quality/reject 计数。
+- NO5 只读观测指定间隔和同时触发，用于验收，不参与 NO1–NO4 的控制环；SD/SVG 仅在 Core0/维护侧离线分析。
+- 任何 servo、VDC 或诊断负载必须先通过 TDMA 拍级预算和 DeploymentGate；闭环不得改变 SHORT wire、phase 或 recovery 静态预算。
+
 ## 参考项目收敛原则
 
 VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直接引入对应协议栈。借鉴关系必须落到 `offset/rate`、jitter、servo reset、HOLDOVER、reference clock、链路 delay、initial sync、drift compensation、timestamp 和验证项上。表驱动、RMA、ACK/NACK 和分布式共同事实参考由 `docs/refmem/REFMEM_DOMAIN_TODO.md` 维护。

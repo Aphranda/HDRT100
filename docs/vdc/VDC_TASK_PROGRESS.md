@@ -43,6 +43,28 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260828-002 - 发布 DPLL 基础件到闭环长期主线
+
+- 状态：进行中；P0 静态门禁完成，板端 TDMA/硬件 evidence 尚待执行。
+- 日期：2026-08-28
+- 任务目标：
+  - 按 `DPLL-LONG-001` 的固定顺序推进 `TDMA 基线 → active calibration matrix → hardware timestamp → eligible gate → SyncDpllFB → VdcVector/NO5 → 故障与长稳`。
+  - 将 VDC/DPLL 的算法、证据和发布责任保持在 HAOFV owner 边界内，避免用软件时间戳、默认零延迟或 sample count 伪造锁定。
+- 完成内容：
+  - 在 `VDC_DOMAIN_TODO.md` 增加长期任务发布、P0 当前状态和 VdcSyncAO/SyncDpllFB/VdcVector 不变量。
+  - 与 TDMA/RTOS 文档统一 NO1–NO4 环路、NO5 环外只读观测、active matrix、Core0/Core1/PIO/DMA 分工和短帧预算约束。
+- 验证结果：
+  - P0 构建、RAM gate、host pytest 已通过，证据见 `out/build/dpll-p0-shared-sync-workspace-20260828/` 和 `out/pytest/dpll-p0-shared-sync-workspace-20260828/`。
+  - 当前尚未完成五板 OTA、四节点 TDMA 长稳、硬件 latch 连续样本和 eligible gate，因此 NO1–NO4 仍保持 `CHECKING`，不得发布 `LOCKED/HEALTHY`。
+- 还需完成：
+  - 先完成 P0/P1 板端水位和四节点基线，再接收 Calibration active path-delay/offset matrix；随后验证 CS/SCK/DATA hardware timestamp 与 sequence/CRC/window gate。
+  - 只有 eligible 样本连续成立后才实现/调节最小 servo，并由 NO5 只读观察 VdcVector。
+- 关联文件：
+  - `docs/vdc/VDC_DOMAIN_TODO.md`
+  - `docs/tdma/TDMA_DOMAIN_TODO.md`
+  - `docs/arch/RTOS_HAOFV_TODO.md`
+- 下一步：等待 TDMA P0 OTA/HIL 证据，之后按 P1→P4 顺序推进，不越级进入 DPLL servo。
+
 ### VDC-TASK-20260828-001 - Deterministic observation path matrix loading
 
 - 状态：完成代码、host 单元测试和固件构建；硬件 OTA/HIL 待执行

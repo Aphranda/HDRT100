@@ -13,6 +13,24 @@ Last updated: 2026-08-28
 AMP 主线，不再新增裸机单核兼容工作；裸机/单核仅作为历史 bring-up 参考和故障
 定位时的对照路径。
 
+## 阶段性长期任务：DPLL-LONG-001
+
+RTOS 侧按 DPLL 基础件到闭环的顺序提供执行容器和门禁，不把 DPLL 算法、诊断或
+波形分析塞入 Core1 硬实时路径。执行顺序与 TDMA 主域保持一致：
+
+`P0 静态资源 → P1 TDMA 基线 → P2 active 校准矩阵 → P3 硬件 timestamp → P4 eligible gate → P5 最小 SyncDpllFB → P6 VdcVector/NO5 → P7 故障注入与长稳`。
+
+当前发布状态：`ACTIVE`。P0 构建、链接余量和 host pytest 已通过；板端 heap/stack、NO1–NO4
+四板 TDMA 基线和 NO5 只读观测尚未完成，因此不得进入 P2–P6 的正式硬件结论。
+
+RTOS 执行约束：
+
+- `task_dpll`/`task_vdc_sync` 只服务对应 owner；`SyncDpllFB` 是 offset/rate/lock/DCO 的唯一 writer。
+- Core1 只做固定 TDMA phase、buffer 选择和 FIFO 装载；PIO/DMA 负责确定性传输及硬件 latch；Core0 承担诊断、SD/SVG 和离线分析。
+- active topology/path-delay/offset matrix 必须由 Calibration snapshot 原子加载并带 generation/freshness/CRC；无效时 fail-closed。
+- DPLL/NO5/诊断负载只能使用已冻结的 TDMA payload 和拍级预算；超限在编译或 DeploymentGate 拒绝，不能运行时借用 guard。
+- 每个阶段完成必须有 build、pytest、同包多板异步 OTA、板端只读查询和可回溯证据；失败时保留证据并回退到上一个已验证阶段。
+
 ## P0 - 任务边界固化
 
 - [x] 将 `task_io_frontend` 拆为 `task_usb_device` 和 `task_scpi`。
@@ -54,7 +72,7 @@ heartbeat 验证不退化。
   直接使用 registry-owned staging buffer，失败释放并清空，成功提交后保留。
 - [ ] P0d-b：继续统一 Storage write buffer、OTA/package staging 的生命周期；事务持有期间不得
   覆盖，busy 必须 fail-closed。
-- [ ] P0e：按板端水位重算 task stack；优先增加 `task_ui`，收缩 USB/loop/calibration/refmem 等明显富余任务，再评估将 `configTOTAL_HEAP_SIZE` 从 128 KB 降到 96 KB。静态评估已完成（当前配置 96 KiB，任务栈已收敛），仍待板端 `SYSTem:RTOS:STATus?` 水位确认。
+- [ ] P0e：按板端水位重算 task stack；优先增加 `task_ui`，收缩 USB/loop/calibration/refmem 等明显富余任务，再评估将 `configTOTAL_HEAP_SIZE` 从 128 KB 降到 96 KB。维护态 workspace 复用已使静态链接余量达到发布门禁，但为避免板端启动不稳定，当前配置暂恢复 128 KiB；仍待板端 `SYSTem:RTOS:STATus?` 水位确认后再决定是否下调。
 - [x] P0f：增加 RAM 门禁脚本，解析 map 并在链接余量不达标时失败；heap、任务栈水位仍需板端 `SYSTem:RTOS:STATus?` 继续闭环。
 - [ ] P0g：每轮优化后执行 `cmake build`、板端 `SYSTem:RTOS:STATus?`、`SYSTem:CORE?`、SMA/TDMA/OTA 相关回归并记录到进展文档。当前构建、RAM gate 和 host pytest 已完成，板端水位/OTA/HIL 待执行。
 

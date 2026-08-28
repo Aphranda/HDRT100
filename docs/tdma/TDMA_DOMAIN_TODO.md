@@ -36,6 +36,33 @@ NO5 环外观测冻结 WCET/波形基线；随后逐 phase 加载 DPLL/VDC、Ref
 负载，不放宽 TDMA phase。短帧重传必须保持固定原 Node offset，并使用独立 recovery 预算，不能临时
 扩帧或借用 guard。
 
+## 阶段性长期任务发布：DPLL-LONG-001
+
+**目标**：沿着“TDMA 基线 → 校准事实 → 硬件观测 → eligible gate → 最小锁相 → VDC 发布 → NO5 验收 → 故障与长稳”的单向依赖，完成 DPLL 基础件到闭环。该任务是跨 TDMA、Calibration、VDC 和 RTOS 的长期主线；当前发布状态为 `ACTIVE`，当前阶段为 P0 静态门禁已通过、板端 OTA/HIL 待执行。
+
+**不可变约束**：
+
+- NO1–NO4 是 TDMA 四节点环路，NO5 只做环外 DPLL 观测，不加入 TDMA/RefMem、节点位图或 WKC。
+- SHORT wire、拍级 phase、recovery 静态预算和 Core1/PIO/DMA owner 不因 DPLL 或诊断扩展；超预算在编译/DeploymentGate 拒绝。
+- Calibration 负责 active topology、loop/link/node 顺序、path-delay、CS/SCK/DATA offset matrix、generation/freshness；运行态禁止按物理环序累加或使用默认零表。
+- 只有 PIO/DMA/硬件 tick 产生且通过 matrix、sequence、window、CRC、分辨率和 freshness 检查的 evidence 才能进入 DPLL；无效样本只能拒绝并计数。
+- Core0 负责准备、诊断、SD/SVG 和离线分析；Core1 只做固定 phase、buffer 选择、FIFO 装载；PIO/DMA 负责确定性传输和边沿 latch。
+
+**阶段顺序与发布门禁**：
+
+| 阶段 | 交付目标 | 必须留下的证据 | 进入下一阶段的条件 |
+|---|---|---|---|
+| P0 | SRAM/链接/测试基线 | build、RAM gate、pytest、未刷写前的 fail-closed 记录 | 静态门禁全绿；板端水位仍待 HIL 复核 |
+| P1 | 四节点 TDMA 基线 | 同包异步 OTA、`SYST:CORE?`、`SYST:RTOS:STAT?`、schedule/WCET、CRC/sequence/FIFO/bitmap/WKC、SD 原始波形 | NO1–NO4 连续运行无新增实时错误，NO5 保持只读 |
+| P2 | active 校准矩阵确定性加载 | topology/path/offset matrix、generation/freshness/CRC、启动拒绝原因 | 四节点使用同一 active matrix；缺失或过期不得运行 eligible |
+| P3 | CS/SCK/DATA 硬件 timestamp spine | 每 hop RX/TX、feedback RX、reference TX、硬件 tick、sequence/CRC、SCK 独立校准 | valid evidence 连续可追溯；invalid/duplicate/out-of-order 只计数 |
+| P4 | DPLL eligible parser/gate | host/C valid/missing/wrap/mismatch/timeout 测试和板端 gate 计数 | eligible 连续成立，仍不运行 servo |
+| P5 | 最小 `SyncDpllFB` | phase/rate error、path-delay compensation、限幅、lock/holdover/relock、WCET | DPLL 状态由合格样本收敛，TDMA deadline/error 无回归 |
+| P6 | `VdcVector` 发布与 NO5 验收 | VDC compact phase/rate/quality、NO5 指定间隔/同时触发、JSON/CSV/SVG | 四节点短帧稳定，NO5 观测与 sequence 对齐 |
+| P7 | 故障注入与长期稳定 | CRC/timeout/timestamp invalid/matrix 变更/recovery、holdover/relock、长稳报告 | fail-closed、可恢复、无 TDMA 时序回归后才可宣布闭环 |
+
+每个阶段完成后必须：更新本文件和 `TDMA_TASK_PROGRESS.md`、重新 build/pytest；代码改动执行同包多板异步 OTA 和板端只读查询；文档改动执行 docs regression 门禁。任何阶段失败都保留失败证据并回到该阶段，不得用后续 servo 参数掩盖前置问题。
+
 ## 里程碑总览
 
 | ID | 里程碑 | 状态 | 完成或退出门禁 |

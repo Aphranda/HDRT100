@@ -116,6 +116,33 @@ CAL/SYNC staging + ACK/NACK、RJ45_SYNC_RING 和 `FIRE_LOAD/T2` 闭环。
 
 ## 任务记录
 
+### RTOS-DIST-TASK-20260828-003 - 发布 DPLL 基础件到闭环长期任务并完成 P0 静态门禁
+
+- 状态：长期任务已发布；P0 代码与 host 验证完成，待五板 OTA、板端水位和 TDMA HIL。
+- 日期：2026-08-28
+- 任务目标：
+  - 按 `DPLL-LONG-001` 的 P0→P7 顺序，把 RTOS/AO/FB/Vector、TDMA Foundation、Calibration active matrix、硬件 timestamp、eligible gate、最小 DPLL servo、VDC 发布和故障长稳组织成可回溯阶段。
+  - 保持 HAOFV owner 边界：Core1/PIO/DMA 的固定实时路径不被 DPLL 诊断、SD/SVG 或运行时重算阻塞。
+- 完成内容：
+  - 在 RTOS TODO 中发布跨域长期任务和当前阶段/退出条件，明确 `task_dpll`、`task_vdc_sync`、`SyncDpllFB`、`VdcVector` 的责任边界。
+  - 修复共享 SyncIO 维护 workspace 的定长数组/指针实现，并保留 capture 与 model schedule 的互斥占用策略。
+  - 因板端 96 KiB heap 启动稳定性仍待确认，当前 `configTOTAL_HEAP_SIZE` 保持 128 KiB；静态链接余量门禁独立按 map 检查。
+- 验证结果：
+  - `tools/cmake_build_auto/cmake_build_auto.py` 构建目录：`out/build/dpll-p0-shared-sync-workspace-20260828/`；A/B/Boot 与 flash link contract 通过。
+  - `tools/ram_budget_check/ram_budget_check.py`：`link_free_bytes=98348 B`，达到 `98304 B` 发布阈值。
+  - 全量 pytest：`out/pytest/dpll-p0-shared-sync-workspace-20260828/junit.xml`，`506 passed, 1 skipped`。
+  - 代码提交 `ddb03fe fix(ram): share sync io maintenance workspace` 已推送；文档契约与代码提交保持分离。
+- 还需完成：
+  - 用同一 package 对 NO1–NO5 执行异步 OTA，补充 `SYST:CORE?`、`SYST:RTOS:STAT?` heap/stack 水位和固件 build 证据。
+  - NO1–NO4 TDMA 基线通过后，才进入 active matrix、hardware latch、eligible gate 和 DPLL servo；NO5 继续只读观测。
+- 关联文件：
+  - `docs/arch/RTOS_HAOFV_TODO.md`
+  - `config/freertos/FreeRTOSConfig.h`
+  - `components/sync_io/src/sync_io_core_internal.h`
+  - `components/sync_io/src/sync_io.c`
+  - `components/sync_io/src/sync_io_model_sched.c`
+- 下一步：执行 P0 异步 OTA/HIL；任何水位或 TDMA 回归都回到 P0 处理，不提前推进 DPLL。
+
 ### RTOS-DIST-TASK-20260828-002 - DPLL P0 SRAM 门禁与维护 workspace 收敛
 
 - 状态：代码与 host 验证完成；待五板 OTA、板端 RTOS 水位和 TDMA HIL。

@@ -44,6 +44,7 @@ NO5 观测仍未完成，因此 DPLL 尚不能进入 active matrix/eligible/serv
 | TDMA-PROGRESS-20260828-007 | TDMA-HIL-001、TDMA-DPLL-001/002 | `out/build/dpll-p0-ram-capture-pool-20260828/`；Calibration 维护态四个 8 KB 导出缓冲已合并，链接余量增加但仍未达到 SRAM 发布门禁。 |
 | TDMA-PROGRESS-20260828-008 | TDMA-HIL-001、TDMA-DPLL-001/002 | `out/build/dpll-p0-staging-pool-20260828/`、`out/pytest/dpll-p0-staging-pool-20260828/`；RefMem staging lease 回收重复维护缓冲，pytest 506 passed/1 skipped，链接余量 65640 B，仍未达 SRAM 发布门禁。 |
 | TDMA-PROGRESS-20260828-009 | TDMA-HIL-001、TDMA-DPLL-001/002 | `out/build/dpll-p0-cal-workspace-20260828/`、`out/pytest/dpll-p0-cal-workspace-20260828/`；任务栈/heap 收敛及 TDMA 校准 workspace union 后 RAM gate `98356 B` PASS，pytest `506 passed, 1 skipped`，尚待 OTA/HIL。 |
+| TDMA-PROGRESS-20260828-010 | DPLL-LONG-001 / P0 | `out/build/dpll-p0-shared-sync-workspace-20260828/`、`out/pytest/dpll-p0-shared-sync-workspace-20260828/`；共享 SyncIO 维护 workspace 后 A/B/Boot/link contract 通过，RAM gate `98348 B` PASS，pytest `506 passed, 1 skipped`，长期任务已发布，尚待五板 OTA/HIL。 |
 
 ## 失败与回退
 
@@ -99,6 +100,29 @@ NO5 观测仍未完成，因此 DPLL 尚不能进入 active matrix/eligible/serv
 通过静态预算和编译门禁，不能运行时借用 guard 或“看起来有余量”的拍。
 
 ## 按时间追加的任务记录
+
+### TDMA-PROGRESS-20260828-010 - 发布 DPLL 基础件到闭环长期主线并完成 P0 静态复核
+
+- TODO task ID：`DPLL-LONG-001`、`TDMA-HIL-001`、`TDMA-DPLL-001/002`。
+- 日期：2026-08-28。
+- 任务目标：按 P0→P7 固定依赖推进 DPLL：TDMA 基线、active calibration matrix、硬件 timestamp、eligible gate、最小 `SyncDpllFB`、`VdcVector`/NO5 验收、故障注入与长期稳定；任何后续阶段不得绕过 TDMA 或 Calibration 前置门禁。
+- 完成内容：
+  - 在 `TDMA_DOMAIN_TODO.md` 发布 `DPLL-LONG-001`、阶段退出门禁和不可变架构约束。
+  - SyncIO capture DMA ring 与维护态 model pulse schedule 复用同一 workspace，并以互斥运行态保护两类 persona；未改变 TDMA SHORT wire、PIO 原语、Core1 phase 或 recovery 预算。
+- 验证结果：
+  - 使用 `tools/cmake_build_auto/cmake_build_auto.py` 构建到 `out/build/dpll-p0-shared-sync-workspace-20260828/`；A/B/Boot 与 flash link contract 通过，package/build 产物均在 `out/`。
+  - `tools/ram_budget_check/ram_budget_check.py`：`link_free_bytes=98348 B`，达到 `RTOS_HAOFV_TODO.md` 的 `98304 B` 发布门禁。
+  - 全量 pytest 输出到 `out/pytest/dpll-p0-shared-sync-workspace-20260828/junit.xml`，结果为 `506 passed, 1 skipped`。
+  - 本轮尚未执行五板 OTA、板端 heap/stack 水位、NO1–NO4 TDMA 长稳或 NO5 观测，因此不宣称 P1 及后续阶段完成。
+- 还需完成：
+  - 按工具既有流程完成 send-only → no-commit boot → skip-boot commit 的异步 OTA，并逐板读取 `SYST:FW:BUILD?`、`SYST:CORE?`、`SYST:RTOS:STAT?`、TDMA/VDC/DPLL 状态。
+  - 通过 P1 后再加载 active calibration matrix，进入 P2/P3；硬件 evidence 和 eligible gate 完整前禁止 DPLL servo/`LOCKED` 结论。
+- 关联文件：
+  - `docs/tdma/TDMA_DOMAIN_TODO.md`
+  - `components/sync_io/src/sync_io_core_internal.h`
+  - `components/sync_io/src/sync_io.c`
+  - `components/sync_io/src/sync_io_model_sched.c`
+- 下一步：执行 P0 板端 OTA/HIL；失败时保留证据并停留在当前阶段。
 
 ### TDMA-PROGRESS-20260828-009 - DPLL P0 SRAM 门禁通过
 
