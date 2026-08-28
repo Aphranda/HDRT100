@@ -131,6 +131,12 @@ Get-Content -Path tools\README.md -Encoding UTF8
   `SYSTem:SYNC:VDC:LOCK:READiness?`, and verifies the current diagnostic path
   remains blocked at `TIMESTAMP_NOT_ELIGIBLE` instead of reporting a false
   lock.
+- `dpll_vdc_monitor/dpll_vdc_monitor.py`: read-only multi-board VDC/DPLL
+  monitor. It polls NO1..NO8 (including the NO5 observer), validates the
+  core1-owned RefMem vectors and TDMA simultaneous-feedback/timestamp gates,
+  and writes CSV/JSON/SVG reports under `out/`. Existing SD raw-waveform
+  analysis JSON can be attached with `--waveform-analysis`; the monitor never
+  arms, transmits, changes calibration, or writes the SD card.
 - `vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py`: VDC TDMA
   self-test runner. It starts `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest` on each
   board, then checks `SYSTem:SYNC:VDC:TDMA:STATus?` for a completed

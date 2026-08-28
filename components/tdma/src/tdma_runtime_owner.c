@@ -251,6 +251,9 @@ bool tdma_runtime_owner_init(void)
         tdma_pio_spi_ring_adapter_set_phys_timestamp_ready(
             &s_tdma_pio_spi_ring_adapter,
             tdma_runtime_owner_flight_phys_timestamp_ready);
+        tdma_pio_spi_ring_adapter_set_phys_tx_complete(
+            &s_tdma_pio_spi_ring_adapter,
+            tdma_pio_spi_phys_take_tx_completion);
         tdma_pio_spi_ring_adapter_set_phys(
             &s_tdma_pio_spi_ring_adapter,
             tdma_pio_spi_phys_tx,
@@ -318,6 +321,14 @@ bool tdma_runtime_owner_get_phys_snapshot(tdma_pio_spi_phys_snapshot_t *snapshot
         return false;
     }
     return tdma_pio_spi_phys_get_snapshot(&s_tdma_pio_spi_phys, snapshot);
+}
+
+void tdma_runtime_owner_service_phys_tx(uint64_t now_ns)
+{
+    if (!s_tdma_runtime_owner_initialized) {
+        return;
+    }
+    tdma_pio_spi_phys_service_tx(&s_tdma_pio_spi_phys, now_ns);
 }
 
 bool tdma_runtime_owner_set_flight_process_image_mode(bool enabled)

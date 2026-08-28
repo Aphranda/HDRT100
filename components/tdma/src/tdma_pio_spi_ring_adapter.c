@@ -354,6 +354,16 @@ void tdma_pio_spi_ring_adapter_set_phys_timestamp_ready(
     adapter->phys_timestamp_ready = timestamp_ready;
 }
 
+void tdma_pio_spi_ring_adapter_set_phys_tx_complete(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_pio_spi_ring_phys_tx_complete_fn tx_complete)
+{
+    if (adapter == NULL || adapter->started != 0u) {
+        return;
+    }
+    adapter->phys_tx_complete = tx_complete;
+}
+
 void tdma_pio_spi_ring_adapter_set_phys_overlay(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_phys_overlay_fn prepare_overlay,
@@ -630,6 +640,9 @@ static bool tdma_pio_spi_ring_adapter_start(
     adapter->feedback_timestamp_flags = 0u;
     adapter->reference_tx_timestamp_ns = 0ull;
     adapter->rx_ready_timestamp_ns = 0ull;
+    adapter->pending_tx_evidence_sequence = 0u;
+    adapter->pending_tx_evidence_identity_crc32 = 0u;
+    adapter->pending_tx_evidence = false;
     adapter->feedback_rx_timestamp_ns = 0ull;
     adapter->last_rx_service_ns = 0ull;
     adapter->last_service_ns = 0ull;
@@ -676,6 +689,9 @@ static void tdma_pio_spi_ring_adapter_stop(void *context)
     adapter->feedback_timestamp_flags = 0u;
     adapter->reference_tx_timestamp_ns = 0ull;
     adapter->rx_ready_timestamp_ns = 0ull;
+    adapter->pending_tx_evidence_sequence = 0u;
+    adapter->pending_tx_evidence_identity_crc32 = 0u;
+    adapter->pending_tx_evidence = false;
     adapter->feedback_rx_timestamp_ns = 0ull;
     adapter->last_rx_service_ns = 0ull;
     adapter->last_service_ns = 0ull;
@@ -859,6 +875,12 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
             emit_clock_evidence;
         adapter->reference_tx_evidence[evidence_index].valid =
             tx_timestamp_ns != 0ull;
+        if (tx_timestamp_ns == 0ull && adapter->phys_tx_complete != NULL) {
+            adapter->pending_tx_evidence_sequence = sequence;
+            adapter->pending_tx_evidence_identity_crc32 =
+                view.identity_crc32;
+            adapter->pending_tx_evidence = true;
+        }
     }
     return true;
 }
@@ -1511,6 +1533,35 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
     memset(status, 0, sizeof(*status));
     adapter->service_count++;
     adapter->last_service_ns = now_ns;
+
+    /* A resident flight-origin submit returns at the PIO launch edge.  The
+     * hardware latch is harvested on a later core1 pass and attached to the
+     * exact sequence/identity entry that was published at launch. */
+    if (adapter->phys_tx_complete != NULL) {
+        uint64_t completed_timestamp_ns = 0ull;
+        if (adapter->phys_tx_complete(adapter->phys_context,
+                                      &completed_timestamp_ns)) {
+            if (adapter->pending_tx_evidence) {
+                const uint32_t evidence_index =
+                    adapter->pending_tx_evidence_sequence %
+                    TDMA_PIO_SPI_RING_ADAPTER_TX_EVIDENCE_DEPTH;
+                if (adapter->reference_tx_evidence[evidence_index].sequence ==
+                        adapter->pending_tx_evidence_sequence &&
+                    adapter->reference_tx_evidence[evidence_index].identity_crc32 ==
+                        adapter->pending_tx_evidence_identity_crc32) {
+                    adapter->reference_tx_evidence[evidence_index].timestamp_ns =
+                        completed_timestamp_ns;
+                    adapter->reference_tx_evidence[evidence_index].valid =
+                        completed_timestamp_ns != 0ull;
+                    if (completed_timestamp_ns != 0ull) {
+                        adapter->reference_tx_timestamp_ns =
+                            completed_timestamp_ns;
+                    }
+                }
+                adapter->pending_tx_evidence = false;
+            }
+        }
+    }
 
     if (adapter->started == 0u || !adapter->configured) {
         tdma_pio_spi_ring_adapter_set_error(

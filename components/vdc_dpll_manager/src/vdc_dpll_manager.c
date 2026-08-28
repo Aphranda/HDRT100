@@ -1089,6 +1089,10 @@ void tdma_component_core1_service(void)
     if (ota_ao_is_active()) {
         return;
     }
+    /* The PIO/DMA flight origin is submitted without waiting for wire
+     * completion.  This bounded poll only harvests a completed launch/latch
+     * token before the scheduler advances the next TDMA window. */
+    tdma_runtime_owner_service_phys_tx(vdc_dpll_manager_now_ns());
     if (s_vdc_tdma_service != NULL) {
         tdma_service_core1_service(s_vdc_tdma_service);
     }

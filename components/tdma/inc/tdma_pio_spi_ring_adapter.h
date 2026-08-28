@@ -116,6 +116,12 @@ typedef bool (*tdma_pio_spi_ring_phys_timestamp_ready_fn)(
     void *context,
     uint32_t *resolution_ns,
     uint32_t *flags);
+/* A flight-origin TX is accepted at hardware launch and completed later.
+ * The adapter consumes this one-shot completion token to attach the PIO
+ * clock-latch timestamp to the corresponding reference evidence entry. */
+typedef bool (*tdma_pio_spi_ring_phys_tx_complete_fn)(
+    void *context,
+    uint64_t *tx_timestamp_ns);
 
 typedef struct {
     uint32_t version;
@@ -208,6 +214,7 @@ typedef struct {
     tdma_pio_spi_ring_phys_arm_fn phys_arm;
     tdma_pio_spi_ring_phys_disarm_fn phys_disarm;
     tdma_pio_spi_ring_phys_timestamp_ready_fn phys_timestamp_ready;
+    tdma_pio_spi_ring_phys_tx_complete_fn phys_tx_complete;
     tdma_pio_spi_ring_phys_train_fn phys_train;
     tdma_pio_spi_ring_phys_train_service_fn phys_train_service;
     tdma_pio_spi_ring_phys_overlay_fn phys_prepare_overlay;
@@ -276,6 +283,9 @@ typedef struct {
     uint32_t last_rx_new_segment_mask;
     uint64_t next_tx_deadline_ns;
     uint64_t rx_ready_timestamp_ns;
+    uint32_t pending_tx_evidence_sequence;
+    uint32_t pending_tx_evidence_identity_crc32;
+    bool pending_tx_evidence;
     struct {
         uint32_t sequence;
         uint32_t identity_crc32;
@@ -326,6 +336,9 @@ void tdma_pio_spi_ring_adapter_set_phys_ctrl(
 void tdma_pio_spi_ring_adapter_set_phys_timestamp_ready(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_phys_timestamp_ready_fn timestamp_ready);
+void tdma_pio_spi_ring_adapter_set_phys_tx_complete(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_pio_spi_ring_phys_tx_complete_fn tx_complete);
 void tdma_pio_spi_ring_adapter_set_phys_overlay(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_phys_overlay_fn prepare_overlay,

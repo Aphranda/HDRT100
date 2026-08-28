@@ -23,6 +23,8 @@ from typing import Any, Iterable
 from xml.sax.saxutils import escape
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 if str(ROOT / "tools") not in sys.path:
     sys.path.insert(0, str(ROOT / "tools"))
 
@@ -31,9 +33,18 @@ from scpi_common.scpi_serial import (  # noqa: E402
     open_serial_port,
     read_scpi_response,
 )
-from tdma_ring_monitor.tdma_field_parse import (  # noqa: E402
-    parse_status_named,
-)
+try:
+    # Package import is required when the monitor is imported by pytest or by
+    # another tool from the repository root.  ``tdma_ring_monitor`` also has a
+    # legacy script entry point with the same stem, so importing the package
+    # form directly can resolve to that module on some Python path layouts.
+    from tools.tdma_ring_monitor.tdma_field_parse import (  # noqa: E402
+        parse_status_named,
+    )
+except ModuleNotFoundError:
+    # Keep the standalone ``python tools/dpll_vdc_monitor/...`` invocation
+    # working when ``tools`` itself is the only injected import root.
+    from tdma_field_parse import parse_status_named  # type: ignore # noqa: E402
 
 
 TDMA_STATUS_COMMAND = "SYSTem:REFMEM:SYNC:TDMA:STATus?"
@@ -195,6 +206,26 @@ def parse_vector_response(response: str, names: Iterable[str]) -> dict[str, int]
     return parse_named_int_response(response, names, status="OK")
 
 
+def _select_trigger_sequence(tdma: dict[str, int],
+                             vdc_vector: dict[str, int],
+                             dpll_vector: dict[str, int]) -> int:
+    """Select the monotonic counter used for trigger-period checks.
+
+    In-ring nodes have a TDMA observation/ring counter.  The NO5 observer is
+    deliberately outside that ring, therefore it must use the core1 vector's
+    publish sequence.  ``source_update_seq`` is retained only as a final
+    compatibility fallback for older firmware that did not expose publish
+    sequences.
+    """
+    return int(
+        tdma.get("ring_clock_observation_sequence") or
+        tdma.get("ring_seq") or
+        dpll_vector.get("publish_sequence") or
+        vdc_vector.get("publish_sequence") or
+        dpll_vector.get("source_update_seq") or
+        vdc_vector.get("source_update_seq") or 0)
+
+
 def _query(ser: Any, command: str, timeout_s: float) -> str:
     ser.reset_input_buffer()
     ser.write((command + "\n").encode("ascii"))
@@ -220,9 +251,7 @@ def _read_board(ser: Any, spec: BoardSpec, timeout_s: float,
             _query(ser, VDC_VECTOR_COMMAND, timeout_s), VDC_VECTOR_FIELDS)
         dpll_vector = parse_vector_response(
             _query(ser, DPLL_VECTOR_COMMAND, timeout_s), DPLL_VECTOR_FIELDS)
-        trigger_sequence = int(
-            tdma.get("ring_clock_observation_sequence") or
-            tdma.get("ring_seq") or vdc_vector["source_update_seq"])
+        trigger_sequence = _select_trigger_sequence(tdma, vdc_vector, dpll_vector)
         interval_ms: float | None = None
         if previous is not None and trigger_sequence > previous.trigger_sequence:
             delta = trigger_sequence - previous.trigger_sequence

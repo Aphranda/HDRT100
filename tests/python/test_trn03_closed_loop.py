@@ -506,7 +506,7 @@ def test_process_follower_coalesces_late_overlay_behind_committed_pass() -> None
     assert "return true;" in prepare[coalesced:overlay_build]
 
 
-def test_overlay_script_waits_for_dma_before_mutating_shared_buffer() -> None:
+def test_overlay_script_uses_nonblocking_double_buffer_submission() -> None:
     phys = (ROOT / "components" / "tdma" / "src" /
             "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
     pass_overlay = phys.split(
@@ -514,20 +514,25 @@ def test_overlay_script_waits_for_dma_before_mutating_shared_buffer() -> None:
     )[1].split(
         "bool tdma_pio_spi_phys_service_process_overlay_boundary", 1
     )[0]
-    pass_wait = pass_overlay.index(
-        "tdma_pio_spi_phys_wait_overlay_dma_idle")
-    pass_write = pass_overlay.index(
-        "memset(s_tdma_pio_spi_flight_overlay_script")
-    assert pass_wait < pass_write
+    assert "tdma_pio_spi_phys_wait_overlay_dma_idle" not in pass_overlay
+    pass_buffer = pass_overlay.index(
+        "tdma_pio_spi_phys_overlay_free_buffer")
+    pass_write = pass_overlay.index("memset(script")
+    pass_queue = pass_overlay.index(
+        "tdma_pio_spi_phys_queue_overlay_script")
+    assert pass_buffer < pass_write < pass_queue
 
     prepare = phys.split(
         "bool tdma_pio_spi_phys_prepare_process_overlay", 1
     )[1].split("static void tdma_pio_spi_phys_set_line_drivers", 1)[0]
-    prepare_wait = prepare.index(
-        "if (!tdma_pio_spi_phys_wait_overlay_dma_idle")
+    assert "tdma_pio_spi_phys_wait_overlay_dma_idle" not in prepare
+    prepare_buffer = prepare.index(
+        "tdma_pio_spi_phys_overlay_free_buffer")
     overlay_build = prepare.index("if (!tdma_flight_overlay_build(")
-    assert prepare_wait < overlay_build
-    assert "Waiting after\n     * tdma_flight_overlay_build() is too late" in prepare
+    prepare_queue = prepare.index(
+        "tdma_pio_spi_phys_queue_overlay_script")
+    assert prepare_buffer < overlay_build < prepare_queue
+    assert "flight_overlay_pending" in prepare
 
 
 def test_origin_data_waits_csn_once_per_counted_frame() -> None:
@@ -629,16 +634,18 @@ def test_closed_loop_stops_calibration_personas_before_ring_staging() -> None:
     assert bias_stop < loopback_stop < ring_stop < topology
 
 
-def test_origin_queues_physical_byte_count_before_payload_dma() -> None:
+def test_origin_queues_physical_byte_count_before_payload_dma_without_waiting() -> None:
     source = (ROOT / "components" / "tdma" / "src" /
               "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
     function = source.split(
         "static bool tdma_pio_spi_phys_flight_origin_tx", 1
     )[1].split("bool tdma_pio_spi_phys_tx", 1)[0]
     count_put = function.index(
-        "pio_sm_put_blocking(BOARD_TDMA_SPI_PIO, phys->tx_sm, clock_bytes - 1u)")
+        "pio_sm_put(BOARD_TDMA_SPI_PIO, phys->tx_sm, clock_bytes - 1u)")
     dma_start = function.index("dma_start_channel_mask", count_put)
     assert count_put < dma_start
+    assert "while (" not in function
+    assert "busy_wait_us_32" not in function
 
 
 def test_product_flight_arm_uses_configured_process_image_payload() -> None:

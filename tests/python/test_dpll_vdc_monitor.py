@@ -10,6 +10,7 @@ from tools.dpll_vdc_monitor.dpll_vdc_monitor import (
     BoardSample,
     _board_summary,
     _svg,
+    _select_trigger_sequence,
     parse_board_arg,
     parse_vector_response,
     _ring_sequence_consistency,
@@ -33,6 +34,28 @@ def test_vector_parser_requires_current_status_and_field_count() -> None:
         parse_vector_response("UNAVAILABLE", VDC_VECTOR_FIELDS)
     with pytest.raises(ValueError, match="field count"):
         parse_vector_response("OK,1", DPLL_VECTOR_FIELDS)
+
+
+def test_observer_trigger_sequence_prefers_publish_counter() -> None:
+    # NO5 is out of the ring: ring counters and source_update_seq can remain
+    # zero while core1 continues publishing a fresh vector each service.
+    assert _select_trigger_sequence(
+        {"ring_enabled": 0, "ring_seq": 0},
+        {"publish_sequence": 12, "source_update_seq": 0},
+        {"publish_sequence": 13, "source_update_seq": 0},
+    ) == 13
+
+    # In-ring TDMA evidence remains authoritative when available.
+    assert _select_trigger_sequence(
+        {"ring_clock_observation_sequence": 42, "ring_seq": 41},
+        {"publish_sequence": 12},
+        {"publish_sequence": 13},
+    ) == 42
+
+    # Older firmware remains readable through the compatibility fallback.
+    assert _select_trigger_sequence(
+        {}, {"source_update_seq": 7}, {"source_update_seq": 8}
+    ) == 8
 
 
 def test_board_summary_requires_simultaneous_hardware_evidence() -> None:

@@ -603,6 +603,19 @@ typedef struct {
     uint32_t flight_alignment_bit_shift;
     bool flight_overlay_next_prepared;
     bool flight_overlay_pass_committed;
+    bool flight_overlay_pending;
+    uint32_t flight_overlay_active_buffer;
+    uint32_t flight_overlay_pending_buffer;
+    uint32_t flight_overlay_pending_words;
+    /* Flight-origin TX is submitted by core1 and completed by a later
+     * service pass.  The wire/PIO duration never blocks the TDMA phase. */
+    bool flight_tx_pending;
+    bool flight_tx_completion_pending;
+    uint64_t flight_tx_completion_timestamp_ns;
+    uint32_t flight_tx_packet_size;
+    uint32_t flight_tx_wire_bytes;
+    uint64_t flight_tx_launch_timestamp_ns;
+    uint64_t flight_tx_deadline_ns;
     int32_t flight_marker_offset_sample_count;
     int32_t flight_sck_offset_sample_count;
     int32_t flight_data_offset_sample_count;
@@ -687,6 +700,12 @@ bool tdma_pio_spi_phys_prepare_process_overlay(
  * next blocking PULL.  This queues exactly one PASS script when IRQ3 proves
  * that a frame ended without a prepared successor. */
 bool tdma_pio_spi_phys_service_process_overlay_boundary(void *context);
+/* Poll completion of a previously submitted flight-origin burst.  This is
+ * deliberately separate from the TX submit callback so core1 can account
+ * the hardware launch and completion in distinct bounded passes. */
+void tdma_pio_spi_phys_service_tx(void *context, uint64_t now_ns);
+bool tdma_pio_spi_phys_take_tx_completion(void *context,
+                                          uint64_t *tx_timestamp_ns);
 /* Submit first-stage SPI CLK training on the TDMA owner/core1 path. A forward
  * node enters RX-CLK -> TX-CLK regeneration. The reference node starts an
  * autonomous CLK burst and return-edge overlap detector. */
