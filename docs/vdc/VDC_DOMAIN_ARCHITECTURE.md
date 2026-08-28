@@ -335,11 +335,19 @@ DPLL 的输出不是直接修改本地硬件 timer，而是更新 VDC clock mode
 | `LOCAL_TIME` 本地 64 bit 时间 | `base_local_tick64`、硬件 latch tick、TDMA boot-time ns。 | 已有 64 bit ns 映射和 wrap tracker；当前 HIL 仍多处来自诊断时间或 latch 镜像。 | 需要把 core1/PIO latch 的硬件 tick 作为正式 `LOCAL_TIME` 输入，并持续发布低频镜像。 |
 | `OFFSET` 偏移校正 | `VdcClockModel.phase_offset_ns` / `VdcDcoControl.phase_offset_ns`。 | 已由 `SyncDpllFB` accepted evidence 更新，且 quality 使用更新前入相残差。 | 需要接入真实 accepted hardware sample 后验证收敛速度和稳态 RMS。 |
 | `DRIFT_CORR` 漂移校正 | `period_adjust_ppb` / 后续 `rate_q32`。 | 已用 sample period 和 KI 产生首版 rate pull。 | 需要低频 discipline 统计 wander/temperature/aging，并区分快速 DPLL 与慢速驯服。 |
-| `PATH_DELAY` 传播延时 | `VdcPathDelayTable`、`VdcCalibrationBinding.delay_ns`、`VdcErrorBudget.path_delay_ns`。 | 已有 active path-delay table contract、CRC、slot lookup 和只读维护查询；compact observation 通过 active 表计算 `T_reference + PATH_DELAY`。 | 尚未形成 delay-measure frame、沿途 timestamp 回环计算、cal CRC 失效触发 relock 和多跳路径统计。 |
+| `PATH_DELAY` 传播延时 | `VdcPathDelayTable`、`VdcCalibrationBinding.delay_ns`、`VdcErrorBudget.path_delay_ns`。 | active path-delay table 同时携带 directed link facts 和完整 `observation_matrix`；矩阵参与 table CRC，运行态通过 source/reference 的确定性索引读取。 | 仍需形成 delay-measure frame、沿途 timestamp 回环计算和 cal CRC 失效触发 relock。 |
 | reference sync frame | TDMA `VDC_OBSERVATION_WINDOW` + `VDC_SYNC_SAMPLE/IDLE_BEACON`。 | payload 已挂到公共 TDMA；frame envelope 已显式编码 `reference_time_ns`、`next_frame_start_ns`、reference seq/frame/slot 和 schedule CRC，gate 会拒绝缺失或不一致的 reference sync block。 | 仍需把该 reference sync frame 接入真实 PIO transport 的连续循环，并与 delay-measure frame 共享沿途 timestamp 证据。 |
 | DC 时间驱动 TDMA | `vdc_domain_plan_tdma_window()` 和后续 core1 scheduler/DCO。 | 当前可按 active schedule 规划窗口，RefMem data window 已受 TDMA plan 约束。 | 还未由 `T_effective = local_time + offset/rate` 反驱 core1/PIO TDMA frame/slot 边界。 |
 
 因此，当前 DPLL 已经具备“offset/rate servo 内核”，但还不等于完整 DC。完整 DC 必须补齐 `reference time -> path delay -> effective time -> TDMA slot` 的闭环：reference slot 已能发出带 `reference_time_ns / next_frame_start_ns` 语义的 sync/idle frame，接收 slot 后续需要用硬件 timestamp latch 得到 `T_local_rx`，VDC owner 使用 active `PATH_DELAY` 计算入相误差并更新 `OFFSET/DRIFT_CORR`，core1 再消费 DCO snapshot 调整后续 TDMA 和 FIRE_LOAD。
+
+#### Calibration Link 与 Observation Path Matrix
+
+Calibration 的 `links[]` 只保存物理相邻的 directed link 事实：`source_node -> destination_node` 及该单跳的 delay、jitter、generation 和 freshness。它不是 DPLL 在任意 source/reference 对之间应直接使用的路径值。
+
+校准快照导入 VDC 时，`vdc_domain_load_observation_path_matrix()` 一次性根据完整 directed link 集合生成 `observation_matrix[source][reference]`。矩阵按 row-major 索引 `source * VDC_DOMAIN_NODE_COUNT + reference`，自路径无效，所有 active 节点的非 self 路径必须存在；任一 link 缺失、重复、越界、断环或溢出都会拒绝整个加载，不发布半完整 table。矩阵值只在 calibration-load/activation 阶段计算，并纳入 `vdc_domain_path_delay_table_crc32()`。
+
+DPLL/VDC 运行态只允许读取已经通过 table CRC、schedule/topology/bias generation 和 freshness gate 的矩阵项。运行态禁止在查找失败后沿物理环遍历、累加 link delay、按节点数平均或使用默认 delay 兜底；矩阵不完整时必须保持 `CHECKING/RELOCKING` 并拒绝样本。这样校准和观测路径的事实来源唯一，运行时查找为确定性 O(1) 索引。
 
 VDC clock model 需要同时表达标称周期和修正量：
 
@@ -529,6 +537,7 @@ VDC Domain 首版冻结以下基础表。字段可以分阶段实现，但 owner
 | `VdcTimestampDictionary` | 把 compact timestamp 的 event/source 与节点、端口和信号语义绑定，并校验采样事实声明的 source/resolution。 | `VdcSyncAO / profile loader` |
 | `VdcWrapTracker` | 扩展 `tick_l32` 和 `seq_delta`，形成 64 位时间和完整序号。 | `timestamp service / VdcSyncAO` |
 | `VdcCalibrationBinding` | 绑定 active calibration CRC、link delay 和使用范围。 | `VdcSyncAO` 只读 CAL active 结果后发布绑定 |
+| `VdcObservationPathMatrix` | 保存 calibration-load 阶段生成的完整 source/reference 多跳路径 delay；self path 无效，矩阵完整性和 table CRC 共同门禁。 | `VdcSyncAO / calibration loader` 生成；`SyncDpllFB` 只读索引 |
 | `VdcDcSyncPipeline` | 保存 reference、initial sync、drift compensation 和 locked gate 阶段结果。 | `VdcSyncAO` |
 | `VdcHoldoverPolicy` | 定义 HOLDOVER 进入、保持、退出和 RELOCK 策略。 | `VdcSyncAO` |
 | `VdcDisciplineModel` | 保存长期漂移、温度/老化补偿候选和持久化 profile seq。 | `HoldoverFB / VdcQualityGateFB` |

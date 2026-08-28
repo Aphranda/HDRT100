@@ -185,6 +185,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | `ARCH-PIOCAT-01` | 动态 PIO 只装载签名 App catalog 中的 program，System Pack 只选择 ID | `docs/arch/HAOFV_FLASH_ARCHITECTURE.md` | pending |
 | `DOCS-FLASH-01` | Flash 域架构、TODO、任务进度三类文档的事实边界与变更接口 | `docs/arch/HAOFV_FLASH_ARCHITECTURE.md` | pending |
 | `DOCS-TRIPLETFORMAT-01` | 域文档 Architecture、TODO、Task Progress 三件套的最小格式、稳定 ID、状态词汇和文件接口 | `docs/check/DOCS_REGRESSION_PLAN.md` | pending |
+| `VDC-PATHMATRIX-01` | Calibration load 生成完整 source/reference observation path matrix；DPLL 运行态只做矩阵索引，禁止沿环推断 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md` | pending |
 
 ## 分层职责
 

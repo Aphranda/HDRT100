@@ -20,6 +20,7 @@ Last updated: 2026-08-28
 | TDMA-HOP-01 | tdma | hop_limit 归属 ring profile | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_profile.h | 符号存在性 | 2026-08-19 | active |
 | REFMEM-260B-01 | refmem | critical delta ≤260B | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | refmem_sync.h | 常量比对 | 2026-08-19 | active |
 | VDC-DPLL-01 | vdc | DPLL 准入 resolution≤100ns | 1 | docs/vdc/VDC_DOMAIN_ARCHITECTURE.md | vdc_timestamp_clock.h | 符号存在性 | 2026-08-19 | active |
+| VDC-PATHMATRIX-01 | vdc | calibration load 生成完整 observation path matrix，运行态禁止 ring path inference | 1 | docs/vdc/VDC_DOMAIN_ARCHITECTURE.md | vdc_domain.h | C/host matrix completeness and lookup tests | 2026-08-28 | pending |
 | TDMA-FLIGHT-BITMAP-01 | tdma | SHORT process image 固定 8×32B，slot 前 8B 由 core1 生成 RX 位图（旧 ID 不符合检查器单段主题格式，由 TDMA-FLIGHTBITMAP-01 接替） | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_flight_engine.h | 常量与单测比对 | 2026-08-20 | superseded |
 | TDMA-FLIGHTBITMAP-01 | tdma | SHORT process image 固定 8×32B，slot 前 8B 由 core1 生成 RX 位图 | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_flight_engine.h | 常量与单测比对 | 2026-08-21 | pending |
 | TDMA-PROCESSIMAGE-01 | tdma | Node mailbox mandatory-first 静态装配 VDC/DPLL、critical RefMem、ACK/fence/quality、control 与 CRC，运行时无临时余量 | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_process_image_layout.h | 编译断言、预算工具、publisher/parser 与多板 HIL | 2026-08-28 | pending |

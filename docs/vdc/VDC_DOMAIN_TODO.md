@@ -213,6 +213,7 @@ TDMA 最小实例约束：
 - [x] 冻结 `VdcErrorBudget`，覆盖 offset RMS/max、frequency skew、path delay、dispersion 和 root distance 等价字段。
 - [x] 冻结 `VdcTimestampDictionary` 表格式、CRC 和版本兼容；System Pack 导入策略另列 P7。
 - [x] 冻结 `VdcWrapTracker` 的 tick 扩展规则和回绕安全差分；完整 seq_delta 扩展随 capture ring 落地继续补齐。
+- [x] P2-MATRIX-01 冻结 `VdcObservationPathMatrix`：Calibration snapshot 导入阶段由完整 directed link 集合生成 source/reference 多跳路径矩阵，矩阵完整性、generation/freshness 和 table CRC 一并门禁；DPLL 运行态只允许确定性矩阵索引，禁止查找失败后沿物理环累加或使用默认 delay。
 - [ ] 冻结 `VdcCalibrationBinding`，定义 active cal CRC、link key、delay_ns 和失效策略。
 - [ ] 冻结 `VdcDcSyncPipeline`，定义 reference select、initial sync、drift compensation、LOCKED publish 和 T2 validation 阶段。
 - [ ] 冻结 `VdcDisciplineModel`，定义 aging compensation、temperature compensation、wander、holdover drift bound、discipline window 和持久化 profile seq。
@@ -252,7 +253,7 @@ TDMA 最小实例约束：
 
 ## P4 - CAL / SYNC / MEAS / TRIG 边界
 
-- [ ] VDC 消费 Calibration active link delay，不直接执行校准测量。
+- [x] P4-PATHMATRIX-01 VDC 消费 Calibration active link delay，不直接执行校准测量；校准导入时通过 `vdc_domain_load_observation_path_matrix()` 装载完整 observation path matrix，运行态缺失矩阵项即 fail-closed。
 - [ ] active calibration CRC 变化后，旧 `SYNC:CHECk` 结果失效，VDC 进入 `CHECKING` 或要求 RELOCK。
 - [ ] `SYNC:*` 动作统一转为 VdcSyncAO event，不直接写 offset/rate。
 - [ ] MEASure/T2 timestamp 进入 VDC quality 和 report evidence，但不直接修改业务序列。

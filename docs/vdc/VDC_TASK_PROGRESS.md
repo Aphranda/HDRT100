@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_TASK_PROGRESS.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
-Last updated: 2026-08-17
+Last updated: 2026-08-28
 
 本文档记录 Virtual Distributed Clock / VDC Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `VDC_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
@@ -42,6 +42,36 @@ VdcSyncAO
 首阶段先完成文档主域和架构边界，并把现有 RefMem/TDMA 诊断字段收敛到不会冒充 100 ns DPLL evidence 的代码形态。
 
 ## 任务记录
+
+### VDC-TASK-20260828-001 - Deterministic observation path matrix loading
+
+- 状态：完成代码、host 单元测试和固件构建；硬件 OTA/HIL 待执行
+- 日期：2026-08-28
+- 任务目标：
+  - 消除 VDC 在直连查找失败后按物理环序累加 link delay 的运行时补丁逻辑。
+  - 让 DPLL 观测路径与其他校准参数一样，在 calibration snapshot 导入阶段确定性装载完整矩阵。
+- 完成内容：
+  - `vdc_path_delay_table_t` 增加完整 `observation_matrix`，按 `source * VDC_DOMAIN_NODE_COUNT + reference` row-major 索引，并纳入 table CRC。
+  - 新增 `vdc_domain_load_observation_path_matrix()`；它从已加载的 directed link entries 一次性生成所有 active source/reference 非 self 路径，发现缺失、重复、断环或溢出即拒绝。
+  - `vdc_dpll_manager_publish_calibration_path_snapshot()` 只在校准快照导入阶段调用矩阵加载函数；DPLL ring observer 运行态只调用矩阵 lookup，不再遍历 ring 或累加 link delay。
+  - compact observation 仅允许 direct entry 或已加载 matrix entry，缺失时拒绝，不使用默认 delay 兜底。
+  - 新增四节点 directed link 矩阵值、self path、缺失矩阵项和非环链路拒绝测试。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools/tests/run_vdc_domain_tests.ps1`：通过。
+  - `cmake --build out/build/dpll-vdc-20260828 -j 4`：通过，生成 `DHRT100_FACTORY.uf2` 与 `DHRT100_UPDATE.pkg`，package CRC=`0x6E73F0AE`。
+  - 新增契约 `VDC-PATHMATRIX-01`，当前 status=`pending`，待独立交叉审核和 OTA/HIL。
+- 还需完成：
+  - 用真实四节点 calibration snapshot 做方向性验证，确认 `source/reference` 与 TDMA ring observer 语义一致。
+  - OTA 后确认 active PATH_DELAY、矩阵 CRC/generation/freshness 和 DPLL readiness；未加载完整矩阵时保持 `CHECKING`。
+- 关联文件：
+  - `components/vdc_domain/inc/vdc_domain.h`
+  - `components/vdc_domain/src/vdc_domain.c`
+  - `components/vdc_dpll_manager/src/vdc_dpll_manager.c`
+  - `tests/unit/test_vdc_domain.c`
+  - `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
+  - `docs/vdc/VDC_DOMAIN_TODO.md`
+- 下一步：
+  - 进行独立文档/代码交叉审核，随后按多板异步 OTA 流程实测。
 
 ### VDC-TASK-20260817-012 - TDMA Foundation owner boundary correction
 
