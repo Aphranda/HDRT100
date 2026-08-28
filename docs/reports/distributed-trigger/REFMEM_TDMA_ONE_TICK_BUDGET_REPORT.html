@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>REFMEM / TDMA 一拍负载预算报告</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{font-family:"等线","Microsoft YaHei",sans-serif;background:#d0d0d0;display:flex;flex-direction:column;align-items:center;padding:20px;gap:24px;color:#172033}
+.page{background:#fff;width:1120px;height:630px;box-shadow:0 2px 8px #0002;display:flex;flex-direction:column}
+.head{padding:15px 42px 11px;border-bottom:7px solid #d0d6e4;display:flex;justify-content:space-between;font-size:12px;color:#666}
+.main{flex:1;padding:14px 42px 10px;overflow:hidden}.foot{padding:9px 42px 12px;border-top:7px solid #d0d6e4;display:flex;justify-content:space-between;font-size:9px;color:#999}
+h1{font-size:24px;line-height:1.2;margin-bottom:3px;color:#15294b}.sub{font-size:12px;color:#667085;margin-bottom:11px}.h2{font-size:15px;color:#1f3864;border-bottom:2px solid #1f3864;padding-bottom:4px;margin:8px 0 6px}
+.cards{display:flex;gap:12px;margin-bottom:9px}.card{flex:1;border:1px solid #ccd5e3;border-radius:5px;padding:9px 11px;background:#f7f9fc;min-height:68px}.card b{display:block;color:#1f3864;font-size:11px;margin-bottom:3px}.card span{font-size:17px;font-weight:700}.card small{font-size:10px;color:#667085}
+table{width:100%;border-collapse:collapse;font-size:10.8px;margin-bottom:7px}th{background:#1f3864;color:white;text-align:left;padding:5px 7px;border:1px solid #1a2e52}td{padding:4px 7px;border:1px solid #bfc7d4;vertical-align:top;line-height:1.28}tr:nth-child(even) td{background:#f3f6fb}.c{text-align:center}.b{font-weight:700}.mono{font-family:Consolas,"Courier New",monospace}.note{font-size:9.5px;color:#667085;line-height:1.35;margin-top:4px}.bar{margin-top:6px;padding:7px 12px;background:linear-gradient(90deg,#1f3864,#283593);color:white;border-radius:4px;font-size:11px;font-weight:600}.bar em{color:#ffcc80;font-style:normal}
+.cols{display:flex;gap:16px}.col{flex:1;min-width:0}.tight td{padding:3px 6px}.tight th{padding:4px 6px}
+@media print{ @page{size:1120px 630px;margin:0} body{background:#fff;padding:0;gap:0}.page{box-shadow:none;break-after:page;page-break-after:always} }
+</style>
+</head>
+<body>
+<section class="page">
+  <div class="head"><span>Distributed Hard Real-Time Trigger System</span><span>REFMEM / TDMA Budget Report</span></div>
+  <div class="main">
+    <h1>REFMEM 按一拍预算：当前短帧与 Core1 周期清单</h1>
+    <div class="sub">HAOFV · 代码快照 2026-08-28 · 数值由 tdma_process_image_budget.py、tdma_cycle_schedule.py、tdma_load_budget.py 生成；本报告是快照，不替代代码事实源</div>
+    <div class="cards">
+      <div class="card"><b>Core1 deterministic cycle</b><span>250,000 拍</span><small>250 MHz clk_sys · 4 ns/拍 · 1 ms 周期</small></div>
+      <div class="card"><b>REFMEM phase</b><span>4,000 / 3,000 拍</span><small>窗口 / WCET · 剩余 1,000 拍（4 µs）</small></div>
+      <div class="card"><b>Process image</b><span>8 × 32 B = 256 B</span><small>每节点 10 B REFMEM critical 区，共 80 B</small></div>
+      <div class="card"><b>REFMEM realtime class</b><span>292 B / 周期</span><small>最多 1 帧 · 队列深度 3 · deadline 1 ms</small></div>
+    </div>
+    <div class="h2">A. 单节点 SHORT process-image 固定布局（按 byte，不是运行时可借用空间）</div>
+    <table class="tight"><thead><tr><th>区域</th><th>优先级</th><th class="c">offset</th><th class="c">size</th><th>内容 / owner</th></tr></thead><tbody>
+      <tr><td class="b">fast header</td><td>transport</td><td class="c mono">0</td><td class="c">8 B</td><td>magic/version/class/source/target/seq；由 TDMA/core1 维护</td></tr>
+      <tr><td class="b">VDC/DPLL minimum</td><td>mandatory</td><td class="c mono">8</td><td class="c">6 B</td><td>phase、rate、lock、quality；VDC 唯一 writer</td></tr>
+      <tr><td class="b">critical RefMem</td><td>mandatory</td><td class="c mono">14</td><td class="c">10 B</td><td>generation 4 B + field_id 2 B + value 4 B；RefMem 唯一 writer</td></tr>
+      <tr><td class="b">ACK/fence/quality</td><td>mandatory</td><td class="c mono">24</td><td class="c">3 B</td><td>ACK seq、NACK/FENCE/valid 和质量摘要</td></tr>
+      <tr><td class="b">control token</td><td>mandatory</td><td class="c mono">27</td><td class="c">2 B</td><td>opcode + bounded sequence</td></tr>
+      <tr><td class="b">optional diagnostic</td><td>optional</td><td class="c mono">29</td><td class="c">1 B</td><td>仅静态布局已准入时存在，不承载闭环控制</td></tr>
+      <tr><td class="b">mailbox CRC</td><td>mandatory</td><td class="c mono">30</td><td class="c">2 B</td><td>固定 Node mailbox CRC；校验后才展开域字段</td></tr>
+    </tbody></table>
+    <div class="bar">结论：<em>每节点 24 B body 中 23 B 为 mandatory、1 B 为已配置 optional，runtime-free = 0 B。</em> 8 节点整张 cyclic process image 固定 256 B，不能因“本周期有余量”临时扩帧。</div>
+  </div>
+  <div class="foot"><span>REFMEM / TDMA 一拍负载预算报告 · 快照，非事实源</span><span>1 / 2</span></div>
+</section>
+
+<section class="page">
+  <div class="head"><span>Distributed Hard Real-Time Trigger System</span><span>Cycle / Wire / Admission Budget</span></div>
+  <div class="main">
+    <h1>一拍级时序、线速和准入预算</h1>
+    <div class="sub">所有 admission/WCET 以 clk_sys 拍为事实；ns/µs 仅为报告换算。GUARD 不是可借用负载。</div>
+    <div class="cols">
+      <div class="col">
+        <div class="h2">B. Core1 phase 合同</div>
+        <table class="tight"><thead><tr><th>phase</th><th class="c">start</th><th class="c">end</th><th class="c">window</th><th class="c">WCET</th><th class="c">slack</th></tr></thead><tbody>
+          <tr><td class="b">TDMA</td><td class="c">0</td><td class="c">100,000</td><td class="c">100,000</td><td class="c">95,000</td><td class="c">5,000</td></tr>
+          <tr><td class="b">VDC</td><td class="c">100,000</td><td class="c">145,000</td><td class="c">45,000</td><td class="c">44,000</td><td class="c">1,000</td></tr>
+          <tr><td class="b">DPLL</td><td class="c">145,000</td><td class="c">177,000</td><td class="c">32,000</td><td class="c">31,000</td><td class="c">1,000</td></tr>
+          <tr><td class="b">CALIBRATION</td><td class="c">177,000</td><td class="c">212,000</td><td class="c">35,000</td><td class="c">34,000</td><td class="c">1,000</td></tr>
+          <tr><td class="b">SYNC_CAPTURE</td><td class="c">212,000</td><td class="c">217,000</td><td class="c">5,000</td><td class="c">4,000</td><td class="c">1,000</td></tr>
+          <tr><td class="b">REFMEM</td><td class="c">217,000</td><td class="c">221,000</td><td class="c">4,000</td><td class="c">3,000</td><td class="c">1,000</td></tr>
+          <tr><td class="b">MODEL</td><td class="c">221,000</td><td class="c">224,000</td><td class="c">3,000</td><td class="c">3,000</td><td class="c">0</td></tr>
+          <tr><td class="b">SYNC_TRIGGER</td><td class="c">224,000</td><td class="c">246,000</td><td class="c">22,000</td><td class="c">21,000</td><td class="c">1,000</td></tr>
+          <tr><td class="b">TRIGGER_MEASURE</td><td class="c">246,000</td><td class="c">248,000</td><td class="c">2,000</td><td class="c">2,000</td><td class="c">0</td></tr>
+          <tr><td class="b">GUARD</td><td class="c">248,000</td><td class="c">250,000</td><td class="c">2,000</td><td class="c">0</td><td class="c">2,000</td></tr>
+        </tbody></table>
+        <div class="note">REFMEM mirror 上限：448 B ×（copy 2 + CRC 2）拍/B + fixed 256 拍 = 2,048 拍，低于 REFMEM WCET 3,000 拍，静态余量 952 拍。</div>
+      </div>
+      <div class="col">
+        <div class="h2">C. Traffic class / cycle capacity</div>
+        <table class="tight"><thead><tr><th>class</th><th class="c">reserved B/cycle</th><th class="c">max frame</th><th class="c">queue</th><th class="c">deadline</th><th>策略</th></tr></thead><tbody>
+          <tr><td class="b">VDC_REALTIME</td><td class="c">292</td><td class="c">1</td><td class="c">2</td><td class="c">10 µs</td><td>strict/time-aware/fault</td></tr>
+          <tr><td class="b">REFMEM_REALTIME</td><td class="c">292</td><td class="c">1</td><td class="c">3</td><td class="c">1 ms</td><td>strict/time-aware/reliable/backpressure</td></tr>
+          <tr><td>CONFIG_CONTROL</td><td class="c">128</td><td class="c">1</td><td class="c">1</td><td class="c">100 ms</td><td>shaped/preemptible</td></tr>
+          <tr><td>RELIABLE_BULK</td><td class="c">0</td><td class="c">1</td><td class="c">1</td><td class="c">—</td><td>LONG/maintenance</td></tr>
+          <tr><td>LOG_BEST_EFFORT</td><td class="c">0</td><td class="c">1</td><td class="c">1</td><td class="c">—</td><td>drop-oldest</td></tr>
+        </tbody></table>
+        <table class="tight"><thead><tr><th>cycle aggregate</th><th class="c">value</th><th>判定</th></tr></thead><tbody>
+          <tr><td>cycle capacity</td><td class="c">1,024 B</td><td>profile upper bound</td></tr>
+          <tr><td>guard band</td><td class="c">128 B</td><td>不可承载业务</td></tr>
+          <tr><td>usable capacity</td><td class="c">896 B</td><td>1,024 − 128</td></tr>
+          <tr><td>reserved total</td><td class="c">712 B</td><td>292 + 292 + 128</td></tr>
+          <tr><td>unreserved headroom</td><td class="c">184 B</td><td>仅可在 profile 重算后使用</td></tr>
+        </tbody></table>
+      </div>
+    </div>
+    <div class="h2">D. REFMEM realtime frame 和硬约束</div>
+    <table class="tight"><thead><tr><th>项目</th><th>当前快照</th><th>约束与含义</th></tr></thead><tbody>
+      <tr><td class="b">SHORT wire</td><td>292 B packet = 32 B transport header + 260 B payload</td><td>REFMEM 内帧 header 36 B，因此 critical delta 净载荷最多 224 B；更大事实必须分片或走 LONG maintenance。</td></tr>
+      <tr><td class="b">10 MHz / 1 ms wire</td><td>292 B 实际 cyclic image：233.6 µs、23.36%；工具最大线预算含 4 B physical header + 11 B tail：307 B、245.6 µs</td><td>短帧必须在 TDMA phase 内完成；8 节点不能采用 store-and-forward 作为 1 ms 环回方案，应使用 PIO/core1 cut-through。</td></tr>
+      <tr><td class="b">超限处理</td><td>构建/DeploymentGate 拒绝</td><td>禁止运行时临时扩帧、追加第二帧、借用 guard 或挤占 VDC/REFMEM mandatory 区域；队列超限按 class policy 背压/故障/丢弃并留 evidence。</td></tr>
+    </tbody></table>
+    <div class="bar">最终判断：<em>当前 REFMEM 一拍预算可支持固定 critical mirror + 1 个 realtime delta frame；是否增加负载必须先改静态 profile/layout，并重新通过预算工具、构建门禁和多板 HIL。</em></div>
+  </div>
+  <div class="foot"><span>Source: config/project_config.h · tdma_profile.c · tdma_process_image_layout.h · generated budget JSON</span><span>2 / 2</span></div>
+</section>
+</body>
+</html>
