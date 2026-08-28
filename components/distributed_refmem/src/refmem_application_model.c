@@ -410,7 +410,6 @@ static refmem_application_model_load_snapshot_t s_load_snapshot;
 static refmem_board_capability_load_snapshot_t s_board_load_snapshot;
 static refmem_node_load_table_t s_staging_node_load_table;
 static refmem_board_capability_table_t s_staging_board_capability_table;
-static uint8_t s_inline_package_image_buffer[REFMEM_TABLE_IMAGE_BUFFER_SIZE];
 static refmem_application_map_t s_active_application_map;
 static refmem_board_capability_table_t s_active_board_capability_table;
 static refmem_generic_node_table_t s_active_generic_node_table;
@@ -1567,11 +1566,20 @@ static bool refmem_model_build_inline_package_image(uint8_t *data,
 
 static bool refmem_model_stage_inline_package_image(void)
 {
+    uint8_t *package_buffer = NULL;
+    size_t package_capacity = 0u;
+    if (!refmem_table_registry_begin_staging_write(
+            REFMEM_TABLE_OWNER_REFMEM_AO, &package_buffer, &package_capacity)) {
+        s_load_snapshot.last_error = REFMEM_APP_LOAD_ERR_BUSY;
+        s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
+        return false;
+    }
+
     refmem_table_package_validation_t validation;
     memset(&validation, 0, sizeof(validation));
     size_t package_size = 0u;
-    if (!refmem_model_build_inline_package_image(s_inline_package_image_buffer,
-                                                 sizeof(s_inline_package_image_buffer),
+    if (!refmem_model_build_inline_package_image(package_buffer,
+                                                 package_capacity,
                                                  &package_size,
                                                  &validation)) {
         s_load_snapshot.staging_package_crc32 = 0u;
@@ -1589,6 +1597,8 @@ static bool refmem_model_stage_inline_package_image(void)
         } else {
             refmem_table_registry_refresh_staging(&s_load_snapshot);
         }
+        (void)refmem_table_registry_end_staging_write(
+            REFMEM_TABLE_OWNER_REFMEM_AO, false);
         return false;
     }
 
@@ -1598,10 +1608,13 @@ static bool refmem_model_stage_inline_package_image(void)
     s_load_snapshot.staging_state = REFMEM_APP_STAGING_VALIDATED;
     s_load_snapshot.last_error = REFMEM_APP_LOAD_OK;
     s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
-    return refmem_table_registry_stage_package_image(&s_load_snapshot,
-                                                     s_inline_package_image_buffer,
-                                                     package_size,
-                                                     &validation);
+    const bool staged = refmem_table_registry_stage_package_image(&s_load_snapshot,
+                                                                   package_buffer,
+                                                                   package_size,
+                                                                   &validation);
+    (void)refmem_table_registry_end_staging_write(
+        REFMEM_TABLE_OWNER_REFMEM_AO, staged);
+    return staged;
 }
 
 static bool refmem_model_node_load_enabled(const refmem_node_load_entry_t *load)

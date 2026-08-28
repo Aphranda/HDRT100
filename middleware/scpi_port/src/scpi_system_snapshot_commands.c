@@ -29,7 +29,6 @@
 #define SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS 10000u
 #define SCPI_REFMEM_PACKAGE_PATH "/refmem/app_model.rmtp"
 #define SCPI_REFMEM_PACKAGE_READ_CHUNK 512u
-#define SCPI_REFMEM_LOAD_MAX_BYTES 8192u
 #define SCPI_REFMEM_SYNC_FRAME_MAX (REFMEM_SYNC_FRAME_HEADER_SIZE + REFMEM_SYNC_FRAME_PAYLOAD_MAX)
 #define SCPI_REFMEM_SYNC_HEX_MAX ((SCPI_REFMEM_SYNC_FRAME_MAX * 2u) + 1u)
 #define SCPI_REFMEM_SYNC_DEFAULT_EPOCH 1u
@@ -59,7 +58,6 @@ typedef struct {
 } scpi_refmem_sync_state_t;
 
 static scpi_refmem_sync_state_t s_refmem_sync;
-static uint8_t s_refmem_package_buffer[SCPI_REFMEM_LOAD_MAX_BYTES];
 static uint8_t s_refmem_package_chunk[SCPI_REFMEM_PACKAGE_READ_CHUNK];
 
 static bool scpi_refmem_wait_storage_job(uint32_t job_id);
@@ -445,16 +443,23 @@ scpi_result_t scpi_cmd_refmem_load_sd(scpi_t *context)
     validation.error = REFMEM_TABLE_PACKAGE_ERR_TOO_SMALL;
     bool package_read = false;
     bool package_valid = false;
+    bool staging_write_leased = false;
+    uint8_t *package_buffer = NULL;
+    size_t package_capacity = 0u;
     if ((uint32_t)vector.manifest_status == REFMEM_APP_MODEL_SD_MANIFEST_OK &&
         vector.manifest_missing_count == 0u) {
-        package_read = scpi_refmem_read_package(load_path,
-                                                s_refmem_package_buffer,
-                                                sizeof(s_refmem_package_buffer),
-                                                &package_size);
-        package_valid = package_read &&
-                        refmem_table_registry_validate_package(s_refmem_package_buffer,
-                                                               package_size,
-                                                               &validation);
+        staging_write_leased = refmem_table_registry_begin_staging_write(
+            REFMEM_TABLE_OWNER_REFMEM_AO, &package_buffer, &package_capacity);
+        if (staging_write_leased) {
+            package_read = scpi_refmem_read_package(load_path,
+                                                    package_buffer,
+                                                    package_capacity,
+                                                    &package_size);
+            package_valid = package_read &&
+                            refmem_table_registry_validate_package(package_buffer,
+                                                                   package_size,
+                                                                   &validation);
+        }
     }
 
     const bool staged =
@@ -468,12 +473,17 @@ scpi_result_t scpi_cmd_refmem_load_sd(scpi_t *context)
                                                 validation.package_crc32,
                                                 package_valid ? 1u : 0u,
                                                 validation.error,
-                                                package_valid ? s_refmem_package_buffer : NULL,
+                                                package_valid ? package_buffer : NULL,
                                                 package_valid ? package_size : 0u,
                                                 validation.table_crc32,
                                                 REFMEM_TABLE_REGISTRY_COUNT,
                                                 validation.owner_validated_table_mask,
                                                 validation.first_bad_table);
+
+    if (staging_write_leased) {
+        (void)refmem_table_registry_end_staging_write(
+            REFMEM_TABLE_OWNER_REFMEM_AO, staged && package_valid);
+    }
 
     refmem_application_model_load_snapshot_t snapshot;
     refmem_application_model_get_load_snapshot(&snapshot);

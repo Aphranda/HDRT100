@@ -19,6 +19,7 @@ static size_t s_staging_image_size;
 static size_t s_rollbackable_image_size;
 static uint32_t s_image_access_count[3];
 static uint32_t s_table_seq;
+static uint32_t s_staging_write_owner = UINT32_MAX;
 
 #define REFMEM_TABLE_WIRE_U32_SIZE 4u
 #define REFMEM_TABLE_WIRE_HEADER_WORDS 2u
@@ -994,6 +995,13 @@ static void refmem_table_registry_clear_staging_payload(void)
     refmem_table_registry_clear_image(&s_staging_image, REFMEM_TABLE_IMAGE_STAGING);
 }
 
+static void refmem_table_registry_clear_staging_payload_if_unleased(void)
+{
+    if (s_staging_write_owner == UINT32_MAX) {
+        refmem_table_registry_clear_staging_payload();
+    }
+}
+
 static uint32_t refmem_table_registry_gate_mask(const refmem_table_activation_gate_t *gate)
 {
     if (gate == NULL) {
@@ -1032,6 +1040,7 @@ void refmem_table_registry_init(const refmem_application_model_snapshot_t *model
     s_rollbackable_image_size = 0u;
     (void)memset(s_image_access_count, 0, sizeof(s_image_access_count));
     s_table_seq = 0u;
+    s_staging_write_owner = UINT32_MAX;
 
     for (uint32_t i = 0u; i < REFMEM_TABLE_REGISTRY_COUNT; i++) {
         s_registry[i].table_id = i;
@@ -1095,7 +1104,7 @@ void refmem_table_registry_refresh_active(const refmem_application_model_snapsho
 
 void refmem_table_registry_refresh_staging(const refmem_application_model_load_snapshot_t *load)
 {
-    refmem_table_registry_clear_staging_payload();
+    refmem_table_registry_clear_staging_payload_if_unleased();
 
     if (load == NULL) {
         s_snapshot.last_error = 1u;
@@ -1243,6 +1252,102 @@ bool refmem_table_registry_stage_package_validation(
     return true;
 }
 
+static bool refmem_table_registry_stage_package_validation_preserving_image(
+    const refmem_application_model_load_snapshot_t *load,
+    const refmem_table_package_validation_t *validation)
+{
+    if (s_staging_write_owner == UINT32_MAX) {
+        return refmem_table_registry_stage_package_validation(load, validation);
+    }
+
+    /* The caller owns the staging bytes.  Update only descriptors/entries. */
+    if (load == NULL ||
+        validation == NULL ||
+        validation->valid == 0u ||
+        validation->table_count != REFMEM_TABLE_REGISTRY_COUNT ||
+        validation->table_mask != ((1u << REFMEM_TABLE_REGISTRY_COUNT) - 1u) ||
+        load->staging_state == REFMEM_APP_STAGING_EMPTY ||
+        load->staging_package_crc32 == 0u ||
+        load->last_error != REFMEM_APP_LOAD_OK) {
+        if (load != NULL) {
+            refmem_table_registry_refresh_staging(load);
+        }
+        return false;
+    }
+
+    uint32_t owner_mask = 0u;
+    for (uint32_t i = 0u; i < REFMEM_TABLE_REGISTRY_COUNT; i++) {
+        refmem_table_registry_entry_t *entry = &s_registry[i];
+        const uint32_t table_bit = 1u << entry->table_id;
+        const bool owner_ok = (validation->owner_validated_table_mask & table_bit) != 0u;
+        entry->staging_crc32 = validation->table_crc32[i];
+        entry->last_result = validation->error;
+        entry->flags &= ~(REFMEM_TABLE_FLAG_STAGING_PRESENT |
+                          REFMEM_TABLE_FLAG_CRC_OK |
+                          REFMEM_TABLE_FLAG_OWNER_OK);
+        if (entry->active_crc32 != 0u) {
+            entry->flags |= REFMEM_TABLE_FLAG_ACTIVE_PRESENT;
+        }
+        entry->flags |= REFMEM_TABLE_FLAG_STAGING_PRESENT | REFMEM_TABLE_FLAG_CRC_OK;
+        entry->validation_state = owner_ok
+                                      ? REFMEM_TABLE_VALIDATION_OWNER_OK
+                                      : REFMEM_TABLE_VALIDATION_CRC_OK;
+        if (owner_ok) {
+            entry->flags |= REFMEM_TABLE_FLAG_OWNER_OK;
+            owner_mask |= table_bit;
+        }
+    }
+
+    const uint32_t full_mask = (1u << REFMEM_TABLE_REGISTRY_COUNT) - 1u;
+    s_staging_image.version = REFMEM_TABLE_REGISTRY_VERSION;
+    s_staging_image.role = REFMEM_TABLE_IMAGE_STAGING;
+    s_staging_image.state = owner_mask == full_mask
+                                ? REFMEM_TABLE_VALIDATION_OWNER_OK
+                                : REFMEM_TABLE_VALIDATION_CRC_OK;
+    s_staging_image.table_mask = validation->table_mask;
+    s_staging_image.package_crc32 = validation->package_crc32;
+    s_staging_image.table_seq = s_table_seq;
+    s_staging_image.path_hash = load->path_hash;
+    s_staging_image.last_result = validation->error;
+    s_staging_image.evidence_index = REFMEM_VECTOR_REGION_STATS;
+    s_snapshot.last_error = validation->error;
+    refmem_table_registry_refresh_snapshot();
+    return true;
+}
+
+bool refmem_table_registry_begin_staging_write(refmem_table_owner_t owner,
+                                               uint8_t **buffer,
+                                               size_t *capacity)
+{
+    if (buffer == NULL || capacity == NULL ||
+        owner > REFMEM_TABLE_OWNER_TDMA_AO ||
+        s_staging_write_owner != UINT32_MAX ||
+        s_image_access_count[REFMEM_TABLE_IMAGE_STAGING] != 0u) {
+        return false;
+    }
+
+    refmem_table_registry_clear_staging_payload();
+    s_staging_write_owner = owner;
+    *buffer = s_staging_image_buffer;
+    *capacity = sizeof(s_staging_image_buffer);
+    return true;
+}
+
+bool refmem_table_registry_end_staging_write(refmem_table_owner_t owner,
+                                             bool committed)
+{
+    if (s_staging_write_owner != (uint32_t)owner) {
+        return false;
+    }
+
+    if (!committed) {
+        refmem_table_registry_clear_staging_payload();
+        refmem_table_registry_refresh_snapshot();
+    }
+    s_staging_write_owner = UINT32_MAX;
+    return true;
+}
+
 bool refmem_table_registry_stage_package_image(
     const refmem_application_model_load_snapshot_t *load,
     const uint8_t *data,
@@ -1268,7 +1373,7 @@ bool refmem_table_registry_stage_package_image(
         validation = &local_validation;
     }
 
-    if (!refmem_table_registry_stage_package_validation(load, validation)) {
+    if (!refmem_table_registry_stage_package_validation_preserving_image(load, validation)) {
         refmem_table_registry_clear_staging_payload();
         return false;
     }
@@ -1281,7 +1386,9 @@ bool refmem_table_registry_stage_package_image(
         return false;
     }
 
-    (void)memcpy(s_staging_image_buffer, data, size);
+    if (data != s_staging_image_buffer) {
+        (void)memcpy(s_staging_image_buffer, data, size);
+    }
     s_staging_image_size = size;
     s_staging_image.last_result = validation->error;
     refmem_table_registry_refresh_snapshot();

@@ -309,6 +309,7 @@ typedef enum {
     REFMEM_APP_LOAD_ERR_INSTANCE_RANGE = 5u,
     REFMEM_APP_LOAD_ERR_PACKAGE_READ = 6u,
     REFMEM_APP_LOAD_ERR_PACKAGE_INVALID = 7u,
+    REFMEM_APP_LOAD_ERR_BUSY = 8u,
 } refmem_app_load_error_t;
 
 typedef struct {

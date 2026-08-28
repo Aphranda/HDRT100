@@ -157,6 +157,17 @@ bool refmem_table_registry_stage_package_image(
     const uint8_t *data,
     size_t size,
     const refmem_table_package_validation_t *validation);
+/*
+ * Borrow the registry-owned staging image for a maintenance transaction.
+ * The lease is non-blocking and exclusive: realtime readers and a second
+ * maintainer are rejected.  A successful release keeps the image only when
+ * the caller has already committed it through stage_package_image().
+ */
+bool refmem_table_registry_begin_staging_write(refmem_table_owner_t owner,
+                                               uint8_t **buffer,
+                                               size_t *capacity);
+bool refmem_table_registry_end_staging_write(refmem_table_owner_t owner,
+                                             bool committed);
 bool refmem_table_registry_stage_table(uint32_t table_id,
                                        uint32_t staging_crc32,
                                        uint32_t validation_state,
