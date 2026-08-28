@@ -311,6 +311,12 @@ def checked_stopped_ring_action(
             evidence = checked_ring_action(board, action, command, args)
             evidence["attempt_count"] = attempt
             evidence["rejected_attempts"] = rejected_attempts
+            # Owner mutations advance config_seq asynchronously on Core1.
+            # Do not let the next ARM observe a stopped ring with an older
+            # applied generation; retain the exact acknowledgement as part of
+            # the action evidence.
+            evidence["stopped_readback"] = wait_runtime_stopped(
+                board, args, node_index)
             return evidence
         except RuntimeError as exc:
             last_error = str(exc)

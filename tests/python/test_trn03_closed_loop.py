@@ -110,7 +110,7 @@ def test_stopped_owner_action_retries_with_readback_evidence(monkeypatch) -> Non
         FakeBoard(), "TOPOLOGY", "topology", args, 0)
     assert evidence["attempt_count"] == 3
     assert len(evidence["rejected_attempts"]) == 2
-    assert stopped == [0, 0]
+    assert stopped == [0, 0, 0]
 
 
 def test_stopped_owner_action_does_not_hide_persistent_rejection(
