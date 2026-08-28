@@ -140,7 +140,7 @@ active calibration 和 TRN-03D 产品安全闭环完成前仍只形成 provision
 | ID | 任务 | 状态 | 完成/退出门禁 |
 |---|---|---|---|
 | TRN-03A | 增加 TDMA per-link staging 和 ARM gate，绑定实际 PIO persona 的周期预算以及 MARK/SCK/DATA 统一相位字段 | `DONE` | 完整矩阵写后读回、四板 ARM 以及缺 link、diagnostic-only、矩阵/预算过期拒绝与 STOPPED 回退均已复验；证据索引见 `CAL-TASK-20260826-010` |
-| TRN-03B | 按 ring role 装载产品 flight persona 后启动 TDMA 短帧；先过 `raw-flight`，再过 `process-image` | `DONE` | 四板 raw-flight 与 process-image 均通过；固定 segment replacement、bitmap/WKC、尾部 CRC、TX/RX FIFO、map apply、SD raw capture 和逐 Node SVG 形成同 generation 闭环；证据索引见 `CAL-TASK-20260826-010` |
+| TRN-03B | 按 ring role 装载产品 flight persona 后启动 TDMA 短帧；先过 `raw-flight`，再过 `process-image` | `IN PROGRESS` | 既有四板短帧/FIFO 证据保留；诊断捕获新增 schedule-WCET 门禁后，最新复测仍发现捕获拍可能触发 calibration quarantine，且停止后的 config-seq 应用同步需先闭环；需重新完成四板 raw-flight/process-image、SD raw capture、逐 Node SVG 与 schedule 无扰证据后才能 DONE |
 | TRN-03C | 汇总 per-link path-delay、residence、loop-delay、PIO 周期预算和 residual，形成 active candidate gate | `IN PROGRESS` | host candidate/lifecycle、manager candidate/active/rollback owner、CRC、calibration generation 和完整 link 集合门禁已完成；缺 endpoint bias、fresh P3、受控导入、四板激活/回滚/持久化/VDC HIL |
 | TRN-03D | 故障注入、原始链路误帧压降、确定性接收恢复与长稳 | `IN PROGRESS` | DATA/MARK、DMA overrun 和 PIO stall 已有闭环；以下 TRN-03D 子项、Node dropout、stale identity、active generation 保护和长稳全部通过后退出；证据索引见 `CAL-TASK-20260827-011`、`CAL-TASK-20260827-014` |
 | TRN-03D-PHY | 逐 Node/link 建立原始误帧基线并优先降低物理/采样层错误率 | `IN PROGRESS` | 固化周期采样；比较相邻 DATA offset、首帧启动、CS/SCK/DATA 相位和错误 bit 位置；每个候选均保存最差 Node 的 frame/bit error、SD 原始波形和 SVG，不能用重试掩盖未收敛链路 |

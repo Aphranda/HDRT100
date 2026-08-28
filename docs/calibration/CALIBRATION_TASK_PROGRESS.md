@@ -10,6 +10,26 @@ Last updated: 2026-08-28
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20260828-017 - TRN-03B 诊断捕获预算收敛与待办补齐
+
+- 对应 TODO：`TRN-03B`、`TRN-03D-PHY-01..04`、`TRN-03D-SOAK-01`。
+- 代码修正：原始环路捕获改为持久化私有工作快照；PENDING 拍只推进 SCK/RX copy stage，
+  仅 READY 拍发布完整物理快照，避免每个 16 字节搬运拍重复复制大结构；RX 搬运块由 16 字节
+  收紧到 4 字节，并在工具异常中保留完整 TDMA schedule 前后快照和 delta，便于定位
+  `last_runtime/max_runtime/WCET` 耗时来源。
+- 验证：`tests/python/test_trn03_closed_loop.py` 与 `test_trn03_waveform.py` 共 91 项通过，
+  TDMA receive-health、flight-overlay、PIO-SPI ring-adapter 三组固化 C host 测试通过；增量
+  构建目录为 `out/build/trn03-todo-closure-20260828/`，A/B、OTA 包和 flash-link 检查通过。
+- OTA：四板异步 OTA 全部通过，证据目录为 `out/ota/trn03-copy4-20260828/`，四个板卡均为
+  `PASS`，设备 build 为 `20260828072954`。
+- HIL：`out/training/trn03b_pending_publish_20260828/` 仍未通过 schedule gate，说明捕获
+  仍可能使 calibration phase 超过固定 WCET 并进入 quarantine；随后诊断复测
+  `out/training/trn03b_copy4_diag_20260828/` 在 Node1 停止恢复阶段因 `config_seq` 尚未应用
+  而 ARM 超时。短帧启动/稳态本身未被证明失败，但本轮不能宣称 TRN-03B 完成。
+- 结论：中间 PENDING 快照重复发布已固化回归约束；下一步必须先完成停止后四板 config-seq
+  应用确认，再逐拍取得 schedule 快照，继续拆分或优化超 WCET 的捕获 stage。未完成前不得
+  将诊断 SD/SVG 证据或旧四板短帧证据升级为新的 TRN-03B/TRN-03D 完成结论。
+
 ## CAL-TASK-20260828-016 - TDMA 基础负载前置与训练接口基线
 
 - 对应 TODO：训练子域 `TRN-03` 的 TDMA 周期预算前置，以及 `P4-DBG` 的 transport 依赖。
