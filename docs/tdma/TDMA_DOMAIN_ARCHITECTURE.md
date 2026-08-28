@@ -31,6 +31,50 @@ Time Division Multiple Access Foundation Domain
 某块调试板 GPIO 如何临时接线。
 ```
 
+## 产品运行架构总览
+
+产品 RUN 只有一条周期数据路径：TDMA owner 在固定拍级 phase 中启动一帧固定长度的
+`CYCLIC_PROCESS_IMAGE`，PIO/DMA 在环路中飞行转发，Node 只覆盖自己拥有的 mailbox。DPLL
+是这张 process image 上的固定负载，不是第二种帧型，也不是可以插入或替换某一周期的高优先级
+流量。
+
+```text
+core0 domain owners prepare shadow values
+  -> TDMA TX image FIFO
+  -> core1 TDMA fixed phase
+  -> PIO/DMA flight forwarding
+  -> one fixed SHORT CYCLIC_PROCESS_IMAGE
+       transport header
+       Node image: mailbox[0] ... mailbox[TDMA_FLIGHT_SHORT_SLOT_COUNT-1]
+       DPLL observation trailer
+  -> RX latch / Node bitmap / completion evidence
+  -> VdcSyncAO consumes accepted observation
+  -> SyncDpllFB updates VDC offset/rate/lock
+```
+
+### Owner 与负载分层
+
+| 层 | 固定内容 | writer / consumer | 不变量 |
+|---|---|---|---|
+| TDMA transport | frame class、sequence、schedule/ring CRC、hop、wire length | TDMA owner / adapter | DPLL 开关不得改变帧型、长度、flags、发送序列或 PIO 节拍。 |
+| 全局 DPLL observation | 上一帧 reference TX hardware latch 的 compact trailer | reference TDMA 写；各 Node 的 VDC gate 读 | 只提供观测事实，不执行 DPLL。无合格 latch 时只清 valid bit，仍发送同一固定帧。 |
+| Node mailbox VDC/DPLL output | phase、rate、lock、quality 摘要 | VDC owner 写 shadow；RefMem/diagnostics 读 | 是 DPLL 输出投影，不是观测输入，也不能回写 servo。 |
+| Node mailbox RefMem/control | critical RefMem、ACK/fence/quality、最小控制 token、mailbox CRC | 各自 domain owner 写 shadow | 与 DPLL 共用静态布局，不按运行时流量伸缩。 |
+| DPLL algorithm | sample validation、path-delay 补偿、servo、lock/holdover | `VdcSyncAO / SyncDpllFB` | 不在 PIO、IRQ、adapter 或 TDMA wire handler 中执行。 |
+
+代码事实源为 `TDMA_FLIGHT_NODE_IMAGE_SIZE`、`TDMA_FLIGHT_SHORT_PAYLOAD_SIZE` 和
+`TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_*`。Node image 使用固定 mailbox；全局 trailer 使用 SHORT
+payload 的固定尾部。二者之和必须在编译期精确闭合 `TDMA_TRANSPORT_SHORT_PAYLOAD_MAX`，因此
+不存在供 DPLL 临时追加独立帧的运行时余量。
+
+### 当前验证部署边界（四板环路 + NO5 环外观测）
+
+物理环序和 active Node 数由 Calibration 线序矩阵与 active TDMA profile 决定，不在 TDMA 代码中
+写死。当前验证 profile 的环内成员是 NO1 到 NO4；NO5 只连接 SMA 观测线并读取 DPLL/VDC
+evidence，不参与 TDMA/RefMem 环路，不占 process-image Node mailbox，也不进入 WKC/Node bitmap。
+架构容量仍由 `TDMA_TRANSPORT_FRAME_MAX_SLOT_COUNT` 定义，后续增加 Node 必须重新通过 topology、
+wire budget、schedule CRC 和 DeploymentGate。
+
 ## HAOFV 层级
 
 TDMA 是 HAOFV 中的基础 service / system node，不是 VDC 子模块。推荐层级如下：
@@ -71,8 +115,8 @@ TDMA Domain 负责：
 - 管理 payload registry、frame class、MTU、short/long frame capacity 和 payload admission。
 - 调用 transport adapter 执行 TX/RX，并收集 `FRAME_READY/TIMEOUT/WINDOW_MISSED/OVERRUN`。
 - 发布 runtime snapshot：intent/completed seq、arm/start/done timestamp、miss/late、timestamp source/resolution/flags、ring runtime 和 last error。
-- 给 VDC 提供 observation window 的硬件 timestamp evidence。
-- 给 RefMem 提供 data window 的 delta/ACK/fence/quality completion evidence。
+- 给 VDC 提供固定 observation event、DPLL trailer 与本地 latch 的硬件 timestamp evidence。
+- 给 RefMem 提供固定 process-image region 的 delta/ACK/fence/quality completion evidence。
 
 TDMA Domain 不负责：
 
@@ -136,23 +180,26 @@ timestamp flags           = HARDWARE_LATCHED and not DIAGNOSTIC_ONLY
 `TIMESTAMP_MISSING`。该证据只表达 TDMA 物理反馈环成立，VDC 仍需独立执行
 DPLL sample gate、锁定质量和 HOLDOVER 判断。
 
-## Window 与 Payload
+## Schedule、Wire Frame 与 Payload
 
-TDMA window 是调度单位，payload 是业务载荷单位。
+三者必须分开理解：schedule phase 是拍级执行预算，wire frame 是环路中固定发送的协议实例，
+payload region 是各 domain 在固定帧中的静态字段。VDC observation 和 RefMem data 在产品 RUN
+中是同一 process image 内的不同 region，不是两个可以互相抢占的独立短帧。
 
-| Window class | owner | 可承载 payload | 消费域 |
-|---|---|---|---|
-| `VDC_OBSERVATION` | TDMA runtime | `VDC_SYNC_SAMPLE`、`IDLE_BEACON` | VDC 消费 timestamp evidence。 |
-| `REFMEM_DATA` | TDMA runtime | `REFMEM_DELTA`、`REFMEM_ACK_FENCE`、`QUALITY` | RefMem 消费同步与 completion。 |
-| `MAINTENANCE` | TDMA runtime | 维护帧、低频诊断摘要 | System/Diagnostics 只读或受控动作。 |
-| `IDLE_BEACON` | TDMA runtime | 空闲同步/质量帧 | VDC freshness、RefMem quality。 |
+| 运行状态 | wire 行为 | DPLL/RefMem 关系 |
+|---|---|---|
+| 产品 RUN | 每周期固定一帧 `CYCLIC_PROCESS_IMAGE`，固定 SHORT 长度和 `FLIGHT_MUTABLE`。 | DPLL observation trailer、Node VDC/DPLL output、critical RefMem、ACK/control 同时存在。 |
+| 启动/降级 bring-up | 可使用固定长度 alignment/idle 诊断帧证明物理路径。 | 只能形成 diagnostic evidence，不得进入正式 DPLL lock。 |
+| maintenance | TDMA owner 在显式 maintenance gate 内发送长帧或诊断帧。 | 不得与产品 RUN process image 混跑或借用其 guard。 |
 
 规则：
 
-- 普通 RefMem delta 不得抢占 VDC observation window。
-- VDC DPLL 样本必须来自 TDMA observation window、硬实时 latch、`timestamp_resolution_ns <= 100` 且非 diagnostic-only。
-- RefMem data frame 可以携带 timestamp/quality 摘要，但 payload 本身不参与 DPLL 计算。
-- 无业务 payload 时仍需通过 idle beacon 或等价窗口维持 freshness。
+- DPLL observation 是 process-image 固定尾部字段；启用 DPLL 只改变 valid/data，不改变帧调度。
+- VDC DPLL 样本必须来自同圈 sequence 关联的 reference TX / local RX 硬件 latch，并通过 active
+  path-delay matrix、resolution 和 diagnostic-only 门禁。
+- RefMem payload 不参与 DPLL 计算；同一帧边沿的硬件 latch 可以成为 DPLL 观测事实。
+- Node mailbox 没有新业务值时复用上一版 shadow 或发布无效/质量状态；不得改发另一种帧来“填空”。
+- `IDLE_BEACON` 仅保留为启动、维护或 adapter 兼容路径，禁止在产品 RUN 中周期性替换 process image。
 
 ### Transport Envelope 与长短帧
 
@@ -174,20 +221,18 @@ OTA、SD 或 LOG 的内部格式。首版 wire header 固定为 32 B、小端编
 
 | 帧级 | packet 上限 | 净 payload 上限 | 使用阶段 | 典型 payload |
 |---|---:|---:|---|---|
-| `SHORT` | 292 B | 260 B | 自动同步、硬实时环路常驻。 | `VDC_SYNC_SAMPLE`、`IDLE_BEACON`、critical `REFMEM_DELTA/ACK_FENCE`、小型控制。 |
+| `SHORT` | 292 B | 260 B | 自动同步、硬实时环路常驻。 | 产品态固定 `CYCLIC_PROCESS_IMAGE`：Node mailbox image + DPLL observation trailer。 |
 | `LONG` | 1024 B | 992 B | 宽松同步或显式 maintenance window。 | 配置块、`OTA_BULK`、`STORAGE_BULK`、批量 LOG/trace。 |
 
-这里的“短帧包含 VDC 和 RefMem”表示同一自动同步 cycle 内可安排多个独立短帧，
-而不是把两个域的内部结构强行合成一个共享 payload。VDC 和 RefMem 仍分别拥有
-内部 payload schema、CRC 和 completion；TDMA 只拥有外层 transport、顺序和窗口。
-
-对最终飞行模式，允许把多个域的固定小段放入同一个 `CYCLIC_PROCESS_IMAGE`
-短帧，但各段仍由 `TdmaProcessImageMap` 明确 owner、offset、length、generation 和
-segment CRC，不能让 VDC 直接写 RefMem 段或让 RefMem 直接写 VDC 段。
+产品飞行模式把多个域的固定小段放入同一个 `CYCLIC_PROCESS_IMAGE` 短帧；各段仍由
+`TdmaProcessImageMap` 和 `tdma_process_image_layout.h` 明确 owner、offset、length、generation
+和 CRC。共享一张 wire image 不等于共享 writer：VDC 不能写 RefMem 段，RefMem 不能写 VDC
+段，TDMA adapter 只负责机械搬运、局部 overlay 和 timestamp evidence。
 
 硬约束：
 
-- `VDC_REALTIME`、`REFMEM_REALTIME` 只能进入 `SHORT` 队列。
+- 产品 RUN 的 `VDC_REALTIME` 与 `REFMEM_REALTIME` 必须静态映射到同一张 `SHORT`
+  process image，不能作为两种帧分别入队或互相抢占。
 - reliable bulk、LOG best effort 只能进入 `LONG` 队列；配置流可按数据量选择短帧或长帧。
 - `LONG` 不得在严格自动同步阶段运行；只有 TDMA owner 打开 maintenance gate 且 active schedule 有足够 budget/guard 时才允许发送。
 - `VDC_TDMA_DIAGNOSTIC_FRAME_SIZE` 只定义维护态 VDC 诊断内帧，不得进入产品周期
@@ -233,18 +278,28 @@ core1 不能调用 VDC、RefMem、Trigger 或其他业务解码器，也不能�
 slot、offset、length、frame length 和 CRC policy 都来自已通过 DeploymentGate 的
 active wire plan，并在 RUN 中保持不变。
 
-#### 八槽短帧与 RX 位图快路径
+#### 固定 Node image、DPLL trailer 与 RX 位图快路径
 
 首版多板 cyclic process image 固定使用 `tdma_flight_engine.h` 中的 wire 常量：短帧
-process-image payload 为 256 B，分成 8 个 32 B slot。A0-A7 各自是唯一 writer，
-任意 active 节点可以读取其他 slot；2/3/4 板与 8 板使用同一 wire plan，只改变
-`active_mask`，不改变 offset 或重新协商帧格式。transport 允许的 260 B SHORT payload
-中剩余 4 B 暂不分配给业务 slot。
+process-image payload 由 `TDMA_FLIGHT_NODE_IMAGE_SIZE` 的固定 Node image 和
+`TDMA_FLIGHT_DPLL_OBSERVATION_SIZE` 的全局 trailer 组成。Node image 分成
+`TDMA_FLIGHT_SHORT_SLOT_COUNT` 个 `TDMA_FLIGHT_SHORT_SLOT_SIZE` mailbox，每个 Node 是自己
+mailbox 的唯一 writer；任意 active Node 可以读取其他 mailbox。不同 Node 数使用同一 wire
+plan，只改变 active mask，不改变 offset 或重新协商帧格式。代码中的 `slot_id` 仅是固定 wire
+mailbox 索引，不表示 Calibration 训练层的 slot。
 
 ```text
-256 B cyclic payload = slot[0] ... slot[7]
-slot[n] = 8 B fast header + 24 B opaque domain payload
+fixed SHORT payload = Node image + DPLL observation trailer
+Node image = mailbox[0] ... mailbox[TDMA_FLIGHT_SHORT_SLOT_COUNT-1]
+mailbox[n] = fast header + mandatory-first domain body
 ```
+
+DPLL trailer 由 `TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_*` 冻结：valid bit 加 reference TX
+timestamp 的模 tick。frame N 的 trailer 描述 frame N-1，关联序号由当前 transport sequence
+减去 `TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_SEQUENCE_LAG` 得到；timestamp quantum 和回绕窗口
+由同一组符号定义。reference metadata、schedule/ring CRC 和 source Node 已由 active profile 与
+transport header 提供，不在 trailer 中重复。若无法在本地 RX latch 附近唯一重建时间，样本必须
+拒绝而不是猜测 epoch。
 
 每个 slot 的 8 B 快速头冻结如下，具体数值必须引用 `TDMA_FLIGHT_MAILBOX_*` 常量：
 
@@ -583,12 +638,14 @@ image → DMA/FIFO preload → PIO hardware launch → wire → feedback/commit�
 
 Core1 的 `DPLL` 执行 phase 与 wire 上的 DPLL/VDC 数据不是同一个“负载”。wire 产品态只有
 一张固定 SHORT process image，容量由 `TDMA_FLIGHT_SHORT_PAYLOAD_SIZE` 冻结；每个 Node 固定
-段由 `TDMA_FLIGHT_MAILBOX_FAST_HEADER_SIZE` 和 `TDMA_FLIGHT_MAILBOX_BODY_SIZE` 组成。
+段由 `TDMA_FLIGHT_MAILBOX_FAST_HEADER_SIZE` 和 `TDMA_FLIGHT_MAILBOX_BODY_SIZE` 组成，Node
+image 之后再固定携带 `TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_SIZE` 的观测 trailer。
 
 System Pack 生成布局时必须按以下顺序静态装配：
 
 1. 先放入 mandatory 基础载荷：节点锁相后供 VDC 合成共同时间所需的最小
-   update/lock/phase/rate/quality 元素、critical RefMem、ACK/fence/quality 和最小控制 token。
+   update/lock/phase/rate/quality 元素、critical RefMem、ACK/fence/quality、最小控制 token，
+   以及 reference TX hardware latch 的 DPLL observation trailer。
 2. 计算每个 Node body 与整张 process image 的剩余容量。
 3. 只有同优先级、固定周期、固定最大长度且已声明 owner/CRC/completion 的元素，才能在
    构建阶段加入剩余容量；加入后成为固定布局，不再是运行时 opportunistic 流量。
@@ -612,6 +669,7 @@ maintenance phase。
 | minimal control token | `TDMA_PROCESS_IMAGE_CONTROL_OFFSET/SIZE` | opcode 与有界 token sequence；控制 owner 只写 shadow。 |
 | mailbox CRC | `TDMA_PROCESS_IMAGE_CRC_OFFSET/SIZE` | 覆盖固定 Node mailbox，parser 校验后才展开域字段。 |
 | optional diagnostic | `TDMA_PROCESS_IMAGE_OPTIONAL_DIAGNOSTIC_OFFSET/SIZE` | 仅因 mandatory 后仍有静态余量而准入；不得承载闭环控制。 |
+| global DPLL observation | `TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET/SIZE` | 上一帧 reference TX latch；TDMA reference 写，VDC gate 消费，不属于任何 Node mailbox。 |
 
 `TDMA_PROCESS_IMAGE_CONFIGURED_BODY_SIZE` 必须精确等于
 `TDMA_FLIGHT_MAILBOX_BODY_SIZE`，因此当前 layout 没有 runtime-free 字节。VDC phase/rate 使用
@@ -620,6 +678,8 @@ maintenance phase。
 本地 DPLL。fast header 的 sequence 是 mailbox generation，RefMem 仍保留独立 generation，
 不得把 core1 的去重序号冒充 RefMem commit/ACK。布局变化必须提升 wire/layout version、通过
 `tools/tdma_ring_monitor/tdma_process_image_budget.py` 和编译断言，并重新执行多板 HIL。
+旧的独立 clock-evidence `IDLE_BEACON` 不能在产品路径恢复；任何回归测试都必须证明启用 DPLL
+前后 payload class、flags、wire length 和连续 transport sequence 完全相同。
 
 ## TSN-style 资源治理与流控
 
@@ -637,23 +697,26 @@ TDMA Foundation 吸收 TSN 的确定性资源治理思想，但不绑定 IEEE 80
 
 | Traffic class | Payload | 调度与资源规则 | 溢出策略 |
 |---|---|---|---|
-| `VDC_REALTIME` | `VDC_SYNC_SAMPLE`、`IDLE_BEACON` | 最高优先级；固定 observation/idle gate；严格预留；禁止 OTA、配置和 LOG 借用 guard band。 | 记录 fault/quality，不能静默丢弃后继续报告 LOCKED。 |
-| `REFMEM_REALTIME` | `REFMEM_DELTA`、`REFMEM_ACK_FENCE` | 固定 data gate；预留周期字节数和帧数；可靠 completion；不得侵占 VDC gate。 | 有界重试并向 producer 背压，超限 NACK/fence fault。 |
+| `VDC_REALTIME` | process-image DPLL observation trailer 与 Node VDC/DPLL output | 固定字段、固定周期、无独立队列和抢占；禁止 OTA、配置和 LOG 借用 guard band。 | valid/gate 失败时拒绝样本并更新质量，不能改发另一帧或继续报告 LOCKED。 |
+| `REFMEM_REALTIME` | process-image critical RefMem、ACK/fence/quality | 固定 Node mailbox 字段；可靠 completion；不得改变 DPLL trailer 或 wire plan。 | 有界重试并向 producer 背压，超限 NACK/fence fault。 |
 | `CONFIG_CONTROL` | System Pack、配置 staging/activate 控制帧 | 可靠、整形、可被实时流让行；只在 maintenance 或剩余预算中运行。 | producer 背压；不得阻塞 core1。 |
 | `RELIABLE_BULK` | OTA package chunk、SD read/write block | 批量、可靠、只使用长帧；默认无硬预留，只消耗显式 maintenance/bulk budget。 | 暂停 producer 并续传，不挤占实时窗口。 |
 | `LOG_BEST_EFFORT` | LOG/trace 摘要 | 最低优先级、整形、可被实时流让行；只使用剩余预算。 | 丢最旧记录并增加 drop counter，不能阻塞实时链路。 |
 
-调度优先级是冻结的三级结构，不允许由运行期动态优先级改写：
+产品周期与维护流量的调度关系在构建期冻结，不允许由运行期动态优先级改写：
 
 ```text
-VDC_REALTIME
-  > REFMEM_REALTIME
-    > CONFIG_CONTROL / OTA_BULK / LOG_BEST_EFFORT
+PRODUCT_CYCLIC_PROCESS_IMAGE (fixed SHORT)
+  = DPLL observation + Node VDC/DPLL output + critical RefMem/control
+  > MAINTENANCE_LONG (CONFIG / OTA / STORAGE / LOG)
 ```
 
-- `VDC_REALTIME` 永远先于 RefMem 和维护流出队，承担共同时间 observation、idle freshness 和 DPLL timestamp spine。
-- `REFMEM_REALTIME` 只在没有可执行 VDC 帧时出队，不能借用或延长 VDC guard/window。
-- VDC 帧尚未到 guard 但已预约时，RefMem 只有能在该 guard 前完整结束才可启动；否则保持排队并让出 adapter。
+- DPLL observation 与 critical RefMem 不执行运行时优先级竞争；两者在每一张固定 process image
+  中同时占有各自 region，adapter 不得在“VDC 帧”和“RefMem 帧”之间做选择。
+- DPLL 样本无效时只清 trailer valid 并更新质量；RefMem 无新 delta 时保持固定 mailbox 长度并
+  发布上一 shadow 或明确的无效/质量状态。两种情况都不能改变 wire plan。
+- 只有 maintenance traffic 使用独立队列；它必须在显式 maintenance gate 内完成，不能借用或
+  延长产品 process-image phase/guard。
 - 配置、OTA、LOG 统一属于低优先级 maintenance traffic；三者内部可按可靠性和吞吐排序，但不能提升到 RefMem 之上。
 - maintenance gate 默认关闭。只有 `TdmaSchedulerAO` 确认当前不在同步阶段，或 active schedule 进入显式 maintenance window 时才允许打开；SCPI、OTA producer、LOG producer 都无权自行开门。
 - 低优先级帧不得抢占实时短帧，也不得在已知的下一实时 guard 前启动一个无法在 guard 前完成的传输。首版 adapter 只在 frame boundary 调度，不宣称字节级或 bit 级抢占。
@@ -893,8 +956,8 @@ hardware-latched、非 `DIAGNOSTIC_ONLY` 样本才能进入 active calibration �
 | 消费域 | 从 TDMA 读取 | 向 TDMA 提交 | 禁止 |
 |---|---|---|---|
 | Calibration | 原始 edge capture、transport quality、训练窗口/timeout evidence、sequence/counter。 | 训练 intent、active topology/profile、accepted calibration generation 和窗口摘要。 | 让 TDMA 计算 delay/bias/residence 或直接改 VDC offset/rate。 |
-| VDC | observation timestamp、schedule CRC、ring quality、late/miss。 | `VDC_SYNC_SAMPLE` / `IDLE_BEACON` payload registration 和 observation window profile。 | 直接拥有 transport，写 ring runtime，伪造 closed-loop evidence。 |
-| RefMem | data window completion、ACK/fence quality、adapter counters。 | `REFMEM_DELTA` / `REFMEM_ACK_FENCE` payload registration 和 pending delta intent。 | 把 TDMA 当作私有同步线程，绕过 payload registry。 |
+| VDC | 固定 DPLL observation trailer、本地 latch、schedule CRC、ring quality、late/miss。 | Node mailbox 的 compact VDC/DPLL output shadow 与 observation profile binding。 | 直接拥有 transport，写 ring runtime，插入独立 sync/idle frame，伪造 closed-loop evidence。 |
+| RefMem | process-image completion、ACK/fence quality、adapter counters。 | 固定 mailbox 的 critical delta / ACK-fence shadow 与 pending intent。 | 把 TDMA 当作私有同步线程，绕过 process-image owner。 |
 | Trigger / Loop | reservation/READY-NACK/fence/completion token、mask、window/late/quality；目标时间来自 VDC。 | 注册 opaque reservation segments 并提交 payload intent；Trigger 自己解释业务语义。 | 直接占用 ring、写 active image、要求 TDMA 解析动作或修改目标时间。 |
 | System / DeploymentGate | resource claim、runtime health、payload registry、adapter caps。 | profile staging、enable/disable、resource arbitration。 | 在 RUN 中热改 active ring。 |
 | Diagnostics / Report | TDMA snapshot、quality、evidence index、SVG/CSV 输入。 | 低频查询或显式 bring-up self-test。 | 通过 host 查询续装实时窗口。 |
@@ -970,7 +1033,7 @@ TDMA Domain 最小验证必须覆盖：
 - runtime snapshot：`up_running/down_running/ring_seq/last_error`。
 - 禁止伪造 `simultaneous_feedback_loop_evidence`。
 - RefMem delta 单发丢失后的 ACK/重发/fence completion。
-- VDC observation window 的硬件 timestamp eligibility。
+- 固定 DPLL observation event、trailer 与本地 latch 的 sequence/path-matrix/timestamp eligibility。
 - T2 reservation/READY-NACK/fence/completion segment 的 owner、generation、mask、lead-time 和 fail-closed 行为。
 - 两板同时上/下行 HIL，host 只读监控。
 - 后续 A0-A7 节点只扩展 profile 表和容量，不改算法主线。

@@ -136,11 +136,12 @@ VDC Domain 的参考对象聚焦在“共同时间”和“同步质量”，和
 
 ### TDMA Foundation + DPLL 融合控制模型
 
-VDC 不是在 TDMA 和 DPLL 之间二选一。产品化架构应采用“TDMA Foundation 提供确定性观测骨架，VDC DPLL 形成共同时间估计”的融合模型。TDMA Foundation 的上行/下行 ring runtime、payload registry、adapter 和 completion evidence 的 canonical 归属为 `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`；本文只定义 VDC 如何消费 TDMA observation window 和 timestamp evidence。
+VDC 不是在 TDMA 和 DPLL 之间二选一。产品化架构应采用“TDMA Foundation 提供确定性观测骨架，VDC DPLL 形成共同时间估计”的融合模型。TDMA Foundation 的上行/下行 ring runtime、payload registry、adapter 和 completion evidence 的 canonical 归属为 `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`；本文只定义 VDC 如何消费固定 TDMA observation event 和 timestamp evidence。
 
 ```text
-TDMA deterministic observation window
-  -> PIO/DMA timestamp capture
+fixed CYCLIC_PROCESS_IMAGE edge
+  -> PIO/DMA TX/RX timestamp capture
+  -> next-frame DPLL observation trailer
   -> VdcSyncAO sample validation
   -> SyncDpllFB offset/rate estimator
   -> VdcClockModel / VdcVector snapshot
@@ -151,23 +152,26 @@ TDMA deterministic observation window
 
 | 控制环 | 执行者 | 时间尺度 | 主要输入 | 主要输出 | 不允许做的事 |
 |---|---|---:|---|---|---|
-| TDMA 硬实时环 | TDMA Foundation / PIO / DMA / core1 realtime | us 级窗口，ns timestamp | active TDMA schedule、reference edge、local tick | capture timestamp、sync frame、ring/completion evidence | 计算 DPLL、访问 SCPI/SD/USB、修改 offset/rate |
+| TDMA 硬实时环 | TDMA Foundation / PIO / DMA / core1 realtime | us 级 phase，ns timestamp | active TDMA schedule、固定 process-image edge、local tick | capture timestamp、DPLL observation trailer、ring/completion evidence | 计算 DPLL、访问 SCPI/SD/USB、修改 offset/rate |
 | DPLL 锁相环 | `VdcSyncAO / SyncDpllFB` | ms 级 service tick | validated timestamp sample、active calibration delay、profile | offset/rate、phase error、lock state、quality | 直接驱动 PIO 输出、绕过 RefMem/Vector 写其他域事实 |
 | 低频驯服环 | `HoldoverFB / VdcQualityGateFB` | s 级窗口 | rate history、temperature/aging evidence、holdover age | drift bound、dispersion、servo profile evidence、persistent compensation candidate | 在 RUN 热写 flash、改变实时 tick source、直接修正 local_tick |
 
 该模型的关键点是：TDMA 只保证 DPLL 观测样本的确定性和低干扰，不等于共同时间已经锁定；DPLL 只修改 VDC 的 `offset/rate/quality`，不直接发硬实时边沿；core1/PIO 只消费稳定 VDC snapshot 进行相位牵引或预测输出。
 
-#### TDMA Observation Window
+#### TDMA Observation Event
 
-TDMA schedule 必须给 VDC 保留固定同步观测窗口。该窗口用于发送/接收 reference sync frame、采集硬件 timestamp 和形成 DPLL sample，不能被普通数据帧、维护帧或 report payload 抢占。
+TDMA schedule 必须给 VDC 保留固定同步观测事件，但该事件不是额外 wire frame。产品 RUN 的
+每一周期仍只有固定 `CYCLIC_PROCESS_IMAGE`：reference TX 与各 Node RX 在同一帧边沿完成硬件
+latch，上一帧 reference TX latch 通过 `TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_*` 固定 trailer
+随下一帧发布。普通数据、维护帧或 report payload 不能改变这一事件的拍位置、帧型和 wire 长度。
 
 | 字段 | 含义 |
 |---|---|
 | `tdma_epoch` | 当前 TDMA 周期或 schedule epoch。 |
 | `tdma_period_ns` | 标称 TDMA 周期，例如 `1000000 ns`；实际数值来自 active profile。 |
-| `sync_window_offset_ns` | 同步窗口相对周期起点的偏移。 |
-| `sync_window_width_ns` | 同步窗口宽度。 |
-| `guard_before_ns / guard_after_ns` | 同步窗口前后保护时间。 |
+| `sync_window_offset_ns` | 兼容字段名；表示固定 observation event 所在 phase 相对周期起点的偏移。 |
+| `sync_window_width_ns` | 兼容字段名；表示该固定 phase 的预算宽度，不表示独立 wire frame。 |
+| `guard_before_ns / guard_after_ns` | 固定 observation event 前后的保护时间。 |
 | `reference_slot_id` | 当前 reference node / slot，首版可固定 A0。 |
 | `schedule_crc32` | TDMA schedule profile 摘要。 |
 | `schedule_version` | schedule layout/version，用于跨节点一致性。 |
@@ -187,9 +191,9 @@ TDMA schedule 必须给 VDC 保留固定同步观测窗口。该窗口用于发�
 
 规则：
 
-- 同步窗口只承载 reference edge、timestamp capture 和必要的同步帧摘要。
-- 普通 RefMem delta、维护数据、日志、SD/OTA payload 不能进入同步观测窗口。
-- TDMA schedule 更新只能走 TDMA/System Pack staging 和 activation；VDC 只绑定 observation 视图，不得在 RUN 中热改窗口位置。
+- 同步观测事件只产生 reference edge、timestamp capture 和 compact DPLL observation；DPLL 算法不在 TDMA phase 内运行。
+- critical RefMem 与 DPLL observation 可位于同一固定 process image，但 RefMem 字段不能覆盖 trailer；维护数据、日志、SD/OTA payload 不能进入产品 process image。
+- TDMA schedule 更新只能走 TDMA/System Pack staging 和 activation；VDC 只绑定 observation 视图，不得在 RUN 中热改 event phase 位置。
 - `schedule_crc32` 必须进入 VDC profile CRC 和 RefMem version bundle；不一致时拒绝 LOCK。
 
 #### Two-board TDMA Hardware Baseline
@@ -214,7 +218,7 @@ B2.UP -> B3.DOWN
 ...
 Bn.UP -> B0.DOWN
 
-reference frame / timestamp evidence / quality feedback
+fixed process-image edge / timestamp evidence / quality feedback
   -> 沿同一条 ring 持续流动
   -> 每个节点锁存 RX/TX timestamp
   -> reference 或 VdcSyncAO 聚合一圈 evidence 后更新 delay、offset、rate 和 quality
@@ -225,65 +229,49 @@ reference frame / timestamp evidence / quality feedback
 当前 bring-up 阶段使用 PIO SPI adapter 和 TDMA service 验证单向 leg、payload、CRC、window 和 quality；这只能证明每条 leg 可用，不能单独证明实时 DPLL 闭环。真正的 VDC/DPLL 闭环要求 TDMA Foundation 在固件内持续同时运行上行组和下行组，VDC 只消费由该环路产生的 timestamp evidence，host 监控工具只读取 `VdcVector`、TDMA quality、timestamp evidence 和 DCO snapshot。
 
 - 已具备 TDMA 承载 DPLL 的硬件基础：两板之间可以在受控窗口内完成真实 TX/RX，而不是依赖 PC 搬运 frame hex。
-- 当前已验证的是 RefMem data TDMA window 和 NodeLoad/quality 同步，不等价于 VDC DPLL 已锁定。
+- 当前已验证的是固定 process image 上的 RefMem/NodeLoad/quality 同步，不等价于 VDC DPLL 已锁定。
 - 当前链路已有 schedule、slot、direction、deadline、timeout、CRC 和 quality evidence 的雏形，但还缺少同时运行的反馈 leg 和 DPLL 可用的硬件 timestamp evidence。
-- 后续 DPLL 只能消费 VDC observation window 产生的 timestamp sample，不能直接把 RefMem frame 成功、host 侧耗时或 `time_us_64()*1000` 诊断时间当作 100 ns 级同步证据。
+- 后续 DPLL 只能消费固定 observation event 产生的 timestamp sample，不能直接把 RefMem frame 成功、host 侧耗时或 `time_us_64()*1000` 诊断时间当作 100 ns 级同步证据。
 
-在该基线之上，TDMA Foundation 把同一个 active cycle 划分成不同 window class。它们不是两套互不相关的 TDMA，而是同一个 active schedule 中的不同 slot：VDC observation 是共同时间维护窗口，RefMem data 是共同事实同步窗口，二者都由 TDMA runtime 调度。
-
-| 窗口 | 用途 | 可承载内容 | 禁止 |
-|---|---|---|---|
-| `VDC_OBSERVATION_WINDOW` | 周期维护 DPLL/VDC。 | reference edge、SYNC timestamp、compact timestamp、sample CRC。 | 普通 RefMem delta、SD/OTA payload、维护日志。 |
-| `REFMEM_DATA_WINDOW` | 在 TDMA 骨架上同步共同事实。 | `DELTA/ACK_NACK/FENCE/QUALITY`、NodeLoad、quality evidence。 | 计算 offset/rate，发布 VDC lock。 |
-
-窗口是调度单位，帧是协议单位。每一帧首先都是 TDMA frame/envelope，VDC observation payload 和 RefMem data payload 只是不同 payload class。也就是说，RefMem frame 不应被理解为“只同步数据的普通 SPI 包”，而应被理解为“携带 RefMem payload 的 TDMA 帧”；VDC 只解释其中与共同时间相关的 timestamp evidence。
+在产品 RUN 中，VDC observation 与 RefMem data 不是两个 window class 或两条队列，而是同一
+固定 process image 的不同 region：
 
 ```text
-TDMA frame envelope
-  -> preamble / frame boundary
-  -> schedule_epoch / slot_index / frame_seq
-  -> reference_slot_id / source_slot_id
-  -> compact timestamp or timestamp latch reference
-  -> schedule_crc32 / frame_crc32
-  -> payload_class
-  -> payload bytes
+cycle[k] fixed CYCLIC_PROCESS_IMAGE
+  -> transport sequence / schedule CRC / ring CRC
+  -> Node mailbox image
+       compact VDC/DPLL output
+       critical RefMem + ACK/fence/quality + control
+  -> global DPLL observation trailer for cycle[k-1]
+  -> hardware RX/TX latch and Node bitmap
 ```
 
-| payload class | 作用 | DPLL 关系 |
-|---|---|---|
-| `SYNC_SAMPLE` | reference edge 或同步观测样本。 | 必须进入 timestamp validation；合格后进入 DPLL。 |
-| `REFMEM_DELTA` | 共同事实变化同步。 | 帧边界和 RX/TX timestamp 仍可作为质量或 DPLL candidate；payload 不参与 DPLL 计算。 |
-| `ACK_NACK/FENCE/QUALITY` | completion、fence 和质量证据。 | 用于 freshness/quality gate；不写 offset/rate。 |
-| `IDLE_BEACON` | 无业务数据时维持时钟、slot 和 membership。 | 可持续提供 DPLL 样本和 holdover freshness。 |
-
-因此，总线在同步数据过程中也必须维护 freshness 和质量证据；TDMA 在循环维护 VDC observation 时可以顺带同步 RefMem。没有业务数据时仍应发 `IDLE_BEACON` 或等价同步帧，避免 VDC 样本中断。
-
-同一 TDMA cycle 的运行顺序应由 TDMA active schedule 冻结；过渡期 VDC 通过 `VdcTdmaScheduleProfile` 只读绑定其中的 observation 视图。首版可以固定为：
-
-```text
-cycle[k]
-  -> VDC_OBSERVATION_WINDOW  高优先级 reference / sync sample
-  -> REFMEM_DATA_WINDOW      搭载 RefMem delta / ACK / FENCE / QUALITY，同时记录帧级 timestamp
-  -> IDLE_BEACON_OR_GUARD    无数据时维持 DPLL freshness，有数据时提供方向切换和故障恢复余量
-```
-
-`REFMEM_DATA_WINDOW` 可以复用现有 PIO SPI physical adapter 和 TDMA mailbox；所有帧都应尽量形成硬件 timestamp evidence。`VDC_OBSERVATION_WINDOW` 是最高质量、最高优先级的 DPLL 样本窗口，必须增加硬件 timestamp latch，形成 `expected_ns / observed_ns / delay_ns / phase_error_ns / quality_flags` 样本后再交给 `VdcSyncAO / SyncDpllFB`。RefMem 数据同步可以携带当前 VDC snapshot、quality 和 evidence 摘要，但不能反向拥有 DPLL 状态。
+VDC 只消费 trailer 与本地 latch 形成的 observation，并结合 active path-delay matrix 生成
+`expected_ns / observed_ns / delay_ns / phase_error_ns / quality_flags`；RefMem 只消费各 Node
+mailbox。Node mailbox 没有新 delta 时保持固定长度并发布上一 shadow/质量状态，不能改发
+`IDLE_BEACON`。`IDLE_BEACON` 仅允许用于启动、维护或 adapter 诊断，不能周期性替换产品 process
+image。完整契约以 `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` 的 `TDMA-PROCESSIMAGE-01` 为准。
 
 首版两板 DPLL bring-up 建议采用固定 reference，但必须按实时反馈环路运行：
 
 ```text
 cycle[k]
   TDMA_UP_LEG:
-    reference slot 输出 reference edge / sync frame
-    follower slot 捕获 RX edge timestamp
+    reference Node 启动固定 CYCLIC_PROCESS_IMAGE 并锁存 TX tick
+    follower Node 转发同一帧并锁存本地 RX tick
 
   TDMA_DOWN_LEG:
-    follower slot 回传 RX timestamp / quality / completion evidence
-    reference slot 捕获反馈帧 timestamp
+    同一 process image 继续飞行并返回 reference Node
+    reference Node 形成整圈 completion / bitmap / quality evidence
+
+cycle[k+1]
+  TDMA payload:
+    reference Node 在固定 trailer 发布 cycle[k] TX tick
+    follower Node 用 sequence lag 关联已保存的 cycle[k] RX tick
 
   VdcSyncAO:
-    校验 schedule_crc32、reference_slot_id、seq、CRC、window bound
-    组合 reference timestamp、follower timestamp、feedback timestamp 和 active PATH_DELAY
+    校验 schedule_crc32、reference Node、sequence、CRC、event phase bound
+    组合 reference TX tick、本地 RX tick 和 active PATH_DELAY matrix
 
   SyncDpllFB:
     形成 VdcDpllSample
@@ -294,7 +282,7 @@ cycle[k]
 
 该过程必须保留 HAOFV owner 边界：
 
-- TDMA/core1/PIO 只执行窗口和采样。
+- TDMA/core1/PIO 只执行固定 phase、process-image 搬运和 timestamp latch。
 - Timestamp service 只展开 compact timestamp、扩展 tick 和写样本 ring。
 - `VdcSyncAO / SyncDpllFB` 是 offset/rate/lock 的唯一 writer。
 - RefMem 只镜像 VDC snapshot、quality、fault 和 evidence，不计算 DPLL。
@@ -316,7 +304,7 @@ cycle[k]
 |---:|---:|---|---|
 | `FINE_100NS` | 100 ns | 产品目标和最终锁定质量。 | 可作为正式 `HEALTHY` 候选。 |
 | `DEBUG_1US` | 1,000 ns | 调试阶段确认 DPLL 收敛方向和频率拉入。 | 只能说明调试锁定，不能通过产品 RUN 质量门禁。 |
-| `COARSE_10US` | 10,000 ns | 两板最小系统、PIO latch、TDMA window bring-up 的粗锁定。 | 只能作为硬件闭环初步证据，不能作为正式触发时间基准。 |
+| `COARSE_10US` | 10,000 ns | 两板最小系统、PIO latch、TDMA event phase bring-up 的粗锁定。 | 只能作为硬件闭环初步证据，不能作为正式触发时间基准。 |
 
 实现上 `offset_lock_threshold_ns` 保持 100 ns 产品目标；默认 bring-up profile 的 `lock_acceptance_threshold_ns` 为 1 us，必要时维护 profile 才允许临时放宽到 10 us。这样系统可以先进入可观测 `LOCKED`，再由 DPLL 持续拉相位。`VdcQualityTable.lock_quality_tier` 按连续稳定样本发布实际质量等级，历史 `max_abs_offset_ns` 只作为诊断峰值保留，不能永久阻断后续 fine tier 晋级；`HEALTHY` 仍要求 `FINE_100NS`、freshness 和 gate 全部通过。
 
@@ -328,7 +316,7 @@ DPLL 的输出不是直接修改本地硬件 timer，而是更新 VDC clock mode
 
 #### RP2350 仿 DC 时钟拆解
 
-参考 EtherCAT DC 的拆法，DHRT100 的 RP2350 VDC 不应只理解为一个 PI 算法，而应拆成“本地时间引擎 + reference sync frame + path delay + DPLL servo + TDMA 事件调度”五个可验证层。
+参考 EtherCAT DC 的拆法，DHRT100 的 RP2350 VDC 不应只理解为一个 PI 算法，而应拆成“本地时间引擎 + reference observation + path delay + DPLL servo + TDMA 事件调度”五个可验证层。
 
 | DC 机制 | RP2350/VDC 对应项 | 当前状态 | 缺口 |
 |---|---|---|---|
@@ -336,10 +324,14 @@ DPLL 的输出不是直接修改本地硬件 timer，而是更新 VDC clock mode
 | `OFFSET` 偏移校正 | `VdcClockModel.phase_offset_ns` / `VdcDcoControl.phase_offset_ns`。 | 已由 `SyncDpllFB` accepted evidence 更新，且 quality 使用更新前入相残差。 | 需要接入真实 accepted hardware sample 后验证收敛速度和稳态 RMS。 |
 | `DRIFT_CORR` 漂移校正 | `period_adjust_ppb` / 后续 `rate_q32`。 | 已用 sample period 和 KI 产生首版 rate pull。 | 需要低频 discipline 统计 wander/temperature/aging，并区分快速 DPLL 与慢速驯服。 |
 | `PATH_DELAY` 传播延时 | `VdcPathDelayTable`、`VdcCalibrationBinding.delay_ns`、`VdcErrorBudget.path_delay_ns`。 | active path-delay table 同时携带 directed link facts 和完整 `observation_matrix`；矩阵参与 table CRC，运行态通过 source/reference 的确定性索引读取。 | 仍需形成 delay-measure frame、沿途 timestamp 回环计算和 cal CRC 失效触发 relock。 |
-| reference sync frame | TDMA `VDC_OBSERVATION_WINDOW` + `VDC_SYNC_SAMPLE/IDLE_BEACON`。 | payload 已挂到公共 TDMA；frame envelope 已显式编码 `reference_time_ns`、`next_frame_start_ns`、reference seq/frame/slot 和 schedule CRC，gate 会拒绝缺失或不一致的 reference sync block。 | 仍需把该 reference sync frame 接入真实 PIO transport 的连续循环，并与 delay-measure frame 共享沿途 timestamp 证据。 |
-| DC 时间驱动 TDMA | `vdc_domain_plan_tdma_window()` 和后续 core1 scheduler/DCO。 | 当前可按 active schedule 规划窗口，RefMem data window 已受 TDMA plan 约束。 | 还未由 `T_effective = local_time + offset/rate` 反驱 core1/PIO TDMA frame/slot 边界。 |
+| reference sync observation | 固定 `CYCLIC_PROCESS_IMAGE` 边沿 latch + `TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_*` trailer。 | trailer 随固定 SHORT 连续运行，当前 transport CRC 不再因 DPLL evidence 插帧增长；sequence、schedule/ring CRC 来自 transport header。 | 仍需让四板同圈 hardware latch 全部通过 path matrix/generation/freshness gate，并验证 VDC lock。 |
+| DC 时间驱动 TDMA | `vdc_domain_plan_tdma_window()` 和后续 core1 scheduler/DCO。 | 当前可按 active schedule 规划固定 event phase，RefMem region 与 DPLL trailer 已受同一 TDMA plan 约束。 | 还未由 `T_effective = local_time + offset/rate` 反驱 core1/PIO TDMA frame/slot 边界。 |
 
-因此，当前 DPLL 已经具备“offset/rate servo 内核”，但还不等于完整 DC。完整 DC 必须补齐 `reference time -> path delay -> effective time -> TDMA slot` 的闭环：reference slot 已能发出带 `reference_time_ns / next_frame_start_ns` 语义的 sync/idle frame，接收 slot 后续需要用硬件 timestamp latch 得到 `T_local_rx`，VDC owner 使用 active `PATH_DELAY` 计算入相误差并更新 `OFFSET/DRIFT_CORR`，core1 再消费 DCO snapshot 调整后续 TDMA 和 FIRE_LOAD。
+因此，当前 DPLL 已经具备“offset/rate servo 内核”，但还不等于完整 DC。完整 DC 必须补齐
+`reference time -> path delay -> effective time -> TDMA event` 的闭环：reference Node 把上一帧
+hardware TX latch 写入下一帧固定 trailer，接收 Node 用同圈本地 RX latch 得到 `T_local_rx`，VDC
+owner 使用 active `PATH_DELAY` matrix 计算入相误差并更新 `OFFSET/DRIFT_CORR`，core1 再消费 DCO
+snapshot 调整后续 TDMA 和 FIRE_LOAD。禁止恢复独立 sync/idle frame 来承载产品 DPLL observation。
 
 #### Calibration Link 与 Observation Path Matrix
 
@@ -557,7 +549,7 @@ VDC Domain 首版冻结以下基础表。字段可以分阶段实现，但 owner
 - `tick_l32` 小幅倒退默认拒绝；只有调用方明确给出 `max_backward_ticks` 才允许有限乱序。
 - `tick_l32` 从低值跳回接近 `0xFFFFFFFF` 判定为 stale/pre-wrap 样本并拒绝。
 
-`VdcCompactObservationSample` 是 PIO/DMA/core1 capture fact 进入 VDC 的最小载荷。它包含 `sample_seq`、`event_id`、`tick_l32`、expected window、CRC、质量摘要和 latch fact 声明的 timestamp source/resolution/flags；VDC owner 必须先用 active `VdcTimestampDictionary` 校验 event/source 语义，再用 `VdcWrapTracker` 扩展 tick，最后生成 `VdcTDMATimestampEvidence` 并经过 observation window gate。禁止 realtime IO、RefMem、SCPI 或 storage 直接构造 DPLL accepted sample。
+`VdcCompactObservationSample` 是 PIO/DMA/core1 capture fact 进入 VDC 的最小载荷。它包含 `sample_seq`、`event_id`、`tick_l32`、expected phase bound、CRC、质量摘要和 latch fact 声明的 timestamp source/resolution/flags；VDC owner 必须先用 active `VdcTimestampDictionary` 校验 event/source 语义，再用 `VdcWrapTracker` 扩展 tick，最后生成 `VdcTDMATimestampEvidence` 并经过 observation event gate。禁止 realtime IO、RefMem、SCPI 或 storage 直接构造 DPLL accepted sample。
 
 `VdcSyncIoAdapter` 是 VDC 侧的 raw capture word 适配层。它可以把 `sync_capture_4bit` 的 8 个 4-bit sample word 按 `sample_period_ns`、edge event id、observed mask 和 latch timestamp metadata 转换为 `VdcCompactObservationSample`；它不访问 `sync_io` 内部状态，不计算 DPLL，也不声明样本可锁相。样本是否具备 `HARDWARE_TICK / <=100 ns / DPLL_ELIGIBLE` 资格，由 latch fact 的 flags、active `VdcTimestampDictionary` 校验结果和 VDC gate 共同判定。
 
@@ -723,8 +715,8 @@ SYSTem:SYNC:VDC:DPLL:DEFAult
 - `SYSTem:SYNC:VDC:TDMA:RING?` 只输出 active ring profile 对本地节点的计划结果，包括 local/reference/upstream/downstream/feedback slot、hop 数、simultaneous flag、ring CRC 和 schedule CRC；它不提交 TDMA intent，不启动 observer，不写 DPLL。
 - `SYSTem:SYNC:VDC:PATH:DELay? [source_slot],[reference_slot]` 只读取 active `VdcPathDelayTable` 中的传播延时、jitter、stddev、cal CRC、freshness 和 writer；它不写校准结果，不触发 delay-measure，不改变 DPLL。
 - `SYSTem:SYNC:VDC:LOCK:READiness?` 只读取 VDC 最小实例的锁定输入条件和阻塞原因，区分 `input_ready` 与 `locked`；它不启动 capture，不提交样本，不写 offset/rate/lock。
-- `SYSTem:SYNC:VDC:OBServer:TDMA` 按 active `VDC_OBSERVATION_WINDOW` 配置 observer 的 expected window/base，是最小实例 bring-up 入口；它不启动 capture，不提升 timestamp flags，不写 DPLL。
-- `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest` 是维护态 VDC/TDMA bring-up 入口：TX 角色向公共 TDMA service 提交 `VDC_SYNC_SAMPLE` short frame intent，RX 角色由 VDC manager 按 active TDMA schedule 周期性 arm observation window 并启动 SYNC_IO capture。当前 TX self-test evidence 必须保持 `SOFTWARE_US / 1000 ns / DIAGNOSTIC_ONLY`，只能证明 TDMA payload 到 VDC gate 的诊断通路；命令不写 lock/offset/rate，正式 DPLL lock 仍必须等待 PIO edge latch 产生 `HARDWARE_TICK / <=100 ns / DPLL_ELIGIBLE` 样本。
+- `SYSTem:SYNC:VDC:OBServer:TDMA` 按 active `VDC_OBSERVATION_WINDOW` 兼容配置结构设置 observer 的 expected phase/base，是最小实例 bring-up 入口；它不启动 capture，不提升 timestamp flags，不写 DPLL，也不定义产品 wire frame。
+- `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest` 是维护态 VDC/TDMA bring-up 入口：TX 角色可向公共 TDMA service 提交 diagnostic-only `VDC_SYNC_SAMPLE` short-frame intent，RX 角色由 VDC manager 按 active TDMA schedule arm observation event 并启动 SYNC_IO capture。该独立诊断帧不得进入产品 RUN 或替代 `CYCLIC_PROCESS_IMAGE`。当前 TX self-test evidence 必须保持 `SOFTWARE_US / 1000 ns / DIAGNOSTIC_ONLY`，只能证明 TDMA payload 到 VDC gate 的诊断通路；命令不写 lock/offset/rate，正式 DPLL lock 仍必须等待 PIO edge latch 产生 `HARDWARE_TICK / <=100 ns / DPLL_ELIGIBLE` 样本。
 - `SYSTem:SYNC:VDC:OBServer` 只配置 VDC manager 的 SYNC_IO raw capture observer；无参数或 `0` 关闭 observer，启用态必须由维护工具显式给出 event id、tick base、sample period、window 和 frame CRC，不启动 capture、不伪造 lock evidence。
 - `SYSTem:SYNC:VDC:OBServer?` 只读取 observer 证据计数、当前配置 CRC/字典 CRC 和最近一次 dictionary 展开结果；它是 HIL 证据视图，不是 DPLL lock 判据。
 - 禁止新增 `VDC:*`、`DPLL:*`、`STATus:VDC?`、`STATus:DPLL?`。

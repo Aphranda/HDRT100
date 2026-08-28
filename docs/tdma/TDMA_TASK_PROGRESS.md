@@ -19,8 +19,9 @@ Last updated: 2026-08-28
 拍级 Core1 schedule、mandatory-first Node mailbox 与四节点 TDMA 环路已形成闭环基线；NO5
 仅作为 SMA/DPLL 观测节点，不加入 TDMA 物理环路。
 `TDMA-DET-001`、`TDMA-DET-002`、`TDMA-DET-003`、`TDMA-PAYLOAD-001` 和
-`TDMA-PAYLOAD-005` 已完成；VDC/DPLL 最小字段已运行，但量化/饱和、硬件边沿 latch 和正式
-active calibration 仍未完成，因此 `TDMA-PAYLOAD-002`、`TDMA-PAYLOAD-003` 和
+`TDMA-PAYLOAD-005` 已完成；DPLL observation 已改为固定 process-image trailer，启用后四板
+transport bad 保持为零，但 NO1–NO3 mailbox bitmap 仍不完整，NO1 SD capture latch 仍超时。
+因此硬件 observation 尚不能进入正式 VDC，`TDMA-PAYLOAD-002`、`TDMA-PAYLOAD-003` 和
 `TDMA-PAYLOAD-004` 继续保持 `IN PROGRESS`。
 
 ## 验证与证据索引
@@ -30,6 +31,7 @@ active calibration 仍未完成，因此 `TDMA-PAYLOAD-002`、`TDMA-PAYLOAD-003`
 | TDMA-PROGRESS-20260828-001 | TDMA-DET-001..003、TDMA-PAYLOAD-001..005 | `out/tdma_cycle_schedule/`、`out/tdma_process_image_budget/`、`out/build/pico2-release/`、`out/pytest/`。 |
 | TDMA-PROGRESS-20260828-002 | TDMA-M1、TDMA-M2、TDMA-DET-003、TDMA-PAYLOAD-001/005 | `out/tdma_cycle_schedule/foundation_sync_trigger21.md`、`out/tdma_process_image_budget/current.md`、`out/ota/tdma_foundation_sync21_final_20260828/`。 |
 | TDMA-PROGRESS-20260828-003 | TDMA-M4、TDMA-DET-003 | `out/build/recovery-20260828/DHRT100_UPDATE.pkg`、`out/ota/tdma-recovery-20260828-r2/summary.json`、`out/tdma/ring-baseline-20260828-four/`、`out/tdma/tdma_recovery_budget_20260828.md`。 |
+| TDMA-PROGRESS-20260828-004 | TDMA-PAYLOAD-002、TDMA-DPLL-001、TDMA-HIL-002 | `out/build/dpll-load-20260828/`、`out/ota/dpll-fixed-load-20260828/`、`out/training/trn03b_four_dpll_fixed_load_20260828/summary.json`、`out/tdma_process_image_budget/dpll_fixed_load_20260828.md`。 |
 
 ## 失败与回退
 
@@ -39,11 +41,37 @@ active calibration 仍未完成，因此 `TDMA-PAYLOAD-002`、`TDMA-PAYLOAD-003`
 
 ## 下一 gate
 
-基础负载的五板 OTA/HIL 已通过；下一 gate 是先保持该固定 schedule，补齐 TDMA-only 频率/占空比
-与 SD 原始波形长期证据，再逐 phase 启用仍在 staging 的校准、模型和触发测量负载。任何新增
-负载必须先通过静态预算和编译门禁，不能运行时借用 guard 或“看起来有余量”的拍。
+五板 OTA 已完成，实际 TDMA/RefMem 运行边界为 NO1–NO4 四板环路，NO5 仅作环外观测。下一 gate
+保持固定 wire plan，先定位 NO1–NO3 mailbox bitmap incomplete 并修复 NO1 SD capture latch，
+再补齐频率/占空比、原始波形和 DPLL eligible observation/VDC lock 证据。任何新增负载必须先
+通过静态预算和编译门禁，不能运行时借用 guard 或“看起来有余量”的拍。
 
 ## 按时间追加的任务记录
+
+### TDMA-PROGRESS-20260828-004 - DPLL 作为固定 process-image 负载
+
+- TODO task ID：`TDMA-PAYLOAD-002`、`TDMA-DPLL-001`、`TDMA-HIL-002`。
+- 日期：2026-08-28。
+- 变更/提交：代码提交 `c027bf5`，工具说明提交 `3e6883e`，均已推送。
+- 完成内容：
+  - 删除 reference 每隔固定周期以独立 `IDLE_BEACON` clock-evidence 替换 process image 的路径。
+  - 固定 SHORT payload 改为 Node image 加全局 DPLL observation trailer；frame N 的 trailer 携带
+    frame N-1 的 reference TX hardware latch，sequence 由当前 transport header 隐式关联。
+  - DPLL disabled 只清 trailer valid bit；enabled/disabled 的 payload class、flags、wire length、
+    transport sequence 和 PIO physical byte count 保持一致。
+  - 增加模 timestamp 回绕重建、固定帧型 A/B、预算工具和编译断言。
+- 构建/测试：host adapter 单测通过；TDMA/TRN-03 定向 pytest `79 passed`，工具回归
+  `68 passed`；`pico2-rtos-multicore-smoke` A/B/Boot 构建通过，build 快照为
+  `20260828035648`，package CRC 快照为 `0x4C12155F`。
+- OTA/HIL：NO1–NO4 四板异步 OTA 全部 PASS；NO5 未加入 TDMA/RefMem 环路。启用 DPLL fixed
+  load 的四板 process-image 运行中，各 Node `ring_adapter_rx_bad_count` 与
+  `ring_adapter_rx_transport_bad_count` 增量均为零，证明旧的周期性 transport CRC 失配已消失。
+- 未通过项：整体 HIL 仍为 FAIL。NO1–NO3 存在 `receive_bitmap_incomplete` / receive reject；NO4
+  通过 process-image gate。SD raw capture 在 NO1 返回 latch timeout，因此本轮没有生成波形分析。
+  这些失败与 clock-evidence 插帧已解耦，不能据此宣称 `TDMA-PAYLOAD-002` 或 `TDMA-HIL-002`
+  完成。
+- 下一步：保持固定 wire plan 不变，定位 NO1–NO3 mailbox presence 的间歇缺失，并单独修复
+  NO1 SD capture latch；随后重跑四板长稳和 DPLL eligible observation/VDC lock gate。
 
 ### TDMA-PROGRESS-20260828-003 - DPLL/VDC 阶段性闭环与非阻塞物理提交
 

@@ -30,15 +30,15 @@ OTA/HIL 的任务不得标为 `DONE`；运行时临时剩余容量不得用于�
 
 ## 当前主线
 
-先完成拍级确定性 schedule 和 mandatory-first SHORT process image，再以五板 TDMA-only HIL
-冻结 WCET/波形基线；随后逐 phase 加载 DPLL/VDC、RefMem 与最小控制。任何负载回归都修复责任
+先完成拍级确定性 schedule 和 mandatory-first SHORT process image，再以 NO1–NO4 四板环路和
+NO5 环外观测冻结 WCET/波形基线；随后逐 phase 加载 DPLL/VDC、RefMem 与最小控制。任何负载回归都修复责任
 负载，不放宽 TDMA phase。
 
 ## 里程碑总览
 
 | ID | 里程碑 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
-| TDMA-M1 | 拍级 schedule 与编译门禁 | DONE | 静态 gate 全绿，五板实测 WCET 不超合同。 |
+| TDMA-M1 | 拍级 schedule 与编译门禁 | DONE | 静态 gate 全绿，NO1–NO4 环路实测 WCET 不超合同。 |
 | TDMA-M2 | mandatory-first SHORT process image | DONE | 固定布局、publisher/parser、CRC、SCPI 与多板 HIL 全闭环。 |
 | TDMA-M3 | DPLL/VDC 最小负载 | IN PROGRESS | 基础字段已随固定周期运行；仍需硬件 latch 样本可追溯、节点锁相且发布 VDC。 |
 | TDMA-M4 | completion/reliability | PENDING | ACK/fence/retry/fail-closed 与长期错误率门禁成立。 |
@@ -54,13 +54,13 @@ OTA/HIL 的任务不得标为 `DONE`；运行时临时剩余容量不得用于�
 | TDMA-DET-004 | 拆分 prepare/preload/hardware-launch/wire/feedback | PENDING | 首边沿由 PIO/硬件事件触发，各子 phase 有独立拍级合同。 |
 | TDMA-DET-005 | active topology/baud/tail 动态容量门禁 | PENDING | profile 激活前重算 wire，超出 TDMA WCET fail closed。 |
 | TDMA-PAYLOAD-001 | mandatory-first Node body 预算与固定布局 | DONE | `tdma_process_image_layout.h`、编译断言和预算工具一致。 |
-| TDMA-PAYLOAD-002 | compact VDC/DPLL publisher/parser evidence | IN PROGRESS | 最小字段已上 wire 并通过五板运行计数；量化/饱和及硬件 latch HIL 待完成。 |
+| TDMA-PAYLOAD-002 | 固定 DPLL observation 与 compact VDC/DPLL output | IN PROGRESS | 独立 clock-evidence 替换帧已移除；固定 trailer、Node output、量化/回绕 host gate 及四板零 transport bad 已完成，待 mailbox bitmap 稳定且 hardware latch 可进入 VDC。 |
 | TDMA-PAYLOAD-003 | critical RefMem 与 ACK/fence/quality | IN PROGRESS | baseline delta 与 ACK 摘要已上 wire；待正式 commit/fence 闭环。 |
 | TDMA-PAYLOAD-004 | 最小控制 token | IN PROGRESS | 固定 token 已预留；待 owner、opcode 与 completion 接入。 |
 | TDMA-PAYLOAD-005 | optional 静态余量准入门禁 | DONE | optional 只使用 mandatory 后余量，layout 不保留 runtime-free 字节。 |
-| TDMA-HIL-001 | 五板 TDMA-only WCET/频率/占空比/SD 波形基线 | PENDING | OTA 后原始波形、SVG、schedule snapshot 与零错误基线归档。 |
+| TDMA-HIL-001 | 四板 TDMA 环路 + NO5 环外观测的 WCET/频率/占空比/SD 波形基线 | PENDING | OTA 后原始波形、SVG、schedule snapshot 与零错误基线归档；NO5 不进入环路 bitmap/WKC。 |
 | TDMA-HIL-002 | 逐 phase 开载且 TDMA 零回归 | PENDING | 依次启用 VDC/DPLL/RefMem/control，TDMA deadline/error 不增加。 |
-| TDMA-DPLL-001 | PIO/DMA hardware latch correlation | IN PROGRESS | PIO/DMA TX completion 与 clock-latch 证据已接入；仍需 active PATH_DELAY 和五板同圈 eligible sample。 |
+| TDMA-DPLL-001 | PIO/DMA hardware latch correlation | IN PROGRESS | reference TX latch 已作为固定 process-image trailer 关联上一帧 sequence；仍需 active PATH_DELAY、四板同圈 eligible sample 和 wrap/失配 HIL。 |
 | TDMA-DPLL-002 | 节点 DPLL lock 与 VDC 发布 | IN PROGRESS | 四节点 TDMA 同时收发和参考反馈已实测；NO1..NO4 仍为 CHECKING，NO5 观测工具已固化，待 eligible sample 后验证指定间隔/同时触发。 |
 | TDMA-REL-001 | ACK/fence/retry 和长期稳定性策略 | PENDING | 原始错误率先收敛，再以有界重发/修复完成 EtherCAT-style 验收。 |
 | TDMA-REL-002 | 单 Node recovery 双冗余 buffer 与固定预算 | PENDING | 静态 recovery budget、双 buffer 交替填充/发送、每周期最多一帧；构建/DeploymentGate、双/四/八节点 HIL 和超限回退证据齐全。 |
@@ -281,7 +281,7 @@ OTA/HIL 的任务不得标为 `DONE`；运行时临时剩余容量不得用于�
 
 - [ ] 冻结 ring frame timestamp evidence：reference TX、每 hop RX/TX、feedback RX、schedule CRC、frame CRC、timestamp source/resolution/flags。
 - [x] 冻结两板首版 reference TX / feedback RX 最小相关结构和只读 snapshot；多节点逐 hop evidence table 尚未完成。
-- [ ] TDMA observation window 产生 `HARDWARE_TICK / <=100 ns / !DIAGNOSTIC_ONLY` 样本后，VDC 才允许 DPLL accepted。
+- [ ] 固定 TDMA observation event 产生 `HARDWARE_TICK / <=100 ns / !DIAGNOSTIC_ONLY` 样本后，VDC 才允许 DPLL accepted。
 - [ ] 软件时间戳、host 耗时、单向 leg self-test 只能作为 diagnostic evidence。
 - [ ] 长监控末端输出 summary + SVG，区分 leg monitor、TDMA ring runtime 和 VDC lock quality。
 
