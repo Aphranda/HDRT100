@@ -16,7 +16,9 @@ def test_mandatory_first_layout_fills_node_body() -> None:
     assert budget.optional_body_capacity == 1
     assert budget.optional_body_bytes == 1
     assert budget.runtime_free_bytes == 0
-    assert budget.process_image_bytes == 256
+    assert budget.node_image_bytes == 256
+    assert budget.dpll_observation_bytes == 4
+    assert budget.process_image_bytes == 260
     assert validate_budget(budget) == []
 
 
@@ -43,3 +45,4 @@ def test_budget_report_exposes_priority_and_capacity() -> None:
     assert "vdc_dpll | mandatory" in report
     assert "diagnostic | optional" in report
     assert "runtime-free: 0 B" in report
+    assert "DPLL observation trailer: 4 B" in report

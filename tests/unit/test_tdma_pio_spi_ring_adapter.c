@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "tdma_pio_spi_ring_adapter.h"
+#include "tdma_process_image_layout.h"
 #include "tdma_ring_runtime.h"
 #include "tdma_transport_frame.h"
 
@@ -97,21 +98,6 @@ static void test_put_u32_le(uint8_t *dst, uint32_t value)
     for (uint32_t i = 0u; i < 4u; i++) {
         dst[i] = (uint8_t)(value >> (i * 8u));
     }
-}
-
-static void test_put_u64_le(uint8_t *dst, uint64_t value)
-{
-    for (uint32_t i = 0u; i < 8u; i++) {
-        dst[i] = (uint8_t)(value >> (i * 8u));
-    }
-}
-
-static uint32_t test_get_u32_le(const uint8_t *src)
-{
-    return (uint32_t)src[0] |
-           ((uint32_t)src[1] << 8u) |
-           ((uint32_t)src[2] << 16u) |
-           ((uint32_t)src[3] << 24u);
 }
 
 static bool flight_rx(void *context,
@@ -208,6 +194,14 @@ static void phys_ctrl_stub_disarm(void *context)
     if (ctrl != NULL && ctrl->disarm_calls != NULL) {
         (*ctrl->disarm_calls)++;
     }
+}
+
+static uint32_t test_get_u32_le(const uint8_t *src)
+{
+    return (uint32_t)src[0] |
+           ((uint32_t)src[1] << 8u) |
+           ((uint32_t)src[2] << 16u) |
+           ((uint32_t)src[3] << 24u);
 }
 
 static bool phys_timestamp_stub_ready(void *context,
@@ -734,6 +728,12 @@ int main(void)
         failed += expect_bool("clock evidence re-enable while stopped",
                               tdma_pio_spi_ring_adapter_set_clock_evidence_enabled(
                                   &adapter, true), true);
+        failed += expect_bool(
+            "packet diagnostic fixed physical length",
+            tdma_pio_spi_ring_adapter_set_forwarding_mode(
+                &adapter,
+                TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_FLIGHT),
+            true);
         tdma_pio_spi_ring_adapter_set_phys(&adapter,
                                            loopback_tx,
                                            loopback_rx,
@@ -793,8 +793,8 @@ int main(void)
         failed += expect_u32("payload observed byte",
                              snapshot.last_bad_packet_observed_byte,
                              observed_byte);
-        failed += expect_u32("payload classified clock evidence",
-                             snapshot.last_bad_clock_evidence, 1u);
+        failed += expect_u32("idle payload is not DPLL evidence",
+                             snapshot.last_bad_clock_evidence, 0u);
         failed += expect_bool("payload CRC differs",
                               snapshot.last_bad_expected_payload_crc32 !=
                                   snapshot.last_bad_observed_payload_crc32,
@@ -1147,9 +1147,8 @@ int main(void)
                              snapshot.feedback_rx_timestamp_ns, 1000500ull);
     }
 
-    /* --- A feedback edge may be consumed before the next evidence beacon is
-     * built. The exact-sequence record must remain available for that later
-     * clock payload, while stale/identity-mismatched records stay closed. --- */
+    /* --- The bounded TX-evidence ring retains exact sequence identity while
+     * stale or identity-mismatched feedback remains fail-closed. --- */
     {
         tdma_pio_spi_ring_adapter_t adapter;
         tdma_pio_spi_ring_adapter_snapshot_t snapshot;
@@ -1158,7 +1157,6 @@ int main(void)
         const tdma_ring_runtime_config_t config = make_valid_config();
         uint8_t first_packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
         size_t first_packet_size = 0u;
-        bool evidence_seen = false;
 
         memset(&phys, 0, sizeof(phys));
         phys.tx_timestamp_ns = 1000000ull;
@@ -1193,15 +1191,9 @@ int main(void)
                 first_packet_size = phys.last_tx_size;
                 memcpy(first_packet, phys.last_tx, first_packet_size);
             }
-            if (decoded && view.transport_sequence == 16u &&
-                view.payload_size >= TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_SIZE &&
-                test_get_u32_le(&view.payload[0]) ==
-                    TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_MAGIC) {
-                evidence_seen = test_get_u32_le(&view.payload[8]) == 15u;
-            }
         }
-        failed += expect_bool("feedback-before-evidence payload",
-                              evidence_seen, true);
+        failed += expect_bool("TX evidence source frame captured",
+                              first_packet_size != 0u, true);
 
         /* Sequence 1 was overwritten by sequence 9 in the modulo-8 ring;
          * injecting that stale frame must not recreate feedback evidence. */
@@ -2309,8 +2301,8 @@ int main(void)
                              engine_snapshot.rx_bitmap_duplicate_count, 1u);
     }
 
-    /* --- A follower correlates reference TX evidence carried by the next
-     * idle beacon with its cached local RX latch for the original frame. --- */
+    /* --- A follower correlates the fixed DPLL trailer in process frame N+1
+     * with its cached local RX latch for process frame N. --- */
     {
         tdma_pio_spi_ring_adapter_t adapter;
         tdma_pio_spi_ring_adapter_snapshot_t snapshot;
@@ -2337,17 +2329,22 @@ int main(void)
                               tdma_pio_spi_ring_adapter_ops()->start(
                                   &adapter, &config), true);
 
+        uint8_t payload[TDMA_FLIGHT_SHORT_PAYLOAD_SIZE];
+        tdma_flight_engine_fill_alignment_symbols(payload, sizeof(payload));
+        test_put_u32_le(
+            &payload[TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET], 0u);
         tdma_transport_frame_build_t build = {
             .frame_class = TDMA_TRANSPORT_FRAME_CLASS_SHORT,
             .origin_slot_id = 0u,
             .transport_sequence = 1u,
-            .payload_class = TDMA_PAYLOAD_CLASS_IDLE_BEACON,
-            .flags = TDMA_TRANSPORT_FLAG_IDLE_BEACON,
+            .payload_class = TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE,
+            .flags = TDMA_TRANSPORT_FLAG_REQUIRE_FEEDBACK |
+                     TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE,
             .schedule_crc32 = config.schedule_crc32,
             .ring_profile_crc32 = config.ring_profile_crc32,
             .hop_limit = config.node_count - 1u,
-            .payload = NULL,
-            .payload_size = 0u,
+            .payload = payload,
+            .payload_size = sizeof(payload),
         };
         failed += expect_bool("clock source frame encode",
                               tdma_transport_frame_encode(
@@ -2366,20 +2363,10 @@ int main(void)
                               tdma_pio_spi_ring_adapter_ops()->service(
                                   &adapter, 1000ull, &status), true);
 
-        uint8_t payload[TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_SIZE] = {0};
-        test_put_u32_le(&payload[0],
-                        TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_MAGIC);
-        payload[4] = TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_VERSION;
-        payload[6] = TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_SIZE;
-        test_put_u32_le(&payload[8], 1u);
-        test_put_u32_le(&payload[12], source_frame_crc32);
-        test_put_u64_le(&payload[16], 2000000ull);
-        test_put_u32_le(&payload[24], 8u);
-        test_put_u32_le(&payload[28],
-                        TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED);
+        test_put_u32_le(
+            &payload[TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET],
+            tdma_process_image_dpll_observation_encode(2000000ull));
         build.transport_sequence = 2u;
-        build.payload = payload;
-        build.payload_size = sizeof(payload);
         failed += expect_bool("clock evidence frame encode",
                               tdma_transport_frame_encode(
                                   &build, packet, sizeof(packet), &packet_size,
@@ -2417,6 +2404,117 @@ int main(void)
                              snapshot.clock_observation_count, 1u);
         failed += expect_u32("clock observation rejects",
                              snapshot.clock_observation_reject_count, 0u);
+    }
+
+    /* --- Compact DPLL timestamp reconstruction is stable across modulo
+     * wrap and the trailer closes the fixed SHORT process image. --- */
+    {
+        const uint64_t reference_tx =
+            (((uint64_t)TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_MASK - 1ull) *
+             TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_QUANTUM_NS);
+        const uint64_t local_rx = reference_tx + 100ull;
+        uint64_t decoded_reference_tx = 0ull;
+        failed += expect_u32("Node image bytes",
+                             TDMA_FLIGHT_NODE_IMAGE_SIZE, 256u);
+        failed += expect_u32("fixed process payload bytes",
+                             TDMA_FLIGHT_SHORT_PAYLOAD_SIZE, 260u);
+        failed += expect_bool(
+            "DPLL observation wrap decode",
+            tdma_process_image_dpll_observation_decode(
+                tdma_process_image_dpll_observation_encode(reference_tx),
+                local_rx,
+                &decoded_reference_tx),
+            true);
+        failed += expect_u64("DPLL observation wrap timestamp",
+                             decoded_reference_tx, reference_tx);
+    }
+
+    /* --- Enabling DPLL evidence changes only the fixed trailer value.  The
+     * product frame class, flags, length and sequence stay identical. --- */
+    {
+        uint32_t observed_class[2] = {0u, 0u};
+        uint32_t observed_flags[2] = {0u, 0u};
+        uint32_t observed_size[2] = {0u, 0u};
+        uint32_t observed_sequence[2] = {0u, 0u};
+        uint32_t observed_trailer[2] = {0u, 0u};
+        for (uint32_t enabled = 0u; enabled < 2u; enabled++) {
+            tdma_pio_spi_ring_adapter_t adapter;
+            tdma_flight_engine_t engine;
+            loopback_phys_t phys;
+            tdma_ring_adapter_status_t status;
+            tdma_ring_runtime_config_t config = make_valid_config();
+            tdma_process_image_map_t map = make_eight_slot_flight_map();
+            tdma_transport_frame_view_t view;
+            tdma_transport_result_t result = TDMA_TRANSPORT_OK;
+            memset(&phys, 0, sizeof(phys));
+            phys.suppress_echo = true;
+            phys.tx_timestamp_ns = 4000000ull;
+            failed += expect_bool("fixed load adapter init",
+                                  tdma_pio_spi_ring_adapter_init(&adapter),
+                                  true);
+            set_test_sequential_topology(&adapter, config.node_count);
+            failed += expect_bool("fixed load engine init",
+                                  tdma_flight_engine_init(&engine), true);
+            failed += expect_bool("fixed load map config",
+                                  tdma_flight_engine_configure(&engine, &map),
+                                  true);
+            tdma_pio_spi_ring_adapter_set_phys(&adapter,
+                                               loopback_tx,
+                                               loopback_rx,
+                                               &phys);
+            tdma_pio_spi_ring_adapter_set_flight_engine(&adapter, &engine);
+            tdma_pio_spi_ring_adapter_set_timestamp_metadata(
+                &adapter, 4u, TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED);
+            failed += expect_bool(
+                "fixed load forwarding mode",
+                tdma_pio_spi_ring_adapter_set_forwarding_mode(
+                    &adapter,
+                    TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE),
+                true);
+            failed += expect_bool(
+                "fixed load evidence setting",
+                tdma_pio_spi_ring_adapter_set_clock_evidence_enabled(
+                    &adapter, enabled != 0u),
+                true);
+            failed += expect_bool("fixed load start",
+                                  tdma_pio_spi_ring_adapter_ops()->start(
+                                      &adapter, &config),
+                                  true);
+            for (uint32_t tick = 0u;
+                 tick < 8u && adapter.tx_count < 2u;
+                 tick++) {
+                (void)tdma_pio_spi_ring_adapter_ops()->service(
+                    &adapter, (uint64_t)tick * 2000ull, &status);
+            }
+            failed += expect_bool("fixed load decode",
+                                  tdma_transport_frame_decode(
+                                      phys.last_tx,
+                                      phys.last_tx_size,
+                                      &view,
+                                      &result),
+                                  true);
+            observed_class[enabled] = view.payload_class;
+            observed_flags[enabled] = view.flags;
+            observed_size[enabled] = view.payload_size;
+            observed_sequence[enabled] = view.transport_sequence;
+            observed_trailer[enabled] = test_get_u32_le(
+                &view.payload[TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET]);
+        }
+        failed += expect_u32("DPLL fixed frame class",
+                             observed_class[1], observed_class[0]);
+        failed += expect_u32("DPLL fixed frame flags",
+                             observed_flags[1], observed_flags[0]);
+        failed += expect_u32("DPLL fixed frame size",
+                             observed_size[1], observed_size[0]);
+        failed += expect_u32("DPLL fixed frame sequence",
+                             observed_sequence[1], observed_sequence[0]);
+        failed += expect_u32("DPLL disabled trailer",
+                             observed_trailer[0], 0u);
+        failed += expect_bool("DPLL enabled trailer valid",
+                              (observed_trailer[1] &
+                               TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_VALID_MASK) !=
+                                  0u,
+                              true);
     }
 
     if (failed != 0) {

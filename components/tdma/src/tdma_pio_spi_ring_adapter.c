@@ -2,29 +2,13 @@
 
 #include <string.h>
 
-static void tdma_pio_spi_ring_put_u16(uint8_t *dst, uint16_t value)
-{
-    dst[0] = (uint8_t)(value & 0xFFu);
-    dst[1] = (uint8_t)(value >> 8u);
-}
+#include "tdma_process_image_layout.h"
 
 static void tdma_pio_spi_ring_put_u32(uint8_t *dst, uint32_t value)
 {
     for (uint32_t i = 0u; i < 4u; i++) {
         dst[i] = (uint8_t)(value >> (i * 8u));
     }
-}
-
-static void tdma_pio_spi_ring_put_u64(uint8_t *dst, uint64_t value)
-{
-    for (uint32_t i = 0u; i < 8u; i++) {
-        dst[i] = (uint8_t)(value >> (i * 8u));
-    }
-}
-
-static uint16_t tdma_pio_spi_ring_get_u16(const uint8_t *src)
-{
-    return (uint16_t)((uint16_t)src[0] | (uint16_t)src[1] << 8u);
 }
 
 static uint32_t tdma_pio_spi_ring_get_u32(const uint8_t *src)
@@ -36,20 +20,19 @@ static uint32_t tdma_pio_spi_ring_get_u32(const uint8_t *src)
     return value;
 }
 
-static uint64_t tdma_pio_spi_ring_get_u64(const uint8_t *src)
-{
-    uint64_t value = 0ull;
-    for (uint32_t i = 0u; i < 8u; i++) {
-        value |= (uint64_t)src[i] << (i * 8u);
-    }
-    return value;
-}
-
-static bool tdma_pio_spi_ring_adapter_build_clock_payload(
+static bool tdma_pio_spi_ring_adapter_build_dpll_observation(
     const tdma_pio_spi_ring_adapter_t *adapter,
-    uint8_t payload[TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_SIZE])
+    uint8_t *payload,
+    size_t payload_size)
 {
-    if (adapter == NULL || payload == NULL || adapter->up_sequence == 0u ||
+    if (payload == NULL ||
+        payload_size != TDMA_FLIGHT_SHORT_PAYLOAD_SIZE) {
+        return false;
+    }
+    tdma_pio_spi_ring_put_u32(
+        &payload[TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET], 0u);
+    if (adapter == NULL || adapter->clock_evidence_enabled == 0u ||
+        adapter->up_sequence == 0u ||
         adapter->timestamp_resolution_ns == 0u ||
         (adapter->timestamp_flags &
          TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED) == 0u ||
@@ -68,69 +51,55 @@ static bool tdma_pio_spi_ring_adapter_build_clock_payload(
         return false;
     }
 
-    memset(payload, 0, TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_SIZE);
-    tdma_pio_spi_ring_put_u32(&payload[0],
-                              TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_MAGIC);
-    tdma_pio_spi_ring_put_u16(&payload[4],
-                              TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_VERSION);
-    tdma_pio_spi_ring_put_u16(&payload[6],
-                              TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_SIZE);
-    tdma_pio_spi_ring_put_u32(&payload[8], sequence);
+    const uint32_t encoded =
+        tdma_process_image_dpll_observation_encode(
+            adapter->reference_tx_evidence[evidence_index].timestamp_ns);
     tdma_pio_spi_ring_put_u32(
-        &payload[12],
-        adapter->reference_tx_evidence[evidence_index].identity_crc32);
-    tdma_pio_spi_ring_put_u64(
-        &payload[16],
-        adapter->reference_tx_evidence[evidence_index].timestamp_ns);
-    tdma_pio_spi_ring_put_u32(&payload[24],
-                              adapter->timestamp_resolution_ns);
-    tdma_pio_spi_ring_put_u32(&payload[28], adapter->timestamp_flags);
+        &payload[TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET], encoded);
     return true;
 }
 
-static bool tdma_pio_spi_ring_adapter_correlate_clock_payload(
+static bool tdma_pio_spi_ring_adapter_correlate_dpll_observation(
     tdma_pio_spi_ring_adapter_t *adapter,
     const tdma_transport_frame_view_t *view)
 {
     if (adapter == NULL || view == NULL ||
-        view->payload_class != TDMA_PAYLOAD_CLASS_IDLE_BEACON ||
-        view->payload_size < TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_SIZE ||
+        adapter->clock_evidence_enabled == 0u ||
+        view->payload_class != TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE ||
+        (view->flags & TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE) == 0u ||
+        view->payload_size != TDMA_FLIGHT_SHORT_PAYLOAD_SIZE ||
         view->payload == NULL ||
-        tdma_pio_spi_ring_get_u32(&view->payload[0]) !=
-            TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_MAGIC ||
-        tdma_pio_spi_ring_get_u16(&view->payload[4]) !=
-            TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_VERSION ||
-        tdma_pio_spi_ring_get_u16(&view->payload[6]) !=
-            TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_SIZE) {
+        view->transport_sequence <=
+            TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_SEQUENCE_LAG) {
         return false;
     }
 
-    const uint32_t sequence = tdma_pio_spi_ring_get_u32(&view->payload[8]);
-    const uint32_t frame_crc32 =
-        tdma_pio_spi_ring_get_u32(&view->payload[12]);
-    const uint64_t reference_tx_timestamp_ns =
-        tdma_pio_spi_ring_get_u64(&view->payload[16]);
-    const uint32_t reference_resolution_ns =
-        tdma_pio_spi_ring_get_u32(&view->payload[24]);
-    const uint32_t reference_flags =
-        tdma_pio_spi_ring_get_u32(&view->payload[28]);
+    const uint32_t encoded = tdma_pio_spi_ring_get_u32(
+        &view->payload[TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET]);
+    if ((encoded & TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_VALID_MASK) == 0u) {
+        return false;
+    }
+    const uint32_t sequence = view->transport_sequence -
+        TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_SEQUENCE_LAG;
     const uint32_t evidence_index = sequence %
         TDMA_PIO_SPI_RING_ADAPTER_RX_EVIDENCE_DEPTH;
-    const bool reference_eligible = sequence != 0u && frame_crc32 != 0u &&
-        reference_tx_timestamp_ns != 0ull && reference_resolution_ns != 0u &&
-        (reference_flags & TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED) != 0u &&
-        (reference_flags & TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) == 0u;
     const bool local_eligible = adapter->timestamp_resolution_ns != 0u &&
         (adapter->timestamp_flags &
          TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED) != 0u &&
         (adapter->timestamp_flags &
          TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) == 0u;
-    if (!reference_eligible || !local_eligible ||
+    if (!local_eligible ||
         !adapter->local_rx_evidence[evidence_index].valid ||
         adapter->local_rx_evidence[evidence_index].sequence != sequence ||
-        adapter->local_rx_evidence[evidence_index].identity_crc32 !=
-            frame_crc32 ||
+        adapter->local_rx_evidence[evidence_index].identity_crc32 == 0u ||
         adapter->local_rx_evidence[evidence_index].timestamp_ns == 0ull) {
+        return false;
+    }
+    uint64_t reference_tx_timestamp_ns = 0ull;
+    if (!tdma_process_image_dpll_observation_decode(
+            encoded,
+            adapter->local_rx_evidence[evidence_index].timestamp_ns,
+            &reference_tx_timestamp_ns)) {
         return false;
     }
 
@@ -141,12 +110,14 @@ static bool tdma_pio_spi_ring_adapter_correlate_clock_payload(
     observation.source_node = adapter->config.local_slot_id;
     observation.reference_node = view->origin_slot_id;
     observation.correlated_sequence = sequence;
-    observation.frame_crc32 = frame_crc32;
+    observation.frame_crc32 =
+        adapter->local_rx_evidence[evidence_index].identity_crc32;
     observation.schedule_crc32 = view->schedule_crc32;
     observation.timestamp_resolution_ns =
-        reference_resolution_ns > adapter->timestamp_resolution_ns
-            ? reference_resolution_ns
-            : adapter->timestamp_resolution_ns;
+        adapter->timestamp_resolution_ns >
+                TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_QUANTUM_NS
+            ? adapter->timestamp_resolution_ns
+            : TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_QUANTUM_NS;
     observation.timestamp_flags =
         TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED;
     observation.correlated_frame_evidence = 1u;
@@ -711,35 +682,37 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
     tdma_pio_spi_ring_adapter_t *adapter)
 {
     tdma_flight_tx_view_t tx_view;
+    memset(&tx_view, 0, sizeof(tx_view));
     const bool has_flight_tx =
         adapter->flight_fifo != NULL &&
         tdma_flight_fifo_core1_acquire_tx(adapter->flight_fifo, &tx_view);
     const uint32_t sequence = adapter->up_sequence + 1u;
     uint8_t empty_process_payload[TDMA_TRANSPORT_SHORT_PAYLOAD_MAX];
     uint8_t process_payload[TDMA_TRANSPORT_SHORT_PAYLOAD_MAX];
-    uint8_t clock_payload[TDMA_TRANSPORT_SHORT_PAYLOAD_MAX];
-    tdma_flight_engine_fill_alignment_symbols(clock_payload,
-                                               sizeof(clock_payload));
-    size_t fixed_flight_payload_size = sizeof(clock_payload);
+    uint8_t alignment_payload[TDMA_TRANSPORT_SHORT_PAYLOAD_MAX];
+    tdma_flight_engine_fill_alignment_symbols(alignment_payload,
+                                               sizeof(alignment_payload));
+    size_t fixed_flight_payload_size = sizeof(alignment_payload);
     if (adapter->flight_engine != NULL) {
         tdma_flight_engine_snapshot_t engine_snapshot;
         if (tdma_flight_engine_get_snapshot(adapter->flight_engine,
                                              &engine_snapshot) &&
-            engine_snapshot.payload_size >=
-                TDMA_PIO_SPI_RING_CLOCK_PAYLOAD_SIZE &&
-            engine_snapshot.payload_size <= sizeof(clock_payload)) {
+            engine_snapshot.payload_size != 0u &&
+            engine_snapshot.payload_size <= sizeof(alignment_payload)) {
             fixed_flight_payload_size = engine_snapshot.payload_size;
         }
     }
-    const bool clock_payload_ready =
-        tdma_pio_spi_ring_adapter_build_clock_payload(adapter, clock_payload);
-    const bool emit_clock_evidence = adapter->clock_evidence_enabled != 0u &&
-        clock_payload_ready &&
-        (!has_flight_tx ||
-         sequence % TDMA_PIO_SPI_RING_CLOCK_EVIDENCE_INTERVAL == 0u);
-    const bool emit_process_image = has_flight_tx && !emit_clock_evidence;
+    const bool product_process_image =
+        adapter->forwarding_mode ==
+            TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE &&
+        adapter->flight_engine != NULL &&
+        tdma_flight_engine_is_active(adapter->flight_engine);
+    /* Product RUN has one wire shape.  DPLL evidence is a fixed trailer in
+     * that process image; it never replaces a cycle with an IDLE frame. */
+    const bool emit_process_image = has_flight_tx || product_process_image;
     const uint8_t *wire_payload = emit_process_image ? tx_view.data : NULL;
     size_t wire_payload_size = emit_process_image ? tx_view.data_size : 0u;
+    bool dpll_observation_ready = false;
     if (!emit_process_image &&
         (adapter->forwarding_mode ==
              TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_FLIGHT ||
@@ -749,18 +722,10 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
          * An empty IDLE_BEACON would make every follower wait forever for
          * absent symbols after the first frame. Keep the frame full even
          * before clock evidence or a process-image mailbox is available. */
-        wire_payload = clock_payload;
+        wire_payload = alignment_payload;
         wire_payload_size = fixed_flight_payload_size;
     }
-    if (emit_clock_evidence) {
-        wire_payload = clock_payload;
-        wire_payload_size = fixed_flight_payload_size;
-    }
-    if (emit_process_image &&
-        adapter->forwarding_mode ==
-            TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE &&
-        adapter->flight_engine != NULL &&
-        tdma_flight_engine_is_active(adapter->flight_engine)) {
+    if (product_process_image) {
         tdma_flight_engine_snapshot_t engine_snapshot;
         tdma_flight_engine_apply_t applied;
         tdma_flight_engine_result_t engine_result =
@@ -784,16 +749,18 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
                 empty_process_payload,
                 engine_snapshot.payload_size,
                 0u,
-                &tx_view,
+                has_flight_tx ? &tx_view : NULL,
                 process_payload,
                 sizeof(process_payload),
                 &applied,
-                &engine_result) ||
-            applied.output_segment_mask == 0u) {
+                &engine_result)) {
             tdma_pio_spi_ring_adapter_set_error(
                 adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_FLIGHT_MAP_REJECT);
             return false;
         }
+        dpll_observation_ready =
+            tdma_pio_spi_ring_adapter_build_dpll_observation(
+                adapter, process_payload, engine_snapshot.payload_size);
         wire_payload = process_payload;
         wire_payload_size = engine_snapshot.payload_size;
     }
@@ -872,7 +839,7 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
                packet_size);
         adapter->reference_tx_evidence[evidence_index].packet_size = packet_size;
         adapter->reference_tx_evidence[evidence_index].clock_evidence =
-            emit_clock_evidence;
+            dpll_observation_ready;
         adapter->reference_tx_evidence[evidence_index].valid =
             tx_timestamp_ns != 0ull;
         if (tx_timestamp_ns == 0ull && adapter->phys_tx_complete != NULL) {
@@ -1074,11 +1041,20 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
             rx_timestamp_ns;
         adapter->local_rx_evidence[evidence_index].valid = true;
 
-        if (view.payload_class == TDMA_PAYLOAD_CLASS_IDLE_BEACON &&
-            view.payload_size != 0u &&
-            !tdma_pio_spi_ring_adapter_correlate_clock_payload(adapter,
-                                                               &view)) {
-            adapter->clock_observation_reject_count++;
+        if (adapter->clock_evidence_enabled != 0u &&
+            view.payload_class ==
+                TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE &&
+            view.payload_size == TDMA_FLIGHT_SHORT_PAYLOAD_SIZE &&
+            view.payload != NULL) {
+            const uint32_t encoded = tdma_pio_spi_ring_get_u32(
+                &view.payload[
+                    TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET]);
+            if ((encoded &
+                 TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_VALID_MASK) != 0u &&
+                !tdma_pio_spi_ring_adapter_correlate_dpll_observation(
+                    adapter, &view)) {
+                adapter->clock_observation_reject_count++;
+            }
         }
     }
     if (adapter->role == TDMA_PIO_SPI_RING_ROLE_REFERENCE) {

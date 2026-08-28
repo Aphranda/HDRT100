@@ -70,6 +70,69 @@
 #define TDMA_PROCESS_IMAGE_VDC_QUALITY_TIER_MASK 0x70u
 #define TDMA_PROCESS_IMAGE_VDC_QUALITY_VALID (1u << 7u)
 
+/* Global process-image trailer.  It is owned by the TDMA reference Node,
+ * not by any per-Node mailbox.  Frame N carries the reference TX latch for
+ * frame N-1, so the current transport sequence supplies correlation without
+ * repeating a sequence or identity field in the payload.
+ *
+ * bit 31    : valid
+ * bits 30:0 : reference TX timestamp modulo 2^31 ticks, 4 ns per tick
+ */
+#define TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET \
+    TDMA_FLIGHT_NODE_IMAGE_SIZE
+#define TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_SIZE \
+    TDMA_FLIGHT_DPLL_OBSERVATION_SIZE
+#define TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_VALID_MASK 0x80000000u
+#define TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_MASK 0x7FFFFFFFu
+#define TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_QUANTUM_NS 4u
+#define TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_SEQUENCE_LAG 1u
+
+_Static_assert(TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET +
+                       TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_SIZE ==
+                   TDMA_FLIGHT_SHORT_PAYLOAD_SIZE,
+               "DPLL observation trailer must close the SHORT payload");
+
+static inline uint32_t tdma_process_image_dpll_observation_encode(
+    uint64_t reference_tx_timestamp_ns)
+{
+    const uint64_t tick = reference_tx_timestamp_ns /
+        TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_QUANTUM_NS;
+    return TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_VALID_MASK |
+           ((uint32_t)tick &
+            TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_MASK);
+}
+
+static inline bool tdma_process_image_dpll_observation_decode(
+    uint32_t encoded,
+    uint64_t local_rx_timestamp_ns,
+    uint64_t *reference_tx_timestamp_ns)
+{
+    if ((encoded & TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_VALID_MASK) == 0u ||
+        reference_tx_timestamp_ns == NULL) {
+        return false;
+    }
+    const uint64_t local_tick = local_rx_timestamp_ns /
+        TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_QUANTUM_NS;
+    const uint64_t modulo =
+        (uint64_t)TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_MASK + 1ull;
+    uint64_t reference_tick =
+        (local_tick & ~(modulo - 1ull)) |
+        (uint64_t)(encoded &
+                   TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_MASK);
+    if (reference_tick > local_tick) {
+        if (reference_tick < modulo) {
+            return false;
+        }
+        reference_tick -= modulo;
+    }
+    if (local_tick - reference_tick >= modulo / 2ull) {
+        return false;
+    }
+    *reference_tx_timestamp_ns = reference_tick *
+        TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_QUANTUM_NS;
+    return true;
+}
+
 static inline int16_t tdma_process_image_quantize_i16(int32_t value,
                                                        uint32_t quantum)
 {

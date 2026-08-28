@@ -42,6 +42,8 @@ class ProcessImageBudget:
     optional_body_capacity: int
     optional_body_bytes: int
     runtime_free_bytes: int
+    node_image_bytes: int
+    dpll_observation_bytes: int
     process_image_bytes: int
     regions: tuple[ProcessImageRegion, ...]
 
@@ -65,6 +67,7 @@ def load_budget(
         "TDMA_FLIGHT_SHORT_SLOT_COUNT",
         "TDMA_FLIGHT_SHORT_SLOT_SIZE",
         "TDMA_FLIGHT_MAILBOX_FAST_HEADER_SIZE",
+        "TDMA_FLIGHT_DPLL_OBSERVATION_SIZE",
         "TDMA_PROCESS_IMAGE_VDC_OFFSET",
         "TDMA_PROCESS_IMAGE_VDC_SIZE",
         "TDMA_PROCESS_IMAGE_REFMEM_OFFSET",
@@ -116,6 +119,8 @@ def load_budget(
     mandatory = sum(r.size for r in regions if r.priority == "mandatory")
     optional = sum(r.size for r in regions if r.priority == "optional")
     optional_capacity = body_bytes - mandatory
+    node_image_bytes = values["TDMA_FLIGHT_SHORT_SLOT_COUNT"] * node_bytes
+    dpll_observation_bytes = values["TDMA_FLIGHT_DPLL_OBSERVATION_SIZE"]
     return ProcessImageBudget(
         node_count=values["TDMA_FLIGHT_SHORT_SLOT_COUNT"],
         node_bytes=node_bytes,
@@ -125,8 +130,9 @@ def load_budget(
         optional_body_capacity=optional_capacity,
         optional_body_bytes=optional,
         runtime_free_bytes=optional_capacity - optional,
-        process_image_bytes=(
-            values["TDMA_FLIGHT_SHORT_SLOT_COUNT"] * node_bytes),
+        node_image_bytes=node_image_bytes,
+        dpll_observation_bytes=dpll_observation_bytes,
+        process_image_bytes=node_image_bytes + dpll_observation_bytes,
         regions=regions,
     )
 
@@ -171,8 +177,11 @@ def render_markdown(budget: ProcessImageBudget) -> str:
         f"- optional capacity / configured: "
         f"{budget.optional_body_capacity} B / {budget.optional_body_bytes} B",
         f"- runtime-free: {budget.runtime_free_bytes} B",
-        f"- process image: {budget.node_count} x {budget.node_bytes} B = "
-        f"{budget.process_image_bytes} B",
+        f"- Node image: {budget.node_count} x {budget.node_bytes} B = "
+        f"{budget.node_image_bytes} B",
+        f"- DPLL observation trailer: {budget.dpll_observation_bytes} B",
+        f"- fixed process image: {budget.node_image_bytes} B + "
+        f"{budget.dpll_observation_bytes} B = {budget.process_image_bytes} B",
     ))
     return "\n".join(lines) + "\n"
 
