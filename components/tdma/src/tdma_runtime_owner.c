@@ -378,17 +378,37 @@ bool tdma_runtime_owner_set_clock_evidence_enabled(bool enabled)
         &s_tdma_pio_spi_ring_adapter, enabled);
 }
 
-bool tdma_runtime_owner_copy_normal_capture_core1(
+tdma_pio_spi_normal_capture_copy_result_t
+tdma_runtime_owner_copy_normal_capture_core1(
     uint32_t *rx_bytes,
     size_t rx_capacity,
     uint32_t *tx_bytes,
     size_t tx_capacity,
     tdma_pio_spi_normal_capture_snapshot_t *snapshot)
 {
+    if (!s_tdma_runtime_owner_initialized) {
+        return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_FAILED;
+    }
+    return tdma_pio_spi_phys_copy_normal_capture(
+        &s_tdma_pio_spi_phys, rx_bytes, rx_capacity,
+        tx_bytes, tx_capacity, snapshot);
+}
+
+bool tdma_runtime_owner_begin_ring_waveform_capture_core1(void)
+{
     return s_tdma_runtime_owner_initialized &&
-           tdma_pio_spi_phys_copy_normal_capture(
-               &s_tdma_pio_spi_phys, rx_bytes, rx_capacity,
-               tx_bytes, tx_capacity, snapshot);
+           tdma_pio_spi_phys_begin_ring_waveform_capture(
+               &s_tdma_pio_spi_phys);
+}
+
+tdma_pio_spi_ring_waveform_capture_state_t
+tdma_runtime_owner_service_ring_waveform_capture_core1(void)
+{
+    if (!s_tdma_runtime_owner_initialized) {
+        return TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_FAILED;
+    }
+    return tdma_pio_spi_phys_service_ring_waveform_capture(
+        &s_tdma_pio_spi_phys);
 }
 
 bool tdma_runtime_owner_get_clk_train_snapshot(

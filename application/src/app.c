@@ -300,13 +300,16 @@ bool app_realtime_set_load_mask(uint32_t enabled_mask)
     if ((enabled_mask & ~APP_REALTIME_LOAD_ALL_MASK) != 0u) {
         return false;
     }
-    __atomic_store_n(&s_realtime_load_enabled_mask,
-                     enabled_mask,
-                     __ATOMIC_RELEASE);
-    /* Re-enabling a quarantined load is an explicit operator decision. */
-    __atomic_store_n(&s_realtime_load_quarantined_mask,
-                     0u,
-                     __ATOMIC_RELEASE);
+    const uint32_t previous_mask = __atomic_exchange_n(
+        &s_realtime_load_enabled_mask, enabled_mask, __ATOMIC_ACQ_REL);
+    /* Only a disabled -> enabled transition is an explicit decision to
+     * release that load from quarantine.  Enabling a bounded diagnostic
+     * phase must never revive unrelated loads that were isolated after a
+     * WCET/deadline violation. */
+    const uint32_t newly_enabled = enabled_mask & ~previous_mask;
+    (void)__atomic_fetch_and(&s_realtime_load_quarantined_mask,
+                             ~newly_enabled,
+                             __ATOMIC_ACQ_REL);
     return true;
 }
 

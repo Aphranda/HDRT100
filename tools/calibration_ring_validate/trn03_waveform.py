@@ -29,9 +29,136 @@ CAPTURE_SCHEMAS = {
     "HAOFV_TRN03_RING_CAPTURE_V3",
 }
 DEFAULT_WINDOW_NS = 1000
+APP_REALTIME_LOAD_CALIBRATION_MASK = 1 << 2
+APP_REALTIME_PHASE_CALIBRATION = 3
+APP_REALTIME_SCHEDULE_HEADER_FIELDS = 8
+APP_REALTIME_SCHEDULE_PHASE_FIELDS = (
+    "start_cycle", "end_cycle", "wcet_cycles", "last_start_cycle",
+    "last_runtime_cycles", "max_runtime_cycles", "run_count", "skip_count",
+    "start_miss_count", "overrun_count", "deadline_miss_count",
+)
 
 TRANSPORT_RESULT_OK = "OK"
 TRANSPORT_HEADER_SIZE = 32
+
+
+def read_tdma_load_mask(board: Board, args: argparse.Namespace,
+                        retry_count: int) -> int:
+    last = ""
+    for attempt in range(retry_count + 1):
+        last = board_command(board, "SYSTem:TDMA:LOAD:MASK?", args)
+        try:
+            return int(last.strip().strip('"'), 0)
+        except ValueError:
+            if attempt != retry_count:
+                time.sleep(0.05)
+    raise RuntimeError(
+        f"{board.address}: invalid TDMA load mask: {last!r}")
+
+
+def _write_tdma_load_mask(board: Board, args: argparse.Namespace,
+                          enabled_mask: int, retry_count: int) -> None:
+    last = ""
+    for attempt in range(retry_count + 1):
+        last = board_command(
+            board, f"SYSTem:TDMA:LOAD:MASK {enabled_mask}", args)
+        if last.strip().strip('"') == "OK":
+            return
+        try:
+            if read_tdma_load_mask(board, args, 0) == enabled_mask:
+                return
+        except RuntimeError:
+            pass
+        if attempt != retry_count:
+            time.sleep(0.05)
+    raise RuntimeError(
+        f"{board.address}: TDMA load mask {enabled_mask} rejected: "
+        f"{last!r}")
+
+
+def read_tdma_schedule(board: Board, args: argparse.Namespace
+                       ) -> dict[str, Any]:
+    raw = board_command(board, "SYSTem:TDMA:SCHEDule?", args)
+    try:
+        values = [int(value.strip().strip('"'), 0)
+                  for value in next(csv.reader([raw]), [])]
+    except ValueError as exc:
+        raise RuntimeError(
+            f"{board.address}: invalid TDMA schedule: {raw!r}") from exc
+    if len(values) < APP_REALTIME_SCHEDULE_HEADER_FIELDS:
+        raise RuntimeError(
+            f"{board.address}: truncated TDMA schedule: {raw!r}")
+    phase_count = values[3]
+    expected = (APP_REALTIME_SCHEDULE_HEADER_FIELDS +
+                phase_count * len(APP_REALTIME_SCHEDULE_PHASE_FIELDS))
+    if phase_count <= APP_REALTIME_PHASE_CALIBRATION or len(values) != expected:
+        raise RuntimeError(
+            f"{board.address}: invalid TDMA schedule shape: "
+            f"phase_count={phase_count}, fields={len(values)}, "
+            f"expected={expected}")
+    phases = []
+    for phase in range(phase_count):
+        start = (APP_REALTIME_SCHEDULE_HEADER_FIELDS +
+                 phase * len(APP_REALTIME_SCHEDULE_PHASE_FIELDS))
+        phases.append(dict(zip(
+            APP_REALTIME_SCHEDULE_PHASE_FIELDS,
+            values[start:start + len(APP_REALTIME_SCHEDULE_PHASE_FIELDS)])))
+    return {
+        "version": values[0],
+        "sys_clock_hz": values[1],
+        "cycle_cycles": values[2],
+        "phase_count": phase_count,
+        "enabled_mask": values[4],
+        "quarantined_mask": values[5],
+        "cycle_count": values[6],
+        "schedule_miss_count": values[7],
+        "phases": phases,
+    }
+
+
+def validate_capture_schedule(before: dict[str, Any],
+                              after: dict[str, Any]) -> dict[str, Any]:
+    calibration_before = before["phases"][APP_REALTIME_PHASE_CALIBRATION]
+    calibration_after = after["phases"][APP_REALTIME_PHASE_CALIBRATION]
+
+    def delta(field: str) -> int:
+        return ((int(calibration_after[field]) -
+                 int(calibration_before[field])) & 0xFFFFFFFF)
+
+    deltas = {
+        field: delta(field) for field in (
+            "run_count", "skip_count", "start_miss_count",
+            "overrun_count", "deadline_miss_count")
+    }
+    deltas["schedule_miss_count"] = (
+        (int(after["schedule_miss_count"]) -
+         int(before["schedule_miss_count"])) & 0xFFFFFFFF)
+    errors = []
+    if (int(after["enabled_mask"]) &
+            APP_REALTIME_LOAD_CALIBRATION_MASK) == 0:
+        errors.append("calibration_load_not_enabled")
+    if (int(after["quarantined_mask"]) &
+            APP_REALTIME_LOAD_CALIBRATION_MASK) != 0:
+        errors.append("calibration_load_quarantined")
+    if deltas["run_count"] == 0:
+        errors.append("calibration_phase_not_serviced")
+    for field in ("start_miss_count", "overrun_count",
+                  "deadline_miss_count", "schedule_miss_count"):
+        if deltas[field] != 0:
+            errors.append(f"{field}_grew")
+    if (int(calibration_after["last_runtime_cycles"]) >
+            int(calibration_after["wcet_cycles"])):
+        errors.append("last_runtime_exceeded_wcet")
+    if (int(calibration_after["max_runtime_cycles"]) >
+            int(calibration_after["wcet_cycles"])):
+        errors.append("max_runtime_exceeded_wcet")
+    return {
+        "passed": not errors,
+        "errors": errors,
+        "deltas": deltas,
+        "calibration_phase_before": calibration_before,
+        "calibration_phase_after": calibration_after,
+    }
 
 
 def _transport_identity_crc32(transport: bytes | bytearray) -> int:
@@ -108,47 +235,84 @@ def validate_capture(value: object) -> dict[str, Any]:
 
 def save_ring_capture(board: Board, args: argparse.Namespace, *,
                       calibration_generation: int,
-                      capture_epoch: int) -> dict[str, object]:
+                      capture_epoch: int,
+                      original_load_mask: int | None = None
+                      ) -> dict[str, object]:
+    retry_count = int(getattr(args, "capture_latch_retries", 1))
+    if original_load_mask is None:
+        original_load_mask = read_tdma_load_mask(
+            board, args, retry_count)
+    capture_load_mask = (
+        original_load_mask | APP_REALTIME_LOAD_CALIBRATION_MASK)
+    load_mask_changed = capture_load_mask != original_load_mask
     last = ""
     ready_status: list[int] = []
     latch_attempts = 0
-    retry_count = int(getattr(args, "capture_latch_retries", 1))
-    for latch_attempt in range(retry_count + 1):
-        latch_attempts = latch_attempt + 1
-        latch = board_command(
-            board,
-            f"CALibration:RING:CAPTure:LATCh "
-            f"{calibration_generation},{capture_epoch}", args)
-        latch_values = [value.strip().strip('"')
-                        for value in next(csv.reader([latch]), [])]
-        if (len(latch_values) != 2 or
-                int(latch_values[0], 0) != calibration_generation or
-                int(latch_values[1], 0) != capture_epoch):
-            last = f"latch rejected: {latch!r}"
-            if latch_attempt == retry_count:
-                raise RuntimeError(f"{board.address}: {last}")
-            continue
-        deadline = time.monotonic() + args.capture_timeout
-        while time.monotonic() < deadline:
-            last = board_command(
-                board, "READ:CALibration:RING:CAPTure?", args)
-            status = [int(value.strip().strip('"'), 0)
-                      for value in next(csv.reader([last]), [])]
-            if (len(status) >= 10 and
-                    status[2] == calibration_generation and
-                    status[3] == capture_epoch and status[0] == 2):
-                ready_status = status
+    schedule_before = read_tdma_schedule(board, args)
+    schedule_after: dict[str, Any] | None = None
+    schedule_validation: dict[str, Any] | None = None
+    try:
+        for latch_attempt in range(retry_count + 1):
+            latch_attempts = latch_attempt + 1
+            latch = board_command(
+                board,
+                f"CALibration:RING:CAPTure:LATCh "
+                f"{calibration_generation},{capture_epoch}", args)
+            latch_values = [value.strip().strip('"')
+                            for value in next(csv.reader([latch]), [])]
+            if (len(latch_values) != 2 or
+                    int(latch_values[0], 0) != calibration_generation or
+                    int(latch_values[1], 0) != capture_epoch):
+                last = f"latch rejected: {latch!r}"
+                if latch_attempt == retry_count:
+                    raise RuntimeError(f"{board.address}: {last}")
+                continue
+            if load_mask_changed:
+                _write_tdma_load_mask(
+                    board, args, capture_load_mask, retry_count)
+            deadline = time.monotonic() + args.capture_timeout
+            while time.monotonic() < deadline:
+                last = board_command(
+                    board, "READ:CALibration:RING:CAPTure?", args)
+                status = [int(value.strip().strip('"'), 0)
+                          for value in next(csv.reader([last]), [])]
+                if (len(status) >= 10 and
+                        status[2] == calibration_generation and
+                        status[3] == capture_epoch and status[0] == 2):
+                    ready_status = status
+                    break
+                if (len(status) >= 10 and
+                        status[2] == calibration_generation and
+                        status[3] == capture_epoch and status[0] == 3):
+                    break
+                time.sleep(0.01)
+            if ready_status:
                 break
-            if (len(status) >= 10 and
-                    status[2] == calibration_generation and
-                    status[3] == capture_epoch and status[0] == 3):
-                break
-            time.sleep(0.01)
         if ready_status:
-            break
+            schedule_after = read_tdma_schedule(board, args)
+            schedule_validation = validate_capture_schedule(
+                schedule_before, schedule_after)
+            if not schedule_validation["passed"]:
+                raise RuntimeError(
+                    f"{board.address}: ring capture disturbed TDMA schedule: "
+                    f"{','.join(schedule_validation['errors'])}; "
+                    f"validation={json.dumps(schedule_validation, separators=(',', ':'))}; "
+                    f"before={json.dumps(schedule_before, separators=(',', ':'))}; "
+                    f"after={json.dumps(schedule_after, separators=(',', ':'))}")
+    finally:
+        if load_mask_changed:
+            _write_tdma_load_mask(
+                board, args, original_load_mask, retry_count)
     if not ready_status:
+        schedule_diagnostic: object
+        try:
+            schedule_diagnostic = read_tdma_schedule(board, args)
+        except Exception as exc:  # noqa: BLE001 - preserve timeout evidence
+            schedule_diagnostic = {
+                "read_error": f"{type(exc).__name__}: {exc}"}
         raise RuntimeError(
-            f"{board.address}: ring capture latch timeout: {last!r}")
+            f"{board.address}: ring capture latch timeout: {last!r}; "
+            f"schedule={json.dumps(schedule_diagnostic, separators=(',', ':'))}")
 
     response = board_command(
         board,
@@ -173,6 +337,12 @@ def save_ring_capture(board: Board, args: argparse.Namespace, *,
                         "job_id": job_id, "size": int(job[4], 0),
                         "latch_attempts": latch_attempts,
                         "latch_status": ready_status,
+                        "load_mask_before": original_load_mask,
+                        "load_mask_during_capture": capture_load_mask,
+                        "load_mask_restored": original_load_mask,
+                        "schedule_before": schedule_before,
+                        "schedule_after": schedule_after,
+                        "schedule_validation": schedule_validation,
                         "capture_debug": ({
                             "core1_service_count": ready_status[10],
                             "intent_read_fail_count": ready_status[11],

@@ -42,7 +42,10 @@ def test_parse_process_snapshot_exact_field_count() -> None:
     raw = ",".join(str(index) for index in range(len(PROCESS_FIELDS)))
     parsed = parse_snapshot(raw, PROCESS_FIELDS, "board-a")
     assert parsed["version"] == 0
-    assert parsed["receive_stale_age_ns"] == len(PROCESS_FIELDS) - 1
+    assert parsed["receive_stale_age_ns"] == (
+        PROCESS_FIELDS.index("receive_stale_age_ns"))
+    assert parsed["receive_last_rejected_timestamp_ns"] == (
+        len(PROCESS_FIELDS) - 1)
 
 
 def test_validate_board_accepts_complete_bitmap_pipeline() -> None:

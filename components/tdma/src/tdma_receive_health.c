@@ -74,6 +74,13 @@ bool tdma_receive_health_configure_stopped(
     health->accepted_payload_size = 0u;
     health->last_accept_timestamp_ns = 0ull;
     health->last_observation_timestamp_ns = 0ull;
+    health->last_rejected_reason = TDMA_RECEIVE_REASON_NONE;
+    health->last_rejected_transport_result = TDMA_TRANSPORT_OK;
+    health->last_rejected_sequence = 0u;
+    health->last_rejected_observed_segment_mask = 0u;
+    health->last_rejected_expected_segment_mask = 0u;
+    health->last_rejected_quality_flags = 0u;
+    health->last_rejected_timestamp_ns = 0ull;
     memset(health->accepted_payload, 0, sizeof(health->accepted_payload));
     tdma_receive_write_end(health);
     return true;
@@ -106,6 +113,13 @@ void tdma_receive_health_reset_stopped(tdma_receive_health_t *health)
     health->accepted_payload_size = 0u;
     health->last_accept_timestamp_ns = 0ull;
     health->last_observation_timestamp_ns = 0ull;
+    health->last_rejected_reason = TDMA_RECEIVE_REASON_NONE;
+    health->last_rejected_transport_result = TDMA_TRANSPORT_OK;
+    health->last_rejected_sequence = 0u;
+    health->last_rejected_observed_segment_mask = 0u;
+    health->last_rejected_expected_segment_mask = 0u;
+    health->last_rejected_quality_flags = 0u;
+    health->last_rejected_timestamp_ns = 0ull;
     memset(health->accepted_payload, 0, sizeof(health->accepted_payload));
     tdma_receive_write_end(health);
 }
@@ -113,6 +127,9 @@ void tdma_receive_health_reset_stopped(tdma_receive_health_t *health)
 static void tdma_receive_reject_locked(tdma_receive_health_t *health,
                                        tdma_receive_reason_t reason,
                                        tdma_transport_result_t transport_result,
+                                       const tdma_transport_frame_view_t *view,
+                                       uint32_t observed_segment_mask,
+                                       uint32_t quality_flags,
                                        uint64_t observation_timestamp_ns)
 {
     health->last_reason = (uint32_t)reason;
@@ -120,6 +137,15 @@ static void tdma_receive_reject_locked(tdma_receive_health_t *health,
     health->last_observation_timestamp_ns = observation_timestamp_ns;
     health->rejected_count++;
     health->consecutive_failure_count++;
+    health->last_rejected_reason = (uint32_t)reason;
+    health->last_rejected_transport_result = (uint32_t)transport_result;
+    health->last_rejected_sequence =
+        view != NULL ? view->transport_sequence : 0u;
+    health->last_rejected_observed_segment_mask = observed_segment_mask;
+    health->last_rejected_expected_segment_mask =
+        health->config.expected_segment_mask;
+    health->last_rejected_quality_flags = quality_flags;
+    health->last_rejected_timestamp_ns = observation_timestamp_ns;
     if (health->image_generation != 0u) {
         health->state = TDMA_RECEIVE_STATE_STALE;
     }
@@ -213,6 +239,9 @@ bool tdma_receive_health_evaluate(
         tdma_receive_reject_locked(health,
                                    rejected,
                                    transport_result,
+                                   view,
+                                   observed_segment_mask,
+                                   quality,
                                    observation_timestamp_ns);
         tdma_receive_write_end(health);
         if (reason != NULL) {
@@ -301,6 +330,18 @@ static void tdma_receive_copy_snapshot(
     snapshot->last_accept_timestamp_ns = health->last_accept_timestamp_ns;
     snapshot->last_observation_timestamp_ns =
         health->last_observation_timestamp_ns;
+    snapshot->last_rejected_reason = health->last_rejected_reason;
+    snapshot->last_rejected_transport_result =
+        health->last_rejected_transport_result;
+    snapshot->last_rejected_sequence = health->last_rejected_sequence;
+    snapshot->last_rejected_observed_segment_mask =
+        health->last_rejected_observed_segment_mask;
+    snapshot->last_rejected_expected_segment_mask =
+        health->last_rejected_expected_segment_mask;
+    snapshot->last_rejected_quality_flags =
+        health->last_rejected_quality_flags;
+    snapshot->last_rejected_timestamp_ns =
+        health->last_rejected_timestamp_ns;
     if (health->last_accept_timestamp_ns != 0ull &&
         now_ns >= health->last_accept_timestamp_ns) {
         snapshot->stale_age_ns = now_ns - health->last_accept_timestamp_ns;

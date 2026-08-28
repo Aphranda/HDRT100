@@ -22,6 +22,7 @@ from trn03_closed_loop import (  # noqa: E402
     parse_snapshot,
     resolve_profile_level,
     scalar_readback_with_retry,
+    startup_barrier_interval_errors,
     u32_delta,
     validate_flight_phase_readback,
     validate_node,
@@ -384,13 +385,49 @@ def test_process_follower_recovers_pass_script_after_bad_frame() -> None:
     assert "pio_interrupt_get(BOARD_TDMA_SPI_PIO, 3u)" in service
     assert "pio_interrupt_clear(BOARD_TDMA_SPI_PIO, 3u)" in service
     assert "phys->flight_overlay_next_prepared" in service
+    assert "phys->flight_overlay_boundary_pending = true" in service
+    assert "TDMA_PIO_SPI_OVERLAY_GRACE_SERVICE_PASSES" in service
     assert "tdma_pio_spi_phys_prepare_pass_overlay(phys)" in service
     assert "overlay_pass_recovery_count++" in service
     assert "flight_overlay_pass_committed = true" in service
+    grace = service.index("phys->flight_overlay_grace_remaining != 0u")
+    fallback = service.index("tdma_pio_spi_phys_prepare_pass_overlay(phys)")
+    assert grace < fallback
 
     adapter = (ROOT / "components" / "tdma" / "src" /
                "tdma_pio_spi_ring_adapter.c").read_text(encoding="utf-8")
     assert "phys_service_overlay_boundary" in adapter
+
+
+def test_process_follower_defers_pass_until_parser_grace_expires() -> None:
+    header = (ROOT / "components" / "tdma" / "inc" /
+              "tdma_pio_spi_phys.h").read_text(encoding="utf-8")
+    assert "#define TDMA_PIO_SPI_OVERLAY_GRACE_SERVICE_PASSES 1u" in header
+    assert "bool flight_overlay_boundary_pending;" in header
+    assert "uint32_t flight_overlay_grace_remaining;" in header
+
+    phys = (ROOT / "components" / "tdma" / "src" /
+            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    service = phys.split(
+        "bool tdma_pio_spi_phys_service_process_overlay_boundary", 1
+    )[1].split("bool tdma_pio_spi_phys_set_process_image_mode", 1)[0]
+    boundary = service.index("if (boundary_observed)")
+    pending = service.index("phys->flight_overlay_boundary_pending = true")
+    prepared = service.index("if (phys->flight_overlay_next_prepared)")
+    grace = service.index("if (phys->flight_overlay_grace_remaining != 0u)")
+    fallback = service.index("tdma_pio_spi_phys_prepare_pass_overlay(phys)")
+    assert boundary < pending < prepared < grace < fallback
+
+
+def test_rx_scanner_retains_complete_shifted_outer_header_prefix() -> None:
+    phys = (ROOT / "components" / "tdma" / "src" /
+            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    capture = phys.split(
+        "static bool tdma_pio_spi_phys_capture_words", 1
+    )[1].split("bool tdma_pio_spi_phys_arm", 1)[0]
+    assert "TDMA_PIO_SPI_PACKET_HEADER_SIZE + 1u" in capture
+    assert "produced - retain_words" in capture
+    assert "produced - 2u" not in capture
 
 
 def test_core1_services_tdma_before_bounded_dpll_load() -> None:
@@ -442,6 +479,98 @@ def test_core1_overrun_quarantines_only_the_faulting_load() -> None:
                 "scpi_system_snapshot_commands.h").read_text(encoding="utf-8")
     assert 'SYSTem:TDMA:LOAD:MASK?' in commands
     assert 'SYSTem:TDMA:SCHEDule?' in commands
+
+
+def test_load_mask_releases_only_newly_enabled_loads() -> None:
+    app = (ROOT / "application" / "src" / "app.c").read_text(
+        encoding="utf-8")
+    setter = app.split("bool app_realtime_set_load_mask", 1)[1]
+    setter = setter.split("bool app_realtime_get_schedule_snapshot", 1)[0]
+    assert "__atomic_exchange_n" in setter
+    assert "newly_enabled = enabled_mask & ~previous_mask" in setter
+    assert "~newly_enabled" in setter
+    assert "__atomic_store_n(&s_realtime_load_quarantined_mask" not in setter
+
+
+def test_ring_capture_ends_its_bounded_calibration_service_pass() -> None:
+    manager = (ROOT / "components" / "calibration_manager" / "src" /
+               "calibration_manager.c").read_text(encoding="utf-8")
+    service = manager.split("void calibration_manager_service_core1", 1)[1]
+    service = service.split("bool calibration_manager_stage_training", 1)[0]
+    capture = service.rsplit(
+        "calibration_manager_ring_capture_publish(&captured);", 1)[1]
+    assert "s_ring_capture_consumed_sequence" in capture
+    assert capture.index("return;") < capture.index(
+        "calibration_pio_loopback_service_core1")
+
+
+def test_ring_capture_uses_request_scoped_raw_sck_persona() -> None:
+    header = (ROOT / "components" / "tdma" / "inc" /
+              "tdma_pio_spi_phys.h").read_text(encoding="utf-8")
+    phys = (ROOT / "components" / "tdma" / "src" /
+            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    begin = phys.split(
+        "bool tdma_pio_spi_phys_begin_ring_waveform_capture", 1
+    )[1].split(
+        "tdma_pio_spi_phys_service_ring_waveform_capture", 1)[0]
+    assert "TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_REQUESTED" in begin
+    service = phys.split(
+        "tdma_pio_spi_phys_service_ring_waveform_capture", 1
+    )[1].split("static void tdma_pio_spi_phys_flight_origin_recover", 1)[0]
+    assert "TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_PATCHED" in service
+    assert "pio_encode_wait_gpio(false, phys->rx_csn_pin)" in service
+    assert "pio_encode_in(pio_pins, 1u)" in service
+    assert "sm_config_set_wrap(&config, offset + 1u, offset + 1u)" in service
+    assert "sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_RX)" in service
+    assert "sm_config_set_in_shift(&config, true, true, 32u)" in service
+
+    copy_capture = phys.split(
+        "tdma_pio_spi_phys_copy_normal_capture", 1)[1]
+    assert "TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_READY" in copy_capture
+    assert "tdma_pio_spi_phys_restore_clock_latch(phys, true)" in copy_capture
+    assert "TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_CHUNK_BYTES" in copy_capture
+    assert "#define TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_CHUNK_BYTES 4u" in header
+    assert "TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_PENDING" in copy_capture
+    assert "TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_READY" in copy_capture
+    assert "adjacent Node's immutable physical RX capture" in copy_capture
+    assert "s_tdma_pio_spi_tx_last_frame[index]" not in copy_capture
+
+
+def test_ring_capture_manager_waits_for_raw_sck_before_copy() -> None:
+    manager = (ROOT / "components" / "calibration_manager" / "src" /
+               "calibration_manager.c").read_text(encoding="utf-8")
+    service = manager.split("void calibration_manager_service_core1", 1)[1]
+    service = service.split("bool calibration_manager_stage_training", 1)[0]
+    begin = service.index(
+        "tdma_runtime_owner_begin_ring_waveform_capture_core1")
+    poll = service.index(
+        "tdma_runtime_owner_service_ring_waveform_capture_core1")
+    copy_capture = service.index(
+        "tdma_runtime_owner_copy_normal_capture_core1")
+    assert begin < poll < copy_capture
+    assert "CALIBRATION_RING_CAPTURE_PENDING" in service
+    assert "s_ring_capture_physical_work" in service
+    assert "TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_PENDING" in service
+    pending_branch = service.split(
+        "TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_PENDING", 1)[1].split(
+        "copied =", 1)[0]
+    assert "calibration_manager_ring_capture_publish" not in pending_branch
+    assert service.index(
+        "captured.physical = s_ring_capture_physical_work") > service.index(
+            "copied = copy_result")
+
+    request = manager.split(
+        "bool calibration_manager_request_ring_capture", 1
+    )[1].split(
+        "bool calibration_manager_get_ring_capture_snapshot", 1)[0]
+    assert "tdma_runtime_owner_get_ring_snapshot(&ring)" in request
+    assert "tdma_runtime_owner_get_calibration_stage" in request
+    assert "s_ring_capture_intent.node = ring.local_slot_id" in request
+    capture_end = service.index("calibration_pio_loopback_service_core1")
+    ring_snapshot = service.index("tdma_runtime_owner_get_ring_snapshot(&ring)")
+    assert ring_snapshot < capture_end
+    final_capture_return = service.rindex("return;", 0, ring_snapshot)
+    assert final_capture_return < ring_snapshot
 
 
 def test_core1_boots_with_only_vdc_publication_foundation_loads() -> None:
@@ -955,6 +1084,34 @@ def soak_snapshot(node_index: int, step: int) -> dict:
 def test_u32_delta_wraps() -> None:
     assert u32_delta(0xFFFFFFFE, 1) == 3
     assert counter_deltas({"x": 8}, {"x": 11}, ("x",)) == {"x": 3}
+
+
+def test_startup_barrier_requires_complete_advancing_process_image() -> None:
+    previous = soak_snapshot(0, 0)
+    current = soak_snapshot(0, 1)
+    current["flight"]["process"]["receive_accepted_sequence"] += 1
+    assert startup_barrier_interval_errors(
+        previous, current, node_index=0, node_count=2,
+        require_process_image=True) == []
+
+
+def test_startup_barrier_resets_on_pipeline_reject_growth() -> None:
+    previous = soak_snapshot(0, 0)
+    current = soak_snapshot(0, 1)
+    current["flight"]["process"]["receive_accepted_sequence"] += 1
+    current["flight"]["process"]["rx_bitmap_incomplete_count"] += 1
+    errors = startup_barrier_interval_errors(
+        previous, current, node_index=0, node_count=2,
+        require_process_image=True)
+    assert "rx_bitmap_incomplete_count_grew" in errors
+
+
+def test_closed_loop_uses_explicit_startup_barrier_not_fixed_sleep() -> None:
+    source = (ROOT / "tools" / "calibration_ring_validate" /
+              "trn03_closed_loop.py").read_text(encoding="utf-8")
+    main = source.split("def main() -> int:", 1)[1]
+    assert "wait_startup_barrier(" in main
+    assert "time.sleep(args.start_wait)" not in main
 
 
 def test_parse_snapshot_requires_exact_field_count() -> None:

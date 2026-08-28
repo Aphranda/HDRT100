@@ -7,7 +7,7 @@
 
 #include "tdma_transport_frame.h"
 
-#define TDMA_RECEIVE_HEALTH_VERSION 1u
+#define TDMA_RECEIVE_HEALTH_VERSION 2u
 #define TDMA_RECEIVE_HEALTH_SNAPSHOT_RETRY_MAX 64u
 
 typedef enum {
@@ -75,6 +75,13 @@ typedef struct {
     uint64_t last_accept_timestamp_ns;
     uint64_t last_observation_timestamp_ns;
     uint64_t stale_age_ns;
+    uint32_t last_rejected_reason;
+    uint32_t last_rejected_transport_result;
+    uint32_t last_rejected_sequence;
+    uint32_t last_rejected_observed_segment_mask;
+    uint32_t last_rejected_expected_segment_mask;
+    uint32_t last_rejected_quality_flags;
+    uint64_t last_rejected_timestamp_ns;
 } tdma_receive_health_snapshot_t;
 
 typedef struct {
@@ -105,6 +112,13 @@ typedef struct {
     uint32_t accepted_payload_size;
     uint64_t last_accept_timestamp_ns;
     uint64_t last_observation_timestamp_ns;
+    uint32_t last_rejected_reason;
+    uint32_t last_rejected_transport_result;
+    uint32_t last_rejected_sequence;
+    uint32_t last_rejected_observed_segment_mask;
+    uint32_t last_rejected_expected_segment_mask;
+    uint32_t last_rejected_quality_flags;
+    uint64_t last_rejected_timestamp_ns;
     uint8_t accepted_payload[TDMA_TRANSPORT_SHORT_PAYLOAD_MAX];
 } tdma_receive_health_t;
 

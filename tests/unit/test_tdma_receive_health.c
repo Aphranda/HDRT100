@@ -166,6 +166,18 @@ int main(void)
     failed += expect_u32("recovered generation", snapshot.image_generation, 2u);
     failed += expect_u32("accepted count", snapshot.accepted_count, 2u);
     failed += expect_u32("rejected count", snapshot.rejected_count, 4u);
+    failed += expect_u32("last rejected reason",
+                         snapshot.last_rejected_reason,
+                         TDMA_RECEIVE_REASON_PAYLOAD_SIZE);
+    failed += expect_u32("last rejected sequence",
+                         snapshot.last_rejected_sequence,
+                         11u);
+    failed += expect_u32("last rejected observed mask",
+                         snapshot.last_rejected_observed_segment_mask,
+                         config.expected_segment_mask);
+    failed += expect_u32("last rejected expected mask",
+                         snapshot.last_rejected_expected_segment_mask,
+                         config.expected_segment_mask);
     failed += expect_u32("failure streak cleared",
                          snapshot.consecutive_failure_count, 0u);
 

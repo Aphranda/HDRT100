@@ -13,7 +13,9 @@ from tools.calibration_ring_validate.trn03_waveform import (
     byte_bits,
     decode_transport_evidence,
     latest_complete_packet,
+    read_tdma_schedule,
     save_ring_capture,
+    validate_capture_schedule,
     validate_capture,
 )
 from tools.scpi_common.scpi_serial import scpi_response_matches_command
@@ -56,6 +58,22 @@ def config() -> dict:
             "data_direction": "reverse",
         } for node in range(4)],
     }
+
+
+def schedule_response(*, enabled_mask: int, run_count: int,
+                      overrun_count: int = 0,
+                      deadline_miss_count: int = 0) -> str:
+    values = [1, 250_000_000, 250_000, 5, enabled_mask, 0, 100, 0]
+    for phase in range(5):
+        values.extend([
+            phase * 1000, phase * 1000 + 999, 34_000,
+            phase * 1000, 1_000, 2_000,
+            run_count if phase == 3 else 100,
+            0, 0,
+            overrun_count if phase == 3 else 0,
+            deadline_miss_count if phase == 3 else 0,
+        ])
+    return ",".join(str(value) for value in values)
 
 
 def test_byte_bits_and_alignment_use_msb_first() -> None:
@@ -196,13 +214,63 @@ def test_ring_capture_scpi_composite_responses_are_preserved() -> None:
     assert scpi_response_matches_command(
         "CALibration:RING:CAPTure:SAVE 101,12345",
         '"OK",17,"/cal/trn03b_node0_g101_e12345.json"')
+    assert scpi_response_matches_command(
+        "SYSTem:TDMA:LOAD:MASK?", "91")
+    assert scpi_response_matches_command(
+        "SYSTem:TDMA:LOAD:MASK 91", '"OK",91')
+
+
+def test_capture_schedule_gate_uses_counter_deltas() -> None:
+    board = SimpleNamespace(address="node0")
+    args = SimpleNamespace()
+    responses = iter((schedule_response(enabled_mask=91, run_count=10),
+                      schedule_response(enabled_mask=95, run_count=14)))
+    original = waveform_module.board_command
+    try:
+        waveform_module.board_command = lambda *_args: next(responses)
+        before = read_tdma_schedule(board, args)
+        after = read_tdma_schedule(board, args)
+    finally:
+        waveform_module.board_command = original
+    result = validate_capture_schedule(before, after)
+    assert result["passed"] is True
+    assert result["deltas"]["run_count"] == 4
+
+
+def test_capture_schedule_gate_rejects_overrun_growth() -> None:
+    board = SimpleNamespace(address="node0")
+    args = SimpleNamespace()
+    responses = iter((schedule_response(enabled_mask=91, run_count=10),
+                      schedule_response(enabled_mask=95, run_count=14,
+                                        overrun_count=1)))
+    original = waveform_module.board_command
+    try:
+        waveform_module.board_command = lambda *_args: next(responses)
+        before = read_tdma_schedule(board, args)
+        after = read_tdma_schedule(board, args)
+    finally:
+        waveform_module.board_command = original
+    result = validate_capture_schedule(before, after)
+    assert result["passed"] is False
+    assert "overrun_count_grew" in result["errors"]
 
 
 def test_ring_capture_retries_a_stale_pending_latch(monkeypatch) -> None:
     latch_calls = 0
+    schedule_reads = 0
 
     def command(_board, value: str, _args) -> str:
-        nonlocal latch_calls
+        nonlocal latch_calls, schedule_reads
+        if value == "SYSTem:TDMA:SCHEDule?":
+            schedule_reads += 1
+            return schedule_response(
+                enabled_mask=91 if schedule_reads == 1 else 95,
+                run_count=10 if schedule_reads == 1 else 14)
+        if value == "SYSTem:TDMA:LOAD:MASK?":
+            return "91"
+        if value in ("SYSTem:TDMA:LOAD:MASK 95",
+                     "SYSTem:TDMA:LOAD:MASK 91"):
+            return '"OK"'
         if value.startswith("CALibration:RING:CAPTure:LATCh"):
             latch_calls += 1
             return "<timeout>" if latch_calls == 1 else "101,10"
@@ -220,7 +288,84 @@ def test_ring_capture_retries_a_stale_pending_latch(monkeypatch) -> None:
         SimpleNamespace(capture_timeout=1.0, capture_latch_retries=1),
         calibration_generation=101, capture_epoch=10)
     assert result["latch_attempts"] == 2
+    assert result["load_mask_before"] == 91
+    assert result["load_mask_during_capture"] == 95
+    assert result["load_mask_restored"] == 91
+    assert result["schedule_validation"]["passed"] is True
     assert result["capture_debug"]["consumed_sequence"] == 2
+
+
+def test_ring_capture_retries_transient_load_mask_query(monkeypatch) -> None:
+    mask_reads = 0
+    schedule_reads = 0
+
+    def command(_board, value: str, _args) -> str:
+        nonlocal mask_reads, schedule_reads
+        if value == "SYSTem:TDMA:SCHEDule?":
+            schedule_reads += 1
+            return schedule_response(
+                enabled_mask=91 if schedule_reads == 1 else 95,
+                run_count=10 if schedule_reads == 1 else 14)
+        if value == "SYSTem:TDMA:LOAD:MASK?":
+            mask_reads += 1
+            return "<timeout>" if mask_reads == 1 else "91"
+        if value in ("SYSTem:TDMA:LOAD:MASK 95",
+                     "SYSTem:TDMA:LOAD:MASK 91"):
+            return '"OK"'
+        if value.startswith("CALibration:RING:CAPTure:LATCh"):
+            return "101,10"
+        if value == "READ:CALibration:RING:CAPTure?":
+            return "2,2,101,10,0,4,0,8,0,8,100,0,2,2,0,2"
+        if value.startswith("CALibration:RING:CAPTure:SAVE"):
+            return '"OK",7,"/cal/capture.json"'
+        if value == "SYSTem:STORage:JOB?":
+            return '"DONE",7,0,0,123,0,0,0'
+        raise AssertionError(value)
+
+    monkeypatch.setattr(waveform_module, "board_command", command)
+    result = save_ring_capture(
+        SimpleNamespace(address="node0"),
+        SimpleNamespace(capture_timeout=1.0, capture_latch_retries=1),
+        calibration_generation=101, capture_epoch=10)
+    assert mask_reads == 2
+    assert result["load_mask_restored"] == 91
+
+
+def test_ring_capture_accepts_load_mask_readback_after_lost_ack(
+        monkeypatch) -> None:
+    active_mask = 91
+    schedule_reads = 0
+
+    def command(_board, value: str, _args) -> str:
+        nonlocal active_mask, schedule_reads
+        if value == "SYSTem:TDMA:SCHEDule?":
+            schedule_reads += 1
+            return schedule_response(
+                enabled_mask=91 if schedule_reads == 1 else 95,
+                run_count=10 if schedule_reads == 1 else 14)
+        if value == "SYSTem:TDMA:LOAD:MASK?":
+            return str(active_mask)
+        if value.startswith("SYSTem:TDMA:LOAD:MASK "):
+            active_mask = int(value.rsplit(" ", 1)[1], 0)
+            return "<timeout>"
+        if value.startswith("CALibration:RING:CAPTure:LATCh"):
+            return "101,10"
+        if value == "READ:CALibration:RING:CAPTure?":
+            return "2,2,101,10,0,4,0,8,0,8,100,0,2,2,0,2"
+        if value.startswith("CALibration:RING:CAPTure:SAVE"):
+            return '"OK",7,"/cal/capture.json"'
+        if value == "SYSTem:STORage:JOB?":
+            return '"DONE",7,0,0,123,0,0,0'
+        raise AssertionError(value)
+
+    monkeypatch.setattr(waveform_module, "board_command", command)
+    result = save_ring_capture(
+        SimpleNamespace(address="node0"),
+        SimpleNamespace(capture_timeout=1.0, capture_latch_retries=1),
+        calibration_generation=101, capture_epoch=10)
+    assert result["load_mask_during_capture"] == 95
+    assert result["load_mask_restored"] == 91
+    assert active_mask == 91
 
 
 def test_analysis_uses_configured_reverse_data_source(tmp_path: Path) -> None:

@@ -32,12 +32,15 @@ int main(void)
     failed += expect_u32("byte aligned replacement count",
                          result.replacement_byte_count, 1u);
     failed += expect_u32("elastic replacement index opcode",
-                         script[2u + 1u + 4u + 4u] >> 30u, 1u);
+                         script[2u + 1u + 4u + 4u] & 0xC0000000u,
+                         TDMA_FLIGHT_OVERLAY_SCRIPT_REPLACE);
     failed += expect_u32("elastic replacement value",
                          tdma_flight_overlay_script_byte(
                              script[2u + 1u + 4u + 4u]),
                          0xA5u);
-    failed += expect_u32("end opcode", script[24] >> 30u, 2u);
+    failed += expect_u32("end opcode",
+                         script[24] & 0xC0000000u,
+                         TDMA_FLIGHT_OVERLAY_SCRIPT_END);
 
     memcpy(processed, incoming, sizeof(processed));
     processed[4] = 0xA5u;

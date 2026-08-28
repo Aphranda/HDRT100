@@ -41,6 +41,7 @@ from trn03_stage import (  # noqa: E402
 from trn03_waveform import (  # noqa: E402
     analyze_capture_set,
     download_ring_capture,
+    read_tdma_load_mask,
     save_ring_capture,
 )
 
@@ -133,7 +134,18 @@ def parse_args() -> argparse.Namespace:
         "--sample-interval-s", type=float, default=1.0,
         help=("periodic soak snapshot interval; every interval is gated, "
               "not only the first and last snapshot"))
-    parser.add_argument("--start-wait", type=float, default=1.0)
+    parser.add_argument(
+        "--startup-timeout-s", type=float, default=5.0,
+        help=("deadline for the explicit ring/process-image startup barrier; "
+              "startup pipeline-fill counters are excluded from soak only "
+              "after this barrier passes"))
+    parser.add_argument(
+        "--startup-stable-samples", type=int, default=3,
+        help=("consecutive receive opportunities with advancing accepted "
+              "sequence and no new reject/incomplete counters"))
+    parser.add_argument(
+        "--startup-poll-interval-s", type=float, default=0.1,
+        help="poll interval for the explicit startup barrier")
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
     parser.add_argument("--settle", type=float, default=0.2)
@@ -460,6 +472,143 @@ def u32_delta(before: int, after: int) -> int:
 def counter_deltas(before: dict[str, int], after: dict[str, int],
                    fields: tuple[str, ...]) -> dict[str, int]:
     return {field: u32_delta(before[field], after[field]) for field in fields}
+
+
+STARTUP_RUNTIME_ERROR_COUNTERS = (
+    "ring_adapter_rx_bad_count",
+    "ring_adapter_rx_transport_bad_count",
+    "ring_adapter_rx_schedule_bad_count",
+    "ring_adapter_rx_profile_bad_count",
+)
+
+STARTUP_PROCESS_ERROR_COUNTERS = (
+    "receive_rejected_count",
+    "receive_missing_count",
+    "rx_bitmap_incomplete_count",
+)
+
+
+def startup_barrier_interval_errors(
+        previous: dict[str, Any], current: dict[str, Any], *,
+        node_index: int, node_count: int,
+        require_process_image: bool) -> list[str]:
+    """Gate one post-start receive opportunity.
+
+    Pipeline fill is allowed before this interval. A stable interval requires
+    advancing physical sequences and no new transport/process rejection.
+    """
+    errors = snapshot_health_errors(
+        current, node_index, node_count,
+        require_process_image=require_process_image)
+    previous_runtime = previous["runtime"]
+    current_runtime = current["runtime"]
+    for field in ("ring_up_tx_sequence", "ring_down_rx_sequence"):
+        if u32_delta(previous_runtime[field], current_runtime[field]) == 0:
+            errors.append(f"{field}_not_advancing")
+    for field in STARTUP_RUNTIME_ERROR_COUNTERS:
+        if u32_delta(previous_runtime[field], current_runtime[field]) != 0:
+            errors.append(f"{field}_grew")
+    if require_process_image:
+        previous_process = previous["flight"]["process"]
+        current_process = current["flight"]["process"]
+        if u32_delta(
+                previous_process["receive_accepted_sequence"],
+                current_process["receive_accepted_sequence"]) == 0:
+            errors.append("receive_accepted_sequence_not_advancing")
+        for field in STARTUP_PROCESS_ERROR_COUNTERS:
+            if u32_delta(previous_process[field], current_process[field]) != 0:
+                errors.append(f"{field}_grew")
+    return errors
+
+
+def wait_startup_barrier(
+        ordered: list[Board], args: argparse.Namespace, *,
+        startup_before: dict[str, dict[str, Any]],
+        require_process_image: bool) -> tuple[dict[str, dict[str, Any]],
+                                               dict[str, Any]]:
+    """Wait for an explicit, replayable transition into steady state."""
+    timeout_s = float(args.startup_timeout_s)
+    stable_required = int(args.startup_stable_samples)
+    poll_interval_s = float(args.startup_poll_interval_s)
+    if timeout_s <= 0 or stable_required <= 0 or poll_interval_s <= 0:
+        raise ValueError("startup barrier arguments must be positive")
+
+    board_ids = [board.address for board in ordered]
+    previous = startup_before
+    stable_count = 0
+    started = time.monotonic()
+    samples: list[dict[str, Any]] = []
+    while True:
+        remaining = started + timeout_s - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(poll_interval_s, remaining))
+        current, transport_errors = sample_all_with_evidence(ordered, args)
+        node_errors: dict[str, list[str]] = {}
+        for node_index, address in enumerate(board_ids):
+            if address in transport_errors:
+                node_errors[address] = [
+                    f"sample_transport:{transport_errors[address]}"]
+                continue
+            if address not in current or address not in previous:
+                node_errors[address] = ["startup_snapshot_missing"]
+                continue
+            errors = startup_barrier_interval_errors(
+                previous[address], current[address], node_index=node_index,
+                node_count=len(board_ids),
+                require_process_image=require_process_image)
+            if errors:
+                node_errors[address] = errors
+        interval_passed = not node_errors
+        stable_count = stable_count + 1 if interval_passed else 0
+        samples.append({
+            "sample_index": len(samples),
+            "elapsed_s": round(time.monotonic() - started, 6),
+            "passed": interval_passed,
+            "stable_count": stable_count,
+            "errors": node_errors,
+        })
+        if not transport_errors and set(current) == set(board_ids):
+            previous = current
+        if stable_count >= stable_required:
+            startup_deltas: dict[str, Any] = {}
+            for address in board_ids:
+                before = startup_before[address]
+                after = current[address]
+                startup_deltas[address] = {
+                    "runtime_errors": counter_deltas(
+                        before["runtime"], after["runtime"],
+                        STARTUP_RUNTIME_ERROR_COUNTERS),
+                    "process_errors": (counter_deltas(
+                        before["flight"]["process"],
+                        after["flight"]["process"],
+                        STARTUP_PROCESS_ERROR_COUNTERS)
+                        if require_process_image else {}),
+                    "accepted_sequence_delta": (u32_delta(
+                        before["flight"]["process"][
+                            "receive_accepted_sequence"],
+                        after["flight"]["process"][
+                            "receive_accepted_sequence"])
+                        if require_process_image else 0),
+                }
+            return current, {
+                "passed": True,
+                "timeout_s": timeout_s,
+                "stable_samples_required": stable_required,
+                "stable_samples_observed": stable_count,
+                "startup_pipeline_fill_deltas": startup_deltas,
+                "samples": samples,
+            }
+    evidence = {
+        "passed": False,
+        "timeout_s": timeout_s,
+        "stable_samples_required": stable_required,
+        "stable_samples_observed": stable_count,
+        "samples": samples,
+    }
+    raise RuntimeError(
+        "explicit startup barrier timed out: " +
+        json.dumps(evidence, separators=(",", ":")))
 
 
 def validate_tx_seed(flight_before: dict[str, Any],
@@ -1035,14 +1184,18 @@ def stopped_snapshot(board: Board, args: argparse.Namespace,
 def capture_ring_waveforms(
         ordered: list[Board], args: argparse.Namespace, *,
         calibration_generation: int, capture_epoch: int,
-        out_dir: Path) -> dict[str, Any]:
+        out_dir: Path,
+        original_load_masks: dict[str, int] | None = None
+        ) -> dict[str, Any]:
     capture_dir = out_dir / "captures"
+    load_masks = original_load_masks or {}
     with ThreadPoolExecutor(max_workers=len(ordered)) as pool:
         saved = list(pool.map(
             lambda board: save_ring_capture(
                 board, args,
                 calibration_generation=calibration_generation,
-                capture_epoch=capture_epoch),
+                capture_epoch=capture_epoch,
+                original_load_mask=load_masks.get(board.address)),
             ordered))
     with ThreadPoolExecutor(max_workers=len(ordered)) as pool:
         futures = [
@@ -1093,12 +1246,14 @@ def main() -> int:
     if args.cycles <= 0 or args.cycles > 65536 or args.cycles % 8:
         raise SystemExit("cycles must be an 8-cycle multiple in [8, 65536]")
     if (args.window_s <= 0 or args.sample_interval_s <= 0 or
-            args.start_wait < 0 or
+            args.startup_timeout_s <= 0 or
+            args.startup_stable_samples <= 0 or
+            args.startup_poll_interval_s <= 0 or
             args.capture_timeout <= 0 or args.capture_latch_retries < 0 or
             args.waveform_window_ns <= 0 or
             args.sck_frequency_tolerance_percent < 0 or
             args.sck_duty_tolerance_percent < 0):
-        raise SystemExit("window-s must be positive and start-wait non-negative")
+        raise SystemExit("window/soak/startup arguments must be positive")
     args.board_ids = board_ids
     plan = {
         "phase": "TRN-03B",
@@ -1113,6 +1268,9 @@ def main() -> int:
         "clock_evidence": args.clock_evidence,
         "window_s": args.window_s,
         "sample_interval_s": args.sample_interval_s,
+        "startup_timeout_s": args.startup_timeout_s,
+        "startup_stable_samples": args.startup_stable_samples,
+        "startup_poll_interval_s": args.startup_poll_interval_s,
         "waveform_window_ns": args.waveform_window_ns,
         "sck_frequency_tolerance_percent":
             args.sck_frequency_tolerance_percent,
@@ -1152,8 +1310,10 @@ def main() -> int:
     stopped: dict[str, Any] = {}
     ring_capture: dict[str, Any] = {}
     ring_analysis: dict[str, Any] = {}
+    capture_load_masks: dict[str, int] = {}
     soak_timeline: list[dict[str, Any]] = []
     soak_validation: dict[str, Any] = {}
+    startup_barrier: dict[str, Any] = {}
     capture_error = ""
     analysis_error = ""
     capture_attempted = False
@@ -1186,6 +1346,16 @@ def main() -> int:
             "applied_config_seq": snapshot["ring_applied_config_seq"],
         } for address, snapshot in stop_ack.items())
         time.sleep(args.settle)
+        capture_load_masks = {
+            board.address: read_tdma_load_mask(
+                board, args, args.capture_latch_retries)
+            for board in ordered
+        }
+        actions.extend({
+            "node": address,
+            "action": "CAPTURE_LOAD_MASK_FREEZE",
+            "enabled_mask": enabled_mask,
+        } for address, enabled_mask in capture_load_masks.items())
         expected_mode = 2 if args.stage == "process-image" else 1
         for node_index, board in enumerate(ordered):
             evidence_enabled = 1 if args.clock_evidence == "enabled" else 0
@@ -1293,12 +1463,14 @@ def main() -> int:
                     "action": "CLOCK_TRAIN",
                     "response": train(board, args),
                 })
+        startup_before = sample_all(ordered, args)
         for board in start_order:
             actions.append({"node": board.address, "action": "START",
                             "response": board_command(
                                 board, "SYSTem:TDMA:RING:START", args)})
-        time.sleep(args.start_wait)
-        before = sample_all(ordered, args)
+        before, startup_barrier = wait_startup_barrier(
+            ordered, args, startup_before=startup_before,
+            require_process_image=args.stage == "process-image")
         soak_timeline = collect_soak_timeline(
             ordered, args, initial=before, window_s=args.window_s,
             sample_interval_s=args.sample_interval_s)
@@ -1345,7 +1517,8 @@ def main() -> int:
                 ordered, args,
                 calibration_generation=config["calibration_generation"],
                 capture_epoch=int(time.time()) & 0xFFFFFFFF,
-                out_dir=out_dir)
+                out_dir=out_dir,
+                original_load_masks=capture_load_masks)
         except Exception as exc:  # noqa: BLE001 - retain gate evidence
             capture_error = f"{type(exc).__name__}: {exc}"
         if ring_capture.get("capture_completed"):
@@ -1363,7 +1536,8 @@ def main() -> int:
                     ordered, args,
                     calibration_generation=config["calibration_generation"],
                     capture_epoch=int(time.time()) & 0xFFFFFFFF,
-                    out_dir=out_dir)
+                    out_dir=out_dir,
+                    original_load_masks=capture_load_masks)
             except Exception as exc:  # noqa: BLE001 - STOP still mandatory
                 capture_error = f"{type(exc).__name__}: {exc}"
             if ring_capture.get("capture_completed"):
@@ -1403,10 +1577,12 @@ def main() -> int:
         "nodes": nodes,
         "soak_timeline": soak_timeline,
         "soak_validation": soak_validation,
+        "startup_barrier": startup_barrier,
         "ring_capture": ring_capture,
         "ring_capture_error": capture_error,
         "ring_analysis": ring_analysis,
         "ring_analysis_error": analysis_error,
+        "capture_load_masks": capture_load_masks,
         "stopped": stopped,
         "actions": actions,
     }

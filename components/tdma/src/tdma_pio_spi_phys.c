@@ -1069,6 +1069,138 @@ static bool tdma_pio_spi_phys_clock_latch_read_and_rearm(
     return tdma_pio_spi_phys_clock_latch_rearm(phys);
 }
 
+static bool tdma_pio_spi_phys_restore_clock_latch(
+    tdma_pio_spi_phys_t *phys,
+    bool rearm)
+{
+    if (phys == NULL) return false;
+    const uint sm = BOARD_TDMA_SPI_CAPTURE_SM;
+    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, sm, false);
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, sm);
+    pio_sm_restart(BOARD_TDMA_SPI_PIO, sm);
+    for (uint32_t index = 0u; index < 4u; index++) {
+        BOARD_TDMA_SPI_PIO->instr_mem[
+            s_tdma_pio_spi_flight_clock_latch_offset + index] =
+                phys->flight_sck_waveform_saved_instructions[index];
+    }
+    tdma_pio_spi_flight_clock_latch_program_init(
+        BOARD_TDMA_SPI_PIO, sm,
+        s_tdma_pio_spi_flight_clock_latch_offset,
+        phys->role == TDMA_PIO_SPI_ROLE_MASTER
+            ? phys->tx_csn_pin
+            : phys->rx_csn_pin);
+    phys->flight_sck_waveform_capture_deadline_us = 0ull;
+    phys->flight_sck_waveform_capture_state =
+        TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_IDLE;
+    phys->flight_clock_latch_armed = false;
+    return !rearm || tdma_pio_spi_phys_clock_latch_rearm(phys);
+}
+
+bool tdma_pio_spi_phys_begin_ring_waveform_capture(
+    tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL || !phys->armed || !phys->rx_capture_active ||
+        (s_tdma_pio_spi_program_persona !=
+             TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN &&
+         s_tdma_pio_spi_program_persona !=
+             TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER &&
+         s_tdma_pio_spi_program_persona !=
+             TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER)) {
+        return false;
+    }
+    if (phys->flight_sck_waveform_capture_state ==
+            TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_PATCHED ||
+        phys->flight_sck_waveform_capture_state ==
+            TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_ARMED ||
+        phys->flight_sck_waveform_capture_state ==
+            TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_READY) {
+        if (!tdma_pio_spi_phys_restore_clock_latch(phys, false)) {
+            return false;
+        }
+    }
+    phys->flight_sck_waveform_capture_state =
+        TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_REQUESTED;
+    phys->flight_normal_capture_copy_stage = 0u;
+    phys->flight_normal_capture_rx_produced = 0u;
+    phys->flight_normal_capture_rx_start = 0u;
+    phys->flight_normal_capture_rx_count = 0u;
+    phys->flight_normal_capture_rx_cursor = 0u;
+    return true;
+}
+
+tdma_pio_spi_ring_waveform_capture_state_t
+tdma_pio_spi_phys_service_ring_waveform_capture(
+    tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL) return TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_FAILED;
+    const uint sm = BOARD_TDMA_SPI_CAPTURE_SM;
+    const uint offset = s_tdma_pio_spi_flight_clock_latch_offset;
+    if (phys->flight_sck_waveform_capture_state ==
+        TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_REQUESTED) {
+        pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, sm, false);
+        pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, sm);
+        pio_sm_restart(BOARD_TDMA_SPI_PIO, sm);
+        for (uint32_t index = 0u; index < 4u; index++) {
+            phys->flight_sck_waveform_saved_instructions[index] =
+                BOARD_TDMA_SPI_PIO->instr_mem[offset + index];
+        }
+
+        /* The product persona already occupies all 32 PIO instructions.
+         * Reuse only the capture SM's four-instruction latch region for this
+         * bounded job. Persona patch and SM configuration are deliberately
+         * separate core1 beats so neither can exceed the calibration phase
+         * WCET or borrow a later load's budget. */
+        BOARD_TDMA_SPI_PIO->instr_mem[offset + 0u] =
+            (uint16_t)pio_encode_wait_gpio(false, phys->rx_csn_pin);
+        BOARD_TDMA_SPI_PIO->instr_mem[offset + 1u] =
+            (uint16_t)pio_encode_in(pio_pins, 1u);
+        BOARD_TDMA_SPI_PIO->instr_mem[offset + 2u] =
+            (uint16_t)pio_encode_nop();
+        BOARD_TDMA_SPI_PIO->instr_mem[offset + 3u] =
+            (uint16_t)pio_encode_nop();
+        phys->flight_clock_latch_armed = false;
+        phys->flight_sck_waveform_capture_state =
+            TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_PATCHED;
+        return phys->flight_sck_waveform_capture_state;
+    }
+    if (phys->flight_sck_waveform_capture_state ==
+        TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_PATCHED) {
+        pio_sm_config config = pio_get_default_sm_config();
+        /* Execute WAIT once, then hardware-wrap the single 4 ns IN. */
+        sm_config_set_wrap(&config, offset + 1u, offset + 1u);
+        sm_config_set_in_pins(&config, phys->rx_sck_pin);
+        sm_config_set_in_shift(&config, true, true, 32u);
+        sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_RX);
+        sm_config_set_clkdiv(&config, 1.0f);
+        pio_sm_init(BOARD_TDMA_SPI_PIO, sm, offset, &config);
+        phys->flight_sck_waveform_capture_deadline_us =
+            tdma_pio_spi_phys_now_us() +
+            TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_TIMEOUT_US;
+        phys->flight_sck_waveform_capture_state =
+            TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_ARMED;
+        pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, sm, true);
+        return phys->flight_sck_waveform_capture_state;
+    }
+    if (phys->flight_sck_waveform_capture_state !=
+        TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_ARMED) {
+        return phys->flight_sck_waveform_capture_state;
+    }
+    if (pio_sm_get_rx_fifo_level(
+            BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM) >=
+        TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_WORDS) {
+        phys->flight_sck_waveform_capture_state =
+            TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_READY;
+        return phys->flight_sck_waveform_capture_state;
+    }
+    if (tdma_pio_spi_phys_now_us() >=
+        phys->flight_sck_waveform_capture_deadline_us) {
+        (void)tdma_pio_spi_phys_restore_clock_latch(phys, true);
+        phys->flight_sck_waveform_capture_state =
+            TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_FAILED;
+    }
+    return phys->flight_sck_waveform_capture_state;
+}
+
 static void tdma_pio_spi_phys_flight_origin_recover(
     tdma_pio_spi_phys_t *phys)
 {
@@ -1355,19 +1487,29 @@ bool tdma_pio_spi_phys_service_process_overlay_boundary(void *context)
         return false;
     }
     tdma_pio_spi_phys_service_overlay_pending(phys);
-    if (!pio_interrupt_get(BOARD_TDMA_SPI_PIO, 3u)) {
+    const bool boundary_observed =
+        pio_interrupt_get(BOARD_TDMA_SPI_PIO, 3u);
+    if (boundary_observed) {
+        /* IRQ3 is raised only after the fixed physical byte count and CS
+         * rising edge.  RX DMA publication can become visible a bounded
+         * number of core1 service passes later than this edge.  Record an
+         * explicit grace state instead of committing PASS immediately:
+         * otherwise the late parser result is coalesced behind PASS and this
+         * Node's mailbox is absent from an otherwise transport-valid process
+         * image. */
+        pio_interrupt_clear(BOARD_TDMA_SPI_PIO, 3u);
+        phys->snapshot.overlay_frame_boundary_count++;
+        phys->flight_overlay_boundary_pending = true;
+        phys->flight_overlay_grace_remaining =
+            TDMA_PIO_SPI_OVERLAY_GRACE_SERVICE_PASSES;
+    }
+    if (!phys->flight_overlay_boundary_pending) {
         return true;
     }
-
-    /* IRQ3 is raised only after the fixed physical byte count and CS rising
-     * edge. Process the parser first in the adapter, then consume this
-     * boundary. A successfully decoded frame has already queued its next
-     * overlay; a failed decode gets one PASS successor so the raw ring keeps
-     * moving and the original failure remains available as evidence. */
-    pio_interrupt_clear(BOARD_TDMA_SPI_PIO, 3u);
-    phys->snapshot.overlay_frame_boundary_count++;
     if (phys->flight_overlay_next_prepared) {
         phys->flight_overlay_next_prepared = false;
+        phys->flight_overlay_boundary_pending = false;
+        phys->flight_overlay_grace_remaining = 0u;
         return true;
     }
     /* A prepared script may still be waiting for the DMA channel.  It is
@@ -1375,13 +1517,24 @@ bool tdma_pio_spi_phys_service_process_overlay_boundary(void *context)
      * merely because the bounded service pass observed the channel busy. */
     if (phys->flight_overlay_pending) {
         phys->flight_overlay_next_prepared = false;
+        phys->flight_overlay_boundary_pending = false;
+        phys->flight_overlay_grace_remaining = 0u;
         return true;
     }
+    if (phys->flight_overlay_grace_remaining != 0u) {
+        phys->flight_overlay_grace_remaining--;
+        return true;
+    }
+    /* No complete parser result arrived within the fixed grace.  PASS is a
+     * bounded recovery action for an actually missing/bad frame, not the
+     * normal response to RX-DMA publication latency. */
     if (!tdma_pio_spi_phys_prepare_pass_overlay(phys)) {
         phys->snapshot.overlay_prepare_fail_count++;
         return false;
     }
     phys->flight_overlay_pass_committed = true;
+    phys->flight_overlay_boundary_pending = false;
+    phys->flight_overlay_grace_remaining = 0u;
     phys->snapshot.overlay_pass_recovery_count++;
     return true;
 }
@@ -1810,8 +1963,12 @@ static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
         }
         candidate++;
     }
-    /* Keep two trailing raw bytes so a shifted two-byte magic can be
-     * completed by the next DMA sample. */
+    /* A shifted four-byte outer header consumes one additional raw word.
+     * Preserve that full prefix across service passes: retaining only the
+     * two-byte magic can discard a valid candidate when DMA publication is
+     * observed after four raw words but before the fifth word arrives. */
+    const uint64_t retain_words =
+        TDMA_PIO_SPI_PACKET_HEADER_SIZE + 1u;
     const uint64_t bad_start = s_tdma_pio_spi_rx_scan_produced;
     const uint64_t bad_available = produced - bad_start;
     phys->snapshot.last_bad_header0 =
@@ -1824,7 +1981,8 @@ static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
         bad_available > 3u ? tdma_pio_spi_phys_rx_ring_word(bad_start + 3u) : 0u;
     phys->snapshot.last_bad_words = (uint32_t)bad_available;
     phys->snapshot.rx_magic_fail_count++;
-    s_tdma_pio_spi_rx_scan_produced = produced > 2u ? produced - 2u : 0u;
+    s_tdma_pio_spi_rx_scan_produced =
+        produced > retain_words ? produced - retain_words : 0u;
     return false;
 }
 
@@ -1884,6 +2042,8 @@ bool tdma_pio_spi_phys_arm(void *context,
     phys->flight_alignment_bit_shift = 0u;
     phys->flight_overlay_next_prepared = false;
     phys->flight_overlay_pass_committed = false;
+    phys->flight_overlay_boundary_pending = false;
+    phys->flight_overlay_grace_remaining = 0u;
     phys->flight_overlay_pending = false;
     phys->flight_overlay_active_buffer = 0u;
     phys->flight_overlay_pending_buffer = 0u;
@@ -1895,6 +2055,14 @@ bool tdma_pio_spi_phys_arm(void *context,
     phys->flight_tx_wire_bytes = 0u;
     phys->flight_tx_launch_timestamp_ns = 0ull;
     phys->flight_tx_deadline_ns = 0ull;
+    phys->flight_sck_waveform_capture_state =
+        TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_IDLE;
+    phys->flight_sck_waveform_capture_deadline_us = 0ull;
+    phys->flight_normal_capture_copy_stage = 0u;
+    phys->flight_normal_capture_rx_produced = 0u;
+    phys->flight_normal_capture_rx_start = 0u;
+    phys->flight_normal_capture_rx_count = 0u;
+    phys->flight_normal_capture_rx_cursor = 0u;
     if (!tdma_pio_spi_phys_select_program_persona(phys, flight_persona) ||
         !tdma_pio_spi_phys_configure_flight(phys, config)) {
         return false;
@@ -2021,6 +2189,10 @@ void tdma_pio_spi_phys_disarm(void *context)
          * path for that partial setup, so never leave hardware eligibility
          * asserted while the resident persona is stopped. */
         phys->flight_clock_latch_armed = false;
+        phys->flight_sck_waveform_capture_state =
+            TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_IDLE;
+        phys->flight_overlay_boundary_pending = false;
+        phys->flight_overlay_grace_remaining = 0u;
         phys->flight_overlay_pending = false;
         phys->flight_overlay_pending_words = 0u;
         phys->flight_tx_pending = false;
@@ -2037,6 +2209,14 @@ void tdma_pio_spi_phys_disarm(void *context)
     }
     if (s_tdma_pio_spi_rx_dma_channel >= 0) {
         dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
+    }
+    if (phys->flight_sck_waveform_capture_state ==
+            TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_PATCHED ||
+        phys->flight_sck_waveform_capture_state ==
+            TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_ARMED ||
+        phys->flight_sck_waveform_capture_state ==
+            TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_READY) {
+        (void)tdma_pio_spi_phys_restore_clock_latch(phys, false);
     }
     tdma_pio_spi_phys_set_line_drivers(false);
     pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM, false);
@@ -2060,11 +2240,16 @@ void tdma_pio_spi_phys_disarm(void *context)
     gpio_set_dir(phys->rx_pin, GPIO_IN);
     phys->armed = false;
     phys->flight_clock_latch_armed = false;
+    phys->flight_sck_waveform_capture_state =
+        TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_IDLE;
+    phys->flight_sck_waveform_capture_deadline_us = 0ull;
     phys->rx_capture_active = false;
     phys->flight_overlay_pending = false;
     phys->flight_overlay_pending_words = 0u;
     phys->flight_overlay_next_prepared = false;
     phys->flight_overlay_pass_committed = false;
+    phys->flight_overlay_boundary_pending = false;
+    phys->flight_overlay_grace_remaining = 0u;
     phys->flight_tx_pending = false;
     phys->flight_tx_completion_pending = false;
     phys->flight_tx_packet_size = 0u;
@@ -4726,7 +4911,8 @@ bool tdma_pio_spi_phys_get_snapshot(const tdma_pio_spi_phys_t *phys,
     return true;
 }
 
-bool tdma_pio_spi_phys_copy_normal_capture(
+tdma_pio_spi_normal_capture_copy_result_t
+tdma_pio_spi_phys_copy_normal_capture(
     tdma_pio_spi_phys_t *phys,
     uint32_t *rx_bytes,
     size_t rx_capacity,
@@ -4747,28 +4933,37 @@ bool tdma_pio_spi_phys_copy_normal_capture(
              TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER &&
          s_tdma_pio_spi_program_persona !=
              TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER)) {
-        return false;
+        return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_FAILED;
     }
 
-    memset(snapshot, 0, sizeof(*snapshot));
-    snapshot->version = TDMA_PIO_SPI_NORMAL_CAPTURE_VERSION;
-    snapshot->baud_hz = phys->baud_hz;
-    snapshot->bit_period_ns = phys->baud_hz == 0u
-        ? 0u
-        : (uint32_t)((1000000000ull + phys->baud_hz / 2u) /
-                     phys->baud_hz);
-
-    /* This diagnostic SM owns no DMA. Stop it before draining the joined RX
-     * FIFO so a stalled ninth autopush cannot replace an original word while
-     * evidence is copied, then re-arm it for a later latest-wins request. */
-    if (s_tdma_pio_spi_program_persona !=
-        TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL) {
+    /* Stage 0 owns only the SCK evidence FIFO. Clock-latch restoration and
+     * raw RX history use later fixed-size beats so the request never borrows
+     * time from another realtime phase. */
+    if (phys->flight_normal_capture_copy_stage == 0u) {
+        memset(snapshot, 0, sizeof(*snapshot));
+        snapshot->version = TDMA_PIO_SPI_NORMAL_CAPTURE_VERSION;
+        snapshot->baud_hz = phys->baud_hz;
+        snapshot->bit_period_ns = phys->baud_hz == 0u
+            ? 0u
+            : (uint32_t)((1000000000ull + phys->baud_hz / 2u) /
+                         phys->baud_hz);
+        if (s_tdma_pio_spi_program_persona ==
+            TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL) {
+            return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_FAILED;
+        }
+        if (tdma_pio_spi_phys_service_ring_waveform_capture(phys) !=
+            TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_READY) {
+            return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_FAILED;
+        }
         pio_sm_set_enabled(
             BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM, false);
         uint32_t sck_word_count = pio_sm_get_rx_fifo_level(
             BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM);
-        if (sck_word_count > TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_WORDS) {
-            sck_word_count = TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_WORDS;
+        if (sck_word_count != TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_WORDS) {
+            (void)tdma_pio_spi_phys_restore_clock_latch(phys, true);
+            phys->flight_sck_waveform_capture_state =
+                TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_FAILED;
+            return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_FAILED;
         }
         for (uint32_t index = 0u; index < sck_word_count; index++) {
             snapshot->sck_words[index] = pio_sm_get(
@@ -4779,46 +4974,81 @@ bool tdma_pio_spi_phys_copy_normal_capture(
             sck_word_count * TDMA_PIO_SPI_FLIGHT_SCK_SAMPLES_PER_WORD;
         snapshot->sck_sample_period_ns =
             TDMA_PIO_SPI_FLIGHT_SCK_SAMPLE_PERIOD_NS;
-        pio_sm_clear_fifos(
-            BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM);
-        pio_sm_restart(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM);
-        pio_sm_set_enabled(
-            BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM, true);
+        phys->flight_normal_capture_copy_stage = 1u;
+        return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_PENDING;
     }
 
-    const uint32_t rx_produced = tdma_pio_spi_phys_rx_produced_words(phys);
-    const uint32_t rx_count = rx_produced < rx_capacity
-        ? rx_produced
-        : (uint32_t)rx_capacity;
-    const uint32_t rx_start = rx_produced - rx_count;
-    for (uint32_t index = 0u; index < rx_count; index++) {
-        rx_bytes[index] = tdma_pio_spi_phys_rx_ring_byte(rx_start + index);
+    /* Restore the resident clock-latch program in its own beat. Rearming the
+     * timestamp counter is deliberately deferred to the next beat. */
+    if (phys->flight_normal_capture_copy_stage == 1u) {
+        if (!tdma_pio_spi_phys_restore_clock_latch(phys, false)) {
+            phys->flight_sck_waveform_capture_state =
+                TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_FAILED;
+            return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_FAILED;
+        }
+        phys->flight_normal_capture_copy_stage = 2u;
+        return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_PENDING;
     }
-    snapshot->rx_byte_count = rx_count;
-    snapshot->rx_produced_bytes = rx_produced;
 
-    for (uint32_t attempt = 0u; attempt < 64u; attempt++) {
-        const uint32_t begin = __atomic_load_n(
-            &s_tdma_pio_spi_tx_history_guard, __ATOMIC_ACQUIRE);
-        if ((begin & 1u) != 0u) continue;
-        const uint32_t tx_count = __atomic_load_n(
-            &s_tdma_pio_spi_tx_last_frame_bytes, __ATOMIC_RELAXED);
-        const uint32_t tx_produced = __atomic_load_n(
-            &s_tdma_pio_spi_tx_history_produced, __ATOMIC_RELAXED);
-        const uint32_t tx_frames = __atomic_load_n(
-            &s_tdma_pio_spi_tx_complete_frame_count, __ATOMIC_RELAXED);
-        if (tx_count > tx_capacity) return false;
-        for (uint32_t index = 0u; index < tx_count; index++) {
-            tx_bytes[index] = s_tdma_pio_spi_tx_last_frame[index];
+    /* Rearm separately, then freeze the raw RX history boundary retained by
+     * all subsequent fixed-size chunk copies. */
+    if (phys->flight_normal_capture_copy_stage == 2u) {
+        if (!tdma_pio_spi_phys_clock_latch_rearm(phys)) {
+            phys->flight_sck_waveform_capture_state =
+                TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_FAILED;
+            return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_FAILED;
         }
-        const uint32_t end = __atomic_load_n(
-            &s_tdma_pio_spi_tx_history_guard, __ATOMIC_ACQUIRE);
-        if (begin == end && (end & 1u) == 0u) {
-            snapshot->tx_byte_count = tx_count;
-            snapshot->tx_produced_bytes = tx_produced;
-            snapshot->tx_complete_frame_count = tx_frames;
-            return true;
-        }
+        phys->flight_normal_capture_rx_produced =
+            tdma_pio_spi_phys_rx_produced_words(phys);
+        phys->flight_normal_capture_rx_count =
+            phys->flight_normal_capture_rx_produced < rx_capacity
+            ? phys->flight_normal_capture_rx_produced
+            : (uint32_t)rx_capacity;
+        phys->flight_normal_capture_rx_start =
+            phys->flight_normal_capture_rx_produced -
+            phys->flight_normal_capture_rx_count;
+        phys->flight_normal_capture_rx_cursor = 0u;
+        snapshot->rx_byte_count = phys->flight_normal_capture_rx_count;
+        snapshot->rx_produced_bytes =
+            phys->flight_normal_capture_rx_produced;
+        phys->flight_normal_capture_copy_stage = 3u;
+        return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_PENDING;
     }
-    return false;
+
+    if (phys->flight_normal_capture_copy_stage == 3u) {
+        const uint32_t remaining = phys->flight_normal_capture_rx_count -
+            phys->flight_normal_capture_rx_cursor;
+        const uint32_t count =
+            remaining < TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_CHUNK_BYTES
+            ? remaining : TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_CHUNK_BYTES;
+        for (uint32_t index = 0u; index < count; index++) {
+            const uint32_t cursor =
+                phys->flight_normal_capture_rx_cursor + index;
+            rx_bytes[cursor] = tdma_pio_spi_phys_rx_ring_byte(
+                phys->flight_normal_capture_rx_start + cursor);
+        }
+        phys->flight_normal_capture_rx_cursor += count;
+        if (phys->flight_normal_capture_rx_cursor <
+            phys->flight_normal_capture_rx_count) {
+            return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_PENDING;
+        }
+        phys->flight_normal_capture_copy_stage = 4u;
+        return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_PENDING;
+    }
+
+    if (phys->flight_normal_capture_copy_stage != 4u) {
+        return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_FAILED;
+    }
+
+    /* Flight evidence is the physical RX loop stream. The origin's software
+     * TX history is a continuously rewritten single buffer, not a waveform;
+     * seqlock-copying it here can consume an unbounded number of retries and
+     * violate the calibration beat. Offline reference selection therefore
+     * uses the adjacent Node's immutable physical RX capture. */
+    (void)tx_bytes;
+    snapshot->tx_byte_count = 0u;
+    snapshot->tx_produced_bytes = 0u;
+    snapshot->tx_complete_frame_count = 0u;
+    phys->flight_normal_capture_copy_stage = 5u;
+    return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_READY;
 }

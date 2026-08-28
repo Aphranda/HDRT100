@@ -45,6 +45,13 @@ PROCESS_FIELDS = (
     "receive_expected_wkc", "receive_accepted_payload_size",
     "receive_last_accept_timestamp_ns",
     "receive_last_observation_timestamp_ns", "receive_stale_age_ns",
+    "receive_last_rejected_reason",
+    "receive_last_rejected_transport_result",
+    "receive_last_rejected_sequence",
+    "receive_last_rejected_observed_segment_mask",
+    "receive_last_rejected_expected_segment_mask",
+    "receive_last_rejected_quality_flags",
+    "receive_last_rejected_timestamp_ns",
 )
 
 FIFO_FIELDS = (

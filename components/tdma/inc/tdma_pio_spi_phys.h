@@ -37,6 +37,7 @@
 #define TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS \
     (TDMA_PIO_SPI_RX_DMA_WORD_MAX + \
      TDMA_TRANSPORT_FRAME_MAX_SLOT_COUNT + 4u)
+#define TDMA_PIO_SPI_OVERLAY_GRACE_SERVICE_PASSES 1u
 #define TDMA_PIO_SPI_RX_STABLE_US 1000u
 
 typedef enum {
@@ -62,6 +63,8 @@ typedef enum {
 #define TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_WORDS 8u
 #define TDMA_PIO_SPI_FLIGHT_SCK_SAMPLES_PER_WORD 32u
 #define TDMA_PIO_SPI_FLIGHT_SCK_SAMPLE_PERIOD_NS 4u
+#define TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_TIMEOUT_US 100000u
+#define TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_CHUNK_BYTES 4u
 /* Continuous flight followers must return to their next edge WAIT before the
  * source toggles again. These counts include the post-delay PIO instructions
  * visible in tdma_pio_spi_flight_control_forward/process_follower. */
@@ -112,6 +115,21 @@ typedef enum {
     TDMA_PIO_SPI_PHYS_ERROR_TX_BUSY = 5u,
     TDMA_PIO_SPI_PHYS_ERROR_RESOURCE_CONFLICT = 6u,
 } tdma_pio_spi_phys_error_t;
+
+typedef enum {
+    TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_IDLE = 0u,
+    TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_REQUESTED = 1u,
+    TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_PATCHED = 2u,
+    TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_ARMED = 3u,
+    TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_READY = 4u,
+    TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_FAILED = 5u,
+} tdma_pio_spi_ring_waveform_capture_state_t;
+
+typedef enum {
+    TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_FAILED = 0u,
+    TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_PENDING = 1u,
+    TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_READY = 2u,
+} tdma_pio_spi_normal_capture_copy_result_t;
 
 typedef enum {
     TDMA_PIO_SPI_ROLE_MASTER = 0u,
@@ -603,6 +621,8 @@ typedef struct {
     uint32_t flight_alignment_bit_shift;
     bool flight_overlay_next_prepared;
     bool flight_overlay_pass_committed;
+    bool flight_overlay_boundary_pending;
+    uint32_t flight_overlay_grace_remaining;
     bool flight_overlay_pending;
     uint32_t flight_overlay_active_buffer;
     uint32_t flight_overlay_pending_buffer;
@@ -625,6 +645,15 @@ typedef struct {
     uint64_t flight_clock_latch_epoch_ns;
     uint32_t flight_clock_latch_resolution_ns;
     bool flight_clock_latch_armed;
+    tdma_pio_spi_ring_waveform_capture_state_t
+        flight_sck_waveform_capture_state;
+    uint64_t flight_sck_waveform_capture_deadline_us;
+    uint16_t flight_sck_waveform_saved_instructions[4];
+    uint32_t flight_normal_capture_copy_stage;
+    uint32_t flight_normal_capture_rx_produced;
+    uint32_t flight_normal_capture_rx_start;
+    uint32_t flight_normal_capture_rx_count;
+    uint32_t flight_normal_capture_rx_cursor;
     /* Physical output pins. CS/SCK are forward; DATA is reverse. */
     uint32_t tx_sm;
     uint32_t tx_sck_pin;
@@ -802,13 +831,22 @@ bool tdma_pio_spi_phys_get_snapshot(const tdma_pio_spi_phys_t *phys,
  * function name is retained for SCPI/tool compatibility; NORMAL and both
  * FLIGHT personas are accepted. RX bytes are the newest physical DATA
  * samples, while TX is the newest complete origin frame when available. */
-bool tdma_pio_spi_phys_copy_normal_capture(
+tdma_pio_spi_normal_capture_copy_result_t
+tdma_pio_spi_phys_copy_normal_capture(
     tdma_pio_spi_phys_t *phys,
     uint32_t *rx_bytes,
     size_t rx_capacity,
     uint32_t *tx_bytes,
     size_t tx_capacity,
     tdma_pio_spi_normal_capture_snapshot_t *snapshot);
+/* Ring waveform evidence is a request-scoped PIO persona, not clock-latch
+ * timestamp evidence. It waits for physical RX CS, captures RX SCK at the
+ * clk_sys grid, then restores the resident clock latch. */
+bool tdma_pio_spi_phys_begin_ring_waveform_capture(
+    tdma_pio_spi_phys_t *phys);
+tdma_pio_spi_ring_waveform_capture_state_t
+tdma_pio_spi_phys_service_ring_waveform_capture(
+    tdma_pio_spi_phys_t *phys);
 
 /* phys_tx: push one complete packet (header + TdmaTransportFrame) into the TX
  * leg FIFO. The downlink SM shifts it out on the TX pin toward the next board

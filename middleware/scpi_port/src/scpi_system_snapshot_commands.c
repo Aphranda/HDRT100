@@ -2503,6 +2503,15 @@ scpi_result_t scpi_cmd_system_tdma_flight_process_q(scpi_t *context)
     SCPI_ResultUInt64(context, health->last_accept_timestamp_ns);
     SCPI_ResultUInt64(context, health->last_observation_timestamp_ns);
     SCPI_ResultUInt64(context, health->stale_age_ns);
+    SCPI_ResultUInt32(context, health->last_rejected_reason);
+    SCPI_ResultUInt32(context, health->last_rejected_transport_result);
+    SCPI_ResultUInt32(context, health->last_rejected_sequence);
+    SCPI_ResultUInt32(context,
+                      health->last_rejected_observed_segment_mask);
+    SCPI_ResultUInt32(context,
+                      health->last_rejected_expected_segment_mask);
+    SCPI_ResultUInt32(context, health->last_rejected_quality_flags);
+    SCPI_ResultUInt64(context, health->last_rejected_timestamp_ns);
     return SCPI_RES_OK;
 }
 

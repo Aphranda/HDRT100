@@ -76,13 +76,17 @@ typedef struct {
     uint32_t sequence;
     uint32_t calibration_generation;
     uint32_t capture_epoch;
+    uint32_t node;
+    uint32_t node_count;
 } calibration_ring_capture_intent_t;
 
 static calibration_ring_capture_intent_t s_ring_capture_intent;
 static volatile uint32_t s_ring_capture_consumed_sequence;
 static uint32_t s_ring_capture_next_sequence;
+static uint32_t s_ring_capture_active_sequence;
 static volatile uint32_t s_ring_capture_snapshot_guard;
 static calibration_ring_capture_snapshot_t s_ring_capture_snapshot;
+static tdma_pio_spi_normal_capture_snapshot_t s_ring_capture_physical_work;
 static volatile uint32_t s_ring_capture_core1_service_count;
 static volatile uint32_t s_ring_capture_intent_read_fail_count;
 static volatile uint32_t s_ring_capture_last_seen_sequence;
@@ -487,7 +491,10 @@ bool calibration_manager_init(void)
     memset(s_ring_capture_tx, 0, sizeof(s_ring_capture_tx));
     memset(&s_ring_capture_intent, 0, sizeof(s_ring_capture_intent));
     memset(&s_ring_capture_snapshot, 0, sizeof(s_ring_capture_snapshot));
+    memset(&s_ring_capture_physical_work, 0,
+           sizeof(s_ring_capture_physical_work));
     s_ring_capture_next_sequence = 0u;
+    s_ring_capture_active_sequence = 0u;
     __atomic_store_n(&s_ring_capture_consumed_sequence,
                      0u, __ATOMIC_RELEASE);
     __atomic_store_n(&s_ring_capture_snapshot_guard,
@@ -1807,6 +1814,19 @@ bool calibration_manager_request_ring_capture(
     if (calibration_generation == 0u || capture_epoch == 0u) {
         return false;
     }
+    tdma_ring_runtime_snapshot_t ring;
+    tdma_ring_calibration_stage_t stage;
+    bool complete = false;
+    if (!tdma_runtime_owner_get_ring_snapshot(&ring) ||
+        ring.enabled == 0u ||
+        ring.node_count < 2u ||
+        ring.node_count > TDMA_RING_CALIBRATION_LINK_MAX ||
+        ring.local_slot_id >= ring.node_count ||
+        !tdma_runtime_owner_get_calibration_stage(&stage, &complete) ||
+        !complete ||
+        stage.calibration_generation != calibration_generation) {
+        return false;
+    }
     /* Latest request wins. A diagnostic capture must not become permanently
      * wedged when a previous core0 publication was not consumed (for example
      * while core1 was parked). The sequence lets core1 distinguish retries;
@@ -1816,6 +1836,8 @@ bool calibration_manager_request_ring_capture(
     s_ring_capture_intent.sequence = ++s_ring_capture_next_sequence;
     s_ring_capture_intent.calibration_generation = calibration_generation;
     s_ring_capture_intent.capture_epoch = capture_epoch;
+    s_ring_capture_intent.node = ring.local_slot_id;
+    s_ring_capture_intent.node_count = ring.node_count;
     (void)__atomic_add_fetch(&s_ring_capture_intent.guard,
                              1u, __ATOMIC_RELEASE);
 
@@ -1867,9 +1889,6 @@ void calibration_manager_service_core1(void)
 {
     (void)__atomic_add_fetch(&s_ring_capture_core1_service_count,
                              1u, __ATOMIC_RELAXED);
-    tdma_ring_runtime_snapshot_t ring;
-    const bool stopped = tdma_runtime_owner_get_ring_snapshot(&ring) &&
-                         ring.enabled == 0u;
     calibration_ring_capture_intent_t ring_capture_intent;
     const bool ring_capture_intent_valid =
         calibration_manager_ring_capture_intent_read(&ring_capture_intent);
@@ -1890,36 +1909,87 @@ void calibration_manager_service_core1(void)
         captured.calibration_generation =
             ring_capture_intent.calibration_generation;
         captured.capture_epoch = ring_capture_intent.capture_epoch;
-        tdma_ring_calibration_stage_t stage;
-        bool complete = false;
-        const bool capture_eligible = !stopped && ring.node_count >= 2u &&
-            ring.node_count <= TDMA_RING_CALIBRATION_LINK_MAX &&
-            ring.local_slot_id < ring.node_count &&
-            tdma_runtime_owner_get_calibration_stage(&stage, &complete) &&
-            complete && stage.calibration_generation ==
-                ring_capture_intent.calibration_generation;
+        const bool capture_eligible = ring_capture_intent.node_count >= 2u &&
+            ring_capture_intent.node_count <=
+                TDMA_RING_CALIBRATION_LINK_MAX &&
+            ring_capture_intent.node < ring_capture_intent.node_count;
         bool copied = false;
-        if (capture_eligible) {
+        if (capture_eligible && s_ring_capture_active_sequence !=
+                ring_capture_intent.sequence) {
             (void)__atomic_add_fetch(&s_ring_capture_copy_attempt_count,
                                      1u, __ATOMIC_RELAXED);
-            copied = tdma_runtime_owner_copy_normal_capture_core1(
-                s_ring_capture_rx, TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES,
-                s_ring_capture_tx, TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES,
-                &captured.physical);
+            if (tdma_runtime_owner_begin_ring_waveform_capture_core1()) {
+                s_ring_capture_active_sequence = ring_capture_intent.sequence;
+                memset(&s_ring_capture_physical_work, 0,
+                       sizeof(s_ring_capture_physical_work));
+                captured.state = CALIBRATION_RING_CAPTURE_PENDING;
+                calibration_manager_ring_capture_publish(&captured);
+                return;
+            } else {
+                (void)__atomic_add_fetch(&s_ring_capture_copy_fail_count,
+                                         1u, __ATOMIC_RELAXED);
+            }
+        } else if (capture_eligible) {
+            const tdma_pio_spi_ring_waveform_capture_state_t waveform_state =
+                tdma_runtime_owner_service_ring_waveform_capture_core1();
+            if (waveform_state ==
+                    TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_REQUESTED ||
+                waveform_state ==
+                    TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_PATCHED ||
+                waveform_state ==
+                    TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_ARMED) {
+                captured.state = CALIBRATION_RING_CAPTURE_PENDING;
+                calibration_manager_ring_capture_publish(&captured);
+                return;
+            }
+            if (waveform_state ==
+                    TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_READY ||
+                s_ring_capture_physical_work.version ==
+                    TDMA_PIO_SPI_NORMAL_CAPTURE_VERSION) {
+                const tdma_pio_spi_normal_capture_copy_result_t copy_result =
+                    tdma_runtime_owner_copy_normal_capture_core1(
+                    s_ring_capture_rx, TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES,
+                    s_ring_capture_tx, TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES,
+                    &s_ring_capture_physical_work);
+                if (copy_result ==
+                    TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_PENDING) {
+                    /* PENDING was published when this request became active.
+                     * Intermediate beats only advance the private immutable
+                     * work buffer; republishing the complete snapshot on
+                     * every 16-byte chunk adds no observable state and can
+                     * consume the calibration phase's fixed WCET. */
+                    return;
+                }
+                copied = copy_result ==
+                    TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_READY;
+                if (copied) {
+                    captured.physical = s_ring_capture_physical_work;
+                }
+            }
             if (!copied) {
                 (void)__atomic_add_fetch(&s_ring_capture_copy_fail_count,
                                          1u, __ATOMIC_RELAXED);
             }
         }
         if (capture_eligible && copied) {
-            captured.node = ring.local_slot_id;
-            captured.node_count = ring.node_count;
+            captured.node = ring_capture_intent.node;
+            captured.node_count = ring_capture_intent.node_count;
             captured.state = CALIBRATION_RING_CAPTURE_READY;
         }
         calibration_manager_ring_capture_publish(&captured);
+        s_ring_capture_active_sequence = 0u;
         __atomic_store_n(&s_ring_capture_consumed_sequence,
                          ring_capture_intent.sequence, __ATOMIC_RELEASE);
+        /* Ring capture is a bounded diagnostic job with its own scheduled
+         * calibration phase.  Once the immutable raw snapshot is copied,
+         * end this service pass: running every unrelated training persona in
+         * the same pass makes a one-shot capture exceed its declared WCET
+         * and can quarantine the phase before the host observes READY. */
+        return;
     }
+    tdma_ring_runtime_snapshot_t ring;
+    const bool stopped = tdma_runtime_owner_get_ring_snapshot(&ring) &&
+                         ring.enabled == 0u;
     calibration_pio_loopback_service_core1(stopped);
     tdma_runtime_owner_coded_service_core1();
     tdma_runtime_owner_p3_service_core1();
@@ -3514,8 +3584,9 @@ bool calibration_manager_save_ring_capture(
         "  \"rx_produced_bytes\": %lu,\n"
         "  \"tx_produced_bytes\": %lu,\n"
         "  \"tx_complete_frame_count\": %lu,\n"
-        "  \"sck_capture_anchor\": \"physical_rx_sck_first_rising_edge\",\n"
+        "  \"sck_capture_anchor\": \"physical_rx_csn_falling_edge\",\n"
         "  \"sck_input\": \"physical_rx_sck\",\n"
+        "  \"sck_evidence_semantics\": \"raw_level_samples_not_clock_latch_timestamp\",\n"
         "  \"sck_sample_period_ns\": %lu,\n"
         "  \"sck_sample_count\": %lu,\n"
         "  \"sck_word_count\": %lu,\n"

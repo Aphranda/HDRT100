@@ -31,12 +31,17 @@ MARKER_CAPTURE_SAVE_HEADERS = {
     "CAL:RING:CAPT:SAVE", "CALIBRATION:RING:CAPTURE:SAVE",
 }
 STORAGE_COMPOSITE_QUERY_HEADERS = COMPOSITE_ACK_HEADERS - MARKER_CAPTURE_SAVE_HEADERS
+LOAD_MASK_SET_HEADERS = {
+    "SYST:TDMA:LOAD:MASK", "SYSTEM:TDMA:LOAD:MASK",
+}
 SCALAR_ONE_QUERY_HEADERS = {
     "SYST:BOARD:NO?", "SYSTEM:BOARD:NO?",
     "SYST:TDMA:RING:ARM:STATUS?", "SYSTEM:TDMA:RING:ARM:STATUS?",
     "SYST:TDMA:FLIGHT:MODE?", "SYSTEM:TDMA:FLIGHT:MODE?",
     "SYST:TDMA:FLIGHT:CLOCK:EVIDENCE?",
     "SYSTEM:TDMA:FLIGHT:CLOCK:EVIDENCE?",
+}
+SCALAR_U32_QUERY_HEADERS = {
     "SYST:TDMA:LOAD:MASK?", "SYSTEM:TDMA:LOAD:MASK?",
 }
 SCK_ARM_HEADERS = {
@@ -136,7 +141,8 @@ def scpi_response_matches_command(command: str, line: str) -> bool:
     """Screen obvious boot logs and stale responses for command-sensitive tools."""
     header = command.strip().split(maxsplit=1)[0].upper()
     text = trim_embedded_scpi_log(line)
-    if header not in COMPOSITE_ACK_HEADERS:
+    if (header not in COMPOSITE_ACK_HEADERS and
+            header not in LOAD_MASK_SET_HEADERS):
         text = strip_scpi_ack_prefix(text)
     if not text or is_scpi_log_line(text):
         return False
@@ -147,6 +153,13 @@ def scpi_response_matches_command(command: str, line: str) -> bool:
         return text.count(",") >= 3
     if header in SCALAR_ONE_QUERY_HEADERS:
         return re.fullmatch(r"[0-8]", text) is not None
+    if header in SCALAR_U32_QUERY_HEADERS:
+        return re.fullmatch(r"\d+", text) is not None
+    if header in LOAD_MASK_SET_HEADERS:
+        return (
+            re.fullmatch(r'"?OK"?(?:,\s*\d+)?', text) is not None
+            or re.fullmatch(r"\d+", text) is not None
+        )
     if header in SCK_ARM_HEADERS:
         return _csv_uints_match(text, 4)
     if header in {"SYST:OTA:SLOT?", "SYSTEM:OTA:SLOT?"}:
