@@ -273,6 +273,28 @@ def wait_runtime_started(board: Board, args: argparse.Namespace,
         f"{board.address}: ARM timeout, last={last}, last_error={last_error}")
 
 
+def wait_runtime_config_applied(board: Board, args: argparse.Namespace,
+                                node_index: int) -> dict[str, int]:
+    """Wait for Core1 to apply the newest config without requiring RUN yet."""
+    deadline = time.monotonic() + args.arm_wait
+    last: dict[str, int] = {}
+    last_error = ""
+    while time.monotonic() < deadline:
+        try:
+            last = runtime_snapshot(board, args, node_index)
+        except (OSError, RuntimeError) as exc:
+            last_error = str(exc)
+            time.sleep(0.1)
+            continue
+        if last["ring_applied_config_seq"] == last["ring_config_seq"]:
+            last["passed"] = 1
+            return last
+        time.sleep(0.05)
+    raise RuntimeError(
+        f"{board.address}: config apply timeout, last={last}, "
+        f"last_error={last_error}")
+
+
 def wait_runtime_stopped(board: Board, args: argparse.Namespace,
                          node_index: int) -> dict[str, int]:
     """Wait for Core1 to acknowledge the exact STOP configuration generation."""
@@ -1476,6 +1498,15 @@ def main() -> int:
                     "passed": True, "errors": [], "deltas": {}}
         for board in start_order:
             actions.append(arm_with_evidence(board, args))
+        for board in start_order:
+            applied = wait_runtime_config_applied(
+                board, args, board_ids.index(board.address))
+            actions.append({
+                "node": board.address,
+                "action": "ARM_CONFIG_APPLIED_ACK",
+                "config_seq": applied["ring_config_seq"],
+                "applied_config_seq": applied["ring_applied_config_seq"],
+            })
         for board in start_order:
             wait_runtime_started(board, args, board_ids.index(board.address))
         if args.clock_train:
