@@ -169,6 +169,11 @@ def parse_args() -> argparse.Namespace:
         "--stage", choices=("raw-flight", "process-image"),
         default="process-image",
         help="raw PIO cut-through proof or final FIFO/process-image gate")
+    parser.add_argument(
+        "--leave-running", action="store_true",
+        help=("leave the matrix-backed ring running only after every closed-"
+              "loop gate and a final runtime readback pass; any failure "
+              "still stops all nodes"))
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--out-dir", type=Path)
     return parser.parse_args()
@@ -211,6 +216,22 @@ def resolve_profile_level(config_level: Any,
             f"profile_level {config_level}; regenerate the staging matrix "
             "for another profile")
     return config_level
+
+
+def running_handoff_errors(snapshot: dict[str, int], node_index: int,
+                           node_count: int) -> list[str]:
+    """Validate the final read-only handoff from calibration to DPLL."""
+    expected = {
+        "ring_enabled": 1,
+        "ring_node_count": node_count,
+        "ring_local_node": node_index,
+        "ring_reference_node": 0,
+        "ring_adapter_started": 1,
+        "ring_up_running": 1,
+        "ring_down_running": 1,
+    }
+    return [name for name, value in expected.items()
+            if snapshot.get(name) != value]
 
 
 def arm_with_evidence(board: Board, args: argparse.Namespace) -> dict[str, Any]:
@@ -1308,6 +1329,7 @@ def main() -> int:
             args.sck_frequency_tolerance_percent,
         "sck_duty_tolerance_percent": args.sck_duty_tolerance_percent,
         "stage": args.stage,
+        "leave_running_requested": args.leave_running,
     }
     if args.dry_run:
         print(json.dumps(plan, ensure_ascii=False, indent=2))
@@ -1340,6 +1362,7 @@ def main() -> int:
     fifo_reset: dict[str, Any] = {}
     fifo_seed: dict[str, Any] = {}
     stopped: dict[str, Any] = {}
+    running_handoff: dict[str, Any] = {}
     ring_capture: dict[str, Any] = {}
     ring_analysis: dict[str, Any] = {}
     capture_load_masks: dict[str, int] = {}
@@ -1610,18 +1633,61 @@ def main() -> int:
                         ring_capture, raw_config, args, out_dir)
                 except Exception as exc:  # noqa: BLE001 - capture stays valid
                     analysis_error = f"{type(exc).__name__}: {exc}"
-        for board in ordered:
-            try:
-                actions.append({"node": board.address, "action": "STOP_FINAL",
-                                "response": board_command(
-                                    board, "SYSTem:TDMA:RING:STOP", args)})
-                stopped[board.address] = wait_runtime_stopped(
-                    board, args, board_ids.index(board.address))
-            except Exception as exc:  # noqa: BLE001
+        closed_loop_passed = (
+            not error and not capture_error and not analysis_error and
+            bool(soak_validation.get("passed")) and
+            bool(ring_analysis.get("passed")) and
+            len(nodes) == len(ordered) and
+            all(node["passed"] for node in nodes.values())
+        )
+        leave_running = bool(args.leave_running and closed_loop_passed)
+        if leave_running:
+            for node_index, board in enumerate(ordered):
+                try:
+                    snapshot = runtime_snapshot(board, args, node_index)
+                    snapshot_errors = running_handoff_errors(
+                        snapshot, node_index, len(ordered))
+                    running_handoff[board.address] = {
+                        "passed": not snapshot_errors,
+                        "errors": snapshot_errors,
+                        "runtime": snapshot,
+                    }
+                except Exception as exc:  # noqa: BLE001
+                    running_handoff[board.address] = {
+                        "passed": False,
+                        "errors": [f"{type(exc).__name__}: {exc}"],
+                    }
+            leave_running = all(
+                item["passed"] for item in running_handoff.values())
+            if not leave_running:
+                error = "leave-running final runtime readback failed"
+        if leave_running:
+            for board in ordered:
                 stopped[board.address] = {
-                    "passed": 0,
-                    "error": f"{type(exc).__name__}: {exc}",
+                    "passed": 1,
+                    "skipped": 1,
+                    "reason": "matrix_backed_ring_handed_to_dpll_observer",
                 }
+                actions.append({
+                    "node": board.address,
+                    "action": "LEAVE_RUNNING",
+                })
+        else:
+            for board in ordered:
+                try:
+                    actions.append({
+                        "node": board.address,
+                        "action": "STOP_FINAL",
+                        "response": board_command(
+                            board, "SYSTem:TDMA:RING:STOP", args),
+                    })
+                    stopped[board.address] = wait_runtime_stopped(
+                        board, args, board_ids.index(board.address))
+                except Exception as exc:  # noqa: BLE001
+                    stopped[board.address] = {
+                        "passed": 0,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
     passed = (
         not error and not capture_error and not analysis_error and
         bool(soak_validation.get("passed")) and
@@ -1647,6 +1713,10 @@ def main() -> int:
         "ring_analysis": ring_analysis,
         "ring_analysis_error": analysis_error,
         "capture_load_masks": capture_load_masks,
+        "running_handoff": running_handoff,
+        "left_running": bool(
+            args.leave_running and running_handoff and
+            all(item["passed"] for item in running_handoff.values())),
         "stopped": stopped,
         "actions": actions,
     }

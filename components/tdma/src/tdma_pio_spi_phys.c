@@ -2250,27 +2250,11 @@ void tdma_pio_spi_phys_disarm(void *context)
     if (phys == NULL) {
         return;
     }
-    if (!phys->armed) {
-        /* An arm attempt may have established the standalone clock-latch SM
-         * before a later PIO/DMA step failed.  Disarm is also the rollback
-         * path for that partial setup, so never leave hardware eligibility
-         * asserted while the resident persona is stopped. */
-        phys->flight_clock_latch_armed = false;
-        phys->flight_sck_waveform_capture_state =
-            TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_IDLE;
-        phys->flight_overlay_boundary_pending = false;
-        phys->flight_overlay_grace_remaining = 0u;
-        phys->flight_overlay_pending = false;
-        phys->flight_overlay_pending_words = 0u;
-        phys->flight_tx_pending = false;
-        phys->flight_tx_completion_pending = false;
-        tdma_pio_spi_phys_fill_static_snapshot(phys);
-        return;
-    }
     /* Process-image followers keep the overlay TX DMA blocked on the PIO TX
-     * FIFO between frames.  STOP must release both directions symmetrically;
-     * otherwise the next ARM sees TX DMA busy and rejects the persona even
-     * though both state machines were disabled. */
+     * FIFO between frames.  A failed ARM can also leave a DMA or SM active
+     * before phys->armed is published.  STOP is the common idempotent
+     * rollback for both states, so hardware cleanup must not be conditional
+     * on the software armed flag. */
     if (s_tdma_pio_spi_tx_dma_channel >= 0) {
         dma_channel_abort((uint)s_tdma_pio_spi_tx_dma_channel);
     }

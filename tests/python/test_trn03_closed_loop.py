@@ -21,6 +21,7 @@ from trn03_closed_loop import (  # noqa: E402
     parse_active_profile,
     parse_snapshot,
     resolve_profile_level,
+    running_handoff_errors,
     scalar_readback_with_retry,
     startup_barrier_interval_errors,
     u32_delta,
@@ -30,6 +31,23 @@ from trn03_closed_loop import (  # noqa: E402
     validate_soak_timeline,
     validate_tx_seed,
 )
+
+
+def test_running_handoff_requires_complete_healthy_physical_ring() -> None:
+    healthy = {
+        "ring_enabled": 1,
+        "ring_node_count": 4,
+        "ring_local_node": 2,
+        "ring_reference_node": 0,
+        "ring_adapter_started": 1,
+        "ring_up_running": 1,
+        "ring_down_running": 1,
+    }
+    assert running_handoff_errors(healthy, 2, 4) == []
+
+    unhealthy = dict(healthy, ring_down_running=0)
+    assert running_handoff_errors(unhealthy, 2, 4) == [
+        "ring_down_running"]
 
 
 def pio_instruction_count(source: str, program_name: str) -> int:
@@ -353,6 +371,17 @@ def test_process_follower_disarm_releases_overlay_tx_dma() -> None:
     disable = disarm.index("pio_sm_set_enabled")
     assert tx_abort < disable
     assert rx_abort < disable
+
+
+def test_partial_arm_disarm_cannot_return_before_hardware_cleanup() -> None:
+    phys = (ROOT / "components" / "tdma" / "src" /
+            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    disarm = phys.split("void tdma_pio_spi_phys_disarm", 1)[1].split(
+        "static bool tdma_pio_spi_phys_tx_put", 1)[0]
+    first_dma_abort = disarm.index("dma_channel_abort")
+    first_sm_disable = disarm.index("pio_sm_set_enabled")
+    assert "if (!phys->armed)" not in disarm[:first_dma_abort]
+    assert first_dma_abort < first_sm_disable
 
 
 def test_clock_training_quiesces_complete_flight_persona() -> None:
