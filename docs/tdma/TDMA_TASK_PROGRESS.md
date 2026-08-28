@@ -36,6 +36,7 @@ offset；短帧诊断只保留基础摘要。
 | TDMA-PROGRESS-20260828-004 | TDMA-PAYLOAD-002、TDMA-DPLL-001、TDMA-HIL-002 | `out/build/dpll-load-20260828/`、`out/ota/dpll-fixed-load-20260828/`、`out/training/trn03b_four_dpll_fixed_load_20260828/summary.json`、`out/tdma_process_image_budget/dpll_fixed_load_20260828.md`。 |
 | TDMA-PROGRESS-20260828-005 | TDMA-REL-002、TDMA-PAYLOAD-006 | 本次架构/TODO/登记同步；代码和 HIL 待按新 recovery owner 边界补齐。 |
 | TDMA-PROGRESS-20260828-006 | TDMA-HIL-001、TDMA-DPLL-001/002 | `out/build/dpll-p0-20260828/`、`out/pytest/dpll-p0-20260828/`；P0 构建通过但 SRAM 门禁未通过，未执行 OTA/HIL。 |
+| TDMA-PROGRESS-20260828-007 | TDMA-HIL-001、TDMA-DPLL-001/002 | `out/build/dpll-p0-ram-capture-pool-20260828/`；Calibration 维护态四个 8 KB 导出缓冲已合并，链接余量增加但仍未达到 SRAM 发布门禁。 |
 
 ## 失败与回退
 
@@ -59,6 +60,20 @@ offset；短帧诊断只保留基础摘要。
 - OTA/HIL：因 SRAM 发布门禁失败，本轮未对五板 OTA，也未启动 NO1–NO4 环路；保持 fail-closed。
 - 下一步：先完成 P0-RAM 的 staging/rollback/OTA buffer 生命周期复用和任务栈/heap 水位复核，
   重新构建并通过 SRAM 门禁，再重复 P0 OTA/HIL；在此之前不进入 active calibration 或 servo 调参。
+
+### TDMA-PROGRESS-20260828-007 - 合并 Calibration 维护态导出缓冲
+
+- TODO task ID：`TDMA-HIL-001`、`TDMA-DPLL-001`、`TDMA-DPLL-002`。
+- 日期：2026-08-28。
+- 变更/提交：代码提交 `5be632a`；仅合并 Calibration Domain 内互斥的 marker/data/SCK/ring
+  导出 payload 存储，不改变任何 TDMA wire、PIO 原语或训练矩阵语义。
+- 结果：四个历史 8 KB `char` 缓冲由一个带历史字段别名的 union 承载；构建产物
+  `out/build/dpll-p0-ram-capture-pool-20260828/` 的链接余量从约 `24680 B` 增加到
+  `49256 B`（快照，非事实源），Calibration 导出仍保持同步调用和固定容量。
+- 验证：A/B/Boot 构建及 flash link contract 通过；`ram_budget_check` 仍未达到
+  `RTOS_HAOFV_TODO.md` 的 96 KB 发布阈值，故未 OTA/HIL。
+- 下一步：继续处理跨组件维护态 staging/rollback/OTA buffer 生命周期和任务栈/heap 水位；
+  通过 SRAM gate 后才重复五板 OTA 与 NO1–NO4 TDMA 基线。
 
 ### TDMA-PROGRESS-20260828-005 - 固化原 Node 位置 recovery 与基础诊断边界
 
