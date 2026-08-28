@@ -895,7 +895,8 @@ def test_p3_reference_capture_uses_persona_loaded_program_offset() -> None:
     assert "BOARD_TDMA_SPI_CAPTURE_SM" in service
     assert "s_tdma_pio_spi_p3_capture_offset" in capture_init
     assert "s_tdma_pio_spi_cal_capture_offset" not in capture_init
-    assert "TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL" in service
+    assert "TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL" in source
+    assert "tdma_pio_spi_phys_cal_load_normal_step" in service
 
 
 def test_calibration_loopback_intent_has_a_dedicated_realtime_beat() -> None:
@@ -908,6 +909,51 @@ def test_calibration_loopback_intent_has_a_dedicated_realtime_beat() -> None:
         "intent.sequence != __atomic_load_n", 1
     )[1].split("tdma_pio_spi_phys_cal_loopback_service", 1)[0]
     assert "return true;" in consume
+
+
+def test_calibration_loopback_persona_transition_is_split_across_beats() -> None:
+    header = (ROOT / "components" / "tdma" / "inc" /
+              "tdma_pio_spi_phys.h").read_text(encoding="utf-8")
+    source = (ROOT / "components" / "tdma" / "src" /
+              "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    start = source.split(
+        "bool tdma_pio_spi_phys_cal_loopback_start", 1
+    )[1].split("void tdma_pio_spi_phys_cal_loopback_stop", 1)[0]
+    service = source.split(
+        "void tdma_pio_spi_phys_cal_loopback_service", 1
+    )[1].split("static uint32_t tdma_pio_spi_cal_sample_byte", 1)[0]
+
+    states = [
+        "START_UNLOAD",
+        "START_LOAD",
+        "START_CONFIGURE_TX",
+        "START_CONFIGURE_RESPONDER",
+        "START_CONFIGURE_CAPTURE",
+        "START_CONFIGURE_DMA",
+        "START_ARM",
+        "CAPTURE_FREEZE",
+        "CAPTURE_DECODE",
+        "CAPTURE_CLEANUP",
+        "CAPTURE_PUBLISH",
+        "STOP_FREEZE",
+        "STOP_CLEANUP",
+        "STOP_UNLOAD",
+        "STOP_LOAD",
+    ]
+    for state in states:
+        assert f"TDMA_PIO_SPI_CAL_TRANSITION_{state}" in header
+        assert f"TDMA_PIO_SPI_CAL_TRANSITION_{state}" in service or state == "START_UNLOAD"
+
+    assert "tdma_pio_spi_phys_select_program_persona" not in start
+    assert "tdma_pio_spi_phys_select_program_persona" not in service
+    assert "tdma_pio_spi_phys_unload_programs();" not in service
+    assert "tdma_pio_spi_phys_load_programs(" not in service
+    assert "tdma_pio_spi_phys_cal_unload_source_step" in service
+    assert "tdma_pio_spi_phys_cal_load_p3_step" in service
+    assert "tdma_pio_spi_phys_cal_unload_p3_step" in service
+    assert "tdma_pio_spi_phys_cal_load_normal_step" in service
+    assert "tdma_pio_spi_phys_cal_decode_step" in service
+    assert service.count("return;") >= len(states)
 
 
 def test_p3_responder_returns_and_measures_complete_data_burst() -> None:

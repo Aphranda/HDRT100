@@ -526,6 +526,8 @@ bool tdma_runtime_owner_cal_loopback_service(void)
     bool phase_claimed =
         s_tdma_pio_spi_phys.cal_loopback_start_pending ||
         s_tdma_pio_spi_phys.cal_loopback_stop_pending ||
+        s_tdma_pio_spi_phys.cal_loopback_transition !=
+            TDMA_PIO_SPI_CAL_TRANSITION_IDLE ||
         s_tdma_pio_spi_phys.cal_loopback.armed != 0u;
     tdma_cal_loopback_intent_t intent;
     if (tdma_runtime_owner_cal_intent_read(&intent) &&
@@ -556,6 +558,8 @@ bool tdma_runtime_owner_cal_loopback_service(void)
     return phase_claimed ||
            s_tdma_pio_spi_phys.cal_loopback_start_pending ||
            s_tdma_pio_spi_phys.cal_loopback_stop_pending ||
+           s_tdma_pio_spi_phys.cal_loopback_transition !=
+               TDMA_PIO_SPI_CAL_TRANSITION_IDLE ||
            s_tdma_pio_spi_phys.cal_loopback.armed != 0u;
 }
 

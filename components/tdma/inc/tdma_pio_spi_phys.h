@@ -205,6 +205,25 @@ typedef enum {
     TDMA_PIO_SPI_DATA_TRAIN_REJECT_TIMEOUT = 6u,
 } tdma_pio_spi_data_train_reject_t;
 
+typedef enum {
+    TDMA_PIO_SPI_CAL_TRANSITION_IDLE = 0u,
+    TDMA_PIO_SPI_CAL_TRANSITION_START_UNLOAD,
+    TDMA_PIO_SPI_CAL_TRANSITION_START_LOAD,
+    TDMA_PIO_SPI_CAL_TRANSITION_START_CONFIGURE_TX,
+    TDMA_PIO_SPI_CAL_TRANSITION_START_CONFIGURE_RESPONDER,
+    TDMA_PIO_SPI_CAL_TRANSITION_START_CONFIGURE_CAPTURE,
+    TDMA_PIO_SPI_CAL_TRANSITION_START_CONFIGURE_DMA,
+    TDMA_PIO_SPI_CAL_TRANSITION_START_ARM,
+    TDMA_PIO_SPI_CAL_TRANSITION_CAPTURE_FREEZE,
+    TDMA_PIO_SPI_CAL_TRANSITION_CAPTURE_DECODE,
+    TDMA_PIO_SPI_CAL_TRANSITION_CAPTURE_CLEANUP,
+    TDMA_PIO_SPI_CAL_TRANSITION_CAPTURE_PUBLISH,
+    TDMA_PIO_SPI_CAL_TRANSITION_STOP_FREEZE,
+    TDMA_PIO_SPI_CAL_TRANSITION_STOP_CLEANUP,
+    TDMA_PIO_SPI_CAL_TRANSITION_STOP_UNLOAD,
+    TDMA_PIO_SPI_CAL_TRANSITION_STOP_LOAD,
+} tdma_pio_spi_cal_transition_t;
+
 #define TDMA_PIO_SPI_DATA_TRAIN_FLAG_DIAGNOSTIC_ONLY (1u << 0u)
 #define TDMA_PIO_SPI_DATA_TRAIN_FLAG_HARDWARE_ORIGIN (1u << 1u)
 #define TDMA_PIO_SPI_DATA_TRAIN_FLAG_HARDWARE_MARKER \
@@ -679,6 +698,15 @@ typedef struct {
     tdma_pio_spi_cal_loopback_snapshot_t cal_loopback;
     volatile bool cal_loopback_start_pending;
     volatile bool cal_loopback_stop_pending;
+    volatile uint32_t cal_loopback_transition;
+    uint32_t cal_loopback_program_step;
+    uint32_t cal_loopback_program_count;
+    uint32_t cal_loopback_decode_word;
+    uint32_t cal_loopback_decode_previous;
+    uint32_t cal_loopback_decode_found;
+    uint32_t cal_loopback_decode_sync_edges;
+    bool cal_loopback_decode_have_previous;
+    uint64_t cal_loopback_decode_times[4];
     uint32_t cal_loopback_sample_hz;
     uint32_t cal_loopback_sample_words;
     uint32_t cal_loopback_epoch;
