@@ -533,6 +533,19 @@ def test_ring_capture_ends_its_bounded_calibration_service_pass() -> None:
         "calibration_pio_loopback_service_core1")
 
 
+def test_calibration_core1_never_waits_on_resource_arbiter() -> None:
+    manager = (ROOT / "components" / "calibration_manager" / "src" /
+               "calibration_manager.c").read_text(encoding="utf-8")
+    service = manager.split("void calibration_manager_service_core1", 1)[1]
+    service = service.split("bool calibration_manager_stage_training", 1)[0]
+    assert "resource_arbiter_" not in service
+    assert "__atomic_store_n(&s_training_activity_core1" in service
+
+    core0 = manager.split("void calibration_manager_service(void)", 1)[1]
+    core0 = core0.split("bool calibration_manager_start_loopback", 1)[0]
+    assert "calibration_manager_sync_training_activity_core0();" in core0
+
+
 def test_ring_capture_uses_request_scoped_raw_sck_persona() -> None:
     header = (ROOT / "components" / "tdma" / "inc" /
               "tdma_pio_spi_phys.h").read_text(encoding="utf-8")

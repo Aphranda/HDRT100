@@ -238,6 +238,8 @@ static calibration_marker_intent_t s_marker_intent;
 static uint32_t s_marker_intent_next_sequence;
 static volatile uint32_t s_marker_intent_consumed_sequence;
 static calibration_training_marker_request_t s_marker_active_request;
+static volatile bool s_training_activity_core1;
+static bool s_training_activity_resource;
 
 static void calibration_manager_marker_publish(
     calibration_marker_intent_opcode_t opcode,
@@ -274,12 +276,32 @@ static void calibration_manager_publish_training_activity(void)
         training_loopback.armed != 0u;
     const bool calibration_active =
         loopback_active ||
+        __atomic_load_n(&s_bias_active, __ATOMIC_ACQUIRE) ||
         __atomic_load_n(&s_data_active, __ATOMIC_ACQUIRE) ||
         __atomic_load_n(&s_sck_active, __ATOMIC_ACQUIRE) ||
         __atomic_load_n(&s_marker_active, __ATOMIC_ACQUIRE) ||
         __atomic_load_n(&s_clk_coded_active, __ATOMIC_ACQUIRE) ||
         s_p3_snapshot.raw.state == TDMA_PIO_SPI_P3_ARMED;
-    resource_arbiter_publish_calibration_training(calibration_active);
+    /* Core1 must not wait on the cross-core resource-arbiter lock. */
+    __atomic_store_n(&s_training_activity_core1, calibration_active,
+                     __ATOMIC_RELEASE);
+}
+
+static void calibration_manager_set_training_activity_core0(bool active)
+{
+    __atomic_store_n(&s_training_activity_core1, active, __ATOMIC_RELEASE);
+    resource_arbiter_publish_calibration_training(active);
+    s_training_activity_resource = active;
+}
+
+static void calibration_manager_sync_training_activity_core0(void)
+{
+    const bool active = __atomic_load_n(&s_training_activity_core1,
+                                        __ATOMIC_ACQUIRE);
+    if (active != s_training_activity_resource) {
+        resource_arbiter_publish_calibration_training(active);
+        s_training_activity_resource = active;
+    }
 }
 
 typedef enum {
@@ -446,6 +468,8 @@ bool calibration_manager_init(void)
     const uint32_t now_ms = board_uptime_ms();
 
     memset(&s_status, 0, sizeof(s_status));
+    __atomic_store_n(&s_training_activity_core1, false, __ATOMIC_RELEASE);
+    s_training_activity_resource = false;
     memset(&s_path_candidate, 0, sizeof(s_path_candidate));
     memset(&s_path_active, 0, sizeof(s_path_active));
     memset(&s_path_rollback, 0, sizeof(s_path_rollback));
@@ -1139,6 +1163,7 @@ void calibration_manager_service(void)
             }
         }
     }
+    calibration_manager_sync_training_activity_core0();
 }
 
 bool calibration_manager_start_loopback(uint32_t sample_words)
@@ -1152,7 +1177,7 @@ bool calibration_manager_start_loopback(uint32_t sample_words)
     };
     const bool accepted = calibration_pio_loopback_request_start(&config);
     if (accepted) {
-        resource_arbiter_publish_calibration_training(true);
+        calibration_manager_set_training_activity_core0(true);
         osal_critical_enter();
         s_status.command_seq++;
         s_status.state = 1u;
@@ -1213,7 +1238,7 @@ bool calibration_manager_start_bias(uint32_t expected_path_sum_ns,
         s_bias_active = false;
         return false;
     }
-    resource_arbiter_publish_calibration_training(true);
+    calibration_manager_set_training_activity_core0(true);
     return true;
 }
 
@@ -2048,10 +2073,13 @@ void calibration_manager_service_core1(void)
     const bool stopped = tdma_runtime_owner_get_ring_snapshot(&ring) &&
                          ring.enabled == 0u;
     if (calibration_pio_loopback_service_core1(stopped)) {
-        calibration_manager_publish_training_activity();
+        __atomic_store_n(&s_training_activity_core1, true,
+                         __ATOMIC_RELEASE);
         return;
     }
     if (!calibration_manager_has_non_loopback_core1_work()) {
+        __atomic_store_n(&s_training_activity_core1, false,
+                         __ATOMIC_RELEASE);
         return;
     }
     tdma_runtime_owner_coded_service_core1();
@@ -2797,7 +2825,7 @@ bool calibration_manager_request_p3(
         .signal_group = signal_group,
     };
     calibration_manager_p3_publish(CALIBRATION_P3_INTENT_START, &request);
-    resource_arbiter_publish_calibration_training(true);
+    calibration_manager_set_training_activity_core0(true);
     return true;
 }
 
@@ -2930,7 +2958,7 @@ bool calibration_manager_request_marker_training(
     };
     calibration_manager_marker_publish(CALIBRATION_MARKER_INTENT_ARM,
                                        &request);
-    resource_arbiter_publish_calibration_training(true);
+    calibration_manager_set_training_activity_core0(true);
     return true;
 }
 
@@ -3135,7 +3163,7 @@ bool calibration_manager_request_data_training(
         return false;
     }
     calibration_manager_data_publish(CALIBRATION_DATA_INTENT_ARM, &request);
-    resource_arbiter_publish_calibration_training(true);
+    calibration_manager_set_training_activity_core0(true);
     return true;
 }
 
@@ -3299,7 +3327,7 @@ bool calibration_manager_request_sck_training(
         return false;
     }
     calibration_manager_sck_publish(CALIBRATION_SCK_INTENT_ARM, &request);
-    resource_arbiter_publish_calibration_training(true);
+    calibration_manager_set_training_activity_core0(true);
     return true;
 }
 
@@ -3900,7 +3928,7 @@ bool calibration_manager_start_clk_coded(
     }
     calibration_manager_clk_coded_intent_publish(
         CALIBRATION_CLK_CODED_INTENT_START, request, gate);
-    resource_arbiter_publish_calibration_training(true);
+    calibration_manager_set_training_activity_core0(true);
     return true;
 }
 
