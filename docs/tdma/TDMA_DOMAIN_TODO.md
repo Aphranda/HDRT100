@@ -105,9 +105,10 @@ DPLL/诊断结果掩盖前一阶段 TDMA 或校准失败。
 ## 当前阻塞项
 
 - `TDMA-HIL-001` 尚未执行，因此拍级 phase 和新 wire layout 只能视为代码/host 基线。
-- P0 当前首先受 `docs/arch/RTOS_HAOFV_TODO.md` 的 P0-RAM 发布门禁阻塞：本轮 map
-  链接余量仍未达到发布阈值；在完成 SRAM 生命周期复用和任务栈/heap 水位复核前，不得进行
-  DPLL OTA/HIL 或用降低门禁阈值代替优化。
+- P0 的静态 SRAM 发布门禁已通过（2026-08-28，`link_free_bytes=98356 B`）；当前阻塞转为
+  板端 `SYST:RTOS:STATus?` heap/stack 水位、异步 OTA 和 NO1–NO4 TDMA 基线 HIL。水位或
+  HIL 未通过前，不得进入 active calibration、hardware latch 或 DPLL servo，也不得降低
+  `98304 B` 门禁阈值。
 - `TDMA-DET-004` 未完成前，CPU phase 仍包住组合 TDMA service，尚不能证明物理首边沿完全不受
   其他负载调用路径影响。
 - formal ACK/fence 与 control owner 尚未接入，新布局中的对应字段当前只提供固定基础语义。

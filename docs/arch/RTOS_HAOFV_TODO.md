@@ -54,9 +54,9 @@ heartbeat 验证不退化。
   直接使用 registry-owned staging buffer，失败释放并清空，成功提交后保留。
 - [ ] P0d-b：继续统一 Storage write buffer、OTA/package staging 的生命周期；事务持有期间不得
   覆盖，busy 必须 fail-closed。
-- [ ] P0e：按板端水位重算 task stack；优先增加 `task_ui`，收缩 USB/loop/calibration/refmem 等明显富余任务，再评估将 `configTOTAL_HEAP_SIZE` 从 128 KB 降到 96 KB。
+- [ ] P0e：按板端水位重算 task stack；优先增加 `task_ui`，收缩 USB/loop/calibration/refmem 等明显富余任务，再评估将 `configTOTAL_HEAP_SIZE` 从 128 KB 降到 96 KB。静态评估已完成（当前配置 96 KiB，任务栈已收敛），仍待板端 `SYSTem:RTOS:STATus?` 水位确认。
 - [x] P0f：增加 RAM 门禁脚本，解析 map 并在链接余量不达标时失败；heap、任务栈水位仍需板端 `SYSTem:RTOS:STATus?` 继续闭环。
-- [ ] P0g：每轮优化后执行 `cmake build`、板端 `SYSTem:RTOS:STATus?`、`SYSTem:CORE?`、SMA/TDMA/OTA 相关回归并记录到进展文档。
+- [ ] P0g：每轮优化后执行 `cmake build`、板端 `SYSTem:RTOS:STATus?`、`SYSTem:CORE?`、SMA/TDMA/OTA 相关回归并记录到进展文档。当前构建、RAM gate 和 host pytest 已完成，板端水位/OTA/HIL 待执行。
 
 ## P1 - RefMem 内部主域 / 反射内存主数据面
 

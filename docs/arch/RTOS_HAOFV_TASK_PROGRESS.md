@@ -116,6 +116,40 @@ CAL/SYNC staging + ACK/NACK、RJ45_SYNC_RING 和 `FIRE_LOAD/T2` 闭环。
 
 ## 任务记录
 
+### RTOS-DIST-TASK-20260828-002 - DPLL P0 SRAM 门禁与维护 workspace 收敛
+
+- 状态：代码与 host 验证完成；待五板 OTA、板端 RTOS 水位和 TDMA HIL。
+- 日期：2026-08-28
+- 任务目标：
+  - 在不改变 Core1/PIO/DMA 实时路径和 TDMA SHORT wire 的前提下，使 DPLL 基础件满足
+    96 KiB 主 SRAM 链接余量发布门禁。
+- 完成内容：
+  - 维护态任务栈按 owner 重新收敛：watchdog、system、USB、SCPI、RefMem、loop、
+    calibration、config gate、OTA 和 storage 使用当前静态配置；`task_ui` 保持原栈容量。
+  - `configTOTAL_HEAP_SIZE` 由 128 KiB 调整为 96 KiB，作为板端水位复核前的静态评估值。
+  - TDMA coded/marker/data-training persona 的 TX/RX 缓冲改为每方向一个最大尺寸 union；
+    persona 仍由 TDMA owner 互斥切换，marker 的 512-word 上限不变。
+- 验证结果：
+  - 使用 `tools/cmake_build_auto/cmake_build_auto.py` 构建到
+    `out/build/dpll-p0-cal-workspace-20260828/`；A/B/Boot 和 flash link contract 通过。
+  - `tools/ram_budget_check/ram_budget_check.py`：`link_free_bytes=98356 B`，超过
+    `RTOS_HAOFV_TODO.md` 定义的 `98304 B` 门禁 52 B。
+  - 全量 pytest 输出到 `out/pytest/dpll-p0-cal-workspace-20260828/junit.xml`，结果为
+    `506 passed, 1 skipped`；跳过项仅为未提供 COM 端口的显式 HIL 测试。
+- 还需完成：
+  - 用同一 OTA package 完成 NO1–NO5 异步 OTA；记录每板 `SYST:RTOS:STAT?` heap/stack
+    水位和 `SYST:CORE?` heartbeat。
+  - 通过 NO1–NO4 四板 TDMA 基线后，才能进入 active calibration matrix、硬件 latch 和
+    DPLL eligible gate；NO5 继续保持环外只读观测角色。
+- 关联文件：
+  - `config/freertos/FreeRTOSConfig.h`
+  - `application/src/app_tasks.c`
+  - `components/tdma/src/tdma_pio_spi_phys.c`
+  - `docs/arch/RTOS_HAOFV_TODO.md`
+- 下一步：
+  - 先完成 P0 OTA/HIL 和板端水位复核；若水位不足，回到维护态 buffer/栈生命周期优化，
+    不降低 96 KiB 门禁。
+
 ### RTOS-DIST-TASK-20260828-001 - DPLL P0 维护态 staging pool 优化
 
 - 状态：代码与 host 验证完成；发布 SRAM 门禁仍未通过，未 OTA/HIL。

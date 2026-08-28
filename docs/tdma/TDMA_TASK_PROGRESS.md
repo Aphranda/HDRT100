@@ -26,6 +26,11 @@ transport bad 保持为零，但 NO1–NO3 mailbox bitmap 仍不完整，NO1 SD 
 Node mailbox；recovery 使用独立双 buffer 和独立预算，并在发送时复用原 Node 固定 segment
 offset；短帧诊断只保留基础摘要。
 
+P0 SRAM 基础门禁已在 2026-08-28 通过：`out/build/dpll-p0-cal-workspace-20260828/`
+的 `link_free_bytes=98356 B`，超过 RTOS 发布阈值 `98304 B`；校准 persona workspace
+采用互斥 union，未改变 SHORT wire 或 Core1 phase。板端 OTA、RTOS 水位、四板基线和
+NO5 观测仍未完成，因此 DPLL 尚不能进入 active matrix/eligible/servo 阶段。
+
 ## 验证与证据索引
 
 | progress ID | TODO task ID | 证据 |
@@ -38,6 +43,7 @@ offset；短帧诊断只保留基础摘要。
 | TDMA-PROGRESS-20260828-006 | TDMA-HIL-001、TDMA-DPLL-001/002 | `out/build/dpll-p0-20260828/`、`out/pytest/dpll-p0-20260828/`；P0 构建通过但 SRAM 门禁未通过，未执行 OTA/HIL。 |
 | TDMA-PROGRESS-20260828-007 | TDMA-HIL-001、TDMA-DPLL-001/002 | `out/build/dpll-p0-ram-capture-pool-20260828/`；Calibration 维护态四个 8 KB 导出缓冲已合并，链接余量增加但仍未达到 SRAM 发布门禁。 |
 | TDMA-PROGRESS-20260828-008 | TDMA-HIL-001、TDMA-DPLL-001/002 | `out/build/dpll-p0-staging-pool-20260828/`、`out/pytest/dpll-p0-staging-pool-20260828/`；RefMem staging lease 回收重复维护缓冲，pytest 506 passed/1 skipped，链接余量 65640 B，仍未达 SRAM 发布门禁。 |
+| TDMA-PROGRESS-20260828-009 | TDMA-HIL-001、TDMA-DPLL-001/002 | `out/build/dpll-p0-cal-workspace-20260828/`、`out/pytest/dpll-p0-cal-workspace-20260828/`；任务栈/heap 收敛及 TDMA 校准 workspace union 后 RAM gate `98356 B` PASS，pytest `506 passed, 1 skipped`，尚待 OTA/HIL。 |
 
 ## 失败与回退
 
@@ -93,6 +99,22 @@ offset；短帧诊断只保留基础摘要。
 通过静态预算和编译门禁，不能运行时借用 guard 或“看起来有余量”的拍。
 
 ## 按时间追加的任务记录
+
+### TDMA-PROGRESS-20260828-009 - DPLL P0 SRAM 门禁通过
+
+- TODO task ID：`TDMA-HIL-001`、`TDMA-DPLL-001`、`TDMA-DPLL-002`。
+- 日期：2026-08-28。
+- 变更：FreeRTOS heap 静态配置调整为 96 KiB；维护态任务栈收敛；TDMA coded/marker/
+  data-training TX/RX workspace 按 persona 互斥关系合并为每方向一个 union。未改变 TDMA
+  SHORT wire、PIO 原语、Core1 phase、recovery budget 或 calibration matrix。
+- 构建：`tools/cmake_build_auto/cmake_build_auto.py` 输出到
+  `out/build/dpll-p0-cal-workspace-20260828/`；A/B/Boot 和 flash link contract 通过。
+- RAM：`tools/ram_budget_check/ram_budget_check.py` 报告 `link_free_bytes=98356 B`，相对
+  `98304 B` 门禁余量 52 B，P0 静态 gate PASS。
+- pytest：`out/pytest/dpll-p0-cal-workspace-20260828/junit.xml`，全量结果
+  `506 passed, 1 skipped`；跳过项为未提供 COM 端口的 HIL。
+- OTA/HIL：尚未执行。继续保持 fail-closed，先做异步 OTA、板端 heap/stack 水位、
+  `SYST:CORE?` heartbeat 和 NO1–NO4 TDMA 基线；NO5 仅做环外观测。
 
 ### TDMA-PROGRESS-20260828-008 - RefMem staging maintenance pool
 
