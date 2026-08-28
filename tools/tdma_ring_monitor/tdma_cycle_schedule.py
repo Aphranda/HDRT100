@@ -45,6 +45,16 @@ class TdmaCycleSchedule:
     cycle_cycles: int
     spi_baud_hz: int
     spi_cycles_per_bit: int
+    packet_header_bytes: int
+    transport_header_bytes: int
+    short_packet_max_bytes: int
+    short_payload_max_bytes: int
+    flight_tail_bytes: int
+    packet_header_cycles: int
+    transport_header_cycles: int
+    payload_cycles: int
+    flight_tail_cycles: int
+    wire_bits: int
     wire_max_bytes: int
     wire_max_cycles: int
     tdma_software_margin_cycles: int
@@ -134,19 +144,41 @@ def load_schedule(
     )
     sys_clock_hz = _evaluate("BOARD_SYS_CLOCK_HZ", definitions)
     spi_baud_hz = _evaluate("BOARD_TDMA_SPI_BAUD_HZ", definitions)
-    wire_max_bytes = (
-        _evaluate("TDMA_PIO_SPI_PACKET_HEADER_SIZE", definitions)
-        + _evaluate("TDMA_TRANSPORT_SHORT_PACKET_MAX", definitions)
-        + _evaluate("TDMA_PIO_SPI_FLIGHT_MAX_TAIL_BYTES", definitions)
-    )
+    packet_header_bytes = _evaluate(
+        "TDMA_PIO_SPI_PACKET_HEADER_SIZE", definitions)
+    transport_header_bytes = _evaluate(
+        "TDMA_TRANSPORT_FRAME_HEADER_SIZE", definitions)
+    short_packet_max_bytes = _evaluate(
+        "TDMA_TRANSPORT_SHORT_PACKET_MAX", definitions)
+    short_payload_max_bytes = _evaluate(
+        "TDMA_TRANSPORT_SHORT_PAYLOAD_MAX", definitions)
+    flight_tail_bytes = _evaluate(
+        "TDMA_PIO_SPI_FLIGHT_MAX_TAIL_BYTES", definitions)
+    payload_bytes = short_packet_max_bytes - transport_header_bytes
+    wire_max_bytes = packet_header_bytes + transport_header_bytes + payload_bytes + flight_tail_bytes
     spi_cycles_per_bit = sys_clock_hz // spi_baud_hz
+    packet_header_cycles = packet_header_bytes * 8 * spi_cycles_per_bit
+    transport_header_cycles = transport_header_bytes * 8 * spi_cycles_per_bit
+    payload_cycles = payload_bytes * 8 * spi_cycles_per_bit
+    flight_tail_cycles = flight_tail_bytes * 8 * spi_cycles_per_bit
+    wire_bits = wire_max_bytes * 8
     return TdmaCycleSchedule(
         sys_clock_hz=sys_clock_hz,
         cycle_cycles=_evaluate("PROJECT_CORE1_CYCLE_CYCLES", definitions),
         spi_baud_hz=spi_baud_hz,
         spi_cycles_per_bit=spi_cycles_per_bit,
+        packet_header_bytes=packet_header_bytes,
+        transport_header_bytes=transport_header_bytes,
+        short_packet_max_bytes=short_packet_max_bytes,
+        short_payload_max_bytes=short_payload_max_bytes,
+        flight_tail_bytes=flight_tail_bytes,
+        packet_header_cycles=packet_header_cycles,
+        transport_header_cycles=transport_header_cycles,
+        payload_cycles=payload_cycles,
+        flight_tail_cycles=flight_tail_cycles,
+        wire_bits=wire_bits,
         wire_max_bytes=wire_max_bytes,
-        wire_max_cycles=wire_max_bytes * 8 * spi_cycles_per_bit,
+        wire_max_cycles=wire_bits * spi_cycles_per_bit,
         tdma_software_margin_cycles=_evaluate(
             "PROJECT_CORE1_TDMA_SOFTWARE_MARGIN_CYCLES", definitions),
         phases=phases,
@@ -157,6 +189,18 @@ def validate_schedule(schedule: TdmaCycleSchedule) -> list[str]:
     errors: list[str] = []
     if schedule.sys_clock_hz % schedule.spi_baud_hz:
         errors.append("SPI baud is not an integer clk_sys cycle divisor")
+    if schedule.short_payload_max_bytes < 0:
+        errors.append("short payload maximum is negative")
+    if (schedule.transport_header_bytes + schedule.short_payload_max_bytes !=
+            schedule.short_packet_max_bytes):
+        errors.append("short packet does not equal transport header plus payload")
+    if (schedule.packet_header_bytes + schedule.short_packet_max_bytes +
+            schedule.flight_tail_bytes != schedule.wire_max_bytes):
+        errors.append("wire decomposition does not equal maximum wire bytes")
+    if (schedule.packet_header_cycles + schedule.transport_header_cycles +
+            schedule.payload_cycles + schedule.flight_tail_cycles !=
+            schedule.wire_max_cycles):
+        errors.append("wire cycle decomposition does not equal maximum wire cycles")
     if not schedule.phases:
         return errors + ["schedule has no phases"]
     if schedule.phases[0].start_cycle != 0:
@@ -185,6 +229,9 @@ def validate_schedule(schedule: TdmaCycleSchedule) -> list[str]:
     elif (schedule.wire_max_cycles + schedule.tdma_software_margin_cycles >
           tdma.wcet_cycles):
         errors.append("wire serialization plus software margin exceeds TDMA WCET")
+    elif (schedule.wire_max_cycles + schedule.tdma_software_margin_cycles >
+          tdma.window_cycles):
+        errors.append("short-frame budget would borrow cycles from a later phase")
     return errors
 
 
@@ -199,6 +246,14 @@ def render_markdown(schedule: TdmaCycleSchedule) -> str:
         f"wire_max={schedule.wire_max_cycles} cycles; "
         f"tdma_software_margin={schedule.tdma_software_margin_cycles} cycles; "
         f"status={'FAIL' if errors else 'PASS'}",
+        "",
+        "| short-frame component | bytes | bits | clk_sys cycles |",
+        "|---|---:|---:|---:|",
+        f"| PIO packet header | {schedule.packet_header_bytes} | {schedule.packet_header_bytes * 8} | {schedule.packet_header_cycles} |",
+        f"| transport header | {schedule.transport_header_bytes} | {schedule.transport_header_bytes * 8} | {schedule.transport_header_cycles} |",
+        f"| short payload (maximum) | {schedule.short_payload_max_bytes} | {schedule.short_payload_max_bytes * 8} | {schedule.payload_cycles} |",
+        f"| flight tail (maximum) | {schedule.flight_tail_bytes} | {schedule.flight_tail_bytes * 8} | {schedule.flight_tail_cycles} |",
+        f"| **wire total** | **{schedule.wire_max_bytes}** | **{schedule.wire_bits}** | **{schedule.wire_max_cycles}** |",
         "",
         "| phase | start_cycle | end_cycle | window_cycles | WCET_cycles | "
         "observed_cycles | derived window |",
@@ -232,7 +287,9 @@ def render_svg(schedule: TdmaCycleSchedule) -> str:
         f'<text x="24" y="30" class="label">Core1 TDMA cycle schedule — '
         f'{schedule.cycle_cycles} clk_sys cycles</text>',
         f'<text x="24" y="52" class="small">clk_sys={schedule.sys_clock_hz} Hz; '
-        f'max wire={schedule.wire_max_cycles} cycles; '
+        f'wire={schedule.packet_header_bytes}+{schedule.transport_header_bytes}+'
+        f'{schedule.short_payload_max_bytes}+{schedule.flight_tail_bytes} B '
+        f'({schedule.wire_max_cycles} cycles); '
         f'TDMA software margin={schedule.tdma_software_margin_cycles} cycles; '
         f'status={"FAIL" if errors else "PASS"}</text>',
     ]
