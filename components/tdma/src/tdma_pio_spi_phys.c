@@ -3096,7 +3096,7 @@ static uint32_t tdma_pio_spi_cal_sample_byte(uint32_t word, uint32_t index)
 
 static bool tdma_pio_spi_phys_cal_decode_step(tdma_pio_spi_phys_t *phys)
 {
-    const uint32_t words_per_beat = 16u;
+    const uint32_t words_per_beat = 8u;
     uint32_t end_word = phys->cal_loopback_decode_word + words_per_beat;
     if (end_word > phys->cal_loopback.requested_words) {
         end_word = phys->cal_loopback.requested_words;
