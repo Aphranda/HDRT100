@@ -74,18 +74,36 @@ static uint s_tdma_pio_spi_flight_clock_latch_offset;
 static uint s_tdma_pio_spi_flight_origin_rtt_offset;
 static uint32_t s_tdma_pio_spi_cal_ring[TDMA_PIO_SPI_CAL_LOOPBACK_MAX_WORDS]
     __attribute__((aligned(4)));
-static uint32_t s_tdma_pio_spi_coded_tx[TDMA_PIO_SPI_CODED_BUFFER_WORDS]
+/* Calibration personas are mutually exclusive: the TDMA owner restores the
+ * normal DATA/CS persona before accepting another request.  Keep one maximum
+ * sized TX/RX workspace per direction instead of reserving coded, marker and
+ * data-training arrays concurrently.  The named members preserve the
+ * persona-specific bounds and call sites while the union makes the lifetime
+ * contract explicit in the static RAM layout. */
+typedef union {
+    uint32_t coded[TDMA_PIO_SPI_CODED_BUFFER_WORDS];
+    uint32_t marker[TDMA_PIO_SPI_MARKER_BUFFER_WORDS];
+    uint32_t data_train[TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS];
+} tdma_pio_spi_cal_tx_workspace_t;
+
+typedef union {
+    uint32_t coded[TDMA_PIO_SPI_CODED_BUFFER_WORDS];
+    uint32_t marker[TDMA_PIO_SPI_MARKER_BUFFER_WORDS];
+    uint32_t data_train[TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS];
+} tdma_pio_spi_cal_rx_workspace_t;
+
+static tdma_pio_spi_cal_tx_workspace_t s_tdma_pio_spi_cal_tx_workspace
     __attribute__((aligned(4)));
-static uint32_t s_tdma_pio_spi_coded_rx[TDMA_PIO_SPI_CODED_BUFFER_WORDS]
+static tdma_pio_spi_cal_rx_workspace_t s_tdma_pio_spi_cal_rx_workspace
     __attribute__((aligned(4)));
-static uint32_t s_tdma_pio_spi_marker_tx[TDMA_PIO_SPI_MARKER_BUFFER_WORDS]
-    __attribute__((aligned(4)));
-static uint32_t s_tdma_pio_spi_marker_rx[TDMA_PIO_SPI_MARKER_BUFFER_WORDS]
-    __attribute__((aligned(4)));
-static uint32_t s_tdma_pio_spi_data_train_tx[
-    TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS] __attribute__((aligned(4)));
-static uint32_t s_tdma_pio_spi_data_train_rx[
-    TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS] __attribute__((aligned(4)));
+#define s_tdma_pio_spi_coded_tx (s_tdma_pio_spi_cal_tx_workspace.coded)
+#define s_tdma_pio_spi_marker_tx (s_tdma_pio_spi_cal_tx_workspace.marker)
+#define s_tdma_pio_spi_data_train_tx \
+    (s_tdma_pio_spi_cal_tx_workspace.data_train)
+#define s_tdma_pio_spi_coded_rx (s_tdma_pio_spi_cal_rx_workspace.coded)
+#define s_tdma_pio_spi_marker_rx (s_tdma_pio_spi_cal_rx_workspace.marker)
+#define s_tdma_pio_spi_data_train_rx \
+    (s_tdma_pio_spi_cal_rx_workspace.data_train)
 /* CS-style local launch: high idle followed by one low edge. */
 static uint32_t s_tdma_pio_spi_sck_train_inject_word = 0u;
 static void tdma_pio_spi_phys_cal_decode(tdma_pio_spi_phys_t *phys);

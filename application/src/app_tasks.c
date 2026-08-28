@@ -239,16 +239,16 @@ static bool app_tasks_create_one(const osal_task_config_t *config)
 bool app_tasks_create_all(void)
 {
     static const osal_task_config_t task_table[] = {
-        {.name = "watchdog_supervisor", .entry = task_watchdog_supervisor, .context = NULL, .stack_words = 1024u, .priority = 6u},
-        {.name = "system", .entry = task_system, .context = NULL, .stack_words = 2048u, .priority = 4u},
-        {.name = "usb_device", .entry = task_usb_device, .context = NULL, .stack_words = 1536u, .priority = 4u},
-        {.name = "scpi", .entry = task_scpi, .context = NULL, .stack_words = 3072u, .priority = 3u},
-        {.name = "refmem_sync", .entry = task_refmem_sync, .context = NULL, .stack_words = 2048u, .priority = 4u},
-        {.name = "loop_engine", .entry = task_loop_engine, .context = NULL, .stack_words = 3072u, .priority = 3u},
-        {.name = "calibration", .entry = task_calibration, .context = NULL, .stack_words = 2048u, .priority = 3u},
-        {.name = "cfg_gate", .entry = task_config_gate, .context = NULL, .stack_words = 2048u, .priority = 3u},
-        {.name = "ota", .entry = task_ota, .context = NULL, .stack_words = 1536u, .priority = 3u},
-        {.name = "storage", .entry = task_storage, .context = NULL, .stack_words = 3072u, .priority = 3u},
+        {.name = "watchdog_supervisor", .entry = task_watchdog_supervisor, .context = NULL, .stack_words = 512u, .priority = 6u},
+        {.name = "system", .entry = task_system, .context = NULL, .stack_words = 1536u, .priority = 4u},
+        {.name = "usb_device", .entry = task_usb_device, .context = NULL, .stack_words = 1024u, .priority = 4u},
+        {.name = "scpi", .entry = task_scpi, .context = NULL, .stack_words = 2048u, .priority = 3u},
+        {.name = "refmem_sync", .entry = task_refmem_sync, .context = NULL, .stack_words = 512u, .priority = 4u},
+        {.name = "loop_engine", .entry = task_loop_engine, .context = NULL, .stack_words = 2048u, .priority = 3u},
+        {.name = "calibration", .entry = task_calibration, .context = NULL, .stack_words = 512u, .priority = 3u},
+        {.name = "cfg_gate", .entry = task_config_gate, .context = NULL, .stack_words = 1024u, .priority = 3u},
+        {.name = "ota", .entry = task_ota, .context = NULL, .stack_words = 1024u, .priority = 3u},
+        {.name = "storage", .entry = task_storage, .context = NULL, .stack_words = 2048u, .priority = 3u},
         {.name = "ui", .entry = task_ui, .context = NULL, .stack_words = 2048u, .priority = 1u},
     };
 
