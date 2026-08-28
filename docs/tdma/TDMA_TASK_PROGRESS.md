@@ -16,7 +16,8 @@ Last updated: 2026-08-28
 
 ## 当前 checkpoint
 
-拍级 Core1 schedule、mandatory-first Node mailbox 与五板异步 OTA/HIL 已形成闭环基线。
+拍级 Core1 schedule、mandatory-first Node mailbox 与四节点 TDMA 环路已形成闭环基线；NO5
+仅作为 SMA/DPLL 观测节点，不加入 TDMA 物理环路。
 `TDMA-DET-001`、`TDMA-DET-002`、`TDMA-DET-003`、`TDMA-PAYLOAD-001` 和
 `TDMA-PAYLOAD-005` 已完成；VDC/DPLL 最小字段已运行，但量化/饱和、硬件边沿 latch 和正式
 active calibration 仍未完成，因此 `TDMA-PAYLOAD-002`、`TDMA-PAYLOAD-003` 和
@@ -28,6 +29,7 @@ active calibration 仍未完成，因此 `TDMA-PAYLOAD-002`、`TDMA-PAYLOAD-003`
 |---|---|---|
 | TDMA-PROGRESS-20260828-001 | TDMA-DET-001..003、TDMA-PAYLOAD-001..005 | `out/tdma_cycle_schedule/`、`out/tdma_process_image_budget/`、`out/build/pico2-release/`、`out/pytest/`。 |
 | TDMA-PROGRESS-20260828-002 | TDMA-M1、TDMA-M2、TDMA-DET-003、TDMA-PAYLOAD-001/005 | `out/tdma_cycle_schedule/foundation_sync_trigger21.md`、`out/tdma_process_image_budget/current.md`、`out/ota/tdma_foundation_sync21_final_20260828/`。 |
+| TDMA-PROGRESS-20260828-003 | TDMA-M4、TDMA-DET-003 | `out/build/recovery-20260828/DHRT100_UPDATE.pkg`、`out/ota/tdma-recovery-20260828-r2/summary.json`、`out/tdma/ring-baseline-20260828-four/`、`out/tdma/tdma_recovery_budget_20260828.md`。 |
 
 ## 失败与回退
 
@@ -999,3 +1001,23 @@ VDC 消费 observation evidence，RefMem 消费 data/completion evidence，二�
   - `docs/tdma/TDMA_DOMAIN_TODO.md`
 - 下一步：
   - 按 HAOFV 索引和 VDC 文档收敛 TDMA ownership，再运行 host/doc 验证。
+
+### TDMA-TASK-20260828-003 - 有界恢复重传负载与四节点烧录验证
+
+- 状态：代码、预算、构建、五板 OTA 和四节点 TDMA HIL 已完成；NO5 保持 SMA/DPLL 观测角色。
+- 日期：2026-08-28
+- 任务目标：
+  - 为可靠错误恢复提供两个独立 recovery buffer，限制每周期最多发送一帧，且不侵入正常 traffic class 或 guard/VDC/REFMEM 预算。
+  - 将 recovery 预算投影到正式预算工具，并用同一固件包完成板端验证。
+- 完成内容：
+  - 固化双 buffer `EMPTY/READY/IN_FLIGHT` 状态机、单周期单帧 dispatch、一次有界 retry、deadline/retry-limit fail-closed、成功清空和 backpressure 计数。
+  - scheduler/service/RefMem snapshot 与 SCPI status 暴露 recovery reserve、buffer、depth、queued/dispatched/sent/retry/exhausted/backpressure 计数。
+  - profile validation 将 `TDMA_RECOVERY_RESERVED_BYTES_PER_CYCLE` 纳入 capacity 门禁；预算工具输出正常 `712 B`、恢复 `128 B`、计划 `840 B`、余量 `56 B`，并记录两个 buffer/单周期一帧约束。
+- 验证结果：
+  - `run_tdma_profile_tests.ps1`、`run_tdma_traffic_scheduler_tests.ps1`、`run_tdma_service_scheduler_tests.ps1`、`run_refmem_realtime_tdma_tests.ps1` 通过；Python TDMA field/budget pytest `12 passed`。
+  - `python tools/cmake_build_auto/cmake_build_auto.py --preset pico2-rtos-multicore-smoke --build-dir out/build/recovery-20260828` 通过，app/A/B/boot Flash link gate 全部通过；build id `20260828025009`，package 位于 `out/build/recovery-20260828/DHRT100_UPDATE.pkg`。
+  - `ota_multi_update.py` 对 COM25、COM3、COM4、COM5、COM6 异步 OTA：`passed=True`、`failed=0`，设备均 commit 到 `20260828025009`，证据在 `out/ota/tdma-recovery-20260828-r2/summary.json`。
+  - 按已验证 NO1→NO4 顺序 COM3/COM4/COM6/COM5 运行 `tdma_start_ring.py`，8 个训练周期后四节点 `up_running=1`、`down_running=1`，TX/RX 增长且 `ring_adapter_rx_bad_count=0`；证据在 `out/tdma/ring-baseline-20260828-four/`。
+  - 误将 NO5 加入 TDMA ring 时 ARM 在 NO2 超时；已确认 NO5 是 SMA/DPLL 观测节点而非 TDMA 环路节点，随后对全部五板执行 STOP，设备处于安全停机状态。
+- 下一步：
+  - 在四节点 TDMA 环路保持稳定的前提下，增加受控故障注入，验证 recovery queued→dispatched→ACK 清空、双 buffer 交替、第三个并发错误 backpressure 和 retry exhaustion；再更新 TDMA-M4/M5 退出门禁。
