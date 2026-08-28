@@ -1433,6 +1433,22 @@ def main() -> int:
         stage_results = [stage_board(board, config, args) for board in ordered]
         if not all(result["passed"] for result in stage_results):
             raise RuntimeError("matrix write/readback failed")
+        # Matrix staging is also an asynchronous owner mutation.  It may
+        # advance ring_config_seq after the profile/topology acknowledgements,
+        # so require Core1 to apply that generation before any FIFO seed or
+        # ARM operation is attempted.
+        matrix_apply_ack = {}
+        for node_index, board in enumerate(ordered):
+            matrix_apply_ack[board.address] = wait_runtime_stopped(
+                board, args, node_index)
+            actions.append({
+                "node": board.address,
+                "action": "MATRIX_APPLIED_ACK",
+                "config_seq": matrix_apply_ack[board.address][
+                    "ring_config_seq"],
+                "applied_config_seq": matrix_apply_ack[board.address][
+                    "ring_applied_config_seq"],
+            })
         for node_index, board in enumerate(ordered):
             if args.stage == "process-image":
                 seed = 0x40 + node_index * 0x10
