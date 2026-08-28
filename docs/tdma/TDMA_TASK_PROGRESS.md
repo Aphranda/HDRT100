@@ -51,7 +51,8 @@ offset；短帧诊断只保留基础摘要。
   `out/build/dpll-p0-20260828/`；A/B/Boot 构建和 flash link contract 通过，build id
   `20260828113417`，package CRC `0x2A4D458B`（均为快照，非事实源）。
 - pytest：全量首轮 `505 passed, 1 failed`，唯一失败为 flash inventory 测试对合法 caller 数量的历史断言；
-  已同步到当前 allowlist 并在 `6463823` 修复，定向测试 `7 passed`。
+  已同步到当前 allowlist 并在 `6463823` 修复，定向测试 `7 passed`；最终全量复跑
+  `506 passed`，证据目录为 `out/pytest/dpll-p0-20260828-final/`。
 - SRAM 门禁：`tools/ram_budget_check/ram_budget_check.py` 报告当前链接余量
   `24680 B`，低于 `docs/arch/RTOS_HAOFV_TODO.md` P0-RAM 的 `96 KB` 发布阈值；上一份
   `recovery-20260828` 构建同样未达到该阈值，说明这是既有发布阻塞，不应归因于 DPLL 负载。
