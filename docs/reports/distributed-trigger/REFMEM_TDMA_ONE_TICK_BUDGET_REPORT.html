@@ -41,18 +41,16 @@ table{width:100%;border-collapse:collapse;font-size:10.8px;margin-bottom:7px}th{
     </tbody></table>
     <div class="bar">结论：<em>每节点 24 B body 中 23 B 为 mandatory、1 B 为已配置 optional，runtime-free = 0 B。</em> 8 节点整张 cyclic process image 固定 256 B，不能因“本周期有余量”临时扩帧。</div>
   </div>
-  <div class="foot"><span>REFMEM / TDMA 一拍负载预算报告 · 快照，非事实源</span><span>1 / 2</span></div>
+  <div class="foot"><span>REFMEM / TDMA 一拍负载预算报告 · 快照，非事实源</span><span>1 / 3</span></div>
 </section>
 
 <section class="page">
-  <div class="head"><span>Distributed Hard Real-Time Trigger System</span><span>Cycle / Wire / Admission Budget</span></div>
+  <div class="head"><span>Distributed Hard Real-Time Trigger System</span><span>Core1 / REFMEM Execution Budget</span></div>
   <div class="main">
-    <h1>一拍级时序、线速和准入预算</h1>
-    <div class="sub">所有 admission/WCET 以 clk_sys 拍为事实；ns/µs 仅为报告换算。GUARD 不是可借用负载。</div>
-    <div class="cols">
-      <div class="col">
-        <div class="h2">B. Core1 phase 合同</div>
-        <table class="tight"><thead><tr><th>phase</th><th class="c">start</th><th class="c">end</th><th class="c">window</th><th class="c">WCET</th><th class="c">slack</th></tr></thead><tbody>
+    <h1>Core1 一拍级时序合同</h1>
+    <div class="sub">所有 admission/WCET 以 clk_sys 拍为事实；ns/µs 仅为报告换算。phase 之间不可借拍，GUARD 不是可借用负载。</div>
+    <div class="h2">B. Core1 phase 合同</div>
+    <table class="tight"><thead><tr><th>phase</th><th class="c">start</th><th class="c">end</th><th class="c">window</th><th class="c">WCET</th><th class="c">slack</th></tr></thead><tbody>
           <tr><td class="b">TDMA</td><td class="c">0</td><td class="c">100,000</td><td class="c">100,000</td><td class="c">95,000</td><td class="c">5,000</td></tr>
           <tr><td class="b">VDC</td><td class="c">100,000</td><td class="c">145,000</td><td class="c">45,000</td><td class="c">44,000</td><td class="c">1,000</td></tr>
           <tr><td class="b">DPLL</td><td class="c">145,000</td><td class="c">177,000</td><td class="c">32,000</td><td class="c">31,000</td><td class="c">1,000</td></tr>
@@ -64,26 +62,39 @@ table{width:100%;border-collapse:collapse;font-size:10.8px;margin-bottom:7px}th{
           <tr><td class="b">TRIGGER_MEASURE</td><td class="c">246,000</td><td class="c">248,000</td><td class="c">2,000</td><td class="c">2,000</td><td class="c">0</td></tr>
           <tr><td class="b">GUARD</td><td class="c">248,000</td><td class="c">250,000</td><td class="c">2,000</td><td class="c">0</td><td class="c">2,000</td></tr>
         </tbody></table>
-        <div class="note">REFMEM mirror 上限：448 B ×（copy 2 + CRC 2）拍/B + fixed 256 拍 = 2,048 拍，低于 REFMEM WCET 3,000 拍，静态余量 952 拍。</div>
-      </div>
-      <div class="col">
-        <div class="h2">C. Traffic class / cycle capacity</div>
-        <table class="tight"><thead><tr><th>class</th><th class="c">reserved B/cycle</th><th class="c">max frame</th><th class="c">queue</th><th class="c">deadline</th><th>策略</th></tr></thead><tbody>
-          <tr><td class="b">VDC_REALTIME</td><td class="c">292</td><td class="c">1</td><td class="c">2</td><td class="c">10 µs</td><td>strict/time-aware/fault</td></tr>
-          <tr><td class="b">REFMEM_REALTIME</td><td class="c">292</td><td class="c">1</td><td class="c">3</td><td class="c">1 ms</td><td>strict/time-aware/reliable/backpressure</td></tr>
-          <tr><td>CONFIG_CONTROL</td><td class="c">128</td><td class="c">1</td><td class="c">1</td><td class="c">100 ms</td><td>shaped/preemptible</td></tr>
-          <tr><td>RELIABLE_BULK</td><td class="c">0</td><td class="c">1</td><td class="c">1</td><td class="c">—</td><td>LONG/maintenance</td></tr>
-          <tr><td>LOG_BEST_EFFORT</td><td class="c">0</td><td class="c">1</td><td class="c">1</td><td class="c">—</td><td>drop-oldest</td></tr>
-        </tbody></table>
-        <table class="tight"><thead><tr><th>cycle aggregate</th><th class="c">value</th><th>判定</th></tr></thead><tbody>
-          <tr><td>cycle capacity</td><td class="c">1,024 B</td><td>profile upper bound</td></tr>
-          <tr><td>guard band</td><td class="c">128 B</td><td>不可承载业务</td></tr>
-          <tr><td>usable capacity</td><td class="c">896 B</td><td>1,024 − 128</td></tr>
-          <tr><td>reserved total</td><td class="c">712 B</td><td>292 + 292 + 128</td></tr>
-          <tr><td>unreserved headroom</td><td class="c">184 B</td><td>仅可在 profile 重算后使用</td></tr>
-        </tbody></table>
-      </div>
-    </div>
+    <div class="note">REFMEM mirror 上限：448 B ×（copy 2 + CRC 2）拍/B + fixed 256 拍 = 2,048 拍，低于 REFMEM WCET 3,000 拍，静态余量 952 拍。</div>
+    <div class="h2">REFMEM mirror 的一拍计算</div>
+    <table class="tight"><thead><tr><th>组成</th><th class="c">公式</th><th class="c">结果（拍）</th><th>预算含义</th></tr></thead><tbody>
+      <tr><td>payload copy</td><td class="c mono">448 B × 2</td><td class="c">896</td><td>将配置上限的 payload 复制到 realtime mirror</td></tr>
+      <tr><td>CRC</td><td class="c mono">448 B × 2</td><td class="c">896</td><td>复制完成后校验；不可移出 REFMEM phase</td></tr>
+      <tr><td>fixed overhead</td><td class="c mono">constant</td><td class="c">256</td><td>索引、generation、fence 和提交收尾</td></tr>
+      <tr><td class="b">mirror WCET</td><td class="c mono">896 + 896 + 256</td><td class="c b">2,048</td><td>相对 phase WCET 3,000 拍仍有 952 拍静态余量</td></tr>
+    </tbody></table>
+    <div class="bar">结论：<em>REFMEM phase 的 4,000 拍窗口内只承认 3,000 拍 WCET；mirror 计算必须在该合同内完成，不得跨 phase 借拍。</em></div>
+  </div>
+  <div class="foot"><span>Source: config/project_config.h · tdma_process_image_layout.h · generated budget JSON</span><span>2 / 3</span></div>
+</section>
+
+<section class="page">
+  <div class="head"><span>Distributed Hard Real-Time Trigger System</span><span>Cycle / Wire / Admission Budget</span></div>
+  <div class="main">
+    <h1>流量类别、线速与超限准入</h1>
+    <div class="sub">本页描述 REFMEM realtime frame 的字节预算、串行化代价和运行时不可突破的硬约束。</div>
+    <div class="h2">C. Traffic class / cycle capacity</div>
+    <table class="tight"><thead><tr><th>class</th><th class="c">reserved B/cycle</th><th class="c">max frame</th><th class="c">queue</th><th class="c">deadline</th><th>策略</th></tr></thead><tbody>
+      <tr><td class="b">VDC_REALTIME</td><td class="c">292</td><td class="c">1</td><td class="c">2</td><td class="c">10 µs</td><td>strict/time-aware/fault</td></tr>
+      <tr><td class="b">REFMEM_REALTIME</td><td class="c">292</td><td class="c">1</td><td class="c">3</td><td class="c">1 ms</td><td>strict/time-aware/reliable/backpressure</td></tr>
+      <tr><td>CONFIG_CONTROL</td><td class="c">128</td><td class="c">1</td><td class="c">1</td><td class="c">100 ms</td><td>shaped/preemptible</td></tr>
+      <tr><td>RELIABLE_BULK</td><td class="c">0</td><td class="c">1</td><td class="c">1</td><td class="c">—</td><td>LONG/maintenance</td></tr>
+      <tr><td>LOG_BEST_EFFORT</td><td class="c">0</td><td class="c">1</td><td class="c">1</td><td class="c">—</td><td>drop-oldest</td></tr>
+    </tbody></table>
+    <table class="tight"><thead><tr><th>cycle aggregate</th><th class="c">value</th><th>判定</th></tr></thead><tbody>
+      <tr><td>cycle capacity</td><td class="c">1,024 B</td><td>profile upper bound</td></tr>
+      <tr><td>guard band</td><td class="c">128 B</td><td>不可承载业务</td></tr>
+      <tr><td>usable capacity</td><td class="c">896 B</td><td>1,024 − 128</td></tr>
+      <tr><td>reserved total</td><td class="c">712 B</td><td>292 + 292 + 128</td></tr>
+      <tr><td>unreserved headroom</td><td class="c">184 B</td><td>仅可在 profile 重算后使用</td></tr>
+    </tbody></table>
     <div class="h2">D. REFMEM realtime frame 和硬约束</div>
     <table class="tight"><thead><tr><th>项目</th><th>当前快照</th><th>约束与含义</th></tr></thead><tbody>
       <tr><td class="b">SHORT wire</td><td>292 B packet = 32 B transport header + 260 B payload</td><td>REFMEM 内帧 header 36 B，因此 critical delta 净载荷最多 224 B；更大事实必须分片或走 LONG maintenance。</td></tr>
@@ -92,7 +103,7 @@ table{width:100%;border-collapse:collapse;font-size:10.8px;margin-bottom:7px}th{
     </tbody></table>
     <div class="bar">最终判断：<em>当前 REFMEM 一拍预算可支持固定 critical mirror + 1 个 realtime delta frame；是否增加负载必须先改静态 profile/layout，并重新通过预算工具、构建门禁和多板 HIL。</em></div>
   </div>
-  <div class="foot"><span>Source: config/project_config.h · tdma_profile.c · tdma_process_image_layout.h · generated budget JSON</span><span>2 / 2</span></div>
+  <div class="foot"><span>Source: config/project_config.h · tdma_profile.c · tdma_transport_frame.h · generated budget JSON</span><span>3 / 3</span></div>
 </section>
 </body>
 </html>
