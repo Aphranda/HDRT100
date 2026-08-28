@@ -43,6 +43,21 @@ active calibration 仍未完成，因此 `TDMA-PAYLOAD-002`、`TDMA-PAYLOAD-003`
 
 ## 按时间追加的任务记录
 
+### TDMA-PROGRESS-20260828-003 - DPLL/VDC 阶段性闭环与非阻塞物理提交
+
+- TODO task ID：`TDMA-DPLL-001`、`TDMA-DPLL-002`、`TDMA-DET-004`、`TDMA-HIL-002`。
+- 日期：2026-08-28。
+- 变更/提交：固件与工具提交 `b2083f6`，已推送到 `feature/rtos-multicore-haofv`。
+- 完成内容：
+  - flight-origin TX 改为提交即返回；PIO stall、DMA 完成和 clock-latch 在后续 core1 service 中回收，TDMA phase 不等待线缆、隔离器或整段 wire。
+  - process-image overlay 使用双 resident buffer；解析结果写入非活动 buffer，DMA 忙时只记录一个 pending successor，由 frame-boundary service 有界提交，禁止覆盖活动脚本。
+  - ring adapter 增加 TX completion callback，把延迟硬件 timestamp 绑定回原 sequence/identity CRC；DPLL/VDC 只消费该硬件证据。
+  - `dpll_vdc_monitor` 固化 NO1..NO8/NO5 只读采样、触发间隔、同时反馈、DPLL/VDC vector 和 CSV/JSON/SVG 输出，并修复 standalone 入口。
+- 构建/测试：`cmake --build out/build/dpll-vdc-20260828 --parallel 4` 通过，生成 `DHRT100_FACTORY.uf2` 和 `DHRT100_UPDATE.pkg`；定向 pytest `75 passed`；全量 pytest `488 passed, 1 skipped`，保留既有 `test_flash_inventory` raw caller 数量失败（10 对历史期望 9）。
+- OTA/HIL：使用 `tools/ota_multi_update/ota_multi_update.py` 对发现的五板异步 OTA，全部提交并重启到 build `20260827203326`。随后用 `tools/tdma_ring_monitor/tdma_start_ring.py` 启动 NO1..NO4（BOARD:NO 顺序为 COM3/COM4/COM6/COM5），4096 个训练周期完成；最终四板 `up_running=1`、`down_running=1`、`rx_bad=0`，参考节点 `simultaneous_feedback_loop_evidence=1`。
+- DPLL/VDC 结果：`tools/dpll_vdc_monitor` 采集 NO1..NO5 报告 `out/dpll-vdc-monitor/post-ring-20260828/summary.json` 和 `summary.svg`。TDMA 环路稳定，但所有节点 `timestamp_eligible=false`、DPLL `CHECKING`；当前启动会话尚未加载有效 active Calibration `PATH_DELAY`，因此不能宣称 DPLL lock 或 VDC 正式发布。
+- 下一步：加载并校验 Calibration active path-delay/topology/generation，确认每个同圈 sequence 的 TX/RX latch 能进入 eligible sample；再以 NO5 只读观测验证触发间隔、同时触发和 VDC vector 发布，最后执行 SD 原始波形分析与五板长稳。
+
 ### TDMA-PROGRESS-20260828-001 - 拍级 schedule 与基础载荷预算
 
 - TODO task ID：`TDMA-DET-001`、`TDMA-DET-002`、`TDMA-DET-003`、

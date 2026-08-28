@@ -4,9 +4,11 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_TODO.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`
-Last updated: 2026-08-20
+Last updated: 2026-08-28
 
 本文档维护 Virtual Distributed Clock / VDC Domain 的独立待办。这里不记录普通开发流水账，只记录会影响共同时间、timestamp、offset/rate、DPLL、HOLDOVER/RELOCK、VDC quality、RefMem 映射和 RUN gate 的架构与实现事项。
+
+2026-08-28 阶段性事实：四节点 TDMA Foundation 已能在固件内同时运行上行/下行并形成参考反馈，NO5 只读监视器、PIO/DMA completion-latch 回收和 VDC/DPLL vector 发布路径已接通；本次五板 OTA 后实测 TDMA `up/down` 稳定且 `rx_bad=0`，但因 active Calibration `PATH_DELAY` 未加载、timestamp eligibility 尚未成立，NO1..NO4 DPLL 仍为 `CHECKING`，不得标记为 `LOCKED` 或 `HEALTHY`。证据与代码事实见 `docs/tdma/TDMA_TASK_PROGRESS.md` 的 `TDMA-PROGRESS-20260828-003`。
 
 ## 参考项目收敛原则
 

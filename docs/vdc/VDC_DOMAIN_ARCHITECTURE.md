@@ -4,9 +4,11 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
 Related: `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
-Last updated: 2026-08-21
+Last updated: 2026-08-28
 
 本文档定义 Distributed Hard Real-Time Trigger System 在 HAOFV 下的 Virtual Distributed Clock / VDC 内部主域。VDC Domain 不是对外 SCPI 主域，也不是 `SYNC_IO` 的一个普通算法函数，而是整个分布式硬实时系统的核心基础件，负责让多节点形成同一条可验证、可门禁、可报告的共同时间轴。
+
+当前实现边界（2026-08-28）：TDMA Foundation 已在四个环内 Node 上同时维护 UP/DOWN PIO 路径，reference feedback 可由硬件运行时证明；flight-origin TX 和 process overlay 的 core1 路径均为非阻塞，完成时间戳由后续 service 回收。NO5 只作为环外观测板，不参与环内 sequence skew。VDC/DPLL 只有在 Calibration active `PATH_DELAY`、同圈 sequence/CRC 和非 diagnostic-only hardware-latch evidence 全部满足后，才允许从 `CHECKING` 进入锁相并发布 VDC vector；TDMA up/down 成功本身不构成 DPLL lock。
 
 ## 主域定位
 

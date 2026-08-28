@@ -60,8 +60,8 @@ OTA/HIL 的任务不得标为 `DONE`；运行时临时剩余容量不得用于�
 | TDMA-PAYLOAD-005 | optional 静态余量准入门禁 | DONE | optional 只使用 mandatory 后余量，layout 不保留 runtime-free 字节。 |
 | TDMA-HIL-001 | 五板 TDMA-only WCET/频率/占空比/SD 波形基线 | PENDING | OTA 后原始波形、SVG、schedule snapshot 与零错误基线归档。 |
 | TDMA-HIL-002 | 逐 phase 开载且 TDMA 零回归 | PENDING | 依次启用 VDC/DPLL/RefMem/control，TDMA deadline/error 不增加。 |
-| TDMA-DPLL-001 | PIO/DMA hardware latch correlation | PENDING | 同圈 sequence/CRC/TX-RX latch/path delay 形成 eligible sample。 |
-| TDMA-DPLL-002 | 节点 DPLL lock 与 VDC 发布 | PENDING | NO.1..NO.4 锁相，NO.5 观测指定间隔和同时触发。 |
+| TDMA-DPLL-001 | PIO/DMA hardware latch correlation | IN PROGRESS | PIO/DMA TX completion 与 clock-latch 证据已接入；仍需 active PATH_DELAY 和五板同圈 eligible sample。 |
+| TDMA-DPLL-002 | 节点 DPLL lock 与 VDC 发布 | IN PROGRESS | 四节点 TDMA 同时收发和参考反馈已实测；NO1..NO4 仍为 CHECKING，NO5 观测工具已固化，待 eligible sample 后验证指定间隔/同时触发。 |
 | TDMA-REL-001 | ACK/fence/retry 和长期稳定性策略 | PENDING | 原始错误率先收敛，再以有界重发/修复完成 EtherCAT-style 验收。 |
 | TDMA-T2-001 | REFMEM + 部分控制后的 T2 最小载荷预算 | PENDING | 不超固定 SHORT/body 和 phase WCET，编译期拒绝 overcommit。 |
 
