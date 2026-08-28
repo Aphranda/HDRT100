@@ -46,57 +46,6 @@ static bool s_dpll_ready;
 static uint32_t s_vdc_ring_observation_config_seq;
 static uint32_t s_vdc_ring_observation_sequence;
 
-static bool vdc_dpll_manager_ring_path_delay_locked(uint32_t source_node,
-                                                     uint32_t reference_node,
-                                                     uint32_t *delay_ns)
-{
-    if (delay_ns == NULL || source_node == reference_node ||
-        !vdc_domain_path_delay_table_validate(&s_vdc_domain.path_delay)) {
-        return false;
-    }
-
-    uint32_t current = reference_node;
-    uint64_t total_delay_ns = 0ull;
-    uint32_t visited_mask = 0u;
-    for (uint32_t hop = 0u;
-         hop < s_vdc_domain.schedule.ring_binding.node_count;
-         hop++) {
-        if (current >= VDC_DOMAIN_NODE_COUNT ||
-            (visited_mask & (1u << current)) != 0u) {
-            return false;
-        }
-        visited_mask |= 1u << current;
-        const vdc_path_delay_entry_t *matched = NULL;
-        for (uint32_t i = 0u;
-             i < VDC_DOMAIN_PATH_DELAY_ENTRY_COUNT;
-             i++) {
-            const vdc_path_delay_entry_t *candidate =
-                &s_vdc_domain.path_delay.entries[i];
-            if (candidate->valid != 0u &&
-                candidate->source_slot_id == current) {
-                if (matched != NULL) {
-                    return false;
-                }
-                matched = candidate;
-            }
-        }
-        if (matched == NULL || UINT64_MAX - total_delay_ns <
-                                   (uint64_t)matched->delay_ns) {
-            return false;
-        }
-        total_delay_ns += (uint64_t)matched->delay_ns;
-        current = matched->reference_slot_id;
-        if (current == source_node) {
-            if (total_delay_ns > UINT32_MAX) {
-                return false;
-            }
-            *delay_ns = (uint32_t)total_delay_ns;
-            return true;
-        }
-    }
-    return false;
-}
-
 static void vdc_dpll_manager_ring_observer_service(void)
 {
     tdma_ring_runtime_snapshot_t ring;
@@ -122,10 +71,12 @@ static void vdc_dpll_manager_ring_observer_service(void)
         return;
     }
 
-    uint32_t path_delay_ns = 0u;
-    if (!vdc_dpll_manager_ring_path_delay_locked(clock->source_node,
-                                                  clock->reference_node,
-                                                  &path_delay_ns)) {
+    vdc_path_delay_entry_t path_entry;
+    if (!vdc_domain_observation_path_delay_lookup(
+            &s_vdc_domain.path_delay,
+            clock->source_node,
+            clock->reference_node,
+            &path_entry)) {
         osal_critical_exit();
         return;
     }
@@ -140,7 +91,7 @@ static void vdc_dpll_manager_ring_observer_service(void)
         .timestamp_resolution_ns = clock->timestamp_resolution_ns,
         .timestamp_flags = clock->timestamp_flags,
         .correlated_frame_evidence = clock->correlated_frame_evidence,
-        .link_delay_ns = path_delay_ns,
+        .link_delay_ns = path_entry.delay_ns,
         .reference_tx_timestamp_ns = clock->reference_tx_timestamp_ns,
         .local_rx_timestamp_ns = clock->local_rx_timestamp_ns,
     };
@@ -1319,6 +1270,10 @@ bool vdc_dpll_manager_publish_calibration_path_snapshot(
         entry->freshness_us = snapshot->freshness_us;
         entry->writer = source_slot_id;
         entry->update_seq = table.update_seq;
+    }
+    if (!vdc_domain_load_observation_path_matrix(&table, node_count)) {
+        osal_critical_exit();
+        return false;
     }
     table.table_crc32 = vdc_domain_path_delay_table_crc32(&table);
     const bool accepted = vdc_domain_publish_path_delay_table(

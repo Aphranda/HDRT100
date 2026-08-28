@@ -1134,6 +1134,19 @@ uint32_t vdc_domain_path_delay_table_crc32(
         hash = vdc_domain_hash_u32(hash, entry->writer);
         hash = vdc_domain_hash_u32(hash, entry->update_seq);
     }
+    hash = vdc_domain_hash_u32(hash, table->observation_matrix.valid);
+    hash = vdc_domain_hash_u32(hash, table->observation_matrix.node_count);
+    hash = vdc_domain_hash_u32(hash, table->observation_matrix.entry_count);
+    for (uint32_t i = 0u;
+         i < VDC_DOMAIN_OBSERVATION_PATH_MATRIX_BITMAP_WORD_COUNT; i++) {
+        hash = vdc_domain_hash_u32(
+            hash, table->observation_matrix.valid_bitmap[i]);
+    }
+    for (uint32_t i = 0u;
+         i < VDC_DOMAIN_OBSERVATION_PATH_MATRIX_ENTRY_COUNT; i++) {
+        hash = vdc_domain_hash_u32(hash,
+                                   table->observation_matrix.delay_ns[i]);
+    }
     return hash;
 }
 
@@ -1152,6 +1165,9 @@ void vdc_domain_default_path_delay_table(
     table->update_seq = 1u;
     table->entry_count = 0u;
     table->schedule_crc32 = schedule->schedule_crc32;
+    table->observation_matrix.valid = 0u;
+    table->observation_matrix.node_count = 0u;
+    table->observation_matrix.entry_count = 0u;
     for (uint32_t i = 0u; i < VDC_DOMAIN_NODE_COUNT; i++) {
         vdc_path_delay_entry_t *entry = &table->entries[i];
         entry->valid = 0u;
@@ -1196,6 +1212,37 @@ bool vdc_domain_path_delay_table_validate(
         return false;
     }
 
+    if ((table->flags & VDC_PATH_DELAY_FLAG_OBSERVATION_MATRIX_VALID) != 0u) {
+        const vdc_observation_path_matrix_t *matrix =
+            &table->observation_matrix;
+        if (matrix->valid == 0u || matrix->node_count < 2u ||
+            matrix->node_count > VDC_DOMAIN_NODE_COUNT ||
+            matrix->entry_count != matrix->node_count *
+                                        (matrix->node_count - 1u)) {
+            return false;
+        }
+        for (uint32_t source = 0u; source < VDC_DOMAIN_NODE_COUNT; source++) {
+            for (uint32_t reference = 0u;
+                 reference < VDC_DOMAIN_NODE_COUNT; reference++) {
+                const uint32_t index = source * VDC_DOMAIN_NODE_COUNT +
+                                       reference;
+                const bool present =
+                    (matrix->valid_bitmap[index / 32u] &
+                     (1u << (index % 32u))) != 0u;
+                const bool expected =
+                    source < matrix->node_count &&
+                    reference < matrix->node_count &&
+                    source != reference;
+                if (present != expected) {
+                    return false;
+                }
+            }
+        }
+    } else if (table->observation_matrix.valid != 0u ||
+               table->observation_matrix.entry_count != 0u) {
+        return false;
+    }
+
     for (uint32_t i = 0u; i < VDC_DOMAIN_PATH_DELAY_ENTRY_COUNT; i++) {
         const vdc_path_delay_entry_t *entry = &table->entries[i];
         if (entry->valid == 0u) {
@@ -1217,6 +1264,98 @@ bool vdc_domain_path_delay_table_validate(
         valid_count++;
     }
     return valid_count == table->entry_count;
+}
+
+bool vdc_domain_load_observation_path_matrix(
+    vdc_path_delay_table_t *table,
+    uint32_t node_count)
+{
+    if (table == NULL || node_count < 2u ||
+        node_count > VDC_DOMAIN_NODE_COUNT ||
+        table->entry_count != node_count) {
+        return false;
+    }
+
+    vdc_observation_path_matrix_t *matrix = &table->observation_matrix;
+    memset(matrix, 0, sizeof(*matrix));
+    table->flags &= ~VDC_PATH_DELAY_FLAG_OBSERVATION_MATRIX_VALID;
+
+    uint32_t source_bitmap = 0u;
+    for (uint32_t i = 0u; i < VDC_DOMAIN_PATH_DELAY_ENTRY_COUNT; i++) {
+        const vdc_path_delay_entry_t *link = &table->entries[i];
+        if (link->valid == 0u) {
+            continue;
+        }
+        if (link->source_slot_id >= node_count ||
+            link->reference_slot_id >= node_count ||
+            link->source_slot_id == link->reference_slot_id ||
+            (source_bitmap & (1u << link->source_slot_id)) != 0u) {
+            return false;
+        }
+        source_bitmap |= 1u << link->source_slot_id;
+    }
+    if (source_bitmap != ((1u << node_count) - 1u)) {
+        return false;
+    }
+
+    matrix->valid = 1u;
+    matrix->node_count = node_count;
+    matrix->entry_count = node_count * (node_count - 1u);
+
+    for (uint32_t source = 0u; source < node_count; source++) {
+        for (uint32_t reference = 0u; reference < node_count; reference++) {
+            if (source == reference) {
+                continue;
+            }
+
+            uint32_t current = reference;
+            uint32_t visited_mask = 0u;
+            uint64_t total_delay_ns = 0ull;
+            bool reached_source = false;
+            for (uint32_t hop = 0u; hop < node_count; hop++) {
+                if (current >= node_count ||
+                    (visited_mask & (1u << current)) != 0u) {
+                    return false;
+                }
+                visited_mask |= 1u << current;
+
+                const vdc_path_delay_entry_t *matched = NULL;
+                for (uint32_t i = 0u; i < VDC_DOMAIN_PATH_DELAY_ENTRY_COUNT;
+                     i++) {
+                    const vdc_path_delay_entry_t *candidate =
+                        &table->entries[i];
+                    if (candidate->valid != 0u &&
+                        candidate->source_slot_id == current) {
+                        if (matched != NULL ||
+                            candidate->reference_slot_id >= node_count) {
+                            return false;
+                        }
+                        matched = candidate;
+                    }
+                }
+                if (matched == NULL ||
+                    UINT64_MAX - total_delay_ns < matched->delay_ns) {
+                    return false;
+                }
+                total_delay_ns += matched->delay_ns;
+                current = matched->reference_slot_id;
+                if (current == source) {
+                    reached_source = true;
+                    break;
+                }
+            }
+            if (!reached_source || total_delay_ns > UINT32_MAX) {
+                return false;
+            }
+
+            const uint32_t index = source * VDC_DOMAIN_NODE_COUNT + reference;
+            matrix->delay_ns[index] = (uint32_t)total_delay_ns;
+            matrix->valid_bitmap[index / 32u] |= 1u << (index % 32u);
+        }
+    }
+
+    table->flags |= VDC_PATH_DELAY_FLAG_OBSERVATION_MATRIX_VALID;
+    return true;
 }
 
 bool vdc_domain_path_delay_lookup(const vdc_path_delay_table_t *table,
@@ -1623,6 +1762,41 @@ bool vdc_domain_validate_tdma_frame_envelope(
     return true;
 }
 
+bool vdc_domain_observation_path_delay_lookup(
+    const vdc_path_delay_table_t *table,
+    uint32_t source_slot_id,
+    uint32_t reference_slot_id,
+    vdc_path_delay_entry_t *entry)
+{
+    if (!vdc_domain_path_delay_table_validate(table) ||
+        (table->flags & VDC_PATH_DELAY_FLAG_OBSERVATION_MATRIX_VALID) == 0u ||
+        table->observation_matrix.valid == 0u ||
+        source_slot_id >= table->observation_matrix.node_count ||
+        reference_slot_id >= table->observation_matrix.node_count ||
+        source_slot_id == reference_slot_id) {
+        return false;
+    }
+
+    const uint32_t index = source_slot_id * VDC_DOMAIN_NODE_COUNT +
+                           reference_slot_id;
+    if ((table->observation_matrix.valid_bitmap[index / 32u] &
+         (1u << (index % 32u))) == 0u) {
+        return false;
+    }
+    if (entry != NULL) {
+        memset(entry, 0, sizeof(*entry));
+        entry->valid = 1u;
+        entry->source_slot_id = source_slot_id;
+        entry->reference_slot_id = reference_slot_id;
+        entry->delay_ns = table->observation_matrix.delay_ns[index];
+        entry->cal_crc32 = table->table_crc32;
+        entry->freshness_us = table->freshness_us;
+        entry->writer = table->bias_generation;
+        entry->update_seq = table->update_seq;
+    }
+    return true;
+}
+
 static bool vdc_domain_expand_compact_observation_window(
     const vdc_tdma_schedule_profile_t *profile,
     const vdc_timestamp_dictionary_t *dictionary,
@@ -1688,7 +1862,10 @@ static bool vdc_domain_expand_compact_observation_window(
         !vdc_domain_path_delay_lookup(path_delay,
                                       entry.source_slot_id,
                                       entry.reference_slot_id,
-                                      &path_entry)) {
+                                      &path_entry) &&
+        !vdc_domain_observation_path_delay_lookup(
+            path_delay, entry.source_slot_id, entry.reference_slot_id,
+            &path_entry)) {
         vdc_domain_gate_fail(gate,
                              VDC_DOMAIN_GATE_BAD_FRAME,
                              entry.source_slot_id,

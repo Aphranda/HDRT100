@@ -2492,6 +2492,119 @@ static int test_quality_age_updates_on_service(void)
     return failed;
 }
 
+static int test_observation_path_matrix_is_explicit(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_path_delay_table_t table;
+    vdc_path_delay_entry_t entry;
+
+    failed += expect_bool("matrix init", vdc_domain_init(&context), true);
+    failed += expect_bool("matrix topology",
+                          vdc_domain_set_schedule_ring_topology(
+                              &context, 0u, 0u, 4u), true);
+    table = context.path_delay;
+    table.valid = 1u;
+    table.schedule_crc32 = context.schedule.schedule_crc32;
+    table.entry_count = VDC_DOMAIN_NODE_COUNT;
+    table.calibration_generation = 1u;
+    table.topology_generation = 1u;
+    table.bias_generation = 1u;
+    table.freshness_us = 1u;
+    table.flags = VDC_PATH_DELAY_FLAG_ACCEPTED |
+                  VDC_PATH_DELAY_FLAG_HARDWARE_LATCHED |
+                  VDC_PATH_DELAY_FLAG_BIAS_VALID |
+                  VDC_PATH_DELAY_FLAG_TOPOLOGY_FRESH |
+                  VDC_PATH_DELAY_FLAG_OBSERVATION_MATRIX_VALID;
+    for (uint32_t i = 0u; i < VDC_DOMAIN_NODE_COUNT; i++) {
+        table.entries[i].valid = 1u;
+        table.entries[i].source_slot_id = i;
+        table.entries[i].reference_slot_id = 0u;
+        table.entries[i].cal_crc32 = table.schedule_crc32;
+        table.entries[i].freshness_us = table.freshness_us;
+        table.entries[i].update_seq = table.update_seq;
+    }
+    table.observation_matrix.valid = 1u;
+    table.observation_matrix.node_count = 4u;
+    table.observation_matrix.entry_count = 12u;
+    for (uint32_t source = 0u; source < 4u; source++) {
+        for (uint32_t reference = 0u; reference < 4u; reference++) {
+            if (source == reference) continue;
+            const uint32_t index = source * VDC_DOMAIN_NODE_COUNT + reference;
+            table.observation_matrix.delay_ns[index] =
+                100u + source * 10u + reference;
+            table.observation_matrix.valid_bitmap[index / 32u] |=
+                1u << (index % 32u);
+        }
+    }
+    table.table_crc32 = vdc_domain_path_delay_table_crc32(&table);
+    failed += expect_bool("publish explicit observation matrix",
+                          vdc_domain_publish_path_delay_table(&context,
+                                                              &table), true);
+    failed += expect_bool("matrix direct lookup",
+                          vdc_domain_observation_path_delay_lookup(
+                              &context.path_delay, 2u, 0u, &entry), true);
+    failed += expect_u32("matrix delay value", entry.delay_ns, 120u);
+    failed += expect_bool("matrix self path rejected",
+                          vdc_domain_observation_path_delay_lookup(
+                              &context.path_delay, 2u, 2u, &entry), false);
+    table.observation_matrix.valid_bitmap[0] |= 1u << 4u;
+    table.table_crc32 = vdc_domain_path_delay_table_crc32(&table);
+    failed += expect_bool("matrix inactive reference rejected",
+                          vdc_domain_publish_path_delay_table(&context,
+                                                              &table), false);
+    table.observation_matrix.valid_bitmap[0] &= ~(1u << 4u);
+    table.observation_matrix.valid_bitmap[0] &= ~(1u << 8u);
+    table.table_crc32 = vdc_domain_path_delay_table_crc32(&table);
+    failed += expect_bool("incomplete matrix rejected",
+                          vdc_domain_publish_path_delay_table(&context,
+                                                              &table), false);
+
+    vdc_path_delay_table_t loaded;
+    memset(&loaded, 0, sizeof(loaded));
+    loaded.valid = 1u;
+    loaded.version = VDC_DOMAIN_PATH_DELAY_TABLE_VERSION;
+    loaded.update_seq = 1u;
+    loaded.entry_count = 4u;
+    loaded.schedule_crc32 = 0x1234u;
+    loaded.calibration_generation = 1u;
+    loaded.topology_generation = 1u;
+    loaded.bias_generation = 1u;
+    loaded.freshness_us = 1u;
+    loaded.flags = VDC_PATH_DELAY_FLAG_ACCEPTED |
+                   VDC_PATH_DELAY_FLAG_HARDWARE_LATCHED |
+                   VDC_PATH_DELAY_FLAG_BIAS_VALID |
+                   VDC_PATH_DELAY_FLAG_TOPOLOGY_FRESH;
+    for (uint32_t i = 0u; i < 4u; i++) {
+        loaded.entries[i].valid = 1u;
+        loaded.entries[i].source_slot_id = i;
+        loaded.entries[i].reference_slot_id = (i + 1u) % 4u;
+        loaded.entries[i].delay_ns = 10u + i * 10u;
+        loaded.entries[i].cal_crc32 = loaded.schedule_crc32;
+        loaded.entries[i].freshness_us = loaded.freshness_us;
+        loaded.entries[i].update_seq = loaded.update_seq;
+    }
+    loaded.table_crc32 = vdc_domain_path_delay_table_crc32(&loaded);
+    failed += expect_bool("load matrix from directed links",
+                          vdc_domain_load_observation_path_matrix(
+                              &loaded, 4u), true);
+    loaded.table_crc32 = vdc_domain_path_delay_table_crc32(&loaded);
+    failed += expect_bool("loaded matrix 0 from 2",
+                          vdc_domain_observation_path_delay_lookup(
+                              &loaded, 0u, 2u, &entry), true);
+    failed += expect_u32("loaded matrix 0 from 2 delay", entry.delay_ns, 70u);
+    failed += expect_bool("loaded matrix 2 from 0",
+                          vdc_domain_observation_path_delay_lookup(
+                              &loaded, 2u, 0u, &entry), true);
+    failed += expect_u32("loaded matrix 2 from 0 delay", entry.delay_ns, 30u);
+
+    loaded.entries[3].reference_slot_id = 3u;
+    failed += expect_bool("non-ring directed links rejected",
+                          vdc_domain_load_observation_path_matrix(
+                              &loaded, 4u), false);
+    return failed;
+}
+
 static int test_ring_observer_expands_correlated_feedback(void)
 {
     int failed = 0;
@@ -2578,6 +2691,7 @@ int main(void)
     failed += test_dpll_lock_quality_tiers();
     failed += test_context_submits_compact_observation();
     failed += test_path_delay_table_drives_compact_phase();
+    failed += test_observation_path_matrix_is_explicit();
     failed += test_sync_io_adapter_to_vdc_submit();
     failed += test_quality_age_updates_on_service();
     failed += test_dpll_updates_clock_rate_from_sample_period();

@@ -26,6 +26,10 @@
 #define VDC_DOMAIN_DEFAULT_IDLE_WINDOW_WIDTH_NS 50000u
 #define VDC_DOMAIN_PATH_DELAY_TABLE_VERSION 1u
 #define VDC_DOMAIN_PATH_DELAY_ENTRY_COUNT VDC_DOMAIN_NODE_COUNT
+#define VDC_DOMAIN_OBSERVATION_PATH_MATRIX_ENTRY_COUNT \
+    (VDC_DOMAIN_NODE_COUNT * VDC_DOMAIN_NODE_COUNT)
+#define VDC_DOMAIN_OBSERVATION_PATH_MATRIX_BITMAP_WORD_COUNT \
+    ((VDC_DOMAIN_OBSERVATION_PATH_MATRIX_ENTRY_COUNT + 31u) / 32u)
 
 #define VDC_DOMAIN_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY VDC_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY
 #define VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE   VDC_TIMESTAMP_FLAG_DPLL_ELIGIBLE
@@ -336,6 +340,7 @@ typedef struct {
 #define VDC_PATH_DELAY_FLAG_BIAS_VALID (1u << 2u)
 #define VDC_PATH_DELAY_FLAG_TOPOLOGY_FRESH (1u << 3u)
 #define VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY (1u << 4u)
+#define VDC_PATH_DELAY_FLAG_OBSERVATION_MATRIX_VALID (1u << 5u)
 
 typedef struct {
     uint32_t valid;
@@ -351,6 +356,18 @@ typedef struct {
     uint32_t update_seq;
 } vdc_path_delay_entry_t;
 
+/* Calibration loads the complete directed observation path matrix once.  The
+ * row-major index is source_node * VDC_DOMAIN_NODE_COUNT + reference_node;
+ * runtime DPLL admission only indexes this immutable matrix and never walks
+ * the physical ring.  Self paths are intentionally invalid. */
+typedef struct {
+    uint32_t valid;
+    uint32_t node_count;
+    uint32_t entry_count;
+    uint32_t valid_bitmap[VDC_DOMAIN_OBSERVATION_PATH_MATRIX_BITMAP_WORD_COUNT];
+    uint32_t delay_ns[VDC_DOMAIN_OBSERVATION_PATH_MATRIX_ENTRY_COUNT];
+} vdc_observation_path_matrix_t;
+
 typedef struct {
     uint32_t valid;
     uint32_t version;
@@ -364,6 +381,7 @@ typedef struct {
     uint32_t flags;
     uint32_t table_crc32;
     vdc_path_delay_entry_t entries[VDC_DOMAIN_PATH_DELAY_ENTRY_COUNT];
+    vdc_observation_path_matrix_t observation_matrix;
 } vdc_path_delay_table_t;
 
 typedef struct {
@@ -463,10 +481,21 @@ uint32_t vdc_domain_path_delay_table_crc32(
     const vdc_path_delay_table_t *table);
 bool vdc_domain_path_delay_table_validate(
     const vdc_path_delay_table_t *table);
+/* Build the complete source/reference observation matrix from the loaded
+ * directed link entries. This is a calibration-load operation; runtime
+ * consumers must use vdc_domain_observation_path_delay_lookup(). */
+bool vdc_domain_load_observation_path_matrix(
+    vdc_path_delay_table_t *table,
+    uint32_t node_count);
 bool vdc_domain_path_delay_lookup(const vdc_path_delay_table_t *table,
                                   uint32_t source_slot_id,
                                   uint32_t reference_slot_id,
                                   vdc_path_delay_entry_t *entry);
+bool vdc_domain_observation_path_delay_lookup(
+    const vdc_path_delay_table_t *table,
+    uint32_t source_slot_id,
+    uint32_t reference_slot_id,
+    vdc_path_delay_entry_t *entry);
 bool vdc_domain_validate_tdma_timestamp_evidence(
     const vdc_tdma_schedule_profile_t *profile,
     const vdc_tdma_timestamp_evidence_t *evidence,
