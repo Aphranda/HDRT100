@@ -4,7 +4,7 @@ Status: Active
 Domain: RTOS
 Canonical: `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
 Related: `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/interface/SCPI_TASK_PROGRESS.md`
-Last updated: 2026-08-20
+Last updated: 2026-08-28
 
 本文档用于记录 Distributed Hard Real-Time Trigger System 工程中基于 HAOFV 的 RTOS + 双核 AMP、
 分布式触发、模拟反射内存、任务拆分和板端烧录验证进度。每完成一个阶段，
@@ -115,6 +115,30 @@ RTOS 主线已经完成 `task_usb_device/task_scpi` 拆分、`task_refmem_sync` 
 CAL/SYNC staging + ACK/NACK、RJ45_SYNC_RING 和 `FIRE_LOAD/T2` 闭环。
 
 ## 任务记录
+
+### RTOS-DIST-TASK-20260828-001 - DPLL P0 维护态 staging pool 优化
+
+- 状态：代码与 host 验证完成；发布 SRAM 门禁仍未通过，未 OTA/HIL。
+- 日期：2026-08-28
+- 任务目标：在不改变 Core1/PIO/DMA 实时路径的前提下，回收 RefMem 内联镜像和 SD 包读取的
+  重复 8 KB 缓冲，建立明确的维护态 owner 生命周期。
+- 完成内容：
+  - `refmem_table_registry_begin_staging_write()` / `end_staging_write()` 提供单 owner、非阻塞
+    staging lease；持有期间拒绝第二个维护者和 staging view 访问。
+  - RefMem 内联镜像和 SCPI SD package 直接写入 registry-owned staging image；提交成功保留，
+    任意失败释放 lease 并清空 staging，避免旧数据伪装为新候选。
+  - active/rollbackable image、TDMA wire、PIO 原语和 calibration matrix 未改动。
+- 验证结果：
+  - 使用 `tools/cmake_build_auto/cmake_build_auto.py` 构建到
+    `out/build/dpll-p0-staging-pool-20260828/`，A/B/Boot 与 flash link contract 通过。
+  - `python -m pytest -p no:cacheprovider --junitxml=out/pytest/dpll-p0-staging-pool-20260828/junit.xml`
+    结果为 `506 passed, 1 skipped`。
+  - `tools/ram_budget_check/ram_budget_check.py` 报告 `link_free_bytes=65640`，仍低于发布门禁
+    `RTOS_HAOFV_TODO.md` 定义的 96 KB；因此保持 fail-closed，未执行异步 OTA、四板 TDMA HIL
+    或 DPLL lock 验收。
+- 剩余工作：继续处理 Storage write buffer、OTA/package staging 的事务持有与复用，并获取板端
+  `SYST:RTOS:STAT?` 栈/heap 水位；通过 SRAM gate 后重复 P0 OTA/HIL。
+- 代码提交：`f8e20de fix(ram): reuse refmem staging maintenance buffer`（已推送）。
 
 ### RTOS-DIST-TASK-20260820-001 - 双核发布门禁与 TDMA operating profile 全矩阵 HIL
 

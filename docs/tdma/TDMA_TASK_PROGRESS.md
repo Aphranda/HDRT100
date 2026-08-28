@@ -37,6 +37,7 @@ offset；短帧诊断只保留基础摘要。
 | TDMA-PROGRESS-20260828-005 | TDMA-REL-002、TDMA-PAYLOAD-006 | 本次架构/TODO/登记同步；代码和 HIL 待按新 recovery owner 边界补齐。 |
 | TDMA-PROGRESS-20260828-006 | TDMA-HIL-001、TDMA-DPLL-001/002 | `out/build/dpll-p0-20260828/`、`out/pytest/dpll-p0-20260828/`；P0 构建通过但 SRAM 门禁未通过，未执行 OTA/HIL。 |
 | TDMA-PROGRESS-20260828-007 | TDMA-HIL-001、TDMA-DPLL-001/002 | `out/build/dpll-p0-ram-capture-pool-20260828/`；Calibration 维护态四个 8 KB 导出缓冲已合并，链接余量增加但仍未达到 SRAM 发布门禁。 |
+| TDMA-PROGRESS-20260828-008 | TDMA-HIL-001、TDMA-DPLL-001/002 | `out/build/dpll-p0-staging-pool-20260828/`、`out/pytest/dpll-p0-staging-pool-20260828/`；RefMem staging lease 回收重复维护缓冲，pytest 506 passed/1 skipped，链接余量 65640 B，仍未达 SRAM 发布门禁。 |
 
 ## 失败与回退
 
@@ -92,6 +93,20 @@ offset；短帧诊断只保留基础摘要。
 通过静态预算和编译门禁，不能运行时借用 guard 或“看起来有余量”的拍。
 
 ## 按时间追加的任务记录
+
+### TDMA-PROGRESS-20260828-008 - RefMem staging maintenance pool
+
+- TODO task ID：`TDMA-HIL-001`、`TDMA-DPLL-001`、`TDMA-DPLL-002`。
+- 日期：2026-08-28。
+- 变更/提交：代码提交 `f8e20de`，已推送；仅涉及 RefMem 维护态 staging 生命周期，不改变
+  TDMA SHORT wire、Core1 phase、PIO 原语或 calibration matrix。
+- 结果：内联镜像和 SD package 读取共用 registry-owned staging buffer；owner lease 为非阻塞
+  且单一持有者，失败清空、成功提交后保留。A/B/Boot 构建和 flash link contract 通过。
+- 验证：pytest 结果为 `506 passed, 1 skipped`，证据在
+  `out/pytest/dpll-p0-staging-pool-20260828/junit.xml`。RAM 检查结果为
+  `link_free_bytes=65640`，低于 `RTOS_HAOFV_TODO.md` 的 96 KB 发布门禁，故未 OTA/HIL。
+- 下一步：完成 Storage/OTA staging 生命周期和任务栈/heap 水位复核；SRAM gate 通过后再执行
+  五板异步 OTA、NO1–NO4 基线和 NO5 DPLL 观测。
 
 ### TDMA-PROGRESS-20260828-004 - DPLL 作为固定 process-image 负载
 
