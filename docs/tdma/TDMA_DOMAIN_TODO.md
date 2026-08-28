@@ -82,7 +82,7 @@ DPLL/诊断结果掩盖前一阶段 TDMA 或校准失败。
 
 | 阶段 | 目标 | 执行动作 | 退出门禁 |
 |---|---|---|---|
-| P0 实时路径隔离 | 恢复可重复的 TDMA 基线 | 默认不启用 `--capture-waveforms`；SD/SVG 仅走独立 Core0/维护工具；保持固定 SHORT、phase、recovery 预算。 | 四板 OTA 后 NO1–NO4 短帧持续运行，CRC/sequence/FIFO/bitmap/WKC/deadline/overrun 均无新增。 |
+| P0 实时路径隔离 | 恢复可重复的 TDMA 基线 | 默认不启用 `--capture-waveforms`；SD/SVG 仅走独立 Core0/维护工具；保持固定 SHORT、phase、recovery 预算；先通过 RTOS SRAM 发布门禁。 | 主 SRAM 链接余量达到 `RTOS_HAOFV_TODO.md` 的发布阈值；随后四板 OTA 后 NO1–NO4 短帧持续运行，CRC/sequence/FIFO/bitmap/WKC/deadline/overrun 均无新增。 |
 | P1 基线与物理健康 | 先证明通讯骨架没有被 DPLL 负载污染 | 用 `tools/cmake_build_auto` 构建并把产物写入 `out`；用 `tools/ota_multi_update` 同包异步刷入；用 `tools/tdma_ring_monitor/tdma_start_ring.py` 运行基线；SD 波形另行采集。 | schedule miss 为零、TDMA phase runtime 在 WCET 内、频率/占空比和 raw waveform 可追溯；NO5 不进入环路。 |
 | P2 校准事实加载 | 建立 DPLL 唯一可接受的路径事实 | 通过 Calibration active topology/path matrix 加载 loop/link/node 顺序、每段 delay、offset matrix、generation/freshness；启动前检查 profile/matrix/calibration identity。 | 四节点使用同一 active matrix；任一缺失、过期或 CRC 不一致直接拒绝 eligible，不允许物理环序累加 fallback。 |
 | P3 硬件 evidence | 只建立可靠观测，不运行 servo | 验证 CS/SCK/DATA PIO latch、reference TX 与 feedback RX 关联；SCK 按独立训练流程校准；检查 4 ns 量化、sequence lag、wrap 和方向。 | 每个有效样本均为硬件 tick、非 diagnostic-only、matrix identity 匹配；invalid、duplicate、out-of-order 样本被拒绝并计数。 |
@@ -105,6 +105,9 @@ DPLL/诊断结果掩盖前一阶段 TDMA 或校准失败。
 ## 当前阻塞项
 
 - `TDMA-HIL-001` 尚未执行，因此拍级 phase 和新 wire layout 只能视为代码/host 基线。
+- P0 当前首先受 `docs/arch/RTOS_HAOFV_TODO.md` 的 P0-RAM 发布门禁阻塞：本轮 map
+  链接余量仍未达到发布阈值；在完成 SRAM 生命周期复用和任务栈/heap 水位复核前，不得进行
+  DPLL OTA/HIL 或用降低门禁阈值代替优化。
 - `TDMA-DET-004` 未完成前，CPU phase 仍包住组合 TDMA service，尚不能证明物理首边沿完全不受
   其他负载调用路径影响。
 - formal ACK/fence 与 control owner 尚未接入，新布局中的对应字段当前只提供固定基础语义。

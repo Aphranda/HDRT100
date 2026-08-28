@@ -35,12 +35,29 @@ offset；短帧诊断只保留基础摘要。
 | TDMA-PROGRESS-20260828-003 | TDMA-M4、TDMA-DET-003 | `out/build/recovery-20260828/DHRT100_UPDATE.pkg`、`out/ota/tdma-recovery-20260828-r2/summary.json`、`out/tdma/ring-baseline-20260828-four/`、`out/tdma/tdma_recovery_budget_20260828.md`。 |
 | TDMA-PROGRESS-20260828-004 | TDMA-PAYLOAD-002、TDMA-DPLL-001、TDMA-HIL-002 | `out/build/dpll-load-20260828/`、`out/ota/dpll-fixed-load-20260828/`、`out/training/trn03b_four_dpll_fixed_load_20260828/summary.json`、`out/tdma_process_image_budget/dpll_fixed_load_20260828.md`。 |
 | TDMA-PROGRESS-20260828-005 | TDMA-REL-002、TDMA-PAYLOAD-006 | 本次架构/TODO/登记同步；代码和 HIL 待按新 recovery owner 边界补齐。 |
+| TDMA-PROGRESS-20260828-006 | TDMA-HIL-001、TDMA-DPLL-001/002 | `out/build/dpll-p0-20260828/`、`out/pytest/dpll-p0-20260828/`；P0 构建通过但 SRAM 门禁未通过，未执行 OTA/HIL。 |
 
 ## 失败与回退
 
 - 新 mailbox wire version 与旧固件不兼容；多板验证必须使用同一 package 异步 OTA 完成后再 START。
 - HIL 若出现 CRC、RefMem accept、TDMA deadline 或波形回归，回退整个 wire-layout 提交，不允许
   运行时关闭 mandatory 字段或借用 guard。
+
+### TDMA-PROGRESS-20260828-006 - DPLL 长期任务 P0 基线门禁尝试
+
+- TODO task ID：`TDMA-HIL-001`、`TDMA-DPLL-001`、`TDMA-DPLL-002`。
+- 日期：2026-08-28。
+- 构建：使用 `tools/cmake_build_auto/cmake_build_auto.py` 输出到
+  `out/build/dpll-p0-20260828/`；A/B/Boot 构建和 flash link contract 通过，build id
+  `20260828113417`，package CRC `0x2A4D458B`（均为快照，非事实源）。
+- pytest：全量首轮 `505 passed, 1 failed`，唯一失败为 flash inventory 测试对合法 caller 数量的历史断言；
+  已同步到当前 allowlist 并在 `6463823` 修复，定向测试 `7 passed`。
+- SRAM 门禁：`tools/ram_budget_check/ram_budget_check.py` 报告当前链接余量
+  `24680 B`，低于 `docs/arch/RTOS_HAOFV_TODO.md` P0-RAM 的 `96 KB` 发布阈值；上一份
+  `recovery-20260828` 构建同样未达到该阈值，说明这是既有发布阻塞，不应归因于 DPLL 负载。
+- OTA/HIL：因 SRAM 发布门禁失败，本轮未对五板 OTA，也未启动 NO1–NO4 环路；保持 fail-closed。
+- 下一步：先完成 P0-RAM 的 staging/rollback/OTA buffer 生命周期复用和任务栈/heap 水位复核，
+  重新构建并通过 SRAM 门禁，再重复 P0 OTA/HIL；在此之前不进入 active calibration 或 servo 调参。
 
 ### TDMA-PROGRESS-20260828-005 - 固化原 Node 位置 recovery 与基础诊断边界
 
