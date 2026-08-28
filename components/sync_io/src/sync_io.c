@@ -94,9 +94,10 @@ typedef struct {
 
 static sync_io_context_t s_sync_io;
 static sync_io_sma_frequency_tx_status_t s_sma_frequency_tx;
-static uint32_t s_sync_io_capture_dma_ring[SYNC_IO_CAPTURE_DMA_RING_WORDS]
+uint32_t sync_io_shared_workspace[SYNC_IO_SHARED_WORKSPACE_WORDS]
     __attribute__((section(".sync_io_dma_ring")))
     __attribute__((aligned(SYNC_IO_CAPTURE_DMA_RING_BYTES)));
+#define s_sync_io_capture_dma_ring sync_io_shared_workspace
 
 void sync_io_core_trace(sync_io_trace_event_t event_id,
                         uint8_t severity,
@@ -659,6 +660,11 @@ bool sync_io_core_initialized(void)
     return s_sync_io.initialized;
 }
 
+bool sync_io_core_capture_is_running(void)
+{
+    return s_sync_io.capture_running;
+}
+
 uint sync_io_core_biss_tap_offset(void)
 {
     return s_sync_io.biss_tap_offset;
@@ -894,7 +900,8 @@ bool sync_io_init(const sync_io_config_t *config)
 
 bool sync_io_start_capture(uint32_t sample_hz)
 {
-    if (!s_sync_io.initialized) {
+    if (!s_sync_io.initialized ||
+        sync_io_model_pulse_schedule_is_running()) {
         sync_io_trace(SYNC_IO_TRACE_CAPTURE_FAIL, SYNC_IO_TRACE_ERROR, sample_hz, 1u);
         return false;
     }

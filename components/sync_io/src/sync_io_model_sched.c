@@ -34,8 +34,10 @@ typedef struct {
     uint64_t start_us;
     uint64_t total_duration_ns64;
     uint64_t completed_elapsed_ns;
-    uint32_t words[SYNC_IO_MODEL_PULSE_MAX_ENTRIES *
-                   SYNC_IO_MODEL_PULSE_WORDS_PER_ENTRY];
+    /* The maintenance schedule shares the capture DMA workspace.  Keep only
+     * a pointer in the persona state so the 32 KiB workspace is not duplicated
+     * in .bss.  The arm path assigns it after confirming capture is idle. */
+    uint32_t *words;
 } sync_io_model_pulse_t;
 
 static sync_io_model_pulse_t s_model_pulse;
@@ -221,6 +223,7 @@ static bool sync_io_pulse_schedule_arm_on_pin_common(
         entries_us == NULL && entries_ns == NULL &&
         periodic_period_ns != 0u && periodic_high_ns != 0u;
     if (!sync_io_core_initialized() ||
+        sync_io_core_capture_is_running() ||
         (!use_periodic_entries && entries_us == NULL && entries_ns == NULL) ||
         entry_count == 0u ||
         entry_count > SYNC_IO_MODEL_PULSE_MAX_ENTRIES ||
@@ -233,6 +236,10 @@ static bool sync_io_pulse_schedule_arm_on_pin_common(
     }
 
     sync_io_model_pulse_schedule_disarm();
+
+    /* The schedule shares the capture DMA workspace.  Both APIs reject an
+     * active peer, so assigning the workspace here cannot race a DMA owner. */
+    s_model_pulse.words = sync_io_shared_workspace;
 
     uint64_t cumulative_ns = 0u;
     for (uint32_t i = 0u; i < entry_count; i++) {

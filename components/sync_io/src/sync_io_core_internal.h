@@ -18,6 +18,13 @@
 #define SYNC_IO_CAPTURE_DMA_CH 3u
 #define SYNC_IO_SHARED_DMA_IRQ   DMA_IRQ_0
 #define SYNC_IO_DMA_OVERFLOW_DELTA_THRESHOLD 1u
+#define SYNC_IO_SHARED_WORKSPACE_WORDS 8192u
+
+/* Maintenance pulse schedules and SMA capture never own the DMA workspace at
+ * the same time.  The owner checks below serialize those personas while this
+ * shared buffer preserves the full 8192-word capture and 4096-entry schedule
+ * capacities without duplicating 32 KiB of SRAM. */
+extern uint32_t sync_io_shared_workspace[SYNC_IO_SHARED_WORKSPACE_WORDS];
 
 typedef enum {
     SYNC_IO_TRACE_INIT_OK           = 10u,
@@ -68,6 +75,7 @@ void sync_io_core_trace(sync_io_trace_event_t event_id,
                         uint32_t arg0,
                         uint32_t arg1);
 bool sync_io_core_initialized(void);
+bool sync_io_core_capture_is_running(void);
 bool sync_io_core_sm_is_enabled(PIO pio, uint sm);
 uint32_t sync_io_core_pack_runtime_flags(bool running,
                                          bool pio_enabled,
