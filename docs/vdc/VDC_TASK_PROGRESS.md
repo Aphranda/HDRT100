@@ -59,6 +59,7 @@ VdcSyncAO
 - 验证结果：
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools/tests/run_vdc_domain_tests.ps1`：通过。
   - `cmake --build out/build/dpll-vdc-20260828 -j 4`：通过，生成 `DHRT100_FACTORY.uf2` 与 `DHRT100_UPDATE.pkg`，package CRC=`0x6E73F0AE`。
+  - 多板异步 OTA：COM25、COM3、COM4、COM5、COM6 全部 `passed=True, failed=0`，设备侧 `OTA:RES?=APPLIED`；逐板 summary 位于 `out/ota/vdc-pathmatrix-20260828/`。
   - 新增契约 `VDC-PATHMATRIX-01`，当前 status=`pending`，待独立交叉审核和 OTA/HIL。
 - 还需完成：
   - 用真实四节点 calibration snapshot 做方向性验证，确认 `source/reference` 与 TDMA ring observer 语义一致。
