@@ -943,7 +943,7 @@ bool calibration_manager_activate_path_candidate(void)
     /* Publishing to VDC is part of activation, not candidate staging.  If
      * the consumer rejects the identity or schedule, retain the previous
      * active snapshot and report a failed activation. */
-    if (!vdc_dpll_manager_publish_calibration_path_snapshot(&next_active)) {
+    if (!vdc_dpll_manager_activate_tdma_calibration(&next_active)) {
         osal_critical_enter();
         s_status.last_error = CALIBRATION_PATH_REJECT_GENERATION;
         osal_critical_exit();
@@ -983,7 +983,7 @@ bool calibration_manager_rollback_path(void)
         osal_critical_exit();
         return false;
     }
-    if (!vdc_dpll_manager_publish_calibration_path_snapshot(&next_active)) {
+    if (!vdc_dpll_manager_activate_tdma_calibration(&next_active)) {
         osal_critical_enter();
         s_status.last_error = CALIBRATION_PATH_REJECT_GENERATION;
         osal_critical_exit();
@@ -1896,6 +1896,52 @@ void calibration_manager_get_ring_capture_debug(
         &s_ring_capture_consumed_sequence, __ATOMIC_ACQUIRE);
 }
 
+static bool calibration_manager_intent_pending(
+    const volatile uint32_t *guard,
+    const uint32_t *sequence,
+    const volatile uint32_t *consumed_sequence)
+{
+    for (uint32_t attempt = 0u; attempt < 64u; attempt++) {
+        const uint32_t begin = __atomic_load_n(guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) continue;
+        const uint32_t published = __atomic_load_n(
+            sequence, __ATOMIC_RELAXED);
+        const uint32_t end = __atomic_load_n(guard, __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) {
+            return published != __atomic_load_n(
+                consumed_sequence, __ATOMIC_ACQUIRE);
+        }
+    }
+    /* Seqlock contention means the producer is publishing work now. */
+    return true;
+}
+
+static bool calibration_manager_has_non_loopback_core1_work(void)
+{
+    const bool pending =
+        calibration_manager_intent_pending(
+            &s_data_intent.guard, &s_data_intent.sequence,
+            &s_data_intent_consumed_sequence) ||
+        calibration_manager_intent_pending(
+            &s_sck_intent.guard, &s_sck_intent.sequence,
+            &s_sck_intent_consumed_sequence) ||
+        calibration_manager_intent_pending(
+            &s_marker_intent.guard, &s_marker_intent.sequence,
+            &s_marker_intent_consumed_sequence) ||
+        calibration_manager_intent_pending(
+            &s_p3_intent.guard, &s_p3_intent.sequence,
+            &s_p3_intent_consumed_sequence) ||
+        calibration_manager_intent_pending(
+            &s_clk_coded_intent.guard, &s_clk_coded_intent.sequence,
+            &s_clk_coded_intent_consumed_sequence);
+    return pending ||
+           __atomic_load_n(&s_data_active, __ATOMIC_ACQUIRE) ||
+           __atomic_load_n(&s_sck_active, __ATOMIC_ACQUIRE) ||
+           __atomic_load_n(&s_marker_active, __ATOMIC_ACQUIRE) ||
+           __atomic_load_n(&s_clk_coded_active, __ATOMIC_ACQUIRE) ||
+           s_p3_snapshot.raw.state == TDMA_PIO_SPI_P3_ARMED;
+}
+
 void calibration_manager_service_core1(void)
 {
     (void)__atomic_add_fetch(&s_ring_capture_core1_service_count,
@@ -2001,7 +2047,13 @@ void calibration_manager_service_core1(void)
     tdma_ring_runtime_snapshot_t ring;
     const bool stopped = tdma_runtime_owner_get_ring_snapshot(&ring) &&
                          ring.enabled == 0u;
-    calibration_pio_loopback_service_core1(stopped);
+    if (calibration_pio_loopback_service_core1(stopped)) {
+        calibration_manager_publish_training_activity();
+        return;
+    }
+    if (!calibration_manager_has_non_loopback_core1_work()) {
+        return;
+    }
     tdma_runtime_owner_coded_service_core1();
     tdma_runtime_owner_p3_service_core1();
     tdma_runtime_owner_marker_service_core1();

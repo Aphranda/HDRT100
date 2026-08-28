@@ -50,6 +50,26 @@ bool tdma_operating_profile_validate(
 uint32_t tdma_operating_profile_schedule_crc32(
     uint32_t base_schedule_crc32,
     const tdma_operating_profile_t *profile);
+static inline uint32_t tdma_operating_profile_compose_schedule_crc32(
+    uint32_t base_schedule_crc32,
+    uint32_t operating_profile_crc32)
+{
+    if (base_schedule_crc32 == 0u || operating_profile_crc32 == 0u) {
+        return 0u;
+    }
+    uint32_t hash = 2166136261u;
+    const uint32_t values[2] = {
+        base_schedule_crc32,
+        operating_profile_crc32,
+    };
+    for (uint32_t value_index = 0u; value_index < 2u; value_index++) {
+        for (uint32_t shift = 0u; shift < 32u; shift += 8u) {
+            hash ^= (values[value_index] >> shift) & 0xFFu;
+            hash *= 16777619u;
+        }
+    }
+    return hash;
+}
 bool tdma_operating_profile_manager_init(
     tdma_operating_profile_manager_t *manager,
     uint32_t default_level);

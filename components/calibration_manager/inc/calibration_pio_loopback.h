@@ -36,7 +36,8 @@ bool calibration_pio_loopback_init(void);
 bool calibration_pio_loopback_request_start(
     const calibration_pio_loopback_config_t *config);
 void calibration_pio_loopback_request_stop(void);
-void calibration_pio_loopback_service_core1(bool tdma_stopped);
+/* Returns true when loopback work consumed the current Calibration phase. */
+bool calibration_pio_loopback_service_core1(bool tdma_stopped);
 bool calibration_pio_loopback_get_snapshot(
     calibration_pio_loopback_snapshot_t *snapshot);
 

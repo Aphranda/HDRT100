@@ -1209,56 +1209,49 @@ bool vdc_dpll_manager_publish_calibration_path_delay(
     return accepted;
 }
 
-bool vdc_dpll_manager_publish_calibration_path_snapshot(
-    const calibration_path_snapshot_t *snapshot)
+static bool vdc_dpll_manager_build_calibration_path_table(
+    const calibration_path_snapshot_t *snapshot,
+    const vdc_tdma_schedule_profile_t *schedule,
+    uint32_t previous_update_seq,
+    vdc_path_delay_table_t *table)
 {
-    if (snapshot == NULL || !calibration_path_snapshot_validate(snapshot) ||
-        snapshot->link_count > VDC_DOMAIN_PATH_DELAY_ENTRY_COUNT) {
+    if (snapshot == NULL || schedule == NULL || table == NULL ||
+        !calibration_path_snapshot_validate(snapshot) ||
+        snapshot->link_count > VDC_DOMAIN_PATH_DELAY_ENTRY_COUNT ||
+        snapshot->link_count != schedule->ring_binding.node_count ||
+        snapshot->schedule_crc32 != schedule->schedule_crc32) {
         return false;
     }
 
-    vdc_path_delay_table_t table;
-    memset(&table, 0, sizeof(table));
-
-    osal_critical_enter();
-    const uint32_t node_count = s_vdc_domain.schedule.ring_binding.node_count;
-    if (node_count == 0u || snapshot->link_count != node_count ||
-        snapshot->schedule_crc32 != s_vdc_domain.schedule.schedule_crc32) {
-        osal_critical_exit();
-        return false;
+    memset(table, 0, sizeof(*table));
+    table->valid = 1u;
+    table->version = VDC_DOMAIN_PATH_DELAY_TABLE_VERSION;
+    table->update_seq = previous_update_seq + 1u;
+    if (table->update_seq == 0u) {
+        table->update_seq = 1u;
     }
-
-    table.valid = 1u;
-    table.version = VDC_DOMAIN_PATH_DELAY_TABLE_VERSION;
-    table.update_seq = s_vdc_domain.path_delay.update_seq + 1u;
-    if (table.update_seq == 0u) {
-        table.update_seq = 1u;
-    }
-    table.entry_count = snapshot->link_count;
-    table.schedule_crc32 = s_vdc_domain.schedule.schedule_crc32;
-    table.calibration_generation = snapshot->calibration_generation;
-    table.topology_generation = snapshot->topology_generation;
-    table.bias_generation = snapshot->bias_generation;
-    table.freshness_us = snapshot->freshness_us;
-    table.flags = VDC_PATH_DELAY_FLAG_ACCEPTED |
-                  VDC_PATH_DELAY_FLAG_HARDWARE_LATCHED |
-                  VDC_PATH_DELAY_FLAG_BIAS_VALID |
-                  VDC_PATH_DELAY_FLAG_TOPOLOGY_FRESH;
+    table->entry_count = snapshot->link_count;
+    table->schedule_crc32 = schedule->schedule_crc32;
+    table->calibration_generation = snapshot->calibration_generation;
+    table->topology_generation = snapshot->topology_generation;
+    table->bias_generation = snapshot->bias_generation;
+    table->freshness_us = snapshot->freshness_us;
+    table->flags = VDC_PATH_DELAY_FLAG_ACCEPTED |
+                   VDC_PATH_DELAY_FLAG_HARDWARE_LATCHED |
+                   VDC_PATH_DELAY_FLAG_BIAS_VALID |
+                   VDC_PATH_DELAY_FLAG_TOPOLOGY_FRESH;
 
     for (uint32_t i = 0u; i < snapshot->link_count; i++) {
         const calibration_path_link_evidence_t *link = &snapshot->links[i];
         const int64_t delay_ns = link->measurement.delay_estimate_ns;
-        /* Calibration owns physical node/link terminology.  VDC/RefMem keeps
-         * its existing slot-ID contract, so map only at this domain edge. */
         const uint32_t source_slot_id = link->source_node;
         const uint32_t reference_slot_id = link->destination_node;
         if (delay_ns < 0 || (uint64_t)delay_ns > UINT32_MAX ||
             source_slot_id >= VDC_DOMAIN_NODE_COUNT ||
             reference_slot_id >= VDC_DOMAIN_NODE_COUNT) {
-            osal_critical_exit();
             return false;
         }
-        vdc_path_delay_entry_t *entry = &table.entries[i];
+        vdc_path_delay_entry_t *entry = &table->entries[i];
         entry->valid = 1u;
         entry->source_slot_id = source_slot_id;
         entry->reference_slot_id = reference_slot_id;
@@ -1269,15 +1262,87 @@ bool vdc_dpll_manager_publish_calibration_path_snapshot(
         entry->cal_crc32 = snapshot->table_crc32;
         entry->freshness_us = snapshot->freshness_us;
         entry->writer = source_slot_id;
-        entry->update_seq = table.update_seq;
+        entry->update_seq = table->update_seq;
     }
-    if (!vdc_domain_load_observation_path_matrix(&table, node_count)) {
+    if (!vdc_domain_load_observation_path_matrix(
+            table, schedule->ring_binding.node_count)) {
+        return false;
+    }
+    table->table_crc32 = vdc_domain_path_delay_table_crc32(table);
+    return vdc_domain_path_delay_table_validate(table);
+}
+
+bool vdc_dpll_manager_publish_calibration_path_snapshot(
+    const calibration_path_snapshot_t *snapshot)
+{
+    if (snapshot == NULL || !calibration_path_snapshot_validate(snapshot) ||
+        snapshot->link_count > VDC_DOMAIN_PATH_DELAY_ENTRY_COUNT) {
+        return false;
+    }
+
+    osal_critical_enter();
+    vdc_path_delay_table_t table;
+    if (!vdc_dpll_manager_build_calibration_path_table(
+            snapshot,
+            &s_vdc_domain.schedule,
+            s_vdc_domain.path_delay.update_seq,
+            &table)) {
         osal_critical_exit();
         return false;
     }
-    table.table_crc32 = vdc_domain_path_delay_table_crc32(&table);
     const bool accepted = vdc_domain_publish_path_delay_table(
         &s_vdc_domain, &table);
+    osal_critical_exit();
+    return accepted;
+}
+
+bool vdc_dpll_manager_activate_tdma_calibration(
+    const calibration_path_snapshot_t *snapshot)
+{
+    tdma_service_ring_runtime_config_t runtime;
+    if (snapshot == NULL || !calibration_path_snapshot_validate(snapshot) ||
+        !tdma_runtime_owner_get_staged_ring_config(&runtime) ||
+        runtime.enabled == 0u || runtime.schedule_crc32 == 0u ||
+        runtime.operating_profile_crc32 == 0u ||
+        snapshot->link_count != runtime.node_count ||
+        snapshot->topology_crc32 != runtime.ring_profile_crc32 ||
+        snapshot->profile_crc32 != runtime.operating_profile_crc32 ||
+        snapshot->schedule_crc32 != runtime.schedule_crc32) {
+        return false;
+    }
+
+    const vdc_tdma_runtime_binding_t binding = {
+        .node_count = runtime.node_count,
+        .local_slot_id = runtime.local_slot_id,
+        .reference_slot_id = runtime.reference_slot_id,
+        .ring_profile_crc32 = runtime.ring_profile_crc32,
+        .operating_profile_crc32 = runtime.operating_profile_crc32,
+        .cycle_period_ns = runtime.cycle_period_ns,
+        .effective_schedule_crc32 = runtime.schedule_crc32,
+    };
+
+    osal_critical_enter();
+    vdc_tdma_schedule_profile_t schedule;
+    vdc_timestamp_dictionary_t dictionary;
+    vdc_path_delay_table_t path_delay;
+    bool prepared = vdc_domain_build_tdma_runtime_schedule(
+        &s_vdc_domain.schedule, &binding, &schedule);
+    if (prepared) {
+        vdc_domain_default_timestamp_dictionary(&dictionary, &schedule);
+        prepared = vdc_timestamp_dictionary_validate(&dictionary);
+    }
+    if (prepared) {
+        prepared = vdc_dpll_manager_build_calibration_path_table(
+            snapshot, &schedule, s_vdc_domain.path_delay.update_seq,
+            &path_delay);
+    }
+    const bool accepted = prepared &&
+        vdc_domain_activate_tdma_configuration(
+            &s_vdc_domain, &schedule, &dictionary, &path_delay);
+    if (accepted) {
+        s_vdc_ring_observation_config_seq = 0u;
+        s_vdc_ring_observation_sequence = 0u;
+    }
     osal_critical_exit();
     return accepted;
 }

@@ -518,11 +518,15 @@ void tdma_runtime_owner_cal_loopback_stop(void)
     }
 }
 
-void tdma_runtime_owner_cal_loopback_service(void)
+bool tdma_runtime_owner_cal_loopback_service(void)
 {
     if (!s_tdma_runtime_owner_initialized) {
-        return;
+        return false;
     }
+    bool phase_claimed =
+        s_tdma_pio_spi_phys.cal_loopback_start_pending ||
+        s_tdma_pio_spi_phys.cal_loopback_stop_pending ||
+        s_tdma_pio_spi_phys.cal_loopback.armed != 0u;
     tdma_cal_loopback_intent_t intent;
     if (tdma_runtime_owner_cal_intent_read(&intent) &&
         intent.sequence != __atomic_load_n(
@@ -543,8 +547,16 @@ void tdma_runtime_owner_cal_loopback_service(void)
         }
         __atomic_store_n(&s_tdma_cal_loopback_consumed_sequence,
                          intent.sequence, __ATOMIC_RELEASE);
+        /* Persona selection is itself a bounded Core1 operation.  Do not
+         * combine it with PIO/DMA setup or STOP cleanup in the same TDMA
+         * beat; the next calibration phase advances the physical state. */
+        return true;
     }
     tdma_pio_spi_phys_cal_loopback_service(&s_tdma_pio_spi_phys);
+    return phase_claimed ||
+           s_tdma_pio_spi_phys.cal_loopback_start_pending ||
+           s_tdma_pio_spi_phys.cal_loopback_stop_pending ||
+           s_tdma_pio_spi_phys.cal_loopback.armed != 0u;
 }
 
 bool tdma_runtime_owner_get_cal_loopback_snapshot(

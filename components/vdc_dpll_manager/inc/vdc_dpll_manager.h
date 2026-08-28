@@ -193,6 +193,10 @@ bool vdc_dpll_manager_publish_calibration_path_delay(
     const vdc_path_delay_table_t *table);
 bool vdc_dpll_manager_publish_calibration_path_snapshot(
     const calibration_path_snapshot_t *snapshot);
+/* Atomically binds the staged TDMA runtime schedule, a derived timestamp
+ * dictionary and one active Calibration path matrix. */
+bool vdc_dpll_manager_activate_tdma_calibration(
+    const calibration_path_snapshot_t *snapshot);
 bool vdc_dpll_manager_submit_compact_observation(
     const vdc_compact_observation_sample_t *compact);
 

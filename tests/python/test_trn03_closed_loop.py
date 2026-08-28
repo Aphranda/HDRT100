@@ -898,6 +898,18 @@ def test_p3_reference_capture_uses_persona_loaded_program_offset() -> None:
     assert "TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL" in service
 
 
+def test_calibration_loopback_intent_has_a_dedicated_realtime_beat() -> None:
+    source = (ROOT / "components" / "tdma" / "src" /
+              "tdma_runtime_owner.c").read_text(encoding="utf-8")
+    service = source.split(
+        "bool tdma_runtime_owner_cal_loopback_service", 1
+    )[1].split("bool tdma_runtime_owner_get_cal_loopback_snapshot", 1)[0]
+    consume = service.split(
+        "intent.sequence != __atomic_load_n", 1
+    )[1].split("tdma_pio_spi_phys_cal_loopback_service", 1)[0]
+    assert "return true;" in consume
+
+
 def test_p3_responder_returns_and_measures_complete_data_burst() -> None:
     pio_source = (ROOT / "components" / "tdma" / "src" /
                   "tdma_pio_spi.pio").read_text(encoding="utf-8")

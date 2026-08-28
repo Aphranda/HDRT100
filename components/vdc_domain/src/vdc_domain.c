@@ -3,6 +3,8 @@
 #include <limits.h>
 #include <string.h>
 
+#include "tdma_operating_profile.h"
+
 #define VDC_DOMAIN_CRC_OFFSET 2166136261u
 #define VDC_DOMAIN_CRC_PRIME 16777619u
 #define VDC_DOMAIN_INITIAL_LOCK_SAMPLES 1u
@@ -924,6 +926,7 @@ bool vdc_domain_set_schedule_ring_topology(vdc_domain_context_t *context,
         return false;
     }
     vdc_tdma_schedule_profile_t updated = context->schedule;
+    updated.operating_profile_crc32 = 0u;
     updated.local_slot_id = local_slot_id;
     updated.reference_slot_id = reference_slot_id;
     if (!tdma_ring_profile_default(&updated.ring_binding,
@@ -934,6 +937,45 @@ bool vdc_domain_set_schedule_ring_topology(vdc_domain_context_t *context,
     }
     updated.schedule_crc32 = vdc_domain_schedule_crc32(&updated);
     context->schedule = updated;
+    return true;
+}
+
+bool vdc_domain_build_tdma_runtime_schedule(
+    const vdc_tdma_schedule_profile_t *base,
+    const vdc_tdma_runtime_binding_t *binding,
+    vdc_tdma_schedule_profile_t *runtime_schedule)
+{
+    if (base == NULL || binding == NULL || runtime_schedule == NULL ||
+        binding->node_count < 2u ||
+        binding->node_count > VDC_DOMAIN_NODE_COUNT ||
+        binding->local_slot_id >= binding->node_count ||
+        binding->reference_slot_id >= binding->node_count ||
+        binding->ring_profile_crc32 == 0u ||
+        binding->operating_profile_crc32 == 0u ||
+        binding->cycle_period_ns == 0u ||
+        binding->effective_schedule_crc32 == 0u) {
+        return false;
+    }
+
+    vdc_tdma_schedule_profile_t updated = *base;
+    updated.operating_profile_crc32 = 0u;
+    updated.local_slot_id = binding->local_slot_id;
+    updated.reference_slot_id = binding->reference_slot_id;
+    if (updated.period_ns != binding->cycle_period_ns ||
+        !tdma_ring_profile_default(&updated.ring_binding,
+                                   binding->local_slot_id,
+                                   binding->reference_slot_id,
+                                   binding->node_count) ||
+        updated.ring_binding.profile_crc32 != binding->ring_profile_crc32) {
+        return false;
+    }
+    updated.operating_profile_crc32 = binding->operating_profile_crc32;
+    updated.schedule_crc32 = vdc_domain_schedule_crc32(&updated);
+    if (updated.schedule_crc32 != binding->effective_schedule_crc32 ||
+        !vdc_domain_schedule_validate(&updated)) {
+        return false;
+    }
+    *runtime_schedule = updated;
     return true;
 }
 
@@ -996,6 +1038,10 @@ uint32_t vdc_domain_schedule_crc32(const vdc_tdma_schedule_profile_t *profile)
      * ring compute different schedule CRCs and reject each other's TDMA
      * frames on the wire (P0.5-3 two-board resident ring). */
     hash = vdc_domain_hash_u32(hash, profile->ring_binding.profile_crc32);
+    if (profile->operating_profile_crc32 != 0u) {
+        return tdma_operating_profile_compose_schedule_crc32(
+            hash, profile->operating_profile_crc32);
+    }
     return hash;
 }
 
@@ -1383,7 +1429,7 @@ bool vdc_domain_path_delay_lookup(const vdc_path_delay_table_t *table,
     return false;
 }
 
-static void vdc_domain_default_timestamp_dictionary(
+void vdc_domain_default_timestamp_dictionary(
     vdc_timestamp_dictionary_t *dictionary,
     const vdc_tdma_schedule_profile_t *schedule)
 {
@@ -2111,6 +2157,51 @@ bool vdc_domain_init(vdc_domain_context_t *context)
     vdc_domain_default_path_delay_table(&context->path_delay,
                                         &context->schedule);
     vdc_wrap_tracker_init_open(&context->wrap_tracker);
+    return true;
+}
+
+bool vdc_domain_activate_tdma_configuration(
+    vdc_domain_context_t *context,
+    const vdc_tdma_schedule_profile_t *schedule,
+    const vdc_timestamp_dictionary_t *dictionary,
+    const vdc_path_delay_table_t *path_delay)
+{
+    if (context == NULL || schedule == NULL || dictionary == NULL ||
+        path_delay == NULL || !vdc_domain_schedule_validate(schedule) ||
+        !vdc_timestamp_dictionary_validate(dictionary) ||
+        !vdc_domain_path_delay_table_validate(path_delay) ||
+        dictionary->profile_crc32 != schedule->schedule_crc32 ||
+        path_delay->schedule_crc32 != schedule->schedule_crc32 ||
+        path_delay->observation_matrix.node_count !=
+            schedule->ring_binding.node_count) {
+        return false;
+    }
+
+    const uint32_t next_run_id = context->clock.run_id + 1u;
+    const uint32_t ready = context->ready;
+    context->schedule = *schedule;
+    context->timestamp_dictionary = *dictionary;
+    context->path_delay = *path_delay;
+    memset(&context->dpll, 0, sizeof(context->dpll));
+    memset(&context->gate, 0, sizeof(context->gate));
+    vdc_domain_default_clock_model(&context->clock,
+                                   schedule->schedule_epoch,
+                                   next_run_id,
+                                   0u,
+                                   0u,
+                                   schedule->schedule_crc32);
+    context->clock.nominal_period_ns = schedule->period_ns;
+    context->clock.slew_limit_ppb = context->servo.sanity_freq_limit_ppb;
+    context->dpll.state = ready != 0u ? VDC_DOMAIN_LOCK_CHECKING
+                                     : VDC_DOMAIN_LOCK_OFF;
+    context->dpll.schedule_crc32 = schedule->schedule_crc32;
+    context->dpll.servo_profile_crc32 = context->servo.servo_profile_crc32;
+    vdc_domain_init_quality(context);
+    vdc_domain_default_dco_control(&context->dco,
+                                   &context->clock,
+                                   context->dpll.state);
+    vdc_wrap_tracker_init_open(&context->wrap_tracker);
+    vdc_domain_refresh_quality_state(context);
     return true;
 }
 

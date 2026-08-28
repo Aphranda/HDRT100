@@ -146,10 +146,8 @@ uint32_t tdma_operating_profile_schedule_crc32(
         !tdma_operating_profile_validate(profile, &result)) {
         return 0u;
     }
-    uint32_t hash = TDMA_OPERATING_PROFILE_FNV_OFFSET;
-    hash = tdma_operating_profile_hash_u32(hash, base_schedule_crc32);
-    hash = tdma_operating_profile_hash_u32(hash, profile->profile_crc32);
-    return hash;
+    return tdma_operating_profile_compose_schedule_crc32(
+        base_schedule_crc32, profile->profile_crc32);
 }
 
 bool tdma_operating_profile_manager_init(

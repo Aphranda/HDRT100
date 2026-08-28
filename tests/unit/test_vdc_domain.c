@@ -2,6 +2,7 @@
 #include "vdc_ring_observer.h"
 #include "vdc_sync_io_adapter.h"
 #include "vdc_tdma_payload.h"
+#include "tdma_operating_profile.h"
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -2605,6 +2606,117 @@ static int test_observation_path_matrix_is_explicit(void)
     return failed;
 }
 
+static int test_tdma_configuration_activation_is_atomic(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_tdma_schedule_profile_t runtime_schedule;
+    vdc_timestamp_dictionary_t dictionary;
+    vdc_path_delay_table_t path_delay;
+    tdma_operating_profile_t operating;
+
+    failed += expect_bool("runtime activation init",
+                          vdc_domain_init(&context), true);
+    failed += expect_bool("runtime activation topology",
+                          vdc_domain_set_schedule_ring_topology(
+                              &context, 2u, 0u, 4u), true);
+    failed += expect_bool("runtime activation profile",
+                          tdma_operating_profile_get(7u, &operating), true);
+    const uint32_t base_schedule_crc32 = context.schedule.schedule_crc32;
+    const uint32_t effective_schedule_crc32 =
+        tdma_operating_profile_schedule_crc32(base_schedule_crc32,
+                                               &operating);
+    const vdc_tdma_runtime_binding_t binding = {
+        .node_count = 4u,
+        .local_slot_id = 2u,
+        .reference_slot_id = 0u,
+        .ring_profile_crc32 = context.schedule.ring_binding.profile_crc32,
+        .operating_profile_crc32 = operating.profile_crc32,
+        .cycle_period_ns = operating.cycle_period_ns,
+        .effective_schedule_crc32 = effective_schedule_crc32,
+    };
+    failed += expect_bool("runtime schedule build",
+                          vdc_domain_build_tdma_runtime_schedule(
+                              &context.schedule, &binding,
+                              &runtime_schedule), true);
+    failed += expect_u32("runtime effective schedule",
+                         runtime_schedule.schedule_crc32,
+                         effective_schedule_crc32);
+    failed += expect_u32("runtime operating profile",
+                         runtime_schedule.operating_profile_crc32,
+                         operating.profile_crc32);
+
+    vdc_domain_default_timestamp_dictionary(&dictionary, &runtime_schedule);
+    memset(&path_delay, 0, sizeof(path_delay));
+    path_delay.valid = 1u;
+    path_delay.version = VDC_DOMAIN_PATH_DELAY_TABLE_VERSION;
+    path_delay.update_seq = 2u;
+    path_delay.entry_count = 4u;
+    path_delay.schedule_crc32 = effective_schedule_crc32;
+    path_delay.calibration_generation = 210u;
+    path_delay.topology_generation = 3u;
+    path_delay.bias_generation = 1u;
+    path_delay.freshness_us = 1000000u;
+    path_delay.flags = VDC_PATH_DELAY_FLAG_ACCEPTED |
+                       VDC_PATH_DELAY_FLAG_HARDWARE_LATCHED |
+                       VDC_PATH_DELAY_FLAG_BIAS_VALID |
+                       VDC_PATH_DELAY_FLAG_TOPOLOGY_FRESH;
+    for (uint32_t i = 0u; i < 4u; i++) {
+        path_delay.entries[i].valid = 1u;
+        path_delay.entries[i].source_slot_id = i;
+        path_delay.entries[i].reference_slot_id = (i + 1u) % 4u;
+        path_delay.entries[i].delay_ns = 80u + i;
+        path_delay.entries[i].cal_crc32 = 0x12340000u + i;
+        path_delay.entries[i].freshness_us = path_delay.freshness_us;
+        path_delay.entries[i].writer = i;
+        path_delay.entries[i].update_seq = path_delay.update_seq;
+    }
+    failed += expect_bool("runtime matrix load",
+                          vdc_domain_load_observation_path_matrix(
+                              &path_delay, 4u), true);
+    path_delay.table_crc32 =
+        vdc_domain_path_delay_table_crc32(&path_delay);
+
+    vdc_domain_set_ready(&context, true);
+    failed += expect_bool("runtime configuration activate",
+                          vdc_domain_activate_tdma_configuration(
+                              &context, &runtime_schedule, &dictionary,
+                              &path_delay), true);
+    failed += expect_u32("runtime context schedule",
+                         context.schedule.schedule_crc32,
+                         effective_schedule_crc32);
+    failed += expect_u32("runtime dictionary schedule",
+                         context.timestamp_dictionary.profile_crc32,
+                         effective_schedule_crc32);
+    failed += expect_u32("runtime path schedule",
+                         context.path_delay.schedule_crc32,
+                         effective_schedule_crc32);
+    failed += expect_u32("runtime activation checking",
+                         context.dpll.state,
+                         VDC_DOMAIN_LOCK_CHECKING);
+
+    const uint32_t accepted_schedule_crc32 =
+        context.schedule.schedule_crc32;
+    path_delay.schedule_crc32 ^= 1u;
+    path_delay.table_crc32 =
+        vdc_domain_path_delay_table_crc32(&path_delay);
+    failed += expect_bool("runtime partial activation rejected",
+                          vdc_domain_activate_tdma_configuration(
+                              &context, &runtime_schedule, &dictionary,
+                              &path_delay), false);
+    failed += expect_u32("runtime rejected activation unchanged",
+                         context.schedule.schedule_crc32,
+                         accepted_schedule_crc32);
+
+    vdc_tdma_runtime_binding_t mismatched = binding;
+    mismatched.effective_schedule_crc32 ^= 1u;
+    failed += expect_bool("runtime effective crc mismatch rejected",
+                          vdc_domain_build_tdma_runtime_schedule(
+                              &context.schedule, &mismatched,
+                              &runtime_schedule), false);
+    return failed;
+}
+
 static int test_ring_observer_expands_correlated_feedback(void)
 {
     int failed = 0;
@@ -2692,6 +2804,7 @@ int main(void)
     failed += test_context_submits_compact_observation();
     failed += test_path_delay_table_drives_compact_phase();
     failed += test_observation_path_matrix_is_explicit();
+    failed += test_tdma_configuration_activation_is_atomic();
     failed += test_sync_io_adapter_to_vdc_submit();
     failed += test_quality_age_updates_on_service();
     failed += test_dpll_updates_clock_rate_from_sample_period();

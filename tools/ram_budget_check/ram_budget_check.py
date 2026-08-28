@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
+import json
 import re
 import sys
 from pathlib import Path
@@ -12,6 +14,7 @@ from pathlib import Path
 SRAM_BASE = 0x20000000
 SRAM_SIZE = 512 * 1024
 SRAM_END = SRAM_BASE + SRAM_SIZE
+LICENSE_SCHEMA = "HAOFV_TEMPORARY_RAM_LICENSE_V1"
 
 SYMBOL_RE = re.compile(r"^\s*(0x[0-9a-fA-F]+)\s+([A-Za-z_][A-Za-z0-9_$]*)\s*=\s*\.\s*$")
 SECTION_RE = re.compile(r"^\.(sync_io_dma_ring|bss|heap)\s+(0x[0-9a-fA-F]+)\s+(0x[0-9a-fA-F]+)")
@@ -23,12 +26,85 @@ NAMED_CONT_RE = re.compile(r"^\s*(0x[0-9a-fA-F]+)\s+(0x[0-9a-fA-F]+)\s+")
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("map_file", type=Path)
+    parser.add_argument("map_file", type=Path, nargs="?")
     parser.add_argument("--min-free", type=int, default=96 * 1024,
                         help="minimum bytes between __end__ and SRAM top")
     parser.add_argument("--top", type=int, default=12,
                         help="number of largest .bss symbols to print")
+    parser.add_argument("--temporary-license", type=Path,
+                        help="audited temporary lower bound for DPLL development")
+    parser.add_argument("--issue-temporary-license", type=Path,
+                        help="write a temporary license and exit")
+    parser.add_argument("--licensed-min-free", type=int,
+                        help="temporary minimum free bytes")
+    parser.add_argument("--expires", help="temporary license expiry, YYYY-MM-DD")
+    parser.add_argument("--reason", help="temporary license scope and reason")
     return parser.parse_args()
+
+
+def parse_date(value: str, label: str) -> dt.date:
+    try:
+        return dt.date.fromisoformat(value)
+    except ValueError as exc:
+        raise SystemExit(f"{label} must be a valid YYYY-MM-DD date") from exc
+
+
+def issue_temporary_license(args: argparse.Namespace) -> int:
+    if (args.licensed_min_free is None or args.expires is None or
+            args.reason is None or not args.reason.strip()):
+        raise SystemExit(
+            "license issuance requires --licensed-min-free, --expires and --reason")
+    if args.licensed_min_free < 0 or args.licensed_min_free >= args.min_free:
+        raise SystemExit("licensed minimum must be non-negative and below --min-free")
+    expires = parse_date(args.expires, "--expires")
+    today = dt.date.today()
+    if expires < today:
+        raise SystemExit("temporary license is already expired")
+    license_data = {
+        "schema": LICENSE_SCHEMA,
+        "issued_on": today.isoformat(),
+        "expires_on": expires.isoformat(),
+        "formal_min_free_bytes": args.min_free,
+        "licensed_min_free_bytes": args.licensed_min_free,
+        "reason": args.reason.strip(),
+    }
+    args.issue_temporary_license.parent.mkdir(parents=True, exist_ok=True)
+    args.issue_temporary_license.write_text(
+        json.dumps(license_data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8")
+    print(f"temporary_license={args.issue_temporary_license}")
+    print(f"expires_on={expires.isoformat()}")
+    print(f"licensed_min_free_bytes={args.licensed_min_free}")
+    return 0
+
+
+def load_temporary_license(path: Path, formal_min_free: int) -> dict[str, object]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"cannot read temporary RAM license {path}: {exc}") from exc
+    required = {
+        "schema", "issued_on", "expires_on", "formal_min_free_bytes",
+        "licensed_min_free_bytes", "reason",
+    }
+    if not isinstance(data, dict) or set(data) != required:
+        raise SystemExit("temporary RAM license fields do not match schema")
+    if data["schema"] != LICENSE_SCHEMA:
+        raise SystemExit("temporary RAM license schema is unsupported")
+    issued = parse_date(str(data["issued_on"]), "license issued_on")
+    expires = parse_date(str(data["expires_on"]), "license expires_on")
+    today = dt.date.today()
+    if issued > today or expires < today or expires < issued:
+        raise SystemExit("temporary RAM license is not currently valid")
+    if data["formal_min_free_bytes"] != formal_min_free:
+        raise SystemExit("temporary RAM license formal threshold mismatch")
+    licensed_min = data["licensed_min_free_bytes"]
+    if (not isinstance(licensed_min, int) or licensed_min < 0 or
+            licensed_min >= formal_min_free):
+        raise SystemExit("temporary RAM license lower bound is invalid")
+    if not isinstance(data["reason"], str) or not data["reason"].strip():
+        raise SystemExit("temporary RAM license reason is empty")
+    return data
 
 
 def parse_map(path: Path) -> tuple[dict[str, int], dict[str, tuple[int, int]], dict[str, int]]:
@@ -82,6 +158,10 @@ def parse_map(path: Path) -> tuple[dict[str, int], dict[str, tuple[int, int]], d
 
 def main() -> int:
     args = parse_args()
+    if args.issue_temporary_license is not None:
+        return issue_temporary_license(args)
+    if args.map_file is None:
+        raise SystemExit("map_file is required unless issuing a license")
     symbols, sections, bss_symbols = parse_map(args.map_file)
     end = symbols.get("__end__")
     if end is None:
@@ -104,6 +184,19 @@ def main() -> int:
         print(f"  {size:6d} {name}")
 
     if free_bytes < args.min_free:
+        if args.temporary_license is not None:
+            license_data = load_temporary_license(
+                args.temporary_license, args.min_free)
+            licensed_min = int(license_data["licensed_min_free_bytes"])
+            print(f"temporary_license={args.temporary_license}")
+            print(f"temporary_license_expires_on={license_data['expires_on']}")
+            print(f"temporary_license_reason={license_data['reason']}")
+            if free_bytes >= licensed_min:
+                print(
+                    "PASS_WITH_TEMPORARY_LICENSE: "
+                    f"link_free_bytes {free_bytes} >= licensed_min_free "
+                    f"{licensed_min} (formal min_free {args.min_free})")
+                return 0
         print(f"FAIL: link_free_bytes {free_bytes} < min_free {args.min_free}", file=sys.stderr)
         return 1
 

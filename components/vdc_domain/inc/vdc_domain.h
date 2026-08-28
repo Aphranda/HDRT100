@@ -116,8 +116,22 @@ typedef struct {
     uint32_t reference_slot_id;
     uint32_t local_slot_id;
     tdma_ring_profile_t ring_binding;
+    /* Zero identifies the base VDC schedule. A nonzero value binds the
+     * schedule to one validated TDMA operating profile and makes
+     * schedule_crc32 the effective wire-schedule identity. */
+    uint32_t operating_profile_crc32;
     uint32_t schedule_crc32;
 } vdc_tdma_schedule_profile_t;
+
+typedef struct {
+    uint32_t node_count;
+    uint32_t local_slot_id;
+    uint32_t reference_slot_id;
+    uint32_t ring_profile_crc32;
+    uint32_t operating_profile_crc32;
+    uint32_t cycle_period_ns;
+    uint32_t effective_schedule_crc32;
+} vdc_tdma_runtime_binding_t;
 
 typedef struct {
     uint32_t enabled;
@@ -450,6 +464,10 @@ bool vdc_domain_set_schedule_ring_topology(vdc_domain_context_t *context,
                                            uint32_t local_slot_id,
                                            uint32_t reference_slot_id,
                                            uint32_t node_count);
+bool vdc_domain_build_tdma_runtime_schedule(
+    const vdc_tdma_schedule_profile_t *base,
+    const vdc_tdma_runtime_binding_t *binding,
+    vdc_tdma_schedule_profile_t *runtime_schedule);
 /* Re-derive the ring binding for a new local slot and refresh the schedule
  * CRC. Used by the TDMA ring role maintenance command (SYSTem:TDMA:RING:
  * LOCAL) so the same firmware can run as reference or forward node. */
@@ -521,6 +539,14 @@ bool vdc_domain_plan_tdma_window(const vdc_tdma_schedule_profile_t *profile,
 bool vdc_domain_plan_tdma_ring(const vdc_tdma_schedule_profile_t *profile,
                                vdc_tdma_ring_plan_t *plan);
 bool vdc_domain_init(vdc_domain_context_t *context);
+void vdc_domain_default_timestamp_dictionary(
+    vdc_timestamp_dictionary_t *dictionary,
+    const vdc_tdma_schedule_profile_t *schedule);
+bool vdc_domain_activate_tdma_configuration(
+    vdc_domain_context_t *context,
+    const vdc_tdma_schedule_profile_t *schedule,
+    const vdc_timestamp_dictionary_t *dictionary,
+    const vdc_path_delay_table_t *path_delay);
 void vdc_domain_set_ready(vdc_domain_context_t *context, bool ready);
 void vdc_domain_service(vdc_domain_context_t *context, uint64_t now_ns);
 bool vdc_domain_publish_clock_model(vdc_domain_context_t *context,

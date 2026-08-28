@@ -23,10 +23,10 @@ void calibration_pio_loopback_request_stop(void)
     tdma_runtime_owner_cal_loopback_stop();
 }
 
-void calibration_pio_loopback_service_core1(bool tdma_stopped)
+bool calibration_pio_loopback_service_core1(bool tdma_stopped)
 {
     (void)tdma_stopped;
-    tdma_runtime_owner_cal_loopback_service();
+    return tdma_runtime_owner_cal_loopback_service();
 }
 
 bool calibration_pio_loopback_get_snapshot(

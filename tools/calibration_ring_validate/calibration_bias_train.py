@@ -8,16 +8,21 @@ import csv
 import json
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
+from threading import Barrier
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
-for tool_path in (ROOT / "tools", ROOT / "tools" / "tdma_ring_monitor"):
+for tool_path in (ROOT / "tools", ROOT / "tools" / "tdma_ring_monitor",
+                  ROOT / "tools" / "calibration_ring_validate"):
     if str(tool_path) not in sys.path:
         sys.path.insert(0, str(tool_path))
 
 from tdma_start_ring import Board, board_command, discover  # noqa: E402
+from tdma_field_parse import PHYS_FIELDS  # noqa: E402
+from trn03_closed_loop import wait_runtime_stopped  # noqa: E402
 
 
 BIAS_SET_SCHEMA = "HAOFV_CALIBRATION_BIAS_SET_V1"
@@ -28,6 +33,7 @@ BIAS_FIELDS = (
     "mean_bias_ns", "spread_ns", "table_crc32",
 )
 REQUIRED_BIAS_FLAGS = 0x1F
+CALIBRATION_LOAD_BIT = 1 << 2
 LOOPBACK_FIELDS = (
     "armed", "complete", "sample_hz", "sample_period_ns",
     "produced_words", "edge_mask", "flags", "reject_reason", "epoch",
@@ -68,51 +74,119 @@ def bias_snapshot_passed(snapshot: dict[str, int]) -> bool:
     )
 
 
-def train_board(board: Board, node: int, expected_path_sum_ns: int,
-                args: argparse.Namespace) -> dict[str, Any]:
-    board_command(board, "SYSTem:TDMA:RING:STOP", args)
-    board_command(board, "CALibration:BIAS:STOP", args)
-    baseline = parse_bias_snapshot(
-        board_command(board, "READ:CALibration:BIAS?", args))
-    command = (
-        f"CALibration:BIAS:STARt {expected_path_sum_ns},"
-        f"{args.minimum_samples},{args.maximum_samples},"
-        f"{args.maximum_spread_ns},{args.maximum_clock_error_ns}")
-    response = board_command(board, command, args)
-    deadline = time.monotonic() + args.training_timeout
-    snapshots: list[dict[str, int]] = []
-    final = baseline
+def parse_physical_snapshot(raw: str) -> dict[str, int]:
+    row = next(csv.reader([raw]), [])
+    if len(row) != len(PHYS_FIELDS):
+        raise ValueError(
+            f"physical field count {len(row)}, expected {len(PHYS_FIELDS)}")
+    return dict(zip(PHYS_FIELDS,
+                    [int(value.strip().strip('"'), 0) for value in row]))
+
+
+def wait_calibration_idle(board: Board, args: argparse.Namespace) -> dict[str, int]:
+    deadline = time.monotonic() + args.arm_wait
+    last: dict[str, int] = {}
     while time.monotonic() < deadline:
+        loopback = parse_loopback_snapshot(
+            board_command(board, "READ:CALibration:LOOPback?", args))
+        physical = parse_physical_snapshot(
+            board_command(board, "SYSTem:SYNC:VDC:TDMA:PHYS?", args))
+        last = {
+            "loopback_armed": loopback["armed"],
+            "program_persona": physical["program_persona"],
+        }
+        # A stopped ring intentionally retains its loaded flight persona
+        # (origin/follower) for deterministic restart.  Only an unconsumed
+        # P3 reference STOP is unsafe here; its Core1 cleanup switches away
+        # from persona 15 before another START may be published.
+        if (loopback["armed"] == 0 and physical["program_persona"] != 15):
+            return last
+        time.sleep(args.poll_interval)
+    raise RuntimeError(
+        f"{board.address}: calibration persona did not become idle: {last}")
+
+
+def read_load_mask(board: Board, args: argparse.Namespace) -> int:
+    raw = board_command(board, "SYSTem:TDMA:LOAD:MASK?", args)
+    try:
+        return int(raw.strip().strip('"'), 0)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"{board.address}: invalid realtime load mask {raw!r}") from exc
+
+
+def set_load_mask(board: Board, expected: int,
+                  args: argparse.Namespace) -> None:
+    board_command(board, f"SYSTem:TDMA:LOAD:MASK {expected}", args)
+    observed = read_load_mask(board, args)
+    if observed != expected:
+        raise RuntimeError(
+            f"{board.address}: realtime load mask {observed}, expected {expected}")
+
+
+def train_board(board: Board, node: int, expected_path_sum_ns: int,
+                start_barrier: Barrier,
+                args: argparse.Namespace) -> dict[str, Any]:
+    original_load_mask = read_load_mask(board, args)
+    training_load_mask = original_load_mask | CALIBRATION_LOAD_BIT
+    set_load_mask(board, training_load_mask, args)
+    try:
+        board_command(board, "SYSTem:TDMA:RING:STOP", args)
+        board_command(board, "CALibration:BIAS:STOP", args)
+        stopped = wait_runtime_stopped(board, args, node)
+        calibration_idle = wait_calibration_idle(board, args)
+        baseline = parse_bias_snapshot(
+            board_command(board, "READ:CALibration:BIAS?", args))
+        start_barrier.wait(timeout=args.arm_wait)
+        command = (
+            f"CALibration:BIAS:STARt {expected_path_sum_ns},"
+            f"{args.minimum_samples},{args.maximum_samples},"
+            f"{args.maximum_spread_ns},{args.maximum_clock_error_ns}")
+        response = board_command(board, command, args)
+        deadline = time.monotonic() + args.training_timeout
+        snapshots: list[dict[str, int]] = []
+        final = baseline
+        while time.monotonic() < deadline:
+            final = parse_bias_snapshot(
+                board_command(board, "READ:CALibration:BIAS?", args))
+            snapshots.append(final)
+            if (final["generation"] != 0 and
+                    final["generation"] != baseline["generation"] and
+                    (final["valid"] != 0 or final["reject_reason"] != 0)):
+                break
+            time.sleep(args.poll_interval)
+        board_command(board, "CALibration:BIAS:STOP", args)
         final = parse_bias_snapshot(
             board_command(board, "READ:CALibration:BIAS?", args))
-        snapshots.append(final)
-        if (final["generation"] != 0 and
-                final["generation"] != baseline["generation"] and
-                (final["valid"] != 0 or final["reject_reason"] != 0)):
-            break
-        time.sleep(args.poll_interval)
-    board_command(board, "CALibration:BIAS:STOP", args)
-    final = parse_bias_snapshot(
-        board_command(board, "READ:CALibration:BIAS?", args))
-    last_loopback = parse_loopback_snapshot(
-        board_command(board, "READ:CALibration:LOOPback?", args))
-    passed = bias_snapshot_passed(final)
-    save_response = ""
-    if args.save and passed:
-        save_response = board_command(board, "CALibration:SAVE", args)
-    return {
-        "node": node,
-        "board_id": board.address,
-        "port": board.port,
-        "build": board.build,
-        "expected_path_sum_ns": expected_path_sum_ns,
-        "start_response": response,
-        "poll_count": len(snapshots),
-        "last_loopback": last_loopback,
-        **final,
-        "passed": passed,
-        "save_response": save_response,
-    }
+        last_loopback = parse_loopback_snapshot(
+            board_command(board, "READ:CALibration:LOOPback?", args))
+        passed = bias_snapshot_passed(final)
+        save_response = ""
+        if args.save and passed:
+            save_response = board_command(board, "CALibration:SAVE", args)
+        return {
+            "node": node,
+            "board_id": board.address,
+            "port": board.port,
+            "build": board.build,
+            "expected_path_sum_ns": expected_path_sum_ns,
+            "original_load_mask": original_load_mask,
+            "training_load_mask": training_load_mask,
+            "stopped_readback": stopped,
+            "calibration_idle_readback": calibration_idle,
+            "start_response": response,
+            "poll_count": len(snapshots),
+            "last_loopback": last_loopback,
+            **final,
+            "passed": passed,
+            "save_response": save_response,
+        }
+    finally:
+        try:
+            board_command(board, "CALibration:BIAS:STOP", args)
+            wait_calibration_idle(board, args)
+        finally:
+            set_load_mask(board, original_load_mask, args)
 
 
 def aggregate(nodes: list[dict[str, Any]], board_order: list[str]
@@ -145,6 +219,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--maximum-clock-error-ns", type=int, default=4)
     parser.add_argument("--training-timeout", type=float, default=10.0)
     parser.add_argument("--poll-interval", type=float, default=0.1)
+    parser.add_argument("--arm-wait", type=float, default=5.0)
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
     parser.add_argument("--settle", type=float, default=0.2)
@@ -177,12 +252,15 @@ def main() -> int:
                  if board.build != args.expected_build}
         if wrong:
             raise SystemExit(f"build mismatch: {wrong}")
-    nodes: list[dict[str, Any]] = []
-    for node, (board, expected_path) in enumerate(zip(ordered, paths)):
+    start_barrier = Barrier(len(ordered))
+
+    def run_node(node: int, board: Board,
+                 expected_path: int) -> dict[str, Any]:
         try:
-            nodes.append(train_board(board, node, expected_path, args))
+            return train_board(
+                board, node, expected_path, start_barrier, args)
         except Exception as exc:  # noqa: BLE001 - retain per-node failure
-            nodes.append({
+            failure = {
                 "node": node,
                 "board_id": board.address,
                 "port": board.port,
@@ -190,11 +268,24 @@ def main() -> int:
                 "expected_path_sum_ns": expected_path,
                 "passed": False,
                 "error": f"{type(exc).__name__}: {exc}",
-            })
+            }
             try:
                 board_command(board, "CALibration:BIAS:STOP", args)
             except Exception:  # noqa: BLE001 - best-effort STOP evidence
                 pass
+            return failure
+
+    # P3 reference is a physical ring exchange: every node must expose its
+    # responder before its neighbours can collect all four edges.  Running
+    # nodes serially makes missing-edge rejection deterministic.  Parallel
+    # board sessions also keep the capture windows overlapping; the bounded
+    # maximum sample count absorbs normal UART command-start skew.
+    with ThreadPoolExecutor(max_workers=len(ordered)) as pool:
+        futures = [
+            pool.submit(run_node, node, board, expected_path)
+            for node, (board, expected_path) in enumerate(zip(ordered, paths))
+        ]
+        nodes = [future.result() for future in futures]
     result = aggregate(nodes, board_order)
     result["boards"] = {board.address: asdict(board) for board in ordered}
     result["parameters"] = {

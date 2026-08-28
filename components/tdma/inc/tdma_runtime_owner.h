@@ -81,7 +81,8 @@ bool tdma_runtime_owner_cal_loopback_start(uint32_t sample_hz,
                                            uint32_t sample_words,
                                            uint32_t epoch);
 void tdma_runtime_owner_cal_loopback_stop(void);
-void tdma_runtime_owner_cal_loopback_service(void);
+/* Returns true when the loopback owner consumed this Calibration phase. */
+bool tdma_runtime_owner_cal_loopback_service(void);
 bool tdma_runtime_owner_get_cal_loopback_snapshot(
     tdma_pio_spi_cal_loopback_snapshot_t *snapshot);
 
