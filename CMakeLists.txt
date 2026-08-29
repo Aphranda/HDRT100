@@ -509,6 +509,7 @@ set(PROJECT_APP_SOURCES
         components/tdma/src/tdma_pio_spi_phys_coded.c
         components/tdma/src/tdma_pio_spi_phys_rx_ring.c
         components/tdma/src/tdma_pio_spi_phys_transport.c
+        components/tdma/src/tdma_pio_spi_phys_snapshots.c
         components/tdma/src/tdma_pio_spi_ring_adapter.c
         components/tdma/src/tdma_process_image_map.c
         components/tdma/src/tdma_rx_sequence.c
