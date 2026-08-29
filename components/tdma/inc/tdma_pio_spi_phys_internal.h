@@ -36,6 +36,14 @@ extern uint s_tdma_pio_spi_sck_train_source_offset;
 extern uint s_tdma_pio_spi_sck_train_sink_offset;
 extern uint s_tdma_pio_spi_cal_tx_offset;
 extern uint s_tdma_pio_spi_cal_capture_offset;
+extern uint s_tdma_pio_spi_flight_clock_latch_offset;
+extern uint s_tdma_pio_spi_flight_origin_clock_offset;
+extern uint s_tdma_pio_spi_flight_origin_data_offset;
+extern uint s_tdma_pio_spi_flight_data_capture_offset;
+extern uint s_tdma_pio_spi_flight_data_follower_offset;
+extern uint s_tdma_pio_spi_flight_process_follower_offset;
+extern uint s_tdma_pio_spi_flight_control_forward_offset;
+extern uint s_tdma_pio_spi_flight_origin_rtt_offset;
 
 bool tdma_pio_spi_phys_load_normal_programs(void);
 bool tdma_pio_spi_phys_load_coarse_programs(void);
@@ -44,6 +52,22 @@ bool tdma_pio_spi_phys_load_coded_programs(void);
 bool tdma_pio_spi_phys_load_marker_programs(void);
 bool tdma_pio_spi_phys_load_data_train_programs(void);
 bool tdma_pio_spi_phys_load_sck_train_programs(void);
+bool tdma_pio_spi_phys_ensure_sms_claimed(void);
+void tdma_pio_spi_phys_release_sms_claimed(void);
+bool tdma_pio_spi_phys_ensure_flight_sms_claimed(void);
+bool tdma_pio_spi_phys_flight_sms_claimed(void);
+bool tdma_pio_spi_phys_claim_flight_resources(tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_release_flight_resources(tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_rx_prepare(tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_configure(tdma_pio_spi_phys_t *phys);
+uint32_t tdma_pio_spi_phys_flight_tail_bytes(
+    const tdma_ring_runtime_config_t *config);
+void tdma_pio_spi_phys_prepare_sm_pair(tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_enable_sm_pair(tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_flight_origin_recover(tdma_pio_spi_phys_t *phys);
+bool tdma_pio_spi_phys_configure_flight(
+    tdma_pio_spi_phys_t *phys,
+    const tdma_ring_runtime_config_t *config);
 
 bool tdma_pio_spi_phys_is_flight_persona(void);
 PIO tdma_pio_spi_phys_tx_sm_pio(const tdma_pio_spi_phys_t *phys);
@@ -72,7 +96,6 @@ bool tdma_pio_spi_phys_capture_restore_step(
     tdma_pio_spi_phys_t *phys, bool *complete);
 bool tdma_pio_spi_phys_restore_clock_latch(
     tdma_pio_spi_phys_t *phys, bool rearm);
-void tdma_pio_spi_phys_flight_origin_recover(tdma_pio_spi_phys_t *phys);
 bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
                                      size_t max_words,
                                      size_t *received_words);

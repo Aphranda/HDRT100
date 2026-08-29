@@ -513,6 +513,9 @@ set(PROJECT_APP_SOURCES
         components/tdma/src/tdma_pio_spi_phys_marker_decode.c
         components/tdma/src/tdma_pio_spi_phys_data_train_helpers.c
         components/tdma/src/tdma_pio_spi_phys_sck_train.c
+        components/tdma/src/tdma_pio_spi_phys_persona.c
+        components/tdma/src/tdma_pio_spi_phys_setup.c
+        components/tdma/src/tdma_pio_spi_phys_waveform_capture.c
         components/tdma/src/tdma_pio_spi_ring_adapter.c
         components/tdma/src/tdma_process_image_map.c
         components/tdma/src/tdma_rx_sequence.c

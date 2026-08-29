@@ -412,11 +412,11 @@ def test_process_follower_retains_elastic_byte_across_frame_boundary() -> None:
     assert bit_loop.index("in pins, 1") < bit_loop.index("wait 0 gpio 1")
     assert "mov isr, null" not in program
 
-    phys = (ROOT / "components" / "tdma" / "src" /
-            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
-    configure = phys.split(
-        "static bool tdma_pio_spi_phys_configure_flight", 1
-    )[1].split("static bool", 1)[0]
+    setup = (ROOT / "components" / "tdma" / "src" /
+             "tdma_pio_spi_phys_setup.c").read_text(encoding="utf-8")
+    configure = setup.split(
+        "bool tdma_pio_spi_phys_configure_flight", 1
+    )[1]
     assert "pio_encode_set(pio_y, 0u)" in configure
 
     overlay = (ROOT / "components" / "tdma" / "src" /
@@ -703,18 +703,19 @@ def test_calibration_core1_never_waits_on_resource_arbiter() -> None:
 def test_ring_capture_uses_request_scoped_raw_sck_persona() -> None:
     header = (ROOT / "components" / "tdma" / "inc" /
               "tdma_pio_spi_phys.h").read_text(encoding="utf-8")
-    phys = (ROOT / "components" / "tdma" / "src" /
-            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    waveform = (ROOT / "components" / "tdma" / "src" /
+                "tdma_pio_spi_phys_waveform_capture.c").read_text(
+                    encoding="utf-8")
     transport = (ROOT / "components" / "tdma" / "src" /
                  "tdma_pio_spi_phys_transport.c").read_text(encoding="utf-8")
-    begin = phys.split(
+    begin = waveform.split(
         "bool tdma_pio_spi_phys_begin_ring_waveform_capture", 1
     )[1].split(
         "tdma_pio_spi_phys_service_ring_waveform_capture", 1)[0]
     assert "TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_REQUESTED" in begin
-    service = phys.split(
+    service = waveform.split(
         "tdma_pio_spi_phys_service_ring_waveform_capture", 1
-    )[1].split("void tdma_pio_spi_phys_flight_origin_recover", 1)[0]
+    )[1]
     assert "TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_PATCHED" in service
     assert "pio_encode_wait_gpio(false, phys->rx_csn_pin)" in service
     assert "pio_encode_in(pio_pins, 1u)" in service
@@ -932,9 +933,11 @@ def test_flight_preserves_sck_and_advances_serial_data_one_cycle() -> None:
 
     phys_source = (ROOT / "components" / "tdma" / "src" /
                    "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
-    configure = phys_source.split(
-        "static bool tdma_pio_spi_phys_configure_flight", 1
-    )[1].split("static bool", 1)[0]
+    setup_source = (ROOT / "components" / "tdma" / "src" /
+                    "tdma_pio_spi_phys_setup.c").read_text(encoding="utf-8")
+    configure = setup_source.split(
+        "bool tdma_pio_spi_phys_configure_flight", 1
+    )[1]
     origin_call = configure.split(
         "tdma_pio_spi_flight_origin_data_tx_program_init", 1
     )[1].split(");", 1)[0]
@@ -950,8 +953,11 @@ def test_flight_preserves_sck_and_advances_serial_data_one_cycle() -> None:
     assert "phys->flight_physical_byte_count * 8u" in arm
     # RX edge latching is common to reference and follower nodes so the
     # reference loop-return observation does not use extraction-time jitter.
-    assert "tdma_pio_spi_phys_clock_latch_read_and_rearm" in phys_source
-    assert "/* The latch is the common local-RX edge timestamp" in phys_source
+    waveform_source = (ROOT / "components" / "tdma" / "src" /
+                       "tdma_pio_spi_phys_waveform_capture.c").read_text(
+                           encoding="utf-8")
+    assert "tdma_pio_spi_phys_clock_latch_read_and_rearm" in waveform_source
+    assert "/* The latch is the common local-RX edge timestamp" in waveform_source
 
 
 def test_closed_loop_stops_calibration_personas_before_ring_staging() -> None:

@@ -115,8 +115,13 @@ def test_calibration_switch_ready_has_directional_flight_gate() -> None:
 
 
 def test_flight_claim_reserves_dma_gpio_irq_and_dreq_classes() -> None:
-    source = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(
-        encoding="utf-8")
+    source = "\n".join(
+        (ROOT / "components/tdma/src" / name).read_text(encoding="utf-8")
+        for name in (
+            "tdma_pio_spi_phys.c",
+            "tdma_pio_spi_phys_persona.c",
+        )
+    )
     resources = (ROOT / "components/tdma/inc/tdma_state_machine_resources.h").read_text(
         encoding="utf-8")
     assert "TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK" in source
@@ -133,8 +138,13 @@ def test_flight_claim_reserves_dma_gpio_irq_and_dreq_classes() -> None:
 
 
 def test_maintenance_claim_uses_same_arbiter_projection() -> None:
-    source = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(
-        encoding="utf-8")
+    source = "\n".join(
+        (ROOT / "components/tdma/src" / name).read_text(encoding="utf-8")
+        for name in (
+            "tdma_pio_spi_phys.c",
+            "tdma_pio_spi_phys_persona.c",
+        )
+    )
     resources = (ROOT / "components/tdma/inc/tdma_state_machine_resources.h").read_text(
         encoding="utf-8")
     assert "TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK" in resources
