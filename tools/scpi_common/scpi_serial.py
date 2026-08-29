@@ -23,6 +23,12 @@ COMPOSITE_ACK_HEADERS = {
     "SYST:STOR:FILE:INFO?", "SYSTEM:STORAGE:FILE:INFO?",
     "SYST:REFMEM:VDC:VECTOR?", "SYSTEM:REFMEM:VDC:VECTOR?",
     "SYST:REFMEM:DPLL:VECTOR?", "SYSTEM:REFMEM:DPLL:VECTOR?",
+    "SYST:SYNC:VDC:DPLL:TRACE:ARM",
+    "SYSTEM:SYNC:VDC:DPLL:TRACE:ARM",
+    "SYST:SYNC:VDC:DPLL:TRACE:STOP",
+    "SYSTEM:SYNC:VDC:DPLL:TRACE:STOP",
+    "SYST:SYNC:VDC:DPLL:TRACE:SAVE",
+    "SYSTEM:SYNC:VDC:DPLL:TRACE:SAVE",
 }
 MARKER_CAPTURE_SAVE_HEADERS = {
     "CAL:MARK:CAPT:SAVE", "CALIBRATION:MARKER:CAPTURE:SAVE",
@@ -177,6 +183,27 @@ def scpi_response_matches_command(command: str, line: str) -> bool:
     if header in {
             "CAL:RING:CAPT:LATC", "CALIBRATION:RING:CAPTURE:LATCH"}:
         return _csv_uints_match(text, 2)
+    if header in {
+            "SYST:SYNC:VDC:DPLL:TRACE:ARM",
+            "SYSTEM:SYNC:VDC:DPLL:TRACE:ARM",
+    }:
+        return re.fullmatch(r'"?OK"?,\s*\d+\s*,\s*\d+', text) is not None
+    if header in {
+            "SYST:SYNC:VDC:DPLL:TRACE:STOP",
+            "SYSTEM:SYNC:VDC:DPLL:TRACE:STOP",
+    }:
+        return re.fullmatch(r'"?OK"?,\s*\d+\s*,\s*\d+', text) is not None
+    if header in {
+            "SYST:SYNC:VDC:DPLL:TRACE:SAVE",
+            "SYSTEM:SYNC:VDC:DPLL:TRACE:SAVE",
+    }:
+        # TRACE:SAVE queues a Core0/StorageAO job and returns the immutable
+        # capture identity.  Keep this tuple intact so maintenance tooling can
+        # wait for the job and download the frozen SRAM image after STOP.
+        return re.fullmatch(
+            r'"?QUEUED"?,\s*\d+\s*,\s*"/[^"\r\n]+"\s*,\s*\d+',
+            text,
+        ) is not None
     if header in STORAGE_COMPOSITE_QUERY_HEADERS:
         return re.match(r'^"?OK"?,', text) is not None
     if header in {"SYST:ERR?", "SYSTEM:ERR?", "SYST:ERROR?", "SYSTEM:ERROR?"}:

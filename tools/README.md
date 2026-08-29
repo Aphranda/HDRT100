@@ -137,6 +137,12 @@ Get-Content -Path tools\README.md -Encoding UTF8
   and writes CSV/JSON/SVG reports under `out/`. Existing SD raw-waveform
   analysis JSON can be attached with `--waveform-analysis`; the monitor never
   arms, transmits, changes calibration, or writes the SD card.
+- `dpll_observation_capture/dpll_observation_capture.py`: maintenance-side
+  DPLL residual capture runner. It arms the fixed SRAM recorder, waits for the
+  requested interval without polling, stops all boards, queues StorageAO SD
+  writes, downloads the immutable binary captures, and invokes the offline
+  decoder/residual SVG analyzer. It never adds work to the TDMA short frame or
+  the Core1/PIO real-time path.
 - `vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py`: VDC TDMA
   self-test runner. It starts `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest` on each
   board, then checks `SYSTem:SYNC:VDC:TDMA:STATus?` for a completed
