@@ -26,6 +26,13 @@ from scpi_common.board_identity import parse_idn_response  # noqa: E402
 from scpi_common.scpi_serial import read_scpi_response  # noqa: E402
 
 
+# Keep this host-side validator aligned with the product SHORT process-image
+# contract: 8 x 32 B Node image plus the 4 B DPLL observation trailer.  This
+# is intentionally a fixed value, not a permissive range, so a firmware or
+# map regression cannot be hidden by the diagnostic tool.
+EXPECTED_FLIGHT_PAYLOAD_BYTES = 260
+
+
 PROCESS_FIELDS = (
     "version", "configured", "active", "local_slot", "map_crc32",
     "map_generation", "payload_size", "local_segment_count",
@@ -185,12 +192,14 @@ def validate_board(before: dict, after: dict) -> list[str]:
         (process["version"] >= 2, "flight engine version < 2"),
         (process["configured"] == 1, "flight map not configured"),
         (process["active"] == 1, "flight map not active"),
-        (process["payload_size"] == 256, "process payload is not 256 B"),
+        (process["payload_size"] == EXPECTED_FLIGHT_PAYLOAD_BYTES,
+         f"process payload is not {EXPECTED_FLIGHT_PAYLOAD_BYTES} B"),
         (process["local_segment_count"] == 1, "local segment count is not 1"),
         (fifo["version"] >= 2, "flight FIFO version < 2"),
         (refmem["enabled"] == 1, "RefMem flight sync disabled"),
         (2 <= refmem["node_count"] <= 8, "active node count outside 2..8"),
-        (refmem["payload_size"] == 256, "RefMem payload is not 256 B"),
+        (refmem["payload_size"] == EXPECTED_FLIGHT_PAYLOAD_BYTES,
+         f"RefMem payload is not {EXPECTED_FLIGHT_PAYLOAD_BYTES} B"),
         (refmem["mailbox_size"] == 32, "RefMem mailbox is not 32 B"),
         (process["local_slot"] == refmem["local_slot"], "local slot mismatch"),
         (process["receive_version"] >= 1, "receive-health version < 1"),
@@ -198,6 +207,9 @@ def validate_board(before: dict, after: dict) -> list[str]:
          "receive-health not configured"),
         (process["receive_state"] == 1,
          "accepted process image is not VALID"),
+        (process["receive_accepted_payload_size"] ==
+         EXPECTED_FLIGHT_PAYLOAD_BYTES,
+         f"accepted process payload is not {EXPECTED_FLIGHT_PAYLOAD_BYTES} B"),
         (counter_delta(before, after, "process",
                        "receive_accepted_count") > 0,
          "no process image accepted"),
