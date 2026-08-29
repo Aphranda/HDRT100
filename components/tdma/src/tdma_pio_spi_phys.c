@@ -3002,6 +3002,25 @@ static void tdma_pio_spi_phys_cal_mark_persona(
 
 static bool tdma_pio_spi_phys_cal_persona_switch_ready(void)
 {
+    if (tdma_pio_spi_phys_is_flight_persona()) {
+        const uint32_t tx_sm_mask =
+            (1u << BOARD_TDMA_TX_CLK_OUT_SM) |
+            (1u << BOARD_TDMA_TX_SYNC_OUT_SM) |
+            (1u << BOARD_TDMA_TX_DATA_IN_FORWARD_SM) |
+            (1u << BOARD_TDMA_TX_DATA_IN_CAPTURE_SM);
+        const uint32_t rx_sm_mask =
+            (1u << BOARD_TDMA_RX_CLK_IN_SM) |
+            (1u << BOARD_TDMA_RX_SYNC_IN_SM) |
+            (1u << BOARD_TDMA_RX_DATA_OUT_SM) |
+            (1u << BOARD_TDMA_RX_EVIDENCE_IN_SM);
+        return s_tdma_pio_spi_flight_sms_claimed &&
+               (BOARD_TDMA_TX_PIO->ctrl & tx_sm_mask) == 0u &&
+               (BOARD_TDMA_RX_PIO->ctrl & rx_sm_mask) == 0u &&
+               (s_tdma_pio_spi_tx_dma_channel < 0 ||
+                !dma_channel_is_busy((uint)s_tdma_pio_spi_tx_dma_channel)) &&
+               (s_tdma_pio_spi_rx_dma_channel < 0 ||
+                !dma_channel_is_busy((uint)s_tdma_pio_spi_rx_dma_channel));
+    }
     const uint32_t sm_mask = (1u << BOARD_TDMA_SPI_MASTER_SM) |
                              (1u << BOARD_TDMA_SPI_SLAVE_SM) |
                              (1u << BOARD_TDMA_SPI_CAPTURE_SM);
@@ -3037,55 +3056,67 @@ static bool tdma_pio_spi_phys_cal_unload_source_step(
         }
         break;
     case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN:
-        count = 4u;
+        count = 5u;
         if (step == 0u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
+            pio_remove_program(BOARD_TDMA_TX_PIO,
                                &tdma_pio_spi_flight_clock_latch_program,
                                s_tdma_pio_spi_flight_clock_latch_offset);
         } else if (step == 1u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
+            pio_remove_program(BOARD_TDMA_TX_PIO,
                                &tdma_pio_spi_flight_origin_rtt_program,
                                s_tdma_pio_spi_flight_origin_rtt_offset);
         } else if (step == 2u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
+            pio_remove_program(BOARD_TDMA_RX_PIO,
                                &tdma_pio_spi_flight_origin_data_tx_program,
                                s_tdma_pio_spi_flight_origin_data_offset);
         } else if (step == 3u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
+            pio_remove_program(BOARD_TDMA_TX_PIO,
                                &tdma_pio_spi_flight_origin_clock_rx_program,
                                s_tdma_pio_spi_flight_origin_clock_offset);
+        } else if (step == 4u) {
+            pio_remove_program(BOARD_TDMA_TX_PIO,
+                               &tdma_pio_spi_flight_data_capture_program,
+                               s_tdma_pio_spi_flight_data_capture_offset);
         }
         break;
     case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER:
-        count = 3u;
+        count = 4u;
         if (step == 0u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
+            pio_remove_program(BOARD_TDMA_RX_PIO,
                                &tdma_pio_spi_flight_clock_latch_program,
                                s_tdma_pio_spi_flight_clock_latch_offset);
         } else if (step == 1u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
+            pio_remove_program(BOARD_TDMA_RX_PIO,
                                &tdma_pio_spi_flight_data_follower_program,
                                s_tdma_pio_spi_flight_data_follower_offset);
         } else if (step == 2u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
+            pio_remove_program(BOARD_TDMA_TX_PIO,
                                &tdma_pio_spi_flight_control_forward_program,
                                s_tdma_pio_spi_flight_control_forward_offset);
+        } else if (step == 3u) {
+            pio_remove_program(BOARD_TDMA_TX_PIO,
+                               &tdma_pio_spi_flight_data_capture_program,
+                               s_tdma_pio_spi_flight_data_capture_offset);
         }
         break;
     case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER:
-        count = 3u;
+        count = 4u;
         if (step == 0u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
+            pio_remove_program(BOARD_TDMA_RX_PIO,
                                &tdma_pio_spi_flight_clock_latch_program,
                                s_tdma_pio_spi_flight_clock_latch_offset);
         } else if (step == 1u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
+            pio_remove_program(BOARD_TDMA_RX_PIO,
                                &tdma_pio_spi_flight_process_follower_program,
                                s_tdma_pio_spi_flight_process_follower_offset);
         } else if (step == 2u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
+            pio_remove_program(BOARD_TDMA_TX_PIO,
                                &tdma_pio_spi_flight_control_forward_program,
                                s_tdma_pio_spi_flight_control_forward_offset);
+        } else if (step == 3u) {
+            pio_remove_program(BOARD_TDMA_TX_PIO,
+                               &tdma_pio_spi_flight_data_capture_program,
+                               s_tdma_pio_spi_flight_data_capture_offset);
         }
         break;
     default:
@@ -3260,11 +3291,18 @@ void tdma_pio_spi_phys_cal_loopback_service(tdma_pio_spi_phys_t *phys)
             tdma_pio_spi_phys_cal_unload_p3_step(phys);
         } else if (s_tdma_pio_spi_program_persona !=
                    TDMA_PIO_SPI_PROGRAM_PERSONA_NONE) {
+            const bool unloading_flight =
+                tdma_pio_spi_phys_is_flight_persona();
             bool complete = false;
             if (!tdma_pio_spi_phys_cal_unload_source_step(
                     phys, &complete)) {
                 phys->snapshot.program_switch_fail_count++;
                 return;
+            }
+            if (complete && unloading_flight) {
+                /* The maintenance calibration persona is admitted only
+                 * after every directional flight program is removed. */
+                tdma_pio_spi_phys_release_flight_resources(phys);
             }
         }
         if (s_tdma_pio_spi_program_persona ==
@@ -3306,11 +3344,15 @@ void tdma_pio_spi_phys_cal_loopback_service(tdma_pio_spi_phys_t *phys)
             return;
         }
         bool complete = false;
+        const bool unloading_flight = tdma_pio_spi_phys_is_flight_persona();
         if (!tdma_pio_spi_phys_cal_unload_source_step(phys, &complete)) {
             tdma_pio_spi_phys_cal_transition_fail(phys);
             return;
         }
         if (complete) {
+            if (unloading_flight) {
+                tdma_pio_spi_phys_release_flight_resources(phys);
+            }
             phys->cal_loopback_program_count = 0u;
             phys->cal_loopback_transition =
                 TDMA_PIO_SPI_CAL_TRANSITION_START_LOAD;

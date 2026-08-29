@@ -95,6 +95,11 @@ def program_body(text: str, name: str) -> str:
     return match.group("body")
 
 
+def instruction_text(body: str) -> str:
+    """Return PIO source with comments removed for instruction-level checks."""
+    return "\n".join(line.split(";", 1)[0] for line in body.splitlines())
+
+
 def check(board: Path, pio: Path) -> list[str]:
     failures: list[str] = []
     values = macros(board.read_text(encoding="utf-8", errors="ignore"))
@@ -133,6 +138,12 @@ def check(board: Path, pio: Path) -> list[str]:
         pio_text = pio.read_text(encoding="utf-8", errors="ignore")
         tx = program_body(pio_text, "tdma_pio_spi_directional_tx")
         rx = program_body(pio_text, "tdma_pio_spi_directional_rx")
+        flight_forward = program_body(
+            pio_text, "tdma_pio_spi_flight_data_follower")
+        flight_process = program_body(
+            pio_text, "tdma_pio_spi_flight_process_follower")
+        flight_capture = program_body(
+            pio_text, "tdma_pio_spi_flight_data_capture")
     except ValueError as exc:
         failures.append(str(exc))
     else:
@@ -141,6 +152,21 @@ def check(board: Path, pio: Path) -> list[str]:
                 failures.append(f"directional {name} is missing in pins")
             if not re.search(r"\bout\s+pins\b", body):
                 failures.append(f"directional {name} is missing out pins")
+
+        # The wire-forward SMs must not expose their RX FIFO to a diagnostic
+        # consumer.  Capture is a separate SM/FIFO and is the only flight
+        # DATA path allowed to PUSH samples for the capture DMA.
+        for name, body in (("raw follower", flight_forward),
+                           ("process follower", flight_process)):
+            if re.search(r"^\s*push\b", instruction_text(body), re.MULTILINE | re.IGNORECASE):
+                failures.append(f"flight {name} must not push its forward FIFO")
+        capture_text = instruction_text(flight_capture)
+        if not re.search(r"\bin\s+pins\b", capture_text):
+            failures.append("flight capture is missing in pins")
+        if not re.search(r"^\s*push\b", capture_text, re.MULTILINE | re.IGNORECASE):
+            failures.append("flight capture is missing push")
+        if not re.search(r"\bwait\s+0\s+gpio\b", capture_text):
+            failures.append("flight capture is missing CS gate")
     return failures
 
 

@@ -340,8 +340,9 @@ def test_origin_data_dma_covers_complete_physical_tail() -> None:
     assert "clock_bytes != phys->flight_physical_byte_count" in origin
     assert "index < clock_bytes" in origin
     assert "s_tdma_pio_spi_flight_tx_words,\n        clock_bytes," in origin
-    assert "phys->tx_sm, clock_bytes - 1u" in origin
-    assert "phys->tx_sm, wire_bytes - 1u" not in origin
+    assert "pio_get_dreq(data_pio, data_sm, true)" in origin
+    assert "pio_sm_put(data_pio, data_sm, clock_bits - 1u)" in origin
+    assert "wire_bytes - 1u" not in origin
 
 
 def test_data_follower_wait_patch_does_not_own_sck_output() -> None:
@@ -462,7 +463,8 @@ def test_process_follower_forwards_control_on_independent_pio_sm() -> None:
     phys = (ROOT / "components" / "tdma" / "src" /
             "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
     assert "control_bits - 1u" in phys
-    assert "phys->tx_sm,\n                            control_bits - 1u" in phys
+    assert ("tdma_pio_spi_phys_control_sm(phys),\n"
+            "                            control_bits - 1u" in phys)
     assert "pio_encode_pull(false, true)" in phys
 
 
@@ -473,12 +475,20 @@ def test_flight_personas_fit_shared_pio_instruction_memory() -> None:
         source, "tdma_pio_spi_flight_control_forward")
     capture = pio_instruction_count(
         source, "tdma_pio_spi_flight_clock_latch")
+    data_capture = pio_instruction_count(
+        source, "tdma_pio_spi_flight_data_capture")
+    origin_control = pio_instruction_count(
+        source, "tdma_pio_spi_flight_origin_clock_rx")
+    origin_rtt = pio_instruction_count(
+        source, "tdma_pio_spi_flight_origin_rtt")
     raw_data = pio_instruction_count(
         source, "tdma_pio_spi_flight_data_follower")
     process_data = pio_instruction_count(
         source, "tdma_pio_spi_flight_process_follower")
     assert shared + capture + raw_data <= 32
     assert shared + capture + process_data <= 32
+    assert shared + data_capture <= 32
+    assert origin_control + data_capture + origin_rtt + capture <= 32
 
 
 def test_product_clock_latch_captures_first_csn_edge() -> None:
@@ -552,8 +562,9 @@ def test_process_follower_recovers_pass_script_after_bad_frame() -> None:
     service = phys.split(
         "bool tdma_pio_spi_phys_service_process_overlay_boundary", 1
     )[1].split("bool tdma_pio_spi_phys_set_process_image_mode", 1)[0]
-    assert "pio_interrupt_get(BOARD_TDMA_SPI_PIO, 3u)" in service
-    assert "pio_interrupt_clear(BOARD_TDMA_SPI_PIO, 3u)" in service
+    assert "const PIO data_pio = tdma_pio_spi_phys_data_pio(phys);" in service
+    assert "pio_interrupt_get(data_pio, 3u)" in service
+    assert "pio_interrupt_clear(data_pio, 3u)" in service
     assert "phys->flight_overlay_next_prepared" in service
     assert "phys->flight_overlay_boundary_pending = true" in service
     assert "TDMA_PIO_SPI_OVERLAY_GRACE_SERVICE_PASSES" in service
@@ -956,7 +967,7 @@ def test_origin_queues_physical_byte_count_before_payload_dma_without_waiting() 
         "static bool tdma_pio_spi_phys_flight_origin_tx", 1
     )[1].split("bool tdma_pio_spi_phys_tx", 1)[0]
     count_put = function.index(
-        "pio_sm_put(BOARD_TDMA_SPI_PIO, phys->tx_sm, clock_bytes - 1u)")
+        "pio_sm_put(control_pio, control_sm, clock_bytes - 1u)")
     dma_start = function.index("dma_start_channel_mask", count_put)
     assert count_put < dma_start
     assert "while (" not in function
@@ -1025,8 +1036,7 @@ def test_flight_origin_control_edges_are_owned_by_one_pio_sm() -> None:
         "static bool tdma_pio_spi_phys_flight_origin_tx", 1
     )[1].split("bool tdma_pio_spi_phys_tx", 1)[0]
     assert "gpio_put(phys->tx_csn_pin" not in flight_tx
-    assert ("pio_sm_put(BOARD_TDMA_SPI_PIO, phys->rx_sm, clock_bits - 1u)"
-            in flight_tx)
+    assert "pio_sm_put(data_pio, data_sm, clock_bits - 1u)" in flight_tx
 
 
 def test_shifted_rx_scanner_preserves_shared_raw_boundary_word() -> None:

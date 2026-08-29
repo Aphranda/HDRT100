@@ -899,9 +899,9 @@ static inline void tdma_pio_spi_flight_data_capture_program_init(
 {
     pio->instr_mem[offset + 0u] =
         (uint16_t)pio_encode_wait_gpio(false, csn_pin);
-    pio->instr_mem[offset + 3u] =
+    pio->instr_mem[offset + 2u] =
         (uint16_t)pio_encode_wait_gpio(true, sck_pin);
-    pio->instr_mem[offset + 5u] =
+    pio->instr_mem[offset + 4u] =
         (uint16_t)pio_encode_wait_gpio(false, sck_pin);
     pio_gpio_init(pio, data_pin);
     pio_gpio_init(pio, csn_pin);
