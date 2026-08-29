@@ -933,7 +933,10 @@ def test_flight_preserves_sck_and_advances_serial_data_one_cycle() -> None:
     assert "TDMA_PIO_SPI_FLIGHT_DATA_REARM_CYCLES" in arm
     assert "period_cycles" in arm
     assert "phys->flight_physical_byte_count * 8u" in arm
-    assert "if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE)" in arm
+    # RX edge latching is common to reference and follower nodes so the
+    # reference loop-return observation does not use extraction-time jitter.
+    assert "tdma_pio_spi_phys_clock_latch_read_and_rearm" in phys_source
+    assert "/* The latch is the common local-RX edge timestamp" in phys_source
 
 
 def test_closed_loop_stops_calibration_personas_before_ring_staging() -> None:
