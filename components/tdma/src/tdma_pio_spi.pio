@@ -96,7 +96,6 @@ flight_follower_bit:
     out pins, 1
     jmp x-- flight_follower_bit
     mov osr, isr
-    push noblock
     out null, 24
     mov isr, null
 .wrap
@@ -152,9 +151,27 @@ flight_process_bit:
     out pins, 1
     jmp y-- flight_process_bit
     mov y, isr
-    push noblock
     ; PUSH resets the input shift count. Stale upper ISR bits are irrelevant:
-    ; the next eight left shifts replace the low byte used by PASS and RX DMA.
+    ; the next eight left shifts replace the low byte used by PASS. Diagnostic
+    ; capture is performed by the independent DATA_IN_CAPTURE_SM.
+.wrap
+
+; Independent follower DATA capture. The forward/process SM must not expose
+; its RX FIFO to a second consumer: this SM samples the same returned DATA
+; pin and publishes one byte per physical SCK byte to the capture DMA. It is
+; diagnostic-only and never participates in forwarding decisions.
+.program tdma_pio_spi_flight_data_capture
+.wrap_target
+capture_byte:
+    wait 0 gpio 0
+    set x, 7
+capture_bit:
+    wait 1 gpio 1
+    in pins, 1
+    wait 0 gpio 1
+    jmp x-- capture_bit
+    push noblock
+    jmp capture_byte
 .wrap
 
 ; Product cyclic control follower shared by raw-flight and process-image.
@@ -874,6 +891,35 @@ static inline void tdma_pio_spi_flight_process_follower_program_init(
     pio_sm_set_pins_with_mask64(
         pio, sm, 0ull,
         1ull << tx_data_pin);
+}
+
+static inline void tdma_pio_spi_flight_data_capture_program_init(
+    PIO pio, uint sm, uint offset, uint data_pin, uint csn_pin,
+    uint sck_pin)
+{
+    pio->instr_mem[offset + 0u] =
+        (uint16_t)pio_encode_wait_gpio(false, csn_pin);
+    pio->instr_mem[offset + 3u] =
+        (uint16_t)pio_encode_wait_gpio(true, sck_pin);
+    pio->instr_mem[offset + 5u] =
+        (uint16_t)pio_encode_wait_gpio(false, sck_pin);
+    pio_gpio_init(pio, data_pin);
+    pio_gpio_init(pio, csn_pin);
+    pio_gpio_init(pio, sck_pin);
+    gpio_pull_down(data_pin);
+    gpio_pull_up(csn_pin);
+    gpio_pull_down(sck_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, data_pin, 1u, false);
+    pio_sm_set_consecutive_pindirs(pio, sm, csn_pin, 1u, false);
+    pio_sm_set_consecutive_pindirs(pio, sm, sck_pin, 1u, false);
+
+    pio_sm_config c =
+        tdma_pio_spi_flight_data_capture_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, data_pin);
+    sm_config_set_in_shift(&c, false, false, 32u);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+    sm_config_set_clkdiv(&c, 1.0f);
+    pio_sm_init(pio, sm, offset, &c);
 }
 
 static inline void tdma_pio_spi_flight_control_forward_program_init(

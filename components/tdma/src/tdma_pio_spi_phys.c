@@ -72,6 +72,7 @@ static uint s_tdma_pio_spi_p3_capture_offset;
 static uint s_tdma_pio_spi_p3_responder_capture_offset;
 static uint s_tdma_pio_spi_flight_origin_clock_offset;
 static uint s_tdma_pio_spi_flight_origin_data_offset;
+static uint s_tdma_pio_spi_flight_data_capture_offset;
 static uint s_tdma_pio_spi_flight_data_follower_offset;
 static uint s_tdma_pio_spi_flight_process_follower_offset;
 static uint s_tdma_pio_spi_flight_control_forward_offset;
@@ -206,15 +207,19 @@ static inline uint tdma_pio_spi_phys_data_sm(
 static inline PIO tdma_pio_spi_phys_capture_pio(
     const tdma_pio_spi_phys_t *phys)
 {
-    return phys != NULL && phys->role == TDMA_PIO_SPI_ROLE_MASTER
-        ? tdma_pio_spi_phys_tx_sm_pio(phys)
-        : tdma_pio_spi_phys_rx_sm_pio(phys);
+    return phys != NULL && phys->flight_resources.tx_pio != NULL
+        ? phys->flight_resources.tx_pio
+        : (phys != NULL && phys->role == TDMA_PIO_SPI_ROLE_MASTER
+               ? tdma_pio_spi_phys_tx_sm_pio(phys)
+               : tdma_pio_spi_phys_rx_sm_pio(phys));
 }
 
 static inline uint tdma_pio_spi_phys_capture_sm(
     const tdma_pio_spi_phys_t *phys)
 {
-    return phys != NULL ? phys->rx_sm : BOARD_TDMA_SPI_SLAVE_SM;
+    return phys != NULL && phys->flight_resources.tx_pio != NULL
+        ? phys->flight_resources.tx_data_in_capture_sm
+        : (phys != NULL ? phys->rx_sm : BOARD_TDMA_SPI_SLAVE_SM);
 }
 
 static void tdma_pio_spi_phys_clk_train_write_begin(
@@ -538,9 +543,21 @@ static bool tdma_pio_spi_phys_load_flight_origin_programs(void)
     }
     s_tdma_pio_spi_flight_origin_clock_offset = (uint)pio_add_program(
         tx_pio, &tdma_pio_spi_flight_origin_clock_rx_program);
+    if (!pio_can_add_program(tx_pio,
+                             &tdma_pio_spi_flight_data_capture_program)) {
+        pio_remove_program(tx_pio,
+                           &tdma_pio_spi_flight_origin_clock_rx_program,
+                           s_tdma_pio_spi_flight_origin_clock_offset);
+        return false;
+    }
+    s_tdma_pio_spi_flight_data_capture_offset = (uint)pio_add_program(
+        tx_pio, &tdma_pio_spi_flight_data_capture_program);
     if (!pio_can_add_program(
             rx_pio,
             &tdma_pio_spi_flight_origin_data_tx_program)) {
+        pio_remove_program(tx_pio,
+                           &tdma_pio_spi_flight_data_capture_program,
+                           s_tdma_pio_spi_flight_data_capture_offset);
         pio_remove_program(
             tx_pio,
             &tdma_pio_spi_flight_origin_clock_rx_program,
@@ -552,6 +569,9 @@ static bool tdma_pio_spi_phys_load_flight_origin_programs(void)
     if (!pio_can_add_program(
             tx_pio,
             &tdma_pio_spi_flight_origin_rtt_program)) {
+        pio_remove_program(tx_pio,
+                           &tdma_pio_spi_flight_data_capture_program,
+                           s_tdma_pio_spi_flight_data_capture_offset);
         pio_remove_program(
             rx_pio,
             &tdma_pio_spi_flight_origin_data_tx_program,
@@ -565,6 +585,9 @@ static bool tdma_pio_spi_phys_load_flight_origin_programs(void)
     s_tdma_pio_spi_flight_origin_rtt_offset = (uint)pio_add_program(
         tx_pio, &tdma_pio_spi_flight_origin_rtt_program);
     if (!tdma_pio_spi_phys_load_flight_clock_latch_program(tx_pio)) {
+        pio_remove_program(tx_pio,
+                           &tdma_pio_spi_flight_data_capture_program,
+                           s_tdma_pio_spi_flight_data_capture_offset);
         pio_remove_program(
             tx_pio,
             &tdma_pio_spi_flight_origin_rtt_program,
@@ -594,8 +617,20 @@ static bool tdma_pio_spi_phys_load_flight_follower_programs(void)
     s_tdma_pio_spi_flight_control_forward_offset = (uint)pio_add_program(
         tx_pio,
         &tdma_pio_spi_flight_control_forward_program);
+    if (!pio_can_add_program(tx_pio,
+                             &tdma_pio_spi_flight_data_capture_program)) {
+        pio_remove_program(tx_pio,
+                           &tdma_pio_spi_flight_control_forward_program,
+                           s_tdma_pio_spi_flight_control_forward_offset);
+        return false;
+    }
+    s_tdma_pio_spi_flight_data_capture_offset = (uint)pio_add_program(
+        tx_pio, &tdma_pio_spi_flight_data_capture_program);
     if (!pio_can_add_program(rx_pio,
                              &tdma_pio_spi_flight_data_follower_program)) {
+        pio_remove_program(tx_pio,
+                           &tdma_pio_spi_flight_data_capture_program,
+                           s_tdma_pio_spi_flight_data_capture_offset);
         pio_remove_program(tx_pio,
                            &tdma_pio_spi_flight_control_forward_program,
                            s_tdma_pio_spi_flight_control_forward_offset);
@@ -605,6 +640,9 @@ static bool tdma_pio_spi_phys_load_flight_follower_programs(void)
         rx_pio,
         &tdma_pio_spi_flight_data_follower_program);
     if (!tdma_pio_spi_phys_load_flight_clock_latch_program(rx_pio)) {
+        pio_remove_program(tx_pio,
+                           &tdma_pio_spi_flight_data_capture_program,
+                           s_tdma_pio_spi_flight_data_capture_offset);
         pio_remove_program(rx_pio,
                            &tdma_pio_spi_flight_data_follower_program,
                            s_tdma_pio_spi_flight_data_follower_offset);
@@ -628,9 +666,21 @@ static bool tdma_pio_spi_phys_load_flight_process_follower_programs(void)
     s_tdma_pio_spi_flight_control_forward_offset = (uint)pio_add_program(
         tx_pio,
         &tdma_pio_spi_flight_control_forward_program);
+    if (!pio_can_add_program(tx_pio,
+                             &tdma_pio_spi_flight_data_capture_program)) {
+        pio_remove_program(tx_pio,
+                           &tdma_pio_spi_flight_control_forward_program,
+                           s_tdma_pio_spi_flight_control_forward_offset);
+        return false;
+    }
+    s_tdma_pio_spi_flight_data_capture_offset = (uint)pio_add_program(
+        tx_pio, &tdma_pio_spi_flight_data_capture_program);
     if (!pio_can_add_program(
             rx_pio,
             &tdma_pio_spi_flight_process_follower_program)) {
+        pio_remove_program(tx_pio,
+                           &tdma_pio_spi_flight_data_capture_program,
+                           s_tdma_pio_spi_flight_data_capture_offset);
         pio_remove_program(tx_pio,
                            &tdma_pio_spi_flight_control_forward_program,
                            s_tdma_pio_spi_flight_control_forward_offset);
@@ -640,6 +690,9 @@ static bool tdma_pio_spi_phys_load_flight_process_follower_programs(void)
         rx_pio,
         &tdma_pio_spi_flight_process_follower_program);
     if (!tdma_pio_spi_phys_load_flight_clock_latch_program(rx_pio)) {
+        pio_remove_program(tx_pio,
+                           &tdma_pio_spi_flight_data_capture_program,
+                           s_tdma_pio_spi_flight_data_capture_offset);
         pio_remove_program(
             rx_pio,
             &tdma_pio_spi_flight_process_follower_program,
@@ -879,6 +932,10 @@ static void tdma_pio_spi_phys_unload_programs(void)
          * on RX PIO.  Program offsets are local to each block. */
         pio_remove_program(
             BOARD_TDMA_TX_PIO,
+            &tdma_pio_spi_flight_data_capture_program,
+            s_tdma_pio_spi_flight_data_capture_offset);
+        pio_remove_program(
+            BOARD_TDMA_TX_PIO,
             &tdma_pio_spi_flight_clock_latch_program,
             s_tdma_pio_spi_flight_clock_latch_offset);
         pio_remove_program(
@@ -896,6 +953,10 @@ static void tdma_pio_spi_phys_unload_programs(void)
         break;
     case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER:
         pio_remove_program(
+            BOARD_TDMA_TX_PIO,
+            &tdma_pio_spi_flight_data_capture_program,
+            s_tdma_pio_spi_flight_data_capture_offset);
+        pio_remove_program(
             BOARD_TDMA_RX_PIO,
             &tdma_pio_spi_flight_clock_latch_program,
             s_tdma_pio_spi_flight_clock_latch_offset);
@@ -907,6 +968,10 @@ static void tdma_pio_spi_phys_unload_programs(void)
                            s_tdma_pio_spi_flight_control_forward_offset);
         break;
     case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER:
+        pio_remove_program(
+            BOARD_TDMA_TX_PIO,
+            &tdma_pio_spi_flight_data_capture_program,
+            s_tdma_pio_spi_flight_data_capture_offset);
         pio_remove_program(
             BOARD_TDMA_RX_PIO,
             &tdma_pio_spi_flight_clock_latch_program,
@@ -1140,6 +1205,8 @@ static void tdma_pio_spi_phys_prepare_sm_pair(tdma_pio_spi_phys_t *phys)
     const PIO data_pio = tdma_pio_spi_phys_data_pio(phys);
     const uint control_sm = tdma_pio_spi_phys_control_sm(phys);
     const uint data_sm = tdma_pio_spi_phys_data_sm(phys);
+    const PIO capture_pio = tdma_pio_spi_phys_capture_pio(phys);
+    const uint capture_sm = tdma_pio_spi_phys_capture_sm(phys);
     const bool has_rtt_sm = phys->role == TDMA_PIO_SPI_ROLE_MASTER &&
         s_tdma_pio_spi_program_persona ==
             TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN;
@@ -1150,8 +1217,10 @@ static void tdma_pio_spi_phys_prepare_sm_pair(tdma_pio_spi_phys_t *phys)
     pio_set_sm_mask_enabled(data_pio, 1u << data_sm, false);
     pio_sm_clear_fifos(control_pio, control_sm);
     pio_sm_clear_fifos(data_pio, data_sm);
+    pio_sm_clear_fifos(capture_pio, capture_sm);
     pio_sm_restart(control_pio, control_sm);
     pio_sm_restart(data_pio, data_sm);
+    pio_sm_restart(capture_pio, capture_sm);
     if (has_rtt_sm) {
         pio_sm_clear_fifos(control_pio,
                            phys->flight_resources.tx_sync_out_sm);
@@ -1227,6 +1296,8 @@ static void tdma_pio_spi_phys_enable_sm_pair(tdma_pio_spi_phys_t *phys)
                                1u << tdma_pio_spi_phys_control_sm(phys));
     pio_enable_sm_mask_in_sync(tdma_pio_spi_phys_data_pio(phys),
                                1u << tdma_pio_spi_phys_data_sm(phys));
+    pio_enable_sm_mask_in_sync(tdma_pio_spi_phys_capture_pio(phys),
+                               1u << tdma_pio_spi_phys_capture_sm(phys));
     pio_enable_sm_mask_in_sync(tdma_pio_spi_phys_evidence_pio(phys),
                                1u << (phys->role == TDMA_PIO_SPI_ROLE_MASTER
                                           ? phys->flight_resources.tx_data_in_forward_sm
@@ -1564,12 +1635,13 @@ static bool tdma_pio_spi_phys_configure_flight(
     phys->flight_resources = tdma_state_machine_resource_contract();
 
     if (phys->role == TDMA_PIO_SPI_ROLE_MASTER) {
-        /* TX PIO owns generated CLK/SYNC and captures returned DATA.  RX PIO
-         * owns the reverse DATA output and observes incoming CLK/SYNC. */
+        /* TX PIO owns generated CLK/SYNC and the independent returned-DATA
+         * capture SM. RX PIO owns the reverse DATA output and observes
+         * incoming CLK/SYNC through the data persona. */
         phys->rx_sm_pio = phys->flight_resources.tx_pio;
         phys->tx_sm_pio = phys->flight_resources.rx_pio;
         phys->evidence_pio = phys->flight_resources.tx_pio;
-        phys->rx_sm = phys->flight_resources.tx_data_in_capture_sm;
+        phys->rx_sm = phys->flight_resources.tx_clk_out_sm;
         phys->tx_sm = phys->flight_resources.rx_data_out_sm;
         tdma_pio_spi_flight_origin_clock_rx_program_init(
             phys->rx_sm_pio,
@@ -1641,6 +1713,13 @@ static bool tdma_pio_spi_phys_configure_flight(
             phys->flight_marker_phase_delay_cycles,
             phys->flight_sck_phase_delay_cycles);
     }
+    tdma_pio_spi_flight_data_capture_program_init(
+        tdma_pio_spi_phys_capture_pio(phys),
+        tdma_pio_spi_phys_capture_sm(phys),
+        s_tdma_pio_spi_flight_data_capture_offset,
+        phys->flight_resources.tx_data_in_pin,
+        phys->flight_resources.rx_sync_in_pin,
+        phys->flight_resources.rx_clk_in_pin);
     /* The latch follows the edge local to each persona: TX PIO for origin,
      * RX PIO for follower.  It uses the dedicated evidence SM rather than a
      * business FIFO. */
@@ -2555,12 +2634,16 @@ void tdma_pio_spi_phys_disarm(void *context)
         const PIO evidence_pio = tdma_pio_spi_phys_evidence_pio(phys);
         const uint control_sm = tdma_pio_spi_phys_control_sm(phys);
         const uint data_sm = tdma_pio_spi_phys_data_sm(phys);
+        const PIO capture_pio = tdma_pio_spi_phys_capture_pio(phys);
+        const uint capture_sm = tdma_pio_spi_phys_capture_sm(phys);
         const uint latch_sm = tdma_pio_spi_phys_latch_sm(phys);
         pio_sm_set_enabled(control_pio, control_sm, false);
         pio_sm_set_enabled(data_pio, data_sm, false);
+        pio_sm_set_enabled(capture_pio, capture_sm, false);
         pio_sm_set_enabled(evidence_pio, latch_sm, false);
         pio_sm_clear_fifos(control_pio, control_sm);
         pio_sm_clear_fifos(data_pio, data_sm);
+        pio_sm_clear_fifos(capture_pio, capture_sm);
         pio_sm_clear_fifos(evidence_pio, latch_sm);
         if (phys->role == TDMA_PIO_SPI_ROLE_MASTER) {
             const uint rtt_sm = phys->flight_resources.tx_sync_out_sm;
