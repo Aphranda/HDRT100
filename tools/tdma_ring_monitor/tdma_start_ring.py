@@ -279,8 +279,15 @@ def wait_started(board: Board, args: argparse.Namespace) -> dict[str, int]:
         if last["ring_enabled"] == 1 and last["ring_adapter_started"] == 1:
             return last
         time.sleep(0.05)
+    physical = "<unavailable>"
+    try:
+        physical = board_command(
+            board, "SYSTem:SYNC:VDC:TDMA:PHYS?", args)
+    except (OSError, RuntimeError, serial.SerialException) as exc:
+        physical = f"<query-error: {exc}>"
     raise RuntimeError(
-        f"{board.address}: ARM timeout, last={last}, last_error={last_error}")
+        f"{board.address}: ARM timeout, last={last}, last_error={last_error}, "
+        f"physical={physical}")
 
 
 def train(board: Board, args: argparse.Namespace) -> dict[str, object]:

@@ -3418,62 +3418,6 @@ static void tdma_pio_spi_phys_marker_publish_error(
     tdma_pio_spi_phys_marker_write_end(phys);
 }
 
-static uint32_t tdma_pio_spi_phys_marker_sample(uint32_t word,
-                                                uint32_t sample_index)
-{
-    return (word >> ((sample_index & 15u) * 2u)) & 0x3u;
-}
-
-static void tdma_pio_spi_phys_marker_decode_edges(
-    tdma_pio_spi_phys_t *phys)
-{
-    uint64_t first_tx = 0u;
-    uint64_t first_rx = 0u;
-    uint32_t previous = 0x3u;
-    const uint32_t samples = phys->marker.capture_sample_count;
-    for (uint32_t index = 0u; index < samples; index++) {
-        const uint32_t sample = tdma_pio_spi_phys_marker_sample(
-            s_tdma_pio_spi_marker_rx[index / 16u], index);
-        const uint32_t falling = previous & ~sample;
-        if (first_tx == 0u && (falling & 0x1u) != 0u) {
-            first_tx = (uint64_t)index + 1ull;
-        }
-        if (first_rx == 0u && (falling & 0x2u) != 0u) {
-            first_rx = (uint64_t)index + 1ull;
-        }
-        previous = sample;
-        if (first_tx != 0u && first_rx != 0u) break;
-    }
-
-    if (phys->marker.role == TDMA_PIO_SPI_MARKER_ROLE_FOLLOWER) {
-        /* The capture program's WAIT 0 GPIO is the hardware input latch.  DMA
-         * starts on the following instruction, hence local tick 1 denotes
-         * the accepted marker edge and sampled output ticks start at 2. */
-        phys->marker.marker_capture_tick = 1ull;
-        phys->marker.marker_forward_tick =
-            first_tx == 0u ? 0ull : first_tx + 1ull;
-        phys->marker.flags |= TDMA_PIO_SPI_MARKER_FLAG_INPUT_EDGE;
-        if (first_tx != 0u) {
-            phys->marker.flags |= TDMA_PIO_SPI_MARKER_FLAG_OUTPUT_EDGE;
-        }
-    } else {
-        /* Reference TX and capture SMs start from one hardware sync mask.
-         * Its two-NOP capture preamble is accounted for by the local origin
-         * tick; the later upstream edge is the full-ring return. */
-        phys->marker.marker_forward_tick = first_tx != 0u ? 1ull : 0ull;
-        phys->marker.marker_return_tick =
-            first_rx == 0u ? 0ull : first_rx + 2ull;
-        phys->marker.marker_capture_tick = phys->marker.marker_return_tick;
-        if (first_tx != 0u) {
-            phys->marker.flags |= TDMA_PIO_SPI_MARKER_FLAG_OUTPUT_EDGE;
-        }
-        if (first_rx != 0u) {
-            phys->marker.flags |= TDMA_PIO_SPI_MARKER_FLAG_INPUT_EDGE |
-                                  TDMA_PIO_SPI_MARKER_FLAG_RETURN_EDGE;
-        }
-    }
-}
-
 bool tdma_pio_spi_phys_marker_arm(
     tdma_pio_spi_phys_t *phys,
     const tdma_pio_spi_marker_request_t *request)
