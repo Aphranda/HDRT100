@@ -17,6 +17,25 @@ Last updated: 2026-08-29
 - pytest：全量 `527 passed`；新增 decoder 正/反 CRC 测试通过。尚未执行本提交镜像的多板 OTA/HIL，因此 `TDMA-DPLL-008` 保持 `IN PROGRESS`。
 - 下一步：对 NO1–NO4/NO5 执行异步 OTA；ARM→运行→STOP→SAVE→FILE:READ 下载，检查记录数、payload CRC、DPLL update sequence 连续性，再生成 residual SVG，并确认 TDMA schedule/WCET/error 无新增。
 
+### TDMA-PROGRESS-20260829-002 - DPLL SD capture host orchestration gate
+
+- TODO task ID：`TDMA-DPLL-008`、`TDMA-PAYLOAD-006`。
+- 变更：提交 `eb9d852` 仅修改维护态主机工具和 SCPI 响应过滤；新增
+  `tools/dpll_observation_capture/dpll_observation_capture.py`，并将 DPLL
+  `TRACE:ARM/STOP/SAVE` 的复合响应登记到共享解析器。该提交不修改固件、TDMA
+  SHORT wire、Core1/PIO/DMA phase 或任何实时预算。
+- 工具边界：ARM 后只等待固定观测时间；STOP 后才由 Core0/StorageAO 写 SD，主机再
+  下载、解码并生成 residual SVG。若样本数为零，工具 fail-closed，不调用 SAVE，避免
+  把空捕获误判为有效波形；ARM 清理路径仍会对所有已尝试节点发送 STOP。
+- 验证：全量 pytest `533 passed, 1 skipped`；`out/build/dpll-sd-capture-20260829/`
+  A/B/Boot、flash-link contract 通过，`link_free_bytes=81772 B`，临时许可证下限
+  `80000 B`，FreeRTOS heap 保持 `128 KiB`（均为快照，非事实源）。
+- 五板实测：使用既有异步 OTA 镜像（NO1=COM3、NO2=COM5、NO3=COM6、NO4=COM4、
+  NO5=COM25）执行 ARM→5 s→STOP；五板均返回 DPLL `service_count=0`，因此无 residual
+  样本，工具明确报告 `trace contains no samples`，未生成 SVG，也未启动/改变 TDMA。
+  当前阻塞属于 DPLL 服务未激活，不是 TDMA 时序回归；待 DPLL eligible 更新服务开启后
+  重跑同一 SD→decode→SVG 流程。
+
 ## 文档接口
 
 - 架构语义：`TDMA_DOMAIN_ARCHITECTURE.md`。
