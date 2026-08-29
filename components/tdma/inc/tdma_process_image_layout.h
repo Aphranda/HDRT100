@@ -76,7 +76,10 @@
  * repeating a sequence or identity field in the payload.
  *
  * bit 31    : valid
- * bits 30:0 : reference TX timestamp modulo 2^31 ticks, 4 ns per tick
+ * bits 30:0 : reference TX phase within the frozen TDMA cycle, 4 ns per tick
+ *
+ * A cycle phase is independent of each Node's asynchronous boot epoch.  The
+ * receiver maps it into its local cycle before applying the VDC path matrix.
  */
 #define TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET \
     TDMA_FLIGHT_NODE_IMAGE_SIZE
@@ -92,44 +95,49 @@ _Static_assert(TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET +
                    TDMA_FLIGHT_SHORT_PAYLOAD_SIZE,
                "DPLL observation trailer must close the SHORT payload");
 
-static inline uint32_t tdma_process_image_dpll_observation_encode(
-    uint64_t reference_tx_timestamp_ns)
+static inline uint32_t tdma_process_image_dpll_observation_encode_phase(
+    uint64_t reference_tx_timestamp_ns,
+    uint32_t cycle_period_ns)
 {
-    const uint64_t tick = reference_tx_timestamp_ns /
+    if (cycle_period_ns <
+        TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_QUANTUM_NS) {
+        return 0u;
+    }
+    const uint64_t phase_ns = reference_tx_timestamp_ns % cycle_period_ns;
+    const uint64_t tick = phase_ns /
         TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_QUANTUM_NS;
+    if (tick > TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_MASK) {
+        return 0u;
+    }
     return TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_VALID_MASK |
-           ((uint32_t)tick &
-            TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_MASK);
+           (uint32_t)tick;
 }
 
-static inline bool tdma_process_image_dpll_observation_decode(
+static inline bool tdma_process_image_dpll_observation_map_phase(
     uint32_t encoded,
+    uint32_t cycle_period_ns,
     uint64_t local_rx_timestamp_ns,
     uint64_t *reference_tx_timestamp_ns)
 {
     if ((encoded & TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_VALID_MASK) == 0u ||
+        cycle_period_ns <
+            TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_QUANTUM_NS ||
         reference_tx_timestamp_ns == NULL) {
         return false;
     }
-    const uint64_t local_tick = local_rx_timestamp_ns /
-        TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_QUANTUM_NS;
-    const uint64_t modulo =
-        (uint64_t)TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_MASK + 1ull;
-    uint64_t reference_tick =
-        (local_tick & ~(modulo - 1ull)) |
+    const uint64_t phase_ns =
         (uint64_t)(encoded &
-                   TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_MASK);
-    if (reference_tick > local_tick) {
-        if (reference_tick < modulo) {
-            return false;
-        }
-        reference_tick -= modulo;
-    }
-    if (local_tick - reference_tick >= modulo / 2ull) {
+                   TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_MASK) *
+        TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_QUANTUM_NS;
+    if (phase_ns >= cycle_period_ns) {
         return false;
     }
-    *reference_tx_timestamp_ns = reference_tick *
-        TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_QUANTUM_NS;
+    const uint64_t local_cycle_start_ns = local_rx_timestamp_ns -
+        local_rx_timestamp_ns % cycle_period_ns;
+    if (UINT64_MAX - local_cycle_start_ns < phase_ns) {
+        return false;
+    }
+    *reference_tx_timestamp_ns = local_cycle_start_ns + phase_ns;
     return true;
 }
 

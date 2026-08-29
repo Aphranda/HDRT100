@@ -2764,6 +2764,31 @@ static int test_ring_observer_expands_correlated_feedback(void)
                          (uint32_t)evidence.expected_window_start_ns,
                          2000000u + schedule.observation_window_offset_ns);
 
+    failed += expect_bool("active ring feedback expands",
+                          vdc_ring_observer_expand_active(&schedule,
+                                                         &observation,
+                                                         &evidence),
+                          true);
+    const uint32_t active_period_ns = schedule.period_ns;
+    schedule.period_ns = 0u;
+    failed += expect_bool("active ring feedback rejects invalid period",
+                          vdc_ring_observer_expand_active(&schedule,
+                                                         &observation,
+                                                         &evidence),
+                          false);
+    schedule.period_ns = active_period_ns;
+
+    observation.reference_tx_timestamp_ns = 4000123000ull;
+    observation.local_rx_timestamp_ns = 2000123496ull;
+    failed += expect_bool("ring feedback asynchronous epoch expands",
+                          vdc_ring_observer_expand(&schedule,
+                                                   &observation,
+                                                   &evidence),
+                          true);
+    failed += expect_i32("ring feedback asynchronous epoch residual",
+                         evidence.phase_error_ns,
+                         16);
+
     observation.source_node = observation.reference_node;
     failed += expect_bool("reference RTT cannot masquerade as Node phase",
                           vdc_ring_observer_expand(&schedule,
@@ -2778,6 +2803,171 @@ static int test_ring_observer_expands_correlated_feedback(void)
                                                    &observation,
                                                    &evidence),
                           false);
+    return failed;
+}
+
+static int test_provisional_path_matrix_is_servo_only(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_path_delay_table_t table;
+    vdc_timestamp_dictionary_t dictionary;
+    vdc_path_delay_entry_t entry;
+
+    failed += expect_bool("provisional context init",
+                          vdc_domain_init(&context), true);
+    vdc_tdma_timestamp_evidence_t active_evidence =
+        make_hardware_sample(&context.schedule, 1u, 0);
+    failed += expect_bool("active submit rejects unactivated context",
+                          vdc_domain_submit_active_tdma_evidence(
+                              &context, &active_evidence), false);
+    memset(&table, 0, sizeof(table));
+    table.valid = 1u;
+    table.version = VDC_DOMAIN_PATH_DELAY_TABLE_VERSION;
+    table.update_seq = 2u;
+    table.entry_count = context.schedule.ring_binding.node_count;
+    table.schedule_crc32 = context.schedule.schedule_crc32;
+    table.calibration_generation = 210u;
+    table.topology_generation = 3u;
+    table.bias_generation = 0u;
+    table.freshness_us = 1u;
+    table.flags = VDC_PATH_DELAY_FLAG_HARDWARE_LATCHED |
+                  VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY;
+    for (uint32_t i = 0u; i < table.entry_count; i++) {
+        table.entries[i].valid = 1u;
+        table.entries[i].source_slot_id = i;
+        table.entries[i].reference_slot_id = (i + 1u) % table.entry_count;
+        table.entries[i].delay_ns = 80u;
+        table.entries[i].jitter_ns = 4u;
+        table.entries[i].stddev_ns = 4u;
+        table.entries[i].cal_crc32 = 0x12345678u;
+        table.entries[i].freshness_us = 1u;
+        table.entries[i].writer = i;
+        table.entries[i].update_seq = table.update_seq;
+    }
+    failed += expect_bool("provisional observation matrix build",
+                          vdc_domain_load_observation_path_matrix(
+                              &table, table.entry_count), true);
+    table.table_crc32 = vdc_domain_path_delay_table_crc32(&table);
+    failed += expect_bool("formal validator rejects provisional",
+                          vdc_domain_path_delay_table_validate(&table), false);
+    failed += expect_bool("provisional validator accepts matrix",
+                          vdc_domain_path_delay_table_validate_provisional(
+                              &table), true);
+    failed += expect_u32("provisional matrix node count",
+                         table.observation_matrix.node_count,
+                         table.entry_count);
+    failed += expect_u32("provisional source1 reference0 bitmap",
+                         table.observation_matrix.valid_bitmap[0] &
+                             (1u << VDC_DOMAIN_NODE_COUNT),
+                         1u << VDC_DOMAIN_NODE_COUNT);
+    failed += expect_bool("formal lookup rejects provisional",
+                          vdc_domain_path_delay_lookup(
+                              &table, 1u, 0u, &entry), false);
+    failed += expect_bool("observation lookup accepts provisional",
+                          vdc_domain_observation_path_delay_lookup(
+                              &table, 1u, 0u, &entry), true);
+    failed += expect_u32("provisional cumulative delay", entry.delay_ns, 80u);
+    failed += expect_bool("active observation lookup accepts frozen matrix",
+                          vdc_domain_active_observation_path_delay_lookup(
+                              &table, 1u, 0u, &entry), true);
+    failed += expect_bool("active observation lookup rejects same node",
+                          vdc_domain_active_observation_path_delay_lookup(
+                              &table, 1u, 1u, &entry), false);
+
+    vdc_domain_default_timestamp_dictionary(&dictionary, &context.schedule);
+    failed += expect_bool("formal activation rejects provisional",
+                          vdc_domain_activate_tdma_configuration(
+                              &context, &context.schedule, &dictionary,
+                              &table), false);
+    failed += expect_bool("provisional activation accepted",
+                          vdc_domain_activate_tdma_provisional_configuration(
+                              &context, &context.schedule, &dictionary,
+                              &table), true);
+    failed += expect_u32("provisional activation remains diagnostic",
+                         context.path_delay.flags &
+                             VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY,
+                         VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY);
+    vdc_domain_set_ready(&context, true);
+    active_evidence = make_hardware_sample(&context.schedule, 2u, 0);
+    vdc_tdma_evidence_preparation_t preparation;
+    const uint32_t update_seq_before_prepare = context.dpll.update_seq;
+    failed += expect_bool("active evidence prepare accepted",
+                          vdc_domain_prepare_active_tdma_evidence(
+                              &context, &active_evidence, &preparation), true);
+    failed += expect_u32("active prepare is read only",
+                         context.dpll.update_seq,
+                         update_seq_before_prepare);
+    failed += expect_u32("active preparation accepts sample",
+                         preparation.accepted, 1u);
+    context.dpll.update_seq++;
+    bool prepared_accepted = false;
+    failed += expect_bool("stale active preparation rejected",
+                          vdc_domain_apply_prepared_tdma_evidence(
+                              &context, &active_evidence, &preparation,
+                              &prepared_accepted), false);
+    failed += expect_bool("stale active preparation not accepted",
+                          prepared_accepted, false);
+    context.dpll.update_seq = update_seq_before_prepare;
+    const uint32_t quality_seq_before_core = context.quality.update_seq;
+    const uint32_t error_budget_seq_before_core =
+        context.error_budget.update_seq;
+    failed += expect_bool("fresh active preparation servo applied",
+                          vdc_domain_apply_prepared_tdma_evidence_servo(
+                              &context, &active_evidence, &preparation), true);
+    failed += expect_u32("servo marks preparation applied",
+                         preparation.servo_applied, 1u);
+    failed += expect_u32("servo defers state application",
+                         preparation.applied, 0u);
+    failed += expect_u32("servo records post update sequence",
+                         preparation.post_servo_dpll_update_seq,
+                         context.dpll.update_seq);
+    failed += expect_u32("servo defers quality update",
+                         context.quality.update_seq,
+                         quality_seq_before_core);
+    context.dpll.update_seq++;
+    failed += expect_bool("stale post servo sequence rejects state",
+                          vdc_domain_apply_prepared_tdma_evidence_state(
+                              &context, &active_evidence, &preparation,
+                              &prepared_accepted), false);
+    context.dpll.update_seq = preparation.post_servo_dpll_update_seq;
+    failed += expect_bool("fresh active preparation state applied",
+                          vdc_domain_apply_prepared_tdma_evidence_state(
+                              &context, &active_evidence, &preparation,
+                              &prepared_accepted), true);
+    failed += expect_bool("fresh active preparation state accepted",
+                          prepared_accepted, true);
+    failed += expect_u32("state marks preparation applied",
+                         preparation.applied, 1u);
+    failed += expect_u32("state records post apply sequence",
+                         preparation.post_apply_dpll_update_seq,
+                         context.dpll.update_seq);
+    failed += expect_u32("state defers quality update",
+                         context.quality.update_seq,
+                         quality_seq_before_core);
+    failed += expect_u32("state defers error budget update",
+                         context.error_budget.update_seq,
+                         error_budget_seq_before_core);
+    context.dpll.update_seq++;
+    failed += expect_bool("stale post apply sequence rejects finalize",
+                          vdc_domain_finalize_prepared_tdma_evidence(
+                              &context, &active_evidence, &preparation),
+                          false);
+    context.dpll.update_seq = preparation.post_apply_dpll_update_seq;
+    failed += expect_bool("fresh post apply sequence finalizes",
+                          vdc_domain_finalize_prepared_tdma_evidence(
+                              &context, &active_evidence, &preparation),
+                          true);
+    failed += expect_u32("finalize updates quality",
+                         context.quality.update_seq,
+                         quality_seq_before_core + 1u);
+    failed += expect_u32("finalize updates error budget",
+                         context.error_budget.update_seq,
+                         error_budget_seq_before_core + 1u);
+    active_evidence = make_hardware_sample(&context.schedule, 3u, 0);
+    failed += expect_bool("active submit accepts activated context",
+                          vdc_domain_submit_active_tdma_evidence(
+                              &context, &active_evidence), true);
     return failed;
 }
 
@@ -2814,6 +3004,7 @@ int main(void)
     failed += test_dpll_acquisition_accepts_large_initial_phase();
     failed += test_dpll_large_step_does_not_fine_lock_same_sample();
     failed += test_ring_observer_expands_correlated_feedback();
+    failed += test_provisional_path_matrix_is_servo_only();
     if (failed != 0) {
         (void)printf("vdc_domain tests failed: %d\n", failed);
         return 1;

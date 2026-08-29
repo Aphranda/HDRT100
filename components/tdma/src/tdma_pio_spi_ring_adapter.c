@@ -21,7 +21,7 @@ static uint32_t tdma_pio_spi_ring_get_u32(const uint8_t *src)
 }
 
 static bool tdma_pio_spi_ring_adapter_build_dpll_observation(
-    const tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_pio_spi_ring_adapter_t *adapter,
     uint8_t *payload,
     size_t payload_size)
 {
@@ -31,31 +31,67 @@ static bool tdma_pio_spi_ring_adapter_build_dpll_observation(
     }
     tdma_pio_spi_ring_put_u32(
         &payload[TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET], 0u);
-    if (adapter == NULL || adapter->clock_evidence_enabled == 0u ||
-        adapter->up_sequence == 0u ||
-        adapter->timestamp_resolution_ns == 0u ||
+    if (adapter == NULL) {
+        return false;
+    }
+    adapter->clock_evidence_last_tx_encoded = 0u;
+    uint32_t reject_reason = 0u;
+    if (adapter->clock_evidence_enabled == 0u) {
+        reject_reason |= TDMA_PIO_SPI_CLOCK_EVIDENCE_BUILD_DISABLED;
+    }
+    if (adapter->up_sequence == 0u) {
+        reject_reason |= TDMA_PIO_SPI_CLOCK_EVIDENCE_BUILD_NO_SEQUENCE;
+    }
+    if (adapter->timestamp_resolution_ns == 0u ||
         (adapter->timestamp_flags &
          TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED) == 0u ||
         (adapter->timestamp_flags &
          TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) != 0u) {
+        reject_reason |=
+            TDMA_PIO_SPI_CLOCK_EVIDENCE_BUILD_TIMESTAMP_INELIGIBLE;
+    }
+    if (reject_reason != 0u) {
+        adapter->clock_evidence_build_reject_count++;
+        adapter->clock_evidence_build_last_reason = reject_reason;
         return false;
     }
     const uint32_t evidence_index = adapter->up_sequence %
         TDMA_PIO_SPI_RING_ADAPTER_TX_EVIDENCE_DEPTH;
     const uint32_t sequence =
         adapter->reference_tx_evidence[evidence_index].sequence;
-    if (!adapter->reference_tx_evidence[evidence_index].valid ||
-        sequence != adapter->up_sequence ||
-        adapter->reference_tx_evidence[evidence_index].identity_crc32 == 0u ||
-        adapter->reference_tx_evidence[evidence_index].timestamp_ns == 0ull) {
+    if (!adapter->reference_tx_evidence[evidence_index].valid) {
+        reject_reason |= TDMA_PIO_SPI_CLOCK_EVIDENCE_BUILD_RECORD_INVALID;
+    }
+    if (sequence != adapter->up_sequence) {
+        reject_reason |= TDMA_PIO_SPI_CLOCK_EVIDENCE_BUILD_SEQUENCE_MISMATCH;
+    }
+    if (adapter->reference_tx_evidence[evidence_index].identity_crc32 == 0u) {
+        reject_reason |= TDMA_PIO_SPI_CLOCK_EVIDENCE_BUILD_IDENTITY_MISSING;
+    }
+    if (adapter->reference_tx_evidence[evidence_index].timestamp_ns == 0ull) {
+        reject_reason |= TDMA_PIO_SPI_CLOCK_EVIDENCE_BUILD_TIMESTAMP_MISSING;
+    }
+    if (reject_reason != 0u) {
+        adapter->clock_evidence_build_reject_count++;
+        adapter->clock_evidence_build_last_reason = reject_reason;
         return false;
     }
 
     const uint32_t encoded =
-        tdma_process_image_dpll_observation_encode(
-            adapter->reference_tx_evidence[evidence_index].timestamp_ns);
+        tdma_process_image_dpll_observation_encode_phase(
+            adapter->reference_tx_evidence[evidence_index].timestamp_ns,
+            adapter->config.cycle_period_ns);
+    if (encoded == 0u) {
+        adapter->clock_evidence_build_reject_count++;
+        adapter->clock_evidence_build_last_reason =
+            TDMA_PIO_SPI_CLOCK_EVIDENCE_BUILD_TIMESTAMP_INELIGIBLE;
+        return false;
+    }
     tdma_pio_spi_ring_put_u32(
         &payload[TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET], encoded);
+    adapter->clock_evidence_build_count++;
+    adapter->clock_evidence_build_last_reason = 0u;
+    adapter->clock_evidence_last_tx_encoded = encoded;
     return true;
 }
 
@@ -73,6 +109,7 @@ static bool tdma_pio_spi_ring_adapter_correlate_dpll_observation(
             TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_SEQUENCE_LAG) {
         return false;
     }
+    adapter->clock_observation_last_reject_reason = 0u;
 
     const uint32_t encoded = tdma_pio_spi_ring_get_u32(
         &view->payload[TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET]);
@@ -88,18 +125,35 @@ static bool tdma_pio_spi_ring_adapter_correlate_dpll_observation(
          TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED) != 0u &&
         (adapter->timestamp_flags &
          TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) == 0u;
-    if (!local_eligible ||
-        !adapter->local_rx_evidence[evidence_index].valid ||
-        adapter->local_rx_evidence[evidence_index].sequence != sequence ||
-        adapter->local_rx_evidence[evidence_index].identity_crc32 == 0u ||
-        adapter->local_rx_evidence[evidence_index].timestamp_ns == 0ull) {
+    uint32_t reject_reason = 0u;
+    if (!local_eligible) {
+        reject_reason |=
+            TDMA_PIO_SPI_CLOCK_OBSERVATION_TIMESTAMP_INELIGIBLE;
+    }
+    if (!adapter->local_rx_evidence[evidence_index].valid) {
+        reject_reason |= TDMA_PIO_SPI_CLOCK_OBSERVATION_RECORD_INVALID;
+    }
+    if (adapter->local_rx_evidence[evidence_index].sequence != sequence) {
+        reject_reason |= TDMA_PIO_SPI_CLOCK_OBSERVATION_SEQUENCE_MISMATCH;
+    }
+    if (adapter->local_rx_evidence[evidence_index].identity_crc32 == 0u) {
+        reject_reason |= TDMA_PIO_SPI_CLOCK_OBSERVATION_IDENTITY_MISSING;
+    }
+    if (adapter->local_rx_evidence[evidence_index].timestamp_ns == 0ull) {
+        reject_reason |= TDMA_PIO_SPI_CLOCK_OBSERVATION_TIMESTAMP_MISSING;
+    }
+    if (reject_reason != 0u) {
+        adapter->clock_observation_last_reject_reason = reject_reason;
         return false;
     }
     uint64_t reference_tx_timestamp_ns = 0ull;
-    if (!tdma_process_image_dpll_observation_decode(
+    if (!tdma_process_image_dpll_observation_map_phase(
             encoded,
+            adapter->config.cycle_period_ns,
             adapter->local_rx_evidence[evidence_index].timestamp_ns,
             &reference_tx_timestamp_ns)) {
+        adapter->clock_observation_last_reject_reason =
+            TDMA_PIO_SPI_CLOCK_OBSERVATION_COMPACT_DECODE;
         return false;
     }
 
@@ -126,6 +180,7 @@ static bool tdma_pio_spi_ring_adapter_correlate_dpll_observation(
         adapter->local_rx_evidence[evidence_index].timestamp_ns;
     adapter->clock_observation = observation;
     adapter->clock_observation_count++;
+    adapter->clock_observation_last_reject_reason = 0u;
     adapter->local_rx_evidence[evidence_index].valid = false;
     return true;
 }
@@ -627,6 +682,12 @@ static bool tdma_pio_spi_ring_adapter_start(
     memset(&adapter->clock_observation, 0, sizeof(adapter->clock_observation));
     adapter->clock_observation_count = 0u;
     adapter->clock_observation_reject_count = 0u;
+    adapter->clock_observation_last_reject_reason = 0u;
+    adapter->clock_evidence_build_count = 0u;
+    adapter->clock_evidence_build_reject_count = 0u;
+    adapter->clock_evidence_build_last_reason = 0u;
+    adapter->clock_evidence_last_tx_encoded = 0u;
+    adapter->clock_evidence_last_rx_encoded = 0u;
     adapter->next_tx_deadline_ns = 0ull;
     adapter->last_error = TDMA_PIO_SPI_RING_ADAPTER_ERROR_NONE;
     tdma_pio_spi_ring_adapter_snapshot_write_end(adapter);
@@ -1049,6 +1110,7 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
             const uint32_t encoded = tdma_pio_spi_ring_get_u32(
                 &view.payload[
                     TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET]);
+            adapter->clock_evidence_last_rx_encoded = encoded;
             if ((encoded &
                  TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_VALID_MASK) != 0u &&
                 !tdma_pio_spi_ring_adapter_correlate_dpll_observation(
@@ -1854,6 +1916,21 @@ bool tdma_pio_spi_ring_adapter_get_snapshot(
         snapshot->clock_observation_count = adapter->clock_observation_count;
         snapshot->clock_observation_reject_count =
             adapter->clock_observation_reject_count;
+        snapshot->clock_observation_last_reject_reason =
+            adapter->clock_observation_last_reject_reason;
+        snapshot->clock_evidence_build_count =
+            adapter->clock_evidence_build_count;
+        snapshot->clock_evidence_build_reject_count =
+            adapter->clock_evidence_build_reject_count;
+        snapshot->clock_evidence_build_last_reason =
+            adapter->clock_evidence_build_last_reason;
+        snapshot->clock_evidence_last_tx_encoded =
+            adapter->clock_evidence_last_tx_encoded;
+        snapshot->clock_evidence_last_rx_encoded =
+            adapter->clock_evidence_last_rx_encoded;
+        snapshot->pending_tx_evidence = adapter->pending_tx_evidence ? 1u : 0u;
+        snapshot->pending_tx_evidence_sequence =
+            adapter->pending_tx_evidence_sequence;
         snapshot->last_error = adapter->last_error;
         snapshot->local_slot_id = adapter->config.local_slot_id;
         snapshot->schedule_crc32 = adapter->config.schedule_crc32;

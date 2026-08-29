@@ -26,6 +26,9 @@ scpi_result_t scpi_cmd_sync_vdc_tdma_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_tdma_phys_q(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_path_delay_q(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_lock_readiness_q(scpi_t *context);
+scpi_result_t scpi_cmd_sync_vdc_dpll_provisional(scpi_t *context);
+scpi_result_t scpi_cmd_sync_vdc_dpll_provisional_q(scpi_t *context);
+scpi_result_t scpi_cmd_sync_vdc_observer_ring_q(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_observer_tdma(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_observer_tdma_selftest(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_observer_tdma_selftest_q(scpi_t *context);
@@ -66,6 +69,9 @@ scpi_result_t scpi_cmd_sync_vdc_observer_q(scpi_t *context);
     {.pattern = "SYSTem:SYNC:VDC:TDMA:PHYS?", .callback = scpi_cmd_sync_vdc_tdma_phys_q}, \
     {.pattern = "SYSTem:SYNC:VDC:PATH:DELay?", .callback = scpi_cmd_sync_vdc_path_delay_q}, \
     {.pattern = "SYSTem:SYNC:VDC:LOCK:READiness?", .callback = scpi_cmd_sync_vdc_lock_readiness_q}, \
+    {.pattern = "SYSTem:SYNC:VDC:DPLL:PROVisional?", .callback = scpi_cmd_sync_vdc_dpll_provisional_q}, \
+    {.pattern = "SYSTem:SYNC:VDC:DPLL:PROVisional", .callback = scpi_cmd_sync_vdc_dpll_provisional}, \
+    {.pattern = "SYSTem:SYNC:VDC:OBServer:RING?", .callback = scpi_cmd_sync_vdc_observer_ring_q}, \
     {.pattern = "SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest?", .callback = scpi_cmd_sync_vdc_observer_tdma_selftest_q}, \
     {.pattern = "SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest", .callback = scpi_cmd_sync_vdc_observer_tdma_selftest}, \
     {.pattern = "SYSTem:SYNC:VDC:OBServer:TDMA", .callback = scpi_cmd_sync_vdc_observer_tdma}, \

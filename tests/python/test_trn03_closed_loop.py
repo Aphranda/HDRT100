@@ -26,11 +26,57 @@ from trn03_closed_loop import (  # noqa: E402
     startup_barrier_interval_errors,
     u32_delta,
     validate_flight_phase_readback,
+    validate_dpll_schedule,
     validate_node,
     validate_fifo_reset,
     validate_soak_timeline,
     validate_tx_seed,
 )
+
+
+def dpll_schedule(*, run_count: int, max_runtime_cycles: int = 28000,
+                  overrun_count: int = 0, deadline_miss_count: int = 0,
+                  quarantined_mask: int = 0) -> dict:
+    phase = {
+        "start_cycle": 143000,
+        "end_cycle": 177000,
+        "wcet_cycles": 33000,
+        "last_start_cycle": 143000,
+        "last_runtime_cycles": max_runtime_cycles,
+        "max_runtime_cycles": max_runtime_cycles,
+        "run_count": run_count,
+        "skip_count": 0,
+        "start_miss_count": 0,
+        "overrun_count": overrun_count,
+        "deadline_miss_count": deadline_miss_count,
+    }
+    return {
+        "quarantined_mask": quarantined_mask,
+        "phases": [{}, {}, phase],
+    }
+
+
+def test_dpll_schedule_gate_accepts_bounded_advancing_phase() -> None:
+    result = validate_dpll_schedule(
+        dpll_schedule(run_count=10), dpll_schedule(run_count=1010))
+    assert result["passed"] is True
+    assert result["errors"] == []
+    assert result["deltas"]["run_count"] == 1000
+
+
+def test_dpll_schedule_gate_rejects_wcet_and_quarantine_regression() -> None:
+    result = validate_dpll_schedule(
+        dpll_schedule(run_count=10),
+        dpll_schedule(run_count=11, max_runtime_cycles=34000,
+                      overrun_count=1, deadline_miss_count=1,
+                      quarantined_mask=1 << 1))
+    assert result["passed"] is False
+    assert result["errors"] == [
+        "dpll_overrun_count_grew",
+        "dpll_deadline_miss_count_grew",
+        "dpll_load_quarantined",
+        "dpll_max_runtime_exceeded_wcet",
+    ]
 
 
 def test_running_handoff_requires_complete_healthy_physical_ring() -> None:

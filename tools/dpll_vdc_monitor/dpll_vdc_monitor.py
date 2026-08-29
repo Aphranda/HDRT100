@@ -98,6 +98,7 @@ DPLL_VECTOR_FIELDS = (
 VECTOR_FLAG_VALID = 1 << 0
 VECTOR_FLAG_STALE = 1 << 1
 VECTOR_FLAG_LOCKED = 1 << 5
+VECTOR_FLAG_PROVISIONAL = 1 << 6
 TIMESTAMP_SOURCE_HARDWARE_TICK = 2
 TIMESTAMP_FLAG_DIAGNOSTIC_ONLY = 1 << 0
 TIMESTAMP_FLAG_DPLL_ELIGIBLE = 1 << 1
@@ -312,6 +313,12 @@ def _board_summary(samples: list[BoardSample], *, expected_interval_ms: float,
                              TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) and
                         (latest.readiness.get("timestamp_flags", 0) &
                          TIMESTAMP_FLAG_DPLL_ELIGIBLE))
+    provisional = bool(latest and latest.dpll_vector.get("flags", 0) &
+                       VECTOR_FLAG_PROVISIONAL)
+    formal_locked = bool(latest and latest.dpll_vector.get("flags", 0) &
+                         VECTOR_FLAG_LOCKED)
+    servo_locked = bool(latest and
+                        latest.dpll_vector.get("state", 0) == 5)
     # The reference node is the only in-ring node expected to expose the
     # complete TX->RX feedback proof.  Followers prove their own correlated
     # observation; requiring ``simultaneous_feedback`` on every follower would
@@ -333,10 +340,11 @@ def _board_summary(samples: list[BoardSample], *, expected_interval_ms: float,
         "trigger_intervals_ms": intervals,
         "trigger_interval_ok": interval_ok,
         "vector_valid": vector_ok,
+        "provisional": provisional,
         "timestamp_eligible": timestamp_ok,
         "dpll_state": latest.dpll_vector.get("state", 0) if latest else 0,
-        "dpll_locked": bool(latest and
-                             (latest.dpll_vector.get("flags", 0) & VECTOR_FLAG_LOCKED)),
+        "dpll_locked": servo_locked if provisional else formal_locked,
+        "formal_locked": formal_locked,
         "quality_health_state": latest.dpll_vector.get("quality_health_state", 0)
         if latest else 0,
         "quality_lock_quality_tier": latest.dpll_vector.get(

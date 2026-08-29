@@ -23,6 +23,7 @@
 #define REFMEM_VECTOR_FLAG_CALIBRATION_VALID  (1u << 3u)
 #define REFMEM_VECTOR_FLAG_HARDWARE_EVIDENCE  (1u << 4u)
 #define REFMEM_VECTOR_FLAG_LOCKED             (1u << 5u)
+#define REFMEM_VECTOR_FLAG_PROVISIONAL        (1u << 6u)
 
 typedef struct {
     uint32_t layout_version;

@@ -883,3 +883,57 @@ bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime,
     }
     return false;
 }
+
+bool tdma_ring_runtime_get_clock_snapshot(
+    const tdma_ring_runtime_t *runtime,
+    tdma_ring_clock_snapshot_t *snapshot)
+{
+    if (runtime == NULL || snapshot == NULL) {
+        return false;
+    }
+
+    bool config_copied = false;
+    for (uint32_t attempt = 0u;
+         attempt < TDMA_RING_RUNTIME_SNAPSHOT_RETRY_LIMIT;
+         attempt++) {
+        const uint32_t guard_begin =
+            tdma_ring_runtime_load(&runtime->config_guard);
+        if ((guard_begin & 1u) != 0u) {
+            continue;
+        }
+        snapshot->version = TDMA_RING_RUNTIME_VERSION;
+        snapshot->enabled = runtime->enabled;
+        snapshot->config_seq = runtime->config_seq;
+        snapshot->node_count = runtime->node_count;
+        snapshot->local_slot_id = runtime->local_slot_id;
+        snapshot->reference_slot_id = runtime->reference_slot_id;
+        snapshot->schedule_crc32 = runtime->schedule_crc32;
+        const uint32_t guard_end =
+            tdma_ring_runtime_load(&runtime->config_guard);
+        if (guard_begin == guard_end && (guard_end & 1u) == 0u) {
+            config_copied = true;
+            break;
+        }
+    }
+    if (!config_copied) {
+        return false;
+    }
+
+    for (uint32_t attempt = 0u;
+         attempt < TDMA_RING_RUNTIME_SNAPSHOT_RETRY_LIMIT;
+         attempt++) {
+        const uint32_t guard_begin =
+            tdma_ring_runtime_load(&runtime->result_guard);
+        if ((guard_begin & 1u) != 0u) {
+            continue;
+        }
+        snapshot->adapter_started = runtime->adapter_started;
+        snapshot->clock_observation = runtime->clock_observation;
+        const uint32_t guard_end =
+            tdma_ring_runtime_load(&runtime->result_guard);
+        if (guard_begin == guard_end && (guard_end & 1u) == 0u) {
+            return true;
+        }
+    }
+    return false;
+}

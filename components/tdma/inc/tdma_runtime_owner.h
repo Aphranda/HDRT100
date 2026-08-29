@@ -28,6 +28,8 @@ bool tdma_runtime_owner_core0_release_ring_rx(uint32_t slot_index);
 /* Read-only ring snapshot for low-frequency maintenance logging on core0
  * (the resident ring itself is driven by the core1 TDMA service). */
 bool tdma_runtime_owner_get_ring_snapshot(tdma_ring_runtime_snapshot_t *snapshot);
+bool tdma_runtime_owner_get_ring_clock_snapshot(
+    tdma_ring_clock_snapshot_t *snapshot);
 /* Last accepted ring configuration retained by the TDMA service while the
  * live runtime is STOPPED.  Calibration may bind maintenance evidence to it,
  * but may not modify or arm the ring through this snapshot. */

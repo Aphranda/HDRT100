@@ -5,6 +5,13 @@
 
 #include "tdma_operating_profile.h"
 
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#include "pico.h"
+#define VDC_DOMAIN_TIME_CRITICAL(name) __not_in_flash_func(name)
+#else
+#define VDC_DOMAIN_TIME_CRITICAL(name) name
+#endif
+
 #define VDC_DOMAIN_CRC_OFFSET 2166136261u
 #define VDC_DOMAIN_CRC_PRIME 16777619u
 #define VDC_DOMAIN_INITIAL_LOCK_SAMPLES 1u
@@ -33,6 +40,83 @@ static uint32_t vdc_domain_abs_i32(int32_t value)
         return (uint32_t)INT32_MAX + 1u;
     }
     return value < 0 ? (uint32_t)(-value) : (uint32_t)value;
+}
+
+static uint64_t vdc_domain_mul_u64_u32_saturate(uint64_t value,
+                                                uint32_t factor)
+{
+    uint64_t product = 0u;
+    if (__builtin_mul_overflow(value, (uint64_t)factor, &product)) {
+        return UINT64_MAX;
+    }
+    return product;
+}
+
+static uint32_t vdc_domain_gcd_u32(uint32_t left, uint32_t right)
+{
+    while (right != 0u) {
+        const uint32_t remainder = left % right;
+        left = right;
+        right = remainder;
+    }
+    return left;
+}
+
+/* RP2350 has no native 64-bit divide. Servo ratios are always clamped to a
+ * small configured ppb limit, so a bounded binary search is both exact and
+ * cheaper than __aeabi_ldivmod. Negative results retain C's toward-zero
+ * division semantics by searching the unsigned magnitude first. */
+static int32_t VDC_DOMAIN_TIME_CRITICAL(
+    vdc_domain_scaled_ratio_clamped_i32)(int64_t value,
+                                         uint32_t scale,
+                                         uint64_t divisor,
+                                         uint32_t limit)
+{
+    if (value == 0 || scale == 0u || divisor == 0u || limit == 0u) {
+        return 0;
+    }
+
+    const bool negative = value < 0;
+    const uint64_t magnitude = negative
+        ? (uint64_t)(-(value + 1ll)) + 1u
+        : (uint64_t)value;
+    const uint64_t scaled_value =
+        vdc_domain_mul_u64_u32_saturate(magnitude, scale);
+    const uint64_t scaled_limit =
+        vdc_domain_mul_u64_u32_saturate(divisor, limit);
+    if (scaled_value >= scaled_limit) {
+        return negative ? -(int32_t)limit : (int32_t)limit;
+    }
+
+    /* Normal TDMA evidence deltas fit a 32-bit ratio after cancelling the
+     * common ns/us scale. Cortex-M33 executes this division in hardware. */
+    if (magnitude <= UINT32_MAX && divisor <= UINT32_MAX) {
+        const uint32_t divisor32 = (uint32_t)divisor;
+        const uint32_t common = vdc_domain_gcd_u32(scale, divisor32);
+        const uint32_t reduced_scale = scale / common;
+        const uint32_t reduced_divisor = divisor32 / common;
+        uint32_t numerator = 0u;
+        if (!__builtin_mul_overflow((uint32_t)magnitude,
+                                    reduced_scale,
+                                    &numerator)) {
+            const uint32_t quotient = numerator / reduced_divisor;
+            return negative ? -(int32_t)quotient : (int32_t)quotient;
+        }
+    }
+
+    uint32_t low = 0u;
+    uint32_t high = limit - 1u;
+    while (low < high) {
+        const uint32_t middle = low + (high - low + 1u) / 2u;
+        const uint64_t threshold =
+            vdc_domain_mul_u64_u32_saturate(divisor, middle);
+        if (threshold <= scaled_value) {
+            low = middle;
+        } else {
+            high = middle - 1u;
+        }
+    }
+    return negative ? -(int32_t)low : (int32_t)low;
 }
 
 static void vdc_domain_gate_fail(vdc_gate_result_t *gate,
@@ -487,7 +571,8 @@ static uint64_t vdc_domain_evidence_time_ns(
     return evidence->observed_time_ns;
 }
 
-static void vdc_domain_refresh_quality_state(vdc_domain_context_t *context)
+static void VDC_DOMAIN_TIME_CRITICAL(vdc_domain_refresh_quality_state)(
+    vdc_domain_context_t *context)
 {
     if (context == NULL) {
         return;
@@ -743,7 +828,8 @@ static void vdc_domain_record_accepted_sample(
 
 static void vdc_domain_update_clock_from_evidence(
     vdc_domain_context_t *context,
-    const vdc_tdma_timestamp_evidence_t *evidence)
+    const vdc_tdma_timestamp_evidence_t *evidence,
+    int32_t input_residual_ns)
 {
     if (context == NULL || evidence == NULL) {
         return;
@@ -753,8 +839,6 @@ static void vdc_domain_update_clock_from_evidence(
     int32_t frequency_error_ppb = context->dpll.last_frequency_error_ppb;
     int32_t phase_rate_pull_ppb = 0;
     bool update_rate_anchor = context->dpll.accepted_sample_count <= 1u;
-    const int32_t input_residual_ns =
-        vdc_domain_corrected_phase_error_ns(context, evidence);
     if (context->dpll.accepted_sample_count > 1u &&
         evidence->expected_window_start_ns >
             context->dpll.last_expected_window_start_ns &&
@@ -768,11 +852,12 @@ static void vdc_domain_update_clock_from_evidence(
         if (expected_delta >= vdc_domain_rate_observation_min_ns(context)) {
             const int64_t delta_error =
                 (int64_t)observed_delta - (int64_t)expected_delta;
-            const int64_t raw_ppb =
-                (delta_error * 1000000000ll) / (int64_t)expected_delta;
             const int32_t target_frequency_error_ppb =
-                vdc_domain_clamp_ppb(raw_ppb,
-                                     context->servo.sanity_freq_limit_ppb);
+                vdc_domain_scaled_ratio_clamped_i32(
+                    delta_error,
+                    1000000000u,
+                    expected_delta,
+                    context->servo.sanity_freq_limit_ppb);
             frequency_error_ppb =
                 vdc_domain_slew_i32(
                     context->dpll.last_frequency_error_ppb,
@@ -787,12 +872,12 @@ static void vdc_domain_update_clock_from_evidence(
     if (context->servo.ki_q16 != 0 &&
         context->servo.update_period_us != 0u &&
         context->dpll.accepted_sample_count >= context->servo.lock_sample_count) {
-        const int64_t phase_ppb =
-            ((int64_t)input_residual_ns * 1000000ll) /
-            (int64_t)context->servo.update_period_us;
         phase_rate_pull_ppb = vdc_domain_scale_q16_i32(
-            vdc_domain_clamp_ppb(phase_ppb,
-                                 context->servo.sanity_freq_limit_ppb),
+            vdc_domain_scaled_ratio_clamped_i32(
+                input_residual_ns,
+                1000000u,
+                context->servo.update_period_us,
+                context->servo.sanity_freq_limit_ppb),
             context->servo.ki_q16);
     }
 
@@ -837,10 +922,20 @@ static void vdc_domain_update_clock_from_evidence(
     context->clock.tdma_schedule_crc32 = context->schedule.schedule_crc32;
     context->clock.servo_profile_crc32 = context->servo.servo_profile_crc32;
 
-    vdc_domain_default_dco_control(&context->dco,
-                                   &context->clock,
-                                   context->dpll.state);
+    context->dco.valid = 1u;
     context->dco.dco_update_seq = next_dco_seq;
+    context->dco.source_model_seq = context->clock.model_seq;
+    context->dco.epoch_id = context->clock.epoch_id;
+    context->dco.run_id = context->clock.run_id;
+    context->dco.base_local_tick64 = context->clock.base_local_tick64;
+    context->dco.base_vdc_time64_ns = context->clock.base_vdc_time64_ns;
+    context->dco.nominal_period_ns = context->clock.nominal_period_ns;
+    context->dco.period_adjust_ppb = context->clock.period_adjust_ppb;
+    context->dco.phase_offset_ns = context->clock.phase_offset_ns;
+    context->dco.slew_limit_ppb = context->clock.slew_limit_ppb;
+    context->dco.lock_state = context->dpll.state;
+    context->dco.tdma_schedule_crc32 = context->clock.tdma_schedule_crc32;
+    context->dco.servo_profile_crc32 = context->clock.servo_profile_crc32;
     context->dpll.update_seq++;
 
     context->error_budget.freq_offset_ppb = -period_adjust_ppb;
@@ -1093,6 +1188,26 @@ bool vdc_domain_schedule_validate(const vdc_tdma_schedule_profile_t *profile)
     return profile->schedule_crc32 == vdc_domain_schedule_crc32(profile);
 }
 
+static bool vdc_domain_active_schedule_validate(
+    const vdc_tdma_schedule_profile_t *profile)
+{
+    if (profile == NULL || profile->enabled == 0u ||
+        profile->period_ns == 0u || profile->schedule_crc32 == 0u ||
+        profile->observation_window_width_ns == 0u ||
+        profile->observation_window_offset_ns >= profile->period_ns ||
+        profile->observation_window_width_ns >
+            profile->period_ns - profile->observation_window_offset_ns ||
+        profile->ring_binding.node_count < 2u ||
+        profile->ring_binding.node_count > VDC_DOMAIN_NODE_COUNT ||
+        profile->local_slot_id >= profile->ring_binding.node_count ||
+        profile->reference_slot_id >= profile->ring_binding.node_count ||
+        profile->local_slot_id != profile->ring_binding.local_index ||
+        profile->reference_slot_id != profile->ring_binding.reference_index) {
+        return false;
+    }
+    return true;
+}
+
 void vdc_domain_default_clock_model(vdc_clock_model_t *model,
                                     uint32_t epoch_id,
                                     uint32_t run_id,
@@ -1231,7 +1346,7 @@ void vdc_domain_default_path_delay_table(
     table->table_crc32 = vdc_domain_path_delay_table_crc32(table);
 }
 
-bool vdc_domain_path_delay_table_validate(
+static bool vdc_domain_path_delay_table_validate_shape(
     const vdc_path_delay_table_t *table)
 {
     uint32_t valid_count = 0u;
@@ -1243,17 +1358,7 @@ bool vdc_domain_path_delay_table_validate(
         table->entry_count == 0u ||
         table->calibration_generation == 0u ||
         table->topology_generation == 0u ||
-        table->bias_generation == 0u ||
         table->freshness_us == 0u ||
-        (table->flags & (VDC_PATH_DELAY_FLAG_ACCEPTED |
-                         VDC_PATH_DELAY_FLAG_HARDWARE_LATCHED |
-                         VDC_PATH_DELAY_FLAG_BIAS_VALID |
-                         VDC_PATH_DELAY_FLAG_TOPOLOGY_FRESH)) !=
-            (VDC_PATH_DELAY_FLAG_ACCEPTED |
-             VDC_PATH_DELAY_FLAG_HARDWARE_LATCHED |
-             VDC_PATH_DELAY_FLAG_BIAS_VALID |
-             VDC_PATH_DELAY_FLAG_TOPOLOGY_FRESH) ||
-        (table->flags & VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY) != 0u ||
         table->table_crc32 != vdc_domain_path_delay_table_crc32(table)) {
         return false;
     }
@@ -1310,6 +1415,33 @@ bool vdc_domain_path_delay_table_validate(
         valid_count++;
     }
     return valid_count == table->entry_count;
+}
+
+bool vdc_domain_path_delay_table_validate(
+    const vdc_path_delay_table_t *table)
+{
+    const uint32_t required = VDC_PATH_DELAY_FLAG_ACCEPTED |
+                              VDC_PATH_DELAY_FLAG_HARDWARE_LATCHED |
+                              VDC_PATH_DELAY_FLAG_BIAS_VALID |
+                              VDC_PATH_DELAY_FLAG_TOPOLOGY_FRESH;
+    return vdc_domain_path_delay_table_validate_shape(table) &&
+           table->bias_generation != 0u &&
+           (table->flags & required) == required &&
+           (table->flags & VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY) == 0u;
+}
+
+bool vdc_domain_path_delay_table_validate_provisional(
+    const vdc_path_delay_table_t *table)
+{
+    const uint32_t forbidden = VDC_PATH_DELAY_FLAG_ACCEPTED |
+                               VDC_PATH_DELAY_FLAG_BIAS_VALID |
+                               VDC_PATH_DELAY_FLAG_TOPOLOGY_FRESH;
+    return vdc_domain_path_delay_table_validate_shape(table) &&
+           table->bias_generation == 0u &&
+           (table->flags & VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY) != 0u &&
+           (table->flags & VDC_PATH_DELAY_FLAG_HARDWARE_LATCHED) != 0u &&
+           (table->flags & VDC_PATH_DELAY_FLAG_OBSERVATION_MATRIX_VALID) != 0u &&
+           (table->flags & forbidden) == 0u;
 }
 
 bool vdc_domain_load_observation_path_matrix(
@@ -1510,6 +1642,7 @@ static bool vdc_domain_validate_tdma_timestamp_evidence_window(
     uint32_t observation_window_width_ns,
     uint32_t guard_before_ns,
     uint32_t guard_after_ns,
+    bool validate_static_schedule,
     vdc_gate_result_t *gate)
 {
     if (gate != NULL) {
@@ -1526,7 +1659,9 @@ static bool vdc_domain_validate_tdma_timestamp_evidence_window(
                              evidence->sample_seq);
         return false;
     }
-    if (!vdc_domain_schedule_validate(profile)) {
+    if (!(validate_static_schedule
+              ? vdc_domain_schedule_validate(profile)
+              : vdc_domain_active_schedule_validate(profile))) {
         vdc_domain_gate_fail(gate,
                              VDC_DOMAIN_GATE_BAD_SCHEDULE,
                              evidence->source_slot_id,
@@ -1636,6 +1771,7 @@ bool vdc_domain_validate_tdma_timestamp_evidence(
         profile->observation_window_width_ns,
         profile->guard_before_ns,
         profile->guard_after_ns,
+        true,
         gate);
 }
 
@@ -1814,9 +1950,49 @@ bool vdc_domain_observation_path_delay_lookup(
     uint32_t reference_slot_id,
     vdc_path_delay_entry_t *entry)
 {
-    if (!vdc_domain_path_delay_table_validate(table) ||
+    if ((!vdc_domain_path_delay_table_validate(table) &&
+         !vdc_domain_path_delay_table_validate_provisional(table)) ||
         (table->flags & VDC_PATH_DELAY_FLAG_OBSERVATION_MATRIX_VALID) == 0u ||
         table->observation_matrix.valid == 0u ||
+        source_slot_id >= table->observation_matrix.node_count ||
+        reference_slot_id >= table->observation_matrix.node_count ||
+        source_slot_id == reference_slot_id) {
+        return false;
+    }
+
+    const uint32_t index = source_slot_id * VDC_DOMAIN_NODE_COUNT +
+                           reference_slot_id;
+    if ((table->observation_matrix.valid_bitmap[index / 32u] &
+         (1u << (index % 32u))) == 0u) {
+        return false;
+    }
+    if (entry != NULL) {
+        memset(entry, 0, sizeof(*entry));
+        entry->valid = 1u;
+        entry->source_slot_id = source_slot_id;
+        entry->reference_slot_id = reference_slot_id;
+        entry->delay_ns = table->observation_matrix.delay_ns[index];
+        entry->cal_crc32 = table->table_crc32;
+        entry->freshness_us = table->freshness_us;
+        entry->writer = table->bias_generation;
+        entry->update_seq = table->update_seq;
+    }
+    return true;
+}
+
+bool vdc_domain_active_observation_path_delay_lookup(
+    const vdc_path_delay_table_t *table,
+    uint32_t source_slot_id,
+    uint32_t reference_slot_id,
+    vdc_path_delay_entry_t *entry)
+{
+    if (table == NULL || table->valid == 0u ||
+        table->version != VDC_DOMAIN_PATH_DELAY_TABLE_VERSION ||
+        table->schedule_crc32 == 0u || table->table_crc32 == 0u ||
+        (table->flags & VDC_PATH_DELAY_FLAG_OBSERVATION_MATRIX_VALID) == 0u ||
+        table->observation_matrix.valid == 0u ||
+        table->observation_matrix.node_count < 2u ||
+        table->observation_matrix.node_count > VDC_DOMAIN_NODE_COUNT ||
         source_slot_id >= table->observation_matrix.node_count ||
         reference_slot_id >= table->observation_matrix.node_count ||
         source_slot_id == reference_slot_id) {
@@ -1963,6 +2139,7 @@ static bool vdc_domain_expand_compact_observation_window(
         observation_window_width_ns,
         guard_before_ns,
         guard_after_ns,
+        true,
         gate);
 }
 
@@ -2160,16 +2337,19 @@ bool vdc_domain_init(vdc_domain_context_t *context)
     return true;
 }
 
-bool vdc_domain_activate_tdma_configuration(
+static bool vdc_domain_activate_tdma_configuration_checked(
     vdc_domain_context_t *context,
     const vdc_tdma_schedule_profile_t *schedule,
     const vdc_timestamp_dictionary_t *dictionary,
-    const vdc_path_delay_table_t *path_delay)
+    const vdc_path_delay_table_t *path_delay,
+    bool provisional)
 {
     if (context == NULL || schedule == NULL || dictionary == NULL ||
         path_delay == NULL || !vdc_domain_schedule_validate(schedule) ||
         !vdc_timestamp_dictionary_validate(dictionary) ||
-        !vdc_domain_path_delay_table_validate(path_delay) ||
+        !(provisional
+              ? vdc_domain_path_delay_table_validate_provisional(path_delay)
+              : vdc_domain_path_delay_table_validate(path_delay)) ||
         dictionary->profile_crc32 != schedule->schedule_crc32 ||
         path_delay->schedule_crc32 != schedule->schedule_crc32 ||
         path_delay->observation_matrix.node_count !=
@@ -2203,6 +2383,26 @@ bool vdc_domain_activate_tdma_configuration(
     vdc_wrap_tracker_init_open(&context->wrap_tracker);
     vdc_domain_refresh_quality_state(context);
     return true;
+}
+
+bool vdc_domain_activate_tdma_configuration(
+    vdc_domain_context_t *context,
+    const vdc_tdma_schedule_profile_t *schedule,
+    const vdc_timestamp_dictionary_t *dictionary,
+    const vdc_path_delay_table_t *path_delay)
+{
+    return vdc_domain_activate_tdma_configuration_checked(
+        context, schedule, dictionary, path_delay, false);
+}
+
+bool vdc_domain_activate_tdma_provisional_configuration(
+    vdc_domain_context_t *context,
+    const vdc_tdma_schedule_profile_t *schedule,
+    const vdc_timestamp_dictionary_t *dictionary,
+    const vdc_path_delay_table_t *path_delay)
+{
+    return vdc_domain_activate_tdma_configuration_checked(
+        context, schedule, dictionary, path_delay, true);
 }
 
 void vdc_domain_set_ready(vdc_domain_context_t *context, bool ready)
@@ -2316,32 +2516,30 @@ bool vdc_domain_publish_path_delay_table(
     return true;
 }
 
-bool vdc_domain_submit_tdma_evidence(vdc_domain_context_t *context,
-                                     const vdc_tdma_timestamp_evidence_t *evidence)
+static bool vdc_domain_prepare_tdma_evidence_checked(
+    const vdc_domain_context_t *context,
+    const vdc_tdma_timestamp_evidence_t *evidence,
+    bool validate_static_schedule,
+    vdc_tdma_evidence_preparation_t *preparation)
 {
+    if (context == NULL || evidence == NULL || preparation == NULL) {
+        return false;
+    }
+    memset(preparation, 0, sizeof(*preparation));
+
     vdc_gate_result_t gate;
     const bool acquisition_window =
         vdc_domain_context_uses_acquisition_window(context);
     const uint32_t admission_window_width_ns =
         acquisition_window
-            ? vdc_domain_acquisition_window_width_ns(
-                  context != NULL ? &context->schedule : NULL)
-            : (context != NULL
-                   ? context->schedule.observation_window_width_ns
-                   : VDC_DOMAIN_DEFAULT_OBSERVATION_WIDTH_NS);
+            ? vdc_domain_acquisition_window_width_ns(&context->schedule)
+            : context->schedule.observation_window_width_ns;
     const uint32_t admission_guard_before_ns =
         acquisition_window ? VDC_DOMAIN_ACQUISITION_GUARD_NS
-                           : (context != NULL
-                                  ? context->schedule.guard_before_ns
-                                  : VDC_DOMAIN_DEFAULT_GUARD_NS);
+                           : context->schedule.guard_before_ns;
     const uint32_t admission_guard_after_ns =
         acquisition_window ? VDC_DOMAIN_ACQUISITION_GUARD_NS
-                           : (context != NULL
-                                  ? context->schedule.guard_after_ns
-                                  : VDC_DOMAIN_DEFAULT_GUARD_NS);
-    if (context == NULL || evidence == NULL) {
-        return false;
-    }
+                           : context->schedule.guard_after_ns;
     const uint64_t admission_window_start_ns =
         acquisition_window
             ? evidence->expected_window_start_ns
@@ -2357,23 +2555,13 @@ bool vdc_domain_submit_tdma_evidence(vdc_domain_context_t *context,
             admission_window_width_ns,
             admission_guard_before_ns,
             admission_guard_after_ns,
+            validate_static_schedule,
             &gate)) {
-        context->gate = gate;
-        context->dpll.rejected_sample_count++;
-        context->dpll.last_reject_code = gate.reject_code;
-        context->dpll.update_seq++;
-        if (vdc_domain_reject_requires_reacquire(gate.reject_code)) {
-            vdc_domain_reset_lock_acquisition(context);
-        }
-        if (context->ready != 0u) {
-            context->dpll.state =
-                vdc_domain_reject_requires_reacquire(gate.reject_code)
-                    ? VDC_DOMAIN_LOCK_CHECKING
-                    : VDC_DOMAIN_LOCK_RELOCKING;
-        }
-        vdc_domain_sync_dco_lock_state(context);
-        vdc_domain_record_rejected_sample(context, evidence, &gate);
-        return false;
+        preparation->valid = 1u;
+        preparation->schedule_crc32 = context->schedule.schedule_crc32;
+        preparation->dpll_update_seq = context->dpll.update_seq;
+        preparation->gate = gate;
+        return true;
     }
 
     const int32_t input_residual_ns =
@@ -2388,24 +2576,92 @@ bool vdc_domain_submit_tdma_evidence(vdc_domain_context_t *context,
                              VDC_DOMAIN_GATE_SERVO_OUTLIER,
                              evidence->source_slot_id,
                              evidence->sample_seq);
-        context->gate = gate;
-        context->dpll.rejected_sample_count++;
-        context->dpll.last_reject_code = gate.reject_code;
-        context->dpll.update_seq++;
-        if (context->ready != 0u) {
-            context->dpll.state = VDC_DOMAIN_LOCK_RELOCKING;
-        }
-        vdc_domain_sync_dco_lock_state(context);
-        vdc_domain_record_rejected_sample(context, evidence, &gate);
+        preparation->valid = 1u;
+        preparation->schedule_crc32 = context->schedule.schedule_crc32;
+        preparation->dpll_update_seq = context->dpll.update_seq;
+        preparation->input_residual_ns = input_residual_ns;
+        preparation->gate = gate;
+        return true;
+    }
+
+    preparation->valid = 1u;
+    preparation->schedule_crc32 = context->schedule.schedule_crc32;
+    preparation->dpll_update_seq = context->dpll.update_seq;
+    preparation->accepted = 1u;
+    preparation->input_residual_ns = input_residual_ns;
+    preparation->gate = gate;
+    return true;
+}
+
+bool VDC_DOMAIN_TIME_CRITICAL(vdc_domain_apply_prepared_tdma_evidence_servo)(
+    vdc_domain_context_t *context,
+    const vdc_tdma_timestamp_evidence_t *evidence,
+    vdc_tdma_evidence_preparation_t *preparation)
+{
+    if (context == NULL || evidence == NULL || preparation == NULL ||
+        preparation->valid == 0u ||
+        preparation->servo_applied != 0u ||
+        preparation->applied != 0u ||
+        preparation->schedule_crc32 != context->schedule.schedule_crc32 ||
+        preparation->schedule_crc32 != evidence->schedule_crc32 ||
+        preparation->dpll_update_seq != context->dpll.update_seq) {
         return false;
     }
 
+    if (preparation->accepted != 0u) {
+        context->dpll.accepted_sample_count++;
+        vdc_domain_update_clock_from_evidence(
+            context, evidence, preparation->input_residual_ns);
+    }
+    preparation->servo_applied = 1u;
+    preparation->post_servo_dpll_update_seq = context->dpll.update_seq;
+    return true;
+}
+
+bool VDC_DOMAIN_TIME_CRITICAL(vdc_domain_apply_prepared_tdma_evidence_state)(
+    vdc_domain_context_t *context,
+    const vdc_tdma_timestamp_evidence_t *evidence,
+    vdc_tdma_evidence_preparation_t *preparation,
+    bool *accepted)
+{
+    if (accepted != NULL) {
+        *accepted = false;
+    }
+    if (context == NULL || evidence == NULL || preparation == NULL ||
+        preparation->valid == 0u ||
+        preparation->servo_applied == 0u ||
+        preparation->applied != 0u ||
+        preparation->schedule_crc32 != context->schedule.schedule_crc32 ||
+        preparation->schedule_crc32 != evidence->schedule_crc32 ||
+        preparation->post_servo_dpll_update_seq !=
+            context->dpll.update_seq) {
+        return false;
+    }
+
+    const vdc_gate_result_t gate = preparation->gate;
     context->gate = gate;
-    context->dpll.accepted_sample_count++;
-    vdc_domain_update_clock_from_evidence(context, evidence);
+    if (preparation->accepted == 0u) {
+        const bool reacquire =
+            vdc_domain_reject_requires_reacquire(gate.reject_code);
+        context->dpll.rejected_sample_count++;
+        context->dpll.last_reject_code = gate.reject_code;
+        context->dpll.update_seq++;
+        if (reacquire) {
+            vdc_domain_reset_lock_acquisition(context);
+        }
+        if (context->ready != 0u) {
+            context->dpll.state = reacquire
+                ? VDC_DOMAIN_LOCK_CHECKING
+                : VDC_DOMAIN_LOCK_RELOCKING;
+        }
+        vdc_domain_sync_dco_lock_state(context);
+        preparation->applied = 1u;
+        preparation->post_apply_dpll_update_seq = context->dpll.update_seq;
+        return true;
+    }
 
     vdc_tdma_timestamp_evidence_t input_evidence = *evidence;
-    input_evidence.phase_error_ns = input_residual_ns;
+    input_evidence.phase_error_ns = preparation->input_residual_ns;
     const uint32_t abs_phase =
         vdc_domain_abs_i32(input_evidence.phase_error_ns);
 
@@ -2444,8 +2700,115 @@ bool vdc_domain_submit_tdma_evidence(vdc_domain_context_t *context,
     }
 
     vdc_domain_sync_dco_lock_state(context);
+    preparation->applied = 1u;
+    preparation->post_apply_dpll_update_seq = context->dpll.update_seq;
+    if (accepted != NULL) {
+        *accepted = true;
+    }
+    return true;
+}
+
+bool vdc_domain_apply_prepared_tdma_evidence_core(
+    vdc_domain_context_t *context,
+    const vdc_tdma_timestamp_evidence_t *evidence,
+    vdc_tdma_evidence_preparation_t *preparation,
+    bool *accepted)
+{
+    return vdc_domain_apply_prepared_tdma_evidence_servo(
+               context, evidence, preparation) &&
+           vdc_domain_apply_prepared_tdma_evidence_state(
+               context, evidence, preparation, accepted);
+}
+
+bool VDC_DOMAIN_TIME_CRITICAL(vdc_domain_finalize_prepared_tdma_evidence)(
+    vdc_domain_context_t *context,
+    const vdc_tdma_timestamp_evidence_t *evidence,
+    const vdc_tdma_evidence_preparation_t *preparation)
+{
+    if (context == NULL || evidence == NULL || preparation == NULL ||
+        preparation->valid == 0u || preparation->applied == 0u ||
+        preparation->schedule_crc32 != context->schedule.schedule_crc32 ||
+        preparation->schedule_crc32 != evidence->schedule_crc32 ||
+        preparation->post_apply_dpll_update_seq != context->dpll.update_seq) {
+        return false;
+    }
+    if (preparation->accepted == 0u) {
+        vdc_domain_record_rejected_sample(
+            context, evidence, &preparation->gate);
+        return true;
+    }
+
+    vdc_tdma_timestamp_evidence_t input_evidence = *evidence;
+    input_evidence.phase_error_ns = preparation->input_residual_ns;
     vdc_domain_record_accepted_sample(context, &input_evidence);
     return true;
+}
+
+bool vdc_domain_apply_prepared_tdma_evidence(
+    vdc_domain_context_t *context,
+    const vdc_tdma_timestamp_evidence_t *evidence,
+    vdc_tdma_evidence_preparation_t *preparation,
+    bool *accepted)
+{
+    return vdc_domain_apply_prepared_tdma_evidence_core(
+               context, evidence, preparation, accepted) &&
+           vdc_domain_finalize_prepared_tdma_evidence(
+               context, evidence, preparation);
+}
+
+static bool vdc_domain_submit_tdma_evidence_checked(
+    vdc_domain_context_t *context,
+    const vdc_tdma_timestamp_evidence_t *evidence,
+    bool validate_static_schedule)
+{
+    vdc_tdma_evidence_preparation_t preparation;
+    bool accepted = false;
+    return vdc_domain_prepare_tdma_evidence_checked(
+               context, evidence, validate_static_schedule, &preparation) &&
+           vdc_domain_apply_prepared_tdma_evidence(
+               context, evidence, &preparation, &accepted) && accepted;
+}
+
+bool vdc_domain_submit_tdma_evidence(
+    vdc_domain_context_t *context,
+    const vdc_tdma_timestamp_evidence_t *evidence)
+{
+    return vdc_domain_submit_tdma_evidence_checked(context, evidence, true);
+}
+
+bool vdc_domain_submit_active_tdma_evidence(
+    vdc_domain_context_t *context,
+    const vdc_tdma_timestamp_evidence_t *evidence)
+{
+    vdc_tdma_evidence_preparation_t preparation;
+    bool accepted = false;
+    return vdc_domain_prepare_active_tdma_evidence(
+               context, evidence, &preparation) &&
+           vdc_domain_apply_prepared_tdma_evidence(
+               context, evidence, &preparation, &accepted) && accepted;
+}
+
+bool vdc_domain_prepare_active_tdma_evidence(
+    const vdc_domain_context_t *context,
+    const vdc_tdma_timestamp_evidence_t *evidence,
+    vdc_tdma_evidence_preparation_t *preparation)
+{
+    if (context == NULL || evidence == NULL ||
+        preparation == NULL ||
+        context->path_delay.valid == 0u ||
+        context->path_delay.table_crc32 == 0u ||
+        context->schedule.schedule_crc32 == 0u ||
+        context->dpll.schedule_crc32 != context->schedule.schedule_crc32 ||
+        context->clock.tdma_schedule_crc32 !=
+            context->schedule.schedule_crc32 ||
+        context->timestamp_dictionary.profile_crc32 !=
+            context->schedule.schedule_crc32 ||
+        context->path_delay.schedule_crc32 !=
+            context->schedule.schedule_crc32) {
+        return false;
+    }
+    return vdc_domain_prepare_tdma_evidence_checked(
+        context, evidence, false, preparation);
 }
 
 bool vdc_domain_submit_compact_observation(

@@ -606,10 +606,15 @@ void sync_trigger_service(void)
 {
     trig_event_t event;
     if (!queue_try_remove(&s_ao.queue, &event)) {
-        /* 无事件时仍同步 ARM 态 PIO 状态 */
-        if (s_ao.vector.state == TRIG_STATE_SEQ_ARMED ||
+        const bool runtime_monitoring =
+            s_ao.vector.state == TRIG_STATE_SEQ_ARMED ||
             s_ao.vector.state == TRIG_STATE_ENC_ARMED ||
-            s_ao.vector.state == TRIG_STATE_BISS_ARMED) {
+            s_ao.vector.state == TRIG_STATE_BISS_ARMED;
+        if (!runtime_monitoring) {
+            return;
+        }
+        /* 无事件时仍同步 ARM 态 PIO 状态 */
+        if (runtime_monitoring) {
             const uint32_t now_ms = board_uptime_ms();
             if (now_ms == s_runtime_sample_last_ms) {
                 return;

@@ -116,6 +116,9 @@ _Static_assert(APP_REFMEM_VECTOR_MIRROR_ESTIMATED_CYCLES <=
 _Static_assert(PROJECT_CORE1_REFMEM_VECTOR_MIRROR_WCET_CYCLES <=
                    PROJECT_CORE1_PHASE_REFMEM_WCET_CYCLES,
                "VDC/DPLL vector mirror does not fit the RefMem phase");
+_Static_assert(PROJECT_CORE1_REFMEM_VECTOR_MIRROR_REQUIRED_CYCLES <=
+                   PROJECT_CORE1_PHASE_REFMEM_WCET_CYCLES,
+               "measured RefMem vector mirror plus margin exceeds phase WCET");
 #undef APP_REFMEM_VECTOR_MIRROR_ESTIMATED_CYCLES
 #undef APP_REFMEM_VECTOR_PAYLOAD_BYTES
 

@@ -29,10 +29,14 @@ static vdc_dpll_manager_vdc_status_t s_published_vdc_status;
 static vdc_dpll_manager_dpll_status_t s_published_dpll_status;
 static vdc_dpll_manager_dco_consumer_status_t s_dco_consumer_status;
 static vdc_dpll_manager_dco_consumer_status_t s_published_dco_consumer_status;
+static volatile uint32_t s_published_dpll_status_guard;
 static vdc_dpll_manager_sync_io_observer_status_t
     s_published_sync_io_observer_status;
+static volatile uint32_t s_published_snapshot_guard;
 static vdc_domain_snapshot_t s_published_snapshot;
 static bool s_published_snapshot_valid;
+static volatile uint32_t s_published_dpll_update_seq;
+static uint32_t s_dpll_consumed_update_seq;
 static vdc_dpll_manager_observation_self_test_status_t s_observation_self_test;
 static vdc_domain_context_t s_vdc_domain;
 static tdma_service_service_t *s_vdc_tdma_service;
@@ -45,41 +49,204 @@ static bool s_vdc_ready;
 static bool s_dpll_ready;
 static uint32_t s_vdc_ring_observation_config_seq;
 static uint32_t s_vdc_ring_observation_sequence;
+static vdc_tdma_timestamp_evidence_t s_vdc_ring_pending_evidence;
+static vdc_tdma_evidence_preparation_t s_vdc_ring_preparation;
+static uint32_t s_vdc_ring_pending_config_seq;
+static bool s_vdc_ring_evidence_pending;
+static bool s_vdc_ring_preparation_pending;
+static bool s_vdc_ring_finalization_pending;
+static bool s_vdc_domain_service_pending;
+static vdc_dpll_manager_ring_observer_status_t s_ring_observer_status;
+static volatile uint32_t s_ring_observer_status_guard;
 
-static void vdc_dpll_manager_ring_observer_service(void)
+typedef struct {
+    vdc_tdma_schedule_profile_t schedule;
+    vdc_servo_profile_t servo;
+    vdc_dco_control_t dco;
+    vdc_dpll_state_t dpll;
+} vdc_dpll_manager_runtime_snapshot_t;
+
+static void vdc_dpll_manager_publish_snapshot(
+    const vdc_domain_snapshot_t *snapshot)
 {
-    tdma_ring_runtime_snapshot_t ring;
-    if (!tdma_runtime_owner_get_ring_snapshot(&ring) ||
-        ring.enabled == 0u || ring.adapter_started == 0u ||
-        ring.clock_observation.valid == 0u) {
+    if (snapshot == NULL) {
         return;
     }
+    (void)__atomic_add_fetch(&s_published_snapshot_guard,
+                             1u,
+                             __ATOMIC_ACQ_REL);
+    s_published_snapshot = *snapshot;
+    s_published_snapshot_valid = true;
+    __atomic_store_n(&s_published_dpll_update_seq,
+                     snapshot->dpll.update_seq,
+                     __ATOMIC_RELEASE);
+    (void)__atomic_add_fetch(&s_published_snapshot_guard,
+                             1u,
+                             __ATOMIC_RELEASE);
+}
 
-    osal_critical_enter();
+/* Schedule, servo and path matrices are immutable between configuration
+ * activations.  Updating those large tables for every 4 ms clock sample made
+ * the otherwise bounded VDC phase exceed its cycle budget.  The realtime
+ * path publishes only fields changed by evidence/service; activation keeps
+ * using the complete snapshot publisher above.  Both paths share one seqlock
+ * and therefore preserve the existing reader contract. */
+static void vdc_dpll_manager_publish_runtime_snapshot_locked(void)
+{
+    (void)__atomic_add_fetch(&s_published_snapshot_guard,
+                             1u,
+                             __ATOMIC_ACQ_REL);
+    s_published_snapshot.ready = s_vdc_domain.ready;
+    s_published_snapshot.service_count = s_vdc_domain.service_count;
+    s_published_snapshot.first_service_time_ns =
+        s_vdc_domain.first_service_time_ns;
+    s_published_snapshot.last_service_time_ns =
+        s_vdc_domain.last_service_time_ns;
+    s_published_snapshot.clock = s_vdc_domain.clock;
+    s_published_snapshot.dco = s_vdc_domain.dco;
+    s_published_snapshot.dpll = s_vdc_domain.dpll;
+    s_published_snapshot.quality = s_vdc_domain.quality;
+    s_published_snapshot.error_budget = s_vdc_domain.error_budget;
+    s_published_snapshot.gate = s_vdc_domain.gate;
+    s_published_snapshot_valid = true;
+    __atomic_store_n(&s_published_dpll_update_seq,
+                     s_vdc_domain.dpll.update_seq,
+                     __ATOMIC_RELEASE);
+    (void)__atomic_add_fetch(&s_published_snapshot_guard,
+                             1u,
+                             __ATOMIC_RELEASE);
+}
+
+static bool vdc_dpll_manager_publish_domain_snapshot_locked(void)
+{
+    vdc_domain_snapshot_t snapshot;
+    if (!vdc_domain_get_snapshot(&s_vdc_domain, &snapshot)) {
+        return false;
+    }
+    vdc_dpll_manager_publish_snapshot(&snapshot);
+    return true;
+}
+
+static bool vdc_dpll_manager_get_runtime_snapshot(
+    vdc_dpll_manager_runtime_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) {
+        return false;
+    }
+    for (uint32_t attempt = 0u; attempt < 64u; attempt++) {
+        const uint32_t begin = __atomic_load_n(
+            &s_published_snapshot_guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) {
+            continue;
+        }
+        snapshot->schedule = s_published_snapshot.schedule;
+        snapshot->servo = s_published_snapshot.servo;
+        snapshot->dco = s_published_snapshot.dco;
+        snapshot->dpll = s_published_snapshot.dpll;
+        const bool valid = s_published_snapshot_valid;
+        const uint32_t end = __atomic_load_n(
+            &s_published_snapshot_guard, __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) {
+            return valid;
+        }
+    }
+    return false;
+}
+
+static void vdc_dpll_manager_publish_dpll_status(void)
+{
+    (void)__atomic_add_fetch(&s_published_dpll_status_guard,
+                             1u,
+                             __ATOMIC_ACQ_REL);
+    s_published_dpll_status = s_dpll_status;
+    s_published_dco_consumer_status = s_dco_consumer_status;
+    (void)__atomic_add_fetch(&s_published_dpll_status_guard,
+                             1u,
+                             __ATOMIC_RELEASE);
+}
+
+static bool vdc_dpll_manager_finish_ring_observer_service(
+    const vdc_dpll_manager_ring_observer_status_t *status,
+    bool result)
+{
+    (void)__atomic_add_fetch(&s_ring_observer_status_guard,
+                             1u,
+                             __ATOMIC_ACQ_REL);
+    s_ring_observer_status = *status;
+    (void)__atomic_add_fetch(&s_ring_observer_status_guard,
+                             1u,
+                             __ATOMIC_RELEASE);
+    return result;
+}
+
+static bool vdc_dpll_manager_ring_observer_service(uint32_t *lock_state)
+{
+    if (lock_state == NULL) {
+        return false;
+    }
+    *lock_state = s_vdc_domain.dpll.state;
+    tdma_ring_clock_snapshot_t ring;
+    vdc_dpll_manager_ring_observer_status_t status =
+        s_ring_observer_status;
+    status.service_count++;
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring)) {
+        status.last_result =
+            VDC_DPLL_MANAGER_RING_OBSERVER_SNAPSHOT_UNAVAILABLE;
+        return vdc_dpll_manager_finish_ring_observer_service(&status, false);
+    }
+    status.snapshot_count++;
+    status.last_config_seq = ring.config_seq;
+    if (ring.enabled == 0u || ring.adapter_started == 0u ||
+        ring.clock_observation.valid == 0u) {
+        status.last_result =
+            VDC_DPLL_MANAGER_RING_OBSERVER_INACTIVE;
+        return vdc_dpll_manager_finish_ring_observer_service(&status, false);
+    }
+
+    const tdma_ring_clock_observation_t *clock = &ring.clock_observation;
+    if (s_vdc_ring_observation_config_seq == ring.config_seq &&
+        clock->correlated_sequence == s_vdc_ring_observation_sequence) {
+        status.last_sequence = clock->correlated_sequence;
+        status.last_result =
+            VDC_DPLL_MANAGER_RING_OBSERVER_DUPLICATE;
+        return vdc_dpll_manager_finish_ring_observer_service(&status, false);
+    }
+
+    /* TDMA/VDC configuration is activated only while the ring is STOPPED.
+     * Once running, core1 is the sole domain writer; a global OSAL spinlock
+     * here would let core0 diagnostics block the realtime phase. */
     if (s_vdc_ring_observation_config_seq != ring.config_seq) {
         s_vdc_ring_observation_config_seq = ring.config_seq;
         s_vdc_ring_observation_sequence = 0u;
     }
-    const tdma_ring_clock_observation_t *clock = &ring.clock_observation;
-    if (clock->correlated_sequence == s_vdc_ring_observation_sequence ||
-        clock->schedule_crc32 != ring.schedule_crc32 ||
+    status.last_sequence = clock->correlated_sequence;
+    if (clock->correlated_sequence == s_vdc_ring_observation_sequence) {
+        status.last_result =
+            VDC_DPLL_MANAGER_RING_OBSERVER_DUPLICATE;
+        return vdc_dpll_manager_finish_ring_observer_service(&status, false);
+    }
+    if (clock->schedule_crc32 != ring.schedule_crc32 ||
         clock->schedule_crc32 != s_vdc_domain.schedule.schedule_crc32 ||
         clock->node_count != ring.node_count ||
         clock->source_node != ring.local_slot_id ||
         clock->reference_node != ring.reference_slot_id) {
-        osal_critical_exit();
-        return;
+        status.last_result =
+            VDC_DPLL_MANAGER_RING_OBSERVER_IDENTITY_REJECTED;
+        return vdc_dpll_manager_finish_ring_observer_service(&status, false);
     }
+    status.eligible_count++;
 
     vdc_path_delay_entry_t path_entry;
-    if (!vdc_domain_observation_path_delay_lookup(
+    if (!vdc_domain_active_observation_path_delay_lookup(
             &s_vdc_domain.path_delay,
             clock->source_node,
             clock->reference_node,
             &path_entry)) {
-        osal_critical_exit();
-        return;
+        status.last_result =
+            VDC_DPLL_MANAGER_RING_OBSERVER_PATH_REJECTED;
+        return vdc_dpll_manager_finish_ring_observer_service(&status, false);
     }
+    status.path_count++;
 
     const vdc_ring_observation_t observation = {
         .node_count = clock->node_count,
@@ -96,13 +263,118 @@ static void vdc_dpll_manager_ring_observer_service(void)
         .local_rx_timestamp_ns = clock->local_rx_timestamp_ns,
     };
     vdc_tdma_timestamp_evidence_t evidence;
-    if (vdc_ring_observer_expand(&s_vdc_domain.schedule,
-                                 &observation,
-                                 &evidence)) {
+    if (vdc_ring_observer_expand_active(&s_vdc_domain.schedule,
+                                        &observation,
+                                        &evidence)) {
+        status.expand_count++;
         s_vdc_ring_observation_sequence = clock->correlated_sequence;
-        (void)vdc_domain_submit_tdma_evidence(&s_vdc_domain, &evidence);
+        if (s_vdc_ring_evidence_pending ||
+            s_vdc_ring_preparation_pending ||
+            s_vdc_ring_finalization_pending) {
+            status.last_result =
+                VDC_DPLL_MANAGER_RING_OBSERVER_DUPLICATE;
+            return vdc_dpll_manager_finish_ring_observer_service(
+                &status, false);
+        }
+        s_vdc_ring_pending_evidence = evidence;
+        s_vdc_ring_pending_config_seq = ring.config_seq;
+        s_vdc_ring_evidence_pending = true;
+        status.last_result =
+            VDC_DPLL_MANAGER_RING_OBSERVER_EVIDENCE_PENDING;
+    } else {
+        status.last_result =
+            VDC_DPLL_MANAGER_RING_OBSERVER_EXPAND_REJECTED;
+        return vdc_dpll_manager_finish_ring_observer_service(&status, false);
     }
-    osal_critical_exit();
+    return vdc_dpll_manager_finish_ring_observer_service(&status, true);
+}
+
+static bool vdc_dpll_manager_prepare_ring_evidence(void)
+{
+    if (!s_vdc_ring_evidence_pending) {
+        return false;
+    }
+
+    vdc_dpll_manager_ring_observer_status_t status = s_ring_observer_status;
+    const bool configuration_matches =
+        s_vdc_ring_pending_config_seq == s_vdc_ring_observation_config_seq;
+    s_vdc_ring_evidence_pending = false;
+    s_vdc_ring_pending_config_seq = 0u;
+
+    status.submitted_count++;
+    if (configuration_matches &&
+        vdc_domain_prepare_active_tdma_evidence(
+            &s_vdc_domain,
+            &s_vdc_ring_pending_evidence,
+            &s_vdc_ring_preparation)) {
+        s_vdc_ring_preparation_pending = true;
+        status.last_result =
+            VDC_DPLL_MANAGER_RING_OBSERVER_EVIDENCE_PENDING;
+    } else {
+        status.rejected_count++;
+        status.last_result =
+            VDC_DPLL_MANAGER_RING_OBSERVER_SUBMIT_REJECTED;
+    }
+    return vdc_dpll_manager_finish_ring_observer_service(&status, true);
+}
+
+static bool vdc_dpll_manager_apply_ring_evidence(void)
+{
+    if (!s_vdc_ring_preparation_pending) {
+        return false;
+    }
+
+    vdc_dpll_manager_ring_observer_status_t status = s_ring_observer_status;
+    const bool applied = vdc_domain_apply_prepared_tdma_evidence_servo(
+        &s_vdc_domain,
+        &s_vdc_ring_pending_evidence,
+        &s_vdc_ring_preparation);
+    s_vdc_ring_preparation_pending = false;
+    if (applied) {
+        s_vdc_ring_finalization_pending = true;
+        status.last_result =
+            VDC_DPLL_MANAGER_RING_OBSERVER_EVIDENCE_PENDING;
+    } else {
+        memset(&s_vdc_ring_preparation, 0, sizeof(s_vdc_ring_preparation));
+        status.rejected_count++;
+        status.last_result =
+            VDC_DPLL_MANAGER_RING_OBSERVER_SUBMIT_REJECTED;
+    }
+    return vdc_dpll_manager_finish_ring_observer_service(&status, true);
+}
+
+static bool vdc_dpll_manager_finalize_ring_evidence(void)
+{
+    if (!s_vdc_ring_finalization_pending) {
+        return false;
+    }
+
+    vdc_dpll_manager_ring_observer_status_t status = s_ring_observer_status;
+    bool accepted = false;
+    const bool state_applied =
+        vdc_domain_apply_prepared_tdma_evidence_state(
+            &s_vdc_domain,
+            &s_vdc_ring_pending_evidence,
+            &s_vdc_ring_preparation,
+            &accepted);
+    const bool finalized = state_applied &&
+        vdc_domain_finalize_prepared_tdma_evidence(
+            &s_vdc_domain,
+            &s_vdc_ring_pending_evidence,
+            &s_vdc_ring_preparation);
+    s_vdc_ring_finalization_pending = false;
+    memset(&s_vdc_ring_preparation, 0, sizeof(s_vdc_ring_preparation));
+    if (finalized && accepted) {
+        status.accepted_count++;
+        status.last_result =
+            VDC_DPLL_MANAGER_RING_OBSERVER_SUBMIT_ACCEPTED;
+    } else {
+        status.rejected_count++;
+        status.last_result =
+            VDC_DPLL_MANAGER_RING_OBSERVER_SUBMIT_REJECTED;
+    }
+    s_vdc_domain_service_pending = finalized;
+    return vdc_dpll_manager_finish_ring_observer_service(&status, true);
 }
 
 static bool vdc_dpll_manager_configure_sync_io_observer_tdma_mask(
@@ -501,10 +773,14 @@ bool vdc_dpll_manager_init(void)
     memset(&s_published_dco_consumer_status,
            0,
            sizeof(s_published_dco_consumer_status));
+    s_published_dpll_status_guard = 0u;
     memset(&s_published_sync_io_observer_status,
            0,
            sizeof(s_published_sync_io_observer_status));
+    s_published_snapshot_guard = 0u;
     memset(&s_published_snapshot, 0, sizeof(s_published_snapshot));
+    s_published_dpll_update_seq = 0u;
+    s_dpll_consumed_update_seq = 0u;
     memset(&s_observation_self_test, 0, sizeof(s_observation_self_test));
     s_vdc_tdma_service = NULL;
     memset(&s_vdc_tdma_self_test_evidence,
@@ -515,6 +791,16 @@ bool vdc_dpll_manager_init(void)
     s_vdc_tdma_self_test_submitted_seq = 0u;
     s_vdc_ring_observation_config_seq = 0u;
     s_vdc_ring_observation_sequence = 0u;
+    memset(&s_vdc_ring_pending_evidence,
+           0,
+           sizeof(s_vdc_ring_pending_evidence));
+    memset(&s_vdc_ring_preparation, 0, sizeof(s_vdc_ring_preparation));
+    s_vdc_ring_pending_config_seq = 0u;
+    s_vdc_ring_evidence_pending = false;
+    s_vdc_ring_preparation_pending = false;
+    s_vdc_ring_finalization_pending = false;
+    s_vdc_domain_service_pending = false;
+    memset(&s_ring_observer_status, 0, sizeof(s_ring_observer_status));
     if (!vdc_domain_init(&s_vdc_domain)) {
         return false;
     }
@@ -549,34 +835,27 @@ void vdc_dpll_manager_set_dpll_ready(bool ready)
     osal_critical_enter();
     s_dpll_ready = ready;
     s_dpll_status.ready = ready;
-    s_published_dpll_status = s_dpll_status;
+    vdc_dpll_manager_publish_dpll_status();
     osal_critical_exit();
 }
 
 void vdc_sync_ao_service(void)
 {
     const uint32_t now_ms = board_uptime_ms();
-    vdc_domain_snapshot_t snapshot;
+    uint32_t lock_state = VDC_DOMAIN_LOCK_OFF;
 
-    vdc_dpll_manager_observation_self_test_service();
-    vdc_dpll_manager_sync_io_observer_service();
-    vdc_dpll_manager_ring_observer_service();
-
-    osal_critical_enter();
-    vdc_domain_service(&s_vdc_domain, vdc_dpll_manager_now_ns());
-    (void)vdc_domain_get_snapshot(&s_vdc_domain, &snapshot);
+    if (!vdc_dpll_manager_ring_observer_service(&lock_state)) {
+        return;
+    }
     if (s_vdc_status.service_count == 0u) {
         s_vdc_status.first_service_ms = now_ms;
     }
     s_vdc_status.service_count++;
     s_vdc_status.last_service_ms = now_ms;
     s_vdc_status.ready = s_vdc_ready;
-    s_vdc_status.lock_state = snapshot.dpll.state;
+    s_vdc_status.lock_state = lock_state;
     s_vdc_status.sync_seq++;
-    s_published_snapshot = snapshot;
-    s_published_snapshot_valid = true;
     s_published_vdc_status = s_vdc_status;
-    osal_critical_exit();
 }
 
 void vdc_dpll_manager_vdc_service(void)
@@ -961,14 +1240,19 @@ void vdc_dpll_manager_get_sync_io_observer_status(
     osal_critical_exit();
 }
 
-void sync_dpll_fb_service(void)
+static void vdc_dpll_manager_refresh_dco_consumer_status_core0(void)
 {
     const uint32_t now_ms = board_uptime_ms();
-    vdc_domain_snapshot_t snapshot;
-    bool snapshot_ok = false;
+    vdc_dpll_manager_runtime_snapshot_t snapshot;
+    const uint32_t published_update_seq =
+        vdc_dpll_manager_published_update_seq();
+    if (published_update_seq == 0u ||
+        published_update_seq == s_dpll_consumed_update_seq) {
+        return;
+    }
+    const bool snapshot_ok =
+        vdc_dpll_manager_get_runtime_snapshot(&snapshot);
 
-    osal_critical_enter();
-    snapshot_ok = vdc_domain_get_snapshot(&s_vdc_domain, &snapshot);
     if (s_dpll_status.service_count == 0u) {
         s_dpll_status.first_service_ms = now_ms;
     }
@@ -1022,9 +1306,30 @@ void sync_dpll_fb_service(void)
             snapshot.dco.servo_profile_crc32;
     }
 
-    s_published_dpll_status = s_dpll_status;
-    s_published_dco_consumer_status = s_dco_consumer_status;
-    osal_critical_exit();
+    if (snapshot_ok) {
+        s_dpll_consumed_update_seq = snapshot.dpll.update_seq;
+    }
+    vdc_dpll_manager_publish_dpll_status();
+}
+
+void sync_dpll_fb_service(void)
+{
+    /* Complete already-admitted domain work before accepting another ring
+     * sample. This keeps one bounded four-beat pipeline at the 4 ms evidence
+     * cadence: prepare, servo, state/finalize, service/publish. */
+    if (s_vdc_domain_service_pending) {
+        s_vdc_domain_service_pending = false;
+        vdc_domain_service(&s_vdc_domain, vdc_dpll_manager_now_ns());
+        vdc_dpll_manager_publish_runtime_snapshot_locked();
+        return;
+    }
+    if (vdc_dpll_manager_finalize_ring_evidence()) {
+        return;
+    }
+    if (vdc_dpll_manager_prepare_ring_evidence()) {
+        return;
+    }
+    (void)vdc_dpll_manager_apply_ring_evidence();
 }
 
 void vdc_dpll_manager_dpll_service(void)
@@ -1072,9 +1377,20 @@ void vdc_dpll_manager_get_dpll_status(vdc_dpll_manager_dpll_status_t *status)
         return;
     }
 
-    osal_critical_enter();
-    *status = s_published_dpll_status;
-    osal_critical_exit();
+    for (uint32_t attempt = 0u; attempt < 64u; attempt++) {
+        const uint32_t begin = __atomic_load_n(
+            &s_published_dpll_status_guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) {
+            continue;
+        }
+        *status = s_published_dpll_status;
+        const uint32_t end = __atomic_load_n(
+            &s_published_dpll_status_guard, __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) {
+            return;
+        }
+    }
+    memset(status, 0, sizeof(*status));
 }
 
 void vdc_dpll_manager_get_dco_consumer_status(
@@ -1084,25 +1400,47 @@ void vdc_dpll_manager_get_dco_consumer_status(
         return;
     }
 
-    osal_critical_enter();
-    *status = s_published_dco_consumer_status;
-    osal_critical_exit();
+    for (uint32_t attempt = 0u; attempt < 64u; attempt++) {
+        const uint32_t begin = __atomic_load_n(
+            &s_published_dpll_status_guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) {
+            continue;
+        }
+        *status = s_published_dco_consumer_status;
+        const uint32_t end = __atomic_load_n(
+            &s_published_dpll_status_guard, __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) {
+            return;
+        }
+    }
+    memset(status, 0, sizeof(*status));
 }
 
 bool vdc_dpll_manager_get_snapshot(vdc_domain_snapshot_t *snapshot)
 {
-    bool result = false;
     if (snapshot == NULL) {
         return false;
     }
-
-    osal_critical_enter();
-    if (s_published_snapshot_valid) {
+    for (uint32_t attempt = 0u; attempt < 8u; attempt++) {
+        const uint32_t begin = __atomic_load_n(
+            &s_published_snapshot_guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) {
+            continue;
+        }
+        const bool valid = s_published_snapshot_valid;
         *snapshot = s_published_snapshot;
-        result = true;
+        const uint32_t end = __atomic_load_n(
+            &s_published_snapshot_guard, __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) {
+            return valid;
+        }
     }
-    osal_critical_exit();
-    return result;
+    return false;
+}
+
+uint32_t vdc_dpll_manager_published_update_seq(void)
+{
+    return __atomic_load_n(&s_published_dpll_update_seq, __ATOMIC_ACQUIRE);
 }
 
 bool vdc_dpll_manager_get_tdma_snapshot(tdma_service_snapshot_t *snapshot)
@@ -1207,6 +1545,35 @@ bool vdc_dpll_manager_publish_calibration_path_delay(
         &s_vdc_domain, table);
     osal_critical_exit();
     return accepted;
+}
+
+void vdc_dpll_manager_get_ring_observer_status(
+    vdc_dpll_manager_ring_observer_status_t *status)
+{
+    if (status == NULL) {
+        return;
+    }
+    for (uint32_t attempt = 0u; attempt < 64u; attempt++) {
+        const uint32_t begin = __atomic_load_n(
+            &s_ring_observer_status_guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) {
+            continue;
+        }
+        *status = s_ring_observer_status;
+        const uint32_t end = __atomic_load_n(
+            &s_ring_observer_status_guard, __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) {
+            return;
+        }
+    }
+    memset(status, 0, sizeof(*status));
+}
+
+void vdc_dpll_manager_core0_service(void)
+{
+    vdc_dpll_manager_observation_self_test_service();
+    vdc_dpll_manager_sync_io_observer_service();
+    vdc_dpll_manager_refresh_dco_consumer_status_core0();
 }
 
 static bool vdc_dpll_manager_build_calibration_path_table(
@@ -1342,6 +1709,135 @@ bool vdc_dpll_manager_activate_tdma_calibration(
     if (accepted) {
         s_vdc_ring_observation_config_seq = 0u;
         s_vdc_ring_observation_sequence = 0u;
+        s_vdc_ring_pending_config_seq = 0u;
+        s_vdc_ring_evidence_pending = false;
+        s_vdc_ring_preparation_pending = false;
+        s_vdc_ring_finalization_pending = false;
+        memset(&s_vdc_ring_preparation, 0,
+               sizeof(s_vdc_ring_preparation));
+        s_vdc_domain_service_pending = false;
+        (void)vdc_dpll_manager_publish_domain_snapshot_locked();
+    }
+    osal_critical_exit();
+    return accepted;
+}
+
+static bool vdc_dpll_manager_build_provisional_training_path_table(
+    const tdma_ring_calibration_stage_t *stage,
+    const vdc_tdma_schedule_profile_t *schedule,
+    uint32_t previous_update_seq,
+    vdc_path_delay_table_t *table)
+{
+    tdma_ring_runtime_reason_t reason;
+    if (stage == NULL || schedule == NULL || table == NULL ||
+        !tdma_ring_runtime_validate_calibration_stage(
+            stage, schedule->ring_binding.node_count, &reason) ||
+        stage->node_count != schedule->ring_binding.node_count ||
+        stage->schedule_crc32 != schedule->schedule_crc32 ||
+        stage->profile_crc32 != schedule->operating_profile_crc32) {
+        return false;
+    }
+
+    memset(table, 0, sizeof(*table));
+    table->valid = 1u;
+    table->version = VDC_DOMAIN_PATH_DELAY_TABLE_VERSION;
+    table->update_seq = previous_update_seq + 1u;
+    if (table->update_seq == 0u) {
+        table->update_seq = 1u;
+    }
+    table->entry_count = stage->node_count;
+    table->schedule_crc32 = schedule->schedule_crc32;
+    table->calibration_generation = stage->calibration_generation;
+    table->topology_generation = stage->topology_generation;
+    table->bias_generation = 0u;
+    table->freshness_us = 1u;
+    table->flags = VDC_PATH_DELAY_FLAG_HARDWARE_LATCHED |
+                   VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY;
+
+    for (uint32_t i = 0u; i < stage->node_count; i++) {
+        const tdma_ring_calibration_link_t *link = &stage->links[i];
+        if (link->link_base_delay_ns > UINT32_MAX / 2u) {
+            return false;
+        }
+        vdc_path_delay_entry_t *entry = &table->entries[i];
+        entry->valid = 1u;
+        entry->source_slot_id = link->marker_source_node;
+        entry->reference_slot_id = link->marker_destination_node;
+        entry->direction = 0u;
+        /* TRN-01/02 freezes link_base_delay as half of the measured
+         * directed link delay. P4-LIVE uses that quantized value only as a
+         * provisional servo input; endpoint bias remains deliberately absent. */
+        entry->delay_ns = link->link_base_delay_ns * 2u;
+        entry->jitter_ns = link->sample_period_ns;
+        entry->stddev_ns = link->sample_period_ns;
+        entry->cal_crc32 = stage->topology_crc32;
+        entry->freshness_us = table->freshness_us;
+        entry->writer = link->marker_source_node;
+        entry->update_seq = table->update_seq;
+    }
+    if (!vdc_domain_load_observation_path_matrix(table, stage->node_count)) {
+        return false;
+    }
+    table->table_crc32 = vdc_domain_path_delay_table_crc32(table);
+    return vdc_domain_path_delay_table_validate_provisional(table);
+}
+
+bool vdc_dpll_manager_activate_tdma_provisional_training(void)
+{
+    tdma_service_ring_runtime_config_t runtime;
+    tdma_ring_runtime_snapshot_t ring;
+    tdma_ring_calibration_stage_t stage;
+    bool complete = false;
+    if (!tdma_runtime_owner_get_staged_ring_config(&runtime) ||
+        !tdma_runtime_owner_get_ring_snapshot(&ring) || ring.enabled != 0u ||
+        !tdma_runtime_owner_get_calibration_stage(&stage, &complete) ||
+        !complete || runtime.enabled == 0u ||
+        stage.node_count != runtime.node_count ||
+        stage.topology_crc32 != runtime.ring_profile_crc32 ||
+        stage.profile_crc32 != runtime.operating_profile_crc32 ||
+        stage.schedule_crc32 != runtime.schedule_crc32) {
+        return false;
+    }
+
+    const vdc_tdma_runtime_binding_t binding = {
+        .node_count = runtime.node_count,
+        .local_slot_id = runtime.local_slot_id,
+        .reference_slot_id = runtime.reference_slot_id,
+        .ring_profile_crc32 = runtime.ring_profile_crc32,
+        .operating_profile_crc32 = runtime.operating_profile_crc32,
+        .cycle_period_ns = runtime.cycle_period_ns,
+        .effective_schedule_crc32 = runtime.schedule_crc32,
+    };
+
+    osal_critical_enter();
+    vdc_tdma_schedule_profile_t schedule;
+    vdc_timestamp_dictionary_t dictionary;
+    vdc_path_delay_table_t path_delay;
+    bool prepared = vdc_domain_build_tdma_runtime_schedule(
+        &s_vdc_domain.schedule, &binding, &schedule);
+    if (prepared) {
+        vdc_domain_default_timestamp_dictionary(&dictionary, &schedule);
+        prepared = vdc_timestamp_dictionary_validate(&dictionary);
+    }
+    if (prepared) {
+        prepared = vdc_dpll_manager_build_provisional_training_path_table(
+            &stage, &schedule, s_vdc_domain.path_delay.update_seq,
+            &path_delay);
+    }
+    const bool accepted = prepared &&
+        vdc_domain_activate_tdma_provisional_configuration(
+            &s_vdc_domain, &schedule, &dictionary, &path_delay);
+    if (accepted) {
+        s_vdc_ring_observation_config_seq = 0u;
+        s_vdc_ring_observation_sequence = 0u;
+        s_vdc_ring_pending_config_seq = 0u;
+        s_vdc_ring_evidence_pending = false;
+        s_vdc_ring_preparation_pending = false;
+        s_vdc_ring_finalization_pending = false;
+        memset(&s_vdc_ring_preparation, 0,
+               sizeof(s_vdc_ring_preparation));
+        s_vdc_domain_service_pending = false;
+        (void)vdc_dpll_manager_publish_domain_snapshot_locked();
     }
     osal_critical_exit();
     return accepted;

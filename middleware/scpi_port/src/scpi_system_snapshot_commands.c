@@ -2371,6 +2371,31 @@ scpi_result_t scpi_cmd_system_tdma_flight_clock_evidence_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_system_tdma_flight_clock_evidence_status_q(
+    scpi_t *context)
+{
+    tdma_pio_spi_ring_adapter_t *adapter =
+        tdma_runtime_owner_get_ring_adapter();
+    tdma_pio_spi_ring_adapter_snapshot_t snapshot;
+    if (adapter == NULL ||
+        !tdma_pio_spi_ring_adapter_get_snapshot(adapter, &snapshot)) {
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, snapshot.clock_evidence_enabled);
+    SCPI_ResultUInt32(context, snapshot.clock_evidence_build_count);
+    SCPI_ResultUInt32(context, snapshot.clock_evidence_build_reject_count);
+    SCPI_ResultUInt32(context, snapshot.clock_evidence_build_last_reason);
+    SCPI_ResultUInt32(context, snapshot.clock_evidence_last_tx_encoded);
+    SCPI_ResultUInt32(context, snapshot.clock_evidence_last_rx_encoded);
+    SCPI_ResultUInt32(context, snapshot.pending_tx_evidence);
+    SCPI_ResultUInt32(context, snapshot.pending_tx_evidence_sequence);
+    SCPI_ResultUInt32(context, snapshot.clock_observation_count);
+    SCPI_ResultUInt32(context, snapshot.clock_observation_reject_count);
+    SCPI_ResultUInt32(context,
+                      snapshot.clock_observation_last_reject_reason);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_system_tdma_load_mask(scpi_t *context)
 {
     uint32_t enabled_mask = 0u;

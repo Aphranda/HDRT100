@@ -210,6 +210,7 @@ void app_ota_service(void)
 
 void app_diag_service(void)
 {
+    vdc_dpll_manager_core0_service();
     diagnostics_housekeeping_service();
 }
 
@@ -452,7 +453,6 @@ static void app_realtime_tdma_phase(void)
 
 static void app_realtime_vdc_phase(void)
 {
-    vdc_dpll_manager_set_vdc_ready(true);
     vdc_sync_ao_service();
     drv_watchdog_mark_progress(1u, 0x0111u);
 }
@@ -460,7 +460,6 @@ static void app_realtime_vdc_phase(void)
 static void app_realtime_dpll_phase(void)
 {
     drv_watchdog_mark_progress(1u, 0x0102u);
-    vdc_dpll_manager_set_dpll_ready(true);
     sync_dpll_fb_service();
     drv_watchdog_mark_progress(1u, 0x0112u);
 }

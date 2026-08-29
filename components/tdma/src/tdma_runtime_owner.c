@@ -323,6 +323,16 @@ bool tdma_runtime_owner_get_phys_snapshot(tdma_pio_spi_phys_snapshot_t *snapshot
     return tdma_pio_spi_phys_get_snapshot(&s_tdma_pio_spi_phys, snapshot);
 }
 
+bool tdma_runtime_owner_get_ring_clock_snapshot(
+    tdma_ring_clock_snapshot_t *snapshot)
+{
+    if (!s_tdma_runtime_owner_initialized || snapshot == NULL) {
+        return false;
+    }
+    return tdma_ring_runtime_get_clock_snapshot(
+        &s_tdma_runtime_owner.ring_runtime, snapshot);
+}
+
 void tdma_runtime_owner_service_phys_tx(uint64_t now_ns)
 {
     if (!s_tdma_runtime_owner_initialized) {

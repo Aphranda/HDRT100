@@ -29,7 +29,21 @@
  * the ring is up.
  */
 
-#define TDMA_PIO_SPI_RING_ADAPTER_VERSION 8u
+#define TDMA_PIO_SPI_RING_ADAPTER_VERSION 10u
+
+#define TDMA_PIO_SPI_CLOCK_EVIDENCE_BUILD_DISABLED (1u << 0u)
+#define TDMA_PIO_SPI_CLOCK_EVIDENCE_BUILD_NO_SEQUENCE (1u << 1u)
+#define TDMA_PIO_SPI_CLOCK_EVIDENCE_BUILD_TIMESTAMP_INELIGIBLE (1u << 2u)
+#define TDMA_PIO_SPI_CLOCK_EVIDENCE_BUILD_RECORD_INVALID (1u << 3u)
+#define TDMA_PIO_SPI_CLOCK_EVIDENCE_BUILD_SEQUENCE_MISMATCH (1u << 4u)
+#define TDMA_PIO_SPI_CLOCK_EVIDENCE_BUILD_IDENTITY_MISSING (1u << 5u)
+#define TDMA_PIO_SPI_CLOCK_EVIDENCE_BUILD_TIMESTAMP_MISSING (1u << 6u)
+#define TDMA_PIO_SPI_CLOCK_OBSERVATION_TIMESTAMP_INELIGIBLE (1u << 0u)
+#define TDMA_PIO_SPI_CLOCK_OBSERVATION_RECORD_INVALID (1u << 1u)
+#define TDMA_PIO_SPI_CLOCK_OBSERVATION_SEQUENCE_MISMATCH (1u << 2u)
+#define TDMA_PIO_SPI_CLOCK_OBSERVATION_IDENTITY_MISSING (1u << 3u)
+#define TDMA_PIO_SPI_CLOCK_OBSERVATION_TIMESTAMP_MISSING (1u << 4u)
+#define TDMA_PIO_SPI_CLOCK_OBSERVATION_COMPACT_DECODE (1u << 5u)
 #define TDMA_PIO_SPI_RING_ADAPTER_RX_QUEUE_DEPTH 8u
 #define TDMA_PIO_SPI_RING_ADAPTER_TX_EVIDENCE_DEPTH 8u
 #define TDMA_PIO_SPI_RING_ADAPTER_RX_EVIDENCE_DEPTH 8u
@@ -169,6 +183,14 @@ typedef struct {
     tdma_ring_clock_observation_t clock_observation;
     uint32_t clock_observation_count;
     uint32_t clock_observation_reject_count;
+    uint32_t clock_observation_last_reject_reason;
+    uint32_t clock_evidence_build_count;
+    uint32_t clock_evidence_build_reject_count;
+    uint32_t clock_evidence_build_last_reason;
+    uint32_t clock_evidence_last_tx_encoded;
+    uint32_t clock_evidence_last_rx_encoded;
+    uint32_t pending_tx_evidence;
+    uint32_t pending_tx_evidence_sequence;
     uint32_t last_error;
     uint32_t local_slot_id;
     uint32_t schedule_crc32;
@@ -272,6 +294,12 @@ typedef struct {
     tdma_ring_clock_observation_t clock_observation;
     uint32_t clock_observation_count;
     uint32_t clock_observation_reject_count;
+    uint32_t clock_observation_last_reject_reason;
+    uint32_t clock_evidence_build_count;
+    uint32_t clock_evidence_build_reject_count;
+    uint32_t clock_evidence_build_last_reason;
+    uint32_t clock_evidence_last_tx_encoded;
+    uint32_t clock_evidence_last_rx_encoded;
     uint32_t last_error;
     uint8_t last_rx_packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
     size_t last_rx_packet_size;

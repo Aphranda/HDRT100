@@ -101,6 +101,7 @@ static uint32_t s_tdma_ring_log_last_ms;
 static bool s_tdma_ring_log_enabled;
 static uint32_t s_vdc_vector_publish_sequence;
 static uint32_t s_dpll_vector_publish_sequence;
+static uint32_t s_vdc_vector_source_update_seq = UINT32_MAX;
 
 typedef struct {
     uint32_t enabled;
@@ -1158,6 +1159,12 @@ static void distributed_refmem_fill_vdc_vector_payload(
     }
 
     payload->flags = REFMEM_VECTOR_FLAG_VALID;
+    const bool provisional =
+        (snapshot->path_delay.flags &
+         VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY) != 0u;
+    if (provisional) {
+        payload->flags |= REFMEM_VECTOR_FLAG_PROVISIONAL;
+    }
     if (snapshot->schedule.enabled != 0u &&
         snapshot->schedule.schedule_crc32 != 0u) {
         payload->flags |= REFMEM_VECTOR_FLAG_SCHEDULE_VALID;
@@ -1177,7 +1184,8 @@ static void distributed_refmem_fill_vdc_vector_payload(
     if (distributed_refmem_vector_hardware_evidence_valid(snapshot)) {
         payload->flags |= REFMEM_VECTOR_FLAG_HARDWARE_EVIDENCE;
     }
-    if (snapshot->dpll.state == VDC_DOMAIN_LOCK_LOCKED) {
+    if (!provisional &&
+        snapshot->dpll.state == VDC_DOMAIN_LOCK_LOCKED) {
         payload->flags |= REFMEM_VECTOR_FLAG_LOCKED;
     }
 
@@ -1251,6 +1259,12 @@ static void distributed_refmem_fill_dpll_vector_payload(
     }
 
     payload->flags = REFMEM_VECTOR_FLAG_VALID;
+    const bool provisional =
+        (snapshot->path_delay.flags &
+         VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY) != 0u;
+    if (provisional) {
+        payload->flags |= REFMEM_VECTOR_FLAG_PROVISIONAL;
+    }
     if (snapshot->schedule.enabled != 0u &&
         snapshot->schedule.schedule_crc32 != 0u) {
         payload->flags |= REFMEM_VECTOR_FLAG_SCHEDULE_VALID;
@@ -1270,7 +1284,8 @@ static void distributed_refmem_fill_dpll_vector_payload(
     if (distributed_refmem_vector_hardware_evidence_valid(snapshot)) {
         payload->flags |= REFMEM_VECTOR_FLAG_HARDWARE_EVIDENCE;
     }
-    if (snapshot->dpll.state == VDC_DOMAIN_LOCK_LOCKED) {
+    if (!provisional &&
+        snapshot->dpll.state == VDC_DOMAIN_LOCK_LOCKED) {
         payload->flags |= REFMEM_VECTOR_FLAG_LOCKED;
     }
 
@@ -1883,6 +1898,7 @@ bool distributed_refmem_init(void)
     local_node->last_update_ms = osal_tick_ms();
 
     s_service_count = 0u;
+    s_vdc_vector_source_update_seq = UINT32_MAX;
     s_initialized = true;
     s_status.init_stage = DISTRIBUTED_REFMEM_INIT_STAGE_READY;
     s_status.init_error = 0u;
@@ -1902,6 +1918,12 @@ void distributed_refmem_realtime_run_once(void)
      * RefMem consumes its result here and must not run a second scheduler.
      * Only the already-published, core1-owned VDC snapshot crosses this phase;
      * no SCPI, storage, logging, or scheduler work is allowed here. */
+    const uint32_t source_update_seq =
+        vdc_dpll_manager_published_update_seq();
+    if (source_update_seq == s_vdc_vector_source_update_seq) {
+        return;
+    }
+
     vdc_domain_snapshot_t snapshot;
     const bool snapshot_valid = vdc_dpll_manager_get_snapshot(&snapshot);
 
@@ -1924,6 +1946,7 @@ void distributed_refmem_realtime_run_once(void)
         distributed_refmem_vdc_vector_region(), &vdc_payload);
     distributed_refmem_publish_dpll_vector_payload(
         distributed_refmem_dpll_vector_region(), &dpll_payload);
+    s_vdc_vector_source_update_seq = source_update_seq;
 }
 
 void distributed_refmem_service(void)

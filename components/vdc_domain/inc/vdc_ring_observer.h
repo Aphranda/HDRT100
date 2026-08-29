@@ -30,5 +30,12 @@ bool vdc_ring_observer_expand(
     const vdc_tdma_schedule_profile_t *schedule,
     const vdc_ring_observation_t *observation,
     vdc_tdma_timestamp_evidence_t *evidence);
+/* Realtime variant for a schedule already accepted by
+ * vdc_domain_activate_tdma_*(). It preserves identity, bounds and timestamp
+ * admission checks without recomputing the immutable schedule CRC. */
+bool vdc_ring_observer_expand_active(
+    const vdc_tdma_schedule_profile_t *schedule,
+    const vdc_ring_observation_t *observation,
+    vdc_tdma_timestamp_evidence_t *evidence);
 
 #endif

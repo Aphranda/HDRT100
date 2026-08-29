@@ -2365,7 +2365,8 @@ int main(void)
 
         test_put_u32_le(
             &payload[TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET],
-            tdma_process_image_dpll_observation_encode(2000000ull));
+            tdma_process_image_dpll_observation_encode_phase(
+                2000000ull, config.cycle_period_ns));
         build.transport_sequence = 2u;
         failed += expect_bool("clock evidence frame encode",
                               tdma_transport_frame_encode(
@@ -2404,29 +2405,64 @@ int main(void)
                              snapshot.clock_observation_count, 1u);
         failed += expect_u32("clock observation rejects",
                              snapshot.clock_observation_reject_count, 0u);
+        failed += expect_u32("clock observation reject reason",
+                             snapshot.clock_observation_last_reject_reason,
+                             0u);
+
+        test_put_u32_le(
+            &payload[TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET],
+            tdma_process_image_dpll_observation_encode_phase(
+                4000000000ull, config.cycle_period_ns));
+        build.transport_sequence = 3u;
+        failed += expect_bool("clock epoch frame encode",
+                              tdma_transport_frame_encode(
+                                  &build, packet, sizeof(packet), &packet_size,
+                                  &result), true);
+        failed += expect_bool("clock epoch frame inject",
+                              tdma_pio_spi_ring_adapter_inject_rx(
+                                  &adapter, packet, packet_size, 2003100ull),
+                              true);
+        failed += expect_bool("clock epoch frame service",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 3000ull, &status), true);
+        failed += expect_bool("clock epoch snapshot",
+                              tdma_pio_spi_ring_adapter_get_snapshot(
+                                  &adapter, &snapshot), true);
+        failed += expect_u32("clock epoch observation count",
+                             snapshot.clock_observation_count, 2u);
+        failed += expect_u32("clock epoch reject count",
+                             snapshot.clock_observation_reject_count, 0u);
+        failed += expect_u32("clock epoch reject reason",
+                             snapshot.clock_observation_last_reject_reason,
+                             0u);
+        failed += expect_u64("clock epoch mapped reference",
+                             snapshot.clock_observation
+                                 .reference_tx_timestamp_ns,
+                             2002000ull);
     }
 
-    /* --- Compact DPLL timestamp reconstruction is stable across modulo
-     * wrap and the trailer closes the fixed SHORT process image. --- */
+    /* --- Compact DPLL phase mapping is independent of reference/follower
+     * boot epochs and the trailer closes the fixed SHORT process image. --- */
     {
-        const uint64_t reference_tx =
-            (((uint64_t)TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_MASK - 1ull) *
-             TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_QUANTUM_NS);
-        const uint64_t local_rx = reference_tx + 100ull;
+        const uint32_t cycle_period_ns = 1000000u;
+        const uint64_t reference_tx = 4000123000ull;
+        const uint64_t local_rx = 2000456000ull;
         uint64_t decoded_reference_tx = 0ull;
         failed += expect_u32("Node image bytes",
                              TDMA_FLIGHT_NODE_IMAGE_SIZE, 256u);
         failed += expect_u32("fixed process payload bytes",
                              TDMA_FLIGHT_SHORT_PAYLOAD_SIZE, 260u);
         failed += expect_bool(
-            "DPLL observation wrap decode",
-            tdma_process_image_dpll_observation_decode(
-                tdma_process_image_dpll_observation_encode(reference_tx),
+            "DPLL observation phase map",
+            tdma_process_image_dpll_observation_map_phase(
+                tdma_process_image_dpll_observation_encode_phase(
+                    reference_tx, cycle_period_ns),
+                cycle_period_ns,
                 local_rx,
                 &decoded_reference_tx),
             true);
-        failed += expect_u64("DPLL observation wrap timestamp",
-                             decoded_reference_tx, reference_tx);
+        failed += expect_u64("DPLL observation mapped timestamp",
+                             decoded_reference_tx, 2000123000ull);
     }
 
     /* --- Enabling DPLL evidence changes only the fixed trailer value.  The

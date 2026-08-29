@@ -42,6 +42,7 @@ from trn03_waveform import (  # noqa: E402
     analyze_capture_set,
     download_ring_capture,
     read_tdma_load_mask,
+    read_tdma_schedule,
     save_ring_capture,
 )
 
@@ -104,6 +105,44 @@ CRC_DIAGNOSTIC_FIELDS = (
     "last_bad_expected_payload_crc32",
     "last_bad_observed_payload_crc32",
 )
+
+APP_REALTIME_PHASE_DPLL = 2
+APP_REALTIME_LOAD_DPLL_MASK = 1 << 1
+
+
+def validate_dpll_schedule(before: dict[str, Any],
+                           after: dict[str, Any]) -> dict[str, Any]:
+    before_phase = before["phases"][APP_REALTIME_PHASE_DPLL]
+    after_phase = after["phases"][APP_REALTIME_PHASE_DPLL]
+
+    def delta(field: str) -> int:
+        return ((int(after_phase[field]) - int(before_phase[field])) &
+                0xFFFFFFFF)
+
+    deltas = {field: delta(field) for field in (
+        "run_count", "skip_count", "start_miss_count", "overrun_count",
+        "deadline_miss_count")}
+    errors = []
+    if deltas["run_count"] == 0:
+        errors.append("dpll_phase_not_serviced")
+    if deltas["overrun_count"] != 0:
+        errors.append("dpll_overrun_count_grew")
+    if deltas["deadline_miss_count"] != 0:
+        errors.append("dpll_deadline_miss_count_grew")
+    if (int(after["quarantined_mask"]) &
+            APP_REALTIME_LOAD_DPLL_MASK) != 0:
+        errors.append("dpll_load_quarantined")
+    if (int(after_phase["max_runtime_cycles"]) >
+            int(after_phase["wcet_cycles"])):
+        errors.append("dpll_max_runtime_exceeded_wcet")
+    return {
+        "passed": not errors,
+        "errors": errors,
+        "deltas": deltas,
+        "before": before_phase,
+        "after": after_phase,
+        "quarantined_mask": int(after["quarantined_mask"]),
+    }
 
 
 def parse_args() -> argparse.Namespace:
@@ -169,6 +208,10 @@ def parse_args() -> argparse.Namespace:
         "--stage", choices=("raw-flight", "process-image"),
         default="process-image",
         help="raw PIO cut-through proof or final FIFO/process-image gate")
+    parser.add_argument(
+        "--dpll-provisional", action="store_true",
+        help=("while STOPPED, derive the P4-LIVE DIAGNOSTIC_ONLY path matrix "
+              "from the frozen TRN-03 link-base matrix before ARM"))
     parser.add_argument(
         "--leave-running", action="store_true",
         help=("leave the matrix-backed ring running only after every closed-"
@@ -431,6 +474,50 @@ def flight_snapshot(board: Board, args: argparse.Namespace) -> dict[str, Any]:
     process["local_node"] = process.pop("local_slot")
     fifo["tx_active_buffer"] = fifo.pop("tx_active_slot")
     return {"process": process, "fifo": fifo}
+
+
+def activate_dpll_provisional(board: Board, args: argparse.Namespace,
+                              config: dict[str, Any]) -> dict[str, Any]:
+    action = checked_action(
+        board, "SYSTem:SYNC:VDC:DPLL:PROVisional 1", args)
+    raw = board_command(
+        board, "SYSTem:SYNC:VDC:DPLL:PROVisional?", args)
+    fields = [value.strip().strip('"') for value in raw.split(",")]
+    if len(fields) != 7:
+        raise RuntimeError(
+            f"{board.address}: provisional readback field count "
+            f"{len(fields)}, expected 7: {raw!r}")
+    enabled_text = fields[0].upper()
+    enabled = 1 if enabled_text in ("1", "TRUE") else 0
+    try:
+        values = [int(value, 0) for value in fields[1:]]
+    except ValueError as exc:
+        raise RuntimeError(
+            f"{board.address}: invalid provisional readback {raw!r}") from exc
+    (flags, entry_count, generation, topology_generation,
+     schedule_crc32, table_crc32) = values
+    if (enabled != 1 or (flags & (1 << 4)) == 0 or
+            entry_count != int(config["node_count"]) or
+            generation != int(config["calibration_generation"]) or
+            topology_generation != int(config["topology_generation"]) or
+            schedule_crc32 != int(config["schedule_crc32"]) or
+            table_crc32 == 0):
+        raise RuntimeError(
+            f"{board.address}: provisional identity mismatch {raw!r}")
+    return {
+        "node": board.address,
+        "action": "DPLL_PROVISIONAL_PATH",
+        **action,
+        "readback": {
+            "enabled": enabled,
+            "flags": flags,
+            "entry_count": entry_count,
+            "calibration_generation": generation,
+            "topology_generation": topology_generation,
+            "schedule_crc32": schedule_crc32,
+            "table_crc32": table_crc32,
+        },
+    }
 
 
 def physical_snapshot(board: Board, args: argparse.Namespace) -> dict[str, int]:
@@ -1298,6 +1385,8 @@ def main() -> int:
         raise SystemExit(str(exc)) from exc
     if args.cycles <= 0 or args.cycles > 65536 or args.cycles % 8:
         raise SystemExit("cycles must be an 8-cycle multiple in [8, 65536]")
+    if args.dpll_provisional and args.stage != "process-image":
+        raise SystemExit("--dpll-provisional requires --stage process-image")
     if (args.window_s <= 0 or args.sample_interval_s <= 0 or
             args.startup_timeout_s <= 0 or
             args.startup_stable_samples <= 0 or
@@ -1329,6 +1418,7 @@ def main() -> int:
             args.sck_frequency_tolerance_percent,
         "sck_duty_tolerance_percent": args.sck_duty_tolerance_percent,
         "stage": args.stage,
+        "dpll_provisional": args.dpll_provisional,
         "leave_running_requested": args.leave_running,
     }
     if args.dry_run:
@@ -1369,6 +1459,14 @@ def main() -> int:
     soak_timeline: list[dict[str, Any]] = []
     soak_validation: dict[str, Any] = {}
     startup_barrier: dict[str, Any] = {}
+    dpll_schedule_before: dict[str, Any] = {}
+    dpll_schedule_required = bool(
+        args.stage == "process-image" and args.dpll_provisional)
+    dpll_schedule_gate: dict[str, Any] = {
+        "required": dpll_schedule_required,
+        "passed": not dpll_schedule_required,
+        "nodes": {},
+    }
     capture_error = ""
     analysis_error = ""
     capture_attempted = False
@@ -1498,6 +1596,15 @@ def main() -> int:
                 "applied_config_seq": matrix_apply_ack[board.address][
                     "ring_applied_config_seq"],
             })
+        if args.dpll_provisional:
+            for board in ordered:
+                actions.append(
+                    activate_dpll_provisional(board, args, config))
+        if dpll_schedule_required:
+            dpll_schedule_before = {
+                board.address: read_tdma_schedule(board, args)
+                for board in ordered
+            }
         for node_index, board in enumerate(ordered):
             if args.stage == "process-image":
                 seed = 0x40 + node_index * 0x10
@@ -1564,6 +1671,15 @@ def main() -> int:
         soak_validation = validate_soak_timeline(
             soak_timeline, board_ids, config,
             require_process_image=args.stage == "process-image")
+        if dpll_schedule_required:
+            for board in ordered:
+                after_schedule = read_tdma_schedule(board, args)
+                dpll_schedule_gate["nodes"][board.address] = (
+                    validate_dpll_schedule(
+                        dpll_schedule_before[board.address], after_schedule))
+            dpll_schedule_gate["passed"] = all(
+                item["passed"]
+                for item in dpll_schedule_gate["nodes"].values())
         for node_index, board in enumerate(ordered):
             node_errors, deltas = validate_node(
                 node_index, len(ordered), before[board.address]["runtime"],
@@ -1636,6 +1752,7 @@ def main() -> int:
         closed_loop_passed = (
             not error and not capture_error and not analysis_error and
             bool(soak_validation.get("passed")) and
+            bool(dpll_schedule_gate.get("passed")) and
             bool(ring_analysis.get("passed")) and
             len(nodes) == len(ordered) and
             all(node["passed"] for node in nodes.values())
@@ -1691,6 +1808,7 @@ def main() -> int:
     passed = (
         not error and not capture_error and not analysis_error and
         bool(soak_validation.get("passed")) and
+        bool(dpll_schedule_gate.get("passed")) and
         bool(ring_analysis.get("passed")) and
         len(nodes) == len(ordered) and
         all(node["passed"] for node in nodes.values()) and
@@ -1707,6 +1825,7 @@ def main() -> int:
         "nodes": nodes,
         "soak_timeline": soak_timeline,
         "soak_validation": soak_validation,
+        "dpll_schedule_gate": dpll_schedule_gate,
         "startup_barrier": startup_barrier,
         "ring_capture": ring_capture,
         "ring_capture_error": capture_error,

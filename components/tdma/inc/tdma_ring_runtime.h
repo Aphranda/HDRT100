@@ -246,6 +246,21 @@ typedef struct {
     tdma_ring_clock_observation_t clock_observation;
 } tdma_ring_runtime_snapshot_t;
 
+/* Minimal cross-domain evidence consumed by the core1 VDC phase.  The full
+ * runtime snapshot is for maintenance/diagnostics and must not be copied in
+ * the 1 ms realtime schedule. */
+typedef struct {
+    uint32_t version;
+    uint32_t enabled;
+    uint32_t config_seq;
+    uint32_t node_count;
+    uint32_t local_slot_id;
+    uint32_t reference_slot_id;
+    uint32_t schedule_crc32;
+    uint32_t adapter_started;
+    tdma_ring_clock_observation_t clock_observation;
+} tdma_ring_clock_snapshot_t;
+
 typedef struct {
     volatile uint32_t config_guard;
     volatile uint32_t result_guard;
@@ -348,6 +363,9 @@ void tdma_ring_runtime_unbind_adapter(tdma_ring_runtime_t *runtime);
 void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime);
 bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime,
                                     tdma_ring_runtime_snapshot_t *snapshot);
+bool tdma_ring_runtime_get_clock_snapshot(
+    const tdma_ring_runtime_t *runtime,
+    tdma_ring_clock_snapshot_t *snapshot);
 bool tdma_ring_runtime_set_data_enabled(tdma_ring_runtime_t *runtime,
                                         bool enabled);
 bool tdma_ring_runtime_train_clock(tdma_ring_runtime_t *runtime,

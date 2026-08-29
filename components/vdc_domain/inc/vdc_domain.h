@@ -299,6 +299,19 @@ typedef struct {
 
 typedef struct {
     uint32_t valid;
+    uint32_t schedule_crc32;
+    uint32_t dpll_update_seq;
+    uint32_t accepted;
+    uint32_t servo_applied;
+    uint32_t post_servo_dpll_update_seq;
+    uint32_t applied;
+    uint32_t post_apply_dpll_update_seq;
+    int32_t input_residual_ns;
+    vdc_gate_result_t gate;
+} vdc_tdma_evidence_preparation_t;
+
+typedef struct {
+    uint32_t valid;
     uint32_t update_seq;
     uint32_t health_state;
     uint32_t lock_state;
@@ -499,6 +512,11 @@ uint32_t vdc_domain_path_delay_table_crc32(
     const vdc_path_delay_table_t *table);
 bool vdc_domain_path_delay_table_validate(
     const vdc_path_delay_table_t *table);
+/* Provisional P4-LIVE tables are diagnostic inputs derived from the frozen
+ * TRN-03 matrix. They may drive the servo, but remain ineligible for formal
+ * calibration/LOCKED publication because endpoint bias is not accepted. */
+bool vdc_domain_path_delay_table_validate_provisional(
+    const vdc_path_delay_table_t *table);
 /* Build the complete source/reference observation matrix from the loaded
  * directed link entries. This is a calibration-load operation; runtime
  * consumers must use vdc_domain_observation_path_delay_lookup(). */
@@ -510,6 +528,14 @@ bool vdc_domain_path_delay_lookup(const vdc_path_delay_table_t *table,
                                   uint32_t reference_slot_id,
                                   vdc_path_delay_entry_t *entry);
 bool vdc_domain_observation_path_delay_lookup(
+    const vdc_path_delay_table_t *table,
+    uint32_t source_slot_id,
+    uint32_t reference_slot_id,
+    vdc_path_delay_entry_t *entry);
+/* Realtime lookup for the private table already accepted by
+ * vdc_domain_activate_tdma_*().  It preserves shape/bitmap bounds but does
+ * not recompute the frozen table CRC for every observation. */
+bool vdc_domain_active_observation_path_delay_lookup(
     const vdc_path_delay_table_t *table,
     uint32_t source_slot_id,
     uint32_t reference_slot_id,
@@ -547,6 +573,11 @@ bool vdc_domain_activate_tdma_configuration(
     const vdc_tdma_schedule_profile_t *schedule,
     const vdc_timestamp_dictionary_t *dictionary,
     const vdc_path_delay_table_t *path_delay);
+bool vdc_domain_activate_tdma_provisional_configuration(
+    vdc_domain_context_t *context,
+    const vdc_tdma_schedule_profile_t *schedule,
+    const vdc_timestamp_dictionary_t *dictionary,
+    const vdc_path_delay_table_t *path_delay);
 void vdc_domain_set_ready(vdc_domain_context_t *context, bool ready);
 void vdc_domain_service(vdc_domain_context_t *context, uint64_t now_ns);
 bool vdc_domain_publish_clock_model(vdc_domain_context_t *context,
@@ -562,6 +593,41 @@ bool vdc_domain_publish_path_delay_table(
     const vdc_path_delay_table_t *table);
 bool vdc_domain_submit_tdma_evidence(vdc_domain_context_t *context,
                                      const vdc_tdma_timestamp_evidence_t *evidence);
+/* Realtime submit path for the immutable schedule/dictionary/path set already
+ * accepted by vdc_domain_activate_tdma_*(). */
+bool vdc_domain_submit_active_tdma_evidence(
+    vdc_domain_context_t *context,
+    const vdc_tdma_timestamp_evidence_t *evidence);
+/* The active realtime path is split into deterministic prepare, servo, state
+ * and finalize operations. Every mutating step rejects stale work using the
+ * frozen schedule and preceding DPLL update identity. */
+bool vdc_domain_prepare_active_tdma_evidence(
+    const vdc_domain_context_t *context,
+    const vdc_tdma_timestamp_evidence_t *evidence,
+    vdc_tdma_evidence_preparation_t *preparation);
+bool vdc_domain_apply_prepared_tdma_evidence(
+    vdc_domain_context_t *context,
+    const vdc_tdma_timestamp_evidence_t *evidence,
+    vdc_tdma_evidence_preparation_t *preparation,
+    bool *accepted);
+bool vdc_domain_apply_prepared_tdma_evidence_core(
+    vdc_domain_context_t *context,
+    const vdc_tdma_timestamp_evidence_t *evidence,
+    vdc_tdma_evidence_preparation_t *preparation,
+    bool *accepted);
+bool vdc_domain_apply_prepared_tdma_evidence_servo(
+    vdc_domain_context_t *context,
+    const vdc_tdma_timestamp_evidence_t *evidence,
+    vdc_tdma_evidence_preparation_t *preparation);
+bool vdc_domain_apply_prepared_tdma_evidence_state(
+    vdc_domain_context_t *context,
+    const vdc_tdma_timestamp_evidence_t *evidence,
+    vdc_tdma_evidence_preparation_t *preparation,
+    bool *accepted);
+bool vdc_domain_finalize_prepared_tdma_evidence(
+    vdc_domain_context_t *context,
+    const vdc_tdma_timestamp_evidence_t *evidence,
+    const vdc_tdma_evidence_preparation_t *preparation);
 bool vdc_domain_submit_compact_observation(
     vdc_domain_context_t *context,
     const vdc_compact_observation_sample_t *compact);
