@@ -1537,6 +1537,10 @@ def main() -> int:
             "action": "CAPTURE_LOAD_MASK_FREEZE",
             "enabled_mask": enabled_mask,
         } for address, enabled_mask in capture_load_masks.items())
+        # Topology/profile/matrix owners reject mutations while the flight
+        # engine is in process-image forwarding mode.  Always enter the
+        # stopped raw-forwarding persona first; process-image is enabled only
+        # after the matrix generation has been applied and acknowledged.
         expected_mode = 2 if args.stage == "process-image" else 1
         for node_index, board in enumerate(ordered):
             evidence_enabled = 1 if args.clock_evidence == "enabled" else 0
@@ -1552,7 +1556,7 @@ def main() -> int:
             actions.append(evidence_action)
             response = board_command(
                 board,
-                f"SYSTem:TDMA:FLIGHT:MODE {1 if args.stage == 'process-image' else 0}",
+                "SYSTem:TDMA:FLIGHT:MODE 0",
                 args)
             mode_raw = board_command(
                 board, "SYSTem:TDMA:FLIGHT:MODE?", args).strip().strip('"')
@@ -1563,13 +1567,13 @@ def main() -> int:
                     f"{board.address}: invalid flight mode {mode_raw!r}") from exc
             actions.append({
                 "node": board.address,
-                "action": "FLIGHT_MODE",
+                "action": "FLIGHT_MODE_PREP",
                 "response": response,
                 "mode": mode,
             })
-            if mode != expected_mode:
+            if mode != 1:
                 raise RuntimeError(
-                    f"{board.address}: flight mode {mode}, expected {expected_mode}")
+                    f"{board.address}: stopped flight mode {mode}, expected 1")
         if args.stage == "process-image":
             for board in ordered:
                 response = board_command(
@@ -1624,6 +1628,26 @@ def main() -> int:
                 "applied_config_seq": matrix_apply_ack[board.address][
                     "ring_applied_config_seq"],
             })
+        if args.stage == "process-image":
+            for board in ordered:
+                response = board_command(
+                    board, "SYSTem:TDMA:FLIGHT:MODE 1", args)
+                mode_raw = board_command(
+                    board, "SYSTem:TDMA:FLIGHT:MODE?", args).strip().strip('"')
+                try:
+                    mode = int(mode_raw, 0)
+                except ValueError as exc:
+                    raise RuntimeError(
+                        f"{board.address}: invalid process flight mode {mode_raw!r}") from exc
+                actions.append({
+                    "node": board.address,
+                    "action": "FLIGHT_MODE",
+                    "response": response,
+                    "mode": mode,
+                })
+                if mode != expected_mode:
+                    raise RuntimeError(
+                        f"{board.address}: flight mode {mode}, expected {expected_mode}")
         if args.dpll_provisional:
             for board in ordered:
                 actions.append(
