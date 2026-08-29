@@ -1389,11 +1389,9 @@ static bool tdma_pio_spi_phys_configure_flight(
         BOARD_TDMA_SPI_PIO,
         BOARD_TDMA_SPI_CAPTURE_SM,
         s_tdma_pio_spi_flight_clock_latch_offset,
-        /* The latch is the common local-RX edge timestamp for both roles.
-         * Reference nodes observe the returned frame on rx_csn just like a
-         * follower; selecting tx_csn here would timestamp launch instead and
-         * make the diagonal loop observation meaningless. */
-        phys->rx_csn_pin);
+        phys->role == TDMA_PIO_SPI_ROLE_MASTER
+            ? phys->tx_csn_pin
+            : phys->rx_csn_pin);
     tdma_pio_spi_phys_prepare_sm_pair(phys);
     if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE &&
         phys->process_image_enabled) {
@@ -5301,16 +5299,12 @@ bool tdma_pio_spi_phys_rx(void *context,
         rx_extract_timestamp_ns > wire_time_ns
             ? rx_extract_timestamp_ns - wire_time_ns
             : rx_extract_timestamp_ns;
-    /* RX edge evidence is part of the common DPLL timestamp spine.  The
-     * reference node must use the same PIO edge latch as followers; using
-     * extraction-time minus wire-time on the reference path adds the whole
-     * service/dispatch jitter (hundreds of microseconds) to the loop-return
-     * residual.  The software estimate remains only as an explicit fallback
-     * for hardware-latch loss and is marked in the snapshot by its flags. */
     uint64_t hardware_rx_edge_timestamp_ns = 0ull;
-    (void)tdma_pio_spi_phys_clock_latch_read_and_rearm(
-        phys, &hardware_rx_edge_timestamp_ns);
-    *rx_timestamp_ns = hardware_rx_edge_timestamp_ns != 0ull
+    if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE) {
+        (void)tdma_pio_spi_phys_clock_latch_read_and_rearm(
+            phys, &hardware_rx_edge_timestamp_ns);
+    }
+    *rx_timestamp_ns = phys->role == TDMA_PIO_SPI_ROLE_SLAVE
         ? hardware_rx_edge_timestamp_ns
         : rx_edge_timestamp_ns;
 
