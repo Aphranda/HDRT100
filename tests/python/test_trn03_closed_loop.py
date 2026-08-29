@@ -333,7 +333,7 @@ def test_clock_evidence_query_accepts_scalar_one() -> None:
 
 def test_origin_data_dma_covers_complete_physical_tail() -> None:
     source = (ROOT / "components" / "tdma" / "src" /
-              "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+              "tdma_pio_spi_phys_transport.c").read_text(encoding="utf-8")
     origin = source.split(
         "static bool tdma_pio_spi_phys_flight_origin_tx", 1
     )[1].split("bool tdma_pio_spi_phys_tx", 1)[0]
@@ -603,8 +603,10 @@ def test_process_follower_defers_pass_until_parser_grace_expires() -> None:
 def test_rx_scanner_retains_complete_shifted_outer_header_prefix() -> None:
     phys = (ROOT / "components" / "tdma" / "src" /
             "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    transport = (ROOT / "components" / "tdma" / "src" /
+                 "tdma_pio_spi_phys_transport.c").read_text(encoding="utf-8")
     capture = phys.split(
-        "static bool tdma_pio_spi_phys_capture_words", 1
+        "bool tdma_pio_spi_phys_capture_words", 1
     )[1].split("bool tdma_pio_spi_phys_arm", 1)[0]
     assert "TDMA_PIO_SPI_PACKET_HEADER_SIZE + 1u" in capture
     assert "produced - retain_words" in capture
@@ -703,6 +705,8 @@ def test_ring_capture_uses_request_scoped_raw_sck_persona() -> None:
               "tdma_pio_spi_phys.h").read_text(encoding="utf-8")
     phys = (ROOT / "components" / "tdma" / "src" /
             "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    transport = (ROOT / "components" / "tdma" / "src" /
+                 "tdma_pio_spi_phys_transport.c").read_text(encoding="utf-8")
     begin = phys.split(
         "bool tdma_pio_spi_phys_begin_ring_waveform_capture", 1
     )[1].split(
@@ -710,7 +714,7 @@ def test_ring_capture_uses_request_scoped_raw_sck_persona() -> None:
     assert "TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_REQUESTED" in begin
     service = phys.split(
         "tdma_pio_spi_phys_service_ring_waveform_capture", 1
-    )[1].split("static void tdma_pio_spi_phys_flight_origin_recover", 1)[0]
+    )[1].split("void tdma_pio_spi_phys_flight_origin_recover", 1)[0]
     assert "TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_PATCHED" in service
     assert "pio_encode_wait_gpio(false, phys->rx_csn_pin)" in service
     assert "pio_encode_in(pio_pins, 1u)" in service
@@ -718,7 +722,7 @@ def test_ring_capture_uses_request_scoped_raw_sck_persona() -> None:
     assert "sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_RX)" in service
     assert "sm_config_set_in_shift(&config, true, true, 32u)" in service
 
-    copy_capture = phys.split(
+    copy_capture = transport.split(
         "tdma_pio_spi_phys_copy_normal_capture", 1)[1]
     assert "TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_READY" in copy_capture
     assert "tdma_pio_spi_phys_restore_clock_latch(phys, true)" in copy_capture
@@ -962,7 +966,7 @@ def test_closed_loop_stops_calibration_personas_before_ring_staging() -> None:
 
 def test_origin_queues_physical_byte_count_before_payload_dma_without_waiting() -> None:
     source = (ROOT / "components" / "tdma" / "src" /
-              "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+              "tdma_pio_spi_phys_transport.c").read_text(encoding="utf-8")
     function = source.split(
         "static bool tdma_pio_spi_phys_flight_origin_tx", 1
     )[1].split("bool tdma_pio_spi_phys_tx", 1)[0]
@@ -1031,7 +1035,7 @@ def test_flight_origin_control_edges_are_owned_by_one_pio_sm() -> None:
             in init)
 
     phys_source = (ROOT / "components" / "tdma" / "src" /
-                   "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+                   "tdma_pio_spi_phys_transport.c").read_text(encoding="utf-8")
     flight_tx = phys_source.split(
         "static bool tdma_pio_spi_phys_flight_origin_tx", 1
     )[1].split("bool tdma_pio_spi_phys_tx", 1)[0]
@@ -1043,7 +1047,7 @@ def test_shifted_rx_scanner_preserves_shared_raw_boundary_word() -> None:
     source = (ROOT / "components" / "tdma" / "src" /
               "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
     capture = source.split(
-        "static bool tdma_pio_spi_phys_capture_words", 1
+        "bool tdma_pio_spi_phys_capture_words", 1
     )[1].split("bool tdma_pio_spi_phys_arm", 1)[0]
     assert ("s_tdma_pio_spi_rx_scan_produced = candidate + total_words;"
             in capture)

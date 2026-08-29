@@ -11,6 +11,9 @@
 extern tdma_pio_spi_program_persona_t s_tdma_pio_spi_program_persona;
 extern int s_tdma_pio_spi_tx_dma_channel;
 extern int s_tdma_pio_spi_rx_dma_channel;
+extern uint32_t s_tdma_pio_spi_flight_tx_words[
+    TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS];
+extern uint32_t s_tdma_pio_spi_rx_frame[TDMA_PIO_SPI_RX_DMA_WORD_MAX];
 extern uint32_t s_tdma_pio_spi_cal_ring[TDMA_PIO_SPI_CAL_LOOPBACK_MAX_WORDS];
 extern uint s_tdma_pio_spi_p3_initiator_offset;
 extern uint s_tdma_pio_spi_p3_responder_offset;
@@ -55,11 +58,27 @@ PIO tdma_pio_spi_phys_capture_pio(const tdma_pio_spi_phys_t *phys);
 uint tdma_pio_spi_phys_capture_sm(const tdma_pio_spi_phys_t *phys);
 
 void tdma_pio_spi_phys_fill_static_snapshot(tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_set_error(tdma_pio_spi_phys_t *phys, uint32_t error);
 uint64_t tdma_pio_spi_phys_now_us(void);
 uint32_t tdma_pio_spi_phys_frame_tail_us(
     const tdma_pio_spi_phys_t *phys, size_t packet_size);
 uint64_t tdma_pio_spi_phys_wire_time_ns(
     const tdma_pio_spi_phys_t *phys, size_t packet_size);
+uint32_t tdma_pio_spi_phys_txstall_mask(uint32_t sm);
+bool tdma_pio_spi_phys_clock_latch_rearm(tdma_pio_spi_phys_t *phys);
+bool tdma_pio_spi_phys_clock_latch_read_and_rearm(
+    tdma_pio_spi_phys_t *phys, uint64_t *timestamp_ns);
+bool tdma_pio_spi_phys_capture_restore_step(
+    tdma_pio_spi_phys_t *phys, bool *complete);
+bool tdma_pio_spi_phys_restore_clock_latch(
+    tdma_pio_spi_phys_t *phys, bool rearm);
+void tdma_pio_spi_phys_flight_origin_recover(tdma_pio_spi_phys_t *phys);
+bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
+                                     size_t max_words,
+                                     size_t *received_words);
+bool tdma_pio_spi_phys_tx_put(tdma_pio_spi_phys_t *phys, uint32_t word);
+void tdma_pio_spi_phys_record_complete_tx_frame(
+    const uint8_t *header, const uint8_t *packet, size_t packet_size);
 bool tdma_pio_spi_phys_ensure_rx_dma(void);
 bool tdma_pio_spi_phys_ensure_tx_dma(void);
 void tdma_pio_spi_phys_cal_cleanup(tdma_pio_spi_phys_t *phys);
