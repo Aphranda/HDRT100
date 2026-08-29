@@ -4,6 +4,7 @@
 
 #include "board_config.h"
 #include "tdma_state_machine_resources.h"
+#include "resource_arbiter.h"
 #include "hardware/dma.h"
 #include "hardware/gpio.h"
 #include "hardware/clocks.h"
@@ -44,6 +45,7 @@ _Static_assert(TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES >=
                "TRN-03B TX capture must hold one maximum short packet");
 
 static bool s_tdma_pio_spi_sms_claimed;
+static const char *const TDMA_FLIGHT_RESOURCE_OWNER = "TDMA_FLIGHT_PIO";
 static tdma_pio_spi_program_persona_t s_tdma_pio_spi_program_persona;
 static uint s_tdma_pio_spi_tx_offset;
 static uint s_tdma_pio_spi_rx_offset;
@@ -1000,6 +1002,39 @@ static void tdma_pio_spi_phys_prepare_sm_pair(tdma_pio_spi_phys_t *phys)
     }
 }
 
+static bool tdma_pio_spi_phys_claim_flight_resources(
+    tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL) {
+        return false;
+    }
+    if (phys->flight_resource_claimed) {
+        return true;
+    }
+    const uint32_t resources = RESOURCE_ARBITER_RESOURCE_PIO1 |
+                               RESOURCE_ARBITER_RESOURCE_PIO2;
+    if (!resource_arbiter_acquire_owned(resources,
+                                        TDMA_FLIGHT_RESOURCE_OWNER)) {
+        phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_RESOURCE_CONFLICT;
+        phys->snapshot.program_switch_fail_count++;
+        return false;
+    }
+    phys->flight_resource_claimed = true;
+    return true;
+}
+
+static void tdma_pio_spi_phys_release_flight_resources(
+    tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL || !phys->flight_resource_claimed) {
+        return;
+    }
+    resource_arbiter_release_owned(
+        RESOURCE_ARBITER_RESOURCE_PIO1 | RESOURCE_ARBITER_RESOURCE_PIO2,
+        TDMA_FLIGHT_RESOURCE_OWNER);
+    phys->flight_resource_claimed = false;
+}
+
 static void tdma_pio_spi_phys_enable_sm_pair(tdma_pio_spi_phys_t *phys)
 {
     uint32_t sm_mask = (1u << phys->tx_sm) | (1u << phys->rx_sm);
@@ -1315,6 +1350,7 @@ static bool tdma_pio_spi_phys_configure_flight(
     phys->rx_pin = BOARD_TDMA_SPI_UPLINK_RX_PIN;
     phys->rx_sck_pin = BOARD_TDMA_SPI_UPLINK_SCK_PIN;
     phys->rx_csn_pin = BOARD_TDMA_SPI_UPLINK_CSN_PIN;
+    phys->flight_resources = tdma_state_machine_resource_contract();
 
     if (phys->role == TDMA_PIO_SPI_ROLE_MASTER) {
         /* rx_sm owns the generated forward clock and returned-DATA RX FIFO;
@@ -2106,6 +2142,11 @@ bool tdma_pio_spi_phys_arm(void *context,
             return false;
         }
     }
+    /* Claim only after all admission checks pass; every failure below has an
+     * explicit release path, so a rejected ARM cannot strand PIO ownership. */
+    if (!tdma_pio_spi_phys_claim_flight_resources(phys)) {
+        return false;
+    }
     phys->flight_alignment_byte_shift = 0u;
     phys->flight_alignment_bit_shift = 0u;
     phys->flight_overlay_next_prepared = false;
@@ -2135,11 +2176,13 @@ bool tdma_pio_spi_phys_arm(void *context,
     phys->flight_normal_capture_rx_cursor = 0u;
     if (!tdma_pio_spi_phys_select_program_persona(phys, flight_persona) ||
         !tdma_pio_spi_phys_configure_flight(phys, config)) {
+        tdma_pio_spi_phys_release_flight_resources(phys);
         return false;
     }
     tdma_pio_spi_phys_set_line_drivers(true);
     if (!tdma_pio_spi_phys_rx_arm(phys)) {
         tdma_pio_spi_phys_set_line_drivers(false);
+        tdma_pio_spi_phys_release_flight_resources(phys);
         return false;
     }
     /* rx_arm clears both FIFOs of the capture/forward SM. Prime the process
@@ -2149,6 +2192,7 @@ bool tdma_pio_spi_phys_arm(void *context,
         !tdma_pio_spi_phys_prepare_pass_overlay(phys)) {
         dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
         tdma_pio_spi_phys_set_line_drivers(false);
+        tdma_pio_spi_phys_release_flight_resources(phys);
         return false;
     }
     if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE) {
@@ -2156,6 +2200,7 @@ bool tdma_pio_spi_phys_arm(void *context,
         if (control_bits == 0u) {
             dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
             tdma_pio_spi_phys_set_line_drivers(false);
+            tdma_pio_spi_phys_release_flight_resources(phys);
             return false;
         }
         pio_sm_put_blocking(BOARD_TDMA_SPI_PIO,
@@ -2169,6 +2214,7 @@ bool tdma_pio_spi_phys_arm(void *context,
     if (!tdma_pio_spi_phys_clock_latch_rearm(phys)) {
         dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
         tdma_pio_spi_phys_set_line_drivers(false);
+        tdma_pio_spi_phys_release_flight_resources(phys);
         return false;
     }
     tdma_pio_spi_phys_enable_sm_pair(phys);
@@ -2311,6 +2357,7 @@ void tdma_pio_spi_phys_disarm(void *context)
     phys->flight_tx_deadline_ns = 0ull;
     tdma_pio_spi_phys_clk_train_reset(phys);
     tdma_pio_spi_phys_fill_static_snapshot(phys);
+    tdma_pio_spi_phys_release_flight_resources(phys);
 }
 
 static bool tdma_pio_spi_phys_tx_put(tdma_pio_spi_phys_t *phys,

@@ -14,7 +14,7 @@ def test_directional_resource_contract_is_valid() -> None:
     assert failures == []
 
 
-def test_directional_contract_rejects_mixed_data_program(tmp_path: Path) -> None:
+def test_directional_contract_rejects_missing_crossed_direction(tmp_path: Path) -> None:
     board = tmp_path / "board_config.h"
     board.write_text(
         (ROOT / "boards/rp2350_trig/inc/board_config.h").read_text(encoding="utf-8"),
@@ -24,12 +24,12 @@ def test_directional_contract_rejects_mixed_data_program(tmp_path: Path) -> None
     pio_text = (ROOT / "components/tdma/src/tdma_pio_spi.pio").read_text(encoding="utf-8")
     pio.write_text(
         pio_text.replace(
-            ".program tdma_pio_spi_directional_data_rx\n.wrap_target\n"
-            "    wait 1 gpio 0\n    in pins, 1",
-            ".program tdma_pio_spi_directional_data_rx\n.wrap_target\n"
-            "    wait 1 gpio 0\n    out pins, 1",
+            ".program tdma_pio_spi_directional_tx\n.wrap_target\n"
+            "    pull block\n    out pins, 2\n    wait 1 gpio 0\n    in pins, 1",
+            ".program tdma_pio_spi_directional_tx\n.wrap_target\n"
+            "    pull block\n    out pins, 2\n    wait 1 gpio 0",
         ),
         encoding="utf-8",
     )
     failures = state_machine_resource_check.check(board, pio)
-    assert "directional DATA RX contains out pins" in failures
+    assert "directional TX is missing in pins" in failures

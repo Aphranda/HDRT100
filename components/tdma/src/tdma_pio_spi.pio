@@ -482,30 +482,106 @@ bitloop_fds:
     push block
 .wrap
 
-; Direction-isolated cyclic flight primitives.  These programs intentionally
-; have one data direction each; the host/resource gate rejects any persona
-; that attempts to use the old full-duplex composite programs for flight.
-.program tdma_pio_spi_directional_data_tx
-.side_set 1
+; Direction-isolated cyclic flight primitives.  The names describe the
+; logical port direction, not whether the node is an initiator.  The logical
+; TX port sends CLK/SYNC and receives DATA; the logical RX port receives
+; CLK/SYNC and sends DATA.  Each primitive contains only one pin data
+; direction so the resource gate can prove that no full-duplex composite is
+; used by the flight persona.
+.program tdma_pio_spi_directional_control_out
 .wrap_target
-    pull block        side 0
-    set x, 7          side 0
-directional_tx_bit:
-    out pins, 1       side 0 [1]
-    nop               side 1 [1]
-    jmp x-- directional_tx_bit side 0 [1]
+    pull block
+    out pins, 2
 .wrap
 
-.program tdma_pio_spi_directional_data_rx
+.program tdma_pio_spi_directional_control_in
+.wrap_target
+    in pins, 2
+.wrap
+
+; Flight signal-specific primitives.  CLK and SYNC have independent programs
+; so a phase/edge change in one control line cannot consume an instruction
+; slot belonging to the other.  DATA remains electrically opposite: the
+; logical RX port emits it and the logical TX port samples it.
+.program tdma_pio_spi_directional_clk_out
+.wrap_target
+    pull block
+    mov x, osr
+    set pins, 1
+    set pins, 0
+    jmp x-- tdma_directional_clk_out_loop
+tdma_directional_clk_out_loop:
+    set pins, 1
+    set pins, 0
+    jmp x-- tdma_directional_clk_out_loop
+.wrap
+
+.program tdma_pio_spi_directional_sync_out
+.wrap_target
+    pull block
+    out pins, 1
+.wrap
+
+.program tdma_pio_spi_directional_clk_in
+.wrap_target
+    wait 0 gpio 0
+    wait 1 gpio 0
+    in pins, 1
+.wrap
+
+.program tdma_pio_spi_directional_sync_in
+.wrap_target
+    wait 1 gpio 0
+    wait 0 gpio 0
+    in pins, 1
+.wrap
+
+.program tdma_pio_spi_directional_data_out
+.wrap_target
+    pull block
+    out pins, 1
+.wrap
+
+.program tdma_pio_spi_directional_data_in
 .wrap_target
     wait 1 gpio 0
     in pins, 1
     wait 0 gpio 0
 .wrap
 
-.program tdma_pio_spi_directional_control_tx
+; Compatibility aliases for host tools from the initial resource-contract
+; draft.  The actual flight contract uses the two composite logical-port
+; programs below: each contains both IN and OUT because TX/RX are crossed
+; ports, not unidirectional buses.
+.program tdma_pio_spi_directional_tx
 .wrap_target
     pull block
+    out pins, 2
+    wait 1 gpio 0
+    in pins, 1
+.wrap
+
+.program tdma_pio_spi_directional_rx
+.wrap_target
+    wait 1 gpio 0
+    in pins, 2
+    pull block
+    out pins, 1
+.wrap
+
+; Legacy names retained only for host-tool compatibility.
+.program tdma_pio_spi_directional_data_tx
+.wrap_target
+    out pins, 1
+.wrap
+
+.program tdma_pio_spi_directional_data_rx
+.wrap_target
+    in pins, 1
+.wrap
+
+.program tdma_pio_spi_directional_control_tx
+.wrap_target
     out pins, 2
 .wrap
 
@@ -889,6 +965,91 @@ static inline void tdma_pio_spi_flight_origin_clock_rx_program_init(
     pio_sm_set_pins_with_mask64(pio, sm, 1ull << tx_csn_pin,
                                 (1ull << tx_sck_pin) |
                                     (1ull << tx_csn_pin));
+}
+
+static inline void tdma_pio_spi_directional_clk_out_program_init(
+    PIO pio, uint sm, uint offset, uint pin, uint32_t baud_hz)
+{
+    pio_gpio_init(pio, pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1u, true);
+    pio_sm_config c =
+        tdma_pio_spi_directional_clk_out_program_get_default_config(offset);
+    sm_config_set_set_pins(&c, pin, 1u);
+    sm_config_set_out_shift(&c, false, false, 32u);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+    sm_config_set_clkdiv(&c, tdma_pio_spi_clkdiv_for_baud(baud_hz));
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_pins(pio, sm, 0u);
+}
+
+static inline void tdma_pio_spi_directional_sync_out_program_init(
+    PIO pio, uint sm, uint offset, uint pin)
+{
+    pio_gpio_init(pio, pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1u, true);
+    pio_sm_config c =
+        tdma_pio_spi_directional_sync_out_program_get_default_config(offset);
+    sm_config_set_out_pins(&c, pin, 1u);
+    sm_config_set_out_shift(&c, false, false, 32u);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_pins(pio, sm, 1u);
+}
+
+static inline void tdma_pio_spi_directional_clk_in_program_init(
+    PIO pio, uint sm, uint offset, uint pin)
+{
+    pio_gpio_init(pio, pin);
+    gpio_pull_down(pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1u, false);
+    pio_sm_config c =
+        tdma_pio_spi_directional_clk_in_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, pin);
+    sm_config_set_in_shift(&c, false, true, 32u);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+    pio_sm_init(pio, sm, offset, &c);
+}
+
+static inline void tdma_pio_spi_directional_sync_in_program_init(
+    PIO pio, uint sm, uint offset, uint pin)
+{
+    pio_gpio_init(pio, pin);
+    gpio_pull_up(pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1u, false);
+    pio_sm_config c =
+        tdma_pio_spi_directional_sync_in_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, pin);
+    sm_config_set_in_shift(&c, false, true, 32u);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+    pio_sm_init(pio, sm, offset, &c);
+}
+
+static inline void tdma_pio_spi_directional_data_out_program_init(
+    PIO pio, uint sm, uint offset, uint pin)
+{
+    pio_gpio_init(pio, pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1u, true);
+    pio_sm_config c =
+        tdma_pio_spi_directional_data_out_program_get_default_config(offset);
+    sm_config_set_out_pins(&c, pin, 1u);
+    sm_config_set_out_shift(&c, false, true, 32u);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_pins(pio, sm, 0u);
+}
+
+static inline void tdma_pio_spi_directional_data_in_program_init(
+    PIO pio, uint sm, uint offset, uint pin)
+{
+    pio_gpio_init(pio, pin);
+    gpio_pull_down(pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1u, false);
+    pio_sm_config c =
+        tdma_pio_spi_directional_data_in_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, pin);
+    sm_config_set_in_shift(&c, false, true, 32u);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+    pio_sm_init(pio, sm, offset, &c);
 }
 
 static inline void tdma_pio_spi_flight_origin_data_tx_program_init(

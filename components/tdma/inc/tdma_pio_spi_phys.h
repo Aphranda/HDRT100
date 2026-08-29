@@ -7,6 +7,7 @@
 
 #include "tdma_ring_runtime.h"
 #include "tdma_transport_frame.h"
+#include "tdma_state_machine_resources.h"
 
 /* TDMA PIO SPI resident physical layer.
  *
@@ -686,6 +687,10 @@ typedef struct {
     uint32_t rx_sck_pin;
     uint32_t rx_csn_pin;
     uint32_t rx_pin;
+    /* Directional contract view.  The legacy tx_sm/rx_sm fields remain for
+     * maintenance personas until the flight runtime migration is complete. */
+    tdma_state_machine_resource_contract_t flight_resources;
+    bool flight_resource_claimed;
     tdma_pio_spi_phys_snapshot_t snapshot;
     bool rx_capture_active;
     size_t rx_capture_max_words;
