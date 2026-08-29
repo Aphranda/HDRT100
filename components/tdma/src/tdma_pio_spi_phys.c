@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "board_config.h"
+#include "tdma_state_machine_resources.h"
 #include "hardware/dma.h"
 #include "hardware/gpio.h"
 #include "hardware/clocks.h"
@@ -1059,6 +1060,8 @@ static bool tdma_pio_spi_phys_clock_latch_read_and_rearm(
     tdma_pio_spi_phys_t *phys,
     uint64_t *timestamp_ns)
 {
+    /* The latch is the common local-RX edge timestamp for reference and
+     * follower personas; extraction must not introduce software jitter. */
     if (timestamp_ns != NULL) {
         *timestamp_ns = 0ull;
     }
