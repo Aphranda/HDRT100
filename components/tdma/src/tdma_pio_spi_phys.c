@@ -166,6 +166,14 @@ static void tdma_pio_spi_phys_release_flight_resources(
 static bool tdma_pio_spi_phys_claim_flight_resources(
     tdma_pio_spi_phys_t *phys);
 
+static bool tdma_pio_spi_phys_arm_reject(
+    tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_phys_error_t error)
+{
+    tdma_pio_spi_phys_set_error(phys, (uint32_t)error);
+    return false;
+}
+
 static void tdma_pio_spi_phys_clk_train_write_begin(
     tdma_pio_spi_phys_t *phys)
 {
@@ -817,6 +825,8 @@ bool tdma_pio_spi_phys_select_program_persona(
          dma_channel_is_busy((uint)s_tdma_pio_spi_tx_dma_channel)) ||
         (s_tdma_pio_spi_rx_dma_channel >= 0 &&
          dma_channel_is_busy((uint)s_tdma_pio_spi_rx_dma_channel))) {
+        tdma_pio_spi_phys_set_error(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_PERSONA_BUSY);
         phys->snapshot.program_switch_fail_count++;
         return false;
     }
@@ -828,6 +838,8 @@ bool tdma_pio_spi_phys_select_program_persona(
             if (flight_persona
                     ? !tdma_pio_spi_phys_ensure_flight_sms_claimed()
                     : !tdma_pio_spi_phys_ensure_sms_claimed()) {
+                tdma_pio_spi_phys_set_error(
+                    phys, TDMA_PIO_SPI_PHYS_ERROR_PERSONA_RESOURCE);
                 phys->snapshot.program_switch_fail_count++;
                 return false;
             }
@@ -860,12 +872,16 @@ bool tdma_pio_spi_phys_select_program_persona(
             (void)tdma_pio_spi_phys_load_programs(previous);
             s_tdma_pio_spi_program_persona = previous;
         }
+        tdma_pio_spi_phys_set_error(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_PERSONA_RESOURCE);
         phys->snapshot.program_switch_fail_count++;
         phys->snapshot.program_persona =
             (uint32_t)s_tdma_pio_spi_program_persona;
         return false;
     }
     if (!tdma_pio_spi_phys_load_programs(persona)) {
+        tdma_pio_spi_phys_set_error(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_PROGRAM_LOAD);
         phys->snapshot.program_switch_fail_count++;
         if (flight_persona && !current_flight_persona) {
             tdma_pio_spi_phys_release_flight_resources(phys);
@@ -2095,7 +2111,8 @@ bool tdma_pio_spi_phys_arm(void *context,
         config->local_slot_id >= config->node_count ||
         config->tx_dma_channel_id != TDMA_PIO_SPI_TX_DMA_CHANNEL ||
         config->rx_dma_channel_id != TDMA_PIO_SPI_RX_DMA_CHANNEL) {
-        return false;
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_BAD_ARGUMENT);
     }
     phys->role = (config->local_slot_id == config->reference_slot_id)
                      ? TDMA_PIO_SPI_ROLE_MASTER
@@ -2111,13 +2128,15 @@ bool tdma_pio_spi_phys_arm(void *context,
          phys->flight_sck_phase_delay_cycles +
               TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES > half_period_cycles) ||
         phys->flight_data_phase_delay_cycles +
-            TDMA_PIO_SPI_FLIGHT_DATA_REARM_CYCLES > period_cycles) {
-        return false;
+             TDMA_PIO_SPI_FLIGHT_DATA_REARM_CYCLES > period_cycles) {
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_PHASE_ADMISSION);
     }
     phys->node_count = config->node_count;
     phys->flight_tail_bytes = tdma_pio_spi_phys_flight_tail_bytes(config);
     if (phys->flight_tail_bytes > TDMA_PIO_SPI_FLIGHT_MAX_TAIL_BYTES) {
-        return false;
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_TAIL_CAPACITY);
     }
     const tdma_pio_spi_program_persona_t flight_persona =
         phys->role == TDMA_PIO_SPI_ROLE_MASTER
@@ -2135,7 +2154,8 @@ bool tdma_pio_spi_phys_arm(void *context,
     if (phys->process_image_enabled) {
         if (phys->flight_physical_byte_count + 1u >
             TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS) {
-            return false;
+            return tdma_pio_spi_phys_arm_reject(
+                phys, TDMA_PIO_SPI_PHYS_ERROR_OVERLAY_PREPARE);
         }
     }
     /* Transfer the legacy maintenance persona before taking the flight
@@ -2145,13 +2165,15 @@ bool tdma_pio_spi_phys_arm(void *context,
      * select_program_persona() performs the quiesce/unload and releases the
      * maintenance owner at this boundary. */
     if (!tdma_pio_spi_phys_select_program_persona(phys, flight_persona)) {
-        return false;
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_PERSONA_RESOURCE);
     }
     /* Claim only after all admission checks pass; every failure below has an
      * explicit release path, so a rejected ARM cannot strand PIO ownership. */
     if (!tdma_pio_spi_phys_claim_flight_resources(phys)) {
         tdma_pio_spi_phys_release_flight_resources(phys);
-        return false;
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_RESOURCE_CONFLICT);
     }
     phys->flight_alignment_byte_shift = 0u;
     phys->flight_alignment_bit_shift = 0u;
@@ -2182,13 +2204,15 @@ bool tdma_pio_spi_phys_arm(void *context,
     phys->flight_normal_capture_rx_cursor = 0u;
     if (!tdma_pio_spi_phys_configure_flight(phys, config)) {
         tdma_pio_spi_phys_release_flight_resources(phys);
-        return false;
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_FLIGHT_CONFIG);
     }
     tdma_pio_spi_phys_set_line_drivers(true);
     if (!tdma_pio_spi_phys_rx_arm(phys)) {
         tdma_pio_spi_phys_set_line_drivers(false);
         tdma_pio_spi_phys_release_flight_resources(phys);
-        return false;
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_RX_ARM);
     }
     /* rx_arm clears both FIFOs of the capture/forward SM. Prime the process
      * command DMA only after that reset so its initial PASS script survives. */
@@ -2198,7 +2222,8 @@ bool tdma_pio_spi_phys_arm(void *context,
         dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
         tdma_pio_spi_phys_set_line_drivers(false);
         tdma_pio_spi_phys_release_flight_resources(phys);
-        return false;
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_OVERLAY_PREPARE);
     }
     if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE) {
         const uint32_t control_bits = phys->flight_physical_byte_count * 8u;
@@ -2206,7 +2231,8 @@ bool tdma_pio_spi_phys_arm(void *context,
             dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
             tdma_pio_spi_phys_set_line_drivers(false);
             tdma_pio_spi_phys_release_flight_resources(phys);
-            return false;
+            return tdma_pio_spi_phys_arm_reject(
+                phys, TDMA_PIO_SPI_PHYS_ERROR_BAD_ARGUMENT);
         }
         pio_sm_put_blocking(tdma_pio_spi_phys_control_pio(phys),
                             tdma_pio_spi_phys_control_sm(phys),
@@ -2220,7 +2246,8 @@ bool tdma_pio_spi_phys_arm(void *context,
         dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
         tdma_pio_spi_phys_set_line_drivers(false);
         tdma_pio_spi_phys_release_flight_resources(phys);
-        return false;
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_CLOCK_LATCH);
     }
     tdma_pio_spi_phys_enable_sm_pair(phys);
 
