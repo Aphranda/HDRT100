@@ -28,6 +28,10 @@ scpi_result_t scpi_cmd_sync_vdc_path_delay_q(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_lock_readiness_q(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_dpll_provisional(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_dpll_provisional_q(scpi_t *context);
+scpi_result_t scpi_cmd_sync_vdc_dpll_trace_arm(scpi_t *context);
+scpi_result_t scpi_cmd_sync_vdc_dpll_trace_stop(scpi_t *context);
+scpi_result_t scpi_cmd_sync_vdc_dpll_trace_status_q(scpi_t *context);
+scpi_result_t scpi_cmd_sync_vdc_dpll_trace_save(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_observer_ring_q(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_observer_tdma(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_observer_tdma_selftest(scpi_t *context);
@@ -71,6 +75,10 @@ scpi_result_t scpi_cmd_sync_vdc_observer_q(scpi_t *context);
     {.pattern = "SYSTem:SYNC:VDC:LOCK:READiness?", .callback = scpi_cmd_sync_vdc_lock_readiness_q}, \
     {.pattern = "SYSTem:SYNC:VDC:DPLL:PROVisional?", .callback = scpi_cmd_sync_vdc_dpll_provisional_q}, \
     {.pattern = "SYSTem:SYNC:VDC:DPLL:PROVisional", .callback = scpi_cmd_sync_vdc_dpll_provisional}, \
+    {.pattern = "SYSTem:SYNC:VDC:DPLL:TRACe:ARM", .callback = scpi_cmd_sync_vdc_dpll_trace_arm}, \
+    {.pattern = "SYSTem:SYNC:VDC:DPLL:TRACe:STOP", .callback = scpi_cmd_sync_vdc_dpll_trace_stop}, \
+    {.pattern = "SYSTem:SYNC:VDC:DPLL:TRACe:STATus?", .callback = scpi_cmd_sync_vdc_dpll_trace_status_q}, \
+    {.pattern = "SYSTem:SYNC:VDC:DPLL:TRACe:SAVE", .callback = scpi_cmd_sync_vdc_dpll_trace_save}, \
     {.pattern = "SYSTem:SYNC:VDC:OBServer:RING?", .callback = scpi_cmd_sync_vdc_observer_ring_q}, \
     {.pattern = "SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest?", .callback = scpi_cmd_sync_vdc_observer_tdma_selftest_q}, \
     {.pattern = "SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest", .callback = scpi_cmd_sync_vdc_observer_tdma_selftest}, \

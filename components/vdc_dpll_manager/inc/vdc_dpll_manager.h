@@ -2,6 +2,7 @@
 #define VDC_DPLL_MANAGER_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "tdma_service.h"
@@ -12,6 +13,10 @@
 #define VDC_DPLL_MANAGER_SYNC_IO_MAX_BATCH_WORDS 32u
 #define VDC_DPLL_MANAGER_OBSERVER_QUALITY_TDMA_WINDOW_BASE 0x80000000u
 #define VDC_DPLL_MANAGER_SELF_TEST_MAX_PULSES 4096u
+/* The capture is a maintenance/evidence buffer, not a realtime queue.  A
+ * record is 20 bytes and the complete image (header + 400 records) remains
+ * within the StorageAO 8 KiB file-write contract. */
+#define VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES 400u
 
 typedef enum {
     VDC_DPLL_MANAGER_SELF_TEST_ROLE_NONE = 0u,
@@ -176,6 +181,25 @@ typedef struct {
     uint32_t last_result;
 } vdc_dpll_manager_ring_observer_status_t;
 
+typedef struct __attribute__((packed)) {
+    uint32_t update_seq;
+    uint32_t timestamp_ms;
+    int32_t phase_error_ns;
+    int32_t frequency_error_ppb;
+    uint32_t state_and_gate;
+} vdc_dpll_manager_dpll_capture_record_t;
+
+typedef struct {
+    bool armed;
+    bool complete;
+    uint32_t sample_count;
+    uint32_t dropped_count;
+    uint32_t first_update_seq;
+    uint32_t last_update_seq;
+    uint32_t start_ms;
+    uint32_t end_ms;
+} vdc_dpll_manager_dpll_capture_status_t;
+
 bool vdc_dpll_manager_init(void);
 void vdc_dpll_manager_set_vdc_ready(bool ready);
 void vdc_dpll_manager_set_dpll_ready(bool ready);
@@ -205,6 +229,13 @@ void vdc_dpll_manager_get_sync_io_observer_status(
     vdc_dpll_manager_sync_io_observer_status_t *status);
 void vdc_dpll_manager_get_ring_observer_status(
     vdc_dpll_manager_ring_observer_status_t *status);
+bool vdc_dpll_manager_dpll_capture_arm(void);
+bool vdc_dpll_manager_dpll_capture_stop(void);
+void vdc_dpll_manager_get_dpll_capture_status(
+    vdc_dpll_manager_dpll_capture_status_t *status);
+bool vdc_dpll_manager_dpll_capture_save(uint32_t *job_id,
+                                        char *path,
+                                        size_t path_size);
 bool vdc_dpll_manager_get_snapshot(vdc_domain_snapshot_t *snapshot);
 uint32_t vdc_dpll_manager_published_update_seq(void);
 bool vdc_dpll_manager_get_tdma_snapshot(tdma_service_snapshot_t *snapshot);

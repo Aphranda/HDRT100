@@ -641,6 +641,66 @@ scpi_result_t scpi_cmd_sync_vdc_dpll_provisional_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_sync_vdc_dpll_trace_arm(scpi_t *context)
+{
+    if (!vdc_dpll_manager_dpll_capture_arm()) {
+        scpi_port_push_exec_error(context, "VDC_DPLL_TRACE_ARM");
+        return SCPI_RES_ERR;
+    }
+    vdc_dpll_manager_dpll_capture_status_t status;
+    vdc_dpll_manager_get_dpll_capture_status(&status);
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, status.sample_count);
+    SCPI_ResultUInt32(context, VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_sync_vdc_dpll_trace_stop(scpi_t *context)
+{
+    if (!vdc_dpll_manager_dpll_capture_stop()) {
+        scpi_port_push_exec_error(context, "VDC_DPLL_TRACE_STOP");
+        return SCPI_RES_ERR;
+    }
+    vdc_dpll_manager_dpll_capture_status_t status;
+    vdc_dpll_manager_get_dpll_capture_status(&status);
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, status.sample_count);
+    SCPI_ResultUInt32(context, status.dropped_count);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_sync_vdc_dpll_trace_status_q(scpi_t *context)
+{
+    vdc_dpll_manager_dpll_capture_status_t status;
+    vdc_dpll_manager_get_dpll_capture_status(&status);
+    SCPI_ResultBool(context, status.armed ? TRUE : FALSE);
+    SCPI_ResultBool(context, status.complete ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, status.sample_count);
+    SCPI_ResultUInt32(context, status.dropped_count);
+    SCPI_ResultUInt32(context, status.first_update_seq);
+    SCPI_ResultUInt32(context, status.last_update_seq);
+    SCPI_ResultUInt32(context, status.start_ms);
+    SCPI_ResultUInt32(context, status.end_ms);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_sync_vdc_dpll_trace_save(scpi_t *context)
+{
+    uint32_t job_id = 0u;
+    char path[96];
+    if (!vdc_dpll_manager_dpll_capture_save(&job_id, path, sizeof(path))) {
+        scpi_port_push_exec_error(context, "VDC_DPLL_TRACE_SAVE");
+        return SCPI_RES_ERR;
+    }
+    vdc_dpll_manager_dpll_capture_status_t status;
+    vdc_dpll_manager_get_dpll_capture_status(&status);
+    SCPI_ResultText(context, "QUEUED");
+    SCPI_ResultUInt32(context, job_id);
+    SCPI_ResultText(context, path);
+    SCPI_ResultUInt32(context, status.sample_count);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_sync_vdc_observer_ring_q(scpi_t *context)
 {
     vdc_dpll_manager_ring_observer_status_t status;

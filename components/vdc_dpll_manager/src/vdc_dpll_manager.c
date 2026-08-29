@@ -1,12 +1,15 @@
 #include "vdc_dpll_manager.h"
 
 #include <limits.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "board.h"
 #include "board_config.h"
+#include "ota_crc32.h"
 #include "osal.h"
 #include "ota_ao.h"
+#include "storage_manager.h"
 #include "sync_io.h"
 #include "tdma_runtime_owner.h"
 #include "tdma_service.h"
@@ -24,6 +27,19 @@
 #endif
 
 #define VDC_DPLL_MANAGER_SELF_TEST_CLEANUP_MARGIN_MS 250u
+#define VDC_DPLL_MANAGER_DPLL_CAPTURE_MAGIC 0x4C504444u /* DDPL */
+#define VDC_DPLL_MANAGER_DPLL_CAPTURE_SCHEMA 1u
+
+typedef struct __attribute__((packed)) {
+    uint32_t magic;
+    uint16_t schema;
+    uint16_t record_size;
+    uint32_t record_count;
+    uint32_t dropped_count;
+    uint32_t start_ms;
+    uint32_t end_ms;
+    uint32_t payload_crc32;
+} vdc_dpll_manager_dpll_capture_header_t;
 
 static vdc_dpll_manager_vdc_status_t s_vdc_status;
 static vdc_dpll_manager_dpll_status_t s_dpll_status;
@@ -62,6 +78,16 @@ static bool s_vdc_ring_finalization_pending;
 static bool s_vdc_domain_service_pending;
 static vdc_dpll_manager_ring_observer_status_t s_ring_observer_status;
 static volatile uint32_t s_ring_observer_status_guard;
+static vdc_dpll_manager_dpll_capture_record_t
+    s_dpll_capture_records[VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES];
+static bool s_dpll_capture_armed;
+static bool s_dpll_capture_complete;
+static uint32_t s_dpll_capture_count;
+static uint32_t s_dpll_capture_dropped;
+static uint32_t s_dpll_capture_first_update_seq;
+static uint32_t s_dpll_capture_last_update_seq;
+static uint32_t s_dpll_capture_start_ms;
+static uint32_t s_dpll_capture_end_ms;
 
 typedef struct {
     vdc_tdma_schedule_profile_t schedule;
@@ -119,6 +145,44 @@ static void vdc_dpll_manager_publish_runtime_snapshot_locked(void)
     (void)__atomic_add_fetch(&s_published_snapshot_guard,
                              1u,
                              __ATOMIC_RELEASE);
+
+    /* This is deliberately a fixed-cost SRAM append.  No SD/FATFS call,
+     * allocation, formatting, or diagnostic interpretation is allowed on
+     * the Core1/DPLL path.  The record is frozen and persisted only after
+     * the maintenance caller stops the capture. */
+    if (s_dpll_capture_armed && s_vdc_domain.dpll.update_seq != 0u &&
+        s_vdc_domain.dpll.update_seq != s_dpll_capture_last_update_seq) {
+        if (s_dpll_capture_count <
+            VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES) {
+            const uint32_t now_ms = board_uptime_ms();
+            vdc_dpll_manager_dpll_capture_record_t *record =
+                &s_dpll_capture_records[s_dpll_capture_count];
+            record->update_seq = s_vdc_domain.dpll.update_seq;
+            record->timestamp_ms = now_ms;
+            record->phase_error_ns = s_vdc_domain.dpll.last_phase_error_ns;
+            record->frequency_error_ppb =
+                s_vdc_domain.dpll.last_frequency_error_ppb;
+            record->state_and_gate =
+                (s_vdc_domain.dpll.state & 0xFFFFu) |
+                ((s_vdc_domain.dpll.last_reject_code & 0xFFFFu) << 16u);
+            if (s_dpll_capture_count == 0u) {
+                s_dpll_capture_first_update_seq = record->update_seq;
+                s_dpll_capture_start_ms = now_ms;
+            }
+            s_dpll_capture_count++;
+            s_dpll_capture_last_update_seq = record->update_seq;
+            s_dpll_capture_end_ms = now_ms;
+            if (s_dpll_capture_count ==
+                VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES) {
+                s_dpll_capture_armed = false;
+                s_dpll_capture_complete = true;
+            }
+        } else {
+            s_dpll_capture_dropped++;
+            s_dpll_capture_armed = false;
+            s_dpll_capture_complete = true;
+        }
+    }
 }
 
 static bool vdc_dpll_manager_publish_domain_snapshot_locked(void)
@@ -806,6 +870,15 @@ bool vdc_dpll_manager_init(void)
     s_vdc_ring_finalization_pending = false;
     s_vdc_domain_service_pending = false;
     memset(&s_ring_observer_status, 0, sizeof(s_ring_observer_status));
+    memset(s_dpll_capture_records, 0, sizeof(s_dpll_capture_records));
+    s_dpll_capture_armed = false;
+    s_dpll_capture_complete = false;
+    s_dpll_capture_count = 0u;
+    s_dpll_capture_dropped = 0u;
+    s_dpll_capture_first_update_seq = 0u;
+    s_dpll_capture_last_update_seq = 0u;
+    s_dpll_capture_start_ms = 0u;
+    s_dpll_capture_end_ms = 0u;
     if (!vdc_domain_init(&s_vdc_domain)) {
         return false;
     }
@@ -1574,6 +1647,131 @@ void vdc_dpll_manager_get_ring_observer_status(
         }
     }
     memset(status, 0, sizeof(*status));
+}
+
+bool vdc_dpll_manager_dpll_capture_arm(void)
+{
+    bool accepted = false;
+    osal_critical_enter();
+    if (!s_dpll_capture_armed) {
+        memset(s_dpll_capture_records, 0, sizeof(s_dpll_capture_records));
+        s_dpll_capture_complete = false;
+        s_dpll_capture_count = 0u;
+        s_dpll_capture_dropped = 0u;
+        s_dpll_capture_first_update_seq = 0u;
+        s_dpll_capture_last_update_seq = 0u;
+        s_dpll_capture_start_ms = 0u;
+        s_dpll_capture_end_ms = 0u;
+        s_dpll_capture_armed = true;
+        accepted = true;
+    }
+    osal_critical_exit();
+    return accepted;
+}
+
+bool vdc_dpll_manager_dpll_capture_stop(void)
+{
+    osal_critical_enter();
+    s_dpll_capture_armed = false;
+    s_dpll_capture_complete = true;
+    osal_critical_exit();
+    return true;
+}
+
+void vdc_dpll_manager_get_dpll_capture_status(
+    vdc_dpll_manager_dpll_capture_status_t *status)
+{
+    if (status == NULL) {
+        return;
+    }
+    osal_critical_enter();
+    status->armed = s_dpll_capture_armed;
+    status->complete = s_dpll_capture_complete;
+    status->sample_count = s_dpll_capture_count;
+    status->dropped_count = s_dpll_capture_dropped;
+    status->first_update_seq = s_dpll_capture_first_update_seq;
+    status->last_update_seq = s_dpll_capture_last_update_seq;
+    status->start_ms = s_dpll_capture_start_ms;
+    status->end_ms = s_dpll_capture_end_ms;
+    osal_critical_exit();
+}
+
+bool vdc_dpll_manager_dpll_capture_save(uint32_t *job_id,
+                                        char *path,
+                                        size_t path_size)
+{
+    vdc_dpll_manager_dpll_capture_status_t status;
+    vdc_dpll_manager_dpll_capture_header_t header;
+    uint32_t txn_id = 0u;
+    uint32_t file_job_id = 0u;
+    uint32_t payload_crc32;
+    uint32_t file_crc32;
+    size_t record_bytes;
+    size_t file_size;
+    char capture_path[96];
+
+    if (job_id == NULL || path == NULL || path_size == 0u) {
+        return false;
+    }
+    vdc_dpll_manager_get_dpll_capture_status(&status);
+    if (status.armed || !status.complete || status.sample_count == 0u ||
+        status.sample_count > VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES) {
+        return false;
+    }
+
+    record_bytes = (size_t)status.sample_count *
+                   sizeof(vdc_dpll_manager_dpll_capture_record_t);
+    header.magic = VDC_DPLL_MANAGER_DPLL_CAPTURE_MAGIC;
+    header.schema = VDC_DPLL_MANAGER_DPLL_CAPTURE_SCHEMA;
+    header.record_size =
+        (uint16_t)sizeof(vdc_dpll_manager_dpll_capture_record_t);
+    header.record_count = status.sample_count;
+    header.dropped_count = status.dropped_count;
+    header.start_ms = status.start_ms;
+    header.end_ms = status.end_ms;
+    payload_crc32 = ota_crc32_compute((const uint8_t *)s_dpll_capture_records,
+                                      record_bytes);
+    header.payload_crc32 = payload_crc32;
+    file_crc32 = ota_crc32_update(0u,
+                                  (const uint8_t *)&header,
+                                  sizeof(header));
+    file_crc32 = ota_crc32_update(
+        file_crc32,
+        (const uint8_t *)s_dpll_capture_records,
+        record_bytes);
+    file_size = sizeof(header) + record_bytes;
+    if (file_size > 8192u ||
+        snprintf(capture_path, sizeof(capture_path),
+                 "/traces/run/dpll_%08lu.bin",
+                 (unsigned long)status.start_ms) <= 0) {
+        return false;
+    }
+
+    if (!storage_manager_begin_file_write(capture_path,
+                                          (uint32_t)file_size,
+                                          file_crc32,
+                                          &txn_id) ||
+        !storage_manager_write_file_chunk(txn_id,
+                                          0u,
+                                          (const uint8_t *)&header,
+                                          sizeof(header)) ||
+        !storage_manager_write_file_chunk(
+            txn_id,
+            (uint32_t)sizeof(header),
+            (const uint8_t *)s_dpll_capture_records,
+            record_bytes) ||
+        !storage_manager_commit_file_write(txn_id, &file_job_id)) {
+        if (txn_id != 0u) {
+            (void)storage_manager_abort_file_write(txn_id);
+        }
+        return false;
+    }
+
+    if (snprintf(path, path_size, "%s", capture_path) < 0) {
+        return false;
+    }
+    *job_id = file_job_id;
+    return true;
 }
 
 void vdc_dpll_manager_core0_service(void)
