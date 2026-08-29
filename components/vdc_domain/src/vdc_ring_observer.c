@@ -3,6 +3,13 @@
 #include <limits.h>
 #include <string.h>
 
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#include "pico.h"
+#define VDC_RING_OBSERVER_TIME_CRITICAL(name) __not_in_flash_func(name)
+#else
+#define VDC_RING_OBSERVER_TIME_CRITICAL(name) name
+#endif
+
 static int32_t vdc_ring_observer_residual(uint64_t reference_tx_timestamp_ns,
                                           uint32_t link_delay_ns,
                                           uint64_t local_rx_timestamp_ns,
@@ -136,7 +143,7 @@ bool vdc_ring_observer_expand(
         schedule, observation, evidence, true);
 }
 
-bool vdc_ring_observer_expand_active(
+bool VDC_RING_OBSERVER_TIME_CRITICAL(vdc_ring_observer_expand_active)(
     const vdc_tdma_schedule_profile_t *schedule,
     const vdc_ring_observation_t *observation,
     vdc_tdma_timestamp_evidence_t *evidence)

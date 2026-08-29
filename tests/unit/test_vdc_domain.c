@@ -2087,6 +2087,43 @@ static int test_dpll_lock_quality_tiers(void)
                          snapshot.quality.lock_acceptance_threshold_ns,
                          VDC_DOMAIN_LOCK_TIER_COARSE_NS);
 
+    failed += expect_bool("init provisional path tier",
+                          vdc_domain_init(&context), true);
+    vdc_domain_set_ready(&context, true);
+    context.servo.kp_q16 = 0;
+    context.servo.ki_q16 = 0;
+    context.path_delay.flags |= VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY;
+    for (uint32_t i = 1u; i <= context.servo.lock_sample_count; i++) {
+        vdc_tdma_timestamp_evidence_t evidence =
+            make_hardware_sample(&context.schedule, i, 5000);
+        failed += expect_bool("submit provisional path tier",
+                              vdc_domain_submit_tdma_evidence(&context,
+                                                              &evidence),
+                              true);
+    }
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("provisional path coarse locked",
+                         snapshot.dpll.state,
+                         VDC_DOMAIN_LOCK_LOCKED);
+    failed += expect_u32("provisional path remains coarse quality",
+                         snapshot.quality.lock_quality_tier,
+                         VDC_DOMAIN_LOCK_QUALITY_COARSE_10US);
+    failed += expect_u32("provisional path effective threshold",
+                         snapshot.quality.lock_acceptance_threshold_ns,
+                         VDC_DOMAIN_LOCK_TIER_COARSE_NS);
+    vdc_tdma_timestamp_evidence_t provisional_margin =
+        make_hardware_sample(&context.schedule,
+                             context.servo.lock_sample_count + 1u,
+                             10500);
+    failed += expect_bool("provisional tracking accepts correction margin",
+                          vdc_domain_submit_tdma_evidence(
+                              &context, &provisional_margin),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("provisional margin cannot claim coarse lock",
+                         snapshot.dpll.state,
+                         VDC_DOMAIN_LOCK_PHASE_LOCK);
+
     failed += expect_bool("init debug tier", vdc_domain_init(&context), true);
     vdc_domain_set_ready(&context, true);
     context.servo.kp_q16 = 0;
@@ -2111,6 +2148,18 @@ static int test_dpll_lock_quality_tiers(void)
     failed += expect_u32("debug acceptance threshold",
                          snapshot.quality.lock_acceptance_threshold_ns,
                          VDC_DOMAIN_LOCK_TIER_DEBUG_NS);
+    vdc_tdma_timestamp_evidence_t formal_outlier =
+        make_hardware_sample(&context.schedule,
+                             context.servo.lock_sample_count + 1u,
+                             10500);
+    failed += expect_bool("formal tracking rejects provisional margin",
+                          vdc_domain_submit_tdma_evidence(&context,
+                                                          &formal_outlier),
+                          false);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("formal margin rejects at window bound",
+                         snapshot.dpll.last_reject_code,
+                         VDC_DOMAIN_GATE_WINDOW_BOUND);
 
     failed += expect_bool("init fine tier", vdc_domain_init(&context), true);
     vdc_domain_set_ready(&context, true);
@@ -2272,9 +2321,9 @@ static int test_dpll_rejects_servo_outlier(void)
     failed += expect_u32("outlier reject code",
                          snapshot.dpll.last_reject_code,
                          VDC_DOMAIN_GATE_SERVO_OUTLIER);
-    failed += expect_u32("outlier relocking state",
+    failed += expect_u32("single outlier holds locked state",
                          snapshot.dpll.state,
-                         VDC_DOMAIN_LOCK_RELOCKING);
+                         VDC_DOMAIN_LOCK_LOCKED);
     failed += expect_u32("outlier quality code",
                          snapshot.quality.gate_reject_code,
                          VDC_DOMAIN_GATE_SERVO_OUTLIER);
@@ -2293,6 +2342,22 @@ static int test_dpll_rejects_servo_outlier(void)
     failed += expect_u32("outlier recovery relocks",
                          snapshot.dpll.state,
                          VDC_DOMAIN_LOCK_LOCKED);
+
+    for (uint32_t i = 0u; i < context.servo.lock_sample_count; i++) {
+        outlier.sample_seq++;
+        outlier.expected_window_start_ns += context.schedule.period_ns;
+        outlier.observed_time_ns = outlier.expected_window_start_ns + 200u;
+        outlier.done_time_ns = outlier.observed_time_ns + 100u;
+        outlier.apply_time_ns = outlier.done_time_ns + 100u;
+        failed += expect_bool("submit consecutive outlier",
+                              vdc_domain_submit_tdma_evidence(&context,
+                                                              &outlier),
+                              false);
+    }
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("consecutive outliers enter relocking",
+                         snapshot.dpll.state,
+                         VDC_DOMAIN_LOCK_RELOCKING);
     return failed;
 }
 
@@ -2390,9 +2455,12 @@ static int test_dpll_acquisition_accepts_large_initial_phase(void)
     failed += expect_u32("acquisition locked after slew",
                          snapshot.dpll.state,
                          VDC_DOMAIN_LOCK_LOCKED);
-    failed += expect_i32("acquisition final residual",
-                         snapshot.dpll.last_phase_error_ns,
-                         0);
+    failed += expect_bool("acquisition final residual within resolution",
+                          snapshot.dpll.last_phase_error_ns >=
+                                  -(int32_t)strict.timestamp_resolution_ns &&
+                              snapshot.dpll.last_phase_error_ns <=
+                                  (int32_t)strict.timestamp_resolution_ns,
+                          true);
     failed += expect_u32("acquisition waits for fine stability",
                          snapshot.quality.health_state,
                          VDC_DOMAIN_HEALTH_DEGRADED);
@@ -2415,6 +2483,18 @@ static int test_dpll_acquisition_accepts_large_initial_phase(void)
     failed += expect_u32("acquisition healthy after fine stability",
                          snapshot.quality.health_state,
                          VDC_DOMAIN_HEALTH_HEALTHY);
+
+    vdc_tdma_timestamp_evidence_t centered =
+        make_hardware_sample(&context.schedule, 10u,
+                             initial_phase_ns - 6000);
+    failed += expect_bool("tracking window accepts negative residual",
+                          vdc_domain_submit_tdma_evidence(&context,
+                                                          &centered),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("centered tracking gate passes",
+                         snapshot.gate.reject_code,
+                         VDC_DOMAIN_GATE_PASS);
     return failed;
 }
 
@@ -2490,6 +2570,39 @@ static int test_quality_age_updates_on_service(void)
     failed += expect_u32("sample age us",
                          snapshot.quality.last_sample_age_us,
                          50u);
+    return failed;
+}
+
+static int test_dpll_rate_correction_enters_next_phase_prediction(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_domain_snapshot_t snapshot;
+    vdc_tdma_timestamp_evidence_t evidence;
+
+    failed += expect_bool("init rate prediction",
+                          vdc_domain_init(&context), true);
+    vdc_domain_set_ready(&context, true);
+
+    evidence = make_hardware_sample(&context.schedule, 1u, 0);
+    failed += expect_bool("submit rate prediction anchor",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          true);
+    evidence = make_hardware_sample(&context.schedule, 9u, 400);
+    failed += expect_bool("submit rate prediction estimate",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          true);
+    evidence = make_hardware_sample(&context.schedule, 17u, 800);
+    failed += expect_bool("submit rate corrected phase",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_i32("rate correction reduces next residual",
+                         snapshot.dpll.last_phase_error_ns,
+                         350);
+    failed += expect_i32("raw phase anchor follows estimator",
+                         snapshot.dpll.last_raw_phase_error_ns,
+                         800);
     return failed;
 }
 
@@ -2999,6 +3112,7 @@ int main(void)
     failed += test_quality_age_updates_on_service();
     failed += test_dpll_updates_clock_rate_from_sample_period();
     failed += test_dpll_rate_estimator_waits_and_slews();
+    failed += test_dpll_rate_correction_enters_next_phase_prediction();
     failed += test_dpll_rejects_servo_outlier();
     failed += test_dpll_slews_phase_and_pulls_rate_after_lock();
     failed += test_dpll_acquisition_accepts_large_initial_phase();

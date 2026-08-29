@@ -16,7 +16,11 @@
 #include "vdc_tdma_payload.h"
 
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#include "pico.h"
 #include "pico/time.h"
+#define VDC_DPLL_MANAGER_TIME_CRITICAL(name) __not_in_flash_func(name)
+#else
+#define VDC_DPLL_MANAGER_TIME_CRITICAL(name) name
 #endif
 
 #define VDC_DPLL_MANAGER_SELF_TEST_CLEANUP_MARGIN_MS 250u
@@ -179,7 +183,8 @@ static bool vdc_dpll_manager_finish_ring_observer_service(
     return result;
 }
 
-static bool vdc_dpll_manager_ring_observer_service(uint32_t *lock_state)
+static bool VDC_DPLL_MANAGER_TIME_CRITICAL(
+    vdc_dpll_manager_ring_observer_service)(uint32_t *lock_state)
 {
     if (lock_state == NULL) {
         return false;
@@ -839,7 +844,7 @@ void vdc_dpll_manager_set_dpll_ready(bool ready)
     osal_critical_exit();
 }
 
-void vdc_sync_ao_service(void)
+void VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_sync_ao_service)(void)
 {
     const uint32_t now_ms = board_uptime_ms();
     uint32_t lock_state = VDC_DOMAIN_LOCK_OFF;
@@ -1312,7 +1317,7 @@ static void vdc_dpll_manager_refresh_dco_consumer_status_core0(void)
     vdc_dpll_manager_publish_dpll_status();
 }
 
-void sync_dpll_fb_service(void)
+void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_fb_service)(void)
 {
     /* Complete already-admitted domain work before accepting another ring
      * sample. This keeps one bounded four-beat pipeline at the 4 ms evidence
@@ -1416,7 +1421,8 @@ void vdc_dpll_manager_get_dco_consumer_status(
     memset(status, 0, sizeof(*status));
 }
 
-bool vdc_dpll_manager_get_snapshot(vdc_domain_snapshot_t *snapshot)
+bool VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_dpll_manager_get_snapshot)(
+    vdc_domain_snapshot_t *snapshot)
 {
     if (snapshot == NULL) {
         return false;
@@ -1438,7 +1444,8 @@ bool vdc_dpll_manager_get_snapshot(vdc_domain_snapshot_t *snapshot)
     return false;
 }
 
-uint32_t vdc_dpll_manager_published_update_seq(void)
+uint32_t VDC_DPLL_MANAGER_TIME_CRITICAL(
+    vdc_dpll_manager_published_update_seq)(void)
 {
     return __atomic_load_n(&s_published_dpll_update_seq, __ATOMIC_ACQUIRE);
 }

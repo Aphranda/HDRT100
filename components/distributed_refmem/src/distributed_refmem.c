@@ -27,6 +27,13 @@
 #include "tdma_profile.h"
 #include "vdc_dpll_manager.h"
 
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#include "pico.h"
+#define DISTRIBUTED_REFMEM_TIME_CRITICAL(name) __not_in_flash_func(name)
+#else
+#define DISTRIBUTED_REFMEM_TIME_CRITICAL(name) name
+#endif
+
 #define DISTRIBUTED_REFMEM_NODE_LOAD_OWNER_COUNT 16u
 #define DISTRIBUTED_REFMEM_SOURCE_INSTANCE_REFMEM_AO 0u
 #define DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_QUEUE_COUNT 8u
@@ -102,6 +109,8 @@ static bool s_tdma_ring_log_enabled;
 static uint32_t s_vdc_vector_publish_sequence;
 static uint32_t s_dpll_vector_publish_sequence;
 static uint32_t s_vdc_vector_source_update_seq = UINT32_MAX;
+static uint32_t s_dpll_vector_source_update_seq = UINT32_MAX;
+static uint32_t s_next_runtime_vector;
 
 typedef struct {
     uint32_t enabled;
@@ -1027,19 +1036,22 @@ static uint32_t distributed_refmem_header_crc_locked(void)
     return refmem_vector_header_crc(&s_distributed_refmem_table);
 }
 
-static refmem_vdc_vector_region_t *distributed_refmem_vdc_vector_region(void)
+static refmem_vdc_vector_region_t *DISTRIBUTED_REFMEM_TIME_CRITICAL(
+    distributed_refmem_vdc_vector_region)(void)
 {
     return &s_distributed_refmem_table.vdc;
 }
 
-static refmem_dpll_vector_region_t *distributed_refmem_dpll_vector_region(void)
+static refmem_dpll_vector_region_t *DISTRIBUTED_REFMEM_TIME_CRITICAL(
+    distributed_refmem_dpll_vector_region)(void)
 {
     return &s_distributed_refmem_table.dpll;
 }
 
-static void distributed_refmem_copy_to_volatile(volatile uint8_t *destination,
-                                                const void *source,
-                                                size_t size)
+static void DISTRIBUTED_REFMEM_TIME_CRITICAL(
+    distributed_refmem_copy_to_volatile)(volatile uint8_t *destination,
+                                         const void *source,
+                                         size_t size)
 {
     const uint8_t *bytes = (const uint8_t *)source;
     for (size_t i = 0u; i < size; i++) {
@@ -1057,7 +1069,8 @@ static void distributed_refmem_copy_from_volatile(void *destination,
     }
 }
 
-static uint32_t distributed_refmem_next_publish_sequence(uint32_t *sequence)
+static uint32_t DISTRIBUTED_REFMEM_TIME_CRITICAL(
+    distributed_refmem_next_publish_sequence)(uint32_t *sequence)
 {
     if (sequence == NULL) {
         return 1u;
@@ -1069,8 +1082,9 @@ static uint32_t distributed_refmem_next_publish_sequence(uint32_t *sequence)
     return *sequence;
 }
 
-static uint32_t distributed_refmem_begin_vector_write(volatile uint32_t *seqlock,
-                                                      uint32_t *stable_sequence)
+static uint32_t DISTRIBUTED_REFMEM_TIME_CRITICAL(
+    distributed_refmem_begin_vector_write)(volatile uint32_t *seqlock,
+                                           uint32_t *stable_sequence)
 {
     uint32_t current = __atomic_load_n(seqlock, __ATOMIC_ACQUIRE);
     current &= ~1u;
@@ -1086,7 +1100,8 @@ static uint32_t distributed_refmem_begin_vector_write(volatile uint32_t *seqlock
     return even;
 }
 
-static void distributed_refmem_publish_vdc_vector_payload(
+static void DISTRIBUTED_REFMEM_TIME_CRITICAL(
+    distributed_refmem_publish_vdc_vector_payload)(
     refmem_vdc_vector_region_t *region,
     refmem_vdc_vector_payload_t *payload)
 {
@@ -1105,7 +1120,8 @@ static void distributed_refmem_publish_vdc_vector_payload(
     __atomic_store_n(&region->seqlock, stable_sequence, __ATOMIC_RELEASE);
 }
 
-static void distributed_refmem_publish_dpll_vector_payload(
+static void DISTRIBUTED_REFMEM_TIME_CRITICAL(
+    distributed_refmem_publish_dpll_vector_payload)(
     refmem_dpll_vector_region_t *region,
     refmem_dpll_vector_payload_t *payload)
 {
@@ -1124,7 +1140,8 @@ static void distributed_refmem_publish_dpll_vector_payload(
     __atomic_store_n(&region->seqlock, stable_sequence, __ATOMIC_RELEASE);
 }
 
-static bool distributed_refmem_vector_hardware_evidence_valid(
+static bool DISTRIBUTED_REFMEM_TIME_CRITICAL(
+    distributed_refmem_vector_hardware_evidence_valid)(
     const vdc_domain_snapshot_t *snapshot)
 {
     if (snapshot == NULL) {
@@ -1140,7 +1157,8 @@ static bool distributed_refmem_vector_hardware_evidence_valid(
            (flags & VDC_DOMAIN_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) == 0u;
 }
 
-static void distributed_refmem_fill_vdc_vector_payload(
+static void DISTRIBUTED_REFMEM_TIME_CRITICAL(
+    distributed_refmem_fill_vdc_vector_payload)(
     refmem_vdc_vector_payload_t *payload,
     const vdc_domain_snapshot_t *snapshot,
     uint32_t publish_sequence,
@@ -1240,7 +1258,8 @@ static void distributed_refmem_fill_vdc_vector_payload(
     payload->last_sample_time_ns = snapshot->quality.last_sample_time_ns;
 }
 
-static void distributed_refmem_fill_dpll_vector_payload(
+static void DISTRIBUTED_REFMEM_TIME_CRITICAL(
+    distributed_refmem_fill_dpll_vector_payload)(
     refmem_dpll_vector_payload_t *payload,
     const vdc_domain_snapshot_t *snapshot,
     uint32_t publish_sequence,
@@ -1899,6 +1918,8 @@ bool distributed_refmem_init(void)
 
     s_service_count = 0u;
     s_vdc_vector_source_update_seq = UINT32_MAX;
+    s_dpll_vector_source_update_seq = UINT32_MAX;
+    s_next_runtime_vector = 0u;
     s_initialized = true;
     s_status.init_stage = DISTRIBUTED_REFMEM_INIT_STAGE_READY;
     s_status.init_error = 0u;
@@ -1908,7 +1929,8 @@ bool distributed_refmem_init(void)
     return true;
 }
 
-void distributed_refmem_realtime_run_once(void)
+void DISTRIBUTED_REFMEM_TIME_CRITICAL(
+    distributed_refmem_realtime_run_once)(void)
 {
     if (!s_initialized) {
         return;
@@ -1920,33 +1942,44 @@ void distributed_refmem_realtime_run_once(void)
      * no SCPI, storage, logging, or scheduler work is allowed here. */
     const uint32_t source_update_seq =
         vdc_dpll_manager_published_update_seq();
-    if (source_update_seq == s_vdc_vector_source_update_seq) {
+    const bool vdc_pending =
+        source_update_seq != s_vdc_vector_source_update_seq;
+    const bool dpll_pending =
+        source_update_seq != s_dpll_vector_source_update_seq;
+    if (!vdc_pending && !dpll_pending) {
         return;
     }
 
     vdc_domain_snapshot_t snapshot;
     const bool snapshot_valid = vdc_dpll_manager_get_snapshot(&snapshot);
+    const bool publish_vdc = vdc_pending &&
+        (!dpll_pending || s_next_runtime_vector == 0u);
+    if (publish_vdc) {
+        refmem_vdc_vector_payload_t payload;
+        distributed_refmem_fill_vdc_vector_payload(
+            &payload,
+            snapshot_valid ? &snapshot : NULL,
+            distributed_refmem_next_publish_sequence(
+                &s_vdc_vector_publish_sequence),
+            snapshot_valid);
+        distributed_refmem_publish_vdc_vector_payload(
+            distributed_refmem_vdc_vector_region(), &payload);
+        s_vdc_vector_source_update_seq = source_update_seq;
+        s_next_runtime_vector = 1u;
+        return;
+    }
 
-    refmem_vdc_vector_payload_t vdc_payload;
-    refmem_dpll_vector_payload_t dpll_payload;
-    distributed_refmem_fill_vdc_vector_payload(
-        &vdc_payload,
-        snapshot_valid ? &snapshot : NULL,
-        distributed_refmem_next_publish_sequence(
-            &s_vdc_vector_publish_sequence),
-        snapshot_valid);
+    refmem_dpll_vector_payload_t payload;
     distributed_refmem_fill_dpll_vector_payload(
-        &dpll_payload,
+        &payload,
         snapshot_valid ? &snapshot : NULL,
         distributed_refmem_next_publish_sequence(
             &s_dpll_vector_publish_sequence),
         snapshot_valid);
-
-    distributed_refmem_publish_vdc_vector_payload(
-        distributed_refmem_vdc_vector_region(), &vdc_payload);
     distributed_refmem_publish_dpll_vector_payload(
-        distributed_refmem_dpll_vector_region(), &dpll_payload);
-    s_vdc_vector_source_update_seq = source_update_seq;
+        distributed_refmem_dpll_vector_region(), &payload);
+    s_dpll_vector_source_update_seq = source_update_seq;
+    s_next_runtime_vector = 0u;
 }
 
 void distributed_refmem_service(void)

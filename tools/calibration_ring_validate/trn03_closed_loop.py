@@ -106,14 +106,19 @@ CRC_DIAGNOSTIC_FIELDS = (
     "last_bad_observed_payload_crc32",
 )
 
+APP_REALTIME_PHASE_VDC = 1
 APP_REALTIME_PHASE_DPLL = 2
+APP_REALTIME_PHASE_REFMEM = 5
+APP_REALTIME_LOAD_VDC_MASK = 1 << 0
 APP_REALTIME_LOAD_DPLL_MASK = 1 << 1
+APP_REALTIME_LOAD_REFMEM_MASK = 1 << 4
 
 
-def validate_dpll_schedule(before: dict[str, Any],
-                           after: dict[str, Any]) -> dict[str, Any]:
-    before_phase = before["phases"][APP_REALTIME_PHASE_DPLL]
-    after_phase = after["phases"][APP_REALTIME_PHASE_DPLL]
+def validate_realtime_phase(before: dict[str, Any], after: dict[str, Any],
+                            *, name: str, phase_id: int,
+                            load_mask: int) -> dict[str, Any]:
+    before_phase = before["phases"][phase_id]
+    after_phase = after["phases"][phase_id]
 
     def delta(field: str) -> int:
         return ((int(after_phase[field]) - int(before_phase[field])) &
@@ -124,23 +129,46 @@ def validate_dpll_schedule(before: dict[str, Any],
         "deadline_miss_count")}
     errors = []
     if deltas["run_count"] == 0:
-        errors.append("dpll_phase_not_serviced")
+        errors.append(f"{name}_phase_not_serviced")
     if deltas["overrun_count"] != 0:
-        errors.append("dpll_overrun_count_grew")
+        errors.append(f"{name}_overrun_count_grew")
     if deltas["deadline_miss_count"] != 0:
-        errors.append("dpll_deadline_miss_count_grew")
-    if (int(after["quarantined_mask"]) &
-            APP_REALTIME_LOAD_DPLL_MASK) != 0:
-        errors.append("dpll_load_quarantined")
+        errors.append(f"{name}_deadline_miss_count_grew")
+    if (int(after["quarantined_mask"]) & load_mask) != 0:
+        errors.append(f"{name}_load_quarantined")
     if (int(after_phase["max_runtime_cycles"]) >
             int(after_phase["wcet_cycles"])):
-        errors.append("dpll_max_runtime_exceeded_wcet")
+        errors.append(f"{name}_max_runtime_exceeded_wcet")
     return {
         "passed": not errors,
         "errors": errors,
         "deltas": deltas,
         "before": before_phase,
         "after": after_phase,
+        "quarantined_mask": int(after["quarantined_mask"]),
+    }
+
+
+def validate_dpll_schedule(before: dict[str, Any],
+                           after: dict[str, Any]) -> dict[str, Any]:
+    phases = {
+        "vdc": validate_realtime_phase(
+            before, after, name="vdc", phase_id=APP_REALTIME_PHASE_VDC,
+            load_mask=APP_REALTIME_LOAD_VDC_MASK),
+        "dpll": validate_realtime_phase(
+            before, after, name="dpll", phase_id=APP_REALTIME_PHASE_DPLL,
+            load_mask=APP_REALTIME_LOAD_DPLL_MASK),
+        "refmem": validate_realtime_phase(
+            before, after, name="refmem", phase_id=APP_REALTIME_PHASE_REFMEM,
+            load_mask=APP_REALTIME_LOAD_REFMEM_MASK),
+    }
+    errors = [
+        error for phase in phases.values() for error in phase["errors"]
+    ]
+    return {
+        "passed": not errors,
+        "errors": errors,
+        "phases": phases,
         "quarantined_mask": int(after["quarantined_mask"]),
     }
 

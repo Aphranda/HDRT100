@@ -427,6 +427,7 @@ typedef struct {
     uint32_t holdover_age_us;
     uint32_t schedule_crc32;
     uint32_t servo_profile_crc32;
+    int32_t last_raw_phase_error_ns;
     uint64_t last_expected_window_start_ns;
     uint64_t last_observed_time_ns;
 } vdc_dpll_state_t;

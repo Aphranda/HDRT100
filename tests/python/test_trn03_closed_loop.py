@@ -36,11 +36,15 @@ from trn03_closed_loop import (  # noqa: E402
 
 def dpll_schedule(*, run_count: int, max_runtime_cycles: int = 28000,
                   overrun_count: int = 0, deadline_miss_count: int = 0,
-                  quarantined_mask: int = 0) -> dict:
-    phase = {
+                  quarantined_mask: int = 0,
+                  vdc_max_runtime_cycles: int = 40000,
+                  vdc_overrun_count: int = 0,
+                  refmem_max_runtime_cycles: int = 22000,
+                  refmem_overrun_count: int = 0) -> dict:
+    dpll_phase = {
         "start_cycle": 143000,
         "end_cycle": 177000,
-        "wcet_cycles": 33000,
+        "wcet_cycles": 34000,
         "last_start_cycle": 143000,
         "last_runtime_cycles": max_runtime_cycles,
         "max_runtime_cycles": max_runtime_cycles,
@@ -50,9 +54,31 @@ def dpll_schedule(*, run_count: int, max_runtime_cycles: int = 28000,
         "overrun_count": overrun_count,
         "deadline_miss_count": deadline_miss_count,
     }
+    vdc_phase = dict(dpll_phase)
+    vdc_phase.update({
+        "start_cycle": 100000,
+        "end_cycle": 143000,
+        "wcet_cycles": 42000,
+        "last_start_cycle": 100000,
+        "last_runtime_cycles": vdc_max_runtime_cycles,
+        "max_runtime_cycles": vdc_max_runtime_cycles,
+        "overrun_count": vdc_overrun_count,
+        "deadline_miss_count": 0,
+    })
+    refmem_phase = dict(dpll_phase)
+    refmem_phase.update({
+        "start_cycle": 197000,
+        "end_cycle": 222000,
+        "wcet_cycles": 24000,
+        "last_start_cycle": 197000,
+        "last_runtime_cycles": refmem_max_runtime_cycles,
+        "max_runtime_cycles": refmem_max_runtime_cycles,
+        "overrun_count": refmem_overrun_count,
+        "deadline_miss_count": 0,
+    })
     return {
         "quarantined_mask": quarantined_mask,
-        "phases": [{}, {}, phase],
+        "phases": [{}, vdc_phase, dpll_phase, {}, {}, refmem_phase],
     }
 
 
@@ -61,13 +87,15 @@ def test_dpll_schedule_gate_accepts_bounded_advancing_phase() -> None:
         dpll_schedule(run_count=10), dpll_schedule(run_count=1010))
     assert result["passed"] is True
     assert result["errors"] == []
-    assert result["deltas"]["run_count"] == 1000
+    assert result["phases"]["vdc"]["deltas"]["run_count"] == 1000
+    assert result["phases"]["dpll"]["deltas"]["run_count"] == 1000
+    assert result["phases"]["refmem"]["deltas"]["run_count"] == 1000
 
 
 def test_dpll_schedule_gate_rejects_wcet_and_quarantine_regression() -> None:
     result = validate_dpll_schedule(
         dpll_schedule(run_count=10),
-        dpll_schedule(run_count=11, max_runtime_cycles=34000,
+        dpll_schedule(run_count=11, max_runtime_cycles=35000,
                       overrun_count=1, deadline_miss_count=1,
                       quarantined_mask=1 << 1))
     assert result["passed"] is False
@@ -77,6 +105,73 @@ def test_dpll_schedule_gate_rejects_wcet_and_quarantine_regression() -> None:
         "dpll_load_quarantined",
         "dpll_max_runtime_exceeded_wcet",
     ]
+
+
+def test_dpll_schedule_gate_rejects_vdc_evidence_producer_failure() -> None:
+    result = validate_dpll_schedule(
+        dpll_schedule(run_count=10),
+        dpll_schedule(run_count=11, vdc_max_runtime_cycles=43000,
+                      vdc_overrun_count=1, quarantined_mask=1 << 0))
+    assert result["passed"] is False
+    assert result["errors"] == [
+        "vdc_overrun_count_grew",
+        "vdc_load_quarantined",
+        "vdc_max_runtime_exceeded_wcet",
+    ]
+
+
+def test_dpll_schedule_gate_rejects_refmem_publication_failure() -> None:
+    result = validate_dpll_schedule(
+        dpll_schedule(run_count=10),
+        dpll_schedule(run_count=11, refmem_max_runtime_cycles=25000,
+                      refmem_overrun_count=1,
+                      quarantined_mask=1 << 4))
+    assert result["passed"] is False
+    assert result["errors"] == [
+        "refmem_overrun_count_grew",
+        "refmem_load_quarantined",
+        "refmem_max_runtime_exceeded_wcet",
+    ]
+
+
+def test_dpll_refmem_realtime_hot_paths_are_sram_resident() -> None:
+    manager = (ROOT / "components" / "vdc_dpll_manager" / "src" /
+               "vdc_dpll_manager.c").read_text(encoding="utf-8")
+    refmem = (ROOT / "components" / "distributed_refmem" / "src" /
+              "distributed_refmem.c").read_text(encoding="utf-8")
+    vectors = (ROOT / "components" / "distributed_refmem" / "src" /
+               "refmem_vector_table.c").read_text(encoding="utf-8")
+    for symbol in (
+        "vdc_dpll_manager_get_snapshot",
+        "vdc_dpll_manager_published_update_seq",
+    ):
+        assert f"VDC_DPLL_MANAGER_TIME_CRITICAL({symbol})" in manager or (
+            "VDC_DPLL_MANAGER_TIME_CRITICAL(\n"
+            f"    {symbol})" in manager)
+    assert ("DISTRIBUTED_REFMEM_TIME_CRITICAL(\n"
+            "    distributed_refmem_realtime_run_once)" in refmem)
+    for symbol in (
+        "refmem_vdc_vector_payload_crc",
+        "refmem_dpll_vector_payload_crc",
+        "refmem_vector_fast_crc32",
+    ):
+        assert f"REFMEM_VECTOR_TIME_CRITICAL({symbol})" in vectors
+
+
+def test_refmem_runtime_vectors_are_mirrored_in_separate_beats() -> None:
+    refmem = (ROOT / "components" / "distributed_refmem" / "src" /
+              "distributed_refmem.c").read_text(encoding="utf-8")
+    service = refmem.split(
+        "distributed_refmem_realtime_run_once)(void)", 1
+    )[1].split("void distributed_refmem_service", 1)[0]
+    vdc_publish = service.index(
+        "distributed_refmem_publish_vdc_vector_payload")
+    split_return = service.index("return;", vdc_publish)
+    dpll_publish = service.index(
+        "distributed_refmem_publish_dpll_vector_payload")
+    assert vdc_publish < split_return < dpll_publish
+    assert "s_vdc_vector_source_update_seq" in service
+    assert "s_dpll_vector_source_update_seq" in service
 
 
 def test_running_handoff_requires_complete_healthy_physical_ring() -> None:

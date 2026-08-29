@@ -119,6 +119,31 @@ static int32_t VDC_DOMAIN_TIME_CRITICAL(
     return negative ? -(int32_t)low : (int32_t)low;
 }
 
+static int32_t VDC_DOMAIN_TIME_CRITICAL(
+    vdc_domain_ppb_elapsed_correction_ns)(int32_t ppb,
+                                           uint32_t elapsed_ns)
+{
+    const uint32_t elapsed_us = elapsed_ns / 1000u;
+    const uint32_t magnitude = vdc_domain_abs_i32(ppb);
+    if (elapsed_us == 0u || magnitude == 0u) {
+        return 0;
+    }
+
+    /* The normal DPLL interval is milliseconds.  Converting elapsed time to
+     * microseconds keeps the product in 32 bits through 85 ms at the 50 ppm
+     * servo limit, so Cortex-M33 can use its native divide in the hot path.
+     * Sub-microsecond truncation contributes less than one nanosecond. */
+    if (magnitude <= UINT32_MAX / elapsed_us) {
+        const uint32_t correction_ns =
+            (magnitude * elapsed_us) / 1000000u;
+        return ppb < 0 ? -(int32_t)correction_ns
+                       : (int32_t)correction_ns;
+    }
+
+    return vdc_domain_scaled_ratio_clamped_i32(
+        ppb, elapsed_ns, 1000000000ull, (uint32_t)INT32_MAX);
+}
+
 static void vdc_domain_gate_fail(vdc_gate_result_t *gate,
                                  vdc_domain_gate_code_t code,
                                  uint32_t slot,
@@ -278,6 +303,24 @@ static uint64_t vdc_domain_window_start_minus_phase(uint64_t window_start_ns,
     return window_start_ns > subtract_ns ? window_start_ns - subtract_ns : 0u;
 }
 
+static uint64_t vdc_domain_tracking_window_start_ns(
+    const vdc_domain_context_t *context,
+    uint64_t expected_window_start_ns,
+    uint32_t half_width_ns)
+{
+    const uint64_t predicted_arrival_ns =
+        vdc_domain_window_start_minus_phase(
+            expected_window_start_ns, context->clock.phase_offset_ns);
+    return predicted_arrival_ns > half_width_ns
+        ? predicted_arrival_ns - half_width_ns : 0u;
+}
+
+static uint32_t vdc_domain_tracking_window_width_ns(uint32_t half_width_ns)
+{
+    return half_width_ns > UINT32_MAX / 2u
+        ? UINT32_MAX : half_width_ns * 2u;
+}
+
 static uint32_t vdc_domain_avg_u32(uint32_t previous, uint32_t sample)
 {
     return previous == 0u ? sample : (previous + sample) / 2u;
@@ -357,9 +400,34 @@ static int32_t vdc_domain_corrected_phase_error_ns(
     if (context == NULL || evidence == NULL) {
         return 0;
     }
-    return vdc_domain_clamp_i64_to_i32(
+    int32_t rate_correction_ns = 0;
+    if (context->dpll.accepted_sample_count != 0u &&
+        context->clock.valid != 0u &&
+        context->clock.period_adjust_ppb != 0 &&
+        evidence->observed_time_ns > context->clock.base_local_tick64) {
+        const uint64_t elapsed_ns64 =
+            evidence->observed_time_ns - context->clock.base_local_tick64;
+        const uint32_t elapsed_ns = elapsed_ns64 > UINT32_MAX
+            ? UINT32_MAX : (uint32_t)elapsed_ns64;
+        rate_correction_ns = vdc_domain_ppb_elapsed_correction_ns(
+            context->clock.period_adjust_ppb, elapsed_ns);
+    }
+
+    int64_t corrected =
         (int64_t)evidence->phase_error_ns +
-        (int64_t)context->clock.phase_offset_ns);
+        (int64_t)context->clock.phase_offset_ns +
+        (int64_t)rate_correction_ns;
+    if (context->schedule.period_ns != 0u) {
+        const int64_t period = (int64_t)context->schedule.period_ns;
+        const int64_t half_period = period / 2ll;
+        while (corrected > half_period) {
+            corrected -= period;
+        }
+        while (corrected < -half_period) {
+            corrected += period;
+        }
+    }
+    return vdc_domain_clamp_i64_to_i32(corrected);
 }
 
 static uint32_t vdc_domain_lock_acceptance_threshold_ns(
@@ -383,6 +451,41 @@ static uint32_t vdc_domain_lock_acceptance_threshold_ns(
         coarse_ns = servo->coarse_lock_threshold_ns;
     }
     return threshold_ns > coarse_ns ? coarse_ns : threshold_ns;
+}
+
+static uint32_t vdc_domain_effective_lock_acceptance_threshold_ns(
+    const vdc_domain_context_t *context)
+{
+    if (context == NULL) {
+        return VDC_DOMAIN_LOCK_TIER_FINE_NS;
+    }
+
+    uint32_t threshold_ns =
+        vdc_domain_lock_acceptance_threshold_ns(&context->servo);
+    if ((context->path_delay.flags &
+         VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY) != 0u &&
+        threshold_ns < VDC_DOMAIN_LOCK_TIER_COARSE_NS) {
+        threshold_ns = VDC_DOMAIN_LOCK_TIER_COARSE_NS;
+    }
+    return threshold_ns;
+}
+
+static uint32_t vdc_domain_effective_outlier_threshold_ns(
+    const vdc_domain_context_t *context)
+{
+    if (context == NULL || context->servo.outlier_threshold_ns == 0u) {
+        return 0u;
+    }
+
+    uint32_t threshold_ns = context->servo.outlier_threshold_ns;
+    const uint32_t provisional_threshold_ns =
+        VDC_DOMAIN_LOCK_TIER_COARSE_NS + VDC_DOMAIN_LOCK_TIER_DEBUG_NS;
+    if ((context->path_delay.flags &
+         VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY) != 0u &&
+        threshold_ns < provisional_threshold_ns) {
+        threshold_ns = provisional_threshold_ns;
+    }
+    return threshold_ns;
 }
 
 static uint32_t vdc_domain_lock_quality_tier_for_error(
@@ -581,7 +684,7 @@ static void VDC_DOMAIN_TIME_CRITICAL(vdc_domain_refresh_quality_state)(
     context->quality.valid = 1u;
     context->quality.lock_state = context->dpll.state;
     context->quality.lock_acceptance_threshold_ns =
-        vdc_domain_lock_acceptance_threshold_ns(&context->servo);
+        vdc_domain_effective_lock_acceptance_threshold_ns(context);
     context->quality.fine_lock_threshold_ns =
         context->servo.offset_lock_threshold_ns != 0u
             ? context->servo.offset_lock_threshold_ns
@@ -724,6 +827,7 @@ static void vdc_domain_reset_lock_acquisition(vdc_domain_context_t *context)
     }
 
     context->dpll.accepted_sample_count = 0u;
+    context->dpll.last_raw_phase_error_ns = 0;
     context->dpll.last_expected_window_start_ns = 0u;
     context->dpll.last_observed_time_ns = 0u;
     context->quality.accepted_sample_count = 0u;
@@ -742,6 +846,30 @@ static bool vdc_domain_reject_requires_reacquire(uint32_t reject_code)
     default:
         return true;
     }
+}
+
+static uint32_t vdc_domain_lock_state_after_reject(
+    const vdc_domain_context_t *context,
+    bool reacquire)
+{
+    if (context == NULL || context->ready == 0u) {
+        return VDC_DOMAIN_LOCK_OFF;
+    }
+    if (reacquire) {
+        return VDC_DOMAIN_LOCK_CHECKING;
+    }
+
+    const uint32_t reject_limit = context->servo.lock_sample_count != 0u
+        ? context->servo.lock_sample_count : 1u;
+    const uint32_t next_bad_count =
+        context->quality.consecutive_bad_samples == UINT32_MAX
+            ? UINT32_MAX
+            : context->quality.consecutive_bad_samples + 1u;
+    if (context->dpll.state == VDC_DOMAIN_LOCK_LOCKED &&
+        next_bad_count < reject_limit) {
+        return VDC_DOMAIN_LOCK_LOCKED;
+    }
+    return VDC_DOMAIN_LOCK_RELOCKING;
 }
 
 static void vdc_domain_record_accepted_sample(
@@ -846,12 +974,20 @@ static void vdc_domain_update_clock_from_evidence(
         const uint64_t expected_delta =
             evidence->expected_window_start_ns -
             context->dpll.last_expected_window_start_ns;
-        const uint64_t observed_delta =
-            evidence->observed_time_ns -
-            context->dpll.last_observed_time_ns;
         if (expected_delta >= vdc_domain_rate_observation_min_ns(context)) {
-            const int64_t delta_error =
-                (int64_t)observed_delta - (int64_t)expected_delta;
+            int64_t delta_error =
+                (int64_t)evidence->phase_error_ns -
+                (int64_t)context->dpll.last_raw_phase_error_ns;
+            if (context->schedule.period_ns != 0u) {
+                const int64_t period = (int64_t)context->schedule.period_ns;
+                const int64_t half_period = period / 2ll;
+                while (delta_error > half_period) {
+                    delta_error -= period;
+                }
+                while (delta_error < -half_period) {
+                    delta_error += period;
+                }
+            }
             const int32_t target_frequency_error_ppb =
                 vdc_domain_scaled_ratio_clamped_i32(
                     delta_error,
@@ -905,6 +1041,7 @@ static void vdc_domain_update_clock_from_evidence(
 
     context->dpll.last_frequency_error_ppb = frequency_error_ppb;
     if (update_rate_anchor) {
+        context->dpll.last_raw_phase_error_ns = evidence->phase_error_ns;
         context->dpll.last_expected_window_start_ns =
             evidence->expected_window_start_ns;
         context->dpll.last_observed_time_ns = evidence->observed_time_ns;
@@ -1980,7 +2117,8 @@ bool vdc_domain_observation_path_delay_lookup(
     return true;
 }
 
-bool vdc_domain_active_observation_path_delay_lookup(
+bool VDC_DOMAIN_TIME_CRITICAL(
+    vdc_domain_active_observation_path_delay_lookup)(
     const vdc_path_delay_table_t *table,
     uint32_t source_slot_id,
     uint32_t reference_slot_id,
@@ -2530,22 +2668,26 @@ static bool vdc_domain_prepare_tdma_evidence_checked(
     vdc_gate_result_t gate;
     const bool acquisition_window =
         vdc_domain_context_uses_acquisition_window(context);
+    const uint32_t outlier_threshold_ns =
+        vdc_domain_effective_outlier_threshold_ns(context);
+    const uint32_t tracking_half_width_ns =
+        outlier_threshold_ns > context->schedule.observation_window_width_ns
+            ? outlier_threshold_ns
+            : context->schedule.observation_window_width_ns;
     const uint32_t admission_window_width_ns =
         acquisition_window
             ? vdc_domain_acquisition_window_width_ns(&context->schedule)
-            : context->schedule.observation_window_width_ns;
+            : vdc_domain_tracking_window_width_ns(tracking_half_width_ns);
     const uint32_t admission_guard_before_ns =
-        acquisition_window ? VDC_DOMAIN_ACQUISITION_GUARD_NS
-                           : context->schedule.guard_before_ns;
+        acquisition_window ? VDC_DOMAIN_ACQUISITION_GUARD_NS : 0u;
     const uint32_t admission_guard_after_ns =
-        acquisition_window ? VDC_DOMAIN_ACQUISITION_GUARD_NS
-                           : context->schedule.guard_after_ns;
+        acquisition_window ? VDC_DOMAIN_ACQUISITION_GUARD_NS : 0u;
     const uint64_t admission_window_start_ns =
         acquisition_window
             ? evidence->expected_window_start_ns
-            : vdc_domain_window_start_minus_phase(
-                  evidence->expected_window_start_ns,
-                  context->clock.phase_offset_ns);
+            : vdc_domain_tracking_window_start_ns(
+                  context, evidence->expected_window_start_ns,
+                  tracking_half_width_ns);
 
     if (!vdc_domain_validate_tdma_timestamp_evidence_window(
             &context->schedule,
@@ -2570,8 +2712,8 @@ static bool vdc_domain_prepare_tdma_evidence_checked(
         vdc_domain_abs_i32(input_residual_ns);
     if (!acquisition_window &&
         context->dpll.accepted_sample_count != 0u &&
-        context->servo.outlier_threshold_ns != 0u &&
-        abs_predicted_residual > context->servo.outlier_threshold_ns) {
+        outlier_threshold_ns != 0u &&
+        abs_predicted_residual > outlier_threshold_ns) {
         vdc_domain_gate_fail(&gate,
                              VDC_DOMAIN_GATE_SERVO_OUTLIER,
                              evidence->source_slot_id,
@@ -2649,11 +2791,8 @@ bool VDC_DOMAIN_TIME_CRITICAL(vdc_domain_apply_prepared_tdma_evidence_state)(
         if (reacquire) {
             vdc_domain_reset_lock_acquisition(context);
         }
-        if (context->ready != 0u) {
-            context->dpll.state = reacquire
-                ? VDC_DOMAIN_LOCK_CHECKING
-                : VDC_DOMAIN_LOCK_RELOCKING;
-        }
+        context->dpll.state =
+            vdc_domain_lock_state_after_reject(context, reacquire);
         vdc_domain_sync_dco_lock_state(context);
         preparation->applied = 1u;
         preparation->post_apply_dpll_update_seq = context->dpll.update_seq;
@@ -2693,7 +2832,7 @@ bool VDC_DOMAIN_TIME_CRITICAL(vdc_domain_apply_prepared_tdma_evidence_state)(
         context->dpll.state = VDC_DOMAIN_LOCK_FREQ_LOCK;
     } else if (context->dpll.accepted_sample_count < context->servo.lock_sample_count ||
                abs_phase >
-                   vdc_domain_lock_acceptance_threshold_ns(&context->servo)) {
+                   vdc_domain_effective_lock_acceptance_threshold_ns(context)) {
         context->dpll.state = VDC_DOMAIN_LOCK_PHASE_LOCK;
     } else {
         context->dpll.state = VDC_DOMAIN_LOCK_LOCKED;
@@ -2824,22 +2963,26 @@ bool vdc_domain_submit_compact_observation(
 
     const bool acquisition_window =
         vdc_domain_context_uses_acquisition_window(context);
+    const uint32_t outlier_threshold_ns =
+        vdc_domain_effective_outlier_threshold_ns(context);
+    const uint32_t tracking_half_width_ns =
+        outlier_threshold_ns > context->schedule.observation_window_width_ns
+            ? outlier_threshold_ns
+            : context->schedule.observation_window_width_ns;
     const uint32_t admission_window_width_ns =
         acquisition_window
             ? vdc_domain_acquisition_window_width_ns(&context->schedule)
-            : context->schedule.observation_window_width_ns;
+            : vdc_domain_tracking_window_width_ns(tracking_half_width_ns);
     const uint32_t admission_guard_before_ns =
-        acquisition_window ? VDC_DOMAIN_ACQUISITION_GUARD_NS
-                           : context->schedule.guard_before_ns;
+        acquisition_window ? VDC_DOMAIN_ACQUISITION_GUARD_NS : 0u;
     const uint32_t admission_guard_after_ns =
-        acquisition_window ? VDC_DOMAIN_ACQUISITION_GUARD_NS
-                           : context->schedule.guard_after_ns;
+        acquisition_window ? VDC_DOMAIN_ACQUISITION_GUARD_NS : 0u;
     const uint64_t admission_window_start_ns =
         acquisition_window
             ? compact->expected_window_start_ns
-            : vdc_domain_window_start_minus_phase(
-                  compact->expected_window_start_ns,
-                  context->clock.phase_offset_ns);
+            : vdc_domain_tracking_window_start_ns(
+                  context, compact->expected_window_start_ns,
+                  tracking_half_width_ns);
 
     if (!vdc_domain_expand_compact_observation_window(
             &context->schedule,
@@ -2857,9 +3000,8 @@ bool vdc_domain_submit_compact_observation(
         context->dpll.rejected_sample_count++;
         context->dpll.last_reject_code = gate.reject_code;
         context->dpll.update_seq++;
-        if (context->ready != 0u) {
-            context->dpll.state = VDC_DOMAIN_LOCK_CHECKING;
-        }
+        context->dpll.state = vdc_domain_lock_state_after_reject(
+            context, vdc_domain_reject_requires_reacquire(gate.reject_code));
         vdc_domain_record_rejected_sample(context, &evidence, &gate);
         return false;
     }

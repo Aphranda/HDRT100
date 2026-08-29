@@ -2,6 +2,13 @@
 
 #include <string.h>
 
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#include "pico.h"
+#define REFMEM_VECTOR_TIME_CRITICAL(name) __not_in_flash_func(name)
+#else
+#define REFMEM_VECTOR_TIME_CRITICAL(name) name
+#endif
+
 _Static_assert(sizeof(refmem_vector_header_region_t) == DISTRIBUTED_REFMEM_HEADER_SIZE,
                "refmem header region must be 1 KB");
 _Static_assert(sizeof(refmem_vector_node_region_t) == DISTRIBUTED_REFMEM_NODE_SLOT_SIZE,
@@ -13,7 +20,8 @@ _Static_assert(sizeof(refmem_dpll_vector_region_t) == DISTRIBUTED_REFMEM_DPLL_SI
 _Static_assert(sizeof(refmem_vector_table_t) == DISTRIBUTED_REFMEM_TABLE_SIZE,
                "DistributedVectorTable must be exactly 64 KB");
 
-uint32_t refmem_vdc_vector_payload_crc(const refmem_vdc_vector_payload_t *payload)
+uint32_t REFMEM_VECTOR_TIME_CRITICAL(refmem_vdc_vector_payload_crc)(
+    const refmem_vdc_vector_payload_t *payload)
 {
     if (payload == NULL) {
         return 0u;
@@ -23,7 +31,8 @@ uint32_t refmem_vdc_vector_payload_crc(const refmem_vdc_vector_payload_t *payloa
                                              payload_crc32));
 }
 
-uint32_t refmem_dpll_vector_payload_crc(const refmem_dpll_vector_payload_t *payload)
+uint32_t REFMEM_VECTOR_TIME_CRITICAL(refmem_dpll_vector_payload_crc)(
+    const refmem_dpll_vector_payload_t *payload)
 {
     if (payload == NULL) {
         return 0u;
@@ -179,7 +188,8 @@ void refmem_vector_table_init_directory(refmem_vector_table_t *table)
                              sizeof(table->tlv));
 }
 
-static uint32_t refmem_vector_crc32_update(uint32_t crc, const void *data, size_t size)
+static uint32_t REFMEM_VECTOR_TIME_CRITICAL(refmem_vector_crc32_update)(
+    uint32_t crc, const void *data, size_t size)
 {
     const uint8_t *bytes = (const uint8_t *)data;
     for (size_t i = 0u; i < size; i++) {
@@ -189,7 +199,8 @@ static uint32_t refmem_vector_crc32_update(uint32_t crc, const void *data, size_
     return crc;
 }
 
-uint32_t refmem_vector_fast_crc32(const void *data, size_t size)
+uint32_t REFMEM_VECTOR_TIME_CRITICAL(refmem_vector_fast_crc32)(
+    const void *data, size_t size)
 {
     return refmem_vector_crc32_update(2166136261u, data, size);
 }
