@@ -539,6 +539,22 @@ Domain AO / FB local fact commit
   统计不得作为实时 payload 或 recovery frame 负载。
 - RP2350 首版可以先实现有界 byte/block cut-through；只有 PIO/DMA 实测证明 RX/TX 重叠和固定 pipeline delay 后，才宣称飞行模式成立。
 
+#### DPLL residual evidence capture（维护态）
+
+DPLL 时间残差曲线属于离线观测证据，不属于 TDMA 短帧、recovery 或 DPLL 实时 phase
+的负载。`vdc_dpll_manager_dpll_capture_arm()` 只开启固定长度的 SRAM 记录；Core1
+在已发布的 DPLL snapshot 边界追加 `vdc_dpll_manager_dpll_capture_record_t`，不调用
+SD、FatFs、SCPI、格式化或动态分配。`vdc_dpll_manager_dpll_capture_stop()` 冻结记录后，
+Core0 通过 `vdc_dpll_manager_dpll_capture_save()` 将带 CRC 的原始记录提交给 StorageAO，
+写入 `/traces/run/`；主机再使用 `SYSTem:STORage:FILE:READ?` 下载，并由
+`tools/dpll_observation_decode/dpll_observation_decode.py` 转换为
+`tools/dpll_residual_analyze/dpll_residual_analyze.py` 的输入生成 SVG。
+
+采集缓冲达到 `VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES` 时自动完成并停止；满缓冲、
+StorageAO 忙或 CRC 失败只影响证据文件，不改变 SHORT 帧型、phase、sequence、PIO 节拍、
+TDMA deadline 或 DPLL accepted/lock 判定。采集未停止前禁止 SAVE，防止读取正在写入的
+记录。
+
 #### T2 预约 process-image 分发
 
 完整跨域流水线见 `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`。TDMA 为 T2 预约提供确定性 channel，但预约语义仍由 Trigger owner 解释。建议在 active `TdmaProcessImageMap` 中登记四类固定 segment，精确字节布局待 System Pack 和交叉审核冻结：

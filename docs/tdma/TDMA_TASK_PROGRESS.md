@@ -4,9 +4,18 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_TASK_PROGRESS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
-Last updated: 2026-08-28
+Last updated: 2026-08-29
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
+
+### TDMA-PROGRESS-20260829-001 - DPLL residual SD evidence capture
+
+- TODO task ID：`TDMA-DPLL-008`、`TDMA-PAYLOAD-006`。
+- 变更：提交 `66039fa` 增加固定 SRAM residual capture。Core1 只在 DPLL snapshot 发布边界追加固定记录；STOP 后由 Core0 调用 StorageAO 写入 `/traces/run/`，禁止 SD/FatFs 进入 TDMA/DPLL 热路径。
+- 接口：`SYSTem:SYNC:VDC:DPLL:TRACe:ARM`、`STOP`、`STATus?`、`SAVE`；SD 二进制下载后由 `tools/dpll_observation_decode/dpll_observation_decode.py` 转为 `samples.json`，继续复用 `tools/dpll_residual_analyze/dpll_residual_analyze.py` 生成 SVG。
+- 构建：`out/build/dpll-sd-capture-20260829/` 的 A/B/Boot、package 和 flash-link contract 通过；RAM 链接余量 `81772 B`、临时许可证下限 `80000 B`（均为快照，非事实源），FreeRTOS heap 未压缩，仍为 `128 KiB`。
+- pytest：全量 `527 passed`；新增 decoder 正/反 CRC 测试通过。尚未执行本提交镜像的多板 OTA/HIL，因此 `TDMA-DPLL-008` 保持 `IN PROGRESS`。
+- 下一步：对 NO1–NO4/NO5 执行异步 OTA；ARM→运行→STOP→SAVE→FILE:READ 下载，检查记录数、payload CRC、DPLL update sequence 连续性，再生成 residual SVG，并确认 TDMA schedule/WCET/error 无新增。
 
 ## 文档接口
 

@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-08-28
+Last updated: 2026-08-29
 Version: 4
 
 本文档定义 Distributed Hard Real-Time Trigger System 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
@@ -123,7 +123,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | Distributed RefMem | HAOFV 内部基础主域；跨节点动作只能通过反射内存向量表、静态分布式应用模型、命令槽、ACK/NACK、stale、CRC、sequence 和同步帧表达。 | `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`、`docs/arch/RTOS_HAOFV_ARCHITECTURE.md`、`components/distributed_refmem/` |
 | VDC Domain | HAOFV 内部基础主域；形成多节点共同时间事实，维护 local tick 到 VDC 时间映射、SYNC DPLL、HOLDOVER/RELOCK、timestamp dictionary 和时间质量门禁。 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`、`docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`、`components/vdc_domain/` |
 | Calibration Domain | HAOFV 内部基础主域；测量有向线序、邻接矩阵、环路顺序和 CLK/DATA/SYNC 链路 delay，维护 accepted slot map、双向时间传递、residence、endpoint bias、path-delay active/staging、generation/freshness 和校准接受门禁。 | `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`、`components/calibration_manager/` |
-| TDMA Foundation | HAOFV 内部基础主域；形成上行/下行确定性通讯骨架，维护 window、guard、payload registry、adapter、ring runtime、completion evidence 和质量摘要；VDC/RefMem 只能挂载 payload 或消费 evidence。 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`、`components/tdma/` |
+| TDMA Foundation | HAOFV 内部基础主域；形成上行/下行确定性通讯骨架，维护 window、guard、payload registry、adapter、ring runtime、completion evidence 和质量摘要；VDC/RefMem 只能挂载 payload 或消费 evidence。DPLL residual 只通过维护态固定 SRAM capture 进入 Core0/StorageAO/SD 离线证据链，不进入 TDMA realtime path。 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`、`components/tdma/`、`components/vdc_dpll_manager/` |
 | Resource Arbiter | 管理 Flash、SD、USB、PIO、DMA、LCD、隔离链路等互斥资源；Flash/XIP 双核安全是最高优先级硬约束。 | `arch/RTOS_HAOFV_ARCHITECTURE.md` |
 | Flash Persistence Domain | App 唯一 writer 是 core0 `FlashTransactionAO`；Bootloader 使用无 RTOS 的 `BootFlashService`；各业务域只提交 versioned intent 并读取 durable completion。 | `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`、`drivers/mcu/flash/`、`components/ota_manager/` |
 | Hardware Service | 封装 SDK/驱动细节；上层不直接调用板级 API。 | `components/`、`drivers/` |
