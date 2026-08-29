@@ -31,6 +31,7 @@ docs/
   sync/                 ; SYNC 动作、SYNC_IO、同步链路落地
   calibration/          ; CAL link、delay、参数、版本、质量
   tdma/                 ; 上行/下行 TDMA、payload registry、adapter、ring runtime
+  state_machine/        ; PIO state machine、实时 persona、FIFO/DMA 资源和方向隔离
   refmem/               ; 分布式向量表、命令槽、ACK/NACK、节点事实
   vdc/                  ; 虚拟 DC、共同时间、DPLL、HOLDOVER、时间质量
   communication/        ; BiSS-C、UART、RS485、RJ45 后端维护
@@ -73,6 +74,7 @@ docs/
 | Distributed Vector / REFMEM | `refmem/` | 内部主域；`REFMEM_DOMAIN_ARCHITECTURE.md`, `REFMEM_DOMAIN_TODO.md`, `REFMEM_TASK_PROGRESS.md` |
 | Virtual Distributed Clock / VDC | `vdc/` | 内部主域；`VDC_DOMAIN_ARCHITECTURE.md`, `VDC_DOMAIN_TODO.md`, `VDC_TASK_PROGRESS.md` |
 | TDMA Foundation | `tdma/` | 内部基础主域；`TDMA_DOMAIN_ARCHITECTURE.md`, `TDMA_DOMAIN_TODO.md`, `TDMA_TASK_PROGRESS.md` |
+| State Machine / Realtime Persona | `state_machine/` | PIO/SM/DMA/FIFO 资源、方向隔离、persona 生命周期和底层状态机门禁 |
 | Loop Engine / Sequence Engine | `trigger/` | `_DESIGN.md`, `_PLAN.md`, `_TASK_PROGRESS.md` |
 | Core1 Realtime / FIRE_LOAD | `trigger/` | `_DESIGN.md`, `_ANALYSIS.md`, `_CHECKLIST.md` |
 | Calibration Engine | `calibration/` | `_DESIGN.md`, `_COMMANDS.md`, `_TASK_PROGRESS.md` |

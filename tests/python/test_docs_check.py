@@ -9,6 +9,9 @@ def test_docs_check_accepts_current_domain_filename() -> None:
     assert docs_check.is_allowed_name("VDC_DOMAIN_ARCHITECTURE.md")
     assert docs_check.is_allowed_name("REFMEM_TASK_PROGRESS.md")
     assert docs_check.is_allowed_name("SCPI_COMMANDS.md")
+    assert docs_check.is_allowed_name("STATE_MACHINE_DOMAIN_ARCHITECTURE.md")
+    assert docs_check.is_allowed_name("STATE_MACHINE_DOMAIN_TODO.md")
+    assert docs_check.is_allowed_name("STATE_MACHINE_TASK_PROGRESS.md")
 
 
 def test_docs_check_accepts_added_allowlist_names() -> None:

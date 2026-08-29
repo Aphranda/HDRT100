@@ -39,6 +39,7 @@ ALLOWED_PREFIXES = {
     "VDC",
     "TDMA",
     "PRODUCT",
+    "STATE_MACHINE",
 }
 
 ALLOWED_SUFFIXES = {

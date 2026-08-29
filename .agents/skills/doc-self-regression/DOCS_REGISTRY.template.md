@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_REGISTRY.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`
-Last updated: 2026-08-27
+Last updated: 2026-08-29
 
 > 注：本文件必须满足 `tools/docs_check/docs_check.py` 的元数据要求（5 字段齐全），否则自回归门禁自相矛盾。
 
@@ -20,8 +20,11 @@ Last updated: 2026-08-27
 | TDMA-HOP-01 | tdma | hop_limit 归属 ring profile | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_profile.h | 符号存在性 | 2026-08-19 | active |
 | REFMEM-260B-01 | refmem | critical delta ≤260B | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | refmem_sync.h | 常量比对 | 2026-08-19 | active |
 | VDC-DPLL-01 | vdc | DPLL 准入 resolution≤100ns | 1 | docs/vdc/VDC_DOMAIN_ARCHITECTURE.md | vdc_timestamp_clock.h | 符号存在性 | 2026-08-19 | active |
+| VDC-PATHMATRIX-01 | vdc | calibration load 生成完整 observation path matrix，运行态禁止 ring path inference | 1 | docs/vdc/VDC_DOMAIN_ARCHITECTURE.md | vdc_domain.h | C/host matrix completeness and lookup tests | 2026-08-28 | pending |
 | TDMA-FLIGHT-BITMAP-01 | tdma | SHORT process image 固定 8×32B，slot 前 8B 由 core1 生成 RX 位图（旧 ID 不符合检查器单段主题格式，由 TDMA-FLIGHTBITMAP-01 接替） | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_flight_engine.h | 常量与单测比对 | 2026-08-20 | superseded |
 | TDMA-FLIGHTBITMAP-01 | tdma | SHORT process image 固定 8×32B，slot 前 8B 由 core1 生成 RX 位图 | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_flight_engine.h | 常量与单测比对 | 2026-08-21 | pending |
+| TDMA-PROCESSIMAGE-01 | tdma | 固定 SHORT process image 静态装配 Node mailbox 与全局 DPLL observation trailer；DPLL 不得替换帧型、长度、序列或 PIO 节拍 | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_process_image_layout.h | 编译断言、预算工具、固定帧型回归、publisher/parser 与多板 HIL | 2026-08-28 | pending |
+| TDMA-RECOVERY-01 | tdma | 短帧错误恢复由 Core0 准备、Core1 有界装载、PIO 发送；双 recovery buffer 交替、每周期最多一帧、独立静态预算并复用原 Node segment offset | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_traffic_scheduler.h | 状态机/预算门禁/ACK-retry/backpressure 与多板 HIL | 2026-08-28 | pending |
 | TDMA-OPMODE-01 | tdma | SPI 速率与 TDMA 周期按离散 operating profile 成对切换，STOP 后生效 | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_operating_profile.h | SCPI/状态机/单测比对 | 2026-08-20 | pending |
 | ARCH-FLASHMAP-01 | arch | FlashMap v2 是 Boot/linker/App/factory/tool 的唯一分区词汇 | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | ota_partition.h | 生成表/链接/map/factory 工具比对 | 2026-08-21 | pending |
 | ARCH-FLASHOWNER-01 | arch | App erase/program 仅 core0 FlashTransactionAO，Boot 使用最小 BootFlashService | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | drv_flash_lockout.h | 裸调用扫描/双核 HIL/Boot 依赖审计 | 2026-08-21 | pending |
@@ -33,6 +36,9 @@ Last updated: 2026-08-27
 | VDC-PERSIST-01 | vdc | 只持久化低频 profile，上电从 OFF/CHECKING 基于新观测重新锁相 | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | vdc_domain.h | reboot/negative restore/DPLL HIL | 2026-08-21 | pending |
 | ARCH-PIOCAT-01 | arch | 动态 PIO 只装载签名 App catalog program，System Pack 只选择 ID | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | tdma_pio_spi_phys.h | catalog/resource/deployment/persona HIL | 2026-08-21 | pending |
 | CALIBRATION-PHASE-01 | calibration | MARK/SCK/DATA 共用 per-link base、per-Node offset、原始证据、全量矩阵和 residual gate | 1 | docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md | calibration_training_phase.h | C/host/矩阵/TRN-03 回归与四板 HIL | 2026-08-26 | pending |
+
+| TDMA-CAPTURE-01 | tdma | DPLL residual 只经固定 SRAM capture，停止后由 Core0/StorageAO 写 SD 并离线解码；不得进入 TDMA realtime path | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | vdc_dpll_manager.h | C build、CRC decoder、SD/OTA/HIL | 2026-08-29 | pending |
+| STATE_MACHINE-RESOURCE-01 | state_machine | PIO0 SMA、PIO1 TDMA TX、PIO2 TDMA RX/evidence 的方向隔离与 FIFO/DMA owner 契约 | 1 | docs/state_machine/STATE_MACHINE_DOMAIN_ARCHITECTURE.md | board_config.h | 资源/指令方向/冲突回归与四板 HIL | 2026-08-29 | pending |
 
 ## 条款落点表
 

@@ -38,6 +38,7 @@ Last updated: 2026-08-29
 | CALIBRATION-PHASE-01 | calibration | MARK/SCK/DATA 共用 per-link base、per-Node offset、原始证据、全量矩阵和 residual gate | 1 | docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md | calibration_training_phase.h | C/host/矩阵/TRN-03 回归与四板 HIL | 2026-08-26 | pending |
 
 | TDMA-CAPTURE-01 | tdma | DPLL residual 只经固定 SRAM capture，停止后由 Core0/StorageAO 写 SD 并离线解码；不得进入 TDMA realtime path | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | vdc_dpll_manager.h | C build、CRC decoder、SD/OTA/HIL | 2026-08-29 | pending |
+| STATE_MACHINE-RESOURCE-01 | state_machine | PIO0 SMA；PIO1 TX 端 CLK/SYNC 输出与 DATA 输入；PIO2 RX 端 CLK/SYNC 输入与 DATA 输出；FIFO/DMA owner 契约 | 2 | docs/state_machine/STATE_MACHINE_DOMAIN_ARCHITECTURE.md | board_config.h | CLK/SYNC/DATA 方向、资源冲突回归与四板 HIL | 2026-08-29 | pending |
 
 ## 条款落点表
 

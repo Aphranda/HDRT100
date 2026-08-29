@@ -72,6 +72,7 @@ LOG_RUNTIME_CORE_DESIGN.md
 | `HARDWARE` | IO 约束、PCB、网表、BOM、Gerber 和硬件评审。 |
 | `VALIDATION` | HIL、工具验证、任务进度和闭环记录。 |
 | `LEGACY` | 历史报告、外部迁入资料和冻结参考。 |
+| `STATE_MACHINE` | PIO state machine、实时 persona、FIFO/DMA 方向和底层资源仲裁。 |
 
 历史文件名不一定完全符合上述前缀，例如
 `HAOFV_ARCHITECTURE.md` 和 `OTA_SYSTEM_DESIGN.md`。这些文件在迁移前仍按

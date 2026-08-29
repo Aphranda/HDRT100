@@ -28,6 +28,7 @@ docs/
   sync/           SYNC 动作、SYNC_IO、同步链路落地
   calibration/    CAL link、delay、参数、版本、质量
   tdma/           上行/下行 TDMA、payload registry、adapter 和环路 completion 基础件
+  state_machine/  PIO state machine、实时 persona、FIFO/DMA 资源和方向隔离
   refmem/         分布式向量表、命令槽、ACK/NACK、节点事实
   vdc/            虚拟 DC、共同时间、DPLL、HOLDOVER、时间质量
   communication/  BiSS-C、UART、RS485、RJ45 后端维护
@@ -84,6 +85,7 @@ docs/
 | ARCH/FUTURE | `arch/ARCH_FUTURE_APPLICATION_PLAN.md` | 当前产品完成后的应用场景、跨平台移植、版本分层和开源生态路线图。 |
 | SYNC_IO | `sync/SYNC_IO_ARCHITECTURE.md` | PIO、GPIO、DMA、语义 IO 和硬实时资源约束入口。 |
 | TDMA | `tdma/TDMA_DOMAIN_ARCHITECTURE.md` | TDMA 基础件主域，定义上/下行 TDMA、payload registry、adapter、ring runtime、completion evidence 和 HAOFV system node 边界。 |
+| State Machine | `state_machine/STATE_MACHINE_DOMAIN_ARCHITECTURE.md` | PIO state machine、实时 persona、FIFO/DMA 资源和方向隔离。 |
 | TRIGGER | `trigger/TRIGGER_SYNC_TODO.md` | 触发业务模式、生产化缺口和跨模式待办入口。 |
 | BISSC | `communication/BISSC_TAP_BRIDGE_DESIGN.md` | BiSS-C 协议、TAP bridge、固件 persona 和验证边界入口。 |
 | OTA | `arch/HAOFV_FLASH_ARCHITECTURE.md` | 当前 Flash/Boot/OTA 跨域主方案；`ota/OTA_SYSTEM_DESIGN.md` 保留为 v1 实现参考。 |
@@ -104,6 +106,7 @@ docs/
 | SD | `storage/SD_TASK_PROGRESS.md` | SD / StorageAO / System Pack 新任务记录写入本文件。 |
 | Documentation | `docs/docs/DOCS_MIGRATION_TODO.md` | 文档治理和迁移记录写入本文档体系待办。 |
 | TDMA | `tdma/TDMA_TASK_PROGRESS.md` | TDMA 基础件、上/下行 runtime、adapter 和环路闭环验证记录写入本文件。 |
+| State Machine | `state_machine/STATE_MACHINE_TASK_PROGRESS.md` | PIO/SM/DMA persona 迁移、资源门禁和底层状态机闭环记录写入本文件。 |
 | 其他领域 | 新建或补齐 `<DOMAIN>_TASK_PROGRESS.md` | 后续新闭环记录优先建立领域进度文件，不再追加到全局历史文件。 |
 | 全局历史 | `TASK_PROGRESS.md` | 只保留跨域历史和迁移前记录；除跨域总览外不再作为默认新任务入口。 |
 
@@ -142,6 +145,9 @@ docs/
 | `calibration/CALIBRATION_TASK_PROGRESS.md` | 校准域方案、粗捕获、编码测距和双向测距的任务记录与证据规则。 |
 | `tdma/TDMA_DOMAIN_TODO.md` | TDMA 基础件待办，跟踪 runtime、reliability、system node、adapter 和 HIL 验收。 |
 | `tdma/TDMA_TASK_PROGRESS.md` | TDMA 基础件任务进度。 |
+| `state_machine/STATE_MACHINE_DOMAIN_ARCHITECTURE.md` | 状态机与底层实时资源域架构，定义 PIO/SM/DMA/FIFO 方向隔离和 owner 边界。 |
+| `state_machine/STATE_MACHINE_DOMAIN_TODO.md` | 状态机域迁移任务和退出门禁。 |
+| `state_machine/STATE_MACHINE_TASK_PROGRESS.md` | 状态机域构建、测试、OTA/HIL 和回退证据。 |
 | `refmem/README.md` | 反射内存域 README。 |
 | `refmem/REFMEM_DOMAIN_ARCHITECTURE.md` | Distributed RefMem 内部主域架构，定义 RefMem Domain 的职责边界、静态分布式应用模型和目标代码形态。 |
 | `refmem/REFMEM_DOMAIN_TODO.md` | Distributed RefMem 内部主域待办，跟踪分布式应用模型、slot 契约、ACK/NACK、sync protocol 和组件化。 |

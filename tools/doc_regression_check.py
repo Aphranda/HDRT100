@@ -50,7 +50,7 @@ SCAN_EXCLUDE_DIRS = {"build", ".git", "node_modules", "third_party"}
 
 DATE_RE = re.compile(r"Last updated:\s*(\d{4})-(\d{2})-(\d{2})")
 ROW_RE = re.compile(
-    r"^\|\s*(TDMA|VDC|REFMEM|RTOS|INTERFACE|HARDWARE|ARCH|DOCS|CALIBRATION)-[A-Z0-9]+-\d+\s*\|"
+    r"^\|\s*(TDMA|VDC|REFMEM|RTOS|INTERFACE|HARDWARE|ARCH|DOCS|CALIBRATION|STATE_MACHINE)-[A-Z0-9]+-\d+\s*\|"
 )
 CLAUSE_ROW_RE = re.compile(r"^\|\s*HAOFV-\d+\s*\|")
 STATUS_RE = re.compile(r"^Status:\s*(\w+)", re.MULTILINE)
