@@ -38,6 +38,17 @@
     BOARD_TDMA_TX_DATA_IN_FORWARD_DMA_CHANNEL == BOARD_TDMA_TX_SYNC_EDGE_DMA_CHANNEL
 #error "TDMA logical-port DMA channels must be unique"
 #endif
+#if BOARD_TDMA_TX_CLK_OUT_PIN == BOARD_TDMA_TX_SYNC_OUT_PIN || \
+    BOARD_TDMA_TX_CLK_OUT_PIN == BOARD_TDMA_TX_DATA_IN_PIN || \
+    BOARD_TDMA_TX_SYNC_OUT_PIN == BOARD_TDMA_TX_DATA_IN_PIN || \
+    BOARD_TDMA_RX_CLK_IN_PIN == BOARD_TDMA_RX_SYNC_IN_PIN || \
+    BOARD_TDMA_RX_CLK_IN_PIN == BOARD_TDMA_RX_DATA_OUT_PIN || \
+    BOARD_TDMA_RX_SYNC_IN_PIN == BOARD_TDMA_RX_DATA_OUT_PIN
+#error "TDMA logical-port pins must be unique within each port"
+#endif
+#if BOARD_TDMA_TX_DATA_IN_PIN == BOARD_TDMA_RX_DATA_OUT_PIN
+#error "TDMA DATA input/output pins must remain on distinct physical ports"
+#endif
 
 #define TDMA_STATE_MACHINE_RESOURCE_CONTRACT_VERSION 1u
 #define TDMA_STATE_MACHINE_RESOURCE_CONTRACT_DIRECTIONAL 1u
@@ -60,6 +71,12 @@ typedef struct {
     uint8_t data_out_dma;
     uint8_t data_in_forward_dma;
     uint8_t sync_edge_dma;
+    uint8_t tx_clk_out_pin;
+    uint8_t tx_sync_out_pin;
+    uint8_t tx_data_in_pin;
+    uint8_t rx_clk_in_pin;
+    uint8_t rx_sync_in_pin;
+    uint8_t rx_data_out_pin;
 } tdma_state_machine_resource_contract_t;
 
 static inline tdma_state_machine_resource_contract_t
@@ -80,6 +97,12 @@ tdma_state_machine_resource_contract(void)
         .data_out_dma = BOARD_TDMA_RX_DATA_OUT_DMA_CHANNEL,
         .data_in_forward_dma = BOARD_TDMA_TX_DATA_IN_FORWARD_DMA_CHANNEL,
         .sync_edge_dma = BOARD_TDMA_TX_SYNC_EDGE_DMA_CHANNEL,
+        .tx_clk_out_pin = BOARD_TDMA_TX_CLK_OUT_PIN,
+        .tx_sync_out_pin = BOARD_TDMA_TX_SYNC_OUT_PIN,
+        .tx_data_in_pin = BOARD_TDMA_TX_DATA_IN_PIN,
+        .rx_clk_in_pin = BOARD_TDMA_RX_CLK_IN_PIN,
+        .rx_sync_in_pin = BOARD_TDMA_RX_SYNC_IN_PIN,
+        .rx_data_out_pin = BOARD_TDMA_RX_DATA_OUT_PIN,
     };
 }
 

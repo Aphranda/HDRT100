@@ -677,6 +677,11 @@ typedef struct {
     uint32_t flight_normal_capture_rx_count;
     uint32_t flight_normal_capture_rx_cursor;
     /* Physical output pins. CS/SCK are forward; DATA is reverse. */
+    /* The PIO owning tx_sm/rx_sm is explicit for the flight persona.  The
+     * legacy maintenance persona keeps both fields equal to BOARD_TDMA_SPI_PIO. */
+    PIO tx_sm_pio;
+    PIO rx_sm_pio;
+    PIO evidence_pio;
     uint32_t tx_sm;
     uint32_t tx_sck_pin;
     uint32_t tx_csn_pin;
