@@ -94,21 +94,35 @@ def run(command: list[str], cwd: Path) -> None:
     subprocess.run(command, cwd=cwd, check=True)
 
 
+def run_source_size_audit(root: Path, build_dir: Path) -> None:
+    """Emit the pre-build single-file size report without blocking a build."""
+    report = build_dir / "source_size_report.json"
+    run([
+        sys.executable,
+        str(root / "tools" / "source_size_check" / "source_size_check.py"),
+        "--root", str(root),
+        "--max-lines", "1000",
+        "--output", str(report),
+    ], root)
+
+
 def main() -> int:
     args = parse_args()
     root = args.root.resolve()
     build_dir = args.build_dir if args.build_dir.is_absolute() else root / args.build_dir
     build_dir = build_dir.resolve()
+    build_dir.mkdir(parents=True, exist_ok=True)
+    run_source_size_audit(root, build_dir)
     generator, cache_vars = load_configure_preset(root, args.preset)
 
     needs_configure = args.force_configure or not cache_matches(root, build_dir)
     if needs_configure:
         print(f"configure=needed build_dir={build_dir}", flush=True)
         repair_stale_cache(root, build_dir)
-        command = ["cmake", "-S", str(root), "-B", str(build_dir), "-G", generator]
+        cmake_command = ["cmake", "-S", str(root), "-B", str(build_dir), "-G", generator]
         for key, value in cache_vars.items():
-            command.append(f"-D{key}={value}")
-        run(command, root)
+            cmake_command.append(f"-D{key}={value}")
+        run(cmake_command, root)
     else:
         print(f"configure=skip cache matches current root build_dir={build_dir}", flush=True)
 

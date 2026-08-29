@@ -69,6 +69,17 @@
      RESOURCE_ARBITER_RESOURCE_TDMA_IRQ | \
      RESOURCE_ARBITER_RESOURCE_TDMA_DREQ)
 
+/* Maintenance/calibration uses the legacy PIO2 persona and the two
+ * profile-owned DMA endpoints. Keep this projection separate from the
+ * flight mask so persona transitions can transfer ownership atomically. */
+#define TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK \
+    (RESOURCE_ARBITER_RESOURCE_PIO2 | \
+     RESOURCE_ARBITER_RESOURCE_TDMA_DMA_CAPTURE | \
+     RESOURCE_ARBITER_RESOURCE_TDMA_DMA_OUTPUT | \
+     RESOURCE_ARBITER_RESOURCE_TDMA_IRQ | \
+     RESOURCE_ARBITER_RESOURCE_TDMA_DREQ | \
+     RESOURCE_ARBITER_RESOURCE_TDMA_GPIO)
+
 /* Runtime view of the board-owned contract.  This is deliberately a view,
  * not a second set of constants: all values are returned from board_config.h
  * so persona code can carry the selected PIO/SM/DMA ownership as one object. */

@@ -130,3 +130,45 @@ def test_flight_claim_reserves_dma_gpio_irq_and_dreq_classes() -> None:
         "RESOURCE_ARBITER_RESOURCE_TDMA_DREQ",
     ):
         assert token in resources
+
+
+def test_maintenance_claim_uses_same_arbiter_projection() -> None:
+    source = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(
+        encoding="utf-8")
+    resources = (ROOT / "components/tdma/inc/tdma_state_machine_resources.h").read_text(
+        encoding="utf-8")
+    assert "TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK" in resources
+    assert "TDMA_MAINTENANCE_RESOURCE_OWNER" in source
+    assert "s_tdma_pio_spi_maintenance_resources_claimed" in source
+    assert "resource_arbiter_acquire_owned(" in source
+    assert "resource_arbiter_release_owned(" in source
+
+
+def test_maintenance_projection_covers_shared_runtime_classes() -> None:
+    resources = (ROOT / "components/tdma/inc/tdma_state_machine_resources.h").read_text(
+        encoding="utf-8")
+    mask = resources.split(
+        "#define TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK", 1
+    )[1].split("\n\n", 1)[0]
+    for token in (
+        "RESOURCE_ARBITER_RESOURCE_PIO2",
+        "RESOURCE_ARBITER_RESOURCE_TDMA_DMA_CAPTURE",
+        "RESOURCE_ARBITER_RESOURCE_TDMA_DMA_OUTPUT",
+        "RESOURCE_ARBITER_RESOURCE_TDMA_IRQ",
+        "RESOURCE_ARBITER_RESOURCE_TDMA_DREQ",
+        "RESOURCE_ARBITER_RESOURCE_TDMA_GPIO",
+    ):
+        assert token in mask
+
+
+def test_flight_arm_transfers_persona_before_claiming_overlapping_resources() -> None:
+    source = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(
+        encoding="utf-8"
+    )
+    arm = source.split("bool tdma_pio_spi_phys_arm", 1)[1].split(
+        "void tdma_pio_spi_phys_disarm", 1
+    )[0]
+    assert arm.index("tdma_pio_spi_phys_select_program_persona") < arm.index(
+        "tdma_pio_spi_phys_claim_flight_resources"
+    )
+    assert "TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK" not in arm

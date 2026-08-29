@@ -1,0 +1,44 @@
+#ifndef TDMA_PIO_SPI_PHYS_INTERNAL_H
+#define TDMA_PIO_SPI_PHYS_INTERNAL_H
+
+/* Internal linkage contract shared by the physical-layer feature modules.
+ * This header is not part of the application API; it keeps timing, snapshot,
+ * and DMA ownership helpers out of the protocol/state-machine modules while
+ * preserving one owner for their static runtime state. */
+#include "tdma_pio_spi_phys.h"
+
+extern tdma_pio_spi_program_persona_t s_tdma_pio_spi_program_persona;
+extern int s_tdma_pio_spi_tx_dma_channel;
+extern int s_tdma_pio_spi_rx_dma_channel;
+extern uint32_t s_tdma_pio_spi_cal_ring[TDMA_PIO_SPI_CAL_LOOPBACK_MAX_WORDS];
+extern uint s_tdma_pio_spi_p3_initiator_offset;
+extern uint s_tdma_pio_spi_p3_responder_offset;
+extern uint s_tdma_pio_spi_p3_capture_offset;
+extern uint s_tdma_pio_spi_p3_responder_capture_offset;
+extern uint s_tdma_pio_spi_clk_forward_offset;
+extern uint s_tdma_pio_spi_clk_coded_tx_offset;
+extern uint s_tdma_pio_spi_clk_oversample_offset;
+
+void tdma_pio_spi_phys_fill_static_snapshot(tdma_pio_spi_phys_t *phys);
+uint64_t tdma_pio_spi_phys_now_us(void);
+uint32_t tdma_pio_spi_phys_frame_tail_us(
+    const tdma_pio_spi_phys_t *phys, size_t packet_size);
+uint64_t tdma_pio_spi_phys_wire_time_ns(
+    const tdma_pio_spi_phys_t *phys, size_t packet_size);
+bool tdma_pio_spi_phys_ensure_rx_dma(void);
+bool tdma_pio_spi_phys_ensure_tx_dma(void);
+void tdma_pio_spi_phys_cal_cleanup(tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_prepare_maintenance_pins(tdma_pio_spi_phys_t *phys);
+uint32_t *tdma_pio_spi_phys_coded_tx_buffer(void);
+uint32_t *tdma_pio_spi_phys_coded_rx_buffer(void);
+uint32_t tdma_pio_spi_cal_sample_byte(uint32_t word, uint32_t index);
+void tdma_pio_spi_phys_p3_decode(tdma_pio_spi_phys_t *phys);
+uint32_t tdma_pio_spi_phys_rx_write_index(void);
+uint64_t tdma_pio_spi_phys_rx_produced_words(
+    const tdma_pio_spi_phys_t *phys);
+uint32_t tdma_pio_spi_phys_rx_ring_word(uint64_t produced);
+uint8_t tdma_pio_spi_phys_rx_ring_byte(uint64_t produced);
+uint8_t tdma_pio_spi_phys_rx_ring_aligned_byte(uint64_t produced,
+                                                uint32_t bit_shift);
+
+#endif

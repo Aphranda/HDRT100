@@ -1055,7 +1055,7 @@ def test_p3_reference_capture_uses_persona_loaded_program_offset() -> None:
               "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
     service = source.split(
         "void tdma_pio_spi_phys_cal_loopback_service", 1
-    )[1].split("static uint32_t tdma_pio_spi_cal_sample_byte", 1)[0]
+    )[1].split("static void tdma_pio_spi_phys_marker_write_begin", 1)[0]
     capture_init = service.split(
         "tdma_pio_spi_cal_loopback_capture_program_init", 1
     )[1].split(");", 1)[0]
@@ -1088,7 +1088,7 @@ def test_calibration_loopback_persona_transition_is_split_across_beats() -> None
     )[1].split("void tdma_pio_spi_phys_cal_loopback_stop", 1)[0]
     service = source.split(
         "void tdma_pio_spi_phys_cal_loopback_service", 1
-    )[1].split("static uint32_t tdma_pio_spi_cal_sample_byte", 1)[0]
+    )[1].split("static void tdma_pio_spi_phys_marker_write_begin", 1)[0]
 
     states = [
         "START_UNLOAD",
@@ -1135,14 +1135,15 @@ def test_p3_responder_returns_and_measures_complete_data_burst() -> None:
     assert "jmp x-- p3_data_loop" in program
 
     phys_source = (ROOT / "components" / "tdma" / "src" /
-                   "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+                   "tdma_pio_spi_phys_p3.c").read_text(encoding="utf-8")
     start = phys_source.split(
         "bool tdma_pio_spi_phys_p3_start", 1
     )[1].split("void tdma_pio_spi_phys_p3_stop", 1)[0]
     assert "request->pulse_count - 1u" in start
-    decode = phys_source.split(
-        "static void tdma_pio_spi_phys_p3_decode", 1
-    )[1].split("bool tdma_pio_spi_phys_p3_start", 1)[0]
+    p3_decode_source = (ROOT / "components" / "tdma" / "src" /
+                        "tdma_pio_spi_phys_p3_decode.c").read_text(
+                            encoding="utf-8")
+    decode = p3_decode_source
     assert "data_high_sum += timestamp - data_rise" in decode
     assert "phys->p3.data_pulse_count = data_high_count" in decode
     assert "data_high_sum + data_high_count / 2u" in decode
@@ -1150,10 +1151,10 @@ def test_p3_responder_returns_and_measures_complete_data_burst() -> None:
 
 def test_process_rx_reconstructs_absolute_fixed_frame_sequence() -> None:
     source = (ROOT / "components" / "tdma" / "src" /
-              "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+              "tdma_pio_spi_phys_rx_ring.c").read_text(encoding="utf-8")
     produced = source.split(
-        "static uint64_t tdma_pio_spi_phys_rx_produced_words", 1
-    )[1].split("static uint32_t tdma_pio_spi_phys_rx_ring_word", 1)[0]
+        "uint64_t tdma_pio_spi_phys_rx_produced_words", 1
+    )[1].split("uint32_t tdma_pio_spi_phys_rx_ring_word", 1)[0]
     assert "snapshot.overlay_frame_boundary_count" in produced
     assert "snapshot.tx_count" in produced
     assert "tdma_rx_sequence_observe" in produced
