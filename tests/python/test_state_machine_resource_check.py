@@ -112,3 +112,21 @@ def test_calibration_switch_ready_has_directional_flight_gate() -> None:
     assert "tdma_pio_spi_phys_is_flight_persona()" in ready
     assert "BOARD_TDMA_TX_PIO->ctrl" in ready
     assert "BOARD_TDMA_RX_PIO->ctrl" in ready
+
+
+def test_flight_claim_reserves_dma_gpio_irq_and_dreq_classes() -> None:
+    source = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(
+        encoding="utf-8")
+    resources = (ROOT / "components/tdma/inc/tdma_state_machine_resources.h").read_text(
+        encoding="utf-8")
+    assert "TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK" in source
+    for token in (
+        "RESOURCE_ARBITER_RESOURCE_TDMA_DMA_CAPTURE",
+        "RESOURCE_ARBITER_RESOURCE_TDMA_DMA_OUTPUT",
+        "RESOURCE_ARBITER_RESOURCE_TDMA_DMA_FORWARD",
+        "RESOURCE_ARBITER_RESOURCE_TDMA_DMA_SYNC_EDGE",
+        "RESOURCE_ARBITER_RESOURCE_TDMA_GPIO",
+        "RESOURCE_ARBITER_RESOURCE_TDMA_IRQ",
+        "RESOURCE_ARBITER_RESOURCE_TDMA_DREQ",
+    ):
+        assert token in resources

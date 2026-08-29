@@ -1256,8 +1256,7 @@ static bool tdma_pio_spi_phys_claim_flight_resources(
     if (phys->flight_resource_claimed) {
         return true;
     }
-    const uint32_t resources = RESOURCE_ARBITER_RESOURCE_PIO1 |
-                               RESOURCE_ARBITER_RESOURCE_PIO2;
+    const uint32_t resources = TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK;
     if (!resource_arbiter_acquire_owned(resources,
                                         TDMA_FLIGHT_RESOURCE_OWNER)) {
         phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_RESOURCE_CONFLICT;
@@ -1276,7 +1275,7 @@ static void tdma_pio_spi_phys_release_flight_resources(
     }
     if (phys->flight_resource_claimed) {
         resource_arbiter_release_owned(
-            RESOURCE_ARBITER_RESOURCE_PIO1 | RESOURCE_ARBITER_RESOURCE_PIO2,
+            TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK,
             TDMA_FLIGHT_RESOURCE_OWNER);
         phys->flight_resource_claimed = false;
     }

@@ -6,6 +6,7 @@
  * relationships and provides one stable interface for DeploymentGate/tests. */
 #include "board_config.h"
 #include "hardware/pio.h"
+#include "resource_arbiter.h"
 
 #if BOARD_TDMA_TX_PIO_BLOCK_ID == BOARD_TDMA_RX_PIO_BLOCK_ID
 #error "TDMA TX and RX flight PIO blocks must be distinct"
@@ -52,6 +53,21 @@
 
 #define TDMA_STATE_MACHINE_RESOURCE_CONTRACT_VERSION 1u
 #define TDMA_STATE_MACHINE_RESOURCE_CONTRACT_DIRECTIONAL 1u
+
+/* These bits are the runtime ownership projection of the board contract.
+ * DREQ values are derived from (PIO, SM, direction) at configuration time,
+ * so the contract reserves the endpoint class rather than duplicating SDK
+ * implementation-specific DREQ numbers. */
+#define TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK \
+    (RESOURCE_ARBITER_RESOURCE_PIO1 | \
+     RESOURCE_ARBITER_RESOURCE_PIO2 | \
+     RESOURCE_ARBITER_RESOURCE_TDMA_DMA_CAPTURE | \
+     RESOURCE_ARBITER_RESOURCE_TDMA_DMA_OUTPUT | \
+     RESOURCE_ARBITER_RESOURCE_TDMA_DMA_FORWARD | \
+     RESOURCE_ARBITER_RESOURCE_TDMA_DMA_SYNC_EDGE | \
+     RESOURCE_ARBITER_RESOURCE_TDMA_GPIO | \
+     RESOURCE_ARBITER_RESOURCE_TDMA_IRQ | \
+     RESOURCE_ARBITER_RESOURCE_TDMA_DREQ)
 
 /* Runtime view of the board-owned contract.  This is deliberately a view,
  * not a second set of constants: all values are returned from board_config.h

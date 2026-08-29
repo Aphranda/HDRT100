@@ -27,6 +27,15 @@ typedef enum {
     RESOURCE_ARBITER_RESOURCE_LCD = 1u << 7,
     RESOURCE_ARBITER_RESOURCE_SD = 1u << 8,
     RESOURCE_ARBITER_RESOURCE_AUX = 1u << 9,
+    /* Directional TDMA resources are tracked independently of the legacy
+     * aggregate DMA bit so a board profile can reject endpoint reuse. */
+    RESOURCE_ARBITER_RESOURCE_TDMA_DMA_CAPTURE = 1u << 10,
+    RESOURCE_ARBITER_RESOURCE_TDMA_DMA_OUTPUT = 1u << 11,
+    RESOURCE_ARBITER_RESOURCE_TDMA_DMA_FORWARD = 1u << 12,
+    RESOURCE_ARBITER_RESOURCE_TDMA_DMA_SYNC_EDGE = 1u << 13,
+    RESOURCE_ARBITER_RESOURCE_TDMA_GPIO = 1u << 14,
+    RESOURCE_ARBITER_RESOURCE_TDMA_IRQ = 1u << 15,
+    RESOURCE_ARBITER_RESOURCE_TDMA_DREQ = 1u << 16,
 } resource_arbiter_resource_t;
 
 typedef struct {
