@@ -11,6 +11,23 @@ Last updated: 2026-08-29
 
 ## 当前 checkpoint
 
+### SM-PROGRESS-20260829-006 — flight runtime 方向资源迁移继续
+
+- TODO task ID：`SM-RES-002`、`SM-RES-003`、`SM-RES-004`、`SM-RES-006`。
+- 日期：2026-08-29。
+- 变更：flight ARM/STOP、process-image boundary IRQ、RTT evidence FIFO、SCK 原始
+  采集、运行 snapshot 和 origin recovery 已改用方向化 TX/RX/evidence PIO、SM；
+  clock-latch 在 recovery 后显式 rearm。flight SM claim 在释放时同步 unclaim，避免
+  失败 ARM 遗留硬件所有权。
+- 保留边界：normal、calibration、P3 和训练 maintenance persona 继续使用旧 PIO2
+  复合实现；它们不能与 flight persona 在同一 RUN epoch 混用。
+- 构建：`out/build/state-machine-runtime-split-20260829/`；App/A/B、Boot、Flash
+  link contract 和 OTA package 生成通过。
+- 验证：状态机资源、文档回归和 docs_check 定向 pytest 20 项通过；尚未执行异步
+  OTA、四板 HIL、NO5 观测和 SD 波形验收。
+- 结论：flight runtime 迁移已从资源视图进入核心运行路径，但 SM-RES-002/003/004/006
+  仍为 `IN PROGRESS`，SM-RES-005/007/008 仍需后续完成。
+
 ### SM-PROGRESS-20260829-002 — CLK/SYNC 与 DATA 交叉方向定义修正
 
 - TODO task ID：`SM-RES-001`。

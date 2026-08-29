@@ -139,6 +139,8 @@ STOPPED -> validate profile -> abort/drain old DMA -> release old claims
 follower forward/capture 不共享 FIFO，以及四节点 TDMA 与 NO5 只读观测。host/build
 通过不能替代 OTA、HIL 和原始波形证据。
 
-当前源码仍保留旧 `BOARD_TDMA_SPI_PIO` 及 `MASTER_SM/SLAVE_SM` 复合实现；这只是迁移
-前基线。源码迁移完成并通过 `STATE_MACHINE_DOMAIN_TODO.md` 的退出门禁后，才可将
-“TX/RX 两组逻辑 SM 均具备 IN/OUT，且 CLK/SYNC 与 DATA 交叉方向固定”标记为已实现。
+maintenance/calibration persona 仍保留旧 `BOARD_TDMA_SPI_PIO` 及
+`MASTER_SM/SLAVE_SM` 复合实现；flight persona 已按本契约开始使用 TX/RX 两个 PIO
+block。两者不得在同一个 RUN epoch 混用。只有全部 flight persona、资源仲裁、双路径
+FIFO/DMA 和 OTA/HIL 通过 `STATE_MACHINE_DOMAIN_TODO.md` 退出门禁后，才可将运行时迁移
+标记为已实现。
