@@ -63,12 +63,14 @@ typedef enum {
  * - REFERENCE: local_slot == reference_slot. It originates IDLE_BEACON /
  *   process-image short frames and correlates its own TX with the feedback
  *   frame that returns around the ring (this is the only node that may
- *   produce simultaneous_feedback_loop_evidence=1).
+ *   produce simultaneous_feedback_loop_evidence=1). It also publishes a
+ *   normal DPLL observation for that returned process-image frame, using the
+ *   calibrated diagonal (complete-loop) path entry.
  * - FORWARD: any other node. It receives the frame from the previous board
  *   and re-emits it toward the next board, keeping origin/sequence/identity
  *   CRC unchanged and advancing hop/transport CRC. Its up/down running state
- *   proves the ring is serviced; feedback evidence stays 0 by design because
- *   the feedback does not return to it. */
+ *   proves the ring is serviced; each forward node also consumes the DPLL
+ *   trailer and publishes its own local observation before forwarding. */
 typedef enum {
     TDMA_PIO_SPI_RING_ROLE_REFERENCE = 0u,
     TDMA_PIO_SPI_RING_ROLE_FORWARD = 1u,

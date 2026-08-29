@@ -1506,7 +1506,7 @@ static bool vdc_domain_path_delay_table_validate_shape(
         if (matrix->valid == 0u || matrix->node_count < 2u ||
             matrix->node_count > VDC_DOMAIN_NODE_COUNT ||
             matrix->entry_count != matrix->node_count *
-                                        (matrix->node_count - 1u)) {
+                                        matrix->node_count) {
             return false;
         }
         for (uint32_t source = 0u; source < VDC_DOMAIN_NODE_COUNT; source++) {
@@ -1517,10 +1517,13 @@ static bool vdc_domain_path_delay_table_validate_shape(
                 const bool present =
                     (matrix->valid_bitmap[index / 32u] &
                      (1u << (index % 32u))) != 0u;
-                const bool expected =
-                    source < matrix->node_count &&
-                    reference < matrix->node_count &&
-                    source != reference;
+                /* The diagonal is the complete physical loop return path
+                 * used by the reference node.  Off-diagonal entries are the
+                 * directed path from the origin/reference node to the local
+                 * observing node.  Every node therefore has one immutable
+                 * matrix entry, including the reference. */
+                const bool expected = source < matrix->node_count &&
+                                      reference < matrix->node_count;
                 if (present != expected) {
                     return false;
                 }
@@ -1615,14 +1618,13 @@ bool vdc_domain_load_observation_path_matrix(
 
     matrix->valid = 1u;
     matrix->node_count = node_count;
-    matrix->entry_count = node_count * (node_count - 1u);
+    /* Include the diagonal: source==reference denotes one complete loop
+     * traversal, not a zero-length path.  This lets the reference node feed
+     * the same DPLL observer/servo path as every forward node. */
+    matrix->entry_count = node_count * node_count;
 
     for (uint32_t source = 0u; source < node_count; source++) {
         for (uint32_t reference = 0u; reference < node_count; reference++) {
-            if (source == reference) {
-                continue;
-            }
-
             uint32_t current = reference;
             uint32_t visited_mask = 0u;
             uint64_t total_delay_ns = 0ull;
@@ -1654,7 +1656,12 @@ bool vdc_domain_load_observation_path_matrix(
                 }
                 total_delay_ns += matched->delay_ns;
                 current = matched->reference_slot_id;
-                if (current == source) {
+                /* For an off-diagonal observation, stop when the directed
+                 * path reaches the local source.  For the diagonal, require
+                 * one complete traversal and stop only after returning to
+                 * the origin/reference node. */
+                if (current == source &&
+                    (source != reference || hop + 1u == node_count)) {
                     reached_source = true;
                     break;
                 }
@@ -2092,8 +2099,7 @@ bool vdc_domain_observation_path_delay_lookup(
         (table->flags & VDC_PATH_DELAY_FLAG_OBSERVATION_MATRIX_VALID) == 0u ||
         table->observation_matrix.valid == 0u ||
         source_slot_id >= table->observation_matrix.node_count ||
-        reference_slot_id >= table->observation_matrix.node_count ||
-        source_slot_id == reference_slot_id) {
+        reference_slot_id >= table->observation_matrix.node_count) {
         return false;
     }
 
@@ -2132,8 +2138,7 @@ bool VDC_DOMAIN_TIME_CRITICAL(
         table->observation_matrix.node_count < 2u ||
         table->observation_matrix.node_count > VDC_DOMAIN_NODE_COUNT ||
         source_slot_id >= table->observation_matrix.node_count ||
-        reference_slot_id >= table->observation_matrix.node_count ||
-        source_slot_id == reference_slot_id) {
+        reference_slot_id >= table->observation_matrix.node_count) {
         return false;
     }
 

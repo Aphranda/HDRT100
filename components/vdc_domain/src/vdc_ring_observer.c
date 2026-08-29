@@ -75,7 +75,6 @@ static bool vdc_ring_observer_expand_checked(
         observation->node_count < 2u ||
         observation->node_count > VDC_DOMAIN_NODE_COUNT ||
         observation->node_count != schedule->ring_binding.node_count ||
-        observation->source_node == observation->reference_node ||
         observation->source_node != schedule->local_slot_id ||
         observation->reference_node != schedule->reference_slot_id ||
         observation->correlated_sequence == 0u ||

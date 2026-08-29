@@ -24,8 +24,9 @@ typedef struct {
 /* Convert one correlated TDMA ring feedback sample into the common VDC
  * evidence contract.  This adapter never invents eligibility: only a
  * sample with matching hardware-latched reference-TX/local-RX evidence is
- * accepted.  A reference-node RTT is deliberately not accepted as a remote
- * Node clock observation. */
+ * accepted.  When source_node == reference_node the sample denotes the
+ * complete calibrated loop return path, allowing the reference Node to use
+ * the same observer/servo flow as every forward Node. */
 bool vdc_ring_observer_expand(
     const vdc_tdma_schedule_profile_t *schedule,
     const vdc_ring_observation_t *observation,

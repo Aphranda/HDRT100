@@ -1089,8 +1089,13 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
     adapter->down_rx_sequence = view.transport_sequence;
     adapter->down_rx_frame_crc32 = view.identity_crc32;
     adapter->feedback_rx_timestamp_ns = rx_timestamp_ns;
-    if (adapter->role == TDMA_PIO_SPI_RING_ROLE_FORWARD &&
-        rx_timestamp_ns != 0ull && view.transport_sequence != 0u &&
+    /* Every Node latches the incoming physical frame.  Forward Nodes use
+     * this evidence against the origin TX trailer; the reference Node uses
+     * the returned frame against its own TX latch (the diagonal loop entry).
+     * Keeping one path here makes DPLL observation continuous around the
+     * ring instead of terminating at the reference RTT measurement. */
+    if (rx_timestamp_ns != 0ull && view.transport_sequence != 0u &&
+        view.payload_class == TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE &&
         view.identity_crc32 != 0u) {
         const uint32_t evidence_index = view.transport_sequence %
             TDMA_PIO_SPI_RING_ADAPTER_RX_EVIDENCE_DEPTH;
@@ -1103,8 +1108,6 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
         adapter->local_rx_evidence[evidence_index].valid = true;
 
         if (adapter->clock_evidence_enabled != 0u &&
-            view.payload_class ==
-                TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE &&
             view.payload_size == TDMA_FLIGHT_SHORT_PAYLOAD_SIZE &&
             view.payload != NULL) {
             const uint32_t encoded = tdma_pio_spi_ring_get_u32(
