@@ -4,10 +4,32 @@ Status: Active
 Domain: STATE_MACHINE
 Canonical: `docs/state_machine/STATE_MACHINE_TASK_PROGRESS.md`
 Related: `docs/state_machine/STATE_MACHINE_DOMAIN_ARCHITECTURE.md`, `docs/state_machine/STATE_MACHINE_DOMAIN_TODO.md`
-Last updated: 2026-08-29
+Last updated: 2026-08-30
 
 本文档只记录状态机域的实施、构建、测试、OTA/HIL、失败和回退证据；任务状态以
 `STATE_MACHINE_DOMAIN_TODO.md` 为唯一事实源，稳定语义以架构文档为准。
+
+### SM-PROGRESS-20260830-011 - ARM failure evidence and snapshot extraction
+
+- TODO task ID: `SM-RES-005`、`SM-RES-006`、`SM-RES-007`、`SM-RES-008`。
+- 变更：将 marker/data/SCK/clock snapshot 读取和 capture buffer copy 拆到
+  `components/tdma/src/tdma_pio_spi_phys_snapshots.c`；为 physical ARM 和 persona
+  切换增加 fail-closed 错误分类（phase admission、persona busy/resource、program
+  load、flight config、RX arm、overlay prepare、clock latch 等），保留原有实时路径和
+  recovery 预算不变。
+- 构建：`out/build/phys-snapshots-20260830/`；App/A/B、Boot、PIO 生成、OTA package
+  和 Flash link contract 均通过，package 为 `DHRT100_UPDATE.pkg`。
+- Host 验证：全量 pytest `546 passed, 1 skipped`；TDMA/TRN-03 定向回归 `116 passed`。
+- OTA：`out/ota/arm-error-evidence-20260830/summary.json`，五板异步 OTA
+  `passed=true`、`updated_count=5`、`failed_count=0`。
+- 四板 HIL：`out/tdma/arm-error-evidence-20260830-ring/`；按物理环序执行
+  `STOP -> TOPOLOGY -> ARM`，NO2（`0010071E65B5CB38`/COM3）仍 ARM timeout，
+  `ring_adapter_started=0`、`up_running=0`、`down_running=0`，尚未进入 TDMA active。
+  当前失败证据应从各板 `SYSTem:SYNC:VDC:TDMA:PHYS?` 的新 `last_error` 和
+  `program_switch_fail_count` 读取；本记录不将该失败归因于 DPLL。
+- 结论：快照边界和 ARM 失败可观测性已完成 host/build/OTA 闭环；flight 与 legacy
+  maintenance persona 的完整资源迁移、四板 active HIL 和 NO5/SD 验收仍未完成，
+  `SM-RES-005/006/007/008` 继续保持进行中。
 
 ### SM-PROGRESS-20260829-010 — flight resource admission projection
 
