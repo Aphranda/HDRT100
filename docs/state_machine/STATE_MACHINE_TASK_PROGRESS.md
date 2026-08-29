@@ -9,6 +9,24 @@ Last updated: 2026-08-29
 本文档只记录状态机域的实施、构建、测试、OTA/HIL、失败和回退证据；任务状态以
 `STATE_MACHINE_DOMAIN_TODO.md` 为唯一事实源，稳定语义以架构文档为准。
 
+### SM-PROGRESS-20260829-009 — calibration persona directional unload
+
+- TODO task ID：`SM-RES-006`、`SM-RES-007`。
+- 日期：2026-08-29。
+- 变更：校准异步切换器现在按当前 flight persona 检查 TX/RX 两个 PIO block 的 SM
+  enable 状态和 DMA busy 状态；origin 卸载 5 个已加载的方向化原语，follower/process
+  follower 卸载 4 个原语，包含独立 DATA capture。卸载完成后释放 flight SM/resource
+  claim，再进入 maintenance calibration persona，避免残留程序或旧 PIO2 地址被复用。
+- 构建：`out/build/state-machine-runtime-split-20260829-r1/`；PIO 头文件、App/A/B、
+  Boot、Flash link contract 和 OTA package 生成通过，`DHRT100_UPDATE.pkg` 的
+  `build_id=20260829130150`。
+- 验证：定向状态机/TRN-03 pytest `95 passed`；全量 pytest `540 passed, 1 skipped`，
+  结果缓存位于 `out/pytest/state-machine-runtime-split-20260829-r1/`；状态机资源工具
+  通过。跳过项为未启用硬件端口的四板 HIL，尚无异步 OTA、四板 HIL、NO5 观测和 SD
+  波形证据。
+- 结论：校准切换的方向化卸载回归已在 host/build 层收敛；SM-RES-006/007 仍保持
+  `IN PROGRESS`，不得据此宣称板端迁移完成。
+
 ## 当前 checkpoint
 
 ### SM-PROGRESS-20260829-006 — flight runtime 方向资源迁移继续
@@ -41,6 +59,24 @@ Last updated: 2026-08-29
 - 当前事实：独立 SM/FIFO 已落地到 flight code；DMA channel 静态 endpoint 负测试、异步
   OTA、四板 HIL、NO5 观测和 SD 波形验收尚未执行，因此 SM-RES-005/SM-M4 仍为
   `IN PROGRESS`。
+
+### SM-PROGRESS-20260829-008 — 方向化回归与 capture patch 校正
+
+- TODO task ID：`SM-RES-005`、`SM-RES-006`、`SM-RES-007`。
+- 日期：2026-08-29。
+- 变更：修正 `tdma_pio_spi_flight_data_capture_program_init()` 对独立 capture 原语
+  的指令地址映射，使 CS gate、SCK rising WAIT、SCK falling WAIT 分别写入实际的
+  `offset+0/+2/+4`；新增静态检查，禁止 raw/process forward SM 恢复 `PUSH`，并要求
+  capture 原语具备独立 `IN/PUSH/CS gate`。更新 TRN-03 closed-loop 断言以验证
+  control/data PIO helper，而非迁移前的旧 PIO2 符号。
+- 构建：`out/build/state-machine-runtime-split-20260829/`；PIO header、App/A/B、Boot、
+  Flash link contract 和 OTA package 生成通过。
+- 验证：全量 pytest `537 passed, 1 skipped`；状态机资源与 TRN-03 关键回归 `93 passed`；
+  `test_state_machine_resource_check.py` 已包含 forward FIFO 和 capture patch 负测试。
+  跳过项是未启用硬件端口的 HIL，不构成 OTA/HIL 证据。
+- 当前事实：静态回归和方向化 flight runtime 继续收敛；DMA/DREQ/GPIO/persona epoch
+  完整负测试、异步 OTA、四板 HIL、NO5 观测和 SD 波形验收仍未执行，SM-RES-002/003/004/
+  005/006/007 和 SM-M2/SM-M3/SM-M4 继续保持 `IN PROGRESS`。
 
 ### SM-PROGRESS-20260829-002 — CLK/SYNC 与 DATA 交叉方向定义修正
 
