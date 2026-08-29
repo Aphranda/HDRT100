@@ -88,6 +88,14 @@ uint32_t *tdma_pio_spi_phys_coded_rx_buffer(void);
 uint32_t *tdma_pio_spi_phys_marker_rx_buffer(void);
 uint32_t *tdma_pio_spi_phys_data_train_rx_buffer(void);
 void tdma_pio_spi_phys_marker_decode_edges(tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_data_train_write_begin(tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_data_train_write_end(tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_data_train_publish_error(
+    tdma_pio_spi_phys_t *phys,
+    uint32_t epoch,
+    tdma_pio_spi_data_train_reject_t reason);
+void tdma_pio_spi_phys_data_train_set_drivers(uint32_t role);
+uint32_t tdma_pio_spi_phys_sck_train_inject_word(void);
 uint32_t tdma_pio_spi_cal_sample_byte(uint32_t word, uint32_t index);
 void tdma_pio_spi_phys_p3_decode(tdma_pio_spi_phys_t *phys);
 uint32_t tdma_pio_spi_phys_rx_write_index(void);

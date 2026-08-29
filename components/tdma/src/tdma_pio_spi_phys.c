@@ -134,8 +134,6 @@ uint32_t *tdma_pio_spi_phys_data_train_rx_buffer(void)
 {
     return s_tdma_pio_spi_data_train_rx;
 }
-/* CS-style local launch: high idle followed by one low edge. */
-static uint32_t s_tdma_pio_spi_sck_train_inject_word = 0u;
 static bool tdma_pio_spi_phys_cal_decode_step(tdma_pio_spi_phys_t *phys);
 int s_tdma_pio_spi_tx_dma_channel = -1;
 int s_tdma_pio_spi_rx_dma_channel = -1;
@@ -166,13 +164,15 @@ static void tdma_pio_spi_phys_release_flight_resources(
 static bool tdma_pio_spi_phys_claim_flight_resources(
     tdma_pio_spi_phys_t *phys);
 
-static bool tdma_pio_spi_phys_arm_reject(
+static bool tdma_pio_spi_phys_reject_arm(
     tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_phys_error_t error)
 {
     tdma_pio_spi_phys_set_error(phys, (uint32_t)error);
     return false;
 }
+
+#define tdma_pio_spi_phys_arm_reject tdma_pio_spi_phys_reject_arm
 
 static void tdma_pio_spi_phys_clk_train_write_begin(
     tdma_pio_spi_phys_t *phys)
@@ -273,7 +273,6 @@ static void tdma_pio_spi_phys_release_sms_claimed(void)
         s_tdma_pio_spi_maintenance_resources_claimed = false;
     }
 }
-
 /* Flight resources are claimed per PIO block, rather than by the legacy
  * maintenance SM pair.  Claim all declared roles up front so a later
  * persona cannot silently steal the evidence or capture endpoint. */
@@ -3702,46 +3701,6 @@ void tdma_pio_spi_phys_marker_service(tdma_pio_spi_phys_t *phys)
             phys, TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL);
     }
 }
-
-static void tdma_pio_spi_phys_data_train_write_begin(
-    tdma_pio_spi_phys_t *phys)
-{
-    (void)__atomic_add_fetch(&phys->data_train_guard, 1u, __ATOMIC_RELEASE);
-}
-
-static void tdma_pio_spi_phys_data_train_write_end(
-    tdma_pio_spi_phys_t *phys)
-{
-    (void)__atomic_add_fetch(&phys->data_train_guard, 1u, __ATOMIC_RELEASE);
-}
-
-static void tdma_pio_spi_phys_data_train_publish_error(
-    tdma_pio_spi_phys_t *phys, uint32_t epoch,
-    tdma_pio_spi_data_train_reject_t reason)
-{
-    tdma_pio_spi_phys_data_train_write_begin(phys);
-    memset(&phys->data_train, 0, sizeof(phys->data_train));
-    phys->data_train.version = TDMA_PIO_SPI_DATA_TRAIN_SNAPSHOT_VERSION;
-    phys->data_train.state = TDMA_PIO_SPI_DATA_TRAIN_ERROR;
-    phys->data_train.flags =
-        TDMA_PIO_SPI_DATA_TRAIN_FLAG_DIAGNOSTIC_ONLY;
-    phys->data_train.reject_reason = (uint32_t)reason;
-    phys->data_train.epoch = epoch;
-    tdma_pio_spi_phys_data_train_write_end(phys);
-}
-
-static void tdma_pio_spi_phys_data_train_set_drivers(uint32_t role)
-{
-    /* DATA0_OUT returns toward the link initiator through the upstream
-     * transceiver. The initiator drives only the downstream TRIG marker. */
-    gpio_put(BOARD_UP_BISS_DE_PIN,
-             role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_RESPONDER);
-    gpio_put(BOARD_DN_BISS_DE_PIN,
-             role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_SCK_SOURCE);
-    gpio_put(BOARD_TRIG_DE_PIN,
-             role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_INITIATOR);
-}
-
 bool tdma_pio_spi_phys_data_train_arm(
     tdma_pio_spi_phys_t *phys,
     const tdma_pio_spi_data_train_request_t *request)
@@ -4069,7 +4028,7 @@ bool tdma_pio_spi_phys_data_train_inject(tdma_pio_spi_phys_t *phys)
     tdma_pio_spi_phys_data_train_write_end(phys);
     if (sck_source) {
         pio_sm_put(BOARD_TDMA_SPI_PIO, phys->tx_sm,
-                   s_tdma_pio_spi_sck_train_inject_word);
+                   tdma_pio_spi_phys_sck_train_inject_word());
     } else {
         dma_start_channel_mask(1u << (uint)s_tdma_pio_spi_tx_dma_channel);
     }
@@ -4244,47 +4203,3 @@ void tdma_pio_spi_phys_data_train_service(tdma_pio_spi_phys_t *phys)
             phys, TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL);
     }
 }
-
-bool tdma_pio_spi_phys_sck_train_arm(
-    tdma_pio_spi_phys_t *phys,
-    const tdma_pio_spi_data_train_request_t *request)
-{
-    return request != NULL &&
-           (request->role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_SCK_SOURCE ||
-            request->role ==
-                TDMA_PIO_SPI_DATA_TRAIN_ROLE_SCK_DESTINATION) &&
-           tdma_pio_spi_phys_data_train_arm(phys, request);
-}
-
-bool tdma_pio_spi_phys_sck_train_inject(tdma_pio_spi_phys_t *phys)
-{
-    if (phys == NULL ||
-        phys->data_train.role != TDMA_PIO_SPI_DATA_TRAIN_ROLE_SCK_SOURCE ||
-        phys->data_train.state != TDMA_PIO_SPI_DATA_TRAIN_ARMED) {
-        return false;
-    }
-    tdma_pio_spi_phys_data_train_write_begin(phys);
-    phys->data_train.state = TDMA_PIO_SPI_DATA_TRAIN_RUNNING;
-    phys->data_train.marker_capture_tick = 1ull;
-    phys->data_train.data_capture_tick =
-        1ull + phys->data_train.marker_to_data_delay_cycles +
-        phys->data_train.phase_delay_cycles -
-        phys->data_train.source_phase_delay_cycles;
-    phys->data_train_deadline_ns = vdc_timestamp_clock_now_ns() +
-                                   TDMA_PIO_SPI_DATA_TRAIN_TIMEOUT_NS;
-    tdma_pio_spi_phys_data_train_write_end(phys);
-    pio_sm_put(BOARD_TDMA_SPI_PIO, phys->tx_sm,
-               s_tdma_pio_spi_sck_train_inject_word);
-    return true;
-}
-
-void tdma_pio_spi_phys_sck_train_stop(tdma_pio_spi_phys_t *phys)
-{
-    tdma_pio_spi_phys_data_train_stop(phys);
-}
-
-void tdma_pio_spi_phys_sck_train_service(tdma_pio_spi_phys_t *phys)
-{
-    tdma_pio_spi_phys_data_train_service(phys);
-}
-
