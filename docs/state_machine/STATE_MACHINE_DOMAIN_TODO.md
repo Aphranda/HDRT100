@@ -30,12 +30,12 @@ phase、recovery 静态预算或 FreeRTOS heap；超限必须在构建或 Deploy
 | ID | 任务 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
 | SM-RES-001 | 增加 SMA、TDMA TX、TDMA RX 三组 PIO resource claim | IN PROGRESS | profile/resource arbiter 可查询并拒绝跨域 PIO/SM/DMA/GPIO 重叠。 |
-| SM-RES-002 | 增加 CLK/SYNC/DATA 交叉方向 SM、FIFO、DREQ 和 DMA 字段 | IN PROGRESS | board contract、runtime resource view、flight PIO/SM claim/release 和方向化 snapshot 已建立；DMA/GPIO/IRQ 完整仲裁仍待完成。 |
+| SM-RES-002 | 增加 CLK/SYNC/DATA 交叉方向 SM、FIFO、DREQ 和 DMA 字段 | IN PROGRESS | board contract、runtime resource view、flight PIO/SM claim/release、四个 DMA endpoint 及 GPIO/IRQ/DREQ resource admission 已建立；maintenance 资源统一仲裁和板端证据仍待完成。 |
 | SM-RES-003 | 将 TX 端交叉方向 SM 迁移 | IN PROGRESS | flight control/CLK 输出和 origin DATA 输入路径已使用 TX PIO 方向字段；专用原语和全 persona 回归仍待完成。 |
 | SM-RES-004 | 将 RX 端交叉方向 SM 迁移 | IN PROGRESS | flight DATA 输出、capture 和 follower process boundary 已使用 RX PIO 方向字段；双路径 HIL 仍待完成。 |
 | SM-RES-005 | 完成 follower forward/capture 独立 FIFO/DMA | IN PROGRESS | forward DATA SM 不再向业务 FIFO push；专用 DATA_IN_CAPTURE_SM 负责 capture DMA，仍需完成 endpoint 静态检查和 HIL。 |
 | SM-RES-006 | 迁移 arm/disarm、snapshot、RTT 和 DPLL evidence | IN PROGRESS | flight ARM/STOP、snapshot、RTT、SCK capture、clock-latch recovery 和 calibration persona 切换已按方向字段迁移；旧复合 maintenance 路径和完整证据回归仍待完成。 |
-| SM-RES-007 | 增加静态回归测试与资源冲突负测试 | IN PROGRESS | 已覆盖 PIO 指令方向、SM/DMA 唯一性、forward/capture FIFO、capture patch 和 calibration directional unload；DREQ/GPIO/persona epoch 的完整负测试仍待完成。 |
+| SM-RES-007 | 增加静态回归测试与资源冲突负测试 | IN PROGRESS | 已覆盖 PIO 指令方向、SM/DMA 唯一性、forward/capture FIFO、capture patch、calibration directional unload 和 flight resource mask；DREQ/GPIO/persona epoch 的运行时负测试仍待完成。 |
 | SM-RES-008 | 工具构建及四板/NO5 闭环验证 | PENDING | 使用 `out/` 产物完成 build、pytest、异步 OTA、TDMA HIL、SD 波形和 NO5 观测。 |
 
 ## 当前阻塞项

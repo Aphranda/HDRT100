@@ -9,6 +9,22 @@ Last updated: 2026-08-29
 本文档只记录状态机域的实施、构建、测试、OTA/HIL、失败和回退证据；任务状态以
 `STATE_MACHINE_DOMAIN_TODO.md` 为唯一事实源，稳定语义以架构文档为准。
 
+### SM-PROGRESS-20260829-010 — flight resource admission projection
+
+- TODO task ID：`SM-RES-002`、`SM-RES-007`。
+- 日期：2026-08-29。
+- 变更：resource arbiter 新增四个方向化 DMA endpoint、TDMA GPIO、PIO IRQ 和 DREQ
+  类资源位；`TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK` 由 board-owned directional
+  contract 派生，flight ARM/STOP 使用同一掩码申请和释放。DREQ 不复制 SDK 数值，而按
+  PIO/SM/方向端点类别保留，避免后续 profile 改号时失去冲突门禁。
+- 构建：`out/build/state-machine-runtime-split-20260829-r2/`；App/A/B、Boot、PIO
+  头文件、OTA package 和 Flash link contract 均通过，`build_id=20260829131051`。
+- 验证：状态机资源 pytest `8 passed`；尚未执行异步 OTA、四板 HIL、NO5 观测和 SD
+  波形验收。
+- 结论：flight admission 已覆盖声明的 PIO/SM/DMA/GPIO/IRQ/DREQ 类资源；maintenance
+  persona 的统一 arbiter 接入和板端资源冲突负测试仍未完成，SM-RES-002/007 保持
+  `IN PROGRESS`。
+
 ### SM-PROGRESS-20260829-009 — calibration persona directional unload
 
 - TODO task ID：`SM-RES-006`、`SM-RES-007`。
