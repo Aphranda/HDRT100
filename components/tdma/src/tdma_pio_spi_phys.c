@@ -138,31 +138,45 @@ static uint32_t s_tdma_pio_spi_rx_frame[TDMA_PIO_SPI_RX_DMA_WORD_MAX];
 
 static void tdma_pio_spi_phys_reset_normal_capture(void);
 
+static inline bool tdma_pio_spi_phys_is_flight_persona(void)
+{
+    return s_tdma_pio_spi_program_persona ==
+               TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN ||
+           s_tdma_pio_spi_program_persona ==
+               TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER ||
+           s_tdma_pio_spi_program_persona ==
+               TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER;
+}
+
 static inline PIO tdma_pio_spi_phys_tx_sm_pio(
     const tdma_pio_spi_phys_t *phys)
 {
-    return (phys != NULL && phys->tx_sm_pio != NULL)
+    return (tdma_pio_spi_phys_is_flight_persona() && phys != NULL &&
+            phys->tx_sm_pio != NULL)
         ? phys->tx_sm_pio : BOARD_TDMA_SPI_PIO;
 }
 
 static inline PIO tdma_pio_spi_phys_rx_sm_pio(
     const tdma_pio_spi_phys_t *phys)
 {
-    return (phys != NULL && phys->rx_sm_pio != NULL)
+    return (tdma_pio_spi_phys_is_flight_persona() && phys != NULL &&
+            phys->rx_sm_pio != NULL)
         ? phys->rx_sm_pio : BOARD_TDMA_SPI_PIO;
 }
 
 static inline PIO tdma_pio_spi_phys_evidence_pio(
     const tdma_pio_spi_phys_t *phys)
 {
-    return (phys != NULL && phys->evidence_pio != NULL)
+    return (tdma_pio_spi_phys_is_flight_persona() && phys != NULL &&
+            phys->evidence_pio != NULL)
         ? phys->evidence_pio : BOARD_TDMA_SPI_PIO;
 }
 
 static inline uint tdma_pio_spi_phys_latch_sm(
     const tdma_pio_spi_phys_t *phys)
 {
-    return (phys != NULL && phys->flight_resources.tx_pio != NULL)
+    return (tdma_pio_spi_phys_is_flight_persona() && phys != NULL &&
+            phys->flight_resources.tx_pio != NULL)
         ? (phys->role == TDMA_PIO_SPI_ROLE_MASTER
                ? phys->flight_resources.tx_data_in_forward_sm
                : phys->flight_resources.rx_evidence_in_sm)
@@ -207,7 +221,8 @@ static inline uint tdma_pio_spi_phys_data_sm(
 static inline PIO tdma_pio_spi_phys_capture_pio(
     const tdma_pio_spi_phys_t *phys)
 {
-    return phys != NULL && phys->flight_resources.tx_pio != NULL
+    return tdma_pio_spi_phys_is_flight_persona() && phys != NULL &&
+            phys->flight_resources.tx_pio != NULL
         ? phys->flight_resources.tx_pio
         : (phys != NULL && phys->role == TDMA_PIO_SPI_ROLE_MASTER
                ? tdma_pio_spi_phys_tx_sm_pio(phys)
@@ -217,7 +232,8 @@ static inline PIO tdma_pio_spi_phys_capture_pio(
 static inline uint tdma_pio_spi_phys_capture_sm(
     const tdma_pio_spi_phys_t *phys)
 {
-    return phys != NULL && phys->flight_resources.tx_pio != NULL
+    return tdma_pio_spi_phys_is_flight_persona() && phys != NULL &&
+            phys->flight_resources.tx_pio != NULL
         ? phys->flight_resources.tx_data_in_capture_sm
         : (phys != NULL ? phys->rx_sm : BOARD_TDMA_SPI_SLAVE_SM);
 }
