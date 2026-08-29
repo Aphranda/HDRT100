@@ -6,6 +6,7 @@
  * and DMA ownership helpers out of the protocol/state-machine modules while
  * preserving one owner for their static runtime state. */
 #include "tdma_pio_spi_phys.h"
+#include "hardware/pio.h"
 
 extern tdma_pio_spi_program_persona_t s_tdma_pio_spi_program_persona;
 extern int s_tdma_pio_spi_tx_dma_channel;
@@ -18,6 +19,40 @@ extern uint s_tdma_pio_spi_p3_responder_capture_offset;
 extern uint s_tdma_pio_spi_clk_forward_offset;
 extern uint s_tdma_pio_spi_clk_coded_tx_offset;
 extern uint s_tdma_pio_spi_clk_oversample_offset;
+extern uint s_tdma_pio_spi_tx_offset;
+extern uint s_tdma_pio_spi_rx_offset;
+extern uint s_tdma_pio_spi_clk_burst_offset;
+extern uint s_tdma_pio_spi_clk_capture_offset;
+extern uint s_tdma_pio_spi_marker_forward_offset;
+extern uint s_tdma_pio_spi_marker_origin_offset;
+extern uint s_tdma_pio_spi_marker_capture_offset;
+extern uint s_tdma_pio_spi_data_train_source_offset;
+extern uint s_tdma_pio_spi_data_train_sink_offset;
+extern uint s_tdma_pio_spi_sck_train_trigger_offset;
+extern uint s_tdma_pio_spi_sck_train_source_offset;
+extern uint s_tdma_pio_spi_sck_train_sink_offset;
+extern uint s_tdma_pio_spi_cal_tx_offset;
+extern uint s_tdma_pio_spi_cal_capture_offset;
+
+bool tdma_pio_spi_phys_load_normal_programs(void);
+bool tdma_pio_spi_phys_load_coarse_programs(void);
+bool tdma_pio_spi_phys_load_cal_loopback_programs(void);
+bool tdma_pio_spi_phys_load_coded_programs(void);
+bool tdma_pio_spi_phys_load_marker_programs(void);
+bool tdma_pio_spi_phys_load_data_train_programs(void);
+bool tdma_pio_spi_phys_load_sck_train_programs(void);
+
+bool tdma_pio_spi_phys_is_flight_persona(void);
+PIO tdma_pio_spi_phys_tx_sm_pio(const tdma_pio_spi_phys_t *phys);
+PIO tdma_pio_spi_phys_rx_sm_pio(const tdma_pio_spi_phys_t *phys);
+PIO tdma_pio_spi_phys_evidence_pio(const tdma_pio_spi_phys_t *phys);
+uint tdma_pio_spi_phys_latch_sm(const tdma_pio_spi_phys_t *phys);
+PIO tdma_pio_spi_phys_control_pio(const tdma_pio_spi_phys_t *phys);
+uint tdma_pio_spi_phys_control_sm(const tdma_pio_spi_phys_t *phys);
+PIO tdma_pio_spi_phys_data_pio(const tdma_pio_spi_phys_t *phys);
+uint tdma_pio_spi_phys_data_sm(const tdma_pio_spi_phys_t *phys);
+PIO tdma_pio_spi_phys_capture_pio(const tdma_pio_spi_phys_t *phys);
+uint tdma_pio_spi_phys_capture_sm(const tdma_pio_spi_phys_t *phys);
 
 void tdma_pio_spi_phys_fill_static_snapshot(tdma_pio_spi_phys_t *phys);
 uint64_t tdma_pio_spi_phys_now_us(void);

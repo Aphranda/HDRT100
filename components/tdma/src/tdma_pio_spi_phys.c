@@ -53,23 +53,23 @@ static const char *const TDMA_MAINTENANCE_RESOURCE_OWNER =
     "TDMA_MAINTENANCE_PIO";
 tdma_pio_spi_program_persona_t s_tdma_pio_spi_program_persona;
 static tdma_pio_spi_role_t s_tdma_pio_spi_program_role;
-static uint s_tdma_pio_spi_tx_offset;
-static uint s_tdma_pio_spi_rx_offset;
+uint s_tdma_pio_spi_tx_offset;
+uint s_tdma_pio_spi_rx_offset;
 uint s_tdma_pio_spi_clk_forward_offset;
-static uint s_tdma_pio_spi_marker_forward_offset;
-static uint s_tdma_pio_spi_clk_burst_offset;
-static uint s_tdma_pio_spi_clk_capture_offset;
+uint s_tdma_pio_spi_marker_forward_offset;
+uint s_tdma_pio_spi_clk_burst_offset;
+uint s_tdma_pio_spi_clk_capture_offset;
 uint s_tdma_pio_spi_clk_coded_tx_offset;
 uint s_tdma_pio_spi_clk_oversample_offset;
-static uint s_tdma_pio_spi_marker_origin_offset;
-static uint s_tdma_pio_spi_marker_capture_offset;
-static uint s_tdma_pio_spi_data_train_source_offset;
-static uint s_tdma_pio_spi_data_train_sink_offset;
-static uint s_tdma_pio_spi_sck_train_trigger_offset;
-static uint s_tdma_pio_spi_sck_train_source_offset;
-static uint s_tdma_pio_spi_sck_train_sink_offset;
-static uint s_tdma_pio_spi_cal_tx_offset;
-static uint s_tdma_pio_spi_cal_capture_offset;
+uint s_tdma_pio_spi_marker_origin_offset;
+uint s_tdma_pio_spi_marker_capture_offset;
+uint s_tdma_pio_spi_data_train_source_offset;
+uint s_tdma_pio_spi_data_train_sink_offset;
+uint s_tdma_pio_spi_sck_train_trigger_offset;
+uint s_tdma_pio_spi_sck_train_source_offset;
+uint s_tdma_pio_spi_sck_train_sink_offset;
+uint s_tdma_pio_spi_cal_tx_offset;
+uint s_tdma_pio_spi_cal_capture_offset;
 uint s_tdma_pio_spi_p3_initiator_offset;
 uint s_tdma_pio_spi_p3_responder_offset;
 uint s_tdma_pio_spi_p3_capture_offset;
@@ -155,106 +155,6 @@ static void tdma_pio_spi_phys_release_flight_resources(
     tdma_pio_spi_phys_t *phys);
 static bool tdma_pio_spi_phys_claim_flight_resources(
     tdma_pio_spi_phys_t *phys);
-
-static inline bool tdma_pio_spi_phys_is_flight_persona(void)
-{
-    return s_tdma_pio_spi_program_persona ==
-               TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN ||
-           s_tdma_pio_spi_program_persona ==
-               TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER ||
-           s_tdma_pio_spi_program_persona ==
-               TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER;
-}
-
-static inline PIO tdma_pio_spi_phys_tx_sm_pio(
-    const tdma_pio_spi_phys_t *phys)
-{
-    return (tdma_pio_spi_phys_is_flight_persona() && phys != NULL &&
-            phys->tx_sm_pio != NULL)
-        ? phys->tx_sm_pio : BOARD_TDMA_SPI_PIO;
-}
-
-static inline PIO tdma_pio_spi_phys_rx_sm_pio(
-    const tdma_pio_spi_phys_t *phys)
-{
-    return (tdma_pio_spi_phys_is_flight_persona() && phys != NULL &&
-            phys->rx_sm_pio != NULL)
-        ? phys->rx_sm_pio : BOARD_TDMA_SPI_PIO;
-}
-
-static inline PIO tdma_pio_spi_phys_evidence_pio(
-    const tdma_pio_spi_phys_t *phys)
-{
-    return (tdma_pio_spi_phys_is_flight_persona() && phys != NULL &&
-            phys->evidence_pio != NULL)
-        ? phys->evidence_pio : BOARD_TDMA_SPI_PIO;
-}
-
-static inline uint tdma_pio_spi_phys_latch_sm(
-    const tdma_pio_spi_phys_t *phys)
-{
-    return (tdma_pio_spi_phys_is_flight_persona() && phys != NULL &&
-            phys->flight_resources.tx_pio != NULL)
-        ? (phys->role == TDMA_PIO_SPI_ROLE_MASTER
-               ? phys->flight_resources.tx_data_in_forward_sm
-               : phys->flight_resources.rx_evidence_in_sm)
-        : BOARD_TDMA_SPI_CAPTURE_SM;
-}
-
-/* phys->tx_sm/rx_sm retain their historical logical names so maintenance
- * callers and snapshots remain ABI-compatible.  Flight code must use these
- * role-derived views: at the origin the clock/control SM is on TX PIO while
- * the reverse-DATA SM is on RX PIO; at a follower the assignment is the
- * opposite logical direction. */
-static inline PIO tdma_pio_spi_phys_control_pio(
-    const tdma_pio_spi_phys_t *phys)
-{
-    return phys != NULL && phys->role == TDMA_PIO_SPI_ROLE_MASTER
-        ? tdma_pio_spi_phys_rx_sm_pio(phys)
-        : tdma_pio_spi_phys_tx_sm_pio(phys);
-}
-
-static inline uint tdma_pio_spi_phys_control_sm(
-    const tdma_pio_spi_phys_t *phys)
-{
-    return phys != NULL && phys->role == TDMA_PIO_SPI_ROLE_MASTER
-        ? phys->rx_sm : phys->tx_sm;
-}
-
-static inline PIO tdma_pio_spi_phys_data_pio(
-    const tdma_pio_spi_phys_t *phys)
-{
-    return phys != NULL && phys->role == TDMA_PIO_SPI_ROLE_MASTER
-        ? tdma_pio_spi_phys_tx_sm_pio(phys)
-        : tdma_pio_spi_phys_rx_sm_pio(phys);
-}
-
-static inline uint tdma_pio_spi_phys_data_sm(
-    const tdma_pio_spi_phys_t *phys)
-{
-    return phys != NULL && phys->role == TDMA_PIO_SPI_ROLE_MASTER
-        ? phys->tx_sm : phys->rx_sm;
-}
-
-static inline PIO tdma_pio_spi_phys_capture_pio(
-    const tdma_pio_spi_phys_t *phys)
-{
-    return tdma_pio_spi_phys_is_flight_persona() && phys != NULL &&
-            phys->flight_resources.tx_pio != NULL
-        ? phys->flight_resources.tx_pio
-        : (phys != NULL && phys->role == TDMA_PIO_SPI_ROLE_MASTER
-               ? tdma_pio_spi_phys_tx_sm_pio(phys)
-               : tdma_pio_spi_phys_rx_sm_pio(phys));
-}
-
-static inline uint tdma_pio_spi_phys_capture_sm(
-    const tdma_pio_spi_phys_t *phys)
-{
-    return tdma_pio_spi_phys_is_flight_persona() && phys != NULL &&
-            phys->flight_resources.tx_pio != NULL
-        ? phys->flight_resources.tx_data_in_capture_sm
-        : (phys != NULL ? phys->rx_sm : BOARD_TDMA_SPI_SLAVE_SM);
-}
 
 static void tdma_pio_spi_phys_clk_train_write_begin(
     tdma_pio_spi_phys_t *phys)
@@ -404,199 +304,6 @@ static bool tdma_pio_spi_phys_load_flight_clock_latch_program(PIO pio)
     }
     s_tdma_pio_spi_flight_clock_latch_offset = (uint)pio_add_program(
         pio, &tdma_pio_spi_flight_clock_latch_program);
-    return true;
-}
-
-static bool tdma_pio_spi_phys_load_normal_programs(void)
-{
-    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_tx_byte_program)) return false;
-    s_tdma_pio_spi_tx_offset =
-        (uint)pio_add_program(BOARD_TDMA_SPI_PIO,
-                              &tdma_pio_spi_tx_byte_program);
-    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_rx_byte_program)) {
-        pio_remove_program(BOARD_TDMA_SPI_PIO,
-                           &tdma_pio_spi_tx_byte_program,
-                           s_tdma_pio_spi_tx_offset);
-        return false;
-    }
-    s_tdma_pio_spi_rx_offset =
-        (uint)pio_add_program(BOARD_TDMA_SPI_PIO,
-                              &tdma_pio_spi_rx_byte_program);
-    return true;
-}
-
-static bool tdma_pio_spi_phys_load_coarse_programs(void)
-{
-    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_clk_forward_program)) return false;
-    s_tdma_pio_spi_clk_forward_offset =
-        (uint)pio_add_program(BOARD_TDMA_SPI_PIO,
-                              &tdma_pio_spi_clk_forward_program);
-    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_clk_burst_program)) {
-        pio_remove_program(BOARD_TDMA_SPI_PIO,
-                           &tdma_pio_spi_clk_forward_program,
-                           s_tdma_pio_spi_clk_forward_offset);
-        return false;
-    }
-    s_tdma_pio_spi_clk_burst_offset =
-        (uint)pio_add_program(BOARD_TDMA_SPI_PIO,
-                              &tdma_pio_spi_clk_burst_program);
-    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_clk_capture_program)) {
-        pio_remove_program(BOARD_TDMA_SPI_PIO,
-                           &tdma_pio_spi_clk_burst_program,
-                           s_tdma_pio_spi_clk_burst_offset);
-        pio_remove_program(BOARD_TDMA_SPI_PIO,
-                           &tdma_pio_spi_clk_forward_program,
-                           s_tdma_pio_spi_clk_forward_offset);
-        return false;
-    }
-    s_tdma_pio_spi_clk_capture_offset =
-        (uint)pio_add_program(BOARD_TDMA_SPI_PIO,
-                              &tdma_pio_spi_clk_capture_program);
-    return true;
-}
-
-static bool tdma_pio_spi_phys_load_cal_loopback_programs(void)
-{
-    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_cal_loopback_tx_program)) return false;
-    s_tdma_pio_spi_cal_tx_offset = (uint)pio_add_program(
-        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_cal_loopback_tx_program);
-    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_cal_loopback_capture_program)) {
-        pio_remove_program(BOARD_TDMA_SPI_PIO,
-                           &tdma_pio_spi_cal_loopback_tx_program,
-                           s_tdma_pio_spi_cal_tx_offset);
-        return false;
-    }
-    s_tdma_pio_spi_cal_capture_offset = (uint)pio_add_program(
-        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_cal_loopback_capture_program);
-    return true;
-}
-
-static bool tdma_pio_spi_phys_load_coded_programs(void)
-{
-    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_clk_forward_program)) return false;
-    s_tdma_pio_spi_clk_forward_offset = (uint)pio_add_program(
-        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_clk_forward_program);
-    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_clk_coded_tx_program)) {
-        pio_remove_program(BOARD_TDMA_SPI_PIO,
-                           &tdma_pio_spi_clk_forward_program,
-                           s_tdma_pio_spi_clk_forward_offset);
-        return false;
-    }
-    s_tdma_pio_spi_clk_coded_tx_offset = (uint)pio_add_program(
-        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_clk_coded_tx_program);
-    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_clk_oversample_program)) {
-        pio_remove_program(BOARD_TDMA_SPI_PIO,
-                           &tdma_pio_spi_clk_coded_tx_program,
-                           s_tdma_pio_spi_clk_coded_tx_offset);
-        pio_remove_program(BOARD_TDMA_SPI_PIO,
-                           &tdma_pio_spi_clk_forward_program,
-                           s_tdma_pio_spi_clk_forward_offset);
-        return false;
-    }
-    s_tdma_pio_spi_clk_oversample_offset = (uint)pio_add_program(
-        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_clk_oversample_program);
-    return true;
-}
-
-static bool tdma_pio_spi_phys_load_marker_programs(void)
-{
-    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_marker_forward_program)) return false;
-    s_tdma_pio_spi_marker_forward_offset = (uint)pio_add_program(
-        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_marker_forward_program);
-    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_marker_origin_program)) {
-        pio_remove_program(BOARD_TDMA_SPI_PIO,
-                           &tdma_pio_spi_marker_forward_program,
-                           s_tdma_pio_spi_marker_forward_offset);
-        return false;
-    }
-    s_tdma_pio_spi_marker_origin_offset = (uint)pio_add_program(
-        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_marker_origin_program);
-    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_marker_capture_program)) {
-        pio_remove_program(BOARD_TDMA_SPI_PIO,
-                           &tdma_pio_spi_marker_origin_program,
-                           s_tdma_pio_spi_marker_origin_offset);
-        pio_remove_program(BOARD_TDMA_SPI_PIO,
-                           &tdma_pio_spi_marker_forward_program,
-                           s_tdma_pio_spi_marker_forward_offset);
-        return false;
-    }
-    s_tdma_pio_spi_marker_capture_offset = (uint)pio_add_program(
-        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_marker_capture_program);
-    return true;
-}
-
-static bool tdma_pio_spi_phys_load_data_train_programs(void)
-{
-    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_marker_origin_program)) return false;
-    s_tdma_pio_spi_marker_origin_offset = (uint)pio_add_program(
-        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_marker_origin_program);
-    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_data_train_source_program)) {
-        pio_remove_program(BOARD_TDMA_SPI_PIO,
-                           &tdma_pio_spi_marker_origin_program,
-                           s_tdma_pio_spi_marker_origin_offset);
-        return false;
-    }
-    s_tdma_pio_spi_data_train_source_offset = (uint)pio_add_program(
-        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_data_train_source_program);
-    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_data_train_sink_program)) {
-        pio_remove_program(BOARD_TDMA_SPI_PIO,
-                           &tdma_pio_spi_data_train_source_program,
-                           s_tdma_pio_spi_data_train_source_offset);
-        pio_remove_program(BOARD_TDMA_SPI_PIO,
-                           &tdma_pio_spi_marker_origin_program,
-                           s_tdma_pio_spi_marker_origin_offset);
-        return false;
-    }
-    s_tdma_pio_spi_data_train_sink_offset = (uint)pio_add_program(
-        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_data_train_sink_program);
-    return true;
-}
-
-static bool tdma_pio_spi_phys_load_sck_train_programs(void)
-{
-    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_sck_train_trigger_program)) {
-        return false;
-    }
-    s_tdma_pio_spi_sck_train_trigger_offset = (uint)pio_add_program(
-        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_sck_train_trigger_program);
-    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_sck_train_source_program)) {
-        pio_remove_program(BOARD_TDMA_SPI_PIO,
-                           &tdma_pio_spi_sck_train_trigger_program,
-                           s_tdma_pio_spi_sck_train_trigger_offset);
-        return false;
-    }
-    s_tdma_pio_spi_sck_train_source_offset = (uint)pio_add_program(
-        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_sck_train_source_program);
-    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_sck_train_sink_program)) {
-        pio_remove_program(BOARD_TDMA_SPI_PIO,
-                           &tdma_pio_spi_sck_train_source_program,
-                           s_tdma_pio_spi_sck_train_source_offset);
-        pio_remove_program(BOARD_TDMA_SPI_PIO,
-                           &tdma_pio_spi_sck_train_trigger_program,
-                           s_tdma_pio_spi_sck_train_trigger_offset);
-        return false;
-    }
-    s_tdma_pio_spi_sck_train_sink_offset = (uint)pio_add_program(
-        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_sck_train_sink_program);
     return true;
 }
 
