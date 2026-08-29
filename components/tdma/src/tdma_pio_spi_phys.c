@@ -137,6 +137,10 @@ static tdma_rx_sequence_tracker_t s_tdma_pio_spi_rx_sequence;
 static uint32_t s_tdma_pio_spi_rx_frame[TDMA_PIO_SPI_RX_DMA_WORD_MAX];
 
 static void tdma_pio_spi_phys_reset_normal_capture(void);
+static void tdma_pio_spi_phys_release_flight_resources(
+    tdma_pio_spi_phys_t *phys);
+static bool tdma_pio_spi_phys_claim_flight_resources(
+    tdma_pio_spi_phys_t *phys);
 
 static inline bool tdma_pio_spi_phys_is_flight_persona(void)
 {
@@ -299,6 +303,27 @@ static bool tdma_pio_spi_phys_ensure_sms_claimed(void)
     pio_sm_claim(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_RTT_SM);
     s_tdma_pio_spi_sms_claimed = true;
     return true;
+}
+
+/* Maintenance and flight both use the RX PIO block on this board, but they
+ * use different logical personas.  Claims are therefore transferred at the
+ * persona boundary; leaving the maintenance claims resident would make a
+ * stopped NORMAL persona look like a flight resource conflict. */
+static void tdma_pio_spi_phys_release_sms_claimed(void)
+{
+    if (!s_tdma_pio_spi_sms_claimed) {
+        return;
+    }
+    const uint sms[] = {
+        BOARD_TDMA_SPI_MASTER_SM,
+        BOARD_TDMA_SPI_SLAVE_SM,
+        BOARD_TDMA_SPI_CAPTURE_SM,
+        BOARD_TDMA_SPI_RTT_SM,
+    };
+    for (size_t i = 0u; i < sizeof(sms) / sizeof(sms[0]); ++i) {
+        pio_sm_unclaim(BOARD_TDMA_SPI_PIO, sms[i]);
+    }
+    s_tdma_pio_spi_sms_claimed = false;
 }
 
 /* Flight resources are claimed per PIO block, rather than by the legacy
@@ -1011,12 +1036,7 @@ bool tdma_pio_spi_phys_select_program_persona(
     tdma_pio_spi_program_persona_t persona)
 {
     if (phys == NULL || persona <= TDMA_PIO_SPI_PROGRAM_PERSONA_NONE ||
-        persona > TDMA_PIO_SPI_PROGRAM_PERSONA_MAX ||
-        ((persona == TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN ||
-          persona == TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER ||
-          persona == TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER)
-             ? !tdma_pio_spi_phys_ensure_flight_sms_claimed()
-             : !tdma_pio_spi_phys_ensure_sms_claimed())) {
+        persona > TDMA_PIO_SPI_PROGRAM_PERSONA_MAX) {
         return false;
     }
     s_tdma_pio_spi_program_role = phys->role;
@@ -1024,23 +1044,28 @@ bool tdma_pio_spi_phys_select_program_persona(
         persona == TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN ||
         persona == TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER ||
         persona == TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER;
-    const uint32_t sm_mask =
+    const uint32_t maintenance_sm_mask =
         (1u << BOARD_TDMA_SPI_MASTER_SM) |
         (1u << BOARD_TDMA_SPI_SLAVE_SM) |
-        (1u << BOARD_TDMA_SPI_CAPTURE_SM);
-    const bool sm_busy = flight_persona
-        ? (((BOARD_TDMA_TX_PIO->ctrl &
-             ((1u << BOARD_TDMA_TX_CLK_OUT_SM) |
-              (1u << BOARD_TDMA_TX_SYNC_OUT_SM) |
-              (1u << BOARD_TDMA_TX_DATA_IN_FORWARD_SM) |
-              (1u << BOARD_TDMA_TX_DATA_IN_CAPTURE_SM))) != 0u) ||
-           ((BOARD_TDMA_RX_PIO->ctrl &
-             ((1u << BOARD_TDMA_RX_CLK_IN_SM) |
-              (1u << BOARD_TDMA_RX_SYNC_IN_SM) |
-              (1u << BOARD_TDMA_RX_DATA_OUT_SM) |
-              (1u << BOARD_TDMA_RX_EVIDENCE_IN_SM))) != 0u))
-        : ((BOARD_TDMA_SPI_PIO->ctrl & sm_mask) != 0u);
-    if (sm_busy ||
+        (1u << BOARD_TDMA_SPI_CAPTURE_SM) |
+        (1u << BOARD_TDMA_SPI_RTT_SM);
+    const uint32_t flight_tx_sm_mask =
+        (1u << BOARD_TDMA_TX_CLK_OUT_SM) |
+        (1u << BOARD_TDMA_TX_SYNC_OUT_SM) |
+        (1u << BOARD_TDMA_TX_DATA_IN_FORWARD_SM) |
+        (1u << BOARD_TDMA_TX_DATA_IN_CAPTURE_SM);
+    const uint32_t flight_rx_sm_mask =
+        (1u << BOARD_TDMA_RX_CLK_IN_SM) |
+        (1u << BOARD_TDMA_RX_SYNC_IN_SM) |
+        (1u << BOARD_TDMA_RX_DATA_OUT_SM) |
+        (1u << BOARD_TDMA_RX_EVIDENCE_IN_SM);
+    const bool current_flight_persona =
+        tdma_pio_spi_phys_is_flight_persona();
+    const bool current_sm_busy = current_flight_persona
+        ? ((BOARD_TDMA_TX_PIO->ctrl & flight_tx_sm_mask) != 0u ||
+           (BOARD_TDMA_RX_PIO->ctrl & flight_rx_sm_mask) != 0u)
+        : ((BOARD_TDMA_SPI_PIO->ctrl & maintenance_sm_mask) != 0u);
+    if (current_sm_busy ||
         (s_tdma_pio_spi_tx_dma_channel >= 0 &&
          dma_channel_is_busy((uint)s_tdma_pio_spi_tx_dma_channel)) ||
         (s_tdma_pio_spi_rx_dma_channel >= 0 &&
@@ -1049,15 +1074,62 @@ bool tdma_pio_spi_phys_select_program_persona(
         return false;
     }
     if (s_tdma_pio_spi_program_persona == persona) {
+        const bool claimed = flight_persona
+            ? s_tdma_pio_spi_flight_sms_claimed
+            : s_tdma_pio_spi_sms_claimed;
+        if (!claimed) {
+            if (flight_persona
+                    ? !tdma_pio_spi_phys_ensure_flight_sms_claimed()
+                    : !tdma_pio_spi_phys_ensure_sms_claimed()) {
+                phys->snapshot.program_switch_fail_count++;
+                return false;
+            }
+        }
         phys->snapshot.program_persona = (uint32_t)persona;
         return true;
     }
     const tdma_pio_spi_program_persona_t previous =
         s_tdma_pio_spi_program_persona;
     tdma_pio_spi_phys_unload_programs();
+    if (current_flight_persona && !flight_persona) {
+        tdma_pio_spi_phys_release_flight_resources(phys);
+    } else if (!current_flight_persona) {
+        /* A previous failed maintenance transition may have left the claim
+         * bit set after its program set was already unloaded. */
+        tdma_pio_spi_phys_release_sms_claimed();
+    }
+    const bool target_claimed = flight_persona
+        ? tdma_pio_spi_phys_ensure_flight_sms_claimed()
+        : tdma_pio_spi_phys_ensure_sms_claimed();
+    if (!target_claimed) {
+        /* Restore the old claim before attempting the old program set. */
+        if (current_flight_persona) {
+            (void)tdma_pio_spi_phys_claim_flight_resources(phys);
+            (void)tdma_pio_spi_phys_ensure_flight_sms_claimed();
+        } else if (previous != TDMA_PIO_SPI_PROGRAM_PERSONA_NONE) {
+            (void)tdma_pio_spi_phys_ensure_sms_claimed();
+        }
+        if (previous != TDMA_PIO_SPI_PROGRAM_PERSONA_NONE) {
+            (void)tdma_pio_spi_phys_load_programs(previous);
+            s_tdma_pio_spi_program_persona = previous;
+        }
+        phys->snapshot.program_switch_fail_count++;
+        phys->snapshot.program_persona =
+            (uint32_t)s_tdma_pio_spi_program_persona;
+        return false;
+    }
     if (!tdma_pio_spi_phys_load_programs(persona)) {
         phys->snapshot.program_switch_fail_count++;
+        if (flight_persona && !current_flight_persona) {
+            tdma_pio_spi_phys_release_flight_resources(phys);
+        } else if (!flight_persona) {
+            tdma_pio_spi_phys_release_sms_claimed();
+        }
         if (previous != TDMA_PIO_SPI_PROGRAM_PERSONA_NONE &&
+            (current_flight_persona
+                 ? tdma_pio_spi_phys_claim_flight_resources(phys) &&
+                   tdma_pio_spi_phys_ensure_flight_sms_claimed()
+                 : tdma_pio_spi_phys_ensure_sms_claimed()) &&
             tdma_pio_spi_phys_load_programs(previous)) {
             s_tdma_pio_spi_program_persona = previous;
         }
@@ -2137,9 +2209,11 @@ static void tdma_pio_spi_phys_cal_cleanup(tdma_pio_spi_phys_t *phys)
     pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM, false);
     pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM, false);
     pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM, false);
+    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_RTT_SM, false);
     pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM);
     pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM);
     pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM);
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_RTT_SM);
     tdma_pio_spi_phys_set_line_drivers(false);
     const uint32_t pins[] = {
         BOARD_TDMA_SPI_UPLINK_RX_PIN,
