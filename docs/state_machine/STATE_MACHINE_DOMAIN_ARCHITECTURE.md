@@ -91,8 +91,10 @@ TX 与 RX PIO block 均必须同时包含一个输入方向和一个输出方向
  instruction RAM；每个 persona 仍需通过程序长度、GPIO function、FIFO 深度和 DREQ
  静态检查。若任一组合无法在预算内装载，必须拒绝 ARM，而不是退回未声明的复合 SM。
 
-follower 同时需要 forward 和 capture 时，两个消费者不得读取同一个 RX FIFO。实现必须
-使用独立 RX SM/FIFO，或使用硬件复制后再分别 DMA；无法建立双路径时必须拒绝 ARM。
+follower 同时需要 forward 和 capture 时，两个消费者不得读取同一个 RX FIFO。当前
+flight follower 使用 RX PIO 的 DATA SM 执行 wire forward，TX PIO 的
+`DATA_IN_CAPTURE_SM` 仅采样同一 DATA 输入并提供独立 capture FIFO/DMA；该采集路径
+不参与转发决策。任何 persona 若无法建立独立 RX SM/FIFO，必须拒绝 ARM。
 `forward DMA` 与本地 payload/recovery TX DMA 由静态 profile 声明并按 persona 互斥，
 不能运行中临时借道或覆盖发送中的 buffer。
 

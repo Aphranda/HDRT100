@@ -28,6 +28,20 @@ Last updated: 2026-08-29
 - 结论：flight runtime 迁移已从资源视图进入核心运行路径，但 SM-RES-002/003/004/006
   仍为 `IN PROGRESS`，SM-RES-005/007/008 仍需后续完成。
 
+### SM-PROGRESS-20260829-007 — follower forward/capture FIFO 分离
+
+- TODO task ID：`SM-RES-005`、`SM-M4`。
+- 日期：2026-08-29。
+- 变更：新增 `tdma_pio_spi_flight_data_capture` PIO 原语，使用 TX PIO 的
+  `DATA_IN_CAPTURE_SM` 独立采样返回 DATA；raw/process follower 的 wire forward SM
+  不再向自身 RX FIFO push，避免 forward 与 capture 双消费者竞争同一 FIFO。RX ring DMA
+  改由专用 capture SM 的 FIFO/DREQ 提供数据。
+- 构建：`out/build/state-machine-runtime-split-20260829/`；PIO header、App/A/B、Boot、
+  Flash link contract 和 OTA package 生成通过。
+- 当前事实：独立 SM/FIFO 已落地到 flight code；DMA channel 静态 endpoint 负测试、异步
+  OTA、四板 HIL、NO5 观测和 SD 波形验收尚未执行，因此 SM-RES-005/SM-M4 仍为
+  `IN PROGRESS`。
+
 ### SM-PROGRESS-20260829-002 — CLK/SYNC 与 DATA 交叉方向定义修正
 
 - TODO task ID：`SM-RES-001`。
