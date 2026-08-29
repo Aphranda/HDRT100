@@ -937,6 +937,7 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
                                &hardware_round_trip_ns,
                                &hardware_resolution_ns,
                                &hardware_flags);
+    bool dpll_correlation_pending = false;
     tdma_transport_frame_view_t view;
     tdma_transport_result_t result = TDMA_TRANSPORT_OK;
     const bool decoded = tdma_transport_frame_decode(packet,
@@ -1115,10 +1116,17 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
                     TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET]);
             adapter->clock_evidence_last_rx_encoded = encoded;
             if ((encoded &
-                 TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_VALID_MASK) != 0u &&
-                !tdma_pio_spi_ring_adapter_correlate_dpll_observation(
-                    adapter, &view)) {
-                adapter->clock_observation_reject_count++;
+                 TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_VALID_MASK) != 0u) {
+                /* Reference RX uses the matched TX+RTT hardware pair below;
+                 * defer correlation until that pair has replaced the
+                 * extraction-time estimate in local_rx_evidence. */
+                dpll_correlation_pending = true;
+                if (adapter->role != TDMA_PIO_SPI_RING_ROLE_REFERENCE &&
+                    !tdma_pio_spi_ring_adapter_correlate_dpll_observation(
+                        adapter, &view)) {
+                    adapter->clock_observation_reject_count++;
+                    dpll_correlation_pending = false;
+                }
             }
         }
     }
@@ -1158,6 +1166,17 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
                 adapter->reference_tx_timestamp_ns = matched_tx_timestamp_ns;
                 adapter->feedback_rx_timestamp_ns = matched_tx_timestamp_ns +
                     (uint64_t)hardware_round_trip_ns;
+                /* Feed the same deterministic RX evidence path used by
+                 * followers.  The diagonal observation is the complete loop
+                 * return, so its local RX time is TX latch plus measured RTT,
+                 * never the core extraction timestamp. */
+                if (view.transport_sequence != 0u) {
+                    const uint32_t rx_index = view.transport_sequence %
+                        TDMA_PIO_SPI_RING_ADAPTER_RX_EVIDENCE_DEPTH;
+                    adapter->local_rx_evidence[rx_index].timestamp_ns =
+                        adapter->feedback_rx_timestamp_ns;
+                    adapter->local_rx_evidence[rx_index].valid = true;
+                }
             } else if (adapter->phys_feedback == NULL &&
                        adapter->feedback_rx_timestamp_ns >=
                            matched_tx_timestamp_ns &&
@@ -1186,6 +1205,10 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
              * sequence matching still makes an overwritten/stale record
              * fail closed. */
         }
+    }
+    if (dpll_correlation_pending &&
+        !tdma_pio_spi_ring_adapter_correlate_dpll_observation(adapter, &view)) {
+        adapter->clock_observation_reject_count++;
     }
     adapter->rx_count++;
     if ((view.flags & TDMA_TRANSPORT_FLAG_IDLE_BEACON) != 0u) {
@@ -1603,7 +1626,6 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
             }
         }
     }
-
     if (adapter->started == 0u || !adapter->configured) {
         tdma_pio_spi_ring_adapter_set_error(
             adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_BAD_ARGUMENT);
