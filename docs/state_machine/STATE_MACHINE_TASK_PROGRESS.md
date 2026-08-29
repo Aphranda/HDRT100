@@ -16,8 +16,8 @@ Last updated: 2026-08-29
 - TODO task ID：`SM-RES-001`。
 - 日期：2026-08-29。
 - 变更：明确 `CLK`/`SYNC(CS)` 由 TX 端输出、RX 端输入；`DATA` 由 RX 端输出、TX
-  端输入。两个 PIO block 都必须同时具备 IN/OUT，但单个 SM 不得混合 `in pins` 与
-  `out pins`。
+  端输入。TX/RX 两个逻辑 SM 都必须同时具备 IN/OUT；这是交叉收发的固定语义，
+  不再错误要求单个 SM 只能使用一种 pin 指令方向。
 - 依据：CS/SCK 是帧与位时序控制，DATA 是反向 payload/recovery 控制；三类信号必须
   分别拥有可追溯的 SM、FIFO、DREQ 和 DMA。
 - 当前事实：源码仍为旧 `MASTER_SM/SLAVE_SM` 同向三线复合实现，本 checkpoint 只修正
@@ -39,6 +39,34 @@ Last updated: 2026-08-29
   断言缺失，补齐注释后回归用例通过（完整 pytest 待本 checkpoint 结束前复跑）。
 - 结论：静态契约和构建通过，但 `tdma_pio_spi_phys` 仍使用旧复合 persona，不能将
   `SM-RES-002` 或 SM-M2 标记为完成；下一步继续运行时资源迁移。
+
+### SM-PROGRESS-20260829-004 — 方向性 runtime resource view
+
+- TODO task ID：`SM-RES-002`。
+- 日期：2026-08-29。
+- 变更：新增 `tdma_state_machine_resource_contract_t`，由
+  `tdma_state_machine_resource_contract()` 从 board-owned 宏生成 TX/RX PIO、四类
+  控制/数据 SM 和四个 DMA endpoint 的运行时视图；`tdma_pio_spi_phys_t` 保存该视图
+  供后续 persona snapshot 使用。
+- 兼容边界：旧 `BOARD_TDMA_SPI_*_SM` 宏恢复为原有 PIO2 编号，仅作为迁移期维护路径，
+  不再与新交叉方向字段混用。
+- 构建：`out/build/state-machine-cross-direction-20260829/` 目标 `DHRT100` 已通过；
+  PIO 头文件、Flash map/link contract 均通过。
+- 当前事实：resource view 目前是声明与追踪接口，尚未执行实际 PIO1/PIO2 claim 或替换
+  flight persona；SM-RES-002 仍为 `IN PROGRESS`。
+
+### SM-PROGRESS-20260829-005 — flight PIO resource-arbiter admission
+
+- TODO task ID：`SM-RES-002`。
+- 日期：2026-08-29。
+- 变更：flight ARM 在资源和容量校验完成后，通过 `resource_arbiter` 以
+  `TDMA_FLIGHT_PIO` owner 原子申请 PIO1/PIO2；任一资源被其他 persona 持有即
+  fail-closed。所有 ARM 失败路径和 disarm 均释放该 owner，避免资源泄漏。
+- 验证：定向资源检查、文档门禁通过；`cmake_build_auto` 重新生成 PIO 头、App/A/B
+  ELF、OTA package 和 Flash link contract。
+- 当前事实：该 admission 已接入，但 flight 的 PIO 程序和 FIFO/DMA 仍使用旧
+  `BOARD_TDMA_SPI_PIO` 复合路径；因此 SM-RES-002 仍为 `IN PROGRESS`，不得宣称
+  PIO1/PIO2 运行时迁移完成。
 
 ### SM-PROGRESS-20260829-001 — 三 PIO 方向隔离方案冻结
 

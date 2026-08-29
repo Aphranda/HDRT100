@@ -21,7 +21,7 @@ phase、recovery 静态预算或 FreeRTOS heap；超限必须在构建或 Deploy
 |---|---|---|---|
 | SM-M1 | 资源和方向契约冻结 | DONE | 三 PIO 职责、TX/RX 端口均含 IN/OUT，且 CLK/SYNC 与 DATA 的交叉方向、FIFO/DMA owner 已在架构文档登记。 |
 | SM-M2 | board/profile/resource arbiter 迁移 | IN PROGRESS | PIO、SM、DMA、GPIO 和 persona 均由独立符号声明，冲突 fail-closed。 |
-| SM-M3 | TX/RX 交叉方向 PIO 原语 | PENDING | TX 端 `clk_out`/`sync_out`/`data_in`、RX 端 `clk_in`/`sync_in`/`data_out` 均可独立装载；单个 SM 不混用 `in pins` 与 `out pins`。 |
+| SM-M3 | TX/RX 交叉方向 PIO 原语 | PENDING | TX SM 固定为 `CLK/SYNC OUT + DATA IN`，RX SM 固定为 `CLK/SYNC IN + DATA OUT`；两组逻辑 SM 均可合法使用 IN/OUT。 |
 | SM-M4 | follower forward/capture 双路径 | PENDING | 两条 RX FIFO/DMA 路径不共享消费端，core0 拥塞不影响 wire forward。 |
 | SM-M5 | 四板 TDMA + NO5 观测验收 | PENDING | build、pytest、异步 OTA、四板 HIL、SD 原始波形和 NO5 只读 evidence 全通过。 |
 
@@ -30,9 +30,9 @@ phase、recovery 静态预算或 FreeRTOS heap；超限必须在构建或 Deploy
 | ID | 任务 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
 | SM-RES-001 | 增加 SMA、TDMA TX、TDMA RX 三组 PIO resource claim | IN PROGRESS | profile/resource arbiter 可查询并拒绝跨域 PIO/SM/DMA/GPIO 重叠。 |
-| SM-RES-002 | 增加 CLK/SYNC/DATA 交叉方向 SM、FIFO、DREQ 和 DMA 字段 | PENDING | 不再以 `master_sm/slave_sm` 作为 TX/RX 唯一语义；两组各自同时声明 IN 与 OUT，三类控制的字段可追溯。 |
-| SM-RES-003 | 将 TX 端 `clk_out`、`sync_out`、`data_in` PIO 迁移 | PENDING | CLK/SYNC SM 只输出，DATA SM 只输入；三者使用独立 FIFO/DMA。 |
-| SM-RES-004 | 将 RX 端 `clk_in`、`sync_in`、`data_out` PIO 迁移 | PENDING | CLK/SYNC SM 只输入，DATA SM 只输出；三者使用独立 FIFO/DMA。 |
+| SM-RES-002 | 增加 CLK/SYNC/DATA 交叉方向 SM、FIFO、DREQ 和 DMA 字段 | IN PROGRESS | board contract 与 runtime resource view 已建立；下一步接入 resource arbiter 的实际 claim/release 和 persona snapshot。 |
+| SM-RES-003 | 将 TX 端交叉方向 SM 迁移 | PENDING | TX SM 的 CLK/SYNC 输出、DATA 输入、FIFO/DMA 和边沿预算固定，禁止角色运行时交换。 |
+| SM-RES-004 | 将 RX 端交叉方向 SM 迁移 | PENDING | RX SM 的 CLK/SYNC 输入、DATA 输出、FIFO/DMA 和边界预算固定，禁止角色运行时交换。 |
 | SM-RES-005 | 完成 follower forward/capture 独立 FIFO/DMA | PENDING | forward DMA 与 capture DMA 各有固定 endpoint，禁止双消费同一 FIFO。 |
 | SM-RES-006 | 迁移 arm/disarm、snapshot、RTT 和 DPLL evidence | PENDING | 所有调用使用方向明确字段；旧复合 persona 不能作为 RUN fallback。 |
 | SM-RES-007 | 增加静态回归测试与资源冲突负测试 | PENDING | 覆盖 PIO 指令方向、PIO block、SM、DMA、DREQ、GPIO 和 persona epoch。 |

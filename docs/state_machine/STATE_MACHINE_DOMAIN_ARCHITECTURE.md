@@ -38,8 +38,8 @@ System Pack / SCPI / domain intent
 | 资源域 | 固定职责 | 方向约束 | owner |
 |---|---|---|---|
 | SMA PIO | `SMA_IN/OUT`、appointment marker、SFCW/FMCW 捕获 | 输入采样和输出波形由独立 SM 承担 | Calibration / `sma_cable_delay` |
-| TDMA TX PIO | TX 端 `CLK`、`SYNC/CS` 输出，以及反向 `DATA` 输入 | `clk_out`/`sync_out` 只执行输出；`data_in` 只执行输入；各自 FIFO/DMA 独立 | TDMA core1 / PIO adapter |
-| TDMA RX PIO | RX 端 `CLK`、`SYNC/CS` 输入，以及反向 `DATA` 输出 | `clk_in`/`sync_in` 只执行输入；`data_out` 只执行输出；各自 FIFO/DMA 独立 | TDMA core1 / PIO adapter |
+| TDMA TX PIO | TX 逻辑端：`CLK`、`SYNC/CS` 输出，以及反向 `DATA` 输入 | TX SM 同时配置 IN/OUT，但控制输出与 DATA 输入使用固定 pin/FIFO 语义 | TDMA core1 / PIO adapter |
+| TDMA RX PIO | RX 逻辑端：`CLK`、`SYNC/CS` 输入，以及反向 `DATA` 输出 | RX SM 同时配置 IN/OUT，但控制输入与 DATA 输出使用固定 pin/FIFO 语义 | TDMA core1 / PIO adapter |
 
 PIO 实例、GPIO 和 SM 编号不得在本文件复制为第二事实源；它们必须由 board profile、
 `tdma_foundation_profile_t` 和 resource arbiter 的符号派生。上述表描述稳定职责，
@@ -72,16 +72,16 @@ core0 inactive image -> core1 fixed phase
           └─ forward/replace 由已发布 buffer 决定
 ```
 
-TX 与 RX PIO block 均必须同时包含一个输入方向和一个输出方向，但单个 SM 仍然只能
-拥有一种 pin 数据方向。`CLK` 和 `SYNC/CS` 从 TX→RX，`DATA` 从 RX→TX；这三个控制
-类必须分别声明 owner、FIFO、DREQ 和 DMA。名称为 `master/slave` 的全双工复合原语
-不能作为最终架构，因为同一个程序同时执行 `in pins` 与 `out pins` 会把方向、FIFO、
-DMA 和边沿 owner 混在一起，难以证明竞争不存在。
+TX 与 RX PIO block 均必须同时包含一个输入方向和一个输出方向；TX/RX 两个逻辑 SM
+也都同时配置 IN/OUT，这是交叉收发的必要条件。`CLK` 和 `SYNC/CS` 从 TX→RX，
+`DATA` 从 RX→TX；三类控制必须使用固定的 pin、FIFO、DREQ 和 DMA 语义。禁止的是
+旧的 `master/slave` 复合协议语义（把未声明的 MOSI/MISO/CLK 交换混在一起），而不是
+合法的交叉 IN/OUT 指令本身。
 
 这种拆分带来的直接收益是：
 
-- `CLK`、`SYNC` 和 `DATA` 各自拥有固定的 WAIT/SET/IN/OUT 节拍，彼此不会因共享
-  复合 SM 的分支或 FIFO 阻塞而改变边沿位置；
+- TX/RX 两个逻辑 SM 各自拥有固定的 `CLK/SYNC` 与 `DATA` IN/OUT 组合，避免旧复合
+  persona 在不同角色间临时交换 MOSI/MISO/CLK；
 - 每一类信号可以独立装载训练得到的 offset、独立采集 hardware evidence，并由
   独立 DMA endpoint 消费，便于定位单段 link 或单个 Node 的延迟；
 - TX/RX 两个 PIO block 可以并行运行输入和输出路径，Core1 只需在 phase boundary
@@ -102,14 +102,10 @@ follower 同时需要 forward 和 capture 时，两个消费者不得读取同�
 
 | 角色 | PIO 域 | FIFO/DMA 关系 | 允许的实时操作 |
 |---|---|---|---|
-| `tx_clk_out_sm` | TDMA TX | TX FIFO；CLK 控制 DMA | 只输出 CLK |
-| `tx_sync_out_sm` | TDMA TX | TX FIFO；SYNC/CS 控制 DMA | 只输出 SYNC/CS |
-| `tx_data_in_sm` | TDMA TX | 独立 RX FIFO；DATA capture/forward DMA | 只输入 DATA |
-| `rx_clk_in_sm` | TDMA RX | RX FIFO 或 edge latch | 只输入 CLK |
-| `rx_sync_in_sm` | TDMA RX | RX FIFO 或 edge latch | 只输入 SYNC/CS 并建立帧边界 |
-| `rx_data_out_sm` | TDMA RX | TX FIFO；payload/recovery DMA | 只输出 DATA |
-| `tx_evidence_in_sm` / `rx_evidence_in_sm` | TDMA TX/RX | 硬件 tick/IRQ evidence FIFO | 分别记录两端输入边沿关联 |
-| `tx_aux_out_sm` / `rx_aux_out_sm` | TDMA TX/RX | persona 专用 FIFO（静态声明） | 仅在 profile 明确时启用 |
+| `tx_sm` | TDMA TX | TX FIFO（CLK/SYNC 控制）；RX FIFO（DATA 输入/证据） | 输出 CLK/SYNC，同时接收 DATA |
+| `rx_sm` | TDMA RX | RX FIFO（CLK/SYNC 边界）；TX FIFO（DATA 输出） | 接收 CLK/SYNC，同时输出 DATA |
+| `tx_evidence_sm` / `rx_evidence_sm` | TDMA TX/RX | 独立硬件 tick/IRQ evidence FIFO | 记录两端边沿关联，不消费业务 FIFO |
+| `tx_aux_sm` / `rx_aux_sm` | TDMA TX/RX | persona 专用 FIFO（静态声明） | 仅在 profile 明确时启用 |
 | `sma_out_sm` / `sma_in_sm` | SMA PIO | SMA 专用 FIFO/DMA | 输出或采样 SMA 波形 |
 
 core1 只在固定 phase 内选择已发布 buffer、装载 FIFO 和启动已验证 persona；PIO/DMA
@@ -144,6 +140,5 @@ follower forward/capture 不共享 FIFO，以及四节点 TDMA 与 NO5 只读观
 通过不能替代 OTA、HIL 和原始波形证据。
 
 当前源码仍保留旧 `BOARD_TDMA_SPI_PIO` 及 `MASTER_SM/SLAVE_SM` 复合实现；这只是迁移
-前基线，且该基线把三根线按同向三线处理。源码迁移完成并通过
-`STATE_MACHINE_DOMAIN_TODO.md` 的退出门禁后，才可将“每个端口 IN/OUT、控制/DATA
-交叉方向”标记为已实现。
+前基线。源码迁移完成并通过 `STATE_MACHINE_DOMAIN_TODO.md` 的退出门禁后，才可将
+“TX/RX 两组逻辑 SM 均具备 IN/OUT，且 CLK/SYNC 与 DATA 交叉方向固定”标记为已实现。
