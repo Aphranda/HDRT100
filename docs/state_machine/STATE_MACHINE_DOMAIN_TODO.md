@@ -4,7 +4,7 @@ Status: Active
 Domain: STATE_MACHINE
 Canonical: `docs/state_machine/STATE_MACHINE_DOMAIN_TODO.md`
 Related: `docs/state_machine/STATE_MACHINE_DOMAIN_ARCHITECTURE.md`, `docs/state_machine/STATE_MACHINE_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/sync/SYNC_IO_TODO.md`
-Last updated: 2026-08-29
+Last updated: 2026-08-30
 
 本文档维护状态机域的可执行任务；稳定语义见 `STATE_MACHINE_DOMAIN_ARCHITECTURE.md`，
 构建、测试、OTA/HIL 和失败证据见 `STATE_MACHINE_TASK_PROGRESS.md`。
@@ -20,10 +20,10 @@ phase、recovery 静态预算或 FreeRTOS heap；超限必须在构建或 Deploy
 | ID | 里程碑 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
 | SM-M1 | 资源和方向契约冻结 | DONE | 三 PIO 职责、TX/RX 端口均含 IN/OUT，且 CLK/SYNC 与 DATA 的交叉方向、FIFO/DMA owner 已在架构文档登记。 |
-| SM-M2 | board/profile/resource arbiter 迁移 | IN PROGRESS | PIO、SM、DMA、GPIO 和 persona 均由独立符号声明，冲突 fail-closed；flight PIO/SM claim 已接入，DMA/GPIO 完整仲裁仍待完成。 |
+| SM-M2 | board/profile/resource arbiter 迁移 | IN PROGRESS | PIO、SM、DMA、GPIO 和 persona 均由独立符号声明，冲突 fail-closed；flight PIO/SM claim 与 process-image ARM admission 已接入，DMA/GPIO 完整仲裁仍待完成。 |
 | SM-M3 | TX/RX 交叉方向 PIO 原语 | IN PROGRESS | flight origin/follower 已按 TX/RX PIO 装载方向原语；专用原语完整验证和 maintenance persona 边界仍待完成。 |
-| SM-M4 | follower forward/capture 双路径 | IN PROGRESS | follower 已增加独立 DATA_IN_CAPTURE_SM/FIFO 采集路径；双 DMA endpoint 和四板 HIL 仍待完成。 |
-| SM-M5 | 四板 TDMA + NO5 观测验收 | PENDING | build、pytest、异步 OTA、四板 HIL、SD 原始波形和 NO5 只读 evidence 全通过。 |
+| SM-M4 | follower forward/capture 双路径 | IN PROGRESS | 当前 flight follower 由 RX DATA SM 以 `push noblock` 同时完成 wire forward 与 RX 卸载，DMA 只消费该 FIFO；独立 sampler 不在运行态启用。仍需四板 process-image HIL 和诊断 capture 窗口验收。 |
+| SM-M5 | 四板 TDMA + NO5 观测验收 | PENDING | build、pytest、异步 OTA、四板 HIL、SD 原始波形和 NO5 只读 evidence 全通过；当前仍待板端执行。 |
 
 ## 当前任务表
 
@@ -33,10 +33,11 @@ phase、recovery 静态预算或 FreeRTOS heap；超限必须在构建或 Deploy
 | SM-RES-002 | 增加 CLK/SYNC/DATA 交叉方向 SM、FIFO、DREQ 和 DMA 字段 | IN PROGRESS | board contract、runtime resource view、flight PIO/SM claim/release、四个 DMA endpoint 及 GPIO/IRQ/DREQ resource admission 已建立；maintenance 资源统一仲裁和板端证据仍待完成。 |
 | SM-RES-003 | 将 TX 端交叉方向 SM 迁移 | IN PROGRESS | flight control/CLK 输出和 origin DATA 输入路径已使用 TX PIO 方向字段；专用原语和全 persona 回归仍待完成。 |
 | SM-RES-004 | 将 RX 端交叉方向 SM 迁移 | IN PROGRESS | flight DATA 输出、capture 和 follower process boundary 已使用 RX PIO 方向字段；双路径 HIL 仍待完成。 |
-| SM-RES-005 | 完成 follower forward/capture 独立 FIFO/DMA | IN PROGRESS | forward DATA SM 不再向业务 FIFO push；专用 DATA_IN_CAPTURE_SM 负责 capture DMA，仍需完成 endpoint 静态检查和 HIL。 |
-| SM-RES-006 | 迁移 arm/disarm、snapshot、RTT 和 DPLL evidence | IN PROGRESS | flight ARM/STOP、snapshot、RTT、SCK capture、clock-latch recovery 和 calibration persona 切换已按方向字段迁移；旧复合 maintenance 路径和完整证据回归仍待完成。 |
+| SM-RES-005 | 完成 follower forward/capture 独立 FIFO/DMA | IN PROGRESS | forward 与 RX 卸载统一由 RX DATA SM 的单一 FIFO/DMA endpoint 完成，避免双消费者竞争；SD/波形 capture 仅作为停止态 diagnostic persona，仍需 endpoint 静态检查和 HIL。 |
+| SM-RES-009 | 固化独立 flight RX unload / TX load 控制 | IN PROGRESS | `tdma_flight_engine_unload_rx()` 只生成 RX 位图并在 descriptor 入队后提交，`tdma_flight_engine_load_tx()` 只覆盖 TX segment；两方向可在同一 phase 并行且互不阻塞，需补四板 process-image 回归证据。 |
+| SM-RES-006 | 迁移 arm/disarm、snapshot、RTT 和 DPLL evidence | IN PROGRESS | flight ARM/STOP、snapshot、RTT、SCK capture、clock-latch recovery、process-image persona admission 和 calibration persona 切换已按方向字段迁移；旧复合 maintenance 路径和完整硬件证据回归仍待完成。 |
 | SM-RES-007 | 增加静态回归测试与资源冲突负测试 | IN PROGRESS | 已覆盖 PIO 指令方向、SM/DMA 唯一性、forward/capture FIFO、capture patch、calibration directional unload 和 flight resource mask；DREQ/GPIO/persona epoch 的运行时负测试仍待完成。 |
-| SM-RES-008 | 工具构建及四板/NO5 闭环验证 | PENDING | 使用 `out/` 产物完成 build、pytest、异步 OTA、TDMA HIL、SD 波形和 NO5 观测。 |
+| SM-RES-008 | 工具构建及四板/NO5 闭环验证 | IN PROGRESS | `out/` 构建与 host pytest 已通过；仍需同包异步 OTA、四板 process-image active、SD 波形、NO5 hardware-latch evidence、DPLL `LOCKED` 与 VDC vector readback。 |
 
 ## 当前阻塞项
 

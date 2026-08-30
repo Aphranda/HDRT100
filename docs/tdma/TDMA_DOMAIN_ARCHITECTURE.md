@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-08-28
+Last updated: 2026-08-30
 
 本文档定义 TDMA 在 HAOFV 下的基础件主域。TDMA 是分布式硬实时系统的确定性通讯骨架，负责在 core1/PIO/DMA 侧按窗口执行上行、下行、payload、timestamp 和 completion；VDC、RefMem、OTA、诊断等域只挂载 payload 或消费 evidence，不能拥有 TDMA 物理环路。
 
@@ -378,6 +378,18 @@ slot 三者一致的版本；业务选择再由 `segment_mask` 完成。TX 在 c
 TX: CORE0_INACTIVE -> CORE0_READY -> CORE1_ACTIVE -> CORE0_INACTIVE
 RX: FREE -> CORE1_FILL -> CORE0_PARSE -> FREE
 ```
+
+上行和下行的飞行控制独立运行：上行 RX 只负责从 wire 卸载输入数据，生成并发布
+`TDMA_RX_FRAME_FIFO` descriptor；下行 TX 只负责在固定帧边界装载
+`TDMA_TX_IMAGE_FIFO` 中已发布的 generation 并发送。代码边界分别由
+`tdma_flight_engine_unload_rx()` 和 `tdma_flight_engine_load_tx()` 表达，二者不共享
+去重状态，也不互相等待。这样可以明确区分“卸载数据”（RX -> core0）和“加载数据”
+（core0 -> TX），并保证 RX 丢弃解析镜像或 TX 复用上一 generation 时，另一方向仍按
+原定时序飞行。组合 API 仅为兼容旧调用保留，不得重新引入跨方向阻塞。
+
+方向判断必须以 pin contract 为准：每个节点的 `CLK/SYNC` 控制腿由 TX 端发往 RX
+端，而 DATA 物理返回腿由 RX 端发往 TX 端。因而“上行 RX 卸载、下行 TX 加载”是
+运行时 ownership 语义；它不意味着三根线都朝同一箭头传播。
 
 `TDMA_TX_IMAGE_FIFO` 的名称表示数据流向，不表示 core1 在 byte 到达时向 core0 逐 byte
 请求数据。core0 必须提前构造完整 inactive image，再原子发布 generation；core1 在一帧

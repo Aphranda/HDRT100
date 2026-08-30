@@ -87,16 +87,40 @@ TX 与 RX PIO block 均必须同时包含一个输入方向和一个输出方向
 - TX/RX 两个 PIO block 可以并行运行输入和输出路径，Core1 只需在 phase boundary
   选择已发布 buffer，减少实时路径上的软件参与和竞争。
 
+### 独立飞行控制：RX 卸载与 TX 加载
+
+飞行控制在逻辑上进一步分为两个相互独立的方向控制器，方向与物理含义保持一致：
+
+| 控制器 | 方向 | 责任 | 允许访问的共享对象 |
+|---|---|---|---|
+| `flight_rx_unload` | 上行（输入） | 在 RX 帧边界读取已到达的 process image，完成 mailbox 识别，生成 `present/new/expected` 位图；RX descriptor 成功入队后才提交 sequence。 | RX PIO/DMA、`TDMA_RX_FRAME_FIFO`；不得写 TX image |
+| `flight_tx_load` | 下行（输出） | 在 TX 帧边界选择 Core0 已发布的 TX generation，把本节点拥有的可写 segment 覆盖到 wire image，并把结果交给 TX PIO/DMA。 | TX PIO/DMA、`TDMA_TX_IMAGE_FIFO`；不得改变 RX 去重状态 |
+
+`tdma_flight_engine_unload_rx()` 与 `tdma_flight_engine_load_tx()` 是这两个方向的
+明确软件边界。二者可以在同一个 Core1 service 周期内并行推进，但不存在“先完成 RX
+才允许 TX”或“TX 失败阻塞 RX”的隐式依赖。旧的 `tdma_flight_engine_apply*()` 仅作为
+兼容封装，内部语义仍必须等价于一次独立 RX 卸载加一次独立 TX 加载。
+
+这里的“上行/下行”沿用 TDMA 控制腿的命名，不等同于 DATA 电气线的箭头。当前点对点
+接线中 `CLK/SYNC` 是 TX 端输出、RX 端输入；`DATA` 则由 RX 端输出、TX 端输入。因此
+RX unload 是对到达本节点的 DATA/过程镜像做卸载，TX load 是把本节点 shadow image
+装载到即将沿 DATA 反向返回的发送镜像；两者在同一节点上分别落到不同 PIO block，
+不能仅凭 `TX`/`RX` 名称推断三根线的物理方向。
+
+该边界保证“卸载数据”和“加载数据”在 ownership、失败计数和时序上可分别观测：RX
+FIFO 满时只丢弃给 Core0 的解析镜像，TX 没有新 generation 时复用上一版；任一方向的
+异常都不能把另一方向变成阻塞式路径。
+
 限制也必须明确：PIO 指令存储仍按 PIO block 共享，增加 SM 不会增加该 block 的
  instruction RAM；每个 persona 仍需通过程序长度、GPIO function、FIFO 深度和 DREQ
  静态检查。若任一组合无法在预算内装载，必须拒绝 ARM，而不是退回未声明的复合 SM。
 
-follower 同时需要 forward 和 capture 时，两个消费者不得读取同一个 RX FIFO。当前
-flight follower 使用 RX PIO 的 DATA SM 执行 wire forward，TX PIO 的
-`DATA_IN_CAPTURE_SM` 仅采样同一 DATA 输入并提供独立 capture FIFO/DMA；该采集路径
-不参与转发决策。任何 persona 若无法建立独立 RX SM/FIFO，必须拒绝 ARM。
-`forward DMA` 与本地 payload/recovery TX DMA 由静态 profile 声明并按 persona 互斥，
-不能运行中临时借道或覆盖发送中的 buffer。
+flight follower 的 RX PIO DATA SM 同时承担确定性的 wire forward 和 RX 卸载端点，
+通过 `push noblock` 将字节送入该 SM 的 RX FIFO，再由 DMA 写入 RX ring；运行态不再
+初始化第二个 DATA sampler，也不让两个 DMA 竞争同一 FIFO。SD/波形采集属于独立的
+diagnostic persona，只能在停止或明确的 capture 窗口启用，不能改变 forward/unload
+时序。`forward DMA` 与本地 payload/recovery TX DMA 由静态 profile 声明并按 persona
+互斥，不能运行中临时借道或覆盖发送中的 buffer。
 
 ## SM 角色与所有权
 

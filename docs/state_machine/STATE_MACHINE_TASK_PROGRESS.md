@@ -9,6 +9,43 @@ Last updated: 2026-08-30
 本文档只记录状态机域的实施、构建、测试、OTA/HIL、失败和回退证据；任务状态以
 `STATE_MACHINE_DOMAIN_TODO.md` 为唯一事实源，稳定语义以架构文档为准。
 
+### SM-PROGRESS-20260830-013 - 独立 flight RX unload / TX load 控制
+
+- TODO task ID：`SM-RES-005`、`SM-RES-009`。
+- 变更：新增 `tdma_flight_engine_unload_rx()` 与
+  `tdma_flight_engine_load_tx()` 两个方向化接口。前者只检查上行输入、生成
+  `present/new/expected` 位图，RX descriptor 成功发布后再由既有 commit 接口提交序列；
+  后者只把本节点已发布 TX generation 覆盖到下行 wire image，不读取或修改 RX 去重状态。
+  `tdma_flight_engine_apply*()` 保留为兼容封装。ring adapter 的 origin、follower 和
+  process-overlay 路径已切换到 TX load；RX polling 在未配置 health 时切换到 RX unload。
+- 运行约束：Core1 在固定 phase 内可同时推进两个方向；RX FIFO 满、TX 无新 generation
+  或单向操作失败都不得阻塞另一方向。PIO/DMA、FIFO ownership 和 SHORT 帧预算未改变。
+- Host 回归：`tests/python/test_trn03_closed_loop.py` 与
+  `tests/python/test_state_machine_resource_check.py` 共 `102 passed`。
+- 构建：`out/build/flight-txrx-independent-20260830/`，App/A/B、Boot、PIO 生成、
+  OTA package 和 Flash link contract 均通过；`tdma_pio_spi_phys.c` 仍按既定规则输出
+  超过 1000 行 warning，实际为 2957 行。
+- 板端：本记录只固化方向边界并完成 build/host gate，四板 process-image active、
+  异步 OTA 和 NO5/SD evidence 仍按 `SM-RES-008` 后续门禁执行。
+
+### SM-PROGRESS-20260830-012 - process-image persona admission for DPLL evidence
+
+- TODO task ID: `SM-RES-006`、`SM-RES-007`、`SM-RES-008`。
+- 变更：`distributed_refmem_tdma_ring_arm()` 在 STOPPED 状态完成 flight map、staged
+  config 与 calibration gate 后，先调用
+  `tdma_runtime_owner_set_flight_process_image_mode(true)`，再进入
+  `tdma_service_ring_arm()`。这样 process-image persona 与固定 DPLL trailer 成为同一
+  次 ARM admission，不会以 raw-flight persona 启动后再遗漏 trailer。persona 选择路径
+  同时要求 flight resource owner 与方向化 SM claim 成对成立，失败时回收已取得的资源。
+- Host 回归：状态机、TRN-03 closed-loop、TDMA cycle/process-image budget 和 DPLL
+  observation 定向测试 `122 passed`。
+- 构建：`out/build/dpll-state-machine-20260830/`（构建完成后记录 package/build id；
+  source-size report 保留在同目录，`tdma_pio_spi_phys.c` 低于 3000 行但仍触发既定
+  超过 1000 行 warning）。
+- 板端状态：本记录不提前宣称 DPLL `LOCKED` 或 VDC 正式发布；待同包五板异步 OTA、
+  四板 process-image active、NO5 observation、hardware-latch eligible 样本和 VDC
+  vector readback。无 COM 端口或任一 gate 失败时保留失败证据并回退到最近已验证 persona。
+
 ### SM-PROGRESS-20260830-011 - ARM failure evidence and snapshot extraction
 
 - TODO task ID: `SM-RES-005`、`SM-RES-006`、`SM-RES-007`、`SM-RES-008`。

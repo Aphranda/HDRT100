@@ -4,9 +4,22 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_TASK_PROGRESS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
-Last updated: 2026-08-29
+Last updated: 2026-08-30
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
+
+### TDMA-PROGRESS-20260830-001 - 上下行独立飞行控制边界
+
+- 变更：flight engine 新增独立的 RX unload 与 TX load 接口；ring adapter 的 process-image
+  origin/follower 路径分别执行输入卸载和输出加载。RX 仅负责 mailbox 位图、RX FIFO
+  descriptor 与延迟提交，TX 仅负责选择已发布 generation、覆盖本节点 segment 并交给
+  PIO/DMA。两方向可以在同一固定 phase 并行，互不阻塞。
+- 约束：不改变 TDMA SHORT 帧格式、拍级预算、PIO/DMA 资源和 Core1 的固定时序；Core0
+  继续负责生成 TX image、消费 RX descriptor 及诊断/SD/SVG。
+- 验证：`tests/python/test_trn03_closed_loop.py` 与状态机资源检查共 `102 passed`；
+  固件构建输出位于 `out/build/flight-txrx-independent-20260830/`。
+- 后续：在该边界上重新执行四板 process-image HIL，确认每节点的卸载位图与下行覆盖
+  均连续稳定后，再进入 DPLL hardware-latch/eligible gate 验证。
 
 ### TDMA-PROGRESS-20260829-001 - DPLL residual SD evidence capture
 
