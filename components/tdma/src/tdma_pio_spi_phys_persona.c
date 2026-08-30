@@ -4,6 +4,7 @@
 #include "hardware/dma.h"
 #include "hardware/pio.h"
 #include "resource_arbiter.h"
+#include "sync_io.h"
 #include "tdma_state_machine_resources.h"
 #include "tdma_pio_spi.pio.h"
 
@@ -126,6 +127,9 @@ static bool tdma_pio_spi_phys_load_flight_clock_latch_program(PIO pio)
 
 static bool tdma_pio_spi_phys_load_flight_origin_programs(void)
 {
+    /* TX and RX flight controllers own separate PIO blocks. The DATA SM is
+     * also the RX unload endpoint; do not install a second DATA sampler on
+     * the opposite block because that would remux the same physical input. */
     const PIO tx_pio = BOARD_TDMA_TX_PIO;
     const PIO rx_pio = BOARD_TDMA_RX_PIO;
     if (!tdma_pio_spi_phys_ensure_flight_sms_claimed()) {
@@ -138,21 +142,9 @@ static bool tdma_pio_spi_phys_load_flight_origin_programs(void)
     }
     s_tdma_pio_spi_flight_origin_clock_offset = (uint)pio_add_program(
         tx_pio, &tdma_pio_spi_flight_origin_clock_rx_program);
-    if (!pio_can_add_program(tx_pio,
-                             &tdma_pio_spi_flight_data_capture_program)) {
-        pio_remove_program(tx_pio,
-                           &tdma_pio_spi_flight_origin_clock_rx_program,
-                           s_tdma_pio_spi_flight_origin_clock_offset);
-        return false;
-    }
-    s_tdma_pio_spi_flight_data_capture_offset = (uint)pio_add_program(
-        tx_pio, &tdma_pio_spi_flight_data_capture_program);
     if (!pio_can_add_program(
             rx_pio,
             &tdma_pio_spi_flight_origin_data_tx_program)) {
-        pio_remove_program(tx_pio,
-                           &tdma_pio_spi_flight_data_capture_program,
-                           s_tdma_pio_spi_flight_data_capture_offset);
         pio_remove_program(
             tx_pio,
             &tdma_pio_spi_flight_origin_clock_rx_program,
@@ -164,9 +156,6 @@ static bool tdma_pio_spi_phys_load_flight_origin_programs(void)
     if (!pio_can_add_program(
             tx_pio,
             &tdma_pio_spi_flight_origin_rtt_program)) {
-        pio_remove_program(tx_pio,
-                           &tdma_pio_spi_flight_data_capture_program,
-                           s_tdma_pio_spi_flight_data_capture_offset);
         pio_remove_program(
             rx_pio,
             &tdma_pio_spi_flight_origin_data_tx_program,
@@ -180,9 +169,6 @@ static bool tdma_pio_spi_phys_load_flight_origin_programs(void)
     s_tdma_pio_spi_flight_origin_rtt_offset = (uint)pio_add_program(
         tx_pio, &tdma_pio_spi_flight_origin_rtt_program);
     if (!tdma_pio_spi_phys_load_flight_clock_latch_program(tx_pio)) {
-        pio_remove_program(tx_pio,
-                           &tdma_pio_spi_flight_data_capture_program,
-                           s_tdma_pio_spi_flight_data_capture_offset);
         pio_remove_program(
             tx_pio,
             &tdma_pio_spi_flight_origin_rtt_program,
@@ -212,20 +198,8 @@ static bool tdma_pio_spi_phys_load_flight_follower_programs(void)
     s_tdma_pio_spi_flight_control_forward_offset = (uint)pio_add_program(
         tx_pio,
         &tdma_pio_spi_flight_control_forward_program);
-    if (!pio_can_add_program(tx_pio,
-                             &tdma_pio_spi_flight_data_capture_program)) {
-        pio_remove_program(tx_pio,
-                           &tdma_pio_spi_flight_control_forward_program,
-                           s_tdma_pio_spi_flight_control_forward_offset);
-        return false;
-    }
-    s_tdma_pio_spi_flight_data_capture_offset = (uint)pio_add_program(
-        tx_pio, &tdma_pio_spi_flight_data_capture_program);
     if (!pio_can_add_program(rx_pio,
                              &tdma_pio_spi_flight_data_follower_program)) {
-        pio_remove_program(tx_pio,
-                           &tdma_pio_spi_flight_data_capture_program,
-                           s_tdma_pio_spi_flight_data_capture_offset);
         pio_remove_program(tx_pio,
                            &tdma_pio_spi_flight_control_forward_program,
                            s_tdma_pio_spi_flight_control_forward_offset);
@@ -235,9 +209,6 @@ static bool tdma_pio_spi_phys_load_flight_follower_programs(void)
         rx_pio,
         &tdma_pio_spi_flight_data_follower_program);
     if (!tdma_pio_spi_phys_load_flight_clock_latch_program(rx_pio)) {
-        pio_remove_program(tx_pio,
-                           &tdma_pio_spi_flight_data_capture_program,
-                           s_tdma_pio_spi_flight_data_capture_offset);
         pio_remove_program(rx_pio,
                            &tdma_pio_spi_flight_data_follower_program,
                            s_tdma_pio_spi_flight_data_follower_offset);
@@ -261,21 +232,9 @@ static bool tdma_pio_spi_phys_load_flight_process_follower_programs(void)
     s_tdma_pio_spi_flight_control_forward_offset = (uint)pio_add_program(
         tx_pio,
         &tdma_pio_spi_flight_control_forward_program);
-    if (!pio_can_add_program(tx_pio,
-                             &tdma_pio_spi_flight_data_capture_program)) {
-        pio_remove_program(tx_pio,
-                           &tdma_pio_spi_flight_control_forward_program,
-                           s_tdma_pio_spi_flight_control_forward_offset);
-        return false;
-    }
-    s_tdma_pio_spi_flight_data_capture_offset = (uint)pio_add_program(
-        tx_pio, &tdma_pio_spi_flight_data_capture_program);
     if (!pio_can_add_program(
             rx_pio,
             &tdma_pio_spi_flight_process_follower_program)) {
-        pio_remove_program(tx_pio,
-                           &tdma_pio_spi_flight_data_capture_program,
-                           s_tdma_pio_spi_flight_data_capture_offset);
         pio_remove_program(tx_pio,
                            &tdma_pio_spi_flight_control_forward_program,
                            s_tdma_pio_spi_flight_control_forward_offset);
@@ -285,9 +244,6 @@ static bool tdma_pio_spi_phys_load_flight_process_follower_programs(void)
         rx_pio,
         &tdma_pio_spi_flight_process_follower_program);
     if (!tdma_pio_spi_phys_load_flight_clock_latch_program(rx_pio)) {
-        pio_remove_program(tx_pio,
-                           &tdma_pio_spi_flight_data_capture_program,
-                           s_tdma_pio_spi_flight_data_capture_offset);
         pio_remove_program(
             rx_pio,
             &tdma_pio_spi_flight_process_follower_program,
@@ -523,12 +479,6 @@ static void tdma_pio_spi_phys_unload_programs(void)
                            s_tdma_pio_spi_sck_train_trigger_offset);
         break;
     case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN:
-        /* Origin control/evidence live on TX PIO; returned DATA output lives
-         * on RX PIO.  Program offsets are local to each block. */
-        pio_remove_program(
-            BOARD_TDMA_TX_PIO,
-            &tdma_pio_spi_flight_data_capture_program,
-            s_tdma_pio_spi_flight_data_capture_offset);
         pio_remove_program(
             BOARD_TDMA_TX_PIO,
             &tdma_pio_spi_flight_clock_latch_program,
@@ -548,10 +498,6 @@ static void tdma_pio_spi_phys_unload_programs(void)
         break;
     case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER:
         pio_remove_program(
-            BOARD_TDMA_TX_PIO,
-            &tdma_pio_spi_flight_data_capture_program,
-            s_tdma_pio_spi_flight_data_capture_offset);
-        pio_remove_program(
             BOARD_TDMA_RX_PIO,
             &tdma_pio_spi_flight_clock_latch_program,
             s_tdma_pio_spi_flight_clock_latch_offset);
@@ -563,10 +509,6 @@ static void tdma_pio_spi_phys_unload_programs(void)
                            s_tdma_pio_spi_flight_control_forward_offset);
         break;
     case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER:
-        pio_remove_program(
-            BOARD_TDMA_TX_PIO,
-            &tdma_pio_spi_flight_data_capture_program,
-            s_tdma_pio_spi_flight_data_capture_offset);
         pio_remove_program(
             BOARD_TDMA_RX_PIO,
             &tdma_pio_spi_flight_clock_latch_program,
@@ -631,12 +573,27 @@ bool tdma_pio_spi_phys_select_program_persona(
     }
     if (s_tdma_pio_spi_program_persona == persona) {
         const bool claimed = flight_persona
-            ? s_tdma_pio_spi_flight_sms_claimed
+            ? (s_tdma_pio_spi_flight_sms_claimed &&
+               phys->flight_resource_claimed)
             : s_tdma_pio_spi_sms_claimed;
         if (!claimed) {
-            if (flight_persona
-                    ? !tdma_pio_spi_phys_ensure_flight_sms_claimed()
-                    : !tdma_pio_spi_phys_ensure_sms_claimed()) {
+            /* A selected persona must never expose claimed SMs without the
+             * matching arbiter owner.  ARM calls this path before its
+             * idempotent resource check, so taking the claim here closes the
+             * transition window for direct persona users as well. */
+            const bool resources_claimed_before =
+                phys->flight_resource_claimed;
+            const bool resource_ok = flight_persona
+                ? tdma_pio_spi_phys_claim_flight_resources(phys)
+                : true;
+            const bool sm_ok = resource_ok &&
+                (flight_persona
+                     ? tdma_pio_spi_phys_ensure_flight_sms_claimed()
+                     : tdma_pio_spi_phys_ensure_sms_claimed());
+            if (!sm_ok) {
+                if (flight_persona && !resources_claimed_before) {
+                    tdma_pio_spi_phys_release_flight_resources(phys);
+                }
                 tdma_pio_spi_phys_set_error(
                     phys, TDMA_PIO_SPI_PHYS_ERROR_PERSONA_RESOURCE);
                 phys->snapshot.program_switch_fail_count++;
@@ -648,18 +605,39 @@ bool tdma_pio_spi_phys_select_program_persona(
     }
     const tdma_pio_spi_program_persona_t previous =
         s_tdma_pio_spi_program_persona;
+    bool sync_wave_suspended = false;
+    if (flight_persona) {
+        if (!sync_io_suspend_wave_for_tdma()) {
+            tdma_pio_spi_phys_set_error(
+                phys, TDMA_PIO_SPI_PHYS_ERROR_PERSONA_BUSY);
+            phys->snapshot.program_switch_fail_count++;
+            return false;
+        }
+        sync_wave_suspended = true;
+    }
     tdma_pio_spi_phys_unload_programs();
     if (current_flight_persona && !flight_persona) {
         tdma_pio_spi_phys_release_flight_resources(phys);
+        (void)sync_io_resume_wave_after_tdma();
     } else if (!current_flight_persona) {
         /* A previous failed maintenance transition may have left the claim
          * bit set after its program set was already unloaded. */
         tdma_pio_spi_phys_release_sms_claimed();
     }
     const bool target_claimed = flight_persona
-        ? tdma_pio_spi_phys_ensure_flight_sms_claimed()
+        ? (tdma_pio_spi_phys_claim_flight_resources(phys) &&
+           tdma_pio_spi_phys_ensure_flight_sms_claimed())
         : tdma_pio_spi_phys_ensure_sms_claimed();
     if (!target_claimed) {
+        if (sync_wave_suspended) {
+            (void)sync_io_resume_wave_after_tdma();
+        }
+        if (flight_persona) {
+            /* claim_flight_resources() may have succeeded before a PIO SM
+             * claim failed; release both halves before restoring the prior
+             * persona. */
+            tdma_pio_spi_phys_release_flight_resources(phys);
+        }
         /* Restore the old claim before attempting the old program set. */
         if (current_flight_persona) {
             (void)tdma_pio_spi_phys_claim_flight_resources(phys);
@@ -679,12 +657,15 @@ bool tdma_pio_spi_phys_select_program_persona(
         return false;
     }
     if (!tdma_pio_spi_phys_load_programs(persona)) {
+        if (sync_wave_suspended) {
+            (void)sync_io_resume_wave_after_tdma();
+        }
         tdma_pio_spi_phys_set_error(
             phys, TDMA_PIO_SPI_PHYS_ERROR_PROGRAM_LOAD);
         phys->snapshot.program_switch_fail_count++;
-        if (flight_persona && !current_flight_persona) {
+        if (flight_persona) {
             tdma_pio_spi_phys_release_flight_resources(phys);
-        } else if (!flight_persona) {
+        } else {
             tdma_pio_spi_phys_release_sms_claimed();
         }
         if (previous != TDMA_PIO_SPI_PROGRAM_PERSONA_NONE &&
@@ -762,5 +743,3 @@ void tdma_pio_spi_phys_release_flight_resources(
         s_tdma_pio_spi_flight_sms_claimed = false;
     }
 }
-
-

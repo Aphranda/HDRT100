@@ -18,6 +18,10 @@
             "statusBarVisibility": "visible",
         }
     },
+
+    "search.useIgnoreFiles": false,
+    "search.useGlobalIgnoreFiles": false,
+
     "cmake.configureOnEdit": true,
     "cmake.automaticReconfigure": true,
     "cmake.configureOnOpen": false,

@@ -341,7 +341,7 @@ def test_origin_data_dma_covers_complete_physical_tail() -> None:
     assert "index < clock_bytes" in origin
     assert "s_tdma_pio_spi_flight_tx_words,\n        clock_bytes," in origin
     assert "pio_get_dreq(data_pio, data_sm, true)" in origin
-    assert "pio_sm_put(data_pio, data_sm, clock_bits - 1u)" in origin
+    assert "pio_sm_put(data_pio, data_sm, clock_bytes - 1u)" in origin
     assert "wire_bytes - 1u" not in origin
 
 
@@ -354,7 +354,9 @@ def test_data_follower_wait_patch_does_not_own_sck_output() -> None:
     assert "pio_encode_wait_gpio(true, rx_sck_pin) |" in init
     assert "pio_encode_delay(data_phase_delay_cycles - 1u)" in init
     assert "pio_encode_sideset" not in init
-    assert "pio->instr_mem[offset + 7u]" in init
+    assert "pio_encode_wait_gpio(true, rx_csn_pin)" in init
+    assert "pio_encode_wait_gpio(false, rx_csn_pin)" in init
+    assert "pio->instr_mem[offset + 9u]" in init
 
 
 def test_follower_samples_data_on_rising_edge_before_falling_edge() -> None:
@@ -363,11 +365,28 @@ def test_follower_samples_data_on_rising_edge_before_falling_edge() -> None:
     program = source.split(
         ".program tdma_pio_spi_flight_data_follower", 1
     )[1].split(".program", 1)[0]
-    high = program.index("wait 1 gpio 0")
-    sample = program.index("in pins, 1")
-    low = program.index("wait 0 gpio 0")
-    forward = program.index("out pins, 1")
+    bit_program = program.split(".wrap_target", 1)[1]
+    high = bit_program.index("wait 1 gpio 0")
+    sample = bit_program.index("in pins, 1")
+    low = bit_program.index("wait 0 gpio 0")
+    forward = bit_program.index("out pins, 1")
     assert high < sample < low < forward
+
+
+def test_raw_follower_qualifies_first_byte_on_cs_boundary() -> None:
+    source = (ROOT / "components" / "tdma" / "src" /
+              "tdma_pio_spi.pio").read_text(encoding="utf-8")
+    program = source.split(
+        ".program tdma_pio_spi_flight_data_follower", 1
+    )[1].split(".program", 1)[0]
+    assert "wait 1 gpio 0\n    wait 0 gpio 0\n.wrap_target" in program
+    init = source.split(
+        "static inline void tdma_pio_spi_flight_data_follower_program_init", 1
+    )[1].split("static inline void", 1)[0]
+    assert "uint rx_csn_pin" in init
+    assert "pio_gpio_init(pio, rx_csn_pin)" in init
+    assert "gpio_pull_up(rx_csn_pin)" in init
+    assert "pio_sm_set_consecutive_pindirs(pio, sm, rx_csn_pin, 1u, false)" in init
 
 
 def test_process_follower_retains_elastic_byte_across_frame_boundary() -> None:
@@ -398,10 +417,10 @@ def test_process_follower_retains_elastic_byte_across_frame_boundary() -> None:
     assert "instr_mem[offset + 5u]" in init
     assert "pio_encode_wait_gpio(true, rx_csn_pin)" in init
     assert "instr_mem[offset + 6u]" not in init
-    assert "instr_mem[offset + 11u]" in init
+    assert "instr_mem[offset + 14u]" in init
     assert "pio_encode_wait_gpio(true, rx_sck_pin)" in init
     assert "pio_encode_delay(data_phase_delay_cycles - 1u)" in init
-    assert "instr_mem[offset + 13u]" in init
+    assert "instr_mem[offset + 16u]" in init
     assert "pio_encode_wait_gpio(false, rx_sck_pin)" in init
     bit_loop = program.split("flight_process_bit:", 1)[1].split(
         "mov y, isr", 1)[0]
@@ -486,9 +505,24 @@ def test_flight_personas_fit_shared_pio_instruction_memory() -> None:
     process_data = pio_instruction_count(
         source, "tdma_pio_spi_flight_process_follower")
     assert shared + capture + raw_data <= 32
-    assert shared + capture + process_data <= 32
+    # The diagnostic DATA capture program is not resident in flight
+    # personas; process-image uses the forwarding SM's explicit PUSH FIFO.
+    assert shared + process_data <= 32
     assert shared + data_capture <= 32
     assert origin_control + data_capture + origin_rtt + capture <= 32
+
+
+def test_process_overlay_replace_loads_command_byte_into_osr() -> None:
+    source = (ROOT / "components" / "tdma" / "src" /
+              "tdma_pio_spi.pio").read_text(encoding="utf-8")
+    process = source.split(
+        ".program tdma_pio_spi_flight_process_follower", 1)[1].split(
+            ".program", 1)[0]
+    assert "jmp !x flight_process_replace" in process
+    replace = process.split("flight_process_replace:", 1)[1].split(
+        "flight_process_pass:", 1)[0]
+    assert "out x, 8" in replace
+    assert "mov osr, x" in replace
 
 
 def test_product_clock_latch_captures_first_csn_edge() -> None:
@@ -977,9 +1011,12 @@ def test_origin_queues_physical_byte_count_before_payload_dma_without_waiting() 
         "static bool tdma_pio_spi_phys_flight_origin_tx", 1
     )[1].split("bool tdma_pio_spi_phys_tx", 1)[0]
     count_put = function.index(
-        "pio_sm_put(control_pio, control_sm, clock_bytes - 1u)")
+        "pio_sm_put(control_pio, control_sm, clock_bits - 1u)")
+    data_count_put = function.index(
+        "pio_sm_put(data_pio, data_sm, clock_bytes - 1u)")
     dma_start = function.index("dma_start_channel_mask", count_put)
     assert count_put < dma_start
+    assert data_count_put < dma_start
     assert "while (" not in function
     assert "busy_wait_us_32" not in function
 
@@ -1046,7 +1083,7 @@ def test_flight_origin_control_edges_are_owned_by_one_pio_sm() -> None:
         "static bool tdma_pio_spi_phys_flight_origin_tx", 1
     )[1].split("bool tdma_pio_spi_phys_tx", 1)[0]
     assert "gpio_put(phys->tx_csn_pin" not in flight_tx
-    assert "pio_sm_put(data_pio, data_sm, clock_bits - 1u)" in flight_tx
+    assert "pio_sm_put(data_pio, data_sm, clock_bytes - 1u)" in flight_tx
 
 
 def test_shifted_rx_scanner_preserves_shared_raw_boundary_word() -> None:

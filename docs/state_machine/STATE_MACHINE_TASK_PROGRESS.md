@@ -9,6 +9,44 @@ Last updated: 2026-08-30
 本文档只记录状态机域的实施、构建、测试、OTA/HIL、失败和回退证据；任务状态以
 `STATE_MACHINE_DOMAIN_TODO.md` 为唯一事实源，稳定语义以架构文档为准。
 
+### SM-PROGRESS-20260830-016 - origin FIFO/DMA 启动竞态修复与 raw-flight 复验
+
+- 根因修复：origin DATA SM 的物理字节计数控制字改为在启动 TX DMA **之前**写入
+  DATA FIFO。DMA DREQ 在 FIFO 为空时立即有效，原顺序会让首个 payload 抢在控制字
+  前面，PIO 将 payload 装入 `Y` 后无法完成帧，最终表现为 CS 长低和 `TX_BUSY`。
+- 代码/测试：`tdma_pio_spi_phys_transport.c` 固化 bit/byte 计数和 FIFO 先置数顺序；
+  `test_trn03_closed_loop.py` 保留顺序静态门禁。状态机与 TRN-03 定向回归为 `107 passed`。
+- 构建/OTA：`out/build/p0-sm-20260830/` 的 PIO、App/A/B、Boot、package 和
+  Flash link contract 通过；随后四板同包 OTA 目录为
+  `out/ota/sm-p0-20260830-r1/`，`passed=true`、`updated_count=4`，启动 build 为
+  `20260830054337`。
+- raw-flight 复验：`out/training/sm-p0-raw-flight-20260830-r1/summary.json` 保留失败
+  原始证据。启动屏障仍未通过：origin `last_error=TX_BUSY`、`rx_count=0`，followers
+  `rx_dma_produced_words=0`；origin 的 `rx_dma_produced_words` 有增长但未形成有效帧。
+  因此不能进入 process-image gate，也不宣称当前 PIO 修复已通过硬件验收。
+- SD 诊断：四板均报告 `CARD_READY`；根目录 catalog 仅有系统目录/manifest，当前没有
+  可下载的 TDMA capture 文件。读取接口保持 STOPPED-only，待下一次明确 diagnostic
+  capture 生成文件后再执行分段 `FILE:READ?` 和波形解码。
+- 下一步：针对 origin 返回 DATA/CS-SCK 物理边界继续采集 `PHYS?`（含 SM PC、PIO
+  FDEBUG、GPIO 电平、DMA 写指针）并与单帧逻辑分析仪/SD capture 对齐；修复后重新走
+  raw-flight，再放行 process-image。
+
+### SM-PROGRESS-20260830-015 - P0 TDMA 环路回归主线建立
+
+- TODO task ID：`SM-P0-001`、`SM-P0-002`、`SM-P0-003`、`SM-P0-004`。
+- 架构决策：实时路径采用单一 RX DATA SM 同时完成 wire forward 和 RX unload，单一
+  RX FIFO/DMA 作为唯一业务数据源；独立采样器不进入 RUNNING 拍级路径。SD/初始波形
+  读取限定在 STOPPED 或明确 diagnostic capture 窗口，由 Core0/StorageAO 处理，避免
+  FatFs、USB 或离线解码进入 core1/PIO 实时路径。
+- 已开始修复：process follower 的 SCK patch 索引已按生成程序移动到实际 WAIT 指令；
+  REPLACE 字节路径补充 MSB 对齐；raw/process follower DATA SM 恢复 `push noblock`；
+  origin TX 控制/数据 FIFO 计数单位统一为 bit/byte 语义。
+- 尚未完成：PIO 头重新生成后的完整 build、同包异步 OTA、四板 raw/process-image
+  HIL，以及通过 SD 读取初始波形并与 `rx_dma_produced_words`、SM PC、CRC/边界计数
+  关联。当前工作区改动未宣称硬件有效，失败时回退到最近验证 persona。
+- 下一 gate：先完成 host 静态/编译门禁，再执行 OTA；OTA 启动确认通过后才进行四板
+  raw-flight，raw 稳定后再进行 process-image 和 SD 波形分析。
+
 ### SM-PROGRESS-20260830-014 - 方向语义静态门禁
 
 - TODO task ID：`SM-RES-007`。

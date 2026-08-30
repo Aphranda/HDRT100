@@ -90,10 +90,9 @@
  * Thus each logical TX/RX port owns both an IN and an OUT function, while
  * CLK/SYNC and DATA travel in opposite logical directions. */
 #define BOARD_TDMA_SPI_PIO pio2 /* legacy maintenance/calibration persona */
-/* Direction-isolated flight resources.  The legacy symbol above remains for
- * maintenance personas only; cyclic TDMA flight must use these ownership
- * boundaries.  Each PIO block is mixed-direction at the port level, but every
- * SM remains single-direction at the pin-instruction level. */
+/* TX and RX flight controllers use separate PIO blocks. A PIO may observe a
+ * GPIO owned by the other block, but only the block driving an output may
+ * call pio_gpio_init() for that GPIO. */
 #define BOARD_TDMA_TX_PIO pio1
 #define BOARD_TDMA_RX_PIO pio2
 #define BOARD_TDMA_TX_PIO_BLOCK_ID 1u

@@ -1197,12 +1197,12 @@ bool tdma_pio_spi_phys_train_clock(void *context, uint32_t cycles)
     }
     phys->rx_capture_active = false;
     phys->flight_clock_latch_armed = false;
-    const uint32_t owned_sm_mask =
+    const uint32_t maintenance_sm_mask =
         (1u << BOARD_TDMA_SPI_MASTER_SM) |
         (1u << BOARD_TDMA_SPI_SLAVE_SM) |
         (1u << BOARD_TDMA_SPI_CAPTURE_SM) |
         (1u << BOARD_TDMA_SPI_RTT_SM);
-    pio_set_sm_mask_enabled(BOARD_TDMA_SPI_PIO, owned_sm_mask, false);
+    pio_set_sm_mask_enabled(BOARD_TDMA_SPI_PIO, maintenance_sm_mask, false);
     pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM);
     pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM);
     pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM);
@@ -1211,6 +1211,41 @@ bool tdma_pio_spi_phys_train_clock(void *context, uint32_t cycles)
     pio_sm_restart(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM);
     pio_sm_restart(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM);
     pio_sm_restart(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_RTT_SM);
+
+    /* A flight follower/origin owns SMs on both directional PIO blocks.
+     * Stop and drain those SMs before selecting the maintenance clock
+     * persona; otherwise the persona gate correctly rejects the transition
+     * as busy even though the legacy PIO2 SMs are idle. */
+    const uint32_t flight_tx_sm_mask =
+        (1u << BOARD_TDMA_TX_CLK_OUT_SM) |
+        (1u << BOARD_TDMA_TX_SYNC_OUT_SM) |
+        (1u << BOARD_TDMA_TX_DATA_IN_FORWARD_SM) |
+        (1u << BOARD_TDMA_TX_DATA_IN_CAPTURE_SM);
+    const uint32_t flight_rx_sm_mask =
+        (1u << BOARD_TDMA_RX_CLK_IN_SM) |
+        (1u << BOARD_TDMA_RX_SYNC_IN_SM) |
+        (1u << BOARD_TDMA_RX_DATA_OUT_SM) |
+        (1u << BOARD_TDMA_RX_EVIDENCE_IN_SM);
+    pio_set_sm_mask_enabled(BOARD_TDMA_TX_PIO, flight_tx_sm_mask, false);
+    pio_set_sm_mask_enabled(BOARD_TDMA_RX_PIO, flight_rx_sm_mask, false);
+    pio_sm_clear_fifos(BOARD_TDMA_TX_PIO, BOARD_TDMA_TX_CLK_OUT_SM);
+    pio_sm_clear_fifos(BOARD_TDMA_TX_PIO, BOARD_TDMA_TX_SYNC_OUT_SM);
+    pio_sm_clear_fifos(BOARD_TDMA_TX_PIO,
+                       BOARD_TDMA_TX_DATA_IN_FORWARD_SM);
+    pio_sm_clear_fifos(BOARD_TDMA_TX_PIO,
+                       BOARD_TDMA_TX_DATA_IN_CAPTURE_SM);
+    pio_sm_clear_fifos(BOARD_TDMA_RX_PIO, BOARD_TDMA_RX_CLK_IN_SM);
+    pio_sm_clear_fifos(BOARD_TDMA_RX_PIO, BOARD_TDMA_RX_SYNC_IN_SM);
+    pio_sm_clear_fifos(BOARD_TDMA_RX_PIO, BOARD_TDMA_RX_DATA_OUT_SM);
+    pio_sm_clear_fifos(BOARD_TDMA_RX_PIO, BOARD_TDMA_RX_EVIDENCE_IN_SM);
+    pio_sm_restart(BOARD_TDMA_TX_PIO, BOARD_TDMA_TX_CLK_OUT_SM);
+    pio_sm_restart(BOARD_TDMA_TX_PIO, BOARD_TDMA_TX_SYNC_OUT_SM);
+    pio_sm_restart(BOARD_TDMA_TX_PIO, BOARD_TDMA_TX_DATA_IN_FORWARD_SM);
+    pio_sm_restart(BOARD_TDMA_TX_PIO, BOARD_TDMA_TX_DATA_IN_CAPTURE_SM);
+    pio_sm_restart(BOARD_TDMA_RX_PIO, BOARD_TDMA_RX_CLK_IN_SM);
+    pio_sm_restart(BOARD_TDMA_RX_PIO, BOARD_TDMA_RX_SYNC_IN_SM);
+    pio_sm_restart(BOARD_TDMA_RX_PIO, BOARD_TDMA_RX_DATA_OUT_SM);
+    pio_sm_restart(BOARD_TDMA_RX_PIO, BOARD_TDMA_RX_EVIDENCE_IN_SM);
     if (!tdma_pio_spi_phys_select_program_persona(
             phys, TDMA_PIO_SPI_PROGRAM_PERSONA_CLOCK_COARSE)) {
         tdma_pio_spi_phys_set_error(
@@ -1498,7 +1533,7 @@ static bool tdma_pio_spi_phys_cal_unload_source_step(
         }
         break;
     case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN:
-        count = 5u;
+        count = 4u;
         if (step == 0u) {
             pio_remove_program(BOARD_TDMA_TX_PIO,
                                &tdma_pio_spi_flight_clock_latch_program,
@@ -1515,14 +1550,10 @@ static bool tdma_pio_spi_phys_cal_unload_source_step(
             pio_remove_program(BOARD_TDMA_TX_PIO,
                                &tdma_pio_spi_flight_origin_clock_rx_program,
                                s_tdma_pio_spi_flight_origin_clock_offset);
-        } else if (step == 4u) {
-            pio_remove_program(BOARD_TDMA_TX_PIO,
-                               &tdma_pio_spi_flight_data_capture_program,
-                               s_tdma_pio_spi_flight_data_capture_offset);
         }
         break;
     case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER:
-        count = 4u;
+        count = 3u;
         if (step == 0u) {
             pio_remove_program(BOARD_TDMA_RX_PIO,
                                &tdma_pio_spi_flight_clock_latch_program,
@@ -1535,14 +1566,10 @@ static bool tdma_pio_spi_phys_cal_unload_source_step(
             pio_remove_program(BOARD_TDMA_TX_PIO,
                                &tdma_pio_spi_flight_control_forward_program,
                                s_tdma_pio_spi_flight_control_forward_offset);
-        } else if (step == 3u) {
-            pio_remove_program(BOARD_TDMA_TX_PIO,
-                               &tdma_pio_spi_flight_data_capture_program,
-                               s_tdma_pio_spi_flight_data_capture_offset);
         }
         break;
     case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER:
-        count = 4u;
+        count = 3u;
         if (step == 0u) {
             pio_remove_program(BOARD_TDMA_RX_PIO,
                                &tdma_pio_spi_flight_clock_latch_program,
@@ -1555,10 +1582,6 @@ static bool tdma_pio_spi_phys_cal_unload_source_step(
             pio_remove_program(BOARD_TDMA_TX_PIO,
                                &tdma_pio_spi_flight_control_forward_program,
                                s_tdma_pio_spi_flight_control_forward_offset);
-        } else if (step == 3u) {
-            pio_remove_program(BOARD_TDMA_TX_PIO,
-                               &tdma_pio_spi_flight_data_capture_program,
-                               s_tdma_pio_spi_flight_data_capture_offset);
         }
         break;
     default:

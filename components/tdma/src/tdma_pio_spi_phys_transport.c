@@ -103,13 +103,20 @@ static bool tdma_pio_spi_phys_flight_origin_tx(
     /* The DATA SM consumes one frame control word before the DMA payload.
      * This keeps CS in the outer PIO loop and bytes in the inner loop.  The
      * FIFO was checked above, so the non-blocking put is deterministic. */
-    pio_sm_put(control_pio, control_sm, clock_bytes - 1u);
+    /* The control SM emits one CLK/CS period per bit, so its loop counter is
+     * the physical byte count expanded to bits. */
+    pio_sm_put(control_pio, control_sm, clock_bits - 1u);
+    /* Seed the DATA SM's frame-byte count before enabling its DMA request.
+     * DREQ is asserted while the FIFO is empty; starting DMA first can place
+     * the first payload word ahead of this control word.  The PIO then loads
+     * that payload into Y and loops until TX timeout instead of consuming the
+     * configured byte count. */
+    pio_sm_put(data_pio, data_sm, clock_bytes - 1u);
     dma_start_channel_mask(1u << (uint)s_tdma_pio_spi_tx_dma_channel);
     pio_sm_put(evidence_pio, rtt_sm, UINT32_MAX);
     const uint64_t tx_edge_diagnostic_ns = vdc_timestamp_clock_now_ns();
     /* This FIFO word is the sole launch event. The control PIO consumes it,
      * lowers CS, generates every SCK edge, then restores idle CS atomically. */
-    pio_sm_put(data_pio, data_sm, clock_bits - 1u);
     /* The clock SM was parked at its blocking PULL before the word above.
      * Clear that old sticky TXSTALL only after releasing the PULL. */
     control_pio->fdebug = clock_txstall_mask;

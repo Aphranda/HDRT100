@@ -81,9 +81,11 @@ uint tdma_pio_spi_phys_data_sm(const tdma_pio_spi_phys_t *phys)
 
 PIO tdma_pio_spi_phys_capture_pio(const tdma_pio_spi_phys_t *phys)
 {
-    return tdma_pio_spi_phys_is_flight_persona() && phys != NULL &&
-            phys->flight_resources.tx_pio != NULL
-        ? phys->flight_resources.tx_pio
+    /* Flight DATA SMs already auto-push each received byte. Reusing that FIFO
+     * keeps DATA GPIO24 owned by one PIO block; a second capture SM would
+     * steal the pin mux from the forwarding SM. */
+    return tdma_pio_spi_phys_is_flight_persona() && phys != NULL
+        ? tdma_pio_spi_phys_data_pio(phys)
         : (phys != NULL && phys->role == TDMA_PIO_SPI_ROLE_MASTER
                ? tdma_pio_spi_phys_tx_sm_pio(phys)
                : tdma_pio_spi_phys_rx_sm_pio(phys));
@@ -93,6 +95,6 @@ uint tdma_pio_spi_phys_capture_sm(const tdma_pio_spi_phys_t *phys)
 {
     return tdma_pio_spi_phys_is_flight_persona() && phys != NULL &&
             phys->flight_resources.tx_pio != NULL
-        ? phys->flight_resources.tx_data_in_capture_sm
+        ? tdma_pio_spi_phys_data_sm(phys)
         : (phys != NULL ? phys->rx_sm : BOARD_TDMA_SPI_SLAVE_SM);
 }

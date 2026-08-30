@@ -3128,6 +3128,10 @@ bool distributed_refmem_tdma_ring_arm(void)
                          __ATOMIC_RELEASE);
         return false;
     }
+    /* The SCPI/state-machine owner selects raw-flight or process-image mode
+     * while STOPPED.  Do not overwrite that selection here: forcing the
+     * process-image persona makes a raw-flight ARM instantiate the wrong PIO
+     * follower and prevents the ring from starting. */
     if (!tdma_service_ring_arm(owner)) {
         __atomic_store_n(&s_tdma_ring_arm_last_result,
                          DISTRIBUTED_REFMEM_TDMA_ARM_RUNTIME_CONFIG_REJECTED,

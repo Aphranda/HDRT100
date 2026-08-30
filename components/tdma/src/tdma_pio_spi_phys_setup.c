@@ -77,8 +77,6 @@ void tdma_pio_spi_phys_prepare_sm_pair(tdma_pio_spi_phys_t *phys)
     const PIO data_pio = tdma_pio_spi_phys_data_pio(phys);
     const uint control_sm = tdma_pio_spi_phys_control_sm(phys);
     const uint data_sm = tdma_pio_spi_phys_data_sm(phys);
-    const PIO capture_pio = tdma_pio_spi_phys_capture_pio(phys);
-    const uint capture_sm = tdma_pio_spi_phys_capture_sm(phys);
     const bool has_rtt_sm = phys->role == TDMA_PIO_SPI_ROLE_MASTER &&
         s_tdma_pio_spi_program_persona ==
             TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN;
@@ -89,10 +87,8 @@ void tdma_pio_spi_phys_prepare_sm_pair(tdma_pio_spi_phys_t *phys)
     pio_set_sm_mask_enabled(data_pio, 1u << data_sm, false);
     pio_sm_clear_fifos(control_pio, control_sm);
     pio_sm_clear_fifos(data_pio, data_sm);
-    pio_sm_clear_fifos(capture_pio, capture_sm);
     pio_sm_restart(control_pio, control_sm);
     pio_sm_restart(data_pio, data_sm);
-    pio_sm_restart(capture_pio, capture_sm);
     if (has_rtt_sm) {
         pio_sm_clear_fifos(control_pio,
                            phys->flight_resources.tx_sync_out_sm);
@@ -114,8 +110,6 @@ void tdma_pio_spi_phys_enable_sm_pair(tdma_pio_spi_phys_t *phys)
                                1u << tdma_pio_spi_phys_control_sm(phys));
     pio_enable_sm_mask_in_sync(tdma_pio_spi_phys_data_pio(phys),
                                1u << tdma_pio_spi_phys_data_sm(phys));
-    pio_enable_sm_mask_in_sync(tdma_pio_spi_phys_capture_pio(phys),
-                               1u << tdma_pio_spi_phys_capture_sm(phys));
     pio_enable_sm_mask_in_sync(tdma_pio_spi_phys_evidence_pio(phys),
                                1u << (phys->role == TDMA_PIO_SPI_ROLE_MASTER
                                           ? phys->flight_resources.tx_data_in_forward_sm
@@ -204,7 +198,6 @@ bool tdma_pio_spi_phys_configure_flight(
             phys->rx_sm_pio,
             phys->rx_sm,
             s_tdma_pio_spi_flight_origin_clock_offset,
-            phys->flight_resources.tx_data_in_pin,
             phys->tx_sck_pin,
             phys->tx_csn_pin,
             phys->baud_hz);
@@ -256,6 +249,7 @@ bool tdma_pio_spi_phys_configure_flight(
                 s_tdma_pio_spi_flight_data_follower_offset,
                 phys->flight_resources.tx_data_in_pin,
                 phys->flight_resources.rx_data_out_pin,
+                phys->rx_csn_pin,
                 phys->rx_sck_pin,
                 phys->flight_data_phase_delay_cycles);
         }
@@ -270,13 +264,10 @@ bool tdma_pio_spi_phys_configure_flight(
             phys->flight_marker_phase_delay_cycles,
             phys->flight_sck_phase_delay_cycles);
     }
-    tdma_pio_spi_flight_data_capture_program_init(
-        tdma_pio_spi_phys_capture_pio(phys),
-        tdma_pio_spi_phys_capture_sm(phys),
-        s_tdma_pio_spi_flight_data_capture_offset,
-        phys->flight_resources.tx_data_in_pin,
-        phys->flight_resources.rx_sync_in_pin,
-        phys->flight_resources.rx_clk_in_pin);
+    /* Flight DATA SMs are the raw capture source and auto-push one byte into
+     * their RX FIFO. Do not initialize the optional PIO1 capture SM here:
+     * GPIO24 is also the PIO2 DATA input, and one GPIO cannot belong to both
+     * PIO blocks at once. */
     /* The latch follows the edge local to each persona: TX PIO for origin,
      * RX PIO for follower.  It uses the dedicated evidence SM rather than a
      * business FIFO. */
@@ -301,5 +292,3 @@ bool tdma_pio_spi_phys_configure_flight(
     }
     return true;
 }
-
-

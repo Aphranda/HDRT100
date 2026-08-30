@@ -152,6 +152,11 @@ typedef struct {
 } sync_io_biss_tap_config_t;
 
 bool sync_io_init(const sync_io_config_t *config);
+/* TDMA flight owns the dedicated TX PIO block for its run epoch.  These
+ * lifecycle hooks release/reclaim the legacy sync waveform SMs at that
+ * boundary; they never run from the core1 realtime service. */
+bool sync_io_suspend_wave_for_tdma(void);
+bool sync_io_resume_wave_after_tdma(void);
 bool sync_io_start_capture(uint32_t sample_hz);
 void sync_io_stop_capture(void);
 size_t sync_io_read_capture_words(uint32_t *buffer, size_t max_words);

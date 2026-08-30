@@ -128,10 +128,10 @@ def test_calibration_transition_unloads_flight_programs_from_declared_pios() -> 
     assert "tdma_pio_spi_flight_data_capture_program" not in transition
 
 
-def test_flight_setup_does_not_remux_cross_pio_inputs() -> None:
+def test_flight_setup_initializes_cross_pio_inputs_without_outputs() -> None:
     source = (ROOT / "components/tdma/src/tdma_pio_spi.pio").read_text(
         encoding="utf-8")
-    for init_name, forbidden in (
+    for init_name, required in (
         ("tdma_pio_spi_flight_control_forward_program_init",
          ("pio_gpio_init(pio, rx_csn_pin)",
           "pio_gpio_init(pio, rx_sck_pin)")),
@@ -145,8 +145,8 @@ def test_flight_setup_does_not_remux_cross_pio_inputs() -> None:
     ):
         body = source.split(f"static inline void {init_name}", 1)[1].split(
             "static inline void", 1)[0]
-        for token in forbidden:
-            assert token not in body
+        for token in required:
+            assert token in body
 
 
 def test_calibration_switch_ready_has_directional_flight_gate() -> None:
@@ -247,7 +247,7 @@ def test_persona_selection_claims_flight_owner_before_sm_install() -> None:
     assert "tdma_pio_spi_phys_release_flight_resources(phys);" in target
 
 
-def test_tdma_ring_arm_selects_process_image_before_physical_arm() -> None:
+def test_tdma_ring_arm_preserves_selected_flight_persona() -> None:
     source = (
         ROOT / "components/distributed_refmem/src/distributed_refmem.c"
     ).read_text(encoding="utf-8")
@@ -257,9 +257,37 @@ def test_tdma_ring_arm_selects_process_image_before_physical_arm() -> None:
         "distributed_refmem_tdma_arm_result_t", 1
     )[0]
     map_config = arm.index("tdma_service_configure_flight_map")
-    mode_select = arm.index(
-        "tdma_runtime_owner_set_flight_process_image_mode(true)"
-    )
     ring_arm = arm.index("tdma_service_ring_arm(owner)")
-    assert map_config < mode_select < ring_arm
-    assert "fixed DPLL trailer" in arm
+    assert map_config < ring_arm
+    assert "tdma_runtime_owner_set_flight_process_image_mode(true)" not in arm
+    assert "Do not overwrite that selection here" in arm
+
+
+def test_process_follower_patch_points_follow_replace_program_layout() -> None:
+    source = (ROOT / "components/tdma/src/tdma_pio_spi.pio").read_text(
+        encoding="utf-8")
+    init = source.split(
+        "static inline void tdma_pio_spi_flight_process_follower_program_init",
+        1,
+    )[1].split("static inline void", 1)[0]
+    assert "instr_mem[offset + 14u]" in init
+    assert "instr_mem[offset + 16u]" in init
+    assert "instr_mem[offset + 11u]" not in init
+    assert "instr_mem[offset + 13u]" not in init
+
+
+def test_process_replace_reloads_msb_aligned_byte() -> None:
+    source = (ROOT / "components/tdma/src/tdma_pio_spi.pio").read_text(
+        encoding="utf-8")
+    replace = source.split("flight_process_replace:", 1)[1].split(
+        "flight_process_pass:", 1)[0]
+    assert "out x, 8" in replace
+    assert "mov osr, x" in replace
+    assert "out null, 24" in replace
+
+
+def test_origin_transport_uses_bit_control_and_byte_data_counts() -> None:
+    source = (ROOT / "components/tdma/src/tdma_pio_spi_phys_transport.c").read_text(
+        encoding="utf-8")
+    assert "pio_sm_put(control_pio, control_sm, clock_bits - 1u)" in source
+    assert "pio_sm_put(data_pio, data_sm, clock_bytes - 1u)" in source

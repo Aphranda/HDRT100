@@ -54,6 +54,7 @@ typedef struct {
     bool initialized;
     bool capture_running;
     bool clock_running;
+    bool wave_claimed;
     uint capture_offset;
     uint pulse_offset;
     uint clock_offset;
@@ -885,6 +886,7 @@ bool sync_io_init(const sync_io_config_t *config)
 
     s_sync_io.capture_sample_hz = capture_hz;
     s_sync_io.sync_clock_hz = clock_hz;
+    s_sync_io.wave_claimed = true;
     s_sync_io.initialized = true;
 
     LOG_INFO("sync_io", "initialized capture=%luHz clock=%luHz",
@@ -895,6 +897,94 @@ bool sync_io_init(const sync_io_config_t *config)
                   capture_hz,
                   clock_hz);
 
+    return true;
+}
+
+static uint32_t sync_io_wave_sm_mask(void)
+{
+    uint32_t mask = (1u << BOARD_SYNC_OUTPUT_SM) |
+                    (1u << BOARD_SYNC_MODEL_SCHED_SM) |
+                    (1u << BOARD_SYNC_GATE_SM);
+#if BOARD_SYNC_RJ45_TRIGGER_ENABLED
+    mask |= 1u << BOARD_SYNC_RJ45_TRIGGER_SM;
+#endif
+    return mask;
+}
+
+bool sync_io_suspend_wave_for_tdma(void)
+{
+    if (!s_sync_io.initialized || !s_sync_io.wave_claimed) {
+        return true;
+    }
+    if (s_sync_io.clock_running ||
+        sync_io_model_pulse_schedule_is_running()) {
+        return false;
+    }
+
+    const uint32_t mask = sync_io_wave_sm_mask();
+    pio_set_sm_mask_enabled(BOARD_SYNC_PIO_WAVE, mask, false);
+    pio_sm_clear_fifos(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_OUTPUT_SM);
+    pio_sm_clear_fifos(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_MODEL_SCHED_SM);
+    pio_sm_clear_fifos(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_GATE_SM);
+#if BOARD_SYNC_RJ45_TRIGGER_ENABLED
+    pio_sm_clear_fifos(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_RJ45_TRIGGER_SM);
+#endif
+    pio_sm_unclaim(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_OUTPUT_SM);
+    pio_sm_unclaim(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_MODEL_SCHED_SM);
+    pio_sm_unclaim(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_GATE_SM);
+#if BOARD_SYNC_RJ45_TRIGGER_ENABLED
+    pio_sm_unclaim(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_RJ45_TRIGGER_SM);
+#endif
+    s_sync_io.wave_claimed = false;
+    return true;
+}
+
+bool sync_io_resume_wave_after_tdma(void)
+{
+    if (!s_sync_io.initialized || s_sync_io.wave_claimed) {
+        return true;
+    }
+    const uint sm_list[] = {
+        BOARD_SYNC_OUTPUT_SM,
+        BOARD_SYNC_MODEL_SCHED_SM,
+        BOARD_SYNC_GATE_SM,
+#if BOARD_SYNC_RJ45_TRIGGER_ENABLED
+        BOARD_SYNC_RJ45_TRIGGER_SM,
+#endif
+    };
+    const size_t sm_count = sizeof(sm_list) / sizeof(sm_list[0]);
+    for (size_t i = 0u; i < sm_count; ++i) {
+        if (pio_sm_is_claimed(BOARD_SYNC_PIO_WAVE, sm_list[i])) {
+            return false;
+        }
+    }
+    size_t claimed = 0u;
+    for (; claimed < sm_count; ++claimed) {
+        pio_sm_claim(BOARD_SYNC_PIO_WAVE, sm_list[claimed]);
+    }
+    s_sync_io.wave_claimed = true;
+
+    sync_pulse_program_init(BOARD_SYNC_PIO_WAVE,
+                            BOARD_SYNC_OUTPUT_SM,
+                            s_sync_io.pulse_offset,
+                            BOARD_SYNC_TRIG_OUT_PIN);
+    sync_pulse_program_init(BOARD_SYNC_PIO_WAVE,
+                            BOARD_SYNC_GATE_SM,
+                            s_sync_io.pulse_offset,
+                            BOARD_SYNC_PULSE_OUT_PIN);
+#if BOARD_SYNC_RJ45_TRIGGER_ENABLED
+    sync_pulse_program_init(BOARD_SYNC_PIO_WAVE,
+                            BOARD_SYNC_RJ45_TRIGGER_SM,
+                            s_sync_io.pulse_offset,
+                            BOARD_SYNC_RJ45_TRIG_OUT_PIN);
+#endif
+    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_OUTPUT_SM, true);
+    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_GATE_SM, true);
+#if BOARD_SYNC_RJ45_TRIGGER_ENABLED
+    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE,
+                       BOARD_SYNC_RJ45_TRIGGER_SM,
+                       true);
+#endif
     return true;
 }
 

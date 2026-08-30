@@ -1119,11 +1119,16 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
                 /* Reference RX uses the matched TX+RTT hardware pair below;
                  * defer correlation until that pair has replaced the
                  * extraction-time estimate in local_rx_evidence. */
-                dpll_correlation_pending = true;
-                if (adapter->role != TDMA_PIO_SPI_RING_ROLE_REFERENCE &&
-                    !tdma_pio_spi_ring_adapter_correlate_dpll_observation(
-                        adapter, &view)) {
-                    adapter->clock_observation_reject_count++;
+                if (adapter->role == TDMA_PIO_SPI_RING_ROLE_REFERENCE) {
+                    dpll_correlation_pending = true;
+                } else {
+                    /* Followers correlate at the local RX latch now.  Clear
+                     * the pending flag even on success so the common tail
+                     * cannot consume the same trailer a second time. */
+                    if (!tdma_pio_spi_ring_adapter_correlate_dpll_observation(
+                            adapter, &view)) {
+                        adapter->clock_observation_reject_count++;
+                    }
                     dpll_correlation_pending = false;
                 }
             }

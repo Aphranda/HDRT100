@@ -86,6 +86,11 @@ clk_burst_loop:
     set y, 0
     mov osr, y
     out null, 24
+    ; Qualify the first byte on the incoming CS falling edge.  If the SM is
+    ; enabled while SCK is already active, starting directly at a SCK edge
+    ; leaves the byte shifter at a deterministic but wrong bit boundary.
+    wait 1 gpio 0
+    wait 0 gpio 0
 .wrap_target
     set x, 7
 flight_follower_bit:
@@ -96,6 +101,7 @@ flight_follower_bit:
     out pins, 1
     jmp x-- flight_follower_bit
     mov osr, isr
+    push noblock
     out null, 24
     mov isr, null
 .wrap
@@ -114,7 +120,7 @@ flight_process_command:
     out x, 1
     jmp !x flight_process_pass
     out x, 1
-    jmp !x flight_process_byte
+    jmp !x flight_process_replace
     ; Keep Y across CS boundaries. The first PASS byte of the next physical
     ; frame must emit the preceding tail byte to preserve the continuous
     ; one-byte elastic pipeline; ARM/restart initializes Y exactly once.
@@ -131,6 +137,17 @@ flight_process_command:
     ; physical frame.
     irq set 3
     jmp flight_process_command
+flight_process_replace:
+    ; REPLACE commands carry the replacement byte in bits 29..22.  After the
+    ; two flag bits have shifted out, those eight bits are at the OSR MSB;
+    ; extract them into X and reload OSR so the common byte loop emits the
+    ; processed value while still sampling the incoming byte into Y.
+    out x, 8
+    mov osr, x
+    ; OUT shifts left in this persona (MSB-first).  The extracted byte is
+    ; held in OSR[7:0], so move it to OSR[31:24] before out pins,1.
+    out null, 24
+    jmp flight_process_byte
 flight_process_pass:
     ; Y retains the byte captured during the preceding command. PUSH does not
     ; provide storage for the next PASS command, because ISR must be cleared
@@ -151,6 +168,7 @@ flight_process_bit:
     out pins, 1
     jmp y-- flight_process_bit
     mov y, isr
+    push noblock
     ; PUSH resets the input shift count. Stale upper ISR bits are irrelevant:
     ; the next eight left shifts replace the low byte used by PASS. Diagnostic
     ; capture is performed by the independent DATA_IN_CAPTURE_SM.
@@ -825,19 +843,26 @@ static inline uint32_t tdma_pio_spi_flight_data_residual_delay_cycles(
 
 static inline void tdma_pio_spi_flight_data_follower_program_init(
     PIO pio, uint sm, uint offset, uint rx_data_pin, uint tx_data_pin,
-    uint rx_sck_pin, uint32_t data_phase_delay_cycles)
+    uint rx_csn_pin, uint rx_sck_pin, uint32_t data_phase_delay_cycles)
 {
-    pio->instr_mem[offset + 4u] =
+    pio->instr_mem[offset + 0u] =
+        (uint16_t)pio_encode_wait_gpio(true, rx_csn_pin);
+    pio->instr_mem[offset + 1u] =
+        (uint16_t)pio_encode_wait_gpio(false, rx_csn_pin);
+    pio->instr_mem[offset + 6u] =
         (uint16_t)(pio_encode_wait_gpio(true, rx_sck_pin) |
                    pio_encode_delay(data_phase_delay_cycles - 1u));
-    pio->instr_mem[offset + 7u] =
+    pio->instr_mem[offset + 9u] =
         (uint16_t)pio_encode_wait_gpio(false, rx_sck_pin);
     pio_gpio_init(pio, rx_data_pin);
-    pio_gpio_init(pio, tx_data_pin);
+    pio_gpio_init(pio, rx_csn_pin);
     pio_gpio_init(pio, rx_sck_pin);
+    pio_gpio_init(pio, tx_data_pin);
     gpio_pull_down(rx_data_pin);
+    gpio_pull_up(rx_csn_pin);
     gpio_pull_down(rx_sck_pin);
     pio_sm_set_consecutive_pindirs(pio, sm, rx_data_pin, 1u, false);
+    pio_sm_set_consecutive_pindirs(pio, sm, rx_csn_pin, 1u, false);
     pio_sm_set_consecutive_pindirs(pio, sm, rx_sck_pin, 1u, false);
     pio_sm_set_consecutive_pindirs(pio, sm, tx_data_pin, 1u, true);
 
@@ -862,15 +887,18 @@ static inline void tdma_pio_spi_flight_process_follower_program_init(
     (void)sck_phase_delay_cycles;
     pio->instr_mem[offset + 5u] =
         (uint16_t)pio_encode_wait_gpio(true, rx_csn_pin);
-    pio->instr_mem[offset + 11u] =
+    /* The process command path has a REPLACE branch.  Keep these patch
+     * points aligned with the generated program: index 14 is the SCK-high
+     * wait and index 16 is the SCK-low wait. */
+    pio->instr_mem[offset + 14u] =
         (uint16_t)(pio_encode_wait_gpio(true, rx_sck_pin) |
                    pio_encode_delay(data_phase_delay_cycles - 1u));
-    pio->instr_mem[offset + 13u] =
+    pio->instr_mem[offset + 16u] =
         (uint16_t)pio_encode_wait_gpio(false, rx_sck_pin);
     pio_gpio_init(pio, rx_data_pin);
-    pio_gpio_init(pio, tx_data_pin);
     pio_gpio_init(pio, rx_csn_pin);
     pio_gpio_init(pio, rx_sck_pin);
+    pio_gpio_init(pio, tx_data_pin);
     gpio_pull_down(rx_data_pin);
     gpio_pull_up(rx_csn_pin);
     gpio_pull_down(rx_sck_pin);
@@ -942,10 +970,10 @@ static inline void tdma_pio_spi_flight_control_forward_program_init(
     pio_sm_set_pins_with_mask64(pio, sm, 1ull << tx_csn_pin,
                                 (1ull << tx_sck_pin) |
                                     (1ull << tx_csn_pin));
-    pio_gpio_init(pio, rx_csn_pin);
-    pio_gpio_init(pio, rx_sck_pin);
     pio_gpio_init(pio, tx_sck_pin);
     pio_gpio_init(pio, tx_csn_pin);
+    pio_gpio_init(pio, rx_csn_pin);
+    pio_gpio_init(pio, rx_sck_pin);
     gpio_pull_up(rx_csn_pin);
     gpio_pull_down(rx_sck_pin);
     pio_sm_set_consecutive_pindirs(pio, sm, rx_csn_pin, 1u, false);
@@ -965,7 +993,6 @@ static inline void tdma_pio_spi_flight_control_forward_program_init(
 static inline void tdma_pio_spi_flight_clock_latch_program_init(
     PIO pio, uint sm, uint offset, uint csn_pin)
 {
-    pio_gpio_init(pio, csn_pin);
     gpio_pull_up(csn_pin);
     /* This observer must not own line direction. On followers CS is already
      * an RX input; on the origin the same pad is the TX output driven by the
@@ -991,21 +1018,16 @@ static inline void tdma_pio_spi_flight_origin_rtt_program_init(
 }
 
 static inline void tdma_pio_spi_flight_origin_clock_rx_program_init(
-    PIO pio, uint sm, uint offset, uint rx_data_pin, uint tx_sck_pin,
+    PIO pio, uint sm, uint offset, uint tx_sck_pin,
     uint tx_csn_pin, uint32_t baud_hz)
 {
-    pio_gpio_init(pio, rx_data_pin);
     pio_gpio_init(pio, tx_sck_pin);
     pio_gpio_init(pio, tx_csn_pin);
-    gpio_pull_down(rx_data_pin);
-    pio_sm_set_consecutive_pindirs(pio, sm, rx_data_pin, 1u, false);
     pio_sm_set_consecutive_pindirs(pio, sm, tx_sck_pin, 2u, true);
 
     pio_sm_config c =
         tdma_pio_spi_flight_origin_clock_rx_program_get_default_config(offset);
-    sm_config_set_in_pins(&c, rx_data_pin);
     sm_config_set_set_pins(&c, tx_sck_pin, 2u);
-    sm_config_set_in_shift(&c, false, true, 8u);
     sm_config_set_clkdiv(&c, tdma_pio_spi_clkdiv_for_baud(baud_hz));
     pio_sm_init(pio, sm, offset, &c);
     pio_sm_set_pins_with_mask64(pio, sm, 1ull << tx_csn_pin,
