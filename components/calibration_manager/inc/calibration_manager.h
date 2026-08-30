@@ -98,6 +98,11 @@ bool calibration_manager_init(void);
 void calibration_manager_set_ready(bool ready);
 void calibration_manager_service(void);
 void calibration_manager_service_core1(void);
+/* P3 is an offline physical-calibration session.  While this returns true,
+ * core1 must advance only this bounded service and must not enter the TDMA
+ * realtime phase table. */
+bool calibration_manager_p3_offline_active_core1(void);
+void calibration_manager_p3_service_core1(void);
 void calibration_manager_get_status(calibration_manager_status_t *status);
 bool calibration_manager_start_loopback(uint32_t sample_words);
 void calibration_manager_stop_loopback(void);

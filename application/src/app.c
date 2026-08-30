@@ -502,6 +502,17 @@ static void app_realtime_trigger_measure_phase(void)
 
 void app_realtime_run_once(void)
 {
+    /* P3 is an offline physical-calibration session: TDMA is stopped and the
+     * calibration owner temporarily owns the shared PIO/DMA persona.  Keep
+     * it outside the TDMA realtime phase/load-mask contract and advance one
+     * bounded transition per core1 cycle. */
+    if (calibration_manager_p3_offline_active_core1()) {
+        calibration_manager_p3_service_core1();
+        drv_watchdog_mark_progress(1u, 0x0104u);
+        diagnostics_record_core1_loop();
+        diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_CORE1);
+        return;
+    }
     const uint32_t cycle_epoch = app_realtime_cycle_now();
     app_realtime_schedule_write_begin();
     s_realtime_schedule.cycle_count++;

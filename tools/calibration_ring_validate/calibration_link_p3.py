@@ -26,7 +26,12 @@ if str(ROOT / "tools") not in sys.path:
 if str(ROOT / "tools" / "tdma_ring_monitor") not in sys.path:
     sys.path.insert(0, str(ROOT / "tools" / "tdma_ring_monitor"))
 
-from tdma_start_ring import Board, board_command, discover  # noqa: E402
+from tdma_start_ring import (  # noqa: E402
+    Board,
+    board_command,
+    discover,
+    status as ring_status,
+)
 from calibration_ring_validate.calibration_link_frequency_policy import (  # noqa: E402
     LIMITED_RX_FALLBACK_MHZ,
     LIMITED_RX_FREQUENCY_MHZ,
@@ -59,6 +64,7 @@ P3_LEGACY_FIELDS = (
 P3_STATE_IDLE = 0
 P3_STATE_ARMED = 1
 P3_STATE_COMPLETE = 2
+P3_STATE_ERROR = 3
 P3_ROLE_INITIATOR = 1
 P3_ROLE_RESPONDER = 2
 P3_FLAGS_REQUIRED = 0x0F
@@ -68,8 +74,6 @@ P3_GROUP_NAMES = {
     "CLK_DATA": P3_GROUP_CLK_DATA,
     "CS_DATA": P3_GROUP_CS_DATA,
 }
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--board-id", action="append", default=[],
@@ -136,10 +140,28 @@ def action_args(args: argparse.Namespace) -> argparse.Namespace:
     return fast
 
 
+def stop_ring_and_wait(board: Board, args: argparse.Namespace) -> dict[str, int]:
+    board_command(board, "SYSTem:TDMA:RING:STOP", args)
+    deadline = time.monotonic() + args.capture_timeout
+    last: dict[str, int] = {}
+    while time.monotonic() < deadline:
+        last = ring_status(board, args)
+        if (last["ring_enabled"] == 0 and
+                last["ring_adapter_started"] == 0):
+            return last
+        time.sleep(0.03)
+    raise RuntimeError(
+        f"{board.address}: TDMA ring STOP was not acknowledged: {last}")
+
+
 def stop_p3(boards: list[Board], args: argparse.Namespace) -> None:
     fast = action_args(args)
     for board in boards:
         board_command(board, "CALibration:P3:STOP", fast)
+    # STOP is a core0->core1 intent.  An old IDLE snapshot does not acknowledge
+    # that the new STOP sequence has been consumed, so never accept the first
+    # stale readback in the same host turn.
+    time.sleep(min(0.01, max(0.001, args.gap)))
     deadline = time.monotonic() + args.capture_timeout
     while time.monotonic() < deadline:
         if all(p3_status(board, args)["state"] == P3_STATE_IDLE
@@ -162,7 +184,8 @@ def start_p3(board: Board, role: int, frequency_hz: int, epoch: int,
         last = p3_status(board, args)
         if (last["epoch"] == epoch and last["role"] == role and
                 last["baud_hz"] == frequency_hz and
-                last["state"] in (P3_STATE_ARMED, P3_STATE_COMPLETE)):
+                last["state"] in (P3_STATE_ARMED, P3_STATE_COMPLETE,
+                                  P3_STATE_ERROR)):
             last["start_response"] = response
             return last
         time.sleep(0.03)
@@ -551,48 +574,58 @@ def main() -> int:
     if args.dry_run:
         print(json.dumps(plan, ensure_ascii=False, indent=2))
         return 0
-    for board in ordered:
-        board_command(board, "SYSTem:TDMA:RING:STOP", args)
+    plan["execution_mode"] = "TDMA_STOPPED_OFFLINE_CALIBRATION"
+    plan["realtime_load_mask_modified"] = False
     trials: list[dict[str, object]] = []
     ladder: list[dict[str, object]] = []
-    epoch = int(time.time()) & 0xFFFFFFFF
-    signal_groups = plan["signal_groups"]
-    for link_index, source in enumerate(ordered):
-        destination = ordered[(link_index + 1) % len(ordered)]
-        for signal_group in signal_groups:
-            for frequency_mhz in frequencies_mhz:
-                level_trials: list[dict[str, object]] = []
-                for repeat_index in range(1, args.repeats + 1):
-                    epoch = (epoch + 1) & 0xFFFFFFFF
-                    try:
-                        trial = run_trial(
-                            source, destination, frequency_mhz * 1_000_000,
-                            epoch, repeat_index, signal_group, args)
-                    except Exception as exc:  # retain evidence and continue gate
-                        trial = {
-                            "source": source.address,
-                            "destination": destination.address,
-                            "frequency_hz": frequency_mhz * 1_000_000,
-                            "epoch": epoch,
-                            "repeat_index": repeat_index,
-                            "signal_group": signal_group,
-                            "passed": False,
-                            "error": f"{type(exc).__name__}: {exc}",
-                        }
-                    trials.append(trial)
-                    level_trials.append(trial)
-                    print(json.dumps({"p3_trial": trial}, ensure_ascii=False),
-                          flush=True)
-                    time.sleep(args.gap)
-                summary = summarize_trials(level_trials)
-                ladder.append({
-                    "link_index": link_index,
-                    "source": source.address,
-                    "destination": destination.address,
-                    "signal_group": signal_group,
-                    "frequency_mhz": frequency_mhz,
-                    **summary,
-                })
+    try:
+        for board in ordered:
+            stop_ring_and_wait(board, args)
+        # P3 owns an offline Core1 calibration session while TDMA is stopped.
+        # It must not depend on, mutate, or unquarantine the realtime load mask.
+        time.sleep(args.gap)
+        epoch = int(time.time()) & 0xFFFFFFFF
+        signal_groups = plan["signal_groups"]
+        for link_index, source in enumerate(ordered):
+            destination = ordered[(link_index + 1) % len(ordered)]
+            for signal_group in signal_groups:
+                for frequency_mhz in frequencies_mhz:
+                    level_trials: list[dict[str, object]] = []
+                    for repeat_index in range(1, args.repeats + 1):
+                        epoch = (epoch + 1) & 0xFFFFFFFF
+                        try:
+                            trial = run_trial(
+                                source, destination,
+                                frequency_mhz * 1_000_000,
+                                epoch, repeat_index, signal_group, args)
+                        except Exception as exc:  # retain evidence and continue gate
+                            trial = {
+                                "source": source.address,
+                                "destination": destination.address,
+                                "frequency_hz": frequency_mhz * 1_000_000,
+                                "epoch": epoch,
+                                "repeat_index": repeat_index,
+                                "signal_group": signal_group,
+                                "passed": False,
+                                "error": f"{type(exc).__name__}: {exc}",
+                            }
+                        trials.append(trial)
+                        level_trials.append(trial)
+                        print(json.dumps({"p3_trial": trial},
+                                         ensure_ascii=False), flush=True)
+                        time.sleep(args.gap)
+                    summary = summarize_trials(level_trials)
+                    ladder.append({
+                        "link_index": link_index,
+                        "source": source.address,
+                        "destination": destination.address,
+                        "signal_group": signal_group,
+                        "frequency_mhz": frequency_mhz,
+                        **summary,
+                    })
+    finally:
+        for board in ordered:
+            stop_p3([board], args)
     frequency_policy = apply_frequency_policy(ladder)
     passed = bool(frequency_policy["stable_profiles_passed"])
     output = {

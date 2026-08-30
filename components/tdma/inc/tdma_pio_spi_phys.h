@@ -352,6 +352,31 @@ typedef enum {
 } tdma_pio_spi_p3_state_t;
 
 typedef enum {
+    TDMA_PIO_SPI_P3_TRANSITION_IDLE = 0u,
+    TDMA_PIO_SPI_P3_TRANSITION_START_UNLOAD,
+    TDMA_PIO_SPI_P3_TRANSITION_START_LOAD,
+    TDMA_PIO_SPI_P3_TRANSITION_START_CONFIGURE_TX,
+    TDMA_PIO_SPI_P3_TRANSITION_START_CONFIGURE_CAPTURE,
+    TDMA_PIO_SPI_P3_TRANSITION_START_CONFIGURE_DMA,
+    TDMA_PIO_SPI_P3_TRANSITION_START_ARM,
+    TDMA_PIO_SPI_P3_TRANSITION_CAPTURE_FREEZE,
+    TDMA_PIO_SPI_P3_TRANSITION_CAPTURE_DECODE,
+    TDMA_PIO_SPI_P3_TRANSITION_CAPTURE_CLEANUP,
+    TDMA_PIO_SPI_P3_TRANSITION_RESTORE_UNLOAD,
+    TDMA_PIO_SPI_P3_TRANSITION_RESTORE_LOAD,
+    TDMA_PIO_SPI_P3_TRANSITION_PUBLISH,
+    TDMA_PIO_SPI_P3_TRANSITION_STOP_FREEZE,
+    TDMA_PIO_SPI_P3_TRANSITION_STOP_CLEANUP,
+} tdma_pio_spi_p3_transition_t;
+
+typedef enum {
+    TDMA_PIO_SPI_P3_REJECT_NONE = 0u,
+    TDMA_PIO_SPI_P3_REJECT_EDGE_MISSING = 1u,
+    TDMA_PIO_SPI_P3_REJECT_RESOURCE = 2u,
+    TDMA_PIO_SPI_P3_REJECT_DMA = 3u,
+} tdma_pio_spi_p3_reject_t;
+
+typedef enum {
     TDMA_PIO_SPI_P3_ROLE_NONE = 0u,
     TDMA_PIO_SPI_P3_ROLE_INITIATOR = 1u,
     TDMA_PIO_SPI_P3_ROLE_RESPONDER = 2u,
@@ -716,6 +741,28 @@ typedef struct {
     tdma_pio_spi_coded_snapshot_t coded;
     volatile uint32_t p3_guard;
     tdma_pio_spi_p3_snapshot_t p3;
+    volatile uint32_t p3_transition;
+    uint32_t p3_target_persona;
+    uint32_t p3_program_step;
+    uint32_t p3_program_count;
+    uint32_t p3_publish_state;
+    uint32_t p3_decode_word;
+    uint32_t p3_decode_previous;
+    uint32_t p3_decode_found;
+    bool p3_decode_have_previous;
+    bool p3_decode_have_clock_rise;
+    bool p3_decode_have_clock_fall;
+    bool p3_decode_have_data_rise;
+    uint64_t p3_decode_times[4];
+    uint64_t p3_decode_clock_rise;
+    uint64_t p3_decode_clock_fall;
+    uint64_t p3_decode_clock_high_sum;
+    uint64_t p3_decode_clock_low_sum;
+    uint32_t p3_decode_clock_high_count;
+    uint32_t p3_decode_clock_low_count;
+    uint64_t p3_decode_data_rise;
+    uint64_t p3_decode_data_high_sum;
+    uint32_t p3_decode_data_high_count;
     volatile uint32_t marker_guard;
     tdma_pio_spi_marker_snapshot_t marker;
     uint64_t marker_deadline_ns;

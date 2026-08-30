@@ -1126,13 +1126,41 @@ def test_p3_responder_returns_and_measures_complete_data_burst() -> None:
     start = phys_source.split(
         "bool tdma_pio_spi_phys_p3_start", 1
     )[1].split("void tdma_pio_spi_phys_p3_stop", 1)[0]
-    assert "request->pulse_count - 1u" in start
+    assert "phys->p3.pulse_count = request->pulse_count" in start
+    assert "phys->p3.state = TDMA_PIO_SPI_P3_ARMED" in start
+    service = phys_source.split(
+        "void tdma_pio_spi_phys_p3_service", 1
+    )[1].split("bool tdma_pio_spi_phys_get_p3_snapshot", 1)[0]
+    assert "phys->p3.pulse_count - 1u" in service
+    assert "TDMA_PIO_SPI_P3_TRANSITION_START_ARM" in service
     decode = phys_source.split(
-        "static void tdma_pio_spi_phys_p3_decode", 1
+        "static bool tdma_pio_spi_phys_p3_decode_step", 1
     )[1].split("bool tdma_pio_spi_phys_p3_start", 1)[0]
-    assert "data_high_sum += timestamp - data_rise" in decode
-    assert "phys->p3.data_pulse_count = data_high_count" in decode
-    assert "data_high_sum + data_high_count / 2u" in decode
+    assert "p3_decode_data_high_sum +=" in decode
+    assert "phys->p3.data_pulse_count = phys->p3_decode_data_high_count" in decode
+    assert "p3_decode_data_high_count / 2u" in decode
+
+
+def test_p3_is_an_offline_bounded_core1_session() -> None:
+    app = (ROOT / "application" / "src" / "app.c").read_text(
+        encoding="utf-8")
+    realtime = app.split("void app_realtime_run_once", 1)[1]
+    offline = realtime.split("const uint32_t cycle_epoch", 1)[0]
+    assert "calibration_manager_p3_offline_active_core1()" in offline
+    assert "calibration_manager_p3_service_core1();" in offline
+    assert "return;" in offline
+
+    phys = (ROOT / "components" / "tdma" / "src" /
+            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    start = phys.split("bool tdma_pio_spi_phys_p3_start", 1)[1].split(
+        "void tdma_pio_spi_phys_p3_stop", 1)[0]
+    service = phys.split("void tdma_pio_spi_phys_p3_service", 1)[1].split(
+        "bool tdma_pio_spi_phys_get_p3_snapshot", 1)[0]
+    assert "tdma_pio_spi_phys_select_program_persona" not in start
+    assert "tdma_pio_spi_phys_select_program_persona" not in service
+    assert "tdma_pio_spi_phys_p3_decode_step" in service
+    assert "const uint32_t words_per_beat = 8u" in phys
+    assert "TDMA_PIO_SPI_P3_TRANSITION_RESTORE_LOAD" in service
 
 
 def test_process_rx_reconstructs_absolute_fixed_frame_sequence() -> None:

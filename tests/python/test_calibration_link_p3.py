@@ -1,4 +1,5 @@
 from argparse import Namespace
+from pathlib import Path
 
 from tools.calibration_ring_validate.calibration_link_p3 import (
     P3_FLAGS_REQUIRED,
@@ -10,6 +11,17 @@ from tools.calibration_ring_validate.calibration_link_p3 import (
     timing_metrics,
     validation_frequency_ladder,
 )
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_p3_tool_uses_offline_session_without_realtime_load_mask() -> None:
+    source = (ROOT / "tools" / "calibration_ring_validate" /
+              "calibration_link_p3.py").read_text(encoding="utf-8")
+    assert "TDMA_STOPPED_OFFLINE_CALIBRATION" in source
+    assert "SYSTem:TDMA:RING:STOP" in source
+    assert "SYSTem:TDMA:LOAD:MASK" not in source
+    assert "CALIBRATION_LOAD_BIT" not in source
 
 
 def make_snapshot(role: int, edge_mask: int, signal_group: int = 0) -> dict[str, int]:

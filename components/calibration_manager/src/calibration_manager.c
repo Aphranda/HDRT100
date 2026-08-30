@@ -320,6 +320,9 @@ typedef struct {
 static calibration_p3_intent_t s_p3_intent;
 static uint32_t s_p3_intent_next_sequence;
 static volatile uint32_t s_p3_intent_consumed_sequence;
+static volatile bool s_p3_offline_session;
+static volatile bool s_p3_offline_seen_armed;
+static volatile bool s_p3_offline_stopping;
 
 static void calibration_manager_p3_publish(
     calibration_p3_intent_opcode_t opcode,
@@ -490,6 +493,9 @@ bool calibration_manager_init(void)
     memset(&s_clk_coded_intent, 0, sizeof(s_clk_coded_intent));
     memset(&s_p3_snapshot, 0, sizeof(s_p3_snapshot));
     memset(&s_p3_intent, 0, sizeof(s_p3_intent));
+    __atomic_store_n(&s_p3_offline_session, false, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_p3_offline_seen_armed, false, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_p3_offline_stopping, false, __ATOMIC_RELEASE);
     calibration_training_marker_store_init(&s_marker_store);
     memset(&s_marker_workspace, 0, sizeof(s_marker_workspace));
     memset(s_marker_tx_words, 0, sizeof(s_marker_tx_words));
@@ -1967,6 +1973,74 @@ static bool calibration_manager_has_non_loopback_core1_work(void)
            s_p3_snapshot.raw.state == TDMA_PIO_SPI_P3_ARMED;
 }
 
+bool calibration_manager_p3_offline_active_core1(void)
+{
+    calibration_p3_intent_t intent;
+    const bool pending = calibration_manager_p3_read(&intent) &&
+        intent.sequence != __atomic_load_n(
+            &s_p3_intent_consumed_sequence, __ATOMIC_ACQUIRE);
+    tdma_pio_spi_p3_snapshot_t raw;
+    const bool snapshot_valid = tdma_runtime_owner_get_p3_snapshot(&raw);
+    return pending ||
+           __atomic_load_n(&s_p3_offline_session, __ATOMIC_ACQUIRE) ||
+           (snapshot_valid && raw.state == TDMA_PIO_SPI_P3_ARMED) ||
+           s_p3_snapshot.raw.state == TDMA_PIO_SPI_P3_ARMED;
+}
+
+void calibration_manager_p3_service_core1(void)
+{
+    calibration_p3_intent_t intent;
+    tdma_ring_runtime_snapshot_t ring;
+    const bool stopped = tdma_runtime_owner_get_ring_snapshot(&ring) &&
+                         ring.enabled == 0u;
+    if (calibration_manager_p3_read(&intent) &&
+        intent.sequence != __atomic_load_n(
+            &s_p3_intent_consumed_sequence, __ATOMIC_ACQUIRE)) {
+        if (intent.opcode == CALIBRATION_P3_INTENT_STOP) {
+            __atomic_store_n(&s_p3_offline_session, true, __ATOMIC_RELEASE);
+            __atomic_store_n(&s_p3_offline_stopping, true, __ATOMIC_RELEASE);
+            tdma_runtime_owner_p3_stop_core1();
+        } else if (intent.opcode == CALIBRATION_P3_INTENT_START && stopped) {
+            __atomic_store_n(&s_p3_offline_session, true, __ATOMIC_RELEASE);
+            __atomic_store_n(&s_p3_offline_seen_armed, false,
+                             __ATOMIC_RELEASE);
+            __atomic_store_n(&s_p3_offline_stopping, false,
+                             __ATOMIC_RELEASE);
+            (void)tdma_runtime_owner_p3_start_core1(&intent.request);
+        } else {
+            __atomic_store_n(&s_p3_offline_session, false, __ATOMIC_RELEASE);
+        }
+        __atomic_store_n(&s_p3_intent_consumed_sequence,
+                         intent.sequence, __ATOMIC_RELEASE);
+        return;
+    }
+    tdma_runtime_owner_p3_service_core1();
+    tdma_pio_spi_p3_snapshot_t p3;
+    if (tdma_runtime_owner_get_p3_snapshot(&p3)) {
+        osal_critical_enter();
+        s_p3_snapshot.raw = p3;
+        s_p3_snapshot.result_valid =
+            p3.state == TDMA_PIO_SPI_P3_COMPLETE ? 1u : 0u;
+        osal_critical_exit();
+        if (p3.state == TDMA_PIO_SPI_P3_ARMED) {
+            __atomic_store_n(&s_p3_offline_seen_armed, true,
+                             __ATOMIC_RELEASE);
+        }
+        const bool stopping = __atomic_load_n(
+            &s_p3_offline_stopping, __ATOMIC_ACQUIRE);
+        const bool seen_armed = __atomic_load_n(
+            &s_p3_offline_seen_armed, __ATOMIC_ACQUIRE);
+        if ((stopping && p3.state == TDMA_PIO_SPI_P3_IDLE) ||
+            p3.state == TDMA_PIO_SPI_P3_ERROR ||
+            (seen_armed && p3.state == TDMA_PIO_SPI_P3_COMPLETE)) {
+            __atomic_store_n(&s_p3_offline_session, false, __ATOMIC_RELEASE);
+            __atomic_store_n(&s_p3_offline_stopping, false,
+                             __ATOMIC_RELEASE);
+        }
+    }
+    calibration_manager_publish_training_activity();
+}
+
 void calibration_manager_service_core1(void)
 {
     (void)__atomic_add_fetch(&s_ring_capture_core1_service_count,
@@ -2083,7 +2157,6 @@ void calibration_manager_service_core1(void)
         return;
     }
     tdma_runtime_owner_coded_service_core1();
-    tdma_runtime_owner_p3_service_core1();
     tdma_runtime_owner_marker_service_core1();
     if (__atomic_load_n(&s_sck_active, __ATOMIC_ACQUIRE)) {
         tdma_runtime_owner_sck_train_service_core1();
@@ -2509,20 +2582,6 @@ void calibration_manager_service_core1(void)
         }
     }
 
-    calibration_p3_intent_t p3_intent;
-    if (calibration_manager_p3_read(&p3_intent) &&
-        p3_intent.sequence != __atomic_load_n(
-            &s_p3_intent_consumed_sequence, __ATOMIC_ACQUIRE)) {
-        if (p3_intent.opcode == CALIBRATION_P3_INTENT_STOP) {
-            tdma_runtime_owner_p3_stop_core1();
-        } else if (p3_intent.opcode == CALIBRATION_P3_INTENT_START &&
-                   stopped) {
-            (void)tdma_runtime_owner_p3_start_core1(&p3_intent.request);
-        }
-        __atomic_store_n(&s_p3_intent_consumed_sequence,
-                         p3_intent.sequence, __ATOMIC_RELEASE);
-    }
-
     calibration_clk_coded_intent_t intent;
     if (calibration_manager_clk_coded_intent_read(&intent) &&
         intent.sequence != __atomic_load_n(
@@ -2629,14 +2688,6 @@ void calibration_manager_service_core1(void)
                 &s_clk_coded_active_gate);
             __atomic_store_n(&s_clk_coded_active, false, __ATOMIC_RELEASE);
         }
-    }
-    tdma_pio_spi_p3_snapshot_t p3;
-    if (tdma_runtime_owner_get_p3_snapshot(&p3)) {
-        osal_critical_enter();
-        s_p3_snapshot.raw = p3;
-        s_p3_snapshot.result_valid =
-            p3.state == TDMA_PIO_SPI_P3_COMPLETE ? 1u : 0u;
-        osal_critical_exit();
     }
     calibration_manager_publish_training_activity();
 }
@@ -2825,12 +2876,17 @@ bool calibration_manager_request_p3(
         .signal_group = signal_group,
     };
     calibration_manager_p3_publish(CALIBRATION_P3_INTENT_START, &request);
+    __atomic_store_n(&s_p3_offline_session, true, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_p3_offline_seen_armed, false, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_p3_offline_stopping, false, __ATOMIC_RELEASE);
     calibration_manager_set_training_activity_core0(true);
     return true;
 }
 
 void calibration_manager_stop_p3(void)
 {
+    __atomic_store_n(&s_p3_offline_session, true, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_p3_offline_stopping, true, __ATOMIC_RELEASE);
     calibration_manager_p3_publish(CALIBRATION_P3_INTENT_STOP, NULL);
 }
 
