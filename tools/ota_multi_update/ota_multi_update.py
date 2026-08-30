@@ -230,21 +230,25 @@ def run_child(port: str, step: str, command_line: list[str], out_dir: Path) -> S
     completed = subprocess.run(command_line,
                                cwd=ROOT,
                                text=True,
+                               encoding="utf-8",
+                               errors="replace",
                                capture_output=True)
     elapsed = time.monotonic() - started
+    stdout = completed.stdout or ""
+    stderr = completed.stderr or ""
     port_dir = out_dir / port
     port_dir.mkdir(parents=True, exist_ok=True)
     safe_step = step.replace("/", "_")
-    (port_dir / f"{safe_step}.stdout.txt").write_text(completed.stdout, encoding="utf-8")
-    (port_dir / f"{safe_step}.stderr.txt").write_text(completed.stderr, encoding="utf-8")
+    (port_dir / f"{safe_step}.stdout.txt").write_text(stdout, encoding="utf-8")
+    (port_dir / f"{safe_step}.stderr.txt").write_text(stderr, encoding="utf-8")
     return StepResult(
         port=port,
         step=step,
         passed=completed.returncode == 0,
         returncode=completed.returncode,
         command=command_line,
-        stdout=completed.stdout,
-        stderr=completed.stderr,
+        stdout=stdout,
+        stderr=stderr,
         elapsed_s=elapsed,
     )
 

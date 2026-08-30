@@ -177,20 +177,30 @@ def start_p3(board: Board, role: int, frequency_hz: int, epoch: int,
     command = (
         f"CALibration:P3:STARt {role},{frequency_hz},"
         f"{args.pulse_count},{args.capture_words},{epoch},{signal_group}")
-    response = board_command(board, command, fast)
     deadline = time.monotonic() + args.capture_timeout
     last: dict[str, int] = {}
+    responses: list[str] = []
+    next_submit = 0.0
     while time.monotonic() < deadline:
+        now = time.monotonic()
+        if now >= next_submit:
+            responses.append(board_command(board, command, fast))
+            # START is a core0->core1 intent.  Immediately after OTA or STOP,
+            # an unchanged IDLE snapshot can mean that the intent was not yet
+            # accepted.  Re-submit the same epoch until state readback is the
+            # acknowledgement; duplicate pending intents are rejected safely.
+            next_submit = now + 0.10
         last = p3_status(board, args)
         if (last["epoch"] == epoch and last["role"] == role and
                 last["baud_hz"] == frequency_hz and
                 last["state"] in (P3_STATE_ARMED, P3_STATE_COMPLETE,
                                   P3_STATE_ERROR)):
-            last["start_response"] = response
+            last["start_response"] = responses[-1]
+            last["start_attempt_count"] = len(responses)
             return last
         time.sleep(0.03)
     raise RuntimeError(
-        f"{board.address}: P3 START not accepted, response={response!r}, "
+        f"{board.address}: P3 START not accepted, responses={responses!r}, "
         f"snapshot={last}")
 
 

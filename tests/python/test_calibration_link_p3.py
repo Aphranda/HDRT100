@@ -22,6 +22,8 @@ def test_p3_tool_uses_offline_session_without_realtime_load_mask() -> None:
     assert "SYSTem:TDMA:RING:STOP" in source
     assert "SYSTem:TDMA:LOAD:MASK" not in source
     assert "CALIBRATION_LOAD_BIT" not in source
+    assert "start_attempt_count" in source
+    assert "next_submit = now + 0.10" in source
 
 
 def make_snapshot(role: int, edge_mask: int, signal_group: int = 0) -> dict[str, int]:

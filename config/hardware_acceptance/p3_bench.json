@@ -1,0 +1,25 @@
+{
+  "schema": "HAOFV_P3_HARDWARE_ACCEPTANCE_BENCH_V1",
+  "ota_board_ids": [
+    "0010071E65B5CB38",
+    "FB276192BEF9CCE1",
+    "2BD5090FE009FA2A",
+    "A1E549202D18ED6A",
+    "839E1AE79EA20F31"
+  ],
+  "p3_board_ids_in_physical_order": [
+    "0010071E65B5CB38",
+    "FB276192BEF9CCE1",
+    "2BD5090FE009FA2A",
+    "A1E549202D18ED6A"
+  ],
+  "frequency_ladder_mhz": [10, 25, 30],
+  "stable_frequency_mhz": 25,
+  "signal_group": "BOTH",
+  "repeats": 3,
+  "pulse_count": 32,
+  "capture_words": 256,
+  "minimum_link_delay_ns": 70,
+  "maximum_link_delay_ns": 90,
+  "calibration_load_mask": 4
+}

@@ -1,8 +1,10 @@
 from argparse import Namespace
+from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
-from tools.ota_multi_update.ota_multi_update import validate_cli_args
+from tools.ota_multi_update.ota_multi_update import run_child, validate_cli_args
 
 
 def make_args(**overrides):
@@ -37,3 +39,17 @@ def test_duplicate_idn_address_is_rejected():
 def test_expected_board_count_is_limited_to_product_ring(count):
     with pytest.raises(ValueError, match="expected-board-count"):
         validate_cli_args(make_args(expected_board_count=count))
+
+
+def test_child_output_is_utf8_and_none_safe(tmp_path: Path):
+    completed = Namespace(returncode=1, stdout=None, stderr=None)
+    with patch("tools.ota_multi_update.ota_multi_update.subprocess.run",
+               return_value=completed) as mocked:
+        result = run_child("COM1", "step", ["child"], tmp_path)
+    assert result.passed is False
+    assert result.stdout == ""
+    assert result.stderr == ""
+    assert (tmp_path / "COM1" / "step.stdout.txt").read_text(
+        encoding="utf-8") == ""
+    assert mocked.call_args.kwargs["encoding"] == "utf-8"
+    assert mocked.call_args.kwargs["errors"] == "replace"

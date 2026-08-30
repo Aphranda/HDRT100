@@ -14,6 +14,12 @@ python tools/doc_regression_check.py || {
     exit 1
 }
 echo "[pre-commit] doc gates OK"
+echo "[pre-commit] P3 hardware acceptance..."
+python tools/hardware_acceptance/p3_hardware_acceptance.py check-staged || {
+    echo "P3 hardware acceptance FAILED - run the mandatory build/OTA/P3 gate"
+    exit 1
+}
+echo "[pre-commit] P3 hardware acceptance OK"
 doc_verify_last="$(git rev-parse --git-path doc-verify-last)"
 echo "$(date +%s)" > "$doc_verify_last"
 exit 0
