@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION / TRAINING
 Canonical: `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`
-Last updated: 2026-08-27
+Last updated: 2026-08-30
 
 本文档把“先发送同步 marker，再按本地 PIO 周期发送编码 DATA，并在接收端按 marker 建立相对时间基准”的方案收敛为校准域下的独立训练子域。本文档是实施方案和待冻结候选接口，不把当前诊断值直接提升为 active calibration，也不允许训练子域绕过 TDMA core1 owner 直接操作 PIO、SM 或 DMA。
 
@@ -662,6 +662,39 @@ STOP -> topology/profile readback -> stage per-link training window
 - topology/profile/schedule CRC 和 freshness 一致；
 - table CRC 正确，且不得带 `DIAGNOSTIC_ONLY`；
 - accepted table 写入 SD/Flash 前保留证据文件和可回滚 generation。
+
+### P3 代码变更硬件验收门禁
+
+所有受版本控制的固件、PIO、构建、工具、测试和 Git hook 实现变更，提交前必须执行
+`tools/hardware_acceptance/p3_hardware_acceptance.py run`。该工具是唯一编排入口，禁止用手工
+命令拼接、旧报告或只重放 summary 代替。固定台架与判据来自
+`config/hardware_acceptance/p3_bench.json`，不得在 pre-commit 或个人脚本中复制一份参数。
+
+验收顺序固定为：
+
+```text
+staged/working source fingerprint
+  -> release build under out/build
+  -> configured observation + loop Node asynchronous OTA
+  -> four directed link, CLK_DATA + CS_DATA, full frequency ladder/repeat P3
+  -> TDMA schedule/load-mask/quarantine isolation check
+  -> tracked receipt + local immutable evidence digest
+```
+
+成功凭证写入 `config/hardware_acceptance/p3_acceptance_receipt.json`。凭证必须绑定完整源码树
+SHA-256、源码文件数、固件 package SHA-256/build ID、OTA summary SHA-256、P3 summary
+SHA-256、Node 唯一地址、trial 数、delay 范围和调度隔离结果。凭证文件本身不参与源码指纹，
+其余台架配置和验收工具均参与。`.githooks/pre-commit` 对 Git index 中的完整源码计算同一
+指纹；只要任一实现文件改变，旧凭证立即失效并阻断提交。文档或证据索引的独立修改不触发
+重新刷板，但仍执行文档自回归门禁。
+
+pre-commit 不访问硬件，只验证 staged 凭证与本地 evidence digest。这使门禁保持快速，同时
+保证硬件动作已经在提交前完成。工作区存在未暂存实现差异时 fail closed，避免“测试了 A、
+提交 B”。完整验收要求 P3 运行在 TDMA stopped offline calibration 模式；P3 不得修改
+realtime load mask，不得使 calibration load quarantine，也不得进入 TDMA 短帧周期预算。
+
+该门禁证明当前代码没有破坏既有 P3 物理回归基线，不等于 endpoint bias、active candidate、
+持久化或产品精度门禁已经完成。后二者仍分别由 Calibration active lifecycle 和 P4-REL 判定。
 
 ## 11. 回退与交付顺序
 

@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/calibration/CALIBRATION_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-08-28
+Last updated: 2026-08-30
 
 本文档把 [`CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`](CALIBRATION_TDMA_CLK_TRAINING_PLAN.md) 和
 [`CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`](CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md)
@@ -274,6 +274,10 @@ P3 的 signal group、方向、`t1..t4` 方程和 profile policy 以训练方案
 实现状态；同步线只关联同 epoch capture，不进入 path-sum，固件不得反转物理 TX/RX 方向。
 
 ### 7.1 板间 P3
+
+| ID | 任务 | 状态 | 完成/退出门禁 |
+|---|---|---|---|
+| P3-HIL-CODE-GATE | 将稳定 P3 物理回归固化为所有实现代码变更的提交前硬件验收 | `DONE` | 单一工具完成 release build、配置内全部 Node OTA、四条 directed link 的两组信号全频率重复矩阵、TDMA 隔离核验和源码指纹凭证；pre-commit 对无匹配凭证的 staged 实现 fail closed；正反测试、五板 OTA、四板 HIL 与提交推送全部通过 |
 
 | ID | 任务 | 状态 | 完成/退出门禁 |
 |---|---|---|---|

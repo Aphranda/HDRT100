@@ -4,11 +4,39 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_TASK_PROGRESS.md`
 Related: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_TASK_PROGRESS.md`
-Last updated: 2026-08-28
+Last updated: 2026-08-30
 
 本文档记录校准域从方案、粗捕获到双向测距和 VDC/DPLL 接入的实际进展。记录中的 HIL
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
+
+## CAL-TASK-20260830-019 - P3 代码变更硬件验收强约束
+
+- 对应 TODO：`P3-HIL-CODE-GATE`。
+- 状态：完成。
+- 目标：任何固件、PIO、构建、工具、测试或 hook 实现改变后，旧 P3 HIL 证据自动失效；只有
+  完成统一硬件验收并生成与 Git index 同源的凭证，pre-commit 才允许提交。
+- 实现：新增 `tools/hardware_acceptance/p3_hardware_acceptance.py`，统一编排 release build、
+  多板异步 OTA、完整 P3 matrix 和 TDMA 调度隔离核验；台架事实集中在
+  `config/hardware_acceptance/p3_bench.json`；tracked receipt 绑定源码树、固件包、OTA/P3
+  summary digest 和关键判据。pre-commit 只校验 staged 指纹及本地证据，不在提交时临时占用
+  硬件；实现工作区有未暂存差异时 fail closed。
+- 软件验证：OTA 编排、验收工具、P3 工具和 TRN-03 定向 Python 回归共 `117 passed`
+  （快照，非事实源），证据为 `out/pytest/p3-hardware-acceptance-tool-20260830/`。
+- 硬件闭环：最终 build 为 `20260830133250`（快照，非事实源）；五板异步 OTA 全通过，
+  证据为 `out/hardware_acceptance/p3-mandatory-gate-r3-20260830/ota-five-board/summary.json`；
+  四板物理环序的 CLK_DATA/CS_DATA、完整频率阶梯和重复矩阵共 `72/72` 通过（快照，非
+  事实源），delay 为 `80..82 ns`，DMA overrun/PIO stall 均为零，25 MHz 为最高稳定档。
+  P3 前后 realtime load mask 不变且 calibration 未 quarantine。完整机检判据与 digest 见
+  `config/hardware_acceptance/p3_acceptance_receipt.json`，硬数字事实源为工具与台架配置符号。
+- 失败闭环：首次运行暴露 OTA child 输出使用系统 GBK 解码及 `stdout=None` 落盘缺陷，已固定
+  UTF-8/replace 和 None-safe 汇总；第二次运行暴露刚 OTA 后异步 START snapshot 仍为旧 IDLE，
+  已改为同 epoch 有界幂等重发并以状态回读为唯一 ACK。两次失败均未签发 PASS 凭证，原始
+  evidence 保留在 `out/hardware_acceptance/p3-mandatory-gate-20260830/` 和
+  `out/hardware_acceptance/p3-mandatory-gate-r2-20260830/`。
+- 语义边界：该流程是代码回归基线，不清除 P3 endpoint bias、active candidate、持久化和
+  P4-REL 产品门禁，也不把 P3 加入 TDMA realtime load mask 或短帧预算。
+
 
 ## CAL-TASK-20260828-017 - TRN-03B 诊断捕获预算收敛与待办补齐
 

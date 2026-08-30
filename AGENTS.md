@@ -30,6 +30,9 @@
 4. 登记契约不可物理删除（只能 `superseded`）
 5. 修改任何文档 → 必须更新 `Last updated`
 6. 临时内容（评审快照/草稿）**不得**登记为契约
+7. 修改任何固件、PIO、构建、工具、测试或 hook 实现后，提交前必须执行
+   `python tools/hardware_acceptance/p3_hardware_acceptance.py run`；pre-commit 按 staged
+   源码指纹核验 P3 硬件验收凭证，旧凭证、手工报告和 replay 不能放行
 
 ## 3. 修改文档的标准流程
 
@@ -54,6 +57,7 @@ python tools/doc_regression_check.py
 python -m pytest tests/python/test_doc_regression.py tests/python/test_docs_check.py -p no:cacheprovider
 sh .githooks/pre-commit
 python tools/doc_regression_check.py --log-check   # 逃生门审计（建议每周）
+python tools/hardware_acceptance/p3_hardware_acceptance.py check-staged
 ```
 
 > **门禁接线**：pre-commit 依赖 `git config core.hooksPath .githooks`（本地配置，clone/迁移后**必须重配**，否则 commit 不触发检查器）。`sh .githooks/pre-commit` 可手动验证。
