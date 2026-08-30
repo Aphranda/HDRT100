@@ -14,5 +14,6 @@ python tools/doc_regression_check.py || {
     exit 1
 }
 echo "[pre-commit] doc gates OK"
-echo "$(date +%s)" > .git/doc-verify-last
+doc_verify_last="$(git rev-parse --git-path doc-verify-last)"
+echo "$(date +%s)" > "$doc_verify_last"
 exit 0
