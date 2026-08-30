@@ -4,11 +4,26 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_TASK_PROGRESS.md`
 Related: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_TASK_PROGRESS.md`
-Last updated: 2026-08-30
+Last updated: 2026-08-31
 
 本文档记录校准域从方案、粗捕获到双向测距和 VDC/DPLL 接入的实际进展。记录中的 HIL
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
+
+## CAL-TASK-20260831-020 - 运行态复位与 OTA 边界固化
+
+- 对应 TODO：`P3-HIL-CODE-GATE`、`TRN-03D-HEALTH-04`。
+- 状态：完成（流程约束）。
+- 规则：运行态卡死、quarantine、ARM/状态机未清理等问题只允许使用
+  `tools/picotool_reboot/picotool_reboot.py` 做应用软件重启；重启后必须重新通过
+  topology/profile/calibration identity、矩阵读回和 ARM gate。不得通过再次 OTA 来“解决”
+  运行态复位问题。
+- OTA 触发条件：仅当设备端固件源码、PIO 原语、构建输入或设备端配置发生变化并重新构建时，
+  才进行多板异步 OTA。host 分析、SVG/SD 解码或验收编排工具变化复用既有 build，跳过 build/OTA，
+  并在 `firmware-reuse.json` 中记录 `firmware_changed=false`、`build_skipped=true`、
+  `ota_skipped=true`。
+- 本次变更只更新流程文档，未修改设备端固件，因此不触发 build 或 OTA；后续运行态恢复应保留
+  软件重启记录，并重新执行受影响的校准/训练和 HIL 门禁。
 
 ## CAL-TASK-20260830-019 - P3 代码变更硬件验收强约束
 

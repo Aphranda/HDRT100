@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/calibration/CALIBRATION_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-08-30
+Last updated: 2026-08-31
 
 本文档把 [`CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`](CALIBRATION_TDMA_CLK_TRAINING_PLAN.md) 和
 [`CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`](CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md)
@@ -35,7 +35,21 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 “编译通过”“SCPI 有响应”或单次启动成功都不能单独作为 `DONE` 证据。状态变化同步更新
 本文；单次 build、HIL 数值和证据目录只追加到任务进度文件。
 
-### 1.2 里程碑总览
+### 1.2 复位与 OTA 边界
+
+硬件验收必须区分运行态复位和固件变更：
+
+- 运行中的节点出现卡死、状态机未清理、quarantine 或其他可恢复状态时，只执行
+  `tools/picotool_reboot/picotool_reboot.py` 的应用软件重启；重启后重新通过
+  topology/profile/calibration identity、矩阵读回和 ARM gate，再继续受影响的验收。
+- 只有设备端固件源码、PIO 原语、构建输入或设备端配置发生变化并重新构建时，才执行
+  多板异步 OTA。OTA 不能作为“重置问题”的替代手段，也不能用来掩盖运行态复位缺陷。
+- host 侧分析、SVG/SD 解码或验收编排工具变化不触发 build/OTA；使用既有 build 做受影响的
+  HIL，并在证据中记录 `build_skipped=true`、`ota_skipped=true`。
+- 每次软件重启或 OTA 后都必须重新执行对应前置门禁；不得静默沿用失配的 staging、旧
+  generation 或旧 schedule 状态。
+
+### 1.3 里程碑总览
 
 | 阶段 | 目标 | 状态 | 进入下一阶段的门禁 |
 |---|---|---|---|
@@ -55,7 +69,7 @@ quality 和最小控制 token；静态余量不足时不加载校准、模型或
 generation 或 active calibration gate。对应构建、OTA 和 schedule 证据见
 `docs/tdma/TDMA_TASK_PROGRESS.md` 的 `TDMA-PROGRESS-20260828-002`。
 
-### 1.3 当前主线
+### 1.4 当前主线
 
 ```text
 产品发布主线：
@@ -77,7 +91,7 @@ TRN-03B short frame + frozen phase matrix + raw capture/replay
 active calibration 和 TRN-03D 产品安全闭环完成前仍只形成 provisional 调试结论。只有 `P4-REL`
 需要等待产品发布主线的全部门禁。
 
-### 1.4 训练子域的校准前置门禁
+### 1.5 训练子域的校准前置门禁
 
 | 前置 | 当前状态 | 对 TRN-01/02/03 的约束 |
 |---|---|---|
@@ -86,7 +100,7 @@ active calibration 和 TRN-03D 产品安全闭环完成前仍只形成 provision
 | phase matrix | `DONE`：MARK/SCK/DATA 全量 Node offset matrix 已经进入四板 TDMA 短帧闭环 | 仍必须连同 per-link base、generation 和 residual 重放，不能只加逻辑 offset |
 | active lifecycle | `IN PROGRESS`：host/manager candidate、active、rollback 及 generation/link completeness 门禁已实现 | 受控 evidence 导入、真实 HIL、持久化与 VDC 消费前，所有训练仍为 staging/diagnostic evidence |
 
-### 1.5 当前执行序
+### 1.6 当前执行序
 
 1. 切换为每板本地三线 reference loopback 接线，完成 endpoint bias generation。
 2. 使用有效 bias 重跑 fresh P3 完整 link 集，并通过受控 evidence 导入形成 candidate。
