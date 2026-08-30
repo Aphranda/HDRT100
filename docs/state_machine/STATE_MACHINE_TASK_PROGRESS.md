@@ -9,6 +9,19 @@ Last updated: 2026-08-30
 本文档只记录状态机域的实施、构建、测试、OTA/HIL、失败和回退证据；任务状态以
 `STATE_MACHINE_DOMAIN_TODO.md` 为唯一事实源，稳定语义以架构文档为准。
 
+### SM-PROGRESS-20260830-014 - 方向语义静态门禁
+
+- TODO task ID：`SM-RES-007`。
+- 变更：`tools/state_machine_resource_check/state_machine_resource_check.py` 新增
+  `DIRECTION_REQUIRED` 语义校验，明确 TX `CLK/SYNC` 必须绑定 DOWNLINK 输出、TX
+  DATA 必须绑定 UPLINK 输入，RX `CLK/SYNC` 必须绑定 UPLINK 输入、RX DATA 必须绑定
+  DOWNLINK 输出；不再只比较偶然相同的 GPIO 数值。
+- 负测试：新增交换 DATA 端口的失败用例，确保线序语义被反向修改时在构建前报告，
+  不进入 OTA/HIL。
+- 验证：方向资源工具通过；状态机资源与 TRN-03 定向 pytest `103 passed`。
+- 结论：控制腿与 DATA 返回腿的交叉方向已具备静态回归保护；DREQ/GPIO/persona epoch
+  的运行时冲突注入仍属于 `SM-RES-007` 后续门禁。
+
 ### SM-PROGRESS-20260830-013 - 独立 flight RX unload / TX load 控制
 
 - TODO task ID：`SM-RES-005`、`SM-RES-009`。

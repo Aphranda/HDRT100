@@ -36,7 +36,7 @@ phase、recovery 静态预算或 FreeRTOS heap；超限必须在构建或 Deploy
 | SM-RES-005 | 完成 follower forward/capture 独立 FIFO/DMA | IN PROGRESS | forward 与 RX 卸载统一由 RX DATA SM 的单一 FIFO/DMA endpoint 完成，避免双消费者竞争；SD/波形 capture 仅作为停止态 diagnostic persona，仍需 endpoint 静态检查和 HIL。 |
 | SM-RES-009 | 固化独立 flight RX unload / TX load 控制 | IN PROGRESS | `tdma_flight_engine_unload_rx()` 只生成 RX 位图并在 descriptor 入队后提交，`tdma_flight_engine_load_tx()` 只覆盖 TX segment；两方向可在同一 phase 并行且互不阻塞，需补四板 process-image 回归证据。 |
 | SM-RES-006 | 迁移 arm/disarm、snapshot、RTT 和 DPLL evidence | IN PROGRESS | flight ARM/STOP、snapshot、RTT、SCK capture、clock-latch recovery、process-image persona admission 和 calibration persona 切换已按方向字段迁移；旧复合 maintenance 路径和完整硬件证据回归仍待完成。 |
-| SM-RES-007 | 增加静态回归测试与资源冲突负测试 | IN PROGRESS | 已覆盖 PIO 指令方向、SM/DMA 唯一性、forward/capture FIFO、capture patch、calibration directional unload 和 flight resource mask；DREQ/GPIO/persona epoch 的运行时负测试仍待完成。 |
+| SM-RES-007 | 增加静态回归测试与资源冲突负测试 | IN PROGRESS | 已覆盖 PIO 指令方向、CLK/SYNC 与 DATA 语义绑定、SM/DMA 唯一性、forward/unload FIFO、capture patch、calibration directional unload 和 flight resource mask；DREQ/GPIO/persona epoch 的运行时负测试仍待完成。 |
 | SM-RES-008 | 工具构建及四板/NO5 闭环验证 | IN PROGRESS | `out/` 构建与 host pytest 已通过；仍需同包异步 OTA、四板 process-image active、SD 波形、NO5 hardware-latch evidence、DPLL `LOCKED` 与 VDC vector readback。 |
 
 ## 当前阻塞项
