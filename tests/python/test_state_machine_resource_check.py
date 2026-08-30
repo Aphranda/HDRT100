@@ -14,6 +14,30 @@ def test_directional_resource_contract_is_valid() -> None:
     assert failures == []
 
 
+def test_directional_pin_semantics_reject_swapped_data_port(tmp_path: Path) -> None:
+    board = tmp_path / "board_config.h"
+    board_text = (ROOT / "boards/rp2350_trig/inc/board_config.h").read_text(
+        encoding="utf-8"
+    )
+    board.write_text(
+        board_text.replace(
+            "#define BOARD_TDMA_TX_DATA_IN_PIN BOARD_TDMA_SPI_UPLINK_RX_PIN",
+            "#define BOARD_TDMA_TX_DATA_IN_PIN BOARD_TDMA_SPI_DOWNLINK_TX_PIN",
+        ),
+        encoding="utf-8",
+    )
+    pio = tmp_path / "tdma_pio_spi.pio"
+    pio.write_text(
+        (ROOT / "components/tdma/src/tdma_pio_spi.pio").read_text(
+            encoding="utf-8"
+        ),
+        encoding="utf-8",
+    )
+    failures = state_machine_resource_check.check(board, pio)
+    assert any("direction mismatch: BOARD_TDMA_TX_DATA_IN_PIN" in item
+               for item in failures)
+
+
 def test_directional_contract_rejects_missing_crossed_direction(tmp_path: Path) -> None:
     board = tmp_path / "board_config.h"
     board.write_text(
@@ -35,7 +59,7 @@ def test_directional_contract_rejects_missing_crossed_direction(tmp_path: Path) 
     assert "directional TX is missing in pins" in failures
 
 
-def test_flight_forward_fifo_cannot_become_capture_endpoint(
+def test_flight_data_sm_must_publish_unload_bytes(
     tmp_path: Path,
 ) -> None:
     board = tmp_path / "board_config.h"
@@ -48,17 +72,15 @@ def test_flight_forward_fifo_cannot_become_capture_endpoint(
     pio_text = (ROOT / "components/tdma/src/tdma_pio_spi.pio").read_text(
         encoding="utf-8")
     pio.write_text(
-        pio_text.replace(
-            "    mov osr, isr\n    out null, 24",
-            "    mov osr, isr\n    push noblock\n    out null, 24",
-        ),
+        pio_text.replace("    push noblock\n    out null, 24",
+                         "    out null, 24", 1),
         encoding="utf-8",
     )
     failures = state_machine_resource_check.check(board, pio)
-    assert "flight raw follower must not push its forward FIFO" in failures
+    assert "flight raw follower is missing unload push" in failures
 
 
-def test_flight_capture_requires_independent_push_path(tmp_path: Path) -> None:
+def test_process_flight_data_sm_must_publish_unload_bytes(tmp_path: Path) -> None:
     board = tmp_path / "board_config.h"
     board.write_text(
         (ROOT / "boards/rp2350_trig/inc/board_config.h").read_text(
@@ -69,11 +91,14 @@ def test_flight_capture_requires_independent_push_path(tmp_path: Path) -> None:
     pio_text = (ROOT / "components/tdma/src/tdma_pio_spi.pio").read_text(
         encoding="utf-8")
     pio.write_text(
-        pio_text.replace("    push noblock\n    jmp capture_byte", "    jmp capture_byte"),
+        pio_text.replace(
+            "    mov y, isr\n    push noblock",
+            "    mov y, isr",
+        ),
         encoding="utf-8",
     )
     failures = state_machine_resource_check.check(board, pio)
-    assert "flight capture is missing push" in failures
+    assert "flight process follower is missing unload push" in failures
 
 
 def test_flight_capture_patches_actual_wait_instructions() -> None:
@@ -96,11 +121,32 @@ def test_calibration_transition_unloads_flight_programs_from_declared_pios() -> 
     transition = source.split(
         "static bool tdma_pio_spi_phys_cal_unload_source_step", 1,
     )[1].split("static bool tdma_pio_spi_phys_cal_load_p3_step", 1)[0]
-    assert "count = 5u" in transition
     assert "count = 4u" in transition
+    assert "count = 3u" in transition
     assert "pio_remove_program(BOARD_TDMA_TX_PIO" in transition
     assert "pio_remove_program(BOARD_TDMA_RX_PIO" in transition
-    assert "pio_remove_program(BOARD_TDMA_SPI_PIO,\n                               &tdma_pio_spi_flight" not in transition
+    assert "tdma_pio_spi_flight_data_capture_program" not in transition
+
+
+def test_flight_setup_does_not_remux_cross_pio_inputs() -> None:
+    source = (ROOT / "components/tdma/src/tdma_pio_spi.pio").read_text(
+        encoding="utf-8")
+    for init_name, forbidden in (
+        ("tdma_pio_spi_flight_control_forward_program_init",
+         ("pio_gpio_init(pio, rx_csn_pin)",
+          "pio_gpio_init(pio, rx_sck_pin)")),
+        ("tdma_pio_spi_flight_data_follower_program_init",
+         ("pio_gpio_init(pio, rx_data_pin)",
+          "pio_gpio_init(pio, rx_sck_pin)")),
+        ("tdma_pio_spi_flight_process_follower_program_init",
+         ("pio_gpio_init(pio, rx_data_pin)",
+          "pio_gpio_init(pio, rx_csn_pin)",
+          "pio_gpio_init(pio, rx_sck_pin)")),
+    ):
+        body = source.split(f"static inline void {init_name}", 1)[1].split(
+            "static inline void", 1)[0]
+        for token in forbidden:
+            assert token not in body
 
 
 def test_calibration_switch_ready_has_directional_flight_gate() -> None:
@@ -182,3 +228,38 @@ def test_flight_arm_transfers_persona_before_claiming_overlapping_resources() ->
         "tdma_pio_spi_phys_claim_flight_resources"
     )
     assert "TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK" not in arm
+
+
+def test_persona_selection_claims_flight_owner_before_sm_install() -> None:
+    source = (
+        ROOT / "components/tdma/src/tdma_pio_spi_phys_persona.c"
+    ).read_text(encoding="utf-8")
+    selection = source.split(
+        "bool tdma_pio_spi_phys_select_program_persona", 1
+    )[1].split(
+        "bool tdma_pio_spi_phys_claim_flight_resources", 1
+    )[0]
+    target = selection.split("const bool target_claimed", 1)[1]
+    assert "tdma_pio_spi_phys_claim_flight_resources(phys)" in target
+    assert target.index("tdma_pio_spi_phys_claim_flight_resources(phys)") < target.index(
+        "tdma_pio_spi_phys_ensure_flight_sms_claimed()"
+    )
+    assert "tdma_pio_spi_phys_release_flight_resources(phys);" in target
+
+
+def test_tdma_ring_arm_selects_process_image_before_physical_arm() -> None:
+    source = (
+        ROOT / "components/distributed_refmem/src/distributed_refmem.c"
+    ).read_text(encoding="utf-8")
+    arm = source.split(
+        "bool distributed_refmem_tdma_ring_arm", 1
+    )[1].split(
+        "distributed_refmem_tdma_arm_result_t", 1
+    )[0]
+    map_config = arm.index("tdma_service_configure_flight_map")
+    mode_select = arm.index(
+        "tdma_runtime_owner_set_flight_process_image_mode(true)"
+    )
+    ring_arm = arm.index("tdma_service_ring_arm(owner)")
+    assert map_config < mode_select < ring_arm
+    assert "fixed DPLL trailer" in arm

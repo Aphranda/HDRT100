@@ -41,6 +41,18 @@ PIN_REQUIRED = {
     "BOARD_TDMA_RX_DATA_OUT_PIN": 29,
 }
 
+# Direction is a board contract, not just a set of coincident GPIO numbers.
+# Keep the semantic aliases checked so a future pin-map edit cannot silently
+# make DATA travel with CLK/SYNC or swap the two logical ports.
+DIRECTION_REQUIRED = {
+    "BOARD_TDMA_TX_CLK_OUT_PIN": "BOARD_TDMA_SPI_DOWNLINK_SCK_PIN",
+    "BOARD_TDMA_TX_SYNC_OUT_PIN": "BOARD_TDMA_SPI_DOWNLINK_CSN_PIN",
+    "BOARD_TDMA_TX_DATA_IN_PIN": "BOARD_TDMA_SPI_UPLINK_RX_PIN",
+    "BOARD_TDMA_RX_CLK_IN_PIN": "BOARD_TDMA_SPI_UPLINK_SCK_PIN",
+    "BOARD_TDMA_RX_SYNC_IN_PIN": "BOARD_TDMA_SPI_UPLINK_CSN_PIN",
+    "BOARD_TDMA_RX_DATA_OUT_PIN": "BOARD_TDMA_SPI_DOWNLINK_TX_PIN",
+}
+
 
 def macros(text: str) -> dict[str, int]:
     values: dict[str, int] = {}
@@ -109,6 +121,12 @@ def check(board: Path, pio: Path) -> list[str]:
     for name, expected in PIN_REQUIRED.items():
         if values.get(name) != expected:
             failures.append(f"{name}: expected {expected}, got {values.get(name)!r}")
+    for name, alias in DIRECTION_REQUIRED.items():
+        if name in values and alias in values and values[name] != values[alias]:
+            failures.append(
+                f"direction mismatch: {name} must alias {alias} "
+                f"({values.get(name)!r} != {values.get(alias)!r})"
+            )
 
     for group in (
         ("TX logical-port SM", "BOARD_TDMA_TX_CLK_OUT_SM", "BOARD_TDMA_TX_SYNC_OUT_SM",
@@ -142,8 +160,6 @@ def check(board: Path, pio: Path) -> list[str]:
             pio_text, "tdma_pio_spi_flight_data_follower")
         flight_process = program_body(
             pio_text, "tdma_pio_spi_flight_process_follower")
-        flight_capture = program_body(
-            pio_text, "tdma_pio_spi_flight_data_capture")
     except ValueError as exc:
         failures.append(str(exc))
     else:
@@ -153,20 +169,14 @@ def check(board: Path, pio: Path) -> list[str]:
             if not re.search(r"\bout\s+pins\b", body):
                 failures.append(f"directional {name} is missing out pins")
 
-        # The wire-forward SMs must not expose their RX FIFO to a diagnostic
-        # consumer.  Capture is a separate SM/FIFO and is the only flight
-        # DATA path allowed to PUSH samples for the capture DMA.
+        # RX flight owns both cut-through DATA forwarding and frame unload.
+        # Each complete wire byte must therefore be published through the
+        # DATA SM's RX FIFO; no second PIO may remux the same DATA input.
         for name, body in (("raw follower", flight_forward),
                            ("process follower", flight_process)):
-            if re.search(r"^\s*push\b", instruction_text(body), re.MULTILINE | re.IGNORECASE):
-                failures.append(f"flight {name} must not push its forward FIFO")
-        capture_text = instruction_text(flight_capture)
-        if not re.search(r"\bin\s+pins\b", capture_text):
-            failures.append("flight capture is missing in pins")
-        if not re.search(r"^\s*push\b", capture_text, re.MULTILINE | re.IGNORECASE):
-            failures.append("flight capture is missing push")
-        if not re.search(r"\bwait\s+0\s+gpio\b", capture_text):
-            failures.append("flight capture is missing CS gate")
+            if not re.search(r"^\s*push\s+noblock\b", instruction_text(body),
+                             re.MULTILINE | re.IGNORECASE):
+                failures.append(f"flight {name} is missing unload push")
     return failures
 
 
