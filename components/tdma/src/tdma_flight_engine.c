@@ -27,6 +27,24 @@ static uint16_t tdma_flight_engine_get_le16(const uint8_t *src)
     return (uint16_t)(((uint16_t)src[0]) | ((uint16_t)src[1] << 8u));
 }
 
+static bool tdma_flight_engine_inspect_input_map(
+    tdma_flight_engine_t *engine,
+    const uint8_t *incoming,
+    size_t incoming_size,
+    const tdma_process_image_map_t *map,
+    uint32_t local_slot_id,
+    uint32_t expected_owner_mask,
+    uint32_t *present_segment_mask,
+    uint32_t *new_segment_mask,
+    uint32_t *expected_segment_mask,
+    bool count_evidence);
+
+static bool tdma_flight_engine_read_map(
+    const tdma_flight_engine_t *engine,
+    tdma_process_image_map_t *map,
+    uint32_t *local_slot_id,
+    uint32_t *map_generation);
+
 void tdma_flight_engine_fill_alignment_symbols(uint8_t *payload,
                                                size_t payload_size)
 {
@@ -46,6 +64,125 @@ void tdma_flight_engine_fill_alignment_symbols(uint8_t *payload,
         }
         payload[byte_index] = value;
     }
+}
+
+bool tdma_flight_engine_unload_rx(
+    tdma_flight_engine_t *engine,
+    const uint8_t *incoming,
+    size_t incoming_size,
+    uint32_t expected_owner_mask,
+    tdma_flight_rx_unload_t *unloaded,
+    tdma_flight_engine_result_t *result)
+{
+    if (unloaded != NULL) {
+        memset(unloaded, 0, sizeof(*unloaded));
+    }
+    tdma_flight_engine_set_result(result, TDMA_FLIGHT_ENGINE_BAD_ARGUMENT);
+    if (engine == NULL || incoming == NULL || unloaded == NULL ||
+        !tdma_flight_engine_is_active(engine)) {
+        return false;
+    }
+
+    tdma_process_image_map_t map;
+    uint32_t local_slot_id = 0u;
+    if (!tdma_flight_engine_read_map(engine, &map, &local_slot_id, NULL)) {
+        tdma_flight_engine_set_result(result,
+                                      TDMA_FLIGHT_ENGINE_MAP_UNAVAILABLE);
+        return false;
+    }
+    if (incoming_size != map.payload_size) {
+        tdma_flight_engine_counter_inc(&engine->length_reject_count);
+        tdma_flight_engine_set_result(result,
+                                      TDMA_FLIGHT_ENGINE_LENGTH_REJECTED);
+        return false;
+    }
+    if (!tdma_flight_engine_inspect_input_map(
+            engine,
+            incoming,
+            incoming_size,
+            &map,
+            local_slot_id,
+            expected_owner_mask,
+            &unloaded->present_segment_mask,
+            &unloaded->new_segment_mask,
+            &unloaded->expected_segment_mask,
+            true)) {
+        return false;
+    }
+    tdma_flight_engine_set_result(result, TDMA_FLIGHT_ENGINE_OK);
+    return true;
+}
+
+bool tdma_flight_engine_load_tx(
+    tdma_flight_engine_t *engine,
+    const uint8_t *incoming,
+    size_t incoming_size,
+    const tdma_flight_tx_view_t *tx_view,
+    uint8_t *output,
+    size_t output_capacity,
+    tdma_flight_tx_load_t *loaded,
+    tdma_flight_engine_result_t *result)
+{
+    if (loaded != NULL) {
+        memset(loaded, 0, sizeof(*loaded));
+    }
+    tdma_flight_engine_set_result(result, TDMA_FLIGHT_ENGINE_BAD_ARGUMENT);
+    if (engine == NULL || incoming == NULL || output == NULL ||
+        loaded == NULL || !tdma_flight_engine_is_active(engine)) {
+        return false;
+    }
+
+    tdma_process_image_map_t map;
+    uint32_t local_slot_id = 0u;
+    if (!tdma_flight_engine_read_map(engine, &map, &local_slot_id, NULL)) {
+        tdma_flight_engine_set_result(result,
+                                      TDMA_FLIGHT_ENGINE_MAP_UNAVAILABLE);
+        return false;
+    }
+    if (incoming_size != map.payload_size || output_capacity < map.payload_size) {
+        tdma_flight_engine_counter_inc(&engine->length_reject_count);
+        tdma_flight_engine_set_result(result,
+                                      TDMA_FLIGHT_ENGINE_LENGTH_REJECTED);
+        return false;
+    }
+
+    memcpy(output, incoming, incoming_size);
+    tdma_flight_engine_result_t operation_result = TDMA_FLIGHT_ENGINE_OK;
+    for (uint32_t i = 0u; i < TDMA_PROCESS_IMAGE_SEGMENT_COUNT; i++) {
+        const tdma_process_image_segment_t *segment = &map.segment[i];
+        if (segment->used == 0u || segment->owner_slot_id != local_slot_id ||
+            (segment->flags & TDMA_PROCESS_SEGMENT_FLAG_FLIGHT_WRITE) == 0u) {
+            continue;
+        }
+        const uint8_t *segment_data = NULL;
+        if (tx_view != NULL && tx_view->data != NULL) {
+            if (tx_view->data_size == segment->byte_length) {
+                segment_data = tx_view->data;
+            } else if (tx_view->data_size >=
+                       segment->byte_offset + segment->byte_length) {
+                segment_data = tx_view->data + segment->byte_offset;
+            }
+        }
+        if (segment_data == NULL) {
+            tdma_flight_engine_counter_inc(&engine->tx_unavailable_count);
+            operation_result = TDMA_FLIGHT_ENGINE_TX_UNAVAILABLE;
+            continue;
+        }
+        memcpy(output + segment->byte_offset,
+               segment_data,
+               segment->byte_length);
+        loaded->output_segment_mask |= 1u << segment->segment_id;
+        loaded->output_bytes += segment->byte_length;
+    }
+
+    tdma_flight_engine_counter_inc(&engine->map_apply_count);
+    tdma_flight_engine_counter_add(&engine->output_bytes,
+                                   loaded->output_bytes);
+    if (tx_view != NULL && tx_view->reused_previous) {
+        tdma_flight_engine_counter_inc(&engine->tx_stale_reuse_count);
+    }
+    tdma_flight_engine_set_result(result, operation_result);
+    return true;
 }
 
 static bool tdma_flight_engine_fast_mailbox_header(

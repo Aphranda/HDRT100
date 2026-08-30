@@ -49,6 +49,20 @@ typedef struct {
     uint32_t output_bytes;
 } tdma_flight_engine_apply_t;
 
+/* Direction-specific flight results.  RX unload and TX load are deliberately
+ * separate operations so the wire path never depends on the other direction
+ * making progress in the same service call. */
+typedef struct {
+    uint32_t present_segment_mask;
+    uint32_t new_segment_mask;
+    uint32_t expected_segment_mask;
+} tdma_flight_rx_unload_t;
+
+typedef struct {
+    uint32_t output_segment_mask;
+    uint32_t output_bytes;
+} tdma_flight_tx_load_t;
+
 typedef struct {
     uint32_t version;
     uint32_t configured;
@@ -105,6 +119,28 @@ bool tdma_flight_engine_is_configured(const tdma_flight_engine_t *engine);
 bool tdma_flight_engine_is_active(const tdma_flight_engine_t *engine);
 void tdma_flight_engine_fill_alignment_symbols(uint8_t *payload,
                                                size_t payload_size);
+/* RX/upstream direction: inspect a received process image and report the
+ * segments to unload.  This does not commit sequence state; call
+ * tdma_flight_engine_commit_input() only after the RX descriptor is published
+ * successfully. */
+bool tdma_flight_engine_unload_rx(
+    tdma_flight_engine_t *engine,
+    const uint8_t *incoming,
+    size_t incoming_size,
+    uint32_t expected_owner_mask,
+    tdma_flight_rx_unload_t *unloaded,
+    tdma_flight_engine_result_t *result);
+/* TX/downstream direction: overlay only this node's published TX image onto
+ * an incoming wire image.  No RX classification or sequence state is touched. */
+bool tdma_flight_engine_load_tx(
+    tdma_flight_engine_t *engine,
+    const uint8_t *incoming,
+    size_t incoming_size,
+    const tdma_flight_tx_view_t *tx_view,
+    uint8_t *output,
+    size_t output_capacity,
+    tdma_flight_tx_load_t *loaded,
+    tdma_flight_engine_result_t *result);
 bool tdma_flight_engine_apply(tdma_flight_engine_t *engine,
                               const uint8_t *incoming,
                               size_t incoming_size,
