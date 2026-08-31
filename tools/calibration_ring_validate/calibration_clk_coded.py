@@ -16,6 +16,7 @@ import math
 import statistics
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from collections import Counter
 from dataclasses import asdict
 from datetime import datetime
@@ -36,6 +37,11 @@ from tdma_start_ring import (  # noqa: E402
 )
 from calibration_ring_validate.calibration_load_guard import (  # noqa: E402
     CalibrationLoadGuard,
+)
+from calibration_ring_validate.calibration_timeout_config import (  # noqa: E402
+    DEFAULT_ACTION_TIMEOUT_S,
+    DEFAULT_PHASE_GAP_S,
+    DEFAULT_SERIAL_SETTLE_S,
 )
 
 
@@ -110,17 +116,21 @@ def parse_args() -> argparse.Namespace:
                               "gate in raw samples"))
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
-    parser.add_argument("--action-timeout", type=float, default=0.25,
+    parser.add_argument("--action-timeout", type=float,
+                        default=DEFAULT_ACTION_TIMEOUT_S,
                         help=("bounded wait for coded START/STOP payload; "
                               "guarded snapshot remains the acceptance gate"))
     parser.add_argument("--coded-timeout", type=float, default=5.0)
-    parser.add_argument("--settle", type=float, default=0.2)
+    parser.add_argument("--settle", type=float, default=DEFAULT_SERIAL_SETTLE_S)
     parser.add_argument("--arm-wait", type=float, default=3.0)
     parser.add_argument("--probe-phase-cycles", type=int, default=10,
                         help="stopped raw-link topology-probe phase delay")
-    parser.add_argument("--gap", type=float, default=0.2)
+    parser.add_argument("--gap", type=float, default=DEFAULT_PHASE_GAP_S)
+    parser.add_argument("--poll-interval", type=float, default=0.02)
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--short-open", action="store_true",
+                        help="open/close CDC for every command (diagnostic fallback)")
     return parser.parse_args()
 
 
@@ -286,7 +296,7 @@ def wait_ring_stopped(board: Board,
         if (last["ring_enabled"] == 0 and
                 last["ring_adapter_started"] == 0):
             return last
-        time.sleep(0.05)
+        time.sleep(args.poll_interval)
     raise RuntimeError(f"{board.address}: STOP apply timeout: {last}")
 
 
@@ -317,7 +327,7 @@ def start_coded(board: Board, args: argparse.Namespace) -> str:
         snapshot = coded_status(board, args)
         while (time.monotonic() < deadline and
                snapshot["state"] == STATE_IDLE):
-            time.sleep(0.05)
+            time.sleep(args.poll_interval)
             snapshot = coded_status(board, args)
         if (snapshot["state"] != STATE_IDLE and
                 snapshot["codebook_id"] == args.codebook and
@@ -347,61 +357,82 @@ def prepare_ring(ordered: list[Board], reference_node: int,
     reference = ordered[reference_node]
     start_order = [board for node, board in enumerate(ordered)
                    if node != reference_node] + [reference]
-    for board in ordered:
-        actions.append({"board": board.address, "command": "STOP",
-                        "response": board_command(board, "SYSTem:TDMA:RING:STOP", args)})
-        actions.append({
-            "board": board.address, "command": "CLEAR_TRAINING_STAGE",
-            "response": board_command(
-                board, "CALibration:TRAINing:STAGe:CLEar", args)})
-        actions.append({
-            "board": board.address, "command": "TOPOLOGY_PROBE_ENABLE",
-            "response": board_command(
-                board,
-                f"CALibration:TOPology:PROBe 1,{args.probe_phase_cycles}",
-                args)})
-        actions.append({"board": board.address, "command": "OPMODE",
-                        "response": board_command(board,
-                            f"SYSTem:TDMA:OPMode:STAGe {args.level}", args)})
-        actions.append({"board": board.address, "command": "OPMODE_APPLY",
-                        "response": board_command(board, "SYSTem:TDMA:OPMode:APPLy", args)})
-    for node, board in enumerate(ordered):
-        actions.append({"board": board.address, "command": "TOPOLOGY",
-                        "response": board_command(
-                            board,
-                            f"SYSTem:TDMA:RING:TOPology "
-                            f"{node_count},{node},{reference_node}",
-                            args)})
-    armed: list[tuple[Board, str, int]] = []
-    for board in start_order:
-        node = ordered.index(board)
+    def prepare_board(board: Board):
+        stop = board_command(board, "SYSTem:TDMA:RING:STOP", args)
+        clear = board_command(board, "CALibration:TRAINing:STAGe:CLEar", args)
+        probe = board_command(
+            board, f"CALibration:TOPology:PROBe 1,{args.probe_phase_cycles}", args)
+        stage = board_command(board, f"SYSTem:TDMA:OPMode:STAGe {args.level}", args)
+        apply = board_command(board, "SYSTem:TDMA:OPMode:APPLy", args)
+        return (
+            {"board": board.address, "command": "STOP", "response": stop},
+            {"board": board.address, "command": "CLEAR_TRAINING_STAGE", "response": clear},
+            {"board": board.address, "command": "TOPOLOGY_PROBE_ENABLE", "response": probe},
+            {"board": board.address, "command": "OPMODE", "response": stage},
+            {"board": board.address, "command": "OPMODE_APPLY", "response": apply},
+        )
+
+    with ThreadPoolExecutor(max_workers=node_count) as executor:
+        for result in executor.map(prepare_board, ordered):
+            actions.extend(result)
+
+    def set_topology(item):
+        node, board = item
+        command = (f"SYSTem:TDMA:RING:TOPology "
+                   f"{node_count},{node},{reference_node}")
+        return {"board": board.address, "command": command,
+                "response": board_command(board, command, args)}
+
+    with ThreadPoolExecutor(max_workers=node_count) as executor:
+        actions.extend(executor.map(set_topology, enumerate(ordered)))
+
+    def arm_one(board: Board):
         response = board_command(board, "SYSTem:TDMA:RING:ARM", args)
         arm_result = int(board_command(
             board, "SYSTem:TDMA:RING:ARM:STATus?", args
         ).strip().strip('"'), 0)
-        actions.append({"board": board.address, "command": "ARM_SUBMIT",
-                        "response": response, "arm_result": arm_result})
         if arm_result != 1:
             raise RuntimeError(
                 f"{board.address}: ARM rejected with result={arm_result}")
-        armed.append((board, response, arm_result))
+        return board, response, arm_result
+
+    with ThreadPoolExecutor(max_workers=len(start_order) - 1) as executor:
+        armed = list(executor.map(arm_one, start_order[:-1]))
+    armed.append(arm_one(start_order[-1]))
     for board, response, arm_result in armed:
-        readback = wait_started(board, args)
+        actions.append({"board": board.address, "command": "ARM_SUBMIT",
+                        "response": response, "arm_result": arm_result})
+
+    with ThreadPoolExecutor(max_workers=node_count) as executor:
+        started = list(executor.map(
+            lambda board: (board, wait_started(board, args)), ordered))
+    for board, readback in started:
+        arm = next(item for item in armed if item[0] is board)
         actions.append({"board": board.address, "command": "ARM_STARTED",
-                        "response": response, "arm_result": arm_result,
+                        "response": arm[1], "arm_result": arm[2],
                         "status": readback})
-    for board in ordered:
+
+    with ThreadPoolExecutor(max_workers=node_count) as executor:
+        stopped = list(executor.map(
+            lambda board: (board, board_command(
+                board, "SYSTem:TDMA:RING:STOP", args)), ordered))
+    for board, response in stopped:
         actions.append({"board": board.address, "command": "STOP_AFTER_ARM",
-                        "response": board_command(board, "SYSTem:TDMA:RING:STOP", args)})
-    for board in ordered:
-        actions.append({
-            "board": board.address, "command": "STOP_APPLIED",
-            "status": wait_ring_stopped(board, args)})
-    for board in ordered:
-        actions.append({
-            "board": board.address, "command": "TOPOLOGY_PROBE_DISABLE",
-            "response": board_command(
-                board, "CALibration:TOPology:PROBe 0", args)})
+                        "response": response})
+    with ThreadPoolExecutor(max_workers=node_count) as executor:
+        stopped_status = list(executor.map(
+            lambda board: (board, wait_ring_stopped(board, args)), ordered))
+    for board, status in stopped_status:
+        actions.append({"board": board.address, "command": "STOP_APPLIED",
+                        "status": status})
+    with ThreadPoolExecutor(max_workers=node_count) as executor:
+        disabled = list(executor.map(
+            lambda board: (board, board_command(
+                board, "CALibration:TOPology:PROBe 0", args)), ordered))
+    for board, response in disabled:
+        actions.append({"board": board.address,
+                        "command": "TOPOLOGY_PROBE_DISABLE",
+                        "response": response})
     time.sleep(args.gap)
     return actions
 
@@ -413,20 +444,25 @@ def wait_reference_node(board: Board,
     while time.monotonic() < deadline:
         if last["state"] in (STATE_ACCEPTED, STATE_REJECTED):
             return last
-        time.sleep(0.05)
+        time.sleep(args.poll_interval)
         last = coded_status(board, args)
     raise RuntimeError(f"{board.address}: coded completion timeout: {last}")
 
 
 def stop_coded(ordered: list[Board], args: argparse.Namespace) -> None:
     action_args = coded_action_args(args)
-    for board in ordered:
-        board_command(board, "CALibration:CLOCk:CODEd:STOP", action_args)
+    with ThreadPoolExecutor(max_workers=len(ordered)) as executor:
+        list(executor.map(
+            lambda board: board_command(
+                board, "CALibration:CLOCk:CODEd:STOP", action_args), ordered))
     deadline = time.monotonic() + args.coded_timeout
     while time.monotonic() < deadline:
-        if all(coded_status(board, args)["state"] == STATE_IDLE for board in ordered):
+        with ThreadPoolExecutor(max_workers=len(ordered)) as executor:
+            states = list(executor.map(
+                lambda board: coded_status(board, args)["state"], ordered))
+        if all(state == STATE_IDLE for state in states):
             return
-        time.sleep(0.05)
+        time.sleep(args.poll_interval)
     raise RuntimeError("coded STOP did not restore IDLE on every board")
 
 
@@ -439,13 +475,18 @@ def run_reference_node(ordered: list[Board], reference_node: int,
                  if node != reference_node]
     started: list[dict[str, object]] = []
     try:
-        for board in followers:
+        def start_follower(board: Board):
             response = start_coded(board, args)
+            return board, response, coded_status(board, args)
+
+        with ThreadPoolExecutor(max_workers=len(followers)) as executor:
+            follower_results = list(executor.map(start_follower, followers))
+        for board, response, follower_snapshot in follower_results:
             print(json.dumps({"coded_start": {"board": board.address,
                   "role": "follower", "response": response}}), flush=True)
             started.append({"board": board.address, "role": "follower",
                             "response": response,
-                            "snapshot": coded_status(board, args)})
+                            "snapshot": follower_snapshot})
         response = start_coded(reference, args)
         print(json.dumps({"coded_start": {"board": reference.address,
               "role": "reference", "response": response}}), flush=True)
@@ -492,6 +533,7 @@ def write_csv(path: Path, trials: list[dict[str, object]]) -> None:
 
 def main() -> int:
     args = parse_args()
+    args.keep_open = not args.short_open
     if len(args.board_id) < 2 or len(args.board_id) > 8:
         raise SystemExit("board count must be in [2, 8]")
     if len(set(args.board_id)) != len(args.board_id):
