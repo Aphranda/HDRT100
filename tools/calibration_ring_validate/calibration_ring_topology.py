@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure Calibration link adjacency and ring order with TDMA probes."""
+"""Run Pinout Cal: measure link adjacency and ring order with TDMA probes."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import argparse
 import json
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +25,10 @@ from tdma_start_ring import (  # noqa: E402
     status,
     train,
     wait_started,
+)
+from calibration_ring_validate.calibration_timeout_config import (  # noqa: E402
+    DEFAULT_ACTION_TIMEOUT_S,
+    DEFAULT_TOPOLOGY_PAIR_WAIT_S,
 )
 
 
@@ -43,14 +48,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train-chunk-cycles", type=int, default=0,
                         help=("split clock training into bounded chunks; "
                               "0 sends one command"))
-    parser.add_argument("--pair-wait", type=float, default=1.5)
+    parser.add_argument("--pair-wait", type=float,
+                        default=DEFAULT_TOPOLOGY_PAIR_WAIT_S)
     parser.add_argument("--poll-interval", type=float, default=0.01,
                         help="counter polling interval while waiting for activity")
     parser.add_argument("--min-rx-frames", type=int, default=10)
     parser.add_argument("--min-rx-words", type=int, default=8)
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
-    parser.add_argument("--action-timeout", type=float, default=0.25,
+    parser.add_argument("--action-timeout", type=float,
+                        default=DEFAULT_ACTION_TIMEOUT_S,
                         help="bounded wait for action acknowledgements")
     parser.add_argument("--settle", type=float, default=0.2)
     parser.add_argument("--arm-wait", type=float, default=3.0)
@@ -107,6 +114,22 @@ def wait_pair_activity(receiver, before: dict, args: argparse.Namespace
         if remaining <= 0:
             return last, time.monotonic() - started
         time.sleep(min(args.poll_interval, remaining))
+
+
+def parallel_commands(commands: list[tuple[object, str]],
+                      args: argparse.Namespace) -> list[str]:
+    """Issue independent board actions concurrently and preserve failures."""
+    with ThreadPoolExecutor(max_workers=len(commands)) as pool:
+        futures = [pool.submit(board_command, board, text, args)
+                   for board, text in commands]
+        return [future.result() for future in futures]
+
+
+def parallel_wait_started(boards: list[object],
+                          args: argparse.Namespace) -> list[dict[str, int]]:
+    with ThreadPoolExecutor(max_workers=len(boards)) as pool:
+        futures = [pool.submit(wait_started, board, args) for board in boards]
+        return [future.result() for future in futures]
 
 
 def counter_delta(before: int, after: int) -> int:
@@ -226,26 +249,31 @@ def main() -> int:
             for receiver_id in board_ids:
                 if receiver_id == driver_id:
                     continue
-                for address in board_ids:
-                    _ = board_command(
-                        boards[address], "SYSTem:TDMA:RING:STOP", args)
+                parallel_commands([
+                    (boards[address], "SYSTem:TDMA:RING:STOP")
+                    for address in board_ids
+                ], args)
 
                 driver = boards[driver_id]
                 receiver = boards[receiver_id]
-                _ = board_command(
-                    driver, "SYSTem:TDMA:RING:TOPology 2,0,0", args)
-                _ = board_command(
-                    receiver, "SYSTem:TDMA:RING:TOPology 2,1,0", args)
-                for board in (receiver, driver):
-                    _ = board_command(board, "SYSTem:TDMA:RING:ARM", args)
-                    _ = wait_started(board, args)
+                parallel_commands([
+                    (driver, "SYSTem:TDMA:RING:TOPology 2,0,0"),
+                    (receiver, "SYSTem:TDMA:RING:TOPology 2,1,0"),
+                ], args)
+                parallel_commands([
+                    (receiver, "SYSTem:TDMA:RING:ARM"),
+                    (driver, "SYSTem:TDMA:RING:ARM"),
+                ], args)
+                parallel_wait_started([receiver, driver], args)
                 if not args.adjacency_only:
                     for board in (receiver, driver):
                         _ = train(board, args)
 
                 before = snapshot(receiver, args)
-                _ = board_command(receiver, "SYSTem:TDMA:RING:START", args)
-                _ = board_command(driver, "SYSTem:TDMA:RING:START", args)
+                parallel_commands([
+                    (receiver, "SYSTem:TDMA:RING:START"),
+                    (driver, "SYSTem:TDMA:RING:START"),
+                ], args)
                 after, activity_wait_s = wait_pair_activity(
                     receiver, before, args)
                 rx_before = before["tdma"]["ring_adapter_rx_count"]
@@ -286,14 +314,17 @@ def main() -> int:
                     "receiver_phys": after["phys"],
                 })
     finally:
-        for address in board_ids:
-            try:
-                _ = board_command(
-                    boards[address], "SYSTem:TDMA:RING:STOP", args)
-                _ = board_command(
-                    boards[address], "CALibration:TOPology:PROBe 0", args)
-            except Exception:  # pragma: no cover - best effort bench cleanup
-                pass
+        try:
+            parallel_commands([
+                (boards[address], "SYSTem:TDMA:RING:STOP")
+                for address in board_ids
+            ], args)
+            parallel_commands([
+                (boards[address], "CALibration:TOPology:PROBe 0")
+                for address in board_ids
+            ], args)
+        except Exception:  # pragma: no cover - best effort bench cleanup
+            pass
 
     anchor = args.anchor_id or board_ids[0]
     ring_order = render_ring_order(adjacency, anchor, len(board_ids))
@@ -339,6 +370,7 @@ def main() -> int:
                 })
                 passed = passed and readback_passed
     result = {
+        "display_name": "Pinout Cal",
         "measurement_domain": "calibration",
         "measurement_phase": "link_adjacency_and_ring_topology",
         "operating_level": args.level,

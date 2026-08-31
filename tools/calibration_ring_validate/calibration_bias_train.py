@@ -23,6 +23,7 @@ for tool_path in (ROOT / "tools", ROOT / "tools" / "tdma_ring_monitor",
 from tdma_start_ring import Board, board_command, discover  # noqa: E402
 from tdma_field_parse import PHYS_FIELDS  # noqa: E402
 from trn03_closed_loop import wait_runtime_stopped  # noqa: E402
+from calibration_timeout_config import DEFAULT_ACTION_TIMEOUT_S  # noqa: E402
 
 
 BIAS_SET_SCHEMA = "HAOFV_CALIBRATION_BIAS_SET_V1"
@@ -222,7 +223,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--arm-wait", type=float, default=5.0)
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
-    parser.add_argument("--action-timeout", type=float, default=0.25,
+    parser.add_argument("--action-timeout", type=float,
+                        default=DEFAULT_ACTION_TIMEOUT_S,
                         help="bounded wait for action acknowledgements")
     parser.add_argument("--settle", type=float, default=0.2)
     parser.add_argument("--short-open", action="store_true",

@@ -34,6 +34,9 @@ from tdma_start_ring import (  # noqa: E402
     status as ring_status,
     wait_started,
 )
+from calibration_ring_validate.calibration_timeout_config import (  # noqa: E402
+    DEFAULT_ACTION_TIMEOUT_S,
+)
 
 
 CODED_FIELDS = (
@@ -107,7 +110,8 @@ def parse_args() -> argparse.Namespace:
                               "gate in raw samples"))
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
-    parser.add_argument("--action-timeout", type=float, default=0.25,
+    parser.add_argument("--action-timeout", type=float,
+                        default=DEFAULT_ACTION_TIMEOUT_S,
                         help=("bounded wait for coded START/STOP payload; "
                               "guarded snapshot remains the acceptance gate"))
     parser.add_argument("--coded-timeout", type=float, default=5.0)

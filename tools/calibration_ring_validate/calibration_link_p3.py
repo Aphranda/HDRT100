@@ -32,6 +32,9 @@ from calibration_ring_validate.calibration_link_frequency_policy import (  # noq
     LIMITED_RX_FREQUENCY_MHZ,
     validation_frequency_ladder,
 )
+from calibration_ring_validate.calibration_timeout_config import (  # noqa: E402
+    DEFAULT_ACTION_TIMEOUT_S,
+)
 
 
 P3_FIELDS = (
@@ -83,7 +86,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--capture-words", type=int, default=256)
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=5.0)
-    parser.add_argument("--action-timeout", type=float, default=1.0,
+    parser.add_argument("--action-timeout", type=float,
+                        default=DEFAULT_ACTION_TIMEOUT_S,
                         help=("bounded wait for P3 action acknowledgement; "
                               "capture completion uses --capture-timeout"))
     parser.add_argument("--capture-timeout", type=float, default=3.0)

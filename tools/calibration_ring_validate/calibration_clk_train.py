@@ -30,6 +30,9 @@ from tdma_start_ring import (  # noqa: E402
     status as ring_status,
     wait_started,
 )
+from calibration_ring_validate.calibration_timeout_config import (  # noqa: E402
+    DEFAULT_ACTION_TIMEOUT_S,
+)
 
 
 TRAIN_FIELDS = (
@@ -73,7 +76,8 @@ def parse_args() -> argparse.Namespace:
                         help="quiet gap between training epochs")
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
-    parser.add_argument("--action-timeout", type=float, default=0.25,
+    parser.add_argument("--action-timeout", type=float,
+                        default=DEFAULT_ACTION_TIMEOUT_S,
                         help="bounded wait for action acknowledgements")
     parser.add_argument("--train-timeout", type=float, default=2.0)
     parser.add_argument("--settle", type=float, default=0.2)

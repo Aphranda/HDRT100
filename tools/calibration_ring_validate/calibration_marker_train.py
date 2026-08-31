@@ -37,6 +37,9 @@ from calibration_ring_validate.calibration_phase import (  # noqa: E402
     link_base_delay_ns,
     phase_delay_samples,
 )
+from calibration_ring_validate.calibration_timeout_config import (  # noqa: E402
+    DEFAULT_ACTION_TIMEOUT_S,
+)
 
 
 MARKER_FIELDS = (
@@ -366,7 +369,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--receiver-enable-max-ns", type=float)
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
-    parser.add_argument("--action-timeout", type=float, default=0.05)
+    parser.add_argument("--action-timeout", type=float,
+                        default=DEFAULT_ACTION_TIMEOUT_S)
     parser.add_argument("--marker-timeout", type=float, default=5.0)
     parser.add_argument("--settle", type=float, default=0.2)
     parser.add_argument("--arm-wait", type=float, default=3.0)

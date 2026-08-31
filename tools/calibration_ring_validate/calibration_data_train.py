@@ -38,6 +38,9 @@ from calibration_ring_validate.calibration_phase import (  # noqa: E402
 from calibration_ring_validate.calibration_clk_codebook_eval import (  # noqa: E402
     crc8_atm,
 )
+from calibration_ring_validate.calibration_timeout_config import (  # noqa: E402
+    DEFAULT_ACTION_TIMEOUT_S,
+)
 
 
 DATA_FIELDS = (
@@ -667,7 +670,8 @@ def parse_args() -> argparse.Namespace:
               "do not rewrite topology or operating profile"))
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
-    parser.add_argument("--action-timeout", type=float, default=0.1)
+    parser.add_argument("--action-timeout", type=float,
+                        default=DEFAULT_ACTION_TIMEOUT_S)
     parser.add_argument("--marker-timeout", type=float, default=5.0)
     parser.add_argument("--settle", type=float, default=0.2)
     parser.add_argument("--arm-wait", type=float, default=3.0)

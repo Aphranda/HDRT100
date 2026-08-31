@@ -28,6 +28,9 @@ if str(ROOT / "tools" / "tdma_ring_monitor") not in sys.path:
 from scpi_common.board_identity import parse_idn_response  # noqa: E402
 from scpi_common.scpi_serial import read_scpi_response  # noqa: E402
 from tdma_field_parse import FIELDS as TDMA_FIELDS, PHYS_FIELDS  # noqa: E402
+from calibration_ring_validate.calibration_timeout_config import (  # noqa: E402
+    DEFAULT_ACTION_TIMEOUT_S,
+)
 
 
 @dataclass(frozen=True)
@@ -83,7 +86,6 @@ class BoardConnection:
 
 
 _PERSISTENT_CONNECTIONS: dict[str, BoardConnection] = {}
-DEFAULT_ACTION_TIMEOUT_S = 0.25
 
 
 def close_persistent_connections() -> None:
@@ -114,7 +116,7 @@ def parse_args() -> argparse.Namespace:
                               "chunks; 0 sends one command"))
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
-    parser.add_argument("--action-timeout", type=float, default=0.25,
+    parser.add_argument("--action-timeout", type=float, default=DEFAULT_ACTION_TIMEOUT_S,
                         help="bounded wait for action acknowledgements")
     parser.add_argument("--settle", type=float, default=0.2)
     parser.add_argument("--arm-wait", type=float, default=3.0)
