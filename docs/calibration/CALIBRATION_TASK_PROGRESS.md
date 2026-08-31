@@ -20,12 +20,12 @@ Last updated: 2026-08-31
 - 构建：`out/build/phy-timing-module-20260831/`，`build_id=20260831042513`；
   715/715 目标、PIO 头、App/A/B、Boot、Flash link contract 和统一 OTA package
   均通过。
-- OTA：执行 `tools/ota_multi_update/ota_multi_update.py`，当前只枚举到四板
-  `0010071E65B5CB38`、`FB276192BEF9CCE1`、`2BD5090FE009FA2A`、
-  `A1E549202D18ED6A`；四块板的逐板 `ota_boot_commit/summary.json` 均为
-  `passed=true` 且读回目标 build。NO5 未枚举，故本记录不宣称五板 OTA；工具在
-  verbose 汇总打印阶段触发 Windows GBK `UnicodeEncodeError`，不影响设备端提交，
-  后续需修复主机输出编码并补可归档顶层 summary。
+- OTA：执行 `tools/ota_multi_update/ota_multi_update.py`，五板均已枚举并完成逐板
+  OTA。NO1--NO4 的物理环路板按唯一地址复查；NO5 为
+  `839E1AE79EA20F31`，当前 USB CDC 端口为 `COM10`。五块板的逐板
+  `ota_boot_commit/summary.json` 均为 `passed=true` 且读回目标 build。验收逻辑仍按
+  唯一地址动态发现端口，不把 `COM10` 固化为永久端口号；工具在 verbose 汇总打印阶段
+  触发 Windows GBK `UnicodeEncodeError`，不影响设备端提交，后续需修复主机输出编码。
 - 快速 P3：四板物理环序执行 `--diagnostic-frequency-only --frequency-mhz 10`
   和 `CLK_DATA`/`CS_DATA` 两组信号，共 24/24 trial 通过；RTT 约 176--184 ns，
   delay estimate 80--82 ns，频率误差 0%，占空比 50--54%，DMA overrun 和 PIO
@@ -39,8 +39,8 @@ Last updated: 2026-08-31
 - Host 验证：`tests/python/test_trn03_closed_loop.py`、
   `test_calibration_link_p3.py`、`test_calibration_p3_waveform.py` 共 107 passed，
   输出在 `out/pytest/phy-timing-module-20260831/`。
-- 下一步：NO5 恢复枚举后补五板 OTA；修复 OTA 工具 UTF-8 输出后再归档顶层 summary，
-  然后继续下一个 PHY `.inc` 功能块迁移并重复本验收。
+- 下一步：使用 `NO5/COM10` 完成五板 TDMA/DPLL 观测 gate；修复 OTA 工具 UTF-8 输出
+  后再归档顶层 summary，然后继续下一个 PHY `.inc` 功能块迁移并重复本验收。
 
 ## CAL-TASK-20260831-023 - 快速硬件验收与 P3 时间戳波形诊断
 

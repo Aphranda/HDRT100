@@ -19,15 +19,15 @@ Last updated: 2026-08-31
   Boot、Flash link contract 和统一 package 均生成，build `20260831042513`。
 - Host 回归：TRN-03/Calibration P3 定向 pytest 共 107 passed，输出位于
   `out/pytest/phy-timing-module-20260831/`。
-- 硬件：当前枚举到四板，逐板 OTA 后四板均读回 build `20260831042513`；NO5 未枚举，
-  不宣称五板验证。四板基础 10 MHz P3 的 24/24 trial 通过，RTT 176--184 ns、
+- 硬件：五板均已枚举，逐板 OTA 后均读回 build `20260831042513`；NO5 唯一地址
+  `839E1AE79EA20F31` 当前对应 `COM10`。四板基础 10 MHz P3 的 24/24 trial 通过，RTT 176--184 ns、
   delay estimate 80--82 ns、频率误差 0%、占空比 50--54%、DMA/PIO overrun/stall 为零。
   证据为 `out/hardware_acceptance/p3-basic-10mhz-phy-timing-20260831/summary.json`。
 - SD/波形边界：P3 当前只提供解码后的边沿时间戳，未导出原始 256-word SD capture；
   `calibration_p3_waveform.py --include-all --window-ns 1000` 已生成 24 份 1 us 诊断 SVG，
   位于 `out/analysis/p3-basic-10mhz-phy-timing-20260831-all/`，不作为实时路径输入。
 - 下一步：继续将剩余 `.inc` 按功能迁移为 `.c/.h`；每个设备端切片重复 build、pytest、
-  可用板 OTA 和基础 10 MHz 验收，NO5 恢复后补齐五板/TDMA/DPLL gate。
+  可用板 OTA 和基础 10 MHz 验收，并用 `NO5/COM10` 补齐五板 TDMA/DPLL gate。
 
 ### SM-PROGRESS-20260830-016 - origin FIFO/DMA 启动竞态修复与 raw-flight 复验
 
