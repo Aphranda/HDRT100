@@ -20,11 +20,11 @@ if str(ROOT / "tools" / "tdma_ring_monitor") not in sys.path:
 from tdma_start_ring import (  # noqa: E402
     board_command,
     discover,
+    snapshot,
     status,
     train,
     wait_started,
 )
-from tdma_frequency_sweep import snapshot  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -44,12 +44,18 @@ def parse_args() -> argparse.Namespace:
                         help=("split clock training into bounded chunks; "
                               "0 sends one command"))
     parser.add_argument("--pair-wait", type=float, default=1.5)
+    parser.add_argument("--poll-interval", type=float, default=0.01,
+                        help="counter polling interval while waiting for activity")
     parser.add_argument("--min-rx-frames", type=int, default=10)
     parser.add_argument("--min-rx-words", type=int, default=8)
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
+    parser.add_argument("--action-timeout", type=float, default=0.25,
+                        help="bounded wait for action acknowledgements")
     parser.add_argument("--settle", type=float, default=0.2)
     parser.add_argument("--arm-wait", type=float, default=3.0)
+    parser.add_argument("--short-open", action="store_true",
+                        help="open/close CDC for every command (diagnostic fallback)")
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--verbose", action="store_true",
                         help="print full snapshots; summary.json always keeps them")
@@ -70,6 +76,37 @@ def parse_args() -> argparse.Namespace:
                         help=("baseline PIO phase used only by step-1 line "
                               "probing; default 10 samples = 40 ns"))
     return parser.parse_args()
+
+
+def wait_pair_activity(receiver, before: dict, args: argparse.Namespace
+                       ) -> tuple[dict, float]:
+    """Return as soon as the receiver observes the directed probe.
+
+    ``pair_wait`` remains the bounded failure timeout.  Normal probes complete
+    after the first counters advance, avoiding a fixed host-side sleep.
+    """
+    started = time.monotonic()
+    deadline = started + args.pair_wait
+    last = before
+    while True:
+        last = snapshot(receiver, args)
+        rx_delta = counter_delta(
+            before["tdma"]["ring_adapter_rx_count"],
+            last["tdma"]["ring_adapter_rx_count"])
+        rx_words_delta = counter_delta(
+            before["phys"]["rx_dma_produced_words"],
+            last["phys"]["rx_dma_produced_words"])
+        rx_edges_delta = counter_delta(
+            before["phys"]["rx_edge_count"],
+            last["phys"]["rx_edge_count"])
+        if (rx_delta >= args.min_rx_frames or
+                rx_words_delta >= args.min_rx_words or
+                rx_edges_delta > 0):
+            return last, time.monotonic() - started
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return last, time.monotonic() - started
+        time.sleep(min(args.poll_interval, remaining))
 
 
 def counter_delta(before: int, after: int) -> int:
@@ -123,6 +160,7 @@ def compact_pair_results(pair_results: list[dict[str, object]]) -> list[dict[str
 
 def main() -> int:
     args = parse_args()
+    args.keep_open = not args.short_open if hasattr(args, "short_open") else True
     board_ids = list(args.board_id)
     if len(board_ids) < 2 or len(board_ids) > 8:
         raise SystemExit("board count must be in [2, 8]")
@@ -205,11 +243,11 @@ def main() -> int:
                     for board in (receiver, driver):
                         _ = train(board, args)
 
-                before = snapshot(receiver, args.timeout)
+                before = snapshot(receiver, args)
                 _ = board_command(receiver, "SYSTem:TDMA:RING:START", args)
                 _ = board_command(driver, "SYSTem:TDMA:RING:START", args)
-                time.sleep(args.pair_wait)
-                after = snapshot(receiver, args.timeout)
+                after, activity_wait_s = wait_pair_activity(
+                    receiver, before, args)
                 rx_before = before["tdma"]["ring_adapter_rx_count"]
                 rx_after = after["tdma"]["ring_adapter_rx_count"]
                 rx_delta = counter_delta(rx_before, rx_after)
@@ -242,6 +280,7 @@ def main() -> int:
                     "tx_delta": tx_delta,
                     "rx_words_delta": rx_words_delta,
                     "rx_edges_delta": rx_edges_delta,
+                    "activity_wait_s": activity_wait_s,
                     "magic_fail_delta": magic_fail_delta,
                     "receiver_status": after["tdma"],
                     "receiver_phys": after["phys"],

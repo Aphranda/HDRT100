@@ -69,13 +69,17 @@ def parse_args() -> argparse.Namespace:
                         help="bisect the final non-overlap/overlap bracket")
     parser.add_argument("--repeats", type=int, default=1,
                         help="repeat every pulse-count decision point")
-    parser.add_argument("--gap", type=float, default=0.2,
+    parser.add_argument("--gap", type=float, default=0.03,
                         help="quiet gap between training epochs")
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
+    parser.add_argument("--action-timeout", type=float, default=0.25,
+                        help="bounded wait for action acknowledgements")
     parser.add_argument("--train-timeout", type=float, default=2.0)
     parser.add_argument("--settle", type=float, default=0.2)
     parser.add_argument("--arm-wait", type=float, default=3.0)
+    parser.add_argument("--short-open", action="store_true",
+                        help="open/close CDC for every command (diagnostic fallback)")
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -339,6 +343,7 @@ def write_csv(path: Path,
 
 def main() -> int:
     args = parse_args()
+    args.keep_open = not args.short_open
     board_ids = list(args.board_id)
     if len(board_ids) < 2 or len(board_ids) > 8:
         raise SystemExit("board count must be in [2, 8]")

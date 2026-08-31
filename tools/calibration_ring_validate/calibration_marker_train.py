@@ -371,7 +371,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--settle", type=float, default=0.2)
     parser.add_argument("--arm-wait", type=float, default=3.0)
     parser.add_argument("--topology-retries", type=int, default=3)
-    parser.add_argument("--gap", type=float, default=0.2)
+    parser.add_argument("--gap", type=float, default=0.03)
+    parser.add_argument("--short-open", action="store_true",
+                        help="open/close CDC for every command (diagnostic fallback)")
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -1236,6 +1238,7 @@ def run_residence_matrix(args: argparse.Namespace) -> dict[str, object]:
 
 def main() -> int:
     args = parse_args()
+    args.keep_open = not args.short_open
     if args.board_id is not None:
         if args.residence_matrix and args.offset_matrix:
             raise SystemExit("residence-matrix and offset-matrix are exclusive")

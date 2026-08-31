@@ -672,7 +672,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--settle", type=float, default=0.2)
     parser.add_argument("--arm-wait", type=float, default=3.0)
     parser.add_argument("--topology-retries", type=int, default=3)
-    parser.add_argument("--gap", type=float, default=0.2)
+    parser.add_argument("--gap", type=float, default=0.03)
+    parser.add_argument("--short-open", action="store_true",
+                        help="open/close CDC for every command (diagnostic fallback)")
     parser.add_argument("--expected-build")
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--dry-run", action="store_true")
@@ -1291,6 +1293,7 @@ def run_repeat_matrix(args: argparse.Namespace) -> dict[str, object]:
 
 def main() -> int:
     args = parse_args()
+    args.keep_open = not args.short_open
     args.out_dir = args.out_dir or (
         ROOT / "out" / "training" /
         f"trn02_data_link{args.link_index}_"

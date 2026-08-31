@@ -27,7 +27,7 @@ if str(ROOT / "tools" / "tdma_ring_monitor") not in sys.path:
 
 from scpi_common.board_identity import parse_idn_response  # noqa: E402
 from scpi_common.scpi_serial import read_scpi_response  # noqa: E402
-from tdma_field_parse import FIELDS as TDMA_FIELDS  # noqa: E402
+from tdma_field_parse import FIELDS as TDMA_FIELDS, PHYS_FIELDS  # noqa: E402
 
 
 @dataclass(frozen=True)
@@ -45,6 +45,7 @@ class BoardConnection:
         self.board = board
         self.args = args
         self.ser: serial.Serial | None = None
+        self.identity_verified = False
 
     def open(self) -> "BoardConnection":
         if self.ser is not None:
@@ -62,6 +63,7 @@ class BoardConnection:
             raise RuntimeError(
                 f"{self.board.port}: identity changed to {identity.address}, "
                 f"expected {self.board.address}")
+        self.identity_verified = True
         return self
 
     def close(self) -> None:
@@ -72,20 +74,16 @@ class BoardConnection:
         finally:
             self.ser.close()
             self.ser = None
+            self.identity_verified = False
 
     def command(self, text: str) -> str:
         self.open()
         assert self.ser is not None
-        identity = parse_idn_response(
-            command(self.ser, "*IDN?", self.args.timeout))
-        if identity.address != self.board.address:
-            raise RuntimeError(
-                f"{self.board.port}: identity changed to {identity.address}, "
-                f"expected {self.board.address}")
         return _board_command_on_serial(self.board, text, self.args, self.ser)
 
 
 _PERSISTENT_CONNECTIONS: dict[str, BoardConnection] = {}
+DEFAULT_ACTION_TIMEOUT_S = 0.25
 
 
 def close_persistent_connections() -> None:
@@ -116,6 +114,8 @@ def parse_args() -> argparse.Namespace:
                               "chunks; 0 sends one command"))
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
+    parser.add_argument("--action-timeout", type=float, default=0.25,
+                        help="bounded wait for action acknowledgements")
     parser.add_argument("--settle", type=float, default=0.2)
     parser.add_argument("--arm-wait", type=float, default=3.0)
     parser.add_argument("--start-wait", type=float, default=2.0)
@@ -217,7 +217,9 @@ def _board_command_on_serial(board: Board, text: str,
         "SYSTEM:BOOT:RESET", "SYST:BOOT:RESET",
     }
     response = command(
-        ser, text, min(args.timeout, 1.0)
+        ser, text,
+        min(args.timeout, getattr(args, "action_timeout",
+                                  DEFAULT_ACTION_TIMEOUT_S))
         if action in ack_only_actions else args.timeout)
     if response == "<timeout>" and action in ack_only_actions:
         return "OK(no payload; verified by state readback)"
@@ -242,6 +244,21 @@ def board_command(board: Board, text: str, args: argparse.Namespace) -> str:
         return _board_command_on_serial(board, text, args, ser)
 
 
+def persistent_serial(board: Board, args: argparse.Namespace) -> serial.Serial:
+    """Return a validated persistent serial handle for multi-command tools.
+
+    The identity is checked once when the connection is opened.  Callers must
+    not close this handle; the process-wide connection registry owns it.
+    """
+    connection = _PERSISTENT_CONNECTIONS.get(board.address)
+    if connection is None:
+        connection = BoardConnection(board, args)
+        _PERSISTENT_CONNECTIONS[board.address] = connection
+    connection.open()
+    assert connection.ser is not None
+    return connection.ser
+
+
 def status(board: Board, args: argparse.Namespace) -> dict[str, int]:
     raw = board_command(board, "SYSTem:REFMEM:SYNC:TDMA:STATus?", args)
     if raw == "<timeout>":
@@ -263,6 +280,27 @@ def status(board: Board, args: argparse.Namespace) -> dict[str, int]:
             "ring_adapter_tx_count", "ring_adapter_rx_count",
             "ring_adapter_rx_bad_count")
     return {key: values[TDMA_FIELDS.index(key)] for key in keys}
+
+
+def snapshot(board: Board, args: argparse.Namespace) -> dict[str, dict[str, int]]:
+    """Read the TDMA and physical counters through the shared connection."""
+    tdma_raw = board_command(board, "SYSTem:REFMEM:SYNC:TDMA:STATus?", args)
+    phys_raw = board_command(board, "SYSTem:SYNC:VDC:TDMA:PHYS?", args)
+    try:
+        tdma_values = [int(value.strip().strip('"'), 0)
+                       for value in tdma_raw.split(",")]
+        phys_values = [int(value.strip().strip('"'), 0)
+                       for value in phys_raw.split(",")]
+    except ValueError as exc:
+        raise RuntimeError(
+            f"{board.address}: invalid counter snapshot: "
+            f"tdma={tdma_raw!r} phys={phys_raw!r}") from exc
+    return {
+        "tdma": {name: tdma_values[index] if index < len(tdma_values) else -1
+                 for index, name in enumerate(TDMA_FIELDS)},
+        "phys": {name: phys_values[index] if index < len(phys_values) else -1
+                 for index, name in enumerate(PHYS_FIELDS)},
+    }
 
 
 def wait_started(board: Board, args: argparse.Namespace) -> dict[str, int]:
@@ -290,64 +328,57 @@ def wait_started(board: Board, args: argparse.Namespace) -> dict[str, int]:
         f"physical={physical}")
 
 
-def train(board: Board, args: argparse.Namespace) -> dict[str, object]:
+def _train_on_serial(board: Board, args: argparse.Namespace,
+                     ser: serial.Serial) -> dict[str, object]:
     chunk_cycles = args.train_chunk_cycles or args.cycles
     remaining = args.cycles
     responses: list[str] = []
     completed_cycles = 0
-    with serial.Serial(board.port, args.baud, timeout=0.1,
-                       write_timeout=args.timeout) as ser:
-        time.sleep(args.settle)
-        identity = parse_idn_response(command(ser, "*IDN?", args.timeout))
-        if identity.address != board.address:
+    while remaining > 0:
+        current = min(chunk_cycles, remaining)
+        before_raw = command(
+            ser, "SYSTem:TDMA:RING:TRAIN:STATus?", args.timeout)
+        before = next(csv.reader([before_raw]), [])
+        if len(before) != 28 or before[0].strip().strip('"') != "CLKTRAIN":
             raise RuntimeError(
-                f"{board.port}: identity changed to {identity.address}, "
-                f"expected {board.address}")
-        while remaining > 0:
-            current = min(chunk_cycles, remaining)
-            before_raw = command(
+                f"{board.address}: invalid pre-TRAIN status {before_raw!r}")
+        previous_request_seq = int(before[5].strip().strip('"'), 0)
+        response = ""
+        for _ in range(3):
+            response = command(
+                ser, f"SYSTem:TDMA:RING:TRAIN {current}", args.timeout)
+            responses.append(response)
+            if response.strip().strip('"') == str(current):
+                break
+            time.sleep(0.05)
+        if response.strip().strip('"') != str(current):
+            raise RuntimeError(
+                f"{board.address}: TRAIN chunk {current} failed after "
+                f"{completed_cycles}/{args.cycles} cycles, response={response!r}")
+        deadline = time.monotonic() + args.timeout
+        train_snapshot: list[str] = []
+        while time.monotonic() < deadline:
+            train_raw = command(
                 ser, "SYSTem:TDMA:RING:TRAIN:STATus?", args.timeout)
-            before = next(csv.reader([before_raw]), [])
-            if len(before) != 28 or before[0].strip().strip('"') != "CLKTRAIN":
-                raise RuntimeError(
-                    f"{board.address}: invalid pre-TRAIN status {before_raw!r}")
-            previous_request_seq = int(before[5].strip().strip('"'), 0)
-            response = ""
-            for _ in range(3):
-                response = command(
-                    ser, f"SYSTem:TDMA:RING:TRAIN {current}", args.timeout)
-                responses.append(response)
-                if response.strip().strip('"') == str(current):
+            train_snapshot = next(csv.reader([train_raw]), [])
+            if (len(train_snapshot) == 28 and
+                    train_snapshot[0].strip().strip('"') == "CLKTRAIN"):
+                state = int(train_snapshot[2].strip().strip('"'), 0)
+                request_seq = int(
+                    train_snapshot[5].strip().strip('"'), 0)
+                if request_seq != previous_request_seq and state in (1, 3, 4):
+                    if state == 4:
+                        raise RuntimeError(
+                            f"{board.address}: TRAIN {current} entered ERROR: "
+                            f"{train_raw}")
                     break
-                time.sleep(0.05)
-            if response.strip().strip('"') != str(current):
-                raise RuntimeError(
-                    f"{board.address}: TRAIN chunk {current} failed after "
-                    f"{completed_cycles}/{args.cycles} cycles, response={response!r}")
-            deadline = time.monotonic() + args.timeout
-            train_snapshot: list[str] = []
-            while time.monotonic() < deadline:
-                train_raw = command(
-                    ser, "SYSTem:TDMA:RING:TRAIN:STATus?", args.timeout)
-                train_snapshot = next(csv.reader([train_raw]), [])
-                if (len(train_snapshot) == 28 and
-                        train_snapshot[0].strip().strip('"') == "CLKTRAIN"):
-                    state = int(train_snapshot[2].strip().strip('"'), 0)
-                    request_seq = int(
-                        train_snapshot[5].strip().strip('"'), 0)
-                    if request_seq != previous_request_seq and state in (1, 3, 4):
-                        if state == 4:
-                            raise RuntimeError(
-                                f"{board.address}: TRAIN {current} entered ERROR: "
-                                f"{train_raw}")
-                        break
-                time.sleep(0.02)
-            else:
-                raise RuntimeError(
-                    f"{board.address}: TRAIN {current} owner completion timeout, "
-                    f"last={train_snapshot}")
-            completed_cycles += current
-            remaining -= current
+            time.sleep(0.02)
+        else:
+            raise RuntimeError(
+                f"{board.address}: TRAIN {current} owner completion timeout, "
+                f"last={train_snapshot}")
+        completed_cycles += current
+        remaining -= current
     return {
         "requested_cycles": args.cycles,
         "chunk_cycles": chunk_cycles,
@@ -358,8 +389,23 @@ def train(board: Board, args: argparse.Namespace) -> dict[str, object]:
     }
 
 
+def train(board: Board, args: argparse.Namespace) -> dict[str, object]:
+    if getattr(args, "keep_open", False):
+        return _train_on_serial(board, args, persistent_serial(board, args))
+    with serial.Serial(board.port, args.baud, timeout=0.1,
+                       write_timeout=args.timeout) as ser:
+        time.sleep(args.settle)
+        identity = parse_idn_response(command(ser, "*IDN?", args.timeout))
+        if identity.address != board.address:
+            raise RuntimeError(
+                f"{board.port}: identity changed to {identity.address}, "
+                f"expected {board.address}")
+        return _train_on_serial(board, args, ser)
+
+
 def main() -> int:
     args = parse_args()
+    args.keep_open = not args.short_open
     try:
         board_ids = resolve_board_ids(args)
     except ValueError as exc:

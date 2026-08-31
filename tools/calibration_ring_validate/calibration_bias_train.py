@@ -222,7 +222,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--arm-wait", type=float, default=5.0)
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
+    parser.add_argument("--action-timeout", type=float, default=0.25,
+                        help="bounded wait for action acknowledgements")
     parser.add_argument("--settle", type=float, default=0.2)
+    parser.add_argument("--short-open", action="store_true",
+                        help="open/close CDC for every command (diagnostic fallback)")
     parser.add_argument("--save", action="store_true")
     parser.add_argument("--out-dir", type=Path, required=True)
     return parser.parse_args()
@@ -230,6 +234,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    args.keep_open = not args.short_open
     board_order = list(args.board_id)
     if not 2 <= len(board_order) <= 8 or len(set(board_order)) != len(board_order):
         raise SystemExit("board IDs must be 2..8 unique physical nodes")
