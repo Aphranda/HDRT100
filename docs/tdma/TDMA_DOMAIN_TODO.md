@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_TODO.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`
-Last updated: 2026-08-29
+Last updated: 2026-08-31
 
 本文档维护 TDMA foundation 的独立待办。这里记录影响上/下行 TDMA、ring runtime、payload registry、adapter、completion、quality、HAOFV system node 和 HIL 验收的事项。
 
@@ -31,8 +31,8 @@ OTA/HIL 的任务不得标为 `DONE`；运行时临时剩余容量不得用于�
 
 ## 当前主线
 
-先完成拍级确定性 schedule 和 mandatory-first SHORT process image，再以 NO1–NO4 四板环路和
-NO5 环外观测冻结 WCET/波形基线；随后逐 phase 加载 DPLL/VDC、RefMem 与最小控制。任何负载回归都修复责任
+先完成拍级确定性 schedule 和 mandatory-first SHORT process image，再以 NO1–NO4 四板环路冻结
+TDMA WCET/波形基线；NO5 环外观测只属于后续 DPLL/VDC gate。任何负载回归都修复责任
 负载，不放宽 TDMA phase。短帧重传必须保持固定原 Node offset，并使用独立 recovery 预算，不能临时
 扩帧或借用 guard。
 
@@ -88,7 +88,7 @@ NO5 环外观测冻结 WCET/波形基线；随后逐 phase 加载 DPLL/VDC、Ref
 | TDMA-PAYLOAD-004 | 最小控制 token | IN PROGRESS | 固定 token 已预留；待 owner、opcode 与 completion 接入。 |
 | TDMA-PAYLOAD-005 | optional 静态余量准入门禁 | DONE | optional 只使用 mandatory 后余量，layout 不保留 runtime-free 字节。 |
 | TDMA-PAYLOAD-006 | 短帧基础诊断压缩与实时路径隔离 | IN PROGRESS | 短帧只保留 CRC/sequence/FIFO/bitmap/WKC/profile/deadline 基础摘要；SD、SVG、原始波形和详细归因不进入 Core1 或 recovery frame。 |
-| TDMA-HIL-001 | 四板 TDMA 环路 + NO5 环外观测的 WCET/频率/占空比/SD 波形基线 | PENDING | OTA 后原始波形、SVG、schedule snapshot 与零错误基线归档；NO5 不进入环路 bitmap/WKC。 |
+| TDMA-HIL-001 | 四板 TDMA 环路的 WCET/频率/占空比/SD 波形基线 | PENDING | 四板 OTA 后原始波形、SVG、schedule snapshot 与零错误基线归档；不要求 NO5，NO5 不进入环路 bitmap/WKC。 |
 | TDMA-HIL-002 | 逐 phase 开载且 TDMA 零回归 | PENDING | 依次启用 VDC/DPLL/RefMem/control，TDMA deadline/error 不增加。 |
 | TDMA-DPLL-001 | PIO/DMA hardware latch correlation | IN PROGRESS | reference TX latch 已作为固定 process-image trailer 关联上一帧 sequence；仍需 active PATH_DELAY、四板同圈 eligible sample 和 wrap/失配 HIL。 |
 | TDMA-DPLL-002 | 节点 DPLL lock 与 VDC 发布 | IN PROGRESS | 四节点 TDMA 同时收发和参考反馈已实测；NO1..NO4 仍为 CHECKING，NO5 观测工具已固化，待 eligible sample 后验证指定间隔/同时触发。 |
@@ -96,7 +96,7 @@ NO5 环外观测冻结 WCET/波形基线；随后逐 phase 加载 DPLL/VDC、Ref
 | TDMA-DPLL-004 | 硬件 timestamp spine 与 SCK 独立校准 | PENDING | CS/SCK/DATA 的硬件 latch、4 ns 量化、sequence lag、wrap/失配拒绝和 SCK 独立 offset matrix 通过 host/C/HIL；软件时间戳不得进入 eligible evidence。 |
 | TDMA-DPLL-005 | DPLL eligible evidence parser/quality gate | PENDING | 只接受 hardware tick、分辨率门禁、active matrix identity 匹配且 sequence 连续的样本；invalid/out-of-order/duplicate/diagnostic-only 样本只增加 quality 计数，不推进 LOCKED。 |
 | TDMA-DPLL-006 | 最小 DPLL servo 与 VDC compact publish | PENDING | 仅在 DPLL/VDC phase 执行锁相所需 servo、path-delay compensation、lock/holdover 和 compact phase/rate/quality 发布；WCET 和 TDMA 错误计数无回归。 |
-| TDMA-HIL-003 | 四节点闭环与 NO5 观测验收 | PENDING | NO1..NO4 同圈短帧稳定，NO5 只读观测指定间隔/同时触发，VDC 接收 compact output，DPLL lock evidence 可追溯；波形诊断不侵入实时 phase。 |
+| TDMA-HIL-003 | 四节点闭环与 NO5 观测验收 | PENDING | 先以四节点短帧稳定作为 TDMA gate；随后 NO5 只读观测指定间隔/同时触发，VDC 接收 compact output，DPLL lock evidence 可追溯；波形诊断不侵入实时 phase。 |
 | TDMA-DPLL-007 | DPLL 故障注入、holdover、relock 与长稳 | PENDING | 单链路错误、timestamp invalid、matrix generation 变化和 recovery 注入均 fail-closed；恢复后重新取得 eligible 样本并锁相，长稳无 TDMA 时序回归。 |
 | TDMA-DPLL-008 | DPLL residual SD 原始证据与离线 SVG | IN PROGRESS | `vdc_dpll_manager_dpll_capture_*` 只在 SRAM 固定追加；STOP 后由 Core0/StorageAO 写 SD，主机下载并经 decoder/analyzer 生成逐节点曲线；不得进入 TDMA/Core1 实时负载，待四板/NO5 OTA/HIL 复验。 |
 | TDMA-REL-001 | ACK/fence/retry 和长期稳定性策略 | PENDING | 原始错误率先收敛，再以有界重发/修复完成 EtherCAT-style 验收。 |
@@ -125,6 +125,8 @@ DPLL/诊断结果掩盖前一阶段 TDMA 或校准失败。
 - 多板验证使用 `tools/ota_multi_update/ota_multi_update.py`，所有参与板必须运行同一 package 后才允许 START。
 - TDMA 基线使用 `tools/tdma_ring_monitor/tdma_start_ring.py`；DPLL/NO5 只读观测使用
   `tools/dpll_vdc_monitor/dpll_vdc_monitor.py`。
+- 硬件验收编排器支持 `p3_hardware_acceptance.py run --tdma-only`，用于只验证四板
+  TDMA；默认 `run` 才把 NO5 加入 OTA 后的 DPLL 观测 gate。
 - 原始波形采集和离线比较使用 `tools/calibration_ring_validate/trn03_waveform.py`，不得把
   SVG/SD 分析挂到 Core1 TDMA 或 calibration realtime phase。
 - 每个阶段完成后更新本文件状态和 `TDMA_TASK_PROGRESS.md` 证据；代码/文档分离提交，重大代码变更

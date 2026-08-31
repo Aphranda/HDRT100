@@ -20,8 +20,9 @@ RTOS 侧按 DPLL 基础件到闭环的顺序提供执行容器和门禁，不把
 
 `P0 静态资源 → P1 TDMA 基线 → P2 active 校准矩阵 → P3 硬件 timestamp → P4 eligible gate → P5 最小 SyncDpllFB → P6 VdcVector/NO5 → P7 故障注入与长稳`。
 
-当前发布状态：`ACTIVE`。P0 构建、链接余量和 host pytest 已通过；板端 heap/stack、NO1–NO4
-四板 TDMA 基线和 NO5 只读观测尚未完成，因此不得进入 P2–P6 的正式硬件结论。
+当前发布状态：`ACTIVE`。P0 构建、链接余量和 host pytest 已通过；板端 heap/stack 和
+NO1–NO4 四板 TDMA 基线是 TDMA 前置门禁，NO5 只读观测仅是 P6 DPLL/VDC 门禁；两者
+分别记录，不得把缺少 NO5 的四板 TDMA 结果误标为 DPLL 完整结论。
 
 RTOS 执行约束：
 

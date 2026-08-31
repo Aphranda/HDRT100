@@ -37,7 +37,8 @@ phase、recovery 静态预算或 FreeRTOS heap；超限必须在构建或 Deploy
 | SM-M2 | board/profile/resource arbiter 迁移 | IN PROGRESS | PIO、SM、DMA、GPIO 和 persona 均由独立符号声明，冲突 fail-closed；flight PIO/SM claim 与 process-image ARM admission 已接入，DMA/GPIO 完整仲裁仍待完成。 |
 | SM-M3 | TX/RX 交叉方向 PIO 原语 | IN PROGRESS | flight origin/follower 已按 TX/RX PIO 装载方向原语；专用原语完整验证和 maintenance persona 边界仍待完成。 |
 | SM-M4 | follower forward/capture 双路径 | IN PROGRESS | 当前 flight follower 由 RX DATA SM 以 `push noblock` 同时完成 wire forward 与 RX 卸载，DMA 只消费该 FIFO；独立 sampler 不在运行态启用。仍需四板 process-image HIL 和诊断 capture 窗口验收。 |
-| SM-M5 | 四板 TDMA + NO5 观测验收 | PENDING | build、pytest、异步 OTA、四板 HIL、SD 原始波形和 NO5 只读 evidence 全通过；当前仍待板端执行。 |
+| SM-M5 | 四板 TDMA 验收 | PENDING | build、pytest、四板异步 OTA、TDMA HIL 和 SD 原始波形通过；不要求 NO5。 |
+| SM-M6 | NO5 DPLL/VDC 观测验收 | PENDING | 在 SM-M5 通过后，NO5 只读 evidence、DPLL lock 和 VDC readback 全通过；NO5 不进入 TDMA ring。 |
 
 ## 当前任务表
 
@@ -51,7 +52,7 @@ phase、recovery 静态预算或 FreeRTOS heap；超限必须在构建或 Deploy
 | SM-RES-009 | 固化独立 flight RX unload / TX load 控制 | IN PROGRESS | `tdma_flight_engine_unload_rx()` 只生成 RX 位图并在 descriptor 入队后提交，`tdma_flight_engine_load_tx()` 只覆盖 TX segment；两方向可在同一 phase 并行且互不阻塞，需补四板 process-image 回归证据。 |
 | SM-RES-006 | 迁移 arm/disarm、snapshot、RTT 和 DPLL evidence | IN PROGRESS | flight ARM/STOP、snapshot、RTT、SCK capture、clock-latch recovery、process-image persona admission 和 calibration persona 切换已按方向字段迁移；旧复合 maintenance 路径和完整硬件证据回归仍待完成。 |
 | SM-RES-007 | 增加静态回归测试与资源冲突负测试 | IN PROGRESS | 已覆盖 PIO 指令方向、CLK/SYNC 与 DATA 语义绑定、SM/DMA 唯一性、forward/unload FIFO、capture patch、calibration directional unload 和 flight resource mask；DREQ/GPIO/persona epoch 的运行时负测试仍待完成。 |
-| SM-RES-008 | 工具构建及四板/NO5 闭环验证 | IN PROGRESS | `out/` 构建与 host pytest 已通过；仍需同包异步 OTA、四板 process-image active、SD 波形、NO5 hardware-latch evidence、DPLL `LOCKED` 与 VDC vector readback。 |
+| SM-RES-008 | 工具构建及四板闭环验证 | IN PROGRESS | `out/` 构建与 host pytest 已通过；仍需同包四板异步 OTA、四板 process-image active 和 SD 波形；NO5 hardware-latch、DPLL `LOCKED` 与 VDC vector readback 由 SM-M6 单独验收。 |
 
 ## 当前阻塞项
 
@@ -64,6 +65,7 @@ phase、recovery 静态预算或 FreeRTOS heap；超限必须在构建或 Deploy
 
 ## 统一完成定义
 
-一个任务只有同时满足 HAOFV owner 边界、静态资源契约、编译/pytest、同包异步 OTA、
-四板 TDMA HIL、NO5 只读观测、SD 原始波形证据和文档门禁，才可标记为 `DONE`。失败时
+TDMA 任务只有满足 HAOFV owner 边界、静态资源契约、编译/pytest、同包四板异步 OTA、
+四板 TDMA HIL、SD 原始波形证据和文档门禁，才可标记为 `DONE`；DPLL/VDC 任务另外
+需要 NO5 只读观测和对应 evidence。失败时
 保留证据并回退到最近一个已验证 persona，不以旧复合路径掩盖迁移缺口。

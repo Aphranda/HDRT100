@@ -4,9 +4,36 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_TASK_PROGRESS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
-Last updated: 2026-08-29
+Last updated: 2026-08-31
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
+
+### TDMA-PROGRESS-20260831-001 - 四节点 TDMA 与 NO5 观测门禁解耦
+
+- TODO task ID：`TDMA-HIL-001`、`TDMA-HIL-003`、`TDMA-DPLL-002`。
+- 变更：硬件验收编排器新增 `run --tdma-only` / `resume --tdma-only`。该范围使用
+  active profile 的 NO1--NO4 作为唯一 OTA、校准、训练和 TDMA 集合，生成独立的
+  `HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_TDMA_4NODE_V1`；不运行 NO5 DPLL 观测，也不将
+  四板通过结果宣称为 DPLL 完整通过。默认 `run` 仍执行五板 OTA 和 NO5 只读观测。
+- 验证：`test_p3_hardware_acceptance.py` 15 passed；TDMA/闭环/源码长度定向回归 101
+  passed；`docs_check --strict-names` 120 文件通过；`doc_regression_check` freshness、
+  registry、orphan 全通过（仅保留既有 contract ID 格式 WARN）。尚未因本次 host-only
+  编排器改动刷写固件或改变 TDMA 实时路径。
+- 下一步：NO5 已恢复后，先使用四板 TDMA-only gate 验证短帧稳定，再单独运行默认完整
+  gate 验证 NO5 DPLL/VDC observation；两份 receipt 分别归档。
+
+### TDMA-PROGRESS-20260831-002 - 验收动作时间探针与查询式等待
+
+- TODO task ID：`TDMA-HIL-001`、`TDMA-DET-003`。
+- 变更：验收编排器为每个子工具写入 `timing.json`，记录 UTC 起止时间、单调时钟耗时、
+  argv、返回码和状态。串口 action 命令统一使用 `action_timeout`；P0T 邻接探测在
+  START 后查询接收计数，达到门槛即结束，`topology_pair_wait_s` 仅作为失败上限。
+- 失败基线：本轮四板 TDMA-only resume 在训练前置阶段失败，但已记录 P0T 212231 ms、
+  粗 CLK 164235 ms、编码 MARK 566725 ms、P3 158974 ms；失败原因为后续 MARK 阶段
+  设备在 *IDN? 发现时暂时不可用，非 NO5 依赖。证据：
+  `out/hardware_acceptance/tdma-only-resume-20260831/timing.json`。
+- 验证：验收、拓扑和 TDMA 工具定向回归 31 passed；全量 pytest 562 passed、1 skipped。
+  本次仅修改 host 工具和配置，未刷写固件。
 
 ### TDMA-PROGRESS-20260829-001 - DPLL residual SD evidence capture
 

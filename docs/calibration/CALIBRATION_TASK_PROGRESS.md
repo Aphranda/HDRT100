@@ -39,8 +39,9 @@ Last updated: 2026-08-31
 - Host 验证：`tests/python/test_trn03_closed_loop.py`、
   `test_calibration_link_p3.py`、`test_calibration_p3_waveform.py` 共 107 passed，
   输出在 `out/pytest/phy-timing-module-20260831/`。
-- 下一步：使用 `NO5/COM10` 完成五板 TDMA/DPLL 观测 gate；修复 OTA 工具 UTF-8 输出
-  后再归档顶层 summary，然后继续下一个 PHY `.inc` 功能块迁移并重复本验收。
+- 下一步：先用 NO1--NO4 完成四板 TDMA gate；NO5/COM10 仅用于随后独立的 DPLL
+  观测 gate。修复 OTA 工具 UTF-8 输出后再归档顶层 summary，然后继续下一个 PHY
+  `.inc` 功能块迁移并重复本验收。
 
 ## CAL-TASK-20260831-023 - 快速硬件验收与 P3 时间戳波形诊断
 

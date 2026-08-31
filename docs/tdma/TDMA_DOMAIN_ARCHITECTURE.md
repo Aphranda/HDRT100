@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-08-28
+Last updated: 2026-08-31
 
 本文档定义 TDMA 在 HAOFV 下的基础件主域。TDMA 是分布式硬实时系统的确定性通讯骨架，负责在 core1/PIO/DMA 侧按窗口执行上行、下行、payload、timestamp 和 completion；VDC、RefMem、OTA、诊断等域只挂载 payload 或消费 evidence，不能拥有 TDMA 物理环路。
 
@@ -74,6 +74,11 @@ payload 的固定尾部。二者之和必须在编译期精确闭合 `TDMA_TRANS
 evidence，不参与 TDMA/RefMem 环路，不占 process-image Node mailbox，也不进入 WKC/Node bitmap。
 架构容量仍由 `TDMA_TRANSPORT_FRAME_MAX_SLOT_COUNT` 定义，后续增加 Node 必须重新通过 topology、
 wire budget、schedule CRC 和 DeploymentGate。
+
+TDMA 验收与 DPLL 观测是两个独立门禁。四节点 TDMA-only 验收只需要 active profile
+列出的环内 Node，可在 NO5 不可用时完成校准、训练、process-image 和 flight 闭环；完整
+DPLL/VDC 验收才额外要求 NO5 作为环外只读观测板。NO5 的接入或离线不得改变四节点
+TDMA 的帧型、节拍、位图、WKC 或实时预算。
 
 ## HAOFV 层级
 
