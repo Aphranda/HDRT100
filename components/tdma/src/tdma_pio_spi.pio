@@ -632,6 +632,18 @@ tdma_directional_clk_out_loop:
 
 #include "hardware/clocks.h"
 #include "hardware/pio_instructions.h"
+#include "tdma_pio_spi_phys.h"
+
+/* Staging and runtime carry the complete calibrated SCK target phase
+ * (base + Node offset). Only the PIO instruction encoder removes the fixed
+ * control-pipeline portion; the physical phase remains unchanged. */
+static inline uint32_t tdma_pio_spi_flight_sck_program_delay_cycles(
+    uint32_t target_phase_cycles)
+{
+    return target_phase_cycles >= TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES
+        ? target_phase_cycles - TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES
+        : 0u;
+}
 
 static inline float tdma_pio_spi_clkdiv_for_baud(uint32_t baud_hz)
 {
@@ -832,13 +844,15 @@ static inline void tdma_pio_spi_clk_oversample_program_init(PIO pio,
 }
 
 /* SCK and DATA are trained independently against the same incoming SCK edge.
- * Flight SCK keeps the established WAIT-delay encoding that preserves the
- * trained waveform duty cycle. DATA sampling follows that WAIT with a serial
- * NOP, so its residual excludes both the SCK phase and the NOP's own cycle. */
+ * The SCK target already includes the fixed WAIT/NOP pipeline. DATA sampling
+ * follows the encoded SCK delay with its own fixed two-cycle pipeline, so the
+ * residual is the difference between the two complete target phases. */
 static inline uint32_t tdma_pio_spi_flight_data_residual_delay_cycles(
     uint32_t sck_phase_delay_cycles, uint32_t data_phase_delay_cycles)
 {
-    return data_phase_delay_cycles - sck_phase_delay_cycles - 2u;
+    return data_phase_delay_cycles >= sck_phase_delay_cycles
+        ? data_phase_delay_cycles - sck_phase_delay_cycles
+        : 0u;
 }
 
 static inline void tdma_pio_spi_flight_data_follower_program_init(
@@ -955,15 +969,18 @@ static inline void tdma_pio_spi_flight_control_forward_program_init(
     uint tx_sck_pin, uint tx_csn_pin, uint32_t marker_phase_delay_cycles,
     uint32_t sck_phase_delay_cycles)
 {
+    const uint32_t sck_program_delay_cycles =
+        tdma_pio_spi_flight_sck_program_delay_cycles(
+            sck_phase_delay_cycles);
     pio->instr_mem[offset + 0u] =
         (uint16_t)(pio_encode_wait_gpio(false, rx_csn_pin) |
                    pio_encode_delay(marker_phase_delay_cycles));
     pio->instr_mem[offset + 3u] =
         (uint16_t)(pio_encode_wait_gpio(true, rx_sck_pin) |
-                   pio_encode_delay(sck_phase_delay_cycles));
+                   pio_encode_delay(sck_program_delay_cycles));
     pio->instr_mem[offset + 5u] =
         (uint16_t)(pio_encode_wait_gpio(false, rx_sck_pin) |
-                   pio_encode_delay(sck_phase_delay_cycles));
+                   pio_encode_delay(sck_program_delay_cycles));
     pio->instr_mem[offset + 8u] =
         (uint16_t)(pio_encode_wait_gpio(true, rx_csn_pin) |
                    pio_encode_delay(marker_phase_delay_cycles));
@@ -1125,6 +1142,9 @@ static inline void tdma_pio_spi_flight_origin_data_tx_program_init(
     uint rx_csn_pin, uint rx_sck_pin, uint32_t sck_phase_delay_cycles,
     uint32_t data_phase_delay_cycles)
 {
+    const uint32_t sck_program_delay_cycles =
+        tdma_pio_spi_flight_sck_program_delay_cycles(
+            sck_phase_delay_cycles);
     enum {
         FLIGHT_ORIGIN_DATA_WAIT_CSN_HIGH_INSTRUCTION = 0u,
         FLIGHT_ORIGIN_DATA_WAIT_CSN_LOW_INSTRUCTION = 1u,
@@ -1149,7 +1169,7 @@ static inline void tdma_pio_spi_flight_origin_data_tx_program_init(
     pio->instr_mem[
         offset + FLIGHT_ORIGIN_DATA_WAIT_SCK_HIGH_INSTRUCTION] =
         (uint16_t)(pio_encode_wait_gpio(true, rx_sck_pin) |
-                   pio_encode_delay(sck_phase_delay_cycles));
+                   pio_encode_delay(sck_program_delay_cycles));
     pio->instr_mem[
         offset + FLIGHT_ORIGIN_DATA_PHASE_DELAY_INSTRUCTION] =
         (uint16_t)(pio_encode_nop() |

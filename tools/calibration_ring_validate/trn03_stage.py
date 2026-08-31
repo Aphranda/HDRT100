@@ -118,6 +118,9 @@ LINK_QUERY_FIELDS = (
 )
 REQUIRED_EVIDENCE_FLAGS = 0x1F
 DIAGNOSTIC_ONLY_FLAG = 1 << 31
+# The SCK phase field is the complete calibrated edge-to-edge target.  The
+# fixed PIO pipeline is consumed only when encoding the instruction; it is
+# not an additional physical delay or half-period guard.
 FLIGHT_SCK_REARM_SAMPLES = 2
 FLIGHT_DATA_REARM_SAMPLES = 5
 FLIGHT_REFERENCE_NODE = 0
@@ -143,8 +146,11 @@ def sck_replay_phase_margin(*, phase_delay_cycles: int, baud_hz: int,
     half_period_samples = period_samples // 2
     if period_samples == 0 or half_period_samples == 0:
         return -1
-    return (half_period_samples - phase_delay_cycles -
-            FLIGHT_SCK_REARM_SAMPLES)
+    # Keep the fixed pipeline check at the encoder boundary.  Subtracting it
+    # from this margin would count the same cycles twice.
+    if phase_delay_cycles < FLIGHT_SCK_REARM_SAMPLES:
+        return -1
+    return half_period_samples - phase_delay_cycles
 
 
 def sck_replay_phase_is_safe(*, phase_delay_cycles: int, baud_hz: int,

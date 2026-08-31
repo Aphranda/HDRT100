@@ -176,7 +176,7 @@ def test_load_config_keeps_data_phase_independent_from_sck(
 def test_load_config_rejects_sck_phase_that_cannot_rearm(tmp_path: Path) -> None:
     value = matrix()
     value["offset_matrix"]["rows"][0][
-        "sck_offset_sample_counts_by_node"] = [1, 1, 1, 1]
+        "sck_offset_sample_counts_by_node"] = [10, 10, 10, 10]
     with pytest.raises(ValueError, match="SCK replay phase cannot re-arm"):
         load_config(write_matrix(tmp_path, value))
 

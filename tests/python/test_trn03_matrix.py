@@ -213,11 +213,10 @@ def test_build_matrix_retimes_unsafe_observed_sck_row() -> None:
     matrix = build_matrix(7, data, residence, sck=sck)
     selection = matrix["derivation"]["sck_replay_selection"]
     assert selection["requested_offset_sample_counts_by_node"] == [1, 1, 1, 1]
-    assert selection["selected_offset_sample_counts_by_node"] == [1, 0, 0, 0]
-    assert selection["requested_row_replay_safe"] is False
-    assert selection["selection_reason"] == (
-        "observed_row_retimed_to_replay_safe_candidate")
-    assert matrix["offset_matrix"]["active_row_id"] == 0
+    assert selection["selected_offset_sample_counts_by_node"] == [1, 1, 1, 1]
+    assert selection["requested_row_replay_safe"] is True
+    assert selection["selection_reason"] == "observed_row_replay_safe"
+    assert matrix["offset_matrix"]["active_row_id"] == 7
     assert matrix["offset_matrix"]["full_matrix_row_count"] == 8
 
 
@@ -312,8 +311,11 @@ def test_sck_rearm_boundary_uses_raw_sample_grid() -> None:
     assert sck_replay_phase_is_safe(
         phase_delay_cycles=10, baud_hz=10_000_000,
         sample_period_ns=4, destination_node=1)
-    assert not sck_replay_phase_is_safe(
+    assert sck_replay_phase_is_safe(
         phase_delay_cycles=11, baud_hz=10_000_000,
+        sample_period_ns=4, destination_node=1)
+    assert not sck_replay_phase_is_safe(
+        phase_delay_cycles=1, baud_hz=10_000_000,
         sample_period_ns=4, destination_node=1)
     assert sck_replay_phase_is_safe(
         phase_delay_cycles=11, baud_hz=10_000_000,

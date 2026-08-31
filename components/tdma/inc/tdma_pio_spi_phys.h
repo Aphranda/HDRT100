@@ -66,9 +66,11 @@ typedef enum {
 #define TDMA_PIO_SPI_FLIGHT_SCK_SAMPLE_PERIOD_NS 4u
 #define TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_TIMEOUT_US 100000u
 #define TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_CHUNK_BYTES 4u
-/* Continuous flight followers must return to their next edge WAIT before the
- * source toggles again. These counts include the post-delay PIO instructions
- * visible in tdma_pio_spi_flight_control_forward/process_follower. */
+/* The SCK control SM has two fixed instructions around each delayed WAIT.
+ * Runtime/staging store the complete calibrated target phase; the PIO patch
+ * subtracts this count when encoding the delay field. It is not an extra
+ * physical delay or half-period guard. DATA keeps a separate replay budget
+ * because its follower path has a different fixed instruction sequence. */
 #define TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES 2u
 #define TDMA_PIO_SPI_FLIGHT_DATA_REARM_CYCLES 5u
 #define TDMA_PIO_SPI_TX_DMA_CHANNEL \
