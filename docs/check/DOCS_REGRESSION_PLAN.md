@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_REGRESSION_PLAN.md`
 Related: `docs/check/DOCS_REGISTRY.md`, `docs/check/DOCS_REGRESSION_TODO.md`
-Last updated: 2026-08-27
+Last updated: 2026-08-31
 
 > 本文件由工作区 `doc-skill/方案_文档自回归体系.md` 归档而来；执行状态与最终调整见 `docs/check/DOCS_REGRESSION_TODO.md`。
 > 设计依据一句话：需求追溯矩阵思想（契约登记）+ docs-as-code 门禁（commit 拦截）。
@@ -403,12 +403,50 @@ def test_freshness_rejects_stale_top_doc(tmp_path: Path) -> None:
 
 ## §4 .githooks/pre-commit（完整内容）
 
+提交钩子按暂存区范围运行门禁：只包含 Python、C 或其他实现代码时跳过文档扫描，
+避免与文档无关的提交承担文档检查成本；涉及 docs/、文档检查器、hook 或
+AGENTS.md 时仍运行完整检查。设置 FORCE_DOC_GATES=1 可在任意提交上强制运行。
+
 ```bash
 #!/bin/sh
-# Doc self-regression gate: block commit when docs drift.
+# Run documentation self-regression only for commits that can affect it.
 set -e
 cd "$(git rev-parse --show-toplevel)" || exit 1
 
+needs_docs=0
+while IFS= read -r path; do
+    case "$path" in
+        docs/*)
+            needs_docs=1
+            break
+            ;;
+        tools/docs_check/*)
+            needs_docs=1
+            break
+            ;;
+        tools/doc_regression_check.py)
+            needs_docs=1
+            break
+            ;;
+        .githooks/*)
+            needs_docs=1
+            break
+            ;;
+        AGENTS.md)
+            needs_docs=1
+            break
+            ;;
+    esac
+done <<EOF
+$(git diff --cached --name-only)
+EOF
+
+if [ "$needs_docs" -eq 0 ] && [ "${FORCE_DOC_GATES:-0}" != "1" ]; then
+    echo "[pre-commit] docs gates skipped (no documentation-scope changes)"
+    exit 0
+fi
+
+echo "[pre-commit] docs_check..."
 python tools/docs_check/docs_check.py --strict-names || {
     echo "docs_check FAILED - fix docs before committing"
     exit 1

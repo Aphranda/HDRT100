@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION / TDMA Clock Training
 Canonical: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`
 Related: `docs/calibration/README.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-08-27
+Last updated: 2026-08-31
 
 本文档是校准域维护的多板 TDMA SPI CLK 训练事实源。校准域拥有 CLK/DATA/SYNC
 物理测量、双向时间传递、residence、endpoint bias、path-delay candidate、统计质量、
@@ -32,7 +32,7 @@ CLK 往返粗捕获；第二阶段规划使用编码 marker、PIO 过采样和�
 
 | 前置阶段 | 已具备能力 | 仍然缺失的 active 门禁 |
 |---|---|---|
-| P0T/P0 | host 按唯一板卡 ID 建立有向环序；PIO/DMA/core1 发布 guarded raw evidence | 板内 topology transaction snapshot、分布式 ACK/commit 和完整 stale 传播 |
+| Pinout Cal (P0T)/P0 | host 按唯一板卡 ID 建立有向环序；PIO/DMA/core1 发布 guarded raw evidence | 板内 topology transaction snapshot、分布式 ACK/commit 和完整 stale 传播 |
 | P1/P2 | CLK bracket、coded persona、硬件 capture origin、相关结果和四板诊断 HIL | 单指令协调、冻结重复统计和非 `DIAGNOSTIC_ONLY` 接受门禁 |
 | P3 | 逐 link `t1..t4`、residence/path-sum、路径 snapshot CRC/generation/freshness 和 candidate/active/rollback owner | 每板同 persona 的 endpoint-bias generation、fresh P3 完整证据、受控 candidate 导入与四板激活/持久化/VDC HIL |
 

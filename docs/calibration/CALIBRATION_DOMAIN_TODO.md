@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/calibration/CALIBRATION_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-08-28
+Last updated: 2026-08-31
 
 本文档把 [`CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`](CALIBRATION_TDMA_CLK_TRAINING_PLAN.md) 和
 [`CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`](CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md)
@@ -39,7 +39,7 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 
 | 阶段 | 目标 | 状态 | 进入下一阶段的门禁 |
 |---|---|---|---|
-| P0T | 线序、邻接矩阵和环路顺序校准 | `IN PROGRESS` | accepted topology snapshot、node map、generation 和 freshness 可重放 |
+| Pinout Cal (P0T) | 线序、邻接矩阵和环路顺序校准 | `IN PROGRESS` | accepted topology snapshot、node map、generation 和 freshness 可重放 |
 | P0 | 硬件 latch、证据 transport 和 owner 边界 | `IN PROGRESS` | `t1..t4` evidence 可关联，active/staging/rollback owner 完整 |
 | P1 | CLK RTT 粗捕获收尾 | `IN PROGRESS` | diagnostic bracket、拒绝分类和 P2 有界搜索输入完整 |
 | P2 | 编码 marker、过采样和相关测距 | `IN PROGRESS` | coded RTT 重复性、跨 Node 一致性和故障矩阵通过 |
@@ -59,7 +59,7 @@ generation 或 active calibration gate。对应构建、OTA 和 schedule 证据�
 
 ```text
 产品发布主线：
-P0T topology + P0 evidence owner
+Pinout Cal (P0T) topology + P0 evidence owner
   -> P1 coarse bracket -> P2 coded RTT -> P3 path/bias candidate
        -> TRN-01 MARK -> TRN-02 DATA/SCK -> TRN-03A/B short frame
             -> TRN-03C active candidate -> TRN-03D fault/soak -> P4-REL VDC/DPLL
@@ -213,7 +213,7 @@ TRN-01A..D
 在 `TRN-01D` 通过前不得开始 DATA 时隙收敛；在 `TRN-02D` 通过前不得 ARM 四板 TDMA；
 在 `TRN-03C` 通过前不得向 VDC/DPLL 发布 active calibration。
 
-## 三、P0T 线序与环路顺序校准
+## 三、Pinout Cal（P0T）线序与环路顺序校准
 
 | ID | 任务 | 状态 | 完成/退出门禁 |
 |---|---|---|---|

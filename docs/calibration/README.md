@@ -4,14 +4,14 @@ Status: Draft
 Domain: CALIBRATION
 Canonical: `docs/calibration/README.md`
 Related: `docs/README.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/calibration/CALIBRATION_RING_AUTOCALIBRATION_PLAN.md`, `docs/interface/SCPI_COMMAND_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-08-27
+Last updated: 2026-08-31
 
 本目录是 CAL link、物理 topology、delay、校准参数、active/staging、版本和质量管理的
 目标入口。有向线序/邻接矩阵、环路顺序、node map、训练物理测量与接受门禁属于本域；
 TDMA 只承载隔离 probe/训练 persona 和实时资源编排。
 
 阅读和实施顺序固定为：先以 `CALIBRATION_TDMA_CLK_TRAINING_PLAN.md` 和
-`CALIBRATION_RING_AUTOCALIBRATION_PLAN.md` 建立 P0T/P0/P1/P2/P3 的 topology、hardware
+`CALIBRATION_RING_AUTOCALIBRATION_PLAN.md` 建立 Pinout Cal (P0T)/P0/P1/P2/P3 的 topology、hardware
 latch、endpoint bias、path-delay 和 generation/freshness 前置条件；再执行
 `CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md` 的 TRN-01/02/03。TRN-03B 短帧回环通过只证明
 TDMA transport/process-image 闭环，不会替代 P3 endpoint-bias 或自动形成 active

@@ -1,7 +1,40 @@
 #!/bin/sh
-# Doc self-regression gate: block commit when docs drift.
+# Run documentation self-regression only for commits that can affect it.
 set -e
 cd "$(git rev-parse --show-toplevel)" || exit 1
+
+needs_docs=0
+while IFS= read -r path; do
+    case "$path" in
+        docs/*)
+            needs_docs=1
+            break
+            ;;
+        tools/docs_check/*)
+            needs_docs=1
+            break
+            ;;
+        tools/doc_regression_check.py)
+            needs_docs=1
+            break
+            ;;
+        .githooks/*)
+            needs_docs=1
+            break
+            ;;
+        AGENTS.md)
+            needs_docs=1
+            break
+            ;;
+    esac
+done <<EOF
+$(git diff --cached --name-only)
+EOF
+
+if [ "$needs_docs" -eq 0 ] && [ "${FORCE_DOC_GATES:-0}" != "1" ]; then
+    echo "[pre-commit] docs gates skipped (no documentation-scope changes)"
+    exit 0
+fi
 
 echo "[pre-commit] docs_check..."
 python tools/docs_check/docs_check.py --strict-names || {
