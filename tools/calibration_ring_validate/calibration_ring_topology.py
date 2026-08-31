@@ -7,6 +7,7 @@ import argparse
 import json
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -26,6 +27,11 @@ from tdma_start_ring import (  # noqa: E402
     wait_started,
 )
 from tdma_frequency_sweep import snapshot  # noqa: E402
+from calibration_ring_validate.calibration_timeout_config import (  # noqa: E402
+    DEFAULT_ACTION_TIMEOUT_S,
+    DEFAULT_PHASE_GAP_S,
+    DEFAULT_SERIAL_SETTLE_S,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -49,10 +55,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-rx-words", type=int, default=8)
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
-    parser.add_argument("--action-timeout", type=float, default=0.5,
+    parser.add_argument("--action-timeout", type=float,
+                        default=DEFAULT_ACTION_TIMEOUT_S,
                         help="maximum wait for an action ACK before readback")
-    parser.add_argument("--settle", type=float, default=0.2)
-    parser.add_argument("--gap", type=float, default=0.1,
+    parser.add_argument("--settle", type=float, default=DEFAULT_SERIAL_SETTLE_S)
+    parser.add_argument("--gap", type=float, default=DEFAULT_PHASE_GAP_S,
                         help="bounded Core0/Core1 handoff gap between actions")
     parser.add_argument("--arm-wait", type=float, default=3.0)
     parser.add_argument("--out-dir", type=Path)
@@ -73,7 +80,9 @@ def parse_args() -> argparse.Namespace:
                               "TDMA frames only; do not issue clock TRAIN"))
     parser.add_argument("--probe-phase-cycles", type=int, default=10,
                         help=("baseline PIO phase used only by step-1 line "
-                              "probing; default 10 samples = 40 ns"))
+                        "probing; default 10 samples = 40 ns"))
+    parser.add_argument("--short-open", action="store_true",
+                        help="open/close CDC for every command (diagnostic fallback)")
     return parser.parse_args()
 
 
@@ -150,6 +159,7 @@ def compact_pair_results(pair_results: list[dict[str, object]]) -> list[dict[str
 
 def main() -> int:
     args = parse_args()
+    args.keep_open = not args.short_open
     board_ids = list(args.board_id)
     if len(board_ids) < 2 or len(board_ids) > 8:
         raise SystemExit("board count must be in [2, 8]")
@@ -182,8 +192,7 @@ def main() -> int:
         if wrong:
             raise SystemExit(f"build mismatch: {wrong}")
 
-    profile_apply: list[dict[str, object]] = []
-    for address in board_ids:
+    def apply_profile(address: str) -> dict[str, object]:
         board = boards[address]
         _ = board_command(board, "SYSTem:TDMA:RING:STOP", args)
         stage_response = board_command(
@@ -196,7 +205,7 @@ def main() -> int:
         active_response = board_command(
             board, "SYSTem:TDMA:OPMode?", args)
         active_level = int(active_response.split(",", 1)[0].strip().strip('"'), 0)
-        profile_apply.append({
+        return {
             "address": address,
             "requested_level": args.level,
             "active_level": active_level,
@@ -204,7 +213,10 @@ def main() -> int:
             "apply_response": apply_response,
             "probe_response": probe_response,
             "passed": active_level == args.level,
-        })
+        }
+
+    with ThreadPoolExecutor(max_workers=len(board_ids)) as executor:
+        profile_apply = list(executor.map(apply_profile, board_ids))
     if not all(item["passed"] for item in profile_apply):
         raise RuntimeError(f"Calibration profile apply failed: {profile_apply}")
 
@@ -214,24 +226,29 @@ def main() -> int:
         # P0T uses temporary two-node topologies. Clear any persisted formal
         # training stage once before the matrix scan; later pairs do not add a
         # stage, so repeating this action only adds serial timeout latency.
-        for address in board_ids:
-            _ = board_command(
-                boards[address], "CALibration:TRAINing:STAGe:CLEar", args)
+        with ThreadPoolExecutor(max_workers=len(board_ids)) as executor:
+            list(executor.map(
+                lambda address: board_command(
+                    boards[address], "CALibration:TRAINing:STAGe:CLEar", args),
+                board_ids))
         for driver_id in board_ids:
             for receiver_id in board_ids:
                 if receiver_id == driver_id:
                     continue
-                for address in board_ids:
-                    _ = board_command(
-                        boards[address], "SYSTem:TDMA:RING:STOP", args)
+                with ThreadPoolExecutor(max_workers=len(board_ids)) as executor:
+                    list(executor.map(
+                        lambda address: board_command(
+                            boards[address], "SYSTem:TDMA:RING:STOP", args),
+                        board_ids))
                 time.sleep(args.gap)
 
                 driver = boards[driver_id]
                 receiver = boards[receiver_id]
-                _ = board_command(
-                    driver, "SYSTem:TDMA:RING:TOPology 2,0,0", args)
-                _ = board_command(
-                    receiver, "SYSTem:TDMA:RING:TOPology 2,1,0", args)
+                with ThreadPoolExecutor(max_workers=2) as executor:
+                    list(executor.map(
+                        lambda item: board_command(item[0], item[1], args),
+                        ((driver, "SYSTem:TDMA:RING:TOPology 2,0,0"),
+                         (receiver, "SYSTem:TDMA:RING:TOPology 2,1,0"))))
                 time.sleep(args.gap)
                 for board in (receiver, driver):
                     arm_pair_board(board, args)
@@ -314,7 +331,7 @@ def main() -> int:
                     "receiver_phys": after["phys"],
                 })
     finally:
-        for address in board_ids:
+        def cleanup(address: str) -> None:
             try:
                 _ = board_command(
                     boards[address], "SYSTem:TDMA:RING:STOP", args)
@@ -322,6 +339,8 @@ def main() -> int:
                     boards[address], "CALibration:TOPology:PROBe 0", args)
             except Exception:  # pragma: no cover - best effort bench cleanup
                 pass
+        with ThreadPoolExecutor(max_workers=len(board_ids)) as executor:
+            list(executor.map(cleanup, board_ids))
         # The topology process is a phase boundary. Do not leave persistent
         # CDC handles alive for the next calibration subprocess.
         close_persistent_connections()
