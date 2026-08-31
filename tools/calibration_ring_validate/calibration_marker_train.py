@@ -15,6 +15,7 @@ import json
 import statistics
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -39,6 +40,11 @@ from calibration_ring_validate.calibration_phase import (  # noqa: E402
 )
 from calibration_ring_validate.calibration_load_guard import (  # noqa: E402
     CalibrationLoadGuard,
+)
+from calibration_ring_validate.calibration_timeout_config import (  # noqa: E402
+    DEFAULT_ACTION_TIMEOUT_S,
+    DEFAULT_PHASE_GAP_S,
+    DEFAULT_SERIAL_SETTLE_S,
 )
 
 
@@ -89,8 +95,7 @@ def order_boards_by_board_no(
         boards: dict[str, Board], board_ids: list[str],
         args: argparse.Namespace) -> list[Board]:
     """Resolve physical loop order from persistent NO.1..NO.8 identity."""
-    numbered: list[tuple[int, Board]] = []
-    for address in board_ids:
+    def read_no(address: str) -> tuple[int, Board]:
         board = boards[address]
         raw = board_command(board, "SYSTem:BOARD:NO?", args)
         try:
@@ -98,7 +103,10 @@ def order_boards_by_board_no(
         except ValueError as exc:
             raise RuntimeError(
                 f"{board.address}: invalid BOARD:NO response {raw!r}") from exc
-        numbered.append((board_no, board))
+        return board_no, board
+
+    with ThreadPoolExecutor(max_workers=len(board_ids)) as executor:
+        numbered = list(executor.map(read_no, board_ids))
     expected = list(range(1, len(board_ids) + 1))
     observed = sorted(board_no for board_no, _ in numbered)
     if observed != expected:
@@ -369,14 +377,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--receiver-enable-max-ns", type=float)
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
-    parser.add_argument("--action-timeout", type=float, default=0.05)
+    parser.add_argument("--action-timeout", type=float,
+                        default=DEFAULT_ACTION_TIMEOUT_S)
     parser.add_argument("--marker-timeout", type=float, default=5.0)
-    parser.add_argument("--settle", type=float, default=0.2)
+    parser.add_argument("--settle", type=float, default=DEFAULT_SERIAL_SETTLE_S)
     parser.add_argument("--arm-wait", type=float, default=3.0)
     parser.add_argument("--topology-retries", type=int, default=3)
-    parser.add_argument("--gap", type=float, default=0.2)
+    parser.add_argument("--gap", type=float, default=DEFAULT_PHASE_GAP_S)
+    parser.add_argument("--poll-interval", type=float, default=0.02)
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--short-open", action="store_true",
+                        help="open/close CDC for every command (diagnostic fallback)")
     return parser.parse_args()
 
 
@@ -457,40 +469,52 @@ def active_operating_level(board: Board, args: argparse.Namespace) -> int:
 def prepare_ring(ordered: list[Board], args: argparse.Namespace) -> list[dict[str, object]]:
     actions: list[dict[str, object]] = []
     node_count = len(ordered)
-    for board in ordered:
-        actions.append({"board": board.address, "command": "STOP",
-                        "response": board_command(
-                            board, "SYSTem:TDMA:RING:STOP", args)})
+    def prepare_board(board: Board):
+        stop = board_command(board, "SYSTem:TDMA:RING:STOP", args)
         active_level = active_operating_level(board, args)
         if active_level == args.level:
-            actions.append({"board": board.address,
-                            "command": "OPMODE_REUSE",
-                            "active_level": active_level})
+            return (
+                {"board": board.address, "command": "STOP", "response": stop},
+                {"board": board.address, "command": "OPMODE_REUSE",
+                 "active_level": active_level},
+            )
         else:
-            actions.append({"board": board.address, "command": "OPMODE",
-                            "response": board_command(
-                                board,
-                                f"SYSTem:TDMA:OPMode:STAGe {args.level}",
-                                args)})
-            actions.append({"board": board.address,
-                            "command": "OPMODE_APPLY",
-                            "response": board_command(
-                                board, "SYSTem:TDMA:OPMode:APPLy", args)})
-    for node, board in enumerate(ordered):
-        actions.append({"board": board.address, "command": "TOPOLOGY",
-                        "response": board_command(
-                            board, f"SYSTem:TDMA:RING:TOPology "
-                            f"{node_count},{node},{args.reference_node}", args),
-                        "node": node, "board_no": node + 1})
+            stage = board_command(
+                board, f"SYSTem:TDMA:OPMode:STAGe {args.level}", args)
+            apply = board_command(board, "SYSTem:TDMA:OPMode:APPLy", args)
+            return (
+                {"board": board.address, "command": "STOP", "response": stop},
+                {"board": board.address, "command": "OPMODE",
+                 "response": stage},
+                {"board": board.address, "command": "OPMODE_APPLY",
+                 "response": apply},
+            )
+
+    with ThreadPoolExecutor(max_workers=node_count) as executor:
+        for result in executor.map(prepare_board, ordered):
+            actions.extend(result)
+
+    def stage_topology(item):
+        node, board = item
+        topology = board_command(
+            board, f"SYSTem:TDMA:RING:TOPology "
+            f"{node_count},{node},{args.reference_node}", args)
         board_no_raw = board_command(board, "SYSTem:BOARD:NO?", args)
         board_no = int(board_no_raw.strip().strip('"'), 0)
         if board_no != node + 1:
             raise RuntimeError(
                 f"{board.address}: BOARD:NO changed during topology staging: "
                 f"expected {node + 1}, observed {board_no}")
-        actions.append({"board": board.address,
-                        "command": "BOARD_NO_READBACK",
-                        "board_no": board_no})
+        return (
+            {"board": board.address, "command": "TOPOLOGY",
+             "response": topology, "node": node, "board_no": board_no},
+            {"board": board.address, "command": "BOARD_NO_READBACK",
+             "board_no": board_no},
+        )
+
+    with ThreadPoolExecutor(max_workers=node_count) as executor:
+        for result in executor.map(stage_topology, enumerate(ordered)):
+            actions.extend(result)
     # Calibration owns PIO/SM/DMA directly.  Do not ARM the flight adapter
     # here: flight runtime requires a complete MARK+SCK+DATA calibration
     # stage, while this preparation path exists to create that stage.
@@ -532,14 +556,18 @@ def arm_marker(board: Board, args: argparse.Namespace,
 
 def wait_marker_armed(ordered: list[Board], args: argparse.Namespace) -> list[dict[str, int | str]]:
     deadline = time.monotonic() + args.marker_timeout
-    last = [marker_status(board, args) for board in ordered]
+    with ThreadPoolExecutor(max_workers=len(ordered)) as executor:
+        last = list(executor.map(marker_status, ordered,
+                                 [args] * len(ordered)))
     while time.monotonic() < deadline:
         if all(int(snapshot["state"]) == STATE_PREPARED and
                int(snapshot["train_epoch"]) == args.epoch
                for snapshot in last):
             return last
-        time.sleep(0.05)
-        last = [marker_status(board, args) for board in ordered]
+        time.sleep(args.poll_interval)
+        with ThreadPoolExecutor(max_workers=len(ordered)) as executor:
+            last = list(executor.map(marker_status, ordered,
+                                     [args] * len(ordered)))
     raise RuntimeError(f"marker ARM readiness timeout: {last}")
 
 
@@ -554,26 +582,34 @@ def inject_marker(board: Board, args: argparse.Namespace) -> str:
 
 def wait_marker(ordered: list[Board], args: argparse.Namespace) -> list[dict[str, int | str]]:
     deadline = time.monotonic() + args.marker_timeout
-    last = [marker_status(board, args) for board in ordered]
+    with ThreadPoolExecutor(max_workers=len(ordered)) as executor:
+        last = list(executor.map(marker_status, ordered,
+                                 [args] * len(ordered)))
     while time.monotonic() < deadline:
         if all(int(snapshot["state"]) in (3, 4) for snapshot in last):
             return last
-        time.sleep(0.05)
-        last = [marker_status(board, args) for board in ordered]
+        time.sleep(args.poll_interval)
+        with ThreadPoolExecutor(max_workers=len(ordered)) as executor:
+            last = list(executor.map(marker_status, ordered,
+                                     [args] * len(ordered)))
     raise RuntimeError(f"marker completion timeout: {last}")
 
 
 def wait_marker_timeout(ordered: list[Board], args: argparse.Namespace
                         ) -> list[dict[str, int | str]]:
     deadline = time.monotonic() + args.marker_timeout
-    last = [marker_status(board, args) for board in ordered]
+    with ThreadPoolExecutor(max_workers=len(ordered)) as executor:
+        last = list(executor.map(marker_status, ordered,
+                                 [args] * len(ordered)))
     while time.monotonic() < deadline:
         origin = last[args.origin_node]
         if (int(origin["state"]) == STATE_REJECTED and
                 int(origin["train_epoch"]) == args.epoch):
             return last
-        time.sleep(0.05)
-        last = [marker_status(board, args) for board in ordered]
+        time.sleep(args.poll_interval)
+        with ThreadPoolExecutor(max_workers=len(ordered)) as executor:
+            last = list(executor.map(marker_status, ordered,
+                                     [args] * len(ordered)))
     raise RuntimeError(f"marker timeout fault did not terminate origin: {last}")
 
 
@@ -619,14 +655,18 @@ def validate_idle_high_timeout(
 def stop_marker(ordered: list[Board], args: argparse.Namespace
                 ) -> list[dict[str, int | str]]:
     action_args = marker_action_args(args)
-    for board in ordered:
-        board_command(board, "CALibration:MARKer:STOP", action_args)
+    with ThreadPoolExecutor(max_workers=len(ordered)) as executor:
+        list(executor.map(
+            lambda board: board_command(
+                board, "CALibration:MARKer:STOP", action_args), ordered))
     deadline = time.monotonic() + args.marker_timeout
     while time.monotonic() < deadline:
-        snapshots = [marker_status(board, args) for board in ordered]
+        with ThreadPoolExecutor(max_workers=len(ordered)) as executor:
+            snapshots = list(executor.map(marker_status, ordered,
+                                           [args] * len(ordered)))
         if all(int(snapshot["state"]) == 0 for snapshot in snapshots):
             return snapshots
-        time.sleep(0.05)
+        time.sleep(args.poll_interval)
     raise RuntimeError("marker STOP did not restore IDLE on every board")
 
 
@@ -701,7 +741,10 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
     args.board_ids = board_ids
     args.link_delay_ns = link_delays
     args.link_base_delay_ns = link_bases
-    boards = discover(args)
+    # CalibrationLoadGuard owns the validated serial handles for the whole
+    # trial.  Re-discovering here attempts a second open on Windows and makes
+    # every board appear missing; reuse the guard's identity map instead.
+    boards = getattr(args, "discovered_boards", None) or discover(args)
     missing = set(board_ids) - set(boards)
     if missing:
         raise SystemExit(f"boards not found by *IDN?: {', '.join(sorted(missing))}")
@@ -744,11 +787,11 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
     if args.dry_run:
         return {**plan, "passed": False, "dry_run": True}
     actions = [] if args.reuse_ring_identity else prepare_ring(ordered, args)
-    active_before = {
-        board.address: board_command(
-            board, "READ:CALibration:ACTive?", args)
-        for board in ordered
-    }
+    with ThreadPoolExecutor(max_workers=len(ordered)) as executor:
+        active_values = list(executor.map(
+            lambda board: board_command(
+                board, "READ:CALibration:ACTive?", args), ordered))
+    active_before = dict(zip((board.address for board in ordered), active_values))
     follower_nodes = [
         (args.origin_node + offset) % len(ordered)
         for offset in range(1, len(ordered))
@@ -759,16 +802,17 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
     try:
         # Every node first arms RX DMA and its physical rx_csn WAIT gate.  The
         # originator TX SM also remains blocked on an empty PIO TX FIFO.
-        for board in followers:
+        def arm_follower(board: Board):
             node = ordered.index(board)
             incoming_link = (node - 1) % len(ordered)
-            arms.append({"board": board.address,
-                         "incoming_link": incoming_link,
-                         "link_base_delay_ns": link_bases[incoming_link],
-                         "offset_sample_count": offsets[node],
-                         "response": arm_marker(
-                             board, args, link_bases[incoming_link],
-                             offsets[node], 0)})
+            response = arm_marker(
+                board, args, link_bases[incoming_link], offsets[node], 0)
+            return {"board": board.address, "incoming_link": incoming_link,
+                    "link_base_delay_ns": link_bases[incoming_link],
+                    "offset_sample_count": offsets[node],
+                    "response": response}
+        with ThreadPoolExecutor(max_workers=len(followers)) as executor:
+            arms.extend(executor.map(arm_follower, followers))
         origin_incoming_link = (args.origin_node - 1) % len(ordered)
         arms.append({"board": originator.address,
                      "incoming_link": origin_incoming_link,
@@ -796,11 +840,11 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
                 save_marker_capture(board, args) for board in ordered]
     finally:
         idle = stop_marker(ordered, args)
-    active_after = {
-        board.address: board_command(
-            board, "READ:CALibration:ACTive?", args)
-        for board in ordered
-    }
+    with ThreadPoolExecutor(max_workers=len(ordered)) as executor:
+        active_values = list(executor.map(
+            lambda board: board_command(
+                board, "READ:CALibration:ACTive?", args), ordered))
+    active_after = dict(zip((board.address for board in ordered), active_values))
     if active_before != active_after:
         validation["errors"].append("active_record_changed")
         validation["passed"] = False
@@ -1239,6 +1283,7 @@ def run_residence_matrix(args: argparse.Namespace) -> dict[str, object]:
 
 def main() -> int:
     args = parse_args()
+    args.keep_open = not args.short_open
     if args.board_id is not None:
         if args.residence_matrix and args.offset_matrix:
             raise SystemExit("residence-matrix and offset-matrix are exclusive")
@@ -1254,6 +1299,7 @@ def main() -> int:
                 f"boards not found by *IDN?: {', '.join(sorted(missing))}")
         load_guard = CalibrationLoadGuard(
             [guard_boards[address] for address in args.board_id], args)
+        args.discovered_boards = guard_boards
         with load_guard:
             result = (run_residence_matrix(args) if args.residence_matrix else
                       run_offset_matrix(args) if args.offset_matrix else
