@@ -16,6 +16,7 @@ import math
 import statistics
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -160,18 +161,23 @@ def stop_ring_and_wait(board: Board, args: argparse.Namespace) -> dict[str, int]
 
 def stop_p3(boards: list[Board], args: argparse.Namespace) -> None:
     fast = action_args(args)
-    for board in boards:
-        board_command(board, "CALibration:P3:STOP", fast)
+    # Each board owns an independent CDC session and P3 state machine.  Stop
+    # them concurrently; no per-board protocol ordering is changed.
+    with ThreadPoolExecutor(max_workers=len(boards)) as executor:
+        list(executor.map(
+            lambda board: board_command(
+                board, "CALibration:P3:STOP", fast), boards))
     # STOP is a core0->core1 intent.  An old IDLE snapshot does not acknowledge
     # that the new STOP sequence has been consumed, so never accept the first
     # stale readback in the same host turn.
     time.sleep(min(0.01, max(0.001, args.gap)))
     deadline = time.monotonic() + args.capture_timeout
-    while time.monotonic() < deadline:
-        if all(p3_status(board, args)["state"] == P3_STATE_IDLE
-               for board in boards):
-            return
-        time.sleep(0.03)
+    with ThreadPoolExecutor(max_workers=len(boards)) as executor:
+        while time.monotonic() < deadline:
+            states = list(executor.map(p3_status, boards, [args] * len(boards)))
+            if all(row["state"] == P3_STATE_IDLE for row in states):
+                return
+            time.sleep(0.03)
     raise RuntimeError("P3 STOP did not restore IDLE")
 
 
@@ -218,6 +224,17 @@ def wait_complete(board: Board, epoch: int,
         time.sleep(0.03)
         last = p3_status(board, args)
     raise RuntimeError(f"{board.address}: P3 completion timeout: {last}")
+
+
+def wait_complete_pair(source: Board, destination: Board, epoch: int,
+                       args: argparse.Namespace) -> tuple[dict[str, int],
+                                                           dict[str, int]]:
+    """Poll both endpoints concurrently after the ordered START handshake."""
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        initiator, responder = executor.map(
+            lambda board: wait_complete(board, epoch, args),
+            (source, destination))
+    return initiator, responder
 
 
 def timing_metrics(snapshot: dict[str, int], target_hz: int,
@@ -368,8 +385,8 @@ def run_trial(source: Board, destination: Board, frequency_hz: int,
         initiator_start = start_p3(
             source, P3_ROLE_INITIATOR, frequency_hz, epoch,
             signal_group, args)
-        initiator = wait_complete(source, epoch, args)
-        responder = wait_complete(destination, epoch, args)
+        initiator, responder = wait_complete_pair(source, destination, epoch,
+                                                  args)
         evaluation = evaluate_pair(initiator, responder, frequency_hz, args,
                                    signal_group)
         return {
@@ -604,8 +621,9 @@ def main() -> int:
     trials: list[dict[str, object]] = []
     ladder: list[dict[str, object]] = []
     try:
-        for board in ordered:
-            stop_ring_and_wait(board, args)
+        with ThreadPoolExecutor(max_workers=len(ordered)) as executor:
+            list(executor.map(
+                lambda board: stop_ring_and_wait(board, args), ordered))
         # P3 owns an offline Core1 calibration session while TDMA is stopped.
         # It must not depend on, mutate, or unquarantine the realtime load mask.
         time.sleep(args.gap)
@@ -649,8 +667,7 @@ def main() -> int:
                         **summary,
                     })
     finally:
-        for board in ordered:
-            stop_p3([board], args)
+        stop_p3(ordered, args)
     frequency_policy = apply_frequency_policy(ladder)
     passed = bool(frequency_policy["stable_profiles_passed"])
     output = {
