@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/README.md`
 Related: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-08-28
+Last updated: 2026-08-31
 
 本文档是 `docs/` 的总入口。新文档的命名、层级、元数据和迁移规则以
 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
@@ -36,6 +36,7 @@ docs/
   ota/            OTA、boot、A/B、回滚、System Pack
   hardware/       IO 约束、PCB、网表、BOM、Gerber、硬件评审
   validation/     HIL、工具验证、闭环验证记录和脚本说明
+  state_machine/  PIO SM、DMA/FIFO、上下行资源和底层实时状态机
   release/        发布门禁、打印/PDF、产品冻结 checklist
   reports/        当前产品 HTML/PDF 输出、打印和交付件
   temp/           阶段性调试、验证和绘图归档
@@ -65,6 +66,7 @@ docs/
 | `ota/` | `ota/README.md` | OTA、boot、A/B、回滚和 System Pack |
 | `hardware/` | `hardware/README.md` | IO 约束、PCB、网表、BOM、Gerber 和硬件评审 |
 | `validation/` | `validation/README.md` | HIL、工具验证、任务进度和闭环验证记录 |
+| `state_machine/` | `state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md` | PIO SM、DMA/FIFO、上下行资源和底层实时状态机 |
 | `release/` | `release/README.md` | 发布门禁、打印/PDF、产品冻结 checklist |
 | `reports/` | `reports/README.md` | 当前产品 HTML/PDF 输出、打印和交付件 |
 | `temp/` | `temp/README.md` | 阶段性调试、验证和绘图归档 |
@@ -84,6 +86,7 @@ docs/
 | ARCH/FUTURE | `arch/ARCH_FUTURE_APPLICATION_PLAN.md` | 当前产品完成后的应用场景、跨平台移植、版本分层和开源生态路线图。 |
 | SYNC_IO | `sync/SYNC_IO_ARCHITECTURE.md` | PIO、GPIO、DMA、语义 IO 和硬实时资源约束入口。 |
 | TDMA | `tdma/TDMA_DOMAIN_ARCHITECTURE.md` | TDMA 基础件主域，定义上/下行 TDMA、payload registry、adapter、ring runtime、completion evidence 和 HAOFV system node 边界。 |
+| STATE_MACHINE | `state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md` | 状态机与底层实时资源域，定义 PIO SM、DMA/FIFO、上下行控制和资源仲裁边界。 |
 | TRIGGER | `trigger/TRIGGER_SYNC_TODO.md` | 触发业务模式、生产化缺口和跨模式待办入口。 |
 | BISSC | `communication/BISSC_TAP_BRIDGE_DESIGN.md` | BiSS-C 协议、TAP bridge、固件 persona 和验证边界入口。 |
 | OTA | `arch/HAOFV_FLASH_ARCHITECTURE.md` | 当前 Flash/Boot/OTA 跨域主方案；`ota/OTA_SYSTEM_DESIGN.md` 保留为 v1 实现参考。 |
@@ -104,6 +107,8 @@ docs/
 | SD | `storage/SD_TASK_PROGRESS.md` | SD / StorageAO / System Pack 新任务记录写入本文件。 |
 | Documentation | `docs/docs/DOCS_MIGRATION_TODO.md` | 文档治理和迁移记录写入本文档体系待办。 |
 | TDMA | `tdma/TDMA_TASK_PROGRESS.md` | TDMA 基础件、上/下行 runtime、adapter 和环路闭环验证记录写入本文件。 |
+| STATE_MACHINE | `state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md` | 状态机资源迁移、PIO SM 重构和底层实时验证记录写入本文件。 |
+| STATE_MACHINE | `state_machine/HAOFV_STATE_MACHINE_TODO.md` | 状态机域可执行任务、退出门禁和后续迁移工作写入本文件。 |
 | 其他领域 | 新建或补齐 `<DOMAIN>_TASK_PROGRESS.md` | 后续新闭环记录优先建立领域进度文件，不再追加到全局历史文件。 |
 | 全局历史 | `TASK_PROGRESS.md` | 只保留跨域历史和迁移前记录；除跨域总览外不再作为默认新任务入口。 |
 
