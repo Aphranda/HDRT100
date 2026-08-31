@@ -14,6 +14,7 @@ import csv
 import json
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -31,6 +32,11 @@ from tdma_start_ring import (  # noqa: E402
     wait_started,
 )
 from tdma_field_parse import PHYS_FIELDS  # noqa: E402
+from calibration_ring_validate.calibration_timeout_config import (  # noqa: E402
+    DEFAULT_ACTION_TIMEOUT_S,
+    DEFAULT_PHASE_GAP_S,
+    DEFAULT_SERIAL_SETTLE_S,
+)
 
 
 TRAIN_FIELDS = (
@@ -93,7 +99,7 @@ def wait_calibration_idle(board, args: argparse.Namespace) -> dict[str, int]:
         }
         if loopback["armed"] == 0 and physical["program_persona"] != 15:
             return last
-        time.sleep(0.05)
+        time.sleep(args.idle_poll_interval)
     raise RuntimeError(
         f"{board.address}: calibration persona did not become idle: {last}")
 
@@ -114,17 +120,23 @@ def parse_args() -> argparse.Namespace:
                         help="bisect the final non-overlap/overlap bracket")
     parser.add_argument("--repeats", type=int, default=1,
                         help="repeat every pulse-count decision point")
-    parser.add_argument("--gap", type=float, default=0.2,
+    parser.add_argument("--gap", type=float, default=DEFAULT_PHASE_GAP_S,
                         help="quiet gap between training epochs")
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
-    parser.add_argument("--train-timeout", type=float, default=2.0)
-    parser.add_argument("--settle", type=float, default=0.2)
+    parser.add_argument("--action-timeout", type=float,
+                        default=DEFAULT_ACTION_TIMEOUT_S,
+                        help="bounded wait for action acknowledgements")
+    parser.add_argument("--train-timeout", type=float, default=5.0)
+    parser.add_argument("--settle", type=float, default=DEFAULT_SERIAL_SETTLE_S)
     parser.add_argument("--arm-wait", type=float, default=3.0)
+    parser.add_argument("--idle-poll-interval", type=float, default=0.02)
     parser.add_argument("--probe-phase-cycles", type=int, default=10,
                         help="stopped raw-link topology-probe phase delay")
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--short-open", action="store_true",
+                        help="open/close CDC for every command (diagnostic fallback)")
     return parser.parse_args()
 
 
@@ -182,49 +194,62 @@ def arm_training_persona(ordered, reference_node: int,
                          args: argparse.Namespace) -> list[dict[str, object]]:
     actions: list[dict[str, object]] = []
     node_count = len(ordered)
-    for board in ordered:
-        # Each reference burst loads the P3 initiator/responder/capture
-        # persona.  Stop that explicit loopback before the next ring ARM;
-        # ring STOP alone only disables TDMA and does not drain the PIO
-        # persona transition on core1.
-        actions.append({
-            "board": board.address, "command": "LOOPBACK_STOP",
-            "response": board_command(
-                board, "CALibration:LOOPback:STOP", args),
-        })
-        actions.append({
-            "board": board.address, "command": "CALIBRATION_IDLE",
-            "readback": wait_calibration_idle(board, args),
-        })
-        actions.append({"board": board.address, "command": "STOP",
-                        "response": board_command(
-                            board, "SYSTem:TDMA:RING:STOP", args)})
+
+    def stop_and_drain(board):
+        # The per-board order is mandatory; boards are independent here.
+        loopback = board_command(board, "CALibration:LOOPback:STOP", args)
+        idle = wait_calibration_idle(board, args)
+        stop = board_command(board, "SYSTem:TDMA:RING:STOP", args)
+        return (
+            {"board": board.address, "command": "LOOPBACK_STOP",
+             "response": loopback},
+            {"board": board.address, "command": "CALIBRATION_IDLE",
+             "readback": idle},
+            {"board": board.address, "command": "STOP", "response": stop},
+        )
+
+    with ThreadPoolExecutor(max_workers=node_count) as executor:
+        for result in executor.map(stop_and_drain, ordered):
+            actions.extend(result)
     time.sleep(args.gap)
-    for node, board in enumerate(ordered):
+
+    def set_topology(item):
+        node, board = item
         command = (
             f"SYSTem:TDMA:RING:TOPology "
             f"{node_count},{node},{reference_node}")
-        actions.append({"board": board.address, "command": command,
-                        "response": board_command(board, command, args)})
+        return {"board": board.address, "command": command,
+                "response": board_command(board, command, args)}
+
+    with ThreadPoolExecutor(max_workers=node_count) as executor:
+        actions.extend(executor.map(set_topology, enumerate(ordered)))
 
     followers = [board for node, board in enumerate(ordered)
                  if node != reference_node]
     reference = ordered[reference_node]
-    start_order = followers + [reference]
-    armed: list[tuple[object, int, str, int]] = []
-    for board in start_order:
+
+    def arm_one(board):
         node = ordered.index(board)
         response = board_command(board, "SYSTem:TDMA:RING:ARM", args)
         arm_result = int(board_command(
             board, "SYSTem:TDMA:RING:ARM:STATus?", args
         ).strip().strip('"'), 0)
-        actions.append({"board": board.address, "command": "ARM_SUBMIT",
-                        "response": response, "arm_result": arm_result})
         if arm_result != 1:
             raise RuntimeError(
                 f"{board.address}: ARM rejected with result={arm_result}")
-        armed.append((board, node, response, arm_result))
+        return board, node, response, arm_result
+
+    # Followers can be armed together; reference remains last to release the
+    # ring start handshake, preserving the established protocol ordering.
+    with ThreadPoolExecutor(max_workers=len(followers)) as executor:
+        armed = list(executor.map(arm_one, followers))
+    armed.append(arm_one(reference))
     for board, node, response, arm_result in armed:
+        actions.append({"board": board.address, "command": "ARM_SUBMIT",
+                        "response": response, "arm_result": arm_result})
+
+    def await_started(board):
+        node = ordered.index(board)
         readback = wait_started(board, args)
         if (readback["ring_node_count"] != node_count or
                 # TDMA reports RefMem/TDMA slot IDs at this boundary;
@@ -232,21 +257,30 @@ def arm_training_persona(ordered, reference_node: int,
                 readback["ring_local_slot_id"] != node or
                 readback["ring_reference_slot_id"] != reference_node):
             raise RuntimeError(f"topology readback mismatch: {readback}")
+        return board, readback
+
+    with ThreadPoolExecutor(max_workers=node_count) as executor:
+        started = list(executor.map(await_started, followers + [reference]))
+    for board, readback in started:
+        arm = next(item for item in armed if item[0] is board)
         actions.append({"board": board.address, "command": "ARM_STARTED",
-                        "response": response, "arm_result": arm_result,
+                        "response": arm[2], "arm_result": arm[3],
                         "readback": readback})
 
-    for board in followers:
+    def arm_forward(board):
         before = train_status(board, args)
-        actions.append({"board": board.address, "command": "TRAIN_FORWARD",
-                        "response": submit_train(board, 1, args)})
+        response = submit_train(board, 1, args)
         after = wait_train(board, int(before["request_seq"]),
                            {STATE_FORWARDING, STATE_ERROR}, args)
         if (int(after["state"]) != STATE_FORWARDING or
                 int(after["result"]) != RESULT_FORWARD_ARMED):
             raise RuntimeError(
                 f"{board.address}: follower forwarding arm failed: {after}")
-        actions[-1]["snapshot"] = after
+        return {"board": board.address, "command": "TRAIN_FORWARD",
+                "response": response, "snapshot": after}
+
+    with ThreadPoolExecutor(max_workers=len(followers)) as executor:
+        actions.extend(executor.map(arm_forward, followers))
     return actions
 
 
@@ -391,6 +425,7 @@ def write_csv(path: Path,
 
 def main() -> int:
     args = parse_args()
+    args.keep_open = not args.short_open
     board_ids = list(args.board_id)
     if len(board_ids) < 2 or len(board_ids) > 8:
         raise SystemExit("board count must be in [2, 8]")
@@ -430,7 +465,7 @@ def main() -> int:
     if args.dry_run:
         return 0
 
-    for board in ordered:
+    def prepare_board(board):
         board_command(board, "SYSTem:TDMA:RING:STOP", args)
         # Coarse acquisition starts a new calibration chain.  A valid Flash
         # record remains persisted, but its RAM stage can target a previous
@@ -442,6 +477,9 @@ def main() -> int:
         board_command(board,
                       f"SYSTem:TDMA:OPMode:STAGe {args.level}", args)
         board_command(board, "SYSTem:TDMA:OPMode:APPLy", args)
+
+    with ThreadPoolExecutor(max_workers=len(ordered)) as executor:
+        list(executor.map(prepare_board, ordered))
 
     reference_nodes: list[dict[str, object]] = []
     passed = False
@@ -461,12 +499,14 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001 - persist partial HIL evidence
         error = f"{type(exc).__name__}: {exc}"
     finally:
-        for board in ordered:
+        def cleanup_board(board):
             try:
                 board_command(board, "SYSTem:TDMA:RING:STOP", args)
                 board_command(board, "CALibration:TOPology:PROBe 0", args)
             except Exception:  # noqa: BLE001 - best-effort bench cleanup
                 pass
+        with ThreadPoolExecutor(max_workers=len(ordered)) as executor:
+            list(executor.map(cleanup_board, ordered))
 
     output = {
         "measurement_domain": "calibration",
