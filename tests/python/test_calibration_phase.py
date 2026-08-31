@@ -5,6 +5,7 @@ from tools.calibration_ring_validate.calibration_phase import (
     build_observed_offset_matrix,
     build_offset_rows,
     build_phase_training_contract,
+    validate_generation,
 )
 
 
@@ -58,3 +59,15 @@ def test_phase_contract_requires_one_destination_per_node() -> None:
         assert "every destination Node" in str(exc)
     else:
         raise AssertionError("duplicate destination mapping must be rejected")
+
+
+def test_generation_validation_rejects_zero_and_u32_overflow() -> None:
+    assert validate_generation(1) == 1
+    assert validate_generation(0xFFFFFFFF) == 0xFFFFFFFF
+    for value in (0, -1, 0x100000000):
+        try:
+            validate_generation(value)
+        except ValueError as exc:
+            assert "within 1..4294967295" in str(exc)
+        else:
+            raise AssertionError("out-of-range generation must be rejected")

@@ -37,6 +37,7 @@ from calibration_ring_validate.calibration_phase import (  # noqa: E402
     build_phase_training_contract,
     link_base_delay_ns,
     phase_delay_samples,
+    validate_generation,
 )
 from calibration_ring_validate.calibration_load_guard import (  # noqa: E402
     CalibrationLoadGuard,
@@ -713,6 +714,10 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
         args.origin_node = args.reference_node
     if not 0 <= args.origin_node < len(board_ids):
         raise SystemExit("origin-node outside board order")
+    try:
+        validate_generation(args.generation)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     if not 0 <= args.codebook <= 3 or not 1 <= args.epoch <= 255:
         raise SystemExit("codebook must be 0..3 and epoch must be 1..255")
     offsets = list(args.node_offset_samples or [0] * len(board_ids))
@@ -1022,8 +1027,14 @@ def run_offset_matrix(args: argparse.Namespace) -> dict[str, object]:
             (not args.matrix_fixed_epoch and
              epoch_start + execution_count - 1 > 255)):
         raise SystemExit("selected matrix rows exceed the marker epoch range")
-    if generation_start < 1:
-        raise SystemExit("matrix generation start must be positive")
+    try:
+        validate_generation(generation_start)
+        if args.matrix_fixed_epoch:
+            validate_generation(
+                generation_start + execution_count - 1,
+                "matrix generation end")
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     matrix_out = args.out_dir or (
         ROOT / "out" / "training" /
         f"trn01_marker_matrix_{datetime.now().strftime('%Y%m%d_%H%M%S')}")

@@ -13,6 +13,7 @@ MIN_OFFSET_SAMPLES = -10
 MAX_OFFSET_SAMPLES = 10
 MAX_PIO_DELAY_SAMPLES = 31
 MAX_NODES = 8
+MAX_U32 = 0xFFFFFFFF
 PHASE_TRAINING_SCHEMA = "HAOFV_UNIFIED_PHASE_TRAINING_V1"
 OFFSET_MATRIX_SCHEMA = "HAOFV_UNIFIED_OFFSET_MATRIX_V1"
 PHASE_TRAINING_STAGES = (
@@ -25,6 +26,14 @@ PHASE_TRAINING_STAGES = (
     "dynamic_pio_load",
     "residual_repeat_gate",
 )
+
+
+def validate_generation(value: int, label: str = "generation") -> int:
+    """Validate a calibration identity before encoding it into a uint32 field."""
+    generation = int(value)
+    if not 1 <= generation <= MAX_U32:
+        raise ValueError(f"{label} must be within 1..{MAX_U32}")
+    return generation
 
 
 def link_base_delay_ns(link_delay_ns: int) -> int:

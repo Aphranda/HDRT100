@@ -54,6 +54,7 @@ from calibration_ring_validate.calibration_phase import (  # noqa: E402
     build_phase_training_contract,
     link_base_delay_ns,
     phase_delay_samples,
+    validate_generation,
 )
 from calibration_ring_validate.calibration_load_guard import (  # noqa: E402
     CalibrationLoadGuard,
@@ -478,8 +479,12 @@ def validate_hil_args(args: argparse.Namespace) -> list[str]:
         raise SystemExit("link-index outside physical link range")
     if not 0 <= args.reference_node < count:
         raise SystemExit("reference-node outside physical Node order")
+    try:
+        validate_generation(args.generation)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     if not (0 <= args.codebook <= 3 and 1 <= args.epoch <= 255 and
-            args.generation > 0 and args.sck_launch_guard_samples > 0 and
+            args.sck_launch_guard_samples > 0 and
             args.sample_period_ns > 0 and
             -10 <= args.search_start <= args.search_end <= 10 and
             1 <= args.repeats <= 1000 and

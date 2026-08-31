@@ -9,6 +9,7 @@ import json
 import statistics
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from collections import Counter
 from dataclasses import asdict
 from datetime import datetime
@@ -34,6 +35,12 @@ from calibration_ring_validate.calibration_phase import (  # noqa: E402
     build_phase_training_contract,
     link_base_delay_ns,
     phase_delay_samples,
+    validate_generation,
+)
+from calibration_ring_validate.calibration_timeout_config import (  # noqa: E402
+    DEFAULT_ACTION_TIMEOUT_S,
+    DEFAULT_PHASE_GAP_S,
+    DEFAULT_SERIAL_SETTLE_S,
 )
 from calibration_ring_validate.calibration_load_guard import (  # noqa: E402
     CalibrationLoadGuard,
@@ -547,9 +554,20 @@ def summarize_repeat_matrix(
         "schedule_crc32": source_values("schedule_crc32"),
         "sample_period_ns": source_values("sample_period_ns"),
     }
+    topology_generation_by_node: dict[int, set[int]] = {}
+    for trial in accepted:
+        source_node = int(trial.get(
+            "source_node", trial["source"].get("source_node", -1)))
+        topology_generation_by_node.setdefault(source_node, set()).add(
+            int(trial["source"]["topology_generation"]))
     identity_failures = [
-        field for field, values in identity_sets.items() if len(values) != 1
+        field for field, values in identity_sets.items()
+        if field != "topology_generation" and len(values) != 1
     ]
+    identity_failures.extend(
+        f"topology_generation_node{node}"
+        for node, values in sorted(topology_generation_by_node.items())
+        if len(values) != 1)
     gate_failures = []
     if len(trials) != expected_trial_count:
         gate_failures.append("matrix_trial_count")
@@ -588,6 +606,11 @@ def summarize_repeat_matrix(
         "accepted_count": len(accepted),
         "identity": {
             field: sorted(values) for field, values in identity_sets.items()
+        } | {
+            "topology_generation_by_node": {
+                str(node): sorted(values)
+                for node, values in sorted(topology_generation_by_node.items())
+            }
         },
         "identity_failures": identity_failures,
         "links": link_summaries,
@@ -670,15 +693,19 @@ def parse_args() -> argparse.Namespace:
               "do not rewrite topology or operating profile"))
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
-    parser.add_argument("--action-timeout", type=float, default=0.1)
+    parser.add_argument("--action-timeout", type=float,
+                        default=DEFAULT_ACTION_TIMEOUT_S)
     parser.add_argument("--marker-timeout", type=float, default=5.0)
-    parser.add_argument("--settle", type=float, default=0.2)
+    parser.add_argument("--settle", type=float, default=DEFAULT_SERIAL_SETTLE_S)
     parser.add_argument("--arm-wait", type=float, default=3.0)
     parser.add_argument("--topology-retries", type=int, default=3)
-    parser.add_argument("--gap", type=float, default=0.2)
+    parser.add_argument("--gap", type=float, default=DEFAULT_PHASE_GAP_S)
+    parser.add_argument("--poll-interval", type=float, default=0.02)
     parser.add_argument("--expected-build")
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--short-open", action="store_true",
+                        help="open/close CDC for every command (diagnostic fallback)")
     return parser.parse_args()
 
 
@@ -711,7 +738,7 @@ def data_arm(board: Board, args: argparse.Namespace, *,
         while (time.monotonic() < deadline and
                (int(snapshot["state"]) != STATE_PREPARED or
                 int(snapshot["train_epoch"]) != args.epoch)):
-            time.sleep(0.05)
+            time.sleep(args.poll_interval)
             snapshot = data_status(board, args)
         if (int(snapshot["state"]) != STATE_PREPARED or
                 int(snapshot["train_epoch"]) != args.epoch):
@@ -724,25 +751,29 @@ def data_arm(board: Board, args: argparse.Namespace, *,
 def wait_states(boards: list[Board], args: argparse.Namespace,
                 accepted: tuple[int, ...]) -> list[dict[str, int | str]]:
     deadline = time.monotonic() + args.marker_timeout
-    last = [data_status(board, args) for board in boards]
+    with ThreadPoolExecutor(max_workers=len(boards)) as executor:
+        last = list(executor.map(data_status, boards, [args] * len(boards)))
     while time.monotonic() < deadline:
         if all(int(row["state"]) in accepted and
                int(row["train_epoch"]) == args.epoch for row in last):
             return last
-        time.sleep(0.05)
-        last = [data_status(board, args) for board in boards]
+        time.sleep(args.poll_interval)
+        with ThreadPoolExecutor(max_workers=len(boards)) as executor:
+            last = list(executor.map(data_status, boards, [args] * len(boards)))
     raise RuntimeError(f"DATA state timeout, accepted={accepted}: {last}")
 
 
 def wait_idle(boards: list[Board],
               args: argparse.Namespace) -> list[dict[str, int | str]]:
     deadline = time.monotonic() + args.marker_timeout
-    last = [data_status(board, args) for board in boards]
+    with ThreadPoolExecutor(max_workers=len(boards)) as executor:
+        last = list(executor.map(data_status, boards, [args] * len(boards)))
     while time.monotonic() < deadline:
         if all(int(row["state"]) == 0 for row in last):
             return last
-        time.sleep(0.05)
-        last = [data_status(board, args) for board in boards]
+        time.sleep(args.poll_interval)
+        with ThreadPoolExecutor(max_workers=len(boards)) as executor:
+            last = list(executor.map(data_status, boards, [args] * len(boards)))
     raise RuntimeError(f"DATA STOP did not restore IDLE: {last}")
 
 
@@ -873,8 +904,12 @@ def validate_hil_args(args: argparse.Namespace) -> list[str]:
     args.data_source_node, args.data_destination_node = data_nodes
     if not 0 <= args.reference_node < count:
         raise SystemExit("reference-node outside board order")
+    try:
+        validate_generation(args.generation)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     if not (0 <= args.codebook <= 3 and 1 <= args.epoch <= 255 and
-            args.generation > 0 and args.marker_to_data_samples > 0 and
+            args.marker_to_data_samples > 0 and
             args.sample_period_ns > 0 and
             -10 <= args.search_start <= args.search_end <= 10 and
             args.guard_samples >= 0):
@@ -936,7 +971,7 @@ def validate_hil_args(args: argparse.Namespace) -> list[str]:
 def discover_ordered(args: argparse.Namespace,
                      board_ids: list[str]) -> list[Board]:
     args.board_ids = board_ids
-    boards = discover(args)
+    boards = getattr(args, "discovered_boards", None) or discover(args)
     missing = set(board_ids) - set(boards)
     if missing:
         raise SystemExit(f"boards not found by *IDN?: {', '.join(sorted(missing))}")
@@ -1016,11 +1051,11 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
         return {**plan, "passed": False, "dry_run": True}
 
     actions = prepare_ring(ordered, args) if prepare else []
-    active_before = {
-        board.address: board_command(
-            board, "READ:CALibration:ACTive?", args)
-        for board in ordered
-    }
+    with ThreadPoolExecutor(max_workers=len(ordered)) as executor:
+        active_values = list(executor.map(
+            lambda board: board_command(
+                board, "READ:CALibration:ACTive?", args), ordered))
+    active_before = dict(zip((board.address for board in ordered), active_values))
     source = ordered[args.source_node]
     destination = ordered[args.destination_node]
     active = [source, destination]
@@ -1132,14 +1167,16 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
             capture_download = download_data_capture(
                 source, capture_file, args)
     finally:
-        for board in active:
-            board_command(board, "CALibration:DATA:STOP", args)
+        with ThreadPoolExecutor(max_workers=len(active)) as executor:
+            list(executor.map(
+                lambda board: board_command(
+                    board, "CALibration:DATA:STOP", args), active))
         idle = wait_idle(active, args)
-    active_after = {
-        board.address: board_command(
-            board, "READ:CALibration:ACTive?", args)
-        for board in ordered
-    }
+    with ThreadPoolExecutor(max_workers=len(ordered)) as executor:
+        active_values = list(executor.map(
+            lambda board: board_command(
+                board, "READ:CALibration:ACTive?", args), ordered))
+    active_after = dict(zip((board.address for board in ordered), active_values))
     active_unchanged = active_before == active_after
     result = {
         **plan,
@@ -1294,6 +1331,7 @@ def run_repeat_matrix(args: argparse.Namespace) -> dict[str, object]:
 
 def main() -> int:
     args = parse_args()
+    args.keep_open = not args.short_open
     args.out_dir = args.out_dir or (
         ROOT / "out" / "training" /
         f"trn02_data_link{args.link_index}_"
@@ -1307,6 +1345,7 @@ def main() -> int:
             f"boards not found by *IDN?: {', '.join(sorted(missing))}")
     load_guard = CalibrationLoadGuard(
         [guard_boards[address] for address in args.board_id], args)
+    args.discovered_boards = guard_boards
     with load_guard:
         result = (run_repeat_matrix(args)
                   if args.all_links or args.repeats > 1 else run_hil(args))
