@@ -7,6 +7,7 @@ import argparse
 import atexit
 import csv
 import json
+import os
 import sys
 import time
 from dataclasses import asdict, dataclass
@@ -26,7 +27,8 @@ if str(ROOT / "tools" / "tdma_ring_monitor") not in sys.path:
     sys.path.insert(0, str(ROOT / "tools" / "tdma_ring_monitor"))
 
 from scpi_common.board_identity import parse_idn_response  # noqa: E402
-from scpi_common.scpi_serial import read_scpi_response  # noqa: E402
+from scpi_common.scpi_serial import (  # noqa: E402
+    SerialSession, read_scpi_response)
 from tdma_field_parse import FIELDS as TDMA_FIELDS  # noqa: E402
 
 
@@ -44,19 +46,16 @@ class BoardConnection:
     def __init__(self, board: Board, args: argparse.Namespace) -> None:
         self.board = board
         self.args = args
-        self.ser: serial.Serial | None = None
+        self.session: SerialSession | None = None
 
     def open(self) -> "BoardConnection":
-        if self.ser is not None:
+        if self.session is not None:
             return self
-        self.ser = serial.Serial(
-            self.board.port, self.args.baud, timeout=0.1,
-            write_timeout=self.args.timeout)
-        time.sleep(self.args.settle)
-        self.ser.reset_input_buffer()
-        self.ser.reset_output_buffer()
-        identity = parse_idn_response(
-            command(self.ser, "*IDN?", self.args.timeout))
+        self.session = SerialSession(
+            self.board.port, self.args.baud, self.args.timeout,
+            self.args.settle, read_timeout_s=serial_read_timeout(self.args))
+        self.session.open()
+        identity = parse_idn_response(self.session.execute("*IDN?"))
         if identity.address != self.board.address:
             self.close()
             raise RuntimeError(
@@ -65,24 +64,22 @@ class BoardConnection:
         return self
 
     def close(self) -> None:
-        if self.ser is None:
+        if self.session is None:
             return
-        try:
-            self.ser.flush()
-        finally:
-            self.ser.close()
-            self.ser = None
+        self.session.close()
+        self.session = None
 
     def command(self, text: str) -> str:
         self.open()
-        assert self.ser is not None
-        identity = parse_idn_response(
-            command(self.ser, "*IDN?", self.args.timeout))
-        if identity.address != self.board.address:
-            raise RuntimeError(
-                f"{self.board.port}: identity changed to {identity.address}, "
-                f"expected {self.board.address}")
-        return _board_command_on_serial(self.board, text, self.args, self.ser)
+        assert self.session is not None and self.session.ser is not None
+        response = _board_command_on_serial(
+            self.board, text, self.args, self.session.ser)
+        # A software reset invalidates the CDC session.  Release it here so
+        # the next command performs a fresh discovery/open handshake.
+        action = text.strip().split(maxsplit=1)[0].upper()
+        if action in {"SYSTEM:BOOT:RESET", "SYST:BOOT:RESET"}:
+            self.close()
+        return response
 
 
 _PERSISTENT_CONNECTIONS: dict[str, BoardConnection] = {}
@@ -95,6 +92,31 @@ def close_persistent_connections() -> None:
 
 
 atexit.register(close_persistent_connections)
+
+
+def persistent_sessions_enabled(args: argparse.Namespace) -> bool:
+    """Return whether this command owns a reusable CDC session.
+
+    The acceptance orchestrator runs each phase in its own process and sets
+    the environment contract below. This lets older calibration tools which
+    do not expose a ``--keep-open`` flag still reuse one session per board,
+    while ``--short-open`` remains an explicit diagnostic override.
+    """
+    if bool(getattr(args, "short_open", False)):
+        return False
+    return bool(getattr(args, "keep_open", False)) or os.environ.get(
+        "HAOFV_ACCEPTANCE_PERSISTENT_SESSIONS") == "1"
+
+
+def serial_read_timeout(args: argparse.Namespace) -> float:
+    """Resolve the bounded serial read quantum used by SCPI response reads."""
+    value = getattr(args, "read_timeout", None)
+    if value is None:
+        raw = os.environ.get("HAOFV_SERIAL_READ_TIMEOUT_S")
+        value = float(raw) if raw else 0.02
+    if value <= 0.0:
+        raise ValueError("serial read timeout must be > 0")
+    return min(float(value), float(getattr(args, "timeout", value)))
 
 
 def parse_args() -> argparse.Namespace:
@@ -116,9 +138,15 @@ def parse_args() -> argparse.Namespace:
                               "chunks; 0 sends one command"))
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
+    parser.add_argument("--read-timeout", type=float, default=0.02,
+                        help="bounded serial read quantum used by SCPI reads")
     parser.add_argument("--settle", type=float, default=0.2)
     parser.add_argument("--arm-wait", type=float, default=3.0)
     parser.add_argument("--start-wait", type=float, default=2.0)
+    parser.add_argument("--status-poll-interval", type=float, default=0.05,
+                        help="fixed interval used by ARM/TRAIN state readback")
+    parser.add_argument("--keep-open", action="store_true",
+                        help="reuse one CDC session for this ring transaction")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--short-open", action="store_true",
                         help="open/close CDC for every command (diagnostic fallback)")
@@ -152,7 +180,8 @@ def command(ser: serial.Serial, text: str, timeout_s: float) -> str:
 
 def probe(port: str, args: argparse.Namespace) -> Board | None:
     try:
-        with serial.Serial(port, args.baud, timeout=0.1,
+        with serial.Serial(port, args.baud,
+                           timeout=serial_read_timeout(args),
                            write_timeout=args.timeout) as ser:
             time.sleep(args.settle)
             idn = command(ser, "*IDN?", args.timeout)
@@ -210,28 +239,46 @@ def _board_command_on_serial(board: Board, text: str,
         "SYSTEM:TDMA:RING:TOPOLOGY", "SYST:TDMA:RING:TOPOLOGY",
         "SYSTEM:TDMA:RING:ARM", "SYST:TDMA:RING:ARM",
         "SYSTEM:TDMA:RING:START", "SYST:TDMA:RING:START",
+        "SYSTEM:TDMA:OPMODE:STAGE", "SYST:TDMA:OPMODE:STAGE",
+        "SYSTEM:TDMA:OPMODE:APPLY", "SYST:TDMA:OPMODE:APPLY",
+        "CALIBRATION:TOPOLOGY:PROBE",
+        "CALIBRATION:TRAINING:STAGE:CLEAR",
+        "CAL:TRAINING:STAGE:CLEAR",
+        "CALIBRATION:LOOPBACK:STOP",
+        "CALIBRATION:CLOCK:CODED:START",
+        "CALIBRATION:CLOCK:CODED:STOP",
         "CALIBRATION:P3:START", "CALIBRATION:P3:STOP",
-        "CALIBRATION:MARKER:INJECT", "CALIBRATION:MARKER:STOP",
-        "CALIBRATION:DATA:INJECT", "CALIBRATION:DATA:STOP",
-        "CALIBRATION:SCK:INJECT", "CALIBRATION:SCK:STOP",
+        "CALIBRATION:MARKER:ARM", "CALIBRATION:MARKER:INJECT",
+        "CALIBRATION:MARKER:STOP",
+        "CALIBRATION:DATA:ARM", "CALIBRATION:DATA:INJECT",
+        "CALIBRATION:DATA:STOP",
+        "CALIBRATION:SCK:ARM", "CALIBRATION:SCK:INJECT",
+        "CALIBRATION:SCK:STOP",
         "SYSTEM:BOOT:RESET", "SYST:BOOT:RESET",
     }
+    action_timeout = min(
+        float(getattr(args, "action_timeout", args.timeout)),
+        float(args.timeout),
+    )
     response = command(
-        ser, text, min(args.timeout, 1.0)
-        if action in ack_only_actions else args.timeout)
+        ser, text, action_timeout if action in ack_only_actions else args.timeout)
     if response == "<timeout>" and action in ack_only_actions:
         return "OK(no payload; verified by state readback)"
     return response
 
 
 def board_command(board: Board, text: str, args: argparse.Namespace) -> str:
-    if getattr(args, "keep_open", False):
+    # Persistent sessions are the deterministic default.  Existing tools can
+    # opt into the slower diagnostic behavior with --short-open.
+    keep_open = persistent_sessions_enabled(args)
+    if keep_open:
         connection = _PERSISTENT_CONNECTIONS.get(board.address)
         if connection is None:
             connection = BoardConnection(board, args)
             _PERSISTENT_CONNECTIONS[board.address] = connection
         return connection.command(text)
-    with serial.Serial(board.port, args.baud, timeout=0.1,
+    with serial.Serial(board.port, args.baud,
+                       timeout=serial_read_timeout(args),
                        write_timeout=args.timeout) as ser:
         time.sleep(args.settle)
         identity = parse_idn_response(command(ser, "*IDN?", args.timeout))
@@ -274,11 +321,11 @@ def wait_started(board: Board, args: argparse.Namespace) -> dict[str, int]:
             last = status(board, args)
         except (OSError, RuntimeError, serial.SerialException) as exc:
             last_error = str(exc)
-            time.sleep(0.1)
+            time.sleep(getattr(args, "status_poll_interval", 0.05))
             continue
         if last["ring_enabled"] == 1 and last["ring_adapter_started"] == 1:
             return last
-        time.sleep(0.05)
+        time.sleep(getattr(args, "status_poll_interval", 0.05))
     raise RuntimeError(
         f"{board.address}: ARM timeout, last={last}, last_error={last_error}")
 
@@ -288,59 +335,54 @@ def train(board: Board, args: argparse.Namespace) -> dict[str, object]:
     remaining = args.cycles
     responses: list[str] = []
     completed_cycles = 0
-    with serial.Serial(board.port, args.baud, timeout=0.1,
-                       write_timeout=args.timeout) as ser:
-        time.sleep(args.settle)
-        identity = parse_idn_response(command(ser, "*IDN?", args.timeout))
-        if identity.address != board.address:
+    # Use the same persistent session as the surrounding ring transaction.
+    # Re-opening here added a second USB settle/IDN handshake and could leave
+    # two handles racing during the ARM -> TRAIN handoff.
+    poll_interval = getattr(args, "status_poll_interval", 0.05)
+    while remaining > 0:
+        current = min(chunk_cycles, remaining)
+        before_raw = board_command(
+            board, "SYSTem:TDMA:RING:TRAIN:STATus?", args)
+        before = next(csv.reader([before_raw]), [])
+        if len(before) != 28 or before[0].strip().strip('"') != "CLKTRAIN":
             raise RuntimeError(
-                f"{board.port}: identity changed to {identity.address}, "
-                f"expected {board.address}")
-        while remaining > 0:
-            current = min(chunk_cycles, remaining)
-            before_raw = command(
-                ser, "SYSTem:TDMA:RING:TRAIN:STATus?", args.timeout)
-            before = next(csv.reader([before_raw]), [])
-            if len(before) != 28 or before[0].strip().strip('"') != "CLKTRAIN":
-                raise RuntimeError(
-                    f"{board.address}: invalid pre-TRAIN status {before_raw!r}")
-            previous_request_seq = int(before[5].strip().strip('"'), 0)
-            response = ""
-            for _ in range(3):
-                response = command(
-                    ser, f"SYSTem:TDMA:RING:TRAIN {current}", args.timeout)
-                responses.append(response)
-                if response.strip().strip('"') == str(current):
+                f"{board.address}: invalid pre-TRAIN status {before_raw!r}")
+        previous_request_seq = int(before[5].strip().strip('"'), 0)
+        response = ""
+        for _ in range(3):
+            response = board_command(
+                board, f"SYSTem:TDMA:RING:TRAIN {current}", args)
+            responses.append(response)
+            if response.strip().strip('"') == str(current):
+                break
+            time.sleep(poll_interval)
+        if response.strip().strip('"') != str(current):
+            raise RuntimeError(
+                f"{board.address}: TRAIN chunk {current} failed after "
+                f"{completed_cycles}/{args.cycles} cycles, response={response!r}")
+        deadline = time.monotonic() + args.timeout
+        train_snapshot: list[str] = []
+        while time.monotonic() < deadline:
+            train_raw = board_command(
+                board, "SYSTem:TDMA:RING:TRAIN:STATus?", args)
+            train_snapshot = next(csv.reader([train_raw]), [])
+            if (len(train_snapshot) == 28 and
+                    train_snapshot[0].strip().strip('"') == "CLKTRAIN"):
+                state = int(train_snapshot[2].strip().strip('"'), 0)
+                request_seq = int(train_snapshot[5].strip().strip('"'), 0)
+                if request_seq != previous_request_seq and state in (1, 3, 4):
+                    if state == 4:
+                        raise RuntimeError(
+                            f"{board.address}: TRAIN {current} entered ERROR: "
+                            f"{train_raw}")
                     break
-                time.sleep(0.05)
-            if response.strip().strip('"') != str(current):
-                raise RuntimeError(
-                    f"{board.address}: TRAIN chunk {current} failed after "
-                    f"{completed_cycles}/{args.cycles} cycles, response={response!r}")
-            deadline = time.monotonic() + args.timeout
-            train_snapshot: list[str] = []
-            while time.monotonic() < deadline:
-                train_raw = command(
-                    ser, "SYSTem:TDMA:RING:TRAIN:STATus?", args.timeout)
-                train_snapshot = next(csv.reader([train_raw]), [])
-                if (len(train_snapshot) == 28 and
-                        train_snapshot[0].strip().strip('"') == "CLKTRAIN"):
-                    state = int(train_snapshot[2].strip().strip('"'), 0)
-                    request_seq = int(
-                        train_snapshot[5].strip().strip('"'), 0)
-                    if request_seq != previous_request_seq and state in (1, 3, 4):
-                        if state == 4:
-                            raise RuntimeError(
-                                f"{board.address}: TRAIN {current} entered ERROR: "
-                                f"{train_raw}")
-                        break
-                time.sleep(0.02)
-            else:
-                raise RuntimeError(
-                    f"{board.address}: TRAIN {current} owner completion timeout, "
-                    f"last={train_snapshot}")
-            completed_cycles += current
-            remaining -= current
+            time.sleep(poll_interval)
+        else:
+            raise RuntimeError(
+                f"{board.address}: TRAIN {current} owner completion timeout, "
+                f"last={train_snapshot}")
+        completed_cycles += current
+        remaining -= current
     return {
         "requested_cycles": args.cycles,
         "chunk_cycles": chunk_cycles,
@@ -353,6 +395,10 @@ def train(board: Board, args: argparse.Namespace) -> dict[str, object]:
 
 def main() -> int:
     args = parse_args()
+    # The ring transaction owns all board I/O, so it can safely reuse the
+    # sessions.  Imported helpers (topology/calibration) must opt in instead
+    # to avoid competing with their independent snapshot readers.
+    args.keep_open = not args.short_open
     try:
         board_ids = resolve_board_ids(args)
     except ValueError as exc:
@@ -367,6 +413,8 @@ def main() -> int:
         raise SystemExit(
             "train-chunk-cycles must be 0 or an 8-cycle multiple not greater "
             "than cycles")
+    if args.status_poll_interval <= 0.0:
+        raise SystemExit("status-poll-interval must be > 0")
     boards = discover(args)
     missing = set(board_ids) - set(boards)
     if missing:

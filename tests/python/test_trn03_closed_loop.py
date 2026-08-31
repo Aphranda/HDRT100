@@ -7,6 +7,27 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _read_phys_source() -> str:
+    """Read the PHY source and append the extracted program manager module."""
+    source_path = ROOT / "components" / "tdma" / "src" / "tdma_pio_spi_phys.c"
+    source = source_path.read_text(encoding="utf-8")
+    for fragment in (
+            "tdma_pio_spi_phys_cal_control.inc",
+            "tdma_pio_spi_phys_cal_service.inc",
+            "tdma_pio_spi_phys_coded.inc",
+            "tdma_pio_spi_phys_marker_restored.inc",
+            "tdma_pio_spi_phys_data_train_restored.inc",
+            "tdma_pio_spi_phys_p3.inc",
+            "tdma_pio_spi_phys_flight_io.inc"):
+        include = f'#include "{fragment}"'
+        fragment_path = source_path.with_name(fragment)
+        source = source.replace(include, fragment_path.read_text(encoding="utf-8"))
+    programs_path = source_path.with_name("tdma_pio_spi_phys_programs.c")
+    source += "\n/* extracted PIO program manager source */\n" + programs_path.read_text(
+        encoding="utf-8")
+    return source
 TOOL_DIR = ROOT / "tools" / "calibration_ring_validate"
 if str(TOOL_DIR) not in sys.path:
     sys.path.insert(0, str(TOOL_DIR))
@@ -332,8 +353,7 @@ def test_clock_evidence_query_accepts_scalar_one() -> None:
 
 
 def test_origin_data_dma_covers_complete_physical_tail() -> None:
-    source = (ROOT / "components" / "tdma" / "src" /
-              "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    source = _read_phys_source()
     origin = source.split(
         "static bool tdma_pio_spi_phys_flight_origin_tx", 1
     )[1].split("bool tdma_pio_spi_phys_tx", 1)[0]
@@ -411,8 +431,7 @@ def test_process_follower_retains_elastic_byte_across_frame_boundary() -> None:
     assert bit_loop.index("in pins, 1") < bit_loop.index("wait 0 gpio 1")
     assert "mov isr, null" not in program
 
-    phys = (ROOT / "components" / "tdma" / "src" /
-            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    phys = _read_phys_source()
     configure = phys.split(
         "static bool tdma_pio_spi_phys_configure_flight", 1
     )[1].split("static bool", 1)[0]
@@ -459,8 +478,7 @@ def test_process_follower_forwards_control_on_independent_pio_sm() -> None:
     for instruction in (1, 4, 6, 9):
         assert f"instr_mem[offset + {instruction}u]" not in control_init
 
-    phys = (ROOT / "components" / "tdma" / "src" /
-            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    phys = _read_phys_source()
     assert "control_bits - 1u" in phys
     assert "phys->tx_sm,\n                            control_bits - 1u" in phys
     assert "pio_encode_pull(false, true)" in phys
@@ -501,8 +519,7 @@ def test_product_clock_latch_captures_first_csn_edge() -> None:
 
 
 def test_process_follower_disarm_releases_overlay_tx_dma() -> None:
-    phys = (ROOT / "components" / "tdma" / "src" /
-            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    phys = _read_phys_source()
     disarm = phys.split("void tdma_pio_spi_phys_disarm", 1)[1].split(
         "static bool tdma_pio_spi_phys_tx_put", 1)[0]
     tx_abort = disarm.index(
@@ -515,8 +532,7 @@ def test_process_follower_disarm_releases_overlay_tx_dma() -> None:
 
 
 def test_partial_arm_disarm_cannot_return_before_hardware_cleanup() -> None:
-    phys = (ROOT / "components" / "tdma" / "src" /
-            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    phys = _read_phys_source()
     disarm = phys.split("void tdma_pio_spi_phys_disarm", 1)[1].split(
         "static bool tdma_pio_spi_phys_tx_put", 1)[0]
     first_dma_abort = disarm.index("dma_channel_abort")
@@ -526,8 +542,7 @@ def test_partial_arm_disarm_cannot_return_before_hardware_cleanup() -> None:
 
 
 def test_clock_training_quiesces_complete_flight_persona() -> None:
-    phys = (ROOT / "components" / "tdma" / "src" /
-            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    phys = _read_phys_source()
     train = phys.split("bool tdma_pio_spi_phys_train_clock", 1)[1].split(
         "void tdma_pio_spi_phys_train_clock_service", 1)[0]
     select = train.index("tdma_pio_spi_phys_select_program_persona")
@@ -547,8 +562,7 @@ def test_clock_training_quiesces_complete_flight_persona() -> None:
 
 
 def test_process_follower_recovers_pass_script_after_bad_frame() -> None:
-    phys = (ROOT / "components" / "tdma" / "src" /
-            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    phys = _read_phys_source()
     service = phys.split(
         "bool tdma_pio_spi_phys_service_process_overlay_boundary", 1
     )[1].split("bool tdma_pio_spi_phys_set_process_image_mode", 1)[0]
@@ -576,8 +590,7 @@ def test_process_follower_defers_pass_until_parser_grace_expires() -> None:
     assert "bool flight_overlay_boundary_pending;" in header
     assert "uint32_t flight_overlay_grace_remaining;" in header
 
-    phys = (ROOT / "components" / "tdma" / "src" /
-            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    phys = _read_phys_source()
     service = phys.split(
         "bool tdma_pio_spi_phys_service_process_overlay_boundary", 1
     )[1].split("bool tdma_pio_spi_phys_set_process_image_mode", 1)[0]
@@ -590,8 +603,7 @@ def test_process_follower_defers_pass_until_parser_grace_expires() -> None:
 
 
 def test_rx_scanner_retains_complete_shifted_outer_header_prefix() -> None:
-    phys = (ROOT / "components" / "tdma" / "src" /
-            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    phys = _read_phys_source()
     capture = phys.split(
         "static bool tdma_pio_spi_phys_capture_words", 1
     )[1].split("bool tdma_pio_spi_phys_arm", 1)[0]
@@ -674,6 +686,38 @@ def test_ring_capture_ends_its_bounded_calibration_service_pass() -> None:
         "calibration_pio_loopback_service_core1")
 
 
+def test_stopped_training_bypasses_online_tdma_phase_budget() -> None:
+    app = (ROOT / "application" / "src" / "app.c").read_text(
+        encoding="utf-8")
+    dispatch = app.split("void app_realtime_run_once", 1)[1]
+    offline = dispatch.index(
+        "calibration_manager_training_offline_active_core1")
+    phase_table = dispatch.index("const uint32_t cycle_epoch")
+    assert offline < phase_table
+    assert "calibration_manager_service_core1();" in dispatch[
+        offline:phase_table]
+
+    manager = (ROOT / "components" / "calibration_manager" / "src" /
+               "calibration_manager.c").read_text(encoding="utf-8")
+    predicate = manager.split(
+        "bool calibration_manager_training_offline_active_core1", 1
+    )[1].split("void calibration_manager_p3_service_core1", 1)[0]
+    assert "s_training_activity_core1" in predicate
+    assert "ring.enabled == 0u" in predicate
+    assert "ring.adapter_started == 0u" in predicate
+
+    for stop_name in (
+            "calibration_manager_stop_loopback",
+            "calibration_manager_stop_bias",
+            "calibration_manager_stop_marker_training",
+            "calibration_manager_stop_data_training",
+            "calibration_manager_stop_sck_training",
+            "calibration_manager_stop_clk_coded"):
+        stop = manager.split(f"void {stop_name}", 1)[1]
+        stop = stop.split("\n}", 1)[0]
+        assert "calibration_manager_set_training_activity_core0(true);" in stop
+
+
 def test_calibration_core1_never_waits_on_resource_arbiter() -> None:
     manager = (ROOT / "components" / "calibration_manager" / "src" /
                "calibration_manager.c").read_text(encoding="utf-8")
@@ -690,8 +734,7 @@ def test_calibration_core1_never_waits_on_resource_arbiter() -> None:
 def test_ring_capture_uses_request_scoped_raw_sck_persona() -> None:
     header = (ROOT / "components" / "tdma" / "inc" /
               "tdma_pio_spi_phys.h").read_text(encoding="utf-8")
-    phys = (ROOT / "components" / "tdma" / "src" /
-            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    phys = _read_phys_source()
     begin = phys.split(
         "bool tdma_pio_spi_phys_begin_ring_waveform_capture", 1
     )[1].split(
@@ -804,8 +847,7 @@ def test_core1_static_phase_schedule_fits_with_tdma_and_guard() -> None:
 
 
 def test_process_follower_coalesces_late_overlay_behind_committed_pass() -> None:
-    phys = (ROOT / "components" / "tdma" / "src" /
-            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    phys = _read_phys_source()
     prepare = phys.split(
         "bool tdma_pio_spi_phys_prepare_process_overlay", 1
     )[1].split("static void tdma_pio_spi_phys_set_line_drivers", 1)[0]
@@ -819,8 +861,7 @@ def test_process_follower_coalesces_late_overlay_behind_committed_pass() -> None
 
 
 def test_overlay_script_uses_nonblocking_double_buffer_submission() -> None:
-    phys = (ROOT / "components" / "tdma" / "src" /
-            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    phys = _read_phys_source()
     pass_overlay = phys.split(
         "static bool tdma_pio_spi_phys_prepare_pass_overlay", 1
     )[1].split(
@@ -915,8 +956,7 @@ def test_flight_preserves_sck_and_advances_serial_data_one_cycle() -> None:
     assert "pio_encode_delay(sck_phase_delay_cycles)" in origin
     assert "pio_encode_delay(data_residual_delay_cycles)" in origin
 
-    phys_source = (ROOT / "components" / "tdma" / "src" /
-                   "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    phys_source = _read_phys_source()
     configure = phys_source.split(
         "static bool tdma_pio_spi_phys_configure_flight", 1
     )[1].split("static bool", 1)[0]
@@ -947,8 +987,7 @@ def test_closed_loop_stops_calibration_personas_before_ring_staging() -> None:
 
 
 def test_origin_queues_physical_byte_count_before_payload_dma_without_waiting() -> None:
-    source = (ROOT / "components" / "tdma" / "src" /
-              "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    source = _read_phys_source()
     function = source.split(
         "static bool tdma_pio_spi_phys_flight_origin_tx", 1
     )[1].split("bool tdma_pio_spi_phys_tx", 1)[0]
@@ -974,8 +1013,7 @@ def test_product_flight_arm_uses_configured_process_image_payload() -> None:
     assert snapshot < payload_set < phys_arm
     assert product_gate < phys_arm
 
-    phys = (ROOT / "components" / "tdma" / "src" /
-            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    phys = _read_phys_source()
     setter = phys.split(
         "bool tdma_pio_spi_phys_set_flight_payload_size", 1
     )[1].split("bool tdma_pio_spi_phys_set_flight_offsets", 1)[0]
@@ -1016,8 +1054,7 @@ def test_flight_origin_control_edges_are_owned_by_one_pio_sm() -> None:
     assert ("pio_sm_set_consecutive_pindirs(pio, sm, tx_sck_pin, 2u, true)"
             in init)
 
-    phys_source = (ROOT / "components" / "tdma" / "src" /
-                   "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    phys_source = _read_phys_source()
     flight_tx = phys_source.split(
         "static bool tdma_pio_spi_phys_flight_origin_tx", 1
     )[1].split("bool tdma_pio_spi_phys_tx", 1)[0]
@@ -1027,8 +1064,7 @@ def test_flight_origin_control_edges_are_owned_by_one_pio_sm() -> None:
 
 
 def test_shifted_rx_scanner_preserves_shared_raw_boundary_word() -> None:
-    source = (ROOT / "components" / "tdma" / "src" /
-              "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    source = _read_phys_source()
     capture = source.split(
         "static bool tdma_pio_spi_phys_capture_words", 1
     )[1].split("bool tdma_pio_spi_phys_arm", 1)[0]
@@ -1038,8 +1074,7 @@ def test_shifted_rx_scanner_preserves_shared_raw_boundary_word() -> None:
 
 
 def test_p3_reference_capture_uses_persona_loaded_program_offset() -> None:
-    source = (ROOT / "components" / "tdma" / "src" /
-              "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    source = _read_phys_source()
     service = source.split(
         "void tdma_pio_spi_phys_cal_loopback_service", 1
     )[1].split("static uint32_t tdma_pio_spi_cal_sample_byte", 1)[0]
@@ -1068,8 +1103,7 @@ def test_calibration_loopback_intent_has_a_dedicated_realtime_beat() -> None:
 def test_calibration_loopback_persona_transition_is_split_across_beats() -> None:
     header = (ROOT / "components" / "tdma" / "inc" /
               "tdma_pio_spi_phys.h").read_text(encoding="utf-8")
-    source = (ROOT / "components" / "tdma" / "src" /
-              "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    source = _read_phys_source()
     start = source.split(
         "bool tdma_pio_spi_phys_cal_loopback_start", 1
     )[1].split("void tdma_pio_spi_phys_cal_loopback_stop", 1)[0]
@@ -1121,8 +1155,7 @@ def test_p3_responder_returns_and_measures_complete_data_burst() -> None:
     assert "p3_data_loop:" in program
     assert "jmp x-- p3_data_loop" in program
 
-    phys_source = (ROOT / "components" / "tdma" / "src" /
-                   "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    phys_source = _read_phys_source()
     start = phys_source.split(
         "bool tdma_pio_spi_phys_p3_start", 1
     )[1].split("void tdma_pio_spi_phys_p3_stop", 1)[0]
@@ -1150,8 +1183,7 @@ def test_p3_is_an_offline_bounded_core1_session() -> None:
     assert "calibration_manager_p3_service_core1();" in offline
     assert "return;" in offline
 
-    phys = (ROOT / "components" / "tdma" / "src" /
-            "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    phys = _read_phys_source()
     start = phys.split("bool tdma_pio_spi_phys_p3_start", 1)[1].split(
         "void tdma_pio_spi_phys_p3_stop", 1)[0]
     service = phys.split("void tdma_pio_spi_phys_p3_service", 1)[1].split(
@@ -1164,8 +1196,7 @@ def test_p3_is_an_offline_bounded_core1_session() -> None:
 
 
 def test_process_rx_reconstructs_absolute_fixed_frame_sequence() -> None:
-    source = (ROOT / "components" / "tdma" / "src" /
-              "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    source = _read_phys_source()
     produced = source.split(
         "static uint64_t tdma_pio_spi_phys_rx_produced_words", 1
     )[1].split("static uint32_t tdma_pio_spi_phys_rx_ring_word", 1)[0]

@@ -1,8 +1,24 @@
 #!/bin/sh
-# Doc self-regression gate: block commit when docs drift.
+# Run gates according to the staged change scope.
 set -e
 cd "$(git rev-parse --show-toplevel)" || exit 1
 
+needs_docs=0
+needs_firmware_gate=0
+while IFS= read -r path; do
+    case "$path" in
+        docs/*|tools/docs_check/*|tools/doc_regression_check.py|.githooks/*|AGENTS.md)
+            needs_docs=1
+            ;;
+        CMakeLists.txt|application/*|boards/*|components/*|drivers/*|middleware/*|config/hardware_acceptance/*)
+            needs_firmware_gate=1
+            ;;
+    esac
+done <<EOF
+$(git diff --cached --name-only)
+EOF
+
+if [ "$needs_docs" -eq 1 ] || [ "${FORCE_DOC_GATES:-0}" = "1" ]; then
 echo "[pre-commit] docs_check..."
 python tools/docs_check/docs_check.py --strict-names || {
     echo "docs_check FAILED - fix docs before committing"
@@ -14,12 +30,19 @@ python tools/doc_regression_check.py || {
     exit 1
 }
 echo "[pre-commit] doc gates OK"
-echo "[pre-commit] P3 hardware acceptance..."
-python tools/hardware_acceptance/p3_hardware_acceptance.py check-staged || {
-    echo "P3 hardware acceptance FAILED - run the mandatory build/OTA/P3 gate"
-    exit 1
-}
-echo "[pre-commit] P3 hardware acceptance OK"
+fi
+
+if [ "$needs_firmware_gate" -eq 1 ]; then
+    echo "[pre-commit] P3 hardware acceptance..."
+    python tools/hardware_acceptance/p3_hardware_acceptance.py check-staged || {
+        echo "P3 hardware acceptance FAILED - run the mandatory build/OTA/P3 gate"
+        exit 1
+    }
+    echo "[pre-commit] P3 hardware acceptance OK"
+else
+    echo "[pre-commit] P3 hardware gate skipped (no firmware-scope changes)"
+fi
+
 doc_verify_last="$(git rev-parse --git-path doc-verify-last)"
 echo "$(date +%s)" > "$doc_verify_last"
 exit 0

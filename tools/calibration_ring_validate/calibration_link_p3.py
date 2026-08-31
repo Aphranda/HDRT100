@@ -80,6 +80,10 @@ def parse_args() -> argparse.Namespace:
                         help="exact *IDN? address in physical ring order")
     parser.add_argument("--expected-build")
     parser.add_argument("--frequency-mhz", action="append", type=int)
+    parser.add_argument(
+        "--diagnostic-frequency-only", action="store_true",
+        help=("allow an explicit subset of the 10/25/30 MHz ladder for "
+              "bounded diagnosis; output is not complete acceptance evidence"))
     parser.add_argument("--signal-group", choices=("CLK_DATA", "CS_DATA", "BOTH"),
                         default="BOTH")
     parser.add_argument("--repeats", type=int, default=3)
@@ -542,10 +546,20 @@ def main() -> int:
         write_summary(output, args.out_dir)
         print(f"passed={output['passed']} out_dir={args.out_dir}")
         return 0 if output["passed"] else 1
-    try:
-        frequencies_mhz = validation_frequency_ladder(args.frequency_mhz)
-    except ValueError as exc:
-        raise SystemExit(str(exc)) from exc
+    if args.diagnostic_frequency_only:
+        if not args.frequency_mhz:
+            raise SystemExit(
+                "--diagnostic-frequency-only requires --frequency-mhz")
+        allowed = set(validation_frequency_ladder(None))
+        frequencies_mhz = list(dict.fromkeys(args.frequency_mhz))
+        if any(frequency not in allowed for frequency in frequencies_mhz):
+            raise SystemExit(
+                "diagnostic frequency must be one of 10,25,30 MHz")
+    else:
+        try:
+            frequencies_mhz = validation_frequency_ladder(args.frequency_mhz)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
     if not 2 <= len(args.board_id) <= 8:
         raise SystemExit("board count must be in [2, 8]")
     if len(set(args.board_id)) != len(args.board_id):
@@ -574,6 +588,7 @@ def main() -> int:
         "board_ids_in_physical_order": args.board_id,
         "boards": {board.address: asdict(board) for board in ordered},
         "frequency_ladder_mhz": frequencies_mhz,
+        "frequency_subset_diagnostic": args.diagnostic_frequency_only,
         "repeats": args.repeats,
         "pulse_count": args.pulse_count,
         "capture_words": args.capture_words,

@@ -54,6 +54,9 @@ from calibration_ring_validate.calibration_phase import (  # noqa: E402
     link_base_delay_ns,
     phase_delay_samples,
 )
+from calibration_ring_validate.calibration_load_guard import (  # noqa: E402
+    CalibrationLoadGuard,
+)
 
 
 SCK_FIELDS = (
@@ -761,7 +764,19 @@ def run(args: argparse.Namespace) -> dict[str, object]:
 
 def main() -> int:
     args = parse_args()
-    result = run(args)
+    args.board_ids = list(args.board_id)
+    guard_boards = discover(args)
+    missing = set(args.board_id) - set(guard_boards)
+    if missing:
+        raise SystemExit(
+            f"boards not found by *IDN?: {', '.join(sorted(missing))}")
+    load_guard = CalibrationLoadGuard(
+        [guard_boards[address] for address in args.board_id], args)
+    with load_guard:
+        result = run(args)
+    result["realtime_calibration_load"] = load_guard.evidence()
+    result["passed"] = (bool(result.get("passed")) and
+                        bool(load_guard.evidence()["passed"]))
     out_dir = args.out_dir or (
         ROOT / "out" / "training" /
         f"sck_train_{datetime.now().strftime('%Y%m%d_%H%M%S')}")

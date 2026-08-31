@@ -76,6 +76,63 @@ def open_serial_port(port: str,
             ser.close()
 
 
+class SerialSession:
+    """Explicitly owned CDC session with one close path.
+
+    Validation tools may keep a session for a phase, but every owner uses the
+    same open/settle/drain/flush/close lifecycle.  This prevents a temporary
+    query from opening a port that is still held by another phase helper.
+    """
+
+    def __init__(self, port: str, baud: int, timeout_s: float,
+                 settle_s: float, *, read_timeout_s: float = 0.1) -> None:
+        self.port = port
+        self.baud = baud
+        self.timeout_s = timeout_s
+        self.settle_s = settle_s
+        self.read_timeout_s = read_timeout_s
+        self.ser: serial.Serial | None = None
+
+    def open(self) -> "SerialSession":
+        if self.ser is not None:
+            return self
+        self.ser = serial.Serial(
+            self.port, self.baud, timeout=self.read_timeout_s,
+            write_timeout=self.timeout_s)
+        try:
+            time.sleep(self.settle_s)
+            self.ser.reset_input_buffer()
+            self.ser.reset_output_buffer()
+        except Exception:
+            self.close()
+            raise
+        return self
+
+    def close(self) -> None:
+        if self.ser is None:
+            return
+        try:
+            self.ser.flush()
+        finally:
+            self.ser.close()
+            self.ser = None
+
+    def __enter__(self) -> "SerialSession":
+        return self.open()
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        self.close()
+
+    def execute(self, command: str, *, require_match: bool = True) -> str:
+        self.open()
+        assert self.ser is not None
+        self.ser.reset_input_buffer()
+        self.ser.write((command + "\n").encode("ascii"))
+        self.ser.flush()
+        return read_scpi_response(
+            self.ser, command, self.timeout_s, require_match=require_match)
+
+
 def read_serial_line_idle(ser: serial.Serial,
                           deadline: float,
                           *,

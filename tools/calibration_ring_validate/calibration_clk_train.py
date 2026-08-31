@@ -30,6 +30,7 @@ from tdma_start_ring import (  # noqa: E402
     status as ring_status,
     wait_started,
 )
+from tdma_field_parse import PHYS_FIELDS  # noqa: E402
 
 
 TRAIN_FIELDS = (
@@ -51,6 +52,50 @@ STATE_ERROR = 4
 RESULT_FORWARD_ARMED = 1
 RESULT_RETURN_OVERLAP = 2
 RESULT_NO_OVERLAP = 3
+
+LOOPBACK_FIELDS = (
+    "armed", "complete", "sample_hz", "sample_period_ns",
+    "produced_words", "edge_mask", "flags", "reject_reason", "epoch",
+    "t1_ns", "t2_ns", "t3_ns", "t4_ns", "result_valid", "residence_ns",
+    "raw_path_sum_ns", "delay_estimate_ns", "active_eligible",
+)
+
+
+def _parse_snapshot(raw: str, fields: tuple[str, ...]) -> dict[str, int]:
+    row = next(csv.reader([raw]), [])
+    if len(row) != len(fields):
+        raise RuntimeError(
+            f"snapshot field count {len(row)}, expected {len(fields)}")
+    values = [int(value.strip().strip('"'), 0) for value in row]
+    return dict(zip(fields, values))
+
+
+def wait_calibration_idle(board, args: argparse.Namespace) -> dict[str, int]:
+    """Drain the P3 persona before a subsequent reference-node ARM.
+
+    A completed capture leaves the P3 programs resident until the explicit
+    LOOPback STOP intent is serviced by core1.  Re-arming the ring before that
+    transition finishes can legitimately return ARM result 8.  This wait is a
+    host-side maintenance barrier; it does not alter the firmware timing path.
+    """
+    deadline = time.monotonic() + args.arm_wait
+    last: dict[str, int] = {}
+    while time.monotonic() < deadline:
+        loopback = _parse_snapshot(
+            board_command(board, "READ:CALibration:LOOPback?", args),
+            LOOPBACK_FIELDS)
+        physical = _parse_snapshot(
+            board_command(board, "SYSTem:SYNC:VDC:TDMA:PHYS?", args),
+            PHYS_FIELDS)
+        last = {
+            "loopback_armed": loopback["armed"],
+            "program_persona": physical["program_persona"],
+        }
+        if loopback["armed"] == 0 and physical["program_persona"] != 15:
+            return last
+        time.sleep(0.05)
+    raise RuntimeError(
+        f"{board.address}: calibration persona did not become idle: {last}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -76,6 +121,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train-timeout", type=float, default=2.0)
     parser.add_argument("--settle", type=float, default=0.2)
     parser.add_argument("--arm-wait", type=float, default=3.0)
+    parser.add_argument("--probe-phase-cycles", type=int, default=10,
+                        help="stopped raw-link topology-probe phase delay")
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -136,6 +183,19 @@ def arm_training_persona(ordered, reference_node: int,
     actions: list[dict[str, object]] = []
     node_count = len(ordered)
     for board in ordered:
+        # Each reference burst loads the P3 initiator/responder/capture
+        # persona.  Stop that explicit loopback before the next ring ARM;
+        # ring STOP alone only disables TDMA and does not drain the PIO
+        # persona transition on core1.
+        actions.append({
+            "board": board.address, "command": "LOOPBACK_STOP",
+            "response": board_command(
+                board, "CALibration:LOOPback:STOP", args),
+        })
+        actions.append({
+            "board": board.address, "command": "CALIBRATION_IDLE",
+            "readback": wait_calibration_idle(board, args),
+        })
         actions.append({"board": board.address, "command": "STOP",
                         "response": board_command(
                             board, "SYSTem:TDMA:RING:STOP", args)})
@@ -150,39 +210,31 @@ def arm_training_persona(ordered, reference_node: int,
     followers = [board for node, board in enumerate(ordered)
                  if node != reference_node]
     reference = ordered[reference_node]
-    for board in followers + [reference]:
+    start_order = followers + [reference]
+    armed: list[tuple[object, int, str, int]] = []
+    for board in start_order:
         node = ordered.index(board)
-        arm_error = ""
-        for attempt in range(1, 4):
-            response = board_command(
-                board, "SYSTem:TDMA:RING:ARM", args)
-            try:
-                readback = wait_started(board, args)
-                if (readback["ring_node_count"] != node_count or
-                        # TDMA reports RefMem/TDMA slot IDs at this boundary;
-                        # map them explicitly to Calibration node indices.
-                        readback["ring_local_slot_id"] != node or
-                        readback["ring_reference_slot_id"] != reference_node):
-                    raise RuntimeError(f"topology readback mismatch: {readback}")
-                actions.append({"board": board.address, "command": "ARM",
-                                "attempt": attempt, "response": response,
-                                "readback": readback})
-                break
-            except RuntimeError as exc:
-                arm_error = str(exc)
-                actions.append({"board": board.address, "command": "ARM",
-                                "attempt": attempt, "response": response,
-                                "error": arm_error})
-                board_command(board, "SYSTem:TDMA:RING:STOP", args)
-                time.sleep(args.gap)
-                topology = (
-                    f"SYSTem:TDMA:RING:TOPology "
-                    f"{node_count},{node},{reference_node}")
-                board_command(board, topology, args)
-                time.sleep(args.gap)
-        else:
+        response = board_command(board, "SYSTem:TDMA:RING:ARM", args)
+        arm_result = int(board_command(
+            board, "SYSTem:TDMA:RING:ARM:STATus?", args
+        ).strip().strip('"'), 0)
+        actions.append({"board": board.address, "command": "ARM_SUBMIT",
+                        "response": response, "arm_result": arm_result})
+        if arm_result != 1:
             raise RuntimeError(
-                f"{board.address}: ARM failed after 3 attempts: {arm_error}")
+                f"{board.address}: ARM rejected with result={arm_result}")
+        armed.append((board, node, response, arm_result))
+    for board, node, response, arm_result in armed:
+        readback = wait_started(board, args)
+        if (readback["ring_node_count"] != node_count or
+                # TDMA reports RefMem/TDMA slot IDs at this boundary;
+                # map them explicitly to Calibration node indices.
+                readback["ring_local_slot_id"] != node or
+                readback["ring_reference_slot_id"] != reference_node):
+            raise RuntimeError(f"topology readback mismatch: {readback}")
+        actions.append({"board": board.address, "command": "ARM_STARTED",
+                        "response": response, "arm_result": arm_result,
+                        "readback": readback})
 
     for board in followers:
         before = train_status(board, args)
@@ -380,6 +432,13 @@ def main() -> int:
 
     for board in ordered:
         board_command(board, "SYSTem:TDMA:RING:STOP", args)
+        # Coarse acquisition starts a new calibration chain.  A valid Flash
+        # record remains persisted, but its RAM stage can target a previous
+        # profile/topology and must not gate this stopped diagnostic ARM.
+        board_command(board, "CALibration:TRAINing:STAGe:CLEar", args)
+        board_command(
+            board,
+            f"CALibration:TOPology:PROBe 1,{args.probe_phase_cycles}", args)
         board_command(board,
                       f"SYSTem:TDMA:OPMode:STAGe {args.level}", args)
         board_command(board, "SYSTem:TDMA:OPMode:APPLy", args)
@@ -405,6 +464,7 @@ def main() -> int:
         for board in ordered:
             try:
                 board_command(board, "SYSTem:TDMA:RING:STOP", args)
+                board_command(board, "CALibration:TOPology:PROBe 0", args)
             except Exception:  # noqa: BLE001 - best-effort bench cleanup
                 pass
 

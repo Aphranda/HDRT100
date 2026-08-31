@@ -35,6 +35,9 @@ from calibration_ring_validate.calibration_phase import (  # noqa: E402
     link_base_delay_ns,
     phase_delay_samples,
 )
+from calibration_ring_validate.calibration_load_guard import (  # noqa: E402
+    CalibrationLoadGuard,
+)
 from calibration_ring_validate.calibration_clk_codebook_eval import (  # noqa: E402
     crc8_atm,
 )
@@ -1296,8 +1299,20 @@ def main() -> int:
         f"trn02_data_link{args.link_index}_"
         f"{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    result = (run_repeat_matrix(args)
-              if args.all_links or args.repeats > 1 else run_hil(args))
+    args.board_ids = list(args.board_id)
+    guard_boards = discover(args)
+    missing = set(args.board_id) - set(guard_boards)
+    if missing:
+        raise SystemExit(
+            f"boards not found by *IDN?: {', '.join(sorted(missing))}")
+    load_guard = CalibrationLoadGuard(
+        [guard_boards[address] for address in args.board_id], args)
+    with load_guard:
+        result = (run_repeat_matrix(args)
+                  if args.all_links or args.repeats > 1 else run_hil(args))
+    result["realtime_calibration_load"] = load_guard.evidence()
+    result["passed"] = (bool(result.get("passed")) and
+                        bool(load_guard.evidence()["passed"]))
     encoded = json.dumps(result, ensure_ascii=False, indent=2)
     print(encoded)
     (args.out_dir / "summary.json").write_text(

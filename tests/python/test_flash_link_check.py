@@ -145,6 +145,24 @@ def test_boot_link_contract_accepts_generated_partition_size_gate() -> None:
                                  profile="boot") == []
 
 
+def test_boot_link_contract_ignores_build_directory_in_disassembly_header() -> None:
+    # objdump repeats the absolute ELF path in its file-format header.  A
+    # valid build directory may contain a dependency-token substring.
+    disassembly = (
+        "D:/build/tdma-p0t/DHRT100_BOOT.elf:     file format elf32-littlearm\n"
+        "\n10000000 <main>:\n"
+        " 10000000: bl 10000200 <boot_flash_service_erase>\n"
+        "10000100 <drv_flash_erase>:\n 10000100: bx lr\n"
+        "10000110 <drv_flash_program>:\n 10000110: bx lr\n"
+        "10000200 <boot_flash_service_erase>:\n"
+        " 10000200: bl 10000100 <drv_flash_erase>\n"
+        "10000300 <boot_flash_service_program>:\n"
+        " 10000300: bl 10000110 <drv_flash_program>\n"
+    )
+    assert validate_link_contract(boot_map_with_size_symbols(), disassembly,
+                                  profile="boot") == []
+
+
 def test_boot_link_contract_rejects_partition_size_overflow() -> None:
     bad_map = boot_map_with_size_symbols().replace(
         "0x10002be8 PROVIDE (__flash_binary_end = .)",

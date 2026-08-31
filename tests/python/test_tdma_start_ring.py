@@ -2,7 +2,10 @@ from argparse import Namespace
 
 import pytest
 
-from tools.tdma_ring_monitor.tdma_start_ring import resolve_board_ids
+from tools.tdma_ring_monitor.tdma_start_ring import (
+    persistent_sessions_enabled,
+    resolve_board_ids,
+)
 
 
 def args(board_id=None, reference_id=None, forward_id=None):
@@ -21,6 +24,30 @@ def test_resolve_three_to_eight_board_ring_order():
 def test_resolve_legacy_two_board_ids():
     assert resolve_board_ids(
         args(reference_id="REF", forward_id="FWD")) == ["REF", "FWD"]
+
+
+def test_validation_sessions_are_persistent_by_default():
+    options = args()
+    options.keep_open = True
+    assert persistent_sessions_enabled(options) is True
+
+
+def test_imported_helpers_do_not_open_persistent_sessions_implicitly():
+    assert persistent_sessions_enabled(args()) is False
+
+
+def test_acceptance_environment_enables_persistent_sessions(monkeypatch):
+    monkeypatch.setenv("HAOFV_ACCEPTANCE_PERSISTENT_SESSIONS", "1")
+    assert persistent_sessions_enabled(args()) is True
+    options = args()
+    options.short_open = True
+    assert persistent_sessions_enabled(options) is False
+
+
+def test_short_open_disables_persistent_sessions():
+    options = args()
+    options.short_open = True
+    assert persistent_sessions_enabled(options) is False
 
 
 @pytest.mark.parametrize("board_ids", [

@@ -19,6 +19,7 @@ if str(ROOT / "tools" / "tdma_ring_monitor") not in sys.path:
 
 from tdma_start_ring import (  # noqa: E402
     board_command,
+    close_persistent_connections,
     discover,
     status,
     train,
@@ -48,7 +49,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-rx-words", type=int, default=8)
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
+    parser.add_argument("--action-timeout", type=float, default=0.5,
+                        help="maximum wait for an action ACK before readback")
     parser.add_argument("--settle", type=float, default=0.2)
+    parser.add_argument("--gap", type=float, default=0.1,
+                        help="bounded Core0/Core1 handoff gap between actions")
     parser.add_argument("--arm-wait", type=float, default=3.0)
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--verbose", action="store_true",
@@ -83,6 +88,28 @@ def counter_delta(before: int, after: int) -> int:
 def counter_regressed(before: int, after: int) -> bool:
     return (after < before and
             not (before >= 0xF0000000 and after <= 0x0FFFFFFF))
+
+
+def arm_pair_board(board, args: argparse.Namespace) -> None:
+    """Submit ARM only after the previous STOP/TOPOLOGY intent is consumed."""
+    last_result = None
+    for attempt in range(1, 4):
+        if attempt > 1:
+            time.sleep(args.gap)
+        board_command(board, "SYSTem:TDMA:RING:ARM", args)
+        raw = board_command(board, "SYSTem:TDMA:RING:ARM:STATus?", args)
+        try:
+            last_result = int(raw.strip().strip('"'), 0)
+        except ValueError as exc:
+            raise RuntimeError(
+                f"{board.address}: invalid ARM status {raw!r}") from exc
+        if last_result == 1:
+            return
+        # Result 8 is the firmware's bounded transition rejection.  The
+        # next attempt is safe after the explicit handoff gap; other results
+        # are also retried once so transient CDC/owner races remain diagnosable.
+    raise RuntimeError(
+        f"{board.address}: ARM rejected with result={last_result}")
 
 
 def render_ring_order(adjacency: dict[str, list[str]], reference: str,
@@ -184,6 +211,12 @@ def main() -> int:
     pair_results: list[dict[str, object]] = []
     adjacency = {address: [] for address in board_ids}
     try:
+        # P0T uses temporary two-node topologies. Clear any persisted formal
+        # training stage once before the matrix scan; later pairs do not add a
+        # stage, so repeating this action only adds serial timeout latency.
+        for address in board_ids:
+            _ = board_command(
+                boards[address], "CALibration:TRAINing:STAGe:CLEar", args)
         for driver_id in board_ids:
             for receiver_id in board_ids:
                 if receiver_id == driver_id:
@@ -191,6 +224,7 @@ def main() -> int:
                 for address in board_ids:
                     _ = board_command(
                         boards[address], "SYSTem:TDMA:RING:STOP", args)
+                time.sleep(args.gap)
 
                 driver = boards[driver_id]
                 receiver = boards[receiver_id]
@@ -198,18 +232,51 @@ def main() -> int:
                     driver, "SYSTem:TDMA:RING:TOPology 2,0,0", args)
                 _ = board_command(
                     receiver, "SYSTem:TDMA:RING:TOPology 2,1,0", args)
+                time.sleep(args.gap)
                 for board in (receiver, driver):
-                    _ = board_command(board, "SYSTem:TDMA:RING:ARM", args)
+                    arm_pair_board(board, args)
                     _ = wait_started(board, args)
                 if not args.adjacency_only:
                     for board in (receiver, driver):
                         _ = train(board, args)
 
+                # ``board_command`` uses a persistent CDC session by default,
+                # while the frequency-sweep snapshot helper owns a separate
+                # serial handle. Release the former before opening the
+                # latter; Windows rejects concurrent opens of the same COM
+                # port and turns a valid probe into a false failure.
+                close_persistent_connections()
                 before = snapshot(receiver, args.timeout)
                 _ = board_command(receiver, "SYSTem:TDMA:RING:START", args)
                 _ = board_command(driver, "SYSTem:TDMA:RING:START", args)
-                time.sleep(args.pair_wait)
-                after = snapshot(receiver, args.timeout)
+                # START is an intent.  Use the receiver's counters as the
+                # completion query and return as soon as activity is visible;
+                # pair_wait is only the bounded failure timeout.
+                deadline = time.monotonic() + args.pair_wait
+                after = None
+                while time.monotonic() < deadline:
+                    close_persistent_connections()
+                    candidate = snapshot(receiver, args.timeout)
+                    rx_delta = counter_delta(
+                        before["tdma"]["ring_adapter_rx_count"],
+                        candidate["tdma"]["ring_adapter_rx_count"])
+                    rx_words_delta = counter_delta(
+                        before["phys"]["rx_dma_produced_words"],
+                        candidate["phys"]["rx_dma_produced_words"])
+                    rx_edges_delta = counter_delta(
+                        before["phys"]["rx_edge_count"],
+                        candidate["phys"]["rx_edge_count"])
+                    after = candidate
+                    if (rx_delta >= args.min_rx_frames or
+                            rx_words_delta >= args.min_rx_words or
+                            rx_edges_delta > 0):
+                        break
+                    time.sleep(min(args.gap, 0.02))
+                if after is None:
+                    raise RuntimeError(
+                        f"{receiver.address}: pair activity query produced no snapshot")
+                close_persistent_connections()
+                # ``after`` is the queried completion snapshot above.
                 rx_before = before["tdma"]["ring_adapter_rx_count"]
                 rx_after = after["tdma"]["ring_adapter_rx_count"]
                 rx_delta = counter_delta(rx_before, rx_after)
@@ -255,6 +322,9 @@ def main() -> int:
                     boards[address], "CALibration:TOPology:PROBe 0", args)
             except Exception:  # pragma: no cover - best effort bench cleanup
                 pass
+        # The topology process is a phase boundary. Do not leave persistent
+        # CDC handles alive for the next calibration subprocess.
+        close_persistent_connections()
 
     anchor = args.anchor_id or board_ids[0]
     ring_order = render_ring_order(adjacency, anchor, len(board_ids))

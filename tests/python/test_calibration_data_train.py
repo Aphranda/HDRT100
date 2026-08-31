@@ -236,8 +236,14 @@ def test_transport_dma_short_keeps_partial_evidence_on_initiator() -> None:
 
 
 def test_paused_rx_dma_keeps_logical_remainder_until_fifo_stalls() -> None:
-    source = (ROOT / "components" / "tdma" / "src" /
-              "tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    source = "\n".join(
+        (ROOT / "components" / "tdma" / "src" / name).read_text(
+            encoding="utf-8")
+        for name in (
+            "tdma_pio_spi_phys.c",
+            "tdma_pio_spi_phys_data_train_restored.inc",
+        )
+    )
     assert "const uint32_t hardware_data_remaining" in source
     assert "const uint32_t data_remaining = inject_rx_dma_pause" in source
     assert "? phys->data_train.capture_word_count" in source

@@ -34,6 +34,9 @@ from tdma_start_ring import (  # noqa: E402
     status as ring_status,
     wait_started,
 )
+from calibration_ring_validate.calibration_load_guard import (  # noqa: E402
+    CalibrationLoadGuard,
+)
 
 
 CODED_FIELDS = (
@@ -113,6 +116,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--coded-timeout", type=float, default=5.0)
     parser.add_argument("--settle", type=float, default=0.2)
     parser.add_argument("--arm-wait", type=float, default=3.0)
+    parser.add_argument("--probe-phase-cycles", type=int, default=10,
+                        help="stopped raw-link topology-probe phase delay")
     parser.add_argument("--gap", type=float, default=0.2)
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--dry-run", action="store_true")
@@ -272,37 +277,67 @@ def coded_action_args(args: argparse.Namespace) -> argparse.Namespace:
     return fast
 
 
+def wait_ring_stopped(board: Board,
+                      args: argparse.Namespace) -> dict[str, int]:
+    deadline = time.monotonic() + args.arm_wait
+    last: dict[str, int] = {}
+    while time.monotonic() < deadline:
+        last = ring_status(board, args)
+        if (last["ring_enabled"] == 0 and
+                last["ring_adapter_started"] == 0):
+            return last
+        time.sleep(0.05)
+    raise RuntimeError(f"{board.address}: STOP apply timeout: {last}")
+
+
 def start_coded(board: Board, args: argparse.Namespace) -> str:
     action_args = coded_action_args(args)
-    response = board_command(
-        board,
-        "CALibration:CLOCk:CODEd:STARt "
-        f"{args.codebook},{args.min_lag},{args.max_lag},"
-        f"{args.max_distance},{args.min_margin}",
-        action_args,
-    )
-    row = next(csv.reader([response]), [])
     expected = [args.codebook, args.min_lag, args.max_lag,
                 args.max_distance, args.min_margin]
-    try:
-        actual = [int(value.strip().strip('"'), 0) for value in row]
-    except ValueError:
-        actual = []
-    if actual != expected:
+    command = (
+        "CALibration:CLOCk:CODEd:STARt "
+        f"{args.codebook},{args.min_lag},{args.max_lag},"
+        f"{args.max_distance},{args.min_margin}")
+    response = ""
+    attempt_errors: list[list[str]] = []
+    for attempt in range(1, 4):
+        response = board_command(board, command, action_args)
+        row = next(csv.reader([response]), [])
+        try:
+            actual = [int(value.strip().strip('"'), 0) for value in row]
+        except ValueError:
+            actual = []
+        if actual == expected:
+            return response
         # Persona switching may race the lower-priority CDC response flush.
-        # Only accept that timeout when the guarded snapshot proves that this
+        # Wait for the asynchronous Core0->Core1 mailbox to leave IDLE, then
+        # accept the timeout only when the guarded snapshot proves that this
         # exact request reached core1.
+        deadline = time.monotonic() + min(args.coded_timeout, 1.0)
         snapshot = coded_status(board, args)
-        if (snapshot["state"] == STATE_IDLE or
-                snapshot["codebook_id"] != args.codebook or
-                snapshot["coarse_min_sample"] != args.min_lag or
-                snapshot["coarse_max_sample"] != args.max_lag or
-                snapshot["train_sequence"] == 0):
-            raise RuntimeError(
-                f"{board.address}: coded START rejected: {response!r}, "
-                f"snapshot={snapshot}")
-        response = f"{response}; accepted_by_snapshot"
-    return response
+        while (time.monotonic() < deadline and
+               snapshot["state"] == STATE_IDLE):
+            time.sleep(0.05)
+            snapshot = coded_status(board, args)
+        if (snapshot["state"] != STATE_IDLE and
+                snapshot["codebook_id"] == args.codebook and
+                snapshot["coarse_min_sample"] == args.min_lag and
+                snapshot["coarse_max_sample"] == args.max_lag and
+                snapshot["train_sequence"] != 0):
+            return f"{response}; accepted_by_snapshot_attempt={attempt}"
+        # A prior STOP intent may still be crossing the Core0/Core1 mailbox.
+        # Drain the explicit rejection before one bounded retry.
+        errors: list[str] = []
+        for _ in range(16):
+            error = board_command(board, "SYSTem:ERR?", args)
+            errors.append(error)
+            if error.startswith("0,") or error.startswith('+0,'):
+                break
+        attempt_errors.append(errors)
+        time.sleep(args.gap)
+    raise RuntimeError(
+        f"{board.address}: coded START rejected after 3 attempts: "
+        f"{response!r}, errors={attempt_errors}, snapshot={snapshot}")
 
 
 def prepare_ring(ordered: list[Board], reference_node: int,
@@ -315,6 +350,16 @@ def prepare_ring(ordered: list[Board], reference_node: int,
     for board in ordered:
         actions.append({"board": board.address, "command": "STOP",
                         "response": board_command(board, "SYSTem:TDMA:RING:STOP", args)})
+        actions.append({
+            "board": board.address, "command": "CLEAR_TRAINING_STAGE",
+            "response": board_command(
+                board, "CALibration:TRAINing:STAGe:CLEar", args)})
+        actions.append({
+            "board": board.address, "command": "TOPOLOGY_PROBE_ENABLE",
+            "response": board_command(
+                board,
+                f"CALibration:TOPology:PROBe 1,{args.probe_phase_cycles}",
+                args)})
         actions.append({"board": board.address, "command": "OPMODE",
                         "response": board_command(board,
                             f"SYSTem:TDMA:OPMode:STAGe {args.level}", args)})
@@ -327,34 +372,36 @@ def prepare_ring(ordered: list[Board], reference_node: int,
                             f"SYSTem:TDMA:RING:TOPology "
                             f"{node_count},{node},{reference_node}",
                             args)})
+    armed: list[tuple[Board, str, int]] = []
     for board in start_order:
         node = ordered.index(board)
-        last_error = ""
-        for attempt in range(1, 4):
-            response = board_command(board, "SYSTem:TDMA:RING:ARM", args)
-            try:
-                readback = wait_started(board, args)
-                actions.append({"board": board.address, "command": "ARM",
-                                "attempt": attempt, "response": response,
-                                "status": readback})
-                break
-            except RuntimeError as exc:
-                last_error = str(exc)
-                actions.append({"board": board.address, "command": "ARM",
-                                "attempt": attempt, "response": response,
-                                "error": last_error})
-                board_command(board, "SYSTem:TDMA:RING:STOP", args)
-                board_command(
-                    board,
-                    f"SYSTem:TDMA:RING:TOPology "
-                    f"{node_count},{node},{reference_node}", args)
-                time.sleep(args.gap)
-        else:
+        response = board_command(board, "SYSTem:TDMA:RING:ARM", args)
+        arm_result = int(board_command(
+            board, "SYSTem:TDMA:RING:ARM:STATus?", args
+        ).strip().strip('"'), 0)
+        actions.append({"board": board.address, "command": "ARM_SUBMIT",
+                        "response": response, "arm_result": arm_result})
+        if arm_result != 1:
             raise RuntimeError(
-                f"{board.address}: ARM failed after retries: {last_error}")
+                f"{board.address}: ARM rejected with result={arm_result}")
+        armed.append((board, response, arm_result))
+    for board, response, arm_result in armed:
+        readback = wait_started(board, args)
+        actions.append({"board": board.address, "command": "ARM_STARTED",
+                        "response": response, "arm_result": arm_result,
+                        "status": readback})
     for board in ordered:
         actions.append({"board": board.address, "command": "STOP_AFTER_ARM",
                         "response": board_command(board, "SYSTem:TDMA:RING:STOP", args)})
+    for board in ordered:
+        actions.append({
+            "board": board.address, "command": "STOP_APPLIED",
+            "status": wait_ring_stopped(board, args)})
+    for board in ordered:
+        actions.append({
+            "board": board.address, "command": "TOPOLOGY_PROBE_DISABLE",
+            "response": board_command(
+                board, "CALibration:TOPology:PROBe 0", args)})
     time.sleep(args.gap)
     return actions
 
@@ -511,41 +558,43 @@ def main() -> int:
                 for node in reference_nodes)):
         raise SystemExit("reference-node must select unique active nodes")
     trials: list[dict[str, object]] = []
-    for reference_node in reference_nodes:
-        for repeat_index in range(1, args.repeats + 1):
-            try:
-                result = run_reference_node(
-                    ordered, reference_node, repeat_index,
-                    prepare=repeat_index == 1, args=args)
-            except Exception as exc:  # noqa: BLE001 - retain all repeat evidence
-                error = f"{type(exc).__name__}: {exc}"
-                result = {
-                    "reference_node": reference_node,
-                    "reference_node_no": reference_node + 1,
-                    "reference_node_id": ordered[reference_node].address,
-                    "repeat_index": repeat_index,
-                    "accepted": False,
-                    "snapshot": {},
-                    "started": [],
-                    "actions": [],
-                    "error": error,
-                }
-                result["reject_category"] = trial_reject_category(result)
+    load_guard = CalibrationLoadGuard(ordered, args)
+    with load_guard:
+        for reference_node in reference_nodes:
+            for repeat_index in range(1, args.repeats + 1):
                 try:
-                    stop_coded(ordered, args)
-                except Exception as stop_exc:  # noqa: BLE001
-                    result["stop_error"] = (
-                        f"{type(stop_exc).__name__}: {stop_exc}")
-            trials.append(result)
-            print(json.dumps({"trial_complete": {
-                "reference_node_no": result["reference_node_no"],
-                "reference_node_id": result["reference_node_id"],
-                "repeat_index": result["repeat_index"],
-                "accepted": result["accepted"],
-                "reject_category": result["reject_category"],
-                "snapshot": result["snapshot"],
-                "error": result.get("error", ""),
-            }}, ensure_ascii=False), flush=True)
+                    result = run_reference_node(
+                        ordered, reference_node, repeat_index,
+                        prepare=repeat_index == 1, args=args)
+                except Exception as exc:  # noqa: BLE001 - retain all repeat evidence
+                    error = f"{type(exc).__name__}: {exc}"
+                    result = {
+                        "reference_node": reference_node,
+                        "reference_node_no": reference_node + 1,
+                        "reference_node_id": ordered[reference_node].address,
+                        "repeat_index": repeat_index,
+                        "accepted": False,
+                        "snapshot": {},
+                        "started": [],
+                        "actions": [],
+                        "error": error,
+                    }
+                    result["reject_category"] = trial_reject_category(result)
+                    try:
+                        stop_coded(ordered, args)
+                    except Exception as stop_exc:  # noqa: BLE001
+                        result["stop_error"] = (
+                            f"{type(stop_exc).__name__}: {stop_exc}")
+                trials.append(result)
+                print(json.dumps({"trial_complete": {
+                    "reference_node_no": result["reference_node_no"],
+                    "reference_node_id": result["reference_node_id"],
+                    "repeat_index": result["repeat_index"],
+                    "accepted": result["accepted"],
+                    "reject_category": result["reject_category"],
+                    "snapshot": result["snapshot"],
+                    "error": result.get("error", ""),
+                }}, ensure_ascii=False), flush=True)
     by_reference_node = summarize_by_reference_node(
         trials, args.max_reject_ratio, args.max_lag_span)
     overall = summarize_trials(
@@ -556,6 +605,7 @@ def main() -> int:
                   for summary in by_reference_node.values()))
     output = {
         **plan,
+        "realtime_calibration_load": load_guard.evidence(),
         "passed": passed,
         "expected_trial_count": expected_trial_count,
         "trials": trials,

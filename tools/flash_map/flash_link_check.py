@@ -212,7 +212,14 @@ def validate_link_contract(map_text: str, dis_text: str, profile: str = "app") -
                         f"end=0x{binary_end:08X} "
                         f"limit=0x{expected_origin + expected_length:08X}"
                     )
-        boot_text = (map_text + "\n" + dis_text).lower()
+        # The disassembler emits an absolute ELF filename in its header. A
+        # build directory is user-selectable and may itself contain a token
+        # such as ``tdma``; that path is not a linked dependency. Exclude
+        # file-format header lines before applying the dependency token gate.
+        dis_dependency_text = "\n".join(
+            line for line in dis_text.splitlines()
+            if "file format" not in line.lower())
+        boot_text = (map_text + "\n" + dis_dependency_text).lower()
         forbidden_tokens = (BOOT_FORBIDDEN_SYMBOL_TOKENS if profile == "boot"
                             else RECOVERY_FORBIDDEN_SYMBOL_TOKENS)
         for token in forbidden_tokens:

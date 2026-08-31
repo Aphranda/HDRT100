@@ -25,7 +25,8 @@ if str(ROOT / "tools" / "tdma_ring_monitor") not in sys.path:
     sys.path.insert(0, str(ROOT / "tools" / "tdma_ring_monitor"))
 
 from scpi_common.board_identity import parse_idn_response  # noqa: E402
-from scpi_common.scpi_serial import read_scpi_response  # noqa: E402
+from scpi_common.scpi_serial import (  # noqa: E402
+    open_serial_port, read_scpi_response)
 from tdma_field_parse import FIELDS as TDMA_FIELDS, PHYS_FIELDS  # noqa: E402
 
 PROFILE_FIELD_COUNT = 6
@@ -107,9 +108,8 @@ def discover(wanted: set[str], timeout_s: float, settle_s: float) -> dict[str, B
 
 
 def board_command(board: Board, text: str, timeout_s: float) -> str:
-    with serial.Serial(board.port, 115200, timeout=0.1,
-                       write_timeout=timeout_s) as ser:
-        time.sleep(0.15)
+    with open_serial_port(board.port, 115200, timeout_s, 0.15,
+                          read_timeout_s=0.1) as ser:
         identity = parse_idn_response(command(ser, "*IDN?", timeout_s))
         if identity.address != board.address:
             raise RuntimeError(f"{board.port}: *IDN? changed to {identity.address}")
@@ -137,9 +137,8 @@ def board_active_profile(board: Board, timeout_s: float) -> Profile:
 
 
 def snapshot(board: Board, timeout_s: float) -> dict:
-    with serial.Serial(board.port, 115200, timeout=0.1,
-                       write_timeout=timeout_s) as ser:
-        time.sleep(0.1)
+    with open_serial_port(board.port, 115200, timeout_s, 0.1,
+                          read_timeout_s=0.1) as ser:
         identity = parse_idn_response(command(ser, "*IDN?", timeout_s))
         if identity.address != board.address:
             raise RuntimeError(f"{board.port}: identity changed to {identity.address}")
