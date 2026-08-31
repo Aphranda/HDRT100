@@ -10,6 +10,38 @@ Last updated: 2026-08-31
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20260831-024 - PHY timing 模块拆分后的快速 10 MHz 验收
+
+- 对应 TODO：`P3-HIL-CODE-GATE`、`TRN-03D-PHY-01`、`TRN-03D-PHY-03`。
+- 变更：将无状态 PHY 时序辅助函数固化为
+  `components/tdma/inc/tdma_pio_spi_phys_timing.h` 与
+  `components/tdma/src/tdma_pio_spi_phys_timing.c`，主 PHY 文件保留实时 owner
+  和既有约 2000 行迁移边界；本次不把 SD、SVG 或诊断逻辑放入 Core1/PIO 热路径。
+- 构建：`out/build/phy-timing-module-20260831/`，`build_id=20260831042513`；
+  715/715 目标、PIO 头、App/A/B、Boot、Flash link contract 和统一 OTA package
+  均通过。
+- OTA：执行 `tools/ota_multi_update/ota_multi_update.py`，当前只枚举到四板
+  `0010071E65B5CB38`、`FB276192BEF9CCE1`、`2BD5090FE009FA2A`、
+  `A1E549202D18ED6A`；四块板的逐板 `ota_boot_commit/summary.json` 均为
+  `passed=true` 且读回目标 build。NO5 未枚举，故本记录不宣称五板 OTA；工具在
+  verbose 汇总打印阶段触发 Windows GBK `UnicodeEncodeError`，不影响设备端提交，
+  后续需修复主机输出编码并补可归档顶层 summary。
+- 快速 P3：四板物理环序执行 `--diagnostic-frequency-only --frequency-mhz 10`
+  和 `CLK_DATA`/`CS_DATA` 两组信号，共 24/24 trial 通过；RTT 约 176--184 ns，
+  delay estimate 80--82 ns，频率误差 0%，占空比 50--54%，DMA overrun 和 PIO
+  stall 均为零。证据：
+  `out/hardware_acceptance/p3-basic-10mhz-phy-timing-20260831/summary.json`。
+- 波形：使用 `tools/calibration_ring_validate/calibration_p3_waveform.py`
+  的 `--include-all --window-ns 1000` 从硬件时间戳生成 24 份 1 us SVG，位于
+  `out/analysis/p3-basic-10mhz-phy-timing-20260831-all/`。当前 P3 SCPI 仍未导出
+  原始 256-word SD capture，默认模式因此不伪造波形并返回 `rendered_count=0`；
+  本次 SVG 明确标记为硬件时间戳诊断证据。
+- Host 验证：`tests/python/test_trn03_closed_loop.py`、
+  `test_calibration_link_p3.py`、`test_calibration_p3_waveform.py` 共 107 passed，
+  输出在 `out/pytest/phy-timing-module-20260831/`。
+- 下一步：NO5 恢复枚举后补五板 OTA；修复 OTA 工具 UTF-8 输出后再归档顶层 summary，
+  然后继续下一个 PHY `.inc` 功能块迁移并重复本验收。
+
 ## CAL-TASK-20260831-023 - 快速硬件验收与 P3 时间戳波形诊断
 
 - 对应 TODO：`P3-HIL-CODE-GATE`、`TRN-03D-HEALTH-04`。
