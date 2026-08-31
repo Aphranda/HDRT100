@@ -10,6 +10,38 @@ Last updated: 2026-08-31
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20260831-023 - 快速硬件验收与 P3 时间戳波形诊断
+
+- 对应 TODO：`P3-HIL-CODE-GATE`、`TRN-03D-HEALTH-04`。
+- 状态：完成快速验收；正式全量校准门禁仍按既有流程执行。
+- 运行边界：为加快 PHY 拆分迭代，使用 `tools/calibration_ring_validate/calibration_link_p3.py`
+  的显式 `--diagnostic-frequency-only --frequency-mhz 10` 子集；该模式只验证基础 10 MHz，
+  不能替代包含 10/25/30 MHz、训练、TDMA 和 NO5 DPLL 的发布验收。
+- 实测结果：四板环序
+  `0010071E65B5CB38 -> FB276192BEF9CCE1 -> 2BD5090FE009FA2A -> A1E549202D18ED6A`，
+  `CLK_DATA`/`CS_DATA` 两组、24 个 trial 全部通过；RTT 为 176--184 ns，delay estimate
+  为 78--82 ns，10 MHz 频率误差为 0%，占空比为 52/48%，DMA/PIO overrun/stall 为零。
+- 运行态恢复：此前 Node2 SD `FILE_WRITE` 和 Node3 `capture_sample_count=0` 均只使用应用级
+  软件重启恢复；更换 SD 卡后未再复现。未因运行态问题执行 OTA；本次 host 工具改动也未触发 OTA。
+- 诊断工具：新增 `tools/calibration_ring_validate/calibration_p3_waveform.py`，可从既有
+  P3 `summary.json` 生成 1 us SVG，区分理想、initiator、responder 的硬件边沿时间戳；当前
+  P3 SCPI 尚未导出原始 256-word PIO 捕获到 SD，工具会明确标记该限制，不把时间戳重建冒充
+  SD 原始波形。
+- 验证：`tests/python/test_calibration_link_p3.py` 与
+  `tests/python/test_calibration_p3_waveform.py` 共 17 passed；快速验收证据位于
+  `out/hardware_acceptance/p3-basic-10mhz-20260831/summary.json`，失败 P3 时间戳 SVG
+  位于 `out/analysis/p3-resume4-failures/`。
+- 本轮 PHY 拆分迭代：构建产物位于
+  `out/build/phy-split-p3-10mhz-20260831/`，`build_id=20260831040257`；五板异步 OTA
+  后通过唯一地址复查，四板均运行该 build。基础 10 MHz P3 证据位于
+  `out/hardware_acceptance/p3-basic-10mhz-phy-split-20260831/summary.json`，四条 link、
+  两组信号和 24/24 trial 通过，delay estimate 为 80--82 ns；对应 1 us SVG 位于
+  `out/analysis/p3-basic-10mhz-phy-split-20260831/`。OTA 工具在 verbose 输出阶段遇到
+  Windows GBK 编码异常，但 OTA 后五板 build 复查均为目标 build；该主机输出问题不影响
+  设备端提交结果，后续应在无 verbose 或 UTF-8 环境下补齐可归档 OTA summary。
+- 下一步：继续 PHY/状态机迁移；每个设备端代码切片仍须 build、同包 OTA 和正式硬件验收，
+  host-only 分析工具复用现有 build，不得用 OTA 处理运行态复位。
+
 ## CAL-TASK-20260831-020 - 运行态复位与 OTA 边界固化
 
 - 对应 TODO：`P3-HIL-CODE-GATE`、`TRN-03D-HEALTH-04`。
@@ -24,6 +56,45 @@ Last updated: 2026-08-31
   `ota_skipped=true`。
 - 本次变更只更新流程文档，未修改设备端固件，因此不触发 build 或 OTA；后续运行态恢复应保留
   软件重启记录，并重新执行受影响的校准/训练和 HIL 门禁。
+
+## CAL-TASK-20260831-021 - 运行态复位后 level8 粗 CLK 复测
+
+- 对应 TODO：`P1`、`P3-HIL-CODE-GATE`。
+- 状态：阻塞（运行态配置门禁），未触发 OTA。
+- 处置：按复位边界仅使用 `tools/picotool_reboot/picotool_reboot.py` 对 NO1–NO5
+  做应用软件重启；复用固件 build `20260830193828`，没有重新构建或刷写。
+- 结果：重启后 NO1/NO2 的 level8 粗 CLK 可取得 bracket；随后 NO3/NO4 在不同轮次
+  出现 `ARM rejected with result=8`
+  （`DISTRIBUTED_REFMEM_TDMA_ARM_RUNTIME_CONFIG_REJECTED`）。该结果属于运行态
+  topology/profile/config apply 闭环未满足，不能解释为链路或固件已修复。
+- 证据：`out/hardware_acceptance/phy-split-step3-20260831-reboot2/`，其中包含五板
+  软件重启 transcript、level8 summary 和失败日志；复测过程中未生成 OTA summary。
+- 下一步：继续用软件重启后的同一 build 检查 STOP→topology/profile apply→ARM 的
+  config generation/readback；只有确认设备端固件或 PIO 代码需要改变时才重新 build/OTA。
+
+## CAL-TASK-20260831-022 - MARK 环回采样抖动与 offset 候选复测
+
+- 对应 TODO：`TRN-01`、`TRN-03D-PHY-01`、`TRN-03D-PHY-03`。
+- 状态：进行中（已定位为采样量化问题，尚未修改设备端实现）。
+- 固件边界：全部复测复用 build `20260830193828`；运行态只执行 STOP/ARM 和运行时
+  offset 矩阵加载，没有重新 build 或 OTA。任何卡死/状态残留仍按 `CAL-TASK-20260831-020`
+  的软件重启边界处理。
+- SD/SVG 证据：四节点 MARK 原始捕获已从 SD 下载到
+  `out/analysis/marker_node[0..3]_*.json`，逐节点 1 us SVG 和离线相关结果位于同目录；
+  Node0 的环回捕获 `g1788128339` 在当前 `+1` offset 下固件距离为 `450`，把离线
+  offset 模拟为 `+2` 可降至 `44`，但这不是跨重复的稳定值。Node0/Node3 的原始边沿
+  出现 `32..44 ns` 和 `76..84 ns` 桶，Node1/Node2 主要为 `40/80 ns` 桶。
+- 内容完整性：对四个捕获按 Manchester 半码元多数值离线解码，四节点均为 `321/321`
+  个逻辑位正确，CRC/header/EOF 标志均有效；因此当前失败不是极性、线序或 MARK 内容
+  损坏，而是 PIO 逐边沿重定时后的 4 ns 采样量化抖动被原始 sample-distance 放大。
+- 矩阵复测：固定 `[0,-1,0,+1]` 做 8 次重复时 Node0/Node3 接受数分别为 `5/8`、
+  `6/8`，最坏距离 `1085/969`；固定 `[+2,-1,0,+1]` 时分别为 `5/8`、`6/8`，
+  最坏距离 `1155/884`。两组均不能作为稳定 active offset；失败 trial 和 SD 路径保留在
+  `out/hardware_acceptance/marker-node0-offset0-repeat8-20260831/` 与
+  `out/hardware_acceptance/marker-node0-offset2-repeat8-20260831/`。
+- 下一步：在不改变 TDMA 实时路径的前提下，为 MARK 相关器增加“边沿量化容差与原始
+  distance 分离”的设计评审；先补 C/host 回归和离线证据，再决定是否修改设备端相关器。
+  在该实现确认前，不得用提高 offset 或重复 OTA 掩盖此采样门禁问题。
 
 ## CAL-TASK-20260830-019 - P3 代码变更硬件验收强约束
 
