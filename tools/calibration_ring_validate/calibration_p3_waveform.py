@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render P3 hardware edge-timestamp evidence as diagnostic SVG waveforms."""
+"""Render Latency Cal (P3) edge-timestamp evidence as diagnostic SVG waveforms."""
 
 from __future__ import annotations
 
@@ -99,7 +99,7 @@ def analyze_trial(trial: dict[str, Any]) -> dict[str, Any]:
             if failures == ["responder_duty"] and
             responder_duty_error <= 10.0 + quantization_step_percent
             else "hardware_timestamp_failure"),
-        "evidence_source": "P3 hardware edge timestamps",
+        "evidence_source": "Latency Cal hardware edge timestamps",
         "raw_sd_capture_available": False,
     }
 
@@ -117,7 +117,7 @@ def render_trial_svg(trial: dict[str, Any], analysis: dict[str, Any],
          float(analysis["rows"][1]["clock_low_ns"]), "#dc2626"),
     ]
     title = (
-        f"P3 link {analysis['source']} -> {analysis['destination']} | "
+        f"Latency Cal link {analysis['source']} -> {analysis['destination']} | "
         f"{GROUP_NAMES.get(int(analysis['signal_group']), 'UNKNOWN')} | "
         f"{analysis['frequency_hz'] / 1_000_000:g} MHz | "
         f"repeat {analysis['repeat_index']}")

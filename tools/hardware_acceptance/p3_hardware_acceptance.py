@@ -356,7 +356,7 @@ def _validate_limited_10mhz_evidence(root: Path,
 def check_staged(root: Path, receipt_path: Path) -> None:
     changed = changed_staged_sources(root)
     if not changed:
-        print("OK   P3 hardware acceptance: no staged code change")
+        print("OK   Latency Cal hardware acceptance: no staged code change")
         return
     dirty = unstaged_sources(root)
     if dirty:
@@ -874,7 +874,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
 
     schedule_before = read_schedules(board_ids, timing)
     p3_dir = out_dir / "p3-four-board"
-    print("Hardware acceptance: P3 four links x two groups x frequency ladder",
+    print("Hardware acceptance: Latency Cal four links x two groups x frequency ladder",
           flush=True)
     p3_command = [
         sys.executable,
@@ -1157,7 +1157,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
         encoding="utf-8")
     print(
         f"PASS calibration-to-DPLL hardware acceptance build={build_id} "
-        f"P3_trials={p3_metrics['trial_count']} receipt={receipt_path}")
+        f"Latency_Cal_trials={p3_metrics['trial_count']} receipt={receipt_path}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -1214,7 +1214,7 @@ def main() -> int:
             write_limited_receipt(args)
     except (AcceptanceError, OSError, KeyError, TypeError, ValueError,
             json.JSONDecodeError) as exc:
-        print(f"FAIL P3 hardware acceptance: {exc}", file=sys.stderr)
+        print(f"FAIL Latency Cal hardware acceptance: {exc}", file=sys.stderr)
         return 1
     return 0
 

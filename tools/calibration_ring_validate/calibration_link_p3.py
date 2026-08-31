@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run Calibration P3 per-link bidirectional ranging on a 2..8 board ring.
+"""Run Latency Cal (P3) per-link bidirectional ranging on a 2..8 board ring.
 
 Board identity is always the exact ``*IDN?`` unique address. COM names are
 only transient transport endpoints. Each validation runs the complete
@@ -93,7 +93,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=5.0)
     parser.add_argument("--action-timeout", type=float, default=1.0,
-                        help=("bounded wait for P3 action acknowledgement; "
+                        help=("bounded wait for Latency Cal action acknowledgement; "
                               "capture completion uses --capture-timeout"))
     parser.add_argument("--capture-timeout", type=float, default=3.0)
     parser.add_argument("--settle", type=float, default=0.2)
@@ -103,7 +103,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--duty-tolerance-percent", type=float, default=10.0)
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--replay-summary", type=Path,
-                        help=("re-evaluate a saved P3 summary with the current "
+                        help=("re-evaluate a saved Latency Cal summary with the current "
                               "gate; requires --out-dir and performs no I/O"))
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--short-open", action="store_true",
@@ -178,7 +178,7 @@ def stop_p3(boards: list[Board], args: argparse.Namespace) -> None:
             if all(row["state"] == P3_STATE_IDLE for row in states):
                 return
             time.sleep(0.03)
-    raise RuntimeError("P3 STOP did not restore IDLE")
+        raise RuntimeError("Latency Cal STOP did not restore IDLE")
 
 
 def start_p3(board: Board, role: int, frequency_hz: int, epoch: int,
@@ -210,7 +210,7 @@ def start_p3(board: Board, role: int, frequency_hz: int, epoch: int,
             return last
         time.sleep(0.03)
     raise RuntimeError(
-        f"{board.address}: P3 START not accepted, responses={responses!r}, "
+        f"{board.address}: Latency Cal START not accepted, responses={responses!r}, "
         f"snapshot={last}")
 
 
@@ -223,7 +223,7 @@ def wait_complete(board: Board, epoch: int,
             return last
         time.sleep(0.03)
         last = p3_status(board, args)
-    raise RuntimeError(f"{board.address}: P3 completion timeout: {last}")
+    raise RuntimeError(f"{board.address}: Latency Cal completion timeout: {last}")
 
 
 def wait_complete_pair(source: Board, destination: Board, epoch: int,
@@ -475,7 +475,7 @@ def replay_saved_summary(source: dict[str, object],
     raw_trials = source.get("trials")
     raw_ladder = source.get("ladder")
     if not isinstance(raw_trials, list) or not isinstance(raw_ladder, list):
-        raise ValueError("saved P3 summary is missing trials or ladder")
+        raise ValueError("saved Latency Cal summary is missing trials or ladder")
     trials: list[dict[str, object]] = []
     for raw in raw_trials:
         if not isinstance(raw, dict):
@@ -528,7 +528,7 @@ def replay_saved_summary(source: dict[str, object],
 def write_summary(output: dict[str, object], out_dir: Path) -> None:
     ladder = output["ladder"]
     if not isinstance(ladder, list):
-        raise ValueError("P3 output ladder is invalid")
+        raise ValueError("Latency Cal output ladder is invalid")
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "summary.json").write_text(
         json.dumps(output, ensure_ascii=False, indent=2) + "\n",
@@ -600,7 +600,7 @@ def main() -> int:
         raise SystemExit(f"build mismatch: {wrong_build}")
     plan = {
         "measurement_domain": "calibration",
-        "phase": "p3_per_link_bidirectional",
+        "phase": "latency_cal_per_link_bidirectional",
         "diagnostic_only": True,
         "board_ids_in_physical_order": args.board_id,
         "boards": {board.address: asdict(board) for board in ordered},
@@ -654,7 +654,7 @@ def main() -> int:
                             }
                         trials.append(trial)
                         level_trials.append(trial)
-                        print(json.dumps({"p3_trial": trial},
+                        print(json.dumps({"latency_cal_trial": trial},
                                          ensure_ascii=False), flush=True)
                         time.sleep(args.gap)
                     summary = summarize_trials(level_trials)
@@ -678,7 +678,7 @@ def main() -> int:
         "trials": trials,
     }
     out_dir = args.out_dir or (ROOT / "build-product-release" /
-        f"calibration_link_p3_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        f"latency_cal_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     write_summary(output, out_dir)
     print(f"passed={passed} out_dir={out_dir}")
     return 0 if passed else 1
