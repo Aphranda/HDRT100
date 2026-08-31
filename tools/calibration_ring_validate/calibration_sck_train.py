@@ -17,6 +17,7 @@ import json
 import statistics
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from collections import Counter
 from dataclasses import asdict
 from datetime import datetime
@@ -56,6 +57,11 @@ from calibration_ring_validate.calibration_phase import (  # noqa: E402
 )
 from calibration_ring_validate.calibration_load_guard import (  # noqa: E402
     CalibrationLoadGuard,
+)
+from calibration_ring_validate.calibration_timeout_config import (  # noqa: E402
+    DEFAULT_ACTION_TIMEOUT_S,
+    DEFAULT_PHASE_GAP_S,
+    DEFAULT_SERIAL_SETTLE_S,
 )
 
 
@@ -426,15 +432,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--reuse-ring-identity", action="store_true")
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
-    parser.add_argument("--action-timeout", type=float, default=0.1)
+    parser.add_argument("--action-timeout", type=float,
+                        default=DEFAULT_ACTION_TIMEOUT_S)
     parser.add_argument("--marker-timeout", type=float, default=5.0)
-    parser.add_argument("--settle", type=float, default=0.2)
+    parser.add_argument("--settle", type=float, default=DEFAULT_SERIAL_SETTLE_S)
     parser.add_argument("--arm-wait", type=float, default=3.0)
     parser.add_argument("--topology-retries", type=int, default=3)
-    parser.add_argument("--gap", type=float, default=0.2)
+    parser.add_argument("--gap", type=float, default=DEFAULT_PHASE_GAP_S)
+    parser.add_argument("--poll-interval", type=float, default=0.02)
     parser.add_argument("--expected-build")
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--short-open", action="store_true",
+                        help="open/close CDC for every command (diagnostic fallback)")
     return parser.parse_args()
 
 
@@ -481,7 +491,9 @@ def validate_hil_args(args: argparse.Namespace) -> list[str]:
 def discover_ordered(args: argparse.Namespace,
                      board_ids: list[str]) -> list[Board]:
     args.board_ids = board_ids
-    boards = discover(args)
+    # CalibrationLoadGuard validates and owns these ports for the whole run;
+    # opening them again on Windows makes every board look missing.
+    boards = getattr(args, "discovered_boards", None) or discover(args)
     missing = set(board_ids) - set(boards)
     if missing:
         raise SystemExit(f"boards not found by *IDN?: {', '.join(sorted(missing))}")
@@ -521,13 +533,15 @@ def sck_arm(board: Board, args: argparse.Namespace) -> str:
 def wait_states(boards: list[Board], args: argparse.Namespace,
                 accepted: tuple[int, ...]) -> list[dict[str, int | str]]:
     deadline = time.monotonic() + args.marker_timeout
-    last = [sck_status(board, args) for board in boards]
+    with ThreadPoolExecutor(max_workers=len(boards)) as executor:
+        last = list(executor.map(sck_status, boards, [args] * len(boards)))
     while time.monotonic() < deadline:
         if all(int(row["state"]) in accepted and
                int(row["train_epoch"]) == args.epoch for row in last):
             return last
-        time.sleep(0.05)
-        last = [sck_status(board, args) for board in boards]
+        time.sleep(args.poll_interval)
+        with ThreadPoolExecutor(max_workers=len(boards)) as executor:
+            last = list(executor.map(sck_status, boards, [args] * len(boards)))
     raise RuntimeError(f"SCK state timeout, accepted={accepted}: {last}")
 
 
@@ -764,6 +778,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
 
 def main() -> int:
     args = parse_args()
+    args.keep_open = not args.short_open
     args.board_ids = list(args.board_id)
     guard_boards = discover(args)
     missing = set(args.board_id) - set(guard_boards)
@@ -772,6 +787,7 @@ def main() -> int:
             f"boards not found by *IDN?: {', '.join(sorted(missing))}")
     load_guard = CalibrationLoadGuard(
         [guard_boards[address] for address in args.board_id], args)
+    args.discovered_boards = guard_boards
     with load_guard:
         result = run(args)
     result["realtime_calibration_load"] = load_guard.evidence()
