@@ -266,11 +266,16 @@ void tdma_pio_spi_phys_cal_loopback_service(tdma_pio_spi_phys_t *phys)
             tdma_pio_spi_phys_cal_unload_p3_step(phys);
         } else if (s_tdma_pio_spi_program_persona !=
                    TDMA_PIO_SPI_PROGRAM_PERSONA_NONE) {
+            const bool unloading_flight =
+                tdma_pio_spi_phys_is_flight_persona();
             bool complete = false;
             if (!tdma_pio_spi_phys_cal_unload_source_step(
                     phys, &complete)) {
                 phys->snapshot.program_switch_fail_count++;
                 return;
+            }
+            if (complete && unloading_flight) {
+                tdma_pio_spi_phys_release_flight_resources(phys);
             }
         }
         if (s_tdma_pio_spi_program_persona ==
@@ -311,12 +316,17 @@ void tdma_pio_spi_phys_cal_loopback_service(tdma_pio_spi_phys_t *phys)
             tdma_pio_spi_phys_cal_transition_fail(phys);
             return;
         }
+        const bool unloading_flight =
+            tdma_pio_spi_phys_is_flight_persona();
         bool complete = false;
         if (!tdma_pio_spi_phys_cal_unload_source_step(phys, &complete)) {
             tdma_pio_spi_phys_cal_transition_fail(phys);
             return;
         }
         if (complete) {
+            if (unloading_flight) {
+                tdma_pio_spi_phys_release_flight_resources(phys);
+            }
             phys->cal_loopback_program_count = 0u;
             phys->cal_loopback_transition =
                 TDMA_PIO_SPI_CAL_TRANSITION_START_LOAD;

@@ -18,8 +18,48 @@ static void expect_snapshot(bool calibration, bool tdma)
     assert(snapshot.tdma_clock_training_active == tdma);
 }
 
+static void test_directional_tdma_resources(void)
+{
+    const uint32_t resources =
+        RESOURCE_ARBITER_RESOURCE_PIO1 |
+        RESOURCE_ARBITER_RESOURCE_PIO2 |
+        RESOURCE_ARBITER_RESOURCE_TDMA_DMA_CAPTURE |
+        RESOURCE_ARBITER_RESOURCE_TDMA_DMA_OUTPUT |
+        RESOURCE_ARBITER_RESOURCE_TDMA_DMA_FORWARD |
+        RESOURCE_ARBITER_RESOURCE_TDMA_DMA_SYNC_EDGE |
+        RESOURCE_ARBITER_RESOURCE_TDMA_GPIO |
+        RESOURCE_ARBITER_RESOURCE_TDMA_IRQ |
+        RESOURCE_ARBITER_RESOURCE_TDMA_DREQ;
+    const char *const flight_owner = "TDMA_FLIGHT_PIO";
+
+    assert(resource_arbiter_init());
+    assert(resource_arbiter_acquire_owned(resources, flight_owner));
+
+    resource_arbiter_snapshot_t snapshot;
+    resource_arbiter_get_snapshot(&snapshot);
+    assert((snapshot.active_resources & resources) == resources);
+
+    assert(!resource_arbiter_acquire_owned(
+        RESOURCE_ARBITER_RESOURCE_TDMA_DREQ, "conflicting-persona"));
+    resource_arbiter_get_snapshot(&snapshot);
+    assert(snapshot.last_conflict_resources ==
+           RESOURCE_ARBITER_RESOURCE_TDMA_DREQ);
+    assert(snapshot.last_conflict_owner != NULL);
+    assert(snapshot.last_conflict_holder != NULL);
+
+    resource_arbiter_release_owned(resources, "wrong-owner");
+    resource_arbiter_get_snapshot(&snapshot);
+    assert((snapshot.active_resources & resources) == resources);
+
+    resource_arbiter_release_owned(resources, flight_owner);
+    resource_arbiter_get_snapshot(&snapshot);
+    assert((snapshot.active_resources & resources) == 0u);
+}
+
 int main(void)
 {
+    test_directional_tdma_resources();
+
     assert(resource_arbiter_mode_is_valid(RESOURCE_ARBITER_MODE_BOOT));
     assert(resource_arbiter_mode_is_valid(RESOURCE_ARBITER_MODE_RUN));
     assert(resource_arbiter_mode_is_valid(RESOURCE_ARBITER_MODE_OTA));

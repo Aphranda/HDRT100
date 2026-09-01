@@ -4,60 +4,60 @@
   "acceptance_profile": "FULL",
   "dpll_observation": "SKIPPED_TDMA_ONLY",
   "passed": true,
-  "generated_at_utc": "2026-09-01T21:22:27.541140+00:00",
-  "source_tree_sha256": "3271273b005801630cd55c72424a9edeffce2489bc85f26892aec7b3f57b45f8",
+  "generated_at_utc": "2026-09-01T22:16:26.044880+00:00",
+  "source_tree_sha256": "f4d019d750ceb160b7e5a1735bb284a7f794f7f756d6de595d1641d7caf8774a",
   "source_file_count": 913,
   "bench_config_path": "config/hardware_acceptance/p3_bench.json",
   "bench_config_sha256": "09095420e7d6af7727f2986edecffb4a2cf0160ce893ac577f45b5e3edf90d6b",
-  "build_id": "20260901174006",
+  "build_id": "20260901215154",
   "firmware_package": {
-    "path": "out/build/state-machine-error-propagation-20260902/DHRT100_UPDATE.pkg",
-    "sha256": "fc4c304002e24927fd563dd4b41943af1c48201673e5de4268ab9d172691d288"
+    "path": "out/build/state-machine-flight-resource-admission-20260902/DHRT100_UPDATE.pkg",
+    "sha256": "88b556bf5d4c8b3065df965301a61052792b2ec0871315b0fbf73c9e223db62d"
   },
   "ota_summary": {
-    "path": "out/hardware_acceptance/ring-capture-copy-drain-smoke-20260902/ota-four-board/summary.json",
-    "sha256": "85226463c46f7635086ff5353d891c59e09fd8b62574fbe8492be4f1dcdb389c",
+    "path": "out/hardware-acceptance/state-machine-flight-resource-admission-quick-20260902/ota-four-board-tdma/summary.json",
+    "sha256": "b5815d4c136e0e0801f3664d69306e0aab2be9c98a40fbc023a75a75f6ab95d0",
     "board_count": 4
   },
   "topology_summary": {
-    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/p0t-topology/summary.json",
-    "sha256": "4baffa9a8892aab406681ceacb1161fabf20a0deafc0d11f1cfad3ccaa4616d0"
+    "path": "out/hardware-acceptance/state-machine-flight-resource-admission-quick-20260902/p0t-topology/summary.json",
+    "sha256": "49d404a503609caa30c5987dd367c67bbf088a03ca353711e5988872554de392"
   },
   "coarse_calibration_summary": {
-    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/coarse-calibration-summary.json",
-    "sha256": "a28e991b15921866395fc68f1f005067e68cd8851411f111c3afe3b778c90435"
+    "path": "out/hardware-acceptance/state-machine-flight-resource-admission-quick-20260902/coarse-calibration-summary.json",
+    "sha256": "7081692bc9ee1601dff5000adbd33c8e5ef546f1f619997c2b5185300fb6cb2d"
   },
   "coded_calibration_summary": {
-    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/coded-calibration-summary.json",
-    "sha256": "fb706584a2aa6efc395dfa0f2a35f7820afbbf6f755aa9353cc315909b8f9b2d"
+    "path": "out/hardware-acceptance/state-machine-flight-resource-admission-quick-20260902/coded-calibration-summary.json",
+    "sha256": "452bdb4cebc775d50238d398076a6f4aaaba07e068527abc002921479d1e1051"
   },
   "initialization_reset": {
-    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/initialization-reset.json",
-    "sha256": "d8e7a057a581a81682215af506e8408f701757f946582a91f5e964e60529ecb7"
+    "path": "out/hardware-acceptance/state-machine-flight-resource-admission-quick-20260902/initialization-reset.json",
+    "sha256": "8928b08487232fd009fd4338dbe06e5532520d2d5923cd0f1f2bc114d5cf710d"
   },
   "p3_summary": {
-    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/p3-four-board/summary.json",
-    "sha256": "2f0ba28ce1eecd00083248166707a364c1ad664d0ab3d26f480854ac339dbdf5"
+    "path": "out/hardware-acceptance/state-machine-flight-resource-admission-quick-20260902/p3-four-board/summary.json",
+    "sha256": "9b4d576dcfc3e00f820b8928d87264c2bd042a10b09bc3ce46d610368b33ef2a"
   },
   "trn00_summary": {
-    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/trn00-summary.json",
-    "sha256": "15c31e690a52a212fbc8db91087c00968f1de30aae7dcf1be2185846b3e9a5fb"
+    "path": "out/hardware-acceptance/state-machine-flight-resource-admission-quick-20260902/trn00-summary.json",
+    "sha256": "2161994e2a91b89b9d6ea63a22ef576758b6f8f3cb266099baf93c92fc7ba86c"
   },
   "trn01_summary": {
-    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/trn01-summary.json",
-    "sha256": "06abbe8da4f614dbd15ffd7ddccedf006cc7a6988db83c9b4f45ce26a994c249"
+    "path": "out/hardware-acceptance/state-machine-flight-resource-admission-quick-20260902/trn01-summary.json",
+    "sha256": "f85d79c29d096fa9ff2b0f09e3c77202e50099cee8a49cdfae4181c4f06a7c7f"
   },
   "trn02_summary": {
-    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/trn02-data/summary.json",
-    "sha256": "40d31d97120cc41a810dd968ecbb946f4baa2d3485c05472ef81ae15a8f2a887"
+    "path": "out/hardware-acceptance/state-machine-flight-resource-admission-quick-20260902/trn02-data/summary.json",
+    "sha256": "3bf67ee45a6fec845ae78c54dbff1574e6376eeb0cbbf9a5adced3d798532c7b"
   },
   "trn03_matrix": {
-    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/trn03-matrix.json",
-    "sha256": "bc6c7c13de957c167160ed6197dcaca0bfbc69ba8adc356fa068676ea9182e3a"
+    "path": "out/hardware-acceptance/state-machine-flight-resource-admission-quick-20260902/trn03-matrix.json",
+    "sha256": "643f99d9d4c6fcf1e03ece516c7d637d9dffa106951910373a2451d74df9d564"
   },
   "tdma_summary": {
-    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/tdma-process-image/summary.json",
-    "sha256": "8fa3add40db1171031f14ca3fce03121f104a2a7f214b59237d475ddb10545a0"
+    "path": "out/hardware-acceptance/state-machine-flight-resource-admission-quick-20260902/tdma-process-image/summary.json",
+    "sha256": "2e81388a2ef26d007e58a26b41ac5f68af9e8dfbc390d4f264aee3636e147208"
   },
   "ota_board_ids": [
     "0010071E65B5CB38",
@@ -87,58 +87,58 @@
     41,
     41
   ],
-  "calibration_generation": 1788296846,
+  "calibration_generation": 1788300067,
   "calibration_load_mask": 4,
   "schedule_before": {
     "0010071E65B5CB38": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 165547,
-      "schedule_miss_count": 165038
+      "cycle_count": 165371,
+      "schedule_miss_count": 165263
     },
     "FB276192BEF9CCE1": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 165531,
-      "schedule_miss_count": 164649
+      "cycle_count": 165284,
+      "schedule_miss_count": 165165
     },
     "2BD5090FE009FA2A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 165507,
-      "schedule_miss_count": 164802
+      "cycle_count": 165315,
+      "schedule_miss_count": 165302
     },
     "A1E549202D18ED6A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 165544,
-      "schedule_miss_count": 164876
+      "cycle_count": 165321,
+      "schedule_miss_count": 164589
     }
   },
   "schedule_after": {
     "0010071E65B5CB38": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 1095012,
-      "schedule_miss_count": 1098362
+      "cycle_count": 1112848,
+      "schedule_miss_count": 1120106
     },
     "FB276192BEF9CCE1": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 1094268,
-      "schedule_miss_count": 1078940
+      "cycle_count": 1112086,
+      "schedule_miss_count": 1100870
     },
     "2BD5090FE009FA2A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 1094581,
-      "schedule_miss_count": 1081813
+      "cycle_count": 1112215,
+      "schedule_miss_count": 1103302
     },
     "A1E549202D18ED6A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 1094701,
-      "schedule_miss_count": 1082544
+      "cycle_count": 1112171,
+      "schedule_miss_count": 1102869
     }
   },
   "realtime_load_mask_unchanged": true,
@@ -157,8 +157,8 @@
     "output_handoff_s": 0.1
   },
   "timing_probe": {
-    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/timing.json",
-    "sha256": "a7b218c4eba1b1f13c0893f7bbfdf1418eae3fd3c9b0c4b95204ab78337554c1"
+    "path": "out/hardware-acceptance/state-machine-flight-resource-admission-quick-20260902/timing.json",
+    "sha256": "87cfb9d330191d39ed9bcde421c7d298240abe64a035457c195fa3a9d7a916ab"
   },
   "flow_completed": true,
   "strict_gates_passed": false,
@@ -167,51 +167,51 @@
       "phase": "four-Node TDMA closed loop",
       "returncode": 1,
       "error": "",
-      "summary": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/tdma-process-image/summary.json"
+      "summary": "out/hardware-acceptance/state-machine-flight-resource-admission-quick-20260902/tdma-process-image/summary.json"
     }
   ],
   "diagnostic_summary": {
-    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/diagnostic.json",
-    "sha256": "868f63ed0c886325c365b0ddad7a3ba9b7dcf3ae09ed72fedec84161dc480754"
+    "path": "out/hardware-acceptance/state-machine-flight-resource-admission-quick-20260902/diagnostic.json",
+    "sha256": "4e283b503c28b60207428ffa9d7e67361f557d0a13373234022201d05847588a"
   },
   "ring_capture_raw": [
     {
-      "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/tdma-process-image/captures/node0_ring_capture.json",
-      "sha256": "4d475e909e79539b7a8a7bfb2426888c2d41f7ee40dbd31a0621740d48bf6481"
+      "path": "out/hardware-acceptance/state-machine-flight-resource-admission-quick-20260902/tdma-process-image/captures/node0_ring_capture.json",
+      "sha256": "760fd95fb68093ae4d34ce903a2f126acaefea459c26a74a3abd15deb1d97e1b"
     },
     {
-      "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/tdma-process-image/captures/node1_ring_capture.json",
-      "sha256": "ac56a1786f04857cdeb9708baa982121890d854b41a4b556012ddbc844b27064"
+      "path": "out/hardware-acceptance/state-machine-flight-resource-admission-quick-20260902/tdma-process-image/captures/node1_ring_capture.json",
+      "sha256": "009b490a27c25fe11e51aa4d0e05488f3cedf43c176b264d0d289f479a5f1c5c"
     },
     {
-      "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/tdma-process-image/captures/node2_ring_capture.json",
-      "sha256": "39da39843068fcb2143222c23cdb9425f883da0f757493b55d583a5bcc61f949"
+      "path": "out/hardware-acceptance/state-machine-flight-resource-admission-quick-20260902/tdma-process-image/captures/node2_ring_capture.json",
+      "sha256": "e4aa62f97be81b834660c3b6c4d8ccd5c25e4b1bb7782ab0b77298e36c387ae9"
     },
     {
-      "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/tdma-process-image/captures/node3_ring_capture.json",
-      "sha256": "4a32a57a3c0a08adbb8d29f799a2ef7c97a653a522a270e0b86c01e1b9b292f7"
+      "path": "out/hardware-acceptance/state-machine-flight-resource-admission-quick-20260902/tdma-process-image/captures/node3_ring_capture.json",
+      "sha256": "bb25c4210fd2694fe510e9e88690eebd509bdd0cc6c6699eb18dd6734c9d97f7"
     }
   ],
   "ring_capture_svg": [
     {
-      "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/tdma-process-image/analysis/node0_ring_capture_1us.svg",
-      "sha256": "887fbcb71304f5a8eeede8848691d3fd8ec8265b709687e77eb1477c16569801"
+      "path": "out/hardware-acceptance/state-machine-flight-resource-admission-quick-20260902/tdma-process-image/analysis/node0_ring_capture_1us.svg",
+      "sha256": "adafc60cb42756ab807689ff75943c232ebd99845f2f42429ead8b71e4f2c75a"
     },
     {
-      "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/tdma-process-image/analysis/node1_ring_capture_1us.svg",
-      "sha256": "a790c9287c7d8da53440fd15034fbf1a33282ea42ecbd2ebe728828244f8120c"
+      "path": "out/hardware-acceptance/state-machine-flight-resource-admission-quick-20260902/tdma-process-image/analysis/node1_ring_capture_1us.svg",
+      "sha256": "b1ece26079d77211cadc823aaca968f189671bd8386e56e48f7fdb3f9972cca5"
     },
     {
-      "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/tdma-process-image/analysis/node2_ring_capture_1us.svg",
-      "sha256": "2c64578119073aa3af11469438baf74dcf414cec093c3434f5bae6f01f3a91a2"
+      "path": "out/hardware-acceptance/state-machine-flight-resource-admission-quick-20260902/tdma-process-image/analysis/node2_ring_capture_1us.svg",
+      "sha256": "72d7f43d8460b90bd120fc20b9ab4993944a50c1d1994a3e9157dc374985b2be"
     },
     {
-      "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/tdma-process-image/analysis/node3_ring_capture_1us.svg",
-      "sha256": "5ddee3c593d145bdb32914ab7355360d111b75a80e848096d790b693ff4539b6"
+      "path": "out/hardware-acceptance/state-machine-flight-resource-admission-quick-20260902/tdma-process-image/analysis/node3_ring_capture_1us.svg",
+      "sha256": "9c8d696f9a421ca4c153efc91c7aeb1026e0e443cc66308f779127a7ff239971"
     }
   ],
   "ring_capture_analysis": {
-    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/tdma-process-image/analysis/ring_capture_analysis.json",
-    "sha256": "be2f2f0ac86e72f1df2113bf53f4e5feeb57d8e6d7104c81d69f78c248eb196f"
+    "path": "out/hardware-acceptance/state-machine-flight-resource-admission-quick-20260902/tdma-process-image/analysis/ring_capture_analysis.json",
+    "sha256": "5f51825cab0661aff3bdee6ae44590aa64569600bd68596b83ea0e5269a08209"
   }
 }

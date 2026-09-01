@@ -54,3 +54,52 @@ def test_directional_contract_rejects_crossed_role_as_legacy_alias(
         ROOT / "components/tdma/src/tdma_pio_spi.pio",
     )
     assert "BOARD_TDMA_TX_DATA_SM: expected 1, got 2" in failures
+
+
+def test_flight_claim_reserves_directional_runtime_resources() -> None:
+    phys = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(
+        encoding="utf-8"
+    )
+    resources = (
+        ROOT / "components/tdma/inc/tdma_state_machine_resources.h"
+    ).read_text(encoding="utf-8")
+
+    assert "TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK" in phys
+    for token in (
+        "RESOURCE_ARBITER_RESOURCE_TDMA_DMA_CAPTURE",
+        "RESOURCE_ARBITER_RESOURCE_TDMA_DMA_OUTPUT",
+        "RESOURCE_ARBITER_RESOURCE_TDMA_DMA_FORWARD",
+        "RESOURCE_ARBITER_RESOURCE_TDMA_DMA_SYNC_EDGE",
+        "RESOURCE_ARBITER_RESOURCE_TDMA_GPIO",
+        "RESOURCE_ARBITER_RESOURCE_TDMA_IRQ",
+        "RESOURCE_ARBITER_RESOURCE_TDMA_DREQ",
+    ):
+        assert token in resources
+
+
+def test_flight_claim_is_released_on_arm_failure_and_stop() -> None:
+    phys = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(
+        encoding="utf-8"
+    )
+    arm = phys.split("bool tdma_pio_spi_phys_arm(void *context", 1)[1].split(
+        "void tdma_pio_spi_phys_disarm", 1
+    )[0]
+    disarm = phys.split("void tdma_pio_spi_phys_disarm", 1)[1].split(
+        "static bool tdma_pio_spi_phys_tx_put", 1
+    )[0]
+
+    claim = arm.index("tdma_pio_spi_phys_claim_flight_resources")
+    select = arm.index("tdma_pio_spi_phys_select_program_persona")
+    assert claim < select
+    assert arm.count("tdma_pio_spi_phys_release_flight_resources(phys)") == 6
+    assert "tdma_pio_spi_phys_release_flight_resources(phys)" in disarm
+
+
+def test_calibration_releases_completed_flight_admission() -> None:
+    service = (
+        ROOT / "components/tdma/src/tdma_pio_spi_phys_cal_service.inc"
+    ).read_text(encoding="utf-8")
+
+    assert service.count("const bool unloading_flight") == 2
+    assert service.count("complete && unloading_flight") == 1
+    assert service.count("tdma_pio_spi_phys_release_flight_resources(phys)") == 2
