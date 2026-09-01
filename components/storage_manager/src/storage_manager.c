@@ -38,7 +38,9 @@
 #define STORAGE_MANAGER_RUNTIME_LOG_CURSOR_PATH "/logs/runtime/cursor.idx"
 #define STORAGE_MANAGER_RUNTIME_LOG_CURSOR_TMP_PATH "/logs/runtime/cursor.tmp"
 #define STORAGE_MANAGER_FILE_READ_MAX_BYTES 512u
-#define STORAGE_MANAGER_WRITE_BUFFER_MAX_BYTES 8192u
+#define STORAGE_MANAGER_OBJECT_WRITE_MAX_BYTES 8192u
+#define STORAGE_MANAGER_WRITE_BUFFER_MAX_BYTES \
+    STORAGE_MANAGER_FILE_WRITE_MAX_BYTES
 #define STORAGE_MANAGER_CATALOG_PAGE_MAX_BYTES 384u
 #define STORAGE_MANAGER_RAW_CLEAR_MAX_SECTORS 64u
 #define STORAGE_MANAGER_BOOT_SNAPSHOT_DELAY_MS 500u
@@ -119,7 +121,7 @@ static const storage_manager_write_contract_t s_write_contracts[] = {
         .directory = "/refmem",
         .final_path = "/refmem/app_model.rmtp",
         .tmp_path = "/refmem/app_model.tmp",
-        .max_bytes = STORAGE_MANAGER_WRITE_BUFFER_MAX_BYTES,
+        .max_bytes = STORAGE_MANAGER_OBJECT_WRITE_MAX_BYTES,
     },
 };
 
@@ -1695,6 +1697,19 @@ bool storage_manager_begin_file_write(const char *path,
     return true;
 }
 
+bool storage_manager_begin_evidence_write(const char *path,
+                                          uint32_t expected_size,
+                                          uint32_t expected_crc32,
+                                          uint32_t *txn_id)
+{
+    if (!storage_manager_begin_file_write(
+            path, expected_size, expected_crc32, txn_id)) {
+        return false;
+    }
+    s_write_snapshot.direct_write = true;
+    return true;
+}
+
 bool storage_manager_write_file_chunk(uint32_t txn_id,
                                       uint32_t offset,
                                       const uint8_t *data,
@@ -2268,10 +2283,13 @@ static void storage_manager_service_job(void)
         s_write_snapshot.state = STORAGE_MANAGER_WRITE_STATE_WRITING;
         bool ok = false;
         if (storage_manager_probe() && storage_acquire_sd_resource()) {
-            fatfs_port_status_t status = fatfs_port_write_binary_file_atomic(s_write_snapshot.path,
-                                                                             s_write_snapshot.tmp_path,
-                                                                             s_write_buffer,
-                                                                             s_write_snapshot.received_size);
+            fatfs_port_status_t status = s_write_snapshot.direct_write
+                ? fatfs_port_write_binary_file(
+                    s_write_snapshot.path, s_write_buffer,
+                    s_write_snapshot.received_size)
+                : fatfs_port_write_binary_file_atomic(
+                    s_write_snapshot.path, s_write_snapshot.tmp_path,
+                    s_write_buffer, s_write_snapshot.received_size);
             storage_release_sd_resource();
             ok = status == FATFS_PORT_STATUS_OK;
             if (!ok) {

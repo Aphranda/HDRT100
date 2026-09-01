@@ -4,10 +4,36 @@ Status: Active
 Domain: STATE_MACHINE
 Canonical: `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
 Related: `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`
-Last updated: 2026-08-31
+Last updated: 2026-09-01
 
 本文档只记录状态机域的实施、构建、测试、OTA/HIL、失败和回退证据；任务状态以
 `HAOFV_STATE_MACHINE_TODO.md` 为唯一事实源，稳定语义以架构文档为准。
+
+### SM-PROGRESS-20260901-018 - persona lifecycle FSM 快速验收 checkpoint
+
+- TODO task ID：`SM-FSM-001`；该切片只覆盖 lifecycle FSM、program manager 接入和
+  snapshot/SCPI 观测字段，不宣称资源事实源、统一仲裁或完整运行时迁移完成。
+- 变更：新增 `tdma_pio_spi_persona_fsm`，将 persona 请求、校验、quiesce、unload、
+  load、rollback、fault 和 reset 转换显式化；program manager 通过 owner context
+  驱动转换，并把 state/target/previous/transition/error 发布到 TDMA physical snapshot。
+- Host/build：定向 Python 回归 `37 passed`；增量三镜像构建通过，PIO 头、App/A/B、
+  Boot、Flash link contract 和统一 package 均生成，`build_id=20260901145306`。
+  纯 C FSM 单测脚本未执行，原因是当前 Windows 环境没有可用 host `gcc/clang`；固件
+  目标已成功编译该源文件。
+- 硬件：快速验收目录为
+  `out/hardware-acceptance/state-machine-persona-fsm-quick-20260901-r3/`。
+  五板 OTA、软件复位、P0T、粗 CLK、coded MARK、Latency Cal、TRN-00/01/02/03、
+  五板 SMA/RTT 和 NO5 观测流程均完成；diagnostic receipt 为
+  `diagnostic.json`，`flow_completed=true`、`passed=true`、`strict_gates_passed=false`。
+- 失败证据保留：TRN-03 没有满足 flight re-arm margin；四板 TDMA 在
+  `FB276192BEF9CCE1` 停于 `ring_config_seq=65`、`ring_applied_config_seq=64`、
+  `ring_last_error=4`；NO5 观测未形成有效 phase round。这些是诊断输入，不作为
+  lifecycle FSM 的失败归因，也没有截断后续观测。
+- 外部读回：COM3/COM4/COM5/COM6（NO3/NO2/NO1/NO4）`program_lifecycle_state=5`
+  (`ACTIVE`)，`program_lifecycle_error=0`，transition sequence 分别为
+  `284/284/289/284`；COM7（NO5）为 `STOPPED(0)`，未加入 TDMA ring。
+- 顺序决策：后续先冻结 board/profile 资源事实，再完成 claim/release 与冲突仲裁，
+  然后才复核并扩展 lifecycle FSM；不得先迁移更上层 AO/Core1 编排。
 
 ### SM-PROGRESS-20260831-017 - PHY timing helper 模块化与基础验收
 

@@ -4,7 +4,7 @@ Status: Active
 Domain: STATE_MACHINE
 Canonical: `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`
 Related: `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/sync/SYNC_IO_TODO.md`
-Last updated: 2026-08-31
+Last updated: 2026-09-01
 
 本文档维护状态机域的可执行任务；稳定语义见 `HAOFV_STATE_MACHINE_ARCHITECTURE.md`，
 构建、测试、OTA/HIL 和失败证据见 `HAOFV_STATE_MACHINE_TASK_PROGRESS.md`。
@@ -28,6 +28,25 @@ Last updated: 2026-08-31
 任务状态只使用 `DONE`、`IN PROGRESS`、`PENDING`、`BLOCKED`。代码/host 通过但尚未
 完成 OTA/HIL 的任务不得标记为 `DONE`。状态机迁移不得改变 TDMA SHORT 帧、拍级
 phase、recovery 静态预算或 FreeRTOS heap；超限必须在构建或 DeploymentGate 拒绝。
+
+## 迁移依赖序列
+
+状态机迁移按以下依赖顺序推进，后序任务不得因为代码已经存在就提前验收：
+
+```text
+资源事实源
+  -> 资源 claim / release 与冲突仲裁
+  -> 无状态 quiesce / unload / load / arm 原语
+  -> persona lifecycle FSM
+  -> AO/Core1 编排、snapshot 与 SCPI
+  -> 端到端运行态迁移
+```
+
+每一层必须先完成自己的 host/build 门禁和快速硬件验收，再允许下一层进入实现。
+如果前置层的字段、owner 或失败语义发生变化，后置层只在前置验收通过后复核一次，
+不重复无边界地返工。当前 persona lifecycle FSM 是迁移中的已完成切片，但它的资源
+事实和仲裁前置条件仍由 `SM-RES-001/002/007` 负责；后续不得把本切片误当成完整
+运行时迁移完成。
 
 ## 里程碑总览
 
@@ -53,6 +72,7 @@ phase、recovery 静态预算或 FreeRTOS heap；超限必须在构建或 Deploy
 | SM-RES-006 | 迁移 arm/disarm、snapshot、RTT 和 DPLL evidence | IN PROGRESS | flight ARM/STOP、snapshot、RTT、SCK capture、clock-latch recovery、process-image persona admission 和 calibration persona 切换已按方向字段迁移；旧复合 maintenance 路径和完整硬件证据回归仍待完成。 |
 | SM-RES-007 | 增加静态回归测试与资源冲突负测试 | IN PROGRESS | 已覆盖 PIO 指令方向、CLK/SYNC 与 DATA 语义绑定、SM/DMA 唯一性、forward/unload FIFO、capture patch、calibration directional unload 和 flight resource mask；DREQ/GPIO/persona epoch 的运行时负测试仍待完成。 |
 | SM-RES-008 | 工具构建及四板闭环验证 | IN PROGRESS | `out/` 构建与 host pytest 已通过；仍需同包四板异步 OTA、四板 process-image active 和 SD 波形；NO5 hardware-latch、DPLL `LOCKED` 与 VDC vector readback 由 SM-M6 单独验收。 |
+| SM-FSM-001 | persona lifecycle FSM 与 program manager 接入 | DONE | host FSM 单测设计已加入；三镜像构建、五板同包 OTA/软件复位、四板 TDMA/NO5 快速诊断流程完成，保留 strict gate 失败证据；五板 `TDMA:PHYS?` 读回 NO1-NO4 为 `ACTIVE` 且 lifecycle error 为 0，NO5 为 `STOPPED`。 |
 
 ## 当前阻塞项
 

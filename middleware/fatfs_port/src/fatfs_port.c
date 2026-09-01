@@ -488,6 +488,22 @@ fatfs_port_status_t fatfs_port_write_binary_file_atomic(const char *final_path,
     return fatfs_port_write_bytes_file_atomic(final_path, tmp_path, data, data_size);
 }
 
+fatfs_port_status_t fatfs_port_write_binary_file(const char *path,
+                                                 const uint8_t *data,
+                                                 size_t data_size)
+{
+    if (path == NULL || data == NULL || data_size == 0u) {
+        return FATFS_PORT_STATUS_WRITE_FAILED;
+    }
+    const fatfs_port_status_t mount_status = fatfs_port_mount();
+    if (mount_status != FATFS_PORT_STATUS_OK) {
+        return mount_status;
+    }
+    char fat_path[96];
+    fatfs_port_make_path(path, fat_path, sizeof(fat_path));
+    return fatfs_port_write_bytes_to_fat_path(fat_path, data, data_size);
+}
+
 fatfs_port_status_t fatfs_port_delete(const char *path)
 {
     if (path == NULL) {

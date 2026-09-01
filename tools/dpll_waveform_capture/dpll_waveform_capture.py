@@ -13,6 +13,7 @@ import bisect
 import csv
 import json
 import math
+import statistics
 import struct
 import zlib
 from pathlib import Path
@@ -22,8 +23,14 @@ from xml.sax.saxutils import escape
 
 MAGIC = 0x57524D53  # SMRW
 SCHEMA = 1
+SCHEMA_V2 = 2
+SCHEMA_V3 = 3
 HEADER = struct.Struct("<IHHHHIIIIIIIII")
 RECORD = struct.Struct("<IIIIQIIIII")
+HEADER_V2 = struct.Struct("<IHHHH" + "I" * 12)
+RECORD_V2 = struct.Struct("<IIIIQII")
+HEADER_V3 = struct.Struct("<IHHHH" + "I" * 12 + "QII")
+RECORD_V3 = struct.Struct("<IIIII")
 SAMPLES_PER_WORD = 8
 CHANNEL_COUNT = 4
 DEFAULT_PULSE_PERIOD_NS = 1_000_000
@@ -42,18 +49,58 @@ def decode_segment(path: Path) -> dict[str, Any]:
     data = path.read_bytes()
     if len(data) < HEADER.size:
         raise ValueError(f"waveform segment is shorter than header: {path}")
-    values = HEADER.unpack_from(data)
-    (magic, schema, header_size, record_size, reserved, session_id,
-     segment_index, first_record_index, record_count, dropped_count,
-     start_ms, end_ms, observed_mask, payload_crc32) = values
+    magic, schema, header_size, record_size, reserved = struct.unpack_from(
+        "<IHHHH", data)
     if magic != MAGIC:
         raise ValueError(f"unexpected waveform magic 0x{magic:08X}")
-    if schema != SCHEMA:
+    if schema == SCHEMA:
+        values = HEADER.unpack_from(data)
+        (_, _, _, _, _, session_id, segment_index, first_record_index,
+         record_count, dropped_count, start_ms, end_ms, observed_mask,
+         payload_crc32) = values
+        expected_header_size = HEADER.size
+        record_layout = RECORD
+        common_metadata: dict[str, int] = {}
+    elif schema == SCHEMA_V2:
+        if len(data) < HEADER_V2.size:
+            raise ValueError(f"waveform v2 segment is shorter than header: {path}")
+        values = HEADER_V2.unpack_from(data)
+        (_, _, _, _, _, session_id, segment_index, first_record_index,
+         record_count, dropped_count, start_ms, end_ms, observed_mask,
+         sample_period_ns, timestamp_source, timestamp_resolution_ns,
+         payload_crc32) = values
+        expected_header_size = HEADER_V2.size
+        record_layout = RECORD_V2
+        common_metadata = {
+            "sample_period_ns": sample_period_ns,
+            "timestamp_source": timestamp_source,
+            "timestamp_resolution_ns": timestamp_resolution_ns,
+        }
+    elif schema == SCHEMA_V3:
+        if len(data) < HEADER_V3.size:
+            raise ValueError(f"waveform v3 segment is shorter than header: {path}")
+        values = HEADER_V3.unpack_from(data)
+        (_, _, _, _, _, session_id, segment_index, first_record_index,
+         record_count, dropped_count, start_ms, end_ms, observed_mask,
+         sample_period_ns, timestamp_source, timestamp_resolution_ns,
+         first_sample_seq, first_matched_window_start_ns, timestamp_flags,
+         payload_crc32) = values
+        expected_header_size = HEADER_V3.size
+        record_layout = RECORD_V3
+        common_metadata = {
+            "sample_period_ns": sample_period_ns,
+            "timestamp_source": timestamp_source,
+            "timestamp_resolution_ns": timestamp_resolution_ns,
+            "first_sample_seq": first_sample_seq,
+            "first_matched_window_start_ns": first_matched_window_start_ns,
+            "timestamp_flags": timestamp_flags,
+        }
+    else:
         raise ValueError(f"unsupported waveform schema {schema}")
-    if header_size != HEADER.size or record_size != RECORD.size:
+    if header_size != expected_header_size or record_size != record_layout.size:
         raise ValueError(
             f"waveform layout {header_size}/{record_size} != "
-            f"{HEADER.size}/{RECORD.size}")
+            f"{expected_header_size}/{record_layout.size}")
     if reserved != 0:
         raise ValueError(f"unsupported waveform flags 0x{reserved:04X}")
     expected_size = header_size + record_count * record_size
@@ -67,17 +114,58 @@ def decode_segment(path: Path) -> dict[str, Any]:
             f"0x{payload_crc32:08X}")
 
     records = []
+    previous_window_start_ns = common_metadata.get(
+        "first_matched_window_start_ns", 0)
+    first_source_dropped = None
     for index in range(record_count):
-        record = RECORD.unpack_from(payload, index * record_size)
-        records.append(dict(zip((
-            "raw_word", "sample_seq", "previous_sample_mask",
-            "base_time_l32_ns", "matched_window_start_ns",
-            "sample_period_ns", "timestamp_source",
-            "timestamp_resolution_ns", "timestamp_flags",
-            "dropped_before",
-        ), record, strict=True)))
+        record = record_layout.unpack_from(payload, index * record_size)
+        if schema == SCHEMA:
+            decoded = dict(zip((
+                "raw_word", "sample_seq", "previous_sample_mask",
+                "base_time_l32_ns", "matched_window_start_ns",
+                "sample_period_ns", "timestamp_source",
+                "timestamp_resolution_ns", "timestamp_flags",
+                "dropped_before",
+            ), record, strict=True))
+        elif schema == SCHEMA_V2:
+            decoded = dict(zip((
+                "raw_word", "sample_seq", "previous_sample_mask",
+                "base_time_l32_ns", "matched_window_start_ns",
+                "timestamp_flags", "dropped_before",
+            ), record, strict=True))
+            decoded.update(common_metadata)
+        else:
+            (raw_word, previous_sample_mask, base_time_l32_ns,
+             matched_window_start_l32_ns, dropped_before) = record
+            if first_source_dropped is None:
+                first_source_dropped = dropped_before
+            sample_seq = (common_metadata["first_sample_seq"] + index +
+                          dropped_before - first_source_dropped)
+            candidate = (
+                (previous_window_start_ns & ~0xFFFFFFFF) |
+                matched_window_start_l32_ns)
+            if candidate + (1 << 31) < previous_window_start_ns:
+                candidate += 1 << 32
+            elif candidate > previous_window_start_ns + (1 << 31):
+                candidate -= 1 << 32
+            previous_window_start_ns = candidate
+            decoded = {
+                "raw_word": raw_word,
+                "sample_seq": sample_seq,
+                "previous_sample_mask": previous_sample_mask,
+                "base_time_l32_ns": base_time_l32_ns,
+                "matched_window_start_ns": candidate,
+                "timestamp_flags": common_metadata["timestamp_flags"],
+                "dropped_before": dropped_before,
+                "sample_period_ns": common_metadata["sample_period_ns"],
+                "timestamp_source": common_metadata["timestamp_source"],
+                "timestamp_resolution_ns": common_metadata[
+                    "timestamp_resolution_ns"],
+            }
+        records.append(decoded)
     return {
         "path": str(path),
+        "schema": schema,
         "session_id": session_id,
         "segment_index": segment_index,
         "first_record_index": first_record_index,
@@ -142,12 +230,61 @@ def _half_cycle_oscillation(values: list[int], period_ns: int) -> dict[str, Any]
     }
 
 
+def _four_node_span_trend(trend: list[dict[str, Any]],
+                          period_ns: int) -> list[dict[str, Any]]:
+    phases_by_time: dict[float, list[int]] = {}
+    for row in trend:
+        phases_by_time.setdefault(row["elapsed_s"], []).append(
+            row["phase_center_ns"])
+    return [
+        {
+            "elapsed_s": elapsed_s,
+            "span_ns": _circular_span_ns(phases, period_ns),
+            "node_count": len(phases),
+        }
+        for elapsed_s, phases in sorted(phases_by_time.items())
+        if len(phases) == CHANNEL_COUNT
+    ]
+
+
+def _span_convergence_summary(span_trend: list[dict[str, Any]],
+                              period_ns: int) -> dict[str, Any]:
+    if not span_trend:
+        return {
+            "available": False,
+            "direction": "UNAVAILABLE",
+            "early_median_ns": None,
+            "late_median_ns": None,
+            "change_ns": None,
+        }
+    window_count = max(1, len(span_trend) // 5)
+    early = [row["span_ns"] for row in span_trend[:window_count]]
+    late = [row["span_ns"] for row in span_trend[-window_count:]]
+    early_median = int(statistics.median(early))
+    late_median = int(statistics.median(late))
+    change_ns = late_median - early_median
+    threshold_ns = max(1, period_ns // 20)
+    direction = (
+        "CONVERGING" if change_ns < -threshold_ns else
+        "DIVERGING" if change_ns > threshold_ns else
+        "STABLE_OR_INCONCLUSIVE")
+    return {
+        "available": True,
+        "direction": direction,
+        "early_median_ns": early_median,
+        "late_median_ns": late_median,
+        "change_ns": change_ns,
+        "decision_threshold_ns": threshold_ns,
+        "window_count": window_count,
+    }
+
+
 def _phase_tracking(edges: list[dict[str, Any]], period_ns: int
                     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]],
-                               dict[str, Any]]:
+                               list[dict[str, Any]], dict[str, Any]]:
     rising = [edge for edge in edges if edge["edge"] == "rising"]
     if not rising:
-        return [], [], {"assessment": "NO_RISING_EDGES", "nodes": {}}
+        return [], [], [], {"assessment": "NO_RISING_EDGES", "nodes": {}}
     first_ns = min(edge["timestamp_ns"] for edge in rising)
     references = sorted(edge["timestamp_ns"] for edge in rising
                         if edge["channel"] == 0)
@@ -214,11 +351,23 @@ def _phase_tracking(edges: list[dict[str, Any]], period_ns: int
     assessment = (
         "HALF_CYCLE_LIMIT_CYCLE" if detected_nodes else
         "NO_HALF_CYCLE_LIMIT_CYCLE_DETECTED")
-    return tracking, trend, {
+    span_trend = _four_node_span_trend(trend, period_ns)
+    span_convergence = _span_convergence_summary(span_trend, period_ns)
+    return tracking, trend, span_trend, {
         "pulse_period_ns": period_ns,
         "duration_s": duration_s,
         "assessment": assessment,
         "oscillating_nodes": detected_nodes,
+        "four_node_span": {
+            "available": bool(span_trend),
+            "start_ns": span_trend[0]["span_ns"] if span_trend else None,
+            "final_ns": span_trend[-1]["span_ns"] if span_trend else None,
+            "minimum_ns": min((row["span_ns"] for row in span_trend),
+                              default=None),
+            "maximum_ns": max((row["span_ns"] for row in span_trend),
+                              default=None),
+            "convergence": span_convergence,
+        },
         "nodes": nodes,
         "loop_margin_estimation": {
             "available": False,
@@ -303,7 +452,8 @@ def decode_segments(paths: Iterable[Path], *,
             row[f"offset{channel}_ns"] = channels[channel] - earliest
         phase.append(row)
 
-    tracking, trend, convergence = _phase_tracking(edges, pulse_period_ns)
+    tracking, trend, span_trend, convergence = _phase_tracking(
+        edges, pulse_period_ns)
     return {
         "schema": "HAOFV_NO5_PIO0_WAVEFORM_V1",
         "source": "NO5_SD_PIO0_RAW_WAVEFORM",
@@ -320,6 +470,7 @@ def decode_segments(paths: Iterable[Path], *,
         "phase": phase,
         "phase_tracking": tracking,
         "phase_trend": trend,
+        "phase_span_trend": span_trend,
         "convergence": convergence,
         "segments": [{key: value for key, value in segment.items()
                       if key != "records"} for segment in segments],
@@ -366,9 +517,11 @@ def _phase_svg(rows: list[dict[str, Any]]) -> str:
 
 
 def _convergence_svg(rows: list[dict[str, Any]],
-                     trend: list[dict[str, Any]], period_ns: int) -> str:
-    width, height = 1400, 760
-    left, top, plot_w, plot_h = 90, 55, 1240, 610
+                     trend: list[dict[str, Any]],
+                     span_trend: list[dict[str, Any]], period_ns: int) -> str:
+    width, height = 1400, 900
+    left, top, plot_w, plot_h = 90, 55, 1240, 540
+    span_top, span_h = 655, 140
     max_x = max((row["elapsed_s"] for row in rows), default=1.0) or 1.0
     colors = ("#2563eb", "#dc2626", "#059669", "#7c3aed")
     chunks = [
@@ -377,7 +530,8 @@ def _convergence_svg(rows: list[dict[str, Any]],
         '<rect width="100%" height="100%" fill="#ffffff"/>',
         '<style>text{font-family:Arial,sans-serif;letter-spacing:0;fill:#202124}'
         '.axis{stroke:#5f6368;stroke-width:1}.grid{stroke:#dadce0;stroke-width:1}'
-        '.trend{fill:none;stroke-width:2}</style>',
+        '.trend{fill:none;stroke-width:2}.span{fill:none;stroke:#202124;stroke-width:2}'
+        '.outlier{fill:#ffffff;stroke:#d97706;stroke-width:2}</style>',
         '<text x="90" y="30" font-size="20">DPLL locking convergence from NO5 PIO0 raw waveform</text>',
     ]
     for step in range(6):
@@ -394,11 +548,43 @@ def _convergence_svg(rows: list[dict[str, Any]],
         f'y2="{top + plot_h}" class="axis"/>',
         f'<line x1="{left}" y1="{top}" x2="{left}" y2="{top + plot_h}" '
         f'class="axis"/>',
-        f'<text x="{left + plot_w / 2:.2f}" y="{height - 28}" '
-        f'text-anchor="middle" font-size="13">Elapsed time (s)</text>',
         f'<text x="20" y="{top + plot_h / 2:.2f}" font-size="13" '
         f'transform="rotate(-90 20 {top + plot_h / 2:.2f})" '
         f'text-anchor="middle">Pulse phase modulo period (us)</text>',
+        f'<text x="{left}" y="{span_top - 18}" font-size="14">'
+        'Four-node circular phase span (smaller means convergence)</text>',
+    ])
+    for step in range(6):
+        x = left + plot_w * step / 5
+        elapsed_s = max_x * step / 5
+        label = (f"{elapsed_s:.2f}" if max_x < 10 else
+                 f"{elapsed_s:.1f}" if max_x < 100 else
+                 f"{elapsed_s:.0f}")
+        chunks.extend([
+            f'<line x1="{x:.2f}" y1="{top}" x2="{x:.2f}" '
+            f'y2="{top + plot_h}" class="grid"/>',
+            f'<line x1="{x:.2f}" y1="{span_top}" x2="{x:.2f}" '
+            f'y2="{span_top + span_h}" class="grid"/>',
+            f'<text x="{x:.2f}" y="{span_top + span_h + 22}" '
+            f'text-anchor="middle" font-size="12" '
+            f'class="x-tick-label">{label}</text>',
+        ])
+    for step in range(3):
+        y = span_top + span_h * (1 - step / 2)
+        value_us = period_ns * step / 2 / 1000
+        chunks.extend([
+            f'<line x1="{left}" y1="{y:.2f}" x2="{left + plot_w}" '
+            f'y2="{y:.2f}" class="grid"/>',
+            f'<text x="{left - 12}" y="{y + 5:.2f}" text-anchor="end" '
+            f'font-size="12">{value_us:.0f}</text>',
+        ])
+    chunks.extend([
+        f'<line x1="{left}" y1="{span_top + span_h}" '
+        f'x2="{left + plot_w}" y2="{span_top + span_h}" class="axis"/>',
+        f'<line x1="{left}" y1="{span_top}" x2="{left}" '
+        f'y2="{span_top + span_h}" class="axis"/>',
+        f'<text x="{left + plot_w / 2:.2f}" y="{height - 28}" '
+        f'text-anchor="middle" font-size="13">Elapsed time (s)</text>',
     ])
     for row in rows:
         x = left + plot_w * row["elapsed_s"] / max_x
@@ -407,17 +593,58 @@ def _convergence_svg(rows: list[dict[str, Any]],
             f'<circle cx="{x:.2f}" cy="{y:.2f}" r="1.7" '
             f'fill="{colors[row["channel"]]}" fill-opacity="0.38"/>')
     for channel, color in enumerate(colors):
-        points = " ".join(
-            f'{left + plot_w * row["elapsed_s"] / max_x:.2f},'
-            f'{top + plot_h * (1 - row["phase_center_ns"] / period_ns):.2f}'
-            for row in trend if row["channel"] == channel)
-        if points:
+        channel_rows = sorted(
+            (row for row in trend if row["channel"] == channel),
+            key=lambda row: row["elapsed_s"])
+        segments: list[list[dict[str, Any]]] = [[]]
+        outliers: list[dict[str, Any]] = []
+        previous = None
+        for row in channel_rows:
+            if previous is not None:
+                direct_jump = abs(row["phase_center_ns"] -
+                                  previous["phase_center_ns"])
+                circular_jump = abs(_circular_delta_ns(
+                    row["phase_center_ns"], previous["phase_center_ns"],
+                    period_ns))
+                wrapped = direct_jump > period_ns // 2
+                abnormal = circular_jump > period_ns // 4
+                if wrapped or abnormal:
+                    segments.append([])
+                if abnormal:
+                    outliers.append(row)
+            segments[-1].append(row)
+            previous = row
+        for segment_index, segment in enumerate(segments):
+            points = " ".join(
+                f'{left + plot_w * row["elapsed_s"] / max_x:.2f},'
+                f'{top + plot_h * (1 - row["phase_center_ns"] / period_ns):.2f}'
+                for row in segment)
+            if not points:
+                continue
             chunks.append(
-                f'<polyline points="{escape(points)}" class="trend" '
+                f'<polyline data-node="NO{channel + 1}" '
+                f'data-segment="{segment_index}" points="{escape(points)}" '
+                f'class="trend" '
                 f'stroke="{color}"/>')
+        for row in outliers:
+            x = left + plot_w * row["elapsed_s"] / max_x
+            y = top + plot_h * (1 - row["phase_center_ns"] / period_ns)
+            chunks.append(
+                f'<circle cx="{x:.2f}" cy="{y:.2f}" r="5" '
+                f'class="outlier" data-node="NO{channel + 1}">'
+                '<title>Phase innovation exceeds one quarter period</title>'
+                '</circle>')
         chunks.append(
             f'<text x="{left + channel * 105}" y="{height - 58}" '
             f'font-size="13" fill="{color}">NO{channel + 1}</text>')
+    span_points = " ".join(
+        f'{left + plot_w * row["elapsed_s"] / max_x:.2f},'
+        f'{span_top + span_h * (1 - row["span_ns"] / period_ns):.2f}'
+        for row in span_trend)
+    if span_points:
+        chunks.append(
+            f'<polyline points="{escape(span_points)}" class="span" '
+            'data-series="four-node-circular-span"/>')
     chunks.append('</svg>')
     return "\n".join(chunks) + "\n"
 
@@ -440,21 +667,25 @@ def write_reports(result: dict[str, Any], out_dir: Path) -> dict[str, Any]:
                        "relative_to_no1_ns", "reference_age_ms"]
     trend_fields = ["elapsed_s", "channel", "node", "phase_center_ns",
                     "sample_count"]
+    span_fields = ["elapsed_s", "span_ns", "node_count"]
     _write_csv(out_dir / "dpll_convergence.csv",
                result.get("phase_tracking", []), tracking_fields)
     _write_csv(out_dir / "dpll_convergence_trend.csv",
                result.get("phase_trend", []), trend_fields)
+    _write_csv(out_dir / "dpll_convergence_span.csv",
+               result.get("phase_span_trend", []), span_fields)
     (out_dir / "phase_curve.svg").write_text(
         _phase_svg(result["phase"]), encoding="utf-8")
     (out_dir / "dpll_convergence.svg").write_text(
         _convergence_svg(
             result.get("phase_tracking", []), result.get("phase_trend", []),
+            result.get("phase_span_trend", []),
             result.get("convergence", {}).get(
                 "pulse_period_ns", DEFAULT_PULSE_PERIOD_NS)),
         encoding="utf-8")
     summary = {key: value for key, value in result.items()
                if key not in {"records", "edges", "phase", "phase_tracking",
-                              "phase_trend"}}
+                              "phase_trend", "phase_span_trend"}}
     summary["outputs"] = {
         "raw_records": str(out_dir / "raw_records.csv"),
         "edges": str(out_dir / "edges.csv"),
@@ -463,6 +694,8 @@ def write_reports(result: dict[str, Any], out_dir: Path) -> dict[str, Any]:
         "dpll_convergence": str(out_dir / "dpll_convergence.csv"),
         "dpll_convergence_trend": str(
             out_dir / "dpll_convergence_trend.csv"),
+        "dpll_convergence_span": str(
+            out_dir / "dpll_convergence_span.csv"),
         "dpll_convergence_svg": str(out_dir / "dpll_convergence.svg"),
     }
     (out_dir / "summary.json").write_text(

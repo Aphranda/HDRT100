@@ -5,11 +5,13 @@
 
 #include "pico/types.h"
 #include "tdma_pio_spi_phys.h"
+#include "tdma_pio_spi_persona_fsm.h"
 
 /* Explicit owner context for PIO program persona transitions.  The physical
  * layer owns the storage; this module only mutates the supplied offsets and
  * persona while preserving the existing PIO/SM/DMA admission rules. */
 typedef struct {
+    tdma_pio_spi_persona_fsm_t lifecycle;
     bool *sms_claimed;
     tdma_pio_spi_program_persona_t *program_persona;
     uint *tx_offset;

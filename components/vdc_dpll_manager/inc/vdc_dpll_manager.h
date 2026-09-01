@@ -12,12 +12,14 @@
 #define VDC_DPLL_MANAGER_PLAN_NOW_NS UINT64_MAX
 #define VDC_DPLL_MANAGER_SYNC_IO_MAX_BATCH_WORDS 32u
 #define VDC_DPLL_MANAGER_OBSERVER_QUALITY_TDMA_WINDOW_BASE 0x80000000u
-#define VDC_DPLL_MANAGER_SELF_TEST_MAX_PULSES 4096u
-/* The capture is a maintenance/evidence buffer, not a realtime queue.  A
- * record is 20 bytes and the complete image (header + 400 records) remains
- * within the StorageAO 8 KiB file-write contract. */
+#define VDC_DPLL_MANAGER_SELF_TEST_DEFAULT_PULSES 4096u
+#define VDC_DPLL_MANAGER_SELF_TEST_MAX_PULSES UINT32_MAX
+/* The DPLL capture is a maintenance/evidence buffer, not a realtime queue. */
 #define VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES 400u
-#define VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS 180u
+/* Schema v3 removes segment-common and reconstructable fields so two
+ * 800-record buffers still occupy about 32 KiB while each SD transaction
+ * covers substantially more observation time. */
+#define VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS 800u
 
 typedef enum {
     VDC_DPLL_MANAGER_SELF_TEST_ROLE_NONE = 0u,
@@ -253,6 +255,7 @@ typedef struct {
     uint32_t session_id;
     uint32_t record_count;
     uint32_t dropped_count;
+    uint32_t source_dropped_count;
     uint32_t segment_count;
     uint32_t pending_record_count;
     uint32_t first_sample_seq;

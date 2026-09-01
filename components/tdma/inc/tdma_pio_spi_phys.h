@@ -587,6 +587,11 @@ typedef struct {
     uint32_t program_persona;
     uint32_t program_switch_count;
     uint32_t program_switch_fail_count;
+    uint32_t program_lifecycle_state;
+    uint32_t program_target_persona;
+    uint32_t program_previous_persona;
+    uint32_t program_transition_seq;
+    uint32_t program_lifecycle_error;
     int32_t flight_marker_offset_sample_count;
     int32_t flight_sck_offset_sample_count;
     int32_t flight_data_offset_sample_count;

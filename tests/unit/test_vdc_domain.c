@@ -2498,6 +2498,47 @@ static int test_dpll_acquisition_accepts_large_initial_phase(void)
     return failed;
 }
 
+static int test_dpll_acquisition_rejects_phase_innovation(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_domain_snapshot_t snapshot;
+
+    failed += expect_bool("init acquisition innovation",
+                          vdc_domain_init(&context), true);
+    vdc_domain_set_ready(&context, true);
+
+    vdc_tdma_timestamp_evidence_t initial =
+        make_hardware_sample(&context.schedule, 1u, 400000);
+    failed += expect_bool("accept initial acquisition offset",
+                          vdc_domain_submit_tdma_evidence(&context, &initial),
+                          true);
+
+    vdc_tdma_timestamp_evidence_t outlier =
+        make_hardware_sample(&context.schedule, 2u, 0);
+    failed += expect_bool("process acquisition innovation",
+                          vdc_domain_submit_tdma_evidence(&context, &outlier),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("acquisition innovation retains accepted",
+                         snapshot.dpll.accepted_sample_count, 1u);
+    failed += expect_u32("acquisition innovation rejected",
+                         snapshot.dpll.rejected_sample_count, 1u);
+    failed += expect_u32("acquisition innovation reject code",
+                         snapshot.dpll.last_reject_code,
+                         VDC_DOMAIN_GATE_SERVO_OUTLIER);
+
+    vdc_tdma_timestamp_evidence_t recovery =
+        make_hardware_sample(&context.schedule, 3u, 400000);
+    failed += expect_bool("accept acquisition recovery",
+                          vdc_domain_submit_tdma_evidence(&context, &recovery),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("acquisition recovery accepted",
+                         snapshot.dpll.accepted_sample_count, 2u);
+    return failed;
+}
+
 static int test_dpll_large_step_does_not_fine_lock_same_sample(void)
 {
     int failed = 0;
@@ -3125,6 +3166,7 @@ int main(void)
     failed += test_dpll_rejects_servo_outlier();
     failed += test_dpll_slews_phase_and_pulls_rate_after_lock();
     failed += test_dpll_acquisition_accepts_large_initial_phase();
+    failed += test_dpll_acquisition_rejects_phase_innovation();
     failed += test_dpll_large_step_does_not_fine_lock_same_sample();
     failed += test_ring_observer_expands_correlated_feedback();
     failed += test_provisional_path_matrix_is_servo_only();

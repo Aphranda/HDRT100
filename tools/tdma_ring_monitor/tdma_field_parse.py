@@ -167,6 +167,9 @@ PHYS_FIELDS = (
     "overlay_late_coalesce_count",
     "clock_latch_resolution_ns", "clock_latch_count",
     "clock_latch_miss_count",
+    "program_lifecycle_state", "program_target_persona",
+    "program_previous_persona", "program_transition_seq",
+    "program_lifecycle_error",
 )
 
 KEY = [

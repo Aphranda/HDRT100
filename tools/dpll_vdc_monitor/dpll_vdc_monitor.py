@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import re
 import sys
 import time
@@ -128,7 +129,8 @@ PHASE_SELFTEST_FIELDS = (
 )
 WAVEFORM_STATUS_FIELDS = (
     "armed", "stopping", "complete", "session_id", "record_count",
-    "dropped_count", "segment_count", "pending_record_count",
+    "dropped_count", "source_dropped_count", "segment_count",
+    "pending_record_count",
     "first_sample_seq", "last_sample_seq", "start_ms", "end_ms",
     "last_error", "last_job_id",
 )
@@ -334,6 +336,22 @@ def _query(ser: Any, command: str, timeout_s: float) -> str:
     return response
 
 
+def _effective_phase_pulse_count(args: argparse.Namespace) -> int:
+    period_ns = int(args.phase_pulse_period_ns)
+    if period_ns <= 0:
+        raise ValueError("phase pulse period must be positive")
+    coverage_min_s = float(getattr(args, "phase_coverage_min_s", 2.0))
+    if coverage_min_s < 0.0:
+        raise ValueError("phase coverage minimum must be non-negative")
+    coverage_s = float(args.duration_s) + max(
+        coverage_min_s, 2.0 * float(args.poll_interval_s))
+    duration_count = math.ceil(coverage_s * 1e9 / period_ns)
+    count = max(int(args.phase_pulse_count), duration_count)
+    if count <= 0 or count > 0xFFFFFFFF:
+        raise ValueError("phase pulse count exceeds uint32 range")
+    return count
+
+
 def _arm_phase_observation(serials: dict[str, Any], specs: list[BoardSpec],
                            args: argparse.Namespace,
                            *, arm_observer: bool = True) -> None:
@@ -344,7 +362,7 @@ def _arm_phase_observation(serials: dict[str, Any], specs: list[BoardSpec],
     """
     period = int(args.phase_pulse_period_ns)
     high = int(args.phase_pulse_high_ns)
-    count = int(args.phase_pulse_count)
+    count = _effective_phase_pulse_count(args)
     delay = int(args.phase_start_delay_ns)
     if period <= high or high <= 0 or count <= 0 or delay < 0:
         raise ValueError("invalid external phase pulse configuration")
@@ -376,7 +394,7 @@ def _stop_phase_observation(serials: dict[str, Any], specs: list[BoardSpec],
                f"{int(args.phase_sample_period_ns)},"
                f"{int(args.phase_pulse_period_ns)},"
                f"{int(args.phase_pulse_high_ns)},"
-               f"{int(args.phase_pulse_count)},0,0,1,"
+               f"{_effective_phase_pulse_count(args)},0,0,1,"
                f"{int(args.phase_max_span_ns)},"
                f"{int(args.phase_min_complete_rounds)}")
 
@@ -511,31 +529,42 @@ def _finish_waveform_capture(ser: Any, args: argparse.Namespace,
         local_paths, pulse_period_ns=args.phase_pulse_period_ns)
     analysis = write_waveform_reports(
         decoded, args.out_dir / "waveform" / "analysis")
+    span_trend = decoded.get("phase_span_trend", [])
     stable_streak = 0
-    for row in reversed(decoded["phase"]):
+    for row in reversed(span_trend):
         if row["span_ns"] > args.phase_max_span_ns:
             break
         stable_streak += 1
     raw_gate_errors = []
     if status["dropped_count"] != 0:
         raw_gate_errors.append("capture_dropped_records")
+    if status["source_dropped_count"] != 0:
+        raw_gate_errors.append("source_dma_or_latch_dropped_records")
     if decoded["dropped_count"] != 0:
         raw_gate_errors.append("segment_dropped_records")
     if decoded["source_dropped_count"] != 0:
         raw_gate_errors.append("source_dropped_records")
     if stable_streak < args.phase_min_complete_rounds:
-        raw_gate_errors.append("insufficient_stable_phase_rounds")
+        raw_gate_errors.append("insufficient_stable_circular_span_windows")
     raw_gate = {
         "passed": not raw_gate_errors,
         "errors": raw_gate_errors,
         "phase_round_count": decoded["phase_round_count"],
+        "circular_span_window_count": len(span_trend),
         "capture_dropped_count": status["dropped_count"],
+        "source_capture_dropped_count": status["source_dropped_count"],
         "segment_dropped_count": decoded["dropped_count"],
         "source_dropped_count": decoded["source_dropped_count"],
         "initial_span_ns": (decoded["phase"][0]["span_ns"]
                             if decoded["phase"] else None),
         "final_span_ns": (decoded["phase"][-1]["span_ns"]
-                          if decoded["phase"] else None),
+                            if decoded["phase"] else None),
+        "circular_span_initial_ns": (
+            span_trend[0]["span_ns"] if span_trend else None),
+        "circular_span_final_ns": (
+            span_trend[-1]["span_ns"] if span_trend else None),
+        "circular_span_convergence": decoded.get("convergence", {}).get(
+            "four_node_span", {}).get("convergence", {}),
         "stable_streak": stable_streak,
         "max_span_ns": args.phase_max_span_ns,
         "min_stable_rounds": args.phase_min_complete_rounds,
@@ -908,11 +937,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--waveform-analysis", action="append", type=Path,
                         help="existing SD ring_capture_analysis.json (read-only)")
     parser.add_argument("--fail-on-gate", action="store_true")
-    parser.add_argument("--phase-sample-period-ns", type=int, default=100)
+    parser.add_argument("--phase-sample-period-ns", type=int, default=500)
     parser.add_argument("--phase-pulse-period-ns", type=int, default=1000000)
-    parser.add_argument("--phase-pulse-high-ns", type=int, default=200)
-    parser.add_argument("--phase-pulse-count", type=int, default=4096)
+    parser.add_argument("--phase-pulse-high-ns", type=int, default=2000)
+    parser.add_argument(
+        "--phase-pulse-count", type=int, default=4096,
+        help="minimum pulse count; automatically extended to cover duration")
     parser.add_argument("--phase-start-delay-ns", type=int, default=1000000000)
+    parser.add_argument(
+        "--phase-coverage-min-s", type=float, default=2.0,
+        help="minimum pulse coverage beyond duration; 2 s for full runs")
     parser.add_argument("--phase-max-span-ns", type=int, default=500)
     parser.add_argument("--phase-min-complete-rounds", type=int, default=3)
     parser.add_argument("--waveform-flush-timeout-s", type=float, default=30.0)
@@ -929,7 +963,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("duration and poll interval must be positive")
     if args.sequence_skew_tolerance < 0:
         raise ValueError("sequence skew tolerance must be non-negative")
-    if args.phase_max_span_ns <= 0 or args.phase_min_complete_rounds <= 0:
+    if (args.phase_max_span_ns <= 0 or args.phase_min_complete_rounds <= 0 or
+            args.phase_coverage_min_s < 0):
         raise ValueError("phase convergence thresholds must be positive")
     out_dir = args.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1057,7 +1092,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "phase_sample_period_ns": args.phase_sample_period_ns,
         "phase_pulse_period_ns": args.phase_pulse_period_ns,
         "phase_pulse_high_ns": args.phase_pulse_high_ns,
-        "phase_pulse_count": args.phase_pulse_count,
+        "phase_pulse_count": _effective_phase_pulse_count(args),
+        "phase_pulse_count_minimum": args.phase_pulse_count,
+        "phase_coverage_min_s": args.phase_coverage_min_s,
         "phase_max_span_ns": args.phase_max_span_ns,
         "phase_min_complete_rounds": args.phase_min_complete_rounds,
         "phase_gate_semantics": "INITIAL_RECORDED_FINAL_STABLE_STREAK_GATED",

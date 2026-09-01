@@ -11,6 +11,7 @@ from tools.dpll_vdc_monitor.dpll_vdc_monitor import (
     PHASE_SELFTEST_FIELDS,
     BoardSample,
     ProgressReporter,
+    _effective_phase_pulse_count,
     _progress_board,
     _finish_waveform_capture,
     _parse_storage_read,
@@ -23,6 +24,18 @@ from tools.dpll_vdc_monitor.dpll_vdc_monitor import (
     _ring_sequence_consistency,
 )
 from tools.scpi_common.scpi_serial import scpi_response_matches_command
+
+
+def test_phase_pulse_count_covers_the_full_monitor_duration() -> None:
+    args = __import__("types").SimpleNamespace(
+        duration_s=10.0,
+        poll_interval_s=1.0,
+        phase_pulse_period_ns=1_000_000,
+        phase_pulse_count=4096,
+        phase_coverage_min_s=2.0,
+    )
+
+    assert _effective_phase_pulse_count(args) == 12_000
 
 
 def test_selftest_progress_exposes_tx_schedule_without_becoming_evidence(
@@ -53,7 +66,7 @@ def test_selftest_progress_exposes_tx_schedule_without_becoming_evidence(
 
 def test_waveform_status_and_storage_page_parsers_keep_raw_evidence() -> None:
     status = _parse_waveform_status(
-        'FALSE,FALSE,TRUE,123,360,0,2,0,7,366,100,500,0,19,'
+        'FALSE,FALSE,TRUE,123,360,0,0,2,0,7,366,100,500,0,19,'
         '"/traces/run/sma_00000123_0001.bin"')
     assert status["complete"] == 1
     assert status["record_count"] == 360
@@ -74,7 +87,7 @@ def test_empty_waveform_is_a_recorded_gate_failure_without_save(
         if command.endswith(":STOP"):
             return '"OK",0,0'
         if command.endswith(":STATus?"):
-            return '0,0,1,123,0,0,0,0,0,0,10,20,0,0,""'
+            return '0,0,1,123,0,0,0,0,0,0,0,10,20,0,0,""'
         raise AssertionError(f"unexpected command: {command}")
 
     monkeypatch.setattr(
@@ -103,7 +116,7 @@ def test_dropped_waveform_is_saved_and_analyzed_as_failed_evidence(
             return '"OK",10,3'
         if command.endswith(":STATus?"):
             return (
-                '0,0,1,123,10,3,1,0,1,10,10,20,0,1,'
+                '0,0,1,123,10,3,7,1,0,1,10,10,20,0,1,'
                 '"/traces/run/sma_00000123_0000.bin"')
         if command.endswith(":SAVE"):
             return '"OK",1,"/traces/run/sma_00000123_"'
@@ -142,8 +155,9 @@ def test_dropped_waveform_is_saved_and_analyzed_as_failed_evidence(
     assert result["raw_gate"]["source_dropped_count"] == 2
     assert result["raw_gate"]["errors"] == [
         "capture_dropped_records",
+        "source_dma_or_latch_dropped_records",
         "source_dropped_records",
-        "insufficient_stable_phase_rounds",
+        "insufficient_stable_circular_span_windows",
     ]
 
 

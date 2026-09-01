@@ -17,6 +17,7 @@ from tools.hardware_acceptance.p3_hardware_acceptance import (
     calibration_coded_probe_phase_cycles,
     calibration_probe_phase_cycles,
     is_acceptance_source,
+    load_bench_config,
     parse_schedule,
     p3_link_delays,
     reset_acceptance_boards,
@@ -26,6 +27,7 @@ from tools.hardware_acceptance.p3_hardware_acceptance import (
     validate_runtime_schedules,
     validate_schedule_isolation,
     validate_sma_observer_topology,
+    write_phase_summary,
     _record_timing_event,
     _start_timing_probe,
 )
@@ -34,7 +36,79 @@ from tools.hardware_acceptance.p3_hardware_acceptance import (
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_acceptance_steps_disable_implicit_persistent_serial(
+def test_bench_config_overlay_deep_merges_without_copying_topology(
+        tmp_path: Path) -> None:
+    base = tmp_path / "base.json"
+    quick = tmp_path / "quick.json"
+    base.write_text(json.dumps({
+        "board_ids": ["n0", "n1"],
+        "timing": {"timeout": 3.0, "gap": 0.1},
+        "repeats": 8,
+    }), encoding="utf-8")
+    quick.write_text(json.dumps({
+        "extends": "base.json",
+        "timing": {"gap": 0.02},
+        "repeats": 1,
+    }), encoding="utf-8")
+
+    assert load_bench_config(quick) == {
+        "board_ids": ["n0", "n1"],
+        "timing": {"timeout": 3.0, "gap": 0.02},
+        "repeats": 1,
+    }
+
+
+def test_bench_config_overlay_rejects_cycle(tmp_path: Path) -> None:
+    first = tmp_path / "first.json"
+    second = tmp_path / "second.json"
+    first.write_text(json.dumps({"extends": "second.json"}), encoding="utf-8")
+    second.write_text(json.dumps({"extends": "first.json"}), encoding="utf-8")
+
+    with pytest.raises(AcceptanceError, match="cyclic"):
+        load_bench_config(first)
+
+
+def test_phase_summary_retains_failed_evidence_in_diagnostic_mode(
+        tmp_path: Path) -> None:
+    passed_dir = tmp_path / "passed"
+    failed_dir = tmp_path / "failed"
+    passed_dir.mkdir()
+    failed_dir.mkdir()
+    passed_path = passed_dir / "summary.json"
+    failed_path = failed_dir / "summary.json"
+    passed_path.write_text(
+        json.dumps({"passed": True}), encoding="utf-8")
+    failed_path.write_text(
+        json.dumps({"passed": False, "error": "ARM rejected"}),
+        encoding="utf-8")
+
+    output = tmp_path / "phase-summary.json"
+    result = write_phase_summary(
+        output, "COARSE_CLK", [passed_path, failed_path],
+        diagnostic_continue=True)
+
+    assert result["passed"] is False
+    assert result["flow_continued"] is True
+    assert [row["passed"] for row in result["evidence"]] == [True, False]
+    assert result["evidence"][1]["error"] == "ARM rejected"
+    assert json.loads(output.read_text(encoding="utf-8")) == result
+
+
+def test_phase_summary_rejects_failed_evidence_in_strict_mode(
+        tmp_path: Path) -> None:
+    failed_dir = tmp_path / "failed"
+    failed_dir.mkdir()
+    failed_path = failed_dir / "summary.json"
+    failed_path.write_text(
+        json.dumps({"passed": False, "error": "not calibrated"}),
+        encoding="utf-8")
+
+    with pytest.raises(AcceptanceError, match="not calibrated"):
+        write_phase_summary(
+            tmp_path / "phase-summary.json", "COARSE_CLK", [failed_path])
+
+
+def test_acceptance_steps_use_phase_owned_serial_lifecycle(
         monkeypatch, tmp_path: Path) -> None:
     captured: dict[str, object] = {}
 
@@ -42,12 +116,13 @@ def test_acceptance_steps_disable_implicit_persistent_serial(
         captured["env"] = kwargs["env"]
         return types.SimpleNamespace(returncode=0, stdout=b"ok\n")
 
-    monkeypatch.setenv("HAOFV_ACCEPTANCE_PERSISTENT_SESSIONS", "1")
+    monkeypatch.setenv("HAOFV_ACCEPTANCE_PERSISTENT_SESSIONS", "0")
     monkeypatch.setattr(
         "tools.hardware_acceptance.p3_hardware_acceptance.subprocess.run",
         fake_run)
     _run_step([sys.executable, "phase.py"], ROOT, tmp_path / "phase.log")
-    assert captured["env"]["HAOFV_ACCEPTANCE_PERSISTENT_SESSIONS"] == "0"
+    assert captured["env"]["HAOFV_SERIAL_LIFECYCLE"] == "phase"
+    assert "HAOFV_ACCEPTANCE_PERSISTENT_SESSIONS" not in captured["env"]
 
 
 def test_acceptance_step_can_retain_nonzero_diagnostic_result(
@@ -361,8 +436,11 @@ def test_bench_and_orchestrator_cover_full_hardware_acceptance() -> None:
     assert '"selected_row_replay_safe"' in source
     assert '"TRN-03 SCK replay row selection"' in source
     assert '"flow_completed": True' in source
-    assert '"strict_gates_passed": False' in source
+    assert '"strict_gates_passed": not diagnostic_failures' in source
     assert '"status": "PASS_WITH_DIAGNOSTICS"' in source
+    assert '"phase": "TDMA running-loop handoff"' in source
+    assert "run_diagnostic_gate" in source
+    assert '"TRN-00 residence matrix"' in source
     assert "FOUR_NODE_TDMA" in source
     assert '"--codebook", str(config["training_marker_codebook"])' in source
     assert '"--codebook", str(config["training_sck_codebook"])' in source

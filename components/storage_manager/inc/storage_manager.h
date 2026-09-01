@@ -8,6 +8,8 @@
 #include "fatfs_port.h"
 #include "sd_card.h"
 
+#define STORAGE_MANAGER_FILE_WRITE_MAX_BYTES 16384u
+
 typedef enum {
     STORAGE_MANAGER_STATE_UNINITIALIZED = 0,
     STORAGE_MANAGER_STATE_IDLE,
@@ -178,6 +180,7 @@ typedef struct {
     uint32_t actual_crc32;
     uint32_t path_hash;
     uint32_t error;
+    bool direct_write;
     char path[96];
     char tmp_path[96];
 } storage_manager_write_snapshot_t;
@@ -218,6 +221,10 @@ bool storage_manager_begin_file_write(const char *path,
                                       uint32_t expected_size,
                                       uint32_t expected_crc32,
                                       uint32_t *txn_id);
+bool storage_manager_begin_evidence_write(const char *path,
+                                          uint32_t expected_size,
+                                          uint32_t expected_crc32,
+                                          uint32_t *txn_id);
 bool storage_manager_write_file_chunk(uint32_t txn_id,
                                       uint32_t offset,
                                       const uint8_t *data,

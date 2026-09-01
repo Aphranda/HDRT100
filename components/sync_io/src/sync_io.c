@@ -933,6 +933,7 @@ bool sync_io_start_capture(uint32_t sample_hz)
 
     osal_critical_enter();
     sync_io_capture_latch_reset_locked();
+    s_sync_io.dropped_capture_words = 0u;
     s_sync_io.capture_dma_read_seq = 0u;
     s_sync_io.capture_dma_produced_seq = 0u;
     s_sync_io.capture_dma_last_write_index = 0u;
@@ -1108,7 +1109,12 @@ void sync_io_capture_latch_service_core1(void)
                                                  sample_period_ns,
                                                  &matched_window_start_ns);
         slot->matched_window_start_ns = matched_window_start_ns;
-        slot->dropped_before = s_sync_io.dropped_latched_capture_words;
+        slot->dropped_before =
+            UINT32_MAX - s_sync_io.dropped_capture_words <
+                    s_sync_io.dropped_latched_capture_words
+                ? UINT32_MAX
+                : s_sync_io.dropped_capture_words +
+                      s_sync_io.dropped_latched_capture_words;
         s_sync_io.capture_latch_write = next_write;
         s_sync_io.latched_capture_words++;
         osal_critical_exit();

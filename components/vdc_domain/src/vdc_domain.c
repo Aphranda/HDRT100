@@ -2705,10 +2705,32 @@ static bool vdc_domain_prepare_tdma_evidence_checked(
         vdc_domain_corrected_phase_error_ns(context, evidence);
     const uint32_t abs_predicted_residual =
         vdc_domain_abs_i32(input_residual_ns);
-    if (!acquisition_window &&
+    int64_t raw_innovation_ns =
+        (int64_t)evidence->phase_error_ns -
+        (int64_t)context->dpll.last_raw_phase_error_ns;
+    if (context->schedule.period_ns != 0u) {
+        const int64_t period_ns = (int64_t)context->schedule.period_ns;
+        const int64_t half_period_ns = period_ns / 2ll;
+        while (raw_innovation_ns > half_period_ns) {
+            raw_innovation_ns -= period_ns;
+        }
+        while (raw_innovation_ns < -half_period_ns) {
+            raw_innovation_ns += period_ns;
+        }
+    }
+    const uint32_t abs_raw_innovation_ns = vdc_domain_abs_i32(
+        vdc_domain_clamp_i64_to_i32(raw_innovation_ns));
+    const bool acquisition_outlier =
+        acquisition_window &&
         context->dpll.accepted_sample_count != 0u &&
         outlier_threshold_ns != 0u &&
-        abs_predicted_residual > outlier_threshold_ns) {
+        abs_raw_innovation_ns > outlier_threshold_ns;
+    const bool tracking_outlier =
+        !acquisition_window &&
+        context->dpll.accepted_sample_count != 0u &&
+        outlier_threshold_ns != 0u &&
+        abs_predicted_residual > outlier_threshold_ns;
+    if (acquisition_outlier || tracking_outlier) {
         vdc_domain_gate_fail(&gate,
                              VDC_DOMAIN_GATE_SERVO_OUTLIER,
                              evidence->source_slot_id,

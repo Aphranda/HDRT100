@@ -7,6 +7,7 @@ from tools.tdma_ring_monitor.tdma_start_ring import (
     persistent_sessions_enabled,
     resolve_board_ids,
 )
+from tools.scpi_common.scpi_serial import serial_lifecycle_mode
 
 
 def args(board_id=None, reference_id=None, forward_id=None):
@@ -43,6 +44,20 @@ def test_acceptance_environment_enables_persistent_sessions(monkeypatch):
     options = args()
     options.short_open = True
     assert persistent_sessions_enabled(options) is False
+
+
+def test_phase_lifecycle_enables_one_session_per_board(monkeypatch):
+    monkeypatch.setenv("HAOFV_SERIAL_LIFECYCLE", "phase")
+    monkeypatch.delenv("HAOFV_ACCEPTANCE_PERSISTENT_SESSIONS", raising=False)
+    assert serial_lifecycle_mode() == "phase"
+    assert persistent_sessions_enabled(args()) is True
+
+
+def test_command_lifecycle_keeps_short_open_fallback(monkeypatch):
+    monkeypatch.setenv("HAOFV_SERIAL_LIFECYCLE", "command")
+    monkeypatch.setenv("HAOFV_ACCEPTANCE_PERSISTENT_SESSIONS", "1")
+    assert serial_lifecycle_mode() == "command"
+    assert persistent_sessions_enabled(args()) is False
 
 
 def test_short_open_disables_persistent_sessions():

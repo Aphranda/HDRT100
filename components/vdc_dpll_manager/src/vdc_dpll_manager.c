@@ -31,7 +31,7 @@
 #define VDC_DPLL_MANAGER_DPLL_CAPTURE_MAGIC 0x4C504444u /* DDPL */
 #define VDC_DPLL_MANAGER_DPLL_CAPTURE_SCHEMA 1u
 #define VDC_DPLL_MANAGER_WAVEFORM_MAGIC 0x57524D53u /* SMRW */
-#define VDC_DPLL_MANAGER_WAVEFORM_SCHEMA 1u
+#define VDC_DPLL_MANAGER_WAVEFORM_SCHEMA 3u
 #define VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT 2u
 
 typedef struct __attribute__((packed)) {
@@ -59,13 +59,28 @@ typedef struct __attribute__((packed)) {
     uint32_t start_ms;
     uint32_t end_ms;
     uint32_t observed_mask;
+    uint32_t sample_period_ns;
+    uint32_t timestamp_source;
+    uint32_t timestamp_resolution_ns;
+    uint32_t first_sample_seq;
+    uint64_t first_matched_window_start_ns;
+    uint32_t timestamp_flags;
     uint32_t payload_crc32;
 } vdc_dpll_manager_waveform_header_t;
+
+typedef struct __attribute__((packed)) {
+    uint32_t raw_word;
+    uint32_t previous_sample_mask;
+    uint32_t base_time_l32_ns;
+    uint32_t matched_window_start_l32_ns;
+    uint32_t dropped_before;
+} vdc_dpll_manager_waveform_storage_record_t;
 
 _Static_assert(
     sizeof(vdc_dpll_manager_waveform_header_t) +
         VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS *
-            sizeof(vdc_dpll_manager_waveform_record_t) <= 8192u,
+            sizeof(vdc_dpll_manager_waveform_storage_record_t) <=
+        STORAGE_MANAGER_FILE_WRITE_MAX_BYTES,
     "waveform segment must fit StorageAO write buffer");
 
 static vdc_dpll_manager_vdc_status_t s_vdc_status;
@@ -115,15 +130,28 @@ static uint32_t s_dpll_capture_first_update_seq;
 static uint32_t s_dpll_capture_last_update_seq;
 static uint32_t s_dpll_capture_start_ms;
 static uint32_t s_dpll_capture_end_ms;
-static vdc_dpll_manager_waveform_record_t s_waveform_buffers
+static vdc_dpll_manager_waveform_storage_record_t s_waveform_buffers
     [VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT]
     [VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS];
 static uint32_t s_waveform_buffer_count[VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT];
+static uint32_t s_waveform_buffer_sample_period_ns
+    [VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT];
+static uint32_t s_waveform_buffer_timestamp_source
+    [VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT];
+static uint32_t s_waveform_buffer_timestamp_resolution_ns
+    [VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT];
+static uint32_t s_waveform_buffer_first_sample_seq
+    [VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT];
+static uint64_t s_waveform_buffer_first_matched_window_start_ns
+    [VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT];
+static uint32_t s_waveform_buffer_timestamp_flags
+    [VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT];
 static uint32_t s_waveform_active_buffer;
 static uint32_t s_waveform_pending_buffer;
 static uint32_t s_waveform_pending_first_record;
 static bool s_waveform_pending_valid;
 static bool s_waveform_job_inflight;
+static uint32_t s_waveform_inflight_record_count;
 static vdc_dpll_manager_waveform_capture_status_t s_waveform_status;
 static uint32_t s_waveform_observed_mask;
 static uint64_t s_phase_group_start_ns;
@@ -1162,19 +1190,29 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
             }
             if (active_count <
                     VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS) {
-                vdc_dpll_manager_waveform_record_t *record =
+                vdc_dpll_manager_waveform_storage_record_t *record =
                     &s_waveform_buffers[s_waveform_active_buffer][active_count];
+                if (active_count == 0u) {
+                    s_waveform_buffer_sample_period_ns[s_waveform_active_buffer] =
+                        decode.sample_period_ns;
+                    s_waveform_buffer_timestamp_source[s_waveform_active_buffer] =
+                        decode.timestamp_source;
+                    s_waveform_buffer_timestamp_resolution_ns
+                        [s_waveform_active_buffer] =
+                            decode.timestamp_resolution_ns;
+                    s_waveform_buffer_first_sample_seq
+                        [s_waveform_active_buffer] = words[i].sample_seq;
+                    s_waveform_buffer_first_matched_window_start_ns
+                        [s_waveform_active_buffer] =
+                            words[i].matched_window_start_ns;
+                    s_waveform_buffer_timestamp_flags
+                        [s_waveform_active_buffer] = words[i].timestamp_flags;
+                }
                 record->raw_word = words[i].raw_word;
-                record->sample_seq = words[i].sample_seq;
                 record->previous_sample_mask = words[i].previous_sample_mask;
                 record->base_time_l32_ns = words[i].base_time_l32_ns;
-                record->matched_window_start_ns =
-                    words[i].matched_window_start_ns;
-                record->sample_period_ns = words[i].sample_period_ns;
-                record->timestamp_source = words[i].timestamp_source;
-                record->timestamp_resolution_ns =
-                    words[i].timestamp_resolution_ns;
-                record->timestamp_flags = words[i].timestamp_flags;
+                record->matched_window_start_l32_ns =
+                    (uint32_t)words[i].matched_window_start_ns;
                 record->dropped_before = words[i].dropped_before;
                 s_waveform_buffer_count[s_waveform_active_buffer] =
                     active_count + 1u;
@@ -1334,11 +1372,24 @@ bool vdc_dpll_manager_init(void)
     s_dpll_capture_end_ms = 0u;
     memset(s_waveform_buffers, 0, sizeof(s_waveform_buffers));
     memset(s_waveform_buffer_count, 0, sizeof(s_waveform_buffer_count));
+    memset(s_waveform_buffer_sample_period_ns, 0,
+           sizeof(s_waveform_buffer_sample_period_ns));
+    memset(s_waveform_buffer_timestamp_source, 0,
+           sizeof(s_waveform_buffer_timestamp_source));
+    memset(s_waveform_buffer_timestamp_resolution_ns, 0,
+           sizeof(s_waveform_buffer_timestamp_resolution_ns));
+    memset(s_waveform_buffer_first_sample_seq, 0,
+           sizeof(s_waveform_buffer_first_sample_seq));
+    memset(s_waveform_buffer_first_matched_window_start_ns, 0,
+           sizeof(s_waveform_buffer_first_matched_window_start_ns));
+    memset(s_waveform_buffer_timestamp_flags, 0,
+           sizeof(s_waveform_buffer_timestamp_flags));
     s_waveform_active_buffer = 0u;
     s_waveform_pending_buffer = 0u;
     s_waveform_pending_first_record = 0u;
     s_waveform_pending_valid = false;
     s_waveform_job_inflight = false;
+    s_waveform_inflight_record_count = 0u;
     memset(&s_waveform_status, 0, sizeof(s_waveform_status));
     s_waveform_observed_mask = 0u;
     s_phase_group_start_ns = 0u;
@@ -1968,12 +2019,11 @@ static void vdc_dpll_manager_waveform_capture_service(void)
                 s_waveform_status.last_error =
                     job.error != 0u ? job.error : 1u;
                 s_waveform_status.dropped_count +=
-                    s_waveform_buffer_count[s_waveform_pending_buffer];
+                    s_waveform_inflight_record_count;
                 s_waveform_status.armed = false;
                 s_waveform_status.stopping = true;
             }
-            s_waveform_buffer_count[s_waveform_pending_buffer] = 0u;
-            s_waveform_pending_valid = false;
+            s_waveform_inflight_record_count = 0u;
         }
     }
 
@@ -2004,8 +2054,8 @@ static void vdc_dpll_manager_waveform_capture_service(void)
         vdc_dpll_manager_waveform_header_t header = {0};
         const uint32_t record_count =
             s_waveform_buffer_count[s_waveform_pending_buffer];
-        const size_t record_bytes =
-            (size_t)record_count * sizeof(vdc_dpll_manager_waveform_record_t);
+        const size_t record_bytes = (size_t)record_count *
+            sizeof(vdc_dpll_manager_waveform_storage_record_t);
         const uint8_t *records =
             (const uint8_t *)s_waveform_buffers[s_waveform_pending_buffer];
         uint32_t txn_id = 0u;
@@ -2017,7 +2067,7 @@ static void vdc_dpll_manager_waveform_capture_service(void)
         header.schema = VDC_DPLL_MANAGER_WAVEFORM_SCHEMA;
         header.header_size = (uint16_t)sizeof(header);
         header.record_size =
-            (uint16_t)sizeof(vdc_dpll_manager_waveform_record_t);
+            (uint16_t)sizeof(vdc_dpll_manager_waveform_storage_record_t);
         header.session_id = s_waveform_status.session_id;
         header.segment_index = s_waveform_status.segment_count;
         header.first_record_index = s_waveform_pending_first_record;
@@ -2026,30 +2076,51 @@ static void vdc_dpll_manager_waveform_capture_service(void)
         header.start_ms = s_waveform_status.start_ms;
         header.end_ms = s_waveform_status.end_ms;
         header.observed_mask = s_waveform_observed_mask;
+        header.sample_period_ns =
+            s_waveform_buffer_sample_period_ns[s_waveform_pending_buffer];
+        header.timestamp_source =
+            s_waveform_buffer_timestamp_source[s_waveform_pending_buffer];
+        header.timestamp_resolution_ns =
+            s_waveform_buffer_timestamp_resolution_ns
+                [s_waveform_pending_buffer];
+        header.first_sample_seq =
+            s_waveform_buffer_first_sample_seq[s_waveform_pending_buffer];
+        header.first_matched_window_start_ns =
+            s_waveform_buffer_first_matched_window_start_ns
+                [s_waveform_pending_buffer];
+        header.timestamp_flags =
+            s_waveform_buffer_timestamp_flags[s_waveform_pending_buffer];
         header.payload_crc32 = ota_crc32_compute(records, record_bytes);
         file_crc32 = ota_crc32_update(
             0u, (const uint8_t *)&header, sizeof(header));
         file_crc32 = ota_crc32_update(file_crc32, records, record_bytes);
 
-        if (snprintf(path, sizeof(path),
-                     "/traces/run/sma_%08lu_%04lu.bin",
-                     (unsigned long)s_waveform_status.session_id,
-                     (unsigned long)s_waveform_status.segment_count) > 0 &&
-            sizeof(header) + record_bytes <= 8192u &&
-            storage_manager_begin_file_write(
+        bool submitted = snprintf(
+            path, sizeof(path), "/traces/run/sma_%08lu_%04lu.bin",
+            (unsigned long)s_waveform_status.session_id,
+            (unsigned long)s_waveform_status.segment_count) > 0 &&
+            sizeof(header) + record_bytes <=
+                STORAGE_MANAGER_FILE_WRITE_MAX_BYTES &&
+            storage_manager_begin_evidence_write(
                 path, (uint32_t)(sizeof(header) + record_bytes),
                 file_crc32, &txn_id) &&
             storage_manager_write_file_chunk(
                 txn_id, 0u, (const uint8_t *)&header, sizeof(header)) &&
             storage_manager_write_file_chunk(
                 txn_id, (uint32_t)sizeof(header), records, record_bytes) &&
-            storage_manager_commit_file_write(txn_id, &job_id)) {
+            storage_manager_commit_file_write(txn_id, &job_id);
+        if (submitted) {
             s_waveform_status.last_job_id = job_id;
             (void)snprintf(s_waveform_status.last_path,
                            sizeof(s_waveform_status.last_path), "%s", path);
             s_waveform_job_inflight = true;
-        } else if (txn_id != 0u) {
-            (void)storage_manager_abort_file_write(txn_id);
+            s_waveform_inflight_record_count = record_count;
+            s_waveform_buffer_count[s_waveform_pending_buffer] = 0u;
+            s_waveform_pending_valid = false;
+        } else {
+            if (txn_id != 0u) {
+                (void)storage_manager_abort_file_write(txn_id);
+            }
         }
     }
 
@@ -2455,12 +2526,25 @@ bool vdc_dpll_manager_waveform_capture_arm(void)
     osal_critical_enter();
     memset(s_waveform_buffers, 0, sizeof(s_waveform_buffers));
     memset(s_waveform_buffer_count, 0, sizeof(s_waveform_buffer_count));
+    memset(s_waveform_buffer_sample_period_ns, 0,
+           sizeof(s_waveform_buffer_sample_period_ns));
+    memset(s_waveform_buffer_timestamp_source, 0,
+           sizeof(s_waveform_buffer_timestamp_source));
+    memset(s_waveform_buffer_timestamp_resolution_ns, 0,
+           sizeof(s_waveform_buffer_timestamp_resolution_ns));
+    memset(s_waveform_buffer_first_sample_seq, 0,
+           sizeof(s_waveform_buffer_first_sample_seq));
+    memset(s_waveform_buffer_first_matched_window_start_ns, 0,
+           sizeof(s_waveform_buffer_first_matched_window_start_ns));
+    memset(s_waveform_buffer_timestamp_flags, 0,
+           sizeof(s_waveform_buffer_timestamp_flags));
     memset(&s_waveform_status, 0, sizeof(s_waveform_status));
     s_waveform_active_buffer = 0u;
     s_waveform_pending_buffer = 0u;
     s_waveform_pending_first_record = 0u;
     s_waveform_pending_valid = false;
     s_waveform_job_inflight = false;
+    s_waveform_inflight_record_count = 0u;
     s_waveform_observed_mask = 0u;
     s_waveform_status.session_id = board_uptime_ms();
     if (s_waveform_status.session_id == 0u) {
@@ -2487,15 +2571,25 @@ bool vdc_dpll_manager_waveform_capture_stop(void)
 void vdc_dpll_manager_get_waveform_capture_status(
     vdc_dpll_manager_waveform_capture_status_t *status)
 {
+    sync_io_status_t sync_status;
+
     if (status == NULL) {
         return;
     }
+    sync_io_get_status(&sync_status);
     osal_critical_enter();
     *status = s_waveform_status;
+    status->source_dropped_count =
+        UINT32_MAX - sync_status.dropped_capture_words <
+                sync_status.dropped_latched_capture_words
+            ? UINT32_MAX
+            : sync_status.dropped_capture_words +
+                  sync_status.dropped_latched_capture_words;
     status->pending_record_count =
         s_waveform_buffer_count[s_waveform_active_buffer] +
         (s_waveform_pending_valid
-             ? s_waveform_buffer_count[s_waveform_pending_buffer] : 0u);
+             ? s_waveform_buffer_count[s_waveform_pending_buffer] : 0u) +
+        s_waveform_inflight_record_count;
     osal_critical_exit();
 }
 

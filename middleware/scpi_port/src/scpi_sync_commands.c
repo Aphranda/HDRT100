@@ -553,6 +553,11 @@ scpi_result_t scpi_cmd_sync_vdc_tdma_phys_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.clock_latch_resolution_ns);
     SCPI_ResultUInt32(context, snapshot.clock_latch_count);
     SCPI_ResultUInt32(context, snapshot.clock_latch_miss_count);
+    SCPI_ResultUInt32(context, snapshot.program_lifecycle_state);
+    SCPI_ResultUInt32(context, snapshot.program_target_persona);
+    SCPI_ResultUInt32(context, snapshot.program_previous_persona);
+    SCPI_ResultUInt32(context, snapshot.program_transition_seq);
+    SCPI_ResultUInt32(context, snapshot.program_lifecycle_error);
     return SCPI_RES_OK;
 }
 
@@ -739,6 +744,7 @@ scpi_result_t scpi_cmd_sync_vdc_observer_waveform_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, status.session_id);
     SCPI_ResultUInt32(context, status.record_count);
     SCPI_ResultUInt32(context, status.dropped_count);
+    SCPI_ResultUInt32(context, status.source_dropped_count);
     SCPI_ResultUInt32(context, status.segment_count);
     SCPI_ResultUInt32(context, status.pending_record_count);
     SCPI_ResultUInt32(context, status.first_sample_seq);
@@ -901,7 +907,7 @@ scpi_result_t scpi_cmd_sync_vdc_observer_tdma_selftest(scpi_t *context)
     config.sample_period_ns = 100u;
     config.pulse_period_ns = VDC_DOMAIN_DEFAULT_PERIOD_NS;
     config.pulse_high_ns = 1000u;
-    config.pulse_count = VDC_DPLL_MANAGER_SELF_TEST_MAX_PULSES;
+    config.pulse_count = VDC_DPLL_MANAGER_SELF_TEST_DEFAULT_PULSES;
     config.frame_crc32 = 0u;
     config.start_delay_ns = 1000000000u;
     config.phase_only = true;

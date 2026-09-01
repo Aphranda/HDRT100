@@ -40,6 +40,33 @@
 #define s_tdma_pio_spi_tx_dma_channel (*manager->tx_dma_channel)
 #define s_tdma_pio_spi_rx_dma_channel (*manager->rx_dma_channel)
 
+static void tdma_pio_spi_programs_publish_lifecycle(
+    const tdma_pio_spi_program_manager_t *manager,
+    tdma_pio_spi_phys_t *phys)
+{
+    if (manager == NULL || phys == NULL) {
+        return;
+    }
+    phys->snapshot.program_lifecycle_state = manager->lifecycle.state;
+    phys->snapshot.program_target_persona = manager->lifecycle.target_persona;
+    phys->snapshot.program_previous_persona =
+        manager->lifecycle.previous_persona;
+    phys->snapshot.program_transition_seq = manager->lifecycle.transition_seq;
+    phys->snapshot.program_lifecycle_error = manager->lifecycle.last_error;
+}
+
+static bool tdma_pio_spi_programs_transition(
+    tdma_pio_spi_program_manager_t *manager,
+    tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_persona_event_t event,
+    tdma_pio_spi_program_persona_t persona)
+{
+    const bool accepted = tdma_pio_spi_persona_fsm_dispatch(
+        &manager->lifecycle, event, (uint32_t)persona);
+    tdma_pio_spi_programs_publish_lifecycle(manager, phys);
+    return accepted;
+}
+
 bool tdma_pio_spi_programs_ensure_sms_claimed(
     tdma_pio_spi_program_manager_t *manager)
 {
@@ -675,10 +702,22 @@ bool tdma_pio_spi_programs_select(
 {
     if (manager == NULL || phys == NULL ||
         manager->program_persona == NULL || manager->tx_dma_channel == NULL ||
-        manager->rx_dma_channel == NULL ||
-        persona <= TDMA_PIO_SPI_PROGRAM_PERSONA_NONE ||
-        persona > TDMA_PIO_SPI_PROGRAM_PERSONA_MAX ||
-        !tdma_pio_spi_programs_ensure_sms_claimed(manager)) {
+        manager->rx_dma_channel == NULL) {
+        return false;
+    }
+    if (!tdma_pio_spi_programs_transition(
+            manager, phys, TDMA_PIO_SPI_PERSONA_EVENT_REQUEST, persona)) {
+        return false;
+    }
+    if (persona <= TDMA_PIO_SPI_PROGRAM_PERSONA_NONE ||
+        persona > TDMA_PIO_SPI_PROGRAM_PERSONA_MAX) {
+        (void)tdma_pio_spi_programs_transition(
+            manager, phys, TDMA_PIO_SPI_PERSONA_EVENT_INVALID, persona);
+        return false;
+    }
+    if (!tdma_pio_spi_programs_ensure_sms_claimed(manager)) {
+        (void)tdma_pio_spi_programs_transition(
+            manager, phys, TDMA_PIO_SPI_PERSONA_EVENT_BUSY, persona);
         return false;
     }
     const uint32_t sm_mask = (1u << BOARD_TDMA_SPI_MASTER_SM) |
@@ -690,26 +729,60 @@ bool tdma_pio_spi_programs_select(
         (s_tdma_pio_spi_rx_dma_channel >= 0 &&
          dma_channel_is_busy((uint)s_tdma_pio_spi_rx_dma_channel))) {
         phys->snapshot.program_switch_fail_count++;
+        (void)tdma_pio_spi_programs_transition(
+            manager, phys, TDMA_PIO_SPI_PERSONA_EVENT_BUSY, persona);
         return false;
     }
     if (s_tdma_pio_spi_program_persona == persona) {
         phys->snapshot.program_persona = (uint32_t)persona;
+        (void)tdma_pio_spi_programs_transition(
+            manager, phys, TDMA_PIO_SPI_PERSONA_EVENT_RETAIN, persona);
         return true;
+    }
+    if (!tdma_pio_spi_programs_transition(
+            manager, phys, TDMA_PIO_SPI_PERSONA_EVENT_VALID, persona) ||
+        !tdma_pio_spi_programs_transition(
+            manager, phys, TDMA_PIO_SPI_PERSONA_EVENT_QUIESCED, persona)) {
+        phys->snapshot.program_switch_fail_count++;
+        return false;
     }
     const tdma_pio_spi_program_persona_t previous =
         s_tdma_pio_spi_program_persona;
     tdma_pio_spi_phys_unload_programs(manager);
+    if (!tdma_pio_spi_programs_transition(
+            manager, phys, TDMA_PIO_SPI_PERSONA_EVENT_UNLOADED, persona)) {
+        phys->snapshot.program_switch_fail_count++;
+        return false;
+    }
     if (!tdma_pio_spi_phys_load_programs(manager, persona)) {
         phys->snapshot.program_switch_fail_count++;
+        (void)tdma_pio_spi_programs_transition(
+            manager, phys, TDMA_PIO_SPI_PERSONA_EVENT_LOAD_FAILED, persona);
         if (previous != TDMA_PIO_SPI_PROGRAM_PERSONA_NONE &&
             tdma_pio_spi_phys_load_programs(manager, previous)) {
             s_tdma_pio_spi_program_persona = previous;
+            (void)tdma_pio_spi_programs_transition(
+                manager, phys,
+                TDMA_PIO_SPI_PERSONA_EVENT_ROLLBACK_LOADED, persona);
+        } else if (previous == TDMA_PIO_SPI_PROGRAM_PERSONA_NONE) {
+            (void)tdma_pio_spi_programs_transition(
+                manager, phys,
+                TDMA_PIO_SPI_PERSONA_EVENT_ROLLBACK_LOADED, persona);
+        } else {
+            (void)tdma_pio_spi_programs_transition(
+                manager, phys,
+                TDMA_PIO_SPI_PERSONA_EVENT_ROLLBACK_FAILED, persona);
         }
         phys->snapshot.program_persona =
             (uint32_t)s_tdma_pio_spi_program_persona;
         return false;
     }
     s_tdma_pio_spi_program_persona = persona;
+    if (!tdma_pio_spi_programs_transition(
+            manager, phys, TDMA_PIO_SPI_PERSONA_EVENT_LOADED, persona)) {
+        phys->snapshot.program_switch_fail_count++;
+        return false;
+    }
     phys->snapshot.program_persona = (uint32_t)persona;
     phys->snapshot.program_switch_count++;
     return true;

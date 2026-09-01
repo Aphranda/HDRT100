@@ -28,7 +28,11 @@ if str(ROOT / "tools" / "tdma_ring_monitor") not in sys.path:
 
 from scpi_common.board_identity import parse_idn_response  # noqa: E402
 from scpi_common.scpi_serial import (  # noqa: E402
-    SerialSession, read_scpi_response)
+    SERIAL_LIFECYCLE_PHASE,
+    SerialSession,
+    read_scpi_response,
+    serial_lifecycle_mode,
+)
 from tdma_field_parse import FIELDS as TDMA_FIELDS  # noqa: E402
 
 
@@ -104,8 +108,8 @@ def persistent_sessions_enabled(args: argparse.Namespace) -> bool:
     """
     if bool(getattr(args, "short_open", False)):
         return False
-    return bool(getattr(args, "keep_open", False)) or os.environ.get(
-        "HAOFV_ACCEPTANCE_PERSISTENT_SESSIONS") == "1"
+    return bool(getattr(args, "keep_open", False)) or \
+        serial_lifecycle_mode() == SERIAL_LIFECYCLE_PHASE
 
 
 def serial_read_timeout(args: argparse.Namespace) -> float:

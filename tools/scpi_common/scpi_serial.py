@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from typing import Iterator
+import os
 import re
 import time
 
@@ -59,6 +60,21 @@ SCALAR_U32_QUERY_HEADERS = {
 SCK_ARM_HEADERS = {
     "CAL:SCK:ARM", "CALIBRATION:SCK:ARM",
 }
+
+SERIAL_LIFECYCLE_COMMAND = "command"
+SERIAL_LIFECYCLE_PHASE = "phase"
+
+
+def serial_lifecycle_mode() -> str:
+    """Resolve the shared CDC ownership policy for validation subprocesses."""
+    value = os.environ.get("HAOFV_SERIAL_LIFECYCLE", "").strip().lower()
+    if not value:
+        legacy = os.environ.get("HAOFV_ACCEPTANCE_PERSISTENT_SESSIONS")
+        value = SERIAL_LIFECYCLE_PHASE if legacy == "1" else \
+            SERIAL_LIFECYCLE_COMMAND
+    if value not in {SERIAL_LIFECYCLE_COMMAND, SERIAL_LIFECYCLE_PHASE}:
+        raise ValueError(f"invalid HAOFV_SERIAL_LIFECYCLE: {value!r}")
+    return value
 
 
 @contextmanager

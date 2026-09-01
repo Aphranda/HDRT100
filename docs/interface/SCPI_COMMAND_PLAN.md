@@ -299,7 +299,7 @@ SYSTem:SYNC:VDC:DPLL:DEFAult
 
 `SYSTem:SYNC:VDC:OBServer:PHASe?` 返回外部相位曲线的板上聚合证据。第一完整轮写入 initial 指标但不直接作为拒绝条件；门禁读取当前 `stable_streak` 和 `converged`。跨度采用一个脉冲周期上的最短圆周弧，避免把周期边界两侧的近邻脉冲误算成接近整周期。
 
-`SYSTem:SYNC:VDC:OBServer:WAVEform:{ARM|STOP|STATus?|SAVE}` 管理 NO5 的 PIO0 原始波形 SD 证据。记录器保留 `raw_word,sample_seq,previous_sample_mask,base_time_l32_ns,matched_window_start_ns,sample_period_ns,timestamp_source,timestamp_resolution_ns,timestamp_flags,dropped_before`，以小于 8 KiB 的连续编号段交给 StorageAO。串口 `STATus?` 和 `PHASe?` 只提供进度与在线提示，不得替代 SD raw word 生成相位曲线、传递函数拟合输入或正式锁定证据。
+`SYSTem:SYNC:VDC:OBServer:WAVEform:{ARM|STOP|STATus?|SAVE}` 管理 NO5 的 PIO0 原始波形 SD 证据。记录器保留 `raw_word,sample_seq,previous_sample_mask,base_time_l32_ns,matched_window_start_ns,sample_period_ns,timestamp_source,timestamp_resolution_ns,timestamp_flags,dropped_before`，以小于 16 KiB 的连续编号段交给 StorageAO；800 条记录的批量用于摊薄 FAT 同步开销，双 SRAM 缓冲继续隔离采集与写卡。`STATus?` 分别报告 SD 缓冲丢失和 PIO0/DMA/锁存源丢失；任一非零都使波形不能作为收敛判据，但仍保存为诊断证据。串口 `STATus?` 和 `PHASe?` 只提供进度与在线提示，不得替代 SD raw word 生成相位曲线、传递函数拟合输入或正式锁定证据。
 
 `SYSTem:SYNC:VDC:OBServer [enabled],...` 是维护配置入口，用于启停 VDC manager 消费 SYNC_IO latched capture fact 的 observer。无参数或 `enabled=0` 只关闭 observer 并清零状态；`enabled=1` 必须显式提供 batch、rising/falling event id、observed mask、initial mask、base tick、sample period、expected window start 和 frame CRC。该命令不得启动 SYNC_IO capture，不得绕过 timestamp dictionary/gate，也不得作为 DPLL lock evidence 本身。
 

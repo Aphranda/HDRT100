@@ -1,0 +1,38 @@
+{
+  "extends": "p3_bench.json",
+  "acceptance_profile": "QUICK_DIAGNOSTIC",
+  "topology_probe_cycles": 64,
+  "topology_probe_phase_cycles": 2,
+  "topology_pair_wait_s": 0.05,
+  "calibration_probe_phase_cycles_by_level": {
+    "7": 2
+  },
+  "calibration_coded_probe_phase_cycles_by_level": {
+    "7": [2]
+  },
+  "calibration_coded_repeats": 1,
+  "training_marker_repeats": 1,
+  "training_sck_repeats": 1,
+  "training_data_repeats": 3,
+  "tdma_cycles": 512,
+  "tdma_window_s": 1.0,
+  "tdma_sample_interval_s": 0.25,
+  "tdma_startup_timeout_s": 2.0,
+  "tdma_startup_stable_samples": 2,
+  "tdma_capture_waveforms": false,
+  "sma_observer_rtt_repeats": 1,
+  "dpll_monitor_duration_s": 0.5,
+  "dpll_monitor_poll_interval_s": 0.1,
+  "dpll_phase_pulse_count": 128,
+  "dpll_phase_start_delay_ns": 100000000,
+  "dpll_phase_coverage_min_s": 0.1,
+  "repeats": 1,
+  "pulse_count": 32,
+  "capture_words": 256,
+  "hardware_acceptance_timing": {
+    "serial_settle_s": 0.02,
+    "phase_gap_s": 0.05,
+    "input_settle_s": 0.02,
+    "output_handoff_s": 0.05
+  }
+}
