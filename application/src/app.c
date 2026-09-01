@@ -513,6 +513,17 @@ void app_realtime_run_once(void)
         diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_CORE1);
         return;
     }
+    /* All stopped-ring calibration/training personas run outside the online
+     * TDMA phase table.  Their PIO/DMA persona transitions may take longer
+     * than the optional online snapshot phase, but they cannot perturb a
+     * running short-frame cycle or be hidden by its quarantine mechanism. */
+    if (calibration_manager_training_offline_active_core1()) {
+        calibration_manager_service_core1();
+        drv_watchdog_mark_progress(1u, 0x0104u);
+        diagnostics_record_core1_loop();
+        diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_CORE1);
+        return;
+    }
     const uint32_t cycle_epoch = app_realtime_cycle_now();
     app_realtime_schedule_write_begin();
     s_realtime_schedule.cycle_count++;

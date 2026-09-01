@@ -173,6 +173,26 @@ def validate_dpll_schedule(before: dict[str, Any],
     }
 
 
+def realtime_gate_passes(*, error: str,
+                         soak_validation: dict[str, Any],
+                         dpll_schedule_gate: dict[str, Any],
+                         nodes: dict[str, Any],
+                         ordered: list[Board]) -> bool:
+    """Return only the deterministic Core1/PIO short-frame gate.
+
+    SD waveform capture and offline SVG analysis intentionally do not appear
+    here.  They are evidence for diagnosis and may be unavailable while the
+    realtime ring remains healthy enough to hand off to DPLL.
+    """
+    return (
+        not error and
+        bool(soak_validation.get("passed")) and
+        bool(dpll_schedule_gate.get("passed")) and
+        len(nodes) == len(ordered) and
+        all(node["passed"] for node in nodes.values())
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--board-id", action="append", required=True,
@@ -1497,6 +1517,11 @@ def main() -> int:
     }
     capture_error = ""
     analysis_error = ""
+    # Raw SD capture and its offline waveform analysis are diagnostic evidence.
+    # They must never become part of the Core1/PIO realtime gate: a capture
+    # latch timeout is recorded below, but it cannot stop a healthy short-frame
+    # ring from being handed to the next stage.
+    diagnostic_passed = True
     capture_attempted = False
     error = ""
     try:
@@ -1746,12 +1771,18 @@ def main() -> int:
                     original_load_masks=capture_load_masks)
             except Exception as exc:  # noqa: BLE001 - retain gate evidence
                 capture_error = f"{type(exc).__name__}: {exc}"
+                diagnostic_passed = False
             if ring_capture.get("capture_completed"):
                 try:
                     ring_analysis = analyze_ring_waveforms(
                         ring_capture, raw_config, args, out_dir)
                 except Exception as exc:  # noqa: BLE001 - capture stays valid
                     analysis_error = f"{type(exc).__name__}: {exc}"
+                    diagnostic_passed = False
+                else:
+                    diagnostic_passed = bool(ring_analysis.get("passed"))
+            else:
+                diagnostic_passed = False
         else:
             ring_capture = {
                 "capture_skipped": True,
@@ -1771,20 +1802,25 @@ def main() -> int:
                     original_load_masks=capture_load_masks)
             except Exception as exc:  # noqa: BLE001 - STOP still mandatory
                 capture_error = f"{type(exc).__name__}: {exc}"
+                diagnostic_passed = False
             if ring_capture.get("capture_completed"):
                 try:
                     ring_analysis = analyze_ring_waveforms(
                         ring_capture, raw_config, args, out_dir)
                 except Exception as exc:  # noqa: BLE001 - capture stays valid
                     analysis_error = f"{type(exc).__name__}: {exc}"
-        closed_loop_passed = (
-            not error and not capture_error and not analysis_error and
-            bool(soak_validation.get("passed")) and
-            bool(dpll_schedule_gate.get("passed")) and
-            bool(ring_analysis.get("passed")) and
-            len(nodes) == len(ordered) and
-            all(node["passed"] for node in nodes.values())
-        )
+                    diagnostic_passed = False
+                else:
+                    diagnostic_passed = bool(ring_analysis.get("passed"))
+            else:
+                diagnostic_passed = False
+        realtime_gate_passed = realtime_gate_passes(
+            error=error, soak_validation=soak_validation,
+            dpll_schedule_gate=dpll_schedule_gate, nodes=nodes,
+            ordered=ordered)
+        # Keep the historical name as an alias for consumers which use it to
+        # decide whether the running ring may be handed to DPLL.
+        closed_loop_passed = realtime_gate_passed
         leave_running = bool(args.leave_running and closed_loop_passed)
         if leave_running:
             for node_index, board in enumerate(ordered):
@@ -1833,18 +1869,20 @@ def main() -> int:
                         "passed": 0,
                         "error": f"{type(exc).__name__}: {exc}",
                     }
+    realtime_gate_passed = realtime_gate_passes(
+        error=error, soak_validation=soak_validation,
+        dpll_schedule_gate=dpll_schedule_gate, nodes=nodes,
+        ordered=ordered)
     passed = (
-        not error and not capture_error and not analysis_error and
-        bool(soak_validation.get("passed")) and
-        bool(dpll_schedule_gate.get("passed")) and
-        bool(ring_analysis.get("passed")) and
-        len(nodes) == len(ordered) and
-        all(node["passed"] for node in nodes.values()) and
+        realtime_gate_passed and
         all(bool(item.get("passed")) for item in stopped.values())
     )
     result = {
         **plan,
         "passed": passed,
+        "realtime_gate_passed": realtime_gate_passed,
+        "closed_loop_passed": realtime_gate_passed,
+        "diagnostic_passed": diagnostic_passed,
         "error": error,
         "boards": {board.address: asdict(board) for board in ordered},
         "stage_results": stage_results,

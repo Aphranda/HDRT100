@@ -119,6 +119,16 @@ pico_sdk_init()
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
+add_custom_target(project_source_length_check
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_LIST_DIR}/tools/checks/check_source_lengths.py
+            --root ${CMAKE_CURRENT_LIST_DIR}
+            --max-lines 1000
+    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/tools/checks/check_source_lengths.py
+    COMMENT "Checking firmware source file lengths"
+    VERBATIM
+)
+
 include(${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v2.cmake)
 if(PROJECT_FLASH_DEPLOYMENT_MAP STREQUAL "v1_compat")
@@ -501,6 +511,8 @@ set(PROJECT_APP_SOURCES
         components/tdma/src/tdma_flight_engine.c
         components/tdma/src/tdma_receive_health.c
         components/tdma/src/tdma_pio_spi_phys.c
+        components/tdma/src/tdma_pio_spi_phys_programs.c
+        components/tdma/src/tdma_pio_spi_phys_timing.c
         components/tdma/src/tdma_pio_spi_ring_adapter.c
         components/tdma/src/tdma_process_image_map.c
         components/tdma/src/tdma_rx_sequence.c
@@ -721,6 +733,7 @@ function(project_configure_app_target target_name app_name linker_script)
         PICO_TARGET_NAME="${target_name}"
     )
 
+    add_dependencies(${target_name} project_source_length_check)
     add_dependencies(${target_name} project_build_info)
     add_dependencies(${target_name} project_flash_contract_check)
     add_dependencies(${target_name} project_scpi_usb_namespace_check)
@@ -852,7 +865,7 @@ set_property(TARGET DHRT100_BOOT APPEND PROPERTY LINK_DEPENDS
         ${CMAKE_CURRENT_BINARY_DIR}/flash_map_active.ldinc
 )
 
-add_dependencies(DHRT100_BOOT project_flash_contract_check)
+add_dependencies(DHRT100_BOOT project_source_length_check project_flash_contract_check)
 
 pico_set_linker_script(DHRT100_BOOT ${CMAKE_CURRENT_LIST_DIR}/linker/rp2350_bootloader.ld)
 
@@ -902,7 +915,7 @@ if(PROJECT_FLASH_DEPLOYMENT_V2)
     set_property(TARGET DHRT100_RECOVERY APPEND PROPERTY LINK_DEPENDS
             ${CMAKE_CURRENT_BINARY_DIR}/flash_map_active.ldinc
     )
-    add_dependencies(DHRT100_RECOVERY project_flash_contract_check project_build_info)
+    add_dependencies(DHRT100_RECOVERY project_source_length_check project_flash_contract_check project_build_info)
     pico_set_linker_script(DHRT100_RECOVERY
             ${CMAKE_CURRENT_LIST_DIR}/linker/rp2350_bootloader.ld)
     pico_add_dis_output(DHRT100_RECOVERY)

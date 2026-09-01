@@ -16,6 +16,7 @@ import json
 import re
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -494,9 +495,18 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             elapsed = time.monotonic() - started
             if elapsed >= args.duration_s and any(samples_by_board.values()):
                 break
-            for spec in specs:
-                previous = samples_by_board[spec.name][-1] if samples_by_board[spec.name] else None
-                sample = _read_board(serials[spec.name], spec, args.timeout, elapsed, previous)
+            def read_spec(spec: BoardSpec) -> BoardSample:
+                previous = (samples_by_board[spec.name][-1]
+                            if samples_by_board[spec.name] else None)
+                return _read_board(
+                    serials[spec.name], spec, args.timeout, elapsed, previous)
+
+            # Board serial sessions are independent.  Read all Nodes in one
+            # observation round concurrently so poll cadence is not multiplied
+            # by the number of boards.
+            with ThreadPoolExecutor(max_workers=len(specs)) as pool:
+                samples = list(pool.map(read_spec, specs))
+            for spec, sample in zip(specs, samples, strict=True):
                 samples_by_board[spec.name].append(sample)
             if elapsed >= args.duration_s:
                 break

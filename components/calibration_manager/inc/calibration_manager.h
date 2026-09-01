@@ -98,6 +98,10 @@ bool calibration_manager_init(void);
 void calibration_manager_set_ready(bool ready);
 void calibration_manager_service(void);
 void calibration_manager_service_core1(void);
+/* MARK/SCK/DATA/coded/bias training owns Core1 only while TDMA is stopped.
+ * It bypasses the online phase table exactly like P3 and therefore cannot
+ * consume or mutate the TDMA realtime calibration load budget. */
+bool calibration_manager_training_offline_active_core1(void);
 /* P3 is an offline physical-calibration session.  While this returns true,
  * core1 must advance only this bounded service and must not enter the TDMA
  * realtime phase table. */

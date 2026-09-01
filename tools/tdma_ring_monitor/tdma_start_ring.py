@@ -260,8 +260,16 @@ def _board_command_on_serial(board: Board, text: str,
         float(getattr(args, "action_timeout", args.timeout)),
         float(args.timeout),
     )
-    response = command(
-        ser, text, action_timeout if action in ack_only_actions else args.timeout)
+    try:
+        response = command(
+            ser, text,
+            action_timeout if action in ack_only_actions else args.timeout)
+    except (OSError, serial.SerialException):
+        if action not in {"SYSTEM:BOOT:RESET", "SYST:BOOT:RESET"}:
+            raise
+        # The watchdog reset is expected to invalidate USB before an ACK can
+        # be read. Treat that transport loss as the successful reset handoff.
+        return "OK(disconnected for software reset)"
     if response == "<timeout>" and action in ack_only_actions:
         return "OK(no payload; verified by state readback)"
     return response

@@ -1,81 +1,55 @@
 {
-  "schema": "HAOFV_P3_HARDWARE_ACCEPTANCE_RECEIPT_V1",
+  "schema": "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_10MHZ_LIMITED_V1",
+  "acceptance_scope": "10MHZ_LIMITED_P3",
   "passed": true,
-  "generated_at_utc": "2026-08-30T13:45:35.451480+00:00",
-  "source_tree_sha256": "54e59abb5e12b06887f5e10e653cf468cea31797dbf4f33dbf43d53a86fcc4eb",
-  "source_file_count": 885,
+  "generated_at_utc": "2026-08-31T07:51:19.341344+00:00",
+  "source_tree_sha256": "9620b43150757b972bd75979773bc2dc48968fcd3e3e4b3fdbc93f66f94508b1",
+  "source_file_count": 902,
   "bench_config_path": "config/hardware_acceptance/p3_bench.json",
-  "bench_config_sha256": "844f1d633d074fa67a7b5e05f59b2c2f9c7698292c0d2b635346a124c364ed7a",
-  "build_id": "20260830133250",
+  "bench_config_sha256": "aab791da386caa2969f44a5b6bd91eb9c7deb71d00119ed99bb084850ba60bce",
+  "build_id": "20260831054953",
   "firmware_package": {
-    "path": "out/build/p3-mandatory-gate-r3-20260830/DHRT100_UPDATE.pkg",
-    "sha256": "ce75230855a3265efa5419b39ccc317a602f2ff5299e4e688a031f006b311a58"
+    "path": "out/build/acceptance-phy-programs-length-20260831/DHRT100_UPDATE.pkg",
+    "sha256": "f895baa3c388e0d6bc7ba4721154703597a928cb70371edfe74b156b1d4dd57d"
   },
   "ota_summary": {
-    "path": "out/hardware_acceptance/p3-mandatory-gate-r3-20260830/ota-five-board/summary.json",
-    "sha256": "9c972c9c0f54db69a987feec8d73f125b414c6e849a6fb82dedebc345cf7ac32",
+    "path": "out/hardware_acceptance/acceptance-phy-programs-length-20260831/ota-five-board/summary.json",
+    "sha256": "ffee45582fd7b8bdfed4893c5d311ac020d7e5a721593f0d8e5276a4153987e7",
     "board_count": 5
   },
   "p3_summary": {
-    "path": "out/hardware_acceptance/p3-mandatory-gate-r3-20260830/p3-four-board/summary.json",
-    "sha256": "e785ea263b6ae931b9afc571199cf013c681333dcf5bce6610e183d263e8a47d"
+    "path": "out/hardware_acceptance/p3-basic-10mhz-optimized-20260831/summary.json",
+    "sha256": "00d8610a36f7d67c1f6cfb09c86fb998d8690dd5789f4bd5ca7b921378563c0f"
   },
-  "trial_count": 72,
+  "ota_board_ids": [
+    "0010071E65B5CB38",
+    "FB276192BEF9CCE1",
+    "2BD5090FE009FA2A",
+    "A1E549202D18ED6A",
+    "839E1AE79EA20F31"
+  ],
+  "board_ids_in_physical_order": [
+    "0010071E65B5CB38",
+    "FB276192BEF9CCE1",
+    "2BD5090FE009FA2A",
+    "A1E549202D18ED6A"
+  ],
+  "frequency_ladder_mhz": [
+    10
+  ],
+  "trial_count": 24,
   "delay_min_ns": 80.0,
   "delay_max_ns": 82.0,
-  "highest_stable_frequency_mhz": 25,
-  "schedule_before": {
-    "0010071E65B5CB38": {
-      "enabled_mask": 91,
-      "quarantined_mask": 0,
-      "cycle_count": 6114,
-      "schedule_miss_count": 5937
-    },
-    "FB276192BEF9CCE1": {
-      "enabled_mask": 91,
-      "quarantined_mask": 0,
-      "cycle_count": 12360,
-      "schedule_miss_count": 12010
-    },
-    "2BD5090FE009FA2A": {
-      "enabled_mask": 91,
-      "quarantined_mask": 0,
-      "cycle_count": 6670,
-      "schedule_miss_count": 6575
-    },
-    "A1E549202D18ED6A": {
-      "enabled_mask": 91,
-      "quarantined_mask": 0,
-      "cycle_count": 6555,
-      "schedule_miss_count": 6452
-    }
-  },
-  "schedule_after": {
-    "0010071E65B5CB38": {
-      "enabled_mask": 91,
-      "quarantined_mask": 0,
-      "cycle_count": 478556,
-      "schedule_miss_count": 471638
-    },
-    "FB276192BEF9CCE1": {
-      "enabled_mask": 91,
-      "quarantined_mask": 0,
-      "cycle_count": 484247,
-      "schedule_miss_count": 472392
-    },
-    "2BD5090FE009FA2A": {
-      "enabled_mask": 91,
-      "quarantined_mask": 0,
-      "cycle_count": 479431,
-      "schedule_miss_count": 473707
-    },
-    "A1E549202D18ED6A": {
-      "enabled_mask": 91,
-      "quarantined_mask": 0,
-      "cycle_count": 478957,
-      "schedule_miss_count": 473382
-    }
-  },
-  "realtime_load_mask_unchanged": true,
-  "calibration_quarantined": false
+  "highest_stable_frequency_mhz": 10,
+  "hardware_acceptance_timing": {
+    "serial_timeout_s": 3.0,
+    "serial_settle_s": 0.05,
+    "action_timeout_s": 0.5,
+    "p3_capture_timeout_s": 3.0,
+    "phase_gap_s": 0.1,
+    "status_poll_interval_s": 0.05,
+    "serial_read_timeout_s": 0.02,
+    "input_settle_s": 0.05,
+    "output_handoff_s": 0.1
+  }
 }

@@ -236,7 +236,6 @@ void scpi_port_get_trigger_debug_snapshot(uint32_t *stage,
     }
 }
 
-#if PROJECT_ENABLE_OTA_FAULT_INJECTION
 static scpi_result_t scpi_cmd_boot_reset(scpi_t *context)
 {
     scpi_result_t result = scpi_port_result_ok(context);
@@ -244,6 +243,7 @@ static scpi_result_t scpi_cmd_boot_reset(scpi_t *context)
     return result;
 }
 
+#if PROJECT_ENABLE_OTA_FAULT_INJECTION
 static scpi_result_t scpi_cmd_boot_bootsel(scpi_t *context)
 {
     (void)scpi_port_result_ok(context);
@@ -274,8 +274,8 @@ static const scpi_command_t s_scpi_commands[] = {
     SCPI_TDMA_COMMANDS,
     SCPI_SYSTEM_ACCESS_COMMANDS,
     SCPI_LOOP_ENGINE_COMMANDS,
-#if PROJECT_ENABLE_OTA_FAULT_INJECTION
     {.pattern = "SYSTem:BOOT:RESet", .callback = scpi_cmd_boot_reset},
+#if PROJECT_ENABLE_OTA_FAULT_INJECTION
     {.pattern = "SYSTem:BOOT:BOOTSel", .callback = scpi_cmd_boot_bootsel},
 #endif
     SCPI_CONFIG_COMMANDS,

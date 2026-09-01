@@ -40,27 +40,12 @@
     display:flex;
     align-items:center;
     justify-content:flex-end;
-    gap:6px;
-    color:#1f3864;
-    font-weight:800;
-    letter-spacing:2px;
     white-space:nowrap;
   }
-  .brand-mark {
-    width:9mm;
-    height:9mm;
-    border:2px solid #d60037;
-    border-radius:2px;
-    position:relative;
-  }
-  .brand-mark::after {
-    content:"";
-    position:absolute;
-    width:4mm;
-    height:4mm;
-    right:-2mm;
-    bottom:-2mm;
-    background:#d60037;
+  .brand-logo {
+    display:block;
+    width:38mm;
+    height:auto;
   }
   .doc-meta { text-align:right; font-size:10.5px; color:#687381; white-space:nowrap; }
   .doc-meta strong { display:block; color:#1f3864; font-size:13px; margin-bottom:3px; }
@@ -192,7 +177,7 @@
       <h1>DHRT100 项目综述报告</h1>
       <div class="subtitle">分布式硬实时触发系统 | HAOFV（融合型主动对象功能块向量架构）与基础件进度快照</div>
     </div>
-    <div class="brand"><span class="brand-mark"></span><span>DHRT100</span></div>
+    <div class="brand" aria-label="DHRT100"><svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 50" role="img" aria-labelledby="brand-title-1 brand-desc-1"><title id="brand-title-1">DHRT100</title><desc id="brand-desc-1">红色方框与右下角实心方块组成的 DHRT100 标志</desc><rect x="5" y="5" width="32" height="32" fill="none" stroke="#d60037" stroke-width="2"/><rect x="29" y="29" width="16" height="16" fill="#d60037"/><text x="52" y="32" fill="#1f3864" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" letter-spacing="2">DHRT100</text></svg></div>
     <div class="doc-meta">
       <strong>2026年8月27日</strong>
       星期四<br>
@@ -267,7 +252,7 @@
       <h1>HAOFV 总体架构</h1>
       <div class="subtitle">融合型主动对象功能块向量架构：所有者、事实、时间、传输和硬实时路径的分层</div>
     </div>
-    <div class="brand"><span class="brand-mark"></span><span>DHRT100</span></div>
+    <div class="brand" aria-label="DHRT100"><svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 50" role="img" aria-labelledby="brand-title-2 brand-desc-2"><title id="brand-title-2">DHRT100</title><desc id="brand-desc-2">红色方框与右下角实心方块组成的 DHRT100 标志</desc><rect x="5" y="5" width="32" height="32" fill="none" stroke="#d60037" stroke-width="2"/><rect x="29" y="29" width="16" height="16" fill="#d60037"/><text x="52" y="32" fill="#1f3864" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" letter-spacing="2">DHRT100</text></svg></div>
     <div class="doc-meta"><strong>2026年8月27日</strong>架构页<br>内部研发综述</div>
   </div>
 
@@ -353,7 +338,7 @@ Hard Realtime Side Path: PIO(可编程 IO) / DMA(直接内存访问) / IRQ(中�
       <h1>RefMem 与 TDMA 技术路线</h1>
       <div class="subtitle">RefMem（反射内存）承载共同事实，TDMA（时分多址）承载确定性传输、飞行处理和双 FIFO</div>
     </div>
-    <div class="brand"><span class="brand-mark"></span><span>DHRT100</span></div>
+    <div class="brand" aria-label="DHRT100"><svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 50" role="img" aria-labelledby="brand-title-3 brand-desc-3"><title id="brand-title-3">DHRT100</title><desc id="brand-desc-3">红色方框与右下角实心方块组成的 DHRT100 标志</desc><rect x="5" y="5" width="32" height="32" fill="none" stroke="#d60037" stroke-width="2"/><rect x="29" y="29" width="16" height="16" fill="#d60037"/><text x="52" y="32" fill="#1f3864" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" letter-spacing="2">DHRT100</text></svg></div>
     <div class="doc-meta"><strong>2026年8月27日</strong>基础件页<br>内部研发综述</div>
   </div>
 
@@ -424,7 +409,7 @@ cycle N+1 boundary:
       <h1>VDC、DPLL 与 T2 预约</h1>
       <div class="subtitle">VDC（虚拟分布式时钟）、DPLL（数字锁相环）、T2（第二触发时刻）的预约分发和完成回读</div>
     </div>
-    <div class="brand"><span class="brand-mark"></span><span>DHRT100</span></div>
+    <div class="brand" aria-label="DHRT100"><svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 50" role="img" aria-labelledby="brand-title-4 brand-desc-4"><title id="brand-title-4">DHRT100</title><desc id="brand-desc-4">红色方框与右下角实心方块组成的 DHRT100 标志</desc><rect x="5" y="5" width="32" height="32" fill="none" stroke="#d60037" stroke-width="2"/><rect x="29" y="29" width="16" height="16" fill="#d60037"/><text x="52" y="32" fill="#1f3864" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" letter-spacing="2">DHRT100</text></svg></div>
     <div class="doc-meta"><strong>2026年8月27日</strong>时间页<br>内部研发综述</div>
   </div>
 
@@ -509,7 +494,7 @@ cycle N+1 boundary:
       <h1>校准与训练方法</h1>
       <div class="subtitle">CLK（时钟）/DATA（数据）/SYNC（同步）测量、双向同时对比和 active gate</div>
     </div>
-    <div class="brand"><span class="brand-mark"></span><span>DHRT100</span></div>
+    <div class="brand" aria-label="DHRT100"><svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 50" role="img" aria-labelledby="brand-title-5 brand-desc-5"><title id="brand-title-5">DHRT100</title><desc id="brand-desc-5">红色方框与右下角实心方块组成的 DHRT100 标志</desc><rect x="5" y="5" width="32" height="32" fill="none" stroke="#d60037" stroke-width="2"/><rect x="29" y="29" width="16" height="16" fill="#d60037"/><text x="52" y="32" fill="#1f3864" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" letter-spacing="2">DHRT100</text></svg></div>
     <div class="doc-meta"><strong>2026年8月27日</strong>计划页<br>内部研发综述</div>
   </div>
 
@@ -576,7 +561,7 @@ cycle N+1 boundary:
       <h1>校准域时间参数</h1>
       <div class="subtitle">path_delay、link_delay、node_delay、SMA delay、chip propagation、PIO 指令周期和 loop_delay</div>
     </div>
-    <div class="brand"><span class="brand-mark"></span><span>DHRT100</span></div>
+    <div class="brand" aria-label="DHRT100"><svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 50" role="img" aria-labelledby="brand-title-6 brand-desc-6"><title id="brand-title-6">DHRT100</title><desc id="brand-desc-6">红色方框与右下角实心方块组成的 DHRT100 标志</desc><rect x="5" y="5" width="32" height="32" fill="none" stroke="#d60037" stroke-width="2"/><rect x="29" y="29" width="16" height="16" fill="#d60037"/><text x="52" y="32" fill="#1f3864" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" letter-spacing="2">DHRT100</text></svg></div>
     <div class="doc-meta"><strong>2026年8月27日</strong>校准页<br>内部研发综述</div>
   </div>
 
@@ -648,7 +633,7 @@ bidirectional evidence for A -> B:
       <h1>后续计划与主要风险</h1>
       <div class="subtitle">active calibration、VDC live lock、TDMA flight、T2 completion 和发布门禁</div>
     </div>
-    <div class="brand"><span class="brand-mark"></span><span>DHRT100</span></div>
+    <div class="brand" aria-label="DHRT100"><svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 50" role="img" aria-labelledby="brand-title-7 brand-desc-7"><title id="brand-title-7">DHRT100</title><desc id="brand-desc-7">红色方框与右下角实心方块组成的 DHRT100 标志</desc><rect x="5" y="5" width="32" height="32" fill="none" stroke="#d60037" stroke-width="2"/><rect x="29" y="29" width="16" height="16" fill="#d60037"/><text x="52" y="32" fill="#1f3864" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" letter-spacing="2">DHRT100</text></svg></div>
     <div class="doc-meta"><strong>2026年8月27日</strong>计划页<br>内部研发综述</div>
   </div>
 

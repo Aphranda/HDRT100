@@ -42,6 +42,7 @@ from trn03_closed_loop import (  # noqa: E402
     parse_active_profile,
     parse_snapshot,
     resolve_profile_level,
+    realtime_gate_passes,
     running_handoff_errors,
     scalar_readback_with_retry,
     startup_barrier_interval_errors,
@@ -111,6 +112,24 @@ def test_dpll_schedule_gate_accepts_bounded_advancing_phase() -> None:
     assert result["phases"]["vdc"]["deltas"]["run_count"] == 1000
     assert result["phases"]["dpll"]["deltas"]["run_count"] == 1000
     assert result["phases"]["refmem"]["deltas"]["run_count"] == 1000
+
+
+def test_realtime_gate_ignores_offline_capture_diagnostics() -> None:
+    ordered = [object()]
+    assert realtime_gate_passes(
+        error="", soak_validation={"passed": True},
+        dpll_schedule_gate={"passed": True},
+        nodes={"node0": {"passed": True}}, ordered=ordered)
+
+    # Capture/analysis errors are retained as evidence in the summary, but
+    # cannot turn a healthy deterministic short-frame gate into a failure.
+    source = (ROOT / "tools" / "calibration_ring_validate" /
+              "trn03_closed_loop.py").read_text(encoding="utf-8")
+    gate = source.split("def realtime_gate_passes", 1)[1].split(
+        "def parse_args", 1)[0]
+    assert "capture_error" not in gate
+    assert "analysis_error" not in gate
+    assert "ring_analysis" not in gate
 
 
 def test_dpll_schedule_gate_rejects_wcet_and_quarantine_regression() -> None:

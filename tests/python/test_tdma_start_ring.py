@@ -3,6 +3,7 @@ from argparse import Namespace
 import pytest
 
 from tools.tdma_ring_monitor.tdma_start_ring import (
+    _board_command_on_serial,
     persistent_sessions_enabled,
     resolve_board_ids,
 )
@@ -48,6 +49,24 @@ def test_short_open_disables_persistent_sessions():
     options = args()
     options.short_open = True
     assert persistent_sessions_enabled(options) is False
+
+
+def test_software_reset_disconnect_is_successful_handoff(monkeypatch):
+    class FakeSerial:
+        def write(self, payload):
+            return len(payload)
+
+        def flush(self):
+            return None
+
+    def disconnected(*args, **kwargs):
+        raise OSError("target disconnected for reset")
+
+    import tools.tdma_ring_monitor.tdma_start_ring as ring
+    monkeypatch.setattr(ring, "command", disconnected)
+    result = _board_command_on_serial(
+        object(), "SYSTem:BOOT:RESet", Namespace(timeout=3.0), FakeSerial())
+    assert "software reset" in result
 
 
 @pytest.mark.parametrize("board_ids", [

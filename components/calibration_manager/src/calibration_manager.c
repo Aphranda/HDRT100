@@ -17,6 +17,43 @@
 
 #define CALIBRATION_MANAGER_DEFAULT_CRC32 0x10000003u
 
+/* A topology generation is a ring-wide identity, not a per-board mutation
+ * counter.  ring.config_seq is local to each MCU and can legitimately differ
+ * when boards have been staged a different number of times; exporting it in
+ * training evidence therefore makes one physical ring look like mixed
+ * generations.  Derive the generation from the shared topology/profile
+ * identity instead.  local_slot_id is intentionally excluded so every Node
+ * in the same ring publishes the same value. */
+static uint32_t calibration_manager_topology_generation(
+    const tdma_service_ring_runtime_config_t *staged)
+{
+    if (staged == NULL || staged->node_count < 2u ||
+        staged->node_count > TDMA_RING_CALIBRATION_LINK_MAX ||
+        staged->ring_profile_crc32 == 0u ||
+        staged->operating_profile_crc32 == 0u ||
+        staged->schedule_crc32 == 0u) {
+        return 0u;
+    }
+
+    uint32_t hash = UINT32_C(2166136261);
+    const uint32_t values[] = {
+        staged->node_count,
+        staged->reference_slot_id,
+        staged->ring_profile_crc32,
+        staged->operating_profile_crc32,
+        staged->schedule_crc32,
+    };
+    for (size_t value_index = 0u;
+         value_index < sizeof(values) / sizeof(values[0]); value_index++) {
+        uint32_t value = values[value_index];
+        for (uint32_t byte_index = 0u; byte_index < 4u; byte_index++) {
+            hash ^= (value >> (byte_index * 8u)) & 0xffu;
+            hash *= UINT32_C(16777619);
+        }
+    }
+    return hash == 0u ? 1u : hash;
+}
+
 static calibration_manager_status_t s_status;
 static bool s_ready;
 static calibration_path_snapshot_t s_path_candidate;
@@ -1197,6 +1234,7 @@ void calibration_manager_stop_loopback(void)
 {
     s_bias_active = false;
     calibration_pio_loopback_request_stop();
+    calibration_manager_set_training_activity_core0(true);
 }
 
 bool calibration_manager_start_bias(uint32_t expected_path_sum_ns,
@@ -1252,6 +1290,7 @@ void calibration_manager_stop_bias(void)
 {
     if (!s_bias_active) {
         calibration_pio_loopback_request_stop();
+        calibration_manager_set_training_activity_core0(true);
         return;
     }
     calibration_bias_snapshot_t snapshot;
@@ -1261,6 +1300,7 @@ void calibration_manager_stop_bias(void)
     s_bias_active = false;
     osal_critical_exit();
     calibration_pio_loopback_request_stop();
+    calibration_manager_set_training_activity_core0(true);
 }
 
 bool calibration_manager_get_bias_snapshot(
@@ -1414,7 +1454,8 @@ static void calibration_manager_marker_finish_core1(
                                       CALIBRATION_CLK_CORRELATION_MAX_LAGS
                                   ? available_lag
                                   : CALIBRATION_CLK_CORRELATION_MAX_LAGS - 1u,
-            .max_best_distance = 512u,
+            .max_best_distance =
+                CALIBRATION_TRAINING_MARKER_MAX_BEST_DISTANCE,
             .min_margin = 0u,
         };
         correlated = gate.max_lag_sample > gate.min_lag_sample &&
@@ -1985,6 +2026,14 @@ bool calibration_manager_p3_offline_active_core1(void)
            __atomic_load_n(&s_p3_offline_session, __ATOMIC_ACQUIRE) ||
            (snapshot_valid && raw.state == TDMA_PIO_SPI_P3_ARMED) ||
            s_p3_snapshot.raw.state == TDMA_PIO_SPI_P3_ARMED;
+}
+
+bool calibration_manager_training_offline_active_core1(void)
+{
+    tdma_ring_runtime_snapshot_t ring;
+    return __atomic_load_n(&s_training_activity_core1, __ATOMIC_ACQUIRE) &&
+           tdma_runtime_owner_get_ring_snapshot(&ring) &&
+           ring.enabled == 0u && ring.adapter_started == 0u;
 }
 
 void calibration_manager_p3_service_core1(void)
@@ -3003,7 +3052,7 @@ bool calibration_manager_request_marker_training(
             (const uint8_t *)marker_words,
             marker.raw_words * sizeof(marker_words[0])),
         .calibration_generation = calibration_generation,
-        .topology_generation = ring.config_seq,
+        .topology_generation = calibration_manager_topology_generation(&staged),
         .topology_crc32 = staged.ring_profile_crc32,
         .profile_crc32 = staged.operating_profile_crc32,
         .schedule_crc32 = staged.schedule_crc32,
@@ -3037,6 +3086,7 @@ bool calibration_manager_inject_marker_training(void)
 void calibration_manager_stop_marker_training(void)
 {
     calibration_manager_marker_publish(CALIBRATION_MARKER_INTENT_STOP, NULL);
+    calibration_manager_set_training_activity_core0(true);
 }
 
 bool calibration_manager_get_marker_training_snapshot(
@@ -3192,7 +3242,7 @@ bool calibration_manager_request_data_training(
             (const uint8_t *)data_words,
             descriptor.raw_words * sizeof(data_words[0])),
         .calibration_generation = calibration_generation,
-        .topology_generation = ring.config_seq,
+        .topology_generation = calibration_manager_topology_generation(&staged),
         .topology_crc32 = staged.ring_profile_crc32,
         .profile_crc32 = staged.operating_profile_crc32,
         .schedule_crc32 = staged.schedule_crc32,
@@ -3242,6 +3292,7 @@ bool calibration_manager_inject_data_training(void)
 void calibration_manager_stop_data_training(void)
 {
     calibration_manager_data_publish(CALIBRATION_DATA_INTENT_STOP, NULL);
+    calibration_manager_set_training_activity_core0(true);
 }
 
 bool calibration_manager_get_data_training_snapshot(
@@ -3360,7 +3411,7 @@ bool calibration_manager_request_sck_training(
             (const uint8_t *)sck_words,
             descriptor.raw_words * sizeof(sck_words[0])),
         .calibration_generation = calibration_generation,
-        .topology_generation = ring.config_seq,
+        .topology_generation = calibration_manager_topology_generation(&staged),
         .topology_crc32 = staged.ring_profile_crc32,
         .profile_crc32 = staged.operating_profile_crc32,
         .schedule_crc32 = staged.schedule_crc32,
@@ -3406,6 +3457,7 @@ bool calibration_manager_inject_sck_training(void)
 void calibration_manager_stop_sck_training(void)
 {
     calibration_manager_sck_publish(CALIBRATION_SCK_INTENT_STOP, NULL);
+    calibration_manager_set_training_activity_core0(true);
 }
 
 bool calibration_manager_get_sck_training_snapshot(
@@ -4022,7 +4074,7 @@ bool calibration_manager_request_clk_coded(
         .train_epoch = sequence & UINT8_MAX,
         .train_sequence = sequence,
         .calibration_generation = sequence,
-        .topology_generation = ring.config_seq,
+        .topology_generation = calibration_manager_topology_generation(&staged),
         .topology_crc32 = staged.ring_profile_crc32,
         .profile_crc32 = staged.operating_profile_crc32,
         .schedule_crc32 = staged.schedule_crc32,
@@ -4049,6 +4101,10 @@ void calibration_manager_stop_clk_coded(void)
 {
     calibration_manager_clk_coded_intent_publish(
         CALIBRATION_CLK_CODED_INTENT_STOP, NULL, NULL);
+    /* Completion clears the active flag before Core0 can publish STOP.
+     * Reassert offline ownership so Core1 consumes the cleanup intent and
+     * returns the PIO/DMA persona to IDLE without enabling a TDMA load. */
+    calibration_manager_set_training_activity_core0(true);
 }
 
 void calibration_manager_get_status(calibration_manager_status_t *status)

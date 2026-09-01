@@ -111,11 +111,19 @@ class SerialSession:
     def close(self) -> None:
         if self.ser is None:
             return
+        ser = self.ser
+        # Clear ownership before touching the handle. A target-side software
+        # reset intentionally drops USB/CDC immediately, so flush/close may
+        # raise ERROR_INVALID_FUNCTION on Windows. Cleanup remains best effort.
+        self.ser = None
         try:
-            self.ser.flush()
-        finally:
-            self.ser.close()
-            self.ser = None
+            ser.flush()
+        except Exception:
+            pass
+        try:
+            ser.close()
+        except Exception:
+            pass
 
     def __enter__(self) -> "SerialSession":
         return self.open()
