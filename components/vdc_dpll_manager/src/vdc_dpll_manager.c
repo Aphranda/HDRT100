@@ -6,6 +6,7 @@
 
 #include "board.h"
 #include "board_config.h"
+#include "board_identity.h"
 #include "ota_crc32.h"
 #include "osal.h"
 #include "ota_ao.h"
@@ -29,6 +30,9 @@
 #define VDC_DPLL_MANAGER_SELF_TEST_CLEANUP_MARGIN_MS 250u
 #define VDC_DPLL_MANAGER_DPLL_CAPTURE_MAGIC 0x4C504444u /* DDPL */
 #define VDC_DPLL_MANAGER_DPLL_CAPTURE_SCHEMA 1u
+#define VDC_DPLL_MANAGER_WAVEFORM_MAGIC 0x57524D53u /* SMRW */
+#define VDC_DPLL_MANAGER_WAVEFORM_SCHEMA 1u
+#define VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT 2u
 
 typedef struct __attribute__((packed)) {
     uint32_t magic;
@@ -40,6 +44,29 @@ typedef struct __attribute__((packed)) {
     uint32_t end_ms;
     uint32_t payload_crc32;
 } vdc_dpll_manager_dpll_capture_header_t;
+
+typedef struct __attribute__((packed)) {
+    uint32_t magic;
+    uint16_t schema;
+    uint16_t header_size;
+    uint16_t record_size;
+    uint16_t reserved;
+    uint32_t session_id;
+    uint32_t segment_index;
+    uint32_t first_record_index;
+    uint32_t record_count;
+    uint32_t dropped_count;
+    uint32_t start_ms;
+    uint32_t end_ms;
+    uint32_t observed_mask;
+    uint32_t payload_crc32;
+} vdc_dpll_manager_waveform_header_t;
+
+_Static_assert(
+    sizeof(vdc_dpll_manager_waveform_header_t) +
+        VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS *
+            sizeof(vdc_dpll_manager_waveform_record_t) <= 8192u,
+    "waveform segment must fit StorageAO write buffer");
 
 static vdc_dpll_manager_vdc_status_t s_vdc_status;
 static vdc_dpll_manager_dpll_status_t s_dpll_status;
@@ -88,6 +115,26 @@ static uint32_t s_dpll_capture_first_update_seq;
 static uint32_t s_dpll_capture_last_update_seq;
 static uint32_t s_dpll_capture_start_ms;
 static uint32_t s_dpll_capture_end_ms;
+static vdc_dpll_manager_waveform_record_t s_waveform_buffers
+    [VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT]
+    [VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS];
+static uint32_t s_waveform_buffer_count[VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT];
+static uint32_t s_waveform_active_buffer;
+static uint32_t s_waveform_pending_buffer;
+static uint32_t s_waveform_pending_first_record;
+static bool s_waveform_pending_valid;
+static bool s_waveform_job_inflight;
+static vdc_dpll_manager_waveform_capture_status_t s_waveform_status;
+static uint32_t s_waveform_observed_mask;
+static uint64_t s_phase_group_start_ns;
+static uint32_t s_phase_edge_mask;
+static uint64_t s_phase_edge_ns[4];
+static bool s_phase_edge_seen[4];
+static bool s_phase_has_complete_round;
+static uint32_t s_phase_stable_span_min_ns;
+static uint32_t s_phase_stable_span_max_ns;
+static uint64_t s_phase_tx_not_before_ns;
+static uint32_t s_phase_tx_scheduled_count;
 
 typedef struct {
     vdc_tdma_schedule_profile_t schedule;
@@ -454,6 +501,12 @@ static bool vdc_dpll_manager_configure_sync_io_observer_tdma_mask(
     uint32_t frame_crc32,
     bool periodic,
     uint32_t start_delay_ns);
+static uint64_t vdc_dpll_manager_now_ns(void);
+static bool vdc_dpll_manager_compute_dco_phase_pulse_delay(
+    uint64_t not_before_ns,
+    uint32_t pulse_period_ns,
+    uint32_t *delay_ns,
+    uint64_t *target_local_ns);
 
 static void vdc_dpll_manager_observation_self_test_service(void)
 {
@@ -466,6 +519,59 @@ static void vdc_dpll_manager_observation_self_test_service(void)
 
     if (!status.active ||
         status.started_ms == 0u) {
+        return;
+    }
+
+    if (status.phase_only &&
+        (status.role & VDC_DPLL_MANAGER_SELF_TEST_ROLE_TX) != 0u &&
+        (status.role & VDC_DPLL_MANAGER_SELF_TEST_ROLE_RX) == 0u) {
+        if (sync_io_model_pulse_schedule_is_running()) {
+            return;
+        }
+        const uint64_t now_ns = vdc_dpll_manager_now_ns();
+        if (s_phase_tx_scheduled_count == 0u &&
+            now_ns + status.pulse_period_ns < s_phase_tx_not_before_ns) {
+            return;
+        }
+
+        uint32_t delay_ns = 0u;
+        uint64_t target_ns = 0u;
+        const uint64_t not_before_ns = s_phase_tx_scheduled_count == 0u
+            ? s_phase_tx_not_before_ns : now_ns;
+        if (!vdc_dpll_manager_compute_dco_phase_pulse_delay(
+                not_before_ns, status.pulse_period_ns,
+                &delay_ns, &target_ns) ||
+            !sync_io_sma_observer_pulse_schedule_arm_periodic_ns(
+                status.output_index, delay_ns, status.pulse_period_ns,
+                status.pulse_high_ns, 1u, true, 100u)) {
+            osal_critical_enter();
+            if (s_observation_self_test.active &&
+                s_observation_self_test.started_ms == status.started_ms) {
+                s_observation_self_test.active = false;
+                s_observation_self_test.last_error = 4u;
+            }
+            osal_critical_exit();
+            return;
+        }
+        if (s_phase_tx_scheduled_count != UINT32_MAX) {
+            s_phase_tx_scheduled_count++;
+        }
+        osal_critical_enter();
+        if (s_observation_self_test.active &&
+            s_observation_self_test.started_ms == status.started_ms) {
+            s_observation_self_test.scheduled_pulse_count =
+                s_phase_tx_scheduled_count;
+            if (s_phase_tx_scheduled_count == 1u) {
+                s_observation_self_test.first_window_start_ns = target_ns;
+            }
+        }
+        osal_critical_exit();
+        return;
+    }
+
+    if (status.phase_only &&
+        (status.role & VDC_DPLL_MANAGER_SELF_TEST_ROLE_RX) != 0u &&
+        (status.role & VDC_DPLL_MANAGER_SELF_TEST_ROLE_TX) == 0u) {
         return;
     }
 
@@ -635,6 +741,74 @@ static bool vdc_dpll_manager_compute_first_pulse_delay(
     return true;
 }
 
+static bool vdc_dpll_manager_dco_time_at_local_ns(
+    const vdc_dco_control_t *dco,
+    uint64_t local_ns,
+    uint64_t *dco_ns)
+{
+    if (dco == NULL || dco_ns == NULL || dco->valid == 0u ||
+        local_ns < dco->base_local_tick64) {
+        return false;
+    }
+    const uint64_t delta = local_ns - dco->base_local_tick64;
+    const int64_t rate =
+        ((int64_t)delta * (int64_t)dco->period_adjust_ppb) / 1000000000ll;
+    const int64_t adjust = rate + (int64_t)dco->phase_offset_ns;
+    const uint64_t base = dco->base_vdc_time64_ns + delta;
+    if (adjust < 0 && (uint64_t)(-adjust) > base) {
+        return false;
+    }
+    *dco_ns = adjust < 0
+        ? base - (uint64_t)(-adjust)
+        : base + (uint64_t)adjust;
+    return true;
+}
+
+static bool vdc_dpll_manager_compute_dco_phase_pulse_delay(
+    uint64_t not_before_ns,
+    uint32_t pulse_period_ns,
+    uint32_t *delay_ns,
+    uint64_t *target_local_ns)
+{
+    vdc_dpll_manager_runtime_snapshot_t snapshot;
+    const uint64_t now_ns = vdc_dpll_manager_now_ns();
+    const uint64_t minimum_local_ns = not_before_ns > now_ns + 1000u
+        ? not_before_ns : now_ns + 1000u;
+    uint64_t phase_time_ns = 0u;
+    if (delay_ns == NULL || target_local_ns == NULL || pulse_period_ns == 0u ||
+        !vdc_dpll_manager_get_runtime_snapshot(&snapshot) ||
+        !vdc_dpll_manager_dco_time_at_local_ns(
+            &snapshot.dco, minimum_local_ns, &phase_time_ns)) {
+        return false;
+    }
+
+    const uint64_t period_ns = pulse_period_ns;
+    const uint64_t target_phase_ns =
+        ((phase_time_ns / period_ns) + 1u) * period_ns;
+    uint64_t local_ns = minimum_local_ns + target_phase_ns - phase_time_ns;
+    for (uint32_t iteration = 0u; iteration < 3u; iteration++) {
+        uint64_t mapped_ns = 0u;
+        if (!vdc_dpll_manager_dco_time_at_local_ns(
+                &snapshot.dco, local_ns, &mapped_ns)) {
+            return false;
+        }
+        const int64_t error_ns =
+            (int64_t)target_phase_ns - (int64_t)mapped_ns;
+        if (error_ns < 0 && (uint64_t)(-error_ns) > local_ns) {
+            return false;
+        }
+        local_ns = error_ns < 0
+            ? local_ns - (uint64_t)(-error_ns)
+            : local_ns + (uint64_t)error_ns;
+    }
+    if (local_ns <= now_ns || local_ns - now_ns > UINT32_MAX) {
+        return false;
+    }
+    *delay_ns = (uint32_t)(local_ns - now_ns);
+    *target_local_ns = local_ns;
+    return true;
+}
+
 static void vdc_dpll_manager_sync_io_observer_reset_status_locked(void)
 {
     memset(&s_sync_io_observer_status, 0, sizeof(s_sync_io_observer_status));
@@ -646,6 +820,17 @@ static void vdc_dpll_manager_sync_io_observer_reset_status_locked(void)
         s_sync_io_observer_config.observed_mask;
     s_sync_io_observer_status.next_base_time_l32_ns =
         s_sync_io_observer_config.next_base_time_l32_ns;
+    s_sync_io_observer_status.phase_max_span_ns =
+        s_sync_io_observer_config.phase_max_span_ns;
+    s_sync_io_observer_status.phase_min_stable_rounds =
+        s_sync_io_observer_config.phase_min_stable_rounds;
+    s_phase_group_start_ns = 0u;
+    s_phase_edge_mask = 0u;
+    memset(s_phase_edge_ns, 0, sizeof(s_phase_edge_ns));
+    memset(s_phase_edge_seen, 0, sizeof(s_phase_edge_seen));
+    s_phase_has_complete_round = false;
+    s_phase_stable_span_min_ns = UINT32_MAX;
+    s_phase_stable_span_max_ns = 0u;
 }
 
 static void vdc_dpll_manager_publish_sync_io_observer_locked(void)
@@ -686,6 +871,215 @@ static void vdc_dpll_manager_publish_sync_io_observer_locked(void)
     }
 
     s_published_sync_io_observer_status = status;
+}
+
+static uint32_t vdc_dpll_manager_phase_sample_at(uint32_t raw_word,
+                                                  uint32_t sample_index,
+                                                  bool sample0_lsb)
+{
+    const uint32_t index = sample0_lsb ? sample_index : 7u - sample_index;
+    return (raw_word >> (index * 4u)) & 0x0Fu;
+}
+
+static void vdc_dpll_manager_phase_finalize(
+    vdc_dpll_manager_sync_io_observer_status_t *status,
+    const vdc_dpll_manager_sync_io_observer_config_t *config)
+{
+    if (status == NULL || config == NULL || s_phase_group_start_ns == 0u) {
+        return;
+    }
+
+    status->phase_round_count++;
+    status->phase_last_edge_mask = s_phase_edge_mask;
+    status->phase_last_window_start_lo =
+        (uint32_t)(s_phase_group_start_ns & 0xFFFFFFFFull);
+    status->phase_last_window_start_hi =
+        (uint32_t)(s_phase_group_start_ns >> 32u);
+    if (s_phase_edge_mask != 0x0Fu) {
+        status->phase_missing_count++;
+        return;
+    }
+
+    const uint64_t period_ns = config->phase_only &&
+                                       config->max_backward_ticks != 0u
+        ? (uint64_t)config->max_backward_ticks
+        : 0u;
+    if (period_ns == 0u) {
+        status->phase_ambiguous_count++;
+        return;
+    }
+
+    /* Treat each window as a circular phase interval.  A pulse just before
+     * the period boundary and one just after it are near each other in phase,
+     * even though their absolute timestamps are far apart. */
+    uint64_t phase_ns[4];
+    uint64_t ordered_phase_ns[4];
+    for (uint32_t channel = 0u; channel < 4u; channel++) {
+        phase_ns[channel] = s_phase_edge_ns[channel] % period_ns;
+        ordered_phase_ns[channel] = phase_ns[channel];
+    }
+    for (uint32_t i = 1u; i < 4u; i++) {
+        const uint64_t value = ordered_phase_ns[i];
+        uint32_t j = i;
+        while (j > 0u && ordered_phase_ns[j - 1u] > value) {
+            ordered_phase_ns[j] = ordered_phase_ns[j - 1u];
+            j--;
+        }
+        ordered_phase_ns[j] = value;
+    }
+    uint64_t largest_gap =
+        period_ns - ordered_phase_ns[3] + ordered_phase_ns[0];
+    for (uint32_t i = 0u; i < 3u; i++) {
+        const uint64_t gap = ordered_phase_ns[i + 1u] - ordered_phase_ns[i];
+        if (gap > largest_gap) {
+            largest_gap = gap;
+        }
+    }
+    const uint32_t span_ns = (uint32_t)(period_ns - largest_gap);
+    const uint64_t reference = phase_ns[0];
+    for (uint32_t channel = 0u; channel < 4u; channel++) {
+        int64_t offset = (int64_t)(phase_ns[channel] >= reference
+            ? phase_ns[channel] - reference
+            : period_ns - reference + phase_ns[channel]);
+        if ((uint64_t)offset > period_ns / 2u) {
+            offset -= (int64_t)period_ns;
+        }
+        status->phase_last_offset_ns[channel] = (int32_t)offset;
+    }
+    status->phase_last_span_ns = span_ns;
+    status->phase_complete_count++;
+    if (!s_phase_has_complete_round) {
+        s_phase_has_complete_round = true;
+        status->phase_initial_span_ns = span_ns;
+        memcpy(status->phase_initial_offset_ns,
+               status->phase_last_offset_ns,
+               sizeof(status->phase_initial_offset_ns));
+        status->phase_peak_span_ns = span_ns;
+        status->phase_min_span_ns = span_ns;
+    } else {
+        if (span_ns > status->phase_peak_span_ns) {
+            status->phase_peak_span_ns = span_ns;
+        }
+        if (span_ns < status->phase_min_span_ns) {
+            status->phase_min_span_ns = span_ns;
+        }
+    }
+    status->phase_last_span_ns = span_ns;
+    const bool stable = config->phase_max_span_ns != 0u &&
+                        span_ns <= config->phase_max_span_ns;
+    if (stable) {
+        status->phase_stable_round_count++;
+        status->phase_stable_streak++;
+        if (status->phase_stable_streak > status->phase_max_stable_streak) {
+            status->phase_max_stable_streak = status->phase_stable_streak;
+        }
+        if (status->phase_first_stable_round == 0u) {
+            status->phase_first_stable_round = status->phase_round_count;
+        }
+        if (span_ns < s_phase_stable_span_min_ns) {
+            s_phase_stable_span_min_ns = span_ns;
+        }
+        if (span_ns > s_phase_stable_span_max_ns) {
+            s_phase_stable_span_max_ns = span_ns;
+        }
+        status->phase_stable_jitter_ns =
+            s_phase_stable_span_max_ns - s_phase_stable_span_min_ns;
+        if (status->phase_stable_streak >= config->phase_min_stable_rounds) {
+            status->phase_converged = 1u;
+        }
+    } else {
+        status->phase_stable_streak = 0u;
+        status->phase_converged = 0u;
+        status->phase_stable_jitter_ns = 0u;
+        s_phase_stable_span_min_ns = UINT32_MAX;
+        s_phase_stable_span_max_ns = 0u;
+    }
+}
+
+static void vdc_dpll_manager_phase_reset(uint64_t window_start_ns)
+{
+    s_phase_group_start_ns = window_start_ns;
+    s_phase_edge_mask = 0u;
+    memset(s_phase_edge_ns, 0, sizeof(s_phase_edge_ns));
+    memset(s_phase_edge_seen, 0, sizeof(s_phase_edge_seen));
+}
+
+static uint64_t vdc_dpll_manager_phase_expand_tick(
+    const sync_io_capture_latched_word_t *word,
+    uint32_t tick_l32)
+{
+    const uint64_t reference = word->matched_window_start_ns;
+    uint64_t expanded = (reference & 0xFFFFFFFF00000000ull) |
+                        (uint64_t)tick_l32;
+    if (expanded + 0x80000000ull < reference) {
+        expanded += 0x100000000ull;
+    } else if (expanded > reference + 0x80000000ull) {
+        expanded -= 0x100000000ull;
+    }
+    return expanded;
+}
+
+static void vdc_dpll_manager_phase_observe_word(
+    vdc_dpll_manager_sync_io_observer_status_t *status,
+    const vdc_dpll_manager_sync_io_observer_config_t *config,
+    const sync_io_capture_latched_word_t *word)
+{
+    if (status == NULL || config == NULL || word == NULL ||
+        !config->phase_only ||
+        (word->timestamp_flags & VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE) == 0u) {
+        return;
+    }
+
+    uint32_t previous = word->previous_sample_mask & config->observed_mask;
+    for (uint32_t i = 0u; i < VDC_SYNC_IO_CAPTURE_SAMPLES_PER_WORD; i++) {
+        const uint32_t current =
+            vdc_dpll_manager_phase_sample_at(word->raw_word, i,
+                                             config->sample0_lsb) &
+            config->observed_mask;
+        const uint32_t rising = current & ~previous;
+        for (uint32_t channel = 0u; channel < 4u; channel++) {
+            const uint32_t bit = 1u << channel;
+            if ((rising & bit) == 0u) {
+                continue;
+            }
+            const uint32_t tick_l32 =
+                word->base_time_l32_ns + i * word->sample_period_ns;
+            const uint64_t tick_ns =
+                vdc_dpll_manager_phase_expand_tick(word, tick_l32);
+            const uint64_t group_limit_ns =
+                s_phase_group_start_ns +
+                (uint64_t)config->max_backward_ticks +
+                (uint64_t)word->sample_period_ns *
+                    VDC_SYNC_IO_CAPTURE_SAMPLES_PER_WORD;
+            if (s_phase_group_start_ns != 0u &&
+                s_phase_edge_mask != 0x0Fu && tick_ns > group_limit_ns) {
+                if (s_phase_has_complete_round) {
+                    vdc_dpll_manager_phase_finalize(status, config);
+                }
+                vdc_dpll_manager_phase_reset(tick_ns);
+            } else if (s_phase_group_start_ns == 0u) {
+                vdc_dpll_manager_phase_reset(tick_ns);
+            }
+            if (s_phase_edge_seen[channel]) {
+                if (s_phase_has_complete_round) {
+                    status->phase_ambiguous_count++;
+                    vdc_dpll_manager_phase_finalize(status, config);
+                }
+                vdc_dpll_manager_phase_reset(tick_ns);
+            }
+            s_phase_edge_seen[channel] = true;
+            s_phase_edge_mask |= bit;
+            s_phase_edge_ns[channel] = tick_ns;
+            if (s_phase_edge_mask == 0x0Fu) {
+                vdc_dpll_manager_phase_finalize(status, config);
+                vdc_dpll_manager_phase_reset(0u);
+            }
+        }
+        previous = current;
+    }
+    if (word->dropped_before != 0u) {
+        status->phase_dropped_word_count = word->dropped_before;
+    }
 }
 
 static void vdc_dpll_manager_sync_io_observer_service(void)
@@ -750,6 +1144,62 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
             decode.expected_window_start_ns =
                 words[i].matched_window_start_ns;
         }
+        vdc_dpll_manager_phase_observe_word(&status, &config, &words[i]);
+
+        if (s_waveform_status.armed) {
+            uint32_t active_count =
+                s_waveform_buffer_count[s_waveform_active_buffer];
+            if (active_count >=
+                    VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS &&
+                !s_waveform_pending_valid) {
+                s_waveform_pending_buffer = s_waveform_active_buffer;
+                s_waveform_pending_first_record =
+                    s_waveform_status.record_count - active_count;
+                s_waveform_pending_valid = true;
+                s_waveform_active_buffer ^= 1u;
+                s_waveform_buffer_count[s_waveform_active_buffer] = 0u;
+                active_count = 0u;
+            }
+            if (active_count <
+                    VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS) {
+                vdc_dpll_manager_waveform_record_t *record =
+                    &s_waveform_buffers[s_waveform_active_buffer][active_count];
+                record->raw_word = words[i].raw_word;
+                record->sample_seq = words[i].sample_seq;
+                record->previous_sample_mask = words[i].previous_sample_mask;
+                record->base_time_l32_ns = words[i].base_time_l32_ns;
+                record->matched_window_start_ns =
+                    words[i].matched_window_start_ns;
+                record->sample_period_ns = words[i].sample_period_ns;
+                record->timestamp_source = words[i].timestamp_source;
+                record->timestamp_resolution_ns =
+                    words[i].timestamp_resolution_ns;
+                record->timestamp_flags = words[i].timestamp_flags;
+                record->dropped_before = words[i].dropped_before;
+                s_waveform_buffer_count[s_waveform_active_buffer] =
+                    active_count + 1u;
+                if (s_waveform_status.record_count == 0u) {
+                    s_waveform_status.first_sample_seq = words[i].sample_seq;
+                }
+                s_waveform_status.record_count++;
+                s_waveform_status.last_sample_seq = words[i].sample_seq;
+                s_waveform_status.end_ms = board_uptime_ms();
+                s_waveform_observed_mask = config.observed_mask;
+            } else {
+                s_waveform_status.dropped_count++;
+            }
+        }
+
+        if (config.phase_only) {
+            status.raw_word_count++;
+            status.accepted_count++;
+            status.last_capture_result = VDC_SYNC_IO_CAPTURE_OK;
+            status.last_raw_word = words[i].raw_word;
+            status.last_sample_seq = sample_seq;
+            status.previous_sample_mask = last_sample_mask & config.observed_mask;
+            continue;
+        }
+
         const vdc_sync_io_capture_result_t result =
             vdc_sync_io_capture_word_to_compact_observation(&decode,
                                                             words[i].raw_word,
@@ -814,6 +1264,9 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
             break;
         case VDC_SYNC_IO_CAPTURE_AMBIGUOUS_EDGE:
             status.ambiguous_edge_count++;
+            if (config.phase_only) {
+                status.phase_ambiguous_count++;
+            }
             break;
         case VDC_SYNC_IO_CAPTURE_BAD_ARGUMENT:
         default:
@@ -879,6 +1332,24 @@ bool vdc_dpll_manager_init(void)
     s_dpll_capture_last_update_seq = 0u;
     s_dpll_capture_start_ms = 0u;
     s_dpll_capture_end_ms = 0u;
+    memset(s_waveform_buffers, 0, sizeof(s_waveform_buffers));
+    memset(s_waveform_buffer_count, 0, sizeof(s_waveform_buffer_count));
+    s_waveform_active_buffer = 0u;
+    s_waveform_pending_buffer = 0u;
+    s_waveform_pending_first_record = 0u;
+    s_waveform_pending_valid = false;
+    s_waveform_job_inflight = false;
+    memset(&s_waveform_status, 0, sizeof(s_waveform_status));
+    s_waveform_observed_mask = 0u;
+    s_phase_group_start_ns = 0u;
+    s_phase_edge_mask = 0u;
+    memset(s_phase_edge_ns, 0, sizeof(s_phase_edge_ns));
+    memset(s_phase_edge_seen, 0, sizeof(s_phase_edge_seen));
+    s_phase_has_complete_round = false;
+    s_phase_stable_span_min_ns = UINT32_MAX;
+    s_phase_stable_span_max_ns = 0u;
+    s_phase_tx_not_before_ns = 0u;
+    s_phase_tx_scheduled_count = 0u;
     if (!vdc_domain_init(&s_vdc_domain)) {
         return false;
     }
@@ -1070,6 +1541,33 @@ bool vdc_dpll_manager_start_observation_self_test(
     vdc_gate_result_t gate;
     uint64_t now_ns = vdc_dpll_manager_now_ns();
     vdc_dpll_manager_observation_self_test_status_t status = {0};
+    bool plan_available;
+
+    if (config != NULL && config->phase_only &&
+        config->role == VDC_DPLL_MANAGER_SELF_TEST_ROLE_NONE) {
+        vdc_dpll_manager_observation_self_test_status_t previous;
+        osal_critical_enter();
+        previous = s_observation_self_test;
+        osal_critical_exit();
+        if (previous.phase_only &&
+            (previous.role & VDC_DPLL_MANAGER_SELF_TEST_ROLE_TX) != 0u) {
+            sync_io_model_pulse_schedule_disarm();
+        }
+        if (previous.phase_only &&
+            (previous.role & VDC_DPLL_MANAGER_SELF_TEST_ROLE_RX) != 0u) {
+            sync_io_stop_capture();
+            sync_io_capture_disarm_timestamp_window();
+            (void)vdc_dpll_manager_configure_sync_io_observer(
+                &(vdc_dpll_manager_sync_io_observer_config_t){0});
+        }
+        s_phase_tx_not_before_ns = 0u;
+        s_phase_tx_scheduled_count = 0u;
+        osal_critical_enter();
+        memset(&s_observation_self_test, 0,
+               sizeof(s_observation_self_test));
+        osal_critical_exit();
+        return true;
+    }
 
     if (config == NULL ||
         config->role == VDC_DPLL_MANAGER_SELF_TEST_ROLE_NONE ||
@@ -1089,6 +1587,11 @@ bool vdc_dpll_manager_start_observation_self_test(
         config->pulse_high_ns != 0u ? config->pulse_high_ns : 1000u;
     const uint32_t pulse_count =
         config->pulse_count != 0u ? config->pulse_count : 256u;
+    const uint32_t phase_max_span_ns =
+        config->phase_max_span_ns != 0u ? config->phase_max_span_ns : 500u;
+    const uint32_t phase_min_stable_rounds =
+        config->phase_min_stable_rounds != 0u
+            ? config->phase_min_stable_rounds : 3u;
     if (sample_hz == 0u ||
         pulse_high_ns == 0u ||
         pulse_high_ns >= pulse_period_ns ||
@@ -1096,11 +1599,13 @@ bool vdc_dpll_manager_start_observation_self_test(
         return false;
     }
 
-    if (!vdc_dpll_manager_plan_tdma_window(VDC_DOMAIN_WINDOW_VDC_OBSERVATION,
-                                           now_ns,
-                                           &plan,
-                                           &gate)) {
+    plan_available = vdc_dpll_manager_plan_tdma_window(
+        VDC_DOMAIN_WINDOW_VDC_OBSERVATION, now_ns, &plan, &gate);
+    if (!plan_available && !config->phase_only) {
         return false;
+    }
+    if (!plan_available) {
+        memset(&plan, 0, sizeof(plan));
     }
 
     status.active = true;
@@ -1117,8 +1622,66 @@ bool vdc_dpll_manager_start_observation_self_test(
     status.schedule_crc32 = plan.schedule_crc32;
     status.started_ms = board_uptime_ms();
     status.start_delay_ns = config->start_delay_ns;
-    status.first_window_start_ns =
-        plan.window_start_ns + (uint64_t)config->start_delay_ns;
+    status.first_window_start_ns = now_ns + (uint64_t)config->start_delay_ns;
+    status.phase_only = config->phase_only;
+    status.phase_max_span_ns = phase_max_span_ns;
+    status.phase_min_stable_rounds = phase_min_stable_rounds;
+
+    /* The external phase-evidence persona is intentionally independent of
+     * TDMA admission and DPLL lock state.  TX uses PIO0/SM1; RX uses the
+     * existing PIO0/SM0 four-bit sampler. */
+    if (config->phase_only) {
+        if (config->role == VDC_DPLL_MANAGER_SELF_TEST_ROLE_TX_RX) {
+            return false;
+        }
+        if ((config->role & VDC_DPLL_MANAGER_SELF_TEST_ROLE_RX) != 0u) {
+            vdc_dpll_manager_sync_io_observer_config_t observer = {0};
+            observer.enabled = true;
+            observer.max_words_per_service =
+                VDC_DPLL_MANAGER_SYNC_IO_MAX_BATCH_WORDS;
+            observer.rising_event_id = 1u;
+            observer.falling_event_id = 2u;
+            observer.observed_mask = config->observed_mask;
+            observer.initial_sample_mask = config->initial_sample_mask;
+            observer.next_base_time_l32_ns =
+                (uint32_t)status.first_window_start_ns;
+            observer.sample_period_ns = config->sample_period_ns;
+            observer.expected_window_start_ns = status.first_window_start_ns;
+            observer.frame_crc32 = config->frame_crc32 != 0u
+                ? config->frame_crc32 : 1u;
+            observer.max_backward_ticks = pulse_period_ns;
+            observer.sample0_lsb = false;
+            observer.phase_only = true;
+            observer.phase_max_span_ns = phase_max_span_ns;
+            observer.phase_min_stable_rounds = phase_min_stable_rounds;
+            if (!sync_io_start_capture(sample_hz) ||
+                !vdc_dpll_manager_configure_sync_io_observer(&observer) ||
+                !sync_io_capture_arm_periodic_timestamp_window(
+                    status.first_window_start_ns,
+                    pulse_period_ns,
+                    pulse_period_ns,
+                    config->sample_period_ns,
+                    config->observed_mask,
+                    config->initial_sample_mask)) {
+                sync_io_stop_capture();
+                sync_io_capture_disarm_timestamp_window();
+                status.last_error = 1u;
+                osal_critical_enter();
+                s_observation_self_test = status;
+                osal_critical_exit();
+                return false;
+            }
+        }
+        if ((config->role & VDC_DPLL_MANAGER_SELF_TEST_ROLE_TX) != 0u) {
+            sync_io_model_pulse_schedule_disarm();
+            s_phase_tx_not_before_ns = status.first_window_start_ns;
+            s_phase_tx_scheduled_count = 0u;
+        }
+        osal_critical_enter();
+        s_observation_self_test = status;
+        osal_critical_exit();
+        return true;
+    }
 
     if ((config->role & VDC_DPLL_MANAGER_SELF_TEST_ROLE_RX) != 0u) {
         if (!sync_io_start_capture(sample_hz)) {
@@ -1388,6 +1951,114 @@ static void vdc_dpll_manager_refresh_dco_consumer_status_core0(void)
         s_dpll_consumed_update_seq = snapshot.dpll.update_seq;
     }
     vdc_dpll_manager_publish_dpll_status();
+}
+
+static void vdc_dpll_manager_waveform_capture_service(void)
+{
+    if (s_waveform_job_inflight) {
+        storage_manager_job_result_t job;
+        storage_manager_get_job_result(&job);
+        if (job.id == s_waveform_status.last_job_id &&
+            (job.state == STORAGE_MANAGER_JOB_STATE_DONE ||
+             job.state == STORAGE_MANAGER_JOB_STATE_FAILED)) {
+            s_waveform_job_inflight = false;
+            if (job.state == STORAGE_MANAGER_JOB_STATE_DONE) {
+                s_waveform_status.segment_count++;
+            } else {
+                s_waveform_status.last_error =
+                    job.error != 0u ? job.error : 1u;
+                s_waveform_status.dropped_count +=
+                    s_waveform_buffer_count[s_waveform_pending_buffer];
+                s_waveform_status.armed = false;
+                s_waveform_status.stopping = true;
+            }
+            s_waveform_buffer_count[s_waveform_pending_buffer] = 0u;
+            s_waveform_pending_valid = false;
+        }
+    }
+
+    if (!s_waveform_pending_valid &&
+        s_waveform_buffer_count[s_waveform_active_buffer] >=
+            VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS) {
+        s_waveform_pending_buffer = s_waveform_active_buffer;
+        s_waveform_pending_first_record =
+            s_waveform_status.record_count -
+            s_waveform_buffer_count[s_waveform_active_buffer];
+        s_waveform_pending_valid = true;
+        s_waveform_active_buffer ^= 1u;
+        s_waveform_buffer_count[s_waveform_active_buffer] = 0u;
+    }
+
+    if (s_waveform_status.stopping && !s_waveform_pending_valid &&
+        s_waveform_buffer_count[s_waveform_active_buffer] != 0u) {
+        s_waveform_pending_buffer = s_waveform_active_buffer;
+        s_waveform_pending_first_record =
+            s_waveform_status.record_count -
+            s_waveform_buffer_count[s_waveform_active_buffer];
+        s_waveform_pending_valid = true;
+        s_waveform_active_buffer ^= 1u;
+        s_waveform_buffer_count[s_waveform_active_buffer] = 0u;
+    }
+
+    if (s_waveform_pending_valid && !s_waveform_job_inflight) {
+        vdc_dpll_manager_waveform_header_t header = {0};
+        const uint32_t record_count =
+            s_waveform_buffer_count[s_waveform_pending_buffer];
+        const size_t record_bytes =
+            (size_t)record_count * sizeof(vdc_dpll_manager_waveform_record_t);
+        const uint8_t *records =
+            (const uint8_t *)s_waveform_buffers[s_waveform_pending_buffer];
+        uint32_t txn_id = 0u;
+        uint32_t job_id = 0u;
+        uint32_t file_crc32;
+        char path[96];
+
+        header.magic = VDC_DPLL_MANAGER_WAVEFORM_MAGIC;
+        header.schema = VDC_DPLL_MANAGER_WAVEFORM_SCHEMA;
+        header.header_size = (uint16_t)sizeof(header);
+        header.record_size =
+            (uint16_t)sizeof(vdc_dpll_manager_waveform_record_t);
+        header.session_id = s_waveform_status.session_id;
+        header.segment_index = s_waveform_status.segment_count;
+        header.first_record_index = s_waveform_pending_first_record;
+        header.record_count = record_count;
+        header.dropped_count = s_waveform_status.dropped_count;
+        header.start_ms = s_waveform_status.start_ms;
+        header.end_ms = s_waveform_status.end_ms;
+        header.observed_mask = s_waveform_observed_mask;
+        header.payload_crc32 = ota_crc32_compute(records, record_bytes);
+        file_crc32 = ota_crc32_update(
+            0u, (const uint8_t *)&header, sizeof(header));
+        file_crc32 = ota_crc32_update(file_crc32, records, record_bytes);
+
+        if (snprintf(path, sizeof(path),
+                     "/traces/run/sma_%08lu_%04lu.bin",
+                     (unsigned long)s_waveform_status.session_id,
+                     (unsigned long)s_waveform_status.segment_count) > 0 &&
+            sizeof(header) + record_bytes <= 8192u &&
+            storage_manager_begin_file_write(
+                path, (uint32_t)(sizeof(header) + record_bytes),
+                file_crc32, &txn_id) &&
+            storage_manager_write_file_chunk(
+                txn_id, 0u, (const uint8_t *)&header, sizeof(header)) &&
+            storage_manager_write_file_chunk(
+                txn_id, (uint32_t)sizeof(header), records, record_bytes) &&
+            storage_manager_commit_file_write(txn_id, &job_id)) {
+            s_waveform_status.last_job_id = job_id;
+            (void)snprintf(s_waveform_status.last_path,
+                           sizeof(s_waveform_status.last_path), "%s", path);
+            s_waveform_job_inflight = true;
+        } else if (txn_id != 0u) {
+            (void)storage_manager_abort_file_write(txn_id);
+        }
+    }
+
+    if (s_waveform_status.stopping && !s_waveform_job_inflight &&
+        !s_waveform_pending_valid &&
+        s_waveform_buffer_count[s_waveform_active_buffer] == 0u) {
+        s_waveform_status.stopping = false;
+        s_waveform_status.complete = true;
+    }
 }
 
 void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_fb_service)(void)
@@ -1774,10 +2445,111 @@ bool vdc_dpll_manager_dpll_capture_save(uint32_t *job_id,
     return true;
 }
 
+bool vdc_dpll_manager_waveform_capture_arm(void)
+{
+    if (s_waveform_status.armed || s_waveform_status.stopping ||
+        s_waveform_job_inflight || s_waveform_pending_valid) {
+        return false;
+    }
+
+    osal_critical_enter();
+    memset(s_waveform_buffers, 0, sizeof(s_waveform_buffers));
+    memset(s_waveform_buffer_count, 0, sizeof(s_waveform_buffer_count));
+    memset(&s_waveform_status, 0, sizeof(s_waveform_status));
+    s_waveform_active_buffer = 0u;
+    s_waveform_pending_buffer = 0u;
+    s_waveform_pending_first_record = 0u;
+    s_waveform_pending_valid = false;
+    s_waveform_job_inflight = false;
+    s_waveform_observed_mask = 0u;
+    s_waveform_status.session_id = board_uptime_ms();
+    if (s_waveform_status.session_id == 0u) {
+        s_waveform_status.session_id = 1u;
+    }
+    s_waveform_status.start_ms = s_waveform_status.session_id;
+    s_waveform_status.end_ms = s_waveform_status.session_id;
+    s_waveform_status.armed = true;
+    osal_critical_exit();
+    return true;
+}
+
+bool vdc_dpll_manager_waveform_capture_stop(void)
+{
+    osal_critical_enter();
+    s_waveform_status.armed = false;
+    s_waveform_status.stopping = true;
+    s_waveform_status.complete = false;
+    s_waveform_status.end_ms = board_uptime_ms();
+    osal_critical_exit();
+    return true;
+}
+
+void vdc_dpll_manager_get_waveform_capture_status(
+    vdc_dpll_manager_waveform_capture_status_t *status)
+{
+    if (status == NULL) {
+        return;
+    }
+    osal_critical_enter();
+    *status = s_waveform_status;
+    status->pending_record_count =
+        s_waveform_buffer_count[s_waveform_active_buffer] +
+        (s_waveform_pending_valid
+             ? s_waveform_buffer_count[s_waveform_pending_buffer] : 0u);
+    osal_critical_exit();
+}
+
+bool vdc_dpll_manager_waveform_capture_manifest(char *path_prefix,
+                                                size_t path_prefix_size,
+                                                uint32_t *segment_count)
+{
+    vdc_dpll_manager_waveform_capture_status_t status;
+    if (path_prefix == NULL || path_prefix_size == 0u ||
+        segment_count == NULL) {
+        return false;
+    }
+    vdc_dpll_manager_get_waveform_capture_status(&status);
+    if (!status.complete || status.segment_count == 0u ||
+        status.pending_record_count != 0u || status.last_error != 0u) {
+        return false;
+    }
+    if (snprintf(path_prefix, path_prefix_size,
+                 "/traces/run/sma_%08lu_",
+                 (unsigned long)status.session_id) <= 0) {
+        return false;
+    }
+    *segment_count = status.segment_count;
+    return true;
+}
+
+static bool vdc_dpll_manager_phase_capture_owned_by_core0(void)
+{
+    bool owned;
+    osal_critical_enter();
+    owned = s_sync_io_observer_config.enabled &&
+            s_sync_io_observer_config.phase_only;
+    osal_critical_exit();
+    return owned;
+}
+
+void vdc_dpll_manager_sync_io_capture_service_core1(void)
+{
+    if (!vdc_dpll_manager_phase_capture_owned_by_core0()) {
+        sync_io_capture_latch_service_core1();
+    }
+}
+
 void vdc_dpll_manager_core0_service(void)
 {
     vdc_dpll_manager_observation_self_test_service();
+    /* NO5 phase-only capture can scan a sustained 10 MHz DMA stream.  Keep
+     * that diagnostic work off Core1; the PIO/DMA timestamp source remains
+     * hardware-driven while Core0 performs edge qualification and SD enqueue. */
+    if (vdc_dpll_manager_phase_capture_owned_by_core0()) {
+        sync_io_capture_latch_service_core1();
+    }
     vdc_dpll_manager_sync_io_observer_service();
+    vdc_dpll_manager_waveform_capture_service();
     vdc_dpll_manager_refresh_dco_consumer_status_core0();
 }
 

@@ -10,8 +10,10 @@ from tools.hardware_acceptance.p3_hardware_acceptance import (
     LIMITED_RECEIPT_SCHEMA,
     RECEIPT_SCHEMA,
     TDMA_RECEIPT_SCHEMA,
+    _run_step,
     _validate_evidence,
     acceptance_timing,
+    build_diagnostic_feedback,
     calibration_coded_probe_phase_cycles,
     calibration_probe_phase_cycles,
     is_acceptance_source,
@@ -30,6 +32,73 @@ from tools.hardware_acceptance.p3_hardware_acceptance import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_acceptance_steps_disable_implicit_persistent_serial(
+        monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(*args, **kwargs):
+        captured["env"] = kwargs["env"]
+        return types.SimpleNamespace(returncode=0, stdout=b"ok\n")
+
+    monkeypatch.setenv("HAOFV_ACCEPTANCE_PERSISTENT_SESSIONS", "1")
+    monkeypatch.setattr(
+        "tools.hardware_acceptance.p3_hardware_acceptance.subprocess.run",
+        fake_run)
+    _run_step([sys.executable, "phase.py"], ROOT, tmp_path / "phase.log")
+    assert captured["env"]["HAOFV_ACCEPTANCE_PERSISTENT_SESSIONS"] == "0"
+
+
+def test_acceptance_step_can_retain_nonzero_diagnostic_result(
+        monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        "tools.hardware_acceptance.p3_hardware_acceptance.subprocess.run",
+        lambda *args, **kwargs: types.SimpleNamespace(
+            returncode=7, stdout=b"diagnostic evidence\n"))
+    assert _run_step(
+        [sys.executable, "phase.py"], ROOT, tmp_path / "phase.log",
+        allow_failure=True) == 7
+    assert (tmp_path / "phase.log").read_bytes() == b"diagnostic evidence\n"
+
+
+def test_diagnostic_feedback_retains_correction_inputs() -> None:
+    tdma = {
+        "offset_row": {"sck_offset_sample_counts_by_node": [1, 0, 0, 0]},
+        "startup_barrier": {"passed": False, "samples": [{"passed": False}]},
+        "soak_validation": {"worst_receive_quality": {
+            "board_id": "n0", "observed_frame_error_ppm": 125.0}},
+        "dpll_schedule_gate": {"passed": False},
+        "nodes": {"n0": {
+            "node_index": 0, "passed": False, "errors": ["bad_frame"],
+            "runtime_after": {
+                "ring_adapter_last_bad_header_diff_count": 3,
+                "ring_adapter_last_bad_header_first_diff_offset": 7,
+                "ring_adapter_last_bad_header_expected_byte": 0x55,
+                "ring_adapter_last_bad_header_observed_byte": 0x51,
+            },
+            "physical_after": {"flight_sck_phase_delay_cycles": 10},
+            "flight_after": {"process": {"receive_rejected_count": 2}},
+            "crc_diagnostic_after": {"last_bad_packet_diff_count": 3},
+        }},
+    }
+    dpll = {"ring_sequence_consistent": False, "ring_sequence_skew": 4,
+            "boards": [{"role": "observer", "phase_initial_span_ns": 80,
+                        "phase_final_span_ns": 12, "phase_converged": False}]}
+    matrix = {"offset_matrix": {"active_row_id": 71}, "derivation": {
+        "sck_replay_selection": {
+            "selected_min_follower_margin_samples": 0}}}
+
+    feedback = build_diagnostic_feedback(tdma, dpll, matrix)
+
+    assert feedback["calibration_offsets"]["active_row_id"] == 71
+    assert feedback["calibration_offsets"]["sck_replay_selection"][
+        "selected_min_follower_margin_samples"] == 0
+    assert feedback["tdma"]["nodes"]["n0"]["runtime"][
+        "ring_adapter_last_bad_header_first_diff_offset"] == 7
+    assert feedback["tdma"]["nodes"]["n0"]["physical_phase"][
+        "flight_sck_phase_delay_cycles"] == 10
+    assert feedback["dpll"]["observer_phase"]["phase_initial_span_ns"] == 80
 
 
 def test_code_scope_includes_runtime_tools_and_build_inputs() -> None:
@@ -287,6 +356,13 @@ def test_bench_and_orchestrator_cover_full_hardware_acceptance() -> None:
     ):
         assert tool in source
     assert "--tdma-only" in source
+    assert "--diagnostic-continue" in source
+    assert 'matrix_command.append("--diagnostic-continue")' in source
+    assert '"selected_row_replay_safe"' in source
+    assert '"TRN-03 SCK replay row selection"' in source
+    assert '"flow_completed": True' in source
+    assert '"strict_gates_passed": False' in source
+    assert '"status": "PASS_WITH_DIAGNOSTICS"' in source
     assert "FOUR_NODE_TDMA" in source
     assert '"--codebook", str(config["training_marker_codebook"])' in source
     assert '"--codebook", str(config["training_sck_codebook"])' in source

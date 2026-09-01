@@ -9,8 +9,10 @@ metadata stored in the SD segment files.
 from __future__ import annotations
 
 import argparse
+import bisect
 import csv
 import json
+import math
 import struct
 import zlib
 from pathlib import Path
@@ -24,6 +26,7 @@ HEADER = struct.Struct("<IHHHHIIIIIIIII")
 RECORD = struct.Struct("<IIIIQIIIII")
 SAMPLES_PER_WORD = 8
 CHANNEL_COUNT = 4
+DEFAULT_PULSE_PERIOD_NS = 1_000_000
 
 
 def _absolute_base_time(base_l32: int, window_start_ns: int) -> int:
@@ -88,7 +91,147 @@ def decode_segment(path: Path) -> dict[str, Any]:
     }
 
 
-def decode_segments(paths: Iterable[Path]) -> dict[str, Any]:
+def _circular_delta_ns(value: int, reference: int, period_ns: int) -> int:
+    return (value - reference + period_ns // 2) % period_ns - period_ns // 2
+
+
+def _circular_center_ns(values: list[int], period_ns: int) -> int | None:
+    if not values:
+        return None
+    # A medoid is robust to the false transitions introduced by dropped DMA
+    # words and keeps the result on an actually observed pulse phase.
+    return min(values, key=lambda candidate: sum(
+        abs(_circular_delta_ns(value, candidate, period_ns))
+        for value in values))
+
+
+def _circular_span_ns(values: list[int], period_ns: int) -> int | None:
+    if not values:
+        return None
+    ordered = sorted(value % period_ns for value in values)
+    gaps = [ordered[index + 1] - ordered[index]
+            for index in range(len(ordered) - 1)]
+    gaps.append(period_ns - ordered[-1] + ordered[0])
+    return period_ns - max(gaps)
+
+
+def _half_cycle_oscillation(values: list[int], period_ns: int) -> dict[str, Any]:
+    bin_count = 20
+    bins = [0] * bin_count
+    for value in values:
+        bins[(value % period_ns) * bin_count // period_ns] += 1
+    primary = max(range(bin_count), key=bins.__getitem__) if values else 0
+    candidates = [index for index in range(bin_count)
+                  if min((index - primary) % bin_count,
+                         (primary - index) % bin_count) >= 3]
+    secondary = max(candidates, key=bins.__getitem__) if candidates else primary
+    separation_bins = min((secondary - primary) % bin_count,
+                          (primary - secondary) % bin_count)
+    separation_ns = separation_bins * period_ns // bin_count
+    ratio = bins[secondary] / bins[primary] if bins[primary] else 0.0
+    detected = (
+        len(values) >= 12 and ratio >= 0.20 and
+        abs(separation_ns - period_ns // 2) <= period_ns * 0.15)
+    return {
+        "detected": detected,
+        "primary_phase_ns": (primary * 2 + 1) * period_ns // (2 * bin_count),
+        "secondary_phase_ns": (
+            (secondary * 2 + 1) * period_ns // (2 * bin_count)),
+        "secondary_to_primary_ratio": round(ratio, 4),
+        "peak_separation_ns": separation_ns,
+    }
+
+
+def _phase_tracking(edges: list[dict[str, Any]], period_ns: int
+                    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]],
+                               dict[str, Any]]:
+    rising = [edge for edge in edges if edge["edge"] == "rising"]
+    if not rising:
+        return [], [], {"assessment": "NO_RISING_EDGES", "nodes": {}}
+    first_ns = min(edge["timestamp_ns"] for edge in rising)
+    references = sorted(edge["timestamp_ns"] for edge in rising
+                        if edge["channel"] == 0)
+    tracking = []
+    for edge in rising:
+        timestamp_ns = edge["timestamp_ns"]
+        phase_ns = timestamp_ns % period_ns
+        reference_ns = timestamp_ns
+        if references and edge["channel"] != 0:
+            position = bisect.bisect_left(references, timestamp_ns)
+            nearby = references[max(0, position - 1):position + 1]
+            reference_ns = min(nearby, key=lambda value: abs(value - timestamp_ns))
+        tracking.append({
+            "elapsed_s": (timestamp_ns - first_ns) / 1e9,
+            "channel": edge["channel"],
+            "node": f"NO{edge['channel'] + 1}",
+            "phase_ns": phase_ns,
+            "relative_to_no1_ns": (
+                0 if edge["channel"] == 0 else
+                _circular_delta_ns(phase_ns, reference_ns % period_ns,
+                                   period_ns)),
+            "reference_age_ms": abs(timestamp_ns - reference_ns) / 1e6,
+        })
+
+    duration_s = max(row["elapsed_s"] for row in tracking)
+    bin_width_s = 0.25
+    trend = []
+    bin_total = max(1, math.ceil((duration_s + 1e-12) / bin_width_s))
+    for bin_index in range(bin_total):
+        start_s = bin_index * bin_width_s
+        end_s = start_s + bin_width_s
+        for channel in range(CHANNEL_COUNT):
+            phases = [row["phase_ns"] for row in tracking
+                      if row["channel"] == channel and
+                      start_s <= row["elapsed_s"] < end_s]
+            center = _circular_center_ns(phases, period_ns)
+            if center is not None:
+                trend.append({
+                    "elapsed_s": start_s + bin_width_s / 2,
+                    "channel": channel,
+                    "node": f"NO{channel + 1}",
+                    "phase_center_ns": center,
+                    "sample_count": len(phases),
+                })
+
+    nodes: dict[str, Any] = {}
+    detected_nodes = []
+    final_start_s = duration_s * 0.6
+    for channel in range(CHANNEL_COUNT):
+        phases = [row["phase_ns"] for row in tracking
+                  if row["channel"] == channel]
+        final = [row["phase_ns"] for row in tracking
+                 if row["channel"] == channel and
+                 row["elapsed_s"] >= final_start_s]
+        oscillation = _half_cycle_oscillation(final, period_ns)
+        if oscillation["detected"]:
+            detected_nodes.append(f"NO{channel + 1}")
+        nodes[f"NO{channel + 1}"] = {
+            "rising_edge_count": len(phases),
+            "final_phase_center_ns": _circular_center_ns(final, period_ns),
+            "final_circular_span_ns": _circular_span_ns(final, period_ns),
+            "half_cycle_oscillation": oscillation,
+        }
+    assessment = (
+        "HALF_CYCLE_LIMIT_CYCLE" if detected_nodes else
+        "NO_HALF_CYCLE_LIMIT_CYCLE_DETECTED")
+    return tracking, trend, {
+        "pulse_period_ns": period_ns,
+        "duration_s": duration_s,
+        "assessment": assessment,
+        "oscillating_nodes": detected_nodes,
+        "nodes": nodes,
+        "loop_margin_estimation": {
+            "available": False,
+            "gain_margin_db": None,
+            "phase_margin_deg": None,
+            "reason": "requires injected frequency response or an identified loop model",
+        },
+    }
+
+
+def decode_segments(paths: Iterable[Path], *,
+                    pulse_period_ns: int = DEFAULT_PULSE_PERIOD_NS
+                    ) -> dict[str, Any]:
     segments = sorted(
         (decode_segment(path) for path in paths),
         key=lambda segment: segment["segment_index"])
@@ -160,6 +303,7 @@ def decode_segments(paths: Iterable[Path]) -> dict[str, Any]:
             row[f"offset{channel}_ns"] = channels[channel] - earliest
         phase.append(row)
 
+    tracking, trend, convergence = _phase_tracking(edges, pulse_period_ns)
     return {
         "schema": "HAOFV_NO5_PIO0_WAVEFORM_V1",
         "source": "NO5_SD_PIO0_RAW_WAVEFORM",
@@ -174,6 +318,9 @@ def decode_segments(paths: Iterable[Path]) -> dict[str, Any]:
         "records": records,
         "edges": edges,
         "phase": phase,
+        "phase_tracking": tracking,
+        "phase_trend": trend,
+        "convergence": convergence,
         "segments": [{key: value for key, value in segment.items()
                       if key != "records"} for segment in segments],
     }
@@ -218,6 +365,63 @@ def _phase_svg(rows: list[dict[str, Any]]) -> str:
     return "\n".join(chunks) + "\n"
 
 
+def _convergence_svg(rows: list[dict[str, Any]],
+                     trend: list[dict[str, Any]], period_ns: int) -> str:
+    width, height = 1400, 760
+    left, top, plot_w, plot_h = 90, 55, 1240, 610
+    max_x = max((row["elapsed_s"] for row in rows), default=1.0) or 1.0
+    colors = ("#2563eb", "#dc2626", "#059669", "#7c3aed")
+    chunks = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+        f'viewBox="0 0 {width} {height}">',
+        '<rect width="100%" height="100%" fill="#ffffff"/>',
+        '<style>text{font-family:Arial,sans-serif;letter-spacing:0;fill:#202124}'
+        '.axis{stroke:#5f6368;stroke-width:1}.grid{stroke:#dadce0;stroke-width:1}'
+        '.trend{fill:none;stroke-width:2}</style>',
+        '<text x="90" y="30" font-size="20">DPLL locking convergence from NO5 PIO0 raw waveform</text>',
+    ]
+    for step in range(6):
+        y = top + plot_h * (1 - step / 5)
+        value_us = period_ns * step / 5 / 1000
+        chunks.append(
+            f'<line x1="{left}" y1="{y:.2f}" x2="{left + plot_w}" '
+            f'y2="{y:.2f}" class="grid"/>')
+        chunks.append(
+            f'<text x="{left - 12}" y="{y + 5:.2f}" text-anchor="end" '
+            f'font-size="12">{value_us:.0f}</text>')
+    chunks.extend([
+        f'<line x1="{left}" y1="{top + plot_h}" x2="{left + plot_w}" '
+        f'y2="{top + plot_h}" class="axis"/>',
+        f'<line x1="{left}" y1="{top}" x2="{left}" y2="{top + plot_h}" '
+        f'class="axis"/>',
+        f'<text x="{left + plot_w / 2:.2f}" y="{height - 28}" '
+        f'text-anchor="middle" font-size="13">Elapsed time (s)</text>',
+        f'<text x="20" y="{top + plot_h / 2:.2f}" font-size="13" '
+        f'transform="rotate(-90 20 {top + plot_h / 2:.2f})" '
+        f'text-anchor="middle">Pulse phase modulo period (us)</text>',
+    ])
+    for row in rows:
+        x = left + plot_w * row["elapsed_s"] / max_x
+        y = top + plot_h * (1 - row["phase_ns"] / period_ns)
+        chunks.append(
+            f'<circle cx="{x:.2f}" cy="{y:.2f}" r="1.7" '
+            f'fill="{colors[row["channel"]]}" fill-opacity="0.38"/>')
+    for channel, color in enumerate(colors):
+        points = " ".join(
+            f'{left + plot_w * row["elapsed_s"] / max_x:.2f},'
+            f'{top + plot_h * (1 - row["phase_center_ns"] / period_ns):.2f}'
+            for row in trend if row["channel"] == channel)
+        if points:
+            chunks.append(
+                f'<polyline points="{escape(points)}" class="trend" '
+                f'stroke="{color}"/>')
+        chunks.append(
+            f'<text x="{left + channel * 105}" y="{height - 58}" '
+            f'font-size="13" fill="{color}">NO{channel + 1}</text>')
+    chunks.append('</svg>')
+    return "\n".join(chunks) + "\n"
+
+
 def write_reports(result: dict[str, Any], out_dir: Path) -> dict[str, Any]:
     out_dir.mkdir(parents=True, exist_ok=True)
     record_fields = list(result["records"][0]) if result["records"] else [
@@ -232,15 +436,34 @@ def write_reports(result: dict[str, Any], out_dir: Path) -> dict[str, Any]:
     _write_csv(out_dir / "raw_records.csv", result["records"], record_fields)
     _write_csv(out_dir / "edges.csv", result["edges"], edge_fields)
     _write_csv(out_dir / "phase_curve.csv", result["phase"], phase_fields)
+    tracking_fields = ["elapsed_s", "channel", "node", "phase_ns",
+                       "relative_to_no1_ns", "reference_age_ms"]
+    trend_fields = ["elapsed_s", "channel", "node", "phase_center_ns",
+                    "sample_count"]
+    _write_csv(out_dir / "dpll_convergence.csv",
+               result.get("phase_tracking", []), tracking_fields)
+    _write_csv(out_dir / "dpll_convergence_trend.csv",
+               result.get("phase_trend", []), trend_fields)
     (out_dir / "phase_curve.svg").write_text(
         _phase_svg(result["phase"]), encoding="utf-8")
+    (out_dir / "dpll_convergence.svg").write_text(
+        _convergence_svg(
+            result.get("phase_tracking", []), result.get("phase_trend", []),
+            result.get("convergence", {}).get(
+                "pulse_period_ns", DEFAULT_PULSE_PERIOD_NS)),
+        encoding="utf-8")
     summary = {key: value for key, value in result.items()
-               if key not in {"records", "edges", "phase"}}
+               if key not in {"records", "edges", "phase", "phase_tracking",
+                              "phase_trend"}}
     summary["outputs"] = {
         "raw_records": str(out_dir / "raw_records.csv"),
         "edges": str(out_dir / "edges.csv"),
         "phase_curve": str(out_dir / "phase_curve.csv"),
         "phase_svg": str(out_dir / "phase_curve.svg"),
+        "dpll_convergence": str(out_dir / "dpll_convergence.csv"),
+        "dpll_convergence_trend": str(
+            out_dir / "dpll_convergence_trend.csv"),
+        "dpll_convergence_svg": str(out_dir / "dpll_convergence.svg"),
     }
     (out_dir / "summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
@@ -252,13 +475,16 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--segment", action="append", type=Path, required=True)
     parser.add_argument("--out-dir", type=Path, required=True)
+    parser.add_argument("--pulse-period-ns", type=int,
+                        default=DEFAULT_PULSE_PERIOD_NS)
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     try:
-        result = decode_segments(args.segment)
+        result = decode_segments(
+            args.segment, pulse_period_ns=args.pulse_period_ns)
         print(json.dumps(write_reports(result, args.out_dir),
                          ensure_ascii=False, indent=2))
     except (OSError, ValueError, struct.error) as exc:

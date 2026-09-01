@@ -226,6 +226,45 @@ def test_build_matrix_retimes_unsafe_observed_sck_row() -> None:
     assert matrix["offset_matrix"]["full_matrix_row_count"] == 8
 
 
+def test_build_matrix_diagnostic_selects_best_unsafe_sck_row(
+        tmp_path: Path) -> None:
+    data, residence = evidence(7)
+    sck = sck_evidence(data)
+    offset = sck["matrix"]["offset_matrix"]
+    candidates = [[0, 1], [0, 1], [1], [0, 1]]
+    rows = [
+        {"row_id": row_id,
+         "sck_offset_sample_counts_by_node": list(values)}
+        for row_id, values in enumerate(itertools.product(*candidates))
+    ]
+    offset["candidate_values_by_node"] = candidates
+    offset["full_matrix_row_count"] = len(rows)
+    offset["active_row_id"] = len(rows) - 1
+    offset["rows"] = rows
+
+    with pytest.raises(ValueError, match="no SCK offset candidate row"):
+        build_matrix(7, data, residence, sck=sck)
+
+    matrix = build_matrix(
+        7, data, residence, sck=sck, diagnostic_continue=True)
+    selection = matrix["derivation"]["sck_replay_selection"]
+    assert selection["selected_offset_sample_counts_by_node"] == [0, 0, 1, 0]
+    assert selection["selected_row_replay_safe"] is False
+    assert selection["selected_min_follower_margin_samples"] == -1
+    assert selection["selected_unsafe_follower_count"] == 1
+    assert selection["selected_total_follower_margin_samples"] == -1
+    assert selection["selection_reason"] == (
+        "diagnostic_best_available_unsafe_candidate")
+
+    path = tmp_path / "diagnostic-matrix.json"
+    path.write_text(__import__("json").dumps(matrix), encoding="utf-8")
+    with pytest.raises(ValueError, match="SCK replay phase cannot re-arm"):
+        load_config(path)
+    loaded = load_config(path, allow_unsafe_sck=True)
+    assert loaded["offset_row"][
+        "sck_offset_sample_counts_by_node"] == [0, 0, 1, 0]
+
+
 def test_build_matrix_retains_adjacent_data_refinement_as_non_active_row(
         tmp_path: Path) -> None:
     data, residence = evidence(7)

@@ -13,7 +13,7 @@ TDMA 只承载隔离 probe/训练 persona 和实时资源编排。
 阅读和实施顺序固定为：先以 `CALIBRATION_TDMA_CLK_TRAINING_PLAN.md` 和
 `CALIBRATION_RING_AUTOCALIBRATION_PLAN.md` 建立 P0T/P0/P1/P2/P3 的 topology、hardware
 latch、endpoint bias、path-delay 和 generation/freshness 前置条件；再执行
-`CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md` 的 TRN-01/02/03。TRN-03B 短帧回环通过只证明
+`CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md` 的 TRN-00/01/02/03。TRN-03B 短帧回环通过只证明
 TDMA transport/process-image 闭环，不会替代 P3 endpoint-bias 或自动形成 active
 calibration。
 

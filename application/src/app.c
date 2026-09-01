@@ -472,7 +472,7 @@ static void app_realtime_calibration_phase(void)
 
 static void app_realtime_sync_capture_phase(void)
 {
-    sync_io_capture_latch_service_core1();
+    vdc_dpll_manager_sync_io_capture_service_core1();
     drv_watchdog_mark_progress(1u, 0x0105u);
 }
 

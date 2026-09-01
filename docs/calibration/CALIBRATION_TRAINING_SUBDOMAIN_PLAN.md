@@ -142,8 +142,8 @@ sample 网格上的量化误差会再次进入 SCK 结果，使两个独立的�
 SCK 必须独立执行两级训练：
 
 ```text
-SCK-TRN-01: PIO 内部启动已知 SCK burst -> 各 node 原始捕获/cut-through -> 返回环路证据
-SCK-TRN-02: 以 SCK 自身 capture origin 搜索相位 -> 重复统计 -> per-node SCK offset 矩阵
+TRN-01A: PIO 内部启动已知 SCK burst -> 各 node 原始捕获/cut-through -> 返回环路证据
+TRN-01B: 以 SCK 自身 capture origin 搜索相位 -> 重复统计 -> per-node SCK offset 矩阵
 ```
 
 MARK、SCK 和 DATA 均按 `PHASE_TRAINING_STAGES` 定义的顺序执行：PIO 自身起始边沿、raw
@@ -344,25 +344,26 @@ P1 [400,500) ns 级整圈 bracket
 
 P1/P2 只限制搜索范围，P3 只提供每跳传播预算；真正决定 DATA 是否被正确识别的是 marker 捕获、cut-through 转发、相对窗口、codeword correlation 和 CRC/sequence 门禁。
 
-## 3. 三阶段训练主流程
+## 3. 四阶段训练主流程
 
-新训练子域按 `TRN-01 -> TRN-02 -> TRN-03` 顺序推进。这里的阶段编号与历史校准
-`P1/P2/P3` 有意分开：P1/P2/P3 是已经获得的测量事实和诊断输入，TRN-01/02/03
+新训练子域按 `TRN-00 -> TRN-01 -> TRN-02 -> TRN-03` 顺序推进。这里的阶段编号与历史校准
+`P1/P2/P3` 有意分开：P1/P2/P3 是已经获得的测量事实和诊断输入，TRN-00/01/02/03
 是把这些输入变成可运行链路的训练过程。
 
 | 新阶段 | 名称 | 主要输入 | 主要输出 | 进入下一阶段的门禁 |
 |---|---|---|---|---|
-| `TRN-01` | Ring Marker Capture & Cut-Through（环路 marker 捕获与切通） | accepted topology、P2 marker codebook、marker line 角色、epoch/sequence | 每个节点的 marker capture/forward tick、cut-through residence、整圈 marker RTT、缺失/重复/乱序原因 | 所有节点捕获同一 marker；顺序正确；每跳 forward residence 有界；reference 捕获返回 marker；PIO/DMA fault 为零 |
-| `TRN-02` | Marker-Anchored DATA Window Training（marker 锚定 DATA 窗口训练） | TRN-01 marker origin、P3 `path_delay` diagnostic candidate、PIO sample period、DATA codeword | 每条 link 的 `data_offset`、`training_window`、`guard`、`marker_data_skew`、correlation/margin/CRC 证据 | 单跳先通过；四条 directed link 均在同一 generation/profile 下重复通过；窗口达到当前 PIO 分辨率或明确拒绝原因 |
-| `TRN-03` | TDMA Short-Frame/FIFO Closed Loop（TDMA 短帧/FIFO 闭环接入） | TRN-02 per-link DATA window、独立 SCK offset matrix、PIO instruction-cycle profile、loop-delay/residence 汇总、topology/profile/schedule CRC | TDMA per-link staging、ARM gate、link/forward budget、短帧 TX/RX FIFO 计数、sequence/CRC/feedback evidence、active candidate | MARK、SCK 和 DATA 链路均 accepted 且指令周期预算可重放后才能 ARM；四板 up/down、FIFO、sequence/CRC 同时增长；失败统一 STOPPED 并保持旧 active generation |
+| `TRN-00` | Ring Marker Capture & Cut-Through（环路 marker 捕获与切通） | accepted topology、P2 marker codebook、marker line 角色、epoch/sequence | 每个节点的 marker capture/forward tick、cut-through residence、整圈 marker RTT、缺失/重复/乱序原因 | 所有节点捕获同一 marker；顺序正确；每跳 forward residence 有界；reference 捕获返回 marker；PIO/DMA fault 为零 |
+| `TRN-01` | Independent SCK Offset Matrix（独立 SCK 相位矩阵） | TRN-00 accepted topology/identity、SCK codebook、PIO sample period | per-node SCK offset、相关峰、重复统计和 residual | 每个 destination Node 的独立 SCK repeat 通过，generation/profile/topology 一致 |
+| `TRN-02` | Marker-Anchored DATA Window Training（marker 锚定 DATA 窗口训练） | TRN-00 marker origin、P3 `path_delay` diagnostic candidate、PIO sample period、DATA codeword | 每条 link 的 `data_offset`、`training_window`、`guard`、`marker_data_skew`、correlation/margin/CRC 证据 | 单跳先通过；四条 directed link 均在同一 generation/profile 下重复通过；窗口达到当前 PIO 分辨率或明确拒绝原因 |
+| `TRN-03` | TDMA Short-Frame/FIFO Closed Loop（TDMA 短帧/FIFO 闭环接入） | TRN-01 SCK matrix、TRN-02 per-link DATA window、PIO instruction-cycle profile、loop-delay/residence 汇总、topology/profile/schedule CRC | TDMA per-link staging、ARM gate、link/forward budget、短帧 TX/RX FIFO 计数、sequence/CRC/feedback evidence、active candidate | MARK、SCK 和 DATA 链路均 accepted 且指令周期预算可重放后才能 ARM；四板 up/down、FIFO、sequence/CRC 同时增长；失败统一 STOPPED 并保持旧 active generation |
 
-TRN-01/02/03 不重新定义校准域的 topology、P3 path-delay 或 endpoint bias。
+TRN-00/01/02/03 不重新定义校准域的 topology、P3 path-delay 或 endpoint bias。
 `CALIBRATION_TDMA_CLK_TRAINING_PLAN.md` 是这些前置的事实源：TRN-03B 可以在
 diagnostic P3 粗窗口上证明短帧和 process-image 闭环，但 TRN-03C 只能在有效
 endpoint-bias generation、fresh repeated P3、完整 generation/CRC/freshness 和回滚门禁上
 发布 active candidate。
 
-### TRN-01：环路 marker 捕获与切通
+### TRN-00：环路 marker 捕获与切通
 
 第一阶段不解析完整 DATA，也不试图生成运行态 RX window。reference 发出带
 `train_epoch`、`train_sequence` 和最小完整性字段的 marker；每个节点在本地捕获后，
@@ -377,13 +378,21 @@ NO.1 marker TX
   -> NO.1 return capture
 ```
 
-TRN-01 的 `SYNC/CS` 是训练 persona 下的 timing marker；普通 TDMA persona 中它仍是
+TRN-00 的 `SYNC/CS` 是训练 persona 下的 timing marker；普通 TDMA persona 中它仍是
 `frame-sync/CS`，两种语义不能在同一 PIO/SM/DMA epoch 混用。第一阶段通过后，marker
 捕获不再是后续失败判定的主要变量，后续重点转向 marker 后的 DATA 相对时序。
 
+### TRN-01：独立 SCK offset matrix
+
+SCK 以自身 PIO origin、已知 burst 和 raw capture 建立相位基准，不使用 TRN-00 MARK
+offset 作为数学零点。每个 destination Node 均执行独立的
+`STOP -> ARM -> inject -> capture` repeat，并从相关峰、拍差直方图、众数/中位数和
+residual 选择 offset。阶段输出必须绑定 generation、profile、topology 和 sample period；
+任一未选候选仍保留原始证据，但只有完整 repeat matrix 可以进入 TRN-03。
+
 ### TRN-02：marker 锚定 DATA 码元时隙
 
-第二阶段在每个本地 marker origin 之后发送/捕获已知 DATA codeword。候选区间以当前
+第三阶段在每个本地 marker origin 之后发送/捕获已知 DATA codeword。候选区间以当前
 link 的 `link_base_delay` 为中心，由 P3 path-delay 粗预算、PIO pipeline 和 guard 形成有界
 `offset_link` 搜索区间；实际接收位置通过 correlation、极性、CRC、sequence 和 margin 确认，
 而不是把 `81 ns` 写成固定等待值，也不是把收发器数据手册延迟重复加到 `T_base`。
@@ -405,14 +414,14 @@ TRN-02 的结果按 `link_base_delay + node_offset` 表达为相对接收窗口�
 
 ### TRN-03：TDMA 短帧/FIFO 闭环接入
 
-第三阶段才装载按 ring role 配置的产品 cyclic flight persona，把 TRN-02 的 per-link window 绑定到 TDMA adapter，
+第四阶段才装载按 ring role 配置的产品 cyclic flight persona，把 TRN-02 的 per-link window 绑定到 TDMA adapter，
 并通过显式 `STOP -> stage -> validate -> ARM -> START` 接入短帧和 TX/RX FIFO。ARM 前
 必须同时加载独立 accepted 的 MARK、SCK 和 DATA offset matrix，并冻结本次 profile 的 PIO 指令周期预算；core1
 负责 PIO/SM/DMA、飞行转发和 FIFO 搬运；core0 只处理已完成帧和 guarded snapshot。
 
 TRN-03 replay matrix 必须由固化工具
 `tools/calibration_ring_validate/trn03_matrix.py` 从同一 operating profile 下成对的
-TRN-02 DATA repeat matrix 和 TRN-01 residence matrix 生成。生成器必须先验证
+TRN-02 DATA repeat matrix、TRN-01 SCK matrix 和 TRN-00 residence matrix 生成。生成器必须先验证
 calibration/topology/profile/schedule identity、完整 link 集、重复跨度、hardware-latched
 DATA、forward residence 和 loop delay，再从证据派生每条 link 的周期预算；禁止人工填写
 `forward_residence_cycles` 或用另一 generation/profile 的 residence 补齐矩阵。
@@ -426,7 +435,7 @@ STOPPED 回退验证。
 
 ### TRN-03 的 TDMA 指令周期预算
 
-第三阶段的时间基准不是 RTOS 任务执行时间，而是 PIO state machine 的实际指令周期。
+第四阶段的时间基准不是 RTOS 任务执行时间，而是 PIO state machine 的实际指令周期。
 预算必须从代码和 profile 事实源生成并随 staging 一起校验：
 
 ```text
@@ -464,7 +473,7 @@ training window stale 并重新训练。`cycle_period_ns` 是 TDMA 调度周期�
 instruction period；core1 的 RTOS service 只允许在已预留的 bounded budget 内搬运 FIFO，
 不能进入 marker、采样边沿或 cut-through 的关键路径。
 
-第三阶段门禁分为两个连续层级：
+第四阶段门禁分为两个连续层级：
 
 - `raw-flight`：只验证原始短帧已经脱离“完整 RX 后由 core1 再次发送”的热路径；reference
   使用 `TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN`，其余 node 使用
@@ -516,10 +525,10 @@ active calibration，也不允许 SD/SCPI 进入 PIO 边沿热路径。
 三阶段与历史 delay ledger 的关系固定为：
 
 ```text
-P1 CLK RTT bracket       -> TRN-01/TRN-02 的数量级 guard
-P2 coded marker RTT      -> TRN-01 的 marker codebook/捕获基线
+P1 CLK RTT bracket       -> TRN-00/TRN-01/TRN-02 的数量级 guard
+P2 coded marker RTT      -> TRN-00 的 marker codebook/捕获基线
 P3 per-link ~81 ns       -> TRN-02 的候选 N 初值
-TRN-01 marker origin     -> TRN-02 的相对 DATA 窗口
+TRN-00 marker origin     -> TRN-02 的相对 DATA 窗口
 TRN-02 accepted window   -> TRN-03 的 TDMA ARM/FIFO 接入
 ```
 
@@ -702,8 +711,9 @@ marker timeout、低 margin、CRC/sequence/epoch 错、DMA overrun、PIO stall �
 清 FIFO/DMA、恢复已配置的产品 cyclic persona，并保持 active generation 不变。交付顺序固定为：
 
 ```text
-TRN-01-A 文档/字段冻结候选
-TRN-01-B 环路 marker capture/cut-through
+TRN-00-A 文档/字段冻结候选
+TRN-00-B 环路 marker capture/cut-through
+TRN-01-A/B 独立 SCK offset matrix
 TRN-02-A NO.1->NO.2 DATA offset 粗搜与细搜
 TRN-02-B 四条 directed link window 训练
 TRN-03-A TDMA per-link staging/ARM gate

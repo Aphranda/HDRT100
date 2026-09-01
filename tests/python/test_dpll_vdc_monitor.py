@@ -8,7 +8,13 @@ from tools.dpll_vdc_monitor.dpll_vdc_monitor import (
     VECTOR_FLAG_LOCKED,
     VECTOR_FLAG_VALID,
     SMA_LOCK_EXPECTED_MASK,
+    PHASE_SELFTEST_FIELDS,
     BoardSample,
+    ProgressReporter,
+    _progress_board,
+    _finish_waveform_capture,
+    _parse_storage_read,
+    _parse_waveform_status,
     _board_summary,
     _svg,
     _select_trigger_sequence,
@@ -16,6 +22,140 @@ from tools.dpll_vdc_monitor.dpll_vdc_monitor import (
     parse_vector_response,
     _ring_sequence_consistency,
 )
+from tools.scpi_common.scpi_serial import scpi_response_matches_command
+
+
+def test_selftest_progress_exposes_tx_schedule_without_becoming_evidence(
+        tmp_path) -> None:
+    sample = BoardSample(
+        ts_utc="2026-09-01T00:00:00+00:00", elapsed_s=1.0,
+        board="NO1", port="COM3", tdma={}, vdc_status={},
+        dpll_status={"state": 1, "update_seq": 7}, readiness={},
+        vdc_vector={}, dpll_vector={}, trigger_sequence=0,
+        trigger_interval_ms=None, simultaneous_feedback=False,
+        phase_selftest={
+            "active": 1, "role": 1, "last_error": 0,
+            "scheduled_pulse_count": 12,
+            "first_window_start_lo": 0x12345678,
+            "first_window_start_hi": 2,
+        })
+    status = _progress_board(sample)
+    assert len(PHASE_SELFTEST_FIELDS) == 19
+    assert status["scheduled_pulse_count"] == 12
+    assert status["first_window_start_ns"] == 0x212345678
+
+    path = tmp_path / "progress.json"
+    ProgressReporter(path).emit("observing", boards={"NO1": status})
+    payload = __import__("json").loads(path.read_text(encoding="utf-8"))
+    assert payload["source"] == "CORE0_SCPI_READ_ONLY_STATUS"
+    assert payload["analysis_evidence"] == "NO5_SD_PIO0_RAW_WAVEFORM"
+
+
+def test_waveform_status_and_storage_page_parsers_keep_raw_evidence() -> None:
+    status = _parse_waveform_status(
+        'FALSE,FALSE,TRUE,123,360,0,2,0,7,366,100,500,0,19,'
+        '"/traces/run/sma_00000123_0001.bin"')
+    assert status["complete"] == 1
+    assert status["record_count"] == 360
+    assert status["last_path"].endswith("_0001.bin")
+
+    page = _parse_storage_read(
+        '"OK","/traces/run/x.bin",0,4,4,4,1,99,0,"01020304"', 0)
+    assert page["payload"] == b"\x01\x02\x03\x04"
+    assert page["eof"] is True
+
+
+def test_empty_waveform_is_a_recorded_gate_failure_without_save(
+        monkeypatch, tmp_path) -> None:
+    commands: list[str] = []
+
+    def query(_ser, command: str, _timeout: float) -> str:
+        commands.append(command)
+        if command.endswith(":STOP"):
+            return '"OK",0,0'
+        if command.endswith(":STATus?"):
+            return '0,0,1,123,0,0,0,0,0,0,10,20,0,0,""'
+        raise AssertionError(f"unexpected command: {command}")
+
+    monkeypatch.setattr(
+        "tools.dpll_vdc_monitor.dpll_vdc_monitor._query", query)
+    args = __import__("types").SimpleNamespace(
+        timeout=1.0, waveform_flush_timeout_s=1.0,
+        phase_pulse_period_ns=1_000_000,
+        phase_max_span_ns=500, phase_min_complete_rounds=3,
+        out_dir=tmp_path)
+    result = _finish_waveform_capture(
+        object(), args, ProgressReporter(tmp_path / "progress.json"))
+
+    assert result["raw_gate"]["passed"] is False
+    assert result["raw_gate"]["errors"] == ["no_raw_waveform_records"]
+    assert result["sd_paths"] == []
+    assert all(not command.endswith(":SAVE") for command in commands)
+
+
+def test_dropped_waveform_is_saved_and_analyzed_as_failed_evidence(
+        monkeypatch, tmp_path) -> None:
+    commands: list[str] = []
+
+    def query(_ser, command: str, _timeout: float) -> str:
+        commands.append(command)
+        if command.endswith(":STOP"):
+            return '"OK",10,3'
+        if command.endswith(":STATus?"):
+            return (
+                '0,0,1,123,10,3,1,0,1,10,10,20,0,1,'
+                '"/traces/run/sma_00000123_0000.bin"')
+        if command.endswith(":SAVE"):
+            return '"OK",1,"/traces/run/sma_00000123_"'
+        raise AssertionError(f"unexpected command: {command}")
+
+    monkeypatch.setattr(
+        "tools.dpll_vdc_monitor.dpll_vdc_monitor._query", query)
+    monkeypatch.setattr(
+        "tools.dpll_vdc_monitor.dpll_vdc_monitor._download_waveform_segment",
+        lambda _ser, _path, _timeout: b"segment")
+    monkeypatch.setattr(
+        "tools.dpll_vdc_monitor.dpll_vdc_monitor.decode_segments",
+        lambda _paths, **_kwargs: {
+            "dropped_count": 0,
+            "source_dropped_count": 2,
+            "phase_round_count": 1,
+            "phase": [{"span_ns": 42}],
+        })
+    monkeypatch.setattr(
+        "tools.dpll_vdc_monitor.dpll_vdc_monitor.write_waveform_reports",
+        lambda _decoded, out_dir: {"out_dir": str(out_dir)})
+    args = __import__("types").SimpleNamespace(
+        timeout=1.0, waveform_flush_timeout_s=1.0,
+        phase_pulse_period_ns=1_000_000,
+        phase_max_span_ns=500, phase_min_complete_rounds=3,
+        out_dir=tmp_path)
+
+    result = _finish_waveform_capture(
+        object(), args, ProgressReporter(tmp_path / "progress.json"))
+
+    assert any(command.endswith(":SAVE") for command in commands)
+    assert result["sd_paths"] == [
+        "/traces/run/sma_00000123_0000.bin"]
+    assert result["raw_gate"]["passed"] is False
+    assert result["raw_gate"]["capture_dropped_count"] == 3
+    assert result["raw_gate"]["source_dropped_count"] == 2
+    assert result["raw_gate"]["errors"] == [
+        "capture_dropped_records",
+        "source_dropped_records",
+        "insufficient_stable_phase_rounds",
+    ]
+
+
+@pytest.mark.parametrize("command,response", [
+    ("SYSTem:SYNC:VDC:OBServer:WAVEform:ARM", '"OK",123,180'),
+    ("SYSTem:SYNC:VDC:OBServer:WAVEform:STOP", '"OK",360,0'),
+    ("SYSTem:SYNC:VDC:OBServer:WAVEform:SAVE",
+     '"OK",2,"/traces/run/sma_00000123_"'),
+])
+def test_waveform_composite_scpi_responses_are_preserved(
+        command: str, response: str) -> None:
+    assert scpi_response_matches_command(command, response)
 
 
 def test_monitor_accepts_only_numbered_board_names() -> None:
@@ -107,7 +247,7 @@ def test_board_summary_requires_simultaneous_hardware_evidence() -> None:
     assert degraded["timestamp_eligible"] is False
 
 
-def test_observer_summary_uses_sma_lock_bits_not_ring_vectors() -> None:
+def test_observer_summary_requires_external_phase_evidence() -> None:
     sample = BoardSample(
         ts_utc="2026-08-28T00:00:00+00:00",
         elapsed_s=1.0,
@@ -129,6 +269,16 @@ def test_observer_summary_uses_sma_lock_bits_not_ring_vectors() -> None:
         simultaneous_feedback=False,
         sma_input={"base_pin": 20, "pin_count": 4,
                    "level_mask": SMA_LOCK_EXPECTED_MASK},
+        phase_observation={
+            "enabled": 1, "round_count": 8, "complete_count": 8,
+            "missing_count": 0, "ambiguous_count": 0,
+            "last_edge_mask": SMA_LOCK_EXPECTED_MASK, "last_span_ns": 42,
+            "initial_span_ns": 900, "peak_span_ns": 900,
+            "stable_streak": 4, "max_stable_streak": 4,
+            "stable_jitter_ns": 12, "converged": 1,
+            "configured_max_span_ns": 500,
+            "configured_min_stable_rounds": 3,
+        },
     )
     summary = _board_summary([sample], expected_interval_ms=1.0,
                              interval_tolerance_ms=0.1, observer=True)
@@ -136,11 +286,51 @@ def test_observer_summary_uses_sma_lock_bits_not_ring_vectors() -> None:
     assert summary["simultaneous_feedback"] is False
     assert summary["vector_valid"] is False
     assert summary["sma_all_locked"] is True
+    assert summary["phase_gate_passed"] is True
+    assert summary["phase_initial_span_ns"] == 900
+    assert summary["phase_final_span_ns"] == 42
 
     sample.sma_input["level_mask"] = 0x07
     unlocked = _board_summary([sample], expected_interval_ms=1.0,
                               interval_tolerance_ms=0.1, observer=True)
     assert unlocked["sma_all_locked"] is False
+
+    sample.sma_input["level_mask"] = SMA_LOCK_EXPECTED_MASK
+    sample.phase_observation["last_span_ns"] = 900
+    sample.phase_observation["stable_streak"] = 0
+    sample.phase_observation["converged"] = 0
+    phase_bad = _board_summary([sample], expected_interval_ms=1.0,
+                               interval_tolerance_ms=0.1, observer=True,
+                               phase_max_span_ns=500)
+    assert phase_bad["sma_all_locked"] is True
+    assert phase_bad["phase_gate_passed"] is False
+
+
+@pytest.mark.parametrize("field", ["missing_count", "ambiguous_count"])
+def test_observer_summary_rejects_incomplete_phase_rounds(field: str) -> None:
+    phase = {
+        "enabled": 1, "round_count": 12, "complete_count": 10,
+        "missing_count": 0, "ambiguous_count": 0,
+        "last_edge_mask": SMA_LOCK_EXPECTED_MASK, "last_span_ns": 40,
+        "initial_span_ns": 800, "peak_span_ns": 800,
+        "stable_streak": 6, "max_stable_streak": 6,
+        "stable_jitter_ns": 8, "converged": 1,
+        "configured_max_span_ns": 500,
+        "configured_min_stable_rounds": 3,
+    }
+    phase[field] = 1
+    sample = BoardSample(
+        ts_utc="2026-08-28T00:00:00+00:00", elapsed_s=1.0,
+        board="NO5", port="COM25", tdma={}, vdc_status={}, dpll_status={},
+        readiness={}, vdc_vector={}, dpll_vector={}, trigger_sequence=0,
+        trigger_interval_ms=None, simultaneous_feedback=False,
+        sma_input={"base_pin": 20, "pin_count": 4,
+                   "level_mask": SMA_LOCK_EXPECTED_MASK},
+        phase_observation=phase,
+    )
+    summary = _board_summary([sample], expected_interval_ms=1.0,
+                             interval_tolerance_ms=0.1, observer=True)
+    assert summary["phase_gate_passed"] is False
 
 
 def test_ring_sequence_consistency_excludes_out_of_ring_observer() -> None:

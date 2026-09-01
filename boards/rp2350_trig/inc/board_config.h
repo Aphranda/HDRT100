@@ -192,6 +192,7 @@
 #define BOARD_SYNC_RJ45_TRIGGER_ENABLED 0
 
 #define BOARD_SYNC_CAPTURE_SM 0u
+#define BOARD_SYNC_SMA_OBSERVER_SM 1u
 #define BOARD_SYNC_TIMESTAMP_SM 1u
 #define BOARD_SYNC_RJ45_TRIG_IN_SM 2u
 /* Mode-level alias: pio0/sm2 owns the RJ45_TRIG_IN hardware channel;

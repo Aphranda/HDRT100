@@ -210,7 +210,8 @@ def signed_integer_field(source: dict[str, Any], field: str) -> int:
 
 
 def validate_config(raw: object,
-                    offset_row_id: int | None = None) -> dict[str, Any]:
+                    offset_row_id: int | None = None, *,
+                    allow_unsafe_sck: bool = False) -> dict[str, Any]:
     """Validate and resolve exactly one replay row from a full matrix."""
     if not isinstance(raw, dict):
         raise ValueError("config root must be an object")
@@ -372,7 +373,7 @@ def validate_config(raw: object,
                 link["data_phase_delay_cycles"] > 31:
             raise ValueError(
                 f"link{link['link_index']} PIO phase mapping is invalid")
-        if not sck_replay_phase_is_safe(
+        if not allow_unsafe_sck and not sck_replay_phase_is_safe(
                 phase_delay_cycles=link["sck_phase_delay_cycles"],
                 baud_hz=baud_hz,
                 sample_period_ns=link["sample_period_ns"],
@@ -429,9 +430,11 @@ def validate_config(raw: object,
     }
 
 
-def load_config(path: Path, offset_row_id: int | None = None) -> dict[str, Any]:
+def load_config(path: Path, offset_row_id: int | None = None, *,
+                allow_unsafe_sck: bool = False) -> dict[str, Any]:
     raw = json.loads(path.read_text(encoding="utf-8"))
-    return validate_config(raw, offset_row_id)
+    return validate_config(
+        raw, offset_row_id, allow_unsafe_sck=allow_unsafe_sck)
 
 
 def stage_begin_command(config: dict[str, Any]) -> str:

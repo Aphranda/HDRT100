@@ -39,6 +39,10 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 
 硬件验收必须区分运行态复位和固件变更：
 
+- 每轮硬件验收在 package/OTA 或复用 build 核验完成后、P0T 开始前，按物理 UID 对本次
+  验收范围内的每块板固定执行一次 `SYSTem:BOOT:RESet`。编排器必须轮询 USB 重新枚举、
+  复核完整 UID 集和 build，并保存 `initialization-reset.json`；不得按 COM 号或
+  `node_index` 认板。
 - 运行中的节点出现卡死、状态机未清理、quarantine 或其他可恢复状态时，只执行
   `tools/picotool_reboot/picotool_reboot.py` 的应用软件重启；重启后重新通过
   topology/profile/calibration identity、矩阵读回和 ARM gate，再继续受影响的验收。
@@ -75,7 +79,7 @@ generation 或 active calibration gate。对应构建、OTA 和 schedule 证据�
 产品发布主线：
 P0T topology + P0 evidence owner
   -> P1 coarse bracket -> P2 coded RTT -> P3 path/bias candidate
-       -> TRN-01 MARK -> TRN-02 DATA/SCK -> TRN-03A/B short frame
+       -> TRN-00 MARK -> TRN-01 SCK -> TRN-02 DATA -> TRN-03A/B short frame
             -> TRN-03C active candidate -> TRN-03D fault/soak -> P4-REL VDC/DPLL
 
 验证阶段快车道：
@@ -93,7 +97,7 @@ active calibration 和 TRN-03D 产品安全闭环完成前仍只形成 provision
 
 ### 1.5 训练子域的校准前置门禁
 
-| 前置 | 当前状态 | 对 TRN-01/02/03 的约束 |
+| 前置 | 当前状态 | 对 TRN-00/01/02/03 的约束 |
 |---|---|---|
 | accepted physical order | `IN PROGRESS`：host 四板环序和 NO 映射可重放，板内 topology transaction/freshness 仍待闭环 | 训练只能按 `*IDN?` 唯一地址和 accepted node order 执行 |
 | P3 path candidate | `IN PROGRESS`：逐 link diagnostic `t1..t4` 和 path-sum 已有，endpoint bias 未有效 | 可用于 MARK/SCK/DATA 有界搜索，不得变成 active delay |
@@ -110,27 +114,34 @@ active calibration 和 TRN-03D 产品安全闭环完成前仍只形成 provision
 5. 与上述工作并行启动 `P4-DBG`；优先打通 trace replay、DPLL sample admission、offset/rate/lock
    曲线和参数扫描。`P4-LIVE` 只等待真实边沿 latch，不等待完整重试、watchdog、持久化和发布门禁。
 
-## 二、训练子域：MARK / DATA / TDMA
+## 二、训练子域：MARK / SCK / DATA / TDMA
 
-训练子域按三个新阶段推进。旧校准 `P1/P2/P3` 只提供粗窗口、marker 基线和
-`path_delay` candidate，不替代下面三个阶段的实际收发门禁。
+训练子域按四个新阶段推进。旧校准 `P1/P2/P3` 只提供粗窗口、marker 基线和
+`path_delay` candidate，不替代下面四个阶段的实际收发门禁。
 
 | 阶段 | 阶段目标 | 主要输入 | 阶段输出 | 进入下一阶段 |
 |---|---|---|---|---|
-| `TRN-01` | 环路 marker 捕获与 core1/PIO cut-through | accepted topology、P2 codebook、epoch/sequence | 每跳 capture/forward tick、residence、整圈 marker RTT | 四节点同 epoch 捕获、顺序正确、每跳延迟有界、无 PIO/DMA fault |
-| `TRN-02` | marker 锚定 DATA 码元时隙 | TRN-01 local origin、P3 `path_delay` candidate、PIO sample period | per-link `data_offset`、window、guard、skew、correlation/margin | 单跳和四条 directed link 重复通过，generation/profile/residence 一致 |
-| `TRN-03` | TDMA 短帧/FIFO 闭环接入 | TRN-02 DATA windows、独立 SCK offset matrix、PIO instruction-cycle profile、loop-delay/residence、topology/profile CRC | staging/ARM、link/forward budget、短帧 TX/RX FIFO、sequence/CRC、active candidate | MARK、SCK、DATA 均 accepted，四板 up/down 和 FIFO 同时增长，且周期预算可重放；失败统一 STOPPED |
+| `TRN-00` | 环路 marker 捕获与 core1/PIO cut-through | accepted topology、P2 codebook、epoch/sequence | 每跳 capture/forward tick、residence、整圈 marker RTT | 四节点同 epoch 捕获、顺序正确、每跳延迟有界、无 PIO/DMA fault |
+| `TRN-01` | 独立 SCK offset matrix | TRN-00 accepted topology/identity、SCK codebook、PIO sample period | per-node SCK offset、相关峰、重复统计、residual | 每个 destination Node 的独立 SCK repeat 通过，generation/profile/topology 一致 |
+| `TRN-02` | marker 锚定 DATA 码元时隙 | TRN-00 local origin、P3 `path_delay` candidate、PIO sample period | per-link `data_offset`、window、guard、skew、correlation/margin | 单跳和四条 directed link 重复通过，generation/profile/residence 一致 |
+| `TRN-03` | TDMA 短帧/FIFO 闭环接入 | TRN-01 SCK matrix、TRN-02 DATA windows、PIO instruction-cycle profile、loop-delay/residence、topology/profile CRC | staging/ARM、link/forward budget、短帧 TX/RX FIFO、sequence/CRC、active candidate | MARK、SCK、DATA 均 accepted，四板 up/down 和 FIFO 同时增长，且周期预算可重放；失败统一 STOPPED |
 
-### 2.1 TRN-01：环路 MARK 捕获与切通
+### 2.1 TRN-00：环路 MARK 捕获与切通
 
 | ID | 任务 | 状态 | 完成/退出门禁 |
 |---|---|---|---|
-| TRN-01A | 冻结 marker trial 的 epoch、sequence、marker_id、CRC、polarity、capture/forward tick 和 raw evidence 字段 | `DONE` | C snapshot、板端查询、host parser、字段数测试和 SD raw capture 已完成端到端一致性验证 |
-| TRN-01B | 在 TDMA core1 owner 增加独立 marker PIO persona，支持 marker line 选择、固定 cut-through 和 DMA capture | `DONE` | PIO catalog/resource gate 和四板 HIL 通过；训练前显式 STOP，未与 cyclic TDMA 并发 |
-| TRN-01C | 实现 Calibration intent 到 core1 的 bounded mailbox/prepare-ack，SCPI 不直接触碰 PIO/SM/DMA | `DONE` | ARM/INJECT 两阶段 mailbox、guarded snapshot、超时/拒绝矩阵、persona recovery 和 core1 owner 边界已覆盖 |
-| TRN-01D | 完成 `NO.1 -> NO.2 -> NO.3 -> NO.4 -> NO.1` 环路 marker HIL | `DONE` | 零 offset 基线及一拍复核均为四节点 accepted；同 epoch/CRC、返回 marker、DMA/PIO fault 门禁通过，证据见任务记录 |
+| TRN-00A | 冻结 marker trial 的 epoch、sequence、marker_id、CRC、polarity、capture/forward tick 和 raw evidence 字段 | `DONE` | C snapshot、板端查询、host parser、字段数测试和 SD raw capture 已完成端到端一致性验证 |
+| TRN-00B | 在 TDMA core1 owner 增加独立 marker PIO persona，支持 marker line 选择、固定 cut-through 和 DMA capture | `DONE` | PIO catalog/resource gate 和四板 HIL 通过；训练前显式 STOP，未与 cyclic TDMA 并发 |
+| TRN-00C | 实现 Calibration intent 到 core1 的 bounded mailbox/prepare-ack，SCPI 不直接触碰 PIO/SM/DMA | `DONE` | ARM/INJECT 两阶段 mailbox、guarded snapshot、超时/拒绝矩阵、persona recovery 和 core1 owner 边界已覆盖 |
+| TRN-00D | 完成 `NO.1 -> NO.2 -> NO.3 -> NO.4 -> NO.1` 环路 marker HIL | `DONE` | 零 offset 基线及一拍复核均为四节点 accepted；同 epoch/CRC、返回 marker、DMA/PIO fault 门禁通过，证据见任务记录 |
 
-### 2.2 TRN-02：MARK 锚定 DATA 码元时隙
+### 2.2 TRN-01：独立 SCK offset matrix
+
+SCK 使用自身 PIO origin 和 raw capture 训练，不引用 MARK offset 作为数学零点。每个
+destination Node 均执行独立 `STOP -> ARM -> inject -> capture` repeat，并保留相关峰、
+直方图、residual、SD raw capture 和完整 identity。
+
+### 2.3 TRN-02：MARK 锚定 DATA 码元时隙
 
 | ID | 任务 | 状态 | 完成/退出门禁 |
 |---|---|---|---|
@@ -139,17 +150,17 @@ active calibration 和 TRN-03D 产品安全闭环完成前仍只形成 provision
 | TRN-02C | 将单跳结果形成 diagnostic training window，绑定 topology/profile/calibration generation 和 CRC | `DONE` | snapshot/SD capture 可读，topology/profile/schedule/calibration generation 已绑定，并保持 `DIAGNOSTIC_ONLY` |
 | TRN-02D | 沿 accepted topology 完成四条 directed link 的 window 训练和固定 operating-profile 阶梯验证 | `DONE` | 固定阶梯全部完成完整 link 集、多次 repeat、跨度、identity、residence 和 fault-counter 门禁；证据见任务记录 |
 
-### 2.3 统一相位训练路径
+### 2.4 统一相位训练路径
 
 | ID | 任务 | 状态 | 完成/退出门禁 |
 |---|---|---|---|
 | PHASE-TRN-BASE | MARK、SCK、DATA 共用 `link_base_delay = measured_link_delay / 2` 与 `base_samples + node_offset`，codebook half-chip 仅用于波形编码 | `DONE` | C 共用原语、host 共用计划 schema 和 MARK/SCK/DATA 专项回归通过；范围和容量引用 `CALIBRATION_TRAINING_PHASE_*` |
 | PHASE-TRN-MATRIX | 三种信号共用零 offset 基线、SD raw capture、离线相关/SVG、全量 Node 笛卡尔矩阵、动态加载和 residual repeat gate | `DONE` | MARK/SCK/DATA 全量矩阵、独立 SCK 四板 HIL 和 DATA 矩阵已接入同 generation TRN-03B 闭环；失败 trial 与 SD/SVG 原始证据仍必须保留 |
-| SCK-TRN-01 | 使用 SCK 自身 PIO 启动、已知 burst 和 raw capture 完成独立环路捕获，不引用 MARK offset 计算相位 | `DONE` | request/snapshot/SCPI/PIO/host 已移除 MARK phase 输入，SCK 使用自身 origin、per-link base 和 Node offset |
-| SCK-TRN-02 | 沿 accepted topology 对每个 destination Node 执行独立 STOP/ARM/inject repeat，生成全量 SCK offset matrix | `DONE` | 四板零 offset 基线与推荐矩阵动态加载均完成独立 repeat；raw capture、逐 Node SVG、直方图、众数/中位数和 residual 门禁见任务记录 |
-| SCK-TRN-GATE | 在 MARK 与 SCK 分别 accepted 后验证 `mark_sck_skew` | `PENDING` | skew 只进入产品 guard/window 验收，不回写任一物理 offset；generation/profile/topology/stale 与 rollback 门禁通过 |
+| TRN-01A | 使用 SCK 自身 PIO 启动、已知 burst 和 raw capture 完成独立环路捕获，不引用 MARK offset 计算相位 | `DONE` | request/snapshot/SCPI/PIO/host 已移除 MARK phase 输入，SCK 使用自身 origin、per-link base 和 Node offset |
+| TRN-01B | 沿 accepted topology 对每个 destination Node 执行独立 STOP/ARM/inject repeat，生成全量 SCK offset matrix | `DONE` | 四板零 offset 基线与推荐矩阵动态加载均完成独立 repeat；raw capture、逐 Node SVG、直方图、众数/中位数和 residual 门禁见任务记录 |
+| TRN-01C | 在 MARK 与 SCK 分别 accepted 后验证 `mark_sck_skew` | `PENDING` | skew 只进入产品 guard/window 验收，不回写任一物理 offset；generation/profile/topology/stale 与 rollback 门禁通过 |
 
-### 2.4 TRN-03：TDMA 短帧/FIFO 闭环接入
+### 2.5 TRN-03：TDMA 短帧/FIFO 闭环接入
 
 | ID | 任务 | 状态 | 完成/退出门禁 |
 |---|---|---|---|
@@ -219,12 +230,14 @@ EtherCAT 原生 cyclic 恢复机制，而是本产品仅在 TDMA 预算可证明
 实施顺序固定为：
 
 ```text
-TRN-01A..D
+TRN-00A..D
+  -> TRN-01A..C
   -> TRN-02A..D
   -> TRN-03A..D
 ```
 
-在 `TRN-01D` 通过前不得开始 DATA 时隙收敛；在 `TRN-02D` 通过前不得 ARM 四板 TDMA；
+在 `TRN-00D` 通过前不得开始 SCK/DATA 时隙收敛；在 `TRN-01B` 和 `TRN-02D`
+通过前不得 ARM 四板 TDMA；
 在 `TRN-03C` 通过前不得向 VDC/DPLL 发布 active calibration。
 
 ## 三、P0T 线序与环路顺序校准

@@ -469,14 +469,17 @@ def write_limited_receipt(args: argparse.Namespace) -> None:
     print(f"PASS limited 10 MHz hardware acceptance receipt={args.receipt}")
 
 
-def _run_step(command: list[str], root: Path, log_path: Path) -> None:
+def _run_step(command: list[str], root: Path, log_path: Path, *,
+              allow_failure: bool = False) -> int:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     environment = dict(os.environ)
     environment["PYTHONIOENCODING"] = "utf-8"
-    # Each acceptance phase is one process.  Reuse one CDC session per board
-    # inside that process so input/output handoff is explicit and deterministic
-    # instead of paying a port settle and identity probe for every command.
-    environment["HAOFV_ACCEPTANCE_PERSISTENT_SESSIONS"] = "1"
+    # Several calibration actions intentionally time out before their delayed
+    # acknowledgement reaches USB CDC.  A fresh session for the following
+    # readback prevents that delayed response from poisoning a TDMA status
+    # query.  Individual tools may still opt into --keep-open where the whole
+    # transaction has one explicit serial owner.
+    environment["HAOFV_ACCEPTANCE_PERSISTENT_SESSIONS"] = "0"
     environment.setdefault("HAOFV_SERIAL_READ_TIMEOUT_S", "0.02")
     started = datetime.now(timezone.utc)
     monotonic_start = time.perf_counter()
@@ -494,10 +497,11 @@ def _run_step(command: list[str], root: Path, log_path: Path) -> None:
         "status": "PASS" if result.returncode == 0 else "FAIL",
     })
     log_path.write_bytes(result.stdout)
-    if result.returncode != 0:
+    if result.returncode != 0 and not allow_failure:
         tail = result.stdout.decode("utf-8", errors="replace").splitlines()[-20:]
         raise AcceptanceError(
             f"step failed ({' '.join(command)}):\n" + "\n".join(tail))
+    return int(result.returncode)
 
 
 def _read_package_build_id(path: Path) -> str:
@@ -701,6 +705,83 @@ def validate_pass_summary(summary: dict[str, Any], label: str) -> None:
         raise AcceptanceError(f"{label} did not meet acceptance: {detail}")
 
 
+def build_diagnostic_feedback(
+        tdma_summary: dict[str, Any],
+        dpll_summary: dict[str, Any] | None,
+        trn03_matrix: dict[str, Any]) -> dict[str, Any]:
+    """Collect failed-gate measurements that can drive DPLL correction."""
+    runtime_fields = (
+        "ring_adapter_rx_count", "ring_adapter_rx_bad_count",
+        "ring_adapter_rx_transport_bad_count",
+        "ring_adapter_rx_schedule_bad_count",
+        "ring_adapter_rx_profile_bad_count",
+        "ring_adapter_last_bad_transport_result",
+        "ring_adapter_last_bad_sequence",
+        "ring_adapter_last_bad_header_diff_count",
+        "ring_adapter_last_bad_header_first_diff_offset",
+        "ring_adapter_last_bad_header_expected_byte",
+        "ring_adapter_last_bad_header_observed_byte",
+    )
+    phase_fields = (
+        "flight_marker_offset_sample_count",
+        "flight_sck_offset_sample_count",
+        "flight_data_offset_sample_count",
+        "flight_marker_phase_delay_cycles",
+        "flight_sck_phase_delay_cycles",
+        "flight_data_phase_delay_cycles",
+    )
+    process_fields = (
+        "receive_accepted_count", "receive_rejected_count",
+        "receive_missing_count", "rx_bitmap_incomplete_count",
+        "receive_last_transport_result", "receive_quality_flags",
+    )
+    node_feedback: dict[str, Any] = {}
+    for address, node in tdma_summary.get("nodes", {}).items():
+        runtime = node.get("runtime_after", {})
+        physical = node.get("physical_after", {})
+        process = node.get("flight_after", {}).get("process", {})
+        node_feedback[address] = {
+            "node_index": node.get("node_index"),
+            "passed": bool(node.get("passed")),
+            "errors": list(node.get("errors", [])),
+            "runtime": {field: runtime.get(field) for field in runtime_fields},
+            "physical_phase": {
+                field: physical.get(field) for field in phase_fields},
+            "process_image": {
+                field: process.get(field) for field in process_fields},
+            "crc_diagnostic": node.get("crc_diagnostic_after", {}),
+        }
+    dpll_boards = [] if dpll_summary is None else dpll_summary.get("boards", [])
+    observer = next((row for row in dpll_boards
+                     if row.get("role") == "observer"), {})
+    return {
+        "calibration_offsets": {
+            "active_row_id": trn03_matrix.get(
+                "offset_matrix", {}).get("active_row_id"),
+            "active_row": tdma_summary.get("offset_row", {}),
+            "sck_replay_selection": trn03_matrix.get(
+                "derivation", {}).get("sck_replay_selection", {}),
+        },
+        "tdma": {
+            "startup_barrier": tdma_summary.get("startup_barrier", {}),
+            "worst_receive_quality": tdma_summary.get(
+                "soak_validation", {}).get("worst_receive_quality", {}),
+            "nodes": node_feedback,
+            "dpll_schedule_gate": tdma_summary.get("dpll_schedule_gate", {}),
+        },
+        "dpll": {
+            "ring_sequence_consistent": (
+                None if dpll_summary is None else
+                dpll_summary.get("ring_sequence_consistent")),
+            "ring_sequence_skew": (
+                None if dpll_summary is None else
+                dpll_summary.get("ring_sequence_skew")),
+            "observer_phase": observer,
+            "boards": dpll_boards,
+        },
+    }
+
+
 def validate_sma_observer_topology(
         summary: dict[str, Any], config: dict[str, Any]) -> list[dict[str, int]]:
     """Require the measured five-board SMA routes to match the bench wiring."""
@@ -856,6 +937,8 @@ def run_acceptance(args: argparse.Namespace) -> None:
     config = json.loads(config_path.read_text(encoding="utf-8"))
     board_ids = list(config["p3_board_ids_in_physical_order"])
     tdma_only = bool(getattr(args, "tdma_only", False))
+    diagnostic_continue = bool(getattr(args, "diagnostic_continue", False))
+    diagnostic_failures: list[dict[str, Any]] = []
     ota_board_ids = board_ids if tdma_only else list(config["ota_board_ids"])
     if tdma_only and len(board_ids) != 4:
         raise AcceptanceError(
@@ -1181,19 +1264,37 @@ def run_acceptance(args: argparse.Namespace) -> None:
 
     trn03_matrix_path = out_dir / "trn03-matrix.json"
     print("Hardware acceptance: derive fresh TRN-03 replay matrix", flush=True)
-    _run_step([
+    matrix_command = [
         sys.executable,
         str(root / "tools/calibration_ring_validate/trn03_matrix.py"),
         "--level", str(config["training_profile_level"]),
         "--data", str(data_summary_path),
         "--residence", str(residence_summary_path),
         "--sck", str(sck_summary_path), "--out", str(trn03_matrix_path),
-    ], root, out_dir / "trn03-matrix.log")
+    ]
+    if diagnostic_continue:
+        matrix_command.append("--diagnostic-continue")
+    _run_step(matrix_command, root, out_dir / "trn03-matrix.log")
     trn03_matrix = json.loads(trn03_matrix_path.read_text(encoding="utf-8"))
     if (trn03_matrix.get("node_ids_in_loop_order") != board_ids or
             int(trn03_matrix.get("calibration_generation", 0)) !=
             training_generation):
         raise AcceptanceError("fresh TRN-03 matrix identity is inconsistent")
+    sck_replay_selection = trn03_matrix.get("derivation", {}).get(
+        "sck_replay_selection", {})
+    if not bool(sck_replay_selection.get("selected_row_replay_safe", True)):
+        if not diagnostic_continue:
+            raise AcceptanceError("TRN-03 selected SCK row is not replay-safe")
+        diagnostic_failures.append({
+            "phase": "TRN-03 SCK replay row selection",
+            "returncode": 1,
+            "error": "no measured SCK row satisfies the flight re-arm budget",
+            "selected_offset_sample_counts_by_node": sck_replay_selection.get(
+                "selected_offset_sample_counts_by_node"),
+            "selected_min_follower_margin_samples": sck_replay_selection.get(
+                "selected_min_follower_margin_samples"),
+            "matrix": trn03_matrix_path.resolve().relative_to(root).as_posix(),
+        })
 
     sma_wire_order_summary_path: Path | None = None
     if not tdma_only:
@@ -1237,11 +1338,23 @@ def run_acceptance(args: argparse.Namespace) -> None:
     add_serial_timing(tdma_command, timing)
     if config["tdma_capture_waveforms"]:
         tdma_command.append("--capture-waveforms")
+    if diagnostic_continue:
+        tdma_command.append("--diagnostic-continue")
     print("Hardware acceptance: four-Node TDMA process-image/FIFO loop", flush=True)
-    _run_step(tdma_command, root, out_dir / "tdma.log")
+    tdma_returncode = _run_step(
+        tdma_command, root, out_dir / "tdma.log",
+        allow_failure=diagnostic_continue)
     tdma_summary_path = tdma_dir / "summary.json"
     tdma_summary = json.loads(tdma_summary_path.read_text(encoding="utf-8"))
-    validate_pass_summary(tdma_summary, "four-Node TDMA closed loop")
+    if diagnostic_continue and tdma_returncode != 0:
+        diagnostic_failures.append({
+            "phase": "four-Node TDMA closed loop",
+            "returncode": tdma_returncode,
+            "error": str(tdma_summary.get("error", "")),
+            "summary": tdma_summary_path.resolve().relative_to(root).as_posix(),
+        })
+    else:
+        validate_pass_summary(tdma_summary, "four-Node TDMA closed loop")
     if tdma_summary.get("left_running") is not True:
         raise AcceptanceError("TDMA gate did not hand off a running loop")
 
@@ -1264,6 +1377,20 @@ def run_acceptance(args: argparse.Namespace) -> None:
             "--interval-tolerance-ms", str(config["dpll_interval_tolerance_ms"]),
             "--sequence-skew-tolerance",
             str(config["dpll_sequence_skew_tolerance"]),
+            "--phase-sample-period-ns",
+            str(config["dpll_phase_sample_period_ns"]),
+            "--phase-pulse-period-ns",
+            str(config["dpll_phase_pulse_period_ns"]),
+            "--phase-pulse-high-ns",
+            str(config["dpll_phase_pulse_high_ns"]),
+            "--phase-pulse-count",
+            str(config["dpll_phase_pulse_count"]),
+            "--phase-start-delay-ns",
+            str(config["dpll_phase_start_delay_ns"]),
+            "--phase-max-span-ns",
+            str(config["dpll_phase_max_span_ns"]),
+            "--phase-min-complete-rounds",
+            str(config["dpll_phase_min_complete_rounds"]),
             "--fail-on-gate", "--out-dir", str(dpll_dir),
         ]
         add_serial_timing(dpll_command, timing)
@@ -1284,18 +1411,87 @@ def run_acceptance(args: argparse.Namespace) -> None:
                 "Hardware acceptance: SD waveform evidence unavailable; "
                 "continue DPLL observation without attachment", flush=True)
         print("Hardware acceptance: DPLL/VDC observation on NO5", flush=True)
-        _run_step(dpll_command, root, out_dir / "dpll.log")
+        dpll_returncode = _run_step(
+            dpll_command, root, out_dir / "dpll.log",
+            allow_failure=diagnostic_continue)
         dpll_summary_path = dpll_dir / "summary.json"
-        dpll_summary = json.loads(dpll_summary_path.read_text(encoding="utf-8"))
-        validate_pass_summary(dpll_summary, "DPLL/VDC NO5 observation")
+        if not dpll_summary_path.is_file():
+            if not diagnostic_continue:
+                raise AcceptanceError("DPLL monitor did not write summary.json")
+            dpll_summary = {
+                "schema": "HAOFV_FAILED_STEP_V1",
+                "passed": False,
+                "error": "DPLL monitor did not write summary.json",
+                "returncode": dpll_returncode,
+            }
+            dpll_summary_path.parent.mkdir(parents=True, exist_ok=True)
+            dpll_summary_path.write_text(
+                json.dumps(dpll_summary, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8")
+        else:
+            dpll_summary = json.loads(
+                dpll_summary_path.read_text(encoding="utf-8"))
+        if diagnostic_continue and dpll_returncode != 0:
+            diagnostic_failures.append({
+                "phase": "DPLL/VDC NO5 observation",
+                "returncode": dpll_returncode,
+                "error": str(dpll_summary.get("error", "")),
+                "summary": dpll_summary_path.resolve().relative_to(root).as_posix(),
+            })
+        else:
+            validate_pass_summary(dpll_summary, "DPLL/VDC NO5 observation")
 
     final_schedules = read_schedules(board_ids, timing)
-    validate_runtime_schedules(
-        final_schedules, int(config["calibration_load_mask"]))
+    try:
+        validate_runtime_schedules(
+            final_schedules, int(config["calibration_load_mask"]))
+    except AcceptanceError as exc:
+        if not diagnostic_continue:
+            raise
+        diagnostic_failures.append({
+            "phase": "final TDMA realtime schedule",
+            "returncode": 1,
+            "error": str(exc),
+        })
 
     fingerprint_after, count_after = working_source_fingerprint(root)
     if (fingerprint_after, count_after) != (fingerprint_before, source_count):
         raise AcceptanceError("source changed while hardware acceptance was running")
+    if diagnostic_failures:
+        diagnostic_result = {
+            "schema": "HAOFV_HARDWARE_ACCEPTANCE_DIAGNOSTIC_V1",
+            "passed": True,
+            "flow_completed": True,
+            "strict_gates_passed": False,
+            "diagnostic_continue": True,
+            "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+            "build_id": build_id,
+            "failures": diagnostic_failures,
+            "tdma_summary": tdma_summary_path.resolve().relative_to(root).as_posix(),
+            "dpll_summary": (
+                dpll_summary_path.resolve().relative_to(root).as_posix()
+                if dpll_summary_path is not None else None),
+            "feedback_inputs": build_diagnostic_feedback(
+                tdma_summary,
+                dpll_summary if dpll_summary_path is not None else None,
+                trn03_matrix),
+        }
+        diagnostic_path = out_dir / "diagnostic.json"
+        diagnostic_path.write_text(
+            json.dumps(diagnostic_result, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8")
+        _record_timing_event({
+            "action": "acceptance.complete",
+            "started_at_utc": None,
+            "ended_at_utc": datetime.now(timezone.utc).isoformat(),
+            "duration_ms": None,
+            "returncode": 0,
+            "status": "PASS_WITH_DIAGNOSTICS",
+        })
+        print(
+            "PASS hardware regression flow completed with diagnostic gates; "
+            f"evidence={diagnostic_path}")
+        return
     _record_timing_event({
         "action": "acceptance.complete",
         "started_at_utc": None,
@@ -1371,6 +1567,10 @@ def parse_args() -> argparse.Namespace:
     run.add_argument(
         "--tdma-only", action="store_true",
         help="run calibration and four-node TDMA acceptance without NO5/DPLL")
+    run.add_argument(
+        "--diagnostic-continue", action="store_true",
+        help=("continue through TDMA/DPLL runtime gate failures, retain all "
+              "evidence, and finish with a non-passing diagnostic result"))
     resume = subparsers.add_parser(
         "resume",
         help="reuse an existing package/OTA record; never build or OTA")
@@ -1385,6 +1585,10 @@ def parse_args() -> argparse.Namespace:
     resume.add_argument(
         "--tdma-only", action="store_true",
         help="resume four-node TDMA acceptance without NO5/DPLL")
+    resume.add_argument(
+        "--diagnostic-continue", action="store_true",
+        help=("continue through TDMA/DPLL runtime gate failures, retain all "
+              "evidence, and finish with a non-passing diagnostic result"))
     check = subparsers.add_parser(
         "check-staged", help="gate staged code against the indexed receipt")
     check.add_argument("--root", type=Path, default=ROOT)

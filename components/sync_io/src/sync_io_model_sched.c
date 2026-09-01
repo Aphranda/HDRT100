@@ -34,6 +34,7 @@ typedef struct {
     uint64_t start_us;
     uint64_t total_duration_ns64;
     uint64_t completed_elapsed_ns;
+    PIO pio;
     /* The maintenance schedule shares the capture DMA workspace.  Keep only
      * a pointer in the persona state so the 32 KiB workspace is not duplicated
      * in .bss.  The arm path assigns it after confirming capture is idle. */
@@ -194,15 +195,18 @@ static void sync_io_model_update_completion(void)
     if (s_model_pulse.completed_pulses >= s_model_pulse.total_pulses &&
         elapsed_ns >= s_model_pulse.total_duration_ns64 &&
         !dma_channel_is_busy(s_model_pulse.dma_ch) &&
-        pio_sm_is_tx_fifo_empty(BOARD_SYNC_PIO_WAVE, s_model_pulse.sm)) {
+        pio_sm_is_tx_fifo_empty(s_model_pulse.pio, s_model_pulse.sm)) {
         s_model_pulse.completed_pulses = s_model_pulse.total_pulses;
         s_model_pulse.completed_elapsed_ns = s_model_pulse.total_duration_ns64;
-        pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, s_model_pulse.sm, false);
+        pio_sm_set_enabled(s_model_pulse.pio, s_model_pulse.sm, false);
         s_model_pulse.running = false;
     }
 }
 
 static bool sync_io_pulse_schedule_arm_on_pin_common(
+    PIO pulse_pio,
+    uint pulse_sm,
+    uint pulse_dreq,
     uint32_t output_pin,
     uint32_t trace_output_index,
     const sync_io_model_pulse_entry_t *entries_us,
@@ -291,7 +295,7 @@ static bool sync_io_pulse_schedule_arm_on_pin_common(
         ? &sync_model_sched_pulse_high_program
         : &sync_model_sched_pulse_low_program;
 
-    if (!pio_can_add_program(BOARD_SYNC_PIO_WAVE, program)) {
+    if (!pio_can_add_program(pulse_pio, program)) {
         sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
                            SYNC_IO_TRACE_ERROR,
                            entry_count,
@@ -299,8 +303,9 @@ static bool sync_io_pulse_schedule_arm_on_pin_common(
         return false;
     }
 
-    s_model_pulse.offset = (uint)pio_add_program(BOARD_SYNC_PIO_WAVE, program);
-    s_model_pulse.sm = BOARD_SYNC_MODEL_SCHED_SM;
+    s_model_pulse.pio = pulse_pio;
+    s_model_pulse.offset = (uint)pio_add_program(pulse_pio, program);
+    s_model_pulse.sm = pulse_sm;
     s_model_pulse.dma_ch = SYNC_IO_MODEL_PULSE_DMA_CH;
     s_model_pulse.output_pin = output_pin;
     s_model_pulse.active_high = rising_edge;
@@ -315,11 +320,11 @@ static bool sync_io_pulse_schedule_arm_on_pin_common(
     s_model_pulse.tick_period_ns = sanitized_tick_period_ns;
     s_model_pulse.fault_code = 0u;
 
-    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, s_model_pulse.sm, false);
-    pio_sm_clear_fifos(BOARD_SYNC_PIO_WAVE, s_model_pulse.sm);
-    pio_sm_restart(BOARD_SYNC_PIO_WAVE, s_model_pulse.sm);
+    pio_sm_set_enabled(pulse_pio, s_model_pulse.sm, false);
+    pio_sm_clear_fifos(pulse_pio, s_model_pulse.sm);
+    pio_sm_restart(pulse_pio, s_model_pulse.sm);
 
-    sync_model_sched_pulse_program_init(BOARD_SYNC_PIO_WAVE,
+    sync_model_sched_pulse_program_init(pulse_pio,
                                         s_model_pulse.sm,
                                         s_model_pulse.offset,
                                         s_model_pulse.output_pin,
@@ -335,17 +340,17 @@ static bool sync_io_pulse_schedule_arm_on_pin_common(
     channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
     channel_config_set_read_increment(&dma_cfg, true);
     channel_config_set_write_increment(&dma_cfg, false);
-    channel_config_set_dreq(&dma_cfg, DREQ_PIO1_TX0 + s_model_pulse.sm);
+    channel_config_set_dreq(&dma_cfg, pulse_dreq);
     dma_channel_configure(s_model_pulse.dma_ch,
                           &dma_cfg,
-                          &BOARD_SYNC_PIO_WAVE->txf[s_model_pulse.sm],
+                          &pulse_pio->txf[s_model_pulse.sm],
                           s_model_pulse.words,
                           entry_count * SYNC_IO_MODEL_PULSE_WORDS_PER_ENTRY,
                           true);
 
     s_model_pulse.start_us = time_us_64();
     s_model_pulse.running = true;
-    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, s_model_pulse.sm, true);
+    pio_sm_set_enabled(pulse_pio, s_model_pulse.sm, true);
 
     LOG_INFO("sync_io", "model pulse schedule armed: count=%lu pin=%lu",
              (unsigned long)entry_count,
@@ -359,6 +364,9 @@ static bool sync_io_pulse_schedule_arm_on_pin_common(
 }
 
 static bool sync_io_pulse_schedule_arm_on_pin(
+    PIO pulse_pio,
+    uint pulse_sm,
+    uint pulse_dreq,
     uint32_t output_pin,
     uint32_t trace_output_index,
     const sync_io_model_pulse_entry_ns_t *entries,
@@ -366,7 +374,10 @@ static bool sync_io_pulse_schedule_arm_on_pin(
     bool rising_edge,
     uint32_t tick_period_ns)
 {
-    return sync_io_pulse_schedule_arm_on_pin_common(output_pin,
+    return sync_io_pulse_schedule_arm_on_pin_common(pulse_pio,
+                                                    pulse_sm,
+                                                    pulse_dreq,
+                                                    output_pin,
                                                     trace_output_index,
                                                     NULL,
                                                     entries,
@@ -396,6 +407,9 @@ bool sync_io_model_pulse_schedule_arm(uint32_t output_index,
         return false;
     }
     return sync_io_pulse_schedule_arm_on_pin_common(
+        BOARD_SYNC_PIO_WAVE,
+        BOARD_SYNC_MODEL_SCHED_SM,
+        DREQ_PIO1_TX0 + BOARD_SYNC_MODEL_SCHED_SM,
         BOARD_DEBUG_MODEL_GPIO_BASE_PIN + output_index,
         output_index,
         entries,
@@ -424,6 +438,9 @@ bool sync_io_model_pulse_schedule_arm_ns(
     }
 
     return sync_io_pulse_schedule_arm_on_pin(
+        BOARD_SYNC_PIO_WAVE,
+        BOARD_SYNC_MODEL_SCHED_SM,
+        DREQ_PIO1_TX0 + BOARD_SYNC_MODEL_SCHED_SM,
         BOARD_DEBUG_MODEL_GPIO_BASE_PIN + output_index,
         output_index,
         entries,
@@ -450,6 +467,9 @@ bool sync_io_model_pulse_schedule_arm_periodic_ns(
     }
 
     return sync_io_pulse_schedule_arm_on_pin_common(
+        BOARD_SYNC_PIO_WAVE,
+        BOARD_SYNC_MODEL_SCHED_SM,
+        DREQ_PIO1_TX0 + BOARD_SYNC_MODEL_SCHED_SM,
         BOARD_DEBUG_MODEL_GPIO_BASE_PIN + output_index,
         output_index,
         NULL,
@@ -480,6 +500,9 @@ bool sync_io_output_pulse_schedule_arm(uint32_t output_index,
         return false;
     }
     return sync_io_pulse_schedule_arm_on_pin_common(
+        BOARD_SYNC_PIO_WAVE,
+        BOARD_SYNC_MODEL_SCHED_SM,
+        DREQ_PIO1_TX0 + BOARD_SYNC_MODEL_SCHED_SM,
         BOARD_SYNC_OUTPUT_BASE_PIN + output_index,
         output_index,
         entries,
@@ -508,6 +531,9 @@ bool sync_io_output_pulse_schedule_arm_ns(
     }
 
     return sync_io_pulse_schedule_arm_on_pin(
+        BOARD_SYNC_PIO_WAVE,
+        BOARD_SYNC_MODEL_SCHED_SM,
+        DREQ_PIO1_TX0 + BOARD_SYNC_MODEL_SCHED_SM,
         BOARD_SYNC_OUTPUT_BASE_PIN + output_index,
         output_index,
         entries,
@@ -516,21 +542,51 @@ bool sync_io_output_pulse_schedule_arm_ns(
         tick_period_ns);
 }
 
+bool sync_io_sma_observer_pulse_schedule_arm_periodic_ns(
+    uint32_t output_index,
+    uint32_t first_delay_ns,
+    uint32_t pulse_period_ns,
+    uint32_t pulse_high_ns,
+    uint32_t pulse_count,
+    bool rising_edge,
+    uint32_t tick_period_ns)
+{
+    if (!sync_io_main_output_index_valid(output_index) ||
+        output_index != 0u || pulse_count == 0u) {
+        return false;
+    }
+
+    return sync_io_pulse_schedule_arm_on_pin_common(
+        BOARD_SYNC_PIO_FAST,
+        BOARD_SYNC_SMA_OBSERVER_SM,
+        DREQ_PIO0_TX0 + BOARD_SYNC_SMA_OBSERVER_SM,
+        BOARD_SYNC_OUTPUT_BASE_PIN + output_index,
+        output_index,
+        NULL,
+        NULL,
+        first_delay_ns,
+        pulse_period_ns,
+        pulse_high_ns,
+        pulse_count,
+        rising_edge,
+        tick_period_ns);
+}
+
 void sync_io_model_pulse_schedule_disarm(void)
 {
     if (s_model_pulse.running) {
-        pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, s_model_pulse.sm, false);
+        pio_sm_set_enabled(s_model_pulse.pio, s_model_pulse.sm, false);
     }
 
     if (s_model_pulse.offset != 0u || s_model_pulse.total_pulses != 0u) {
         dma_channel_abort(s_model_pulse.dma_ch == 0u
                               ? SYNC_IO_MODEL_PULSE_DMA_CH
                               : s_model_pulse.dma_ch);
-        pio_sm_clear_fifos(BOARD_SYNC_PIO_WAVE,
+        pio_sm_clear_fifos(s_model_pulse.pio,
                            s_model_pulse.sm == 0u
                                ? BOARD_SYNC_MODEL_SCHED_SM
                                : s_model_pulse.sm);
-        pio_sm_set_pins(BOARD_SYNC_PIO_WAVE,
+        pio_sm_set_pins(s_model_pulse.pio,
                         s_model_pulse.sm == 0u
                             ? BOARD_SYNC_MODEL_SCHED_SM
                             : s_model_pulse.sm,
@@ -538,7 +594,7 @@ void sync_io_model_pulse_schedule_disarm(void)
         const pio_program_t *program = s_model_pulse.active_high
             ? &sync_model_sched_pulse_high_program
             : &sync_model_sched_pulse_low_program;
-        pio_remove_program(BOARD_SYNC_PIO_WAVE, program, s_model_pulse.offset);
+        pio_remove_program(s_model_pulse.pio, program, s_model_pulse.offset);
         sync_io_model_release_pin();
         sync_io_core_trace(SYNC_IO_TRACE_MODEL_DISARM,
                            SYNC_IO_TRACE_INFO,
@@ -577,11 +633,11 @@ void sync_io_model_pulse_schedule_get_runtime(sync_io_model_pulse_runtime_t *run
     const uint64_t elapsed64 = time_us_64() - s_model_pulse.start_us;
     runtime->elapsed_us = elapsed64 > UINT32_MAX ? UINT32_MAX : (uint32_t)elapsed64;
     runtime->pio_enabled =
-        sync_io_core_sm_is_enabled(BOARD_SYNC_PIO_WAVE, s_model_pulse.sm);
+        sync_io_core_sm_is_enabled(s_model_pulse.pio, s_model_pulse.sm);
     runtime->dma_busy = dma_channel_is_busy(s_model_pulse.dma_ch);
     runtime->tx_fifo_empty =
-        pio_sm_is_tx_fifo_empty(BOARD_SYNC_PIO_WAVE, s_model_pulse.sm);
+        pio_sm_is_tx_fifo_empty(s_model_pulse.pio, s_model_pulse.sm);
     runtime->tx_fifo_full =
-        pio_sm_is_tx_fifo_full(BOARD_SYNC_PIO_WAVE, s_model_pulse.sm);
+        pio_sm_is_tx_fifo_full(s_model_pulse.pio, s_model_pulse.sm);
     runtime->transfer_count = dma_hw->ch[s_model_pulse.dma_ch].transfer_count;
 }

@@ -114,6 +114,43 @@ APP_REALTIME_LOAD_DPLL_MASK = 1 << 1
 APP_REALTIME_LOAD_REFMEM_MASK = 1 << 4
 
 
+class ProgressReporter:
+    """Publish host progress without issuing any additional board query."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.sequence = 0
+        self.started = time.monotonic()
+
+    def emit(self, event: str, **details: Any) -> None:
+        self.sequence += 1
+        payload = {
+            "schema": "HAOFV_TRN03_PROGRESS_V1",
+            "sequence": self.sequence,
+            "event": event,
+            "elapsed_s": round(time.monotonic() - self.started, 6),
+            "updated_at": datetime.now().astimezone().isoformat(),
+            "details": details,
+            "query_policy": "REUSE_REQUIRED_CORE0_SNAPSHOTS_ONLY",
+        }
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        pending = self.path.with_suffix(self.path.suffix + ".tmp")
+        pending.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8")
+        pending.replace(self.path)
+        print("TRN03_PROGRESS " + json.dumps(
+            payload, ensure_ascii=False, separators=(",", ":")), flush=True)
+
+
+def merge_error(current: str, new_error: str) -> str:
+    if not current:
+        return new_error
+    if not new_error or new_error in current:
+        return current
+    return current + "; " + new_error
+
+
 def validate_realtime_phase(before: dict[str, Any], after: dict[str, Any],
                             *, name: str, phase_id: int,
                             load_mask: int) -> dict[str, Any]:
@@ -233,6 +270,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--startup-poll-interval-s", type=float, default=0.1,
         help="poll interval for the explicit startup barrier")
+    parser.add_argument(
+        "--diagnostic-continue", action="store_true",
+        help=("record a failed startup/realtime gate but continue soak and "
+              "diagnostic collection; the command still exits nonzero"))
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
     parser.add_argument("--settle", type=float, default=0.2)
@@ -624,7 +665,8 @@ def sample_all_with_evidence(
 def collect_soak_timeline(
         ordered: list[Board], args: argparse.Namespace, *,
         initial: dict[str, dict[str, Any]], window_s: float,
-        sample_interval_s: float) -> list[dict[str, Any]]:
+        sample_interval_s: float,
+        progress: ProgressReporter | None = None) -> list[dict[str, Any]]:
     """Collect an anchored periodic timeline including both endpoints."""
     started = time.monotonic()
     timeline: list[dict[str, Any]] = [{
@@ -650,6 +692,22 @@ def collect_soak_timeline(
             "nodes": nodes,
             "errors": errors,
         })
+        if progress is not None:
+            progress.emit(
+                "soak_sample", sample_index=sample_index,
+                target_s=target_s, observed_board_count=len(nodes),
+                transport_errors=errors,
+                counters={address: {
+                    "ring_enabled": row["runtime"]["ring_enabled"],
+                    "ring_up_tx_sequence": row["runtime"][
+                        "ring_up_tx_sequence"],
+                    "ring_down_rx_sequence": row["runtime"][
+                        "ring_down_rx_sequence"],
+                    "ring_adapter_rx_bad_count": row["runtime"][
+                        "ring_adapter_rx_bad_count"],
+                    "receive_rejected_count": row["flight"]["process"][
+                        "receive_rejected_count"],
+                } for address, row in nodes.items()})
     return timeline
 
 
@@ -712,8 +770,10 @@ def startup_barrier_interval_errors(
 def wait_startup_barrier(
         ordered: list[Board], args: argparse.Namespace, *,
         startup_before: dict[str, dict[str, Any]],
-        require_process_image: bool) -> tuple[dict[str, dict[str, Any]],
-                                               dict[str, Any]]:
+        require_process_image: bool,
+        continue_on_failure: bool = False,
+        progress: ProgressReporter | None = None
+        ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
     """Wait for an explicit, replayable transition into steady state."""
     timeout_s = float(args.startup_timeout_s)
     stable_required = int(args.startup_stable_samples)
@@ -756,6 +816,13 @@ def wait_startup_barrier(
             "stable_count": stable_count,
             "errors": node_errors,
         })
+        if progress is not None:
+            progress.emit(
+                "startup_sample", sample_index=len(samples) - 1,
+                passed=interval_passed, stable_count=stable_count,
+                required_stable_count=stable_required,
+                observed_board_count=len(current), errors=node_errors,
+                transport_errors=transport_errors)
         if not transport_errors and set(current) == set(board_ids):
             previous = current
         if stable_count >= stable_required:
@@ -794,6 +861,8 @@ def wait_startup_barrier(
         "stable_samples_observed": stable_count,
         "samples": samples,
     }
+    if continue_on_failure:
+        return previous, evidence
     raise RuntimeError(
         "explicit startup barrier timed out: " +
         json.dumps(evidence, separators=(",", ":")))
@@ -1422,7 +1491,9 @@ def analyze_ring_waveforms(capture: dict[str, Any], config: dict[str, Any],
 def main() -> int:
     args = parse_args()
     raw_config = json.loads(args.config.read_text(encoding="utf-8"))
-    config = load_config(args.config, args.offset_row_id)
+    config = load_config(
+        args.config, args.offset_row_id,
+        allow_unsafe_sck=args.diagnostic_continue)
     board_ids = list(args.board_id)
     if len(board_ids) != config["node_count"] or len(set(board_ids)) != len(board_ids):
         raise SystemExit("board IDs must be unique and match config node_count")
@@ -1461,6 +1532,7 @@ def main() -> int:
         "startup_timeout_s": args.startup_timeout_s,
         "startup_stable_samples": args.startup_stable_samples,
         "startup_poll_interval_s": args.startup_poll_interval_s,
+        "diagnostic_continue": args.diagnostic_continue,
         "waveform_window_ns": args.waveform_window_ns,
         "sck_frequency_tolerance_percent":
             args.sck_frequency_tolerance_percent,
@@ -1476,12 +1548,20 @@ def main() -> int:
     out_dir = args.out_dir or (
         ROOT / "out" / "training" /
         f"trn03b_closed_loop_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+    progress = ProgressReporter(out_dir / "progress.json")
+    progress.emit(
+        "initializing", board_ids=board_ids, stage=args.stage,
+        diagnostic_continue=args.diagnostic_continue)
 
     boards = discover(args)
     missing = set(board_ids) - set(boards)
     if missing:
         raise SystemExit(f"boards not found by *IDN?: {', '.join(sorted(missing))}")
     ordered = order_boards_by_board_no(boards, board_ids, args)
+    progress.emit(
+        "boards_discovered",
+        boards=[{"board_id": board.address, "port": board.port}
+                for board in ordered])
     board_ids = [board.address for board in ordered]
     plan["board_ids_in_physical_node_order"] = board_ids
     expected_order = config.get("node_ids_in_loop_order")
@@ -1517,6 +1597,7 @@ def main() -> int:
     }
     capture_error = ""
     analysis_error = ""
+    startup_gate_error = ""
     # Raw SD capture and its offline waveform analysis are diagnostic evidence.
     # They must never become part of the Core1/PIO realtime gate: a capture
     # latch timeout is recorded below, but it cannot stop a healthy short-frame
@@ -1633,6 +1714,9 @@ def main() -> int:
         stage_results = [stage_board(board, config, args) for board in ordered]
         if not all(result["passed"] for result in stage_results):
             raise RuntimeError("matrix write/readback failed")
+        progress.emit(
+            "matrix_staged", completed=len(stage_results),
+            total=len(ordered), offset_row_id=config["offset_row_id"])
         # Matrix staging is also an asynchronous owner mutation.  It may
         # advance ring_config_seq after the profile/topology acknowledgements,
         # so require Core1 to apply that generation before any FIFO seed or
@@ -1685,6 +1769,11 @@ def main() -> int:
                     "passed": True, "errors": [], "deltas": {}}
         for board in start_order:
             actions.append(arm_with_evidence(board, args))
+            progress.emit(
+                "board_armed", board_id=board.address,
+                completed=len([action for action in actions
+                               if action.get("action") == "ARM"]),
+                total=len(start_order))
         for board in start_order:
             applied = wait_runtime_config_applied(
                 board, args, board_ids.index(board.address))
@@ -1708,12 +1797,17 @@ def main() -> int:
             actions.append({"node": board.address, "action": "START",
                             "response": board_command(
                                 board, "SYSTem:TDMA:RING:START", args)})
+        progress.emit("ring_started", board_count=len(start_order))
         before, startup_barrier = wait_startup_barrier(
             ordered, args, startup_before=startup_before,
-            require_process_image=args.stage == "process-image")
+            require_process_image=args.stage == "process-image",
+            continue_on_failure=args.diagnostic_continue,
+            progress=progress)
+        if not startup_barrier.get("passed"):
+            startup_gate_error = "explicit startup barrier timed out"
         soak_timeline = collect_soak_timeline(
             ordered, args, initial=before, window_s=args.window_s,
-            sample_interval_s=args.sample_interval_s)
+            sample_interval_s=args.sample_interval_s, progress=progress)
         final_nodes = soak_timeline[-1]["nodes"]
         missing_final = set(board_ids) - set(final_nodes)
         if missing_final:
@@ -1789,8 +1883,11 @@ def main() -> int:
                 "reason": "short_frame_gate_keeps_diagnostics_off_realtime_path",
             }
             ring_analysis = {"passed": True, "skipped": True}
+        if startup_gate_error:
+            error = startup_gate_error
     except Exception as exc:  # noqa: BLE001 - preserve partial HIL evidence
-        error = f"{type(exc).__name__}: {exc}"
+        error = merge_error(error, f"{type(exc).__name__}: {exc}")
+        progress.emit("runtime_error", error=error)
     finally:
         if getattr(args, "capture_waveforms", False) and not capture_attempted:
             try:
@@ -1821,7 +1918,10 @@ def main() -> int:
         # Keep the historical name as an alias for consumers which use it to
         # decide whether the running ring may be handed to DPLL.
         closed_loop_passed = realtime_gate_passed
-        leave_running = bool(args.leave_running and closed_loop_passed)
+        leave_running = bool(
+            args.leave_running and
+            (closed_loop_passed or
+             (args.diagnostic_continue and bool(soak_timeline))))
         if leave_running:
             for node_index, board in enumerate(ordered):
                 try:
@@ -1841,13 +1941,17 @@ def main() -> int:
             leave_running = all(
                 item["passed"] for item in running_handoff.values())
             if not leave_running:
-                error = "leave-running final runtime readback failed"
+                error = merge_error(
+                    error, "leave-running final runtime readback failed")
         if leave_running:
             for board in ordered:
                 stopped[board.address] = {
                     "passed": 1,
                     "skipped": 1,
-                    "reason": "matrix_backed_ring_handed_to_dpll_observer",
+                    "reason": (
+                        "matrix_backed_ring_handed_to_dpll_observer"
+                        if closed_loop_passed else
+                        "diagnostic_continue_after_failed_gate"),
                 }
                 actions.append({
                     "node": board.address,
@@ -1883,6 +1987,7 @@ def main() -> int:
         "realtime_gate_passed": realtime_gate_passed,
         "closed_loop_passed": realtime_gate_passed,
         "diagnostic_passed": diagnostic_passed,
+        "diagnostic_continue": args.diagnostic_continue,
         "error": error,
         "boards": {board.address: asdict(board) for board in ordered},
         "stage_results": stage_results,
@@ -1908,6 +2013,9 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "summary.json").write_text(
         json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    progress.emit(
+        "complete", passed=passed, left_running=result["left_running"],
+        error=error, summary=str(out_dir / "summary.json"))
     print(json.dumps({"passed": passed, "error": error,
                       "out_dir": str(out_dir)}, ensure_ascii=False))
     return 0 if passed else 1

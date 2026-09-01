@@ -386,7 +386,8 @@ typedef struct {
 /* Calibration loads the complete directed observation path matrix once.  The
  * row-major index is source_node * VDC_DOMAIN_NODE_COUNT + reference_node;
  * runtime DPLL admission only indexes this immutable matrix and never walks
- * the physical ring.  Self paths are intentionally invalid. */
+ * the physical ring.  A diagonal entry (source==reference) is the complete
+ * loop return path used by the reference Node. */
 typedef struct {
     uint32_t valid;
     uint32_t node_count;

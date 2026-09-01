@@ -17,6 +17,7 @@
  * record is 20 bytes and the complete image (header + 400 records) remains
  * within the StorageAO 8 KiB file-write contract. */
 #define VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES 400u
+#define VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS 180u
 
 typedef enum {
     VDC_DPLL_MANAGER_SELF_TEST_ROLE_NONE = 0u,
@@ -78,6 +79,9 @@ typedef struct {
     uint32_t max_backward_ticks;
     uint32_t quality_flags;
     bool sample0_lsb;
+    bool phase_only;
+    uint32_t phase_max_span_ns;
+    uint32_t phase_min_stable_rounds;
 } vdc_dpll_manager_sync_io_observer_config_t;
 
 typedef struct {
@@ -91,6 +95,9 @@ typedef struct {
     uint32_t pulse_count;
     uint32_t frame_crc32;
     uint32_t start_delay_ns;
+    bool phase_only;
+    uint32_t phase_max_span_ns;
+    uint32_t phase_min_stable_rounds;
 } vdc_dpll_manager_observation_self_test_config_t;
 
 typedef struct {
@@ -109,6 +116,10 @@ typedef struct {
     uint32_t started_ms;
     uint32_t start_delay_ns;
     uint64_t first_window_start_ns;
+    bool phase_only;
+    uint32_t phase_max_span_ns;
+    uint32_t phase_min_stable_rounds;
+    uint32_t scheduled_pulse_count;
 } vdc_dpll_manager_observation_self_test_status_t;
 
 typedef struct {
@@ -152,6 +163,28 @@ typedef struct {
     uint32_t last_source_slot_id;
     uint32_t last_reference_slot_id;
     uint32_t last_payload_class;
+    uint32_t phase_round_count;
+    uint32_t phase_complete_count;
+    uint32_t phase_missing_count;
+    uint32_t phase_ambiguous_count;
+    uint32_t phase_last_edge_mask;
+    uint32_t phase_last_span_ns;
+    int32_t phase_last_offset_ns[4];
+    uint32_t phase_initial_span_ns;
+    int32_t phase_initial_offset_ns[4];
+    uint32_t phase_peak_span_ns;
+    uint32_t phase_min_span_ns;
+    uint32_t phase_stable_round_count;
+    uint32_t phase_stable_streak;
+    uint32_t phase_max_stable_streak;
+    uint32_t phase_stable_jitter_ns;
+    uint32_t phase_first_stable_round;
+    uint32_t phase_converged;
+    uint32_t phase_max_span_ns;
+    uint32_t phase_min_stable_rounds;
+    uint32_t phase_last_window_start_lo;
+    uint32_t phase_last_window_start_hi;
+    uint32_t phase_dropped_word_count;
 } vdc_dpll_manager_sync_io_observer_status_t;
 
 typedef enum {
@@ -200,11 +233,43 @@ typedef struct {
     uint32_t end_ms;
 } vdc_dpll_manager_dpll_capture_status_t;
 
+typedef struct __attribute__((packed)) {
+    uint32_t raw_word;
+    uint32_t sample_seq;
+    uint32_t previous_sample_mask;
+    uint32_t base_time_l32_ns;
+    uint64_t matched_window_start_ns;
+    uint32_t sample_period_ns;
+    uint32_t timestamp_source;
+    uint32_t timestamp_resolution_ns;
+    uint32_t timestamp_flags;
+    uint32_t dropped_before;
+} vdc_dpll_manager_waveform_record_t;
+
+typedef struct {
+    bool armed;
+    bool stopping;
+    bool complete;
+    uint32_t session_id;
+    uint32_t record_count;
+    uint32_t dropped_count;
+    uint32_t segment_count;
+    uint32_t pending_record_count;
+    uint32_t first_sample_seq;
+    uint32_t last_sample_seq;
+    uint32_t start_ms;
+    uint32_t end_ms;
+    uint32_t last_error;
+    uint32_t last_job_id;
+    char last_path[96];
+} vdc_dpll_manager_waveform_capture_status_t;
+
 bool vdc_dpll_manager_init(void);
 void vdc_dpll_manager_set_vdc_ready(bool ready);
 void vdc_dpll_manager_set_dpll_ready(bool ready);
 void vdc_sync_ao_service(void);
 void vdc_dpll_manager_core0_service(void);
+void vdc_dpll_manager_sync_io_capture_service_core1(void);
 void sync_dpll_fb_service(void);
 void tdma_component_core1_service(void);
 void vdc_dpll_manager_vdc_service(void);
@@ -236,6 +301,13 @@ void vdc_dpll_manager_get_dpll_capture_status(
 bool vdc_dpll_manager_dpll_capture_save(uint32_t *job_id,
                                         char *path,
                                         size_t path_size);
+bool vdc_dpll_manager_waveform_capture_arm(void);
+bool vdc_dpll_manager_waveform_capture_stop(void);
+void vdc_dpll_manager_get_waveform_capture_status(
+    vdc_dpll_manager_waveform_capture_status_t *status);
+bool vdc_dpll_manager_waveform_capture_manifest(char *path_prefix,
+                                                size_t path_prefix_size,
+                                                uint32_t *segment_count);
 bool vdc_dpll_manager_get_snapshot(vdc_domain_snapshot_t *snapshot);
 uint32_t vdc_dpll_manager_published_update_seq(void);
 bool vdc_dpll_manager_get_tdma_snapshot(tdma_service_snapshot_t *snapshot);

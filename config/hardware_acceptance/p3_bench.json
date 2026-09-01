@@ -24,6 +24,11 @@
     "8": 2,
     "9": 2
   },
+  "calibration_coded_probe_phase_cycles_by_level": {
+    "7": [8, 9, 10],
+    "8": [1, 2, 3],
+    "9": [1, 2, 3]
+  },
   "calibration_clk_repeats": 1,
   "calibration_coded_codebook": 1,
   "calibration_coded_repeats": 3,
@@ -47,8 +52,23 @@
   "tdma_capture_waveforms": true,
   "dpll_observer_board_id": "839E1AE79EA20F31",
   "dpll_observer_name": "NO5",
+  "sma_observer_rtt_repeats": 8,
+  "sma_observer_capture_words": 16,
+  "sma_observer_routes": [
+    {"node_no": 1, "node_output_channel": 1, "validator_input_channel": 1, "validator_output_channel": 4, "node_input_channel": 1},
+    {"node_no": 2, "node_output_channel": 1, "validator_input_channel": 2, "validator_output_channel": 2, "node_input_channel": 1},
+    {"node_no": 3, "node_output_channel": 1, "validator_input_channel": 3, "validator_output_channel": 3, "node_input_channel": 1},
+    {"node_no": 4, "node_output_channel": 1, "validator_input_channel": 4, "validator_output_channel": 1, "node_input_channel": 1}
+  ],
   "dpll_monitor_duration_s": 3.0,
   "dpll_monitor_poll_interval_s": 0.5,
+  "dpll_phase_sample_period_ns": 100,
+  "dpll_phase_pulse_period_ns": 1000000,
+  "dpll_phase_pulse_high_ns": 200,
+  "dpll_phase_pulse_count": 4096,
+  "dpll_phase_start_delay_ns": 1000000000,
+  "dpll_phase_max_span_ns": 500,
+  "dpll_phase_min_complete_rounds": 3,
   "dpll_expected_interval_ms": 1.0,
   "dpll_interval_tolerance_ms": 0.35,
   "dpll_sequence_skew_tolerance": 1,
@@ -69,6 +89,8 @@
     "phase_gap_s": 0.1,
     "status_poll_interval_s": 0.05,
     "serial_read_timeout_s": 0.02,
+    "board_reset_timeout_s": 15.0,
+    "board_reset_poll_interval_s": 0.5,
     "input_settle_s": 0.05,
     "output_handoff_s": 0.1
   }

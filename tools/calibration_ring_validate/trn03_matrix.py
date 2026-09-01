@@ -115,7 +115,7 @@ def pio_facts(level: int) -> dict[str, int]:
 def _sck_row_replay_safety(
         offsets_by_node: tuple[int, ...], link_bases_ns: list[int],
         baud_hz: int, sample_period_ns: int,
-        reference_node: int = 0) -> tuple[bool, int | None]:
+        reference_node: int = 0) -> tuple[bool, int | None, int, int]:
     """Check one SCK candidate row against every directed-link budget.
 
     The candidate row remains a raw training result; this helper only decides
@@ -124,13 +124,13 @@ def _sck_row_replay_safety(
     excluded because it owns the origin rather than a re-arm path.
     """
     if len(offsets_by_node) != len(link_bases_ns):
-        return False, -1
+        return False, -1, len(link_bases_ns), -len(link_bases_ns)
     margins: list[int] = []
     for link_index, base_ns in enumerate(link_bases_ns):
         destination = (link_index + 1) % len(offsets_by_node)
         phase_ns = int(base_ns) + int(offsets_by_node[destination]) * sample_period_ns
         if phase_ns < 0:
-            return False, -1
+            return False, -1, len(link_bases_ns), -len(link_bases_ns)
         phase_cycles = (phase_ns + sample_period_ns // 2) // sample_period_ns
         margin = sck_replay_phase_margin(
             phase_delay_cycles=phase_cycles,
@@ -140,28 +140,67 @@ def _sck_row_replay_safety(
         if margin is None:
             continue
         margins.append(margin)
-        if margin < 0:
-            return False, min(margins)
-    return True, (min(margins) if margins else None)
+    minimum = min(margins) if margins else None
+    unsafe_count = sum(margin < 0 for margin in margins)
+    return (minimum is None or minimum >= 0, minimum, unsafe_count,
+            sum(margins))
 
 
 def _select_sck_replay_row(
         candidates_by_node: list[list[int]], requested: list[int],
         link_bases_ns: list[int], baud_hz: int,
-        sample_period_ns: int) -> tuple[list[int], dict[str, Any]]:
+        sample_period_ns: int, *,
+        diagnostic_continue: bool = False) -> tuple[list[int], dict[str, Any]]:
     """Select the nearest replay-safe SCK row without dropping candidates."""
     candidate_rows = [tuple(int(value) for value in row)
                       for row in itertools.product(*candidates_by_node)]
-    safe_rows: list[tuple[tuple[int, ...], int | None]] = []
+    evaluated_rows: list[
+        tuple[tuple[int, ...], bool, int | None, int, int]] = []
     for row in candidate_rows:
-        safe, margin = _sck_row_replay_safety(
+        safe, margin, unsafe_count, total_margin = _sck_row_replay_safety(
             row, link_bases_ns, baud_hz, sample_period_ns)
-        if safe:
-            safe_rows.append((row, margin))
+        evaluated_rows.append(
+            (row, safe, margin, unsafe_count, total_margin))
+    safe_rows = [(row, margin) for row, safe, margin, _, _ in evaluated_rows
+                 if safe]
     if not safe_rows:
-        raise ValueError(
-            "no SCK offset candidate row can satisfy the flight re-arm "
-            "budget")
+        if not diagnostic_continue:
+            raise ValueError(
+                "no SCK offset candidate row can satisfy the flight re-arm "
+                "budget")
+        requested_tuple = tuple(int(value) for value in requested)
+        selected, _, selected_margin, selected_unsafe_count, \
+            selected_total_margin = min(
+            evaluated_rows,
+            key=lambda item: (
+                -(item[2] if item[2] is not None else 0),
+                item[3],
+                -item[4],
+                sum(abs(value) for value in item[0]),
+                sum(abs(value - wanted)
+                    for value, wanted in zip(item[0], requested_tuple)),
+                item[0]))
+        return list(selected), {
+            "requested_offset_sample_counts_by_node": list(requested),
+            "selected_offset_sample_counts_by_node": list(selected),
+            "requested_row_replay_safe": False,
+            "selected_row_replay_safe": False,
+            "selection_reason": "diagnostic_best_available_unsafe_candidate",
+            "selected_min_follower_margin_samples": selected_margin,
+            "selected_unsafe_follower_count": selected_unsafe_count,
+            "selected_total_follower_margin_samples": selected_total_margin,
+            "safe_candidate_row_count": 0,
+            "candidate_row_count": len(candidate_rows),
+            "diagnostic_continue": True,
+            "candidate_replay_evaluation": [
+                {"offset_sample_counts_by_node": list(row),
+                 "replay_safe": safe,
+                 "min_follower_margin_samples": margin,
+                 "unsafe_follower_count": unsafe_count,
+                 "total_follower_margin_samples": total_margin}
+                for row, safe, margin, unsafe_count, total_margin
+                in evaluated_rows],
+        }
     requested_tuple = tuple(int(value) for value in requested)
     if requested_tuple in {row for row, _ in safe_rows}:
         selected = requested_tuple
@@ -185,10 +224,12 @@ def _select_sck_replay_row(
         "selected_offset_sample_counts_by_node": list(selected),
         "requested_row_replay_safe": requested_tuple in {
             row for row, _ in safe_rows},
+        "selected_row_replay_safe": True,
         "selection_reason": reason,
         "selected_min_follower_margin_samples": selected_margin,
         "safe_candidate_row_count": len(safe_rows),
         "candidate_row_count": len(candidate_rows),
+        "diagnostic_continue": False,
     }
 
 
@@ -292,6 +333,7 @@ def build_matrix(level: int, data: dict[str, Any],
                  sck_path: str = "",
                  data_refinement_candidates: dict[int, list[int]] | None = None,
                  data_refinement_evidence: list[dict[str, Any]] | None = None,
+                 diagnostic_continue: bool = False,
                  ) -> dict[str, Any]:
     identity, failures = validate_profile_pair(data, residence)
     if failures:
@@ -400,7 +442,8 @@ def build_matrix(level: int, data: dict[str, Any],
                 selected_sck_offsets_by_node,
                 sck_link_bases,
                 facts["baud_hz"],
-                sample_period_ns)
+                sample_period_ns,
+                diagnostic_continue=diagnostic_continue)
     links: list[dict[str, Any]] = []
     marker_offsets_by_node = [0] * count
     data_offset_candidates_by_node: list[list[int]] = [[] for _ in range(count)]
@@ -676,7 +719,7 @@ def build_matrix(level: int, data: dict[str, Any],
         from .trn03_stage import validate_config
     except ImportError:  # Direct execution from this directory.
         from trn03_stage import validate_config  # type: ignore[no-redef]
-    validate_config(result)
+    validate_config(result, allow_unsafe_sck=diagnostic_continue)
     return result
 
 
@@ -694,6 +737,10 @@ def main() -> int:
         help=("accepted TRN-02 selected-link repeat summary whose configured "
               "DATA offset is appended as a non-active adjacent search row; "
               "repeat as needed"))
+    parser.add_argument(
+        "--diagnostic-continue", action="store_true",
+        help=("select the best measured SCK row when none satisfies the "
+              "flight re-arm gate; write a non-passing diagnostic matrix"))
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     data = load_summary(args.data)
@@ -708,12 +755,16 @@ def main() -> int:
         data_path=str(args.data), residence_path=str(args.residence),
         sck_path=str(args.sck) if args.sck is not None else "",
         data_refinement_candidates=refinement_candidates,
-        data_refinement_evidence=refinement_records)
+        data_refinement_evidence=refinement_records,
+        diagnostic_continue=args.diagnostic_continue)
     encoded = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(encoded, encoding="utf-8")
+    replay_safe = bool(result["derivation"]["sck_replay_selection"].get(
+        "selected_row_replay_safe", True))
     print(json.dumps({
-        "passed": True,
+        "passed": replay_safe,
+        "diagnostic_continue": args.diagnostic_continue,
         "level": args.level,
         "node_count": result["node_count"],
         "profile_crc32": result["profile_crc32"],

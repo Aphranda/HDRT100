@@ -43,6 +43,8 @@ def test_decode_raw_pio_words_reconstructs_four_channel_phase(tmp_path) -> None:
     assert result["record_count"] == 1
     assert result["edge_count"] == 4
     assert result["phase_round_count"] == 1
+    assert result["convergence"]["pulse_period_ns"] == 1_000_000
+    assert len(result["phase_tracking"]) == 4
     assert result["phase"][0]["span_ns"] == 300
     assert [result["phase"][0][f"offset{channel}_ns"]
             for channel in range(4)] == [0, 100, 200, 300]
@@ -50,6 +52,9 @@ def test_decode_raw_pio_words_reconstructs_four_channel_phase(tmp_path) -> None:
     summary = write_reports(result, tmp_path / "analysis")
     assert summary["outputs"]["phase_curve"].endswith("phase_curve.csv")
     assert (tmp_path / "analysis" / "phase_curve.svg").exists()
+    assert summary["outputs"]["dpll_convergence_svg"].endswith(
+        "dpll_convergence.svg")
+    assert (tmp_path / "analysis" / "dpll_convergence.svg").exists()
 
 
 def test_decode_rejects_segment_or_record_discontinuity(tmp_path) -> None:

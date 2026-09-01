@@ -181,6 +181,17 @@ def test_load_config_rejects_sck_phase_that_cannot_rearm(tmp_path: Path) -> None
         load_config(write_matrix(tmp_path, value))
 
 
+def test_load_config_can_retain_unsafe_sck_for_diagnostics(
+        tmp_path: Path) -> None:
+    value = matrix()
+    value["offset_matrix"]["rows"][0][
+        "sck_offset_sample_counts_by_node"] = [1, 1, 1, 1]
+    loaded = load_config(
+        write_matrix(tmp_path, value), allow_unsafe_sck=True)
+    assert [link["sck_phase_delay_cycles"]
+            for link in loaded["links"]] == [11, 11, 11, 11]
+
+
 @pytest.mark.parametrize(
     ("signal", "node"), (("marker", 1), ("sck", 1), ("data", 0)))
 def test_load_config_rejects_zero_cycle_active_phase(

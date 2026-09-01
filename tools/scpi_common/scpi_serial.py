@@ -29,6 +29,12 @@ COMPOSITE_ACK_HEADERS = {
     "SYSTEM:SYNC:VDC:DPLL:TRACE:STOP",
     "SYST:SYNC:VDC:DPLL:TRACE:SAVE",
     "SYSTEM:SYNC:VDC:DPLL:TRACE:SAVE",
+    "SYST:SYNC:VDC:OBSERVER:WAVEFORM:ARM",
+    "SYSTEM:SYNC:VDC:OBSERVER:WAVEFORM:ARM",
+    "SYST:SYNC:VDC:OBSERVER:WAVEFORM:STOP",
+    "SYSTEM:SYNC:VDC:OBSERVER:WAVEFORM:STOP",
+    "SYST:SYNC:VDC:OBSERVER:WAVEFORM:SAVE",
+    "SYSTEM:SYNC:VDC:OBSERVER:WAVEFORM:SAVE",
 }
 MARKER_CAPTURE_SAVE_HEADERS = {
     "CAL:MARK:CAPT:SAVE", "CALIBRATION:MARKER:CAPTURE:SAVE",
@@ -251,11 +257,15 @@ def scpi_response_matches_command(command: str, line: str) -> bool:
     if header in {
             "SYST:SYNC:VDC:DPLL:TRACE:ARM",
             "SYSTEM:SYNC:VDC:DPLL:TRACE:ARM",
+            "SYST:SYNC:VDC:OBSERVER:WAVEFORM:ARM",
+            "SYSTEM:SYNC:VDC:OBSERVER:WAVEFORM:ARM",
     }:
         return re.fullmatch(r'"?OK"?,\s*\d+\s*,\s*\d+', text) is not None
     if header in {
             "SYST:SYNC:VDC:DPLL:TRACE:STOP",
             "SYSTEM:SYNC:VDC:DPLL:TRACE:STOP",
+            "SYST:SYNC:VDC:OBSERVER:WAVEFORM:STOP",
+            "SYSTEM:SYNC:VDC:OBSERVER:WAVEFORM:STOP",
     }:
         return re.fullmatch(r'"?OK"?,\s*\d+\s*,\s*\d+', text) is not None
     if header in {
@@ -268,6 +278,13 @@ def scpi_response_matches_command(command: str, line: str) -> bool:
         return re.fullmatch(
             r'"?QUEUED"?,\s*\d+\s*,\s*"/[^"\r\n]+"\s*,\s*\d+',
             text,
+        ) is not None
+    if header in {
+            "SYST:SYNC:VDC:OBSERVER:WAVEFORM:SAVE",
+            "SYSTEM:SYNC:VDC:OBSERVER:WAVEFORM:SAVE",
+    }:
+        return re.fullmatch(
+            r'"?OK"?,\s*\d+\s*,\s*"/[^"\r\n]+"', text
         ) is not None
     if header in STORAGE_COMPOSITE_QUERY_HEADERS:
         return re.match(r'^"?OK"?,', text) is not None

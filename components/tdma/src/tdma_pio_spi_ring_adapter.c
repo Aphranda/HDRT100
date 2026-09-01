@@ -937,6 +937,7 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
                                &hardware_round_trip_ns,
                                &hardware_resolution_ns,
                                &hardware_flags);
+    bool dpll_correlation_pending = false;
     tdma_transport_frame_view_t view;
     tdma_transport_result_t result = TDMA_TRANSPORT_OK;
     const bool decoded = tdma_transport_frame_decode(packet,
@@ -1089,8 +1090,8 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
     adapter->down_rx_sequence = view.transport_sequence;
     adapter->down_rx_frame_crc32 = view.identity_crc32;
     adapter->feedback_rx_timestamp_ns = rx_timestamp_ns;
-    if (adapter->role == TDMA_PIO_SPI_RING_ROLE_FORWARD &&
-        rx_timestamp_ns != 0ull && view.transport_sequence != 0u &&
+    if (rx_timestamp_ns != 0ull && view.transport_sequence != 0u &&
+        view.payload_class == TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE &&
         view.identity_crc32 != 0u) {
         const uint32_t evidence_index = view.transport_sequence %
             TDMA_PIO_SPI_RING_ADAPTER_RX_EVIDENCE_DEPTH;
@@ -1103,8 +1104,6 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
         adapter->local_rx_evidence[evidence_index].valid = true;
 
         if (adapter->clock_evidence_enabled != 0u &&
-            view.payload_class ==
-                TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE &&
             view.payload_size == TDMA_FLIGHT_SHORT_PAYLOAD_SIZE &&
             view.payload != NULL) {
             const uint32_t encoded = tdma_pio_spi_ring_get_u32(
@@ -1112,10 +1111,16 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
                     TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET]);
             adapter->clock_evidence_last_rx_encoded = encoded;
             if ((encoded &
-                 TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_VALID_MASK) != 0u &&
-                !tdma_pio_spi_ring_adapter_correlate_dpll_observation(
-                    adapter, &view)) {
-                adapter->clock_observation_reject_count++;
+                 TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_VALID_MASK) != 0u) {
+                if (adapter->role == TDMA_PIO_SPI_RING_ROLE_REFERENCE) {
+                    dpll_correlation_pending = true;
+                } else {
+                    if (!tdma_pio_spi_ring_adapter_correlate_dpll_observation(
+                            adapter, &view)) {
+                        adapter->clock_observation_reject_count++;
+                    }
+                    dpll_correlation_pending = false;
+                }
             }
         }
     }
@@ -1155,6 +1160,13 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
                 adapter->reference_tx_timestamp_ns = matched_tx_timestamp_ns;
                 adapter->feedback_rx_timestamp_ns = matched_tx_timestamp_ns +
                     (uint64_t)hardware_round_trip_ns;
+                if (view.transport_sequence != 0u) {
+                    const uint32_t rx_index = view.transport_sequence %
+                        TDMA_PIO_SPI_RING_ADAPTER_RX_EVIDENCE_DEPTH;
+                    adapter->local_rx_evidence[rx_index].timestamp_ns =
+                        adapter->feedback_rx_timestamp_ns;
+                    adapter->local_rx_evidence[rx_index].valid = true;
+                }
             } else if (adapter->phys_feedback == NULL &&
                        adapter->feedback_rx_timestamp_ns >=
                            matched_tx_timestamp_ns &&
@@ -1183,6 +1195,10 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
              * sequence matching still makes an overwritten/stale record
              * fail closed. */
         }
+    }
+    if (dpll_correlation_pending &&
+        !tdma_pio_spi_ring_adapter_correlate_dpll_observation(adapter, &view)) {
+        adapter->clock_observation_reject_count++;
     }
     adapter->rx_count++;
     if ((view.flags & TDMA_TRANSPORT_FLAG_IDLE_BEACON) != 0u) {

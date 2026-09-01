@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import sys
 from pathlib import Path
 
@@ -675,6 +676,21 @@ def test_core1_overrun_quarantines_only_the_faulting_load() -> None:
     assert "__atomic_fetch_or(&s_realtime_load_quarantined_mask" in (
         after_service
     )
+
+
+def test_phase_only_sma_capture_is_consumed_on_core0() -> None:
+    app = (ROOT / "application" / "src" / "app.c").read_text(
+        encoding="utf-8")
+    manager = (ROOT / "components" / "vdc_dpll_manager" / "src" /
+               "vdc_dpll_manager.c").read_text(encoding="utf-8")
+    core0 = manager.split("void vdc_dpll_manager_core0_service", 1)[1]
+    core0 = core0.split("static bool vdc_dpll_manager_build", 1)[0]
+
+    assert "vdc_dpll_manager_sync_io_capture_service_core1();" in app
+    assert "s_sync_io_observer_config.phase_only" in manager
+    assert "sync_io_capture_latch_service_core1();" in core0
+    assert core0.index("sync_io_capture_latch_service_core1();") < \
+        core0.index("vdc_dpll_manager_sync_io_observer_service();")
 
     commands = (ROOT / "middleware" / "scpi_port" / "inc" /
                 "scpi_system_snapshot_commands.h").read_text(encoding="utf-8")
@@ -1431,6 +1447,31 @@ def test_closed_loop_uses_explicit_startup_barrier_not_fixed_sleep() -> None:
     main = source.split("def main() -> int:", 1)[1]
     assert "wait_startup_barrier(" in main
     assert "time.sleep(args.start_wait)" not in main
+
+
+def test_closed_loop_diagnostic_mode_preserves_failed_gate_and_continues() -> None:
+    source = (ROOT / "tools" / "calibration_ring_validate" /
+              "trn03_closed_loop.py").read_text(encoding="utf-8")
+    main = source.split("def main() -> int:", 1)[1]
+    assert '"--diagnostic-continue"' in source
+    assert "continue_on_failure=args.diagnostic_continue" in main
+    assert "args.diagnostic_continue and bool(soak_timeline)" in main
+    assert '"diagnostic_continue": args.diagnostic_continue' in main
+
+
+def test_progress_reporting_reuses_required_core0_snapshots(tmp_path: Path) -> None:
+    reporter = trn03.ProgressReporter(tmp_path / "progress.json")
+    reporter.emit("sample", board_count=4)
+    payload = json.loads(
+        (tmp_path / "progress.json").read_text(encoding="utf-8"))
+    assert payload["event"] == "sample"
+    assert payload["details"]["board_count"] == 4
+    assert payload["query_policy"] == "REUSE_REQUIRED_CORE0_SNAPSHOTS_ONLY"
+
+
+def test_error_chain_keeps_first_runtime_failure() -> None:
+    assert trn03.merge_error("ARM failed", "handoff failed") == (
+        "ARM failed; handoff failed")
 
 
 def test_parse_snapshot_requires_exact_field_count() -> None:

@@ -754,6 +754,8 @@ bool sync_io_init(const sync_io_config_t *config)
 
     bool pio_programs_fit =
         pio_can_add_program(BOARD_SYNC_PIO_FAST, &sync_capture_4bit_program) &&
+        pio_can_add_program(BOARD_SYNC_PIO_FAST,
+                            &sync_model_sched_pulse_high_program) &&
         pio_can_add_program(BOARD_SYNC_PIO_WAVE, &sync_pulse_program);
 #if BOARD_SYNC_AUX_ENABLED
     pio_programs_fit =
@@ -774,6 +776,9 @@ bool sync_io_init(const sync_io_config_t *config)
         sync_io_claim_sm(BOARD_SYNC_PIO_FAST,
                          BOARD_SYNC_CAPTURE_SM,
                          "capture") &&
+        sync_io_claim_sm(BOARD_SYNC_PIO_FAST,
+                         BOARD_SYNC_SMA_OBSERVER_SM,
+                         "sma_observer") &&
         sync_io_claim_sm(BOARD_SYNC_PIO_WAVE,
                          BOARD_SYNC_OUTPUT_SM,
                          "output") &&

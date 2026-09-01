@@ -269,6 +269,10 @@ SYSTem:SYNC:VDC:PATH:DELay?
 SYSTem:SYNC:VDC:LOCK:READiness?
 SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest
 SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest?
+SYSTem:SYNC:VDC:OBServer:WAVEform:ARM
+SYSTem:SYNC:VDC:OBServer:WAVEform:STOP
+SYSTem:SYNC:VDC:OBServer:WAVEform:STATus?
+SYSTem:SYNC:VDC:OBServer:WAVEform:SAVE
 SYSTem:SYNC:VDC:OBServer:TDMA
 SYSTem:SYNC:VDC:OBServer
 SYSTem:SYNC:VDC:OBServer?
@@ -289,9 +293,13 @@ SYSTem:SYNC:VDC:DPLL:DEFAult
 
 `SYSTem:SYNC:VDC:OBServer:TDMA [enabled],[initial_sample_mask],[sample_period_ns],[frame_crc32]` 是维护配置入口，用于按 active `VDC_OBSERVATION_WINDOW` 建立 VDC observer 最小实例。它只从 VDC owner 的 active schedule 读取 window start 和 schedule CRC，并配置 observer 的 expected/base 时间；不得启动 capture、不得提升 timestamp flags、不得写 DPLL。当前阶段即使使用该入口，core1 drain FIFO timestamp 仍必须带 `DIAGNOSTIC_ONLY`，readiness 应停在 timestamp not eligible。
 
-`SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest [role],[output_index],[observed_mask],[initial_sample_mask],[sample_period_ns],[pulse_period_ns],[pulse_high_ns],[pulse_count],[frame_crc32],[start_delay_ns]` 是维护态 VDC/TDMA bring-up 入口。`role=1` 表示 TX 侧向公共 TDMA service 提交 `VDC_SYNC_SAMPLE` short frame intent，`role=2` 表示 RX 侧按 active TDMA observation window 周期性 arm observer 并启动 capture，`role=3` 表示两者同时运行。`start_delay_ns` 让 RX window 与 TX intent 在共同未来时间基起跑，缺省为 `1000000000`。该命令只能启动 self-test 事务，不直接写 DPLL lock/offset/rate；当前 TX self-test evidence 必须保持 `SOFTWARE_US / 1000 ns / DIAGNOSTIC_ONLY`，验收来自 `SYSTem:SYNC:VDC:TDMA:STATus?`、`SYSTem:SYNC:VDC:OBServer?` 和 `LOCK:READiness?` 的 gate evidence。
+`SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest [role],[output_index],[observed_mask],[initial_sample_mask],[sample_period_ns],[pulse_period_ns],[pulse_high_ns],[pulse_count],[frame_crc32],[start_delay_ns],[phase_only],[phase_max_span_ns],[phase_min_stable_rounds]` 是维护态 VDC/TDMA bring-up 入口。`phase_only=0` 保留原 TDMA 诊断语义。`phase_only=1` 时，TX 不等待软件 LOCKED 状态，也不使用共同 TDMA window 强制首发对齐，而是通过 `PIO0/SM1` 持续按本板最新 DCO 相位边界输出 SMA OUT1；RX 通过 `PIO0/SM0` 连续捕获四路，允许初始相位不同并跨相邻周期分组。只有缺失、重复/歧义边沿或稳定段不能形成连续阈值内轮数才拒绝。`role=0,phase_only=1` 显式停止长时观测并释放资源。
 
-`SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest?` 是只读维护入口，返回 `active,role,output_index,observed_mask,initial_sample_mask,sample_period_ns,pulse_period_ns,pulse_high_ns,pulse_count,frame_crc32,schedule_crc32,last_error,started_ms,start_delay_ns,first_window_start_lo,first_window_start_hi`。
+`SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest?` 是只读维护入口，返回 `active,role,output_index,observed_mask,initial_sample_mask,sample_period_ns,pulse_period_ns,pulse_high_ns,pulse_count,frame_crc32,schedule_crc32,last_error,started_ms,start_delay_ns,first_window_start_lo,first_window_start_hi,phase_max_span_ns,phase_min_stable_rounds,scheduled_pulse_count`。
+
+`SYSTem:SYNC:VDC:OBServer:PHASe?` 返回外部相位曲线的板上聚合证据。第一完整轮写入 initial 指标但不直接作为拒绝条件；门禁读取当前 `stable_streak` 和 `converged`。跨度采用一个脉冲周期上的最短圆周弧，避免把周期边界两侧的近邻脉冲误算成接近整周期。
+
+`SYSTem:SYNC:VDC:OBServer:WAVEform:{ARM|STOP|STATus?|SAVE}` 管理 NO5 的 PIO0 原始波形 SD 证据。记录器保留 `raw_word,sample_seq,previous_sample_mask,base_time_l32_ns,matched_window_start_ns,sample_period_ns,timestamp_source,timestamp_resolution_ns,timestamp_flags,dropped_before`，以小于 8 KiB 的连续编号段交给 StorageAO。串口 `STATus?` 和 `PHASe?` 只提供进度与在线提示，不得替代 SD raw word 生成相位曲线、传递函数拟合输入或正式锁定证据。
 
 `SYSTem:SYNC:VDC:OBServer [enabled],...` 是维护配置入口，用于启停 VDC manager 消费 SYNC_IO latched capture fact 的 observer。无参数或 `enabled=0` 只关闭 observer 并清零状态；`enabled=1` 必须显式提供 batch、rising/falling event id、observed mask、initial mask、base tick、sample period、expected window start 和 frame CRC。该命令不得启动 SYNC_IO capture，不得绕过 timestamp dictionary/gate，也不得作为 DPLL lock evidence 本身。
 

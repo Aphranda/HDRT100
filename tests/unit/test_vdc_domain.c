@@ -2640,10 +2640,9 @@ static int test_observation_path_matrix_is_explicit(void)
     }
     table.observation_matrix.valid = 1u;
     table.observation_matrix.node_count = 4u;
-    table.observation_matrix.entry_count = 12u;
+    table.observation_matrix.entry_count = 16u;
     for (uint32_t source = 0u; source < 4u; source++) {
         for (uint32_t reference = 0u; reference < 4u; reference++) {
-            if (source == reference) continue;
             const uint32_t index = source * VDC_DOMAIN_NODE_COUNT + reference;
             table.observation_matrix.delay_ns[index] =
                 100u + source * 10u + reference;
@@ -2659,9 +2658,10 @@ static int test_observation_path_matrix_is_explicit(void)
                           vdc_domain_observation_path_delay_lookup(
                               &context.path_delay, 2u, 0u, &entry), true);
     failed += expect_u32("matrix delay value", entry.delay_ns, 120u);
-    failed += expect_bool("matrix self path rejected",
+    failed += expect_bool("matrix self loop path",
                           vdc_domain_observation_path_delay_lookup(
-                              &context.path_delay, 2u, 2u, &entry), false);
+                              &context.path_delay, 2u, 2u, &entry), true);
+    failed += expect_u32("matrix self loop delay", entry.delay_ns, 122u);
     table.observation_matrix.valid_bitmap[0] |= 1u << 4u;
     table.table_crc32 = vdc_domain_path_delay_table_crc32(&table);
     failed += expect_bool("matrix inactive reference rejected",
@@ -2902,12 +2902,21 @@ static int test_ring_observer_expands_correlated_feedback(void)
                          evidence.phase_error_ns,
                          16);
 
+    vdc_tdma_schedule_profile_t reference_schedule;
+    failed += expect_bool("reference schedule topology",
+                          vdc_domain_default_schedule_for_topology(
+                              &reference_schedule,
+                              schedule.reference_slot_id,
+                              schedule.reference_slot_id,
+                              schedule.ring_binding.node_count),
+                          true);
     observation.source_node = observation.reference_node;
-    failed += expect_bool("reference RTT cannot masquerade as Node phase",
-                          vdc_ring_observer_expand(&schedule,
+    observation.schedule_crc32 = reference_schedule.schedule_crc32;
+    failed += expect_bool("reference loop observation expands",
+                          vdc_ring_observer_expand(&reference_schedule,
                                                    &observation,
                                                    &evidence),
-                          false);
+                          true);
     observation.source_node = schedule.local_slot_id;
     observation.timestamp_flags |=
         VDC_DOMAIN_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
@@ -2984,9 +2993,9 @@ static int test_provisional_path_matrix_is_servo_only(void)
     failed += expect_bool("active observation lookup accepts frozen matrix",
                           vdc_domain_active_observation_path_delay_lookup(
                               &table, 1u, 0u, &entry), true);
-    failed += expect_bool("active observation lookup rejects same node",
+    failed += expect_bool("active observation lookup accepts loop path",
                           vdc_domain_active_observation_path_delay_lookup(
-                              &table, 1u, 1u, &entry), false);
+                              &table, 1u, 1u, &entry), true);
 
     vdc_domain_default_timestamp_dictionary(&dictionary, &context.schedule);
     failed += expect_bool("formal activation rejects provisional",

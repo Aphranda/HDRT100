@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-"""Read-only NO5 DPLL/VDC observation monitor.
+"""NO5 DPLL/VDC external observation and SD waveform capture.
 
-The monitor never arms a ring, submits a frame, changes an offset, or writes
-storage.  It only reads the TDMA execution snapshot and the core1-owned VDC/
-DPLL vectors, then writes a CSV/JSON/SVG report under ``out/``.  Raw SD
-waveform captures remain an independent evidence source; ``--waveform-analysis``
-can attach an existing ``ring_capture_analysis.json`` to the report.
+The monitor never arms a ring, submits a TDMA frame, or changes a DPLL offset.
+Serial queries provide progress only.  NO5 captures the PIO0 raw SMA words to
+SD, and offline decoding of those words is the analysis evidence source.
 """
 
 from __future__ import annotations
@@ -34,6 +32,10 @@ from scpi_common.scpi_serial import (  # noqa: E402
     open_serial_port,
     read_scpi_response,
 )
+from tools.dpll_waveform_capture.dpll_waveform_capture import (  # noqa: E402
+    decode_segments,
+    write_reports as write_waveform_reports,
+)
 try:
     # Package import is required when the monitor is imported by pytest or by
     # another tool from the repository root.  ``tdma_ring_monitor`` also has a
@@ -57,6 +59,11 @@ DPLL_VECTOR_COMMAND = "SYSTem:REFMEM:DPLL:VECtor?"
 SMA_INPUT_COMMAND = "REALtime:IO:INPut:LEVel?"
 PHASE_COMMAND = "SYSTem:SYNC:VDC:OBServer:PHASe?"
 PHASE_SELFTEST_COMMAND = "SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest"
+PHASE_SELFTEST_QUERY = PHASE_SELFTEST_COMMAND + "?"
+WAVEFORM_ARM_COMMAND = "SYSTem:SYNC:VDC:OBServer:WAVEform:ARM"
+WAVEFORM_STOP_COMMAND = "SYSTem:SYNC:VDC:OBServer:WAVEform:STOP"
+WAVEFORM_STATUS_COMMAND = "SYSTem:SYNC:VDC:OBServer:WAVEform:STATus?"
+WAVEFORM_SAVE_COMMAND = "SYSTem:SYNC:VDC:OBServer:WAVEform:SAVE"
 SMA_LOCK_EXPECTED_MASK = 0x0F
 
 VDC_STATUS_FIELDS = (
@@ -102,8 +109,28 @@ DPLL_VECTOR_FIELDS = (
 PHASE_FIELDS = (
     "enabled", "round_count", "complete_count", "missing_count",
     "ambiguous_count", "last_edge_mask", "last_span_ns", "offset0_ns",
-    "offset1_ns", "offset2_ns", "offset3_ns", "last_window_start_lo",
-    "last_window_start_hi", "dropped_word_count",
+    "offset1_ns", "offset2_ns", "offset3_ns", "initial_span_ns",
+    "initial_offset0_ns", "initial_offset1_ns", "initial_offset2_ns",
+    "initial_offset3_ns", "peak_span_ns", "min_span_ns",
+    "stable_round_count", "stable_streak", "max_stable_streak",
+    "stable_jitter_ns", "first_stable_round", "converged",
+    "configured_max_span_ns", "configured_min_stable_rounds",
+    "last_window_start_lo", "last_window_start_hi", "dropped_word_count",
+)
+PHASE_SELFTEST_FIELDS = (
+    "active", "role", "output_index", "observed_mask",
+    "initial_sample_mask", "sample_period_ns", "pulse_period_ns",
+    "pulse_high_ns", "pulse_count", "frame_crc32", "schedule_crc32",
+    "last_error", "started_ms", "start_delay_ns",
+    "first_window_start_lo", "first_window_start_hi",
+    "phase_max_span_ns", "phase_min_stable_rounds",
+    "scheduled_pulse_count",
+)
+WAVEFORM_STATUS_FIELDS = (
+    "armed", "stopping", "complete", "session_id", "record_count",
+    "dropped_count", "segment_count", "pending_record_count",
+    "first_sample_seq", "last_sample_seq", "start_ms", "end_ms",
+    "last_error", "last_job_id",
 )
 
 VECTOR_FLAG_VALID = 1 << 0
@@ -138,7 +165,64 @@ class BoardSample:
     simultaneous_feedback: bool
     sma_input: dict[str, int] = field(default_factory=dict)
     phase_observation: dict[str, int] = field(default_factory=dict)
+    phase_selftest: dict[str, int] = field(default_factory=dict)
+    waveform_capture: dict[str, Any] = field(default_factory=dict)
     error: str = ""
+
+
+class ProgressReporter:
+    """Publish low-rate Core0 state; waveform evidence remains on NO5 SD."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.sequence = 0
+        self.started = time.monotonic()
+
+    def emit(self, event: str, **details: Any) -> None:
+        self.sequence += 1
+        payload = {
+            "schema": "HAOFV_DPLL_MONITOR_PROGRESS_V1",
+            "sequence": self.sequence,
+            "event": event,
+            "elapsed_s": round(time.monotonic() - self.started, 6),
+            "updated_at": datetime.now().astimezone().isoformat(),
+            "details": details,
+            "source": "CORE0_SCPI_READ_ONLY_STATUS",
+            "analysis_evidence": "NO5_SD_PIO0_RAW_WAVEFORM",
+        }
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        pending = self.path.with_suffix(self.path.suffix + ".tmp")
+        pending.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8")
+        pending.replace(self.path)
+        print("DPLL_PROGRESS " + json.dumps(
+            payload, ensure_ascii=False, separators=(",", ":")), flush=True)
+
+
+def _progress_board(sample: BoardSample) -> dict[str, Any]:
+    status = sample.phase_selftest
+    return {
+        "port": sample.port,
+        "ok": sample.error == "",
+        "error": sample.error,
+        "selftest_active": status.get("active", 0),
+        "selftest_role": status.get("role", 0),
+        "selftest_last_error": status.get("last_error", 0),
+        "scheduled_pulse_count": status.get("scheduled_pulse_count", 0),
+        "first_window_start_ns": (
+            (status.get("first_window_start_hi", 0) << 32) |
+            status.get("first_window_start_lo", 0)),
+        "phase_round_count": sample.phase_observation.get("round_count", 0),
+        "phase_complete_count": sample.phase_observation.get("complete_count", 0),
+        "phase_last_span_ns": sample.phase_observation.get("last_span_ns", 0),
+        "waveform_record_count": sample.waveform_capture.get("record_count", 0),
+        "waveform_dropped_count": sample.waveform_capture.get("dropped_count", 0),
+        "waveform_segment_count": sample.waveform_capture.get("segment_count", 0),
+        "waveform_last_error": sample.waveform_capture.get("last_error", 0),
+        "dpll_update_seq": sample.dpll_status.get("update_seq", 0),
+        "dpll_state": sample.dpll_status.get("state", 0),
+    }
 
 
 def _ring_sequence(sample: BoardSample) -> int | None:
@@ -251,7 +335,8 @@ def _query(ser: Any, command: str, timeout_s: float) -> str:
 
 
 def _arm_phase_observation(serials: dict[str, Any], specs: list[BoardSpec],
-                           args: argparse.Namespace) -> None:
+                           args: argparse.Namespace,
+                           *, arm_observer: bool = True) -> None:
     """Arm the external pulse evidence persona on all five boards.
 
     The observer is armed first.  Ring nodes then schedule OUT1 pulses from
@@ -264,18 +349,199 @@ def _arm_phase_observation(serials: dict[str, Any], specs: list[BoardSpec],
     if period <= high or high <= 0 or count <= 0 or delay < 0:
         raise ValueError("invalid external phase pulse configuration")
 
-    ordered = [spec for spec in specs
-               if spec.name == args.observer_name.upper()] + [
-                   spec for spec in specs
-                   if spec.name != args.observer_name.upper()]
-    for spec in ordered:
-        role = 2 if spec.name == args.observer_name.upper() else 1
+    observer_name = args.observer_name.upper()
+
+    def arm(spec: BoardSpec, role: int) -> None:
         command = (f"{PHASE_SELFTEST_COMMAND} {role},0,15,0,"
                    f"{int(args.phase_sample_period_ns)},{period},{high},"
-                   f"{count},0,{delay},1")
+                   f"{count},0,{delay},1,{int(args.phase_max_span_ns)},"
+                   f"{int(args.phase_min_complete_rounds)}")
         response = _query(serials[spec.name], command, args.timeout)
         if response.strip().strip('"') not in ("1", "1.0"):
             raise ValueError(f"{spec.name}: phase observation arm rejected: {response}")
+
+    observer = next(spec for spec in specs if spec.name == observer_name)
+    if arm_observer:
+        arm(observer, 2)
+    transmitters = [spec for spec in specs if spec.name != observer_name]
+    # The four serial links are independent.  Issuing TX arms concurrently
+    # keeps host command ordering out of the measured initial phase.
+    with ThreadPoolExecutor(max_workers=len(transmitters)) as pool:
+        list(pool.map(lambda spec: arm(spec, 1), transmitters))
+
+
+def _stop_phase_observation(serials: dict[str, Any], specs: list[BoardSpec],
+                            args: argparse.Namespace) -> None:
+    command = (f"{PHASE_SELFTEST_COMMAND} 0,0,15,0,"
+               f"{int(args.phase_sample_period_ns)},"
+               f"{int(args.phase_pulse_period_ns)},"
+               f"{int(args.phase_pulse_high_ns)},"
+               f"{int(args.phase_pulse_count)},0,0,1,"
+               f"{int(args.phase_max_span_ns)},"
+               f"{int(args.phase_min_complete_rounds)}")
+
+    def stop(spec: BoardSpec) -> None:
+        response = _query(serials[spec.name], command, args.timeout)
+        if response.strip().strip('"') not in ("1", "1.0"):
+            raise ValueError(f"{spec.name}: phase observation stop rejected: {response}")
+
+    with ThreadPoolExecutor(max_workers=len(specs)) as pool:
+        list(pool.map(stop, specs))
+
+
+def _parse_waveform_status(response: str) -> dict[str, Any]:
+    fields = [field.strip().strip('"')
+              for field in next(csv.reader([response]), [])]
+    if len(fields) != len(WAVEFORM_STATUS_FIELDS) + 1:
+        raise ValueError(f"invalid waveform status: {response!r}")
+    values: list[int] = []
+    for field in fields[:-1]:
+        if field.upper() == "TRUE":
+            values.append(1)
+        elif field.upper() == "FALSE":
+            values.append(0)
+        else:
+            values.append(int(field, 0))
+    status: dict[str, Any] = dict(zip(
+        WAVEFORM_STATUS_FIELDS, values, strict=True))
+    status["last_path"] = fields[-1]
+    return status
+
+
+def _parse_storage_read(response: str, expected_offset: int) -> dict[str, Any]:
+    values = [value.strip().strip('"')
+              for value in next(csv.reader([response]), [])]
+    if len(values) != 10 or values[0].upper() != "OK":
+        raise ValueError(f"storage read rejected: {response!r}")
+    offset = int(values[2], 0)
+    requested = int(values[3], 0)
+    returned = int(values[4], 0)
+    error = int(values[8], 0)
+    payload = bytes.fromhex(values[9])
+    if (offset != expected_offset or error != 0 or
+            len(payload) != returned or returned > requested):
+        raise ValueError(f"storage read mismatch: {response!r}")
+    return {
+        "file_size": int(values[5], 0),
+        "eof": int(values[6], 0) != 0,
+        "payload": payload,
+    }
+
+
+def _download_waveform_segment(ser: Any, path: str,
+                               timeout_s: float) -> bytes:
+    data = bytearray()
+    file_size: int | None = None
+    while file_size is None or len(data) < file_size:
+        requested = 128 if file_size is None else min(128, file_size - len(data))
+        response = _query(
+            ser, f'SYSTem:STORage:FILE:READ? "{path}",'
+                 f'{len(data)},{requested}', timeout_s)
+        page = _parse_storage_read(response, len(data))
+        if file_size is None:
+            file_size = page["file_size"]
+        elif page["file_size"] != file_size:
+            raise ValueError(f"waveform file changed during download: {path}")
+        payload = page["payload"]
+        if not payload and not page["eof"]:
+            raise ValueError(f"waveform download made no progress: {path}")
+        data.extend(payload)
+        if page["eof"]:
+            break
+    if file_size is None or len(data) != file_size:
+        raise ValueError(f"incomplete waveform download: {path}")
+    return bytes(data)
+
+
+def _finish_waveform_capture(ser: Any, args: argparse.Namespace,
+                             progress: ProgressReporter) -> dict[str, Any]:
+    response = _query(ser, WAVEFORM_STOP_COMMAND, args.timeout)
+    if not response.lstrip().lstrip('"').upper().startswith("OK"):
+        raise ValueError(f"waveform stop rejected: {response!r}")
+    deadline = time.monotonic() + args.waveform_flush_timeout_s
+    status: dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        status = _parse_waveform_status(
+            _query(ser, WAVEFORM_STATUS_COMMAND, args.timeout))
+        progress.emit("waveform_flushing", waveform=status)
+        if status["complete"]:
+            break
+        time.sleep(0.05)
+    if not status.get("complete"):
+        raise TimeoutError(f"NO5 waveform flush timeout: {status}")
+    if status["record_count"] == 0 or status["segment_count"] == 0:
+        progress.emit("waveform_empty", waveform=status)
+        return {
+            "status": status,
+            "sd_paths": [],
+            "analysis": {},
+            "raw_gate": {
+                "passed": False,
+                "errors": ["no_raw_waveform_records"],
+                "phase_round_count": 0,
+                "source_dropped_count": 0,
+                "initial_span_ns": None,
+                "final_span_ns": None,
+                "stable_streak": 0,
+                "max_span_ns": args.phase_max_span_ns,
+                "min_stable_rounds": args.phase_min_complete_rounds,
+            },
+        }
+    if status["last_error"]:
+        raise RuntimeError(f"NO5 waveform capture is incomplete: {status}")
+    save = [field.strip().strip('"') for field in next(csv.reader([
+        _query(ser, WAVEFORM_SAVE_COMMAND, args.timeout)]), [])]
+    if len(save) != 3 or save[0].upper() != "OK":
+        raise ValueError(f"waveform save rejected: {save!r}")
+    segment_count, prefix = int(save[1], 0), save[2]
+    segment_dir = args.out_dir / "waveform" / "segments"
+    segment_dir.mkdir(parents=True, exist_ok=True)
+    local_paths = []
+    sd_paths = []
+    for index in range(segment_count):
+        sd_path = f"{prefix}{index:04d}.bin"
+        local_path = segment_dir / Path(sd_path).name
+        local_path.write_bytes(
+            _download_waveform_segment(ser, sd_path, args.timeout))
+        local_paths.append(local_path)
+        sd_paths.append(sd_path)
+        progress.emit("waveform_download", segment=index + 1,
+                      segment_count=segment_count, sd_path=sd_path)
+    decoded = decode_segments(
+        local_paths, pulse_period_ns=args.phase_pulse_period_ns)
+    analysis = write_waveform_reports(
+        decoded, args.out_dir / "waveform" / "analysis")
+    stable_streak = 0
+    for row in reversed(decoded["phase"]):
+        if row["span_ns"] > args.phase_max_span_ns:
+            break
+        stable_streak += 1
+    raw_gate_errors = []
+    if status["dropped_count"] != 0:
+        raw_gate_errors.append("capture_dropped_records")
+    if decoded["dropped_count"] != 0:
+        raw_gate_errors.append("segment_dropped_records")
+    if decoded["source_dropped_count"] != 0:
+        raw_gate_errors.append("source_dropped_records")
+    if stable_streak < args.phase_min_complete_rounds:
+        raw_gate_errors.append("insufficient_stable_phase_rounds")
+    raw_gate = {
+        "passed": not raw_gate_errors,
+        "errors": raw_gate_errors,
+        "phase_round_count": decoded["phase_round_count"],
+        "capture_dropped_count": status["dropped_count"],
+        "segment_dropped_count": decoded["dropped_count"],
+        "source_dropped_count": decoded["source_dropped_count"],
+        "initial_span_ns": (decoded["phase"][0]["span_ns"]
+                            if decoded["phase"] else None),
+        "final_span_ns": (decoded["phase"][-1]["span_ns"]
+                          if decoded["phase"] else None),
+        "stable_streak": stable_streak,
+        "max_span_ns": args.phase_max_span_ns,
+        "min_stable_rounds": args.phase_min_complete_rounds,
+    }
+    return {"status": status, "sd_paths": sd_paths,
+            "analysis": analysis, "raw_gate": raw_gate}
 
 
 def _read_board(ser: Any, spec: BoardSpec, timeout_s: float,
@@ -293,6 +559,8 @@ def _read_board(ser: Any, spec: BoardSpec, timeout_s: float,
             _query(ser, VDC_VECTOR_COMMAND, timeout_s), VDC_VECTOR_FIELDS)
         dpll_vector = parse_vector_response(
             _query(ser, DPLL_VECTOR_COMMAND, timeout_s), DPLL_VECTOR_FIELDS)
+        phase_selftest = parse_named_int_response(
+            _query(ser, PHASE_SELFTEST_QUERY, timeout_s), PHASE_SELFTEST_FIELDS)
         trigger_sequence = _select_trigger_sequence(tdma, vdc_vector, dpll_vector)
         interval_ms: float | None = None
         if previous is not None and trigger_sequence > previous.trigger_sequence:
@@ -314,6 +582,7 @@ def _read_board(ser: Any, spec: BoardSpec, timeout_s: float,
             readiness=readiness,
             vdc_vector=vdc_vector,
             dpll_vector=dpll_vector,
+            phase_selftest=phase_selftest,
             trigger_sequence=trigger_sequence,
             trigger_interval_ms=interval_ms,
             simultaneous_feedback=simultaneous,
@@ -342,6 +611,10 @@ def _read_observer(ser: Any, spec: BoardSpec, timeout_s: float,
                 f"observer exposes only {sma_input['pin_count']} SMA inputs")
         phase = parse_named_int_response(
             _query(ser, PHASE_COMMAND, timeout_s), PHASE_FIELDS)
+        phase_selftest = parse_named_int_response(
+            _query(ser, PHASE_SELFTEST_QUERY, timeout_s), PHASE_SELFTEST_FIELDS)
+        waveform = _parse_waveform_status(
+            _query(ser, WAVEFORM_STATUS_COMMAND, timeout_s))
         return BoardSample(
             ts_utc=datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
             elapsed_s=elapsed_s,
@@ -352,6 +625,8 @@ def _read_observer(ser: Any, spec: BoardSpec, timeout_s: float,
             trigger_interval_ms=None, simultaneous_feedback=False,
             sma_input=sma_input,
             phase_observation=phase,
+            phase_selftest=phase_selftest,
+            waveform_capture=waveform,
         )
     except (OSError, ValueError, TimeoutError, KeyError) as exc:
         return BoardSample(
@@ -384,7 +659,11 @@ def _board_summary(samples: list[BoardSample], *, expected_interval_ms: float,
             phase and phase.get("enabled", 0) and
             phase.get("complete_count", 0) >= phase_min_complete_rounds and
             phase.get("last_edge_mask", 0) == SMA_LOCK_EXPECTED_MASK and
-            phase.get("last_span_ns", phase_max_span_ns + 1) <= phase_max_span_ns and
+            phase.get("configured_max_span_ns", 0) == phase_max_span_ns and
+            phase.get("configured_min_stable_rounds", 0) ==
+            phase_min_complete_rounds and
+            phase.get("stable_streak", 0) >= phase_min_complete_rounds and
+            phase.get("converged", 0) and
             phase.get("missing_count", 0) == 0 and
             phase.get("ambiguous_count", 0) == 0)
         return {
@@ -419,6 +698,10 @@ def _board_summary(samples: list[BoardSample], *, expected_interval_ms: float,
             "phase_gate_passed": phase_ok,
             "phase_max_span_ns": phase_max_span_ns,
             "phase_min_complete_rounds": phase_min_complete_rounds,
+            "phase_initial_span_ns": phase.get("initial_span_ns", 0),
+            "phase_final_span_ns": phase.get("last_span_ns", 0),
+            "phase_peak_span_ns": phase.get("peak_span_ns", 0),
+            "phase_stable_jitter_ns": phase.get("stable_jitter_ns", 0),
         }
     interval_ok = bool(intervals) and all(
         abs(interval - expected_interval_ms) <= interval_tolerance_ms
@@ -632,6 +915,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--phase-start-delay-ns", type=int, default=1000000000)
     parser.add_argument("--phase-max-span-ns", type=int, default=500)
     parser.add_argument("--phase-min-complete-rounds", type=int, default=3)
+    parser.add_argument("--waveform-flush-timeout-s", type=float, default=30.0)
     return parser.parse_args()
 
 
@@ -645,42 +929,81 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("duration and poll interval must be positive")
     if args.sequence_skew_tolerance < 0:
         raise ValueError("sequence skew tolerance must be non-negative")
+    if args.phase_max_span_ns <= 0 or args.phase_min_complete_rounds <= 0:
+        raise ValueError("phase convergence thresholds must be positive")
     out_dir = args.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
+    progress = ProgressReporter(out_dir / "progress.json")
     samples_by_board: dict[str, list[BoardSample]] = {spec.name: [] for spec in specs}
     started = time.monotonic()
+    waveform_result: dict[str, Any] = {}
+    progress.emit("opening_ports", boards={spec.name: spec.port for spec in specs})
     with open_serial_ports(specs, args) as serials:
-        _arm_phase_observation(serials, specs, args)
-        rearm_interval_s = max(
-            1.0,
-            args.phase_pulse_count * args.phase_pulse_period_ns / 1e9 * 0.8)
-        next_rearm = time.monotonic() + rearm_interval_s
-        while True:
-            elapsed = time.monotonic() - started
-            if elapsed >= args.duration_s and any(samples_by_board.values()):
-                break
-            if time.monotonic() >= next_rearm:
-                _arm_phase_observation(serials, specs, args)
-                next_rearm = time.monotonic() + rearm_interval_s
-            def read_spec(spec: BoardSpec) -> BoardSample:
-                if spec.name == args.observer_name.upper():
-                    return _read_observer(
-                        serials[spec.name], spec, args.timeout, elapsed)
-                previous = (samples_by_board[spec.name][-1]
-                            if samples_by_board[spec.name] else None)
-                return _read_board(
-                    serials[spec.name], spec, args.timeout, elapsed, previous)
+        observer_serial = serials[args.observer_name.upper()]
+        waveform_armed = False
+        try:
+            response = _query(observer_serial, WAVEFORM_ARM_COMMAND, args.timeout)
+            if not response.lstrip().lstrip('"').upper().startswith("OK"):
+                raise ValueError(f"NO5 waveform arm rejected: {response!r}")
+            waveform_armed = True
+            progress.emit("waveform_armed", response=response)
+            _arm_phase_observation(serials, specs, args)
+            progress.emit("phase_observation_armed")
+            poll_index = 0
+            while True:
+                elapsed = time.monotonic() - started
+                if elapsed >= args.duration_s and any(samples_by_board.values()):
+                    break
 
-            # Board serial sessions are independent.  Read all Nodes in one
-            # observation round concurrently so poll cadence is not multiplied
-            # by the number of boards.
-            with ThreadPoolExecutor(max_workers=len(specs)) as pool:
-                samples = list(pool.map(read_spec, specs))
-            for spec, sample in zip(specs, samples, strict=True):
-                samples_by_board[spec.name].append(sample)
-            if elapsed >= args.duration_s:
-                break
-            time.sleep(args.poll_interval_s)
+                def read_spec(spec: BoardSpec) -> BoardSample:
+                    if spec.name == args.observer_name.upper():
+                        return _read_observer(
+                            serials[spec.name], spec, args.timeout, elapsed)
+                    previous = (samples_by_board[spec.name][-1]
+                                if samples_by_board[spec.name] else None)
+                    return _read_board(
+                        serials[spec.name], spec, args.timeout, elapsed, previous)
+
+                # Board serial sessions are independent.  Read all Nodes in one
+                # observation round concurrently so poll cadence is not multiplied
+                # by the number of boards.
+                with ThreadPoolExecutor(max_workers=len(specs)) as pool:
+                    samples = list(pool.map(read_spec, specs))
+                for spec, sample in zip(specs, samples, strict=True):
+                    samples_by_board[spec.name].append(sample)
+                poll_index += 1
+                progress.emit(
+                    "observing",
+                    poll_index=poll_index,
+                    boards={sample.board: _progress_board(sample)
+                            for sample in samples})
+                if elapsed >= args.duration_s:
+                    break
+                time.sleep(args.poll_interval_s)
+        finally:
+            try:
+                _stop_phase_observation(serials, specs, args)
+                progress.emit("phase_observation_stopped")
+            finally:
+                if waveform_armed:
+                    try:
+                        waveform_result = _finish_waveform_capture(
+                            observer_serial, args, progress)
+                    except (OSError, ValueError, TimeoutError,
+                            RuntimeError) as exc:
+                        waveform_result = {
+                            "status": {},
+                            "sd_paths": [],
+                            "analysis": {},
+                            "error": str(exc),
+                            "raw_gate": {
+                                "passed": False,
+                                "errors": ["waveform_capture_failed"],
+                                "detail": str(exc),
+                            },
+                        }
+                        progress.emit(
+                            "waveform_failed", error=str(exc))
 
     summaries = [_board_summary(
         samples_by_board[spec.name],
@@ -704,17 +1027,18 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             waveform.append({"path": str(path), "error": str(exc)})
     observer_summary = next((summary for summary in summaries
                              if summary.get("role") == "observer"), None)
+    raw_gate_passed = bool(waveform_result.get("raw_gate", {}).get("passed"))
     passed = bool(summaries) and sequence_consistent and bool(observer_summary) and \
-        observer_summary.get("phase_gate_passed", False) and all(
+        raw_gate_passed and all(
         summary["samples"] > 0 and not summary["errors"] and
-        (summary.get("phase_gate_passed", False)
+        (True
          if summary.get("role") == "observer" else
          (summary["ring_up_running"] and summary["ring_down_running"] and
           (not summary.get("reference_node", False) or
            summary["simultaneous_feedback"])))
         for summary in summaries)
     result = {
-        "schema": "HAOFV_DPLL_VDC_MONITOR_V1",
+        "schema": "HAOFV_DPLL_VDC_MONITOR_V2",
         "passed": passed,
         "observer_board": args.observer_name.upper(),
         "duration_s": args.duration_s,
@@ -726,7 +1050,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "ring_sequence_skew": sequence_skew,
         "boards": summaries,
         "waveform_analysis": waveform,
-        "read_only": True,
+        "sd_waveform": waveform_result,
+        "serial_status_role": "PROGRESS_ONLY",
+        "analysis_evidence": "NO5_SD_PIO0_RAW_WAVEFORM",
         "observer_transport": "SMA_SYNC_PULSES_PIO0",
         "phase_sample_period_ns": args.phase_sample_period_ns,
         "phase_pulse_period_ns": args.phase_pulse_period_ns,
@@ -734,9 +1060,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "phase_pulse_count": args.phase_pulse_count,
         "phase_max_span_ns": args.phase_max_span_ns,
         "phase_min_complete_rounds": args.phase_min_complete_rounds,
+        "phase_gate_semantics": "INITIAL_RECORDED_FINAL_STABLE_STREAK_GATED",
         "commands": [TDMA_STATUS_COMMAND, VDC_STATUS_COMMAND, DPLL_STATUS_COMMAND,
                      READINESS_COMMAND, VDC_VECTOR_COMMAND, DPLL_VECTOR_COMMAND,
-                     SMA_INPUT_COMMAND, PHASE_COMMAND, PHASE_SELFTEST_COMMAND],
+                     SMA_INPUT_COMMAND, PHASE_COMMAND, PHASE_SELFTEST_COMMAND,
+                     PHASE_SELFTEST_QUERY, WAVEFORM_ARM_COMMAND,
+                     WAVEFORM_STOP_COMMAND, WAVEFORM_STATUS_COMMAND,
+                     WAVEFORM_SAVE_COMMAND],
     }
     (out_dir / "samples.json").write_text(json.dumps({
         name: [asdict(sample) for sample in samples]
@@ -749,7 +1079,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                          "simultaneous_feedback", "vdc_vector_flags", "dpll_state",
                          "dco_phase_offset_ns", "dco_period_adjust_ppb",
                          "phase_round_count", "phase_complete_count",
-                         "phase_span_ns", "phase_offset_no1_ns",
+                         "phase_initial_span_ns", "phase_span_ns",
+                         "phase_peak_span_ns", "phase_stable_streak",
+                         "phase_stable_jitter_ns", "phase_converged",
+                         "phase_offset_no1_ns",
                          "phase_offset_no2_ns", "phase_offset_no3_ns",
                          "phase_offset_no4_ns", "error"])
         for samples in samples_by_board.values():
@@ -765,7 +1098,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                                  sample.dpll_vector.get("dco_period_adjust_ppb", 0),
                                  sample.phase_observation.get("round_count", 0),
                                  sample.phase_observation.get("complete_count", 0),
+                                 sample.phase_observation.get("initial_span_ns", 0),
                                  sample.phase_observation.get("last_span_ns", 0),
+                                 sample.phase_observation.get("peak_span_ns", 0),
+                                 sample.phase_observation.get("stable_streak", 0),
+                                 sample.phase_observation.get("stable_jitter_ns", 0),
+                                 sample.phase_observation.get("converged", 0),
                                  sample.phase_observation.get("offset0_ns", 0),
                                  sample.phase_observation.get("offset1_ns", 0),
                                  sample.phase_observation.get("offset2_ns", 0),
@@ -777,6 +1115,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         _svg(samples_by_board, summaries, duration_s=args.duration_s,
              expected_interval_ms=args.expected_interval_ms,
              sequence_skew_tolerance=args.sequence_skew_tolerance), encoding="utf-8")
+    progress.emit("complete", passed=passed,
+                  summary=str(out_dir / "summary.json"))
     return result
 
 

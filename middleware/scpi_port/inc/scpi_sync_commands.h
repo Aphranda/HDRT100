@@ -32,12 +32,17 @@ scpi_result_t scpi_cmd_sync_vdc_dpll_trace_arm(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_dpll_trace_stop(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_dpll_trace_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_dpll_trace_save(scpi_t *context);
+scpi_result_t scpi_cmd_sync_vdc_observer_waveform_arm(scpi_t *context);
+scpi_result_t scpi_cmd_sync_vdc_observer_waveform_stop(scpi_t *context);
+scpi_result_t scpi_cmd_sync_vdc_observer_waveform_status_q(scpi_t *context);
+scpi_result_t scpi_cmd_sync_vdc_observer_waveform_save(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_observer_ring_q(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_observer_tdma(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_observer_tdma_selftest(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_observer_tdma_selftest_q(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_observer(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_observer_q(scpi_t *context);
+scpi_result_t scpi_cmd_sync_vdc_observer_phase_q(scpi_t *context);
 
 #define SCPI_SYNC_COMMANDS \
     {.pattern = "SYNC:CHECk", .callback = scpi_sync_check_q}, \
@@ -79,12 +84,17 @@ scpi_result_t scpi_cmd_sync_vdc_observer_q(scpi_t *context);
     {.pattern = "SYSTem:SYNC:VDC:DPLL:TRACe:STOP", .callback = scpi_cmd_sync_vdc_dpll_trace_stop}, \
     {.pattern = "SYSTem:SYNC:VDC:DPLL:TRACe:STATus?", .callback = scpi_cmd_sync_vdc_dpll_trace_status_q}, \
     {.pattern = "SYSTem:SYNC:VDC:DPLL:TRACe:SAVE", .callback = scpi_cmd_sync_vdc_dpll_trace_save}, \
+    {.pattern = "SYSTem:SYNC:VDC:OBServer:WAVEform:ARM", .callback = scpi_cmd_sync_vdc_observer_waveform_arm}, \
+    {.pattern = "SYSTem:SYNC:VDC:OBServer:WAVEform:STOP", .callback = scpi_cmd_sync_vdc_observer_waveform_stop}, \
+    {.pattern = "SYSTem:SYNC:VDC:OBServer:WAVEform:STATus?", .callback = scpi_cmd_sync_vdc_observer_waveform_status_q}, \
+    {.pattern = "SYSTem:SYNC:VDC:OBServer:WAVEform:SAVE", .callback = scpi_cmd_sync_vdc_observer_waveform_save}, \
     {.pattern = "SYSTem:SYNC:VDC:OBServer:RING?", .callback = scpi_cmd_sync_vdc_observer_ring_q}, \
     {.pattern = "SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest?", .callback = scpi_cmd_sync_vdc_observer_tdma_selftest_q}, \
     {.pattern = "SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest", .callback = scpi_cmd_sync_vdc_observer_tdma_selftest}, \
     {.pattern = "SYSTem:SYNC:VDC:OBServer:TDMA", .callback = scpi_cmd_sync_vdc_observer_tdma}, \
     {.pattern = "SYSTem:SYNC:VDC:OBServer", .callback = scpi_cmd_sync_vdc_observer}, \
     {.pattern = "SYSTem:SYNC:VDC:OBServer?", .callback = scpi_cmd_sync_vdc_observer_q}, \
+    {.pattern = "SYSTem:SYNC:VDC:OBServer:PHASe?", .callback = scpi_cmd_sync_vdc_observer_phase_q}, \
     {.pattern = "SYSTem:SYNC:VDC:DPLL:TUNE", .callback = scpi_port_result_accepted}, \
     {.pattern = "SYSTem:SYNC:VDC:DPLL:COEFficient", .callback = scpi_port_result_accepted}, \
     {.pattern = "SYSTem:SYNC:VDC:DPLL:OVERRide?", .callback = scpi_sync_override_q}, \

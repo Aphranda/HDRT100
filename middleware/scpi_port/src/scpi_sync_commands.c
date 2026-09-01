@@ -701,6 +701,71 @@ scpi_result_t scpi_cmd_sync_vdc_dpll_trace_save(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_sync_vdc_observer_waveform_arm(scpi_t *context)
+{
+    if (!vdc_dpll_manager_waveform_capture_arm()) {
+        scpi_port_push_exec_error(context, "VDC_OBSERVER_WAVEFORM_ARM");
+        return SCPI_RES_ERR;
+    }
+    vdc_dpll_manager_waveform_capture_status_t status;
+    vdc_dpll_manager_get_waveform_capture_status(&status);
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, status.session_id);
+    SCPI_ResultUInt32(context, VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_sync_vdc_observer_waveform_stop(scpi_t *context)
+{
+    if (!vdc_dpll_manager_waveform_capture_stop()) {
+        scpi_port_push_exec_error(context, "VDC_OBSERVER_WAVEFORM_STOP");
+        return SCPI_RES_ERR;
+    }
+    vdc_dpll_manager_waveform_capture_status_t status;
+    vdc_dpll_manager_get_waveform_capture_status(&status);
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, status.record_count);
+    SCPI_ResultUInt32(context, status.dropped_count);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_sync_vdc_observer_waveform_status_q(scpi_t *context)
+{
+    vdc_dpll_manager_waveform_capture_status_t status;
+    vdc_dpll_manager_get_waveform_capture_status(&status);
+    SCPI_ResultBool(context, status.armed ? TRUE : FALSE);
+    SCPI_ResultBool(context, status.stopping ? TRUE : FALSE);
+    SCPI_ResultBool(context, status.complete ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, status.session_id);
+    SCPI_ResultUInt32(context, status.record_count);
+    SCPI_ResultUInt32(context, status.dropped_count);
+    SCPI_ResultUInt32(context, status.segment_count);
+    SCPI_ResultUInt32(context, status.pending_record_count);
+    SCPI_ResultUInt32(context, status.first_sample_seq);
+    SCPI_ResultUInt32(context, status.last_sample_seq);
+    SCPI_ResultUInt32(context, status.start_ms);
+    SCPI_ResultUInt32(context, status.end_ms);
+    SCPI_ResultUInt32(context, status.last_error);
+    SCPI_ResultUInt32(context, status.last_job_id);
+    SCPI_ResultText(context, status.last_path);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_sync_vdc_observer_waveform_save(scpi_t *context)
+{
+    uint32_t segment_count = 0u;
+    char prefix[96];
+    if (!vdc_dpll_manager_waveform_capture_manifest(
+            prefix, sizeof(prefix), &segment_count)) {
+        scpi_port_push_exec_error(context, "VDC_OBSERVER_WAVEFORM_SAVE");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, segment_count);
+    SCPI_ResultText(context, prefix);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_sync_vdc_observer_ring_q(scpi_t *context)
 {
     vdc_dpll_manager_ring_observer_status_t status;
@@ -839,6 +904,9 @@ scpi_result_t scpi_cmd_sync_vdc_observer_tdma_selftest(scpi_t *context)
     config.pulse_count = VDC_DPLL_MANAGER_SELF_TEST_MAX_PULSES;
     config.frame_crc32 = 0u;
     config.start_delay_ns = 1000000000u;
+    config.phase_only = true;
+    config.phase_max_span_ns = 500u;
+    config.phase_min_stable_rounds = 3u;
 
     (void)SCPI_ParamUInt32(context, &config.role, FALSE);
     (void)SCPI_ParamUInt32(context, &config.output_index, FALSE);
@@ -850,6 +918,13 @@ scpi_result_t scpi_cmd_sync_vdc_observer_tdma_selftest(scpi_t *context)
     (void)SCPI_ParamUInt32(context, &config.pulse_count, FALSE);
     (void)SCPI_ParamUInt32(context, &config.frame_crc32, FALSE);
     (void)SCPI_ParamUInt32(context, &config.start_delay_ns, FALSE);
+    {
+        uint32_t phase_only = 1u;
+        (void)SCPI_ParamUInt32(context, &phase_only, FALSE);
+        config.phase_only = phase_only != 0u;
+    }
+    (void)SCPI_ParamUInt32(context, &config.phase_max_span_ns, FALSE);
+    (void)SCPI_ParamUInt32(context, &config.phase_min_stable_rounds, FALSE);
 
     if (!vdc_dpll_manager_start_observation_self_test(&config)) {
         scpi_port_push_exec_error(context, "VDC_OBSERVER_TDMA_SELFTEST");
@@ -882,6 +957,9 @@ scpi_result_t scpi_cmd_sync_vdc_observer_tdma_selftest_q(scpi_t *context)
     SCPI_ResultUInt32(context,
                       (uint32_t)(status.first_window_start_ns & 0xFFFFFFFFull));
     SCPI_ResultUInt32(context, (uint32_t)(status.first_window_start_ns >> 32u));
+    SCPI_ResultUInt32(context, status.phase_max_span_ns);
+    SCPI_ResultUInt32(context, status.phase_min_stable_rounds);
+    SCPI_ResultUInt32(context, status.scheduled_pulse_count);
     return SCPI_RES_OK;
 }
 
@@ -981,5 +1059,40 @@ scpi_result_t scpi_cmd_sync_vdc_observer_q(scpi_t *context)
     SCPI_ResultUInt32(context, status.last_source_slot_id);
     SCPI_ResultUInt32(context, status.last_reference_slot_id);
     SCPI_ResultUInt32(context, status.last_payload_class);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_sync_vdc_observer_phase_q(scpi_t *context)
+{
+    vdc_dpll_manager_sync_io_observer_status_t status;
+    vdc_dpll_manager_get_sync_io_observer_status(&status);
+
+    SCPI_ResultBool(context, status.enabled ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, status.phase_round_count);
+    SCPI_ResultUInt32(context, status.phase_complete_count);
+    SCPI_ResultUInt32(context, status.phase_missing_count);
+    SCPI_ResultUInt32(context, status.phase_ambiguous_count);
+    SCPI_ResultUInt32(context, status.phase_last_edge_mask);
+    SCPI_ResultUInt32(context, status.phase_last_span_ns);
+    for (uint32_t channel = 0u; channel < 4u; channel++) {
+        SCPI_ResultInt32(context, status.phase_last_offset_ns[channel]);
+    }
+    SCPI_ResultUInt32(context, status.phase_initial_span_ns);
+    for (uint32_t channel = 0u; channel < 4u; channel++) {
+        SCPI_ResultInt32(context, status.phase_initial_offset_ns[channel]);
+    }
+    SCPI_ResultUInt32(context, status.phase_peak_span_ns);
+    SCPI_ResultUInt32(context, status.phase_min_span_ns);
+    SCPI_ResultUInt32(context, status.phase_stable_round_count);
+    SCPI_ResultUInt32(context, status.phase_stable_streak);
+    SCPI_ResultUInt32(context, status.phase_max_stable_streak);
+    SCPI_ResultUInt32(context, status.phase_stable_jitter_ns);
+    SCPI_ResultUInt32(context, status.phase_first_stable_round);
+    SCPI_ResultUInt32(context, status.phase_converged);
+    SCPI_ResultUInt32(context, status.phase_max_span_ns);
+    SCPI_ResultUInt32(context, status.phase_min_stable_rounds);
+    SCPI_ResultUInt32(context, status.phase_last_window_start_lo);
+    SCPI_ResultUInt32(context, status.phase_last_window_start_hi);
+    SCPI_ResultUInt32(context, status.phase_dropped_word_count);
     return SCPI_RES_OK;
 }

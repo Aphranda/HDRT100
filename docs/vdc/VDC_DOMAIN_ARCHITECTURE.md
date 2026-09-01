@@ -700,6 +700,11 @@ SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest?
 SYSTem:SYNC:VDC:OBServer:TDMA
 SYSTem:SYNC:VDC:OBServer
 SYSTem:SYNC:VDC:OBServer?
+SYSTem:SYNC:VDC:OBServer:PHASe?
+SYSTem:SYNC:VDC:OBServer:WAVEform:ARM
+SYSTem:SYNC:VDC:OBServer:WAVEform:STOP
+SYSTem:SYNC:VDC:OBServer:WAVEform:STATus?
+SYSTem:SYNC:VDC:OBServer:WAVEform:SAVE
 SYSTem:SYNC:VDC:DPLL:TUNE
 SYSTem:SYNC:VDC:DPLL:COEFficient
 SYSTem:SYNC:VDC:DPLL:DEFAult
@@ -717,6 +722,9 @@ SYSTem:SYNC:VDC:DPLL:DEFAult
 - `SYSTem:SYNC:VDC:LOCK:READiness?` 只读取 VDC 最小实例的锁定输入条件和阻塞原因，区分 `input_ready` 与 `locked`；它不启动 capture，不提交样本，不写 offset/rate/lock。
 - `SYSTem:SYNC:VDC:OBServer:TDMA` 按 active `VDC_OBSERVATION_WINDOW` 兼容配置结构设置 observer 的 expected phase/base，是最小实例 bring-up 入口；它不启动 capture，不提升 timestamp flags，不写 DPLL，也不定义产品 wire frame。
 - `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest` 是维护态 VDC/TDMA bring-up 入口：TX 角色可向公共 TDMA service 提交 diagnostic-only `VDC_SYNC_SAMPLE` short-frame intent，RX 角色由 VDC manager 按 active TDMA schedule arm observation event 并启动 SYNC_IO capture。该独立诊断帧不得进入产品 RUN 或替代 `CYCLIC_PROCESS_IMAGE`。当前 TX self-test evidence 必须保持 `SOFTWARE_US / 1000 ns / DIAGNOSTIC_ONLY`，只能证明 TDMA payload 到 VDC gate 的诊断通路；命令不写 lock/offset/rate，正式 DPLL lock 仍必须等待 PIO edge latch 产生 `HARDWARE_TICK / <=100 ns / DPLL_ELIGIBLE` 样本。
+- 同一 self-test 在 `phase_only=1` 时切换为外部只读观测角色：NO1-NO4 的 `PIO0/SM1` 每次依据最新 DCO 模型预约下一相位边界脉冲，NO5 的 `PIO0/SM0` 连续捕获四路。该路径不以软件锁定状态驱动输出，不提交 TDMA/VDC 样本，也不改变实时环路；第一完整轮保留为初始偏差，门禁仅检查后续连续稳定轮。
+- NO5 按相邻周期关系拼接四路边沿，并在一个脉冲周期上计算最短圆周跨度。周期边界两侧的脉冲因此保持近邻关系；缺失边沿、同通道重复边沿和 capture 歧义仍作为无效轮累计。
+- NO5 的正式分析证据来自 PIO0 edge-qualified raw word 的 SD 分段记录。Core0 observer 先把原始字和硬件时间元数据追加到双 SRAM 缓冲，StorageAO 在独立任务中写段文件；Core1 实时路径不参与 SD、格式化、曲线计算或串口查询。`OBServer:PHASe?` 和 `WAVEform:STATus?` 仅用于低频进度，传递函数拟合与相位门禁必须由主机下载并校验后的 raw word 重建。
 - `SYSTem:SYNC:VDC:OBServer` 只配置 VDC manager 的 SYNC_IO raw capture observer；无参数或 `0` 关闭 observer，启用态必须由维护工具显式给出 event id、tick base、sample period、window 和 frame CRC，不启动 capture、不伪造 lock evidence。
 - `SYSTem:SYNC:VDC:OBServer?` 只读取 observer 证据计数、当前配置 CRC/字典 CRC 和最近一次 dictionary 展开结果；它是 HIL 证据视图，不是 DPLL lock 判据。
 - 禁止新增 `VDC:*`、`DPLL:*`、`STATus:VDC?`、`STATus:DPLL?`。
