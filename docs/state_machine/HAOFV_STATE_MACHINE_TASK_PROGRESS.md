@@ -18,8 +18,9 @@ Last updated: 2026-09-01
   驱动转换，并把 state/target/previous/transition/error 发布到 TDMA physical snapshot。
 - Host/build：定向 Python 回归 `37 passed`；增量三镜像构建通过，PIO 头、App/A/B、
   Boot、Flash link contract 和统一 package 均生成，`build_id=20260901145306`。
-  纯 C FSM 单测脚本未执行，原因是当前 Windows 环境没有可用 host `gcc/clang`；固件
-  目标已成功编译该源文件。
+  使用 `D:\Microsoft\mingw64\bin` host 工具链执行纯 C FSM 单测，结果为
+  `TDMA persona FSM host tests passed`。测试脚本会在当前进程未继承用户 PATH 时自动
+  加载该目录，避免解压版 MinGW 的 `as/ld` 子工具找不到。
 - 硬件：快速验收目录为
   `out/hardware-acceptance/state-machine-persona-fsm-quick-20260901-r3/`。
   五板 OTA、软件复位、P0T、粗 CLK、coded MARK、Latency Cal、TRN-00/01/02/03、

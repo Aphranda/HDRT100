@@ -14,7 +14,10 @@ New-Item -ItemType Directory -Force -Path $build | Out-Null
 $hostCc = Get-Command gcc -ErrorAction SilentlyContinue
 if (-not $hostCc) {
     $candidate = Join-Path $HostGccDir "gcc.exe"
-    if (Test-Path $candidate) { $hostCc = Get-Item $candidate }
+    if (Test-Path $candidate) {
+        $env:Path = "$HostGccDir;$env:Path"
+        $hostCc = Get-Command $candidate -ErrorAction SilentlyContinue
+    }
 }
 if (-not $hostCc) { $hostCc = Get-Command clang -ErrorAction SilentlyContinue }
 if (-not $hostCc) { throw "A host gcc or clang compiler is required" }
