@@ -1436,6 +1436,8 @@ bool tdma_pio_spi_phys_arm(void *context,
     const uint32_t half_period_cycles = phys->baud_hz == 0u
         ? 0u : clk_sys_hz / (2u * phys->baud_hz);
     if (period_cycles == 0u || half_period_cycles == 0u ||
+        phys->flight_sck_phase_delay_cycles <
+            TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES ||
         (phys->role == TDMA_PIO_SPI_ROLE_SLAVE &&
          phys->flight_sck_phase_delay_cycles +
               TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES > half_period_cycles) ||

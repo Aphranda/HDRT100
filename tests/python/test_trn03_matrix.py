@@ -315,6 +315,9 @@ def test_sck_rearm_boundary_uses_raw_sample_grid() -> None:
     assert not sck_replay_phase_is_safe(
         phase_delay_cycles=11, baud_hz=10_000_000,
         sample_period_ns=4, destination_node=1)
+    assert not sck_replay_phase_is_safe(
+        phase_delay_cycles=1, baud_hz=10_000_000,
+        sample_period_ns=4, destination_node=1)
     assert sck_replay_phase_is_safe(
         phase_delay_cycles=11, baud_hz=10_000_000,
         sample_period_ns=4, destination_node=0)

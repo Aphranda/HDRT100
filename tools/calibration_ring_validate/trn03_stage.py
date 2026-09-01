@@ -118,6 +118,10 @@ LINK_QUERY_FIELDS = (
 )
 REQUIRED_EVIDENCE_FLAGS = 0x1F
 DIAGNOSTIC_ONLY_FLAG = 1 << 31
+# The SCK phase field is the complete calibrated edge-to-edge target. The PIO
+# encoder removes the pre-edge pipeline from its delay field, while the same
+# state machine still needs a separate post-edge re-arm window before the
+# opposite physical edge arrives.
 FLIGHT_SCK_REARM_SAMPLES = 2
 FLIGHT_DATA_REARM_SAMPLES = 5
 FLIGHT_REFERENCE_NODE = 0
@@ -142,6 +146,8 @@ def sck_replay_phase_margin(*, phase_delay_cycles: int, baud_hz: int,
     period_samples = 1_000_000_000 // (baud_hz * sample_period_ns)
     half_period_samples = period_samples // 2
     if period_samples == 0 or half_period_samples == 0:
+        return -1
+    if phase_delay_cycles < FLIGHT_SCK_REARM_SAMPLES:
         return -1
     return (half_period_samples - phase_delay_cycles -
             FLIGHT_SCK_REARM_SAMPLES)

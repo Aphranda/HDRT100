@@ -486,7 +486,7 @@ def test_process_follower_forwards_control_on_independent_pio_sm() -> None:
     )[1].split("static inline void", 1)[0]
     assert "pio_encode_delay(marker_phase_delay_cycles)" in control_init
     assert control_init.count(
-        "pio_encode_delay(sck_phase_delay_cycles)") == 2
+        "pio_encode_delay(sck_program_delay_cycles)") == 2
     assert "data_phase_delay_cycles" not in control_init
     assert "sm_config_set_set_pins(&c, tx_sck_pin, 2u)" in control_init
     # The control program no longer has a leading PULL. Keep the four runtime
@@ -931,7 +931,7 @@ def test_origin_data_rx_consumes_staged_sck_and_data_phase() -> None:
     assert "FLIGHT_ORIGIN_DATA_WAIT_SCK_HIGH_INSTRUCTION = 8u" in init
     assert "FLIGHT_ORIGIN_DATA_PHASE_DELAY_INSTRUCTION = 9u" in init
     assert "pio_encode_wait_gpio(true, rx_sck_pin)" in init
-    assert "pio_encode_delay(sck_phase_delay_cycles)" in init
+    assert "pio_encode_delay(sck_program_delay_cycles)" in init
     assert "pio_encode_nop()" in init
     assert "tdma_pio_spi_flight_data_residual_delay_cycles" in init
     assert "pio_encode_delay(data_residual_delay_cycles)" in init
@@ -965,14 +965,14 @@ def test_flight_preserves_sck_and_advances_serial_data_one_cycle() -> None:
         "static inline uint32_t "
         "tdma_pio_spi_flight_data_residual_delay_cycles", 1
     )[1].split("static inline void", 1)[0]
-    assert "data_phase_delay_cycles - sck_phase_delay_cycles - 2u" in helper
+    assert "data_phase_delay_cycles >= sck_phase_delay_cycles" in helper
     assert "pio_encode_delay(data_phase_delay_cycles - 1u)" in follower
     assert "tx_sck_pin" not in follower
     assert "sm_config_set_sideset_pins" not in follower
     assert "pio_encode_delay(data_phase_delay_cycles - 1u)" in process
     assert control.count(
-        "pio_encode_delay(sck_phase_delay_cycles)") == 2
-    assert "pio_encode_delay(sck_phase_delay_cycles)" in origin
+        "pio_encode_delay(sck_program_delay_cycles)") == 2
+    assert "pio_encode_delay(sck_program_delay_cycles)" in origin
     assert "pio_encode_delay(data_residual_delay_cycles)" in origin
 
     phys_source = _read_phys_source()
