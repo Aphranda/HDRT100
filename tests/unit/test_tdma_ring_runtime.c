@@ -26,6 +26,7 @@ static int expect_u32(const char *name, uint32_t actual, uint32_t expected)
 
 typedef struct {
     bool started;
+    bool fail_start;
     bool disable_during_start;
     tdma_ring_runtime_t *runtime;
     uint32_t start_count;
@@ -33,6 +34,7 @@ typedef struct {
     uint32_t train_count;
     uint32_t train_service_count;
     uint32_t train_cycles;
+    uint32_t last_error;
     tdma_ring_adapter_status_t status;
 } fake_ring_adapter_t;
 
@@ -43,12 +45,22 @@ static bool fake_ring_start(void *context,
     if (adapter == NULL || config == NULL || config->enabled == 0u) {
         return false;
     }
+    if (adapter->fail_start) {
+        return false;
+    }
     adapter->started = true;
     adapter->start_count++;
     if (adapter->disable_during_start && adapter->runtime != NULL) {
         (void)tdma_ring_runtime_configure(adapter->runtime, NULL);
     }
     return true;
+}
+
+static uint32_t fake_ring_last_error(const void *context)
+{
+    const fake_ring_adapter_t *adapter =
+        (const fake_ring_adapter_t *)context;
+    return adapter != NULL ? adapter->last_error : 0xFFFFFFFFu;
 }
 
 static void fake_ring_stop(void *context)
@@ -95,6 +107,7 @@ static void fake_ring_train_service(void *context, uint64_t now_ns)
 
 static const tdma_ring_adapter_ops_t s_fake_ring_ops = {
     .start = fake_ring_start,
+    .last_error = fake_ring_last_error,
     .stop = fake_ring_stop,
     .train_clock = fake_ring_train,
     .train_clock_service = fake_ring_train_service,
@@ -307,6 +320,20 @@ int main(void)
                                                          &s_fake_ring_ops,
                                                          &adapter),
                           true);
+    adapter.fail_start = true;
+    adapter.last_error = 0xA5u;
+    tdma_ring_runtime_service(&runtime);
+    (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
+    failed += expect_u32("adapter start failure reason",
+                         snapshot.last_reason,
+                         TDMA_RING_RUNTIME_REASON_ADAPTER_START_FAILED);
+    failed += expect_u32("adapter start failure detail",
+                         snapshot.adapter_last_error,
+                         adapter.last_error);
+    failed += expect_u32("failed adapter remains stopped",
+                         snapshot.adapter_started,
+                         0u);
+    adapter.fail_start = false;
     tdma_ring_runtime_service(&runtime);
     (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
     failed += expect_u32("adapter started", snapshot.adapter_started, 1u);

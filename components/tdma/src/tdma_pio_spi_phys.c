@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "board_config.h"
+#include "tdma_state_machine_resources.h"
 #include "hardware/dma.h"
 #include "hardware/gpio.h"
 #include "hardware/clocks.h"
@@ -214,6 +215,29 @@ static void tdma_pio_spi_phys_set_error(tdma_pio_spi_phys_t *phys,
     }
 }
 
+static bool tdma_pio_spi_phys_arm_reject(
+    tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_phys_error_t error)
+{
+    tdma_pio_spi_phys_set_error(phys, (uint32_t)error);
+    return false;
+}
+
+void tdma_pio_spi_phys_publish_arm_error(
+    tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_phys_error_t error)
+{
+    tdma_pio_spi_phys_set_error(phys, (uint32_t)error);
+}
+
+uint32_t tdma_pio_spi_phys_last_error(const void *context)
+{
+    const tdma_pio_spi_phys_t *phys =
+        (const tdma_pio_spi_phys_t *)context;
+    return phys != NULL ? phys->snapshot.last_error
+                        : TDMA_PIO_SPI_PHYS_ERROR_BAD_ARGUMENT;
+}
+
 bool tdma_pio_spi_phys_select_program_persona(
     tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_program_persona_t persona)
@@ -419,6 +443,23 @@ static bool tdma_pio_spi_phys_clock_latch_rearm(
     return true;
 }
 
+static bool tdma_pio_spi_phys_capture_owns_clock_latch(
+    const tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL) {
+        return false;
+    }
+    switch (phys->flight_sck_waveform_capture_state) {
+    case TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_REQUESTED:
+    case TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_PATCHED:
+    case TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_ARMED:
+    case TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_READY:
+        return true;
+    default:
+        return false;
+    }
+}
+
 static bool tdma_pio_spi_phys_clock_latch_read_and_rearm(
     tdma_pio_spi_phys_t *phys,
     uint64_t *timestamp_ns)
@@ -426,7 +467,12 @@ static bool tdma_pio_spi_phys_clock_latch_read_and_rearm(
     if (timestamp_ns != NULL) {
         *timestamp_ns = 0ull;
     }
+    /* The capture lifecycle owns this SM from the first request until the
+     * immutable SCK FIFO has been copied and the resident latch restored.
+     * Treating capture data as a normal edge latch would consume its FIFO
+     * word and reinstall the clock-latch persona before capture completes. */
     if (phys == NULL || timestamp_ns == NULL ||
+        tdma_pio_spi_phys_capture_owns_clock_latch(phys) ||
         !phys->flight_clock_latch_armed ||
         pio_sm_is_rx_fifo_empty(BOARD_TDMA_SPI_PIO,
                                 BOARD_TDMA_SPI_CAPTURE_SM)) {
@@ -1424,7 +1470,8 @@ bool tdma_pio_spi_phys_arm(void *context,
         config->local_slot_id >= config->node_count ||
         config->tx_dma_channel_id != TDMA_PIO_SPI_TX_DMA_CHANNEL ||
         config->rx_dma_channel_id != TDMA_PIO_SPI_RX_DMA_CHANNEL) {
-        return false;
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_BAD_ARGUMENT);
     }
     phys->role = (config->local_slot_id == config->reference_slot_id)
                      ? TDMA_PIO_SPI_ROLE_MASTER
@@ -1443,12 +1490,14 @@ bool tdma_pio_spi_phys_arm(void *context,
               TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES > half_period_cycles) ||
         phys->flight_data_phase_delay_cycles +
             TDMA_PIO_SPI_FLIGHT_DATA_REARM_CYCLES > period_cycles) {
-        return false;
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_PHASE_ADMISSION);
     }
     phys->node_count = config->node_count;
     phys->flight_tail_bytes = tdma_pio_spi_phys_flight_tail_bytes(config);
     if (phys->flight_tail_bytes > TDMA_PIO_SPI_FLIGHT_MAX_TAIL_BYTES) {
-        return false;
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_TAIL_CAPACITY);
     }
     const tdma_pio_spi_program_persona_t flight_persona =
         phys->role == TDMA_PIO_SPI_ROLE_MASTER
@@ -1466,7 +1515,8 @@ bool tdma_pio_spi_phys_arm(void *context,
     if (phys->process_image_enabled) {
         if (phys->flight_physical_byte_count + 1u >
             TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS) {
-            return false;
+            return tdma_pio_spi_phys_arm_reject(
+                phys, TDMA_PIO_SPI_PHYS_ERROR_OVERLAY_PREPARE);
         }
     }
     phys->flight_alignment_byte_shift = 0u;
@@ -1496,14 +1546,18 @@ bool tdma_pio_spi_phys_arm(void *context,
     phys->flight_normal_capture_rx_start = 0u;
     phys->flight_normal_capture_rx_count = 0u;
     phys->flight_normal_capture_rx_cursor = 0u;
-    if (!tdma_pio_spi_phys_select_program_persona(phys, flight_persona) ||
-        !tdma_pio_spi_phys_configure_flight(phys, config)) {
+    if (!tdma_pio_spi_phys_select_program_persona(phys, flight_persona)) {
         return false;
+    }
+    if (!tdma_pio_spi_phys_configure_flight(phys, config)) {
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_FLIGHT_CONFIG);
     }
     tdma_pio_spi_phys_set_line_drivers(true);
     if (!tdma_pio_spi_phys_rx_arm(phys)) {
         tdma_pio_spi_phys_set_line_drivers(false);
-        return false;
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_RX_ARM);
     }
     /* rx_arm clears both FIFOs of the capture/forward SM. Prime the process
      * command DMA only after that reset so its initial PASS script survives. */
@@ -1512,14 +1566,16 @@ bool tdma_pio_spi_phys_arm(void *context,
         !tdma_pio_spi_phys_prepare_pass_overlay(phys)) {
         dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
         tdma_pio_spi_phys_set_line_drivers(false);
-        return false;
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_OVERLAY_PREPARE);
     }
     if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE) {
         const uint32_t control_bits = phys->flight_physical_byte_count * 8u;
         if (control_bits == 0u) {
             dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
             tdma_pio_spi_phys_set_line_drivers(false);
-            return false;
+            return tdma_pio_spi_phys_arm_reject(
+                phys, TDMA_PIO_SPI_PHYS_ERROR_BAD_ARGUMENT);
         }
         pio_sm_put_blocking(BOARD_TDMA_SPI_PIO,
                             phys->tx_sm,
@@ -1532,7 +1588,8 @@ bool tdma_pio_spi_phys_arm(void *context,
     if (!tdma_pio_spi_phys_clock_latch_rearm(phys)) {
         dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
         tdma_pio_spi_phys_set_line_drivers(false);
-        return false;
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_CLOCK_LATCH);
     }
     tdma_pio_spi_phys_enable_sm_pair(phys);
 

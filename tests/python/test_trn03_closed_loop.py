@@ -753,6 +753,41 @@ def test_stopped_training_bypasses_online_tdma_phase_budget() -> None:
         assert "calibration_manager_set_training_activity_core0(true);" in stop
 
 
+def test_ring_capture_bypasses_online_tdma_phase_budget() -> None:
+    app = (ROOT / "application" / "src" / "app.c").read_text(
+        encoding="utf-8")
+    dispatch = app.split("void app_realtime_run_once", 1)[1]
+    offline = dispatch.index(
+        "calibration_manager_ring_capture_offline_active_core1")
+    phase_table = dispatch.index("const uint32_t cycle_epoch")
+    assert offline < phase_table
+    assert "calibration_manager_service_core1();" in dispatch[
+        offline:phase_table]
+    capture_dispatch = dispatch[offline:phase_table].split(
+        "    /* All stopped-ring calibration/training personas", 1)[0]
+    assert capture_dispatch.count("return;") == 0
+    calibration_call = dispatch.index(
+        "APP_REALTIME_PHASE_CALIBRATION", phase_table)
+    assert "if (!ring_capture_maintenance)" in dispatch[
+        calibration_call - 180:calibration_call]
+
+    manager = (ROOT / "components" / "calibration_manager" / "src" /
+               "calibration_manager.c").read_text(encoding="utf-8")
+    predicate = manager.split(
+        "bool calibration_manager_ring_capture_offline_active_core1", 1
+    )[1].split("bool calibration_manager_p3_offline_active_core1", 1)[0]
+    assert "calibration_manager_intent_pending" in predicate
+    assert "s_ring_capture_intent.guard" in predicate
+    assert "s_ring_capture_consumed_sequence" in predicate
+
+    tool = (ROOT / "tools" / "calibration_ring_validate" /
+            "trn03_waveform.py").read_text(encoding="utf-8")
+    capture = tool.split("def save_ring_capture", 1)[1].split(
+        "def download_ring_capture", 1)[0]
+    assert "SYSTem:TDMA:LOAD:MASK " not in capture
+    assert "load_mask_during_capture\": original_load_mask" in capture
+
+
 def test_calibration_core1_never_waits_on_resource_arbiter() -> None:
     manager = (ROOT / "components" / "calibration_manager" / "src" /
                "calibration_manager.c").read_text(encoding="utf-8")
@@ -793,8 +828,38 @@ def test_ring_capture_uses_request_scoped_raw_sck_persona() -> None:
     assert "#define TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_CHUNK_BYTES 4u" in header
     assert "TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_PENDING" in copy_capture
     assert "TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_READY" in copy_capture
+    assert "sck_words_remaining" in copy_capture
+    assert (
+        "sck_word_count != sck_words_remaining" in copy_capture)
+    assert (
+        "flight_normal_capture_sck_cursor <\n"
+        "            TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_WORDS" in copy_capture)
     assert "adjacent Node's immutable physical RX capture" in copy_capture
     assert "s_tdma_pio_spi_tx_last_frame[index]" not in copy_capture
+
+
+def test_ring_capture_exclusively_owns_clock_latch_sm_until_copy() -> None:
+    phys = _read_phys_source()
+    ownership = phys.split(
+        "static bool tdma_pio_spi_phys_capture_owns_clock_latch", 1
+    )[1].split(
+        "static bool tdma_pio_spi_phys_clock_latch_read_and_rearm", 1)[0]
+    for state in (
+            "REQUESTED", "PATCHED", "ARMED", "READY"):
+        assert (
+            f"TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_{state}" in ownership)
+    assert "default:" in ownership
+    assert "return false;" in ownership
+
+    clock_latch = phys.split(
+        "static bool tdma_pio_spi_phys_clock_latch_read_and_rearm", 1
+    )[1].split(
+        "static bool tdma_pio_spi_phys_restore_clock_latch", 1)[0]
+    guard = clock_latch.index(
+        "tdma_pio_spi_phys_capture_owns_clock_latch(phys)")
+    fifo_read = clock_latch.index("pio_sm_get(")
+    rearm = clock_latch.index("tdma_pio_spi_phys_clock_latch_rearm(phys)")
+    assert guard < fifo_read < rearm
 
 
 def test_ring_capture_manager_waits_for_raw_sck_before_copy() -> None:

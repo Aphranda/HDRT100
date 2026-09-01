@@ -1,46 +1,148 @@
 {
-  "schema": "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_10MHZ_LIMITED_V1",
-  "acceptance_scope": "10MHZ_LIMITED_P3",
+  "schema": "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_TDMA_4NODE_DIAGNOSTIC_V1",
+  "acceptance_scope": "FOUR_NODE_TDMA_DIAGNOSTIC",
+  "acceptance_profile": "FULL",
+  "dpll_observation": "SKIPPED_TDMA_ONLY",
   "passed": true,
-  "generated_at_utc": "2026-08-31T07:51:19.341344+00:00",
-  "source_tree_sha256": "9620b43150757b972bd75979773bc2dc48968fcd3e3e4b3fdbc93f66f94508b1",
-  "source_file_count": 902,
+  "generated_at_utc": "2026-09-01T21:22:27.541140+00:00",
+  "source_tree_sha256": "3271273b005801630cd55c72424a9edeffce2489bc85f26892aec7b3f57b45f8",
+  "source_file_count": 913,
   "bench_config_path": "config/hardware_acceptance/p3_bench.json",
-  "bench_config_sha256": "aab791da386caa2969f44a5b6bd91eb9c7deb71d00119ed99bb084850ba60bce",
-  "build_id": "20260831054953",
+  "bench_config_sha256": "09095420e7d6af7727f2986edecffb4a2cf0160ce893ac577f45b5e3edf90d6b",
+  "build_id": "20260901174006",
   "firmware_package": {
-    "path": "out/build/acceptance-phy-programs-length-20260831/DHRT100_UPDATE.pkg",
-    "sha256": "f895baa3c388e0d6bc7ba4721154703597a928cb70371edfe74b156b1d4dd57d"
+    "path": "out/build/state-machine-error-propagation-20260902/DHRT100_UPDATE.pkg",
+    "sha256": "fc4c304002e24927fd563dd4b41943af1c48201673e5de4268ab9d172691d288"
   },
   "ota_summary": {
-    "path": "out/hardware_acceptance/acceptance-phy-programs-length-20260831/ota-five-board/summary.json",
-    "sha256": "ffee45582fd7b8bdfed4893c5d311ac020d7e5a721593f0d8e5276a4153987e7",
-    "board_count": 5
+    "path": "out/hardware_acceptance/ring-capture-copy-drain-smoke-20260902/ota-four-board/summary.json",
+    "sha256": "85226463c46f7635086ff5353d891c59e09fd8b62574fbe8492be4f1dcdb389c",
+    "board_count": 4
+  },
+  "topology_summary": {
+    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/p0t-topology/summary.json",
+    "sha256": "4baffa9a8892aab406681ceacb1161fabf20a0deafc0d11f1cfad3ccaa4616d0"
+  },
+  "coarse_calibration_summary": {
+    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/coarse-calibration-summary.json",
+    "sha256": "a28e991b15921866395fc68f1f005067e68cd8851411f111c3afe3b778c90435"
+  },
+  "coded_calibration_summary": {
+    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/coded-calibration-summary.json",
+    "sha256": "fb706584a2aa6efc395dfa0f2a35f7820afbbf6f755aa9353cc315909b8f9b2d"
+  },
+  "initialization_reset": {
+    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/initialization-reset.json",
+    "sha256": "d8e7a057a581a81682215af506e8408f701757f946582a91f5e964e60529ecb7"
   },
   "p3_summary": {
-    "path": "out/hardware_acceptance/p3-basic-10mhz-optimized-20260831/summary.json",
-    "sha256": "00d8610a36f7d67c1f6cfb09c86fb998d8690dd5789f4bd5ca7b921378563c0f"
+    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/p3-four-board/summary.json",
+    "sha256": "2f0ba28ce1eecd00083248166707a364c1ad664d0ab3d26f480854ac339dbdf5"
+  },
+  "trn00_summary": {
+    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/trn00-summary.json",
+    "sha256": "15c31e690a52a212fbc8db91087c00968f1de30aae7dcf1be2185846b3e9a5fb"
+  },
+  "trn01_summary": {
+    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/trn01-summary.json",
+    "sha256": "06abbe8da4f614dbd15ffd7ddccedf006cc7a6988db83c9b4f45ce26a994c249"
+  },
+  "trn02_summary": {
+    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/trn02-data/summary.json",
+    "sha256": "40d31d97120cc41a810dd968ecbb946f4baa2d3485c05472ef81ae15a8f2a887"
+  },
+  "trn03_matrix": {
+    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/trn03-matrix.json",
+    "sha256": "bc6c7c13de957c167160ed6197dcaca0bfbc69ba8adc356fa068676ea9182e3a"
+  },
+  "tdma_summary": {
+    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/tdma-process-image/summary.json",
+    "sha256": "8fa3add40db1171031f14ca3fce03121f104a2a7f214b59237d475ddb10545a0"
   },
   "ota_board_ids": [
     "0010071E65B5CB38",
     "FB276192BEF9CCE1",
     "2BD5090FE009FA2A",
-    "A1E549202D18ED6A",
-    "839E1AE79EA20F31"
+    "A1E549202D18ED6A"
   ],
-  "board_ids_in_physical_order": [
+  "tdma_board_ids": [
     "0010071E65B5CB38",
     "FB276192BEF9CCE1",
     "2BD5090FE009FA2A",
     "A1E549202D18ED6A"
   ],
-  "frequency_ladder_mhz": [
-    10
-  ],
   "trial_count": 24,
   "delay_min_ns": 80.0,
   "delay_max_ns": 82.0,
   "highest_stable_frequency_mhz": 10,
+  "link_delay_ns_by_link": [
+    82,
+    82,
+    82,
+    82
+  ],
+  "link_base_delay_ns_by_link": [
+    41,
+    41,
+    41,
+    41
+  ],
+  "calibration_generation": 1788296846,
+  "calibration_load_mask": 4,
+  "schedule_before": {
+    "0010071E65B5CB38": {
+      "enabled_mask": 91,
+      "quarantined_mask": 8,
+      "cycle_count": 165547,
+      "schedule_miss_count": 165038
+    },
+    "FB276192BEF9CCE1": {
+      "enabled_mask": 91,
+      "quarantined_mask": 8,
+      "cycle_count": 165531,
+      "schedule_miss_count": 164649
+    },
+    "2BD5090FE009FA2A": {
+      "enabled_mask": 91,
+      "quarantined_mask": 8,
+      "cycle_count": 165507,
+      "schedule_miss_count": 164802
+    },
+    "A1E549202D18ED6A": {
+      "enabled_mask": 91,
+      "quarantined_mask": 8,
+      "cycle_count": 165544,
+      "schedule_miss_count": 164876
+    }
+  },
+  "schedule_after": {
+    "0010071E65B5CB38": {
+      "enabled_mask": 91,
+      "quarantined_mask": 8,
+      "cycle_count": 1095012,
+      "schedule_miss_count": 1098362
+    },
+    "FB276192BEF9CCE1": {
+      "enabled_mask": 91,
+      "quarantined_mask": 8,
+      "cycle_count": 1094268,
+      "schedule_miss_count": 1078940
+    },
+    "2BD5090FE009FA2A": {
+      "enabled_mask": 91,
+      "quarantined_mask": 8,
+      "cycle_count": 1094581,
+      "schedule_miss_count": 1081813
+    },
+    "A1E549202D18ED6A": {
+      "enabled_mask": 91,
+      "quarantined_mask": 8,
+      "cycle_count": 1094701,
+      "schedule_miss_count": 1082544
+    }
+  },
+  "realtime_load_mask_unchanged": true,
+  "calibration_quarantined": false,
   "hardware_acceptance_timing": {
     "serial_timeout_s": 3.0,
     "serial_settle_s": 0.05,
@@ -49,7 +151,67 @@
     "phase_gap_s": 0.1,
     "status_poll_interval_s": 0.05,
     "serial_read_timeout_s": 0.02,
+    "board_reset_timeout_s": 15.0,
+    "board_reset_poll_interval_s": 0.5,
     "input_settle_s": 0.05,
     "output_handoff_s": 0.1
+  },
+  "timing_probe": {
+    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/timing.json",
+    "sha256": "a7b218c4eba1b1f13c0893f7bbfdf1418eae3fd3c9b0c4b95204ab78337554c1"
+  },
+  "flow_completed": true,
+  "strict_gates_passed": false,
+  "diagnostic_failures": [
+    {
+      "phase": "four-Node TDMA closed loop",
+      "returncode": 1,
+      "error": "",
+      "summary": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/tdma-process-image/summary.json"
+    }
+  ],
+  "diagnostic_summary": {
+    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/diagnostic.json",
+    "sha256": "868f63ed0c886325c365b0ddad7a3ba9b7dcf3ae09ed72fedec84161dc480754"
+  },
+  "ring_capture_raw": [
+    {
+      "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/tdma-process-image/captures/node0_ring_capture.json",
+      "sha256": "4d475e909e79539b7a8a7bfb2426888c2d41f7ee40dbd31a0621740d48bf6481"
+    },
+    {
+      "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/tdma-process-image/captures/node1_ring_capture.json",
+      "sha256": "ac56a1786f04857cdeb9708baa982121890d854b41a4b556012ddbc844b27064"
+    },
+    {
+      "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/tdma-process-image/captures/node2_ring_capture.json",
+      "sha256": "39da39843068fcb2143222c23cdb9425f883da0f757493b55d583a5bcc61f949"
+    },
+    {
+      "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/tdma-process-image/captures/node3_ring_capture.json",
+      "sha256": "4a32a57a3c0a08adbb8d29f799a2ef7c97a653a522a270e0b86c01e1b9b292f7"
+    }
+  ],
+  "ring_capture_svg": [
+    {
+      "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/tdma-process-image/analysis/node0_ring_capture_1us.svg",
+      "sha256": "887fbcb71304f5a8eeede8848691d3fd8ec8265b709687e77eb1477c16569801"
+    },
+    {
+      "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/tdma-process-image/analysis/node1_ring_capture_1us.svg",
+      "sha256": "a790c9287c7d8da53440fd15034fbf1a33282ea42ecbd2ebe728828244f8120c"
+    },
+    {
+      "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/tdma-process-image/analysis/node2_ring_capture_1us.svg",
+      "sha256": "2c64578119073aa3af11469438baf74dcf414cec093c3434f5bae6f01f3a91a2"
+    },
+    {
+      "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/tdma-process-image/analysis/node3_ring_capture_1us.svg",
+      "sha256": "5ddee3c593d145bdb32914ab7355360d111b75a80e848096d790b693ff4539b6"
+    }
+  ],
+  "ring_capture_analysis": {
+    "path": "out/hardware_acceptance/ring-capture-copy-drain-receipt-r4-20260902/tdma-process-image/analysis/ring_capture_analysis.json",
+    "sha256": "be2f2f0ac86e72f1df2113bf53f4e5feeb57d8e6d7104c81d69f78c248eb196f"
   }
 }

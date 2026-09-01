@@ -255,6 +255,8 @@ def test_build_matrix_diagnostic_selects_best_unsafe_sck_row(
     assert selection["selected_total_follower_margin_samples"] == -1
     assert selection["selection_reason"] == (
         "diagnostic_best_available_unsafe_candidate")
+    assert matrix["passed"] is False
+    assert matrix["diagnostic_continue"] is True
 
     path = tmp_path / "diagnostic-matrix.json"
     path.write_text(__import__("json").dumps(matrix), encoding="utf-8")
@@ -263,6 +265,75 @@ def test_build_matrix_diagnostic_selects_best_unsafe_sck_row(
     loaded = load_config(path, allow_unsafe_sck=True)
     assert loaded["offset_row"][
         "sck_offset_sample_counts_by_node"] == [0, 0, 1, 0]
+
+
+def test_build_matrix_diagnostic_skips_failed_data_trial() -> None:
+    data, residence = evidence(7)
+    failed = data["trials"][-1]
+    failed["passed"] = False
+    failed["error"] = "FILE_WRITE"
+    data["passed"] = False
+    data["matrix"]["passed"] = False
+    data["matrix"]["accepted_count"] = 11
+    data["matrix"]["gate_failures"] = ["data_link3"]
+    link = data["matrix"]["links"][3]
+    link["passed"] = False
+    link["accepted_count"] = 2
+    link["gate_failures"] = ["repeat3:FILE_WRITE"]
+
+    with pytest.raises(ValueError, match="TRN-02 evidence gate failed"):
+        build_matrix(7, data, residence)
+
+    matrix = build_matrix(
+        7, data, residence, diagnostic_continue=True)
+    assert matrix["passed"] is False
+    assert matrix["diagnostic_continue"] is True
+    derivation = matrix["derivation"]
+    assert derivation["profile_pair_failures"] == [
+        "data_accepted_count",
+        "data_gate_failures",
+        "data_link3",
+        "data_summary_not_passed",
+    ]
+    assert derivation["structural_failures"] == []
+    assert derivation["data_link_gate_failures"] == [{
+        "link": 3,
+        "passed": False,
+        "gate_failures": ["repeat3:FILE_WRITE"],
+    }]
+    assert derivation["rejected_data_trials"] == [{
+        "link": 3,
+        "repeat_index": 3,
+        "reasons": ["trial_not_passed"],
+        "trial": failed,
+    }]
+    assert matrix["links"][3]["source_evidence"][
+        "accepted_trial_count"] == 2
+    assert matrix["links"][3]["data_offset_sample_count"] == 5
+
+
+def test_build_matrix_diagnostic_requires_accepted_trial_per_link() -> None:
+    data, residence = evidence(7)
+    for trial in data["trials"]:
+        if trial["link"] == 2:
+            trial["passed"] = False
+    data["passed"] = False
+    data["matrix"]["passed"] = False
+    data["matrix"]["accepted_count"] = 9
+    data["matrix"]["links"][2]["passed"] = False
+    data["matrix"]["links"][2]["accepted_count"] = 0
+
+    with pytest.raises(
+            ValueError, match="link2 has no complete accepted DATA trial"):
+        build_matrix(7, data, residence, diagnostic_continue=True)
+
+
+def test_build_matrix_diagnostic_rejects_structural_identity_failure() -> None:
+    data, residence = evidence(7)
+    residence["matrix"]["identity"]["schedule_crc32"] = [201]
+    with pytest.raises(
+            ValueError, match="residence_schedule_crc32_mismatch"):
+        build_matrix(7, data, residence, diagnostic_continue=True)
 
 
 def test_build_matrix_retains_adjacent_data_refinement_as_non_active_row(

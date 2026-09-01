@@ -703,21 +703,29 @@ bool tdma_pio_spi_programs_select(
     if (manager == NULL || phys == NULL ||
         manager->program_persona == NULL || manager->tx_dma_channel == NULL ||
         manager->rx_dma_channel == NULL) {
+        if (phys != NULL) {
+            phys->snapshot.last_error =
+                TDMA_PIO_SPI_PHYS_ERROR_BAD_ARGUMENT;
+        }
         return false;
     }
     if (!tdma_pio_spi_programs_transition(
             manager, phys, TDMA_PIO_SPI_PERSONA_EVENT_REQUEST, persona)) {
+        phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_PERSONA_BUSY;
         return false;
     }
     if (persona <= TDMA_PIO_SPI_PROGRAM_PERSONA_NONE ||
         persona > TDMA_PIO_SPI_PROGRAM_PERSONA_MAX) {
         (void)tdma_pio_spi_programs_transition(
             manager, phys, TDMA_PIO_SPI_PERSONA_EVENT_INVALID, persona);
+        phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_BAD_ARGUMENT;
         return false;
     }
     if (!tdma_pio_spi_programs_ensure_sms_claimed(manager)) {
         (void)tdma_pio_spi_programs_transition(
             manager, phys, TDMA_PIO_SPI_PERSONA_EVENT_BUSY, persona);
+        phys->snapshot.last_error =
+            TDMA_PIO_SPI_PHYS_ERROR_PERSONA_RESOURCE;
         return false;
     }
     const uint32_t sm_mask = (1u << BOARD_TDMA_SPI_MASTER_SM) |
@@ -731,6 +739,7 @@ bool tdma_pio_spi_programs_select(
         phys->snapshot.program_switch_fail_count++;
         (void)tdma_pio_spi_programs_transition(
             manager, phys, TDMA_PIO_SPI_PERSONA_EVENT_BUSY, persona);
+        phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_PERSONA_BUSY;
         return false;
     }
     if (s_tdma_pio_spi_program_persona == persona) {
@@ -744,6 +753,7 @@ bool tdma_pio_spi_programs_select(
         !tdma_pio_spi_programs_transition(
             manager, phys, TDMA_PIO_SPI_PERSONA_EVENT_QUIESCED, persona)) {
         phys->snapshot.program_switch_fail_count++;
+        phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_PERSONA_BUSY;
         return false;
     }
     const tdma_pio_spi_program_persona_t previous =
@@ -752,10 +762,12 @@ bool tdma_pio_spi_programs_select(
     if (!tdma_pio_spi_programs_transition(
             manager, phys, TDMA_PIO_SPI_PERSONA_EVENT_UNLOADED, persona)) {
         phys->snapshot.program_switch_fail_count++;
+        phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_PERSONA_BUSY;
         return false;
     }
     if (!tdma_pio_spi_phys_load_programs(manager, persona)) {
         phys->snapshot.program_switch_fail_count++;
+        phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_PROGRAM_LOAD;
         (void)tdma_pio_spi_programs_transition(
             manager, phys, TDMA_PIO_SPI_PERSONA_EVENT_LOAD_FAILED, persona);
         if (previous != TDMA_PIO_SPI_PROGRAM_PERSONA_NONE &&
@@ -781,6 +793,7 @@ bool tdma_pio_spi_programs_select(
     if (!tdma_pio_spi_programs_transition(
             manager, phys, TDMA_PIO_SPI_PERSONA_EVENT_LOADED, persona)) {
         phys->snapshot.program_switch_fail_count++;
+        phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_PROGRAM_LOAD;
         return false;
     }
     phys->snapshot.program_persona = (uint32_t)persona;

@@ -587,7 +587,12 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
                     applied_config_seq = service_config_seq;
                 }
             } else {
-                reason = TDMA_RING_RUNTIME_REASON_ADAPTER_MISSING;
+                reason = TDMA_RING_RUNTIME_REASON_ADAPTER_START_FAILED;
+                if (runtime->adapter_ops->last_error != NULL) {
+                    adapter_status.last_error =
+                        runtime->adapter_ops->last_error(
+                            runtime->adapter_context);
+                }
             }
         } else {
             applied_config_seq = service_config_seq;

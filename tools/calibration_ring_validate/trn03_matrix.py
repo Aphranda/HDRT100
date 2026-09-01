@@ -40,6 +40,11 @@ PROFILE_FLAGS = 0
 FNV_OFFSET = 2166136261
 FNV_PRIME = 16777619
 SCK_MATRIX_SCHEMA = "HAOFV_SCK_OFFSET_MATRIX_V2"
+DIAGNOSTIC_DATA_FAILURES = {
+    "data_accepted_count",
+    "data_gate_failures",
+    "data_summary_not_passed",
+}
 
 # Mirrors s_tdma_operating_profiles for the fixed TRN-02 profile ladder.
 # tests/python/test_trn03_matrix.py checks these facts against the C sources.
@@ -335,9 +340,19 @@ def build_matrix(level: int, data: dict[str, Any],
                  data_refinement_evidence: list[dict[str, Any]] | None = None,
                  diagnostic_continue: bool = False,
                  ) -> dict[str, Any]:
-    identity, failures = validate_profile_pair(data, residence)
-    if failures:
-        raise ValueError("TRN-02 evidence gate failed: " + ", ".join(failures))
+    identity, profile_pair_failures = validate_profile_pair(data, residence)
+    diagnostic_data_failures = {
+        failure for failure in profile_pair_failures
+        if failure in DIAGNOSTIC_DATA_FAILURES or
+        failure.startswith("data_link") and failure[9:].isdigit()
+    }
+    structural_failures = sorted(
+        set(profile_pair_failures) - diagnostic_data_failures)
+    if profile_pair_failures and (
+            not diagnostic_continue or structural_failures):
+        raise ValueError(
+            "TRN-02 evidence gate failed: " +
+            ", ".join(profile_pair_failures))
     if identity["profile_crc32"] != profile_crc32(level):
         raise ValueError("profile CRC does not match requested operating level")
 
@@ -352,6 +367,7 @@ def build_matrix(level: int, data: dict[str, Any],
     trials_by_link: dict[int, list[dict[str, Any]]] = {
         index: [] for index in range(count)
     }
+    rejected_data_trials: list[dict[str, Any]] = []
     trials = data.get("trials", [])
     if not isinstance(trials, list):
         raise ValueError("DATA trials must be a list")
@@ -475,10 +491,56 @@ def build_matrix(level: int, data: dict[str, Any],
         marker_offsets: list[int] = []
         link_base_delays: list[int] = []
         calibrated_data_offsets: list[int] = []
+        accepted_link_trials: list[dict[str, Any]] = []
         for trial in link_trials:
             source = trial.get("source")
-            if not isinstance(source, dict) or not bool(trial.get("passed")):
-                raise ValueError(f"link{index} contains an unaccepted trial")
+            rejection_reasons: list[str] = []
+            if not bool(trial.get("passed")):
+                rejection_reasons.append("trial_not_passed")
+            if not isinstance(source, dict):
+                rejection_reasons.append("source_missing")
+            if rejection_reasons:
+                if not diagnostic_continue:
+                    raise ValueError(
+                        f"link{index} contains an unaccepted trial")
+                rejected_data_trials.append({
+                    "link": index,
+                    "repeat_index": trial.get("repeat_index"),
+                    "reasons": rejection_reasons,
+                    "trial": trial,
+                })
+                continue
+            required_source_fields = (
+                "training_window_start_ns",
+                "training_window_end_ns",
+                "marker_to_data_samples",
+                "expected_sample_count",
+                "guard_sample_count",
+                "link_base_delay_ns",
+            )
+            required_trial_fields = (
+                "link_marker_offset_sample",
+                "calibrated_data_offset_sample_count",
+            )
+            missing_fields = [
+                f"source.{field}" for field in required_source_fields
+                if field not in source
+            ] + [
+                field for field in required_trial_fields
+                if field not in trial
+            ]
+            if missing_fields:
+                if not diagnostic_continue:
+                    raise ValueError(
+                        f"link{index} DATA trial fields are incomplete")
+                rejected_data_trials.append({
+                    "link": index,
+                    "repeat_index": trial.get("repeat_index"),
+                    "reasons": ["missing:" + field for field in missing_fields],
+                    "trial": trial,
+                })
+                continue
+            accepted_link_trials.append(trial)
             window_starts.append(int(source["training_window_start_ns"]))
             window_ends.append(int(source["training_window_end_ns"]))
             marker_to_data_samples.append(int(source["marker_to_data_samples"]))
@@ -488,6 +550,8 @@ def build_matrix(level: int, data: dict[str, Any],
             link_base_delays.append(int(source["link_base_delay_ns"]))
             calibrated_data_offsets.append(int(
                 trial["calibrated_data_offset_sample_count"]))
+        if not accepted_link_trials:
+            raise ValueError(f"link{index} has no complete accepted DATA trial")
         if (min(window_starts) <= 0 or
                 any(end < start for start, end in
                     zip(window_starts, window_ends)) or
@@ -599,6 +663,12 @@ def build_matrix(level: int, data: dict[str, Any],
             "marker_direction": str(data_link["marker_direction"]),
             "data_direction": str(data_link["data_direction"]),
             "source_evidence": {
+                "summary_passed": bool(data_link.get("passed")),
+                "summary_trial_count": int(data_link.get("trial_count", 0)),
+                "summary_accepted_count": int(
+                    data_link.get("accepted_count", 0)),
+                "summary_gate_failures": data_link.get("gate_failures", []),
+                "accepted_trial_count": len(accepted_link_trials),
                 "data_offset_histogram": data_link.get("offset_histogram", {}),
                 "marker_offset_sample_counts": marker_offsets,
                 "sck_offset_sample_counts":
@@ -671,8 +741,16 @@ def build_matrix(level: int, data: dict[str, Any],
     if active_row_id < 0:
         raise ValueError("selected TRN-03 offset row is absent from full matrix")
 
+    sck_replay_safe = bool(
+        sck_selection.get("selected_row_replay_safe", True))
+    matrix_passed = (
+        not profile_pair_failures and
+        not rejected_data_trials and
+        sck_replay_safe)
     result = {
         "schema": MATRIX_SCHEMA,
+        "passed": matrix_passed,
+        "diagnostic_continue": bool(diagnostic_continue),
         "node_count": count,
         "evidence_flags": REQUIRED_EVIDENCE_FLAGS,
         **{field: identity[field] for field in (
@@ -705,6 +783,20 @@ def build_matrix(level: int, data: dict[str, Any],
             "residence_selection": "matrix.selected_forward_residence_ticks",
             "loop_selection": "max(loop_delay_ticks) per source node",
             "sck_replay_selection": sck_selection,
+            "profile_pair_failures": profile_pair_failures,
+            "structural_failures": structural_failures,
+            "data_link_gate_failures": [
+                {
+                    "link": index,
+                    "passed": bool(data_links[index].get("passed")),
+                    "gate_failures": data_links[index].get(
+                        "gate_failures", []),
+                }
+                for index in range(count)
+                if (not bool(data_links[index].get("passed")) or
+                    data_links[index].get("gate_failures"))
+            ],
+            "rejected_data_trials": rejected_data_trials,
             "data_refinement_candidates_by_node":
                 normalized_refinement_candidates,
             "data_refinement_policy": (
@@ -760,10 +852,8 @@ def main() -> int:
     encoded = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(encoded, encoding="utf-8")
-    replay_safe = bool(result["derivation"]["sck_replay_selection"].get(
-        "selected_row_replay_safe", True))
     print(json.dumps({
-        "passed": replay_safe,
+        "passed": bool(result["passed"]),
         "diagnostic_continue": args.diagnostic_continue,
         "level": args.level,
         "node_count": result["node_count"],

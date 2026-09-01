@@ -116,6 +116,21 @@ typedef enum {
     TDMA_PIO_SPI_PHYS_ERROR_PAYLOAD_TOO_LARGE = 4u,
     TDMA_PIO_SPI_PHYS_ERROR_TX_BUSY = 5u,
     TDMA_PIO_SPI_PHYS_ERROR_RESOURCE_CONFLICT = 6u,
+    TDMA_PIO_SPI_PHYS_ERROR_PHASE_ADMISSION = 7u,
+    TDMA_PIO_SPI_PHYS_ERROR_TAIL_CAPACITY = 8u,
+    TDMA_PIO_SPI_PHYS_ERROR_PERSONA_BUSY = 9u,
+    TDMA_PIO_SPI_PHYS_ERROR_PERSONA_RESOURCE = 10u,
+    TDMA_PIO_SPI_PHYS_ERROR_PROGRAM_LOAD = 11u,
+    TDMA_PIO_SPI_PHYS_ERROR_FLIGHT_CONFIG = 12u,
+    TDMA_PIO_SPI_PHYS_ERROR_RX_ARM = 13u,
+    TDMA_PIO_SPI_PHYS_ERROR_OVERLAY_PREPARE = 14u,
+    TDMA_PIO_SPI_PHYS_ERROR_CLOCK_LATCH = 15u,
+    TDMA_PIO_SPI_PHYS_ERROR_OWNER_ARGUMENT = 16u,
+    TDMA_PIO_SPI_PHYS_ERROR_OWNER_FLIGHT_MAP = 17u,
+    TDMA_PIO_SPI_PHYS_ERROR_OWNER_TOPOLOGY_PHASE = 18u,
+    TDMA_PIO_SPI_PHYS_ERROR_OWNER_CALIBRATION_STAGE = 19u,
+    TDMA_PIO_SPI_PHYS_ERROR_OWNER_CALIBRATION_LINK = 20u,
+    TDMA_PIO_SPI_PHYS_ERROR_OWNER_FLIGHT_OFFSET = 21u,
 } tdma_pio_spi_phys_error_t;
 
 typedef enum {
@@ -782,6 +797,10 @@ typedef struct {
  * Both legs (downlink TX master + uplink RX slave) are armed together. */
 bool tdma_pio_spi_phys_arm(void *context,
                            const tdma_ring_runtime_config_t *config);
+void tdma_pio_spi_phys_publish_arm_error(
+    tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_phys_error_t error);
+uint32_t tdma_pio_spi_phys_last_error(const void *context);
 void tdma_pio_spi_phys_disarm(void *context);
 bool tdma_pio_spi_phys_set_process_image_mode(
     tdma_pio_spi_phys_t *phys,

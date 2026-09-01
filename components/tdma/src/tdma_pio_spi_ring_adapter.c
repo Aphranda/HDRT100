@@ -370,6 +370,24 @@ void tdma_pio_spi_ring_adapter_set_phys_ctrl(
     adapter->phys_ctrl_context = phys_ctrl_context;
 }
 
+void tdma_pio_spi_ring_adapter_set_phys_error_reader(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    uint32_t (*last_error)(const void *context))
+{
+    if (adapter != NULL) {
+        adapter->phys_last_error = last_error;
+    }
+}
+
+static uint32_t tdma_pio_spi_ring_adapter_last_error(
+    const void *context)
+{
+    const tdma_pio_spi_ring_adapter_t *adapter =
+        (const tdma_pio_spi_ring_adapter_t *)context;
+    return adapter != NULL ? adapter->last_error
+                           : TDMA_PIO_SPI_RING_ADAPTER_ERROR_BAD_ARGUMENT;
+}
+
 void tdma_pio_spi_ring_adapter_set_phys_timestamp_ready(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_phys_timestamp_ready_fn timestamp_ready)
@@ -615,12 +633,18 @@ static bool tdma_pio_spi_ring_adapter_start(
     }
     if (adapter->phys_arm != NULL &&
         !adapter->phys_arm(adapter->phys_ctrl_context, config)) {
+        const uint32_t phys_error = adapter->phys_last_error != NULL
+            ? adapter->phys_last_error(adapter->phys_ctrl_context)
+            : 0u;
         if (adapter->phys_disarm != NULL) {
             adapter->phys_disarm(adapter->phys_ctrl_context);
         }
         tdma_flight_engine_deactivate(adapter->flight_engine);
         tdma_pio_spi_ring_adapter_set_error(
-            adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_PHYS_MISSING);
+            adapter,
+            phys_error != 0u
+                ? TDMA_PIO_SPI_RING_ADAPTER_PHYS_ARM_ERROR(phys_error)
+                : TDMA_PIO_SPI_RING_ADAPTER_ERROR_PHYS_MISSING);
         tdma_pio_spi_ring_adapter_snapshot_write_end(adapter);
         return false;
     }
@@ -1834,6 +1858,7 @@ static bool tdma_pio_spi_ring_adapter_service(
 
 static const tdma_ring_adapter_ops_t s_tdma_pio_spi_ring_adapter_ops = {
     .start = tdma_pio_spi_ring_adapter_start,
+    .last_error = tdma_pio_spi_ring_adapter_last_error,
     .stop = tdma_pio_spi_ring_adapter_stop,
     .train_clock = tdma_pio_spi_ring_adapter_train_clock,
     .train_clock_service = tdma_pio_spi_ring_adapter_train_clock_service,

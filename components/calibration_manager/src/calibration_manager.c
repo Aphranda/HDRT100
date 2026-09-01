@@ -2014,6 +2014,18 @@ static bool calibration_manager_has_non_loopback_core1_work(void)
            s_p3_snapshot.raw.state == TDMA_PIO_SPI_P3_ARMED;
 }
 
+bool calibration_manager_ring_capture_offline_active_core1(void)
+{
+    /* The request remains unconsumed for the complete begin/service/copy
+     * lifecycle.  Seqlock contention is treated as pending by the shared
+     * helper, closing the Core0 publication race before Core1 can enter the
+     * online phase table. */
+    return calibration_manager_intent_pending(
+        &s_ring_capture_intent.guard,
+        &s_ring_capture_intent.sequence,
+        &s_ring_capture_consumed_sequence);
+}
+
 bool calibration_manager_p3_offline_active_core1(void)
 {
     calibration_p3_intent_t intent;
@@ -2185,11 +2197,9 @@ void calibration_manager_service_core1(void)
         s_ring_capture_active_sequence = 0u;
         __atomic_store_n(&s_ring_capture_consumed_sequence,
                          ring_capture_intent.sequence, __ATOMIC_RELEASE);
-        /* Ring capture is a bounded diagnostic job with its own scheduled
-         * calibration phase.  Once the immutable raw snapshot is copied,
-         * end this service pass: running every unrelated training persona in
-         * the same pass makes a one-shot capture exceed its declared WCET
-         * and can quarantine the phase before the host observes READY. */
+        /* Ring capture is a bounded offline diagnostic job.  Once the
+         * immutable raw snapshot is copied, end this service pass: unrelated
+         * training personas must not share its maintenance lifecycle. */
         return;
     }
     tdma_ring_runtime_snapshot_t ring;

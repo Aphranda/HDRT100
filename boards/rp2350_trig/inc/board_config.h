@@ -83,13 +83,58 @@
 #define BOARD_REFMEM_SPI_BAUD_HZ 25000000u
 
 /* Product-board TDMA SPI persona over BiSS + RJ45 Trigger.
- * RJ45 Trigger is the frame-sync CS signal; BiSS supplies one clock and one
- * data direction. Keep the proven TDMA PIO protocol unchanged and migrate
- * only its logical signal roles:
- *   TX: CS=GPIO26 (TRIG_OUT), SCK=GPIO25 (CLK1_OUT), TX=GPIO29 (DATA0_OUT)
- *   RX: CS=GPIO27 (TRIG_IN),  SCK=GPIO28 (CLK0_IN),  RX=GPIO24 (DATA1_IN)
- * Product communication owns PIO2 SM0/SM1 while this persona is active. */
-#define BOARD_TDMA_SPI_PIO pio2
+ * The three controls are intentionally explicit:
+ *   CLK control:  TX-side OUT (GPIO25) -> RX-side IN (GPIO28)
+ *   SYNC/CS:      TX-side OUT (GPIO26) -> RX-side IN (GPIO27)
+ *   DATA control: RX-side OUT (GPIO29) -> TX-side IN (GPIO24)
+ * Thus each logical TX/RX port owns both an IN and an OUT function, while
+ * CLK/SYNC and DATA travel in opposite logical directions. */
+#define BOARD_TDMA_SPI_PIO pio2 /* legacy maintenance/calibration persona */
+/* Direction-isolated flight resources. The legacy symbol above remains for
+ * maintenance personas only; cyclic TDMA flight must use these ownership
+ * boundaries. Each PIO block is mixed-direction at the port level, but every
+ * SM remains single-direction at the pin-instruction level. */
+#define BOARD_TDMA_TX_PIO pio1
+#define BOARD_TDMA_RX_PIO pio2
+#define BOARD_TDMA_TX_PIO_BLOCK_ID 1u
+#define BOARD_TDMA_RX_PIO_BLOCK_ID 2u
+#define BOARD_TDMA_SMA_PIO_BLOCK_ID 0u
+/* Logical TX port: CLK+SYNC outputs and returned DATA input. */
+#define BOARD_TDMA_TX_CLK_OUT_PIN BOARD_TDMA_SPI_DOWNLINK_SCK_PIN
+#define BOARD_TDMA_TX_SYNC_OUT_PIN BOARD_TDMA_SPI_DOWNLINK_CSN_PIN
+#define BOARD_TDMA_TX_DATA_IN_PIN BOARD_TDMA_SPI_UPLINK_RX_PIN
+/* Logical RX port: incoming CLK+SYNC and returned DATA output. */
+#define BOARD_TDMA_RX_CLK_IN_PIN BOARD_TDMA_SPI_UPLINK_SCK_PIN
+#define BOARD_TDMA_RX_SYNC_IN_PIN BOARD_TDMA_SPI_UPLINK_CSN_PIN
+#define BOARD_TDMA_RX_DATA_OUT_PIN BOARD_TDMA_SPI_DOWNLINK_TX_PIN
+/* PIO1 / logical TX port. */
+#define BOARD_TDMA_TX_CLK_OUT_SM 0u
+#define BOARD_TDMA_TX_SYNC_OUT_SM 1u
+#define BOARD_TDMA_TX_DATA_IN_FORWARD_SM 2u
+#define BOARD_TDMA_TX_DATA_IN_CAPTURE_SM 3u
+/* PIO2 / logical RX port. */
+#define BOARD_TDMA_RX_CLK_IN_SM 0u
+#define BOARD_TDMA_RX_SYNC_IN_SM 1u
+#define BOARD_TDMA_RX_DATA_OUT_SM 2u
+#define BOARD_TDMA_RX_EVIDENCE_IN_SM 3u
+#define BOARD_TDMA_TX_DATA_IN_CAPTURE_DMA_CHANNEL 4u
+#define BOARD_TDMA_RX_DATA_OUT_DMA_CHANNEL 5u
+#define BOARD_TDMA_TX_DATA_IN_FORWARD_DMA_CHANNEL 6u
+#define BOARD_TDMA_TX_SYNC_EDGE_DMA_CHANNEL 7u
+/* Deprecated names retain the old PIO2 SM numbering until runtime migration
+ * is complete. They must not be used to infer the crossed-PIO flight roles. */
+#define BOARD_TDMA_TX_CONTROL_SM 0u
+#define BOARD_TDMA_TX_DATA_SM 1u
+#define BOARD_TDMA_TX_EDGE_SM 2u
+#define BOARD_TDMA_TX_RECOVERY_SM 3u
+#define BOARD_TDMA_RX_FORWARD_SM 0u
+#define BOARD_TDMA_RX_CAPTURE_SM 1u
+#define BOARD_TDMA_RX_CONTROL_SM 2u
+#define BOARD_TDMA_RX_EVIDENCE_SM 3u
+#define BOARD_TDMA_TX_PAYLOAD_DMA_CHANNEL 5u
+#define BOARD_TDMA_RX_CAPTURE_DMA_CHANNEL 4u
+#define BOARD_TDMA_RX_FORWARD_DMA_CHANNEL 6u
+#define BOARD_TDMA_TX_EDGE_DMA_CHANNEL 7u
 #define BOARD_TDMA_SPI_MASTER_SM 0u
 #define BOARD_TDMA_SPI_SLAVE_SM 1u
 /* Diagnostic-only flight SCK sampler. It uses the joined RX FIFO without a

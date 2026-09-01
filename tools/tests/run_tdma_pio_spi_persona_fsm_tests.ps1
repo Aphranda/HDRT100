@@ -34,7 +34,7 @@ try {
     & $hostCcPath -std=c11 -Wall -Wextra -Werror `
         "-Icomponents\tdma\inc" "tests\unit\test_tdma_pio_spi_persona_fsm.c" `
         "components\tdma\src\tdma_pio_spi_persona_fsm.c" `
-        -o "out\pytest\build-tdma-persona-fsm-tests\test_tdma_pio_spi_persona_fsm.exe"
+        -o $exe
 } finally {
     Pop-Location
 }

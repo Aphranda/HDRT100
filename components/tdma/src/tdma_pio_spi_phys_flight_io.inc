@@ -523,8 +523,12 @@ tdma_pio_spi_phys_copy_normal_capture(
             BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM, false);
         const uint32_t sck_word_count = pio_sm_get_rx_fifo_level(
             BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM);
-        if (sck_word_count != TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_WORDS ||
-            phys->flight_normal_capture_sck_cursor >= sck_word_count) {
+        const uint32_t sck_words_remaining =
+            TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_WORDS -
+            phys->flight_normal_capture_sck_cursor;
+        if (phys->flight_normal_capture_sck_cursor >=
+                TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_WORDS ||
+            sck_word_count != sck_words_remaining) {
             (void)tdma_pio_spi_phys_restore_clock_latch(phys, true);
             phys->flight_sck_waveform_capture_state =
                 TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_FAILED;
@@ -533,12 +537,14 @@ tdma_pio_spi_phys_copy_normal_capture(
         const uint32_t index = phys->flight_normal_capture_sck_cursor++;
         snapshot->sck_words[index] = pio_sm_get(
             BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM);
-        if (phys->flight_normal_capture_sck_cursor < sck_word_count) {
+        if (phys->flight_normal_capture_sck_cursor <
+            TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_WORDS) {
             return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_PENDING;
         }
-        snapshot->sck_word_count = sck_word_count;
+        snapshot->sck_word_count = TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_WORDS;
         snapshot->sck_sample_count =
-            sck_word_count * TDMA_PIO_SPI_FLIGHT_SCK_SAMPLES_PER_WORD;
+            TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_WORDS *
+            TDMA_PIO_SPI_FLIGHT_SCK_SAMPLES_PER_WORD;
         snapshot->sck_sample_period_ns =
             TDMA_PIO_SPI_FLIGHT_SCK_SAMPLE_PERIOD_NS;
         phys->flight_normal_capture_copy_stage = 2u;

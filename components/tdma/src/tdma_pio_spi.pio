@@ -482,6 +482,38 @@ bitloop_fds:
     push block
 .wrap
 
+; Direction-isolated cyclic flight primitives. These programs intentionally
+; have one data direction each; the resource gate can reject accidental use
+; of the legacy full-duplex composite programs for flight.
+.program tdma_pio_spi_directional_data_tx
+.side_set 1
+.wrap_target
+    pull block        side 0
+    set x, 7          side 0
+directional_tx_bit:
+    out pins, 1       side 0 [1]
+    nop               side 1 [1]
+    jmp x-- directional_tx_bit side 0 [1]
+.wrap
+
+.program tdma_pio_spi_directional_data_rx
+.wrap_target
+    wait 1 gpio 0
+    in pins, 1
+    wait 0 gpio 0
+.wrap
+
+.program tdma_pio_spi_directional_control_tx
+.wrap_target
+    pull block
+    out pins, 2
+.wrap
+
+.program tdma_pio_spi_directional_control_rx
+.wrap_target
+    in pins, 2
+.wrap
+
 % c-sdk {
 
 #include <stdbool.h>

@@ -62,8 +62,10 @@ def config() -> dict:
 
 def schedule_response(*, enabled_mask: int, run_count: int,
                       overrun_count: int = 0,
-                      deadline_miss_count: int = 0) -> str:
-    values = [1, 250_000_000, 250_000, 5, enabled_mask, 0, 100, 0]
+                      deadline_miss_count: int = 0,
+                      schedule_miss_count: int = 0) -> str:
+    values = [1, 250_000_000, 250_000, 5, enabled_mask, 0, 100,
+              schedule_miss_count]
     for phase in range(5):
         values.extend([
             phase * 1000, phase * 1000 + 999, 34_000,
@@ -224,7 +226,7 @@ def test_capture_schedule_gate_uses_counter_deltas() -> None:
     board = SimpleNamespace(address="node0")
     args = SimpleNamespace()
     responses = iter((schedule_response(enabled_mask=91, run_count=10),
-                      schedule_response(enabled_mask=95, run_count=14)))
+                      schedule_response(enabled_mask=91, run_count=14)))
     original = waveform_module.board_command
     try:
         waveform_module.board_command = lambda *_args: next(responses)
@@ -235,6 +237,25 @@ def test_capture_schedule_gate_uses_counter_deltas() -> None:
     result = validate_capture_schedule(before, after)
     assert result["passed"] is True
     assert result["deltas"]["run_count"] == 4
+
+
+def test_capture_schedule_gate_retains_but_does_not_reject_cumulative_misses() -> None:
+    board = SimpleNamespace(address="node0")
+    args = SimpleNamespace()
+    responses = iter((schedule_response(
+        enabled_mask=91, run_count=10, schedule_miss_count=100),
+        schedule_response(
+            enabled_mask=91, run_count=14, schedule_miss_count=850)))
+    original = waveform_module.board_command
+    try:
+        waveform_module.board_command = lambda *_args: next(responses)
+        before = read_tdma_schedule(board, args)
+        after = read_tdma_schedule(board, args)
+    finally:
+        waveform_module.board_command = original
+    result = validate_capture_schedule(before, after)
+    assert result["passed"] is True
+    assert result["deltas"]["schedule_miss_count"] == 750
 
 
 def test_capture_schedule_gate_rejects_overrun_growth() -> None:
@@ -264,13 +285,12 @@ def test_ring_capture_retries_a_stale_pending_latch(monkeypatch) -> None:
         if value == "SYSTem:TDMA:SCHEDule?":
             schedule_reads += 1
             return schedule_response(
-                enabled_mask=91 if schedule_reads == 1 else 95,
+                enabled_mask=91,
                 run_count=10 if schedule_reads == 1 else 14)
         if value == "SYSTem:TDMA:LOAD:MASK?":
             return "91"
-        if value in ("SYSTem:TDMA:LOAD:MASK 95",
-                     "SYSTem:TDMA:LOAD:MASK 91"):
-            return '"OK"'
+        if value.startswith("SYSTem:TDMA:LOAD:MASK "):
+            raise AssertionError("offline capture must not write load mask")
         if value.startswith("CALibration:RING:CAPTure:LATCh"):
             latch_calls += 1
             return "<timeout>" if latch_calls == 1 else "101,10"
@@ -289,7 +309,7 @@ def test_ring_capture_retries_a_stale_pending_latch(monkeypatch) -> None:
         calibration_generation=101, capture_epoch=10)
     assert result["latch_attempts"] == 2
     assert result["load_mask_before"] == 91
-    assert result["load_mask_during_capture"] == 95
+    assert result["load_mask_during_capture"] == 91
     assert result["load_mask_restored"] == 91
     assert result["schedule_validation"]["passed"] is True
     assert result["capture_debug"]["consumed_sequence"] == 2
@@ -304,14 +324,13 @@ def test_ring_capture_retries_transient_load_mask_query(monkeypatch) -> None:
         if value == "SYSTem:TDMA:SCHEDule?":
             schedule_reads += 1
             return schedule_response(
-                enabled_mask=91 if schedule_reads == 1 else 95,
+                enabled_mask=91,
                 run_count=10 if schedule_reads == 1 else 14)
         if value == "SYSTem:TDMA:LOAD:MASK?":
             mask_reads += 1
             return "<timeout>" if mask_reads == 1 else "91"
-        if value in ("SYSTem:TDMA:LOAD:MASK 95",
-                     "SYSTem:TDMA:LOAD:MASK 91"):
-            return '"OK"'
+        if value.startswith("SYSTem:TDMA:LOAD:MASK "):
+            raise AssertionError("offline capture must not write load mask")
         if value.startswith("CALibration:RING:CAPTure:LATCh"):
             return "101,10"
         if value == "READ:CALibration:RING:CAPTure?":
@@ -331,8 +350,7 @@ def test_ring_capture_retries_transient_load_mask_query(monkeypatch) -> None:
     assert result["load_mask_restored"] == 91
 
 
-def test_ring_capture_accepts_load_mask_readback_after_lost_ack(
-        monkeypatch) -> None:
+def test_ring_capture_never_writes_the_online_load_mask(monkeypatch) -> None:
     active_mask = 91
     schedule_reads = 0
 
@@ -341,13 +359,12 @@ def test_ring_capture_accepts_load_mask_readback_after_lost_ack(
         if value == "SYSTem:TDMA:SCHEDule?":
             schedule_reads += 1
             return schedule_response(
-                enabled_mask=91 if schedule_reads == 1 else 95,
+                enabled_mask=91,
                 run_count=10 if schedule_reads == 1 else 14)
         if value == "SYSTem:TDMA:LOAD:MASK?":
             return str(active_mask)
         if value.startswith("SYSTem:TDMA:LOAD:MASK "):
-            active_mask = int(value.rsplit(" ", 1)[1], 0)
-            return "<timeout>"
+            raise AssertionError("offline capture must not write load mask")
         if value.startswith("CALibration:RING:CAPTure:LATCh"):
             return "101,10"
         if value == "READ:CALibration:RING:CAPTure?":
@@ -363,7 +380,7 @@ def test_ring_capture_accepts_load_mask_readback_after_lost_ack(
         SimpleNamespace(address="node0"),
         SimpleNamespace(capture_timeout=1.0, capture_latch_retries=1),
         calibration_generation=101, capture_epoch=10)
-    assert result["load_mask_during_capture"] == 95
+    assert result["load_mask_during_capture"] == 91
     assert result["load_mask_restored"] == 91
     assert active_mask == 91
 

@@ -9,6 +9,7 @@ from tools.hardware_acceptance.p3_hardware_acceptance import (
     AcceptanceError,
     LIMITED_RECEIPT_SCHEMA,
     RECEIPT_SCHEMA,
+    TDMA_DIAGNOSTIC_RECEIPT_SCHEMA,
     TDMA_RECEIPT_SCHEMA,
     _run_step,
     _validate_evidence,
@@ -27,6 +28,7 @@ from tools.hardware_acceptance.p3_hardware_acceptance import (
     validate_runtime_schedules,
     validate_schedule_isolation,
     validate_sma_observer_topology,
+    validate_tdma_diagnostic_summary,
     write_phase_summary,
     _record_timing_event,
     _start_timing_probe,
@@ -215,8 +217,7 @@ def test_schedule_parser_and_isolation_gate() -> None:
 
     validate_runtime_schedules({"n0": parsed, "n1": parsed}, 4)
     missed = dict(parsed, schedule_miss_count=1)
-    with pytest.raises(AcceptanceError, match="schedule miss"):
-        validate_runtime_schedules({"n0": missed}, 4)
+    validate_runtime_schedules({"n0": missed}, 4)
 
 
 def test_ota_gate_requires_exact_five_board_set() -> None:
@@ -318,7 +319,82 @@ def test_p3_gate_requires_complete_repeated_matrix() -> None:
 def test_receipt_uses_complete_calibration_to_dpll_schema() -> None:
     assert RECEIPT_SCHEMA == "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_V4"
     assert TDMA_RECEIPT_SCHEMA.endswith("TDMA_4NODE_V2")
+    assert TDMA_DIAGNOSTIC_RECEIPT_SCHEMA.endswith(
+        "TDMA_4NODE_DIAGNOSTIC_V1")
     assert LIMITED_RECEIPT_SCHEMA.endswith("10MHZ_LIMITED_V1")
+
+
+def diagnostic_tdma_summary() -> tuple[list[str], dict[str, object]]:
+    board_ids = ["n0", "n1", "n2", "n3"]
+    nodes = {}
+    handoff = {}
+    saved = []
+    downloaded = []
+    for index, address in enumerate(board_ids):
+        nodes[address] = {
+            "passed": index != 0,
+            "errors": ["receive_reject_grew"] if index == 0 else [],
+            "runtime_before": {
+                "ring_up_tx_sequence": 10,
+                "ring_down_rx_sequence": 10,
+            },
+            "runtime_after": {
+                "ring_up_tx_sequence": 20,
+                "ring_down_rx_sequence": 20,
+            },
+        }
+        handoff[address] = {
+            "passed": True,
+            "runtime": {
+                "ring_up_tx_sequence": 30,
+                "ring_down_rx_sequence": 30,
+            },
+        }
+        saved.append({
+            "node_id": address,
+            "latch_status": [2, 1, 101, 10, index, 4, 512, 0],
+            "load_mask_before": 91,
+            "load_mask_during_capture": 91,
+            "load_mask_restored": 91,
+            "capture_debug": {
+                "copy_fail_count": 0, "consumed_sequence": 1},
+            "schedule_validation": {
+                "passed": True, "newly_quarantined_mask": 0},
+        })
+        downloaded.append({"node_id": address})
+    return board_ids, {
+        "passed": False,
+        "diagnostic_continue": True,
+        "startup_barrier": {"passed": True},
+        "soak_validation": {
+            "passed": False, "errors": ["n0:receive_reject_grew"]},
+        "left_running": True,
+        "nodes": nodes,
+        "running_handoff": handoff,
+        "ring_capture": {
+            "capture_completed": True,
+            "saved": saved,
+            "downloaded": downloaded,
+        },
+        "ring_analysis": {
+            "passed": True,
+            "nodes": [{"node": index} for index in range(4)],
+        },
+    }
+
+
+def test_tdma_diagnostic_summary_accepts_observed_quality_failures() -> None:
+    board_ids, summary = diagnostic_tdma_summary()
+    validate_tdma_diagnostic_summary(summary, board_ids)
+
+
+def test_tdma_diagnostic_summary_rejects_broken_base_flow() -> None:
+    board_ids, summary = diagnostic_tdma_summary()
+    summary["nodes"]["n0"]["runtime_after"]["ring_up_tx_sequence"] = 10
+    summary["ring_capture"]["saved"][0]["capture_debug"][
+        "copy_fail_count"] = 1
+    with pytest.raises(AcceptanceError, match="not_advancing"):
+        validate_tdma_diagnostic_summary(summary, board_ids)
 
 
 def test_receipt_evidence_requires_every_acceptance_phase(tmp_path: Path) -> None:

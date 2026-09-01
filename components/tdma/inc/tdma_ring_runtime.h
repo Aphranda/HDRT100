@@ -50,6 +50,7 @@ typedef enum {
     TDMA_RING_RUNTIME_REASON_PAYLOAD_STARVATION = 6u,
     TDMA_RING_RUNTIME_REASON_WINDOW_MISSED = 7u,
     TDMA_RING_RUNTIME_REASON_RESOURCE_CONFLICT = 8u,
+    TDMA_RING_RUNTIME_REASON_ADAPTER_START_FAILED = 9u,
 } tdma_ring_runtime_reason_t;
 
 typedef struct {
@@ -168,6 +169,7 @@ typedef struct {
 
 typedef struct {
     bool (*start)(void *context, const tdma_ring_runtime_config_t *config);
+    uint32_t (*last_error)(const void *context);
     void (*stop)(void *context);
     bool (*train_clock)(void *context, uint32_t cycles);
     void (*train_clock_service)(void *context, uint64_t now_ns);

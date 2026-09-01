@@ -513,6 +513,18 @@ void app_realtime_run_once(void)
         diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_CORE1);
         return;
     }
+    /* Raw ring capture temporarily repurposes the resident capture SM while
+     * the autonomous TDMA PIO/DMA persona remains armed.  It is a diagnostic
+     * maintenance lifecycle, not an online calibration load.  Give it one
+     * bounded transition before the online table, then continue into the
+     * complete TDMA/VDC/DPLL cycle so the diagnostic job cannot starve the
+     * realtime path. */
+    const bool ring_capture_maintenance =
+        calibration_manager_ring_capture_offline_active_core1();
+    if (ring_capture_maintenance) {
+        calibration_manager_service_core1();
+        drv_watchdog_mark_progress(1u, 0x0104u);
+    }
     /* All stopped-ring calibration/training personas run outside the online
      * TDMA phase table.  Their PIO/DMA persona transitions may take longer
      * than the optional online snapshot phase, but they cannot perturb a
@@ -544,10 +556,15 @@ void app_realtime_run_once(void)
                                  APP_REALTIME_PHASE_DPLL,
                                  APP_REALTIME_LOAD_DPLL,
                                  app_realtime_dpll_phase);
-    (void)app_realtime_run_phase(cycle_epoch,
-                                 APP_REALTIME_PHASE_CALIBRATION,
-                                 APP_REALTIME_LOAD_CALIBRATION,
-                                 app_realtime_calibration_phase);
+    /* The maintenance beat above owns the calibration-manager service for
+     * this cycle.  Do not invoke it again through the online load slot when
+     * that slot happens to be enabled by a diagnostic configuration. */
+    if (!ring_capture_maintenance) {
+        (void)app_realtime_run_phase(cycle_epoch,
+                                     APP_REALTIME_PHASE_CALIBRATION,
+                                     APP_REALTIME_LOAD_CALIBRATION,
+                                     app_realtime_calibration_phase);
+    }
     (void)app_realtime_run_phase(cycle_epoch,
                                  APP_REALTIME_PHASE_SYNC_CAPTURE,
                                  APP_REALTIME_LOAD_SYNC_CAPTURE,

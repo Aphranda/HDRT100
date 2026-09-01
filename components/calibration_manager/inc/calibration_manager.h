@@ -102,6 +102,11 @@ void calibration_manager_service_core1(void);
  * It bypasses the online phase table exactly like P3 and therefore cannot
  * consume or mutate the TDMA realtime calibration load budget. */
 bool calibration_manager_training_offline_active_core1(void);
+/* A ring waveform capture temporarily owns the resident capture SM while the
+ * autonomous TDMA PIO/DMA persona remains armed.  Service it outside the
+ * online phase table so diagnostic evidence cannot consume or quarantine the
+ * realtime calibration load. */
+bool calibration_manager_ring_capture_offline_active_core1(void);
 /* P3 is an offline physical-calibration session.  While this returns true,
  * core1 must advance only this bounded service and must not enter the TDMA
  * realtime phase table. */
