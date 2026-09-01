@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate TRN-01 marker capture/cut-through evidence exported by firmware.
+"""Validate TRN-00 marker capture/cut-through evidence exported by firmware.
 
 This tool deliberately does not synthesize edge timestamps.  It accepts only
 firmware status rows whose capture/forward ticks are hardware-latched, checks
@@ -198,12 +198,12 @@ def parse_marker_status(raw: str) -> dict[str, int | str]:
     values = next(csv.reader([raw]), [])
     if len(values) != len(MARKER_FIELDS):
         raise ValueError(
-            f"TRN-01 field count {len(values)}, expected {len(MARKER_FIELDS)}")
+            f"TRN-00 field count {len(values)}, expected {len(MARKER_FIELDS)}")
     result: dict[str, int | str] = {
         "tag": values[0].strip().strip('"')
     }
     if result["tag"] != "MARKERTRN":
-        raise ValueError(f"invalid TRN-01 tag {result['tag']!r}")
+        raise ValueError(f"invalid TRN-00 tag {result['tag']!r}")
     for field, value in zip(MARKER_FIELDS[1:], values[1:]):
         result[field] = int(value.strip().strip('"'), 0)
     result["board_unique_id"] = _u64(
@@ -297,7 +297,7 @@ def validate_ring(records: list[dict[str, int | str]]) -> dict[str, object]:
     if records and not diagnostic_only:
         errors.append("diagnostic_only")
     return {
-        "phase": "TRN-01",
+        "phase": "TRN-00",
         "passed": not errors,
         "diagnostic_only": diagnostic_only,
         "board_count": len(records),
@@ -763,7 +763,7 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
             raise SystemExit(f"build mismatch: {wrong}")
     plan: dict[str, object] = {
         "measurement_domain": "calibration",
-        "phase": "TRN-01",
+        "phase": "TRN-00",
         "diagnostic_only": True,
         "node_ids_in_loop_order": board_ids,
         "reference_node": args.reference_node,
@@ -1037,7 +1037,7 @@ def run_offset_matrix(args: argparse.Namespace) -> dict[str, object]:
         raise SystemExit(str(exc)) from exc
     matrix_out = args.out_dir or (
         ROOT / "out" / "training" /
-        f"trn01_marker_matrix_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        f"trn00_marker_matrix_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     matrix_out.mkdir(parents=True, exist_ok=True)
     trial_results: list[dict[str, object]] = []
     row_results: list[dict[str, object]] = []
@@ -1096,7 +1096,7 @@ def run_offset_matrix(args: argparse.Namespace) -> dict[str, object]:
     passed_rows = [row["row_id"] for row in row_results if row["passed"]]
     recommended_row = select_recommended_matrix_row(row_results)
     return {
-        "phase": "TRN-01_FOUR_NODE_OFFSET_MATRIX",
+        "phase": "TRN-00_FOUR_NODE_OFFSET_MATRIX",
         "diagnostic_only": True,
         "offset_model": "link_base_delay(link) + node_offset(node)",
         "offset_application": "PIO_CAPTURE_PHASE_DELAY_ONLY_FORWARD_FIXED",
@@ -1262,7 +1262,7 @@ def run_residence_matrix(args: argparse.Namespace) -> dict[str, object]:
             trial = run_hil(trial_args)
         except Exception as exc:  # retain failed physical evidence
             trial = {
-                "phase": "TRN-01",
+                "phase": "TRN-00",
                 "origin_node": origin_node,
                 "epoch": trial_args.epoch,
                 "passed": False,
@@ -1279,7 +1279,7 @@ def run_residence_matrix(args: argparse.Namespace) -> dict[str, object]:
     matrix = summarize_residence_matrix(trials, node_count)
     return {
         "measurement_domain": "calibration",
-        "phase": "TRN-01_RESIDENCE_MATRIX",
+        "phase": "TRN-00_RESIDENCE_MATRIX",
         "diagnostic_only": True,
         "node_ids_in_loop_order": board_ids,
         "topology_reference_node": args.reference_node,
@@ -1322,7 +1322,7 @@ def main() -> int:
         print(encoded)
         out_dir = args.out_dir or (
             ROOT / "out" / "training" /
-            f"trn01_marker_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+            f"trn00_marker_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / "summary.json").write_text(
             encoded + "\n", encoding="utf-8")

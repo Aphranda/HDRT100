@@ -17,7 +17,7 @@ import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -54,6 +54,10 @@ DPLL_STATUS_COMMAND = "SYSTem:SYNC:VDC:DPLL:STATus?"
 READINESS_COMMAND = "SYSTem:SYNC:VDC:LOCK:READiness?"
 VDC_VECTOR_COMMAND = "SYSTem:REFMEM:VDC:VECtor?"
 DPLL_VECTOR_COMMAND = "SYSTem:REFMEM:DPLL:VECtor?"
+SMA_INPUT_COMMAND = "REALtime:IO:INPut:LEVel?"
+PHASE_COMMAND = "SYSTem:SYNC:VDC:OBServer:PHASe?"
+PHASE_SELFTEST_COMMAND = "SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest"
+SMA_LOCK_EXPECTED_MASK = 0x0F
 
 VDC_STATUS_FIELDS = (
     "ready", "lock_state", "service_count", "first_service_ms",
@@ -95,6 +99,12 @@ DPLL_VECTOR_FIELDS = (
     "quality_last_timestamp_flags", "gate_passed", "gate_reject_code",
     "path_delay_table_crc32", "path_delay_generation", "payload_crc32",
 )
+PHASE_FIELDS = (
+    "enabled", "round_count", "complete_count", "missing_count",
+    "ambiguous_count", "last_edge_mask", "last_span_ns", "offset0_ns",
+    "offset1_ns", "offset2_ns", "offset3_ns", "last_window_start_lo",
+    "last_window_start_hi", "dropped_word_count",
+)
 
 VECTOR_FLAG_VALID = 1 << 0
 VECTOR_FLAG_STALE = 1 << 1
@@ -126,6 +136,8 @@ class BoardSample:
     trigger_sequence: int
     trigger_interval_ms: float | None
     simultaneous_feedback: bool
+    sma_input: dict[str, int] = field(default_factory=dict)
+    phase_observation: dict[str, int] = field(default_factory=dict)
     error: str = ""
 
 
@@ -238,6 +250,34 @@ def _query(ser: Any, command: str, timeout_s: float) -> str:
     return response
 
 
+def _arm_phase_observation(serials: dict[str, Any], specs: list[BoardSpec],
+                           args: argparse.Namespace) -> None:
+    """Arm the external pulse evidence persona on all five boards.
+
+    The observer is armed first.  Ring nodes then schedule OUT1 pulses from
+    their local VDC timebase; none of these commands changes the TDMA persona.
+    """
+    period = int(args.phase_pulse_period_ns)
+    high = int(args.phase_pulse_high_ns)
+    count = int(args.phase_pulse_count)
+    delay = int(args.phase_start_delay_ns)
+    if period <= high or high <= 0 or count <= 0 or delay < 0:
+        raise ValueError("invalid external phase pulse configuration")
+
+    ordered = [spec for spec in specs
+               if spec.name == args.observer_name.upper()] + [
+                   spec for spec in specs
+                   if spec.name != args.observer_name.upper()]
+    for spec in ordered:
+        role = 2 if spec.name == args.observer_name.upper() else 1
+        command = (f"{PHASE_SELFTEST_COMMAND} {role},0,15,0,"
+                   f"{int(args.phase_sample_period_ns)},{period},{high},"
+                   f"{count},0,{delay},1")
+        response = _query(serials[spec.name], command, args.timeout)
+        if response.strip().strip('"') not in ("1", "1.0"):
+            raise ValueError(f"{spec.name}: phase observation arm rejected: {response}")
+
+
 def _read_board(ser: Any, spec: BoardSpec, timeout_s: float,
                 elapsed_s: float, previous: BoardSample | None) -> BoardSample:
     try:
@@ -291,20 +331,107 @@ def _read_board(ser: Any, spec: BoardSpec, timeout_s: float,
         )
 
 
+def _read_observer(ser: Any, spec: BoardSpec, timeout_s: float,
+                   elapsed_s: float) -> BoardSample:
+    try:
+        sma_input = parse_named_int_response(
+            _query(ser, SMA_INPUT_COMMAND, timeout_s),
+            ("base_pin", "pin_count", "level_mask"))
+        if sma_input["pin_count"] < 4:
+            raise ValueError(
+                f"observer exposes only {sma_input['pin_count']} SMA inputs")
+        phase = parse_named_int_response(
+            _query(ser, PHASE_COMMAND, timeout_s), PHASE_FIELDS)
+        return BoardSample(
+            ts_utc=datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+            elapsed_s=elapsed_s,
+            board=spec.name,
+            port=spec.port,
+            tdma={}, vdc_status={}, dpll_status={}, readiness={},
+            vdc_vector={}, dpll_vector={}, trigger_sequence=0,
+            trigger_interval_ms=None, simultaneous_feedback=False,
+            sma_input=sma_input,
+            phase_observation=phase,
+        )
+    except (OSError, ValueError, TimeoutError, KeyError) as exc:
+        return BoardSample(
+            ts_utc=datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+            elapsed_s=elapsed_s,
+            board=spec.name,
+            port=spec.port,
+            tdma={}, vdc_status={}, dpll_status={}, readiness={},
+            vdc_vector={}, dpll_vector={}, trigger_sequence=0,
+            trigger_interval_ms=None, simultaneous_feedback=False,
+            error=str(exc),
+        )
+
+
 def _board_summary(samples: list[BoardSample], *, expected_interval_ms: float,
                    interval_tolerance_ms: float,
-                   observer: bool = False) -> dict[str, Any]:
+                   observer: bool = False,
+                   phase_max_span_ns: int = 500,
+                   phase_min_complete_rounds: int = 3) -> dict[str, Any]:
     errors = [sample.error for sample in samples if sample.error]
     intervals = [sample.trigger_interval_ms for sample in samples
                  if sample.trigger_interval_ms is not None]
     latest = samples[-1] if samples else None
+    if observer:
+        input_masks = [sample.sma_input.get("level_mask", 0) &
+                       SMA_LOCK_EXPECTED_MASK for sample in samples
+                       if not sample.error and sample.sma_input]
+        phase = latest.phase_observation if latest else {}
+        phase_ok = bool(
+            phase and phase.get("enabled", 0) and
+            phase.get("complete_count", 0) >= phase_min_complete_rounds and
+            phase.get("last_edge_mask", 0) == SMA_LOCK_EXPECTED_MASK and
+            phase.get("last_span_ns", phase_max_span_ns + 1) <= phase_max_span_ns and
+            phase.get("missing_count", 0) == 0 and
+            phase.get("ambiguous_count", 0) == 0)
+        return {
+            "board": latest.board if latest else "",
+            "role": "observer",
+            "samples": len(samples),
+            "errors": errors,
+            "ring_up_running": False,
+            "ring_down_running": False,
+            "simultaneous_feedback": False,
+            "reference_node": False,
+            "trigger_sequence": 0,
+            "trigger_sequence_monotonic": False,
+            "trigger_intervals_ms": [],
+            "trigger_interval_ok": False,
+            "vector_valid": False,
+            "provisional": False,
+            "timestamp_eligible": False,
+            "dpll_state": 0,
+            "dpll_locked": False,
+            "formal_locked": False,
+            "quality_health_state": 0,
+            "quality_lock_quality_tier": 0,
+            "phase_offset_ns": 0,
+            "period_adjust_ppb": 0,
+            "last_reject_code": 0,
+            "sma_input_masks": input_masks,
+            "sma_expected_mask": SMA_LOCK_EXPECTED_MASK,
+            "sma_all_locked": bool(input_masks and
+                                   input_masks[-1] == SMA_LOCK_EXPECTED_MASK),
+            "phase_observation": phase,
+            "phase_gate_passed": phase_ok,
+            "phase_max_span_ns": phase_max_span_ns,
+            "phase_min_complete_rounds": phase_min_complete_rounds,
+        }
     interval_ok = bool(intervals) and all(
         abs(interval - expected_interval_ms) <= interval_tolerance_ms
         for interval in intervals)
     sequence_monotonic = _sequence_is_monotonic(samples)
-    vector_ok = bool(latest and latest.vdc_vector and latest.dpll_vector and
-                     (latest.vdc_vector.get("flags", 0) & VECTOR_FLAG_VALID) and
-                     not (latest.vdc_vector.get("flags", 0) & VECTOR_FLAG_STALE))
+    vector_ok = bool(
+        latest and latest.vdc_vector and latest.dpll_vector and
+        (latest.vdc_vector.get("flags", 0) & VECTOR_FLAG_VALID) and
+        not (latest.vdc_vector.get("flags", 0) & VECTOR_FLAG_STALE) and
+        (latest.dpll_vector.get("flags", 0) & VECTOR_FLAG_VALID) and
+        not (latest.dpll_vector.get("flags", 0) & VECTOR_FLAG_STALE) and
+        latest.vdc_vector.get("gate_passed", 0) and
+        latest.dpll_vector.get("gate_passed", 0))
     timestamp_ok = bool(latest and latest.readiness and
                         latest.readiness.get("timestamp_source") ==
                         TIMESTAMP_SOURCE_HARDWARE_TICK and
@@ -356,7 +483,12 @@ def _board_summary(samples: list[BoardSample], *, expected_interval_ms: float,
         if latest else 0,
         "last_reject_code": latest.readiness.get("last_reject_code", 0)
         if latest else 0,
-    }
+        "sma_input_masks": [],
+        "sma_expected_mask": SMA_LOCK_EXPECTED_MASK,
+            "sma_all_locked": False,
+            "phase_observation": {},
+            "phase_gate_passed": False,
+        }
 
 
 def _ring_sequence_consistency(samples_by_board: dict[str, list[BoardSample]],
@@ -409,22 +541,33 @@ def _svg(samples_by_board: dict[str, list[BoardSample]], summaries: list[dict[st
     for index, summary in enumerate(summaries):
         y = 70 + index * 90
         observer = summary.get("role") == "observer"
-        status = (summary["vector_valid"] and summary["timestamp_eligible"] and
-                  summary["trigger_interval_ok"] and
-                  summary.get("trigger_sequence_monotonic", False) and
-                  (observer or (summary.get("ring_up_running") and
-                                summary.get("ring_down_running") and
-                                (not summary.get("reference_node") or
-                                 summary["simultaneous_feedback"]))))
+        status = (summary.get("phase_gate_passed", False) if observer else
+                  (summary["vector_valid"] and summary["timestamp_eligible"] and
+                   summary["trigger_interval_ok"] and
+                   summary.get("trigger_sequence_monotonic", False) and
+                   summary.get("dpll_locked", False) and
+                   summary.get("ring_up_running") and
+                   summary.get("ring_down_running") and
+                   (not summary.get("reference_node") or
+                    summary["simultaneous_feedback"])))
         color = "ok" if status else "bad"
-        chunks.append(
-            f'<text x="24" y="{y}" class="label">{escape(summary["board"])} '
-            f'role={escape(summary.get("role", "ring_node"))} '
-            f'up={int(summary["ring_up_running"])} down={int(summary["ring_down_running"])} '
-            f'simultaneous={int(summary["simultaneous_feedback"])} '
-            f'vector={int(summary["vector_valid"])} timestamp={int(summary["timestamp_eligible"])} '
-            f'reference={int(summary.get("reference_node", False))} '
-            f'dpll_state={summary["dpll_state"]}</text>')
+        if observer:
+            phase = summary.get("phase_observation", {})
+            chunks.append(
+                f'<text x="24" y="{y}" class="label">{escape(summary["board"])} '
+                f'role=observer phase mask=0x{phase.get("last_edge_mask", 0):X} '
+                f'span={phase.get("last_span_ns", 0)}ns '
+                f'complete={phase.get("complete_count", 0)}</text>')
+        else:
+            chunks.append(
+                f'<text x="24" y="{y}" class="label">{escape(summary["board"])} '
+                f'role=ring_node up={int(summary["ring_up_running"])} '
+                f'down={int(summary["ring_down_running"])} '
+                f'simultaneous={int(summary["simultaneous_feedback"])} '
+                f'vector={int(summary["vector_valid"])} '
+                f'timestamp={int(summary["timestamp_eligible"])} '
+                f'reference={int(summary.get("reference_node", False))} '
+                f'dpll_state={summary["dpll_state"]}</text>')
         chunks.append(
             f'<text x="24" y="{y + 22}" class="small {color}">'
             f'seq={summary["trigger_sequence"]} '
@@ -440,11 +583,20 @@ def _svg(samples_by_board: dict[str, list[BoardSample]], summaries: list[dict[st
         if samples:
             x0, plot_w = 500.0, 900.0
             max_elapsed = max(duration_s, samples[-1].elapsed_s, 0.001)
-            max_seq = max(sample.trigger_sequence for sample in samples) or 1
+            if observer:
+                values = [abs(sample.phase_observation.get(
+                    f"offset{channel}_ns", 0))
+                    for sample in samples for channel in range(4)]
+                max_seq = max(values) if values else 1
+                max_seq = max(max_seq, 1)
+            else:
+                max_seq = max(sample.trigger_sequence for sample in samples) or 1
             points = []
             for sample in samples:
                 x = x0 + plot_w * sample.elapsed_s / max_elapsed
-                yy = y + 48 - 30 * sample.trigger_sequence / max_seq
+                value = (sample.phase_observation.get("last_span_ns", 0)
+                         if observer else sample.trigger_sequence)
+                yy = y + 48 - 30 * value / max_seq
                 points.append(f'{x:.1f},{yy:.1f}')
             chunks.append(f'<polyline points="{" ".join(points)}" class="line" '
                           f'stroke="#2563eb"/>')
@@ -473,6 +625,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--waveform-analysis", action="append", type=Path,
                         help="existing SD ring_capture_analysis.json (read-only)")
     parser.add_argument("--fail-on-gate", action="store_true")
+    parser.add_argument("--phase-sample-period-ns", type=int, default=100)
+    parser.add_argument("--phase-pulse-period-ns", type=int, default=1000000)
+    parser.add_argument("--phase-pulse-high-ns", type=int, default=200)
+    parser.add_argument("--phase-pulse-count", type=int, default=4096)
+    parser.add_argument("--phase-start-delay-ns", type=int, default=1000000000)
+    parser.add_argument("--phase-max-span-ns", type=int, default=500)
+    parser.add_argument("--phase-min-complete-rounds", type=int, default=3)
     return parser.parse_args()
 
 
@@ -491,11 +650,22 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     samples_by_board: dict[str, list[BoardSample]] = {spec.name: [] for spec in specs}
     started = time.monotonic()
     with open_serial_ports(specs, args) as serials:
+        _arm_phase_observation(serials, specs, args)
+        rearm_interval_s = max(
+            1.0,
+            args.phase_pulse_count * args.phase_pulse_period_ns / 1e9 * 0.8)
+        next_rearm = time.monotonic() + rearm_interval_s
         while True:
             elapsed = time.monotonic() - started
             if elapsed >= args.duration_s and any(samples_by_board.values()):
                 break
+            if time.monotonic() >= next_rearm:
+                _arm_phase_observation(serials, specs, args)
+                next_rearm = time.monotonic() + rearm_interval_s
             def read_spec(spec: BoardSpec) -> BoardSample:
+                if spec.name == args.observer_name.upper():
+                    return _read_observer(
+                        serials[spec.name], spec, args.timeout, elapsed)
                 previous = (samples_by_board[spec.name][-1]
                             if samples_by_board[spec.name] else None)
                 return _read_board(
@@ -516,7 +686,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         samples_by_board[spec.name],
         expected_interval_ms=args.expected_interval_ms,
         interval_tolerance_ms=args.interval_tolerance_ms,
-        observer=spec.name == args.observer_name.upper())
+        observer=spec.name == args.observer_name.upper(),
+        phase_max_span_ns=args.phase_max_span_ns,
+        phase_min_complete_rounds=args.phase_min_complete_rounds)
                  for spec in specs]
     sequence_consistent, sequence_skew = _ring_sequence_consistency(
         samples_by_board, tolerance=args.sequence_skew_tolerance)
@@ -530,12 +702,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 path.read_text(encoding="utf-8"))})
         except (OSError, json.JSONDecodeError) as exc:
             waveform.append({"path": str(path), "error": str(exc)})
-    passed = bool(summaries) and sequence_consistent and all(
+    observer_summary = next((summary for summary in summaries
+                             if summary.get("role") == "observer"), None)
+    passed = bool(summaries) and sequence_consistent and bool(observer_summary) and \
+        observer_summary.get("phase_gate_passed", False) and all(
         summary["samples"] > 0 and not summary["errors"] and
-        summary["vector_valid"] and summary["timestamp_eligible"] and
-        summary["trigger_interval_ok"] and
-        summary.get("trigger_sequence_monotonic", False) and
-        (summary.get("role") == "observer" or
+        (summary.get("phase_gate_passed", False)
+         if summary.get("role") == "observer" else
          (summary["ring_up_running"] and summary["ring_down_running"] and
           (not summary.get("reference_node", False) or
            summary["simultaneous_feedback"])))
@@ -554,8 +727,16 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "boards": summaries,
         "waveform_analysis": waveform,
         "read_only": True,
+        "observer_transport": "SMA_SYNC_PULSES_PIO0",
+        "phase_sample_period_ns": args.phase_sample_period_ns,
+        "phase_pulse_period_ns": args.phase_pulse_period_ns,
+        "phase_pulse_high_ns": args.phase_pulse_high_ns,
+        "phase_pulse_count": args.phase_pulse_count,
+        "phase_max_span_ns": args.phase_max_span_ns,
+        "phase_min_complete_rounds": args.phase_min_complete_rounds,
         "commands": [TDMA_STATUS_COMMAND, VDC_STATUS_COMMAND, DPLL_STATUS_COMMAND,
-                     READINESS_COMMAND, VDC_VECTOR_COMMAND, DPLL_VECTOR_COMMAND],
+                     READINESS_COMMAND, VDC_VECTOR_COMMAND, DPLL_VECTOR_COMMAND,
+                     SMA_INPUT_COMMAND, PHASE_COMMAND, PHASE_SELFTEST_COMMAND],
     }
     (out_dir / "samples.json").write_text(json.dumps({
         name: [asdict(sample) for sample in samples]
@@ -566,7 +747,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         writer.writerow(["ts_utc", "elapsed_s", "board", "trigger_sequence",
                          "trigger_interval_ms", "ring_up_running", "ring_down_running",
                          "simultaneous_feedback", "vdc_vector_flags", "dpll_state",
-                         "dco_phase_offset_ns", "dco_period_adjust_ppb", "error"])
+                         "dco_phase_offset_ns", "dco_period_adjust_ppb",
+                         "phase_round_count", "phase_complete_count",
+                         "phase_span_ns", "phase_offset_no1_ns",
+                         "phase_offset_no2_ns", "phase_offset_no3_ns",
+                         "phase_offset_no4_ns", "error"])
         for samples in samples_by_board.values():
             for sample in samples:
                 writer.writerow([sample.ts_utc, f"{sample.elapsed_s:.6f}", sample.board,
@@ -578,6 +763,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                                  sample.dpll_vector.get("state", 0),
                                  sample.dpll_vector.get("dco_phase_offset_ns", 0),
                                  sample.dpll_vector.get("dco_period_adjust_ppb", 0),
+                                 sample.phase_observation.get("round_count", 0),
+                                 sample.phase_observation.get("complete_count", 0),
+                                 sample.phase_observation.get("last_span_ns", 0),
+                                 sample.phase_observation.get("offset0_ns", 0),
+                                 sample.phase_observation.get("offset1_ns", 0),
+                                 sample.phase_observation.get("offset2_ns", 0),
+                                 sample.phase_observation.get("offset3_ns", 0),
                                  sample.error])
     (out_dir / "summary.json").write_text(
         json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

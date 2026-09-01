@@ -58,7 +58,7 @@ def _residence(tmp_path: Path, level: int, generation: int,
         str(node): [topology_generation] for node in range(4)}
     identity["tick_resolution_ns"] = identity.pop("sample_period_ns")
     value = {
-        "phase": "TRN-01_RESIDENCE_MATRIX",
+        "phase": "TRN-00_RESIDENCE_MATRIX",
         "passed": True,
         "node_ids_in_loop_order": ["n0", "n1", "n2", "n3"],
         "trial_count": 4,

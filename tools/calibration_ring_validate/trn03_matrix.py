@@ -340,7 +340,8 @@ def build_matrix(level: int, data: dict[str, Any],
         "candidate_row_count": 1,
     }
     if sck is not None:
-        if not bool(sck.get("passed")) or node_order(sck) != nodes:
+        if (sck.get("phase") != "TRN-01_SCK_OFFSET_MATRIX" or
+                not bool(sck.get("passed")) or node_order(sck) != nodes):
             raise ValueError("SCK evidence gate failed")
         sck_matrix_gate = sck.get("matrix")
         if not isinstance(sck_matrix_gate, dict) or not bool(
@@ -685,7 +686,7 @@ def main() -> int:
     parser.add_argument("--data", type=Path, required=True,
                         help="TRN-02D repeat-matrix summary")
     parser.add_argument("--residence", type=Path, required=True,
-                        help="same-identity TRN-01 residence-matrix summary")
+                        help="same-identity TRN-00 residence-matrix summary")
     parser.add_argument("--sck", type=Path,
                         help="same-identity independently trained SCK matrix summary")
     parser.add_argument(

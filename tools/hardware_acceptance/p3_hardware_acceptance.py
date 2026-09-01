@@ -29,8 +29,8 @@ from typing import Any, Iterable
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = Path("config/hardware_acceptance/p3_bench.json")
 DEFAULT_RECEIPT = Path("config/hardware_acceptance/p3_acceptance_receipt.json")
-RECEIPT_SCHEMA = "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_V2"
-TDMA_RECEIPT_SCHEMA = "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_TDMA_4NODE_V1"
+RECEIPT_SCHEMA = "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_V4"
+TDMA_RECEIPT_SCHEMA = "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_TDMA_4NODE_V2"
 LIMITED_RECEIPT_SCHEMA = "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_10MHZ_LIMITED_V1"
 SOURCE_ROOTS = {
     ".githooks", "application", "boards", "bootloader", "cmake",
@@ -53,6 +53,8 @@ DEFAULT_ACCEPTANCE_TIMING = {
     "phase_gap_s": 0.1,
     "status_poll_interval_s": 0.05,
     "serial_read_timeout_s": 0.02,
+    "board_reset_timeout_s": 15.0,
+    "board_reset_poll_interval_s": 0.5,
 }
 
 
@@ -158,6 +160,26 @@ def calibration_probe_phase_cycles(config: dict[str, Any],
             f"invalid calibration probe phase for profile level {level}: "
             f"{phase!r}")
     return phase
+
+
+def calibration_coded_probe_phase_cycles(config: dict[str, Any],
+                                          level: int) -> list[int]:
+    """Return the ordered P2 phase candidates for one operating profile."""
+    by_level = config.get("calibration_coded_probe_phase_cycles_by_level")
+    if by_level is None:
+        return [calibration_probe_phase_cycles(config, level)]
+    if not isinstance(by_level, dict) or str(level) not in by_level:
+        raise AcceptanceError(
+            f"missing coded calibration probe phases for profile level {level}")
+    phases = by_level[str(level)]
+    if (not isinstance(phases, list) or not phases or
+            any(not isinstance(phase, int) or isinstance(phase, bool) or
+                not 1 <= phase <= 31 for phase in phases) or
+            len(set(phases)) != len(phases)):
+        raise AcceptanceError(
+            f"invalid coded calibration probe phases for profile level "
+            f"{level}: {phases!r}")
+    return phases
 
 
 def _run_git(root: Path, *args: str, input_bytes: bytes | None = None) -> bytes:
@@ -292,10 +314,11 @@ def _validate_evidence(root: Path, record: dict[str, Any], *,
     names = (
             "firmware_package", "ota_summary", "topology_summary",
             "coarse_calibration_summary", "coded_calibration_summary",
-            "p3_summary", "trn01_summary", "sck_summary", "trn02_summary",
+            "initialization_reset", "p3_summary", "trn00_summary",
+            "trn01_summary", "trn02_summary",
             "trn03_matrix", "tdma_summary")
     if include_dpll:
-        names += ("dpll_summary",)
+        names += ("sma_observer_wiring", "dpll_summary")
     for name in names:
         evidence = record.get(name)
         if not isinstance(evidence, dict):
@@ -543,7 +566,7 @@ def validate_ota(summary: dict[str, Any], expected_ids: list[str],
 
 def validate_online_builds(builds: dict[str, str], expected_ids: list[str],
                            build_id: str) -> None:
-    """Require the exact bench board set to be running the reused package."""
+    """Require the exact bench board set to be running the expected package."""
     if set(builds) != set(expected_ids):
         missing = sorted(set(expected_ids) - set(builds))
         unexpected = sorted(set(builds) - set(expected_ids))
@@ -556,7 +579,7 @@ def validate_online_builds(builds: dict[str, str], expected_ids: list[str],
     }
     if mismatched:
         raise AcceptanceError(
-            f"online boards do not run reused build {build_id}: {mismatched}")
+            f"online boards do not run expected build {build_id}: {mismatched}")
 
 
 def read_online_builds(board_ids: list[str], timing: dict[str, float]) -> dict[str, str]:
@@ -569,6 +592,74 @@ def read_online_builds(board_ids: list[str], timing: dict[str, float]) -> dict[s
         keep_open=True)
     boards = discover(probe_args)
     return {board_id: board.build for board_id, board in boards.items()}
+
+
+def reset_acceptance_boards(board_ids: list[str], build_id: str,
+                            timing: dict[str, float]) -> dict[str, Any]:
+    """Software-reset one exact UID set and verify clean re-enumeration."""
+    sys.path.insert(0, str(ROOT / "tools" / "tdma_ring_monitor"))
+    from tdma_start_ring import (  # type: ignore
+        board_command, close_persistent_connections, discover)
+
+    reset_args = argparse.Namespace(
+        board_ids=board_ids,
+        baud=115200,
+        timeout=timing["serial_timeout_s"],
+        action_timeout=timing["action_timeout_s"],
+        settle=timing["input_settle_s"],
+        read_timeout=timing["serial_read_timeout_s"],
+        keep_open=False,
+        short_open=True,
+    )
+    boards = discover(reset_args)
+    before_builds = {
+        board_id: board.build for board_id, board in boards.items()}
+    validate_online_builds(before_builds, board_ids, build_id)
+
+    started = time.monotonic()
+    responses: dict[str, str] = {}
+    ports_before: dict[str, str] = {}
+    try:
+        for board_id in board_ids:
+            board = boards[board_id]
+            ports_before[board_id] = board.port
+            responses[board_id] = board_command(
+                board, "SYSTem:BOOT:RESet", reset_args)
+    except Exception as exc:
+        raise AcceptanceError(
+            f"acceptance initialization reset failed: {exc}") from exc
+    finally:
+        close_persistent_connections()
+
+    deadline = time.monotonic() + timing["board_reset_timeout_s"]
+    rebooted: dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        time.sleep(timing["board_reset_poll_interval_s"])
+        rebooted = discover(reset_args)
+        if set(rebooted) == set(board_ids):
+            break
+    after_builds = {
+        board_id: board.build for board_id, board in rebooted.items()}
+    try:
+        validate_online_builds(after_builds, board_ids, build_id)
+    except AcceptanceError as exc:
+        raise AcceptanceError(
+            "boards did not re-enumerate cleanly after initialization reset: "
+            f"{exc}") from exc
+    return {
+        "schema": "HAOFV_HARDWARE_ACCEPTANCE_INITIALIZATION_RESET_V1",
+        "passed": True,
+        "command": "SYSTem:BOOT:RESet",
+        "board_ids": list(board_ids),
+        "expected_build": build_id,
+        "ports_before": ports_before,
+        "ports_after": {
+            board_id: rebooted[board_id].port for board_id in board_ids},
+        "builds_before": before_builds,
+        "builds_after": after_builds,
+        "responses": responses,
+        "elapsed_s": time.monotonic() - started,
+    }
 
 
 def validate_p3(summary: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
@@ -608,6 +699,55 @@ def validate_pass_summary(summary: dict[str, Any], label: str) -> None:
     if summary.get("passed") is not True:
         detail = summary.get("error") or summary.get("gate_failures") or ""
         raise AcceptanceError(f"{label} did not meet acceptance: {detail}")
+
+
+def validate_sma_observer_topology(
+        summary: dict[str, Any], config: dict[str, Any]) -> list[dict[str, int]]:
+    """Require the measured five-board SMA routes to match the bench wiring."""
+    validate_pass_summary(summary, "five-board bidirectional SMA wiring")
+    expected = config.get("sma_observer_routes")
+    observed = summary.get("wire_order", {}).get("routes")
+    route_fields = (
+        "node_no", "node_output_channel", "validator_input_channel",
+        "validator_output_channel", "node_input_channel",
+    )
+    if not isinstance(expected, list) or not isinstance(observed, list):
+        raise AcceptanceError("SMA observer route contract is missing")
+
+    def normalize(routes: list[Any], label: str) -> list[dict[str, int]]:
+        normalized: list[dict[str, int]] = []
+        for route in routes:
+            if not isinstance(route, dict) or any(
+                    isinstance(route.get(field), bool) or
+                    not isinstance(route.get(field), int)
+                    for field in route_fields):
+                raise AcceptanceError(
+                    f"invalid {label} SMA observer route: {route!r}")
+            normalized.append({
+                field: int(route[field]) for field in route_fields
+            })
+        return sorted(normalized, key=lambda route: route["node_no"])
+
+    expected_routes = normalize(expected, "configured")
+    observed_routes = normalize(observed, "measured")
+    if observed_routes != expected_routes:
+        raise AcceptanceError(
+            f"measured SMA topology differs from bench contract: "
+            f"{observed_routes} != {expected_routes}")
+
+    identities = summary.get("identities", {})
+    expected_ids = list(config.get("p3_board_ids_in_physical_order", []))
+    expected_ids.append(str(config.get("dpll_observer_board_id", "")))
+    measured_ids = [
+        identities.get(str(board_no), identities.get(board_no, {})).get(
+            "address")
+        for board_no in range(1, 6)
+    ] if isinstance(identities, dict) else []
+    if measured_ids != expected_ids:
+        raise AcceptanceError(
+            f"SMA topology board identities differ from bench contract: "
+            f"{measured_ids} != {expected_ids}")
+    return observed_routes
 
 
 def p3_link_delays(summary: dict[str, Any], config: dict[str, Any]) -> list[int]:
@@ -799,6 +939,25 @@ def run_acceptance(args: argparse.Namespace) -> None:
             ota_summary_path.read_text(encoding="utf-8"))
         validate_ota(ota_summary, ota_board_ids, build_id)
 
+    print(
+        f"Hardware acceptance: initialize {len(ota_board_ids)} boards by "
+        "software reset", flush=True)
+    reset_started = datetime.now(timezone.utc)
+    reset_evidence = reset_acceptance_boards(
+        ota_board_ids, build_id, timing)
+    reset_path = out_dir / "initialization-reset.json"
+    reset_path.write_text(
+        json.dumps(reset_evidence, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8")
+    _record_timing_event({
+        "action": "acceptance.initialization_reset",
+        "started_at_utc": reset_started.isoformat(),
+        "ended_at_utc": datetime.now(timezone.utc).isoformat(),
+        "duration_ms": round(float(reset_evidence["elapsed_s"]) * 1000, 3),
+        "returncode": 0,
+        "status": "PASS",
+    })
+
     common_boards: list[str] = []
     for board_id in board_ids:
         common_boards.extend(["--board-id", board_id])
@@ -834,6 +993,8 @@ def run_acceptance(args: argparse.Namespace) -> None:
     coded_paths: list[Path] = []
     for level in config["calibration_profile_levels"]:
         probe_phase_cycles = calibration_probe_phase_cycles(config, level)
+        coded_probe_phase_cycles = calibration_coded_probe_phase_cycles(
+            config, level)
         coarse_dir = out_dir / f"coarse-clk-level{level}"
         print(f"Hardware acceptance: coarse CLK calibration level={level}",
               flush=True)
@@ -860,9 +1021,11 @@ def run_acceptance(args: argparse.Namespace) -> None:
             "--level", str(level),
             "--codebook", str(config["calibration_coded_codebook"]),
             "--repeats", str(config["calibration_coded_repeats"]),
-            "--probe-phase-cycles", str(probe_phase_cycles),
             "--out-dir", str(coded_dir),
         ]
+        for phase_cycles in coded_probe_phase_cycles:
+            coded_command.extend([
+                "--probe-phase-cycles", str(phase_cycles)])
         add_serial_timing(coded_command, timing, action=True, gap=True)
         _run_step(coded_command, root, out_dir / f"coded-marker-level{level}.log")
         coded_paths.append(coded_dir / "summary.json")
@@ -910,7 +1073,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
     for link_delay in link_delays:
         link_delay_args.extend(["--link-delay-ns", str(link_delay)])
 
-    marker_dir = out_dir / "trn01-marker-accepted-row"
+    marker_dir = out_dir / "trn00-marker-accepted-row"
     marker_command = [
         sys.executable,
         str(root / "tools/calibration_ring_validate/calibration_marker_train.py"),
@@ -929,16 +1092,16 @@ def run_acceptance(args: argparse.Namespace) -> None:
         marker_command.extend([
             "--matrix-filter-node-offset", f"{node}={value}"])
     add_serial_timing(marker_command, timing, action=True, gap=True)
-    print("Hardware acceptance: TRN-01 accepted MARK offset row", flush=True)
-    _run_step(marker_command, root, out_dir / "trn01-marker.log")
+    print("Hardware acceptance: TRN-00 accepted MARK offset row", flush=True)
+    _run_step(marker_command, root, out_dir / "trn00-marker.log")
     marker_summary_path = marker_dir / "summary.json"
     marker_summary = json.loads(marker_summary_path.read_text(encoding="utf-8"))
-    validate_pass_summary(marker_summary, "TRN-01 MARK offset row")
+    validate_pass_summary(marker_summary, "TRN-00 MARK offset row")
 
     # Residence, SCK and DATA form one portable training identity.  MARK row
     # repetitions above use separate generations only as fresh stability proof.
     training_generation = generation + int(config["training_marker_repeats"]) + 1
-    residence_dir = out_dir / "trn01-residence"
+    residence_dir = out_dir / "trn00-residence"
     residence_command = [
         sys.executable,
         str(root / "tools/calibration_ring_validate/calibration_marker_train.py"),
@@ -952,18 +1115,18 @@ def run_acceptance(args: argparse.Namespace) -> None:
     for value in config["training_marker_offsets_by_node"]:
         residence_command.extend(["--node-offset-samples", str(value)])
     add_serial_timing(residence_command, timing, action=True, gap=True)
-    print("Hardware acceptance: TRN-01 full residence matrix", flush=True)
-    _run_step(residence_command, root, out_dir / "trn01-residence.log")
+    print("Hardware acceptance: TRN-00 full residence matrix", flush=True)
+    _run_step(residence_command, root, out_dir / "trn00-residence.log")
     residence_summary_path = residence_dir / "summary.json"
     residence_summary = json.loads(
         residence_summary_path.read_text(encoding="utf-8"))
-    validate_pass_summary(residence_summary, "TRN-01 residence matrix")
-    trn01_summary_path = out_dir / "trn01-summary.json"
+    validate_pass_summary(residence_summary, "TRN-00 residence matrix")
+    trn00_summary_path = out_dir / "trn00-summary.json"
     write_phase_summary(
-        trn01_summary_path, "TRN-01_MARK_AND_RESIDENCE",
+        trn00_summary_path, "TRN-00_MARK_AND_RESIDENCE",
         [marker_summary_path, residence_summary_path])
 
-    sck_dir = out_dir / "trn-sck"
+    sck_dir = out_dir / "trn01-sck"
     sck_command = [
         sys.executable,
         str(root / "tools/calibration_ring_validate/calibration_sck_train.py"),
@@ -979,11 +1142,15 @@ def run_acceptance(args: argparse.Namespace) -> None:
     for value in config["training_sck_offsets_by_node"]:
         sck_command.extend(["--node-sck-offset-samples", str(value)])
     add_serial_timing(sck_command, timing, action=True, gap=True)
-    print("Hardware acceptance: independent SCK offset matrix", flush=True)
-    _run_step(sck_command, root, out_dir / "trn-sck.log")
+    print("Hardware acceptance: TRN-01 SCK offset matrix", flush=True)
+    _run_step(sck_command, root, out_dir / "trn01-sck.log")
     sck_summary_path = sck_dir / "summary.json"
     sck_summary = json.loads(sck_summary_path.read_text(encoding="utf-8"))
-    validate_pass_summary(sck_summary, "independent SCK training")
+    validate_pass_summary(sck_summary, "TRN-01 SCK training")
+    trn01_summary_path = out_dir / "trn01-summary.json"
+    write_phase_summary(
+        trn01_summary_path, "TRN-01_SCK_OFFSET_MATRIX",
+        [sck_summary_path])
 
     data_dir = out_dir / "trn02-data"
     data_command = [
@@ -1027,6 +1194,28 @@ def run_acceptance(args: argparse.Namespace) -> None:
             int(trn03_matrix.get("calibration_generation", 0)) !=
             training_generation):
         raise AcceptanceError("fresh TRN-03 matrix identity is inconsistent")
+
+    sma_wire_order_summary_path: Path | None = None
+    if not tdma_only:
+        sma_dir = out_dir / "sma-no5-full-txrx"
+        sma_command = [
+            sys.executable,
+            str(root / "tools/sma_cable_delay_validate/sma_cable_symmetric_rtt.py"),
+            "--output-dir", str(sma_dir),
+            "--repeats", str(config["sma_observer_rtt_repeats"]),
+            "--capture-words", str(config["sma_observer_capture_words"]),
+            "--line-settle", str(timing["output_handoff_s"]),
+        ]
+        for board_id in config["ota_board_ids"]:
+            sma_command.extend(["--board-id", str(board_id)])
+        add_serial_timing(sma_command, timing)
+        print("Hardware acceptance: five-board bidirectional SMA topology and RTT",
+              flush=True)
+        _run_step(sma_command, root, out_dir / "sma-no5-full-txrx.log")
+        sma_wire_order_summary_path = sma_dir / "sma_cable_symmetric_rtt.json"
+        sma_summary = json.loads(
+            sma_wire_order_summary_path.read_text(encoding="utf-8"))
+        validate_sma_observer_topology(sma_summary, config)
 
     tdma_dir = out_dir / "tdma-process-image"
     tdma_command = [
@@ -1132,9 +1321,10 @@ def run_acceptance(args: argparse.Namespace) -> None:
         "topology_summary": evidence_entry(root, topology_summary_path),
         "coarse_calibration_summary": evidence_entry(root, coarse_summary_path),
         "coded_calibration_summary": evidence_entry(root, coded_summary_path),
+        "initialization_reset": evidence_entry(root, reset_path),
         "p3_summary": evidence_entry(root, p3_summary_path),
+        "trn00_summary": evidence_entry(root, trn00_summary_path),
         "trn01_summary": evidence_entry(root, trn01_summary_path),
-        "sck_summary": evidence_entry(root, sck_summary_path),
         "trn02_summary": evidence_entry(root, data_summary_path),
         "trn03_matrix": evidence_entry(root, trn03_matrix_path),
         "tdma_summary": evidence_entry(root, tdma_summary_path),
@@ -1153,6 +1343,9 @@ def run_acceptance(args: argparse.Namespace) -> None:
     }
     if dpll_summary_path is not None:
         receipt["dpll_summary"] = evidence_entry(root, dpll_summary_path)
+    if sma_wire_order_summary_path is not None:
+        receipt["sma_observer_wiring"] = evidence_entry(
+            root, sma_wire_order_summary_path)
     receipt_path.parent.mkdir(parents=True, exist_ok=True)
     receipt_path.write_text(
         json.dumps(receipt, ensure_ascii=False, indent=2) + "\n",

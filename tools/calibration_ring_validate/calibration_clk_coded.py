@@ -123,8 +123,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--coded-timeout", type=float, default=5.0)
     parser.add_argument("--settle", type=float, default=DEFAULT_SERIAL_SETTLE_S)
     parser.add_argument("--arm-wait", type=float, default=3.0)
-    parser.add_argument("--probe-phase-cycles", type=int, default=10,
-                        help="stopped raw-link topology-probe phase delay")
+    parser.add_argument("--probe-phase-cycles", type=int, action="append",
+                        help=("stopped raw-link topology-probe phase candidate; "
+                              "repeat to scan candidates, default 10"))
     parser.add_argument("--gap", type=float, default=DEFAULT_PHASE_GAP_S)
     parser.add_argument("--poll-interval", type=float, default=0.02)
     parser.add_argument("--out-dir", type=Path)
@@ -201,10 +202,53 @@ def trial_reject_category(trial: dict[str, object]) -> str:
     return "accepted"
 
 
+def trial_integrity_category(trial: dict[str, object]) -> str:
+    """Classify whether one trial produced trustworthy calibration evidence."""
+    error = str(trial.get("error", ""))
+    if error:
+        return "host_error:" + error.split(":", maxsplit=1)[0]
+    snapshot = trial.get("snapshot")
+    if not isinstance(snapshot, dict) or not snapshot:
+        return "missing_snapshot"
+    state = int(snapshot.get("state", -1))
+    if state not in (STATE_ACCEPTED, STATE_REJECTED):
+        return "incomplete_state"
+    expected_board_id = int(str(trial["reference_node_id"]), 16)
+    actual_board_id = (
+        int(snapshot.get("board_id_hi", -1)) << 32 |
+        int(snapshot.get("board_id_lo", -1)))
+    if actual_board_id != expected_board_id:
+        return "board_identity"
+    if int(snapshot.get("local_node", -1)) != int(trial["reference_node"]):
+        return "local_node_identity"
+    expected_build = trial.get("reference_build_id")
+    if expected_build is not None:
+        actual_build = (
+            int(snapshot.get("build_id_hi", -1)) << 32 |
+            int(snapshot.get("build_id_lo", -1)))
+        if actual_build != int(str(expected_build)):
+            return "build_identity"
+    reason = int(snapshot.get("reject_reason", -1))
+    if state == STATE_REJECTED and reason < 0x100:
+        return "control_reject:" + reject_reason_name(reason)
+    if int(snapshot.get("marker_flags", 0)) != MARKER_FLAGS_ALL:
+        return "marker_flags"
+    if int(snapshot.get("dma_overrun_count", 0)) != 0:
+        return "dma_overrun"
+    if int(snapshot.get("pio_stall_count", 0)) != 0:
+        return "pio_stall"
+    if (int(snapshot.get("capture_origin_lo", 0)) == 0 and
+            int(snapshot.get("capture_origin_hi", 0)) == 0):
+        return "capture_origin_missing"
+    return "complete"
+
+
 def summarize_trials(trials: list[dict[str, object]],
                      max_reject_ratio: float,
                      max_lag_span: int | None) -> dict[str, object]:
     categories = Counter(trial_reject_category(trial) for trial in trials)
+    integrity_categories = Counter(
+        trial_integrity_category(trial) for trial in trials)
     accepted = [trial for trial in trials
                 if trial_reject_category(trial) == "accepted"]
     rejected_count = len(trials) - len(accepted)
@@ -237,6 +281,10 @@ def summarize_trials(trials: list[dict[str, object]],
         gate_failures.append("lag_span")
     if mixed_peak_count != 0:
         gate_failures.append("mixed_peak")
+    integrity_complete = (
+        bool(trials) and integrity_categories == {"complete": len(trials)})
+    if not integrity_complete:
+        gate_failures.append("integrity")
     return {
         "trial_count": len(trials),
         "accepted_count": len(accepted),
@@ -244,6 +292,8 @@ def summarize_trials(trials: list[dict[str, object]],
         "accepted_ratio": len(accepted) / len(trials) if trials else 0.0,
         "reject_ratio": reject_ratio,
         "reject_categories": dict(sorted(categories.items())),
+        "integrity_categories": dict(sorted(integrity_categories.items())),
+        "integrity_complete": integrity_complete,
         "mixed_peak_count": mixed_peak_count,
         "mixed_peak_ratio": mixed_peak_count / len(accepted) if accepted else 0.0,
         "sequence_unique": sequence_unique,
@@ -257,6 +307,66 @@ def summarize_trials(trials: list[dict[str, object]],
         "gate_failures": gate_failures,
         "passed": not gate_failures and bool(trials),
     }
+
+
+def phase_selection_key(summary: dict[str, object],
+                        phase_cycles: int) -> tuple[float, float, int] | None:
+    """Rank one eligible phase by worst margin, then worst distance."""
+    if not bool(summary.get("passed")):
+        return None
+    margin = summary.get("margin")
+    distance = summary.get("best_distance")
+    if not isinstance(margin, dict) or not isinstance(distance, dict):
+        return None
+    margin_min = margin.get("min")
+    distance_max = distance.get("max")
+    if margin_min is None or distance_max is None:
+        return None
+    return (-float(margin_min), float(distance_max), phase_cycles)
+
+
+def summarize_phase_matrix(
+        trials: list[dict[str, object]], max_reject_ratio: float,
+        max_lag_span: int | None) -> dict[str, object]:
+    """Select one phase per reference node without promoting candidate gates."""
+    grouped: dict[int, dict[int, list[dict[str, object]]]] = {}
+    for trial in trials:
+        reference_node = int(trial["reference_node"])
+        phase_cycles = int(trial["probe_phase_cycles"])
+        grouped.setdefault(reference_node, {}).setdefault(
+            phase_cycles, []).append(trial)
+
+    result: dict[str, object] = {}
+    for reference_node, phase_groups in sorted(grouped.items()):
+        candidates = {
+            str(phase): summarize_trials(
+                group, max_reject_ratio, max_lag_span)
+            for phase, group in sorted(phase_groups.items())
+        }
+        ranked: list[tuple[tuple[float, float, int], int]] = []
+        for phase_text, summary in candidates.items():
+            phase = int(phase_text)
+            key = phase_selection_key(summary, phase)
+            if key is not None:
+                ranked.append((key, phase))
+        selected_phase = min(ranked)[1] if ranked else None
+        selected = (candidates[str(selected_phase)]
+                    if selected_phase is not None else None)
+        first_group = next(iter(phase_groups.values()))
+        result[str(reference_node)] = {
+            "reference_node_no": reference_node + 1,
+            "reference_node_id": first_group[0]["reference_node_id"],
+            "phase_candidates": candidates,
+            "selected_probe_phase_cycles": selected_phase,
+            "selection_policy": [
+                "maximize_margin_min",
+                "minimize_best_distance_max",
+                "minimize_phase_cycles",
+            ],
+            "selected_statistics": selected,
+            "passed": selected is not None,
+        }
+    return result
 
 
 def summarize_by_reference_node(trials: list[dict[str, object]],
@@ -497,7 +607,9 @@ def run_reference_node(ordered: list[Board], reference_node: int,
             "reference_node": reference_node,
             "reference_node_no": reference_node + 1,
             "reference_node_id": reference.address,
+            "reference_build_id": reference.build,
             "repeat_index": repeat_index,
+            "probe_phase_cycles": args.probe_phase_cycles,
             "snapshot": reference_snapshot,
             "started": started,
             "actions": actions,
@@ -513,6 +625,7 @@ def write_csv(path: Path, trials: list[dict[str, object]]) -> None:
     with path.open("w", newline="", encoding="utf-8-sig") as handle:
         writer = csv.writer(handle)
         writer.writerow(("reference_node_no", "reference_node_id",
+                         "probe_phase_cycles",
                          "repeat_index", "accepted",
                          "reject_category", "state",
                          "reject_reason", "best_lag_sample", "best_distance",
@@ -521,6 +634,7 @@ def write_csv(path: Path, trials: list[dict[str, object]]) -> None:
             snapshot = item.get("snapshot", {})
             writer.writerow((item["reference_node_no"],
                              item["reference_node_id"],
+                             item["probe_phase_cycles"],
                              item["repeat_index"], int(bool(item["accepted"])),
                              item["reject_category"], snapshot.get("state", ""),
                              snapshot.get("reject_reason", ""),
@@ -551,6 +665,11 @@ def main() -> int:
         raise SystemExit("action-timeout must be > 0 and <= timeout")
     if args.max_lag_span is not None and args.max_lag_span < 0:
         raise SystemExit("max-lag-span must be >= 0")
+    phase_candidates = (args.probe_phase_cycles
+                        if args.probe_phase_cycles is not None else [10])
+    if (len(set(phase_candidates)) != len(phase_candidates) or
+            any(phase < 1 or phase > 31 for phase in phase_candidates)):
+        raise SystemExit("probe phase candidates must be unique and in [1, 31]")
     args.board_ids = list(args.board_id)
     boards = discover(args)
     missing = set(args.board_id) - set(boards)
@@ -574,6 +693,7 @@ def main() -> int:
         "max_distance": args.max_distance,
         "min_margin": args.min_margin,
         "repeats": args.repeats,
+        "probe_phase_candidates": phase_candidates,
         "repeat_gate": {
             "max_reject_ratio": args.max_reject_ratio,
             "max_lag_span": args.max_lag_span,
@@ -584,7 +704,7 @@ def main() -> int:
             "coded_action_timeout_s": args.action_timeout,
             "settle_s": args.settle,
             "independent_coded_stop_each_trial": True,
-            "ring_prepare_once_per_reference_node": True,
+            "ring_prepare_once_per_reference_node_and_phase": True,
         },
         "boards": {board.address: asdict(board) for board in ordered},
     }
@@ -603,45 +723,62 @@ def main() -> int:
     load_guard = CalibrationLoadGuard(ordered, args)
     with load_guard:
         for reference_node in reference_nodes:
-            for repeat_index in range(1, args.repeats + 1):
-                try:
-                    result = run_reference_node(
-                        ordered, reference_node, repeat_index,
-                        prepare=repeat_index == 1, args=args)
-                except Exception as exc:  # noqa: BLE001 - retain all repeat evidence
-                    error = f"{type(exc).__name__}: {exc}"
-                    result = {
-                        "reference_node": reference_node,
-                        "reference_node_no": reference_node + 1,
-                        "reference_node_id": ordered[reference_node].address,
-                        "repeat_index": repeat_index,
-                        "accepted": False,
-                        "snapshot": {},
-                        "started": [],
-                        "actions": [],
-                        "error": error,
-                    }
-                    result["reject_category"] = trial_reject_category(result)
+            for phase_cycles in phase_candidates:
+                phase_args = argparse.Namespace(**vars(args))
+                phase_args.probe_phase_cycles = phase_cycles
+                phase_prepared = False
+                for repeat_index in range(1, args.repeats + 1):
                     try:
-                        stop_coded(ordered, args)
-                    except Exception as stop_exc:  # noqa: BLE001
-                        result["stop_error"] = (
-                            f"{type(stop_exc).__name__}: {stop_exc}")
-                trials.append(result)
-                print(json.dumps({"trial_complete": {
-                    "reference_node_no": result["reference_node_no"],
-                    "reference_node_id": result["reference_node_id"],
-                    "repeat_index": result["repeat_index"],
-                    "accepted": result["accepted"],
-                    "reject_category": result["reject_category"],
-                    "snapshot": result["snapshot"],
-                    "error": result.get("error", ""),
-                }}, ensure_ascii=False), flush=True)
-    by_reference_node = summarize_by_reference_node(
+                        result = run_reference_node(
+                            ordered, reference_node, repeat_index,
+                            prepare=not phase_prepared, args=phase_args)
+                        phase_prepared = True
+                    except Exception as exc:  # noqa: BLE001 - retain all repeat evidence
+                        error = f"{type(exc).__name__}: {exc}"
+                        result = {
+                            "reference_node": reference_node,
+                            "reference_node_no": reference_node + 1,
+                            "reference_node_id": ordered[reference_node].address,
+                            "reference_build_id": ordered[reference_node].build,
+                            "probe_phase_cycles": phase_cycles,
+                            "repeat_index": repeat_index,
+                            "accepted": False,
+                            "snapshot": {},
+                            "started": [],
+                            "actions": [],
+                            "error": error,
+                        }
+                        result["reject_category"] = trial_reject_category(result)
+                        try:
+                            stop_coded(ordered, phase_args)
+                        except Exception as stop_exc:  # noqa: BLE001
+                            result["stop_error"] = (
+                                f"{type(stop_exc).__name__}: {stop_exc}")
+                    trials.append(result)
+                    print(json.dumps({"trial_complete": {
+                        "reference_node_no": result["reference_node_no"],
+                        "reference_node_id": result["reference_node_id"],
+                        "probe_phase_cycles": result["probe_phase_cycles"],
+                        "repeat_index": result["repeat_index"],
+                        "accepted": result["accepted"],
+                        "reject_category": result["reject_category"],
+                        "snapshot": result["snapshot"],
+                        "error": result.get("error", ""),
+                    }}, ensure_ascii=False), flush=True)
+    by_reference_node = summarize_phase_matrix(
         trials, args.max_reject_ratio, args.max_lag_span)
     overall = summarize_trials(
         trials, args.max_reject_ratio, max_lag_span=None)
-    expected_trial_count = len(reference_nodes) * args.repeats
+    expected_trial_count = (
+        len(reference_nodes) * len(phase_candidates) * args.repeats)
+    integrity_failures = [
+        {"reference_node_no": trial["reference_node_no"],
+         "probe_phase_cycles": trial["probe_phase_cycles"],
+         "repeat_index": trial["repeat_index"],
+         "category": category}
+        for trial in trials
+        if (category := trial_integrity_category(trial)) != "complete"
+    ]
     passed = (len(trials) == expected_trial_count and
               all(bool(summary["passed"])
                   for summary in by_reference_node.values()))
@@ -650,6 +787,7 @@ def main() -> int:
         "realtime_calibration_load": load_guard.evidence(),
         "passed": passed,
         "expected_trial_count": expected_trial_count,
+        "integrity_failures": integrity_failures,
         "trials": trials,
         "statistics_by_reference_node": by_reference_node,
         "statistics_overall": overall,
@@ -664,12 +802,8 @@ def main() -> int:
         "\n".join(
             f"Node{summary['reference_node_no'] - 1} "
             f"{summary['reference_node_id']}: "
-            f"accepted={summary['accepted_count']}/{summary['trial_count']} "
-            f"reject_ratio={summary['reject_ratio']:.6f} "
-            f"lag_histogram={summary['lag_histogram']} "
-            f"lag_span={summary['lag_span']} "
-            f"distance_mean={summary['best_distance']['mean']} "
-            f"margin_min={summary['margin']['min']} "
+            f"selected_phase={summary['selected_probe_phase_cycles']} "
+            f"candidates={list(summary['phase_candidates'])} "
             f"passed={summary['passed']}"
             for summary in by_reference_node.values()) + "\n",
         encoding="utf-8")

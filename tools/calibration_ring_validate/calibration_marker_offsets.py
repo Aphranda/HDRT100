@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Merge TRN-01 evidence into diagnostic per-link offset search plans."""
+"""Merge TRN-00 evidence into diagnostic per-link offset search plans."""
 
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ def derive_link_delay_offset_plan(
                 MIN_OFFSET_SAMPLES <= offset_samples <= MAX_OFFSET_SAMPLES),
         })
     return {
-        "phase": "TRN-01_PER_LINK_OFFSET_LOAD_PLAN",
+        "phase": "TRN-00_PER_LINK_OFFSET_LOAD_PLAN",
         "diagnostic_only": True,
         "base_model": "link_i_base_delay_ns = link_i_delay_ns / 2",
         "offset_model": (
@@ -152,7 +152,7 @@ def aggregate_matrix_summary(summary: dict[str, object]) -> dict[str, object]:
         })
 
     return {
-        "phase": "TRN-01_OFFSET_MATRIX_AGGREGATE",
+        "phase": "TRN-00_OFFSET_MATRIX_AGGREGATE",
         "diagnostic_only": True,
         "node_ids_in_loop_order": node_ids,
         "full_matrix_row_count": int(summary.get("full_matrix_row_count", 0)),
@@ -414,7 +414,7 @@ def main() -> int:
         summaries = [json.loads(path.read_text(encoding="utf-8"))
                      for path in args.summary]
         if (len(summaries) == 1 and
-                summaries[0].get("phase") == "TRN-01_FOUR_NODE_OFFSET_MATRIX" and
+                summaries[0].get("phase") == "TRN-00_FOUR_NODE_OFFSET_MATRIX" and
                 not args.ring_board_id):
             result = aggregate_matrix_summary(summaries[0])
         elif args.ring_board_id:

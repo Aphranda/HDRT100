@@ -127,7 +127,7 @@ def validate_residence_summary(summary: dict[str, Any]) -> list[str]:
         count = len(node_order(summary))
     except ValueError:
         return ["residence_node_order"]
-    if summary.get("phase") != "TRN-01_RESIDENCE_MATRIX":
+    if summary.get("phase") != "TRN-00_RESIDENCE_MATRIX":
         errors.append("residence_phase")
     if not bool(summary.get("passed")) or not isinstance(matrix, dict) or \
             not bool(matrix.get("passed")):

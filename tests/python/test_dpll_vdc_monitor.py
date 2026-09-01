@@ -7,6 +7,7 @@ from tools.dpll_vdc_monitor.dpll_vdc_monitor import (
     VDC_VECTOR_FIELDS,
     VECTOR_FLAG_LOCKED,
     VECTOR_FLAG_VALID,
+    SMA_LOCK_EXPECTED_MASK,
     BoardSample,
     _board_summary,
     _svg,
@@ -78,10 +79,11 @@ def test_board_summary_requires_simultaneous_hardware_evidence() -> None:
             "timestamp_flags": 2,
             "last_reject_code": 0,
         },
-        vdc_vector={"flags": VECTOR_FLAG_VALID},
+        vdc_vector={"flags": VECTOR_FLAG_VALID, "gate_passed": 1},
         dpll_vector={
             "flags": VECTOR_FLAG_VALID | VECTOR_FLAG_LOCKED,
             "state": 5,
+            "gate_passed": 1,
             "quality_health_state": 1,
             "quality_lock_quality_tier": 2,
             "dco_phase_offset_ns": 3,
@@ -105,13 +107,13 @@ def test_board_summary_requires_simultaneous_hardware_evidence() -> None:
     assert degraded["timestamp_eligible"] is False
 
 
-def test_observer_summary_does_not_require_ring_feedback() -> None:
+def test_observer_summary_uses_sma_lock_bits_not_ring_vectors() -> None:
     sample = BoardSample(
         ts_utc="2026-08-28T00:00:00+00:00",
         elapsed_s=1.0,
         board="NO5",
         port="COM25",
-        tdma={"ring_enabled": 0},
+        tdma={},
         vdc_status={},
         dpll_status={},
         readiness={
@@ -121,18 +123,24 @@ def test_observer_summary_does_not_require_ring_feedback() -> None:
             "timestamp_flags": 2,
             "last_reject_code": 0,
         },
-        vdc_vector={"flags": VECTOR_FLAG_VALID},
-        dpll_vector={"flags": VECTOR_FLAG_VALID | VECTOR_FLAG_LOCKED,
-                     "state": 5},
-        trigger_sequence=4,
-        trigger_interval_ms=1.0,
+        vdc_vector={}, dpll_vector={},
+        trigger_sequence=0,
+        trigger_interval_ms=None,
         simultaneous_feedback=False,
+        sma_input={"base_pin": 20, "pin_count": 4,
+                   "level_mask": SMA_LOCK_EXPECTED_MASK},
     )
     summary = _board_summary([sample], expected_interval_ms=1.0,
                              interval_tolerance_ms=0.1, observer=True)
     assert summary["role"] == "observer"
     assert summary["simultaneous_feedback"] is False
-    assert summary["trigger_sequence_monotonic"] is True
+    assert summary["vector_valid"] is False
+    assert summary["sma_all_locked"] is True
+
+    sample.sma_input["level_mask"] = 0x07
+    unlocked = _board_summary([sample], expected_interval_ms=1.0,
+                              interval_tolerance_ms=0.1, observer=True)
+    assert unlocked["sma_all_locked"] is False
 
 
 def test_ring_sequence_consistency_excludes_out_of_ring_observer() -> None:

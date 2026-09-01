@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify fixed NO1..NO4 SMA_OUT1..4 to NO5 SMA_IN1..4 wiring."""
+"""Verify fixed NO1..NO4 SMA_OUT1 to NO5 SMA_IN1..4 wiring."""
 
 from __future__ import annotations
 
@@ -130,7 +130,7 @@ def write_matrix_svg(path: Path,
         y = top + (source_no - 1) * cell
         parts.append(
             f'<text x="135" y="{y + cell / 2}" text-anchor="end">'
-            f'NO{source_no} OUT{source_no}</text>')
+            f'NO{source_no} OUT1</text>')
         for input_channel in range(1, 5):
             item = by_pair[(source_no, input_channel)]
             expected = source_no == input_channel
@@ -199,7 +199,7 @@ def main() -> int:
                                  args.timeout)
         for source_no in range(1, SOURCE_COUNT + 1):
             source = connections[source_no]
-            output_channel = source_no
+            output_channel = 1
             output_mask = 1 << (output_channel - 1)
             command_ack_optional(source,
                                  f"REALtime:IO:OUTPut:MASK {output_mask}",

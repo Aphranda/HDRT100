@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Download and compare TRN-01 marker waveforms saved on node SD cards.
+"""Download and compare TRN-00 marker waveforms saved on node SD cards.
 
 The firmware captures two digital channels every ``tick_resolution_ns``:
 channel 0 is the node forward output and channel 1 is its incoming link.  The

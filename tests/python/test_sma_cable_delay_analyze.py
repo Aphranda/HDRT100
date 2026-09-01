@@ -78,13 +78,14 @@ def test_wire_order_inference_requires_one_to_one_diagonal():
     for source in range(1, 5):
         for input_channel in range(1, 5):
             measurements.append(module.WireMeasurement(
-                source, source, input_channel, 1 << (source - 1),
+                source, 1, input_channel, 1,
                 1 << (source - 1), 0,
                 source == input_channel,
             ))
     inferred, passed = module.infer_wire_order(measurements)
     assert inferred == [1, 2, 3, 4]
     assert passed is True
+    assert all(item.source_output_channel == 1 for item in measurements)
 
 
 def test_five_board_validation_requires_passing_wire_order(tmp_path):
@@ -209,7 +210,7 @@ def test_symmetric_rtt_infers_all_bidirectional_routes():
             reverse.append({
                 "output_channel": output_channel,
                 "detected_input_channels": (
-                    [1] if output_channel == 5 - node_no else []),
+                    [1] if output_channel == (4, 2, 3, 1)[node_no - 1] else []),
             })
         scans[node_no] = {
             "node_to_validator": forward,
@@ -222,8 +223,8 @@ def test_symmetric_rtt_infers_all_bidirectional_routes():
              item.validator_output_channel,
              item.node_input_channel) for item in routes] == [
         (1, 1, 4, 1),
-        (1, 2, 3, 1),
-        (1, 3, 2, 1),
+        (1, 2, 2, 1),
+        (1, 3, 3, 1),
         (1, 4, 1, 1),
     ]
 

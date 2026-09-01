@@ -90,7 +90,7 @@ def evidence(level: int = 9) -> tuple[dict, dict]:
     residence_identity["tick_resolution_ns"] = \
         residence_identity.pop("sample_period_ns")
     residence = {
-        "phase": "TRN-01_RESIDENCE_MATRIX",
+        "phase": "TRN-00_RESIDENCE_MATRIX",
         "passed": True,
         "node_ids_in_loop_order": ["n0", "n1", "n2", "n3"],
         "trial_count": 4,
@@ -121,7 +121,7 @@ def sck_evidence(data: dict) -> dict:
     identity["topology_generation_by_node"] = {
         str(node): [topology_generation] for node in range(4)}
     return {
-        "phase": "TRN-SCK_OFFSET_MATRIX",
+        "phase": "TRN-01_SCK_OFFSET_MATRIX",
         "passed": True,
         "node_ids_in_loop_order": list(data["node_ids_in_loop_order"]),
         "training_parameters": {
@@ -188,6 +188,11 @@ def test_build_matrix_requires_independent_sck_v2_schema() -> None:
     matrix = build_matrix(7, data, residence, sck=sck)
     assert matrix["offset_matrix"]["rows"][0][
         "sck_offset_sample_counts_by_node"] == [0, 0, 0, 0]
+
+    sck["phase"] = "TRN-SCK_OFFSET_MATRIX"
+    with pytest.raises(ValueError, match="SCK evidence gate"):
+        build_matrix(7, data, residence, sck=sck)
+    sck["phase"] = "TRN-01_SCK_OFFSET_MATRIX"
 
     sck["matrix"]["offset_matrix"]["schema"] = \
         "HAOFV_SCK_OFFSET_MATRIX_V1"

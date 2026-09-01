@@ -1,4 +1,6 @@
 import json
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -10,15 +12,18 @@ from tools.hardware_acceptance.p3_hardware_acceptance import (
     TDMA_RECEIPT_SCHEMA,
     _validate_evidence,
     acceptance_timing,
+    calibration_coded_probe_phase_cycles,
     calibration_probe_phase_cycles,
     is_acceptance_source,
     parse_schedule,
     p3_link_delays,
+    reset_acceptance_boards,
     validate_ota,
     validate_online_builds,
     validate_p3,
     validate_runtime_schedules,
     validate_schedule_isolation,
+    validate_sma_observer_topology,
     _record_timing_event,
     _start_timing_probe,
 )
@@ -91,8 +96,48 @@ def test_online_build_gate_requires_exact_reused_firmware() -> None:
                                "build")
     mismatched = {value: "build" for value in ids}
     mismatched[ids[-1]] = "other-build"
-    with pytest.raises(AcceptanceError, match="reused build"):
+    with pytest.raises(AcceptanceError, match="expected build"):
         validate_online_builds(mismatched, ids, "build")
+
+
+def test_acceptance_initialization_resets_each_uid_once_and_reenumerates(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    ids = ["n0", "n1"]
+
+    class Board:
+        def __init__(self, board_id: str, port: str) -> None:
+            self.address = board_id
+            self.port = port
+            self.build = "build"
+
+    complete = {
+        "n0": Board("n0", "COM5"),
+        "n1": Board("n1", "COM4"),
+    }
+    discoveries = [complete, {"n0": complete["n0"]}, complete]
+    commands: list[tuple[str, str]] = []
+    closed: list[bool] = []
+    fake = types.ModuleType("tdma_start_ring")
+    fake.discover = lambda _args: discoveries.pop(0)
+    fake.board_command = lambda board, command, _args: (
+        commands.append((board.address, command)) or "OK")
+    fake.close_persistent_connections = lambda: closed.append(True)
+    monkeypatch.setitem(sys.modules, "tdma_start_ring", fake)
+    monkeypatch.setattr(
+        "tools.hardware_acceptance.p3_hardware_acceptance.time.sleep",
+        lambda _seconds: None)
+
+    result = reset_acceptance_boards(ids, "build", acceptance_timing({}))
+
+    assert result["passed"] is True
+    assert result["board_ids"] == ids
+    assert result["ports_before"] == {"n0": "COM5", "n1": "COM4"}
+    assert result["ports_after"] == {"n0": "COM5", "n1": "COM4"}
+    assert commands == [
+        ("n0", "SYSTem:BOOT:RESet"),
+        ("n1", "SYSTem:BOOT:RESet"),
+    ]
+    assert closed == [True]
 
 
 def _trial(delay: float = 80.0) -> dict:
@@ -127,8 +172,8 @@ def test_p3_gate_requires_complete_repeated_matrix() -> None:
 
 
 def test_receipt_uses_complete_calibration_to_dpll_schema() -> None:
-    assert RECEIPT_SCHEMA == "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_V2"
-    assert TDMA_RECEIPT_SCHEMA.endswith("TDMA_4NODE_V1")
+    assert RECEIPT_SCHEMA == "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_V4"
+    assert TDMA_RECEIPT_SCHEMA.endswith("TDMA_4NODE_V2")
     assert LIMITED_RECEIPT_SCHEMA.endswith("10MHZ_LIMITED_V1")
 
 
@@ -136,8 +181,10 @@ def test_receipt_evidence_requires_every_acceptance_phase(tmp_path: Path) -> Non
     names = (
         "firmware_package", "ota_summary", "topology_summary",
         "coarse_calibration_summary", "coded_calibration_summary",
-        "p3_summary", "trn01_summary", "sck_summary", "trn02_summary",
-        "trn03_matrix", "tdma_summary", "dpll_summary",
+        "initialization_reset", "p3_summary", "trn00_summary",
+        "trn01_summary", "trn02_summary",
+        "trn03_matrix", "tdma_summary", "sma_observer_wiring",
+        "dpll_summary",
     )
     record = {}
     for name in names:
@@ -158,7 +205,8 @@ def test_tdma_only_receipt_does_not_require_dpll_observer(tmp_path: Path) -> Non
     names = (
         "firmware_package", "ota_summary", "topology_summary",
         "coarse_calibration_summary", "coded_calibration_summary",
-        "p3_summary", "trn01_summary", "sck_summary", "trn02_summary",
+        "initialization_reset", "p3_summary", "trn00_summary",
+        "trn01_summary", "trn02_summary",
         "trn03_matrix", "tdma_summary",
     )
     record = {
@@ -218,11 +266,12 @@ def test_bench_and_orchestrator_cover_full_hardware_acceptance() -> None:
     for key in (
         "topology_anchor_board_id", "calibration_profile_levels",
         "calibration_probe_phase_cycles_by_level",
+        "calibration_coded_probe_phase_cycles_by_level",
         "training_marker_codebook", "training_sck_codebook",
         "training_data_codebook",
         "training_marker_offsets_by_node", "training_sck_offsets_by_node",
         "training_data_offsets_by_node", "tdma_window_s",
-        "dpll_observer_board_id",
+        "dpll_observer_board_id", "sma_observer_routes",
         "hardware_acceptance_timing",
     ):
         assert key in bench
@@ -233,7 +282,8 @@ def test_bench_and_orchestrator_cover_full_hardware_acceptance() -> None:
         "calibration_clk_coded.py", "calibration_link_p3.py",
         "calibration_marker_train.py", "calibration_sck_train.py",
         "calibration_data_train.py", "trn03_matrix.py",
-        "trn03_closed_loop.py", "dpll_vdc_monitor.py",
+        "trn03_closed_loop.py", "sma_cable_symmetric_rtt.py",
+        "dpll_vdc_monitor.py",
     ):
         assert tool in source
     assert "--tdma-only" in source
@@ -241,6 +291,37 @@ def test_bench_and_orchestrator_cover_full_hardware_acceptance() -> None:
     assert '"--codebook", str(config["training_marker_codebook"])' in source
     assert '"--codebook", str(config["training_sck_codebook"])' in source
     assert '"--codebook", str(config["training_data_codebook"])' in source
+    assert "Hardware acceptance: TRN-00 accepted MARK offset row" in source
+    assert "Hardware acceptance: TRN-01 SCK offset matrix" in source
+    assert '"trn00_summary": evidence_entry' in source
+    assert '"trn01_summary": evidence_entry' in source
+    assert '"sck_summary": evidence_entry' not in source
+
+
+def test_sma_observer_topology_is_fixed_to_measured_bidirectional_routes() -> None:
+    bench = json.loads((ROOT / "config" / "hardware_acceptance" /
+                        "p3_bench.json").read_text(encoding="utf-8"))
+    identities = {
+        str(index): {"address": board_id}
+        for index, board_id in enumerate(bench["ota_board_ids"], start=1)
+    }
+    summary = {
+        "passed": True,
+        "identities": identities,
+        "wire_order": {
+            "passed": True,
+            "routes": bench["sma_observer_routes"],
+        },
+    }
+    assert validate_sma_observer_topology(summary, bench) == \
+        bench["sma_observer_routes"]
+
+    summary["wire_order"]["routes"] = [
+        dict(route) for route in bench["sma_observer_routes"]
+    ]
+    summary["wire_order"]["routes"][1]["validator_output_channel"] = 3
+    with pytest.raises(AcceptanceError, match="differs from bench contract"):
+        validate_sma_observer_topology(summary, bench)
 
 
 def test_hardware_acceptance_timing_is_explicit_and_bounded() -> None:
@@ -252,6 +333,8 @@ def test_hardware_acceptance_timing_is_explicit_and_bounded() -> None:
     assert timing["output_handoff_s"] == timing["phase_gap_s"]
     assert timing["serial_read_timeout_s"] < timing["serial_timeout_s"]
     assert timing["action_timeout_s"] <= timing["serial_timeout_s"]
+    assert timing["board_reset_timeout_s"] == 15.0
+    assert timing["board_reset_poll_interval_s"] == 0.5
     with pytest.raises(AcceptanceError, match="must be > 0"):
         acceptance_timing({"hardware_acceptance_timing": {
             "serial_timeout_s": 0,
@@ -269,8 +352,12 @@ def test_calibration_probe_phase_is_selected_per_profile() -> None:
     assert calibration_probe_phase_cycles(bench, 7) == 10
     assert calibration_probe_phase_cycles(bench, 8) == 2
     assert calibration_probe_phase_cycles(bench, 9) == 2
+    assert calibration_coded_probe_phase_cycles(bench, 7) == [8, 9, 10]
+    assert calibration_coded_probe_phase_cycles(bench, 8) == [1, 2, 3]
     with pytest.raises(AcceptanceError, match="profile level 10"):
         calibration_probe_phase_cycles(bench, 10)
+    with pytest.raises(AcceptanceError, match="profile level 10"):
+        calibration_coded_probe_phase_cycles(bench, 10)
 
 
 def test_precalibration_tools_clear_stale_stage_and_gate_arm_result() -> None:

@@ -648,7 +648,7 @@ def parse_args() -> argparse.Namespace:
                         help="runtime PIO sampling period used by offsets")
     parser.add_argument(
         "--node-marker-offset-samples", type=int, action="append",
-        help=("one accepted TRN-01 marker offset per node in physical "
+        help=("one accepted TRN-00 marker offset per node in physical "
               "loop order; link i uses its destination node offset"))
     parser.add_argument(
         "--node-data-offset-samples", type=int, action="append",
@@ -689,7 +689,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--level", type=int, default=7)
     parser.add_argument(
         "--reuse-ring-identity", action="store_true",
-        help=("reuse a stopped ring prepared by same-generation TRN-01; "
+        help=("reuse a stopped ring prepared by same-generation TRN-00; "
               "do not rewrite topology or operating profile"))
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)

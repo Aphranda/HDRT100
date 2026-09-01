@@ -355,7 +355,7 @@ def test_per_link_base_preserves_quantization_residual() -> None:
 
 def test_matrix_aggregate_groups_by_destination_capture_offset() -> None:
     summary = {
-        "phase": "TRN-01_FOUR_NODE_OFFSET_MATRIX",
+        "phase": "TRN-00_FOUR_NODE_OFFSET_MATRIX",
         "node_ids_in_loop_order": ["node0", "node1"],
         "full_matrix_row_count": 9,
         "selected_row_count": 2,

@@ -281,7 +281,7 @@ def validate_link(source: dict[str, int | str],
                 errors.append(f"{prefix}_{field}")
     calibrated = int(destination["configured_sck_offset_sample_count"]) + residual
     return {
-        "phase": "TRN-SCK",
+        "phase": "TRN-01",
         "passed": not errors,
         "diagnostic_only": True,
         "errors": errors,
@@ -629,7 +629,7 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
     args.link_base_delay_ns_current = int(
         args.link_base_delay_ns[args.link_index])
     plan: dict[str, object] = {
-        "phase": "TRN-SCK",
+        "phase": "TRN-01",
         "diagnostic_only": True,
         "node_ids_in_loop_order": list(args.board_id),
         "link": args.link_index,
@@ -730,7 +730,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                 trial = run_link_trial(trial_args, ordered, prepare=False)
             except Exception as exc:  # persist expected failure evidence
                 trial = {
-                    "phase": "TRN-SCK",
+                    "phase": "TRN-01",
                     "link": link,
                     "source_node": link,
                     "destination_node": (link + 1) % len(ordered),
@@ -758,7 +758,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         trials, len(ordered), args.repeats, args.max_offset_span,
         args.sample_period_ns)
     return {
-        "phase": "TRN-SCK_OFFSET_MATRIX",
+        "phase": "TRN-01_SCK_OFFSET_MATRIX",
         "diagnostic_only": True,
         "node_ids_in_loop_order": board_ids,
         "boards": {board.address: asdict(board) for board in ordered},
