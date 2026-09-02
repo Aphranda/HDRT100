@@ -18,7 +18,7 @@ Last updated: 2026-09-03
 `UNLOAD -> LOAD -> FORWARD`，不因物理 frame 完成而终止。每一步均须可回退，并以同一 OTA
 包完成闭环后才能推进下一步。
 
-当前唯一执行入口是下文 `SM-CYCLE-005`。表中其他 `IN PROGRESS` 表示已有部分实现或
+当前唯一执行入口是下文 `SM-CYCLE-006`。表中其他 `IN PROGRESS` 表示已有部分实现或
 证据尚未收口，不代表允许并行继续修改；resident cycle 验收前暂停 maintenance persona、
 剩余 resource-arbiter 和 AO/Core1 编排迁移。
 
@@ -102,8 +102,8 @@ transport helper 和 communication FSM 是角色无关的边界件，不改变 N
 | SM-CYCLE-002 | 将 adapter communication FSM 改为 resident cycle 语义 | DONE | `FRAME_COMPLETE` 终止态被非终止 `CYCLE_BOUNDARY` 取代；一次 ARM 后每轮清理物理 window 标志并保持 `RUNNING`，STOP、RESET、ERROR 转移、纯 C 单测及快速 TDMA-only 闭环通过。 |
 | SM-CYCLE-003 | 仅将 reference runtime 接入 resident FSM 和 transport helper | DONE | reference 启动时只 seed 一次；返回帧到达后执行 `LOCAL_UNLOAD/LOAD -> begin next cycle -> phys_tx`，发送由 completion/backpressure 驱动；丢失返回帧时从最后有效 resident image 生成 stale cycle；RTT 观测 FIFO 背压不得阻塞实时发送；host/build、四板快速闭环、SD 原始波形和标准快速 P3 receipt 已收口，角色选择未写死 NO1 板号。 |
 | SM-CYCLE-004 | 验证四节点同轮 overlay 和 follower 兼容性 | DONE | 链式 host 回归证明同一 resident image 依 DATA 物理顺序保留 NO1--NO4 segment；无新 generation 时旧值透传且 cycle sequence 独立推进。四板闭环、SD 原始 capture 和当前源码指纹 receipt 已归档，未修改 follower PIO 算法。 |
-| SM-CYCLE-005 | 增加 cycle 状态、计数和异常恢复 evidence | IN PROGRESS | Core0 只读查询可获得 cycle count、last completed cycle、segment bitmap、fault/reseed reason；丢帧恢复不得静默清空 process image，允许 reseed 时只使用最后有效 resident image。 |
-| SM-CYCLE-006 | 完成 resident cycle 的构建与四板短帧验收 | PENDING | 编译/pytest、同包四板异步 OTA、快速 TDMA-only 短帧闭环及 NO1--NO4 SD 原始波形通过；NO5 不参与本 gate，完整证据归档到任务进度文档。 |
+| SM-CYCLE-005 | 增加 cycle 状态、计数和异常恢复 evidence | DONE | Core0 只读查询可获得 cycle count、last completed cycle、segment bitmap、fault/reseed reason；异步 TX 只在 FSM 到达 cycle boundary 后提交完成信息，丢帧和 bootstrap 耗尽均只复用最后有效 resident image。host/build、四板闭环与 SD 波形证据已归档。 |
+| SM-CYCLE-006 | 完成 resident cycle 的构建与四板短帧验收 | IN PROGRESS | 编译/pytest、同包四板异步 OTA、快速 TDMA-only 短帧闭环及 NO1--NO4 SD 原始波形通过；新鲜快速训练矩阵须自动包含稳定 replay 行，不依赖人工复用旧矩阵；NO5 不参与本 gate，完整证据归档到任务进度文档。 |
 
 每个 `SM-CYCLE-*` 代码切片都必须先通过对应 host/build 检查，再运行快速 TDMA-only
 短帧闭环后才能进入下一项；失败也要保存参数、串口状态和 NO1--NO4 SD 原始波形，
@@ -116,10 +116,10 @@ transport helper 和 communication FSM 是角色无关的边界件，不改变 N
   persona 已开始使用 TX/RX 两个 PIO block，但迁移尚未覆盖所有 persona 和资源仲裁层，
   因此不能把 SM-M2 至 SM-M5 提前完成。
 - `SM-RES-010` 尚未完成；communication FSM、transport boundary helper、reference
-  runtime 和四节点同轮 overlay 已收口，当前仍缺 Core0 只读 cycle evidence、异常恢复
-  观测与最终四板验收收口。
-- `SM-CYCLE-000/001/002/003/004` 的 host/build/快速 HIL 基线已经收口；当前缺口是
-  `SM-CYCLE-005` 的 cycle 状态、计数、fault/reseed reason 和丢帧恢复 evidence。
+  runtime、四节点同轮 overlay、Core0 cycle evidence 和异常恢复观测已收口，当前只缺
+  `SM-CYCLE-006` 的新鲜快速矩阵与最终四板验收合并收口。
+- `SM-CYCLE-000/001/002/003/004/005` 的 host/build/快速 HIL 基线已经收口；当前缺口是
+  `SM-CYCLE-006` 的自动稳定 replay 行、同轮严格短帧闭环和 NO1--NO4 SD 原始波形。
 - follower 的 forward 与 capture 双消费者需要独立 RX FIFO/SM 或硬件复制语义，不能
   通过两个 DMA 直接竞争一个 FIFO。
 - PIO 迁移完成前，DPLL hardware timestamp spine 和 eligible gate 不进入正式 HIL。
