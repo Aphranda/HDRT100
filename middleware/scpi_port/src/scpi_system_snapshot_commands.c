@@ -2568,6 +2568,17 @@ scpi_result_t scpi_cmd_system_tdma_flight_process_q(scpi_t *context)
     SCPI_ResultUInt32(
         context, adapter_snapshot.comm_fsm_timed_out_window_count);
     SCPI_ResultUInt32(context, adapter_snapshot.resident_stale_cycle_count);
+    SCPI_ResultUInt32(context, adapter_snapshot.comm_fsm_window_sequence);
+    SCPI_ResultUInt32(
+        context, adapter_snapshot.comm_fsm_completed_window_count);
+    SCPI_ResultUInt32(
+        context, adapter_snapshot.resident_last_completed_cycle);
+    SCPI_ResultUInt32(
+        context, adapter_snapshot.resident_last_completed_segment_mask);
+    SCPI_ResultUInt32(context, adapter_snapshot.comm_fsm_last_error);
+    SCPI_ResultUInt32(context, adapter_snapshot.resident_reseed_count);
+    SCPI_ResultUInt32(
+        context, adapter_snapshot.resident_last_reseed_reason);
     return SCPI_RES_OK;
 }
 

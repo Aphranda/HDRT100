@@ -30,7 +30,7 @@
  * the ring is up.
  */
 
-#define TDMA_PIO_SPI_RING_ADAPTER_VERSION 11u
+#define TDMA_PIO_SPI_RING_ADAPTER_VERSION 12u
 
 #define TDMA_PIO_SPI_RESIDENT_FEEDBACK_RESIDENT (1u << 0u)
 #define TDMA_PIO_SPI_RESIDENT_FEEDBACK_SEEDED (1u << 1u)
@@ -47,6 +47,12 @@
      TDMA_PIO_SPI_RESIDENT_FEEDBACK_REQUIRED | \
      TDMA_PIO_SPI_RESIDENT_FEEDBACK_SEQUENCE | \
      TDMA_PIO_SPI_RESIDENT_FEEDBACK_IDENTITY)
+
+typedef enum {
+    TDMA_PIO_SPI_RESIDENT_RESEED_NONE = 0u,
+    TDMA_PIO_SPI_RESIDENT_RESEED_FEEDBACK_TIMEOUT_LAST_VALID = 1u,
+    TDMA_PIO_SPI_RESIDENT_RESEED_BOOTSTRAP_EXHAUSTED_LAST_VALID = 2u,
+} tdma_pio_spi_resident_reseed_reason_t;
 
 #define TDMA_PIO_SPI_CLOCK_EVIDENCE_BUILD_DISABLED (1u << 0u)
 #define TDMA_PIO_SPI_CLOCK_EVIDENCE_BUILD_NO_SEQUENCE (1u << 1u)
@@ -254,6 +260,13 @@ typedef struct {
     uint32_t comm_fsm_timed_out_window_count;
     uint32_t resident_stale_cycle_count;
     tdma_receive_health_snapshot_t receive_health;
+    uint32_t comm_fsm_window_sequence;
+    uint32_t comm_fsm_completed_window_count;
+    uint32_t resident_last_completed_cycle;
+    uint32_t resident_last_completed_segment_mask;
+    uint32_t comm_fsm_last_error;
+    uint32_t resident_reseed_count;
+    uint32_t resident_last_reseed_reason;
 } tdma_pio_spi_ring_adapter_snapshot_t;
 
 typedef struct {
@@ -363,6 +376,9 @@ typedef struct {
     bool resident_seeded;
     bool resident_return_ready;
     uint32_t resident_return_new_segment_mask;
+    bool resident_completion_pending;
+    uint32_t resident_pending_completed_cycle;
+    uint32_t resident_pending_completed_segment_mask;
     bool resident_bootstrap_tx_pending;
     uint32_t resident_bootstrap_retry_count;
     uint8_t resident_packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
@@ -370,6 +386,10 @@ typedef struct {
     bool resident_overlay_bootstrap_prepared;
     uint32_t resident_overlay_target_sequence;
     uint32_t resident_stale_cycle_count;
+    uint32_t resident_last_completed_cycle;
+    uint32_t resident_last_completed_segment_mask;
+    uint32_t resident_reseed_count;
+    uint32_t resident_last_reseed_reason;
     /* Reference flight TX completes asynchronously.  A passed emission
      * deadline must not resubmit while the physical completion token is
      * outstanding. */

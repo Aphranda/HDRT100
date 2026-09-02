@@ -1450,12 +1450,24 @@ int main(void)
                              TDMA_PIO_SPI_RESIDENT_FEEDBACK_ALL);
         failed += expect_u32("async resident return ready diagnostic",
                              snapshot.resident_return_ready, 1u);
+        failed += expect_u32("async resident cycle not complete before TX",
+                             snapshot.comm_fsm_completed_window_count, 0u);
+        failed += expect_u32("async resident last complete waits for TX",
+                             snapshot.resident_last_completed_cycle, 0u);
 
         phys.completion_ready = true;
         phys.completion_timestamp_ns = 0ull;
         failed += expect_bool("async resident zero timestamp completes",
-                              tdma_pio_spi_ring_adapter_ops()->service(
-                                  &adapter, 2000ull, &status), true);
+                               tdma_pio_spi_ring_adapter_ops()->service(
+                                   &adapter, 2000ull, &status), true);
+        failed += expect_bool("async resident completed snapshot",
+                              tdma_pio_spi_ring_adapter_get_snapshot(
+                                  &adapter, &snapshot),
+                              true);
+        failed += expect_u32("async resident completion committed",
+                             snapshot.comm_fsm_completed_window_count, 1u);
+        failed += expect_u32("async resident last completed after TX",
+                             snapshot.resident_last_completed_cycle, 1u);
         failed += expect_u32("async resident holds deadline",
                              phys.tx_calls, 1u);
         failed += expect_bool("async resident deadline launches",
@@ -2209,6 +2221,27 @@ int main(void)
                              phys.tx_calls, 2u);
         failed += expect_u32("resident first logical completion",
                              adapter.comm_fsm.completed_window_count, 1u);
+        tdma_pio_spi_ring_adapter_snapshot_t resident_snapshot;
+        failed += expect_bool("resident progress snapshot",
+                              tdma_pio_spi_ring_adapter_get_snapshot(
+                                  &adapter, &resident_snapshot),
+                              true);
+        failed += expect_u32("resident progress snapshot version",
+                             resident_snapshot.version,
+                             TDMA_PIO_SPI_RING_ADAPTER_VERSION);
+        failed += expect_u32("resident current cycle",
+                             resident_snapshot.comm_fsm_window_sequence, 1u);
+        failed += expect_u32("resident completed cycle count",
+                             resident_snapshot.comm_fsm_completed_window_count,
+                             1u);
+        failed += expect_u32("resident last completed cycle",
+                             resident_snapshot.resident_last_completed_cycle,
+                             1u);
+        failed += expect_u32("resident initial reseed count",
+                             resident_snapshot.resident_reseed_count, 0u);
+        failed += expect_u32("resident initial reseed reason",
+                             resident_snapshot.resident_last_reseed_reason,
+                             TDMA_PIO_SPI_RESIDENT_RESEED_NONE);
 
         failed += expect_bool("resident second cycle launch",
                               tdma_pio_spi_ring_adapter_ops()->service(
@@ -2296,6 +2329,187 @@ int main(void)
                              adapter.comm_fsm.timed_out_window_count, 4u);
         failed += expect_u32("resident stale cycle count",
                              adapter.resident_stale_cycle_count, 4u);
+        failed += expect_bool("resident stale snapshot",
+                              tdma_pio_spi_ring_adapter_get_snapshot(
+                                  &adapter, &resident_snapshot),
+                              true);
+        failed += expect_u32("resident current cycle after loss",
+                             resident_snapshot.comm_fsm_window_sequence, 7u);
+        failed += expect_u32("resident completed count after loss",
+                             resident_snapshot.comm_fsm_completed_window_count,
+                             2u);
+        failed += expect_u32("resident completed cycle retained",
+                             resident_snapshot.resident_last_completed_cycle,
+                             2u);
+        failed += expect_u32("resident completed segment mask retained",
+                             resident_snapshot.resident_last_completed_segment_mask,
+                             adapter.receive_health.accepted_segment_mask);
+        failed += expect_u32("resident no FSM fault during reseed",
+                             resident_snapshot.comm_fsm_last_error,
+                             TDMA_ADAPTER_COMM_ERROR_NONE);
+        failed += expect_u32("resident last-valid reseed count",
+                             resident_snapshot.resident_reseed_count, 4u);
+        failed += expect_u32(
+            "resident last-valid reseed reason",
+            resident_snapshot.resident_last_reseed_reason,
+            TDMA_PIO_SPI_RESIDENT_RESEED_FEEDBACK_TIMEOUT_LAST_VALID);
+        failed += expect_bool("resident stale decode",
+                              tdma_transport_frame_decode(
+                                  phys.last_tx,
+                                  phys.last_tx_size,
+                                  &view,
+                                  &result),
+                              true);
+        failed += expect_u32("resident stale sequence advances",
+                             view.transport_sequence, 7u);
+        failed += expect_bool("resident stale keeps local mailbox",
+                              memcmp(view.payload,
+                                     second_mailbox,
+                                     sizeof(second_mailbox)) == 0,
+                              true);
+        failed += expect_u32("resident stale keeps remote payload",
+                             view.payload[40u], 0xA7u);
+
+        uint8_t resident_before_fault[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+        const size_t resident_before_fault_size = adapter.resident_packet_size;
+        memcpy(resident_before_fault,
+               adapter.resident_packet,
+               resident_before_fault_size);
+        tdma_pio_spi_ring_adapter_set_phys_tx_retryable(&adapter, NULL);
+        phys.defer_tx_count = 1u;
+        failed += expect_bool("resident fatal TX enters fault",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 50000ull, &status),
+                              false);
+        failed += expect_bool("resident fault snapshot",
+                              tdma_pio_spi_ring_adapter_get_snapshot(
+                                  &adapter, &resident_snapshot),
+                              true);
+        failed += expect_u32("resident fault state",
+                             resident_snapshot.comm_fsm_state,
+                             TDMA_ADAPTER_COMM_STATE_FAULT);
+        failed += expect_u32("resident fault reason",
+                             resident_snapshot.comm_fsm_last_error,
+                             TDMA_ADAPTER_COMM_ERROR_RUNTIME);
+        failed += expect_bool("resident fault retains last-valid image",
+                              adapter.resident_packet_size ==
+                                      resident_before_fault_size &&
+                                  memcmp(adapter.resident_packet,
+                                         resident_before_fault,
+                                          resident_before_fault_size) == 0,
+                              true);
+        tdma_pio_spi_ring_adapter_ops()->stop(&adapter);
+        failed += expect_bool("resident stop snapshot",
+                              tdma_pio_spi_ring_adapter_get_snapshot(
+                                  &adapter, &resident_snapshot),
+                              true);
+        failed += expect_u32("resident stop clears completion",
+                             resident_snapshot.resident_last_completed_cycle,
+                             0u);
+        failed += expect_u32("resident stop clears reseed count",
+                             resident_snapshot.resident_reseed_count, 0u);
+        failed += expect_u32("resident stop clears reseed reason",
+                             resident_snapshot.resident_last_reseed_reason,
+                             TDMA_PIO_SPI_RESIDENT_RESEED_NONE);
+    }
+
+    /* If the initial resident image never returns, bootstrap retry exhaustion
+     * advances from that same last-valid image and records why it was reused. */
+    {
+        tdma_pio_spi_ring_adapter_t adapter;
+        tdma_flight_fifo_t fifo;
+        tdma_flight_engine_t engine;
+        loopback_phys_t phys;
+        tdma_ring_adapter_status_t status;
+        tdma_pio_spi_ring_adapter_snapshot_t snapshot;
+        tdma_ring_runtime_config_t config = make_valid_config();
+        tdma_process_image_map_t map = make_flight_map();
+        tdma_transport_frame_view_t view;
+        tdma_transport_result_t result = TDMA_TRANSPORT_OK;
+        uint8_t mailbox[32];
+
+        memset(&phys, 0, sizeof(phys));
+        memset(mailbox, 0x5Au, sizeof(mailbox));
+        phys.tx_timestamp_ns = 3200000ull;
+        phys.suppress_echo = true;
+        failed += expect_bool("bootstrap loss adapter init",
+                              tdma_pio_spi_ring_adapter_init(&adapter), true);
+        set_test_sequential_topology(&adapter, config.node_count);
+        failed += expect_bool("bootstrap loss fifo init",
+                              tdma_flight_fifo_init(&fifo), true);
+        failed += expect_bool("bootstrap loss engine init",
+                              tdma_flight_engine_init(&engine), true);
+        failed += expect_bool("bootstrap loss map config",
+                              tdma_flight_engine_configure(&engine, &map), true);
+        tdma_pio_spi_ring_adapter_set_phys(&adapter,
+                                           loopback_tx,
+                                           loopback_rx,
+                                           &phys);
+        tdma_pio_spi_ring_adapter_set_flight_fifo(&adapter, &fifo);
+        tdma_pio_spi_ring_adapter_set_flight_engine(&adapter, &engine);
+        failed += expect_bool(
+            "bootstrap loss process mode",
+            tdma_pio_spi_ring_adapter_set_forwarding_mode(
+                &adapter,
+                TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE),
+            true);
+        failed += expect_bool("bootstrap loss start",
+                              tdma_pio_spi_ring_adapter_ops()->start(
+                                  &adapter, &config),
+                              true);
+        failed += expect_bool("bootstrap loss mailbox",
+                              tdma_flight_fifo_core0_publish_tx(
+                                  &fifo,
+                                  mailbox,
+                                  sizeof(mailbox),
+                                  1u,
+                                  1u,
+                                  1u),
+                              true);
+        failed += expect_bool("bootstrap loss phase",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 1ull, &status),
+                              true);
+        failed += expect_bool("bootstrap loss seed",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 2ull, &status),
+                              true);
+        failed += expect_bool("bootstrap loss retry",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 2002ull, &status),
+                              true);
+        failed += expect_bool("bootstrap loss stale cycle",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 4002ull, &status),
+                              true);
+        failed += expect_bool("bootstrap loss snapshot",
+                              tdma_pio_spi_ring_adapter_get_snapshot(
+                                  &adapter, &snapshot),
+                              true);
+        failed += expect_u32("bootstrap loss has no completed cycle",
+                             snapshot.comm_fsm_completed_window_count, 0u);
+        failed += expect_u32("bootstrap loss keeps last completed empty",
+                             snapshot.resident_last_completed_cycle, 0u);
+        failed += expect_u32("bootstrap loss reseed count",
+                             snapshot.resident_reseed_count, 1u);
+        failed += expect_u32(
+            "bootstrap loss reseed reason",
+            snapshot.resident_last_reseed_reason,
+            TDMA_PIO_SPI_RESIDENT_RESEED_BOOTSTRAP_EXHAUSTED_LAST_VALID);
+        failed += expect_bool("bootstrap loss stale decode",
+                              tdma_transport_frame_decode(
+                                  phys.last_tx,
+                                  phys.last_tx_size,
+                                  &view,
+                                  &result),
+                              true);
+        failed += expect_u32("bootstrap loss sequence advances",
+                             view.transport_sequence, 2u);
+        failed += expect_bool("bootstrap loss keeps mailbox",
+                              memcmp(view.payload,
+                                     mailbox,
+                                     sizeof(mailbox)) == 0,
+                              true);
     }
 
     /* Overlay scripts are prepared one physical frame ahead. Their hop

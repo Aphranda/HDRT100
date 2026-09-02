@@ -60,6 +60,10 @@ PROCESS_FIELDS = (
     "resident_overlay_bootstrap_prepared",
     "resident_overlay_target_sequence",
     "comm_fsm_timed_out_window_count", "resident_stale_cycle_count",
+    "comm_fsm_window_sequence", "comm_fsm_completed_window_count",
+    "resident_last_completed_cycle", "resident_last_completed_segment_mask",
+    "comm_fsm_last_error", "resident_reseed_count",
+    "resident_last_reseed_reason",
 )
 
 FIFO_FIELDS = (

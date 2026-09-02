@@ -47,6 +47,12 @@ def test_parse_process_snapshot_exact_field_count() -> None:
     assert parsed["receive_last_rejected_timestamp_ns"] == (
         PROCESS_FIELDS.index("receive_last_rejected_timestamp_ns"))
     assert parsed["resident_stale_cycle_count"] == (
+        PROCESS_FIELDS.index("resident_stale_cycle_count"))
+    assert parsed["comm_fsm_window_sequence"] == (
+        PROCESS_FIELDS.index("comm_fsm_window_sequence"))
+    assert parsed["resident_last_completed_segment_mask"] == (
+        PROCESS_FIELDS.index("resident_last_completed_segment_mask"))
+    assert parsed["resident_last_reseed_reason"] == (
         len(PROCESS_FIELDS) - 1)
 
 
