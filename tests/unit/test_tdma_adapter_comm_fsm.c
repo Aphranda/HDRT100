@@ -36,6 +36,15 @@ int main(void)
     assert(!fsm.clock_tx_active && fsm.data_rx_active);
     assert(fsm.clock_tx_complete && !fsm.data_rx_complete);
 
+    dispatch(&fsm, TDMA_ADAPTER_COMM_EVENT_BOOTSTRAP_TX_STARTED);
+    assert(fsm.state == TDMA_ADAPTER_COMM_STATE_RUNNING);
+    assert(fsm.bootstrap_tx_active);
+    assert(fsm.bootstrap_tx_count == 1u);
+    dispatch(&fsm, TDMA_ADAPTER_COMM_EVENT_BOOTSTRAP_TX_COMPLETED);
+    assert(!fsm.bootstrap_tx_active);
+    assert(fsm.bootstrap_tx_complete_count == 1u);
+    assert(fsm.completed_window_count == 0u);
+
     dispatch(&fsm, TDMA_ADAPTER_COMM_EVENT_DATA_RX_COMPLETED);
     assert(fsm.state == TDMA_ADAPTER_COMM_STATE_CYCLE_BOUNDARY);
     assert(fsm.completed_window_count == 1u);
@@ -47,6 +56,7 @@ int main(void)
     assert(fsm.window_sequence == 2u);
     assert(!fsm.clock_tx_active && !fsm.data_rx_active);
     assert(!fsm.clock_tx_complete && !fsm.data_rx_complete);
+    assert(!fsm.bootstrap_tx_active);
     dispatch(&fsm, TDMA_ADAPTER_COMM_EVENT_DATA_RX_STARTED);
     dispatch(&fsm, TDMA_ADAPTER_COMM_EVENT_CLOCK_TX_STARTED);
     dispatch(&fsm, TDMA_ADAPTER_COMM_EVENT_DATA_RX_COMPLETED);
@@ -55,6 +65,31 @@ int main(void)
     assert(fsm.state == TDMA_ADAPTER_COMM_STATE_CYCLE_BOUNDARY);
     assert(fsm.completed_window_count == 2u);
     assert(fsm.window_sequence == 2u);
+
+    dispatch(&fsm, TDMA_ADAPTER_COMM_EVENT_BEGIN_NEXT_CYCLE);
+    dispatch(&fsm, TDMA_ADAPTER_COMM_EVENT_DATA_RX_STARTED);
+    dispatch(&fsm, TDMA_ADAPTER_COMM_EVENT_CLOCK_TX_STARTED);
+    dispatch(&fsm, TDMA_ADAPTER_COMM_EVENT_CLOCK_TX_COMPLETED);
+    dispatch(&fsm, TDMA_ADAPTER_COMM_EVENT_DATA_RX_TIMED_OUT);
+    assert(fsm.state == TDMA_ADAPTER_COMM_STATE_CYCLE_BOUNDARY);
+    assert(fsm.timed_out_window_count == 1u);
+    assert(fsm.completed_window_count == 2u);
+    assert(!fsm.data_rx_active && !fsm.data_rx_complete);
+
+    tdma_adapter_comm_fsm_init(&fsm);
+    dispatch(&fsm, TDMA_ADAPTER_COMM_EVENT_ARM);
+    dispatch(&fsm, TDMA_ADAPTER_COMM_EVENT_CLOCK_TX_STARTED);
+    dispatch(&fsm, TDMA_ADAPTER_COMM_EVENT_DATA_RX_STARTED);
+    dispatch(&fsm, TDMA_ADAPTER_COMM_EVENT_CLOCK_TX_COMPLETED);
+    dispatch(&fsm, TDMA_ADAPTER_COMM_EVENT_BOOTSTRAP_TX_STARTED);
+    dispatch(&fsm, TDMA_ADAPTER_COMM_EVENT_DATA_RX_COMPLETED);
+    assert(fsm.state == TDMA_ADAPTER_COMM_STATE_RUNNING);
+    assert(fsm.bootstrap_tx_active);
+    assert(fsm.completed_window_count == 0u);
+    dispatch(&fsm, TDMA_ADAPTER_COMM_EVENT_BOOTSTRAP_TX_COMPLETED);
+    assert(fsm.state == TDMA_ADAPTER_COMM_STATE_CYCLE_BOUNDARY);
+    assert(!fsm.bootstrap_tx_active);
+    assert(fsm.completed_window_count == 1u);
 
     assert(!tdma_adapter_comm_fsm_dispatch(
         &fsm, TDMA_ADAPTER_COMM_EVENT_ARM, 0u));

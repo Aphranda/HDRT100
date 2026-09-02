@@ -44,12 +44,21 @@ static int expect_u64(const char *name, uint64_t actual, uint64_t expected)
 typedef struct {
     uint8_t last_tx[TDMA_TRANSPORT_SHORT_PACKET_MAX];
     size_t last_tx_size;
+    uint8_t echo_packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+    size_t echo_packet_size;
     uint64_t tx_timestamp_ns;
     uint64_t rx_timestamp_ns;
     uint32_t tx_calls;
     uint32_t rx_calls;
     bool rx_pending;
     bool suppress_echo;
+    uint32_t suppress_echo_count;
+    bool advance_echo_to_feedback;
+    bool mutate_next_echo;
+    uint32_t defer_tx_count;
+    bool tx_retryable;
+    size_t mutation_payload_offset;
+    uint8_t mutation_value;
 } loopback_phys_t;
 
 /* One-frame flight stub: TX N makes TX N-1 available to RX.  This models the
@@ -67,12 +76,50 @@ typedef struct {
 } flight_phys_t;
 
 typedef struct {
+    uint8_t last_tx[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+    size_t last_tx_size;
     uint32_t tx_calls;
     uint32_t busy_tx_calls;
     bool tx_in_flight;
     bool completion_ready;
     uint64_t completion_timestamp_ns;
 } async_phys_t;
+
+typedef struct {
+    uint8_t incoming[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+    uint8_t processed[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+    size_t packet_size;
+    uint32_t prepare_count;
+    uint32_t boundary_count;
+} overlay_capture_t;
+
+static bool capture_overlay(void *context,
+                            const uint8_t *incoming_packet,
+                            const uint8_t *processed_packet,
+                            size_t packet_size)
+{
+    overlay_capture_t *capture = (overlay_capture_t *)context;
+    if (capture == NULL || incoming_packet == NULL ||
+        processed_packet == NULL || packet_size == 0u ||
+        packet_size > sizeof(capture->incoming)) {
+        return false;
+    }
+    memcpy(capture->incoming, incoming_packet, packet_size);
+    memcpy(capture->processed, processed_packet, packet_size);
+    capture->packet_size = packet_size;
+    capture->prepare_count++;
+    return true;
+}
+
+static bool capture_overlay_boundary(void *context)
+{
+    overlay_capture_t *capture = (overlay_capture_t *)context;
+    if (capture == NULL) {
+        return false;
+    }
+    capture->boundary_count++;
+    return true;
+}
 
 static bool flight_tx(void *context,
                       const uint8_t *packet,
@@ -114,6 +161,11 @@ static bool async_tx(void *context,
         phys->busy_tx_calls++;
         return false;
     }
+    if (packet_size > sizeof(phys->last_tx)) {
+        return false;
+    }
+    memcpy(phys->last_tx, packet, packet_size);
+    phys->last_tx_size = packet_size;
     phys->tx_calls++;
     phys->tx_in_flight = true;
     if (tx_timestamp_ns != NULL) {
@@ -173,9 +225,51 @@ static bool loopback_tx(void *context,
         packet_size > sizeof(phys->last_tx)) {
         return false;
     }
+    if (phys->defer_tx_count != 0u) {
+        phys->defer_tx_count--;
+        phys->tx_retryable = true;
+        return false;
+    }
+    phys->tx_retryable = false;
     memcpy(phys->last_tx, packet, packet_size);
     phys->last_tx_size = packet_size;
-    if (!phys->suppress_echo) {
+    memcpy(phys->echo_packet, packet, packet_size);
+    phys->echo_packet_size = packet_size;
+    if (phys->mutate_next_echo) {
+        if (TDMA_TRANSPORT_FRAME_HEADER_SIZE +
+                phys->mutation_payload_offset < packet_size) {
+            phys->echo_packet[TDMA_TRANSPORT_FRAME_HEADER_SIZE +
+                              phys->mutation_payload_offset] =
+                phys->mutation_value;
+        }
+        phys->mutate_next_echo = false;
+    }
+    if (phys->advance_echo_to_feedback) {
+        tdma_transport_frame_view_t view;
+        tdma_transport_result_t result = TDMA_TRANSPORT_OK;
+        if (!tdma_transport_frame_decode(phys->echo_packet,
+                                         phys->echo_packet_size,
+                                         &view,
+                                         &result)) {
+            return false;
+        }
+        while (view.hop_count < view.hop_limit) {
+            if (!tdma_transport_frame_advance_hop(phys->echo_packet,
+                                                   phys->echo_packet_size,
+                                                   &result) ||
+                !tdma_transport_frame_decode(phys->echo_packet,
+                                             phys->echo_packet_size,
+                                             &view,
+                                             &result)) {
+                return false;
+            }
+        }
+    }
+    const bool suppress_this_echo = phys->suppress_echo_count != 0u;
+    if (suppress_this_echo) {
+        phys->suppress_echo_count--;
+    }
+    if (!phys->suppress_echo && !suppress_this_echo) {
         phys->rx_pending = true;
     }
     phys->tx_calls++;
@@ -183,6 +277,12 @@ static bool loopback_tx(void *context,
         *tx_timestamp_ns = phys->tx_timestamp_ns;
     }
     return true;
+}
+
+static bool loopback_tx_retryable(const void *context)
+{
+    const loopback_phys_t *phys = (const loopback_phys_t *)context;
+    return phys != NULL && phys->tx_retryable;
 }
 
 static bool loopback_rx(void *context,
@@ -194,12 +294,12 @@ static bool loopback_rx(void *context,
     loopback_phys_t *phys = (loopback_phys_t *)context;
     if (phys == NULL || packet == NULL || packet_size == NULL ||
         rx_timestamp_ns == NULL || !phys->rx_pending ||
-        phys->last_tx_size == 0u ||
-        phys->last_tx_size > packet_capacity) {
+        phys->echo_packet_size == 0u ||
+        phys->echo_packet_size > packet_capacity) {
         return false;
     }
-    memcpy(packet, phys->last_tx, phys->last_tx_size);
-    *packet_size = phys->last_tx_size;
+    memcpy(packet, phys->echo_packet, phys->echo_packet_size);
+    *packet_size = phys->echo_packet_size;
     *rx_timestamp_ns = phys->rx_timestamp_ns;
     phys->rx_pending = false;
     phys->rx_calls++;
@@ -1248,6 +1348,105 @@ int main(void)
                              phys.busy_tx_calls, 0u);
     }
 
+    /* --- A resident cycle may receive its feedback before asynchronous TX
+     * completion. A zero timestamp is still a terminal completion token, but
+     * it does not become valid clock evidence. --- */
+    {
+        tdma_pio_spi_ring_adapter_t adapter;
+        tdma_ring_adapter_status_t status;
+        tdma_pio_spi_ring_adapter_snapshot_t snapshot;
+        tdma_flight_engine_t engine;
+        async_phys_t phys;
+        const tdma_ring_runtime_config_t config = make_valid_config();
+        tdma_process_image_map_t map = make_flight_map();
+        tdma_transport_result_t result = TDMA_TRANSPORT_OK;
+        uint8_t feedback[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+
+        memset(&phys, 0, sizeof(phys));
+        failed += expect_bool("async resident adapter init",
+                              tdma_pio_spi_ring_adapter_init(&adapter), true);
+        set_test_sequential_topology(&adapter, config.node_count);
+        failed += expect_bool("async resident engine init",
+                              tdma_flight_engine_init(&engine), true);
+        failed += expect_bool("async resident map config",
+                              tdma_flight_engine_configure(&engine, &map), true);
+        tdma_pio_spi_ring_adapter_set_phys(&adapter, async_tx, NULL, &phys);
+        tdma_pio_spi_ring_adapter_set_phys_tx_complete(
+            &adapter, async_tx_complete);
+        tdma_pio_spi_ring_adapter_set_flight_engine(&adapter, &engine);
+        failed += expect_bool(
+            "async resident process mode",
+            tdma_pio_spi_ring_adapter_set_forwarding_mode(
+                &adapter,
+                TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE),
+            true);
+        failed += expect_bool("async resident start",
+                              tdma_pio_spi_ring_adapter_ops()->start(
+                                  &adapter, &config), true);
+        failed += expect_bool("async resident phase",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 1ull, &status), true);
+        failed += expect_bool("async resident seed",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 2ull, &status), true);
+        failed += expect_u32("async resident first tx", phys.tx_calls, 1u);
+
+        memcpy(feedback, phys.last_tx, phys.last_tx_size);
+        failed += expect_bool("async resident feedback hop",
+                              tdma_transport_frame_advance_hop(
+                                  feedback,
+                                  phys.last_tx_size,
+                                  &result),
+                              true);
+        failed += expect_bool("async resident feedback inject",
+                              tdma_pio_spi_ring_adapter_inject_rx(
+                                  &adapter,
+                                  feedback,
+                                  phys.last_tx_size,
+                                  500ull),
+                              true);
+        failed += expect_bool("async resident receives first",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 1000ull, &status), true);
+        failed += expect_u32("async resident waits completion",
+                             phys.tx_calls, 1u);
+        failed += expect_u32("async resident data complete",
+                             adapter.comm_fsm.data_rx_complete, 1u);
+        failed += expect_bool("async resident diagnostic snapshot",
+                              tdma_pio_spi_ring_adapter_get_snapshot(
+                                  &adapter, &snapshot),
+                              true);
+        failed += expect_u32("async resident observed hop",
+                             snapshot.last_rx_hop_count, 1u);
+        failed += expect_u32("async resident observed hop limit",
+                             snapshot.last_rx_hop_limit, 1u);
+        failed += expect_u32("async resident feedback conditions",
+                             snapshot.resident_feedback_condition_mask,
+                             TDMA_PIO_SPI_RESIDENT_FEEDBACK_ALL);
+        failed += expect_u32("async resident feedback condition contract",
+                             snapshot.resident_feedback_all_mask,
+                             TDMA_PIO_SPI_RESIDENT_FEEDBACK_ALL);
+        failed += expect_u32("async resident return ready diagnostic",
+                             snapshot.resident_return_ready, 1u);
+
+        phys.completion_ready = true;
+        phys.completion_timestamp_ns = 0ull;
+        failed += expect_bool("async resident zero timestamp completes",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 2000ull, &status), true);
+        failed += expect_u32("async resident holds deadline",
+                             phys.tx_calls, 1u);
+        failed += expect_bool("async resident deadline launches",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 2002ull, &status), true);
+        failed += expect_u32("async resident next cycle tx",
+                             phys.tx_calls, 2u);
+        failed += expect_u32("async resident completed window",
+                             adapter.comm_fsm.completed_window_count, 1u);
+        failed += expect_u32("async resident invalid timestamp evidence",
+                             adapter.reference_tx_evidence[1u].valid, 0u);
+    }
+
     /* --- The bounded TX-evidence ring retains exact sequence identity while
      * stale or identity-mismatched feedback remains fail-closed. --- */
     {
@@ -1874,6 +2073,439 @@ int main(void)
         failed += expect_bool("process origin alignment symbols transition",
                               transition_count > 64u,
                               true);
+    }
+
+    /* A process-image reference sends one bootstrap copy of the same logical
+     * seed when the first physical frame produced no feedback. Logical cycle
+     * accounting advances only after feedback, and every later resident frame
+     * waits for its absolute emission deadline. */
+    {
+        tdma_pio_spi_ring_adapter_t adapter;
+        tdma_flight_fifo_t fifo;
+        tdma_flight_engine_t engine;
+        loopback_phys_t phys;
+        tdma_ring_adapter_status_t status;
+        tdma_ring_runtime_config_t config = make_valid_config();
+        tdma_process_image_map_t map = make_flight_map();
+        uint8_t first_mailbox[32];
+        uint8_t second_mailbox[32];
+        tdma_transport_frame_view_t view;
+        tdma_transport_result_t result = TDMA_TRANSPORT_OK;
+
+        memset(&phys, 0, sizeof(phys));
+        memset(first_mailbox, 0x31, sizeof(first_mailbox));
+        memset(second_mailbox, 0x72, sizeof(second_mailbox));
+        phys.tx_timestamp_ns = 3200000ull;
+        phys.rx_timestamp_ns = 3200500ull;
+        phys.advance_echo_to_feedback = true;
+        phys.suppress_echo_count = 1u;
+        phys.mutation_payload_offset = 40u;
+        phys.mutation_value = 0xA7u;
+
+        failed += expect_bool("resident adapter init",
+                              tdma_pio_spi_ring_adapter_init(&adapter), true);
+        set_test_sequential_topology(&adapter, config.node_count);
+        failed += expect_bool("resident fifo init",
+                              tdma_flight_fifo_init(&fifo), true);
+        failed += expect_bool("resident engine init",
+                              tdma_flight_engine_init(&engine), true);
+        failed += expect_bool("resident map config",
+                              tdma_flight_engine_configure(&engine, &map), true);
+        tdma_pio_spi_ring_adapter_set_phys(&adapter,
+                                           loopback_tx,
+                                           loopback_rx,
+                                           &phys);
+        tdma_pio_spi_ring_adapter_set_phys_tx_retryable(
+            &adapter, loopback_tx_retryable);
+        tdma_pio_spi_ring_adapter_set_flight_fifo(&adapter, &fifo);
+        tdma_pio_spi_ring_adapter_set_flight_engine(&adapter, &engine);
+        failed += expect_bool(
+            "resident process mode",
+            tdma_pio_spi_ring_adapter_set_forwarding_mode(
+                &adapter,
+                TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE),
+            true);
+        failed += expect_bool("resident start",
+                              tdma_pio_spi_ring_adapter_ops()->start(
+                                  &adapter, &config), true);
+        failed += expect_bool("resident first mailbox",
+                              tdma_flight_fifo_core0_publish_tx(
+                                  &fifo,
+                                  first_mailbox,
+                                  sizeof(first_mailbox),
+                                  1u,
+                                  1u,
+                                  1u),
+                              true);
+        failed += expect_bool("resident phase service",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 1ull, &status), true);
+        failed += expect_bool("resident seed",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 2ull, &status), true);
+        failed += expect_u32("resident seed only", phys.tx_calls, 1u);
+        failed += expect_bool("resident seed decode",
+                              tdma_transport_frame_decode(
+                                  phys.last_tx,
+                                  phys.last_tx_size,
+                                  &view,
+                                  &result),
+                              true);
+        failed += expect_u32("resident seed sequence",
+                             view.transport_sequence, 1u);
+        failed += expect_u32("resident seed hop", view.hop_count, 0u);
+        failed += expect_u32("resident seed no logical completion",
+                             adapter.comm_fsm.completed_window_count, 0u);
+        failed += expect_bool("resident before bootstrap deadline",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 2001ull, &status), true);
+        failed += expect_u32("resident deadline suppresses bootstrap",
+                             phys.tx_calls, 1u);
+
+        phys.mutate_next_echo = true;
+        failed += expect_bool("resident bootstrap launch",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 2002ull, &status), true);
+        failed += expect_u32("resident bootstrap count", phys.tx_calls, 2u);
+        failed += expect_bool("resident bootstrap decode",
+                              tdma_transport_frame_decode(
+                                  phys.last_tx,
+                                  phys.last_tx_size,
+                                  &view,
+                                  &result),
+                              true);
+        failed += expect_u32("resident bootstrap same sequence",
+                             view.transport_sequence, 1u);
+        failed += expect_u32("resident bootstrap not a logical cycle",
+                             adapter.comm_fsm.completed_window_count, 0u);
+        failed += expect_u32("resident bootstrap FSM count",
+                             adapter.comm_fsm.bootstrap_tx_complete_count, 1u);
+        failed += expect_bool("resident bootstrap feedback",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 2003ull, &status), true);
+        failed += expect_u32("resident feedback waits next deadline",
+                             phys.tx_calls, 2u);
+        failed += expect_u32("resident first logical completion",
+                             adapter.comm_fsm.completed_window_count, 1u);
+
+        failed += expect_bool("resident second cycle launch",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 4002ull, &status), true);
+        failed += expect_u32("resident second cycle", phys.tx_calls, 3u);
+        failed += expect_bool("resident second decode",
+                              tdma_transport_frame_decode(
+                                  phys.last_tx,
+                                  phys.last_tx_size,
+                                  &view,
+                                  &result),
+                              true);
+        failed += expect_u32("resident sequence advances",
+                             view.transport_sequence, 2u);
+        failed += expect_u32("resident hop resets", view.hop_count, 0u);
+        failed += expect_bool("resident first local mailbox persists",
+                              memcmp(view.payload,
+                                     first_mailbox,
+                                     sizeof(first_mailbox)) == 0,
+                              true);
+        failed += expect_u32("resident remote payload survives",
+                             view.payload[40u], 0xA7u);
+
+        failed += expect_bool("resident second mailbox",
+                              tdma_flight_fifo_core0_publish_tx(
+                                  &fifo,
+                                  second_mailbox,
+                                  sizeof(second_mailbox),
+                                  2u,
+                                  2u,
+                                  1u),
+                              true);
+        failed += expect_bool("resident next return",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 4003ull, &status), true);
+        failed += expect_u32("resident return does not launch early",
+                             phys.tx_calls, 3u);
+        phys.defer_tx_count = 1u;
+        failed += expect_bool("resident third cycle launch",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 6002ull, &status), true);
+        failed += expect_u32("resident retryable busy defers",
+                             phys.tx_calls, 3u);
+        failed += expect_u32("resident deferred boundary",
+                             adapter.comm_fsm.state,
+                             TDMA_ADAPTER_COMM_STATE_CYCLE_BOUNDARY);
+        failed += expect_u32("resident deferred image remains ready",
+                             adapter.resident_return_ready, 1u);
+        failed += expect_bool("resident third cycle retry",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 6003ull, &status), true);
+        failed += expect_u32("resident third cycle", phys.tx_calls, 4u);
+        failed += expect_bool("resident third decode",
+                              tdma_transport_frame_decode(
+                                  phys.last_tx,
+                                  phys.last_tx_size,
+                                  &view,
+                                  &result),
+                              true);
+        failed += expect_u32("resident third sequence",
+                             view.transport_sequence, 3u);
+        failed += expect_bool("resident local mailbox changes",
+                              memcmp(view.payload,
+                                     second_mailbox,
+                                     sizeof(second_mailbox)) == 0,
+                              true);
+        failed += expect_u32("resident remote payload still survives",
+                             view.payload[40u], 0xA7u);
+
+        phys.suppress_echo = true;
+        phys.rx_pending = false;
+        for (uint32_t i = 0u; i < 4u; i++) {
+            failed += expect_bool("resident waits for return",
+                                  tdma_pio_spi_ring_adapter_ops()->service(
+                                      &adapter,
+                                      10000ull + (uint64_t)i * 10000ull,
+                                      &status),
+                                  true);
+        }
+        failed += expect_u32("resident stale image keeps cycling",
+                             phys.tx_calls, 8u);
+        failed += expect_u32("resident completed windows",
+                             adapter.comm_fsm.completed_window_count, 2u);
+        failed += expect_u32("resident timed out windows",
+                             adapter.comm_fsm.timed_out_window_count, 4u);
+        failed += expect_u32("resident stale cycle count",
+                             adapter.resident_stale_cycle_count, 4u);
+    }
+
+    /* Overlay scripts are prepared one physical frame ahead. Their hop
+     * positions come from the calibrated DATA topology, while the first
+     * capture bootstraps the current sequence and later captures target the
+     * next resident sequence. */
+    {
+        static const uint32_t local_slots[] = {3u, 2u, 1u};
+        static const uint32_t ingress_hops[] = {0u, 1u, 2u};
+        for (uint32_t node = 0u;
+             node < (uint32_t)(sizeof(local_slots) / sizeof(local_slots[0]));
+             node++) {
+            tdma_pio_spi_ring_adapter_t adapter;
+            tdma_flight_fifo_t fifo;
+            tdma_flight_engine_t engine;
+            overlay_capture_t capture;
+            loopback_phys_t phys;
+            tdma_ring_adapter_status_t status;
+            tdma_ring_runtime_config_t config = make_valid_config();
+            tdma_process_image_map_t map = make_eight_slot_flight_map();
+            uint8_t payload[TDMA_FLIGHT_SHORT_PAYLOAD_SIZE] = {0};
+            uint8_t tx_mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE];
+            uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+            size_t packet_size = 0u;
+            tdma_transport_result_t result = TDMA_TRANSPORT_OK;
+            tdma_transport_frame_view_t incoming_view;
+            tdma_transport_frame_view_t processed_view;
+
+            memset(&capture, 0, sizeof(capture));
+            memset(&phys, 0, sizeof(phys));
+            phys.suppress_echo = true;
+            memset(tx_mailbox, (int)(0x90u + node), sizeof(tx_mailbox));
+            config.node_count = 4u;
+            config.local_slot_id = local_slots[node];
+            config.reference_slot_id = 0u;
+            config.feedback_timeout_ns = 4000u;
+            for (uint32_t source = 0u; source < config.node_count; source++) {
+                uint8_t *mailbox =
+                    &payload[source * TDMA_FLIGHT_SHORT_SLOT_SIZE];
+                mailbox[0] = (uint8_t)(TDMA_FLIGHT_MAILBOX_MAGIC & 0xFFu);
+                mailbox[1] = (uint8_t)(TDMA_FLIGHT_MAILBOX_MAGIC >> 8u);
+                mailbox[TDMA_FLIGHT_MAILBOX_VERSION_OFFSET] =
+                    TDMA_FLIGHT_MAILBOX_VERSION;
+                mailbox[TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET] =
+                    (uint8_t)source;
+                mailbox[TDMA_FLIGHT_MAILBOX_TARGET_MASK_OFFSET] = 0x0Fu;
+                mailbox[TDMA_FLIGHT_MAILBOX_SEQ16_OFFSET] =
+                    (uint8_t)(source + 1u);
+            }
+            const tdma_transport_frame_build_t build = {
+                .frame_class = TDMA_TRANSPORT_FRAME_CLASS_SHORT,
+                .origin_slot_id = 0u,
+                .transport_sequence = 41u,
+                .payload_class = TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE,
+                .flags = TDMA_TRANSPORT_FLAG_REQUIRE_FEEDBACK |
+                         TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE,
+                .schedule_crc32 = config.schedule_crc32,
+                .ring_profile_crc32 = config.ring_profile_crc32,
+                .hop_limit = config.node_count - 1u,
+                .payload = payload,
+                .payload_size = sizeof(payload),
+            };
+
+            failed += expect_bool("overlay adapter init",
+                                  tdma_pio_spi_ring_adapter_init(&adapter),
+                                  true);
+            set_test_sequential_topology(&adapter, config.node_count);
+            failed += expect_bool("overlay fifo init",
+                                  tdma_flight_fifo_init(&fifo), true);
+            failed += expect_bool("overlay engine init",
+                                  tdma_flight_engine_init(&engine), true);
+            failed += expect_bool("overlay map configure",
+                                  tdma_flight_engine_configure(&engine, &map),
+                                  true);
+            tdma_pio_spi_ring_adapter_set_phys(
+                &adapter, loopback_tx, loopback_rx, &phys);
+            tdma_pio_spi_ring_adapter_set_phys_ctrl(
+                &adapter, NULL, NULL, NULL, NULL, &capture);
+            tdma_pio_spi_ring_adapter_set_phys_overlay(
+                &adapter, capture_overlay, capture_overlay_boundary);
+            tdma_pio_spi_ring_adapter_set_flight_fifo(&adapter, &fifo);
+            tdma_pio_spi_ring_adapter_set_flight_engine(&adapter, &engine);
+            failed += expect_bool(
+                "overlay process mode",
+                tdma_pio_spi_ring_adapter_set_forwarding_mode(
+                    &adapter,
+                    TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE),
+                true);
+            failed += expect_bool("overlay start",
+                                  tdma_pio_spi_ring_adapter_ops()->start(
+                                      &adapter, &config),
+                                  true);
+            failed += expect_bool("overlay local mailbox publish",
+                                  tdma_flight_fifo_core0_publish_tx(
+                                      &fifo,
+                                      tx_mailbox,
+                                      sizeof(tx_mailbox),
+                                      1u,
+                                      1u,
+                                      1u << local_slots[node]),
+                                  true);
+            failed += expect_bool("overlay packet encode",
+                                  tdma_transport_frame_encode(
+                                      &build,
+                                      packet,
+                                      sizeof(packet),
+                                      &packet_size,
+                                      &result),
+                                  true);
+            failed += expect_bool("overlay first inject",
+                                  tdma_pio_spi_ring_adapter_inject_rx(
+                                      &adapter,
+                                      packet,
+                                      packet_size,
+                                      100ull),
+                                  true);
+            failed += expect_bool("overlay first service",
+                                  tdma_pio_spi_ring_adapter_ops()->service(
+                                      &adapter, 100ull, &status),
+                                  true);
+            failed += expect_u32("overlay first prepare count",
+                                 capture.prepare_count, 1u);
+            failed += expect_u32("overlay first boundary count",
+                                 capture.boundary_count, 1u);
+            failed += expect_bool("overlay first incoming decode",
+                                  tdma_transport_frame_decode(
+                                      capture.incoming,
+                                      capture.packet_size,
+                                      &incoming_view,
+                                      &result),
+                                  true);
+            failed += expect_bool("overlay first processed decode",
+                                  tdma_transport_frame_decode(
+                                      capture.processed,
+                                      capture.packet_size,
+                                      &processed_view,
+                                      &result),
+                                  true);
+            failed += expect_u32("overlay first sequence",
+                                 incoming_view.transport_sequence, 41u);
+            failed += expect_u32("overlay topology ingress",
+                                 incoming_view.hop_count,
+                                 ingress_hops[node]);
+            failed += expect_u32("overlay topology egress",
+                                 processed_view.hop_count,
+                                 ingress_hops[node] + 1u);
+            failed += expect_bool("overlay local slot replacement",
+                                  memcmp(
+                                      processed_view.payload +
+                                          local_slots[node] *
+                                              TDMA_FLIGHT_SHORT_SLOT_SIZE,
+                                      tx_mailbox,
+                                      sizeof(tx_mailbox)) == 0,
+                                  true);
+
+            failed += expect_bool("overlay second inject",
+                                  tdma_pio_spi_ring_adapter_inject_rx(
+                                      &adapter,
+                                      packet,
+                                      packet_size,
+                                      200ull),
+                                  true);
+            failed += expect_bool("overlay second service",
+                                  tdma_pio_spi_ring_adapter_ops()->service(
+                                      &adapter, 200ull, &status),
+                                  true);
+            failed += expect_u32("overlay second prepare count",
+                                 capture.prepare_count, 2u);
+            failed += expect_bool("overlay next incoming decode",
+                                  tdma_transport_frame_decode(
+                                      capture.incoming,
+                                      capture.packet_size,
+                                      &incoming_view,
+                                      &result),
+                                  true);
+            failed += expect_bool("overlay next processed decode",
+                                  tdma_transport_frame_decode(
+                                      capture.processed,
+                                      capture.packet_size,
+                                      &processed_view,
+                                      &result),
+                                  true);
+            failed += expect_u32("overlay next sequence",
+                                 incoming_view.transport_sequence, 42u);
+            failed += expect_u32("overlay next processed sequence",
+                                 processed_view.transport_sequence, 42u);
+            failed += expect_u32("overlay target sequence state",
+                                 adapter.resident_overlay_target_sequence,
+                                 42u);
+
+            tdma_transport_frame_build_t wrapping_build = build;
+            wrapping_build.transport_sequence = UINT32_MAX;
+            failed += expect_bool("overlay wrapping packet encode",
+                                  tdma_transport_frame_encode(
+                                      &wrapping_build,
+                                      packet,
+                                      sizeof(packet),
+                                      &packet_size,
+                                      &result),
+                                  true);
+            failed += expect_bool("overlay wrapping inject",
+                                  tdma_pio_spi_ring_adapter_inject_rx(
+                                      &adapter,
+                                      packet,
+                                      packet_size,
+                                      300ull),
+                                  true);
+            failed += expect_bool("overlay wrapping service",
+                                  tdma_pio_spi_ring_adapter_ops()->service(
+                                      &adapter, 300ull, &status),
+                                  true);
+            failed += expect_u32("overlay wrapping prepare count",
+                                 capture.prepare_count, 3u);
+            failed += expect_bool("overlay wrapped incoming decode",
+                                  tdma_transport_frame_decode(
+                                      capture.incoming,
+                                      capture.packet_size,
+                                      &incoming_view,
+                                      &result),
+                                  true);
+            failed += expect_bool("overlay wrapped processed decode",
+                                  tdma_transport_frame_decode(
+                                      capture.processed,
+                                      capture.packet_size,
+                                      &processed_view,
+                                      &result),
+                                  true);
+            failed += expect_u32("overlay wrapped sequence",
+                                 incoming_view.transport_sequence, 0u);
+            failed += expect_u32("overlay wrapped processed sequence",
+                                 processed_view.transport_sequence, 0u);
+        }
     }
 
     /* A writer that dies while holding the map seqlock must not spin core1
@@ -2584,7 +3216,7 @@ int main(void)
             tdma_transport_frame_view_t view;
             tdma_transport_result_t result = TDMA_TRANSPORT_OK;
             memset(&phys, 0, sizeof(phys));
-            phys.suppress_echo = true;
+            phys.advance_echo_to_feedback = true;
             phys.tx_timestamp_ns = 4000000ull;
             failed += expect_bool("fixed load adapter init",
                                   tdma_pio_spi_ring_adapter_init(&adapter),

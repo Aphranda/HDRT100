@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "tdma_adapter_comm_fsm.h"
 #include "tdma_flight_fifo.h"
 #include "tdma_flight_engine.h"
 #include "tdma_receive_health.h"
@@ -29,7 +30,23 @@
  * the ring is up.
  */
 
-#define TDMA_PIO_SPI_RING_ADAPTER_VERSION 10u
+#define TDMA_PIO_SPI_RING_ADAPTER_VERSION 11u
+
+#define TDMA_PIO_SPI_RESIDENT_FEEDBACK_RESIDENT (1u << 0u)
+#define TDMA_PIO_SPI_RESIDENT_FEEDBACK_SEEDED (1u << 1u)
+#define TDMA_PIO_SPI_RESIDENT_FEEDBACK_ORIGIN (1u << 2u)
+#define TDMA_PIO_SPI_RESIDENT_FEEDBACK_HOP (1u << 3u)
+#define TDMA_PIO_SPI_RESIDENT_FEEDBACK_REQUIRED (1u << 4u)
+#define TDMA_PIO_SPI_RESIDENT_FEEDBACK_SEQUENCE (1u << 5u)
+#define TDMA_PIO_SPI_RESIDENT_FEEDBACK_IDENTITY (1u << 6u)
+#define TDMA_PIO_SPI_RESIDENT_FEEDBACK_ALL \
+    (TDMA_PIO_SPI_RESIDENT_FEEDBACK_RESIDENT | \
+     TDMA_PIO_SPI_RESIDENT_FEEDBACK_SEEDED | \
+     TDMA_PIO_SPI_RESIDENT_FEEDBACK_ORIGIN | \
+     TDMA_PIO_SPI_RESIDENT_FEEDBACK_HOP | \
+     TDMA_PIO_SPI_RESIDENT_FEEDBACK_REQUIRED | \
+     TDMA_PIO_SPI_RESIDENT_FEEDBACK_SEQUENCE | \
+     TDMA_PIO_SPI_RESIDENT_FEEDBACK_IDENTITY)
 
 #define TDMA_PIO_SPI_CLOCK_EVIDENCE_BUILD_DISABLED (1u << 0u)
 #define TDMA_PIO_SPI_CLOCK_EVIDENCE_BUILD_NO_SEQUENCE (1u << 1u)
@@ -57,6 +74,7 @@ typedef enum {
     TDMA_PIO_SPI_RING_ADAPTER_ERROR_RX_QUEUE_FULL = 5u,
     TDMA_PIO_SPI_RING_ADAPTER_ERROR_FLIGHT_MAP_REJECT = 6u,
     TDMA_PIO_SPI_RING_ADAPTER_ERROR_RX_GATE_REJECT = 7u,
+    TDMA_PIO_SPI_RING_ADAPTER_ERROR_COMM_FSM = 8u,
     TDMA_PIO_SPI_RING_ADAPTER_ERROR_PHYS_ARM_BASE = 0x100u,
 } tdma_pio_spi_ring_adapter_error_t;
 
@@ -139,6 +157,8 @@ typedef bool (*tdma_pio_spi_ring_phys_timestamp_ready_fn)(
 typedef bool (*tdma_pio_spi_ring_phys_tx_complete_fn)(
     void *context,
     uint64_t *tx_timestamp_ns);
+typedef bool (*tdma_pio_spi_ring_phys_tx_retryable_fn)(
+    const void *context);
 
 typedef struct {
     uint32_t version;
@@ -217,6 +237,22 @@ typedef struct {
     uint32_t flight_map_reject_count;
     uint32_t flight_length_reject_count;
     uint32_t flight_tx_unavailable_count;
+    uint32_t last_rx_origin_slot_id;
+    uint32_t last_rx_hop_count;
+    uint32_t last_rx_hop_limit;
+    uint32_t last_rx_flags;
+    uint32_t last_rx_sequence;
+    uint32_t last_rx_identity_crc32;
+    uint32_t resident_feedback_condition_mask;
+    uint32_t resident_feedback_all_mask;
+    uint32_t comm_fsm_state;
+    uint32_t resident_seeded;
+    uint32_t resident_return_ready;
+    uint32_t resident_bootstrap_retry_count;
+    uint32_t resident_overlay_bootstrap_prepared;
+    uint32_t resident_overlay_target_sequence;
+    uint32_t comm_fsm_timed_out_window_count;
+    uint32_t resident_stale_cycle_count;
     tdma_receive_health_snapshot_t receive_health;
 } tdma_pio_spi_ring_adapter_snapshot_t;
 
@@ -238,6 +274,7 @@ typedef struct {
     void *phys_context;
     tdma_pio_spi_ring_phys_arm_fn phys_arm;
     uint32_t (*phys_last_error)(const void *context);
+    tdma_pio_spi_ring_phys_tx_retryable_fn phys_tx_retryable;
     tdma_pio_spi_ring_phys_disarm_fn phys_disarm;
     tdma_pio_spi_ring_phys_timestamp_ready_fn phys_timestamp_ready;
     tdma_pio_spi_ring_phys_tx_complete_fn phys_tx_complete;
@@ -313,8 +350,26 @@ typedef struct {
     size_t last_rx_packet_size;
     bool last_rx_gate_accepted;
     uint32_t last_rx_new_segment_mask;
+    uint32_t last_rx_origin_slot_id;
+    uint32_t last_rx_hop_count;
+    uint32_t last_rx_hop_limit;
+    uint32_t last_rx_flags;
+    uint32_t last_rx_sequence;
+    uint32_t last_rx_identity_crc32;
+    uint32_t resident_feedback_condition_mask;
     uint64_t next_tx_deadline_ns;
     uint64_t rx_ready_timestamp_ns;
+    tdma_adapter_comm_fsm_t comm_fsm;
+    bool resident_seeded;
+    bool resident_return_ready;
+    uint32_t resident_return_new_segment_mask;
+    bool resident_bootstrap_tx_pending;
+    uint32_t resident_bootstrap_retry_count;
+    uint8_t resident_packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+    size_t resident_packet_size;
+    bool resident_overlay_bootstrap_prepared;
+    uint32_t resident_overlay_target_sequence;
+    uint32_t resident_stale_cycle_count;
     /* Reference flight TX completes asynchronously.  A passed emission
      * deadline must not resubmit while the physical completion token is
      * outstanding. */
@@ -372,6 +427,9 @@ void tdma_pio_spi_ring_adapter_set_phys_ctrl(
 void tdma_pio_spi_ring_adapter_set_phys_error_reader(
     tdma_pio_spi_ring_adapter_t *adapter,
     uint32_t (*last_error)(const void *context));
+void tdma_pio_spi_ring_adapter_set_phys_tx_retryable(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_pio_spi_ring_phys_tx_retryable_fn tx_retryable);
 void tdma_pio_spi_ring_adapter_set_phys_timestamp_ready(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_phys_timestamp_ready_fn timestamp_ready);

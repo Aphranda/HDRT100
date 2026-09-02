@@ -809,6 +809,7 @@ void tdma_pio_spi_phys_publish_arm_error(
     tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_phys_error_t error);
 uint32_t tdma_pio_spi_phys_last_error(const void *context);
+bool tdma_pio_spi_phys_tx_retryable(const void *context);
 void tdma_pio_spi_phys_disarm(void *context);
 bool tdma_pio_spi_phys_set_process_image_mode(
     tdma_pio_spi_phys_t *phys,

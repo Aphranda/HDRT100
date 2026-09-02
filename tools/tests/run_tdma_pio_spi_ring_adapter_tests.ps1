@@ -11,6 +11,7 @@ $build = Join-Path $repo $BuildDir
 $include = Join-Path $repo "components\tdma\inc"
 $testSource = Join-Path $repo "tests\unit\test_tdma_pio_spi_ring_adapter.c"
 $adapterSource = Join-Path $repo "components\tdma\src\tdma_pio_spi_ring_adapter.c"
+$commFsmSource = Join-Path $repo "components\tdma\src\tdma_adapter_comm_fsm.c"
 $flightFifoSource = Join-Path $repo "components\tdma\src\tdma_flight_fifo.c"
 $flightEngineSource = Join-Path $repo "components\tdma\src\tdma_flight_engine.c"
 $receiveHealthSource = Join-Path $repo "components\tdma\src\tdma_receive_health.c"
@@ -33,7 +34,7 @@ if (-not $hostCc) {
 if ($hostCc) {
     $exe = Join-Path $build "test_tdma_pio_spi_ring_adapter.exe"
     & $hostCc -std=c11 -Wall -Wextra -Werror "-I$include" `
-        $testSource $adapterSource $flightFifoSource $flightEngineSource $receiveHealthSource $processMapSource $runtimeSource $transportSource $profileSource `
+        $testSource $adapterSource $commFsmSource $flightFifoSource $flightEngineSource $receiveHealthSource $processMapSource $runtimeSource $transportSource $profileSource `
         -o $exe
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
@@ -56,7 +57,7 @@ if (-not $ArmGcc -or -not (Test-Path $ArmGcc)) {
     throw "No host C compiler or ARM GCC found"
 }
 
-foreach ($source in @($testSource, $adapterSource, $flightFifoSource, $flightEngineSource, $receiveHealthSource, $processMapSource, $runtimeSource, $transportSource, $profileSource)) {
+foreach ($source in @($testSource, $adapterSource, $commFsmSource, $flightFifoSource, $flightEngineSource, $receiveHealthSource, $processMapSource, $runtimeSource, $transportSource, $profileSource)) {
     $object = Join-Path $build ((Split-Path -Leaf $source) + ".o")
     & $ArmGcc -std=c11 -Wall -Wextra -Werror "-I$include" -c $source -o $object
     if ($LASTEXITCODE -ne 0) {

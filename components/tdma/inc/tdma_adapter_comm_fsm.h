@@ -25,6 +25,9 @@ typedef enum {
     TDMA_ADAPTER_COMM_EVENT_ERROR = 6u,
     TDMA_ADAPTER_COMM_EVENT_RESET = 7u,
     TDMA_ADAPTER_COMM_EVENT_BEGIN_NEXT_CYCLE = 8u,
+    TDMA_ADAPTER_COMM_EVENT_BOOTSTRAP_TX_STARTED = 9u,
+    TDMA_ADAPTER_COMM_EVENT_BOOTSTRAP_TX_COMPLETED = 10u,
+    TDMA_ADAPTER_COMM_EVENT_DATA_RX_TIMED_OUT = 11u,
 } tdma_adapter_comm_event_t;
 
 typedef enum {
@@ -35,6 +38,8 @@ typedef enum {
     TDMA_ADAPTER_COMM_ERROR_CLOCK_TX_NOT_STARTED = 4u,
     TDMA_ADAPTER_COMM_ERROR_DATA_RX_NOT_STARTED = 5u,
     TDMA_ADAPTER_COMM_ERROR_RUNTIME = 6u,
+    TDMA_ADAPTER_COMM_ERROR_BOOTSTRAP_TX_ALREADY_STARTED = 7u,
+    TDMA_ADAPTER_COMM_ERROR_BOOTSTRAP_TX_NOT_STARTED = 8u,
 } tdma_adapter_comm_error_t;
 
 typedef struct {
@@ -45,7 +50,11 @@ typedef struct {
     bool data_rx_active;
     bool clock_tx_complete;
     bool data_rx_complete;
+    bool bootstrap_tx_active;
+    uint32_t bootstrap_tx_count;
+    uint32_t bootstrap_tx_complete_count;
     uint32_t completed_window_count;
+    uint32_t timed_out_window_count;
     uint32_t last_error;
 } tdma_adapter_comm_fsm_t;
 

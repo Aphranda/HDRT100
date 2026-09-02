@@ -45,6 +45,8 @@ def test_parse_process_snapshot_exact_field_count() -> None:
     assert parsed["receive_stale_age_ns"] == (
         PROCESS_FIELDS.index("receive_stale_age_ns"))
     assert parsed["receive_last_rejected_timestamp_ns"] == (
+        PROCESS_FIELDS.index("receive_last_rejected_timestamp_ns"))
+    assert parsed["resident_stale_cycle_count"] == (
         len(PROCESS_FIELDS) - 1)
 
 

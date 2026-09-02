@@ -24,6 +24,7 @@ from tools.hardware_acceptance.p3_hardware_acceptance import (
     p3_link_delays,
     reset_acceptance_boards,
     resolve_path_delay_baseline_divisor,
+    selected_node_offsets,
     selected_data_offsets,
     stage_training_parameters,
     selected_sck_offsets,
@@ -569,6 +570,37 @@ def test_selected_sck_offsets_are_loaded_from_active_row() -> None:
         }}
     }
     assert selected_sck_offsets(summary, 2) == [1, -1]
+
+
+def test_selected_node_offsets_uses_measured_diagnostic_fallback() -> None:
+    summary = {
+        "recommended_row": None,
+        "row_results": [{
+            "offset_sample_counts_by_node": [1, -1, 0, 1],
+            "nodes": [
+                {"observation_count": 1},
+                {"observation_count": 1},
+                {"observation_count": 1},
+                {"observation_count": 1},
+            ],
+            "failures": ["ring_repeat_gate"],
+            "passed": False,
+        }],
+    }
+    assert selected_node_offsets(
+        summary,
+        "offset_sample_counts_by_node",
+        4,
+        "TRN-00 MARK",
+        diagnostic_fallback=[1, -1, 0, 1],
+    ) == [1, -1, 0, 1]
+    with pytest.raises(AcceptanceError):
+        selected_node_offsets(
+            summary,
+            "offset_sample_counts_by_node",
+            4,
+            "TRN-00 MARK",
+        )
 
 
 def test_selected_data_offsets_are_loaded_from_active_row() -> None:

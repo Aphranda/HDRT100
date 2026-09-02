@@ -52,6 +52,14 @@ PROCESS_FIELDS = (
     "receive_last_rejected_expected_segment_mask",
     "receive_last_rejected_quality_flags",
     "receive_last_rejected_timestamp_ns",
+    "last_rx_origin_slot_id", "last_rx_hop_count", "last_rx_hop_limit",
+    "last_rx_flags", "last_rx_sequence", "last_rx_identity_crc32",
+    "resident_feedback_condition_mask", "resident_feedback_all_mask",
+    "comm_fsm_state", "resident_seeded", "resident_return_ready",
+    "resident_bootstrap_retry_count",
+    "resident_overlay_bootstrap_prepared",
+    "resident_overlay_target_sequence",
+    "comm_fsm_timed_out_window_count", "resident_stale_cycle_count",
 )
 
 FIFO_FIELDS = (

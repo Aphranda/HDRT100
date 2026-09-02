@@ -342,6 +342,47 @@ int main(void)
                          view.payload[3],
                          payload[3]);
 
+    uint8_t positioned_packet[sizeof(returned_packet)];
+    memcpy(positioned_packet, returned_packet, sizeof(positioned_packet));
+    uint8_t positioned_payload[sizeof(payload)];
+    memcpy(positioned_payload,
+           positioned_packet + TDMA_TRANSPORT_FRAME_HEADER_SIZE,
+           sizeof(positioned_payload));
+    failed += expect_bool("prepare resident position",
+                          tdma_transport_frame_prepare_resident_position(
+                              positioned_packet,
+                              sizeof(positioned_packet),
+                              23u,
+                              3u,
+                              &result),
+                          true);
+    failed += expect_bool("decode resident position",
+                          tdma_transport_frame_decode(positioned_packet,
+                                                      sizeof(positioned_packet),
+                                                      &view,
+                                                      &result),
+                          true);
+    failed += expect_u32("resident position sequence",
+                         view.transport_sequence,
+                         23u);
+    failed += expect_u32("resident position hop", view.hop_count, 3u);
+    failed += expect_bool("resident position payload preserved",
+                          memcmp(view.payload,
+                                 positioned_payload,
+                                 sizeof(positioned_payload)) == 0,
+                          true);
+    failed += expect_bool("reject resident position overflow",
+                          tdma_transport_frame_prepare_resident_position(
+                              positioned_packet,
+                              sizeof(positioned_packet),
+                              24u,
+                              5u,
+                              &result),
+                          false);
+    failed += expect_u32("resident position overflow result",
+                         result,
+                         TDMA_TRANSPORT_BAD_ROUTE);
+
     uint8_t no_update_packet[sizeof(packet)];
     memcpy(no_update_packet, packet, sizeof(no_update_packet));
     uint8_t returned_payload[sizeof(payload)];

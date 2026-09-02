@@ -873,6 +873,23 @@ def test_flight_origin_recovery_publishes_failed_terminal_token() -> None:
     assert "phys->flight_tx_completion_pending = false;" not in timeout
 
 
+def test_flight_origin_rtt_backpressure_never_blocks_tx() -> None:
+    phys = _read_phys_source()
+    launch = phys.split(
+        "static bool tdma_pio_spi_phys_flight_origin_tx", 1
+    )[1].split("void tdma_pio_spi_phys_service_tx", 1)[0]
+    admission = launch.split(
+        "if (pio_sm_is_tx_fifo_full(BOARD_TDMA_SPI_PIO, phys->tx_sm)", 1
+    )[1].split("pio_interrupt_clear", 1)[0]
+    assert "BOARD_TDMA_SPI_RTT_SM" not in admission
+    assert (
+        "if (!pio_sm_is_tx_fifo_full(BOARD_TDMA_SPI_PIO,\n"
+        "                                BOARD_TDMA_SPI_RTT_SM))" in launch)
+    assert (
+        "pio_sm_put(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_RTT_SM, UINT32_MAX);"
+        in launch)
+
+
 def test_ring_capture_exclusively_owns_clock_latch_sm_until_copy() -> None:
     phys = _read_phys_source()
     ownership = phys.split(

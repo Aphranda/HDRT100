@@ -108,6 +108,14 @@ bool tdma_transport_frame_begin_next_cycle(
     const uint8_t *local_payload,
     size_t local_payload_size,
     tdma_transport_result_t *result);
+/* Rebase a mutable resident frame model onto a known cycle and physical hop.
+ * Payload bytes are preserved while identity and transport CRCs are updated. */
+bool tdma_transport_frame_prepare_resident_position(
+    uint8_t *packet,
+    size_t packet_size,
+    uint32_t transport_sequence,
+    uint32_t hop_count,
+    tdma_transport_result_t *result);
 bool tdma_transport_frame_patch_flight_payload(
     uint8_t *packet,
     size_t packet_size,

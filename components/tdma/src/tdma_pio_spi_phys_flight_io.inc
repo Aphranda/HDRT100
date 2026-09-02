@@ -72,8 +72,6 @@ static bool tdma_pio_spi_phys_flight_origin_tx(
     const uint32_t clock_txstall_mask =
         tdma_pio_spi_phys_txstall_mask(phys->rx_sm);
     if (pio_sm_is_tx_fifo_full(BOARD_TDMA_SPI_PIO, phys->tx_sm) ||
-        pio_sm_is_tx_fifo_full(BOARD_TDMA_SPI_PIO,
-                               BOARD_TDMA_SPI_RTT_SM) ||
         pio_sm_is_tx_fifo_full(BOARD_TDMA_SPI_PIO, phys->rx_sm)) {
         tdma_pio_spi_phys_set_error(phys, TDMA_PIO_SPI_PHYS_ERROR_TX_BUSY);
         phys->snapshot.tx_busy_count++;
@@ -85,7 +83,14 @@ static bool tdma_pio_spi_phys_flight_origin_tx(
      * FIFO was checked above, so the non-blocking put is deterministic. */
     pio_sm_put(BOARD_TDMA_SPI_PIO, phys->tx_sm, clock_bytes - 1u);
     dma_start_channel_mask(1u << (uint)s_tdma_pio_spi_tx_dma_channel);
-    pio_sm_put(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_RTT_SM, UINT32_MAX);
+    /* RTT is an observation path, not part of flight admission. Missing or
+     * invalid returns can leave its one-shot timer waiting and eventually
+     * fill the seed FIFO. Drop this observation seed while backpressured so
+     * the resident process image continues to circulate. */
+    if (!pio_sm_is_tx_fifo_full(BOARD_TDMA_SPI_PIO,
+                                BOARD_TDMA_SPI_RTT_SM)) {
+        pio_sm_put(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_RTT_SM, UINT32_MAX);
+    }
     const uint64_t tx_edge_diagnostic_ns = vdc_timestamp_clock_now_ns();
     /* This FIFO word is the sole launch event. The control PIO consumes it,
      * lowers CS, generates every SCK edge, then restores idle CS atomically. */

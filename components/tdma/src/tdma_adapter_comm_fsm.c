@@ -18,6 +18,7 @@ static bool tdma_adapter_comm_fsm_fail(
 {
     fsm->clock_tx_active = false;
     fsm->data_rx_active = false;
+    fsm->bootstrap_tx_active = false;
     tdma_adapter_comm_fsm_transition(
         fsm, TDMA_ADAPTER_COMM_STATE_FAULT, error);
     return false;
@@ -29,6 +30,7 @@ static void tdma_adapter_comm_fsm_stop(tdma_adapter_comm_fsm_t *fsm)
     fsm->data_rx_active = false;
     fsm->clock_tx_complete = false;
     fsm->data_rx_complete = false;
+    fsm->bootstrap_tx_active = false;
     tdma_adapter_comm_fsm_transition(
         fsm, TDMA_ADAPTER_COMM_STATE_STOPPED,
         TDMA_ADAPTER_COMM_ERROR_NONE);
@@ -40,6 +42,7 @@ static bool tdma_adapter_comm_fsm_error(
 {
     fsm->clock_tx_active = false;
     fsm->data_rx_active = false;
+    fsm->bootstrap_tx_active = false;
     fsm->state = TDMA_ADAPTER_COMM_STATE_FAULT;
     fsm->last_error = event_value == 0u
         ? TDMA_ADAPTER_COMM_ERROR_RUNTIME : event_value;
@@ -50,7 +53,8 @@ static bool tdma_adapter_comm_fsm_error(
 static bool tdma_adapter_comm_fsm_complete_if_ready(
     tdma_adapter_comm_fsm_t *fsm)
 {
-    if (!fsm->clock_tx_complete || !fsm->data_rx_complete) {
+    if (!fsm->clock_tx_complete || !fsm->data_rx_complete ||
+        fsm->bootstrap_tx_active) {
         tdma_adapter_comm_fsm_transition(
             fsm, TDMA_ADAPTER_COMM_STATE_RUNNING,
             TDMA_ADAPTER_COMM_ERROR_NONE);
@@ -149,6 +153,44 @@ bool tdma_adapter_comm_fsm_dispatch(tdma_adapter_comm_fsm_t *fsm,
             fsm->data_rx_complete = true;
             return tdma_adapter_comm_fsm_complete_if_ready(fsm);
         }
+        if (event == TDMA_ADAPTER_COMM_EVENT_BOOTSTRAP_TX_STARTED) {
+            if (fsm->bootstrap_tx_active || !fsm->clock_tx_complete ||
+                !fsm->data_rx_active || fsm->data_rx_complete) {
+                return tdma_adapter_comm_fsm_fail(
+                    fsm,
+                    TDMA_ADAPTER_COMM_ERROR_BOOTSTRAP_TX_ALREADY_STARTED);
+            }
+            fsm->bootstrap_tx_active = true;
+            fsm->bootstrap_tx_count++;
+            tdma_adapter_comm_fsm_transition(
+                fsm, TDMA_ADAPTER_COMM_STATE_RUNNING,
+                TDMA_ADAPTER_COMM_ERROR_NONE);
+            return true;
+        }
+        if (event == TDMA_ADAPTER_COMM_EVENT_BOOTSTRAP_TX_COMPLETED) {
+            if (!fsm->bootstrap_tx_active) {
+                return tdma_adapter_comm_fsm_fail(
+                    fsm,
+                    TDMA_ADAPTER_COMM_ERROR_BOOTSTRAP_TX_NOT_STARTED);
+            }
+            fsm->bootstrap_tx_active = false;
+            fsm->bootstrap_tx_complete_count++;
+            return tdma_adapter_comm_fsm_complete_if_ready(fsm);
+        }
+        if (event == TDMA_ADAPTER_COMM_EVENT_DATA_RX_TIMED_OUT) {
+            if (!fsm->data_rx_active || fsm->data_rx_complete ||
+                fsm->clock_tx_active || !fsm->clock_tx_complete ||
+                fsm->bootstrap_tx_active) {
+                return tdma_adapter_comm_fsm_fail(
+                    fsm, TDMA_ADAPTER_COMM_ERROR_DATA_RX_NOT_STARTED);
+            }
+            fsm->data_rx_active = false;
+            fsm->timed_out_window_count++;
+            tdma_adapter_comm_fsm_transition(
+                fsm, TDMA_ADAPTER_COMM_STATE_CYCLE_BOUNDARY,
+                TDMA_ADAPTER_COMM_ERROR_NONE);
+            return true;
+        }
         if (event == TDMA_ADAPTER_COMM_EVENT_STOP) {
             tdma_adapter_comm_fsm_stop(fsm);
             return true;
@@ -166,6 +208,7 @@ bool tdma_adapter_comm_fsm_dispatch(tdma_adapter_comm_fsm_t *fsm,
             fsm->data_rx_active = false;
             fsm->clock_tx_complete = false;
             fsm->data_rx_complete = false;
+            fsm->bootstrap_tx_active = false;
             tdma_adapter_comm_fsm_transition(
                 fsm, TDMA_ADAPTER_COMM_STATE_RUNNING,
                 TDMA_ADAPTER_COMM_ERROR_NONE);

@@ -239,6 +239,14 @@ uint32_t tdma_pio_spi_phys_last_error(const void *context)
                         : TDMA_PIO_SPI_PHYS_ERROR_BAD_ARGUMENT;
 }
 
+bool tdma_pio_spi_phys_tx_retryable(const void *context)
+{
+    const tdma_pio_spi_phys_t *phys =
+        (const tdma_pio_spi_phys_t *)context;
+    return phys != NULL &&
+           phys->snapshot.last_error == TDMA_PIO_SPI_PHYS_ERROR_TX_BUSY;
+}
+
 bool tdma_pio_spi_phys_select_program_persona(
     tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_program_persona_t persona)

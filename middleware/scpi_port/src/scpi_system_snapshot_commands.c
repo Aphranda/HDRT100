@@ -2547,6 +2547,27 @@ scpi_result_t scpi_cmd_system_tdma_flight_process_q(scpi_t *context)
                       health->last_rejected_expected_segment_mask);
     SCPI_ResultUInt32(context, health->last_rejected_quality_flags);
     SCPI_ResultUInt64(context, health->last_rejected_timestamp_ns);
+    SCPI_ResultUInt32(context, adapter_snapshot.last_rx_origin_slot_id);
+    SCPI_ResultUInt32(context, adapter_snapshot.last_rx_hop_count);
+    SCPI_ResultUInt32(context, adapter_snapshot.last_rx_hop_limit);
+    SCPI_ResultUInt32(context, adapter_snapshot.last_rx_flags);
+    SCPI_ResultUInt32(context, adapter_snapshot.last_rx_sequence);
+    SCPI_ResultUInt32(context, adapter_snapshot.last_rx_identity_crc32);
+    SCPI_ResultUInt32(
+        context, adapter_snapshot.resident_feedback_condition_mask);
+    SCPI_ResultUInt32(context, adapter_snapshot.resident_feedback_all_mask);
+    SCPI_ResultUInt32(context, adapter_snapshot.comm_fsm_state);
+    SCPI_ResultUInt32(context, adapter_snapshot.resident_seeded);
+    SCPI_ResultUInt32(context, adapter_snapshot.resident_return_ready);
+    SCPI_ResultUInt32(
+        context, adapter_snapshot.resident_bootstrap_retry_count);
+    SCPI_ResultUInt32(
+        context, adapter_snapshot.resident_overlay_bootstrap_prepared);
+    SCPI_ResultUInt32(
+        context, adapter_snapshot.resident_overlay_target_sequence);
+    SCPI_ResultUInt32(
+        context, adapter_snapshot.comm_fsm_timed_out_window_count);
+    SCPI_ResultUInt32(context, adapter_snapshot.resident_stale_cycle_count);
     return SCPI_RES_OK;
 }
 

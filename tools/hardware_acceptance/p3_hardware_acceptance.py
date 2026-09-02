@@ -118,16 +118,36 @@ def rebase_node_offsets_for_path_delay(
 
 
 def selected_node_offsets(summary: dict[str, Any], field: str,
-                          node_count: int, phase: str) -> list[int]:
+                          node_count: int, phase: str,
+                          diagnostic_fallback: list[int] | None = None) -> list[int]:
     """Return the actual selected row that feeds the next train stage."""
     row = summary.get("recommended_row")
     values = row.get(field) if isinstance(row, dict) else None
-    if (not isinstance(values, list) or len(values) != node_count or
-            any(isinstance(value, bool) or not isinstance(value, int)
+    if (isinstance(values, list) and len(values) == node_count and
+            all(not isinstance(value, bool) and isinstance(value, int)
                 for value in values)):
-        raise AcceptanceError(
-            f"{phase} did not produce a complete selected offset row")
-    return [int(value) for value in values]
+        return [int(value) for value in values]
+
+    fallback = diagnostic_fallback
+    fallback_valid = (isinstance(fallback, list) and
+                      len(fallback) == node_count and
+                      all(not isinstance(value, bool) and isinstance(value, int)
+                          for value in fallback))
+    rows = summary.get("row_results")
+    matching_rows = [
+        candidate for candidate in rows or []
+        if isinstance(candidate, dict) and candidate.get(field) == fallback]
+    if fallback_valid and len(matching_rows) == 1:
+        observations = matching_rows[0].get("nodes")
+        if (isinstance(observations, list) and
+                len(observations) == node_count and
+                all(isinstance(item, dict) and
+                    int(item.get("observation_count", 0)) > 0
+                    for item in observations)):
+            return [int(value) for value in fallback]
+
+    raise AcceptanceError(
+        f"{phase} did not produce a complete selected offset row")
 
 
 def selected_sck_offsets(summary: dict[str, Any], node_count: int) -> list[int]:
@@ -1638,7 +1658,10 @@ def run_acceptance(args: argparse.Namespace) -> None:
         "TRN-00 MARK offset row")
     marker_offsets_by_node = selected_node_offsets(
         marker_summary, "offset_sample_counts_by_node", len(board_ids),
-        "TRN-00 MARK")
+        "TRN-00 MARK",
+        diagnostic_fallback=(
+            [int(value) for value in config["training_marker_offsets_by_node"]]
+            if diagnostic_continue else None))
     record_parameter_handoff(
         "TRN-00 MARK", marker_summary_path, marker_summary,
         loaded_from="P3", selected={

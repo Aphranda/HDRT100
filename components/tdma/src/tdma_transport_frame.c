@@ -525,3 +525,46 @@ bool tdma_transport_frame_begin_next_cycle(
     tdma_transport_set_result(result, TDMA_TRANSPORT_OK);
     return true;
 }
+
+bool tdma_transport_frame_prepare_resident_position(
+    uint8_t *packet,
+    size_t packet_size,
+    uint32_t transport_sequence,
+    uint32_t hop_count,
+    tdma_transport_result_t *result)
+{
+    tdma_transport_frame_view_t view;
+    if (packet == NULL) {
+        tdma_transport_set_result(result, TDMA_TRANSPORT_BAD_ARGUMENT);
+        return false;
+    }
+    if (!tdma_transport_frame_decode(packet, packet_size, &view, result)) {
+        return false;
+    }
+    if (view.frame_class != TDMA_TRANSPORT_FRAME_CLASS_SHORT ||
+        (view.flags & TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE) == 0u ||
+        (view.flags & TDMA_TRANSPORT_FLAG_REQUIRE_FEEDBACK) == 0u ||
+        hop_count > view.hop_limit) {
+        tdma_transport_set_result(result, TDMA_TRANSPORT_BAD_ROUTE);
+        return false;
+    }
+
+    view.transport_sequence = transport_sequence;
+    view.hop_count = hop_count;
+    tdma_transport_write_le32(packet,
+                              TDMA_TRANSPORT_OFFSET_SEQUENCE,
+                              transport_sequence);
+    packet[TDMA_TRANSPORT_OFFSET_HOP_COUNT] = (uint8_t)hop_count;
+    tdma_transport_write_le32(packet,
+                              TDMA_TRANSPORT_OFFSET_IDENTITY_CRC,
+                              tdma_transport_identity_crc32(&view));
+    tdma_transport_write_le32(packet,
+                              TDMA_TRANSPORT_OFFSET_TRANSPORT_CRC,
+                              0u);
+    tdma_transport_write_le32(
+        packet,
+        TDMA_TRANSPORT_OFFSET_TRANSPORT_CRC,
+        tdma_transport_packet_crc32(packet, packet_size));
+    tdma_transport_set_result(result, TDMA_TRANSPORT_OK);
+    return true;
+}

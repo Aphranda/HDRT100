@@ -275,6 +275,9 @@ bool tdma_runtime_owner_init(void)
         tdma_pio_spi_ring_adapter_set_phys_error_reader(
             &s_tdma_pio_spi_ring_adapter,
             tdma_pio_spi_phys_last_error);
+        tdma_pio_spi_ring_adapter_set_phys_tx_retryable(
+            &s_tdma_pio_spi_ring_adapter,
+            tdma_pio_spi_phys_tx_retryable);
         tdma_pio_spi_ring_adapter_set_phys_timestamp_ready(
             &s_tdma_pio_spi_ring_adapter,
             tdma_runtime_owner_flight_phys_timestamp_ready);
