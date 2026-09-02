@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/submissions/README.md`
 Related: `docs/check/DOCS_REGISTRY.md`, `docs/check/DOCS_REGRESSION_TODO.md`
-Last updated: 2026-08-28
+Last updated: 2026-09-02
 
 > 用途：层间逐级核验（域 → 父层）的提交单归档目录。每份提交单一个文件：
 > `docs/check/submissions/<DOMAIN>_CROSS_REVIEW_<NN>.md`
@@ -62,5 +62,6 @@ Last updated: <YYYY-MM-DD>
 | `TDMA_CROSS_REVIEW_01.md` | TDMA seqlock 与顶层 HAOFV | `ACCEPT_WITH_DEVIATION` |
 | `TDMA_CROSS_REVIEW_02.md` | TDMA mandatory-first process image 与 HAOFV/VDC/RefMem | `ACCEPT_WITH_DEVIATION` |
 | `TDMA_CROSS_REVIEW_03.md` | TDMA bounded recovery 双 buffer、原 Node offset 与实时诊断边界 | `ACCEPT_WITH_DEVIATION` |
+| `TDMA_CROSS_REVIEW_04.md` | TDMA resident process image、单轮多 Node overlay 与状态机生命周期 | `ACCEPT_WITH_DEVIATION` |
 | `ARCH_FLASH_CROSS_REVIEW_01.md` | Flash v2 与 hardware/build/Boot/OTA/TDMA/RefMem/VDC | `ACCEPT_WITH_DEVIATION` |
 | `ARCH_FLASH_CROSS_REVIEW_02.md` | Flash canonical 重构与 M0-M6 工作板 | `ACCEPT_WITH_DEVIATION` |

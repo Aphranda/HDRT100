@@ -4,9 +4,28 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_TASK_PROGRESS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
-Last updated: 2026-08-31
+Last updated: 2026-09-02
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
+
+### TDMA-PROGRESS-20260902-003 - resident process image 架构决策记录
+
+- TODO task ID：`TDMA-M6`、`TDMA-FLIGHT-001`；本记录只更新文档，不宣称代码或硬件验收完成。
+- 架构决策：TDMA 的目标是“持续流中的循环内存”。启动时只注入一次 resident process
+  image；进入 RUNNING 后，物理 frame 按 cycle 持续在环路中转发。每个 Node 在自己的固定
+  窗口执行本地 UNLOAD/LOAD，多个 Node 可在同一轮完成各自 segment 更新；没有新 generation
+  时继续透传上一版值。回到 origin 只表示 cycle boundary，不表示结束。
+- 生命周期边界：只有 `STOP`、复位、故障或显式重新配置才停止 resident loop。`hop_limit`
+  只约束单个物理 frame instance 的传播，`IDLE_BEACON` 只保留为 bring-up、维护或兼容
+  路径，不得在产品 RUN 中替换 resident process image。
+- 当前实现边界：`tdma_pio_spi_ring_adapter` 仍按周期构造 beacon，adapter/FSM 仍保留
+  `FRAME_COMPLETE` 过渡语义；这两处列入 `TDMA-FLIGHT-001`，待固件迁移后重新执行
+  TDMA 短帧闭环和 SD 原始波形验收。
+- 验证范围：本次未修改 C/PIO/构建/工具/测试实现，未执行 OTA 或硬件验收；仅需执行文档
+  自回归检查。
+- C11 交叉审核记录：审核方为状态机域架构文档与 TDMA 当前实现快照；审核方式为域间
+  文档交叉 + 代码层间对照；审核结论为 `PASS_WITH_NOTE`，备注是 resident cycle 仍为
+  待实现迁移契约。审核日期：2026-09-02。
 
 ### TDMA-PROGRESS-20260831-001 - 四节点 TDMA 与 NO5 观测门禁解耦
 

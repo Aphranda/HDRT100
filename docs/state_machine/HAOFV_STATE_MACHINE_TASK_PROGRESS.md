@@ -4,10 +4,77 @@ Status: Active
 Domain: STATE_MACHINE
 Canonical: `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
 Related: `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`
-Last updated: 2026-09-01
+Last updated: 2026-09-02
 
 本文档只记录状态机域的实施、构建、测试、OTA/HIL、失败和回退证据；任务状态以
 `HAOFV_STATE_MACHINE_TODO.md` 为唯一事实源，稳定语义以架构文档为准。
+
+### SM-PROGRESS-20260902-021 - resident cycle 基线阻塞与 TODO 收敛
+
+- TODO task ID：`SM-CYCLE-000`、`SM-CYCLE-001`、`SM-CYCLE-003`；本记录收敛当前
+  代码边界和执行顺序，不宣称 resident runtime 已完成。
+- 已完成实现：`tdma_transport_frame_begin_next_cycle()` 已加入 transport 层，host test
+  覆盖返回 payload 保留、reference 局部更新、sequence 推进、hop 重置、错误输入不修改
+  packet 和 sequence 回绕；固件构建目录为
+  `out/build/sm-cycle-001-20260902/`，构建及 OTA package 生成通过。
+- 快速硬件验收：`out/hardware-acceptance/sm-cycle-001-quick-20260902/` 完成同包四板
+  OTA 和 diagnostic flow，但 TDMA 短帧 strict gate 失败。reference 角色当前位于 NO1；
+  其 physical TX/RX 分别到达快照值 `156/52`，`last_error=5`、`tx_busy_count=5672`、
+  `origin_done_txstall_count=156`。NO2--NO4 均收到并完成 `156` 次飞行转发，说明当前
+  阻塞集中在 reference origin completion/backpressure，不构成修改 follower PIO 的证据。
+- 波形边界：本次 NO1 ring capture 因 latch timeout 进入 FAILED，没有生成可用于判定的
+  SD 原始波形；必须在 reference TX 生命周期恢复后重新取得 capture，不能用串口计数替代。
+- 执行决策：新增 `SM-CYCLE-000` 作为唯一当前任务，先恢复现有单帧 reference TX 基线；
+  随后补齐 `SM-CYCLE-001` 快速验收，再迁移 resident communication FSM，最后只在
+  reference 角色接入 returned-frame 再发。当前拓扑的 NO1 只是 reference 实例，代码不得
+  依赖板号；NO2--NO4 在 `SM-CYCLE-004` 前仅做兼容性验证。
+- 下一 gate：跟踪 `flight_tx_pending`、DMA busy、one-shot completion token 和
+  `service_tx()` 调用顺序，禁止上一 TX pending 时重复调用 `phys_tx()`；修复后重新 build、
+  四板 OTA 并运行快速 TDMA-only 短帧闭环。
+
+### SM-PROGRESS-20260902-020 - resident cycle 改动面与执行顺序
+
+- TODO task ID：`SM-RES-010`、`SM-CYCLE-001` 至 `SM-CYCLE-006`；本记录只完成调用链
+  盘点和 TODO 重排，不宣称 C/PIO 或板端行为已改变。
+- 调用链结论：当前 follower 已由 PIO 完成 wire forward，并在 process boundary 准备
+  本地 overlay；主要数据面缺口位于 reference 角色，当前 reference 每个周期仍调用
+  `tdma_pio_spi_ring_adapter_tx_beacon()` 从 alignment/空映像构造新 packet，而不是把
+  返回的 resident image 转换为下一 cycle。
+- 配套缺口：`tdma_transport_frame_advance_hop()` 到 hop limit 后不能直接开启下一 cycle；
+  需要独立 transport boundary helper 负责保留 payload、推进 cycle sequence、重置 hop、
+  应用 reference segment 并重算完整性。`tdma_adapter_comm_fsm` 目前只有构建和 host 单测
+  引用，且以 `FRAME_COMPLETE` 结束一轮，尚未接入 ring adapter runtime。
+- 执行决策：先完成 transport helper，再迁移 resident FSM 语义，然后接 reference runtime；
+  之后才验证同轮多 Node overlay、增加只读 evidence 并执行四板闭环。NO2--NO4 默认只做
+  兼容性验证，证据未证明必要时不修改其 PIO 转发算法；实现按 reference 角色选择，不与
+  NO1 板号耦合。
+- 验证范围：本次没有修改固件、PIO、构建、工具或测试实现，未执行 OTA/HIL。
+  `docs_check --strict-names`、`doc_regression_check.py` 和文档治理 pytest 均通过；仅保留
+  仓库已有的旧 contract ID 格式警告。下一代码 gate 是 `SM-CYCLE-001` 的 host test。
+
+### SM-PROGRESS-20260902-019 - TDMA resident process image 架构决策记录
+
+- TODO task ID：`SM-M7`、`SM-RES-010`；本记录只更新架构追踪，不宣称固件迁移完成。
+- 架构决策：TDMA 是启动时一次注入、运行中持续循环的 resident process image。进入
+  `RUNNING` 后，每个 cycle 依次经过 `CYCLE_BOUNDARY`、本地 `LOCAL_UNLOAD`、本地
+  `LOCAL_LOAD` 和 `FORWARD`，物理 frame 完成回到下一 cycle；只有 `STOP`、复位、故障
+  或重新配置才结束 resident loop。各 Node 在同一轮更新自己的固定 segment；无新
+  generation 时继续透传上一版值，不按 Node 拆成多帧。
+- 文档对照：上述语义已同步到 `TDMA_DOMAIN_ARCHITECTURE.md` 和本域架构文档；
+  `cycle sequence` 与 `segment generation` 的职责分离已写入 TDMA/状态机两域。
+- 当前实现边界：`tdma_adapter_comm_fsm` 仍保留 `FRAME_COMPLETE`，ring adapter 仍有
+  按周期构造 beacon 的过渡路径；这些代码事实标记为 `SM-RES-010` 的迁移缺口，不能
+  反向修改本架构决策，也不能据文档更新宣称 resident flight 已通过 HIL。
+- 接口勘误：当前 `tdma_flight_engine.h` 未导出历史记录中提到的
+  `tdma_flight_engine_unload_rx()` / `tdma_flight_engine_load_tx()`；现行接口是
+  `inspect_input()`、`commit_input()` 和 `apply*()`。架构继续保留 RX unload / TX load
+  的逻辑职责，但不把计划接口名写成当前代码事实。
+- 验证范围：本次未修改 C/PIO/构建/工具/测试实现，未执行 OTA 或硬件验收；文档回归
+  门禁结果在本次修改完成后补充核对。
+- C11 交叉审核记录：审核方为 TDMA 域架构文档与现有 adapter/FSM 实现的层间对照；
+  审核方式为文档交叉 + 层间交叉；审核结论为 `PASS_WITH_NOTE`，备注是实现仍保留
+  `FRAME_COMPLETE` 过渡态，必须由 `SM-RES-010` 后续迁移并重新执行 TDMA 短帧闭环。
+  审核日期：2026-09-02。
 
 ### SM-PROGRESS-20260901-018 - persona lifecycle FSM 快速验收 checkpoint
 

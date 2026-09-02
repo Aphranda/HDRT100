@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-08-31
+Last updated: 2026-09-02
 
 本文档定义 TDMA 在 HAOFV 下的基础件主域。TDMA 是分布式硬实时系统的确定性通讯骨架，负责在 core1/PIO/DMA 侧按窗口执行上行、下行、payload、timestamp 和 completion；VDC、RefMem、OTA、诊断等域只挂载 payload 或消费 evidence，不能拥有 TDMA 物理环路。
 
@@ -33,24 +33,73 @@ Time Division Multiple Access Foundation Domain
 
 ## 产品运行架构总览
 
-产品 RUN 只有一条周期数据路径：TDMA owner 在固定拍级 phase 中启动一帧固定长度的
-`CYCLIC_PROCESS_IMAGE`，PIO/DMA 在环路中飞行转发，Node 只覆盖自己拥有的 mailbox。DPLL
-是这张 process image 上的固定负载，不是第二种帧型，也不是可以插入或替换某一周期的高优先级
-流量。
+产品 RUN 只有一条周期数据路径：TDMA owner 在启动时装载一次固定长度的
+`CYCLIC_PROCESS_IMAGE` 常驻映像，随后由 PIO/DMA 在环路中持续飞行转发。每个 Node
+只在自己的固定窗口卸载输入、装载自己拥有的 mailbox；没有新负载时原值继续透传。
+DPLL 是这张 process image 上的固定负载，不是第二种帧型，也不是可以插入或替换某一周期的
+高优先级流量。
 
 ```text
 core0 domain owners prepare shadow values
   -> TDMA TX image FIFO
   -> core1 TDMA fixed phase
   -> PIO/DMA flight forwarding
-  -> one fixed SHORT CYCLIC_PROCESS_IMAGE
+  -> one resident SHORT CYCLIC_PROCESS_IMAGE
        transport header
        Node image: mailbox[0] ... mailbox[TDMA_FLIGHT_SHORT_SLOT_COUNT-1]
        DPLL observation trailer
+  -> each Node local UNLOAD/LOAD at its fixed window
+  -> next cycle of the same resident process image
   -> RX latch / Node bitmap / completion evidence
   -> VdcSyncAO consumes accepted observation
   -> SyncDpllFB updates VDC offset/rate/lock
 ```
+
+### TDMA-RESIDENT-01：常驻循环过程映像不变量
+
+TDMA 的底层目标是“持续流中的循环内存”。这里的 resident image 是由固定布局、固定
+owner 和固定长度组成的逻辑过程映像；物理线上每一圈传递的是该映像在当前周期的一个
+frame instance。逻辑映像持续存在，物理 frame instance 在完成一圈后进入下一周期，二者
+不能混为“每个 Node 发一帧”。
+
+启动时，TDMA owner 只注入一次初始 resident process image，并在 `ARM -> RESIDENT_INIT`
+边界完成 active/shadow 的初始选择。进入 `RUNNING` 后，流程持续执行：
+
+```text
+CYCLE_BOUNDARY
+  -> LOCAL_UNLOAD   读取到达本节点的已授权 segment
+  -> LOCAL_LOAD     将本节点新 generation 覆盖到自己的固定 segment
+  -> FORWARD        其余 segment 原样透传并进入下一 link
+  -> CYCLE_BOUNDARY
+```
+
+上述循环直到收到 `STOP`、发生复位、不可恢复故障或显式重新配置才退出。物理 frame
+完成一圈只是一个 cycle boundary 事件，不能把运行态转移到终止性的 `FRAME_COMPLETE`。
+`hop_limit` 只限制单个物理 frame instance 的拓扑传播，不能作为 resident process image
+的正常停止条件。返回 origin 后，origin 同样先执行本地 UNLOAD/LOAD，再把返回的过程映像
+继续送入下一 cycle；它可以在 boundary 更新 cycle sequence 和尾部完整性，但不能从空白
+payload 重建另一张逻辑过程映像。
+
+每个 Node 都可以在本周期更新自己的 segment；同一 resident image 经过各 Node 时完成
+局部卸载/装载，因此多个 Node 的更新可以在同一轮传播中完成。`transport sequence` 表示
+resident cycle，`segment generation` 表示具体 owner 的字段更新代次；二者不能互相冒充。
+Node 没有新 generation 时，继续发送该 segment 的上一版有效值。禁止为每个 Node 单独
+建立一帧并串行等待多轮传播，否则 Node 间数据需要按环序累积多个 cycle，失去飞行处理的
+架构收益。
+
+常驻映像的控制边界如下：
+
+| 事实 | 唯一 owner | 运行规则 |
+|---|---|---|
+| 初始 resident image | TDMA owner / Core0 shadow publisher | 只在 ARM 后的 `RESIDENT_INIT` 选择一次；进入 RUNNING 后不可由业务直接改 active image。 |
+| cycle boundary 与 active/shadow 切换 | Core1 TDMA owner | 在固定 phase 原子选择已发布 generation，不等待 Core0，也不暂停物理转发。 |
+| 本地 segment UNLOAD/LOAD | 对应 Node owner，经 TDMA flight engine 执行 | 只访问本节点被 `TdmaProcessImageMap` 授权的 segment；其他 Node 的字段保持飞行中的值。 |
+| 物理 FORWARD | PIO/DMA | 以固定 pipeline 继续传播同一 frame instance，不因某个 Node 无更新而停止。 |
+| cycle/segment evidence | TDMA owner | 分别发布 cycle sequence、segment generation、bitmap、WKC 和质量计数。 |
+
+这是最终运行架构契约。当前 adapter 仍有按周期构造 beacon、按 `hop_limit` 结束一次
+frame 的过渡实现，迁移任务必须将其收敛为上述 resident cycle 语义；过渡代码通过不等于
+常驻过程映像已经完成。
 
 ### Owner 与负载分层
 
@@ -193,7 +242,7 @@ payload region 是各 domain 在固定帧中的静态字段。VDC observation �
 
 | 运行状态 | wire 行为 | DPLL/RefMem 关系 |
 |---|---|---|
-| 产品 RUN | 每周期固定一帧 `CYCLIC_PROCESS_IMAGE`，固定 SHORT 长度和 `FLIGHT_MUTABLE`。 | DPLL observation trailer、Node VDC/DPLL output、critical RefMem、ACK/control 同时存在。 |
+| 产品 RUN | 同一 resident `CYCLIC_PROCESS_IMAGE` 按 cycle 持续传播，每周期一个固定 SHORT frame instance 和 `FLIGHT_MUTABLE` 布局。 | DPLL observation trailer、Node VDC/DPLL output、critical RefMem、ACK/control 同时存在。 |
 | 启动/降级 bring-up | 可使用固定长度 alignment/idle 诊断帧证明物理路径。 | 只能形成 diagnostic evidence，不得进入正式 DPLL lock。 |
 | maintenance | TDMA owner 在显式 maintenance gate 内发送长帧或诊断帧。 | 不得与产品 RUN process image 混跑或借用其 guard。 |
 
@@ -248,7 +297,9 @@ Node 的固定 segment offset。
   `TDMA_FLIGHT_MAILBOX_BODY_SIZE`，不得从诊断帧大小反推产品载荷。
 - 当前 RefMem 内帧理论最大为 292 B，不能直接再套短帧外层。PIO ring adapter 接入前必须把 critical delta 的 RefMem 内帧限制为 260 B，其中 RefMem 头 36 B、净 delta 最多 224 B；更大事实使用分片、background delta 或后续专用 bulk class。
 - RefMem 不做周期整表刷新。TDMA short queue 只接收由 dirty fact 触发、已经局部编码的 critical delta；首次加入或失步恢复的 full snapshot 只能走 maintenance long-frame 分片。
-- `hop_limit` 防止错误拓扑无限转发；origin 收到 `hop_count > 0` 且 identity 匹配的返回帧后停止转发，并形成 feedback candidate。
+- `hop_limit` 防止单个错误 frame instance 在错误拓扑中无限转发；正常 resident cycle 到达
+  origin 后形成 cycle boundary 并进入下一周期，不能因为返回帧到达而停止 resident loop。
+  origin 的 feedback candidate 是该周期的观测结果，不是 resident image 的终止信号。
 
 ### EtherCAT-style 飞行处理
 
@@ -597,7 +648,8 @@ clock-training frame 与 reservation segment 可共享 cyclic process image 和�
 #### 当前实现与迁移阶段
 
 本节描述的是分阶段实现，不能把透明 byte pipeline 或固定块替换单独等同于完整 ESC
-process-image cut-through。当前实现已经具备 `TDMA_TX_IMAGE_FIFO`、`TDMA_RX_FRAME_FIFO`、固定
+process-image cut-through，也不能把按周期重建的 beacon loop 等同于 resident process image。
+当前实现已经具备 `TDMA_TX_IMAGE_FIFO`、`TDMA_RX_FRAME_FIFO`、固定
 buffer pool、descriptor 的 generation/sequence 一致性校验、8 × 32 B process-image
 map、本机 slot 替换，以及 core1 固定 8 B mailbox 头扫描和 RX segment bitmap。core0
 只解析 bitmap 命中的 slot，RX FIFO 满或 descriptor 损坏不会阻塞 wire path。
@@ -608,16 +660,20 @@ CS/SCK burst，同时从真实回环输入捕获返回流；follower 在 PIO 中
 非字节对齐的返回流恢复 packet magic。因此 raw byte-level cut-through 已从软件
 store-and-forward 热路径中拆出。
 
-这仍不是最终 process-image flight：当前 follower 只透明转发 byte，尚未在本机固定 segment
+这仍不是最终 resident process-image flight：当前 follower 只透明转发 byte，尚未在本机固定 segment
 到达时从 active TX image 替换内容，也未形成飞行修改后的 WKC、尾部 CRC V2 和 segment
 完整性闭环。现有完整帧 flight engine/FIFO/map apply 仍是事后证据与迁移基础，不能把
 `raw-flight` 通过等同于 `process-image` 通过。
 
 迁移顺序冻结为：
 
-1. 已完成：把完整帧 forward 接入 core1 resident ring service，保持 V1 wire format；后续仍需把软件 service 抖动量化为 RX-complete deadline evidence。
+1. 已完成过渡切片：把完整帧 forward 接入 core1 resident ring service，保持 V1 wire format；
+   这只证明 service 容器可常驻，不证明 resident process image 的单轮多 Node overlay；后续
+   仍需把软件 service 抖动量化为 RX-complete deadline evidence。
 2. 已完成：引入 `TDMA_TX_IMAGE_FIFO`、`TDMA_RX_FRAME_FIFO`、固定 buffer pool、跨核 ownership 和 descriptor version 单测；core1 无需等待 core0。
-3. 已完成首版：active `TdmaProcessImageMap` 固定 block 替换，core1 只读 8 B 快速头并发布 RX bitmap；仍需补齐硬件 forward latency、FIFO waterline 和 sequence-gap HIL 门禁。
+3. 已完成首版：active `TdmaProcessImageMap` 固定 block 替换，core1 只读 8 B 快速头并发布 RX bitmap；
+   仍需将替换动作接入 resident cycle boundary，并补齐硬件 forward latency、FIFO waterline
+   和 sequence-gap HIL 门禁。
 4. 已完成代码基础：role-specific flight persona、reference DMA/burst、follower PIO 透明流水、
    返回流 capture 与 bit-shift magic recovery；仍需四板 `raw-flight` HIL 证明固定 per-hop delay、
    无 underflow/overrun 和 core0 不参与 wire forwarding。
@@ -627,6 +683,9 @@ store-and-forward 热路径中拆出。
    无 underflow/overrun、core0 拥塞不影响 wire。
 7. 接入 RX/TX 真实硬件 timestamp latch 和 VDC clock-training evidence；DPLL 不得成为飞行转发的前置依赖，但按 VDC 绝对时间 ARM 的 T2 预约必须通过 VDC quality gate。
 8. 接入 T2 reservation/READY-NACK/fence/completion segments，先闭合完整帧语义，再用 process-image cut-through HIL 证明 lead time 和 per-hop 上界。
+9. 将 adapter/FSM 的物理 frame completion 收敛为 resident cycle boundary：初始化只注入一次
+   process image；每个 Node 在同一轮完成自己的 UNLOAD/LOAD；无更新时继续透传；STOP、复位、
+   故障或重新配置才退出 RUNNING。
 
 ## Adapter 边界
 
@@ -1083,6 +1142,8 @@ TDMA Domain 最小验证必须覆盖：
 - ring config 校验：节点数、slot、UP/DOWN group、profile CRC、schedule CRC。
 - runtime snapshot：`up_running/down_running/ring_seq/last_error`。
 - 禁止伪造 `simultaneous_feedback_loop_evidence`。
+- resident process image 验证：单次初始化、持续 cycle、单轮多 Node overlay、无更新透传，
+  以及 STOP/复位/故障/重新配置退出；物理 frame completion 不得终止 RUNNING。
 - RefMem delta 单发丢失后的 ACK/重发/fence completion。
 - 固定 DPLL observation event、trailer 与本地 latch 的 sequence/path-matrix/timestamp eligibility。
 - T2 reservation/READY-NACK/fence/completion segment 的 owner、generation、mask、lead-time 和 fail-closed 行为。

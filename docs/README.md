@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/README.md`
 Related: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-08-31
+Last updated: 2026-09-02
 
 本文档是 `docs/` 的总入口。新文档的命名、层级、元数据和迁移规则以
 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
@@ -128,6 +128,7 @@ docs/
 | `docs/check/submissions/TDMA_CROSS_REVIEW_01.md` | 首份核验提交单：HAOFV-879 seqlock 偏差（ACCEPT_WITH_DEVIATION，2026-08-19）。 |
 | `docs/check/submissions/TDMA_CROSS_REVIEW_02.md` | TDMA mandatory-first process image 的 HAOFV/VDC/RefMem 层间核验（pending，2026-08-28）。 |
 | `docs/check/submissions/TDMA_CROSS_REVIEW_03.md` | TDMA bounded recovery 双 buffer、原 Node offset 与实时诊断边界层间核验（pending，2026-08-28）。 |
+| `docs/check/submissions/TDMA_CROSS_REVIEW_04.md` | TDMA resident process image、单轮多 Node overlay 与状态机生命周期层间核验（pending，2026-09-02）。 |
 | `docs/check/submissions/ARCH_FLASH_CROSS_REVIEW_01.md` | Flash v2 首次层间核验：硬件/构建/实现/域文档一致性与当前 v1 偏差。 |
 | `docs/check/submissions/ARCH_FLASH_CROSS_REVIEW_02.md` | Flash canonical 结构重构核验：契约语义迁移、M0-M6 工作板和 v1 偏差复查。 |
 | `docs/check/submissions/ARCH_FLASH_CROSS_REVIEW_03.md` | Direct A/B slot/vector/hash/signature/compatibility fault matrix 与 Recovery 只读投影 C11 核验。 |

@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-08-29
+Last updated: 2026-09-02
 Version: 4
 
 本文档定义 Distributed Hard Real-Time Trigger System 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
@@ -150,7 +150,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | 跨核共享事实 | core0/core1 共享字段必须有唯一 writer，快照必须使用 seqlock、双缓冲或等价 sequence/version 机制，并使用 `__atomic` 或 DMB 屏障。 |
 | 分布式共同事实 | 不引入完整 IEC 61499 分布式运行时；多节点状态、命令、ACK/NACK、版本、质量和证据统一由 Distributed RefMem / RefMem Sync 内部主域承接。 |
 | 分布式共同时间 | VDC Domain 是共同时间唯一 owner；SYNC DPLL 维护 VDC offset/rate，Angle DPLL 只生成扫描预测时间，不能写 VDC offset/rate。 |
-| 分布式确定性通讯 | TDMA Foundation 是上行/下行 TDMA runtime、payload registry、adapter 和环路 completion evidence 的唯一 owner；`clk_sys` 拍数是 Core1 schedule 唯一时间事实源；产品 SHORT process image 按 mandatory-first 静态装配 Node mailbox 与固定 DPLL observation trailer，DPLL 启用不得改变帧型、长度、序列、PIO 节拍，也不得临时使用余量、guard 或第二帧。错误恢复由 Core0 准备、Core1 在固定窗口装载、PIO 发送，双 recovery buffer 交替且每周期最多一帧，使用独立静态预算并复用原 Node segment offset。VDC、RefMem、Trigger、OTA 只能通过注册 payload、提交 intent 或读取 snapshot 使用它。 |
+| 分布式确定性通讯 | TDMA Foundation 是上行/下行 TDMA runtime、payload registry、adapter 和环路 completion evidence 的唯一 owner；`clk_sys` 拍数是 Core1 schedule 唯一时间事实源；产品 SHORT process image 按 mandatory-first 静态装配 Node mailbox 与固定 DPLL observation trailer，并作为启动时一次注入、运行中持续循环的 resident process image；每个 Node 只在自己的固定 segment 执行 UNLOAD/LOAD，无更新时透传，物理 frame completion 回到下一 cycle，只有 STOP、复位、故障或重新配置才退出。DPLL 启用不得改变帧型、长度、序列、PIO 节拍，也不得临时使用余量、guard 或第二帧。错误恢复由 Core0 准备、Core1 在固定窗口装载、PIO 发送，双 recovery buffer 交替且每周期最多一帧，使用独立静态预算并复用原 Node segment offset。VDC、RefMem、Trigger、OTA 只能通过注册 payload、提交 intent 或读取 snapshot 使用它。 |
 | Vector 字段契约 | 每个 Vector 字段或字段块必须定义 writer、value domain、lifecycle、snapshot-needed；不得把 Vector 当作全局变量自由读写。 |
 | 时间回绕 | `uint32_t timestamp_ms` 只能用于短时间差；时间差必须使用回绕安全写法 `int32_t diff = (int32_t)(t1 - t0)`，长时间事实需要 epoch 扩展。 |
 | Metadata failsafe | Bootloader 必须定义 metadata 双副本无效的强制恢复路径，禁止继续启动未知镜像。 |
@@ -162,10 +162,10 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 
 | contract_id | 契约 | 域文档位置 | 顶层相关性 |
 |---|---|---|---|
-| `TDMA-REASON-01` | ring reason code 9 项冻结 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:842-856` | 错误码空间 TDMA 段。 |
-| `TDMA-SEQLOCK-01` | runtime snapshot 必须使用 seqlock | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:834` | 跨核共享事实的实现要求。 |
-| `TDMA-HOP-01` | `hop_limit` 归属 ring profile | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:196` | 分布式确定性通讯约束。 |
-| `REFMEM-260B-01` | `critical delta <= 260 B` | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:194` | RefMem 实时短帧容量约束。 |
+| `TDMA-REASON-01` | ring reason code 冻结 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` 的“Ring reason code”章节 | 错误码空间 TDMA 段。 |
+| `TDMA-SEQLOCK-01` | runtime snapshot 必须使用 seqlock | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` 的“core0/core1 双 FIFO 与所有权”章节 | 跨核共享事实的实现要求。 |
+| `TDMA-HOP-01` | `hop_limit` 归属 ring profile | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` 的“Transport Envelope 与长短帧”章节 | 分布式确定性通讯约束。 |
+| `REFMEM-260B-01` | critical delta 容量合同 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` 的“Transport Envelope 与长短帧”章节 | RefMem 实时短帧容量约束。 |
 | `VDC-DPLL-01` | DPLL 准入要求 `timestamp_resolution_ns <= 100` 且来自硬实时 latch | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:301-308` | 分布式共同时间证据门禁。 |
 
 登记表中的扩展契约仍为 `pending`，顶层只显示其可见性，不把它们当作已冻结
@@ -173,10 +173,11 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 
 | contract_id | 契约 | 域文档位置 | 状态 |
 |---|---|---|---|
-| `TDMA-FLIGHTBITMAP-01` | SHORT process image 固定 8×32 B，slot 前 8 B 由 core1 生成 RX 位图 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:235,490` | pending |
+| `TDMA-FLIGHTBITMAP-01` | SHORT process image 固定 mailbox 与 core1 RX 位图 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` 的“固定 Node image、DPLL trailer 与 RX 位图快路径”章节 | pending |
 | `TDMA-PROCESSIMAGE-01` | 固定 SHORT process image 静态装配 Node mailbox 与 DPLL observation trailer，DPLL 不得替换 wire frame | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` | pending |
+| `TDMA-RESIDENT-01` | process image 启动时一次注入并持续循环；单轮多 Node 局部 UNLOAD/LOAD，无更新透传，frame completion 不终止 resident loop | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:TDMA-RESIDENT-01` | pending |
 | `TDMA-RECOVERY-01` | 双 recovery buffer 原 Node 位置重传、Core0/Core1/PIO owner 边界与独立静态预算 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` | pending |
-| `TDMA-OPMODE-01` | SPI 速率与 TDMA 周期按离散 operating profile 成对切换，STOP 后生效 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:606-610` | pending |
+| `TDMA-OPMODE-01` | SPI 速率与 TDMA 周期按离散 operating profile 成对切换，STOP 后生效 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` 的“SPI 速率与 TDMA 周期 operating profile”章节 | pending |
 | `ARCH-FLASHMAP-01` | FlashMap v2 是 Boot/linker/App/factory/tool 的唯一分区词汇 | `docs/arch/HAOFV_FLASH_ARCHITECTURE.md` | pending |
 | `ARCH-FLASHOWNER-01` | App erase/program 仅 core0 FlashTransactionAO；Boot 使用最小 BootFlashService | `docs/arch/HAOFV_FLASH_ARCHITECTURE.md` | pending |
 | `ARCH-BOOTCTRL-01` | BCB 双 lane append/commit 与 Direct A/B test-confirm-revert | `docs/arch/HAOFV_FLASH_ARCHITECTURE.md` | pending |

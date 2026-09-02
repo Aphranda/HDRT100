@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_TODO.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`
-Last updated: 2026-08-31
+Last updated: 2026-09-02
 
 本文档维护 TDMA foundation 的独立待办。这里记录影响上/下行 TDMA、ring runtime、payload registry、adapter、completion、quality、HAOFV system node 和 HIL 验收的事项。
 
@@ -23,7 +23,8 @@ OTA/HIL 的任务不得标为 `DONE`；运行时临时剩余容量不得用于�
 ## 已有基线
 
 - TDMA owner、ring runtime、traffic scheduler、双 FIFO、固定 process image 和 raw-flight
-  persona 已有代码基线；单次构建/HIL 数值只在任务进度文档保存。
+  persona 已有代码基线；“启动时一次注入、运行中持续循环”的 resident process image
+  仍是待迁移的目标语义，单次构建/HIL 数值只在任务进度文档保存。
 - 校准训练的测量、矩阵和 raw waveform 归 Calibration Domain；TDMA 只拥有 transport、窗口和
   completion evidence。
 - 产品 SHORT 使用固定 Node mailbox；VDC 诊断帧不是产品 process-image payload。重传使用
@@ -31,8 +32,9 @@ OTA/HIL 的任务不得标为 `DONE`；运行时临时剩余容量不得用于�
 
 ## 当前主线
 
-先完成拍级确定性 schedule 和 mandatory-first SHORT process image，再以 NO1–NO4 四板环路冻结
-TDMA WCET/波形基线；NO5 环外观测只属于后续 DPLL/VDC gate。任何负载回归都修复责任
+先将 mandatory-first SHORT process image 收敛为常驻循环映像：启动只注入一次，运行中由
+NO1–NO4 在同一轮完成各自 segment 的卸载/装载，负载不变时继续透传；再以四板环路冻结
+TDMA WCET/波形基线。NO5 环外观测只属于后续 DPLL/VDC gate。任何负载回归都修复责任
 负载，不放宽 TDMA phase。短帧重传必须保持固定原 Node offset，并使用独立 recovery 预算，不能临时
 扩帧或借用 guard。
 
@@ -44,6 +46,8 @@ TDMA WCET/波形基线；NO5 环外观测只属于后续 DPLL/VDC gate。任何�
 
 - NO1–NO4 是 TDMA 四节点环路，NO5 只做环外 DPLL 观测，不加入 TDMA/RefMem、节点位图或 WKC。
 - SHORT wire、拍级 phase、recovery 静态预算和 Core1/PIO/DMA owner 不因 DPLL 或诊断扩展；超预算在编译/DeploymentGate 拒绝。
+- TDMA 产品 RUN 是常驻循环过程映像：启动时一次注入 resident image，之后持续循环转发；只有 STOP、复位、故障或重新配置才结束 RUNNING。
+- 每个 Node 只更新自己拥有的固定 segment；同一轮允许多个 Node 依次完成本地卸载/装载，不得按 Node 拆成多帧串行传递。
 - Calibration 负责 active topology、loop/link/node 顺序、path-delay、CS/SCK/DATA offset matrix、generation/freshness；运行态禁止按物理环序累加或使用默认零表。
 - 只有 PIO/DMA/硬件 tick 产生且通过 matrix、sequence、window、CRC、分辨率和 freshness 检查的 evidence 才能进入 DPLL；无效样本只能拒绝并计数。
 - Core0 负责准备、诊断、SD/SVG 和离线分析；Core1 只做固定 phase、buffer 选择、FIFO 装载；PIO/DMA 负责确定性传输和边沿 latch。
@@ -53,7 +57,7 @@ TDMA WCET/波形基线；NO5 环外观测只属于后续 DPLL/VDC gate。任何�
 | 阶段 | 交付目标 | 必须留下的证据 | 进入下一阶段的条件 |
 |---|---|---|---|
 | P0 | SRAM/链接/测试基线 | build、RAM gate、pytest、未刷写前的 fail-closed 记录 | 静态门禁全绿；板端水位仍待 HIL 复核 |
-| P1 | 四节点 TDMA 基线 | 同包异步 OTA、`SYST:CORE?`、`SYST:RTOS:STAT?`、schedule/WCET、CRC/sequence/FIFO/bitmap/WKC、SD 原始波形 | NO1–NO4 连续运行无新增实时错误，NO5 保持只读 |
+| P1 | 四节点 TDMA 基线 | 同包异步 OTA、`SYST:CORE?`、`SYST:RTOS:STAT?`、schedule/WCET、CRC/sequence/FIFO/bitmap/WKC、SD 原始波形 | NO1–NO4 的 resident image 持续循环且无新增实时错误，NO5 保持只读 |
 | P2 | active 校准矩阵确定性加载 | topology/path/offset matrix、generation/freshness/CRC、启动拒绝原因 | 四节点使用同一 active matrix；缺失或过期不得运行 eligible |
 | P3 | CS/SCK/DATA 硬件 timestamp spine | 每 hop RX/TX、feedback RX、reference TX、硬件 tick、sequence/CRC、SCK 独立校准 | valid evidence 连续可追溯；invalid/duplicate/out-of-order 只计数 |
 | P4 | DPLL eligible parser/gate | host/C valid/missing/wrap/mismatch/timeout 测试和板端 gate 计数 | eligible 连续成立，仍不运行 servo |
@@ -72,6 +76,7 @@ TDMA WCET/波形基线；NO5 环外观测只属于后续 DPLL/VDC gate。任何�
 | TDMA-M3 | DPLL/VDC 最小负载 | IN PROGRESS | 基础字段已随固定周期运行；仍需硬件 latch 样本可追溯、节点锁相且发布 VDC。 |
 | TDMA-M4 | completion/reliability | PENDING | ACK/fence/retry/fail-closed 与长期错误率门禁成立。 |
 | TDMA-M5 | T2 reservation 与控制 | PENDING | 预算内 PREPARE/READY/fence/completion 五板闭环。 |
+| TDMA-M6 | resident process image flight | IN PROGRESS | 一次初始化后持续循环；单轮多 Node 局部 overlay、无更新透传、cycle boundary 回环和受控退出均有 host/build/HIL/原始波形证据。 |
 
 ## 当前任务表
 
@@ -88,6 +93,7 @@ TDMA WCET/波形基线；NO5 环外观测只属于后续 DPLL/VDC gate。任何�
 | TDMA-PAYLOAD-004 | 最小控制 token | IN PROGRESS | 固定 token 已预留；待 owner、opcode 与 completion 接入。 |
 | TDMA-PAYLOAD-005 | optional 静态余量准入门禁 | DONE | optional 只使用 mandatory 后余量，layout 不保留 runtime-free 字节。 |
 | TDMA-PAYLOAD-006 | 短帧基础诊断压缩与实时路径隔离 | IN PROGRESS | 短帧只保留 CRC/sequence/FIFO/bitmap/WKC/profile/deadline 基础摘要；SD、SVG、原始波形和详细归因不进入 Core1 或 recovery frame。 |
+| TDMA-FLIGHT-001 | 常驻循环过程映像与单轮多 Node overlay | IN PROGRESS | ARM 后只初始化一次 resident image；`RUNNING` 中每个 Node 在固定窗口执行 UNLOAD/LOAD 并继续 FORWARD；无新 generation 时原值透传；物理 frame 完成回到 cycle boundary，不进入终止态；STOP、复位、故障或重新配置可停止并保留 evidence。 |
 | TDMA-HIL-001 | 四板 TDMA 环路的 WCET/频率/占空比/SD 波形基线 | PENDING | 四板 OTA 后原始波形、SVG、schedule snapshot 与零错误基线归档；不要求 NO5，NO5 不进入环路 bitmap/WKC。 |
 | TDMA-HIL-002 | 逐 phase 开载且 TDMA 零回归 | PENDING | 依次启用 VDC/DPLL/RefMem/control，TDMA deadline/error 不增加。 |
 | TDMA-DPLL-001 | PIO/DMA hardware latch correlation | IN PROGRESS | reference TX latch 已作为固定 process-image trailer 关联上一帧 sequence；仍需 active PATH_DELAY、四板同圈 eligible sample 和 wrap/失配 HIL。 |
@@ -111,7 +117,7 @@ DPLL/诊断结果掩盖前一阶段 TDMA 或校准失败。
 | 阶段 | 目标 | 执行动作 | 退出门禁 |
 |---|---|---|---|
 | P0 实时路径隔离 | 恢复可重复的 TDMA 基线 | 默认不启用 `--capture-waveforms`；SD/SVG 仅走独立 Core0/维护工具；保持固定 SHORT、phase、recovery 预算；先通过 RTOS SRAM 发布门禁。 | 主 SRAM 链接余量达到 `RTOS_HAOFV_TODO.md` 的发布阈值；随后四板 OTA 后 NO1–NO4 短帧持续运行，CRC/sequence/FIFO/bitmap/WKC/deadline/overrun 均无新增。 |
-| P1 基线与物理健康 | 先证明通讯骨架没有被 DPLL 负载污染 | 用 `tools/cmake_build_auto` 构建并把产物写入 `out`；用 `tools/ota_multi_update` 同包异步刷入；用 `tools/tdma_ring_monitor/tdma_start_ring.py` 运行基线；SD 波形另行采集。 | schedule miss 为零、TDMA phase runtime 在 WCET 内、频率/占空比和 raw waveform 可追溯；NO5 不进入环路。 |
+| P1 基线与物理健康 | 先证明常驻通讯骨架没有被 DPLL 负载污染 | 用 `tools/cmake_build_auto` 构建并把产物写入 `out`；用 `tools/ota_multi_update` 同包异步刷入；用 `tools/tdma_ring_monitor/tdma_start_ring.py` 运行 resident image；SD 波形另行采集。 | resident image 无 host 续窗持续循环，schedule miss 为零、TDMA phase runtime 在 WCET 内、频率/占空比和 raw waveform 可追溯；NO5 不进入环路。 |
 | P2 校准事实加载 | 建立 DPLL 唯一可接受的路径事实 | 通过 Calibration active topology/path matrix 加载 loop/link/node 顺序、每段 delay、offset matrix、generation/freshness；启动前检查 profile/matrix/calibration identity。 | 四节点使用同一 active matrix；任一缺失、过期或 CRC 不一致直接拒绝 eligible，不允许物理环序累加 fallback。 |
 | P3 硬件 evidence | 只建立可靠观测，不运行 servo | 验证 CS/SCK/DATA PIO latch、reference TX 与 feedback RX 关联；SCK 按独立训练流程校准；检查 4 ns 量化、sequence lag、wrap 和方向。 | 每个有效样本均为硬件 tick、非 diagnostic-only、matrix identity 匹配；invalid、duplicate、out-of-order 样本被拒绝并计数。 |
 | P4 eligible parser | 形成 DPLL 输入门禁 | VDC/DPLL 只消费固定 trailer 和 compact Node output；解析放在非 PIO 快路径，拒绝错误样本，不猜测 epoch 或路径。 | host/C 单测覆盖 valid、missing、wrap、profile mismatch、generation mismatch、duplicate 和超时；eligible 样本连续可追溯。 |
@@ -135,6 +141,7 @@ DPLL/诊断结果掩盖前一阶段 TDMA 或校准失败。
 ## 当前阻塞项
 
 - `TDMA-HIL-001` 尚未执行，因此拍级 phase 和新 wire layout 只能视为代码/host 基线。
+- `TDMA-FLIGHT-001` 尚未完成；当前 ring adapter 的 beacon/physical-frame completion 仍是过渡模型，尚不能证明一次注入后 resident process image 在同一轮完成多 Node overlay，也不能把 `FRAME_COMPLETE` 当作持续运行证据。
 - P0 的静态 SRAM 发布门禁已通过（2026-08-28，当前构建 `link_free_bytes=98348 B`）；当前阻塞转为
   板端 `SYST:RTOS:STATus?` heap/stack 水位和异步 OTA/HIL。四板发送阶段已完成，但提交后新镜像
   回滚为旧 build（COM3 已复现 `MAX_ATTEMPTS`，COM25 发送前即为 `INVALID_STATE`）；水位或
@@ -147,7 +154,8 @@ DPLL/诊断结果掩盖前一阶段 TDMA 或校准失败。
 ## 统一完成定义
 
 任务只有同时满足架构 owner、不变量、编译/pytest、OTA 多板实测、SD 原始波形/分析、失败回退
-证据和文档门禁，才可标为 `DONE`。HIL 未执行时必须停留在 `IN PROGRESS`。
+证据和文档门禁，才可标为 `DONE`。resident process image 任务还必须证明单次初始化、持续
+cycle、单轮多 Node overlay、无更新透传和受控退出。HIL 未执行时必须停留在 `IN PROGRESS`。
 
 ## 迁移前历史任务索引（快照，非状态事实源）
 
@@ -186,7 +194,7 @@ DPLL/诊断结果掩盖前一阶段 TDMA 或校准失败。
   - 完成：新增 `tdma_pio_spi_ring_adapter.*`（transport 级，只处理 `TdmaTransportFrame`），由 `tdma_runtime_owner_init()` 绑定到唯一 `TdmaSchedulerAO`；`ADAPTER_MISSING` 消除，无物理路径时诚实报告 `EVIDENCE_MISSING`。
 - [x] P0.5-2：ring adapter 首版发布生命周期 evidence：`adapter_started/start_count/stop_count/service_count/last_error`、`up_running/down_running`、idle beacon TX/RX 计数和 timestamp source/resolution/flags。
   - 完成：adapter 经 `tdma_ring_adapter_status_t` 发布上述字段并投影到 runtime snapshot；idle beacon 计数与 running 由物理 TX/RX 钩子驱动，未接物理前计数保持 0。
-- [x] P0.5-3：实现两板同时 UP/DOWN 常驻短帧：空闲时持续发送/接收 `IDLE_BEACON` 或等价 process image short frame，不依赖 host 交替下发 `TX/RX` 维护命令维持窗口。
+- [x] P0.5-3：实现两板同时 UP/DOWN 常驻短帧 bring-up：空闲时持续发送/接收 `IDLE_BEACON` 或等价短帧，不依赖 host 交替下发 `TX/RX` 维护命令维持窗口；该切片是 resident transport service 基线，不等同于产品 resident process image。
   - 完成：`tdma_pio_spi_phys` 常驻物理层已改为**半双工单环**（每板下行 TX master + 上行 RX slave 两个独立 SM；实测对称接线：发送端闲置 RX/CS=`21`、TX/DATA=`23`、CLK=`24`，对端闲置 TX/CS=`16`、RX/DATA=`18`、CLK=`19`）。ring adapter 有 REFERENCE/FORWARD role，`set_phys_ctrl`/`set_phys` 连接物理层。
   - RX 可靠性（2026-08-18）：rx_byte SM 重写为 pico-examples 标准 **autopush 模式**（in_shift autopush threshold=8），根治手动 X 计数器导致的字节边界漂移（坏帧从 ~45% 降到 ~0）；DMA 双缓冲捕获 + magic 帧头扫描对齐（EtherCAT 式帧头锁定）；`SYSTem:SYNC:VDC:TDMA:PHYS?` 暴露 rx_bad/busy/magic_fail/magic 对齐分布诊断。
   - 发送（2026-08-18）：reference 由 core1 TDMA service 二分频发送，当前 core1 service 约 1 kHz，因此 bring-up beacon 稳定为约 500 Hz；follower 收到一帧立即逐帧转发。1 kHz 试验显示软件 pipeline 的最坏情况延迟接近周期，暂不作为当前基线。
@@ -328,8 +336,8 @@ DPLL/诊断结果掩盖前一阶段 TDMA 或校准失败。
     已实现 reference DMA/burst 与 follower PIO 透明 byte pipeline，ring adapter 不再执行 follower
     的第二次 software TX。四板 raw-flight HIL、固定 segment 在线替换、WKC/尾部 CRC 和
     process-image FIFO/map apply 闭环尚未完成。
-- [ ] 空闲无业务 payload 时持续发送/接收 `IDLE_BEACON` 或等价 freshness 帧。
-  - 进行中：`tdma_pio_spi_ring_adapter` 已在每次 service 构建/发送 `IDLE_BEACON` 短帧并解析 RX（含 beacon 计数）；板端物理 TX/RX 钩子待接入（P0.5-3）。
+- [ ] 产品 RUN 在无业务变化时持续转发 resident process image，不以 `IDLE_BEACON` 替换它。
+  - 进行中：`IDLE_BEACON` 仅作为启动、维护或 adapter 兼容路径；当前 adapter 每次 service 构建/发送 beacon 的实现待迁移为一次 resident image 初始化加 cycle boundary 循环。
 - [x] runtime snapshot 暴露 `up_running/down_running/ring_seq/last_error`、adapter lifecycle、idle beacon 计数和反馈相关字段；running 来自 adapter，但不单独等同于硬件闭环 evidence。
 - [ ] `simultaneous_feedback_loop_evidence` 只由硬件 RX/TX timestamp 相关性置位。
 - [ ] host 监控工具默认只读 TDMA runtime，不通过串口查询参与续窗。

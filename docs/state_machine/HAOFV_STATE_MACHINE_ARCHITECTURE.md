@@ -4,7 +4,7 @@ Status: Active
 Domain: STATE_MACHINE
 Canonical: `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`
 Related: `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/arch/HAOFV_ARCHITECTURE.md`
-Last updated: 2026-08-31
+Last updated: 2026-09-02
 
 本文档定义 HAOFV 中状态机与底层实时状态机资源的稳定边界。这里的“状态机”包括
 PIO state machine、DMA/FIFO 驱动的硬件执行状态，以及由 core1 owner 管理的有界运行
@@ -30,6 +30,45 @@ System Pack / SCPI / domain intent
 
 状态机域不负责业务 payload 解释、DPLL servo、RefMem commit、SD/FatFs、SVG 分析或
 通过软件时间戳决定物理边沿。业务状态和跨节点事实仍由对应 AO/FB/Vector owner 管理。
+
+## TDMA-RESIDENT-01：常驻过程映像生命周期
+
+状态机域对 TDMA 的最终抽象不是“完成一帧后重新 ARM”，而是管理一个启动一次、持续
+运行的 resident process image。下面是架构级生命周期；它描述稳定语义，不要求与某个
+过渡期 C enum 逐项同名。
+
+```text
+STOPPED
+   -> STAGED
+   -> ARMED
+   -> RESIDENT_INIT       一次注入初始 process image
+   -> RUNNING
+        -> CYCLE_BOUNDARY
+        -> LOCAL_UNLOAD
+        -> LOCAL_LOAD
+        -> FORWARD
+        -> CYCLE_BOUNDARY  循环
+
+RUNNING --STOP/RESET/FAULT/RECONFIGURE--> STOPPED 或 STAGED
+```
+
+`RESIDENT_INIT` 只执行一次：验证 active profile、选择初始 active/shadow image、清理
+FIFO/DMA 并启动已验证的 flight persona。进入 `RUNNING` 后，物理 frame 的完成只是
+`CYCLE_BOUNDARY` 事件，不是生命周期终点；状态机不得因一个 frame 返回 origin 就转入
+终止性 `FRAME_COMPLETE`。
+
+每个 cycle 的固定职责如下：
+
+| 执行阶段 | owner | 语义 |
+|---|---|---|
+| `CYCLE_BOUNDARY` | Core1 TDMA owner | 选择已经发布的 generation，建立本周期的 active image 视图。 |
+| `LOCAL_UNLOAD` | RX flight path | 从到达的 resident image 取出本节点拥有的输入 segment，并发布受保护的 descriptor/evidence。 |
+| `LOCAL_LOAD` | TX flight path | 将本节点新的 segment generation 写入自己的固定位置；没有更新则复用上一版。 |
+| `FORWARD` | PIO/DMA | 继续发送同一物理 frame instance；不等待 Core0，不为其他 Node 新建独立 frame。 |
+
+因此多个 Node 可以在同一轮传播中完成各自的卸载/装载。`cycle sequence` 表示循环
+周期，`segment generation` 表示具体 Node 字段更新代次；状态机只负责按 owner 和
+boundary 调度它们，不混用两个序号。
 
 ## PIO 资源分区契约
 
@@ -96,10 +135,12 @@ TX 与 RX PIO block 均必须同时包含一个输入方向和一个输出方向
 | `flight_rx_unload` | 上行（输入） | 在 RX 帧边界读取已到达的 process image，完成 mailbox 识别，生成 `present/new/expected` 位图；RX descriptor 成功入队后才提交 sequence。 | RX PIO/DMA、`TDMA_RX_FRAME_FIFO`；不得写 TX image |
 | `flight_tx_load` | 下行（输出） | 在 TX 帧边界选择 Core0 已发布的 TX generation，把本节点拥有的可写 segment 覆盖到 wire image，并把结果交给 TX PIO/DMA。 | TX PIO/DMA、`TDMA_TX_IMAGE_FIFO`；不得改变 RX 去重状态 |
 
-`tdma_flight_engine_unload_rx()` 与 `tdma_flight_engine_load_tx()` 是这两个方向的
-明确软件边界。二者可以在同一个 Core1 service 周期内并行推进，但不存在“先完成 RX
-才允许 TX”或“TX 失败阻塞 RX”的隐式依赖。旧的 `tdma_flight_engine_apply*()` 仅作为
-兼容封装，内部语义仍必须等价于一次独立 RX 卸载加一次独立 TX 加载。
+`flight_rx_unload` 与 `flight_tx_load` 是目标架构中的逻辑控制边界，不是对当前 C API
+名称的声明。当前实现仍以 `tdma_flight_engine_inspect_input()`、
+`tdma_flight_engine_commit_input()` 和 `tdma_flight_engine_apply*()` 完成输入识别、提交和
+局部 overlay。后续可以拆出方向化接口，但无论接口是否物理拆分，两个方向都必须能在
+同一个 Core1 cycle 内推进，不存在“先完成 RX 才允许 TX”或“TX 失败阻塞 RX”的隐式
+依赖。
 
 这里的“上行/下行”沿用 TDMA 控制腿的命名，不等同于 DATA 电气线的箭头。当前点对点
 接线中 `CLK/SYNC` 是 TX 端输出、RX 端输入；`DATA` 则由 RX 端输出、TX 端输入。因此
@@ -145,8 +186,13 @@ core1 只在固定 phase 内选择已发布 buffer、装载 FIFO 和启动已验
 ```text
 STOPPED -> validate profile -> abort/drain old DMA -> release old claims
          -> claim PIO/SM/DMA/GPIO -> load signed persona -> clear FIFO
-         -> ARM -> RUNNING -> bounded disarm -> STOPPED
+          -> ARM -> RUNNING -> bounded disarm -> STOPPED
 ```
+
+上面的资源生命周期与 TDMA resident cycle 生命周期是两层不同的状态：资源只在
+`ARM/DISARM` 边界申请和释放，而 `RUNNING` 内的 cycle boundary 周而复始。显式重新
+配置必须先让 resident loop 进入 quiesce/STOPPED，再重新经过 `STAGED -> ARMED ->
+RESIDENT_INIT`，不能在运行中替换 active process image 或临时改变资源归属。
 
 资源冲突、方向不符、DREQ/FIFO 不一致、程序装载失败、DMA stall 或 evidence 无法关联
 时，状态机域必须 fail-closed：停止相关 persona、保留故障计数和 snapshot，不降级为
@@ -163,7 +209,9 @@ STOPPED -> validate profile -> abort/drain old DMA -> release old claims
 
 验证必须同时覆盖静态资源冲突、PIO 指令方向、DMA/DREQ 归属、STOP/ARM 生命周期、
 follower forward/capture 不共享 FIFO，以及四节点 TDMA 与 NO5 只读观测。host/build
-通过不能替代 OTA、HIL 和原始波形证据。
+通过不能替代 OTA、HIL 和原始波形证据。还必须验证一次 `RESIDENT_INIT` 后持续 cycle、
+同一轮多 Node 的 `LOCAL_UNLOAD/LOCAL_LOAD`、无更新透传，以及 `FRAME_COMPLETE` 不终止
+`RUNNING`。
 
 maintenance/calibration persona 仍保留旧 `BOARD_TDMA_SPI_PIO` 及
 `MASTER_SM/SLAVE_SM` 复合实现；flight persona 已按本契约开始使用 TX/RX 两个 PIO
