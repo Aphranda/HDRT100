@@ -4,10 +4,37 @@ Status: Active
 Domain: STATE_MACHINE
 Canonical: `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
 Related: `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`
-Last updated: 2026-09-02
+Last updated: 2026-09-03
 
 本文档只记录状态机域的实施、构建、测试、OTA/HIL、失败和回退证据；任务状态以
 `HAOFV_STATE_MACHINE_TODO.md` 为唯一事实源，稳定语义以架构文档为准。
+
+### SM-PROGRESS-20260903-022 - resident communication FSM 与快速闭环
+
+- TODO task ID：`SM-CYCLE-000`、`SM-CYCLE-001`、`SM-CYCLE-002`；代码提交为
+  `39afe0a`，已推送到当前远端分支。`tdma_adapter_comm_fsm` 以非终止
+  `CYCLE_BOUNDARY` 取代 `FRAME_COMPLETE`，新增显式 `BEGIN_NEXT_CYCLE`；边界处理完成后
+  清理本轮 CLOCK TX/DATA RX 标志、推进 `window_sequence` 并返回 `RUNNING`，不再重新
+  `ARM`。本切片尚未接入 ring adapter runtime。
+- host/build 验证：`run_tdma_adapter_comm_fsm_tests.ps1` 覆盖双方向不同完成顺序、连续
+  cycle、旧式重复 `ARM` 拒绝，以及边界态 `STOP/RESET/ERROR`；release 固件与 OTA 包构建
+  通过。验收快照（非事实源）：build `20260902165226`，完整 pytest 为 `639 passed, 1
+  skipped`。
+- quick P3：`out/hardware-acceptance/sm-cycle-002-quick-20260903/` 完成同包四板 OTA、软件
+  复位、快速校准、TDMA 诊断闭环和 NO1--NO4 SD capture；四份波形均保存、下载并通过离线
+  SCK 分析。流程结果为 `PASS_WITH_DIAGNOSTICS`，严格 SCK re-arm 与 startup barrier 失败
+  均已保留，不阻止调试数据执行和归档。
+- 候选对照（验收快照，非事实源）：本批矩阵 row 0 的 DATA 偏移为 `[5,4,5,5]`，运行时
+  NO1 sequence 保持为 `0`，其余节点停在约 `45`，证据位于
+  `out/hardware-acceptance/sm-cycle-002-row0-closed-loop-20260903/`；row 2 的 DATA 偏移为
+  `[5,5,5,5]`，四板 sequence 在三秒窗口内从约 `520` 持续推进到约 `1315`，四板
+  `tx_busy_count` 均为 `0`。NO1 坏帧计数从 `33` 增至 `83`，NO2--NO4 保持为 `0`，证据位于
+  `out/hardware-acceptance/sm-cycle-002-row2-closed-loop-20260903/`。该独立闭环复用每板持久
+  串口会话，总耗时约十三秒。
+- 完成判断：`SM-CYCLE-000/001/002` 的边界件及“未接 runtime 时不得破坏短帧基线”已经
+  满足退出门禁；NO1 接收质量仍是已知诊断项，但不是 `TX_BUSY` 回归。下一 gate 为
+  `SM-CYCLE-003`，只在 reference 角色接入 returned-frame 下一周期路径，禁止写死 NO1 或
+  修改 follower PIO。
 
 ### SM-PROGRESS-20260902-021 - resident cycle 基线阻塞与 TODO 收敛
 

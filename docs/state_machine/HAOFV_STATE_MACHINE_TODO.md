@@ -4,7 +4,7 @@ Status: Active
 Domain: STATE_MACHINE
 Canonical: `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`
 Related: `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/sync/SYNC_IO_TODO.md`
-Last updated: 2026-09-02
+Last updated: 2026-09-03
 
 本文档维护状态机域的可执行任务；稳定语义见 `HAOFV_STATE_MACHINE_ARCHITECTURE.md`，
 构建、测试、OTA/HIL 和失败证据见 `HAOFV_STATE_MACHINE_TASK_PROGRESS.md`。
@@ -18,7 +18,7 @@ Last updated: 2026-09-02
 `UNLOAD -> LOAD -> FORWARD`，不因物理 frame 完成而终止。每一步均须可回退，并以同一 OTA
 包完成闭环后才能推进下一步。
 
-当前唯一执行入口是下文 `SM-CYCLE-000`。表中其他 `IN PROGRESS` 表示已有部分实现或
+当前唯一执行入口是下文 `SM-CYCLE-003`。表中其他 `IN PROGRESS` 表示已有部分实现或
 证据尚未收口，不代表允许并行继续修改；resident cycle 验收前暂停 maintenance persona、
 剩余 resource-arbiter 和 AO/Core1 编排迁移。
 
@@ -97,9 +97,9 @@ transport helper 和 communication FSM 是角色无关的边界件，不改变 N
 
 | ID | 任务 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
-| SM-CYCLE-000 | 恢复 reference origin 单帧发送生命周期基线 | IN PROGRESS | reference 只在上一物理 TX completion 已消费后提交下一次发送，不重复撞入 pending DMA；快速 TDMA-only 验收中 reference 与 follower sequence 持续增长、`TX_BUSY` 不增长，并取得 NO1--NO4 可用 SD capture 窗口。 |
-| SM-CYCLE-001 | 冻结 returned frame 到 next cycle 的 transport boundary helper | IN PROGRESS | helper 的 host test 和固件 build 通过；在 `SM-CYCLE-000` 恢复基线后补跑快速 TDMA-only，证明未接 runtime 的 helper 不改变现有短帧行为。返回 payload 保留，reference 本地 segment 可更新，cycle sequence 推进，hop count 重置，完整性按协议重算。 |
-| SM-CYCLE-002 | 将 adapter communication FSM 改为 resident cycle 语义 | PENDING | `FRAME_COMPLETE` 终止态被非终止 `CYCLE_BOUNDARY` 取代；一次 ARM 后每轮清理物理 window 标志并保持 `RUNNING`，STOP、RESET、ERROR 转移、纯 C 单测及快速 TDMA-only 闭环通过。 |
+| SM-CYCLE-000 | 恢复 reference origin 单帧发送生命周期基线 | DONE | reference 只在上一物理 TX completion 已消费后提交下一次发送，不重复撞入 pending DMA；快速 TDMA-only 验收中 reference 与 follower sequence 持续增长、`TX_BUSY` 不增长，并取得 NO1--NO4 可用 SD capture 窗口。 |
+| SM-CYCLE-001 | 冻结 returned frame 到 next cycle 的 transport boundary helper | DONE | helper 的 host test 和固件 build 通过；在 `SM-CYCLE-000` 恢复基线后补跑快速 TDMA-only，证明未接 runtime 的 helper 不改变现有短帧行为。返回 payload 保留，reference 本地 segment 可更新，cycle sequence 推进，hop count 重置，完整性按协议重算。 |
+| SM-CYCLE-002 | 将 adapter communication FSM 改为 resident cycle 语义 | DONE | `FRAME_COMPLETE` 终止态被非终止 `CYCLE_BOUNDARY` 取代；一次 ARM 后每轮清理物理 window 标志并保持 `RUNNING`，STOP、RESET、ERROR 转移、纯 C 单测及快速 TDMA-only 闭环通过。 |
 | SM-CYCLE-003 | 仅将 reference runtime 接入 resident FSM 和 transport helper | PENDING | reference 启动时只 seed 一次；返回帧到达后执行 `LOCAL_UNLOAD/LOAD -> begin next cycle -> phys_tx`，发送仍由 completion/backpressure 驱动，不再按周期从 alignment/空映像重建；不得写死 NO1 板号。 |
 | SM-CYCLE-004 | 验证四节点同轮 overlay 和 follower 兼容性 | PENDING | 同一 resident image 依次保留 NO1--NO4 的 segment 更新；无新 generation 时旧值继续透传；cycle sequence 与 segment generation 独立；默认不改 NO2--NO4 转发算法。 |
 | SM-CYCLE-005 | 增加 cycle 状态、计数和异常恢复 evidence | PENDING | Core0 只读查询可获得 cycle count、last completed cycle、segment bitmap、fault/reseed reason；丢帧恢复不得静默清空 process image，允许 reseed 时只使用最后有效 resident image。 |
@@ -115,12 +115,11 @@ transport helper 和 communication FSM 是角色无关的边界件，不改变 N
 - maintenance/calibration persona 仍使用 `BOARD_TDMA_SPI_PIO` 的旧复合实现；flight
   persona 已开始使用 TX/RX 两个 PIO block，但迁移尚未覆盖所有 persona 和资源仲裁层，
   因此不能把 SM-M2 至 SM-M5 提前完成。
-- `SM-RES-010` 尚未完成；当前 adapter/FSM 仍保留 `FRAME_COMPLETE` 过渡状态，代码尚未
-  证明“单次 resident image 注入后持续循环、同一轮多 Node overlay、无更新透传”的完整
-  运行语义。
-- `SM-CYCLE-000` 当前被 reference origin 的 `TDMA_PIO_SPI_PHYS_ERROR_TX_BUSY` 阻塞；
-  follower 已收到并飞行转发同一批 frame，因此先修 reference TX completion/backpressure，
-  不把该故障扩散成 follower PIO 改造。
+- `SM-RES-010` 尚未完成；communication FSM 已进入非终止 `CYCLE_BOUNDARY`，但 ring
+  adapter runtime 尚未接入该 FSM 和 transport boundary helper，因此还不能证明“单次
+  resident image 注入后持续循环、同一轮多 Node overlay、无更新透传”的完整运行语义。
+- `SM-CYCLE-000/001/002` 的 host/build/快速 HIL 基线已经收口；当前缺口是
+  `SM-CYCLE-003` 的 reference returned-frame 回收再发路径，不把该改动扩散到 follower PIO。
 - follower 的 forward 与 capture 双消费者需要独立 RX FIFO/SM 或硬件复制语义，不能
   通过两个 DMA 直接竞争一个 FIFO。
 - PIO 迁移完成前，DPLL hardware timestamp spine 和 eligible gate 不进入正式 HIL。
