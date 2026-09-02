@@ -464,6 +464,28 @@ static tdma_process_image_map_t make_eight_slot_flight_map(void)
     return map;
 }
 
+static void fill_test_process_mailbox(uint8_t *mailbox,
+                                      uint32_t source_slot,
+                                      uint16_t sequence,
+                                      uint8_t body_seed)
+{
+    memset(mailbox, body_seed, TDMA_FLIGHT_SHORT_SLOT_SIZE);
+    mailbox[0] = (uint8_t)(TDMA_FLIGHT_MAILBOX_MAGIC & 0xFFu);
+    mailbox[1] = (uint8_t)(TDMA_FLIGHT_MAILBOX_MAGIC >> 8u);
+    mailbox[TDMA_FLIGHT_MAILBOX_VERSION_OFFSET] =
+        TDMA_FLIGHT_MAILBOX_VERSION;
+    mailbox[3] = TDMA_PROCESS_IMAGE_MESSAGE_CLASS;
+    mailbox[TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET] = (uint8_t)source_slot;
+    mailbox[TDMA_FLIGHT_MAILBOX_TARGET_MASK_OFFSET] = 0x0Fu;
+    mailbox[TDMA_FLIGHT_MAILBOX_SEQ16_OFFSET] = (uint8_t)(sequence & 0xFFu);
+    mailbox[TDMA_FLIGHT_MAILBOX_SEQ16_OFFSET + 1u] =
+        (uint8_t)(sequence >> 8u);
+    const uint16_t crc = tdma_process_image_crc16_ccitt(
+        mailbox, TDMA_PROCESS_IMAGE_CRC_OFFSET);
+    mailbox[TDMA_PROCESS_IMAGE_CRC_OFFSET] = (uint8_t)(crc & 0xFFu);
+    mailbox[TDMA_PROCESS_IMAGE_CRC_OFFSET + 1u] = (uint8_t)(crc >> 8u);
+}
+
 int main(void)
 {
     int failed = 0;
@@ -2305,7 +2327,10 @@ int main(void)
             memset(&capture, 0, sizeof(capture));
             memset(&phys, 0, sizeof(phys));
             phys.suppress_echo = true;
-            memset(tx_mailbox, (int)(0x90u + node), sizeof(tx_mailbox));
+            fill_test_process_mailbox(tx_mailbox,
+                                      local_slots[node],
+                                      (uint16_t)(0x110u + node),
+                                      (uint8_t)(0x90u + node));
             config.node_count = 4u;
             config.local_slot_id = local_slots[node];
             config.reference_slot_id = 0u;
@@ -2428,6 +2453,18 @@ int main(void)
                                       tx_mailbox,
                                       sizeof(tx_mailbox)) == 0,
                                   true);
+            for (uint32_t source = 0u; source < config.node_count; source++) {
+                if (source == local_slots[node]) {
+                    continue;
+                }
+                failed += expect_bool(
+                    "overlay preserves nonlocal slot",
+                    memcmp(processed_view.payload +
+                               source * TDMA_FLIGHT_SHORT_SLOT_SIZE,
+                           payload + source * TDMA_FLIGHT_SHORT_SLOT_SIZE,
+                           TDMA_FLIGHT_SHORT_SLOT_SIZE) == 0,
+                    true);
+            }
 
             failed += expect_bool("overlay second inject",
                                   tdma_pio_spi_ring_adapter_inject_rx(
@@ -2463,6 +2500,23 @@ int main(void)
             failed += expect_u32("overlay target sequence state",
                                  adapter.resident_overlay_target_sequence,
                                  42u);
+            failed += expect_bool("overlay reused generation payload",
+                                  memcmp(
+                                      processed_view.payload +
+                                          local_slots[node] *
+                                              TDMA_FLIGHT_SHORT_SLOT_SIZE,
+                                      tx_mailbox,
+                                      sizeof(tx_mailbox)) == 0,
+                                  true);
+            tdma_flight_fifo_snapshot_t fifo_snapshot;
+            failed += expect_bool("overlay fifo snapshot",
+                                  tdma_flight_fifo_get_snapshot(
+                                      &fifo, &fifo_snapshot),
+                                  true);
+            failed += expect_u32("overlay generation unchanged",
+                                 fifo_snapshot.tx_active_generation, 1u);
+            failed += expect_u32("overlay generation reused",
+                                 fifo_snapshot.tx_reuse_count, 1u);
 
             tdma_transport_frame_build_t wrapping_build = build;
             wrapping_build.transport_sequence = UINT32_MAX;
@@ -2505,6 +2559,154 @@ int main(void)
                                  incoming_view.transport_sequence, 0u);
             failed += expect_u32("overlay wrapped processed sequence",
                                  processed_view.transport_sequence, 0u);
+        }
+    }
+
+    /* One resident image crosses all three follower stations in DATA order.
+     * Each station replaces only its local mailbox, so the returned frame
+     * contains the reference load plus every follower load from the same
+     * physical cycle. */
+    {
+        enum { FOLLOWER_COUNT = 3 };
+        static const uint32_t local_slots[FOLLOWER_COUNT] = {3u, 2u, 1u};
+        tdma_pio_spi_ring_adapter_t adapters[FOLLOWER_COUNT];
+        tdma_flight_fifo_t fifos[FOLLOWER_COUNT];
+        tdma_flight_engine_t engines[FOLLOWER_COUNT];
+        overlay_capture_t captures[FOLLOWER_COUNT];
+        loopback_phys_t physical[FOLLOWER_COUNT];
+        tdma_ring_adapter_status_t status;
+        tdma_process_image_map_t map = make_eight_slot_flight_map();
+        uint8_t payload[TDMA_FLIGHT_SHORT_PAYLOAD_SIZE] = {0};
+        uint8_t expected_mailbox[4][TDMA_FLIGHT_SHORT_SLOT_SIZE];
+        uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+        size_t packet_size = 0u;
+        tdma_transport_result_t result = TDMA_TRANSPORT_OK;
+
+        for (uint32_t slot = 0u; slot < 4u; slot++) {
+            fill_test_process_mailbox(expected_mailbox[slot],
+                                      slot,
+                                      (uint16_t)(10u + slot),
+                                      (uint8_t)(0x20u + slot));
+            memcpy(payload + slot * TDMA_FLIGHT_SHORT_SLOT_SIZE,
+                   expected_mailbox[slot],
+                   TDMA_FLIGHT_SHORT_SLOT_SIZE);
+        }
+        for (uint32_t node = 0u; node < FOLLOWER_COUNT; node++) {
+            const uint32_t slot = local_slots[node];
+            fill_test_process_mailbox(expected_mailbox[slot],
+                                      slot,
+                                      (uint16_t)(100u + slot),
+                                      (uint8_t)(0xA0u + slot));
+            memset(&captures[node], 0, sizeof(captures[node]));
+            memset(&physical[node], 0, sizeof(physical[node]));
+            physical[node].suppress_echo = true;
+            tdma_ring_runtime_config_t config = make_valid_config();
+            config.node_count = 4u;
+            config.local_slot_id = slot;
+            config.reference_slot_id = 0u;
+            config.feedback_timeout_ns = 4000u;
+            failed += expect_bool("chain adapter init",
+                                  tdma_pio_spi_ring_adapter_init(
+                                      &adapters[node]),
+                                  true);
+            set_test_sequential_topology(&adapters[node], config.node_count);
+            failed += expect_bool("chain fifo init",
+                                  tdma_flight_fifo_init(&fifos[node]), true);
+            failed += expect_bool("chain engine init",
+                                  tdma_flight_engine_init(&engines[node]), true);
+            failed += expect_bool("chain map configure",
+                                  tdma_flight_engine_configure(
+                                      &engines[node], &map),
+                                  true);
+            tdma_pio_spi_ring_adapter_set_phys(
+                &adapters[node], loopback_tx, loopback_rx, &physical[node]);
+            tdma_pio_spi_ring_adapter_set_phys_ctrl(
+                &adapters[node], NULL, NULL, NULL, NULL, &captures[node]);
+            tdma_pio_spi_ring_adapter_set_phys_overlay(
+                &adapters[node], capture_overlay, capture_overlay_boundary);
+            tdma_pio_spi_ring_adapter_set_flight_fifo(
+                &adapters[node], &fifos[node]);
+            tdma_pio_spi_ring_adapter_set_flight_engine(
+                &adapters[node], &engines[node]);
+            failed += expect_bool(
+                "chain process mode",
+                tdma_pio_spi_ring_adapter_set_forwarding_mode(
+                    &adapters[node],
+                    TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE),
+                true);
+            failed += expect_bool("chain start",
+                                  tdma_pio_spi_ring_adapter_ops()->start(
+                                      &adapters[node], &config),
+                                  true);
+            failed += expect_bool("chain local mailbox publish",
+                                  tdma_flight_fifo_core0_publish_tx(
+                                      &fifos[node],
+                                      expected_mailbox[slot],
+                                      TDMA_FLIGHT_SHORT_SLOT_SIZE,
+                                      1000u + slot,
+                                      100u + slot,
+                                      1u << slot),
+                                  true);
+        }
+
+        const tdma_transport_frame_build_t build = {
+            .frame_class = TDMA_TRANSPORT_FRAME_CLASS_SHORT,
+            .origin_slot_id = 0u,
+            .transport_sequence = 73u,
+            .payload_class = TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE,
+            .flags = TDMA_TRANSPORT_FLAG_REQUIRE_FEEDBACK |
+                     TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE,
+            .schedule_crc32 = make_valid_config().schedule_crc32,
+            .ring_profile_crc32 = make_valid_config().ring_profile_crc32,
+            .hop_limit = 3u,
+            .payload = payload,
+            .payload_size = sizeof(payload),
+        };
+        failed += expect_bool("chain packet encode",
+                              tdma_transport_frame_encode(
+                                  &build,
+                                  packet,
+                                  sizeof(packet),
+                                  &packet_size,
+                                  &result),
+                              true);
+        for (uint32_t node = 0u; node < FOLLOWER_COUNT; node++) {
+            failed += expect_bool("chain follower inject",
+                                  tdma_pio_spi_ring_adapter_inject_rx(
+                                      &adapters[node],
+                                      packet,
+                                      packet_size,
+                                      100ull + node),
+                                  true);
+            failed += expect_bool("chain follower service",
+                                  tdma_pio_spi_ring_adapter_ops()->service(
+                                      &adapters[node],
+                                      100ull + node,
+                                      &status),
+                                  true);
+            memcpy(packet, captures[node].processed, packet_size);
+        }
+
+        tdma_transport_frame_view_t returned_view;
+        failed += expect_bool("chain returned decode",
+                              tdma_transport_frame_decode(
+                                  packet,
+                                  packet_size,
+                                  &returned_view,
+                                  &result),
+                              true);
+        failed += expect_u32("chain transport sequence unchanged",
+                             returned_view.transport_sequence, 73u);
+        failed += expect_u32("chain reaches reference",
+                             returned_view.hop_count, 3u);
+        for (uint32_t slot = 0u; slot < 4u; slot++) {
+            failed += expect_bool(
+                "chain retains every station mailbox",
+                memcmp(returned_view.payload +
+                           slot * TDMA_FLIGHT_SHORT_SLOT_SIZE,
+                       expected_mailbox[slot],
+                       TDMA_FLIGHT_SHORT_SLOT_SIZE) == 0,
+                true);
         }
     }
 
