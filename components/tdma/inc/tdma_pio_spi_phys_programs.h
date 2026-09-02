@@ -13,6 +13,7 @@
 typedef struct {
     tdma_pio_spi_persona_fsm_t lifecycle;
     bool *sms_claimed;
+    bool *maintenance_resources_claimed;
     tdma_pio_spi_program_persona_t *program_persona;
     uint *tx_offset;
     uint *rx_offset;
@@ -53,5 +54,16 @@ bool tdma_pio_spi_programs_select(
 
 bool tdma_pio_spi_programs_ensure_sms_claimed(
     tdma_pio_spi_program_manager_t *manager);
+
+bool tdma_pio_spi_programs_transfer_resources(
+    tdma_pio_spi_program_manager_t *manager,
+    tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_program_persona_t previous,
+    tdma_pio_spi_program_persona_t target);
+
+void tdma_pio_spi_programs_release_resources(
+    tdma_pio_spi_program_manager_t *manager,
+    tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_program_persona_t persona);
 
 #endif

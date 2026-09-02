@@ -76,6 +76,19 @@
 #error "Unsupported TDMA RX PIO block"
 #endif
 
+#if BOARD_TDMA_SPI_PIO_BLOCK_ID == 0u
+#define TDMA_STATE_MACHINE_MAINTENANCE_PIO_RESOURCE \
+    RESOURCE_ARBITER_RESOURCE_PIO0
+#elif BOARD_TDMA_SPI_PIO_BLOCK_ID == 1u
+#define TDMA_STATE_MACHINE_MAINTENANCE_PIO_RESOURCE \
+    RESOURCE_ARBITER_RESOURCE_PIO1
+#elif BOARD_TDMA_SPI_PIO_BLOCK_ID == 2u
+#define TDMA_STATE_MACHINE_MAINTENANCE_PIO_RESOURCE \
+    RESOURCE_ARBITER_RESOURCE_PIO2
+#else
+#error "Unsupported TDMA maintenance PIO block"
+#endif
+
 /* Runtime ownership projection of the board contract. DREQ values are
  * derived from PIO/SM/direction by the SDK, so reserve their endpoint class
  * instead of duplicating SDK-specific request numbers. */
@@ -86,6 +99,18 @@
      RESOURCE_ARBITER_RESOURCE_TDMA_DMA_OUTPUT | \
      RESOURCE_ARBITER_RESOURCE_TDMA_DMA_FORWARD | \
      RESOURCE_ARBITER_RESOURCE_TDMA_DMA_SYNC_EDGE | \
+     RESOURCE_ARBITER_RESOURCE_TDMA_GPIO | \
+     RESOURCE_ARBITER_RESOURCE_TDMA_IRQ | \
+     RESOURCE_ARBITER_RESOURCE_TDMA_DREQ)
+
+/* Calibration and stopped-ring diagnostics use the legacy PIO persona and
+ * only the profile-owned capture/output DMA endpoints.  Keep this owner
+ * separate from flight so the persona manager can transfer the overlapping
+ * PIO/DMA/GPIO/IRQ/DREQ resources at one quiesced boundary. */
+#define TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK \
+    (TDMA_STATE_MACHINE_MAINTENANCE_PIO_RESOURCE | \
+     RESOURCE_ARBITER_RESOURCE_TDMA_DMA_CAPTURE | \
+     RESOURCE_ARBITER_RESOURCE_TDMA_DMA_OUTPUT | \
      RESOURCE_ARBITER_RESOURCE_TDMA_GPIO | \
      RESOURCE_ARBITER_RESOURCE_TDMA_IRQ | \
      RESOURCE_ARBITER_RESOURCE_TDMA_DREQ)

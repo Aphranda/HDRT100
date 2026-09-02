@@ -4,7 +4,9 @@
 #include "board_config.h"
 #include "hardware/dma.h"
 #include "hardware/pio.h"
+#include "resource_arbiter.h"
 #include "tdma_pio_spi.pio.h"
+#include "tdma_state_machine_resources.h"
 
 /* Keep the migrated implementation readable while making every former
  * file-local offset an explicit field of the owner context. */
@@ -40,6 +42,116 @@
 #define s_tdma_pio_spi_tx_dma_channel (*manager->tx_dma_channel)
 #define s_tdma_pio_spi_rx_dma_channel (*manager->rx_dma_channel)
 
+static const char *const TDMA_FLIGHT_RESOURCE_OWNER = "TDMA_FLIGHT_PIO";
+static const char *const TDMA_MAINTENANCE_RESOURCE_OWNER =
+    "TDMA_MAINTENANCE_PIO";
+
+static bool tdma_pio_spi_programs_is_flight_persona(
+    tdma_pio_spi_program_persona_t persona)
+{
+    return persona == TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN ||
+           persona == TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER ||
+           persona ==
+               TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER;
+}
+
+static bool tdma_pio_spi_programs_ensure_hardware_sms_claimed(
+    tdma_pio_spi_program_manager_t *manager)
+{
+    if (manager == NULL || manager->sms_claimed == NULL) {
+        return false;
+    }
+    if (*manager->sms_claimed) {
+        return true;
+    }
+    if (pio_sm_is_claimed(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM) ||
+        pio_sm_is_claimed(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM) ||
+        pio_sm_is_claimed(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM) ||
+        pio_sm_is_claimed(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_RTT_SM)) {
+        return false;
+    }
+    pio_sm_claim(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM);
+    pio_sm_claim(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM);
+    pio_sm_claim(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM);
+    pio_sm_claim(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_RTT_SM);
+    *manager->sms_claimed = true;
+    return true;
+}
+
+static void tdma_pio_spi_programs_release_hardware_sms(
+    tdma_pio_spi_program_manager_t *manager)
+{
+    if (manager == NULL || manager->sms_claimed == NULL ||
+        !*manager->sms_claimed) {
+        return;
+    }
+    pio_sm_unclaim(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM);
+    pio_sm_unclaim(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM);
+    pio_sm_unclaim(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM);
+    pio_sm_unclaim(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_RTT_SM);
+    *manager->sms_claimed = false;
+}
+
+static bool tdma_pio_spi_programs_claim_resources(
+    tdma_pio_spi_program_manager_t *manager,
+    tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_program_persona_t persona)
+{
+    if (manager == NULL || phys == NULL ||
+        manager->maintenance_resources_claimed == NULL) {
+        return false;
+    }
+    if (persona == TDMA_PIO_SPI_PROGRAM_PERSONA_NONE) {
+        return true;
+    }
+
+    const bool flight = tdma_pio_spi_programs_is_flight_persona(persona);
+    bool claimed_here = false;
+    if (flight) {
+        if (*manager->maintenance_resources_claimed) {
+            return false;
+        }
+        if (!phys->flight_resource_claimed) {
+            if (!resource_arbiter_acquire_owned(
+                    TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK,
+                    TDMA_FLIGHT_RESOURCE_OWNER)) {
+                return false;
+            }
+            phys->flight_resource_claimed = true;
+            claimed_here = true;
+        }
+    } else {
+        if (phys->flight_resource_claimed) {
+            return false;
+        }
+        if (!*manager->maintenance_resources_claimed) {
+            if (!resource_arbiter_acquire_owned(
+                    TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK,
+                    TDMA_MAINTENANCE_RESOURCE_OWNER)) {
+                return false;
+            }
+            *manager->maintenance_resources_claimed = true;
+            claimed_here = true;
+        }
+    }
+
+    if (tdma_pio_spi_programs_ensure_hardware_sms_claimed(manager)) {
+        return true;
+    }
+    if (claimed_here && flight) {
+        resource_arbiter_release_owned(
+            TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK,
+            TDMA_FLIGHT_RESOURCE_OWNER);
+        phys->flight_resource_claimed = false;
+    } else if (claimed_here) {
+        resource_arbiter_release_owned(
+            TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK,
+            TDMA_MAINTENANCE_RESOURCE_OWNER);
+        *manager->maintenance_resources_claimed = false;
+    }
+    return false;
+}
+
 static void tdma_pio_spi_programs_publish_lifecycle(
     const tdma_pio_spi_program_manager_t *manager,
     tdma_pio_spi_phys_t *phys)
@@ -70,20 +182,78 @@ static bool tdma_pio_spi_programs_transition(
 bool tdma_pio_spi_programs_ensure_sms_claimed(
     tdma_pio_spi_program_manager_t *manager)
 {
-    if (manager == NULL || manager->sms_claimed == NULL) return false;
-    if (*manager->sms_claimed) return true;
-    if (pio_sm_is_claimed(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM) ||
-        pio_sm_is_claimed(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM) ||
-        pio_sm_is_claimed(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM) ||
-        pio_sm_is_claimed(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_RTT_SM)) {
+    if (manager == NULL || manager->maintenance_resources_claimed == NULL) {
         return false;
     }
-    pio_sm_claim(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM);
-    pio_sm_claim(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM);
-    pio_sm_claim(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM);
-    pio_sm_claim(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_RTT_SM);
-    *manager->sms_claimed = true;
-    return true;
+    bool claimed_here = false;
+    if (!*manager->maintenance_resources_claimed) {
+        if (!resource_arbiter_acquire_owned(
+                TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK,
+                TDMA_MAINTENANCE_RESOURCE_OWNER)) {
+            return false;
+        }
+        *manager->maintenance_resources_claimed = true;
+        claimed_here = true;
+    }
+    if (tdma_pio_spi_programs_ensure_hardware_sms_claimed(manager)) {
+        return true;
+    }
+    if (claimed_here) {
+        resource_arbiter_release_owned(
+            TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK,
+            TDMA_MAINTENANCE_RESOURCE_OWNER);
+        *manager->maintenance_resources_claimed = false;
+    }
+    return false;
+}
+
+void tdma_pio_spi_programs_release_resources(
+    tdma_pio_spi_program_manager_t *manager,
+    tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_program_persona_t persona)
+{
+    if (manager == NULL || phys == NULL ||
+        manager->maintenance_resources_claimed == NULL) {
+        return;
+    }
+    if (tdma_pio_spi_programs_is_flight_persona(persona)) {
+        if (phys->flight_resource_claimed) {
+            tdma_pio_spi_programs_release_hardware_sms(manager);
+            resource_arbiter_release_owned(
+                TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK,
+                TDMA_FLIGHT_RESOURCE_OWNER);
+            phys->flight_resource_claimed = false;
+        }
+    } else if (*manager->maintenance_resources_claimed) {
+        tdma_pio_spi_programs_release_hardware_sms(manager);
+        resource_arbiter_release_owned(
+            TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK,
+            TDMA_MAINTENANCE_RESOURCE_OWNER);
+        *manager->maintenance_resources_claimed = false;
+    }
+}
+
+bool tdma_pio_spi_programs_transfer_resources(
+    tdma_pio_spi_program_manager_t *manager,
+    tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_program_persona_t previous,
+    tdma_pio_spi_program_persona_t target)
+{
+    const bool previous_flight =
+        tdma_pio_spi_programs_is_flight_persona(previous);
+    const bool target_flight =
+        tdma_pio_spi_programs_is_flight_persona(target);
+    if (previous != TDMA_PIO_SPI_PROGRAM_PERSONA_NONE &&
+        target != TDMA_PIO_SPI_PROGRAM_PERSONA_NONE &&
+        previous_flight == target_flight) {
+        return tdma_pio_spi_programs_claim_resources(
+            manager, phys, target);
+    }
+    if (previous != TDMA_PIO_SPI_PROGRAM_PERSONA_NONE) {
+        tdma_pio_spi_programs_release_resources(
+            manager, phys, previous);
+    }
+    return tdma_pio_spi_programs_claim_resources(manager, phys, target);
 }
 
 static bool tdma_pio_spi_phys_load_flight_clock_latch_program(
@@ -695,14 +865,44 @@ static void tdma_pio_spi_phys_unload_programs(
     s_tdma_pio_spi_program_persona = TDMA_PIO_SPI_PROGRAM_PERSONA_NONE;
 }
 
+static void tdma_pio_spi_programs_rollback(
+    tdma_pio_spi_program_manager_t *manager,
+    tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_program_persona_t previous,
+    tdma_pio_spi_program_persona_t failed_target)
+{
+    tdma_pio_spi_programs_release_resources(
+        manager, phys, failed_target);
+    bool restored = previous == TDMA_PIO_SPI_PROGRAM_PERSONA_NONE;
+    if (!restored && tdma_pio_spi_programs_transfer_resources(
+                         manager, phys,
+                         TDMA_PIO_SPI_PROGRAM_PERSONA_NONE, previous)) {
+        if (tdma_pio_spi_phys_load_programs(manager, previous)) {
+            s_tdma_pio_spi_program_persona = previous;
+            restored = true;
+        } else {
+            tdma_pio_spi_programs_release_resources(
+                manager, phys, previous);
+        }
+    }
+    (void)tdma_pio_spi_programs_transition(
+        manager, phys,
+        restored ? TDMA_PIO_SPI_PERSONA_EVENT_ROLLBACK_LOADED
+                 : TDMA_PIO_SPI_PERSONA_EVENT_ROLLBACK_FAILED,
+        failed_target);
+    phys->snapshot.program_persona =
+        (uint32_t)s_tdma_pio_spi_program_persona;
+}
+
 bool tdma_pio_spi_programs_select(
     tdma_pio_spi_program_manager_t *manager,
     tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_program_persona_t persona)
 {
     if (manager == NULL || phys == NULL ||
-        manager->program_persona == NULL || manager->tx_dma_channel == NULL ||
-        manager->rx_dma_channel == NULL) {
+        manager->program_persona == NULL || manager->sms_claimed == NULL ||
+        manager->maintenance_resources_claimed == NULL ||
+        manager->tx_dma_channel == NULL || manager->rx_dma_channel == NULL) {
         if (phys != NULL) {
             phys->snapshot.last_error =
                 TDMA_PIO_SPI_PHYS_ERROR_BAD_ARGUMENT;
@@ -721,16 +921,10 @@ bool tdma_pio_spi_programs_select(
         phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_BAD_ARGUMENT;
         return false;
     }
-    if (!tdma_pio_spi_programs_ensure_sms_claimed(manager)) {
-        (void)tdma_pio_spi_programs_transition(
-            manager, phys, TDMA_PIO_SPI_PERSONA_EVENT_BUSY, persona);
-        phys->snapshot.last_error =
-            TDMA_PIO_SPI_PHYS_ERROR_PERSONA_RESOURCE;
-        return false;
-    }
     const uint32_t sm_mask = (1u << BOARD_TDMA_SPI_MASTER_SM) |
                              (1u << BOARD_TDMA_SPI_SLAVE_SM) |
-                             (1u << BOARD_TDMA_SPI_CAPTURE_SM);
+                             (1u << BOARD_TDMA_SPI_CAPTURE_SM) |
+                             (1u << BOARD_TDMA_SPI_RTT_SM);
     if ((BOARD_TDMA_SPI_PIO->ctrl & sm_mask) != 0u ||
         (s_tdma_pio_spi_tx_dma_channel >= 0 &&
          dma_channel_is_busy((uint)s_tdma_pio_spi_tx_dma_channel)) ||
@@ -743,6 +937,15 @@ bool tdma_pio_spi_programs_select(
         return false;
     }
     if (s_tdma_pio_spi_program_persona == persona) {
+        if (!tdma_pio_spi_programs_transfer_resources(
+                manager, phys, persona, persona)) {
+            phys->snapshot.program_switch_fail_count++;
+            (void)tdma_pio_spi_programs_transition(
+                manager, phys, TDMA_PIO_SPI_PERSONA_EVENT_BUSY, persona);
+            phys->snapshot.last_error =
+                TDMA_PIO_SPI_PHYS_ERROR_PERSONA_RESOURCE;
+            return false;
+        }
         phys->snapshot.program_persona = (uint32_t)persona;
         (void)tdma_pio_spi_programs_transition(
             manager, phys, TDMA_PIO_SPI_PERSONA_EVENT_RETAIN, persona);
@@ -765,28 +968,23 @@ bool tdma_pio_spi_programs_select(
         phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_PERSONA_BUSY;
         return false;
     }
+    if (!tdma_pio_spi_programs_transfer_resources(
+            manager, phys, previous, persona)) {
+        phys->snapshot.program_switch_fail_count++;
+        phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_PERSONA_RESOURCE;
+        (void)tdma_pio_spi_programs_transition(
+            manager, phys, TDMA_PIO_SPI_PERSONA_EVENT_LOAD_FAILED, persona);
+        tdma_pio_spi_programs_rollback(
+            manager, phys, previous, persona);
+        return false;
+    }
     if (!tdma_pio_spi_phys_load_programs(manager, persona)) {
         phys->snapshot.program_switch_fail_count++;
         phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_PROGRAM_LOAD;
         (void)tdma_pio_spi_programs_transition(
             manager, phys, TDMA_PIO_SPI_PERSONA_EVENT_LOAD_FAILED, persona);
-        if (previous != TDMA_PIO_SPI_PROGRAM_PERSONA_NONE &&
-            tdma_pio_spi_phys_load_programs(manager, previous)) {
-            s_tdma_pio_spi_program_persona = previous;
-            (void)tdma_pio_spi_programs_transition(
-                manager, phys,
-                TDMA_PIO_SPI_PERSONA_EVENT_ROLLBACK_LOADED, persona);
-        } else if (previous == TDMA_PIO_SPI_PROGRAM_PERSONA_NONE) {
-            (void)tdma_pio_spi_programs_transition(
-                manager, phys,
-                TDMA_PIO_SPI_PERSONA_EVENT_ROLLBACK_LOADED, persona);
-        } else {
-            (void)tdma_pio_spi_programs_transition(
-                manager, phys,
-                TDMA_PIO_SPI_PERSONA_EVENT_ROLLBACK_FAILED, persona);
-        }
-        phys->snapshot.program_persona =
-            (uint32_t)s_tdma_pio_spi_program_persona;
+        tdma_pio_spi_programs_rollback(
+            manager, phys, previous, persona);
         return false;
     }
     s_tdma_pio_spi_program_persona = persona;

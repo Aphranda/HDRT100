@@ -9,7 +9,6 @@
 #include "hardware/clocks.h"
 #include "hardware/pio.h"
 #include "pico/time.h"
-#include "resource_arbiter.h"
 #include "tdma_flight_overlay.h"
 #include "tdma_pio_spi.pio.h"
 #include "tdma_pio_spi_phys_timing.h"
@@ -46,7 +45,7 @@ _Static_assert(TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES >=
                "TRN-03B TX capture must hold one maximum short packet");
 
 static bool s_tdma_pio_spi_sms_claimed;
-static const char *const TDMA_FLIGHT_RESOURCE_OWNER = "TDMA_FLIGHT_PIO";
+static bool s_tdma_pio_spi_maintenance_resources_claimed;
 static tdma_pio_spi_program_persona_t s_tdma_pio_spi_program_persona;
 static uint s_tdma_pio_spi_tx_offset;
 static uint s_tdma_pio_spi_rx_offset;
@@ -115,6 +114,8 @@ static int s_tdma_pio_spi_tx_dma_channel = -1;
 static int s_tdma_pio_spi_rx_dma_channel = -1;
 static tdma_pio_spi_program_manager_t s_tdma_pio_spi_program_manager = {
     .sms_claimed = &s_tdma_pio_spi_sms_claimed,
+    .maintenance_resources_claimed =
+        &s_tdma_pio_spi_maintenance_resources_claimed,
     .program_persona = &s_tdma_pio_spi_program_persona,
     .tx_offset = &s_tdma_pio_spi_tx_offset,
     .rx_offset = &s_tdma_pio_spi_rx_offset,
@@ -401,46 +402,15 @@ static void tdma_pio_spi_phys_prepare_sm_pair(tdma_pio_spi_phys_t *phys)
     }
 }
 
-static bool tdma_pio_spi_phys_is_flight_persona(void)
-{
-    return s_tdma_pio_spi_program_persona ==
-               TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN ||
-           s_tdma_pio_spi_program_persona ==
-               TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER ||
-           s_tdma_pio_spi_program_persona ==
-               TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER;
-}
-
-static bool tdma_pio_spi_phys_claim_flight_resources(
-    tdma_pio_spi_phys_t *phys)
-{
-    if (phys == NULL) {
-        return false;
-    }
-    if (phys->flight_resource_claimed) {
-        return true;
-    }
-    if (!resource_arbiter_acquire_owned(
-            TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK,
-            TDMA_FLIGHT_RESOURCE_OWNER)) {
-        phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_RESOURCE_CONFLICT;
-        phys->snapshot.program_switch_fail_count++;
-        return false;
-    }
-    phys->flight_resource_claimed = true;
-    return true;
-}
-
 static void tdma_pio_spi_phys_release_flight_resources(
     tdma_pio_spi_phys_t *phys)
 {
-    if (phys == NULL || !phys->flight_resource_claimed) {
+    if (phys == NULL) {
         return;
     }
-    resource_arbiter_release_owned(
-        TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK,
-        TDMA_FLIGHT_RESOURCE_OWNER);
-    phys->flight_resource_claimed = false;
+    tdma_pio_spi_programs_release_resources(
+        &s_tdma_pio_spi_program_manager, phys,
+        TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN);
 }
 
 static void tdma_pio_spi_phys_enable_sm_pair(tdma_pio_spi_phys_t *phys)
@@ -1578,11 +1548,6 @@ bool tdma_pio_spi_phys_arm(void *context,
                 phys, TDMA_PIO_SPI_PHYS_ERROR_OVERLAY_PREPARE);
         }
     }
-    /* Reserve the full target contract before touching a flight persona.
-     * Every subsequent reject path releases this atomic admission. */
-    if (!tdma_pio_spi_phys_claim_flight_resources(phys)) {
-        return false;
-    }
     phys->flight_alignment_byte_shift = 0u;
     phys->flight_alignment_bit_shift = 0u;
     phys->flight_overlay_next_prepared = false;
@@ -1611,7 +1576,6 @@ bool tdma_pio_spi_phys_arm(void *context,
     phys->flight_normal_capture_rx_count = 0u;
     phys->flight_normal_capture_rx_cursor = 0u;
     if (!tdma_pio_spi_phys_select_program_persona(phys, flight_persona)) {
-        tdma_pio_spi_phys_release_flight_resources(phys);
         return false;
     }
     if (!tdma_pio_spi_phys_configure_flight(phys, config)) {

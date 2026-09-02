@@ -11,8 +11,7 @@ static bool tdma_pio_spi_phys_cal_persona_switch_ready(void)
     const uint32_t sm_mask = (1u << BOARD_TDMA_SPI_MASTER_SM) |
                              (1u << BOARD_TDMA_SPI_SLAVE_SM) |
                              (1u << BOARD_TDMA_SPI_CAPTURE_SM);
-    return tdma_pio_spi_phys_ensure_sms_claimed() &&
-           (BOARD_TDMA_SPI_PIO->ctrl & sm_mask) == 0u &&
+    return (BOARD_TDMA_SPI_PIO->ctrl & sm_mask) == 0u &&
            (s_tdma_pio_spi_tx_dma_channel < 0 ||
             !dma_channel_is_busy((uint)s_tdma_pio_spi_tx_dma_channel)) &&
            (s_tdma_pio_spi_rx_dma_channel < 0 ||
@@ -266,16 +265,22 @@ void tdma_pio_spi_phys_cal_loopback_service(tdma_pio_spi_phys_t *phys)
             tdma_pio_spi_phys_cal_unload_p3_step(phys);
         } else if (s_tdma_pio_spi_program_persona !=
                    TDMA_PIO_SPI_PROGRAM_PERSONA_NONE) {
-            const bool unloading_flight =
-                tdma_pio_spi_phys_is_flight_persona();
+            const tdma_pio_spi_program_persona_t source_persona =
+                s_tdma_pio_spi_program_persona;
             bool complete = false;
             if (!tdma_pio_spi_phys_cal_unload_source_step(
                     phys, &complete)) {
                 phys->snapshot.program_switch_fail_count++;
                 return;
             }
-            if (complete && unloading_flight) {
-                tdma_pio_spi_phys_release_flight_resources(phys);
+            if (complete &&
+                !tdma_pio_spi_programs_transfer_resources(
+                    &s_tdma_pio_spi_program_manager, phys, source_persona,
+                    TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL)) {
+                phys->snapshot.last_error =
+                    TDMA_PIO_SPI_PHYS_ERROR_PERSONA_RESOURCE;
+                phys->snapshot.program_switch_fail_count++;
+                return;
             }
         }
         if (s_tdma_pio_spi_program_persona ==
@@ -290,6 +295,11 @@ void tdma_pio_spi_phys_cal_loopback_service(tdma_pio_spi_phys_t *phys)
 
     if (phys->cal_loopback_transition ==
         TDMA_PIO_SPI_CAL_TRANSITION_STOP_LOAD) {
+        if (!tdma_pio_spi_phys_ensure_sms_claimed()) {
+            phys->snapshot.last_error =
+                TDMA_PIO_SPI_PHYS_ERROR_PERSONA_RESOURCE;
+            return;
+        }
         if (!tdma_pio_spi_phys_cal_load_normal_step(phys)) {
             phys->snapshot.program_switch_fail_count++;
             return;
@@ -307,6 +317,10 @@ void tdma_pio_spi_phys_cal_loopback_service(tdma_pio_spi_phys_t *phys)
         TDMA_PIO_SPI_CAL_TRANSITION_START_UNLOAD) {
         if (s_tdma_pio_spi_program_persona ==
             TDMA_PIO_SPI_PROGRAM_PERSONA_P3_REFERENCE) {
+            if (!tdma_pio_spi_phys_ensure_sms_claimed()) {
+                tdma_pio_spi_phys_cal_transition_fail(phys);
+                return;
+            }
             phys->cal_loopback_program_count = 3u;
             phys->cal_loopback_transition =
                 TDMA_PIO_SPI_CAL_TRANSITION_START_CONFIGURE_TX;
@@ -316,16 +330,21 @@ void tdma_pio_spi_phys_cal_loopback_service(tdma_pio_spi_phys_t *phys)
             tdma_pio_spi_phys_cal_transition_fail(phys);
             return;
         }
-        const bool unloading_flight =
-            tdma_pio_spi_phys_is_flight_persona();
+        const tdma_pio_spi_program_persona_t source_persona =
+            s_tdma_pio_spi_program_persona;
         bool complete = false;
         if (!tdma_pio_spi_phys_cal_unload_source_step(phys, &complete)) {
             tdma_pio_spi_phys_cal_transition_fail(phys);
             return;
         }
         if (complete) {
-            if (unloading_flight) {
-                tdma_pio_spi_phys_release_flight_resources(phys);
+            if (!tdma_pio_spi_programs_transfer_resources(
+                    &s_tdma_pio_spi_program_manager, phys, source_persona,
+                    TDMA_PIO_SPI_PROGRAM_PERSONA_P3_REFERENCE)) {
+                phys->snapshot.last_error =
+                    TDMA_PIO_SPI_PHYS_ERROR_PERSONA_RESOURCE;
+                tdma_pio_spi_phys_cal_transition_fail(phys);
+                return;
             }
             phys->cal_loopback_program_count = 0u;
             phys->cal_loopback_transition =
@@ -336,6 +355,12 @@ void tdma_pio_spi_phys_cal_loopback_service(tdma_pio_spi_phys_t *phys)
 
     if (phys->cal_loopback_transition ==
         TDMA_PIO_SPI_CAL_TRANSITION_START_LOAD) {
+        if (!tdma_pio_spi_phys_ensure_sms_claimed()) {
+            phys->snapshot.last_error =
+                TDMA_PIO_SPI_PHYS_ERROR_PERSONA_RESOURCE;
+            tdma_pio_spi_phys_cal_transition_fail(phys);
+            return;
+        }
         if (!tdma_pio_spi_phys_cal_load_p3_step(phys)) {
             tdma_pio_spi_phys_cal_transition_fail(phys);
             return;

@@ -57,14 +57,16 @@ def test_directional_contract_rejects_crossed_role_as_legacy_alias(
 
 
 def test_flight_claim_reserves_directional_runtime_resources() -> None:
-    phys = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(
+    programs = (
+        ROOT / "components/tdma/src/tdma_pio_spi_phys_programs.c"
+    ).read_text(
         encoding="utf-8"
     )
     resources = (
         ROOT / "components/tdma/inc/tdma_state_machine_resources.h"
     ).read_text(encoding="utf-8")
 
-    assert "TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK" in phys
+    assert "TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK" in programs
     for token in (
         "RESOURCE_ARBITER_RESOURCE_TDMA_DMA_CAPTURE",
         "RESOURCE_ARBITER_RESOURCE_TDMA_DMA_OUTPUT",
@@ -138,18 +140,106 @@ def test_flight_claim_is_released_on_arm_failure_and_stop() -> None:
         "static bool tdma_pio_spi_phys_tx_put", 1
     )[0]
 
-    claim = arm.index("tdma_pio_spi_phys_claim_flight_resources")
-    select = arm.index("tdma_pio_spi_phys_select_program_persona")
-    assert claim < select
-    assert arm.count("tdma_pio_spi_phys_release_flight_resources(phys)") == 6
+    assert "tdma_pio_spi_phys_claim_flight_resources" not in arm
+    assert arm.count("tdma_pio_spi_phys_release_flight_resources(phys)") == 5
     assert "tdma_pio_spi_phys_release_flight_resources(phys)" in disarm
 
 
-def test_calibration_releases_completed_flight_admission() -> None:
+def test_maintenance_persona_has_independent_resource_owner() -> None:
+    board = (ROOT / "boards/rp2350_trig/inc/board_config.h").read_text(
+        encoding="utf-8"
+    )
+    resources = (
+        ROOT / "components/tdma/inc/tdma_state_machine_resources.h"
+    ).read_text(encoding="utf-8")
+    programs = (
+        ROOT / "components/tdma/src/tdma_pio_spi_phys_programs.c"
+    ).read_text(encoding="utf-8")
+
+    assert "BOARD_TDMA_SPI_PIO_BLOCK_ID" in board
+    assert "TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK" in resources
+    for token in (
+        "TDMA_STATE_MACHINE_MAINTENANCE_PIO_RESOURCE",
+        "RESOURCE_ARBITER_RESOURCE_TDMA_DMA_CAPTURE",
+        "RESOURCE_ARBITER_RESOURCE_TDMA_DMA_OUTPUT",
+        "RESOURCE_ARBITER_RESOURCE_TDMA_GPIO",
+        "RESOURCE_ARBITER_RESOURCE_TDMA_IRQ",
+        "RESOURCE_ARBITER_RESOURCE_TDMA_DREQ",
+    ):
+        assert token in resources
+    assert '"TDMA_MAINTENANCE_PIO"' in programs
+    ensure = programs.split(
+        "bool tdma_pio_spi_programs_ensure_sms_claimed", 1
+    )[1].split("void tdma_pio_spi_programs_release_resources", 1)[0]
+    assert ensure.index("resource_arbiter_acquire_owned") < ensure.index(
+        "tdma_pio_spi_programs_ensure_hardware_sms_claimed"
+    )
+    assert "resource_arbiter_release_owned" in ensure
+    release = programs.split(
+        "void tdma_pio_spi_programs_release_resources", 1
+    )[1].split("bool tdma_pio_spi_programs_transfer_resources", 1)[0]
+    assert release.count("tdma_pio_spi_programs_release_hardware_sms") == 2
+    flight_owner = release.index("if (phys->flight_resource_claimed)")
+    flight_unclaim = release.index(
+        "tdma_pio_spi_programs_release_hardware_sms", flight_owner
+    )
+    maintenance_owner = release.index(
+        "else if (*manager->maintenance_resources_claimed)"
+    )
+    maintenance_unclaim = release.index(
+        "tdma_pio_spi_programs_release_hardware_sms", maintenance_owner
+    )
+    assert flight_owner < flight_unclaim < maintenance_owner
+    assert maintenance_owner < maintenance_unclaim
+
+
+def test_persona_resource_transfer_is_quiesced_and_rollback_is_owned() -> None:
+    programs = (
+        ROOT / "components/tdma/src/tdma_pio_spi_phys_programs.c"
+    ).read_text(encoding="utf-8")
+    select = programs.split("bool tdma_pio_spi_programs_select", 1)[1]
+    unload = select.index("tdma_pio_spi_phys_unload_programs")
+    transfer = select.index(
+        "tdma_pio_spi_programs_transfer_resources", unload
+    )
+    load = select.index("tdma_pio_spi_phys_load_programs", transfer)
+    assert unload < transfer < load
+
+    rollback = programs.split(
+        "static void tdma_pio_spi_programs_rollback", 1
+    )[1].split("bool tdma_pio_spi_programs_select", 1)[0]
+    release = rollback.index("tdma_pio_spi_programs_release_resources")
+    restore_owner = rollback.index(
+        "tdma_pio_spi_programs_transfer_resources", release
+    )
+    restore_program = rollback.index(
+        "tdma_pio_spi_phys_load_programs", restore_owner
+    )
+    assert release < restore_owner < restore_program
+    assert "TDMA_PIO_SPI_PERSONA_EVENT_ROLLBACK_FAILED" in rollback
+
+
+def test_calibration_transfers_owner_only_after_incremental_unload() -> None:
     service = (
         ROOT / "components/tdma/src/tdma_pio_spi_phys_cal_service.inc"
     ).read_text(encoding="utf-8")
 
-    assert service.count("const bool unloading_flight") == 2
-    assert service.count("complete && unloading_flight") == 1
-    assert service.count("tdma_pio_spi_phys_release_flight_resources(phys)") == 2
+    ready = service.split(
+        "static bool tdma_pio_spi_phys_cal_persona_switch_ready", 1
+    )[1].split("static bool tdma_pio_spi_phys_cal_unload_source_step", 1)[0]
+    assert "ensure_sms_claimed" not in ready
+    assert service.count("source_persona") == 4
+    assert service.count("tdma_pio_spi_programs_transfer_resources") == 2
+    assert "TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL" in service
+    assert "TDMA_PIO_SPI_PROGRAM_PERSONA_P3_REFERENCE" in service
+    assert "tdma_pio_spi_phys_release_flight_resources" not in service
+    start = service.split(
+        "    if (phys->cal_loopback_transition ==\n"
+        "        TDMA_PIO_SPI_CAL_TRANSITION_START_UNLOAD) {", 1
+    )[1].split(
+        "    if (phys->cal_loopback_transition ==\n"
+        "        TDMA_PIO_SPI_CAL_TRANSITION_START_LOAD) {", 1
+    )[0]
+    unload = start.index("tdma_pio_spi_phys_cal_unload_source_step")
+    transfer = start.index("tdma_pio_spi_programs_transfer_resources")
+    assert unload < transfer
