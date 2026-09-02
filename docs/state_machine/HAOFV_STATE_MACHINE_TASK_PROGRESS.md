@@ -9,6 +9,37 @@ Last updated: 2026-09-03
 本文档只记录状态机域的实施、构建、测试、OTA/HIL、失败和回退证据；任务状态以
 `HAOFV_STATE_MACHINE_TODO.md` 为唯一事实源，稳定语义以架构文档为准。
 
+### SM-PROGRESS-20260903-027 - maintenance/flight persona 统一资源仲裁
+
+- TODO task ID：`SM-RES-002`；代码提交为 `54820e5`，已推送到当前远端分支。
+  board contract 增加 maintenance PIO block ID，resource contract 增加 maintenance mask；
+  maintenance 与 flight 使用独立 owner。program manager 统一持有 resource arbiter owner、
+  PIO SM claim/unclaim、persona 资源转移，以及目标装载失败后的旧 owner 和旧程序恢复。
+  普通 persona select 与分步 P3 calibration 共用同一转移原语，ARM 不再在 manager 外预先
+  申请 flight 资源，STOP 和失败路径统一释放 owner。本切片未修改 PIO 指令、帧格式或实时
+  收发算法。
+- 软件验证：release 构建位于
+  `out/build/sm-res-002-maint-owner-20260903/`，build ID 验收快照（非事实源）为
+  `20260902223523`；完整 Python 回归验收快照（非事实源）为 `646 passed`。resource
+  arbiter 和 TDMA persona FSM host 测试通过，重点 TDMA 回归验收快照（非事实源）为
+  `111 passed`。
+- 当前源码指纹的统一 QUICK P3 位于
+  `out/hardware-acceptance/sm-res-002-maint-owner-p3-quick-20260903/`。NO1--NO4 使用同一
+  package 完成 OTA，P0T、TRN-00、TRN-01、TRN-02、TRN-03 staging 和 startup barrier
+  均执行完成；四板进入 flight 后未出现 persona resource 错误。流程保留 coarse topology
+  旧 readback、启动期约一个坏帧和 NO1 默认 SD timeout，因此
+  `flow_completed=true`、`passed=true`，同时 `strict_gates_passed=false`，不把调试流程
+  完成解释为严格零错误。
+- 不重复 OTA/P0/TRN-00--02 的 TRN-03B 聚焦复核位于
+  `out/hardware-acceptance/sm-res-002-maint-owner-tdma-rerun-20260903/`。统一长连接串口完成
+  maintenance 到 flight 转移、四板 ARM、startup barrier、稳态短帧和最终 STOP；
+  `passed=true` 且 error 为空。NO1--NO4 四份 SD 原始 capture 均完成下载，四份 SVG 和
+  `analysis/ring_capture_analysis.json` 均通过。前一复核目录保留一次 Windows
+  `progress.json.tmp` rename 偶发失败；新目录重跑未复现，板端和波形结论不受影响。
+- `SM-RES-002` 据统一 owner/SM 生命周期、host/build、同包四板 OTA、短帧闭环与四板 SD
+  波形标记为 `DONE`。下一唯一执行项为 `SM-RES-007`：补齐 GPIO/DREQ/persona owner 的
+  运行时冲突、错误快照和失败后无泄漏恢复负测，再收口 `SM-RES-001` 与 SM-M2。
+
 ### SM-PROGRESS-20260903-026 - resident cycle 最终统一验收
 
 - TODO task ID：`SM-CYCLE-006`、`SM-RES-010`；快速训练工具与验收配置提交为
@@ -545,6 +576,7 @@ Last updated: 2026-09-03
 
 | progress ID | TODO task ID | 证据 |
 |---|---|---|
+| SM-PROGRESS-20260903-027 | SM-RES-002 | 提交 `54820e5`；构建 `out/build/sm-res-002-maint-owner-20260903/`；统一 QUICK P3 `out/hardware-acceptance/sm-res-002-maint-owner-p3-quick-20260903/`；严格 TRN-03B 与四板 SD/SVG `out/hardware-acceptance/sm-res-002-maint-owner-tdma-rerun-20260903/`。 |
 | SM-PROGRESS-20260903-026 | SM-CYCLE-006 / SM-RES-010 | 提交 `0934d7f`；构建 `out/build/sm-cycle-006-adaptive-sck-20260903/`；最终统一 P3、严格 TDMA 与四板 SD/SVG `out/hardware-acceptance/sm-cycle-006-adaptive-sck-p3-quick-20260903/`。 |
 | SM-PROGRESS-20260903-025 | SM-CYCLE-005 | 提交 `8117cc9`；`out/build/sm-cycle-005-evidence-20260903/`；快速 P3 `out/hardware-acceptance/sm-cycle-005-evidence-p3-quick-20260903/`；严格 row 7 闭环 `out/hardware-acceptance/sm-cycle-005-tdma-row007-confirm-20260903/`；同参数 SD/SVG `out/hardware-acceptance/sm-cycle-005-evidence-tdma-row007-final-20260903/`。 |
 | SM-PROGRESS-20260903-024 | SM-CYCLE-004 | 提交 `48e3523`；`out/build/sm-cycle-004-overlay-20260903/`；FULL 闭环 `out/hardware-acceptance/sm-cycle-009-overlay-p3-quick-20260903/`；快速 receipt `out/hardware-acceptance/sm-cycle-009-overlay-p3-fast-resume-20260903/`。 |
