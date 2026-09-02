@@ -504,8 +504,14 @@ def test_bench_and_orchestrator_cover_full_hardware_acceptance() -> None:
     assert resolve_path_delay_baseline_divisor(bench) == 2
     quick = json.loads((ROOT / "config" / "hardware_acceptance" /
                         "p3_bench_quick.json").read_text(encoding="utf-8"))
-    assert resolve_path_delay_baseline_divisor(load_bench_config(
-        ROOT / "config" / "hardware_acceptance" / "p3_bench_quick.json")) == 2
+    loaded_quick = load_bench_config(
+        ROOT / "config" / "hardware_acceptance" / "p3_bench_quick.json")
+    assert resolve_path_delay_baseline_divisor(loaded_quick) == 2
+    assert quick["training_sck_repeats"] == 8
+    assert quick["training_sck_min_repeats"] == 3
+    assert quick["training_sck_min_follower_candidates"] == 2
+    assert loaded_quick["training_sck_offsets_by_node"] == [0, 0, 0, 0]
+    assert loaded_quick["training_max_offset_span"] == 1
     source = (ROOT / "tools" / "hardware_acceptance" /
               "p3_hardware_acceptance.py").read_text(encoding="utf-8")
     for tool in (
@@ -534,6 +540,8 @@ def test_bench_and_orchestrator_cover_full_hardware_acceptance() -> None:
     assert "FOUR_NODE_TDMA" in source
     assert '"--codebook", str(config["training_marker_codebook"])' in source
     assert '"--codebook", str(config["training_sck_codebook"])' in source
+    assert '"--min-repeats", str(config.get(' in source
+    assert '"--min-follower-candidates", str(config.get(' in source
     assert '"--codebook", str(config["training_data_codebook"])' in source
     assert "Hardware acceptance: TRN-00 accepted MARK offset row" in source
     assert "Hardware acceptance: TRN-01 SCK offset matrix" in source

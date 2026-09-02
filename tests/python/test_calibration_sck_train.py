@@ -9,6 +9,7 @@ from tools.calibration_ring_validate.calibration_sck_train import (
     SCK_FIELDS,
     build_sck_offset_matrix,
     parse_sck_status,
+    sck_link_candidate_coverage_complete,
     summarize_repeat_matrix,
     summarize_sck_capture,
     validate_link,
@@ -109,6 +110,88 @@ def test_sck_offset_matrix_is_complete_for_all_nodes() -> None:
     summary = summarize_repeat_matrix(trials, 4, 2, 1, 4)
     assert summary["passed"] is True
     assert len(summary["offset_matrix"]["rows"]) == 16
+
+
+def test_sck_adaptive_repeats_wait_for_follower_candidate_coverage() -> None:
+    trials = []
+    for repeat, offset in enumerate((1, 1, 0), 1):
+        trials.append({
+            "link": 0,
+            "destination_node": 1,
+            "repeat_index": repeat,
+            "passed": True,
+            "calibrated_sck_offset_sample_count": offset,
+        })
+        assert sck_link_candidate_coverage_complete(
+            trials, link=0, destination_node=1, reference_node=0,
+            min_repeats=3, min_follower_candidates=2) is (repeat == 3)
+
+    reference_trials = [{
+        "link": 3,
+        "destination_node": 0,
+        "passed": True,
+        "calibrated_sck_offset_sample_count": 1,
+    } for _ in range(3)]
+    assert sck_link_candidate_coverage_complete(
+        reference_trials, link=3, destination_node=0, reference_node=0,
+        min_repeats=3, min_follower_candidates=2) is True
+
+
+def test_sck_adaptive_summary_accepts_per_link_repeat_counts() -> None:
+    trials = []
+    offsets_by_link = ((1, 1, 0), (1, 1, 1, 0),
+                       (1, 1, 1, 1, 0), (1, 1, 1))
+    for link, offsets in enumerate(offsets_by_link):
+        for offset in offsets:
+            trials.append({
+                "link": link,
+                "source_node": link,
+                "destination_node": (link + 1) % 4,
+                "passed": True,
+                "calibrated_sck_offset_sample_count": offset,
+                "destination": {
+                    "calibration_generation": 9,
+                    "topology_generation": 10 + ((link + 1) % 4),
+                    "topology_crc32": 11,
+                    "profile_crc32": 12,
+                    "schedule_crc32": 13,
+                    "sample_period_ns": 4,
+                },
+            })
+    summary = summarize_repeat_matrix(
+        trials, 4, 8, 1, 4, min_repeats=3,
+        min_follower_candidates=2, reference_node=0)
+    assert summary["passed"] is True
+    assert summary["adaptive_repeat_enabled"] is True
+    assert summary["trial_count"] == 15
+    assert [link["trial_count"] for link in summary["links"]] == [3, 4, 5, 3]
+
+
+def test_sck_adaptive_summary_reports_missing_candidate_coverage() -> None:
+    trials = []
+    for link in range(4):
+        for _ in range(3):
+            trials.append({
+                "link": link,
+                "source_node": link,
+                "destination_node": (link + 1) % 4,
+                "passed": True,
+                "calibrated_sck_offset_sample_count": 1,
+                "destination": {
+                    "calibration_generation": 9,
+                    "topology_generation": 10 + ((link + 1) % 4),
+                    "topology_crc32": 11,
+                    "profile_crc32": 12,
+                    "schedule_crc32": 13,
+                    "sample_period_ns": 4,
+                },
+            })
+    summary = summarize_repeat_matrix(
+        trials, 4, 8, 1, 4, min_repeats=3,
+        min_follower_candidates=2, reference_node=0)
+    assert summary["passed"] is False
+    assert summary["links"][0]["gate_failures"] == ["candidate_coverage"]
+    assert summary["links"][3]["gate_failures"] == []
 
 
 def test_sck_offset_matrix_recommends_weighted_mode() -> None:

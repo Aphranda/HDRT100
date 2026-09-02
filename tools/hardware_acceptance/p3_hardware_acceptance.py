@@ -1708,6 +1708,10 @@ def run_acceptance(args: argparse.Namespace) -> None:
         "--level", str(config["training_profile_level"]),
         "--codebook", str(config["training_sck_codebook"]),
         "--all-links", "--repeats", str(config["training_sck_repeats"]),
+        "--min-repeats", str(config.get(
+            "training_sck_min_repeats", config["training_sck_repeats"])),
+        "--min-follower-candidates", str(config.get(
+            "training_sck_min_follower_candidates", 1)),
         "--max-offset-span", str(config["training_max_offset_span"]),
         "--epoch", "48", "--generation", str(training_generation),
         "--reuse-ring-identity", *link_delay_args,

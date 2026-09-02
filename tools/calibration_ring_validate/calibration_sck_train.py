@@ -320,27 +320,41 @@ def build_sck_offset_matrix(trials: list[dict[str, object]],
 
 def summarize_repeat_matrix(trials: list[dict[str, object]], node_count: int,
                             repeats: int, max_offset_span: int,
-                            sample_period_ns: int) -> dict[str, object]:
+                            sample_period_ns: int, *,
+                            min_repeats: int | None = None,
+                            min_follower_candidates: int = 1,
+                            reference_node: int = 0) -> dict[str, object]:
+    minimum = repeats if min_repeats is None else min_repeats
     links = []
     for link in range(node_count):
         rows = [row for row in trials if int(row.get("link", -1)) == link]
         accepted = [row for row in rows if bool(row.get("passed"))]
         offsets = [int(row["calibrated_sck_offset_sample_count"])
                    for row in accepted]
+        destination = (link + 1) % node_count
+        required_candidates = (
+            1 if destination == reference_node else min_follower_candidates)
+        candidate_count = len(set(offsets))
         failures = []
-        if len(rows) != repeats:
+        if not minimum <= len(rows) <= repeats:
             failures.append("trial_count")
-        if len(accepted) != repeats:
+        if len(accepted) != len(rows):
             failures.append("rejected_trial")
+        if candidate_count < required_candidates:
+            failures.append("candidate_coverage")
         span = max(offsets) - min(offsets) if offsets else None
         if span is None or span > max_offset_span:
             failures.append("offset_span")
         links.append({
             "link": link,
             "source_node": link,
-            "destination_node": (link + 1) % node_count,
+            "destination_node": destination,
             "trial_count": len(rows),
             "accepted_count": len(accepted),
+            "minimum_repeat_count": minimum,
+            "maximum_repeat_count": repeats,
+            "required_candidate_count": required_candidates,
+            "candidate_count": candidate_count,
             "offset_histogram": {
                 str(key): value for key, value in
                 sorted(Counter(offsets).items())},
@@ -377,7 +391,7 @@ def summarize_repeat_matrix(trials: list[dict[str, object]], node_count: int,
         for node in range(node_count)
         if len(topology_generation_by_node[str(node)]) != 1)
     gate_failures = []
-    if len(trials) != node_count * repeats:
+    if not node_count * minimum <= len(trials) <= node_count * repeats:
         gate_failures.append("matrix_trial_count")
     if any(not bool(row.get("passed")) for row in trials):
         gate_failures.append("matrix_rejected_trial")
@@ -391,6 +405,8 @@ def summarize_repeat_matrix(trials: list[dict[str, object]], node_count: int,
         gate_failures.append("sck_offset_matrix_incomplete")
     return {
         "expected_trial_count": node_count * repeats,
+        "minimum_trial_count": node_count * minimum,
+        "adaptive_repeat_enabled": minimum != repeats,
         "trial_count": len(trials),
         "accepted_count": sum(bool(row.get("passed")) for row in trials),
         "identity": identity,
@@ -400,6 +416,23 @@ def summarize_repeat_matrix(trials: list[dict[str, object]], node_count: int,
         "gate_failures": gate_failures,
         "passed": not gate_failures,
     }
+
+
+def sck_link_candidate_coverage_complete(
+        trials: list[dict[str, object]], *, link: int, destination_node: int,
+        reference_node: int, min_repeats: int,
+        min_follower_candidates: int) -> bool:
+    """Return whether one link has enough accepted quantized candidates."""
+    rows = [row for row in trials if int(row.get("link", -1)) == link]
+    if len(rows) < min_repeats:
+        return False
+    if destination_node == reference_node:
+        return True
+    candidates = {
+        int(row["calibrated_sck_offset_sample_count"])
+        for row in rows if bool(row.get("passed"))
+    }
+    return len(candidates) >= min_follower_candidates
 
 
 def parse_args() -> argparse.Namespace:
@@ -431,6 +464,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-margin", type=int, default=0)
     parser.add_argument("--all-links", action="store_true")
     parser.add_argument("--repeats", type=int, default=8)
+    parser.add_argument(
+        "--min-repeats", type=int,
+        help="minimum repeats before adaptive candidate coverage may stop")
+    parser.add_argument(
+        "--min-follower-candidates", type=int, default=1,
+        help="distinct accepted offsets required for each follower link")
     parser.add_argument("--max-offset-span", type=int, default=1)
     parser.add_argument("--level", type=int, default=7)
     parser.add_argument("--reuse-ring-identity", action="store_true")
@@ -488,13 +527,17 @@ def validate_hil_args(args: argparse.Namespace) -> list[str]:
         validate_generation(args.generation)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
+    min_repeats = args.repeats if args.min_repeats is None else args.min_repeats
     if not (0 <= args.codebook <= 3 and 1 <= args.epoch <= 255 and
             args.sck_launch_guard_samples > 0 and
             args.sample_period_ns > 0 and
             -10 <= args.search_start <= args.search_end <= 10 and
             1 <= args.repeats <= 1000 and
+            1 <= min_repeats <= args.repeats and
+            1 <= args.min_follower_candidates <= args.max_offset_span + 1 and
             0 <= args.max_offset_span <= 20):
         raise SystemExit("invalid bounded SCK search parameters")
+    args.min_repeats = min_repeats
     return board_ids
 
 
@@ -764,15 +807,32 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             }}, ensure_ascii=False), flush=True)
             trial_index += 1
             time.sleep(args.gap)
+            if sck_link_candidate_coverage_complete(
+                    trials, link=link,
+                    destination_node=(link + 1) % len(ordered),
+                    reference_node=args.reference_node,
+                    min_repeats=args.min_repeats,
+                    min_follower_candidates=args.min_follower_candidates):
+                print(json.dumps({"sck_candidate_coverage": {
+                    "link": link,
+                    "destination_node": (link + 1) % len(ordered),
+                    "repeat_count": repeat_index,
+                    "stopped_before_maximum": repeat_index < args.repeats,
+                }}, ensure_ascii=False), flush=True)
+                break
     matrix = summarize_repeat_matrix(
         trials, len(ordered), args.repeats, args.max_offset_span,
-        args.sample_period_ns)
+        args.sample_period_ns, min_repeats=args.min_repeats,
+        min_follower_candidates=args.min_follower_candidates,
+        reference_node=args.reference_node)
     return {
         "phase": "TRN-01_SCK_OFFSET_MATRIX",
         "diagnostic_only": True,
         "node_ids_in_loop_order": board_ids,
         "boards": {board.address: asdict(board) for board in ordered},
         "repeats": args.repeats,
+        "minimum_repeats": args.min_repeats,
+        "minimum_follower_candidates": args.min_follower_candidates,
         "max_offset_span_sample": args.max_offset_span,
         "calibration_generation": args.generation,
         "training_parameters": {
