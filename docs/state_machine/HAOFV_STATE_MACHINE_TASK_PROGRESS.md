@@ -9,6 +9,40 @@ Last updated: 2026-09-03
 本文档只记录状态机域的实施、构建、测试、OTA/HIL、失败和回退证据；任务状态以
 `HAOFV_STATE_MACHINE_TODO.md` 为唯一事实源，稳定语义以架构文档为准。
 
+### SM-PROGRESS-20260903-023 - reference resident runtime 接入与 RTT 观测解耦
+
+- TODO task ID：`SM-CYCLE-003`；代码提交为 `e8fe3ab`，已推送到当前远端分支。
+  reference 角色在启动时只 seed 一次 resident image；有效返回帧经本地 UNLOAD/LOAD 和
+  transport boundary helper 形成下一 cycle，物理发送由 completion/deadline 驱动。
+  `TX_BUSY` 是可重试背压，不再直接进入 `FAULT`；返回帧缺失时从最后有效 resident image
+  继续生成 stale cycle，不从 alignment 或空 payload 重建。
+- 新增的 host 回归覆盖 resident sequence 推进与 hop 重置、本地 mailbox 更新、远端 payload
+  保留、retryable busy 延后发送、丢失返回后的 stale cycle，以及 follower overlay 的首轮、
+  后续 cycle 和 sequence 回绕。RTT seed 写入观测 PIO SM TX FIFO 失败时只跳过本次观测，
+  不再参与实时 TX admission；源码回归冻结“观测背压不得阻塞 resident flight”。
+- host/build 验证：完整 Python 测试快照（非事实源）为 `641 passed, 1 skipped`；TDMA
+  adapter/FSM/transport 纯 C 测试、ARM 交叉编译和 release gate 通过。独立 host runner 中
+  `vdc_domain` 的四项既有数值断言仍失败，本切片未修改 VDC 文件，也不将该结果记作本任务
+  新回归。
+- 开发闭环证据位于
+  `out/hardware-acceptance/sm-cycle-007-rtt-nonblocking-20260903/tdma-process-image/`。
+  验收快照（非事实源）：NO1 sequence 从 `462` 推进到 `766`，return sequence 到 `764`，
+  物理发送累计到 `791`；`tx_busy_count=0`，最终 adapter/physical error 均为 `0`。在返回
+  缺失窗口内 timeout 与 stale cycle 均累计到 `653`，但 resident sequence 仍持续推进，证明
+  错误参数被记录而未由调试门禁拒绝后续执行。NO1--NO4 SD capture、下载和 SVG 分析完成，
+  `diagnostic_passed=true`。
+- 标准快速 P3 证据位于
+  `out/hardware-acceptance/sm-cycle-008-p3-quick-20260903/`，receipt 已写入
+  `config/hardware_acceptance/p3_acceptance_receipt.json`。同包四板运行 build
+  `20260902195504`；NO1 sequence 从 `446` 推进到 `749`、return sequence 到 `747`，
+  NO2--NO4 sequence/return sequence 均推进到 `749`；四板 `tx_busy_count=0`，最终
+  adapter/physical error 均为 `0`，四份 SD 原始波形和 SVG 均已归档。receipt 的
+  `passed=true` 表示快速 diagnostic 流程完整执行并取得证据，`strict_gates_passed=false`
+  仍保留校准/启动严格门禁诊断，不冒充严格功能验收通过。
+- `SM-CYCLE-003` 据此标记为 `DONE`。下一唯一执行项是 `SM-CYCLE-004`：验证同一 resident
+  image 依次保留 NO1--NO4 segment、无新 generation 时旧值透传，以及 cycle sequence 与
+  segment generation 独立；证据不足前不修改 follower PIO 算法。
+
 ### SM-PROGRESS-20260903-022 - resident communication FSM 与快速闭环
 
 - TODO task ID：`SM-CYCLE-000`、`SM-CYCLE-001`、`SM-CYCLE-002`；代码提交为
