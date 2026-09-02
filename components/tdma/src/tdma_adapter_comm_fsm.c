@@ -58,7 +58,7 @@ static bool tdma_adapter_comm_fsm_complete_if_ready(
     }
     fsm->completed_window_count++;
     tdma_adapter_comm_fsm_transition(
-        fsm, TDMA_ADAPTER_COMM_STATE_FRAME_COMPLETE,
+        fsm, TDMA_ADAPTER_COMM_STATE_CYCLE_BOUNDARY,
         TDMA_ADAPTER_COMM_ERROR_NONE);
     return true;
 }
@@ -159,15 +159,15 @@ bool tdma_adapter_comm_fsm_dispatch(tdma_adapter_comm_fsm_t *fsm,
         }
         break;
 
-    case TDMA_ADAPTER_COMM_STATE_FRAME_COMPLETE:
-        if (event == TDMA_ADAPTER_COMM_EVENT_ARM) {
+    case TDMA_ADAPTER_COMM_STATE_CYCLE_BOUNDARY:
+        if (event == TDMA_ADAPTER_COMM_EVENT_BEGIN_NEXT_CYCLE) {
             fsm->window_sequence++;
             fsm->clock_tx_active = false;
             fsm->data_rx_active = false;
             fsm->clock_tx_complete = false;
             fsm->data_rx_complete = false;
             tdma_adapter_comm_fsm_transition(
-                fsm, TDMA_ADAPTER_COMM_STATE_ARMED,
+                fsm, TDMA_ADAPTER_COMM_STATE_RUNNING,
                 TDMA_ADAPTER_COMM_ERROR_NONE);
             return true;
         }

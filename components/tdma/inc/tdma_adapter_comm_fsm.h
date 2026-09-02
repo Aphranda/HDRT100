@@ -4,13 +4,14 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* Adapter window lifecycle. CLOCK_TX and DATA_RX are independent activities
- * within one window; RUNNING does not imply that either one has completed. */
+/* Adapter resident-cycle lifecycle. CLOCK_TX and DATA_RX are independent
+ * activities within one physical window. Completing both reaches a cycle
+ * boundary; it does not disarm the resident process image. */
 typedef enum {
     TDMA_ADAPTER_COMM_STATE_STOPPED = 0u,
     TDMA_ADAPTER_COMM_STATE_ARMED = 1u,
     TDMA_ADAPTER_COMM_STATE_RUNNING = 2u,
-    TDMA_ADAPTER_COMM_STATE_FRAME_COMPLETE = 3u,
+    TDMA_ADAPTER_COMM_STATE_CYCLE_BOUNDARY = 3u,
     TDMA_ADAPTER_COMM_STATE_FAULT = 4u,
 } tdma_adapter_comm_state_t;
 
@@ -23,6 +24,7 @@ typedef enum {
     TDMA_ADAPTER_COMM_EVENT_STOP = 5u,
     TDMA_ADAPTER_COMM_EVENT_ERROR = 6u,
     TDMA_ADAPTER_COMM_EVENT_RESET = 7u,
+    TDMA_ADAPTER_COMM_EVENT_BEGIN_NEXT_CYCLE = 8u,
 } tdma_adapter_comm_event_t;
 
 typedef enum {
