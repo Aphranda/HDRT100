@@ -18,7 +18,7 @@ Last updated: 2026-09-03
 `UNLOAD -> LOAD -> FORWARD`，不因物理 frame 完成而终止。每一步均须可回退，并以同一 OTA
 包完成闭环后才能推进下一步。
 
-当前唯一执行入口是下文 `SM-CYCLE-004`。表中其他 `IN PROGRESS` 表示已有部分实现或
+当前唯一执行入口是下文 `SM-CYCLE-005`。表中其他 `IN PROGRESS` 表示已有部分实现或
 证据尚未收口，不代表允许并行继续修改；resident cycle 验收前暂停 maintenance persona、
 剩余 resource-arbiter 和 AO/Core1 编排迁移。
 
@@ -62,7 +62,7 @@ phase、recovery 静态预算或 FreeRTOS heap；超限必须在构建或 Deploy
 | SM-M1 | 资源和方向契约冻结 | DONE | 三 PIO 职责、TX/RX 端口均含 IN/OUT，且 CLK/SYNC 与 DATA 的交叉方向、FIFO/DMA owner 已在架构文档登记。 |
 | SM-M2 | board/profile/resource arbiter 迁移 | IN PROGRESS | PIO、SM、DMA、GPIO 和 persona 均由独立符号声明，冲突 fail-closed；flight PIO/SM claim 与 process-image ARM admission 已接入，DMA/GPIO 完整仲裁仍待完成。 |
 | SM-M3 | TX/RX 交叉方向 PIO 原语 | IN PROGRESS | flight origin/follower 已按 TX/RX PIO 装载方向原语；专用原语完整验证和 maintenance persona 边界仍待完成。 |
-| SM-M4 | follower forward/capture 双路径 | IN PROGRESS | 当前 flight follower 由 RX DATA SM 以 `push noblock` 同时完成 wire forward 与 RX 卸载，DMA 只消费该 FIFO；独立 sampler 不在运行态启用。仍需四板 process-image HIL 和诊断 capture 窗口验收。 |
+| SM-M4 | follower forward/capture 双路径 | IN PROGRESS | 当前 flight follower 由 RX DATA SM 以 `push noblock` 同时完成 wire forward 与 RX 卸载，DMA 只消费该 FIFO；独立 sampler 不在运行态启用。四板 process-image HIL 和停止态诊断 capture 已取得，仍需收口 endpoint 静态检查与 maintenance persona 边界。 |
 | SM-M7 | resident process image cycle FSM | IN PROGRESS | `RESIDENT_INIT` 只注入一次；`RUNNING` 持续执行 cycle boundary、本地 UNLOAD/LOAD 和 FORWARD；无更新透传；物理 frame completion 回到下一 cycle；STOP、复位、故障或重新配置受控退出。 |
 | SM-M5 | 四板 TDMA 验收 | PENDING | build、pytest、四板异步 OTA、TDMA HIL 和 SD 原始波形通过；不要求 NO5。 |
 | SM-M6 | NO5 DPLL/VDC 观测验收 | PENDING | 在 SM-M5 通过后，NO5 只读 evidence、DPLL lock 和 VDC readback 全通过；NO5 不进入 TDMA ring。 |
@@ -101,8 +101,8 @@ transport helper 和 communication FSM 是角色无关的边界件，不改变 N
 | SM-CYCLE-001 | 冻结 returned frame 到 next cycle 的 transport boundary helper | DONE | helper 的 host test 和固件 build 通过；在 `SM-CYCLE-000` 恢复基线后补跑快速 TDMA-only，证明未接 runtime 的 helper 不改变现有短帧行为。返回 payload 保留，reference 本地 segment 可更新，cycle sequence 推进，hop count 重置，完整性按协议重算。 |
 | SM-CYCLE-002 | 将 adapter communication FSM 改为 resident cycle 语义 | DONE | `FRAME_COMPLETE` 终止态被非终止 `CYCLE_BOUNDARY` 取代；一次 ARM 后每轮清理物理 window 标志并保持 `RUNNING`，STOP、RESET、ERROR 转移、纯 C 单测及快速 TDMA-only 闭环通过。 |
 | SM-CYCLE-003 | 仅将 reference runtime 接入 resident FSM 和 transport helper | DONE | reference 启动时只 seed 一次；返回帧到达后执行 `LOCAL_UNLOAD/LOAD -> begin next cycle -> phys_tx`，发送由 completion/backpressure 驱动；丢失返回帧时从最后有效 resident image 生成 stale cycle；RTT 观测 FIFO 背压不得阻塞实时发送；host/build、四板快速闭环、SD 原始波形和标准快速 P3 receipt 已收口，角色选择未写死 NO1 板号。 |
-| SM-CYCLE-004 | 验证四节点同轮 overlay 和 follower 兼容性 | IN PROGRESS | 同一 resident image 依次保留 NO1--NO4 的 segment 更新；无新 generation 时旧值继续透传；cycle sequence 与 segment generation 独立；默认不改 NO2--NO4 转发算法。 |
-| SM-CYCLE-005 | 增加 cycle 状态、计数和异常恢复 evidence | PENDING | Core0 只读查询可获得 cycle count、last completed cycle、segment bitmap、fault/reseed reason；丢帧恢复不得静默清空 process image，允许 reseed 时只使用最后有效 resident image。 |
+| SM-CYCLE-004 | 验证四节点同轮 overlay 和 follower 兼容性 | DONE | 链式 host 回归证明同一 resident image 依 DATA 物理顺序保留 NO1--NO4 segment；无新 generation 时旧值透传且 cycle sequence 独立推进。四板闭环、SD 原始 capture 和当前源码指纹 receipt 已归档，未修改 follower PIO 算法。 |
+| SM-CYCLE-005 | 增加 cycle 状态、计数和异常恢复 evidence | IN PROGRESS | Core0 只读查询可获得 cycle count、last completed cycle、segment bitmap、fault/reseed reason；丢帧恢复不得静默清空 process image，允许 reseed 时只使用最后有效 resident image。 |
 | SM-CYCLE-006 | 完成 resident cycle 的构建与四板短帧验收 | PENDING | 编译/pytest、同包四板异步 OTA、快速 TDMA-only 短帧闭环及 NO1--NO4 SD 原始波形通过；NO5 不参与本 gate，完整证据归档到任务进度文档。 |
 
 每个 `SM-CYCLE-*` 代码切片都必须先通过对应 host/build 检查，再运行快速 TDMA-only
@@ -115,11 +115,11 @@ transport helper 和 communication FSM 是角色无关的边界件，不改变 N
 - maintenance/calibration persona 仍使用 `BOARD_TDMA_SPI_PIO` 的旧复合实现；flight
   persona 已开始使用 TX/RX 两个 PIO block，但迁移尚未覆盖所有 persona 和资源仲裁层，
   因此不能把 SM-M2 至 SM-M5 提前完成。
-- `SM-RES-010` 尚未完成；communication FSM、transport boundary helper 和 reference
-  runtime 已接入，当前仍缺同一 resident image 依次保留四节点 segment、无更新透传以及
-  cycle sequence 与 segment generation 独立推进的四板证据。
-- `SM-CYCLE-000/001/002/003` 的 host/build/快速 HIL 基线已经收口；当前缺口是
-  `SM-CYCLE-004` 的四节点同轮 overlay 与 follower 兼容性验证，默认不改 follower PIO。
+- `SM-RES-010` 尚未完成；communication FSM、transport boundary helper、reference
+  runtime 和四节点同轮 overlay 已收口，当前仍缺 Core0 只读 cycle evidence、异常恢复
+  观测与最终四板验收收口。
+- `SM-CYCLE-000/001/002/003/004` 的 host/build/快速 HIL 基线已经收口；当前缺口是
+  `SM-CYCLE-005` 的 cycle 状态、计数、fault/reseed reason 和丢帧恢复 evidence。
 - follower 的 forward 与 capture 双消费者需要独立 RX FIFO/SM 或硬件复制语义，不能
   通过两个 DMA 直接竞争一个 FIFO。
 - PIO 迁移完成前，DPLL hardware timestamp spine 和 eligible gate 不进入正式 HIL。

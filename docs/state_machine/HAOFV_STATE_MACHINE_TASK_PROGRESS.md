@@ -9,6 +9,34 @@ Last updated: 2026-09-03
 本文档只记录状态机域的实施、构建、测试、OTA/HIL、失败和回退证据；任务状态以
 `HAOFV_STATE_MACHINE_TODO.md` 为唯一事实源，稳定语义以架构文档为准。
 
+### SM-PROGRESS-20260903-024 - 四节点同轮 overlay 与 follower 兼容性
+
+- TODO task ID：`SM-CYCLE-004`；测试与验收凭证提交为 `48e3523`，已推送到当前远端
+  分支。实现审计确认现有 follower PIO 已在 process boundary 只替换本地 mailbox，
+  本切片未修改生产固件或 PIO 算法。
+- 新增的 adapter host 回归依实际 DATA 顺序串联 follower，并把前一站的物理输出作为下一站
+  输入；返回 reference 时同一 resident image 保留四个站点 mailbox。每个 follower
+  只改写本地 `TDMA_FLIGHT_SHORT_SLOT_SIZE` 区域；第二 cycle 无新 descriptor 时保持
+  `tx_active_generation` 不变、增加 `tx_reuse_count`，同时 transport sequence 独立推进。
+- host/build 证据：adapter 链式测试在 MinGW host 真实执行通过，communication FSM、
+  transport frame 回归和 ARM 交叉编译通过；release 构建位于
+  `out/build/sm-cycle-004-overlay-20260903/`。验收快照（非事实源）：build
+  `20260902202316`，完整 Python 测试为 `641 passed, 1 skipped`。
+- FULL 配置的硬件证据位于
+  `out/hardware-acceptance/sm-cycle-009-overlay-p3-quick-20260903/`（目录名保留了历史后缀）。
+  四板同包 OTA 后 resident TDMA 的 `passed`、`realtime_gate_passed` 和
+  `closed_loop_passed` 均为 `true`；各板观测窗口内收发计数持续增长，运行期
+  transport/schedule/profile 坏帧增量均为零。NO1--NO4 的 accepted segment mask 与各自
+  expected mask 一致，四份 SD 原始 capture 均保存和下载，SCK 离线分析通过。
+- 标准快速 P3 使用同一 package 和 OTA summary 以 `resume` 运行，跳过重复编译和 OTA，
+  证据位于 `out/hardware-acceptance/sm-cycle-009-overlay-p3-fast-resume-20260903/`，
+  receipt 已写入 `config/hardware_acceptance/p3_acceptance_receipt.json`。该轮
+  `flow_completed=true` 并完成四板 SD capture；`strict_gates_passed=false` 保留 SCK re-arm
+  候选行不足和 NO1 startup barrier timeout，本记录不将 quick receipt 解读为严格功能通过。
+- `SM-CYCLE-004` 据 host 链式语义证据、FULL 四板闭环和当前源码指纹 receipt 标记为
+  `DONE`。下一唯一执行项是 `SM-CYCLE-005`：补齐 Core0 只读 cycle/fault/reseed evidence
+  与丢帧后保留最后有效 resident image 的恢复证据。
+
 ### SM-PROGRESS-20260903-023 - reference resident runtime 接入与 RTT 观测解耦
 
 - TODO task ID：`SM-CYCLE-003`；代码提交为 `e8fe3ab`，已推送到当前远端分支。
@@ -454,10 +482,13 @@ Last updated: 2026-09-03
 
 | progress ID | TODO task ID | 证据 |
 |---|---|---|
+| SM-PROGRESS-20260903-024 | SM-CYCLE-004 | 提交 `48e3523`；`out/build/sm-cycle-004-overlay-20260903/`；FULL 闭环 `out/hardware-acceptance/sm-cycle-009-overlay-p3-quick-20260903/`；快速 receipt `out/hardware-acceptance/sm-cycle-009-overlay-p3-fast-resume-20260903/`。 |
 | SM-PROGRESS-20260829-001 | SM-RES-001 | 本文档与 `HAOFV_STATE_MACHINE_ARCHITECTURE.md`；暂无板端证据。 |
 
 ## 失败与回退
 
-当前没有新的构建或板端失败记录。迁移过程中若出现资源冲突、PIO FIFO 竞争、DMA
+最新 quick `resume` 保留了 SCK re-arm 候选行不足和 NO1 startup barrier timeout；紧邻的
+FULL 轮次已严格通过 resident TDMA，因此本切片不回退 follower PIO，该参数组合作为
+后续 `SM-CYCLE-005` 的异常恢复输入。迁移过程中若出现资源冲突、PIO FIFO 竞争、DMA
 stall、TDMA deadline/CRC/bitmap/WKC 回归，必须停止新 persona，恢复最近的已验证
 TDMA 方向配置并在本文件追加失败证据；不得在运行态回退到未声明的复合 TX/RX 资源。
