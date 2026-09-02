@@ -9,6 +9,33 @@ Last updated: 2026-09-03
 本文档只记录状态机域的实施、构建、测试、OTA/HIL、失败和回退证据；任务状态以
 `HAOFV_STATE_MACHINE_TODO.md` 为唯一事实源，稳定语义以架构文档为准。
 
+### SM-PROGRESS-20260903-026 - resident cycle 最终统一验收
+
+- TODO task ID：`SM-CYCLE-006`、`SM-RES-010`；快速训练工具与验收配置提交为
+  `0934d7f`，已推送到当前远端分支。TRN-01 将固定 repeats 改为可配置的最少/最多重复：
+  reference 达到最少次数后停止，follower 在真实观测覆盖所需量化候选后按 link 提前停止；
+  非 QUICK 配置未声明自适应参数时保持固定重复行为。
+- 首轮最少重复验证位于
+  `out/hardware-acceptance/sm-cycle-006-fresh-quick-20260903/`。验收快照（非事实源）：某一
+  follower 连续观测同一 SCK offset，TRN-03 没有 replay-safe 行，NO1 startup barrier
+  timeout；diagnostic policy 仍完成 NO1--NO4 SD capture 和 SVG，证明失败信息未被门禁隐藏。
+- 自适应实现的定向测试与完整 Python 回归通过；完整回归验收快照（非事实源）为
+  `644 passed`。release 构建位于 `out/build/sm-cycle-006-adaptive-sck-20260903/`，build ID
+  验收快照（非事实源）为 `20260902220555`。
+- 最终统一快速 P3 位于
+  `out/hardware-acceptance/sm-cycle-006-adaptive-sck-p3-quick-20260903/`：NO1--NO4 使用同一
+  package 完成异步 OTA 和软件复位；新鲜 TRN-01 仅使用配置上限的一部分试次即覆盖候选，
+  TRN-03 自动选择 replay-safe 行且 follower 最小裕量非负。`acceptance.json` 的
+  `passed`、`flow_completed` 和 `strict_gates_passed` 均为 `true`。
+- 同轮 TDMA summary 的 `passed`、`realtime_gate_passed` 和 `closed_loop_passed` 均为
+  `true`；NO1 completed window/cycle 在运行窗口持续增长，segment mask 保持完整，reseed
+  count 无增量。NO1--NO4 的 SD 原始 capture、四份 SVG 和离线分析均位于该轮
+  `tdma-process-image/` 子目录。当前源码指纹 receipt 已刷新并通过 `check-staged` 与
+  pre-commit。
+- `SM-CYCLE-006`、总任务 `SM-RES-010` 和里程碑 `SM-M7` 据同轮新鲜矩阵、严格闭环和
+  四板波形标记为 `DONE`。下一唯一执行项为 `SM-RES-002`：先迁移
+  maintenance/calibration persona 的资源事实和统一冲突仲裁，不提前修改 AO/Core1 编排。
+
 ### SM-PROGRESS-20260903-025 - resident cycle 状态与异常恢复 evidence
 
 - TODO task ID：`SM-CYCLE-005`；代码提交为 `8117cc9`，已推送到当前远端分支。
@@ -518,15 +545,15 @@ Last updated: 2026-09-03
 
 | progress ID | TODO task ID | 证据 |
 |---|---|---|
+| SM-PROGRESS-20260903-026 | SM-CYCLE-006 / SM-RES-010 | 提交 `0934d7f`；构建 `out/build/sm-cycle-006-adaptive-sck-20260903/`；最终统一 P3、严格 TDMA 与四板 SD/SVG `out/hardware-acceptance/sm-cycle-006-adaptive-sck-p3-quick-20260903/`。 |
 | SM-PROGRESS-20260903-025 | SM-CYCLE-005 | 提交 `8117cc9`；`out/build/sm-cycle-005-evidence-20260903/`；快速 P3 `out/hardware-acceptance/sm-cycle-005-evidence-p3-quick-20260903/`；严格 row 7 闭环 `out/hardware-acceptance/sm-cycle-005-tdma-row007-confirm-20260903/`；同参数 SD/SVG `out/hardware-acceptance/sm-cycle-005-evidence-tdma-row007-final-20260903/`。 |
 | SM-PROGRESS-20260903-024 | SM-CYCLE-004 | 提交 `48e3523`；`out/build/sm-cycle-004-overlay-20260903/`；FULL 闭环 `out/hardware-acceptance/sm-cycle-009-overlay-p3-quick-20260903/`；快速 receipt `out/hardware-acceptance/sm-cycle-009-overlay-p3-fast-resume-20260903/`。 |
 | SM-PROGRESS-20260829-001 | SM-RES-001 | 本文档与 `HAOFV_STATE_MACHINE_ARCHITECTURE.md`；暂无板端证据。 |
 
 ## 失败与回退
 
-最新 quick `run` 保留了新鲜 SCK 候选行无正 re-arm 裕量和 NO1 startup barrier timeout；
-同一当前 build 使用已测安全 row 7 后严格通过 resident TDMA，故本切片不回退状态机或
-follower PIO。`SM-CYCLE-006` 必须修复快速训练候选覆盖，并以单次新鲜矩阵验收消除对旧
-矩阵的依赖。迁移过程中若出现资源冲突、PIO FIFO 竞争、DMA stall、TDMA
+固定最少重复的失败轮保留了 SCK 候选覆盖不足和 NO1 startup barrier timeout，且完成了
+后续四板观测；自适应按 link 补测后的统一轮已用新鲜矩阵严格通过，因此不回退 resident
+状态机或 follower PIO。迁移过程中若出现资源冲突、PIO FIFO 竞争、DMA stall、TDMA
 deadline/CRC/bitmap/WKC 回归，必须停止新 persona，恢复最近的已验证 TDMA 方向配置并在
 本文件追加失败证据；不得在运行态回退到未声明的复合 TX/RX 资源。
