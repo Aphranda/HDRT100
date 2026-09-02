@@ -415,6 +415,13 @@ bool tdma_runtime_owner_set_clock_evidence_enabled(bool enabled)
         &s_tdma_pio_spi_ring_adapter, enabled);
 }
 
+bool tdma_runtime_owner_set_ring_diagnostic_mode(bool enabled)
+{
+    return s_tdma_runtime_owner_initialized &&
+           tdma_service_set_ring_diagnostic_mode(
+               &s_tdma_runtime_owner, enabled);
+}
+
 tdma_pio_spi_normal_capture_copy_result_t
 tdma_runtime_owner_copy_normal_capture_core1(
     uint32_t *rx_bytes,

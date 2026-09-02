@@ -1,4 +1,5 @@
 from argparse import Namespace
+import time
 
 import pytest
 
@@ -7,7 +8,10 @@ from tools.tdma_ring_monitor.tdma_start_ring import (
     persistent_sessions_enabled,
     resolve_board_ids,
 )
-from tools.scpi_common.scpi_serial import serial_lifecycle_mode
+from tools.scpi_common.scpi_serial import (
+    read_scpi_response,
+    serial_lifecycle_mode,
+)
 
 
 def args(board_id=None, reference_id=None, forward_id=None):
@@ -64,6 +68,62 @@ def test_short_open_disables_persistent_sessions():
     options = args()
     options.short_open = True
     assert persistent_sessions_enabled(options) is False
+
+
+class _ReadSerial:
+    def __init__(self, payload: bytes) -> None:
+        self.payload = bytearray(payload)
+
+    def read(self, size: int) -> bytes:
+        if not self.payload:
+            return b""
+        value = bytes(self.payload[:size])
+        del self.payload[:size]
+        return value
+
+
+def test_write_command_consumes_bare_ack_without_waiting_for_timeout():
+    serial = _ReadSerial(b"OK\r\n")
+    started = time.monotonic()
+    response = read_scpi_response(
+        serial, "SYSTem:TDMA:RING:STOP", 1.0, require_match=True)
+    assert response == "OK"
+    assert time.monotonic() - started < 0.1
+
+
+def test_query_skips_stale_ack_and_returns_matching_payload():
+    serial = _ReadSerial(b"OK\r\n1\r\n")
+    assert read_scpi_response(
+        serial, "SYSTem:TDMA:RING:DIAGnostic?", 1.0,
+        require_match=True) == "1"
+
+
+def test_unknown_write_uses_action_timeout(monkeypatch):
+    observed = []
+    import tools.tdma_ring_monitor.tdma_start_ring as ring
+
+    monkeypatch.setattr(
+        ring, "command",
+        lambda _serial, _text, timeout: observed.append(timeout) or "OK")
+    options = Namespace(timeout=3.0, action_timeout=0.5)
+    assert _board_command_on_serial(
+        object(), "CALibration:TRAINing:STAGe:BEGin 4", options,
+        object()) == "OK"
+    assert observed == [0.5]
+
+
+def test_query_keeps_full_timeout(monkeypatch):
+    observed = []
+    import tools.tdma_ring_monitor.tdma_start_ring as ring
+
+    monkeypatch.setattr(
+        ring, "command",
+        lambda _serial, _text, timeout: observed.append(timeout) or "1")
+    options = Namespace(timeout=3.0, action_timeout=0.5)
+    assert _board_command_on_serial(
+        object(), "SYSTem:TDMA:RING:DIAGnostic?", options,
+        object()) == "1"
+    assert observed == [3.0]
 
 
 def test_software_reset_disconnect_is_successful_handoff(monkeypatch):

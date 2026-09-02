@@ -11,6 +11,9 @@
 #define TDMA_RING_NODE_MAX 8u
 #define TDMA_PROFILE_DEFAULT_ACTIVE_NODE_COUNT 2u
 #define TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN 0x00000001u
+/* Debug bring-up: execute phase-budget violations and retain the warning in
+ * the physical snapshot so waveform evidence can explain packet loss. */
+#define TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE 0x00000002u
 #define TDMA_TRAFFIC_CLASS_COUNT 5u
 #define TDMA_RECOVERY_RESERVED_BYTES_PER_CYCLE 128u
 #define TDMA_RECOVERY_BUFFER_COUNT 2u

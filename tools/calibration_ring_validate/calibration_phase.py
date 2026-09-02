@@ -12,6 +12,11 @@ from collections.abc import Sequence
 MIN_OFFSET_SAMPLES = -10
 MAX_OFFSET_SAMPLES = 10
 MAX_PIO_DELAY_SAMPLES = 31
+# The training request is intentionally narrow, but a final calibrated offset
+# may move outside that search range when the path-delay baseline changes.
+# The actual executable phase is still constrained by base + offset <= 31.
+MIN_CALIBRATED_OFFSET_SAMPLES = -MAX_PIO_DELAY_SAMPLES
+MAX_CALIBRATED_OFFSET_SAMPLES = MAX_PIO_DELAY_SAMPLES
 MAX_NODES = 8
 MAX_U32 = 0xFFFFFFFF
 PHASE_TRAINING_SCHEMA = "HAOFV_UNIFIED_PHASE_TRAINING_V1"
@@ -36,10 +41,18 @@ def validate_generation(value: int, label: str = "generation") -> int:
     return generation
 
 
-def link_base_delay_ns(link_delay_ns: int) -> int:
+def link_base_delay_ns(link_delay_ns: int,
+                       path_delay_baseline_divisor: int = 2) -> int:
     if link_delay_ns <= 0 or link_delay_ns % 2:
         raise ValueError("link delay must be a positive even number of ns")
-    return link_delay_ns // 2
+    if (isinstance(path_delay_baseline_divisor, bool) or
+            path_delay_baseline_divisor <= 0):
+        raise ValueError("path delay baseline divisor must be positive")
+    base = (link_delay_ns + path_delay_baseline_divisor // 2) \
+        // path_delay_baseline_divisor
+    if base <= 0:
+        raise ValueError("path delay baseline rounds to zero")
+    return base
 
 
 def phase_delay_samples(*, link_base_ns: int, sample_period_ns: int,
@@ -62,17 +75,21 @@ def phase_delay_samples(*, link_base_ns: int, sample_period_ns: int,
 
 
 def build_offset_rows(*, node_count: int, values_by_node: Sequence[Sequence[int]],
-                      sample_period_ns: int) -> list[dict[str, object]]:
+                      sample_period_ns: int,
+                      min_offset_samples: int = MIN_OFFSET_SAMPLES,
+                      max_offset_samples: int = MAX_OFFSET_SAMPLES
+                      ) -> list[dict[str, object]]:
     """Build the same full Cartesian Node matrix for every trained signal."""
     if not 2 <= node_count <= MAX_NODES:
         raise ValueError(f"node count must be within 2..{MAX_NODES}")
-    if len(values_by_node) != node_count or sample_period_ns <= 0:
+    if (len(values_by_node) != node_count or sample_period_ns <= 0 or
+            min_offset_samples > max_offset_samples):
         raise ValueError("matrix dimensions and sample period are invalid")
     normalized: list[tuple[int, ...]] = []
     for values in values_by_node:
         unique = tuple(sorted({int(value) for value in values}))
         if not unique or any(
-                not MIN_OFFSET_SAMPLES <= value <= MAX_OFFSET_SAMPLES
+                not min_offset_samples <= value <= max_offset_samples
                 for value in unique):
             raise ValueError("matrix values must be non-empty bounded offsets")
         normalized.append(unique)
@@ -85,7 +102,9 @@ def build_offset_rows(*, node_count: int, values_by_node: Sequence[Sequence[int]
 
 def build_observed_offset_matrix(
         *, signal: str, values_by_node: Sequence[Sequence[int]],
-        sample_period_ns: int) -> dict[str, object]:
+        sample_period_ns: int,
+        min_offset_samples: int = MIN_OFFSET_SAMPLES,
+        max_offset_samples: int = MAX_OFFSET_SAMPLES) -> dict[str, object]:
     """Reduce repeats, then retain the complete Cartesian candidate matrix."""
     normalized_signal = signal.upper()
     if normalized_signal not in {"MARK", "SCK", "DATA"}:
@@ -119,7 +138,9 @@ def build_observed_offset_matrix(
                   for values in values_by_node]
     rows = build_offset_rows(
         node_count=node_count, values_by_node=candidates,
-        sample_period_ns=sample_period_ns)
+        sample_period_ns=sample_period_ns,
+        min_offset_samples=min_offset_samples,
+        max_offset_samples=max_offset_samples)
     active_row_id = next(
         int(row["row_id"]) for row in rows
         if row["offset_sample_counts_by_node"] == selected)
@@ -142,6 +163,7 @@ def build_phase_training_contract(
         node_offset_samples: Sequence[int], sample_period_ns: int,
         destination_node_by_link: Sequence[int] | None = None,
         capture_origin: str | None = None,
+        path_delay_baseline_divisor: int = 2,
         max_delay_samples: int = MAX_PIO_DELAY_SAMPLES) -> dict[str, object]:
     """Create the canonical plan/evidence header shared by all phase training."""
     normalized_signal = signal.upper()
@@ -158,7 +180,8 @@ def build_phase_training_contract(
     if (len(destinations) != node_count or
             sorted(destinations) != list(range(node_count))):
         raise ValueError("directed links must cover every destination Node once")
-    bases = [link_base_delay_ns(int(delay))
+    bases = [link_base_delay_ns(
+        int(delay), path_delay_baseline_divisor)
              for delay in link_delay_ns_by_link]
     links = []
     for link, (base_ns, destination) in enumerate(zip(bases, destinations)):
@@ -179,7 +202,10 @@ def build_phase_training_contract(
         "schema": PHASE_TRAINING_SCHEMA,
         "signal": normalized_signal,
         "capture_origin": capture_origin or f"{normalized_signal.lower()}_pio_edge",
-        "formula": "round((link_delay_ns / 2) / sample_period_ns) + node_offset_samples",
+        "path_delay_baseline_divisor": path_delay_baseline_divisor,
+        "formula": (
+            "round((link_delay_ns / path_delay_baseline_divisor) / "
+            "sample_period_ns) + node_offset_samples"),
         "stage_order": list(PHASE_TRAINING_STAGES),
         "sample_period_ns": sample_period_ns,
         "node_offset_sample_counts": [int(value) for value in node_offset_samples],

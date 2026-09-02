@@ -20,6 +20,7 @@
 #define tdma_service_FRAME_MAX TDMA_SERVICE_FRAME_MAX
 #define TDMA_SERVICE_TIMESTAMP_RESOLUTION_LIMIT_NS 100u
 #define TDMA_SERVICE_RING_FLAG_SIMULTANEOUS_UP_DOWN TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN
+#define TDMA_SERVICE_RING_FLAG_DIAGNOSTIC_CONTINUE TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE
 #define TDMA_SERVICE_RING_ERROR_NONE TDMA_RING_RUNTIME_REASON_NONE
 #define TDMA_SERVICE_RING_ERROR_BAD_CONFIG TDMA_RING_RUNTIME_REASON_BAD_CONFIG
 #define TDMA_SERVICE_RING_ERROR_EVIDENCE_MISSING TDMA_RING_RUNTIME_REASON_EVIDENCE_MISSING
@@ -472,6 +473,8 @@ bool tdma_service_set_operating_profile(
 bool tdma_service_set_loop_delay_ns(tdma_service_service_t *service,
                                     uint32_t loop_delay_ns,
                                     uint32_t tolerance_ns);
+bool tdma_service_set_ring_diagnostic_mode(tdma_service_service_t *service,
+                                           bool enabled);
 bool tdma_service_stage_calibration(
     tdma_service_service_t *service,
     const tdma_ring_calibration_stage_t *stage);

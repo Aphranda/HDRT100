@@ -44,6 +44,7 @@ from trn03_closed_loop import (  # noqa: E402
     parse_snapshot,
     resolve_profile_level,
     realtime_gate_passes,
+    running_handoff_allows_leave_running,
     running_handoff_errors,
     scalar_readback_with_retry,
     startup_barrier_interval_errors,
@@ -232,6 +233,19 @@ def test_running_handoff_requires_complete_healthy_physical_ring() -> None:
         "ring_down_running"]
 
 
+def test_diagnostic_handoff_records_failure_without_stopping_ring() -> None:
+    handoff = {
+        "NO1": {"passed": False, "errors": ["ring_down_running"]},
+        "NO2": {"passed": True, "errors": []},
+    }
+    assert not running_handoff_allows_leave_running(
+        handoff, diagnostic_continue=False)
+    assert running_handoff_allows_leave_running(
+        handoff, diagnostic_continue=True)
+    assert not running_handoff_allows_leave_running(
+        {}, diagnostic_continue=True)
+
+
 def pio_instruction_count(source: str, program_name: str) -> int:
     """Count assembled instructions in one source-level PIO program."""
     program = source.split(f".program {program_name}", 1)[1].split(
@@ -267,6 +281,11 @@ def test_arm_with_evidence_requires_explicit_success(monkeypatch) -> None:
 def test_arm_status_query_accepts_scalar_success() -> None:
     assert scpi_response_matches_command(
         "SYSTem:TDMA:RING:ARM:STATus?", "1")
+
+
+def test_ring_diagnostic_query_accepts_scalar_success() -> None:
+    assert scpi_response_matches_command(
+        "SYSTem:TDMA:RING:DIAGnostic?", "1")
 
 
 def test_wait_runtime_stopped_requires_core1_generation_ack(monkeypatch) -> None:
@@ -836,6 +855,22 @@ def test_ring_capture_uses_request_scoped_raw_sck_persona() -> None:
         "            TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_WORDS" in copy_capture)
     assert "adjacent Node's immutable physical RX capture" in copy_capture
     assert "s_tdma_pio_spi_tx_last_frame[index]" not in copy_capture
+
+
+def test_flight_origin_recovery_publishes_failed_terminal_token() -> None:
+    phys = _read_phys_source()
+    service = phys.split(
+        "void tdma_pio_spi_phys_service_tx", 1
+    )[1].split(
+        "bool tdma_pio_spi_phys_take_tx_completion", 1
+    )[0]
+    timeout = service.split(
+        "if (now_ns >= phys->flight_tx_deadline_ns)", 1
+    )[1].split("return;", 1)[0]
+    assert "tdma_pio_spi_phys_flight_origin_recover(phys);" in timeout
+    assert "phys->flight_tx_completion_timestamp_ns = 0ull;" in timeout
+    assert "phys->flight_tx_completion_pending = true;" in timeout
+    assert "phys->flight_tx_completion_pending = false;" not in timeout
 
 
 def test_ring_capture_exclusively_owns_clock_latch_sm_until_copy() -> None:

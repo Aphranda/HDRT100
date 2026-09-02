@@ -8,6 +8,7 @@ import pytest
 from tools.hardware_acceptance.p3_hardware_acceptance import (
     AcceptanceError,
     LIMITED_RECEIPT_SCHEMA,
+    QUICK_DIAGNOSTIC_RECEIPT_SCHEMA,
     RECEIPT_SCHEMA,
     TDMA_DIAGNOSTIC_RECEIPT_SCHEMA,
     TDMA_RECEIPT_SCHEMA,
@@ -22,6 +23,10 @@ from tools.hardware_acceptance.p3_hardware_acceptance import (
     parse_schedule,
     p3_link_delays,
     reset_acceptance_boards,
+    resolve_path_delay_baseline_divisor,
+    selected_data_offsets,
+    stage_training_parameters,
+    selected_sck_offsets,
     validate_ota,
     validate_online_builds,
     validate_p3,
@@ -495,6 +500,11 @@ def test_bench_and_orchestrator_cover_full_hardware_acceptance() -> None:
         "hardware_acceptance_timing",
     ):
         assert key in bench
+    assert resolve_path_delay_baseline_divisor(bench) == 2
+    quick = json.loads((ROOT / "config" / "hardware_acceptance" /
+                        "p3_bench_quick.json").read_text(encoding="utf-8"))
+    assert resolve_path_delay_baseline_divisor(load_bench_config(
+        ROOT / "config" / "hardware_acceptance" / "p3_bench_quick.json")) == 2
     source = (ROOT / "tools" / "hardware_acceptance" /
               "p3_hardware_acceptance.py").read_text(encoding="utf-8")
     for tool in (
@@ -515,6 +525,9 @@ def test_bench_and_orchestrator_cover_full_hardware_acceptance() -> None:
     assert '"strict_gates_passed": not diagnostic_failures' in source
     assert '"status": "PASS_WITH_DIAGNOSTICS"' in source
     assert '"phase": "TDMA running-loop handoff"' in source
+    assert QUICK_DIAGNOSTIC_RECEIPT_SCHEMA in source
+    assert '"FOUR_NODE_TDMA_QUICK_DIAGNOSTIC"' in source
+    assert "_validate_quick_diagnostic_receipt" in source
     assert "run_diagnostic_gate" in source
     assert '"TRN-00 residence matrix"' in source
     assert "FOUR_NODE_TDMA" in source
@@ -526,6 +539,49 @@ def test_bench_and_orchestrator_cover_full_hardware_acceptance() -> None:
     assert '"trn00_summary": evidence_entry' in source
     assert '"trn01_summary": evidence_entry' in source
     assert '"sck_summary": evidence_entry' not in source
+
+
+def test_stage_parameter_handoff_rejects_old_baseline() -> None:
+    summary = {
+        "training_parameters": {
+            "link_delay_ns_by_link": [82, 80],
+            "link_base_delay_ns_by_link": [41, 40],
+            "path_delay_baseline_divisor": 2,
+            "sample_period_ns": 4,
+        }
+    }
+    assert stage_training_parameters(summary, "TRN-01 SCK", 2)[
+        "link_base_delay_ns_by_link"] == [41, 40]
+    summary["training_parameters"]["path_delay_baseline_divisor"] = 3
+    summary["training_parameters"]["link_base_delay_ns_by_link"] = [27, 27]
+    assert stage_training_parameters(summary, "TRN-01 SCK", 2)[
+        "link_base_delay_ns_by_link"] == [27, 27]
+
+
+def test_selected_sck_offsets_are_loaded_from_active_row() -> None:
+    summary = {
+        "matrix": {"offset_matrix": {
+            "active_row_id": 4,
+            "rows": [
+                {"row_id": 3, "sck_offset_sample_counts_by_node": [0, 0]},
+                {"row_id": 4, "sck_offset_sample_counts_by_node": [1, -1]},
+            ],
+        }}
+    }
+    assert selected_sck_offsets(summary, 2) == [1, -1]
+
+
+def test_selected_data_offsets_are_loaded_from_active_row() -> None:
+    summary = {
+        "offset_matrix": {
+            "active_row_id": 4,
+            "rows": [
+                {"row_id": 3, "data_offset_sample_counts_by_node": [16, 16]},
+                {"row_id": 4, "data_offset_sample_counts_by_node": [17, 17]},
+            ],
+        }
+    }
+    assert selected_data_offsets(summary, 2) == [17, 17]
 
 
 def test_sma_observer_topology_is_fixed_to_measured_bidirectional_routes() -> None:

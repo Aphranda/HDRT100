@@ -66,6 +66,14 @@ typedef struct {
     bool rx_pending;
 } flight_phys_t;
 
+typedef struct {
+    uint32_t tx_calls;
+    uint32_t busy_tx_calls;
+    bool tx_in_flight;
+    bool completion_ready;
+    uint64_t completion_timestamp_ns;
+} async_phys_t;
+
 static bool flight_tx(void *context,
                       const uint8_t *packet,
                       size_t packet_size,
@@ -89,6 +97,41 @@ static bool flight_tx(void *context,
     phys->tx_calls++;
     if (tx_timestamp_ns != NULL) {
         *tx_timestamp_ns = phys->latest_tx_timestamp_ns;
+    }
+    return true;
+}
+
+static bool async_tx(void *context,
+                     const uint8_t *packet,
+                     size_t packet_size,
+                     uint64_t *tx_timestamp_ns)
+{
+    async_phys_t *phys = (async_phys_t *)context;
+    if (phys == NULL || packet == NULL || packet_size == 0u) {
+        return false;
+    }
+    if (phys->tx_in_flight) {
+        phys->busy_tx_calls++;
+        return false;
+    }
+    phys->tx_calls++;
+    phys->tx_in_flight = true;
+    if (tx_timestamp_ns != NULL) {
+        *tx_timestamp_ns = 0ull;
+    }
+    return true;
+}
+
+static bool async_tx_complete(void *context, uint64_t *tx_timestamp_ns)
+{
+    async_phys_t *phys = (async_phys_t *)context;
+    if (phys == NULL || !phys->tx_in_flight || !phys->completion_ready) {
+        return false;
+    }
+    phys->tx_in_flight = false;
+    phys->completion_ready = false;
+    if (tx_timestamp_ns != NULL) {
+        *tx_timestamp_ns = phys->completion_timestamp_ns;
     }
     return true;
 }
@@ -1145,6 +1188,64 @@ int main(void)
                              snapshot.reference_tx_timestamp_ns, 1000000ull);
         failed += expect_u64("flight matched RX latch",
                              snapshot.feedback_rx_timestamp_ns, 1000500ull);
+    }
+
+    /* --- A reference deadline cannot resubmit an asynchronous physical TX
+     * until the one-shot completion token has been consumed. --- */
+    {
+        tdma_pio_spi_ring_adapter_t adapter;
+        tdma_ring_adapter_status_t status;
+        async_phys_t phys;
+        const tdma_ring_runtime_config_t config = make_valid_config();
+
+        memset(&phys, 0, sizeof(phys));
+        phys.completion_timestamp_ns = 1000000ull;
+        failed += expect_bool("async backpressure adapter init",
+                              tdma_pio_spi_ring_adapter_init(&adapter), true);
+        tdma_pio_spi_ring_adapter_set_phys(&adapter,
+                                           async_tx,
+                                           NULL,
+                                           &phys);
+        tdma_pio_spi_ring_adapter_set_phys_tx_complete(
+            &adapter, async_tx_complete);
+        failed += expect_bool("async backpressure start",
+                              tdma_pio_spi_ring_adapter_ops()->start(
+                                  &adapter, &config), true);
+
+        failed += expect_bool("async backpressure phase",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 1ull, &status), true);
+        failed += expect_bool("async backpressure first launch",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 2ull, &status), true);
+        failed += expect_u32("async first tx count", phys.tx_calls, 1u);
+
+        failed += expect_bool("async pending service stays live",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 3000ull, &status), true);
+        failed += expect_u32("async pending does not resubmit",
+                             phys.tx_calls, 1u);
+        failed += expect_u32("async physical busy never called",
+                             phys.busy_tx_calls, 0u);
+        failed += expect_u32("async pending up remains running",
+                             status.up_running, 1u);
+
+        phys.completion_ready = true;
+        failed += expect_bool("async completion releases next launch",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 4000ull, &status), true);
+        failed += expect_u32("async second tx count", phys.tx_calls, 2u);
+        failed += expect_u32("async adapter tx count", status.tx_count, 2u);
+
+        phys.completion_timestamp_ns = 0ull;
+        phys.completion_ready = true;
+        failed += expect_bool("async failed terminal token releases retry",
+                              tdma_pio_spi_ring_adapter_ops()->service(
+                                  &adapter, 6000ull, &status), true);
+        failed += expect_u32("async retry after failed terminal token",
+                             phys.tx_calls, 3u);
+        failed += expect_u32("async failed terminal never calls busy",
+                             phys.busy_tx_calls, 0u);
     }
 
     /* --- The bounded TX-evidence ring retains exact sequence identity while

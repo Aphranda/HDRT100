@@ -250,6 +250,9 @@ typedef enum {
 #define TDMA_PIO_SPI_DATA_TRAIN_FLAG_MARKER_DMA_COMPLETE (1u << 3u)
 #define TDMA_PIO_SPI_DATA_TRAIN_FLAG_DATA_DMA_COMPLETE (1u << 4u)
 #define TDMA_PIO_SPI_DATA_TRAIN_FLAG_SOURCE_IRQ (1u << 5u)
+/* The requested phase precedes the source phase.  This is a calibration
+ * quality warning, not an ARM refusal; raw phase fields remain authoritative. */
+#define TDMA_PIO_SPI_DATA_TRAIN_FLAG_PHASE_ORDER_WARNING (1u << 6u)
 
 #define TDMA_PIO_SPI_DATA_TRAIN_FAULT_RX_DMA_PAUSE (1u << 0u)
 #define TDMA_PIO_SPI_DATA_TRAIN_FAULT_RX_DMA_SHORT (1u << 1u)
@@ -837,9 +840,10 @@ bool tdma_pio_spi_phys_prepare_process_overlay(
  * next blocking PULL.  This queues exactly one PASS script when IRQ3 proves
  * that a frame ended without a prepared successor. */
 bool tdma_pio_spi_phys_service_process_overlay_boundary(void *context);
-/* Poll completion of a previously submitted flight-origin burst.  This is
- * deliberately separate from the TX submit callback so core1 can account
- * the hardware launch and completion in distinct bounded passes. */
+/* Poll the terminal token of a previously submitted flight-origin burst.
+ * This is deliberately separate from the TX submit callback so core1 can
+ * account the hardware launch and completion in distinct bounded passes.
+ * A zero timestamp reports an aborted/recovered burst and is not evidence. */
 void tdma_pio_spi_phys_service_tx(void *context, uint64_t now_ns);
 bool tdma_pio_spi_phys_take_tx_completion(void *context,
                                           uint64_t *tx_timestamp_ns);

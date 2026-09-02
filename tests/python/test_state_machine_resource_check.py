@@ -77,6 +77,56 @@ def test_flight_claim_reserves_directional_runtime_resources() -> None:
         assert token in resources
 
 
+def test_normal_adapter_contract_models_parallel_clock_tx_and_data_rx() -> None:
+    resources = (
+        ROOT / "components/tdma/inc/tdma_state_machine_resources.h"
+    ).read_text(encoding="utf-8")
+
+    for token in (
+        "TDMA_STATE_MACHINE_NORMAL_COMM_RESOURCE_MASK",
+        "tdma_state_machine_normal_comm_contract_t",
+        ".clock_tx_pio",
+        ".sync_tx_pio",
+        ".data_rx_pio",
+        ".clock_tx_sm",
+        ".sync_tx_sm",
+        ".data_rx_sm",
+        ".data_rx_clock_pin",
+        ".data_rx_sync_pin",
+        ".clock_tx_dma",
+        ".data_rx_dma",
+    ):
+        assert token in resources
+
+    assert "TDMA_STATE_MACHINE_TX_PIO_RESOURCE" in resources
+    assert "RESOURCE_ARBITER_RESOURCE_TDMA_DMA_CAPTURE" in resources
+    assert "RESOURCE_ARBITER_RESOURCE_TDMA_DMA_SYNC_EDGE" in resources
+    assert "tdma_adapter_comm_fsm" in (
+        ROOT / "components/tdma/src/tdma_adapter_comm_fsm.c"
+    ).read_text(encoding="utf-8")
+
+
+def test_normal_adapter_contract_does_not_introduce_data_tx_or_serial_join():
+    resources = (
+        ROOT / "components/tdma/inc/tdma_state_machine_resources.h"
+    ).read_text(encoding="utf-8")
+    fsm = (
+        ROOT / "components/tdma/inc/tdma_adapter_comm_fsm.h"
+    ).read_text(encoding="utf-8")
+
+    normal_contract = resources.split(
+        "typedef struct {", 1
+    )[1].split(
+        "tdma_state_machine_normal_comm_contract", 1
+    )[0]
+    assert "data_tx" not in normal_contract.lower()
+    assert "full_duplex" not in normal_contract.lower()
+    assert "CLOCK_TX_STARTED" in fsm
+    assert "DATA_RX_STARTED" in fsm
+    assert "CLOCK_TX_COMPLETED" in fsm
+    assert "DATA_RX_COMPLETED" in fsm
+
+
 def test_flight_claim_is_released_on_arm_failure_and_stop() -> None:
     phys = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(
         encoding="utf-8"

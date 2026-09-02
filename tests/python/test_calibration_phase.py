@@ -1,10 +1,12 @@
 from tools.calibration_ring_validate.calibration_phase import (
+    MAX_CALIBRATED_OFFSET_SAMPLES,
     OFFSET_MATRIX_SCHEMA,
     PHASE_TRAINING_SCHEMA,
     PHASE_TRAINING_STAGES,
     build_observed_offset_matrix,
     build_offset_rows,
     build_phase_training_contract,
+    link_base_delay_ns,
     validate_generation,
 )
 
@@ -28,7 +30,8 @@ def test_mark_sck_and_data_share_one_phase_training_contract() -> None:
     assert {tuple(plan["stage_order"]) for plan in plans} == {
         PHASE_TRAINING_STAGES}
     assert {plan["formula"] for plan in plans} == {
-        "round((link_delay_ns / 2) / sample_period_ns) + node_offset_samples"}
+        "round((link_delay_ns / path_delay_baseline_divisor) / "
+        "sample_period_ns) + node_offset_samples"}
     assert [row["link_base_delay_ns"] for row in plans[0]["links"]] == [
         40, 41, 40, 41]
 
@@ -49,6 +52,16 @@ def test_every_signal_uses_the_same_full_cartesian_node_matrix() -> None:
     assert matrix["full_matrix_row_count"] == 2
 
 
+def test_observed_data_matrix_allows_rebased_final_offset() -> None:
+    matrix = build_observed_offset_matrix(
+        signal="DATA", values_by_node=[[16], [17], [17], [16]],
+        sample_period_ns=4,
+        min_offset_samples=-MAX_CALIBRATED_OFFSET_SAMPLES,
+        max_offset_samples=MAX_CALIBRATED_OFFSET_SAMPLES)
+    assert matrix["recommended_offset_sample_counts_by_node"] == [16, 17, 17, 16]
+    assert matrix["full_matrix_row_count"] == 1
+
+
 def test_phase_contract_requires_one_destination_per_node() -> None:
     try:
         build_phase_training_contract(
@@ -59,6 +72,18 @@ def test_phase_contract_requires_one_destination_per_node() -> None:
         assert "every destination Node" in str(exc)
     else:
         raise AssertionError("duplicate destination mapping must be rejected")
+
+
+def test_phase_contract_supports_per_link_third_path_baseline() -> None:
+    assert [link_base_delay_ns(value, 3) for value in [82, 80, 80, 82]] == [
+        27, 27, 27, 27]
+    plan = build_phase_training_contract(
+        signal="SCK", link_delay_ns_by_link=[82, 80, 80, 82],
+        node_offset_samples=[0, 0, 0, 0], sample_period_ns=4,
+        path_delay_baseline_divisor=3)
+    assert plan["path_delay_baseline_divisor"] == 3
+    assert [row["link_base_delay_ns"] for row in plan["links"]] == [
+        27, 27, 27, 27]
 
 
 def test_generation_validation_rejects_zero_and_u32_overflow() -> None:

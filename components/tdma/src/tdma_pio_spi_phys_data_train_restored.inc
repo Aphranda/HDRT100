@@ -36,6 +36,21 @@ static void tdma_pio_spi_phys_data_train_set_drivers(uint32_t role)
              role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_INITIATOR);
 }
 
+static uint64_t tdma_pio_spi_phys_data_train_capture_tick(
+    uint32_t marker_to_data_delay_cycles,
+    uint32_t phase_delay_cycles,
+    uint32_t source_phase_delay_cycles)
+{
+    /* A diagnostic candidate may put the requested phase before the source
+     * phase.  Keep the published tick bounded instead of allowing an
+     * unsigned subtraction to wrap into a misleading huge timestamp. */
+    const int64_t relative_tick =
+        (int64_t)marker_to_data_delay_cycles +
+        (int64_t)phase_delay_cycles -
+        (int64_t)source_phase_delay_cycles;
+    return relative_tick > 0 ? (uint64_t)relative_tick + 1ull : 1ull;
+}
+
 bool tdma_pio_spi_phys_data_train_arm(
     tdma_pio_spi_phys_t *phys,
     const tdma_pio_spi_data_train_request_t *request)
@@ -61,8 +76,6 @@ bool tdma_pio_spi_phys_data_train_arm(
         (request->diagnostic_fault_flags != 0u &&
          (request->diagnostic_fault_flags &
           (request->diagnostic_fault_flags - 1u)) != 0u) ||
-        (request->role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_INITIATOR &&
-         request->phase_delay_cycles < request->source_phase_delay_cycles) ||
         request->data_sample_count == 0u ||
         (request->role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_INITIATOR &&
          (request->marker_words == NULL ||
@@ -160,6 +173,9 @@ bool tdma_pio_spi_phys_data_train_arm(
          TDMA_PIO_SPI_DATA_TRAIN_FAULT_RX_DMA_SHORT) != 0u;
     const uint32_t capture_dma_words =
         inject_rx_dma_short ? capture_words - 1u : capture_words;
+    const bool phase_order_warning =
+        request->role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_INITIATOR &&
+        request->phase_delay_cycles < request->source_phase_delay_cycles;
     if (request->role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_INITIATOR) {
         memcpy(s_tdma_pio_spi_marker_tx, request->marker_words,
                request->marker_word_count * sizeof(request->marker_words[0]));
@@ -279,7 +295,10 @@ bool tdma_pio_spi_phys_data_train_arm(
     phys->data_train.flags =
         TDMA_PIO_SPI_DATA_TRAIN_FLAG_DIAGNOSTIC_ONLY |
         TDMA_PIO_SPI_DATA_TRAIN_FLAG_HARDWARE_ORIGIN |
-        TDMA_PIO_SPI_DATA_TRAIN_FLAG_HARDWARE_DATA;
+        TDMA_PIO_SPI_DATA_TRAIN_FLAG_HARDWARE_DATA |
+        (phase_order_warning
+             ? TDMA_PIO_SPI_DATA_TRAIN_FLAG_PHASE_ORDER_WARNING
+             : 0u);
     phys->data_train.epoch = request->epoch;
     phys->data_train.marker_word_count =
         request->role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_SCK_SOURCE
@@ -355,9 +374,10 @@ bool tdma_pio_spi_phys_data_train_inject(tdma_pio_spi_phys_t *phys)
     phys->data_train.state = TDMA_PIO_SPI_DATA_TRAIN_RUNNING;
     phys->data_train.marker_capture_tick = 1ull;
     phys->data_train.data_capture_tick =
-        1ull + phys->data_train.marker_to_data_delay_cycles +
-        phys->data_train.phase_delay_cycles -
-        phys->data_train.source_phase_delay_cycles;
+        tdma_pio_spi_phys_data_train_capture_tick(
+            phys->data_train.marker_to_data_delay_cycles,
+            phys->data_train.phase_delay_cycles,
+            phys->data_train.source_phase_delay_cycles);
     phys->data_train_deadline_ns = vdc_timestamp_clock_now_ns() +
                                    TDMA_PIO_SPI_DATA_TRAIN_TIMEOUT_NS;
     tdma_pio_spi_phys_data_train_write_end(phys);
@@ -457,13 +477,14 @@ void tdma_pio_spi_phys_data_train_service(tdma_pio_spi_phys_t *phys)
     }
     if (initiator && capture_started) {
         phys->data_train.marker_capture_tick = 1ull;
-        phys->data_train.data_capture_tick = 1ull +
-            (phys->data_train.role ==
-                     TDMA_PIO_SPI_DATA_TRAIN_ROLE_SCK_DESTINATION
-                 ? phys->data_train.phase_delay_cycles
-                 : phys->data_train.marker_to_data_delay_cycles +
-                       phys->data_train.phase_delay_cycles -
-                       phys->data_train.source_phase_delay_cycles);
+        phys->data_train.data_capture_tick =
+            phys->data_train.role ==
+                    TDMA_PIO_SPI_DATA_TRAIN_ROLE_SCK_DESTINATION
+                ? 1ull + phys->data_train.phase_delay_cycles
+                : tdma_pio_spi_phys_data_train_capture_tick(
+                      phys->data_train.marker_to_data_delay_cycles,
+                      phys->data_train.phase_delay_cycles,
+                      phys->data_train.source_phase_delay_cycles);
     }
     if (marker_remaining == 0u) {
         phys->data_train.flags |=
@@ -611,9 +632,10 @@ bool tdma_pio_spi_phys_sck_train_inject(tdma_pio_spi_phys_t *phys)
     phys->data_train.state = TDMA_PIO_SPI_DATA_TRAIN_RUNNING;
     phys->data_train.marker_capture_tick = 1ull;
     phys->data_train.data_capture_tick =
-        1ull + phys->data_train.marker_to_data_delay_cycles +
-        phys->data_train.phase_delay_cycles -
-        phys->data_train.source_phase_delay_cycles;
+        tdma_pio_spi_phys_data_train_capture_tick(
+            phys->data_train.marker_to_data_delay_cycles,
+            phys->data_train.phase_delay_cycles,
+            phys->data_train.source_phase_delay_cycles);
     phys->data_train_deadline_ns = vdc_timestamp_clock_now_ns() +
                                    TDMA_PIO_SPI_DATA_TRAIN_TIMEOUT_NS;
     tdma_pio_spi_phys_data_train_write_end(phys);

@@ -145,7 +145,11 @@ void tdma_pio_spi_phys_service_tx(void *context, uint64_t now_ns)
             tdma_pio_spi_phys_set_error(phys, TDMA_PIO_SPI_PHYS_ERROR_TX_BUSY);
             tdma_pio_spi_phys_flight_origin_recover(phys);
             phys->flight_tx_pending = false;
-            phys->flight_tx_completion_pending = false;
+            /* Recovery terminated the accepted launch. Publish a zero-time
+             * token so the adapter can discard its pending evidence and
+             * retry; withholding the token deadlocks the resident origin. */
+            phys->flight_tx_completion_timestamp_ns = 0ull;
+            phys->flight_tx_completion_pending = true;
         }
         return;
     }
@@ -166,7 +170,8 @@ void tdma_pio_spi_phys_service_tx(void *context, uint64_t now_ns)
         wire_bytes > TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS) {
         tdma_pio_spi_phys_set_error(phys, TDMA_PIO_SPI_PHYS_ERROR_BAD_PACKET);
         phys->flight_tx_pending = false;
-        phys->flight_tx_completion_pending = false;
+        phys->flight_tx_completion_timestamp_ns = 0ull;
+        phys->flight_tx_completion_pending = true;
         return;
     }
     for (uint32_t index = 0u; index < wire_bytes; index++) {

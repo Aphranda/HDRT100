@@ -342,7 +342,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--link-delay-ns", type=int, action="append",
         help=("measured end-to-end delay; repeat once per physical link; "
-              "the training base is link-delay/2"))
+              "the training base is link-delay divided by the configured "
+              "path-delay baseline divisor"))
+    parser.add_argument(
+        "--path-delay-baseline-divisor", type=int, default=2,
+        help="divide each measured path delay by this positive integer")
     parser.add_argument(
         "--fault-idle-high", action="store_true",
         help=("TRN-03D marker-timeout trial: originator sends no falling "
@@ -730,7 +734,9 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
     if len(link_delays) != len(board_ids):
         raise SystemExit("link-delay-ns must provide one value per physical link")
     try:
-        link_bases = [link_base_delay_ns(value) for value in link_delays]
+        link_bases = [link_base_delay_ns(
+            value, getattr(args, "path_delay_baseline_divisor", 2))
+            for value in link_delays]
         incoming_link_by_node = [
             (node - 1) % len(board_ids) for node in range(len(board_ids))]
         capture_delays = [
@@ -779,13 +785,17 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
         "offset_application": "PIO_CAPTURE_PHASE_DELAY_ONLY_FORWARD_FIXED",
         "link_delay_ns_by_link": link_delays,
         "link_base_delay_ns_by_link": link_bases,
+        "path_delay_baseline_divisor": getattr(
+            args, "path_delay_baseline_divisor", 2),
         "pio_forward_phase_delay_cycles": [1 for _ in offsets],
         "pio_capture_phase_delay_cycles": capture_delays,
         "unified_phase_training": build_phase_training_contract(
             signal="MARK", link_delay_ns_by_link=link_delays,
             node_offset_samples=offsets,
             sample_period_ns=SAMPLE_PERIOD_NS,
-            capture_origin="rx_csn_pio_edge"),
+            capture_origin="rx_csn_pio_edge",
+            path_delay_baseline_divisor=getattr(
+                args, "path_delay_baseline_divisor", 2)),
         "physical_timing_budget": timing_budget,
         "boards": {board.address: asdict(board) for board in ordered},
     }
@@ -994,7 +1004,9 @@ def run_offset_matrix(args: argparse.Namespace) -> dict[str, object]:
         raise SystemExit("link-delay-ns must provide one value per physical link")
     try:
         args.link_base_delay_ns = [
-            link_base_delay_ns(value) for value in link_delays]
+            link_base_delay_ns(
+                value, getattr(args, "path_delay_baseline_divisor", 2))
+            for value in link_delays]
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
     raw_values = args.matrix_offset_value or DEFAULT_MATRIX_OFFSET_VALUES
@@ -1102,13 +1114,17 @@ def run_offset_matrix(args: argparse.Namespace) -> dict[str, object]:
         "offset_application": "PIO_CAPTURE_PHASE_DELAY_ONLY_FORWARD_FIXED",
         "link_delay_ns_by_link": list(args.link_delay_ns),
         "link_base_delay_ns_by_link": list(args.link_base_delay_ns),
+        "path_delay_baseline_divisor": getattr(
+            args, "path_delay_baseline_divisor", 2),
         "unified_phase_training": build_phase_training_contract(
             signal="MARK", link_delay_ns_by_link=args.link_delay_ns,
             node_offset_samples=(
                 recommended_row["offset_sample_counts_by_node"]
                 if recommended_row is not None else [0] * len(board_ids)),
             sample_period_ns=SAMPLE_PERIOD_NS,
-            capture_origin="rx_csn_pio_edge"),
+            capture_origin="rx_csn_pio_edge",
+            path_delay_baseline_divisor=getattr(
+                args, "path_delay_baseline_divisor", 2)),
         "pio_capture_phase_delay_mapping_by_node": [{
             str(value): capture_phase_delay_cycles(
                 args.link_base_delay_ns[(node - 1) % len(board_ids)], value)
@@ -1250,6 +1266,16 @@ def run_residence_matrix(args: argparse.Namespace) -> dict[str, object]:
         raise SystemExit("board IDs must contain 2..8 unique entries")
     if args.epoch + node_count - 1 > 255:
         raise SystemExit("residence matrix exceeds uint8 training epoch range")
+    link_delays = list(args.link_delay_ns or [])
+    if len(link_delays) != node_count:
+        raise SystemExit("link-delay-ns must provide one value per physical link")
+    try:
+        link_bases = [link_base_delay_ns(
+            value, getattr(args, "path_delay_baseline_divisor", 2))
+            for value in link_delays]
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    marker_offsets = list(args.node_offset_samples or [0] * node_count)
     trials: list[dict[str, object]] = []
     for origin_node in range(node_count):
         trial_args = argparse.Namespace(**vars(args))
@@ -1285,6 +1311,14 @@ def run_residence_matrix(args: argparse.Namespace) -> dict[str, object]:
         "topology_reference_node": args.reference_node,
         "calibration_generation": args.generation,
         "initial_epoch": args.epoch,
+        "training_parameters": {
+            "node_marker_offset_samples": marker_offsets,
+            "sample_period_ns": SAMPLE_PERIOD_NS,
+            "link_delay_ns_by_link": link_delays,
+            "link_base_delay_ns_by_link": link_bases,
+            "path_delay_baseline_divisor": getattr(
+                args, "path_delay_baseline_divisor", 2),
+        },
         "trial_count": len(trials),
         "matrix": matrix,
         "trials": trials,

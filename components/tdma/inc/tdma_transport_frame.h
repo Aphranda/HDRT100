@@ -98,6 +98,16 @@ tdma_transport_route_t tdma_transport_frame_route(
 bool tdma_transport_frame_advance_hop(uint8_t *packet,
                                       size_t packet_size,
                                       tdma_transport_result_t *result);
+/* Convert a fully returned mutable SHORT frame into the next resident cycle.
+ * The optional patch is an opaque, already encoded local process-image range. */
+bool tdma_transport_frame_begin_next_cycle(
+    uint8_t *packet,
+    size_t packet_size,
+    uint32_t local_slot_id,
+    size_t local_payload_offset,
+    const uint8_t *local_payload,
+    size_t local_payload_size,
+    tdma_transport_result_t *result);
 bool tdma_transport_frame_patch_flight_payload(
     uint8_t *packet,
     size_t packet_size,

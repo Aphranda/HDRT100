@@ -34,6 +34,8 @@ from calibration_ring_validate.calibration_phase import (  # noqa: E402
     build_observed_offset_matrix,
     build_phase_training_contract,
     link_base_delay_ns,
+    MAX_CALIBRATED_OFFSET_SAMPLES,
+    MIN_CALIBRATED_OFFSET_SAMPLES,
     phase_delay_samples,
     validate_generation,
 )
@@ -591,7 +593,9 @@ def summarize_repeat_matrix(
     offset_matrix = build_observed_offset_matrix(
         signal="DATA", values_by_node=values_by_node,
         sample_period_ns=(next(iter(identity_sets["sample_period_ns"]))
-                          if identity_sets["sample_period_ns"] else 4))
+                          if identity_sets["sample_period_ns"] else 4),
+        min_offset_samples=MIN_CALIBRATED_OFFSET_SAMPLES,
+        max_offset_samples=MAX_CALIBRATED_OFFSET_SAMPLES)
     for row in offset_matrix["rows"]:
         row["data_offset_sample_counts_by_node"] = list(
             row["offset_sample_counts_by_node"])
@@ -643,7 +647,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--link-delay-ns", type=int, action="append", required=True,
         help=("measured end-to-end delay; repeat once per physical link; "
-              "the training base is link-delay/2"))
+              "the training base is link-delay divided by the configured "
+              "path-delay baseline divisor"))
+    parser.add_argument(
+        "--path-delay-baseline-divisor", type=int, default=2,
+        help="divide each measured path delay by this positive integer")
     parser.add_argument("--sample-period-ns", type=int, default=4,
                         help="runtime PIO sampling period used by offsets")
     parser.add_argument(
@@ -871,7 +879,9 @@ def validate_hil_args(args: argparse.Namespace) -> list[str]:
         raise SystemExit("link-delay-ns must provide one value per physical link")
     try:
         args.link_base_delay_ns = [
-            link_base_delay_ns(value) for value in link_delays]
+            link_base_delay_ns(
+                value, getattr(args, "path_delay_baseline_divisor", 2))
+            for value in link_delays]
         for link, base_ns in enumerate(args.link_base_delay_ns):
             marker_destination = direction_endpoints(
                 link, count, args.marker_direction)[1]
@@ -1017,6 +1027,8 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
         "reused_ring_identity": bool(args.reuse_ring_identity),
         "link_delay_ns": int(args.link_delay_ns[args.link_index]),
         "link_base_delay_ns": args.link_base_delay_ns_current,
+        "path_delay_baseline_divisor": getattr(
+            args, "path_delay_baseline_divisor", 2),
         "configured_window_center_ns": args.configured_window_center_ns,
         "sample_period_ns": args.sample_period_ns,
         "search_offset_samples": [args.search_start, args.search_end],
@@ -1045,7 +1057,9 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
             destination_node_by_link=[direction_endpoints(
                 link, node_count, args.data_direction)[1]
                 for link in range(node_count)],
-            capture_origin="rx_csn_pio_edge"),
+            capture_origin="rx_csn_pio_edge",
+            path_delay_baseline_divisor=getattr(
+                args, "path_delay_baseline_divisor", 2)),
     }
     if args.dry_run:
         return {**plan, "passed": False, "dry_run": True}
@@ -1320,6 +1334,8 @@ def run_repeat_matrix(args: argparse.Namespace) -> dict[str, object]:
             "sample_period_ns": args.sample_period_ns,
             "link_delay_ns_by_link": list(args.link_delay_ns),
             "link_base_delay_ns_by_link": list(args.link_base_delay_ns),
+            "path_delay_baseline_divisor": getattr(
+                args, "path_delay_baseline_divisor", 2),
         },
         "initial_epoch": args.epoch,
         "actions": actions,

@@ -33,6 +33,8 @@ RECEIPT_SCHEMA = "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_V4"
 TDMA_RECEIPT_SCHEMA = "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_TDMA_4NODE_V2"
 TDMA_DIAGNOSTIC_RECEIPT_SCHEMA = (
     "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_TDMA_4NODE_DIAGNOSTIC_V1")
+QUICK_DIAGNOSTIC_RECEIPT_SCHEMA = (
+    "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_TDMA_4NODE_QUICK_DIAGNOSTIC_V1")
 LIMITED_RECEIPT_SCHEMA = "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_10MHZ_LIMITED_V1"
 SOURCE_ROOTS = {
     ".githooks", "application", "boards", "bootloader", "cmake",
@@ -62,6 +64,148 @@ DEFAULT_ACCEPTANCE_TIMING = {
 
 class AcceptanceError(RuntimeError):
     """A mandatory acceptance condition was not met."""
+
+
+def resolve_path_delay_baseline_divisor(config: dict[str, Any]) -> int:
+    """Resolve the explicit path-delay baseline policy for train stages."""
+    value = config.get("path_delay_baseline_divisor", 2)
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise AcceptanceError(
+            "path_delay_baseline_divisor must be a positive integer")
+    return value
+
+
+def resolve_previous_path_delay_baseline_divisor(
+        config: dict[str, Any]) -> int:
+    """Resolve the baseline that produced the configured train offsets."""
+    value = config.get(
+        "previous_path_delay_baseline_divisor",
+        config.get("path_delay_baseline_divisor", 2))
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise AcceptanceError(
+            "previous_path_delay_baseline_divisor must be a positive integer")
+    return value
+
+
+def rebase_node_offsets_for_path_delay(
+        offsets_by_node: list[int], link_delays: list[int],
+        previous_divisor: int, current_divisor: int, *,
+        sample_period_ns: int = 4, direction: str = "reverse") -> list[int]:
+    """Keep a prior absolute window while changing the per-link baseline."""
+    if len(offsets_by_node) != len(link_delays) or not offsets_by_node:
+        raise AcceptanceError("train offset and path-delay dimensions differ")
+    if direction not in {"forward", "reverse"}:
+        raise AcceptanceError("train offset direction is invalid")
+    if sample_period_ns <= 0 or previous_divisor <= 0 or current_divisor <= 0:
+        raise AcceptanceError("train offset rebasing parameters are invalid")
+    previous_bases = [
+        (delay + previous_divisor // 2) // previous_divisor
+        for delay in link_delays]
+    current_bases = [
+        (delay + current_divisor // 2) // current_divisor
+        for delay in link_delays]
+    rebased: list[int] = []
+    for node, offset in enumerate(offsets_by_node):
+        link = node if direction == "reverse" else (node - 1) % len(link_delays)
+        absolute_ns = previous_bases[link] + int(offset) * sample_period_ns
+        delta_ns = absolute_ns - current_bases[link]
+        value = (delta_ns + sample_period_ns // 2) // sample_period_ns
+        if not -10 <= value <= 10:
+            raise AcceptanceError(
+                f"rebased train offset for node{node} is outside -10..+10")
+        rebased.append(value)
+    return rebased
+
+
+def selected_node_offsets(summary: dict[str, Any], field: str,
+                          node_count: int, phase: str) -> list[int]:
+    """Return the actual selected row that feeds the next train stage."""
+    row = summary.get("recommended_row")
+    values = row.get(field) if isinstance(row, dict) else None
+    if (not isinstance(values, list) or len(values) != node_count or
+            any(isinstance(value, bool) or not isinstance(value, int)
+                for value in values)):
+        raise AcceptanceError(
+            f"{phase} did not produce a complete selected offset row")
+    return [int(value) for value in values]
+
+
+def selected_sck_offsets(summary: dict[str, Any], node_count: int) -> list[int]:
+    """Return the measured TRN-01 row that will feed TRN-03."""
+    matrix = summary.get("matrix")
+    offset_matrix = matrix.get("offset_matrix") if isinstance(matrix, dict) else None
+    rows = offset_matrix.get("rows") if isinstance(offset_matrix, dict) else None
+    active_row_id = (offset_matrix.get("active_row_id")
+                     if isinstance(offset_matrix, dict) else None)
+    matches = [row for row in rows or []
+               if isinstance(row, dict) and row.get("row_id") == active_row_id]
+    if len(matches) != 1:
+        raise AcceptanceError("TRN-01 did not produce one active offset row")
+    values = matches[0].get("sck_offset_sample_counts_by_node")
+    if (not isinstance(values, list) or len(values) != node_count or
+            any(isinstance(value, bool) or not isinstance(value, int)
+                for value in values)):
+        raise AcceptanceError("TRN-01 active offset row is incomplete")
+    return [int(value) for value in values]
+
+
+def selected_data_offsets(summary: dict[str, Any], node_count: int) -> list[int]:
+    """Return the active TRN-03 DATA row handed to the runtime stage."""
+    matrix = summary.get("offset_matrix")
+    rows = matrix.get("rows") if isinstance(matrix, dict) else None
+    active_row_id = (matrix.get("active_row_id")
+                     if isinstance(matrix, dict) else None)
+    matches = [row for row in rows or []
+               if isinstance(row, dict) and row.get("row_id") == active_row_id]
+    if len(matches) != 1:
+        raise AcceptanceError("TRN-03 did not produce one active offset row")
+    values = matches[0].get("data_offset_sample_counts_by_node")
+    if (not isinstance(values, list) or len(values) != node_count or
+            any(isinstance(value, bool) or not isinstance(value, int)
+                for value in values)):
+        raise AcceptanceError("TRN-03 active DATA row is incomplete")
+    return [int(value) for value in values]
+
+
+def stage_training_parameters(summary: dict[str, Any], phase: str,
+                              node_count: int) -> dict[str, Any]:
+    """Extract the exact P3 baseline loaded by a train-stage summary."""
+    parameters = summary.get("training_parameters")
+    if not isinstance(parameters, dict):
+        # TRN-00 MARK's offset-matrix summary keeps these fields at top level.
+        parameters = summary
+    delays = parameters.get("link_delay_ns_by_link")
+    bases = parameters.get("link_base_delay_ns_by_link")
+    divisor = parameters.get("path_delay_baseline_divisor")
+    sample_period = parameters.get("sample_period_ns")
+    if sample_period is None:
+        phase_contract = summary.get("unified_phase_training", {})
+        if isinstance(phase_contract, dict):
+            sample_period = phase_contract.get("sample_period_ns")
+    if (not isinstance(delays, list) or len(delays) != node_count or
+            any(isinstance(value, bool) or not isinstance(value, int) or
+                value <= 0 for value in delays)):
+        raise AcceptanceError(f"{phase} did not record P3 path delays")
+    if (not isinstance(bases, list) or len(bases) != node_count or
+            any(isinstance(value, bool) or not isinstance(value, int) or
+                value <= 0 for value in bases)):
+        raise AcceptanceError(f"{phase} did not record per-link baselines")
+    if (isinstance(divisor, bool) or not isinstance(divisor, int) or
+            divisor <= 0 or
+            isinstance(sample_period, bool) or
+            not isinstance(sample_period, int) or sample_period <= 0):
+        raise AcceptanceError(f"{phase} baseline identity is incomplete")
+    expected = [
+        (int(delay) + int(divisor) // 2) // int(divisor)
+        for delay in delays]
+    if [int(value) for value in bases] != expected:
+        raise AcceptanceError(f"{phase} baseline does not match divisor")
+    return {
+        "link_delay_ns_by_link": [int(value) for value in delays],
+        "link_base_delay_ns_by_link": [int(value) for value in bases],
+        "path_delay_baseline_divisor": int(divisor),
+        "sample_period_ns": int(sample_period),
+    }
 
 
 def load_bench_config(path: Path, *,
@@ -363,6 +507,10 @@ def _validate_evidence(root: Path, record: dict[str, Any], *,
         if (path is None or not isinstance(expected, str) or
                 not path.is_file() or sha256_file(path) != expected):
             raise AcceptanceError("local timing_probe evidence is missing or changed")
+    handoff = record.get("calibration_parameter_handoff")
+    if handoff is not None:
+        _validate_evidence_file(
+            root, handoff, "calibration_parameter_handoff")
 
 
 def _validate_evidence_file(root: Path, evidence: object, name: str) -> Path:
@@ -519,6 +667,31 @@ def _validate_tdma_diagnostic_receipt(
         root, record.get("diagnostic_summary"), "diagnostic_summary")
 
 
+def _validate_quick_diagnostic_receipt(
+        root: Path, record: dict[str, Any]) -> None:
+    """Validate a debug-only flow receipt without gating phase quality."""
+    failures = record.get("diagnostic_failures")
+    if (record.get("acceptance_scope") !=
+            "FOUR_NODE_TDMA_QUICK_DIAGNOSTIC" or
+            record.get("acceptance_profile") != "QUICK_DIAGNOSTIC" or
+            record.get("flow_completed") is not True or
+            record.get("passed") is not True or
+            not isinstance(failures, list) or
+            record.get("strict_gates_passed") is not (not failures)):
+        raise AcceptanceError("quick diagnostic receipt has invalid flow state")
+    _validate_evidence(root, record, include_dpll=False)
+    _validate_evidence_file(
+        root, record.get("diagnostic_summary"), "diagnostic_summary")
+    diagnostic_path = root / record["diagnostic_summary"]["path"]
+    diagnostic = json.loads(diagnostic_path.read_text(encoding="utf-8"))
+    if (diagnostic.get("schema") !=
+            "HAOFV_HARDWARE_ACCEPTANCE_DIAGNOSTIC_V1" or
+            diagnostic.get("passed") is not True or
+            diagnostic.get("flow_completed") is not True or
+            diagnostic.get("acceptance_profile") != "QUICK_DIAGNOSTIC"):
+        raise AcceptanceError("quick diagnostic summary is not flow-complete")
+
+
 def _validate_limited_10mhz_evidence(root: Path,
                                      record: dict[str, Any]) -> None:
     """Validate the intentionally reduced bring-up receipt.
@@ -565,6 +738,7 @@ def check_staged(root: Path, receipt_path: Path) -> None:
     schema = receipt.get("schema")
     if schema not in (RECEIPT_SCHEMA, TDMA_RECEIPT_SCHEMA,
                       TDMA_DIAGNOSTIC_RECEIPT_SCHEMA,
+                      QUICK_DIAGNOSTIC_RECEIPT_SCHEMA,
                       LIMITED_RECEIPT_SCHEMA) or \
             receipt.get("passed") is not True:
         raise AcceptanceError("staged hardware acceptance receipt is not PASS")
@@ -579,10 +753,13 @@ def check_staged(root: Path, receipt_path: Path) -> None:
         if receipt.get("acceptance_scope") != "10MHZ_LIMITED_P3":
             raise AcceptanceError("limited receipt has invalid acceptance scope")
         _validate_limited_10mhz_evidence(root, receipt)
-    elif schema in (TDMA_RECEIPT_SCHEMA, TDMA_DIAGNOSTIC_RECEIPT_SCHEMA):
+    elif schema in (TDMA_RECEIPT_SCHEMA, TDMA_DIAGNOSTIC_RECEIPT_SCHEMA,
+                    QUICK_DIAGNOSTIC_RECEIPT_SCHEMA):
         expected_scope = (
             "FOUR_NODE_TDMA_DIAGNOSTIC"
             if schema == TDMA_DIAGNOSTIC_RECEIPT_SCHEMA else
+            "FOUR_NODE_TDMA_QUICK_DIAGNOSTIC"
+            if schema == QUICK_DIAGNOSTIC_RECEIPT_SCHEMA else
             "FOUR_NODE_TDMA")
         if receipt.get("acceptance_scope") != expected_scope:
             raise AcceptanceError("TDMA-only receipt has invalid acceptance scope")
@@ -590,6 +767,8 @@ def check_staged(root: Path, receipt_path: Path) -> None:
             raise AcceptanceError("TDMA-only receipt board sets differ")
         if schema == TDMA_DIAGNOSTIC_RECEIPT_SCHEMA:
             _validate_tdma_diagnostic_receipt(root, receipt)
+        elif schema == QUICK_DIAGNOSTIC_RECEIPT_SCHEMA:
+            _validate_quick_diagnostic_receipt(root, receipt)
         else:
             _validate_evidence(root, receipt, include_dpll=False)
     else:
@@ -1034,8 +1213,8 @@ def p3_link_delays(summary: dict[str, Any], config: dict[str, Any]) -> list[int]
             raise AcceptanceError(
                 f"link{link_index}: stable P3 delay repeat set is incomplete")
         selected = int(round(sum(values) / len(values)))
-        # The shared calibration phase model requires an even end-to-end
-        # value because link_base_delay is exactly link_delay / 2.
+        # Keep the measured path delay even for the shared phase model; the
+        # configured baseline divisor is applied later by every train stage.
         selected += selected & 1
         delays.append(selected)
     return delays
@@ -1128,6 +1307,9 @@ def run_acceptance(args: argparse.Namespace) -> None:
     config_path = root / args.config
     receipt_path = root / args.receipt
     config = load_bench_config(config_path)
+    baseline_divisor = resolve_path_delay_baseline_divisor(config)
+    previous_baseline_divisor = resolve_previous_path_delay_baseline_divisor(
+        config)
     board_ids = list(config["p3_board_ids_in_physical_order"])
     tdma_only = bool(getattr(args, "tdma_only", False))
     diagnostic_continue = bool(getattr(args, "diagnostic_continue", False))
@@ -1377,6 +1559,49 @@ def run_acceptance(args: argparse.Namespace) -> None:
     p3_summary = json.loads(p3_summary_path.read_text(encoding="utf-8"))
     p3_metrics = validate_p3(p3_summary, config)
     link_delays = p3_link_delays(p3_summary, config)
+    link_base_delays = [
+        (value + baseline_divisor // 2) // baseline_divisor
+        for value in link_delays]
+    parameter_handoff: dict[str, Any] = {
+        "schema": "HAOFV_CALIBRATION_PARAMETER_HANDOFF_V1",
+        "baseline": {
+            "source_phase": "P3",
+            "link_delay_ns_by_link": list(link_delays),
+            "link_base_delay_ns_by_link": list(link_base_delays),
+            "path_delay_baseline_divisor": baseline_divisor,
+            "sample_period_ns": 4,
+        },
+        "stages": [],
+    }
+
+    def record_parameter_handoff(
+            phase: str, summary_path: Path, summary: dict[str, Any], *,
+            loaded_from: str, selected: dict[str, Any] | None = None
+            ) -> dict[str, Any]:
+        parameters = stage_training_parameters(
+            summary, phase, len(board_ids))
+        expected = {
+            "link_delay_ns_by_link": list(link_delays),
+            "link_base_delay_ns_by_link": list(link_base_delays),
+            "path_delay_baseline_divisor": baseline_divisor,
+            "sample_period_ns": 4,
+        }
+        if parameters != expected:
+            raise AcceptanceError(
+                f"{phase} did not load the current P3 baseline from "
+                f"{loaded_from}")
+        parameter_handoff["stages"].append({
+            "phase": phase,
+            "loaded_from": loaded_from,
+            "summary": {
+                "path": summary_path.resolve().relative_to(root).as_posix(),
+                "sha256": sha256_file(summary_path),
+            },
+            "loaded_parameters": parameters,
+            **({"selected_parameters": selected} if selected is not None else {}),
+        })
+        return parameters
+
     schedule_after = read_schedules(board_ids, timing)
     validate_schedule_isolation(
         schedule_before, schedule_after, int(config["calibration_load_mask"]))
@@ -1397,6 +1622,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
         "--matrix-repeats", str(config["training_marker_repeats"]),
         "--matrix-epoch-start", "1",
         "--matrix-generation-start", str(generation),
+        "--path-delay-baseline-divisor", str(baseline_divisor),
         "--out-dir", str(marker_dir),
     ]
     for value in (-1, 0, 1):
@@ -1410,6 +1636,14 @@ def run_acceptance(args: argparse.Namespace) -> None:
     marker_summary = run_diagnostic_gate(
         marker_command, out_dir / "trn00-marker.log", marker_summary_path,
         "TRN-00 MARK offset row")
+    marker_offsets_by_node = selected_node_offsets(
+        marker_summary, "offset_sample_counts_by_node", len(board_ids),
+        "TRN-00 MARK")
+    record_parameter_handoff(
+        "TRN-00 MARK", marker_summary_path, marker_summary,
+        loaded_from="P3", selected={
+            "marker_offset_sample_counts_by_node": marker_offsets_by_node,
+        })
 
     # Residence, SCK and DATA form one portable training identity.  MARK row
     # repetitions above use separate generations only as fresh stability proof.
@@ -1423,9 +1657,10 @@ def run_acceptance(args: argparse.Namespace) -> None:
         "--codebook", str(config["training_marker_codebook"]),
         "--residence-matrix", "--epoch", "32",
         "--generation", str(training_generation), *link_delay_args,
+        "--path-delay-baseline-divisor", str(baseline_divisor),
         "--out-dir", str(residence_dir),
     ]
-    for value in config["training_marker_offsets_by_node"]:
+    for value in marker_offsets_by_node:
         residence_command.extend(["--node-offset-samples", str(value)])
     add_serial_timing(residence_command, timing, action=True, gap=True)
     print("Hardware acceptance: TRN-00 full residence matrix", flush=True)
@@ -1433,6 +1668,9 @@ def run_acceptance(args: argparse.Namespace) -> None:
     residence_summary = run_diagnostic_gate(
         residence_command, out_dir / "trn00-residence.log",
         residence_summary_path, "TRN-00 residence matrix")
+    record_parameter_handoff(
+        "TRN-00 residence", residence_summary_path, residence_summary,
+        loaded_from="TRN-00 MARK")
     trn00_summary_path = out_dir / "trn00-summary.json"
     write_phase_summary(
         trn00_summary_path, "TRN-00_MARK_AND_RESIDENCE",
@@ -1450,6 +1688,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
         "--max-offset-span", str(config["training_max_offset_span"]),
         "--epoch", "48", "--generation", str(training_generation),
         "--reuse-ring-identity", *link_delay_args,
+        "--path-delay-baseline-divisor", str(baseline_divisor),
         "--out-dir", str(sck_dir),
     ]
     for value in config["training_sck_offsets_by_node"]:
@@ -1460,12 +1699,22 @@ def run_acceptance(args: argparse.Namespace) -> None:
     sck_summary = run_diagnostic_gate(
         sck_command, out_dir / "trn01-sck.log", sck_summary_path,
         "TRN-01 SCK training")
+    sck_offsets_by_node = selected_sck_offsets(sck_summary, len(board_ids))
+    record_parameter_handoff(
+        "TRN-01 SCK", sck_summary_path, sck_summary,
+        loaded_from="P3 baseline; TRN-00 topology identity", selected={
+            "sck_offset_sample_counts_by_node": sck_offsets_by_node,
+        })
     trn01_summary_path = out_dir / "trn01-summary.json"
     write_phase_summary(
         trn01_summary_path, "TRN-01_SCK_OFFSET_MATRIX",
         [sck_summary_path], diagnostic_continue=diagnostic_continue)
 
     data_dir = out_dir / "trn02-data"
+    training_data_offsets_by_node = rebase_node_offsets_for_path_delay(
+        [int(value) for value in config["training_data_offsets_by_node"]],
+        link_delays, previous_baseline_divisor, baseline_divisor,
+        direction="reverse")
     data_command = [
         sys.executable,
         str(root / "tools/calibration_ring_validate/calibration_data_train.py"),
@@ -1479,11 +1728,12 @@ def run_acceptance(args: argparse.Namespace) -> None:
         str(config["training_marker_to_data_samples"]),
         "--epoch", "96", "--generation", str(training_generation),
         "--reuse-ring-identity", *link_delay_args,
+        "--path-delay-baseline-divisor", str(baseline_divisor),
         "--out-dir", str(data_dir),
     ]
-    for value in config["training_marker_offsets_by_node"]:
+    for value in marker_offsets_by_node:
         data_command.extend(["--node-marker-offset-samples", str(value)])
-    for value in config["training_data_offsets_by_node"]:
+    for value in training_data_offsets_by_node:
         data_command.extend(["--node-data-offset-samples", str(value)])
     add_serial_timing(data_command, timing, action=True, gap=True)
     print("Hardware acceptance: TRN-02 DATA repeat matrix", flush=True)
@@ -1491,6 +1741,19 @@ def run_acceptance(args: argparse.Namespace) -> None:
     data_summary = run_diagnostic_gate(
         data_command, out_dir / "trn02-data.log", data_summary_path,
         "TRN-02 DATA training")
+    record_parameter_handoff(
+        "TRN-02 DATA", data_summary_path, data_summary,
+        loaded_from="TRN-00 MARK + previous DATA calibration", selected={
+            "data_offset_sample_counts_by_node":
+                training_data_offsets_by_node,
+        })
+    data_training_parameters = data_summary.get("training_parameters", {})
+    configured_marker_offsets = (
+        data_training_parameters.get("node_marker_offset_samples")
+        if isinstance(data_training_parameters, dict) else None)
+    if configured_marker_offsets != marker_offsets_by_node:
+        raise AcceptanceError(
+            "TRN-02 DATA did not load the selected TRN-00 MARK offsets")
 
     trn03_matrix_path = out_dir / "trn03-matrix.json"
     print("Hardware acceptance: derive fresh TRN-03 replay matrix", flush=True)
@@ -1506,10 +1769,22 @@ def run_acceptance(args: argparse.Namespace) -> None:
         matrix_command.append("--diagnostic-continue")
     _run_step(matrix_command, root, out_dir / "trn03-matrix.log")
     trn03_matrix = json.loads(trn03_matrix_path.read_text(encoding="utf-8"))
+    trn03_data_offsets_by_node = selected_data_offsets(
+        trn03_matrix, len(board_ids))
+    record_parameter_handoff(
+        "TRN-03 replay matrix", trn03_matrix_path, trn03_matrix,
+        loaded_from="TRN-00 residence + TRN-01 SCK + TRN-02 DATA", selected={
+            "sck_offset_sample_counts_by_node": sck_offsets_by_node,
+            "data_offset_sample_counts_by_node": trn03_data_offsets_by_node,
+        })
     if (trn03_matrix.get("node_ids_in_loop_order") != board_ids or
             int(trn03_matrix.get("calibration_generation", 0)) !=
             training_generation):
         raise AcceptanceError("fresh TRN-03 matrix identity is inconsistent")
+    parameter_handoff_path = out_dir / "calibration-parameter-handoff.json"
+    parameter_handoff_path.write_text(
+        json.dumps(parameter_handoff, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8")
     sck_replay_selection = trn03_matrix.get("derivation", {}).get(
         "sck_replay_selection", {})
     if not bool(sck_replay_selection.get("selected_row_replay_safe", True)):
@@ -1566,7 +1841,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
         str(timing["status_poll_interval_s"]),
         "--out-dir", str(tdma_dir),
     ]
-    add_serial_timing(tdma_command, timing)
+    add_serial_timing(tdma_command, timing, action=True)
     if config["tdma_capture_waveforms"]:
         tdma_command.append("--capture-waveforms")
     if diagnostic_continue:
@@ -1726,13 +2001,17 @@ def run_acceptance(args: argparse.Namespace) -> None:
             "trn01_summary": evidence_entry(root, trn01_summary_path),
             "trn02_summary": evidence_entry(root, data_summary_path),
             "trn03_matrix": evidence_entry(root, trn03_matrix_path),
+            "calibration_parameter_handoff": evidence_entry(
+                root, parameter_handoff_path),
             "tdma_summary": evidence_entry(root, tdma_summary_path),
             "ota_board_ids": ota_board_ids,
             "tdma_board_ids": board_ids,
             **p3_metrics,
             "link_delay_ns_by_link": link_delays,
             "link_base_delay_ns_by_link": [
-                value // 2 for value in link_delays],
+                (value + baseline_divisor // 2) // baseline_divisor
+                for value in link_delays],
+            "path_delay_baseline_divisor": baseline_divisor,
             "calibration_generation": training_generation,
             "calibration_load_mask": int(config["calibration_load_mask"]),
             "schedule_before": schedule_before,
@@ -1788,7 +2067,20 @@ def run_acceptance(args: argparse.Namespace) -> None:
             "status": "PASS_WITH_DIAGNOSTICS",
         })
         diagnostic_receipt_written = False
-        if tdma_only and diagnostic_failures and not quick_diagnostic:
+        if quick_diagnostic:
+            receipt = make_receipt(
+                QUICK_DIAGNOSTIC_RECEIPT_SCHEMA,
+                "FOUR_NODE_TDMA_QUICK_DIAGNOSTIC")
+            receipt.update({
+                "flow_completed": True,
+                "strict_gates_passed": not diagnostic_failures,
+                "diagnostic_failures": diagnostic_failures,
+                "diagnostic_summary": evidence_entry(root, diagnostic_path),
+            })
+            _validate_quick_diagnostic_receipt(root, receipt)
+            persist_receipt(receipt)
+            diagnostic_receipt_written = True
+        elif tdma_only and diagnostic_failures:
             validate_tdma_diagnostic_summary(tdma_summary, board_ids)
             receipt = make_receipt(
                 TDMA_DIAGNOSTIC_RECEIPT_SCHEMA,

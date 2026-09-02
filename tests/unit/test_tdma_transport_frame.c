@@ -226,6 +226,191 @@ int main(void)
                          result,
                          TDMA_TRANSPORT_HOP_LIMIT_REACHED);
 
+    uint8_t incomplete_packet[sizeof(packet)];
+    size_t incomplete_packet_size = 0u;
+    failed += expect_bool("encode incomplete returned frame",
+                          tdma_transport_frame_encode(
+                              &build,
+                              incomplete_packet,
+                              sizeof(incomplete_packet),
+                              &incomplete_packet_size,
+                              &result),
+                          true);
+    uint8_t unchanged_incomplete_packet[sizeof(incomplete_packet)];
+    memcpy(unchanged_incomplete_packet,
+           incomplete_packet,
+           sizeof(unchanged_incomplete_packet));
+    failed += expect_bool("reject incomplete returned frame",
+                          tdma_transport_frame_begin_next_cycle(
+                              incomplete_packet,
+                              incomplete_packet_size,
+                              2u,
+                              0u,
+                              NULL,
+                              0u,
+                              &result),
+                          false);
+    failed += expect_u32("incomplete returned frame result",
+                         result,
+                         TDMA_TRANSPORT_BAD_ROUTE);
+    failed += expect_bool("incomplete returned frame unchanged",
+                          memcmp(incomplete_packet,
+                                 unchanged_incomplete_packet,
+                                 sizeof(incomplete_packet)) == 0,
+                          true);
+
+    uint8_t returned_packet[sizeof(packet)];
+    memcpy(returned_packet, packet, sizeof(returned_packet));
+    uint8_t unchanged_returned_packet[sizeof(packet)];
+    memcpy(unchanged_returned_packet, packet, sizeof(unchanged_returned_packet));
+    failed += expect_bool("reject next cycle at wrong reference",
+                          tdma_transport_frame_begin_next_cycle(
+                              returned_packet,
+                              sizeof(returned_packet),
+                              3u,
+                              0u,
+                              NULL,
+                              0u,
+                              &result),
+                          false);
+    failed += expect_u32("wrong reference result",
+                         result,
+                         TDMA_TRANSPORT_BAD_ROUTE);
+    failed += expect_bool("wrong reference leaves frame unchanged",
+                          memcmp(returned_packet,
+                                 unchanged_returned_packet,
+                                 sizeof(returned_packet)) == 0,
+                          true);
+
+    failed += expect_bool("reject next cycle patch overflow",
+                          tdma_transport_frame_begin_next_cycle(
+                              returned_packet,
+                              sizeof(returned_packet),
+                              2u,
+                              sizeof(payload),
+                              flight_patch,
+                              1u,
+                              &result),
+                          false);
+    failed += expect_u32("next cycle patch overflow result",
+                         result,
+                         TDMA_TRANSPORT_CAPACITY_REJECTED);
+    failed += expect_bool("patch overflow leaves frame unchanged",
+                          memcmp(returned_packet,
+                                 unchanged_returned_packet,
+                                 sizeof(returned_packet)) == 0,
+                          true);
+
+    const uint8_t reference_patch[] = {0xC3u, 0x3Cu};
+    failed += expect_bool("begin next resident cycle",
+                          tdma_transport_frame_begin_next_cycle(
+                              returned_packet,
+                              sizeof(returned_packet),
+                              2u,
+                              0u,
+                              reference_patch,
+                              sizeof(reference_patch),
+                              &result),
+                          true);
+    failed += expect_bool("decode next resident cycle",
+                          tdma_transport_frame_decode(returned_packet,
+                                                      sizeof(returned_packet),
+                                                      &view,
+                                                      &result),
+                          true);
+    failed += expect_u32("next cycle sequence", view.transport_sequence, 18u);
+    failed += expect_u32("next cycle hop reset", view.hop_count, 0u);
+    failed += expect_u32("next cycle local route",
+                         tdma_transport_frame_route(&view, 2u),
+                         TDMA_TRANSPORT_ROUTE_LOCAL_TX);
+    failed += expect_bool("next cycle identity refreshed",
+                          view.identity_crc32 != identity_crc32,
+                          true);
+    failed += expect_bool("next cycle transport crc refreshed",
+                          view.transport_crc32 != transport_crc32,
+                          true);
+    failed += expect_bool("next cycle local payload byte 0",
+                          view.payload[0] == reference_patch[0],
+                          true);
+    failed += expect_bool("next cycle local payload byte 1",
+                          view.payload[1] == reference_patch[1],
+                          true);
+    failed += expect_u32("next cycle preserves payload byte 2",
+                         view.payload[2],
+                         0x5Au);
+    failed += expect_u32("next cycle preserves payload byte 3",
+                         view.payload[3],
+                         payload[3]);
+
+    uint8_t no_update_packet[sizeof(packet)];
+    memcpy(no_update_packet, packet, sizeof(no_update_packet));
+    uint8_t returned_payload[sizeof(payload)];
+    memcpy(returned_payload,
+           packet + TDMA_TRANSPORT_FRAME_HEADER_SIZE,
+           sizeof(returned_payload));
+    failed += expect_bool("begin next cycle without local update",
+                          tdma_transport_frame_begin_next_cycle(
+                              no_update_packet,
+                              sizeof(no_update_packet),
+                              2u,
+                              0u,
+                              NULL,
+                              0u,
+                              &result),
+                          true);
+    failed += expect_bool("decode no-update next cycle",
+                          tdma_transport_frame_decode(no_update_packet,
+                                                      sizeof(no_update_packet),
+                                                      &view,
+                                                      &result),
+                          true);
+    failed += expect_bool("no-update cycle preserves entire payload",
+                          memcmp(view.payload,
+                                 returned_payload,
+                                 sizeof(returned_payload)) == 0,
+                          true);
+
+    tdma_transport_frame_build_t wrapping_build = build;
+    wrapping_build.transport_sequence = UINT32_MAX;
+    uint8_t wrapping_packet[sizeof(packet)];
+    size_t wrapping_packet_size = 0u;
+    failed += expect_bool("encode wrapping cycle",
+                          tdma_transport_frame_encode(
+                              &wrapping_build,
+                              wrapping_packet,
+                              sizeof(wrapping_packet),
+                              &wrapping_packet_size,
+                              &result),
+                          true);
+    for (uint32_t hop = 0u; hop < wrapping_build.hop_limit; hop++) {
+        failed += expect_bool("advance wrapping cycle",
+                              tdma_transport_frame_advance_hop(
+                                  wrapping_packet,
+                                  wrapping_packet_size,
+                                  &result),
+                              true);
+    }
+    failed += expect_bool("begin wrapped resident cycle",
+                          tdma_transport_frame_begin_next_cycle(
+                              wrapping_packet,
+                              wrapping_packet_size,
+                              wrapping_build.origin_slot_id,
+                              0u,
+                              NULL,
+                              0u,
+                              &result),
+                          true);
+    failed += expect_bool("decode wrapped resident cycle",
+                          tdma_transport_frame_decode(wrapping_packet,
+                                                      wrapping_packet_size,
+                                                      &view,
+                                                      &result),
+                          true);
+    failed += expect_u32("wrapped cycle sequence",
+                         view.transport_sequence,
+                         0u);
+    failed += expect_u32("wrapped cycle hop reset", view.hop_count, 0u);
+
     uint8_t corrupted[sizeof(packet)];
     memcpy(corrupted, packet, sizeof(corrupted));
     corrupted[TDMA_TRANSPORT_FRAME_HEADER_SIZE] ^= 0x01u;

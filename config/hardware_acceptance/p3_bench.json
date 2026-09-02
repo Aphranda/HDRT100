@@ -39,6 +39,7 @@
   "training_marker_offsets_by_node": [1, -1, 0, 1],
   "training_sck_offsets_by_node": [1, 1, 1, 1],
   "training_data_offsets_by_node": [5, 5, 5, 5],
+  "previous_path_delay_baseline_divisor": 2,
   "training_marker_repeats": 8,
   "training_sck_repeats": 8,
   "training_data_repeats": 8,

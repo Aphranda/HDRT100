@@ -28,8 +28,10 @@ if str(ROOT / "tools" / "tdma_ring_monitor") not in sys.path:
 
 from scpi_common.board_identity import parse_idn_response  # noqa: E402
 from scpi_common.scpi_serial import (  # noqa: E402
+    COMPOSITE_ACK_HEADERS,
     SERIAL_LIFECYCLE_PHASE,
     SerialSession,
+    is_scpi_query,
     read_scpi_response,
     serial_lifecycle_mode,
 )
@@ -234,9 +236,9 @@ def order_boards_by_board_no(
 def _board_command_on_serial(board: Board, text: str,
                             args: argparse.Namespace,
                             ser: serial.Serial) -> str:
-    # Most action commands return a bare OK. The shared reader strips
-    # that acknowledgement to protect query parsing, so represent the
-    # resulting empty response explicitly; state is verified below.
+    # Most action commands return a bare OK. The shared reader consumes that
+    # ACK in the same transaction; the bounded fallback remains for commands
+    # whose success is only observable through the following state readback.
     action = text.strip().split(maxsplit=1)[0].upper()
     ack_only_actions = {
         "SYSTEM:TDMA:RING:STOP", "SYST:TDMA:RING:STOP",
@@ -264,10 +266,14 @@ def _board_command_on_serial(board: Board, text: str,
         float(getattr(args, "action_timeout", args.timeout)),
         float(args.timeout),
     )
+    ordinary_write = (
+        not is_scpi_query(text) and action not in COMPOSITE_ACK_HEADERS)
     try:
         response = command(
             ser, text,
-            action_timeout if action in ack_only_actions else args.timeout)
+            action_timeout
+            if action in ack_only_actions or ordinary_write
+            else args.timeout)
     except (OSError, serial.SerialException):
         if action not in {"SYSTEM:BOOT:RESET", "SYST:BOOT:RESET"}:
             raise

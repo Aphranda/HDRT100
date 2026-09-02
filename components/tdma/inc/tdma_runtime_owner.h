@@ -16,6 +16,7 @@ tdma_traffic_scheduler_t *tdma_runtime_owner_get_scheduler(void);
 tdma_pio_spi_ring_adapter_t *tdma_runtime_owner_get_ring_adapter(void);
 bool tdma_runtime_owner_set_flight_process_image_mode(bool enabled);
 bool tdma_runtime_owner_set_clock_evidence_enabled(bool enabled);
+bool tdma_runtime_owner_set_ring_diagnostic_mode(bool enabled);
 
 /* Core0 data-plane facade.  These functions only access the cross-core
  * software FIFO.  Core1 remains the sole PIO/SM/DMA and hardware-FIFO owner. */

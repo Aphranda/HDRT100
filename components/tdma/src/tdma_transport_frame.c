@@ -461,3 +461,67 @@ bool tdma_transport_frame_advance_hop(uint8_t *packet,
     tdma_transport_set_result(result, TDMA_TRANSPORT_OK);
     return true;
 }
+
+bool tdma_transport_frame_begin_next_cycle(
+    uint8_t *packet,
+    size_t packet_size,
+    uint32_t local_slot_id,
+    size_t local_payload_offset,
+    const uint8_t *local_payload,
+    size_t local_payload_size,
+    tdma_transport_result_t *result)
+{
+    tdma_transport_frame_view_t view;
+    if (packet == NULL ||
+        local_slot_id >= TDMA_TRANSPORT_FRAME_MAX_SLOT_COUNT ||
+        (local_payload_size != 0u && local_payload == NULL)) {
+        tdma_transport_set_result(result, TDMA_TRANSPORT_BAD_ARGUMENT);
+        return false;
+    }
+    if (!tdma_transport_frame_decode(packet, packet_size, &view, result)) {
+        return false;
+    }
+    if (view.frame_class != TDMA_TRANSPORT_FRAME_CLASS_SHORT ||
+        (view.flags & TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE) == 0u) {
+        tdma_transport_set_result(result,
+                                  TDMA_TRANSPORT_FRAME_CLASS_REJECTED);
+        return false;
+    }
+    if (view.origin_slot_id != local_slot_id ||
+        view.hop_count != view.hop_limit ||
+        (view.flags & TDMA_TRANSPORT_FLAG_REQUIRE_FEEDBACK) == 0u) {
+        tdma_transport_set_result(result, TDMA_TRANSPORT_BAD_ROUTE);
+        return false;
+    }
+    if (local_payload_offset > view.payload_size ||
+        local_payload_size > view.payload_size - local_payload_offset) {
+        tdma_transport_set_result(result,
+                                  TDMA_TRANSPORT_CAPACITY_REJECTED);
+        return false;
+    }
+
+    if (local_payload_size != 0u) {
+        memmove(packet + TDMA_TRANSPORT_FRAME_HEADER_SIZE +
+                    local_payload_offset,
+                local_payload,
+                local_payload_size);
+    }
+    view.transport_sequence++;
+    view.hop_count = 0u;
+    tdma_transport_write_le32(packet,
+                              TDMA_TRANSPORT_OFFSET_SEQUENCE,
+                              view.transport_sequence);
+    packet[TDMA_TRANSPORT_OFFSET_HOP_COUNT] = 0u;
+    tdma_transport_write_le32(packet,
+                              TDMA_TRANSPORT_OFFSET_IDENTITY_CRC,
+                              tdma_transport_identity_crc32(&view));
+    tdma_transport_write_le32(packet,
+                              TDMA_TRANSPORT_OFFSET_TRANSPORT_CRC,
+                              0u);
+    tdma_transport_write_le32(
+        packet,
+        TDMA_TRANSPORT_OFFSET_TRANSPORT_CRC,
+        tdma_transport_packet_crc32(packet, packet_size));
+    tdma_transport_set_result(result, TDMA_TRANSPORT_OK);
+    return true;
+}

@@ -602,6 +602,26 @@ bool tdma_service_set_loop_delay_ns(tdma_service_service_t *service,
     return true;
 }
 
+bool tdma_service_set_ring_diagnostic_mode(tdma_service_service_t *service,
+                                           bool enabled)
+{
+    tdma_ring_runtime_snapshot_t snapshot;
+    if (service == NULL ||
+        !tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot) ||
+        snapshot.enabled != 0u || snapshot.adapter_started != 0u ||
+        service->ring_staged_config.enabled == 0u) {
+        return false;
+    }
+    if (enabled) {
+        service->ring_staged_config.flags |=
+            TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE;
+    } else {
+        service->ring_staged_config.flags &=
+            ~TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE;
+    }
+    return true;
+}
+
 bool tdma_service_stage_calibration(
     tdma_service_service_t *service,
     const tdma_ring_calibration_stage_t *stage)

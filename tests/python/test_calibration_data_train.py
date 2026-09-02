@@ -250,6 +250,25 @@ def test_paused_rx_dma_keeps_logical_remainder_until_fifo_stalls() -> None:
     assert "PIO FIFO-full evidence" in source
 
 
+def test_phase_order_candidate_is_armed_and_published_as_warning() -> None:
+    source = "\n".join(
+        (ROOT / "components" / "tdma" / "src" / name).read_text(
+            encoding="utf-8")
+        for name in (
+            "tdma_pio_spi_phys.c",
+            "tdma_pio_spi_phys_data_train_restored.inc",
+        )
+    )
+    arm = source.split(
+        "bool tdma_pio_spi_phys_data_train_arm", 1)[1].split(
+            "bool tdma_pio_spi_phys_data_train_inject", 1)[0]
+    assert "request->phase_delay_cycles < request->source_phase_delay_cycles" \
+        not in arm.split("const bool phase_order_warning", 1)[0]
+    assert "TDMA_PIO_SPI_DATA_TRAIN_FLAG_PHASE_ORDER_WARNING" in arm
+    assert "const int64_t relative_tick" in source
+    assert "tdma_pio_spi_phys_data_train_capture_tick" in source
+
+
 def test_offset_fault_is_never_promoted_to_trn03() -> None:
     result = classify_offset_fault(0, 11, -10, 10, 0)
     assert result["expected_failure"] == "ARM_REJECTED_OFFSET_RANGE"
@@ -372,6 +391,39 @@ def test_selected_link_repeats_form_stable_window_without_fake_full_matrix(
     assert summary["offset_matrix"]["candidate_values_by_node"][0] == [3, 4]
     assert summary["offset_matrix"]["missing_nodes"] == [1, 2, 3]
     assert "data_offset_matrix_incomplete" not in summary["gate_failures"]
+
+
+def test_repeat_matrix_accepts_rebased_data_offsets_above_search_range() -> None:
+    trials = []
+    for link in range(4):
+        for repeat in range(1, 3):
+            trials.append({
+                "link": link,
+                "repeat_index": repeat,
+                "passed": True,
+                "marker_source_node": link,
+                "marker_destination_node": (link + 1) % 4,
+                "data_source_node": (link + 1) % 4,
+                "data_destination_node": link,
+                "marker_direction": "forward",
+                "data_direction": "reverse",
+                "resolved_offset_sample_count": 8,
+                "calibrated_data_offset_sample_count": 16 + (link % 2),
+                "marker_data_skew_ns": 0,
+                "source": {
+                    "best_distance": 10,
+                    "margin": 100,
+                    "calibration_generation": 210,
+                    "topology_generation": 3,
+                    "topology_crc32": 22,
+                    "profile_crc32": 23,
+                    "schedule_crc32": 24,
+                    "sample_period_ns": 4,
+                },
+            })
+    summary = summarize_repeat_matrix(trials, 4, 2, 1)
+    assert summary["passed"] is True
+    assert summary["offset_matrix"]["recommended_offset_sample_counts_by_node"] == [16, 17, 16, 17]
 
 
 def test_data_waveform_renders_expected_capture(tmp_path) -> None:

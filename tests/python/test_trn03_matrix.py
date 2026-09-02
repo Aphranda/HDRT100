@@ -74,6 +74,14 @@ def evidence(level: int = 9) -> tuple[dict, dict]:
         "node_ids_in_loop_order": ["n0", "n1", "n2", "n3"],
         "repeats": 3,
         "max_offset_span_sample": 1,
+        "training_parameters": {
+            "node_marker_offset_samples": [1, -1, 0, 1],
+            "node_data_offset_samples": [5, 5, 5, 5],
+            "sample_period_ns": 4,
+            "link_delay_ns_by_link": [80, 80, 80, 80],
+            "link_base_delay_ns_by_link": [40, 40, 40, 40],
+            "path_delay_baseline_divisor": 2,
+        },
         "matrix": {
             "passed": True,
             "expected_trial_count": 12,
@@ -94,6 +102,13 @@ def evidence(level: int = 9) -> tuple[dict, dict]:
         "passed": True,
         "node_ids_in_loop_order": ["n0", "n1", "n2", "n3"],
         "trial_count": 4,
+        "training_parameters": {
+            "node_marker_offset_samples": [1, -1, 0, 1],
+            "sample_period_ns": 4,
+            "link_delay_ns_by_link": [80, 80, 80, 80],
+            "link_base_delay_ns_by_link": [40, 40, 40, 40],
+            "path_delay_baseline_divisor": 2,
+        },
         "matrix": {
             "passed": True,
             "identity": residence_identity,
@@ -125,7 +140,10 @@ def sck_evidence(data: dict) -> dict:
         "passed": True,
         "node_ids_in_loop_order": list(data["node_ids_in_loop_order"]),
         "training_parameters": {
+            "link_delay_ns_by_link": [80, 80, 80, 80],
             "link_base_delay_ns_by_link": [40, 40, 40, 40],
+            "path_delay_baseline_divisor": 2,
+            "sample_period_ns": 4,
         },
         "matrix": {
             "passed": True,
@@ -310,6 +328,26 @@ def test_build_matrix_diagnostic_skips_failed_data_trial() -> None:
     assert matrix["links"][3]["source_evidence"][
         "accepted_trial_count"] == 2
     assert matrix["links"][3]["data_offset_sample_count"] == 5
+
+
+def test_load_config_diagnostic_records_unsafe_data_replay() -> None:
+    data, residence = evidence(7)
+    sck = sck_evidence(data)
+    matrix = build_matrix(7, data, residence, sck=sck)
+    for link in matrix["links"]:
+        link["link_base_delay_ns"] = 27
+    for row in matrix["offset_matrix"]["rows"]:
+        row["data_offset_sample_counts_by_node"] = [17, 17, 17, 17]
+    path = Path("out") / "test-trn03-unsafe-data-matrix.json"
+    path.write_text(__import__("json").dumps(matrix), encoding="utf-8")
+    try:
+        with pytest.raises(ValueError, match="DATA replay phase"):
+            load_config(path)
+        loaded = load_config(path, allow_unsafe_data=True)
+        assert loaded["diagnostic_replay_gates"]["unsafe_data_links"] == [
+            0, 1, 2, 3]
+    finally:
+        path.unlink(missing_ok=True)
 
 
 def test_build_matrix_diagnostic_requires_accepted_trial_per_link() -> None:

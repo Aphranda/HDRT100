@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from .calibration_phase import link_base_delay_ns
     from .trn02_profile_gate import (
         IDENTITY_FIELDS,
         load_summary,
@@ -19,6 +20,7 @@ try:
     )
     from .trn03_stage import sck_replay_phase_margin
 except ImportError:  # Direct execution from this directory.
+    from calibration_phase import link_base_delay_ns  # type: ignore[no-redef]
     from trn02_profile_gate import (  # type: ignore[no-redef]
         IDENTITY_FIELDS,
         load_summary,
@@ -331,6 +333,72 @@ def derive_data_refinement_candidates(
             records)
 
 
+def _stage_training_parameters(summary: dict[str, Any], label: str,
+                               node_count: int) -> dict[str, Any]:
+    """Load the per-link calibration parameters handed to one train stage."""
+    parameters = summary.get("training_parameters")
+    if not isinstance(parameters, dict):
+        raise ValueError(f"{label} training parameters are missing")
+    raw_delays = parameters.get("link_delay_ns_by_link")
+    raw_bases = parameters.get("link_base_delay_ns_by_link")
+    divisor = parameters.get("path_delay_baseline_divisor")
+    sample_period = parameters.get("sample_period_ns")
+    if (not isinstance(raw_delays, list) or len(raw_delays) != node_count or
+            any(isinstance(value, bool) or not isinstance(value, int) or
+                value <= 0 for value in raw_delays)):
+        raise ValueError(f"{label} path delays are invalid")
+    if (not isinstance(raw_bases, list) or len(raw_bases) != node_count or
+            any(isinstance(value, bool) or not isinstance(value, int) or
+                value <= 0 for value in raw_bases)):
+        raise ValueError(f"{label} link bases are invalid")
+    if (isinstance(divisor, bool) or not isinstance(divisor, int) or
+            divisor <= 0):
+        raise ValueError(f"{label} baseline divisor is invalid")
+    if (isinstance(sample_period, bool) or not isinstance(sample_period, int) or
+            sample_period <= 0):
+        raise ValueError(f"{label} sample period is invalid")
+    delays = [int(value) for value in raw_delays]
+    bases = [int(value) for value in raw_bases]
+    expected_bases = [link_base_delay_ns(delay, divisor) for delay in delays]
+    if bases != expected_bases:
+        raise ValueError(
+            f"{label} link bases do not match path-delay baseline divisor")
+    return {
+        "link_delay_ns_by_link": delays,
+        "link_base_delay_ns_by_link": bases,
+        "path_delay_baseline_divisor": int(divisor),
+        "sample_period_ns": int(sample_period),
+    }
+
+
+def _validate_shared_training_baseline(
+        data: dict[str, Any], residence: dict[str, Any],
+        sck: dict[str, Any] | None, node_count: int,
+        sample_period_ns: int) -> dict[str, Any]:
+    """Require every stage to consume the same directed P3 baseline."""
+    sources = [
+        ("TRN-00 residence", residence),
+        ("TRN-02 DATA", data),
+    ]
+    if sck is not None:
+        sources.append(("TRN-01 SCK", sck))
+    loaded = [
+        (label, _stage_training_parameters(summary, label, node_count))
+        for label, summary in sources
+    ]
+    reference_label, reference = loaded[0]
+    for label, parameters in loaded[1:]:
+        if parameters != reference:
+            raise ValueError(
+                f"{label} baseline differs from {reference_label} handoff")
+    if reference["sample_period_ns"] != sample_period_ns:
+        raise ValueError("training sample period differs from phase identity")
+    return {
+        **reference,
+        "loaded_from": [label for label, _ in loaded],
+    }
+
+
 def build_matrix(level: int, data: dict[str, Any],
                  residence: dict[str, Any], *,
                  sck: dict[str, Any] | None = None,
@@ -382,6 +450,8 @@ def build_matrix(level: int, data: dict[str, Any],
     facts = pio_facts(level)
     clkdiv_q16 = facts["clkdiv_q16"]
     sample_period_ns = identity["sample_period_ns"]
+    training_parameters = _validate_shared_training_baseline(
+        data, residence, sck, count, sample_period_ns)
     sck_offset_candidates_by_node: list[list[int]] = [
         [0] for _ in range(count)]
     selected_sck_offsets_by_node = [0] * count
@@ -442,10 +512,11 @@ def build_matrix(level: int, data: dict[str, Any],
             raise ValueError("SCK active row dimensions are invalid")
         selected_sck_offsets_by_node = [int(value)
                                         for value in selected_values]
-        training_parameters = sck.get("training_parameters")
-        if not isinstance(training_parameters, dict):
+        sck_training_parameters = sck.get("training_parameters")
+        if not isinstance(sck_training_parameters, dict):
             raise ValueError("SCK training parameters are missing")
-        raw_sck_bases = training_parameters.get("link_base_delay_ns_by_link")
+        raw_sck_bases = sck_training_parameters.get(
+            "link_base_delay_ns_by_link")
         if (not isinstance(raw_sck_bases, list) or
                 len(raw_sck_bases) != count or
                 any(isinstance(value, bool) or not isinstance(value, int) or
@@ -767,10 +838,16 @@ def build_matrix(level: int, data: dict[str, Any],
         "baud_hz": facts["baud_hz"],
         "cycle_period_ns": facts["cycle_period_ns"],
         "node_ids_in_loop_order": nodes,
+        "training_parameters": training_parameters,
         "derivation": {
             "data_summary": data_path,
             "sck_summary": sck_path,
             "residence_summary": residence_path,
+            "parameter_handoff": {
+                "baseline_source": "P3 path-delay -> TRN-00/TRN-01/TRN-02",
+                "loaded_stages": training_parameters["loaded_from"],
+                "next_stage": "TRN-03 replay matrix",
+            },
             "sample_period_ns": sample_period_ns,
             "pio_fact_anchors": [
                 "TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL",
@@ -811,7 +888,14 @@ def build_matrix(level: int, data: dict[str, Any],
         from .trn03_stage import validate_config
     except ImportError:  # Direct execution from this directory.
         from trn03_stage import validate_config  # type: ignore[no-redef]
-    validate_config(result, allow_unsafe_sck=diagnostic_continue)
+    validated = validate_config(
+        result,
+        allow_unsafe_sck=diagnostic_continue,
+        allow_unsafe_data=diagnostic_continue)
+    replay_gates = validated.get("diagnostic_replay_gates", {})
+    result["derivation"]["diagnostic_replay_gates"] = replay_gates
+    if replay_gates.get("unsafe_data_links"):
+        result["passed"] = False
     return result
 
 

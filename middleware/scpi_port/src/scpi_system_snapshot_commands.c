@@ -2788,6 +2788,31 @@ scpi_result_t scpi_cmd_system_tdma_ring_loop_delay_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_system_tdma_ring_diagnostic(scpi_t *context)
+{
+    uint32_t enabled = 0u;
+    if (!scpi_port_read_u32(context, &enabled) || enabled > 1u ||
+        !tdma_runtime_owner_set_ring_diagnostic_mode(enabled != 0u)) {
+        scpi_port_push_exec_error(context, "TDMA_RING_DIAGNOSTIC");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, enabled);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_ring_diagnostic_q(scpi_t *context)
+{
+    tdma_service_ring_runtime_config_t config;
+    if (!tdma_runtime_owner_get_staged_ring_config(&config)) {
+        scpi_port_push_exec_error(context, "TDMA_RING_DIAGNOSTIC_QUERY");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(
+        context,
+        (config.flags & TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE) != 0u ? 1u : 0u);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_system_tdma_ring_train_status_q(scpi_t *context)
 {
     tdma_pio_spi_clk_train_snapshot_t train;

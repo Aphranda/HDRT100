@@ -132,9 +132,10 @@ typedef bool (*tdma_pio_spi_ring_phys_timestamp_ready_fn)(
     void *context,
     uint32_t *resolution_ns,
     uint32_t *flags);
-/* A flight-origin TX is accepted at hardware launch and completed later.
- * The adapter consumes this one-shot completion token to attach the PIO
- * clock-latch timestamp to the corresponding reference evidence entry. */
+/* A flight-origin TX is accepted at hardware launch and terminates later.
+ * The adapter consumes this one-shot token to release the pending launch and
+ * attach a non-zero PIO clock-latch timestamp to its reference evidence.
+ * A zero timestamp is a failed/aborted terminal result, never DPLL evidence. */
 typedef bool (*tdma_pio_spi_ring_phys_tx_complete_fn)(
     void *context,
     uint64_t *tx_timestamp_ns);
@@ -314,6 +315,10 @@ typedef struct {
     uint32_t last_rx_new_segment_mask;
     uint64_t next_tx_deadline_ns;
     uint64_t rx_ready_timestamp_ns;
+    /* Reference flight TX completes asynchronously.  A passed emission
+     * deadline must not resubmit while the physical completion token is
+     * outstanding. */
+    bool reference_tx_completion_pending;
     uint32_t pending_tx_evidence_sequence;
     uint32_t pending_tx_evidence_identity_crc32;
     bool pending_tx_evidence;

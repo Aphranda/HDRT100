@@ -22,6 +22,7 @@ for tool_path in (ROOT / "tools", ROOT / "tools" / "tdma_ring_monitor",
 from tdma_start_ring import (  # noqa: E402
     Board,
     board_command,
+    close_persistent_connections,
     discover,
     order_boards_by_board_no,
     train,
@@ -276,8 +277,13 @@ def parse_args() -> argparse.Namespace:
               "diagnostic collection; the command still exits nonzero"))
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
+    parser.add_argument("--read-timeout", type=float, default=0.02)
+    parser.add_argument("--action-timeout", type=float, default=0.5)
     parser.add_argument("--settle", type=float, default=0.2)
     parser.add_argument("--arm-wait", type=float, default=3.0)
+    parser.add_argument(
+        "--short-open", action="store_true",
+        help="open/close CDC for every command instead of one session per board")
     parser.add_argument(
         "--owner-action-retries", type=int, default=3,
         help=("bounded retries for STOPPED-only profile/topology owner "
@@ -304,8 +310,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--leave-running", action="store_true",
         help=("leave the matrix-backed ring running only after every closed-"
-              "loop gate and a final runtime readback pass; any failure "
-              "still stops all nodes"))
+              "loop gate and a final runtime readback pass; diagnostic mode "
+              "records handoff failures without stopping the ring"))
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--out-dir", type=Path)
     return parser.parse_args()
@@ -364,6 +370,17 @@ def running_handoff_errors(snapshot: dict[str, int], node_index: int,
     }
     return [name for name, value in expected.items()
             if snapshot.get(name) != value]
+
+
+def running_handoff_allows_leave_running(
+        handoff: dict[str, dict[str, Any]], *, diagnostic_continue: bool
+        ) -> bool:
+    """Keep diagnostic runs observational even when the strict gate fails."""
+    if not handoff:
+        return False
+    if diagnostic_continue:
+        return True
+    return all(bool(item.get("passed")) for item in handoff.values())
 
 
 def arm_with_evidence(board: Board, args: argparse.Namespace) -> dict[str, Any]:
@@ -1490,10 +1507,15 @@ def analyze_ring_waveforms(capture: dict[str, Any], config: dict[str, Any],
 
 def main() -> int:
     args = parse_args()
+    # TRN-03 owns the complete four-board transaction. Keep exactly one
+    # shared SerialSession per board until summary handoff; --short-open is a
+    # diagnostic fallback for CDC recovery only.
+    args.keep_open = not args.short_open
     raw_config = json.loads(args.config.read_text(encoding="utf-8"))
     config = load_config(
         args.config, args.offset_row_id,
-        allow_unsafe_sck=args.diagnostic_continue)
+        allow_unsafe_sck=args.diagnostic_continue,
+        allow_unsafe_data=args.diagnostic_continue)
     board_ids = list(args.board_id)
     if len(board_ids) != config["node_count"] or len(set(board_ids)) != len(board_ids):
         raise SystemExit("board IDs must be unique and match config node_count")
@@ -1510,6 +1532,9 @@ def main() -> int:
             args.startup_timeout_s <= 0 or
             args.startup_stable_samples <= 0 or
             args.startup_poll_interval_s <= 0 or
+            args.read_timeout <= 0 or args.action_timeout <= 0 or
+            args.read_timeout > args.timeout or
+            args.action_timeout > args.timeout or
             args.capture_timeout <= 0 or args.capture_latch_retries < 0 or
             args.waveform_window_ns <= 0 or
             args.sck_frequency_tolerance_percent < 0 or
@@ -1733,6 +1758,19 @@ def main() -> int:
                 "applied_config_seq": matrix_apply_ack[board.address][
                     "ring_applied_config_seq"],
             })
+        diagnostic_mode = 1 if args.diagnostic_continue else 0
+        for node_index, board in enumerate(ordered):
+            actions.append(checked_stopped_ring_action(
+                board, "DIAGNOSTIC_MODE",
+                f"SYSTem:TDMA:RING:DIAGnostic {diagnostic_mode}",
+                args, node_index))
+            diagnostic_readback = board_command(
+                board, "SYSTem:TDMA:RING:DIAGnostic?", args).strip().strip('"')
+            if diagnostic_readback != str(diagnostic_mode):
+                raise RuntimeError(
+                    f"{board.address}: diagnostic mode mismatch "
+                    f"{diagnostic_readback!r}, expected {diagnostic_mode}")
+            actions[-1]["readback"] = int(diagnostic_readback, 0)
         if args.dpll_provisional:
             for board in ordered:
                 actions.append(
@@ -1938,9 +1976,12 @@ def main() -> int:
                         "passed": False,
                         "errors": [f"{type(exc).__name__}: {exc}"],
                     }
-            leave_running = all(
+            strict_handoff_passed = all(
                 item["passed"] for item in running_handoff.values())
-            if not leave_running:
+            leave_running = running_handoff_allows_leave_running(
+                running_handoff,
+                diagnostic_continue=args.diagnostic_continue)
+            if not strict_handoff_passed and not args.diagnostic_continue:
                 error = merge_error(
                     error, "leave-running final runtime readback failed")
         if leave_running:
@@ -2004,9 +2045,7 @@ def main() -> int:
         "ring_analysis_error": analysis_error,
         "capture_load_masks": capture_load_masks,
         "running_handoff": running_handoff,
-        "left_running": bool(
-            args.leave_running and running_handoff and
-            all(item["passed"] for item in running_handoff.values())),
+        "left_running": leave_running,
         "stopped": stopped,
         "actions": actions,
     }
@@ -2016,6 +2055,7 @@ def main() -> int:
     progress.emit(
         "complete", passed=passed, left_running=result["left_running"],
         error=error, summary=str(out_dir / "summary.json"))
+    close_persistent_connections()
     print(json.dumps({"passed": passed, "error": error,
                       "out_dir": str(out_dir)}, ensure_ascii=False))
     return 0 if passed else 1

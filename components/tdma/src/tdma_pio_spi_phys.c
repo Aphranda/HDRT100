@@ -1526,14 +1526,21 @@ bool tdma_pio_spi_phys_arm(void *context,
         ? 0u : clk_sys_hz / phys->baud_hz;
     const uint32_t half_period_cycles = phys->baud_hz == 0u
         ? 0u : clk_sys_hz / (2u * phys->baud_hz);
-    if (period_cycles == 0u || half_period_cycles == 0u ||
+    if (period_cycles == 0u || half_period_cycles == 0u) {
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_PHASE_ADMISSION);
+    }
+    const bool diagnostic_continue =
+        (config->flags & TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE) != 0u;
+    const bool phase_admission_warning =
         phys->flight_sck_phase_delay_cycles <
             TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES ||
         (phys->role == TDMA_PIO_SPI_ROLE_SLAVE &&
          phys->flight_sck_phase_delay_cycles +
               TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES > half_period_cycles) ||
         phys->flight_data_phase_delay_cycles +
-            TDMA_PIO_SPI_FLIGHT_DATA_REARM_CYCLES > period_cycles) {
+            TDMA_PIO_SPI_FLIGHT_DATA_REARM_CYCLES > period_cycles;
+    if (phase_admission_warning && !diagnostic_continue) {
         return tdma_pio_spi_phys_arm_reject(
             phys, TDMA_PIO_SPI_PHYS_ERROR_PHASE_ADMISSION);
     }
@@ -1716,7 +1723,9 @@ bool tdma_pio_spi_phys_arm(void *context,
     phys->snapshot.last_bad_header2 = 0u;
     phys->snapshot.last_bad_header3 = 0u;
     phys->snapshot.last_bad_words = 0u;
-    phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_NONE;
+    phys->snapshot.last_error = phase_admission_warning
+        ? TDMA_PIO_SPI_PHYS_ERROR_PHASE_ADMISSION
+        : TDMA_PIO_SPI_PHYS_ERROR_NONE;
     tdma_pio_spi_phys_clk_train_reset(phys);
     tdma_pio_spi_phys_fill_static_snapshot(phys);
     return true;

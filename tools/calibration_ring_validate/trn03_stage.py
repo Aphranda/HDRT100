@@ -33,6 +33,12 @@ from tdma_start_ring import (  # noqa: E402
     status as ring_status,
     wait_started,
 )
+from calibration_ring_validate.calibration_phase import (  # noqa: E402
+    MAX_CALIBRATED_OFFSET_SAMPLES,
+    MIN_CALIBRATED_OFFSET_SAMPLES,
+    MAX_OFFSET_SAMPLES,
+    MIN_OFFSET_SAMPLES,
+)
 
 
 HEADER_FIELDS = (
@@ -182,6 +188,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--reboot-wait", type=float, default=3.0)
     parser.add_argument("--clear", action="store_true",
                         help="clear the staged matrix instead of staging")
+    parser.add_argument(
+        "--diagnostic-continue", action="store_true",
+        help="record unsafe replay timing and continue staging")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
@@ -211,7 +220,8 @@ def signed_integer_field(source: dict[str, Any], field: str) -> int:
 
 def validate_config(raw: object,
                     offset_row_id: int | None = None, *,
-                    allow_unsafe_sck: bool = False) -> dict[str, Any]:
+                    allow_unsafe_sck: bool = False,
+                    allow_unsafe_data: bool = False) -> dict[str, Any]:
     """Validate and resolve exactly one replay row from a full matrix."""
     if not isinstance(raw, dict):
         raise ValueError("config root must be an object")
@@ -260,8 +270,12 @@ def validate_config(raw: object,
                 len(sck_values) != node_count or
                 len(data_values) != node_count or
                 any(isinstance(value, bool) or not isinstance(value, int) or
-                    value < -10 or value > 10
-                    for value in marker_values + sck_values + data_values)):
+                    value < MIN_OFFSET_SAMPLES or value > MAX_OFFSET_SAMPLES
+                    for value in marker_values + sck_values) or
+                any(isinstance(value, bool) or not isinstance(value, int) or
+                    value < MIN_CALIBRATED_OFFSET_SAMPLES or
+                    value > MAX_CALIBRATED_OFFSET_SAMPLES
+                    for value in data_values)):
             raise ValueError("offset matrix row dimensions are invalid")
         signature = (tuple(marker_values), tuple(sck_values),
                      tuple(data_values))
@@ -295,6 +309,7 @@ def validate_config(raw: object,
     data_offsets = selected_row["data_offset_sample_counts_by_node"]
 
     links: list[dict[str, int]] = []
+    unsafe_data_links: list[int] = []
     for raw_link in raw_links:
         if not isinstance(raw_link, dict):
             raise ValueError("every link must be an object")
@@ -385,9 +400,11 @@ def validate_config(raw: object,
             baud_hz * link["sample_period_ns"])
         if (link["data_phase_delay_cycles"] +
                 FLIGHT_DATA_REARM_SAMPLES > period_samples):
-            raise ValueError(
-                f"link{link['link_index']} DATA replay phase cannot re-arm "
-                "before the next symbol")
+            unsafe_data_links.append(link["link_index"])
+            if not allow_unsafe_data:
+                raise ValueError(
+                    f"link{link['link_index']} DATA replay phase cannot "
+                    "re-arm before the next symbol")
         links.append(link)
     if sorted(link["link_index"] for link in links) != list(range(node_count)):
         raise ValueError("link_index must cover [0, node_count) exactly")
@@ -426,15 +443,22 @@ def validate_config(raw: object,
         "offset_row_id": selected_row_id,
         "offset_row": selected_row,
         "links": ordered_links,
+        "diagnostic_replay_gates": {
+            "allow_unsafe_sck": bool(allow_unsafe_sck),
+            "allow_unsafe_data": bool(allow_unsafe_data),
+            "unsafe_data_links": unsafe_data_links,
+        },
         "node_ids_in_loop_order": raw.get("node_ids_in_loop_order"),
     }
 
 
 def load_config(path: Path, offset_row_id: int | None = None, *,
-                allow_unsafe_sck: bool = False) -> dict[str, Any]:
+                allow_unsafe_sck: bool = False,
+                allow_unsafe_data: bool = False) -> dict[str, Any]:
     raw = json.loads(path.read_text(encoding="utf-8"))
     return validate_config(
-        raw, offset_row_id, allow_unsafe_sck=allow_unsafe_sck)
+        raw, offset_row_id, allow_unsafe_sck=allow_unsafe_sck,
+        allow_unsafe_data=allow_unsafe_data)
 
 
 def stage_begin_command(config: dict[str, Any]) -> str:
@@ -675,7 +699,10 @@ def prepare_board_context(board: Board, config: dict[str, Any],
 
 def main() -> int:
     args = parse_args()
-    config = load_config(args.config)
+    config = load_config(
+        args.config,
+        allow_unsafe_sck=args.diagnostic_continue,
+        allow_unsafe_data=args.diagnostic_continue)
     board_ids = list(args.board_id)
     if len(board_ids) != config["node_count"]:
         raise SystemExit("board count must equal config node_count")

@@ -690,6 +690,7 @@ static bool tdma_pio_spi_ring_adapter_start(
     adapter->feedback_timestamp_flags = 0u;
     adapter->reference_tx_timestamp_ns = 0ull;
     adapter->rx_ready_timestamp_ns = 0ull;
+    adapter->reference_tx_completion_pending = false;
     adapter->pending_tx_evidence_sequence = 0u;
     adapter->pending_tx_evidence_identity_crc32 = 0u;
     adapter->pending_tx_evidence = false;
@@ -745,6 +746,7 @@ static void tdma_pio_spi_ring_adapter_stop(void *context)
     adapter->feedback_timestamp_flags = 0u;
     adapter->reference_tx_timestamp_ns = 0ull;
     adapter->rx_ready_timestamp_ns = 0ull;
+    adapter->reference_tx_completion_pending = false;
     adapter->pending_tx_evidence_sequence = 0u;
     adapter->pending_tx_evidence_identity_crc32 = 0u;
     adapter->pending_tx_evidence = false;
@@ -888,6 +890,8 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
             adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_TX_FAILED);
         return false;
     }
+    adapter->reference_tx_completion_pending =
+        tx_timestamp_ns == 0ull && adapter->phys_tx_complete != NULL;
 
     adapter->up_sequence = sequence;
     adapter->tx_count++;
@@ -1619,6 +1623,7 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
         uint64_t completed_timestamp_ns = 0ull;
         if (adapter->phys_tx_complete(adapter->phys_context,
                                       &completed_timestamp_ns)) {
+            adapter->reference_tx_completion_pending = false;
             if (adapter->pending_tx_evidence) {
                 const uint32_t evidence_index =
                     adapter->pending_tx_evidence_sequence %
@@ -1699,7 +1704,13 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
         } else {
             emit_now = now_ns >= adapter->next_tx_deadline_ns;
         }
-        if (emit_now) {
+        if (emit_now && adapter->reference_tx_completion_pending) {
+            /* The flight-origin callback accepts a launch before DMA/PIO has
+             * drained.  Core1 may service the adapter several times during
+             * that wire interval; keep the UP leg alive without treating
+             * normal physical backpressure as TX failure. */
+            tx_ok = true;
+        } else if (emit_now) {
             const bool first_emission = adapter->idle_beacon_tx_count == 0u;
             tx_ok = tdma_pio_spi_ring_adapter_tx_beacon(adapter);
             if (tx_ok) {

@@ -418,6 +418,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--link-delay-ns", type=int, action="append", required=True,
         help="measured end-to-end delay; repeat once per physical link")
+    parser.add_argument(
+        "--path-delay-baseline-divisor", type=int, default=2,
+        help="divide each measured path delay by this positive integer")
     parser.add_argument("--node-sck-offset-samples", type=int,
                         action="append",
                         help="current SCK matrix row; defaults to all zero")
@@ -466,7 +469,9 @@ def validate_hil_args(args: argparse.Namespace) -> list[str]:
         raise SystemExit("link-delay-ns must provide one value per link")
     try:
         args.link_base_delay_ns = [
-            link_base_delay_ns(value) for value in link_delays]
+            link_base_delay_ns(
+                value, getattr(args, "path_delay_baseline_divisor", 2))
+            for value in link_delays]
         for link, base_ns in enumerate(args.link_base_delay_ns):
             phase_delay_samples(
                 link_base_ns=base_ns,
@@ -642,12 +647,17 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
         "sck_launch_guard_sample_count": args.sck_launch_guard_samples,
         "link_delay_ns": int(args.link_delay_ns[args.link_index]),
         "link_base_delay_ns": args.link_base_delay_ns_current,
+        "path_delay_baseline_divisor": getattr(
+            args, "path_delay_baseline_divisor", 2),
         "sample_period_ns": args.sample_period_ns,
         "unified_phase_training": build_phase_training_contract(
             signal="SCK", link_delay_ns_by_link=args.link_delay_ns,
             node_offset_samples=args.node_sck_offset_samples,
             sample_period_ns=args.sample_period_ns,
-            capture_origin="rx_sck_pio_edge", max_delay_samples=30),
+            capture_origin="rx_sck_pio_edge",
+            path_delay_baseline_divisor=getattr(
+                args, "path_delay_baseline_divisor", 2),
+            max_delay_samples=30),
         "search_offset_samples": [args.search_start, args.search_end],
         "reused_ring_identity": bool(args.reuse_ring_identity),
         "boards": {board.address: asdict(board) for board in ordered},
@@ -771,6 +781,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                 args.sck_launch_guard_samples,
             "link_delay_ns_by_link": list(args.link_delay_ns),
             "link_base_delay_ns_by_link": list(args.link_base_delay_ns),
+            "path_delay_baseline_divisor": getattr(
+                args, "path_delay_baseline_divisor", 2),
             "sample_period_ns": args.sample_period_ns,
         },
         "initial_epoch": args.epoch,

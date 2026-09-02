@@ -510,6 +510,7 @@ set(PROJECT_APP_SOURCES
         components/tdma/src/tdma_flight_overlay.c
         components/tdma/src/tdma_flight_engine.c
         components/tdma/src/tdma_receive_health.c
+        components/tdma/src/tdma_adapter_comm_fsm.c
         components/tdma/src/tdma_pio_spi_phys.c
         components/tdma/src/tdma_pio_spi_persona_fsm.c
         components/tdma/src/tdma_pio_spi_phys_programs.c
