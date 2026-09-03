@@ -11,6 +11,41 @@ Last updated: 2026-09-03
 
 ## 当前 Checkpoint
 
+### SM-PROGRESS-20260903-031 - SM-RES-005 follower 数据面闭环
+
+- TODO task ID：`SM-RES-005`、`SM-M4`、`SM-P0-001`、`SM-P0-002`。实现提交为
+  `f0c1c28`，origin watchdog 时间基修复提交为 `ed78507`；两项均已推送到当前远端分支。
+- 数据面收口：follower 保持单一 RX DATA SM，在同一 PIO bit loop 内完成 wire forward 与
+  `push noblock` 本地卸载；TX command FIFO/DMA、业务 RX FIFO/DMA 和 clock evidence endpoint
+  方向独立，运行态不启用第二 sampler。owned-byte overlay、PIO patch 地址和唯一 RX consumer
+  均由 host 负测覆盖。
+- 根因与修复：持续 process image 初测出现 NO1 周期性 origin timeout。硬件边沿证据使用启动后
+  重置的 timestamp clock，而 Core1 service 参数使用 boot-monotonic clock；watchdog deadline
+  混用两个 epoch 后被启动偏移提前耗尽。deadline 已统一为 `tdma_pio_spi_phys_now_us()` 时间基，
+  硬件 timestamp 继续只作为边沿 evidence；PIO frame tail 发布 completion IRQ，service 以
+  `IRQ1 || TXSTALL` 有界确认完成。
+- 软件与构建证据：`tests/python/test_trn03_closed_loop.py` 验收快照（非事实源）为
+  `105 passed`；状态机/TDMA 定向 Python、resource checker 和 RTOS multicore release build
+  通过。该轮 build ID 验收快照（非事实源）为 `20260903060001`。
+- persona 切换证据：raw-flight 和 raw-to-process 结果位于
+  `out/hardware-acceptance/sm-res-005-owned-byte-raw-flight-20260903/`、
+  `out/hardware-acceptance/sm-res-005-owned-byte-raw-flight-switch-r2-20260903/` 和
+  `out/hardware-acceptance/sm-res-005-owned-byte-process-after-raw-r2-20260903/`。NO1--NO4 使用
+  同一 package，raw/process 切换后业务 RX consumer 未发生 FIFO/DMA 竞争。
+- 持续运行与原始波形：
+  `out/hardware-acceptance/sm-res-005-monotonic-deadline-steady-5s-20260903/summary.json`
+  记录四板持续窗口通过，RefMem reject/bad/drop 增量均为零；NO1--NO4 SD 原始 capture、SVG
+  和离线分析位于
+  `out/hardware-acceptance/sm-res-005-monotonic-deadline-process-sd-r2-20260903/`，其中
+  `analysis/ring_capture_analysis.json` 为 `passed=true`，四节点 SCK 分析均通过。
+- 统一硬件验收：QUICK P3 位于
+  `out/hardware-acceptance/sm-res-005-monotonic-deadline-p3-quick-20260903/`；四板 OTA 使用同一
+  build，`passed=true`、`flow_completed=true`。流程保留 coarse clock train 和部分 DPLL
+  调度诊断失败，故 `strict_gates_passed=false`；调试门禁只记录，不拒绝 TDMA 数据面执行。
+- 结论：`SM-RES-005`、`SM-M4`、`SM-P0-001` 和 `SM-P0-002` 标记为 `DONE`。状态机基础资源层
+  已允许进入 `SYNC_IO_TODO.md:SYNC-RES-001`；下一步只建立 PIO0 persona descriptor、容量
+  计算和兼容矩阵，不直接切换 `BOARD_SYNC_PIO_WAVE`。
+
 ### SM-PROGRESS-20260903-030 - SM-RES-004 RX endpoint 契约闭环
 
 - TODO task ID：`SM-RES-004`；代码提交为 `5612c93`，已推送到当前远端分支。资源事实源
