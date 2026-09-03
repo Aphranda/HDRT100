@@ -71,6 +71,40 @@ static void test_directional_tdma_resources(void)
     expect_resources_unowned(resources);
 }
 
+static void test_tdma_rx_endpoint_contract(void)
+{
+    const tdma_state_machine_rx_endpoint_contract_t contract =
+        tdma_state_machine_rx_endpoint_contract();
+    assert(tdma_state_machine_rx_endpoint_contract_valid(&contract));
+    assert(contract.data_output.pio == BOARD_TDMA_RX_PIO);
+    assert(contract.data_output.sm == contract.data_unload.sm);
+    assert(contract.data_output.fifo_direction == TDMA_STATE_MACHINE_FIFO_TX);
+    assert(contract.data_unload.fifo_direction == TDMA_STATE_MACHINE_FIFO_RX);
+    assert(contract.data_output.dreq_direction == TDMA_STATE_MACHINE_DREQ_TX);
+    assert(contract.data_unload.dreq_direction == TDMA_STATE_MACHINE_DREQ_RX);
+    assert(contract.data_output.dma_channel ==
+           BOARD_TDMA_RX_DATA_OUT_DMA_CHANNEL);
+    assert(contract.data_unload.dma_channel ==
+           BOARD_TDMA_TX_DATA_IN_CAPTURE_DMA_CHANNEL);
+    assert(contract.clock_evidence.pio == BOARD_TDMA_RX_PIO);
+    assert(contract.clock_evidence.sm != contract.data_output.sm);
+    assert(contract.clock_evidence.owner ==
+           TDMA_STATE_MACHINE_ENDPOINT_OWNER_CORE1);
+    assert(contract.clock_evidence.dma_channel ==
+           TDMA_STATE_MACHINE_DMA_CHANNEL_NONE);
+    assert(contract.business_rx_consumer_count == 1u);
+
+    tdma_state_machine_rx_endpoint_contract_t invalid = contract;
+    invalid.business_rx_consumer_count = 2u;
+    assert(!tdma_state_machine_rx_endpoint_contract_valid(&invalid));
+    invalid = contract;
+    invalid.data_unload.sm = BOARD_TDMA_RX_RESERVED_CONTROL_SM;
+    assert(!tdma_state_machine_rx_endpoint_contract_valid(&invalid));
+    invalid = contract;
+    invalid.clock_evidence.sm = contract.data_output.sm;
+    assert(!tdma_state_machine_rx_endpoint_contract_valid(&invalid));
+}
+
 static void test_tdma_persona_owner_transfer(void)
 {
     const char *const maintenance_owner = "TDMA_MAINTENANCE_PIO";
@@ -164,6 +198,7 @@ static void test_tdma_conflict_recovery_has_no_partial_lease(void)
 int main(void)
 {
     test_directional_tdma_resources();
+    test_tdma_rx_endpoint_contract();
     test_tdma_persona_owner_transfer();
     test_tdma_conflict_recovery_has_no_partial_lease();
 

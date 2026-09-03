@@ -202,13 +202,14 @@ static uint tdma_pio_spi_phys_control_sm(const tdma_pio_spi_phys_t *phys)
 static PIO tdma_pio_spi_phys_data_pio(const tdma_pio_spi_phys_t *phys)
 {
     return phys != NULL && tdma_pio_spi_phys_is_flight_persona()
-        ? phys->flight_resources.rx_pio : BOARD_TDMA_SPI_PIO;
+        ? phys->flight_resources.rx_endpoints.data_output.pio
+        : BOARD_TDMA_SPI_PIO;
 }
 
 static uint tdma_pio_spi_phys_data_sm(const tdma_pio_spi_phys_t *phys)
 {
     return phys != NULL && tdma_pio_spi_phys_is_flight_persona()
-        ? phys->flight_resources.rx_data_flight_sm
+        ? phys->flight_resources.rx_endpoints.data_output.sm
         : (phys != NULL ? phys->tx_sm : BOARD_TDMA_SPI_MASTER_SM);
 }
 
@@ -218,7 +219,8 @@ static PIO tdma_pio_spi_phys_capture_pio(const tdma_pio_spi_phys_t *phys)
         return BOARD_TDMA_SPI_PIO;
     }
     return phys->role == TDMA_PIO_SPI_ROLE_MASTER
-        ? phys->flight_resources.tx_pio : phys->flight_resources.rx_pio;
+        ? phys->flight_resources.tx_pio
+        : phys->flight_resources.rx_endpoints.data_unload.pio;
 }
 
 static uint tdma_pio_spi_phys_capture_sm(const tdma_pio_spi_phys_t *phys)
@@ -228,7 +230,7 @@ static uint tdma_pio_spi_phys_capture_sm(const tdma_pio_spi_phys_t *phys)
     }
     return phys->role == TDMA_PIO_SPI_ROLE_MASTER
         ? phys->flight_resources.tx_data_capture_sm
-        : phys->flight_resources.rx_data_flight_sm;
+        : phys->flight_resources.rx_endpoints.data_unload.sm;
 }
 
 static PIO tdma_pio_spi_phys_evidence_pio(const tdma_pio_spi_phys_t *phys)
@@ -236,7 +238,9 @@ static PIO tdma_pio_spi_phys_evidence_pio(const tdma_pio_spi_phys_t *phys)
     return phys != NULL && tdma_pio_spi_phys_is_flight_persona() &&
             phys->role == TDMA_PIO_SPI_ROLE_MASTER
         ? phys->flight_resources.tx_pio
-        : (phys != NULL ? phys->flight_resources.rx_pio : BOARD_TDMA_RX_PIO);
+        : (phys != NULL
+               ? phys->flight_resources.rx_endpoints.clock_evidence.pio
+               : BOARD_TDMA_RX_PIO);
 }
 
 static uint tdma_pio_spi_phys_latch_sm(const tdma_pio_spi_phys_t *phys)
@@ -244,7 +248,7 @@ static uint tdma_pio_spi_phys_latch_sm(const tdma_pio_spi_phys_t *phys)
     return phys != NULL && tdma_pio_spi_phys_is_flight_persona()
         ? (phys->role == TDMA_PIO_SPI_ROLE_MASTER
                ? phys->flight_resources.tx_clock_latch_sm
-               : phys->flight_resources.rx_clock_latch_sm)
+               : phys->flight_resources.rx_endpoints.clock_evidence.sm)
         : BOARD_TDMA_SPI_CAPTURE_SM;
 }
 
@@ -868,6 +872,10 @@ static bool tdma_pio_spi_phys_configure_flight(
         return false;
     }
     phys->flight_resources = tdma_state_machine_resource_contract();
+    if (!tdma_state_machine_rx_endpoint_contract_valid(
+            &phys->flight_resources.rx_endpoints)) {
+        return false;
+    }
     phys->tx_pin = phys->flight_resources.rx_data_out_pin;
     phys->tx_sck_pin = phys->flight_resources.tx_clk_out_pin;
     phys->tx_csn_pin = phys->flight_resources.tx_sync_out_pin;
@@ -879,7 +887,7 @@ static bool tdma_pio_spi_phys_configure_flight(
         /* Origin control and returned-DATA capture live on TX PIO; reverse
          * DATA output is isolated on RX PIO. */
         phys->rx_sm = phys->flight_resources.tx_data_capture_sm;
-        phys->tx_sm = phys->flight_resources.rx_data_flight_sm;
+        phys->tx_sm = phys->flight_resources.rx_endpoints.data_output.sm;
         tdma_pio_spi_flight_origin_clock_rx_program_init(
             phys->flight_resources.tx_pio,
             phys->flight_resources.tx_control_out_sm,
@@ -888,8 +896,8 @@ static bool tdma_pio_spi_phys_configure_flight(
             phys->tx_csn_pin,
             phys->baud_hz);
         tdma_pio_spi_flight_origin_data_tx_program_init(
-            phys->flight_resources.rx_pio,
-            phys->flight_resources.rx_data_flight_sm,
+            phys->flight_resources.rx_endpoints.data_output.pio,
+            phys->flight_resources.rx_endpoints.data_output.sm,
             s_tdma_pio_spi_flight_origin_data_offset,
             phys->tx_pin,
             phys->rx_csn_pin,
@@ -916,11 +924,11 @@ static bool tdma_pio_spi_phys_configure_flight(
     } else {
         /* rx_sm performs DATA capture/reverse forwarding. tx_sm independently
          * regenerates the complete forward MARK/SCK control pair. */
-        phys->rx_sm = phys->flight_resources.rx_data_flight_sm;
+        phys->rx_sm = phys->flight_resources.rx_endpoints.data_unload.sm;
         phys->tx_sm = phys->flight_resources.tx_control_out_sm;
         if (phys->process_image_enabled) {
             tdma_pio_spi_flight_process_follower_program_init(
-                phys->flight_resources.rx_pio,
+                phys->flight_resources.rx_endpoints.data_unload.pio,
                 phys->rx_sm,
                 s_tdma_pio_spi_flight_process_follower_offset,
                 phys->rx_pin,
@@ -934,7 +942,7 @@ static bool tdma_pio_spi_phys_configure_flight(
             }
         } else {
             tdma_pio_spi_flight_data_follower_program_init(
-                phys->flight_resources.rx_pio,
+                phys->flight_resources.rx_endpoints.data_unload.pio,
                 phys->rx_sm,
                 s_tdma_pio_spi_flight_data_follower_offset,
                 phys->rx_pin,

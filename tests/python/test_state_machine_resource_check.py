@@ -35,6 +35,60 @@ def test_directional_contract_rejects_mixed_data_program(tmp_path: Path) -> None
     assert "directional DATA RX contains out pins" in failures
 
 
+def test_rx_endpoint_contract_rejects_missing_follower_unload(
+    tmp_path: Path,
+) -> None:
+    pio = tmp_path / "tdma_pio_spi.pio"
+    pio_text = (
+        ROOT / "components/tdma/src/tdma_pio_spi.pio"
+    ).read_text(encoding="utf-8")
+    pio.write_text(
+        pio_text.replace(
+            "    mov osr, isr\n    push noblock\n    out null, 24",
+            "    mov osr, isr\n    nop\n    out null, 24",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        pio,
+    )
+
+    assert "flight DATA follower is missing business RX unload push" in failures
+
+
+def test_rx_endpoint_contract_rejects_process_fifo_join(tmp_path: Path) -> None:
+    pio = tmp_path / "tdma_pio_spi.pio"
+    pio_text = (
+        ROOT / "components/tdma/src/tdma_pio_spi.pio"
+    ).read_text(encoding="utf-8")
+    pio.write_text(
+        pio_text.replace(
+            "    sm_config_set_out_shift(&c, false, false, 32u);\n"
+            "    sm_config_set_clkdiv(&c, 1.0f);\n"
+            "    pio_sm_init(pio, sm, offset, &c);",
+            "    sm_config_set_out_shift(&c, false, false, 32u);\n"
+            "    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);\n"
+            "    sm_config_set_clkdiv(&c, 1.0f);\n"
+            "    pio_sm_init(pio, sm, offset, &c);",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        pio,
+    )
+
+    assert (
+        "process-image DATA follower must keep independent TX/RX FIFOs"
+        in failures
+    )
+
+
 def test_directional_contract_rejects_crossed_role_as_legacy_alias(
     tmp_path: Path,
 ) -> None:
@@ -119,11 +173,16 @@ def test_flight_resource_view_uses_runtime_persona_roles() -> None:
         "tx_rtt_evidence_sm",
         "tx_clock_latch_sm",
         "tx_data_capture_sm",
-        "rx_data_flight_sm",
-        "rx_clock_latch_sm",
     ):
         assert role in resources
         assert f"flight_resources.{role}" in phys
+    for endpoint in (
+        "rx_endpoints.data_output",
+        "rx_endpoints.data_unload",
+        "rx_endpoints.clock_evidence",
+    ):
+        assert f"flight_resources.{endpoint}" in phys
+    assert "tdma_state_machine_rx_endpoint_contract_t rx_endpoints" in resources
     helper_block = phys.split(
         "static PIO tdma_pio_spi_phys_control_pio", 1
     )[1].split("static void tdma_pio_spi_phys_clk_train_write_begin", 1)[0]
@@ -131,6 +190,125 @@ def test_flight_resource_view_uses_runtime_persona_roles() -> None:
     assert "BOARD_TDMA_TX_SYNC_OUT_SM" not in helper_block
     assert "BOARD_TDMA_TX_DATA_IN_FORWARD_SM" not in helper_block
     assert "BOARD_TDMA_RX_DATA_OUT_SM" not in helper_block
+
+
+def test_rx_endpoint_contract_declares_fifo_dma_and_single_consumer() -> None:
+    resources = (
+        ROOT / "components/tdma/inc/tdma_state_machine_resources.h"
+    ).read_text(encoding="utf-8")
+
+    for token in (
+        "tdma_state_machine_fifo_endpoint_t",
+        "tdma_state_machine_rx_endpoint_contract_t",
+        "TDMA_STATE_MACHINE_FIFO_TX",
+        "TDMA_STATE_MACHINE_FIFO_RX",
+        "TDMA_STATE_MACHINE_ENDPOINT_OWNER_DMA",
+        "TDMA_STATE_MACHINE_ENDPOINT_OWNER_CORE1",
+        "TDMA_STATE_MACHINE_DREQ_TX",
+        "TDMA_STATE_MACHINE_DREQ_RX",
+        "TDMA_STATE_MACHINE_DREQ_NONE",
+        "BOARD_TDMA_RX_DATA_OUT_DMA_CHANNEL",
+        "BOARD_TDMA_TX_DATA_IN_CAPTURE_DMA_CHANNEL",
+        "TDMA_STATE_MACHINE_DMA_CHANNEL_NONE",
+        ".business_rx_consumer_count = 1u",
+    ):
+        assert token in resources
+
+
+def test_rx_endpoint_contract_rejects_multiple_business_consumers(
+    tmp_path: Path,
+) -> None:
+    resources = tmp_path / "tdma_state_machine_resources.h"
+    resources.write_text(
+        (
+            ROOT / "components/tdma/inc/tdma_state_machine_resources.h"
+        ).read_text(encoding="utf-8").replace(
+            ".business_rx_consumer_count = 1u",
+            ".business_rx_consumer_count = 2u",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+        resources=resources,
+    )
+
+    assert "RX DATA business FIFO must have exactly one consumer" in failures
+
+
+def test_rx_endpoint_contract_rejects_shared_clock_evidence_sm(
+    tmp_path: Path,
+) -> None:
+    resources = tmp_path / "tdma_state_machine_resources.h"
+    resources.write_text(
+        (
+            ROOT / "components/tdma/inc/tdma_state_machine_resources.h"
+        ).read_text(encoding="utf-8").replace(
+            ".sm = BOARD_TDMA_RX_CLOCK_LATCH_SM",
+            ".sm = BOARD_TDMA_RX_DATA_FLIGHT_SM",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+        resources=resources,
+    )
+
+    assert "clock evidence must use its dedicated RX PIO SM" in failures
+
+
+def test_rx_endpoint_contract_rejects_rx_dma_dreq_direction(
+    tmp_path: Path,
+) -> None:
+    phys = tmp_path / "tdma_pio_spi_phys.c"
+    phys.write_text(
+        (
+            ROOT / "components/tdma/src/tdma_pio_spi_phys.c"
+        ).read_text(encoding="utf-8").replace(
+            "pio_get_dreq(capture_pio, capture_sm, false)",
+            "pio_get_dreq(capture_pio, capture_sm, true)",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+        phys=phys,
+    )
+
+    assert "business RX DMA must use the RX DREQ" in failures
+
+
+def test_rx_endpoint_contract_rejects_tx_fifo_as_rx_dma_source(
+    tmp_path: Path,
+) -> None:
+    phys = tmp_path / "tdma_pio_spi_phys.c"
+    phys.write_text(
+        (
+            ROOT / "components/tdma/src/tdma_pio_spi_phys.c"
+        ).read_text(encoding="utf-8").replace(
+            "&capture_pio->rxf[capture_sm]",
+            "&capture_pio->txf[capture_sm]",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+        phys=phys,
+    )
+
+    assert "business RX DMA must read the declared RX FIFO" in failures
 
 
 def test_normal_adapter_contract_does_not_introduce_data_tx_or_serial_join():
@@ -357,6 +535,8 @@ def test_host_aggregate_runs_resource_and_persona_runtime_gates() -> None:
         encoding="utf-8"
     )
     for token in (
+        "test_tdma_rx_endpoint_contract",
+        "tdma_state_machine_rx_endpoint_contract_valid",
         "TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK",
         "TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK",
         "RESOURCE_ARBITER_RESOURCE_TDMA_GPIO",
