@@ -1,5 +1,6 @@
 from tools.tdma_ring_monitor.flight_bitmap_validate import (
     FIFO_FIELDS,
+    PROCESS_IMAGE_BUDGET,
     PROCESS_FIELDS,
     REFMEM_FIELDS,
     parse_snapshot,
@@ -14,7 +15,7 @@ def _snapshot() -> dict[str, dict[str, int]]:
         "configured": 1,
         "active": 1,
         "local_slot": 1,
-        "payload_size": 256,
+        "payload_size": PROCESS_IMAGE_BUDGET.process_image_bytes,
         "local_segment_count": 1,
         "receive_version": 1,
         "receive_configured": 1,
@@ -32,8 +33,8 @@ def _snapshot() -> dict[str, dict[str, int]]:
         "local_slot": 1,
         "node_count": 2,
         "active_mask": 3,
-        "payload_size": 256,
-        "mailbox_size": 32,
+        "payload_size": PROCESS_IMAGE_BUDGET.process_image_bytes,
+        "mailbox_size": PROCESS_IMAGE_BUDGET.node_bytes,
     })
     return {"process": process, "fifo": fifo, "refmem": refmem}
 

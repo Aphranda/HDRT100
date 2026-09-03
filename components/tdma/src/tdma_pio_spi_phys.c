@@ -1240,7 +1240,9 @@ bool tdma_pio_spi_phys_prepare_process_overlay(
     void *context,
     const uint8_t *incoming_packet,
     const uint8_t *processed_packet,
-    size_t packet_size)
+    size_t packet_size,
+    const uint32_t *force_replace_payload_bitmap,
+    size_t force_replace_payload_bitmap_words)
 {
     tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
     if (phys == NULL || !phys->armed || !phys->process_image_enabled ||
@@ -1302,6 +1304,9 @@ bool tdma_pio_spi_phys_prepare_process_overlay(
             phys->flight_alignment_byte_shift,
             phys->flight_alignment_bit_shift,
             phys->flight_physical_byte_count,
+            TDMA_TRANSPORT_FRAME_HEADER_SIZE,
+            force_replace_payload_bitmap,
+            force_replace_payload_bitmap_words,
             script,
             TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS,
             &overlay)) {

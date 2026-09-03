@@ -42,6 +42,24 @@ uint8_t tdma_flight_overlay_script_byte(uint32_t word)
     return (uint8_t)((word >> 22u) & 0xFFu);
 }
 
+static bool tdma_flight_overlay_force_replace(
+    uint32_t packet_index,
+    uint32_t force_replace_packet_offset,
+    const uint32_t *force_replace_bitmap,
+    size_t force_replace_bitmap_words)
+{
+    if (force_replace_bitmap == NULL ||
+        packet_index < force_replace_packet_offset) {
+        return false;
+    }
+    const uint32_t force_index =
+        packet_index - force_replace_packet_offset;
+    const size_t word_index = force_index / 32u;
+    return word_index < force_replace_bitmap_words &&
+           (force_replace_bitmap[word_index] &
+            (1u << (force_index % 32u))) != 0u;
+}
+
 bool tdma_flight_overlay_build(const uint8_t *incoming_packet,
                                const uint8_t *processed_packet,
                                size_t packet_size,
@@ -49,6 +67,9 @@ bool tdma_flight_overlay_build(const uint8_t *incoming_packet,
                                uint32_t alignment_byte_shift,
                                uint32_t alignment_bit_shift,
                                uint32_t physical_byte_count,
+                               uint32_t force_replace_packet_offset,
+                               const uint32_t *force_replace_bitmap,
+                               size_t force_replace_bitmap_words,
                                uint32_t *script,
                                size_t script_capacity,
                                tdma_flight_overlay_result_t *result)
@@ -60,7 +81,11 @@ bool tdma_flight_overlay_build(const uint8_t *incoming_packet,
         packet_size == 0u || alignment_bit_shift >= 8u ||
         physical_byte_count == 0u || script == NULL ||
         script_capacity < (size_t)physical_byte_count + 1u ||
-        alignment_byte_shift >= physical_byte_count) {
+        alignment_byte_shift >= physical_byte_count ||
+        ((force_replace_bitmap == NULL) !=
+         (force_replace_bitmap_words == 0u)) ||
+        (force_replace_bitmap != NULL &&
+         force_replace_packet_offset > packet_size)) {
         return false;
     }
 
@@ -73,7 +98,13 @@ bool tdma_flight_overlay_build(const uint8_t *incoming_packet,
     for (uint32_t packet_index = 0u;
          packet_index < (uint32_t)packet_size;
          packet_index++) {
-        if (incoming_packet[packet_index] == processed_packet[packet_index]) {
+        const bool force_replace = tdma_flight_overlay_force_replace(
+            packet_index,
+            force_replace_packet_offset,
+            force_replace_bitmap,
+            force_replace_bitmap_words);
+        if (!force_replace &&
+            incoming_packet[packet_index] == processed_packet[packet_index]) {
             continue;
         }
         const uint32_t aligned_index = outer_header_size + packet_index;

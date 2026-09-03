@@ -835,7 +835,9 @@ bool tdma_pio_spi_phys_prepare_process_overlay(
     void *context,
     const uint8_t *incoming_packet,
     const uint8_t *processed_packet,
-    size_t packet_size);
+    size_t packet_size,
+    const uint32_t *force_replace_payload_bitmap,
+    size_t force_replace_payload_bitmap_words);
 /* Core1-only frame-boundary service.  A failed raw-frame decode must remain
  * visible in RX evidence, but it must not strand the process follower at its
  * next blocking PULL.  This queues exactly one PASS script when IRQ3 proves

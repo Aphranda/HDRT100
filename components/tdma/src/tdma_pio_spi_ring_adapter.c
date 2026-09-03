@@ -2093,6 +2093,8 @@ static bool tdma_pio_spi_ring_adapter_prepare_process_overlay(
     }
 
     bool applied_ok = false;
+    tdma_flight_engine_apply_t applied;
+    memset(&applied, 0, sizeof(applied));
     if (adapter->flight_engine != NULL &&
         tdma_flight_engine_is_active(adapter->flight_engine) &&
         view.payload_class == TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE &&
@@ -2100,7 +2102,6 @@ static bool tdma_pio_spi_ring_adapter_prepare_process_overlay(
         tdma_flight_tx_view_t tx_view;
         const bool has_tx = adapter->flight_fifo != NULL &&
             tdma_flight_fifo_core1_acquire_tx(adapter->flight_fifo, &tx_view);
-        tdma_flight_engine_apply_t applied;
         tdma_flight_engine_result_t engine_result =
             TDMA_FLIGHT_ENGINE_BAD_ARGUMENT;
         applied_ok = tdma_flight_engine_apply_preclassified(
@@ -2127,7 +2128,9 @@ static bool tdma_pio_spi_ring_adapter_prepare_process_overlay(
         adapter->phys_ctrl_context,
         incoming_model,
         processed_model,
-        adapter->last_rx_packet_size);
+        adapter->last_rx_packet_size,
+        applied.output_byte_bitmap,
+        TDMA_FLIGHT_OUTPUT_BITMAP_WORDS);
     if (!prepared || !applied_ok) {
         tdma_pio_spi_ring_adapter_set_error(
             adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_FLIGHT_MAP_REJECT);

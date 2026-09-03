@@ -127,7 +127,9 @@ typedef bool (*tdma_pio_spi_ring_phys_overlay_fn)(
     void *context,
     const uint8_t *incoming_packet,
     const uint8_t *processed_packet,
-    size_t packet_size);
+    size_t packet_size,
+    const uint32_t *force_replace_payload_bitmap,
+    size_t force_replace_payload_bitmap_words);
 typedef bool (*tdma_pio_spi_ring_phys_overlay_boundary_fn)(void *context);
 
 /* phys_tx pushes one complete packet onto the wire. On success it may fill

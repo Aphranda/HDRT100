@@ -25,6 +25,14 @@ if str(ROOT / "tools") not in sys.path:
 from scpi_common.board_identity import parse_idn_response  # noqa: E402
 from scpi_common.scpi_serial import read_scpi_response  # noqa: E402
 
+try:  # Package import under pytest; direct import for the bench CLI.
+    from .tdma_process_image_budget import load_budget  # type: ignore
+except ImportError:  # pragma: no cover - exercised by direct script execution
+    from tdma_process_image_budget import load_budget
+
+
+PROCESS_IMAGE_BUDGET = load_budget()
+
 
 PROCESS_FIELDS = (
     "version", "configured", "active", "local_slot", "map_crc32",
@@ -197,13 +205,16 @@ def validate_board(before: dict, after: dict) -> list[str]:
         (process["version"] >= 2, "flight engine version < 2"),
         (process["configured"] == 1, "flight map not configured"),
         (process["active"] == 1, "flight map not active"),
-        (process["payload_size"] == 256, "process payload is not 256 B"),
+        (process["payload_size"] == PROCESS_IMAGE_BUDGET.process_image_bytes,
+         "process payload does not match the configured fixed image"),
         (process["local_segment_count"] == 1, "local segment count is not 1"),
         (fifo["version"] >= 2, "flight FIFO version < 2"),
         (refmem["enabled"] == 1, "RefMem flight sync disabled"),
         (2 <= refmem["node_count"] <= 8, "active node count outside 2..8"),
-        (refmem["payload_size"] == 256, "RefMem payload is not 256 B"),
-        (refmem["mailbox_size"] == 32, "RefMem mailbox is not 32 B"),
+        (refmem["payload_size"] == PROCESS_IMAGE_BUDGET.process_image_bytes,
+         "RefMem payload does not match the configured fixed image"),
+        (refmem["mailbox_size"] == PROCESS_IMAGE_BUDGET.node_bytes,
+         "RefMem mailbox does not match the configured Node image"),
         (process["local_slot"] == refmem["local_slot"], "local slot mismatch"),
         (process["receive_version"] >= 1, "receive-health version < 1"),
         (process["receive_configured"] == 1,

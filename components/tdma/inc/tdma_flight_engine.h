@@ -18,6 +18,8 @@
 #define TDMA_FLIGHT_DPLL_OBSERVATION_SIZE 4u
 #define TDMA_FLIGHT_SHORT_PAYLOAD_SIZE \
     (TDMA_FLIGHT_NODE_IMAGE_SIZE + TDMA_FLIGHT_DPLL_OBSERVATION_SIZE)
+#define TDMA_FLIGHT_OUTPUT_BITMAP_WORDS \
+    ((TDMA_FLIGHT_SHORT_PAYLOAD_SIZE + 31u) / 32u)
 #define TDMA_FLIGHT_MAILBOX_MAGIC 0x4652u
 #define TDMA_FLIGHT_MAILBOX_VERSION 2u
 #define TDMA_FLIGHT_MAILBOX_FAST_HEADER_SIZE 8u
@@ -47,6 +49,7 @@ typedef struct {
     uint32_t output_segment_mask;
     uint32_t input_bytes;
     uint32_t output_bytes;
+    uint32_t output_byte_bitmap[TDMA_FLIGHT_OUTPUT_BITMAP_WORDS];
 } tdma_flight_engine_apply_t;
 
 typedef struct {

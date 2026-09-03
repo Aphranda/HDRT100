@@ -415,6 +415,11 @@ static bool tdma_flight_engine_apply_impl(
             if (applied != NULL) {
                 applied->output_segment_mask |= segment_mask;
                 applied->output_bytes += segment->byte_length;
+                for (uint32_t byte = 0u; byte < segment->byte_length; byte++) {
+                    const uint32_t payload_index = segment->byte_offset + byte;
+                    applied->output_byte_bitmap[payload_index / 32u] |=
+                        1u << (payload_index % 32u);
+                }
             }
         }
     }

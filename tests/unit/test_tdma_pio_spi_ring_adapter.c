@@ -88,7 +88,9 @@ typedef struct {
 typedef struct {
     uint8_t incoming[TDMA_TRANSPORT_SHORT_PACKET_MAX];
     uint8_t processed[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+    uint32_t force_replace_payload_bitmap[TDMA_FLIGHT_OUTPUT_BITMAP_WORDS];
     size_t packet_size;
+    size_t force_replace_payload_bitmap_words;
     uint32_t prepare_count;
     uint32_t boundary_count;
 } overlay_capture_t;
@@ -96,17 +98,27 @@ typedef struct {
 static bool capture_overlay(void *context,
                             const uint8_t *incoming_packet,
                             const uint8_t *processed_packet,
-                            size_t packet_size)
+                            size_t packet_size,
+                            const uint32_t *force_replace_payload_bitmap,
+                            size_t force_replace_payload_bitmap_words)
 {
     overlay_capture_t *capture = (overlay_capture_t *)context;
     if (capture == NULL || incoming_packet == NULL ||
         processed_packet == NULL || packet_size == 0u ||
-        packet_size > sizeof(capture->incoming)) {
+        packet_size > sizeof(capture->incoming) ||
+        force_replace_payload_bitmap == NULL ||
+        force_replace_payload_bitmap_words >
+            TDMA_FLIGHT_OUTPUT_BITMAP_WORDS) {
         return false;
     }
     memcpy(capture->incoming, incoming_packet, packet_size);
     memcpy(capture->processed, processed_packet, packet_size);
+    memcpy(capture->force_replace_payload_bitmap,
+           force_replace_payload_bitmap,
+           force_replace_payload_bitmap_words * sizeof(uint32_t));
     capture->packet_size = packet_size;
+    capture->force_replace_payload_bitmap_words =
+        force_replace_payload_bitmap_words;
     capture->prepare_count++;
     return true;
 }
@@ -2667,6 +2679,23 @@ int main(void)
                                       tx_mailbox,
                                       sizeof(tx_mailbox)) == 0,
                                   true);
+            failed += expect_u32(
+                "overlay replacement bitmap words",
+                (uint32_t)capture.force_replace_payload_bitmap_words,
+                TDMA_FLIGHT_OUTPUT_BITMAP_WORDS);
+            for (uint32_t payload_index = 0u;
+                 payload_index < TDMA_FLIGHT_SHORT_PAYLOAD_SIZE;
+                 payload_index++) {
+                const bool forced =
+                    (capture.force_replace_payload_bitmap[
+                         payload_index / 32u] &
+                     (1u << (payload_index % 32u))) != 0u;
+                const bool local =
+                    payload_index / TDMA_FLIGHT_SHORT_SLOT_SIZE ==
+                    local_slots[node];
+                failed += expect_bool("overlay local replacement bitmap",
+                                      forced, local);
+            }
             for (uint32_t source = 0u; source < config.node_count; source++) {
                 if (source == local_slots[node]) {
                     continue;

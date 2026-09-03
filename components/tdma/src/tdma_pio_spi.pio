@@ -142,11 +142,10 @@ flight_process_byte:
     set y, 7
 flight_process_bit:
     wait 1 gpio 1
-    ; Process-image replacement already adds a command-path pipeline cycle
-    ; before this serial loop. Keep the trained DATA phase on the wire by
-    ; encoding the same phase-minus-one WAIT used by the raw follower, without
-    ; adding another instruction. The process persona therefore remains within
-    ; PIO's shared 32-instruction memory and does not double-count that cycle.
+    ; Match the raw follower's edge-relative sample point without spending
+    ; another instruction. Command decoding occurs before WAIT and therefore
+    ; cannot compensate the raw follower's post-WAIT NOP; program_init folds
+    ; that NOP into this WAIT delay while preserving the 32-instruction budget.
     in pins, 1
     wait 0 gpio 1
     out pins, 1
@@ -799,7 +798,7 @@ static inline void tdma_pio_spi_flight_process_follower_program_init(
         (uint16_t)pio_encode_wait_gpio(true, rx_csn_pin);
     pio->instr_mem[offset + 11u] =
         (uint16_t)(pio_encode_wait_gpio(true, rx_sck_pin) |
-                   pio_encode_delay(data_phase_delay_cycles - 1u));
+                   pio_encode_delay(data_phase_delay_cycles));
     pio->instr_mem[offset + 13u] =
         (uint16_t)pio_encode_wait_gpio(false, rx_sck_pin);
     pio_gpio_init(pio, rx_data_pin);
