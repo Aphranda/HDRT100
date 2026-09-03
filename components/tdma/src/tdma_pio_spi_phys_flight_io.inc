@@ -97,13 +97,14 @@ static bool tdma_pio_spi_phys_flight_origin_tx(
         pio_sm_put(evidence_pio, rtt_sm, UINT32_MAX);
     }
     const uint64_t tx_edge_diagnostic_ns = vdc_timestamp_clock_now_ns();
+    const uint64_t timeout_now_ns =
+        tdma_pio_spi_phys_now_us() * 1000ull;
     /* This FIFO word is the sole launch event. The control PIO consumes it,
      * lowers CS, generates every SCK edge, then restores idle CS atomically. */
     pio_sm_put(control_pio, control_sm, clock_bits - 1u);
     /* The clock SM was parked at its blocking PULL before the word above.
      * Clear that old sticky TXSTALL only after releasing the PULL. */
     control_pio->fdebug = clock_txstall_mask;
-    const uint64_t now_ns = tx_edge_diagnostic_ns;
     const uint64_t wire_ns = phys->baud_hz == 0u
         ? 0ull
         : ((uint64_t)clock_bits * 1000000000ull + phys->baud_hz - 1ull) /
@@ -113,11 +114,14 @@ static bool tdma_pio_spi_phys_flight_origin_tx(
     phys->flight_tx_completion_timestamp_ns = 0ull;
     phys->flight_tx_packet_size = (uint32_t)packet_size;
     phys->flight_tx_wire_bytes = wire_bytes;
-    phys->flight_tx_launch_timestamp_ns = now_ns;
+    phys->flight_tx_launch_timestamp_ns = tx_edge_diagnostic_ns;
+    /* The watchdog and its Core1 service argument share the boot-monotonic
+     * timer epoch. The independent hardware timestamp clock is evidence and
+     * may have been reset later during startup. */
     phys->flight_tx_deadline_ns =
-        UINT64_MAX - now_ns < wire_ns + 1000000ull
+        UINT64_MAX - timeout_now_ns < wire_ns + 1000000ull
             ? UINT64_MAX
-            : now_ns + wire_ns + 1000000ull;
+            : timeout_now_ns + wire_ns + 1000000ull;
     if (tx_timestamp_ns != NULL) {
         /* Completion owns the hardware latch timestamp.  Zero is explicit:
          * the adapter must not promote a software launch time to DPLL
@@ -141,7 +145,10 @@ void tdma_pio_spi_phys_service_tx(void *context, uint64_t now_ns)
     const PIO control_pio = tdma_pio_spi_phys_control_pio(phys);
     const uint control_sm = tdma_pio_spi_phys_control_sm(phys);
     const uint32_t stall_mask = tdma_pio_spi_phys_txstall_mask(control_sm);
-    const bool clock_done = (control_pio->fdebug & stall_mask) != 0u;
+    const bool clock_done_irq = pio_interrupt_get(control_pio, 1u);
+    const bool clock_done_txstall =
+        (control_pio->fdebug & stall_mask) != 0u;
+    const bool clock_done = clock_done_irq || clock_done_txstall;
     const bool data_done =
         !dma_channel_is_busy((uint)s_tdma_pio_spi_tx_dma_channel);
     if (!clock_done || !data_done) {
@@ -165,7 +172,11 @@ void tdma_pio_spi_phys_service_tx(void *context, uint64_t now_ns)
         return;
     }
 
-    phys->snapshot.origin_done_txstall_count++;
+    if (clock_done_irq) {
+        phys->snapshot.origin_done_irq_count++;
+    } else {
+        phys->snapshot.origin_done_txstall_count++;
+    }
     pio_interrupt_clear(control_pio, 1u);
     control_pio->fdebug = stall_mask;
     uint64_t tx_edge_timestamp_ns = 0ull;

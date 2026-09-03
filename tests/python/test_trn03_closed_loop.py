@@ -1200,6 +1200,7 @@ def test_flight_origin_control_edges_are_owned_by_one_pio_sm() -> None:
     assert "set pins, 0 [1]" in program
     assert "set pins, 1 [2]" in program
     assert "set pins, 2" in program
+    assert program.index("set pins, 2") < program.index("irq set 1")
 
     init = pio_source.split(
         "static inline void tdma_pio_spi_flight_origin_clock_rx_program_init",
@@ -1227,6 +1228,13 @@ def test_flight_origin_control_edges_are_owned_by_one_pio_sm() -> None:
     )[1].split("bool tdma_pio_spi_phys_tx", 1)[0]
     assert "gpio_put(phys->tx_csn_pin" not in flight_tx
     assert "pio_sm_put(control_pio, control_sm, clock_bits - 1u)" in flight_tx
+    assert "clock_done_irq = pio_interrupt_get(control_pio, 1u)" in flight_tx
+    assert "clock_done = clock_done_irq || clock_done_txstall" in flight_tx
+    assert "origin_done_irq_count++" in flight_tx
+    assert "timeout_now_ns =\n        tdma_pio_spi_phys_now_us() * 1000ull" in flight_tx
+    assert "flight_tx_launch_timestamp_ns = tx_edge_diagnostic_ns" in flight_tx
+    assert "UINT64_MAX - timeout_now_ns < wire_ns + 1000000ull" in flight_tx
+    assert "timeout_now_ns + wire_ns + 1000000ull" in flight_tx
 
 
 def test_origin_data_output_and_capture_have_single_pin_directions() -> None:

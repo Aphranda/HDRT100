@@ -231,6 +231,7 @@ flight_origin_clock_bit:
     set pins, 0 [1]
     jmp x-- flight_origin_clock_bit
     set pins, 2
+    irq set 1
 .wrap
 
 ; Cyclic reference DATA source.  The complete frame is preloaded by DMA.  The
