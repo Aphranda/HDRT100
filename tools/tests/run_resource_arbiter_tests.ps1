@@ -9,6 +9,7 @@ $build = Join-Path $repo $BuildDir
 $testSource = Join-Path $repo "tests\unit\test_resource_arbiter.c"
 $serviceSource = Join-Path $repo "components\resource_arbiter\src\resource_arbiter.c"
 $syncPersonaSource = Join-Path $repo "components\sync_io\src\sync_io_persona_resources.c"
+$syncPersonaManagerSource = Join-Path $repo "components\sync_io\src\sync_io_persona_manager.c"
 $include = Join-Path $repo "components\resource_arbiter\inc"
 $syncInclude = Join-Path $repo "components\sync_io\inc"
 $tdmaInclude = Join-Path $repo "components\tdma\inc"
@@ -38,7 +39,7 @@ $exe = Join-Path $build "test_resource_arbiter.exe"
 & $hostCcPath -std=c11 -Wall -Wextra -Werror `
     "-I$hostStubs" "-I$boardInclude" "-I$tdmaInclude" "-I$syncInclude" `
     "-I$include" "-I$osalInclude" $testSource $serviceSource `
-    $syncPersonaSource -o $exe
+    $syncPersonaSource $syncPersonaManagerSource -o $exe
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $exe
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

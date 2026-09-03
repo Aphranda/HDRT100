@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "resource_arbiter.h"
+#include "sync_io_persona_manager.h"
 #include "sync_io_persona_resources.h"
 #include "tdma_state_machine_resources.h"
 
@@ -353,6 +354,254 @@ static void test_sync_io_persona_descriptor_negative_cases(void)
             SYNC_IO_PERSONA_CONFLICT_INSTRUCTION_SPACE) != 0u);
 }
 
+typedef struct {
+    uint32_t load_count;
+    uint32_t arm_count;
+    uint32_t start_count;
+    uint32_t stop_count;
+    uint32_t cleanup_count;
+    bool fail_load;
+    bool fail_arm;
+    bool fail_start;
+} sync_persona_hook_context_t;
+
+static bool sync_persona_hook_load(
+    void *context,
+    const sync_io_persona_descriptor_t *descriptor,
+    uint32_t dma_channel_mask)
+{
+    sync_persona_hook_context_t *hooks = context;
+    assert(descriptor != NULL);
+    (void)dma_channel_mask;
+    hooks->load_count++;
+    return !hooks->fail_load;
+}
+
+static bool sync_persona_hook_arm(
+    void *context,
+    const sync_io_persona_descriptor_t *descriptor,
+    uint32_t dma_channel_mask)
+{
+    sync_persona_hook_context_t *hooks = context;
+    assert(descriptor != NULL);
+    (void)dma_channel_mask;
+    hooks->arm_count++;
+    return !hooks->fail_arm;
+}
+
+static bool sync_persona_hook_start(
+    void *context,
+    const sync_io_persona_descriptor_t *descriptor,
+    uint32_t dma_channel_mask)
+{
+    sync_persona_hook_context_t *hooks = context;
+    assert(descriptor != NULL);
+    (void)dma_channel_mask;
+    hooks->start_count++;
+    return !hooks->fail_start;
+}
+
+static void sync_persona_hook_stop(
+    void *context,
+    const sync_io_persona_descriptor_t *descriptor,
+    uint32_t dma_channel_mask)
+{
+    sync_persona_hook_context_t *hooks = context;
+    assert(descriptor != NULL);
+    (void)dma_channel_mask;
+    hooks->stop_count++;
+}
+
+static void sync_persona_hook_cleanup(
+    void *context,
+    const sync_io_persona_descriptor_t *descriptor,
+    uint32_t dma_channel_mask)
+{
+    sync_persona_hook_context_t *hooks = context;
+    assert(descriptor != NULL);
+    (void)dma_channel_mask;
+    hooks->cleanup_count++;
+}
+
+static sync_io_persona_manager_hooks_t sync_persona_hooks(void)
+{
+    return (sync_io_persona_manager_hooks_t){
+        .load = sync_persona_hook_load,
+        .arm = sync_persona_hook_arm,
+        .start = sync_persona_hook_start,
+        .stop = sync_persona_hook_stop,
+        .cleanup = sync_persona_hook_cleanup,
+    };
+}
+
+static void test_sync_io_persona_manager_lifecycle(void)
+{
+    sync_persona_hook_context_t hook_context = {0};
+    sync_io_persona_manager_t manager;
+    sync_io_persona_manager_handle_t handle;
+    sync_io_persona_manager_snapshot_t snapshot;
+    resource_arbiter_snapshot_t arbiter_snapshot;
+    const sync_io_persona_manager_hooks_t hooks = sync_persona_hooks();
+
+    assert(resource_arbiter_init());
+    sync_io_persona_manager_init(&manager, &hooks, &hook_context);
+    assert(sync_io_persona_manager_claim(
+        &manager, SYNC_IO_PERSONA_ID_INPUT_CAPTURE, &handle, NULL));
+    assert(sync_io_persona_manager_handle_valid(&manager, &handle));
+    sync_io_persona_manager_get_snapshot(&manager, &snapshot);
+    assert(snapshot.active_count == 1u);
+    assert(snapshot.pio_resource == RESOURCE_ARBITER_RESOURCE_PIO0);
+    assert(snapshot.used_sm_mask ==
+           (1u << BOARD_SYNC_PIO0_INPUT_CAPTURE_SM));
+    assert(snapshot.used_dma_channel_mask ==
+           (1u << SYNC_IO_CAPTURE_DMA_CH));
+    assert(snapshot.leases[handle.slot].state ==
+           SYNC_IO_PERSONA_MANAGER_STATE_CLAIMED);
+
+    assert(!sync_io_persona_manager_start(&manager, &handle));
+    assert(sync_io_persona_manager_load(&manager, &handle));
+    assert(sync_io_persona_manager_arm(&manager, &handle));
+    assert(sync_io_persona_manager_start(&manager, &handle));
+    assert(sync_io_persona_manager_stop(&manager, &handle));
+    assert(sync_io_persona_manager_release(&manager, &handle));
+    assert(!sync_io_persona_manager_handle_valid(&manager, &handle));
+    sync_io_persona_manager_get_snapshot(&manager, &snapshot);
+    assert(snapshot.active_count == 0u);
+    assert(snapshot.used_sm_mask == 0u);
+    assert(snapshot.used_dma_channel_mask == 0u);
+    assert((snapshot.last_error == SYNC_IO_PERSONA_MANAGER_ERROR_NONE));
+    resource_arbiter_get_snapshot(&arbiter_snapshot);
+    assert((arbiter_snapshot.active_resources &
+            RESOURCE_ARBITER_RESOURCE_PIO0) == 0u);
+    assert(hook_context.load_count == 1u);
+    assert(hook_context.arm_count == 1u);
+    assert(hook_context.start_count == 1u);
+    assert(hook_context.stop_count == 1u);
+    assert(hook_context.cleanup_count == 1u);
+    assert(sync_io_persona_manager_deinit(&manager));
+}
+
+static void test_sync_io_persona_manager_compatibility(void)
+{
+    sync_io_persona_manager_t manager;
+    sync_io_persona_manager_handle_t capture;
+    sync_io_persona_manager_handle_t wave;
+    sync_io_persona_manager_handle_t analyzer;
+    sync_io_persona_manager_handle_t scheduled;
+    sync_io_persona_manager_handle_t maintenance;
+    sync_io_persona_compatibility_t compatibility;
+
+    assert(resource_arbiter_init());
+    sync_io_persona_manager_init(&manager, NULL, NULL);
+    assert(sync_io_persona_manager_claim(
+        &manager, SYNC_IO_PERSONA_ID_INPUT_CAPTURE, &capture, NULL));
+    assert(sync_io_persona_manager_claim(
+        &manager, SYNC_IO_PERSONA_ID_WAVE_OUTPUT, &wave, NULL));
+    assert(!sync_io_persona_manager_claim(
+        &manager, SYNC_IO_PERSONA_ID_LOGIC_ANALYZER, &analyzer,
+        &compatibility));
+    assert((compatibility.conflict_mask & SYNC_IO_PERSONA_CONFLICT_SM) != 0u);
+    assert((compatibility.conflict_mask & SYNC_IO_PERSONA_CONFLICT_FIFO) != 0u);
+    assert((compatibility.conflict_mask & SYNC_IO_PERSONA_CONFLICT_DMA) != 0u);
+    assert((compatibility.conflict_mask & SYNC_IO_PERSONA_CONFLICT_WORKSPACE) != 0u);
+    assert(sync_io_persona_manager_release(&manager, &wave));
+    assert(sync_io_persona_manager_release(&manager, &capture));
+
+    assert(sync_io_persona_manager_claim(
+        &manager, SYNC_IO_PERSONA_ID_SCHEDULED_TRIGGER, &scheduled, NULL));
+    assert(!sync_io_persona_manager_claim(
+        &manager, SYNC_IO_PERSONA_ID_INPUT_CAPTURE, &capture,
+        &compatibility));
+    assert((compatibility.conflict_mask &
+            SYNC_IO_PERSONA_CONFLICT_WORKSPACE) != 0u);
+    assert(sync_io_persona_manager_release(&manager, &scheduled));
+
+    assert(sync_io_persona_manager_claim(
+        &manager, SYNC_IO_PERSONA_ID_SMA_MAINTENANCE, &maintenance, NULL));
+    assert(!sync_io_persona_manager_claim(
+        &manager, SYNC_IO_PERSONA_ID_WAVE_OUTPUT, &wave,
+        &compatibility));
+    assert((compatibility.conflict_mask &
+            SYNC_IO_PERSONA_CONFLICT_EXCLUSIVE_PIO) != 0u);
+    assert(sync_io_persona_manager_release(&manager, &maintenance));
+    assert(sync_io_persona_manager_deinit(&manager));
+}
+
+static void test_sync_io_persona_manager_claim_requires_handle(void)
+{
+    sync_io_persona_manager_t manager;
+    sync_io_persona_manager_snapshot_t snapshot;
+
+    assert(resource_arbiter_init());
+    sync_io_persona_manager_init(&manager, NULL, NULL);
+    assert(!sync_io_persona_manager_claim(
+        &manager, SYNC_IO_PERSONA_ID_INPUT_CAPTURE, NULL, NULL));
+    sync_io_persona_manager_get_snapshot(&manager, &snapshot);
+    assert(snapshot.active_count == 0u);
+    assert(snapshot.used_sm_mask == 0u);
+    assert(snapshot.last_error ==
+           SYNC_IO_PERSONA_MANAGER_ERROR_INVALID_HANDLE);
+    assert(sync_io_persona_manager_deinit(&manager));
+}
+
+static void test_sync_io_persona_manager_preserves_conflict_without_output(void)
+{
+    sync_io_persona_manager_t manager;
+    sync_io_persona_manager_handle_t capture;
+    sync_io_persona_manager_handle_t analyzer;
+    sync_io_persona_manager_snapshot_t snapshot;
+
+    assert(resource_arbiter_init());
+    sync_io_persona_manager_init(&manager, NULL, NULL);
+    assert(sync_io_persona_manager_claim(
+        &manager, SYNC_IO_PERSONA_ID_INPUT_CAPTURE, &capture, NULL));
+    assert(!sync_io_persona_manager_claim(
+        &manager, SYNC_IO_PERSONA_ID_LOGIC_ANALYZER, &analyzer, NULL));
+    sync_io_persona_manager_get_snapshot(&manager, &snapshot);
+    assert(snapshot.last_error ==
+           SYNC_IO_PERSONA_MANAGER_ERROR_RESOURCE_CONFLICT);
+    assert((snapshot.last_conflict_mask & SYNC_IO_PERSONA_CONFLICT_SM) != 0u);
+    assert((snapshot.last_conflict_mask & SYNC_IO_PERSONA_CONFLICT_DMA) != 0u);
+    assert(sync_io_persona_manager_release(&manager, &capture));
+    assert(sync_io_persona_manager_deinit(&manager));
+}
+
+static void test_sync_io_persona_manager_failure_rollback(void)
+{
+    sync_persona_hook_context_t hook_context = {.fail_load = true};
+    sync_io_persona_manager_t manager;
+    sync_io_persona_manager_handle_t handle;
+    sync_io_persona_manager_snapshot_t snapshot;
+    const sync_io_persona_manager_hooks_t hooks = sync_persona_hooks();
+
+    assert(resource_arbiter_init());
+    sync_io_persona_manager_init(&manager, &hooks, &hook_context);
+    assert(sync_io_persona_manager_claim(
+        &manager, SYNC_IO_PERSONA_ID_WAVE_OUTPUT, &handle, NULL));
+    assert(!sync_io_persona_manager_load(&manager, &handle));
+    assert(!sync_io_persona_manager_handle_valid(&manager, &handle));
+    sync_io_persona_manager_get_snapshot(&manager, &snapshot);
+    assert(snapshot.active_count == 0u);
+    assert(snapshot.last_error == SYNC_IO_PERSONA_MANAGER_ERROR_LOAD);
+    assert(snapshot.last_conflict_mask == SYNC_IO_PERSONA_CONFLICT_NONE);
+    assert(hook_context.cleanup_count == 1u);
+    assert(sync_io_persona_manager_deinit(&manager));
+
+    assert(resource_arbiter_init());
+    assert(resource_arbiter_acquire_owned(
+        RESOURCE_ARBITER_RESOURCE_PIO0, "foreign-owner"));
+    sync_io_persona_manager_init(&manager, NULL, NULL);
+    assert(!sync_io_persona_manager_claim(
+        &manager, SYNC_IO_PERSONA_ID_WAVE_OUTPUT, &handle, NULL));
+    sync_io_persona_manager_get_snapshot(&manager, &snapshot);
+    assert(snapshot.active_count == 0u);
+    assert(snapshot.last_error == SYNC_IO_PERSONA_MANAGER_ERROR_RESOURCE_ARBITER);
+    assert(snapshot.last_conflict_mask == RESOURCE_ARBITER_RESOURCE_PIO0);
+    resource_arbiter_release_owned(
+        RESOURCE_ARBITER_RESOURCE_PIO0, "foreign-owner");
+    assert(sync_io_persona_manager_deinit(&manager));
+}
+
 int main(void)
 {
     test_directional_tdma_resources();
@@ -362,6 +611,11 @@ int main(void)
     test_sync_io_persona_catalog();
     test_sync_io_persona_compatibility_matrix();
     test_sync_io_persona_descriptor_negative_cases();
+    test_sync_io_persona_manager_lifecycle();
+    test_sync_io_persona_manager_compatibility();
+    test_sync_io_persona_manager_claim_requires_handle();
+    test_sync_io_persona_manager_preserves_conflict_without_output();
+    test_sync_io_persona_manager_failure_rollback();
 
     assert(resource_arbiter_mode_is_valid(RESOURCE_ARBITER_MODE_BOOT));
     assert(resource_arbiter_mode_is_valid(RESOURCE_ARBITER_MODE_RUN));
