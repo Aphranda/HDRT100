@@ -18,10 +18,10 @@ Last updated: 2026-09-03
 `UNLOAD -> LOAD -> FORWARD`，不因物理 frame 完成而终止。每一步均须可回退，并以同一 OTA
 包完成闭环后才能推进下一步。
 
-resident cycle、资源事实源、maintenance/calibration persona 资源仲裁以及 TX 端 flight
-persona 资源生命周期已完成四板验收。当前唯一执行入口为 `SM-RES-004`：收口 RX 端
-DATA output/flight、follower clock evidence 和单一业务 RX FIFO/DMA 原语。表中其他
-`IN PROGRESS` 表示已有部分实现或证据尚未收口，不代表允许并行修改。
+resident cycle、资源事实源、maintenance/calibration persona 资源仲裁以及 TX/RX 端 flight
+persona 资源生命周期已完成四板验收。当前唯一执行入口为 `SM-RES-005`：在已经类型化的
+RX endpoint 契约上收口 raw/process follower 的 TX/RX FIFO 与 DMA 行为，并补齐 raw-flight
+连续运行证据。表中其他 `IN PROGRESS` 表示已有部分实现或证据尚未收口，不代表允许并行修改。
 
 | ID | 优先级 | 目标 | 状态 | 完成或退出门禁 |
 |---|---|---|---|---|
@@ -63,7 +63,7 @@ phase、recovery 静态预算或 FreeRTOS heap；超限必须在构建或 Deploy
 | SM-M1 | 资源和方向契约冻结 | DONE | 三 PIO 职责、TX/RX 端口均含 IN/OUT，且 CLK/SYNC 与 DATA 的交叉方向、FIFO/DMA owner 已在架构文档登记。 |
 | SM-M2 | board/profile/resource arbiter 迁移 | DONE | PIO、SM、DMA、GPIO 和 persona 均由独立符号声明；maintenance 与 flight owner、PIO SM claim/release、persona 转移、运行时冲突快照和无泄漏恢复负测已收口，并完成 build、四板闭环与 SD 波形验收。 |
 | SM-M3 | TX/RX 交叉方向 PIO 原语 | IN PROGRESS | flight origin/follower 已按 TX/RX PIO 装载方向原语；专用原语完整验证和 maintenance persona 边界仍待完成。 |
-| SM-M4 | follower forward/capture 双路径 | IN PROGRESS | 当前 flight follower 由 RX DATA SM 以 `push noblock` 同时完成 wire forward 与 RX 卸载，DMA 只消费该 FIFO；独立 sampler 不在运行态启用。四板 process-image HIL、停止态诊断 capture 和 maintenance owner 边界已取得，仍需收口 endpoint 静态检查。 |
+| SM-M4 | follower forward/capture 双路径 | IN PROGRESS | 当前 flight follower 由 RX DATA SM 以 `push noblock` 同时完成 wire forward 与 RX 卸载，业务 RX DMA 只消费该 RX FIFO；TX command FIFO/DMA、业务 RX FIFO/DMA 和 clock evidence endpoint 已类型化，独立 sampler 不在运行态启用。四板 process-image HIL、停止态诊断 capture 和 endpoint 静态检查已取得，仍需 raw-flight 连续运行证据。 |
 | SM-M7 | resident process image cycle FSM | DONE | `RESIDENT_INIT` 只注入一次；`RUNNING` 持续执行 cycle boundary、本地 UNLOAD/LOAD 和 FORWARD；无更新透传；物理 frame completion 回到下一 cycle；STOP、复位、故障或重新配置受控退出；host/build、四板闭环和 SD 波形证据已归档。 |
 | SM-M5 | 四板 TDMA 验收 | PENDING | build、pytest、四板异步 OTA、TDMA HIL 和 SD 原始波形通过；不要求 NO5。 |
 | SM-M6 | NO5 DPLL/VDC 观测验收 | PENDING | 在 SM-M5 通过后，NO5 只读 evidence、DPLL lock 和 VDC readback 全通过；NO5 不进入 TDMA ring。 |
@@ -76,8 +76,8 @@ phase、recovery 静态预算或 FreeRTOS heap；超限必须在构建或 Deploy
 | SM-RES-002 | 增加 CLK/SYNC/DATA 交叉方向 SM、FIFO、DREQ 和 DMA 字段 | DONE | board contract、runtime resource view、四个 DMA endpoint 及 GPIO/IRQ/DREQ admission 已建立；maintenance 与 flight 使用独立 owner，program manager 统一 PIO SM claim/release、persona 转移和失败回滚；host/build、同包四板 OTA、短帧闭环与四板 SD 波形通过。 |
 | SM-RES-007 | 增加静态回归测试与资源冲突负测试 | DONE | PIO 指令方向、CLK/SYNC 与 DATA 语义绑定、SM/DMA 唯一性、forward/unload FIFO、capture patch、calibration directional unload、两类 resource mask、GPIO/DREQ/persona owner 冲突、错误快照、错误 owner 释放和无泄漏恢复均有可执行负测；host/build、四板闭环与 SD 波形通过。 |
 | SM-RES-003 | 将 TX 端交叉方向 SM 迁移 | DONE | combined CLK+SYNC control、origin 返回 DATA capture、RTT/clock evidence、flight resource lifecycle 和 SyncIO handoff 已按真实 persona 角色收口；host/build、同包四板 OTA、快速 TDMA 闭环和四板 SD 原始波形通过。 |
-| SM-RES-004 | 将 RX 端交叉方向 SM 迁移 | IN PROGRESS | flight DATA output/forward/unload 和 follower clock evidence 已使用 RX PIO 角色；下一步收口 endpoint 静态契约及双路径 HIL。 |
-| SM-RES-005 | 完成 follower forward/capture 独立 FIFO/DMA | IN PROGRESS | forward 与 RX 卸载统一由 RX DATA SM 的单一 FIFO/DMA endpoint 完成，避免双消费者竞争；SD/波形 capture 仅作为停止态 diagnostic persona，仍需 endpoint 静态检查和 HIL。 |
+| SM-RES-004 | 将 RX 端交叉方向 SM 迁移 | DONE | DATA output 使用 RX DATA SM 的 TX FIFO/DMA，DATA unload 使用同一 SM 的 RX FIFO/DMA，clock evidence 使用独立 RX SM/FIFO 且由 Core1 读取；runtime 在 ARM 前校验类型化 endpoint，静态负测、host/build、同包四板 OTA、快速 TDMA 闭环与四板 SD 波形通过。 |
+| SM-RES-005 | 完成 follower forward/capture 独立 FIFO/DMA | IN PROGRESS | forward 与 RX 卸载统一由 RX DATA SM 执行，但 TX command 和业务 RX 使用方向独立的 FIFO/DMA endpoint，业务 RX consumer 保持唯一；process-image HIL 已通过，下一步补 raw-flight 连续运行和 raw/process persona 切换证据。 |
 | SM-RES-009 | 固化独立 flight RX unload / TX load 逻辑边界 | IN PROGRESS | 当前 `inspect_input()` / `commit_input()` / `apply*()` 的输入识别、提交和局部 overlay 职责可追溯；后续方向化接口不得改变语义；两方向可在同一 phase 并行且互不阻塞，需补四板 process-image 回归证据。 |
 | SM-FSM-001 | persona lifecycle FSM 与 program manager 接入 | DONE | host FSM 单测设计已加入；三镜像构建、五板同包 OTA/软件复位、四板 TDMA/NO5 快速诊断流程完成，保留 strict gate 失败证据；五板 `TDMA:PHYS?` 读回 NO1-NO4 为 `ACTIVE` 且 lifecycle error 为 0，NO5 为 `STOPPED`。 |
 | SM-RES-010 | 将 adapter/FSM 从 per-frame completion 迁移为 resident cycle | DONE | 初始 process image 只在 `RESIDENT_INIT` 装载一次；每个物理 frame 完成后回到 `CYCLE_BOUNDARY`，不得要求重新 ARM；单轮多 Node overlay、无更新透传、cycle sequence/segment generation 和受控退出均有 host/build/TDMA 短帧闭环证据。 |
@@ -113,9 +113,9 @@ transport helper 和 communication FSM 是角色无关的边界件，不改变 N
 
 ## 当前阻塞项
 
-- TX 端 persona 角色和资源生命周期已收口；当前按依赖序列只推进 `SM-RES-004` RX
-  DATA flight/evidence 原语，在其 host/build/快速四板门禁完成前不得进入后续 AO/Core1
-  编排或 SYNC_IO PIO0 persona 实现。
+- TX/RX 端 persona 角色、资源生命周期和类型化 endpoint 已收口；当前按依赖序列只推进
+  `SM-RES-005` raw/process follower 的 FIFO/DMA 连续运行验证，在其 host/build/快速四板
+  门禁完成前不得进入后续 AO/Core1 编排或 SYNC_IO PIO0 persona 实现。
 - follower 运行态继续保持单一 RX DATA FIFO/DMA；任何后续 capture 扩展都不得引入两个
   DMA 竞争同一 FIFO，只允许停止态 diagnostic capture 或显式硬件复制语义。
 - PIO 迁移完成前，DPLL hardware timestamp spine 和 eligible gate 不进入正式 HIL。

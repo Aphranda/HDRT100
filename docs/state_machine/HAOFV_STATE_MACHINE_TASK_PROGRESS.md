@@ -11,6 +11,35 @@ Last updated: 2026-09-03
 
 ## 当前 Checkpoint
 
+### SM-PROGRESS-20260903-030 - SM-RES-004 RX endpoint 契约闭环
+
+- TODO task ID：`SM-RES-004`；代码提交为 `5612c93`，已推送到当前远端分支。资源事实源
+  新增类型化 RX endpoint：DATA output 使用 RX DATA SM 的 TX FIFO、输出 DMA 和 TX DREQ；
+  DATA unload 使用同一 SM 的 RX FIFO、采集 DMA 和 RX DREQ；clock evidence 使用独立 RX
+  SM/FIFO，由 Core1 读取且不申请 DMA。业务 RX FIFO consumer 固定为一个。
+- runtime 迁移：flight data/capture/evidence helper 和 persona init 均从
+  `flight_resources.rx_endpoints` 取得 PIO/SM；ARM 前校验 endpoint 契约。没有修改 PIO 指令、
+  指令节拍、相位参数或 PIO0/SYNC_IO 分区。
+- 静态与 host 证据：检查器覆盖 follower 缺少 `push noblock`、process follower 错误 FIFO
+  join、RX DMA 使用 TX DREQ/读取 TX FIFO、业务 RX 多消费者及 clock evidence 与 DATA 共用
+  SM 等负例。定向 Python、完整 Python、MinGW resource-arbiter C 测试和 release build 均
+  通过；完整 Python 验收快照（非事实源）为 `664 passed`。
+- 构建证据：release build 位于 `out/build/sm-res-004-rx-endpoints-20260903/`；build ID
+  验收快照（非事实源）为 `20260903033623`，package CRC 验收快照（非事实源）为
+  `0x56430E49`。
+- 硬件证据：统一 QUICK P3 位于
+  `out/hardware-acceptance/sm-res-004-rx-endpoints-p3-quick-20260903/`。NO1--NO4 使用同一
+  package 完成 OTA，TDMA resident process image、closed loop 和 running handoff 均通过；
+  NO5 未 OTA 且未加入 TDMA ring。流程保留既有 coarse CLK level 7 诊断失败，因此
+  `passed=true`、`flow_completed=true`、`strict_gates_passed=false`，不把调试流程完成解释为
+  严格零错误。
+- 稳定窗口与原始证据：NO1 在稳定窗口前保留一次 transport bad 和三次 process reject，
+  稳定窗口内没有新增 bad/reject/drop；反馈 sequence 闭合且 CRC 相等。NO1--NO4 四份 SD raw
+  capture、四份 SVG 和离线分析位于该轮 `tdma-process-image/` 子目录，四节点 SCK 分析均通过。
+- 结论：`SM-RES-004` 标记为 `DONE`。下一唯一执行项是 `SM-RES-005`，先补 raw-flight 与
+  process-image persona 的 FIFO/DMA 连续运行和切换证据；在该门禁完成前不进入
+  SYNC_IO PIO0 persona 实现。
+
 ### SM-PROGRESS-20260903-029 - SM-RES-003 PIO persona 资源生命周期闭环
 
 - TODO task ID：`SM-RES-003`；代码提交为 `522ff89`。TDMA flight 资源角色按 combined

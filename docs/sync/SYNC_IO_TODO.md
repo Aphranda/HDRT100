@@ -29,7 +29,8 @@ Last updated: 2026-09-03
 - `sync_io_mode_ops_t` 已提供 mode 资源元数据和 arm/disarm 接口。
 - 通用输入 capture、预约脉冲、SMA observer、SEQ_STEP 和 ENC_COUNT 已有实现基础。
 - 状态机域已冻结 Realtime Observation/SYNC_IO/SMA PIO 与 TDMA TX/RX PIO 的分区；
-  `SM-RES-003` 已完成当前代码切片的资源生命周期闭环。
+  `SM-RES-004` 已完成 TDMA RX DATA output/unload、clock evidence 类型化 endpoint 和资源
+  生命周期闭环。后续 PIO0 descriptor 不得引用或复用这些 TDMA endpoint。
 - 当前输出型 `BOARD_SYNC_PIO_WAVE` 仍是迁移兼容实现，逻辑分析仪尚未成为独立 persona。
 
 ## 当前主线
@@ -93,7 +94,8 @@ Last updated: 2026-09-03
 ## 当前阻塞项
 
 - PIO0 当前已有静态 capture 与 SMA observer claim；输出 persona 也按旧固定 SM 编号初始化。
-  在 `SYNC-RES-001/002` 完成前，不能把 `BOARD_SYNC_PIO_WAVE` 直接改成 PIO0。
+  在状态机主线完成 `SM-RES-005` 且 `SYNC-RES-001/002` 建立 descriptor 与生命周期前，不能把
+  `BOARD_SYNC_PIO_WAVE` 直接改成 PIO0。
 - PIO0 的 SM 和 instruction RAM 容量不支持“所有 persona 默认常驻”的假设；并发组合必须由
   descriptor 计算，而不是在文档中静态承诺。
 - 逻辑分析仪只能观察 pad-visible GPIO。PIO1/PIO2 内部 PC/FIFO/IRQ 状态仍需对应 owner 发布
