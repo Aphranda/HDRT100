@@ -3,262 +3,287 @@
 Status: Active
 Domain: SYNC_IO
 Canonical: `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/sync/SYNC_IO_TASK_PROGRESS.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`, `docs/hardware/HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md`
-Last updated: 2026-08-15
+Related: `docs/sync/SYNC_IO_TODO.md`, `docs/sync/SYNC_IO_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`
+Last updated: 2026-09-03
 
-本文档定义 HAOFV 下 `sync_io`、底层实时 IO、PIO/DMA/IRQ mode driver 和产品同步动作之间的边界。它不是 VDC/DPLL 的 canonical，也不是产品 `TRIGger` 业务动作文档；它回答的问题是：
+本文档定义本机 realtime IO capability、PIO persona、逻辑分析仪、SMA 维护能力和
+PIO/DMA/IRQ 执行资源之间的稳定边界。它不定义产品 Trigger 状态机、TDMA 协议、
+Calibration 算法、VDC/DPLL 伺服或 SD 文件格式。
 
-```text
-本机底层 IO 能力如何被声明、仲裁、装载、执行、观测和验证。
-```
+## 文档接口
 
-## 架构定位
-
-`SYNC_IO` 是 HAOFV 的 Hardware Service / Realtime IO 基础件。它位于产品动作域和硬实时执行层之间：
-
-```text
-SCPI / UI / System Pack
-        ↓
-TRIGger / SYNC / CAL product action domain
-        ↓
-TriggerAO / SyncAO / CalibrationAO / owner FB
-        ↓
-REALtime maintenance and capability domain
-        ↓
-sync_io Hardware Service
-        ↓
-mode drivers / resource map
-        ↓
-PIO / DMA / IRQ
-```
-
-一句话规则：
-
-```text
-产品域表达意图，AO/FB 管状态和资源，sync_io 装载底层能力，PIO/DMA/IRQ 输出硬实时边沿。
-```
-
-## HAOFV 边界
-
-| 层级 | owner | 允许做什么 | 禁止做什么 |
-|---|---|---|---|
-| `TRIGger:*` | TriggerAO / TriggerFB | 产品 RUN、START/STOP、active sequence、业务门禁。 | 直接改 PIO/DMA/IRQ 或任意 GPIO。 |
-| `SYNC:*` | VdcSyncAO / SyncDpllFB | 同步动作、锁定、HOLDOVER/RELOCK、同步质量。 | 直接承担 VDC canonical 或裸写共同时间事实。 |
-| `REALtime:*` | realtime maintenance owner | 底层 IO、SEQ/ENC/PCNT/BISS、PIO/DMA/IRQ 的维护、验证和状态查询。 | 改变产品 RUN 业务状态。 |
-| `sync_io` | SyncIO owner | 初始化 PIO 程序、装载 mode、管理 GPIO/PIO/DMA/IRQ 原语和 runtime snapshot。 | 解析产品 SCPI 业务语义。 |
-| mode driver | mode owner / TriggerFB 持有资源 | validate/arm/disarm/is_running、低层 runtime 采样。 | 重复申请资源或绕过 TriggerFB owner。 |
-| PIO/DMA/IRQ | hardware execution | 捕获、倒计时、输出边沿、最小事实回写。 | 执行业务状态机、DPLL、FatFs、USB、日志格式化。 |
-
-## 文件标准
-
-`docs/sync` 后续采用三分结构：
-
-| 文件 | 作用 |
+| 文件 | 唯一职责 |
 |---|---|
-| `SYNC_IO_ARCHITECTURE.md` | 架构和边界，说明 owner、层级、资源、mode、snapshot、HAOFV 约束。 |
-| `SYNC_IO_TODO.md` | 当前未完成事项，按优先级维护，不记录流水账。 |
-| `SYNC_IO_TASK_PROGRESS.md` | 已完成闭环、验证命令、风险和下一步。 |
+| `SYNC_IO_ARCHITECTURE.md` | 稳定语义、owner、不变量、persona 模型、跨域边界和验证映射。 |
+| `SYNC_IO_TODO.md` | 当前里程碑、稳定 task ID、状态和退出门禁。 |
+| `SYNC_IO_TASK_PROGRESS.md` | 提交、构建、HIL、失败、回退和证据路径。 |
 
-旧 `SYNC_IO_RESOURCE_PLAN.md`、`SYNC_IO_REFACTOR_PLAN.md`、`SYNC_IO_ARCH_REVIEW_TODO.md` 和 `SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md` 的有效内容已经并入本文和 `SYNC_IO_TODO.md`；后续不再作为 active 文档保留。
+Architecture 不记录单次 build 或串口结果；TODO 不复制实施日志；Task Progress 不改变
+本文件的契约。旧 SYNC_IO 规划文件仅作为历史输入，不再是当前事实源。
 
-## 核心对象
+## 范围与边界
 
-| 对象 | 当前代码入口 | 架构职责 |
-|---|---|---|
-| hardware profile | `components/sync_io/inc/sync_io_hw_profile.h` | 固定语义 IO、合法 pin group、AUX 方向、编译期断言。 |
-| sync_io core | `components/sync_io/src/sync_io.c` | PIO 程序加载、公共 pulse/capture/clock/AUX 原语、trace helper、共享 IRQ 分发。 |
-| model scheduled pulse primitive | `components/sync_io/src/sync_io_model_sched.c` | 模型/仿真 AO 的 bounded pulse plan 装载，使用独立 PIO/DMA 输出预约边沿。 |
-| mode table | `components/sync_io/inc/sync_io_mode.h` | mode id、资源、PIO/SM/DMA/IRQ 元数据、validate/arm/disarm/is_running。 |
-| SEQ_STEP mode | `sync_io_mode_seq_step.c` | 外部触发沿驱动序列输出，PIO/DMA 自主步进。 |
-| ENC_COUNT mode | `sync_io_mode_enc_count.c` | 编码器 A/B/Z 计数，目标计数触发输出。 |
-| BISS_TAP mode | `sync_io_mode_biss_tap.c` | BiSS-C 调试/通信准备阶段的 TAP、透传、采样。 |
-| resource map | `components/sync_trigger/src/trigger_resource_map.c` | 从 mode table 派生 TriggerFB 的资源仲裁 mask。 |
-| TriggerFB | `components/sync_trigger/src/trigger_fb.c` | ECC 状态、资源 owner、mode arm/disarm 编排和错误归因。 |
+SYNC_IO 是 HAOFV 的 Hardware Service / Realtime IO 基础域，回答：
 
-## 语义 IO
+```text
+本机 IO capability 如何被声明、仲裁、装载、执行、观测和安全释放。
+```
 
-应用层、SCPI、UI 和 TriggerVector 只能使用语义 IO，不应直接暴露任意 GPIO。
+调用链固定为：
 
-| 语义通道 | 当前默认物理通道 | 方向 | 规则 |
+```text
+SCPI / UI / System Pack intent
+  -> Trigger / Sync / Calibration AO or owner FB
+  -> realtime capability request
+  -> SYNC_IO persona owner
+  -> PIO / DMA / IRQ / GPIO hardware execution
+  -> bounded runtime snapshot / capture evidence
+```
+
+| 层级 | owner | 允许 | 禁止 |
 |---|---|---|---|
-| `TRIG_IN` | 主输入 IN0 | 输入 | 默认外部触发、计数或事件输入。 |
-| `GATE_IN` / `RJ45_TRIG_IN` | 主输入 IN3 | 输入 | 硬件定义是 RJ45 兼容输入；gate 是 mode 解释。 |
-| `ENC_A/B/Z` | 主输入 IN0/IN1/IN2 | 输入 | `ENC_COUNT` 固定三线输入，不占用 IN3。 |
-| `TRIG_OUT` | 主输出 OUT0 | 输出 | 默认确定性动作输出。 |
-| `PULSE_OUT` | 主输出 OUT1 | 输出 | 第二路脉冲或 burst 输出。 |
-| `MODE_OUT2` | 主输出 OUT2 | 输出 | 模式本地输出或 `SEQ_STEP` bit2。 |
-| `RJ45_TRIG_OUT` | 主输出 OUT3 | 输出 | RJ45 兼容输出；历史 `MARK:*` 只是兼容入口。 |
-| `ARM_IN` | AUX0 | 输入 | 产品级 ARM 资格/请求，仍需接入运行逻辑。 |
-| `EXT_CLK_IN` | AUX1 | 输入 | 外部参考或采样时钟，仍需接入运行逻辑。 |
-| `SYNC_CLK_OUT` | AUX2 | 输出 | 框架同步时钟输出，已迁移到 AUX2。 |
-| `AUX3_TX` / `BISS_DATA_OUT` | AUX3 | 输出 | 固定辅助输出或 BiSS persona 输出。 |
+| 产品动作域 | TriggerAO / SyncAO / CalibrationAO | 表达启动、停止、配置和业务门禁。 | 直接改 PIO、DMA、IRQ 或 GPIO。 |
+| SYNC_IO capability 域 | SYNC_IO realtime owner | 校验 capability、仲裁 persona、装载硬件、发布 snapshot。 | 解释 TDMA payload、运行 DPLL、写 SD 或改变产品 RUN 状态。 |
+| persona driver | 获准的 persona | 有界 arm/disarm/service，使用已声明资源。 | 重复申请 owner、临时借用未声明 FIFO/DMA、改变其他 persona 引脚。 |
+| PIO/DMA/IRQ | hardware execution | 捕获、时间戳、倒计时、输出边沿和最小事实搬运。 | 业务状态机、FatFs、USB、日志格式化和动态内存。 |
+| Core0 maintenance | Core0 AO/tool | 提交意图、读取 snapshot、停止后落盘和离线分析。 | 进入 Core1 拍级路径或抢读业务 FIFO。 |
 
-具体连接器、电气隔离和产品 pinout 以 `docs/hardware/` 为准；本文冻结固件侧语义 IO、PIO/DMA/IRQ owner 和 mode 资源边界。
+## SYNC-OWNER-001：唯一 Owner 与不变量
 
-## PIO / DMA 资源基线
+- `SYNC_IO realtime owner` 是 SYNC_IO/SMA PIO 的唯一运行时 owner。Trigger、Calibration、
+  VDC、TDMA 验收和工具都是 capability 请求方，不直接持有 PIO block。
+- 每个 persona 必须声明 PIO block、SM、instruction words、GPIO read/write mask、FIFO
+  direction、DMA/DREQ、IRQ、共享 SRAM 和停止安全态。
+- PIO block 只表达资源归属，不表达统一输入或输出方向；方向属于 persona 内的具体 SM。
+- 同一 RX FIFO 只能有一个业务消费者。观测、诊断和 SD 路径不得成为第二个消费者。
+- Core1 是硬实时唯一 writer；Core0 只提交命令和读取有界 snapshot，不在查询时触发硬件动作。
+- 质量异常和数据丢失必须留下计数与原始证据；资源冲突、非法 GPIO 驱动和 FIFO 双消费者
+  属于结构错误，必须阻止该 persona ARM，不能用调试门禁绕过。
 
-RP2350 的 3 个 PIO block 都预留给同步触发和底层 realtime IO。状态 LED、LCD、USB、SD、日志和 UI 不得占用同步触发 PIO state machine。
+## 能力、Mode 与 Persona
 
-| PIO block | 角色 | 规则 |
+三个概念不得混用：
+
+| 概念 | 含义 | 示例 |
 |---|---|---|
-| `pio0` | 高速输入捕获、触发资格判定、RJ45 输入采样。 | 输入采样、timestamp/capture 和 gate/inhibit 相关逻辑优先放在此处。 |
-| `pio1` | 确定性输出、序列输出、即时/预约脉冲。 | 输出时序与输入捕获隔离；mode 间必须经资源表互斥。 |
-| `pio2` | AUX 功能、协议辅助、SYNC_CLK_OUT、BiSS persona、后续 CAL_RING。 | 跨模式框架功能和协议 persona 互斥，不扰动主触发口。 |
+| capability | 上层可请求的本机能力，不绑定固定 SM。 | 输入捕获、预约输出、逻辑分析、SMA 测量。 |
+| mode | 产品或维护配置的稳定操作模式。 | `SEQ_STEP`、`ENC_COUNT`、`BISS_TAP`。 |
+| persona | 某个运行 epoch 内装入硬件的资源与程序组合。 | capture、wave output、logic analyzer、SMA calibration。 |
 
-当前固件资源语义如下：
+目标 persona 目录如下：
 
-| 资源 | 当前 owner / mode | 约束 |
+| Persona | GPIO 行为 | 数据路径 | 典型请求方 |
+|---|---|---|---|
+| `INPUT_CAPTURE` | 只读指定语义输入。 | PIO RX FIFO -> DMA/ring -> snapshot。 | Trigger、维护、自检。 |
+| `WAVE_OUTPUT` | 驱动已获准的语义输出。 | plan/command -> TX FIFO/DMA -> PIO output。 | Trigger、模型动作。 |
+| `SCHEDULED_TRIGGER` | 按硬件时间基输出预约边沿。 | bounded plan -> DMA -> PIO deadline。 | Trigger、DPLL 外部证据。 |
+| `LOGIC_ANALYZER` | 只读被观察 GPIO pad，不接管引脚。 | PIO RX FIFO -> capture DMA -> SRAM ring。 | 硬件验收、TDMA/DPLL 调试。 |
+| `SMA_MAINTENANCE` | 按角色驱动或采样 SMA。 | persona-private FIFO/DMA。 | 线序、频率、环回测试。 |
+| `SMA_CALIBRATION` | 按校准阶段驱动、预约或捕获。 | persona-private FIFO/DMA -> raw evidence。 | Calibration owner。 |
+
+`WAVE_OUTPUT` 是输出 persona；`LOGIC_ANALYZER` 是只读观测 persona。不得再用不带限定词的
+“wave persona”同时表示两者。
+
+## ARCH-PIOPARTITION-01：PIO 资源分区
+
+稳定分区以 `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md` 的
+`ARCH-PIOPARTITION-01` 和 board profile 符号为事实源：
+
+| 资源域 | 稳定职责 | 唯一 owner |
 |---|---|---|
-| `pio0/sm0` | capture primitive | 主输入组采样。 |
-| `pio0/sm2` | RJ45 input / gate interpretation | 硬件语义为 `RJ45_TRIG_IN`，gate 只是 mode 解释。 |
-| `pio1/sm0` | `SEQ_STEP` / `ENC_COUNT` / main output primitive | 当前共享 SM，运行互斥由 TriggerFB/resource owner 保证。 |
-| `pio1/sm1` | model scheduled pulse primitive | 模型/仿真预约输出，当前由 `sync_io` 按 bounded plan 装载，不作为产品 Trigger mode。 |
-| `pio1/sm2` | `PULSE_OUT` primitive | 第二路 pulse 输出，不能与占用主输出总线的 mode 冲突。 |
-| `pio1/sm3` | `RJ45_TRIG_OUT` primitive | 历史 `MARK:*` 只是兼容入口。 |
-| `pio2/sm0..sm3` | AUX / BiSS / SYNC_CLK_OUT / future CAL_RING | AUX0/1 固定输入，AUX2/3 固定输出；persona 切换必须互斥。 |
-| `DMA0` | `SEQ_STEP` | 与 `ENC_COUNT` 共享 `DMA_IRQ_0`，不可并发。 |
-| `DMA1` | `ENC_COUNT` | 与 `SEQ_STEP` 共享 IRQ，ISR 入口已有互斥断言。 |
-| `DMA2` | model scheduled pulse primitive | 不使用共享 DMA IRQ；由 runtime snapshot 轮询 DMA/FIFO/elapsed 状态。 |
+| Realtime Observation / SYNC_IO/SMA PIO | 语义 IO、SMA、预约触发、校准捕获和逻辑分析仪 persona。 | SYNC_IO realtime owner。 |
+| TDMA TX PIO | combined CLK+SYNC control、返回 DATA capture 和 TDMA evidence。 | TDMA Foundation/Core1 owner。 |
+| TDMA RX PIO | DATA output/flight/overlay 和 follower evidence。 | TDMA Foundation/Core1 owner。 |
 
-任何新增 mode 必须在 `sync_io_mode_ops_t.hw` 中显式声明 PIO block、SM、DMA channel 和 IRQ，不允许只靠代码注释表达资源占用。
+PIO 实例由 `BOARD_TDMA_SMA_PIO_BLOCK_ID`、`BOARD_TDMA_TX_PIO_BLOCK_ID` 和
+`BOARD_TDMA_RX_PIO_BLOCK_ID` 决定，不在本文复制编号。SYNC_IO persona 不得因为需要观测
+TDMA 而申请 TDMA TX/RX PIO block；它只在自己的 PIO 上读取 pad-visible GPIO。
 
-## Mode 资源互斥
+该分区不承诺 PIO0 内所有能力同时常驻。persona manager 必须按实际 SM、instruction RAM、
+DMA/DREQ、IRQ、GPIO 和共享 SRAM 建立兼容矩阵，只有全部资源不相交的组合才允许并发。
 
-| mode / primitive | 输入占用 | 输出占用 | PIO/DMA | 当前状态 |
-|---|---|---|---|---|
-| `SEQ_STEP` | `TRIG_IN`，可选 `GATE_IN` | OUT0..OUT3 序列总线 | `pio1/sm0 + DMA0 + DMA_IRQ_0` | 已实现。 |
-| `ENC_COUNT` | IN0/IN1/IN2 = A/B/Z | OUT0 目标触发 | `pio1/sm0 + DMA1 + DMA_IRQ_0` | 已实现。 |
-| `BISS_TAP` | AUX0/AUX1 | AUX2/AUX3 | `pio2` 多 SM | 已实现调试/通信准备能力。 |
-| `SYNC_CLK_OUT` | 无 | AUX2 | `pio2/sm2` | 已迁移到 AUX2。 |
-| model scheduled pulse | 由 NodeLoad/RealtimeCapability 决定 | 调试 overlay 或产品 profile 输出 | `pio1/sm1 + DMA2` primitive | 已有首版 bounded plan；HIL 待补。 |
-| RefMem minimal transport | 由 adapter profile 决定 | 由 adapter profile 决定 | 待定 PIO/PIO-like transport | P1 待办。 |
-| CAL_RING | AUX0 输入 | AUX3 输出 | `pio2/sm0/sm3` 候选 | 后续同步链路原型。 |
+## Persona 生命周期与兼容矩阵
 
-冲突处理：
+所有 persona 使用同一生命周期：
 
-- mode arm 前由 TriggerFB 或对应 owner 持有资源。
-- 冲突返回稳定错误码和 snapshot，不静默覆盖已有 mode。
-- armed 期间禁止修改影响 PIO/DMA/IRQ 的配置字段。
-- fault/reset/stop 必须走统一 release helper，恢复输出安全态。
+```text
+STOPPED
+  -> validate descriptor and profile identity
+  -> claim PIO/SM/DMA/GPIO/IRQ/DREQ/workspace
+  -> load program and clear private FIFO
+  -> ARMED -> RUNNING
+  -> bounded stop/drain
+  -> restore safe state and release
+  -> STOPPED
+```
+
+| 组合 | 默认关系 | 规则 |
+|---|---|---|
+| `LOGIC_ANALYZER` + TDMA flight | 可并发 | 逻辑分析仪只占 SYNC_IO PIO 和自己的 RX DMA，不改 TDMA GPIO function，不读 TDMA FIFO。 |
+| `LOGIC_ANALYZER` + `WAVE_OUTPUT` | 条件并发 | 必须证明 SM、instruction、DMA、workspace 不冲突；输出 GPIO 仍由输出 persona 独占。 |
+| `LOGIC_ANALYZER` + `SMA_CALIBRATION` | 默认互斥 | 校准可能需要多个 SM、DMA 和相同 SRAM workspace；未声明兼容前按整 persona 切换。 |
+| `INPUT_CAPTURE` + `LOGIC_ANALYZER` | 合并或互斥 | 通用 capture 应作为逻辑分析仪 backend，不得初始化第二个采样器竞争同一资源。 |
+| `WAVE_OUTPUT` + `SMA_CALIBRATION` | 默认互斥 | 任一相同输出 pin、SM 或 DMA 重叠都必须拒绝后申请者。 |
+
+persona 切换必须在 quiesced boundary 完成。失败时恢复旧 persona 或保持 `STOPPED`，同时发布
+holder、requester、resource mask、failure stage 和 generation；不得留下部分 claim。
+
+## ARCH-IOANALYZER-01：独立逻辑分析仪 Persona
+
+### 观测范围
+
+`LOGIC_ANALYZER` 用于监测本机 pad-visible IO。SYNC_IO PIO 可以读取 TDMA TX/RX PIO
+正在使用的 GPIO 电平，因此能对 TDMA control、DATA 和同步边沿做旁路观测，但它不能直接
+读取其他 PIO block 的 SM PC、ISR、OSR、X/Y 或私有 FIFO 内容。
+
+需要内部执行状态时，由对应 PIO owner 发布只读 runtime snapshot，再通过共同硬件时间基、
+persona generation 和 capture sequence 与逻辑分析波形关联。逻辑分析仪不得通过弹出目标
+RX FIFO、清 IRQ 或暂停目标 SM 来取得状态。
+
+### 只读引脚契约
+
+- 被观察 GPIO 不进入 analyzer 的 write mask。
+- analyzer 不调用会把被观察 GPIO 切换到自身 PIO function 的初始化路径。
+- analyzer 不修改被观察 GPIO 的 function、direction、pull、drive strength、slew rate 或输出值。
+- PIO 程序只允许读引脚、等待条件、移位到 RX FIFO 和维护私有计数；不得对被观察引脚执行
+  `set pins`、`out pins`、side-set 输出或方向切换。
+- analyzer 的 stop、overflow、DMA fault 和查询都不得改变被测 persona 的运行状态。
+
+### 采集模式
+
+| 模式 | 用途 | 数据策略 |
+|---|---|---|
+| `RAW_SAMPLE` | 短窗口 bit 级时序和线序分析。 | 固定采样周期，按 source mask 打包；达到容量后停止或覆盖并计数。 |
+| `EDGE_TIMESTAMP` | 长时间 TDMA/DPLL 趋势观测。 | 只记录电平变化、edge mask 和 hardware tick，优先用于持续落盘。 |
+| `TRIGGERED_CAPTURE` | 故障前后窗口。 | level/edge/pattern 触发，保留 bounded pre-trigger 与 post-trigger 数据。 |
+
+高采样率 `RAW_SAMPLE` 不得直接形成无界 SD 流。长期观测使用 `EDGE_TIMESTAMP`、窗口化采集
+或显式抽取；SRAM ring 发生覆盖时必须记录 dropped records 和不连续区间。
+
+### 数据与 Snapshot
+
+每个 capture epoch 至少关联以下事实，字段的具体类型与容量由后续代码符号冻结：
+
+- analyzer persona/profile generation、capture sequence 和 source mask；
+- capture mode、trigger descriptor、base hardware tick 和 tick rate；
+- sample period 或 edge timestamp、raw level/edge mask；
+- produced/consumed/dropped/overrun 计数和 first fault；
+- timestamp source、resolution、eligibility flags 和关联的 TDMA cycle/persona generation；
+- 数据 CRC、结束 reason 和 capture 是否完整。
+
+逻辑分析仪数据默认是 `DIAGNOSTIC_ONLY`。只有独立的硬件 edge latch、时间分辨率、source
+identity 和完整性门禁都满足 VDC 契约时，上层才可将特定记录标记为 DPLL eligible；
+逻辑分析仪自身不做该判定。
+
+### 双核与存储路径
+
+```text
+Core0 intent/config
+  -> Core1 validate and ARM
+  -> SYNC_IO PIO RX FIFO
+  -> dedicated capture DMA
+  -> bounded SRAM active/shadow ring
+  -> Core1 publish snapshot
+  -> Core0 drain after boundary or from shadow
+  -> StorageAO / SD raw file
+  -> offline decoder / SVG / transfer-function analysis
+```
+
+Core0 可查询进度和状态，但查询只读 snapshot。FatFs、SVG、解码和曲线拟合不得进入 Core1
+实时路径。外部 NO5/SMA 捕获仍用于证明真实线缆和外部相位；本机 pad 观测只能证明本机可见
+电平，不能替代外部物理链路证据。
+
+## 语义 IO 与 Board Profile
+
+应用层只能使用语义通道，物理映射以 `sync_io_hw_profile.h` 和 board profile 为事实源。
+
+| 通道组 | 语义 | 规则 |
+|---|---|---|
+| main input group | `TRIG_IN`、`GATE_IN`、`ENC_A/B/Z` 等模式输入。 | 输入位序在 profile 边界归一化。 |
+| main output group | `TRIG_OUT`、`PULSE_OUT`、mode output。 | 输出必须由已获准 persona 驱动并有停止安全态。 |
+| TDMA wire group | TDMA CLK、SYNC 和 DATA。 | 归 TDMA owner；逻辑分析仪仅旁路读取。 |
+| legacy AUX/BiSS aliases | `ARM_IN`、`EXT_CLK_IN`、`SYNC_CLK_OUT`、BiSS。 | 只有 active board profile 显式启用时才可 ARM。 |
+
+当前产品 board profile 通过 `BOARD_SYNC_AUX_ENABLED` 和
+`BOARD_SYNC_RJ45_TRIGGER_ENABLED` 禁用与 TDMA wire group 重叠的旧 AUX/RJ45 persona。
+文档不得再把这些 alias 描述为产品板上永久可用的 PIO2 能力。
 
 ## Mode Driver 契约
 
-每个 mode 必须通过表驱动入口暴露：
+已实现或保留的 mode 通过 `sync_io_mode_ops_t` 暴露 `id/name/resources/hw/validate/arm/
+disarm/is_running`。`hw` 必须显式记录 PIO、SM、DMA 和 IRQ；board profile 未启用所需引脚时，
+mode 即使有代码也不得 ARM。
 
-| 字段/函数 | 规则 |
+- `SEQ_STEP`：外部边沿驱动 bounded sequence 输出。
+- `ENC_COUNT`：A/B/Z 计数和目标触发。
+- `BISS_TAP`：BiSS 调试/通信准备 persona，仅在兼容 profile 可用。
+- reserved mode：`get_ops()` 返回 NULL，不得用占位 ID 绕过能力检查。
+
+Mode 的产品 RUN 状态由 TriggerFB 等上层 owner 管理；SYNC_IO 只管理底层执行和资源。
+
+## Snapshot 与查询
+
+所有外部查询必须读取本地 snapshot，不得临时跨板查询或触发 IO：
+
+| 数据 | 发布规则 |
 |---|---|
-| `id/name` | 稳定 mode 标识，未实现 mode 返回 NULL ops。 |
-| `resources` | 粗粒度资源需求，供 TriggerFB/resource map 仲裁。 |
-| `hw` | PIO block、SM、DMA channel、IRQ 元数据，必须显式记录共享关系。 |
-| `validate(config)` | 只做字段范围、profile、方向、mode 能力检查。 |
-| `arm(config)` | 在上层 owner 已持有资源后装载 PIO/DMA/IRQ。 |
-| `disarm()` | 停止硬件路径，恢复安全态，释放 mode 私有状态。 |
-| `is_running()` | 只读运行态，不阻塞、不触发现场动作。 |
+| persona lifecycle | state、generation、owner、resource mask、last transition/error。 |
+| PIO/DMA | enabled、FIFO level、transfer count、stall/overflow；不得消费业务 FIFO。 |
+| logic analyzer | mode、source mask、capture progress、drop/overrun、trigger/end reason。 |
+| output persona | scheduled/completed/late/drop、safe-state 和 DMA progress。 |
+| 分布式事实 | 由 RefMem/VDC/TDMA owner 解释；SYNC_IO 不跨节点聚合。 |
 
-资源 owner 边界：
+跨核多字段 snapshot 必须使用唯一 writer 加 seqlock、双缓冲或等价版本协议。高频事实进入
+bounded ring/counter，不在 IRQ 或 Core1 路径输出文本日志。
 
-- P0/P1 当前由 TriggerFB 统一 acquire/release。
-- 裸 `sync_io_*_arm()` 不得重复 acquire，避免同 owner 自冲突。
-- 后续如改为 `sync_io_mode_arm_with_owner()`，必须整体迁移 owner 边界，不能两层同时仲裁。
+## 跨域契约
 
-## Snapshot 与观测
-
-所有外部查询必须读取本地 snapshot，不得临时跨板阻塞查询或临时驱动 IO。
-
-| 数据 | Snapshot 规则 |
+| 域 | 与 SYNC_IO 的边界 |
 |---|---|
-| mode running | `is_running()` + runtime counters。 |
-| PIO/DMA 状态 | FIFO、transfer_count、restart/rollover、irq enabled。 |
-| 资源占用 | Resource Arbiter snapshot。 |
-| 低频生命周期 | trace event，记录 arm/disarm/fault/resource conflict。 |
-| 高频边沿 | PIO/DMA/IRQ 计数器或 ring，不输出文本日志。 |
-| 分布式事实 | 由 RefMem snapshot/quality/evidence 承接，不由 `sync_io` 直接跨节点查询。 |
+| STATE_MACHINE | 冻结 PIO 分区、persona descriptor 和 claim/release 生命周期。 |
+| TDMA | 独占 TDMA TX/RX PIO 和业务 FIFO；可被逻辑分析仪从 GPIO pad 旁路观测。 |
+| Calibration | 计算训练/校准参数并请求 SMA persona；不成为 PIO0 hardware owner。 |
+| Trigger | 管产品动作和业务门禁；请求输出/输入 capability，不直接写硬件。 |
+| VDC/DPLL | 消费合格 timestamp evidence、计算共同时间和伺服；不把普通 capture 冒充锁相证据。 |
+| RefMem | 发布共同事实和质量；不承载实时边沿或大波形。 |
+| Storage | Core0/StorageAO 持久化停止态或 shadow capture；不进入实时采集路径。 |
 
-### 通用 IO 观测器
+## 失败与恢复
 
-`sync_io_read_capture_words()` 是 SYNC_IO 的底层 raw IO observation primitive。它从 `sync_capture_4bit` PIO RX FIFO 读取 32-bit raw capture word；每个 word 表示 8 个连续的 4-bit 输入采样。该接口只提供本机 IO fact，不解释业务语义，不计算 DPLL，不写 Trigger/RefMem/VDC 状态。
+- descriptor/profile 不一致、资源冲突、非法写引脚、instruction space 不足、FIFO 双消费者
+  或 DMA/DREQ 不一致时，persona 保持 `STOPPED` 并发布结构错误。
+- 调试阶段的信号质量、CRC、drop、timeout 和 phase 异常应记录后继续可执行流程；它们不能
+  被提升为资源安全豁免，也不能隐藏原始数据。
+- analyzer overflow 只终止或降级 analyzer capture，不得停止 TDMA、Trigger 或 DPLL 实时路径。
+- 输出 persona fault/stop/reset 必须先恢复安全电平，再释放 GPIO 和硬件资源。
+- Flash erase/program 前必须完成 Core1 park/lockout；恢复后 persona 必须重新验证 generation，
+  不从未知 PC/FIFO 状态继续运行。
 
-多核运行时推荐上层消费 `sync_io_read_capture_latched()`，而不是直接抢读 PIO FIFO。该接口由 core1 realtime loop 作为唯一 writer，把 raw word 搬运到 bounded latch ring，并附带 `sample_seq`、`base_time_l32_ns`、`sample_period_ns`、timestamp source/resolution/flags 和 drop evidence。当前 latch 使用 `timer1/CLK_SYS` hardware tick，报告 `HARDWARE_TICK / <=100 ns / DIAGNOSTIC_ONLY`；它仍只是硬件 bring-up 诊断，因为时间戳发生在 core1 drain FIFO 时刻，不是 PIO 边沿硬锁存，不得作为 DPLL lock evidence。
+## 验证映射
 
-典型消费者如下：
-
-| 消费方 | 解释方式 | 边界 |
+| 契约 | 静态/Host 验证 | 硬件验证 |
 |---|---|---|
-| VDC / TDMA | 通过 `sync_io_read_capture_latched()` 读取 core1 latch fact，再由 `VdcSyncIoAdapter` 把 raw word 转为 `VdcCompactObservationSample`，最后经 timestamp dictionary、wrap tracker 和 VDC gate。 | 当前只声明 `HARDWARE_TICK / <=100 ns / DIAGNOSTIC_ONLY`；dictionary 不得覆盖 latch fact 的 source/resolution/flags，后续只有 PIO edge latch 产生 `DPLL_ELIGIBLE` 后才允许进入 lock gate。 |
-| 转台输入 / 脉冲计数 | 上层 AO/FB 根据语义 IO、edge mask 和计数规则解释脉冲。 | `sync_io` 不改变扫描角度、序列状态或产品 RUN 状态。 |
-| READY / GATE / ARM / AUX 状态 | 维护面或 owner 读取 raw level/edge 后形成 snapshot/evidence。 | 不临时驱动 IO，不跨板阻塞查询。 |
-| 调试/线序检测 | HIL 脚本读取 raw word、edge index、mask 和 timing evidence。 | 调试结论不得绕过正式 profile、owner 和 gate。 |
+| PIO 分区 | board/profile 符号、resource mask、owner 冲突负测。 | persona 切换、失败回滚和无泄漏恢复。 |
+| analyzer 只读 | PIO 指令扫描、GPIO write mask、禁止 target FIFO consumer。 | TDMA 运行时启停 analyzer，确认 cycle/CRC 不因观测变化。 |
+| capture 完整性 | ring wrap、drop/overrun、CRC、trigger window 单测。 | 短时 RAW 和长时 EDGE capture，验证不连续区间可定位。 |
+| 双核边界 | snapshot 并发读、Core1 禁止 FatFs/日志/动态内存。 | 串口持续查询不扰动实时路径，Core0 SD drain 不造成实时回归。 |
+| 外部证据 | source/eligibility/profile generation gate。 | 本机 pad capture 与 NO5/SMA 外部波形关联。 |
 
-因此 `sync_io_read_capture_words()` / `sync_io_read_capture_latched()` 可以观测 TDMA 通讯/同步 PIO 线，也可以观测转台输入或其他数字输入；它们的归属是 SYNC_IO，而不是 VDC/RefMem/Trigger 的私有实现。上层必须通过各自的 adapter / dictionary / AO/FB contract 解释 raw fact。
+任何固件、PIO、工具或测试实现变更都必须按仓库规则运行统一硬件验收；文档重构本身只运行
+文档自回归门禁，不冒充硬件验收结果。
 
-## 双核与 Flash 安全
+## 当前迁移边界
 
-RTOS + 双核 AMP 下：
-
-- core1 是实时 owner，负责 TriggerAO/TriggerFB 快路径、PIO 装载和快速 runtime 采样。
-- core0 只能投递命令、提交配置意图或读取 snapshot。
-- 共享字段必须使用唯一 writer、sequence/seqlock、atomic 或 DMB。
-- Flash erase/program 前必须完成 core1 park/lockout；`sync_io` mode 不得在 lockout 期间从 XIP 路径执行关键实时入口。
-
-## RefMem / VDC 边界
-
-`sync_io` 不直接拥有分布式共同事实和共同时间：
-
-| 基础主域 | 与 IO 的关系 |
-|---|---|
-| RefMem Domain | 记录 IO fact、quality、stale、ACK/NACK 和 evidence；不承载边沿或大文件。 |
-| VDC Domain | 发布共同时间 offset/rate/lock/quality；IO 只提供 timestamp 样本或按 VDC 结果装载本地输出。 |
-| Trigger Domain | 把产品动作意图转换为 mode 装载和 `FIRE_LOAD`。 |
-
-`sync_io` 的输出只能是本机硬件执行和本地 runtime snapshot；跨节点同步必须经 RefMem Sync / VDC / CommandSlot。
-
-## CAL_RING / 分布式同步链路边界
-
-旧分布式 DPLL 文档中的有效结论收敛为以下边界：
-
-- VDC 是共同时间 owner；SYNC_IO 只提供本地 timestamp 样本、转发边沿、预约输出和质量计数。
-- 多板之间不依赖通信包到达时刻直接触发；上层应提前形成 `FIRE_LOAD` 或等价预约计划。
-- PIO 负责短窗口相对计时、边沿捕获、固定延迟转发和到点输出，不直接维护完整 64-bit DC counter。
-- CPU / VDC owner 负责 `local_tick -> vdc_time` 映射、offset/rate、HOLDOVER/RELOCK 和质量门禁。
-- CAL_RING 或 RefMem transport 是 adapter / mode 能力，不改变 RefMem/VDC/Trigger 的 owner 边界。
-
-推荐同步原型链路：
-
-```text
-AUX0/CAL_IN capture
-  -> PIO timestamp or relative counter
-  -> Sync/VDC sample
-  -> RefMem / quality evidence
-  -> optional AUX3/CAL_OUT forward or scheduled output
-```
-
-预约触发链路：
-
-```text
-Trigger/Loop owner
-  -> FIRE_LOAD(seq, target time / delta ticks, output semantic)
-  -> realtime owner validate late/resource
-  -> sync_io arm scheduled primitive
-  -> PIO/DMA output edge
-  -> status ring / RefMem quality / evidence
-```
-
-late `FIRE_LOAD` 必须拒绝并进入 evidence，禁止在临界路径补发。
-
-## 当前实现基线
-
-- 已建立 `sync_io_hw_profile.h`，主输入/输出组、AUX 方向、RJ45 和 `SYNC_CLK_OUT` 编译期断言已落地。
-- 已建立 mode table，SEQ_STEP、ENC_COUNT、BISS_TAP 均有 mode driver 和 hw 元数据。
-- `sync_io.c` 已从单体模式实现收敛为 core 基础设施；但仍偏长，公共原语还可继续拆分。
-- `SYNC_CLK_OUT` 已迁移到 AUX2/GPIO28，并通过 `PIO2 + AUX` 资源互斥。
-- `ARM_IN`、`EXT_CLK_IN` 仍是运行逻辑待接入项。
-- `ModelTurntableAO` 仍存在 debug GPIO 软件定时输出路径，后续必须按 HAOFV 收敛为 “AO 生成计划，sync_io realtime owner 装载 PIO/DMA，PIO 到点出边沿”。
-
-## 实施原则
-
-- 不把调试板临时 GPIO 直接写入产品架构。
-- 不让 SCPI/UI 直接调用 GPIO/PIO。
-- 不让 mode driver 解析产品业务。
-- 不让 Vector/RefMem 承载实时边沿或大 payload。
-- 不用补丁式绕过 owner；新增能力必须进入 profile、mode table、resource map、snapshot 和验证脚本。
-- 真实 transport 和真实 PIO 输出优先于继续堆静态表模型。
+- 当前 `BOARD_SYNC_PIO_FAST` 已承载通用 capture 和 SMA observer；它们是逻辑分析仪 backend
+  的实现输入，还不是完整 `LOGIC_ANALYZER` persona。
+- 当前 `sync_io_init()` 仍直接静态 claim capture/output 相关 SM，`sma_cable_delay` 也以自身
+  owner 直接申请 PIO0 和动态 SM/DMA；两条路径尚未收敛到统一 SYNC_IO persona manager。
+- 当前 `BOARD_SYNC_PIO_WAVE` 仍指向 TDMA TX PIO，并静态占用 output/model/pulse SM；TDMA
+  flight 通过 `sync_io_suspend_for_tdma_flight()` / `sync_io_resume_after_tdma_flight()` 临时
+  交接。这是迁移兼容层，不是稳定架构。
+- 当前通用 capture 只覆盖 active input group，Core1 drain timestamp 仍是诊断事实；后续需要
+  可配置 source mask、硬件 edge timestamp、trigger window 和独立 capture ring。
+- 当前产品 profile 禁用旧 AUX/RJ45 persona，GPIO 与 PIO2 归 TDMA；旧文档中的 PIO2 AUX、
+  BiSS 和 `SYNC_CLK_OUT` 常驻描述已经失效。
+- 迁移必须先建立 PIO0 persona manager 和兼容矩阵，再迁移输出 persona；不得把 PIO1 的静态
+  SM 编号直接复制到 PIO0，也不得假设 capture、输出、校准和 analyzer 全部并发常驻。

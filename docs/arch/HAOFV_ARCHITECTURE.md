@@ -4,8 +4,8 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-09-02
-Version: 4
+Last updated: 2026-09-03
+Version: 5
 
 本文档定义 Distributed Hard Real-Time Trigger System 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
 
@@ -1188,6 +1188,10 @@ FAULT 模式下：
 
 ## 资源仲裁
 
+`ARCH-PIOPARTITION-01` 将 Realtime Observation/SYNC_IO/SMA、TDMA TX 和 TDMA RX 分配给
+独立 PIO owner；具体实例、SM、DMA 和 GPIO 由 board/resource contract 投影，顶层不复制
+物理编号。`ARCH-IOANALYZER-01` 在该分区内增加只读观测 persona，不改变 TDMA owner。
+
 建议资源位：
 
 ```c
@@ -1212,9 +1216,10 @@ typedef enum {
 | SD 卡离线 OTA | `FLASH + SPI0 + SD` |
 | LCD 刷新 | `SPI0 + LCD` |
 | SD 文件读取 | `SPI0 + SD` |
-| PIO 输入采样 | `PIO0 + DMA` |
-| PIO 输出触发 | `PIO1` |
-| AUX PIO | `PIO2` |
+| Realtime Observation / SYNC_IO/SMA persona | `BOARD_TDMA_SMA_PIO_BLOCK_ID` 对应 PIO + persona descriptor 声明的 SM/DMA/GPIO |
+| TDMA TX flight persona | `BOARD_TDMA_TX_PIO_BLOCK_ID` 对应 PIO + TDMA TX resource contract |
+| TDMA RX flight persona | `BOARD_TDMA_RX_PIO_BLOCK_ID` 对应 PIO + TDMA RX resource contract |
+| 只读逻辑分析仪 | SYNC_IO/SMA PIO + analyzer RX DMA；被观察 GPIO 不进入 write mask |
 
 ### SPI 总线共享仲裁
 
@@ -1429,51 +1434,51 @@ Input semantics:   TRIG_IN / RJ45_TRIG_IN / ARM_IN / EXT_CLK_IN / GATE_IN
 Output semantics:  TRIG_OUT / PULSE_OUT / RJ45_TRIG_OUT / SYNC_CLK_OUT
 ```
 
-GPIO16..GPIO23 的实际映射属于 board profile 和 `sync_io` 的职责。`TriggerAO`、`TriggerFB`、SCPI 和 UI 只能表达语义意图，不能把产品功能设计成任意 GPIO 交叉开关。
+物理 GPIO 映射属于 board profile 和 `sync_io` 的职责。`TriggerAO`、`TriggerFB`、SCPI 和 UI 只能表达语义意图，不能把产品功能设计成任意 GPIO 交叉开关。
 
-### 当前 board profile 示例：主触发口与 AUX 功能口
+### 当前 board profile 示例：主触发口与 TDMA wire group
 
 下表描述当前固件/板级 profile 中的语义 IO 划分示例，用于说明 `TriggerAO` 只依赖语义通道。最终 GPIO、连接器、电气约束和隔离边界以 `docs/hardware/` 与 `docs/sync/SYNC_IO_ARCHITECTURE.md` 为准。
 
 | 接口 | 角色 | 语义 |
 |---|---|---|
-| 主输入 IN0..IN3 / active input group | 模式本地高速输入 | `TRIG_IN`、`RJ45_TRIG_IN`、`GATE_IN`、编码器 A/B/Z（仅 IN0..IN2）、后续计数/采样输入 |
-| 主输出 OUT0..OUT3 / active output group | 模式本地高速输出 | `TRIG_OUT`、`PULSE_OUT`、`RJ45_TRIG_OUT`、`SEQ_OUT[3:0]` |
-| AUX0..AUX3 / GPIO26..29 | 跨模式框架功能 | `ARM_IN`、`EXT_CLK_IN`、`SYNC_CLK_OUT`、`AUX3_TX/BISS_DATA_OUT` |
+| active main input group | 模式本地高速输入 | `TRIG_IN`、`GATE_IN`、编码器 A/B/Z 和后续计数/采样输入 |
+| active main output group | 模式本地高速输出 | `TRIG_OUT`、`PULSE_OUT` 和 mode output |
+| TDMA wire group | TDMA Foundation/Core1 独占的 control/DATA IO | SYNC_IO 逻辑分析仪只能旁路读取 pad，不得接管 GPIO 或业务 FIFO |
+| legacy AUX/BiSS aliases | profile 条件能力 | 只有 board profile 显式启用后才能 ARM；当前产品 profile 不把它们作为 PIO2 常驻能力 |
 
 ### 模式资源约束
 
 | 模式 | 应用层资源约束 |
 |---|---|
-| `SEQ_STEP` | OUT0..OUT3 被序列输出总线独占；独立主总线输出应返回 busy 或在 ARM 前关闭。`ARM_IN` 位于 AUX0。`SYNC_CLK_OUT` 位于 AUX2，不占用序列输出总线。历史 `MARK:*` 命令兼容到 OUT3/RJ45，armed 时应拒绝。 |
-| `ENC_COUNT` | IN0/IN1/IN2 分别作为 A/B/Z；IN3 的硬件定义是 `RJ45_TRIG_IN`，不被 ENC 软件定义占用。`ARM_IN` 位于 AUX0，不再与 B 相冲突。 |
+| `SEQ_STEP` | active main output group 被序列输出总线独占；其他输出 persona 应返回 busy 或在 ARM 前关闭。 |
+| `ENC_COUNT` | active profile 中 A/B/Z 语义输入必须与其他输入 capture persona 按 descriptor 仲裁。 |
 | `IDLE` | 语义输出可由即时命令使用；语义输入只做采样/诊断或配置预览。 |
 
 ### Board Profile 迁移约束
 
 当前固件中仍可能保留调试最小系统的兼容宏。迁移规则是：临时 GPIO 宏只允许存在于 board profile 或兼容层，不能成为 HAOFV 顶层规则；硬件冻结后，语义 IO 到物理 IO 的映射必须由产品板约束、`sync_io` profile 和验证矩阵共同确认。历史兼容命令只能作为语义入口，不能重新定义独立硬件输出。
 
+### 独立逻辑分析仪 Persona
+
+`ARCH-IOANALYZER-01` 冻结在 `docs/sync/SYNC_IO_ARCHITECTURE.md`。逻辑分析仪属于
+Realtime Observation/SYNC_IO/SMA PIO 的只读诊断 persona：它可以旁路采样 TDMA TX/RX
+PIO 使用的 pad-visible GPIO，但不得改变目标 GPIO function、方向、pull 或输出，不得消费
+目标业务 FIFO。Core1 只执行有界 capture 和 snapshot 发布，Core0 负责 SD 落盘与离线分析。
+短窗口使用 raw sample，长期 TDMA/DPLL 观测使用 edge timestamp 或触发窗口，并显式记录
+drop/overrun 与不连续区间。
+
 ### 触发模式扩展表
 
 | 模式 | 输入占用 | 输出占用 | PIO | CPU | 状态 |
 |---|---|---|---|---|---|
-| `SEQ_STEP` (mode=1) | IN0 + 可选 IN3 | OUT0-3 | pio1/sm0 + DMA | ARM 后为零 | ✅ |
-| `ENC_COUNT` (mode=2) | IN0/IN1/IN2 | OUT0 | pio1/sm0 + DMA | ARM 后为零 | ✅ |
-| `GATE_LEVEL` (mode=3) | IN0 + IN3 | OUT0 | pio0/sm2 + pio1/sm0 | ARM 后为零 | 规划 |
-| `ARM_SINGLE` (mode=4) | AUX0 | OUT0 | pio2/sm0 + pio1/sm0 | 每次触发 IRQ | 规划 |
-| `FREE_BURST` (mode=5) | IN0 | OUT0-1 | pio1/sm0/sm2 | ARM 后为零 | 规划 |
+| `SEQ_STEP` | active trigger input | main output group | `sync_io_mode_ops_t.hw` 声明 | ARM 后有界 | 已实现 |
+| `ENC_COUNT` | active A/B/Z inputs | trigger output | `sync_io_mode_ops_t.hw` 声明 | ARM 后有界 | 已实现 |
+| `BISS_TAP` | profile-defined BiSS inputs | profile-defined BiSS outputs | `sync_io_mode_ops_t.hw` 声明 | 调试态有界 | profile 条件能力 |
+| reserved modes | 由后续契约定义 | 由后续契约定义 | 未声明 | 禁止运行 | `get_ops()` 返回 NULL |
 
-新增模式只需在静态模式表中追加一行：
-
-```c
-static const trig_mode_entry_t s_mode_table[] = {
-    { TRIG_MODE_SEQ_STEP,  SYS_RESOURCE_PIO1 | SYS_RESOURCE_DMA,
-      (1u<<TRIG_STATE_IDLE), TRIG_CFG_SEQ_TABLE },
-    { TRIG_MODE_ENC_COUNT, SYS_RESOURCE_PIO1 | SYS_RESOURCE_DMA,
-      (1u<<TRIG_STATE_IDLE), TRIG_CFG_ENC_TARGET },
-    // 新模式的入口：追加一行即可
-};
-```
+新增模式必须同时增加 mode table、完整 hardware descriptor、资源冲突负测、snapshot 和 HIL；
+不能只添加枚举或业务状态表入口。
 
 ### Trigger 域拒绝 OTA 条件
 

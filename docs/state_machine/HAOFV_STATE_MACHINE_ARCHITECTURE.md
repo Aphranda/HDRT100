@@ -4,7 +4,7 @@ Status: Active
 Domain: STATE_MACHINE
 Canonical: `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`
 Related: `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/arch/HAOFV_ARCHITECTURE.md`
-Last updated: 2026-09-02
+Last updated: 2026-09-03
 
 本文档定义 HAOFV 中状态机与底层实时状态机资源的稳定边界。这里的“状态机”包括
 PIO state machine、DMA/FIFO 驱动的硬件执行状态，以及由 core1 owner 管理的有界运行
@@ -70,19 +70,30 @@ FIFO/DMA 并启动已验证的 flight persona。进入 `RUNNING` 后，物理 fr
 周期，`segment generation` 表示具体 Node 字段更新代次；状态机只负责按 owner 和
 boundary 调度它们，不混用两个序号。
 
-## PIO 资源分区契约
+## ARCH-PIOPARTITION-01：PIO 资源分区契约
 
-当前迁移目标把三个 PIO block 按物理职责隔离：
+三个 PIO block 按唯一运行时 owner 隔离，实例映射以 `BOARD_TDMA_SMA_PIO_BLOCK_ID`、
+`BOARD_TDMA_TX_PIO_BLOCK_ID` 和 `BOARD_TDMA_RX_PIO_BLOCK_ID` 为代码事实源：
 
-| 资源域 | 固定职责 | 方向约束 | owner |
+| 资源域 | 固定职责 | persona 方向约束 | 唯一运行时 owner |
 |---|---|---|---|
-| SMA PIO | `SMA_IN/OUT`、appointment marker、SFCW/FMCW 捕获 | 输入采样和输出波形由独立 SM 承担 | Calibration / `sma_cable_delay` |
-| TDMA TX PIO | TX 逻辑端：`CLK`、`SYNC/CS` 输出，以及反向 `DATA` 输入 | TX SM 同时配置 IN/OUT，但控制输出与 DATA 输入使用固定 pin/FIFO 语义 | TDMA core1 / PIO adapter |
-| TDMA RX PIO | RX 逻辑端：`CLK`、`SYNC/CS` 输入，以及反向 `DATA` 输出 | RX SM 同时配置 IN/OUT，但控制输入与 DATA 输出使用固定 pin/FIFO 语义 | TDMA core1 / PIO adapter |
+| Realtime Observation / SYNC_IO/SMA PIO | `SYNC_IO` 语义输入输出、SMA、预约触发、校准捕获和逻辑分析仪 persona | persona 显式声明 pin 指令方向、FIFO、DMA/DREQ；互斥切换，不要求所有能力并发常驻 | `SYNC_IO realtime owner`；Calibration、Trigger 和诊断工具只是 persona 请求方 |
+| TDMA TX PIO | combined `CLK+SYNC/CS` control、origin 返回 DATA capture、RTT/clock-latch evidence | control、capture、evidence 分属独立 SM/FIFO；一个 control SM 同时产生 CLK 和 SYNC | TDMA Foundation/Core1 owner |
+| TDMA RX PIO | origin DATA output，或 follower DATA flight/本地过程映像 overlay，以及 follower clock-latch evidence | follower DATA SM 允许在同一 bit loop 执行 `in pins` 与 `out pins`；业务 RX FIFO/DMA 消费者仍唯一 | TDMA Foundation/Core1 owner |
 
-PIO 实例、GPIO 和 SM 编号不得在本文件复制为第二事实源；它们必须由 board profile、
-`tdma_foundation_profile_t` 和 resource arbiter 的符号派生。上述表描述稳定职责，
-不是当前源码已经完成迁移的声明。
+PIO 实例、GPIO、SM 和 DMA 编号不得在本文复制为第二事实源；board profile 由
+`tdma_state_machine_resource_contract()` 投影到运行时，resource arbiter 负责整块 PIO、
+DMA、GPIO、IRQ 和 DREQ 的原子 claim/release。TDMA flight 运行期间独占 TDMA TX/RX
+两个 PIO block，maintenance/calibration persona 不得与 flight 混用。
+
+当前 `SYNC_IO` 尚未完成全部迁入其专用 PIO：`WAVE_OUTPUT` persona 仍临时占用 TDMA TX PIO，
+TDMA program manager 在 flight claim 前通过 `sync_io_suspend_for_tdma_flight()` 停止并
+释放它，在 flight release 后恢复。恢复失败必须写入 persona resource error 和失败计数。
+该 handoff 仅是迁移兼容层，不是稳定 owner 关系；后续必须把 `SYNC_IO` 输出/SMA persona
+整体收敛到 Realtime Observation / SYNC_IO/SMA PIO，消除 TDMA 启停对 SYNC_IO 的临时
+接管。只读 `LOGIC_ANALYZER` persona 可以在该 PIO 上旁路采样 TDMA GPIO pad，但不得改变
+目标 GPIO function、方向或 pull，也不得读取 TDMA 业务 FIFO；详细契约见
+`SYNC_IO_ARCHITECTURE.md:ARCH-IOANALYZER-01`。
 
 ## 上行/下行状态机模型
 
@@ -111,15 +122,16 @@ core0 inactive image -> core1 fixed phase
           └─ forward/replace 由已发布 buffer 决定
 ```
 
-TX 与 RX PIO block 均必须同时包含一个输入方向和一个输出方向；TX/RX 两个逻辑 SM
-也都同时配置 IN/OUT，这是交叉收发的必要条件。`CLK` 和 `SYNC/CS` 从 TX→RX，
-`DATA` 从 RX→TX；三类控制必须使用固定的 pin、FIFO、DREQ 和 DMA 语义。禁止的是
-旧的 `master/slave` 复合协议语义（把未声明的 MOSI/MISO/CLK 交换混在一起），而不是
-合法的交叉 IN/OUT 指令本身。
+TX 与 RX PIO block 在 block 层可以包含输入和输出，但不能由此推导“每个 SM
+单方向”或“每个 SM 都同时配置 IN/OUT”。`CLK` 和 `SYNC/CS` 从 TX→RX，`DATA` 从
+RX→TX；每个 persona role 必须单独声明 pin 指令方向、FIFO owner 和 DMA/DREQ owner。
+control/capture/evidence SM 可以保持单方向；follower DATA SM 则必须在同一硬件循环中
+采样并转发 DATA。禁止的是未声明的 `master/slave` 复合协议语义和 FIFO 双消费者，
+不是合法且已声明的 `in pins`/`out pins` 组合。
 
 这种拆分带来的直接收益是：
 
-- TX/RX 两个逻辑 SM 各自拥有固定的 `CLK/SYNC` 与 `DATA` IN/OUT 组合，避免旧复合
+- combined control、DATA flight/capture 和 evidence 角色使用固定槽位，避免旧复合
   persona 在不同角色间临时交换 MOSI/MISO/CLK；
 - 每一类信号可以独立装载训练得到的 offset、独立采集 hardware evidence，并由
   独立 DMA endpoint 消费，便于定位单段 link 或单个 Node 的延迟；
@@ -165,15 +177,17 @@ diagnostic persona，只能在停止或明确的 capture 窗口启用，不能�
 
 ## SM 角色与所有权
 
-目标角色集合如下，具体编号由 profile 定义：
+flight 角色名称和槽位以 `board_config.h` 的 `BOARD_TDMA_*` persona role 符号为事实源：
 
-| 角色 | PIO 域 | FIFO/DMA 关系 | 允许的实时操作 |
+| 角色符号 | PIO 域 | FIFO/DMA 关系 | 允许的实时操作 |
 |---|---|---|---|
-| `tx_sm` | TDMA TX | TX FIFO（CLK/SYNC 控制）；RX FIFO（DATA 输入/证据） | 输出 CLK/SYNC，同时接收 DATA |
-| `rx_sm` | TDMA RX | RX FIFO（CLK/SYNC 边界）；TX FIFO（DATA 输出） | 接收 CLK/SYNC，同时输出 DATA |
-| `tx_evidence_sm` / `rx_evidence_sm` | TDMA TX/RX | 独立硬件 tick/IRQ evidence FIFO | 记录两端边沿关联，不消费业务 FIFO |
-| `tx_aux_sm` / `rx_aux_sm` | TDMA TX/RX | persona 专用 FIFO（静态声明） | 仅在 profile 明确时启用 |
-| `sma_out_sm` / `sma_in_sm` | SMA PIO | SMA 专用 FIFO/DMA | 输出或采样 SMA 波形 |
+| `BOARD_TDMA_TX_CONTROL_OUT_SM` | TDMA TX | TX control word；不消费业务 RX FIFO | origin 产生或 follower 转发同一组 CLK+SYNC 波形 |
+| `BOARD_TDMA_TX_RTT_EVIDENCE_SM` | TDMA TX | 独立 seed/evidence FIFO | origin 关联本地与返回 CS 边沿，不参与 flight admission |
+| `BOARD_TDMA_TX_CLOCK_LATCH_SM` | TDMA TX | 独立 hardware tick RX FIFO | origin 捕获 control 边沿，不消费 DATA |
+| `BOARD_TDMA_TX_DATA_CAPTURE_SM` | TDMA TX | 唯一返回 DATA capture RX FIFO/DMA | origin 连续采样返回 DATA |
+| `BOARD_TDMA_RX_DATA_FLIGHT_SM` | TDMA RX | origin 使用 TX FIFO/DMA；follower 使用同一 SM 的 command TX 与业务 RX FIFO/DMA | origin 输出 DATA；follower 同拍采样、延迟转发并发布本地卸载字节 |
+| `BOARD_TDMA_RX_CLOCK_LATCH_SM` | TDMA RX | 独立 hardware tick RX FIFO | follower 捕获输入 control 边沿，不消费 DATA |
+| SYNC_IO/SMA persona role | Realtime Observation / SYNC_IO/SMA PIO | persona 私有 FIFO/DMA | 输入捕获、只读逻辑分析或输出波形；只运行已获 owner 且资源兼容的 persona |
 
 core1 只在固定 phase 内选择已发布 buffer、装载 FIFO 和启动已验证 persona；PIO/DMA
 执行实际字节和边沿；core0 负责解析、诊断、SD 和离线分析。任何状态机不得在实时
@@ -203,7 +217,7 @@ RESIDENT_INIT`，不能在运行中替换 active process image 或临时改变�
 | 接口 | 事实源/调用者 | 状态机域保证 |
 |---|---|---|
 | TDMA TX/RX resource contract | `tdma_foundation_profile_t` / TDMA owner | PIO、SM、DMA、GPIO 方向和互斥关系一致 |
-| SMA maintenance persona | `sma_cable_delay` / Calibration owner | 不占用 TDMA TX/RX 资源 |
+| SYNC_IO/SMA persona | `sync_io` / Calibration/Trigger/diagnostic requester | 不占用 TDMA TX/RX PIO；逻辑分析仪只读取 TDMA GPIO pad |
 | Hardware timestamp evidence | TDMA PIO/DMA -> VDC gate | 只接受硬件 tick、sequence 和 active matrix 一致的记录 |
 | Runtime snapshot | core1 owner -> core0/SCPI | 多字段使用既有 guarded/seqlock 发布约束 |
 

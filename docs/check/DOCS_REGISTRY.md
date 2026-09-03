@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_REGISTRY.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`
-Last updated: 2026-09-02
+Last updated: 2026-09-03
 
 > 注：本文件必须满足 `tools/docs_check/docs_check.py` 的元数据要求（5 字段齐全），否则自回归门禁自相矛盾。
 
@@ -36,6 +36,8 @@ Last updated: 2026-09-02
 | REFMEM-PERSIST-01 | refmem | 只持久化部署 package/ref，上电建立新 epoch 且 live mirror 保持 stale | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | refmem_table_registry.h | power-cut/reboot/epoch/stale HIL | 2026-08-21 | pending |
 | VDC-PERSIST-01 | vdc | 只持久化低频 profile，上电从 OFF/CHECKING 基于新观测重新锁相 | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | vdc_domain.h | reboot/negative restore/DPLL HIL | 2026-08-21 | pending |
 | ARCH-PIOCAT-01 | arch | 动态 PIO 只装载签名 App catalog program，System Pack 只选择 ID | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | tdma_pio_spi_phys.h | catalog/resource/deployment/persona HIL | 2026-08-21 | pending |
+| ARCH-PIOPARTITION-01 | arch | Realtime Observation/SYNC_IO/SMA、TDMA TX、TDMA RX 使用独立 PIO owner；方向、FIFO 和 DMA 属于 persona role | 1 | docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md:ARCH-PIOPARTITION-01 | tdma_state_machine_resources.h | board/resource contract、冲突负测、四板 TDMA 与 persona HIL | 2026-09-03 | pending |
+| ARCH-IOANALYZER-01 | sync_io | 逻辑分析仪在 SYNC_IO PIO 只读 pad-visible GPIO，不接管目标 GPIO、不消费目标 FIFO；Core1 有界采集、Core0 落盘 | 1 | docs/sync/SYNC_IO_ARCHITECTURE.md:ARCH-IOANALYZER-01 | sync_io.h | PIO 指令与 GPIO write mask 静态检查、TDMA 无扰动 HIL、capture 完整性 | 2026-09-03 | pending |
 | CALIBRATION-PHASE-01 | calibration | MARK/SCK/DATA 共用 per-link base、per-Node offset、原始证据、全量矩阵和 residual gate | 1 | docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md | calibration_training_phase.h | C/host/矩阵/TRN-03 回归与四板 HIL | 2026-08-26 | pending |
 | CALIBRATION-P3HIL-01 | calibration | 实现代码变更必须绑定同源码指纹的 release build、全配置 Node OTA、四 link P3 重复矩阵与 TDMA 隔离硬件验收凭证 | 1 | docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md | p3_hardware_acceptance.py | staged 指纹、凭证 digest、正反回归与多板 HIL | 2026-08-30 | pending |
 

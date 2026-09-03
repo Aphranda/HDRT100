@@ -3,12 +3,52 @@
 Status: Active
 Domain: SYNC_IO
 Canonical: `docs/sync/SYNC_IO_TASK_PROGRESS.md`
-Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/storage/LOG_SYSTEM_TODO.md`
-Last updated: 2026-08-16
+Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`, `docs/storage/LOG_SYSTEM_TODO.md`
+Last updated: 2026-09-03
 
-本文档记录 SYNC_IO / Trigger 同步重构相关任务的闭环验证、风险和后续动作。
+本文档只记录 SYNC_IO 域的提交、构建、测试、OTA/HIL、失败、回退和证据位置。任务状态以
+`SYNC_IO_TODO.md` 为唯一事实源，稳定语义以 `SYNC_IO_ARCHITECTURE.md` 为准。
 
-### SYNC_IO-TASK-20260816-008 - TDMA window capture budget
+## 文档接口
+
+- 每条新记录必须有唯一 `SYNC-PROGRESS-*` ID，并引用一个或多个 `SYNC_*` TODO task ID。
+- 架构契约、任务状态和实施证据分别由 Architecture、TODO 和本文件维护，不交叉替代。
+- 历史 `SYNC_IO-TASK-*` 记录已迁移为 `SYNC-PROGRESS-*` ID；其中的单次数字都是当时验收
+  快照，不是当前代码事实源。
+
+## 当前 Checkpoint
+
+### SYNC-PROGRESS-20260903-001 - SYNC_IO 域与逻辑分析仪契约重构
+
+- TODO task ID：`SYNC-DOC-001`、`SYNC-M1`。
+- 日期：2026-09-03。
+- 变更：重构 SYNC_IO Architecture/TODO/Task Progress 三件套，纠正旧 PIO0 input、PIO1
+  output、PIO2 AUX 分区；将不带限定词的 wave 拆为输出型 `WAVE_OUTPUT` 和只读
+  `LOGIC_ANALYZER` persona，并冻结 pad-visible GPIO 旁路观测、目标 GPIO 不接管、目标
+  FIFO 不消费、Core1 capture/Core0 落盘和长期 edge timestamp 边界。
+- 跨域同步：状态机架构承接 `ARCH-PIOPARTITION-01`，SYNC_IO 架构承接
+  `ARCH-IOANALYZER-01`；两项登记保持 pending，等待独立交叉审核后才能变更状态。
+- 代码边界：本记录只重构文档，不修改固件、PIO、工具或测试，不产生新的 OTA/HIL 结论；
+  当前 `BOARD_SYNC_PIO_WAVE` 到 TDMA TX PIO 的 suspend/resume handoff 仍是待迁移实现。
+- 验证：`docs_check.py --strict-names` 通过，验收快照（非事实源）为 `files=121,
+  warnings=0`；`doc_regression_check.py` 通过，登记表验收快照（非事实源）为 `25 contracts`，
+  只保留既有旧格式 `TDMA-FLIGHT-BITMAP-01` warning；文档 pytest 验收快照（非事实源）为
+  `18 passed`；pre-commit 通过并正确跳过纯文档变更的硬件门禁；`--log-check` 与
+  `p3_hardware_acceptance.py check-staged` 均通过。
+- 下一步：先完成 PIO0 persona descriptor 和兼容矩阵，再迁移输出 persona；逻辑分析仪按
+  RAW、EDGE、TRIGGERED、Core0/SD 的顺序实现。
+
+## 验证与证据索引
+
+| progress ID | TODO task ID | 证据 |
+|---|---|---|
+| SYNC-PROGRESS-20260903-001 | SYNC-DOC-001 / SYNC-M1 | 本次文档 diff；docs_check、doc_regression、文档 pytest、pre-commit、log-check 和 staged acceptance 均通过。 |
+
+## 历史实施记录
+
+### SYNC-PROGRESS-20260816-008 - TDMA window capture budget
+
+- TODO task ID：`SYNC-VDC-001`。
 
 - 状态：代码、构建和 COM5 单板验证完成；COM6 物理恢复后待两板 HIL。
 - 目标：解决 10 MHz capture self-test 中 core1 无界消费 DMA ring，避免窗口外采样拖垮 realtime loop 和 USB/SCPI。
@@ -25,7 +65,9 @@ Last updated: 2026-08-16
 - 后续：
   - COM6 恢复后使用 `tools\vdc_tdma_selftest_validate\vdc_tdma_selftest_validate.py` 完成 X->Y、Y->X 双向验证；必须看到 accepted sample、gate pass、hardware tick、`DPLL_ELIGIBLE` 且无 `DIAGNOSTIC_ONLY`。
 
-### SYNC_IO-TASK-20260816-007 - timer1 hardware tick diagnostic latch
+### SYNC-PROGRESS-20260816-007 - timer1 hardware tick diagnostic latch
+
+- TODO task ID：`SYNC-VDC-001`。
 
 - 状态：完成代码、host/build 和 COM5/COM6 HIL。
 - 目标：把上一阶段 `time_us_64()*1000` 软件微秒 latch 升级为本地硬件 tick 时间基，同时不把 core1 drain FIFO 时刻冒充为 PIO 边沿硬锁存。
@@ -53,7 +95,9 @@ Last updated: 2026-08-16
   - `python tools\vdc_observer_validate\vdc_observer_validate.py COM5 COM6 --expected-build 20260816040434 --out-dir build-rtos-multicore-smoke\vdc_observer_validate_20260816040434` 通过，两板 `schedule_crc32=974530568`、`dictionary_crc32=1814735745`。
   - 后续 gate 增强验证见 `VDC-TASK-20260816-023`：COM5/COM6 在 build `20260816042527` 上 forced edge 均进入 observer，且 `submitted=1,accepted=0,rejected=1,gate=9`，证明 `DIAGNOSTIC_ONLY` hardware tick 没有进入 DPLL accepted path。
 
-### SYNC_IO-TASK-20260816-006 - core1 capture latch phase 1
+### SYNC-PROGRESS-20260816-006 - core1 capture latch phase 1
+
+- TODO task ID：`SYNC-VDC-001`。
 
 - 状态：完成代码、host/build 和 COM5/COM6 HIL。
 - 目标：把 PIO capture FIFO 从 core0 轮询 raw word，推进为 core1 realtime 侧搬运的 timestamped capture fact，供 VDC observer 消费。
@@ -74,7 +118,9 @@ Last updated: 2026-08-16
   - `python tools\vdc_observer_validate\vdc_observer_validate.py COM5 COM6 --expected-build 20260816034347 --out-dir build-rtos-multicore-smoke\vdc_observer_validate_20260816034347` 通过，两板 `schedule_crc32=974530568`、`dictionary_crc32=1814735745`。
 - 后续：先升级为 `timer1/CLK_SYS` hardware tick diagnostic latch，再继续推进 PIO/DMA/IRQ/core1 edge latch，最终形成 `HARDWARE_TICK / <=100 ns / DPLL_ELIGIBLE` 的 VDC observation sample。
 
-### SYNC_IO-TASK-20260816-002 - VDC raw capture observer 接线
+### SYNC-PROGRESS-20260816-002 - VDC raw capture observer 接线
+
+- TODO task ID：`SYNC-VDC-001`。
 
 - 目标：把 `sync_io_read_capture_words()` 产出的 raw IO fact 接到 VDC compact observation path，同时保持 SYNC_IO 不解释 TDMA/DPLL 语义。
 - 完成：`vdc_dpll_manager` 增加默认关闭的 sync_io observer 配置和状态 API；启用后每次 VDC service 读取 bounded raw word batch，经 `VdcSyncIoAdapter` 转为 `VdcCompactObservationSample`，再提交 VDC dictionary/wrap/gate。
@@ -88,7 +134,9 @@ Last updated: 2026-08-16
 - 验证：`cmake --build build-rtos-multicore-smoke` 通过，最新生成 build id `20260816024745`，package CRC `0x028BC853`。
 - 验证：COM5/COM6 均 OTA 到 build `20260816024745` 并 commit；两板 `SYST:SYNC:VDC:OBServer?` 均返回 18 个零字段，符合默认 disabled observer；`SYST:ERR?` 均为 `0,"No error"`。
 
-### SYNC_IO-TASK-20260816-003 - VDC raw capture observer 维护配置
+### SYNC-PROGRESS-20260816-003 - VDC raw capture observer 维护配置
+
+- TODO task ID：`SYNC-VDC-001`。
 
 - 状态：完成代码、文档、build 和 COM5/COM6 启停态 HIL。
 - 完成：新增 `SYSTem:SYNC:VDC:OBServer` 维护配置命令；无参数或 `0` 只关闭 observer 并清零状态，避免产品枚举或误调用时打开采集链路。
@@ -100,7 +148,9 @@ Last updated: 2026-08-16
   - COM5/COM6 执行无参数 `SYST:SYNC:VDC:OBServer` 均返回 `1`，查询返回 disabled 全零字段。
   - COM5/COM6 执行 `SYST:SYNC:VDC:OBServer 1,1,1,2,1,0,0,1000,0,0,1` 均返回 `1`，查询显示 `enabled=1,max_words_per_service=1`；随后 `SYST:SYNC:VDC:OBServer 0` 关闭后查询回到 disabled 全零字段。
 
-### SYNC_IO-TASK-20260816-004 - VDC observer HIL evidence fields
+### SYNC-PROGRESS-20260816-004 - VDC observer HIL evidence fields
+
+- TODO task ID：`SYNC-VDC-001`。
 
 - 状态：完成代码、文档、build 和 COM5/COM6 启停态字段验证。
 - 完成：`SYSTem:SYNC:VDC:OBServer?` 在原 18 字段之后追加配置和证据字段：rising/falling event、observed mask、initial mask、sample period、expected window、frame CRC、schedule CRC、dictionary CRC/profile CRC、edge index、timestamp source/resolution/flags、source/reference slot 和 payload class。
@@ -110,7 +160,9 @@ Last updated: 2026-08-16
   - COM5/COM6 均 OTA 到 build `20260816031400`；`ota_boot_commit.py` 两次均因启动日志污染误判失败，独立 `scpi_query` 确认 `SYST:OTA:STAT? -> "COMMITTED",1,"NONE",5`、`SYST:OTA:SLOT? -> 2,0,2,0,0`、`SYST:ERR? -> 0,"No error"`。
   - COM5/COM6 启用最小合法 observer 后，`OBServer?` 返回 40 字段，其中 `schedule_crc32=974530568`、`dictionary_crc32=1814735745`、`dictionary_profile_crc32=974530568`；关闭后返回 40 个零字段。
 
-### SYNC_IO-TASK-20260816-005 - VDC observer HIL script 固化
+### SYNC-PROGRESS-20260816-005 - VDC observer HIL script 固化
+
+- TODO task ID：`SYNC-VDC-001`。
 
 - 状态：完成并通过 COM5/COM6。
 - 完成：新增 `tools/vdc_observer_validate/vdc_observer_validate.py`，固化 observer disable/enable/query/disable/error 验证流程，避免后续继续手写串口命令。
@@ -119,7 +171,9 @@ Last updated: 2026-08-16
 - 后续：补 HIL，把 dictionary CRC、edge index、timestamp source/resolution、profile CRC 和 VDC gate result 写入报告。
 - 涉及文件：`components/vdc_dpll_manager/inc/vdc_dpll_manager.h`，`components/vdc_dpll_manager/src/vdc_dpll_manager.c`，`docs/sync/SYNC_IO_TODO.md`。
 
-### SYNC_IO-TASK-20260816-001 - 通用 IO 观测器归属纠偏
+### SYNC-PROGRESS-20260816-001 - 通用 IO 观测器归属纠偏
+
+- TODO task ID：`SYNC-LA-001`。
 
 - 目标：明确 `sync_io_read_capture_words()` 的架构归属，避免把通用 raw IO capture primitive 误写成 VDC/TDMA 私有能力。
 - 完成：`SYNC_IO_ARCHITECTURE.md` 增加“通用 IO 观测器”章节，说明该接口读取 `sync_capture_4bit` PIO RX FIFO，每个 32-bit word 表示 8 个连续 4-bit 输入采样。
@@ -129,7 +183,9 @@ Last updated: 2026-08-16
 - 风险：当前只是文档归属纠偏；代码中 `sync_io_read_capture_words()` 到 `VdcSyncIoAdapter`、转台输入 AO/FB 的实际任务接线仍未完成。
 - 后续：实现 `sync_io` raw capture word 到 VDC compact observation 的任务接线，并为转台输入/脉冲计数建立独立解释路径，避免复用 VDC 语义。
 
-### SYNC_IO-TASK-20260815-001 - 建立 IO 三分标准文档
+### SYNC-PROGRESS-20260815-001 - 建立 IO 三分标准文档
+
+- TODO task ID：`SYNC-DOC-001`。
 
 - 目标：按 HAOFV 架构把 `docs/sync` 的 IO 文档收敛为架构、待办、任务进度三份标准入口，避免资源规划、重构计划和评审待办继续分叉。
 - 完成：新增 `SYNC_IO_ARCHITECTURE.md`，明确 `SYNC:*`、`REALtime:*`、`sync_io`、mode driver、PIO/DMA/IRQ、RefMem 和 VDC 的 owner 边界。
@@ -138,7 +194,9 @@ Last updated: 2026-08-16
 - 风险：本次只做文档结构纠偏，未改代码；`ModelTurntableAO` 的 PIO 预约输出和真实 transport 仍是下一步实现重点。
 - 后续：按 `SYNC_IO_TODO.md` P0 开始实现模型转台 PIO 预约输出路径，代码修改必须保持 AO 生成计划、`sync_io` owner 装载硬件、PIO/DMA 执行边沿的边界。
 
-### SYNC_IO-TASK-20260815-002 - 融合旧 SYNC 文件并准备删除
+### SYNC-PROGRESS-20260815-002 - 融合旧 SYNC 文件并准备删除
+
+- TODO task ID：`SYNC-DOC-001`。
 
 - 目标：旧 `SYNC_IO_RESOURCE_PLAN.md`、`SYNC_IO_REFACTOR_PLAN.md`、`SYNC_IO_ARCH_REVIEW_TODO.md` 和 `SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md` 已落后当前 HAOFV/RefMem/VDC 主线，先吸收有效内容，再删除旧入口。
 - 完成：`SYNC_IO_ARCHITECTURE.md` 增加 PIO/DMA 资源基线、mode 资源互斥、CAL_RING / 分布式同步链路边界和预约触发链路。
@@ -146,7 +204,9 @@ Last updated: 2026-08-16
 - 风险：历史任务记录中仍会提到旧文件名作为当时变更对象；这类记录只表达历史上下文，不再作为当前 canonical 入口。
 - 后续：删除旧文件，更新 README、arch、trigger、vdc、hardware、communication 等引用到 `SYNC_IO_ARCHITECTURE.md` / `SYNC_IO_TODO.md`。
 
-### SYNC_IO-TASK-20260707-001 - TriggerFB RESET/FAULT 语义收敛
+### SYNC-PROGRESS-20260707-001 - TriggerFB RESET/FAULT 语义收敛
+
+- TODO task ID：`SYNC-MODE-001`。
 
 - 目标：完成 `SYNC_IO_ARCH_REVIEW_TODO.md` P0-00，统一 `TRIG_EVENT_RESET` 在所有 ECC 状态下的语义，并为 reset/fault/clear/disarm 后的资源释放补充低频 trace。
 - 完成：新增 `fb_reset_all()`，统一停止 clock/capture、释放 SEQ/ENC/BISS owner、回到 `TRIG_STATE_IDLE`、清理 `error_code` 和 `active_mode`；所有 ECC 表中的 `TRIG_EVENT_RESET` 均改为 `fb_reset_all()`。
@@ -164,7 +224,9 @@ Last updated: 2026-08-16
 - 后续：进入 P0-01 BiSS runtime timeout/sample scan 闭环，将 sample scan 步进从 helper 静默 re-arm 收敛到 TriggerFB 管理面 action。
 - 涉及文件：`components/sync_trigger/src/trigger_fb.c`，`components/sync_trigger/src/sync_trigger.c`，`tools/sd_trace_decode/sd_trace_decode.py`，`tools/sd_board_validate/sd_board_validate.py`，`docs/sync/SYNC_IO_TODO.md`。
 
-### SYNC_IO-TASK-20260707-002 - BiSS timeout/sample scan 闭环
+### SYNC-PROGRESS-20260707-002 - BiSS timeout/sample scan 闭环
+
+- TODO task ID：`SYNC-MODE-001`、`SYNC-PROFILE-001`。
 
 - 目标：完成 `SYNC_IO_ARCH_REVIEW_TODO.md` P0-01，让 BiSS runtime timeout/sample scan 可持续推进、re-arm 失败可进入稳定错误路径，并能由板端工具验证 trace 证据。
 - 完成：`biss_node_io_poll_runtime()` 返回结构化 poll 结果；timeout scan 只准备下一步 delay 和 TAP config，不再在 helper 内静默 re-arm。
@@ -181,7 +243,9 @@ Last updated: 2026-08-16
 - 后续：进入 P0-02 resource owner 边界，避免后续移动 mode arm 时引入重复 acquire。
 - 涉及文件：`components/sync_trigger/inc/biss_node_io.h`，`components/sync_trigger/src/biss_node_io.c`，`components/sync_trigger/src/trigger_fb.c`，`components/sync_trigger/src/sync_trigger.c`，`tools/sd_trace_decode/sd_trace_decode.py`，`tools/biss_board_validate/biss_board_validate.py`，`docs/sync/SYNC_IO_TODO.md`。
 
-### SYNC_IO-TASK-20260707-003 - Resource owner 边界收口
+### SYNC-PROGRESS-20260707-003 - Resource owner 边界收口
+
+- TODO task ID：`SYNC-RES-001`、`SYNC-MODE-001`。
 
 - 目标：完成 `SYNC_IO_ARCH_REVIEW_TODO.md` P0-02，保持 TriggerFB 为唯一资源 owner，并让资源申请/释放与 mode ops 的 `.resources` 表字段一致。
 - 完成：新增 `trigger_resource_map` 适配层，在 Trigger 域内将 `sync_io_mode_ops_t.resources` 映射到 `resource_arbiter_resource_t`，避免 `sync_io` core 反向依赖系统仲裁器。
@@ -197,7 +261,9 @@ Last updated: 2026-08-16
 - 后续：进入 P0-03 BiSS TAP 物理 ARM 边界，继续保持 TriggerFB owner 和 mode driver 物理实现边界清晰。
 - 涉及文件：`components/sync_trigger/inc/trigger_resource_map.h`，`components/sync_trigger/src/trigger_resource_map.c`，`components/sync_trigger/src/trigger_fb.c`，`components/sync_trigger/src/sync_trigger.c`，`tools/sd_board_validate/sd_board_validate.py`，`docs/sync/SYNC_IO_TODO.md`。
 
-### SYNC_IO-TASK-20260708-004 - BiSS TAP 物理 ARM 边界收口
+### SYNC-PROGRESS-20260708-004 - BiSS TAP 物理 ARM 边界收口
+
+- TODO task ID：`SYNC-MODE-001`、`SYNC-PROFILE-001`。
 
 - 目标：完成 `SYNC_IO_ARCH_REVIEW_TODO.md` P0-03，让 BiSS TAP 的物理 PIO arm/disarm/is_running/read FIFO 实现归属 `sync_io_mode_biss_tap.c`，TriggerFB 继续只负责 ECC、资源 owner 和错误码。
 - 完成：新增 `sync_io_core_internal.h`，只暴露 mode driver 所需的 core 初始化状态、PIO program offset、AUX 模式标记和 trace helper；没有暴露 `sync_io_context_t`。
@@ -214,7 +280,9 @@ Last updated: 2026-08-16
 - 后续：进入 P0-04 `sync_io.c` 单体拆分，优先按 mode driver 边界搬迁 SEQ_STEP 和 ENC_COUNT。
 - 涉及文件：`components/sync_io/src/sync_io_core_internal.h`，`components/sync_io/src/sync_io.c`，`components/sync_io/inc/sync_io_mode_biss_tap.h`，`components/sync_io/src/sync_io_mode_biss_tap.c`，`components/sync_trigger/src/biss_node_io.c`，`components/sync_trigger/src/trigger_fb.c`，`docs/sync/SYNC_IO_TODO.md`。
 
-### SYNC_IO-TASK-20260708-005 - SEQ_STEP 物理实现搬迁
+### SYNC-PROGRESS-20260708-005 - SEQ_STEP 物理实现搬迁
+
+- TODO task ID：`SYNC-MODE-001`、`SYNC-COMP-001`。
 
 - 目标：推进 `SYNC_IO_ARCH_REVIEW_TODO.md` P0-04，将 SEQ_STEP 的物理 PIO/DMA/IRQ 实现从 `sync_io.c` 搬到 `sync_io_mode_seq_step.c`，但不在本子步骤搬迁 ENC_COUNT。
 - 完成：`sync_io_seq_step_t` 状态、`sync_io_seq_step_arm()`、`sync_io_seq_step_disarm()`、index/rollover/runtime/trace 采样和 SEQ DMA IRQ service 已搬迁到 `sync_io_mode_seq_step.c`。
@@ -229,7 +297,9 @@ Last updated: 2026-08-16
 - 后续：继续 P0-04 的 ENC_COUNT 物理实现搬迁，并复跑资源 owner 中的 ENC ARM/DISARM 板端断言。
 - 涉及文件：`components/sync_io/src/sync_io_core_internal.h`，`components/sync_io/src/sync_io.c`，`components/sync_io/src/sync_io_mode_seq_step.c`，`docs/sync/SYNC_IO_TODO.md`。
 
-### SYNC_IO-TASK-20260708-006 - ENC_COUNT 物理实现搬迁与 P0-04 收口
+### SYNC-PROGRESS-20260708-006 - ENC_COUNT 物理实现搬迁与 P0-04 收口
+
+- TODO task ID：`SYNC-MODE-001`、`SYNC-COMP-001`。
 
 - 目标：完成 `SYNC_IO_ARCH_REVIEW_TODO.md` P0-04，将 ENC_COUNT 的物理 PIO/DMA/IRQ 实现从 `sync_io.c` 搬到 `sync_io_mode_enc_count.c`，并保持 TriggerFB 作为唯一资源 owner 边界。
 - 完成：`sync_io_enc_count_t` 状态、`sync_io_enc_count_arm()`、`sync_io_enc_count_disarm()`、count/runtime/trace 采样和 ENC DMA IRQ service 已搬迁到 `sync_io_mode_enc_count.c`。
@@ -244,7 +314,9 @@ Last updated: 2026-08-16
 - 后续：进入 P1-01，将 PIO instance、SM、DMA channel、IRQ 的互斥关系显式记录到 mode resource 表或验证表，避免后续并发 mode 改动误用共享资源。
 - 涉及文件：`components/sync_io/src/sync_io_core_internal.h`，`components/sync_io/src/sync_io.c`，`components/sync_io/src/sync_io_mode_enc_count.c`，`docs/sync/SYNC_IO_TODO.md`。
 
-### SYNC_IO-TASK-20260708-007 - SYNC_IO P1 架构小项收口
+### SYNC-PROGRESS-20260708-007 - SYNC_IO P1 架构小项收口
+
+- TODO task ID：`SYNC-RES-001`、`SYNC-MODE-001`。
 
 - 目标：按 HAOFV 分层完成 `SYNC_IO_ARCH_REVIEW_TODO.md` P1-01 到 P1-05，保持 TriggerFB 为唯一 owner 边界，不把资源 acquire 下沉到 mode driver。
 - 完成：`sync_io_mode_ops_t` 增加 `hw` 元数据，记录 PIO instance、SM mask、DMA channel mask 和 IRQ mask；SEQ_STEP/ENC_COUNT 显式声明共享 `pio1/sm0` 和 `DMA_IRQ_0`，BiSS TAP 声明 `pio2/sm0,2,3`。
@@ -262,7 +334,9 @@ Last updated: 2026-08-16
 - 后续：如需继续清理，可在 SCPI/UI 层新增正式 `RJ45:*` 命令，再把 `MARK:*` 标记为 deprecated 兼容命令。
 - 涉及文件：`boards/rp2350_trig/inc/board_config.h`，`components/sync_io/inc/sync_io_hw_profile.h`，`components/sync_io/inc/sync_io_mode.h`，`components/sync_io/src/sync_io.c`，`components/sync_io/src/sync_io_mode_*.c`，`components/sync_trigger/inc/trigger_vector.h`，`components/sync_trigger/src/trigger_resource_map.c`，`docs/sync/SYNC_IO_TODO.md`，`docs/sync/SYNC_IO_ARCHITECTURE.md`，`docs/interface/SCPI_COMMANDS.md`。
 
-### SYNC_IO-TASK-20260708-008 - RJ45_TRIG 硬件定义优先收口
+### SYNC-PROGRESS-20260708-008 - RJ45_TRIG 硬件定义优先收口
+
+- TODO task ID：`SYNC-PROFILE-001`。
 
 - 目标：按硬件定义优先原则，舍弃独立 `MARKER_OUT` 物理信号，将历史 `MARK:*` 命令收敛为 `RJ45_TRIG_OUT` 兼容入口，避免 `pio1/sm3` 误驱动 AUX3/GPIO29。
 - 完成：`BOARD_SYNC_MARKER_OUT_PIN` 改为 deprecated alias，指向 `BOARD_SYNC_RJ45_TRIG_OUT_PIN`；`BOARD_SYNC_AUX3_OUT_PIN` 只表示 AUX3 固定输出，不再承载 marker 语义。
@@ -278,7 +352,9 @@ Last updated: 2026-08-16
 - 后续：如继续清理命名，应先增加 `RJ45:*` SCPI/UI 入口和状态字段，再保留 `MARK:*` 作为兼容别名，不改动 `GPIO23/RJ45_TRIG_OUT` 硬件定义。
 - 涉及文件：`boards/rp2350_trig/inc/board_config.h`，`components/sync_io/inc/sync_io.h`，`components/sync_io/src/sync_io.c`，`components/sync_trigger/inc/sync_trigger.h`，`components/sync_trigger/inc/trigger_vector.h`，`components/sync_trigger/src/trigger_fb.c`，`docs/sync/SYNC_IO_TODO.md`，`docs/sync/SYNC_IO_ARCHITECTURE.md`，`docs/interface/SCPI_COMMANDS.md`，`docs/sync/SYNC_IO_TODO.md`，`docs/sync/SYNC_IO_TASK_PROGRESS.md`，`docs/communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`，`docs/communication/BISSC_TAP_BRIDGE_DESIGN.md`，`docs/arch/HAOFV_ARCHITECTURE.md`，`docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`，`docs/sync/SYNC_IO_ARCHITECTURE.md`，`docs/trigger/TRIGGER_SYNC_TODO.md`。
 
-### SYNC_IO-TASK-20260708-009 - ENC_COUNT 3-pin 软件定义收口
+### SYNC-PROGRESS-20260708-009 - ENC_COUNT 3-pin 软件定义收口
+
+- TODO task ID：`SYNC-MODE-001`、`SYNC-PROFILE-001`。
 
 - 目标：按硬件定义优先原则固定 `GPIO19/RJ45_TRIG_IN`，将 ENC_COUNT 软件定义收口为 A/B/Z=`GPIO16/GPIO17/GPIO18`，避免 ENC 再占用 IN3。
 - 完成：`SYNC_IO_HW_ENC_Z_PIN` 改为 `BOARD_SYNC_INPUT_BASE_PIN + 2`；`sync_io_hw_enc_pins_valid()`、TriggerVector 默认值和 `TRIG:ENC:APIN` 事件载荷均使用 A=16、B=17、Z=18。
@@ -296,7 +372,9 @@ Last updated: 2026-08-16
 - 后续：如继续推进 P2 自检，应在板端闭环脚本中增加 ENC A/B/Z loopback 或外部回放验证，覆盖真实 A/B/Z 脉冲输入，而不仅是 SCPI 配置与资源 owner 断言。
 - 涉及文件：`boards/rp2350_trig/inc/board_config.h`，`components/sync_io/inc/sync_io_hw_profile.h`，`components/sync_io/src/enc_count.pio`，`components/sync_io/src/sync_io_mode_enc_count.c`，`components/sync_trigger/inc/trigger_vector.h`，`components/sync_trigger/src/trigger_fb.c`，`docs/sync/SYNC_IO_TODO.md`，`docs/sync/SYNC_IO_ARCHITECTURE.md`，`docs/interface/SCPI_COMMANDS.md`，`docs/arch/HAOFV_ARCHITECTURE.md`，`docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`，`docs/sync/SYNC_IO_TASK_PROGRESS.md`。
 
-### SYNC_IO-TASK-20260708-010 - SYNC_CLK_OUT AUX2 运行路径迁移
+### SYNC-PROGRESS-20260708-010 - SYNC_CLK_OUT AUX2 运行路径迁移
+
+- TODO task ID：`SYNC-PROFILE-001`。
 
 - 目标：完成 P2-04 中 `SYNC_CLK_OUT` 从旧 GPIO22/`pio1/sm1` 到 AUX2/GPIO28/`pio2/sm2` 的运行路径迁移，保持硬件定义优先。
 - 完成：`BOARD_SYNC_SYNC_CLK_OUT_PIN` 解析到 `BOARD_SYNC_AUX_SYNC_CLK_OUT_PIN`；新增 `BOARD_SYNC_MODE_OUT2_PIN` 表达 GPIO22 仍是主口 OUT2/模式本地输出。
@@ -307,7 +385,9 @@ Last updated: 2026-08-16
 - 风险：`ARM_IN`、`EXT_CLK_IN` 仍是语义占位，旧低层宏只做 pull-down/诊断采样；后续需要迁移到 AUX0/AUX1 并接入 TriggerFB 资格/外部时钟逻辑。
 - 涉及文件：`boards/rp2350_trig/inc/board_config.h`，`components/sync_io/inc/sync_io_hw_profile.h`，`components/sync_io/src/sync_io.c`，`components/sync_trigger/src/trigger_fb.c`，`docs/interface/SCPI_COMMANDS.md`，`docs/sync/SYNC_IO_ARCHITECTURE.md`，`docs/trigger/TRIGGER_SYNC_TODO.md`，`docs/sync/SYNC_IO_TODO.md`，`docs/communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`，`docs/sync/SYNC_IO_TASK_PROGRESS.md`。
 
-### SYNC_IO-TASK-20260815-001 - ModelTurntableAO PIO 预约输出首版
+### SYNC-PROGRESS-20260815-003 - ModelTurntableAO PIO 预约输出首版
+
+- TODO task ID：`SYNC-OUT-001`。
 
 - 目标：完成当前 P0 的第一段闭环，让 `ModelTurntableAO` 不再依赖 `time_us_64()` 主循环软件翻 GPIO 输出脉冲，而是生成 bounded pulse plan，由 `sync_io` realtime primitive 使用 PIO/DMA 到点输出边沿。
 - 完成：新增 `sync_io_model_sched.c`，提供 `sync_io_model_pulse_schedule_arm/disarm/is_running/get_runtime`；首版使用 `pio1/sm1 + DMA2`，1 MHz tick，支持 `delay_us`、`high_us`、上升/下降有效边沿、最多 256 个脉冲和 PIO/DMA/FIFO runtime snapshot。
@@ -317,3 +397,16 @@ Last updated: 2026-08-16
 - 风险：本轮只完成编译闭环，尚未烧录和示波/loopback 验证真实边沿；late/drop/overflow 计数、RESET 统一 release、Host C 计划生成断言仍在 P0/P3 待办。
 - 后续：优先补单板或两板 loopback HIL，捕获模型转台输出脉冲数量、宽度、完成态和 abort；随后再推进 RefMem 真实最小 transport，不继续扩大静态表模型。
 - 涉及文件：`CMakeLists.txt`，`boards/rp2350_trig/inc/board_config.h`，`components/model_turntable/src/model_turntable.c`，`components/sync_io/inc/sync_io.h`，`components/sync_io/src/sync_io.c`，`components/sync_io/src/sync_io.pio`，`components/sync_io/src/sync_io_core_internal.h`，`components/sync_io/src/sync_io_model_sched.c`，`docs/sync/SYNC_IO_ARCHITECTURE.md`，`docs/sync/SYNC_IO_TODO.md`，`docs/sync/SYNC_IO_TASK_PROGRESS.md`。
+
+## 失败与回退
+
+当前文档重构不改变固件运行态，无代码回退动作。后续 persona 迁移如果出现 PIO instruction
+space 不足、SM/DMA 冲突、GPIO function 被 analyzer 接管、TDMA cycle/CRC 回归或 capture
+不可定位丢失，必须停止新 persona、保存 snapshot 和原始波形，并恢复最近通过统一硬件验收
+的资源配置。不得用旧 PIO1 wave handoff 掩盖 PIO0 persona manager 的缺口。
+
+## 下一 Gate
+
+先完成 `SYNC-DOC-001` 的文档门禁和提交，再进入 `SYNC-RES-001`。`SYNC-RES-001` 只建立
+descriptor、容量计算和冲突负测，不同时搬迁输出 PIO；通过快速 TDMA 短帧闭环后，才进入
+`SYNC-RES-002` 生命周期实现。
