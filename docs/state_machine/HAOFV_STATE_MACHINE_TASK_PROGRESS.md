@@ -9,6 +9,38 @@ Last updated: 2026-09-03
 本文档只记录状态机域的实施、构建、测试、OTA/HIL、失败和回退证据；任务状态以
 `HAOFV_STATE_MACHINE_TODO.md` 为唯一事实源，稳定语义以架构文档为准。
 
+### SM-PROGRESS-20260903-028 - 资源冲突负测与调试门禁收口
+
+- TODO task ID：`SM-RES-001`、`SM-RES-007`、`SM-M2`；代码提交为 `7ca66d1`，已推送到
+  当前远端分支。resource arbiter C host 测试直接引用生产资源掩码，覆盖 maintenance 与
+  flight owner 转移、GPIO/DREQ 外部占用、冲突 holder/owner snapshot、错误 owner 释放、
+  admission 失败无部分租约以及清障后恢复；persona FSM 覆盖 BUSY 重试、transition sequence
+  推进和 load 失败回滚。两项 runner 已接入 host 聚合脚本。
+- 工具收口：TRN-03 ARM 拒绝会在 STOP/cleanup 前分别保留 runtime、flight、physical 和 CRC
+  snapshot；调试模式下 TRN-00 residence、TRN-01 SCK 和 TRN-02 DATA 的质量失败写入 replay
+  matrix 后继续执行，身份、方向、schema、维度和缺少任何可用候选仍保持结构硬失败。缺失
+  residence loop 样本只在诊断模式使用本轮最大已观测值并显式记录 fallback，不改变各链路
+  P3 path delay 和节点内统一 MARK/SCK/DATA 基准。
+- 软件与构建证据：完整 Python 回归验收快照（非事实源）为 `652 passed`；resource arbiter
+  与 persona FSM 的 C host 测试通过。release 构建位于
+  `out/build/sm-res-007-runtime-conflicts-final-20260903/`，build ID 验收快照（非事实源）为
+  `20260902234129`；NO1--NO4 已使用同一 package 完成 OTA。
+- 失败链保留：首轮统一 QUICK P3 的 TRN-00 residence 因部分 SD `FILE_WRITE` 样本缺失而在
+  matrix 前置质量门禁退出；修复后流程会记录该质量失败并进入 TDMA。一次 NO1 ARM
+  `arm_result=8` 在复用同一 matrix 的短流程中未复现，四板 ARM 均成功；新增失败 action
+  snapshot 防止后续复现时被 cleanup 清空。波形等待最初仍使用工具默认 capture timeout，
+  最终定位为验收编排遗漏 `capture=True` 参数接线，已补静态回归并让 QUICK 上限实际传入。
+- 当前源码指纹的统一 QUICK P3 receipt 为
+  `config/hardware_acceptance/p3_acceptance_receipt.json`，完整证据位于
+  `out/hardware-acceptance/sm-res-007-runtime-conflicts-final-p3-resume-r3-20260903/`。
+  `acceptance.json` 的 `passed`、`flow_completed` 和 `strict_gates_passed` 均为 `true`；TDMA
+  process-image 的 startup、soak、closed-loop 均通过并保持 resident ring。NO1--NO4 四份
+  SD 原始 capture、四份 SVG 和离线 analysis 均完整且通过。
+- 据上述运行时负测、失败可观测性、同包四板 OTA、严格短帧闭环和 SD 波形，
+  `SM-RES-001`、`SM-RES-007` 与 SM-M2 标记为 `DONE`。下一唯一执行项为 `SM-RES-003`：
+  按依赖序列收口 TX 端无状态 quiesce/unload/load/arm 方向原语，不提前修改 RX 原语或
+  AO/Core1 编排。
+
 ### SM-PROGRESS-20260903-027 - maintenance/flight persona 统一资源仲裁
 
 - TODO task ID：`SM-RES-002`；代码提交为 `54820e5`，已推送到当前远端分支。
