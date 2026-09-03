@@ -17,21 +17,21 @@
     BOARD_TDMA_RX_PIO_BLOCK_ID == BOARD_TDMA_SMA_PIO_BLOCK_ID
 #error "TDMA flight PIO blocks must not overlap SMA PIO"
 #endif
-#if BOARD_TDMA_TX_CLK_OUT_SM == BOARD_TDMA_TX_SYNC_OUT_SM || \
-    BOARD_TDMA_TX_CLK_OUT_SM == BOARD_TDMA_TX_DATA_IN_FORWARD_SM || \
-    BOARD_TDMA_TX_CLK_OUT_SM == BOARD_TDMA_TX_DATA_IN_CAPTURE_SM || \
-    BOARD_TDMA_TX_SYNC_OUT_SM == BOARD_TDMA_TX_DATA_IN_FORWARD_SM || \
-    BOARD_TDMA_TX_SYNC_OUT_SM == BOARD_TDMA_TX_DATA_IN_CAPTURE_SM || \
-    BOARD_TDMA_TX_DATA_IN_FORWARD_SM == BOARD_TDMA_TX_DATA_IN_CAPTURE_SM
-#error "TDMA TX logical-port SM roles must be unique"
+#if BOARD_TDMA_TX_CONTROL_OUT_SM == BOARD_TDMA_TX_RTT_EVIDENCE_SM || \
+    BOARD_TDMA_TX_CONTROL_OUT_SM == BOARD_TDMA_TX_CLOCK_LATCH_SM || \
+    BOARD_TDMA_TX_CONTROL_OUT_SM == BOARD_TDMA_TX_DATA_CAPTURE_SM || \
+    BOARD_TDMA_TX_RTT_EVIDENCE_SM == BOARD_TDMA_TX_CLOCK_LATCH_SM || \
+    BOARD_TDMA_TX_RTT_EVIDENCE_SM == BOARD_TDMA_TX_DATA_CAPTURE_SM || \
+    BOARD_TDMA_TX_CLOCK_LATCH_SM == BOARD_TDMA_TX_DATA_CAPTURE_SM
+#error "TDMA TX PIO persona roles must be unique"
 #endif
-#if BOARD_TDMA_RX_CLK_IN_SM == BOARD_TDMA_RX_SYNC_IN_SM || \
-    BOARD_TDMA_RX_CLK_IN_SM == BOARD_TDMA_RX_DATA_OUT_SM || \
-    BOARD_TDMA_RX_CLK_IN_SM == BOARD_TDMA_RX_EVIDENCE_IN_SM || \
-    BOARD_TDMA_RX_SYNC_IN_SM == BOARD_TDMA_RX_DATA_OUT_SM || \
-    BOARD_TDMA_RX_SYNC_IN_SM == BOARD_TDMA_RX_EVIDENCE_IN_SM || \
-    BOARD_TDMA_RX_DATA_OUT_SM == BOARD_TDMA_RX_EVIDENCE_IN_SM
-#error "TDMA RX logical-port SM roles must be unique"
+#if BOARD_TDMA_RX_RESERVED_CONTROL_SM == BOARD_TDMA_RX_RESERVED_EVIDENCE_SM || \
+    BOARD_TDMA_RX_RESERVED_CONTROL_SM == BOARD_TDMA_RX_DATA_FLIGHT_SM || \
+    BOARD_TDMA_RX_RESERVED_CONTROL_SM == BOARD_TDMA_RX_CLOCK_LATCH_SM || \
+    BOARD_TDMA_RX_RESERVED_EVIDENCE_SM == BOARD_TDMA_RX_DATA_FLIGHT_SM || \
+    BOARD_TDMA_RX_RESERVED_EVIDENCE_SM == BOARD_TDMA_RX_CLOCK_LATCH_SM || \
+    BOARD_TDMA_RX_DATA_FLIGHT_SM == BOARD_TDMA_RX_CLOCK_LATCH_SM
+#error "TDMA RX PIO persona slots must be unique"
 #endif
 #if BOARD_TDMA_TX_DATA_IN_CAPTURE_DMA_CHANNEL == BOARD_TDMA_RX_DATA_OUT_DMA_CHANNEL || \
     BOARD_TDMA_TX_DATA_IN_CAPTURE_DMA_CHANNEL == BOARD_TDMA_TX_DATA_IN_FORWARD_DMA_CHANNEL || \
@@ -115,9 +115,9 @@
      RESOURCE_ARBITER_RESOURCE_TDMA_IRQ | \
      RESOURCE_ARBITER_RESOURCE_TDMA_DREQ)
 
-/* The adapter-level normal window has one local clock/sync producer and one
- * returned DATA consumer.  The two activities share the logical TX PIO port,
- * but use independent SM/FIFO/DMA roles.  This is deliberately a lower-layer
+/* The adapter-level normal window has one combined clock/sync producer and one
+ * returned DATA consumer. The two activities share the logical TX PIO port,
+ * but use independent SM/FIFO/DMA roles. This is deliberately a lower-layer
  * contract: it does not describe a transport frame or a higher communication
  * protocol. */
 #define TDMA_STATE_MACHINE_NORMAL_COMM_RESOURCE_MASK \
@@ -129,11 +129,9 @@
      RESOURCE_ARBITER_RESOURCE_TDMA_DREQ)
 
 typedef struct {
-    PIO clock_tx_pio;
-    PIO sync_tx_pio;
+    PIO control_tx_pio;
     PIO data_rx_pio;
-    uint8_t clock_tx_sm;
-    uint8_t sync_tx_sm;
+    uint8_t control_tx_sm;
     uint8_t data_rx_sm;
     uint8_t clock_tx_pin;
     uint8_t sync_tx_pin;
@@ -149,12 +147,10 @@ static inline tdma_state_machine_normal_comm_contract_t
 tdma_state_machine_normal_comm_contract(void)
 {
     return (tdma_state_machine_normal_comm_contract_t){
-        .clock_tx_pio = BOARD_TDMA_TX_PIO,
-        .sync_tx_pio = BOARD_TDMA_TX_PIO,
+        .control_tx_pio = BOARD_TDMA_TX_PIO,
         .data_rx_pio = BOARD_TDMA_TX_PIO,
-        .clock_tx_sm = BOARD_TDMA_TX_CLK_OUT_SM,
-        .sync_tx_sm = BOARD_TDMA_TX_SYNC_OUT_SM,
-        .data_rx_sm = BOARD_TDMA_TX_DATA_IN_CAPTURE_SM,
+        .control_tx_sm = BOARD_TDMA_TX_CONTROL_OUT_SM,
+        .data_rx_sm = BOARD_TDMA_TX_DATA_CAPTURE_SM,
         .clock_tx_pin = BOARD_TDMA_TX_CLK_OUT_PIN,
         .sync_tx_pin = BOARD_TDMA_TX_SYNC_OUT_PIN,
         .data_rx_pin = BOARD_TDMA_TX_DATA_IN_PIN,
@@ -173,14 +169,14 @@ tdma_state_machine_normal_comm_contract(void)
 typedef struct {
     PIO tx_pio;
     PIO rx_pio;
-    uint8_t tx_clk_out_sm;
-    uint8_t tx_sync_out_sm;
-    uint8_t tx_data_in_forward_sm;
-    uint8_t tx_data_in_capture_sm;
-    uint8_t rx_clk_in_sm;
-    uint8_t rx_sync_in_sm;
-    uint8_t rx_data_out_sm;
-    uint8_t rx_evidence_in_sm;
+    uint8_t tx_control_out_sm;
+    uint8_t tx_rtt_evidence_sm;
+    uint8_t tx_clock_latch_sm;
+    uint8_t tx_data_capture_sm;
+    uint8_t rx_reserved_control_sm;
+    uint8_t rx_reserved_evidence_sm;
+    uint8_t rx_data_flight_sm;
+    uint8_t rx_clock_latch_sm;
     uint8_t data_in_capture_dma;
     uint8_t data_out_dma;
     uint8_t data_in_forward_dma;
@@ -199,14 +195,14 @@ tdma_state_machine_resource_contract(void)
     return (tdma_state_machine_resource_contract_t){
         .tx_pio = BOARD_TDMA_TX_PIO,
         .rx_pio = BOARD_TDMA_RX_PIO,
-        .tx_clk_out_sm = BOARD_TDMA_TX_CLK_OUT_SM,
-        .tx_sync_out_sm = BOARD_TDMA_TX_SYNC_OUT_SM,
-        .tx_data_in_forward_sm = BOARD_TDMA_TX_DATA_IN_FORWARD_SM,
-        .tx_data_in_capture_sm = BOARD_TDMA_TX_DATA_IN_CAPTURE_SM,
-        .rx_clk_in_sm = BOARD_TDMA_RX_CLK_IN_SM,
-        .rx_sync_in_sm = BOARD_TDMA_RX_SYNC_IN_SM,
-        .rx_data_out_sm = BOARD_TDMA_RX_DATA_OUT_SM,
-        .rx_evidence_in_sm = BOARD_TDMA_RX_EVIDENCE_IN_SM,
+        .tx_control_out_sm = BOARD_TDMA_TX_CONTROL_OUT_SM,
+        .tx_rtt_evidence_sm = BOARD_TDMA_TX_RTT_EVIDENCE_SM,
+        .tx_clock_latch_sm = BOARD_TDMA_TX_CLOCK_LATCH_SM,
+        .tx_data_capture_sm = BOARD_TDMA_TX_DATA_CAPTURE_SM,
+        .rx_reserved_control_sm = BOARD_TDMA_RX_RESERVED_CONTROL_SM,
+        .rx_reserved_evidence_sm = BOARD_TDMA_RX_RESERVED_EVIDENCE_SM,
+        .rx_data_flight_sm = BOARD_TDMA_RX_DATA_FLIGHT_SM,
+        .rx_clock_latch_sm = BOARD_TDMA_RX_CLOCK_LATCH_SM,
         .data_in_capture_dma = BOARD_TDMA_TX_DATA_IN_CAPTURE_DMA_CHANNEL,
         .data_out_dma = BOARD_TDMA_RX_DATA_OUT_DMA_CHANNEL,
         .data_in_forward_dma = BOARD_TDMA_TX_DATA_IN_FORWARD_DMA_CHANNEL,

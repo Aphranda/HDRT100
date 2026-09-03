@@ -21,7 +21,13 @@ static bool tdma_pio_spi_phys_flight_origin_tx(
         phys->snapshot.tx_busy_count++;
         return false;
     }
-    if (!pio_sm_is_tx_fifo_empty(BOARD_TDMA_SPI_PIO, phys->tx_sm)) {
+    const PIO control_pio = tdma_pio_spi_phys_control_pio(phys);
+    const PIO data_pio = tdma_pio_spi_phys_data_pio(phys);
+    const PIO evidence_pio = tdma_pio_spi_phys_evidence_pio(phys);
+    const uint control_sm = tdma_pio_spi_phys_control_sm(phys);
+    const uint data_sm = tdma_pio_spi_phys_data_sm(phys);
+    const uint rtt_sm = tdma_pio_spi_phys_rtt_sm(phys);
+    if (!pio_sm_is_tx_fifo_empty(data_pio, data_sm)) {
         /* A failed prior burst must not leave the cyclic path permanently
          * TX_BUSY.  No successful call returns while this FIFO is occupied. */
         tdma_pio_spi_phys_flight_origin_recover(phys);
@@ -59,45 +65,44 @@ static bool tdma_pio_spi_phys_flight_origin_tx(
     channel_config_set_write_increment(&dma_cfg, false);
     channel_config_set_dreq(
         &dma_cfg,
-        pio_get_dreq(BOARD_TDMA_SPI_PIO, phys->tx_sm, true));
+        pio_get_dreq(data_pio, data_sm, true));
     dma_channel_configure(
         (uint)s_tdma_pio_spi_tx_dma_channel,
         &dma_cfg,
-        &BOARD_TDMA_SPI_PIO->txf[phys->tx_sm],
+        &data_pio->txf[data_sm],
         s_tdma_pio_spi_flight_tx_words,
         clock_bytes,
         false);
 
     const uint32_t clock_bits = clock_bytes * 8u;
     const uint32_t clock_txstall_mask =
-        tdma_pio_spi_phys_txstall_mask(phys->rx_sm);
-    if (pio_sm_is_tx_fifo_full(BOARD_TDMA_SPI_PIO, phys->tx_sm) ||
-        pio_sm_is_tx_fifo_full(BOARD_TDMA_SPI_PIO, phys->rx_sm)) {
+        tdma_pio_spi_phys_txstall_mask(control_sm);
+    if (pio_sm_is_tx_fifo_full(data_pio, data_sm) ||
+        pio_sm_is_tx_fifo_full(control_pio, control_sm)) {
         tdma_pio_spi_phys_set_error(phys, TDMA_PIO_SPI_PHYS_ERROR_TX_BUSY);
         phys->snapshot.tx_busy_count++;
         return false;
     }
-    pio_interrupt_clear(BOARD_TDMA_SPI_PIO, 1u);
+    pio_interrupt_clear(control_pio, 1u);
     /* The DATA SM consumes one frame control word before the DMA payload.
      * This keeps CS in the outer PIO loop and bytes in the inner loop.  The
      * FIFO was checked above, so the non-blocking put is deterministic. */
-    pio_sm_put(BOARD_TDMA_SPI_PIO, phys->tx_sm, clock_bytes - 1u);
+    pio_sm_put(data_pio, data_sm, clock_bytes - 1u);
     dma_start_channel_mask(1u << (uint)s_tdma_pio_spi_tx_dma_channel);
     /* RTT is an observation path, not part of flight admission. Missing or
      * invalid returns can leave its one-shot timer waiting and eventually
      * fill the seed FIFO. Drop this observation seed while backpressured so
      * the resident process image continues to circulate. */
-    if (!pio_sm_is_tx_fifo_full(BOARD_TDMA_SPI_PIO,
-                                BOARD_TDMA_SPI_RTT_SM)) {
-        pio_sm_put(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_RTT_SM, UINT32_MAX);
+    if (!pio_sm_is_tx_fifo_full(evidence_pio, rtt_sm)) {
+        pio_sm_put(evidence_pio, rtt_sm, UINT32_MAX);
     }
     const uint64_t tx_edge_diagnostic_ns = vdc_timestamp_clock_now_ns();
     /* This FIFO word is the sole launch event. The control PIO consumes it,
      * lowers CS, generates every SCK edge, then restores idle CS atomically. */
-    pio_sm_put(BOARD_TDMA_SPI_PIO, phys->rx_sm, clock_bits - 1u);
+    pio_sm_put(control_pio, control_sm, clock_bits - 1u);
     /* The clock SM was parked at its blocking PULL before the word above.
      * Clear that old sticky TXSTALL only after releasing the PULL. */
-    BOARD_TDMA_SPI_PIO->fdebug = clock_txstall_mask;
+    control_pio->fdebug = clock_txstall_mask;
     const uint64_t now_ns = tx_edge_diagnostic_ns;
     const uint64_t wire_ns = phys->baud_hz == 0u
         ? 0ull
@@ -133,9 +138,10 @@ void tdma_pio_spi_phys_service_tx(void *context, uint64_t now_ns)
         return;
     }
 
-    const uint32_t stall_mask = tdma_pio_spi_phys_txstall_mask(phys->rx_sm);
-    const bool clock_done =
-        (BOARD_TDMA_SPI_PIO->fdebug & stall_mask) != 0u;
+    const PIO control_pio = tdma_pio_spi_phys_control_pio(phys);
+    const uint control_sm = tdma_pio_spi_phys_control_sm(phys);
+    const uint32_t stall_mask = tdma_pio_spi_phys_txstall_mask(control_sm);
+    const bool clock_done = (control_pio->fdebug & stall_mask) != 0u;
     const bool data_done =
         !dma_channel_is_busy((uint)s_tdma_pio_spi_tx_dma_channel);
     if (!clock_done || !data_done) {
@@ -160,8 +166,8 @@ void tdma_pio_spi_phys_service_tx(void *context, uint64_t now_ns)
     }
 
     phys->snapshot.origin_done_txstall_count++;
-    pio_interrupt_clear(BOARD_TDMA_SPI_PIO, 1u);
-    BOARD_TDMA_SPI_PIO->fdebug = stall_mask;
+    pio_interrupt_clear(control_pio, 1u);
+    control_pio->fdebug = stall_mask;
     uint64_t tx_edge_timestamp_ns = 0ull;
     (void)tdma_pio_spi_phys_clock_latch_read_and_rearm(
         phys, &tx_edge_timestamp_ns);
@@ -415,20 +421,20 @@ bool tdma_pio_spi_phys_feedback_round_trip(
         phys->role != TDMA_PIO_SPI_ROLE_MASTER ||
         s_tdma_pio_spi_program_persona !=
             TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN ||
-        pio_sm_is_rx_fifo_empty(BOARD_TDMA_SPI_PIO,
-                                BOARD_TDMA_SPI_RTT_SM)) {
+        pio_sm_is_rx_fifo_empty(tdma_pio_spi_phys_evidence_pio(phys),
+                                tdma_pio_spi_phys_rtt_sm(phys))) {
         return false;
     }
 
     /* A rejected transport frame can leave an older duration in this FIFO.
      * Wire ordering is strict, so the newest completed CS interval belongs
      * to the newest complete frame returned by phys_rx. */
+    const PIO evidence_pio = tdma_pio_spi_phys_evidence_pio(phys);
+    const uint rtt_sm = tdma_pio_spi_phys_rtt_sm(phys);
     uint32_t remaining = 0u;
     do {
-        remaining = pio_sm_get(BOARD_TDMA_SPI_PIO,
-                               BOARD_TDMA_SPI_RTT_SM);
-    } while (!pio_sm_is_rx_fifo_empty(BOARD_TDMA_SPI_PIO,
-                                      BOARD_TDMA_SPI_RTT_SM));
+        remaining = pio_sm_get(evidence_pio, rtt_sm);
+    } while (!pio_sm_is_rx_fifo_empty(evidence_pio, rtt_sm));
 
     const uint32_t clk_hz = clock_get_hz(clk_sys);
     if (clk_hz == 0u) {
@@ -456,18 +462,39 @@ bool tdma_pio_spi_phys_get_snapshot(const tdma_pio_spi_phys_t *phys,
         return false;
     }
     *snapshot = phys->snapshot;
-    snapshot->pio_irq_flags = BOARD_TDMA_SPI_PIO->irq;
-    snapshot->pio_fdebug = BOARD_TDMA_SPI_PIO->fdebug;
-    snapshot->tx_sm_pc = pio_sm_get_pc(BOARD_TDMA_SPI_PIO, phys->tx_sm);
-    snapshot->rx_sm_pc = pio_sm_get_pc(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+    const bool flight = tdma_pio_spi_phys_is_flight_persona();
+    const PIO tx_diag_pio = flight
+        ? (phys->role == TDMA_PIO_SPI_ROLE_MASTER
+               ? tdma_pio_spi_phys_data_pio(phys)
+               : tdma_pio_spi_phys_control_pio(phys))
+        : BOARD_TDMA_SPI_PIO;
+    const PIO rx_diag_pio = flight
+        ? tdma_pio_spi_phys_capture_pio(phys) : BOARD_TDMA_SPI_PIO;
+    const uint tx_diag_sm = flight
+        ? (phys->role == TDMA_PIO_SPI_ROLE_MASTER
+               ? tdma_pio_spi_phys_data_sm(phys)
+               : tdma_pio_spi_phys_control_sm(phys))
+        : phys->tx_sm;
+    const uint rx_diag_sm = flight
+        ? tdma_pio_spi_phys_capture_sm(phys) : phys->rx_sm;
+    snapshot->pio_irq_flags = flight
+        ? tdma_pio_spi_phys_control_pio(phys)->irq |
+              tdma_pio_spi_phys_data_pio(phys)->irq
+        : BOARD_TDMA_SPI_PIO->irq;
+    snapshot->pio_fdebug = flight
+        ? tdma_pio_spi_phys_control_pio(phys)->fdebug |
+              tdma_pio_spi_phys_data_pio(phys)->fdebug
+        : BOARD_TDMA_SPI_PIO->fdebug;
+    snapshot->tx_sm_pc = pio_sm_get_pc(tx_diag_pio, tx_diag_sm);
+    snapshot->rx_sm_pc = pio_sm_get_pc(rx_diag_pio, rx_diag_sm);
     snapshot->tx_sm_tx_fifo_level =
-        pio_sm_get_tx_fifo_level(BOARD_TDMA_SPI_PIO, phys->tx_sm);
+        pio_sm_get_tx_fifo_level(tx_diag_pio, tx_diag_sm);
     snapshot->tx_sm_rx_fifo_level =
-        pio_sm_get_rx_fifo_level(BOARD_TDMA_SPI_PIO, phys->tx_sm);
+        pio_sm_get_rx_fifo_level(tx_diag_pio, tx_diag_sm);
     snapshot->rx_sm_tx_fifo_level =
-        pio_sm_get_tx_fifo_level(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+        pio_sm_get_tx_fifo_level(rx_diag_pio, rx_diag_sm);
     snapshot->rx_sm_rx_fifo_level =
-        pio_sm_get_rx_fifo_level(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+        pio_sm_get_rx_fifo_level(rx_diag_pio, rx_diag_sm);
     snapshot->gpio_input_levels =
         (gpio_get(phys->tx_sck_pin) ? (1u << 0u) : 0u) |
         (gpio_get(phys->tx_csn_pin) ? (1u << 1u) : 0u) |
@@ -529,10 +556,11 @@ tdma_pio_spi_phys_copy_normal_capture(
 
     /* Drain one SCK evidence word per scheduled beat. */
     if (phys->flight_normal_capture_copy_stage == 1u) {
-        pio_sm_set_enabled(
-            BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM, false);
+        const PIO evidence_pio = tdma_pio_spi_phys_evidence_pio(phys);
+        const uint latch_sm = tdma_pio_spi_phys_latch_sm(phys);
+        pio_sm_set_enabled(evidence_pio, latch_sm, false);
         const uint32_t sck_word_count = pio_sm_get_rx_fifo_level(
-            BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM);
+            evidence_pio, latch_sm);
         const uint32_t sck_words_remaining =
             TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_WORDS -
             phys->flight_normal_capture_sck_cursor;
@@ -545,8 +573,7 @@ tdma_pio_spi_phys_copy_normal_capture(
             return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_FAILED;
         }
         const uint32_t index = phys->flight_normal_capture_sck_cursor++;
-        snapshot->sck_words[index] = pio_sm_get(
-            BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM);
+        snapshot->sck_words[index] = pio_sm_get(evidence_pio, latch_sm);
         if (phys->flight_normal_capture_sck_cursor <
             TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_WORDS) {
             return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_PENDING;

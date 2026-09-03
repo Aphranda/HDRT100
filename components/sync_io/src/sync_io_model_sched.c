@@ -172,7 +172,7 @@ static void sync_io_model_release_pin(void)
 
 static void sync_io_model_update_completion(void)
 {
-    if (!s_model_pulse.running) {
+    if (!s_model_pulse.running || sync_io_core_tdma_flight_suspended()) {
         return;
     }
 
@@ -394,7 +394,8 @@ bool sync_io_model_pulse_schedule_arm(uint32_t output_index,
                                       uint32_t entry_count,
                                       bool rising_edge)
 {
-    if (!sync_io_model_output_index_valid(output_index)) {
+    if (sync_io_core_tdma_flight_suspended() ||
+        !sync_io_model_output_index_valid(output_index)) {
         sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
                            SYNC_IO_TRACE_ERROR,
                            entry_count,
@@ -429,7 +430,8 @@ bool sync_io_model_pulse_schedule_arm_ns(
     bool rising_edge,
     uint32_t tick_period_ns)
 {
-    if (!sync_io_model_output_index_valid(output_index)) {
+    if (sync_io_core_tdma_flight_suspended() ||
+        !sync_io_model_output_index_valid(output_index)) {
         sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
                            SYNC_IO_TRACE_ERROR,
                            entry_count,
@@ -458,7 +460,8 @@ bool sync_io_model_pulse_schedule_arm_periodic_ns(
     bool rising_edge,
     uint32_t tick_period_ns)
 {
-    if (!sync_io_model_output_index_valid(output_index)) {
+    if (sync_io_core_tdma_flight_suspended() ||
+        !sync_io_model_output_index_valid(output_index)) {
         sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
                            SYNC_IO_TRACE_ERROR,
                            pulse_count,
@@ -487,7 +490,8 @@ bool sync_io_output_pulse_schedule_arm(uint32_t output_index,
                                        uint32_t entry_count,
                                        bool rising_edge)
 {
-    if (!sync_io_main_output_index_valid(output_index)) {
+    if (sync_io_core_tdma_flight_suspended() ||
+        !sync_io_main_output_index_valid(output_index)) {
         sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
                            SYNC_IO_TRACE_ERROR,
                            entry_count,
@@ -522,7 +526,8 @@ bool sync_io_output_pulse_schedule_arm_ns(
     bool rising_edge,
     uint32_t tick_period_ns)
 {
-    if (!sync_io_main_output_index_valid(output_index)) {
+    if (sync_io_core_tdma_flight_suspended() ||
+        !sync_io_main_output_index_valid(output_index)) {
         sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
                            SYNC_IO_TRACE_ERROR,
                            entry_count,

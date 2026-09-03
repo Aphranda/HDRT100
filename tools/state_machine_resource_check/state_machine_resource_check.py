@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the static PIO/SM/DMA direction contract."""
+"""Validate the static PIO/SM/DMA flight-persona contract."""
 
 from __future__ import annotations
 
@@ -13,6 +13,15 @@ REQUIRED = {
     "BOARD_TDMA_TX_PIO_BLOCK_ID": 1,
     "BOARD_TDMA_RX_PIO_BLOCK_ID": 2,
     "BOARD_TDMA_SMA_PIO_BLOCK_ID": 0,
+    "BOARD_TDMA_TX_CONTROL_OUT_SM": 0,
+    "BOARD_TDMA_TX_RTT_EVIDENCE_SM": 1,
+    "BOARD_TDMA_TX_CLOCK_LATCH_SM": 2,
+    "BOARD_TDMA_TX_DATA_CAPTURE_SM": 3,
+    "BOARD_TDMA_RX_RESERVED_CONTROL_SM": 0,
+    "BOARD_TDMA_RX_RESERVED_EVIDENCE_SM": 1,
+    "BOARD_TDMA_RX_DATA_FLIGHT_SM": 2,
+    "BOARD_TDMA_RX_CLOCK_LATCH_SM": 3,
+    # Deprecated directional names remain checked as compatibility slots.
     "BOARD_TDMA_TX_CLK_OUT_SM": 0,
     "BOARD_TDMA_TX_SYNC_OUT_SM": 1,
     "BOARD_TDMA_TX_DATA_IN_FORWARD_SM": 2,
@@ -72,13 +81,13 @@ def check(board: Path, pio: Path) -> list[str]:
             failures.append(f"{name}: expected {expected}, got {values.get(name)!r}")
 
     for label, names in (
-        ("TX logical-port SM", (
-            "BOARD_TDMA_TX_CLK_OUT_SM", "BOARD_TDMA_TX_SYNC_OUT_SM",
-            "BOARD_TDMA_TX_DATA_IN_FORWARD_SM", "BOARD_TDMA_TX_DATA_IN_CAPTURE_SM",
+        ("TX PIO persona SM", (
+            "BOARD_TDMA_TX_CONTROL_OUT_SM", "BOARD_TDMA_TX_RTT_EVIDENCE_SM",
+            "BOARD_TDMA_TX_CLOCK_LATCH_SM", "BOARD_TDMA_TX_DATA_CAPTURE_SM",
         )),
-        ("RX logical-port SM", (
-            "BOARD_TDMA_RX_CLK_IN_SM", "BOARD_TDMA_RX_SYNC_IN_SM",
-            "BOARD_TDMA_RX_DATA_OUT_SM", "BOARD_TDMA_RX_EVIDENCE_IN_SM",
+        ("RX PIO persona SM", (
+            "BOARD_TDMA_RX_RESERVED_CONTROL_SM", "BOARD_TDMA_RX_RESERVED_EVIDENCE_SM",
+            "BOARD_TDMA_RX_DATA_FLIGHT_SM", "BOARD_TDMA_RX_CLOCK_LATCH_SM",
         )),
         ("DMA", (
             "BOARD_TDMA_TX_DATA_IN_CAPTURE_DMA_CHANNEL",
@@ -109,6 +118,13 @@ def check(board: Path, pio: Path) -> list[str]:
         rx = program_body(pio_text, "tdma_pio_spi_directional_data_rx")
         ctl_tx = program_body(pio_text, "tdma_pio_spi_directional_control_tx")
         ctl_rx = program_body(pio_text, "tdma_pio_spi_directional_control_rx")
+        flight_data = program_body(pio_text, "tdma_pio_spi_flight_data_follower")
+        process_data = program_body(
+            pio_text, "tdma_pio_spi_flight_process_follower")
+        origin_data_tx = program_body(
+            pio_text, "tdma_pio_spi_flight_origin_data_tx")
+        origin_data_capture = program_body(
+            pio_text, "tdma_pio_spi_flight_origin_data_capture")
     except ValueError as exc:
         failures.append(str(exc))
     else:
@@ -120,6 +136,22 @@ def check(board: Path, pio: Path) -> list[str]:
             failures.append("directional control TX contains in pins")
         if re.search(r"\bout\s+pins\b", ctl_rx):
             failures.append("directional control RX contains out pins")
+        for name, body in (
+            ("flight DATA follower", flight_data),
+            ("process-image DATA follower", process_data),
+        ):
+            if not re.search(r"\bin\s+pins\b", body):
+                failures.append(f"{name} does not sample incoming DATA")
+            if not re.search(r"\bout\s+pins\b", body):
+                failures.append(f"{name} does not forward outgoing DATA")
+        if re.search(r"\bin\s+pins\b", origin_data_tx):
+            failures.append("origin DATA TX contains in pins")
+        if not re.search(r"\bout\s+pins\b", origin_data_tx):
+            failures.append("origin DATA TX does not drive outgoing DATA")
+        if re.search(r"\bout\s+pins\b", origin_data_capture):
+            failures.append("origin DATA capture contains out pins")
+        if not re.search(r"\bin\s+pins\b", origin_data_capture):
+            failures.append("origin DATA capture does not sample returned DATA")
     return failures
 
 
@@ -136,7 +168,7 @@ def main() -> int:
             print(f"FAIL {failure}")
         print(f"SUMMARY FAIL failures={len(failures)}")
         return 1
-    print("OK   directional PIO/SM/DMA resource contract")
+    print("OK   PIO/SM/DMA flight-persona resource contract")
     return 0
 
 

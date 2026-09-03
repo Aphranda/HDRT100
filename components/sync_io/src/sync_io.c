@@ -52,6 +52,8 @@
 
 typedef struct {
     bool initialized;
+    volatile bool tdma_flight_suspended;
+    bool wave_sms_claimed;
     bool capture_running;
     bool clock_running;
     uint capture_offset;
@@ -622,6 +624,84 @@ static bool sync_io_claim_sm(PIO pio, uint sm, const char *name)
     return true;
 }
 
+static size_t sync_io_wave_sms(uint *sms, size_t capacity)
+{
+    const uint required[] = {
+        BOARD_SYNC_OUTPUT_SM,
+        BOARD_SYNC_MODEL_SCHED_SM,
+        BOARD_SYNC_GATE_SM,
+#if BOARD_SYNC_RJ45_TRIGGER_ENABLED
+        BOARD_SYNC_RJ45_TRIGGER_SM,
+#endif
+    };
+    const size_t count = sizeof(required) / sizeof(required[0]);
+    if (sms != NULL && capacity >= count) {
+        memcpy(sms, required, sizeof(required));
+    }
+    return count;
+}
+
+static bool sync_io_claim_wave_sms(void)
+{
+    if (s_sync_io.wave_sms_claimed) {
+        return true;
+    }
+    uint sms[4];
+    const size_t count = sync_io_wave_sms(sms, sizeof(sms) / sizeof(sms[0]));
+    for (size_t index = 0u; index < count; index++) {
+        if (pio_sm_is_claimed(BOARD_SYNC_PIO_WAVE, sms[index])) {
+            return false;
+        }
+    }
+    for (size_t index = 0u; index < count; index++) {
+        pio_sm_claim(BOARD_SYNC_PIO_WAVE, sms[index]);
+    }
+    s_sync_io.wave_sms_claimed = true;
+    return true;
+}
+
+static void sync_io_release_wave_sms(void)
+{
+    if (!s_sync_io.wave_sms_claimed) {
+        return;
+    }
+    uint sms[4];
+    const size_t count = sync_io_wave_sms(sms, sizeof(sms) / sizeof(sms[0]));
+    for (size_t index = 0u; index < count; index++) {
+        pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, sms[index], false);
+        pio_sm_clear_fifos(BOARD_SYNC_PIO_WAVE, sms[index]);
+        pio_sm_restart(BOARD_SYNC_PIO_WAVE, sms[index]);
+        pio_sm_set_pins(BOARD_SYNC_PIO_WAVE, sms[index], 0u);
+        pio_sm_unclaim(BOARD_SYNC_PIO_WAVE, sms[index]);
+    }
+    s_sync_io.wave_sms_claimed = false;
+}
+
+static void sync_io_reinitialize_wave_sms(void)
+{
+    sync_pulse_program_init(BOARD_SYNC_PIO_WAVE,
+                            BOARD_SYNC_OUTPUT_SM,
+                            s_sync_io.pulse_offset,
+                            BOARD_SYNC_TRIG_OUT_PIN);
+    sync_pulse_program_init(BOARD_SYNC_PIO_WAVE,
+                            BOARD_SYNC_GATE_SM,
+                            s_sync_io.pulse_offset,
+                            BOARD_SYNC_PULSE_OUT_PIN);
+#if BOARD_SYNC_RJ45_TRIGGER_ENABLED
+    sync_pulse_program_init(BOARD_SYNC_PIO_WAVE,
+                            BOARD_SYNC_RJ45_TRIGGER_SM,
+                            s_sync_io.pulse_offset,
+                            BOARD_SYNC_RJ45_TRIG_OUT_PIN);
+#endif
+    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_OUTPUT_SM, true);
+    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_GATE_SM, true);
+#if BOARD_SYNC_RJ45_TRIGGER_ENABLED
+    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE,
+                       BOARD_SYNC_RJ45_TRIGGER_SM,
+                       true);
+#endif
+}
+
 static void sync_io_configure_static_inputs(void)
 {
     gpio_pull_down(BOARD_SYNC_TRIG_IN_PIN);
@@ -658,6 +738,12 @@ static bool sync_io_aux_resource_busy(void)
 bool sync_io_core_initialized(void)
 {
     return s_sync_io.initialized;
+}
+
+bool sync_io_core_tdma_flight_suspended(void)
+{
+    return __atomic_load_n(&s_sync_io.tdma_flight_suspended,
+                           __ATOMIC_ACQUIRE);
 }
 
 bool sync_io_core_capture_is_running(void)
@@ -807,6 +893,7 @@ bool sync_io_init(const sync_io_config_t *config)
         sync_io_trace(SYNC_IO_TRACE_INIT_FAIL, SYNC_IO_TRACE_ERROR, 2u, 0u);
         return false;
     }
+    s_sync_io.wave_sms_claimed = true;
 
     if (dma_channel_is_claimed(SYNC_IO_CAPTURE_DMA_CH)) {
         LOG_ERROR("sync_io", "capture DMA channel already claimed");
@@ -901,6 +988,67 @@ bool sync_io_init(const sync_io_config_t *config)
                   clock_hz);
 
     return true;
+}
+
+bool sync_io_suspend_for_tdma_flight(void)
+{
+    if (!s_sync_io.initialized) {
+        sync_io_core_trace(SYNC_IO_TRACE_TDMA_HANDOFF_FAIL,
+                           SYNC_IO_TRACE_ERROR,
+                           1u,
+                           0u);
+        return false;
+    }
+    if (sync_io_core_tdma_flight_suspended()) {
+        return true;
+    }
+
+    __atomic_store_n(&s_sync_io.tdma_flight_suspended,
+                     true,
+                     __ATOMIC_RELEASE);
+    sync_io_model_pulse_schedule_disarm();
+    sync_io_seq_step_disarm();
+    sync_io_enc_count_disarm();
+    sync_io_sma_frequency_tx_stop();
+    sync_io_release_wave_sms();
+    sync_io_core_trace(SYNC_IO_TRACE_TDMA_SUSPEND,
+                       SYNC_IO_TRACE_INFO,
+                       1u,
+                       (1u << BOARD_SYNC_OUTPUT_SM) |
+                           (1u << BOARD_SYNC_MODEL_SCHED_SM) |
+                           (1u << BOARD_SYNC_GATE_SM));
+    return true;
+}
+
+bool sync_io_resume_after_tdma_flight(void)
+{
+    if (!s_sync_io.initialized ||
+        !sync_io_core_tdma_flight_suspended()) {
+        return s_sync_io.initialized;
+    }
+    if (!sync_io_claim_wave_sms()) {
+        sync_io_core_trace(SYNC_IO_TRACE_TDMA_HANDOFF_FAIL,
+                           SYNC_IO_TRACE_ERROR,
+                           2u,
+                           0u);
+        return false;
+    }
+    sync_io_reinitialize_wave_sms();
+    __atomic_store_n(&s_sync_io.tdma_flight_suspended,
+                     false,
+                     __ATOMIC_RELEASE);
+    sync_io_core_trace(SYNC_IO_TRACE_TDMA_RESUME,
+                       SYNC_IO_TRACE_INFO,
+                       1u,
+                       (1u << BOARD_SYNC_OUTPUT_SM) |
+                           (1u << BOARD_SYNC_MODEL_SCHED_SM) |
+                           (1u << BOARD_SYNC_GATE_SM));
+    return true;
+}
+
+bool sync_io_is_tdma_flight_suspended(void)
+{
+    return sync_io_core_tdma_flight_suspended();
 }
 
 bool sync_io_start_capture(uint32_t sample_hz)
@@ -1214,7 +1362,9 @@ void sync_io_capture_disarm_timestamp_window(void)
 
 static bool sync_io_fire_pulse_on_sm(uint sm, uint32_t high_cycles)
 {
-    if (!s_sync_io.initialized || high_cycles == 0u) {
+    if (!s_sync_io.initialized ||
+        sync_io_core_tdma_flight_suspended() ||
+        high_cycles == 0u) {
         sync_io_trace(SYNC_IO_TRACE_PULSE_INVALID,
                       SYNC_IO_TRACE_WARN,
                       sm,
@@ -1369,7 +1519,7 @@ bool sync_io_fire_rj45_trigger_us(uint32_t high_us)
 
 bool sync_io_debug_set_output_mask(uint32_t mask)
 {
-    if (!s_sync_io.initialized) {
+    if (!s_sync_io.initialized || sync_io_core_tdma_flight_suspended()) {
         return false;
     }
 
@@ -1396,7 +1546,7 @@ bool sync_io_debug_set_output_mask(uint32_t mask)
 
 void sync_io_debug_release_output_mask(void)
 {
-    if (!s_sync_io.initialized) {
+    if (!s_sync_io.initialized || sync_io_core_tdma_flight_suspended()) {
         return;
     }
 
@@ -1516,7 +1666,9 @@ void sync_io_sma_frequency_tx_stop(void)
     gpio_set_dir(output_pin, GPIO_OUT);
     gpio_put(output_pin, false);
     memset(&s_sma_frequency_tx, 0, sizeof(s_sma_frequency_tx));
-    sync_io_debug_release_output_mask();
+    if (!sync_io_core_tdma_flight_suspended()) {
+        sync_io_debug_release_output_mask();
+    }
 }
 
 bool sync_io_sma_frequency_tx_start(
@@ -1525,6 +1677,7 @@ bool sync_io_sma_frequency_tx_start(
     sync_io_sma_frequency_tx_status_t *status)
 {
     if (!s_sync_io.initialized ||
+        sync_io_core_tdma_flight_suspended() ||
         output_channel == 0u ||
         output_channel > BOARD_SYNC_OUTPUT_PIN_COUNT ||
         frequency_hz < SYNC_IO_SMA_FREQUENCY_MIN_HZ ||
@@ -1867,6 +2020,8 @@ void sync_io_get_status(sync_io_status_t *status)
     status->initialized = s_sync_io.initialized;
     status->capture_running = s_sync_io.capture_running;
     status->sync_clock_running = s_sync_io.clock_running;
+    status->tdma_flight_suspended =
+        sync_io_core_tdma_flight_suspended();
     status->capture_sample_hz = s_sync_io.capture_sample_hz;
     status->sync_clock_hz = s_sync_io.sync_clock_hz;
     status->dropped_capture_words = s_sync_io.dropped_capture_words;

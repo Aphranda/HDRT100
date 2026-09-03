@@ -68,6 +68,9 @@ typedef enum {
     SYNC_IO_TRACE_MODEL_DISARM      = 91u,
     SYNC_IO_TRACE_MODEL_FAIL        = 92u,
     SYNC_IO_TRACE_MODEL_RUNTIME     = 93u,
+    SYNC_IO_TRACE_TDMA_SUSPEND      = 100u,
+    SYNC_IO_TRACE_TDMA_RESUME       = 101u,
+    SYNC_IO_TRACE_TDMA_HANDOFF_FAIL = 102u,
 } sync_io_trace_event_t;
 
 void sync_io_core_trace(sync_io_trace_event_t event_id,
@@ -76,6 +79,7 @@ void sync_io_core_trace(sync_io_trace_event_t event_id,
                         uint32_t arg1);
 bool sync_io_core_initialized(void);
 bool sync_io_core_capture_is_running(void);
+bool sync_io_core_tdma_flight_suspended(void);
 bool sync_io_core_sm_is_enabled(PIO pio, uint sm);
 uint32_t sync_io_core_pack_runtime_flags(bool running,
                                          bool pio_enabled,

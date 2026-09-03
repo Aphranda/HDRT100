@@ -401,8 +401,8 @@ def test_origin_data_dma_covers_complete_physical_tail() -> None:
     assert "clock_bytes != phys->flight_physical_byte_count" in origin
     assert "index < clock_bytes" in origin
     assert "s_tdma_pio_spi_flight_tx_words,\n        clock_bytes," in origin
-    assert "phys->tx_sm, clock_bytes - 1u" in origin
-    assert "phys->tx_sm, wire_bytes - 1u" not in origin
+    assert "pio_sm_put(data_pio, data_sm, clock_bytes - 1u)" in origin
+    assert "data_sm, wire_bytes - 1u" not in origin
 
 
 def test_data_follower_wait_patch_does_not_own_sck_output() -> None:
@@ -521,23 +521,41 @@ def test_process_follower_forwards_control_on_independent_pio_sm() -> None:
 
     phys = _read_phys_source()
     assert "control_bits - 1u" in phys
-    assert "phys->tx_sm,\n                            control_bits - 1u" in phys
+    assert (
+        "tdma_pio_spi_phys_control_sm(phys),\n"
+        "                            control_bits - 1u" in phys)
     assert "pio_encode_pull(false, true)" in phys
 
 
-def test_flight_personas_fit_shared_pio_instruction_memory() -> None:
+def test_flight_personas_fit_directional_pio_instruction_memory() -> None:
     source = (ROOT / "components" / "tdma" / "src" /
               "tdma_pio_spi.pio").read_text(encoding="utf-8")
-    shared = pio_instruction_count(
+    sync_source = (ROOT / "components" / "sync_io" / "src" /
+                   "sync_io.pio").read_text(encoding="utf-8")
+    sync_resident = pio_instruction_count(sync_source, "sync_pulse")
+    control = pio_instruction_count(
         source, "tdma_pio_spi_flight_control_forward")
-    capture = pio_instruction_count(
+    latch = pio_instruction_count(
         source, "tdma_pio_spi_flight_clock_latch")
     raw_data = pio_instruction_count(
         source, "tdma_pio_spi_flight_data_follower")
     process_data = pio_instruction_count(
         source, "tdma_pio_spi_flight_process_follower")
-    assert shared + capture + raw_data <= 32
-    assert shared + capture + process_data <= 32
+    origin_control = pio_instruction_count(
+        source, "tdma_pio_spi_flight_origin_clock_rx")
+    origin_capture = pio_instruction_count(
+        source, "tdma_pio_spi_flight_origin_data_capture")
+    origin_rtt = pio_instruction_count(
+        source, "tdma_pio_spi_flight_origin_rtt")
+    origin_data = pio_instruction_count(
+        source, "tdma_pio_spi_flight_origin_data_tx")
+
+    assert sync_resident + control <= 32
+    assert raw_data + latch <= 32
+    assert process_data + latch <= 32
+    assert (sync_resident + origin_control + origin_capture + origin_rtt +
+            latch) <= 32
+    assert origin_data <= 32
 
 
 def test_product_clock_latch_captures_first_csn_edge() -> None:
@@ -592,14 +610,10 @@ def test_clock_training_quiesces_complete_flight_persona() -> None:
     assert train.index(
         "dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel)") < select
     assert train.index("phys->flight_clock_latch_armed = false") < select
-    for state_machine in (
-        "BOARD_TDMA_SPI_MASTER_SM",
-        "BOARD_TDMA_SPI_SLAVE_SM",
-        "BOARD_TDMA_SPI_CAPTURE_SM",
-        "BOARD_TDMA_SPI_RTT_SM",
-    ):
-        assert f"pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, {state_machine})" in train
-        assert f"pio_sm_restart(BOARD_TDMA_SPI_PIO, {state_machine})" in train
+    quiesce = train.index("tdma_pio_spi_phys_prepare_sm_pair(phys)")
+    assert quiesce < select
+    assert train.index("phys->tx_sm = BOARD_TDMA_SPI_MASTER_SM") > select
+    assert train.index("phys->rx_sm = BOARD_TDMA_SPI_SLAVE_SM") > select
 
 
 def test_process_follower_recovers_pass_script_after_bad_frame() -> None:
@@ -607,8 +621,8 @@ def test_process_follower_recovers_pass_script_after_bad_frame() -> None:
     service = phys.split(
         "bool tdma_pio_spi_phys_service_process_overlay_boundary", 1
     )[1].split("bool tdma_pio_spi_phys_set_process_image_mode", 1)[0]
-    assert "pio_interrupt_get(BOARD_TDMA_SPI_PIO, 3u)" in service
-    assert "pio_interrupt_clear(BOARD_TDMA_SPI_PIO, 3u)" in service
+    assert "pio_interrupt_get(data_pio, 3u)" in service
+    assert "pio_interrupt_clear(data_pio, 3u)" in service
     assert "phys->flight_overlay_next_prepared" in service
     assert "phys->flight_overlay_boundary_pending = true" in service
     assert "TDMA_PIO_SPI_OVERLAY_GRACE_SERVICE_PASSES" in service
@@ -881,15 +895,11 @@ def test_flight_origin_rtt_backpressure_never_blocks_tx() -> None:
         "static bool tdma_pio_spi_phys_flight_origin_tx", 1
     )[1].split("void tdma_pio_spi_phys_service_tx", 1)[0]
     admission = launch.split(
-        "if (pio_sm_is_tx_fifo_full(BOARD_TDMA_SPI_PIO, phys->tx_sm)", 1
+        "if (pio_sm_is_tx_fifo_full(data_pio, data_sm)", 1
     )[1].split("pio_interrupt_clear", 1)[0]
-    assert "BOARD_TDMA_SPI_RTT_SM" not in admission
-    assert (
-        "if (!pio_sm_is_tx_fifo_full(BOARD_TDMA_SPI_PIO,\n"
-        "                                BOARD_TDMA_SPI_RTT_SM))" in launch)
-    assert (
-        "pio_sm_put(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_RTT_SM, UINT32_MAX);"
-        in launch)
+    assert "rtt_sm" not in admission
+    assert "if (!pio_sm_is_tx_fifo_full(evidence_pio, rtt_sm))" in launch
+    assert "pio_sm_put(evidence_pio, rtt_sm, UINT32_MAX);" in launch
 
 
 def test_ring_capture_exclusively_owns_clock_latch_sm_until_copy() -> None:
@@ -1146,7 +1156,7 @@ def test_origin_queues_physical_byte_count_before_payload_dma_without_waiting() 
         "static bool tdma_pio_spi_phys_flight_origin_tx", 1
     )[1].split("bool tdma_pio_spi_phys_tx", 1)[0]
     count_put = function.index(
-        "pio_sm_put(BOARD_TDMA_SPI_PIO, phys->tx_sm, clock_bytes - 1u)")
+        "pio_sm_put(data_pio, data_sm, clock_bytes - 1u)")
     dma_start = function.index("dma_start_channel_mask", count_put)
     assert count_put < dma_start
     assert "while (" not in function
@@ -1213,8 +1223,69 @@ def test_flight_origin_control_edges_are_owned_by_one_pio_sm() -> None:
         "static bool tdma_pio_spi_phys_flight_origin_tx", 1
     )[1].split("bool tdma_pio_spi_phys_tx", 1)[0]
     assert "gpio_put(phys->tx_csn_pin" not in flight_tx
-    assert ("pio_sm_put(BOARD_TDMA_SPI_PIO, phys->rx_sm, clock_bits - 1u)"
-            in flight_tx)
+    assert "pio_sm_put(control_pio, control_sm, clock_bits - 1u)" in flight_tx
+
+
+def test_origin_data_output_and_capture_have_single_pin_directions() -> None:
+    pio_source = (ROOT / "components" / "tdma" / "src" /
+                  "tdma_pio_spi.pio").read_text(encoding="utf-8")
+    output_program = pio_source.split(
+        ".program tdma_pio_spi_flight_origin_data_tx", 1
+    )[1].split(".program", 1)[0]
+    capture_program = pio_source.split(
+        ".program tdma_pio_spi_flight_origin_data_capture", 1
+    )[1].split(".program", 1)[0]
+    output_init = pio_source.split(
+        "static inline void tdma_pio_spi_flight_origin_data_tx_program_init",
+        1,
+    )[1].split("static inline void", 1)[0]
+    capture_init = pio_source.split(
+        "static inline void "
+        "tdma_pio_spi_flight_origin_data_capture_program_init",
+        1,
+    )[1].split("static inline void", 1)[0]
+
+    assert "out pins, 1" in output_program
+    assert "in pins" not in output_program
+    assert "sm_config_set_in_pins" not in output_init
+    assert "in pins, 1" in capture_program
+    assert "out pins" not in capture_program
+    assert "sm_config_set_in_pins(&c, data_pin)" in capture_init
+    assert "pindirs(pio, sm, csn_pin" not in capture_init
+    assert "pindirs(pio, sm, sck_pin" not in capture_init
+    assert capture_program.index("wait 0 gpio 0") < capture_program.index(
+        ".wrap_target")
+
+
+def test_origin_capture_dma_uses_tx_pio_capture_sm() -> None:
+    phys = _read_phys_source()
+    configure = phys.split(
+        "static bool tdma_pio_spi_phys_configure_flight", 1
+    )[1].split("static bool tdma_pio_spi_phys_start_overlay_script", 1)[0]
+    capture_init = configure.split(
+        "tdma_pio_spi_flight_origin_data_capture_program_init", 1
+    )[1].split(");", 1)[0]
+    assert "phys->flight_resources.tx_pio" in capture_init
+    assert "phys->flight_resources.tx_data_capture_sm" in capture_init
+    assert "phys->rx_csn_pin" in capture_init
+    assert "phys->rx_sck_pin" in capture_init
+    assert "phys->tx_csn_pin" not in capture_init
+    assert "phys->tx_sck_pin" not in capture_init
+    assert "phys->flight_data_phase_delay_cycles" in capture_init
+
+    pio_source = (ROOT / "components" / "tdma" / "src" /
+                  "tdma_pio_spi.pio").read_text(encoding="utf-8")
+    capture_program_init = pio_source.split(
+        "tdma_pio_spi_flight_origin_data_capture_program_init", 1
+    )[1].split("static inline void", 1)[0]
+    assert "pio_encode_delay(data_phase_delay_cycles - 1u)" in (
+        capture_program_init)
+
+    rx_arm = phys.split("static bool tdma_pio_spi_phys_rx_arm", 1)[1].split(
+        "static uint32_t tdma_pio_spi_phys_rx_write_index", 1)[0]
+    assert "tdma_pio_spi_phys_capture_pio(phys)" in rx_arm
+    assert "tdma_pio_spi_phys_capture_sm(phys)" in rx_arm
+    assert "&capture_pio->rxf[capture_sm]" in rx_arm
 
 
 def test_shifted_rx_scanner_preserves_shared_raw_boundary_word() -> None:

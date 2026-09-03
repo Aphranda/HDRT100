@@ -14,6 +14,7 @@ typedef struct {
     bool initialized;
     bool capture_running;
     bool sync_clock_running;
+    bool tdma_flight_suspended;
     uint32_t capture_sample_hz;
     uint32_t sync_clock_hz;
     uint32_t dropped_capture_words;
@@ -152,6 +153,9 @@ typedef struct {
 } sync_io_biss_tap_config_t;
 
 bool sync_io_init(const sync_io_config_t *config);
+bool sync_io_suspend_for_tdma_flight(void);
+bool sync_io_resume_after_tdma_flight(void);
+bool sync_io_is_tdma_flight_suspended(void);
 bool sync_io_start_capture(uint32_t sample_hz);
 void sync_io_stop_capture(void);
 size_t sync_io_read_capture_words(uint32_t *buffer, size_t max_words);

@@ -13,6 +13,7 @@
 typedef struct {
     tdma_pio_spi_persona_fsm_t lifecycle;
     bool *sms_claimed;
+    bool *flight_sms_claimed;
     bool *maintenance_resources_claimed;
     tdma_pio_spi_program_persona_t *program_persona;
     uint *tx_offset;
@@ -38,6 +39,7 @@ typedef struct {
     uint *p3_responder_capture_offset;
     uint *flight_origin_clock_offset;
     uint *flight_origin_data_offset;
+    uint *flight_origin_data_capture_offset;
     uint *flight_data_follower_offset;
     uint *flight_process_follower_offset;
     uint *flight_control_forward_offset;

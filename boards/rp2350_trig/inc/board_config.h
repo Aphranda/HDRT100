@@ -91,10 +91,10 @@
  * CLK/SYNC and DATA travel in opposite logical directions. */
 #define BOARD_TDMA_SPI_PIO pio2 /* legacy maintenance/calibration persona */
 #define BOARD_TDMA_SPI_PIO_BLOCK_ID 2u
-/* Direction-isolated flight resources. The legacy symbol above remains for
- * maintenance personas only; cyclic TDMA flight must use these ownership
- * boundaries. Each PIO block is mixed-direction at the port level, but every
- * SM remains single-direction at the pin-instruction level. */
+/* Flight resources. The legacy symbol above remains for maintenance personas
+ * only; cyclic TDMA flight must use these ownership boundaries. Pin direction
+ * is a persona-role property: the DATA flight SM intentionally samples the
+ * incoming bit and emits the delayed bit in the same wire-time loop. */
 #define BOARD_TDMA_TX_PIO pio1
 #define BOARD_TDMA_RX_PIO pio2
 #define BOARD_TDMA_TX_PIO_BLOCK_ID 1u
@@ -108,12 +108,25 @@
 #define BOARD_TDMA_RX_CLK_IN_PIN BOARD_TDMA_SPI_UPLINK_SCK_PIN
 #define BOARD_TDMA_RX_SYNC_IN_PIN BOARD_TDMA_SPI_UPLINK_CSN_PIN
 #define BOARD_TDMA_RX_DATA_OUT_PIN BOARD_TDMA_SPI_DOWNLINK_TX_PIN
-/* PIO1 / logical TX port. */
+/* PIO1 persona slots used by cyclic flight. The control SM owns both CLK and
+ * SYNC; they are one deterministic waveform, not independent state machines. */
+#define BOARD_TDMA_TX_CONTROL_OUT_SM 0u
+#define BOARD_TDMA_TX_RTT_EVIDENCE_SM 1u
+#define BOARD_TDMA_TX_CLOCK_LATCH_SM 2u
+#define BOARD_TDMA_TX_DATA_CAPTURE_SM 3u
+/* PIO2 persona slots. SM0/SM1 remain reserved by the whole-block flight
+ * claim; SM2 performs bidirectional delayed DATA flight and SM3 latches the
+ * incoming control edge. */
+#define BOARD_TDMA_RX_RESERVED_CONTROL_SM 0u
+#define BOARD_TDMA_RX_RESERVED_EVIDENCE_SM 1u
+#define BOARD_TDMA_RX_DATA_FLIGHT_SM 2u
+#define BOARD_TDMA_RX_CLOCK_LATCH_SM 3u
+/* Deprecated directional slot names. Keep these numeric aliases for existing
+ * profiles and tooling; runtime code must use the persona-role names above. */
 #define BOARD_TDMA_TX_CLK_OUT_SM 0u
 #define BOARD_TDMA_TX_SYNC_OUT_SM 1u
 #define BOARD_TDMA_TX_DATA_IN_FORWARD_SM 2u
 #define BOARD_TDMA_TX_DATA_IN_CAPTURE_SM 3u
-/* PIO2 / logical RX port. */
 #define BOARD_TDMA_RX_CLK_IN_SM 0u
 #define BOARD_TDMA_RX_SYNC_IN_SM 1u
 #define BOARD_TDMA_RX_DATA_OUT_SM 2u
