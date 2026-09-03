@@ -1,0 +1,4 @@
+#ifndef HOST_STUB_HARDWARE_I2C_H
+#define HOST_STUB_HARDWARE_I2C_H
+
+#endif

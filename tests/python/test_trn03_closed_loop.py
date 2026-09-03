@@ -36,12 +36,14 @@ if str(TOOL_DIR) not in sys.path:
 import trn03_closed_loop as trn03  # noqa: E402
 from tools.scpi_common.scpi_serial import scpi_response_matches_command  # noqa: E402
 from trn03_closed_loop import (  # noqa: E402
+    ArmRejectedError,
     arm_with_evidence,
     checked_stopped_ring_action,
     counter_deltas,
     expected_flight_phase,
     parse_active_profile,
     parse_snapshot,
+    record_arm_with_evidence,
     resolve_profile_level,
     realtime_gate_passes,
     running_handoff_allows_leave_running,
@@ -1380,8 +1382,65 @@ def test_arm_with_evidence_exposes_rejection_stage(monkeypatch) -> None:
     monkeypatch.setattr(
         trn03, "board_command",
         lambda board, command, args: responses[command])
-    with pytest.raises(RuntimeError, match="arm_result=7"):
-        arm_with_evidence(FakeBoard(), object())
+    expected_snapshots = {
+        "physical": {"last_error": 91},
+        "runtime": {"ring_last_error": 17},
+        "flight": {"process": {}, "fifo": {}},
+        "crc_diagnostic": {"last_bad_transport_result": 4},
+    }
+    monkeypatch.setattr(
+        trn03, "arm_failure_snapshot",
+        lambda board, args, node_index: {
+            "failure_snapshot": expected_snapshots,
+            "failure_snapshot_errors": {},
+        })
+    with pytest.raises(ArmRejectedError, match="arm_result=7") as rejected:
+        arm_with_evidence(FakeBoard(), object(), 2)
+    assert rejected.value.evidence["passed"] is False
+    assert rejected.value.evidence["arm_result"] == 7
+    assert rejected.value.evidence["failure_snapshot"] == expected_snapshots
+
+
+def test_record_arm_rejection_before_cleanup(monkeypatch) -> None:
+    evidence = {
+        "node": "node0",
+        "action": "ARM",
+        "arm_result": 8,
+        "passed": False,
+        "failure_snapshot": {"physical": {"last_error": 23}},
+    }
+    monkeypatch.setattr(
+        trn03, "arm_with_evidence",
+        lambda board, args, node_index: (_ for _ in ()).throw(
+            ArmRejectedError("runtime config rejected", evidence)))
+    actions = []
+    with pytest.raises(ArmRejectedError, match="runtime config rejected"):
+        record_arm_with_evidence(FakeBoard(), object(), 0, actions)
+    assert actions == [evidence]
+
+
+def test_arm_failure_snapshot_retains_partial_query_results(monkeypatch) -> None:
+    monkeypatch.setattr(
+        trn03, "physical_snapshot",
+        lambda board, args: {"last_error": 23})
+    monkeypatch.setattr(
+        trn03, "runtime_snapshot",
+        lambda board, args, node_index: (_ for _ in ()).throw(
+            RuntimeError("runtime unavailable")))
+    monkeypatch.setattr(
+        trn03, "flight_snapshot",
+        lambda board, args: {"process": {}, "fifo": {}})
+    monkeypatch.setattr(
+        trn03, "crc_diagnostic_snapshot",
+        lambda board, args: {"last_bad_transport_result": 4})
+
+    observed = trn03.arm_failure_snapshot(FakeBoard(), object(), 3)
+    assert observed["failure_snapshot"]["physical"]["last_error"] == 23
+    assert observed["failure_snapshot"]["runtime"] is None
+    assert observed["failure_snapshot"]["flight"] == {
+        "process": {}, "fifo": {}}
+    assert observed["failure_snapshot_errors"] == {
+        "runtime": "RuntimeError: runtime unavailable"}
 
 
 def runtime() -> dict[str, int]:

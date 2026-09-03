@@ -2,8 +2,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "resource_arbiter.h"
+#include "tdma_state_machine_resources.h"
 
 /* Host-only OSAL stubs.  The arbiter contract is independent of the target
  * spinlock implementation; production builds link the real OSAL port. */
@@ -18,47 +20,152 @@ static void expect_snapshot(bool calibration, bool tdma)
     assert(snapshot.tdma_clock_training_active == tdma);
 }
 
+static void expect_resources_owned(uint32_t resources, const char *owner)
+{
+    resource_arbiter_snapshot_t snapshot;
+    resource_arbiter_get_snapshot(&snapshot);
+    assert((snapshot.active_resources & resources) == resources);
+    for (uint32_t bit = 0u; bit < 32u; ++bit) {
+        const uint32_t mask = 1u << bit;
+        if ((resources & mask) != 0u) {
+            assert(snapshot.resource_owners[bit] != NULL);
+            assert(strcmp(snapshot.resource_owners[bit], owner) == 0);
+        }
+    }
+}
+
+static void expect_resources_unowned(uint32_t resources)
+{
+    resource_arbiter_snapshot_t snapshot;
+    resource_arbiter_get_snapshot(&snapshot);
+    assert((snapshot.active_resources & resources) == 0u);
+    for (uint32_t bit = 0u; bit < 32u; ++bit) {
+        if ((resources & (1u << bit)) != 0u) {
+            assert(snapshot.resource_owners[bit] == NULL);
+        }
+    }
+}
+
 static void test_directional_tdma_resources(void)
 {
-    const uint32_t resources =
-        RESOURCE_ARBITER_RESOURCE_PIO1 |
-        RESOURCE_ARBITER_RESOURCE_PIO2 |
-        RESOURCE_ARBITER_RESOURCE_TDMA_DMA_CAPTURE |
-        RESOURCE_ARBITER_RESOURCE_TDMA_DMA_OUTPUT |
-        RESOURCE_ARBITER_RESOURCE_TDMA_DMA_FORWARD |
-        RESOURCE_ARBITER_RESOURCE_TDMA_DMA_SYNC_EDGE |
-        RESOURCE_ARBITER_RESOURCE_TDMA_GPIO |
-        RESOURCE_ARBITER_RESOURCE_TDMA_IRQ |
-        RESOURCE_ARBITER_RESOURCE_TDMA_DREQ;
+    const uint32_t resources = TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK;
     const char *const flight_owner = "TDMA_FLIGHT_PIO";
 
     assert(resource_arbiter_init());
     assert(resource_arbiter_acquire_owned(resources, flight_owner));
-
-    resource_arbiter_snapshot_t snapshot;
-    resource_arbiter_get_snapshot(&snapshot);
-    assert((snapshot.active_resources & resources) == resources);
+    expect_resources_owned(resources, flight_owner);
 
     assert(!resource_arbiter_acquire_owned(
         RESOURCE_ARBITER_RESOURCE_TDMA_DREQ, "conflicting-persona"));
+    resource_arbiter_snapshot_t snapshot;
     resource_arbiter_get_snapshot(&snapshot);
     assert(snapshot.last_conflict_resources ==
            RESOURCE_ARBITER_RESOURCE_TDMA_DREQ);
-    assert(snapshot.last_conflict_owner != NULL);
-    assert(snapshot.last_conflict_holder != NULL);
+    assert(strcmp(snapshot.last_conflict_owner, "conflicting-persona") == 0);
+    assert(strcmp(snapshot.last_conflict_holder, flight_owner) == 0);
 
     resource_arbiter_release_owned(resources, "wrong-owner");
-    resource_arbiter_get_snapshot(&snapshot);
-    assert((snapshot.active_resources & resources) == resources);
+    expect_resources_owned(resources, flight_owner);
 
     resource_arbiter_release_owned(resources, flight_owner);
+    expect_resources_unowned(resources);
+}
+
+static void test_tdma_persona_owner_transfer(void)
+{
+    const char *const maintenance_owner = "TDMA_MAINTENANCE_PIO";
+    const char *const flight_owner = "TDMA_FLIGHT_PIO";
+
+    assert(resource_arbiter_init());
+    assert(resource_arbiter_acquire_owned(
+        TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK, maintenance_owner));
+    expect_resources_owned(
+        TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK, maintenance_owner);
+
+    assert(!resource_arbiter_acquire_owned(
+        TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK, flight_owner));
+    resource_arbiter_snapshot_t snapshot;
     resource_arbiter_get_snapshot(&snapshot);
-    assert((snapshot.active_resources & resources) == 0u);
+    const uint32_t expected_overlap =
+        TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK &
+        TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK;
+    assert(snapshot.last_conflict_resources == expected_overlap);
+    assert(strcmp(snapshot.last_conflict_owner, flight_owner) == 0);
+    assert(strcmp(snapshot.last_conflict_holder, maintenance_owner) == 0);
+    expect_resources_owned(
+        TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK, maintenance_owner);
+
+    resource_arbiter_release_owned(
+        TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK, maintenance_owner);
+    assert(resource_arbiter_acquire_owned(
+        TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK, flight_owner));
+    expect_resources_owned(
+        TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK, flight_owner);
+
+    resource_arbiter_release_owned(
+        TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK, flight_owner);
+    assert(resource_arbiter_acquire_owned(
+        TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK, maintenance_owner));
+    expect_resources_owned(
+        TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK, maintenance_owner);
+    resource_arbiter_release_owned(
+        TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK, maintenance_owner);
+    expect_resources_unowned(
+        TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK |
+        TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK);
+}
+
+static void test_tdma_conflict_recovery_has_no_partial_lease(void)
+{
+    const char *const maintenance_owner = "TDMA_MAINTENANCE_PIO";
+    const char *const flight_owner = "TDMA_FLIGHT_PIO";
+    const char *const foreign_owner = "FOREIGN_GPIO_DREQ";
+    const uint32_t foreign_resources =
+        RESOURCE_ARBITER_RESOURCE_TDMA_GPIO |
+        RESOURCE_ARBITER_RESOURCE_TDMA_DREQ;
+    const uint32_t flight_only_resources =
+        TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK &
+        ~TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK;
+
+    assert(resource_arbiter_init());
+    assert(resource_arbiter_acquire_owned(
+        TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK, maintenance_owner));
+    resource_arbiter_release_owned(
+        TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK, maintenance_owner);
+    assert(resource_arbiter_acquire_owned(foreign_resources, foreign_owner));
+
+    assert(!resource_arbiter_acquire_owned(
+        TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK, flight_owner));
+    resource_arbiter_snapshot_t snapshot;
+    resource_arbiter_get_snapshot(&snapshot);
+    assert(snapshot.active_resources == foreign_resources);
+    assert(snapshot.last_conflict_resources == foreign_resources);
+    assert(strcmp(snapshot.last_conflict_owner, flight_owner) == 0);
+    assert(strcmp(snapshot.last_conflict_holder, foreign_owner) == 0);
+    expect_resources_unowned(flight_only_resources);
+
+    resource_arbiter_release_owned(
+        TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK, flight_owner);
+    expect_resources_owned(foreign_resources, foreign_owner);
+    resource_arbiter_release_owned(foreign_resources, foreign_owner);
+
+    assert(resource_arbiter_acquire_owned(
+        TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK, maintenance_owner));
+    expect_resources_owned(
+        TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK, maintenance_owner);
+    expect_resources_unowned(flight_only_resources);
+    resource_arbiter_release_owned(
+        TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK, maintenance_owner);
+    expect_resources_unowned(
+        TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK |
+        TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK);
 }
 
 int main(void)
 {
     test_directional_tdma_resources();
+    test_tdma_persona_owner_transfer();
+    test_tdma_conflict_recovery_has_no_partial_lease();
 
     assert(resource_arbiter_mode_is_valid(RESOURCE_ARBITER_MODE_BOOT));
     assert(resource_arbiter_mode_is_valid(RESOURCE_ARBITER_MODE_RUN));

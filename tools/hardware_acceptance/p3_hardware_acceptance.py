@@ -1868,7 +1868,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
         str(timing["status_poll_interval_s"]),
         "--out-dir", str(tdma_dir),
     ]
-    add_serial_timing(tdma_command, timing, action=True)
+    add_serial_timing(tdma_command, timing, action=True, capture=True)
     if config["tdma_capture_waveforms"]:
         tdma_command.append("--capture-waveforms")
     if diagnostic_continue:

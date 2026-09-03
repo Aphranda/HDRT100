@@ -512,6 +512,7 @@ def test_bench_and_orchestrator_cover_full_hardware_acceptance() -> None:
     assert quick["training_sck_min_follower_candidates"] == 2
     assert loaded_quick["training_sck_offsets_by_node"] == [0, 0, 0, 0]
     assert loaded_quick["training_max_offset_span"] == 1
+    assert acceptance_timing(loaded_quick)["p3_capture_timeout_s"] == 20.0
     source = (ROOT / "tools" / "hardware_acceptance" /
               "p3_hardware_acceptance.py").read_text(encoding="utf-8")
     for tool in (
@@ -524,6 +525,12 @@ def test_bench_and_orchestrator_cover_full_hardware_acceptance() -> None:
     ):
         assert tool in source
     assert "--tdma-only" in source
+    tdma_command = source.split("tdma_command = [", 1)[1].split(
+        "print(\"Hardware acceptance: four-Node TDMA", 1)[0]
+    assert (
+        "add_serial_timing(tdma_command, timing, action=True, capture=True)"
+        in tdma_command
+    )
     assert "--diagnostic-continue" in source
     assert 'matrix_command.append("--diagnostic-continue")' in source
     assert '"selected_row_replay_safe"' in source

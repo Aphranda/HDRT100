@@ -37,6 +37,7 @@
   "hardware_acceptance_timing": {
     "serial_settle_s": 0.02,
     "action_timeout_s": 0.05,
+    "p3_capture_timeout_s": 20.0,
     "phase_gap_s": 0.05,
     "input_settle_s": 0.02,
     "output_handoff_s": 0.05

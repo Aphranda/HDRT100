@@ -1,0 +1,4 @@
+#ifndef HOST_STUB_HARDWARE_SPI_H
+#define HOST_STUB_HARDWARE_SPI_H
+
+#endif

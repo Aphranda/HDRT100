@@ -45,7 +45,13 @@ SCK_MATRIX_SCHEMA = "HAOFV_SCK_OFFSET_MATRIX_V2"
 DIAGNOSTIC_DATA_FAILURES = {
     "data_accepted_count",
     "data_gate_failures",
+    "data_repeat_count",
     "data_summary_not_passed",
+}
+DIAGNOSTIC_RESIDENCE_FAILURES = {
+    "residence_failures",
+    "residence_summary_not_passed",
+    "residence_trial_count",
 }
 
 # Mirrors s_tdma_operating_profiles for the fixed TRN-02 profile ladder.
@@ -61,6 +67,15 @@ def ceil_div(numerator: int, denominator: int) -> int:
     if numerator < 0 or denominator <= 0:
         raise ValueError("ceil_div requires non-negative numerator")
     return (numerator + denominator - 1) // denominator
+
+
+def _is_diagnostic_quality_failure(failure: str) -> bool:
+    if failure in DIAGNOSTIC_DATA_FAILURES | DIAGNOSTIC_RESIDENCE_FAILURES:
+        return True
+    return any(
+        failure.startswith(prefix) and failure[len(prefix):].isdigit()
+        for prefix in ("data_link", "residence_link", "residence_loop")
+    )
 
 
 def fnv_u32(value: int, hash_value: int) -> int:
@@ -409,13 +424,12 @@ def build_matrix(level: int, data: dict[str, Any],
                  diagnostic_continue: bool = False,
                  ) -> dict[str, Any]:
     identity, profile_pair_failures = validate_profile_pair(data, residence)
-    diagnostic_data_failures = {
+    diagnostic_quality_failures = {
         failure for failure in profile_pair_failures
-        if failure in DIAGNOSTIC_DATA_FAILURES or
-        failure.startswith("data_link") and failure[9:].isdigit()
+        if _is_diagnostic_quality_failure(failure)
     }
     structural_failures = sorted(
-        set(profile_pair_failures) - diagnostic_data_failures)
+        set(profile_pair_failures) - diagnostic_quality_failures)
     if profile_pair_failures and (
             not diagnostic_continue or structural_failures):
         raise ValueError(
@@ -432,6 +446,24 @@ def build_matrix(level: int, data: dict[str, Any],
     residence_links = indexed(
         residence_matrix["links"], "link_index", count, "residence links")
     loops = indexed(residence_matrix["loops"], "node", count, "loops")
+    residence_gate_failures = sorted(
+        failure for failure in diagnostic_quality_failures
+        if failure.startswith("residence_"))
+    residence_fallbacks: list[dict[str, Any]] = []
+
+    observed_residence_ticks = [
+        int(link["selected_forward_residence_ticks"])
+        for link in residence_links.values()
+        if isinstance(link.get("selected_forward_residence_ticks"), int) and
+        not isinstance(link.get("selected_forward_residence_ticks"), bool) and
+        int(link["selected_forward_residence_ticks"]) > 0
+    ]
+    observed_loop_ticks = [
+        int(value)
+        for loop in loops.values()
+        for value in loop.get("loop_delay_ticks", [])
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0
+    ]
     trials_by_link: dict[int, list[dict[str, Any]]] = {
         index: [] for index in range(count)
     }
@@ -456,6 +488,8 @@ def build_matrix(level: int, data: dict[str, Any],
         [0] for _ in range(count)]
     selected_sck_offsets_by_node = [0] * count
     sck_link_bases: list[int] | None = None
+    sck_gate_failures: list[str] = []
+    sck_link_gate_failures: list[dict[str, Any]] = []
     sck_selection: dict[str, Any] = {
         "requested_offset_sample_counts_by_node":
             list(selected_sck_offsets_by_node),
@@ -468,12 +502,44 @@ def build_matrix(level: int, data: dict[str, Any],
         "candidate_row_count": 1,
     }
     if sck is not None:
-        if (sck.get("phase") != "TRN-01_SCK_OFFSET_MATRIX" or
-                not bool(sck.get("passed")) or node_order(sck) != nodes):
+        if sck.get("phase") != "TRN-01_SCK_OFFSET_MATRIX":
             raise ValueError("SCK evidence gate failed")
+        if node_order(sck) != nodes:
+            raise ValueError("SCK node order does not match DATA evidence")
+        if not bool(sck.get("passed")):
+            sck_gate_failures.append("sck_summary_not_passed")
         sck_matrix_gate = sck.get("matrix")
-        if not isinstance(sck_matrix_gate, dict) or not bool(
-                sck_matrix_gate.get("passed")):
+        if not isinstance(sck_matrix_gate, dict):
+            raise ValueError("SCK repeat matrix is missing")
+        if not bool(sck_matrix_gate.get("passed")):
+            sck_gate_failures.append("sck_matrix_not_passed")
+        raw_sck_gate_failures = sck_matrix_gate.get("gate_failures", [])
+        if not isinstance(raw_sck_gate_failures, list):
+            raise ValueError("SCK repeat matrix gate failures are invalid")
+        sck_gate_failures.extend(
+            f"sck_matrix_gate:{failure}"
+            for failure in raw_sck_gate_failures)
+        raw_sck_links = sck_matrix_gate.get("links", [])
+        if not isinstance(raw_sck_links, list):
+            raise ValueError("SCK repeat matrix links are invalid")
+        for link in raw_sck_links:
+            if not isinstance(link, dict):
+                raise ValueError("SCK repeat matrix link is invalid")
+            link_failures = link.get("gate_failures", [])
+            if not isinstance(link_failures, list):
+                raise ValueError("SCK link gate failures are invalid")
+            if not bool(link.get("passed")) or link_failures:
+                link_index = int(link.get("link", -1))
+                if not 0 <= link_index < count:
+                    raise ValueError("SCK link index is outside matrix")
+                sck_link_gate_failures.append({
+                    "link": link_index,
+                    "passed": bool(link.get("passed")),
+                    "gate_failures": list(link_failures),
+                })
+                sck_gate_failures.append(f"sck_link{link_index}")
+        sck_gate_failures = sorted(set(sck_gate_failures))
+        if sck_gate_failures and not diagnostic_continue:
             raise ValueError("SCK repeat matrix is not accepted")
         sck_identity = singleton_identity(sck)
         for field in (*IDENTITY_FIELDS, "sample_period_ns"):
@@ -683,9 +749,56 @@ def build_matrix(level: int, data: dict[str, Any],
             set(calibrated_data_offsets))
         selected_data_offsets_by_node[data_destination] = selected_data_offset
 
-        residence_ticks = int(
-            residence_link["selected_forward_residence_ticks"])
-        loop_ticks = [int(value) for value in loops[index]["loop_delay_ticks"]]
+        raw_residence_ticks = residence_link.get(
+            "selected_forward_residence_ticks")
+        if (isinstance(raw_residence_ticks, int) and
+                not isinstance(raw_residence_ticks, bool) and
+                raw_residence_ticks > 0):
+            residence_ticks = int(raw_residence_ticks)
+            residence_selection = "measured_median"
+        elif diagnostic_continue:
+            residence_ticks = max(observed_residence_ticks, default=1)
+            residence_selection = "diagnostic_max_observed_residence"
+            residence_fallbacks.append({
+                "link": index,
+                "field": "selected_forward_residence_ticks",
+                "selected": residence_ticks,
+                "selection": residence_selection,
+            })
+        else:
+            raise ValueError(
+                f"link{index} has no positive forward residence evidence")
+
+        raw_loop_ticks = loops[index].get("loop_delay_ticks", [])
+        if not isinstance(raw_loop_ticks, list):
+            raise ValueError(f"node{index} loop delay evidence is invalid")
+        loop_ticks = [
+            int(value) for value in raw_loop_ticks
+            if isinstance(value, int) and not isinstance(value, bool) and
+            value > 0
+        ]
+        if len(loop_ticks) != len(raw_loop_ticks):
+            raise ValueError(f"node{index} loop delay evidence is invalid")
+        if loop_ticks:
+            loop_selection = "measured_max"
+        elif diagnostic_continue:
+            if observed_loop_ticks:
+                fallback_loop_ticks = max(observed_loop_ticks)
+                loop_selection = "diagnostic_max_observed_loop_delay"
+            else:
+                fallback_loop_ticks = max(
+                    1, sum(observed_residence_ticks))
+                loop_selection = (
+                    "diagnostic_sum_observed_forward_residence")
+            loop_ticks = [fallback_loop_ticks]
+            residence_fallbacks.append({
+                "node": index,
+                "field": "loop_delay_ticks",
+                "selected": fallback_loop_ticks,
+                "selection": loop_selection,
+            })
+        else:
+            raise ValueError(f"node{index} has no positive loop delay evidence")
         forward_residence_ns = residence_ticks * sample_period_ns
         loop_delay_ns = max(loop_ticks) * sample_period_ns
         marker_to_data_ns = marker_to_data_samples[0] * sample_period_ns
@@ -754,7 +867,9 @@ def build_matrix(level: int, data: dict[str, Any],
                 "forward_residence_ticks": residence_link[
                     "forward_residence_ticks"],
                 "selected_forward_residence_ticks": residence_ticks,
+                "forward_residence_selection": residence_selection,
                 "loop_delay_ticks": loop_ticks,
+                "loop_delay_selection": loop_selection,
             },
         })
 
@@ -817,6 +932,7 @@ def build_matrix(level: int, data: dict[str, Any],
     matrix_passed = (
         not profile_pair_failures and
         not rejected_data_trials and
+        not sck_gate_failures and
         sck_replay_safe)
     result = {
         "schema": MATRIX_SCHEMA,
@@ -860,8 +976,12 @@ def build_matrix(level: int, data: dict[str, Any],
             "residence_selection": "matrix.selected_forward_residence_ticks",
             "loop_selection": "max(loop_delay_ticks) per source node",
             "sck_replay_selection": sck_selection,
+            "sck_gate_failures": sck_gate_failures,
+            "sck_link_gate_failures": sck_link_gate_failures,
             "profile_pair_failures": profile_pair_failures,
             "structural_failures": structural_failures,
+            "residence_gate_failures": residence_gate_failures,
+            "residence_fallbacks": residence_fallbacks,
             "data_link_gate_failures": [
                 {
                     "link": index,

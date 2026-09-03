@@ -144,6 +144,14 @@ class ProgressReporter:
             payload, ensure_ascii=False, separators=(",", ":")), flush=True)
 
 
+class ArmRejectedError(RuntimeError):
+    """Preserve the ARM rejection evidence across final cleanup."""
+
+    def __init__(self, message: str, evidence: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.evidence = evidence
+
+
 def merge_error(current: str, new_error: str) -> str:
     if not current:
         return new_error
@@ -383,7 +391,8 @@ def running_handoff_allows_leave_running(
     return all(bool(item.get("passed")) for item in handoff.values())
 
 
-def arm_with_evidence(board: Board, args: argparse.Namespace) -> dict[str, Any]:
+def arm_with_evidence(board: Board, args: argparse.Namespace,
+                      node_index: int = 0) -> dict[str, Any]:
     """ARM one Node and prove that an ACK timeout did not hide rejection."""
     drained = drain_errors(board, args)
     response = board_command(board, "SYSTem:TDMA:RING:ARM", args)
@@ -393,8 +402,20 @@ def arm_with_evidence(board: Board, args: argparse.Namespace) -> dict[str, Any]:
     try:
         arm_result = int(status_raw, 0)
     except ValueError as exc:
-        raise RuntimeError(
-            f"{board.address}: invalid ARM status {status_raw!r}") from exc
+        evidence = {
+            "node": board.address,
+            "action": "ARM",
+            "response": response,
+            "arm_status_raw": status_raw,
+            "arm_result": None,
+            "errors_drained_before": drained,
+            "error_after": error_after,
+            "passed": False,
+        }
+        evidence.update(arm_failure_snapshot(board, args, node_index))
+        raise ArmRejectedError(
+            f"{board.address}: invalid ARM status {status_raw!r}",
+            evidence) from exc
     evidence = {
         "node": board.address,
         "action": "ARM",
@@ -402,11 +423,26 @@ def arm_with_evidence(board: Board, args: argparse.Namespace) -> dict[str, Any]:
         "arm_result": arm_result,
         "errors_drained_before": drained,
         "error_after": error_after,
+        "passed": arm_result == 1 and error_is_clear(error_after),
     }
-    if arm_result != 1 or not error_is_clear(error_after):
-        raise RuntimeError(
+    if not evidence["passed"]:
+        evidence.update(arm_failure_snapshot(board, args, node_index))
+        raise ArmRejectedError(
             f"{board.address}: ARM rejected, arm_result={arm_result}, "
-            f"error={error_after!r}")
+            f"error={error_after!r}", evidence)
+    return evidence
+
+
+def record_arm_with_evidence(board: Board, args: argparse.Namespace,
+                             node_index: int,
+                             actions: list[dict[str, Any]]) -> dict[str, Any]:
+    """Record both accepted and rejected ARM actions before cleanup."""
+    try:
+        evidence = arm_with_evidence(board, args, node_index)
+    except ArmRejectedError as exc:
+        actions.append(exc.evidence)
+        raise
+    actions.append(evidence)
     return evidence
 
 
@@ -637,6 +673,29 @@ def crc_diagnostic_snapshot(board: Board,
     return parse_snapshot(
         board_command(board, "SYSTem:TDMA:FLIGHT:CRC:DIAGnostic?", args),
         CRC_DIAGNOSTIC_FIELDS, f"{board.address}:crc_diagnostic")
+
+
+def arm_failure_snapshot(board: Board, args: argparse.Namespace,
+                         node_index: int) -> dict[str, Any]:
+    """Capture independent Core0 snapshots before STOP clears PHY errors."""
+    readers = (
+        ("physical", lambda: physical_snapshot(board, args)),
+        ("runtime", lambda: runtime_snapshot(board, args, node_index)),
+        ("flight", lambda: flight_snapshot(board, args)),
+        ("crc_diagnostic", lambda: crc_diagnostic_snapshot(board, args)),
+    )
+    snapshots: dict[str, Any] = {}
+    errors: dict[str, str] = {}
+    for name, reader in readers:
+        try:
+            snapshots[name] = reader()
+        except Exception as exc:  # noqa: BLE001 - retain partial evidence
+            snapshots[name] = None
+            errors[name] = f"{type(exc).__name__}: {exc}"
+    return {
+        "failure_snapshot": snapshots,
+        "failure_snapshot_errors": errors,
+    }
 
 
 def sample_node(board: Board, args: argparse.Namespace,
@@ -1806,7 +1865,8 @@ def main() -> int:
                 fifo_seed[board.address] = {
                     "passed": True, "errors": [], "deltas": {}}
         for board in start_order:
-            actions.append(arm_with_evidence(board, args))
+            record_arm_with_evidence(
+                board, args, board_ids.index(board.address), actions)
             progress.emit(
                 "board_armed", board_id=board.address,
                 completed=len([action for action in actions

@@ -243,3 +243,29 @@ def test_calibration_transfers_owner_only_after_incremental_unload() -> None:
     unload = start.index("tdma_pio_spi_phys_cal_unload_source_step")
     transfer = start.index("tdma_pio_spi_programs_transfer_resources")
     assert unload < transfer
+
+
+def test_host_aggregate_runs_resource_and_persona_runtime_gates() -> None:
+    aggregate = (ROOT / "tools/tests/run_host_unit_tests.ps1").read_text(
+        encoding="utf-8"
+    )
+    resource_gate = aggregate.index('"run_resource_arbiter_tests.ps1"')
+    persona_gate = aggregate.index(
+        '"run_tdma_pio_spi_persona_fsm_tests.ps1"'
+    )
+    assert resource_gate < persona_gate
+
+    resource_test = (ROOT / "tests/unit/test_resource_arbiter.c").read_text(
+        encoding="utf-8"
+    )
+    for token in (
+        "TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK",
+        "TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK",
+        "RESOURCE_ARBITER_RESOURCE_TDMA_GPIO",
+        "RESOURCE_ARBITER_RESOURCE_TDMA_DREQ",
+        "last_conflict_resources",
+        "last_conflict_owner",
+        "last_conflict_holder",
+        "test_tdma_conflict_recovery_has_no_partial_lease",
+    ):
+        assert token in resource_test

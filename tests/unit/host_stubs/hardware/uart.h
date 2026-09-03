@@ -1,0 +1,4 @@
+#ifndef HOST_STUB_HARDWARE_UART_H
+#define HOST_STUB_HARDWARE_UART_H
+
+#endif

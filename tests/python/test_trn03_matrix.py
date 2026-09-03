@@ -285,6 +285,52 @@ def test_build_matrix_diagnostic_selects_best_unsafe_sck_row(
         "sck_offset_sample_counts_by_node"] == [0, 0, 1, 0]
 
 
+def test_build_matrix_diagnostic_records_sck_quality_gate() -> None:
+    data, residence = evidence(7)
+    sck = sck_evidence(data)
+    sck["passed"] = False
+    sck["matrix"]["passed"] = False
+    sck["matrix"]["gate_failures"] = ["link_repeat_gate"]
+    sck["matrix"]["links"] = [
+        {
+            "link": link,
+            "passed": link != 1,
+            "gate_failures": ["candidate_coverage"] if link == 1 else [],
+        }
+        for link in range(4)
+    ]
+
+    with pytest.raises(ValueError, match="SCK repeat matrix is not accepted"):
+        build_matrix(7, data, residence, sck=sck)
+
+    matrix = build_matrix(
+        7, data, residence, sck=sck, diagnostic_continue=True)
+    assert matrix["passed"] is False
+    assert matrix["diagnostic_continue"] is True
+    assert matrix["derivation"]["sck_gate_failures"] == [
+        "sck_link1",
+        "sck_matrix_gate:link_repeat_gate",
+        "sck_matrix_not_passed",
+        "sck_summary_not_passed",
+    ]
+    assert matrix["derivation"]["sck_link_gate_failures"] == [{
+        "link": 1,
+        "passed": False,
+        "gate_failures": ["candidate_coverage"],
+    }]
+
+
+def test_build_matrix_diagnostic_rejects_sck_structure_mismatch() -> None:
+    data, residence = evidence(7)
+    sck = sck_evidence(data)
+    sck["passed"] = False
+    sck["phase"] = "TRN-01_WRONG_PHASE"
+
+    with pytest.raises(ValueError, match="SCK evidence gate failed"):
+        build_matrix(
+            7, data, residence, sck=sck, diagnostic_continue=True)
+
+
 def test_build_matrix_diagnostic_skips_failed_data_trial() -> None:
     data, residence = evidence(7)
     failed = data["trials"][-1]
@@ -328,6 +374,57 @@ def test_build_matrix_diagnostic_skips_failed_data_trial() -> None:
     assert matrix["links"][3]["source_evidence"][
         "accepted_trial_count"] == 2
     assert matrix["links"][3]["data_offset_sample_count"] == 5
+
+
+def test_build_matrix_diagnostic_records_residence_quality_and_fallbacks(
+        ) -> None:
+    data, residence = evidence(7)
+    residence["passed"] = False
+    residence["matrix"]["passed"] = False
+    residence["matrix"]["failures"] = [
+        "trial_2_records", "trial_3_records"]
+    for link in residence["matrix"]["links"]:
+        link["forward_residence_ticks"] = [1]
+        link["repeat_count"] = 1
+        link["passed"] = False
+    residence["matrix"]["loops"][2]["loop_delay_ticks"] = []
+    residence["matrix"]["loops"][3]["loop_delay_ticks"] = []
+
+    with pytest.raises(ValueError, match="TRN-02 evidence gate failed"):
+        build_matrix(7, data, residence)
+
+    matrix = build_matrix(
+        7, data, residence, diagnostic_continue=True)
+    derivation = matrix["derivation"]
+    assert matrix["passed"] is False
+    assert derivation["structural_failures"] == []
+    assert derivation["residence_gate_failures"] == [
+        "residence_failures",
+        "residence_link0",
+        "residence_link1",
+        "residence_link2",
+        "residence_link3",
+        "residence_loop2",
+        "residence_loop3",
+        "residence_summary_not_passed",
+    ]
+    assert derivation["residence_fallbacks"] == [
+        {
+            "node": 2,
+            "field": "loop_delay_ticks",
+            "selected": 11,
+            "selection": "diagnostic_max_observed_loop_delay",
+        },
+        {
+            "node": 3,
+            "field": "loop_delay_ticks",
+            "selected": 11,
+            "selection": "diagnostic_max_observed_loop_delay",
+        },
+    ]
+    assert matrix["links"][2]["source_evidence"][
+        "loop_delay_selection"] == "diagnostic_max_observed_loop_delay"
+    assert matrix["links"][2]["loop_delay_cycles"] == 3
 
 
 def test_load_config_diagnostic_records_unsafe_data_replay() -> None:

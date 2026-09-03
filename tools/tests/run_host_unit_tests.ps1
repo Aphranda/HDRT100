@@ -34,6 +34,7 @@ $scripts = @(
     "run_refmem_quality_tests.ps1",
     "run_refmem_realtime_tdma_tests.ps1",
     "run_refmem_realtime_contract_tests.ps1",
+    "run_resource_arbiter_tests.ps1",
     "run_tdma_profile_tests.ps1",
     "run_tdma_payload_registry_tests.ps1",
     "run_tdma_process_image_map_tests.ps1",
@@ -49,6 +50,7 @@ $scripts = @(
     "run_refmem_table_registry_tests.ps1",
     "run_refmem_vdc_bridge_tests.ps1",
     "run_refmem_vdc_vector_tests.ps1",
+    "run_tdma_pio_spi_persona_fsm_tests.ps1",
     "run_tdma_pio_spi_ring_adapter_tests.ps1",
     "run_sma_cable_delay_tests.ps1",
     "run_vdc_domain_tests.ps1"
