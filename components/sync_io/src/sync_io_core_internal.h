@@ -8,17 +8,13 @@
 #include "hardware/pio.h"
 #include "pico/types.h"
 #include "sync_io.h"
+#include "sync_io_persona_resources.h"
 
 #define SYNC_IO_TRACE_INFO  1u
 #define SYNC_IO_TRACE_WARN  2u
 #define SYNC_IO_TRACE_ERROR 3u
-#define SYNC_IO_SEQ_STEP_DMA_CH  0u
-#define SYNC_IO_ENC_COUNT_DMA_CH 1u
-#define SYNC_IO_MODEL_PULSE_DMA_CH 2u
-#define SYNC_IO_CAPTURE_DMA_CH 3u
 #define SYNC_IO_SHARED_DMA_IRQ   DMA_IRQ_0
 #define SYNC_IO_DMA_OVERFLOW_DELTA_THRESHOLD 1u
-#define SYNC_IO_SHARED_WORKSPACE_WORDS 8192u
 
 /* Maintenance pulse schedules and SMA capture never own the DMA workspace at
  * the same time.  The owner checks below serialize those personas while this

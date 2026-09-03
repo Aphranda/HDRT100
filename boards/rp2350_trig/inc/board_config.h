@@ -259,6 +259,13 @@
 #define BOARD_SYNC_QUALIFIER_SM BOARD_SYNC_RJ45_TRIG_IN_SM
 #define BOARD_SYNC_ARM_SM 3u
 
+/* PIO0 persona role slots. These are resource-contract identities only;
+ * migration targets do not change the active runtime PIO mapping. */
+#define BOARD_SYNC_PIO0_INPUT_CAPTURE_SM BOARD_SYNC_CAPTURE_SM
+#define BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM BOARD_SYNC_SMA_OBSERVER_SM
+#define BOARD_SYNC_PIO0_WAVE_OUTPUT_SM 2u
+#define BOARD_SYNC_PIO0_LOGIC_ANALYZER_SM BOARD_SYNC_CAPTURE_SM
+
 #define BOARD_SYNC_AUX0_SM 0u
 #define BOARD_SYNC_AUX1_SM 1u
 #define BOARD_SYNC_AUX2_SM 2u

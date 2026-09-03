@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "resource_arbiter.h"
+#include "sync_io_persona_resources.h"
 #include "tdma_state_machine_resources.h"
 
 /* Host-only OSAL stubs.  The arbiter contract is independent of the target
@@ -195,12 +196,172 @@ static void test_tdma_conflict_recovery_has_no_partial_lease(void)
         TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK);
 }
 
+static const sync_io_persona_descriptor_t *sync_persona(
+    sync_io_persona_id_t id)
+{
+    const sync_io_persona_descriptor_t *descriptor =
+        sync_io_persona_descriptor(id);
+    assert(descriptor != NULL);
+    assert(sync_io_persona_descriptor_valid(descriptor));
+    return descriptor;
+}
+
+static void test_sync_io_persona_catalog(void)
+{
+    assert(sync_io_persona_catalog_valid());
+    assert(sync_io_persona_descriptor_count() ==
+           (size_t)SYNC_IO_PERSONA_ID_COUNT - 1u);
+    assert(sync_io_persona_descriptor(SYNC_IO_PERSONA_ID_NONE) == NULL);
+    assert(sync_io_persona_descriptor(SYNC_IO_PERSONA_ID_COUNT) == NULL);
+    assert(sync_io_persona_descriptor_by_index(
+               sync_io_persona_descriptor_count()) == NULL);
+
+    const sync_io_persona_descriptor_t *capture =
+        sync_persona(SYNC_IO_PERSONA_ID_INPUT_CAPTURE);
+    assert(capture->implementation ==
+           SYNC_IO_PERSONA_IMPLEMENTATION_CURRENT);
+    assert(capture->pio_block_id == BOARD_TDMA_SMA_PIO_BLOCK_ID);
+    assert(capture->sm_mask ==
+           (1u << BOARD_SYNC_PIO0_INPUT_CAPTURE_SM));
+    assert(capture->rx_fifo_sm_mask == capture->sm_mask);
+    assert(capture->tx_fifo_sm_mask == 0u);
+    assert(capture->dma_channel_mask ==
+           (1u << SYNC_IO_CAPTURE_DMA_CH));
+    assert(capture->rx_dreq_sm_mask == capture->sm_mask);
+    assert(capture->workspace_mask ==
+           SYNC_IO_PERSONA_WORKSPACE_CAPTURE_SCHEDULE);
+
+    const sync_io_persona_descriptor_t *scheduled =
+        sync_persona(SYNC_IO_PERSONA_ID_SCHEDULED_TRIGGER);
+    assert(scheduled->implementation ==
+           SYNC_IO_PERSONA_IMPLEMENTATION_MIGRATION_TARGET);
+    assert(scheduled->sm_mask ==
+           (1u << BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM));
+    assert(scheduled->tx_fifo_sm_mask == scheduled->sm_mask);
+    assert(scheduled->dma_channel_mask ==
+           (1u << SYNC_IO_MODEL_PULSE_DMA_CH));
+    assert(scheduled->tx_dreq_sm_mask == scheduled->sm_mask);
+    assert(scheduled->safe_low_gpio_mask != 0u);
+
+    const sync_io_persona_descriptor_t *wave =
+        sync_persona(SYNC_IO_PERSONA_ID_WAVE_OUTPUT);
+    assert(wave->implementation ==
+           SYNC_IO_PERSONA_IMPLEMENTATION_MIGRATION_TARGET);
+    assert(wave->sm_mask == (1u << BOARD_SYNC_PIO0_WAVE_OUTPUT_SM));
+    assert(wave->gpio_write_mask != 0u);
+    assert(wave->safe_low_gpio_mask == wave->gpio_write_mask);
+    assert(wave->dma_channel_count == 0u);
+
+    const sync_io_persona_descriptor_t *analyzer =
+        sync_persona(SYNC_IO_PERSONA_ID_LOGIC_ANALYZER);
+    assert(analyzer->implementation ==
+           SYNC_IO_PERSONA_IMPLEMENTATION_MIGRATION_TARGET);
+    assert((analyzer->flags & SYNC_IO_PERSONA_FLAG_READ_ONLY_PAD) != 0u);
+    assert(analyzer->gpio_read_mask != 0u);
+    assert(analyzer->gpio_write_mask == 0u);
+    assert(analyzer->tx_fifo_sm_mask == 0u);
+    assert(analyzer->safe_low_gpio_mask == 0u);
+
+    const sync_io_persona_descriptor_t *calibration =
+        sync_persona(SYNC_IO_PERSONA_ID_SMA_CALIBRATION);
+    assert(calibration->implementation ==
+           SYNC_IO_PERSONA_IMPLEMENTATION_COMPATIBILITY);
+    assert((calibration->flags & SYNC_IO_PERSONA_FLAG_EXCLUSIVE_PIO) != 0u);
+    assert(calibration->sm_mask == SYNC_IO_PERSONA_PIO_SM_MASK);
+    assert(calibration->instruction_words ==
+           SYNC_IO_SMA_PERSONA_MAX_INSTRUCTION_WORDS);
+}
+
+static void test_sync_io_persona_compatibility_matrix(void)
+{
+    const sync_io_persona_descriptor_t *capture =
+        sync_persona(SYNC_IO_PERSONA_ID_INPUT_CAPTURE);
+    const sync_io_persona_descriptor_t *scheduled =
+        sync_persona(SYNC_IO_PERSONA_ID_SCHEDULED_TRIGGER);
+    const sync_io_persona_descriptor_t *wave =
+        sync_persona(SYNC_IO_PERSONA_ID_WAVE_OUTPUT);
+    const sync_io_persona_descriptor_t *analyzer =
+        sync_persona(SYNC_IO_PERSONA_ID_LOGIC_ANALYZER);
+    const sync_io_persona_descriptor_t *maintenance =
+        sync_persona(SYNC_IO_PERSONA_ID_SMA_MAINTENANCE);
+    sync_io_persona_compatibility_t result;
+
+    assert(sync_io_persona_compatible(capture, wave, &result));
+    assert(result.compatible);
+    assert(result.conflict_mask == SYNC_IO_PERSONA_CONFLICT_NONE);
+
+    assert(sync_io_persona_compatible(analyzer, wave, &result));
+    assert(result.gpio_conflict_mask == 0u);
+
+    assert(!sync_io_persona_compatible(capture, analyzer, &result));
+    assert((result.conflict_mask & SYNC_IO_PERSONA_CONFLICT_SM) != 0u);
+    assert((result.conflict_mask & SYNC_IO_PERSONA_CONFLICT_FIFO) != 0u);
+    assert((result.conflict_mask & SYNC_IO_PERSONA_CONFLICT_DMA) != 0u);
+    assert((result.conflict_mask & SYNC_IO_PERSONA_CONFLICT_DREQ) != 0u);
+    assert((result.conflict_mask & SYNC_IO_PERSONA_CONFLICT_WORKSPACE) != 0u);
+
+    assert(!sync_io_persona_compatible(capture, scheduled, &result));
+    assert((result.conflict_mask & SYNC_IO_PERSONA_CONFLICT_WORKSPACE) != 0u);
+    assert((result.conflict_mask & SYNC_IO_PERSONA_CONFLICT_SM) == 0u);
+
+    assert(!sync_io_persona_compatible(scheduled, wave, &result));
+    assert((result.conflict_mask & SYNC_IO_PERSONA_CONFLICT_GPIO) != 0u);
+
+    assert(!sync_io_persona_compatible(maintenance, wave, &result));
+    assert((result.conflict_mask &
+            SYNC_IO_PERSONA_CONFLICT_EXCLUSIVE_PIO) != 0u);
+}
+
+static void test_sync_io_persona_descriptor_negative_cases(void)
+{
+    sync_io_persona_descriptor_t invalid =
+        *sync_persona(SYNC_IO_PERSONA_ID_INPUT_CAPTURE);
+
+    invalid.sm_mask = 0u;
+    assert(!sync_io_persona_descriptor_valid(&invalid));
+
+    invalid = *sync_persona(SYNC_IO_PERSONA_ID_INPUT_CAPTURE);
+    invalid.instruction_words =
+        SYNC_IO_PERSONA_PIO_INSTRUCTION_CAPACITY + 1u;
+    assert(!sync_io_persona_descriptor_valid(&invalid));
+
+    invalid = *sync_persona(SYNC_IO_PERSONA_ID_LOGIC_ANALYZER);
+    invalid.gpio_write_mask = 1u;
+    assert(!sync_io_persona_descriptor_valid(&invalid));
+
+    invalid = *sync_persona(SYNC_IO_PERSONA_ID_INPUT_CAPTURE);
+    invalid.rx_fifo_sm_mask = 0u;
+    assert(!sync_io_persona_descriptor_valid(&invalid));
+
+    invalid = *sync_persona(SYNC_IO_PERSONA_ID_WAVE_OUTPUT);
+    invalid.safe_low_gpio_mask |= 1u << BOARD_SYNC_INPUT_BASE_PIN;
+    assert(!sync_io_persona_descriptor_valid(&invalid));
+
+    invalid = *sync_persona(SYNC_IO_PERSONA_ID_INPUT_CAPTURE);
+    invalid.dma_channel_count = 2u;
+    assert(!sync_io_persona_descriptor_valid(&invalid));
+
+    sync_io_persona_descriptor_t first =
+        *sync_persona(SYNC_IO_PERSONA_ID_INPUT_CAPTURE);
+    sync_io_persona_descriptor_t second =
+        *sync_persona(SYNC_IO_PERSONA_ID_WAVE_OUTPUT);
+    first.instruction_words = 20u;
+    second.instruction_words = 20u;
+    sync_io_persona_compatibility_t result;
+    assert(!sync_io_persona_compatible(&first, &second, &result));
+    assert((result.conflict_mask &
+            SYNC_IO_PERSONA_CONFLICT_INSTRUCTION_SPACE) != 0u);
+}
+
 int main(void)
 {
     test_directional_tdma_resources();
     test_tdma_rx_endpoint_contract();
     test_tdma_persona_owner_transfer();
     test_tdma_conflict_recovery_has_no_partial_lease();
+    test_sync_io_persona_catalog();
+    test_sync_io_persona_compatibility_matrix();
+    test_sync_io_persona_descriptor_negative_cases();
 
     assert(resource_arbiter_mode_is_valid(RESOURCE_ARBITER_MODE_BOOT));
     assert(resource_arbiter_mode_is_valid(RESOURCE_ARBITER_MODE_RUN));
