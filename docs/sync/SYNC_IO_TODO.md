@@ -74,7 +74,7 @@ Last updated: 2026-09-05
 | SYNC-RES-003 | 将 `WAVE_OUTPUT` / `SCHEDULED_TRIGGER` 从 TDMA TX PIO 迁入 PIO0 owner | DONE | 输出与预约触发由 PIO0 persona manager 装载并运行；旧 PIO1 suspend/resume handoff 已删除；四节点 OTA、TDMA 短帧和 SD 原始证据通过。 |
 | SYNC-LA-001 | 定义逻辑分析仪 config、capture record、runtime snapshot 和结束 reason | DONE | API 不暴露任意 GPIO 写；只读 pad mask 复用 persona descriptor；profile/source/persona generation、门禁原因、原始观测、调试有界继续和硬停类别可追溯。 |
 | SYNC-LA-002 | 实现 `RAW_SAMPLE` 短窗口采集 | IN PROGRESS | bounded SRAM record ring、wrap/CRC、drop/overrun、真实 PIO/DMA backend、Core1 bounded service、异步 ARM/STOP、只读状态、短窗口运行/停止和 TDMA 无扰动证据已完成；Core0 drain/StorageAO 与持久化完整性仍待完成。 |
-| SYNC-LA-003 | 实现 `EDGE_TIMESTAMP` 长时间采集 | PENDING | PIO hardware tick 记录 edge mask/level；空闲期无无界数据；wrap 和时间连续性可恢复。 |
+| SYNC-LA-003 | 实现 `EDGE_TIMESTAMP` 长时间采集 | IN PROGRESS | 真实 PIO/DMA edge-only 发布路径已实现并通过 host/build；仍需 TDMA 短帧闭环、长时间 wrap/时间连续性和 SD 背压证据。 |
 | SYNC-LA-004 | 实现 `TRIGGERED_CAPTURE` 前后窗口 | PENDING | level/edge/pattern trigger、bounded pre/post window、timeout/end reason 和重复 ARM 测试通过。 |
 | SYNC-LA-005 | 接入 Core1 snapshot、Core0 drain 和 StorageAO | IN PROGRESS | Core0 bounded drain、STOP 后 active/shadow 缓冲交接和 StorageAO 持久化已通过四板 TDMA 无扰动验收；慢写期间 drop evidence 与更长时间背压验证仍待完成。 |
 | SYNC-LA-006 | 建立离线 decoder、波形图和分析元数据 | IN PROGRESS | SLAY decoder、SVG 波形和 profile/source/timebase 扩展 header 已完成并通过验收；drop interval 标注和完整 SD 批量导出索引仍待完成。 |
