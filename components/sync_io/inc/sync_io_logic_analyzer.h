@@ -166,6 +166,7 @@ typedef struct {
     sync_io_logic_analyzer_record_t *records;
     sync_io_logic_analyzer_config_t config;
     uint32_t capacity;
+    uint32_t capture_sequence;
     uint32_t write_index;
     uint32_t read_index;
     uint32_t produced_records;

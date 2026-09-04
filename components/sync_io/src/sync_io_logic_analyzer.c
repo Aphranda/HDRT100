@@ -18,6 +18,7 @@ _Static_assert(SYNC_IO_LOGIC_ANALYZER_MAX_RECORDS > 0u,
                "logic analyzer workspace must hold at least one record");
 
 static sync_io_logic_analyzer_persona_t *s_active_persona;
+static uint32_t s_next_capture_sequence;
 
 typedef struct {
     volatile uint32_t request_sequence;
@@ -284,7 +285,7 @@ size_t sync_io_logic_analyzer_hw_service(uint32_t max_records)
             }
             sync_io_logic_analyzer_record_t record = {
                 .hardware_tick = 0u,
-                .capture_sequence = 1u,
+                .capture_sequence = s_hw.capture->capture_sequence,
                 .record_sequence = s_hw.sequence++,
                 .level_mask = level,
                 .edge_mask = edge,
@@ -300,7 +301,7 @@ size_t sync_io_logic_analyzer_hw_service(uint32_t max_records)
         }
         sync_io_logic_analyzer_record_t record = {
             .hardware_tick = 0u,
-            .capture_sequence = 1u,
+            .capture_sequence = s_hw.capture->capture_sequence,
             .record_sequence = s_hw.sequence++,
             .level_mask = level,
             .edge_mask = 0u,
@@ -898,6 +899,10 @@ bool sync_io_logic_analyzer_raw_capture_init(
     capture->records = records;
     capture->config = accepted_config;
     capture->capacity = capacity;
+    capture->capture_sequence = ++s_next_capture_sequence;
+    if (capture->capture_sequence == 0u) {
+        capture->capture_sequence = ++s_next_capture_sequence;
+    }
     capture->state = SYNC_IO_LOGIC_ANALYZER_STATE_ARMED;
     capture->initialized = true;
     return true;
@@ -993,7 +998,7 @@ bool sync_io_logic_analyzer_raw_capture_snapshot(
     snapshot->state = capture->state;
     snapshot->mode = capture->config.mode;
     snapshot->end_reason = capture->end_reason;
-    snapshot->capture_sequence = 1u;
+    snapshot->capture_sequence = capture->capture_sequence;
     snapshot->source_mask = capture->config.source_mask;
     snapshot->profile_generation = capture->config.expected_profile_generation;
     snapshot->persona_generation = capture->config.expected_persona_generation;

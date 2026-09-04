@@ -86,10 +86,32 @@ Last updated: 2026-09-05
   COM3/COM4/COM5/COM6 的 EDGE ARM/STOP HIL 均确认 `ANALyzer:STATe?` 在 ARM 后
   `active=1, mode=2 (EDGE_TIMESTAMP)`，且 TDMA RX/TX sequence 前进、错误增量为零。
   证据目录：`out/hardware-acceptance/sync-la-011-edge-scpi-20260905/`。
+  同一 ring 窗口的双 ARM/STOP HIL 还确认两次 `capture_sequence` 不同且非零，
+  证据写入 `analyzer-control-*-r*.json`。
 - 失败保留：同轮 `--tdma-only` 总结的 `diagnostic_passed=false` 仅因既有 ring
   capture completeness/SD 采集诊断失败；短帧闭环本身通过，未触发不可恢复安全硬停。
 - 边界：当前 EDGE 仍需长时间 wrap、真实 edge record 连续性和 SD 背压验证，
   `SYNC-LA-003` 与 `SYNC-LA-005` 保持 `IN PROGRESS`。
+
+### SYNC-PROGRESS-20260905-012 - capture sequence 可追溯性与双 ARM HIL
+
+- TODO task ID：`SYNC-LA-003`、`SYNC-LA-005`、`SYNC-LA-007`。
+- 变更：`capture_sequence` 从固定常量改为每次 capture init 单调递增（绕过零值），
+  同一序号由 record 与 snapshot 共同发布；`ANALyzer:STATe?` 增加该字段，便于
+  Core0/StorageAO 和离线批量导出关联采集会话。
+- 软件验证：analyzer contract 11 项、host C contract 通过；`pico2-release` 双应用/boot
+  构建、UF2/package 与 flash-link checks 通过，package 使用已验证的 4096-byte OTA block。
+- 硬件验收：当前固件五板 OTA 成功；四板 TRN-03B process-image `cycles=4096`、
+  `passed=true`、`realtime_gate_passed=true`、`closed_loop_passed=true`，证据位于
+  `out/hardware-acceptance/sync-la-012-capture-sequence-20260905/trn03-process-image/`。
+  COM3/COM4/COM5/COM6 各执行两次 EDGE ARM/STOP，均确认 `mode=2`、active=1、序号由
+  `2` 推进至 `4`，TDMA sequence 持续增长且 bad/transport 错误增量为零；原始结果在
+  `analyzer-COM*.json`。
+- 失败保留：统一 `--tdma-only` 流程在 TRN-00 marker SD summary 生成处再次遇到
+  可恢复 timeout；后续直接使用同轮当前固件的四板 TRN-03 闭环完成短帧门禁，未触发
+  越界 DMA、非法内存/Flash 或失控 GPIO 硬停。
+- 边界：长时间 wrap、真实 edge record 连续性、SD 背压仍待完成；`SYNC-LA-003`、
+  `SYNC-LA-005` 继续保持 `IN PROGRESS`。
 
 ### SYNC-PROGRESS-20260905-007 - 本机 analyzer 与 NO5 外部波形离线关联器
 

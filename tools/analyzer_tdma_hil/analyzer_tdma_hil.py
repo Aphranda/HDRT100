@@ -54,7 +54,8 @@ def sample_analyzer(ser: Any, timeout_s: float) -> dict[str, Any]:
     if len(fields) < 4:
         raise RuntimeError(f"analyzer status schema too short: {raw!r}")
     return {"raw": raw, "initialized": fields[0], "active": fields[1],
-            "state": fields[2], "mode": fields[3]}
+            "state": fields[2], "mode": fields[3],
+            "capture_sequence": fields[5]}
 
 
 def compare(before: dict[str, Any], after: dict[str, Any], arm: str, stop: str,
@@ -108,14 +109,26 @@ def run(port: str, timeout_s: float, dwell_s: float, baseline_s: float) -> dict[
         time.sleep(dwell_s)
         stop = query(ser, "REALtime:IO:ANALyzer:STOP", timeout_s)
         analyzer_after_stop = sample_analyzer(ser, timeout_s)
+        arm2 = query(ser, "REALtime:IO:ANALyzer:EDGE:ARM 0,64,5000000,1", timeout_s)
+        analyzer_second_arm = sample_analyzer(ser, timeout_s)
+        stop2 = query(ser, "REALtime:IO:ANALyzer:STOP", timeout_s)
+        analyzer_second_stop = sample_analyzer(ser, timeout_s)
         after = sample_tdma(ser, timeout_s)
         elapsed = time.monotonic() - start
     result = compare(before, after, arm, stop, elapsed,
                      (baseline_before, baseline_after))
     result["analyzer_after_arm"] = analyzer_after_arm
     result["analyzer_after_stop"] = analyzer_after_stop
+    result["analyzer_second_arm"] = analyzer_second_arm
+    result["analyzer_second_stop"] = analyzer_second_stop
+    result["analyzer_second_arm_response"] = arm2
+    result["analyzer_second_stop_response"] = stop2
     result["checks"]["edge_mode_active"] = (
         analyzer_after_arm["mode"] == 2 and analyzer_after_arm["active"] == 1)
+    result["checks"]["capture_sequence_advances"] = (
+        analyzer_after_arm["capture_sequence"] !=
+        analyzer_second_arm["capture_sequence"] and
+        analyzer_second_arm["capture_sequence"] != 0)
     result["passed"] = all(result["checks"].values())
     return result
 

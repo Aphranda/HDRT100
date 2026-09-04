@@ -144,7 +144,7 @@ UART/RS485/BiSS-C 等外部或板间通信能力统一归入 `COMMunication:*`�
 | `REALtime:IO:ANALyzer:ARM <source_mask>,<sample_period_ns>,<max_records>,<timeout_us>,<overwrite_oldest>` | 提交逻辑分析仪 `RAW_SAMPLE` 异步 ARM 意图；`source_mask=0` 使用 active read-only pad mask，返回 `1` 仅表示 mailbox accepted，实际状态由 `STATe?` 查询。Core1 在不可隔离的 mandatory realtime boundary 执行 persona claim/load/arm/start，TDMA service 始终优先。 |
 | `REALtime:IO:ANALyzer:EDGE:ARM <source_mask>,<max_records>,<timeout_us>,<overwrite_oldest>` | 提交 `EDGE_TIMESTAMP` 异步 ARM 意图；固定使用硬件 edge-only 采样周期，source mask 为 `0` 时使用 active read-only pad mask。返回 `1` 仅表示 mailbox accepted，实际 mode/state/结束 reason 由 `ANALyzer:STATe?` 查询。 |
 | `REALtime:IO:ANALyzer:STOP` | 提交异步 STOP 意图；返回 `1` 仅表示 mailbox accepted，Core1 完成硬件停止和 persona release 后由 `STATe?` 确认 request/handled/result 与资源归零；capture 结束字段在 persona release 后按当前 snapshot 生命周期清零。 |
-| `REALtime:IO:ANALyzer:STATe?` | 查询 analyzer 只读状态；在既有 capture/manager 字段后追加 command request/handled sequence、command 和 result。 |
+| `REALtime:IO:ANALyzer:STATe?` | 查询 analyzer 只读状态；在既有 capture/manager 字段后追加 capture sequence、command request/handled sequence、command 和 result。 |
 | `REALtime:IO:CLOCk:FREQuency <Hz>` / `REALtime:IO:CLOCk:FREQuency?` | 设置或查询 `SYNC_CLK_OUT` 维护输出频率。 |
 | `REALtime:IO:CLOCk:STATe <ON|OFF>` / `REALtime:IO:CLOCk:STATe?` | 启停或查询同步时钟维护输出状态。 |
 | `REALtime:IO:SYNC?` | 查询同步 IO 维护快照。 |

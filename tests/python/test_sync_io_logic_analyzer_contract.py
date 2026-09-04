@@ -185,8 +185,17 @@ def test_edge_timestamp_backend_emits_only_level_changes() -> None:
     assert "edge_mask = edge" in source
 
 
+def test_capture_sequence_is_shared_by_records_and_snapshot() -> None:
+    source = Path("components/sync_io/src/sync_io_logic_analyzer.c").read_text(
+        encoding="utf-8")
+    assert "capture->capture_sequence = ++s_next_capture_sequence" in source
+    assert ".capture_sequence = s_hw.capture->capture_sequence" in source
+    assert "snapshot->capture_sequence = capture->capture_sequence" in source
+
+
 def test_edge_hil_arms_explicit_edge_command_and_checks_mode() -> None:
     source = Path("tools/analyzer_tdma_hil/analyzer_tdma_hil.py").read_text(
         encoding="utf-8")
     assert "REALtime:IO:ANALyzer:EDGE:ARM" in source
     assert '"edge_mode_active"' in source
+    assert '"capture_sequence_advances"' in source

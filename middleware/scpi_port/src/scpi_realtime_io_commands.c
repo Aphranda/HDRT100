@@ -583,6 +583,7 @@ scpi_result_t scpi_cmd_analyzer_state_q(scpi_t *context)
     SCPI_ResultUInt32(context, (uint32_t)status.state);
     SCPI_ResultUInt32(context, (uint32_t)status.mode);
     SCPI_ResultUInt32(context, (uint32_t)status.end_reason);
+    SCPI_ResultUInt32(context, status.capture_sequence);
     SCPI_ResultUInt32(context, status.produced_records);
     SCPI_ResultUInt32(context, status.consumed_records);
     SCPI_ResultUInt32(context, status.dropped_records);
