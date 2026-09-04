@@ -3082,6 +3082,75 @@ int main(void)
         }
     }
 
+    /* Directional flight boundaries must remain independent: RX unload only
+     * observes novelty, TX load only builds the next image, and RX commit is
+     * the point that advances consumed-sequence state. */
+    {
+        tdma_flight_engine_t engine;
+        tdma_process_image_map_t map = make_eight_slot_flight_map();
+        tdma_flight_engine_unload_t unloaded;
+        tdma_flight_engine_apply_t applied;
+        tdma_flight_engine_result_t result = TDMA_FLIGHT_ENGINE_BAD_ARGUMENT;
+        uint8_t input[TDMA_FLIGHT_SHORT_PAYLOAD_SIZE] = {0};
+        uint8_t output[TDMA_FLIGHT_SHORT_PAYLOAD_SIZE] = {0};
+        const uint32_t active_mask = 0x0Fu;
+
+        for (uint32_t source = 1u; source < 4u; source++) {
+            uint8_t *mailbox =
+                &input[source * TDMA_FLIGHT_SHORT_SLOT_SIZE];
+            mailbox[0] = (uint8_t)(TDMA_FLIGHT_MAILBOX_MAGIC & 0xFFu);
+            mailbox[1] = (uint8_t)(TDMA_FLIGHT_MAILBOX_MAGIC >> 8u);
+            mailbox[TDMA_FLIGHT_MAILBOX_VERSION_OFFSET] =
+                TDMA_FLIGHT_MAILBOX_VERSION;
+            mailbox[TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET] =
+                (uint8_t)source;
+            mailbox[TDMA_FLIGHT_MAILBOX_TARGET_MASK_OFFSET] =
+                (uint8_t)active_mask;
+            mailbox[TDMA_FLIGHT_MAILBOX_SEQ16_OFFSET] =
+                (uint8_t)source;
+        }
+
+        failed += expect_bool("directional engine init",
+                              tdma_flight_engine_init(&engine), true);
+        failed += expect_bool("directional engine configure",
+                              tdma_flight_engine_configure(&engine, &map), true);
+        failed += expect_bool("directional engine activate",
+                              tdma_flight_engine_activate(&engine, 0u), true);
+        failed += expect_bool(
+            "directional rx unload",
+            tdma_flight_engine_rx_unload(
+                &engine, input, sizeof(input), active_mask, &unloaded),
+            true);
+        failed += expect_u32("directional rx present",
+                             unloaded.present_segment_mask,
+                             active_mask & ~1u);
+        failed += expect_u32("directional rx new",
+                             unloaded.new_segment_mask,
+                             active_mask & ~1u);
+        failed += expect_bool(
+            "directional tx load",
+            tdma_flight_engine_tx_load(
+                &engine, input, sizeof(input), NULL, output, sizeof(output),
+                &applied, &result),
+            true);
+        failed += expect_u32("directional tx load has no rx mask",
+                             applied.input_segment_mask, 0u);
+        failed += expect_bool("directional tx load preserves image",
+                              memcmp(input, output, sizeof(input)) == 0, true);
+        failed += expect_bool(
+            "directional rx commit",
+            tdma_flight_engine_rx_commit(
+                &engine, input, sizeof(input), unloaded.new_segment_mask),
+            true);
+        failed += expect_bool(
+            "directional duplicate unload",
+            tdma_flight_engine_rx_unload(
+                &engine, input, sizeof(input), active_mask, &unloaded),
+            true);
+        failed += expect_u32("directional duplicate rx new",
+                             unloaded.new_segment_mask, 0u);
+    }
+
     /* Calibration step 1 may assign Node values in an order unrelated to
      * wiring.  Freeze a deliberately permuted physical cycle so a future
      * refactor cannot derive receive masks from numeric Node adjacency. */

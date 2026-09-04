@@ -13,6 +13,9 @@ ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_RESOURCES = ROOT / "components/tdma/inc/tdma_state_machine_resources.h"
 DEFAULT_PHYS = ROOT / "components/tdma/src/tdma_pio_spi_phys.c"
 DEFAULT_FLIGHT_IO = ROOT / "components/tdma/src/tdma_pio_spi_phys_flight_io.inc"
+DEFAULT_SYNC_MODEL = ROOT / "components/sync_io/src/sync_io_model_sched.c"
+DEFAULT_SYNC_CORE = ROOT / "components/sync_io/src/sync_io.c"
+DEFAULT_SYNC_PERSONAS = ROOT / "components/sync_io/src/sync_io_persona_resources.c"
 
 
 REQUIRED = {
@@ -99,6 +102,235 @@ def c_function_body(text: str, name: str) -> str:
             if depth == 0:
                 return text[opening + 1:index]
     raise ValueError(f"unterminated C function body {name}")
+
+
+def _sync_require_tokens(
+    failures: list[str],
+    body: str,
+    required: tuple[str, ...],
+    forbidden: tuple[str, ...],
+    label: str,
+) -> None:
+    for token in required:
+        if token not in body:
+            failures.append(f"{label} is missing {token}")
+    for token in forbidden:
+        if token in body:
+            failures.append(f"{label} contains forbidden {token}")
+
+
+def check_sync_io_runtime(
+    model_text: str,
+    core_text: str,
+    persona_text: str,
+    board_text: str,
+) -> list[str]:
+    """Validate the SYNC_IO PIO0 persona handoff and call boundaries."""
+    failures: list[str] = []
+
+    for token in (
+        "#define BOARD_SYNC_PIO_FAST pio0",
+        "#define BOARD_SYNC_PIO_WAVE pio1",
+        "BOARD_SYNC_PIO0_WAVE_OUTPUT_SM",
+        "BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM",
+        "BOARD_SYNC_PIO0_LOGIC_ANALYZER_SM",
+    ):
+        if token not in board_text:
+            failures.append(f"SYNC board profile is missing {token}")
+
+    for token in (
+        "SYNC_IO_PERSONA_ID_WAVE_OUTPUT",
+        "SYNC_IO_PERSONA_ID_SCHEDULED_TRIGGER",
+        "SYNC_IO_PERSONA_ID_LOGIC_ANALYZER",
+        "SYNC_IO_PERSONA_FLAG_READ_ONLY_PAD",
+        "SYNC_IO_PERSONA_IMPLEMENTATION_MIGRATION_TARGET",
+        "SYNC_IO_PERSONA_DMA_CHANNEL_MASK",
+        "SYNC_IO_PERSONA_WORKSPACE_CAPTURE_SCHEDULE",
+    ):
+        if token not in persona_text:
+            failures.append(f"SYNC persona catalog is missing {token}")
+
+    try:
+        output_arm = c_function_body(
+            model_text, "sync_io_output_pulse_schedule_arm")
+        output_arm_ns = c_function_body(
+            model_text, "sync_io_output_pulse_schedule_arm_ns")
+        observer_arm = c_function_body(
+            model_text, "sync_io_sma_observer_pulse_schedule_arm_periodic_ns")
+        arm_common = c_function_body(
+            model_text, "sync_io_pulse_schedule_arm_on_pin_common")
+        manager_start = c_function_body(
+            model_text, "sync_io_wave_output_manager_start")
+        manager_release = c_function_body(
+            model_text, "sync_io_wave_output_manager_release")
+        suspend = c_function_body(core_text, "sync_io_suspend_for_tdma_flight")
+        capture_start = c_function_body(core_text, "sync_io_start_capture")
+        debug_output = c_function_body(core_text, "sync_io_debug_set_output_mask")
+        frequency_start = c_function_body(
+            core_text, "sync_io_sma_frequency_tx_start")
+    except ValueError as exc:
+        failures.append(str(exc))
+        return failures
+
+    for label, body in (
+        ("SYNC WAVE_OUTPUT arm", output_arm),
+        ("SYNC WAVE_OUTPUT ns arm", output_arm_ns),
+    ):
+        _sync_require_tokens(
+            failures,
+            body,
+            (
+                "BOARD_SYNC_PIO_FAST",
+                "BOARD_SYNC_PIO0_WAVE_OUTPUT_SM",
+                "DREQ_PIO0_TX0",
+                "sync_io_pulse_schedule_arm",
+            ),
+            (
+                "BOARD_SYNC_PIO_WAVE",
+                "BOARD_SYNC_MODEL_SCHED_SM",
+                "DREQ_PIO1_TX0",
+                "sync_io_core_tdma_flight_suspended",
+            ),
+            label,
+        )
+    _sync_require_tokens(
+        failures,
+        observer_arm,
+        (
+            "BOARD_SYNC_PIO_FAST",
+            "BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM",
+            "DREQ_PIO0_TX0",
+            "sync_io_pulse_schedule_arm",
+        ),
+        (
+            "BOARD_SYNC_PIO_WAVE",
+            "BOARD_SYNC_MODEL_SCHED_SM",
+            "DREQ_PIO1_TX0",
+        ),
+        "SYNC SCHEDULED_TRIGGER arm",
+    )
+
+    _sync_require_tokens(
+        failures,
+        arm_common,
+        (
+            "sync_io_core_capture_is_running",
+            "sync_io_model_pulse_schedule_disarm",
+            "s_model_pulse.words = sync_io_shared_workspace",
+            "sync_io_wave_output_manager_start",
+        ),
+        (),
+        "SYNC output schedule common arm",
+    )
+    arm_order_tokens = (
+        "sync_io_core_capture_is_running",
+        "sync_io_model_pulse_schedule_disarm",
+        "s_model_pulse.words = sync_io_shared_workspace",
+        "sync_io_wave_output_manager_start",
+    )
+    if all(token in arm_common for token in arm_order_tokens):
+        arm_order = tuple(arm_common.index(token) for token in arm_order_tokens)
+        if arm_order != tuple(sorted(arm_order)):
+            failures.append(
+                "SYNC output schedule arm must reject active capture, disarm "
+                "the old schedule, bind the shared workspace, then start the "
+                "PIO0 persona")
+
+    _sync_require_tokens(
+        failures,
+        manager_start,
+        (
+            "sync_io_persona_manager_claim",
+            "sync_io_persona_manager_load",
+            "sync_io_persona_manager_arm",
+            "sync_io_persona_manager_start",
+        ),
+        (),
+        "SYNC output persona start",
+    )
+    _sync_require_tokens(
+        failures,
+        manager_release,
+        ("sync_io_persona_manager_release",),
+        (),
+        "SYNC output persona release",
+    )
+
+    if "sync_io_model_pulse_schedule_quiesce_tdma_pio" not in suspend:
+        failures.append(
+            "SYNC TDMA suspend must quiesce legacy model output explicitly")
+    if "sync_io_model_pulse_schedule_disarm" in suspend:
+        failures.append(
+            "SYNC TDMA suspend must not directly disarm the PIO0 output persona")
+    if "sync_io_release_wave_sms" not in suspend:
+        failures.append(
+            "SYNC TDMA suspend must release the legacy PIO1 wave SMs")
+
+    for label, body in (
+        ("SYNC capture start", capture_start),
+        ("SYNC debug output", debug_output),
+        ("SYNC SMA frequency start", frequency_start),
+    ):
+        if "sync_io_core_wave_output_persona_active" not in body:
+            failures.append(
+                f"{label} must observe WAVE_OUTPUT persona ownership")
+
+    try:
+        input_capture = persona_text.split(
+            ".id = SYNC_IO_PERSONA_ID_INPUT_CAPTURE", 1)[1].split(
+                "    },", 1)[0]
+        wave = persona_text.split(
+            ".id = SYNC_IO_PERSONA_ID_WAVE_OUTPUT", 1)[1].split(
+                "    },", 1)[0]
+        scheduled = persona_text.split(
+            ".id = SYNC_IO_PERSONA_ID_SCHEDULED_TRIGGER", 1)[1].split(
+                "    },", 1)[0]
+        analyzer = persona_text.split(
+            ".id = SYNC_IO_PERSONA_ID_LOGIC_ANALYZER", 1)[1].split(
+                "    },", 1)[0]
+    except IndexError:
+        failures.append("SYNC persona catalog entries are incomplete")
+    else:
+        _sync_require_tokens(
+            failures,
+            input_capture,
+            ("SYNC_IO_PERSONA_WORKSPACE_CAPTURE_SCHEDULE",),
+            (),
+            "SYNC INPUT_CAPTURE descriptor",
+        )
+        for label, body, sm in (
+            ("SYNC WAVE_OUTPUT descriptor", wave,
+             "BOARD_SYNC_PIO0_WAVE_OUTPUT_SM"),
+            ("SYNC SCHEDULED_TRIGGER descriptor", scheduled,
+             "BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM"),
+        ):
+            _sync_require_tokens(
+                failures,
+                body,
+                (
+                    "SYNC_IO_PERSONA_IMPLEMENTATION_MIGRATION_TARGET",
+                    "BOARD_TDMA_SMA_PIO_BLOCK_ID",
+                    sm,
+                    "SYNC_IO_MODEL_PULSE_DMA_CH",
+                    "SYNC_IO_PERSONA_WORKSPACE_CAPTURE_SCHEDULE",
+                ),
+                ("SYNC_IO_PERSONA_FLAG_READ_ONLY_PAD",),
+                label,
+            )
+        _sync_require_tokens(
+            failures,
+            analyzer,
+            (
+                "SYNC_IO_PERSONA_FLAG_READ_ONLY_PAD",
+                "BOARD_SYNC_PIO0_LOGIC_ANALYZER_SM",
+                "SYNC_IO_CAPTURE_DMA_CH",
+                ".gpio_read_mask",
+            ),
+            (".gpio_write_mask", "out pins", "set pins"),
+            "SYNC LOGIC_ANALYZER descriptor",
+        )
+
+    return failures
 
 
 def check_rx_endpoint_declaration(text: str) -> list[str]:
@@ -242,6 +474,10 @@ def check(
     resources: Path = DEFAULT_RESOURCES,
     phys: Path = DEFAULT_PHYS,
     flight_io: Path = DEFAULT_FLIGHT_IO,
+    sync_model: Path = DEFAULT_SYNC_MODEL,
+    sync_core: Path = DEFAULT_SYNC_CORE,
+    sync_personas: Path = DEFAULT_SYNC_PERSONAS,
+    sync_board: Path | None = None,
 ) -> list[str]:
     failures: list[str] = []
     values = macros(board.read_text(encoding="utf-8", errors="ignore"))
@@ -352,6 +588,13 @@ def check(
         phys.read_text(encoding="utf-8", errors="ignore"),
         flight_io.read_text(encoding="utf-8", errors="ignore"),
     ))
+    sync_board_path = board if sync_board is None else sync_board
+    failures.extend(check_sync_io_runtime(
+        sync_model.read_text(encoding="utf-8", errors="ignore"),
+        sync_core.read_text(encoding="utf-8", errors="ignore"),
+        sync_personas.read_text(encoding="utf-8", errors="ignore"),
+        sync_board_path.read_text(encoding="utf-8", errors="ignore"),
+    ))
     return failures
 
 
@@ -364,9 +607,15 @@ def main() -> int:
     parser.add_argument("--resources", type=Path, default=DEFAULT_RESOURCES)
     parser.add_argument("--phys", type=Path, default=DEFAULT_PHYS)
     parser.add_argument("--flight-io", type=Path, default=DEFAULT_FLIGHT_IO)
+    parser.add_argument("--sync-model", type=Path, default=DEFAULT_SYNC_MODEL)
+    parser.add_argument("--sync-core", type=Path, default=DEFAULT_SYNC_CORE)
+    parser.add_argument("--sync-personas", type=Path, default=DEFAULT_SYNC_PERSONAS)
+    parser.add_argument("--sync-board", type=Path, default=None)
     args = parser.parse_args()
     failures = check(args.board, args.pio, resources=args.resources,
-                     phys=args.phys, flight_io=args.flight_io)
+                     phys=args.phys, flight_io=args.flight_io,
+                     sync_model=args.sync_model, sync_core=args.sync_core,
+                     sync_personas=args.sync_personas, sync_board=args.sync_board)
     if failures:
         for failure in failures:
             print(f"FAIL {failure}")

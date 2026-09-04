@@ -1039,7 +1039,6 @@ static bool tdma_pio_spi_ring_adapter_tx_resident_cycle_from(
     tdma_pio_spi_ring_adapter_t *adapter,
     const uint8_t *source_packet,
     size_t source_packet_size,
-    uint32_t new_segment_mask,
     bool data_rx_timed_out,
     bool *launched)
 {
@@ -1091,11 +1090,10 @@ static bool tdma_pio_spi_ring_adapter_tx_resident_cycle_from(
     tdma_flight_engine_apply_t applied;
     tdma_flight_engine_result_t engine_result =
         TDMA_FLIGHT_ENGINE_BAD_ARGUMENT;
-    if (!tdma_flight_engine_apply_preclassified(
+    if (!tdma_flight_engine_tx_load(
             adapter->flight_engine,
             returned_view.payload,
             returned_view.payload_size,
-            new_segment_mask,
             has_tx ? &tx_view : NULL,
             processed_payload,
             sizeof(processed_payload),
@@ -1187,7 +1185,6 @@ static bool tdma_pio_spi_ring_adapter_tx_next_resident_cycle(
         adapter,
         adapter->last_rx_packet,
         adapter->last_rx_packet_size,
-        adapter->resident_return_new_segment_mask,
         false,
         launched);
 }
@@ -1215,7 +1212,6 @@ static bool tdma_pio_spi_ring_adapter_tx_stale_resident_cycle(
         adapter,
         adapter->resident_packet,
         adapter->resident_packet_size,
-        0u,
         true,
         launched);
 }
@@ -1324,11 +1320,10 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
          * would provide no useful edges for raw-loop alignment analysis. */
         tdma_flight_engine_fill_alignment_symbols(
             empty_process_payload, engine_snapshot.payload_size);
-        if (!tdma_flight_engine_apply_preclassified(
+        if (!tdma_flight_engine_tx_load(
                 adapter->flight_engine,
                 empty_process_payload,
                 engine_snapshot.payload_size,
-                0u,
                 has_flight_tx ? &tx_view : NULL,
                 process_payload,
                 sizeof(process_payload),
@@ -1536,18 +1531,18 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
          adapter->receive_health.configured == 0u) &&
         view.payload_class == TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE &&
         adapter->receive_health.configured != 0u) {
-        uint32_t expected_mask = 0u;
+        tdma_flight_engine_unload_t unloaded;
         const uint32_t expected_owner_mask =
             tdma_pio_spi_ring_adapter_expected_owner_mask(
                 adapter, &adapter->config);
-        const bool inspected = tdma_flight_engine_inspect_input(
+        const bool inspected = tdma_flight_engine_rx_unload(
             adapter->flight_engine,
             view.payload,
             view.payload_size,
             expected_owner_mask,
-            &inspected_present_mask,
-            &inspected_new_mask,
-            &expected_mask);
+            &unloaded);
+        inspected_present_mask = unloaded.present_segment_mask;
+        inspected_new_mask = unloaded.new_segment_mask;
         tdma_receive_reason_t receive_reason = TDMA_RECEIVE_REASON_NONE;
         const bool receive_health_accepted = tdma_receive_health_evaluate(
             &adapter->receive_health,
@@ -1560,7 +1555,6 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
             inspected && receive_health_accepted;
         adapter->last_rx_new_segment_mask = inspected_new_mask;
         receive_health_rejected = !adapter->last_rx_gate_accepted;
-        (void)expected_mask;
         if (receive_health_rejected) {
             tdma_pio_spi_ring_adapter_set_error(
                 adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_RX_GATE_REJECT);
@@ -1762,7 +1756,7 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
             if (published && input_mask != 0u &&
                 adapter->flight_engine != NULL &&
                 tdma_flight_engine_is_active(adapter->flight_engine)) {
-                (void)tdma_flight_engine_commit_input(
+                (void)tdma_flight_engine_rx_commit(
                     adapter->flight_engine,
                     view.payload,
                     view.payload_size,
@@ -1838,11 +1832,10 @@ static bool tdma_pio_spi_ring_adapter_tx_forward(
         tdma_flight_engine_apply_t applied;
         tdma_flight_engine_result_t engine_result =
             TDMA_FLIGHT_ENGINE_BAD_ARGUMENT;
-        if (tdma_flight_engine_apply_preclassified(
+        if (tdma_flight_engine_tx_load(
                 adapter->flight_engine,
                 incoming_view.payload,
                 incoming_view.payload_size,
-                adapter->last_rx_new_segment_mask,
                 has_tx ? &tx_view : NULL,
                 processed_payload,
                 sizeof(processed_payload),
@@ -1862,7 +1855,7 @@ static bool tdma_pio_spi_ring_adapter_tx_forward(
             if (adapter->flight_fifo != NULL &&
                 (adapter->receive_health.configured == 0u ||
                  adapter->last_rx_gate_accepted) &&
-                applied.input_segment_mask != 0u) {
+                 adapter->last_rx_new_segment_mask != 0u) {
                 const uint32_t rx_generation =
                     adapter->receive_health.configured != 0u
                         ? adapter->receive_health.config.map_generation
@@ -1879,15 +1872,15 @@ static bool tdma_pio_spi_ring_adapter_tx_forward(
                     incoming_view.payload_size,
                     rx_generation,
                     incoming_view.transport_sequence,
-                    applied.input_segment_mask,
+                    adapter->last_rx_new_segment_mask,
                     adapter->feedback_rx_timestamp_ns,
                     rx_quality);
                 if (published) {
-                    (void)tdma_flight_engine_commit_input(
+                    (void)tdma_flight_engine_rx_commit(
                         adapter->flight_engine,
                         incoming_view.payload,
                         incoming_view.payload_size,
-                        applied.input_segment_mask);
+                        adapter->last_rx_new_segment_mask);
                 }
             }
         } else {
@@ -2104,11 +2097,10 @@ static bool tdma_pio_spi_ring_adapter_prepare_process_overlay(
             tdma_flight_fifo_core1_acquire_tx(adapter->flight_fifo, &tx_view);
         tdma_flight_engine_result_t engine_result =
             TDMA_FLIGHT_ENGINE_BAD_ARGUMENT;
-        applied_ok = tdma_flight_engine_apply_preclassified(
+        applied_ok = tdma_flight_engine_tx_load(
             adapter->flight_engine,
             view.payload,
             view.payload_size,
-            adapter->last_rx_new_segment_mask,
             has_tx ? &tx_view : NULL,
             processed_model + TDMA_TRANSPORT_FRAME_HEADER_SIZE,
             sizeof(processed_model) - TDMA_TRANSPORT_FRAME_HEADER_SIZE,

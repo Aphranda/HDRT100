@@ -279,7 +279,9 @@ pota_stream_result_t pota_stream_session_write(
     const uint8_t *data, uint32_t size)
 {
     if (session == NULL || data == NULL || size == 0u ||
-        size > POTA_MAX_DATA_BLOCK_SIZE) {
+        (size > POTA_MAX_DATA_BLOCK_SIZE &&
+         !(session->open.package_mode && !session->resume_header_pending &&
+           offset == 0u && size == POTA_PACKAGE_HEADER_SIZE))) {
         return POTA_STREAM_RESULT_BAD_ARGUMENT;
     }
     if (session->resume_header_pending) {

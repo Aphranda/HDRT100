@@ -3,7 +3,18 @@
 
 #include <stdint.h>
 
-#define OTA_EVENT_MAX_DATA_SIZE 512u
+#ifndef PROJECT_OTA_MAX_DATA_BLOCK_SIZE
+#define PROJECT_OTA_MAX_DATA_BLOCK_SIZE 512u
+#endif
+
+/* Package manifests are a fixed 512-byte first block.  Keep the event
+ * envelope large enough for that compatibility block even when raw DATA is
+ * configured for 256 bytes; the portable stream core still enforces the
+ * configured raw block limit. */
+#define OTA_EVENT_INLINE_DATA_SIZE 512u
+#define OTA_EVENT_MAX_DATA_SIZE \
+    (PROJECT_OTA_MAX_DATA_BLOCK_SIZE > OTA_EVENT_INLINE_DATA_SIZE \
+         ? PROJECT_OTA_MAX_DATA_BLOCK_SIZE : OTA_EVENT_INLINE_DATA_SIZE)
 #define OTA_BEGIN_FLAG_PACKAGE  0x00000001u
 
 typedef enum {

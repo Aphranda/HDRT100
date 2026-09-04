@@ -11,6 +11,7 @@
 #include "pico/time.h"
 #include "sync_io.pio.h"
 #include "sync_io_core_internal.h"
+#include "sync_io_persona_manager.h"
 
 #define SYNC_IO_MODEL_PULSE_MAX_ENTRIES 4096u
 #define SYNC_IO_MODEL_PULSE_WORDS_PER_ENTRY 2u
@@ -21,6 +22,7 @@
 typedef struct {
     bool running;
     bool active_high;
+    bool persona_managed;
     uint sm;
     uint offset;
     uint dma_ch;
@@ -42,6 +44,250 @@ typedef struct {
 } sync_io_model_pulse_t;
 
 static sync_io_model_pulse_t s_model_pulse;
+static sync_io_persona_manager_t s_wave_output_manager;
+static sync_io_persona_manager_handle_t s_wave_output_handle;
+static bool s_wave_output_manager_initialized;
+static bool s_wave_output_manager_active;
+static bool s_wave_output_sm_claimed;
+static bool s_wave_output_dma_claimed;
+static bool s_wave_output_program_loaded;
+
+static float sync_io_model_clkdiv_for_tick_rate(uint32_t tick_hz);
+static uint32_t sync_io_model_tick_hz_from_period_ns(uint32_t tick_period_ns);
+static void sync_io_model_release_pin(void);
+
+static const pio_program_t *sync_io_pio0_output_program(void)
+{
+    return s_model_pulse.active_high
+        ? &sync_model_sched_pulse_high_program
+        : &sync_model_sched_pulse_low_program;
+}
+
+static bool sync_io_wave_output_load(
+    void *context,
+    const sync_io_persona_descriptor_t *descriptor,
+    uint32_t dma_channel_mask)
+{
+    (void)context;
+    const uint expected_sm = descriptor != NULL &&
+        descriptor->id == SYNC_IO_PERSONA_ID_SCHEDULED_TRIGGER
+        ? BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM
+        : BOARD_SYNC_PIO0_WAVE_OUTPUT_SM;
+    if (descriptor == NULL ||
+        (descriptor->id != SYNC_IO_PERSONA_ID_WAVE_OUTPUT &&
+         descriptor->id != SYNC_IO_PERSONA_ID_SCHEDULED_TRIGGER) ||
+        dma_channel_mask != (1u << SYNC_IO_MODEL_PULSE_DMA_CH) ||
+        s_model_pulse.pio != BOARD_SYNC_PIO_FAST ||
+        s_model_pulse.sm != expected_sm ||
+        s_model_pulse.dma_ch != SYNC_IO_MODEL_PULSE_DMA_CH ||
+        s_model_pulse.output_pin >= 32u ||
+        (descriptor->gpio_write_mask & (1u << s_model_pulse.output_pin)) == 0u ||
+        s_wave_output_sm_claimed ||
+        s_wave_output_dma_claimed ||
+        dma_channel_is_claimed(SYNC_IO_MODEL_PULSE_DMA_CH) ||
+        pio_sm_is_claimed(BOARD_SYNC_PIO_FAST,
+                          expected_sm) ||
+        !pio_can_add_program(BOARD_SYNC_PIO_FAST,
+                             sync_io_pio0_output_program())) {
+        return false;
+    }
+
+    pio_sm_claim(BOARD_SYNC_PIO_FAST, expected_sm);
+    s_wave_output_sm_claimed = true;
+    dma_channel_claim(SYNC_IO_MODEL_PULSE_DMA_CH);
+    s_wave_output_dma_claimed = true;
+    s_model_pulse.offset = (uint)pio_add_program(
+        BOARD_SYNC_PIO_FAST,
+        sync_io_pio0_output_program());
+    s_wave_output_program_loaded = true;
+    return true;
+}
+
+static bool sync_io_wave_output_arm(
+    void *context,
+    const sync_io_persona_descriptor_t *descriptor,
+    uint32_t dma_channel_mask)
+{
+    (void)context;
+    if (descriptor == NULL ||
+        (descriptor->id != SYNC_IO_PERSONA_ID_WAVE_OUTPUT &&
+         descriptor->id != SYNC_IO_PERSONA_ID_SCHEDULED_TRIGGER) ||
+        dma_channel_mask != (1u << s_model_pulse.dma_ch) ||
+        !s_wave_output_program_loaded ||
+        s_model_pulse.words == NULL ||
+        s_model_pulse.total_pulses == 0u) {
+        return false;
+    }
+
+    pio_sm_set_enabled(s_model_pulse.pio, s_model_pulse.sm, false);
+    pio_sm_clear_fifos(s_model_pulse.pio, s_model_pulse.sm);
+    pio_sm_restart(s_model_pulse.pio, s_model_pulse.sm);
+    sync_model_sched_pulse_program_init(
+        s_model_pulse.pio,
+        s_model_pulse.sm,
+        s_model_pulse.offset,
+        s_model_pulse.output_pin,
+        s_model_pulse.active_high,
+        sync_io_model_clkdiv_for_tick_rate(
+            sync_io_model_tick_hz_from_period_ns(
+                s_model_pulse.tick_period_ns)));
+
+    dma_channel_abort(s_model_pulse.dma_ch);
+    dma_channel_set_irq0_enabled(s_model_pulse.dma_ch, false);
+    dma_channel_config dma_cfg =
+        dma_channel_get_default_config(s_model_pulse.dma_ch);
+    channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&dma_cfg, true);
+    channel_config_set_write_increment(&dma_cfg, false);
+    channel_config_set_dreq(
+        &dma_cfg,
+        pio_get_dreq(s_model_pulse.pio, s_model_pulse.sm, true));
+    dma_channel_configure(
+        s_model_pulse.dma_ch,
+        &dma_cfg,
+        &s_model_pulse.pio->txf[s_model_pulse.sm],
+        s_model_pulse.words,
+        s_model_pulse.total_pulses * SYNC_IO_MODEL_PULSE_WORDS_PER_ENTRY,
+        false);
+    return true;
+}
+
+static bool sync_io_wave_output_start(
+    void *context,
+    const sync_io_persona_descriptor_t *descriptor,
+    uint32_t dma_channel_mask)
+{
+    (void)context;
+    (void)descriptor;
+    (void)dma_channel_mask;
+    s_model_pulse.start_us = time_us_64();
+    s_model_pulse.running = true;
+    dma_start_channel_mask(1u << s_model_pulse.dma_ch);
+    pio_sm_set_enabled(s_model_pulse.pio, s_model_pulse.sm, true);
+    return true;
+}
+
+static void sync_io_wave_output_stop(
+    void *context,
+    const sync_io_persona_descriptor_t *descriptor,
+    uint32_t dma_channel_mask)
+{
+    (void)context;
+    (void)descriptor;
+    (void)dma_channel_mask;
+    const bool hardware_owned = s_wave_output_sm_claimed ||
+                                s_wave_output_dma_claimed ||
+                                s_wave_output_program_loaded;
+    if (!hardware_owned) {
+        s_model_pulse.running = false;
+        return;
+    }
+    if (s_model_pulse.pio != NULL) {
+        pio_sm_set_enabled(s_model_pulse.pio, s_model_pulse.sm, false);
+        pio_sm_set_pins(s_model_pulse.pio, s_model_pulse.sm, 0u);
+    }
+    if (s_wave_output_dma_claimed) {
+        dma_channel_abort(s_model_pulse.dma_ch);
+    }
+    s_model_pulse.running = false;
+}
+
+static void sync_io_wave_output_cleanup(
+    void *context,
+    const sync_io_persona_descriptor_t *descriptor,
+    uint32_t dma_channel_mask)
+{
+    (void)context;
+    (void)descriptor;
+    (void)dma_channel_mask;
+    const bool hardware_owned = s_wave_output_sm_claimed ||
+                                s_wave_output_dma_claimed ||
+                                s_wave_output_program_loaded;
+    sync_io_wave_output_stop(context, descriptor, dma_channel_mask);
+    if (hardware_owned && s_model_pulse.pio != NULL) {
+        pio_sm_clear_fifos(s_model_pulse.pio, s_model_pulse.sm);
+        pio_sm_restart(s_model_pulse.pio, s_model_pulse.sm);
+    }
+    if (s_wave_output_program_loaded) {
+        pio_remove_program(s_model_pulse.pio,
+                           sync_io_pio0_output_program(),
+                           s_model_pulse.offset);
+        s_wave_output_program_loaded = false;
+    }
+    if (s_wave_output_dma_claimed) {
+        dma_channel_unclaim(SYNC_IO_MODEL_PULSE_DMA_CH);
+        s_wave_output_dma_claimed = false;
+    }
+    if (s_wave_output_sm_claimed) {
+        pio_sm_unclaim(BOARD_SYNC_PIO_FAST, s_model_pulse.sm);
+        s_wave_output_sm_claimed = false;
+    }
+    if (hardware_owned) {
+        sync_io_model_release_pin();
+    }
+}
+
+static void sync_io_wave_output_manager_init(void)
+{
+    if (s_wave_output_manager_initialized) {
+        return;
+    }
+    const sync_io_persona_manager_hooks_t hooks = {
+        .load = sync_io_wave_output_load,
+        .arm = sync_io_wave_output_arm,
+        .start = sync_io_wave_output_start,
+        .stop = sync_io_wave_output_stop,
+        .cleanup = sync_io_wave_output_cleanup,
+    };
+    sync_io_persona_manager_init(&s_wave_output_manager, &hooks, NULL);
+    s_wave_output_manager_initialized = true;
+}
+
+static bool sync_io_wave_output_manager_start(
+    sync_io_persona_id_t persona_id)
+{
+    sync_io_wave_output_manager_init();
+    if (!sync_io_persona_manager_claim(
+            &s_wave_output_manager,
+            persona_id,
+            &s_wave_output_handle,
+            NULL) ||
+        !sync_io_persona_manager_load(&s_wave_output_manager,
+                                      &s_wave_output_handle) ||
+        !sync_io_persona_manager_arm(&s_wave_output_manager,
+                                     &s_wave_output_handle) ||
+        !sync_io_persona_manager_start(&s_wave_output_manager,
+                                       &s_wave_output_handle)) {
+        s_wave_output_manager_active = false;
+        return false;
+    }
+    s_wave_output_manager_active = true;
+    return true;
+}
+
+static void sync_io_wave_output_manager_release(void)
+{
+    if (!s_wave_output_manager_active) {
+        return;
+    }
+    (void)sync_io_persona_manager_release(
+        &s_wave_output_manager,
+        &s_wave_output_handle);
+    s_wave_output_manager_active = false;
+}
+
+bool sync_io_core_wave_output_persona_active(void)
+{
+    return s_wave_output_manager_active;
+}
+
+void sync_io_model_pulse_schedule_quiesce_tdma_pio(void)
+{
+    if (s_model_pulse.total_pulses != 0u &&
+        s_model_pulse.pio == BOARD_SYNC_PIO_WAVE) {
+        sync_io_model_pulse_schedule_disarm();
+    }
+}
 
 static float sync_io_model_clkdiv_for_tick_rate(uint32_t tick_hz)
 {
@@ -172,7 +418,9 @@ static void sync_io_model_release_pin(void)
 
 static void sync_io_model_update_completion(void)
 {
-    if (!s_model_pulse.running || sync_io_core_tdma_flight_suspended()) {
+    if (!s_model_pulse.running ||
+        (sync_io_core_tdma_flight_suspended() &&
+         s_model_pulse.pio == BOARD_SYNC_PIO_WAVE)) {
         return;
     }
 
@@ -200,6 +448,9 @@ static void sync_io_model_update_completion(void)
         s_model_pulse.completed_elapsed_ns = s_model_pulse.total_duration_ns64;
         pio_sm_set_enabled(s_model_pulse.pio, s_model_pulse.sm, false);
         s_model_pulse.running = false;
+        if (s_model_pulse.persona_managed) {
+            sync_io_wave_output_manager_release();
+        }
     }
 }
 
@@ -295,20 +546,17 @@ static bool sync_io_pulse_schedule_arm_on_pin_common(
         ? &sync_model_sched_pulse_high_program
         : &sync_model_sched_pulse_low_program;
 
-    if (!pio_can_add_program(pulse_pio, program)) {
-        sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
-                           SYNC_IO_TRACE_ERROR,
-                           entry_count,
-                           2u);
-        return false;
-    }
+    const bool use_pio0_output_persona =
+        pulse_pio == BOARD_SYNC_PIO_FAST &&
+        (pulse_sm == BOARD_SYNC_PIO0_WAVE_OUTPUT_SM ||
+         pulse_sm == BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM);
 
     s_model_pulse.pio = pulse_pio;
-    s_model_pulse.offset = (uint)pio_add_program(pulse_pio, program);
     s_model_pulse.sm = pulse_sm;
     s_model_pulse.dma_ch = SYNC_IO_MODEL_PULSE_DMA_CH;
     s_model_pulse.output_pin = output_pin;
     s_model_pulse.active_high = rising_edge;
+    s_model_pulse.persona_managed = use_pio0_output_persona;
     s_model_pulse.total_pulses = entry_count;
     s_model_pulse.completed_pulses = 0u;
     s_model_pulse.completed_elapsed_ns = 0u;
@@ -319,6 +567,40 @@ static bool sync_io_pulse_schedule_arm_on_pin_common(
         sync_io_model_saturate_u64_to_u32((cumulative_ns + 999ull) / 1000ull);
     s_model_pulse.tick_period_ns = sanitized_tick_period_ns;
     s_model_pulse.fault_code = 0u;
+
+    if (use_pio0_output_persona) {
+        const sync_io_persona_id_t persona_id =
+            pulse_sm == BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM
+                ? SYNC_IO_PERSONA_ID_SCHEDULED_TRIGGER
+                : SYNC_IO_PERSONA_ID_WAVE_OUTPUT;
+        if (!sync_io_wave_output_manager_start(persona_id)) {
+            sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
+                               SYNC_IO_TRACE_ERROR,
+                               entry_count,
+                               trace_output_index);
+            memset(&s_model_pulse, 0, sizeof(s_model_pulse));
+            return false;
+        }
+        LOG_INFO("sync_io", "wave output schedule armed: count=%lu pin=%lu",
+                 (unsigned long)entry_count,
+                 (unsigned long)s_model_pulse.output_pin);
+        sync_io_core_trace(SYNC_IO_TRACE_MODEL_ARM,
+                           SYNC_IO_TRACE_INFO,
+                           entry_count,
+                           ((trace_output_index & 0xFFu) << 8) |
+                               (rising_edge ? 1u : 0u));
+        return true;
+    }
+
+    if (!pio_can_add_program(pulse_pio, program)) {
+        sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
+                           SYNC_IO_TRACE_ERROR,
+                           entry_count,
+                           2u);
+        return false;
+    }
+
+    s_model_pulse.offset = (uint)pio_add_program(pulse_pio, program);
 
     pio_sm_set_enabled(pulse_pio, s_model_pulse.sm, false);
     pio_sm_clear_fifos(pulse_pio, s_model_pulse.sm);
@@ -490,8 +772,7 @@ bool sync_io_output_pulse_schedule_arm(uint32_t output_index,
                                        uint32_t entry_count,
                                        bool rising_edge)
 {
-    if (sync_io_core_tdma_flight_suspended() ||
-        !sync_io_main_output_index_valid(output_index)) {
+    if (!sync_io_main_output_index_valid(output_index)) {
         sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
                            SYNC_IO_TRACE_ERROR,
                            entry_count,
@@ -504,9 +785,9 @@ bool sync_io_output_pulse_schedule_arm(uint32_t output_index,
         return false;
     }
     return sync_io_pulse_schedule_arm_on_pin_common(
-        BOARD_SYNC_PIO_WAVE,
-        BOARD_SYNC_MODEL_SCHED_SM,
-        DREQ_PIO1_TX0 + BOARD_SYNC_MODEL_SCHED_SM,
+        BOARD_SYNC_PIO_FAST,
+        BOARD_SYNC_PIO0_WAVE_OUTPUT_SM,
+        DREQ_PIO0_TX0 + BOARD_SYNC_PIO0_WAVE_OUTPUT_SM,
         BOARD_SYNC_OUTPUT_BASE_PIN + output_index,
         output_index,
         entries,
@@ -526,8 +807,7 @@ bool sync_io_output_pulse_schedule_arm_ns(
     bool rising_edge,
     uint32_t tick_period_ns)
 {
-    if (sync_io_core_tdma_flight_suspended() ||
-        !sync_io_main_output_index_valid(output_index)) {
+    if (!sync_io_main_output_index_valid(output_index)) {
         sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
                            SYNC_IO_TRACE_ERROR,
                            entry_count,
@@ -536,9 +816,9 @@ bool sync_io_output_pulse_schedule_arm_ns(
     }
 
     return sync_io_pulse_schedule_arm_on_pin(
-        BOARD_SYNC_PIO_WAVE,
-        BOARD_SYNC_MODEL_SCHED_SM,
-        DREQ_PIO1_TX0 + BOARD_SYNC_MODEL_SCHED_SM,
+        BOARD_SYNC_PIO_FAST,
+        BOARD_SYNC_PIO0_WAVE_OUTPUT_SM,
+        DREQ_PIO0_TX0 + BOARD_SYNC_PIO0_WAVE_OUTPUT_SM,
         BOARD_SYNC_OUTPUT_BASE_PIN + output_index,
         output_index,
         entries,
@@ -563,8 +843,8 @@ bool sync_io_sma_observer_pulse_schedule_arm_periodic_ns(
 
     return sync_io_pulse_schedule_arm_on_pin_common(
         BOARD_SYNC_PIO_FAST,
-        BOARD_SYNC_SMA_OBSERVER_SM,
-        DREQ_PIO0_TX0 + BOARD_SYNC_SMA_OBSERVER_SM,
+        BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM,
+        DREQ_PIO0_TX0 + BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM,
         BOARD_SYNC_OUTPUT_BASE_PIN + output_index,
         output_index,
         NULL,
@@ -579,6 +859,20 @@ bool sync_io_sma_observer_pulse_schedule_arm_periodic_ns(
 
 void sync_io_model_pulse_schedule_disarm(void)
 {
+    if (s_model_pulse.persona_managed) {
+        const uint32_t completed = s_model_pulse.completed_pulses;
+        const uint32_t total = s_model_pulse.total_pulses;
+        if (s_wave_output_manager_active) {
+            sync_io_wave_output_manager_release();
+        }
+        sync_io_core_trace(SYNC_IO_TRACE_MODEL_DISARM,
+                           SYNC_IO_TRACE_INFO,
+                           completed,
+                           total);
+        memset(&s_model_pulse, 0, sizeof(s_model_pulse));
+        return;
+    }
+
     if (s_model_pulse.running) {
         pio_sm_set_enabled(s_model_pulse.pio, s_model_pulse.sm, false);
     }

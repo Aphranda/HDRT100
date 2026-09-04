@@ -129,6 +129,7 @@ void ota_ao_service(uint32_t budget_us)
     ota_event_t event;
     if (event_bus_try_recv_ota_event(&event)) {
         ota_fb_execute(&s_ota_context, &event);
+        event_bus_complete_ota_event(&event);
     }
 
     /* Stream ingress shares the same bounded AO service cadence as the legacy

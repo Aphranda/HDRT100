@@ -9,7 +9,9 @@
 #define POTA_PACKAGE_VERSION         2u
 #define POTA_PACKAGE_HEADER_SIZE     512u
 #define POTA_PACKAGE_MAX_IMAGES      2u
+#ifndef POTA_MAX_DATA_BLOCK_SIZE
 #define POTA_MAX_DATA_BLOCK_SIZE     512u
+#endif
 #define POTA_MAX_FLASH_PAGE_SIZE     512u
 #define POTA_TEXT_FIELD_SIZE         32u
 #define POTA_SHA256_SIZE             32u

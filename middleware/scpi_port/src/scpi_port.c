@@ -38,7 +38,13 @@
 #include "scpi_usb_control.h"
 #include "sync_trigger.h"
 
-#define SCPI_PORT_INPUT_BUFFER_LENGTH 768u
+#ifndef PROJECT_OTA_MAX_DATA_BLOCK_SIZE
+#define PROJECT_OTA_MAX_DATA_BLOCK_SIZE 512u
+#endif
+#define SCPI_PORT_INPUT_BUFFER_LENGTH \
+    ((PROJECT_OTA_MAX_DATA_BLOCK_SIZE + 256u) > 768u \
+         ? (PROJECT_OTA_MAX_DATA_BLOCK_SIZE + 256u) \
+         : 768u)
 #define SCPI_PORT_ERROR_QUEUE_SIZE    16
 #define SCPI_PORT_IDN_VENDOR          PROJECT_VENDOR_NAME
 #define SCPI_PORT_IDN_MODEL           PROJECT_MODEL_NAME

@@ -212,6 +212,7 @@ static pota_error_t pota_program_target(pota_context_t *context,
                                         uint32_t size,
                                         bool is_final)
 {
+    (void)is_final;
     if (data == NULL || size == 0u ||
         size > POTA_MAX_DATA_BLOCK_SIZE ||
         !pota_flash_geometry_is_valid(context)) {
@@ -219,16 +220,40 @@ static pota_error_t pota_program_target(pota_context_t *context,
         return POTA_ERR_BAD_ARGUMENT;
     }
 
-    const uint32_t program_size = pota_align_up(size, context->platform.info.flash_page_size);
-    if (!is_final && program_size != size) {
+    const uint32_t page_size = context->platform.info.flash_page_size;
+    const uint32_t page_offset = image_offset % page_size;
+    const bool partial_page = page_offset != 0u || (size % page_size) != 0u;
+    const bool use_read_modify_write =
+        partial_page && page_size > POTA_MAX_DATA_BLOCK_SIZE;
+    const uint32_t program_size = use_read_modify_write
+                                      ? page_size
+                                      : pota_align_up(size, page_size);
+    uint8_t program_buffer[POTA_MAX_DATA_BLOCK_SIZE + POTA_MAX_FLASH_PAGE_SIZE];
+    uint32_t program_offset = image_offset;
+
+    if (!is_final && program_size != size && !use_read_modify_write) {
         pota_core_set_failed(context, POTA_ERR_BAD_ARGUMENT);
         return POTA_ERR_BAD_ARGUMENT;
     }
 
-    uint8_t program_buffer[POTA_MAX_DATA_BLOCK_SIZE + POTA_MAX_FLASH_PAGE_SIZE];
-    memset(program_buffer, 0xFF, program_size);
-    memcpy(program_buffer, data, size);
-    if (!context->platform.ops.flash_program(context->target_offset + image_offset,
+    if (use_read_modify_write) {
+        /* Configurations with 256-byte transport blocks still target
+         * 512-byte flash pages.  Merge a partial block into the existing
+         * page before programming so adjacent bytes are preserved. */
+        program_offset = image_offset - page_offset;
+        if (context->platform.ops.flash_read == NULL ||
+            !context->platform.ops.flash_read(context->target_offset + program_offset,
+                                              program_buffer, page_size)) {
+            pota_core_set_failed(context, POTA_ERR_READBACK);
+            return POTA_ERR_READBACK;
+        }
+        memcpy(&program_buffer[page_offset], data, size);
+    } else {
+        memset(program_buffer, 0xFF, program_size);
+        memcpy(program_buffer, data, size);
+    }
+
+    if (!context->platform.ops.flash_program(context->target_offset + program_offset,
                                              program_buffer,
                                              program_size)) {
         pota_core_set_failed(context, POTA_ERR_FLASH_PROGRAM);
@@ -237,9 +262,11 @@ static pota_error_t pota_program_target(pota_context_t *context,
 
     /* A stream ACK is durable only after the programmed bytes are read back. */
     if (context->platform.ops.flash_read == NULL ||
-        !context->platform.ops.flash_read(context->target_offset + image_offset,
+        !context->platform.ops.flash_read(context->target_offset + program_offset,
                                           program_buffer, program_size) ||
-        memcmp(program_buffer, data, size) != 0) {
+        (use_read_modify_write
+             ? memcmp(&program_buffer[page_offset], data, size)
+             : memcmp(program_buffer, data, size)) != 0) {
         pota_core_set_failed(context, POTA_ERR_READBACK);
         return POTA_ERR_READBACK;
     }

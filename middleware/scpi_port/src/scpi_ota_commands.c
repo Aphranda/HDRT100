@@ -607,6 +607,26 @@ scpi_result_t scpi_cmd_ota_stream_status_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_ota_stream_capability_q(scpi_t *context)
+{
+    /* Report the accepted DATA payload, stream capability mask and the
+     * deployment map compiled into this firmware. FLASH:MAP? describes the
+     * catalog candidate and therefore cannot select a live OTA transport. */
+    SCPI_ResultUInt32(context, POTA_MAX_DATA_BLOCK_SIZE);
+#if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
+    SCPI_ResultUInt32(context,
+                      POTA_STREAM_CAP_INACTIVE_WRITE |
+                          POTA_STREAM_CAP_DURABLE_ACK);
+    SCPI_ResultUInt32(context, 2u);
+#else
+    /* v1 compatibility builds can still accelerate legacy OTA DATA blocks,
+     * but they do not have durable stream checkpoints. */
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 1u);
+#endif
+    return SCPI_RES_OK;
+}
+
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
 scpi_result_t scpi_cmd_ota_inject_copy(scpi_t *context)
 {

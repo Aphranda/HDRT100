@@ -12,10 +12,16 @@
 #include "loop_engine.h"
 #include "led_manager.h"
 #include "osal.h"
+#include "ota_event.h"
 #include "project_config.h"
 #include "ui_manager.h"
 
 #define APP_PROGRESS(task, phase) (((uint32_t)(task) << 8u) | (uint32_t)(phase))
+#define APP_OTA_TASK_BASE_STACK_WORDS 1536u
+#define APP_OTA_TASK_STACK_WORDS \
+    (APP_OTA_TASK_BASE_STACK_WORDS + \
+     ((OTA_EVENT_MAX_DATA_SIZE - OTA_EVENT_INLINE_DATA_SIZE + \
+       sizeof(uint32_t) - 1u) / sizeof(uint32_t)))
 
 static void task_system(void *context)
 {
@@ -247,7 +253,7 @@ bool app_tasks_create_all(void)
         {.name = "loop_engine", .entry = task_loop_engine, .context = NULL, .stack_words = 3072u, .priority = 3u},
         {.name = "calibration", .entry = task_calibration, .context = NULL, .stack_words = 2048u, .priority = 3u},
         {.name = "cfg_gate", .entry = task_config_gate, .context = NULL, .stack_words = 2048u, .priority = 3u},
-        {.name = "ota", .entry = task_ota, .context = NULL, .stack_words = 1536u, .priority = 3u},
+        {.name = "ota", .entry = task_ota, .context = NULL, .stack_words = APP_OTA_TASK_STACK_WORDS, .priority = 3u},
         {.name = "storage", .entry = task_storage, .context = NULL, .stack_words = 3072u, .priority = 3u},
         {.name = "ui", .entry = task_ui, .context = NULL, .stack_words = 2048u, .priority = 1u},
     };

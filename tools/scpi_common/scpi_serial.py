@@ -49,6 +49,7 @@ LOAD_MASK_SET_HEADERS = {
 }
 SCALAR_ONE_QUERY_HEADERS = {
     "SYST:BOARD:NO?", "SYSTEM:BOARD:NO?",
+    "SYST:OTA:TARG?", "SYSTEM:OTA:TARG?",
     "SYST:TDMA:RING:ARM:STATUS?", "SYSTEM:TDMA:RING:ARM:STATUS?",
     "SYST:TDMA:RING:DIAGNOSTIC?", "SYSTEM:TDMA:RING:DIAGNOSTIC?",
     "SYST:TDMA:FLIGHT:MODE?", "SYSTEM:TDMA:FLIGHT:MODE?",
@@ -262,6 +263,9 @@ def scpi_response_matches_command(command: str, line: str) -> bool:
         return _csv_uints_match(text, 8)
     if header in {"SYST:OTA:JOUR?", "SYSTEM:OTA:JOURNAL?"}:
         return _csv_uints_match(text, 13)
+    if header in {
+            "SYST:OTA:STREAM:CAP?", "SYSTEM:OTA:STREAM:CAPABILITY?"}:
+        return _csv_uints_match(text, 3)
     if header in {"SYST:OTA:STAT?", "SYSTEM:OTA:STAT?"}:
         return re.fullmatch(r'"[^"]+",\s*\d+,\s*"[^"]+",\s*\d+', text) is not None
     if header in {"SYST:OTA:RES?", "SYSTEM:OTA:RES?"}:

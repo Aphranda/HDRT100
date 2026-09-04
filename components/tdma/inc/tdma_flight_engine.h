@@ -53,6 +53,12 @@ typedef struct {
 } tdma_flight_engine_apply_t;
 
 typedef struct {
+    uint32_t present_segment_mask;
+    uint32_t new_segment_mask;
+    uint32_t expected_segment_mask;
+} tdma_flight_engine_unload_t;
+
+typedef struct {
     uint32_t version;
     uint32_t configured;
     uint32_t active;
@@ -128,6 +134,17 @@ bool tdma_flight_engine_apply_preclassified(
     size_t output_capacity,
     tdma_flight_engine_apply_t *applied,
     tdma_flight_engine_result_t *result);
+/* Directional TX boundary.  It copies the received image and overlays only
+ * segments owned by this node; RX novelty is supplied by rx_unload(). */
+bool tdma_flight_engine_tx_load(
+    tdma_flight_engine_t *engine,
+    const uint8_t *incoming,
+    size_t incoming_size,
+    const tdma_flight_tx_view_t *tx_view,
+    uint8_t *output,
+    size_t output_capacity,
+    tdma_flight_engine_apply_t *applied,
+    tdma_flight_engine_result_t *result);
 bool tdma_flight_engine_classify_input(
     tdma_flight_engine_t *engine,
     const uint8_t *incoming,
@@ -144,11 +161,25 @@ bool tdma_flight_engine_inspect_input(
     uint32_t *present_segment_mask,
     uint32_t *new_segment_mask,
     uint32_t *expected_segment_mask);
+/* Directional RX boundary.  It inspects the wire image without mutating the
+ * consumed-sequence state; call rx_commit() after the RX descriptor is
+ * published successfully. */
+bool tdma_flight_engine_rx_unload(
+    tdma_flight_engine_t *engine,
+    const uint8_t *incoming,
+    size_t incoming_size,
+    uint32_t expected_owner_mask,
+    tdma_flight_engine_unload_t *unloaded);
 bool tdma_flight_engine_expected_input_mask(
     const tdma_flight_engine_t *engine,
     uint32_t expected_owner_mask,
     uint32_t *expected_segment_mask);
 bool tdma_flight_engine_commit_input(
+    tdma_flight_engine_t *engine,
+    const uint8_t *incoming,
+    size_t incoming_size,
+    uint32_t input_segment_mask);
+bool tdma_flight_engine_rx_commit(
     tdma_flight_engine_t *engine,
     const uint8_t *incoming,
     size_t incoming_size,

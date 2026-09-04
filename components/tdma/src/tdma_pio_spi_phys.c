@@ -504,9 +504,13 @@ static void tdma_pio_spi_phys_release_flight_resources(
     if (phys == NULL) {
         return;
     }
+    /* Release the persona that is actually selected.  Hard-coding ORIGIN
+     * leaves follower/process-follower programs resident and makes the next
+     * maintenance/coarse transition fail with a false PIO ownership clash. */
     tdma_pio_spi_programs_release_resources(
-        &s_tdma_pio_spi_program_manager, phys,
-        TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN);
+        &s_tdma_pio_spi_program_manager,
+        phys,
+        s_tdma_pio_spi_program_persona);
 }
 
 static void tdma_pio_spi_phys_enable_sm_pair(tdma_pio_spi_phys_t *phys)

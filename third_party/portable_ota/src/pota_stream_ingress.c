@@ -90,7 +90,11 @@ pota_stream_ingress_result_t pota_stream_ingress_write(
         source != ingress->active_source) {
         return remember(ingress, POTA_STREAM_INGRESS_SOURCE_REJECTED);
     }
-    if (size > ingress->max_frame_size) {
+    const bool package_header =
+        source == ingress->active_source && ingress->session != NULL &&
+        ingress->session->open.package_mode &&
+        offset == 0u && size == POTA_PACKAGE_HEADER_SIZE;
+    if (size > ingress->max_frame_size && !package_header) {
         return remember(ingress, POTA_STREAM_INGRESS_FRAME_TOO_LARGE);
     }
     if (has_crc32 && pota_crc32_compute(data, size) != crc32) {

@@ -327,12 +327,13 @@ bool tdma_flight_engine_is_active(const tdma_flight_engine_t *engine)
            __atomic_load_n(&engine->active, __ATOMIC_ACQUIRE) != 0u;
 }
 
-static bool tdma_flight_engine_apply_impl(
+static bool tdma_flight_engine_tx_load_impl(
     tdma_flight_engine_t *engine,
     const uint8_t *incoming,
     size_t incoming_size,
     uint32_t preclassified_input_segment_mask,
     bool input_preclassified,
+    bool account_input,
     const tdma_flight_tx_view_t *tx_view,
     uint8_t *output,
     size_t output_capacity,
@@ -423,7 +424,7 @@ static bool tdma_flight_engine_apply_impl(
             }
         }
     }
-    if (applied != NULL) {
+    if (applied != NULL && account_input) {
         applied->input_segment_mask |= input_segment_mask;
         for (uint32_t i = 0u; i < TDMA_PROCESS_IMAGE_SEGMENT_COUNT; i++) {
             const tdma_process_image_segment_t *segment = &map.segment[i];
@@ -489,9 +490,9 @@ bool tdma_flight_engine_apply(tdma_flight_engine_t *engine,
                               tdma_flight_engine_apply_t *applied,
                               tdma_flight_engine_result_t *result)
 {
-    return tdma_flight_engine_apply_impl(engine, incoming, incoming_size,
-                                         0u, false, tx_view, output,
-                                         output_capacity, applied, result);
+    return tdma_flight_engine_tx_load_impl(
+        engine, incoming, incoming_size, 0u, false, true, tx_view, output,
+        output_capacity, applied, result);
 }
 
 bool tdma_flight_engine_apply_preclassified(
@@ -505,10 +506,24 @@ bool tdma_flight_engine_apply_preclassified(
     tdma_flight_engine_apply_t *applied,
     tdma_flight_engine_result_t *result)
 {
-    return tdma_flight_engine_apply_impl(engine, incoming, incoming_size,
-                                         input_segment_mask, true, tx_view,
-                                         output, output_capacity, applied,
-                                         result);
+    return tdma_flight_engine_tx_load_impl(
+        engine, incoming, incoming_size, input_segment_mask, true, true,
+        tx_view, output, output_capacity, applied, result);
+}
+
+bool tdma_flight_engine_tx_load(
+    tdma_flight_engine_t *engine,
+    const uint8_t *incoming,
+    size_t incoming_size,
+    const tdma_flight_tx_view_t *tx_view,
+    uint8_t *output,
+    size_t output_capacity,
+    tdma_flight_engine_apply_t *applied,
+    tdma_flight_engine_result_t *result)
+{
+    return tdma_flight_engine_tx_load_impl(
+        engine, incoming, incoming_size, 0u, true, false, tx_view, output,
+        output_capacity, applied, result);
 }
 
 bool tdma_flight_engine_inspect_input(
@@ -553,6 +568,26 @@ bool tdma_flight_engine_inspect_input(
                                                 new_segment_mask,
                                                 expected_segment_mask,
                                                 true);
+}
+
+bool tdma_flight_engine_rx_unload(
+    tdma_flight_engine_t *engine,
+    const uint8_t *incoming,
+    size_t incoming_size,
+    uint32_t expected_owner_mask,
+    tdma_flight_engine_unload_t *unloaded)
+{
+    if (unloaded != NULL) {
+        memset(unloaded, 0, sizeof(*unloaded));
+    }
+    if (unloaded == NULL) {
+        return false;
+    }
+    return tdma_flight_engine_inspect_input(
+        engine, incoming, incoming_size, expected_owner_mask,
+        &unloaded->present_segment_mask,
+        &unloaded->new_segment_mask,
+        &unloaded->expected_segment_mask);
 }
 
 bool tdma_flight_engine_expected_input_mask(
@@ -636,6 +671,16 @@ bool tdma_flight_engine_commit_input(
         tdma_flight_engine_counter_inc(&engine->rx_bitmap_hit_count);
     }
     return committed_mask == input_segment_mask;
+}
+
+bool tdma_flight_engine_rx_commit(
+    tdma_flight_engine_t *engine,
+    const uint8_t *incoming,
+    size_t incoming_size,
+    uint32_t input_segment_mask)
+{
+    return tdma_flight_engine_commit_input(
+        engine, incoming, incoming_size, input_segment_mask);
 }
 
 bool tdma_flight_engine_get_snapshot(

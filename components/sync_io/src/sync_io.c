@@ -862,9 +862,6 @@ bool sync_io_init(const sync_io_config_t *config)
         sync_io_claim_sm(BOARD_SYNC_PIO_FAST,
                          BOARD_SYNC_CAPTURE_SM,
                          "capture") &&
-        sync_io_claim_sm(BOARD_SYNC_PIO_FAST,
-                         BOARD_SYNC_SMA_OBSERVER_SM,
-                         "sma_observer") &&
         sync_io_claim_sm(BOARD_SYNC_PIO_WAVE,
                          BOARD_SYNC_OUTPUT_SM,
                          "output") &&
@@ -1006,7 +1003,7 @@ bool sync_io_suspend_for_tdma_flight(void)
     __atomic_store_n(&s_sync_io.tdma_flight_suspended,
                      true,
                      __ATOMIC_RELEASE);
-    sync_io_model_pulse_schedule_disarm();
+    sync_io_model_pulse_schedule_quiesce_tdma_pio();
     sync_io_seq_step_disarm();
     sync_io_enc_count_disarm();
     sync_io_sma_frequency_tx_stop();
@@ -1054,7 +1051,8 @@ bool sync_io_is_tdma_flight_suspended(void)
 bool sync_io_start_capture(uint32_t sample_hz)
 {
     if (!s_sync_io.initialized ||
-        sync_io_model_pulse_schedule_is_running()) {
+        sync_io_model_pulse_schedule_is_running() ||
+        sync_io_core_wave_output_persona_active()) {
         sync_io_trace(SYNC_IO_TRACE_CAPTURE_FAIL, SYNC_IO_TRACE_ERROR, sample_hz, 1u);
         return false;
     }
@@ -1519,7 +1517,9 @@ bool sync_io_fire_rj45_trigger_us(uint32_t high_us)
 
 bool sync_io_debug_set_output_mask(uint32_t mask)
 {
-    if (!s_sync_io.initialized || sync_io_core_tdma_flight_suspended()) {
+    if (!s_sync_io.initialized ||
+        sync_io_core_tdma_flight_suspended() ||
+        sync_io_core_wave_output_persona_active()) {
         return false;
     }
 
@@ -1546,7 +1546,9 @@ bool sync_io_debug_set_output_mask(uint32_t mask)
 
 void sync_io_debug_release_output_mask(void)
 {
-    if (!s_sync_io.initialized || sync_io_core_tdma_flight_suspended()) {
+    if (!s_sync_io.initialized ||
+        sync_io_core_tdma_flight_suspended() ||
+        sync_io_core_wave_output_persona_active()) {
         return;
     }
 
@@ -1685,7 +1687,8 @@ bool sync_io_sma_frequency_tx_start(
         s_sync_io.capture_running ||
         sync_io_seq_step_is_running() ||
         sync_io_enc_count_is_running() ||
-        sync_io_model_pulse_schedule_is_running()) {
+        sync_io_model_pulse_schedule_is_running() ||
+        sync_io_core_wave_output_persona_active()) {
         return false;
     }
 

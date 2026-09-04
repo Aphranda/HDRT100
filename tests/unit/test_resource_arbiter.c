@@ -251,7 +251,12 @@ static void test_sync_io_persona_catalog(void)
     assert(wave->sm_mask == (1u << BOARD_SYNC_PIO0_WAVE_OUTPUT_SM));
     assert(wave->gpio_write_mask != 0u);
     assert(wave->safe_low_gpio_mask == wave->gpio_write_mask);
-    assert(wave->dma_channel_count == 0u);
+    assert(wave->dma_channel_count == 1u);
+    assert(wave->dma_channel_mask ==
+           (1u << SYNC_IO_MODEL_PULSE_DMA_CH));
+    assert(wave->tx_dreq_sm_mask == wave->sm_mask);
+    assert(wave->workspace_mask ==
+           SYNC_IO_PERSONA_WORKSPACE_CAPTURE_SCHEDULE);
 
     const sync_io_persona_descriptor_t *analyzer =
         sync_persona(SYNC_IO_PERSONA_ID_LOGIC_ANALYZER);
@@ -287,12 +292,12 @@ static void test_sync_io_persona_compatibility_matrix(void)
         sync_persona(SYNC_IO_PERSONA_ID_SMA_MAINTENANCE);
     sync_io_persona_compatibility_t result;
 
-    assert(sync_io_persona_compatible(capture, wave, &result));
-    assert(result.compatible);
-    assert(result.conflict_mask == SYNC_IO_PERSONA_CONFLICT_NONE);
+    assert(!sync_io_persona_compatible(capture, wave, &result));
+    assert((result.conflict_mask & SYNC_IO_PERSONA_CONFLICT_WORKSPACE) != 0u);
 
-    assert(sync_io_persona_compatible(analyzer, wave, &result));
+    assert(!sync_io_persona_compatible(analyzer, wave, &result));
     assert(result.gpio_conflict_mask == 0u);
+    assert((result.conflict_mask & SYNC_IO_PERSONA_CONFLICT_WORKSPACE) != 0u);
 
     assert(!sync_io_persona_compatible(capture, analyzer, &result));
     assert((result.conflict_mask & SYNC_IO_PERSONA_CONFLICT_SM) != 0u);
@@ -495,17 +500,19 @@ static void test_sync_io_persona_manager_compatibility(void)
     sync_io_persona_manager_init(&manager, NULL, NULL);
     assert(sync_io_persona_manager_claim(
         &manager, SYNC_IO_PERSONA_ID_INPUT_CAPTURE, &capture, NULL));
+    assert(!sync_io_persona_manager_claim(
+        &manager, SYNC_IO_PERSONA_ID_WAVE_OUTPUT, &wave,
+        &compatibility));
+    assert((compatibility.conflict_mask &
+            SYNC_IO_PERSONA_CONFLICT_WORKSPACE) != 0u);
+    assert(sync_io_persona_manager_release(&manager, &capture));
     assert(sync_io_persona_manager_claim(
         &manager, SYNC_IO_PERSONA_ID_WAVE_OUTPUT, &wave, NULL));
     assert(!sync_io_persona_manager_claim(
         &manager, SYNC_IO_PERSONA_ID_LOGIC_ANALYZER, &analyzer,
         &compatibility));
-    assert((compatibility.conflict_mask & SYNC_IO_PERSONA_CONFLICT_SM) != 0u);
-    assert((compatibility.conflict_mask & SYNC_IO_PERSONA_CONFLICT_FIFO) != 0u);
-    assert((compatibility.conflict_mask & SYNC_IO_PERSONA_CONFLICT_DMA) != 0u);
     assert((compatibility.conflict_mask & SYNC_IO_PERSONA_CONFLICT_WORKSPACE) != 0u);
     assert(sync_io_persona_manager_release(&manager, &wave));
-    assert(sync_io_persona_manager_release(&manager, &capture));
 
     assert(sync_io_persona_manager_claim(
         &manager, SYNC_IO_PERSONA_ID_SCHEDULED_TRIGGER, &scheduled, NULL));

@@ -346,6 +346,11 @@ def test_flight_claim_is_released_on_arm_failure_and_stop() -> None:
     assert "tdma_pio_spi_phys_claim_flight_resources" not in arm
     assert arm.count("tdma_pio_spi_phys_release_flight_resources(phys)") == 5
     assert "tdma_pio_spi_phys_release_flight_resources(phys)" in disarm
+    release_helper = phys.split(
+        "static void tdma_pio_spi_phys_release_flight_resources", 1
+    )[1].split("static void tdma_pio_spi_phys_enable_sm_pair", 1)[0]
+    assert "s_tdma_pio_spi_program_persona" in release_helper
+    assert "TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN" not in release_helper
 
 
 def test_maintenance_persona_has_independent_resource_owner() -> None:
@@ -462,6 +467,261 @@ def test_sync_io_handoff_precedes_flight_sm_claim_and_rolls_back() -> None:
     assert "sync_io_resume_after_tdma_flight" in resume_helper
     assert "program_switch_fail_count++" in resume_helper
     assert "TDMA_PIO_SPI_PHYS_ERROR_PERSONA_RESOURCE" in resume_helper
+
+
+def test_sync_io_pio0_wave_output_survives_tdma_handoff() -> None:
+    model_sched = (
+        ROOT / "components/sync_io/src/sync_io_model_sched.c"
+    ).read_text(encoding="utf-8")
+    sync_io = (ROOT / "components/sync_io/src/sync_io.c").read_text(
+        encoding="utf-8"
+    )
+
+    output_arm = model_sched.split(
+        "bool sync_io_output_pulse_schedule_arm(", 1
+    )[1].split("bool sync_io_output_pulse_schedule_arm_ns", 1)[0]
+    output_arm_ns = model_sched.split(
+        "bool sync_io_output_pulse_schedule_arm_ns", 1
+    )[1].split(
+        "bool sync_io_sma_observer_pulse_schedule_arm_periodic_ns", 1
+    )[0]
+    for function in (output_arm, output_arm_ns):
+        assert "BOARD_SYNC_PIO_FAST" in function
+        assert "BOARD_SYNC_PIO0_WAVE_OUTPUT_SM" in function
+        assert "BOARD_SYNC_PIO_WAVE" not in function
+        assert "sync_io_core_tdma_flight_suspended" not in function
+
+    observer_arm = model_sched.split(
+        "bool sync_io_sma_observer_pulse_schedule_arm_periodic_ns(", 1
+    )[1].split("void sync_io_model_pulse_schedule_disarm", 1)[0]
+    assert "BOARD_SYNC_PIO_FAST" in observer_arm
+    assert "BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM" in observer_arm
+    assert "BOARD_SYNC_PIO_WAVE" not in observer_arm
+
+    init = sync_io.split("bool sync_io_init(", 1)[1].split(
+        "bool sync_io_suspend_for_tdma_flight", 1
+    )[0]
+    assert '"sma_observer"' not in init
+
+    completion = model_sched.split(
+        "static void sync_io_model_update_completion", 1
+    )[1].split(
+        "static bool sync_io_pulse_schedule_arm_on_pin_common", 1
+    )[0]
+    assert "s_model_pulse.pio == BOARD_SYNC_PIO_WAVE" in completion
+    assert "sync_io_wave_output_manager_release();" in completion
+
+    quiesce = model_sched.split(
+        "void sync_io_model_pulse_schedule_quiesce_tdma_pio", 1
+    )[1].split("static float sync_io_model_clkdiv_for_tick_rate", 1)[0]
+    assert "s_model_pulse.pio == BOARD_SYNC_PIO_WAVE" in quiesce
+    assert "sync_io_model_pulse_schedule_disarm();" in quiesce
+
+    suspend = sync_io.split("bool sync_io_suspend_for_tdma_flight", 1)[1].split(
+        "bool sync_io_resume_after_tdma_flight", 1
+    )[0]
+    assert "sync_io_model_pulse_schedule_quiesce_tdma_pio();" in suspend
+    assert "sync_io_model_pulse_schedule_disarm();" not in suspend
+
+    cleanup = model_sched.split(
+        "static void sync_io_wave_output_cleanup", 1
+    )[1].split("static void sync_io_wave_output_manager_init", 1)[0]
+    assert "hardware_owned = s_wave_output_sm_claimed" in cleanup
+    assert "if (hardware_owned && s_model_pulse.pio != NULL)" in cleanup
+    assert "if (hardware_owned)" in cleanup
+
+
+def test_tdma_flight_rx_unload_and_tx_load_are_directional() -> None:
+    engine_h = (
+        ROOT / "components/tdma/inc/tdma_flight_engine.h"
+    ).read_text(encoding="utf-8")
+    engine_c = (
+        ROOT / "components/tdma/src/tdma_flight_engine.c"
+    ).read_text(encoding="utf-8")
+    adapter = (
+        ROOT / "components/tdma/src/tdma_pio_spi_ring_adapter.c"
+    ).read_text(encoding="utf-8")
+
+    assert "tdma_flight_engine_unload_t" in engine_h
+    assert "tdma_flight_engine_rx_unload(" in engine_h
+    assert "tdma_flight_engine_rx_commit(" in engine_h
+    assert "tdma_flight_engine_tx_load(" in engine_h
+
+    tx_load = engine_c.split(
+        "bool tdma_flight_engine_tx_load(", 1
+    )[1].split("bool tdma_flight_engine_inspect_input", 1)[0]
+    assert "tdma_flight_engine_commit_input" not in tx_load
+    assert "tdma_flight_engine_inspect_input" not in tx_load
+
+    rx_unload = engine_c.split(
+        "bool tdma_flight_engine_rx_unload(", 1
+    )[1].split("bool tdma_flight_engine_expected_input_mask", 1)[0]
+    assert "tdma_flight_engine_inspect_input(" in rx_unload
+    assert "tdma_flight_engine_tx_load" not in rx_unload
+
+    rx_commit = engine_c.split(
+        "bool tdma_flight_engine_rx_commit(", 1
+    )[1].split("bool tdma_flight_engine_get_snapshot", 1)[0]
+    assert "tdma_flight_engine_commit_input(" in rx_commit
+
+    assert adapter.count("tdma_flight_engine_tx_load(") >= 4
+    assert "tdma_flight_engine_rx_unload(" in adapter
+    assert "tdma_flight_engine_rx_commit(" in adapter
+    assert "tdma_flight_engine_apply_preclassified(" not in adapter
+    assert "tdma_flight_engine_commit_input(" not in adapter
+
+
+def test_sync_io_static_gate_rejects_legacy_output_pio(tmp_path: Path) -> None:
+    model = tmp_path / "sync_io_model_sched.c"
+    model_text = (ROOT / "components/sync_io/src/sync_io_model_sched.c").read_text(
+        encoding="utf-8"
+    )
+    prefix, suffix = model_text.split(
+        "bool sync_io_output_pulse_schedule_arm(", 1
+    )
+    function, tail = suffix.split(
+        "bool sync_io_output_pulse_schedule_arm_ns", 1
+    )
+    function = function.replace(
+        "BOARD_SYNC_PIO_FAST,\n"
+        "        BOARD_SYNC_PIO0_WAVE_OUTPUT_SM,\n"
+        "        DREQ_PIO0_TX0 + BOARD_SYNC_PIO0_WAVE_OUTPUT_SM,",
+        "BOARD_SYNC_PIO_WAVE,\n"
+        "        BOARD_SYNC_MODEL_SCHED_SM,\n"
+        "        DREQ_PIO1_TX0 + BOARD_SYNC_MODEL_SCHED_SM,",
+        1,
+    )
+    model.write_text(
+        prefix + "bool sync_io_output_pulse_schedule_arm(" + function +
+        "bool sync_io_output_pulse_schedule_arm_ns" + tail,
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+        sync_model=model,
+    )
+    assert "SYNC WAVE_OUTPUT arm contains forbidden BOARD_SYNC_PIO_WAVE" in failures
+
+
+def test_sync_io_static_gate_rejects_direct_pio0_disarm_on_tdma_suspend(
+    tmp_path: Path,
+) -> None:
+    core = tmp_path / "sync_io.c"
+    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
+        encoding="utf-8"
+    )
+    core.write_text(
+        core_text.replace(
+            "sync_io_model_pulse_schedule_quiesce_tdma_pio();",
+            "sync_io_model_pulse_schedule_disarm();",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+        sync_core=core,
+    )
+    assert (
+        "SYNC TDMA suspend must quiesce legacy model output explicitly"
+        in failures
+    )
+    assert (
+        "SYNC TDMA suspend must not directly disarm the PIO0 output persona"
+        in failures
+    )
+
+
+def test_sync_io_static_gate_rejects_schedule_without_capture_guard(
+    tmp_path: Path,
+) -> None:
+    model = tmp_path / "sync_io_model_sched.c"
+    model.write_text(
+        (
+            ROOT / "components/sync_io/src/sync_io_model_sched.c"
+        ).read_text(encoding="utf-8").replace(
+            "sync_io_core_capture_is_running() ||",
+            "false ||",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+        sync_model=model,
+    )
+
+    assert (
+        "SYNC output schedule common arm is missing "
+        "sync_io_core_capture_is_running"
+        in failures
+    )
+
+
+def test_sync_io_static_gate_rejects_private_schedule_workspace(
+    tmp_path: Path,
+) -> None:
+    model = tmp_path / "sync_io_model_sched.c"
+    model.write_text(
+        (
+            ROOT / "components/sync_io/src/sync_io_model_sched.c"
+        ).read_text(encoding="utf-8").replace(
+            "s_model_pulse.words = sync_io_shared_workspace;",
+            "s_model_pulse.words = private_schedule_workspace;",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+        sync_model=model,
+    )
+
+    assert (
+        "SYNC output schedule common arm is missing "
+        "s_model_pulse.words = sync_io_shared_workspace"
+        in failures
+    )
+
+
+def test_sync_io_static_gate_rejects_schedule_replacement_before_disarm(
+    tmp_path: Path,
+) -> None:
+    model = tmp_path / "sync_io_model_sched.c"
+    model.write_text(
+        (
+            ROOT / "components/sync_io/src/sync_io_model_sched.c"
+        ).read_text(encoding="utf-8").replace(
+            "sync_io_model_pulse_schedule_disarm();\n\n"
+            "    /* The schedule shares the capture DMA workspace.  Both APIs reject an\n"
+            "     * active peer, so assigning the workspace here cannot race a DMA owner. */\n"
+            "    s_model_pulse.words = sync_io_shared_workspace;",
+            "s_model_pulse.words = sync_io_shared_workspace;\n"
+            "    sync_io_model_pulse_schedule_disarm();",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+        sync_model=model,
+    )
+
+    assert (
+        "SYNC output schedule arm must reject active capture, disarm the old "
+        "schedule, bind the shared workspace, then start the PIO0 persona"
+        in failures
+    )
 
 
 def test_persona_resource_transfer_is_quiesced_and_rollback_is_owned() -> None:
