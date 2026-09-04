@@ -41,6 +41,23 @@ Last updated: 2026-09-05
   `sync-la-005-storage-crcfix-20260904/` 已验证 size/CRC 一致。本轮不将 `SYNC-LA-005` 标记
   DONE；active/shadow 完整切换、慢写 drop evidence 和离线 decoder 仍待后续切片。
 
+### SYNC-PROGRESS-20260905-002 - analyzer segment 离线 decoder 首段
+
+- TODO task ID：`SYNC-LA-006`。
+- 变更：新增 `tools/analyzer_trace_decode/analyzer_trace_decode.py`，解析 `SLAY` schema 1
+  segment，验证文件大小、magic/schema、payload CRC，并可比对 StorageAO 返回的 file CRC；
+  输出 record sequence gap/discontinuity、flags、level/edge mask 和可选 hardware tick
+  timebase（JSON 或 CSV）。
+- 软件验证：`test_analyzer_trace_decode.py`、analyzer contract tests 和 `py_compile` 全部
+  通过（本轮 9 tests）。decoder 对 file CRC 的校验不把 CRC 字段写回 header，避免自引用。
+- 硬件验收：源码指纹对应 quick P3 build `20260904164736`，四板 4096-byte OTA 成功；
+  `tdma-process-image/summary.json` 报告 `passed=true`、`realtime_gate_passed=true`、
+  `closed_loop_passed=true`、`cycles=512`。原始证据位于
+  `out/hardware-acceptance/sync-la-006-decoder-20260905/`；调试态 coarse CLK 的既有拒绝
+  记录按有界继续策略保留，未触发硬停安全类别。
+- 边界：本首段只完成 decoder 与元数据基础，不宣称 SVG 波形渲染、profile/source 元数据
+  合并或完整 SD 文件批量导出已完成；`SYNC-LA-006` 保持 `IN PROGRESS`。
+
 ### SYNC-PROGRESS-20260904-013 - Core0 bounded analyzer drain boundary
 
 - TODO task ID：`SYNC-LA-005`、`SYNC-LA-002`。
