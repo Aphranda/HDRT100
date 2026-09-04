@@ -45,6 +45,32 @@ Last updated: 2026-09-05
   `py_compile` 通过。此前 P3/TDMA 证据仍适用于本次仅离线工具的增量。
 - 边界：现场仍缺真实 SD 批量导出与长期背压窗口；`SYNC-LA-006` 继续保持 `IN PROGRESS`。
 
+### SYNC-PROGRESS-20260905-010 - EDGE_TIMESTAMP 后端与 TDMA 无扰动闭环
+
+- TODO task ID：`SYNC-LA-003`、`SYNC-LA-007`。
+- 变更：`sync_io_logic_analyzer_hw_service()` 支持 `EDGE_TIMESTAMP`，维护上一采样电平，
+  仅在 source mask 内检测到 level change 时发布带 hardware tick、edge mask 和原始 sample
+  的 record；ARM 时清零 edge 状态并按配置 sample period 设置 PIO 时钟。新增 host contract
+  断言覆盖 edge-only 发布路径。
+- 软件验证：`test_sync_io_logic_analyzer_contract.py`、文档回归测试共 27 项通过；
+  `tools/tests/run_sync_io_logic_analyzer_tests.ps1` 通过。`pico2-release` 双应用/boot
+  构建、UF2/package 生成及三份 flash-link contract 检查通过，package 使用已验证的
+  4096-byte OTA stream block，build `20260904221356`。
+- 硬件验收：五板 OTA 与 P3 初始化/四板 TDMA 验收使用当前源码指纹完成；TRN-03B
+  process-image `cycles=512`、`passed=true`、`closed_loop_passed=true`、
+  `leave_running=true`，证据位于
+  `out/hardware-acceptance/sync-la-004-edge-timestamp-current-20260905/trn03-process-image/`。
+  在 ring 保持运行窗口分别对 COM3/COM4/COM5/COM6 执行 analyzer ARM/STOP，四份结果均
+  `passed=true`，TDMA RX/TX sequence 持续增长，bad/transport/schedule/profile/error 增量为零，
+  原始 JSON 位于同目录 `analyzer-control-*-running*.json`。
+- 失败保留：统一完整 P3 流程在 TRN-00 marker SD 文件写入阶段出现
+  `marker capture SD job timeout`，已保留 `trn00-marker.log` 和同轮 P3/OTA 原始证据；该
+  诊断失败未触发越界 DMA、非法内存/Flash 或失控 GPIO 硬停。validation 配置另有既存 RAM
+  overflow，release 配置已通过并用于板端验收。
+- 边界：长时间 wrap、SD 背压/drop interval 和真实 edge timestamp 连续性仍未完成，
+  `SYNC-LA-003` 继续保持 `IN PROGRESS`；`SYNC-LA-007` 本轮 TDMA 无扰动门禁完成但 TODO
+  状态暂不回填。
+
 ### SYNC-PROGRESS-20260905-007 - 本机 analyzer 与 NO5 外部波形离线关联器
 
 - TODO task ID：`SYNC-LA-008`。
