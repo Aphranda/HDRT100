@@ -2,24 +2,24 @@
   "schema": "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_10MHZ_LIMITED_V1",
   "acceptance_scope": "10MHZ_LIMITED_P3",
   "passed": true,
-  "generated_at_utc": "2026-09-04T22:27:46.927729+00:00",
-  "source_tree_sha256": "8407a060c8c124ffaab6ab796c7d59f8e59e768eded43277aad7fd7735c99f03",
+  "generated_at_utc": "2026-09-04T23:19:46.067486+00:00",
+  "source_tree_sha256": "1e3eb00758162c2a89d0445b65d4056000bef867e37fe62ede5183b858e636dc",
   "source_file_count": 941,
   "bench_config_path": "config/hardware_acceptance/p3_bench.json",
   "bench_config_sha256": "00bceaf3c6cb5408f5bbb8856b4b91272636169f0fef0d464883e96e33809db0",
   "build_id": "20260904221356",
   "firmware_package": {
     "path": "out/build/pico2-release/DHRT100_UPDATE.pkg",
-    "sha256": "910d38067a983ea067fb9a218b5165174883963ee95fbc413b4cbf3ce51cbfcf"
+    "sha256": "9b9dadae92a744986d34e1d1781bbaab9d013389c40a2a098c1c97405f7a8bdf"
   },
   "ota_summary": {
-    "path": "out/hardware-acceptance/sync-la-004-edge-timestamp-current-20260905/ota-five-board/summary.json",
-    "sha256": "7f92ad535a254db12856d79b9d5dac204805b0707a624765f1605ccadc012959",
+    "path": "out/hardware-acceptance/sync-la-011-edge-scpi-20260905/ota-five-board-current/summary.json",
+    "sha256": "1143005d5fd6c77443595c7a5c7d8c4bd89d4e5b7b3e774be5d9b176ed591f2f",
     "board_count": 5
   },
   "p3_summary": {
-    "path": "out/hardware-acceptance/sync-la-004-edge-timestamp-current-20260905/p3-four-board/summary.json",
-    "sha256": "4ad48c5737ab0e3f16a0d36741d1f8b3404df3b1fa1429ee564ebfdea2892efb"
+    "path": "out/hardware-acceptance/sync-la-011-edge-scpi-20260905/p3-four-board/summary.json",
+    "sha256": "31bdc8379920bc06e9102aec4e3f186ece1bb73852a7c5ca80bb641d543c2f69"
   },
   "ota_board_ids": [
     "0010071E65B5CB38",

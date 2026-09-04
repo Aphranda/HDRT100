@@ -63,6 +63,8 @@ Last updated: 2026-09-05
   在 ring 保持运行窗口分别对 COM3/COM4/COM5/COM6 执行 analyzer ARM/STOP，四份结果均
   `passed=true`，TDMA RX/TX sequence 持续增长，bad/transport/schedule/profile/error 增量为零，
   原始 JSON 位于同目录 `analyzer-control-*-running*.json`。
+- HIL 工具同时读取 `ANALyzer:STATe?`，确认 ARM 后 `mode=EDGE_TIMESTAMP` 且
+  `active=1`，避免仅凭 mailbox accepted 响应误判模式已生效。
 - 失败保留：统一完整 P3 流程在 TRN-00 marker SD 文件写入阶段出现
   `marker capture SD job timeout`，已保留 `trn00-marker.log` 和同轮 P3/OTA 原始证据；该
   诊断失败未触发越界 DMA、非法内存/Flash 或失控 GPIO 硬停。validation 配置另有既存 RAM
@@ -70,6 +72,24 @@ Last updated: 2026-09-05
 - 边界：长时间 wrap、SD 背压/drop interval 和真实 edge timestamp 连续性仍未完成，
   `SYNC-LA-003` 继续保持 `IN PROGRESS`；`SYNC-LA-007` 本轮 TDMA 无扰动门禁完成但 TODO
   状态暂不回填。
+
+### SYNC-PROGRESS-20260905-011 - EDGE_TIMESTAMP SCPI 实际入口与模式确认
+
+- TODO task ID：`SYNC-LA-003`、`SYNC-LA-007`。
+- 变更：新增 `REALtime:IO:ANALyzer:EDGE:ARM`，复用异步 intent mailbox 和 Core1
+  mandatory service，但构造 `EDGE_TIMESTAMP` 配置；原 `ANALyzer:ARM` 保持
+  `RAW_SAMPLE` 兼容语义。SCPI 命令表和接口文档已同步。
+- 软件验证：analyzer contract、文档回归和 host logic-analyzer 测试共 28 项通过；
+  `pico2-release` 双应用/boot 增量构建、UF2/package 和 flash-link checks 通过。
+- 硬件验收：基于 build `20260904221356` 的四板 TDMA process-image 闭环
+  `cycles=4096`、`passed=true`、`realtime_gate_passed=true`、`closed_loop_passed=true`；
+  COM3/COM4/COM5/COM6 的 EDGE ARM/STOP HIL 均确认 `ANALyzer:STATe?` 在 ARM 后
+  `active=1, mode=2 (EDGE_TIMESTAMP)`，且 TDMA RX/TX sequence 前进、错误增量为零。
+  证据目录：`out/hardware-acceptance/sync-la-011-edge-scpi-20260905/`。
+- 失败保留：同轮 `--tdma-only` 总结的 `diagnostic_passed=false` 仅因既有 ring
+  capture completeness/SD 采集诊断失败；短帧闭环本身通过，未触发不可恢复安全硬停。
+- 边界：当前 EDGE 仍需长时间 wrap、真实 edge record 连续性和 SD 背压验证，
+  `SYNC-LA-003` 与 `SYNC-LA-005` 保持 `IN PROGRESS`。
 
 ### SYNC-PROGRESS-20260905-007 - 本机 analyzer 与 NO5 外部波形离线关联器
 

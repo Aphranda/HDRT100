@@ -4,7 +4,7 @@ Status: Active
 Domain: SCPI
 Canonical: `docs/interface/SCPI_COMMANDS.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/storage/SD_TODO.md`, `docs/interface/SCPI_USB_INTERFACE_DESIGN.md`
-Last updated: 2026-08-25
+Last updated: 2026-09-05
 
 成品默认 SCPI 服务通过 USBTMC/USB488 接入。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
 
@@ -142,6 +142,7 @@ UART/RS485/BiSS-C 等外部或板间通信能力统一归入 `COMMunication:*`�
 | `REALtime:IO:SAMPle:LATCh?` | 查询 core1 capture latch 维护状态，返回 `initialized,capture_running,capture_sample_hz,dropped_capture_words,latched_capture_words,dropped_latched_capture_words,capture_latch_source,capture_latch_resolution_ns,capture_latch_flags`。当前使用 `timer1/CLK_SYS` 硬件 tick，但仍置 `DIAGNOSTIC_ONLY`，不作为 DPLL lock 证据。 |
 | `REALtime:IO:SAMPle:WINDow?` | 查询当前 timestamp window 镜像，返回 armed、periodic、window start/end、period/sample period、observed mask、initial mask 和 capture timebase，用于 VDC GPIO overlay HIL 定位 RX 侧。 |
 | `REALtime:IO:ANALyzer:ARM <source_mask>,<sample_period_ns>,<max_records>,<timeout_us>,<overwrite_oldest>` | 提交逻辑分析仪 `RAW_SAMPLE` 异步 ARM 意图；`source_mask=0` 使用 active read-only pad mask，返回 `1` 仅表示 mailbox accepted，实际状态由 `STATe?` 查询。Core1 在不可隔离的 mandatory realtime boundary 执行 persona claim/load/arm/start，TDMA service 始终优先。 |
+| `REALtime:IO:ANALyzer:EDGE:ARM <source_mask>,<max_records>,<timeout_us>,<overwrite_oldest>` | 提交 `EDGE_TIMESTAMP` 异步 ARM 意图；固定使用硬件 edge-only 采样周期，source mask 为 `0` 时使用 active read-only pad mask。返回 `1` 仅表示 mailbox accepted，实际 mode/state/结束 reason 由 `ANALyzer:STATe?` 查询。 |
 | `REALtime:IO:ANALyzer:STOP` | 提交异步 STOP 意图；返回 `1` 仅表示 mailbox accepted，Core1 完成硬件停止和 persona release 后由 `STATe?` 确认 request/handled/result 与资源归零；capture 结束字段在 persona release 后按当前 snapshot 生命周期清零。 |
 | `REALtime:IO:ANALyzer:STATe?` | 查询 analyzer 只读状态；在既有 capture/manager 字段后追加 command request/handled sequence、command 和 result。 |
 | `REALtime:IO:CLOCk:FREQuency <Hz>` / `REALtime:IO:CLOCk:FREQuency?` | 设置或查询 `SYNC_CLK_OUT` 维护输出频率。 |

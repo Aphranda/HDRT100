@@ -40,6 +40,7 @@ scpi_result_t scpi_cmd_sample_window_q(scpi_t *context);
 scpi_result_t scpi_cmd_sample_debug_q(scpi_t *context);
 scpi_result_t scpi_cmd_analyzer_state_q(scpi_t *context);
 scpi_result_t scpi_cmd_analyzer_arm(scpi_t *context);
+scpi_result_t scpi_cmd_analyzer_edge_arm(scpi_t *context);
 scpi_result_t scpi_cmd_analyzer_stop(scpi_t *context);
 scpi_result_t scpi_cmd_clock_freq(scpi_t *context);
 scpi_result_t scpi_cmd_clock_freq_q(scpi_t *context);
@@ -85,6 +86,7 @@ scpi_result_t scpi_cmd_status_q(scpi_t *context);
     {.pattern = "REALtime:IO:SAMPle:DBG?", .callback = scpi_cmd_sample_debug_q}, \
     {.pattern = "REALtime:IO:ANALyzer:STATe?", .callback = scpi_cmd_analyzer_state_q}, \
     {.pattern = "REALtime:IO:ANALyzer:ARM", .callback = scpi_cmd_analyzer_arm}, \
+    {.pattern = "REALtime:IO:ANALyzer:EDGE:ARM", .callback = scpi_cmd_analyzer_edge_arm}, \
     {.pattern = "REALtime:IO:ANALyzer:STOP", .callback = scpi_cmd_analyzer_stop}, \
     {.pattern = "REALtime:IO:CLOCk:FREQuency", .callback = scpi_cmd_clock_freq}, \
     {.pattern = "REALtime:IO:CLOCk:FREQuency?", .callback = scpi_cmd_clock_freq_q}, \

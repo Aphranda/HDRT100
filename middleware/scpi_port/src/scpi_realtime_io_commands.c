@@ -497,7 +497,8 @@ scpi_result_t scpi_cmd_sample_debug_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_cmd_analyzer_arm(scpi_t *context)
+static scpi_result_t scpi_cmd_analyzer_arm_mode(
+    scpi_t *context, sync_io_logic_analyzer_mode_t mode)
 {
     if (scpi_port_reject_if_run_forbidden(
             context, DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
@@ -509,11 +510,20 @@ scpi_result_t scpi_cmd_analyzer_arm(scpi_t *context)
     uint32_t max_records;
     uint32_t timeout_us;
     uint32_t overwrite_oldest;
-    if (!scpi_port_read_u32(context, &source_mask) ||
-        !scpi_port_read_u32(context, &sample_period_ns) ||
-        !scpi_port_read_u32(context, &max_records) ||
-        !scpi_port_read_u32(context, &timeout_us) ||
-        !scpi_port_read_u32(context, &overwrite_oldest)) {
+    if (!scpi_port_read_u32(context, &source_mask)) {
+        return SCPI_RES_ERR;
+    }
+    if (mode == SYNC_IO_LOGIC_ANALYZER_MODE_EDGE_TIMESTAMP) {
+        sample_period_ns = 0u;
+        if (!scpi_port_read_u32(context, &max_records) ||
+            !scpi_port_read_u32(context, &timeout_us) ||
+            !scpi_port_read_u32(context, &overwrite_oldest)) {
+            return SCPI_RES_ERR;
+        }
+    } else if (!scpi_port_read_u32(context, &sample_period_ns) ||
+               !scpi_port_read_u32(context, &max_records) ||
+               !scpi_port_read_u32(context, &timeout_us) ||
+               !scpi_port_read_u32(context, &overwrite_oldest)) {
         return SCPI_RES_ERR;
     }
     if (source_mask == 0u) {
@@ -521,7 +531,7 @@ scpi_result_t scpi_cmd_analyzer_arm(scpi_t *context)
     }
     const sync_io_logic_analyzer_config_t config = {
         .contract_version = SYNC_IO_LOGIC_ANALYZER_CONTRACT_VERSION,
-        .mode = SYNC_IO_LOGIC_ANALYZER_MODE_RAW_SAMPLE,
+        .mode = mode,
         .source_mask = source_mask,
         .sample_period_ns = sample_period_ns,
         .max_records = max_records,
@@ -539,6 +549,18 @@ scpi_result_t scpi_cmd_analyzer_arm(scpi_t *context)
     return sync_io_logic_analyzer_request_arm(&config)
                ? scpi_port_result_accepted(context)
                : SCPI_RES_ERR;
+}
+
+scpi_result_t scpi_cmd_analyzer_arm(scpi_t *context)
+{
+    return scpi_cmd_analyzer_arm_mode(
+        context, SYNC_IO_LOGIC_ANALYZER_MODE_RAW_SAMPLE);
+}
+
+scpi_result_t scpi_cmd_analyzer_edge_arm(scpi_t *context)
+{
+    return scpi_cmd_analyzer_arm_mode(
+        context, SYNC_IO_LOGIC_ANALYZER_MODE_EDGE_TIMESTAMP);
 }
 
 scpi_result_t scpi_cmd_analyzer_stop(scpi_t *context)

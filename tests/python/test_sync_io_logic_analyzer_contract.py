@@ -139,9 +139,11 @@ def test_analyzer_control_is_core1_mailbox_and_scpi_intent_only() -> None:
     ):
         assert token in header or token in source
     assert "REALtime:IO:ANALyzer:ARM" in scpi_header
+    assert "REALtime:IO:ANALyzer:EDGE:ARM" in scpi_header
     assert "REALtime:IO:ANALyzer:STOP" in scpi_header
     assert "sync_io_logic_analyzer_request_arm" in scpi_source
     assert "sync_io_logic_analyzer_request_stop" in scpi_source
+    assert "SYNC_IO_LOGIC_ANALYZER_MODE_EDGE_TIMESTAMP" in scpi_source
     assert "sync_io_logic_analyzer_service_core1(8u)" in app_source
     tdma_phase = app_source.split(
         "static void app_realtime_tdma_phase", 1
@@ -181,3 +183,10 @@ def test_edge_timestamp_backend_emits_only_level_changes() -> None:
     assert "const uint32_t edge = s_hw.previous_level ^ level" in source
     assert "if (edge == 0u)" in source
     assert "edge_mask = edge" in source
+
+
+def test_edge_hil_arms_explicit_edge_command_and_checks_mode() -> None:
+    source = Path("tools/analyzer_tdma_hil/analyzer_tdma_hil.py").read_text(
+        encoding="utf-8")
+    assert "REALtime:IO:ANALyzer:EDGE:ARM" in source
+    assert '"edge_mode_active"' in source

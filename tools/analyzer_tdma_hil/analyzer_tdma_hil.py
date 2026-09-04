@@ -46,6 +46,17 @@ def sample_tdma(ser: Any, timeout_s: float) -> dict[str, Any]:
     return {"raw": raw, "fields": parse_status_named(raw)}
 
 
+def sample_analyzer(ser: Any, timeout_s: float) -> dict[str, Any]:
+    raw = query(ser, "REALtime:IO:ANALyzer:STATe?", timeout_s)
+    if raw == "<timeout>":
+        raise RuntimeError("analyzer status query timed out")
+    fields = [int(part.strip().strip('"')) for part in raw.split(",")]
+    if len(fields) < 4:
+        raise RuntimeError(f"analyzer status schema too short: {raw!r}")
+    return {"raw": raw, "initialized": fields[0], "active": fields[1],
+            "state": fields[2], "mode": fields[3]}
+
+
 def compare(before: dict[str, Any], after: dict[str, Any], arm: str, stop: str,
             elapsed_s: float, baseline: tuple[dict[str, Any], dict[str, Any]] | None = None,
             baseline_allowance: int = 1) -> dict[str, Any]:
@@ -92,13 +103,21 @@ def run(port: str, timeout_s: float, dwell_s: float, baseline_s: float) -> dict[
         baseline_after = sample_tdma(ser, timeout_s)
         before = sample_tdma(ser, timeout_s)
         start = time.monotonic()
-        arm = query(ser, "REALtime:IO:ANALyzer:ARM 0,250000,64,5000000,1", timeout_s)
+        arm = query(ser, "REALtime:IO:ANALyzer:EDGE:ARM 0,64,5000000,1", timeout_s)
+        analyzer_after_arm = sample_analyzer(ser, timeout_s)
         time.sleep(dwell_s)
         stop = query(ser, "REALtime:IO:ANALyzer:STOP", timeout_s)
+        analyzer_after_stop = sample_analyzer(ser, timeout_s)
         after = sample_tdma(ser, timeout_s)
         elapsed = time.monotonic() - start
-    return compare(before, after, arm, stop, elapsed,
-                   (baseline_before, baseline_after))
+    result = compare(before, after, arm, stop, elapsed,
+                     (baseline_before, baseline_after))
+    result["analyzer_after_arm"] = analyzer_after_arm
+    result["analyzer_after_stop"] = analyzer_after_stop
+    result["checks"]["edge_mode_active"] = (
+        analyzer_after_arm["mode"] == 2 and analyzer_after_arm["active"] == 1)
+    result["passed"] = all(result["checks"].values())
+    return result
 
 
 def main() -> int:
