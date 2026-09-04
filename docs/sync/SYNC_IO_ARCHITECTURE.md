@@ -4,7 +4,7 @@ Status: Active
 Domain: SYNC_IO
 Canonical: `docs/sync/SYNC_IO_ARCHITECTURE.md`
 Related: `docs/sync/SYNC_IO_TODO.md`, `docs/sync/SYNC_IO_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`
-Last updated: 2026-09-03
+Last updated: 2026-09-04
 
 本文档定义本机 realtime IO capability、PIO persona、逻辑分析仪、SMA 维护能力和
 PIO/DMA/IRQ 执行资源之间的稳定边界。它不定义产品 Trigger 状态机、TDMA 协议、
@@ -278,9 +278,10 @@ bounded ring/counter，不在 IRQ 或 Core1 路径输出文本日志。
   的实现输入，还不是完整 `LOGIC_ANALYZER` persona。
 - 当前 `sync_io_init()` 仍直接静态 claim capture/output 相关 SM，`sma_cable_delay` 也以自身
   owner 直接申请 PIO0 和动态 SM/DMA；两条路径尚未收敛到统一 SYNC_IO persona manager。
-- 当前 `BOARD_SYNC_PIO_WAVE` 仍指向 TDMA TX PIO，并静态占用 output/model/pulse SM；TDMA
-  flight 通过 `sync_io_suspend_for_tdma_flight()` / `sync_io_resume_after_tdma_flight()` 临时
-  交接。这是迁移兼容层，不是稳定架构。
+- `WAVE_OUTPUT` 与 `SCHEDULED_TRIGGER` 已由 PIO0 persona descriptor 和 lifecycle manager
+  装载、仲裁并运行，使用 PIO0 专用 SM、DMA/workspace 和 safe-state 语义。当前仍保留
+  `sync_io_suspend_for_tdma_flight()` / `sync_io_resume_after_tdma_flight()` 兼容层，用于
+  清理尚未完全拆除的旧 PIO1 wave claims；该 handoff 不是稳定架构，后续切片必须移除。
 - 当前通用 capture 只覆盖 active input group，Core1 drain timestamp 仍是诊断事实；后续需要
   可配置 source mask、硬件 edge timestamp、trigger window 和独立 capture ring。
 - 当前产品 profile 禁用旧 AUX/RJ45 persona，GPIO 与 PIO2 归 TDMA；旧文档中的 PIO2 AUX、

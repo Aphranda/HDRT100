@@ -4,7 +4,7 @@ Status: Active
 Domain: SYNC_IO
 Canonical: `docs/sync/SYNC_IO_TASK_PROGRESS.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`, `docs/storage/LOG_SYSTEM_TODO.md`
-Last updated: 2026-09-03
+Last updated: 2026-09-04
 
 本文档只记录 SYNC_IO 域的提交、构建、测试、OTA/HIL、失败、回退和证据位置。任务状态以
 `SYNC_IO_TODO.md` 为唯一事实源，稳定语义以 `SYNC_IO_ARCHITECTURE.md` 为准。
@@ -17,6 +17,24 @@ Last updated: 2026-09-03
   快照，不是当前代码事实源。
 
 ## 当前 Checkpoint
+
+### SYNC-PROGRESS-20260904-002 - PIO0 persona descriptor/lifecycle 与 TDMA 短帧闭环
+
+- TODO task ID：`SYNC-RES-001`、`SYNC-RES-002`、`SYNC-RES-003`、`SYNC-M2`。
+- 变更：PIO0 persona descriptor、兼容矩阵和 lifecycle manager 已接入输出/预约触发路径；
+  WAVE_OUTPUT 使用 PIO0 专用 SM/DMA/workspace，SCHEDULED_TRIGGER 使用独立 PIO0 SM；
+  旧 PIO1 suspend/resume 仍作为兼容层保留，未宣称迁移收尾。
+- 软件/构建验证：资源检查通过；状态机/文档定向 pytest 46/46 通过；
+  `out/build/pico2-rtos-multicore-smoke` 增量编译通过；4096B OTA 包使用
+  `out/build/pico2-validation`。
+- 硬件验证：QUICK_DIAGNOSTIC TDMA-only 证据位于
+  `out/hardware-acceptance/sync-res-003-pio0-20260904/`。四节点 OTA 成功；
+  `tdma-process-image/summary.json` 的 `closed_loop_passed`、`realtime_gate_passed`、
+  `left_running` 均为 true；四节点 SD 原始 capture、SVG 和
+  `analysis/ring_capture_analysis.json` 均保留且分析通过。NO5 未加入本轮 scope。
+- 诊断：coarse CLK level 7 记录一条既有 calibration failure；流程按调试策略继续，未影响
+  TDMA 短帧闭环，也未伪造严格 gate 通过。
+- 下一步：移除旧 PIO1 suspend/resume compatibility handoff，再进入 LOGIC_ANALYZER persona。
 
 ### SYNC-PROGRESS-20260903-001 - SYNC_IO 域与逻辑分析仪契约重构
 

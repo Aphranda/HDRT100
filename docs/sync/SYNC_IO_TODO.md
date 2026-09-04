@@ -4,7 +4,7 @@ Status: Active
 Domain: SYNC_IO
 Canonical: `docs/sync/SYNC_IO_TODO.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`
-Last updated: 2026-09-03
+Last updated: 2026-09-04
 
 本文档只维护 SYNC_IO 域的里程碑、任务状态和退出门禁。稳定语义以
 `SYNC_IO_ARCHITECTURE.md` 为准，提交、构建、OTA/HIL 和失败证据只写入
@@ -59,7 +59,7 @@ Last updated: 2026-09-03
 | ID | 任务 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
 | SYNC-M1 | SYNC_IO 文档、PIO 分区与逻辑分析仪契约重构 | DONE | 三件套格式完成；顶层和状态机文档一致；契约登记为 pending；文档门禁与 pre-commit 通过。 |
-| SYNC-M2 | PIO0 persona 资源与生命周期收敛 | PENDING | descriptor、兼容矩阵、原子 claim/release、失败回滚和无泄漏负测通过。 |
+| SYNC-M2 | PIO0 persona 资源与生命周期收敛 | DONE | descriptor、兼容矩阵、原子 claim/release、失败回滚和无泄漏负测通过；四节点 OTA、TDMA 短帧和 SD 原始证据已收口。 |
 | SYNC-M3 | 独立逻辑分析仪 persona | PENDING | RAW、EDGE、TRIGGERED 三模式及 snapshot、drop evidence、Core0 drain 均完成。 |
 | SYNC-M4 | 既有输入/输出/mode 能力迁移与清理 | PENDING | 输出 persona 不再占 TDMA PIO；active profile 不再暴露失效 AUX/BiSS 能力；旧 handoff 删除。 |
 | SYNC-M5 | 硬件验收与长期观测 | PENDING | 只读性、短帧无扰动、SD 完整性、长时间边沿曲线和外部证据关联均通过。 |
@@ -69,9 +69,9 @@ Last updated: 2026-09-03
 | ID | 任务 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
 | SYNC-DOC-001 | 重构 SYNC_IO 三件套并冻结 `ARCH-IOANALYZER-01` | DONE | 架构、TODO、进度、顶层和 registry 同步；检查器、pytest、pre-commit 全绿。 |
-| SYNC-RES-001 | 建立 PIO0 persona descriptor 与兼容矩阵 | PENDING | 每个 persona 声明 SM、instruction、GPIO read/write、FIFO、DMA/DREQ、IRQ、workspace 和 safe state；静态冲突负测通过。 |
-| SYNC-RES-002 | 建立 PIO0 persona lifecycle manager | PENDING | validate/claim/load/arm/stop/release 原子化；失败保持 STOPPED 或恢复旧 persona，无部分 claim。 |
-| SYNC-RES-003 | 将 `WAVE_OUTPUT` / `SCHEDULED_TRIGGER` 从 TDMA TX PIO 迁入 PIO0 owner | PENDING | 不直接复制旧 SM 编号；输出 HIL、停止安全态和 TDMA 同时运行验证通过；删除 suspend/resume handoff。 |
+| SYNC-RES-001 | 建立 PIO0 persona descriptor 与兼容矩阵 | DONE | 每个 persona 声明 SM、instruction、GPIO read/write、FIFO、DMA/DREQ、IRQ、workspace 和 safe state；静态冲突负测通过。 |
+| SYNC-RES-002 | 建立 PIO0 persona lifecycle manager | DONE | validate/claim/load/arm/stop/release 原子化；失败保持 STOPPED 或恢复旧 persona，无部分 claim；TDMA 短帧闭环通过。 |
+| SYNC-RES-003 | 将 `WAVE_OUTPUT` / `SCHEDULED_TRIGGER` 从 TDMA TX PIO 迁入 PIO0 owner | IN PROGRESS | 输出与预约触发已由 PIO0 persona manager 装载并运行，停止安全态和 TDMA 同时运行已验证；旧 suspend/resume 兼容层仍待移除。 |
 | SYNC-LA-001 | 定义逻辑分析仪 config、capture record、runtime snapshot 和结束 reason | PENDING | API 不暴露任意 GPIO 写；字段由代码符号定义；profile/source/persona generation 可追溯。 |
 | SYNC-LA-002 | 实现 `RAW_SAMPLE` 短窗口采集 | PENDING | 可配置 source mask 与采样周期；DMA ring wrap、CRC、drop/overrun 和容量边界测试通过。 |
 | SYNC-LA-003 | 实现 `EDGE_TIMESTAMP` 长时间采集 | PENDING | PIO hardware tick 记录 edge mask/level；空闲期无无界数据；wrap 和时间连续性可恢复。 |
