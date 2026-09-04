@@ -18,6 +18,20 @@ _Static_assert(SYNC_IO_LOGIC_ANALYZER_MAX_RECORDS > 0u,
 
 static sync_io_logic_analyzer_persona_t *s_active_persona;
 
+typedef struct {
+    volatile uint32_t request_sequence;
+    volatile uint32_t handled_sequence;
+    volatile uint32_t command;
+    volatile uint32_t result;
+    sync_io_logic_analyzer_config_t config;
+    sync_io_logic_analyzer_persona_t persona;
+    sync_io_logic_analyzer_raw_capture_t capture;
+    sync_io_logic_analyzer_record_t records[
+        SYNC_IO_LOGIC_ANALYZER_MAX_RECORDS];
+} sync_io_logic_analyzer_control_t;
+
+static sync_io_logic_analyzer_control_t s_control;
+
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 typedef struct {
     sync_io_logic_analyzer_raw_capture_t *capture;
@@ -426,6 +440,127 @@ void sync_io_logic_analyzer_persona_get_snapshot(
 }
 #endif
 
+bool sync_io_logic_analyzer_request_arm(
+    const sync_io_logic_analyzer_config_t *config)
+{
+    if (!sync_io_logic_analyzer_config_valid(config)) {
+        return false;
+    }
+    const uint32_t request =
+        __atomic_load_n(&s_control.request_sequence, __ATOMIC_ACQUIRE);
+    const uint32_t handled =
+        __atomic_load_n(&s_control.handled_sequence, __ATOMIC_ACQUIRE);
+    if (request != handled ||
+        (s_active_persona != NULL && s_active_persona->initialized)) {
+        __atomic_store_n(&s_control.result,
+                         SYNC_IO_LOGIC_ANALYZER_COMMAND_RESULT_BUSY,
+                         __ATOMIC_RELEASE);
+        return false;
+    }
+
+    s_control.config = *config;
+    __atomic_store_n(&s_control.command,
+                     SYNC_IO_LOGIC_ANALYZER_COMMAND_ARM,
+                     __ATOMIC_RELAXED);
+    __atomic_store_n(&s_control.result,
+                     SYNC_IO_LOGIC_ANALYZER_COMMAND_RESULT_NONE,
+                     __ATOMIC_RELAXED);
+    uint32_t next = request + 1u;
+    if (next == 0u) {
+        next = 1u;
+    }
+    __atomic_store_n(&s_control.request_sequence, next, __ATOMIC_RELEASE);
+    return true;
+}
+
+bool sync_io_logic_analyzer_request_stop(void)
+{
+    const uint32_t request =
+        __atomic_load_n(&s_control.request_sequence, __ATOMIC_ACQUIRE);
+    const uint32_t handled =
+        __atomic_load_n(&s_control.handled_sequence, __ATOMIC_ACQUIRE);
+    if (request != handled) {
+        __atomic_store_n(&s_control.result,
+                         SYNC_IO_LOGIC_ANALYZER_COMMAND_RESULT_BUSY,
+                         __ATOMIC_RELEASE);
+        return false;
+    }
+
+    __atomic_store_n(&s_control.command,
+                     SYNC_IO_LOGIC_ANALYZER_COMMAND_STOP,
+                     __ATOMIC_RELAXED);
+    __atomic_store_n(&s_control.result,
+                     SYNC_IO_LOGIC_ANALYZER_COMMAND_RESULT_NONE,
+                     __ATOMIC_RELAXED);
+    uint32_t next = request + 1u;
+    if (next == 0u) {
+        next = 1u;
+    }
+    __atomic_store_n(&s_control.request_sequence, next, __ATOMIC_RELEASE);
+    return true;
+}
+
+void sync_io_logic_analyzer_service_core1(uint32_t max_records)
+{
+    const uint32_t request =
+        __atomic_load_n(&s_control.request_sequence, __ATOMIC_ACQUIRE);
+    const uint32_t handled =
+        __atomic_load_n(&s_control.handled_sequence, __ATOMIC_ACQUIRE);
+    if (request != handled) {
+        const sync_io_logic_analyzer_command_t command =
+            (sync_io_logic_analyzer_command_t)__atomic_load_n(
+                &s_control.command, __ATOMIC_RELAXED);
+        bool accepted = false;
+        if (command == SYNC_IO_LOGIC_ANALYZER_COMMAND_ARM) {
+            accepted = sync_io_logic_analyzer_persona_begin(
+                &s_control.persona, &s_control.capture, s_control.records,
+                s_control.config.max_records, &s_control.config);
+        } else if (command == SYNC_IO_LOGIC_ANALYZER_COMMAND_STOP) {
+            if (s_control.persona.initialized) {
+                sync_io_logic_analyzer_persona_end(&s_control.persona);
+            }
+            accepted = true;
+        }
+        __atomic_store_n(
+            &s_control.result,
+            accepted ? SYNC_IO_LOGIC_ANALYZER_COMMAND_RESULT_ACCEPTED
+                     : SYNC_IO_LOGIC_ANALYZER_COMMAND_RESULT_REJECTED,
+            __ATOMIC_RELEASE);
+        __atomic_store_n(&s_control.handled_sequence, request,
+                         __ATOMIC_RELEASE);
+    }
+
+    if (s_active_persona != NULL && s_active_persona->initialized &&
+        s_active_persona->active) {
+        (void)sync_io_logic_analyzer_hw_service(max_records);
+    }
+}
+
+void sync_io_logic_analyzer_get_control_status(
+    uint32_t *request_sequence,
+    uint32_t *handled_sequence,
+    sync_io_logic_analyzer_command_t *command,
+    sync_io_logic_analyzer_command_result_t *result)
+{
+    if (request_sequence != NULL) {
+        *request_sequence = __atomic_load_n(
+            &s_control.request_sequence, __ATOMIC_ACQUIRE);
+    }
+    if (handled_sequence != NULL) {
+        *handled_sequence = __atomic_load_n(
+            &s_control.handled_sequence, __ATOMIC_ACQUIRE);
+    }
+    if (command != NULL) {
+        *command = (sync_io_logic_analyzer_command_t)__atomic_load_n(
+            &s_control.command, __ATOMIC_ACQUIRE);
+    }
+    if (result != NULL) {
+        *result =
+            (sync_io_logic_analyzer_command_result_t)__atomic_load_n(
+                &s_control.result, __ATOMIC_ACQUIRE);
+    }
+}
+
 void sync_io_logic_analyzer_get_status(
     sync_io_logic_analyzer_status_t *status)
 {
@@ -433,6 +568,9 @@ void sync_io_logic_analyzer_get_status(
         return;
     }
     memset(status, 0, sizeof(*status));
+    sync_io_logic_analyzer_get_control_status(
+        &status->command_sequence, &status->command_handled_sequence,
+        &status->command, &status->command_result);
     const sync_io_logic_analyzer_persona_t *persona = s_active_persona;
     if (persona == NULL || !persona->initialized || persona->capture == NULL) {
         return;
@@ -472,6 +610,13 @@ static bool sync_io_logic_analyzer_source_mask_valid(uint32_t source_mask)
            descriptor->gpio_write_mask == 0u &&
            source_mask != 0u &&
            (source_mask & ~descriptor->gpio_read_mask) == 0u;
+}
+
+uint32_t sync_io_logic_analyzer_default_source_mask(void)
+{
+    const sync_io_persona_descriptor_t *descriptor =
+        sync_io_persona_descriptor(SYNC_IO_PERSONA_ID_LOGIC_ANALYZER);
+    return descriptor != NULL ? descriptor->gpio_read_mask : 0u;
 }
 
 static uint32_t sync_io_logic_analyzer_crc32_update(uint32_t crc,
@@ -597,9 +742,14 @@ bool sync_io_logic_analyzer_raw_capture_init(
         capacity > config->max_records) {
         return false;
     }
+    /* Hardware ARM may reinitialize an already prepared capture with
+     * config == &capture->config.  Preserve the accepted value before
+     * clearing runtime counters so that self-aliasing cannot silently turn
+     * RAW_SAMPLE/overwrite settings into zero. */
+    const sync_io_logic_analyzer_config_t accepted_config = *config;
     memset(capture, 0, sizeof(*capture));
     capture->records = records;
-    capture->config = *config;
+    capture->config = accepted_config;
     capture->capacity = capacity;
     capture->state = SYNC_IO_LOGIC_ANALYZER_STATE_ARMED;
     capture->initialized = true;

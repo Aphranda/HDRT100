@@ -184,6 +184,24 @@ static void test_raw_capture_ring(void)
     assert(capture.end_reason == SYNC_IO_LOGIC_ANALYZER_END_CAPACITY);
 }
 
+static void test_raw_capture_reinit_preserves_aliased_config(void)
+{
+    sync_io_logic_analyzer_config_t config = raw_config();
+    config.max_records = 3u;
+    config.overwrite_oldest = 1u;
+    sync_io_logic_analyzer_record_t records[3];
+    sync_io_logic_analyzer_raw_capture_t capture;
+
+    assert(sync_io_logic_analyzer_raw_capture_init(
+               &capture, records, 3u, &config));
+    assert(sync_io_logic_analyzer_raw_capture_init(
+               &capture, records, 3u, &capture.config));
+    assert(capture.config.mode == SYNC_IO_LOGIC_ANALYZER_MODE_RAW_SAMPLE);
+    assert(capture.config.sample_period_ns == config.sample_period_ns);
+    assert(capture.config.overwrite_oldest == 1u);
+    assert(capture.capacity == 3u);
+}
+
 int main(void)
 {
     assert(sizeof(sync_io_logic_analyzer_record_t) == 32u);
@@ -192,6 +210,7 @@ int main(void)
     test_gate_policy();
     test_snapshot_seqlock();
     test_raw_capture_ring();
+    test_raw_capture_reinit_preserves_aliased_config();
     puts("sync_io_logic_analyzer contract tests passed");
     return 0;
 }

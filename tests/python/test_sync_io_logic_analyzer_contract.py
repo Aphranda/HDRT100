@@ -111,3 +111,46 @@ def test_analyzer_status_query_is_read_only_and_registered() -> None:
     )[0]
     assert "sync_io_logic_analyzer_hw_start" not in body
     assert "sync_io_logic_analyzer_hw_stop" not in body
+
+
+def test_analyzer_control_is_core1_mailbox_and_scpi_intent_only() -> None:
+    header = (
+        ROOT / "components/sync_io/inc/sync_io_logic_analyzer.h"
+    ).read_text(encoding="utf-8")
+    source = (
+        ROOT / "components/sync_io/src/sync_io_logic_analyzer.c"
+    ).read_text(encoding="utf-8")
+    scpi_header = (
+        ROOT / "middleware/scpi_port/inc/scpi_realtime_io_commands.h"
+    ).read_text(encoding="utf-8")
+    scpi_source = (
+        ROOT / "middleware/scpi_port/src/scpi_realtime_io_commands.c"
+    ).read_text(encoding="utf-8")
+    app_source = (
+        ROOT / "application/src/app.c"
+    ).read_text(encoding="utf-8")
+    for token in (
+        "sync_io_logic_analyzer_request_arm",
+        "sync_io_logic_analyzer_request_stop",
+        "sync_io_logic_analyzer_service_core1",
+        "SYNC_IO_LOGIC_ANALYZER_COMMAND_RESULT_BUSY",
+        "request_sequence",
+        "handled_sequence",
+    ):
+        assert token in header or token in source
+    assert "REALtime:IO:ANALyzer:ARM" in scpi_header
+    assert "REALtime:IO:ANALyzer:STOP" in scpi_header
+    assert "sync_io_logic_analyzer_request_arm" in scpi_source
+    assert "sync_io_logic_analyzer_request_stop" in scpi_source
+    assert "sync_io_logic_analyzer_service_core1(8u)" in app_source
+    tdma_phase = app_source.split(
+        "static void app_realtime_tdma_phase", 1
+    )[1].split("static void app_realtime_vdc_phase", 1)[0]
+    assert tdma_phase.index("tdma_component_core1_service") < tdma_phase.index(
+        "sync_io_logic_analyzer_service_core1"
+    )
+    arm_body = scpi_source.split(
+        "scpi_result_t scpi_cmd_analyzer_arm", 1
+    )[1].split("scpi_result_t scpi_cmd_analyzer_stop", 1)[0]
+    assert "sync_io_logic_analyzer_hw_start" not in arm_body
+    assert "sync_io_logic_analyzer_hw_stop" not in arm_body

@@ -22,6 +22,7 @@
 #include "sync_trigger.h"
 #include "tdma_runtime_owner.h"
 #include "sync_io.h"
+#include "sync_io_logic_analyzer.h"
 #include "trigger_measure.h"
 #include "ui_manager.h"
 #include "vdc_dpll_manager.h"
@@ -445,6 +446,11 @@ static bool app_realtime_run_phase(
 static void app_realtime_tdma_phase(void)
 {
     tdma_component_core1_service();
+    /* The analyzer intent mailbox is a mandatory bounded Core1 service.
+     * It must not live behind an optional/quarantinable load, otherwise an
+     * accepted ARM/STOP could remain pending forever.  TDMA remains first;
+     * analyzer work is capped to a small record budget afterward. */
+    sync_io_logic_analyzer_service_core1(8u);
     drv_watchdog_mark_progress(1u, 0x0101u);
     diagnostics_record_core1_loop();
     diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_CORE1);

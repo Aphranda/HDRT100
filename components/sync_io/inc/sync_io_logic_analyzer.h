@@ -2,6 +2,7 @@
 #define SYNC_IO_LOGIC_ANALYZER_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "sync_io_persona_resources.h"
@@ -179,6 +180,7 @@ typedef struct {
 
 bool sync_io_logic_analyzer_config_valid(
     const sync_io_logic_analyzer_config_t *config);
+uint32_t sync_io_logic_analyzer_default_source_mask(void);
 sync_io_logic_analyzer_gate_action_t sync_io_logic_analyzer_gate_action(
     sync_io_logic_analyzer_gate_reason_t reason,
     bool product_mode,
@@ -228,6 +230,19 @@ typedef struct {
     bool active;
 } sync_io_logic_analyzer_persona_t;
 
+typedef enum {
+    SYNC_IO_LOGIC_ANALYZER_COMMAND_NONE = 0u,
+    SYNC_IO_LOGIC_ANALYZER_COMMAND_ARM,
+    SYNC_IO_LOGIC_ANALYZER_COMMAND_STOP,
+} sync_io_logic_analyzer_command_t;
+
+typedef enum {
+    SYNC_IO_LOGIC_ANALYZER_COMMAND_RESULT_NONE = 0u,
+    SYNC_IO_LOGIC_ANALYZER_COMMAND_RESULT_ACCEPTED,
+    SYNC_IO_LOGIC_ANALYZER_COMMAND_RESULT_REJECTED,
+    SYNC_IO_LOGIC_ANALYZER_COMMAND_RESULT_BUSY,
+} sync_io_logic_analyzer_command_result_t;
+
 typedef struct {
     bool initialized;
     bool active;
@@ -244,7 +259,24 @@ typedef struct {
     uint32_t manager_used_dma_channel_mask;
     uint32_t manager_last_error;
     uint32_t manager_last_conflict_mask;
+    uint32_t command_sequence;
+    uint32_t command_handled_sequence;
+    sync_io_logic_analyzer_command_t command;
+    sync_io_logic_analyzer_command_result_t command_result;
 } sync_io_logic_analyzer_status_t;
+
+/* Core0 submits one bounded intent; Core1 consumes it from the realtime
+ * service phase.  The mailbox is deliberately single-slot so a stale or
+ * repeated maintenance command cannot create an unbounded queue. */
+bool sync_io_logic_analyzer_request_arm(
+    const sync_io_logic_analyzer_config_t *config);
+bool sync_io_logic_analyzer_request_stop(void);
+void sync_io_logic_analyzer_service_core1(uint32_t max_records);
+void sync_io_logic_analyzer_get_control_status(
+    uint32_t *request_sequence,
+    uint32_t *handled_sequence,
+    sync_io_logic_analyzer_command_t *command,
+    sync_io_logic_analyzer_command_result_t *result);
 
 bool sync_io_logic_analyzer_persona_begin(
     sync_io_logic_analyzer_persona_t *persona,

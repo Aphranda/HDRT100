@@ -2,24 +2,24 @@
   "schema": "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_10MHZ_LIMITED_V1",
   "acceptance_scope": "10MHZ_LIMITED_P3",
   "passed": true,
-  "generated_at_utc": "2026-09-04T10:35:03.305156+00:00",
-  "source_tree_sha256": "c565a7c56216b4c56bee6d94d73da1baf24d89fbe70e04831ac1f07ef5415408",
+  "generated_at_utc": "2026-09-04T12:44:58.442677+00:00",
+  "source_tree_sha256": "b5b2a66eb373aa81b9bcc5c3e94f6d873edea4ec83bce01202fde955bb8d0050",
   "source_file_count": 931,
   "bench_config_path": "config/hardware_acceptance/p3_bench.json",
   "bench_config_sha256": "00bceaf3c6cb5408f5bbb8856b4b91272636169f0fef0d464883e96e33809db0",
-  "build_id": "20260904100343",
+  "build_id": "20260904120651",
   "firmware_package": {
-    "path": "out/build/p3-acceptance-20260904-180336/DHRT100_UPDATE.pkg",
-    "sha256": "9459d022e1d10ab4319b7eb2286ed3431c9371c3cea840a2f839e341ef083b1c"
+    "path": "out/build/sync-la-002-alias-fix-20260904/DHRT100_UPDATE.pkg",
+    "sha256": "c3d279170ece4cca1beb53ae4158b71ddba64b653485cfa4aa6c59816aa344f1"
   },
   "ota_summary": {
-    "path": "out/hardware_acceptance/p3-20260904-180336/ota-five-board/summary.json",
-    "sha256": "7c54e5c046c85681f036d12ed2ac796211c97ba5dbf8eed7baea3cde7330b490",
+    "path": "out/hardware_acceptance/sync-la-002-alias-fix-20260904/ota-five-board/summary.json",
+    "sha256": "f906a1353a84c8f9555f074e5b33f6ee6b2d71e27cdf3a9865950e9e6bb0d658",
     "board_count": 5
   },
   "p3_summary": {
-    "path": "out/hardware_acceptance/p3-20260904-180336/p3-four-board/summary.json",
-    "sha256": "be3c52e1741a9dbac4c9f247f956daf1c05bebc19ca2e2558a9f7345970c2ed0"
+    "path": "out/hardware_acceptance/sync-la-002-alias-fix-20260904/p3-four-board/summary.json",
+    "sha256": "7c731726f548d5f528e030c7bc7d2f4ce656ab3d32dc956a3d73aa1bc81d1fe1"
   },
   "ota_board_ids": [
     "0010071E65B5CB38",
