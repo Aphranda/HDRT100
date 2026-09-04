@@ -112,6 +112,24 @@ Last updated: 2026-09-05
 - 边界：drop interval 标注和完整 SD 批量导出索引仍待后续切片；`SYNC-LA-006` 保持
   `IN PROGRESS`。
 
+### SYNC-PROGRESS-20260905-006 - analyzer 启停前后 TDMA 无扰动 HIL
+
+- TODO task ID：`SYNC-LA-007`。
+- 变更：新增 `tools/analyzer_tdma_hil/analyzer_tdma_hil.py`，在单板运行 TDMA ring 上采集
+  baseline 窗口，再执行 analyzer ARM/STOP，比较 ring adapter RX、up/down sequence、bad/
+  transport/schedule/profile/error 计数；baseline 校准用于区分既有链路噪声和 analyzer 诱发
+  回归，所有原始 status 响应写入结果 JSON。
+- 软件验证：HIL 逻辑单测和 `py_compile` 通过；首次实测发现既有 bad counter 增长，加入
+  baseline 窗口后判据恢复可归因，未放宽错误计数语义。
+- 硬件验收：源码指纹对应 quick P3 build `20260904182141`，四板 4096-byte OTA 成功；
+  TDMA `passed=true`、`realtime_gate_passed=true`、`closed_loop_passed=true`、`cycles=512`。
+  P3 原始证据位于 `out/hardware-acceptance/sync-la-007-hil-20260905/`。
+- 专项 HIL：最终板端 `analyzer_tdma_hil-final.json` 报告 `passed=true`；analyzer 窗口
+  `ring_adapter_rx_count +652`、up/down sequence `+653/+652`，bad/transport/schedule/profile
+  和 last-error 增量均为 `0`；baseline 同类 bad 增量也为 `0`，ring running 保持不变。
+- 结论：`SYNC-LA-007` 标记 `DONE`；本证据不替代 NO5/SMA 外部物理波形，`SYNC-LA-008` 仍待
+  完成。
+
 ### SYNC-PROGRESS-20260904-013 - Core0 bounded analyzer drain boundary
 
 - TODO task ID：`SYNC-LA-005`、`SYNC-LA-002`。

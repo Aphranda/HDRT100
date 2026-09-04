@@ -78,7 +78,7 @@ Last updated: 2026-09-05
 | SYNC-LA-004 | 实现 `TRIGGERED_CAPTURE` 前后窗口 | PENDING | level/edge/pattern trigger、bounded pre/post window、timeout/end reason 和重复 ARM 测试通过。 |
 | SYNC-LA-005 | 接入 Core1 snapshot、Core0 drain 和 StorageAO | IN PROGRESS | Core0 bounded drain、STOP 后 active/shadow 缓冲交接和 StorageAO 持久化已通过四板 TDMA 无扰动验收；慢写期间 drop evidence 与更长时间背压验证仍待完成。 |
 | SYNC-LA-006 | 建立离线 decoder、波形图和分析元数据 | IN PROGRESS | SLAY decoder、SVG 波形和 profile/source/timebase 扩展 header 已完成并通过验收；drop interval 标注和完整 SD 批量导出索引仍待完成。 |
-| SYNC-LA-007 | 逻辑分析仪只读与 TDMA 无扰动 HIL | PENDING | analyzer 启停前后 TDMA cycle/CRC/drop 无观测引入回归；目标 GPIO function、direction、pull 和 FIFO consumer 不变。 |
+| SYNC-LA-007 | 逻辑分析仪只读与 TDMA 无扰动 HIL | DONE | 专用 HIL 以 baseline 窗口校准既有链路误码后，验证 analyzer ARM/STOP 前后 TDMA ring 持续运行、accepted/sequence 前进，bad/transport/schedule/profile/error 增量无 analyzer 诱发增长；只读 GPIO 与业务 FIFO 约束由 analyzer contract/P3 同时覆盖。 |
 | SYNC-LA-008 | NO5/SMA 外部波形关联 | PENDING | 本机 pad capture 与 NO5 外部 capture 使用共同时间/sequence 元数据关联，并明确两类证据不能互相替代。 |
 
 ## 既有能力收尾
