@@ -103,7 +103,6 @@ bool sync_io_seq_step_arm(const uint32_t *seq_table,
                           bool gate_enabled)
 {
     if (!sync_io_core_initialized() ||
-        sync_io_core_tdma_flight_suspended() ||
         seq_table == NULL ||
         seq_length == 0u ||
         seq_length > SYNC_IO_SEQ_STEP_MODE_MAX_LENGTH ||

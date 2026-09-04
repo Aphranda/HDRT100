@@ -7,7 +7,6 @@
 #include "hardware/dma.h"
 #include "hardware/pio.h"
 #include "resource_arbiter.h"
-#include "sync_io.h"
 #include "tdma_pio_spi.pio.h"
 #include "tdma_state_machine_resources.h"
 
@@ -171,17 +170,6 @@ static void tdma_pio_spi_programs_release_flight_sms(
     *manager->flight_sms_claimed = false;
 }
 
-static bool tdma_pio_spi_programs_resume_sync_io(tdma_pio_spi_phys_t *phys)
-{
-    const bool resumed = sync_io_resume_after_tdma_flight();
-    if (!resumed && phys != NULL) {
-        phys->snapshot.program_switch_fail_count++;
-        phys->snapshot.last_error =
-            TDMA_PIO_SPI_PHYS_ERROR_PERSONA_RESOURCE;
-    }
-    return resumed;
-}
-
 static bool tdma_pio_spi_programs_claim_resources(
     tdma_pio_spi_program_manager_t *manager,
     tdma_pio_spi_phys_t *phys,
@@ -209,15 +197,6 @@ static bool tdma_pio_spi_programs_claim_resources(
             }
             phys->flight_resource_claimed = true;
             claimed_here = true;
-        }
-        if (!sync_io_suspend_for_tdma_flight()) {
-            if (claimed_here) {
-                resource_arbiter_release_owned(
-                    TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK,
-                    TDMA_FLIGHT_RESOURCE_OWNER);
-                phys->flight_resource_claimed = false;
-            }
-            return false;
         }
     } else {
         if (phys->flight_resource_claimed) {
@@ -248,7 +227,6 @@ static bool tdma_pio_spi_programs_claim_resources(
                 TDMA_FLIGHT_RESOURCE_OWNER);
             phys->flight_resource_claimed = false;
         }
-        (void)tdma_pio_spi_programs_resume_sync_io(phys);
     } else if (claimed_here) {
         resource_arbiter_release_owned(
             TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK,
@@ -330,7 +308,6 @@ void tdma_pio_spi_programs_release_resources(
                 TDMA_FLIGHT_RESOURCE_OWNER);
             phys->flight_resource_claimed = false;
         }
-        (void)tdma_pio_spi_programs_resume_sync_io(phys);
     } else if (*manager->maintenance_resources_claimed) {
         tdma_pio_spi_programs_release_maintenance_sms(manager);
         resource_arbiter_release_owned(

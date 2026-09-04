@@ -104,6 +104,29 @@ def c_function_body(text: str, name: str) -> str:
     raise ValueError(f"unterminated C function body {name}")
 
 
+def c_definition_body(text: str, name: str) -> str:
+    """Extract a C definition, skipping call sites with the same name."""
+    marker = re.search(
+        rf"(?m)^\s*(?:static\s+)?(?:bool|void|size_t|uint32_t|uint64_t|"
+        rf"int|unsigned|[A-Za-z_][A-Za-z0-9_]*_t)\s+{re.escape(name)}\s*\(",
+        text,
+    )
+    if marker is None:
+        raise ValueError(f"missing C function {name}")
+    opening = text.find("{", marker.end())
+    if opening < 0:
+        raise ValueError(f"missing C function body {name}")
+    depth = 0
+    for index in range(opening, len(text)):
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[opening + 1:index]
+    raise ValueError(f"unterminated C function body {name}")
+
+
 def _sync_require_tokens(
     failures: list[str],
     body: str,
@@ -151,11 +174,11 @@ def check_sync_io_runtime(
             failures.append(f"SYNC persona catalog is missing {token}")
 
     try:
-        output_arm = c_function_body(
+        output_arm = c_definition_body(
             model_text, "sync_io_output_pulse_schedule_arm")
-        output_arm_ns = c_function_body(
+        output_arm_ns = c_definition_body(
             model_text, "sync_io_output_pulse_schedule_arm_ns")
-        observer_arm = c_function_body(
+        observer_arm = c_definition_body(
             model_text, "sync_io_sma_observer_pulse_schedule_arm_periodic_ns")
         arm_common = c_function_body(
             model_text, "sync_io_pulse_schedule_arm_on_pin_common")
@@ -163,7 +186,6 @@ def check_sync_io_runtime(
             model_text, "sync_io_wave_output_manager_start")
         manager_release = c_function_body(
             model_text, "sync_io_wave_output_manager_release")
-        suspend = c_function_body(core_text, "sync_io_suspend_for_tdma_flight")
         capture_start = c_function_body(core_text, "sync_io_start_capture")
         debug_output = c_function_body(core_text, "sync_io_debug_set_output_mask")
         frequency_start = c_function_body(
@@ -185,12 +207,8 @@ def check_sync_io_runtime(
                 "DREQ_PIO0_TX0",
                 "sync_io_pulse_schedule_arm",
             ),
-            (
-                "BOARD_SYNC_PIO_WAVE",
-                "BOARD_SYNC_MODEL_SCHED_SM",
-                "DREQ_PIO1_TX0",
-                "sync_io_core_tdma_flight_suspended",
-            ),
+            ("BOARD_SYNC_PIO_WAVE", "DREQ_PIO1_TX0",
+             "BOARD_SYNC_MODEL_SCHED_SM"),
             label,
         )
     _sync_require_tokens(
@@ -202,11 +220,8 @@ def check_sync_io_runtime(
             "DREQ_PIO0_TX0",
             "sync_io_pulse_schedule_arm",
         ),
-        (
-            "BOARD_SYNC_PIO_WAVE",
-            "BOARD_SYNC_MODEL_SCHED_SM",
-            "DREQ_PIO1_TX0",
-        ),
+        ("BOARD_SYNC_PIO_WAVE", "DREQ_PIO1_TX0",
+         "BOARD_SYNC_MODEL_SCHED_SM"),
         "SYNC SCHEDULED_TRIGGER arm",
     )
 
@@ -256,15 +271,31 @@ def check_sync_io_runtime(
         "SYNC output persona release",
     )
 
-    if "sync_io_model_pulse_schedule_quiesce_tdma_pio" not in suspend:
-        failures.append(
-            "SYNC TDMA suspend must quiesce legacy model output explicitly")
-    if "sync_io_model_pulse_schedule_disarm" in suspend:
-        failures.append(
-            "SYNC TDMA suspend must not directly disarm the PIO0 output persona")
-    if "sync_io_release_wave_sms" not in suspend:
-        failures.append(
-            "SYNC TDMA suspend must release the legacy PIO1 wave SMs")
+    for forbidden in (
+        "sync_io_suspend_for_tdma_flight",
+        "sync_io_resume_after_tdma_flight",
+        "sync_io_core_tdma_flight_suspended",
+        "tdma_flight_suspended",
+    ):
+        if forbidden in core_text or forbidden in model_text:
+            failures.append(
+                f"legacy PIO1 TDMA handoff symbol remains in SYNC_IO: {forbidden}")
+
+    for function_name in (
+        "sync_io_model_pulse_schedule_arm",
+        "sync_io_model_pulse_schedule_arm_ns",
+        "sync_io_model_pulse_schedule_arm_periodic_ns",
+    ):
+        try:
+            body = c_definition_body(model_text, function_name)
+        except ValueError as exc:
+            failures.append(str(exc))
+            continue
+        for forbidden in ("BOARD_SYNC_PIO_WAVE", "DREQ_PIO1_TX0",
+                          "BOARD_SYNC_MODEL_SCHED_SM"):
+            if forbidden in body:
+                failures.append(
+                    f"{function_name} still uses legacy PIO1 handoff path: {forbidden}")
 
     for label, body in (
         ("SYNC capture start", capture_start),

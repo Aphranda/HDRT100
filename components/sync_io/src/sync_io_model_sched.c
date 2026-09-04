@@ -281,14 +281,6 @@ bool sync_io_core_wave_output_persona_active(void)
     return s_wave_output_manager_active;
 }
 
-void sync_io_model_pulse_schedule_quiesce_tdma_pio(void)
-{
-    if (s_model_pulse.total_pulses != 0u &&
-        s_model_pulse.pio == BOARD_SYNC_PIO_WAVE) {
-        sync_io_model_pulse_schedule_disarm();
-    }
-}
-
 static float sync_io_model_clkdiv_for_tick_rate(uint32_t tick_hz)
 {
     if (tick_hz == 0u) {
@@ -397,12 +389,6 @@ static uint32_t sync_io_model_saturate_u64_to_u32(uint64_t value)
     return value > UINT32_MAX ? UINT32_MAX : (uint32_t)value;
 }
 
-static bool sync_io_model_output_index_valid(uint32_t output_index)
-{
-    return BOARD_DEBUG_MODEL_GPIO_ENABLED != 0 &&
-           output_index < BOARD_DEBUG_MODEL_GPIO_PIN_COUNT;
-}
-
 static bool sync_io_main_output_index_valid(uint32_t output_index)
 {
     return output_index < BOARD_SYNC_OUTPUT_PIN_COUNT;
@@ -418,9 +404,7 @@ static void sync_io_model_release_pin(void)
 
 static void sync_io_model_update_completion(void)
 {
-    if (!s_model_pulse.running ||
-        (sync_io_core_tdma_flight_suspended() &&
-         s_model_pulse.pio == BOARD_SYNC_PIO_WAVE)) {
+    if (!s_model_pulse.running) {
         return;
     }
 
@@ -676,33 +660,10 @@ bool sync_io_model_pulse_schedule_arm(uint32_t output_index,
                                       uint32_t entry_count,
                                       bool rising_edge)
 {
-    if (sync_io_core_tdma_flight_suspended() ||
-        !sync_io_model_output_index_valid(output_index)) {
-        sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
-                           SYNC_IO_TRACE_ERROR,
-                           entry_count,
-                           output_index);
-        return false;
-    }
-    if (entries == NULL ||
-        entry_count == 0u ||
-        entry_count > SYNC_IO_MODEL_PULSE_MAX_ENTRIES) {
-        return false;
-    }
-    return sync_io_pulse_schedule_arm_on_pin_common(
-        BOARD_SYNC_PIO_WAVE,
-        BOARD_SYNC_MODEL_SCHED_SM,
-        DREQ_PIO1_TX0 + BOARD_SYNC_MODEL_SCHED_SM,
-        BOARD_DEBUG_MODEL_GPIO_BASE_PIN + output_index,
-        output_index,
-        entries,
-        NULL,
-        0u,
-        0u,
-        0u,
-        entry_count,
-        rising_edge,
-        1000u);
+    return sync_io_output_pulse_schedule_arm(output_index,
+                                             entries,
+                                             entry_count,
+                                             rising_edge);
 }
 
 bool sync_io_model_pulse_schedule_arm_ns(
@@ -712,25 +673,11 @@ bool sync_io_model_pulse_schedule_arm_ns(
     bool rising_edge,
     uint32_t tick_period_ns)
 {
-    if (sync_io_core_tdma_flight_suspended() ||
-        !sync_io_model_output_index_valid(output_index)) {
-        sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
-                           SYNC_IO_TRACE_ERROR,
-                           entry_count,
-                           output_index);
-        return false;
-    }
-
-    return sync_io_pulse_schedule_arm_on_pin(
-        BOARD_SYNC_PIO_WAVE,
-        BOARD_SYNC_MODEL_SCHED_SM,
-        DREQ_PIO1_TX0 + BOARD_SYNC_MODEL_SCHED_SM,
-        BOARD_DEBUG_MODEL_GPIO_BASE_PIN + output_index,
-        output_index,
-        entries,
-        entry_count,
-        rising_edge,
-        tick_period_ns);
+    return sync_io_output_pulse_schedule_arm_ns(output_index,
+                                                entries,
+                                                entry_count,
+                                                rising_edge,
+                                                tick_period_ns);
 }
 
 bool sync_io_model_pulse_schedule_arm_periodic_ns(
@@ -742,23 +689,8 @@ bool sync_io_model_pulse_schedule_arm_periodic_ns(
     bool rising_edge,
     uint32_t tick_period_ns)
 {
-    if (sync_io_core_tdma_flight_suspended() ||
-        !sync_io_model_output_index_valid(output_index)) {
-        sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
-                           SYNC_IO_TRACE_ERROR,
-                           pulse_count,
-                           output_index);
-        return false;
-    }
-
-    return sync_io_pulse_schedule_arm_on_pin_common(
-        BOARD_SYNC_PIO_WAVE,
-        BOARD_SYNC_MODEL_SCHED_SM,
-        DREQ_PIO1_TX0 + BOARD_SYNC_MODEL_SCHED_SM,
-        BOARD_DEBUG_MODEL_GPIO_BASE_PIN + output_index,
+    return sync_io_sma_observer_pulse_schedule_arm_periodic_ns(
         output_index,
-        NULL,
-        NULL,
         first_delay_ns,
         pulse_period_ns,
         pulse_high_ns,

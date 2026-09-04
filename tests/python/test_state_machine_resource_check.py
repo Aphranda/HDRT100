@@ -435,41 +435,26 @@ def test_flight_program_load_and_unload_never_use_legacy_pio_alias() -> None:
         assert "BOARD_TDMA_SPI_PIO" not in case
 
 
-def test_sync_io_handoff_precedes_flight_sm_claim_and_rolls_back() -> None:
+def test_sync_io_flight_claim_has_no_legacy_handoff() -> None:
     programs = (
         ROOT / "components/tdma/src/tdma_pio_spi_phys_programs.c"
     ).read_text(encoding="utf-8")
     claim = programs.split(
         "static bool tdma_pio_spi_programs_claim_resources", 1
     )[1].split("static void tdma_pio_spi_programs_publish_lifecycle", 1)[0]
-    suspend = claim.index("sync_io_suspend_for_tdma_flight")
-    sm_claim = claim.index("tdma_pio_spi_programs_ensure_flight_sms_claimed")
-    rollback_unclaim = claim.index("tdma_pio_spi_programs_release_flight_sms")
-    rollback_owner = claim.index("resource_arbiter_release_owned", sm_claim)
-    rollback_resume = claim.index("tdma_pio_spi_programs_resume_sync_io", sm_claim)
-    assert suspend < sm_claim < rollback_unclaim < rollback_owner < rollback_resume
+    assert "sync_io_suspend_for_tdma_flight" not in claim
+    assert "sync_io_resume_after_tdma_flight" not in claim
+    assert "tdma_pio_spi_programs_ensure_flight_sms_claimed" in claim
+    assert "resource_arbiter_acquire_owned" in claim
 
     sync_io = (ROOT / "components/sync_io/src/sync_io.c").read_text(
         encoding="utf-8")
-    suspend_fn = sync_io.split("bool sync_io_suspend_for_tdma_flight", 1)[1].split(
-        "bool sync_io_resume_after_tdma_flight", 1)[0]
-    assert suspend_fn.index("sync_io_release_wave_sms()") < len(suspend_fn)
-    resume_fn = sync_io.split("bool sync_io_resume_after_tdma_flight", 1)[1].split(
-        "bool sync_io_is_tdma_flight_suspended", 1)[0]
-    claim_wave = resume_fn.index("sync_io_claim_wave_sms()")
-    clear_suspended = resume_fn.index(
-        "__atomic_store_n(&s_sync_io.tdma_flight_suspended")
-    assert claim_wave < clear_suspended
-
-    resume_helper = programs.split(
-        "static bool tdma_pio_spi_programs_resume_sync_io", 1
-    )[1].split("static bool tdma_pio_spi_programs_claim_resources", 1)[0]
-    assert "sync_io_resume_after_tdma_flight" in resume_helper
-    assert "program_switch_fail_count++" in resume_helper
-    assert "TDMA_PIO_SPI_PHYS_ERROR_PERSONA_RESOURCE" in resume_helper
+    assert "sync_io_suspend_for_tdma_flight" not in sync_io
+    assert "sync_io_resume_after_tdma_flight" not in sync_io
+    assert "tdma_flight_suspended" not in sync_io
 
 
-def test_sync_io_pio0_wave_output_survives_tdma_handoff() -> None:
+def test_sync_io_pio0_wave_output_is_independent_of_tdma() -> None:
     model_sched = (
         ROOT / "components/sync_io/src/sync_io_model_sched.c"
     ).read_text(encoding="utf-8")
@@ -498,9 +483,7 @@ def test_sync_io_pio0_wave_output_survives_tdma_handoff() -> None:
     assert "BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM" in observer_arm
     assert "BOARD_SYNC_PIO_WAVE" not in observer_arm
 
-    init = sync_io.split("bool sync_io_init(", 1)[1].split(
-        "bool sync_io_suspend_for_tdma_flight", 1
-    )[0]
+    init = sync_io.split("bool sync_io_init(", 1)[1]
     assert '"sma_observer"' not in init
 
     completion = model_sched.split(
@@ -508,20 +491,17 @@ def test_sync_io_pio0_wave_output_survives_tdma_handoff() -> None:
     )[1].split(
         "static bool sync_io_pulse_schedule_arm_on_pin_common", 1
     )[0]
-    assert "s_model_pulse.pio == BOARD_SYNC_PIO_WAVE" in completion
     assert "sync_io_wave_output_manager_release();" in completion
 
-    quiesce = model_sched.split(
-        "void sync_io_model_pulse_schedule_quiesce_tdma_pio", 1
-    )[1].split("static float sync_io_model_clkdiv_for_tick_rate", 1)[0]
-    assert "s_model_pulse.pio == BOARD_SYNC_PIO_WAVE" in quiesce
-    assert "sync_io_model_pulse_schedule_disarm();" in quiesce
-
-    suspend = sync_io.split("bool sync_io_suspend_for_tdma_flight", 1)[1].split(
-        "bool sync_io_resume_after_tdma_flight", 1
-    )[0]
-    assert "sync_io_model_pulse_schedule_quiesce_tdma_pio();" in suspend
-    assert "sync_io_model_pulse_schedule_disarm();" not in suspend
+    for function_name in (
+        "sync_io_model_pulse_schedule_arm",
+        "sync_io_model_pulse_schedule_arm_ns",
+        "sync_io_model_pulse_schedule_arm_periodic_ns",
+    ):
+        body = model_sched.split(f"bool {function_name}", 1)[1]
+        body = body.split("\n}", 1)[0]
+        assert "BOARD_SYNC_PIO_WAVE" not in body
+        assert "DREQ_PIO1_TX0" not in body
 
     cleanup = model_sched.split(
         "static void sync_io_wave_output_cleanup", 1
@@ -605,7 +585,7 @@ def test_sync_io_static_gate_rejects_legacy_output_pio(tmp_path: Path) -> None:
     assert "SYNC WAVE_OUTPUT arm contains forbidden BOARD_SYNC_PIO_WAVE" in failures
 
 
-def test_sync_io_static_gate_rejects_direct_pio0_disarm_on_tdma_suspend(
+def test_sync_io_static_gate_rejects_reintroduced_tdma_handoff(
     tmp_path: Path,
 ) -> None:
     core = tmp_path / "sync_io.c"
@@ -613,11 +593,7 @@ def test_sync_io_static_gate_rejects_direct_pio0_disarm_on_tdma_suspend(
         encoding="utf-8"
     )
     core.write_text(
-        core_text.replace(
-            "sync_io_model_pulse_schedule_quiesce_tdma_pio();",
-            "sync_io_model_pulse_schedule_disarm();",
-            1,
-        ),
+        core_text + "\nbool sync_io_suspend_for_tdma_flight(void) { return true; }\n",
         encoding="utf-8",
     )
 
@@ -627,12 +603,8 @@ def test_sync_io_static_gate_rejects_direct_pio0_disarm_on_tdma_suspend(
         sync_core=core,
     )
     assert (
-        "SYNC TDMA suspend must quiesce legacy model output explicitly"
-        in failures
-    )
-    assert (
-        "SYNC TDMA suspend must not directly disarm the PIO0 output persona"
-        in failures
+        "legacy PIO1 TDMA handoff symbol remains in SYNC_IO: "
+        "sync_io_suspend_for_tdma_flight" in failures
     )
 
 
