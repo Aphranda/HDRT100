@@ -79,7 +79,7 @@ static const sync_io_persona_descriptor_t s_sync_io_personas[] = {
     {
         .id = SYNC_IO_PERSONA_ID_LOGIC_ANALYZER,
         .name = "logic_analyzer",
-        .program_name = "logic_analyzer_raw_backend",
+        .program_name = "logic_analyzer_raw_sample",
         .implementation = SYNC_IO_PERSONA_IMPLEMENTATION_MIGRATION_TARGET,
         .flags = SYNC_IO_PERSONA_FLAG_READ_ONLY_PAD,
         .pio_block_id = BOARD_TDMA_SMA_PIO_BLOCK_ID,

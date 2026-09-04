@@ -3,6 +3,14 @@
     in pins, 4
 .wrap
 
+; LOGIC_ANALYZER owns a read-only pad observation SM.  Sampling the complete
+; GPIO bus keeps the PIO program independent of sparse source masks; Core1
+; applies the validated descriptor mask before publishing records.
+.program logic_analyzer_raw_sample
+.wrap_target
+    in pins, 32
+.wrap
+
 .program sync_pulse
 .wrap_target
     pull block
@@ -78,6 +86,27 @@ static inline void sync_capture_4bit_program_init(PIO pio,
     pio_sm_set_consecutive_pindirs(pio, sm, base_pin, pin_count, false);
 
     pio_sm_config c = sync_capture_4bit_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, base_pin);
+    sm_config_set_in_shift(&c, false, true, 32);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+    sm_config_set_clkdiv(&c, clkdiv);
+    pio_sm_init(pio, sm, offset, &c);
+}
+
+static inline void logic_analyzer_raw_sample_program_init(PIO pio,
+                                                           uint sm,
+                                                           uint offset,
+                                                           uint base_pin,
+                                                           uint pin_count,
+                                                           float clkdiv)
+{
+    for (uint pin = base_pin; pin < base_pin + pin_count; pin++) {
+        pio_gpio_init(pio, pin);
+    }
+    pio_sm_set_consecutive_pindirs(pio, sm, base_pin, pin_count, false);
+
+    pio_sm_config c =
+        logic_analyzer_raw_sample_program_get_default_config(offset);
     sm_config_set_in_pins(&c, base_pin);
     sm_config_set_in_shift(&c, false, true, 32);
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);

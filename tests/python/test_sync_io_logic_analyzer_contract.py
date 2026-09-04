@@ -59,3 +59,16 @@ def test_logic_analyzer_validator_limits_sources_to_pad_masks() -> None:
     assert "descriptor->gpio_write_mask == 0u" in source
     assert "source_mask & ~descriptor->gpio_read_mask" in source
     assert "config->max_records > SYNC_IO_LOGIC_ANALYZER_MAX_RECORDS" in source
+
+
+def test_logic_analyzer_pio_program_is_full_bus_read_only() -> None:
+    pio = (ROOT / "components/sync_io/src/sync_io.pio").read_text(
+        encoding="utf-8"
+    )
+    program = pio.split(".program logic_analyzer_raw_sample", 1)[1].split(
+        ".program", 1
+    )[0]
+    assert "in pins, 32" in program
+    assert "set pins" not in program
+    assert "out pins" not in program
+    assert "logic_analyzer_raw_sample_program_init" in pio
