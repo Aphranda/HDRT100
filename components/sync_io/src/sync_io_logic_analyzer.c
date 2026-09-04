@@ -572,19 +572,28 @@ void sync_io_logic_analyzer_get_status(
         &status->command_sequence, &status->command_handled_sequence,
         &status->command, &status->command_result);
     const sync_io_logic_analyzer_persona_t *persona = s_active_persona;
-    if (persona == NULL || !persona->initialized || persona->capture == NULL) {
+    const sync_io_logic_analyzer_raw_capture_t *capture = NULL;
+    if (persona != NULL && persona->initialized && persona->capture != NULL) {
+        capture = persona->capture;
+    } else if (s_control.capture.initialized) {
+        /* Keep the last Core1-owned capture snapshot readable after STOP and
+         * persona release.  This is a shadow read only: it never reclaims
+         * the lease, consumes records, or touches hardware. */
+        capture = &s_control.capture;
+    }
+    if (capture == NULL) {
         return;
     }
 
     sync_io_logic_analyzer_snapshot_payload_t capture_snapshot;
     if (!sync_io_logic_analyzer_raw_capture_snapshot(
-            persona->capture, &capture_snapshot)) {
+            capture, &capture_snapshot)) {
         return;
     }
     sync_io_persona_manager_snapshot_t manager_snapshot;
     sync_io_logic_analyzer_persona_get_snapshot(persona, &manager_snapshot);
     status->initialized = true;
-    status->active = persona->active;
+    status->active = persona != NULL && persona->active;
     status->state = capture_snapshot.state;
     status->mode = capture_snapshot.mode;
     status->end_reason = capture_snapshot.end_reason;

@@ -16,6 +16,26 @@ Last updated: 2026-09-04
 - 历史 `SYNC_IO-TASK-*` 记录已迁移为 `SYNC-PROGRESS-*` ID；其中的单次数字都是当时验收
   快照，不是当前代码事实源。
 
+### SYNC-PROGRESS-20260904-012 - STOP 后 last-capture shadow 复验与 TDMA 闭环
+
+- TODO task ID：`SYNC-LA-005`、`SYNC-LA-002`。
+- 变更：复验 `sync_io_logic_analyzer_get_status()` 在活动 persona STOP/release 后回退读取
+  Core1 capture shadow；查询保持只读，不重新 claim、消费记录或触碰 PIO/DMA/GPIO。
+- 软件验证：`tools/tests/run_sync_io_logic_analyzer_tests.ps1` 通过；
+  `test_sync_io_logic_analyzer_contract.py` 与 `test_p3_hardware_acceptance.py` 合计 `37 passed`。
+- 构建验证：默认 `pico2-validation` 仍受既有 RAM 溢出阻断；使用已通过布局的
+  `out/build/sync-la-002-alias-fix-20260904/` 增量构建成功，三个 flash-link contract 全部通过。
+- 硬件验收：四板异步 OTA 完成，build `20260904143914`；P0T、CLK/MARK、TRN-00/01/02/03
+  和 TDMA process-image/FIFO 短帧闭环完成。`tdma-process-image/summary.json` 报告
+  `passed=true`、`realtime_gate_passed=true`、`closed_loop_passed=true`；证据目录为
+  `out/hardware-acceptance/sync-la-002-last-capture-20260904/`。
+- 调试门禁：coarse CLK follower arm、TRN-01 SCK gate 和 TRN-03 安全候选未通过；按调试策略
+  保留拒绝原因、状态快照和原始数据并有界继续，未发生越界 DMA、非法内存/Flash 或失控 GPIO
+  硬停。`diagnostic.json` 的 `flow_completed=true`、`strict_gates_passed=false`，不倒写为
+  analyzer 或校准契约通过。
+- 边界：本轮只复验 last-capture shadow 与 TDMA 无扰动；Core0 drain、StorageAO 持久化和
+  EDGE/TRIGGERED capture 仍待后续任务。
+
 ### SYNC-PROGRESS-20260904-011 - STOP 后保留 analyzer last-capture snapshot
 
 - TODO task ID：`SYNC-LA-005`、`SYNC-LA-002`。
