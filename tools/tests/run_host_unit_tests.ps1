@@ -53,6 +53,7 @@ $scripts = @(
     "run_tdma_pio_spi_persona_fsm_tests.ps1",
     "run_tdma_pio_spi_ring_adapter_tests.ps1",
     "run_sma_cable_delay_tests.ps1",
+    "run_sync_io_logic_analyzer_tests.ps1",
     "run_vdc_domain_tests.ps1"
 )
 
