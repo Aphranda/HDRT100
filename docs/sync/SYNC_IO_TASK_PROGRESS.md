@@ -74,6 +74,25 @@ Last updated: 2026-09-05
 - 边界：SVG 尚未合并 profile/source 元数据、drop interval 标注和批量 SD 导出索引；
   `SYNC-LA-006` 继续保持 `IN PROGRESS`。
 
+### SYNC-PROGRESS-20260905-004 - analyzer active/shadow 缓冲交接
+
+- TODO task ID：`SYNC-LA-005`、`SYNC-LA-007`。
+- 变更：停止态由 Core1 将已完成 capture 以有界记录复制发布到 shadow backing；设备上复用
+  `sync_io_shared_workspace`，主 capture ring 保持独立静态缓冲，避免增加固件 BSS。Core0
+  仅从 shadow drain，shadow 未排空时 ARM 返回 `BUSY`，排空后下一轮 capture 可复用 active
+  backing；发布过程使用 sequence/ready 标志，避免 Core0 读取半发布数据。
+- 失败与修复：初版分配第二个完整 record array 导致链接器 RAM overflow `32080 bytes`，
+  该失败由 `out/build/sync-la-006-svg-20260905/` 编译输出保留；随后改为 shared-workspace
+  shadow，链接恢复通过，未放宽内存门禁。
+- 软件验证：analyzer C contract tests 通过；Python analyzer contract tests 通过；固件
+  编译、UF2/package 生成和 flash-link checks 通过。
+- 硬件验收：四板 4096-byte OTA build `20260904173407`；P3 TDMA
+  `passed=true`、`realtime_gate_passed=true`、`closed_loop_passed=true`、`cycles=512`。
+  原始证据位于 `out/hardware-acceptance/sync-la-005-shadow-20260905/`。
+- 板端交接证据：NO1 连续两轮 ARM→STOP→StorageAO 均 `DONE`，每轮 size `2072 == 2072`、
+  expected/actual CRC 一致，分别记录于 `analyzer-shadow-cycle-1.jsonl` 与
+  `analyzer-shadow-cycle-2.jsonl`。本条款不宣称慢写背压/drop evidence 已完成。
+
 ### SYNC-PROGRESS-20260904-013 - Core0 bounded analyzer drain boundary
 
 - TODO task ID：`SYNC-LA-005`、`SYNC-LA-002`。

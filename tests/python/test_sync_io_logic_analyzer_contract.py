@@ -161,3 +161,13 @@ def test_analyzer_storage_drain_stays_on_core0_after_stop() -> None:
     assert "sync_io_logic_analyzer_drain_core0" in source
     assert "storage_manager_begin_evidence_write" in source
     assert "app_diag_service" in source
+
+
+def test_analyzer_stop_publishes_shadow_and_blocks_reentry_until_drain() -> None:
+    source = (ROOT / "components/sync_io/src/sync_io_logic_analyzer.c").read_text(
+        encoding="utf-8")
+    assert "shadow_capture" in source
+    assert "shadow_ready" in source
+    assert "sync_io_logic_analyzer_publish_shadow" in source
+    assert "shadow_ready, __ATOMIC_ACQUIRE" in source
+    assert "shadow_ready, 0u, __ATOMIC_RELEASE" in source

@@ -26,11 +26,61 @@ typedef struct {
     sync_io_logic_analyzer_config_t config;
     sync_io_logic_analyzer_persona_t persona;
     sync_io_logic_analyzer_raw_capture_t capture;
+    sync_io_logic_analyzer_raw_capture_t shadow_capture;
+    volatile uint32_t shadow_sequence;
+    volatile uint32_t shadow_ready;
     sync_io_logic_analyzer_record_t records[
         SYNC_IO_LOGIC_ANALYZER_MAX_RECORDS];
 } sync_io_logic_analyzer_control_t;
 
 static sync_io_logic_analyzer_control_t s_control;
+
+#if !defined(PICO_ON_DEVICE) || !PICO_ON_DEVICE
+static sync_io_logic_analyzer_record_t s_host_shadow_records[
+    SYNC_IO_LOGIC_ANALYZER_MAX_RECORDS];
+#endif
+
+static sync_io_logic_analyzer_record_t *
+sync_io_logic_analyzer_active_records(void)
+{
+    return s_control.records;
+}
+
+static sync_io_logic_analyzer_record_t *
+sync_io_logic_analyzer_shadow_records(void)
+{
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    return (sync_io_logic_analyzer_record_t *)sync_io_shared_workspace;
+#else
+    return s_host_shadow_records;
+#endif
+}
+
+static void sync_io_logic_analyzer_publish_shadow(void)
+{
+    if (!s_control.capture.initialized) {
+        return;
+    }
+    const uint32_t retained = s_control.capture.produced_records -
+                              s_control.capture.consumed_records;
+    sync_io_logic_analyzer_record_t *shadow_records =
+        sync_io_logic_analyzer_shadow_records();
+    __atomic_fetch_add(&s_control.shadow_sequence, 1u, __ATOMIC_ACQ_REL);
+    s_control.shadow_capture = s_control.capture;
+    uint32_t source_index = s_control.capture.read_index;
+    for (uint32_t index = 0u; index < retained; ++index) {
+        shadow_records[index] = s_control.capture.records[source_index];
+        source_index = (source_index + 1u) % s_control.capture.capacity;
+    }
+    s_control.shadow_capture.records = shadow_records;
+    s_control.shadow_capture.read_index = 0u;
+    s_control.shadow_capture.write_index =
+        retained % s_control.shadow_capture.capacity;
+    s_control.shadow_ready = 1u;
+    memset(&s_control.capture, 0, sizeof(s_control.capture));
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    __atomic_fetch_add(&s_control.shadow_sequence, 1u, __ATOMIC_RELEASE);
+}
 
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 typedef struct {
@@ -451,6 +501,7 @@ bool sync_io_logic_analyzer_request_arm(
     const uint32_t handled =
         __atomic_load_n(&s_control.handled_sequence, __ATOMIC_ACQUIRE);
     if (request != handled ||
+        __atomic_load_n(&s_control.shadow_ready, __ATOMIC_ACQUIRE) != 0u ||
         (s_active_persona != NULL && s_active_persona->initialized)) {
         __atomic_store_n(&s_control.result,
                          SYNC_IO_LOGIC_ANALYZER_COMMAND_RESULT_BUSY,
@@ -513,12 +564,14 @@ void sync_io_logic_analyzer_service_core1(uint32_t max_records)
         bool accepted = false;
         if (command == SYNC_IO_LOGIC_ANALYZER_COMMAND_ARM) {
             accepted = sync_io_logic_analyzer_persona_begin(
-                &s_control.persona, &s_control.capture, s_control.records,
+                &s_control.persona, &s_control.capture,
+                sync_io_logic_analyzer_active_records(),
                 s_control.config.max_records, &s_control.config);
         } else if (command == SYNC_IO_LOGIC_ANALYZER_COMMAND_STOP) {
             if (s_control.persona.initialized) {
                 sync_io_logic_analyzer_persona_end(&s_control.persona);
             }
+            sync_io_logic_analyzer_publish_shadow();
             accepted = true;
         }
         __atomic_store_n(
@@ -575,6 +628,10 @@ void sync_io_logic_analyzer_get_status(
     const sync_io_logic_analyzer_raw_capture_t *capture = NULL;
     if (persona != NULL && persona->initialized && persona->capture != NULL) {
         capture = persona->capture;
+    } else if (__atomic_load_n(&s_control.shadow_ready, __ATOMIC_ACQUIRE) != 0u) {
+        capture = &s_control.shadow_capture;
+    } else if (s_control.shadow_capture.initialized) {
+        capture = &s_control.shadow_capture;
     } else if (s_control.capture.initialized) {
         /* Keep the last Core1-owned capture snapshot readable after STOP and
          * persona release.  This is a shadow read only: it never reclaims
@@ -618,15 +675,26 @@ size_t sync_io_logic_analyzer_drain_core0(
         (s_active_persona != NULL &&
          sync_io_logic_analyzer_persona_active(s_active_persona)) ||
         sync_io_logic_analyzer_hw_active() ||
-        !s_control.capture.initialized) {
+        (!s_control.capture.initialized &&
+         !s_control.shadow_capture.initialized)) {
         return 0u;
     }
 
+    if (__atomic_load_n(&s_control.shadow_sequence, __ATOMIC_ACQUIRE) & 1u) {
+        return 0u;
+    }
+    sync_io_logic_analyzer_raw_capture_t *source =
+        __atomic_load_n(&s_control.shadow_ready, __ATOMIC_ACQUIRE) != 0u
+        ? &s_control.shadow_capture : &s_control.capture;
     size_t drained = 0u;
     while (drained < capacity &&
            sync_io_logic_analyzer_raw_capture_pop(
-               &s_control.capture, &records[drained])) {
+               source, &records[drained])) {
         ++drained;
+    }
+    if (source == &s_control.shadow_capture &&
+        source->consumed_records == source->produced_records) {
+        __atomic_store_n(&s_control.shadow_ready, 0u, __ATOMIC_RELEASE);
     }
     return drained;
 }
