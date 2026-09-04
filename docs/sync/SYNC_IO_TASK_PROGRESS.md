@@ -18,6 +18,28 @@ Last updated: 2026-09-04
 
 ## 当前 Checkpoint
 
+### SYNC-PROGRESS-20260904-008 - RAW_SAMPLE persona-manager lease lifecycle
+
+- TODO task ID：`SYNC-LA-002`、`SYNC-M3`。
+- 变更：新增 `sync_io_logic_analyzer_persona_begin/end/active/get_snapshot`，将
+  `LOGIC_ANALYZER` 的 claim/load/arm/start/stop/release 统一包在现有
+  `sync_io_persona_manager` 生命周期中；arm/start/cleanup 失败会回收 PIO program、
+  停止 DMA/SM，并保持 capture evidence，不向 Core0/StorageAO 扩散实时操作。
+- 资源边界：当前 `INPUT_CAPTURE` 与 analyzer 共用 SYNC_IO 的静态 capture SM/DMA
+  保留区；manager 负责逻辑 lease 与 PIO0 arbiter 记录，真实硬件切换仍受
+  `sync_io_core_capture_is_running()` 和输出 persona 活跃状态保护，未绕过既有实时
+  owner。后续需把 legacy capture 初始化迁移为同一 lease，才能宣称完整动态并发。
+- 软件验证：host `run_sync_io_logic_analyzer_tests.ps1` 通过；Python analyzer/资源
+  契约测试 `32 passed`；`pico2-validation` release build、flash/link checks 通过。
+- 硬件验证：quick diagnostic P3 已重新执行并通过，包含四板 OTA、P0T、CLK/MARK、
+  TRN-00/01/02、TRN-03、TDMA process-image/FIFO 短帧闭环；原始 receipt/diagnostic
+  位于 `out/hardware-acceptance/sync-la-002-persona-manager-20260904/`，TDMA 波形
+  与离线分析随该目录保留。
+- 边界：SCPI analyzer 命令、Core0 snapshot/drain、StorageAO 和长期 EDGE/TRIGGERED
+  capture 仍未接入，`SYNC-LA-002` 保持 `IN PROGRESS`。
+- 下一步：把 `REALtime:IO:SAMPle:*` 维护接口扩展为 analyzer snapshot/arm/stop 查询，
+  并在接入后重复 TDMA 短帧与 SD 波形闭环。
+
 ### SYNC-PROGRESS-20260904-007 - RAW_SAMPLE hardware backend and bounded transport recovery
 
 - TODO task ID：`SYNC-LA-002`、`SYNC-M3`。

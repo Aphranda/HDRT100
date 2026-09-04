@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "sync_io_persona_resources.h"
+#include "sync_io_persona_manager.h"
 
 #define SYNC_IO_LOGIC_ANALYZER_CONTRACT_VERSION 1u
 #define SYNC_IO_LOGIC_ANALYZER_SNAPSHOT_READ_ATTEMPTS 8u
@@ -218,5 +219,27 @@ bool sync_io_logic_analyzer_hw_start(void);
 void sync_io_logic_analyzer_hw_stop(void);
 size_t sync_io_logic_analyzer_hw_service(uint32_t max_records);
 bool sync_io_logic_analyzer_hw_active(void);
+
+typedef struct {
+    sync_io_persona_manager_t manager;
+    sync_io_persona_manager_handle_t handle;
+    sync_io_logic_analyzer_raw_capture_t *capture;
+    bool initialized;
+    bool active;
+} sync_io_logic_analyzer_persona_t;
+
+bool sync_io_logic_analyzer_persona_begin(
+    sync_io_logic_analyzer_persona_t *persona,
+    sync_io_logic_analyzer_raw_capture_t *capture,
+    sync_io_logic_analyzer_record_t *records,
+    uint32_t capacity,
+    const sync_io_logic_analyzer_config_t *config);
+void sync_io_logic_analyzer_persona_end(
+    sync_io_logic_analyzer_persona_t *persona);
+bool sync_io_logic_analyzer_persona_active(
+    const sync_io_logic_analyzer_persona_t *persona);
+void sync_io_logic_analyzer_persona_get_snapshot(
+    const sync_io_logic_analyzer_persona_t *persona,
+    sync_io_persona_manager_snapshot_t *snapshot);
 
 #endif

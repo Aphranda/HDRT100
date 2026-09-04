@@ -2,18 +2,21 @@
 
 #include <string.h>
 
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #include "hardware/dma.h"
 #include "hardware/clocks.h"
 #include "hardware/pio.h"
 #include "board_config.h"
 #include "sync_io.pio.h"
 #include "sync_io_core_internal.h"
+#endif
 
 #define SYNC_IO_LOGIC_ANALYZER_DMA_RING_BITS 15u
 
 _Static_assert(SYNC_IO_LOGIC_ANALYZER_MAX_RECORDS > 0u,
                "logic analyzer workspace must hold at least one record");
 
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 typedef struct {
     sync_io_logic_analyzer_raw_capture_t *capture;
     uint offset;
@@ -121,7 +124,7 @@ bool sync_io_logic_analyzer_hw_arm(
                           &pio->rxf[sm],
                           UINT32_MAX,
                           false);
-    s_hw.sm_claimed = true; /* SM/DMA are statically reserved by SYNC_IO. */
+    s_hw.sm_claimed = true; /* shared SYNC_IO static reservation */
     s_hw.dma_claimed = true;
     capture->state = SYNC_IO_LOGIC_ANALYZER_STATE_ARMED;
     return true;
@@ -213,6 +216,209 @@ bool sync_io_logic_analyzer_hw_active(void)
 {
     return s_hw.running;
 }
+
+static bool sync_io_logic_analyzer_persona_load(
+    void *context, const sync_io_persona_descriptor_t *descriptor,
+    uint32_t dma_channel_mask)
+{
+    (void)context;
+    return descriptor != NULL &&
+           descriptor->id == SYNC_IO_PERSONA_ID_LOGIC_ANALYZER &&
+           dma_channel_mask == (1u << SYNC_IO_CAPTURE_DMA_CH);
+}
+
+static bool sync_io_logic_analyzer_persona_arm(
+    void *context, const sync_io_persona_descriptor_t *descriptor,
+    uint32_t dma_channel_mask)
+{
+    sync_io_logic_analyzer_persona_t *persona =
+        (sync_io_logic_analyzer_persona_t *)context;
+    return persona != NULL && persona->capture != NULL &&
+           sync_io_logic_analyzer_hw_arm(
+               persona->capture, persona->capture->records,
+               persona->capture->capacity, &persona->capture->config) &&
+           descriptor != NULL &&
+           descriptor->id == SYNC_IO_PERSONA_ID_LOGIC_ANALYZER &&
+           dma_channel_mask == (1u << SYNC_IO_CAPTURE_DMA_CH);
+}
+
+static bool sync_io_logic_analyzer_persona_start(
+    void *context, const sync_io_persona_descriptor_t *descriptor,
+    uint32_t dma_channel_mask)
+{
+    (void)descriptor;
+    (void)dma_channel_mask;
+    return context != NULL && sync_io_logic_analyzer_hw_start();
+}
+
+static void sync_io_logic_analyzer_persona_stop(
+    void *context, const sync_io_persona_descriptor_t *descriptor,
+    uint32_t dma_channel_mask)
+{
+    (void)context;
+    (void)descriptor;
+    (void)dma_channel_mask;
+    sync_io_logic_analyzer_hw_stop();
+}
+
+static void sync_io_logic_analyzer_persona_cleanup(
+    void *context, const sync_io_persona_descriptor_t *descriptor,
+    uint32_t dma_channel_mask)
+{
+    (void)context;
+    (void)descriptor;
+    (void)dma_channel_mask;
+    if (s_hw.capture != NULL) {
+        sync_io_logic_analyzer_hw_stop();
+    }
+}
+
+bool sync_io_logic_analyzer_persona_begin(
+    sync_io_logic_analyzer_persona_t *persona,
+    sync_io_logic_analyzer_raw_capture_t *capture,
+    sync_io_logic_analyzer_record_t *records,
+    uint32_t capacity,
+    const sync_io_logic_analyzer_config_t *config)
+{
+    if (persona == NULL || capture == NULL || records == NULL ||
+        config == NULL) {
+        return false;
+    }
+    memset(persona, 0, sizeof(*persona));
+    persona->capture = capture;
+    const sync_io_persona_manager_hooks_t hooks = {
+        .load = sync_io_logic_analyzer_persona_load,
+        .arm = sync_io_logic_analyzer_persona_arm,
+        .start = sync_io_logic_analyzer_persona_start,
+        .stop = sync_io_logic_analyzer_persona_stop,
+        .cleanup = sync_io_logic_analyzer_persona_cleanup,
+    };
+    sync_io_persona_manager_init(&persona->manager, &hooks, persona);
+    persona->initialized = true;
+    if (!sync_io_logic_analyzer_raw_capture_init(
+            capture, records, capacity, config) ||
+        !sync_io_persona_manager_claim(
+            &persona->manager, SYNC_IO_PERSONA_ID_LOGIC_ANALYZER,
+            &persona->handle, NULL) ||
+        !sync_io_persona_manager_load(&persona->manager, &persona->handle) ||
+        !sync_io_persona_manager_arm(&persona->manager, &persona->handle) ||
+        !sync_io_persona_manager_start(&persona->manager, &persona->handle)) {
+        if (sync_io_persona_manager_handle_valid(
+                &persona->manager, &persona->handle)) {
+            (void)sync_io_persona_manager_release(
+                &persona->manager, &persona->handle);
+        }
+        sync_io_persona_manager_deinit(&persona->manager);
+        persona->initialized = false;
+        persona->capture = NULL;
+        return false;
+    }
+    persona->active = true;
+    return true;
+}
+
+void sync_io_logic_analyzer_persona_end(
+    sync_io_logic_analyzer_persona_t *persona)
+{
+    if (persona == NULL || !persona->initialized) {
+        return;
+    }
+    if (sync_io_persona_manager_handle_valid(
+            &persona->manager, &persona->handle)) {
+        (void)sync_io_persona_manager_release(
+            &persona->manager, &persona->handle);
+    }
+    (void)sync_io_persona_manager_deinit(&persona->manager);
+    memset(persona, 0, sizeof(*persona));
+}
+
+bool sync_io_logic_analyzer_persona_active(
+    const sync_io_logic_analyzer_persona_t *persona)
+{
+    return persona != NULL && persona->active &&
+           sync_io_logic_analyzer_hw_active();
+}
+
+void sync_io_logic_analyzer_persona_get_snapshot(
+    const sync_io_logic_analyzer_persona_t *persona,
+    sync_io_persona_manager_snapshot_t *snapshot)
+{
+    if (persona == NULL || snapshot == NULL || !persona->initialized) {
+        if (snapshot != NULL) {
+            memset(snapshot, 0, sizeof(*snapshot));
+        }
+        return;
+    }
+    sync_io_persona_manager_get_snapshot(&persona->manager, snapshot);
+}
+#else
+bool sync_io_logic_analyzer_hw_arm(
+    sync_io_logic_analyzer_raw_capture_t *capture,
+    sync_io_logic_analyzer_record_t *records,
+    uint32_t capacity,
+    const sync_io_logic_analyzer_config_t *config)
+{
+    (void)capture;
+    (void)records;
+    (void)capacity;
+    (void)config;
+    return false;
+}
+
+bool sync_io_logic_analyzer_hw_start(void)
+{
+    return false;
+}
+
+void sync_io_logic_analyzer_hw_stop(void)
+{
+}
+
+size_t sync_io_logic_analyzer_hw_service(uint32_t max_records)
+{
+    (void)max_records;
+    return 0u;
+}
+
+bool sync_io_logic_analyzer_hw_active(void)
+{
+    return false;
+}
+
+bool sync_io_logic_analyzer_persona_begin(
+    sync_io_logic_analyzer_persona_t *persona,
+    sync_io_logic_analyzer_raw_capture_t *capture,
+    sync_io_logic_analyzer_record_t *records,
+    uint32_t capacity,
+    const sync_io_logic_analyzer_config_t *config)
+{
+    (void)persona; (void)capture; (void)records; (void)capacity; (void)config;
+    return false;
+}
+
+void sync_io_logic_analyzer_persona_end(
+    sync_io_logic_analyzer_persona_t *persona)
+{
+    (void)persona;
+}
+
+bool sync_io_logic_analyzer_persona_active(
+    const sync_io_logic_analyzer_persona_t *persona)
+{
+    (void)persona;
+    return false;
+}
+
+void sync_io_logic_analyzer_persona_get_snapshot(
+    const sync_io_logic_analyzer_persona_t *persona,
+    sync_io_persona_manager_snapshot_t *snapshot)
+{
+    (void)persona;
+    if (snapshot != NULL) {
+        memset(snapshot, 0, sizeof(*snapshot));
+    }
+}
+#endif
 
 static bool sync_io_logic_analyzer_source_mask_valid(uint32_t source_mask)
 {

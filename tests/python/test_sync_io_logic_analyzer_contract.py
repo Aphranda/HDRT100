@@ -72,3 +72,25 @@ def test_logic_analyzer_pio_program_is_full_bus_read_only() -> None:
     assert "set pins" not in program
     assert "out pins" not in program
     assert "logic_analyzer_raw_sample_program_init" in pio
+
+
+def test_logic_analyzer_hardware_lifecycle_uses_persona_manager() -> None:
+    source = (
+        ROOT / "components/sync_io/src/sync_io_logic_analyzer.c"
+    ).read_text(encoding="utf-8")
+    header = (
+        ROOT / "components/sync_io/inc/sync_io_logic_analyzer.h"
+    ).read_text(encoding="utf-8")
+    for token in (
+        "sync_io_logic_analyzer_persona_begin",
+        "sync_io_logic_analyzer_persona_end",
+        "sync_io_persona_manager_claim",
+        "sync_io_persona_manager_load",
+        "sync_io_persona_manager_arm",
+        "sync_io_persona_manager_start",
+        "sync_io_persona_manager_release",
+        "sync_io_logic_analyzer_persona_get_snapshot",
+    ):
+        assert token in source or token in header
+    assert "SYSTem:TDMA" not in source
+    assert "storage_manager" not in source
