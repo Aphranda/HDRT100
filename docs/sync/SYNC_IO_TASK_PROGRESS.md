@@ -18,6 +18,23 @@ Last updated: 2026-09-04
 
 ## 当前 Checkpoint
 
+### SYNC-PROGRESS-20260904-004 - 冻结逻辑分析仪公共契约
+
+- TODO task ID：`SYNC-LA-001`、`SYNC-M3`。
+- 变更：新增 `sync_io_logic_analyzer.h/.c`，冻结 `RAW_SAMPLE`、`EDGE_TIMESTAMP`、
+  `TRIGGERED_CAPTURE` 的 config、record、snapshot、seqlock 读取和强类型结束 reason；source
+  mask 直接校验 `LOGIC_ANALYZER` 只读 persona descriptor，配置不含 GPIO 写入字段。
+- 门禁策略：新增 gate reason/action。调试模式仅对质量、CRC、超时和资源冲突记录快照及原始
+  值，并按 `debug_continue_budget` 有界继续或本轮结束；产品模式严格拒绝；DMA 越界、非法
+  内存/Flash 和失控 GPIO 始终硬停。
+- 软件验证：`run_sync_io_logic_analyzer_tests.ps1` 通过；状态机资源检查通过；Python 全量
+  回归 `705 passed`。VDC domain 既有 host 用例当前独立失败 4 项（slew/acquisition 断言），
+  与本切片无文件交集，未将聚合 host 全绿误记为通过。
+- 构建验证：`out/build/pico2-rtos-multicore-smoke` 与 `out/build/pico2-validation` release
+  build 通过，生成 package build id 为构建快照，非代码事实源。
+- 下一步：完成文档门禁后运行统一 P3；因本切片修改固件接口，仍必须复跑四节点 TDMA 短帧闭环，
+  通过后再提交并推送。
+
 ### SYNC-PROGRESS-20260904-003 - 移除旧 PIO1 suspend/resume handoff
 
 - TODO task ID：`SYNC-RES-003`、`SYNC-M4`。

@@ -136,6 +136,12 @@ holder、requester、resource mask、failure stage 和 generation；不得留下
 正在使用的 GPIO 电平，因此能对 TDMA control、DATA 和同步边沿做旁路观测，但它不能直接
 读取其他 PIO block 的 SM PC、ISR、OSR、X/Y 或私有 FIFO 内容。
 
+门禁策略与采集结束原因分离。每次门禁都必须保留拒绝/冲突原因、当前状态快照和原始
+观测值；`RAW_SAMPLE`、`EDGE_TIMESTAMP` 与触发质量、CRC、相位、超时等非安全异常在调试
+模式下只消耗有限的 `debug_continue_budget`，沿强制继续路径推进到下一状态、预算耗尽、
+超时或本轮结束。产品模式对同类异常保持严格拒绝。越界 DMA、非法内存/Flash 操作和失控
+GPIO 属于不可恢复安全风险，始终返回硬停并禁止继续；这些类别不得被调试预算放宽。
+
 需要内部执行状态时，由对应 PIO owner 发布只读 runtime snapshot，再通过共同硬件时间基、
 persona generation 和 capture sequence 与逻辑分析波形关联。逻辑分析仪不得通过弹出目标
 RX FIFO、清 IRQ 或暂停目标 SM 来取得状态。
