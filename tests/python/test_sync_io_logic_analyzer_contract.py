@@ -154,3 +154,10 @@ def test_analyzer_control_is_core1_mailbox_and_scpi_intent_only() -> None:
     )[1].split("scpi_result_t scpi_cmd_analyzer_stop", 1)[0]
     assert "sync_io_logic_analyzer_hw_start" not in arm_body
     assert "sync_io_logic_analyzer_hw_stop" not in arm_body
+
+
+def test_analyzer_storage_drain_stays_on_core0_after_stop() -> None:
+    source = (ROOT / "application/src/app.c").read_text(encoding="utf-8")
+    assert "sync_io_logic_analyzer_drain_core0" in source
+    assert "storage_manager_begin_evidence_write" in source
+    assert "app_diag_service" in source

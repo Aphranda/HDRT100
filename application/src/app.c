@@ -1,5 +1,9 @@
 #include "app.h"
 
+#include <stddef.h>
+#include <stdio.h>
+
+#include "board.h"
 #include "board_config.h"
 #include "calibration_manager.h"
 #include "board_identity.h"
@@ -23,6 +27,7 @@
 #include "tdma_runtime_owner.h"
 #include "sync_io.h"
 #include "sync_io_logic_analyzer.h"
+#include "ota_crc32.h"
 #include "trigger_measure.h"
 #include "ui_manager.h"
 #include "vdc_dpll_manager.h"
@@ -35,6 +40,110 @@
 
 static bool s_app_ready;
 static bool s_app_control_plane_ready;
+
+#define APP_ANALYZER_STORAGE_SEGMENT_RECORDS 128u
+#define APP_ANALYZER_STORAGE_MAGIC 0x59414C53u /* SLAY */
+#define APP_ANALYZER_STORAGE_SCHEMA 1u
+
+typedef struct __attribute__((packed)) {
+    uint32_t magic;
+    uint16_t schema;
+    uint16_t header_size;
+    uint32_t session;
+    uint32_t record_count;
+    uint32_t dropped_records;
+    uint32_t payload_crc32;
+} app_analyzer_storage_header_t;
+
+static sync_io_logic_analyzer_record_t
+    s_analyzer_storage_records[APP_ANALYZER_STORAGE_SEGMENT_RECORDS];
+static uint32_t s_analyzer_storage_record_count;
+static uint32_t s_analyzer_storage_job_id;
+static uint32_t s_analyzer_storage_session;
+static bool s_analyzer_storage_pending;
+static bool s_analyzer_storage_job_inflight;
+
+static void app_analyzer_storage_service(void)
+{
+    sync_io_logic_analyzer_status_t analyzer;
+    sync_io_logic_analyzer_get_status(&analyzer);
+    if (s_analyzer_storage_job_inflight) {
+        storage_manager_job_result_t result;
+        storage_manager_get_job_result(&result);
+        if (result.id == s_analyzer_storage_job_id &&
+            (result.state == STORAGE_MANAGER_JOB_STATE_DONE ||
+             result.state == STORAGE_MANAGER_JOB_STATE_FAILED)) {
+            s_analyzer_storage_job_inflight = false;
+            if (result.state == STORAGE_MANAGER_JOB_STATE_FAILED) {
+                s_analyzer_storage_pending = true;
+            }
+        }
+    }
+    if (s_analyzer_storage_job_inflight ||
+        analyzer.active || analyzer.state !=
+            SYNC_IO_LOGIC_ANALYZER_STATE_COMPLETE) {
+        return;
+    }
+    if (!s_analyzer_storage_pending) {
+        s_analyzer_storage_record_count = (uint32_t)
+            sync_io_logic_analyzer_drain_core0(
+                s_analyzer_storage_records,
+                APP_ANALYZER_STORAGE_SEGMENT_RECORDS);
+        if (s_analyzer_storage_record_count == 0u) {
+            return;
+        }
+        s_analyzer_storage_session = board_uptime_ms();
+        if (s_analyzer_storage_session == 0u) {
+            s_analyzer_storage_session = 1u;
+        }
+    }
+
+    app_analyzer_storage_header_t header = {
+        .magic = APP_ANALYZER_STORAGE_MAGIC,
+        .schema = APP_ANALYZER_STORAGE_SCHEMA,
+        .header_size = (uint16_t)sizeof(header),
+        .session = s_analyzer_storage_session,
+        .record_count = s_analyzer_storage_record_count,
+        .dropped_records = analyzer.dropped_records,
+        .payload_crc32 = ota_crc32_compute(
+            (const uint8_t *)s_analyzer_storage_records,
+            (size_t)s_analyzer_storage_record_count *
+                sizeof(s_analyzer_storage_records[0])),
+    };
+    const size_t payload_size = (size_t)s_analyzer_storage_record_count *
+                                sizeof(s_analyzer_storage_records[0]);
+    const uint32_t file_crc32 = ota_crc32_update(
+        ota_crc32_update(0u, (const uint8_t *)&header, sizeof(header)),
+        (const uint8_t *)s_analyzer_storage_records, payload_size);
+    const uint32_t file_size = (uint32_t)(sizeof(header) + payload_size);
+    char path[96];
+    if (snprintf(path, sizeof(path), "/traces/run/analyzer_%08lu.bin",
+                 (unsigned long)header.session) <= 0 ||
+        file_size > STORAGE_MANAGER_FILE_WRITE_MAX_BYTES) {
+        s_analyzer_storage_pending = true;
+        return;
+    }
+    uint32_t txn_id = 0u;
+    if (!storage_manager_begin_evidence_write(path, file_size,
+                                               file_crc32, &txn_id) ||
+        !storage_manager_write_file_chunk(txn_id, 0u,
+                                          (const uint8_t *)&header,
+                                          sizeof(header)) ||
+        !storage_manager_write_file_chunk(
+            txn_id, (uint32_t)sizeof(header),
+            (const uint8_t *)s_analyzer_storage_records, payload_size) ||
+        !storage_manager_commit_file_write(txn_id,
+                                            &s_analyzer_storage_job_id)) {
+        if (txn_id != 0u) {
+            (void)storage_manager_abort_file_write(txn_id);
+        }
+        s_analyzer_storage_pending = true;
+        return;
+    }
+    s_analyzer_storage_pending = false;
+    s_analyzer_storage_job_inflight = true;
+}
+
 bool app_init(void)
 {
     s_app_ready = false;
@@ -212,6 +321,7 @@ void app_ota_service(void)
 void app_diag_service(void)
 {
     vdc_dpll_manager_core0_service();
+    app_analyzer_storage_service();
     diagnostics_housekeeping_service();
 }
 

@@ -4,7 +4,7 @@ Status: Active
 Domain: SYNC_IO
 Canonical: `docs/sync/SYNC_IO_TASK_PROGRESS.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`, `docs/storage/LOG_SYSTEM_TODO.md`
-Last updated: 2026-09-04
+Last updated: 2026-09-05
 
 本文档只记录 SYNC_IO 域的提交、构建、测试、OTA/HIL、失败、回退和证据位置。任务状态以
 `SYNC_IO_TODO.md` 为唯一事实源，稳定语义以 `SYNC_IO_ARCHITECTURE.md` 为准。
@@ -15,6 +15,31 @@ Last updated: 2026-09-04
 - 架构契约、任务状态和实施证据分别由 Architecture、TODO 和本文件维护，不交叉替代。
 - 历史 `SYNC_IO-TASK-*` 记录已迁移为 `SYNC-PROGRESS-*` ID；其中的单次数字都是当时验收
   快照，不是当前代码事实源。
+
+### SYNC-PROGRESS-20260905-001 - Core0 analyzer segment StorageAO 持久化
+
+- TODO task ID：`SYNC-LA-005`、`SYNC-LA-006`。
+- 变更：在 `app_diag_service()` 接入停止态 `sync_io_logic_analyzer_drain_core0()`，按有界
+  segment 组装固定 header + capture records，经 `storage_manager_begin_evidence_write()`
+  排队 StorageAO 写入；文件 CRC 覆盖完整 header 与 payload，session 使用板端 uptime，避免
+  重启后覆盖同名证据文件。analyzer 组件本身继续不依赖 StorageAO。
+- 软件验证：`run_sync_io_logic_analyzer_tests.ps1` 通过；analyzer/P3 Python 合计 `38 passed`；
+  `out/build/sync-la-002-alias-fix-20260904/` 增量固件编译、UF2/package 生成和 flash-link
+  checks 通过。首次编译因缺少 `board.h` 显式 include 被捕获并修复，未绕过门禁。
+- 硬件验收：四板 OTA 使用当前已验证的 4096-byte stream block，build `20260904162319`；
+  quick P3 `diagnostic.json` 报告 `flow_completed=true`，TDMA
+  `tdma-process-image/summary.json` 报告 `passed=true`、`realtime_gate_passed=true`、
+  `closed_loop_passed=true`。原始 P3/OTA/波形证据位于
+  `out/hardware-acceptance/sync-la-005-storage-final-20260905/`。
+- StorageAO 原始证据：NO1 ARM/STOP 后 `SYSTem:STORage:FILE:WRITe:STATus?` 返回
+  `DONE`，size `2072 == 2072`、CRC `2172917391 == 2172917391`，路径为
+  `/traces/run/analyzer_00782049.bin`；FILE INFO 与 64-byte READ 均成功，读回 header
+  snapshot 为 magic `SLAY`、schema `1`、record_count `64`、dropped_records `37971`、
+  payload CRC `2682194261`。上述数值均为本轮板端验收快照。
+- 失败保留：早期 CRC 自引用实现的 `sync-la-005-storage-20260904/` 证据显示 StorageAO
+  `ABORTED`（expected CRC 与 actual CRC 不一致）；修复为不把 file CRC 字段放入 header 后，
+  `sync-la-005-storage-crcfix-20260904/` 已验证 size/CRC 一致。本轮不将 `SYNC-LA-005` 标记
+  DONE；active/shadow 完整切换、慢写 drop evidence 和离线 decoder 仍待后续切片。
 
 ### SYNC-PROGRESS-20260904-013 - Core0 bounded analyzer drain boundary
 
