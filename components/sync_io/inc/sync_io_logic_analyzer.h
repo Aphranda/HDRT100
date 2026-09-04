@@ -249,6 +249,12 @@ typedef struct {
     sync_io_logic_analyzer_state_t state;
     sync_io_logic_analyzer_mode_t mode;
     sync_io_logic_analyzer_end_reason_t end_reason;
+    uint32_t capture_sequence;
+    uint32_t source_mask;
+    uint32_t profile_generation;
+    uint32_t persona_generation;
+    uint32_t hardware_tick_hz;
+    uint32_t timestamp_resolution_ns;
     uint32_t produced_records;
     uint32_t consumed_records;
     uint32_t dropped_records;

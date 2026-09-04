@@ -21,6 +21,7 @@ from typing import Any
 MAGIC = 0x59414C53
 SCHEMA = 1
 HEADER = struct.Struct("<IHHIIII")
+METADATA = struct.Struct("<IIIIII")
 RECORD = struct.Struct("<QIIIIII")
 RECORD_FLAGS = {1: "diagnostic_only", 2: "trigger", 4: "discontinuity"}
 
@@ -40,6 +41,18 @@ def decode(path: Path, tick_hz: int = 0, expected_file_crc: int | None = None) -
     if len(data) != expected_size:
         raise ValueError(f"file size {len(data)} does not match expected {expected_size}")
     payload = data[header_size:]
+    metadata = {}
+    if header_size >= HEADER.size + METADATA.size:
+        (source_mask, profile_generation, persona_generation, hardware_tick_hz,
+         timestamp_resolution_ns, capture_sequence) = METADATA.unpack_from(data, HEADER.size)
+        metadata = {
+            "source_mask": source_mask,
+            "profile_generation": profile_generation,
+            "persona_generation": persona_generation,
+            "hardware_tick_hz": hardware_tick_hz,
+            "timestamp_resolution_ns": timestamp_resolution_ns,
+            "capture_sequence": capture_sequence,
+        }
     records: list[dict[str, Any]] = []
     previous_sequence: int | None = None
     discontinuities = 0
@@ -84,6 +97,7 @@ def decode(path: Path, tick_hz: int = 0, expected_file_crc: int | None = None) -
             "record_count": record_count,
             "dropped_records": dropped,
             "payload_crc32": payload_crc,
+            "metadata": metadata,
         },
         "timebase": {"tick_hz": tick_hz, "known": bool(tick_hz)},
         "computed_payload_crc32": payload_computed,

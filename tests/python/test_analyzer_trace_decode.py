@@ -5,6 +5,7 @@ from pathlib import Path
 
 from tools.analyzer_trace_decode.analyzer_trace_decode import (
     HEADER,
+    METADATA,
     RECORD,
     MAGIC,
     decode,
@@ -54,3 +55,21 @@ def test_svg_output_contains_bounded_gpio_lanes(tmp_path: Path) -> None:
     assert text.startswith("<svg ")
     assert "GPIO0" in text
     assert "<circle" in text
+
+
+def test_decode_extended_metadata_header(tmp_path: Path) -> None:
+    records = RECORD.pack(1, 1, 1, 1, 0, 0, 0)
+    header_size = HEADER.size + METADATA.size
+    header = HEADER.pack(MAGIC, 1, header_size, 2, 1, 3, crc32(records))
+    metadata = METADATA.pack(0x30, 11, 12, 1_000_000_000, 250_000, 7)
+    path = tmp_path / "metadata.bin"
+    path.write_bytes(header + metadata + records)
+    decoded = decode(path)
+    assert decoded["header"]["metadata"] == {
+        "source_mask": 0x30,
+        "profile_generation": 11,
+        "persona_generation": 12,
+        "hardware_tick_hz": 1_000_000_000,
+        "timestamp_resolution_ns": 250_000,
+        "capture_sequence": 7,
+    }

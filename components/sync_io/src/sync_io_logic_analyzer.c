@@ -654,6 +654,12 @@ void sync_io_logic_analyzer_get_status(
     status->state = capture_snapshot.state;
     status->mode = capture_snapshot.mode;
     status->end_reason = capture_snapshot.end_reason;
+    status->capture_sequence = capture_snapshot.capture_sequence;
+    status->source_mask = capture_snapshot.source_mask;
+    status->profile_generation = capture_snapshot.profile_generation;
+    status->persona_generation = capture_snapshot.persona_generation;
+    status->hardware_tick_hz = capture_snapshot.hardware_tick_hz;
+    status->timestamp_resolution_ns = capture_snapshot.timestamp_resolution_ns;
     status->produced_records = capture_snapshot.produced_records;
     status->consumed_records = capture_snapshot.consumed_records;
     status->dropped_records = capture_snapshot.dropped_records;
@@ -944,9 +950,13 @@ bool sync_io_logic_analyzer_raw_capture_snapshot(
     snapshot->state = capture->state;
     snapshot->mode = capture->config.mode;
     snapshot->end_reason = capture->end_reason;
+    snapshot->capture_sequence = 1u;
     snapshot->source_mask = capture->config.source_mask;
     snapshot->profile_generation = capture->config.expected_profile_generation;
     snapshot->persona_generation = capture->config.expected_persona_generation;
+    snapshot->hardware_tick_hz = 1000000000u;
+    snapshot->timestamp_resolution_ns = capture->config.sample_period_ns != 0u
+        ? capture->config.sample_period_ns : 1u;
     snapshot->produced_records = capture->produced_records;
     snapshot->consumed_records = capture->consumed_records;
     snapshot->dropped_records = capture->dropped_records;

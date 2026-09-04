@@ -93,6 +93,25 @@ Last updated: 2026-09-05
   expected/actual CRC 一致，分别记录于 `analyzer-shadow-cycle-1.jsonl` 与
   `analyzer-shadow-cycle-2.jsonl`。本条款不宣称慢写背压/drop evidence 已完成。
 
+### SYNC-PROGRESS-20260905-005 - analyzer segment profile/source/timebase 元数据
+
+- TODO task ID：`SYNC-LA-006`。
+- 变更：扩展 SLAY header（保持 schema 1、通过 `header_size` 向后兼容旧 24-byte 文件），
+  持久化 source mask、profile/persona generation、hardware tick frequency、timestamp
+  resolution 和 capture sequence；decoder 自动解析扩展 metadata，并继续接受旧格式。
+- 软件验证：analyzer C contract tests、decoder tests 和固件编译/flash-link checks 通过；
+  扩展 header decoder 单测覆盖全部 metadata 字段。
+- 硬件验收：四板 4096-byte OTA build `20260904175812`，TDMA
+  `passed=true`、`realtime_gate_passed=true`、`closed_loop_passed=true`、`cycles=512`；
+  原始 P3 证据位于 `out/hardware-acceptance/sync-la-006-metadata-20260905/`。
+- 板端文件证据：StorageAO 返回 `DONE`，size `2096 == 2096`、CRC
+  `3031917687 == 3031917687`；FILE READ 回读 `header_size=48`、source mask `0x3FFF00FF`、
+  profile/persona generation `1/1`、tick `1000000000 Hz`、resolution `250000 ns`、
+  capture sequence `1`。原始 transcript 为 `analyzer-metadata-arm-stop.jsonl` 和
+  `analyzer-metadata-readback.jsonl`。
+- 边界：drop interval 标注和完整 SD 批量导出索引仍待后续切片；`SYNC-LA-006` 保持
+  `IN PROGRESS`。
+
 ### SYNC-PROGRESS-20260904-013 - Core0 bounded analyzer drain boundary
 
 - TODO task ID：`SYNC-LA-005`、`SYNC-LA-002`。

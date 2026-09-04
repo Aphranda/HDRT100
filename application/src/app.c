@@ -53,6 +53,12 @@ typedef struct __attribute__((packed)) {
     uint32_t record_count;
     uint32_t dropped_records;
     uint32_t payload_crc32;
+    uint32_t source_mask;
+    uint32_t profile_generation;
+    uint32_t persona_generation;
+    uint32_t hardware_tick_hz;
+    uint32_t timestamp_resolution_ns;
+    uint32_t capture_sequence;
 } app_analyzer_storage_header_t;
 
 static sync_io_logic_analyzer_record_t
@@ -109,6 +115,12 @@ static void app_analyzer_storage_service(void)
             (const uint8_t *)s_analyzer_storage_records,
             (size_t)s_analyzer_storage_record_count *
                 sizeof(s_analyzer_storage_records[0])),
+        .source_mask = analyzer.source_mask,
+        .profile_generation = analyzer.profile_generation,
+        .persona_generation = analyzer.persona_generation,
+        .hardware_tick_hz = analyzer.hardware_tick_hz,
+        .timestamp_resolution_ns = analyzer.timestamp_resolution_ns,
+        .capture_sequence = analyzer.capture_sequence,
     };
     const size_t payload_size = (size_t)s_analyzer_storage_record_count *
                                 sizeof(s_analyzer_storage_records[0]);
