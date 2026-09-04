@@ -18,6 +18,27 @@ Last updated: 2026-09-04
 
 ## 当前 Checkpoint
 
+### SYNC-PROGRESS-20260904-003 - 移除旧 PIO1 suspend/resume handoff
+
+- TODO task ID：`SYNC-RES-003`、`SYNC-M4`。
+- 变更提交：`c9c2fd3`，已推送到 `origin/refactor/tdma-phy-split-p3-gated`。TDMA flight
+  resource manager 不再调用旧 suspend/resume API；SYNC_IO 不再初始化或持有旧 PIO1 wave
+  SM，model pulse 与 fire pulse 统一转入 PIO0 persona 路径，迁移兼容状态位和 trace 已删除。
+- 软件/构建验证：`tests/python` 全量验收快照为 `703 passed`；resource-arbiter host tests
+  通过；`out/build/pico2-rtos-multicore-smoke` 与 `out/build/pico2-validation` release build
+  通过，本轮 package build id 验收快照为 `20260904025945`。
+- 硬件验证：统一 QUICK_DIAGNOSTIC P3 证据位于
+  `out/hardware-acceptance/sync-res-003-remove-pio1-handoff-20260904/`；四节点使用同一 package
+  完成 OTA，每板协商的 `max_data_block_size` 验收快照为 `4096`。`acceptance.json` 的
+  `passed=true`、`flow_completed=true`；TDMA `closed_loop_passed=true`、
+  `realtime_gate_passed=true`、`left_running=true`，NO1--NO4 SD 原始 capture、SVG 与离线
+  分析均保留并通过。
+- 诊断与策略：coarse CLK level 7 有一条 follower forwarding arm failure，已记录在
+  `acceptance.json.diagnostic_failures`，流程继续完成 TDMA 和波形闭环；无越界 DMA、非法
+  内存/Flash 操作或失控 GPIO 硬停条件，因此未拒绝本轮流程。
+- 结论：`SYNC-RES-003` 标记为 `DONE`；`SYNC-M4` 继续 `IN PROGRESS`，下一项进入
+  `LOGIC_ANALYZER` persona（`SYNC-LA-001`）。
+
 ### SYNC-PROGRESS-20260904-002 - PIO0 persona descriptor/lifecycle 与 TDMA 短帧闭环
 
 - TODO task ID：`SYNC-RES-001`、`SYNC-RES-002`、`SYNC-RES-003`、`SYNC-M2`。

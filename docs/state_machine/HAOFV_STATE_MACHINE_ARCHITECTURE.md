@@ -86,12 +86,9 @@ PIO 实例、GPIO、SM 和 DMA 编号不得在本文复制为第二事实源；b
 DMA、GPIO、IRQ 和 DREQ 的原子 claim/release。TDMA flight 运行期间独占 TDMA TX/RX
 两个 PIO block，maintenance/calibration persona 不得与 flight 混用。
 
-当前 `SYNC_IO` 尚未完成全部迁入其专用 PIO：`WAVE_OUTPUT` persona 仍临时占用 TDMA TX PIO，
-TDMA program manager 在 flight claim 前通过 `sync_io_suspend_for_tdma_flight()` 停止并
-释放它，在 flight release 后恢复。恢复失败必须写入 persona resource error 和失败计数。
-该 handoff 仅是迁移兼容层，不是稳定 owner 关系；后续必须把 `SYNC_IO` 输出/SMA persona
-整体收敛到 Realtime Observation / SYNC_IO/SMA PIO，消除 TDMA 启停对 SYNC_IO 的临时
-接管。只读 `LOGIC_ANALYZER` persona 可以在该 PIO 上旁路采样 TDMA GPIO pad，但不得改变
+`SYNC_IO` 输出与预约触发已收敛到 Realtime Observation / SYNC_IO/SMA PIO 的 PIO0 persona
+manager；TDMA flight 不再启停或临时接管 SYNC_IO 的输出资源。只读 `LOGIC_ANALYZER`
+persona 可以在该 PIO 上旁路采样 TDMA GPIO pad，但不得改变
 目标 GPIO function、方向或 pull，也不得读取 TDMA 业务 FIFO；详细契约见
 `SYNC_IO_ARCHITECTURE.md:ARCH-IOANALYZER-01`。
 
