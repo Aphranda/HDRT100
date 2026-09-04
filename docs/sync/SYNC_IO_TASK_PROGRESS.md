@@ -16,6 +16,26 @@ Last updated: 2026-09-04
 - 历史 `SYNC_IO-TASK-*` 记录已迁移为 `SYNC-PROGRESS-*` ID；其中的单次数字都是当时验收
   快照，不是当前代码事实源。
 
+### SYNC-PROGRESS-20260904-011 - STOP 后保留 analyzer last-capture snapshot
+
+- TODO task ID：`SYNC-LA-005`、`SYNC-LA-002`。
+- 变更：`sync_io_logic_analyzer_get_status()` 在活动 persona 已 STOP/release 后，回退读取
+  Core1 控制槽内保留的 capture shadow；状态查询继续只读，不重新 claim、消费记录或触碰
+  PIO/DMA/GPIO。这样 STOP 后的 end reason、produced/consumed/drop/overrun 和 CRC 仍可追溯。
+- 软件验证：`run_sync_io_logic_analyzer_tests.ps1` 通过；`pico2-validation` 链接阶段受既有
+  RAM 溢出（15052 bytes）阻断，使用已通过布局的 `sync-la-002-alias-fix-20260904` 构建目录
+  增量重编译通过，重新生成 package/UF2 和 flash-link checks 全部通过。
+- 硬件验收：使用同一 package 完成四板 OTA、P0T、CLK/MARK、TRN-00/01/02/03 和
+  TDMA `cycles=4096` process-image/FIFO 闭环；`tdma-process-image/summary.json` 报告
+  `passed=true`、`realtime_gate_passed=true`、`closed_loop_passed=true`。统一 P3 的诊断
+  capture 仍因既有 SD job timeout 产生 `diagnostic_passed=false`，但未触发 DMA/非法内存/
+  Flash/GPIO 硬停；原始失败证据保留在
+  `out/hardware_acceptance/sync-la-005-last-capture-20260904/`，因此不把诊断附件失败
+  误判为 TDMA 短帧失败，也不提升 `SYNC-LA-005` 状态。
+- 同一 package 的第二次完整复跑（`sync-la-005-last-capture-rerun-20260904`）复现相同
+  capture/SD timeout，进一步确认当前阻塞位于诊断证据搬运链路，而非 analyzer 状态快照
+  读取或 TDMA process-image/FIFO 闭环。
+
 ### SYNC-PROGRESS-20260904-010 - Analyzer ARM/STOP 单槽 intent mailbox
 
 - TODO task ID：`SYNC-LA-002`、`SYNC-M3`。
