@@ -206,4 +206,17 @@ bool sync_io_logic_analyzer_snapshot_read(
     const sync_io_logic_analyzer_snapshot_t *source,
     sync_io_logic_analyzer_snapshot_payload_t *snapshot);
 
+/* Hardware-backed RAW_SAMPLE lifecycle.  The manager owns the persona
+ * lease; these calls only expose the bounded Core1 capture path.  No call
+ * performs SD/USB I/O or changes a target GPIO direction. */
+bool sync_io_logic_analyzer_hw_arm(
+    sync_io_logic_analyzer_raw_capture_t *capture,
+    sync_io_logic_analyzer_record_t *records,
+    uint32_t capacity,
+    const sync_io_logic_analyzer_config_t *config);
+bool sync_io_logic_analyzer_hw_start(void);
+void sync_io_logic_analyzer_hw_stop(void);
+size_t sync_io_logic_analyzer_hw_service(uint32_t max_records);
+bool sync_io_logic_analyzer_hw_active(void);
+
 #endif

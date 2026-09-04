@@ -121,6 +121,43 @@ def arm_pair_board(board, args: argparse.Namespace) -> None:
         f"{board.address}: ARM rejected with result={last_result}")
 
 
+def wait_started_with_transport_recovery(
+        board, args: argparse.Namespace,
+        recoveries: list[dict[str, object]], phase: str) -> dict[str, int]:
+    """Bound a recoverable persistent-CDC failure with a fresh session.
+
+    The ARM intent has already been accepted by firmware.  A timeout while
+    querying its state is diagnostic transport loss, not a hardware-safety
+    reason to reject the topology state machine.  Retain the original error,
+    close every persistent handle, and perform one short-open readback pass.
+    """
+    try:
+        return wait_started(board, args)
+    except RuntimeError as exc:
+        if not args.keep_open:
+            raise
+        recovery = {
+            "board_id": board.address,
+            "phase": phase,
+            "reason": str(exc),
+            "action": "BOUNDED_SHORT_OPEN_STATUS_RETRY",
+            "recovered": False,
+        }
+        recoveries.append(recovery)
+        close_persistent_connections()
+        fallback_args = argparse.Namespace(**vars(args))
+        fallback_args.keep_open = False
+        fallback_args.short_open = True
+        try:
+            status_snapshot = wait_started(board, fallback_args)
+        except RuntimeError as fallback_exc:
+            recovery["fallback_reason"] = str(fallback_exc)
+            raise
+        recovery["recovered"] = True
+        recovery["status_snapshot"] = status_snapshot
+        return status_snapshot
+
+
 def render_ring_order(adjacency: dict[str, list[str]], reference: str,
                       node_count: int) -> list[str]:
     order = [reference]
@@ -221,6 +258,7 @@ def main() -> int:
         raise RuntimeError(f"Calibration profile apply failed: {profile_apply}")
 
     pair_results: list[dict[str, object]] = []
+    transport_recoveries: list[dict[str, object]] = []
     adjacency = {address: [] for address in board_ids}
     try:
         # P0T uses temporary two-node topologies. Clear any persisted formal
@@ -252,7 +290,9 @@ def main() -> int:
                 time.sleep(args.gap)
                 for board in (receiver, driver):
                     arm_pair_board(board, args)
-                    _ = wait_started(board, args)
+                    _ = wait_started_with_transport_recovery(
+                        board, args, transport_recoveries,
+                        f"{driver_id}->{receiver_id}")
                 if not args.adjacency_only:
                     for board in (receiver, driver):
                         _ = train(board, args)
@@ -409,6 +449,7 @@ def main() -> int:
         "adjacency": adjacency,
         "boards": {address: asdict(boards[address]) for address in board_ids},
         "pair_results": pair_results,
+        "transport_recoveries": transport_recoveries,
         "adjacency_only": args.adjacency_only,
         "probe_phase_cycles": args.probe_phase_cycles,
     }

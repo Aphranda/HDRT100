@@ -1,8 +1,15 @@
+import argparse
+from types import SimpleNamespace
+
+import pytest
+
+import tools.calibration_ring_validate.calibration_ring_topology as topology
 from tools.calibration_ring_validate.calibration_ring_topology import (
     compact_pair_results,
     counter_delta,
     counter_regressed,
     render_ring_order,
+    wait_started_with_transport_recovery,
 )
 
 
@@ -63,3 +70,44 @@ def test_compact_pair_results_keeps_physical_evidence_only():
         "magic_fail": 1,
         "bad_header": [0x54, 0x44, 0, 0],
     }]
+
+
+def test_wait_started_uses_one_bounded_short_open_recovery(monkeypatch):
+    attempts = []
+    closes = []
+
+    def fake_wait(board, args):
+        attempts.append((board.address, args.keep_open))
+        if args.keep_open:
+            raise RuntimeError("persistent query timed out")
+        return {"ring_enabled": 1, "ring_adapter_started": 1}
+
+    monkeypatch.setattr(topology, "wait_started", fake_wait)
+    monkeypatch.setattr(
+        topology, "close_persistent_connections", lambda: closes.append(True))
+    recoveries = []
+    result = wait_started_with_transport_recovery(
+        SimpleNamespace(address="B"),
+        argparse.Namespace(keep_open=True, short_open=False),
+        recoveries,
+        "A->B",
+    )
+    assert result["ring_adapter_started"] == 1
+    assert attempts == [("B", True), ("B", False)]
+    assert closes == [True]
+    assert recoveries[0]["reason"] == "persistent query timed out"
+    assert recoveries[0]["action"] == "BOUNDED_SHORT_OPEN_STATUS_RETRY"
+    assert recoveries[0]["recovered"] is True
+
+
+def test_wait_started_does_not_loop_after_short_open_failure(monkeypatch):
+    monkeypatch.setattr(
+        topology, "wait_started",
+        lambda board, args: (_ for _ in ()).throw(RuntimeError("timeout")))
+    with pytest.raises(RuntimeError, match="timeout"):
+        wait_started_with_transport_recovery(
+            SimpleNamespace(address="B"),
+            argparse.Namespace(keep_open=False, short_open=True),
+            [],
+            "A->B",
+        )

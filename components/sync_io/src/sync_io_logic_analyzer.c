@@ -2,8 +2,217 @@
 
 #include <string.h>
 
+#include "hardware/dma.h"
+#include "hardware/clocks.h"
+#include "hardware/pio.h"
+#include "board_config.h"
+#include "sync_io.pio.h"
+#include "sync_io_core_internal.h"
+
+#define SYNC_IO_LOGIC_ANALYZER_DMA_RING_BITS 15u
+
 _Static_assert(SYNC_IO_LOGIC_ANALYZER_MAX_RECORDS > 0u,
                "logic analyzer workspace must hold at least one record");
+
+typedef struct {
+    sync_io_logic_analyzer_raw_capture_t *capture;
+    uint offset;
+    uint32_t produced_raw;
+    uint32_t consumed_raw;
+    uint32_t sequence;
+    bool sm_claimed;
+    bool dma_claimed;
+    bool program_loaded;
+    bool running;
+} sync_io_logic_analyzer_hw_t;
+
+static sync_io_logic_analyzer_hw_t s_hw;
+
+static uint32_t sync_io_logic_analyzer_hw_raw_produced(void)
+{
+    if (!s_hw.running) {
+        return s_hw.produced_raw;
+    }
+    const uintptr_t base = (uintptr_t)sync_io_shared_workspace;
+    const uintptr_t addr =
+        (uintptr_t)dma_hw->ch[SYNC_IO_CAPTURE_DMA_CH].write_addr;
+    const uint32_t index = (uint32_t)(((addr - base) &
+        (SYNC_IO_SHARED_WORKSPACE_WORDS * sizeof(uint32_t) - 1u)) /
+        sizeof(uint32_t));
+    const uint32_t transferred =
+        UINT32_MAX - dma_hw->ch[SYNC_IO_CAPTURE_DMA_CH].transfer_count;
+    if (transferred > s_hw.produced_raw) {
+        s_hw.produced_raw = transferred;
+    } else {
+        /* The transfer counter is modulo 2^32; the write index still lets us
+         * account for a ring wrap during the bounded capture window. */
+        const uint32_t previous =
+            s_hw.produced_raw % SYNC_IO_SHARED_WORKSPACE_WORDS;
+        const uint32_t delta = index >= previous
+            ? index - previous
+            : SYNC_IO_SHARED_WORKSPACE_WORDS - previous + index;
+        s_hw.produced_raw += delta;
+    }
+    return s_hw.produced_raw;
+}
+
+bool sync_io_logic_analyzer_hw_arm(
+    sync_io_logic_analyzer_raw_capture_t *capture,
+    sync_io_logic_analyzer_record_t *records,
+    uint32_t capacity,
+    const sync_io_logic_analyzer_config_t *config)
+{
+    if (capture == NULL || records == NULL || config == NULL ||
+        config->mode != SYNC_IO_LOGIC_ANALYZER_MODE_RAW_SAMPLE ||
+        !sync_io_logic_analyzer_config_valid(config) ||
+        !sync_io_core_initialized() || sync_io_core_capture_is_running() ||
+        sync_io_core_wave_output_persona_active() || s_hw.running) {
+        return false;
+    }
+    if (!sync_io_logic_analyzer_raw_capture_init(capture, records,
+                                                  capacity, config)) {
+        return false;
+    }
+    if (!pio_can_add_program(BOARD_SYNC_PIO_FAST,
+                             &logic_analyzer_raw_sample_program)) {
+        return false;
+    }
+
+    s_hw.offset = (uint)pio_add_program(
+        BOARD_SYNC_PIO_FAST, &logic_analyzer_raw_sample_program);
+    s_hw.program_loaded = true;
+    s_hw.capture = capture;
+    s_hw.produced_raw = 0u;
+    s_hw.consumed_raw = 0u;
+    s_hw.sequence = 0u;
+
+    PIO pio = BOARD_SYNC_PIO_FAST;
+    const uint sm = BOARD_SYNC_PIO0_LOGIC_ANALYZER_SM;
+    pio_sm_set_enabled(pio, sm, false);
+    pio_sm_clear_fifos(pio, sm);
+    pio_sm_config pio_config =
+        logic_analyzer_raw_sample_program_get_default_config(s_hw.offset);
+    /* The analyzer observes the pad bus without changing GPIO function or
+     * direction.  The validated source mask is applied after DMA sampling. */
+    sm_config_set_in_pins(&pio_config, 0u);
+    sm_config_set_in_shift(&pio_config, false, true, 32);
+    sm_config_set_fifo_join(&pio_config, PIO_FIFO_JOIN_RX);
+    sm_config_set_clkdiv(&pio_config,
+                         (float)clock_get_hz(clk_sys) /
+                         (float)(config->sample_period_ns == 0u
+                             ? 1000000u
+                             : (1000000000u / config->sample_period_ns)));
+    pio_sm_init(pio, sm, s_hw.offset, &pio_config);
+    pio_sm_set_pins(pio, sm, 0u);
+
+    dma_channel_abort(SYNC_IO_CAPTURE_DMA_CH);
+    dma_channel_config dma_config =
+        dma_channel_get_default_config(SYNC_IO_CAPTURE_DMA_CH);
+    channel_config_set_transfer_data_size(&dma_config, DMA_SIZE_32);
+    channel_config_set_read_increment(&dma_config, false);
+    channel_config_set_write_increment(&dma_config, true);
+    channel_config_set_ring(&dma_config, true,
+                            SYNC_IO_LOGIC_ANALYZER_DMA_RING_BITS);
+    channel_config_set_dreq(&dma_config,
+        pio_get_dreq(pio, sm, false));
+    dma_channel_configure(SYNC_IO_CAPTURE_DMA_CH,
+                          &dma_config,
+                          sync_io_shared_workspace,
+                          &pio->rxf[sm],
+                          UINT32_MAX,
+                          false);
+    s_hw.sm_claimed = true; /* SM/DMA are statically reserved by SYNC_IO. */
+    s_hw.dma_claimed = true;
+    capture->state = SYNC_IO_LOGIC_ANALYZER_STATE_ARMED;
+    return true;
+}
+
+bool sync_io_logic_analyzer_hw_start(void)
+{
+    if (s_hw.capture == NULL || !s_hw.program_loaded || !s_hw.sm_claimed ||
+        s_hw.running || s_hw.capture->state !=
+            SYNC_IO_LOGIC_ANALYZER_STATE_ARMED) {
+        return false;
+    }
+    s_hw.produced_raw = 0u;
+    s_hw.consumed_raw = 0u;
+    s_hw.running = true;
+    dma_start_channel_mask(1u << SYNC_IO_CAPTURE_DMA_CH);
+    pio_sm_set_enabled(BOARD_SYNC_PIO_FAST,
+                       BOARD_SYNC_PIO0_LOGIC_ANALYZER_SM, true);
+    s_hw.capture->state = SYNC_IO_LOGIC_ANALYZER_STATE_RUNNING;
+    return true;
+}
+
+void sync_io_logic_analyzer_hw_stop(void)
+{
+    if (s_hw.capture == NULL) {
+        return;
+    }
+    pio_sm_set_enabled(BOARD_SYNC_PIO_FAST,
+                       BOARD_SYNC_PIO0_LOGIC_ANALYZER_SM, false);
+    dma_channel_abort(SYNC_IO_CAPTURE_DMA_CH);
+    if (s_hw.capture->state == SYNC_IO_LOGIC_ANALYZER_STATE_RUNNING ||
+        s_hw.capture->state == SYNC_IO_LOGIC_ANALYZER_STATE_ARMED) {
+        sync_io_logic_analyzer_raw_capture_finish(
+            s_hw.capture, SYNC_IO_LOGIC_ANALYZER_END_STOP_REQUEST);
+    }
+    if (s_hw.program_loaded) {
+        pio_remove_program(BOARD_SYNC_PIO_FAST,
+                           &logic_analyzer_raw_sample_program,
+                           s_hw.offset);
+    }
+    memset(&s_hw, 0, sizeof(s_hw));
+}
+
+size_t sync_io_logic_analyzer_hw_service(uint32_t max_records)
+{
+    if (!s_hw.running || s_hw.capture == NULL || max_records == 0u) {
+        return 0u;
+    }
+    const uint32_t produced = sync_io_logic_analyzer_hw_raw_produced();
+    uint32_t available = produced - s_hw.consumed_raw;
+    if (available > SYNC_IO_SHARED_WORKSPACE_WORDS) {
+        const uint32_t dropped =
+            available - SYNC_IO_SHARED_WORKSPACE_WORDS;
+        s_hw.consumed_raw = produced - SYNC_IO_SHARED_WORKSPACE_WORDS;
+        available = SYNC_IO_SHARED_WORKSPACE_WORDS;
+        s_hw.capture->dropped_records += dropped;
+        s_hw.capture->overrun_count++;
+    }
+    if (available > max_records) {
+        available = max_records;
+    }
+    size_t pushed = 0u;
+    while (pushed < available) {
+        const uint32_t raw = sync_io_shared_workspace[
+            s_hw.consumed_raw % SYNC_IO_SHARED_WORKSPACE_WORDS];
+        sync_io_logic_analyzer_record_t record = {
+            .hardware_tick = 0u,
+            .capture_sequence = 1u,
+            .record_sequence = s_hw.sequence++,
+            .level_mask = raw & s_hw.capture->config.source_mask,
+            .edge_mask = 0u,
+            .flags = SYNC_IO_LOGIC_ANALYZER_RECORD_FLAG_NONE,
+            .reserved = raw,
+        };
+        (void)sync_io_capture_time_now_ns(&record.hardware_tick);
+        if (!sync_io_logic_analyzer_raw_capture_push(s_hw.capture, &record)) {
+            break;
+        }
+        ++s_hw.consumed_raw;
+        ++pushed;
+    }
+    if (s_hw.capture->complete) {
+        sync_io_logic_analyzer_hw_stop();
+    }
+    return pushed;
+}
+
+bool sync_io_logic_analyzer_hw_active(void)
+{
+    return s_hw.running;
+}
 
 static bool sync_io_logic_analyzer_source_mask_valid(uint32_t source_mask)
 {

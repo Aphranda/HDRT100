@@ -18,6 +18,33 @@ Last updated: 2026-09-04
 
 ## 当前 Checkpoint
 
+### SYNC-PROGRESS-20260904-007 - RAW_SAMPLE hardware backend and bounded transport recovery
+
+- TODO task ID：`SYNC-LA-002`、`SYNC-M3`。
+- 变更：`sync_io_logic_analyzer_hw_arm/start/service/stop` 接入只读
+  `logic_analyzer_raw_sample` PIO0 backend；DMA 使用已保留的 capture channel 和
+  固定共享 SRAM，Core1 service 将完整 pad word 依据已校验 source mask 写入 bounded
+  RAW_SAMPLE ring。停止路径先停 SM/DMA，再释放 PIO program，不改变被观测 GPIO
+  function/direction，也不执行 SD/USB I/O。
+- 变更：拓扑 P0T 工具对持久 CDC status query timeout 增加一次有界 short-open
+  readback；原始原因、阶段和恢复结果写入 `transport_recoveries`，失败仍向上报告，
+  不把可恢复传输问题伪装成硬件安全拒绝。
+- 软件验证：`pico2-validation` release build 通过；相关 Python 契约/资源/拓扑测试
+  `39 passed`；`git diff --check` 通过。
+- 硬件验证：完整 P3 在 P0T 阶段两次记录单板 CDC timeout（`2BD...`），保留于
+  `out/hardware-acceptance/p3-20260904-154434/` 和
+  `out/hardware-acceptance/p3-20260904-155041/`；随后使用 SD 原始波形/短帧工具
+  复核，四节点 TDMA process-image 闭环 `passed=true`、`left_running=true`，证据位于
+  `out/hardware-acceptance/sync-la-002-hw-backend-20260904/tdma-process-image/`。
+  采用 quick diagnostic profile 重跑后，P0T、CLK、MARK、TRN-00/01/02、TRN-03 和
+  四节点 TDMA 全部通过，receipt/diagnostic 位于
+  `out/hardware-acceptance/sync-la-002-hw-backend-20260904/p3-quick-recovered/`。
+- 边界：本切片只完成 RAW_SAMPLE 硬件 backend 与有界调试恢复；SCPI analyzer 命令、
+  Core0 snapshot/drain、StorageAO 和长期 EDGE/TRIGGERED capture 仍未接入，
+  `SYNC-LA-002` 保持 `IN PROGRESS`。
+- 下一步：接入 analyzer persona manager 的正式 lease/SCPI arm 查询，并在每次状态
+  改动后继续执行 TDMA 短帧和 SD 波形闭环。
+
 ### SYNC-PROGRESS-20260904-005 - RAW_SAMPLE bounded record ring
 
 - TODO task ID：`SYNC-LA-002`、`SYNC-M3`。
