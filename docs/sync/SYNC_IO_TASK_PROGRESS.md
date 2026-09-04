@@ -18,6 +18,21 @@ Last updated: 2026-09-04
 
 ## 当前 Checkpoint
 
+### SYNC-PROGRESS-20260904-005 - RAW_SAMPLE bounded record ring
+
+- TODO task ID：`SYNC-LA-002`、`SYNC-M3`。
+- 变更：在 `sync_io_logic_analyzer.h/.c` 增加固定 backing storage 的 RAW_SAMPLE ring 原语；
+  支持容量上限、顺序 wrap、overwrite-oldest 的 discontinuity/drop/overrun 证据、非覆盖模式
+  的 OVERFLOW 终止、CRC32、结束 reason 和 snapshot 导出。路径不使用动态内存、FatFs、USB 或
+  目标 FIFO。
+- 软件验证：`run_sync_io_logic_analyzer_tests.ps1` 通过，覆盖 overwrite/drop、overflow stop、
+  finish、CRC 和 snapshot；Python 全量回归基线 `705 passed` 仍保持。
+- 构建验证：`out/build/pico2-rtos-multicore-smoke` 与 `out/build/pico2-validation` release
+  build 通过；package 输出为构建快照，非代码事实源。
+- 边界：本记录只完成可复用 bounded capture primitive；尚未把新 ring 接入真实 PIO/DMA
+  `LOGIC_ANALYZER` arm，也未宣称 `SYNC-LA-002` 完成。
+- 下一步：用最终固件执行统一 P3 与四节点 TDMA 短帧闭环；随后再接入真实 RAW_SAMPLE persona。
+
 ### SYNC-PROGRESS-20260904-004 - 冻结逻辑分析仪公共契约
 
 - TODO task ID：`SYNC-LA-001`、`SYNC-M3`。
