@@ -73,7 +73,7 @@ Last updated: 2026-09-04
 | SYNC-RES-002 | 建立 PIO0 persona lifecycle manager | DONE | validate/claim/load/arm/stop/release 原子化；失败保持 STOPPED 或恢复旧 persona，无部分 claim；TDMA 短帧闭环通过。 |
 | SYNC-RES-003 | 将 `WAVE_OUTPUT` / `SCHEDULED_TRIGGER` 从 TDMA TX PIO 迁入 PIO0 owner | DONE | 输出与预约触发由 PIO0 persona manager 装载并运行；旧 PIO1 suspend/resume handoff 已删除；四节点 OTA、TDMA 短帧和 SD 原始证据通过。 |
 | SYNC-LA-001 | 定义逻辑分析仪 config、capture record、runtime snapshot 和结束 reason | DONE | API 不暴露任意 GPIO 写；只读 pad mask 复用 persona descriptor；profile/source/persona generation、门禁原因、原始观测、调试有界继续和硬停类别可追溯。 |
-| SYNC-LA-002 | 实现 `RAW_SAMPLE` 短窗口采集 | IN PROGRESS | bounded SRAM record ring、wrap/CRC、drop/overrun 和容量边界 host 验证已完成；真实 PIO/DMA arm、短窗口硬件证据仍待完成。 |
+| SYNC-LA-002 | 实现 `RAW_SAMPLE` 短窗口采集 | IN PROGRESS | bounded SRAM record ring、wrap/CRC、drop/overrun、真实 PIO/DMA backend、Core1 bounded service、异步 ARM/STOP、只读状态、短窗口运行/停止和 TDMA 无扰动证据已完成；Core0 drain/StorageAO 与持久化完整性仍待完成。 |
 | SYNC-LA-003 | 实现 `EDGE_TIMESTAMP` 长时间采集 | PENDING | PIO hardware tick 记录 edge mask/level；空闲期无无界数据；wrap 和时间连续性可恢复。 |
 | SYNC-LA-004 | 实现 `TRIGGERED_CAPTURE` 前后窗口 | PENDING | level/edge/pattern trigger、bounded pre/post window、timeout/end reason 和重复 ARM 测试通过。 |
 | SYNC-LA-005 | 接入 Core1 snapshot、Core0 drain 和 StorageAO | PENDING | Core0 查询不触发动作；active/shadow 缓冲交接明确；SD 慢写只产生 analyzer drop evidence，不阻塞实时路径。 |

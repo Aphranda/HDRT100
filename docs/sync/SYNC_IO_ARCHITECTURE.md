@@ -185,7 +185,8 @@ identity 和完整性门禁都满足 VDC 契约时，上层才可将特定记录
 
 ```text
 Core0 intent/config
-  -> Core1 validate and ARM
+  -> bounded single-slot ARM/STOP intent mailbox
+  -> Core1 validate and ARM/STOP
   -> SYNC_IO PIO RX FIFO
   -> dedicated capture DMA
   -> bounded SRAM active/shadow ring
@@ -198,6 +199,16 @@ Core0 intent/config
 Core0 可查询进度和状态，但查询只读 snapshot。FatFs、SVG、解码和曲线拟合不得进入 Core1
 实时路径。外部 NO5/SMA 捕获仍用于证明真实线缆和外部相位；本机 pad 观测只能证明本机可见
 电平，不能替代外部物理链路证据。
+
+### ARCH-IOANALYZER-02：Core1 mandatory control mailbox
+
+Analyzer ARM/STOP 通过单槽 command mailbox 提交：Core0 只复制配置并递增 request sequence，
+Core1 在不可隔离的 mandatory realtime boundary 内最多消费一个 intent；TDMA owner service
+保持优先执行，随后 analyzer 只服务有限数量的 capture records。该 mailbox 不得挂在可能被
+quarantine 的 optional load 下。
+重复或未处理的 intent 返回 `BUSY`；ARM/STOP 的 request/handled sequence、命令和结果进入本地
+snapshot。SCPI 不得直接调用 `hw_start`、`hw_stop` 或 persona manager；停止后的原始记录仍由
+后续 Core0/StorageAO drain 负责。
 
 ## 语义 IO 与 Board Profile
 

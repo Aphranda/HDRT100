@@ -16,6 +16,56 @@ Last updated: 2026-09-04
 - 历史 `SYNC_IO-TASK-*` 记录已迁移为 `SYNC-PROGRESS-*` ID；其中的单次数字都是当时验收
   快照，不是当前代码事实源。
 
+### SYNC-PROGRESS-20260904-010 - Analyzer ARM/STOP 单槽 intent mailbox
+
+- TODO task ID：`SYNC-LA-002`、`SYNC-M3`。
+- 变更：新增 `sync_io_logic_analyzer_request_arm/stop()` 和
+  `sync_io_logic_analyzer_service_core1()`；Core0 只复制 RAW_SAMPLE 配置并提交一个
+  request sequence，Core1 在 TDMA service 之后的 mandatory bounded boundary 消费
+  intent、执行 persona
+  claim/load/arm/start 或 stop/release，并继续服务有界 record 数。重复请求返回
+  `BUSY`，request/handled sequence、命令和结果进入 `STATe?` snapshot。
+- SCPI：新增 `REALtime:IO:ANALyzer:ARM`、`...:STOP`；ARM 参数为
+  `source_mask,sample_period_ns,max_records,timeout_us,overwrite_oldest`，返回值仅表示
+  mailbox accepted，不在 Core0 直接调用 PIO/DMA。新增 `default_source_mask()` 复用
+  `LOGIC_ANALYZER` descriptor 的只读 pad mask。
+- 软件验证：`run_sync_io_logic_analyzer_tests.ps1` 的 host C contract 通过；
+  `test_sync_io_logic_analyzer_contract.py` 为 `6 passed`。统一 P3 已完成 release build、
+  package、五板 OTA 和板端流程。
+- 边界：本切片仍只支持 RAW_SAMPLE；EDGE/TRIGGERED、Core0 drain、StorageAO 和离线
+  decoder 尚未接入，`SYNC-LA-002` 保持 `IN PROGRESS`。
+- 板端修正：首轮 HIL 的 ARM 返回 accepted，但 request/handled 为 `1/0`；定位为 service
+  原先挂在 optional SYNC_CAPTURE load，可能因 load 隔离而永久不消费。TDMA 环保持运行，
+  未触发安全硬停。现已移到 TDMA 优先后的 mandatory Core1 boundary。
+- 板端缺陷与修复：mandatory boundary 复验时发现 persona hardware ARM 会用
+  `&capture->config` 对同一个 capture 再初始化；旧实现先清零 capture 再复制 config，
+  使 RAW_SAMPLE mode 和 overwrite policy 被静默清零并快速 overflow。现先保存已校验配置，
+  再清理 runtime 字段，并增加 self-alias reinit host 回归。
+- 最终硬件复验：修复包 `build_id=20260904120651` 经五板 OTA、软件复位和完整 P3 编排后，
+  四节点 TDMA `cycles=4096` process-image/FIFO 短帧闭环 `passed=true`，startup barrier 和
+  每 Node gate 均通过；证据目录为
+  `out/hardware_acceptance/sync-la-002-alias-fix-20260904/`。P3 调试模式另保留 coarse CLK 与
+  NO5 DPLL 的既有非硬停诊断，`flow_completed=true`、`passed=true`、
+  `strict_gates_passed=false`；自动 SD 波形附件当轮不可用，但 TDMA 本体未失败，因此未进入
+  波形修复分支。
+- NO1 控制面复验：`ARM 0,250000,1024,5000000,1` 后 snapshot 为
+  `initialized=1,active=1,state=RUNNING,mode=RAW_SAMPLE,end_reason=NONE`，且
+  `request=handled=1,result=ACCEPTED`；STOP 后 manager active/SM/DMA 均归零，
+  `request=handled=2,result=ACCEPTED`。同一窗口 TDMA RX 快照从 `33401` 推进到 `33640`，
+  `rx_bad` 和 `rx_transport_bad` 均保持不变；原始 transcript 为
+  `out/hardware_acceptance/sync-la-002-alias-fix-20260904/analyzer-control-no1.txt`。
+- C11 独立交叉审核：由独立审核 agent 按层间交叉（registry ↔ 架构条款 ↔ 代码锚点 ↔
+  host/HIL 证据）复核 `ARCH-IOANALYZER-02`，结论 `PASS_WITH_NOTE`。审核确认单槽
+  mailbox、mandatory Core1 boundary、TDMA-first 顺序、SCPI intent-only 边界、STOP
+  release 和 build/receipt 指纹均一致；注意当前 STOP 后 capture end reason 不持久化，
+  后续 `SYNC-LA-005` 再补 last-capture snapshot。
+- 后续严格 TDMA 对照（同一固件、无 analyzer 与 analyzer 控制窗口）保留于
+  `tdma-baseline-no-analyzer.txt` 与 `tdma-control-preflight/summary.json`。该对照在
+  3 秒末端观察到既有 NO1 物理/接收错误计数增长，严格 gate 为 false；流程按规则 STOP
+  并保留 SD/原始证据，未将该诊断结果倒写为 analyzer 契约通过或安全硬停。此前完整 P3
+  `tdma-process-image/summary.json` 的 4096 闭环仍是本切片的验收凭证，调试模式下的
+  coarse CLK/DPLL 诊断继续遵循有界强制继续策略。
+
 ## 当前 Checkpoint
 
 ### SYNC-PROGRESS-20260904-009 - Read-only analyzer SCPI status snapshot

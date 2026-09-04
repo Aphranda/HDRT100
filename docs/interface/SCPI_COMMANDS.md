@@ -141,6 +141,9 @@ UART/RS485/BiSS-C 等外部或板间通信能力统一归入 `COMMunication:*`�
 | `REALtime:IO:SAMPle:STATe <ON|OFF>` / `REALtime:IO:SAMPle:STATe?` | 启停或查询输入采样状态。 |
 | `REALtime:IO:SAMPle:LATCh?` | 查询 core1 capture latch 维护状态，返回 `initialized,capture_running,capture_sample_hz,dropped_capture_words,latched_capture_words,dropped_latched_capture_words,capture_latch_source,capture_latch_resolution_ns,capture_latch_flags`。当前使用 `timer1/CLK_SYS` 硬件 tick，但仍置 `DIAGNOSTIC_ONLY`，不作为 DPLL lock 证据。 |
 | `REALtime:IO:SAMPle:WINDow?` | 查询当前 timestamp window 镜像，返回 armed、periodic、window start/end、period/sample period、observed mask、initial mask 和 capture timebase，用于 VDC GPIO overlay HIL 定位 RX 侧。 |
+| `REALtime:IO:ANALyzer:ARM <source_mask>,<sample_period_ns>,<max_records>,<timeout_us>,<overwrite_oldest>` | 提交逻辑分析仪 `RAW_SAMPLE` 异步 ARM 意图；`source_mask=0` 使用 active read-only pad mask，返回 `1` 仅表示 mailbox accepted，实际状态由 `STATe?` 查询。Core1 在不可隔离的 mandatory realtime boundary 执行 persona claim/load/arm/start，TDMA service 始终优先。 |
+| `REALtime:IO:ANALyzer:STOP` | 提交异步 STOP 意图；返回 `1` 仅表示 mailbox accepted，Core1 完成硬件停止和 persona release 后由 `STATe?` 确认 request/handled/result 与资源归零；capture 结束字段在 persona release 后按当前 snapshot 生命周期清零。 |
+| `REALtime:IO:ANALyzer:STATe?` | 查询 analyzer 只读状态；在既有 capture/manager 字段后追加 command request/handled sequence、command 和 result。 |
 | `REALtime:IO:CLOCk:FREQuency <Hz>` / `REALtime:IO:CLOCk:FREQuency?` | 设置或查询 `SYNC_CLK_OUT` 维护输出频率。 |
 | `REALtime:IO:CLOCk:STATe <ON|OFF>` / `REALtime:IO:CLOCk:STATe?` | 启停或查询同步时钟维护输出状态。 |
 | `REALtime:IO:SYNC?` | 查询同步 IO 维护快照。 |
