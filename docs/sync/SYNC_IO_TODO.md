@@ -76,7 +76,7 @@ Last updated: 2026-09-04
 | SYNC-LA-002 | 实现 `RAW_SAMPLE` 短窗口采集 | IN PROGRESS | bounded SRAM record ring、wrap/CRC、drop/overrun、真实 PIO/DMA backend、Core1 bounded service、异步 ARM/STOP、只读状态、短窗口运行/停止和 TDMA 无扰动证据已完成；Core0 drain/StorageAO 与持久化完整性仍待完成。 |
 | SYNC-LA-003 | 实现 `EDGE_TIMESTAMP` 长时间采集 | PENDING | PIO hardware tick 记录 edge mask/level；空闲期无无界数据；wrap 和时间连续性可恢复。 |
 | SYNC-LA-004 | 实现 `TRIGGERED_CAPTURE` 前后窗口 | PENDING | level/edge/pattern trigger、bounded pre/post window、timeout/end reason 和重复 ARM 测试通过。 |
-| SYNC-LA-005 | 接入 Core1 snapshot、Core0 drain 和 StorageAO | PENDING | Core0 查询不触发动作；active/shadow 缓冲交接明确；SD 慢写只产生 analyzer drop evidence，不阻塞实时路径。 |
+| SYNC-LA-005 | 接入 Core1 snapshot、Core0 drain 和 StorageAO | IN PROGRESS | Core0 bounded drain 已完成并通过 TDMA 无扰动验收；active/shadow 缓冲交接与 StorageAO 持久化仍待完成。 |
 | SYNC-LA-006 | 建立离线 decoder、波形图和分析元数据 | PENDING | 原始文件 CRC、profile、timebase、drop interval 可验证；横坐标和不连续区间明确。 |
 | SYNC-LA-007 | 逻辑分析仪只读与 TDMA 无扰动 HIL | PENDING | analyzer 启停前后 TDMA cycle/CRC/drop 无观测引入回归；目标 GPIO function、direction、pull 和 FIFO consumer 不变。 |
 | SYNC-LA-008 | NO5/SMA 外部波形关联 | PENDING | 本机 pad capture 与 NO5 外部 capture 使用共同时间/sequence 元数据关联，并明确两类证据不能互相替代。 |
