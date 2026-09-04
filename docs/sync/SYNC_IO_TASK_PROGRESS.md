@@ -16,6 +16,32 @@ Last updated: 2026-09-05
 - 历史 `SYNC_IO-TASK-*` 记录已迁移为 `SYNC-PROGRESS-*` ID；其中的单次数字都是当时验收
   快照，不是当前代码事实源。
 
+### SYNC-PROGRESS-20260905-007 - 本机 analyzer 与 NO5 外部波形离线关联器
+
+- TODO task ID：`SYNC-LA-008`。
+- 变更：新增 `tools/analyzer_no5_correlator/analyzer_no5_correlator.py`，读取
+  `analyzer_trace_decode` 的本机 SLAY JSON 与 `dpll_waveform_capture` 的 NO5 分析 JSON，
+  在记录具备绝对硬件时间时以最近邻和可选有界容差生成配对；输出共同时间基、时间窗重叠、
+  中位时间偏移、记录配对及独立 sequence/session 元数据。可选 sequence-anchor JSON 只
+  记录外部提供的 TDMA 周期锚点，不把 analyzer `capture_sequence` 与 NO5 `sample_seq`
+  当作可直接比较的同一计数器。
+- 证据边界：报告固定声明两类证据不可互相替代；本机 analyzer 仅证明 pad-visible 电平，
+  NO5 仅证明外部 SMA/线缆波形。没有真实同窗 capture pair 时，不输出外部物理链路通过结论。
+- 软件验证：`test_analyzer_no5_correlator.py`、`test_analyzer_trace_decode.py`、
+  `test_sync_io_logic_analyzer_contract.py` 共 14 项通过；关联器 `py_compile` 通过。
+- 构建验证：`out/build/sync-la-008-correlator-20260905/` 完成 `pico2-release` 配置、
+  双应用/boot 编译、UF2/package 生成和三份 flash-link contract 检查；package 使用已验证
+  的 4096-byte OTA stream block。
+- 硬件验收：五板 OTA 与完整 P3 运行完成，build `20260904184611`；
+  `out/hardware-acceptance/sync-la-008-correlator-20260905/diagnostic.json` 的
+  `flow_completed=true`，TDMA `tdma-process-image/summary.json` 报告
+  `passed=true`、`realtime_gate_passed=true`、`closed_loop_passed=true`、`cycles=4096`。
+  coarse CLK 与 NO5 DPLL 观察仍有既有诊断失败，按调试有界继续策略保留原始状态/原因，未
+  触发越界 DMA、非法内存/Flash 或失控 GPIO 硬停。
+- 边界：本轮 P3 报告 `SD waveform evidence unavailable`，因此没有真实本机/NO5 同窗文件可
+  供关联；`SYNC-LA-008` 保持 `IN PROGRESS`，下一步是取得同一 TDMA observation window
+  的两类原始 capture 并提供显式 sequence anchor。
+
 ### SYNC-PROGRESS-20260905-001 - Core0 analyzer segment StorageAO 持久化
 
 - TODO task ID：`SYNC-LA-005`、`SYNC-LA-006`。

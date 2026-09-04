@@ -143,6 +143,11 @@ Get-Content -Path tools\README.md -Encoding UTF8
   writes, downloads the immutable binary captures, and invokes the offline
   decoder/residual SVG analyzer. It never adds work to the TDMA short frame or
   the Core1/PIO real-time path.
+- `analyzer_no5_correlator/analyzer_no5_correlator.py`: offline-only evidence
+  join for a decoded local SYNC_IO analyzer segment and a decoded NO5 SMA
+  waveform. It aligns absolute hardware-time records, retains analyzer
+  capture and NO5 sample sequence domains separately, and marks the two
+  evidence sources as non-substitutable.
 - `vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py`: VDC TDMA
   self-test runner. It starts `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest` on each
   board, then checks `SYSTem:SYNC:VDC:TDMA:STATus?` for a completed
