@@ -16,6 +16,22 @@ Last updated: 2026-09-04
 - 历史 `SYNC_IO-TASK-*` 记录已迁移为 `SYNC-PROGRESS-*` ID；其中的单次数字都是当时验收
   快照，不是当前代码事实源。
 
+### SYNC-PROGRESS-20260904-013 - Core0 bounded analyzer drain boundary
+
+- TODO task ID：`SYNC-LA-005`、`SYNC-LA-002`。
+- 变更：新增 `sync_io_logic_analyzer_drain_core0()`；仅当 analyzer persona 已停止/释放且
+  hardware backend 不再运行时，Core0 才能按调用方给定容量有界弹出 capture records。活动
+  realtime producer、空 capture 或零容量请求均返回 0，不消费 TDMA/目标 FIFO，也不触碰 GPIO。
+- 软件验证：`run_sync_io_logic_analyzer_tests.ps1` 通过；`test_sync_io_logic_analyzer_contract.py`
+  通过；self-alias/空 drain 边界由 C contract test 覆盖。
+- 构建验证：`out/build/sync-la-002-alias-fix-20260904/` 增量固件重链成功，flash-link contract
+  全部通过；默认 `pico2-validation` 的既有 RAM 溢出仍未改变。
+- 硬件验收：四板 OTA 完成，build `20260904150214`；TDMA process-image/FIFO 短帧闭环
+  `passed=true`、`realtime_gate_passed=true`、`closed_loop_passed=true`。原始证据位于
+  `out/hardware-acceptance/sync-la-005-core0-drain-20260904/`。
+- 调试门禁：coarse CLK/TRN-01/TRN-03 的既有诊断异常按有界继续策略记录并继续，未发生
+  越界 DMA、非法内存/Flash 或失控 GPIO 硬停；本切片不宣称 StorageAO 持久化已完成。
+
 ### SYNC-PROGRESS-20260904-012 - STOP 后 last-capture shadow 复验与 TDMA 闭环
 
 - TODO task ID：`SYNC-LA-005`、`SYNC-LA-002`。

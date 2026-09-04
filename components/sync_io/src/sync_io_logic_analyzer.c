@@ -610,6 +610,27 @@ void sync_io_logic_analyzer_get_status(
     status->manager_last_conflict_mask = manager_snapshot.last_conflict_mask;
 }
 
+size_t sync_io_logic_analyzer_drain_core0(
+    sync_io_logic_analyzer_record_t *records,
+    uint32_t capacity)
+{
+    if (records == NULL || capacity == 0u ||
+        (s_active_persona != NULL &&
+         sync_io_logic_analyzer_persona_active(s_active_persona)) ||
+        sync_io_logic_analyzer_hw_active() ||
+        !s_control.capture.initialized) {
+        return 0u;
+    }
+
+    size_t drained = 0u;
+    while (drained < capacity &&
+           sync_io_logic_analyzer_raw_capture_pop(
+               &s_control.capture, &records[drained])) {
+        ++drained;
+    }
+    return drained;
+}
+
 static bool sync_io_logic_analyzer_source_mask_valid(uint32_t source_mask)
 {
     const sync_io_persona_descriptor_t *descriptor =

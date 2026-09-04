@@ -202,6 +202,13 @@ static void test_raw_capture_reinit_preserves_aliased_config(void)
     assert(capture.capacity == 3u);
 }
 
+static void test_core0_drain_boundary_without_capture(void)
+{
+    sync_io_logic_analyzer_record_t records[2];
+    assert(sync_io_logic_analyzer_drain_core0(records, 2u) == 0u);
+    assert(sync_io_logic_analyzer_drain_core0(records, 0u) == 0u);
+}
+
 int main(void)
 {
     assert(sizeof(sync_io_logic_analyzer_record_t) == 32u);
@@ -211,6 +218,7 @@ int main(void)
     test_snapshot_seqlock();
     test_raw_capture_ring();
     test_raw_capture_reinit_preserves_aliased_config();
+    test_core0_drain_boundary_without_capture();
     puts("sync_io_logic_analyzer contract tests passed");
     return 0;
 }

@@ -294,4 +294,11 @@ void sync_io_logic_analyzer_persona_get_snapshot(
 void sync_io_logic_analyzer_get_status(
     sync_io_logic_analyzer_status_t *status);
 
+/* Core0 drain boundary. Records are copied only after the persona has been
+ * stopped/released; while the realtime owner is active this returns zero so
+ * a concurrent Core1 producer can never race a consumer. */
+size_t sync_io_logic_analyzer_drain_core0(
+    sync_io_logic_analyzer_record_t *records,
+    uint32_t capacity);
+
 #endif
