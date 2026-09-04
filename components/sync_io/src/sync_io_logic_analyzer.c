@@ -12,6 +12,7 @@
 #endif
 
 #define SYNC_IO_LOGIC_ANALYZER_DMA_RING_BITS 15u
+#define SYNC_IO_LOGIC_ANALYZER_EDGE_SAMPLE_PERIOD_NS 1000u
 
 _Static_assert(SYNC_IO_LOGIC_ANALYZER_MAX_RECORDS > 0u,
                "logic analyzer workspace must hold at least one record");
@@ -89,6 +90,8 @@ typedef struct {
     uint32_t produced_raw;
     uint32_t consumed_raw;
     uint32_t sequence;
+    uint32_t previous_level;
+    bool previous_level_valid;
     bool sm_claimed;
     bool dma_claimed;
     bool program_loaded;
@@ -132,7 +135,8 @@ bool sync_io_logic_analyzer_hw_arm(
     const sync_io_logic_analyzer_config_t *config)
 {
     if (capture == NULL || records == NULL || config == NULL ||
-        config->mode != SYNC_IO_LOGIC_ANALYZER_MODE_RAW_SAMPLE ||
+        (config->mode != SYNC_IO_LOGIC_ANALYZER_MODE_RAW_SAMPLE &&
+         config->mode != SYNC_IO_LOGIC_ANALYZER_MODE_EDGE_TIMESTAMP) ||
         !sync_io_logic_analyzer_config_valid(config) ||
         !sync_io_core_initialized() || sync_io_core_capture_is_running() ||
         sync_io_core_wave_output_persona_active() || s_hw.running) {
@@ -154,6 +158,8 @@ bool sync_io_logic_analyzer_hw_arm(
     s_hw.produced_raw = 0u;
     s_hw.consumed_raw = 0u;
     s_hw.sequence = 0u;
+    s_hw.previous_level = 0u;
+    s_hw.previous_level_valid = false;
 
     PIO pio = BOARD_SYNC_PIO_FAST;
     const uint sm = BOARD_SYNC_PIO0_LOGIC_ANALYZER_SM;
@@ -166,11 +172,12 @@ bool sync_io_logic_analyzer_hw_arm(
     sm_config_set_in_pins(&pio_config, 0u);
     sm_config_set_in_shift(&pio_config, false, true, 32);
     sm_config_set_fifo_join(&pio_config, PIO_FIFO_JOIN_RX);
+    const uint32_t sample_period_ns = config->sample_period_ns != 0u
+        ? config->sample_period_ns
+        : SYNC_IO_LOGIC_ANALYZER_EDGE_SAMPLE_PERIOD_NS;
     sm_config_set_clkdiv(&pio_config,
                          (float)clock_get_hz(clk_sys) /
-                         (float)(config->sample_period_ns == 0u
-                             ? 1000000u
-                             : (1000000000u / config->sample_period_ns)));
+                         (float)(1000000000u / sample_period_ns));
     pio_sm_init(pio, sm, s_hw.offset, &pio_config);
     pio_sm_set_pins(pio, sm, 0u);
 
@@ -253,14 +260,49 @@ size_t sync_io_logic_analyzer_hw_service(uint32_t max_records)
         available = max_records;
     }
     size_t pushed = 0u;
-    while (pushed < available) {
+    uint32_t inspected = 0u;
+    while (inspected < available && pushed < max_records) {
         const uint32_t raw = sync_io_shared_workspace[
             s_hw.consumed_raw % SYNC_IO_SHARED_WORKSPACE_WORDS];
+        const uint32_t level = raw & s_hw.capture->config.source_mask;
+        const bool edge_mode = s_hw.capture->config.mode ==
+            SYNC_IO_LOGIC_ANALYZER_MODE_EDGE_TIMESTAMP;
+        if (edge_mode) {
+            if (!s_hw.previous_level_valid) {
+                s_hw.previous_level = level;
+                s_hw.previous_level_valid = true;
+                ++s_hw.consumed_raw;
+                ++inspected;
+                continue;
+            }
+            const uint32_t edge = s_hw.previous_level ^ level;
+            s_hw.previous_level = level;
+            ++s_hw.consumed_raw;
+            ++inspected;
+            if (edge == 0u) {
+                continue;
+            }
+            sync_io_logic_analyzer_record_t record = {
+                .hardware_tick = 0u,
+                .capture_sequence = 1u,
+                .record_sequence = s_hw.sequence++,
+                .level_mask = level,
+                .edge_mask = edge,
+                .flags = SYNC_IO_LOGIC_ANALYZER_RECORD_FLAG_NONE,
+                .reserved = raw,
+            };
+            (void)sync_io_capture_time_now_ns(&record.hardware_tick);
+            if (sync_io_logic_analyzer_raw_capture_push(
+                    s_hw.capture, &record)) {
+                ++pushed;
+            }
+            continue;
+        }
         sync_io_logic_analyzer_record_t record = {
             .hardware_tick = 0u,
             .capture_sequence = 1u,
             .record_sequence = s_hw.sequence++,
-            .level_mask = raw & s_hw.capture->config.source_mask,
+            .level_mask = level,
             .edge_mask = 0u,
             .flags = SYNC_IO_LOGIC_ANALYZER_RECORD_FLAG_NONE,
             .reserved = raw,
@@ -270,6 +312,7 @@ size_t sync_io_logic_analyzer_hw_service(uint32_t max_records)
             break;
         }
         ++s_hw.consumed_raw;
+        ++inspected;
         ++pushed;
     }
     if (s_hw.capture->complete) {

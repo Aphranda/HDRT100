@@ -171,3 +171,13 @@ def test_analyzer_stop_publishes_shadow_and_blocks_reentry_until_drain() -> None
     assert "sync_io_logic_analyzer_publish_shadow" in source
     assert "shadow_ready, __ATOMIC_ACQUIRE" in source
     assert "shadow_ready, 0u, __ATOMIC_RELEASE" in source
+
+
+def test_edge_timestamp_backend_emits_only_level_changes() -> None:
+    source = Path("components/sync_io/src/sync_io_logic_analyzer.c").read_text(
+        encoding="utf-8")
+    assert "SYNC_IO_LOGIC_ANALYZER_MODE_EDGE_TIMESTAMP" in source
+    assert "previous_level_valid" in source
+    assert "const uint32_t edge = s_hw.previous_level ^ level" in source
+    assert "if (edge == 0u)" in source
+    assert "edge_mask = edge" in source
