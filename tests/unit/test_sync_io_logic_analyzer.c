@@ -129,6 +129,61 @@ static void test_snapshot_seqlock(void)
     assert(!sync_io_logic_analyzer_snapshot_read(&source, &snapshot));
 }
 
+static void test_raw_capture_ring(void)
+{
+    sync_io_logic_analyzer_config_t config = raw_config();
+    config.max_records = 3u;
+    config.overwrite_oldest = 1u;
+    sync_io_logic_analyzer_record_t records[3];
+    sync_io_logic_analyzer_raw_capture_t capture;
+    assert(sync_io_logic_analyzer_raw_capture_init(
+               &capture, records, 3u, &config));
+    for (uint32_t index = 0u; index < 4u; ++index) {
+        const sync_io_logic_analyzer_record_t record = {
+            .hardware_tick = index + 100u,
+            .record_sequence = index,
+            .level_mask = index,
+        };
+        assert(sync_io_logic_analyzer_raw_capture_push(&capture, &record));
+    }
+    assert(capture.dropped_records == 1u);
+    assert(capture.overrun_count == 1u);
+    sync_io_logic_analyzer_record_t out;
+    assert(sync_io_logic_analyzer_raw_capture_pop(&capture, &out));
+    assert(out.hardware_tick == 101u);
+    assert((out.flags & SYNC_IO_LOGIC_ANALYZER_RECORD_FLAG_DISCONTINUITY) == 0u);
+    assert(sync_io_logic_analyzer_raw_capture_pop(&capture, &out));
+    assert(out.hardware_tick == 102u);
+    assert(sync_io_logic_analyzer_raw_capture_pop(&capture, &out));
+    assert(out.hardware_tick == 103u);
+    assert((out.flags & SYNC_IO_LOGIC_ANALYZER_RECORD_FLAG_DISCONTINUITY) != 0u);
+    assert(!sync_io_logic_analyzer_raw_capture_pop(&capture, &out));
+
+    config.overwrite_oldest = 0u;
+    assert(sync_io_logic_analyzer_raw_capture_init(
+               &capture, records, 3u, &config));
+    for (uint32_t index = 0u; index < 3u; ++index) {
+        const sync_io_logic_analyzer_record_t record = {0};
+        assert(sync_io_logic_analyzer_raw_capture_push(&capture, &record));
+    }
+    const sync_io_logic_analyzer_record_t overflow = {0};
+    assert(!sync_io_logic_analyzer_raw_capture_push(&capture, &overflow));
+    assert(capture.end_reason == SYNC_IO_LOGIC_ANALYZER_END_OVERFLOW);
+    sync_io_logic_analyzer_snapshot_payload_t snapshot;
+    assert(sync_io_logic_analyzer_raw_capture_snapshot(&capture, &snapshot));
+    assert(snapshot.capture_complete == 1u);
+    assert(snapshot.end_reason == SYNC_IO_LOGIC_ANALYZER_END_OVERFLOW);
+    assert(snapshot.data_crc32 != 0u);
+
+    config.overwrite_oldest = 1u;
+    assert(sync_io_logic_analyzer_raw_capture_init(
+               &capture, records, 3u, &config));
+    sync_io_logic_analyzer_raw_capture_finish(
+        &capture, SYNC_IO_LOGIC_ANALYZER_END_CAPACITY);
+    assert(capture.complete);
+    assert(capture.end_reason == SYNC_IO_LOGIC_ANALYZER_END_CAPACITY);
+}
+
 int main(void)
 {
     assert(sizeof(sync_io_logic_analyzer_record_t) == 32u);
@@ -136,6 +191,7 @@ int main(void)
     test_trigger_config();
     test_gate_policy();
     test_snapshot_seqlock();
+    test_raw_capture_ring();
     puts("sync_io_logic_analyzer contract tests passed");
     return 0;
 }

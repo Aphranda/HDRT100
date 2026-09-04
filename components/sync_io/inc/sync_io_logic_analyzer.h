@@ -157,6 +157,25 @@ typedef struct {
     sync_io_logic_analyzer_snapshot_payload_t payload;
 } sync_io_logic_analyzer_snapshot_t;
 
+/* Core1-owned bounded RAW_SAMPLE ring.  The backing storage is supplied by
+ * the caller (normally the persona's reserved SRAM workspace); no dynamic
+ * allocation or SD/USB operation is permitted on this path. */
+typedef struct {
+    sync_io_logic_analyzer_record_t *records;
+    sync_io_logic_analyzer_config_t config;
+    uint32_t capacity;
+    uint32_t write_index;
+    uint32_t read_index;
+    uint32_t produced_records;
+    uint32_t consumed_records;
+    uint32_t dropped_records;
+    uint32_t overrun_count;
+    sync_io_logic_analyzer_end_reason_t end_reason;
+    sync_io_logic_analyzer_state_t state;
+    bool initialized;
+    bool complete;
+} sync_io_logic_analyzer_raw_capture_t;
+
 bool sync_io_logic_analyzer_config_valid(
     const sync_io_logic_analyzer_config_t *config);
 sync_io_logic_analyzer_gate_action_t sync_io_logic_analyzer_gate_action(
@@ -164,6 +183,25 @@ sync_io_logic_analyzer_gate_action_t sync_io_logic_analyzer_gate_action(
     bool product_mode,
     uint32_t debug_continue_count,
     uint32_t debug_continue_budget);
+bool sync_io_logic_analyzer_raw_capture_init(
+    sync_io_logic_analyzer_raw_capture_t *capture,
+    sync_io_logic_analyzer_record_t *records,
+    uint32_t capacity,
+    const sync_io_logic_analyzer_config_t *config);
+bool sync_io_logic_analyzer_raw_capture_push(
+    sync_io_logic_analyzer_raw_capture_t *capture,
+    const sync_io_logic_analyzer_record_t *record);
+bool sync_io_logic_analyzer_raw_capture_pop(
+    sync_io_logic_analyzer_raw_capture_t *capture,
+    sync_io_logic_analyzer_record_t *record);
+void sync_io_logic_analyzer_raw_capture_finish(
+    sync_io_logic_analyzer_raw_capture_t *capture,
+    sync_io_logic_analyzer_end_reason_t reason);
+uint32_t sync_io_logic_analyzer_raw_capture_crc32(
+    const sync_io_logic_analyzer_raw_capture_t *capture);
+bool sync_io_logic_analyzer_raw_capture_snapshot(
+    const sync_io_logic_analyzer_raw_capture_t *capture,
+    sync_io_logic_analyzer_snapshot_payload_t *snapshot);
 bool sync_io_logic_analyzer_snapshot_read(
     const sync_io_logic_analyzer_snapshot_t *source,
     sync_io_logic_analyzer_snapshot_payload_t *snapshot);
