@@ -16,6 +16,25 @@ Last updated: 2026-09-05
 - 历史 `SYNC_IO-TASK-*` 记录已迁移为 `SYNC-PROGRESS-*` ID；其中的单次数字都是当时验收
   快照，不是当前代码事实源。
 
+### SYNC-PROGRESS-20260905-008 - analyzer 多段 SD 导出索引与丢样本区间
+
+- TODO task ID：`SYNC-LA-006`。
+- 变更：新增 `tools/analyzer_trace_batch_index/analyzer_trace_batch_index.py`，对多个
+  `SLAY` analyzer segment 执行离线 decoder 校验，按 session 建立导出索引，保留 payload/file
+  CRC，并将单文件 record sequence gap、跨 segment gap 及 header dropped count 展开为显式
+  `drop_intervals`；同时提供有界 CSV 索引输出。工具不访问实时固件，不推断 NO5/SMA 外部链路
+  健康度。
+- 软件验证：batch index、analyzer decoder、NO5 关联器和 SYNC_IO contract 共 16 项测试通过；
+  新工具 `py_compile` 通过。
+- 构建与硬件证据：本轮沿用当前源码指纹对应的
+  `out/build/sync-la-008-correlator-20260905/` release build 与
+  `out/hardware-acceptance/sync-la-008-correlator-20260905/` 完整 P3 证据；其中 TDMA
+  `cycles=4096`、`passed=true`、`realtime_gate_passed=true`、`closed_loop_passed=true`。
+  新增工具为离线 host 路径，未改变固件镜像；此前 quick diagnostic receipt 仍用于 staged
+  指纹门禁。
+- 边界：真实 SD 批量文件和跨 session 同窗数据尚未在现场取得；本工具完成了索引/区间语义，
+  但 `SYNC-LA-006` 仍保持 `IN PROGRESS`，待真实批量导出和长期背压/drop evidence 验收。
+
 ### SYNC-PROGRESS-20260905-007 - 本机 analyzer 与 NO5 外部波形离线关联器
 
 - TODO task ID：`SYNC-LA-008`。

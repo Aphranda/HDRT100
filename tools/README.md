@@ -148,6 +148,10 @@ Get-Content -Path tools\README.md -Encoding UTF8
   waveform. It aligns absolute hardware-time records, retains analyzer
   capture and NO5 sample sequence domains separately, and marks the two
   evidence sources as non-substitutable.
+- `analyzer_trace_batch_index/analyzer_trace_batch_index.py`: offline batch
+  index for persisted analyzer `.bin` segments. It verifies per-file CRCs,
+  groups sessions, and emits explicit record-sequence/header drop intervals;
+  it does not infer external waveform health.
 - `vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py`: VDC TDMA
   self-test runner. It starts `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest` on each
   board, then checks `SYSTem:SYNC:VDC:TDMA:STATus?` for a completed
