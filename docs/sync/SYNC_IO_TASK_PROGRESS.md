@@ -33,6 +33,21 @@ Last updated: 2026-09-04
   `LOGIC_ANALYZER` arm，也未宣称 `SYNC-LA-002` 完成。
 - 下一步：用最终固件执行统一 P3 与四节点 TDMA 短帧闭环；随后再接入真实 RAW_SAMPLE persona。
 
+### SYNC-PROGRESS-20260904-006 - RAW_SAMPLE read-only PIO program
+
+- TODO task ID：`SYNC-LA-002`、`SYNC-M3`。
+- 变更提交：`abcf0bd`，新增 `logic_analyzer_raw_sample` PIO 程序，以单条 `in pins, 32`
+  读取完整 pad bus；程序没有 `set pins`、`out pins` 或方向切换，persona catalog 的
+  `program_name` 已绑定新身份。
+- 软件验证：PIO 静态只读断言、logic analyzer host contract tests 通过；`pico2-validation`
+  release build 重新生成 package。
+- 硬件验证：统一 QUICK_DIAGNOSTIC P3 证据位于
+  `out/hardware-acceptance/sync-la-002-pio-20260904/`；四节点 OTA、TDMA process-image/FIFO
+  短帧闭环和 SD 原始 capture/SVG/离线分析完成。coarse CLK follower arm failure 若出现仍
+  按调试策略保留为 diagnostic evidence，不改变 TDMA flow completion。
+- 边界：本切片只冻结并编译只读 PIO backend；真实 analyzer persona ARM、DMA 绑定、SCPI
+  查询和 StorageAO drain 仍属于后续任务，`SYNC-LA-002` 保持 `IN PROGRESS`。
+
 ### SYNC-PROGRESS-20260904-004 - 冻结逻辑分析仪公共契约
 
 - TODO task ID：`SYNC-LA-001`、`SYNC-M3`。
