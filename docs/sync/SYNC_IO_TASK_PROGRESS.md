@@ -35,6 +35,16 @@ Last updated: 2026-09-05
 - 边界：真实 SD 批量文件和跨 session 同窗数据尚未在现场取得；本工具完成了索引/区间语义，
   但 `SYNC-LA-006` 仍保持 `IN PROGRESS`，待真实批量导出和长期背压/drop evidence 验收。
 
+### SYNC-PROGRESS-20260905-009 - decoder 与批量索引共享 drop interval 事实源
+
+- TODO task ID：`SYNC-LA-006`。
+- 变更：基础 `analyzer_trace_decode.decode()` 现在直接输出 `drop_intervals`，统一表达
+  record sequence gap 与 header dropped count；批量索引复用该字段，并额外补充跨 segment
+  gap。这样 JSON、CSV 索引和后续 SVG 标注不会各自推导丢样本语义。
+- 软件验证：analyzer decoder、batch index、NO5 关联器和 SYNC_IO contract 共 17 项测试通过，
+  `py_compile` 通过。此前 P3/TDMA 证据仍适用于本次仅离线工具的增量。
+- 边界：现场仍缺真实 SD 批量导出与长期背压窗口；`SYNC-LA-006` 继续保持 `IN PROGRESS`。
+
 ### SYNC-PROGRESS-20260905-007 - 本机 analyzer 与 NO5 外部波形离线关联器
 
 - TODO task ID：`SYNC-LA-008`。

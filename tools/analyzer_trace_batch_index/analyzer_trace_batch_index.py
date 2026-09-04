@@ -21,29 +21,7 @@ from tools.analyzer_trace_decode.analyzer_trace_decode import decode
 
 
 def _intervals(decoded: dict[str, Any]) -> list[dict[str, Any]]:
-    records = decoded.get("records", [])
-    intervals: list[dict[str, Any]] = []
-    previous: int | None = None
-    for record in records:
-        sequence = int(record["record_sequence"])
-        if previous is not None and sequence != previous + 1:
-            intervals.append({
-                "record_index": int(record["index"]),
-                "first_missing_sequence": previous + 1,
-                "last_missing_sequence": sequence - 1,
-                "missing_count": max(0, sequence - previous - 1),
-                "reason": "record_sequence_gap",
-            })
-        previous = sequence
-    if int(decoded["header"].get("dropped_records", 0)):
-        intervals.append({
-            "record_index": None,
-            "first_missing_sequence": None,
-            "last_missing_sequence": None,
-            "missing_count": int(decoded["header"]["dropped_records"]),
-            "reason": "header_dropped_records",
-        })
-    return intervals
+    return [dict(interval) for interval in decoded.get("drop_intervals", [])]
 
 
 def build_index(paths: Iterable[Path], *, tick_hz: int = 0) -> dict[str, Any]:

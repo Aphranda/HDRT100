@@ -31,6 +31,8 @@ def test_decode_valid_segment_reports_crc_and_gaps(tmp_path: Path) -> None:
         "file_crc_ok": True,
     }
     assert decoded["discontinuity_count"] == 1
+    assert decoded["drop_intervals"][0]["missing_count"] == 1
+    assert decoded["drop_intervals"][1]["reason"] == "header_dropped_records"
     assert decoded["records"][1]["sequence_gap"] is True
     assert decoded["records"][1]["timestamp_ns"] == 200_000
 

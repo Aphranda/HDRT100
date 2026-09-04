@@ -30,6 +30,31 @@ def crc32(data: bytes) -> int:
     return binascii.crc32(data) & 0xFFFFFFFF
 
 
+def _drop_intervals(records: list[dict[str, Any]], dropped_records: int) -> list[dict[str, Any]]:
+    intervals: list[dict[str, Any]] = []
+    previous: int | None = None
+    for record in records:
+        sequence = int(record["record_sequence"])
+        if previous is not None and sequence != previous + 1:
+            intervals.append({
+                "record_index": int(record["index"]),
+                "first_missing_sequence": previous + 1,
+                "last_missing_sequence": sequence - 1,
+                "missing_count": max(0, sequence - previous - 1),
+                "reason": "record_sequence_gap",
+            })
+        previous = sequence
+    if dropped_records:
+        intervals.append({
+            "record_index": None,
+            "first_missing_sequence": None,
+            "last_missing_sequence": None,
+            "missing_count": int(dropped_records),
+            "reason": "header_dropped_records",
+        })
+    return intervals
+
+
 def decode(path: Path, tick_hz: int = 0, expected_file_crc: int | None = None) -> dict[str, Any]:
     data = path.read_bytes()
     if len(data) < HEADER.size:
@@ -78,6 +103,7 @@ def decode(path: Path, tick_hz: int = 0, expected_file_crc: int | None = None) -
         previous_sequence = record_seq
     payload_computed = crc32(payload)
     file_computed = crc32(data)
+    drop_intervals = _drop_intervals(records, dropped)
     checks = {
         "magic_ok": magic == MAGIC,
         "schema_ok": schema == SCHEMA,
@@ -103,6 +129,7 @@ def decode(path: Path, tick_hz: int = 0, expected_file_crc: int | None = None) -
         "computed_payload_crc32": payload_computed,
         "computed_file_crc32": file_computed,
         "discontinuity_count": discontinuities,
+        "drop_intervals": drop_intervals,
         "checks": checks,
         "records": records,
     }
