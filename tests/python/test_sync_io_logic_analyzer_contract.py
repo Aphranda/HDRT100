@@ -94,3 +94,20 @@ def test_logic_analyzer_hardware_lifecycle_uses_persona_manager() -> None:
         assert token in source or token in header
     assert "SYSTem:TDMA" not in source
     assert "storage_manager" not in source
+
+
+def test_analyzer_status_query_is_read_only_and_registered() -> None:
+    header = (
+        ROOT / "middleware/scpi_port/inc/scpi_realtime_io_commands.h"
+    ).read_text(encoding="utf-8")
+    source = (
+        ROOT / "middleware/scpi_port/src/scpi_realtime_io_commands.c"
+    ).read_text(encoding="utf-8")
+    assert "REALtime:IO:ANALyzer:STATe?" in header
+    assert "scpi_cmd_analyzer_state_q" in header
+    assert "sync_io_logic_analyzer_get_status" in source
+    body = source.split("scpi_result_t scpi_cmd_analyzer_state_q", 1)[1].split(
+        "scpi_result_t scpi_cmd_clock_freq", 1
+    )[0]
+    assert "sync_io_logic_analyzer_hw_start" not in body
+    assert "sync_io_logic_analyzer_hw_stop" not in body

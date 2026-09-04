@@ -228,6 +228,24 @@ typedef struct {
     bool active;
 } sync_io_logic_analyzer_persona_t;
 
+typedef struct {
+    bool initialized;
+    bool active;
+    sync_io_logic_analyzer_state_t state;
+    sync_io_logic_analyzer_mode_t mode;
+    sync_io_logic_analyzer_end_reason_t end_reason;
+    uint32_t produced_records;
+    uint32_t consumed_records;
+    uint32_t dropped_records;
+    uint32_t overrun_count;
+    uint32_t data_crc32;
+    uint32_t manager_active_count;
+    uint32_t manager_used_sm_mask;
+    uint32_t manager_used_dma_channel_mask;
+    uint32_t manager_last_error;
+    uint32_t manager_last_conflict_mask;
+} sync_io_logic_analyzer_status_t;
+
 bool sync_io_logic_analyzer_persona_begin(
     sync_io_logic_analyzer_persona_t *persona,
     sync_io_logic_analyzer_raw_capture_t *capture,
@@ -241,5 +259,7 @@ bool sync_io_logic_analyzer_persona_active(
 void sync_io_logic_analyzer_persona_get_snapshot(
     const sync_io_logic_analyzer_persona_t *persona,
     sync_io_persona_manager_snapshot_t *snapshot);
+void sync_io_logic_analyzer_get_status(
+    sync_io_logic_analyzer_status_t *status);
 
 #endif

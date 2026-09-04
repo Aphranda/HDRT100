@@ -308,7 +308,18 @@ def board_command(board: Board, text: str, args: argparse.Namespace) -> str:
 
 
 def status(board: Board, args: argparse.Namespace) -> dict[str, int]:
-    raw = board_command(board, "SYSTem:REFMEM:SYNC:TDMA:STATus?", args)
+    query = "SYSTem:REFMEM:SYNC:TDMA:STATus?"
+    raw = board_command(board, query, args)
+    if raw == "<timeout>" and persistent_sessions_enabled(args):
+        # A stale persistent CDC read is a recoverable transport observation,
+        # not a TDMA safety fault.  Bound recovery to one fresh short-open
+        # query; callers still receive the timeout if the fresh session also
+        # fails, preserving the original state-machine gate.
+        close_persistent_connections()
+        fallback_args = argparse.Namespace(**vars(args))
+        fallback_args.keep_open = False
+        fallback_args.short_open = True
+        raw = board_command(board, query, fallback_args)
     if raw == "<timeout>":
         raise RuntimeError(f"{board.address}: TDMA status query timed out")
     try:

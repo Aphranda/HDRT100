@@ -18,6 +18,29 @@ Last updated: 2026-09-04
 
 ## 当前 Checkpoint
 
+### SYNC-PROGRESS-20260904-009 - Read-only analyzer SCPI status snapshot
+
+- TODO task ID：`SYNC-LA-002`、`SYNC-M3`。
+- 变更：新增 `sync_io_logic_analyzer_get_status()`，从 analyzer capture 与
+  persona-manager 快照组合出只读状态；新增 `REALtime:IO:ANALyzer:STATe?`，返回
+  initialized/active、capture state/mode/end reason、produced/consumed/drop/overrun、
+  CRC 和 manager 资源/错误字段。查询路径不 ARM、STOP、消费目标 FIFO、修改 GPIO，
+  保持 Core0 查询与 Core1 实时 owner 分离。
+- 变更：TDMA status 查询遇到持久 CDC `<timeout>` 时执行一次 bounded short-open
+  重试；失败仍报告原始 timeout，避免无界重试或伪造状态。
+- 软件验证：analyzer host contract、TDMA status recovery、资源与状态机测试通过，
+  合计 `49 passed`；host analyzer C contract、`pico2-validation` release build、
+  flash/link/SCPI namespace checks 通过。
+- 硬件验证：quick diagnostic P3 完成四板 OTA、P0T、CLK/MARK、TRN-00/01/02、
+  TRN-03 和四节点 TDMA process-image/FIFO 短帧闭环，结果 `passed=true`；SD 原始
+  波形和离线分析保留于
+  `out/hardware-acceptance/sync-la-002-scpi-status-20260904-recovered/`。
+- 边界：当前 SCPI 仅提供只读状态，尚未提供 analyzer 异步 ARM/STOP 参数解析、
+  Core0 ring drain、StorageAO 持久化及 EDGE/TRIGGERED capture；`SYNC-LA-002` 保持
+  `IN PROGRESS`。
+- 下一步：接入 bounded analyzer ARM/STOP 控制事件，并继续用 TDMA 短帧与 SD 波形
+  闭环验证状态机迁移。
+
 ### SYNC-PROGRESS-20260904-008 - RAW_SAMPLE persona-manager lease lifecycle
 
 - TODO task ID：`SYNC-LA-002`、`SYNC-M3`。

@@ -3,6 +3,7 @@
 #include "distributed_config.h"
 #include "scpi_port_internal.h"
 #include "sync_io.h"
+#include "sync_io_logic_analyzer.h"
 #include "sync_io_hw_profile.h"
 #include "sync_trigger.h"
 #include "project_config.h"
@@ -493,6 +494,32 @@ scpi_result_t scpi_cmd_sample_debug_q(scpi_t *context)
     SCPI_ResultUInt32(context, debug.dma_ring_align_mask);
     SCPI_ResultUInt32(context, debug.capture_dma_read_seq);
     SCPI_ResultUInt32(context, debug.produced_words);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_analyzer_state_q(scpi_t *context)
+{
+    (void)context;
+    sync_io_logic_analyzer_status_t status;
+    sync_io_logic_analyzer_get_status(&status);
+
+    /* Read-only Core0 snapshot.  This query never arms/stops a persona,
+     * consumes target FIFOs, or changes GPIO ownership. */
+    SCPI_ResultBool(context, status.initialized ? TRUE : FALSE);
+    SCPI_ResultBool(context, status.active ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, (uint32_t)status.state);
+    SCPI_ResultUInt32(context, (uint32_t)status.mode);
+    SCPI_ResultUInt32(context, (uint32_t)status.end_reason);
+    SCPI_ResultUInt32(context, status.produced_records);
+    SCPI_ResultUInt32(context, status.consumed_records);
+    SCPI_ResultUInt32(context, status.dropped_records);
+    SCPI_ResultUInt32(context, status.overrun_count);
+    SCPI_ResultUInt32(context, status.data_crc32);
+    SCPI_ResultUInt32(context, status.manager_active_count);
+    SCPI_ResultUInt32(context, status.manager_used_sm_mask);
+    SCPI_ResultUInt32(context, status.manager_used_dma_channel_mask);
+    SCPI_ResultUInt32(context, status.manager_last_error);
+    SCPI_ResultUInt32(context, status.manager_last_conflict_mask);
     return SCPI_RES_OK;
 }
 

@@ -7,6 +7,7 @@ from tools.tdma_ring_monitor.tdma_start_ring import (
     _board_command_on_serial,
     persistent_sessions_enabled,
     resolve_board_ids,
+    status,
 )
 from tools.scpi_common.scpi_serial import (
     read_scpi_response,
@@ -124,6 +125,28 @@ def test_query_keeps_full_timeout(monkeypatch):
         object(), "SYSTem:TDMA:RING:DIAGnostic?", options,
         object()) == "1"
     assert observed == [3.0]
+
+
+def test_status_uses_one_bounded_short_open_recovery(monkeypatch):
+    import tools.tdma_ring_monitor.tdma_start_ring as ring
+
+    calls = []
+
+    def fake_board_command(_board, _text, options):
+        calls.append(bool(getattr(options, "keep_open", False)))
+        if len(calls) == 1:
+            return "<timeout>"
+        values = [0] * len(ring.TDMA_FIELDS)
+        values[ring.TDMA_FIELDS.index("ring_enabled")] = 1
+        values[ring.TDMA_FIELDS.index("ring_adapter_started")] = 1
+        return ",".join(str(value) for value in values)
+
+    monkeypatch.setattr(ring, "board_command", fake_board_command)
+    monkeypatch.setattr(ring, "close_persistent_connections", lambda: None)
+    options = Namespace(timeout=3.0, keep_open=True, short_open=False)
+    result = status(Namespace(address="NODE"), options)
+    assert result["ring_adapter_started"] == 1
+    assert calls == [True, False]
 
 
 def test_software_reset_disconnect_is_successful_handoff(monkeypatch):

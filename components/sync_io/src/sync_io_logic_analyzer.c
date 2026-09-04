@@ -16,6 +16,8 @@
 _Static_assert(SYNC_IO_LOGIC_ANALYZER_MAX_RECORDS > 0u,
                "logic analyzer workspace must hold at least one record");
 
+static sync_io_logic_analyzer_persona_t *s_active_persona;
+
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 typedef struct {
     sync_io_logic_analyzer_raw_capture_t *capture;
@@ -314,6 +316,7 @@ bool sync_io_logic_analyzer_persona_begin(
         return false;
     }
     persona->active = true;
+    s_active_persona = persona;
     return true;
 }
 
@@ -322,6 +325,9 @@ void sync_io_logic_analyzer_persona_end(
 {
     if (persona == NULL || !persona->initialized) {
         return;
+    }
+    if (s_active_persona == persona) {
+        s_active_persona = NULL;
     }
     if (sync_io_persona_manager_handle_valid(
             &persona->manager, &persona->handle)) {
@@ -419,6 +425,43 @@ void sync_io_logic_analyzer_persona_get_snapshot(
     }
 }
 #endif
+
+void sync_io_logic_analyzer_get_status(
+    sync_io_logic_analyzer_status_t *status)
+{
+    if (status == NULL) {
+        return;
+    }
+    memset(status, 0, sizeof(*status));
+    const sync_io_logic_analyzer_persona_t *persona = s_active_persona;
+    if (persona == NULL || !persona->initialized || persona->capture == NULL) {
+        return;
+    }
+
+    sync_io_logic_analyzer_snapshot_payload_t capture_snapshot;
+    if (!sync_io_logic_analyzer_raw_capture_snapshot(
+            persona->capture, &capture_snapshot)) {
+        return;
+    }
+    sync_io_persona_manager_snapshot_t manager_snapshot;
+    sync_io_logic_analyzer_persona_get_snapshot(persona, &manager_snapshot);
+    status->initialized = true;
+    status->active = persona->active;
+    status->state = capture_snapshot.state;
+    status->mode = capture_snapshot.mode;
+    status->end_reason = capture_snapshot.end_reason;
+    status->produced_records = capture_snapshot.produced_records;
+    status->consumed_records = capture_snapshot.consumed_records;
+    status->dropped_records = capture_snapshot.dropped_records;
+    status->overrun_count = capture_snapshot.overrun_count;
+    status->data_crc32 = capture_snapshot.data_crc32;
+    status->manager_active_count = manager_snapshot.active_count;
+    status->manager_used_sm_mask = manager_snapshot.used_sm_mask;
+    status->manager_used_dma_channel_mask =
+        manager_snapshot.used_dma_channel_mask;
+    status->manager_last_error = manager_snapshot.last_error;
+    status->manager_last_conflict_mask = manager_snapshot.last_conflict_mask;
+}
 
 static bool sync_io_logic_analyzer_source_mask_valid(uint32_t source_mask)
 {
