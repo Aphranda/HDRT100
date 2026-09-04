@@ -119,6 +119,48 @@ def write_csv(decoded: dict[str, Any], output: Path | None) -> None:
             stream.close()
 
 
+def write_svg(decoded: dict[str, Any], output: Path | None) -> None:
+    """Render a deterministic, bounded level-mask waveform as SVG."""
+    records = decoded["records"]
+    channels = sorted({bit for record in records
+                       for bit in range(32)
+                       if int(record["level_mask"]) & (1 << bit) or
+                       int(record["edge_mask"]) & (1 << bit)})
+    if not channels:
+        channels = [0]
+    max_channels = 32
+    channels = channels[:max_channels]
+    left, top, row_height, sample_width = 96, 28, 24, 8
+    width = left + max(1, len(records)) * sample_width + 16
+    height = top + len(channels) * row_height + 24
+    parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+             f'viewBox="0 0 {width} {height}">',
+             '<title>SYNC_IO logic analyzer segment</title>',
+             '<rect width="100%" height="100%" fill="white"/>']
+    for row, channel in enumerate(channels):
+        y = top + row * row_height
+        parts.append(f'<text x="4" y="{y + 15}" font-family="monospace" font-size="12">GPIO{channel}</text>')
+        parts.append(f'<line x1="{left}" y1="{y + 12}" x2="{width - 8}" y2="{y + 12}" stroke="#ddd"/>')
+        previous = None
+        for index, record in enumerate(records):
+            high = bool(int(record["level_mask"]) & (1 << channel))
+            x = left + index * sample_width
+            level_y = y + (3 if high else 15)
+            if previous is not None:
+                parts.append(f'<line x1="{x}" y1="{previous}" x2="{x}" y2="{level_y}" stroke="#1769aa"/>')
+            parts.append(f'<line x1="{x}" y1="{level_y}" x2="{x + sample_width}" y2="{level_y}" stroke="#1769aa"/>')
+            if int(record["edge_mask"]) & (1 << channel):
+                parts.append(f'<circle cx="{x + sample_width // 2}" cy="{level_y}" r="2" fill="#d33"/>')
+            previous = level_y
+    parts.append('</svg>')
+    text = "\n".join(parts) + "\n"
+    if output is None:
+        sys.stdout.write(text)
+    else:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(text, encoding="utf-8", newline="\n")
+
+
 def parse_int(value: str) -> int:
     return int(value, 0)
 
@@ -129,12 +171,17 @@ def main() -> int:
     parser.add_argument("--tick-hz", type=int, default=0)
     parser.add_argument("--expected-file-crc", type=parse_int)
     parser.add_argument("--csv", action="store_true")
+    parser.add_argument("--svg", action="store_true", help="write a level-mask waveform SVG")
     parser.add_argument("--output", "-o", type=Path)
     parser.add_argument("--allow-bad-crc", action="store_true")
     args = parser.parse_args()
     decoded = decode(args.segment, args.tick_hz, args.expected_file_crc)
+    if args.csv and args.svg:
+        parser.error("--csv and --svg are mutually exclusive")
     if args.csv:
         write_csv(decoded, args.output)
+    elif args.svg:
+        write_svg(decoded, args.output)
     else:
         write_json(decoded, args.output)
     bad = [name for name, ok in decoded["checks"].items() if not ok]

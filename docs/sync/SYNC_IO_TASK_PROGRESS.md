@@ -58,6 +58,22 @@ Last updated: 2026-09-05
 - 边界：本首段只完成 decoder 与元数据基础，不宣称 SVG 波形渲染、profile/source 元数据
   合并或完整 SD 文件批量导出已完成；`SYNC-LA-006` 保持 `IN PROGRESS`。
 
+### SYNC-PROGRESS-20260905-003 - analyzer segment SVG 波形输出
+
+- TODO task ID：`SYNC-LA-006`。
+- 变更：`tools/analyzer_trace_decode/analyzer_trace_decode.py` 增加确定性 SVG 输出；按出现的
+  GPIO level/edge mask 生成有界 lane，level 用阶梯线、edge 用标记点表达，空数据也输出
+  合法占位 lane；`--csv` 与 `--svg` 互斥，保持离线工具不触碰实时固件路径。
+- 软件验证：decoder 单测 3 项通过，包含 GPIO lane、edge marker 和 SVG 文件结构断言；
+  `py_compile` 通过。
+- 硬件验收：源码指纹对应 quick P3 build `20260904170808`，四板 4096-byte OTA 成功；
+  `tdma-process-image/summary.json` 报告 `passed=true`、`realtime_gate_passed=true`、
+  `closed_loop_passed=true`、`cycles=512`。原始证据位于
+  `out/hardware-acceptance/sync-la-006-svg-20260905/`；调试态既有校准拒绝按有界继续策略
+  记录，未触发不可恢复硬停。
+- 边界：SVG 尚未合并 profile/source 元数据、drop interval 标注和批量 SD 导出索引；
+  `SYNC-LA-006` 继续保持 `IN PROGRESS`。
+
 ### SYNC-PROGRESS-20260904-013 - Core0 bounded analyzer drain boundary
 
 - TODO task ID：`SYNC-LA-005`、`SYNC-LA-002`。

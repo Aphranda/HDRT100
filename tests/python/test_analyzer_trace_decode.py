@@ -9,6 +9,7 @@ from tools.analyzer_trace_decode.analyzer_trace_decode import (
     MAGIC,
     decode,
     crc32,
+    write_svg,
 )
 
 
@@ -40,3 +41,16 @@ def test_decode_rejects_payload_crc_mismatch(tmp_path: Path) -> None:
     path.write_bytes(header + records)
     decoded = decode(path)
     assert decoded["checks"]["payload_crc_ok"] is False
+
+
+def test_svg_output_contains_bounded_gpio_lanes(tmp_path: Path) -> None:
+    records = RECORD.pack(1, 1, 1, 1, 1, 0, 0) + RECORD.pack(2, 1, 2, 0, 1, 1, 0)
+    header = HEADER.pack(MAGIC, 1, HEADER.size, 1, 2, 0, crc32(records))
+    path = tmp_path / "segment.bin"
+    path.write_bytes(header + records)
+    svg = tmp_path / "segment.svg"
+    write_svg(decode(path), svg)
+    text = svg.read_text(encoding="utf-8")
+    assert text.startswith("<svg ")
+    assert "GPIO0" in text
+    assert "<circle" in text
