@@ -18,6 +18,7 @@ Last updated: 2026-09-05
 | `HAOFV_FLASH_TASK_PROGRESS.md` | Flash v2 阶段任务进度与验证记录。 | 记录 source/live/deployed 状态、提交、测试、HIL 缺口和下一 gate，不冻结新契约。 |
 | `HAOFV_MAINTENANCE_TODO.md` | HAOFV 架构符合性维护待办，记录 owner、AO/FB/Vector、反射内存和硬实时边界偏差。 | 架构偏差和未建功能域的独立追踪入口；不记录普通开发流水账。 |
 | `ARCH_T2_RESERVATION_ARCHITECTURE.md` | T2 预约与分布式时钟分发跨域主线。 | 定义训练、VDC 映射、预约分发、READY/fence、本地执行和硬件 T2 completion；细项下沉到各主域。 |
+| `ARCH_ACTIVATION_LOAD_ARCHITECTURE.md` | Activation/Load 跨域主线：staging→校验→gate→激活→回滚一致性装配。 | 主线定位、owner 边界、三类加载术语、标准流程、代码对账快照与升格条件；非新 owner。 |
 | `../tdma/TDMA_DOMAIN_ARCHITECTURE.md` | TDMA Foundation 内部基础主域架构。 | TDMA 主域 canonical 入口；定义上/下行 runtime、payload registry、adapter、ring completion evidence 和 HAOFV system node 边界。 |
 | `../vdc/VDC_DOMAIN_ARCHITECTURE.md` | VDC 内部主域架构。 | VDC 主域 canonical 入口；定义共同时间事实、SYNC DPLL、HOLDOVER、timestamp、质量门禁和 RefMem 映射边界。 |
 | `HAOFV_VDC_DPLL_ARCHITECTURE.md` | HAOFV 下 VDC/DPLL 既有融合架构输入。 | 后续逐步迁入 VDC canonical；`sync/` 中的 DPLL 文档作为落地方案和历史设计输入。 |
