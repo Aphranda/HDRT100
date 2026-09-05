@@ -4,7 +4,7 @@ Status: Active
 Domain: RTOS
 Canonical: `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`, `docs/interface/SCPI_COMMAND_PLAN.md`
-Last updated: 2026-08-13
+Last updated: 2026-09-05
 
 本文档是 Distributed Hard Real-Time Trigger System 在 HAOFV 下的 RTOS + 双核 AMP 架构入口。
 RTOS 只提供调度器、任务、队列、超时和同步原语，不替代 HAOFV 中的
@@ -204,12 +204,12 @@ RuntimeProtectionTable / `SYSTem:PROTection:STATus?` 至少需要覆盖：
 
 初始栈采用“先大后小”，后续通过 `SYSTem:RTOS:STATus?` 水位收缩。
 
-| 执行体 | 核 | 优先级 | 初始栈 | 职责 |
+| 执行体 | 核 | 优先级 | 初始栈（代码符号） | 职责 |
 |---|---:|---:|---:|---|
 | `core1_realtime` | core1 | 裸实时循环 | 独立栈 | TriggerAO、`local_fire` 装载、capture/T2 采样、RJ45 帧首沿服务、late/CRC/fault 快判定 |
 | `task_system` | core0 | 4 | 2048 words | bring-up、SystemAO、系统模式、资源仲裁、故障锁存、board service |
 | `task_usb_device` | core0 | 4 | 1536 words | TinyUSB/CDC/USBTMC 轮询 |
-| `task_scpi` | core0 | 3 | 3072 words | SCPI 解析、权限门禁、accepted 响应、只投递事件或查询快照 |
+| `task_scpi` | core0 | 3 | `APP_SCPI_TASK_STACK_WORDS` | SCPI 解析、权限门禁、accepted 响应、只投递事件或查询快照 |
 | `task_gateway_a3` | core0 | 3 | 3072 words | A3 网关、配置包接收、START/STOP 转发、VNA 状态桥接 |
 | `task_loop_engine` | core0 | 3 | 3072 words | A0 扫描编排、角度/断点/序列展开、滚动生成 `FIRE_LOAD` |
 | `task_vdc_sync` | core0 | 4 | 2048 words | 当前任务壳承载 `VdcSyncAO / SyncDpllFB / VdcVector`；维护虚拟 DC offset/rate、LOCK/HOLDOVER/RELOCK、`e_vdc` |
@@ -217,9 +217,12 @@ RuntimeProtectionTable / `SYSTem:PROTection:STATus?` 至少需要覆盖：
 | `task_refmem_sync` | core0 | 4 | 2048 words | 当前任务壳承载 `DistributedRefMemAO / RefMemSyncFB`；维护 64 KB DistributedVectorTable、静态分布式模型、slot delta、节点心跳、stale 判定 |
 | `task_dpll` | core0 | 3 | 2048 words | 角度预测 DPLL、Compare Out、`T_fire_base`；不参与 VDC offset/rate |
 | `task_storage` | core0 | 2 | 3072 words | SD/FatFs、System Pack、trace、snapshot、T2、report job |
-| `task_ota` | core0 | 2 | 1536 words | OtaAO、metadata、flash job，受资源仲裁和 core1 park 约束 |
-| `task_ui` | core0 | 1-2 | 2048 words | LCD、按键、节点 ID、同步状态、计数和错误显示 |
+| `task_ota` | core0 | 2 | `APP_OTA_TASK_BASE_STACK_WORDS` + event increment | OtaAO、metadata、flash job，受资源仲裁和 core1 park 约束 |
+| `task_ui` | core0 | 1-2 | `APP_UI_TASK_STACK_WORDS` | LCD、按键、节点 ID、同步状态、计数和错误显示 |
 | `task_diag` | core0 | 1 | 1024-1536 words | 低频诊断、log flush、统计快照；P0 可并入 `task_system` |
+
+任务栈数值以 `application/src/app_tasks.c` 中的代码符号为唯一来源；OTA 栈还会按
+`OTA_EVENT_MAX_DATA_SIZE` 与 `OTA_EVENT_INLINE_DATA_SIZE` 的差额增加事件块增量。
 
 ## 角色启用矩阵
 

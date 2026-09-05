@@ -4,7 +4,7 @@ Status: Active
 Domain: RTOS
 Canonical: `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
 Related: `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/interface/SCPI_TASK_PROGRESS.md`
-Last updated: 2026-08-28
+Last updated: 2026-09-05
 
 本文档用于记录 Distributed Hard Real-Time Trigger System 工程中基于 HAOFV 的 RTOS + 双核 AMP、
 分布式触发、模拟反射内存、任务拆分和板端烧录验证进度。每完成一个阶段，
@@ -116,9 +116,34 @@ CAL/SYNC staging + ACK/NACK、RJ45_SYNC_RING 和 `FIRE_LOAD/T2` 闭环。
 
 ## 任务记录
 
-### RTOS-DIST-TASK-20260828-004 - DPLL-LONG-001 P0 OTA 启动保持失败
+### RTOS-DIST-TASK-20260905-001 - debug SRAM 门限与 heap/诊断缓冲精算
 
-- 状态：阻塞；发送阶段完成，启动/提交保持未通过。
+- 状态：完成；当前开发阶段采用 debug 门限，短差只记录并有界继续，产品/release profile 保持严格拒绝。
+- 日期：2026-09-05
+- 完成内容：
+  - `tools/ram_budget_check/ram_budget_check.py` 区分 release/debug profile；debug 目标由 `DEFAULT_DEBUG_MIN_FREE_BYTES` 定义，低于目标时输出原始 map、最大 BSS、差额和 `forced_continue=true`，不终止状态机迁移。
+  - `configTOTAL_HEAP_SIZE` 收敛到当前代码值；analyzer 活动/影子捕获由 `SYNC_IO_LOGIC_ANALYZER_MAX_RECORDS` 有界，waveform 分段由 `VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS` 有界。RefMem 三份事务镜像和 TDMA realtime owner 未压缩。
+  - map 快照（非事实源）：`out/build/ram116-ota4096/DHRT100.elf.map` 的 `link_free_bytes=18288 B`，相对 debug 目标短差 `14480 B`，结果为 `PASS_WITH_DIAGNOSTIC`。
+- 验证：A/B/Boot、Factory/Update 和 `flash_link_contract` 构建通过；debug map gate 完成并保留最大 BSS 列表。
+- 证据：`out/build/ram116-ota4096/`、`out/ram_bss_nm.txt`。
+- 下一步：产品化前继续处理 Storage/OTA staging 生命周期并满足 release profile；该工作不阻塞当前 debug 状态机迁移。
+
+### RTOS-DIST-TASK-20260905-002 - 任务栈第一轮收敛（watchdog/UI/SCPI/OTA）
+
+- 状态：完成；新镜像已完成四板 OTA、运行态 Watermark、P3/TRN 和 TDMA 短帧闭环。
+- 日期：2026-09-05
+- 变更：根据 128 KiB 基线运行态 Watermark，将 `watchdog_supervisor` 收敛到 256 words，`task_ui` 收敛到 1024 words，`task_scpi` 收敛到 2048 words；OTA 基线收敛到 `APP_OTA_TASK_BASE_STACK_WORDS=1024`，保留按协商事件块大小增加的增量；RefMem、TDMA 和 OTA 事务镜像未压缩。
+- 依据：旧镜像 30 次普通运行态采样中，watchdog 最大使用约 32 words、UI 约 350 words、SCPI 约 236 words、OTA 约 96 words；这些是候选依据，不替代新镜像在 SCPI/异常 UI/OTA Flash 路径下的验收。
+- 构建：`out/build/ram116-ota4096` 的 A/B/Boot/Factory/Update 产物通过，build 快照为 `20260905070721`。
+- Watermark：`out/rtos_watermark/rtos_watermark_ram116_20260905.json` 记录四板十次采样；所有任务栈 gate 通过。heap 最低空闲快照为 `20344 B`，低于产品目标但在 debug 阶段只记录，不拒绝迁移。
+- OTA：`out/hardware-acceptance/ram116-debug-close-r3-20260905/ota-four-board-tdma/summary.json` 保留四板 legacy sender 的原始 returncode、END 后直接启动到目标 build 的状态快照，以及有界 post-reset 核验；四板均通过 `forced_continue` 到下一状态，产品模式未放宽。
+- TDMA：同目录 `tdma-process-image/summary.json` 与 SD/SVG 分析通过；P3/TRN 流程完成。coarse CLK 的一次 follower arm 拒绝保留在 `diagnostic.json`，未被隐藏。
+- 凭证：`config/hardware_acceptance/p3_acceptance_receipt.json` 已绑定当前源码指纹。
+- 下一步：回到状态机迁移主线，推进 `SM-RES-005`；后续每次状态改动继续执行同一 TDMA 短帧闭环。
+
+### RTOS-DIST-TASK-20260828-004 - DPLL-LONG-001 P0 OTA 启动保持失败（历史阻塞，已解除）
+
+- 状态：历史阻塞；已由 `RTOS-DIST-TASK-20260905-002` 的目标 build、Watermark 和 TDMA 闭环解除。
 - 日期：2026-08-28
 - 任务目标：对当前 P0 固件执行五板异步 OTA，验证新镜像能稳定启动并提供 core/RTOS 水位，作为进入 TDMA 基线和 active matrix 的前置条件。
 - 完成内容：

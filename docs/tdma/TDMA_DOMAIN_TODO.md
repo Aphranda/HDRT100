@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_TODO.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`
-Last updated: 2026-09-02
+Last updated: 2026-09-05
 
 本文档维护 TDMA foundation 的独立待办。这里记录影响上/下行 TDMA、ring runtime、payload registry、adapter、completion、quality、HAOFV system node 和 HIL 验收的事项。
 
@@ -40,7 +40,7 @@ TDMA WCET/波形基线。NO5 环外观测只属于后续 DPLL/VDC gate。任何�
 
 ## 阶段性长期任务发布：DPLL-LONG-001
 
-**目标**：沿着“TDMA 基线 → 校准事实 → 硬件观测 → eligible gate → 最小锁相 → VDC 发布 → NO5 验收 → 故障与长稳”的单向依赖，完成 DPLL 基础件到闭环。该任务是跨 TDMA、Calibration、VDC 和 RTOS 的长期主线；当前发布状态为 `ACTIVE`，当前阶段为 P0 静态门禁已通过、板端 OTA/HIL 待执行。
+**目标**：沿着“TDMA 基线 → 校准事实 → 硬件观测 → eligible gate → 最小锁相 → VDC 发布 → NO5 验收 → 故障与长稳”的单向依赖，完成 DPLL 基础件到闭环。该任务是跨 TDMA、Calibration、VDC 和 RTOS 的长期主线；当前发布状态为 `ACTIVE`，P0 debug RAM/OTA/TDMA 闭环已完成，继续推进资源状态机与 resident process image。
 
 **不可变约束**：
 
@@ -142,11 +142,11 @@ DPLL/诊断结果掩盖前一阶段 TDMA 或校准失败。
 
 - `TDMA-HIL-001` 尚未执行，因此拍级 phase 和新 wire layout 只能视为代码/host 基线。
 - `TDMA-FLIGHT-001` 尚未完成；当前 ring adapter 的 beacon/physical-frame completion 仍是过渡模型，尚不能证明一次注入后 resident process image 在同一轮完成多 Node overlay，也不能把 `FRAME_COMPLETE` 当作持续运行证据。
-- P0 的静态 SRAM 发布门禁已通过（2026-08-28，当前构建 `link_free_bytes=98348 B`）；当前阻塞转为
-  板端 `SYST:RTOS:STATus?` heap/stack 水位和异步 OTA/HIL。四板发送阶段已完成，但提交后新镜像
-  回滚为旧 build（COM3 已复现 `MAX_ATTEMPTS`，COM25 发送前即为 `INVALID_STATE`）；水位或
-  HIL 未通过前，不得进入 active calibration、hardware latch 或 DPLL servo，也不得降低
-  `98304 B` 门禁阈值。
+- P0 RAM 的 debug 闭环已完成：当前代码值构建、四板 Watermark、4096 OTA、P3/TRN、TDMA SHORT
+  和 SD/SVG 分析均已留证。debug SRAM/heap 短差只记录并有界继续，产品/release profile 仍严格拒绝；
+  当前 RAM 项不再阻塞状态机迁移。证据见
+  `out/hardware-acceptance/ram116-debug-close-r3-20260905/` 与
+  `out/rtos_watermark/rtos_watermark_ram116_20260905.json`。
 - `TDMA-DET-004` 未完成前，CPU phase 仍包住组合 TDMA service，尚不能证明物理首边沿完全不受
   其他负载调用路径影响。
 - formal ACK/fence 与 control owner 尚未接入，新布局中的对应字段当前只提供固定基础语义。

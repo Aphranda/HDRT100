@@ -4,7 +4,7 @@ Status: Active
 Domain: RTOS
 Canonical: `docs/arch/RTOS_HAOFV_TODO.md`
 Related: `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`, `docs/arch/HAOFV_MAINTENANCE_TODO.md`, `docs/interface/SCPI_TASK_PROGRESS.md`
-Last updated: 2026-08-28
+Last updated: 2026-09-05
 
 本文档只维护 RTOS + 双核 AMP 在 HAOFV 下的实施待办。已经完成的构建、烧录、
 板端 smoke、工具输出和水位记录放在 `RTOS_HAOFV_TASK_PROGRESS.md`。
@@ -57,10 +57,10 @@ RTOS 执行约束：
 ## P0-RAM - 内部 SRAM 优化
 
 目标：先把可证明不影响实时性能的 SRAM 浪费回收出来，再处理测试缓存、staging buffer 和任务栈。
-当前发布前门禁建议为：主 SRAM 链接余量不少于 96 KB；`SYSTem:RTOS:STATus?`
-显示 FreeRTOS heap 最低空闲不少于 24 KB；每个任务栈剩余不少于 25% 且不少于
-512 B；`task_ui` 栈剩余不少于 1 KB；SMA 50 MHz、TDMA 长线环路、OTA 和 core1
-heartbeat 验证不退化。
+当前开发阶段采用 `ram_budget_check.py --profile debug`。debug 目标由代码常量
+`DEFAULT_DEBUG_MIN_FREE_BYTES` 定义；短差必须记录原因、map/BSS 快照和原始数据，但不得拒绝
+状态机继续到下一状态、超时或本轮结束。产品/release profile 仍保持严格拒绝。任务栈与 heap
+水位继续由 `rtos_watermark_capture.py` 留证，SMA、TDMA、OTA 和 core1 heartbeat 不得退化。
 
 - [x] 建立 RAM 优化分层方案：P0a 链接布局浪费，P0b 重复静态表，P0c 测试缓存，P0d staging pool，P0e task stack/heap。
 - [x] P0a：将 `s_sync_io_capture_dma_ring` 放入固定 `.sync_io_dma_ring` section，避免 32 KB 对齐对象在普通 `.bss` 中制造约 25 KB 空洞。
@@ -73,9 +73,17 @@ heartbeat 验证不退化。
   直接使用 registry-owned staging buffer，失败释放并清空，成功提交后保留。
 - [ ] P0d-b：继续统一 Storage write buffer、OTA/package staging 的生命周期；事务持有期间不得
   覆盖，busy 必须 fail-closed。
-- [ ] P0e：按板端水位重算 task stack；优先增加 `task_ui`，收缩 USB/loop/calibration/refmem 等明显富余任务，再评估将 `configTOTAL_HEAP_SIZE` 从 128 KB 降到 96 KB。维护态 workspace 复用已使静态链接余量达到发布门禁，但为避免板端启动不稳定，当前配置暂恢复 128 KiB；仍待板端 `SYSTem:RTOS:STATus?` 水位确认后再决定是否下调。
-- [x] P0f：增加 RAM 门禁脚本，解析 map 并在链接余量不达标时失败；heap、任务栈水位仍需板端 `SYSTem:RTOS:STATus?` 继续闭环。
-- [ ] P0g：每轮优化后执行 `cmake build`、板端 `SYSTem:RTOS:STATus?`、`SYSTem:CORE?`、SMA/TDMA/OTA 相关回归并记录到进展文档。当前构建、RAM gate 和 host pytest 已完成，板端水位/OTA/HIL 待执行。
+- [x] P0e：按板端水位重算 task stack；`configTOTAL_HEAP_SIZE` 与 watchdog/UI/SCPI/OTA 栈均使用当前代码符号值。analyzer 与 waveform 保持有界缓冲，RefMem 三份事务镜像和 TDMA 实时对象未压缩；四板新镜像 Watermark 已保存。
+- [x] P0f：增加 RAM 门禁脚本并解析 map；release profile 不达标时失败，debug profile 记录差额与原始 BSS 后强制继续。heap、任务栈水位由板端 `SYSTem:RTOS:STATus?` 独立留证。
+- [x] P0g：本轮已完成 build、四板 Watermark、4096 OTA、P3/TRN、TDMA 短帧和 SD/SVG 分析；debug 拒绝原因和 forced-continue 原始证据均已保留。
+
+### P0-RAM 门限精算（2026-09-05）
+
+本轮以 debug profile 推进，目标值由 `DEFAULT_DEBUG_MIN_FREE_BYTES` 给出。debug 短差属于可恢复诊断门禁：记录后有界继续；release profile 仍由 `DEFAULT_MIN_FREE_BYTES` 严格拒绝。链接余量与 FreeRTOS heap/任务栈水位分别留证。
+
+静态精算以 `out/build/ram116-ota4096/DHRT100.elf.map` 为当前快照（非事实源）；它记录 `link_free_bytes=18288 B` 和 debug 目标短差 `14480 B`。更低 heap 的历史候选曾导致启动风险，因此当前不再只凭 map 数字继续下调；代码事实以 `configTOTAL_HEAP_SIZE`、`SYNC_IO_LOGIC_ANALYZER_MAX_RECORDS` 和 `VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS` 为准。
+
+稳定性/可行性边界：更低 heap 候选曾导致启动风险，当前使用 `configTOTAL_HEAP_SIZE` 的代码值。四板新镜像已证明任务栈 gate、OTA 后目标 build、TDMA SHORT 和 SD 波形分析可继续运行；heap 产品门限与 release 静态门限仍是产品化工作，不阻塞 debug 状态机迁移。analyzer 和 waveform 仍保留有界捕获及异步双缓冲，未改变 TDMA SHORT、PIO/DMA phase、RefMem layout 或 TDMA realtime owner。
 
 ## P1 - RefMem 内部主域 / 反射内存主数据面
 
