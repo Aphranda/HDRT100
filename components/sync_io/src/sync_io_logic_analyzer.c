@@ -97,6 +97,7 @@ typedef struct {
     bool dma_claimed;
     bool program_loaded;
     bool running;
+    uint64_t started_at_ns;
 } sync_io_logic_analyzer_hw_t;
 
 static sync_io_logic_analyzer_hw_t s_hw;
@@ -137,7 +138,8 @@ bool sync_io_logic_analyzer_hw_arm(
 {
     if (capture == NULL || records == NULL || config == NULL ||
         (config->mode != SYNC_IO_LOGIC_ANALYZER_MODE_RAW_SAMPLE &&
-         config->mode != SYNC_IO_LOGIC_ANALYZER_MODE_EDGE_TIMESTAMP) ||
+         config->mode != SYNC_IO_LOGIC_ANALYZER_MODE_EDGE_TIMESTAMP &&
+         config->mode != SYNC_IO_LOGIC_ANALYZER_MODE_TRIGGERED_CAPTURE) ||
         !sync_io_logic_analyzer_config_valid(config) ||
         !sync_io_core_initialized() || sync_io_core_capture_is_running() ||
         sync_io_core_wave_output_persona_active() || s_hw.running) {
@@ -161,6 +163,7 @@ bool sync_io_logic_analyzer_hw_arm(
     s_hw.sequence = 0u;
     s_hw.previous_level = 0u;
     s_hw.previous_level_valid = false;
+    s_hw.started_at_ns = 0u;
 
     PIO pio = BOARD_SYNC_PIO_FAST;
     const uint sm = BOARD_SYNC_PIO0_LOGIC_ANALYZER_SM;
@@ -214,6 +217,7 @@ bool sync_io_logic_analyzer_hw_start(void)
     s_hw.produced_raw = 0u;
     s_hw.consumed_raw = 0u;
     s_hw.running = true;
+    (void)sync_io_capture_time_now_ns(&s_hw.started_at_ns);
     dma_start_channel_mask(1u << SYNC_IO_CAPTURE_DMA_CH);
     pio_sm_set_enabled(BOARD_SYNC_PIO_FAST,
                        BOARD_SYNC_PIO0_LOGIC_ANALYZER_SM, true);
@@ -248,6 +252,17 @@ size_t sync_io_logic_analyzer_hw_service(uint32_t max_records)
         return 0u;
     }
     const uint32_t produced = sync_io_logic_analyzer_hw_raw_produced();
+    uint64_t now_ns = 0u;
+    (void)sync_io_capture_time_now_ns(&now_ns);
+    if (s_hw.capture->config.timeout_us != 0u &&
+        s_hw.started_at_ns != 0u &&
+        now_ns - s_hw.started_at_ns >=
+            (uint64_t)s_hw.capture->config.timeout_us * 1000u) {
+        sync_io_logic_analyzer_raw_capture_finish(
+            s_hw.capture, SYNC_IO_LOGIC_ANALYZER_END_TIMEOUT);
+        sync_io_logic_analyzer_hw_stop();
+        return 0u;
+    }
     uint32_t available = produced - s_hw.consumed_raw;
     if (available > SYNC_IO_SHARED_WORKSPACE_WORDS) {
         const uint32_t dropped =
@@ -268,6 +283,19 @@ size_t sync_io_logic_analyzer_hw_service(uint32_t max_records)
         const uint32_t level = raw & s_hw.capture->config.source_mask;
         const bool edge_mode = s_hw.capture->config.mode ==
             SYNC_IO_LOGIC_ANALYZER_MODE_EDGE_TIMESTAMP;
+        const bool triggered_mode = s_hw.capture->config.mode ==
+            SYNC_IO_LOGIC_ANALYZER_MODE_TRIGGERED_CAPTURE;
+        if (triggered_mode) {
+            uint64_t tick = 0u;
+            (void)sync_io_capture_time_now_ns(&tick);
+            if (sync_io_logic_analyzer_raw_capture_push_sample(
+                    s_hw.capture, tick, raw)) {
+                ++pushed;
+            }
+            ++s_hw.consumed_raw;
+            ++inspected;
+            continue;
+        }
         if (edge_mode) {
             if (!s_hw.previous_level_valid) {
                 s_hw.previous_level = level;
@@ -630,6 +658,11 @@ void sync_io_logic_analyzer_service_core1(uint32_t max_records)
     if (s_active_persona != NULL && s_active_persona->initialized &&
         s_active_persona->active) {
         (void)sync_io_logic_analyzer_hw_service(max_records);
+        if (!sync_io_logic_analyzer_hw_active() &&
+            s_control.capture.complete) {
+            sync_io_logic_analyzer_persona_end(&s_control.persona);
+            sync_io_logic_analyzer_publish_shadow();
+        }
     }
 }
 
@@ -825,8 +858,8 @@ bool sync_io_logic_analyzer_config_valid(
 
     if (config->trigger.type <= SYNC_IO_LOGIC_ANALYZER_TRIGGER_NONE ||
         config->trigger.type >= SYNC_IO_LOGIC_ANALYZER_TRIGGER_COUNT ||
-        config->pre_trigger_records > config->max_records ||
-        config->post_trigger_records >
+        config->pre_trigger_records >= config->max_records ||
+        config->post_trigger_records >=
             config->max_records - config->pre_trigger_records ||
         config->trigger.source_mask == 0u ||
         !sync_io_logic_analyzer_mask_valid(config->trigger.source_mask,
@@ -936,6 +969,99 @@ bool sync_io_logic_analyzer_raw_capture_push(
     capture->records[capture->write_index] = next;
     capture->write_index = (capture->write_index + 1u) % capture->capacity;
     capture->produced_records++;
+    return true;
+}
+
+static bool sync_io_logic_analyzer_trigger_match(
+    const sync_io_logic_analyzer_config_t *config,
+    uint32_t level,
+    uint32_t edge)
+{
+    const sync_io_logic_analyzer_trigger_t *trigger = &config->trigger;
+    switch (trigger->type) {
+    case SYNC_IO_LOGIC_ANALYZER_TRIGGER_LEVEL:
+        return (level & trigger->level_mask) == trigger->level_mask;
+    case SYNC_IO_LOGIC_ANALYZER_TRIGGER_EDGE:
+        return (edge & trigger->edge_mask) != 0u;
+    case SYNC_IO_LOGIC_ANALYZER_TRIGGER_PATTERN:
+        return (level & trigger->pattern_mask) == trigger->pattern_value;
+    default:
+        return false;
+    }
+}
+
+static void sync_io_logic_analyzer_trim_to_window(
+    sync_io_logic_analyzer_raw_capture_t *capture,
+    uint32_t keep)
+{
+    uint32_t retained = capture->produced_records -
+                        capture->consumed_records;
+    while (retained > keep) {
+        capture->read_index = (capture->read_index + 1u) % capture->capacity;
+        capture->consumed_records++;
+        retained--;
+    }
+}
+
+bool sync_io_logic_analyzer_raw_capture_push_sample(
+    sync_io_logic_analyzer_raw_capture_t *capture,
+    uint64_t hardware_tick,
+    uint32_t raw_value)
+{
+    if (capture == NULL || !capture->initialized || capture->complete) {
+        return false;
+    }
+    const uint32_t level = raw_value & capture->config.source_mask;
+    const uint32_t edge = capture->previous_level_valid
+        ? capture->previous_level ^ level : 0u;
+    capture->previous_level = level;
+    capture->previous_level_valid = true;
+
+    const bool triggered_mode = capture->config.mode ==
+        SYNC_IO_LOGIC_ANALYZER_MODE_TRIGGERED_CAPTURE;
+    const bool matched = triggered_mode && !capture->trigger_seen &&
+        sync_io_logic_analyzer_trigger_match(&capture->config, level, edge);
+    sync_io_logic_analyzer_record_t record = {
+        .hardware_tick = hardware_tick,
+        .capture_sequence = capture->capture_sequence,
+        .record_sequence = capture->next_record_sequence++,
+        .level_mask = level,
+        .edge_mask = edge,
+        .flags = matched ? SYNC_IO_LOGIC_ANALYZER_RECORD_FLAG_TRIGGER :
+                          SYNC_IO_LOGIC_ANALYZER_RECORD_FLAG_NONE,
+        .reserved = raw_value,
+    };
+    if (!sync_io_logic_analyzer_raw_capture_push(capture, &record)) {
+        return false;
+    }
+
+    if (!triggered_mode) {
+        return true;
+    }
+    if (!capture->trigger_seen) {
+        if (matched) {
+            capture->trigger_seen = true;
+            capture->state = SYNC_IO_LOGIC_ANALYZER_STATE_RUNNING;
+            sync_io_logic_analyzer_trim_to_window(
+                capture, capture->config.pre_trigger_records + 1u);
+            if (capture->config.post_trigger_records == 0u) {
+                sync_io_logic_analyzer_raw_capture_finish(
+                    capture, SYNC_IO_LOGIC_ANALYZER_END_COMPLETE);
+            }
+        } else {
+            capture->state = SYNC_IO_LOGIC_ANALYZER_STATE_ARMED;
+            sync_io_logic_analyzer_trim_to_window(
+                capture, capture->config.pre_trigger_records);
+        }
+        return true;
+    }
+
+    capture->post_trigger_count++;
+    if (capture->post_trigger_count >=
+        capture->config.post_trigger_records) {
+        sync_io_logic_analyzer_raw_capture_finish(
+            capture, SYNC_IO_LOGIC_ANALYZER_END_COMPLETE);
+    }
     return true;
 }
 

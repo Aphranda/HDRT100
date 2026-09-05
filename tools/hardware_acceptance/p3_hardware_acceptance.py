@@ -133,6 +133,8 @@ def selected_node_offsets(summary: dict[str, Any], field: str,
                       len(fallback) == node_count and
                       all(not isinstance(value, bool) and isinstance(value, int)
                           for value in fallback))
+    if fallback_valid and summary.get("debug_forced_continue") is True:
+        return [int(value) for value in fallback]
     rows = summary.get("row_results")
     matching_rows = [
         candidate for candidate in rows or []
@@ -1345,7 +1347,30 @@ def run_acceptance(args: argparse.Namespace) -> None:
         returncode = _run_step(
             command, root, log_path, allow_failure=diagnostic_continue)
         if not summary_path.is_file():
-            raise AcceptanceError(f"{phase} did not write summary.json")
+            if not diagnostic_continue:
+                raise AcceptanceError(f"{phase} did not write summary.json")
+            summary = {
+                "schema": "HAOFV_DIAGNOSTIC_FORCED_CONTINUE_V1",
+                "phase": phase,
+                "passed": False,
+                "debug_forced_continue": True,
+                "error": f"{phase} did not write summary.json",
+                "returncode": returncode if returncode != 0 else 1,
+                "raw_log": log_path.resolve().relative_to(root).as_posix(),
+            }
+            summary_path.parent.mkdir(parents=True, exist_ok=True)
+            summary_path.write_text(
+                json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8")
+            diagnostic_failures.append({
+                "phase": phase,
+                "returncode": summary["returncode"],
+                "error": summary["error"],
+                "summary": summary_path.resolve().relative_to(root).as_posix(),
+                "raw_log": summary["raw_log"],
+                "action": "DEBUG_BOUNDED_FORCE_CONTINUE",
+            })
+            return summary
         summary = json.loads(summary_path.read_text(encoding="utf-8"))
         if returncode != 0 or summary.get("passed") is not True:
             if not diagnostic_continue:
@@ -1598,14 +1623,17 @@ def run_acceptance(args: argparse.Namespace) -> None:
             phase: str, summary_path: Path, summary: dict[str, Any], *,
             loaded_from: str, selected: dict[str, Any] | None = None
             ) -> dict[str, Any]:
-        parameters = stage_training_parameters(
-            summary, phase, len(board_ids))
         expected = {
             "link_delay_ns_by_link": list(link_delays),
             "link_base_delay_ns_by_link": list(link_base_delays),
             "path_delay_baseline_divisor": baseline_divisor,
             "sample_period_ns": 4,
         }
+        if summary.get("debug_forced_continue") is True:
+            parameters = expected
+        else:
+            parameters = stage_training_parameters(
+                summary, phase, len(board_ids))
         if parameters != expected:
             raise AcceptanceError(
                 f"{phase} did not load the current P3 baseline from "
@@ -1619,6 +1647,8 @@ def run_acceptance(args: argparse.Namespace) -> None:
             },
             "loaded_parameters": parameters,
             **({"selected_parameters": selected} if selected is not None else {}),
+            **({"debug_forced_continue": True}
+               if summary.get("debug_forced_continue") is True else {}),
         })
         return parameters
 

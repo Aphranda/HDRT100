@@ -140,10 +140,12 @@ def test_analyzer_control_is_core1_mailbox_and_scpi_intent_only() -> None:
         assert token in header or token in source
     assert "REALtime:IO:ANALyzer:ARM" in scpi_header
     assert "REALtime:IO:ANALyzer:EDGE:ARM" in scpi_header
+    assert "REALtime:IO:ANALyzer:TRIGger:ARM" in scpi_header
     assert "REALtime:IO:ANALyzer:STOP" in scpi_header
     assert "sync_io_logic_analyzer_request_arm" in scpi_source
     assert "sync_io_logic_analyzer_request_stop" in scpi_source
     assert "SYNC_IO_LOGIC_ANALYZER_MODE_EDGE_TIMESTAMP" in scpi_source
+    assert "SYNC_IO_LOGIC_ANALYZER_MODE_TRIGGERED_CAPTURE" in scpi_source
     assert "sync_io_logic_analyzer_service_core1(8u)" in app_source
     tdma_phase = app_source.split(
         "static void app_realtime_tdma_phase", 1
@@ -185,6 +187,27 @@ def test_edge_timestamp_backend_emits_only_level_changes() -> None:
     assert "edge_mask = edge" in source
 
 
+def test_triggered_capture_has_bounded_pre_post_and_auto_release() -> None:
+    source = Path("components/sync_io/src/sync_io_logic_analyzer.c").read_text(
+        encoding="utf-8")
+    header = Path("components/sync_io/inc/sync_io_logic_analyzer.h").read_text(
+        encoding="utf-8")
+    for token in (
+        "sync_io_logic_analyzer_raw_capture_push_sample",
+        "SYNC_IO_LOGIC_ANALYZER_TRIGGER_LEVEL",
+        "SYNC_IO_LOGIC_ANALYZER_TRIGGER_EDGE",
+        "SYNC_IO_LOGIC_ANALYZER_TRIGGER_PATTERN",
+        "pre_trigger_records",
+        "post_trigger_count",
+        "SYNC_IO_LOGIC_ANALYZER_RECORD_FLAG_TRIGGER",
+        "SYNC_IO_LOGIC_ANALYZER_END_TIMEOUT",
+    ):
+        assert token in source or token in header
+    assert "sync_io_logic_analyzer_trim_to_window" in source
+    assert "sync_io_logic_analyzer_persona_end(&s_control.persona)" in source
+    assert "sync_io_logic_analyzer_publish_shadow()" in source
+
+
 def test_capture_sequence_is_shared_by_records_and_snapshot() -> None:
     source = Path("components/sync_io/src/sync_io_logic_analyzer.c").read_text(
         encoding="utf-8")
@@ -197,5 +220,6 @@ def test_edge_hil_arms_explicit_edge_command_and_checks_mode() -> None:
     source = Path("tools/analyzer_tdma_hil/analyzer_tdma_hil.py").read_text(
         encoding="utf-8")
     assert "REALtime:IO:ANALyzer:EDGE:ARM" in source
-    assert '"edge_mode_active"' in source
+    assert "REALtime:IO:ANALyzer:TRIGger:ARM" in source
+    assert '"requested_mode_observed"' in source
     assert '"capture_sequence_advances"' in source

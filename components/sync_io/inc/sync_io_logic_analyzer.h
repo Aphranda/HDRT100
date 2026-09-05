@@ -173,6 +173,11 @@ typedef struct {
     uint32_t consumed_records;
     uint32_t dropped_records;
     uint32_t overrun_count;
+    uint32_t next_record_sequence;
+    uint32_t post_trigger_count;
+    uint32_t previous_level;
+    bool previous_level_valid;
+    bool trigger_seen;
     sync_io_logic_analyzer_end_reason_t end_reason;
     sync_io_logic_analyzer_state_t state;
     bool initialized;
@@ -195,6 +200,13 @@ bool sync_io_logic_analyzer_raw_capture_init(
 bool sync_io_logic_analyzer_raw_capture_push(
     sync_io_logic_analyzer_raw_capture_t *capture,
     const sync_io_logic_analyzer_record_t *record);
+/* Push one pad sample through the bounded capture state machine.  In
+ * TRIGGERED_CAPTURE this retains only the configured pre-trigger window until
+ * a level/edge/pattern match, then completes after post_trigger_records. */
+bool sync_io_logic_analyzer_raw_capture_push_sample(
+    sync_io_logic_analyzer_raw_capture_t *capture,
+    uint64_t hardware_tick,
+    uint32_t raw_value);
 bool sync_io_logic_analyzer_raw_capture_pop(
     sync_io_logic_analyzer_raw_capture_t *capture,
     sync_io_logic_analyzer_record_t *record);

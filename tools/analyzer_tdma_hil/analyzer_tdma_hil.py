@@ -97,19 +97,32 @@ def compare(before: dict[str, Any], after: dict[str, Any], arm: str, stop: str,
     }
 
 
-def run(port: str, timeout_s: float, dwell_s: float, baseline_s: float) -> dict[str, Any]:
+def run(port: str, timeout_s: float, dwell_s: float, baseline_s: float,
+        mode: str = "edge") -> dict[str, Any]:
+    if mode == "triggered":
+        # GPIO25 is the product TDMA TX clock pad.  The analyzer remains a
+        # read-only observer; the running ring supplies the physical edge.
+        trigger_mask = 1 << 25
+        arm_command = (
+            "REALtime:IO:ANALyzer:TRIGger:ARM "
+            f"0,1000,64,5000000,1,8,8,2,{trigger_mask},{trigger_mask},0"
+        )
+        expected_mode = 3
+    else:
+        arm_command = "REALtime:IO:ANALyzer:EDGE:ARM 0,64,5000000,1"
+        expected_mode = 2
     with open_serial_port(port, 115200, timeout_s, 1.0, read_timeout_s=0.2) as ser:
         baseline_before = sample_tdma(ser, timeout_s)
         time.sleep(baseline_s)
         baseline_after = sample_tdma(ser, timeout_s)
         before = sample_tdma(ser, timeout_s)
         start = time.monotonic()
-        arm = query(ser, "REALtime:IO:ANALyzer:EDGE:ARM 0,64,5000000,1", timeout_s)
+        arm = query(ser, arm_command, timeout_s)
         analyzer_after_arm = sample_analyzer(ser, timeout_s)
         time.sleep(dwell_s)
         stop = query(ser, "REALtime:IO:ANALyzer:STOP", timeout_s)
         analyzer_after_stop = sample_analyzer(ser, timeout_s)
-        arm2 = query(ser, "REALtime:IO:ANALyzer:EDGE:ARM 0,64,5000000,1", timeout_s)
+        arm2 = query(ser, arm_command, timeout_s)
         analyzer_second_arm = sample_analyzer(ser, timeout_s)
         stop2 = query(ser, "REALtime:IO:ANALyzer:STOP", timeout_s)
         analyzer_second_stop = sample_analyzer(ser, timeout_s)
@@ -123,13 +136,17 @@ def run(port: str, timeout_s: float, dwell_s: float, baseline_s: float) -> dict[
     result["analyzer_second_stop"] = analyzer_second_stop
     result["analyzer_second_arm_response"] = arm2
     result["analyzer_second_stop_response"] = stop2
-    result["checks"]["edge_mode_active"] = (
-        analyzer_after_arm["mode"] == 2 and analyzer_after_arm["active"] == 1)
+    result["checks"]["requested_mode_observed"] = (
+        analyzer_after_arm["mode"] == expected_mode and
+        (analyzer_after_arm["active"] == 1 or
+         analyzer_after_arm["state"] == 3))
     result["checks"]["capture_sequence_advances"] = (
         analyzer_after_arm["capture_sequence"] !=
         analyzer_second_arm["capture_sequence"] and
         analyzer_second_arm["capture_sequence"] != 0)
     result["passed"] = all(result["checks"].values())
+    result["mode"] = mode
+    result["arm_command"] = arm_command
     return result
 
 
@@ -139,9 +156,11 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=3.0)
     parser.add_argument("--dwell-s", type=float, default=2.0)
     parser.add_argument("--baseline-s", type=float, default=2.0)
+    parser.add_argument("--mode", choices=("edge", "triggered"), default="edge")
     parser.add_argument("--out", type=Path)
     args = parser.parse_args()
-    result = run(args.port, args.timeout, args.dwell_s, args.baseline_s)
+    result = run(args.port, args.timeout, args.dwell_s, args.baseline_s,
+                 args.mode)
     text = json.dumps(result, indent=2, ensure_ascii=False) + "\n"
     if args.out is None:
         sys.stdout.write(text)

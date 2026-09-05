@@ -563,6 +563,72 @@ scpi_result_t scpi_cmd_analyzer_edge_arm(scpi_t *context)
         context, SYNC_IO_LOGIC_ANALYZER_MODE_EDGE_TIMESTAMP);
 }
 
+scpi_result_t scpi_cmd_analyzer_trigger_arm(scpi_t *context)
+{
+    if (scpi_port_reject_if_run_forbidden(
+            context, DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t source_mask;
+    uint32_t sample_period_ns;
+    uint32_t max_records;
+    uint32_t timeout_us;
+    uint32_t overwrite_oldest;
+    uint32_t pre_trigger_records;
+    uint32_t post_trigger_records;
+    uint32_t trigger_type;
+    uint32_t trigger_source_mask;
+    uint32_t match_mask;
+    uint32_t pattern_value;
+    if (!scpi_port_read_u32(context, &source_mask) ||
+        !scpi_port_read_u32(context, &sample_period_ns) ||
+        !scpi_port_read_u32(context, &max_records) ||
+        !scpi_port_read_u32(context, &timeout_us) ||
+        !scpi_port_read_u32(context, &overwrite_oldest) ||
+        !scpi_port_read_u32(context, &pre_trigger_records) ||
+        !scpi_port_read_u32(context, &post_trigger_records) ||
+        !scpi_port_read_u32(context, &trigger_type) ||
+        !scpi_port_read_u32(context, &trigger_source_mask) ||
+        !scpi_port_read_u32(context, &match_mask) ||
+        !scpi_port_read_u32(context, &pattern_value)) {
+        return SCPI_RES_ERR;
+    }
+    if (source_mask == 0u) {
+        source_mask = sync_io_logic_analyzer_default_source_mask();
+    }
+    sync_io_logic_analyzer_trigger_t trigger = {
+        .type = (sync_io_logic_analyzer_trigger_type_t)trigger_type,
+        .source_mask = trigger_source_mask,
+    };
+    if (trigger.type == SYNC_IO_LOGIC_ANALYZER_TRIGGER_LEVEL) {
+        trigger.level_mask = match_mask;
+    } else if (trigger.type == SYNC_IO_LOGIC_ANALYZER_TRIGGER_EDGE) {
+        trigger.edge_mask = match_mask;
+    } else if (trigger.type == SYNC_IO_LOGIC_ANALYZER_TRIGGER_PATTERN) {
+        trigger.pattern_mask = match_mask;
+        trigger.pattern_value = pattern_value;
+    }
+    const sync_io_logic_analyzer_config_t config = {
+        .contract_version = SYNC_IO_LOGIC_ANALYZER_CONTRACT_VERSION,
+        .mode = SYNC_IO_LOGIC_ANALYZER_MODE_TRIGGERED_CAPTURE,
+        .source_mask = source_mask,
+        .sample_period_ns = sample_period_ns,
+        .max_records = max_records,
+        .pre_trigger_records = pre_trigger_records,
+        .post_trigger_records = post_trigger_records,
+        .timeout_us = timeout_us,
+        .overwrite_oldest = overwrite_oldest,
+        .expected_profile_generation = 1u,
+        .expected_persona_generation = 1u,
+        .debug_continue_budget = SYNC_IO_LOGIC_ANALYZER_DEBUG_CONTINUE_LIMIT,
+        .trigger = trigger,
+    };
+    return sync_io_logic_analyzer_request_arm(&config)
+               ? scpi_port_result_accepted(context)
+               : SCPI_RES_ERR;
+}
+
 scpi_result_t scpi_cmd_analyzer_stop(scpi_t *context)
 {
     return sync_io_logic_analyzer_request_stop()

@@ -116,6 +116,12 @@ def test_phase_summary_rejects_failed_evidence_in_strict_mode(
             tmp_path / "phase-summary.json", "COARSE_CLK", [failed_path])
 
 
+def test_debug_forced_continue_can_use_explicit_offset_fallback() -> None:
+    assert selected_node_offsets(
+        {"debug_forced_continue": True}, "offsets", 4, "TRN-00",
+        diagnostic_fallback=[1, -1, 0, 1]) == [1, -1, 0, 1]
+
+
 def test_acceptance_steps_use_phase_owned_serial_lifecycle(
         monkeypatch, tmp_path: Path) -> None:
     captured: dict[str, object] = {}
@@ -543,6 +549,8 @@ def test_bench_and_orchestrator_cover_full_hardware_acceptance() -> None:
     assert '"FOUR_NODE_TDMA_QUICK_DIAGNOSTIC"' in source
     assert "_validate_quick_diagnostic_receipt" in source
     assert "run_diagnostic_gate" in source
+    assert "HAOFV_DIAGNOSTIC_FORCED_CONTINUE_V1" in source
+    assert "DEBUG_BOUNDED_FORCE_CONTINUE" in source
     assert '"TRN-00 residence matrix"' in source
     assert "FOUR_NODE_TDMA" in source
     assert '"--codebook", str(config["training_marker_codebook"])' in source

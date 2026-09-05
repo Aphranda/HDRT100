@@ -202,6 +202,70 @@ static void test_raw_capture_reinit_preserves_aliased_config(void)
     assert(capture.capacity == 3u);
 }
 
+static void test_triggered_capture_window(void)
+{
+    sync_io_logic_analyzer_config_t config = raw_config();
+    const uint32_t source = pin_mask(BOARD_TDMA_TX_CLK_OUT_PIN);
+    config.mode = SYNC_IO_LOGIC_ANALYZER_MODE_TRIGGERED_CAPTURE;
+    config.max_records = 8u;
+    config.pre_trigger_records = 1u;
+    config.post_trigger_records = 2u;
+    config.trigger.type = SYNC_IO_LOGIC_ANALYZER_TRIGGER_LEVEL;
+    config.trigger.source_mask = source;
+    config.trigger.level_mask = source;
+    sync_io_logic_analyzer_record_t records[8];
+    sync_io_logic_analyzer_raw_capture_t capture;
+    assert(sync_io_logic_analyzer_raw_capture_init(
+               &capture, records, 8u, &config));
+    assert(sync_io_logic_analyzer_raw_capture_push_sample(&capture, 10u, 0u));
+    assert(capture.state == SYNC_IO_LOGIC_ANALYZER_STATE_ARMED);
+    assert(sync_io_logic_analyzer_raw_capture_push_sample(
+               &capture, 20u, source));
+    assert(capture.trigger_seen);
+    assert(capture.state == SYNC_IO_LOGIC_ANALYZER_STATE_RUNNING);
+    assert(sync_io_logic_analyzer_raw_capture_push_sample(
+               &capture, 30u, source));
+    assert(sync_io_logic_analyzer_raw_capture_push_sample(&capture, 40u, 0u));
+    assert(capture.complete);
+    assert(capture.end_reason == SYNC_IO_LOGIC_ANALYZER_END_COMPLETE);
+
+    sync_io_logic_analyzer_record_t out;
+    assert(sync_io_logic_analyzer_raw_capture_pop(&capture, &out));
+    assert(out.hardware_tick == 10u);
+    assert(sync_io_logic_analyzer_raw_capture_pop(&capture, &out));
+    assert(out.hardware_tick == 20u);
+    assert((out.flags & SYNC_IO_LOGIC_ANALYZER_RECORD_FLAG_TRIGGER) != 0u);
+    assert(sync_io_logic_analyzer_raw_capture_pop(&capture, &out));
+    assert(out.hardware_tick == 30u);
+    assert(sync_io_logic_analyzer_raw_capture_pop(&capture, &out));
+    assert(out.hardware_tick == 40u);
+    assert(!sync_io_logic_analyzer_raw_capture_pop(&capture, &out));
+
+    config.pre_trigger_records = 0u;
+    config.post_trigger_records = 0u;
+    config.trigger.type = SYNC_IO_LOGIC_ANALYZER_TRIGGER_EDGE;
+    config.trigger.level_mask = 0u;
+    config.trigger.edge_mask = source;
+    assert(sync_io_logic_analyzer_raw_capture_init(
+               &capture, records, 8u, &config));
+    assert(sync_io_logic_analyzer_raw_capture_push_sample(&capture, 1u, 0u));
+    assert(!capture.trigger_seen);
+    assert(sync_io_logic_analyzer_raw_capture_push_sample(
+               &capture, 2u, source));
+    assert(capture.trigger_seen && capture.complete);
+
+    config.trigger.type = SYNC_IO_LOGIC_ANALYZER_TRIGGER_PATTERN;
+    config.trigger.edge_mask = 0u;
+    config.trigger.pattern_mask = source;
+    config.trigger.pattern_value = 0u;
+    assert(sync_io_logic_analyzer_raw_capture_init(
+               &capture, records, 8u, &config));
+    assert(sync_io_logic_analyzer_raw_capture_push_sample(&capture, 3u, source));
+    assert(!capture.trigger_seen);
+    assert(sync_io_logic_analyzer_raw_capture_push_sample(&capture, 4u, 0u));
+    assert(capture.trigger_seen && capture.complete);
+}
+
 static void test_core0_drain_boundary_without_capture(void)
 {
     sync_io_logic_analyzer_record_t records[2];
@@ -218,6 +282,7 @@ int main(void)
     test_snapshot_seqlock();
     test_raw_capture_ring();
     test_raw_capture_reinit_preserves_aliased_config();
+    test_triggered_capture_window();
     test_core0_drain_boundary_without_capture();
     puts("sync_io_logic_analyzer contract tests passed");
     return 0;
