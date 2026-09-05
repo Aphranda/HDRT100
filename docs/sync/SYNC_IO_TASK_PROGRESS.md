@@ -16,6 +16,36 @@ Last updated: 2026-09-05
 - 历史 `SYNC_IO-TASK-*` 记录已迁移为 `SYNC-PROGRESS-*` ID；其中的单次数字都是当时验收
   快照，不是当前代码事实源。
 
+### SYNC-PROGRESS-20260905-013 - TRIGGERED_CAPTURE bounded 前后窗口首版
+
+- TODO task ID：`SYNC-LA-004`、`SYNC-LA-007`。
+- 变更：`TRIGGERED_CAPTURE` 已接入既有 PIO/DMA backend 与 Core1 mandatory service；公共
+  capture 状态机支持 LEVEL、EDGE、PATTERN 匹配，ARM 阶段只保留 bounded pre-trigger
+  window，命中记录带 trigger flag，随后采集 bounded post-trigger window 并自动 COMPLETE；
+  未命中由 `timeout_us` 结束。自动完成后 Core1 释放 persona 并发布 shadow snapshot，Core0
+  可继续读取终态和 drain，SCPI 新增通用 `ANALyzer:TRIGger:ARM` intent 入口。
+- 软件验证：logic-analyzer host C 测试覆盖三类 trigger、pre/post window 与自动完成；P3
+  编排器测试覆盖调试 forced-continue offset fallback；logic-analyzer/P3 Python 共 44 项通过，
+  文档回归通过。release 双应用/boot 构建、UF2/package 与 flash-link checks 通过，最终 build
+  为 `20260905002434`。
+- 调试门禁修复：统一验收的 `run_diagnostic_gate()` 在调试模式遇到子工具未写 summary 时，
+  现在生成包含 phase、returncode、raw log 和 `DEBUG_BOUNDED_FORCE_CONTINUE` 的合成失败
+  snapshot，并允许显式配置 offset fallback 推进下一状态；严格模式仍立即拒绝。首次完整配置
+  的 TRN-00 MARK SD summary timeout 原始证据保留于
+  `out/hardware-acceptance/sync-la-004-triggered-hil-20260905/`。
+- 最终硬件验证：quick diagnostic P3 使用当前源码指纹完成四板 4096-byte OTA、TRN-00/01/02、
+  fresh TRN-03 matrix、TDMA 闭环并签发 receipt，证据位于
+  `out/hardware-acceptance/sync-la-004-triggered-receipt-20260905/`。同一 build 另完成四板
+  `cycles=4096` process-image gate，`passed=true`、`closed_loop_passed=true`、
+  `realtime_gate_passed=true`、`left_running=true`。
+- 真实触发 HIL：COM3/COM4/COM5/COM6 均以 TDMA TX clock pad 的 edge 触发两轮 capture；每轮
+  均自动到 `COMPLETE`、mode 为 `TRIGGERED_CAPTURE`、persona 资源释放，capture sequence
+  `2 -> 4`。四板同窗 TDMA RX 分别继续推进，bad/transport/schedule/profile/error 增量均为零；
+  原始 JSON 为同目录 `analyzer-triggered-COM*.json`。
+- 边界：level/pattern 已由 host C 状态机测试覆盖，edge 已由四板真实 pad HIL 覆盖；独立的
+  未触发 timeout 板端用例和 SD 文件内 trigger flag/pre/post 精确记录数审计仍待补，因此
+  `SYNC-LA-004` 先标为 `IN PROGRESS`。
+
 ### SYNC-PROGRESS-20260905-008 - analyzer 多段 SD 导出索引与丢样本区间
 
 - TODO task ID：`SYNC-LA-006`。
