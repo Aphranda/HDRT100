@@ -139,7 +139,8 @@ CAL/SYNC staging + ACK/NACK、RJ45_SYNC_RING 和 `FIRE_LOAD/T2` 闭环。
 - OTA：`out/hardware-acceptance/ram116-debug-close-r3-20260905/ota-four-board-tdma/summary.json` 保留四板 legacy sender 的原始 returncode、END 后直接启动到目标 build 的状态快照，以及有界 post-reset 核验；四板均通过 `forced_continue` 到下一状态，产品模式未放宽。
 - TDMA：同目录 `tdma-process-image/summary.json` 与 SD/SVG 分析通过；P3/TRN 流程完成。coarse CLK 的一次 follower arm 拒绝保留在 `diagnostic.json`，未被隐藏。
 - 凭证：`config/hardware_acceptance/p3_acceptance_receipt.json` 已绑定当前源码指纹。
-- 下一步：回到状态机迁移主线，推进 `SM-RES-005`；后续每次状态改动继续执行同一 TDMA 短帧闭环。
+- 下一步：状态机资源与 descriptor 前置项已完成，转入 `SM-RES-009` 方向化 RX unload/TX load
+  回归收口；后续每次状态改动继续执行同一 TDMA 短帧闭环。
 
 ### RTOS-DIST-TASK-20260828-004 - DPLL-LONG-001 P0 OTA 启动保持失败（历史阻塞，已解除）
 

@@ -4,7 +4,7 @@ Status: Active
 Domain: STATE_MACHINE
 Canonical: `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`
 Related: `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/sync/SYNC_IO_TODO.md`
-Last updated: 2026-09-03
+Last updated: 2026-09-05
 
 本文档维护状态机域的可执行任务；稳定语义见 `HAOFV_STATE_MACHINE_ARCHITECTURE.md`，
 构建、测试、OTA/HIL 和失败证据见 `HAOFV_STATE_MACHINE_TASK_PROGRESS.md`。
@@ -19,10 +19,10 @@ Last updated: 2026-09-03
 包完成闭环后才能推进下一步。
 
 resident cycle、资源事实源、maintenance/calibration persona 资源仲裁、TX/RX 端 flight
-persona 资源生命周期以及 follower 单一 RX FIFO/DMA 已完成四板验收。状态机基础资源层当前
-没有阻塞项，下一唯一执行入口移交 `SYNC_IO_TODO.md:SYNC-RES-001`：先建立 PIO0 persona
-descriptor 和兼容矩阵，不直接迁移 `BOARD_SYNC_PIO_WAVE`。表中其他 `IN PROGRESS` 表示已有
-部分实现或证据尚未收口，不代表允许并行修改。
+persona 资源生命周期以及 follower 单一 RX FIFO/DMA 已完成四板验收。PIO0 persona descriptor
+与兼容矩阵也已完成静态门禁；当前唯一执行入口收敛到 `SM-RES-009`，先补齐方向化
+flight RX unload/TX load 的四板 process-image 回归证据，再进入后续 arm/snapshot 收尾。
+表中其他 `IN PROGRESS` 表示已有部分实现或证据尚未收口，不代表允许并行修改。
 
 | ID | 优先级 | 目标 | 状态 | 完成或退出门禁 |
 |---|---|---|---|---|
@@ -79,7 +79,7 @@ phase、recovery 静态预算或 FreeRTOS heap；超限必须在构建或 Deploy
 | SM-RES-003 | 将 TX 端交叉方向 SM 迁移 | DONE | combined CLK+SYNC control、origin 返回 DATA capture、RTT/clock evidence、flight resource lifecycle 和 SyncIO handoff 已按真实 persona 角色收口；host/build、同包四板 OTA、快速 TDMA 闭环和四板 SD 原始波形通过。 |
 | SM-RES-004 | 将 RX 端交叉方向 SM 迁移 | DONE | DATA output 使用 RX DATA SM 的 TX FIFO/DMA，DATA unload 使用同一 SM 的 RX FIFO/DMA，clock evidence 使用独立 RX SM/FIFO 且由 Core1 读取；runtime 在 ARM 前校验类型化 endpoint，静态负测、host/build、同包四板 OTA、快速 TDMA 闭环与四板 SD 波形通过。 |
 | SM-RES-005 | 完成 follower forward/capture 独立 FIFO/DMA | DONE | forward 与 RX 卸载统一由 RX DATA SM 执行，TX command 和业务 RX 使用方向独立的 FIFO/DMA endpoint，业务 RX consumer 保持唯一；raw-flight、raw-to-process、持续 process-image、SD 波形和 QUICK P3 已闭环。 |
-| SM-RES-009 | 固化独立 flight RX unload / TX load 逻辑边界 | IN PROGRESS | 当前 `inspect_input()` / `commit_input()` / `apply*()` 的输入识别、提交和局部 overlay 职责可追溯；后续方向化接口不得改变语义；两方向可在同一 phase 并行且互不阻塞，需补四板 process-image 回归证据。 |
+| SM-RES-009 | 固化独立 flight RX unload / TX load 逻辑边界 | DONE | `rx_unload()` 只观察输入，RX descriptor 发布成功后才由 `rx_commit()` 提交消费序列；`tx_load()` 只复制并覆盖本地 segment，不读取或推进 RX 状态；方向化 host/C 回归与四板 process-image 短帧证据通过。 |
 | SM-FSM-001 | persona lifecycle FSM 与 program manager 接入 | DONE | host FSM 单测设计已加入；三镜像构建、五板同包 OTA/软件复位、四板 TDMA/NO5 快速诊断流程完成，保留 strict gate 失败证据；五板 `TDMA:PHYS?` 读回 NO1-NO4 为 `ACTIVE` 且 lifecycle error 为 0，NO5 为 `STOPPED`。 |
 | SM-RES-010 | 将 adapter/FSM 从 per-frame completion 迁移为 resident cycle | DONE | 初始 process image 只在 `RESIDENT_INIT` 装载一次；每个物理 frame 完成后回到 `CYCLE_BOUNDARY`，不得要求重新 ARM；单轮多 Node overlay、无更新透传、cycle sequence/segment generation 和受控退出均有 host/build/TDMA 短帧闭环证据。 |
 | SM-RES-006 | 迁移 arm/disarm、snapshot、RTT 和 DPLL evidence | IN PROGRESS | flight ARM/STOP、snapshot、RTT、SCK capture、clock-latch recovery、process-image persona admission 和 calibration persona 切换已按方向字段迁移；旧复合 maintenance 路径和完整硬件证据回归仍待完成。 |
@@ -114,9 +114,8 @@ transport helper 和 communication FSM 是角色无关的边界件，不改变 N
 
 ## 当前阻塞项
 
-- 状态机基础资源层当前无阻塞项；`SM-RES-005` 的 raw/process follower 连续运行门禁已关闭，
-  允许按依赖序列进入 `SYNC_IO_TODO.md:SYNC-RES-001`。该任务只建立 PIO0 descriptor、容量
-  计算和冲突负测，不直接切换输出 persona。
+- 状态机基础资源层当前无阻塞项；`SM-RES-005` 与 `SYNC_IO_TODO.md:SYNC-RES-001` 的
+  资源/descriptor 门禁均已关闭，当前按依赖序列执行 `SM-RES-009` 的方向边界收口。
 - follower 运行态继续保持单一 RX DATA FIFO/DMA；任何后续 capture 扩展都不得引入两个
   DMA 竞争同一 FIFO，只允许停止态 diagnostic capture 或显式硬件复制语义。
 - PIO 迁移完成前，DPLL hardware timestamp spine 和 eligible gate 不进入正式 HIL。

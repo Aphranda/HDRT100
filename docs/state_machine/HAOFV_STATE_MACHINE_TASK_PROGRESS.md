@@ -4,7 +4,7 @@ Status: Active
 Domain: STATE_MACHINE
 Canonical: `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
 Related: `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`
-Last updated: 2026-09-03
+Last updated: 2026-09-05
 
 本文档只记录状态机域的实施、构建、测试、OTA/HIL、失败和回退证据；任务状态以
 `HAOFV_STATE_MACHINE_TODO.md` 为唯一事实源，稳定语义以架构文档为准。
@@ -30,6 +30,30 @@ Last updated: 2026-09-03
   修复/恢复 follower ARM 现场后重新完成 TDMA 短帧，再验收并提交。
 
 ## 当前 Checkpoint
+
+### SM-PROGRESS-20260905-033 - SM-RES-009 方向化 RX unload / TX load 回归收口
+
+- TODO task ID：`SM-RES-009`、`SM-RES-008`。
+- 变更事实：`tdma_flight_engine_rx_unload()` 只读取并分类 wire image，
+  `tdma_flight_engine_rx_commit()` 仅在 RX descriptor 成功发布后推进已消费序列；
+  `tdma_flight_engine_tx_load()` 只复制 incoming image 并覆盖本地拥有 segment，不读取或
+  修改 RX novelty 状态。adapter 的 raw-flight、process-image 和 feedback 路径均使用这组
+  方向化接口，未引入第二 RX FIFO/DMA consumer。
+- 软件验证：`test_state_machine_resource_check.py` 与 `test_ram_budget_check.py` 共 35 项通过；
+  `run_tdma_pio_spi_ring_adapter_tests.ps1` 的 C host 单测通过。现有方向化负测覆盖
+  duplicate unload、commit-after-publish、TX 无 RX mask 和 FIFO/DMA owner 边界。
+- 编译/硬件证据：沿用当前源码指纹对应的 release build 与
+  `out/hardware-acceptance/ram116-debug-close-r3-20260905/tdma-process-image/`；四节点
+  process-image 快照（非事实源）为 `cycles=4096`、`passed=true`、
+  `closed_loop_passed=true`、`realtime_gate_passed=true`、`left_running=true`，各节点
+  process `map_reject_count`、`length_reject_count`、`tx_unavailable_count` 和
+  `receive_rejected_count` 均无新增。SD 原始 capture、SVG 和离线分析保留在同目录。
+- 调试门禁：统一 P3 的 `strict_gates_passed=false` 仅反映既有 coarse-clock/DPLL 诊断
+  拒绝；Debug 规则保留 reject reason、状态快照与原始数据并有界继续，未触发越界 DMA、
+  非法内存/Flash 或失控 GPIO 硬停。产品/Release gate 语义未改变。
+- 结论：`SM-RES-009` 标记为 `DONE`。下一项按依赖序列为 `SM-RES-006`，继续补齐
+  arm/disarm、snapshot、RTT 和 DPLL evidence 的旧 maintenance 路径回归；每次状态变更
+  仍须先完成 TDMA 短帧闭环。
 
 ### SM-PROGRESS-20260903-031 - SM-RES-005 follower 数据面闭环
 
