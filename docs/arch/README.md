@@ -4,7 +4,7 @@ Status: Active
 Domain: ARCH
 Canonical: `docs/arch/README.md`
 Related: `docs/README.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-08-21
+Last updated: 2026-09-05
 
 本目录是 HAOFV 顶层架构、产品架构特化、RTOS 和分布式触发总纲的目标入口。HAOFV 是系统最高层架构文档，定义 owner、层次、约束传递、Vector/Blackboard 和服务边界；具体硬件 pin map、电源、隔离和网表事实下沉到 `docs/hardware/`。
 

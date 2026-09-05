@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/README.md`
 Related: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-09-02
+Last updated: 2026-09-05
 
 本文档是 `docs/` 的总入口。新文档的命名、层级、元数据和迁移规则以
 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
@@ -22,6 +22,7 @@ Last updated: 2026-09-02
 docs/
   README.md
   docs/           文档治理、命名规则、迁移表
+  evaluation/     项目价值评估与长期监督（评估结论、行动追踪、复评闭环）
   arch/           产品架构、HAOFV、RTOS 和分布式总纲
   interface/      SCPI、USB、USBTMC、命令表、上位机接口
   trigger/        产品触发、序列、角度、core1 实时执行
@@ -52,6 +53,7 @@ docs/
 | 目录 | 入口 | 当前作用 |
 |---|---|---|
 | `docs/` | `docs/README.md` | 文档治理、命名规则、迁移表 |
+| `evaluation/` | `evaluation/README.md` | 项目价值评估与长期监督：开源/商业/学术价值评估、行动追踪与复评闭环 |
 | `arch/` | `arch/README.md` | 产品架构、HAOFV、RTOS 和分布式总纲 |
 | `interface/` | `interface/README.md` | SCPI、USB、USBTMC、命令表和上位机接口 |
 | `trigger/` | `trigger/README.md` | 产品触发、序列、角度、core1 实时执行 |
@@ -77,6 +79,7 @@ docs/
 
 | 领域 | 当前 canonical 主文档 | 说明 |
 |---|---|---|
+| EVALUATION | `evaluation/PRODUCT_VALUE_EVALUATION.md` | 项目价值评估 canonical：开源/商业/学术三维评估单链结论；行动追踪见 `evaluation/PRODUCT_VALUE_TRACKING_TODO.md`。 |
 | ARCH/HAOFV | `arch/HAOFV_ARCHITECTURE.md` | 顶层 HAOFV 架构入口，定义组件约束、层次逻辑、Vector/Blackboard 和约束传递。 |
 | ARCH/FLASH | `arch/HAOFV_FLASH_ARCHITECTURE.md` | 16 MiB 板载 Flash、Boot/Direct A/B、NVS/blob/FCB、统一 OTA stream 和 TDMA OTA 跨域 canonical。 |
 | ARCH/T2 | `arch/ARCH_T2_RESERVATION_ARCHITECTURE.md` | T2 预约与分布式时钟分发跨域主线，定义训练、VDC 映射、flight 分发、fence、本地执行和 completion。 |
@@ -302,9 +305,18 @@ docs/
 | `reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.html` | 0804 RP 分布式触发完整原始报告。 |
 | `reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.md` | 0804 分布式触发报告仓库内摘要。 |
 
+## 10 评估与监督（evaluation 子域）
+
+| 文件 | 定位 |
+|---|---|
+| `evaluation/README.md` | 评估与监督域 README：域定位、边界、长期追踪规则与验证命令。 |
+| `evaluation/PRODUCT_VALUE_EVALUATION.md` | 项目价值评估 canonical：上游评估(R)/证据(E)→判断(J)→结论(C)→行动(A) 单链结论（开源/商业/学术三维）。 |
+| `evaluation/PRODUCT_VALUE_TRACKING_TODO.md` | 评估行动 A1–A7 状态追踪 TODO（唯一状态事实源，配合评估文档 §4）。 |
+
 ## 快速查找规则
 
 - 查系统边界：先读 `arch/HAOFV_ARCHITECTURE.md`。
+- 查开源/商业/学术价值评估与行动追踪：读 `evaluation/README.md`，再读 `evaluation/PRODUCT_VALUE_EVALUATION.md` 与 `evaluation/PRODUCT_VALUE_TRACKING_TODO.md`。
 - 查 VDC/DPLL：先读 `vdc/VDC_DOMAIN_ARCHITECTURE.md`，再读 `arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`；底层 IO 链路见 `sync/SYNC_IO_ARCHITECTURE.md`。
 - 查上/下行 TDMA 与环路基础件：先读 `tdma/TDMA_DOMAIN_ARCHITECTURE.md`，再读 `refmem/REFMEM_SYNC_ARCHITECTURE.md` 和 `vdc/VDC_DOMAIN_ARCHITECTURE.md` 的消费边界。
 - 查当前运行板约束：读 `hardware/HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md`。
