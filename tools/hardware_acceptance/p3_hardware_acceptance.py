@@ -21,7 +21,9 @@ import os
 import subprocess
 import sys
 import time
+from copy import deepcopy
 from datetime import datetime, timezone
+from itertools import product
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -152,7 +154,9 @@ def selected_node_offsets(summary: dict[str, Any], field: str,
         f"{phase} did not produce a complete selected offset row")
 
 
-def selected_sck_offsets(summary: dict[str, Any], node_count: int) -> list[int]:
+def selected_sck_offsets(
+        summary: dict[str, Any], node_count: int,
+        diagnostic_fallback: list[int] | None = None) -> list[int]:
     """Return the measured TRN-01 row that will feed TRN-03."""
     matrix = summary.get("matrix")
     offset_matrix = matrix.get("offset_matrix") if isinstance(matrix, dict) else None
@@ -161,14 +165,28 @@ def selected_sck_offsets(summary: dict[str, Any], node_count: int) -> list[int]:
                      if isinstance(offset_matrix, dict) else None)
     matches = [row for row in rows or []
                if isinstance(row, dict) and row.get("row_id") == active_row_id]
-    if len(matches) != 1:
-        raise AcceptanceError("TRN-01 did not produce one active offset row")
-    values = matches[0].get("sck_offset_sample_counts_by_node")
-    if (not isinstance(values, list) or len(values) != node_count or
-            any(isinstance(value, bool) or not isinstance(value, int)
-                for value in values)):
-        raise AcceptanceError("TRN-01 active offset row is incomplete")
-    return [int(value) for value in values]
+    if len(matches) == 1:
+        values = matches[0].get("sck_offset_sample_counts_by_node")
+        if (not isinstance(values, list) or len(values) != node_count or
+                any(isinstance(value, bool) or not isinstance(value, int)
+                    for value in values)):
+            raise AcceptanceError("TRN-01 active offset row is incomplete")
+        return [int(value) for value in values]
+
+    fallback = diagnostic_fallback
+    fallback_valid = (
+        isinstance(fallback, list) and len(fallback) == node_count and
+        all(not isinstance(value, bool) and isinstance(value, int)
+            and -10 <= int(value) <= 10 for value in fallback))
+    candidates = (offset_matrix.get("candidate_values_by_node")
+                  if isinstance(offset_matrix, dict) else None)
+    if (fallback_valid and summary.get("diagnostic_only") is True and
+            isinstance(candidates, list) and len(candidates) == node_count):
+        if all(isinstance(values, list) and all(
+                isinstance(value, int) and not isinstance(value, bool)
+                for value in values) for values in candidates):
+            return [int(value) for value in fallback]
+    raise AcceptanceError("TRN-01 did not produce one active offset row")
 
 
 def selected_data_offsets(summary: dict[str, Any], node_count: int) -> list[int]:
@@ -187,6 +205,464 @@ def selected_data_offsets(summary: dict[str, Any], node_count: int) -> list[int]
                 for value in values)):
         raise AcceptanceError("TRN-03 active DATA row is incomplete")
     return [int(value) for value in values]
+
+
+def write_trn03_diagnostic_fallback_inputs(
+        root: Path, out_dir: Path, data_summary_path: Path,
+        residence_summary_path: Path, sck_summary_path: Path,
+        original_log_path: Path) -> tuple[Path, Path, Path, Path]:
+    """Freeze one bounded, debug-only TRN-03 matrix retry input set.
+
+    The retry never edits the raw train evidence. It may repair an empty or
+    mixed residence identity from the same-run DATA identity and may replace
+    one rejected DATA trial per otherwise-empty link with a timing template
+    copied from another structurally complete same-run trial. Link identity,
+    P3 baseline and configured offsets always come from the target link.
+    """
+    data = json.loads(data_summary_path.read_text(encoding="utf-8"))
+    residence = json.loads(residence_summary_path.read_text(encoding="utf-8"))
+    sck = json.loads(sck_summary_path.read_text(encoding="utf-8"))
+    if not all(isinstance(value, dict) for value in (data, residence, sck)):
+        raise AcceptanceError("TRN-03 fallback inputs must be JSON objects")
+
+    node_ids = data.get("node_ids_in_loop_order")
+    if (not isinstance(node_ids, list) or not 2 <= len(node_ids) <= 8 or
+            node_ids != residence.get("node_ids_in_loop_order") or
+            node_ids != sck.get("node_ids_in_loop_order")):
+        raise AcceptanceError("TRN-03 fallback node identity is inconsistent")
+    node_count = len(node_ids)
+    data_matrix = data.get("matrix")
+    residence_matrix = residence.get("matrix")
+    if not isinstance(data_matrix, dict) or not isinstance(residence_matrix, dict):
+        raise AcceptanceError("TRN-03 fallback matrix evidence is missing")
+    data_identity = data_matrix.get("identity")
+    if not isinstance(data_identity, dict):
+        raise AcceptanceError("TRN-03 fallback DATA identity is missing")
+
+    identity_fields = (
+        "calibration_generation", "topology_generation", "topology_crc32",
+        "profile_crc32", "schedule_crc32", "sample_period_ns",
+    )
+    identity: dict[str, int] = {}
+    for field in identity_fields:
+        values = data_identity.get(field)
+        if (not isinstance(values, list) or len(values) != 1 or
+                isinstance(values[0], bool) or not isinstance(values[0], int)):
+            raise AcceptanceError(
+                f"TRN-03 fallback DATA {field} is not a singleton")
+        identity[field] = int(values[0])
+
+    fallback_data = deepcopy(data)
+    fallback_residence = deepcopy(residence)
+    fallback_sck = deepcopy(sck)
+    fallback_residence_matrix = fallback_residence["matrix"]
+    original_residence_identity = deepcopy(
+        fallback_residence_matrix.get("identity"))
+    fallback_residence_matrix["identity"] = {
+        "calibration_generation": [identity["calibration_generation"]],
+        "topology_crc32": [identity["topology_crc32"]],
+        "profile_crc32": [identity["profile_crc32"]],
+        "schedule_crc32": [identity["schedule_crc32"]],
+        "tick_resolution_ns": [identity["sample_period_ns"]],
+        "topology_generation_by_node": {
+            str(node): [identity["topology_generation"]]
+            for node in range(node_count)
+        },
+    }
+
+    sck_matrix = fallback_sck.get("matrix")
+    sck_parameters = fallback_sck.get("training_parameters")
+    if not isinstance(sck_matrix, dict) or not isinstance(sck_parameters, dict):
+        raise AcceptanceError("TRN-03 fallback SCK matrix is missing")
+    original_sck_identity = deepcopy(sck_matrix.get("identity"))
+    sck_matrix["identity"] = {
+        "calibration_generation": [identity["calibration_generation"]],
+        "topology_generation": [identity["topology_generation"]],
+        "topology_crc32": [identity["topology_crc32"]],
+        "profile_crc32": [identity["profile_crc32"]],
+        "schedule_crc32": [identity["schedule_crc32"]],
+        "sample_period_ns": [identity["sample_period_ns"]],
+    }
+    configured_sck_offsets = sck_parameters.get("node_sck_offset_samples")
+    sck_offsets = sck_matrix.get("offset_matrix")
+    if (not isinstance(configured_sck_offsets, list) or
+            len(configured_sck_offsets) != node_count or
+            not isinstance(sck_offsets, dict)):
+        raise AcceptanceError("TRN-03 fallback SCK offsets are incomplete")
+    raw_candidates = sck_offsets.get("candidate_values_by_node")
+    if not isinstance(raw_candidates, list) or len(raw_candidates) != node_count:
+        raw_candidates = [[] for _ in range(node_count)]
+    normalized_candidates: list[list[int]] = []
+    for node, values in enumerate(raw_candidates):
+        measured = [
+            int(value) for value in values
+            if isinstance(value, int) and not isinstance(value, bool)
+        ] if isinstance(values, list) else []
+        configured = int(configured_sck_offsets[node])
+        normalized_candidates.append(sorted(set([*measured, configured])))
+    sck_rows = [
+        {"row_id": row_id,
+         "sck_offset_sample_counts_by_node": list(values)}
+        for row_id, values in enumerate(product(*normalized_candidates))
+    ]
+    configured_row = [int(value) for value in configured_sck_offsets]
+    active_matches = [
+        row["row_id"] for row in sck_rows
+        if row["sck_offset_sample_counts_by_node"] == configured_row
+    ]
+    if len(active_matches) != 1:
+        raise AcceptanceError("TRN-03 fallback SCK row is ambiguous")
+    sck_offsets.update({
+        "schema": "HAOFV_SCK_OFFSET_MATRIX_V2",
+        "candidate_values_by_node": normalized_candidates,
+        "full_matrix_row_count": len(sck_rows),
+        "active_row_id": active_matches[0],
+        "rows": sck_rows,
+    })
+
+    fallback_data_matrix = fallback_data["matrix"]
+    links = fallback_data_matrix.get("links")
+    trials = fallback_data.get("trials")
+    parameters = fallback_data.get("training_parameters")
+    if (not isinstance(links, list) or len(links) != node_count or
+            not isinstance(trials, list) or not isinstance(parameters, dict)):
+        raise AcceptanceError("TRN-03 fallback DATA dimensions are invalid")
+    marker_offsets = parameters.get("node_marker_offset_samples")
+    data_offsets = parameters.get("node_data_offset_samples")
+    link_bases = parameters.get("link_base_delay_ns_by_link")
+    if any(not isinstance(values, list) or len(values) != node_count
+           for values in (marker_offsets, data_offsets, link_bases)):
+        raise AcceptanceError("TRN-03 fallback DATA parameters are incomplete")
+    baseline_fields = (
+        "link_delay_ns_by_link", "link_base_delay_ns_by_link",
+        "path_delay_baseline_divisor", "sample_period_ns",
+    )
+    if any(field not in parameters for field in baseline_fields):
+        raise AcceptanceError("TRN-03 fallback DATA baseline is incomplete")
+    baseline_repairs: dict[str, dict[str, Any]] = {}
+    for label, target in (
+            ("residence", fallback_residence.get("training_parameters")),
+            ("sck", fallback_sck.get("training_parameters"))):
+        if not isinstance(target, dict):
+            raise AcceptanceError(
+                f"TRN-03 fallback {label} baseline is missing")
+        before = {field: deepcopy(target.get(field))
+                  for field in baseline_fields}
+        for field in baseline_fields:
+            target[field] = deepcopy(parameters[field])
+        baseline_repairs[label] = {
+            "before": before,
+            "after": {field: deepcopy(target[field])
+                      for field in baseline_fields},
+        }
+
+    required_source = (
+        "training_window_start_ns", "training_window_end_ns",
+        "marker_to_data_samples", "expected_sample_count",
+        "guard_sample_count", "link_base_delay_ns",
+    )
+
+    def complete_trial(trial: Any) -> bool:
+        source = trial.get("source") if isinstance(trial, dict) else None
+        return bool(
+            isinstance(trial, dict) and trial.get("passed") is True and
+            isinstance(source, dict) and
+            all(field in source for field in required_source) and
+            "link_marker_offset_sample" in trial and
+            "calibrated_data_offset_sample_count" in trial)
+
+    templates = [trial for trial in trials if complete_trial(trial)]
+    if not templates:
+        raise AcceptanceError(
+            "TRN-03 fallback has no complete measured DATA timing template")
+
+    repaired_trials: list[dict[str, Any]] = []
+    for link_index in range(node_count):
+        link_trials = [
+            (index, trial) for index, trial in enumerate(trials)
+            if isinstance(trial, dict) and int(trial.get("link", -1)) == link_index
+        ]
+        if any(complete_trial(trial) for _, trial in link_trials):
+            continue
+        if not link_trials:
+            raise AcceptanceError(
+                f"TRN-03 fallback link{link_index} has no trial slot")
+        link_rows = [
+            link for link in links if isinstance(link, dict) and
+            int(link.get("link", -1)) == link_index
+        ]
+        if len(link_rows) != 1:
+            raise AcceptanceError(
+                f"TRN-03 fallback link{link_index} identity is ambiguous")
+        link = link_rows[0]
+        marker_destination = int(link.get("marker_destination_node", -1))
+        data_destination = int(link.get("data_destination_node", -1))
+        if (not 0 <= marker_destination < node_count or
+                not 0 <= data_destination < node_count):
+            raise AcceptanceError(
+                f"TRN-03 fallback link{link_index} direction is invalid")
+        slot, rejected = link_trials[0]
+        synthetic = deepcopy(templates[0])
+        for field in (
+                "link", "source_node", "destination_node",
+                "marker_source_node", "marker_destination_node",
+                "data_source_node", "data_destination_node",
+                "marker_direction", "data_direction", "repeat_index",
+                "train_epoch", "calibration_generation"):
+            if field in rejected:
+                synthetic[field] = rejected[field]
+            elif field in link:
+                synthetic[field] = link[field]
+        synthetic["link"] = link_index
+        synthetic["passed"] = True
+        synthetic.pop("error", None)
+        synthetic["link_marker_offset_sample"] = int(
+            marker_offsets[marker_destination])
+        synthetic["calibrated_data_offset_sample_count"] = int(
+            data_offsets[data_destination])
+        synthetic["source"] = deepcopy(templates[0]["source"])
+        synthetic["source"]["link_base_delay_ns"] = int(
+            link_bases[link_index])
+        synthetic["diagnostic_fallback"] = {
+            "action": "DEBUG_BOUNDED_FORCE_CONTINUE",
+            "source": "same_run_complete_data_timing_template",
+            "original_trial": deepcopy(rejected),
+        }
+        trials[slot] = synthetic
+        repaired_trials.append({
+            "link": link_index,
+            "trial_slot": slot,
+            "template_link": int(templates[0].get("link", -1)),
+            "marker_offset_sample": int(marker_offsets[marker_destination]),
+            "data_offset_sample": int(data_offsets[data_destination]),
+            "link_base_delay_ns": int(link_bases[link_index]),
+            "original_error": str(rejected.get("error", "trial rejected")),
+        })
+
+    fallback_dir = out_dir / "trn03-diagnostic-fallback"
+    fallback_dir.mkdir(parents=True, exist_ok=True)
+    fallback_data_path = fallback_dir / "trn02-data.json"
+    fallback_residence_path = fallback_dir / "trn00-residence.json"
+    fallback_sck_path = fallback_dir / "trn01-sck.json"
+    manifest_path = fallback_dir / "manifest.json"
+    for path, value in (
+            (fallback_data_path, fallback_data),
+            (fallback_residence_path, fallback_residence),
+            (fallback_sck_path, fallback_sck)):
+        path.write_text(
+            json.dumps(value, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8")
+    raw_log = original_log_path.read_text(
+        encoding="utf-8", errors="replace") if original_log_path.is_file() else ""
+    manifest = {
+        "schema": "HAOFV_TRN03_DIAGNOSTIC_FALLBACK_V1",
+        "action": "DEBUG_BOUNDED_FORCE_CONTINUE",
+        "attempt_limit": 1,
+        "reason": "fresh TRN-03 matrix generation failed",
+        "original_log": original_log_path.resolve().relative_to(root).as_posix(),
+        "original_log_tail": raw_log.splitlines()[-20:],
+        "original_inputs": {
+            "data": data_summary_path.resolve().relative_to(root).as_posix(),
+            "residence": residence_summary_path.resolve().relative_to(root).as_posix(),
+            "sck": sck_summary_path.resolve().relative_to(root).as_posix(),
+        },
+        "fallback_inputs": {
+            "data": fallback_data_path.resolve().relative_to(root).as_posix(),
+            "residence": fallback_residence_path.resolve().relative_to(root).as_posix(),
+            "sck": fallback_sck_path.resolve().relative_to(root).as_posix(),
+        },
+        "residence_identity_before": original_residence_identity,
+        "residence_identity_after": fallback_residence_matrix["identity"],
+        "sck_identity_before": original_sck_identity,
+        "sck_identity_after": sck_matrix["identity"],
+        "sck_offset_repair": {
+            "configured_row": configured_row,
+            "candidate_values_by_node": normalized_candidates,
+            "active_row_id": active_matches[0],
+        },
+        "shared_baseline_repairs": baseline_repairs,
+        "data_trial_repairs": repaired_trials,
+        "bounded_defaults": {
+            "missing_residence_ticks": 1,
+            "missing_loop_delay_ticks": 1,
+        },
+    }
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8")
+    return (fallback_data_path, fallback_residence_path,
+            fallback_sck_path, manifest_path)
+
+
+def write_trn03_previous_matrix_fallback(
+        root: Path, receipt_path: Path, matrix_path: Path,
+        manifest_path: Path, *, build_id: str, board_ids: list[str],
+        calibration_generation: int, link_delays: list[int],
+        baseline_divisor: int, marker_offsets: list[int],
+        sck_offsets: list[int], data_offsets: list[int],
+        failure: str) -> None:
+    """Rebind one previously accepted matrix for debug-only observation."""
+    if not receipt_path.is_file():
+        raise AcceptanceError("TRN-03 previous receipt is unavailable")
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    evidence = receipt.get("trn03_matrix")
+    if (not isinstance(receipt, dict) or receipt.get("passed") is not True or
+            receipt.get("build_id") != build_id or
+            receipt.get("tdma_board_ids") != board_ids or
+            not isinstance(evidence, dict)):
+        raise AcceptanceError("TRN-03 previous receipt identity is invalid")
+    relative = evidence.get("path")
+    expected_sha = evidence.get("sha256")
+    if not isinstance(relative, str) or not isinstance(expected_sha, str):
+        raise AcceptanceError("TRN-03 previous matrix evidence is invalid")
+    previous_path = root / relative
+    if (not previous_path.is_file() or
+            sha256_file(previous_path) != expected_sha):
+        raise AcceptanceError("TRN-03 previous matrix evidence changed")
+    previous = json.loads(previous_path.read_text(encoding="utf-8"))
+    if (not isinstance(previous, dict) or
+            previous.get("node_ids_in_loop_order") != board_ids):
+        raise AcceptanceError("TRN-03 previous matrix node order differs")
+    count = len(board_ids)
+    vectors = (link_delays, marker_offsets, sck_offsets, data_offsets)
+    if (count < 2 or any(len(values) != count for values in vectors) or
+            baseline_divisor <= 0):
+        raise AcceptanceError("TRN-03 previous matrix fallback dimensions differ")
+    offset_matrix = previous.get("offset_matrix")
+    links = previous.get("links")
+    if not isinstance(offset_matrix, dict) or not isinstance(links, list) or \
+            len(links) != count:
+        raise AcceptanceError("TRN-03 previous matrix structure is incomplete")
+    sample_period_ns = int(offset_matrix.get("sample_period_ns", 0))
+    if sample_period_ns <= 0:
+        raise AcceptanceError("TRN-03 previous matrix sample period is invalid")
+
+    rebound = deepcopy(previous)
+    rebound["passed"] = False
+    rebound["diagnostic_continue"] = True
+    rebound["calibration_generation"] = int(calibration_generation)
+    bases = [
+        (int(delay) + baseline_divisor // 2) // baseline_divisor
+        for delay in link_delays
+    ]
+    rebound["training_parameters"] = {
+        "link_delay_ns_by_link": [int(value) for value in link_delays],
+        "link_base_delay_ns_by_link": bases,
+        "path_delay_baseline_divisor": int(baseline_divisor),
+        "sample_period_ns": sample_period_ns,
+        "loaded_from": [
+            "previous accepted TRN-03 timing",
+            "current P3 baseline",
+            "current configured diagnostic offsets",
+        ],
+    }
+    rebound["offset_matrix"] = {
+        "sample_period_ns": sample_period_ns,
+        "full_matrix_row_count": 1,
+        "active_row_id": 0,
+        "rows": [{
+            "row_id": 0,
+            "marker_offset_sample_counts_by_node": [
+                int(value) for value in marker_offsets],
+            "sck_offset_sample_counts_by_node": [
+                int(value) for value in sck_offsets],
+            "data_offset_sample_counts_by_node": [
+                int(value) for value in data_offsets],
+            "marker_offset_ns_by_node": [
+                int(value) * sample_period_ns for value in marker_offsets],
+            "sck_offset_ns_by_node": [
+                int(value) * sample_period_ns for value in sck_offsets],
+            "data_offset_ns_by_node": [
+                int(value) * sample_period_ns for value in data_offsets],
+        }],
+    }
+    for link_index, link in enumerate(rebound["links"]):
+        if not isinstance(link, dict):
+            raise AcceptanceError(
+                f"TRN-03 previous matrix link{link_index} is invalid")
+        marker_destination = int(link.get("marker_destination_node", -1))
+        data_destination = int(link.get("data_destination_node", -1))
+        if (not 0 <= marker_destination < count or
+                not 0 <= data_destination < count):
+            raise AcceptanceError(
+                f"TRN-03 previous matrix link{link_index} direction is invalid")
+        marker = int(marker_offsets[marker_destination])
+        sck = int(sck_offsets[marker_destination])
+        data = int(data_offsets[data_destination])
+        base = bases[link_index]
+        phases = {
+            "marker_phase_delay_cycles":
+                (base + marker * sample_period_ns + sample_period_ns // 2) //
+                sample_period_ns,
+            "sck_phase_delay_cycles":
+                (base + sck * sample_period_ns + sample_period_ns // 2) //
+                sample_period_ns,
+            "data_phase_delay_cycles":
+                (base + data * sample_period_ns + sample_period_ns // 2) //
+                sample_period_ns,
+        }
+        if any(not 0 <= value <= 31 for value in phases.values()):
+            raise AcceptanceError(
+                f"TRN-03 previous matrix link{link_index} phase is unsafe")
+        link.update({
+            "marker_offset_sample_count": marker,
+            "sck_offset_sample_count": sck,
+            "data_offset_sample_count": data,
+            "link_base_delay_ns": base,
+            **phases,
+        })
+        source = link.setdefault("source_evidence", {})
+        if isinstance(source, dict):
+            source["diagnostic_fallback"] = {
+                "action": "DEBUG_BOUNDED_FORCE_CONTINUE",
+                "previous_matrix": relative,
+                "current_link_delay_ns": int(link_delays[link_index]),
+            }
+    derivation = rebound.setdefault("derivation", {})
+    if not isinstance(derivation, dict):
+        raise AcceptanceError("TRN-03 previous matrix derivation is invalid")
+    derivation.update({
+        "diagnostic_previous_matrix_fallback": {
+            "action": "DEBUG_BOUNDED_FORCE_CONTINUE",
+            "previous_matrix": relative,
+            "previous_matrix_sha256": expected_sha,
+            "failure": failure,
+        },
+        "sck_replay_selection": {
+            "requested_offset_sample_counts_by_node": [
+                int(value) for value in sck_offsets],
+            "selected_offset_sample_counts_by_node": [
+                int(value) for value in sck_offsets],
+            "requested_row_replay_safe": True,
+            "selected_row_replay_safe": True,
+            "selection_reason": "diagnostic_explicit_config_previous_matrix",
+            "diagnostic_continue": True,
+        },
+    })
+    matrix_path.parent.mkdir(parents=True, exist_ok=True)
+    matrix_path.write_text(
+        json.dumps(rebound, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8")
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps({
+        "schema": "HAOFV_TRN03_DIAGNOSTIC_FALLBACK_V1",
+        "action": "DEBUG_BOUNDED_FORCE_CONTINUE",
+        "attempt_limit": 1,
+        "mode": "previous_accepted_matrix_rebound",
+        "failure": failure,
+        "previous_receipt": receipt_path.resolve().relative_to(root).as_posix(),
+        "previous_matrix": relative,
+        "previous_matrix_sha256": expected_sha,
+        "build_id": build_id,
+        "board_ids": board_ids,
+        "calibration_generation": int(calibration_generation),
+        "link_delay_ns_by_link": [int(value) for value in link_delays],
+        "link_base_delay_ns_by_link": bases,
+        "path_delay_baseline_divisor": int(baseline_divisor),
+        "marker_offset_sample_counts_by_node": marker_offsets,
+        "sck_offset_sample_counts_by_node": sck_offsets,
+        "data_offset_sample_counts_by_node": data_offsets,
+    }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def stage_training_parameters(summary: dict[str, Any], phase: str,
@@ -1756,7 +2232,25 @@ def run_acceptance(args: argparse.Namespace) -> None:
     sck_summary = run_diagnostic_gate(
         sck_command, out_dir / "trn01-sck.log", sck_summary_path,
         "TRN-01 SCK training")
-    sck_offsets_by_node = selected_sck_offsets(sck_summary, len(board_ids))
+    sck_offsets_by_node = selected_sck_offsets(
+        sck_summary, len(board_ids),
+        diagnostic_fallback=(
+            [int(value) for value in config["training_sck_offsets_by_node"]]
+            if diagnostic_continue else None))
+    sck_offset_matrix = sck_summary.get("matrix", {}).get(
+        "offset_matrix", {})
+    if (diagnostic_continue and
+            int(sck_offset_matrix.get("active_row_id", -1)) < 0):
+        diagnostic_failures.append({
+            "phase": "TRN-01 SCK active row selection",
+            "returncode": 1,
+            "error": "no complete active row; using configured diagnostic row",
+            "selected_offset_sample_counts_by_node": sck_offsets_by_node,
+            "summary": sck_summary_path.resolve().relative_to(root).as_posix(),
+            "raw_log": (out_dir / "trn01-sck.log").resolve().relative_to(
+                root).as_posix(),
+            "action": "DEBUG_BOUNDED_FORCE_CONTINUE",
+        })
     record_parameter_handoff(
         "TRN-01 SCK", sck_summary_path, sck_summary,
         loaded_from="P3 baseline; TRN-00 topology identity", selected={
@@ -1824,8 +2318,79 @@ def run_acceptance(args: argparse.Namespace) -> None:
     ]
     if diagnostic_continue:
         matrix_command.append("--diagnostic-continue")
-    _run_step(matrix_command, root, out_dir / "trn03-matrix.log")
+    matrix_log_path = out_dir / "trn03-matrix.log"
+    matrix_returncode = _run_step(
+        matrix_command, root, matrix_log_path,
+        allow_failure=diagnostic_continue)
+    matrix_fallback_used = False
+    fallback_manifest_path: Path | None = None
+    if matrix_returncode != 0 or not trn03_matrix_path.is_file():
+        if not diagnostic_continue:
+            raise AcceptanceError("fresh TRN-03 matrix generation failed")
+        fallback_manifest_path = (
+            out_dir / "trn03-diagnostic-fallback" / "manifest.json")
+        fallback_error = ""
+        try:
+            (fallback_data_path, fallback_residence_path, fallback_sck_path,
+             fallback_manifest_path) = write_trn03_diagnostic_fallback_inputs(
+                root, out_dir, data_summary_path, residence_summary_path,
+                sck_summary_path, matrix_log_path)
+        except AcceptanceError as exc:
+            fallback_error = str(exc)
+        else:
+            fallback_command = [
+                sys.executable,
+                str(root / "tools/calibration_ring_validate/trn03_matrix.py"),
+                "--level", str(config["training_profile_level"]),
+                "--data", str(fallback_data_path),
+                "--residence", str(fallback_residence_path),
+                "--sck", str(fallback_sck_path),
+                "--out", str(trn03_matrix_path),
+                "--diagnostic-continue",
+            ]
+            fallback_returncode = _run_step(
+                fallback_command, root,
+                out_dir / "trn03-matrix-fallback.log",
+                allow_failure=True)
+            if fallback_returncode != 0 or not trn03_matrix_path.is_file():
+                fallback_error = (
+                    "same-run diagnostic matrix retry failed with "
+                    f"returncode {fallback_returncode}")
+        if fallback_error:
+            write_trn03_previous_matrix_fallback(
+                root, receipt_path, trn03_matrix_path,
+                fallback_manifest_path, build_id=build_id,
+                board_ids=board_ids,
+                calibration_generation=training_generation,
+                link_delays=link_delays,
+                baseline_divisor=baseline_divisor,
+                marker_offsets=marker_offsets_by_node,
+                sck_offsets=sck_offsets_by_node,
+                data_offsets=training_data_offsets_by_node,
+                failure=fallback_error)
+        diagnostic_failures.append({
+            "phase": "TRN-03 replay matrix generation",
+            "returncode": matrix_returncode if matrix_returncode != 0 else 1,
+            "error": (
+                "fresh matrix rejected; bounded diagnostic retry" +
+                (f"; {fallback_error}" if fallback_error else "")),
+            "raw_log": matrix_log_path.resolve().relative_to(root).as_posix(),
+            "fallback_manifest": fallback_manifest_path.resolve().relative_to(
+                root).as_posix(),
+            "action": "DEBUG_BOUNDED_FORCE_CONTINUE",
+        })
+        matrix_fallback_used = True
     trn03_matrix = json.loads(trn03_matrix_path.read_text(encoding="utf-8"))
+    if matrix_fallback_used:
+        assert fallback_manifest_path is not None
+        trn03_matrix.setdefault("derivation", {})[
+            "diagnostic_fallback_manifest"] = \
+            fallback_manifest_path.resolve().relative_to(root).as_posix()
+        trn03_matrix["passed"] = False
+        trn03_matrix["diagnostic_continue"] = True
+        trn03_matrix_path.write_text(
+            json.dumps(trn03_matrix, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8")
     trn03_data_offsets_by_node = selected_data_offsets(
         trn03_matrix, len(board_ids))
     record_parameter_handoff(

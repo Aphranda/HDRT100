@@ -36,6 +36,8 @@ from tools.hardware_acceptance.p3_hardware_acceptance import (
     validate_sma_observer_topology,
     validate_tdma_diagnostic_summary,
     write_phase_summary,
+    write_trn03_diagnostic_fallback_inputs,
+    write_trn03_previous_matrix_fallback,
     _record_timing_event,
     _start_timing_probe,
 )
@@ -595,6 +597,24 @@ def test_selected_sck_offsets_are_loaded_from_active_row() -> None:
     assert selected_sck_offsets(summary, 2) == [1, -1]
 
 
+def test_selected_sck_offsets_uses_bounded_diagnostic_row() -> None:
+    summary = {
+        "diagnostic_only": True,
+        "matrix": {"offset_matrix": {
+            "active_row_id": -1,
+            "candidate_values_by_node": [[], [0, 1]],
+            "rows": [],
+        }},
+    }
+    assert selected_sck_offsets(
+        summary, 2, diagnostic_fallback=[0, 0]) == [0, 0]
+    assert selected_sck_offsets(
+        summary, 2, diagnostic_fallback=[0, -1]) == [0, -1]
+    with pytest.raises(AcceptanceError):
+        selected_sck_offsets(
+            summary, 2, diagnostic_fallback=[0, 11])
+
+
 def test_selected_node_offsets_uses_measured_diagnostic_fallback() -> None:
     summary = {
         "recommended_row": None,
@@ -637,6 +657,176 @@ def test_selected_data_offsets_are_loaded_from_active_row() -> None:
         }
     }
     assert selected_data_offsets(summary, 2) == [17, 17]
+
+
+def test_trn03_diagnostic_fallback_preserves_raw_and_repairs_empty_link(
+        tmp_path: Path) -> None:
+    node_ids = ["n0", "n1"]
+    identity = {
+        "calibration_generation": [101],
+        "topology_generation": [202],
+        "topology_crc32": [303],
+        "profile_crc32": [404],
+        "schedule_crc32": [505],
+        "sample_period_ns": [4],
+    }
+    parameters = {
+        "node_marker_offset_samples": [1, -1],
+        "node_data_offset_samples": [5, 6],
+        "link_delay_ns_by_link": [82, 84],
+        "link_base_delay_ns_by_link": [41, 42],
+        "path_delay_baseline_divisor": 2,
+        "sample_period_ns": 4,
+    }
+    links = [
+        {"link": 0, "marker_source_node": 0, "marker_destination_node": 1,
+         "data_source_node": 1, "data_destination_node": 0,
+         "marker_direction": "forward", "data_direction": "reverse"},
+        {"link": 1, "marker_source_node": 1, "marker_destination_node": 0,
+         "data_source_node": 0, "data_destination_node": 1,
+         "marker_direction": "forward", "data_direction": "reverse"},
+    ]
+    complete = {
+        "link": 0, "passed": True, "repeat_index": 1,
+        "link_marker_offset_sample": -1,
+        "calibrated_data_offset_sample_count": 5,
+        "source": {
+            "training_window_start_ns": 4,
+            "training_window_end_ns": 8,
+            "marker_to_data_samples": 1000,
+            "expected_sample_count": 128,
+            "guard_sample_count": 0,
+            "link_base_delay_ns": 41,
+        },
+    }
+    rejected = {"link": 1, "passed": False, "repeat_index": 1,
+                "error": "SD FILE_WRITE timeout"}
+    data = {
+        "node_ids_in_loop_order": node_ids,
+        "training_parameters": parameters,
+        "matrix": {"identity": identity, "links": links},
+        "trials": [complete, rejected],
+    }
+    residence = {
+        "node_ids_in_loop_order": node_ids,
+        "training_parameters": {},
+        "matrix": {"identity": {
+            "calibration_generation": [], "topology_crc32": [],
+            "profile_crc32": [], "schedule_crc32": [],
+            "tick_resolution_ns": [],
+            "topology_generation_by_node": {"0": [], "1": []},
+        }},
+    }
+    sck = {
+        "node_ids_in_loop_order": node_ids,
+        "training_parameters": {"node_sck_offset_samples": [0, 0]},
+        "matrix": {
+            "identity": {"calibration_generation": []},
+            "offset_matrix": {
+                "candidate_values_by_node": [[], [0, 1]],
+                "active_row_id": -1,
+                "rows": [],
+            },
+        },
+    }
+    data_path = tmp_path / "data.json"
+    residence_path = tmp_path / "residence.json"
+    sck_path = tmp_path / "sck.json"
+    log_path = tmp_path / "matrix.log"
+    for path, value in ((data_path, data), (residence_path, residence),
+                        (sck_path, sck)):
+        path.write_text(json.dumps(value), encoding="utf-8")
+    log_path.write_text(
+        "ValueError: calibration_generation\n", encoding="utf-8")
+
+    fallback_data_path, fallback_residence_path, fallback_sck_path, \
+        manifest_path = \
+        write_trn03_diagnostic_fallback_inputs(
+            tmp_path, tmp_path, data_path, residence_path, sck_path, log_path)
+
+    assert json.loads(residence_path.read_text(encoding="utf-8"))[
+        "matrix"]["identity"]["calibration_generation"] == []
+    fallback_residence = json.loads(
+        fallback_residence_path.read_text(encoding="utf-8"))
+    assert fallback_residence["matrix"]["identity"] == {
+        "calibration_generation": [101],
+        "topology_crc32": [303],
+        "profile_crc32": [404],
+        "schedule_crc32": [505],
+        "tick_resolution_ns": [4],
+        "topology_generation_by_node": {"0": [202], "1": [202]},
+    }
+    fallback_data = json.loads(
+        fallback_data_path.read_text(encoding="utf-8"))
+    repaired = fallback_data["trials"][1]
+    assert repaired["passed"] is True
+    assert repaired["source"]["link_base_delay_ns"] == 42
+    assert repaired["link_marker_offset_sample"] == 1
+    assert repaired["calibrated_data_offset_sample_count"] == 6
+    assert repaired["diagnostic_fallback"]["original_trial"] == rejected
+    fallback_sck = json.loads(fallback_sck_path.read_text(encoding="utf-8"))
+    fallback_sck_offsets = fallback_sck["matrix"]["offset_matrix"]
+    assert fallback_sck_offsets["candidate_values_by_node"] == [
+        [0], [0, 1]]
+    assert fallback_sck_offsets["active_row_id"] == 0
+    assert fallback_sck_offsets["rows"][0][
+        "sck_offset_sample_counts_by_node"] == [0, 0]
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["attempt_limit"] == 1
+    assert manifest["data_trial_repairs"][0]["link"] == 1
+
+
+def test_trn03_previous_matrix_fallback_rebinds_current_debug_row(
+        tmp_path: Path) -> None:
+    import hashlib
+
+    previous_path = tmp_path / "previous.json"
+    previous = {
+        "passed": True,
+        "node_ids_in_loop_order": ["n0", "n1"],
+        "calibration_generation": 1,
+        "offset_matrix": {"sample_period_ns": 4},
+        "links": [
+            {"marker_destination_node": 1, "data_destination_node": 0,
+             "source_evidence": {}},
+            {"marker_destination_node": 0, "data_destination_node": 1,
+             "source_evidence": {}},
+        ],
+        "derivation": {},
+    }
+    previous_path.write_text(json.dumps(previous), encoding="utf-8")
+    receipt_path = tmp_path / "receipt.json"
+    receipt_path.write_text(json.dumps({
+        "passed": True,
+        "build_id": "build",
+        "tdma_board_ids": ["n0", "n1"],
+        "trn03_matrix": {
+            "path": previous_path.name,
+            "sha256": hashlib.sha256(previous_path.read_bytes()).hexdigest(),
+        },
+    }), encoding="utf-8")
+    matrix_path = tmp_path / "rebound.json"
+    manifest_path = tmp_path / "fallback" / "manifest.json"
+
+    write_trn03_previous_matrix_fallback(
+        tmp_path, receipt_path, matrix_path, manifest_path,
+        build_id="build", board_ids=["n0", "n1"],
+        calibration_generation=101, link_delays=[80, 84],
+        baseline_divisor=2, marker_offsets=[1, -1],
+        sck_offsets=[0, 0], data_offsets=[5, 6], failure="no trials")
+
+    rebound = json.loads(matrix_path.read_text(encoding="utf-8"))
+    assert rebound["passed"] is False
+    assert rebound["calibration_generation"] == 101
+    assert rebound["training_parameters"][
+        "link_base_delay_ns_by_link"] == [40, 42]
+    assert rebound["offset_matrix"]["rows"][0][
+        "sck_offset_sample_counts_by_node"] == [0, 0]
+    assert rebound["links"][0]["marker_phase_delay_cycles"] == 9
+    assert rebound["links"][1]["data_phase_delay_cycles"] == 17
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["mode"] == "previous_accepted_matrix_rebound"
+    assert manifest["failure"] == "no trials"
 
 
 def test_sma_observer_topology_is_fixed_to_measured_bidirectional_routes() -> None:

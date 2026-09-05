@@ -63,6 +63,10 @@ from calibration_ring_validate.calibration_timeout_config import (  # noqa: E402
     DEFAULT_ACTION_TIMEOUT_S,
     DEFAULT_PHASE_GAP_S,
     DEFAULT_SERIAL_SETTLE_S,
+    DEFAULT_STORAGE_JOB_TIMEOUT_S,
+)
+from calibration_ring_validate.calibration_storage_job import (  # noqa: E402
+    wait_file_write_job,
 )
 
 
@@ -478,6 +482,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--action-timeout", type=float,
                         default=DEFAULT_ACTION_TIMEOUT_S)
     parser.add_argument("--marker-timeout", type=float, default=5.0)
+    parser.add_argument("--storage-timeout", type=float,
+                        default=DEFAULT_STORAGE_JOB_TIMEOUT_S)
     parser.add_argument("--settle", type=float, default=DEFAULT_SERIAL_SETTLE_S)
     parser.add_argument("--arm-wait", type=float, default=3.0)
     parser.add_argument("--topology-retries", type=int, default=3)
@@ -608,37 +614,29 @@ def save_sck_capture(board: Board,
             f"{board.address}: SCK capture SD save rejected: {response!r}")
     job_id = int(values[1], 0)
     path = values[2]
-    deadline = time.monotonic() + args.marker_timeout
-    last = ""
-    while time.monotonic() < deadline:
-        last = board_command(board, "SYSTem:STORage:JOB?", args)
-        job = [value.strip().strip('"')
-               for value in next(csv.reader([last]), [])]
-        if len(job) >= 8 and int(job[1], 0) == job_id:
-            if job[0] == "DONE":
-                return {"board": board.address, "path": path,
-                        "job_id": job_id, "size": int(job[4], 0)}
-            if job[0] == "FAILED":
-                raise RuntimeError(
-                    f"{board.address}: SCK capture SD job failed: {last!r}")
-        time.sleep(0.05)
-    raise RuntimeError(
-        f"{board.address}: SCK capture SD job timeout: {last!r}")
+    result = wait_file_write_job(
+        board, job_id, path, args, board_command, "SCK capture")
+    return {"board": board.address, "path": path, **result}
 
 
 def download_sck_capture(board: Board, capture_file: dict[str, object],
                          args: argparse.Namespace) -> dict[str, object]:
+    download_started = time.monotonic()
     path = str(capture_file["path"])
     data = bytearray()
     file_size: int | None = None
     path_hash: int | None = None
+    page_timings: list[dict[str, int | float | bool]] = []
     while file_size is None or len(data) < file_size:
         requested = 128 if file_size is None else min(128, file_size - len(data))
+        page_offset = len(data)
+        page_started = time.monotonic()
         response = board_command(
             board,
             f'SYSTem:STORage:FILE:READ? "{path}",{len(data)},{requested}',
             args)
         page = parse_storage_read(response, len(data))
+        page_elapsed_s = round(time.monotonic() - page_started, 6)
         if file_size is None:
             file_size = int(page["file_size"])
             path_hash = int(page["path_hash"])
@@ -649,10 +647,19 @@ def download_sck_capture(board: Board, capture_file: dict[str, object],
         if not payload and not bool(page["eof"]):
             raise RuntimeError("SCK capture read made no progress before EOF")
         data.extend(payload)
+        page_timings.append({
+            "offset": page_offset,
+            "requested": requested,
+            "returned": len(payload),
+            "eof": bool(page["eof"]),
+            "elapsed_s": page_elapsed_s,
+        })
         if bool(page["eof"]):
             break
     if file_size is None or len(data) != file_size:
         raise RuntimeError(f"SCK capture incomplete: {len(data)}/{file_size}")
+    download_elapsed_s = round(time.monotonic() - download_started, 6)
+    analysis_started = time.monotonic()
     capture = json.loads(data.decode("utf-8"))
     analysis = summarize_sck_capture(capture)
     local_path = args.out_dir / (
@@ -662,13 +669,18 @@ def download_sck_capture(board: Board, capture_file: dict[str, object],
         capture, local_path.with_name(
             f"node{args.destination_node}_link{args.link_index}_"
             "sck_capture_replay_1us.svg"))
+    analysis_elapsed_s = round(time.monotonic() - analysis_started, 6)
     return {"sd_path": path, "local_path": str(local_path),
             "size": len(data), "path_hash": path_hash, **analysis,
-            "waveform": waveform}
+            "waveform": waveform,
+            "download_elapsed_s": download_elapsed_s,
+            "offline_analysis_elapsed_s": analysis_elapsed_s,
+            "page_timings": page_timings}
 
 
 def run_link_trial(args: argparse.Namespace, ordered: list[Board],
                    prepare: bool) -> dict[str, object]:
+    trial_started = time.monotonic()
     count = len(ordered)
     args.source_node = args.link_index
     args.destination_node = (args.link_index + 1) % count
@@ -707,37 +719,60 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
     }
     if args.dry_run:
         return {**plan, "passed": False, "dry_run": True}
+    stage_elapsed_s: dict[str, float] = {}
+    stage_started = time.monotonic()
     actions = prepare_ring(ordered, args) if prepare else []
+    stage_elapsed_s["prepare_ring"] = round(
+        time.monotonic() - stage_started, 6)
     source = ordered[args.source_node]
     destination = ordered[args.destination_node]
     active = [source, destination]
     try:
+        stage_started = time.monotonic()
         arms = [
             {"board": destination.address,
              "response": sck_arm(destination, args)},
             {"board": source.address,
              "response": sck_arm(source, args)},
         ]
+        stage_elapsed_s["arm"] = round(time.monotonic() - stage_started, 6)
+        stage_started = time.monotonic()
         armed = wait_states(active, args, (STATE_PREPARED,))
+        stage_elapsed_s["wait_prepared"] = round(
+            time.monotonic() - stage_started, 6)
+        stage_started = time.monotonic()
         injection = board_command(
             source, "CALibration:SCK:INJect", marker_action_args(args))
         if not injection.startswith("OK"):
             raise RuntimeError(
                 f"{source.address}: SCK INJECT rejected: {injection!r}")
+        stage_elapsed_s["inject"] = round(
+            time.monotonic() - stage_started, 6)
         print(json.dumps({"sck_inject": {
             "board": source.address,
             "response": injection,
             "source_node": args.source_node,
             "destination_node": args.destination_node,
         }}, ensure_ascii=False), flush=True)
+        stage_started = time.monotonic()
         completed = wait_states(active, args, (STATE_ACCEPTED, STATE_REJECTED))
+        stage_elapsed_s["wait_completed"] = round(
+            time.monotonic() - stage_started, 6)
         validation = validate_link(completed[0], completed[1])
+        stage_started = time.monotonic()
         capture_file = save_sck_capture(destination, args)
+        stage_elapsed_s["capture_save_and_storage"] = round(
+            time.monotonic() - stage_started, 6)
+        stage_started = time.monotonic()
         capture_download = download_sck_capture(
             destination, capture_file, args)
+        stage_elapsed_s["capture_download_and_analysis"] = round(
+            time.monotonic() - stage_started, 6)
     finally:
+        stage_started = time.monotonic()
         for board in active:
             board_command(board, "CALibration:SCK:STOP", args)
+        stage_elapsed_s["stop"] = round(time.monotonic() - stage_started, 6)
     waveform = capture_download["waveform"]
     assert isinstance(waveform, dict)
     return {**plan, **validation,
@@ -748,12 +783,20 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
             "actions": actions, "arms": arms,
             "armed": armed, "injection": injection, "completed": completed,
             "capture_file": capture_file,
-            "capture_download": capture_download}
+            "capture_download": capture_download,
+            "timing": {
+                "total_link_trial_s": round(
+                    time.monotonic() - trial_started, 6),
+                "stage_elapsed_s": stage_elapsed_s,
+            }}
 
 
 def run(args: argparse.Namespace) -> dict[str, object]:
+    run_started = time.monotonic()
     board_ids = validate_hil_args(args)
+    discovery_started = time.monotonic()
     ordered = discover_ordered(args, board_ids)
+    discovery_elapsed_s = round(time.monotonic() - discovery_started, 6)
     board_ids = list(args.board_id)
     root_out = args.out_dir or (
         ROOT / "out" / "training" /
@@ -762,8 +805,13 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     args.out_dir = root_out
     if not args.all_links:
         args.out_dir = root_out
-        return run_link_trial(
+        result = run_link_trial(
             args, ordered, prepare=not args.reuse_ring_identity)
+        timing = result.setdefault("timing", {})
+        assert isinstance(timing, dict)
+        timing["discovery_elapsed_s"] = discovery_elapsed_s
+        timing["total_run_s"] = round(time.monotonic() - run_started, 6)
+        return result
     trial_count = len(ordered) * args.repeats
     if args.epoch + trial_count - 1 > 255:
         raise SystemExit("SCK matrix exceeds uint8 training epoch range")
@@ -854,10 +902,14 @@ def run(args: argparse.Namespace) -> dict[str, object]:
 
 
 def main() -> int:
+    main_started = time.monotonic()
     args = parse_args()
     args.keep_open = not args.short_open
     args.board_ids = list(args.board_id)
+    discovery_started = time.monotonic()
     guard_boards = discover(args)
+    initial_discovery_elapsed_s = round(
+        time.monotonic() - discovery_started, 6)
     missing = set(args.board_id) - set(guard_boards)
     if missing:
         raise SystemExit(
@@ -865,8 +917,19 @@ def main() -> int:
     load_guard = CalibrationLoadGuard(
         [guard_boards[address] for address in args.board_id], args)
     args.discovered_boards = guard_boards
+    guarded_run_started = time.monotonic()
     with load_guard:
         result = run(args)
+    guarded_run_elapsed_s = round(
+        time.monotonic() - guarded_run_started, 6)
+    timing = result.setdefault("timing", {})
+    assert isinstance(timing, dict)
+    timing.update({
+        "initial_discovery_elapsed_s": initial_discovery_elapsed_s,
+        "guarded_run_elapsed_s": guarded_run_elapsed_s,
+        "total_before_summary_write_s": round(
+            time.monotonic() - main_started, 6),
+    })
     result["realtime_calibration_load"] = load_guard.evidence()
     result["passed"] = (bool(result.get("passed")) and
                         bool(load_guard.evidence()["passed"]))

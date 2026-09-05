@@ -46,6 +46,10 @@ from calibration_ring_validate.calibration_timeout_config import (  # noqa: E402
     DEFAULT_ACTION_TIMEOUT_S,
     DEFAULT_PHASE_GAP_S,
     DEFAULT_SERIAL_SETTLE_S,
+    DEFAULT_STORAGE_JOB_TIMEOUT_S,
+)
+from calibration_ring_validate.calibration_storage_job import (  # noqa: E402
+    wait_file_write_job,
 )
 
 
@@ -385,6 +389,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--action-timeout", type=float,
                         default=DEFAULT_ACTION_TIMEOUT_S)
     parser.add_argument("--marker-timeout", type=float, default=5.0)
+    parser.add_argument("--storage-timeout", type=float,
+                        default=DEFAULT_STORAGE_JOB_TIMEOUT_S)
     parser.add_argument("--settle", type=float, default=DEFAULT_SERIAL_SETTLE_S)
     parser.add_argument("--arm-wait", type=float, default=3.0)
     parser.add_argument("--topology-retries", type=int, default=3)
@@ -685,27 +691,9 @@ def save_marker_capture(board: Board, args: argparse.Namespace) -> dict[str, obj
             f"{board.address}: marker capture SD save rejected: {response!r}")
     job_id = int(values[1], 0)
     path = values[2]
-    deadline = time.monotonic() + args.marker_timeout
-    last = ""
-    while time.monotonic() < deadline:
-        last = board_command(board, "SYSTem:STORage:JOB?", args)
-        job = [value.strip().strip('"')
-               for value in next(csv.reader([last]), [])]
-        if len(job) >= 8 and int(job[1], 0) == job_id:
-            if job[0] == "DONE":
-                return {
-                    "node_id": board.address,
-                    "sd_path": path,
-                    "job_id": job_id,
-                    "size": int(job[4], 0),
-                    "state": job[0],
-                }
-            if job[0] == "FAILED":
-                raise RuntimeError(
-                    f"{board.address}: marker capture SD job failed: {last!r}")
-        time.sleep(0.05)
-    raise RuntimeError(
-        f"{board.address}: marker capture SD job timeout: {last!r}")
+    result = wait_file_write_job(
+        board, job_id, path, args, board_command, "marker capture")
+    return {"node_id": board.address, "sd_path": path, **result}
 
 
 def run_hil(args: argparse.Namespace) -> dict[str, object]:

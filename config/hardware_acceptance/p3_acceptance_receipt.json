@@ -4,64 +4,64 @@
   "acceptance_profile": "QUICK_DIAGNOSTIC",
   "dpll_observation": "SKIPPED_TDMA_ONLY",
   "passed": true,
-  "generated_at_utc": "2026-09-05T00:40:57.010045+00:00",
-  "source_tree_sha256": "ad853288df35f45cae508290548a6f54f14eeaa00941ac26d2e7e10daad9d620",
-  "source_file_count": 941,
-  "bench_config_path": "config/hardware_acceptance/p3_bench_quick.json",
-  "bench_config_sha256": "e3aaa299c30f42ccf0d533384f3499cc7c079e01089aeb7d1bd9b0392294c284",
+  "generated_at_utc": "2026-09-05T03:16:47.800923+00:00",
+  "source_tree_sha256": "2ee0b7a7d30b2cc904f7e05a2da6de58bf58bfc7c098648492ae2655e5e1c1f7",
+  "source_file_count": 945,
+  "bench_config_path": "out/hardware-acceptance/p3_bench_quick_4_local.json",
+  "bench_config_sha256": "9dc4a38b0af9d896b9c41933e35feedaaaeb6e5ce203d1c19f305a2ff8c2d0c0",
   "build_id": "20260905002434",
   "firmware_package": {
     "path": "out/build/pico2-release/DHRT100_UPDATE.pkg",
     "sha256": "8ef25702c6f841741aeaf6fa634a6f75e1a4c22764cb70738d735065a6ddcd58"
   },
   "ota_summary": {
-    "path": "out/hardware-acceptance/sync-la-004-triggered-receipt-20260905/ota-four-board-tdma/summary.json",
-    "sha256": "04d49e76dfa4d0052f37616fa75660b8e42dd946b9f323aabd5171543ac05f6d",
+    "path": "out/hardware-acceptance/sync-la-006-stopped-export-receipt-20260905/ota-four-board-tdma/summary.json",
+    "sha256": "2ae934535eb7030d3cc5d6de27178424d7a70ca88a523033624d0cd72f4d90ab",
     "board_count": 4
   },
   "topology_summary": {
-    "path": "out/hardware-acceptance/sync-la-004-triggered-receipt-20260905/p0t-topology/summary.json",
-    "sha256": "cf0595f28fab129ce511f5c18a72a1323dcaf004a45f91c4e8d4973ac2a413b9"
+    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/p0t-topology/summary.json",
+    "sha256": "0c44dd4b7b202aa7a7d26b1ef773deb7f1c1118fcbfd9ab6cd357e1d1759346e"
   },
   "coarse_calibration_summary": {
-    "path": "out/hardware-acceptance/sync-la-004-triggered-receipt-20260905/coarse-calibration-summary.json",
-    "sha256": "c2835efa36d6852f634058eead5847c9da9fc065c5332f6a934b4025dd7eb0bd"
+    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/coarse-calibration-summary.json",
+    "sha256": "285a7da50b7718413ff08afbdaf6945a712e96e6ae640a7efe300e9d98c23d1d"
   },
   "coded_calibration_summary": {
-    "path": "out/hardware-acceptance/sync-la-004-triggered-receipt-20260905/coded-calibration-summary.json",
-    "sha256": "53223e2ccf5e722884f31f700ad8b3c9ebf234c430398ae01f1495edaada7407"
+    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/coded-calibration-summary.json",
+    "sha256": "c7fdb2bb8495d3fd6fc6d1b637c8c00dfb4c8894415daf915dd4de0f7e72e85c"
   },
   "initialization_reset": {
-    "path": "out/hardware-acceptance/sync-la-004-triggered-receipt-20260905/initialization-reset.json",
-    "sha256": "ce23d6e0cffda539969b5c8bfd6d962e15e10b202f49ed9d94d68726bab70873"
+    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/initialization-reset.json",
+    "sha256": "43aae099f4c7ff0c92fa48a8e0e9364ffab7a3ccb01b97a3473d417cf29563b5"
   },
   "p3_summary": {
-    "path": "out/hardware-acceptance/sync-la-004-triggered-receipt-20260905/p3-four-board/summary.json",
-    "sha256": "38ed1875fc759393d01b92ded348c532ddec32b92172273e723d58b4438e156e"
+    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/p3-four-board/summary.json",
+    "sha256": "2c4ef5511aa7cae51a35f07f6e296138214a4d6a675aa85fe4c6d7573f42d36c"
   },
   "trn00_summary": {
-    "path": "out/hardware-acceptance/sync-la-004-triggered-receipt-20260905/trn00-summary.json",
-    "sha256": "57d88f8a767d3adf10fa369f4742447d498da37f61e83838108e4afc2fa7616f"
+    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/trn00-summary.json",
+    "sha256": "2d4234cb8fd41af4ab3f1729f8cfd16ed8110dc656c933d79af5eb8d5b227984"
   },
   "trn01_summary": {
-    "path": "out/hardware-acceptance/sync-la-004-triggered-receipt-20260905/trn01-summary.json",
-    "sha256": "dd17cd4567515d91d5059c1ddb0432731929959f74c80b1a92e2920227430569"
+    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/trn01-summary.json",
+    "sha256": "fae5372c4d69c349a66d02c61734d6b61bc3bcc7a161c1d775a0f7a7e6b757af"
   },
   "trn02_summary": {
-    "path": "out/hardware-acceptance/sync-la-004-triggered-receipt-20260905/trn02-data/summary.json",
-    "sha256": "95e87f6f6d568c1e1afc4663f327507db5307a5d31fc18661321a8f18aec39f0"
+    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/trn02-data/summary.json",
+    "sha256": "db9c5b8a6f54dfd3ad56a37109d1b84eabc922b8e5bcf12df3b0c6dba3094d2e"
   },
   "trn03_matrix": {
-    "path": "out/hardware-acceptance/sync-la-004-triggered-receipt-20260905/trn03-matrix.json",
-    "sha256": "3fa17f2d480bd2aad16d291058861b61b7b92788dd4eb2467b6c84421b3cf0ab"
+    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/trn03-matrix.json",
+    "sha256": "18bc462688451281bafb9c3178e85a1281953d2d62826c745f5c1645b6f8380a"
   },
   "calibration_parameter_handoff": {
-    "path": "out/hardware-acceptance/sync-la-004-triggered-receipt-20260905/calibration-parameter-handoff.json",
-    "sha256": "8078199df2b288d1a4c5faf59a69dbf82496992be519e2b3dadeeb31161436a3"
+    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/calibration-parameter-handoff.json",
+    "sha256": "81194a27e9320c4e756fdf6f11d2a9de2ce32a910e08a582a7a36bea4786936d"
   },
   "tdma_summary": {
-    "path": "out/hardware-acceptance/sync-la-004-triggered-receipt-20260905/tdma-process-image/summary.json",
-    "sha256": "539a0fc6b1b78502bd8935a6bf1c94270dcf5d2659f78ce499898f3fa05cfba7"
+    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/tdma-process-image/summary.json",
+    "sha256": "351d621d2c77dfd7efb04045957c465db0a4c4fcb785c69641957bd001b98c97"
   },
   "ota_board_ids": [
     "0010071E65B5CB38",
@@ -77,73 +77,73 @@
   ],
   "trial_count": 8,
   "delay_min_ns": 80.0,
-  "delay_max_ns": 82.0,
+  "delay_max_ns": 80.0,
   "highest_stable_frequency_mhz": 10,
   "link_delay_ns_by_link": [
-    82,
-    82,
-    82,
+    80,
+    80,
+    80,
     80
   ],
   "link_base_delay_ns_by_link": [
-    41,
-    41,
-    41,
+    40,
+    40,
+    40,
     40
   ],
   "path_delay_baseline_divisor": 2,
-  "calibration_generation": 1788568237,
+  "calibration_generation": 1788577398,
   "calibration_load_mask": 4,
   "schedule_before": {
     "0010071E65B5CB38": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 22387,
-      "schedule_miss_count": 23963
+      "cycle_count": 22720,
+      "schedule_miss_count": 24221
     },
     "FB276192BEF9CCE1": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 22391,
-      "schedule_miss_count": 23843
+      "cycle_count": 22689,
+      "schedule_miss_count": 24230
     },
     "2BD5090FE009FA2A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 22383,
-      "schedule_miss_count": 24051
+      "cycle_count": 22702,
+      "schedule_miss_count": 24275
     },
     "A1E549202D18ED6A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 22374,
-      "schedule_miss_count": 24115
+      "cycle_count": 22668,
+      "schedule_miss_count": 24182
     }
   },
   "schedule_after": {
     "0010071E65B5CB38": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 642134,
-      "schedule_miss_count": 697108
+      "cycle_count": 831390,
+      "schedule_miss_count": 882997
     },
     "FB276192BEF9CCE1": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 642075,
-      "schedule_miss_count": 679443
+      "cycle_count": 830992,
+      "schedule_miss_count": 865027
     },
     "2BD5090FE009FA2A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 641111,
-      "schedule_miss_count": 682897
+      "cycle_count": 830910,
+      "schedule_miss_count": 867601
     },
     "A1E549202D18ED6A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 640604,
-      "schedule_miss_count": 683973
+      "cycle_count": 830221,
+      "schedule_miss_count": 870160
     }
   },
   "realtime_load_mask_unchanged": true,
@@ -162,8 +162,8 @@
     "output_handoff_s": 0.05
   },
   "timing_probe": {
-    "path": "out/hardware-acceptance/sync-la-004-triggered-receipt-20260905/timing.json",
-    "sha256": "4503989b2c2d593c3ee404fed91653f754c4aed59dc34e8666c8a6e4c454e6e7"
+    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/timing.json",
+    "sha256": "e68888e828694a2a83612dbdec172ac581898030e9032ed54dfb743b3300e7dd"
   },
   "flow_completed": true,
   "strict_gates_passed": false,
@@ -172,17 +172,11 @@
       "phase": "coarse CLK calibration level 7",
       "returncode": 1,
       "error": "RuntimeError: FB276192BEF9CCE1: follower forwarding arm failed: {'tag': 'CLKTRAIN', 'version': 1, 'state': 4, 'result': 4, 'role': 1, 'request_seq': 1, 'service_count': 0, 'baud_hz': 10000000, 'requested_cycles': 1, 'return_seen': 0, 'return_before_tx_done': 0, 'tx_sck_pin': 25, 'rx_sck_pin': 28, 'timestamp_resolution_ns': 4, 'timestamp_flags': 1, 'tx_start_ns_lo': 0, 'tx_start_ns_hi': 0, 'tx_done_observed_ns_lo': 0, 'tx_done_observed_ns_hi': 0, 'return_observed_ns_lo': 0, 'return_observed_ns_hi': 0, 'burst_duration_ns_lo': 0, 'burst_duration_ns_hi': 0, 'runtime_train_request_seq': 1, 'runtime_train_accepted_seq': 1, 'runtime_train_start_count': 0, 'runtime_train_reject_count': 1, 'runtime_training_dirty': 0, 'tx_start_timestamp_ns': 0, 'tx_done_observed_timestamp_ns': 0, 'return_observed_timestamp_ns': 0, 'burst_duration_ns': 0}",
-      "summary": "out/hardware-acceptance/sync-la-004-triggered-receipt-20260905/coarse-clk-level7/summary.json"
-    },
-    {
-      "phase": "TRN-02 DATA training",
-      "returncode": 1,
-      "error": "gate did not pass",
-      "summary": "out/hardware-acceptance/sync-la-004-triggered-receipt-20260905/trn02-data/summary.json"
+      "summary": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/coarse-clk-level7/summary.json"
     }
   ],
   "diagnostic_summary": {
-    "path": "out/hardware-acceptance/sync-la-004-triggered-receipt-20260905/diagnostic.json",
-    "sha256": "68ec1b9b55165ee84cfe84bbab983e2cc7f334b81a4aec8abfccfcbd6817a425"
+    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/diagnostic.json",
+    "sha256": "990b8b4dd273ccb397f2dc8a28c9ec1ae09a5c83e416bc7db71c356863d4cb10"
   }
 }
