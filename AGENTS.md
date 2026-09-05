@@ -10,6 +10,7 @@
 | `docs/check/DOCS_REGISTRY.md` | **契约登记表 + 条款落点表**（唯一事实源，检查器读取） |
 | `docs/check/DOCS_REGRESSION_REVIEW.md` | 实施经验：常见坑与解法 |
 | `docs/check/DOCS_REGRESSION_TODO.md` | 待办状态（哪些已完成、哪些下一期） |
+| `docs/check/DOCS_EXECUTION_CONSTRAINTS.md` | 跨 worker/agent 的长期执行约束、证据闭环和主控复核规则 |
 
 ## 1. 体系是什么（30 秒版）
 
@@ -21,6 +22,9 @@
 门禁:       git pre-commit 自动跑两个检查器，任一 FAIL 阻断提交
 交叉审核:   登记表状态变更禁止自审自批（C11）
 ```
+
+长期执行约束、状态机迁移闭环、Debug 安全门禁和 worker/主控边界统一维护在
+`docs/check/DOCS_EXECUTION_CONSTRAINTS.md`；本文件只保留 onboarding、最短门禁和仓库级硬规则。
 
 ## 2. 硬约束（违反 = 门禁 FAIL，不可绕过）
 
