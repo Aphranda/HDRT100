@@ -1,0 +1,17 @@
+# Codex CLI project configuration for HDRT100.
+# Parallel subagent execution: Codex never auto-decomposes; you must ask for
+# parallelism explicitly in the session, and these bounds cap how many agent
+# threads may run at once.
+
+[agents]
+# Max concurrent subagent threads. Default is 6; keep at or below 6 unless you
+# know the job can tolerate more (each thread burns tokens).
+max_threads = 6
+
+# Nesting depth: 0 = root session only, 1 = one level of subagents (default).
+# Subagents may spawn children only if you raise this; prefer keeping 1 to
+# avoid exponential fan-out.
+max_depth = 1
+
+# Per-worker timeout for CSV batch jobs (spawn_agents_on_csv), seconds.
+job_max_runtime_seconds = 1800
