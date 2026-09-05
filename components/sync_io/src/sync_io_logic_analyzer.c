@@ -16,6 +16,10 @@
 
 _Static_assert(SYNC_IO_LOGIC_ANALYZER_MAX_RECORDS > 0u,
                "logic analyzer workspace must hold at least one record");
+_Static_assert(
+    SYNC_IO_LOGIC_ANALYZER_MAX_RECORDS * sizeof(sync_io_logic_analyzer_record_t) <=
+        SYNC_IO_SHARED_WORKSPACE_WORDS * sizeof(uint32_t),
+    "logic analyzer records must fit the shared shadow workspace");
 
 static sync_io_logic_analyzer_persona_t *s_active_persona;
 static uint32_t s_next_capture_sequence;

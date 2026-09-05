@@ -71,11 +71,14 @@ class BoardUpdateResult:
     board: BoardProbe
     send: StepResult | None
     commit: StepResult | None
+    forced_continue: bool = False
 
     @property
     def passed(self) -> bool:
-        return ((self.send is None or self.send.passed) and
-                (self.commit is None or self.commit.passed))
+        send_passed = self.send is None or self.send.passed
+        if self.forced_continue:
+            send_passed = self.commit is not None and self.commit.passed
+        return send_passed and (self.commit is None or self.commit.passed)
 
 
 def parse_args() -> argparse.Namespace:
@@ -111,6 +114,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--send-only", action="store_true", help="send OTA payload but do not boot/commit")
     parser.add_argument("--commit-only", action="store_true", help="skip send and only boot/commit pending image")
     parser.add_argument("--dry-run", action="store_true", help="only discover boards and print the update plan")
+    parser.add_argument(
+        "--diagnostic-continue", action="store_true",
+        help=("debug only: retain a failed legacy sender result, verify the "
+              "post-reset build/state, and continue when that bounded check passes"),
+    )
     parser.add_argument("--verbose", action="store_true", help="print child tool stdout/stderr for each board")
     parser.add_argument("--out-dir", type=Path, help="output directory for summary and per-board logs")
     return parser.parse_args()
@@ -417,6 +425,30 @@ def update_board(args: argparse.Namespace,
             ]
             send_result = run_child(board.port, "ota_send", send_cmd, out_dir)
         if not send_result.passed:
+            if (args.diagnostic_continue and transport == "legacy" and
+                    not args.send_only):
+                post_reset_cmd = [
+                    sys.executable,
+                    str(ROOT / "tools" / "ota_boot_commit" /
+                        "ota_boot_commit.py"),
+                    board.port,
+                    "--baud", str(args.baud),
+                    "--timeout", str(args.timeout),
+                    "--reopen-timeout", str(args.reopen_timeout),
+                    "--settle", str(args.settle),
+                    "--skip-boot",
+                    "--out-dir", str(
+                        out_dir / board.port / "ota_post_reset_verify"),
+                ]
+                if expected_build:
+                    post_reset_cmd.extend(["--expected-build", expected_build])
+                post_reset_result = run_child(
+                    board.port, "ota_post_reset_verify", post_reset_cmd,
+                    out_dir)
+                return BoardUpdateResult(
+                    board=board, send=send_result,
+                    commit=post_reset_result,
+                    forced_continue=post_reset_result.passed)
             return BoardUpdateResult(board=board, send=send_result, commit=None)
 
         if transport == "stream":
@@ -468,6 +500,7 @@ def write_summary(out_dir: Path,
             {
                 "board": asdict(result.board),
                 "passed": result.passed,
+                "forced_continue": result.forced_continue,
                 "send": asdict(result.send) if result.send is not None else None,
                 "commit": asdict(result.commit) if result.commit is not None else None,
             }

@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from tools.ota_send.ota_send import (
@@ -6,6 +9,7 @@ from tools.ota_send.ota_send import (
     parse_flash_transaction_state,
     parse_ota_state,
     parse_transfer_capability,
+    reopen_after_end_reset,
     transfer_chunks,
     validate_block_size,
 )
@@ -53,3 +57,24 @@ def test_legacy_sender_uses_three_field_capability_contract() -> None:
     assert parse_transfer_capability("256,0,1") == (256, 0, 1)
     with pytest.raises(ValueError, match="invalid OTA transfer capability"):
         parse_transfer_capability("4096,0")
+
+
+def test_end_reset_closes_stale_handle_before_reopening() -> None:
+    stale = MagicMock()
+    reopened = MagicMock()
+    reopened.__enter__.return_value = reopened
+    serial_module = SimpleNamespace(
+        Serial=MagicMock(return_value=reopened),
+        SerialException=RuntimeError,
+    )
+    args = SimpleNamespace(
+        port="COM7", baud=115200, timeout=3.0, begin_timeout=90.0)
+
+    with patch("tools.ota_send.ota_send.query_final_status",
+               return_value='"IDLE",1,"NONE",0'):
+        status = reopen_after_end_reset(serial_module, stale, args)
+
+    stale.close.assert_called_once_with()
+    serial_module.Serial.assert_called_once_with(
+        "COM7", 115200, timeout=3.0, write_timeout=3.0)
+    assert status.startswith('"IDLE"')

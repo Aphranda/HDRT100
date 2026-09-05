@@ -36,7 +36,7 @@ set(PROJECT_WARNINGS_AS_ERRORS OFF CACHE BOOL "Treat compiler warnings as errors
 set(PROJECT_ENABLE_OTA_FAULT_INJECTION OFF CACHE BOOL "Enable destructive OTA validation SCPI commands")
 set(PROJECT_ENABLE_WATCHDOG_TEST OFF CACHE BOOL "Enable destructive watchdog validation SCPI command")
 set(PROJECT_ENABLE_FLASH_VALIDATION OFF CACHE BOOL "Enable validation-only Scratch SCPI command")
-set(PROJECT_OTA_MAX_DATA_BLOCK_SIZE 512 CACHE STRING
+set(PROJECT_OTA_MAX_DATA_BLOCK_SIZE 4096 CACHE STRING
     "Maximum negotiated OTA DATA block size (256/512/1024/2048/4096 bytes)")
 set(PROJECT_OTA_DEFAULT_BOOT_MODE DIRECT_AB CACHE STRING "Default OTA boot mode for blank factory metadata: COPY_TO_ACTIVE or DIRECT_AB")
 set(PROJECT_FLASH_DEPLOYMENT_MAP v1_compat CACHE STRING "Explicit live Flash map: v1_compat until factory v2 migration")

@@ -12,6 +12,29 @@ ram_budget_check = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(ram_budget_check)
 
 
+def test_default_min_free_is_the_48k_release_gate() -> None:
+    assert ram_budget_check.DEFAULT_MIN_FREE_BYTES == 48 * 1024
+    args = ram_budget_check.parse_args([])
+    assert ram_budget_check.minimum_free_bytes(args) == 48 * 1024
+
+
+def test_debug_profile_uses_the_32k_gate() -> None:
+    args = ram_budget_check.parse_args(["--profile", "debug"])
+    assert ram_budget_check.minimum_free_bytes(args) == 32 * 1024
+    assert ram_budget_check.profile_blocks_on_shortfall(args) is False
+
+
+def test_release_profile_blocks_on_shortfall() -> None:
+    args = ram_budget_check.parse_args([])
+    assert ram_budget_check.profile_blocks_on_shortfall(args) is True
+
+
+def test_explicit_min_free_overrides_debug_profile() -> None:
+    args = ram_budget_check.parse_args(
+        ["--profile", "debug", "--min-free", str(40 * 1024)])
+    assert ram_budget_check.minimum_free_bytes(args) == 40 * 1024
+
+
 def write_license(path: Path, **overrides: object) -> None:
     today = dt.date.today()
     data = {

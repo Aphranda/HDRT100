@@ -38,6 +38,7 @@ TDMA_DIAGNOSTIC_RECEIPT_SCHEMA = (
 QUICK_DIAGNOSTIC_RECEIPT_SCHEMA = (
     "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_TDMA_4NODE_QUICK_DIAGNOSTIC_V1")
 LIMITED_RECEIPT_SCHEMA = "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_10MHZ_LIMITED_V1"
+REQUIRED_OTA_BLOCK_SIZE = 4096
 SOURCE_ROOTS = {
     ".githooks", "application", "boards", "bootloader", "cmake",
     "components", "config", "drivers", "linker", "middleware", "osal",
@@ -1420,12 +1421,24 @@ def read_schedules(board_ids: list[str], timing: dict[str, float]) -> dict[str, 
 def validate_ota(summary: dict[str, Any], expected_ids: list[str],
                  build_id: str) -> None:
     found = {board.get("serial_number") for board in summary.get("boards", [])}
+    # Product acceptance is intentionally strict about the negotiated OTA
+    # capability.  A host request for 4096 B that silently falls back to the
+    # legacy 512 B transport is a bootstrap condition, not a passing
+    # fast-iteration acceptance result.
+    ota_capabilities = {
+        board.get("serial_number"): board.get("max_data_block_size")
+        for board in summary.get("boards", [])
+    }
     if (summary.get("passed") is not True or summary.get("dry_run") is True or
             summary.get("failed_count") != 0 or
             summary.get("board_count") != len(expected_ids) or
             summary.get("updated_count") != len(expected_ids) or
-            found != set(expected_ids) or summary.get("expected_build") != build_id):
-        raise AcceptanceError("five-board OTA summary did not meet acceptance")
+            found != set(expected_ids) or summary.get("expected_build") != build_id or
+            any(ota_capabilities.get(board_id) != REQUIRED_OTA_BLOCK_SIZE
+                for board_id in expected_ids)):
+        raise AcceptanceError(
+            "five-board OTA summary did not meet acceptance; "
+            "all boards must advertise 4096-byte OTA blocks")
 
 
 def validate_online_builds(builds: dict[str, str], expected_ids: list[str],
@@ -1937,6 +1950,8 @@ def run_acceptance(args: argparse.Namespace) -> None:
         ]
         for board_id in ota_board_ids:
             ota_command.extend(["--serial-number", board_id])
+        if diagnostic_continue:
+            ota_command.append("--diagnostic-continue")
         _run_step(ota_command, root, out_dir / "ota.log")
         ota_summary_path = ota_dir / "summary.json"
         ota_summary = json.loads(

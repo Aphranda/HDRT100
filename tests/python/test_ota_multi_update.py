@@ -36,6 +36,7 @@ def make_args(**overrides):
         "reopen_timeout": 30.0,
         "settle": 1.0,
         "boot_wait": 3.0,
+        "diagnostic_continue": False,
     }
     args.update(overrides)
     return Namespace(**args)
@@ -182,3 +183,25 @@ def test_legacy_transport_keeps_separate_send_and_commit(tmp_path: Path):
     assert mocked.call_count == 2
     assert "ota_send.py" in mocked.call_args_list[0].args[2][1]
     assert "ota_boot_commit.py" in mocked.call_args_list[1].args[2][1]
+
+
+def test_debug_legacy_reset_uses_bounded_post_reset_verification(
+        tmp_path: Path):
+    board = BoardProbe(
+        "COM7", "GTS,DHRT100,NO5,0.1.0", "old", "NO5", "", "")
+    image = tmp_path / "image.pkg"
+    image.write_bytes(b"pkg")
+    args = make_args(transport="legacy", diagnostic_continue=True)
+    failed_send = Namespace(passed=False)
+    passed_postcheck = Namespace(passed=True)
+
+    with patch("tools.ota_multi_update.ota_multi_update.run_child",
+               side_effect=[failed_send, passed_postcheck]) as mocked:
+        result = update_board(args, board, image, "build", tmp_path)
+
+    assert result.passed
+    assert result.forced_continue is True
+    assert mocked.call_count == 2
+    postcheck = mocked.call_args_list[1].args[2]
+    assert "--skip-boot" in postcheck
+    assert "--expected-build" in postcheck

@@ -17,7 +17,13 @@
 #include "ui_manager.h"
 
 #define APP_PROGRESS(task, phase) (((uint32_t)(task) << 8u) | (uint32_t)(phase))
-#define APP_OTA_TASK_BASE_STACK_WORDS 1536u
+#define APP_WATCHDOG_TASK_STACK_WORDS 256u
+#define APP_SCPI_TASK_STACK_WORDS 2048u
+#define APP_UI_TASK_STACK_WORDS 1024u
+/* OTA is event-driven; runtime watermark captured only a small command
+ * handling footprint.  Keep one KiB baseline and retain the negotiated data
+ * block increment below for larger OTA payloads. */
+#define APP_OTA_TASK_BASE_STACK_WORDS 1024u
 #define APP_OTA_TASK_STACK_WORDS \
     (APP_OTA_TASK_BASE_STACK_WORDS + \
      ((OTA_EVENT_MAX_DATA_SIZE - OTA_EVENT_INLINE_DATA_SIZE + \
@@ -245,17 +251,23 @@ static bool app_tasks_create_one(const osal_task_config_t *config)
 bool app_tasks_create_all(void)
 {
     static const osal_task_config_t task_table[] = {
-        {.name = "watchdog_supervisor", .entry = task_watchdog_supervisor, .context = NULL, .stack_words = 1024u, .priority = 6u},
+        /* The supervisor path is fixed-cost: health-vector evaluation and a
+         * bounded lease check only.  Keep one minimal stack block. */
+        {.name = "watchdog_supervisor", .entry = task_watchdog_supervisor, .context = NULL, .stack_words = APP_WATCHDOG_TASK_STACK_WORDS, .priority = 6u},
         {.name = "system", .entry = task_system, .context = NULL, .stack_words = 2048u, .priority = 4u},
         {.name = "usb_device", .entry = task_usb_device, .context = NULL, .stack_words = 1536u, .priority = 4u},
-        {.name = "scpi", .entry = task_scpi, .context = NULL, .stack_words = 3072u, .priority = 3u},
+        /* SCPI is kept at a conservative 2 KiB after runtime watermark
+         * capture; command-path stress must revalidate before any further cut. */
+        {.name = "scpi", .entry = task_scpi, .context = NULL, .stack_words = APP_SCPI_TASK_STACK_WORDS, .priority = 3u},
         {.name = "refmem_sync", .entry = task_refmem_sync, .context = NULL, .stack_words = 2048u, .priority = 4u},
         {.name = "loop_engine", .entry = task_loop_engine, .context = NULL, .stack_words = 3072u, .priority = 3u},
         {.name = "calibration", .entry = task_calibration, .context = NULL, .stack_words = 2048u, .priority = 3u},
         {.name = "cfg_gate", .entry = task_config_gate, .context = NULL, .stack_words = 2048u, .priority = 3u},
         {.name = "ota", .entry = task_ota, .context = NULL, .stack_words = APP_OTA_TASK_STACK_WORDS, .priority = 3u},
         {.name = "storage", .entry = task_storage, .context = NULL, .stack_words = 3072u, .priority = 3u},
-        {.name = "ui", .entry = task_ui, .context = NULL, .stack_words = 2048u, .priority = 1u},
+        /* UI normally renders the cover page; fault/detail pages are a later
+         * stress case and must be checked with the RTOS watermark tool. */
+        {.name = "ui", .entry = task_ui, .context = NULL, .stack_words = APP_UI_TASK_STACK_WORDS, .priority = 1u},
     };
 
     for (uint32_t i = 0u; i < (uint32_t)(sizeof(task_table) / sizeof(task_table[0])); i++) {

@@ -116,9 +116,10 @@ typedef struct {
     uint32_t reserved;
 } sync_io_logic_analyzer_record_t;
 
-#define SYNC_IO_LOGIC_ANALYZER_MAX_RECORDS \
-    ((SYNC_IO_SHARED_WORKSPACE_WORDS * sizeof(uint32_t)) / \
-     sizeof(sync_io_logic_analyzer_record_t))
+/* The analyzer has an active capture plus a published shadow.  Keep both
+ * bounded to 512 records so diagnostics cannot consume the SRAM budget needed
+ * by the realtime path; the raw DMA workspace remains independently sized. */
+#define SYNC_IO_LOGIC_ANALYZER_MAX_RECORDS 512u
 
 typedef struct {
     uint32_t contract_version;

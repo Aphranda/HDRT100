@@ -239,7 +239,8 @@ def test_ota_gate_requires_exact_five_board_set() -> None:
     summary = {
         "passed": True, "dry_run": False, "failed_count": 0,
         "board_count": 5, "updated_count": 5, "expected_build": "build",
-        "boards": [{"serial_number": value} for value in ids],
+        "boards": [{"serial_number": value, "max_data_block_size": 4096}
+                   for value in ids],
     }
     validate_ota(summary, ids, "build")
     summary["updated_count"] = 4

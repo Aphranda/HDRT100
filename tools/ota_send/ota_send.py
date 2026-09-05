@@ -490,6 +490,29 @@ def wait_for_flash_transaction_probe(serial_port, baseline: str,
     )
 
 
+def reopen_after_end_reset(serial_module: Any, stale_serial: Any,
+                           args: argparse.Namespace) -> str:
+    """Close an invalid CDC lifetime and query the post-END OTA state."""
+    stale_serial.close()
+    deadline = time.monotonic() + max(args.timeout, args.begin_timeout)
+    while time.monotonic() < deadline:
+        try:
+            with serial_module.Serial(
+                    args.port, args.baud, timeout=args.timeout,
+                    write_timeout=args.timeout) as reopened:
+                reopened.reset_input_buffer()
+                status = query_final_status(reopened)
+                if parse_ota_state(status) in {
+                        "IDLE", "READY_TO_REBOOT", "FAILED", "ABORTED",
+                        "COMMITTED"}:
+                    return status
+                return wait_for_ready_to_reboot(
+                    reopened, max(args.timeout, args.begin_timeout))
+        except (OSError, serial_module.SerialException):
+            time.sleep(0.25)
+    return ""
+
+
 def send_image(args: argparse.Namespace, image: bytes, image_crc: int,
                package_mode: bool, timing: OtaTiming | None = None,
                metadata: dict[str, Any] | None = None) -> str:
@@ -637,20 +660,7 @@ def send_image(args: argparse.Namespace, image: bytes, image_crc: int,
             # through a fresh lifetime instead of leaking the port object or
             # reporting an opaque Win32 ClearCommError.
             print(f"end_transport_reset={exc}")
-            final_status = ""
-            deadline = time.monotonic() + max(args.timeout, args.begin_timeout)
-            while time.monotonic() < deadline:
-                try:
-                    with serial.Serial(args.port, args.baud,
-                                       timeout=args.timeout,
-                                       write_timeout=args.timeout) as reopened:
-                        reopened.reset_input_buffer()
-                        final_status = wait_for_ready_to_reboot(
-                            reopened, max(args.timeout, args.begin_timeout)
-                        )
-                        break
-                except (OSError, serial.SerialException):
-                    time.sleep(0.25)
+            final_status = reopen_after_end_reset(serial, ser, args)
         if not args.no_verify_query:
             print(final_status)
         if timing is not None:
