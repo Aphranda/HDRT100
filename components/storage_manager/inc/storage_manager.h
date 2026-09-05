@@ -8,6 +8,7 @@
 #include "fatfs_port.h"
 #include "sd_card.h"
 
+#define STORAGE_MANAGER_FILE_READ_MAX_BYTES 4096u
 #define STORAGE_MANAGER_FILE_WRITE_MAX_BYTES 16384u
 
 typedef enum {
@@ -256,6 +257,16 @@ bool storage_manager_get_file_read_job_result(uint32_t job_id,
                                               storage_manager_file_read_t *read_info,
                                               uint8_t *buffer,
                                               size_t buffer_size);
+bool storage_manager_acquire_file_read_job_result(
+    uint32_t job_id,
+    storage_manager_file_read_t *read_info);
+bool storage_manager_copy_file_read_job_result(
+    uint32_t job_id,
+    uint32_t result_offset,
+    uint8_t *buffer,
+    size_t buffer_size,
+    size_t *copied_size);
+void storage_manager_release_file_read_job_result(uint32_t job_id);
 bool storage_manager_post_catalog_page_job(const char *path,
                                            uint32_t offset,
                                            uint32_t limit,

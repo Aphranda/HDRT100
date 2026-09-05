@@ -20,6 +20,7 @@ for tool_path in (ROOT / "tools", ROOT / "tools" / "tdma_ring_monitor",
         sys.path.insert(0, str(tool_path))
 
 from calibration_data_train import parse_storage_read  # noqa: E402
+from scpi_common.scpi_serial import STORAGE_FILE_READ_MAX_BYTES  # noqa: E402
 from tdma_start_ring import Board, board_command  # noqa: E402
 
 
@@ -353,8 +354,9 @@ def download_ring_capture(board: Board, capture_file: dict[str, object],
     file_size: int | None = None
     path_hash: int | None = None
     while file_size is None or len(data) < file_size:
-        requested = (128 if file_size is None else
-                     min(128, file_size - len(data)))
+        requested = (STORAGE_FILE_READ_MAX_BYTES if file_size is None else
+                     min(STORAGE_FILE_READ_MAX_BYTES,
+                         file_size - len(data)))
         response = board_command(
             board,
             f'SYSTem:STORage:FILE:READ? "{path}",{len(data)},{requested}',

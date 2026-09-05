@@ -29,6 +29,7 @@ if str(ROOT / "tools") not in sys.path:
     sys.path.insert(0, str(ROOT / "tools"))
 
 from scpi_common.scpi_serial import (  # noqa: E402
+    STORAGE_FILE_READ_MAX_BYTES,
     is_scpi_log_line,
     open_serial_port,
     read_scpi_response,
@@ -451,7 +452,8 @@ def _download_waveform_segment(ser: Any, path: str,
     data = bytearray()
     file_size: int | None = None
     while file_size is None or len(data) < file_size:
-        requested = 128 if file_size is None else min(128, file_size - len(data))
+        requested = (STORAGE_FILE_READ_MAX_BYTES if file_size is None else
+                     min(STORAGE_FILE_READ_MAX_BYTES, file_size - len(data)))
         response = _query(
             ser, f'SYSTem:STORage:FILE:READ? "{path}",'
                  f'{len(data)},{requested}', timeout_s)

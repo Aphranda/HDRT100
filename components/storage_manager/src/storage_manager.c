@@ -37,7 +37,6 @@
 #define STORAGE_MANAGER_RUNTIME_LOG_DIRECTORY "/logs/runtime"
 #define STORAGE_MANAGER_RUNTIME_LOG_CURSOR_PATH "/logs/runtime/cursor.idx"
 #define STORAGE_MANAGER_RUNTIME_LOG_CURSOR_TMP_PATH "/logs/runtime/cursor.tmp"
-#define STORAGE_MANAGER_FILE_READ_MAX_BYTES 512u
 #define STORAGE_MANAGER_OBJECT_WRITE_MAX_BYTES 8192u
 #define STORAGE_MANAGER_WRITE_BUFFER_MAX_BYTES \
     STORAGE_MANAGER_FILE_WRITE_MAX_BYTES
@@ -86,7 +85,6 @@ typedef struct {
     bool step_ok2;
     storage_manager_file_read_t read_info;
     storage_manager_catalog_page_t catalog_page;
-    uint8_t read_buffer[STORAGE_MANAGER_FILE_READ_MAX_BYTES];
     char catalog_buffer[STORAGE_MANAGER_CATALOG_PAGE_MAX_BYTES];
     char target_path[STORAGE_MANAGER_MAX_PATH_LEN + 1u];
 } storage_manager_job_t;
@@ -106,6 +104,7 @@ static storage_trace_record_t s_trace_ring[STORAGE_MANAGER_TRACE_RING_COUNT];
 static uint32_t s_trace_next;
 static uint32_t s_trace_count;
 static storage_manager_job_t s_storage_job;
+static bool s_file_read_result_leased;
 static uint32_t s_next_job_id;
 static uint8_t s_boot_snapshot_step;
 static storage_manager_write_snapshot_t s_write_snapshot;
@@ -220,6 +219,7 @@ bool storage_manager_init(void)
     s_storage_vector.current_job_state = STORAGE_MANAGER_JOB_STATE_IDLE;
     s_storage_vector.current_job_type = STORAGE_MANAGER_JOB_TYPE_NONE;
     memset(&s_storage_job, 0, sizeof(s_storage_job));
+    s_file_read_result_leased = false;
     s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_IDLE;
     s_storage_job.result.type = STORAGE_MANAGER_JOB_TYPE_NONE;
     memset(&s_write_snapshot, 0, sizeof(s_write_snapshot));
@@ -323,7 +323,16 @@ static void storage_job_complete_fault_evidence(void)
 static bool storage_job_is_active(void)
 {
     return s_storage_job.result.state == STORAGE_MANAGER_JOB_STATE_QUEUED ||
-           s_storage_job.result.state == STORAGE_MANAGER_JOB_STATE_RUNNING;
+           s_storage_job.result.state == STORAGE_MANAGER_JOB_STATE_RUNNING ||
+           s_file_read_result_leased;
+}
+
+static bool storage_write_buffer_is_active(void)
+{
+    return s_write_snapshot.state == STORAGE_MANAGER_WRITE_STATE_RECEIVING ||
+           s_write_snapshot.state == STORAGE_MANAGER_WRITE_STATE_READY ||
+           s_write_snapshot.state == STORAGE_MANAGER_WRITE_STATE_QUEUED ||
+           s_write_snapshot.state == STORAGE_MANAGER_WRITE_STATE_WRITING;
 }
 
 static bool storage_error_is_retryable(uint32_t error)
@@ -1425,7 +1434,9 @@ static bool storage_post_object_path_job(storage_manager_object_t object,
                                          uint32_t length,
                                          uint32_t *job_id)
 {
-    if (storage_job_is_active()) {
+    if (storage_job_is_active() ||
+        (type == STORAGE_MANAGER_JOB_TYPE_FILE_READ &&
+         storage_write_buffer_is_active())) {
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
         return false;
     }
@@ -1653,7 +1664,8 @@ bool storage_manager_begin_file_write(const char *path,
                                       uint32_t *txn_id)
 {
     char normalized_path[STORAGE_MANAGER_MAX_PATH_LEN + 1u];
-    if (!storage_normalize_path(path, normalized_path, sizeof(normalized_path)) ||
+    if (storage_job_is_active() ||
+        !storage_normalize_path(path, normalized_path, sizeof(normalized_path)) ||
         strcmp(normalized_path, "/") == 0 ||
         expected_size == 0u ||
         expected_size > STORAGE_MANAGER_WRITE_BUFFER_MAX_BYTES) {
@@ -1784,6 +1796,10 @@ bool storage_manager_commit_file_write(uint32_t txn_id, uint32_t *job_id)
 
 bool storage_manager_abort_file_write(uint32_t txn_id)
 {
+    if (storage_job_is_active()) {
+        s_write_snapshot.error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
+        return false;
+    }
     if (s_write_snapshot.state != STORAGE_MANAGER_WRITE_STATE_IDLE &&
         s_write_snapshot.txn_id != txn_id) {
         s_write_snapshot.error = STORAGE_MANAGER_ERROR_SEQUENCE;
@@ -1893,7 +1909,7 @@ bool storage_manager_post_file_read_job(const char *path,
                                         uint32_t length,
                                         uint32_t *job_id)
 {
-    if (storage_job_is_active()) {
+    if (storage_job_is_active() || storage_write_buffer_is_active()) {
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
         return false;
     }
@@ -1961,21 +1977,70 @@ bool storage_manager_get_file_read_job_result(uint32_t job_id,
                                               uint8_t *buffer,
                                               size_t buffer_size)
 {
-    if (read_info == NULL ||
+    if (!storage_manager_acquire_file_read_job_result(job_id, read_info)) {
+        return false;
+    }
+
+    bool ok = true;
+    if (buffer != NULL && buffer_size > 0u && s_storage_job.read_info.returned > 0u) {
+        size_t copied_size = 0u;
+        ok = storage_manager_copy_file_read_job_result(
+            job_id, 0u, buffer, buffer_size, &copied_size);
+    }
+    storage_manager_release_file_read_job_result(job_id);
+    return ok;
+}
+
+bool storage_manager_acquire_file_read_job_result(
+    uint32_t job_id,
+    storage_manager_file_read_t *read_info)
+{
+    if (read_info == NULL || s_file_read_result_leased ||
         s_storage_job.result.id != job_id ||
         s_storage_job.result.type != STORAGE_MANAGER_JOB_TYPE_FILE_READ ||
         s_storage_job.result.state != STORAGE_MANAGER_JOB_STATE_DONE) {
         return false;
     }
 
+    s_file_read_result_leased = true;
     *read_info = s_storage_job.read_info;
-    if (buffer != NULL && buffer_size > 0u && s_storage_job.read_info.returned > 0u) {
-        const size_t copy_size = s_storage_job.read_info.returned < buffer_size ?
-                                     (size_t)s_storage_job.read_info.returned :
-                                     buffer_size;
-        memcpy(buffer, s_storage_job.read_buffer, copy_size);
-    }
     return true;
+}
+
+bool storage_manager_copy_file_read_job_result(
+    uint32_t job_id,
+    uint32_t result_offset,
+    uint8_t *buffer,
+    size_t buffer_size,
+    size_t *copied_size)
+{
+    if (copied_size != NULL) {
+        *copied_size = 0u;
+    }
+    if (!s_file_read_result_leased || buffer == NULL || copied_size == NULL ||
+        s_storage_job.result.id != job_id ||
+        s_storage_job.result.type != STORAGE_MANAGER_JOB_TYPE_FILE_READ ||
+        s_storage_job.result.state != STORAGE_MANAGER_JOB_STATE_DONE ||
+        result_offset > s_storage_job.read_info.returned) {
+        return false;
+    }
+
+    const size_t remaining =
+        (size_t)s_storage_job.read_info.returned - (size_t)result_offset;
+    const size_t copy_size = remaining < buffer_size ? remaining : buffer_size;
+    if (copy_size > 0u) {
+        memcpy(buffer, &s_write_buffer[result_offset], copy_size);
+    }
+    *copied_size = copy_size;
+    return true;
+}
+
+void storage_manager_release_file_read_job_result(uint32_t job_id)
+{
+    if (s_file_read_result_leased && s_storage_job.result.id == job_id &&
+        s_storage_job.result.type == STORAGE_MANAGER_JOB_TYPE_FILE_READ) {
+        s_file_read_result_leased = false;
+    }
 }
 
 bool storage_manager_post_catalog_page_job(const char *path,
@@ -2242,7 +2307,7 @@ static void storage_manager_service_job(void)
     if (s_storage_job.result.type == STORAGE_MANAGER_JOB_TYPE_FILE_READ) {
         const bool ok = storage_manager_read_file_range(s_storage_job.result.path,
                                                         s_storage_job.offset,
-                                                        s_storage_job.read_buffer,
+                                                        s_write_buffer,
                                                         s_storage_job.length,
                                                        &s_storage_job.read_info);
         if (ok) {

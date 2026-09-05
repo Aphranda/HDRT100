@@ -54,6 +54,7 @@ from calibration_ring_validate.calibration_load_guard import (  # noqa: E402
 from calibration_ring_validate.calibration_clk_codebook_eval import (  # noqa: E402
     crc8_atm,
 )
+from scpi_common.scpi_serial import STORAGE_FILE_READ_MAX_BYTES  # noqa: E402
 
 
 DATA_FIELDS = (
@@ -813,7 +814,8 @@ def download_data_capture(board: Board, capture_file: dict[str, object],
     file_size: int | None = None
     path_hash: int | None = None
     while file_size is None or len(data) < file_size:
-        requested = 128 if file_size is None else min(128, file_size - len(data))
+        requested = (STORAGE_FILE_READ_MAX_BYTES if file_size is None else
+                     min(STORAGE_FILE_READ_MAX_BYTES, file_size - len(data)))
         response = board_command(
             board,
             f'SYSTem:STORage:FILE:READ? "{path}",{len(data)},{requested}',

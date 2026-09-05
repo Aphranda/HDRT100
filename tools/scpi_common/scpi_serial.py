@@ -69,6 +69,7 @@ SCK_ARM_HEADERS = {
 
 SERIAL_LIFECYCLE_COMMAND = "command"
 SERIAL_LIFECYCLE_PHASE = "phase"
+STORAGE_FILE_READ_MAX_BYTES = 4096
 
 
 def serial_lifecycle_mode() -> str:

@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from tools.sd_trace_decode.sd_trace_decode import decode_trace  # noqa: E402
+from tools.scpi_common.scpi_serial import STORAGE_FILE_READ_MAX_BYTES  # noqa: E402
 
 BUILD_CACHE = ROOT / "build-rtos-multicore-smoke" / "CMakeCache.txt"
 
@@ -367,7 +368,7 @@ def read_file_via_scpi(ser: serial.Serial,
                        timeout_s: float,
                        results: dict[str, str],
                        key_prefix: str,
-                       chunk_size: int = 128) -> bytes:
+                       chunk_size: int = STORAGE_FILE_READ_MAX_BYTES) -> bytes:
     data = bytearray()
     for _ in range(64):
         if expected_size > 0 and len(data) >= expected_size:

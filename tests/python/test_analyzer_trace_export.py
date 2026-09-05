@@ -14,7 +14,10 @@ from tools.analyzer_trace_export.analyzer_trace_export import (
     parse_runtime_status,
     runtime_stopped,
 )
-from tools.scpi_common.scpi_serial import read_scpi_response
+from tools.scpi_common.scpi_serial import (
+    STORAGE_FILE_READ_MAX_BYTES,
+    read_scpi_response,
+)
 
 
 def test_parse_board_and_runtime_stopped() -> None:
@@ -109,6 +112,32 @@ def test_download_file_checks_size_hash_and_eof() -> None:
     assert data == payload
     assert len(pages) == 2
     assert pages[-1]["eof"] is True
+
+
+def test_download_file_defaults_to_firmware_maximum_block() -> None:
+    payload = bytes(range(256)) * 16
+    commands: list[str] = []
+
+    def query(command: str) -> str:
+        commands.append(command)
+        return (f'"OK",1,0,{STORAGE_FILE_READ_MAX_BYTES},'
+                f'{len(payload)},{len(payload)},1,123,0,"{payload.hex()}"')
+
+    data, pages = download_file(
+        query, "/traces/run/analyzer_1.bin", expected_size=len(payload))
+    assert data == payload
+    assert len(pages) == 1
+    assert commands == [
+        'SYSTem:STORage:FILE:READ? '
+        f'"/traces/run/analyzer_1.bin",0,{STORAGE_FILE_READ_MAX_BYTES}'
+    ]
+
+
+def test_download_file_rejects_block_above_firmware_limit() -> None:
+    with pytest.raises(ValueError, match=str(STORAGE_FILE_READ_MAX_BYTES)):
+        download_file(
+            lambda _: "", "/traces/run/analyzer_1.bin",
+            chunk_size=STORAGE_FILE_READ_MAX_BYTES + 1)
 
 
 def test_download_file_rejects_catalog_size_mismatch() -> None:

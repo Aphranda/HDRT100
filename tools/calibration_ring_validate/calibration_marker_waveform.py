@@ -35,6 +35,7 @@ from calibration_ring_validate.calibration_clk_codebook_eval import (  # noqa: E
     crc8_atm,
     marker_raw_waveform,
 )
+from scpi_common.scpi_serial import STORAGE_FILE_READ_MAX_BYTES  # noqa: E402
 
 
 CAPTURE_SCHEMAS = {
@@ -900,8 +901,10 @@ def parse_args() -> argparse.Namespace:
     download.add_argument("--sd-path", required=True)
     download.add_argument("--out", required=True, type=Path)
     download.add_argument("--expected-build")
-    download.add_argument("--chunk-size", type=int, default=128,
-                          choices=range(1, 129), metavar="1..128")
+    download.add_argument(
+        "--chunk-size", type=int, default=STORAGE_FILE_READ_MAX_BYTES,
+        choices=range(1, STORAGE_FILE_READ_MAX_BYTES + 1),
+        metavar=f"1..{STORAGE_FILE_READ_MAX_BYTES}")
     download.add_argument("--baud", type=int, default=115200)
     download.add_argument("--timeout", type=float, default=5.0)
     download.add_argument("--settle", type=float, default=0.2)

@@ -68,6 +68,7 @@ from calibration_ring_validate.calibration_timeout_config import (  # noqa: E402
 from calibration_ring_validate.calibration_storage_job import (  # noqa: E402
     wait_file_write_job,
 )
+from scpi_common.scpi_serial import STORAGE_FILE_READ_MAX_BYTES  # noqa: E402
 
 
 SCK_FIELDS = (
@@ -628,7 +629,8 @@ def download_sck_capture(board: Board, capture_file: dict[str, object],
     path_hash: int | None = None
     page_timings: list[dict[str, int | float | bool]] = []
     while file_size is None or len(data) < file_size:
-        requested = 128 if file_size is None else min(128, file_size - len(data))
+        requested = (STORAGE_FILE_READ_MAX_BYTES if file_size is None else
+                     min(STORAGE_FILE_READ_MAX_BYTES, file_size - len(data)))
         page_offset = len(data)
         page_started = time.monotonic()
         response = board_command(

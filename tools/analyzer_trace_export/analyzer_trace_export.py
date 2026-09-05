@@ -31,6 +31,7 @@ from tools.analyzer_trace_batch_index.analyzer_trace_batch_index import (  # noq
 )
 from tools.analyzer_trace_decode.analyzer_trace_decode import decode  # noqa: E402
 from tools.scpi_common.scpi_serial import (  # noqa: E402
+    STORAGE_FILE_READ_MAX_BYTES,
     open_serial_port,
     read_scpi_response,
 )
@@ -231,10 +232,12 @@ def parse_storage_read(response: str, expected_path: str,
     }
 
 
-def download_file(query: Query, remote_path: str, *, chunk_size: int = 128,
+def download_file(query: Query, remote_path: str, *,
+                  chunk_size: int = STORAGE_FILE_READ_MAX_BYTES,
                   expected_size: int | None = None) -> tuple[bytes, list[dict[str, Any]]]:
-    if chunk_size <= 0 or chunk_size > 128:
-        raise ValueError("chunk_size must be in [1, 128]")
+    if chunk_size <= 0 or chunk_size > STORAGE_FILE_READ_MAX_BYTES:
+        raise ValueError(
+            f"chunk_size must be in [1, {STORAGE_FILE_READ_MAX_BYTES}]")
     data = bytearray()
     pages: list[dict[str, Any]] = []
     file_size: int | None = None
@@ -360,7 +363,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--latest-per-board", type=int, default=4)
     parser.add_argument("--page-limit", type=int, default=16)
     parser.add_argument("--max-pages", type=int, default=64)
-    parser.add_argument("--chunk-size", type=int, default=128)
+    parser.add_argument(
+        "--chunk-size", type=int, default=STORAGE_FILE_READ_MAX_BYTES)
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=2.0)
     parser.add_argument("--settle", type=float, default=0.2)

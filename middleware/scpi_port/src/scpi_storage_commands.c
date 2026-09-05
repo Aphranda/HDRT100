@@ -15,7 +15,8 @@
 #include "storage_manager.h"
 
 #define SCPI_STORAGE_MMEM_PAGE_LIMIT_MAX 16u
-#define SCPI_STORAGE_MMEM_READ_BYTES_MAX 128u
+#define SCPI_STORAGE_MMEM_READ_BYTES_MAX STORAGE_MANAGER_FILE_READ_MAX_BYTES
+#define SCPI_STORAGE_HEX_STREAM_CHUNK_BYTES 64u
 #define SCPI_STORAGE_WRITE_BYTES_MAX 256u
 #define SCPI_STORAGE_JOB_WAIT_LOOPS 10000u
 
@@ -39,6 +40,9 @@ typedef struct {
 static scpi_storage_write_state_t s_storage_write_state;
 
 static bool scpi_storage_wait_job(uint32_t job_id);
+static bool scpi_storage_result_file_read_hex(scpi_t *context,
+                                              uint32_t job_id,
+                                              uint32_t returned);
 static void scpi_storage_hex_encode(const uint8_t *data, size_t data_size, char *hex, size_t hex_size);
 static bool scpi_storage_hex_decode(const char *hex,
                                     size_t hex_len,
@@ -524,12 +528,8 @@ scpi_result_t scpi_cmd_storage_file_read_q(scpi_t *context)
     }
 
     storage_manager_file_read_t read_info;
-    uint8_t data[SCPI_STORAGE_MMEM_READ_BYTES_MAX];
     if (ok) {
-        ok = storage_manager_get_file_read_job_result(job_id,
-                                                      &read_info,
-                                                      data,
-                                                      sizeof(data));
+        ok = storage_manager_acquire_file_read_job_result(job_id, &read_info);
     } else {
         memset(&read_info, 0, sizeof(read_info));
     }
@@ -539,8 +539,6 @@ scpi_result_t scpi_cmd_storage_file_read_q(scpi_t *context)
     storage_manager_vector_t vector;
     storage_manager_get_vector(&vector);
     const uint32_t returned = ok ? read_info.returned : 0u;
-    char hex[(SCPI_STORAGE_MMEM_READ_BYTES_MAX * 2u) + 1u];
-    scpi_storage_hex_encode(data, returned, hex, sizeof(hex));
 
     SCPI_ResultText(context, ok ? "OK" : storage_manager_state_string(vector.state));
     SCPI_ResultUInt32(context, job.id);
@@ -551,8 +549,13 @@ scpi_result_t scpi_cmd_storage_file_read_q(scpi_t *context)
     SCPI_ResultBool(context, ok && read_info.eof ? TRUE : FALSE);
     SCPI_ResultUInt32(context, ok ? read_info.path_hash : 0u);
     SCPI_ResultUInt32(context, vector.storage_error);
-    SCPI_ResultText(context, ok ? hex : "");
-    return SCPI_RES_OK;
+    if (ok) {
+        ok = scpi_storage_result_file_read_hex(context, job_id, returned);
+        storage_manager_release_file_read_job_result(job_id);
+    } else {
+        SCPI_ResultText(context, "");
+    }
+    return ok ? SCPI_RES_OK : SCPI_RES_ERR;
 }
 
 scpi_result_t scpi_cmd_storage_file_delete(scpi_t *context)
@@ -959,6 +962,47 @@ static void scpi_storage_hex_encode(const uint8_t *data, size_t data_size, char 
     hex[data_size * 2u] = '\0';
 }
 
+static bool scpi_storage_result_file_read_hex(scpi_t *context,
+                                              uint32_t job_id,
+                                              uint32_t returned)
+{
+    if (context == NULL || context->interface == NULL ||
+        context->interface->write == NULL) {
+        return false;
+    }
+
+    if (context->interface->write(context, ",\"", 2u) != 2u) {
+        return false;
+    }
+
+    uint8_t data[SCPI_STORAGE_HEX_STREAM_CHUNK_BYTES];
+    char hex[(SCPI_STORAGE_HEX_STREAM_CHUNK_BYTES * 2u) + 1u];
+    uint32_t offset = 0u;
+    while (offset < returned) {
+        size_t copied_size = 0u;
+        const size_t requested =
+            (returned - offset) < sizeof(data) ?
+                (size_t)(returned - offset) : sizeof(data);
+        if (!storage_manager_copy_file_read_job_result(
+                job_id, offset, data, requested, &copied_size) ||
+            copied_size == 0u) {
+            return false;
+        }
+        scpi_storage_hex_encode(data, copied_size, hex, sizeof(hex));
+        const size_t hex_size = copied_size * 2u;
+        if (context->interface->write(context, hex, hex_size) != hex_size) {
+            return false;
+        }
+        offset += (uint32_t)copied_size;
+    }
+
+    if (context->interface->write(context, "\"", 1u) != 1u) {
+        return false;
+    }
+    context->output_count++;
+    return true;
+}
+
 static bool scpi_storage_read_path_param(scpi_t *context, char *path, size_t path_size)
 {
     const char *raw_path = NULL;
@@ -1066,8 +1110,6 @@ scpi_result_t scpi_cmd_mmem_read_q(scpi_t *context)
     memcpy(path_buffer, path, path_len);
     path_buffer[path_len] = '\0';
 
-    uint8_t data[SCPI_STORAGE_MMEM_READ_BYTES_MAX];
-    char hex[(SCPI_STORAGE_MMEM_READ_BYTES_MAX * 2u) + 1u];
     storage_manager_file_read_t read_info;
     uint32_t job_id = 0u;
     bool ok = storage_manager_post_file_read_job(path_buffer, offset, length, &job_id);
@@ -1075,17 +1117,13 @@ scpi_result_t scpi_cmd_mmem_read_q(scpi_t *context)
         ok = scpi_storage_wait_job(job_id);
     }
     if (ok) {
-        ok = storage_manager_get_file_read_job_result(job_id,
-                                                      &read_info,
-                                                      data,
-                                                      sizeof(data));
+        ok = storage_manager_acquire_file_read_job_result(job_id, &read_info);
     } else {
         memset(&read_info, 0, sizeof(read_info));
     }
     storage_manager_vector_t vector;
     storage_manager_get_vector(&vector);
     const uint32_t returned = ok ? read_info.returned : 0u;
-    scpi_storage_hex_encode(data, returned, hex, sizeof(hex));
 
     SCPI_ResultText(context, ok ? "OK" : storage_manager_state_string(vector.state));
     SCPI_ResultText(context, ok ? read_info.path : path_buffer);
@@ -1095,6 +1133,11 @@ scpi_result_t scpi_cmd_mmem_read_q(scpi_t *context)
     SCPI_ResultBool(context, ok && read_info.eof ? TRUE : FALSE);
     SCPI_ResultUInt32(context, ok ? read_info.path_hash : 0u);
     SCPI_ResultUInt32(context, vector.storage_error);
-    SCPI_ResultText(context, ok ? hex : "");
-    return SCPI_RES_OK;
+    if (ok) {
+        ok = scpi_storage_result_file_read_hex(context, job_id, returned);
+        storage_manager_release_file_read_job_result(job_id);
+    } else {
+        SCPI_ResultText(context, "");
+    }
+    return ok ? SCPI_RES_OK : SCPI_RES_ERR;
 }

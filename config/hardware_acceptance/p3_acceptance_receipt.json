@@ -4,64 +4,64 @@
   "acceptance_profile": "QUICK_DIAGNOSTIC",
   "dpll_observation": "SKIPPED_TDMA_ONLY",
   "passed": true,
-  "generated_at_utc": "2026-09-05T03:16:47.800923+00:00",
-  "source_tree_sha256": "2ee0b7a7d30b2cc904f7e05a2da6de58bf58bfc7c098648492ae2655e5e1c1f7",
+  "generated_at_utc": "2026-09-05T04:29:03.925878+00:00",
+  "source_tree_sha256": "6f611e282939527533f883eb7d14f6e487d390a743e836a18eea3692da8505b2",
   "source_file_count": 945,
   "bench_config_path": "out/hardware-acceptance/p3_bench_quick_4_local.json",
   "bench_config_sha256": "9dc4a38b0af9d896b9c41933e35feedaaaeb6e5ce203d1c19f305a2ff8c2d0c0",
-  "build_id": "20260905002434",
+  "build_id": "20260905033814",
   "firmware_package": {
-    "path": "out/build/pico2-release/DHRT100_UPDATE.pkg",
-    "sha256": "8ef25702c6f841741aeaf6fa634a6f75e1a4c22764cb70738d735065a6ddcd58"
+    "path": "out/build/sd-4096-closed-loop-20260905/DHRT100_UPDATE.pkg",
+    "sha256": "d72b6aeb96a939b89c3dcbaf1db326f4caaaa2b8e1a24023b8a6b3234a7eb631"
   },
   "ota_summary": {
-    "path": "out/hardware-acceptance/sync-la-006-stopped-export-receipt-20260905/ota-four-board-tdma/summary.json",
-    "sha256": "2ae934535eb7030d3cc5d6de27178424d7a70ca88a523033624d0cd72f4d90ab",
+    "path": "out/hardware-acceptance/sd-4096-closed-loop-20260905/ota-four-board-tdma/summary.json",
+    "sha256": "3b4f3e1f426f54cc44cd2d319bbf81325886a5163608214345de0b889f37853f",
     "board_count": 4
   },
   "topology_summary": {
-    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/p0t-topology/summary.json",
-    "sha256": "0c44dd4b7b202aa7a7d26b1ef773deb7f1c1118fcbfd9ab6cd357e1d1759346e"
+    "path": "out/hardware-acceptance/sd-4096-quick-resume-20260905/p0t-topology/summary.json",
+    "sha256": "de18ed5c265a0aeddc97ac22e8c8d007809e73c96ec133cafbe77cb7668f0128"
   },
   "coarse_calibration_summary": {
-    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/coarse-calibration-summary.json",
-    "sha256": "285a7da50b7718413ff08afbdaf6945a712e96e6ae640a7efe300e9d98c23d1d"
+    "path": "out/hardware-acceptance/sd-4096-quick-resume-20260905/coarse-calibration-summary.json",
+    "sha256": "40dd7a3bb41b6e6a7ee0cc7cbc26d25e5acbbe7fb326423825206de38cf40b71"
   },
   "coded_calibration_summary": {
-    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/coded-calibration-summary.json",
-    "sha256": "c7fdb2bb8495d3fd6fc6d1b637c8c00dfb4c8894415daf915dd4de0f7e72e85c"
+    "path": "out/hardware-acceptance/sd-4096-quick-resume-20260905/coded-calibration-summary.json",
+    "sha256": "bf5cb66361693043e2e1f54a331223fabf272409b38140064695558f656bd69a"
   },
   "initialization_reset": {
-    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/initialization-reset.json",
-    "sha256": "43aae099f4c7ff0c92fa48a8e0e9364ffab7a3ccb01b97a3473d417cf29563b5"
+    "path": "out/hardware-acceptance/sd-4096-quick-resume-20260905/initialization-reset.json",
+    "sha256": "321ea3d1856f07a16cb482c5fe5ab7eac34e4996e8cd3e3ba44d97ec1652369f"
   },
   "p3_summary": {
-    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/p3-four-board/summary.json",
-    "sha256": "2c4ef5511aa7cae51a35f07f6e296138214a4d6a675aa85fe4c6d7573f42d36c"
+    "path": "out/hardware-acceptance/sd-4096-quick-resume-20260905/p3-four-board/summary.json",
+    "sha256": "47583da15f1f190bb8c661cad48e6e705c3f35ec8c479e97883f7dbdaf9153c9"
   },
   "trn00_summary": {
-    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/trn00-summary.json",
-    "sha256": "2d4234cb8fd41af4ab3f1729f8cfd16ed8110dc656c933d79af5eb8d5b227984"
+    "path": "out/hardware-acceptance/sd-4096-quick-resume-20260905/trn00-summary.json",
+    "sha256": "5a927d4c7abc84587dc62ae5d288c0a4fe019e85b35e327790eae8c5ebc9db47"
   },
   "trn01_summary": {
-    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/trn01-summary.json",
-    "sha256": "fae5372c4d69c349a66d02c61734d6b61bc3bcc7a161c1d775a0f7a7e6b757af"
+    "path": "out/hardware-acceptance/sd-4096-quick-resume-20260905/trn01-summary.json",
+    "sha256": "58356a5e43b9a50ef2af29ca63f46819fc44043d85d7e7e7b89f897a3370b113"
   },
   "trn02_summary": {
-    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/trn02-data/summary.json",
-    "sha256": "db9c5b8a6f54dfd3ad56a37109d1b84eabc922b8e5bcf12df3b0c6dba3094d2e"
+    "path": "out/hardware-acceptance/sd-4096-quick-resume-20260905/trn02-data/summary.json",
+    "sha256": "7c5954cb5eb0a70d4225de6dc2a27dc3ebad726b75cc57b4c63e4ff2a0dec3a1"
   },
   "trn03_matrix": {
-    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/trn03-matrix.json",
-    "sha256": "18bc462688451281bafb9c3178e85a1281953d2d62826c745f5c1645b6f8380a"
+    "path": "out/hardware-acceptance/sd-4096-quick-resume-20260905/trn03-matrix.json",
+    "sha256": "9dc259f5b50fac8c966f5d1859eea8da01676ead660bde97538666b9deb63ee9"
   },
   "calibration_parameter_handoff": {
-    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/calibration-parameter-handoff.json",
-    "sha256": "81194a27e9320c4e756fdf6f11d2a9de2ce32a910e08a582a7a36bea4786936d"
+    "path": "out/hardware-acceptance/sd-4096-quick-resume-20260905/calibration-parameter-handoff.json",
+    "sha256": "089594ec8259c75bca39cf5a53bf97427653d5869180de07503cfb1ee4f2500f"
   },
   "tdma_summary": {
-    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/tdma-process-image/summary.json",
-    "sha256": "351d621d2c77dfd7efb04045957c465db0a4c4fcb785c69641957bd001b98c97"
+    "path": "out/hardware-acceptance/sd-4096-quick-resume-20260905/tdma-process-image/summary.json",
+    "sha256": "f0d5714a64ca885fb05acab2e9b458e43ea392630c25bd98279c0707ca5a7ddf"
   },
   "ota_board_ids": [
     "0010071E65B5CB38",
@@ -77,73 +77,73 @@
   ],
   "trial_count": 8,
   "delay_min_ns": 80.0,
-  "delay_max_ns": 80.0,
+  "delay_max_ns": 82.0,
   "highest_stable_frequency_mhz": 10,
   "link_delay_ns_by_link": [
     80,
-    80,
-    80,
-    80
+    82,
+    82,
+    82
   ],
   "link_base_delay_ns_by_link": [
     40,
-    40,
-    40,
-    40
+    41,
+    41,
+    41
   ],
   "path_delay_baseline_divisor": 2,
-  "calibration_generation": 1788577398,
+  "calibration_generation": 1788582183,
   "calibration_load_mask": 4,
   "schedule_before": {
     "0010071E65B5CB38": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 22720,
-      "schedule_miss_count": 24221
+      "cycle_count": 22482,
+      "schedule_miss_count": 23927
     },
     "FB276192BEF9CCE1": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 22689,
-      "schedule_miss_count": 24230
+      "cycle_count": 22434,
+      "schedule_miss_count": 24045
     },
     "2BD5090FE009FA2A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 22702,
-      "schedule_miss_count": 24275
+      "cycle_count": 22433,
+      "schedule_miss_count": 23769
     },
     "A1E549202D18ED6A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 22668,
-      "schedule_miss_count": 24182
+      "cycle_count": 22426,
+      "schedule_miss_count": 23917
     }
   },
   "schedule_after": {
     "0010071E65B5CB38": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 831390,
-      "schedule_miss_count": 882997
+      "cycle_count": 384018,
+      "schedule_miss_count": 408408
     },
     "FB276192BEF9CCE1": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 830992,
-      "schedule_miss_count": 865027
+      "cycle_count": 383918,
+      "schedule_miss_count": 399967
     },
     "2BD5090FE009FA2A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 830910,
-      "schedule_miss_count": 867601
+      "cycle_count": 383285,
+      "schedule_miss_count": 399856
     },
     "A1E549202D18ED6A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 830221,
-      "schedule_miss_count": 870160
+      "cycle_count": 383415,
+      "schedule_miss_count": 401084
     }
   },
   "realtime_load_mask_unchanged": true,
@@ -162,8 +162,8 @@
     "output_handoff_s": 0.05
   },
   "timing_probe": {
-    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/timing.json",
-    "sha256": "e68888e828694a2a83612dbdec172ac581898030e9032ed54dfb743b3300e7dd"
+    "path": "out/hardware-acceptance/sd-4096-quick-resume-20260905/timing.json",
+    "sha256": "ac2792c3929f50e2379508588d408b5e614bfbf8e010227711366d93cb48f4aa"
   },
   "flow_completed": true,
   "strict_gates_passed": false,
@@ -172,11 +172,11 @@
       "phase": "coarse CLK calibration level 7",
       "returncode": 1,
       "error": "RuntimeError: FB276192BEF9CCE1: follower forwarding arm failed: {'tag': 'CLKTRAIN', 'version': 1, 'state': 4, 'result': 4, 'role': 1, 'request_seq': 1, 'service_count': 0, 'baud_hz': 10000000, 'requested_cycles': 1, 'return_seen': 0, 'return_before_tx_done': 0, 'tx_sck_pin': 25, 'rx_sck_pin': 28, 'timestamp_resolution_ns': 4, 'timestamp_flags': 1, 'tx_start_ns_lo': 0, 'tx_start_ns_hi': 0, 'tx_done_observed_ns_lo': 0, 'tx_done_observed_ns_hi': 0, 'return_observed_ns_lo': 0, 'return_observed_ns_hi': 0, 'burst_duration_ns_lo': 0, 'burst_duration_ns_hi': 0, 'runtime_train_request_seq': 1, 'runtime_train_accepted_seq': 1, 'runtime_train_start_count': 0, 'runtime_train_reject_count': 1, 'runtime_training_dirty': 0, 'tx_start_timestamp_ns': 0, 'tx_done_observed_timestamp_ns': 0, 'return_observed_timestamp_ns': 0, 'burst_duration_ns': 0}",
-      "summary": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/coarse-clk-level7/summary.json"
+      "summary": "out/hardware-acceptance/sd-4096-quick-resume-20260905/coarse-clk-level7/summary.json"
     }
   ],
   "diagnostic_summary": {
-    "path": "out/hardware-acceptance/sync-la-006-stopped-export-timeout-closed-loop-20260905/diagnostic.json",
-    "sha256": "990b8b4dd273ccb397f2dc8a28c9ec1ae09a5c83e416bc7db71c356863d4cb10"
+    "path": "out/hardware-acceptance/sd-4096-quick-resume-20260905/diagnostic.json",
+    "sha256": "8ca5c0cb0d620292663a6df977de1c7ea65329de4185cef4a19aa807aa45e234"
   }
 }
