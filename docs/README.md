@@ -191,6 +191,7 @@ docs/
 | `arch/HAOFV_FLASH_TODO.md` | Flash v2 M0-M6 实施工作板，按依赖组织 Map/owner、Stores、Boot、本地 OTA、TDMA OTA 和量产门禁。 |
 | `arch/HAOFV_FLASH_TASK_PROGRESS.md` | Flash v2 阶段任务进度、提交、验证缺口、板端部署状态和下一 gate。 |
 | `arch/ARCH_T2_RESERVATION_ARCHITECTURE.md` | HAOFV 下 T2 预约与分布式时钟分发主线；各 owner 的实现细项分别落入 Trigger、VDC、TDMA、RefMem 和 SYNC_IO。 |
+| `arch/ARCH_ACTIVATION_LOAD_ARCHITECTURE.md` | Activation/Load 跨域主线：staging→校验→gate→激活→回滚的一致性装配，含三类加载术语与代码对账快照；非新 owner，细项下沉各域。 |
 | `arch/HAOFV_MAINTENANCE_TODO.md` | HAOFV 架构符合性维护待办，跟踪 owner、AO/FB/Vector、反射内存和硬实时边界偏差。 |
 | `arch/HAOFV_VDC_DPLL_ARCHITECTURE.md` | HAOFV 下 VDC/DPLL 既有融合架构输入；VDC 主域 canonical 见 `vdc/VDC_DOMAIN_ARCHITECTURE.md`。 |
 | `arch/ARCH_PRODUCT_ARCHITECTURE.md` | 产品化系统架构特化，统一 DHRT100 产品目标、双核 AMP、Vector/Blackboard、四板分布式、维护域和发布门禁。 |
