@@ -434,20 +434,14 @@ time.
 - `docs/trigger/TRIGGER_SYNC_TODO.md`: remaining work for the production trigger
   subsystem.
 - `docs/interface/SCPI_COMMANDS.md`: basic SCPI command list for trigger configuration.
-- `docs/ota/OTA_SYSTEM_DESIGN.md`: A/B OTA upgrade design for the W25Q32 4 MB QSPI Flash.
-- `docs/ota/OTA_COPY_TRANSACTION_DESIGN.md`: copy-to-active OTA transaction
-  design for power-loss recovery within the current flash partition layout.
-- `docs/ota/OTA_TODO.md`: OTA productization backlog for release gating,
-  power-loss recovery, manifest compatibility, validation reports, and
-  automation.
-- `docs/ota/OTA_PORTABLE_ARCHITECTURE.md`: portable OTA design and validation
-  guide for reusing the proven package, metadata, Bootloader, and negative-path
-  validation flow on RP2350 and STM32 RTOS products.
-- `docs/ota/OTA_OPEN_SOURCE_COMPARISON.md`: comparison with MCUboot, ESP-IDF OTA,
-  Mender MCU, and STM32 X-CUBE-SBSFU for the RP2350/STM32 RTOS scope.
-- `docs/ota/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`: staged plan for hardening
-  `portable_ota` first, then migrating the current project with closed-loop
-  validation at each step.
+- `docs/ota/OTA_HAOFV_ARCHITECTURE.md`: current OtaAO/OtaFB/OtaVector,
+  BootControl selection, FlashTransaction owner, Direct A/B, and recovery
+  architecture.
+- `docs/ota/OTA_TODO.md`: stable OTA HAOFV task IDs and exit gates.
+- `docs/ota/OTA_TASK_PROGRESS.md`: OTA implementation, build, HIL, failure, and
+  rollback evidence.
+- `docs/legacy/ota/`: archived v1, copy-to-active, Direct A/B, portable-library,
+  and open-source comparison documents.
 - `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`: HAOFV-based RTOS + dual-core AMP
   architecture for the four-board distributed trigger system, including the
   simulated reflective-memory DistributedVectorTable.

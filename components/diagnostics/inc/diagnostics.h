@@ -106,6 +106,7 @@ typedef struct {
     uint32_t last_seen_mask;
     uint32_t last_stale_mask;
     uint32_t supervisor_count;
+    uint32_t ota_phase;
 } diagnostics_watchdog_status_t;
 
 void diagnostics_init(void);
@@ -127,6 +128,7 @@ void diagnostics_watchdog_task_heartbeat(diagnostics_watchdog_task_t task);
  * This is telemetry only; it never feeds or reconfigures the hardware
  * watchdog from the transaction owner. */
 void diagnostics_watchdog_flash_transaction_progress(void);
+void diagnostics_watchdog_mark_ota_phase(uint32_t phase);
 void diagnostics_watchdog_service(void);
 void diagnostics_watchdog_request_test_stall(void);
 void diagnostics_get_watchdog_status(diagnostics_watchdog_status_t *status);

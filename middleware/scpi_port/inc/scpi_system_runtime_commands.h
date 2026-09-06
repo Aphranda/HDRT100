@@ -23,6 +23,7 @@ scpi_result_t scpi_cmd_board_map_q(scpi_t *context);
 scpi_result_t scpi_cmd_led_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_watchdog_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_watchdog_log_q(scpi_t *context);
+scpi_result_t scpi_cmd_watchdog_ota_phase_q(scpi_t *context);
 #if PROJECT_ENABLE_WATCHDOG_TEST
 scpi_result_t scpi_cmd_watchdog_test(scpi_t *context);
 #endif
@@ -47,7 +48,8 @@ scpi_result_t scpi_cmd_watchdog_test(scpi_t *context);
     {.pattern = "SYSTem:BOARD:MAP?", .callback = scpi_cmd_board_map_q}, \
     {.pattern = "SYSTem:LED:STATus?", .callback = scpi_cmd_led_status_q}, \
     {.pattern = "SYSTem:WATCHdog:STATus?", .callback = scpi_cmd_watchdog_status_q}, \
-    {.pattern = "SYSTem:WATCHdog:LOG?", .callback = scpi_cmd_watchdog_log_q} \
+    {.pattern = "SYSTem:WATCHdog:LOG?", .callback = scpi_cmd_watchdog_log_q}, \
+    {.pattern = "SYSTem:WATCHdog:OTA:PHase?", .callback = scpi_cmd_watchdog_ota_phase_q} \
     SCPI_SYSTEM_WATCHDOG_TEST_COMMANDS
 
 #if PROJECT_ENABLE_WATCHDOG_TEST

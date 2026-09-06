@@ -4,10 +4,12 @@
 #include <string.h>
 
 #include "drv_flash.h"
+#include "drv_watchdog.h"
 #include "ota_crc32.h"
 #include "ota_metadata_flash.h"
 #include "pota_boot_control_facade.h"
 #include "portable_ota_port.h"
+
 
 #define OTA_METADATA_COPY_SIZE    DRV_FLASH_SECTOR_SIZE
 #define OTA_METADATA_COPY_A_OFFSET OTA_METADATA_OFFSET
@@ -62,6 +64,7 @@ static uint32_t ota_metadata_bcb_page_offset(uint32_t lane, uint32_t page)
            page * POTA_BCB_PAGE_SIZE;
 }
 
+
 static bool ota_metadata_bcb_read_page(void *context, uint32_t lane,
                                        uint32_t page, uint8_t *data,
                                        uint32_t length)
@@ -71,8 +74,9 @@ static bool ota_metadata_bcb_read_page(void *context, uint32_t lane,
         length != POTA_BCB_PAGE_SIZE || data == NULL) {
         return false;
     }
-    return ota_metadata_flash_read(ota_metadata_bcb_page_offset(lane, page),
-                                   data, length);
+    const bool ok = ota_metadata_flash_read(
+        ota_metadata_bcb_page_offset(lane, page), data, length);
+    return ok;
 }
 
 static bool ota_metadata_bcb_program_page(void *context, uint32_t lane,
@@ -86,6 +90,19 @@ static bool ota_metadata_bcb_program_page(void *context, uint32_t lane,
     }
     return ota_metadata_flash_program(ota_metadata_bcb_page_offset(lane, page),
                                       data, length);
+}
+
+static pota_bcb_step_result_t ota_metadata_bcb_program_page_step(
+    void *context, uint32_t lane, uint32_t page, const uint8_t *data,
+    uint32_t length)
+{
+    (void)context;
+    if (lane >= POTA_BCB_LANE_COUNT || page >= OTA_BCB_LANE_PAGE_COUNT ||
+        length != POTA_BCB_PAGE_SIZE || data == NULL) {
+        return POTA_BCB_STEP_FAILED;
+    }
+    return ota_metadata_flash_program_step(
+        ota_metadata_bcb_page_offset(lane, page), data, length);
 }
 
 static bool ota_metadata_bcb_erase_lane(void *context, uint32_t lane)
@@ -109,6 +126,20 @@ static bool ota_metadata_bcb_erase_sector(void *context, uint32_t lane,
     return ota_metadata_flash_erase(
         ota_metadata_bcb_page_offset(lane, 0u) +
             sector_index * DRV_FLASH_SECTOR_SIZE,
+                                    DRV_FLASH_SECTOR_SIZE);
+}
+
+static pota_bcb_step_result_t ota_metadata_bcb_erase_sector_step(
+    void *context, uint32_t lane, uint32_t sector_index)
+{
+    (void)context;
+    if (lane >= POTA_BCB_LANE_COUNT ||
+        sector_index >= OTA_BCB_ERASE_SECTOR_COUNT) {
+        return POTA_BCB_STEP_FAILED;
+    }
+    return ota_metadata_flash_erase_step(
+        ota_metadata_bcb_page_offset(
+            lane, sector_index * (DRV_FLASH_SECTOR_SIZE / POTA_BCB_PAGE_SIZE)),
         DRV_FLASH_SECTOR_SIZE);
 }
 
@@ -137,9 +168,12 @@ static void ota_metadata_bcb_on_erase_lane(void *context, uint32_t lane)
 static void ota_metadata_bcb_service(void *context)
 {
     (void)context;
-    /* Observation hook only.  The watchdog supervisor owns the health gate
-     * and hardware feed; this callback must never turn a long BCB scan into an
-     * unconditional keep-alive path. */
+    /* This hook is deliberately non-blocking.  It is called from inside the
+     * BCB selector, including from the SCPI/OTA service call boundary; a
+     * scheduler delay here can strand the caller between a flash read and the
+     * selector's completion breadcrumb.  The selector is bounded (two lanes,
+     * finite records), and the watchdog supervisor remains the sole owner of
+     * hardware feeding. */
 }
 
 static bool ota_metadata_bcb_init(pota_boot_control_facade_t *store)
@@ -148,8 +182,10 @@ static bool ota_metadata_bcb_init(pota_boot_control_facade_t *store)
         .context = NULL,
         .read_page = ota_metadata_bcb_read_page,
         .program_page = ota_metadata_bcb_program_page,
+        .program_page_step = ota_metadata_bcb_program_page_step,
         .erase_lane = ota_metadata_bcb_erase_lane,
         .erase_lane_sector = ota_metadata_bcb_erase_sector,
+        .erase_lane_sector_step = ota_metadata_bcb_erase_sector_step,
         .erase_sector_count = OTA_BCB_ERASE_SECTOR_COUNT,
         .on_program_page = ota_metadata_bcb_on_program_page,
         .on_erase_lane = ota_metadata_bcb_on_erase_lane,
@@ -166,12 +202,21 @@ static bool ota_metadata_load_bcb(ota_metadata_t *metadata)
 {
     pota_boot_control_facade_t store;
     pota_bcb_view_t view;
-    if (metadata == NULL || !ota_metadata_bcb_init(&store) ||
-        pota_boot_control_facade_select_newest(&store, &view) !=
-            POTA_BCB_RESULT_OK ||
+    if (metadata == NULL) {
+        return false;
+    }
+
+    if (!ota_metadata_bcb_init(&store)) {
+        return false;
+    }
+
+    const pota_bcb_result_t selected =
+        pota_boot_control_facade_select_newest(&store, &view);
+    if (selected != POTA_BCB_RESULT_OK ||
         view.update.payload_length != sizeof(*metadata)) {
         return false;
     }
+
     memcpy(metadata, view.update.payload, sizeof(*metadata));
     if (!ota_metadata_is_valid(metadata)) {
         return false;
@@ -273,6 +318,46 @@ static void ota_metadata_upgrade_if_needed(ota_metadata_t *metadata)
     portable_ota_port_metadata_upgrade_if_needed(metadata);
 }
 
+#if !defined(PROJECT_FLASH_DEPLOYMENT_V2) || !PROJECT_FLASH_DEPLOYMENT_V2
+static bool ota_metadata_load_legacy_copies(ota_metadata_t *metadata)
+{
+    ota_metadata_t copies[OTA_METADATA_COPY_COUNT];
+    bool valid[OTA_METADATA_COPY_COUNT] = {false, false};
+    memset(copies, 0, sizeof(copies));
+
+    for (uint32_t i = 0u; i < OTA_METADATA_COPY_COUNT; i++) {
+        if (ota_metadata_flash_read(ota_metadata_copy_offset(i), &copies[i],
+                                    sizeof(copies[i]))) {
+            valid[i] = ota_metadata_is_valid(&copies[i]);
+        }
+
+        if (!valid[i]) {
+            ota_metadata_v2_t legacy_copy;
+            if (ota_metadata_flash_read(ota_metadata_copy_offset(i),
+                                        &legacy_copy,
+                                        sizeof(legacy_copy)) &&
+                ota_metadata_v2_is_valid(&legacy_copy)) {
+                ota_metadata_from_v2(&legacy_copy, &copies[i]);
+                valid[i] = true;
+            }
+        }
+    }
+
+    (void)valid;
+    const ota_metadata_t *selected =
+        portable_ota_port_metadata_select_newest(
+            copies, OTA_METADATA_COPY_COUNT);
+    if (selected != NULL) {
+        *metadata = *selected;
+        ota_metadata_upgrade_if_needed(metadata);
+        return true;
+    }
+
+    ota_metadata_set_default(metadata);
+    return true;
+}
+#endif
+
 bool ota_metadata_load(ota_metadata_t *metadata)
 {
     if (metadata == NULL) {
@@ -286,37 +371,7 @@ bool ota_metadata_load(ota_metadata_t *metadata)
 #if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
     return false;
 #else
-
-    ota_metadata_t copies[OTA_METADATA_COPY_COUNT];
-    bool valid[OTA_METADATA_COPY_COUNT] = {false, false};
-    memset(copies, 0, sizeof(copies));
-
-    for (uint32_t i = 0u; i < OTA_METADATA_COPY_COUNT; i++) {
-        if (ota_metadata_flash_read(ota_metadata_copy_offset(i), &copies[i], sizeof(copies[i]))) {
-            valid[i] = ota_metadata_is_valid(&copies[i]);
-        }
-
-        if (!valid[i]) {
-            ota_metadata_v2_t legacy_copy;
-            if (ota_metadata_flash_read(ota_metadata_copy_offset(i), &legacy_copy, sizeof(legacy_copy)) &&
-                ota_metadata_v2_is_valid(&legacy_copy)) {
-                ota_metadata_from_v2(&legacy_copy, &copies[i]);
-                valid[i] = true;
-            }
-        }
-    }
-
-    (void)valid;
-    const ota_metadata_t *selected =
-        portable_ota_port_metadata_select_newest(copies, OTA_METADATA_COPY_COUNT);
-    if (selected != NULL) {
-        *metadata = *selected;
-        ota_metadata_upgrade_if_needed(metadata);
-        return true;
-    }
-
-    ota_metadata_set_default(metadata);
-    return true;
+    return ota_metadata_load_legacy_copies(metadata);
 #endif
 }
 
@@ -388,6 +443,11 @@ bool ota_metadata_mark_pending(ota_slot_t slot, uint32_t image_size,
 
 bool ota_metadata_confirm_active(void)
 {
+    return ota_metadata_confirm_active_snapshot(NULL);
+}
+
+bool ota_metadata_confirm_active_snapshot(ota_metadata_t *committed_metadata)
+{
     ota_metadata_t metadata;
     if (!ota_metadata_load(&metadata)) {
         return false;
@@ -397,7 +457,13 @@ bool ota_metadata_confirm_active(void)
         return false;
     }
 
-    return ota_metadata_store(&metadata);
+    if (!ota_metadata_store(&metadata)) {
+        return false;
+    }
+    if (committed_metadata != NULL) {
+        *committed_metadata = metadata;
+    }
+    return true;
 }
 
 bool ota_metadata_set_boot_mode(ota_boot_mode_t mode)
@@ -520,60 +586,180 @@ bool ota_metadata_corrupt_copy(uint32_t copy_index)
 }
 
 static pota_boot_control_facade_t s_mark_pending_store;
+static pota_bcb_scan_t s_mark_pending_scan;
+static pota_bcb_selection_t s_mark_pending_selection;
 static pota_bcb_txn_t s_mark_pending_txn;
-static bool s_mark_pending_active;
+static ota_metadata_t s_mark_pending_metadata;
+static pota_bcb_update_t s_mark_pending_update;
 
-pota_platform_step_result_t ota_metadata_mark_pending_step(
+enum {
+    OTA_MARK_PENDING_STAGE_IDLE = 0u,
+    OTA_MARK_PENDING_STAGE_SCAN,
+    OTA_MARK_PENDING_STAGE_TRANSACTION,
+};
+
+static uint32_t s_mark_pending_stage;
+static ota_slot_t s_mark_pending_slot;
+static uint32_t s_mark_pending_image_size;
+static uint32_t s_mark_pending_image_crc32;
+static uint32_t s_mark_pending_security_counter;
+
+static void ota_metadata_mark_pending_reset(void)
+{
+    s_mark_pending_stage = OTA_MARK_PENDING_STAGE_IDLE;
+}
+
+static bool ota_metadata_mark_pending_request_matches(
     ota_slot_t slot, uint32_t image_size, uint32_t image_crc32,
     uint32_t security_counter)
 {
-    if (!s_mark_pending_active) {
-        ota_metadata_t metadata;
-        if (!ota_metadata_load(&metadata) ||
-            !portable_ota_port_metadata_mark_pending(&metadata, slot,
-                                                     image_size,
-                                                     image_crc32) ||
-            !ota_metadata_bcb_init(&s_mark_pending_store)) {
-            return POTA_PLATFORM_STEP_FAILED;
-        }
+    return slot == s_mark_pending_slot &&
+           image_size == s_mark_pending_image_size &&
+           image_crc32 == s_mark_pending_image_crc32 &&
+           security_counter == s_mark_pending_security_counter;
+}
 
-        pota_bcb_view_t view;
-        const pota_bcb_result_t selected =
-            pota_boot_control_facade_select_newest(&s_mark_pending_store,
-                                                   &view);
-        if (selected == POTA_BCB_RESULT_OK &&
-            security_counter < view.update.security_counter) {
-            return POTA_PLATFORM_STEP_FAILED;
+static bool ota_metadata_from_selection(
+    const pota_bcb_selection_t *selection,
+    ota_metadata_t *metadata)
+{
+    if (selection == NULL || metadata == NULL) {
+        return false;
+    }
+    if (selection->result == POTA_BCB_RESULT_OK) {
+        if (selection->newest.update.payload_length != sizeof(*metadata)) {
+            return false;
         }
-        if (selected != POTA_BCB_RESULT_OK &&
-            selected != POTA_BCB_RESULT_NO_VALID) {
-            return POTA_PLATFORM_STEP_FAILED;
+        (void)memcpy(metadata, selection->newest.update.payload,
+                     sizeof(*metadata));
+        if (!ota_metadata_is_valid(metadata)) {
+            return false;
         }
+        ota_metadata_upgrade_if_needed(metadata);
+        return true;
+    }
+    if (selection->result != POTA_BCB_RESULT_NO_VALID) {
+        return false;
+    }
+#if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
+    return false;
+#else
+    return ota_metadata_load_legacy_copies(metadata);
+#endif
+}
 
-        ota_metadata_update_crc(&metadata);
-        pota_bcb_update_t update;
-        (void)memset(&update, 0, sizeof(update));
-        update.sequence = metadata.sequence;
-        update.boot_generation = metadata.boot_generation;
-        update.security_counter = security_counter;
-        update.payload_length = sizeof(metadata);
-        (void)memcpy(update.payload, &metadata, sizeof(metadata));
-        const pota_bcb_result_t begin = pota_bcb_txn_begin(
-            &s_mark_pending_txn, &s_mark_pending_store.store, &update);
-        if (begin != POTA_BCB_RESULT_OK) {
+pota_platform_step_result_t ota_metadata_mark_pending_step(
+    ota_slot_t slot, uint32_t image_size, uint32_t image_crc32,
+    uint32_t security_counter, ota_metadata_t *committed_metadata)
+{
+    if (s_mark_pending_stage == OTA_MARK_PENDING_STAGE_IDLE) {
+        drv_watchdog_mark_ota_phase(OTA_TRACE_PHASE_MARK_PENDING_LOAD);
+        if (!ota_metadata_bcb_init(&s_mark_pending_store)) {
             return POTA_PLATFORM_STEP_FAILED;
         }
-        s_mark_pending_active = true;
+        drv_watchdog_mark_ota_phase(
+            OTA_TRACE_PHASE_MARK_PENDING_STORE_INIT_DONE);
+        drv_watchdog_mark_ota_phase(
+            OTA_TRACE_PHASE_MARK_PENDING_LOAD_BCB_INIT);
+        if (pota_bcb_scan_begin(&s_mark_pending_scan,
+                                &s_mark_pending_store.store) !=
+            POTA_BCB_RESULT_OK) {
+            ota_metadata_mark_pending_reset();
+            return POTA_PLATFORM_STEP_FAILED;
+        }
+        s_mark_pending_slot = slot;
+        s_mark_pending_image_size = image_size;
+        s_mark_pending_image_crc32 = image_crc32;
+        s_mark_pending_security_counter = security_counter;
+        s_mark_pending_stage = OTA_MARK_PENDING_STAGE_SCAN;
+        drv_watchdog_mark_ota_phase(
+            OTA_TRACE_PHASE_MARK_PENDING_LOAD_BCB_SELECT);
+        return POTA_PLATFORM_STEP_PENDING;
     }
 
+    if (!ota_metadata_mark_pending_request_matches(
+            slot, image_size, image_crc32, security_counter)) {
+        ota_metadata_mark_pending_reset();
+        return POTA_PLATFORM_STEP_FAILED;
+    }
+
+    if (s_mark_pending_stage == OTA_MARK_PENDING_STAGE_SCAN) {
+        const pota_bcb_step_result_t scan_step =
+            pota_bcb_scan_step(&s_mark_pending_scan);
+        if (scan_step == POTA_BCB_STEP_PENDING) {
+            return POTA_PLATFORM_STEP_PENDING;
+        }
+        if (scan_step != POTA_BCB_STEP_DONE) {
+            ota_metadata_mark_pending_reset();
+            return POTA_PLATFORM_STEP_FAILED;
+        }
+        const pota_bcb_result_t selected =
+            pota_bcb_scan_result(&s_mark_pending_scan,
+                                 &s_mark_pending_selection);
+        if (selected != POTA_BCB_RESULT_OK &&
+            selected != POTA_BCB_RESULT_NO_VALID) {
+            ota_metadata_mark_pending_reset();
+            return POTA_PLATFORM_STEP_FAILED;
+        }
+        drv_watchdog_mark_ota_phase(
+            OTA_TRACE_PHASE_MARK_PENDING_LOAD_BCB_SELECT_DONE);
+
+        drv_watchdog_mark_ota_phase(
+            OTA_TRACE_PHASE_MARK_PENDING_LOAD_BCB_COPY);
+        if (!ota_metadata_from_selection(&s_mark_pending_selection,
+                                         &s_mark_pending_metadata) ||
+            !portable_ota_port_metadata_mark_pending(
+                &s_mark_pending_metadata, slot, image_size, image_crc32)) {
+            ota_metadata_mark_pending_reset();
+            return POTA_PLATFORM_STEP_FAILED;
+        }
+        drv_watchdog_mark_ota_phase(
+            OTA_TRACE_PHASE_MARK_PENDING_MUTATE_DONE);
+
+        ota_metadata_update_crc(&s_mark_pending_metadata);
+        (void)memset(&s_mark_pending_update, 0, sizeof(s_mark_pending_update));
+        s_mark_pending_update.sequence = s_mark_pending_metadata.sequence;
+        s_mark_pending_update.boot_generation =
+            s_mark_pending_metadata.boot_generation;
+        s_mark_pending_update.security_counter = security_counter;
+        s_mark_pending_update.payload_length = sizeof(s_mark_pending_metadata);
+        (void)memcpy(s_mark_pending_update.payload, &s_mark_pending_metadata,
+                     sizeof(s_mark_pending_metadata));
+        const pota_bcb_result_t begin =
+            pota_bcb_txn_begin_from_selection(
+                &s_mark_pending_txn, &s_mark_pending_store.store,
+                &s_mark_pending_update,
+                &s_mark_pending_selection);
+        if (begin != POTA_BCB_RESULT_OK) {
+            ota_metadata_mark_pending_reset();
+            return POTA_PLATFORM_STEP_FAILED;
+        }
+        drv_watchdog_mark_ota_phase(
+            OTA_TRACE_PHASE_MARK_PENDING_TXN_BEGIN);
+        s_mark_pending_stage = OTA_MARK_PENDING_STAGE_TRANSACTION;
+        return POTA_PLATFORM_STEP_PENDING;
+    }
+
+    if (s_mark_pending_stage != OTA_MARK_PENDING_STAGE_TRANSACTION) {
+        ota_metadata_mark_pending_reset();
+        return POTA_PLATFORM_STEP_FAILED;
+    }
+    drv_watchdog_mark_ota_phase(OTA_TRACE_PHASE_MARK_PENDING_TXN_STEP);
     const pota_bcb_step_result_t step =
         pota_bcb_txn_step(&s_mark_pending_txn);
     if (step == POTA_BCB_STEP_DONE) {
-        s_mark_pending_active = false;
+        if (committed_metadata != NULL) {
+            *committed_metadata = s_mark_pending_metadata;
+        }
+        ota_metadata_mark_pending_reset();
+        drv_watchdog_mark_ota_phase(
+            OTA_TRACE_PHASE_MARK_PENDING_TXN_DONE);
         return POTA_PLATFORM_STEP_DONE;
     }
     if (step == POTA_BCB_STEP_FAILED) {
-        s_mark_pending_active = false;
+        ota_metadata_mark_pending_reset();
+        drv_watchdog_mark_ota_phase(
+            OTA_TRACE_PHASE_MARK_PENDING_TXN_FAILED);
         return POTA_PLATFORM_STEP_FAILED;
     }
     return POTA_PLATFORM_STEP_PENDING;

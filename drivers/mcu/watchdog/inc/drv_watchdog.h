@@ -11,6 +11,7 @@ typedef struct {
     uint32_t scratch[4];
     uint32_t core0_progress;
     uint32_t core1_progress;
+    uint32_t ota_phase;
 } drv_watchdog_reset_snapshot_t;
 
 void drv_watchdog_enable(uint32_t timeout_ms);
@@ -25,5 +26,7 @@ void drv_watchdog_write_evidence(uint32_t magic,
                                  uint32_t core0_loop_count,
                                  uint32_t core1_loop_count);
 void drv_watchdog_mark_progress(uint32_t core_index, uint32_t marker);
+/* Retained breadcrumb for diagnosing watchdog resets during OTA finalization. */
+void drv_watchdog_mark_ota_phase(uint32_t phase);
 
 #endif

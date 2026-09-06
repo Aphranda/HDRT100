@@ -45,7 +45,7 @@ scpi_result_t scpi_cmd_bootloader_version_q(scpi_t *context)
 scpi_result_t scpi_cmd_bootloader_capability_q(scpi_t *context)
 {
     ota_metadata_t metadata;
-    if (!ota_ao_get_metadata(&metadata)) {
+    if (!ota_ao_get_metadata_snapshot(&metadata)) {
         return SCPI_RES_ERR;
     }
 
@@ -344,6 +344,14 @@ scpi_result_t scpi_cmd_watchdog_log_q(scpi_t *context)
     SCPI_ResultUInt32(context, status.evidence_core1_loop_count);
     SCPI_ResultUInt32(context, status.evidence_core0_progress);
     SCPI_ResultUInt32(context, status.evidence_core1_progress);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_watchdog_ota_phase_q(scpi_t *context)
+{
+    diagnostics_watchdog_status_t status;
+    diagnostics_get_watchdog_status(&status);
+    SCPI_ResultUInt32(context, status.ota_phase);
     return SCPI_RES_OK;
 }
 

@@ -206,7 +206,7 @@ scpi_result_t scpi_cmd_ota_commit(scpi_t *context)
 scpi_result_t scpi_cmd_ota_slot_q(scpi_t *context)
 {
     ota_metadata_t metadata;
-    if (!ota_ao_get_metadata(&metadata)) {
+    if (!ota_ao_get_metadata_snapshot(&metadata)) {
         return SCPI_RES_ERR;
     }
 
@@ -226,7 +226,7 @@ scpi_result_t scpi_cmd_ota_result_q(scpi_t *context)
 
     SCPI_ResultUInt32(context, vector.last_result);
     SCPI_ResultText(context, ota_error_to_string(vector.error_code));
-    if (ota_ao_get_metadata(&metadata)) {
+    if (ota_ao_get_metadata_snapshot(&metadata)) {
         SCPI_ResultText(context, ota_metadata_boot_result_to_string(metadata.last_boot_result));
         SCPI_ResultUInt32(context, metadata.last_boot_source_slot);
         SCPI_ResultUInt32(context, metadata.last_boot_size);
@@ -243,7 +243,7 @@ scpi_result_t scpi_cmd_ota_result_q(scpi_t *context)
 scpi_result_t scpi_cmd_ota_transaction_q(scpi_t *context)
 {
     ota_metadata_t metadata;
-    if (!ota_ao_get_metadata(&metadata)) {
+    if (!ota_ao_get_metadata_snapshot(&metadata)) {
         return SCPI_RES_ERR;
     }
 
@@ -310,7 +310,7 @@ static uint32_t scpi_ota_next_target_slot(const ota_metadata_t *metadata)
 scpi_result_t scpi_cmd_ota_mode_q(scpi_t *context)
 {
     ota_metadata_t metadata;
-    if (!ota_ao_get_metadata(&metadata)) {
+    if (!ota_ao_get_metadata_snapshot(&metadata)) {
         return SCPI_RES_ERR;
     }
 
@@ -346,7 +346,7 @@ scpi_result_t scpi_cmd_ota_mode(scpi_t *context)
 scpi_result_t scpi_cmd_ota_target_q(scpi_t *context)
 {
     ota_metadata_t metadata;
-    if (!ota_ao_get_metadata(&metadata)) {
+    if (!ota_ao_get_metadata_snapshot(&metadata)) {
         return SCPI_RES_ERR;
     }
 
@@ -357,7 +357,7 @@ scpi_result_t scpi_cmd_ota_target_q(scpi_t *context)
 scpi_result_t scpi_cmd_ota_capability_q(scpi_t *context)
 {
     ota_metadata_t metadata;
-    if (!ota_ao_get_metadata(&metadata)) {
+    if (!ota_ao_get_metadata_snapshot(&metadata)) {
         return SCPI_RES_ERR;
     }
 
@@ -648,7 +648,7 @@ scpi_result_t scpi_cmd_ota_inject_clear(scpi_t *context)
 scpi_result_t scpi_cmd_ota_inject_copy_q(scpi_t *context)
 {
     ota_metadata_t metadata;
-    if (!ota_ao_get_metadata(&metadata)) {
+    if (!ota_ao_get_metadata_snapshot(&metadata)) {
         return SCPI_RES_ERR;
     }
 

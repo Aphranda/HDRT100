@@ -8,6 +8,7 @@
 #include "drv_watchdog.h"
 #include "hardware/adc.h"
 #include "portable_log_port.h"
+#include "ota_vector.h"
 #include "pico/stdlib.h"
 #include "project_config.h"
 
@@ -297,6 +298,11 @@ void diagnostics_init(void)
     s_watchdog_status.evidence_core1_loop_count = reset.scratch[3] >> 16u;
     s_watchdog_status.evidence_core0_progress = reset.core0_progress;
     s_watchdog_status.evidence_core1_progress = reset.core1_progress;
+    s_watchdog_status.ota_phase =
+            reset.ota_phase <=
+                (uint32_t)OTA_TRACE_PHASE_MARK_PENDING_STORE_INIT_DONE
+            ? reset.ota_phase
+            : (uint32_t)OTA_TRACE_PHASE_NONE;
 
     if (s_watchdog_status.last_reset_watchdog) {
         LOG_WARN("watchdog", "previous reset=%s reason=0x%08lx expected=0x%08lx seen=0x%08lx stale=0x%08lx",
@@ -452,6 +458,12 @@ void diagnostics_watchdog_flash_transaction_progress(void)
 {
     (void)__atomic_fetch_add(&s_watchdog_flash_progress, 1u,
                              __ATOMIC_RELAXED);
+}
+
+void diagnostics_watchdog_mark_ota_phase(uint32_t phase)
+{
+    s_watchdog_status.ota_phase = phase;
+    drv_watchdog_mark_ota_phase(phase);
 }
 
 void diagnostics_watchdog_enable(uint32_t timeout_ms)

@@ -1,10 +1,24 @@
 import json
 
 from tools.release_check.release_check import (
+    check_build_ota_block_size,
     check_forbidden_strings,
     check_independent_release_report,
     check_preset,
 )
+
+
+def test_release_check_rejects_stale_ota_cache(tmp_path):
+    build = tmp_path / "build"
+    build.mkdir()
+    (build / "CMakeCache.txt").write_text(
+        "PROJECT_OTA_MAX_DATA_BLOCK_SIZE:STRING=512\n", encoding="utf-8")
+    failures = []
+    check_build_ota_block_size(tmp_path, build, failures)
+    assert failures == [
+        f"{build / 'CMakeCache.txt'} must be configured with "
+        "PROJECT_OTA_MAX_DATA_BLOCK_SIZE=4096 (got 512)"
+    ]
 
 
 def test_release_policy_requires_rtos_and_multicore(tmp_path):
@@ -14,6 +28,7 @@ def test_release_policy_requires_rtos_and_multicore(tmp_path):
             "cacheVariables": {
                 "PROJECT_ENABLE_OTA_FAULT_INJECTION": "OFF",
                 "PROJECT_ENABLE_UART_STDIO": "OFF",
+                "PROJECT_OTA_MAX_DATA_BLOCK_SIZE": "4096",
                 "PROJECT_OTA_DEFAULT_BOOT_MODE": "DIRECT_AB",
                 "PROJECT_FLASH_DEPLOYMENT_MAP": "v1_compat",
                 "PROJECT_USE_FREERTOS": "ON",
@@ -35,6 +50,7 @@ def test_release_policy_rejects_single_core(tmp_path):
             "cacheVariables": {
                 "PROJECT_ENABLE_OTA_FAULT_INJECTION": "OFF",
                 "PROJECT_ENABLE_UART_STDIO": "OFF",
+                "PROJECT_OTA_MAX_DATA_BLOCK_SIZE": "4096",
                 "PROJECT_OTA_DEFAULT_BOOT_MODE": "DIRECT_AB",
                 "PROJECT_FLASH_DEPLOYMENT_MAP": "v1_compat",
                 "PROJECT_USE_FREERTOS": "ON",
@@ -56,6 +72,7 @@ def test_release_policy_rejects_unselected_flash_map(tmp_path):
             "cacheVariables": {
                 "PROJECT_ENABLE_OTA_FAULT_INJECTION": "OFF",
                 "PROJECT_ENABLE_UART_STDIO": "OFF",
+                "PROJECT_OTA_MAX_DATA_BLOCK_SIZE": "4096",
                 "PROJECT_OTA_DEFAULT_BOOT_MODE": "DIRECT_AB",
                 "PROJECT_USE_FREERTOS": "ON",
                 "PROJECT_USE_MULTICORE": "ON",
@@ -104,3 +121,24 @@ def test_release_policy_requires_independent_flash_owner_report(tmp_path):
 
     assert len(failures) == 3
     assert all("independent Flash owner report" in failure for failure in failures)
+
+
+def test_release_policy_requires_4096_byte_ota_blocks(tmp_path):
+    presets = {
+        "configurePresets": [{
+            "name": "product",
+            "cacheVariables": {
+                "PROJECT_ENABLE_OTA_FAULT_INJECTION": "OFF",
+                "PROJECT_ENABLE_UART_STDIO": "OFF",
+                "PROJECT_OTA_DEFAULT_BOOT_MODE": "DIRECT_AB",
+                "PROJECT_FLASH_DEPLOYMENT_MAP": "v1_compat",
+                "PROJECT_USE_FREERTOS": "ON",
+                "PROJECT_USE_MULTICORE": "ON",
+            },
+        }],
+    }
+    (tmp_path / "CMakePresets.json").write_text(json.dumps(presets), encoding="utf-8")
+    failures = []
+    check_preset(tmp_path, "product", failures)
+    assert failures[0] == (
+        "product must set PROJECT_OTA_MAX_DATA_BLOCK_SIZE=4096")

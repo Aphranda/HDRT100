@@ -14,6 +14,42 @@
 #include "resource_arbiter.h"
 
 static struct ota_ao_context s_ota_context;
+static ota_vector_t s_vector_snapshot[2];
+static ota_metadata_t s_metadata_snapshot[2];
+static uint32_t s_vector_active_index;
+static uint32_t s_metadata_active_index;
+static bool s_metadata_snapshot_valid;
+
+void ota_ao_publish_vector(const ota_ao_context_t *context)
+{
+    if (context == NULL) {
+        return;
+    }
+    const uint32_t next =
+        (__atomic_load_n(&s_vector_active_index, __ATOMIC_RELAXED) + 1u) & 1u;
+    s_vector_snapshot[next] = context->vector;
+    __atomic_store_n(&s_vector_active_index, next, __ATOMIC_RELEASE);
+}
+
+void ota_ao_publish_metadata(ota_ao_context_t *context,
+                             const ota_metadata_t *metadata)
+{
+    if (context == NULL || metadata == NULL) {
+        return;
+    }
+    const uint32_t next =
+        (__atomic_load_n(&s_metadata_active_index, __ATOMIC_RELAXED) + 1u) & 1u;
+    s_metadata_snapshot[next] = *metadata;
+    context->metadata_snapshot = *metadata;
+    context->metadata_snapshot_valid = true;
+    s_metadata_snapshot_valid = true;
+    __atomic_store_n(&s_metadata_active_index, next, __ATOMIC_RELEASE);
+}
+
+void ota_ao_publish_metadata_snapshot(const ota_metadata_t *metadata)
+{
+    ota_ao_publish_metadata(&s_ota_context, metadata);
+}
 
 static ota_slot_t ota_ao_target_slot_from_metadata(const ota_metadata_t *metadata)
 {
@@ -51,6 +87,11 @@ const char *ota_result_to_string(ota_result_t result)
 bool ota_ao_init(void)
 {
     memset(&s_ota_context, 0, sizeof(s_ota_context));
+    memset(s_vector_snapshot, 0, sizeof(s_vector_snapshot));
+    memset(s_metadata_snapshot, 0, sizeof(s_metadata_snapshot));
+    s_vector_active_index = 0u;
+    s_metadata_active_index = 0u;
+    s_metadata_snapshot_valid = false;
 
     s_ota_context.vector.timestamp_ms = board_uptime_ms();
     s_ota_context.vector.state = (uint32_t)OTA_STATE_IDLE;
@@ -68,6 +109,7 @@ bool ota_ao_init(void)
 
     ota_metadata_t metadata;
     if (ota_metadata_load(&metadata)) {
+        ota_ao_publish_metadata(&s_ota_context, &metadata);
         s_ota_context.target_slot = ota_ao_target_slot_from_metadata(&metadata);
         s_ota_context.vector.target_slot = metadata.pending_slot != (uint32_t)OTA_SLOT_NONE ?
                                                metadata.pending_slot :
@@ -89,6 +131,7 @@ bool ota_ao_init(void)
     s_ota_context.target_offset = ota_partition_slot_offset(s_ota_context.target_slot);
     s_ota_context.target_size = ota_partition_slot_size(s_ota_context.target_slot);
     s_ota_context.target_run_offset = OTA_DEFAULT_APP_RUN_OFFSET;
+    ota_ao_publish_vector(&s_ota_context);
 
     LOG_INFO("ota", "OTA AO initialized");
     return true;
@@ -98,6 +141,7 @@ bool ota_ao_post_event(const ota_event_t *event)
 {
     if (!event_bus_post_ota_event(event)) {
         s_ota_context.vector.error_code = (uint32_t)OTA_ERR_QUEUE_FULL;
+        ota_ao_publish_vector(&s_ota_context);
         return false;
     }
 
@@ -106,9 +150,12 @@ bool ota_ao_post_event(const ota_event_t *event)
 
 void ota_ao_service(uint32_t budget_us)
 {
-    (void)budget_us;
+    if (budget_us == 0u) {
+        return;
+    }
 
     s_ota_context.vector.timestamp_ms = board_uptime_ms();
+    ota_ao_publish_vector(&s_ota_context);
 
     /* Service bounded permission/erase work before consuming DATA.  SCPI
      * producers can queue a DATA block while the inactive slot is still
@@ -120,16 +167,14 @@ void ota_ao_service(uint32_t budget_us)
     if (s_ota_context.vector.state == (uint32_t)OTA_STATE_CHECK_PERMISSION ||
         s_ota_context.vector.state == (uint32_t)OTA_STATE_ERASE_SLOT) {
         ota_fb_execute(&s_ota_context, &tick);
-        if (s_ota_context.vector.state == (uint32_t)OTA_STATE_CHECK_PERMISSION ||
-            s_ota_context.vector.state == (uint32_t)OTA_STATE_ERASE_SLOT) {
-            return;
-        }
+        return;
     }
 
     ota_event_t event;
     if (event_bus_try_recv_ota_event(&event)) {
         ota_fb_execute(&s_ota_context, &event);
         event_bus_complete_ota_event(&event);
+        return;
     }
 
     /* Stream ingress shares the same bounded AO service cadence as the legacy
@@ -168,12 +213,23 @@ void ota_ao_get_vector(ota_vector_t *vector)
         return;
     }
 
-    *vector = s_ota_context.vector;
+    const uint32_t active =
+        __atomic_load_n(&s_vector_active_index, __ATOMIC_ACQUIRE) & 1u;
+    *vector = s_vector_snapshot[active];
 }
 
-bool ota_ao_get_metadata(ota_metadata_t *metadata)
+bool ota_ao_get_metadata_snapshot(ota_metadata_t *metadata)
 {
-    return ota_metadata_load(metadata);
+    if (metadata == NULL) {
+        return false;
+    }
+    if (!s_metadata_snapshot_valid) {
+        return false;
+    }
+    const uint32_t active =
+        __atomic_load_n(&s_metadata_active_index, __ATOMIC_ACQUIRE) & 1u;
+    *metadata = s_metadata_snapshot[active];
+    return true;
 }
 
 bool ota_ao_is_active(void)

@@ -22,6 +22,7 @@ typedef struct {
     uint32_t erase_calls;
     uint32_t sector_erase_calls;
     uint32_t service_calls;
+    uint32_t read_calls;
 } fake_flash_t;
 
 static bool fake_read(void *context, uint32_t lane, uint32_t page,
@@ -29,6 +30,7 @@ static bool fake_read(void *context, uint32_t lane, uint32_t page,
 {
     fake_flash_t *flash = context;
     assert(flash != NULL && data != NULL && length == POTA_BCB_PAGE_SIZE);
+    flash->read_calls++;
     if (lane >= POTA_BCB_LANE_COUNT || page >= TEST_LANE_PAGES) {
         return false;
     }
@@ -417,6 +419,89 @@ static void test_async_transaction_failure_does_not_publish_commit(void)
            POTA_BCB_RESULT_NO_VALID);
 }
 
+static void test_explicit_selection_avoids_rescan_and_rejects_stale_use(void)
+{
+    fake_flash_t flash;
+    fake_init(&flash);
+    pota_bcb_store_t store = make_sector_store(&flash);
+    pota_bcb_selection_t selection;
+    assert(pota_bcb_store_select(&store, &selection) ==
+           POTA_BCB_RESULT_NO_VALID);
+    const uint32_t reads_after_selection = flash.read_calls;
+
+    pota_bcb_update_t first = update(1u, 0x91u);
+    pota_bcb_txn_t txn;
+    assert(pota_bcb_txn_begin_from_selection(
+               &txn, &store, &first, &selection) == POTA_BCB_RESULT_OK);
+    assert(flash.read_calls == reads_after_selection);
+
+    pota_bcb_update_t stale_update = update(2u, 0x92u);
+    pota_bcb_txn_t stale_txn;
+    assert(pota_bcb_txn_begin_from_selection(
+               &stale_txn, &store, &stale_update, &selection) ==
+           POTA_BCB_RESULT_BUSY);
+
+    pota_bcb_step_result_t result = POTA_BCB_STEP_PENDING;
+    for (uint32_t step = 0u; step < 32u && result == POTA_BCB_STEP_PENDING;
+         step++) {
+        result = pota_bcb_txn_step(&txn);
+    }
+    assert(result == POTA_BCB_STEP_DONE);
+
+    assert(pota_bcb_store_select(&store, &selection) == POTA_BCB_RESULT_OK);
+    const uint32_t reads_before_second_begin = flash.read_calls;
+    assert(pota_bcb_txn_begin_from_selection(
+               &txn, &store, &stale_update, &selection) ==
+           POTA_BCB_RESULT_OK);
+    assert(flash.read_calls == reads_before_second_begin);
+}
+
+static void test_incremental_scan_reads_at_most_one_page_per_step(void)
+{
+    fake_flash_t flash;
+    fake_init(&flash);
+    pota_bcb_store_t store = make_store(&flash);
+    pota_bcb_scan_t scan;
+    assert(pota_bcb_scan_begin(&scan, &store) == POTA_BCB_RESULT_OK);
+
+    pota_bcb_step_result_t step_result = POTA_BCB_STEP_PENDING;
+    while (step_result == POTA_BCB_STEP_PENDING) {
+        const uint32_t reads_before = flash.read_calls;
+        step_result = pota_bcb_scan_step(&scan);
+        assert(flash.read_calls <= reads_before + 1u);
+    }
+    assert(step_result == POTA_BCB_STEP_DONE);
+    pota_bcb_selection_t selection;
+    assert(pota_bcb_scan_result(&scan, &selection) ==
+           POTA_BCB_RESULT_NO_VALID);
+    assert(selection.append_new_lane && selection.append_lane == 0u &&
+           selection.append_slot == 0u);
+
+    pota_bcb_update_t first = update(1u, 0xA5u);
+    pota_bcb_view_t view;
+    assert(pota_bcb_store_append(&store, &first, &view) ==
+           POTA_BCB_RESULT_OK);
+    assert(pota_bcb_scan_begin(&scan, &store) == POTA_BCB_RESULT_OK);
+    step_result = POTA_BCB_STEP_PENDING;
+    while (step_result == POTA_BCB_STEP_PENDING) {
+        const uint32_t reads_before = flash.read_calls;
+        step_result = pota_bcb_scan_step(&scan);
+        assert(flash.read_calls <= reads_before + 1u);
+    }
+    assert(step_result == POTA_BCB_STEP_DONE);
+    assert(pota_bcb_scan_result(&scan, &selection) == POTA_BCB_RESULT_OK);
+    assert(selection.newest.update.sequence == 1u);
+    assert(!selection.append_new_lane && selection.append_lane == 0u &&
+           selection.append_slot == 1u);
+
+    assert(pota_bcb_scan_begin(&scan, &store) == POTA_BCB_RESULT_OK);
+    pota_bcb_update_t second = update(2u, 0xA6u);
+    assert(pota_bcb_store_append(&store, &second, &view) ==
+           POTA_BCB_RESULT_OK);
+    assert(pota_bcb_scan_step(&scan) == POTA_BCB_STEP_FAILED);
+    assert(pota_bcb_scan_result(&scan, &selection) == POTA_BCB_RESULT_BUSY);
+}
+
 int main(void)
 {
     test_append_select_and_replay();
@@ -427,6 +512,8 @@ int main(void)
     test_read_only_store_reconstructs_without_write_callbacks();
     test_async_transaction_is_bounded_and_preserves_telemetry();
     test_async_transaction_failure_does_not_publish_commit();
+    test_explicit_selection_avoids_rescan_and_rejects_stale_use();
+    test_incremental_scan_reads_at_most_one_page_per_step();
     puts("portable BCB store tests passed");
     return 0;
 }

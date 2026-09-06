@@ -30,6 +30,7 @@ if str(ROOT / "tools" / "tdma_ring_monitor") not in sys.path:
 from tdma_start_ring import (  # noqa: E402
     Board,
     board_command,
+    close_persistent_connections,
     discover,
     status as ring_status,
 )
@@ -149,8 +150,23 @@ def stop_ring_and_wait(board: Board, args: argparse.Namespace) -> dict[str, int]
     board_command(board, "SYSTem:TDMA:RING:STOP", args)
     deadline = time.monotonic() + args.capture_timeout
     last: dict[str, int] = {}
+    retry_args = argparse.Namespace(**vars(args))
+    retry_args.keep_open = False
+    retry_args.short_open = True
     while time.monotonic() < deadline:
-        last = ring_status(board, args)
+        try:
+            last = ring_status(board, args)
+        except (OSError, RuntimeError):
+            # A reset/STOP transition can invalidate the persistent CDC
+            # handle.  Reopen one bounded diagnostic session and retry the
+            # same read; preserve the STOP gate rather than treating a USB
+            # observation timeout as a P3 measurement failure.
+            close_persistent_connections()
+            try:
+                last = ring_status(board, retry_args)
+            except (OSError, RuntimeError):
+                time.sleep(0.03)
+                continue
         if (last["ring_enabled"] == 0 and
                 last["ring_adapter_started"] == 0):
             return last

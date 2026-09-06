@@ -479,18 +479,34 @@ static void tdma_pio_spi_phys_prepare_sm_pair(tdma_pio_spi_phys_t *phys)
     const bool has_rtt_sm = phys->role == TDMA_PIO_SPI_ROLE_MASTER &&
         s_tdma_pio_spi_program_persona ==
             TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN;
-    pio_sm_set_enabled(control_pio, control_sm, false);
-    pio_sm_set_enabled(data_pio, data_sm, false);
-    pio_sm_set_enabled(capture_pio, capture_sm, false);
-    pio_sm_set_enabled(evidence_pio, latch_sm, false);
-    pio_sm_clear_fifos(control_pio, control_sm);
-    pio_sm_clear_fifos(data_pio, data_sm);
-    pio_sm_clear_fifos(capture_pio, capture_sm);
-    pio_sm_clear_fifos(evidence_pio, latch_sm);
-    pio_sm_restart(control_pio, control_sm);
-    pio_sm_restart(data_pio, data_sm);
-    pio_sm_restart(capture_pio, capture_sm);
-    pio_sm_restart(evidence_pio, latch_sm);
+    /* A follower shares RX PIO with the legacy maintenance persona and does
+     * not use every flight SM (notably the reserved control/evidence and the
+     * origin RTT SM).  Clear the complete flight SM banks at the persona
+     * boundary; disabling only role-selected SMs leaves a stale enabled bit
+     * and makes the next flight->maintenance selection report BUSY. */
+    if (tdma_pio_spi_phys_is_flight_persona()) {
+        for (uint sm = 0u; sm < 4u; ++sm) {
+            pio_sm_set_enabled(phys->flight_resources.tx_pio, sm, false);
+            pio_sm_clear_fifos(phys->flight_resources.tx_pio, sm);
+            pio_sm_restart(phys->flight_resources.tx_pio, sm);
+            pio_sm_set_enabled(phys->flight_resources.rx_pio, sm, false);
+            pio_sm_clear_fifos(phys->flight_resources.rx_pio, sm);
+            pio_sm_restart(phys->flight_resources.rx_pio, sm);
+        }
+    } else {
+        pio_sm_set_enabled(control_pio, control_sm, false);
+        pio_sm_set_enabled(data_pio, data_sm, false);
+        pio_sm_set_enabled(capture_pio, capture_sm, false);
+        pio_sm_set_enabled(evidence_pio, latch_sm, false);
+        pio_sm_clear_fifos(control_pio, control_sm);
+        pio_sm_clear_fifos(data_pio, data_sm);
+        pio_sm_clear_fifos(capture_pio, capture_sm);
+        pio_sm_clear_fifos(evidence_pio, latch_sm);
+        pio_sm_restart(control_pio, control_sm);
+        pio_sm_restart(data_pio, data_sm);
+        pio_sm_restart(capture_pio, capture_sm);
+        pio_sm_restart(evidence_pio, latch_sm);
+    }
     if (has_rtt_sm) {
         const uint rtt_sm = tdma_pio_spi_phys_rtt_sm(phys);
         pio_sm_clear_fifos(evidence_pio, rtt_sm);

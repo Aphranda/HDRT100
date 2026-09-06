@@ -75,6 +75,15 @@ def get_preset_cache_variables(root: Path, preset_name: str) -> dict[str, str]:
 
 def check_preset(root: Path, preset_name: str, failures: list[str]) -> None:
     cache_variables = get_preset_cache_variables(root, preset_name)
+    ota_block_size = str(cache_variables.get("PROJECT_OTA_MAX_DATA_BLOCK_SIZE", ""))
+    if ota_block_size != "4096":
+        fail(
+            f"{preset_name} must set PROJECT_OTA_MAX_DATA_BLOCK_SIZE=4096",
+            failures,
+        )
+    else:
+        ok(f"{preset_name} enables 4096-byte OTA blocks")
+
     fault_injection = str(cache_variables.get("PROJECT_ENABLE_OTA_FAULT_INJECTION", "")).upper()
     if fault_injection != "OFF":
         fail(f"{preset_name} must set PROJECT_ENABLE_OTA_FAULT_INJECTION=OFF", failures)
@@ -138,6 +147,29 @@ def check_project_config(root: Path, failures: list[str]) -> None:
         fail("PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB fallback default must be 1", failures)
     else:
         ok("OTA fallback default boot mode is DIRECT_AB")
+
+
+def check_build_ota_block_size(root: Path, build_dir: Path,
+                               failures: list[str]) -> None:
+    """Reject a release artifact produced from a stale 512-byte cache."""
+    build_path = build_dir if build_dir.is_absolute() else root / build_dir
+    cache = build_path / "CMakeCache.txt"
+    if not cache.exists():
+        fail(f"missing CMake cache for OTA block-size gate: {cache}", failures)
+        return
+    text = read_text(cache)
+    match = re.search(
+        r"^PROJECT_OTA_MAX_DATA_BLOCK_SIZE:STRING=(\d+)$", text, re.MULTILINE)
+    if match is None:
+        fail(f"{cache} does not record PROJECT_OTA_MAX_DATA_BLOCK_SIZE", failures)
+    elif match.group(1) != "4096":
+        fail(
+            f"{cache} must be configured with PROJECT_OTA_MAX_DATA_BLOCK_SIZE=4096 "
+            f"(got {match.group(1)})",
+            failures,
+        )
+    else:
+        ok("release build cache enables 4096-byte OTA blocks")
 
 
 def check_artifacts(root: Path, build_dir: Path, failures: list[str]) -> None:
@@ -276,6 +308,7 @@ def main() -> int:
     failures: list[str] = []
 
     check_preset(root, args.preset, failures)
+    check_build_ota_block_size(root, args.build_dir, failures)
     check_project_config(root, failures)
     check_flash_contracts(root, args.build_dir, failures)
     check_independent_release_report(root, args.build_dir, failures)

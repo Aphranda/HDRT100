@@ -236,12 +236,26 @@ def main() -> int:
             board, f"SYSTem:TDMA:OPMode:STAGe {args.level}", args)
         apply_response = board_command(
             board, "SYSTem:TDMA:OPMode:APPLy", args)
+        # OPMode APPLY is an owner transition and its bare ACK may be lost
+        # during USB settle.  Poll the read-only snapshot instead of treating
+        # one immediate level=0 observation as a permanent profile failure.
+        active_level = 0
+        profile_deadline = time.monotonic() + args.timeout
+        active_response = ""
+        while time.monotonic() < profile_deadline:
+            active_response = board_command(
+                board, "SYSTem:TDMA:OPMode?", args)
+            try:
+                active_level = int(
+                    active_response.split(",", 1)[0].strip().strip('"'), 0)
+            except (ValueError, IndexError):
+                active_level = 0
+            if active_level == args.level:
+                break
+            time.sleep(0.02)
         probe_response = board_command(
             board,
             f"CALibration:TOPology:PROBe 1,{args.probe_phase_cycles}", args)
-        active_response = board_command(
-            board, "SYSTem:TDMA:OPMode?", args)
-        active_level = int(active_response.split(",", 1)[0].strip().strip('"'), 0)
         return {
             "address": address,
             "requested_level": args.level,

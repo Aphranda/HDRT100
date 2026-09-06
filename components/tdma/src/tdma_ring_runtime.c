@@ -364,7 +364,11 @@ bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
     }
 
     tdma_ring_runtime_reason_t reason = TDMA_RING_RUNTIME_REASON_NONE;
-    if (!tdma_ring_runtime_validate_config(config, &reason)) {
+    /* NULL is the explicit STOP/unconfigure command.  It must bypass the
+     * enabled-profile validator; rejecting it here leaves the previous ring
+     * enabled and prevents calibration topology-probe admission. */
+    if (config != NULL &&
+        !tdma_ring_runtime_validate_config(config, &reason)) {
         tdma_ring_runtime_write_guard(&runtime->result_guard);
         runtime->config_reject_count++;
         runtime->last_reason = (uint32_t)reason;

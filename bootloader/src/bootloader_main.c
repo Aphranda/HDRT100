@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "bootloader_config.h"
+#include "drv_watchdog.h"
 #include "drv_flash_write.h"
 #include "boot_flash_service.h"
 #include "hardware/structs/scb.h"
@@ -748,16 +749,30 @@ static void bootloader_jump_to_app(uint32_t vector_offset)
     const uint32_t initial_sp = vector[0];
     const uint32_t reset_handler = vector[1];
 
-    __asm volatile("cpsid i");
+    /* Keep the handoff atomic while replacing the vector table and stack, then
+     * return the CPU to the reset-handler's normal interrupt state.  The
+     * bootloader can be entered by a watchdog reboot with a live scheduler
+     * configuration; leaving PRIMASK set here strands the application before
+     * its RTOS tick/supervisor can start. */
+    __asm volatile("cpsid i" ::: "memory");
     scb_hw->vtor = vector_addr;
-    __asm volatile("msr msp, %0" : : "r"(initial_sp) : );
+    __asm volatile("msr msp, %0" : : "r"(initial_sp) : "memory");
+    __asm volatile("dsb" ::: "memory");
     __asm volatile("isb");
+    __asm volatile("cpsie i" ::: "memory");
+    __asm volatile("isb" ::: "memory");
 
     ((app_entry_t)(uintptr_t)reset_handler)();
 }
 
 int main(void)
 {
+    /* A watchdog reboot leaves the peripheral enabled.  Stop the inherited
+     * countdown before metadata/slot validation, which may read and verify a
+     * full image before the application handoff.  The application enables its
+     * supervisor watchdog again during normal bring-up. */
+    drv_watchdog_disable();
+
     ota_metadata_t metadata;
     bool metadata_loaded = false;
     bool direct_pending_applied = false;

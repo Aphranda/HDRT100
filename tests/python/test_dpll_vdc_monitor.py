@@ -16,6 +16,7 @@ from tools.dpll_vdc_monitor.dpll_vdc_monitor import (
     _finish_waveform_capture,
     _parse_storage_read,
     _parse_waveform_status,
+    WAVEFORM_STOP_COMMAND,
     _board_summary,
     _svg,
     _select_trigger_sequence,
@@ -104,6 +105,37 @@ def test_empty_waveform_is_a_recorded_gate_failure_without_save(
     assert result["raw_gate"]["errors"] == ["no_raw_waveform_records"]
     assert result["sd_paths"] == []
     assert all(not command.endswith(":SAVE") for command in commands)
+
+
+def test_waveform_stop_rejection_does_not_read_snapshot_or_save(
+        monkeypatch, tmp_path) -> None:
+    """The split STOP primitive must fail closed before snapshot/SAVE.
+
+    This protects the SM-RES-006 arm/disarm migration boundary from the old
+    composite maintenance path: a rejected STOP is an actionable command
+    failure, not permission to inspect or persist a stale capture snapshot.
+    """
+    commands: list[str] = []
+
+    def query(_ser, command: str, _timeout: float) -> str:
+        commands.append(command)
+        if command.endswith(":STOP"):
+            return "ERROR,STOP_REJECTED"
+        raise AssertionError(f"unexpected command after STOP rejection: {command}")
+
+    monkeypatch.setattr(
+        "tools.dpll_vdc_monitor.dpll_vdc_monitor._query", query)
+    args = __import__("types").SimpleNamespace(
+        timeout=1.0, waveform_flush_timeout_s=1.0,
+        phase_pulse_period_ns=1_000_000,
+        phase_max_span_ns=500, phase_min_complete_rounds=3,
+        out_dir=tmp_path)
+
+    with pytest.raises(ValueError, match="waveform stop rejected"):
+        _finish_waveform_capture(
+            object(), args, ProgressReporter(tmp_path / "progress.json"))
+
+    assert commands == [WAVEFORM_STOP_COMMAND]
 
 
 def test_dropped_waveform_is_saved_and_analyzed_as_failed_evidence(

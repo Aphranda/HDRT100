@@ -28,12 +28,21 @@ typedef enum {
     POTA_BCB_RESULT_REPLAY,
 } pota_bcb_result_t;
 
+typedef enum {
+    POTA_BCB_STEP_FAILED = 0,
+    POTA_BCB_STEP_PENDING,
+    POTA_BCB_STEP_DONE,
+} pota_bcb_step_result_t;
+
 typedef struct {
     void *context;
     bool (*read_page)(void *context, uint32_t lane, uint32_t page,
                       uint8_t *data, uint32_t length);
     bool (*program_page)(void *context, uint32_t lane, uint32_t page,
                          const uint8_t *data, uint32_t length);
+    pota_bcb_step_result_t (*program_page_step)(
+        void *context, uint32_t lane, uint32_t page,
+        const uint8_t *data, uint32_t length);
     bool (*erase_lane)(void *context, uint32_t lane);
     /* Optional telemetry hooks. They observe physical operations and must not
      * perform Flash IO or mutate the BCB decision. */
@@ -47,6 +56,8 @@ typedef struct {
      * it and use erase_lane() as a compatibility fallback. */
     bool (*erase_lane_sector)(void *context, uint32_t lane,
                               uint32_t sector_index);
+    pota_bcb_step_result_t (*erase_lane_sector_step)(
+        void *context, uint32_t lane, uint32_t sector_index);
     uint32_t erase_sector_count;
 } pota_bcb_platform_t;
 
@@ -66,12 +77,26 @@ typedef struct {
 } pota_bcb_view_t;
 
 typedef struct {
+    pota_bcb_result_t result;
+    uint32_t store_generation;
+    uint32_t schema_version;
+    uint32_t map_version;
+    uint32_t lane_page_count;
+    pota_bcb_view_t newest;
+    uint32_t append_lane;
+    uint32_t append_slot;
+    uint32_t append_lane_generation;
+    bool append_new_lane;
+} pota_bcb_selection_t;
+
+typedef struct {
     pota_bcb_platform_t platform;
     uint32_t schema_version;
     uint32_t map_version;
     uint32_t lane_page_count;
     uint32_t program_page_count;
     uint32_t erase_lane_count;
+    uint32_t mutation_generation;
 } pota_bcb_store_t;
 
 typedef struct {
@@ -89,11 +114,24 @@ typedef struct {
     uint32_t newest_record_page;
 } pota_bcb_health_snapshot_t;
 
-typedef enum {
-    POTA_BCB_STEP_FAILED = 0,
-    POTA_BCB_STEP_PENDING,
-    POTA_BCB_STEP_DONE,
-} pota_bcb_step_result_t;
+typedef struct {
+    const pota_bcb_store_t *store;
+    pota_bcb_selection_t selection;
+    uint8_t seal[POTA_BCB_PAGE_SIZE];
+    uint8_t body[POTA_BCB_PAGE_SIZE];
+    uint8_t commit[POTA_BCB_PAGE_SIZE];
+    pota_bcb_view_t candidate;
+    uint32_t free_slot[POTA_BCB_LANE_COUNT];
+    uint32_t newest_lane_generation;
+    uint32_t lane;
+    uint32_t slot;
+    uint32_t state;
+    pota_bcb_result_t terminal_result;
+    bool found;
+    bool body_blank;
+    bool body_read_ok;
+    bool active;
+} pota_bcb_scan_t;
 
 typedef struct {
     pota_bcb_platform_t platform;
@@ -114,6 +152,7 @@ typedef struct {
     uint32_t *erase_lane_count;
     uint32_t state;
     bool new_lane;
+    bool io_active;
     bool active;
 } pota_bcb_txn_t;
 
@@ -129,7 +168,17 @@ pota_bcb_result_t pota_bcb_store_init_read_only(
     uint32_t map_version,
     uint32_t lane_page_count);
 pota_bcb_result_t pota_bcb_store_select_newest(const pota_bcb_store_t *store,
-                                                pota_bcb_view_t *view);
+                                                 pota_bcb_view_t *view);
+pota_bcb_result_t pota_bcb_store_select(
+    const pota_bcb_store_t *store,
+    pota_bcb_selection_t *selection);
+pota_bcb_result_t pota_bcb_scan_begin(
+    pota_bcb_scan_t *scan,
+    const pota_bcb_store_t *store);
+pota_bcb_step_result_t pota_bcb_scan_step(pota_bcb_scan_t *scan);
+pota_bcb_result_t pota_bcb_scan_result(
+    const pota_bcb_scan_t *scan,
+    pota_bcb_selection_t *selection);
 pota_bcb_result_t pota_bcb_store_append(pota_bcb_store_t *store,
                                          const pota_bcb_update_t *update,
                                          pota_bcb_view_t *view);
@@ -143,6 +192,11 @@ pota_bcb_result_t pota_bcb_txn_begin(
     pota_bcb_txn_t *txn,
     pota_bcb_store_t *store,
     const pota_bcb_update_t *update);
+pota_bcb_result_t pota_bcb_txn_begin_from_selection(
+    pota_bcb_txn_t *txn,
+    pota_bcb_store_t *store,
+    const pota_bcb_update_t *update,
+    const pota_bcb_selection_t *selection);
 pota_bcb_step_result_t pota_bcb_txn_step(pota_bcb_txn_t *txn);
 
 #endif

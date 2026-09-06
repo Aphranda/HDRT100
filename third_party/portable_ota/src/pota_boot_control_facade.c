@@ -35,6 +35,16 @@ pota_bcb_result_t pota_boot_control_facade_select_newest(
     return pota_bcb_store_select_newest(&facade->store, view);
 }
 
+pota_bcb_result_t pota_boot_control_facade_select(
+    const pota_boot_control_facade_t *facade,
+    pota_bcb_selection_t *selection)
+{
+    if (!facade_valid(facade) || selection == NULL) {
+        return POTA_BCB_RESULT_BAD_ARGUMENT;
+    }
+    return pota_bcb_store_select(&facade->store, selection);
+}
+
 pota_bcb_result_t pota_boot_control_facade_append(
     pota_boot_control_facade_t *facade,
     const pota_bcb_update_t *update,

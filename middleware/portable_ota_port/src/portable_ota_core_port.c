@@ -6,6 +6,7 @@
 #include "pota.h"
 #include "project_config.h"
 #include "drv_flash.h"
+#include "drv_watchdog.h"
 
 #define PORTABLE_OTA_BOOTLOADER_VERSION POTA_PACK_VERSION(0u, 1u, 0u)
 
@@ -21,6 +22,7 @@
 
 #if PORTABLE_OTA_PORT_ENABLE_SESSION
 #include "flash_transaction.h"
+#include "ota_ao.h"
 #include "ota_journal.h"
 #if PROJECT_FLASH_DEPLOYMENT_V2
 #include "portable_ota_crypto.h"
@@ -226,17 +228,36 @@ static bool portable_core_mark_pending(pota_slot_t slot, uint32_t image_size,
     /* Compatibility path only.  The hardware watchdog is exclusively owned
      * by WatchdogSupervisorAO; this synchronous callback must never widen or
      * otherwise reconfigure the watchdog window. */
-    return ota_metadata_mark_pending((ota_slot_t)slot, image_size,
-                                     image_crc32, security_counter);
+    drv_watchdog_mark_ota_phase(OTA_TRACE_PHASE_MARK_PENDING_BEGIN);
+    const bool ok = ota_metadata_mark_pending((ota_slot_t)slot, image_size,
+                                              image_crc32, security_counter);
+    drv_watchdog_mark_ota_phase(
+        ok ? OTA_TRACE_PHASE_MARK_PENDING_DONE
+           : OTA_TRACE_PHASE_MARK_PENDING_FAILED);
+    return ok;
 }
 
 static pota_platform_step_result_t portable_core_mark_pending_step(
     pota_slot_t slot, uint32_t image_size, uint32_t image_crc32,
     uint32_t security_counter)
 {
-    return ota_metadata_mark_pending_step((ota_slot_t)slot, image_size,
-                                          image_crc32,
-                                          security_counter);
+    drv_watchdog_mark_ota_phase(OTA_TRACE_PHASE_MARK_PENDING_BEGIN);
+    ota_metadata_t committed_metadata;
+    const pota_platform_step_result_t result =
+        ota_metadata_mark_pending_step((ota_slot_t)slot, image_size,
+                                       image_crc32, security_counter,
+                                       &committed_metadata);
+    if (result == POTA_PLATFORM_STEP_DONE) {
+        ota_ao_publish_metadata_snapshot(&committed_metadata);
+    }
+    if (result == POTA_PLATFORM_STEP_DONE) {
+        drv_watchdog_mark_ota_phase(
+            OTA_TRACE_PHASE_MARK_PENDING_DONE);
+    } else if (result == POTA_PLATFORM_STEP_FAILED) {
+        drv_watchdog_mark_ota_phase(
+            OTA_TRACE_PHASE_MARK_PENDING_FAILED);
+    }
+    return result;
 }
 
 #if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
@@ -320,6 +341,7 @@ static bool portable_core_commit_slot_manifest(pota_slot_t slot,
 static pota_platform_step_result_t portable_core_commit_slot_manifest_step(
     pota_slot_t slot, const uint8_t *header, uint32_t header_size)
 {
+    drv_watchdog_mark_ota_phase(OTA_TRACE_PHASE_MANIFEST_BEGIN);
     if (header == NULL || header_size != POTA_PACKAGE_HEADER_SIZE ||
         (slot != POTA_SLOT_A && slot != POTA_SLOT_B)) {
         return POTA_PLATFORM_STEP_FAILED;
@@ -352,10 +374,14 @@ static pota_platform_step_result_t portable_core_commit_slot_manifest_step(
         pota_slot_manifest_txn_step(&s_slot_manifest_txn);
     if (result == POTA_SLOT_MANIFEST_STEP_DONE) {
         s_slot_manifest_txn_active = false;
+        drv_watchdog_mark_ota_phase(
+            OTA_TRACE_PHASE_MANIFEST_DONE);
         return POTA_PLATFORM_STEP_DONE;
     }
     if (result == POTA_SLOT_MANIFEST_STEP_FAILED) {
         s_slot_manifest_txn_active = false;
+        drv_watchdog_mark_ota_phase(
+            OTA_TRACE_PHASE_MANIFEST_FAILED);
         return POTA_PLATFORM_STEP_FAILED;
     }
     return POTA_PLATFORM_STEP_PENDING;
@@ -371,7 +397,13 @@ static bool portable_core_validate_vector(uint32_t slot_offset,
                                           uint32_t image_size,
                                           uint32_t run_offset)
 {
-    return portable_ota_port_validate_app_vector(slot_offset, image_size, run_offset);
+    drv_watchdog_mark_ota_phase(OTA_TRACE_PHASE_VERIFY_BEGIN);
+    const bool ok = portable_ota_port_validate_app_vector(
+        slot_offset, image_size, run_offset);
+    drv_watchdog_mark_ota_phase(
+        ok ? OTA_TRACE_PHASE_VERIFY_DONE
+           : OTA_TRACE_PHASE_VERIFY_FAILED);
+    return ok;
 }
 
 static uint32_t portable_core_map_error(uint32_t error)

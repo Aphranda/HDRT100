@@ -17,7 +17,7 @@
   "topology_profile_level": 7,
   "topology_probe_cycles": 512,
   "topology_probe_phase_cycles": 10,
-  "topology_pair_wait_s": 0.25,
+  "topology_pair_wait_s": 1.0,
   "calibration_profile_levels": [7],
   "calibration_probe_phase_cycles_by_level": {
     "7": 10,

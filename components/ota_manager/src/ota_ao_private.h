@@ -5,6 +5,7 @@
 #include <stdbool.h>
 
 #include "ota_partition.h"
+#include "ota_metadata.h"
 #include "ota_vector.h"
 
 typedef struct ota_ao_context {
@@ -22,6 +23,12 @@ typedef struct ota_ao_context {
     uint32_t selected_image_crc32;
     uint32_t selected_image_crc32_running;
     uint32_t selected_image_received_size;
+    ota_metadata_t metadata_snapshot;
+    bool metadata_snapshot_valid;
 } ota_ao_context_t;
+
+void ota_ao_publish_vector(const ota_ao_context_t *context);
+void ota_ao_publish_metadata(ota_ao_context_t *context,
+                             const ota_metadata_t *metadata);
 
 #endif

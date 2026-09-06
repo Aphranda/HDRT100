@@ -112,8 +112,9 @@ bool ota_metadata_mark_pending(ota_slot_t slot, uint32_t image_size,
                                uint32_t security_counter);
 pota_platform_step_result_t ota_metadata_mark_pending_step(
     ota_slot_t slot, uint32_t image_size, uint32_t image_crc32,
-    uint32_t security_counter);
+    uint32_t security_counter, ota_metadata_t *committed_metadata);
 bool ota_metadata_confirm_active(void);
+bool ota_metadata_confirm_active_snapshot(ota_metadata_t *committed_metadata);
 bool ota_metadata_set_boot_mode(ota_boot_mode_t mode);
 bool ota_metadata_set_fault_injection(uint32_t flags);
 bool ota_metadata_begin_copy_transaction(ota_slot_t source,

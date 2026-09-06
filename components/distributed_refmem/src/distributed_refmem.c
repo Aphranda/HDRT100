@@ -5,6 +5,7 @@
 #include "drv_flash.h"
 #include "osal.h"
 #include "board_config.h"
+#include "board_identity.h"
 #include "project_config.h"
 
 #include "distributed_refmem_vdc_bridge.h"
@@ -677,7 +678,7 @@ static void distributed_refmem_tdma_flight_sync_receive(
 
 static void distributed_refmem_tdma_flight_sync_service(void)
 {
-    if (s_tdma_flight_sync.enabled == 0u) {
+    if (board_identity_get_no() == 5u || s_tdma_flight_sync.enabled == 0u) {
         return;
     }
     tdma_service_service_t *owner = tdma_runtime_owner_get();
@@ -1712,7 +1713,7 @@ static bool distributed_refmem_node_load_auto_submit_rx(void)
 
 static void distributed_refmem_node_load_auto_service(void)
 {
-    if (s_node_load_auto_sync.enabled == 0u) {
+    if (board_identity_get_no() == 5u || s_node_load_auto_sync.enabled == 0u) {
         return;
     }
 
@@ -2121,13 +2122,15 @@ bool distributed_refmem_build_realtime_tdma_vdc_envelope(
 bool distributed_refmem_submit_realtime_tdma_tx(
     const refmem_realtime_tdma_intent_config_t *config)
 {
-    return refmem_realtime_tdma_submit_tx(&s_refmem_realtime_tdma, config);
+    return board_identity_get_no() != 5u &&
+           refmem_realtime_tdma_submit_tx(&s_refmem_realtime_tdma, config);
 }
 
 bool distributed_refmem_submit_realtime_tdma_rx(
     const refmem_realtime_tdma_intent_config_t *config)
 {
-    return refmem_realtime_tdma_submit_rx(&s_refmem_realtime_tdma, config);
+    return board_identity_get_no() != 5u &&
+           refmem_realtime_tdma_submit_rx(&s_refmem_realtime_tdma, config);
 }
 
 void distributed_refmem_abort_realtime_tdma(void)
@@ -2863,6 +2866,9 @@ bool distributed_refmem_configure_node_load_auto_sync(
     uint32_t downlink_duplex_mode,
     const refmem_spi_physical_pin_config_t *downlink_adapter_pins)
 {
+    if (board_identity_get_no() == 5u) {
+        return false;
+    }
     if (!s_initialized ||
         enabled > 1u ||
         local_slot >= DISTRIBUTED_REFMEM_NODE_COUNT ||
@@ -3045,6 +3051,12 @@ bool distributed_refmem_set_tdma_ring_topology(uint32_t local_slot_id,
                                                uint32_t reference_slot_id,
                                                uint32_t node_count)
 {
+    /* NO5 is an external phase/DPLL observer.  It must remain outside the
+     * NO1..NO4 TDMA ring so a maintenance command cannot claim flight PIO,
+     * state-machine, DMA, GPIO, IRQ or DREQ resources on the observer board. */
+    if (board_identity_get_no() == 5u) {
+        return false;
+    }
     if (!s_initialized) {
         return false;
     }
@@ -3081,6 +3093,12 @@ bool distributed_refmem_set_tdma_ring_topology(uint32_t local_slot_id,
 bool distributed_refmem_tdma_ring_arm(void)
 {
     tdma_service_service_t *owner = tdma_runtime_owner_get();
+    if (board_identity_get_no() == 5u) {
+        __atomic_store_n(&s_tdma_ring_arm_last_result,
+                         DISTRIBUTED_REFMEM_TDMA_ARM_RUNTIME_CONFIG_REJECTED,
+                         __ATOMIC_RELEASE);
+        return false;
+    }
     if (!s_initialized || owner == NULL) {
         __atomic_store_n(&s_tdma_ring_arm_last_result,
                          DISTRIBUTED_REFMEM_TDMA_ARM_OWNER_UNAVAILABLE,
@@ -3149,13 +3167,15 @@ distributed_refmem_tdma_ring_arm_last_result(void)
 
 bool distributed_refmem_tdma_ring_train(uint32_t cycles)
 {
-    return s_initialized && tdma_runtime_owner_train_clock(cycles);
+    return board_identity_get_no() != 5u &&
+           s_initialized && tdma_runtime_owner_train_clock(cycles);
 }
 
 bool distributed_refmem_tdma_ring_start(void)
 {
     tdma_service_service_t *owner = tdma_runtime_owner_get();
-    return s_initialized && owner != NULL && tdma_service_ring_start(owner);
+    return board_identity_get_no() != 5u &&
+           s_initialized && owner != NULL && tdma_service_ring_start(owner);
 }
 
 bool distributed_refmem_tdma_ring_stop(void)

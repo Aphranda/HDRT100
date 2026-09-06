@@ -1,6 +1,7 @@
 #include "ota_fb.h"
 
 #include "drv_watchdog.h"
+#include "diagnostics.h"
 #include "ota_ao_private.h"
 #include "ota_error.h"
 #include "ota_metadata.h"
@@ -107,6 +108,9 @@ static void ota_fb_handle_tick(struct ota_ao_context *context)
     }
 
     const bool ok = portable_ota_port_core_service(0u, &context->vector);
+    if (ok && context->vector.state == (uint32_t)OTA_STATE_READY_TO_REBOOT) {
+        diagnostics_watchdog_mark_ota_phase(OTA_TRACE_PHASE_READY_TO_REBOOT);
+    }
     ota_fb_sync_portable_status(context, ok);
 
 }
@@ -128,7 +132,11 @@ static void ota_fb_handle_data(struct ota_ao_context *context, const ota_event_t
 
 static void ota_fb_handle_end(struct ota_ao_context *context)
 {
+    diagnostics_watchdog_mark_ota_phase(OTA_TRACE_PHASE_END_BEGIN);
     const bool ok = portable_ota_port_core_end(&context->vector);
+    diagnostics_watchdog_mark_ota_phase(
+        ok ? OTA_TRACE_PHASE_END_ACCEPTED
+           : OTA_TRACE_PHASE_VERIFY_FAILED);
     ota_fb_sync_portable_status(context, ok);
 }
 
@@ -152,21 +160,12 @@ static void ota_fb_handle_boot(struct ota_ao_context *context)
 static void ota_fb_handle_commit(struct ota_ao_context *context)
 {
     ota_metadata_t metadata;
-    if (!ota_metadata_load(&metadata)) {
+    if (!ota_metadata_confirm_active_snapshot(&metadata)) {
         ota_fb_set_error(context, OTA_ERR_METADATA);
         return;
     }
 
-    if (!portable_ota_port_metadata_can_confirm_active(&metadata)) {
-        ota_fb_set_error(context, OTA_ERR_INVALID_STATE);
-        return;
-    }
-
-    if (!ota_metadata_confirm_active()) {
-        ota_fb_set_error(context, OTA_ERR_METADATA);
-        return;
-    }
-
+    ota_ao_publish_metadata(context, &metadata);
     context->vector.last_result = (uint32_t)OTA_RESULT_COMMITTED;
     resource_arbiter_release_ota_admission();
     ota_fb_set_state(context, OTA_STATE_COMMITTED);
@@ -205,4 +204,5 @@ void ota_fb_execute(ota_ao_context_t *context, const ota_event_t *event)
     default:
         break;
     }
+    ota_ao_publish_vector(context);
 }

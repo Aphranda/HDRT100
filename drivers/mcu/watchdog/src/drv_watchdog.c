@@ -45,6 +45,7 @@ void drv_watchdog_get_reset_snapshot(drv_watchdog_reset_snapshot_t *snapshot)
     }
     snapshot->core0_progress = watchdog_hw->scratch[5];
     snapshot->core1_progress = watchdog_hw->scratch[6];
+    snapshot->ota_phase = watchdog_hw->scratch[7];
 }
 
 void drv_watchdog_write_evidence(uint32_t magic,
@@ -67,4 +68,11 @@ void drv_watchdog_mark_progress(uint32_t core_index, uint32_t marker)
     if (core_index < 2u) {
         watchdog_hw->scratch[5u + core_index] = marker;
     }
+}
+
+void drv_watchdog_mark_ota_phase(uint32_t phase)
+{
+    /* Scratch 7 is retained across watchdog reset and is not used by the
+     * SDK's reboot classification or the core progress breadcrumbs. */
+    watchdog_hw->scratch[7] = phase;
 }

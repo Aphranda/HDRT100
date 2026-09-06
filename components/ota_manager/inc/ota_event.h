@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 #ifndef PROJECT_OTA_MAX_DATA_BLOCK_SIZE
-#define PROJECT_OTA_MAX_DATA_BLOCK_SIZE 512u
+#define PROJECT_OTA_MAX_DATA_BLOCK_SIZE 4096u
 #endif
 
 /* Package manifests are a fixed 512-byte first block.  Keep the event

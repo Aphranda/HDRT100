@@ -104,6 +104,20 @@ def wait_calibration_idle(board, args: argparse.Namespace) -> dict[str, int]:
         f"{board.address}: calibration persona did not become idle: {last}")
 
 
+def wait_ring_stopped(board, args: argparse.Namespace) -> dict[str, int]:
+    """Wait for the asynchronous RING:STOP generation to be applied."""
+    deadline = time.monotonic() + args.arm_wait
+    last: dict[str, int] = {}
+    while time.monotonic() < deadline:
+        last = ring_status(board, args)
+        if last.get("ring_enabled", 1) == 0 and \
+                last.get("ring_adapter_started", 1) == 0:
+            return last
+        time.sleep(args.idle_poll_interval)
+    raise RuntimeError(
+        f"{board.address}: TDMA ring did not stop before CLK training: {last}")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--board-id", action="append", required=True,
@@ -467,6 +481,9 @@ def main() -> int:
 
     def prepare_board(board):
         board_command(board, "SYSTem:TDMA:RING:STOP", args)
+        # STOP is a core1 intent.  Do not race the subsequent topology-probe
+        # admission against the old enabled runtime generation.
+        wait_ring_stopped(board, args)
         # Coarse acquisition starts a new calibration chain.  A valid Flash
         # record remains persisted, but its RAM stage can target a previous
         # profile/topology and must not gate this stopped diagnostic ARM.

@@ -839,6 +839,7 @@ add_executable(DHRT100_BOOT
         ${PROJECT_PORTABLE_OTA_ADAPTER_SOURCES}
         drivers/mcu/flash/src/drv_flash.c
         drivers/mcu/flash/src/drv_flash_lockout.c
+        drivers/mcu/watchdog/src/drv_watchdog.c
 )
 
 pico_set_program_name(DHRT100_BOOT "DHRT100_BOOT")
@@ -855,16 +856,20 @@ target_include_directories(DHRT100_BOOT PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/middleware/flash_map/inc
         ${CMAKE_CURRENT_LIST_DIR}/third_party/portable_ota/include
         ${CMAKE_CURRENT_LIST_DIR}/drivers/mcu/flash/inc
+        ${CMAKE_CURRENT_LIST_DIR}/drivers/mcu/watchdog/inc
         ${CMAKE_CURRENT_LIST_DIR}/config
 )
 
 target_link_libraries(DHRT100_BOOT
         pico_stdlib
         hardware_flash
+        hardware_watchdog
         ${PROJECT_OTA_CRYPTO_LIBS}
 )
 
 target_compile_definitions(DHRT100_BOOT PRIVATE
+        PROJECT_OTA_MAX_DATA_BLOCK_SIZE=${PROJECT_OTA_MAX_DATA_BLOCK_SIZE}
+        POTA_MAX_DATA_BLOCK_SIZE=${PROJECT_OTA_MAX_DATA_BLOCK_SIZE}
         PROJECT_ENABLE_OTA_FAULT_INJECTION=$<BOOL:${PROJECT_ENABLE_OTA_FAULT_INJECTION}>
         PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB=$<BOOL:${PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB}>
         PROJECT_FLASH_DEPLOYMENT_V2=$<BOOL:${PROJECT_FLASH_DEPLOYMENT_V2}>
