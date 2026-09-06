@@ -1,10 +1,10 @@
 # OTA Library Migration Playbook
 
-Status: Active
+Status: Deprecated
 Domain: OTA
-Canonical: `docs/ota/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`
-Related: `docs/ota/OTA_PORTABLE_ARCHITECTURE.md`, `docs/ota/OTA_OPEN_SOURCE_COMPARISON.md`, `docs/ota/OTA_TODO.md`
-Last updated: 2026-07-07
+Canonical: `docs/legacy/ota/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`
+Related: `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/ota/OTA_TASK_PROGRESS.md`, `docs/legacy/ota/OTA_PORTABLE_ARCHITECTURE.md`
+Last updated: 2026-09-06
 
 This playbook defines the execution order for improving the reusable OTA
 library first, then migrating the current project in controlled steps. The

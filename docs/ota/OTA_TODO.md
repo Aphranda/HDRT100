@@ -1,322 +1,83 @@
-# OTA 产品化待办
+# OTA HAOFV 实施待办
 
 Status: Active
 Domain: OTA
 Canonical: `docs/ota/OTA_TODO.md`
-Related: `docs/arch/HAOFV_FLASH_TODO.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/ota/OTA_AB_SWITCH_DESIGN.md`
-Last updated: 2026-08-21
+Related: `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/ota/OTA_TASK_PROGRESS.md`, `docs/arch/HAOFV_FLASH_TODO.md`
+Last updated: 2026-09-06
 
-本文档记录 OTA 从当前验证版推进到工业产品发布版所需的剩余工作。
+本文维护 OTA 域当前主线、稳定任务 ID、状态和退出门禁。历史完成清单与单次验证快照已迁入 `docs/legacy/ota/`；实现证据只追加到 `OTA_TASK_PROGRESS.md`。
 
-> 本文件保留 v1 OTA 已完成项和历史验证。Flash v2、唯一写 owner、Direct A/B/Recovery、
-> store、factory 迁移和 TDMA 流式 OTA 的新任务统一在
-> `docs/arch/HAOFV_FLASH_TODO.md` 跟踪，避免两个 TODO 重复标记完成。
+## 文档接口
 
-## 验收标准摘要
-
-| 优先级 | 验收标准 |
+| 文件 | 唯一职责 |
 |---|---|
-| P0 | release/validation 构建隔离可检查；正常升级、掉电恢复、direct A/B 双向升级、未确认回滚、统一 package 和 release 默认模式均有板端记录；任何失败路径不得破坏可启动旧固件。 |
-| P1 | 镜像完整性、metadata schema 兼容、SCPI 异步语义、错误时序和发布验证报告形成固定模板；上位机不能把命令入队成功误判为 OTA 最终成功。 |
-| P2 | 安全升级、签名、长期兼容、产测归档和客户交付物策略纳入 release checklist，并能随每次发布复用。 |
+| `OTA_HAOFV_ARCHITECTURE.md` | owner、ECC、Vector、Boot Control 和失败恢复稳定语义。 |
+| `OTA_TODO.md` | 任务状态、依赖、退出门禁和阻塞项。 |
+| `OTA_TASK_PROGRESS.md` | 提交、测试、构建、HIL、失败和回退证据。 |
 
-## P0 - 发布构建隔离
+跨域 Flash v2、Recovery、signature、TDMA stream 和 durable journal 总依赖仍由 `HAOFV_FLASH_TODO.md` 跟踪。本文件只维护 OTA 域内落地，不重复宣布跨域里程碑完成。
 
-- [x] `pico2-release` 关闭 `PROJECT_ENABLE_OTA_FAULT_INJECTION`。
-- [x] 新增 `pico2-validation`，专门用于异常注入、台架验证和产测调试。
-- [x] 发布前检查 release 固件中 `SYST:OTA:INJ:*` 命令不可用。
-- [x] 发布前检查周期调试日志默认关闭。
-- [x] 明确 factory UF2、OTA BIN、validation 固件、release 固件的命名和归档规则。
+## 状态规则
 
-## P0 - 掉电恢复验证
+状态只使用：
 
-- [x] `SYST:OTA:COMM` 增加前置条件：仅在无 pending 且 Bootloader 最近结果为 `APPLIED` 时允许确认。
-- [x] Bootloader 普通启动优先使用 metadata 中的 Slot A size/CRC 验证 active App，metadata 不完整时才退回最小向量校验。
-- [x] 设计 Bootloader copy transaction 状态，区分 `COPY_STARTED`、`COPY_ERASED_ACTIVE`、`COPY_PROGRAMMING`、`COPY_VERIFYING`、`COPY_DONE`，避免掉电后错误清 pending。
-- [x] 实现 metadata copy transaction 字段/API，并增加扩展区 CRC，支持后续 Bootloader 按阶段持久化 copy-to-active 状态。
-- [x] copy-to-active 失败时保留可恢复信息，不应在 Slot A 可能损坏时直接清 pending。
-- [x] 正常 OTA 闭环验证：Slot B staging、Bootloader copy-to-active、`APPLIED`、`COMM`、transaction 清零。
-- [ ] 评估从 copy-to-active 演进到真正 A/B 启动，或增加 active 备份/scratch 恢复机制。
-- [x] OTA 接收过程中复位/掉电，重启后应保留旧 App，metadata 不进入 pending。
-- [ ] OTA metadata 写入过程中掉电，重启后应从双副本中选择有效副本。
-- [x] Bootloader Slot B -> Slot A copy 过程中掉电，重启后应可恢复到可启动状态。
-- [x] `SYST:OTA:COMM` 前掉电，重启后应保留可审计状态，允许重新确认或按策略处理。
-- [ ] 使用可控电源或继电器台架执行重复掉电测试，并记录循环次数和失败率。
+- `DONE`：代码、相关软件测试、构建和要求的硬件证据闭合。
+- `IN PROGRESS`：当前唯一主线，已有可复核进展。
+- `PENDING`：前置条件未完成或尚未开始。
+- `BLOCKED`：存在明确外部阻塞，且进度文件记录了失败证据和恢复条件。
 
-## P0 - A/B 直接切换演进
+## 已有基线
 
-- [x] 输出 A/B 直接切换设计文档，明确 copy-to-active 到 direct A/B 的迁移路线。
-- [x] 增加 Slot B App 链接脚本和 `RP2350_TRIG_B.bin` 构建产物。
-- [x] metadata 增加 `boot_mode`、`previous_slot`、`boot_generation`、`boot_capabilities` 等 A/B 扩展字段。
-- [x] Bootloader 支持按 `active_slot` 直接跳转 Slot A 或 Slot B。
-- [x] OTA 接收目标从固定 Slot B 改为 inactive slot。
-- [x] 增加 `SYST:OTA:MODE?`、`SYST:OTA:TARG?`、`SYST:OTA:CAP?`。
-- [x] 更新 `ota_send.py`，根据目标 slot 自动选择 A/B 镜像。
-- [x] 完成 direct A/B 正常双向升级验证。
-- [x] 完成 direct A/B 未确认回滚验证。
-- [x] 完成 direct A/B 断电恢复验证。
-- [x] 实现统一 OTA package：一个文件包含 Slot A/Slot B 镜像，由下位机根据当前模式和目标 slot 选择写入镜像。
-- [x] 验证统一 OTA package 在 `DIRECT_AB` 模式下可 A->B、B->A 双向升级并确认。
-- [x] 验证统一 OTA package 在 release 默认 `COPY_TO_ACTIVE` 模式下可选择 Slot A 链接镜像并完成 copy-to-active。
-- [x] 评估 release 默认启用 `DIRECT_AB` 的出厂条件和迁移策略。
+| 基线 | 当前事实源 |
+|---|---|
+| Direct A/B、test/confirm/revert 和统一 package | `HAOFV_FLASH_ARCHITECTURE.md`、BootControlStore/portable OTA 代码及历史 HIL |
+| App Flash 唯一 writer | `FlashTransactionAO`/`FlashTransactionFB` 和 `ARCH-FLASHOWNER-01` pending 契约 |
+| BCB 双 lane append/commit/GC | `BootControlStore` 和 `ARCH-BOOTCTRL-01` pending 契约 |
+| Stream ingress/session | `OtaStreamSession` 和 `ARCH-OTASTREAM-01` pending 契约 |
+| 当前目标板验证 | `OTA_TASK_PROGRESS.md` 与 `out/ota/` 原始证据 |
 
-Direct A/B release 默认验证记录：
+## 当前主线
 
-- 日期：2026-07-02
-- 构建：`pico2-release`
-- build id：`20260702135950`
-- 默认模式：`SYST:OTA:MODE? -> "DIRECT_AB",1`
-- 初始 slot：`SYST:OTA:SLOT? -> 1,0,1,0,0`
-- 正向 OTA：统一 package A -> B，`BOOT` 后 `SYST:OTA:SLOT? -> 2,0,1,1,0`
-- `COMM` 后：`SYST:OTA:SLOT? -> 2,0,2,0,0`
-- 负向矩阵：整包 CRC、镜像 CRC、App 向量、包头 magic/version/size、slot、run_offset 均按预期失败。
-- 最终安全状态：`SYST:OTA:SLOT? -> 2,0,2,0,0`，无 pending，`SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`。
+将 OTA pending 路径收敛为符合 HAOFV 的单 owner、非阻塞 FB、显式 selection、固定 workspace、Flash intent/completion 和 Vector snapshot 流程。公共 SCPI 状态保持兼容，内部逐步移除同步扫描、hidden hint、现场查询和临时 fault 语义混放。
 
-## P1 - 镜像完整性与兼容性
+## 里程碑总览
 
-- [x] OTA payload 增加基础 manifest/package header，包含包大小、镜像 slot、偏移、大小、CRC32 和运行地址。
-- [x] OTA package manifest 扩展产品型号、硬件版本、App 版本、build id、payload SHA-256 和 `min_bootloader_version`。
-- [x] 验证统一 OTA package 负向路径：整包 CRC 错误、镜像 CRC 错误、App 向量错误、包头 magic/version/size 错误、slot/run_offset 不匹配。
-- [x] 增加 `min_bootloader_version`，App 在 OTA package 首块解析时检查 Bootloader 能力。
-- [x] 增加 `SYST:BOOT:VERS?` 或等效命令，查询 Bootloader 版本。
-- [x] 增加 `SYST:OTA:CAP?`，查询当前设备支持的 OTA 能力。
-- [ ] 后续需要安全升级时，增加签名校验。
-- [x] metadata v3 扩展字段增加独立 CRC 或扩展区版本/CRC，避免尾部字段不受保护。
-- [ ] 建立 metadata schema 迁移规则，后续新增字段必须保持旧 Bootloader/App 可判定兼容性。
+| 阶段 | 目标 | 退出门禁 |
+|---|---|---|
+| P0 根因修复 | 消除 BCB CRC 深栈 HardFault，保留可复核故障证据。 | portable tests、App/Boot build、COM7 A/B 双向 OTA。 |
+| P1 selection 收敛 | 一次 pending 只生成并消费一个显式 selection。 | 无 hidden hint、无 const mutation、host fault matrix 通过。 |
+| P2 非阻塞 scan | BCB scan 每 tick 推进一个有界步骤，执行预算生效。 | OtaFB 返回 BUSY/DONE/FAILED，满 lane 仍不阻塞 AO。 |
+| P3 owner/Vector 收敛 | BCB append 由 FlashTransactionAO typed intent 执行；SCPI 只读 Vector。 | raw writer/link gate、seqlock snapshot、无查询时 Flash IO。 |
+| P4 发布验收 | 完整 fault/power-cut/stack/HIL/P3 证据。 | 当前源码指纹的 acceptance receipt 和 C11 审核。 |
 
-## P1 - SCPI OTA 交互语义
+## 分阶段任务表
 
-- [ ] 明确 `BEGIN/DATA/END/BOOT/COMM` 的返回语义：`"OK"` 仅表示命令接受，最终结果必须查询 `SYST:OTA:STAT?` 或 `SYST:OTA:RES?`。
-- [ ] 对 `END/BOOT/COMM` 增加可选同步等待模式或专用查询，减少上位机误把入队成功当成执行成功。
-- [ ] 增加错误时序测试：`READY_TO_REBOOT` 前发送 `COMM`、无 pending 发送 `BOOT`、接收过程中重复 `BEGIN`。
-- [ ] release 固件中验证 `SYST:OTA:INJ:*` 返回 SCPI 错误或不可识别。
-
-## 统一 OTA package 负向验证记录
-
-验证环境：
-
-- 日期：2026-06-23
-- 固件：`build-codex-release\RP2350_TRIG_FACTORY.uf2`
-- package：`build-codex-release\RP2350_TRIG_UPDATE.pkg`
-- 端口：`COM4`
-- 模式：release 默认 `COPY_TO_ACTIVE`
-- 初始状态：`SYST:OTA:SLOT? -> 1,0,1,0,0`
-
-验证命令和结果：
-
-| 场景 | 命令参数 | 期望 | 实测 |
+| ID | 任务 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
-| 整包 CRC 错误 | `--corrupt-crc` | `FAILED/CRC` | `"FAILED",2,"CRC",4` |
-| 镜像 CRC 错误 | `--package-negative image-crc` | `FAILED/CRC` | `"FAILED",2,"CRC",4` |
-| App 向量错误 | `--package-negative image-vector` | `FAILED/VECTOR` | `"FAILED",2,"VECTOR",4` |
-| 包头 magic 错误 | `--package-negative header-magic` | `FAILED/BAD_HEADER` | `"FAILED",2,"BAD_HEADER",4` |
-| 包头 version 错误 | `--package-negative header-version` | `FAILED/BAD_HEADER` | `"FAILED",2,"BAD_HEADER",4` |
-| 包头 package size 错误 | `--package-negative header-size` | `FAILED/BAD_HEADER` | `"FAILED",2,"BAD_HEADER",4` |
-| image slot 错误 | `--package-negative slot` | `FAILED/BAD_HEADER` | `"FAILED",2,"BAD_HEADER",4` |
-| image run_offset 不匹配 | `--package-negative run-offset` | `FAILED/IMAGE_TOO_LARGE` | `"FAILED",2,"IMAGE_TOO_LARGE",4` |
+| OTA-HAOFV-001 | 将 `docs/ota` 收敛为 Architecture/TODO/Task Progress 三件套，旧文件迁入 legacy，修复全库引用。 | DONE | `docs/ota` 仅三文件；严格命名、索引、链接、registry 和 pytest 全绿，pre-commit 在最终代码切片统一执行。 |
+| OTA-HAOFV-002 | 修复 BCB body/seal CRC 的 page-sized 深栈副本并建立 fault-frame 证据。 | DONE | PC/LR 定位、分段 CRC、portable tests、RTOS multicore build、COM7 A→B→A PASS。 |
+| OTA-HAOFV-003 | 用显式 `pota_bcb_selection_t` 和 from-selection transaction API 替换 selection hint。 | DONE | 删除 hidden hint/const mutation；selection generation/lifecycle 明确；正反单测与 COM7 A→B→A 通过。 |
+| OTA-HAOFV-004 | 实现 `pota_bcb_scan_begin/step/result` 固定 workspace。 | DONE | 每 step 最多处理一个 page；full lane、torn/CRC/schema/map、no-valid 和 stale-generation 测试通过。 |
+| OTA-HAOFV-005 | 将 `MARK_PENDING` 接入 OtaFB 内部 ECC 子状态并真正执行 `budget_us`。 | DONE | scan/prepare/transaction 每 tick 有界；AO service 每次只推进一个动作；COM7 A/B 通过。 |
+| OTA-HAOFV-006 | 增加 versioned Boot Control append intent，由 FlashTransactionAO 内部推进 transaction。 | DONE | App BCB program/erase 使用 submit + service + committed Vector；Boot 保持同步 adapter；COM7 A/B 通过。 |
+| OTA-HAOFV-007 | 扩展 OtaVector/DiagnosticsVector 并将 SCPI 查询迁为 snapshot-only。 | DONE | OtaAO 双缓冲 Vector/metadata snapshot；SCPI 查询不触发 BCB/Flash IO；COM7 A/B 通过。 |
+| OTA-HAOFV-008 | 移除旧同步 App scan、selection service hook 和完成定位后的临时 fault instrumentation。 | DONE | 主 App pending 路径仅走 HAOFV step/async owner；临时 fault/page trace 已移除；portable/RTOS build 与 COM7 A/B 通过。非主线历史同步 wrapper 保留在兼容边界并单独审计。 |
+| OTA-HAOFV-009 | 建立 stack-usage、CRC 等价、BCB 满 lane/GC/torn 和查询无 IO 回归门禁。 | DONE | OTA HAOFV static gate、固定 workspace 栈帧 gate、portable BCB/FlashTransaction/Journal reset matrix、CRC/BCB tests、query wiring 全部通过。 |
+| OTA-HAOFV-010 | 执行 COM7 多轮 A/B、负向矩阵、power-cut 边界和仓库 P3 hardware acceptance。 | IN PROGRESS | 当前源码构建、COM7 positive/negative matrix、NO1–NO4 UF2 和 P3 staged 检查通过；真实 power-cut、正式 P3 receipt/C11 尚未闭合。 |
 
-验证后状态：
+## 当前阻塞项
 
-- `SYST:OTA:SLOT? -> 1,0,1,0,0`
-- `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,74056,3774081352`
-- 无 pending，旧 confirmed Slot A 保持运行。
+`OTA-HAOFV-010` 剩余真实 power-cut 控制、当前源码指纹的正式 P3 acceptance receipt 和 C11 独立审核；已有 host/reset matrix、COM7 negative HIL 与 NO1–NO4 UF2 证据不能替代这些门禁。
 
-## P1 - 发布验证报告
+## 统一完成定义
 
-- [ ] 新增 OTA validation report 模板，记录正常升级、CRC 错误、向量错误、中止、metadata 单副本损坏、copy 失败和掉电测试结果。
-- [ ] 在 OTA validation report 中增加统一 package 专项：正常升级、A/B 自动选择、COPY_TO_ACTIVE 兼容、负向包验证、失败后旧固件保持运行。
-- [ ] 将每次 release 的 `.uf2`、`.bin`、map 文件、build id、CRC/SHA 和验证报告一起归档。
-- [ ] 明确异常注入固件不能作为客户交付物。
-
-## P2 - 工具与自动化
-
-- [ ] `tools/ota_send/ota_send.py` 增加可选自动 boot/commit 流程。
-- [x] 增加 release 检查脚本，自动确认 release preset 中故障注入关闭。
-- [x] release 检查脚本纳入 Slot B 镜像和统一 OTA package 产物。
-- [ ] 增加串口回归脚本，批量执行 `SYST:FW:*`、`SYST:OTA:*` 基础查询。
-- [ ] 增加掉电台架控制脚本接口，支持随机或指定阶段断电。
-
-## Portable OTA 迁移验证记录
-
-- [x] Step 2A：产品侧 package parser 委托到 `third_party/portable_ota`。
-- [x] Step 2A 构建闭环：`build-portable-migration` 构建通过，`release_check=OK`。
-- [x] Step 2A 板端闭环：COM4 上完成 factory 烧录、统一 package 正常 OTA、
-  Bootloader apply、App commit 和 package 负向矩阵验证。
-- [x] Step 2A 最终安全状态：`SYST:OTA:SLOT? -> 1,0,1,0,0`，无 pending，
-  confirmed Slot A 保持运行。
-- [x] Step 2B：产品侧 CRC32 委托到 `middleware/portable_ota_port`，
-  App 和 Bootloader 共用 `third_party/portable_ota/src/pota_crc32.c`。
-- [x] Step 2B 构建闭环：`build-portable-boot-crc` 构建通过，
-  portable OTA ARM GCC compile/object-build gate 通过，`release_check=OK`。
-- [x] Step 2B Bootloader 影响验证：用 `picotool` 烧录 factory，
-  COM4 上完成统一 package 正常 OTA、`SYST:OTA:BOOT`、Bootloader
-  `APPLIED`、App `COMM`。
-- [x] Step 2B 负向矩阵复测：整包 CRC、镜像 CRC、App 向量、包头
-  magic/version/size、slot、run_offset 均按预期失败。
-- [x] Step 2B 最终安全状态：`SYST:OTA:SLOT? -> 1,0,1,0,0`，无 pending；
-  最后一次审计保留 `FAILED/IMAGE_TOO_LARGE`，Bootloader 最近成功结果为
-  `APPLIED`。
-- [x] Step 2C：产品侧 App 向量校验委托到 `middleware/portable_ota_port`，
-  App 和 Bootloader 共用 `third_party/portable_ota/src/pota_image.c`。
-- [x] Step 2C 构建闭环：新增 portable image vector 单测，
-  `build-portable-image` 构建通过，`release_check=OK`。
-- [x] Step 2C Bootloader 影响验证：用 `picotool` 烧录 factory，
-  COM4 上完成统一 package 正常 OTA、`SYST:OTA:BOOT`、Bootloader
-  `APPLIED`、App `COMM`。
-- [x] Step 2C 负向矩阵复测：`image-vector` 精准返回 `FAILED/VECTOR`，
-  其余整包 CRC、镜像 CRC、包头、slot、run_offset 均按预期失败。
-- [x] Step 2C 最终安全状态：`SYST:OTA:SLOT? -> 1,0,1,0,0`，无 pending；
-  最后一次审计保留 `FAILED/IMAGE_TOO_LARGE`。
-- [x] Step 2D：补齐 `pota_core` 产品语义差异：package header CRC 早期拒绝、
-  `pota_service()` 分段擦除、最终块页对齐 padding、非最终非页对齐块拒绝。
-- [x] Step 2D 闭环：portable OTA ARM GCC compile/object-build gate 通过；
-  本步未切换产品固件路径，因此不重复板端烧录。
-- [x] Step 2E：增加 middleware core adapter，映射 `pota_status_t`/error/result
-  到现有 `ota_vector_t`/SCPI 语义。
-- [x] Step 2F：将产品 `ota_fb` BEGIN/TICK/DATA/END/ABORT 迁移到
-  `pota_core`，并执行完整烧录、正向 OTA、负向矩阵闭环。
-- [x] Step 2F 最终安全状态：`SYST:OTA:SLOT? -> 1,0,1,0,0`，无 pending；
-  状态/错误映射保持原有 SCPI 期望。
-- [x] Step 3A：新增 `include/pota.h` 一站式头文件和 `pota_session`
-  会话门面，产品 middleware core adapter 改为调用 `pota_session_*`。
-- [x] Step 3B 闭环：`build-portable-session` 构建通过，
-  portable OTA ARM GCC compile/object-build gate 通过，`release_check=OK`；
-  COM4 上完成 factory 烧录、正向 OTA、Bootloader `APPLIED`、App `COMM`
-  和完整负向矩阵。
-- [x] Step 3B 最终安全状态：`SYST:FW:BUILD? -> "20260623101235"`，
-  `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:RES? ->
-  4,"IMAGE_TOO_LARGE","APPLIED",1,75024,895520178`。
-- [x] Step 3C：新增 `pota_strings`，将 OTA state/error/result 和
-  Bootloader result 文本 helper 下沉到 `third_party/portable_ota`；
-  产品侧 `ota_state_to_string()`、`ota_error_to_string()` 和
-  `ota_metadata_boot_result_to_string()` 改为 middleware 包装。
-- [x] Step 3C 闭环：`build-portable-strings` 构建通过，
-  portable strings 单测纳入 ARM GCC compile/object-build gate，
-  `release_check=OK`；COM4 上完成 factory 烧录、正向 OTA、Bootloader
-  `APPLIED`、App `COMM`。
-- [x] Step 3C 负向矩阵复测：整包 CRC、镜像 CRC、App 向量、包头
-  magic/version/size、slot、run_offset 均按预期输出原有 SCPI 文本。
-- [x] Step 3C 最终安全状态：`SYST:FW:BUILD? -> "20260623102556"`，
-  `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:RES? ->
-  4,"IMAGE_TOO_LARGE","APPLIED",1,75224,2315388268`。
-- [x] Step 3D：将 metadata v3 schema、基础 CRC、扩展区 CRC、A/B CRC、
-  默认值初始化、copy transaction 字段清理、状态/slot 合法性判断和
-  newest-copy 选择逻辑下沉到 `third_party/portable_ota`。
-- [x] Step 3D 产品接入：新增 `portable_ota_metadata_port.c`，通过字段布局
-  static assert 保证 `ota_metadata_t` 与 `pota_metadata_t` 兼容；产品侧
-  flash 双副本读写、v2 旧格式迁移和 RP2350 offset 策略仍保留在
-  `components/ota_manager/src/ota_metadata.c`。
-- [x] Step 3D 闭环：`build-portable-metadata` 构建通过，
-  portable metadata v3 单测纳入 ARM GCC compile/object-build gate，
-  `release_check=OK`；COM4 上完成 factory 烧录、正向 OTA、Bootloader
-  `APPLIED`、App `COMM`。
-- [x] Step 3D 负向矩阵复测：整包 CRC、镜像 CRC、App 向量、包头
-  magic/version/size、slot、run_offset 均按预期失败，且未留下 pending。
-- [x] Step 3D 最终安全状态：`SYST:FW:BUILD? -> "20260623104609"`，
-  `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:RES? ->
-  4,"IMAGE_TOO_LARGE","APPLIED",1,75240,3624267205`。
-- [x] Step 3E：将 `mark_pending`、`confirm_active`、`set_boot_mode`、
-  `set_fault_injection` 和 copy transaction 状态更新等内存 metadata
-  mutation helper 下沉到 `third_party/portable_ota`。
-- [x] Step 3E 产品接入：产品 `ota_metadata_*` 公开 API 保持不变，
-  内部收敛为 `load -> portable mutation -> store`；RP2350 flash 双副本
-  存储策略仍留在产品层。
-- [x] Step 3E 闭环：`build-portable-metadata-mutation` 构建通过，
-  portable metadata mutation 单测纳入 ARM GCC compile/object-build gate，
-  `release_check=OK`；COM4 上完成 factory 烧录、正向 OTA、Bootloader
-  `APPLIED`、App `COMM`。
-- [x] Step 3E 负向矩阵复测：整包 CRC、镜像 CRC、App 向量、包头
-  magic/version/size、slot、run_offset 均按预期失败，且未留下 pending。
-- [x] Step 3E 最终安全状态：`SYST:FW:BUILD? -> "20260623112832"`，
-  `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:RES? ->
-  4,"IMAGE_TOO_LARGE","APPLIED",1,75160,3242593473`。
-- [x] Step 3F：将 Bootloader 侧 boot result、copy-to-active 完成落账、
-  direct A/B pending apply、direct rollback 和 boot_attempts 增量等内存
-  metadata mutation helper 下沉到 `third_party/portable_ota`。
-- [x] Step 3F 闭环：`build-portable-boot-metadata` 构建通过，
-  portable OTA ARM GCC compile/object-build gate 通过，`release_check=OK`；
-  COM4 上完成 factory 烧录、正向 OTA、Bootloader `APPLIED`、App `COMM`。
-- [x] Step 3F 负向矩阵复测：整包 CRC、镜像 CRC、App 向量、包头
-  magic/version/size、slot、run_offset 均按预期失败，且未留下 pending。
-- [x] Step 3F 最终安全状态：`SYST:FW:BUILD? -> "20260623153304"`，
-  `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`，
-  `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,75160,4118687324`。
-- [x] Step 3G：将 App `COMM` 前置确认语义下沉到 portable metadata helper，
-  新增 `pota_metadata_can_confirm_active()`，并让 `pota_metadata_confirm_active()`
-  自身强制要求无 pending 且最近 Bootloader 结果为 `APPLIED`。
-- [x] Step 3G 构建闭环：`build-portable-commit-helper` 构建通过，
-  portable OTA ARM GCC compile/object-build gate 通过，`release_check=OK`。
-- [x] Step 3G 板端闭环：COM4 上完成 factory 烧录、统一 package 正常 OTA、
-  Bootloader `APPLIED`、App `COMM` 和完整负向矩阵。
-- [x] Step 3G 最终安全状态：`SYST:FW:BUILD? -> "20260623154727"`，
-  `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`，
-  `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,75200,947176610`。
-- [x] Portable OTA 当前迁移阶段收口：除 `middleware/portable_ota_port` 和单元测试外，
-  产品层没有直接 include/call `pota_*`；剩余 Bootloader flash copy、slot jump、
-  watchdog、SCPI 查询和同步触发空闲检查保留为 RP2350 产品/平台职责。
-- [x] Step 4A：新增 `pota_operation` 操作向量表，将 App 侧
-  `BEGIN/SERVICE/WRITE/END/ABORT/COMMIT` 的允许状态和 action 分发下沉到
-  `third_party/portable_ota`。
-- [x] Step 4A 闭环：`build-portable-operation` 构建通过，
-  portable OTA ARM GCC compile/object-build gate 通过，`release_check=OK`；
-  COM4 上完成 factory 烧录、统一 package 正常 OTA、Bootloader `APPLIED`、
-  App `COMM` 和完整负向矩阵。
-- [x] Step 4A 最终安全状态：`SYST:FW:BUILD? -> "20260623160856"`，
-  `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`，
-  `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,75520,1153533388`。
-- [x] Step 4B：新增 `pota_compat` 表驱动兼容映射 helper；
-  `portable_ota_core_port.c` 和 `portable_ota_strings_port.c` 删除大段错误/结果映射
-  switch，仅保留 RP2350 产品扩展错误文本表。
-- [x] Step 4B 闭环：`build-portable-compat` 构建通过，
-  portable OTA ARM GCC compile/object-build gate 通过，`release_check=OK`；
-  COM4 上完成 factory 烧录、统一 package 正常 OTA、Bootloader `APPLIED`、
-  App `COMM` 和完整负向矩阵。
-- [x] Step 4B 最终安全状态：`SYST:FW:BUILD? -> "20260623161835"`，
-  `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`，
-  `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,76248,1672559948`。
-- [x] Step 4C：为 package manifest/image 布局增加编译期 static assert，
-  将 `portable_ota_port.c` 中的逐字段 manifest 拷贝改为受布局断言保护的
-  `memcpy()`，并删除重复 slot 映射函数。
-- [x] Step 4C 闭环：`build-portable-package-layout` 构建通过，
-  portable OTA ARM GCC compile/object-build gate 通过，`release_check=OK`；
-  COM4 上完成 factory 烧录、统一 package 正常 OTA、Bootloader `APPLIED`、
-  App `COMM` 和完整负向矩阵。
-- [x] Step 4C 最终安全状态：`SYST:FW:BUILD? -> "20260623162853"`，
-  `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`，
-  `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,76248,1062244197`。
-- [x] Step 4D：新增 `pota_package_find_image_index()`，将 package image
-  slot 查找规则下沉到 portable 库；middleware 仅根据 index 返回产品结构体指针。
-- [x] Step 4D 闭环：`build-portable-package-index` 构建通过，
-  portable OTA ARM GCC compile/object-build gate 通过，`release_check=OK`；
-  COM4 上完成 factory 烧录、统一 package 正常 OTA、Bootloader `APPLIED`、
-  App `COMM` 和完整负向矩阵。
-- [x] Step 4D 最终安全状态：`SYST:FW:BUILD? -> "20260623163652"`，
-  `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`，
-  `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,76248,888718805`。
-- [x] Step 4E：合并 `portable_ota_crc_port.c` 和 `portable_ota_strings_port.c`
-  到 `portable_ota_core_port.c`；通过 `PORTABLE_OTA_PORT_ENABLE_SESSION` 让
-  Bootloader 只编译 CRC/字符串基础适配，App 编译完整 OTA session 接收路径。
-- [x] Step 4E：新增 `tools/ota_board_validate/ota_board_validate.py` 一键板端验证
-  脚本，从生成的 `summary.json`、查询文件和 per-step log 判断验证是否正常。
-- [x] Step 4E 加固：`ota_board_validate.py` 捕获外部命令超时，保证失败时仍输出
-  step log 和 `summary.json`，避免台架长时间运行后丢失失败证据。
-- [x] Step 4E 加固：`pota_core` 增加 flash page/sector 2 的幂校验，并补充
-  非法几何参数单测，避免对齐计算静默错误。
-- [x] Step 4E 加固：`portable_ota_core_port.c` 明确
-  `PORTABLE_OTA_PORT_ENABLE_SESSION` 的 Bootloader/App 编译职责边界。
-- [x] Step 4E 闭环：`build-portable-port-merge` 构建通过，
-  portable OTA ARM GCC compile/object-build gate 通过，`release_check=OK`；
-  一键脚本完成 factory 烧录、baseline、正向 OTA、Bootloader `APPLIED`、
-  App `COMM`、完整负向矩阵和最终安全状态验证。
-- [x] Step 4E 加固闭环：`build-ota-review-fix` 构建通过，
-  portable OTA ARM GCC compile/object-build gate 通过，`release_check=OK`；
-  一键脚本完成 factory 烧录、正向 OTA、Bootloader `APPLIED`、App `COMM`、
-  完整负向矩阵和最终安全状态验证。
-- [x] Step 4E 最终安全状态：`SYST:FW:BUILD? -> "20260623165039"`，
-  `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`，
-  `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,76248,3771490588`。
-- [x] Step 4E 加固最终安全状态：`SYST:FW:BUILD? -> "20260623170811"`，
-  `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`，
-  `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,76296,4281433435`。
-- [ ] Step 4F：评估 `portable_ota_metadata_port.c` 是否只做布局断言宏化；
-  剩余 image/core/platform 绑定不为减少行数强行下沉。
+- Architecture、TODO、Task Progress 事实边界无复制冲突。
+- OtaAO 是 session/ECC/Vector 唯一运行 owner。
+- OtaFB action 立即返回，所有 scan/write/wait 分步推进。
+- App erase/program 仅由 FlashTransactionAO 执行，Boot 使用 BootFlashService。
+- 一次 pending 只有一个显式 selection，没有 hidden hint 或 const mutation。
+- CRC/scan/transaction 使用固定 workspace并满足栈门禁。
+- SCPI/UI/Diagnostics 只读取版本化 Vector，不现场扫描 Flash。
+- A→B、B→A、回滚、torn/power-cut、BCB 损坏和 fault matrix 有确定结果。
+- 文档门禁、软件测试、构建、P3 硬件验收和 C11 审核全部闭合。

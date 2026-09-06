@@ -1,10 +1,10 @@
 # Portable OTA Architecture And Validation Guide
 
-Status: Active
+Status: Deprecated
 Domain: OTA
-Canonical: `docs/ota/OTA_PORTABLE_ARCHITECTURE.md`
-Related: `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/ota/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`, `docs/ota/OTA_OPEN_SOURCE_COMPARISON.md`
-Last updated: 2026-07-07
+Canonical: `docs/legacy/ota/OTA_PORTABLE_ARCHITECTURE.md`
+Related: `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/legacy/ota/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`, `docs/legacy/ota/OTA_OPEN_SOURCE_COMPARISON.md`
+Last updated: 2026-09-06
 
 This document extracts the current RP2350_TRIG OTA design into a reusable
 architecture for MCU-class RTOS products. The immediate product scope is

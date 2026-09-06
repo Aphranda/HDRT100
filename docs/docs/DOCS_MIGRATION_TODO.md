@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/docs/DOCS_MIGRATION_TODO.md`
 Related: `docs/README.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-08-13
+Last updated: 2026-09-06
 
 本文档跟踪 `docs/` 从历史平铺文档向统一命名、统一入口、统一元数据演进的待办。
 迁移过程优先保证引用不失效，不追求一次性大规模改名。
@@ -89,12 +89,12 @@ Last updated: 2026-08-13
 | 2026-08-13-DOCS-DOMAIN-PHASE-2 | 已完成 | 根目录 `DOCS_MIGRATION_TODO.md` | `docs/docs/DOCS_MIGRATION_TODO.md` | 文档治理域首批迁移，迁移待办进入 docs 子目录。 |
 | 2026-07-07-NAMING-BATCH-2 | 已完成 | `PIO_RESOURCE_PLAN.md` | `docs/sync/SYNC_IO_ARCHITECTURE.md` | 已更新 README、docs、tools 内引用；保持 SYNC_IO 资源规划入口。 |
 | 2026-07-07-NAMING-BATCH-2 | 已完成 | `DISTRIBUTED_DPLL_SYNC_DESIGN.md` | `docs/sync/SYNC_IO_ARCHITECTURE.md` | 已更新 README、docs、tools 内引用；归入 SYNC_IO 设计文档。 |
-| 2026-07-07-NAMING-BATCH-2 | 已完成 | `PORTABLE_OTA_ARCHITECTURE.md` | `docs/ota/OTA_PORTABLE_ARCHITECTURE.md` | 已更新 README、docs、tools 内引用；归入 OTA 架构文档。 |
+| 2026-07-07-NAMING-BATCH-2 | 已完成 | `PORTABLE_OTA_ARCHITECTURE.md` | `docs/legacy/ota/OTA_PORTABLE_ARCHITECTURE.md` | 已更新 README、docs、tools 内引用；归入 OTA 架构文档。 |
 | 2026-07-07-NAMING-BATCH-2 | 已完成 | `SYNC_TRIGGER_TODO.md` | `docs/trigger/TRIGGER_SYNC_TODO.md` | 已更新 README、docs、tools 内引用；归入 TRIGGER 待办。 |
 | 2026-07-07-NAMING-BATCH-2 | 已完成 | `TRIGGER_ENC_COUNT_MODE.md` | `docs/trigger/TRIGGER_ENC_COUNT_DESIGN.md` | 已更新 README、docs、tools 内引用；类型后缀改为 DESIGN。 |
 | 2026-07-07-NAMING-BATCH-2 | 已完成 | `TRIGGER_INDUSTRIAL_ENHANCEMENT.md` | `docs/trigger/TRIGGER_INDUSTRIAL_ENHANCEMENT_DESIGN.md` | 已更新 README、docs、tools 内引用；类型后缀改为 DESIGN。 |
 | 2026-07-07-NAMING-BATCH-2 | 已完成 | `TRIGGER_SEQ_STEP_MODE.md` | `docs/trigger/TRIGGER_SEQ_STEP_DESIGN.md` | 已更新 README、docs、tools 内引用；类型后缀改为 DESIGN。 |
-| 2026-07-07-NAMING-BATCH-3 | 已完成 | `OTA方案.md` | `docs/ota/OTA_SYSTEM_DESIGN.md` | 已更新 README、docs、tools 内引用；保留 OTA 主方案 canonical 入口语义。 |
+| 2026-07-07-NAMING-BATCH-3 | 已完成 | `OTA方案.md` | `docs/legacy/ota/OTA_SYSTEM_DESIGN.md` | 已更新 README、docs、tools 内引用；保留 OTA 主方案 canonical 入口语义。 |
 | 2026-07-07-NAMING-BATCH-3 | 已完成 | `HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md` | `docs/arch/HAOFV_ARCHITECTURE.md` | 已更新 README、docs、tools 内引用；保留 HAOFV 顶层架构入口语义。 |
 | 2026-07-07-NAMING-BATCH-3 | 已完成 | `HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE_SUPPLEMENT.md` | `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md` | 已更新 README、docs、tools 内引用；将补充示例和迁移步骤归入 playbook。 |
 

@@ -1,10 +1,10 @@
 # OTA Open Source Comparison For RP2350 And STM32 RTOS
 
-Status: Active
+Status: Deprecated
 Domain: OTA
-Canonical: `docs/ota/OTA_OPEN_SOURCE_COMPARISON.md`
-Related: `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/ota/OTA_PORTABLE_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
-Last updated: 2026-08-21
+Canonical: `docs/legacy/ota/OTA_OPEN_SOURCE_COMPARISON.md`
+Related: `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/legacy/ota/OTA_PORTABLE_ARCHITECTURE.md`
+Last updated: 2026-09-06
 
 This note compares the current RP2350_TRIG OTA architecture with commonly used
 open-source or vendor-visible OTA stacks. The target scope is intentionally

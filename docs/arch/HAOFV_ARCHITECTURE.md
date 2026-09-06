@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-09-03
+Last updated: 2026-09-06
 Version: 5
 
 本文档定义 Distributed Hard Real-Time Trigger System 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
@@ -984,7 +984,7 @@ typedef struct {
 | 域 | 错误码范围 | 示例 |
 |---|---|---|
 | 通用 | 0 | `NONE` |
-| OTA | 1-99 | 见 `docs/ota/OTA_SYSTEM_DESIGN.md` 15 种 OTA 错误码 |
+| OTA | 1-99 | 见 `docs/ota/OTA_HAOFV_ARCHITECTURE.md`，具体枚举以 `ota_error_t` 代码符号为事实源 |
 | Trigger | 100-199 | 1=非法参数, 2=资源忙, 3=PIO/DMA 配置失败, 10=ENC target=0, 11=非法编码器引脚 |
 | Flash | 200-299 | 擦除/写入/读回校验失败 |
 | Storage | 300-399 | SD 卡挂载/读写/文件系统错误 |

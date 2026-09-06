@@ -4,7 +4,7 @@ Status: Active
 Domain: STATE_MACHINE
 Canonical: `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
 Related: `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`
-Last updated: 2026-09-05
+Last updated: 2026-09-06
 
 本文档只记录状态机域的实施、构建、测试、OTA/HIL、失败和回退证据；任务状态以
 `HAOFV_STATE_MACHINE_TODO.md` 为唯一事实源，稳定语义以架构文档为准。
@@ -30,6 +30,54 @@ Last updated: 2026-09-05
   修复/恢复 follower ARM 现场后重新完成 TDMA 短帧，再验收并提交。
 
 ## 当前 Checkpoint
+
+### SM-PROGRESS-20260906-034 - OTA HAOFV 当前源码指纹 TDMA/P3 门禁阻塞
+
+- TODO task ID：`SM-P0-003`、`SM-RES-008`（关联 OTA-HAOFV-010）。
+- 当前 Debug build：`20260906050112`，构建目录
+  `out/build/ota-haofv-current/`；App A/B、Boot、factory UF2、统一 package 和
+  Flash link contract 均通过，host OTA/BCB 与 wiring 回归通过。
+- P3 失败：`out/hardware_acceptance/p3-20260906-130105/`。coarse CLK calibration
+  在 follower `FB276192BEF9CCE1`（COM4）ARM 前拒绝，`runtime_train_reject_count=1`、
+  `ring_adapter_started=0`，未进入 TDMA SHORT；同一源码指纹的直接 128-cycle SHORT
+  重试及一次软件复位后的重试均在该 follower ARM timeout 退出。
+- SD/物理诊断：`out/hardware_acceptance/p3-20260906-130105/sd-diagnostic/` 保存
+  `SYST:SD:STAT?`、`SYST:SD:INFO?`、manifest、目录 catalog 和 `PHYS?` 原始响应；SD
+  为 `CARD_READY`，但 `/traces` 无可下载 capture，无法生成波形解码或前后修复对比。
+  `PHYS?` 显示 `last_error=18`、TX/RX 计数为零，说明拒绝发生在 ARM/资源阶段。
+- 结论：当前代码与文档切片不通过硬件验收，保持 staged、不得 commit/push；待恢复
+  follower ARM 现场并取得当前 build 的 TDMA SHORT 闭环和 SD 原始波形后再继续。
+
+### SM-PROGRESS-20260906-035 - P0T 通过后 P1 CLK 训练资源冲突阻塞
+
+- TODO task ID：`SM-P0-004`、`SM-RES-008`（关联 Calibration `P0T/P1`、`TRN-00`）。
+- 软件修复：`tdma_ring_runtime_configure(NULL)` 现作为合法 STOP/清空配置，修复此前
+  `RING:STOP` 被 validator 拒绝、`TOPology:PROBe` 读到旧 enabled generation 的 bug；
+  `calibration_clk_train.py` 增加 Core1 STOP 完成屏障。
+- 回归：`run_tdma_ring_runtime_tests.ps1` 与 host 回归通过；Debug build
+  `20260906053248` 完成五板 OTA，P0T 线序/邻接/NO 分配通过。
+- 当前失败：P1 coarse CLK（证据
+  `out/hardware_acceptance/p3-20260906-133241/coarse-clk-level7/`）在
+  `FB276192BEF9CCE1` follower forwarding ARM 后 `CLKTRAIN result=4`，物理快照
+  `last_error=6 (RESOURCE_CONFLICT)`；`ring_enabled=1`、`ring_adapter_started=1`，
+  说明 STOP/PROBE 竞态已越过，但 flight→maintenance persona/resource 转移仍拒绝。
+- 结论：P1 未闭环，按依赖不得进入 P2/P3 或 TRN-00–TRN-03；保留失败证据，代码和工具
+  变更不提交/不推送，下一步修复 persona resource transfer 后从 P0T/P1 重新验收。
+
+### SM-PROGRESS-20260906-036 - P0T/P1/P2/P3 与 TRN-00..03 TDMA 闭环通过
+
+- TODO task ID：`SM-P0-004`、`SM-RES-008`、`SM-M3`、`SM-M5`。
+- 代码/工具修复：STOP 空配置语义、flight PIO 四 SM 完整 quiesce、CLK 训练 STOP
+  屏障、P0T profile readback bounded poll、P3 STOP persistent-session retry，以及
+  P0T 邻接活动窗口调整为 1 s。
+- 当前 Debug build：`20260906061434`，同包四板 OTA、源码指纹和 Flash link contract
+  通过；完整证据根目录为 `out/hardware_acceptance/p3-20260906-141427/`。
+- 硬件结果：P0T 线序/邻接、P1 coarse CLK、P2 coded marker、P3 四链路两信号组各
+  3 次重复、TRN-00 marker/residence、TRN-01 SCK、TRN-02 DATA、TRN-03 replay matrix
+  和四板 process-image/FIFO 短帧均 `passed=true`、`closed_loop_passed=true`；TDMA
+  结果含 SD/raw capture 与分析目录，NO5/DPLL 按 `--tdma-only` 明确跳过。
+- 结论：本切片已满足当前 TDMA 短帧硬件门禁，可进入下一状态机迁移项；receipt
+  `config/hardware_acceptance/p3_acceptance_receipt.json` 与当前源码/bench 指纹一致。
 
 ### SM-PROGRESS-20260905-033 - SM-RES-009 方向化 RX unload / TX load 回归收口
 

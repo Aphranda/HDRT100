@@ -1,10 +1,10 @@
 # OTA Copy Transaction 设计
 
-Status: Active
+Status: Deprecated
 Domain: OTA
-Canonical: `docs/ota/OTA_COPY_TRANSACTION_DESIGN.md`
-Related: `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/ota/OTA_AB_SWITCH_DESIGN.md`, `docs/ota/OTA_TODO.md`
-Last updated: 2026-07-07
+Canonical: `docs/legacy/ota/OTA_COPY_TRANSACTION_DESIGN.md`
+Related: `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/ota/OTA_TODO.md`, `docs/legacy/ota/OTA_AB_SWITCH_DESIGN.md`
+Last updated: 2026-09-06
 
 本文档定义当前 copy-to-active OTA 方案的掉电恢复增强设计。目标是在不改变现有 4 MB Flash 分区的前提下，降低 Bootloader 从 Slot B 复制到 Slot A 过程中掉电或写入失败导致设备不可启动的风险。
 

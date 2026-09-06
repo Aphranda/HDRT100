@@ -2,9 +2,9 @@
 
 Status: Deprecated
 Domain: OTA
-Canonical: `docs/ota/OTA_SYSTEM_DESIGN.md`
-Related: `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_TODO.md`, `docs/ota/OTA_PORTABLE_ARCHITECTURE.md`
-Last updated: 2026-08-21
+Canonical: `docs/legacy/ota/OTA_SYSTEM_DESIGN.md`
+Related: `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/legacy/ota/OTA_PORTABLE_ARCHITECTURE.md`
+Last updated: 2026-09-06
 
 本文档汇总当前硬件条件，并给出 RP2350_TRIG 的 OTA 工程方案。目标是让固件升级从“手动烧录”升级为“可回滚、可校验、可维护”的产品化流程。
 

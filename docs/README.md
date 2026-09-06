@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/README.md`
 Related: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-09-05
+Last updated: 2026-09-06
 
 本文档是 `docs/` 的总入口。新文档的命名、层级、元数据和迁移规则以
 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
@@ -65,10 +65,11 @@ docs/
 | `communication/` | `communication/README.md` | BiSS-C、UART、RS485 和通信维护 |
 | `measure/` | `measure/README.md` | 测量原语、T2 摘要和链路 delay 测量服务 |
 | `storage/` | `storage/README.md` | SD、StorageAO、日志、trace、snapshot 和报告证据 |
-| `ota/` | `ota/README.md` | OTA、boot、A/B、回滚和 System Pack |
+| `ota/` | `ota/OTA_HAOFV_ARCHITECTURE.md` | OTA HAOFV、boot、A/B、回滚和 System Pack |
 | `hardware/` | `hardware/README.md` | IO 约束、PCB、网表、BOM、Gerber 和硬件评审 |
 | `validation/` | `validation/README.md` | HIL、工具验证、任务进度和闭环验证记录 |
 | `state_machine/` | `state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md` | PIO SM、DMA/FIFO、上下行资源和底层实时状态机 |
+| `watchdog/` | `watchdog/README.md` | 硬件 watchdog、健康监督、复位证据和故障注入 |
 | `release/` | `release/README.md` | 发布门禁、打印/PDF、产品冻结 checklist |
 | `reports/` | `reports/README.md` | 当前产品 HTML/PDF 输出、打印和交付件 |
 | `temp/` | `temp/README.md` | 阶段性调试、验证和绘图归档 |
@@ -90,9 +91,10 @@ docs/
 | SYNC_IO | `sync/SYNC_IO_ARCHITECTURE.md` | PIO、GPIO、DMA、语义 IO 和硬实时资源约束入口。 |
 | TDMA | `tdma/TDMA_DOMAIN_ARCHITECTURE.md` | TDMA 基础件主域，定义上/下行 TDMA、payload registry、adapter、ring runtime、completion evidence 和 HAOFV system node 边界。 |
 | STATE_MACHINE | `state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md` | 状态机与底层实时资源域，定义 PIO SM、DMA/FIFO、上下行控制和资源仲裁边界。 |
+| WATCHDOG | `watchdog/ARCH_WATCHDOG_ARCHITECTURE.md` | Watchdog 硬件适配、唯一 feed owner、健康门禁、复位证据和 OTA/Flash 故障定位边界。 |
 | TRIGGER | `trigger/TRIGGER_SYNC_TODO.md` | 触发业务模式、生产化缺口和跨模式待办入口。 |
 | BISSC | `communication/BISSC_TAP_BRIDGE_DESIGN.md` | BiSS-C 协议、TAP bridge、固件 persona 和验证边界入口。 |
-| OTA | `arch/HAOFV_FLASH_ARCHITECTURE.md` | 当前 Flash/Boot/OTA 跨域主方案；`ota/OTA_SYSTEM_DESIGN.md` 保留为 v1 实现参考。 |
+| OTA | `ota/OTA_HAOFV_ARCHITECTURE.md` | OTA 域 owner、OtaAO/OtaFB/OtaVector、BCB selection 和 Boot 交接；跨域 Flash 语义服从 `arch/HAOFV_FLASH_ARCHITECTURE.md`。 |
 | SD | `storage/SD_TODO.md` | SD、StorageAO、System Pack、快照和持久化观测入口。 |
 | LOG | `storage/LOG_SYSTEM_TODO.md` | 日志 core、诊断 trace、持久化和故障证据入口。 |
 | SCPI | `interface/SCPI_COMMANDS.md` | SCPI 命令语义、兼容性和用户可调用接口入口。 |
@@ -112,6 +114,10 @@ docs/
 | TDMA | `tdma/TDMA_TASK_PROGRESS.md` | TDMA 基础件、上/下行 runtime、adapter 和环路闭环验证记录写入本文件。 |
 | STATE_MACHINE | `state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md` | 状态机资源迁移、PIO SM 重构和底层实时验证记录写入本文件。 |
 | STATE_MACHINE | `state_machine/HAOFV_STATE_MACHINE_TODO.md` | 状态机域可执行任务、退出门禁和后续迁移工作写入本文件。 |
+| OTA | `ota/OTA_TODO.md` | OTA HAOFV 任务状态、依赖和退出门禁。 |
+| OTA | `ota/OTA_TASK_PROGRESS.md` | OTA 代码、构建、A/B HIL、失败与回退证据。 |
+| WATCHDOG | `watchdog/ARCH_WATCHDOG_TODO.md` | Watchdog 子域任务、故障注入、五板 P3 和 OTA/reset/commit 验收写入本文件。 |
+| WATCHDOG | `watchdog/ARCH_WATCHDOG_TASK_PROGRESS.md` | Watchdog 构建、测试、P3、五板 OTA 和失败证据写入本文件。 |
 | 其他领域 | 新建或补齐 `<DOMAIN>_TASK_PROGRESS.md` | 后续新闭环记录优先建立领域进度文件，不再追加到全局历史文件。 |
 | 全局历史 | `TASK_PROGRESS.md` | 只保留跨域历史和迁移前记录；除跨域总览外不再作为默认新任务入口。 |
 
@@ -167,7 +173,7 @@ docs/
 | `communication/README.md` | 通信域 README。 |
 | `measure/README.md` | 测量域 README。 |
 | `storage/README.md` | 存储与证据域 README。 |
-| `ota/README.md` | OTA 与启动域 README。 |
+| `ota/OTA_HAOFV_ARCHITECTURE.md` | OTA 与启动域 HAOFV canonical。 |
 | `hardware/README.md` | 硬件域 README。 |
 | `validation/README.md` | 验证域 README。 |
 | `release/README.md` | 发布域 README。 |
@@ -250,15 +256,18 @@ docs/
 
 | 文件 | 定位 |
 |---|---|
-| `ota/OTA_SYSTEM_DESIGN.md` | 现有 OTA 主方案历史文件。后续迁移建议见命名规则文档。 |
 | `arch/HAOFV_FLASH_ARCHITECTURE.md` | 当前板载 Flash/Boot/OTA 跨域 canonical，v2 分区与 owner 以此为准。 |
 | `arch/HAOFV_FLASH_TODO.md` | Flash/OTA/TDMA stream v2 依赖工作板与证据矩阵。 |
-| `ota/OTA_TODO.md` | OTA 产品化待办。 |
-| `ota/OTA_AB_SWITCH_DESIGN.md` | Direct A/B 切换设计。 |
-| `ota/OTA_COPY_TRANSACTION_DESIGN.md` | Copy-to-active 掉电恢复事务设计。 |
-| `ota/OTA_PORTABLE_ARCHITECTURE.md` | Portable OTA 架构和复用方案。 |
-| `ota/OTA_OPEN_SOURCE_COMPARISON.md` | OTA 开源方案对比。 |
-| `ota/OTA_LIBRARY_MIGRATION_PLAYBOOK.md` | Portable OTA 库化迁移 playbook。 |
+| `ota/OTA_HAOFV_ARCHITECTURE.md` | OTA 域当前稳定架构。 |
+| `ota/OTA_TODO.md` | OTA 域当前任务状态与退出门禁。 |
+| `ota/OTA_TASK_PROGRESS.md` | OTA 域实现、验证、失败与回退证据。 |
+| `legacy/ota/README.md` | OTA 历史文档索引。 |
+| `legacy/ota/OTA_SYSTEM_DESIGN.md` | v1 OTA 系统设计历史快照。 |
+| `legacy/ota/OTA_AB_SWITCH_DESIGN.md` | Direct A/B 迁移历史设计。 |
+| `legacy/ota/OTA_COPY_TRANSACTION_DESIGN.md` | Copy-to-active 事务历史设计。 |
+| `legacy/ota/OTA_PORTABLE_ARCHITECTURE.md` | Portable OTA 历史架构。 |
+| `legacy/ota/OTA_OPEN_SOURCE_COMPARISON.md` | OTA 开源方案历史比较。 |
+| `legacy/ota/OTA_LIBRARY_MIGRATION_PLAYBOOK.md` | Portable OTA 迁移历史记录。 |
 | `legacy/pinprobe/LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION_ARCHITECTURE.md` | PinProbe A1 OTA 固件升级与 CAN 多机分发历史方案，作为当前 OTA/多机分发参考。 |
 
 ## 06 存储与 SD

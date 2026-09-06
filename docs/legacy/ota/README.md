@@ -1,10 +1,10 @@
 # OTA 与启动域
 
-Status: Active
+Status: Deprecated
 Domain: OTA
-Canonical: `docs/ota/README.md`
-Related: `docs/README.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-08-21
+Canonical: `docs/legacy/ota/README.md`
+Related: `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/ota/OTA_TODO.md`, `docs/ota/OTA_TASK_PROGRESS.md`
+Last updated: 2026-09-06
 
 本目录是 OTA、boot、Direct A/B、copy transaction、回滚、System Pack 和升级安全链的目标入口。
 

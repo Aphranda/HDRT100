@@ -3,8 +3,8 @@
 Status: Frozen
 Domain: LEGACY
 Canonical: `docs/legacy/pinprobe/README.md`
-Related: `docs/legacy/README.md`, `docs/refmem/README.md`, `docs/ota/README.md`
-Last updated: 2026-08-13
+Related: `docs/legacy/README.md`, `docs/refmem/README.md`, `docs/legacy/ota/README.md`
+Last updated: 2026-09-06
 
 本目录保存 PinProbe A1 原始资料和可复用历史方案。
 
