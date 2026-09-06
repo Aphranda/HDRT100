@@ -79,6 +79,25 @@ Last updated: 2026-09-06
 - 结论：本切片已满足当前 TDMA 短帧硬件门禁，可进入下一状态机迁移项；receipt
   `config/hardware_acceptance/p3_acceptance_receipt.json` 与当前源码/bench 指纹一致。
 
+### SM-PROGRESS-20260906-037 - NO5 DPLL phase gate 与 TDMA SD capture 阻塞
+
+- TODO task ID：`SM-RES-006`、`SM-RES-008`、`SM-M6`。
+- 完整 Debug acceptance：`out/hardware_acceptance/p3-20260906-144655/`。四板
+  P0T/P1/P2/P3、TRN-00..03 和 TDMA process-image/FIFO 仍全部通过；NO5 observer
+  的 SD 波形保存成功（8 段、4894 records、0 dropped），原始文件、CSV/SVG 和分析
+  JSON 均已保留在 `dpll-no5-observation/waveform/`。
+- DPLL 失败事实：phase self-test `complete_count=0`、`phase_round_count=0`，
+  `stable_streak=0`；离线四节点 phase span 约 `242500 ns`，超过配置的 500 ns，
+  ring sequence skew 为 1612，DPLL state 未进入 LOCKED。失败报告为
+  `dpll-no5-observation/summary.json`，不得以 TDMA 短帧通过替代 DPLL gate。
+- SD capture 失败事实：TDMA ring capture 的 `FILE_WRITE` job 在 15 s 有界等待内仍
+  为 `RUNNING`，`ring_capture_error` 保留于
+  `tdma-process-image-capture-rerun/summary.json`；当前无有效 TDMA ring capture
+  文件可供离线解码。
+- 结论：TDMA 短帧闭环正常，下一状态机迁移暂停在 NO5 phase 同步与 SD writer
+  边界；修复 phase 观测/SD 异步写入并取得当前 build 的新证据前，不推进
+  `SM-RES-006`、`SM-M6`，不复用旧 receipt。
+
 ### SM-PROGRESS-20260905-033 - SM-RES-009 方向化 RX unload / TX load 回归收口
 
 - TODO task ID：`SM-RES-009`、`SM-RES-008`。
