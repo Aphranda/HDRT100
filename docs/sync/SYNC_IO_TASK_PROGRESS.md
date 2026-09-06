@@ -4,10 +4,22 @@ Status: Active
 Domain: SYNC_IO
 Canonical: `docs/sync/SYNC_IO_TASK_PROGRESS.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`, `docs/storage/LOG_SYSTEM_TODO.md`
-Last updated: 2026-09-05
+Last updated: 2026-09-06
 
 本文档只记录 SYNC_IO 域的提交、构建、测试、OTA/HIL、失败、回退和证据位置。任务状态以
 `SYNC_IO_TODO.md` 为唯一事实源，稳定语义以 `SYNC_IO_ARCHITECTURE.md` 为准。
+
+### SYNC-PROGRESS-20260906-014 - Logic Analyzer 双模式 TDMA 无扰动 HIL
+
+- TODO task ID：`SYNC-LA-003`、`SYNC-LA-004`、`SYNC-LA-007`、`SYNC-LA-008`。
+- 当前 Debug build：`20260906083757`；证据目录
+  `out/hardware-acceptance/quick-default-budget-20260906/`。
+- `analyzer_tdma_hil.py` EDGE 与 TRIGGERED 两轮均通过：ARM/STOP ACK、模式/sequence
+  readback、ring RX/sequence 持续前进，analyzer 前后 bad/transport/schedule/profile/error
+  无新增。原始 JSON：`analyzer-edge-build-083757.json`、
+  `analyzer-triggered-build-083757.json`。
+- 结论：Logic Analyzer 对当前 TDMA 短帧无扰动，可作为 DPLL/phase 调试的本机信号抓取
+  入口；NO5 phase 收敛仍需与同窗 analyzer evidence 关联。
 
 ## 文档接口
 

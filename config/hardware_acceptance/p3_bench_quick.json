@@ -1,6 +1,7 @@
 {
   "extends": "p3_bench.json",
   "acceptance_profile": "QUICK_DIAGNOSTIC",
+  "acceptance_time_budget": {"warning_s": 60.0, "error_s": 100.0},
   "topology_probe_cycles": 64,
   "topology_probe_phase_cycles": 2,
   "topology_pair_wait_s": 0.05,

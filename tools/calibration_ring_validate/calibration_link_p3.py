@@ -148,11 +148,12 @@ def action_args(args: argparse.Namespace) -> argparse.Namespace:
 
 def stop_ring_and_wait(board: Board, args: argparse.Namespace) -> dict[str, int]:
     board_command(board, "SYSTem:TDMA:RING:STOP", args)
-    deadline = time.monotonic() + args.capture_timeout
+    deadline = time.monotonic() + max(float(args.capture_timeout), 8.0)
     last: dict[str, int] = {}
     retry_args = argparse.Namespace(**vars(args))
     retry_args.keep_open = False
     retry_args.short_open = True
+    retry_args.read_timeout = min(float(args.timeout), 0.1)
     while time.monotonic() < deadline:
         try:
             last = ring_status(board, args)

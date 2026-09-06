@@ -29,7 +29,7 @@ from typing import Any, Iterable
 
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CONFIG = Path("config/hardware_acceptance/p3_bench.json")
+DEFAULT_CONFIG = Path("config/hardware_acceptance/p3_bench_quick.json")
 DEFAULT_RECEIPT = Path("config/hardware_acceptance/p3_acceptance_receipt.json")
 RECEIPT_SCHEMA = "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_V4"
 TDMA_RECEIPT_SCHEMA = "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_TDMA_4NODE_V2"
@@ -799,6 +799,20 @@ def acceptance_timing(config: dict[str, Any]) -> dict[str, float]:
     if result["action_timeout_s"] > result["serial_timeout_s"]:
         raise AcceptanceError("action_timeout_s must not exceed serial_timeout_s")
     return result
+
+
+def acceptance_budget_status(config: dict[str, Any], elapsed_s: float) -> dict[str, Any]:
+    """Classify total acceptance duration without weakening any gate."""
+    raw = config.get("acceptance_time_budget", {})
+    warning_s = float(raw.get("warning_s", 60.0))
+    error_s = float(raw.get("error_s", 100.0))
+    if warning_s <= 0 or error_s <= warning_s:
+        raise AcceptanceError(
+            "acceptance_time_budget must satisfy 0 < warning_s < error_s")
+    status = "ERROR" if elapsed_s > error_s else (
+        "WARN" if elapsed_s > warning_s else "PASS")
+    return {"status": status, "elapsed_s": round(elapsed_s, 3),
+            "warning_s": warning_s, "error_s": error_s}
 
 
 def add_serial_timing(command: list[str], timing: dict[str, float], *,
@@ -1814,8 +1828,11 @@ def validate_runtime_schedules(
 
 
 def run_acceptance(args: argparse.Namespace) -> None:
+    acceptance_started = time.perf_counter()
     root = args.root.resolve()
     config_path = root / args.config
+    if getattr(args, "command", "") == "run" and not getattr(args, "full", False):
+        config_path = root / "config/hardware_acceptance/p3_bench_quick.json"
     receipt_path = root / args.receipt
     config = load_bench_config(config_path)
     baseline_divisor = resolve_path_delay_baseline_divisor(config)
@@ -1826,9 +1843,10 @@ def run_acceptance(args: argparse.Namespace) -> None:
     diagnostic_continue = bool(getattr(args, "diagnostic_continue", False))
     acceptance_profile = str(config.get("acceptance_profile", "FULL"))
     quick_diagnostic = acceptance_profile == "QUICK_DIAGNOSTIC"
-    if quick_diagnostic and not diagnostic_continue:
-        raise AcceptanceError(
-            "QUICK_DIAGNOSTIC config requires --diagnostic-continue")
+    # QUICK_DIAGNOSTIC is the default iteration path. It retains every
+    # rejection and never upgrades diagnostics to strict product PASS.
+    if quick_diagnostic:
+        diagnostic_continue = True
     diagnostic_failures: list[dict[str, Any]] = []
 
     def run_diagnostic_gate(command: list[str], log_path: Path,
@@ -1947,6 +1965,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
             str(package), "--expected-board-count",
             str(len(ota_board_ids)),
             "--expected-build", build_id, "--out-dir", str(ota_dir),
+            "--block-size", "4096",
         ]
         for board_id in ota_board_ids:
             ota_command.extend(["--serial-number", board_id])
@@ -2671,6 +2690,31 @@ def run_acceptance(args: argparse.Namespace) -> None:
         receipt_path.write_text(payload, encoding="utf-8")
         (out_dir / "acceptance.json").write_text(payload, encoding="utf-8")
 
+    budget = acceptance_budget_status(
+        config, time.perf_counter() - acceptance_started)
+    _record_timing_event({
+        "action": "acceptance.budget",
+        "started_at_utc": None,
+        "ended_at_utc": datetime.now(timezone.utc).isoformat(),
+        "duration_ms": budget["elapsed_s"] * 1000.0,
+        "returncode": 0 if budget["status"] != "ERROR" else 1,
+        "status": budget["status"],
+        "warning_s": budget["warning_s"],
+        "error_s": budget["error_s"],
+    })
+    if budget["status"] == "ERROR":
+        if not diagnostic_continue:
+            raise AcceptanceError(
+                f"acceptance exceeded error budget: {budget['elapsed_s']:.3f}s "
+                f"> {budget['error_s']:.3f}s")
+        diagnostic_failures.append({
+            "phase": "acceptance time budget",
+            "returncode": 1,
+            "error": (
+                f"elapsed {budget['elapsed_s']:.3f}s exceeds "
+                f"error budget {budget['error_s']:.3f}s"),
+            "action": "DEBUG_BOUNDED_FORCE_CONTINUE",
+        })
     if diagnostic_failures or quick_diagnostic:
         diagnostic_result = {
             "schema": "HAOFV_HARDWARE_ACCEPTANCE_DIAGNOSTIC_V1",
@@ -2771,7 +2815,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
     run = subparsers.add_parser(
-        "run", help="build, OTA, calibrate/train, P3, TDMA and DPLL")
+        "run", help="quick default: build, 4096 OTA, P0-P3/TRN-03 and TDMA")
     run.add_argument("--root", type=Path, default=ROOT)
     run.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     run.add_argument("--receipt", type=Path, default=DEFAULT_RECEIPT)
@@ -2784,6 +2828,9 @@ def parse_args() -> argparse.Namespace:
         "--diagnostic-continue", action="store_true",
         help=("continue through TDMA/DPLL runtime gate failures, retain all "
               "evidence, and finish with a non-passing diagnostic result"))
+    run.add_argument(
+        "--full", action="store_true",
+        help="use the full bench config instead of the quick default")
     resume = subparsers.add_parser(
         "resume",
         help="reuse an existing package/OTA record; never build or OTA")

@@ -80,6 +80,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--dry-run", action="store_true", help="print transfer plan without opening the port")
     parser.add_argument("--no-verify-query", action="store_true", help="skip STAT?/PROG? query commands")
+    parser.add_argument(
+        "--fast-ack", action="store_true",
+        help=("quick iteration mode: use one bounded progress query per DATA "
+              "block and defer verbose status polling; CRC/state gates remain"))
     parser.add_argument("--out-dir", type=Path,
                         help="write timing.json and serial_trace.jsonl")
     return parser.parse_args()
@@ -381,7 +385,7 @@ def wait_for_ready_to_reboot(serial_port, timeout_s: float) -> str:
 
 
 def wait_for_received_offset(serial_port, expected_offset: int,
-                             timeout_s: float) -> str:
+                             timeout_s: float, *, fast_ack: bool = False) -> str:
     """Wait until the asynchronous OTA AO consumes one DATA block."""
     deadline = time.monotonic() + timeout_s
     last_status = ""
@@ -394,6 +398,9 @@ def wait_for_received_offset(serial_port, expected_offset: int,
                 received = -1
             if received >= expected_offset:
                 return progress
+        if fast_ack:
+            time.sleep(0.002)
+            continue
         status = query(serial_port, "SYST:OTA:STAT?")
         if status:
             last_status = status
@@ -620,7 +627,9 @@ def send_image(args: argparse.Namespace, image: bytes, image_crc: int,
 
             # DATA is asynchronous; apply sender-side back-pressure so the
             # following block (or END) cannot overtake the AO.
-            wait_for_received_offset(ser, offset + len(chunk), args.begin_timeout)
+            wait_for_received_offset(
+                ser, offset + len(chunk), args.begin_timeout,
+                fast_ack=args.fast_ack)
 
             if sent_blocks == args.flash_transaction_probe_after_blocks:
                 response = wait_for_flash_transaction_probe(

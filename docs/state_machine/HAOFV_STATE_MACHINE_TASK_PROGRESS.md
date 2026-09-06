@@ -98,6 +98,21 @@ Last updated: 2026-09-06
   边界；修复 phase 观测/SD 异步写入并取得当前 build 的新证据前，不推进
   `SM-RES-006`、`SM-M6`，不复用旧 receipt。
 
+### SM-PROGRESS-20260906-038 - Logic Analyzer 无扰动 HIL 与快速验收预算
+
+- TODO task ID：`SM-RES-008`、`SM-P0-004`、`SYNC-LA-007`、`SYNC-LA-008`。
+- 当前 Debug build：`20260906083757`；快速验收 receipt 为
+  `config/hardware_acceptance/p3_acceptance_receipt.json`，源码指纹门禁通过。
+- Logic Analyzer HIL：`out/hardware_acceptance/quick-default-budget-20260906/` 保存
+  EDGE 与 TRIGGERED 两次抓取的原始 analyzer snapshots；两次均验证 ARM/STOP、
+  capture sequence 前进、TDMA up/down sequence 前进，analyzer 前后 bad/transport/
+  schedule/profile/error 增量为零，`passed=true`。
+- 快速验收 timing：4096-byte 并行 OTA 约 73 s；全流程约 532 s，预算状态为
+  `ERROR`（warning=60 s、error=100 s）。失败事实保留；后续应复用已验证 package/
+  training matrix 做迭代验收，避免重复完整训练；不得通过降低硬件门禁掩盖超时。
+- 结论：TDMA 短帧与 Logic Analyzer 无扰动证据通过；NO5 DPLL phase/SD writer 仍是
+  `SM-RES-006/SM-M6` 阻塞，下一步用 Logic Analyzer 与 NO5 同窗证据定位收敛问题。
+
 ### SM-PROGRESS-20260905-033 - SM-RES-009 方向化 RX unload / TX load 回归收口
 
 - TODO task ID：`SM-RES-009`、`SM-RES-008`。

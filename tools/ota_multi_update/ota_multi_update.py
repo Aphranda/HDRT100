@@ -101,6 +101,9 @@ def parse_args() -> argparse.Namespace:
                         help="auto uses legacy for v1 and stream for V2")
     parser.add_argument("--progress-every", type=int, default=16,
                         help="stream status query interval in blocks")
+    parser.add_argument(
+        "--fast-ack", action="store_true",
+        help="pass OTA sender fast-ack mode for 4096-byte quick iteration")
     parser.add_argument("--idn-filter", action="append",
                         help="substring accepted in *IDN?; may be repeated; default DHRT100")
     parser.add_argument("--serial-number", action="append",
@@ -423,6 +426,8 @@ def update_board(args: argparse.Namespace,
                 "--expect-final-state", "READY_TO_REBOOT",
                 "--out-dir", str(out_dir / board.port / "ota_send"),
             ]
+            if getattr(args, "fast_ack", False):
+                send_cmd.append("--fast-ack")
             send_result = run_child(board.port, "ota_send", send_cmd, out_dir)
         if not send_result.passed:
             if (args.diagnostic_continue and transport == "legacy" and

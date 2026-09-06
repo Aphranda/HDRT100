@@ -40,6 +40,7 @@ from tools.hardware_acceptance.p3_hardware_acceptance import (
     write_trn03_previous_matrix_fallback,
     _record_timing_event,
     _start_timing_probe,
+    acceptance_budget_status,
 )
 
 
@@ -876,6 +877,18 @@ def test_hardware_acceptance_timing_is_explicit_and_bounded() -> None:
             "serial_timeout_s": 0.1,
             "serial_read_timeout_s": 0.2,
         }})
+
+
+def test_quick_acceptance_budget_warns_then_errors() -> None:
+    quick = load_bench_config(
+        ROOT / "config" / "hardware_acceptance" / "p3_bench_quick.json")
+    assert quick["acceptance_profile"] == "QUICK_DIAGNOSTIC"
+    assert acceptance_budget_status(quick, 60.0)["status"] == "PASS"
+    assert acceptance_budget_status(quick, 60.001)["status"] == "WARN"
+    assert acceptance_budget_status(quick, 100.001)["status"] == "ERROR"
+    with pytest.raises(AcceptanceError, match="acceptance_time_budget"):
+        acceptance_budget_status({"acceptance_time_budget": {
+            "warning_s": 100, "error_s": 60}}, 1)
 
 
 def test_calibration_probe_phase_is_selected_per_profile() -> None:

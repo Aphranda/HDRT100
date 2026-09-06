@@ -572,6 +572,11 @@ static void vdc_dpll_manager_observation_self_test_service(void)
             !sync_io_sma_observer_pulse_schedule_arm_periodic_ns(
                 status.output_index, delay_ns, status.pulse_period_ns,
                 status.pulse_high_ns, 1u, true, 100u)) {
+            /* A failed first periodic arm may have acquired the shared
+             * scheduled-trigger persona before reporting an error.  Release
+             * it explicitly; otherwise this node remains resource-busy and
+             * every later phase observation attempt is rejected. */
+            sync_io_model_pulse_schedule_disarm();
             osal_critical_enter();
             if (s_observation_self_test.active &&
                 s_observation_self_test.started_ms == status.started_ms) {
