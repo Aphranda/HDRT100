@@ -41,6 +41,30 @@ VDC-TDMA-001
 
 ## 进度记录
 
+### VDC-PROGRESS-20260907-004 — quick full-flow acceptance and T3 comparison
+
+- TODO task ID：`VDC-TDMA-001`、`VDC-EVID-001`、`VDC-VERIFY-001`。
+- 状态：IN PROGRESS。
+- 日期：2026-09-07。
+- 验收范围：按默认 `QUICK_DIAGNOSTIC` 执行 P0–P3、T0–T3 TDMA process-image/FIFO
+  短帧闭环和 DPLL；未使用 `--full`。五板 OTA、P3、T3 均保留在
+  `out/HardwareAcceptance/20260907/vdc-full-acceptance-r1-20260907/`。
+- 结果：build `20260907095401`；OTA 五板通过；内置 T3
+  `passed=true`、`realtime_gate_passed=true`、`closed_loop_passed=true`，并保持四节点
+  TDMA 运行。NO1–NO4 内部 SD 样本数为 `7/9/12/10`；曲线分析仍为诊断级
+  `low_decimated`，不能提升为 `FORMAL_LOCKED`。NO5 外部观测因 ring sequence skew
+  `54` 未通过，严格总验收保持失败事实；DPLL 反馈不隔离 TDMA 节点。
+- T3 对照：验收编排器内置调用与独立入口均为
+  `tools/calibration_ring_validate/trn03_closed_loop.py`、`process-image`、512 cycles、
+  `--dpll-provisional`、clock evidence enabled、1 s/0.25 s soak。独立复现分别保留于
+  `vdc-independent-t3-r1-20260907/`（persistent session）和
+  `vdc-independent-t3-r3-short-open-20260907/`（`--short-open`）；两轮都在启动稳定门
+  因 NO1 `rx_bad/transport_bad` 与 process reject 增长而超时。差异是验收前序 P0–P2/SMA
+  与刚 OTA 的干净起点，以及串口时序环境，不是两套 T3 实现。
+- 下一 gate：保持快速验收默认不开 T0–T3 capture；先处理 NO5/启动稳定性和 NO1–NO4
+  收敛数据，再推进 `VDC-EVID-001`/`VDC-VERIFY-001`，不得用 provisional 或诊断结果
+  宣称正式锁相。
+
 ### VDC-PROGRESS-20260907-003 — DPLL feedback without node quarantine
 
 - TODO task ID：`VDC-SERVO-001`、`VDC-SERVO-002`、`VDC-VERIFY-001`。
