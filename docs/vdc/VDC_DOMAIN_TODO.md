@@ -3,7 +3,7 @@
 Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_TODO.md`
-Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`
+Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/sync/SYNC_IO_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`
 Last updated: 2026-09-07
 
 本文只维护当前 VDC 架构迁移的任务、依赖和退出门禁。稳定语义见 Architecture，实施证据
@@ -19,6 +19,55 @@ Last updated: 2026-09-07
 - `BLOCKED`：有明确外部阻塞、失败证据和下一解除条件。
 
 构建号、板端计数、replay 结果和 HIL 路径只进入 `VDC_TASK_PROGRESS.md`，不改变任务语义。
+
+## P0 优先主线：长期观测与闭环证据
+
+长期观测基础设施提升为当前 VDC 的 P0 主线。它服务于 DPLL 调参、拒绝定位和
+`FORMAL_LOCKED` 的证据闭环，但不改变正式锁相的前置条件：不得用诊断采样、NO5
+外部观测或 `LOCKED` 状态替代 TDMA/Calibration/formal timestamp evidence。
+
+目标数据链路固定为：
+
+```text
+PIO/DMA EDGE_TIMESTAMP producer
+  -> bounded Core1/SRAM producer
+  -> Core0 bounded drain
+  -> StorageAO segmented SD writer
+  -> decoder/drop-interval/SVG analysis
+  -> NO1-NO4 internal DPLL + NO5 external same-window correlation
+  -> SCPI parameter tuning and serial feedback
+  -> convergence/formal-lock decision
+```
+
+长期运行必须满足以下不变量：
+
+- 采集、排空和 SD 写入均分段且可恢复；每段带 capture/segment sequence、硬件时间基、
+  CRC、produced/consumed/dropped/overrun 计数和结束原因。
+- SD 背压不得阻塞 TDMA、process-image、FIFO 或 DPLL 实时服务；不能假装连续，必须将
+  drop interval、segment gap 和恢复点写入证据。
+- `EDGE_TIMESTAMP` 只保存边沿上下文；实时 phase decoder 仍消费全部必要采样字，观测
+  压缩不得改变 DPLL 输入或控制路径。
+- NO1--NO4 内部 DPLL 是收敛判定的主要数据源，NO5 只做外部只读相关观测；二者必须
+  具备同窗、sequence/time anchor 和数据完整性标记。
+- DPLL 失锁、残差振荡或调参反馈不能屏蔽节点；只要 TDMA 基础收发连续，节点继续参与
+  环路。调试参数可通过 SCPI 小步试探、等待新样本、评分并回退。
+- 快速验收默认不采 T0--T3 SD waveform；只有显式全量验收或异常诊断路径才启用原始
+  波形采集。长期观测属于独立的分段观测任务，不改变快速验收默认值。
+
+### P0 任务表
+
+| ID | 任务 | 状态 | 依赖 | 完成或退出门禁 |
+|---|---|---|---|---|
+| `VDC-OBS-001` | 收敛 `SYNC-LA-003` `EDGE_TIMESTAMP` producer 与 Core0 bounded drain：明确 active/shadow ownership、sequence/timestamp wrap、re-arm/stop、overrun/drop accounting，并为 StorageAO 提供稳定批次接口。 | IN PROGRESS | `SYNC-LA-003`, `SYNC-LA-005` | host/C 测试覆盖 edge-only、wrap、重臂、停止和 buffer 不覆盖；真实 TDMA 短帧无扰动；生产者与消费者所有权可审计。 |
+| `VDC-OBS-002` | 实现 StorageAO 分段 SD 流式写入与恢复：段头、连续性、CRC、落盘确认、背压、drop interval、segment gap 和断电/重启恢复。 | PENDING | `VDC-OBS-001` | 连续写入不会进入 Core1 实时路径；每次丢样都有原始计数和区间；可从最后完整段恢复并继续编号。 |
+| `VDC-OBS-003` | 完成离线 decoder、缺口审计、NO1--NO4 收敛曲线和 SVG：图例必须绑定 node/channel/edge mask/timebase，缺失数据不得被插值伪装。 | PENDING | `VDC-OBS-002`, `SYNC-LA-006` | decoder 可重放所有完整段；输出曲线、缺口、dropped count、质量等级和输入指纹一致；坏段可定位且不影响其他段。 |
+| `VDC-OBS-004` | 建立 NO1--NO4 内部 DPLL 与 NO5 外部观测的同窗关联：共同时间基、TDMA sequence anchor、capture generation、SD segment sequence 和外部线缆观测边界。 | PENDING | `VDC-OBS-002`, `VDC-OBS-003`, `SYNC-LA-008` | 关联结果能区分内部环路收敛、外部链路异常、SD 背压和观测缺口；NO5 不进入 DPLL 控制或 formal promotion。 |
+| `VDC-OBS-005` | 将 SCPI 调参、串口闭环状态、residual/frequency/reject/lock feedback 与分段观测统一记录，支持小步搜索、等待稳定窗口、评分、回退和参数 generation 对账。 | PENDING | `VDC-OBS-003`, `VDC-SERVO-002` | requested/applied generation、active profile CRC、原始命令、状态读回和回退结果齐全；异常参数在 debug profile 留证，不自动宣称 formal lock。 |
+| `VDC-OBS-006` | 建立分级长期 soak 与发布验收：短时调试、工程长稳、发布级长稳均使用同一 segment/decoder/关联格式，并验证断电续采、SD 背压和 TDMA 无扰动。 | PENDING | `VDC-OBS-004`, `VDC-OBS-005`, `VDC-VERIFY-001` | 各级验收 profile 明确采样时长、允许/禁止的 drop、恢复点和退出条件；原始证据、失败事实和回退点完整，才可评估 `FORMAL_LOCKED`。 |
+
+P0 主线不得跳过 `VDC-TDMA-001`、`VDC-CAL-001`、`VDC-EVID-001` 的正式门禁；在正式
+evidence 未闭环前，观测与调参结果只能标记为诊断或 tracking candidate。P0 观测任务完成
+后，才允许用长时间数据评估 `VDC-SERVO-001/002`、`VDC-LOCK-001` 和最终 RUN gate。
 
 ## HAOFV owner 边界
 
