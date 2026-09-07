@@ -2541,6 +2541,64 @@ static int test_dpll_acquisition_continues_through_phase_innovation(void)
     return failed;
 }
 
+static int test_tracking_gate_ignores_stale_phase_model(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_domain_snapshot_t snapshot;
+    vdc_tdma_timestamp_evidence_t evidence;
+
+    failed += expect_bool("init stale phase tracking",
+                          vdc_domain_init(&context), true);
+    vdc_domain_set_ready(&context, true);
+    context.dpll.state = VDC_DOMAIN_LOCK_LOCKED;
+    context.dpll.accepted_sample_count = context.servo.lock_sample_count;
+    context.clock.valid = 1u;
+    context.clock.phase_offset_ns = 8000000;
+
+    evidence = make_hardware_sample(&context.schedule, 100u, -5000);
+    evidence.observed_time_ns = evidence.expected_window_start_ns - 5000u;
+    evidence.arm_time_ns = evidence.observed_time_ns;
+    evidence.start_time_ns = evidence.observed_time_ns;
+    evidence.done_time_ns = evidence.observed_time_ns + 100u;
+    evidence.apply_time_ns = evidence.done_time_ns + 100u;
+    failed += expect_bool("tracking accepts stale model residual",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("tracking stale model gate passes",
+                         snapshot.gate.reject_code,
+                         VDC_DOMAIN_GATE_PASS);
+    failed += expect_i32("tracking stale model keeps residual",
+                         snapshot.dpll.last_phase_error_ns,
+                         -5000);
+    return failed;
+}
+
+static int test_acquisition_gate_covers_full_cycle(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_tdma_timestamp_evidence_t evidence;
+
+    failed += expect_bool("init full cycle acquisition",
+                          vdc_domain_init(&context), true);
+    vdc_domain_set_ready(&context, true);
+    evidence = make_hardware_sample(&context.schedule, 100u, 900000);
+    evidence.observed_time_ns = evidence.expected_window_start_ns + 900000u;
+    evidence.arm_time_ns = evidence.observed_time_ns;
+    evidence.start_time_ns = evidence.observed_time_ns;
+    evidence.done_time_ns = evidence.observed_time_ns + 100u;
+    evidence.apply_time_ns = evidence.done_time_ns + 100u;
+    failed += expect_bool("acquisition accepts late half-cycle sample",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          true);
+    failed += expect_u32("full cycle acquisition gate passes",
+                         context.gate.reject_code,
+                         VDC_DOMAIN_GATE_PASS);
+    return failed;
+}
+
 static int test_dpll_large_step_does_not_fine_lock_same_sample(void)
 {
     int failed = 0;
@@ -3229,6 +3287,8 @@ int main(void)
     failed += test_dpll_slews_phase_and_pulls_rate_after_lock();
     failed += test_dpll_acquisition_accepts_large_initial_phase();
     failed += test_dpll_acquisition_continues_through_phase_innovation();
+    failed += test_tracking_gate_ignores_stale_phase_model();
+    failed += test_acquisition_gate_covers_full_cycle();
     failed += test_dpll_large_step_does_not_fine_lock_same_sample();
     failed += test_debug_servo_tune_accepts_extreme_profile_and_integrator();
     failed += test_ring_observer_expands_correlated_feedback();

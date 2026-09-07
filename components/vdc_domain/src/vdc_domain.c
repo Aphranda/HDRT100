@@ -290,29 +290,18 @@ static uint32_t vdc_domain_saturate_u64_to_u32(uint64_t value)
     return value > UINT32_MAX ? UINT32_MAX : (uint32_t)value;
 }
 
-static uint64_t vdc_domain_window_start_minus_phase(uint64_t window_start_ns,
-                                                    int32_t phase_offset_ns)
-{
-    if (phase_offset_ns < 0) {
-        const uint64_t add_ns = (uint64_t)vdc_domain_abs_i32(phase_offset_ns);
-        return UINT64_MAX - window_start_ns < add_ns
-                   ? UINT64_MAX
-                   : window_start_ns + add_ns;
-    }
-    const uint64_t subtract_ns = (uint64_t)phase_offset_ns;
-    return window_start_ns > subtract_ns ? window_start_ns - subtract_ns : 0u;
-}
-
 static uint64_t vdc_domain_tracking_window_start_ns(
     const vdc_domain_context_t *context,
     uint64_t expected_window_start_ns,
     uint32_t half_width_ns)
 {
-    const uint64_t predicted_arrival_ns =
-        vdc_domain_window_start_minus_phase(
-            expected_window_start_ns, context->clock.phase_offset_ns);
-    return predicted_arrival_ns > half_width_ns
-        ? predicted_arrival_ns - half_width_ns : 0u;
+    (void)context;
+    /* The timestamp is already in the local TDMA observation epoch.  The
+     * servo phase model is a correction input, not a reason to move the
+     * admission window by milliseconds and reject the samples that would
+     * correct that model.  Keep tracking symmetric around this cycle. */
+    return expected_window_start_ns > half_width_ns
+        ? expected_window_start_ns - half_width_ns : 0u;
 }
 
 static uint32_t vdc_domain_tracking_window_width_ns(uint32_t half_width_ns)
