@@ -1747,6 +1747,22 @@ def test_progress_reporting_reuses_required_core0_snapshots(tmp_path: Path) -> N
     assert payload["query_policy"] == "REUSE_REQUIRED_CORE0_SNAPSHOTS_ONLY"
 
 
+def test_progress_reporting_keeps_realtime_gate_running_when_locked(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    reporter = trn03.ProgressReporter(tmp_path / "progress.json")
+
+    def reject_replace(_source: Path, _target: Path) -> Path:
+        raise PermissionError("destination is temporarily locked")
+
+    monkeypatch.setattr(Path, "replace", reject_replace)
+    reporter.emit("sample", board_count=4)
+
+    fallback = tmp_path / "progress.fallback-000001.json"
+    payload = json.loads(fallback.read_text(encoding="utf-8"))
+    assert payload["event"] == "sample"
+    assert payload["details"]["board_count"] == 4
+
+
 def test_error_chain_keeps_first_runtime_failure() -> None:
     assert trn03.merge_error("ARM failed", "handoff failed") == (
         "ARM failed; handoff failed")

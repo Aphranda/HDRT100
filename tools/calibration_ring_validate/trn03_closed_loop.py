@@ -135,11 +135,26 @@ class ProgressReporter:
             "query_policy": "REUSE_REQUIRED_CORE0_SNAPSHOTS_ONLY",
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        pending = self.path.with_suffix(self.path.suffix + ".tmp")
-        pending.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8")
-        pending.replace(self.path)
+        payload_text = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+        # Windows may briefly hold the destination while an IDE or scanner
+        # reads it. Use a unique pending file and preserve progress without
+        # aborting the realtime gate when the atomic replace is unavailable.
+        pending = self.path.with_name(
+            f"{self.path.name}.{self.sequence:06d}.tmp")
+        pending.write_text(payload_text, encoding="utf-8")
+        try:
+            pending.replace(self.path)
+        except PermissionError as exc:
+            fallback = self.path.with_name(
+                f"{self.path.stem}.fallback-{self.sequence:06d}.json")
+            try:
+                fallback.write_text(payload_text, encoding="utf-8")
+            except OSError:
+                pass
+            payload["progress_publish_fallback"] = {
+                "path": str(fallback),
+                "error": f"{type(exc).__name__}: {exc}",
+            }
         print("TRN03_PROGRESS " + json.dumps(
             payload, ensure_ascii=False, separators=(",", ":")), flush=True)
 

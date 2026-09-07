@@ -41,6 +41,32 @@ VDC-TDMA-001
 
 ## 进度记录
 
+### VDC-PROGRESS-20260907-005 — T3 matrix identity and Windows progress publish recovery
+
+- TODO task ID：`VDC-TDMA-001`、`VDC-EVID-001`、`VDC-VERIFY-001`。
+- 状态：IN PROGRESS。
+- 日期：2026-09-07。
+- 结论：独立 T3 没有使用错误校准矩阵。验收内置和独立入口均调用
+  `tools/calibration_ring_validate/trn03_closed_loop.py`；独立复现读取与验收相同的
+  `trn03-matrix.json`，generation、topology/profile/schedule CRC、物理节点顺序和
+  offset row 均一致。复位后独立 T3 的启动稳定门和四节点 process-image soak 通过，
+  证明先前失败来自运行起点/首帧边界状态而非矩阵选择。
+- 工具修复：`ProgressReporter` 不再固定复用 Windows 的 `progress.json.tmp`；每次发布
+  使用唯一 pending 文件，目标被 IDE/扫描器短暂锁定时写入带序号 fallback 并继续实时
+  gate。新增锁占用回归测试；`tests/python/test_trn03_closed_loop.py` 为 `108 passed`。
+- 硬件证据：最终源码 build `20260907110305` 的 quick P3/五板 OTA 证据位于
+  `out/HardwareAcceptance/20260907/vdc-t3-progress-fix-r2-20260907/`；首次 T3 因
+  `2BD5090FE009FA2A` ARM transient (`arm_result=8`, `-200 Execution error`) 失败，原始
+  证据保留。复位后使用同一 package 的 `resume` 证据位于
+  `out/HardwareAcceptance/20260907/vdc-t3-progress-fix-r3-resume-20260907/`，T3
+  `passed=true`、`realtime_gate_passed=true`、`closed_loop_passed=true`，progress
+  文件完整发布，NO1–NO4 SD 样本数为 `8/13/13/10`。
+- 边界：NO5 外部观测仍因 sequence skew `14`、SD dropped count `424` 未通过；本轮
+  TRN-01 SCK 仍无 replay-safe row。两项均保留为严格失败/诊断反馈，不能提升为
+  `FORMAL_LOCKED`，也不屏蔽 TDMA 节点。
+- 下一 gate：解决 SCK replay-safe 矩阵和 NO5 外部观测/SD 连续性，再推进
+  `VDC-EVID-001`；保持 provisional DPLL 只作调试反馈。
+
 ### VDC-PROGRESS-20260907-004 — quick full-flow acceptance and T3 comparison
 
 - TODO task ID：`VDC-TDMA-001`、`VDC-EVID-001`、`VDC-VERIFY-001`。
