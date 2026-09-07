@@ -4,9 +4,11 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/README.md`
 Related: `docs/README.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
-Last updated: 2026-08-14
+Last updated: 2026-09-06
 
 本目录是 Virtual Distributed Clock / VDC 内部主域入口。VDC Domain 维护多节点共同时间、`local_tick -> vdc_time` 映射、SYNC DPLL、HOLDOVER/RELOCK、timestamp dictionary、时间质量和预测分发时间基准。
+
+当前三件标准文件已按 HAOFV 事实边界重建：Architecture 只保留稳定语义，TODO 只保留迁移门禁，Task Progress 只保留当前 checkpoint 和证据；重构前版本位于 `docs/legacy/vdc/`。
 
 当前 VDC 架构已收敛为 TDMA Foundation 与 DPLL 融合的共同时间基础件：TDMA Foundation 提供确定性同步观测窗口、上/下行 ring runtime、payload registry 和参考边沿，VDC DPLL 基于硬件 timestamp 样本估计 offset/rate，低频驯服环管理长期漂移、温度/老化补偿和 HOLDOVER 误差边界。VDC 最终发布的是可门禁、可回滚、可报告的共同时间 snapshot，而不是单个自由运行的软件计数器。
 

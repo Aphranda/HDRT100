@@ -187,6 +187,10 @@ docs/
 | `legacy/pinprobe/README.md` | PinProbe A1 历史资料 README。 |
 | `legacy/rp1200/README.md` | RP1200 历史资料 README。 |
 | `legacy/external/README.md` | 外部参考资料 README。 |
+| `legacy/vdc/README.md` | VDC 三件标准文件重构前历史快照入口。 |
+| `legacy/vdc/LEGACY_VDC_DOMAIN_ARCHITECTURE.md` | VDC 重构前架构历史快照。 |
+| `legacy/vdc/LEGACY_VDC_DOMAIN_TODO.md` | VDC 重构前待办历史快照。 |
+| `legacy/vdc/LEGACY_VDC_TASK_PROGRESS.md` | VDC 重构前任务进度历史快照。 |
 | `archive/README.md` | 归档域 README。 |
 
 ## 01 系统架构

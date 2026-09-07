@@ -21,6 +21,10 @@ Last updated: 2026-08-13
 | `rp1200/RP1200波导天线测试系统分布式触发方案SCPI指令表最初版.html` | RP1200/DHRT100 SCPI 最初版格式参考 |
 | `external/README.md` | 外部冻结参考资料入口 |
 | `external/通用运动控制器API接口v1.0.0.pdf` | 外部通用运动控制器 API 参考 |
+| `vdc/README.md` | VDC 三件标准文件重构前历史快照入口 |
+| `vdc/LEGACY_VDC_DOMAIN_ARCHITECTURE.md` | VDC 重构前架构历史快照 |
+| `vdc/LEGACY_VDC_DOMAIN_TODO.md` | VDC 重构前待办历史快照 |
+| `vdc/LEGACY_VDC_TASK_PROGRESS.md` | VDC 重构前任务进度历史快照 |
 
 ## 边界
 

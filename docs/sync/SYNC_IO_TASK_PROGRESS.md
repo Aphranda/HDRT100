@@ -9,6 +9,50 @@ Last updated: 2026-09-06
 本文档只记录 SYNC_IO 域的提交、构建、测试、OTA/HIL、失败、回退和证据位置。任务状态以
 `SYNC_IO_TODO.md` 为唯一事实源，稳定语义以 `SYNC_IO_ARCHITECTURE.md` 为准。
 
+### SYNC-PROGRESS-20260906-015 - NO5 统一 build 与 Logic Analyzer 同窗关联
+
+- TODO task ID：`SYNC-LA-008`、`SYNC-LA-007`。
+- build 统一：预检确认 COM7 / `839E1AE79EA20F31` 为 NO5，旧 build
+  `20260906074327`；NO1--NO4 已为 `20260906083757`。旧固件为 `v1_compat`，首次误用
+  stream OTA 的失败原始证据保留在
+  `out/ota/no5-build-unify-20260906/`；随后使用 4096-byte legacy OTA 成功，COM7
+  boot/commit 与 build 回读通过，证据在 `out/ota/no5-build-unify-20260906-r2/`。
+- post-check：COM3--COM7 五板均回读 build `20260906083757`，记录在
+  `out/ota/no5-build-unify-postcheck-20260906/`。
+- 同窗 EDGE：COM5 analyzer 与 NO5 COM7 waveform monitor 并行运行；analyzer
+  `passed=true`、capture sequence 前进、TDMA 错误增量为零，原始结果为
+  `out/hardware-acceptance/analyzer-no5-same-window-20260906-r2-edge.json`。NO5 原始
+  session `172041` 已导出 7 段，但 `source_dropped_count=71`、phase stable window 不足，
+  monitor 失败原始证据保留在 `out/hardware-acceptance/no5-same-window-20260906-r2/`。
+- 同窗 TRIGGERED：analyzer `passed=true`、mode=3、capture sequence 前进；NO5 session
+  `316241` 采得 6 段、`source_dropped_count=0`。phase 仍为 `phase_round_count=0`、无稳定
+  窗口，原始证据在 `out/hardware-acceptance/analyzer-no5-same-window-20260906-r3-triggered.json`
+  与 `out/hardware-acceptance/no5-same-window-20260906-r3-triggered/`。
+- 关联：COM5 的 SLAY 段导出/CRC 校验通过，目录为
+  `out/hardware-acceptance/analyzer-no5-same-window-export-20260906/`；以 500 ns 容差运行
+  关联器后 `timestamp_overlap=false`、`pair_count=0`。两边时间戳虽存在但不在同一 uptime
+  数值域，capture sequence 与 NO5 sample sequence 仍是独立域；报告为
+  `out/hardware-acceptance/analyzer-no5-same-window-correlation-20260906-triggered-final.json`。
+- 当前边界：不得据此宣称外部 SMA/DPLL/phase 通过；为导出持久化 analyzer 段而执行的
+  `COM5 SYSTem:TDMA:RING:STOP` 已由 stopped-export 工具留证，随后四板 ring 通过
+  `tdma_start_ring.py` 以 4096 训练恢复；此前 4096 OTA 与 phase 失败原始证据继续保留。
+
+### SYNC-PROGRESS-20260906-016 - NO5 phase 收敛过程 SVG 观测
+
+- TODO task ID：`SYNC-LA-008`、`SYNC-LA-007`。
+- 四板 ring 在 build `20260906083757` 上重新启动，4096 training 与 START 通过，恢复证据在
+  `out/hardware-acceptance/dpll-convergence-ring-restart-20260906/`。
+- NO5 进行了 30 秒 raw waveform 观测，session `1202629`、32 个 SD segment、20230 条记录；
+  已形成可人工检查的 `dpll_convergence.svg` 与 `phase_curve.svg`，路径分别为
+  `out/hardware-acceptance/dpll-convergence-observation-20260906/waveform/analysis/dpll_convergence.svg`
+  和 `out/hardware-acceptance/dpll-convergence-observation-20260906/waveform/analysis/phase_curve.svg`。
+- 观测结果：NO1--NO3 有 phase trend，NO4 无有效 rising edge；四节点完整 phase window 为
+  0，`dpll_convergence_span.csv` 为空，且后段 capture `dropped_count` 达 1110。因此本图只
+  证明“过程数据已生成并可视化”，不证明逐渐收敛或 phase gate 通过；原始数据和分析摘要同在
+  `out/hardware-acceptance/dpll-convergence-observation-20260906/`。
+- 工具输出约定：`dpll_vdc_monitor.py` 成功或收尾异常时均输出 `summary.svg` 与
+  `dpll_convergence.svg` 路径；异常收尾仍保留已落盘的 SVG 路径，便于复核失败过程。
+
 ### SYNC-PROGRESS-20260906-014 - Logic Analyzer 双模式 TDMA 无扰动 HIL
 
 - TODO task ID：`SYNC-LA-003`、`SYNC-LA-004`、`SYNC-LA-007`、`SYNC-LA-008`。
