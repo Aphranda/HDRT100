@@ -121,6 +121,13 @@ static bool s_vdc_ring_finalization_pending;
 static bool s_vdc_domain_service_pending;
 static vdc_dpll_manager_ring_observer_status_t s_ring_observer_status;
 static volatile uint32_t s_ring_observer_status_guard;
+/* Core0 SCPI writes this one-slot mailbox.  Core1 consumes it before the
+ * next evidence transaction, keeping control-plane writes out of the
+ * realtime domain writer. */
+static vdc_servo_profile_t s_debug_servo_tune_profile;
+static volatile uint32_t s_debug_servo_tune_guard;
+static volatile uint32_t s_debug_servo_tune_requested_generation;
+static volatile uint32_t s_debug_servo_tune_applied_generation;
 static vdc_dpll_manager_dpll_capture_record_t
     s_dpll_capture_records[VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES];
 static bool s_dpll_capture_armed;
@@ -221,6 +228,7 @@ static void vdc_dpll_manager_publish_runtime_snapshot_locked(void)
         s_vdc_domain.first_service_time_ns;
     s_published_snapshot.last_service_time_ns =
         s_vdc_domain.last_service_time_ns;
+    s_published_snapshot.servo = s_vdc_domain.servo;
     s_published_snapshot.clock = s_vdc_domain.clock;
     s_published_snapshot.dco = s_vdc_domain.dco;
     s_published_snapshot.dpll = s_vdc_domain.dpll;
@@ -548,6 +556,7 @@ static bool vdc_dpll_manager_compute_dco_phase_pulse_deadline(
     uint64_t not_before_ns,
     uint32_t pulse_period_ns,
     uint64_t *target_local_ns);
+static bool vdc_dpll_manager_apply_pending_debug_servo_tune(void);
 
 static void vdc_dpll_manager_observation_self_test_service(void)
 {
@@ -1410,6 +1419,11 @@ bool vdc_dpll_manager_init(void)
     s_vdc_ring_finalization_pending = false;
     s_vdc_domain_service_pending = false;
     memset(&s_ring_observer_status, 0, sizeof(s_ring_observer_status));
+    memset(&s_debug_servo_tune_profile, 0,
+           sizeof(s_debug_servo_tune_profile));
+    s_debug_servo_tune_guard = 0u;
+    s_debug_servo_tune_requested_generation = 0u;
+    s_debug_servo_tune_applied_generation = 0u;
     memset(s_dpll_capture_records, 0, sizeof(s_dpll_capture_records));
     s_dpll_capture_armed = false;
     s_dpll_capture_complete = false;
@@ -1460,6 +1474,7 @@ bool vdc_dpll_manager_init(void)
     if (!vdc_domain_init(&s_vdc_domain)) {
         return false;
     }
+    s_debug_servo_tune_profile = s_vdc_domain.servo;
     s_vdc_tdma_service = tdma_runtime_owner_get();
     if (s_vdc_tdma_service == NULL ||
         !vdc_tdma_payload_register(s_vdc_tdma_service)) {
@@ -1493,6 +1508,110 @@ void vdc_dpll_manager_set_dpll_ready(bool ready)
     s_dpll_status.ready = ready;
     vdc_dpll_manager_publish_dpll_status();
     osal_critical_exit();
+}
+
+static uint32_t vdc_dpll_manager_stage_debug_servo_profile(
+    const vdc_servo_profile_t *profile)
+{
+    if (profile == NULL) {
+        return 0u;
+    }
+    (void)__atomic_add_fetch(&s_debug_servo_tune_guard, 1u,
+                             __ATOMIC_ACQ_REL);
+    s_debug_servo_tune_profile = *profile;
+    s_debug_servo_tune_profile.servo_profile_crc32 =
+        vdc_domain_servo_profile_crc32(&s_debug_servo_tune_profile);
+    const uint32_t generation = __atomic_add_fetch(
+        &s_debug_servo_tune_requested_generation, 1u, __ATOMIC_RELEASE);
+    (void)__atomic_add_fetch(&s_debug_servo_tune_guard, 1u,
+                             __ATOMIC_RELEASE);
+    return generation;
+}
+
+bool vdc_dpll_manager_request_debug_servo_tune(
+    int32_t kp_q16,
+    int32_t ki_q16,
+    uint32_t update_period_us,
+    uint32_t step_threshold_ns,
+    uint32_t sanity_freq_limit_ppb,
+    uint32_t *generation)
+{
+    vdc_servo_profile_t profile = s_debug_servo_tune_profile;
+    vdc_domain_snapshot_t snapshot;
+    if (vdc_dpll_manager_get_snapshot(&snapshot)) {
+        profile = snapshot.servo;
+    }
+    /* Debug accepts raw typed values, including zero, negative coefficients
+     * and extreme u32 limits.  Saturating arithmetic in VDC owns safety. */
+    profile.kp_q16 = kp_q16;
+    profile.ki_q16 = ki_q16;
+    profile.update_period_us = update_period_us;
+    profile.step_threshold_ns = step_threshold_ns;
+    profile.sanity_freq_limit_ppb = sanity_freq_limit_ppb;
+    const uint32_t request =
+        vdc_dpll_manager_stage_debug_servo_profile(&profile);
+    if (generation != NULL) {
+        *generation = request;
+    }
+    return request != 0u;
+}
+
+bool vdc_dpll_manager_request_default_debug_servo_tune(uint32_t *generation)
+{
+    vdc_servo_profile_t profile;
+    vdc_domain_default_servo(&profile);
+    const uint32_t request =
+        vdc_dpll_manager_stage_debug_servo_profile(&profile);
+    if (generation != NULL) {
+        *generation = request;
+    }
+    return request != 0u;
+}
+
+void vdc_dpll_manager_get_debug_servo_tune_status(
+    vdc_dpll_manager_debug_servo_tune_status_t *status)
+{
+    if (status == NULL) {
+        return;
+    }
+    memset(status, 0, sizeof(*status));
+    for (uint32_t attempt = 0u; attempt < 8u; ++attempt) {
+        const uint32_t begin = __atomic_load_n(
+            &s_debug_servo_tune_guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) {
+            continue;
+        }
+        const vdc_servo_profile_t profile = s_debug_servo_tune_profile;
+        const uint32_t requested = __atomic_load_n(
+            &s_debug_servo_tune_requested_generation, __ATOMIC_ACQUIRE);
+        const uint32_t end = __atomic_load_n(
+            &s_debug_servo_tune_guard, __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) {
+            status->profile = profile;
+            status->requested_generation = requested;
+            status->applied_generation = __atomic_load_n(
+                &s_debug_servo_tune_applied_generation, __ATOMIC_ACQUIRE);
+            status->pending = status->requested_generation !=
+                              status->applied_generation;
+            return;
+        }
+    }
+}
+
+static bool vdc_dpll_manager_apply_pending_debug_servo_tune(void)
+{
+    vdc_dpll_manager_debug_servo_tune_status_t status;
+    vdc_dpll_manager_get_debug_servo_tune_status(&status);
+    if (status.requested_generation == 0u || !status.pending) {
+        return false;
+    }
+    if (!vdc_domain_apply_debug_servo_profile(&s_vdc_domain,
+                                              &status.profile)) {
+        return false;
+    }
+    __atomic_store_n(&s_debug_servo_tune_applied_generation,
+                     status.requested_generation, __ATOMIC_RELEASE);
+    return true;
 }
 
 void VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_sync_ao_service)(void)
@@ -2216,6 +2335,10 @@ void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_fb_service)(void)
     /* Complete already-admitted domain work before accepting another ring
      * sample. This keeps one bounded four-beat pipeline at the 4 ms evidence
      * cadence: prepare, servo, state/finalize, service/publish. */
+    if (vdc_dpll_manager_apply_pending_debug_servo_tune()) {
+        vdc_dpll_manager_publish_runtime_snapshot_locked();
+        return;
+    }
     if (s_vdc_domain_service_pending) {
         s_vdc_domain_service_pending = false;
         vdc_domain_service(&s_vdc_domain, vdc_dpll_manager_now_ns());

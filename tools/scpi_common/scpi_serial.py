@@ -34,6 +34,16 @@ COMPOSITE_ACK_HEADERS = {
     "SYSTEM:SYNC:VDC:DPLL:TRACE:STOP",
     "SYST:SYNC:VDC:DPLL:TRACE:SAVE",
     "SYSTEM:SYNC:VDC:DPLL:TRACE:SAVE",
+    "SYST:SYNC:VDC:DPLL:TUNE",
+    "SYSTEM:SYNC:VDC:DPLL:TUNE",
+    "SYST:SYNC:VDC:DPLL:COEFFICIENT",
+    "SYSTEM:SYNC:VDC:DPLL:COEFFICIENT",
+    "SYST:SYNC:VDC:DPLL:DEFAULT",
+    "SYSTEM:SYNC:VDC:DPLL:DEFAULT",
+    "SYST:SYNC:VDC:DPLL:FILTER?",
+    "SYSTEM:SYNC:VDC:DPLL:FILTER?",
+    "SYST:SYNC:VDC:DPLL:COEFFICIENT?",
+    "SYSTEM:SYNC:VDC:DPLL:COEFFICIENT?",
     "SYST:SYNC:VDC:OBSERVER:WAVEFORM:ARM",
     "SYSTEM:SYNC:VDC:OBSERVER:WAVEFORM:ARM",
     "SYST:SYNC:VDC:OBSERVER:WAVEFORM:STOP",
@@ -294,6 +304,34 @@ def scpi_response_matches_command(command: str, line: str) -> bool:
             "SYSTEM:SYNC:VDC:OBSERVER:WAVEFORM:STOP",
     }:
         return re.fullmatch(r'"?OK"?,\s*\d+\s*,\s*\d+', text) is not None
+    if header in {
+            "SYST:SYNC:VDC:DPLL:TUNE",
+            "SYSTEM:SYNC:VDC:DPLL:TUNE",
+            "SYST:SYNC:VDC:DPLL:COEFFICIENT",
+            "SYSTEM:SYNC:VDC:DPLL:COEFFICIENT",
+            "SYST:SYNC:VDC:DPLL:DEFAULT",
+            "SYSTEM:SYNC:VDC:DPLL:DEFAULT",
+    }:
+        return re.fullmatch(
+            r'"?OK"?,\s*\d+,\s*-?\d+,\s*-?\d+,\s*\d+,\s*\d+,\s*\d+,\s*\d+',
+            text,
+        ) is not None
+    if header in {
+            "SYST:SYNC:VDC:DPLL:COEFFICIENT?",
+            "SYSTEM:SYNC:VDC:DPLL:COEFFICIENT?",
+    }:
+        return re.fullmatch(
+            r'-?\d+,\s*-?\d+,\s*\d+,\s*\d+,\s*\d+,\s*\d+,\s*\d+,\s*\d+,\s*(?:0|1)',
+            text,
+        ) is not None
+    if header in {
+            "SYST:SYNC:VDC:DPLL:FILTER?",
+            "SYSTEM:SYNC:VDC:DPLL:FILTER?",
+    }:
+        return re.fullmatch(
+            r'\d+,\s*\d+,\s*-?\d+,\s*-?\d+,\s*-?\d+,\s*-?\d+,\s*\d+,\s*\d+',
+            text,
+        ) is not None
     if header in {
             "SYST:SYNC:VDC:DPLL:TRACE:SAVE",
             "SYSTEM:SYNC:VDC:DPLL:TRACE:SAVE",

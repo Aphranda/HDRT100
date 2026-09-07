@@ -10,6 +10,7 @@ from tools.dpll_observation_capture.dpll_observation_capture import (
     parse_save,
     parse_board,
 )
+from tools.dpll_servo_tune.dpll_servo_tune import Profile, parse_profile
 from tools.dpll_residual_analyze.dpll_residual_analyze import render_combined_svg
 from tools.dpll_residual_analyze.dpll_residual_analyze import ResidualPoint
 from tools.scpi_common.scpi_serial import scpi_response_matches_command
@@ -37,6 +38,23 @@ def test_trace_save_response_accepts_abbreviated_header() -> None:
         "SYST:SYNC:VDC:DPLL:TRACE:SAVE",
         "QUEUED,3,\"/traces/run/no1.bin\",0",
     )
+
+
+def test_debug_dpll_tune_and_filter_responses_preserve_signed_values() -> None:
+    assert scpi_response_matches_command(
+        "SYSTem:SYNC:VDC:DPLL:TUNE",
+        '"OK",4,-65536,4096,0,0,4294967295,1234',
+    )
+    assert scpi_response_matches_command(
+        "SYSTem:SYNC:VDC:DPLL:COEFficient?",
+        "-65536,4096,0,0,4294967295,1234,4,4,0",
+    )
+    assert scpi_response_matches_command(
+        "SYSTem:SYNC:VDC:DPLL:FILTer?",
+        "4,17,-2,300,-400,-500,3,1",
+    )
+    assert parse_profile("-65536,4096,0,0,4294967295,1234,4,4,0") == Profile(
+        -65536, 4096, 0, 0, 4294967295)
 
 
 def test_trace_save_response_rejects_non_capture_tuple() -> None:

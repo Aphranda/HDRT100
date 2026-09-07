@@ -213,11 +213,87 @@ scpi_result_t scpi_sync_override_q(scpi_t *context)
 
 scpi_result_t scpi_sync_coef_q(scpi_t *context)
 {
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultText(context, "PROFILE");
-    SCPI_ResultBool(context, TRUE);
+    vdc_dpll_manager_debug_servo_tune_status_t status;
+    vdc_dpll_manager_get_debug_servo_tune_status(&status);
+    SCPI_ResultInt32(context, status.profile.kp_q16);
+    SCPI_ResultInt32(context, status.profile.ki_q16);
+    SCPI_ResultUInt32(context, status.profile.update_period_us);
+    SCPI_ResultUInt32(context, status.profile.step_threshold_ns);
+    SCPI_ResultUInt32(context, status.profile.sanity_freq_limit_ppb);
+    SCPI_ResultUInt32(context, status.profile.servo_profile_crc32);
+    SCPI_ResultUInt32(context, status.requested_generation);
+    SCPI_ResultUInt32(context, status.applied_generation);
+    SCPI_ResultBool(context, status.pending ? TRUE : FALSE);
+    return SCPI_RES_OK;
+}
+
+static void scpi_sync_result_debug_servo_tune(
+    scpi_t *context,
+    uint32_t generation)
+{
+    vdc_dpll_manager_debug_servo_tune_status_t status;
+    vdc_dpll_manager_get_debug_servo_tune_status(&status);
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, generation);
+    SCPI_ResultInt32(context, status.profile.kp_q16);
+    SCPI_ResultInt32(context, status.profile.ki_q16);
+    SCPI_ResultUInt32(context, status.profile.update_period_us);
+    SCPI_ResultUInt32(context, status.profile.step_threshold_ns);
+    SCPI_ResultUInt32(context, status.profile.sanity_freq_limit_ppb);
+    SCPI_ResultUInt32(context, status.profile.servo_profile_crc32);
+}
+
+scpi_result_t scpi_cmd_sync_vdc_dpll_tune(scpi_t *context)
+{
+    int32_t kp_q16 = 0;
+    int32_t ki_q16 = 0;
+    uint32_t update_period_us = 0u;
+    uint32_t step_threshold_ns = 0u;
+    uint32_t sanity_freq_limit_ppb = 0u;
+    uint32_t generation = 0u;
+    if (SCPI_ParamInt32(context, &kp_q16, TRUE) != TRUE ||
+        SCPI_ParamInt32(context, &ki_q16, TRUE) != TRUE ||
+        !scpi_port_read_u32(context, &update_period_us) ||
+        !scpi_port_read_u32(context, &step_threshold_ns) ||
+        !scpi_port_read_u32(context, &sanity_freq_limit_ppb) ||
+        !vdc_dpll_manager_request_debug_servo_tune(
+            kp_q16, ki_q16, update_period_us, step_threshold_ns,
+            sanity_freq_limit_ppb, &generation)) {
+        scpi_port_push_exec_error(context, "VDC_DPLL_TUNE");
+        return SCPI_RES_ERR;
+    }
+    scpi_sync_result_debug_servo_tune(context, generation);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_sync_vdc_dpll_default(scpi_t *context)
+{
+    uint32_t generation = 0u;
+    if (!vdc_dpll_manager_request_default_debug_servo_tune(&generation)) {
+        scpi_port_push_exec_error(context, "VDC_DPLL_DEFAULT");
+        return SCPI_RES_ERR;
+    }
+    scpi_sync_result_debug_servo_tune(context, generation);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_sync_vdc_dpll_filter_q(scpi_t *context)
+{
+    vdc_domain_snapshot_t snapshot;
+    if (!vdc_dpll_manager_get_snapshot(&snapshot)) {
+        return SCPI_RES_ERR;
+    }
+    /* This is the closed-loop state, not a product lock claim.  The explicit
+     * integrator field lets the host distinguish FLL slope from Type-II
+     * filter memory while tuning a debug profile. */
+    SCPI_ResultUInt32(context, snapshot.dpll.state);
+    SCPI_ResultUInt32(context, snapshot.dpll.update_seq);
+    SCPI_ResultInt32(context, snapshot.dpll.last_phase_error_ns);
+    SCPI_ResultInt32(context, snapshot.dpll.last_frequency_error_ppb);
+    SCPI_ResultInt32(context, snapshot.dpll.loop_filter_integrator_ppb);
+    SCPI_ResultInt32(context, snapshot.clock.period_adjust_ppb);
+    SCPI_ResultUInt32(context, snapshot.quality.consecutive_good_samples);
+    SCPI_ResultUInt32(context, snapshot.quality.rejected_sample_count);
     return SCPI_RES_OK;
 }
 

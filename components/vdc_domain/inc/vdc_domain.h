@@ -18,7 +18,9 @@
 #define VDC_DOMAIN_LOCK_TIER_FINE_NS 100u
 #define VDC_DOMAIN_LOCK_TIER_DEBUG_NS 1000u
 #define VDC_DOMAIN_LOCK_TIER_COARSE_NS 10000u
-#define VDC_DOMAIN_DEFAULT_SERVO_PROFILE_CRC32 0x56444301u
+#define VDC_DOMAIN_DEFAULT_SERVO_PROFILE_CRC32 0x7B7F7D06u
+#define VDC_DOMAIN_DEFAULT_SERVO_KP_Q16 65536
+#define VDC_DOMAIN_DEFAULT_SERVO_KI_Q16 4096
 #define VDC_DOMAIN_TDMA_FRAME_VERSION 1u
 #define VDC_DOMAIN_DEFAULT_REFMEM_WINDOW_OFFSET_NS 20000u
 #define VDC_DOMAIN_DEFAULT_REFMEM_WINDOW_WIDTH_NS 800000u
@@ -424,6 +426,10 @@ typedef struct {
     uint32_t last_sample_seq;
     int32_t last_phase_error_ns;
     int32_t last_frequency_error_ppb;
+    /* The Type-II loop filter's accumulated phase-to-rate correction.  The
+     * FLL estimate remains in last_frequency_error_ppb; keeping both makes
+     * the integral state observable without conflating the two loops. */
+    int32_t loop_filter_integrator_ppb;
     int32_t last_offset_ns;
     uint32_t rms_offset_ns;
     uint32_t max_abs_offset_ns;
@@ -492,6 +498,13 @@ bool vdc_domain_build_tdma_runtime_schedule(
 void vdc_domain_set_schedule_local_slot(vdc_domain_context_t *context,
                                         uint32_t local_slot_id);
 void vdc_domain_default_servo(vdc_servo_profile_t *profile);
+uint32_t vdc_domain_servo_profile_crc32(const vdc_servo_profile_t *profile);
+/* Debug tuning intentionally accepts every representable coefficient tuple.
+ * The caller owns transport syntax; this operation only rebinds the profile
+ * at a VDC service boundary and restarts acquisition. */
+bool vdc_domain_apply_debug_servo_profile(
+    vdc_domain_context_t *context,
+    const vdc_servo_profile_t *profile);
 uint32_t vdc_domain_ring_profile_crc32(const vdc_tdma_schedule_profile_t *profile);
 uint32_t vdc_domain_schedule_crc32(const vdc_tdma_schedule_profile_t *profile);
 bool vdc_domain_schedule_validate(const vdc_tdma_schedule_profile_t *profile);

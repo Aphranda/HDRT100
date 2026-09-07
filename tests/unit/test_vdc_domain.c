@@ -2594,6 +2594,66 @@ static int test_dpll_large_step_does_not_fine_lock_same_sample(void)
     return failed;
 }
 
+static int test_debug_servo_tune_accepts_extreme_profile_and_integrator(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_domain_snapshot_t snapshot;
+    vdc_servo_profile_t profile;
+
+    failed += expect_bool("init debug servo tune",
+                          vdc_domain_init(&context), true);
+    vdc_domain_set_ready(&context, true);
+    profile = context.servo;
+    profile.kp_q16 = 0;
+    profile.ki_q16 = 65536;
+    profile.update_period_us = 1000u;
+    profile.sanity_freq_limit_ppb = 100u;
+    profile.lock_sample_count = 1u;
+    profile.step_threshold_ns = 0u;
+    profile.first_step_threshold_ns = 0u;
+    failed += expect_bool("apply debug profile",
+                          vdc_domain_apply_debug_servo_profile(
+                              &context, &profile), true);
+    failed += expect_u32("debug profile restarts checking",
+                         context.dpll.state, VDC_DOMAIN_LOCK_CHECKING);
+    failed += expect_bool("debug profile crc assigned",
+                          context.servo.servo_profile_crc32 != 0u, true);
+
+    vdc_tdma_timestamp_evidence_t evidence =
+        make_hardware_sample(&context.schedule, 1u, 1000);
+    failed += expect_bool("debug integral first sample",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_i32("integrator first pull",
+                         snapshot.dpll.loop_filter_integrator_ppb, 100);
+    evidence = make_hardware_sample(&context.schedule, 2u, 1000);
+    failed += expect_bool("debug integral saturated sample",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_i32("anti windup holds positive limit",
+                         snapshot.dpll.loop_filter_integrator_ppb, 100);
+    evidence = make_hardware_sample(&context.schedule, 3u, -1000);
+    failed += expect_bool("debug integral unwinds",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_i32("integrator unwinds",
+                         snapshot.dpll.loop_filter_integrator_ppb, 0);
+
+    profile.kp_q16 = INT32_MIN;
+    profile.ki_q16 = INT32_MAX;
+    profile.update_period_us = UINT32_MAX;
+    profile.step_threshold_ns = UINT32_MAX;
+    profile.sanity_freq_limit_ppb = UINT32_MAX;
+    failed += expect_bool("extreme debug profile accepted",
+                          vdc_domain_apply_debug_servo_profile(
+                              &context, &profile), true);
+    return failed;
+}
+
 static int test_quality_age_updates_on_service(void)
 {
     int failed = 0;
@@ -3170,6 +3230,7 @@ int main(void)
     failed += test_dpll_acquisition_accepts_large_initial_phase();
     failed += test_dpll_acquisition_continues_through_phase_innovation();
     failed += test_dpll_large_step_does_not_fine_lock_same_sample();
+    failed += test_debug_servo_tune_accepts_extreme_profile_and_integrator();
     failed += test_ring_observer_expands_correlated_feedback();
     failed += test_provisional_path_matrix_is_servo_only();
     if (failed != 0) {

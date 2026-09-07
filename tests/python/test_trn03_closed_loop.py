@@ -136,19 +136,39 @@ def test_realtime_gate_ignores_offline_capture_diagnostics() -> None:
     assert "ring_analysis" not in gate
 
 
-def test_dpll_schedule_gate_rejects_wcet_and_quarantine_regression() -> None:
+def test_dpll_schedule_gate_keeps_dpll_overrun_as_feedback_only() -> None:
     result = validate_dpll_schedule(
         dpll_schedule(run_count=10),
         dpll_schedule(run_count=11, max_runtime_cycles=35000,
                       overrun_count=1, deadline_miss_count=1,
                       quarantined_mask=1 << 1))
-    assert result["passed"] is False
-    assert result["errors"] == [
+    assert result["passed"] is True
+    assert result["errors"] == []
+    assert result["dpll_feedback"] == [
         "dpll_overrun_count_grew",
         "dpll_deadline_miss_count_grew",
         "dpll_load_quarantined",
         "dpll_max_runtime_exceeded_wcet",
     ]
+
+
+def test_dpll_schedule_gate_keeps_missing_service_as_feedback_only() -> None:
+    before = dpll_schedule(run_count=10)
+    after = dpll_schedule(run_count=11)
+    after["phases"][2]["run_count"] = 10
+    result = validate_dpll_schedule(before, after)
+    assert result["passed"] is True
+    assert result["errors"] == []
+    assert result["dpll_feedback"] == ["dpll_phase_not_serviced"]
+
+
+def test_dpll_phase_never_quarantines_a_tdma_node() -> None:
+    source = (ROOT / "application" / "src" / "app.c").read_text(
+        encoding="utf-8")
+    bounded = source.split("static bool app_realtime_run_phase", 1)[1]
+    bounded = bounded.split("static void app_realtime_tdma_phase", 1)[0]
+    assert "dpll_feedback_load" in bounded
+    assert "!dpll_feedback_load" in bounded
 
 
 def test_dpll_schedule_gate_rejects_vdc_evidence_producer_failure() -> None:

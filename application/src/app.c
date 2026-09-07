@@ -504,8 +504,11 @@ static bool app_realtime_run_phase(
         &s_realtime_load_enabled_mask, __ATOMIC_ACQUIRE);
     const uint32_t quarantined_mask = __atomic_load_n(
         &s_realtime_load_quarantined_mask, __ATOMIC_ACQUIRE);
+    const bool dpll_feedback_load =
+        optional_load && load_id == (int32_t)APP_REALTIME_LOAD_DPLL;
     if (optional_load && ((enabled_mask & load_bit) == 0u ||
-                          (quarantined_mask & load_bit) != 0u)) {
+                          (!dpll_feedback_load &&
+                           (quarantined_mask & load_bit) != 0u))) {
         app_realtime_record_skip(phase_id, false);
         return true;
     }
@@ -554,7 +557,11 @@ static bool app_realtime_run_phase(
     }
     app_realtime_schedule_write_end();
 
-    if ((overrun || own_deadline_missed) && optional_load && !warmup_cycle) {
+    /* DPLL is a diagnostic/control load carried by a healthy TDMA node.  Its
+     * loss of lock or local timing overrun must remain visible as feedback,
+     * but must never quarantine the node's TDMA service. */
+    if ((overrun || own_deadline_missed) && optional_load && !warmup_cycle &&
+        !dpll_feedback_load) {
         (void)__atomic_fetch_or(&s_realtime_load_quarantined_mask,
                                 load_bit,
                                 __ATOMIC_ACQ_REL);

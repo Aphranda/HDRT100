@@ -268,6 +268,13 @@ typedef struct {
     char last_path[96];
 } vdc_dpll_manager_waveform_capture_status_t;
 
+typedef struct {
+    vdc_servo_profile_t profile;
+    uint32_t requested_generation;
+    uint32_t applied_generation;
+    bool pending;
+} vdc_dpll_manager_debug_servo_tune_status_t;
+
 bool vdc_dpll_manager_init(void);
 void vdc_dpll_manager_set_vdc_ready(bool ready);
 void vdc_dpll_manager_set_dpll_ready(bool ready);
@@ -283,6 +290,18 @@ void vdc_dpll_manager_get_vdc_status(vdc_dpll_manager_vdc_status_t *status);
 void vdc_dpll_manager_get_dpll_status(vdc_dpll_manager_dpll_status_t *status);
 void vdc_dpll_manager_get_dco_consumer_status(
     vdc_dpll_manager_dco_consumer_status_t *status);
+/* Debug-only coefficients are accepted without range rejection.  Core0 only
+ * stages the request; Core1 applies it at the next DPLL service boundary. */
+bool vdc_dpll_manager_request_debug_servo_tune(
+    int32_t kp_q16,
+    int32_t ki_q16,
+    uint32_t update_period_us,
+    uint32_t step_threshold_ns,
+    uint32_t sanity_freq_limit_ppb,
+    uint32_t *generation);
+bool vdc_dpll_manager_request_default_debug_servo_tune(uint32_t *generation);
+void vdc_dpll_manager_get_debug_servo_tune_status(
+    vdc_dpll_manager_debug_servo_tune_status_t *status);
 bool vdc_dpll_manager_configure_sync_io_observer(
     const vdc_dpll_manager_sync_io_observer_config_t *config);
 bool vdc_dpll_manager_configure_sync_io_observer_tdma(

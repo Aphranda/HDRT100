@@ -583,7 +583,8 @@ static uint32_t vdc_domain_phase_slew_limit_ns(
 
 static int32_t vdc_domain_clamp_ppb(int64_t value, uint32_t limit_ppb)
 {
-    const int64_t limit = (int64_t)limit_ppb;
+    const int64_t limit = limit_ppb > (uint32_t)INT32_MAX
+        ? (int64_t)INT32_MAX : (int64_t)limit_ppb;
     if (value > limit) {
         return (int32_t)limit;
     }
@@ -612,16 +613,52 @@ static int32_t vdc_domain_slew_i32(int32_t current,
                                    uint32_t max_step)
 {
     const int64_t delta = (int64_t)target - (int64_t)current;
+    const int64_t bounded_step = max_step > (uint32_t)INT32_MAX
+        ? (int64_t)INT32_MAX : (int64_t)max_step;
     if (max_step == 0u || delta == 0ll) {
         return target;
     }
-    if (delta > (int64_t)max_step) {
-        return current + (int32_t)max_step;
+    if (delta > bounded_step) {
+        return vdc_domain_clamp_i64_to_i32((int64_t)current + bounded_step);
     }
-    if (delta < -(int64_t)max_step) {
-        return current - (int32_t)max_step;
+    if (delta < -bounded_step) {
+        return vdc_domain_clamp_i64_to_i32((int64_t)current - bounded_step);
     }
     return target;
+}
+
+static int32_t vdc_domain_integrator_delta_ppb(
+    int32_t phase_error_ns,
+    int32_t ki_q16,
+    uint32_t update_period_us,
+    uint32_t limit_ppb)
+{
+    if (phase_error_ns == 0 || ki_q16 == 0 ||
+        update_period_us == 0u || limit_ppb == 0u) {
+        return 0;
+    }
+
+    /* The product profile is sampled every 1 ms.  Its fixed Ki/update pair
+     * has a cheaper exact integer form; debug periods use the generic bounded
+     * ratio helper below. */
+    int32_t phase_to_rate_ppb;
+    if (update_period_us == 1000u && ki_q16 == 4096) {
+        int64_t scaled = (int64_t)phase_error_ns * 62ll;
+        scaled += phase_error_ns / 2;
+        const int64_t limit = limit_ppb > (uint32_t)INT32_MAX
+            ? (int64_t)INT32_MAX : (int64_t)limit_ppb;
+        if (scaled > limit) {
+            phase_to_rate_ppb = (int32_t)limit;
+        } else if (scaled < -limit) {
+            phase_to_rate_ppb = (int32_t)-limit;
+        } else {
+            phase_to_rate_ppb = (int32_t)scaled;
+        }
+    } else {
+        phase_to_rate_ppb = vdc_domain_scaled_ratio_clamped_i32(
+            phase_error_ns, 1000000u, update_period_us, limit_ppb);
+    }
+    return vdc_domain_scale_q16_i32(phase_to_rate_ppb, ki_q16);
 }
 
 static uint64_t vdc_domain_rate_observation_min_ns(
@@ -828,6 +865,7 @@ static void vdc_domain_reset_lock_acquisition(vdc_domain_context_t *context)
     }
 
     context->dpll.accepted_sample_count = 0u;
+    context->dpll.loop_filter_integrator_ppb = 0;
     context->dpll.last_raw_phase_error_ns = 0;
     context->dpll.last_expected_window_start_ns = 0u;
     context->dpll.last_observed_time_ns = 0u;
@@ -988,7 +1026,7 @@ static void vdc_domain_update_clock_from_evidence(
 
     const uint32_t next_dco_seq = context->dco.dco_update_seq + 1u;
     int32_t frequency_error_ppb = context->dpll.last_frequency_error_ppb;
-    int32_t phase_rate_pull_ppb = 0;
+    int32_t integrator_delta_ppb = 0;
     bool update_rate_anchor = context->dpll.accepted_sample_count <= 1u;
     if (context->dpll.accepted_sample_count > 1u &&
         evidence->expected_window_start_ns >
@@ -1031,13 +1069,34 @@ static void vdc_domain_update_clock_from_evidence(
     if (context->servo.ki_q16 != 0 &&
         context->servo.update_period_us != 0u &&
         context->dpll.accepted_sample_count >= context->servo.lock_sample_count) {
-        phase_rate_pull_ppb = vdc_domain_scale_q16_i32(
-            vdc_domain_scaled_ratio_clamped_i32(
-                input_residual_ns,
-                1000000u,
-                context->servo.update_period_us,
-                context->servo.sanity_freq_limit_ppb),
-            context->servo.ki_q16);
+        integrator_delta_ppb = vdc_domain_integrator_delta_ppb(
+            input_residual_ns,
+            context->servo.ki_q16,
+            context->servo.update_period_us,
+            context->servo.sanity_freq_limit_ppb);
+    }
+
+    /* Type-II loop filter: the FLL slope estimate handles fast acquisition;
+     * Ki accumulates a phase-derived rate correction across accepted samples.
+     * Do not integrate farther into a saturated correction (anti-windup).
+     * All intermediate arithmetic is signed 64-bit so debug SCPI values may
+     * be deliberately extreme without overflowing the realtime state. */
+    const uint32_t limit_u32 = context->servo.sanity_freq_limit_ppb;
+    const int64_t limit_ppb = limit_u32 > (uint32_t)INT32_MAX
+        ? (int64_t)INT32_MAX : (int64_t)limit_u32;
+    const int64_t unsaturated_correction =
+        (int64_t)frequency_error_ppb +
+        (int64_t)context->dpll.loop_filter_integrator_ppb +
+        (int64_t)integrator_delta_ppb;
+    const bool winds_further_positive =
+        unsaturated_correction > limit_ppb && integrator_delta_ppb > 0;
+    const bool winds_further_negative =
+        unsaturated_correction < -limit_ppb && integrator_delta_ppb < 0;
+    if (!winds_further_positive && !winds_further_negative) {
+        context->dpll.loop_filter_integrator_ppb = vdc_domain_clamp_ppb(
+            (int64_t)context->dpll.loop_filter_integrator_ppb +
+                (int64_t)integrator_delta_ppb,
+            limit_u32);
     }
 
     const int32_t phase_target_ns =
@@ -1059,7 +1118,7 @@ static void vdc_domain_update_clock_from_evidence(
                               phase_slew_limit_ns);
     const int32_t period_adjust_ppb =
         -vdc_domain_clamp_ppb((int64_t)frequency_error_ppb +
-                                  (int64_t)phase_rate_pull_ppb,
+                                  (int64_t)context->dpll.loop_filter_integrator_ppb,
                               context->servo.sanity_freq_limit_ppb);
 
     context->dpll.last_frequency_error_ppb = frequency_error_ppb;
@@ -1243,8 +1302,10 @@ void vdc_domain_default_servo(vdc_servo_profile_t *profile)
     memset(profile, 0, sizeof(*profile));
     profile->enabled = 1u;
     profile->servo_type = 1u;
-    profile->kp_q16 = 65536;
-    profile->ki_q16 = 4096;
+    /* Preserve the established product profile.  Debug tuning can replace
+     * these coefficients at runtime without changing product gates. */
+    profile->kp_q16 = VDC_DOMAIN_DEFAULT_SERVO_KP_Q16;
+    profile->ki_q16 = VDC_DOMAIN_DEFAULT_SERVO_KI_Q16;
     profile->update_period_us = 1000u;
     profile->first_step_threshold_ns = 100000u;
     profile->step_threshold_ns = 10000u;
@@ -1257,6 +1318,68 @@ void vdc_domain_default_servo(vdc_servo_profile_t *profile)
     profile->phase_diagnostic_threshold_ns = 10000u;
     profile->reset_policy = 0u;
     profile->servo_profile_crc32 = VDC_DOMAIN_DEFAULT_SERVO_PROFILE_CRC32;
+}
+
+uint32_t vdc_domain_servo_profile_crc32(const vdc_servo_profile_t *profile)
+{
+    if (profile == NULL) {
+        return 0u;
+    }
+    uint32_t hash = VDC_DOMAIN_CRC_OFFSET;
+    hash = vdc_domain_hash_u32(hash, profile->enabled);
+    hash = vdc_domain_hash_u32(hash, profile->servo_type);
+    hash = vdc_domain_hash_u32(hash, (uint32_t)profile->kp_q16);
+    hash = vdc_domain_hash_u32(hash, (uint32_t)profile->ki_q16);
+    hash = vdc_domain_hash_u32(hash, profile->update_period_us);
+    hash = vdc_domain_hash_u32(hash, profile->first_step_threshold_ns);
+    hash = vdc_domain_hash_u32(hash, profile->step_threshold_ns);
+    hash = vdc_domain_hash_u32(hash, profile->sanity_freq_limit_ppb);
+    hash = vdc_domain_hash_u32(hash, profile->offset_lock_threshold_ns);
+    hash = vdc_domain_hash_u32(hash, profile->debug_lock_threshold_ns);
+    hash = vdc_domain_hash_u32(hash, profile->coarse_lock_threshold_ns);
+    hash = vdc_domain_hash_u32(hash, profile->lock_acceptance_threshold_ns);
+    hash = vdc_domain_hash_u32(hash, profile->lock_sample_count);
+    hash = vdc_domain_hash_u32(hash, profile->phase_diagnostic_threshold_ns);
+    return vdc_domain_hash_u32(hash, profile->reset_policy);
+}
+
+bool vdc_domain_apply_debug_servo_profile(
+    vdc_domain_context_t *context,
+    const vdc_servo_profile_t *profile)
+{
+    if (context == NULL || profile == NULL) {
+        return false;
+    }
+
+    /* Debug tuning deliberately retains every representable coefficient.  It
+     * resets acquisition and marks the snapshot CHECKING so a tuned loop has
+     * to earn fresh evidence; it never promotes an existing LOCKED state. */
+    vdc_servo_profile_t updated = *profile;
+    updated.servo_profile_crc32 = vdc_domain_servo_profile_crc32(&updated);
+    context->servo = updated;
+    vdc_domain_reset_lock_acquisition(context);
+    context->dpll.last_frequency_error_ppb = 0;
+    context->dpll.last_phase_error_ns = 0;
+    context->dpll.last_offset_ns = 0;
+    context->dpll.rms_offset_ns = 0u;
+    context->dpll.max_abs_offset_ns = 0u;
+    context->dpll.jitter_pk_ns = 0u;
+    context->quality.rejected_sample_count = 0u;
+    context->quality.last_reject_code = VDC_DOMAIN_GATE_PASS;
+    context->clock.model_seq++;
+    context->clock.slew_limit_ppb = updated.sanity_freq_limit_ppb;
+    context->clock.servo_profile_crc32 = updated.servo_profile_crc32;
+    context->dpll.servo_profile_crc32 = updated.servo_profile_crc32;
+    context->dpll.state = context->ready != 0u
+        ? VDC_DOMAIN_LOCK_CHECKING : VDC_DOMAIN_LOCK_OFF;
+    context->dpll.update_seq++;
+    context->dco.dco_update_seq++;
+    context->dco.source_model_seq = context->clock.model_seq;
+    context->dco.slew_limit_ppb = updated.sanity_freq_limit_ppb;
+    context->dco.servo_profile_crc32 = updated.servo_profile_crc32;
+    context->dco.lock_state = context->dpll.state;
+    vdc_domain_refresh_quality_state(context);
+    return true;
 }
 
 uint32_t vdc_domain_ring_profile_crc32(const vdc_tdma_schedule_profile_t *profile)
