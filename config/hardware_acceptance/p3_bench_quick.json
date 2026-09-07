@@ -25,7 +25,7 @@
   "tdma_sample_interval_s": 0.25,
   "tdma_startup_timeout_s": 2.0,
   "tdma_startup_stable_samples": 2,
-  "tdma_capture_waveforms": true,
+  "tdma_capture_waveforms": false,
   "sma_observer_rtt_repeats": 1,
   "dpll_monitor_duration_s": 0.5,
   "dpll_monitor_poll_interval_s": 0.1,

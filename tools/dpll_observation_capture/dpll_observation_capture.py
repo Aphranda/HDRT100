@@ -212,6 +212,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "duration_s": args.duration_s,
         "boards": board_results,
         "analysis": analysis,
+        "combined_convergence_svg": analysis.get("combined_svg"),
         "realtime_path_untouched": True,
     }
     (args.out_dir / "summary.json").write_text(

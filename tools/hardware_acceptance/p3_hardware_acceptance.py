@@ -1266,13 +1266,10 @@ def check_staged(root: Path, receipt_path: Path) -> None:
         if receipt.get("acceptance_scope") != "10MHZ_LIMITED_P3":
             raise AcceptanceError("limited receipt has invalid acceptance scope")
         _validate_limited_10mhz_evidence(root, receipt)
-    elif schema in (TDMA_RECEIPT_SCHEMA, TDMA_DIAGNOSTIC_RECEIPT_SCHEMA,
-                    QUICK_DIAGNOSTIC_RECEIPT_SCHEMA):
+    elif schema in (TDMA_RECEIPT_SCHEMA, TDMA_DIAGNOSTIC_RECEIPT_SCHEMA):
         expected_scope = (
             "FOUR_NODE_TDMA_DIAGNOSTIC"
             if schema == TDMA_DIAGNOSTIC_RECEIPT_SCHEMA else
-            "FOUR_NODE_TDMA_QUICK_DIAGNOSTIC"
-            if schema == QUICK_DIAGNOSTIC_RECEIPT_SCHEMA else
             "FOUR_NODE_TDMA")
         if receipt.get("acceptance_scope") != expected_scope:
             raise AcceptanceError("TDMA-only receipt has invalid acceptance scope")
@@ -1280,10 +1277,13 @@ def check_staged(root: Path, receipt_path: Path) -> None:
             raise AcceptanceError("TDMA-only receipt board sets differ")
         if schema == TDMA_DIAGNOSTIC_RECEIPT_SCHEMA:
             _validate_tdma_diagnostic_receipt(root, receipt)
-        elif schema == QUICK_DIAGNOSTIC_RECEIPT_SCHEMA:
-            _validate_quick_diagnostic_receipt(root, receipt)
         else:
             _validate_evidence(root, receipt, include_dpll=False)
+    elif schema == QUICK_DIAGNOSTIC_RECEIPT_SCHEMA:
+        # Quick runs OTA all five boards so NO5 can remain the external
+        # observer, while TDMA still intentionally covers NO1..NO4 only.
+        # It is therefore not a TDMA-only receipt and its board sets differ.
+        _validate_quick_diagnostic_receipt(root, receipt)
     else:
         _validate_evidence(root, receipt)
     print(
@@ -1827,12 +1827,39 @@ def validate_runtime_schedules(
                 f"{board_id}: calibration load quarantined after TDMA/DPLL")
 
 
+def acceptance_config_path(args: argparse.Namespace, root: Path) -> Path:
+    if getattr(args, "command", "") == "run":
+        return root / (
+            "config/hardware_acceptance/p3_bench.json"
+            if getattr(args, "full", False)
+            else "config/hardware_acceptance/p3_bench_quick.json"
+        )
+    return root / args.config
+
+
+def acceptance_output_path(root: Path, requested: Path | None,
+                           stamp: str) -> Path:
+    """Place acceptance runs under a stable YYYYMMDD partition."""
+    default_day = stamp.split("-", 1)[0]
+    if requested is None:
+        return root / Path(
+            f"out/HardwareAcceptance/{default_day}/p3-"
+            f"{stamp.split('-', 1)[1]}")
+    path = requested if requested.is_absolute() else root / requested
+    try:
+        relative = path.relative_to(root / "out" / "HardwareAcceptance")
+    except ValueError:
+        return path
+    parts = relative.parts
+    if parts and len(parts[0]) == 8 and parts[0].isdigit():
+        return path
+    return root / "out" / "HardwareAcceptance" / default_day / Path(*parts)
+
+
 def run_acceptance(args: argparse.Namespace) -> None:
     acceptance_started = time.perf_counter()
     root = args.root.resolve()
-    config_path = root / args.config
-    if getattr(args, "command", "") == "run" and not getattr(args, "full", False):
-        config_path = root / "config/hardware_acceptance/p3_bench_quick.json"
+    config_path = acceptance_config_path(args, root)
     receipt_path = root / args.receipt
     config = load_bench_config(config_path)
     baseline_divisor = resolve_path_delay_baseline_divisor(config)
@@ -1903,7 +1930,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
         timing["serial_read_timeout_s"])
     fingerprint_before, source_count = working_source_fingerprint(root)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    out_dir = root / (args.out_dir or Path(f"out/hardware_acceptance/p3-{stamp}"))
+    out_dir = acceptance_output_path(root, args.out_dir, stamp)
     out_dir.mkdir(parents=True, exist_ok=True)
     timing_probe_path = out_dir / "timing.json"
     _start_timing_probe(timing_probe_path)
@@ -2108,7 +2135,9 @@ def run_acceptance(args: argparse.Namespace) -> None:
     # the reduced 10 MHz input explicit rather than silently weakening it.
     if config["frequency_ladder_mhz"] != [10, 25, 30]:
         p3_command.append("--diagnostic-frequency-only")
-    add_serial_timing(p3_command, timing, action=True, capture=True, gap=True)
+    add_serial_timing(
+        p3_command, timing, action=True,
+        capture=bool(config.get("tdma_capture_waveforms", True)), gap=True)
     _run_step(p3_command, root, out_dir / "p3.log")
     p3_summary_path = p3_dir / "summary.json"
     p3_summary = json.loads(p3_summary_path.read_text(encoding="utf-8"))
@@ -2190,6 +2219,8 @@ def run_acceptance(args: argparse.Namespace) -> None:
     for node, value in enumerate(config["training_marker_offsets_by_node"]):
         marker_command.extend([
             "--matrix-filter-node-offset", f"{node}={value}"])
+    if not config.get("tdma_capture_waveforms", True):
+        marker_command.append("--skip-capture")
     add_serial_timing(marker_command, timing, action=True, gap=True)
     print("Hardware acceptance: TRN-00 accepted MARK offset row", flush=True)
     marker_summary_path = marker_dir / "summary.json"
@@ -2225,6 +2256,8 @@ def run_acceptance(args: argparse.Namespace) -> None:
     ]
     for value in marker_offsets_by_node:
         residence_command.extend(["--node-offset-samples", str(value)])
+    if not config.get("tdma_capture_waveforms", True):
+        residence_command.append("--skip-capture")
     add_serial_timing(residence_command, timing, action=True, gap=True)
     print("Hardware acceptance: TRN-00 full residence matrix", flush=True)
     residence_summary_path = residence_dir / "summary.json"
@@ -2260,6 +2293,8 @@ def run_acceptance(args: argparse.Namespace) -> None:
     ]
     for value in config["training_sck_offsets_by_node"]:
         sck_command.extend(["--node-sck-offset-samples", str(value)])
+    if not config.get("tdma_capture_waveforms", True):
+        sck_command.append("--skip-capture")
     add_serial_timing(sck_command, timing, action=True, gap=True)
     print("Hardware acceptance: TRN-01 SCK offset matrix", flush=True)
     sck_summary_path = sck_dir / "summary.json"
@@ -2316,6 +2351,8 @@ def run_acceptance(args: argparse.Namespace) -> None:
         "--path-delay-baseline-divisor", str(baseline_divisor),
         "--out-dir", str(data_dir),
     ]
+    if not config.get("tdma_capture_waveforms", True):
+        data_command.append("--skip-capture")
     for value in marker_offsets_by_node:
         data_command.extend(["--node-marker-offset-samples", str(value)])
     for value in training_data_offsets_by_node:
@@ -2497,8 +2534,10 @@ def run_acceptance(args: argparse.Namespace) -> None:
         str(timing["status_poll_interval_s"]),
         "--out-dir", str(tdma_dir),
     ]
-    add_serial_timing(tdma_command, timing, action=True, capture=True)
-    if config["tdma_capture_waveforms"]:
+    add_serial_timing(
+        tdma_command, timing, action=True,
+        capture=bool(config.get("tdma_capture_waveforms", True)))
+    if config.get("tdma_capture_waveforms", True):
         tdma_command.append("--capture-waveforms")
     if diagnostic_continue:
         tdma_command.append("--diagnostic-continue")
@@ -2528,6 +2567,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
         })
 
     dpll_summary_path: Path | None = None
+    internal_dpll_summary_path: Path | None = None
     if tdma_only:
         print(
             "Hardware acceptance: skip NO5 DPLL observation "
@@ -2535,6 +2575,43 @@ def run_acceptance(args: argparse.Namespace) -> None:
     else:
         all_board_ids = list(config["ota_board_ids"])
         ports = discover_board_ports(all_board_ids, timing)
+        internal_dir = out_dir / "dpll-no1-4-internal"
+        internal_command = [
+            sys.executable,
+            str(root / "tools/dpll_observation_capture/dpll_observation_capture.py"),
+            "--duration-s", str(config["dpll_monitor_duration_s"]),
+            "--out-dir", str(internal_dir),
+        ]
+        add_serial_timing(internal_command, timing)
+        for index, board_id in enumerate(board_ids, 1):
+            internal_command.extend(["--board", f"NO{index}={ports[board_id]}"])
+        print("Hardware acceptance: internal DPLL SD capture NO1..NO4", flush=True)
+        internal_returncode = _run_step(
+            internal_command, root, out_dir / "dpll-internal.log",
+            allow_failure=diagnostic_continue)
+        internal_dpll_summary_path = internal_dir / "summary.json"
+        if not internal_dpll_summary_path.is_file():
+            if not diagnostic_continue:
+                raise AcceptanceError("internal DPLL capture did not write summary.json")
+            internal_summary = {
+                "schema": "HAOFV_FAILED_STEP_V1", "passed": False,
+                "error": "internal DPLL capture did not write summary.json",
+                "returncode": internal_returncode,
+            }
+            internal_dir.mkdir(parents=True, exist_ok=True)
+            internal_dpll_summary_path.write_text(
+                json.dumps(internal_summary, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8")
+        else:
+            internal_summary = json.loads(
+                internal_dpll_summary_path.read_text(encoding="utf-8"))
+        if diagnostic_continue and internal_returncode != 0:
+            diagnostic_failures.append({
+                "phase": "internal DPLL SD capture NO1..NO4",
+                "returncode": internal_returncode,
+                "error": str(internal_summary.get("error", "")),
+                "summary": internal_dpll_summary_path.resolve().relative_to(root).as_posix(),
+            })
         dpll_dir = out_dir / "dpll-no5-observation"
         dpll_command = [
             sys.executable,
@@ -2679,6 +2756,9 @@ def run_acceptance(args: argparse.Namespace) -> None:
         }
         if dpll_summary_path is not None:
             value["dpll_summary"] = evidence_entry(root, dpll_summary_path)
+        if internal_dpll_summary_path is not None:
+            value["internal_dpll_summary"] = evidence_entry(
+                root, internal_dpll_summary_path)
         if sma_wire_order_summary_path is not None:
             value["sma_observer_wiring"] = evidence_entry(
                 root, sma_wire_order_summary_path)
@@ -2730,6 +2810,9 @@ def run_acceptance(args: argparse.Namespace) -> None:
             "dpll_summary": (
                 dpll_summary_path.resolve().relative_to(root).as_posix()
                 if dpll_summary_path is not None else None),
+            "internal_dpll_summary": (
+                internal_dpll_summary_path.resolve().relative_to(root).as_posix()
+                if internal_dpll_summary_path is not None else None),
             "feedback_inputs": build_diagnostic_feedback(
                 tdma_summary,
                 dpll_summary if dpll_summary_path is not None else None,
@@ -2815,7 +2898,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
     run = subparsers.add_parser(
-        "run", help="quick default: build, 4096 OTA, P0-P3/TRN-03 and TDMA")
+        "run", help=("quick acceptance by default: build, 4096 OTA, "
+                     "P0-P3/TRN-03 and TDMA; use --full for full bench"))
     run.add_argument("--root", type=Path, default=ROOT)
     run.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     run.add_argument("--receipt", type=Path, default=DEFAULT_RECEIPT)

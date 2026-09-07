@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from pathlib import Path
 
 from tools.dpll_vdc_monitor.dpll_vdc_monitor import (
     DPLL_VECTOR_FIELDS,
@@ -23,8 +24,12 @@ from tools.dpll_vdc_monitor.dpll_vdc_monitor import (
     parse_board_arg,
     parse_vector_response,
     _ring_sequence_consistency,
+    _evaluate_tdma_preflight,
 )
 from tools.scpi_common.scpi_serial import scpi_response_matches_command
+
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_phase_pulse_count_covers_the_full_monitor_duration() -> None:
@@ -37,6 +42,80 @@ def test_phase_pulse_count_covers_the_full_monitor_duration() -> None:
     )
 
     assert _effective_phase_pulse_count(args) == 12_000
+
+
+def test_debug_phase_selftest_records_recoverable_arm_failures_without_stopping() -> None:
+    """Debug phase observation must retry recoverable DCO/PIO failures.
+
+    The strict DPLL gate remains in the monitor, but a diagnostic phase TX
+    request must stay active after a recoverable arm failure so later Core1
+    service turns can retry it and preserve the failure evidence.
+    """
+    source = (ROOT / "components" / "vdc_dpll_manager" / "src" /
+              "vdc_dpll_manager.c").read_text(encoding="utf-8")
+    assert "status.last_error = 5u" in source
+    assert "s_observation_self_test.last_error = 6u" in source
+    assert "s_observation_self_test.active = true" in source
+    assert "caller requested observation, not a product lock decision" in source
+
+
+def _tdma_snapshot(*, seq: int = 100, bad: int = 0,
+                   up: int = 1, down: int = 1,
+                   reference: int = 0, feedback: int = 0) -> dict[str, int]:
+    return {
+        "ring_enabled": 1,
+        "ring_adapter_started": 1,
+        "ring_up_running": up,
+        "ring_down_running": down,
+        "ring_node_count": 4,
+        "ring_seq": seq,
+        "ring_last_error": 0,
+        "ring_adapter_last_error": 0,
+        "ring_adapter_rx_bad_count": bad,
+        "ring_adapter_rx_transport_bad_count": 0,
+        "ring_adapter_rx_schedule_bad_count": 0,
+        "ring_adapter_rx_profile_bad_count": 0,
+        "ring_local_slot_id": reference,
+        "ring_reference_slot_id": 0,
+        "simultaneous_feedback_loop_evidence": feedback,
+    }
+
+
+def test_tdma_preflight_releases_dpll_only_after_stable_ring() -> None:
+    specs = [
+        __import__("types").SimpleNamespace(name=f"NO{index}", port=f"COM{index}")
+        for index in range(1, 5)
+    ]
+    before = {spec.name: _tdma_snapshot(seq=100, reference=index - 1)
+              for index, spec in enumerate(specs, start=1)}
+    after = {spec.name: _tdma_snapshot(seq=120, reference=index - 1,
+                                       feedback=int(index == 1))
+             for index, spec in enumerate(specs, start=1)}
+
+    result = _evaluate_tdma_preflight(specs, before, after, 1.0)
+
+    assert result["passed"] is True
+    assert result["errors"] == []
+
+
+def test_tdma_preflight_rejects_ring_fault_before_dpll_arm() -> None:
+    specs = [
+        __import__("types").SimpleNamespace(name=f"NO{index}", port=f"COM{index}")
+        for index in range(1, 5)
+    ]
+    before = {spec.name: _tdma_snapshot(seq=100, reference=index - 1)
+              for index, spec in enumerate(specs, start=1)}
+    after = {spec.name: _tdma_snapshot(seq=120, reference=index - 1,
+                                       feedback=int(index == 1))
+             for index, spec in enumerate(specs, start=1)}
+    after["NO3"]["ring_up_running"] = 0
+    after["NO4"]["ring_adapter_rx_bad_count"] = 1
+
+    result = _evaluate_tdma_preflight(specs, before, after, 1.0)
+
+    assert result["passed"] is False
+    assert "NO3:ring_up_running!=1" in result["errors"]
+    assert "NO4:ring_adapter_rx_bad_count_grew" in result["errors"]
 
 
 def test_selftest_progress_exposes_tx_schedule_without_becoming_evidence(

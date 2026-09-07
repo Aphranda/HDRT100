@@ -719,6 +719,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--expected-build")
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--skip-capture", action="store_true",
+                        help="do not persist/download SD raw waveform on clean runs")
     parser.add_argument("--short-open", action="store_true",
                         help="open/close CDC for every command (diagnostic fallback)")
     return parser.parse_args()
@@ -1164,7 +1166,10 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
             validation = validate_link(
                 source_row, destination_row,
                 expected_config=expected_config)
-        if (args.diagnostic_transport_fault_flags == FAULT_PIO_STALL and
+        if (args.skip_capture and validation.get("passed")):
+            capture_file = {"skipped": True, "reason": "clean_quick_run"}
+            capture_download = None
+        elif (args.diagnostic_transport_fault_flags == FAULT_PIO_STALL and
                 int(source_row["captured_sample_count"]) == 0):
             capture_file = {
                 "skipped": True,
@@ -1202,6 +1207,7 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
         "active_unchanged": active_unchanged,
         "capture_file": capture_file,
         "capture_download": capture_download,
+        "capture_skipped": bool(args.skip_capture and validation.get("passed")),
     }
     if not active_unchanged:
         result["errors"].append("active_record_changed")

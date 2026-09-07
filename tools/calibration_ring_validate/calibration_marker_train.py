@@ -398,6 +398,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--poll-interval", type=float, default=0.02)
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--skip-capture", action="store_true",
+                        help="do not persist/download SD raw waveform on clean runs")
     parser.add_argument("--short-open", action="store_true",
                         help="open/close CDC for every command (diagnostic fallback)")
     return parser.parse_args()
@@ -839,7 +841,7 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
         else:
             records = wait_marker(ordered, args)
             validation = validate_ring(records)
-            capture_files = [
+            capture_files = [] if args.skip_capture else [
                 save_marker_capture(board, args) for board in ordered]
     finally:
         idle = stop_marker(ordered, args)
@@ -857,7 +859,8 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
             "active_before": active_before,
             "active_after": active_after,
             "active_unchanged": active_before == active_after,
-            "capture_files": capture_files}
+            "capture_files": capture_files,
+            "capture_skipped": bool(args.skip_capture and validation.get("passed"))}
 
 
 def build_offset_matrix(

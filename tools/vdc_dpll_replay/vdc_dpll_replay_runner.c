@@ -88,7 +88,7 @@ int main(int argc, char **argv)
     uint32_t lock_samples = 0u;
     int32_t kp_q16 = 0;
     int32_t ki_q16 = 0;
-    uint32_t outlier_threshold_ns = 0u;
+    uint32_t phase_diagnostic_threshold_ns = 0u;
     if (argc != 10 ||
         !parse_u32(argv[1], &node_count) ||
         !parse_u32(argv[2], &local_node) ||
@@ -98,11 +98,11 @@ int main(int argc, char **argv)
         !parse_u32(argv[6], &lock_samples) ||
         !parse_i32(argv[7], &kp_q16) ||
         !parse_i32(argv[8], &ki_q16) ||
-        !parse_u32(argv[9], &outlier_threshold_ns)) {
+        !parse_u32(argv[9], &phase_diagnostic_threshold_ns)) {
         (void)fprintf(stderr,
                       "usage: runner node_count local_node reference_node "
                       "period_ns lock_threshold_ns lock_samples kp_q16 "
-                      "ki_q16 outlier_threshold_ns\n");
+                      "ki_q16 phase_diagnostic_threshold_ns\n");
         return 2;
     }
 
@@ -127,7 +127,8 @@ int main(int argc, char **argv)
     if (context.servo.update_period_us == 0u) {
         context.servo.update_period_us = 1u;
     }
-    context.servo.outlier_threshold_ns = outlier_threshold_ns;
+    context.servo.phase_diagnostic_threshold_ns =
+        phase_diagnostic_threshold_ns;
     context.clock.tdma_schedule_crc32 = context.schedule.schedule_crc32;
     context.dpll.schedule_crc32 = context.schedule.schedule_crc32;
     context.dco.tdma_schedule_crc32 = context.schedule.schedule_crc32;

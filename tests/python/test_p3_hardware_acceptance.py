@@ -1,9 +1,11 @@
+import argparse
 import json
 import sys
 import types
 from pathlib import Path
 
 import pytest
+import tools.hardware_acceptance.p3_hardware_acceptance as p3_acceptance
 
 from tools.hardware_acceptance.p3_hardware_acceptance import (
     AcceptanceError,
@@ -14,6 +16,8 @@ from tools.hardware_acceptance.p3_hardware_acceptance import (
     TDMA_RECEIPT_SCHEMA,
     _run_step,
     _validate_evidence,
+    acceptance_config_path,
+    acceptance_output_path,
     acceptance_timing,
     build_diagnostic_feedback,
     calibration_coded_probe_phase_cycles,
@@ -42,6 +46,63 @@ from tools.hardware_acceptance.p3_hardware_acceptance import (
     _start_timing_probe,
     acceptance_budget_status,
 )
+
+
+def test_run_full_selects_full_bench_config() -> None:
+    root = Path("repo")
+    full = argparse.Namespace(
+        command="run", full=True, config=Path("ignored.json"))
+    quick = argparse.Namespace(
+        command="run", full=False, config=Path("ignored.json"))
+    resume = argparse.Namespace(
+        command="resume", config=Path("custom.json"))
+
+    assert acceptance_config_path(full, root) == (
+        root / "config/hardware_acceptance/p3_bench.json")
+    assert acceptance_config_path(quick, root) == (
+        root / "config/hardware_acceptance/p3_bench_quick.json")
+    assert acceptance_config_path(resume, root) == root / "custom.json"
+
+
+def test_default_acceptance_output_uses_date_partition() -> None:
+    source = (ROOT / "tools" / "hardware_acceptance" /
+              "p3_hardware_acceptance.py").read_text(encoding="utf-8")
+    assert "out/HardwareAcceptance/{default_day}/p3-" in source
+    root = Path("repo")
+    assert acceptance_output_path(root, None, "20260907-010203") == (
+        root / "out/HardwareAcceptance/20260907/p3-010203")
+    assert acceptance_output_path(
+        root, Path("out/HardwareAcceptance/vdc-run"), "20260907-010203") == (
+            root / "out/HardwareAcceptance/20260907/vdc-run")
+
+
+def test_check_staged_accepts_quick_five_board_ota_and_four_board_tdma(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Quick profile keeps NO5 as an observer, unlike a TDMA-only run."""
+    receipt = {
+        "schema": QUICK_DIAGNOSTIC_RECEIPT_SCHEMA,
+        "passed": True,
+        "source_tree_sha256": "fingerprint",
+        "source_file_count": 1,
+        "acceptance_scope": "FOUR_NODE_TDMA_QUICK_DIAGNOSTIC",
+        "ota_board_ids": ["no1", "no2", "no3", "no4", "no5"],
+        "tdma_board_ids": ["no1", "no2", "no3", "no4"],
+    }
+    validated: list[dict[str, object]] = []
+    monkeypatch.setattr(p3_acceptance, "changed_staged_sources",
+                        lambda root: [Path("components/vdc.c")])
+    monkeypatch.setattr(p3_acceptance, "unstaged_sources", lambda root: [])
+    monkeypatch.setattr(p3_acceptance, "read_index_json",
+                        lambda root, path: receipt)
+    monkeypatch.setattr(p3_acceptance, "staged_source_fingerprint",
+                        lambda root: ("fingerprint", 1))
+    monkeypatch.setattr(
+        p3_acceptance, "_validate_quick_diagnostic_receipt",
+        lambda root, value: validated.append(value))
+
+    p3_acceptance.check_staged(tmp_path, Path("receipt.json"))
+
+    assert validated == [receipt]
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -520,6 +581,7 @@ def test_bench_and_orchestrator_cover_full_hardware_acceptance() -> None:
     assert quick["training_sck_repeats"] == 8
     assert quick["training_sck_min_repeats"] == 3
     assert quick["training_sck_min_follower_candidates"] == 2
+    assert quick["tdma_capture_waveforms"] is False
     assert loaded_quick["training_sck_offsets_by_node"] == [0, 0, 0, 0]
     assert loaded_quick["training_max_offset_span"] == 1
     assert acceptance_timing(loaded_quick)["p3_capture_timeout_s"] == 20.0
@@ -531,18 +593,21 @@ def test_bench_and_orchestrator_cover_full_hardware_acceptance() -> None:
         "calibration_marker_train.py", "calibration_sck_train.py",
         "calibration_data_train.py", "trn03_matrix.py",
         "trn03_closed_loop.py", "sma_cable_symmetric_rtt.py",
-        "dpll_vdc_monitor.py",
+        "dpll_vdc_monitor.py", "dpll_observation_capture.py",
     ):
         assert tool in source
     assert "--tdma-only" in source
+    assert "internal DPLL SD capture NO1..NO4" in source
+    assert '"internal_dpll_summary"' in source
     tdma_command = source.split("tdma_command = [", 1)[1].split(
         "print(\"Hardware acceptance: four-Node TDMA", 1)[0]
-    assert (
-        "add_serial_timing(tdma_command, timing, action=True, capture=True)"
-        in tdma_command
-    )
+    assert "capture=bool(config.get(\"tdma_capture_waveforms\", True))" in source
     assert "--diagnostic-continue" in source
     assert 'matrix_command.append("--diagnostic-continue")' in source
+    assert 'marker_command.append("--skip-capture")' in source
+    assert 'residence_command.append("--skip-capture")' in source
+    assert 'sck_command.append("--skip-capture")' in source
+    assert 'data_command.append("--skip-capture")' in source
     assert '"selected_row_replay_safe"' in source
     assert '"TRN-03 SCK replay row selection"' in source
     assert '"flow_completed": True' in source

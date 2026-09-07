@@ -478,10 +478,27 @@ def test_sync_io_pio0_wave_output_is_independent_of_tdma() -> None:
 
     observer_arm = model_sched.split(
         "bool sync_io_sma_observer_pulse_schedule_arm_periodic_ns(", 1
-    )[1].split("void sync_io_model_pulse_schedule_disarm", 1)[0]
+    )[1].split(
+        "bool sync_io_sma_observer_pulse_schedule_arm_periodic_at_ns(", 1
+    )[0]
     assert "BOARD_SYNC_PIO_FAST" in observer_arm
     assert "BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM" in observer_arm
     assert "BOARD_SYNC_PIO_WAVE" not in observer_arm
+
+    absolute_observer_arm = model_sched.split(
+        "bool sync_io_sma_observer_pulse_schedule_arm_periodic_at_ns(", 1
+    )[1].split("void sync_io_model_pulse_schedule_disarm", 1)[0]
+    assert "first_deadline_ns" in absolute_observer_arm
+    assert "BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM" in absolute_observer_arm
+
+    hardware_start = model_sched.split(
+        "static bool sync_io_wave_output_start(", 1
+    )[1].split("static void sync_io_wave_output_stop", 1)[0]
+    assert "first_deadline_ns" in hardware_start
+    assert "periodic_period_ns" in hardware_start
+    assert "minimum_deadline_ns" in hardware_start
+    assert "time_us_64() * 1000ull" in hardware_start
+    assert "s_model_pulse.words[0] = sync_io_model_delay_word" in hardware_start
 
     init = sync_io.split("bool sync_io_init(", 1)[1]
     assert '"sma_observer"' not in init

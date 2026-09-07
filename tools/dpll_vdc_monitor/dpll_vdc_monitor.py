@@ -67,6 +67,13 @@ WAVEFORM_STOP_COMMAND = "SYSTem:SYNC:VDC:OBServer:WAVEform:STOP"
 WAVEFORM_STATUS_COMMAND = "SYSTem:SYNC:VDC:OBServer:WAVEform:STATus?"
 WAVEFORM_SAVE_COMMAND = "SYSTem:SYNC:VDC:OBServer:WAVEform:SAVE"
 SMA_LOCK_EXPECTED_MASK = 0x0F
+TDMA_PREFLIGHT_HARD_REASONS = {1, 3, 4, 8}
+TDMA_PREFLIGHT_BAD_FIELDS = (
+    "ring_adapter_rx_bad_count",
+    "ring_adapter_rx_transport_bad_count",
+    "ring_adapter_rx_schedule_bad_count",
+    "ring_adapter_rx_profile_bad_count",
+)
 
 VDC_STATUS_FIELDS = (
     "ready", "lock_state", "service_count", "first_service_ms",
@@ -351,6 +358,179 @@ def _effective_phase_pulse_count(args: argparse.Namespace) -> int:
     if count <= 0 or count > 0xFFFFFFFF:
         raise ValueError("phase pulse count exceeds uint32 range")
     return count
+
+
+def _evaluate_tdma_preflight(
+        specs: list[BoardSpec],
+        before: dict[str, dict[str, int]],
+        after: dict[str, dict[str, int]],
+        delay_s: float) -> dict[str, Any]:
+    """Validate resident TDMA before arming any DPLL observation persona."""
+    boards: dict[str, Any] = {}
+    errors: list[str] = []
+    reference_seen = False
+    reference_feedback = False
+    for spec in specs:
+        name = spec.name
+        before_fields = before.get(name)
+        after_fields = after.get(name)
+        board_errors: list[str] = []
+        if before_fields is None or after_fields is None:
+            board_errors.append("missing_complete_tdma_snapshots")
+        else:
+            if after_fields.get("ring_enabled", 0) != 1:
+                board_errors.append("ring_enabled!=1")
+            if after_fields.get("ring_adapter_started", 0) != 1:
+                board_errors.append("ring_adapter_started!=1")
+            if after_fields.get("ring_up_running", 0) != 1:
+                board_errors.append("ring_up_running!=1")
+            if after_fields.get("ring_down_running", 0) != 1:
+                board_errors.append("ring_down_running!=1")
+            if after_fields.get("ring_node_count", 0) != len(specs):
+                board_errors.append(
+                    f"ring_node_count!={len(specs)}")
+            if after_fields.get("ring_seq", 0) <= before_fields.get(
+                    "ring_seq", 0):
+                board_errors.append("ring_seq_not_advanced")
+            ring_reason = after_fields.get("ring_last_error", 0)
+            adapter_reason = after_fields.get("ring_adapter_last_error", 0)
+            if ring_reason in TDMA_PREFLIGHT_HARD_REASONS:
+                board_errors.append(f"hard_ring_reason={ring_reason}")
+            if adapter_reason in TDMA_PREFLIGHT_HARD_REASONS:
+                board_errors.append(f"hard_adapter_reason={adapter_reason}")
+            for field_name in TDMA_PREFLIGHT_BAD_FIELDS:
+                if after_fields.get(field_name, 0) > before_fields.get(
+                        field_name, 0):
+                    board_errors.append(f"{field_name}_grew")
+            is_reference = (
+                after_fields.get("ring_local_slot_id", -1) ==
+                after_fields.get("ring_reference_slot_id", -2))
+            if is_reference:
+                reference_seen = True
+                if after_fields.get(
+                        "simultaneous_feedback_loop_evidence", 0) == 1:
+                    reference_feedback = True
+                else:
+                    board_errors.append("reference_feedback_evidence!=1")
+        if board_errors:
+            errors.extend(f"{name}:{item}" for item in board_errors)
+        boards[name] = {
+            "port": spec.port,
+            "passed": not board_errors,
+            "errors": board_errors,
+            "before": before_fields or {},
+            "after": after_fields or {},
+        }
+    if not reference_seen:
+        errors.append("reference_node_not_found")
+    if reference_seen and not reference_feedback:
+        errors.append("reference_feedback_evidence_missing")
+    return {
+        "schema": "HAOFV_TDMA_PREFLIGHT_V1",
+        "passed": not errors,
+        "sample_delay_s": delay_s,
+        "board_count": len(specs),
+        "boards": boards,
+        "errors": errors,
+        "policy": {
+            "dpll_armed_only_after_pass": True,
+            "requires_ring_enabled": True,
+            "requires_adapter_started": True,
+            "requires_up_down_running": True,
+            "requires_sequence_advance": True,
+            "requires_reference_feedback_evidence": True,
+            "bad_counter_growth_rejected": True,
+        },
+    }
+
+
+def _tdma_preflight(serials: dict[str, Any], specs: list[BoardSpec],
+                    args: argparse.Namespace,
+                    progress: ProgressReporter) -> dict[str, Any]:
+    """Run the DPLL start gate against only the four in-ring boards."""
+    observer_name = args.observer_name.upper()
+    ring_specs = [spec for spec in specs if spec.name != observer_name]
+    if observer_name not in {spec.name for spec in specs}:
+        ring_specs = list(specs)
+    if len(ring_specs) < 2:
+        raise ValueError("TDMA preflight requires at least two in-ring boards")
+    delay_s = float(getattr(args, "tdma_preflight_delay_s", 1.0))
+    if delay_s <= 0.0:
+        raise ValueError("TDMA preflight delay must be positive")
+
+    def read(spec: BoardSpec) -> tuple[str, dict[str, int] | None, str]:
+        last_error = ""
+        for _attempt in range(3):
+            try:
+                response = _query(serials[spec.name], TDMA_STATUS_COMMAND,
+                                  args.timeout)
+                return spec.name, parse_status_named(response), ""
+            except (OSError, ValueError, TimeoutError, KeyError) as exc:
+                last_error = str(exc)
+                time.sleep(0.05)
+        return spec.name, None, last_error
+
+    with ThreadPoolExecutor(max_workers=len(ring_specs)) as pool:
+        first_results = list(pool.map(read, ring_specs))
+    before = {name: fields for name, fields, error in first_results
+              if fields is not None and not error}
+    first_errors = {name: error for name, fields, error in first_results
+                    if error}
+    time.sleep(delay_s)
+    with ThreadPoolExecutor(max_workers=len(ring_specs)) as pool:
+        second_results = list(pool.map(read, ring_specs))
+    after = {name: fields for name, fields, error in second_results
+             if fields is not None and not error}
+    second_errors = {name: error for name, fields, error in second_results
+                     if error}
+    result = _evaluate_tdma_preflight(ring_specs, before, after, delay_s)
+    for name, error in {**first_errors, **second_errors}.items():
+        result["boards"].setdefault(name, {
+            "port": next(spec.port for spec in ring_specs if spec.name == name),
+            "passed": False,
+            "errors": [],
+            "before": before.get(name, {}),
+            "after": after.get(name, {}),
+        })["errors"].append(error)
+        result["boards"][name]["passed"] = False
+        result["errors"].append(f"{name}:tdma_query_failed")
+    result["passed"] = not result["errors"] and all(
+        bool(board["passed"]) for board in result["boards"].values())
+    progress.emit("tdma_preflight_complete", **result)
+    return result
+
+
+def _tdma_preflight_svg(result: dict[str, Any]) -> str:
+    lines = [
+        '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" '
+        'viewBox="0 0 1200 420">',
+        '<style>text{font-family:Consolas,monospace;fill:#172033}.title{font-size:20px;font-weight:700}'
+        '.ok{fill:#16803c}.bad{fill:#b42318}.small{font-size:13px}</style>',
+        '<rect width="100%" height="100%" fill="#fff"/>',
+        '<text x="24" y="32" class="title">TDMA preflight before DPLL arm</text>',
+        f'<text x="24" y="58" class="small">passed={str(bool(result.get("passed"))).lower()} '
+        f'delay_s={result.get("sample_delay_s", 0):g} '
+        'policy=ring-only-read-before-phase-arm</text>',
+    ]
+    for index, (name, board) in enumerate(sorted(result.get("boards", {}).items())):
+        y = 96 + index * 62
+        status = "PASS" if board.get("passed") else "FAIL"
+        status_class = "ok" if board.get("passed") else "bad"
+        after = board.get("after", {})
+        lines.append(
+            f'<text x="24" y="{y}" class="{status_class}">{escape(name)} '
+            f'{status} port={escape(str(board.get("port", "")))} '
+            f'enabled={after.get("ring_enabled", 0)} '
+            f'up={after.get("ring_up_running", 0)} '
+            f'down={after.get("ring_down_running", 0)} '
+            f'seq={after.get("ring_seq", 0)} '
+            f'bad={after.get("ring_adapter_rx_bad_count", 0)}</text>')
+        if board.get("errors"):
+            lines.append(
+                f'<text x="48" y="{y + 20}" class="small">'
+                f'{escape("; ".join(str(item) for item in board["errors"]))}</text>')
+    lines.append('</svg>')
+    return "\n".join(lines) + "\n"
 
 
 def _arm_phase_observation(serials: dict[str, Any], specs: list[BoardSpec],
@@ -672,9 +852,75 @@ def _read_observer(ser: Any, spec: BoardSpec, timeout_s: float,
         )
 
 
+def _read_internal_board(ser: Any, spec: BoardSpec, timeout_s: float,
+                         elapsed_s: float, previous: BoardSample | None,
+                         tdma: dict[str, int]) -> BoardSample:
+    """Read only the internal DPLL vectors after TDMA preflight.
+
+    The full TDMA snapshot is intentionally not queried on every diagnostic
+    poll.  It is large and can be split by USB CDC scheduling; preflight has
+    already established the resident ring gate, while this path focuses on
+    the DPLL quantities that the servo actually updates.
+    """
+    try:
+        dpll_vector = parse_vector_response(
+            _query(ser, DPLL_VECTOR_COMMAND, timeout_s), DPLL_VECTOR_FIELDS)
+        readiness = parse_named_int_response(
+            _query(ser, READINESS_COMMAND, timeout_s), READINESS_FIELDS)
+        dpll_status = {
+            "ready": dpll_vector.get("ready", 0),
+            "state": dpll_vector.get("state", 0),
+            "service_count": dpll_vector.get("source_service_count", 0),
+            "first_service_ms": 0,
+            "last_service_ms": 0,
+            "update_seq": dpll_vector.get("dpll_update_seq", 0),
+        }
+        trigger_sequence = _select_trigger_sequence({}, {}, dpll_vector)
+        interval_ms: float | None = None
+        if previous is not None and trigger_sequence > previous.trigger_sequence:
+            delta = trigger_sequence - previous.trigger_sequence
+            if delta > 0:
+                interval_ms = (elapsed_s - previous.elapsed_s) * 1000.0 / delta
+        return BoardSample(
+            ts_utc=datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+            elapsed_s=elapsed_s,
+            board=spec.name,
+            port=spec.port,
+            tdma=tdma,
+            vdc_status={},
+            dpll_status=dpll_status,
+            readiness=readiness,
+            vdc_vector={},
+            dpll_vector=dpll_vector,
+            trigger_sequence=trigger_sequence,
+            trigger_interval_ms=interval_ms,
+            simultaneous_feedback=bool(
+                tdma.get("simultaneous_feedback_loop_evidence", 0)),
+        )
+    except (OSError, ValueError, TimeoutError, KeyError) as exc:
+        return BoardSample(
+            ts_utc=datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+            elapsed_s=elapsed_s,
+            board=spec.name,
+            port=spec.port,
+            tdma=tdma,
+            vdc_status={},
+            dpll_status={},
+            readiness={},
+            vdc_vector={},
+            dpll_vector={},
+            trigger_sequence=0,
+            trigger_interval_ms=None,
+            simultaneous_feedback=bool(
+                tdma.get("simultaneous_feedback_loop_evidence", 0)),
+            error=str(exc),
+        )
+
+
 def _board_summary(samples: list[BoardSample], *, expected_interval_ms: float,
                    interval_tolerance_ms: float,
                    observer: bool = False,
+                   internal_only: bool = False,
                    phase_max_span_ns: int = 500,
                    phase_min_complete_rounds: int = 3) -> dict[str, Any]:
     errors = [sample.error for sample in samples if sample.error]
@@ -739,13 +985,16 @@ def _board_summary(samples: list[BoardSample], *, expected_interval_ms: float,
         for interval in intervals)
     sequence_monotonic = _sequence_is_monotonic(samples)
     vector_ok = bool(
-        latest and latest.vdc_vector and latest.dpll_vector and
-        (latest.vdc_vector.get("flags", 0) & VECTOR_FLAG_VALID) and
-        not (latest.vdc_vector.get("flags", 0) & VECTOR_FLAG_STALE) and
+        latest and latest.dpll_vector and
         (latest.dpll_vector.get("flags", 0) & VECTOR_FLAG_VALID) and
         not (latest.dpll_vector.get("flags", 0) & VECTOR_FLAG_STALE) and
-        latest.vdc_vector.get("gate_passed", 0) and
         latest.dpll_vector.get("gate_passed", 0))
+    if not internal_only:
+        vector_ok = bool(
+            vector_ok and latest.vdc_vector and
+            (latest.vdc_vector.get("flags", 0) & VECTOR_FLAG_VALID) and
+            not (latest.vdc_vector.get("flags", 0) & VECTOR_FLAG_STALE) and
+            latest.vdc_vector.get("gate_passed", 0))
     timestamp_ok = bool(latest and latest.readiness and
                         latest.readiness.get("timestamp_source") ==
                         TIMESTAMP_SOURCE_HARDWARE_TICK and
@@ -928,8 +1177,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=1.0)
     parser.add_argument("--settle", type=float, default=0.2)
+    parser.add_argument(
+        "--serial-read-timeout-s", type=float, default=0.2,
+        help="per-read CDC timeout; use a larger value for long TDMA snapshots")
     parser.add_argument("--duration-s", type=float, default=60.0)
     parser.add_argument("--poll-interval-s", type=float, default=1.0)
+    parser.add_argument(
+        "--tdma-preflight-delay-s", type=float, default=1.0,
+        help="delay between the two read-only TDMA preflight snapshots")
     parser.add_argument("--expected-interval-ms", type=float, default=1.0)
     parser.add_argument("--interval-tolerance-ms", type=float, default=0.35)
     parser.add_argument("--sequence-skew-tolerance", type=int, default=1,
@@ -952,6 +1207,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--phase-max-span-ns", type=int, default=500)
     parser.add_argument("--phase-min-complete-rounds", type=int, default=3)
     parser.add_argument("--waveform-flush-timeout-s", type=float, default=30.0)
+    parser.add_argument(
+        "--internal-only", action="store_true",
+        help="sample NO1..NO4 internal TDMA/DPLL state without arming NO5 phase observation")
+    parser.add_argument(
+        "--internal-lock-threshold-ns", type=int, default=1000,
+        help="threshold used by the internal DPLL residual SVG")
     return parser.parse_args()
 
 
@@ -959,10 +1220,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     specs = [parse_board_arg(value) for value in args.board]
     if len({spec.name for spec in specs}) != len(specs):
         raise ValueError("duplicate board name")
-    if args.observer_name.upper() not in {spec.name for spec in specs}:
+    if not args.internal_only and args.observer_name.upper() not in {
+            spec.name for spec in specs}:
         raise ValueError(f"observer board {args.observer_name} is not listed")
+    if args.internal_only and len(specs) < 2:
+        raise ValueError("internal-only mode requires at least two in-ring boards")
     if args.duration_s <= 0 or args.poll_interval_s <= 0:
         raise ValueError("duration and poll interval must be positive")
+    if args.serial_read_timeout_s <= 0 or args.serial_read_timeout_s > args.timeout:
+        raise ValueError("serial read timeout must be in (0, timeout]")
+    if args.internal_lock_threshold_ns <= 0:
+        raise ValueError("internal lock threshold must be positive")
     if args.sequence_skew_tolerance < 0:
         raise ValueError("sequence skew tolerance must be non-negative")
     if (args.phase_max_span_ns <= 0 or args.phase_min_complete_rounds <= 0 or
@@ -974,18 +1242,32 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     samples_by_board: dict[str, list[BoardSample]] = {spec.name: [] for spec in specs}
     started = time.monotonic()
     waveform_result: dict[str, Any] = {}
+    tdma_preflight: dict[str, Any] = {}
     progress.emit("opening_ports", boards={spec.name: spec.port for spec in specs})
     with open_serial_ports(specs, args) as serials:
-        observer_serial = serials[args.observer_name.upper()]
+        observer_serial = (serials[args.observer_name.upper()]
+                           if not args.internal_only else None)
+        tdma_preflight = _tdma_preflight(serials, specs, args, progress)
+        preflight_json = out_dir / "tdma_preflight.json"
+        preflight_svg = out_dir / "tdma_preflight.svg"
+        preflight_json.write_text(
+            json.dumps(tdma_preflight, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8")
+        preflight_svg.write_text(
+            _tdma_preflight_svg(tdma_preflight), encoding="utf-8")
+        if not tdma_preflight["passed"]:
+            raise RuntimeError(
+                "TDMA preflight failed; DPLL phase and waveform were not armed")
         waveform_armed = False
         try:
-            response = _query(observer_serial, WAVEFORM_ARM_COMMAND, args.timeout)
-            if not response.lstrip().lstrip('"').upper().startswith("OK"):
-                raise ValueError(f"NO5 waveform arm rejected: {response!r}")
-            waveform_armed = True
-            progress.emit("waveform_armed", response=response)
-            _arm_phase_observation(serials, specs, args)
-            progress.emit("phase_observation_armed")
+            if not args.internal_only:
+                response = _query(observer_serial, WAVEFORM_ARM_COMMAND, args.timeout)
+                if not response.lstrip().lstrip('"').upper().startswith("OK"):
+                    raise ValueError(f"NO5 waveform arm rejected: {response!r}")
+                waveform_armed = True
+                progress.emit("waveform_armed", response=response)
+                _arm_phase_observation(serials, specs, args)
+                progress.emit("phase_observation_armed")
             poll_index = 0
             while True:
                 elapsed = time.monotonic() - started
@@ -993,11 +1275,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     break
 
                 def read_spec(spec: BoardSpec) -> BoardSample:
-                    if spec.name == args.observer_name.upper():
+                    if not args.internal_only and spec.name == \
+                            args.observer_name.upper():
                         return _read_observer(
                             serials[spec.name], spec, args.timeout, elapsed)
                     previous = (samples_by_board[spec.name][-1]
                                 if samples_by_board[spec.name] else None)
+                    if args.internal_only:
+                        tdma = tdma_preflight["boards"][spec.name]["after"]
+                        return _read_internal_board(
+                            serials[spec.name], spec, args.timeout, elapsed,
+                            previous, tdma)
                     return _read_board(
                         serials[spec.name], spec, args.timeout, elapsed, previous)
 
@@ -1019,8 +1307,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 time.sleep(args.poll_interval_s)
         finally:
             try:
-                _stop_phase_observation(serials, specs, args)
-                progress.emit("phase_observation_stopped")
+                if not args.internal_only:
+                    _stop_phase_observation(serials, specs, args)
+                    progress.emit("phase_observation_stopped")
             finally:
                 if waveform_armed:
                     try:
@@ -1047,11 +1336,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         expected_interval_ms=args.expected_interval_ms,
         interval_tolerance_ms=args.interval_tolerance_ms,
         observer=spec.name == args.observer_name.upper(),
+        internal_only=args.internal_only,
         phase_max_span_ns=args.phase_max_span_ns,
         phase_min_complete_rounds=args.phase_min_complete_rounds)
                  for spec in specs]
-    sequence_consistent, sequence_skew = _ring_sequence_consistency(
-        samples_by_board, tolerance=args.sequence_skew_tolerance)
+    if args.internal_only:
+        sequence_consistent, sequence_skew = True, 0
+    else:
+        sequence_consistent, sequence_skew = _ring_sequence_consistency(
+            samples_by_board, tolerance=args.sequence_skew_tolerance)
     for summary in summaries:
         summary["ring_sequence_consistent"] = sequence_consistent
         summary["ring_sequence_skew"] = sequence_skew
@@ -1064,20 +1357,32 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             waveform.append({"path": str(path), "error": str(exc)})
     observer_summary = next((summary for summary in summaries
                              if summary.get("role") == "observer"), None)
-    raw_gate_passed = bool(waveform_result.get("raw_gate", {}).get("passed"))
-    passed = bool(summaries) and sequence_consistent and bool(observer_summary) and \
-        raw_gate_passed and all(
-        summary["samples"] > 0 and not summary["errors"] and
-        (True
-         if summary.get("role") == "observer" else
-         (summary["ring_up_running"] and summary["ring_down_running"] and
-          (not summary.get("reference_node", False) or
-           summary["simultaneous_feedback"])))
-        for summary in summaries)
+    raw_gate_passed = args.internal_only or bool(
+        waveform_result.get("raw_gate", {}).get("passed"))
+    if args.internal_only:
+        passed = bool(summaries) and sequence_consistent and \
+            bool(tdma_preflight.get("passed")) and all(
+                summary["samples"] > 0 and not summary["errors"] and
+                summary.get("trigger_sequence_monotonic", False) and
+                summary.get("ring_up_running") and
+                summary.get("ring_down_running")
+                for summary in summaries)
+    else:
+        passed = bool(summaries) and sequence_consistent and bool(observer_summary) and \
+            raw_gate_passed and all(
+            summary["samples"] > 0 and not summary["errors"] and
+            (True
+             if summary.get("role") == "observer" else
+             (summary["ring_up_running"] and summary["ring_down_running"] and
+              (not summary.get("reference_node", False) or
+               summary["simultaneous_feedback"])))
+            for summary in summaries)
     result = {
         "schema": "HAOFV_DPLL_VDC_MONITOR_V2",
         "passed": passed,
         "observer_board": args.observer_name.upper(),
+        "observation_mode": "INTERNAL_TDMA_DPLL_ONLY" if args.internal_only
+        else "EXTERNAL_NO5_WAVEFORM_AND_INTERNAL_STATUS",
         "duration_s": args.duration_s,
         "poll_interval_s": args.poll_interval_s,
         "expected_interval_ms": args.expected_interval_ms,
@@ -1100,6 +1405,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "phase_max_span_ns": args.phase_max_span_ns,
         "phase_min_complete_rounds": args.phase_min_complete_rounds,
         "phase_gate_semantics": "INITIAL_RECORDED_FINAL_STABLE_STREAK_GATED",
+        "tdma_preflight": tdma_preflight,
+        "outputs": {
+            "summary_json": str(out_dir / "summary.json"),
+            "summary_svg": str(out_dir / "summary.svg"),
+            "tdma_preflight_json": str(out_dir / "tdma_preflight.json"),
+            "tdma_preflight_svg": str(out_dir / "tdma_preflight.svg"),
+            "dpll_convergence_svg": str(
+                out_dir / "waveform" / "analysis" / "dpll_convergence.svg"),
+        },
         "commands": [TDMA_STATUS_COMMAND, VDC_STATUS_COMMAND, DPLL_STATUS_COMMAND,
                      READINESS_COMMAND, VDC_VECTOR_COMMAND, DPLL_VECTOR_COMMAND,
                      SMA_INPUT_COMMAND, PHASE_COMMAND, PHASE_SELFTEST_COMMAND,
@@ -1107,10 +1421,47 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                      WAVEFORM_STOP_COMMAND, WAVEFORM_STATUS_COMMAND,
                      WAVEFORM_SAVE_COMMAND],
     }
-    (out_dir / "samples.json").write_text(json.dumps({
+    samples_path = out_dir / "samples.json"
+    samples_path.write_text(json.dumps({
         name: [asdict(sample) for sample in samples]
         for name, samples in samples_by_board.items()
     }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if args.internal_only:
+        try:
+            from tools.dpll_residual_analyze.dpll_residual_analyze import (
+                load_monitor_samples,
+                write_reports,
+            )
+            residual_dir = out_dir / "internal_dpll_residual"
+            residual_series = load_monitor_samples(
+                [samples_path],
+                {spec.name for spec in specs},
+            )
+            if residual_series:
+                result["internal_residual_analysis"] = write_reports(
+                    residual_series,
+                    residual_dir,
+                    input_paths=[samples_path],
+                    rolling_window=5,
+                    lock_threshold_ns=args.internal_lock_threshold_ns,
+                    mad_multiplier=6.0,
+                )
+            else:
+                result["internal_residual_analysis"] = {
+                    "nodes": {},
+                    "svg": {},
+                    "error": "no valid internal DPLL samples",
+                }
+        except (OSError, ValueError, ImportError) as exc:
+            result["internal_residual_analysis"] = {
+                "nodes": {},
+                "svg": {},
+                "error": str(exc),
+            }
+        result["outputs"]["internal_residual_analysis_json"] = str(
+            out_dir / "internal_dpll_residual" / "dpll_residual_analysis.json")
+        result["outputs"]["internal_residual_svg"] = result[
+            "internal_residual_analysis"].get("svg", {})
     with (out_dir / "samples.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow(["ts_utc", "elapsed_s", "board", "trigger_sequence",
@@ -1154,8 +1505,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         _svg(samples_by_board, summaries, duration_s=args.duration_s,
              expected_interval_ms=args.expected_interval_ms,
              sequence_skew_tolerance=args.sequence_skew_tolerance), encoding="utf-8")
-    progress.emit("complete", passed=passed,
-                  summary=str(out_dir / "summary.json"))
+    progress.emit(
+        "complete",
+        passed=passed,
+        summary=str(out_dir / "summary.json"),
+        summary_svg=str(out_dir / "summary.svg"),
+        dpll_convergence_svg=str(
+            out_dir / "waveform" / "analysis" / "dpll_convergence.svg"),
+    )
     return result
 
 
@@ -1174,7 +1531,8 @@ class open_serial_ports:
         for spec in self.specs:
             self.serials[spec.name] = self.stack.enter_context(
                 open_serial_port(spec.port, self.args.baud, self.args.timeout,
-                                 self.args.settle))
+                                 self.args.settle,
+                                 read_timeout_s=self.args.serial_read_timeout_s))
         return self.serials
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
@@ -1186,8 +1544,22 @@ def main() -> int:
     args = parse_args()
     try:
         result = run(args)
-    except (OSError, ValueError) as exc:
+    except (OSError, RuntimeError, ValueError) as exc:
         print(f"FAILED: {exc}", file=sys.stderr)
+        print(json.dumps({
+            "passed": False,
+            "error": str(exc),
+            "outputs": {
+                "summary_json": str(args.out_dir / "summary.json"),
+                "summary_svg": str(args.out_dir / "summary.svg"),
+                "tdma_preflight_json": str(
+                    args.out_dir / "tdma_preflight.json"),
+                "tdma_preflight_svg": str(args.out_dir / "tdma_preflight.svg"),
+                "dpll_convergence_svg": str(
+                    args.out_dir / "waveform" / "analysis" /
+                    "dpll_convergence.svg"),
+            },
+        }, ensure_ascii=False, indent=2))
         return 2
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 1 if args.fail_on_gate and not result["passed"] else 0

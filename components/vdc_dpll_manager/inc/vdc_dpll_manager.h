@@ -16,9 +16,10 @@
 #define VDC_DPLL_MANAGER_SELF_TEST_MAX_PULSES UINT32_MAX
 /* The DPLL capture is a maintenance/evidence buffer, not a realtime queue. */
 #define VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES 400u
-/* Schema v3 removes segment-common and reconstructable fields.  Two bounded
- * 640-record buffers retain asynchronous SD hand-off while reducing the
- * maintenance-only SRAM footprint; realtime TDMA/RefMem objects are untouched. */
+/* Schema v3 removes segment-common and reconstructable fields.  A bounded
+ * three-buffer queue absorbs asynchronous SD hand-off latency; realtime
+ * TDMA/RefMem objects are untouched and queue exhaustion remains observable
+ * through dropped_count. */
 #define VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS 640u
 
 typedef enum {

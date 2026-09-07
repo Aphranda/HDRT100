@@ -97,8 +97,11 @@ typedef enum {
     VDC_DOMAIN_GATE_BAD_FRAME = 12u,
     VDC_DOMAIN_GATE_BAD_WINDOW_CLASS = 13u,
     VDC_DOMAIN_GATE_PAYLOAD_WINDOW_FORBIDDEN = 14u,
-    VDC_DOMAIN_GATE_SERVO_OUTLIER = 15u,
 } vdc_domain_gate_code_t;
+
+#define VDC_DOMAIN_QUALITY_FLAG_PHASE_OUT_OF_LOCK (1u << 0u)
+#define VDC_DOMAIN_QUALITY_FLAG_RATE_LIMITED      (1u << 1u)
+#define VDC_DOMAIN_QUALITY_FLAG_PHASE_LARGE       (1u << 2u)
 
 typedef struct {
     uint32_t enabled;
@@ -147,7 +150,7 @@ typedef struct {
     uint32_t coarse_lock_threshold_ns;
     uint32_t lock_acceptance_threshold_ns;
     uint32_t lock_sample_count;
-    uint32_t outlier_threshold_ns;
+    uint32_t phase_diagnostic_threshold_ns;
     uint32_t reset_policy;
     uint32_t servo_profile_crc32;
 } vdc_servo_profile_t;

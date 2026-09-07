@@ -493,6 +493,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--expected-build")
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--skip-capture", action="store_true",
+                        help="do not persist/download SD raw waveform on clean runs")
     parser.add_argument("--short-open", action="store_true",
                         help="open/close CDC for every command (diagnostic fallback)")
     return parser.parse_args()
@@ -762,21 +764,33 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
             time.monotonic() - stage_started, 6)
         validation = validate_link(completed[0], completed[1])
         stage_started = time.monotonic()
-        capture_file = save_sck_capture(destination, args)
-        stage_elapsed_s["capture_save_and_storage"] = round(
-            time.monotonic() - stage_started, 6)
-        stage_started = time.monotonic()
-        capture_download = download_sck_capture(
-            destination, capture_file, args)
-        stage_elapsed_s["capture_download_and_analysis"] = round(
-            time.monotonic() - stage_started, 6)
+        if args.skip_capture and validation.get("passed"):
+            capture_file = {"skipped": True, "reason": "clean_quick_run"}
+            capture_download = None
+        else:
+            capture_file = save_sck_capture(destination, args)
+            stage_elapsed_s["capture_save_and_storage"] = round(
+                time.monotonic() - stage_started, 6)
+            stage_started = time.monotonic()
+            capture_download = download_sck_capture(
+                destination, capture_file, args)
+            stage_elapsed_s["capture_download_and_analysis"] = round(
+                time.monotonic() - stage_started, 6)
     finally:
         stage_started = time.monotonic()
         for board in active:
             board_command(board, "CALibration:SCK:STOP", args)
         stage_elapsed_s["stop"] = round(time.monotonic() - stage_started, 6)
-    waveform = capture_download["waveform"]
-    assert isinstance(waveform, dict)
+    waveform = (capture_download["waveform"]
+                if isinstance(capture_download, dict) else {})
+    if not waveform:
+        waveform = {
+            "recommended_sck_offset_sample_count": int(
+                validation.get("resolved_offset_sample_count", 0)),
+            "recommended_sck_offset_ns": int(
+                validation.get("resolved_offset_sample_count", 0)) *
+                int(args.sample_period_ns),
+        }
     return {**plan, **validation,
             "svg_recommended_sck_offset_sample_count": int(
                 waveform["recommended_sck_offset_sample_count"]),
@@ -786,6 +800,7 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
             "armed": armed, "injection": injection, "completed": completed,
             "capture_file": capture_file,
             "capture_download": capture_download,
+            "capture_skipped": bool(args.skip_capture and validation.get("passed")),
             "timing": {
                 "total_link_trial_s": round(
                     time.monotonic() - trial_started, 6),

@@ -32,7 +32,8 @@
 #define VDC_DPLL_MANAGER_DPLL_CAPTURE_SCHEMA 1u
 #define VDC_DPLL_MANAGER_WAVEFORM_MAGIC 0x57524D53u /* SMRW */
 #define VDC_DPLL_MANAGER_WAVEFORM_SCHEMA 3u
-#define VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT 2u
+#define VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT 3u
+#define VDC_DPLL_MANAGER_PHASE_ARM_AHEAD_PERIODS 2u
 
 typedef struct __attribute__((packed)) {
     uint32_t magic;
@@ -146,11 +147,18 @@ static uint64_t s_waveform_buffer_first_matched_window_start_ns
     [VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT];
 static uint32_t s_waveform_buffer_timestamp_flags
     [VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT];
+static uint32_t s_waveform_ready_queue[VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT];
+static uint32_t s_waveform_ready_first_record
+    [VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT];
+static uint32_t s_waveform_ready_head;
+static uint32_t s_waveform_ready_tail;
+static uint32_t s_waveform_ready_count;
 static uint32_t s_waveform_active_buffer;
 static uint32_t s_waveform_pending_buffer;
 static uint32_t s_waveform_pending_first_record;
 static bool s_waveform_pending_valid;
 static bool s_waveform_job_inflight;
+static uint32_t s_waveform_inflight_buffer;
 static uint32_t s_waveform_inflight_record_count;
 static vdc_dpll_manager_waveform_capture_status_t s_waveform_status;
 static uint32_t s_waveform_observed_mask;
@@ -163,6 +171,12 @@ static uint32_t s_phase_stable_span_min_ns;
 static uint32_t s_phase_stable_span_max_ns;
 static uint64_t s_phase_tx_not_before_ns;
 static uint32_t s_phase_tx_scheduled_count;
+
+static bool vdc_dpll_manager_waveform_queue_push(uint32_t buffer,
+                                                  uint32_t first_record);
+static bool vdc_dpll_manager_waveform_queue_pop(uint32_t *buffer,
+                                                 uint32_t *first_record);
+static uint32_t vdc_dpll_manager_waveform_find_free_buffer(void);
 
 typedef struct {
     vdc_tdma_schedule_profile_t schedule;
@@ -530,10 +544,9 @@ static bool vdc_dpll_manager_configure_sync_io_observer_tdma_mask(
     bool periodic,
     uint32_t start_delay_ns);
 static uint64_t vdc_dpll_manager_now_ns(void);
-static bool vdc_dpll_manager_compute_dco_phase_pulse_delay(
+static bool vdc_dpll_manager_compute_dco_phase_pulse_deadline(
     uint64_t not_before_ns,
     uint32_t pulse_period_ns,
-    uint32_t *delay_ns,
     uint64_t *target_local_ns);
 
 static void vdc_dpll_manager_observation_self_test_service(void)
@@ -562,26 +575,39 @@ static void vdc_dpll_manager_observation_self_test_service(void)
             return;
         }
 
-        uint32_t delay_ns = 0u;
         uint64_t target_ns = 0u;
         const uint64_t not_before_ns = s_phase_tx_scheduled_count == 0u
             ? s_phase_tx_not_before_ns : now_ns;
-        if (!vdc_dpll_manager_compute_dco_phase_pulse_delay(
-                not_before_ns, status.pulse_period_ns,
-                &delay_ns, &target_ns) ||
-            !sync_io_sma_observer_pulse_schedule_arm_periodic_ns(
-                status.output_index, delay_ns, status.pulse_period_ns,
+        bool dco_schedule_valid =
+            vdc_dpll_manager_compute_dco_phase_pulse_deadline(
+                not_before_ns, status.pulse_period_ns, &target_ns);
+        if (!dco_schedule_valid) {
+            /* Phase-only observation is a diagnostic persona.  A stale DCO
+             * anchor (for example after a long-running node reboot) must be
+             * recorded, but must not reject the debug waveform outright.
+             * Fall back to a local monotonic deadline; formal DPLL evidence
+             * remains gated by the observer and calibration contracts. */
+            const uint64_t fallback_now = vdc_dpll_manager_now_ns();
+            target_ns = not_before_ns > fallback_now + 1000u
+                ? not_before_ns : fallback_now + 1000u;
+            if (target_ns <= fallback_now ||
+                target_ns - fallback_now > UINT32_MAX) {
+                return;
+            }
+            status.last_error = 5u;
+        }
+        if (!sync_io_sma_observer_pulse_schedule_arm_periodic_at_ns(
+                status.output_index, target_ns, status.pulse_period_ns,
                 status.pulse_high_ns, 1u, true, 100u)) {
-            /* A failed first periodic arm may have acquired the shared
-             * scheduled-trigger persona before reporting an error.  Release
-             * it explicitly; otherwise this node remains resource-busy and
-             * every later phase observation attempt is rejected. */
+            /* Debug mode records a recoverable arm rejection and retries on
+             * the next service turn.  Do not deactivate the self-test: the
+             * caller requested observation, not a product lock decision. */
             sync_io_model_pulse_schedule_disarm();
             osal_critical_enter();
             if (s_observation_self_test.active &&
                 s_observation_self_test.started_ms == status.started_ms) {
-                s_observation_self_test.active = false;
-                s_observation_self_test.last_error = 4u;
+                s_observation_self_test.active = true;
+                s_observation_self_test.last_error = 6u;
             }
             osal_critical_exit();
             return;
@@ -797,18 +823,20 @@ static bool vdc_dpll_manager_dco_time_at_local_ns(
     return true;
 }
 
-static bool vdc_dpll_manager_compute_dco_phase_pulse_delay(
+static bool vdc_dpll_manager_compute_dco_phase_pulse_deadline(
     uint64_t not_before_ns,
     uint32_t pulse_period_ns,
-    uint32_t *delay_ns,
     uint64_t *target_local_ns)
 {
     vdc_dpll_manager_runtime_snapshot_t snapshot;
     const uint64_t now_ns = vdc_dpll_manager_now_ns();
-    const uint64_t minimum_local_ns = not_before_ns > now_ns + 1000u
-        ? not_before_ns : now_ns + 1000u;
+    const uint64_t arm_ahead_ns =
+        (uint64_t)pulse_period_ns *
+        VDC_DPLL_MANAGER_PHASE_ARM_AHEAD_PERIODS;
+    const uint64_t minimum_local_ns = not_before_ns > now_ns + arm_ahead_ns
+        ? not_before_ns : now_ns + arm_ahead_ns;
     uint64_t phase_time_ns = 0u;
-    if (delay_ns == NULL || target_local_ns == NULL || pulse_period_ns == 0u ||
+    if (target_local_ns == NULL || pulse_period_ns == 0u ||
         !vdc_dpll_manager_get_runtime_snapshot(&snapshot) ||
         !vdc_dpll_manager_dco_time_at_local_ns(
             &snapshot.dco, minimum_local_ns, &phase_time_ns)) {
@@ -837,7 +865,6 @@ static bool vdc_dpll_manager_compute_dco_phase_pulse_delay(
     if (local_ns <= now_ns || local_ns - now_ns > UINT32_MAX) {
         return false;
     }
-    *delay_ns = (uint32_t)(local_ns - now_ns);
     *target_local_ns = local_ns;
     return true;
 }
@@ -1179,19 +1206,36 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
         }
         vdc_dpll_manager_phase_observe_word(&status, &config, &words[i]);
 
-        if (s_waveform_status.armed) {
+        bool waveform_rising_word = false;
+        uint32_t waveform_previous =
+            words[i].previous_sample_mask & config.observed_mask;
+        for (uint32_t sample_index = 0u;
+             sample_index < VDC_SYNC_IO_CAPTURE_SAMPLES_PER_WORD;
+             ++sample_index) {
+            const uint32_t waveform_current =
+                vdc_dpll_manager_phase_sample_at(
+                    words[i].raw_word, sample_index, config.sample0_lsb) &
+                config.observed_mask;
+            if ((waveform_current & ~waveform_previous) != 0u) {
+                waveform_rising_word = true;
+            }
+            waveform_previous = waveform_current;
+        }
+        if (s_waveform_status.armed && waveform_rising_word) {
             uint32_t active_count =
                 s_waveform_buffer_count[s_waveform_active_buffer];
-            if (active_count >=
-                    VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS &&
-                !s_waveform_pending_valid) {
-                s_waveform_pending_buffer = s_waveform_active_buffer;
-                s_waveform_pending_first_record =
+            if (active_count >= VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS) {
+                const uint32_t first_record =
                     s_waveform_status.record_count - active_count;
-                s_waveform_pending_valid = true;
-                s_waveform_active_buffer ^= 1u;
-                s_waveform_buffer_count[s_waveform_active_buffer] = 0u;
-                active_count = 0u;
+                const uint32_t free_buffer =
+                    vdc_dpll_manager_waveform_find_free_buffer();
+                if (free_buffer < VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT &&
+                    vdc_dpll_manager_waveform_queue_push(
+                        s_waveform_active_buffer, first_record)) {
+                    s_waveform_active_buffer = free_buffer;
+                    s_waveform_buffer_count[s_waveform_active_buffer] = 0u;
+                    active_count = 0u;
+                }
             }
             if (active_count <
                     VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS) {
@@ -1394,7 +1438,14 @@ bool vdc_dpll_manager_init(void)
     s_waveform_pending_first_record = 0u;
     s_waveform_pending_valid = false;
     s_waveform_job_inflight = false;
+    s_waveform_inflight_buffer = 0u;
     s_waveform_inflight_record_count = 0u;
+    memset(s_waveform_ready_queue, 0, sizeof(s_waveform_ready_queue));
+    memset(s_waveform_ready_first_record, 0,
+           sizeof(s_waveform_ready_first_record));
+    s_waveform_ready_head = 0u;
+    s_waveform_ready_tail = 0u;
+    s_waveform_ready_count = 0u;
     memset(&s_waveform_status, 0, sizeof(s_waveform_status));
     s_waveform_observed_mask = 0u;
     s_phase_group_start_ns = 0u;
@@ -2032,27 +2083,48 @@ static void vdc_dpll_manager_waveform_capture_service(void)
         }
     }
 
-    if (!s_waveform_pending_valid &&
-        s_waveform_buffer_count[s_waveform_active_buffer] >=
-            VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS) {
-        s_waveform_pending_buffer = s_waveform_active_buffer;
-        s_waveform_pending_first_record =
+    if (s_waveform_buffer_count[s_waveform_active_buffer] >=
+        VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS) {
+        const uint32_t first_record =
             s_waveform_status.record_count -
             s_waveform_buffer_count[s_waveform_active_buffer];
-        s_waveform_pending_valid = true;
-        s_waveform_active_buffer ^= 1u;
-        s_waveform_buffer_count[s_waveform_active_buffer] = 0u;
+        const uint32_t free_buffer =
+            vdc_dpll_manager_waveform_find_free_buffer();
+        if (free_buffer < VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT &&
+            vdc_dpll_manager_waveform_queue_push(
+                s_waveform_active_buffer, first_record)) {
+            s_waveform_active_buffer = free_buffer;
+            s_waveform_buffer_count[s_waveform_active_buffer] = 0u;
+        } else if (s_waveform_status.stopping) {
+            s_waveform_status.dropped_count +=
+                s_waveform_buffer_count[s_waveform_active_buffer];
+            s_waveform_buffer_count[s_waveform_active_buffer] = 0u;
+        }
     }
 
-    if (s_waveform_status.stopping && !s_waveform_pending_valid &&
+    if (s_waveform_status.stopping &&
         s_waveform_buffer_count[s_waveform_active_buffer] != 0u) {
-        s_waveform_pending_buffer = s_waveform_active_buffer;
-        s_waveform_pending_first_record =
+        const uint32_t first_record =
             s_waveform_status.record_count -
             s_waveform_buffer_count[s_waveform_active_buffer];
-        s_waveform_pending_valid = true;
-        s_waveform_active_buffer ^= 1u;
-        s_waveform_buffer_count[s_waveform_active_buffer] = 0u;
+        const uint32_t free_buffer =
+            vdc_dpll_manager_waveform_find_free_buffer();
+        if (free_buffer < VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT &&
+            vdc_dpll_manager_waveform_queue_push(
+                s_waveform_active_buffer, first_record)) {
+            s_waveform_active_buffer = free_buffer;
+            s_waveform_buffer_count[s_waveform_active_buffer] = 0u;
+        } else {
+            s_waveform_status.dropped_count +=
+                s_waveform_buffer_count[s_waveform_active_buffer];
+            s_waveform_buffer_count[s_waveform_active_buffer] = 0u;
+        }
+    }
+
+    if (!s_waveform_pending_valid) {
+        s_waveform_pending_valid =
+            vdc_dpll_manager_waveform_queue_pop(
+                &s_waveform_pending_buffer, &s_waveform_pending_first_record);
     }
 
     if (s_waveform_pending_valid && !s_waveform_job_inflight) {
@@ -2119,6 +2191,7 @@ static void vdc_dpll_manager_waveform_capture_service(void)
             (void)snprintf(s_waveform_status.last_path,
                            sizeof(s_waveform_status.last_path), "%s", path);
             s_waveform_job_inflight = true;
+            s_waveform_inflight_buffer = s_waveform_pending_buffer;
             s_waveform_inflight_record_count = record_count;
             s_waveform_buffer_count[s_waveform_pending_buffer] = 0u;
             s_waveform_pending_valid = false;
@@ -2131,6 +2204,7 @@ static void vdc_dpll_manager_waveform_capture_service(void)
 
     if (s_waveform_status.stopping && !s_waveform_job_inflight &&
         !s_waveform_pending_valid &&
+        s_waveform_ready_count == 0u &&
         s_waveform_buffer_count[s_waveform_active_buffer] == 0u) {
         s_waveform_status.stopping = false;
         s_waveform_status.complete = true;
@@ -2524,7 +2598,8 @@ bool vdc_dpll_manager_dpll_capture_save(uint32_t *job_id,
 bool vdc_dpll_manager_waveform_capture_arm(void)
 {
     if (s_waveform_status.armed || s_waveform_status.stopping ||
-        s_waveform_job_inflight || s_waveform_pending_valid) {
+        s_waveform_job_inflight || s_waveform_pending_valid ||
+        s_waveform_ready_count != 0u) {
         return false;
     }
 
@@ -2549,7 +2624,14 @@ bool vdc_dpll_manager_waveform_capture_arm(void)
     s_waveform_pending_first_record = 0u;
     s_waveform_pending_valid = false;
     s_waveform_job_inflight = false;
+    s_waveform_inflight_buffer = 0u;
     s_waveform_inflight_record_count = 0u;
+    memset(s_waveform_ready_queue, 0, sizeof(s_waveform_ready_queue));
+    memset(s_waveform_ready_first_record, 0,
+           sizeof(s_waveform_ready_first_record));
+    s_waveform_ready_head = 0u;
+    s_waveform_ready_tail = 0u;
+    s_waveform_ready_count = 0u;
     s_waveform_observed_mask = 0u;
     s_waveform_status.session_id = board_uptime_ms();
     if (s_waveform_status.session_id == 0u) {
@@ -2595,6 +2677,17 @@ void vdc_dpll_manager_get_waveform_capture_status(
         (s_waveform_pending_valid
              ? s_waveform_buffer_count[s_waveform_pending_buffer] : 0u) +
         s_waveform_inflight_record_count;
+    for (uint32_t queue_index = 0u;
+         queue_index < s_waveform_ready_count;
+         ++queue_index) {
+        const uint32_t slot =
+            (s_waveform_ready_head + queue_index) %
+            VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT;
+        const uint32_t buffer = s_waveform_ready_queue[slot];
+        if (buffer < VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT) {
+            status->pending_record_count += s_waveform_buffer_count[buffer];
+        }
+    }
     osal_critical_exit();
 }
 
@@ -2636,6 +2729,69 @@ void vdc_dpll_manager_sync_io_capture_service_core1(void)
     if (!vdc_dpll_manager_phase_capture_owned_by_core0()) {
         sync_io_capture_latch_service_core1();
     }
+}
+
+static bool vdc_dpll_manager_waveform_queue_push(uint32_t buffer,
+                                                  uint32_t first_record)
+{
+    if (buffer >= VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT ||
+        s_waveform_ready_count >= VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT - 1u) {
+        return false;
+    }
+    s_waveform_ready_queue[s_waveform_ready_tail] = buffer;
+    s_waveform_ready_first_record[s_waveform_ready_tail] = first_record;
+    s_waveform_ready_tail =
+        (s_waveform_ready_tail + 1u) % VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT;
+    s_waveform_ready_count++;
+    return true;
+}
+
+static bool vdc_dpll_manager_waveform_queue_pop(uint32_t *buffer,
+                                                 uint32_t *first_record)
+{
+    if (buffer == NULL || first_record == NULL ||
+        s_waveform_ready_count == 0u) {
+        return false;
+    }
+    *buffer = s_waveform_ready_queue[s_waveform_ready_head];
+    *first_record = s_waveform_ready_first_record[s_waveform_ready_head];
+    s_waveform_ready_head =
+        (s_waveform_ready_head + 1u) % VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT;
+    s_waveform_ready_count--;
+    return true;
+}
+
+static uint32_t vdc_dpll_manager_waveform_find_free_buffer(void)
+{
+    for (uint32_t offset = 1u;
+         offset < VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT;
+         ++offset) {
+        const uint32_t candidate =
+            (s_waveform_active_buffer + offset) %
+            VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT;
+        if (s_waveform_job_inflight &&
+            candidate == s_waveform_inflight_buffer) {
+            continue;
+        }
+        if (s_waveform_pending_valid &&
+            candidate == s_waveform_pending_buffer) {
+            continue;
+        }
+        bool queued = false;
+        for (uint32_t index = 0u; index < s_waveform_ready_count; ++index) {
+            const uint32_t slot =
+                (s_waveform_ready_head + index) %
+                VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT;
+            if (s_waveform_ready_queue[slot] == candidate) {
+                queued = true;
+                break;
+            }
+        }
+        if (!queued) {
+            return candidate;
+        }
+    }
+    return VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT;
 }
 
 void vdc_dpll_manager_core0_service(void)

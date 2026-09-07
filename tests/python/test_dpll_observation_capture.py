@@ -10,6 +10,8 @@ from tools.dpll_observation_capture.dpll_observation_capture import (
     parse_save,
     parse_board,
 )
+from tools.dpll_residual_analyze.dpll_residual_analyze import render_combined_svg
+from tools.dpll_residual_analyze.dpll_residual_analyze import ResidualPoint
 from tools.scpi_common.scpi_serial import scpi_response_matches_command
 
 
@@ -57,3 +59,14 @@ def test_capture_tool_is_explicitly_off_realtime_path() -> None:
     ).read_text(encoding="utf-8")
     assert "realtime_path_untouched" in source
     assert "StorageAO" in source
+
+
+def test_combined_convergence_svg_keys_nodes_and_marks_missing() -> None:
+    point = ResidualPoint("NO1", 0.0, 10, 0, 0, 0, 5, 0, 0, 0, 1)
+    svg = render_combined_svg(
+        {"NO1": [point]},
+        {"NO1": {"sample_count": 1, "analysis_confidence": "low_sample_count"}},
+        lock_threshold_ns=1000)
+    assert "NO1–NO4 DPLL convergence" in svg
+    assert "NO1 samples=1" in svg
+    assert "MISSING DATA: NO2, NO3, NO4" in svg

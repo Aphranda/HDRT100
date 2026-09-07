@@ -330,6 +330,62 @@ def render_svg(board: str, points: list[ResidualPoint], analysis: dict[str, Any]
     return "\n".join(chunks) + "\n"
 
 
+def render_combined_svg(series: dict[str, list[ResidualPoint]],
+                        analyses: dict[str, dict[str, Any]], *,
+                        lock_threshold_ns: int) -> str:
+    """Render one explicitly keyed NO1..NO4 phase-residual convergence plot."""
+    colors = {"NO1": "#2563eb", "NO2": "#dc2626",
+              "NO3": "#059669", "NO4": "#7c3aed"}
+    width, height = 1600, 760
+    left, right, top, bottom = 110.0, 1510.0, 100.0, 570.0
+    boards = [name for name in ("NO1", "NO2", "NO3", "NO4") if name in series]
+    all_points = [point for name in boards for point in series[name]]
+    max_x = max((point.elapsed_s for point in all_points), default=1.0) or 1.0
+    extent = max(float(lock_threshold_ns) * 1.2,
+                 max((abs(point.phase_residual_ns) for point in all_points),
+                     default=1) * 1.1, 1.0)
+    def x(value: float) -> float:
+        return left + (right - left) * value / max_x
+    def y(value: float) -> float:
+        return bottom - (bottom - top) * (value + extent) / (2.0 * extent)
+    chunks = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+        '<style>text{font-family:ui-monospace,Consolas,monospace;fill:#172033}.title{font-size:22px;font-weight:700}.small{font-size:13px}.grid{stroke:#d7dce5}.zero{stroke:#667085}.line{fill:none;stroke-width:2}.missing{fill:#b42318;font-weight:700}</style>',
+        '<rect width="100%" height="100%" fill="#fff"/>',
+        '<text x="30" y="38" class="title">NO1–NO4 DPLL convergence from SD residual captures</text>',
+        '<text x="30" y="64" class="small">source=per-node DPLL:TRACE SD records; gaps are shown as missing, never interpolated</text>',
+        f'<rect x="{left}" y="{top}" width="{right-left}" height="{bottom-top}" fill="#fbfcfe" stroke="#c8ced8"/>',
+    ]
+    for value in (-extent, -lock_threshold_ns, 0, lock_threshold_ns, extent):
+        yy = y(value)
+        chunks.append(f'<line x1="{left}" y1="{yy:.1f}" x2="{right}" y2="{yy:.1f}" class="{"zero" if value == 0 else "grid"}"/>')
+        chunks.append(f'<text x="{left-12:.1f}" y="{yy+4:.1f}" text-anchor="end" class="small">{value:.0f}</text>')
+    for name in boards:
+        points = series[name]
+        polyline = " ".join(f"{x(point.elapsed_s):.1f},{y(point.phase_residual_ns):.1f}" for point in points)
+        chunks.append(f'<polyline points="{polyline}" class="line" stroke="{colors[name]}"/>')
+    legend_x = left
+    for name in ("NO1", "NO2", "NO3", "NO4"):
+        analysis = analyses.get(name)
+        count = int(analysis.get("sample_count", 0)) if analysis else 0
+        confidence = str(analysis.get("analysis_confidence", "missing")) if analysis else "missing"
+        color = colors[name]
+        chunks.extend([
+            f'<line x1="{legend_x:.1f}" y1="630" x2="{legend_x+34:.1f}" y2="630" stroke="{color}" stroke-width="3"/>',
+            f'<text x="{legend_x+42:.1f}" y="635" class="small">{name} samples={count} confidence={escape(confidence)}</text>',
+        ])
+        legend_x += 340
+    missing = [name for name in ("NO1", "NO2", "NO3", "NO4") if name not in series]
+    if missing:
+        chunks.append(f'<text x="{left}" y="690" class="small missing">MISSING DATA: {escape(", ".join(missing))}</text>')
+    chunks.extend([
+        f'<text x="{left}" y="{height-28}" class="small">elapsed time (s)</text>',
+        f'<text x="30" y="{(top+bottom)/2:.1f}" class="small" transform="rotate(-90 30 {(top+bottom)/2:.1f})" text-anchor="middle">phase residual (ns)</text>',
+        '</svg>',
+    ])
+    return "\n".join(chunks) + "\n"
+
+
 def write_reports(series: dict[str, list[ResidualPoint]], out_dir: Path, *,
                   input_paths: list[Path], rolling_window: int,
                   lock_threshold_ns: int,
@@ -378,11 +434,16 @@ def write_reports(series: dict[str, list[ResidualPoint]], out_dir: Path, *,
         "mad_multiplier": mad_multiplier,
         "nodes": analyses,
         "svg": svg_paths,
+        "combined_svg": str(out_dir / "no1_no4_dpll_convergence.svg"),
         "full_rate_warning": (
             "SCPI snapshots can decimate multiple DPLL updates; use the "
             "reported confidence and updates-per-snapshot before transfer-"
             "function fitting."),
     }
+    (out_dir / "no1_no4_dpll_convergence.svg").write_text(
+        render_combined_svg(series, analyses,
+                            lock_threshold_ns=lock_threshold_ns),
+        encoding="utf-8")
     (out_dir / "dpll_residual_analysis.json").write_text(
         json.dumps(result, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8")

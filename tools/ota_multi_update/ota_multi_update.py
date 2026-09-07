@@ -69,16 +69,21 @@ class StepResult:
 @dataclass
 class BoardUpdateResult:
     board: BoardProbe
-    send: StepResult | None
-    commit: StepResult | None
+    send: StepResult | None = None
+    commit: StepResult | None = None
+    reboot: StepResult | None = None
     forced_continue: bool = False
 
     @property
     def passed(self) -> bool:
+        reboot_passed = self.reboot is None or self.reboot.passed
         send_passed = self.send is None or self.send.passed
         if self.forced_continue:
             send_passed = self.commit is not None and self.commit.passed
-        return send_passed and (self.commit is None or self.commit.passed)
+        return (
+            reboot_passed and send_passed and
+            (self.commit is None or self.commit.passed)
+        )
 
 
 def parse_args() -> argparse.Namespace:
@@ -122,6 +127,18 @@ def parse_args() -> argparse.Namespace:
         help=("debug only: retain a failed legacy sender result, verify the "
               "post-reset build/state, and continue when that bounded check passes"),
     )
+    parser.add_argument(
+        "--skip-pre-reboot", action="store_true",
+        help="skip the default picotool application reboot before OTA",
+    )
+    parser.add_argument(
+        "--picotool", type=Path,
+        help="optional picotool executable passed to the pre-OTA reboot helper",
+    )
+    parser.add_argument(
+        "--reboot-retries", type=int, default=2,
+        help="picotool application reboot attempts per board",
+    )
     parser.add_argument("--verbose", action="store_true", help="print child tool stdout/stderr for each board")
     parser.add_argument("--out-dir", type=Path, help="output directory for summary and per-board logs")
     return parser.parse_args()
@@ -139,6 +156,8 @@ def validate_cli_args(args: argparse.Namespace) -> None:
     if args.max_workers < 0 or args.max_workers > MAX_BOARD_COUNT:
         raise ValueError(
             f"max-workers must be in range 0..{MAX_BOARD_COUNT}")
+    if getattr(args, "reboot_retries", 2) < 1:
+        raise ValueError("reboot-retries must be positive")
     if (args.expected_board_count is not None and
             (args.expected_board_count < 1 or
              args.expected_board_count > MAX_BOARD_COUNT)):
@@ -357,6 +376,49 @@ def run_child(port: str, step: str, command_line: list[str], out_dir: Path) -> S
     )
 
 
+def pre_reboot_board(args: argparse.Namespace, board: BoardProbe,
+                     out_dir: Path) -> StepResult:
+    """Reset one running application and wait for its USB application device."""
+    if not board.serial_number:
+        return StepResult(
+            port=board.port,
+            step="picotool_reboot",
+            passed=False,
+            returncode=2,
+            command=[],
+            stdout="",
+            stderr="missing board serial number\n",
+            elapsed_s=0.0,
+        )
+    reboot_cmd = [
+        sys.executable,
+        str(ROOT / "tools" / "picotool_reboot" / "picotool_reboot.py"),
+        "--serial-number", board.serial_number,
+        "--settle", str(args.settle),
+        "--reopen-timeout", str(args.reopen_timeout),
+        "--retries", str(args.reboot_retries),
+        "--out", str(out_dir / board.port / "picotool_reboot.txt"),
+    ]
+    if args.picotool is not None:
+        reboot_cmd.extend(["--picotool", str(args.picotool)])
+    return run_child(board.port, "picotool_reboot", reboot_cmd, out_dir)
+
+
+def pre_reboot_boards(args: argparse.Namespace, boards: list[BoardProbe],
+                      out_dir: Path) -> dict[str, StepResult]:
+    """Reset application devices serially before parallel OTA transfer.
+
+    Picotool enumerates all RP-series USB devices for each selected serial.
+    Concurrent processes race that shared enumeration on a multi-board hub and
+    can report unrelated boards as inaccessible.  The reboot boundary is short
+    and must complete before any sender starts, so serialize only this phase.
+    """
+    results: dict[str, StepResult] = {}
+    for board in boards:
+        results[board.serial_number] = pre_reboot_board(args, board, out_dir)
+    return results
+
+
 def console_safe_text(value: str, stream: object = sys.stdout) -> str:
     """Replace characters unsupported by the active Windows console codec."""
     encoding = getattr(stream, "encoding", None) or "utf-8"
@@ -506,7 +568,10 @@ def write_summary(out_dir: Path,
                 "board": asdict(result.board),
                 "passed": result.passed,
                 "forced_continue": result.forced_continue,
-                "send": asdict(result.send) if result.send is not None else None,
+                "reboot": (asdict(result.reboot)
+                            if result.reboot is not None else None),
+                "send": (asdict(result.send)
+                          if result.send is not None else None),
                 "commit": asdict(result.commit) if result.commit is not None else None,
             }
             for result in results
@@ -602,6 +667,59 @@ def main() -> int:
         return 0
 
     results: list[BoardUpdateResult] = []
+    reboot_results: dict[str, StepResult] = {}
+    if not args.skip_pre_reboot:
+        console_print("pre_reboot=picotool")
+        reboot_results = pre_reboot_boards(args, boards, out_dir)
+        for board in boards:
+            reboot = reboot_results[board.serial_number]
+            status = "PASS" if reboot.passed else "FAIL"
+            console_print(
+                f"{status} {board.port} serial={board.serial_number} "
+                "picotool_reboot")
+        if not all(result.passed for result in reboot_results.values()):
+            results = [
+                BoardUpdateResult(board=board, reboot=reboot_results.get(board.serial_number))
+                for board in boards
+            ]
+            elapsed = time.monotonic() - started
+            write_summary(out_dir, boards, results, image=image,
+                          expected_build=expected_build, dry_run=False,
+                          elapsed_s=elapsed, timing=discovery_timing,
+                          transport=transport)
+            console_print(f"summary={out_dir}")
+            return 1
+        # picotool reboots can briefly replace the CDC handles.  Re-probe by
+        # serial number so the OTA phase uses the current COM assignment.
+        time.sleep(max(args.settle, 0.1))
+        # Do not constrain the post-reset probe to the pre-reset COM list:
+        # Windows may assign a different port after a USB device restart.
+        refresh_args = argparse.Namespace(**vars(args))
+        refresh_args.ports = None
+        refreshed = discover_boards(refresh_args)
+        refreshed_by_serial = {board.serial_number: board for board in refreshed}
+        missing_after_reboot = [
+            board.serial_number for board in boards
+            if board.serial_number not in refreshed_by_serial
+        ]
+        if missing_after_reboot:
+            console_print(
+                "boards_missing_after_pre_reboot=" + ",".join(missing_after_reboot),
+                file=sys.stderr,
+            )
+            results = [
+                BoardUpdateResult(board=board, reboot=reboot_results.get(board.serial_number))
+                for board in boards
+            ]
+            elapsed = time.monotonic() - started
+            write_summary(out_dir, boards, results, image=image,
+                          expected_build=expected_build, dry_run=False,
+                          elapsed_s=elapsed, timing=discovery_timing,
+                          transport=transport)
+            console_print(f"summary={out_dir}")
+            return 1
+        boards = [refreshed_by_serial[board.serial_number] for board in boards]
+
     with ThreadPoolExecutor(max_workers=workers) as executor:
         future_map = {
             executor.submit(update_board, args, board, image, expected_build, out_dir): board
@@ -609,6 +727,7 @@ def main() -> int:
         }
         for future in as_completed(future_map):
             result = future.result()
+            result.reboot = reboot_results.get(result.board.serial_number)
             results.append(result)
             status = "PASS" if result.passed else "FAIL"
             console_print(f"{status} {result.board.port} serial={result.board.serial_number}")

@@ -158,7 +158,7 @@ def run_core(trace: dict[str, Any], executable: Path,
         str(trace["reference_node"]), str(trace["period_ns"]),
         str(servo["lock_threshold_ns"]), str(servo["lock_samples"]),
         str(servo["kp_q16"]), str(servo["ki_q16"]),
-        str(servo["outlier_threshold_ns"]),
+        str(servo["phase_diagnostic_threshold_ns"]),
     ]
     input_rows = "".join(
         f"{row['sample_seq']},{row['phase_error_ns']},{row['jitter_ns']},"
@@ -278,7 +278,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--scan-kp-q16",
         help="comma-separated Q16 Kp values; all use the same trace and Ki")
-    parser.add_argument("--outlier-threshold-ns", type=int, default=10000)
+    parser.add_argument("--phase-diagnostic-threshold-ns", type=int, default=10000)
     return parser.parse_args()
 
 
@@ -293,10 +293,10 @@ def main() -> int:
         "lock_samples": args.lock_samples,
         "kp_q16": args.kp_q16,
         "ki_q16": args.ki_q16,
-        "outlier_threshold_ns": args.outlier_threshold_ns,
+        "phase_diagnostic_threshold_ns": args.phase_diagnostic_threshold_ns,
     }
     if servo["lock_threshold_ns"] <= 0 or servo["lock_samples"] < 4 or \
-            servo["outlier_threshold_ns"] <= 0:
+            servo["phase_diagnostic_threshold_ns"] <= 0:
         raise ValueError("servo thresholds must be positive and lock_samples >= 4")
     executable = build_runner(args.build_dir.resolve())
     out_dir = (args.out_dir or ROOT / "out/training" /

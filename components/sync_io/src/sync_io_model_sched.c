@@ -36,6 +36,8 @@ typedef struct {
     uint64_t start_us;
     uint64_t total_duration_ns64;
     uint64_t completed_elapsed_ns;
+    uint64_t first_deadline_ns;
+    uint32_t periodic_period_ns;
     PIO pio;
     /* The maintenance schedule shares the capture DMA workspace.  Keep only
      * a pointer in the persona state so the 32 KiB workspace is not duplicated
@@ -54,6 +56,13 @@ static bool s_wave_output_program_loaded;
 
 static float sync_io_model_clkdiv_for_tick_rate(uint32_t tick_hz);
 static uint32_t sync_io_model_tick_hz_from_period_ns(uint32_t tick_period_ns);
+static uint32_t sync_io_model_delay_ticks_for_duration(
+    uint32_t ns, uint32_t tick_period_ns);
+static uint32_t sync_io_model_delay_word(uint32_t delay_ticks);
+static uint32_t sync_io_model_delay_word_to_ticks(uint32_t word);
+static uint64_t sync_io_model_word_ticks_to_ns(
+    uint32_t ticks, uint32_t tick_period_ns);
+static uint32_t sync_io_model_saturate_u64_to_u32(uint64_t value);
 static void sync_io_model_release_pin(void);
 
 static const pio_program_t *sync_io_pio0_output_program(void)
@@ -160,6 +169,49 @@ static bool sync_io_wave_output_start(
     (void)context;
     (void)descriptor;
     (void)dma_channel_mask;
+    if (s_model_pulse.first_deadline_ns != 0u) {
+        const uint64_t now_ns = time_us_64() * 1000ull;
+        const uint64_t start_guard_ns = s_model_pulse.periodic_period_ns;
+        if (s_model_pulse.periodic_period_ns == 0u ||
+            now_ns > UINT64_MAX - start_guard_ns) {
+            return false;
+        }
+        const uint64_t minimum_deadline_ns = now_ns + start_guard_ns;
+        if (s_model_pulse.first_deadline_ns <= minimum_deadline_ns) {
+            const uint64_t periods =
+                (minimum_deadline_ns - s_model_pulse.first_deadline_ns) /
+                    s_model_pulse.periodic_period_ns +
+                1u;
+            if (periods >
+                (UINT64_MAX - s_model_pulse.first_deadline_ns) /
+                    s_model_pulse.periodic_period_ns) {
+                return false;
+            }
+            s_model_pulse.first_deadline_ns +=
+                periods * s_model_pulse.periodic_period_ns;
+        }
+        if (s_model_pulse.first_deadline_ns - now_ns > UINT32_MAX) {
+            return false;
+        }
+        const uint64_t previous_delay_ns = sync_io_model_word_ticks_to_ns(
+            sync_io_model_delay_word_to_ticks(s_model_pulse.words[0]),
+            s_model_pulse.tick_period_ns);
+        const uint32_t remaining_ns =
+            (uint32_t)(s_model_pulse.first_deadline_ns - now_ns);
+        const uint32_t delay_ticks = sync_io_model_delay_ticks_for_duration(
+            remaining_ns, s_model_pulse.tick_period_ns);
+        s_model_pulse.words[0] = sync_io_model_delay_word(delay_ticks);
+        const uint64_t rebased_delay_ns = sync_io_model_word_ticks_to_ns(
+            sync_io_model_delay_word_to_ticks(s_model_pulse.words[0]),
+            s_model_pulse.tick_period_ns);
+        s_model_pulse.total_duration_ns64 =
+            s_model_pulse.total_duration_ns64 - previous_delay_ns +
+            rebased_delay_ns;
+        s_model_pulse.total_duration_ns = sync_io_model_saturate_u64_to_u32(
+            s_model_pulse.total_duration_ns64);
+        s_model_pulse.total_duration_us = sync_io_model_saturate_u64_to_u32(
+            (s_model_pulse.total_duration_ns64 + 999ull) / 1000ull);
+    }
     s_model_pulse.start_us = time_us_64();
     s_model_pulse.running = true;
     dma_start_channel_mask(1u << s_model_pulse.dma_ch);
@@ -447,6 +499,7 @@ static bool sync_io_pulse_schedule_arm_on_pin_common(
     const sync_io_model_pulse_entry_t *entries_us,
     const sync_io_model_pulse_entry_ns_t *entries_ns,
     uint32_t periodic_first_delay_ns,
+    uint64_t periodic_first_deadline_ns,
     uint32_t periodic_period_ns,
     uint32_t periodic_high_ns,
     uint32_t entry_count,
@@ -466,7 +519,9 @@ static bool sync_io_pulse_schedule_arm_on_pin_common(
         (!use_periodic_entries && entries_us == NULL && entries_ns == NULL) ||
         entry_count == 0u ||
         entry_count > SYNC_IO_MODEL_PULSE_MAX_ENTRIES ||
-        sanitized_tick_period_ns == 0u) {
+        sanitized_tick_period_ns == 0u ||
+        (periodic_first_delay_ns != 0u &&
+         periodic_first_deadline_ns != 0u)) {
         sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
                            SYNC_IO_TRACE_ERROR,
                            entry_count,
@@ -492,9 +547,20 @@ static bool sync_io_pulse_schedule_arm_on_pin_common(
                                    3u);
                 return false;
             }
-            delay_ns = i == 0u
-                ? periodic_first_delay_ns
-                : periodic_period_ns - periodic_high_ns;
+            if (i == 0u && periodic_first_deadline_ns != 0u) {
+                const uint64_t now_ns = time_us_64() * 1000ull;
+                if (periodic_first_deadline_ns > now_ns &&
+                    periodic_first_deadline_ns - now_ns > UINT32_MAX) {
+                    return false;
+                }
+                delay_ns = periodic_first_deadline_ns > now_ns
+                    ? (uint32_t)(periodic_first_deadline_ns - now_ns)
+                    : 0u;
+            } else {
+                delay_ns = i == 0u
+                    ? periodic_first_delay_ns
+                    : periodic_period_ns - periodic_high_ns;
+            }
             high_ns = periodic_high_ns;
         } else if (use_ns_entries) {
             delay_ns = entries_ns[i].delay_ns;
@@ -544,6 +610,8 @@ static bool sync_io_pulse_schedule_arm_on_pin_common(
     s_model_pulse.total_pulses = entry_count;
     s_model_pulse.completed_pulses = 0u;
     s_model_pulse.completed_elapsed_ns = 0u;
+    s_model_pulse.first_deadline_ns = periodic_first_deadline_ns;
+    s_model_pulse.periodic_period_ns = periodic_period_ns;
     s_model_pulse.total_duration_ns =
         sync_io_model_saturate_u64_to_u32(cumulative_ns);
     s_model_pulse.total_duration_ns64 = cumulative_ns;
@@ -650,6 +718,7 @@ static bool sync_io_pulse_schedule_arm_on_pin(
                                                     0u,
                                                     0u,
                                                     0u,
+                                                    0u,
                                                     entry_count,
                                                     rising_edge,
                                                     tick_period_ns);
@@ -727,6 +796,7 @@ bool sync_io_output_pulse_schedule_arm(uint32_t output_index,
         0u,
         0u,
         0u,
+        0u,
         entry_count,
         rising_edge,
         1000u);
@@ -782,6 +852,38 @@ bool sync_io_sma_observer_pulse_schedule_arm_periodic_ns(
         NULL,
         NULL,
         first_delay_ns,
+        0u,
+        pulse_period_ns,
+        pulse_high_ns,
+        pulse_count,
+        rising_edge,
+        tick_period_ns);
+}
+
+bool sync_io_sma_observer_pulse_schedule_arm_periodic_at_ns(
+    uint32_t output_index,
+    uint64_t first_deadline_ns,
+    uint32_t pulse_period_ns,
+    uint32_t pulse_high_ns,
+    uint32_t pulse_count,
+    bool rising_edge,
+    uint32_t tick_period_ns)
+{
+    if (!sync_io_main_output_index_valid(output_index) ||
+        output_index != 0u || first_deadline_ns == 0u || pulse_count == 0u) {
+        return false;
+    }
+
+    return sync_io_pulse_schedule_arm_on_pin_common(
+        BOARD_SYNC_PIO_FAST,
+        BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM,
+        DREQ_PIO0_TX0 + BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM,
+        BOARD_SYNC_OUTPUT_BASE_PIN + output_index,
+        output_index,
+        NULL,
+        NULL,
+        0u,
+        first_deadline_ns,
         pulse_period_ns,
         pulse_high_ns,
         pulse_count,

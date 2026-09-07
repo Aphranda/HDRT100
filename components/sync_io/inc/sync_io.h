@@ -229,6 +229,14 @@ bool sync_io_sma_observer_pulse_schedule_arm_periodic_ns(
     uint32_t pulse_count,
     bool rising_edge,
     uint32_t tick_period_ns);
+bool sync_io_sma_observer_pulse_schedule_arm_periodic_at_ns(
+    uint32_t output_index,
+    uint64_t first_deadline_ns,
+    uint32_t pulse_period_ns,
+    uint32_t pulse_high_ns,
+    uint32_t pulse_count,
+    bool rising_edge,
+    uint32_t tick_period_ns);
 bool sync_io_output_pulse_schedule_arm(uint32_t output_index,
                                        const sync_io_model_pulse_entry_t *entries,
                                        uint32_t entry_count,

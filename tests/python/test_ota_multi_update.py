@@ -12,6 +12,7 @@ from tools.ota_multi_update.ota_multi_update import (
     console_safe_text,
     parse_args,
     parse_stream_capability,
+    pre_reboot_boards,
     resolved_transport,
     run_child,
     update_board,
@@ -92,6 +93,29 @@ def test_child_output_is_utf8_and_none_safe(tmp_path: Path):
         encoding="utf-8") == ""
     assert mocked.call_args.kwargs["encoding"] == "utf-8"
     assert mocked.call_args.kwargs["errors"] == "replace"
+
+
+def test_picotool_pre_reboot_is_serialized_before_parallel_ota(
+        tmp_path: Path):
+    boards = [
+        BoardProbe("COM3", "idn-a", "old", "A", "", ""),
+        BoardProbe("COM4", "idn-b", "old", "B", "", ""),
+        BoardProbe("COM5", "idn-c", "old", "C", "", ""),
+    ]
+    completed = [
+        Namespace(passed=True, port=board.port, serial_number=board.serial_number)
+        for board in boards
+    ]
+    with patch(
+        "tools.ota_multi_update.ota_multi_update.pre_reboot_board",
+        side_effect=completed,
+    ) as mocked:
+        results = pre_reboot_boards(make_args(), boards, tmp_path)
+
+    assert [call.args[1].serial_number for call in mocked.call_args_list] == [
+        "A", "B", "C"
+    ]
+    assert list(results) == ["A", "B", "C"]
 
 
 def test_verbose_console_output_is_safe_for_windows_gbk():
