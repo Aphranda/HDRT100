@@ -4,7 +4,7 @@ Status: Draft
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
 Related: `AGENTS.md`, `README.md`, `docs/check/DOCS_REGRESSION_PLAN.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
-Last updated: 2026-09-05
+Last updated: 2026-09-07
 
 > 本文是跨 worker/agent 的长期执行流程入口。它描述如何工作、如何留证和何时停止；不替代产品架构、域内运行时契约或单次验收报告。
 
@@ -75,6 +75,19 @@ Debug profile 下，可恢复的门禁拒绝、资源冲突、状态不稳定、
 - 有界强制继续次数、后继状态和终止条件。
 
 记录后可沿有界强制继续路径推进，直到下一状态、超时或本轮结束。强制继续不改变失败事实，也不提升为产品模式行为。
+
+调试阶段的控制参数例外：DPLL/环路滤波器调参命令可以接受任意可解析的有符号或
+无符号参数，包括零、负系数和超出产品建议范围的限值。调试接口不得用数值范围
+检查代替证据；必须保留原始 SCPI、requested/applied generation、active profile
+CRC、状态/residual/frequency/reject 读回和回退结果。固件实时算术仍须饱和并防止
+整数溢出，参数更新只能经过 owner mailbox 和确定性 service boundary；格式错误、
+邮箱覆盖、资源冲突或不可恢复硬件风险仍可拒绝并记录。接受异常参数不代表接受
+`LOCKED`、`FORMAL_LOCKED` 或产品 RUN。
+
+DPLL 失锁和 DPLL phase 的局部 WCET/deadline 超限属于调试反馈；只要 TDMA
+UP/DOWN、process-image、FIFO 和基础收发仍连续，不能因此新增实时负载隔离或屏蔽
+节点。调参器应使用这些反馈小步调整并等待后续样本收敛，节点级隔离只适用于 TDMA
+或不可恢复硬件资源故障。
 
 ### EXE-SAFE-02：不可恢复风险硬停
 

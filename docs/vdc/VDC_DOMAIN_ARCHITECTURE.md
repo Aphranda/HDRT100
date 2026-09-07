@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
 Related: `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_ARCHITECTURE.md`
-Last updated: 2026-09-06
+Last updated: 2026-09-07
 
 本文是 HAOFV Virtual Distributed Clock（VDC）内部基础主域的稳定架构事实源。
 VDC 负责多节点共同时间、offset/rate 估计、质量 promotion 和时间快照发布；不拥有
@@ -138,9 +138,37 @@ sample 不得直接把 DCO 推到极限。初始 phase 可受限 feed-forward/st
 ### Type-II PI tracking
 
 `PHASE_LOCK` 维护 phase 和 frequency 两个状态。profile 的 `kp_q16/ki_q16`、update
-period、step/slew/sanity limit 共同定义离散环路；积分必须 anti-windup，运行态默认
-只允许 bounded slew。质量统计使用 correction 前 input residual，避免同一帧 correction
-后的数值冒充 fine lock。
+period、step/slew/sanity limit 共同定义离散环路；`last_frequency_error_ppb` 是 FLL
+斜率估计，`loop_filter_integrator_ppb` 是 Type-II PI 的累计频率校正，两者不能混成
+一个瞬时 Ki 项。每个通过 admission 的 sample 执行：
+
+```text
+integrator[k+1] = integrator[k] + Ki * phase_residual[k] * update_period
+rate[k]         = FLL[k] + integrator[k+1]
+phase[k]        = phase[k] - Kp * phase_residual[k]
+```
+
+`integrator` 和最终 rate correction 都受 `sanity_freq_limit_ppb` 限制；当校正已经
+饱和且下一步会继续向饱和方向积分时保持积分值，反向误差则允许 unwind。所有中间
+乘法使用有界 64-bit 路径，因此 debug SCPI 可以保留负系数、零周期或极端无符号
+限值作为实验输入；这不等于接受为产品参数，也不跳过 evidence/admission/final
+promotion。质量统计使用 correction 前 input residual，避免同一帧 correction 后的数值
+冒充 fine lock。
+
+调试阶段通过 `SYSTem:SYNC:VDC:DPLL:TUNE` 或 `COEFficient` 写入
+`kp_q16,ki_q16,update_period_us,step_threshold_ns,sanity_freq_limit_ppb`。SCPI 只写
+Core0 单槽 mailbox；Core1 在 DPLL service boundary 交换完整 profile、递增
+generation、清空旧 acquisition/integrator history，并以 `COEFficient?` 和
+`FILTer?` 发布 active/requested/applied generation、profile CRC、FLL error、积分项、
+rate correction 和 reject 计数。格式错误可拒绝，数值异常在 debug profile 不拒绝；
+调参器必须按残差/频率/拒绝计数评分并回退，不得把 `LOCKED` 或较低 residual 自动
+写成 `FORMAL_LOCKED`。
+
+DPLL 失锁、phase residual 超限或 DPLL phase 自身的 WCET/deadline 计数是调试反馈，
+不是 TDMA 节点故障。只要 TDMA UP/DOWN、process-image、FIFO 和基础收发连续性仍然
+正常，节点必须继续参与环路；DPLL 负载不得新增 `quarantined_mask`、停止 TDMA 或
+屏蔽节点。调参器应读取这些失锁/时序反馈，按小步改变 PI 参数并等待新的连续样本，
+让环路逐步收敛；只有 TDMA/硬件资源本身不可恢复时才进入节点级故障处理。
 
 ### Lock promotion
 
