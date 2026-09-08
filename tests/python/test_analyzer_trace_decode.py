@@ -75,3 +75,22 @@ def test_decode_extended_metadata_header(tmp_path: Path) -> None:
         "timestamp_resolution_ns": 250_000,
         "capture_sequence": 7,
     }
+
+
+def test_decode_schema_v2_and_uint32_sequence_wrap(tmp_path: Path) -> None:
+    records = b"".join([
+        RECORD.pack(0xFFFFFFFFFFFFFFF0, 9, 0xFFFFFFFF, 1, 0, 0, 0),
+        RECORD.pack(0x0000000000000010, 9, 0, 0, 1, 0, 0),
+    ])
+    header_size = HEADER.size + 9 * 4
+    header = HEADER.pack(MAGIC, 2, header_size, 17, 2, 0, crc32(records))
+    metadata = struct.pack("<IIIIIIIII", 0x30, 21, 22, 1_000_000_000,
+                           1, 9, 4, 0xFFFFFFFF, 12)
+    path = tmp_path / "schema-v2.bin"
+    path.write_bytes(header + metadata + records)
+    decoded = decode(path)
+    assert decoded["checks"]["schema_ok"] is True
+    assert decoded["header"]["metadata"]["segment_index"] == 4
+    assert decoded["header"]["metadata"]["batch_sequence"] == 12
+    assert decoded["discontinuity_count"] == 0
+    assert decoded["drop_intervals"] == []

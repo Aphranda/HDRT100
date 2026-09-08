@@ -20,14 +20,35 @@ from typing import Any
 
 MAGIC = 0x59414C53
 SCHEMA = 1
+SCHEMA_V2 = 2
+SUPPORTED_SCHEMAS = frozenset((SCHEMA, SCHEMA_V2))
 HEADER = struct.Struct("<IHHIIII")
 METADATA = struct.Struct("<IIIIII")
+METADATA_V2 = struct.Struct("<IIIIIIIII")
 RECORD = struct.Struct("<QIIIIII")
 RECORD_FLAGS = {1: "diagnostic_only", 2: "trigger", 4: "discontinuity"}
+SEQUENCE_MASK = 0xFFFFFFFF
 
 
 def crc32(data: bytes) -> int:
     return binascii.crc32(data) & 0xFFFFFFFF
+
+
+def sequence_delta(previous: int, current: int) -> int:
+    """Return the forward distance in the uint32 record sequence domain."""
+    return (int(current) - int(previous)) & SEQUENCE_MASK
+
+
+def sequence_gap(previous: int, current: int) -> dict[str, int] | None:
+    """Describe a missing uint32 sequence interval, including wraparound."""
+    delta = sequence_delta(previous, current)
+    if delta == 1:
+        return None
+    return {
+        "first_missing_sequence": (int(previous) + 1) & SEQUENCE_MASK,
+        "last_missing_sequence": (int(current) - 1) & SEQUENCE_MASK,
+        "missing_count": max(0, delta - 1),
+    }
 
 
 def _drop_intervals(records: list[dict[str, Any]], dropped_records: int) -> list[dict[str, Any]]:
@@ -35,14 +56,14 @@ def _drop_intervals(records: list[dict[str, Any]], dropped_records: int) -> list
     previous: int | None = None
     for record in records:
         sequence = int(record["record_sequence"])
-        if previous is not None and sequence != previous + 1:
-            intervals.append({
-                "record_index": int(record["index"]),
-                "first_missing_sequence": previous + 1,
-                "last_missing_sequence": sequence - 1,
-                "missing_count": max(0, sequence - previous - 1),
-                "reason": "record_sequence_gap",
-            })
+        if previous is not None:
+            gap = sequence_gap(previous, sequence)
+            if gap is not None:
+                intervals.append({
+                    "record_index": int(record["index"]),
+                    **gap,
+                    "reason": "record_sequence_gap",
+                })
         previous = sequence
     if dropped_records:
         intervals.append({
@@ -67,7 +88,23 @@ def decode(path: Path, tick_hz: int = 0, expected_file_crc: int | None = None) -
         raise ValueError(f"file size {len(data)} does not match expected {expected_size}")
     payload = data[header_size:]
     metadata = {}
-    if header_size >= HEADER.size + METADATA.size:
+    if schema == SCHEMA_V2 and header_size >= HEADER.size + METADATA_V2.size:
+        (source_mask, profile_generation, persona_generation, hardware_tick_hz,
+         timestamp_resolution_ns, capture_sequence, segment_index,
+         first_record_sequence, batch_sequence) = METADATA_V2.unpack_from(
+             data, HEADER.size)
+        metadata = {
+            "source_mask": source_mask,
+            "profile_generation": profile_generation,
+            "persona_generation": persona_generation,
+            "hardware_tick_hz": hardware_tick_hz,
+            "timestamp_resolution_ns": timestamp_resolution_ns,
+            "capture_sequence": capture_sequence,
+            "segment_index": segment_index,
+            "first_record_sequence": first_record_sequence,
+            "batch_sequence": batch_sequence,
+        }
+    elif header_size >= HEADER.size + METADATA.size:
         (source_mask, profile_generation, persona_generation, hardware_tick_hz,
          timestamp_resolution_ns, capture_sequence) = METADATA.unpack_from(data, HEADER.size)
         metadata = {
@@ -84,7 +121,8 @@ def decode(path: Path, tick_hz: int = 0, expected_file_crc: int | None = None) -
     for index in range(record_count):
         offset = index * RECORD.size
         tick, capture_seq, record_seq, level, edge, flags, reserved = RECORD.unpack_from(payload, offset)
-        gap = previous_sequence is not None and record_seq != previous_sequence + 1
+        gap = (previous_sequence is not None and
+               sequence_gap(previous_sequence, record_seq) is not None)
         if gap:
             discontinuities += 1
         records.append({
@@ -106,7 +144,7 @@ def decode(path: Path, tick_hz: int = 0, expected_file_crc: int | None = None) -
     drop_intervals = _drop_intervals(records, dropped)
     checks = {
         "magic_ok": magic == MAGIC,
-        "schema_ok": schema == SCHEMA,
+        "schema_ok": schema in SUPPORTED_SCHEMAS,
         "size_ok": len(data) == expected_size,
         "payload_crc_ok": payload_computed == payload_crc,
         "file_crc_ok": expected_file_crc is None or file_computed == expected_file_crc,

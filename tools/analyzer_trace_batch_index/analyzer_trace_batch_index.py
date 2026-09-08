@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 from typing import Any, Iterable
 
-from tools.analyzer_trace_decode.analyzer_trace_decode import decode
+from tools.analyzer_trace_decode.analyzer_trace_decode import decode, sequence_gap
 
 
 def _intervals(decoded: dict[str, Any]) -> list[dict[str, Any]]:
@@ -58,15 +58,15 @@ def build_index(paths: Iterable[Path], *, tick_hz: int = 0) -> dict[str, Any]:
         previous: int | None = None
         for row in ordered:
             first = row["_first_record_sequence"]
-            if previous is not None and first is not None and first != previous + 1:
-                row["drop_intervals"].insert(0, {
-                    "record_index": 0,
-                    "first_missing_sequence": previous + 1,
-                    "last_missing_sequence": first - 1,
-                    "missing_count": max(0, first - previous - 1),
-                    "reason": "cross_segment_sequence_gap",
-                })
-                row["discontinuity_count"] += 1
+            if previous is not None and first is not None:
+                gap = sequence_gap(previous, first)
+                if gap is not None:
+                    row["drop_intervals"].insert(0, {
+                        "record_index": 0,
+                        **gap,
+                        "reason": "cross_segment_sequence_gap",
+                    })
+                    row["discontinuity_count"] += 1
             if row["_last_record_sequence"] is not None:
                 previous = int(row["_last_record_sequence"])
         sequence_gaps = sum(len(row["drop_intervals"]) for row in ordered)
