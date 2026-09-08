@@ -41,6 +41,29 @@ VDC-TDMA-001
 
 ## 进度记录
 
+### VDC-PROGRESS-20260908-005 — four-slot live batch coalescing
+
+- TODO task ID：`VDC-OBS-001`、`VDC-VERIFY-001`。
+- 状态：IN PROGRESS。
+- 日期：2026-09-08。
+- 变更：commit `6297816` 将 `SYNC_IO_LOGIC_ANALYZER_CORE0_BATCH_SLOTS` 扩展为
+  四个，并让 Core0 drain 在同一 capture sequence 内合并多个 `READY` batch，直到
+  调用方 capacity 用尽；不会读取 active producer ring，容量或 capture 不匹配的
+  slot 会保留为 `READY`。实时 phase decoder 和 record/header/schema 未改变。
+- 软件与构建：`run_sync_io_logic_analyzer_tests.ps1`、全量 Python 回归
+  （`788 passed`）和 `cmake --build --preset pico2-release --parallel 4` 均通过；
+  release package build id 为 `20260907155445`。
+- P3 证据：快速五板诊断完成，证据目录为
+  `out/HardwareAcceptance/20260908/vdc-live-batch-coalesce-p3-20260908/`；
+  `check-staged`、pre-commit 和 staged 源码指纹通过，TDMA process-image 通过。
+  本轮 NO1-NO4 内部 DPLL SD 采样与 SVG 已生成。
+- 失败与边界：NO5 观测在 TDMA preflight 发现 NO1 的
+  `ring_adapter_rx_bad_count` 增长后未写出完整 `summary.json`，因此本轮没有新的
+  可比 NO5 dropped count；诊断证据保留在 `diagnostic.json` 和
+  `dpll-no5-observation/progress.json`，不能宣称正式 DPLL lock 或 strict gate 通过。
+- 下一 gate：继续 `VDC-OBS-001`，在稳定 TDMA preflight 后运行 NO5 长时间观测，比较
+  4-slot 合并前后的 dropped/segment 连续性；若仍有背压，再评估 StorageAO 写入节流。
+
 ### VDC-PROGRESS-20260908-004 — segmented trace export compatibility
 
 - TODO task ID：`VDC-OBS-001`、`VDC-OBS-003`、`VDC-VERIFY-001`。
