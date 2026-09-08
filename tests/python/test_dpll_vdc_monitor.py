@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from pathlib import Path
+from types import SimpleNamespace
 
 from tools.dpll_vdc_monitor.dpll_vdc_monitor import (
     DPLL_VECTOR_FIELDS,
@@ -23,6 +24,7 @@ from tools.dpll_vdc_monitor.dpll_vdc_monitor import (
     _select_trigger_sequence,
     parse_board_arg,
     parse_vector_response,
+    run,
     _ring_sequence_consistency,
     _evaluate_tdma_preflight,
 )
@@ -116,6 +118,129 @@ def test_tdma_preflight_rejects_ring_fault_before_dpll_arm() -> None:
     assert result["passed"] is False
     assert "NO3:ring_up_running!=1" in result["errors"]
     assert "NO4:ring_adapter_rx_bad_count_grew" in result["errors"]
+
+
+def _monitor_run_args(tmp_path: Path, *, diagnostic_continue: bool) -> SimpleNamespace:
+    return SimpleNamespace(
+        board=["NO1=COM1", "NO5=COM5"],
+        observer_name="NO5",
+        baud=115200,
+        timeout=1.0,
+        settle=0.0,
+        serial_read_timeout_s=0.1,
+        duration_s=0.001,
+        poll_interval_s=0.001,
+        tdma_preflight_delay_s=0.001,
+        expected_interval_ms=1.0,
+        interval_tolerance_ms=1.0,
+        sequence_skew_tolerance=1,
+        out_dir=tmp_path,
+        waveform_analysis=None,
+        fail_on_gate=True,
+        diagnostic_continue=diagnostic_continue,
+        phase_sample_period_ns=500,
+        phase_pulse_period_ns=1_000_000,
+        phase_pulse_high_ns=2_000,
+        phase_pulse_count=1,
+        phase_start_delay_ns=0,
+        phase_coverage_min_s=0.0,
+        phase_max_span_ns=500,
+        phase_min_complete_rounds=3,
+        waveform_flush_timeout_s=1.0,
+        internal_only=False,
+        internal_lock_threshold_ns=1_000,
+    )
+
+
+def test_diagnostic_continue_retains_failed_preflight_and_collects_no5(
+        monkeypatch, tmp_path) -> None:
+    """Diagnostic mode must not discard NO5 evidence after a TDMA gate fault."""
+    preflight = {
+        "passed": False,
+        "sample_delay_s": 0.001,
+        "boards": {
+            "NO1": {
+                "port": "COM1", "passed": False,
+                "errors": ["ring_adapter_rx_bad_count_grew"],
+                "before": _tdma_snapshot(seq=10, bad=0, reference=0, feedback=1),
+                "after": _tdma_snapshot(seq=11, bad=1, reference=0, feedback=1),
+            },
+        },
+        "errors": ["NO1:ring_adapter_rx_bad_count_grew"],
+    }
+    calls: list[str] = []
+
+    class SerialPorts:
+        def __enter__(self):
+            return {"NO1": object(), "NO5": object()}
+
+        def __exit__(self, _exc_type, _exc, _tb) -> None:
+            return None
+
+    def ring_sample(_ser, spec, _timeout, elapsed, _previous):
+        return BoardSample(
+            ts_utc="2026-09-08T00:00:00+00:00", elapsed_s=elapsed,
+            board=spec.name, port=spec.port,
+            tdma=_tdma_snapshot(seq=100, reference=0, feedback=1),
+            vdc_status={}, dpll_status={},
+            readiness={"timestamp_source": 2, "timestamp_resolution_ns": 8,
+                       "timestamp_eligible": 1, "timestamp_flags": 2},
+            vdc_vector={"flags": VECTOR_FLAG_VALID, "gate_passed": 1},
+            dpll_vector={"flags": VECTOR_FLAG_VALID | VECTOR_FLAG_LOCKED,
+                         "gate_passed": 1, "state": 5},
+            trigger_sequence=100, trigger_interval_ms=1.0,
+            simultaneous_feedback=True)
+
+    def observer_sample(_ser, spec, _timeout, elapsed):
+        return BoardSample(
+            ts_utc="2026-09-08T00:00:00+00:00", elapsed_s=elapsed,
+            board=spec.name, port=spec.port, tdma={}, vdc_status={},
+            dpll_status={}, readiness={}, vdc_vector={}, dpll_vector={},
+            trigger_sequence=0, trigger_interval_ms=None,
+            simultaneous_feedback=False)
+
+    monkeypatch.setattr(
+        "tools.dpll_vdc_monitor.dpll_vdc_monitor.open_serial_ports",
+        lambda _specs, _args: SerialPorts())
+    monkeypatch.setattr(
+        "tools.dpll_vdc_monitor.dpll_vdc_monitor._tdma_preflight",
+        lambda *_args: preflight)
+    monkeypatch.setattr(
+        "tools.dpll_vdc_monitor.dpll_vdc_monitor._query",
+        lambda *_args: '"OK"')
+    monkeypatch.setattr(
+        "tools.dpll_vdc_monitor.dpll_vdc_monitor._read_board", ring_sample)
+    monkeypatch.setattr(
+        "tools.dpll_vdc_monitor.dpll_vdc_monitor._read_observer",
+        observer_sample)
+    monkeypatch.setattr(
+        "tools.dpll_vdc_monitor.dpll_vdc_monitor._arm_phase_observation",
+        lambda *_args: calls.append("arm"))
+    monkeypatch.setattr(
+        "tools.dpll_vdc_monitor.dpll_vdc_monitor._stop_phase_observation",
+        lambda *_args: calls.append("stop"))
+    monkeypatch.setattr(
+        "tools.dpll_vdc_monitor.dpll_vdc_monitor._finish_waveform_capture",
+        lambda *_args: {"raw_gate": {"passed": True}, "sd_paths": [],
+                        "analysis": {}, "status": {}})
+
+    strict_args = _monitor_run_args(tmp_path / "strict", diagnostic_continue=False)
+    with pytest.raises(RuntimeError, match="TDMA preflight failed"):
+        run(strict_args)
+    assert calls == []
+
+    result = run(_monitor_run_args(
+        tmp_path / "diagnostic", diagnostic_continue=True))
+
+    assert result["passed"] is False
+    assert result["diagnostic_continue"] is True
+    assert result["tdma_preflight_passed"] is False
+    assert result["diagnostic_failures"][0]["phase"] == "TDMA preflight"
+    assert calls == ["arm", "stop"]
+    summary = __import__("json").loads(
+        (tmp_path / "diagnostic" / "summary.json").read_text(encoding="utf-8"))
+    assert summary["passed"] is False
+    assert summary["tdma_preflight"]["passed"] is False
 
 
 def test_selftest_progress_exposes_tx_schedule_without_becoming_evidence(

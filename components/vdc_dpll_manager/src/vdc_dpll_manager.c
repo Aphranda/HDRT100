@@ -11,6 +11,7 @@
 #include "osal.h"
 #include "ota_ao.h"
 #include "storage_manager.h"
+#include "product_config.h"
 #include "sync_io.h"
 #include "tdma_runtime_owner.h"
 #include "tdma_service.h"
@@ -1488,6 +1489,19 @@ bool vdc_dpll_manager_init(void)
     if (!vdc_domain_init(&s_vdc_domain)) {
         return false;
     }
+    product_config_dpll_servo_profile_t persisted_profile;
+    if (!product_config_get_dpll_servo_profile(&persisted_profile)) {
+        return false;
+    }
+    vdc_servo_profile_t profile = s_vdc_domain.servo;
+    profile.kp_q16 = persisted_profile.kp_q16;
+    profile.ki_q16 = persisted_profile.ki_q16;
+    profile.update_period_us = persisted_profile.update_period_us;
+    profile.step_threshold_ns = persisted_profile.step_threshold_ns;
+    profile.sanity_freq_limit_ppb = persisted_profile.sanity_freq_limit_ppb;
+    if (!vdc_domain_apply_debug_servo_profile(&s_vdc_domain, &profile)) {
+        return false;
+    }
     s_debug_servo_tune_profile = s_vdc_domain.servo;
     s_vdc_tdma_service = tdma_runtime_owner_get();
     if (s_vdc_tdma_service == NULL ||
@@ -1574,12 +1588,40 @@ bool vdc_dpll_manager_request_default_debug_servo_tune(uint32_t *generation)
 {
     vdc_servo_profile_t profile;
     vdc_domain_default_servo(&profile);
+    product_config_dpll_servo_profile_t persisted_profile;
+    if (!product_config_get_dpll_servo_profile(&persisted_profile)) {
+        return false;
+    }
+    profile.kp_q16 = persisted_profile.kp_q16;
+    profile.ki_q16 = persisted_profile.ki_q16;
+    profile.update_period_us = persisted_profile.update_period_us;
+    profile.step_threshold_ns = persisted_profile.step_threshold_ns;
+    profile.sanity_freq_limit_ppb = persisted_profile.sanity_freq_limit_ppb;
     const uint32_t request =
         vdc_dpll_manager_stage_debug_servo_profile(&profile);
     if (generation != NULL) {
         *generation = request;
     }
     return request != 0u;
+}
+
+bool vdc_dpll_manager_store_debug_servo_profile(void)
+{
+    vdc_dpll_manager_debug_servo_tune_status_t status;
+    vdc_dpll_manager_get_debug_servo_tune_status(&status);
+    if (status.profile.servo_profile_crc32 == 0u ||
+        status.profile.servo_profile_crc32 !=
+            vdc_domain_servo_profile_crc32(&status.profile)) {
+        return false;
+    }
+    const product_config_dpll_servo_profile_t profile = {
+        .kp_q16 = status.profile.kp_q16,
+        .ki_q16 = status.profile.ki_q16,
+        .update_period_us = status.profile.update_period_us,
+        .step_threshold_ns = status.profile.step_threshold_ns,
+        .sanity_freq_limit_ppb = status.profile.sanity_freq_limit_ppb,
+    };
+    return product_config_set_dpll_servo_profile(&profile);
 }
 
 void vdc_dpll_manager_get_debug_servo_tune_status(
@@ -3057,8 +3099,13 @@ static bool vdc_dpll_manager_build_calibration_path_table(
     for (uint32_t i = 0u; i < snapshot->link_count; i++) {
         const calibration_path_link_evidence_t *link = &snapshot->links[i];
         const int64_t delay_ns = link->measurement.delay_estimate_ns;
-        const uint32_t source_slot_id = link->source_node;
-        const uint32_t reference_slot_id = link->destination_node;
+        /* The accepted snapshot is indexed in MARK/clock loop order.  The
+         * DPLL observation, however, is transported in TDMA's DATA process
+         * image, which traverses every physical link in the reverse direction.
+         * Keep the calibrated per-link delay but install its directed edge as
+         * DATA destination -> DATA source, i.e. marker destination -> source. */
+        const uint32_t source_slot_id = link->destination_node;
+        const uint32_t reference_slot_id = link->source_node;
         if (delay_ns < 0 || (uint64_t)delay_ns > UINT32_MAX ||
             source_slot_id >= VDC_DOMAIN_NODE_COUNT ||
             reference_slot_id >= VDC_DOMAIN_NODE_COUNT) {
@@ -3068,7 +3115,7 @@ static bool vdc_dpll_manager_build_calibration_path_table(
         entry->valid = 1u;
         entry->source_slot_id = source_slot_id;
         entry->reference_slot_id = reference_slot_id;
-        entry->direction = 0u;
+        entry->direction = VDC_PATH_DELAY_DIRECTION_TDMA_DATA_REVERSE;
         entry->delay_ns = (uint32_t)delay_ns;
         entry->jitter_ns = link->jitter_ns;
         entry->stddev_ns = link->jitter_ns;
@@ -3207,9 +3254,12 @@ static bool vdc_dpll_manager_build_provisional_training_path_table(
         }
         vdc_path_delay_entry_t *entry = &table->entries[i];
         entry->valid = 1u;
-        entry->source_slot_id = link->marker_source_node;
-        entry->reference_slot_id = link->marker_destination_node;
-        entry->direction = 0u;
+        /* The frozen training stage remains unchanged.  Its final DPLL
+         * application selects the reverse TDMA DATA edge from that same
+         * measured link. */
+        entry->source_slot_id = link->data_source_node;
+        entry->reference_slot_id = link->data_destination_node;
+        entry->direction = VDC_PATH_DELAY_DIRECTION_TDMA_DATA_REVERSE;
         /* TRN-01/02 freezes link_base_delay as half of the measured
          * directed link delay. P4-LIVE uses that quantized value only as a
          * provisional servo input; endpoint bias remains deliberately absent. */
@@ -3218,7 +3268,7 @@ static bool vdc_dpll_manager_build_provisional_training_path_table(
         entry->stddev_ns = link->sample_period_ns;
         entry->cal_crc32 = stage->topology_crc32;
         entry->freshness_us = table->freshness_us;
-        entry->writer = link->marker_source_node;
+        entry->writer = link->data_source_node;
         entry->update_seq = table->update_seq;
     }
     if (!vdc_domain_load_observation_path_matrix(table, stage->node_count)) {

@@ -300,6 +300,17 @@ scpi_result_t scpi_cmd_sync_vdc_dpll_default(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_sync_vdc_dpll_store(scpi_t *context)
+{
+    (void)context;
+    if (!vdc_dpll_manager_store_debug_servo_profile()) {
+        scpi_port_push_exec_error(context, "VDC_DPLL_STORE");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_sync_vdc_dpll_filter_q(scpi_t *context)
 {
     vdc_domain_snapshot_t snapshot;

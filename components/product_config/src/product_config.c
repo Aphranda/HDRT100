@@ -10,7 +10,8 @@
 #include "project_config.h"
 
 #define PRODUCT_CONFIG_MAGIC   0x47544346u
-#define PRODUCT_CONFIG_VERSION 1u
+#define PRODUCT_CONFIG_VERSION 2u
+#define PRODUCT_CONFIG_VERSION_LEGACY 1u
 #define PRODUCT_CONFIG_MAX_BOARD_NO 8u
 #define PRODUCT_CONFIG_SLOT_SIZE DRV_FLASH_PAGE_SIZE
 #define PRODUCT_CONFIG_SECTOR_SIZE DRV_FLASH_SECTOR_SIZE
@@ -36,6 +37,8 @@ typedef struct {
     uint32_t reserved[10];
     uint32_t crc32;
 } product_config_record_t;
+
+#define PRODUCT_CONFIG_DPLL_PROFILE_VALID 0x44504C4Cu /* DPLL */
 
 static product_config_record_t s_product_config;
 static uint32_t s_product_config_provider_generation;
@@ -136,7 +139,8 @@ static bool product_config_record_is_valid(const product_config_record_t *record
 {
     if (record == NULL ||
         record->magic != PRODUCT_CONFIG_MAGIC ||
-        record->version != PRODUCT_CONFIG_VERSION ||
+        (record->version != PRODUCT_CONFIG_VERSION &&
+         record->version != PRODUCT_CONFIG_VERSION_LEGACY) ||
         !product_config_usb_mode_is_valid(record->usb_mode) ||
         !product_config_board_no_is_valid(record->board_no)) {
         return false;
@@ -145,14 +149,62 @@ static bool product_config_record_is_valid(const product_config_record_t *record
     return product_config_crc32(record) == record->crc32;
 }
 
+static product_config_dpll_servo_profile_t
+product_config_default_dpll_servo_profile(void)
+{
+    return (product_config_dpll_servo_profile_t){
+        .kp_q16 = PRODUCT_CONFIG_DPLL_DEFAULT_KP_Q16,
+        .ki_q16 = PRODUCT_CONFIG_DPLL_DEFAULT_KI_Q16,
+        .update_period_us = PRODUCT_CONFIG_DPLL_DEFAULT_UPDATE_PERIOD_US,
+        .step_threshold_ns = PRODUCT_CONFIG_DPLL_DEFAULT_STEP_THRESHOLD_NS,
+        .sanity_freq_limit_ppb =
+            PRODUCT_CONFIG_DPLL_DEFAULT_SANITY_FREQ_LIMIT_PPB,
+    };
+}
+
+static bool product_config_dpll_profile_is_valid(
+    const product_config_record_t *record)
+{
+    return record != NULL && record->version == PRODUCT_CONFIG_VERSION &&
+           record->reserved[0] == PRODUCT_CONFIG_DPLL_PROFILE_VALID;
+}
+
+static void product_config_record_set_dpll_profile(
+    product_config_record_t *record,
+    const product_config_dpll_servo_profile_t *profile)
+{
+    record->version = PRODUCT_CONFIG_VERSION;
+    record->reserved[0] = PRODUCT_CONFIG_DPLL_PROFILE_VALID;
+    record->reserved[1] = (uint32_t)profile->kp_q16;
+    record->reserved[2] = (uint32_t)profile->ki_q16;
+    record->reserved[3] = profile->update_period_us;
+    record->reserved[4] = profile->step_threshold_ns;
+    record->reserved[5] = profile->sanity_freq_limit_ppb;
+}
+
+static bool product_config_dpll_profiles_equal(
+    const product_config_dpll_servo_profile_t *left,
+    const product_config_dpll_servo_profile_t *right)
+{
+    return left != NULL && right != NULL &&
+           left->kp_q16 == right->kp_q16 &&
+           left->ki_q16 == right->ki_q16 &&
+           left->update_period_us == right->update_period_us &&
+           left->step_threshold_ns == right->step_threshold_ns &&
+           left->sanity_freq_limit_ppb == right->sanity_freq_limit_ppb;
+}
+
 static void product_config_set_default(product_config_record_t *record)
 {
+    const product_config_dpll_servo_profile_t default_profile =
+        product_config_default_dpll_servo_profile();
     memset(record, 0, sizeof(*record));
     record->magic = PRODUCT_CONFIG_MAGIC;
     record->version = PRODUCT_CONFIG_VERSION;
     record->sequence = 0u;
     record->usb_mode = (uint32_t)product_config_default_usb_mode();
     record->board_no = 0u;
+    product_config_record_set_dpll_profile(record, &default_profile);
     record->crc32 = product_config_crc32(record);
 }
 
@@ -169,7 +221,8 @@ static bool product_config_slot_is_erased(uint32_t slot)
 
 static bool product_config_find_latest(product_config_record_t *latest,
                                        uint32_t *latest_slot,
-                                       uint32_t *next_slot)
+                                       uint32_t *next_slot,
+                                       bool *found_latest)
 {
     bool found = false;
     uint32_t found_slot = 0u;
@@ -205,7 +258,10 @@ static bool product_config_find_latest(product_config_record_t *latest,
     if (next_slot != NULL) {
         *next_slot = first_erased;
     }
-    return found;
+    if (found_latest != NULL) {
+        *found_latest = found;
+    }
+    return true;
 }
 
 static bool product_config_store(const product_config_record_t *record)
@@ -213,18 +269,22 @@ static bool product_config_store(const product_config_record_t *record)
     product_config_record_t latest;
     uint32_t latest_slot = UINT32_MAX;
     uint32_t slot = UINT32_MAX;
-    (void)product_config_find_latest(&latest, &latest_slot, &slot);
+    bool found_latest = false;
+    if (!product_config_find_latest(&latest, &latest_slot, &slot,
+                                    &found_latest)) {
+        return false;
+    }
     if (slot == UINT32_MAX) {
-        if (latest_slot == UINT32_MAX) {
-            /* No valid anchor means that rotation could destroy the only
-             * recoverable state; fail closed. */
-            return false;
+        uint32_t rotate_sector = 0u;
+        if (found_latest) {
+            const uint32_t latest_sector =
+                latest_slot / PRODUCT_CONFIG_SLOTS_PER_SECTOR;
+            rotate_sector =
+                (latest_sector + 1u) % PRODUCT_CONFIG_SECTOR_COUNT;
         }
-
-        const uint32_t latest_sector =
-            latest_slot / PRODUCT_CONFIG_SLOTS_PER_SECTOR;
-        const uint32_t rotate_sector =
-            (latest_sector + 1u) % PRODUCT_CONFIG_SECTOR_COUNT;
+        /* With no CRC-valid configuration there is no journal anchor to
+         * preserve. Reclaim only the dedicated product-config sector so the
+         * conservative startup profile can establish a new anchor. */
         if (!product_config_flash_execute(FLASH_TRANSACTION_OPERATION_ERASE,
                                           rotate_sector * PRODUCT_CONFIG_SECTOR_SIZE,
                                           NULL, PRODUCT_CONFIG_SECTOR_SIZE,
@@ -261,12 +321,32 @@ static bool product_config_store(const product_config_record_t *record)
 bool product_config_init(void)
 {
     product_config_record_t latest;
-    if (product_config_find_latest(&latest, NULL, NULL)) {
+    bool found_latest = false;
+    if (!product_config_find_latest(&latest, NULL, NULL, &found_latest)) {
+        return false;
+    }
+    if (found_latest) {
         s_product_config = latest;
+    } else {
+        product_config_set_default(&s_product_config);
+    }
+
+    if (found_latest &&
+        product_config_dpll_profile_is_valid(&s_product_config)) {
         return true;
     }
 
-    product_config_set_default(&s_product_config);
+    /* Startup must remain read-only. FlashTransaction parks core1 before any
+     * erase/program operation, but product_config_init() runs before the
+     * realtime core is launched. Persisting a v1-to-v2/default migration here
+     * would therefore fail the boot of a freshly installed OTA image. Keep
+     * the compatible identity fields and seed the missing DPLL profile only
+     * in RAM; the explicit DPLL:STORE command persists it after bring-up. */
+    const product_config_dpll_servo_profile_t default_profile =
+        product_config_default_dpll_servo_profile();
+    product_config_record_set_dpll_profile(&s_product_config,
+                                           &default_profile);
+    s_product_config.crc32 = product_config_crc32(&s_product_config);
     return true;
 }
 
@@ -330,10 +410,47 @@ bool product_config_set_board_no(uint32_t board_no)
     }
 
     record.board_no = board_no;
+    record.version = PRODUCT_CONFIG_VERSION;
     record.sequence++;
     record.crc32 = product_config_crc32(&record);
     return product_config_store(&record) &&
            s_product_config.board_no == board_no;
+}
+
+bool product_config_get_dpll_servo_profile(
+    product_config_dpll_servo_profile_t *profile)
+{
+    if (profile == NULL || !product_config_record_is_valid(&s_product_config) ||
+        !product_config_dpll_profile_is_valid(&s_product_config)) {
+        return false;
+    }
+
+    profile->kp_q16 = (int32_t)s_product_config.reserved[1];
+    profile->ki_q16 = (int32_t)s_product_config.reserved[2];
+    profile->update_period_us = s_product_config.reserved[3];
+    profile->step_threshold_ns = s_product_config.reserved[4];
+    profile->sanity_freq_limit_ppb = s_product_config.reserved[5];
+    return true;
+}
+
+bool product_config_set_dpll_servo_profile(
+    const product_config_dpll_servo_profile_t *profile)
+{
+    if (profile == NULL) {
+        return false;
+    }
+
+    product_config_record_t record = s_product_config;
+    if (!product_config_record_is_valid(&record)) {
+        product_config_set_default(&record);
+    }
+    product_config_record_set_dpll_profile(&record, profile);
+    record.sequence++;
+    record.crc32 = product_config_crc32(&record);
+    product_config_dpll_servo_profile_t readback;
+    return product_config_store(&record) &&
+           product_config_get_dpll_servo_profile(&readback) &&
+           product_config_dpll_profiles_equal(&readback, profile);
 }
 
 const char *product_config_usb_mode_to_string(product_config_usb_mode_t mode)

@@ -129,6 +129,20 @@ static int expect_i32(const char *name, int32_t actual, int32_t expected)
     return 0;
 }
 
+static bool install_fast_test_servo(vdc_domain_context_t *context)
+{
+    vdc_servo_profile_t profile;
+    if (context == NULL) {
+        return false;
+    }
+
+    profile = context->servo;
+    profile.kp_q16 = 65536;
+    profile.ki_q16 = 4096;
+    profile.sanity_freq_limit_ppb = 50000u;
+    return vdc_domain_apply_debug_servo_profile(context, &profile);
+}
+
 static bool install_test_path_delay(vdc_domain_context_t *context)
 {
     vdc_path_delay_table_t table;
@@ -1973,6 +1987,8 @@ static int test_context_accepts_samples_until_locked(void)
 
     failed += expect_bool("init", vdc_domain_init(&context), true);
     vdc_domain_set_ready(&context, true);
+    failed += expect_bool("install fast test servo",
+                          install_fast_test_servo(&context), true);
     vdc_domain_service(&context, 1000000u);
     failed += expect_bool("snapshot",
                           vdc_domain_get_snapshot(&context, &snapshot),
@@ -2273,10 +2289,10 @@ static int test_dpll_rate_estimator_waits_and_slews(void)
     (void)vdc_domain_get_snapshot(&context, &snapshot);
     failed += expect_i32("rate slew limited",
                          snapshot.dpll.last_frequency_error_ppb,
-                         6250);
+                         1250);
     failed += expect_i32("rate adjust slew limited",
                          snapshot.clock.period_adjust_ppb,
-                         -6250);
+                         -1250);
     return failed;
 }
 
@@ -2415,6 +2431,8 @@ static int test_dpll_acquisition_accepts_large_initial_phase(void)
 
     failed += expect_bool("init acquisition", vdc_domain_init(&context), true);
     vdc_domain_set_ready(&context, true);
+    failed += expect_bool("install fast acquisition test servo",
+                          install_fast_test_servo(&context), true);
 
     vdc_tdma_timestamp_evidence_t strict =
         make_hardware_sample(&context.schedule, 1u, initial_phase_ns);
@@ -2541,6 +2559,32 @@ static int test_dpll_acquisition_continues_through_phase_innovation(void)
     return failed;
 }
 
+static int test_default_servo_is_conservative(void)
+{
+    int failed = 0;
+    vdc_servo_profile_t profile;
+
+    vdc_domain_default_servo(&profile);
+    failed += expect_i32("default servo Kp", profile.kp_q16, 16384);
+    failed += expect_i32("default servo Ki", profile.ki_q16, 256);
+    failed += expect_u32("default servo update period",
+                         profile.update_period_us, 1000u);
+    failed += expect_u32("default servo step threshold",
+                         profile.step_threshold_ns, 10000u);
+    failed += expect_u32("default servo frequency limit",
+                         profile.sanity_freq_limit_ppb, 10000u);
+    failed += expect_u32("default servo Kp constant", profile.kp_q16,
+                         VDC_DOMAIN_DEFAULT_SERVO_KP_Q16);
+    failed += expect_u32("default servo Ki constant", profile.ki_q16,
+                         VDC_DOMAIN_DEFAULT_SERVO_KI_Q16);
+    failed += expect_u32("default servo limit constant",
+                         profile.sanity_freq_limit_ppb,
+                         VDC_DOMAIN_DEFAULT_SANITY_FREQ_LIMIT_PPB);
+    failed += expect_u32("default servo CRC", profile.servo_profile_crc32,
+                         VDC_DOMAIN_DEFAULT_SERVO_PROFILE_CRC32);
+    return failed;
+}
+
 static int test_tracking_gate_ignores_stale_phase_model(void)
 {
     int failed = 0;
@@ -2609,6 +2653,8 @@ static int test_dpll_large_step_does_not_fine_lock_same_sample(void)
                           vdc_domain_init(&context),
                           true);
     vdc_domain_set_ready(&context, true);
+    failed += expect_bool("install fast step test servo",
+                          install_fast_test_servo(&context), true);
     context.servo.lock_acceptance_threshold_ns =
         VDC_DOMAIN_LOCK_TIER_COARSE_NS;
     context.servo.first_step_threshold_ns = 100000u;
@@ -2817,6 +2863,8 @@ static int test_dpll_rate_correction_enters_next_phase_prediction(void)
     failed += expect_bool("init rate prediction",
                           vdc_domain_init(&context), true);
     vdc_domain_set_ready(&context, true);
+    failed += expect_bool("install fast prediction test servo",
+                          install_fast_test_servo(&context), true);
 
     evidence = make_hardware_sample(&context.schedule, 1u, 0);
     failed += expect_bool("submit rate prediction anchor",
@@ -2923,11 +2971,18 @@ static int test_observation_path_matrix_is_explicit(void)
                    VDC_PATH_DELAY_FLAG_HARDWARE_LATCHED |
                    VDC_PATH_DELAY_FLAG_BIAS_VALID |
                    VDC_PATH_DELAY_FLAG_TOPOLOGY_FRESH;
+    /* MARK follows 0->1->2->3, while DPLL samples the process image on the
+     * reverse DATA ring: 0->3->2->1->0.  The observer path from a reference
+     * to a local source must therefore accumulate DATA-directed links. */
+    const uint32_t data_next[4] = {3u, 0u, 1u, 2u};
+    const uint32_t data_delay[4] = {10u, 20u, 30u, 40u};
     for (uint32_t i = 0u; i < 4u; i++) {
         loaded.entries[i].valid = 1u;
         loaded.entries[i].source_slot_id = i;
-        loaded.entries[i].reference_slot_id = (i + 1u) % 4u;
-        loaded.entries[i].delay_ns = 10u + i * 10u;
+        loaded.entries[i].reference_slot_id = data_next[i];
+        loaded.entries[i].direction =
+            VDC_PATH_DELAY_DIRECTION_TDMA_DATA_REVERSE;
+        loaded.entries[i].delay_ns = data_delay[i];
         loaded.entries[i].cal_crc32 = loaded.schedule_crc32;
         loaded.entries[i].freshness_us = loaded.freshness_us;
         loaded.entries[i].update_seq = loaded.update_seq;
@@ -2937,14 +2992,21 @@ static int test_observation_path_matrix_is_explicit(void)
                           vdc_domain_load_observation_path_matrix(
                               &loaded, 4u), true);
     loaded.table_crc32 = vdc_domain_path_delay_table_crc32(&loaded);
-    failed += expect_bool("loaded matrix 0 from 2",
+    failed += expect_bool("loaded reverse-data matrix 0 from 2",
                           vdc_domain_observation_path_delay_lookup(
                               &loaded, 0u, 2u, &entry), true);
-    failed += expect_u32("loaded matrix 0 from 2 delay", entry.delay_ns, 70u);
-    failed += expect_bool("loaded matrix 2 from 0",
+    failed += expect_u32("loaded reverse-data matrix 0 from 2 delay",
+                         entry.delay_ns, 50u);
+    failed += expect_bool("loaded reverse-data matrix 2 from 0",
                           vdc_domain_observation_path_delay_lookup(
                               &loaded, 2u, 0u, &entry), true);
-    failed += expect_u32("loaded matrix 2 from 0 delay", entry.delay_ns, 30u);
+    failed += expect_u32("loaded reverse-data matrix 2 from 0 delay",
+                         entry.delay_ns, 50u);
+    failed += expect_bool("loaded reverse-data reference loop",
+                          vdc_domain_observation_path_delay_lookup(
+                              &loaded, 0u, 0u, &entry), true);
+    failed += expect_u32("loaded reverse-data reference loop delay",
+                         entry.delay_ns, 100u);
 
     loaded.entries[3].reference_slot_id = 3u;
     failed += expect_bool("non-ring directed links rejected",
@@ -3331,6 +3393,7 @@ int main(void)
 {
     int failed = 0;
     failed += test_default_schedule_and_clock();
+    failed += test_default_servo_is_conservative();
     failed += test_tdma_ring_profile_contract();
     failed += test_tdma_ring_plan_contract();
     failed += test_timestamp_contract_helpers();

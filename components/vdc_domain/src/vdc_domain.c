@@ -20,7 +20,6 @@
 #define VDC_DOMAIN_DEFAULT_FRESHNESS_LIMIT_US 1000000u
 #define VDC_DOMAIN_DEFAULT_HOLDOVER_DRIFT_BOUND_NS_S 1000u
 #define VDC_DOMAIN_ACQUISITION_GUARD_NS 0u
-#define VDC_DOMAIN_DEFAULT_SANITY_FREQ_LIMIT_PPB 50000u
 #define VDC_DOMAIN_RATE_MIN_OBSERVATION_CYCLES 8u
 #define VDC_DOMAIN_RATE_SLEW_DIVISOR 8u
 #define VDC_DOMAIN_RATE_MIN_SLEW_LIMIT_PPB 1000u
@@ -627,9 +626,9 @@ static int32_t vdc_domain_integrator_delta_ppb(
         return 0;
     }
 
-    /* The product profile is sampled every 1 ms.  Its fixed Ki/update pair
-     * has a cheaper exact integer form; debug periods use the generic bounded
-     * ratio helper below. */
+    /* The legacy high-gain debug profile is sampled every 1 ms. Its fixed
+     * Ki/update pair has a cheaper exact integer form; all other profiles use
+     * the generic bounded ratio helper below. */
     int32_t phase_to_rate_ppb;
     if (update_period_us == 1000u && ki_q16 == 4096) {
         int64_t scaled = (int64_t)phase_error_ns * 62ll;
@@ -1346,8 +1345,8 @@ void vdc_domain_default_servo(vdc_servo_profile_t *profile)
     memset(profile, 0, sizeof(*profile));
     profile->enabled = 1u;
     profile->servo_type = 1u;
-    /* Preserve the established product profile.  Debug tuning can replace
-     * these coefficients at runtime without changing product gates. */
+    /* Start with a conservative loop. Debug tuning can replace these
+     * coefficients at runtime without changing product gates. */
     profile->kp_q16 = VDC_DOMAIN_DEFAULT_SERVO_KP_Q16;
     profile->ki_q16 = VDC_DOMAIN_DEFAULT_SERVO_KI_Q16;
     profile->update_period_us = 1000u;
@@ -1361,7 +1360,7 @@ void vdc_domain_default_servo(vdc_servo_profile_t *profile)
     profile->lock_sample_count = 4u;
     profile->phase_diagnostic_threshold_ns = 10000u;
     profile->reset_policy = 0u;
-    profile->servo_profile_crc32 = VDC_DOMAIN_DEFAULT_SERVO_PROFILE_CRC32;
+    profile->servo_profile_crc32 = vdc_domain_servo_profile_crc32(profile);
 }
 
 uint32_t vdc_domain_servo_profile_crc32(const vdc_servo_profile_t *profile)
@@ -1592,7 +1591,9 @@ void vdc_domain_default_clock_model(vdc_clock_model_t *model,
     model->phase_offset_ns = 0;
     model->slew_limit_ppb = VDC_DOMAIN_DEFAULT_SANITY_FREQ_LIMIT_PPB;
     model->tdma_schedule_crc32 = schedule_crc32;
-    model->servo_profile_crc32 = VDC_DOMAIN_DEFAULT_SERVO_PROFILE_CRC32;
+    vdc_servo_profile_t default_servo;
+    vdc_domain_default_servo(&default_servo);
+    model->servo_profile_crc32 = default_servo.servo_profile_crc32;
 }
 
 void vdc_domain_default_dco_control(vdc_dco_control_t *dco,

@@ -1586,10 +1586,34 @@ def validate_p3(summary: dict[str, Any], config: dict[str, Any]) -> dict[str, An
     }
 
 
+def summary_failure_detail(summary: dict[str, Any]) -> str:
+    """Return the concrete gate evidence carried by a failed step summary."""
+    detail = summary.get("error") or summary.get("gate_failures")
+    if detail:
+        return str(detail)
+    preflight = summary.get("tdma_preflight", {})
+    if (summary.get("tdma_preflight_passed") is False and
+            isinstance(preflight, dict)):
+        errors = preflight.get("errors", [])
+        if errors:
+            return "TDMA preflight: " + ", ".join(map(str, errors))
+        return "TDMA preflight did not pass"
+    raw_gate = summary.get("sd_waveform", {}).get("raw_gate", {})
+    if isinstance(raw_gate, dict) and raw_gate.get("errors"):
+        return "NO5 SD waveform: " + ", ".join(
+            map(str, raw_gate["errors"]))
+    failures = summary.get("diagnostic_failures", [])
+    if isinstance(failures, list) and failures:
+        return "; ".join(
+            f"{item.get('phase', 'diagnostic')}: {item.get('error', '')}"
+            for item in failures if isinstance(item, dict))
+    return "gate did not pass"
+
+
 def validate_pass_summary(summary: dict[str, Any], label: str) -> None:
     if summary.get("passed") is not True:
-        detail = summary.get("error") or summary.get("gate_failures") or ""
-        raise AcceptanceError(f"{label} did not meet acceptance: {detail}")
+        raise AcceptanceError(
+            f"{label} did not meet acceptance: {summary_failure_detail(summary)}")
 
 
 def build_diagnostic_feedback(
@@ -2641,6 +2665,8 @@ def run_acceptance(args: argparse.Namespace) -> None:
             str(config["dpll_phase_min_complete_rounds"]),
             "--fail-on-gate", "--out-dir", str(dpll_dir),
         ]
+        if diagnostic_continue:
+            dpll_command.append("--diagnostic-continue")
         add_serial_timing(dpll_command, timing)
         for index, board_id in enumerate(board_ids, 1):
             dpll_command.extend(["--board", f"NO{index}={ports[board_id]}"])
@@ -2683,7 +2709,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
             diagnostic_failures.append({
                 "phase": "DPLL/VDC NO5 observation",
                 "returncode": dpll_returncode,
-                "error": str(dpll_summary.get("error", "")),
+                "error": summary_failure_detail(dpll_summary),
                 "summary": dpll_summary_path.resolve().relative_to(root).as_posix(),
             })
         else:

@@ -1194,6 +1194,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--waveform-analysis", action="append", type=Path,
                         help="existing SD ring_capture_analysis.json (read-only)")
     parser.add_argument("--fail-on-gate", action="store_true")
+    parser.add_argument(
+        "--diagnostic-continue", action="store_true",
+        help="retain gate failures and continue bounded diagnostic observation")
     parser.add_argument("--phase-sample-period-ns", type=int, default=500)
     parser.add_argument("--phase-pulse-period-ns", type=int, default=1000000)
     parser.add_argument("--phase-pulse-high-ns", type=int, default=2000)
@@ -1243,6 +1246,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     started = time.monotonic()
     waveform_result: dict[str, Any] = {}
     tdma_preflight: dict[str, Any] = {}
+    diagnostic_failures: list[dict[str, Any]] = []
+    diagnostic_continue = bool(args.diagnostic_continue)
     progress.emit("opening_ports", boards={spec.name: spec.port for spec in specs})
     with open_serial_ports(specs, args) as serials:
         observer_serial = (serials[args.observer_name.upper()]
@@ -1256,18 +1261,54 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         preflight_svg.write_text(
             _tdma_preflight_svg(tdma_preflight), encoding="utf-8")
         if not tdma_preflight["passed"]:
-            raise RuntimeError(
+            preflight_error = (
                 "TDMA preflight failed; DPLL phase and waveform were not armed")
+            if not diagnostic_continue:
+                raise RuntimeError(preflight_error)
+            diagnostic_failures.append({
+                "phase": "TDMA preflight",
+                "returncode": 1,
+                "error": preflight_error,
+                "errors": list(tdma_preflight.get("errors", [])),
+            })
+            progress.emit(
+                "tdma_preflight_failed_diagnostic_continue",
+                errors=tdma_preflight.get("errors", []))
         waveform_armed = False
+        phase_arm_attempted = False
         try:
             if not args.internal_only:
-                response = _query(observer_serial, WAVEFORM_ARM_COMMAND, args.timeout)
-                if not response.lstrip().lstrip('"').upper().startswith("OK"):
-                    raise ValueError(f"NO5 waveform arm rejected: {response!r}")
-                waveform_armed = True
-                progress.emit("waveform_armed", response=response)
-                _arm_phase_observation(serials, specs, args)
-                progress.emit("phase_observation_armed")
+                try:
+                    response = _query(observer_serial, WAVEFORM_ARM_COMMAND,
+                                      args.timeout)
+                    if not response.lstrip().lstrip('"').upper().startswith("OK"):
+                        raise ValueError(
+                            f"NO5 waveform arm rejected: {response!r}")
+                    waveform_armed = True
+                    progress.emit("waveform_armed", response=response)
+                except (OSError, ValueError, TimeoutError, RuntimeError) as exc:
+                    if not diagnostic_continue:
+                        raise
+                    diagnostic_failures.append({
+                        "phase": "NO5 waveform arm",
+                        "returncode": 1,
+                        "error": str(exc),
+                    })
+                    progress.emit("waveform_arm_failed", error=str(exc))
+
+                phase_arm_attempted = True
+                try:
+                    _arm_phase_observation(serials, specs, args)
+                    progress.emit("phase_observation_armed")
+                except (OSError, ValueError, TimeoutError, RuntimeError) as exc:
+                    if not diagnostic_continue:
+                        raise
+                    diagnostic_failures.append({
+                        "phase": "NO5 phase observation arm",
+                        "returncode": 1,
+                        "error": str(exc),
+                    })
+                    progress.emit("phase_observation_arm_failed", error=str(exc))
             poll_index = 0
             while True:
                 elapsed = time.monotonic() - started
@@ -1282,7 +1323,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     previous = (samples_by_board[spec.name][-1]
                                 if samples_by_board[spec.name] else None)
                     if args.internal_only:
-                        tdma = tdma_preflight["boards"][spec.name]["after"]
+                        tdma = tdma_preflight.get("boards", {}).get(
+                            spec.name, {}).get("after", {})
                         return _read_internal_board(
                             serials[spec.name], spec, args.timeout, elapsed,
                             previous, tdma)
@@ -1307,9 +1349,20 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 time.sleep(args.poll_interval_s)
         finally:
             try:
-                if not args.internal_only:
-                    _stop_phase_observation(serials, specs, args)
-                    progress.emit("phase_observation_stopped")
+                if not args.internal_only and phase_arm_attempted:
+                    try:
+                        _stop_phase_observation(serials, specs, args)
+                        progress.emit("phase_observation_stopped")
+                    except (OSError, ValueError, TimeoutError, RuntimeError) as exc:
+                        if not diagnostic_continue:
+                            raise
+                        diagnostic_failures.append({
+                            "phase": "NO5 phase observation stop",
+                            "returncode": 1,
+                            "error": str(exc),
+                        })
+                        progress.emit("phase_observation_stop_failed",
+                                      error=str(exc))
             finally:
                 if waveform_armed:
                     try:
@@ -1328,6 +1381,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                                 "detail": str(exc),
                             },
                         }
+                        if diagnostic_continue:
+                            diagnostic_failures.append({
+                                "phase": "NO5 waveform capture",
+                                "returncode": 1,
+                                "error": str(exc),
+                            })
                         progress.emit(
                             "waveform_failed", error=str(exc))
 
@@ -1369,6 +1428,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 for summary in summaries)
     else:
         passed = bool(summaries) and sequence_consistent and bool(observer_summary) and \
+            bool(tdma_preflight.get("passed")) and \
             raw_gate_passed and all(
             summary["samples"] > 0 and not summary["errors"] and
             (True
@@ -1380,6 +1440,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     result = {
         "schema": "HAOFV_DPLL_VDC_MONITOR_V2",
         "passed": passed,
+        "diagnostic_continue": diagnostic_continue,
+        "tdma_preflight_passed": bool(tdma_preflight.get("passed")),
+        "diagnostic_failures": diagnostic_failures,
         "observer_board": args.observer_name.upper(),
         "observation_mode": "INTERNAL_TDMA_DPLL_ONLY" if args.internal_only
         else "EXTERNAL_NO5_WAVEFORM_AND_INTERNAL_STATUS",

@@ -20,6 +20,7 @@ scpi_result_t scpi_cmd_sync_vdc_dpll_override(scpi_t *context);
 scpi_result_t scpi_sync_coef_q(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_dpll_tune(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_dpll_default(scpi_t *context);
+scpi_result_t scpi_cmd_sync_vdc_dpll_store(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_dpll_filter_q(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_dpll_status_q(scpi_t *context);
@@ -105,6 +106,7 @@ scpi_result_t scpi_cmd_sync_vdc_observer_phase_q(scpi_t *context);
     {.pattern = "SYSTem:SYNC:VDC:DPLL:COEFficient", .callback = scpi_cmd_sync_vdc_dpll_tune}, \
     {.pattern = "SYSTem:SYNC:VDC:DPLL:OVERRide", .callback = scpi_cmd_sync_vdc_dpll_override}, \
     {.pattern = "SYSTem:SYNC:VDC:DPLL:OVERRide?", .callback = scpi_sync_override_q}, \
-    {.pattern = "SYSTem:SYNC:VDC:DPLL:DEFAult", .callback = scpi_cmd_sync_vdc_dpll_default}
+    {.pattern = "SYSTem:SYNC:VDC:DPLL:DEFAult", .callback = scpi_cmd_sync_vdc_dpll_default}, \
+    {.pattern = "SYSTem:SYNC:VDC:DPLL:STORe", .callback = scpi_cmd_sync_vdc_dpll_store}
 
 #endif

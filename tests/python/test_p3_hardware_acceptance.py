@@ -32,6 +32,7 @@ from tools.hardware_acceptance.p3_hardware_acceptance import (
     selected_data_offsets,
     stage_training_parameters,
     selected_sck_offsets,
+    summary_failure_detail,
     validate_ota,
     validate_online_builds,
     validate_p3,
@@ -252,6 +253,15 @@ def test_diagnostic_feedback_retains_correction_inputs() -> None:
     assert feedback["tdma"]["nodes"]["n0"]["physical_phase"][
         "flight_sck_phase_delay_cycles"] == 10
     assert feedback["dpll"]["observer_phase"]["phase_initial_span_ns"] == 80
+
+
+def test_monitor_failure_detail_prefers_persisted_no5_gate_evidence() -> None:
+    assert summary_failure_detail({
+        "passed": False,
+        "sd_waveform": {"raw_gate": {
+            "errors": ["capture_dropped_records", "segment_dropped_records"]}},
+    }) == ("NO5 SD waveform: capture_dropped_records, "
+           "segment_dropped_records")
 
 
 def test_code_scope_includes_runtime_tools_and_build_inputs() -> None:
@@ -597,12 +607,14 @@ def test_bench_and_orchestrator_cover_full_hardware_acceptance() -> None:
     ):
         assert tool in source
     assert "--tdma-only" in source
+    assert "--reference-node" not in source
     assert "internal DPLL SD capture NO1..NO4" in source
     assert '"internal_dpll_summary"' in source
     tdma_command = source.split("tdma_command = [", 1)[1].split(
         "print(\"Hardware acceptance: four-Node TDMA", 1)[0]
     assert "capture=bool(config.get(\"tdma_capture_waveforms\", True))" in source
     assert "--diagnostic-continue" in source
+    assert '"--reference-node", str(reference_node)' not in tdma_command
     assert 'matrix_command.append("--diagnostic-continue")' in source
     assert 'marker_command.append("--skip-capture")' in source
     assert 'residence_command.append("--skip-capture")' in source

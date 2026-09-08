@@ -313,6 +313,9 @@ bool vdc_dpll_manager_request_debug_servo_tune(
     uint32_t sanity_freq_limit_ppb,
     uint32_t *generation);
 bool vdc_dpll_manager_request_default_debug_servo_tune(uint32_t *generation);
+/* Persist the current staged profile. Flash is only written from this
+ * explicit command; runtime TUNE remains a volatile mailbox update. */
+bool vdc_dpll_manager_store_debug_servo_profile(void);
 void vdc_dpll_manager_get_debug_servo_tune_status(
     vdc_dpll_manager_debug_servo_tune_status_t *status);
 /* Core0 stages a single debug-admission intent. Core1 applies it before the
