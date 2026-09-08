@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_TASK_PROGRESS.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
-Last updated: 2026-09-07
+Last updated: 2026-09-08
 
 本文只记录当前 VDC 迁移的实施 checkpoint 和证据闭环。任务状态以 `VDC_DOMAIN_TODO.md`
 为唯一事实源，稳定语义以 `VDC_DOMAIN_ARCHITECTURE.md` 为准。重构前的长历史记录已移入
@@ -40,6 +40,32 @@ VDC-TDMA-001
 `VDC-SERVO-001/002` 在正式 evidence 未闭环前只允许 host/replay 验证，不得用于发布板端目标锁。
 
 ## 进度记录
+
+### VDC-PROGRESS-20260908-001 — debug admission continuation and five-board diagnostic P3
+
+- TODO task ID：`VDC-EVID-001`、`VDC-VERIFY-001`、`VDC-OBS-001`。
+- 状态：IN PROGRESS。
+- 日期：2026-09-08。
+- 变更：commit `d126fa2` 增加 debug-only admission continuation。recoverable evidence
+  gate 的 raw code/slot/evidence sequence 由 VDC snapshot 保留，但该样本不进入 PI/DCO，
+  不改变 accepted/rejected sample count；结构性 identity/schedule/window contract 错误仍
+  严格拒绝。SCPI `DPLL:OVERRide` 使用 Core0 单槽 mailbox，TRN-03 只在同时指定
+  `--diagnostic-continue` 和 `--dpll-provisional` 时启用，并记录 requested/applied
+  generation。debug 状态下 RefMem 不发布 formal locked flag。
+- 软件验证：VDC domain host C、RefMem VDC vector host C，以及 DPLL/NO5/SyncIO/TRN-03/P3
+  Python 回归均通过；release build 和 staged hardware-acceptance fingerprint gate 均通过。
+- 构建与 P3：五板 OTA 和默认 quick P0--P3/TRN-03 的 current-source diagnostic receipt
+  位于 `out/HardwareAcceptance/20260908/vdc-debug-admission-p3-20260908/`。四板 TRN-03
+  realtime/closed-loop、TDMA preflight 和 process-image soak 通过；每块 ring Node 的
+  debug admission 都读回 `ACTIVE`，requested/applied generation 一致，TDMA receive 与
+  transport reject 增量为零。NO1--NO4 internal DPLL SD capture 已保留。
+- 失败与边界：该 receipt 的 strict gates 仍未闭合。NO5 raw waveform 有 SD segment drop，
+  未产生完整 phase round；quick flow 也超过既有时间预算。两项原始原因保留在
+  `diagnostic.json`、NO5 waveform segment 和 SVG 中，不能用于宣称收敛或
+  `FORMAL_LOCKED`，也不应归因于 DPLL admission 或作为屏蔽 TDMA 节点的理由。
+- 下一 gate：`VDC-OBS-001`。先完成 runtime producer-to-Core0 bounded batch 接口，再推进
+  `VDC-OBS-002` 的分段流式 SD 写入，消除 NO5 长期观测的 storage backpressure/drop
+  缺口；之后才重新评估 `VDC-EVID-001`、`VDC-SERVO-002` 和 `VDC-VERIFY-001`。
 
 ### VDC-PROGRESS-20260907-005 — T3 matrix identity and Windows progress publish recovery
 

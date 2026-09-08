@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
 Related: `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_ARCHITECTURE.md`
-Last updated: 2026-09-07
+Last updated: 2026-09-08
 
 本文是 HAOFV Virtual Distributed Clock（VDC）内部基础主域的稳定架构事实源。
 VDC 负责多节点共同时间、offset/rate 估计、质量 promotion 和时间快照发布；不拥有
@@ -163,6 +163,26 @@ generation、清空旧 acquisition/integrator history，并以 `COEFficient?` �
 rate correction 和 reject 计数。格式错误可拒绝，数值异常在 debug profile 不拒绝；
 调参器必须按残差/频率/拒绝计数评分并回退，不得把 `LOCKED` 或较低 residual 自动
 写成 `FORMAL_LOCKED`。
+
+### Debug admission continuation
+
+调试态可通过 `SYSTem:SYNC:VDC:DPLL:OVERRide 1` 将一条可恢复的 evidence gate
+失败记录为 continuation，而不是把 TDMA 节点或 DPLL 调试流程硬停。SCPI 只写一个
+不可覆盖的 Core0 intent；Core1 只在 DPLL service boundary 应用它。host 必须将 set
+响应返回的 generation 与 `OVERRide?` 的 requested/applied generation 对账，只有
+`ACTIVE` 且两者相等时才开始调试观测。
+
+continuation 仅适用于 `PAYLOAD_NOT_DPLL_SAMPLE`、`TIMESTAMP_NOT_ELIGIBLE`、
+`TIMESTAMP_RESOLUTION`、`WINDOW_BOUND` 和 `BAD_FRAME` 等可恢复 gate。原始 gate 的
+code、slot 和 evidence sequence 保留在 debug snapshot；该样本不进入 PI/DCO，不增加
+accepted 或 rejected sample count，且不改变 TDMA 的 UP/DOWN、process-image 或 FIFO
+生命周期。bad argument/schedule、CRC/epoch、source/reference identity、window class 和
+payload/window contract 等结构性错误仍严格拒绝。
+
+debug continuation 不是产品 admission：它不能把 `LOCKED` 提升为 `FORMAL_LOCKED`，
+并且 RefMem 不得发布 `REFMEM_VECTOR_FLAG_LOCKED`。因此调试读回中的 product-visible
+reject 字段可保持 PASS 以支持有界采集和调参，但原始 debug gate 与 continuation count
+必须随证据保存；产品 profile 禁用该路径并恢复严格拒绝。
 
 DPLL 失锁、phase residual 超限或 DPLL phase 自身的 WCET/deadline 计数是调试反馈，
 不是 TDMA 节点故障。只要 TDMA UP/DOWN、process-image、FIFO 和基础收发连续性仍然
