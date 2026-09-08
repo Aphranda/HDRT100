@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_TODO.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`
-Last updated: 2026-09-05
+Last updated: 2026-09-08
 
 本文档维护 TDMA foundation 的独立待办。这里记录影响上/下行 TDMA、ring runtime、payload registry、adapter、completion、quality、HAOFV system node 和 HIL 验收的事项。
 
@@ -105,6 +105,7 @@ TDMA WCET/波形基线。NO5 环外观测只属于后续 DPLL/VDC gate。任何�
 | TDMA-HIL-003 | 四节点闭环与 NO5 观测验收 | PENDING | 先以四节点短帧稳定作为 TDMA gate；随后 NO5 只读观测指定间隔/同时触发，VDC 接收 compact output，DPLL lock evidence 可追溯；波形诊断不侵入实时 phase。 |
 | TDMA-DPLL-007 | DPLL 故障注入、holdover、relock 与长稳 | PENDING | 单链路错误、timestamp invalid、matrix generation 变化和 recovery 注入均 fail-closed；恢复后重新取得 eligible 样本并锁相，长稳无 TDMA 时序回归。 |
 | TDMA-DPLL-008 | DPLL residual SD 原始证据与离线 SVG | IN PROGRESS | `vdc_dpll_manager_dpll_capture_*` 只在 SRAM 固定追加；STOP 后由 Core0/StorageAO 写 SD，主机下载并经 decoder/analyzer 生成逐节点曲线；不得进入 TDMA/Core1 实时负载，待四板/NO5 OTA/HIL 复验。 |
+| TDMA-DPLL-009 | DPLL 启动 profile 持久化与保守默认 | IN PROGRESS | 启动只接受 CRC 有效的 Flash profile；空白、旧版本或缺 profile 时先写入并读回保守 v2 默认值，失败不得启动。运行时调参仅在显式 `DPLL:STORe` 后影响下次启动。 |
 | TDMA-REL-001 | ACK/fence/retry 和长期稳定性策略 | PENDING | 原始错误率先收敛，再以有界重发/修复完成 EtherCAT-style 验收。 |
 | TDMA-REL-002 | 原 Node 位置 recovery 双 buffer 与固定预算 | IN PROGRESS | Core0 准备数据、Core1 在固定窗口选择并装载 FIFO、PIO 发送；双 buffer 交替、每周期最多一帧、独立静态预算、ACK/有界 retry/backpressure/fail-closed 和双/四/八节点 HIL 证据齐全。 |
 | TDMA-T2-001 | REFMEM + 部分控制后的 T2 最小载荷预算 | PENDING | 不超固定 SHORT/body 和 phase WCET，编译期拒绝 overcommit。 |
