@@ -847,6 +847,61 @@ static void vdc_domain_record_rejected_sample(
     vdc_domain_refresh_quality_state(context);
 }
 
+static bool vdc_domain_debug_gate_recoverable(uint32_t gate_code)
+{
+    switch ((vdc_domain_gate_code_t)gate_code) {
+    case VDC_DOMAIN_GATE_PAYLOAD_NOT_DPLL_SAMPLE:
+    case VDC_DOMAIN_GATE_TIMESTAMP_NOT_ELIGIBLE:
+    case VDC_DOMAIN_GATE_TIMESTAMP_RESOLUTION:
+    case VDC_DOMAIN_GATE_WINDOW_BOUND:
+    case VDC_DOMAIN_GATE_BAD_FRAME:
+        return true;
+    case VDC_DOMAIN_GATE_PASS:
+    case VDC_DOMAIN_GATE_DISABLED:
+    case VDC_DOMAIN_GATE_BAD_ARGUMENT:
+    case VDC_DOMAIN_GATE_BAD_SCHEDULE:
+    case VDC_DOMAIN_GATE_SCHEDULE_CRC_MISMATCH:
+    case VDC_DOMAIN_GATE_EPOCH_MISMATCH:
+    case VDC_DOMAIN_GATE_REFERENCE_MISMATCH:
+    case VDC_DOMAIN_GATE_SOURCE_OUT_OF_RANGE:
+    case VDC_DOMAIN_GATE_BAD_WINDOW_CLASS:
+    case VDC_DOMAIN_GATE_PAYLOAD_WINDOW_FORBIDDEN:
+    default:
+        return false;
+    }
+}
+
+/* Debug continuation is deliberately not a hidden acceptance.  The failed
+ * evidence stays out of the PI/DCO path and the raw gate is retained in the
+ * DPLL snapshot.  The product rejection fields remain PASS so debug tooling
+ * can continue collecting and tuning without treating a recoverable sample
+ * miss as a node failure. */
+static void vdc_domain_record_debug_continue(
+    vdc_domain_context_t *context,
+    const vdc_gate_result_t *gate)
+{
+    if (context == NULL || gate == NULL) {
+        return;
+    }
+    if (context->dpll.debug_continue_count != UINT32_MAX) {
+        context->dpll.debug_continue_count++;
+    }
+    context->dpll.last_debug_gate_code = gate->reject_code;
+    context->dpll.last_debug_gate_slot = gate->reject_slot;
+    context->dpll.last_debug_gate_evidence = gate->reject_evidence;
+    context->dpll.last_reject_code = VDC_DOMAIN_GATE_PASS;
+    context->quality.last_reject_code = VDC_DOMAIN_GATE_PASS;
+    context->quality.gate_reject_code = VDC_DOMAIN_GATE_PASS;
+    context->quality.gate_reject_slot = 0u;
+    context->quality.gate_reject_evidence = 0u;
+    context->gate.passed = 1u;
+    context->gate.reject_code = VDC_DOMAIN_GATE_PASS;
+    context->gate.reject_slot = 0u;
+    context->gate.reject_evidence = 0u;
+    context->dpll.update_seq++;
+    vdc_domain_refresh_quality_state(context);
+}
+
 static void vdc_domain_reset_lock_acquisition(vdc_domain_context_t *context)
 {
     if (context == NULL) {
@@ -1367,6 +1422,40 @@ bool vdc_domain_apply_debug_servo_profile(
     context->dco.slew_limit_ppb = updated.sanity_freq_limit_ppb;
     context->dco.servo_profile_crc32 = updated.servo_profile_crc32;
     context->dco.lock_state = context->dpll.state;
+    vdc_domain_refresh_quality_state(context);
+    return true;
+}
+
+bool vdc_domain_set_debug_continue(vdc_domain_context_t *context,
+                                   bool enabled)
+{
+    if (context == NULL) {
+        return false;
+    }
+    const uint32_t next_enabled = enabled ? 1u : 0u;
+    if (context->dpll.debug_continue_enabled == next_enabled) {
+        return true;
+    }
+
+    context->dpll.debug_continue_enabled = next_enabled;
+    context->dpll.debug_continue_generation++;
+    if (context->dpll.debug_continue_generation == 0u) {
+        context->dpll.debug_continue_generation = 1u;
+    }
+    context->dpll.debug_continue_count = 0u;
+    context->dpll.last_debug_gate_code = VDC_DOMAIN_GATE_PASS;
+    context->dpll.last_debug_gate_slot = 0u;
+    context->dpll.last_debug_gate_evidence = 0u;
+    context->dpll.last_reject_code = VDC_DOMAIN_GATE_PASS;
+    context->quality.last_reject_code = VDC_DOMAIN_GATE_PASS;
+    context->quality.gate_reject_code = VDC_DOMAIN_GATE_PASS;
+    context->quality.gate_reject_slot = 0u;
+    context->quality.gate_reject_evidence = 0u;
+    context->gate.passed = 1u;
+    context->gate.reject_code = VDC_DOMAIN_GATE_PASS;
+    context->gate.reject_slot = 0u;
+    context->gate.reject_evidence = 0u;
+    context->dpll.update_seq++;
     vdc_domain_refresh_quality_state(context);
     return true;
 }
@@ -2627,6 +2716,10 @@ static bool vdc_domain_activate_tdma_configuration_checked(
 
     const uint32_t next_run_id = context->clock.run_id + 1u;
     const uint32_t ready = context->ready;
+    const uint32_t debug_continue_enabled =
+        context->dpll.debug_continue_enabled;
+    const uint32_t debug_continue_generation =
+        context->dpll.debug_continue_generation;
     context->schedule = *schedule;
     context->timestamp_dictionary = *dictionary;
     context->path_delay = *path_delay;
@@ -2644,6 +2737,8 @@ static bool vdc_domain_activate_tdma_configuration_checked(
                                      : VDC_DOMAIN_LOCK_OFF;
     context->dpll.schedule_crc32 = schedule->schedule_crc32;
     context->dpll.servo_profile_crc32 = context->servo.servo_profile_crc32;
+    context->dpll.debug_continue_enabled = debug_continue_enabled;
+    context->dpll.debug_continue_generation = debug_continue_generation;
     vdc_domain_init_quality(context);
     vdc_domain_default_dco_control(&context->dco,
                                    &context->clock,
@@ -2831,6 +2926,9 @@ static bool vdc_domain_prepare_tdma_evidence_checked(
         preparation->schedule_crc32 = context->schedule.schedule_crc32;
         preparation->dpll_update_seq = context->dpll.update_seq;
         preparation->gate = gate;
+        preparation->continued =
+            context->dpll.debug_continue_enabled != 0u &&
+            vdc_domain_debug_gate_recoverable(gate.reject_code) ? 1u : 0u;
         return true;
     }
 
@@ -2893,6 +2991,12 @@ bool VDC_DOMAIN_TIME_CRITICAL(vdc_domain_apply_prepared_tdma_evidence_state)(
     const vdc_gate_result_t gate = preparation->gate;
     context->gate = gate;
     if (preparation->accepted == 0u) {
+        if (preparation->continued != 0u) {
+            vdc_domain_record_debug_continue(context, &gate);
+            preparation->applied = 1u;
+            preparation->post_apply_dpll_update_seq = context->dpll.update_seq;
+            return true;
+        }
         const bool reacquire =
             vdc_domain_reject_requires_reacquire(gate.reject_code);
         context->dpll.rejected_sample_count++;
@@ -2997,6 +3101,9 @@ bool VDC_DOMAIN_TIME_CRITICAL(vdc_domain_finalize_prepared_tdma_evidence)(
         return false;
     }
     if (preparation->accepted == 0u) {
+        if (preparation->continued != 0u) {
+            return true;
+        }
         vdc_domain_record_rejected_sample(
             context, evidence, &preparation->gate);
         return true;
@@ -3030,7 +3137,8 @@ static bool vdc_domain_submit_tdma_evidence_checked(
     return vdc_domain_prepare_tdma_evidence_checked(
                context, evidence, validate_static_schedule, &preparation) &&
            vdc_domain_apply_prepared_tdma_evidence(
-               context, evidence, &preparation, &accepted) && accepted;
+               context, evidence, &preparation, &accepted) &&
+           (accepted || preparation.continued != 0u);
 }
 
 bool vdc_domain_submit_tdma_evidence(
@@ -3049,7 +3157,8 @@ bool vdc_domain_submit_active_tdma_evidence(
     return vdc_domain_prepare_active_tdma_evidence(
                context, evidence, &preparation) &&
            vdc_domain_apply_prepared_tdma_evidence(
-               context, evidence, &preparation, &accepted) && accepted;
+               context, evidence, &preparation, &accepted) &&
+           (accepted || preparation.continued != 0u);
 }
 
 bool vdc_domain_prepare_active_tdma_evidence(
@@ -3118,7 +3227,12 @@ bool vdc_domain_submit_compact_observation(
             admission_window_width_ns,
             admission_guard_before_ns,
             admission_guard_after_ns,
-            &gate)) {
+        &gate)) {
+        if (context->dpll.debug_continue_enabled != 0u &&
+            vdc_domain_debug_gate_recoverable(gate.reject_code)) {
+            vdc_domain_record_debug_continue(context, &gate);
+            return true;
+        }
         context->gate = gate;
         context->dpll.rejected_sample_count++;
         context->dpll.last_reject_code = gate.reject_code;

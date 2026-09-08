@@ -37,6 +37,7 @@ import trn03_closed_loop as trn03  # noqa: E402
 from tools.scpi_common.scpi_serial import scpi_response_matches_command  # noqa: E402
 from trn03_closed_loop import (  # noqa: E402
     ArmRejectedError,
+    activate_dpll_debug_admission,
     arm_with_evidence,
     checked_stopped_ring_action,
     counter_deltas,
@@ -48,6 +49,7 @@ from trn03_closed_loop import (  # noqa: E402
     realtime_gate_passes,
     running_handoff_allows_leave_running,
     running_handoff_errors,
+    parse_dpll_debug_admission_status,
     scalar_readback_with_retry,
     startup_barrier_interval_errors,
     u32_delta,
@@ -308,6 +310,59 @@ def test_arm_status_query_accepts_scalar_success() -> None:
 def test_ring_diagnostic_query_accepts_scalar_success() -> None:
     assert scpi_response_matches_command(
         "SYSTem:TDMA:RING:DIAGnostic?", "1")
+
+
+def test_debug_admission_waits_for_the_requested_core1_generation(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    responses = iter((
+        '1,"DEBUG_ADMISSION","PENDING",0,0,0,0,7,6',
+        '1,"DEBUG_ADMISSION","ACTIVE",2,11,3,19,7,7',
+    ))
+    monkeypatch.setattr(
+        trn03, "checked_action", lambda board, command, args: {
+            "command": command,
+            "response": '"OK",1,7',
+            "errors_drained_before": ['0,"No error"'],
+            "error_after": '0,"No error"',
+        })
+    monkeypatch.setattr(
+        trn03, "board_command",
+        lambda board, command, args: next(responses))
+    monkeypatch.setattr(trn03.time, "sleep", lambda delay: None)
+    args = type("Args", (), {"arm_wait": 1.0})()
+
+    evidence = activate_dpll_debug_admission(FakeBoard(), args)
+
+    assert evidence["action"] == "DPLL_DEBUG_ADMISSION"
+    assert evidence["requested_generation"] == 7
+    assert evidence["readback_attempt_count"] == 2
+    assert evidence["readback"]["state"] == "ACTIVE"
+    assert evidence["readback"]["applied_generation"] == 7
+    assert evidence["rejected_readbacks"] == [{
+        "response": '1,"DEBUG_ADMISSION","PENDING",0,0,0,0,7,6',
+        "readback": {
+            "raw": '1,"DEBUG_ADMISSION","PENDING",0,0,0,0,7,6',
+            "enabled": 1,
+            "mode": "DEBUG_ADMISSION",
+            "state": "PENDING",
+            "continued_count": 0,
+            "last_gate_code": 0,
+            "last_gate_slot": 0,
+            "last_gate_evidence": 0,
+            "requested_generation": 7,
+            "applied_generation": 6,
+        },
+        "error": "mailbox not active at requested generation",
+    }]
+
+
+def test_debug_admission_status_rejects_invalid_contract() -> None:
+    with pytest.raises(RuntimeError, match="field count 8"):
+        parse_dpll_debug_admission_status(
+            '1,"DEBUG_ADMISSION","ACTIVE",0,0,0,0,3', "node0")
+    with pytest.raises(RuntimeError, match="invalid debug-admission state"):
+        parse_dpll_debug_admission_status(
+            '1,"OTHER","ACTIVE",0,0,0,0,3,3', "node0")
 
 
 def test_wait_runtime_stopped_requires_core1_generation_ack(monkeypatch) -> None:

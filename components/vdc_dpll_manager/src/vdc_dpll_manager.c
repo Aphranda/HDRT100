@@ -128,6 +128,11 @@ static vdc_servo_profile_t s_debug_servo_tune_profile;
 static volatile uint32_t s_debug_servo_tune_guard;
 static volatile uint32_t s_debug_servo_tune_requested_generation;
 static volatile uint32_t s_debug_servo_tune_applied_generation;
+/* Core0 only stages this one-slot policy request. Core1 is the sole writer
+ * of the domain admission state, before it accepts another evidence beat. */
+static volatile uint32_t s_debug_continue_requested_enabled;
+static volatile uint32_t s_debug_continue_requested_generation;
+static volatile uint32_t s_debug_continue_applied_generation;
 static vdc_dpll_manager_dpll_capture_record_t
     s_dpll_capture_records[VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES];
 static bool s_dpll_capture_armed;
@@ -528,12 +533,17 @@ static bool vdc_dpll_manager_finalize_ring_evidence(void)
             &s_vdc_domain,
             &s_vdc_ring_pending_evidence,
             &s_vdc_ring_preparation);
+    const bool continued = s_vdc_ring_preparation.continued != 0u;
     s_vdc_ring_finalization_pending = false;
     memset(&s_vdc_ring_preparation, 0, sizeof(s_vdc_ring_preparation));
     if (finalized && accepted) {
         status.accepted_count++;
         status.last_result =
             VDC_DPLL_MANAGER_RING_OBSERVER_SUBMIT_ACCEPTED;
+    } else if (finalized && continued) {
+        status.continued_count++;
+        status.last_result =
+            VDC_DPLL_MANAGER_RING_OBSERVER_DEBUG_CONTINUED;
     } else {
         status.rejected_count++;
         status.last_result =
@@ -557,6 +567,7 @@ static bool vdc_dpll_manager_compute_dco_phase_pulse_deadline(
     uint32_t pulse_period_ns,
     uint64_t *target_local_ns);
 static bool vdc_dpll_manager_apply_pending_debug_servo_tune(void);
+static bool vdc_dpll_manager_apply_pending_debug_continue(void);
 
 static void vdc_dpll_manager_observation_self_test_service(void)
 {
@@ -1424,6 +1435,9 @@ bool vdc_dpll_manager_init(void)
     s_debug_servo_tune_guard = 0u;
     s_debug_servo_tune_requested_generation = 0u;
     s_debug_servo_tune_applied_generation = 0u;
+    s_debug_continue_requested_enabled = 0u;
+    s_debug_continue_requested_generation = 0u;
+    s_debug_continue_applied_generation = 0u;
     memset(s_dpll_capture_records, 0, sizeof(s_dpll_capture_records));
     s_dpll_capture_armed = false;
     s_dpll_capture_complete = false;
@@ -1596,6 +1610,82 @@ void vdc_dpll_manager_get_debug_servo_tune_status(
             return;
         }
     }
+}
+
+bool vdc_dpll_manager_request_debug_continue(bool enabled,
+                                             uint32_t *generation)
+{
+    const uint32_t requested = __atomic_load_n(
+        &s_debug_continue_requested_generation, __ATOMIC_ACQUIRE);
+    const uint32_t applied = __atomic_load_n(
+        &s_debug_continue_applied_generation, __ATOMIC_ACQUIRE);
+    if (requested != applied) {
+        return false;
+    }
+
+    uint32_t next = requested + 1u;
+    if (next == 0u) {
+        next = 1u;
+    }
+    __atomic_store_n(&s_debug_continue_requested_enabled,
+                     enabled ? 1u : 0u,
+                     __ATOMIC_RELAXED);
+    __atomic_store_n(&s_debug_continue_requested_generation,
+                     next,
+                     __ATOMIC_RELEASE);
+    if (generation != NULL) {
+        *generation = next;
+    }
+    return true;
+}
+
+void vdc_dpll_manager_get_debug_admission_status(
+    vdc_dpll_manager_debug_admission_status_t *status)
+{
+    if (status == NULL) {
+        return;
+    }
+    memset(status, 0, sizeof(*status));
+    status->requested_generation = __atomic_load_n(
+        &s_debug_continue_requested_generation, __ATOMIC_ACQUIRE);
+    status->applied_generation = __atomic_load_n(
+        &s_debug_continue_applied_generation, __ATOMIC_ACQUIRE);
+    status->pending = status->requested_generation !=
+                      status->applied_generation;
+
+    vdc_domain_snapshot_t snapshot;
+    if (vdc_dpll_manager_get_snapshot(&snapshot)) {
+        status->enabled = snapshot.dpll.debug_continue_enabled != 0u;
+        status->continued_count = snapshot.dpll.debug_continue_count;
+        status->last_gate_code = snapshot.dpll.last_debug_gate_code;
+        status->last_gate_slot = snapshot.dpll.last_debug_gate_slot;
+        status->last_gate_evidence =
+            snapshot.dpll.last_debug_gate_evidence;
+    } else {
+        status->enabled = __atomic_load_n(
+            &s_debug_continue_requested_enabled, __ATOMIC_ACQUIRE) != 0u &&
+            !status->pending;
+    }
+}
+
+static bool vdc_dpll_manager_apply_pending_debug_continue(void)
+{
+    const uint32_t requested = __atomic_load_n(
+        &s_debug_continue_requested_generation, __ATOMIC_ACQUIRE);
+    const uint32_t applied = __atomic_load_n(
+        &s_debug_continue_applied_generation, __ATOMIC_ACQUIRE);
+    if (requested == 0u || requested == applied) {
+        return false;
+    }
+    const bool enabled = __atomic_load_n(
+        &s_debug_continue_requested_enabled, __ATOMIC_ACQUIRE) != 0u;
+    if (!vdc_domain_set_debug_continue(&s_vdc_domain, enabled)) {
+        return false;
+    }
+    __atomic_store_n(&s_debug_continue_applied_generation,
+                     requested,
+                     __ATOMIC_RELEASE);
+    return true;
 }
 
 static bool vdc_dpll_manager_apply_pending_debug_servo_tune(void)
@@ -2335,7 +2425,8 @@ void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_fb_service)(void)
     /* Complete already-admitted domain work before accepting another ring
      * sample. This keeps one bounded four-beat pipeline at the 4 ms evidence
      * cadence: prepare, servo, state/finalize, service/publish. */
-    if (vdc_dpll_manager_apply_pending_debug_servo_tune()) {
+    if (vdc_dpll_manager_apply_pending_debug_continue() ||
+        vdc_dpll_manager_apply_pending_debug_servo_tune()) {
         vdc_dpll_manager_publish_runtime_snapshot_locked();
         return;
     }

@@ -685,6 +685,99 @@ def activate_dpll_provisional(board: Board, args: argparse.Namespace,
     }
 
 
+def parse_dpll_debug_admission_status(
+        raw: str, label: str) -> dict[str, Any]:
+    """Parse the mailbox-backed DPLL debug-admission status exactly."""
+    fields = [value.strip().strip('"') for value in raw.split(",")]
+    if len(fields) != 9:
+        raise RuntimeError(
+            f"{label}: debug-admission readback field count {len(fields)}, "
+            f"expected 9: {raw!r}")
+    enabled_text, mode, state = fields[:3]
+    if enabled_text not in ("0", "1"):
+        raise RuntimeError(
+            f"{label}: invalid debug-admission enabled value {raw!r}")
+    if mode != "DEBUG_ADMISSION" or state not in ("IDLE", "PENDING", "ACTIVE"):
+        raise RuntimeError(
+            f"{label}: invalid debug-admission state {raw!r}")
+    try:
+        (continued_count, last_gate_code, last_gate_slot,
+         last_gate_evidence, requested_generation,
+         applied_generation) = [int(value, 0) for value in fields[3:]]
+    except ValueError as exc:
+        raise RuntimeError(
+            f"{label}: invalid debug-admission readback {raw!r}") from exc
+    return {
+        "raw": raw,
+        "enabled": int(enabled_text, 0),
+        "mode": mode,
+        "state": state,
+        "continued_count": continued_count,
+        "last_gate_code": last_gate_code,
+        "last_gate_slot": last_gate_slot,
+        "last_gate_evidence": last_gate_evidence,
+        "requested_generation": requested_generation,
+        "applied_generation": applied_generation,
+    }
+
+
+def activate_dpll_debug_admission(
+        board: Board, args: argparse.Namespace) -> dict[str, Any]:
+    """Enable debug continuation and prove Core1 has applied its mailbox."""
+    action = checked_action(
+        board, "SYSTem:SYNC:VDC:DPLL:OVERRide 1", args)
+    fields = [value.strip().strip('"') for value in
+              str(action["response"]).split(",")]
+    if len(fields) != 3 or fields[0].upper() != "OK" or fields[1] != "1":
+        raise RuntimeError(
+            f"{board.address}: invalid debug-admission action response "
+            f"{action['response']!r}")
+    try:
+        requested_generation = int(fields[2], 0)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"{board.address}: invalid debug-admission generation "
+            f"{action['response']!r}") from exc
+    if requested_generation <= 0:
+        raise RuntimeError(
+            f"{board.address}: invalid debug-admission generation "
+            f"{requested_generation}")
+
+    deadline = time.monotonic() + float(args.arm_wait)
+    rejected_readbacks: list[dict[str, Any]] = []
+    last: dict[str, Any] | None = None
+    while time.monotonic() < deadline:
+        raw = board_command(board, "SYSTem:SYNC:VDC:DPLL:OVERRide?", args)
+        try:
+            status = parse_dpll_debug_admission_status(raw, board.address)
+        except RuntimeError as exc:
+            rejected_readbacks.append({"response": raw, "error": str(exc)})
+        else:
+            last = status
+            if (status["enabled"] == 1 and status["state"] == "ACTIVE" and
+                    status["requested_generation"] == requested_generation and
+                    status["applied_generation"] == requested_generation):
+                return {
+                    "node": board.address,
+                    "action": "DPLL_DEBUG_ADMISSION",
+                    **action,
+                    "requested_generation": requested_generation,
+                    "readback_attempt_count": len(rejected_readbacks) + 1,
+                    "rejected_readbacks": rejected_readbacks,
+                    "readback": status,
+                }
+            rejected_readbacks.append({
+                "response": raw,
+                "readback": status,
+                "error": "mailbox not active at requested generation",
+            })
+        time.sleep(0.05)
+    raise RuntimeError(
+        f"{board.address}: debug-admission mailbox did not become ACTIVE "
+        f"at generation {requested_generation}; last={last}; "
+        f"rejected_readbacks={rejected_readbacks}")
+
+
 def physical_snapshot(board: Board, args: argparse.Namespace) -> dict[str, int]:
     return parse_snapshot(
         board_command(board, "SYSTem:SYNC:VDC:TDMA:PHYS?", args),
@@ -1646,6 +1739,8 @@ def main() -> int:
         "sck_duty_tolerance_percent": args.sck_duty_tolerance_percent,
         "stage": args.stage,
         "dpll_provisional": args.dpll_provisional,
+        "dpll_debug_admission": bool(
+            args.dpll_provisional and args.diagnostic_continue),
         "leave_running_requested": args.leave_running,
     }
     if args.dry_run:
@@ -1857,6 +1952,9 @@ def main() -> int:
             for board in ordered:
                 actions.append(
                     activate_dpll_provisional(board, args, config))
+        if args.dpll_provisional and args.diagnostic_continue:
+            for board in ordered:
+                actions.append(activate_dpll_debug_admission(board, args))
         if dpll_schedule_required:
             dpll_schedule_before = {
                 board.address: read_tdma_schedule(board, args)

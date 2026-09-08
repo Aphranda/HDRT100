@@ -2712,6 +2712,79 @@ static int test_debug_servo_tune_accepts_extreme_profile_and_integrator(void)
     return failed;
 }
 
+static int test_debug_admission_continues_recoverable_gate(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_domain_snapshot_t snapshot;
+    vdc_tdma_timestamp_evidence_t evidence;
+
+    failed += expect_bool("init debug admission", vdc_domain_init(&context), true);
+    vdc_domain_set_ready(&context, true);
+    evidence = make_hardware_sample(&context.schedule, 1u, 10);
+    failed += expect_bool("debug admission baseline accepted",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    const uint32_t accepted_before = snapshot.dpll.accepted_sample_count;
+    const uint32_t clock_before = snapshot.clock.model_seq;
+    const uint32_t dco_before = snapshot.dco.dco_update_seq;
+
+    failed += expect_bool("enable debug admission continue",
+                          vdc_domain_set_debug_continue(&context, true), true);
+    evidence = make_hardware_sample(&context.schedule, 2u, 0);
+    evidence.expected_window_start_ns++;
+    failed += expect_bool("window bound continues during debug",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("debug admission enabled",
+                         snapshot.dpll.debug_continue_enabled, 1u);
+    failed += expect_u32("debug window continues once",
+                         snapshot.dpll.debug_continue_count, 1u);
+    failed += expect_u32("debug window raw gate retained",
+                         snapshot.dpll.last_debug_gate_code,
+                         VDC_DOMAIN_GATE_WINDOW_BOUND);
+    failed += expect_u32("debug window is not product reject",
+                         snapshot.dpll.rejected_sample_count, 0u);
+    failed += expect_u32("debug window reports pass",
+                         snapshot.dpll.last_reject_code,
+                         VDC_DOMAIN_GATE_PASS);
+    failed += expect_u32("debug window leaves accepted count",
+                         snapshot.dpll.accepted_sample_count, accepted_before);
+    failed += expect_u32("debug window leaves clock untouched",
+                         snapshot.clock.model_seq, clock_before);
+    failed += expect_u32("debug window leaves dco untouched",
+                         snapshot.dco.dco_update_seq, dco_before);
+
+    evidence = make_hardware_sample(&context.schedule, 3u, 0);
+    evidence.reference_slot_id = VDC_DOMAIN_NODE_COUNT;
+    failed += expect_bool("identity mismatch remains rejected in debug",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          false);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("identity mismatch records reject",
+                         snapshot.dpll.rejected_sample_count, 1u);
+    failed += expect_u32("identity mismatch remains visible",
+                         snapshot.dpll.last_reject_code,
+                         VDC_DOMAIN_GATE_REFERENCE_MISMATCH);
+
+    failed += expect_bool("disable debug admission continue",
+                          vdc_domain_set_debug_continue(&context, false), true);
+    evidence = make_hardware_sample(&context.schedule, 4u, 0);
+    evidence.expected_window_start_ns++;
+    failed += expect_bool("window bound rejects after debug disabled",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          false);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("strict window increments rejects",
+                         snapshot.dpll.rejected_sample_count, 2u);
+    failed += expect_u32("strict window visible",
+                         snapshot.dpll.last_reject_code,
+                         VDC_DOMAIN_GATE_WINDOW_BOUND);
+    return failed;
+}
+
 static int test_quality_age_updates_on_service(void)
 {
     int failed = 0;
@@ -3291,6 +3364,7 @@ int main(void)
     failed += test_acquisition_gate_covers_full_cycle();
     failed += test_dpll_large_step_does_not_fine_lock_same_sample();
     failed += test_debug_servo_tune_accepts_extreme_profile_and_integrator();
+    failed += test_debug_admission_continues_recoverable_gate();
     failed += test_ring_observer_expands_correlated_feedback();
     failed += test_provisional_path_matrix_is_servo_only();
     if (failed != 0) {

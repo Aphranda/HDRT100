@@ -1203,7 +1203,7 @@ static void DISTRIBUTED_REFMEM_TIME_CRITICAL(
     if (distributed_refmem_vector_hardware_evidence_valid(snapshot)) {
         payload->flags |= REFMEM_VECTOR_FLAG_HARDWARE_EVIDENCE;
     }
-    if (!provisional &&
+    if (!provisional && snapshot->dpll.debug_continue_enabled == 0u &&
         snapshot->dpll.state == VDC_DOMAIN_LOCK_LOCKED) {
         payload->flags |= REFMEM_VECTOR_FLAG_LOCKED;
     }
@@ -1304,7 +1304,7 @@ static void DISTRIBUTED_REFMEM_TIME_CRITICAL(
     if (distributed_refmem_vector_hardware_evidence_valid(snapshot)) {
         payload->flags |= REFMEM_VECTOR_FLAG_HARDWARE_EVIDENCE;
     }
-    if (!provisional &&
+    if (!provisional && snapshot->dpll.debug_continue_enabled == 0u &&
         snapshot->dpll.state == VDC_DOMAIN_LOCK_LOCKED) {
         payload->flags |= REFMEM_VECTOR_FLAG_LOCKED;
     }

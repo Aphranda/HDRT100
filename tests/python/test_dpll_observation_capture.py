@@ -57,6 +57,31 @@ def test_debug_dpll_tune_and_filter_responses_preserve_signed_values() -> None:
         -65536, 4096, 0, 0, 4294967295)
 
 
+def test_debug_admission_override_is_explicit_and_mailbox_bound() -> None:
+    assert scpi_response_matches_command(
+        "SYSTem:SYNC:VDC:DPLL:OVERRide", '"OK",1,7'
+    )
+    assert scpi_response_matches_command(
+        "SYSTem:SYNC:VDC:DPLL:OVERRide?",
+        '1,"DEBUG_ADMISSION","ACTIVE",3,11,2,99,7,7',
+    )
+    manager = Path(
+        "components/vdc_dpll_manager/src/vdc_dpll_manager.c"
+    ).read_text(encoding="utf-8")
+    domain = Path("components/vdc_domain/src/vdc_domain.c").read_text(
+        encoding="utf-8"
+    )
+    refmem = Path(
+        "components/distributed_refmem/src/distributed_refmem.c"
+    ).read_text(encoding="utf-8")
+    assert "s_debug_continue_requested_generation" in manager
+    assert "vdc_dpll_manager_apply_pending_debug_continue" in manager
+    assert "vdc_domain_set_debug_continue" in manager
+    assert "vdc_domain_debug_gate_recoverable" in domain
+    assert "vdc_domain_record_debug_continue" in domain
+    assert "snapshot->dpll.debug_continue_enabled == 0u" in refmem
+
+
 def test_trace_save_response_rejects_non_capture_tuple() -> None:
     assert not scpi_response_matches_command(
         "SYSTem:SYNC:VDC:DPLL:TRACe:SAVE", '"OK",3,"/traces/run/no1.bin"'

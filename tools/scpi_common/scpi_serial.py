@@ -44,6 +44,10 @@ COMPOSITE_ACK_HEADERS = {
     "SYSTEM:SYNC:VDC:DPLL:FILTER?",
     "SYST:SYNC:VDC:DPLL:COEFFICIENT?",
     "SYSTEM:SYNC:VDC:DPLL:COEFFICIENT?",
+    "SYST:SYNC:VDC:DPLL:OVERRIDE",
+    "SYSTEM:SYNC:VDC:DPLL:OVERRIDE",
+    "SYST:SYNC:VDC:DPLL:OVERRIDE?",
+    "SYSTEM:SYNC:VDC:DPLL:OVERRIDE?",
     "SYST:SYNC:VDC:OBSERVER:WAVEFORM:ARM",
     "SYSTEM:SYNC:VDC:OBSERVER:WAVEFORM:ARM",
     "SYST:SYNC:VDC:OBSERVER:WAVEFORM:STOP",
@@ -331,6 +335,19 @@ def scpi_response_matches_command(command: str, line: str) -> bool:
         return re.fullmatch(
             r'\d+,\s*\d+,\s*-?\d+,\s*-?\d+,\s*-?\d+,\s*-?\d+,\s*\d+,\s*\d+',
             text,
+        ) is not None
+    if header in {
+            "SYST:SYNC:VDC:DPLL:OVERRIDE",
+            "SYSTEM:SYNC:VDC:DPLL:OVERRIDE",
+    }:
+        return re.fullmatch(r'"?OK"?,\s*[01],\s*\d+', text) is not None
+    if header in {
+            "SYST:SYNC:VDC:DPLL:OVERRIDE?",
+            "SYSTEM:SYNC:VDC:DPLL:OVERRIDE?",
+    }:
+        return re.fullmatch(
+            r'[01],\s*"DEBUG_ADMISSION",\s*"(?:IDLE|PENDING|ACTIVE)",'
+            r'\s*\d+,\s*\d+,\s*\d+,\s*\d+,\s*\d+,\s*\d+', text,
         ) is not None
     if header in {
             "SYST:SYNC:VDC:DPLL:TRACE:SAVE",

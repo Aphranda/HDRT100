@@ -203,11 +203,34 @@ scpi_result_t scpi_sync_version_q(scpi_t *context)
 
 scpi_result_t scpi_sync_override_q(scpi_t *context)
 {
-    SCPI_ResultBool(context, FALSE);
-    SCPI_ResultText(context, "PROFILE");
-    SCPI_ResultText(context, "IDLE");
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultText(context, "NONE");
+    vdc_dpll_manager_debug_admission_status_t status;
+    vdc_dpll_manager_get_debug_admission_status(&status);
+    SCPI_ResultBool(context, status.enabled ? TRUE : FALSE);
+    SCPI_ResultText(context, "DEBUG_ADMISSION");
+    SCPI_ResultText(context, status.pending ? "PENDING" :
+                    (status.enabled ? "ACTIVE" : "IDLE"));
+    SCPI_ResultUInt32(context, status.continued_count);
+    SCPI_ResultUInt32(context, status.last_gate_code);
+    SCPI_ResultUInt32(context, status.last_gate_slot);
+    SCPI_ResultUInt32(context, status.last_gate_evidence);
+    SCPI_ResultUInt32(context, status.requested_generation);
+    SCPI_ResultUInt32(context, status.applied_generation);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_sync_vdc_dpll_override(scpi_t *context)
+{
+    uint32_t enabled = 0u;
+    uint32_t generation = 0u;
+    if (!scpi_port_read_u32(context, &enabled) || enabled > 1u ||
+        !vdc_dpll_manager_request_debug_continue(enabled != 0u,
+                                                 &generation)) {
+        scpi_port_push_exec_error(context, "VDC_DPLL_OVERRIDE");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultBool(context, enabled != 0u ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, generation);
     return SCPI_RES_OK;
 }
 

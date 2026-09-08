@@ -307,6 +307,10 @@ typedef struct {
     uint32_t schedule_crc32;
     uint32_t dpll_update_seq;
     uint32_t accepted;
+    /* A debug continuation records a failed admission without feeding that
+     * sample into the servo. It is processed successfully by the realtime
+     * pipeline, but remains ineligible for any formal lock claim. */
+    uint32_t continued;
     uint32_t servo_applied;
     uint32_t post_servo_dpll_update_seq;
     uint32_t applied;
@@ -440,6 +444,15 @@ typedef struct {
     int32_t last_raw_phase_error_ns;
     uint64_t last_expected_window_start_ns;
     uint64_t last_observed_time_ns;
+    /* Debug continuation deliberately separates a recorded bad observation
+     * from a product admission rejection. The raw gate remains inspectable
+     * while last_reject_code stays PASS for the active debug session. */
+    uint32_t debug_continue_enabled;
+    uint32_t debug_continue_generation;
+    uint32_t debug_continue_count;
+    uint32_t last_debug_gate_code;
+    uint32_t last_debug_gate_slot;
+    uint32_t last_debug_gate_evidence;
 } vdc_dpll_state_t;
 
 typedef struct {
@@ -505,6 +518,12 @@ uint32_t vdc_domain_servo_profile_crc32(const vdc_servo_profile_t *profile);
 bool vdc_domain_apply_debug_servo_profile(
     vdc_domain_context_t *context,
     const vdc_servo_profile_t *profile);
+/* Select whether recoverable VDC evidence-gate failures are recorded as
+ * debug continuations. Continued evidence never updates the PI/DCO and never
+ * confers formal lock; disabling restores strict product admission. */
+bool vdc_domain_set_debug_continue(
+    vdc_domain_context_t *context,
+    bool enabled);
 uint32_t vdc_domain_ring_profile_crc32(const vdc_tdma_schedule_profile_t *profile);
 uint32_t vdc_domain_schedule_crc32(const vdc_tdma_schedule_profile_t *profile);
 bool vdc_domain_schedule_validate(const vdc_tdma_schedule_profile_t *profile);

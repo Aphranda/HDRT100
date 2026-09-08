@@ -201,6 +201,7 @@ typedef enum {
     VDC_DPLL_MANAGER_RING_OBSERVER_SUBMIT_ACCEPTED = 7u,
     VDC_DPLL_MANAGER_RING_OBSERVER_SUBMIT_REJECTED = 8u,
     VDC_DPLL_MANAGER_RING_OBSERVER_EVIDENCE_PENDING = 9u,
+    VDC_DPLL_MANAGER_RING_OBSERVER_DEBUG_CONTINUED = 10u,
 } vdc_dpll_manager_ring_observer_result_t;
 
 typedef struct {
@@ -212,6 +213,7 @@ typedef struct {
     uint32_t submitted_count;
     uint32_t accepted_count;
     uint32_t rejected_count;
+    uint32_t continued_count;
     uint32_t last_sequence;
     uint32_t last_config_seq;
     uint32_t last_result;
@@ -275,6 +277,17 @@ typedef struct {
     bool pending;
 } vdc_dpll_manager_debug_servo_tune_status_t;
 
+typedef struct {
+    bool enabled;
+    uint32_t requested_generation;
+    uint32_t applied_generation;
+    uint32_t continued_count;
+    uint32_t last_gate_code;
+    uint32_t last_gate_slot;
+    uint32_t last_gate_evidence;
+    bool pending;
+} vdc_dpll_manager_debug_admission_status_t;
+
 bool vdc_dpll_manager_init(void);
 void vdc_dpll_manager_set_vdc_ready(bool ready);
 void vdc_dpll_manager_set_dpll_ready(bool ready);
@@ -302,6 +315,12 @@ bool vdc_dpll_manager_request_debug_servo_tune(
 bool vdc_dpll_manager_request_default_debug_servo_tune(uint32_t *generation);
 void vdc_dpll_manager_get_debug_servo_tune_status(
     vdc_dpll_manager_debug_servo_tune_status_t *status);
+/* Core0 stages a single debug-admission intent. Core1 applies it before the
+ * next evidence pipeline beat; pending intents are never overwritten. */
+bool vdc_dpll_manager_request_debug_continue(bool enabled,
+                                             uint32_t *generation);
+void vdc_dpll_manager_get_debug_admission_status(
+    vdc_dpll_manager_debug_admission_status_t *status);
 bool vdc_dpll_manager_configure_sync_io_observer(
     const vdc_dpll_manager_sync_io_observer_config_t *config);
 bool vdc_dpll_manager_configure_sync_io_observer_tdma(
