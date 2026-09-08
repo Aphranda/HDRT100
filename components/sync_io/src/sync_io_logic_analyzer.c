@@ -974,54 +974,73 @@ size_t sync_io_logic_analyzer_drain_live_core0(
     if (records == NULL || capacity == 0u) {
         return 0u;
     }
-    uint32_t selected = SYNC_IO_LOGIC_ANALYZER_INVALID_BATCH_SLOT;
-    uint32_t selected_sequence = 0u;
-    for (uint32_t index = 0u;
-         index < SYNC_IO_LOGIC_ANALYZER_CORE0_BATCH_SLOTS;
-         ++index) {
-        if (__atomic_load_n(&s_control.live_batch_state[index],
-                            __ATOMIC_ACQUIRE) !=
-            SYNC_IO_LOGIC_ANALYZER_BATCH_READY) {
+    size_t drained = 0u;
+    bool metadata_valid = false;
+    sync_io_logic_analyzer_live_batch_t combined = {0};
+    while (drained < capacity) {
+        uint32_t selected = SYNC_IO_LOGIC_ANALYZER_INVALID_BATCH_SLOT;
+        uint32_t selected_sequence = 0u;
+        for (uint32_t index = 0u;
+             index < SYNC_IO_LOGIC_ANALYZER_CORE0_BATCH_SLOTS;
+             ++index) {
+            if (__atomic_load_n(&s_control.live_batch_state[index],
+                                __ATOMIC_ACQUIRE) !=
+                SYNC_IO_LOGIC_ANALYZER_BATCH_READY) {
+                continue;
+            }
+            const uint32_t sequence = s_control.live_batches[index]
+                .metadata.batch_sequence;
+            if (selected == SYNC_IO_LOGIC_ANALYZER_INVALID_BATCH_SLOT ||
+                (int32_t)(sequence - selected_sequence) < 0) {
+                selected = index;
+                selected_sequence = sequence;
+            }
+        }
+        if (selected == SYNC_IO_LOGIC_ANALYZER_INVALID_BATCH_SLOT) {
+            break;
+        }
+
+        uint32_t expected = SYNC_IO_LOGIC_ANALYZER_BATCH_READY;
+        if (!__atomic_compare_exchange_n(
+                &s_control.live_batch_state[selected], &expected,
+                SYNC_IO_LOGIC_ANALYZER_BATCH_CORE0_DRAINING, false,
+                __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
             continue;
         }
-        const uint32_t sequence = s_control.live_batches[index]
-            .metadata.batch_sequence;
-        if (selected == SYNC_IO_LOGIC_ANALYZER_INVALID_BATCH_SLOT ||
-            (int32_t)(sequence - selected_sequence) < 0) {
-            selected = index;
-            selected_sequence = sequence;
+        sync_io_logic_analyzer_batch_slot_t *slot =
+            &s_control.live_batches[selected];
+        const uint32_t count = slot->metadata.record_count;
+        const bool fits = count != 0u &&
+                          count <= capacity - drained &&
+                          count <= SYNC_IO_LOGIC_ANALYZER_CORE0_BATCH_RECORDS;
+        const bool same_capture = !metadata_valid ||
+            slot->metadata.capture_sequence == combined.capture_sequence;
+        if (!fits || !same_capture) {
+            __atomic_store_n(&s_control.live_batch_state[selected],
+                             SYNC_IO_LOGIC_ANALYZER_BATCH_READY,
+                             __ATOMIC_RELEASE);
+            break;
         }
-    }
-    if (selected == SYNC_IO_LOGIC_ANALYZER_INVALID_BATCH_SLOT) {
-        return 0u;
-    }
-
-    uint32_t expected = SYNC_IO_LOGIC_ANALYZER_BATCH_READY;
-    if (!__atomic_compare_exchange_n(
-            &s_control.live_batch_state[selected], &expected,
-            SYNC_IO_LOGIC_ANALYZER_BATCH_CORE0_DRAINING, false,
-            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
-        return 0u;
-    }
-    sync_io_logic_analyzer_batch_slot_t *slot =
-        &s_control.live_batches[selected];
-    const uint32_t count = slot->metadata.record_count;
-    if (count == 0u || count > capacity ||
-        count > SYNC_IO_LOGIC_ANALYZER_CORE0_BATCH_RECORDS) {
+        memcpy(&records[drained], slot->records,
+               count * sizeof(records[0]));
+        if (!metadata_valid) {
+            combined = slot->metadata;
+            metadata_valid = true;
+        } else {
+            combined.record_count += count;
+            combined.dropped_records = slot->metadata.dropped_records;
+            combined.batch_sequence = slot->metadata.batch_sequence;
+        }
+        drained += count;
+        memset(&slot->metadata, 0, sizeof(slot->metadata));
         __atomic_store_n(&s_control.live_batch_state[selected],
-                         SYNC_IO_LOGIC_ANALYZER_BATCH_READY,
+                         SYNC_IO_LOGIC_ANALYZER_BATCH_FREE,
                          __ATOMIC_RELEASE);
-        return 0u;
     }
-    memcpy(records, slot->records, count * sizeof(records[0]));
-    if (batch != NULL) {
-        *batch = slot->metadata;
+    if (batch != NULL && metadata_valid) {
+        *batch = combined;
     }
-    memset(&slot->metadata, 0, sizeof(slot->metadata));
-    __atomic_store_n(&s_control.live_batch_state[selected],
-                     SYNC_IO_LOGIC_ANALYZER_BATCH_FREE,
-                     __ATOMIC_RELEASE);
-    return count;
+    return drained;
 }
 
 static bool sync_io_logic_analyzer_source_mask_valid(uint32_t source_mask)

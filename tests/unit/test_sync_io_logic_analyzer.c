@@ -322,6 +322,34 @@ static void test_live_batch_handoff_keeps_active_ring_private(void)
                drained, 8u, &batch) == 2u);
     assert(batch.batch_sequence == 2u);
     assert(batch.first_record_sequence == 3u);
+
+    for (uint32_t index = 0u; index < 3u; ++index) {
+        const sync_io_logic_analyzer_record_t record = {
+            .hardware_tick = 300u + index,
+            .capture_sequence = capture.capture_sequence,
+            .record_sequence = 5u + index,
+        };
+        assert(sync_io_logic_analyzer_raw_capture_push(&capture, &record));
+    }
+    assert(sync_io_logic_analyzer_publish_live_batches_core1(
+               &capture, 3u, true) == 3u);
+    for (uint32_t index = 0u; index < 3u; ++index) {
+        const sync_io_logic_analyzer_record_t record = {
+            .hardware_tick = 400u + index,
+            .capture_sequence = capture.capture_sequence,
+            .record_sequence = 8u + index,
+        };
+        assert(sync_io_logic_analyzer_raw_capture_push(&capture, &record));
+    }
+    assert(sync_io_logic_analyzer_publish_live_batches_core1(
+               &capture, 3u, true) == 3u);
+    assert(sync_io_logic_analyzer_drain_live_core0(
+               drained, 8u, &batch) == 6u);
+    assert(batch.batch_sequence == 4u);
+    assert(batch.record_count == 6u);
+    assert(batch.first_record_sequence == 5u);
+    assert(drained[0].hardware_tick == 300u);
+    assert(drained[5].hardware_tick == 402u);
 }
 
 int main(void)

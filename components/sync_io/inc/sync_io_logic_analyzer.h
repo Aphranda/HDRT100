@@ -123,7 +123,7 @@ typedef struct {
 /* Core1 fills one bounded batch at a time and publishes it to Core0.  Core0
  * only reads READY slots, never the active capture ring. */
 #define SYNC_IO_LOGIC_ANALYZER_CORE0_BATCH_RECORDS 32u
-#define SYNC_IO_LOGIC_ANALYZER_CORE0_BATCH_SLOTS 3u
+#define SYNC_IO_LOGIC_ANALYZER_CORE0_BATCH_SLOTS 4u
 
 typedef struct {
     uint32_t capture_sequence;
@@ -326,9 +326,10 @@ void sync_io_logic_analyzer_persona_get_snapshot(
 void sync_io_logic_analyzer_get_status(
     sync_io_logic_analyzer_status_t *status);
 
-/* Core1 moves bounded records out of its active ring into a private batch
- * slot.  Core0 claims only published slots through the paired live drain API.
- * A full queue leaves the active ring untouched so its existing drop evidence
+/* Core1 moves bounded records out of its active ring into private batch
+ * slots.  Core0 claims only published slots through the paired live drain API
+ * and may coalesce adjacent slots into one bounded destination buffer.  A
+ * full queue leaves the active ring untouched so its existing drop evidence
  * accounts for backpressure without an unsafe cross-core read. */
 bool sync_io_logic_analyzer_live_batch_begin_core1(
     const sync_io_logic_analyzer_raw_capture_t *capture);
