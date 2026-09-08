@@ -41,6 +41,30 @@ VDC-TDMA-001
 
 ## 进度记录
 
+### VDC-PROGRESS-20260908-002 — bounded live analyzer batch handoff
+
+- TODO task ID：`VDC-OBS-001`、`VDC-VERIFY-001`。
+- 状态：IN PROGRESS。
+- 日期：2026-09-08。
+- 变更：commit `21cbe8e` 将 `EDGE_TIMESTAMP` 的 Core1 active ring 经固定大小、显式
+  `READY` 状态的 batch slot 发布给 Core0；Core0 只读取已发布 slot。每批携带
+  capture/batch/first-record sequence 和 drop 计数，STOP/complete 仅在最后批次排空后
+  发布 shadow，重复 ARM 在 batch 或 shadow 未排空时拒绝。StorageAO header 同步记录
+  capture、batch、segment 和 first-record identity，仍保持在 Core0 执行。
+- 软件验证：`tools/tests/run_sync_io_logic_analyzer_tests.ps1`、
+  `tests/python/test_sync_io_logic_analyzer_contract.py` 和
+  `tools/tests/run_host_unit_tests.ps1` 均通过；后者包含全量 host unit suite。
+- 构建与 P3：current-source build/P3 receipt 为 build `20260908020537`，证据目录为
+  `out/HardwareAcceptance/20260908/vdc-live-batch-p3-20260908/`；
+  `python tools/hardware_acceptance/p3_hardware_acceptance.py check-staged` 和
+  pre-commit 均通过，TDMA process-image/P3 原始结果在同目录。
+- 失败与边界：NO5 外部观测仍有 SD segment drop，raw phase gate 未通过；
+  `dpll-no5-observation/waveform/analysis/dpll_convergence.svg` 保留失败波形，不能作为
+  收敛或 `FORMAL_LOCKED` 证据。该诊断失败未改变 TDMA 短帧验收结论。
+- 下一 gate：`VDC-OBS-001` 保持 IN PROGRESS，收集该 live-batch 路径的长时间 wrap、
+  StorageAO 背压、drop interval 和断电恢复证据；在 `SYNC-LA-003/005` 退出门禁闭合前，
+  不得推进 `VDC-OBS-002`。
+
 ### VDC-PROGRESS-20260908-001 — debug admission continuation and five-board diagnostic P3
 
 - TODO task ID：`VDC-EVID-001`、`VDC-VERIFY-001`、`VDC-OBS-001`。
