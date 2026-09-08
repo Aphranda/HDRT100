@@ -24,6 +24,21 @@ _Static_assert(
 static sync_io_logic_analyzer_persona_t *s_active_persona;
 static uint32_t s_next_capture_sequence;
 
+typedef enum {
+    SYNC_IO_LOGIC_ANALYZER_BATCH_FREE = 0u,
+    SYNC_IO_LOGIC_ANALYZER_BATCH_CORE1_FILLING,
+    SYNC_IO_LOGIC_ANALYZER_BATCH_READY,
+    SYNC_IO_LOGIC_ANALYZER_BATCH_CORE0_DRAINING,
+} sync_io_logic_analyzer_batch_state_t;
+
+typedef struct {
+    sync_io_logic_analyzer_live_batch_t metadata;
+    sync_io_logic_analyzer_record_t records[
+        SYNC_IO_LOGIC_ANALYZER_CORE0_BATCH_RECORDS];
+} sync_io_logic_analyzer_batch_slot_t;
+
+#define SYNC_IO_LOGIC_ANALYZER_INVALID_BATCH_SLOT UINT32_MAX
+
 typedef struct {
     volatile uint32_t request_sequence;
     volatile uint32_t handled_sequence;
@@ -35,6 +50,13 @@ typedef struct {
     sync_io_logic_analyzer_raw_capture_t shadow_capture;
     volatile uint32_t shadow_sequence;
     volatile uint32_t shadow_ready;
+    sync_io_logic_analyzer_batch_slot_t live_batches[
+        SYNC_IO_LOGIC_ANALYZER_CORE0_BATCH_SLOTS];
+    volatile uint32_t live_batch_state[
+        SYNC_IO_LOGIC_ANALYZER_CORE0_BATCH_SLOTS];
+    uint32_t live_core1_batch_slot;
+    uint32_t live_next_batch_sequence;
+    bool live_finalizing;
     sync_io_logic_analyzer_record_t records[
         SYNC_IO_LOGIC_ANALYZER_MAX_RECORDS];
 } sync_io_logic_analyzer_control_t;
@@ -69,6 +91,10 @@ static void sync_io_logic_analyzer_publish_shadow(void)
     }
     const uint32_t retained = s_control.capture.produced_records -
                               s_control.capture.consumed_records;
+    if (retained == 0u) {
+        memset(&s_control.capture, 0, sizeof(s_control.capture));
+        return;
+    }
     sync_io_logic_analyzer_record_t *shadow_records =
         sync_io_logic_analyzer_shadow_records();
     __atomic_fetch_add(&s_control.shadow_sequence, 1u, __ATOMIC_ACQ_REL);
@@ -578,6 +604,8 @@ bool sync_io_logic_analyzer_request_arm(
         __atomic_load_n(&s_control.handled_sequence, __ATOMIC_ACQUIRE);
     if (request != handled ||
         __atomic_load_n(&s_control.shadow_ready, __ATOMIC_ACQUIRE) != 0u ||
+        sync_io_logic_analyzer_live_batches_pending() ||
+        s_control.live_finalizing ||
         (s_active_persona != NULL && s_active_persona->initialized)) {
         __atomic_store_n(&s_control.result,
                          SYNC_IO_LOGIC_ANALYZER_COMMAND_RESULT_BUSY,
@@ -643,11 +671,21 @@ void sync_io_logic_analyzer_service_core1(uint32_t max_records)
                 &s_control.persona, &s_control.capture,
                 sync_io_logic_analyzer_active_records(),
                 s_control.config.max_records, &s_control.config);
+            if (accepted && !sync_io_logic_analyzer_live_batch_begin_core1(
+                                &s_control.capture)) {
+                sync_io_logic_analyzer_persona_end(&s_control.persona);
+                accepted = false;
+            }
         } else if (command == SYNC_IO_LOGIC_ANALYZER_COMMAND_STOP) {
             if (s_control.persona.initialized) {
                 sync_io_logic_analyzer_persona_end(&s_control.persona);
             }
-            sync_io_logic_analyzer_publish_shadow();
+            if (s_control.capture.initialized) {
+                sync_io_logic_analyzer_raw_capture_finish(
+                    &s_control.capture,
+                    SYNC_IO_LOGIC_ANALYZER_END_STOP_REQUEST);
+                s_control.live_finalizing = true;
+            }
             accepted = true;
         }
         __atomic_store_n(
@@ -662,10 +700,23 @@ void sync_io_logic_analyzer_service_core1(uint32_t max_records)
     if (s_active_persona != NULL && s_active_persona->initialized &&
         s_active_persona->active) {
         (void)sync_io_logic_analyzer_hw_service(max_records);
+        (void)sync_io_logic_analyzer_publish_live_batches_core1(
+            &s_control.capture, max_records, false);
         if (!sync_io_logic_analyzer_hw_active() &&
             s_control.capture.complete) {
             sync_io_logic_analyzer_persona_end(&s_control.persona);
+            s_control.live_finalizing = true;
+        }
+    }
+
+    if (s_control.live_finalizing && s_control.capture.initialized) {
+        (void)sync_io_logic_analyzer_publish_live_batches_core1(
+            &s_control.capture, max_records, true);
+        if (s_control.capture.consumed_records ==
+                s_control.capture.produced_records &&
+            !sync_io_logic_analyzer_live_batches_pending()) {
             sync_io_logic_analyzer_publish_shadow();
+            s_control.live_finalizing = false;
         }
     }
 }
@@ -784,6 +835,193 @@ size_t sync_io_logic_analyzer_drain_core0(
         __atomic_store_n(&s_control.shadow_ready, 0u, __ATOMIC_RELEASE);
     }
     return drained;
+}
+
+static uint32_t sync_io_logic_analyzer_find_free_batch_slot_core1(void)
+{
+    for (uint32_t index = 0u;
+         index < SYNC_IO_LOGIC_ANALYZER_CORE0_BATCH_SLOTS;
+         ++index) {
+        uint32_t expected = SYNC_IO_LOGIC_ANALYZER_BATCH_FREE;
+        if (__atomic_compare_exchange_n(
+                &s_control.live_batch_state[index], &expected,
+                SYNC_IO_LOGIC_ANALYZER_BATCH_CORE1_FILLING, false,
+                __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+            return index;
+        }
+    }
+    return SYNC_IO_LOGIC_ANALYZER_INVALID_BATCH_SLOT;
+}
+
+static void sync_io_logic_analyzer_publish_live_batch_core1(
+    uint32_t slot_index)
+{
+    if (slot_index >= SYNC_IO_LOGIC_ANALYZER_CORE0_BATCH_SLOTS) {
+        return;
+    }
+    sync_io_logic_analyzer_batch_slot_t *slot =
+        &s_control.live_batches[slot_index];
+    if (slot->metadata.record_count == 0u) {
+        __atomic_store_n(&s_control.live_batch_state[slot_index],
+                         SYNC_IO_LOGIC_ANALYZER_BATCH_FREE,
+                         __ATOMIC_RELEASE);
+        return;
+    }
+    uint32_t sequence = ++s_control.live_next_batch_sequence;
+    if (sequence == 0u) {
+        sequence = ++s_control.live_next_batch_sequence;
+    }
+    slot->metadata.batch_sequence = sequence;
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    __atomic_store_n(&s_control.live_batch_state[slot_index],
+                     SYNC_IO_LOGIC_ANALYZER_BATCH_READY,
+                     __ATOMIC_RELEASE);
+}
+
+bool sync_io_logic_analyzer_live_batches_pending(void)
+{
+    for (uint32_t index = 0u;
+         index < SYNC_IO_LOGIC_ANALYZER_CORE0_BATCH_SLOTS;
+         ++index) {
+        if (__atomic_load_n(&s_control.live_batch_state[index],
+                            __ATOMIC_ACQUIRE) !=
+            SYNC_IO_LOGIC_ANALYZER_BATCH_FREE) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool sync_io_logic_analyzer_live_batch_begin_core1(
+    const sync_io_logic_analyzer_raw_capture_t *capture)
+{
+    if (capture == NULL || !capture->initialized ||
+        sync_io_logic_analyzer_live_batches_pending()) {
+        return false;
+    }
+    memset(s_control.live_batches, 0, sizeof(s_control.live_batches));
+    for (uint32_t index = 0u;
+         index < SYNC_IO_LOGIC_ANALYZER_CORE0_BATCH_SLOTS;
+         ++index) {
+        __atomic_store_n(&s_control.live_batch_state[index],
+                         SYNC_IO_LOGIC_ANALYZER_BATCH_FREE,
+                         __ATOMIC_RELEASE);
+    }
+    s_control.live_core1_batch_slot =
+        sync_io_logic_analyzer_find_free_batch_slot_core1();
+    s_control.live_next_batch_sequence = 0u;
+    s_control.live_finalizing = false;
+    return s_control.live_core1_batch_slot !=
+           SYNC_IO_LOGIC_ANALYZER_INVALID_BATCH_SLOT;
+}
+
+size_t sync_io_logic_analyzer_publish_live_batches_core1(
+    sync_io_logic_analyzer_raw_capture_t *capture,
+    uint32_t max_records,
+    bool flush_partial)
+{
+    if (capture == NULL || !capture->initialized || max_records == 0u) {
+        return 0u;
+    }
+    size_t moved = 0u;
+    while (moved < max_records) {
+        if (s_control.live_core1_batch_slot ==
+            SYNC_IO_LOGIC_ANALYZER_INVALID_BATCH_SLOT) {
+            s_control.live_core1_batch_slot =
+                sync_io_logic_analyzer_find_free_batch_slot_core1();
+            if (s_control.live_core1_batch_slot ==
+                SYNC_IO_LOGIC_ANALYZER_INVALID_BATCH_SLOT) {
+                break;
+            }
+        }
+        sync_io_logic_analyzer_batch_slot_t *slot =
+            &s_control.live_batches[s_control.live_core1_batch_slot];
+        sync_io_logic_analyzer_record_t record;
+        if (!sync_io_logic_analyzer_raw_capture_pop(capture, &record)) {
+            break;
+        }
+        if (slot->metadata.record_count == 0u) {
+            slot->metadata.capture_sequence = capture->capture_sequence;
+            slot->metadata.first_record_sequence = record.record_sequence;
+        }
+        slot->records[slot->metadata.record_count++] = record;
+        slot->metadata.dropped_records = capture->dropped_records;
+        ++moved;
+        if (slot->metadata.record_count ==
+            SYNC_IO_LOGIC_ANALYZER_CORE0_BATCH_RECORDS) {
+            sync_io_logic_analyzer_publish_live_batch_core1(
+                s_control.live_core1_batch_slot);
+            s_control.live_core1_batch_slot =
+                SYNC_IO_LOGIC_ANALYZER_INVALID_BATCH_SLOT;
+        }
+    }
+    if (flush_partial && s_control.live_core1_batch_slot !=
+        SYNC_IO_LOGIC_ANALYZER_INVALID_BATCH_SLOT &&
+        capture->consumed_records == capture->produced_records) {
+        sync_io_logic_analyzer_publish_live_batch_core1(
+            s_control.live_core1_batch_slot);
+        s_control.live_core1_batch_slot =
+            SYNC_IO_LOGIC_ANALYZER_INVALID_BATCH_SLOT;
+    }
+    return moved;
+}
+
+size_t sync_io_logic_analyzer_drain_live_core0(
+    sync_io_logic_analyzer_record_t *records,
+    uint32_t capacity,
+    sync_io_logic_analyzer_live_batch_t *batch)
+{
+    if (records == NULL || capacity == 0u) {
+        return 0u;
+    }
+    uint32_t selected = SYNC_IO_LOGIC_ANALYZER_INVALID_BATCH_SLOT;
+    uint32_t selected_sequence = 0u;
+    for (uint32_t index = 0u;
+         index < SYNC_IO_LOGIC_ANALYZER_CORE0_BATCH_SLOTS;
+         ++index) {
+        if (__atomic_load_n(&s_control.live_batch_state[index],
+                            __ATOMIC_ACQUIRE) !=
+            SYNC_IO_LOGIC_ANALYZER_BATCH_READY) {
+            continue;
+        }
+        const uint32_t sequence = s_control.live_batches[index]
+            .metadata.batch_sequence;
+        if (selected == SYNC_IO_LOGIC_ANALYZER_INVALID_BATCH_SLOT ||
+            (int32_t)(sequence - selected_sequence) < 0) {
+            selected = index;
+            selected_sequence = sequence;
+        }
+    }
+    if (selected == SYNC_IO_LOGIC_ANALYZER_INVALID_BATCH_SLOT) {
+        return 0u;
+    }
+
+    uint32_t expected = SYNC_IO_LOGIC_ANALYZER_BATCH_READY;
+    if (!__atomic_compare_exchange_n(
+            &s_control.live_batch_state[selected], &expected,
+            SYNC_IO_LOGIC_ANALYZER_BATCH_CORE0_DRAINING, false,
+            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        return 0u;
+    }
+    sync_io_logic_analyzer_batch_slot_t *slot =
+        &s_control.live_batches[selected];
+    const uint32_t count = slot->metadata.record_count;
+    if (count == 0u || count > capacity ||
+        count > SYNC_IO_LOGIC_ANALYZER_CORE0_BATCH_RECORDS) {
+        __atomic_store_n(&s_control.live_batch_state[selected],
+                         SYNC_IO_LOGIC_ANALYZER_BATCH_READY,
+                         __ATOMIC_RELEASE);
+        return 0u;
+    }
+    memcpy(records, slot->records, count * sizeof(records[0]));
+    if (batch != NULL) {
+        *batch = slot->metadata;
+    }
+    memset(&slot->metadata, 0, sizeof(slot->metadata));
+    __atomic_store_n(&s_control.live_batch_state[selected],
+                     SYNC_IO_LOGIC_ANALYZER_BATCH_FREE,
+                     __ATOMIC_RELEASE);
+    return count;
 }
 
 static bool sync_io_logic_analyzer_source_mask_valid(uint32_t source_mask)

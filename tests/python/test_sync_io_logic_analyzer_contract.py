@@ -177,6 +177,29 @@ def test_analyzer_stop_publishes_shadow_and_blocks_reentry_until_drain() -> None
     assert "shadow_ready, 0u, __ATOMIC_RELEASE" in source
 
 
+def test_analyzer_live_batch_handoff_is_bounded_and_core_private() -> None:
+    header = (ROOT / "components/sync_io/inc/sync_io_logic_analyzer.h").read_text(
+        encoding="utf-8")
+    source = (ROOT / "components/sync_io/src/sync_io_logic_analyzer.c").read_text(
+        encoding="utf-8")
+    app = (ROOT / "application/src/app.c").read_text(encoding="utf-8")
+    for token in (
+        "SYNC_IO_LOGIC_ANALYZER_CORE0_BATCH_RECORDS",
+        "SYNC_IO_LOGIC_ANALYZER_CORE0_BATCH_SLOTS",
+        "sync_io_logic_analyzer_publish_live_batches_core1",
+        "sync_io_logic_analyzer_drain_live_core0",
+        "SYNC_IO_LOGIC_ANALYZER_BATCH_READY",
+        "SYNC_IO_LOGIC_ANALYZER_BATCH_CORE0_DRAINING",
+    ):
+        assert token in header or token in source
+    assert "sync_io_logic_analyzer_drain_live_core0" in app
+    storage_body = app.split("static void app_analyzer_storage_service", 1)[1]
+    assert storage_body.index("sync_io_logic_analyzer_drain_live_core0") < \
+        storage_body.index("sync_io_logic_analyzer_drain_core0")
+    assert "sync_io_logic_analyzer_hw_active" not in storage_body.split(
+        "sync_io_logic_analyzer_drain_live_core0", 1)[0]
+
+
 def test_edge_timestamp_backend_emits_only_level_changes() -> None:
     source = Path("components/sync_io/src/sync_io_logic_analyzer.c").read_text(
         encoding="utf-8")

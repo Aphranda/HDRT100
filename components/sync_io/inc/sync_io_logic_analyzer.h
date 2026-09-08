@@ -120,6 +120,18 @@ typedef struct {
  * bounded to 512 records so diagnostics cannot consume the SRAM budget needed
  * by the realtime path; the raw DMA workspace remains independently sized. */
 #define SYNC_IO_LOGIC_ANALYZER_MAX_RECORDS 512u
+/* Core1 fills one bounded batch at a time and publishes it to Core0.  Core0
+ * only reads READY slots, never the active capture ring. */
+#define SYNC_IO_LOGIC_ANALYZER_CORE0_BATCH_RECORDS 32u
+#define SYNC_IO_LOGIC_ANALYZER_CORE0_BATCH_SLOTS 3u
+
+typedef struct {
+    uint32_t capture_sequence;
+    uint32_t batch_sequence;
+    uint32_t first_record_sequence;
+    uint32_t record_count;
+    uint32_t dropped_records;
+} sync_io_logic_analyzer_live_batch_t;
 
 typedef struct {
     uint32_t contract_version;
@@ -313,6 +325,22 @@ void sync_io_logic_analyzer_persona_get_snapshot(
     sync_io_persona_manager_snapshot_t *snapshot);
 void sync_io_logic_analyzer_get_status(
     sync_io_logic_analyzer_status_t *status);
+
+/* Core1 moves bounded records out of its active ring into a private batch
+ * slot.  Core0 claims only published slots through the paired live drain API.
+ * A full queue leaves the active ring untouched so its existing drop evidence
+ * accounts for backpressure without an unsafe cross-core read. */
+bool sync_io_logic_analyzer_live_batch_begin_core1(
+    const sync_io_logic_analyzer_raw_capture_t *capture);
+size_t sync_io_logic_analyzer_publish_live_batches_core1(
+    sync_io_logic_analyzer_raw_capture_t *capture,
+    uint32_t max_records,
+    bool flush_partial);
+size_t sync_io_logic_analyzer_drain_live_core0(
+    sync_io_logic_analyzer_record_t *records,
+    uint32_t capacity,
+    sync_io_logic_analyzer_live_batch_t *batch);
+bool sync_io_logic_analyzer_live_batches_pending(void);
 
 /* Core0 drain boundary. Records are copied only after the persona has been
  * stopped/released; while the realtime owner is active this returns zero so

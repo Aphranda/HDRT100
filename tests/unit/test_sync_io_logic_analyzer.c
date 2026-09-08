@@ -273,6 +273,57 @@ static void test_core0_drain_boundary_without_capture(void)
     assert(sync_io_logic_analyzer_drain_core0(records, 0u) == 0u);
 }
 
+static void test_live_batch_handoff_keeps_active_ring_private(void)
+{
+    sync_io_logic_analyzer_config_t config = raw_config();
+    config.max_records = 8u;
+    sync_io_logic_analyzer_record_t active_records[8];
+    sync_io_logic_analyzer_raw_capture_t capture;
+    assert(sync_io_logic_analyzer_raw_capture_init(
+               &capture, active_records, 8u, &config));
+    assert(sync_io_logic_analyzer_live_batch_begin_core1(&capture));
+
+    for (uint32_t index = 0u; index < 3u; ++index) {
+        const sync_io_logic_analyzer_record_t record = {
+            .hardware_tick = 100u + index,
+            .capture_sequence = capture.capture_sequence,
+            .record_sequence = index,
+            .level_mask = index + 1u,
+        };
+        assert(sync_io_logic_analyzer_raw_capture_push(&capture, &record));
+    }
+    assert(sync_io_logic_analyzer_publish_live_batches_core1(
+               &capture, 3u, true) == 3u);
+    assert(sync_io_logic_analyzer_live_batches_pending());
+
+    sync_io_logic_analyzer_record_t drained[8];
+    sync_io_logic_analyzer_live_batch_t batch;
+    assert(sync_io_logic_analyzer_drain_live_core0(
+               drained, 8u, &batch) == 3u);
+    assert(batch.capture_sequence == capture.capture_sequence);
+    assert(batch.batch_sequence == 1u);
+    assert(batch.first_record_sequence == 0u);
+    assert(batch.record_count == 3u);
+    assert(drained[0].hardware_tick == 100u);
+    assert(drained[2].hardware_tick == 102u);
+    assert(!sync_io_logic_analyzer_live_batches_pending());
+
+    for (uint32_t index = 0u; index < 2u; ++index) {
+        const sync_io_logic_analyzer_record_t record = {
+            .hardware_tick = 200u + index,
+            .capture_sequence = capture.capture_sequence,
+            .record_sequence = 3u + index,
+        };
+        assert(sync_io_logic_analyzer_raw_capture_push(&capture, &record));
+    }
+    assert(sync_io_logic_analyzer_publish_live_batches_core1(
+               &capture, 2u, true) == 2u);
+    assert(sync_io_logic_analyzer_drain_live_core0(
+               drained, 8u, &batch) == 2u);
+    assert(batch.batch_sequence == 2u);
+    assert(batch.first_record_sequence == 3u);
+}
+
 int main(void)
 {
     assert(sizeof(sync_io_logic_analyzer_record_t) == 32u);
@@ -284,6 +335,7 @@ int main(void)
     test_raw_capture_reinit_preserves_aliased_config();
     test_triggered_capture_window();
     test_core0_drain_boundary_without_capture();
+    test_live_batch_handoff_keeps_active_ring_private();
     puts("sync_io_logic_analyzer contract tests passed");
     return 0;
 }

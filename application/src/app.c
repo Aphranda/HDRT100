@@ -43,7 +43,7 @@ static bool s_app_control_plane_ready;
 
 #define APP_ANALYZER_STORAGE_SEGMENT_RECORDS 128u
 #define APP_ANALYZER_STORAGE_MAGIC 0x59414C53u /* SLAY */
-#define APP_ANALYZER_STORAGE_SCHEMA 1u
+#define APP_ANALYZER_STORAGE_SCHEMA 2u
 
 typedef struct __attribute__((packed)) {
     uint32_t magic;
@@ -59,6 +59,9 @@ typedef struct __attribute__((packed)) {
     uint32_t hardware_tick_hz;
     uint32_t timestamp_resolution_ns;
     uint32_t capture_sequence;
+    uint32_t segment_index;
+    uint32_t first_record_sequence;
+    uint32_t batch_sequence;
 } app_analyzer_storage_header_t;
 
 static sync_io_logic_analyzer_record_t
@@ -66,6 +69,9 @@ static sync_io_logic_analyzer_record_t
 static uint32_t s_analyzer_storage_record_count;
 static uint32_t s_analyzer_storage_job_id;
 static uint32_t s_analyzer_storage_session;
+static uint32_t s_analyzer_storage_capture_sequence;
+static uint32_t s_analyzer_storage_segment_index;
+static sync_io_logic_analyzer_live_batch_t s_analyzer_storage_batch;
 static bool s_analyzer_storage_pending;
 static bool s_analyzer_storage_job_inflight;
 
@@ -80,27 +86,52 @@ static void app_analyzer_storage_service(void)
             (result.state == STORAGE_MANAGER_JOB_STATE_DONE ||
              result.state == STORAGE_MANAGER_JOB_STATE_FAILED)) {
             s_analyzer_storage_job_inflight = false;
-            if (result.state == STORAGE_MANAGER_JOB_STATE_FAILED) {
+            if (result.state == STORAGE_MANAGER_JOB_STATE_DONE) {
+                ++s_analyzer_storage_segment_index;
+            } else {
                 s_analyzer_storage_pending = true;
             }
         }
     }
     if (s_analyzer_storage_job_inflight ||
-        analyzer.active || analyzer.state !=
-            SYNC_IO_LOGIC_ANALYZER_STATE_COMPLETE) {
+        analyzer.state == SYNC_IO_LOGIC_ANALYZER_STATE_STOPPED) {
         return;
     }
     if (!s_analyzer_storage_pending) {
         s_analyzer_storage_record_count = (uint32_t)
-            sync_io_logic_analyzer_drain_core0(
+            sync_io_logic_analyzer_drain_live_core0(
                 s_analyzer_storage_records,
-                APP_ANALYZER_STORAGE_SEGMENT_RECORDS);
+                APP_ANALYZER_STORAGE_SEGMENT_RECORDS,
+                &s_analyzer_storage_batch);
+        if (s_analyzer_storage_record_count == 0u && !analyzer.active &&
+            analyzer.state == SYNC_IO_LOGIC_ANALYZER_STATE_COMPLETE) {
+            s_analyzer_storage_record_count = (uint32_t)
+                sync_io_logic_analyzer_drain_core0(
+                    s_analyzer_storage_records,
+                    APP_ANALYZER_STORAGE_SEGMENT_RECORDS);
+            if (s_analyzer_storage_record_count != 0u) {
+                s_analyzer_storage_batch.capture_sequence =
+                    analyzer.capture_sequence;
+                s_analyzer_storage_batch.first_record_sequence =
+                    s_analyzer_storage_records[0].record_sequence;
+                s_analyzer_storage_batch.record_count =
+                    s_analyzer_storage_record_count;
+                s_analyzer_storage_batch.dropped_records =
+                    analyzer.dropped_records;
+            }
+        }
         if (s_analyzer_storage_record_count == 0u) {
             return;
         }
-        s_analyzer_storage_session = board_uptime_ms();
-        if (s_analyzer_storage_session == 0u) {
-            s_analyzer_storage_session = 1u;
+        if (s_analyzer_storage_capture_sequence !=
+            s_analyzer_storage_batch.capture_sequence) {
+            s_analyzer_storage_capture_sequence =
+                s_analyzer_storage_batch.capture_sequence;
+            s_analyzer_storage_session = board_uptime_ms();
+            if (s_analyzer_storage_session == 0u) {
+                s_analyzer_storage_session = 1u;
+            }
+            s_analyzer_storage_segment_index = 0u;
         }
     }
 
@@ -110,7 +141,7 @@ static void app_analyzer_storage_service(void)
         .header_size = (uint16_t)sizeof(header),
         .session = s_analyzer_storage_session,
         .record_count = s_analyzer_storage_record_count,
-        .dropped_records = analyzer.dropped_records,
+        .dropped_records = s_analyzer_storage_batch.dropped_records,
         .payload_crc32 = ota_crc32_compute(
             (const uint8_t *)s_analyzer_storage_records,
             (size_t)s_analyzer_storage_record_count *
@@ -120,7 +151,11 @@ static void app_analyzer_storage_service(void)
         .persona_generation = analyzer.persona_generation,
         .hardware_tick_hz = analyzer.hardware_tick_hz,
         .timestamp_resolution_ns = analyzer.timestamp_resolution_ns,
-        .capture_sequence = analyzer.capture_sequence,
+        .capture_sequence = s_analyzer_storage_batch.capture_sequence,
+        .segment_index = s_analyzer_storage_segment_index,
+        .first_record_sequence =
+            s_analyzer_storage_batch.first_record_sequence,
+        .batch_sequence = s_analyzer_storage_batch.batch_sequence,
     };
     const size_t payload_size = (size_t)s_analyzer_storage_record_count *
                                 sizeof(s_analyzer_storage_records[0]);
@@ -129,8 +164,9 @@ static void app_analyzer_storage_service(void)
         (const uint8_t *)s_analyzer_storage_records, payload_size);
     const uint32_t file_size = (uint32_t)(sizeof(header) + payload_size);
     char path[96];
-    if (snprintf(path, sizeof(path), "/traces/run/analyzer_%08lu.bin",
-                 (unsigned long)header.session) <= 0 ||
+    if (snprintf(path, sizeof(path), "/traces/run/analyzer_%08lu_%04lu.bin",
+                 (unsigned long)header.session,
+                 (unsigned long)header.segment_index) <= 0 ||
         file_size > STORAGE_MANAGER_FILE_WRITE_MAX_BYTES) {
         s_analyzer_storage_pending = true;
         return;
