@@ -38,7 +38,7 @@ from tools.scpi_common.scpi_serial import (  # noqa: E402
 
 
 TRACE_DIRECTORY = "/traces/run"
-ANALYZER_NAME = re.compile(r"^analyzer_(\d+)\.bin$")
+ANALYZER_NAME = re.compile(r"^analyzer_(\d+)(?:_(\d+))?\.bin$")
 RUNTIME_FIELD_COUNT = 40
 RUNTIME_RING_ENABLED = 0
 RUNTIME_UP_RUNNING = 4
@@ -188,6 +188,8 @@ def discover_analyzer_segments(query: Query, *, page_limit: int = 16,
                 segments.append({
                     **entry,
                     "session_from_name": int(match.group(1), 10),
+                    "segment_from_name": (
+                        int(match.group(2), 10) if match.group(2) is not None else None),
                     "remote_path": f'{TRACE_DIRECTORY}/{entry["name"]}',
                 })
         if page["complete"]:

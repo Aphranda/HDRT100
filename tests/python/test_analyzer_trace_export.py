@@ -34,17 +34,27 @@ def test_parse_board_and_runtime_stopped() -> None:
 
 def test_catalog_pagination_selects_analyzer_files() -> None:
     responses = deque([
-        '"OK","/traces/run",0,2,2,0,0,'
-        '"fault.bin,9,FILE;analyzer_00000002.bin,56,FILE;"',
-        '"OK","/traces/run",2,2,0,1,0,'
+        '"OK","/traces/run",0,3,3,0,0,'
+        '"fault.bin,9,FILE;analyzer_00000002.bin,56,FILE;'
+        'analyzer_00000002_0007.bin,56,FILE;"',
+        '"OK","/traces/run",3,2,0,1,0,'
         '"analyzer_00000010.bin,88,FILE;notes,0,DIR;"',
     ])
 
     segments, pages = discover_analyzer_segments(
-        lambda _: responses.popleft(), page_limit=2)
+        lambda _: responses.popleft(), page_limit=3)
     assert len(pages) == 2
-    assert [row["session_from_name"] for row in segments] == [2, 10]
+    assert [row["session_from_name"] for row in segments] == [2, 2, 10]
+    assert segments[1]["segment_from_name"] == 7
     assert segments[-1]["remote_path"] == "/traces/run/analyzer_00000010.bin"
+
+
+def test_catalog_legacy_analyzer_name_has_no_segment_identity() -> None:
+    response = ('"OK","/traces/run",0,1,0,1,0,'
+                '"analyzer_00000003.bin,56,FILE;"')
+    segments, _ = discover_analyzer_segments(lambda _: response, page_limit=1)
+    assert segments[0]["session_from_name"] == 3
+    assert segments[0]["segment_from_name"] is None
 
 
 def test_catalog_truncation_retries_with_smaller_page() -> None:
