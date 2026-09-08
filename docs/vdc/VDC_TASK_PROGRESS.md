@@ -41,6 +41,32 @@ VDC-TDMA-001
 
 ## 进度记录
 
+### VDC-PROGRESS-20260908-004 — segmented trace export compatibility
+
+- TODO task ID：`VDC-OBS-001`、`VDC-OBS-003`、`VDC-VERIFY-001`。
+- 状态：IN PROGRESS。
+- 日期：2026-09-08。
+- 变更：commit `b11a74b` 修复离线导出工具只识别旧版
+  `analyzer_<session>.bin` 的问题，使其同时发现固件 schema 2 的
+  `analyzer_<session>_<segment>.bin` 分段文件，并保留 `segment_from_name` 身份；
+  旧命名继续兼容。这样长期 live-batch 的分段不会在目录扫描阶段被静默漏掉。
+- 软件验证：`tests/python/test_analyzer_trace_export.py`、
+  `test_analyzer_trace_decode.py`、`test_analyzer_trace_batch_index.py` 共 `21 passed`；
+  `py_compile` 通过。
+- 构建与 P3：当前源码 build `20260908041206` 的四板 OTA、P3、TRN-00/01/02
+  和 TDMA process-image/FIFO 证据位于
+  `out/HardwareAcceptance/20260908/vdc-export-segments-p3-20260908/`；
+  `check-staged` 和 pre-commit P3 指纹门禁通过。receipt 仍为
+  `FOUR_NODE_TDMA_QUICK_DIAGNOSTIC`，DPLL/NO5 因 `--tdma-only` 跳过，且
+  `strict_gates_passed=false` 的耗时边界仍保留。
+- 失败与边界：本切片只修复导出发现，不代表已经完成 StorageAO 长期背压、drop
+  interval、恢复点或断电恢复；也不能把 TDMA-only receipt 提升为
+  `FORMAL_LOCKED`。完整 DPLL/NO5 失败原始样本和 SVG 继续保留在
+  `out/HardwareAcceptance/20260908/vdc-live-batch-p3-20260908/dpll-no5-observation/`。
+- 下一 gate：`VDC-OBS-001`。在真实板端长期 live-batch 上验证分段目录分页、下载、
+  decoder/index 连续性，并补 StorageAO 背压、掉电/重启恢复的原始证据；完成前不推进
+  `VDC-OBS-002` 或正式 DPLL lock。
+
 ### VDC-PROGRESS-20260908-003 — schema-v2 analyzer decode and sequence-wrap evidence
 
 - TODO task ID：`VDC-OBS-001`、`VDC-VERIFY-001`。
