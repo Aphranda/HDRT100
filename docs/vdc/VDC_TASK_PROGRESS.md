@@ -41,6 +41,34 @@ VDC-TDMA-001
 
 ## 进度记录
 
+### VDC-PROGRESS-20260908-003 — schema-v2 analyzer decode and sequence-wrap evidence
+
+- TODO task ID：`VDC-OBS-001`、`VDC-VERIFY-001`。
+- 状态：IN PROGRESS。
+- 日期：2026-09-08。
+- 变更：commit `5661a94` 补齐离线 analyzer decoder/index 对固件 schema 2
+  header 的解析，保留 `segment_index`、`first_record_sequence` 和 `batch_sequence`，
+  并以 uint32 模运算识别记录与跨 segment 的序列间隔。`0xFFFFFFFF -> 0` 的正常
+  wrap 不再被误报为 drop；该工具仍只描述已持久化的本地 pad-visible 数据。
+- 软件验证：analyzer decoder/index 回归 `8 passed`；
+  `tools/tests/run_sync_io_logic_analyzer_tests.ps1` 通过；
+  `tools/tests/run_host_unit_tests.ps1` 全量 `37/37` 通过；`py_compile` 通过。
+- 构建与 P3：当前源码 build `20260908032311` 的四板 OTA、P3、TRN-00/01/02
+  和 TDMA process-image/FIFO 证据位于
+  `out/HardwareAcceptance/20260908/vdc-observe-wrap-p3-20260908/`；
+  `python tools/hardware_acceptance/p3_hardware_acceptance.py check-staged` 和
+  pre-commit 的 P3 staged 指纹门禁通过。receipt 为
+  `config/hardware_acceptance/p3_acceptance_receipt.json`，验收范围明确为
+  `FOUR_NODE_TDMA_QUICK_DIAGNOSTIC`，DPLL/NO5 因 `--tdma-only` 跳过。
+- 失败与边界：该 receipt 的 `strict_gates_passed` 仍为 `false`；唯一记录失败为
+  验收耗时 `324.452s` 超过 `100.000s`，动作是 `DEBUG_BOUNDED_FORCE_CONTINUE`。
+  该次运行不是完整 DPLL/NO5 验收，不能宣称 `FORMAL_LOCKED`。先前完整 DPLL/NO5
+  失败样本、原始 segment 和 SVG 仍保留在
+  `out/HardwareAcceptance/20260908/vdc-live-batch-p3-20260908/dpll-no5-observation/`。
+- 下一 gate：`VDC-OBS-001` 保持 IN PROGRESS，继续做真实长期 live-batch，验证
+  StorageAO 背压、drop interval、恢复点和断电恢复；在这些证据闭环前不推进
+  `VDC-OBS-002`，也不重新宣称正式 DPLL lock。
+
 ### VDC-PROGRESS-20260908-002 — bounded live analyzer batch handoff
 
 - TODO task ID：`VDC-OBS-001`、`VDC-VERIFY-001`。
