@@ -19,9 +19,23 @@ from typing import Any
 
 
 MAGIC = 0x4C504444  # DDPL
-SCHEMA = 1
+SCHEMA_V1 = 1
+SCHEMA = 2
 HEADER = struct.Struct("<IHHIIIII")
-RECORD = struct.Struct("<IIiiI")
+RECORD_V1 = struct.Struct("<IIiiI")
+RECORD = struct.Struct("<IIiiIIIIII")
+
+CAPTURE_KIND_MASTER = 1
+CAPTURE_KIND_FOLLOWER_COMMAND = 2
+CAPTURE_KIND_FOLLOWER_STATE = 3
+
+
+def _decode_capture_kind(value: int) -> str:
+    return {
+        CAPTURE_KIND_MASTER: "master_local_evidence",
+        CAPTURE_KIND_FOLLOWER_COMMAND: "follower_applied_command",
+        CAPTURE_KIND_FOLLOWER_STATE: "follower_state_transition",
+    }.get(value, "unknown")
 
 
 def decode(path: Path, board: str) -> dict[str, Any]:
@@ -33,9 +47,10 @@ def decode(path: Path, board: str) -> dict[str, Any]:
     )
     if magic != MAGIC:
         raise ValueError(f"unexpected capture magic 0x{magic:08X}")
-    if schema != SCHEMA:
+    if schema not in (SCHEMA_V1, SCHEMA):
         raise ValueError(f"unsupported capture schema {schema}")
-    if record_size != RECORD.size:
+    expected_record = RECORD_V1 if schema == SCHEMA_V1 else RECORD
+    if record_size != expected_record.size:
         raise ValueError(f"unexpected record size {record_size}")
     expected_size = HEADER.size + record_count * record_size
     if expected_size != len(data):
@@ -51,13 +66,29 @@ def decode(path: Path, board: str) -> dict[str, Any]:
     board_name = board.upper()
     samples: list[dict[str, Any]] = []
     for index in range(record_count):
-        update_seq, timestamp_ms, phase_ns, frequency_ppb, state_and_gate = (
-            RECORD.unpack_from(payload, index * record_size)
-        )
+        if schema == SCHEMA_V1:
+            update_seq, timestamp_ms, phase_ns, frequency_ppb, state_and_gate = (
+                RECORD_V1.unpack_from(payload, index * record_size)
+            )
+            source_slot = 0
+            kind = CAPTURE_KIND_MASTER
+            lock_state = 0
+            quality = 0
+            control_generation = 0
+            command_seq = 0
+            effective_time = 0
+        else:
+            (update_seq, timestamp_ms, phase_ns, frequency_ppb, state_and_gate,
+             context, control_generation, command_seq, effective_lo,
+             effective_hi) = RECORD.unpack_from(payload, index * record_size)
+            kind = context & 0xFF
+            source_slot = (context >> 8) & 0xFF
+            lock_state = (context >> 16) & 0xFF
+            quality = (context >> 24) & 0xFF
+            effective_time = effective_lo | (effective_hi << 32)
         state = state_and_gate & 0xFFFF
         gate = (state_and_gate >> 16) & 0xFFFF
-        samples.append(
-            {
+        sample: dict[str, Any] = {
                 "ts_utc": "",
                 "elapsed_s": max(0.0, (timestamp_ms - start_ms) / 1000.0),
                 "board": board_name,
@@ -70,18 +101,38 @@ def decode(path: Path, board: str) -> dict[str, Any]:
                 "dpll_vector": {
                     "state": state,
                     "dpll_update_seq": update_seq,
-                    "last_phase_error_ns": phase_ns,
-                    "last_frequency_error_ppb": frequency_ppb,
+                    "last_phase_error_ns": (
+                        0 if kind == CAPTURE_KIND_FOLLOWER_COMMAND else phase_ns),
+                    "last_frequency_error_ppb": (
+                        0 if kind == CAPTURE_KIND_FOLLOWER_COMMAND else frequency_ppb),
+                    "dco_phase_offset_ns": (
+                        phase_ns if kind == CAPTURE_KIND_FOLLOWER_COMMAND else 0),
+                    "dco_period_adjust_ppb": (
+                        frequency_ppb if kind == CAPTURE_KIND_FOLLOWER_COMMAND else 0),
                     "gate_reject_code": gate,
                 },
                 "trigger_sequence": update_seq,
                 "trigger_interval_ms": None,
                 "simultaneous_feedback": False,
                 "error": "",
+                "capture_kind": _decode_capture_kind(kind),
             }
-        )
+        if kind in (CAPTURE_KIND_FOLLOWER_COMMAND,
+                    CAPTURE_KIND_FOLLOWER_STATE):
+            sample["follower_command"] = {
+                "source_slot_id": source_slot,
+                "control_generation": control_generation,
+                "command_seq": command_seq,
+                "effective_vdc_time_ns": effective_time,
+                "phase_offset_ns": phase_ns,
+                "period_adjust_ppb": frequency_ppb,
+                "lock_state": lock_state,
+                "quality": quality,
+                "applied": kind == CAPTURE_KIND_FOLLOWER_COMMAND,
+            }
+        samples.append(sample)
     return {
-        "schema": "HAOFV_DPLL_OBSERVATION_CAPTURE_V1",
+        "schema": "HAOFV_DPLL_OBSERVATION_CAPTURE_V2",
         "board": board_name,
         "source": str(path),
         "record_count": record_count,

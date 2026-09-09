@@ -11,6 +11,7 @@ from tools.dpll_observation_capture.dpll_observation_capture import (
     parse_board,
     parse_role_status,
     role_status_delta,
+    summarize_follower_observation,
 )
 from tools.dpll_servo_tune.dpll_servo_tune import Profile, parse_profile
 from tools.dpll_residual_analyze.dpll_residual_analyze import render_combined_svg
@@ -128,6 +129,32 @@ def test_follower_status_is_complete_and_counter_delta_is_wrap_safe() -> None:
 def test_follower_status_rejects_partial_scpi_response() -> None:
     with pytest.raises(ValueError):
         parse_role_status("1,0,7,7,0")
+
+
+def test_follower_observation_requires_ordered_multi_point_apply_records() -> None:
+    delta = {
+        "follower_apply_count": 2,
+        "follower_no_command_count": 0,
+        "follower_wrong_source_count": 0,
+        "follower_stale_command_count": 0,
+        "follower_invalid_command_count": 0,
+        "follower_local_evidence_bypass_count": 0,
+    }
+    samples = [
+        {"capture_kind": "follower_applied_command", "follower_command": {
+            "applied": True, "source_slot_id": 0, "control_generation": 9,
+            "command_seq": 10, "effective_vdc_time_ns": 1000,
+        }},
+        {"capture_kind": "follower_applied_command", "follower_command": {
+            "applied": True, "source_slot_id": 0, "control_generation": 9,
+            "command_seq": 11, "effective_vdc_time_ns": 2000,
+        }},
+    ]
+    summary = summarize_follower_observation(samples, delta, True)
+    assert summary["multi_point_ready"] is True
+    assert summary["capture_records_covered_by_apply_counter"] is True
+    assert summary["source_slots"] == [0]
+    assert summary["last_command_seq"] == 11
 
 
 def test_capture_tool_is_explicitly_off_realtime_path() -> None:

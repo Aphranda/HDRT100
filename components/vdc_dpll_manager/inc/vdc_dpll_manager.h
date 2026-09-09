@@ -15,7 +15,9 @@
 #define VDC_DPLL_MANAGER_SELF_TEST_DEFAULT_PULSES 4096u
 #define VDC_DPLL_MANAGER_SELF_TEST_MAX_PULSES UINT32_MAX
 /* The DPLL capture is a maintenance/evidence buffer, not a realtime queue. */
-#define VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES 400u
+/* Keep the expanded master/follower event record inside the existing 8 KiB
+ * maintenance capture budget.  This buffer is never part of TDMA traffic. */
+#define VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES 200u
 /* Schema v3 removes segment-common and reconstructable fields.  A bounded
  * three-buffer queue absorbs asynchronous SD hand-off latency; realtime
  * TDMA/RefMem objects are untouched and queue exhaustion remains observable
@@ -232,9 +234,16 @@ typedef struct {
 typedef struct __attribute__((packed)) {
     uint32_t update_seq;
     uint32_t timestamp_ms;
-    int32_t phase_error_ns;
-    int32_t frequency_error_ppb;
-    uint32_t state_and_gate;
+    /* MASTER: local residuals. FOLLOWER: applied peer DCO command. */
+    int32_t phase_value_ns;
+    int32_t frequency_value_ppb;
+    uint32_t state_and_reject;
+    /* kind[7:0], source_slot[15:8], lock_state[23:16], quality[31:24]. */
+    uint32_t source_kind_lock_quality;
+    uint32_t control_generation;
+    uint32_t command_seq;
+    uint32_t effective_vdc_time_lo;
+    uint32_t effective_vdc_time_hi;
 } vdc_dpll_manager_dpll_capture_record_t;
 
 typedef struct {

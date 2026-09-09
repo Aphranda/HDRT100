@@ -39,6 +39,12 @@ class ResidualPoint:
     accepted_count: int
     rejected_count: int
     dpll_update_seq: int
+    # A follower records verified peer DCO commands, not a local PI residual.
+    capture_kind: str = "master_local_evidence"
+    source_slot_id: int = 0
+    control_generation: int = 0
+    command_seq: int = 0
+    effective_vdc_time_ns: int = 0
     rolling_mean_ns: float = 0.0
     rolling_rms_ns: float = 0.0
     anomaly_reasons: tuple[str, ...] = ()
@@ -73,6 +79,11 @@ def load_monitor_samples(paths: Iterable[Path],
                     continue
                 if not isinstance(readiness, dict):
                     readiness = {}
+                capture_kind = str(sample.get(
+                    "capture_kind", "master_local_evidence"))
+                follower_command = sample.get("follower_command")
+                if not isinstance(follower_command, dict):
+                    follower_command = {}
                 target.append(ResidualPoint(
                     board=board,
                     elapsed_s=float(sample.get("elapsed_s", 0.0)),
@@ -87,6 +98,13 @@ def load_monitor_samples(paths: Iterable[Path],
                     accepted_count=_integer(readiness, "accepted_count"),
                     rejected_count=_integer(readiness, "rejected_count"),
                     dpll_update_seq=_integer(vector, "dpll_update_seq"),
+                    capture_kind=capture_kind,
+                    source_slot_id=_integer(follower_command, "source_slot_id"),
+                    control_generation=_integer(
+                        follower_command, "control_generation"),
+                    command_seq=_integer(follower_command, "command_seq"),
+                    effective_vdc_time_ns=_integer(
+                        follower_command, "effective_vdc_time_ns"),
                 ))
     for points in series.values():
         points.sort(key=lambda point: point.elapsed_s)
@@ -146,6 +164,8 @@ def analyze_series(points: list[ResidualPoint], *, rolling_window: int,
                    mad_multiplier: float) -> dict[str, Any]:
     if not points:
         raise ValueError("residual series is empty")
+    follower_observation = any(
+        point.capture_kind.startswith("follower_") for point in points)
     _rolling_metrics(points, rolling_window)
     residuals = [point.phase_residual_ns for point in points]
     median = float(statistics.median(residuals))
@@ -186,7 +206,7 @@ def analyze_series(points: list[ResidualPoint], *, rolling_window: int,
     median_updates_per_snapshot = (float(statistics.median(update_deltas))
                                    if update_deltas else 0.0)
     decimated = any(delta > 1 for delta in update_deltas)
-    return {
+    analysis = {
         "board": points[0].board,
         "sample_count": len(points),
         "duration_s": duration_s,
@@ -216,6 +236,33 @@ def analyze_series(points: list[ResidualPoint], *, rolling_window: int,
         "lock_threshold_ns": lock_threshold_ns,
         "source": "dpll_vdc_monitor_scpi_snapshots",
     }
+    if follower_observation:
+        applied = [point for point in points
+                   if point.capture_kind == "follower_applied_command"]
+        command_sequences = [point.command_seq for point in applied]
+        effective_times = [point.effective_vdc_time_ns for point in applied]
+        analysis.update({
+            "analysis_kind": "follower_validated_command_apply",
+            "local_pi_lock_evidence": False,
+            "accepted_command_sample_count": len(applied),
+            "source_slots": sorted({point.source_slot_id for point in applied}),
+            "control_generations": sorted(
+                {point.control_generation for point in applied}),
+            "command_sequence_strict": all(
+                current > previous for previous, current in
+                zip(command_sequences, command_sequences[1:])),
+            "effective_time_strict": all(
+                current > previous for previous, current in
+                zip(effective_times, effective_times[1:])),
+            "lock_interpretation": (
+                "follower command application is not local PI lock evidence"),
+            # A follower must not promote a peer lock state into a local lock.
+            "locked_sample_count": 0,
+        })
+    else:
+        analysis["analysis_kind"] = "master_local_residual"
+        analysis["local_pi_lock_evidence"] = True
+    return analysis
 
 
 def _scale(value: float, source_min: float, source_max: float,
@@ -226,8 +273,101 @@ def _scale(value: float, source_min: float, source_max: float,
     return target_min + ratio * (target_max - target_min)
 
 
+def render_follower_svg(board: str, points: list[ResidualPoint],
+                        analysis: dict[str, Any]) -> str:
+    """Render a FOLLOWER command-application trace without inventing PI data."""
+    width, height = 1600, 860
+    left, right = 110.0, 1550.0
+    phase_top, phase_bottom = 150.0, 470.0
+    rate_top, rate_bottom = 550.0, 740.0
+    applied = [point for point in points
+               if point.capture_kind == "follower_applied_command"]
+    display = applied or points
+    start_s, end_s = display[0].elapsed_s, display[-1].elapsed_s
+    if end_s <= start_s:
+        end_s = start_s + 1.0
+    phase_extent = max(max(abs(point.dco_phase_offset_ns) for point in display) * 1.1,
+                       1.0)
+    rate_extent = max(max(abs(point.dco_period_adjust_ppb) for point in display) * 1.1,
+                      1.0)
+
+    def x(value: float) -> float:
+        return _scale(value, start_s, end_s, left, right)
+
+    def phase_y(value: float) -> float:
+        return _scale(value, -phase_extent, phase_extent,
+                      phase_bottom, phase_top)
+
+    def rate_y(value: float) -> float:
+        return _scale(value, -rate_extent, rate_extent, rate_bottom, rate_top)
+
+    phase = " ".join(
+        f"{x(point.elapsed_s):.1f},{phase_y(point.dco_phase_offset_ns):.1f}"
+        for point in display)
+    rate = " ".join(
+        f"{x(point.elapsed_s):.1f},{rate_y(point.dco_period_adjust_ppb):.1f}"
+        for point in display)
+    source_slots = ",".join(str(value) for value in analysis["source_slots"]) or "none"
+    generations = ",".join(str(value) for value in analysis["control_generations"]) or "none"
+    sequence_strict = int(analysis["command_sequence_strict"])
+    time_strict = int(analysis["effective_time_strict"])
+    chunks = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+        f'viewBox="0 0 {width} {height}">',
+        '<style>text{font-family:ui-monospace,Consolas,monospace;fill:#172033}'
+        '.title{font-size:22px;font-weight:700}.label{font-size:14px;font-weight:600}'
+        '.small{font-size:12px}.grid{stroke:#d7dce5;stroke-width:1}'
+        '.zero{stroke:#667085;stroke-width:1.5}.line{fill:none;stroke-width:2.5}'
+        '.point{fill:#2563eb;stroke:#fff;stroke-width:1.5}</style>',
+        '<rect width="100%" height="100%" fill="#fff"/>',
+        f'<text x="30" y="34" class="title">{escape(board)} FOLLOWER validated command application</text>',
+        '<text x="30" y="60" class="small">local PI/integrator bypassed; this is not local PI lock evidence</text>',
+        f'<text x="30" y="82" class="small">applied records={analysis["accepted_command_sample_count"]} '
+        f'source slots={escape(source_slots)} control generations={escape(generations)} '
+        f'strict command sequence={sequence_strict} strict effective time={time_strict}</text>',
+        '<text x="30" y="104" class="small">each point is a Core1-validated peer command applied at its common effective VDC time</text>',
+        f'<rect x="{left}" y="{phase_top}" width="{right-left}" '
+        f'height="{phase_bottom-phase_top}" fill="#fbfcfe" stroke="#c8ced8"/>',
+        f'<rect x="{left}" y="{rate_top}" width="{right-left}" '
+        f'height="{rate_bottom-rate_top}" fill="#fbfcfe" stroke="#c8ced8"/>',
+        f'<text x="30" y="{phase_top + 18}" class="label">applied DCO phase offset (ns)</text>',
+        f'<text x="30" y="{rate_top + 18}" class="label">applied DCO period adjustment (ppb)</text>',
+        f'<line x1="{left}" y1="{phase_y(0):.1f}" x2="{right}" y2="{phase_y(0):.1f}" class="zero"/>',
+        f'<line x1="{left}" y1="{rate_y(0):.1f}" x2="{right}" y2="{rate_y(0):.1f}" class="zero"/>',
+        f'<polyline points="{phase}" class="line" stroke="#2563eb"/>',
+        f'<polyline points="{rate}" class="line" stroke="#16803c"/>',
+    ]
+    for fraction in (0.0, 0.25, 0.5, 0.75, 1.0):
+        xx = left + (right - left) * fraction
+        elapsed = start_s + (end_s - start_s) * fraction
+        chunks.append(f'<line x1="{xx:.1f}" y1="{phase_top}" x2="{xx:.1f}" '
+                      f'y2="{rate_bottom}" class="grid"/>')
+        chunks.append(f'<text x="{xx - 18:.1f}" y="790" '
+                      f'class="small">{elapsed:.3f}s</text>')
+    for point in applied:
+        title = escape(
+            f"source={point.source_slot_id} generation={point.control_generation} "
+            f"command_seq={point.command_seq} effective_vdc_time_ns="
+            f"{point.effective_vdc_time_ns}")
+        chunks.extend([
+            f'<circle cx="{x(point.elapsed_s):.1f}" cy="{phase_y(point.dco_phase_offset_ns):.1f}" r="4" class="point"><title>{title}</title></circle>',
+            f'<circle cx="{x(point.elapsed_s):.1f}" cy="{rate_y(point.dco_period_adjust_ppb):.1f}" r="4" class="point"><title>{title}</title></circle>',
+        ])
+    chunks.extend([
+        '<line x1="110" y1="820" x2="145" y2="820" stroke="#2563eb" stroke-width="3"/>',
+        '<text x="152" y="824" class="small">applied phase offset</text>',
+        '<line x1="350" y1="820" x2="385" y2="820" stroke="#16803c" stroke-width="3"/>',
+        '<text x="392" y="824" class="small">applied period adjustment</text>',
+        '<text x="690" y="824" class="small">hover a point for source/generation/sequence/effective time</text>',
+        '</svg>',
+    ])
+    return "\n".join(chunks) + "\n"
+
+
 def render_svg(board: str, points: list[ResidualPoint], analysis: dict[str, Any],
                *, lock_threshold_ns: int) -> str:
+    if analysis.get("analysis_kind") == "follower_validated_command_apply":
+        return render_follower_svg(board, points, analysis)
     width, height = 1600, 860
     left, right = 110.0, 1550.0
     phase_top, phase_bottom = 120.0, 500.0
@@ -333,12 +473,14 @@ def render_svg(board: str, points: list[ResidualPoint], analysis: dict[str, Any]
 def render_combined_svg(series: dict[str, list[ResidualPoint]],
                         analyses: dict[str, dict[str, Any]], *,
                         lock_threshold_ns: int) -> str:
-    """Render one explicitly keyed NO1..NO4 phase-residual convergence plot."""
+    """Render master residuals without presenting follower commands as errors."""
     colors = {"NO1": "#2563eb", "NO2": "#dc2626",
               "NO3": "#059669", "NO4": "#7c3aed"}
     width, height = 1600, 760
     left, right, top, bottom = 110.0, 1510.0, 100.0, 570.0
-    boards = [name for name in ("NO1", "NO2", "NO3", "NO4") if name in series]
+    boards = [name for name in ("NO1", "NO2", "NO3", "NO4")
+              if name in series and analyses.get(name, {}).get(
+                  "analysis_kind") != "follower_validated_command_apply"]
     all_points = [point for name in boards for point in series[name]]
     max_x = max((point.elapsed_s for point in all_points), default=1.0) or 1.0
     extent = max(float(lock_threshold_ns) * 1.2,
@@ -353,7 +495,7 @@ def render_combined_svg(series: dict[str, list[ResidualPoint]],
         '<style>text{font-family:ui-monospace,Consolas,monospace;fill:#172033}.title{font-size:22px;font-weight:700}.small{font-size:13px}.grid{stroke:#d7dce5}.zero{stroke:#667085}.line{fill:none;stroke-width:2}.missing{fill:#b42318;font-weight:700}</style>',
         '<rect width="100%" height="100%" fill="#fff"/>',
         '<text x="30" y="38" class="title">NO1–NO4 DPLL convergence from SD residual captures</text>',
-        '<text x="30" y="64" class="small">source=per-node DPLL:TRACE SD records; gaps are shown as missing, never interpolated</text>',
+        '<text x="30" y="64" class="small">master local residuals only; follower command-application evidence is rendered in its per-node SVG</text>',
         f'<rect x="{left}" y="{top}" width="{right-left}" height="{bottom-top}" fill="#fbfcfe" stroke="#c8ced8"/>',
     ]
     for value in (-extent, -lock_threshold_ns, 0, lock_threshold_ns, extent):
@@ -370,6 +512,9 @@ def render_combined_svg(series: dict[str, list[ResidualPoint]],
         count = int(analysis.get("sample_count", 0)) if analysis else 0
         confidence = str(analysis.get("analysis_confidence", "missing")) if analysis else "missing"
         color = colors[name]
+        if analysis and analysis.get("analysis_kind") == "follower_validated_command_apply":
+            count = int(analysis.get("accepted_command_sample_count", 0))
+            confidence = "follower_apply_not_local_pi"
         chunks.extend([
             f'<line x1="{legend_x:.1f}" y1="630" x2="{legend_x+34:.1f}" y2="630" stroke="{color}" stroke-width="3"/>',
             f'<text x="{legend_x+42:.1f}" y="635" class="small">{name} samples={count} confidence={escape(confidence)}</text>',
@@ -413,7 +558,8 @@ def write_reports(series: dict[str, list[ResidualPoint]], out_dir: Path, *,
             "rolling_rms_ns", "frequency_error_ppb", "dco_phase_offset_ns",
             "dco_period_adjust_ppb", "dpll_state", "gate_reject_code",
             "accepted_count", "rejected_count", "dpll_update_seq",
-            "anomaly_reasons",
+            "capture_kind", "source_slot_id", "control_generation",
+            "command_seq", "effective_vdc_time_ns", "anomaly_reasons",
         ])
         for board, points in sorted(series.items()):
             for point in points:
@@ -424,7 +570,10 @@ def write_reports(series: dict[str, list[ResidualPoint]], out_dir: Path, *,
                     point.dco_phase_offset_ns, point.dco_period_adjust_ppb,
                     point.dpll_state, point.gate_reject_code,
                     point.accepted_count, point.rejected_count,
-                    point.dpll_update_seq, ";".join(point.anomaly_reasons),
+                    point.dpll_update_seq, point.capture_kind,
+                    point.source_slot_id, point.control_generation,
+                    point.command_seq, point.effective_vdc_time_ns,
+                    ";".join(point.anomaly_reasons),
                 ])
     result = {
         "schema": "HAOFV_DPLL_RESIDUAL_ANALYSIS_V1",

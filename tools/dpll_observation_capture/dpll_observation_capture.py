@@ -109,6 +109,64 @@ def role_status_delta(before: dict[str, int], after: dict[str, int]) -> dict[str
     }
 
 
+def summarize_follower_observation(
+        samples: list[dict[str, Any]], role_delta: dict[str, int],
+        follower: bool) -> dict[str, Any]:
+    """Summarize only commands already accepted at the Core1 boundary.
+
+    A FOLLOWER has no local PI residual trajectory.  Its observable control
+    history is the ordered set of validated peer commands that changed the
+    local DCO, plus the separate rejection/missing counters.
+    """
+    if not follower:
+        return {"mode": "master_local_evidence"}
+    applied = [
+        sample["follower_command"] for sample in samples
+        if sample.get("capture_kind") == "follower_applied_command" and
+        isinstance(sample.get("follower_command"), dict) and
+        sample["follower_command"].get("applied") is True
+    ]
+    command_sequences = [int(command["command_seq"]) for command in applied]
+    effective_times = [int(command["effective_vdc_time_ns"])
+                       for command in applied]
+    source_slots = sorted({int(command["source_slot_id"]) for command in applied})
+    generations = sorted({int(command["control_generation"])
+                          for command in applied})
+    sequence_strict = all(
+        current > previous for previous, current in
+        zip(command_sequences, command_sequences[1:]))
+    time_strict = all(
+        current > previous for previous, current in
+        zip(effective_times, effective_times[1:]))
+    record_count = len(applied)
+    apply_delta = role_delta["follower_apply_count"]
+    return {
+        "mode": "follower_validated_command_apply",
+        "applied_command_record_count": record_count,
+        "follower_apply_count_delta": apply_delta,
+        "capture_records_covered_by_apply_counter": apply_delta >= record_count,
+        "source_slots": source_slots,
+        "control_generations": generations,
+        "first_command_seq": command_sequences[0] if command_sequences else 0,
+        "last_command_seq": command_sequences[-1] if command_sequences else 0,
+        "first_effective_vdc_time_ns": effective_times[0] if effective_times else 0,
+        "last_effective_vdc_time_ns": effective_times[-1] if effective_times else 0,
+        "command_sequence_strict": sequence_strict,
+        "effective_time_strict": time_strict,
+        "local_evidence_bypass_delta": role_delta[
+            "follower_local_evidence_bypass_count"],
+        "multi_point_ready": (
+            record_count >= 2 and apply_delta >= record_count and
+            sequence_strict and time_strict and
+            role_delta["follower_local_evidence_bypass_count"] == 0
+        ),
+        "reason": (
+            "captured_validated_follower_commands" if record_count else
+            "no_follower_command_apply_in_capture_window"
+        ),
+    }
+
+
 def parse_save(response: str) -> tuple[int, str, int]:
     fields = [item.strip().strip('"') for item in next(csv.reader([response]), [])]
     if len(fields) != 4 or fields[0].upper() != "QUEUED":
@@ -207,6 +265,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 "follower_status_delta": {
                     field: 0 for field in FOLLOWER_COUNTER_FIELDS
                 },
+                "follower_observation": summarize_follower_observation(
+                    [], {field: 0 for field in FOLLOWER_COUNTER_FIELDS},
+                    role_before[board.name]["mode"] == FOLLOWER_MODE),
             })
         result = {
             "schema": "HAOFV_DPLL_OBSERVATION_CAPTURE_RUN_V1",
@@ -270,6 +331,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 "follower_status_before": role_before[board.name],
                 "follower_status_after": role_after,
                 "follower_status_delta": role_window,
+                "follower_observation": summarize_follower_observation(
+                    [], role_window, follower),
             })
             continue
         save_response = query(board, "SYSTem:SYNC:VDC:DPLL:TRACe:SAVE", args)
@@ -285,6 +348,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             encoding="utf-8",
         )
         decoded_inputs.append(samples_path)
+        decoded_samples = decoded["samples"][board.name]
         board_results.append({
             "board": board.name,
             "port": board.port,
@@ -298,6 +362,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "download_size": len(raw),
             "raw_path": str(raw_path),
             "samples_path": str(samples_path),
+            "follower_observation": summarize_follower_observation(
+                decoded_samples, role_window, follower),
         })
 
     series = load_monitor_samples(decoded_inputs)

@@ -113,3 +113,40 @@ def test_svg_marks_anomaly_reason() -> None:
     svg = render_svg("NO2", points, analysis, lock_threshold_ns=10000)
     assert "gate_11" in svg
     assert "state_7" in svg
+
+
+def test_follower_svg_reports_applied_commands_not_local_pi_lock(
+        tmp_path: Path) -> None:
+    samples = [
+        {
+            "elapsed_s": float(index), "error": "",
+            "capture_kind": "follower_applied_command",
+            "dpll_vector": {
+                "last_phase_error_ns": 0,
+                "last_frequency_error_ppb": 0,
+                "dco_phase_offset_ns": 25 + index,
+                "dco_period_adjust_ppb": -4 - index,
+                "state": 1, "gate_reject_code": 0,
+                "dpll_update_seq": 10 + index,
+            },
+            "follower_command": {
+                "source_slot_id": 0, "control_generation": 7,
+                "command_seq": 20 + index,
+                "effective_vdc_time_ns": 1000 + index * 100,
+                "applied": True,
+            },
+        }
+        for index in range(2)
+    ]
+    path = tmp_path / "follower.json"
+    path.write_text(json.dumps({"NO3": samples}), encoding="utf-8")
+    points = load_monitor_samples([path])["NO3"]
+    analysis = analyze_series(
+        points, rolling_window=2, lock_threshold_ns=10000,
+        mad_multiplier=6.0)
+    svg = render_svg("NO3", points, analysis, lock_threshold_ns=10000)
+    assert analysis["analysis_kind"] == "follower_validated_command_apply"
+    assert analysis["local_pi_lock_evidence"] is False
+    assert analysis["locked_sample_count"] == 0
+    assert "FOLLOWER validated command application" in svg
+    assert "not local PI lock evidence" in svg

@@ -31,7 +31,10 @@
 
 #define VDC_DPLL_MANAGER_SELF_TEST_CLEANUP_MARGIN_MS 250u
 #define VDC_DPLL_MANAGER_DPLL_CAPTURE_MAGIC 0x4C504444u /* DDPL */
-#define VDC_DPLL_MANAGER_DPLL_CAPTURE_SCHEMA 1u
+#define VDC_DPLL_MANAGER_DPLL_CAPTURE_SCHEMA 2u
+#define VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_MASTER 1u
+#define VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_COMMAND 2u
+#define VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_STATE 3u
 #define VDC_DPLL_MANAGER_WAVEFORM_MAGIC 0x57524D53u /* SMRW */
 #define VDC_DPLL_MANAGER_WAVEFORM_SCHEMA 3u
 #define VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT 3u
@@ -85,6 +88,16 @@ _Static_assert(
             sizeof(vdc_dpll_manager_waveform_storage_record_t) <=
         STORAGE_MANAGER_FILE_WRITE_MAX_BYTES,
     "waveform segment must fit StorageAO write buffer");
+
+_Static_assert(
+    sizeof(vdc_dpll_manager_dpll_capture_header_t) +
+        VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES *
+            sizeof(vdc_dpll_manager_dpll_capture_record_t) <= 8192u,
+    "DPLL capture must stay inside the maintenance write budget");
+_Static_assert(sizeof(vdc_dpll_manager_dpll_capture_header_t) == 28u,
+               "DPLL capture header ABI changed");
+_Static_assert(sizeof(vdc_dpll_manager_dpll_capture_record_t) == 40u,
+               "DPLL capture record ABI changed");
 
 static vdc_dpll_manager_vdc_status_t s_vdc_status;
 static vdc_dpll_manager_dpll_status_t s_dpll_status;
@@ -274,14 +287,50 @@ static void vdc_dpll_manager_publish_runtime_snapshot_locked(void)
             const uint32_t now_ms = board_uptime_ms();
             vdc_dpll_manager_dpll_capture_record_t *record =
                 &s_dpll_capture_records[s_dpll_capture_count];
+            const bool follower =
+                s_vdc_domain.control.profile.valid == 1u &&
+                s_vdc_domain.control.profile.mode ==
+                    VDC_DPLL_CONTROL_MODE_FOLLOWER;
+            const uint32_t command_seq =
+                follower ? s_vdc_domain.control.last_follower_command_seq : 0u;
+            const uint32_t kind = !follower
+                                      ? VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_MASTER
+                                      : (command_seq != 0u
+                                             ? VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_COMMAND
+                                             : VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_STATE);
+            const uint32_t source_slot = follower
+                                             ? s_vdc_domain.control.last_follower_source_slot_id
+                                             : s_vdc_domain.schedule.local_slot_id;
+            const uint32_t control_generation =
+                follower ? s_vdc_domain.control.last_follower_control_generation
+                         : s_vdc_domain.control.profile.generation;
+            const uint64_t effective_time =
+                follower ? s_vdc_domain.control.last_follower_effective_vdc_time_ns
+                         : 0u;
+            const uint32_t lock_state = s_vdc_domain.dco.lock_state;
+            const uint32_t quality = follower
+                                         ? s_vdc_domain.control.last_follower_quality
+                                         : s_vdc_domain.quality.health_state;
             record->update_seq = s_vdc_domain.dpll.update_seq;
             record->timestamp_ms = now_ms;
-            record->phase_error_ns = s_vdc_domain.dpll.last_phase_error_ns;
-            record->frequency_error_ppb =
-                s_vdc_domain.dpll.last_frequency_error_ppb;
-            record->state_and_gate =
+            record->phase_value_ns = follower
+                                         ? s_vdc_domain.dco.phase_offset_ns
+                                         : s_vdc_domain.dpll.last_phase_error_ns;
+            record->frequency_value_ppb = follower
+                                             ? s_vdc_domain.dco.period_adjust_ppb
+                                             : s_vdc_domain.dpll.last_frequency_error_ppb;
+            record->state_and_reject =
                 (s_vdc_domain.dpll.state & 0xFFFFu) |
                 ((s_vdc_domain.dpll.last_reject_code & 0xFFFFu) << 16u);
+            record->source_kind_lock_quality =
+                (kind & 0xFFu) |
+                ((source_slot & 0xFFu) << 8u) |
+                ((lock_state & 0xFFu) << 16u) |
+                ((quality & 0xFFu) << 24u);
+            record->control_generation = control_generation;
+            record->command_seq = command_seq;
+            record->effective_vdc_time_lo = (uint32_t)effective_time;
+            record->effective_vdc_time_hi = (uint32_t)(effective_time >> 32u);
             if (s_dpll_capture_count == 0u) {
                 s_dpll_capture_first_update_seq = record->update_seq;
                 s_dpll_capture_start_ms = now_ms;
