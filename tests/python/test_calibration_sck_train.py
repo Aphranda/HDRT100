@@ -1,4 +1,8 @@
+import argparse
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from tools.calibration_ring_validate.calibration_sck_train import (
     DESTINATION_REQUIRED_FLAGS,
@@ -13,6 +17,10 @@ from tools.calibration_ring_validate.calibration_sck_train import (
     summarize_repeat_matrix,
     summarize_sck_capture,
     validate_link,
+)
+import tools.calibration_ring_validate.calibration_load_guard as load_guard_module
+from tools.calibration_ring_validate.calibration_load_guard import (
+    CalibrationLoadGuard,
 )
 from tools.scpi_common.scpi_serial import scpi_response_matches_command
 
@@ -224,6 +232,48 @@ def test_sck_capture_summary_is_raw_only() -> None:
     })
     assert summary["transition_count"] == 2
     assert summary["sample_count"] == 5
+
+
+def test_sck_diagnostic_guard_records_quarantine_change_without_raising(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    schedules = iter((
+        {"enabled_mask": 8, "quarantined_mask": 8,
+         "schedule_miss_count": 1, "phases": []},
+        {"enabled_mask": 8, "quarantined_mask": 24,
+         "schedule_miss_count": 1, "phases": []},
+    ))
+    monkeypatch.setattr(
+        load_guard_module, "read_schedule", lambda _board, _args: next(schedules))
+    guard = CalibrationLoadGuard(
+        [SimpleNamespace(address="NO4")],
+        argparse.Namespace(diagnostic_continue=True))
+
+    with guard:
+        pass
+
+    evidence = guard.evidence()
+    assert evidence["passed"] is False
+    assert evidence["forced_continue"] is True
+    assert evidence["errors"] == ["NO4: quarantine mask changed 8->24"]
+
+
+def test_sck_strict_guard_rejects_quarantine_change(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    schedules = iter((
+        {"enabled_mask": 8, "quarantined_mask": 8,
+         "schedule_miss_count": 1, "phases": []},
+        {"enabled_mask": 8, "quarantined_mask": 24,
+         "schedule_miss_count": 1, "phases": []},
+    ))
+    monkeypatch.setattr(
+        load_guard_module, "read_schedule", lambda _board, _args: next(schedules))
+    guard = CalibrationLoadGuard(
+        [SimpleNamespace(address="NO4")],
+        argparse.Namespace(diagnostic_continue=False))
+
+    with pytest.raises(RuntimeError, match="offline calibration disturbed"):
+        with guard:
+            pass
 
 
 def test_sck_source_phase_patch_preserves_origin_pulse() -> None:

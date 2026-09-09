@@ -716,10 +716,10 @@ static int test_foundation_profile_freezes_runtime_resources(void)
                          1u);
     failed += expect_u32("foundation registry bindings",
                          snapshot.payload_registry_used_count,
-                         2u);
+                         3u);
     failed += expect_u32("foundation registry registrations",
                          snapshot.payload_registry_registration_seq,
-                         2u);
+                         3u);
     return failed;
 }
 

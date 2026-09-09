@@ -17,6 +17,11 @@ uint32_t ota_crc32_update(uint32_t crc, const uint8_t *data, size_t length)
     return crc;
 }
 
+uint32_t ota_crc32_compute(const uint8_t *data, size_t length)
+{
+    return ota_crc32_update(0u, data, length);
+}
+
 static int expect_u32(const char *name, uint32_t actual, uint32_t expected)
 {
     if (actual != expected) {
@@ -74,6 +79,43 @@ static bool make_frame(uint8_t frame_type,
                                     frame,
                                     frame_capacity,
                                     frame_size);
+}
+
+static bool make_vdc_command_frame(uint8_t source_slot,
+                                   uint8_t target_slot,
+                                   uint32_t frame_seq,
+                                   uint32_t command_seq,
+                                   uint32_t control_generation,
+                                   uint32_t schedule_crc32,
+                                   uint8_t *frame,
+                                   size_t frame_capacity,
+                                   size_t *frame_size)
+{
+    refmem_sync_vdc_command_payload_t command;
+    (void)memset(&command, 0, sizeof(command));
+    command.version = REFMEM_SYNC_VDC_COMMAND_VERSION;
+    command.source_slot = source_slot;
+    command.target_slot = target_slot;
+    command.control_generation = control_generation;
+    command.command_seq = command_seq;
+    command.schedule_crc32 = schedule_crc32;
+    command.effective_vdc_time_ns = 1000000u + frame_seq;
+    command.period_adjust_ppb = (int32_t)frame_seq;
+    command.phase_offset_ns = -(int32_t)frame_seq;
+    command.lock_state = 5u;
+    command.quality = 4u;
+    command.payload_crc32 = refmem_sync_vdc_command_payload_crc32(&command);
+    return make_frame(REFMEM_SYNC_FRAME_COMMAND,
+                      source_slot,
+                      (uint8_t)(1u << target_slot),
+                      7u,
+                      8u,
+                      frame_seq,
+                      &command,
+                      sizeof(command),
+                      frame,
+                      frame_capacity,
+                      frame_size);
 }
 
 static int test_accepts_hello_and_epoch(void)
@@ -569,6 +611,169 @@ static int test_frame_error_quality(void)
     return failed;
 }
 
+static int test_vdc_command_retention_and_rejection(void)
+{
+    int failed = 0;
+    refmem_sync_vdc_context_t context;
+    refmem_sync_context_t generic_context;
+    refmem_sync_rx_snapshot_t snapshot;
+    uint8_t frame[REFMEM_SYNC_FRAME_HEADER_SIZE +
+                  sizeof(refmem_sync_vdc_command_payload_t)];
+    size_t frame_size = 0u;
+
+    failed += expect_bool("vdc sync init",
+                          refmem_sync_vdc_init(&context, 2u, 7u, 8u),
+                          true);
+
+    failed += expect_bool("source zero command",
+                          make_vdc_command_frame(0u, 2u, 100u, 1u, 3u,
+                                                  0xA5A5u, frame, sizeof(frame),
+                                                  &frame_size),
+                          true);
+    failed += expect_u32("source zero accepted",
+                         refmem_sync_vdc_receive_frame(&context, frame, frame_size,
+                                                       &snapshot),
+                         REFMEM_SYNC_RX_ACCEPTED);
+
+    failed += expect_bool("source one command",
+                          make_vdc_command_frame(1u, 2u, 50u, 1u, 3u,
+                                                  0xB6B6u, frame, sizeof(frame),
+                                                  &frame_size),
+                          true);
+    failed += expect_u32("source one accepted",
+                         refmem_sync_vdc_receive_frame(&context, frame, frame_size,
+                                                       &snapshot),
+                         REFMEM_SYNC_RX_ACCEPTED);
+
+    const refmem_sync_vdc_command_snapshot_t *source_zero =
+        refmem_sync_vdc_get_command(&context, 0u);
+    const refmem_sync_vdc_command_snapshot_t *source_one =
+        refmem_sync_vdc_get_command(&context, 1u);
+    failed += expect_bool("source zero retained", source_zero != NULL, true);
+    failed += expect_bool("source one retained", source_one != NULL, true);
+    if (source_zero != NULL) {
+        failed += expect_u32("source zero schedule", source_zero->schedule_crc32,
+                             0xA5A5u);
+        failed += expect_u32("source zero sequence", source_zero->command_seq, 1u);
+    }
+    if (source_one != NULL) {
+        failed += expect_u32("source one schedule", source_one->schedule_crc32,
+                             0xB6B6u);
+        failed += expect_u32("source one sequence", source_one->command_seq, 1u);
+    }
+
+    failed += expect_bool("source zero update",
+                          make_vdc_command_frame(0u, 2u, 101u, 2u, 3u,
+                                                  0xC7C7u, frame, sizeof(frame),
+                                                  &frame_size),
+                          true);
+    failed += expect_u32("source zero update accepted",
+                         refmem_sync_vdc_receive_frame(&context, frame, frame_size,
+                                                       NULL),
+                         REFMEM_SYNC_RX_ACCEPTED);
+    source_one = refmem_sync_vdc_get_command(&context, 1u);
+    failed += expect_u32("source one not overwritten", source_one->schedule_crc32,
+                         0xB6B6u);
+
+    failed += expect_bool("stale payload frame",
+                          make_vdc_command_frame(0u, 2u, 102u, 2u, 3u,
+                                                  0xD8D8u, frame, sizeof(frame),
+                                                  &frame_size),
+                          true);
+    failed += expect_u32("stale payload rejected",
+                         refmem_sync_vdc_receive_frame(&context, frame, frame_size,
+                                                       NULL),
+                         REFMEM_SYNC_RX_STALE_SEQ);
+    source_zero = refmem_sync_vdc_get_command(&context, 0u);
+    failed += expect_u32("stale payload not retained",
+                         source_zero->schedule_crc32, 0xC7C7u);
+
+    failed += expect_bool("generic context init",
+                          refmem_sync_init(&generic_context, 2u, 7u, 8u),
+                          true);
+    failed += expect_bool("generic command frame",
+                          make_vdc_command_frame(0u, 2u, 200u, 1u, 3u,
+                                                  0xE9E9u, frame, sizeof(frame),
+                                                  &frame_size),
+                          true);
+    failed += expect_u32("generic command skipped",
+                         refmem_sync_receive_frame(&generic_context, frame,
+                                                   frame_size, NULL),
+                         REFMEM_SYNC_RX_ACCEPTED);
+    failed += expect_u32("generic peer sequence untouched",
+                         generic_context.peer[0].frame_count, 0u);
+
+    refmem_sync_vdc_command_payload_t malformed;
+    (void)memset(&malformed, 0, sizeof(malformed));
+    malformed.version = REFMEM_SYNC_VDC_COMMAND_VERSION;
+    malformed.source_slot = 1u;
+    malformed.target_slot = 2u;
+    malformed.control_generation = 3u;
+    malformed.command_seq = 3u;
+    malformed.schedule_crc32 = 0xFAFAu;
+    malformed.effective_vdc_time_ns = 1000103u;
+    malformed.payload_crc32 =
+        refmem_sync_vdc_command_payload_crc32(&malformed);
+    failed += expect_bool("source mismatch frame",
+                          make_frame(REFMEM_SYNC_FRAME_COMMAND,
+                                     0u,
+                                     0x04u,
+                                     7u,
+                                     8u,
+                                     103u,
+                                     &malformed,
+                                     sizeof(malformed),
+                                     frame,
+                                     sizeof(frame),
+                                     &frame_size),
+                          true);
+    failed += expect_u32("source mismatch rejected",
+                         refmem_sync_vdc_receive_frame(&context, frame, frame_size,
+                                                       NULL),
+                         REFMEM_SYNC_RX_COMMAND_INVALID);
+
+    failed += expect_bool("inner crc frame",
+                          make_vdc_command_frame(0u, 2u, 104u, 3u, 3u,
+                                                  0xABABu, frame, sizeof(frame),
+                                                  &frame_size),
+                          true);
+    malformed = *(const refmem_sync_vdc_command_payload_t *)
+        &frame[REFMEM_SYNC_FRAME_HEADER_SIZE];
+    malformed.payload_crc32 ^= 0x01u;
+    failed += expect_bool("reencode inner crc frame",
+                          make_frame(REFMEM_SYNC_FRAME_COMMAND,
+                                     0u,
+                                     0x04u,
+                                     7u,
+                                     8u,
+                                     104u,
+                                     &malformed,
+                                     sizeof(malformed),
+                                     frame,
+                                     sizeof(frame),
+                                     &frame_size),
+                          true);
+    failed += expect_u32("inner crc rejected",
+                         refmem_sync_vdc_receive_frame(&context, frame, frame_size,
+                                                       NULL),
+                         REFMEM_SYNC_RX_COMMAND_INVALID);
+
+    failed += expect_bool("outer crc frame",
+                          make_vdc_command_frame(0u, 2u, 105u, 3u, 3u,
+                                                  0xABABu, frame, sizeof(frame),
+                                                  &frame_size),
+                          true);
+    frame[REFMEM_SYNC_FRAME_HEADER_SIZE + 4u] ^= 0x01u;
+    failed += expect_u32("outer crc rejected",
+                         refmem_sync_vdc_receive_frame(&context, frame, frame_size,
+                                                       NULL),
+                         REFMEM_SYNC_RX_FRAME_INVALID);
+    source_zero = refmem_sync_vdc_get_command(&context, 0u);
+    failed += expect_u32("outer crc not retained",
+                         source_zero->schedule_crc32, 0xC7C7u);
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -580,6 +785,7 @@ int main(void)
     failed += test_fence_commit();
     failed += test_quality_commit();
     failed += test_frame_error_quality();
+    failed += test_vdc_command_retention_and_rejection();
 
     if (failed != 0) {
         (void)printf("refmem_sync tests failed: %d\n", failed);

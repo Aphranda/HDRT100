@@ -3389,6 +3389,513 @@ static int test_provisional_path_matrix_is_servo_only(void)
     return failed;
 }
 
+static int test_dpll_role_boundary_and_oscillator_discipline(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_domain_snapshot_t snapshot;
+    vdc_dpll_control_profile_t control_profile;
+    vdc_dpll_follower_command_t command;
+    vdc_oscillator_discipline_profile_t discipline_profile;
+    vdc_oscillator_discipline_actuator_report_t actuator_report;
+
+    failed += expect_bool("role boundary init", vdc_domain_init(&context), true);
+    failed += expect_u32("role default master",
+                         context.control.profile.mode,
+                         VDC_DPLL_CONTROL_MODE_MASTER);
+    failed += expect_u32("discipline default disabled",
+                         context.oscillator_discipline.profile.enabled,
+                         0u);
+    failed += expect_u32("discipline default unavailable",
+                         context.oscillator_discipline.actuator_available,
+                         0u);
+    vdc_domain_set_ready(&context, true);
+
+    vdc_tdma_timestamp_evidence_t evidence =
+        make_hardware_sample(&context.schedule, 1u, 100);
+    failed += expect_bool("master evidence drives local PI",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    const vdc_clock_model_t master_clock = snapshot.clock;
+    const vdc_dco_control_t master_dco = snapshot.dco;
+    failed += expect_u32("master accepted sample",
+                         snapshot.dpll.accepted_sample_count,
+                         1u);
+    failed += expect_bool("master DCO updated",
+                          snapshot.dco.dco_update_seq > 1u,
+                          true);
+
+    control_profile = context.control.profile;
+    control_profile.mode = VDC_DPLL_CONTROL_MODE_FOLLOWER;
+    control_profile.follow_master_slot_id = 1u;
+    failed += expect_bool("install follower role",
+                          vdc_domain_set_dpll_control_profile(
+                              &context, &control_profile),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_i32("role change retains DCO rate",
+                         snapshot.dco.period_adjust_ppb,
+                         master_dco.period_adjust_ppb);
+    failed += expect_i32("role change retains DCO phase",
+                         snapshot.dco.phase_offset_ns,
+                         master_dco.phase_offset_ns);
+    failed += expect_u32("role switch resets local accepted count",
+                         snapshot.dpll.accepted_sample_count,
+                         0u);
+
+    const uint32_t follower_quality_seq = snapshot.quality.update_seq;
+    const uint32_t follower_dpll_seq = snapshot.dpll.update_seq;
+    evidence = make_hardware_sample(&context.schedule, 2u, -500);
+    failed += expect_bool("follower evidence remains diagnostic",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("follower gate still observable",
+                         snapshot.gate.passed,
+                         1u);
+    failed += expect_u32("follower local PI bypass count",
+                         snapshot.control.follower_local_evidence_bypass_count,
+                         1u);
+    failed += expect_u32("follower evidence leaves DPLL sequence",
+                         snapshot.dpll.update_seq,
+                         follower_dpll_seq);
+    failed += expect_u32("follower evidence leaves quality history",
+                         snapshot.quality.update_seq,
+                         follower_quality_seq);
+    failed += expect_u32("follower evidence leaves local accepted count",
+                         snapshot.dpll.accepted_sample_count,
+                         0u);
+    failed += expect_u32("follower evidence leaves local clock sequence",
+                         snapshot.clock.model_seq,
+                         master_clock.model_seq);
+    failed += expect_i32("follower evidence leaves DCO rate",
+                         snapshot.dco.period_adjust_ppb,
+                         master_dco.period_adjust_ppb);
+    failed += expect_i32("follower evidence leaves DCO phase",
+                         snapshot.dco.phase_offset_ns,
+                         master_dco.phase_offset_ns);
+
+    (void)memset(&command, 0, sizeof(command));
+    command.valid = 1u;
+    command.source_slot_id = 1u;
+    /* Command generation is owned by the publishing master, not by this
+     * follower's local role profile generation. */
+    command.control_generation = 77u;
+    command.command_seq = 1u;
+    command.schedule_crc32 = context.schedule.schedule_crc32;
+    command.effective_vdc_time_ns = 2000000u;
+    command.period_adjust_ppb = 321;
+    command.phase_offset_ns = -77;
+    command.lock_state = VDC_DOMAIN_LOCK_LOCKED;
+    command.quality = VDC_DOMAIN_HEALTH_HEALTHY;
+    const uint64_t local_tick_before_command = snapshot.dco.base_local_tick64;
+    const uint64_t local_vdc_before_command = snapshot.dco.base_vdc_time64_ns;
+    failed += expect_bool("follower accepts selected master command",
+                          vdc_domain_apply_follower_command(&context, &command),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("follower applies command count",
+                         snapshot.control.follower_apply_count,
+                         1u);
+    failed += expect_u32("follower records command source",
+                         snapshot.control.last_follower_source_slot_id,
+                         1u);
+    failed += expect_u32("follower records command sequence",
+                         snapshot.control.last_follower_command_seq,
+                         1u);
+    failed += expect_i32("follower command sets DCO rate",
+                         snapshot.dco.period_adjust_ppb,
+                         321);
+    failed += expect_i32("follower command sets DCO phase",
+                         snapshot.dco.phase_offset_ns,
+                         -77);
+    failed += expect_u32("follower command exposes peer lock only on DCO",
+                         snapshot.dco.lock_state,
+                         VDC_DOMAIN_LOCK_LOCKED);
+    failed += expect_u32("follower local state remains checking",
+                         snapshot.dpll.state,
+                         VDC_DOMAIN_LOCK_CHECKING);
+    failed += expect_u32("follower never imports peer quality samples",
+                         snapshot.quality.accepted_sample_count,
+                         0u);
+    failed += expect_u64("follower preserves local DCO tick anchor",
+                         snapshot.dco.base_local_tick64,
+                         local_tick_before_command);
+    failed += expect_u64("follower preserves local DCO VDC anchor",
+                         snapshot.dco.base_vdc_time64_ns,
+                         local_vdc_before_command);
+
+    command.command_seq = 2u;
+    command.effective_vdc_time_ns = 2000000u;
+    failed += expect_bool("follower rejects non-monotonic effective time",
+                          vdc_domain_apply_follower_command(&context, &command),
+                          false);
+
+    const vdc_dco_control_t applied_follower_dco = snapshot.dco;
+    command.source_slot_id = 2u;
+    command.command_seq = 2u;
+    failed += expect_bool("follower rejects wrong source",
+                          vdc_domain_apply_follower_command(&context, &command),
+                          false);
+    command.source_slot_id = 1u;
+    command.schedule_crc32 ^= 1u;
+    failed += expect_bool("follower rejects wrong schedule",
+                          vdc_domain_apply_follower_command(&context, &command),
+                          false);
+    command.schedule_crc32 = context.schedule.schedule_crc32;
+    command.command_seq = 1u;
+    failed += expect_bool("follower rejects stale sequence",
+                          vdc_domain_apply_follower_command(&context, &command),
+                          false);
+    vdc_domain_note_follower_command_missing(&context);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("wrong source counted",
+                         snapshot.control.follower_wrong_source_count,
+                         1u);
+    failed += expect_u32("invalid command counted",
+                         snapshot.control.follower_invalid_command_count,
+                         1u);
+    failed += expect_u32("stale commands counted",
+                         snapshot.control.follower_stale_command_count,
+                         2u);
+    failed += expect_u32("missing command counted",
+                         snapshot.control.follower_no_command_count,
+                         1u);
+    failed += expect_i32("bad follower commands retain DCO rate",
+                         snapshot.dco.period_adjust_ppb,
+                         applied_follower_dco.period_adjust_ppb);
+    failed += expect_i32("bad follower commands retain DCO phase",
+                         snapshot.dco.phase_offset_ns,
+                         applied_follower_dco.phase_offset_ns);
+
+    control_profile = context.control.profile;
+    control_profile.mode = VDC_DPLL_CONTROL_MODE_MASTER;
+    control_profile.follow_master_slot_id = 0u;
+    failed += expect_bool("restore master role",
+                          vdc_domain_set_dpll_control_profile(
+                              &context, &control_profile),
+                          true);
+    evidence = make_hardware_sample(&context.schedule, 3u, 100);
+    failed += expect_bool("restored master resumes local PI",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("restored master accepts evidence",
+                         snapshot.dpll.accepted_sample_count,
+                         1u);
+
+    discipline_profile = context.oscillator_discipline.profile;
+    discipline_profile.enabled = 1u;
+    discipline_profile.minimum_update_interval_us = 1000u;
+    discipline_profile.max_abs_trim_ppb = 1000u;
+    discipline_profile.max_step_ppb = 100u;
+    discipline_profile.actuator_polarity = 1;
+    failed += expect_bool("enable bounded oscillator discipline",
+                          vdc_domain_set_oscillator_discipline_profile(
+                              &context, &discipline_profile),
+                          true);
+    (void)memset(&actuator_report, 0, sizeof(actuator_report));
+    actuator_report.valid = 1u;
+    const vdc_dco_control_t dco_before_report = snapshot.dco;
+    failed += expect_bool("report unavailable actuator",
+                          vdc_domain_report_oscillator_discipline_actuator(
+                              &context, &actuator_report),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_i32("actuator report cannot change DCO rate",
+                         snapshot.dco.period_adjust_ppb,
+                         dco_before_report.period_adjust_ppb);
+    failed += expect_i32("actuator report cannot change DCO phase",
+                         snapshot.dco.phase_offset_ns,
+                         dco_before_report.phase_offset_ns);
+
+    evidence = make_hardware_sample(&context.schedule, 4u, 100);
+    failed += expect_bool("master evidence freezes unavailable actuator",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("unavailable actuator reason",
+                         snapshot.oscillator_discipline.freeze_reason,
+                         VDC_OSCILLATOR_DISCIPLINE_FREEZE_UNAVAILABLE);
+    failed += expect_bool("unavailable actuator counted",
+                          snapshot.oscillator_discipline.unavailable_count > 0u,
+                          true);
+
+    actuator_report.available = 1u;
+    actuator_report.healthy = 1u;
+    failed += expect_bool("report healthy actuator",
+                          vdc_domain_report_oscillator_discipline_actuator(
+                              &context, &actuator_report),
+                          true);
+    evidence = make_hardware_sample(&context.schedule, 5u, 100);
+    failed += expect_bool("master issues bounded trim request",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_bool("trim request generation issued",
+                          snapshot.oscillator_discipline.request_generation > 0u,
+                          true);
+    failed += expect_bool("trim request is step limited",
+                          snapshot.oscillator_discipline.requested_trim_ppb <= 100 &&
+                              snapshot.oscillator_discipline.requested_trim_ppb >= -100,
+                          true);
+    const vdc_dco_control_t dco_before_ack = snapshot.dco;
+    actuator_report.applied_generation =
+        snapshot.oscillator_discipline.request_generation;
+    actuator_report.applied_trim_ppb =
+        snapshot.oscillator_discipline.requested_trim_ppb;
+    failed += expect_bool("acknowledge trim request",
+                          vdc_domain_report_oscillator_discipline_actuator(
+                              &context, &actuator_report),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_i32("trim acknowledgement cannot change DCO rate",
+                         snapshot.dco.period_adjust_ppb,
+                         dco_before_ack.period_adjust_ppb);
+    failed += expect_i32("trim acknowledgement cannot change DCO phase",
+                         snapshot.dco.phase_offset_ns,
+                         dco_before_ack.phase_offset_ns);
+    failed += expect_u32("trim acknowledgement recorded",
+                         snapshot.oscillator_discipline.applied_generation,
+                         actuator_report.applied_generation);
+
+    actuator_report.healthy = 0u;
+    failed += expect_bool("report actuator fault",
+                          vdc_domain_report_oscillator_discipline_actuator(
+                              &context, &actuator_report),
+                          true);
+    evidence = make_hardware_sample(&context.schedule, 6u, 100);
+    failed += expect_bool("master freezes faulty actuator",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("faulty actuator reason",
+                         snapshot.oscillator_discipline.freeze_reason,
+                         VDC_OSCILLATOR_DISCIPLINE_FREEZE_FAULT);
+    failed += expect_bool("faulty actuator counted",
+                          snapshot.oscillator_discipline.fault_count > 0u,
+                          true);
+    return failed;
+}
+
+#define VDC_ROLE_MATRIX_NODE_COUNT 4u
+
+static bool init_role_matrix_node(vdc_domain_context_t *context,
+                                  uint32_t local_slot_id)
+{
+    vdc_tdma_schedule_profile_t schedule;
+    vdc_timestamp_dictionary_t dictionary;
+    vdc_path_delay_table_t path_delay;
+    if (context == NULL || local_slot_id >= VDC_ROLE_MATRIX_NODE_COUNT ||
+        !vdc_domain_init(context)) {
+        return false;
+    }
+
+    if (!vdc_domain_default_schedule_for_topology(
+            &schedule, local_slot_id, 0u, VDC_ROLE_MATRIX_NODE_COUNT)) {
+        return false;
+    }
+    vdc_domain_default_timestamp_dictionary(&dictionary, &schedule);
+    (void)memset(&path_delay, 0, sizeof(path_delay));
+    path_delay.valid = 1u;
+    path_delay.version = VDC_DOMAIN_PATH_DELAY_TABLE_VERSION;
+    path_delay.update_seq = 1u;
+    path_delay.entry_count = VDC_ROLE_MATRIX_NODE_COUNT;
+    path_delay.schedule_crc32 = schedule.schedule_crc32;
+    path_delay.calibration_generation = 1u;
+    path_delay.topology_generation = 1u;
+    path_delay.bias_generation = 1u;
+    path_delay.freshness_us = 1000000u;
+    path_delay.flags = VDC_PATH_DELAY_FLAG_ACCEPTED |
+                       VDC_PATH_DELAY_FLAG_HARDWARE_LATCHED |
+                       VDC_PATH_DELAY_FLAG_BIAS_VALID |
+                       VDC_PATH_DELAY_FLAG_TOPOLOGY_FRESH;
+    for (uint32_t slot = 0u; slot < VDC_ROLE_MATRIX_NODE_COUNT; slot++) {
+        path_delay.entries[slot].valid = 1u;
+        path_delay.entries[slot].source_slot_id = slot;
+        path_delay.entries[slot].reference_slot_id =
+            (slot + 1u) % VDC_ROLE_MATRIX_NODE_COUNT;
+        path_delay.entries[slot].delay_ns = 80u + slot;
+        path_delay.entries[slot].cal_crc32 = 0xA000u + slot;
+        path_delay.entries[slot].freshness_us = path_delay.freshness_us;
+        path_delay.entries[slot].writer = slot;
+        path_delay.entries[slot].update_seq = path_delay.update_seq;
+    }
+    if (!vdc_domain_load_observation_path_matrix(
+            &path_delay, VDC_ROLE_MATRIX_NODE_COUNT)) {
+        return false;
+    }
+    path_delay.table_crc32 = vdc_domain_path_delay_table_crc32(&path_delay);
+    vdc_domain_set_ready(context, true);
+    return vdc_domain_activate_tdma_configuration(context, &schedule,
+                                                  &dictionary, &path_delay);
+}
+
+static bool set_role_matrix_profile(vdc_domain_context_t *context,
+                                    uint32_t mode,
+                                    uint32_t follow_master_slot_id)
+{
+    if (context == NULL) {
+        return false;
+    }
+    vdc_dpll_control_profile_t profile = context->control.profile;
+    profile.mode = mode;
+    profile.follow_master_slot_id = follow_master_slot_id;
+    return vdc_domain_set_dpll_control_profile(context, &profile);
+}
+
+static vdc_dpll_follower_command_t make_role_matrix_command(
+    const vdc_domain_context_t *master,
+    uint32_t command_seq,
+    uint64_t effective_vdc_time_ns)
+{
+    vdc_dpll_follower_command_t command;
+    (void)memset(&command, 0, sizeof(command));
+    command.valid = 1u;
+    command.source_slot_id = master->schedule.local_slot_id;
+    command.control_generation = master->control.profile.generation;
+    command.command_seq = command_seq;
+    command.schedule_crc32 = master->schedule.schedule_crc32;
+    command.effective_vdc_time_ns = effective_vdc_time_ns;
+    command.period_adjust_ppb = master->dco.period_adjust_ppb;
+    command.phase_offset_ns = master->dco.phase_offset_ns;
+    command.lock_state = master->dco.lock_state;
+    command.quality = master->quality.health_state;
+    return command;
+}
+
+static int test_dpll_role_matrix_and_source_switch(void)
+{
+    int failed = 0;
+    vdc_domain_context_t nodes[VDC_ROLE_MATRIX_NODE_COUNT];
+    vdc_domain_snapshot_t snapshot;
+    const uint64_t effective_time_ns = 2000000u;
+
+    for (uint32_t slot = 0u; slot < VDC_ROLE_MATRIX_NODE_COUNT; slot++) {
+        failed += expect_bool("role matrix node init",
+                              init_role_matrix_node(&nodes[slot], slot), true);
+    }
+
+    /* 1M3F: all followers must copy NO1 (slot 0), not calculate locally. */
+    for (uint32_t slot = 1u; slot < VDC_ROLE_MATRIX_NODE_COUNT; slot++) {
+        failed += expect_bool("1M3F follower profile",
+                              set_role_matrix_profile(&nodes[slot],
+                                                      VDC_DPLL_CONTROL_MODE_FOLLOWER,
+                                                      0u), true);
+    }
+    vdc_tdma_timestamp_evidence_t evidence =
+        make_hardware_sample(&nodes[0].schedule, 1u, 100);
+    failed += expect_bool("1M3F master computes local DCO",
+                          vdc_domain_submit_tdma_evidence(&nodes[0], &evidence),
+                          true);
+    const vdc_dpll_follower_command_t no1_command =
+        make_role_matrix_command(&nodes[0], 1u, effective_time_ns);
+    for (uint32_t slot = 1u; slot < VDC_ROLE_MATRIX_NODE_COUNT; slot++) {
+        failed += expect_bool("1M3F follower applies NO1 command",
+                              vdc_domain_apply_follower_command(
+                                  &nodes[slot], &no1_command), true);
+        (void)vdc_domain_get_snapshot(&nodes[slot], &snapshot);
+        failed += expect_i32("1M3F rate copied from NO1",
+                             snapshot.dco.period_adjust_ppb,
+                             nodes[0].dco.period_adjust_ppb);
+        failed += expect_i32("1M3F phase copied from NO1",
+                             snapshot.dco.phase_offset_ns,
+                             nodes[0].dco.phase_offset_ns);
+        const uint32_t follower_dco_seq = snapshot.dco.dco_update_seq;
+        evidence = make_hardware_sample(&nodes[slot].schedule, 2u, -500);
+        (void)vdc_domain_submit_tdma_evidence(&nodes[slot], &evidence);
+        (void)vdc_domain_get_snapshot(&nodes[slot], &snapshot);
+        failed += expect_u32("1M3F local evidence leaves DCO unchanged",
+                             snapshot.dco.dco_update_seq, follower_dco_seq);
+    }
+
+    /* 2M2F: independent follower sources must not be cross-coupled. */
+    failed += expect_bool("2M2F NO1 restored master",
+                          set_role_matrix_profile(&nodes[1],
+                                                  VDC_DPLL_CONTROL_MODE_MASTER,
+                                                  0u), true);
+    failed += expect_bool("2M2F NO3 restored master",
+                          set_role_matrix_profile(&nodes[2],
+                                                  VDC_DPLL_CONTROL_MODE_MASTER,
+                                                  0u), true);
+    failed += expect_bool("2M2F NO2 follows NO1",
+                          set_role_matrix_profile(&nodes[1],
+                                                  VDC_DPLL_CONTROL_MODE_FOLLOWER,
+                                                  0u), true);
+    failed += expect_bool("2M2F NO4 follows NO3",
+                          set_role_matrix_profile(&nodes[3],
+                                                  VDC_DPLL_CONTROL_MODE_FOLLOWER,
+                                                  2u), true);
+    evidence = make_hardware_sample(&nodes[0].schedule, 3u, 200);
+    failed += expect_bool("2M2F NO1 computes",
+                          vdc_domain_submit_tdma_evidence(&nodes[0], &evidence),
+                          true);
+    evidence = make_hardware_sample(&nodes[2].schedule, 3u, -200);
+    failed += expect_bool("2M2F NO3 computes",
+                          vdc_domain_submit_tdma_evidence(&nodes[2], &evidence),
+                          true);
+    const vdc_dpll_follower_command_t no1_command_2 =
+        make_role_matrix_command(&nodes[0], 2u, effective_time_ns + 1u);
+    const vdc_dpll_follower_command_t no3_command =
+        make_role_matrix_command(&nodes[2], 1u, effective_time_ns + 1u);
+    failed += expect_bool("2M2F NO2 applies NO1",
+                          vdc_domain_apply_follower_command(&nodes[1],
+                                                            &no1_command_2), true);
+    failed += expect_bool("2M2F NO4 applies NO3",
+                          vdc_domain_apply_follower_command(&nodes[3],
+                                                            &no3_command), true);
+    (void)vdc_domain_get_snapshot(&nodes[1], &snapshot);
+    failed += expect_i32("2M2F NO2 only takes NO1 rate",
+                         snapshot.dco.period_adjust_ppb,
+                         nodes[0].dco.period_adjust_ppb);
+    (void)vdc_domain_get_snapshot(&nodes[3], &snapshot);
+    failed += expect_i32("2M2F NO4 only takes NO3 rate",
+                         snapshot.dco.period_adjust_ppb,
+                         nodes[2].dco.period_adjust_ppb);
+
+    /* 3M1F and a source change use the newly selected command stream. */
+    failed += expect_bool("3M1F NO2 master",
+                          set_role_matrix_profile(&nodes[1],
+                                                  VDC_DPLL_CONTROL_MODE_MASTER,
+                                                  0u), true);
+    evidence = make_hardware_sample(&nodes[1].schedule, 4u, 300);
+    failed += expect_bool("3M1F NO2 computes",
+                          vdc_domain_submit_tdma_evidence(&nodes[1], &evidence),
+                          true);
+    failed += expect_bool("source switch NO4 follows NO2",
+                          set_role_matrix_profile(&nodes[3],
+                                                  VDC_DPLL_CONTROL_MODE_FOLLOWER,
+                                                  1u), true);
+    const vdc_dpll_follower_command_t old_no3_command =
+        make_role_matrix_command(&nodes[2], 2u, effective_time_ns + 2u);
+    failed += expect_bool("source switch rejects old source",
+                          vdc_domain_apply_follower_command(&nodes[3],
+                                                            &old_no3_command), false);
+    const vdc_dpll_follower_command_t no2_command =
+        make_role_matrix_command(&nodes[1], 1u, effective_time_ns + 2u);
+    failed += expect_bool("source switch accepts new source sequence",
+                          vdc_domain_apply_follower_command(&nodes[3],
+                                                            &no2_command), true);
+    (void)vdc_domain_get_snapshot(&nodes[3], &snapshot);
+    failed += expect_i32("3M1F NO4 takes NO2 rate",
+                         snapshot.dco.period_adjust_ppb,
+                         nodes[1].dco.period_adjust_ppb);
+
+    failed += expect_bool("NO4 promotion to master",
+                          set_role_matrix_profile(&nodes[3],
+                                                  VDC_DPLL_CONTROL_MODE_MASTER,
+                                                  0u), true);
+    evidence = make_hardware_sample(&nodes[3].schedule, 5u, 400);
+    failed += expect_bool("promoted NO4 resumes local PI",
+                          vdc_domain_submit_tdma_evidence(&nodes[3], &evidence),
+                          true);
+    (void)vdc_domain_get_snapshot(&nodes[3], &snapshot);
+    failed += expect_u32("promoted NO4 accepts local evidence",
+                         snapshot.dpll.accepted_sample_count, 1u);
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -3430,6 +3937,8 @@ int main(void)
     failed += test_debug_admission_continues_recoverable_gate();
     failed += test_ring_observer_expands_correlated_feedback();
     failed += test_provisional_path_matrix_is_servo_only();
+    failed += test_dpll_role_boundary_and_oscillator_discipline();
+    failed += test_dpll_role_matrix_and_source_switch();
     if (failed != 0) {
         (void)printf("vdc_domain tests failed: %d\n", failed);
         return 1;

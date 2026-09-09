@@ -24,6 +24,13 @@
 #define VDC_DOMAIN_RATE_SLEW_DIVISOR 8u
 #define VDC_DOMAIN_RATE_MIN_SLEW_LIMIT_PPB 1000u
 
+static void vdc_domain_request_oscillator_discipline(
+    vdc_domain_context_t *context,
+    int32_t rate_source_ppb,
+    uint32_t source_slot_id,
+    uint32_t source_command_seq,
+    uint64_t now_ns);
+
 static uint32_t vdc_domain_hash_u32(uint32_t hash, uint32_t value)
 {
     for (uint32_t i = 0u; i < 4u; i++) {
@@ -39,6 +46,27 @@ static uint32_t vdc_domain_abs_i32(int32_t value)
         return (uint32_t)INT32_MAX + 1u;
     }
     return value < 0 ? (uint32_t)(-value) : (uint32_t)value;
+}
+
+static uint32_t vdc_domain_increment_nonzero(uint32_t value)
+{
+    value++;
+    return value == 0u ? 1u : value;
+}
+
+static void vdc_domain_increment_saturating(uint32_t *value)
+{
+    if (value != NULL && *value != UINT32_MAX) {
+        (*value)++;
+    }
+}
+
+static bool vdc_domain_is_follower(const vdc_domain_context_t *context)
+{
+    return context != NULL && context->control.profile.valid == 1u &&
+           context->control.profile.version ==
+               VDC_DPLL_CONTROL_PROFILE_VERSION &&
+           context->control.profile.mode == VDC_DPLL_CONTROL_MODE_FOLLOWER;
 }
 
 static uint64_t vdc_domain_mul_u64_u32_saturate(uint64_t value,
@@ -1203,6 +1231,12 @@ static void vdc_domain_update_clock_from_evidence(
     context->error_budget.freq_offset_ppb = -period_adjust_ppb;
     context->error_budget.freq_skew_ppb =
         vdc_domain_abs_i32(-period_adjust_ppb);
+    vdc_domain_request_oscillator_discipline(
+        context,
+        period_adjust_ppb,
+        context->schedule.local_slot_id,
+        evidence->sample_seq,
+        evidence->observed_time_ns);
 }
 
 void vdc_domain_default_schedule(vdc_tdma_schedule_profile_t *profile,
@@ -1623,6 +1657,323 @@ void vdc_domain_default_dco_control(vdc_dco_control_t *dco,
     dco->lock_state = lock_state;
     dco->tdma_schedule_crc32 = model->tdma_schedule_crc32;
     dco->servo_profile_crc32 = model->servo_profile_crc32;
+}
+
+void vdc_domain_default_dpll_control_profile(
+    vdc_dpll_control_profile_t *profile)
+{
+    if (profile == NULL) {
+        return;
+    }
+
+    memset(profile, 0, sizeof(*profile));
+    /* Legacy records have no cluster-wide role fact. MASTER preserves the
+     * existing local-servo behaviour until a control-plane transaction
+     * explicitly installs a follower profile. */
+    profile->valid = 1u;
+    profile->version = VDC_DPLL_CONTROL_PROFILE_VERSION;
+    profile->mode = VDC_DPLL_CONTROL_MODE_MASTER;
+    profile->generation = 1u;
+}
+
+void vdc_domain_default_oscillator_discipline_profile(
+    vdc_oscillator_discipline_profile_t *profile)
+{
+    if (profile == NULL) {
+        return;
+    }
+
+    memset(profile, 0, sizeof(*profile));
+    profile->valid = 1u;
+    profile->version = VDC_OSCILLATOR_DISCIPLINE_PROFILE_VERSION;
+    profile->actuator_polarity = 1;
+    profile->generation = 1u;
+}
+
+static bool vdc_domain_validate_dpll_control_profile(
+    const vdc_domain_context_t *context,
+    const vdc_dpll_control_profile_t *profile)
+{
+    if (context == NULL || profile == NULL || profile->valid != 1u ||
+        profile->version != VDC_DPLL_CONTROL_PROFILE_VERSION ||
+        (profile->mode != VDC_DPLL_CONTROL_MODE_MASTER &&
+         profile->mode != VDC_DPLL_CONTROL_MODE_FOLLOWER)) {
+        return false;
+    }
+    if (profile->mode == VDC_DPLL_CONTROL_MODE_FOLLOWER &&
+        (profile->follow_master_slot_id >=
+             context->schedule.ring_binding.node_count ||
+         profile->follow_master_slot_id == context->schedule.local_slot_id)) {
+        return false;
+    }
+    return true;
+}
+
+bool vdc_domain_set_dpll_control_profile(
+    vdc_domain_context_t *context,
+    const vdc_dpll_control_profile_t *profile)
+{
+    if (!vdc_domain_validate_dpll_control_profile(context, profile)) {
+        return false;
+    }
+
+    const bool role_or_source_changed =
+        context->control.profile.mode != profile->mode ||
+        context->control.profile.follow_master_slot_id !=
+            profile->follow_master_slot_id;
+    if (!role_or_source_changed) {
+        return true;
+    }
+
+    vdc_dpll_control_profile_t applied = *profile;
+    applied.generation =
+        vdc_domain_increment_nonzero(context->control.profile.generation);
+    context->control.profile = applied;
+    context->control.last_follower_source_slot_id = 0u;
+    context->control.last_follower_control_generation = 0u;
+    context->control.last_follower_command_seq = 0u;
+    context->control.last_follower_quality = 0u;
+    context->control.last_follower_effective_vdc_time_ns = 0u;
+
+    /* Role changes keep the physical output rate/phase intact, but all local
+     * PI and promotion history belongs to the previous control role. */
+    vdc_domain_reset_lock_acquisition(context);
+    context->dpll.rejected_sample_count = 0u;
+    context->dpll.last_reject_code = VDC_DOMAIN_GATE_PASS;
+    context->dpll.last_frequency_error_ppb = 0;
+    context->dpll.last_phase_error_ns = 0;
+    context->dpll.last_offset_ns = 0;
+    context->dpll.rms_offset_ns = 0u;
+    context->dpll.max_abs_offset_ns = 0u;
+    context->dpll.jitter_pk_ns = 0u;
+    memset(&context->gate, 0, sizeof(context->gate));
+    vdc_domain_init_quality(context);
+    context->dpll.state = context->ready != 0u
+        ? VDC_DOMAIN_LOCK_CHECKING : VDC_DOMAIN_LOCK_OFF;
+    context->dpll.schedule_crc32 = context->schedule.schedule_crc32;
+    context->dpll.servo_profile_crc32 = context->servo.servo_profile_crc32;
+    context->dpll.update_seq++;
+    vdc_domain_sync_dco_lock_state(context);
+    return true;
+}
+
+static bool vdc_domain_validate_oscillator_discipline_profile(
+    const vdc_oscillator_discipline_profile_t *profile)
+{
+    if (profile == NULL || profile->valid != 1u ||
+        profile->version != VDC_OSCILLATOR_DISCIPLINE_PROFILE_VERSION ||
+        profile->enabled > 1u) {
+        return false;
+    }
+    if (profile->enabled != 0u &&
+        (profile->minimum_update_interval_us == 0u ||
+         profile->max_abs_trim_ppb == 0u || profile->max_step_ppb == 0u ||
+         (profile->actuator_polarity != 1 &&
+          profile->actuator_polarity != -1))) {
+        return false;
+    }
+    return true;
+}
+
+bool vdc_domain_set_oscillator_discipline_profile(
+    vdc_domain_context_t *context,
+    const vdc_oscillator_discipline_profile_t *profile)
+{
+    if (context == NULL ||
+        !vdc_domain_validate_oscillator_discipline_profile(profile)) {
+        return false;
+    }
+
+    vdc_oscillator_discipline_profile_t applied = *profile;
+    applied.generation = vdc_domain_increment_nonzero(
+        context->oscillator_discipline.profile.generation);
+    context->oscillator_discipline.profile = applied;
+    context->oscillator_discipline.freeze_reason = applied.enabled == 0u
+        ? VDC_OSCILLATOR_DISCIPLINE_FREEZE_DISABLED
+        : VDC_OSCILLATOR_DISCIPLINE_FREEZE_NONE;
+    return true;
+}
+
+bool vdc_domain_report_oscillator_discipline_actuator(
+    vdc_domain_context_t *context,
+    const vdc_oscillator_discipline_actuator_report_t *report)
+{
+    if (context == NULL || report == NULL || report->valid != 1u ||
+        report->available > 1u || report->healthy > 1u ||
+        (report->available == 0u && report->healthy != 0u) ||
+        report->applied_generation >
+            context->oscillator_discipline.request_generation) {
+        return false;
+    }
+
+    context->oscillator_discipline.actuator_available = report->available;
+    context->oscillator_discipline.actuator_healthy = report->healthy;
+    context->oscillator_discipline.applied_generation =
+        report->applied_generation;
+    context->oscillator_discipline.applied_trim_ppb =
+        report->applied_trim_ppb;
+    return true;
+}
+
+static void vdc_domain_oscillator_freeze(vdc_domain_context_t *context,
+                                         uint32_t reason)
+{
+    if (context == NULL) {
+        return;
+    }
+    context->oscillator_discipline.freeze_reason = reason;
+    vdc_domain_increment_saturating(
+        &context->oscillator_discipline.freeze_count);
+}
+
+static void vdc_domain_request_oscillator_discipline(
+    vdc_domain_context_t *context,
+    int32_t rate_source_ppb,
+    uint32_t source_slot_id,
+    uint32_t source_command_seq,
+    uint64_t now_ns)
+{
+    if (context == NULL) {
+        return;
+    }
+
+    vdc_oscillator_discipline_status_t *discipline =
+        &context->oscillator_discipline;
+    const vdc_oscillator_discipline_profile_t *profile =
+        &discipline->profile;
+    if (profile->enabled == 0u) {
+        vdc_domain_oscillator_freeze(
+            context, VDC_OSCILLATOR_DISCIPLINE_FREEZE_DISABLED);
+        return;
+    }
+    if (discipline->actuator_available == 0u) {
+        vdc_domain_increment_saturating(&discipline->unavailable_count);
+        vdc_domain_oscillator_freeze(
+            context, VDC_OSCILLATOR_DISCIPLINE_FREEZE_UNAVAILABLE);
+        return;
+    }
+    if (discipline->actuator_healthy == 0u) {
+        vdc_domain_increment_saturating(&discipline->fault_count);
+        vdc_domain_oscillator_freeze(
+            context, VDC_OSCILLATOR_DISCIPLINE_FREEZE_FAULT);
+        return;
+    }
+    if (vdc_domain_abs_i32(rate_source_ppb) > profile->max_abs_trim_ppb) {
+        vdc_domain_increment_saturating(&discipline->limit_count);
+        vdc_domain_oscillator_freeze(
+            context, VDC_OSCILLATOR_DISCIPLINE_FREEZE_LIMIT);
+        return;
+    }
+    if (discipline->request_generation != 0u) {
+        if (now_ns < discipline->last_request_time_ns) {
+            vdc_domain_increment_saturating(&discipline->stale_count);
+            vdc_domain_oscillator_freeze(
+                context, VDC_OSCILLATOR_DISCIPLINE_FREEZE_STALE_SOURCE);
+            return;
+        }
+        if (now_ns - discipline->last_request_time_ns <
+            (uint64_t)profile->minimum_update_interval_us * 1000ull) {
+            return;
+        }
+    }
+
+    const int32_t target_ppb = vdc_domain_clamp_ppb(
+        (int64_t)rate_source_ppb * (int64_t)profile->actuator_polarity,
+        profile->max_abs_trim_ppb);
+    discipline->requested_trim_ppb = vdc_domain_slew_i32(
+        discipline->requested_trim_ppb, target_ppb, profile->max_step_ppb);
+    discipline->request_generation =
+        vdc_domain_increment_nonzero(discipline->request_generation);
+    discipline->last_request_time_ns = now_ns;
+    discipline->last_source_slot_id = source_slot_id;
+    discipline->last_source_command_seq = source_command_seq;
+    discipline->freeze_reason = VDC_OSCILLATOR_DISCIPLINE_FREEZE_NONE;
+}
+
+bool vdc_domain_apply_follower_command(
+    vdc_domain_context_t *context,
+    const vdc_dpll_follower_command_t *command)
+{
+    if (context == NULL || command == NULL || !vdc_domain_is_follower(context)) {
+        return false;
+    }
+
+    const uint32_t expected_source =
+        context->control.profile.follow_master_slot_id;
+    if (command->source_slot_id >= context->schedule.ring_binding.node_count ||
+        command->source_slot_id != expected_source) {
+        vdc_domain_increment_saturating(
+            &context->control.follower_wrong_source_count);
+        return false;
+    }
+    if (command->valid != 1u || command->control_generation == 0u ||
+        command->command_seq == 0u ||
+        command->effective_vdc_time_ns == 0u ||
+        command->schedule_crc32 != context->schedule.schedule_crc32 ||
+        command->lock_state > VDC_DOMAIN_LOCK_FAULT ||
+        command->quality > VDC_DOMAIN_HEALTH_FAULT ||
+        vdc_domain_abs_i32(command->period_adjust_ppb) >
+            context->servo.sanity_freq_limit_ppb) {
+        vdc_domain_increment_saturating(
+            &context->control.follower_invalid_command_count);
+        return false;
+    }
+    /* control_generation belongs to the publishing master's command stream;
+     * it is deliberately independent from this node's local role-profile
+     * generation. Sequence and effective VDC time provide stale detection. */
+    if (context->control.last_follower_command_seq != 0u &&
+        (int32_t)(command->command_seq -
+                  context->control.last_follower_command_seq) <= 0) {
+        vdc_domain_increment_saturating(
+            &context->control.follower_stale_command_count);
+        return false;
+    }
+    if (context->control.last_follower_effective_vdc_time_ns != 0u &&
+        command->effective_vdc_time_ns <=
+            context->control.last_follower_effective_vdc_time_ns) {
+        vdc_domain_increment_saturating(
+            &context->control.follower_stale_command_count);
+        return false;
+    }
+
+    /* A peer's local-tick anchor is not meaningful on this board. Preserve
+     * the local map and commit only the command fields that drive the signal
+     * DCO at the already-selected absolute service boundary. */
+    context->dco.valid = 1u;
+    context->dco.dco_update_seq =
+        vdc_domain_increment_nonzero(context->dco.dco_update_seq);
+    context->dco.period_adjust_ppb = command->period_adjust_ppb;
+    context->dco.phase_offset_ns = command->phase_offset_ns;
+    context->dco.lock_state = command->lock_state;
+    context->dco.slew_limit_ppb = context->servo.sanity_freq_limit_ppb;
+    context->dco.tdma_schedule_crc32 = context->schedule.schedule_crc32;
+    context->dco.servo_profile_crc32 = context->servo.servo_profile_crc32;
+    vdc_domain_reset_lock_acquisition(context);
+    context->dpll.last_frequency_error_ppb = 0;
+    context->dpll.update_seq++;
+    vdc_domain_increment_saturating(&context->control.follower_apply_count);
+    context->control.last_follower_source_slot_id = command->source_slot_id;
+    context->control.last_follower_control_generation =
+        command->control_generation;
+    context->control.last_follower_command_seq = command->command_seq;
+    context->control.last_follower_quality = command->quality;
+    context->control.last_follower_effective_vdc_time_ns =
+        command->effective_vdc_time_ns;
+    vdc_domain_request_oscillator_discipline(
+        context,
+        command->period_adjust_ppb,
+        command->source_slot_id,
+        command->command_seq,
+        command->effective_vdc_time_ns);
+    return true;
+}
+
+void vdc_domain_note_follower_command_missing(vdc_domain_context_t *context)
+{
+    if (vdc_domain_is_follower(context)) {
+        vdc_domain_increment_saturating(
+            &context->control.follower_no_command_count);
+    }
 }
 
 uint32_t vdc_domain_path_delay_table_crc32(
@@ -2673,6 +3024,11 @@ bool vdc_domain_init(vdc_domain_context_t *context)
     memset(context, 0, sizeof(*context));
     vdc_domain_default_schedule(&context->schedule, 0u, 0u);
     vdc_domain_default_servo(&context->servo);
+    vdc_domain_default_dpll_control_profile(&context->control.profile);
+    vdc_domain_default_oscillator_discipline_profile(
+        &context->oscillator_discipline.profile);
+    context->oscillator_discipline.freeze_reason =
+        VDC_OSCILLATOR_DISCIPLINE_FREEZE_DISABLED;
     vdc_domain_default_clock_model(&context->clock,
                                    context->schedule.schedule_epoch,
                                    0u,
@@ -2714,6 +3070,13 @@ static bool vdc_domain_activate_tdma_configuration_checked(
             schedule->ring_binding.node_count) {
         return false;
     }
+    if (vdc_domain_is_follower(context) &&
+        (context->control.profile.follow_master_slot_id >=
+             schedule->ring_binding.node_count ||
+         context->control.profile.follow_master_slot_id ==
+             schedule->local_slot_id)) {
+        return false;
+    }
 
     const uint32_t next_run_id = context->clock.run_id + 1u;
     const uint32_t ready = context->ready;
@@ -2740,6 +3103,11 @@ static bool vdc_domain_activate_tdma_configuration_checked(
     context->dpll.servo_profile_crc32 = context->servo.servo_profile_crc32;
     context->dpll.debug_continue_enabled = debug_continue_enabled;
     context->dpll.debug_continue_generation = debug_continue_generation;
+    context->control.last_follower_source_slot_id = 0u;
+    context->control.last_follower_control_generation = 0u;
+    context->control.last_follower_command_seq = 0u;
+    context->control.last_follower_quality = 0u;
+    context->control.last_follower_effective_vdc_time_ns = 0u;
     vdc_domain_init_quality(context);
     vdc_domain_default_dco_control(&context->dco,
                                    &context->clock,
@@ -2927,6 +3295,8 @@ static bool vdc_domain_prepare_tdma_evidence_checked(
         preparation->schedule_crc32 = context->schedule.schedule_crc32;
         preparation->dpll_update_seq = context->dpll.update_seq;
         preparation->gate = gate;
+        preparation->follower_bypassed =
+            vdc_domain_is_follower(context) ? 1u : 0u;
         preparation->continued =
             context->dpll.debug_continue_enabled != 0u &&
             vdc_domain_debug_gate_recoverable(gate.reject_code) ? 1u : 0u;
@@ -2941,6 +3311,8 @@ static bool vdc_domain_prepare_tdma_evidence_checked(
     preparation->accepted = 1u;
     preparation->input_residual_ns = input_residual_ns;
     preparation->gate = gate;
+    preparation->follower_bypassed =
+        vdc_domain_is_follower(context) ? 1u : 0u;
     return true;
 }
 
@@ -2959,7 +3331,10 @@ bool VDC_DOMAIN_TIME_CRITICAL(vdc_domain_apply_prepared_tdma_evidence_servo)(
         return false;
     }
 
-    if (preparation->accepted != 0u) {
+    if (preparation->follower_bypassed != 0u) {
+        vdc_domain_increment_saturating(
+            &context->control.follower_local_evidence_bypass_count);
+    } else if (preparation->accepted != 0u) {
         context->dpll.accepted_sample_count++;
         vdc_domain_update_clock_from_evidence(
             context, evidence, preparation->input_residual_ns);
@@ -2991,6 +3366,14 @@ bool VDC_DOMAIN_TIME_CRITICAL(vdc_domain_apply_prepared_tdma_evidence_state)(
 
     const vdc_gate_result_t gate = preparation->gate;
     context->gate = gate;
+    if (preparation->follower_bypassed != 0u) {
+        preparation->applied = 1u;
+        preparation->post_apply_dpll_update_seq = context->dpll.update_seq;
+        if (accepted != NULL) {
+            *accepted = preparation->accepted != 0u;
+        }
+        return true;
+    }
     if (preparation->accepted == 0u) {
         if (preparation->continued != 0u) {
             vdc_domain_record_debug_continue(context, &gate);
@@ -3100,6 +3483,9 @@ bool VDC_DOMAIN_TIME_CRITICAL(vdc_domain_finalize_prepared_tdma_evidence)(
         preparation->schedule_crc32 != evidence->schedule_crc32 ||
         preparation->post_apply_dpll_update_seq != context->dpll.update_seq) {
         return false;
+    }
+    if (preparation->follower_bypassed != 0u) {
+        return true;
     }
     if (preparation->accepted == 0u) {
         if (preparation->continued != 0u) {
@@ -3229,6 +3615,12 @@ bool vdc_domain_submit_compact_observation(
             admission_guard_before_ns,
             admission_guard_after_ns,
         &gate)) {
+        if (vdc_domain_is_follower(context)) {
+            context->gate = gate;
+            vdc_domain_increment_saturating(
+                &context->control.follower_local_evidence_bypass_count);
+            return false;
+        }
         if (context->dpll.debug_continue_enabled != 0u &&
             vdc_domain_debug_gate_recoverable(gate.reject_code)) {
             vdc_domain_record_debug_continue(context, &gate);
@@ -3261,6 +3653,8 @@ bool vdc_domain_get_snapshot(const vdc_domain_context_t *context,
     snapshot->servo = context->servo;
     snapshot->clock = context->clock;
     snapshot->dco = context->dco;
+    snapshot->control = context->control;
+    snapshot->oscillator_discipline = context->oscillator_discipline;
     snapshot->dpll = context->dpll;
     snapshot->quality = context->quality;
     snapshot->error_budget = context->error_budget;

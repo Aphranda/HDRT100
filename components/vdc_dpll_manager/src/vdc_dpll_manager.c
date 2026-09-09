@@ -7,6 +7,7 @@
 #include "board.h"
 #include "board_config.h"
 #include "board_identity.h"
+#include "distributed_refmem.h"
 #include "ota_crc32.h"
 #include "osal.h"
 #include "ota_ao.h"
@@ -89,6 +90,8 @@ static vdc_dpll_manager_vdc_status_t s_vdc_status;
 static vdc_dpll_manager_dpll_status_t s_dpll_status;
 static vdc_dpll_manager_sync_io_observer_config_t s_sync_io_observer_config;
 static vdc_dpll_manager_sync_io_observer_status_t s_sync_io_observer_status;
+static uint32_t s_vdc_follower_last_applied_seq;
+static uint32_t s_vdc_follower_last_generation;
 static vdc_dpll_manager_vdc_status_t s_published_vdc_status;
 static vdc_dpll_manager_dpll_status_t s_published_dpll_status;
 static vdc_dpll_manager_dco_consumer_status_t s_dco_consumer_status;
@@ -97,7 +100,11 @@ static volatile uint32_t s_published_dpll_status_guard;
 static vdc_dpll_manager_sync_io_observer_status_t
     s_published_sync_io_observer_status;
 static volatile uint32_t s_published_snapshot_guard;
-static vdc_domain_snapshot_t s_published_snapshot;
+/* The complete guarded snapshot is shared by Core0 readers and the Core1
+ * publisher. SCRATCH_Y is reserved below the Core0 stack for cross-core
+ * control data; SCRATCH_X remains exclusively available to Core1's stack. */
+static vdc_domain_snapshot_t s_published_snapshot
+    __attribute__((section(".scratch_y.vdc_snapshot"), aligned(4)));
 static bool s_published_snapshot_valid;
 static volatile uint32_t s_published_dpll_update_seq;
 static uint32_t s_dpll_consumed_update_seq;
@@ -134,6 +141,10 @@ static volatile uint32_t s_debug_servo_tune_applied_generation;
 static volatile uint32_t s_debug_continue_requested_enabled;
 static volatile uint32_t s_debug_continue_requested_generation;
 static volatile uint32_t s_debug_continue_applied_generation;
+static vdc_dpll_control_profile_t s_dpll_role_profile;
+static volatile uint32_t s_dpll_role_guard;
+static volatile uint32_t s_dpll_role_requested_generation;
+static volatile uint32_t s_dpll_role_applied_generation;
 static vdc_dpll_manager_dpll_capture_record_t
     s_dpll_capture_records[VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES];
 static bool s_dpll_capture_armed;
@@ -237,6 +248,9 @@ static void vdc_dpll_manager_publish_runtime_snapshot_locked(void)
     s_published_snapshot.servo = s_vdc_domain.servo;
     s_published_snapshot.clock = s_vdc_domain.clock;
     s_published_snapshot.dco = s_vdc_domain.dco;
+    s_published_snapshot.control = s_vdc_domain.control;
+    s_published_snapshot.oscillator_discipline =
+        s_vdc_domain.oscillator_discipline;
     s_published_snapshot.dpll = s_vdc_domain.dpll;
     s_published_snapshot.quality = s_vdc_domain.quality;
     s_published_snapshot.error_budget = s_vdc_domain.error_budget;
@@ -568,7 +582,9 @@ static bool vdc_dpll_manager_compute_dco_phase_pulse_deadline(
     uint32_t pulse_period_ns,
     uint64_t *target_local_ns);
 static bool vdc_dpll_manager_apply_pending_debug_servo_tune(void);
+static bool vdc_dpll_manager_apply_pending_dpll_role(void);
 static bool vdc_dpll_manager_apply_pending_debug_continue(void);
+static void vdc_dpll_manager_consume_follower_command(void);
 
 static void vdc_dpll_manager_observation_self_test_service(void)
 {
@@ -1439,6 +1455,10 @@ bool vdc_dpll_manager_init(void)
     s_debug_continue_requested_enabled = 0u;
     s_debug_continue_requested_generation = 0u;
     s_debug_continue_applied_generation = 0u;
+    memset(&s_dpll_role_profile, 0, sizeof(s_dpll_role_profile));
+    s_dpll_role_guard = 0u;
+    s_dpll_role_requested_generation = 0u;
+    s_dpll_role_applied_generation = 0u;
     memset(s_dpll_capture_records, 0, sizeof(s_dpll_capture_records));
     s_dpll_capture_armed = false;
     s_dpll_capture_complete = false;
@@ -1503,6 +1523,18 @@ bool vdc_dpll_manager_init(void)
         return false;
     }
     s_debug_servo_tune_profile = s_vdc_domain.servo;
+    product_config_dpll_control_profile_t persisted_role;
+    if (!product_config_get_dpll_control_profile(&persisted_role)) {
+        return false;
+    }
+    s_dpll_role_profile.valid = 1u;
+    s_dpll_role_profile.version = VDC_DPLL_CONTROL_PROFILE_VERSION;
+    s_dpll_role_profile.mode = persisted_role.mode;
+    s_dpll_role_profile.follow_master_slot_id =
+        persisted_role.follow_master_slot_id;
+    s_dpll_role_profile.generation = persisted_role.generation;
+    s_dpll_role_requested_generation = persisted_role.generation;
+    s_dpll_role_applied_generation = 0u;
     s_vdc_tdma_service = tdma_runtime_owner_get();
     if (s_vdc_tdma_service == NULL ||
         !vdc_tdma_payload_register(s_vdc_tdma_service)) {
@@ -1538,6 +1570,73 @@ void vdc_dpll_manager_set_dpll_ready(bool ready)
     osal_critical_exit();
 }
 
+static void vdc_dpll_manager_consume_follower_command(void)
+{
+    vdc_domain_snapshot_t domain;
+    if (!vdc_domain_get_snapshot(&s_vdc_domain, &domain) ||
+        domain.control.profile.valid != 1u ||
+        domain.control.profile.mode != VDC_DPLL_CONTROL_MODE_FOLLOWER) {
+        s_vdc_follower_last_applied_seq = 0u;
+        s_vdc_follower_last_generation = 0u;
+        return;
+    }
+
+    const uint32_t generation = domain.control.profile.generation;
+    if (generation != s_vdc_follower_last_generation) {
+        s_vdc_follower_last_generation = generation;
+        s_vdc_follower_last_applied_seq = 0u;
+    }
+
+    refmem_sync_vdc_command_snapshot_t retained;
+    if (!distributed_refmem_get_vdc_follower_command(
+            domain.control.profile.follow_master_slot_id, &retained) ||
+        retained.valid == 0u) {
+        vdc_domain_note_follower_command_missing(&s_vdc_domain);
+        return;
+    }
+
+    /* RefMem accepts only a single target bit for VDC commands.  Keep this
+     * explicit check at the DPLL owner boundary as a second identity guard. */
+    if (retained.target_slot != domain.schedule.local_slot_id ||
+        retained.source_slot !=
+            domain.control.profile.follow_master_slot_id) {
+        if (retained.command_seq != s_vdc_follower_last_applied_seq) {
+            vdc_dpll_follower_command_t invalid = {0};
+            invalid.valid = 0u;
+            invalid.source_slot_id = retained.source_slot;
+            invalid.command_seq = retained.command_seq;
+            (void)vdc_domain_apply_follower_command(&s_vdc_domain, &invalid);
+            s_vdc_follower_last_applied_seq = retained.command_seq;
+        }
+        return;
+    }
+
+    if (retained.command_seq == 0u ||
+        retained.command_seq <= s_vdc_follower_last_applied_seq) {
+        return;
+    }
+    if (retained.effective_vdc_time_ns > vdc_dpll_manager_now_ns()) {
+        return;
+    }
+
+    vdc_dpll_follower_command_t command;
+    memset(&command, 0, sizeof(command));
+    command.valid = retained.valid;
+    command.source_slot_id = retained.source_slot;
+    command.control_generation = retained.control_generation;
+    command.command_seq = retained.command_seq;
+    command.schedule_crc32 = retained.schedule_crc32;
+    command.effective_vdc_time_ns = retained.effective_vdc_time_ns;
+    command.period_adjust_ppb = retained.period_adjust_ppb;
+    command.phase_offset_ns = retained.phase_offset_ns;
+    command.lock_state = retained.lock_state;
+    command.quality = retained.quality;
+    (void)vdc_domain_apply_follower_command(&s_vdc_domain, &command);
+    /* Retain the attempted sequence even when Domain rejects its schedule,
+     * rate or state fields; a bad command must not be retried as local PI. */
+    s_vdc_follower_last_applied_seq = retained.command_seq;
+}
+
 static uint32_t vdc_dpll_manager_stage_debug_servo_profile(
     const vdc_servo_profile_t *profile)
 {
@@ -1554,6 +1653,105 @@ static uint32_t vdc_dpll_manager_stage_debug_servo_profile(
     (void)__atomic_add_fetch(&s_debug_servo_tune_guard, 1u,
                              __ATOMIC_RELEASE);
     return generation;
+}
+
+bool vdc_dpll_manager_request_dpll_role(uint32_t mode,
+                                        uint32_t follow_master_slot_id,
+                                        uint32_t *generation)
+{
+    if (mode > VDC_DPLL_CONTROL_MODE_FOLLOWER ||
+        follow_master_slot_id >= VDC_DOMAIN_NODE_COUNT) {
+        return false;
+    }
+    vdc_domain_snapshot_t snapshot;
+    if (mode == VDC_DPLL_CONTROL_MODE_FOLLOWER &&
+        vdc_dpll_manager_get_snapshot(&snapshot) &&
+        snapshot.schedule.operating_profile_crc32 != 0u &&
+        follow_master_slot_id == snapshot.schedule.local_slot_id) {
+        return false;
+    }
+    vdc_dpll_control_profile_t profile = s_dpll_role_profile;
+    profile.valid = 1u;
+    profile.version = VDC_DPLL_CONTROL_PROFILE_VERSION;
+    profile.mode = mode;
+    profile.follow_master_slot_id = follow_master_slot_id;
+    profile.generation = 1u;
+    (void)__atomic_add_fetch(&s_dpll_role_guard, 1u, __ATOMIC_ACQ_REL);
+    s_dpll_role_profile = profile;
+    const uint32_t request = __atomic_add_fetch(
+        &s_dpll_role_requested_generation, 1u, __ATOMIC_RELEASE);
+    (void)__atomic_add_fetch(&s_dpll_role_guard, 1u, __ATOMIC_RELEASE);
+    if (generation != NULL) {
+        *generation = request;
+    }
+    return request != 0u;
+}
+
+bool vdc_dpll_manager_store_dpll_role(void)
+{
+    vdc_dpll_manager_dpll_role_status_t status;
+    vdc_dpll_manager_get_dpll_role_status(&status);
+    const product_config_dpll_control_profile_t profile = {
+        .mode = status.mode,
+        .follow_master_slot_id = status.follow_master_slot_id,
+        .generation = status.requested_generation == 0u
+                          ? 1u : status.requested_generation,
+    };
+    return product_config_set_dpll_control_profile(&profile);
+}
+
+void vdc_dpll_manager_get_dpll_role_status(
+    vdc_dpll_manager_dpll_role_status_t *status)
+{
+    if (status == NULL) {
+        return;
+    }
+    memset(status, 0, sizeof(*status));
+    for (;;) {
+        const uint32_t before = __atomic_load_n(&s_dpll_role_guard,
+                                                __ATOMIC_ACQUIRE);
+        if ((before & 1u) != 0u) {
+            continue;
+        }
+        const vdc_dpll_control_profile_t profile = s_dpll_role_profile;
+        const uint32_t requested = __atomic_load_n(
+            &s_dpll_role_requested_generation, __ATOMIC_ACQUIRE);
+        const uint32_t applied = __atomic_load_n(
+            &s_dpll_role_applied_generation, __ATOMIC_ACQUIRE);
+        const uint32_t after = __atomic_load_n(&s_dpll_role_guard,
+                                               __ATOMIC_ACQUIRE);
+        if (before != after || (after & 1u) != 0u) {
+            continue;
+        }
+        status->mode = profile.mode;
+        status->follow_master_slot_id = profile.follow_master_slot_id;
+        status->requested_generation = requested;
+        status->applied_generation = applied;
+        status->pending = requested != 0u && requested != applied;
+        return;
+    }
+}
+
+static bool vdc_dpll_manager_apply_pending_dpll_role(void)
+{
+    vdc_dpll_manager_dpll_role_status_t status;
+    vdc_dpll_manager_get_dpll_role_status(&status);
+    if (!status.pending) {
+        return false;
+    }
+    vdc_dpll_control_profile_t profile;
+    memset(&profile, 0, sizeof(profile));
+    profile.valid = 1u;
+    profile.version = VDC_DPLL_CONTROL_PROFILE_VERSION;
+    profile.mode = status.mode;
+    profile.follow_master_slot_id = status.follow_master_slot_id;
+    profile.generation = status.requested_generation;
+    if (!vdc_domain_set_dpll_control_profile(&s_vdc_domain, &profile)) {
+        return false;
+    }
+    __atomic_store_n(&s_dpll_role_applied_generation,
+                     status.requested_generation, __ATOMIC_RELEASE);
+    return true;
 }
 
 bool vdc_dpll_manager_request_debug_servo_tune(
@@ -2464,11 +2662,42 @@ static void vdc_dpll_manager_waveform_capture_service(void)
 
 void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_fb_service)(void)
 {
+    /* Debug admission is a control-plane policy, not a local-servo action.
+     * Apply it before any role/follower early return so every node can enter
+     * QUICK_DIAGNOSTIC even when its DPLL role is already FOLLOWER. */
+    if (vdc_dpll_manager_apply_pending_debug_continue()) {
+        vdc_dpll_manager_publish_runtime_snapshot_locked();
+        return;
+    }
+    /* Apply a staged role before evaluating the previous role. This is
+     * required for FOLLOWER -> MASTER promotion; otherwise the follower
+     * early return below would hide the pending promotion forever. */
+    if (vdc_dpll_manager_apply_pending_dpll_role()) {
+        vdc_dpll_manager_publish_runtime_snapshot_locked();
+        return;
+    }
+    vdc_dpll_manager_dpll_role_status_t role_status;
+    vdc_dpll_manager_get_dpll_role_status(&role_status);
+    if (role_status.pending) {
+        /* A persisted/requested role is held until TDMA topology makes the
+         * follower source unambiguous. Never run the old local PI meanwhile. */
+        vdc_dpll_manager_publish_runtime_snapshot_locked();
+        return;
+    }
+    /* FOLLOWER consumes only a verified, absolutely scheduled command.  Keep
+     * this before local evidence preparation so a follower never falls back
+     * into its own PI path while a peer command is absent or stale. */
+    vdc_dpll_manager_consume_follower_command();
+    vdc_domain_snapshot_t role_snapshot;
+    if (vdc_domain_get_snapshot(&s_vdc_domain, &role_snapshot) &&
+        role_snapshot.control.profile.mode == VDC_DPLL_CONTROL_MODE_FOLLOWER) {
+        vdc_dpll_manager_publish_runtime_snapshot_locked();
+        return;
+    }
     /* Complete already-admitted domain work before accepting another ring
      * sample. This keeps one bounded four-beat pipeline at the 4 ms evidence
      * cadence: prepare, servo, state/finalize, service/publish. */
-    if (vdc_dpll_manager_apply_pending_debug_continue() ||
-        vdc_dpll_manager_apply_pending_debug_servo_tune()) {
+    if (vdc_dpll_manager_apply_pending_debug_servo_tune()) {
         vdc_dpll_manager_publish_runtime_snapshot_locked();
         return;
     }
@@ -2507,6 +2736,9 @@ void tdma_component_core1_service(void)
     if (s_vdc_tdma_service != NULL) {
         tdma_service_core1_service(s_vdc_tdma_service);
     }
+    /* RefMem captured any MASTER command in its own phase.  Admit that
+     * frozen batch only after the sole TDMA scheduler has advanced. */
+    distributed_refmem_tdma_publish_service();
     tdma_runtime_owner_update_training_gate();
 }
 
@@ -2592,6 +2824,64 @@ bool VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_dpll_manager_get_snapshot)(
         }
     }
     return false;
+}
+
+bool VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_dpll_manager_get_refmem_snapshot)(
+    vdc_dpll_manager_refmem_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) {
+        return false;
+    }
+    for (uint32_t attempt = 0u; attempt < 8u; attempt++) {
+        const uint32_t begin = __atomic_load_n(
+            &s_published_snapshot_guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) {
+            continue;
+        }
+        const bool valid = s_published_snapshot_valid;
+        snapshot->schedule = s_published_snapshot.schedule;
+        snapshot->clock_epoch_id = s_published_snapshot.clock.epoch_id;
+        snapshot->clock_run_id = s_published_snapshot.clock.run_id;
+        snapshot->dco_period_adjust_ppb =
+            s_published_snapshot.dco.period_adjust_ppb;
+        snapshot->dco_phase_offset_ns =
+            s_published_snapshot.dco.phase_offset_ns;
+        snapshot->dpll_update_seq = s_published_snapshot.dpll.update_seq;
+        snapshot->dpll_state = s_published_snapshot.dpll.state;
+        snapshot->control_profile = s_published_snapshot.control.profile;
+        snapshot->quality_health_state =
+            s_published_snapshot.quality.health_state;
+        const uint32_t end = __atomic_load_n(
+            &s_published_snapshot_guard, __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) {
+            return valid;
+        }
+    }
+    return false;
+}
+
+bool VDC_DPLL_MANAGER_TIME_CRITICAL(
+    vdc_dpll_manager_plan_published_tdma_window)(
+    const vdc_dpll_manager_refmem_snapshot_t *snapshot,
+    uint32_t window_class,
+    uint64_t now_ns,
+    vdc_tdma_window_plan_t *plan,
+    vdc_gate_result_t *gate)
+{
+    if (snapshot == NULL) {
+        return false;
+    }
+    if (now_ns == VDC_DPLL_MANAGER_PLAN_NOW_NS) {
+        now_ns = vdc_dpll_manager_now_ns();
+    }
+
+    /* The snapshot was copied under s_published_snapshot_guard.  Its schedule
+     * is therefore a single verified generation and needs no OSAL lock here. */
+    return vdc_domain_plan_tdma_window(&snapshot->schedule,
+                                       window_class,
+                                       now_ns,
+                                       plan,
+                                       gate);
 }
 
 uint32_t VDC_DPLL_MANAGER_TIME_CRITICAL(

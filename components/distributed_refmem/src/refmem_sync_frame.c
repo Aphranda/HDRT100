@@ -1,6 +1,7 @@
 #include "refmem_sync_frame.h"
 
 #include <string.h>
+#include <stddef.h>
 
 #include "ota_crc32.h"
 
@@ -76,6 +77,103 @@ bool refmem_sync_frame_type_is_valid(uint8_t frame_type)
 {
     return frame_type >= (uint8_t)REFMEM_SYNC_FRAME_HELLO &&
            frame_type <= (uint8_t)REFMEM_SYNC_FRAME_QUALITY;
+}
+
+uint32_t refmem_sync_vdc_command_payload_crc32(
+    const refmem_sync_vdc_command_payload_t *payload)
+{
+    if (payload == NULL) {
+        return 0u;
+    }
+    return ota_crc32_compute((const uint8_t *)payload,
+                             offsetof(refmem_sync_vdc_command_payload_t,
+                                      payload_crc32));
+}
+
+bool refmem_sync_vdc_command_payload_validate(
+    const void *payload, uint16_t payload_size)
+{
+    if (payload == NULL ||
+        payload_size != sizeof(refmem_sync_vdc_command_payload_t)) {
+        return false;
+    }
+    const refmem_sync_vdc_command_payload_t *command =
+        (const refmem_sync_vdc_command_payload_t *)payload;
+    return command->version == REFMEM_SYNC_VDC_COMMAND_VERSION &&
+           command->source_slot < 8u &&
+           command->target_slot < 8u &&
+           command->command_seq != 0u &&
+           command->effective_vdc_time_ns != 0u &&
+           command->payload_crc32 ==
+               refmem_sync_vdc_command_payload_crc32(command);
+}
+
+bool refmem_sync_vdc_command_frame_build(
+    uint8_t source_slot,
+    uint8_t target_slot,
+    uint32_t epoch_id,
+    uint32_t run_id,
+    uint32_t frame_seq32,
+    uint32_t compact_time,
+    uint32_t control_generation,
+    uint32_t command_seq,
+    uint32_t schedule_crc32,
+    uint64_t effective_vdc_time_ns,
+    int32_t period_adjust_ppb,
+    int32_t phase_offset_ns,
+    uint32_t lock_state,
+    uint32_t quality,
+    uint8_t *frame,
+    size_t frame_capacity,
+    size_t *frame_size)
+{
+    if (source_slot >= 8u || target_slot >= 8u ||
+        source_slot == target_slot || frame_seq32 == 0u ||
+        command_seq == 0u || effective_vdc_time_ns == 0u ||
+        frame == NULL || frame_size == NULL) {
+        if (frame_size != NULL) {
+            *frame_size = 0u;
+        }
+        return false;
+    }
+
+    refmem_sync_vdc_command_payload_t payload;
+    memset(&payload, 0, sizeof(payload));
+    payload.version = REFMEM_SYNC_VDC_COMMAND_VERSION;
+    payload.source_slot = source_slot;
+    payload.target_slot = target_slot;
+    payload.control_generation = control_generation;
+    payload.command_seq = command_seq;
+    payload.schedule_crc32 = schedule_crc32;
+    payload.effective_vdc_time_ns = effective_vdc_time_ns;
+    payload.period_adjust_ppb = period_adjust_ppb;
+    payload.phase_offset_ns = phase_offset_ns;
+    payload.lock_state = lock_state;
+    payload.quality = quality;
+    payload.payload_crc32 = refmem_sync_vdc_command_payload_crc32(&payload);
+
+    refmem_sync_frame_header_t header;
+    if (!refmem_sync_frame_header_init(&header,
+                                       REFMEM_SYNC_FRAME_COMMAND,
+                                       0u,
+                                       source_slot,
+                                       (uint8_t)(1u << target_slot),
+                                       epoch_id,
+                                       run_id,
+                                       frame_seq32,
+                                       0u,
+                                       compact_time,
+                                       &payload,
+                                       (uint16_t)sizeof(payload))) {
+        *frame_size = 0u;
+        return false;
+    }
+    return refmem_sync_frame_encode(&header,
+                                    &payload,
+                                    (uint16_t)sizeof(payload),
+                                    frame,
+                                    frame_capacity,
+                                    frame_size);
 }
 
 uint32_t refmem_sync_frame_payload_crc32(const void *payload, uint16_t payload_size)

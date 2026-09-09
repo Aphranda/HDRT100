@@ -72,7 +72,13 @@ class CalibrationLoadGuard:
         self._original: dict[str, int] = {}
         self._before: dict[str, dict[str, Any]] = {}
         self._after: dict[str, dict[str, Any]] = {}
+        self._entry_errors: list[str] = []
+        self._verification_errors: list[str] = []
         self._entered = False
+
+    @property
+    def diagnostic_continue(self) -> bool:
+        return bool(getattr(self.args, "diagnostic_continue", False))
 
     def __enter__(self) -> "CalibrationLoadGuard":
         if self._entered:
@@ -81,14 +87,20 @@ class CalibrationLoadGuard:
         for board in self.boards:
             before = read_schedule(board, self.args)
             if (int(before["enabled_mask"]) & CALIBRATION_LOAD_MASK) != 0:
-                raise RuntimeError(
+                error = (
                     f"{board.address}: offline calibration requires the "
                     "online calibration load to remain disabled")
+                self._entry_errors.append(error)
+                if not self.diagnostic_continue:
+                    raise RuntimeError(error)
             if (int(before["quarantined_mask"]) &
                     CALIBRATION_LOAD_MASK) != 0:
-                raise RuntimeError(
+                error = (
                     f"{board.address}: calibration quarantine is not clean; "
                     "use a software reboot before retrying")
+                self._entry_errors.append(error)
+                if not self.diagnostic_continue:
+                    raise RuntimeError(error)
             self._before[board.address] = before
             self._original[board.address] = int(before["enabled_mask"])
         return self
@@ -116,21 +128,26 @@ class CalibrationLoadGuard:
             except Exception as exc:  # retain every board cleanup attempt
                 errors.append(f"{board.address}: {type(exc).__name__}: {exc}")
         if errors:
-            raise RuntimeError(
-                "offline calibration disturbed TDMA schedule: " +
-                "; ".join(errors))
+            self._verification_errors.extend(errors)
+            if not self.diagnostic_continue:
+                raise RuntimeError(
+                    "offline calibration disturbed TDMA schedule: " +
+                    "; ".join(errors))
 
     def __exit__(self, exc_type: object, exc: object,
                  traceback: object) -> bool:
         try:
             self.verify()
-        except Exception:
-            if exc is None:
+        except Exception as verify_exc:
+            if not self.diagnostic_continue and exc is None:
                 raise
+            if self.diagnostic_continue:
+                self._verification_errors.append(str(verify_exc))
         return False
 
     def evidence(self) -> dict[str, Any]:
-        passed = (len(self._before) == len(self.boards) and
+        errors = [*self._entry_errors, *self._verification_errors]
+        passed = (not errors and len(self._before) == len(self.boards) and
                   len(self._after) == len(self.boards) and
                   all(int(self._after[address]["enabled_mask"]) ==
                       int(before["enabled_mask"]) and
@@ -140,6 +157,9 @@ class CalibrationLoadGuard:
         return {
             "schema": "HAOFV_CALIBRATION_LOAD_GUARD_V1",
             "passed": passed,
+            "diagnostic_continue": self.diagnostic_continue,
+            "forced_continue": bool(errors and self.diagnostic_continue),
+            "errors": errors,
             "calibration_load_mask": CALIBRATION_LOAD_MASK,
             "before": {
                 address: {

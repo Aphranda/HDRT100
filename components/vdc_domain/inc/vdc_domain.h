@@ -28,6 +28,8 @@
 #define VDC_DOMAIN_DEFAULT_IDLE_WINDOW_OFFSET_NS 900000u
 #define VDC_DOMAIN_DEFAULT_IDLE_WINDOW_WIDTH_NS 50000u
 #define VDC_DOMAIN_PATH_DELAY_TABLE_VERSION 1u
+#define VDC_DPLL_CONTROL_PROFILE_VERSION 1u
+#define VDC_OSCILLATOR_DISCIPLINE_PROFILE_VERSION 1u
 #define VDC_DOMAIN_PATH_DELAY_ENTRY_COUNT VDC_DOMAIN_NODE_COUNT
 #define VDC_DOMAIN_OBSERVATION_PATH_MATRIX_ENTRY_COUNT \
     (VDC_DOMAIN_NODE_COUNT * VDC_DOMAIN_NODE_COUNT)
@@ -83,6 +85,23 @@ typedef enum {
     VDC_DOMAIN_LOCK_QUALITY_DEBUG_1US = 2u,
     VDC_DOMAIN_LOCK_QUALITY_FINE_100NS = 3u,
 } vdc_domain_lock_quality_t;
+
+/* Every node retains the same PI implementation. The active control role
+ * decides whether SyncDpllFB feeds it from local evidence or a selected peer
+ * command at the Core1 service boundary. */
+typedef enum {
+    VDC_DPLL_CONTROL_MODE_MASTER = 0u,
+    VDC_DPLL_CONTROL_MODE_FOLLOWER = 1u,
+} vdc_dpll_control_mode_t;
+
+typedef enum {
+    VDC_OSCILLATOR_DISCIPLINE_FREEZE_NONE = 0u,
+    VDC_OSCILLATOR_DISCIPLINE_FREEZE_DISABLED = 1u,
+    VDC_OSCILLATOR_DISCIPLINE_FREEZE_UNAVAILABLE = 2u,
+    VDC_OSCILLATOR_DISCIPLINE_FREEZE_FAULT = 3u,
+    VDC_OSCILLATOR_DISCIPLINE_FREEZE_STALE_SOURCE = 4u,
+    VDC_OSCILLATOR_DISCIPLINE_FREEZE_LIMIT = 5u,
+} vdc_oscillator_discipline_freeze_reason_t;
 
 typedef enum {
     VDC_DOMAIN_GATE_PASS = 0u,
@@ -189,6 +208,89 @@ typedef struct {
     uint32_t tdma_schedule_crc32;
     uint32_t servo_profile_crc32;
 } vdc_dco_control_t;
+
+/* This profile is configured by the control plane but applied only by the
+ * Core1 DPLL owner. FOLLOWER never falls back to local PI when peer commands
+ * are missing or invalid. */
+typedef struct {
+    uint32_t valid;
+    uint32_t version;
+    uint32_t mode;
+    uint32_t follow_master_slot_id;
+    uint32_t generation;
+} vdc_dpll_control_profile_t;
+
+/* The caller must have already held this peer command until its absolute
+ * effective time. This Domain API applies it at that deterministic service
+ * boundary; it does not reinterpret a remote local-tick anchor. */
+typedef struct {
+    uint32_t valid;
+    uint32_t source_slot_id;
+    uint32_t control_generation;
+    uint32_t command_seq;
+    uint32_t schedule_crc32;
+    uint64_t effective_vdc_time_ns;
+    int32_t period_adjust_ppb;
+    int32_t phase_offset_ns;
+    uint32_t lock_state;
+    uint32_t quality;
+} vdc_dpll_follower_command_t;
+
+typedef struct {
+    vdc_dpll_control_profile_t profile;
+    uint32_t follower_apply_count;
+    uint32_t follower_no_command_count;
+    uint32_t follower_wrong_source_count;
+    uint32_t follower_stale_command_count;
+    uint32_t follower_invalid_command_count;
+    uint32_t follower_local_evidence_bypass_count;
+    uint32_t last_follower_source_slot_id;
+    uint32_t last_follower_control_generation;
+    uint32_t last_follower_command_seq;
+    uint32_t last_follower_quality;
+    uint64_t last_follower_effective_vdc_time_ns;
+} vdc_dpll_control_status_t;
+
+/* The oscillator actuator is outside VDC. SyncDpllFB may create a bounded
+ * request, while a board-specific hardware owner reports availability and
+ * applied state. Neither direction changes the signal DCO phase owner. */
+typedef struct {
+    uint32_t valid;
+    uint32_t version;
+    uint32_t enabled;
+    uint32_t minimum_update_interval_us;
+    uint32_t max_abs_trim_ppb;
+    uint32_t max_step_ppb;
+    int32_t actuator_polarity;
+    uint32_t generation;
+} vdc_oscillator_discipline_profile_t;
+
+typedef struct {
+    uint32_t valid;
+    uint32_t available;
+    uint32_t healthy;
+    uint32_t applied_generation;
+    int32_t applied_trim_ppb;
+} vdc_oscillator_discipline_actuator_report_t;
+
+typedef struct {
+    vdc_oscillator_discipline_profile_t profile;
+    uint32_t actuator_available;
+    uint32_t actuator_healthy;
+    uint32_t request_generation;
+    uint32_t applied_generation;
+    int32_t requested_trim_ppb;
+    int32_t applied_trim_ppb;
+    uint64_t last_request_time_ns;
+    uint32_t last_source_slot_id;
+    uint32_t last_source_command_seq;
+    uint32_t freeze_reason;
+    uint32_t freeze_count;
+    uint32_t unavailable_count;
+    uint32_t fault_count;
+    uint32_t stale_count;
+    uint32_t limit_count;
+} vdc_oscillator_discipline_status_t;
 
 typedef struct {
     uint32_t sample_seq;
@@ -312,6 +414,9 @@ typedef struct {
      * sample into the servo. It is processed successfully by the realtime
      * pipeline, but remains ineligible for any formal lock claim. */
     uint32_t continued;
+    /* A follower retains the gate result for diagnostics but the complete
+     * local PI/lock/quality pipeline is bypassed. */
+    uint32_t follower_bypassed;
     uint32_t servo_applied;
     uint32_t post_servo_dpll_update_seq;
     uint32_t applied;
@@ -471,6 +576,8 @@ typedef struct {
     vdc_servo_profile_t servo;
     vdc_clock_model_t clock;
     vdc_dco_control_t dco;
+    vdc_dpll_control_status_t control;
+    vdc_oscillator_discipline_status_t oscillator_discipline;
     vdc_dpll_state_t dpll;
     vdc_quality_table_t quality;
     vdc_error_budget_t error_budget;
@@ -487,6 +594,8 @@ typedef struct {
     vdc_servo_profile_t servo;
     vdc_clock_model_t clock;
     vdc_dco_control_t dco;
+    vdc_dpll_control_status_t control;
+    vdc_oscillator_discipline_status_t oscillator_discipline;
     vdc_dpll_state_t dpll;
     vdc_quality_table_t quality;
     vdc_error_budget_t error_budget;
@@ -543,6 +652,29 @@ void vdc_domain_default_clock_model(vdc_clock_model_t *model,
 void vdc_domain_default_dco_control(vdc_dco_control_t *dco,
                                     const vdc_clock_model_t *model,
                                     uint32_t lock_state);
+void vdc_domain_default_dpll_control_profile(
+    vdc_dpll_control_profile_t *profile);
+/* Call only from the Core1 DPLL service boundary. Role changes retain the
+ * current output but clear local PI/lock acquisition state. */
+bool vdc_domain_set_dpll_control_profile(
+    vdc_domain_context_t *context,
+    const vdc_dpll_control_profile_t *profile);
+/* Call only after RefMem/manager identity, sequence and absolute execution
+ * time checks have selected this command for the active Core1 boundary. */
+bool vdc_domain_apply_follower_command(
+    vdc_domain_context_t *context,
+    const vdc_dpll_follower_command_t *command);
+void vdc_domain_note_follower_command_missing(vdc_domain_context_t *context);
+void vdc_domain_default_oscillator_discipline_profile(
+    vdc_oscillator_discipline_profile_t *profile);
+bool vdc_domain_set_oscillator_discipline_profile(
+    vdc_domain_context_t *context,
+    const vdc_oscillator_discipline_profile_t *profile);
+/* This only records a board-driver report. It never writes the DCO, clock
+ * model, lock state or quality table. */
+bool vdc_domain_report_oscillator_discipline_actuator(
+    vdc_domain_context_t *context,
+    const vdc_oscillator_discipline_actuator_report_t *report);
 bool vdc_domain_clock_model_local_to_vdc_ns(const vdc_clock_model_t *model,
                                             uint64_t local_tick64,
                                             uint64_t *vdc_time64_ns);

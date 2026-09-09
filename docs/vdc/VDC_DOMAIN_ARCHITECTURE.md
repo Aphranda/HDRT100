@@ -46,6 +46,52 @@ System Pack / SCPI intent
 | Trigger/core1/PIO | 读取稳定快照、反算 local deadline、执行 FIRE_LOAD。 | 写 VDC offset/rate/lock。 |
 | SCPI/NO5/host | 配置 staging、发起动作、读取快照和离线分析。 | 写 lock、offset、rate、accepted count。 |
 
+## 可配置 DPLL 控制角色
+
+环形物理拓扑不决定 DPLL 的控制角色。每个节点保留相同的 PI 实现和完整的本地
+evidence/quality 可观测性；运行时由持久化控制 profile 选择该节点是 `MASTER` 还是
+`FOLLOWER`。因此任意槽位均可配置为主机，也允许多个主机与多个从机并存，用于后续
+角色组合的可重复实验。
+
+| 角色 | 本地 PI 能力 | 运行时 DCO 输入 | 不变量 |
+|---|---|---|---|
+| `MASTER` | 启用。通过正式 local evidence 驱动既有 FLL/PI/DCO 路径。 | 本地 `SyncDpllFB` 输出。 | 只接受已通过 admission 的本地 evidence；仍受既有 calibration、quality 和 promotion gate 约束。 |
+| `FOLLOWER` | 保留但旁路。不得用 local evidence 更新积分器、rate、phase 或 local lock acquisition。 | 显式配置的主机槽位发布的 VDC DCO command。 | 只接受 source slot 与 profile 完全一致、sequence 更新且有效的命令；缺失、陈旧、错误来源或非法命令时保持上一稳定输出，绝不自动回退本地 PI。 |
+
+控制角色切换必须在 DPLL service boundary 原子生效。切换时清空旧 PI 积分与连续锁定
+历史，递增 control generation，并将 requested/applied generation 与拒绝/旁路计数发布
+到快照和 SCPI。`FOLLOWER` 应用主机 command 时只镜像受验证的 rate、phase、lock 和
+quality；它不取得主机的 formal-lock 权限，最终 promotion 仍须在本地满足现有质量和
+安全门禁。
+
+TDMA 与 Calibration 的职责不变：训练只测量 directed delay/bias，TDMA 只运输现有
+process-image mailbox。为支持多个主机，RefMem 接收端必须按 source slot 保留已验收的
+VDC command snapshot；禁止以“最后一个收到的 mailbox”作为从机输入。角色 profile 的
+默认策略、Flash 兼容迁移、SCPI staging 和显式存储属于控制面，不改变 wire layout。
+
+该模式将多节点本地 PI 的耦合实验与单节点闭环/从机跟随实验明确分开。角色配置本身不
+承诺任何相位精度；验收仍以本地 evidence、DCO snapshot 完整性、quality promotion 和
+实测残差为准。
+
+### 本地晶振驯服
+
+本地晶振驯服是独立于信号相位控制的可选底层通道。它以受验证的共同时间/主机命令和
+本地 frequency measurement 形成慢速、限幅的 oscillator trim，降低本振长期自由漂移，
+但不得直接写 DDS phase accumulator、替换 `FOLLOWER` 的主机 DCO command，或把
+`FOLLOWER` 变回 local PI。
+
+- `MASTER` 可将本地 PI/FLL 的可信 frequency 输出作为晶振驯服输入；其 DCO phase/rate
+  仍由既有本地闭环 owner 产生。
+- `FOLLOWER` 的信号 DCO 始终采用配置主机的 command。本地晶振驯服只调整底层 oscillator
+  actuator；每次 trim 必须保持 local-to-VDC clock model 的时间连续性，不能制造未经主机
+  command 的相位跳变。
+- peer command 缺失、陈旧、来源错误、quality 不足、trim actuator fault 或超出限幅时，
+  晶振驯服必须冻结最近可信 trim 并记录原因；它不得借此启用 follower local PI，也不得
+  抬高 lock/quality/formal promotion。
+- trim capability、requested/applied trim generation、command/source identity、限幅与
+  fault/stale counters是 VDC snapshot/SCPI 的独立可观测事实。没有可用 actuator 的板卡
+  可保持 role/DCO 行为，但必须明确报告 discipline unavailable，不能伪报已驯服。
+
 ## 稳定不变量
 
 - `local_tick_raw` 是硬件观测事实，DPLL 不改写它；VDC 只维护从 local tick 到共同 VDC time 的映射。
@@ -54,6 +100,10 @@ System Pack / SCPI intent
 - `VDC_DOMAIN_LOCK_LOCKED` 是环路状态，不等于产品目标锁定；正式运行必须是 `FORMAL_LOCKED` 且 health 为 `VDC_DOMAIN_HEALTH_HEALTHY`。
 - core1 读取 DCO/clock snapshot 必须使用 seqlock、双缓冲或等价 guard；半新半旧、stale、late 或 generation mismatch 不得生成 FIRE_LOAD。
 - 诊断 replay、software timestamp、单向 leg、NO5 外环观测和 TDMA up/down 成功不能单独提升为正式锁定。
+- `FOLLOWER` 的 local evidence 仅可用于诊断和 gate 可观测性，不能成为 local PI 的隐式
+  fallback；未验证的 peer command 同样不能驱动 DCO。
+- oscillator trim 与 DCO signal phase owner 分离；任何 trim 更新都必须保持 clock-model
+  连续性，且不能单独提高 DPLL lock 或产品质量等级。
 
 ## 两层状态机
 

@@ -591,7 +591,11 @@ def test_bench_and_orchestrator_cover_full_hardware_acceptance() -> None:
     assert quick["training_sck_repeats"] == 8
     assert quick["training_sck_min_repeats"] == 3
     assert quick["training_sck_min_follower_candidates"] == 2
+    for stage in ("trn00", "trn01", "trn02", "trn03"):
+        assert quick[f"{stage}_capture_waveforms"] is False
     assert quick["tdma_capture_waveforms"] is False
+    assert quick["dpll_capture_waveforms"] is True
+    assert quick["dpll_monitor_duration_s"] == 3.0
     assert loaded_quick["training_sck_offsets_by_node"] == [0, 0, 0, 0]
     assert loaded_quick["training_max_offset_span"] == 1
     assert acceptance_timing(loaded_quick)["p3_capture_timeout_s"] == 20.0
@@ -608,14 +612,17 @@ def test_bench_and_orchestrator_cover_full_hardware_acceptance() -> None:
         assert tool in source
     assert "--tdma-only" in source
     assert "--reference-node" not in source
-    assert "internal DPLL SD capture NO1..NO4" in source
+    assert "internal DPLL observation NO1..NO4" in source
     assert '"internal_dpll_summary"' in source
     tdma_command = source.split("tdma_command = [", 1)[1].split(
         "print(\"Hardware acceptance: four-Node TDMA", 1)[0]
-    assert "capture=bool(config.get(\"tdma_capture_waveforms\", True))" in source
+    assert 'capture=capture_policy["tdma"]' in source
+    assert "waveform_capture_enabled" in source
+    assert "--capture-waveform" in source
     assert "--diagnostic-continue" in source
     assert '"--reference-node", str(reference_node)' not in tdma_command
     assert 'matrix_command.append("--diagnostic-continue")' in source
+    assert 'sck_command.append("--diagnostic-continue")' in source
     assert 'marker_command.append("--skip-capture")' in source
     assert 'residence_command.append("--skip-capture")' in source
     assert 'sck_command.append("--skip-capture")' in source
@@ -692,6 +699,17 @@ def test_selected_sck_offsets_uses_bounded_diagnostic_row() -> None:
     with pytest.raises(AcceptanceError):
         selected_sck_offsets(
             summary, 2, diagnostic_fallback=[0, 11])
+
+
+def test_selected_sck_offsets_uses_forced_continue_configured_row() -> None:
+    summary = {
+        "debug_forced_continue": True,
+        "passed": False,
+    }
+    assert selected_sck_offsets(
+        summary, 2, diagnostic_fallback=[0, -1]) == [0, -1]
+    with pytest.raises(AcceptanceError):
+        selected_sck_offsets(summary, 2, diagnostic_fallback=[0, 11])
 
 
 def test_selected_node_offsets_uses_measured_diagnostic_fallback() -> None:
@@ -929,7 +947,7 @@ def test_sma_observer_topology_is_fixed_to_measured_bidirectional_routes() -> No
     summary["wire_order"]["routes"] = [
         dict(route) for route in bench["sma_observer_routes"]
     ]
-    summary["wire_order"]["routes"][1]["validator_output_channel"] = 3
+    summary["wire_order"]["routes"][1]["validator_output_channel"] = 2
     with pytest.raises(AcceptanceError, match="differs from bench contract"):
         validate_sma_observer_topology(summary, bench)
 
@@ -960,9 +978,9 @@ def test_quick_acceptance_budget_warns_then_errors() -> None:
     quick = load_bench_config(
         ROOT / "config" / "hardware_acceptance" / "p3_bench_quick.json")
     assert quick["acceptance_profile"] == "QUICK_DIAGNOSTIC"
-    assert acceptance_budget_status(quick, 60.0)["status"] == "PASS"
-    assert acceptance_budget_status(quick, 60.001)["status"] == "WARN"
-    assert acceptance_budget_status(quick, 100.001)["status"] == "ERROR"
+    assert acceptance_budget_status(quick, 330.0)["status"] == "PASS"
+    assert acceptance_budget_status(quick, 330.001)["status"] == "WARN"
+    assert acceptance_budget_status(quick, 390.001)["status"] == "ERROR"
     with pytest.raises(AcceptanceError, match="acceptance_time_budget"):
         acceptance_budget_status({"acceptance_time_budget": {
             "warning_s": 100, "error_s": 60}}, 1)

@@ -231,13 +231,13 @@ static bool tdma_service_enqueue_scheduled(
         return false;
     }
 
-    tdma_traffic_scheduler_snapshot_t scheduler_snapshot;
-    if (!tdma_traffic_scheduler_get_snapshot(service->traffic_scheduler,
-                                              &scheduler_snapshot)) {
-        return false;
-    }
+    /* The successful enqueue publishes this monotonically increasing sequence
+     * before releasing the scheduler lock.  A full scheduler snapshot here
+     * needlessly reacquires that lock on the Core1 RefMem path. */
+    const uint32_t enqueue_seq = __atomic_load_n(
+        &service->traffic_scheduler->enqueue_seq, __ATOMIC_ACQUIRE);
     tdma_service_begin_intent_write(service);
-    service->scheduler_submit_seq = scheduler_snapshot.enqueue_seq;
+    service->scheduler_submit_seq = enqueue_seq;
     service->submit_time_ns = request.enqueue_time_ns;
     tdma_service_end_intent_write(service);
     return true;

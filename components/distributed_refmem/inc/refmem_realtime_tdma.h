@@ -57,6 +57,17 @@ typedef enum {
         tdma_service_TIMESTAMP_SOURCE_HARDWARE_TICK,
 } refmem_realtime_tdma_timestamp_source_t;
 
+/* The transport intent owns the payload class so the scheduler can route
+ * VDC commands to CONFIG_CONTROL without changing the legacy node-load path. */
+typedef enum {
+    REFMEM_REALTIME_TDMA_PAYLOAD_DEFAULT =
+        TDMA_SERVICE_PAYLOAD_CLASS_NONE,
+    REFMEM_REALTIME_TDMA_PAYLOAD_REFMEM_DELTA =
+        TDMA_SERVICE_PAYLOAD_CLASS_REFMEM_DELTA,
+    REFMEM_REALTIME_TDMA_PAYLOAD_VDC_COMMAND =
+        TDMA_SERVICE_PAYLOAD_CLASS_CONFIG_CONTROL,
+} refmem_realtime_tdma_payload_class_t;
+
 #define REFMEM_REALTIME_TDMA_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY \
     tdma_service_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY
 #define REFMEM_REALTIME_TDMA_TIMESTAMP_FLAG_DPLL_ELIGIBLE \
@@ -235,6 +246,7 @@ typedef struct {
     refmem_spi_physical_role_t role;
     uint32_t baud_hz;
     refmem_spi_physical_pin_config_t pins;
+    uint32_t payload_class;
     uint32_t vdc_window_plan_valid;
     uint32_t vdc_window_class;
     uint32_t vdc_schedule_crc32;
@@ -249,6 +261,7 @@ typedef struct {
 typedef struct {
     tdma_service_service_t *scheduler;
     uint32_t last_submit_seq;
+    uint32_t last_submit_payload_class;
     const refmem_realtime_tdma_ops_t *ops;
     void *ops_context;
 } refmem_realtime_tdma_service_t;

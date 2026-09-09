@@ -311,6 +311,46 @@ scpi_result_t scpi_cmd_sync_vdc_dpll_store(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_sync_vdc_dpll_role_q(scpi_t *context)
+{
+    vdc_dpll_manager_dpll_role_status_t status;
+    vdc_dpll_manager_get_dpll_role_status(&status);
+    SCPI_ResultUInt32(context, status.mode);
+    SCPI_ResultUInt32(context, status.follow_master_slot_id);
+    SCPI_ResultUInt32(context, status.requested_generation);
+    SCPI_ResultUInt32(context, status.applied_generation);
+    SCPI_ResultBool(context, status.pending ? TRUE : FALSE);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_sync_vdc_dpll_role(scpi_t *context)
+{
+    uint32_t mode = 0u;
+    uint32_t source = 0u;
+    uint32_t generation = 0u;
+    if (!scpi_port_read_u32(context, &mode) ||
+        !scpi_port_read_u32(context, &source) ||
+        !vdc_dpll_manager_request_dpll_role(mode, source, &generation)) {
+        scpi_port_push_exec_error(context, "VDC_DPLL_ROLE");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, mode);
+    SCPI_ResultUInt32(context, source);
+    SCPI_ResultUInt32(context, generation);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_sync_vdc_dpll_role_store(scpi_t *context)
+{
+    if (!vdc_dpll_manager_store_dpll_role()) {
+        scpi_port_push_exec_error(context, "VDC_DPLL_ROLE_STORE");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_sync_vdc_dpll_filter_q(scpi_t *context)
 {
     vdc_domain_snapshot_t snapshot;

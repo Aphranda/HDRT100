@@ -183,8 +183,10 @@ class BoardSample:
 class ProgressReporter:
     """Publish low-rate Core0 state; waveform evidence remains on NO5 SD."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path,
+                 *, analysis_evidence: str = "NO5_SD_PIO0_RAW_WAVEFORM") -> None:
         self.path = path
+        self.analysis_evidence = analysis_evidence
         self.sequence = 0
         self.started = time.monotonic()
 
@@ -198,7 +200,7 @@ class ProgressReporter:
             "updated_at": datetime.now().astimezone().isoformat(),
             "details": details,
             "source": "CORE0_SCPI_READ_ONLY_STATUS",
-            "analysis_evidence": "NO5_SD_PIO0_RAW_WAVEFORM",
+            "analysis_evidence": self.analysis_evidence,
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)
         pending = self.path.with_suffix(self.path.suffix + ".tmp")
@@ -1211,6 +1213,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--phase-min-complete-rounds", type=int, default=3)
     parser.add_argument("--waveform-flush-timeout-s", type=float, default=30.0)
     parser.add_argument(
+        "--capture-waveform", action="store_true",
+        help="opt in to NO5 SD waveform arm/save/download")
+    parser.add_argument(
         "--internal-only", action="store_true",
         help="sample NO1..NO4 internal TDMA/DPLL state without arming NO5 phase observation")
     parser.add_argument(
@@ -1241,13 +1246,24 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("phase convergence thresholds must be positive")
     out_dir = args.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
-    progress = ProgressReporter(out_dir / "progress.json")
+    waveform_enabled = bool(getattr(args, "capture_waveform", False) and
+                            not args.internal_only)
+    progress = ProgressReporter(
+        out_dir / "progress.json",
+        analysis_evidence=("NO5_SD_PIO0_RAW_WAVEFORM" if waveform_enabled
+                           else "NO5_PHASE_AND_INTERNAL_STATUS"))
     samples_by_board: dict[str, list[BoardSample]] = {spec.name: [] for spec in specs}
-    started = time.monotonic()
     waveform_result: dict[str, Any] = {}
     tdma_preflight: dict[str, Any] = {}
     diagnostic_failures: list[dict[str, Any]] = []
     diagnostic_continue = bool(args.diagnostic_continue)
+    if not waveform_enabled:
+        waveform_result = {
+            "capture_skipped": True,
+            "capture_skip_reason": "disabled_by_acceptance_policy",
+        }
+        progress.emit("waveform_capture_skipped",
+                      reason="disabled_by_acceptance_policy")
     progress.emit("opening_ports", boards={spec.name: spec.port for spec in specs})
     with open_serial_ports(specs, args) as serials:
         observer_serial = (serials[args.observer_name.upper()]
@@ -1277,7 +1293,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         waveform_armed = False
         phase_arm_attempted = False
         try:
-            if not args.internal_only:
+            if waveform_enabled:
                 try:
                     response = _query(observer_serial, WAVEFORM_ARM_COMMAND,
                                       args.timeout)
@@ -1296,6 +1312,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     })
                     progress.emit("waveform_arm_failed", error=str(exc))
 
+            if not args.internal_only:
                 phase_arm_attempted = True
                 try:
                     _arm_phase_observation(serials, specs, args)
@@ -1309,9 +1326,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                         "error": str(exc),
                     })
                     progress.emit("phase_observation_arm_failed", error=str(exc))
+            # The configured observation duration measures only the sampled
+            # interval.  Port setup, TDMA preflight, and phase arming can take
+            # longer than a QUICK interval and must not consume it.
+            observation_started = time.monotonic()
             poll_index = 0
             while True:
-                elapsed = time.monotonic() - started
+                elapsed = time.monotonic() - observation_started
                 if elapsed >= args.duration_s and any(samples_by_board.values()):
                     break
 
@@ -1416,8 +1437,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             waveform.append({"path": str(path), "error": str(exc)})
     observer_summary = next((summary for summary in summaries
                              if summary.get("role") == "observer"), None)
-    raw_gate_passed = args.internal_only or bool(
-        waveform_result.get("raw_gate", {}).get("passed"))
+    raw_gate_passed = (args.internal_only or not waveform_enabled or
+                       bool(waveform_result.get("raw_gate", {}).get("passed")))
     if args.internal_only:
         passed = bool(summaries) and sequence_consistent and \
             bool(tdma_preflight.get("passed")) and all(
@@ -1444,8 +1465,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "tdma_preflight_passed": bool(tdma_preflight.get("passed")),
         "diagnostic_failures": diagnostic_failures,
         "observer_board": args.observer_name.upper(),
-        "observation_mode": "INTERNAL_TDMA_DPLL_ONLY" if args.internal_only
-        else "EXTERNAL_NO5_WAVEFORM_AND_INTERNAL_STATUS",
+        "observation_mode": (
+            "INTERNAL_TDMA_DPLL_ONLY" if args.internal_only else
+            ("EXTERNAL_NO5_WAVEFORM_AND_INTERNAL_STATUS" if waveform_enabled
+             else "EXTERNAL_NO5_PHASE_AND_INTERNAL_STATUS")),
         "duration_s": args.duration_s,
         "poll_interval_s": args.poll_interval_s,
         "expected_interval_ms": args.expected_interval_ms,
@@ -1457,7 +1480,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "waveform_analysis": waveform,
         "sd_waveform": waveform_result,
         "serial_status_role": "PROGRESS_ONLY",
-        "analysis_evidence": "NO5_SD_PIO0_RAW_WAVEFORM",
+        "analysis_evidence": (
+            "NO5_SD_PIO0_RAW_WAVEFORM" if waveform_enabled
+            else "NO5_PHASE_AND_INTERNAL_STATUS"),
         "observer_transport": "SMA_SYNC_PULSES_PIO0",
         "phase_sample_period_ns": args.phase_sample_period_ns,
         "phase_pulse_period_ns": args.phase_pulse_period_ns,

@@ -94,6 +94,32 @@ typedef struct {
     uint32_t last_error;
 } distributed_refmem_node_load_auto_sync_t;
 
+/* A master snapshot is fanned out over multiple CONFIG_CONTROL windows.  The
+ * batch freezes all command fields so backpressure cannot mix generations or
+ * effective times within one publication. */
+typedef struct {
+    uint32_t active;
+    uint32_t window_planned;
+    uint32_t source_slot;
+    uint32_t node_count;
+    uint32_t next_target_index;
+    uint32_t command_seq;
+    uint32_t control_generation;
+    uint32_t schedule_crc32;
+    uint32_t window_epoch;
+    uint64_t effective_vdc_time_ns;
+    uint64_t window_end_ns;
+    uint64_t guard_start_ns;
+    uint64_t guard_end_ns;
+    int32_t period_adjust_ppb;
+    int32_t phase_offset_ns;
+    uint32_t lock_state;
+    uint32_t quality;
+    uint32_t epoch_id;
+    uint32_t run_id;
+    uint32_t source_update_seq;
+} distributed_refmem_vdc_command_batch_t;
+
 static refmem_vector_table_t s_distributed_refmem_table __attribute__((aligned(4)));
 static refmem_command_slot_t s_refmem_command_slot;
 static refmem_realtime_tdma_service_t s_refmem_realtime_tdma;
@@ -102,6 +128,11 @@ static distributed_refmem_node_load_owner_entry_t
     s_node_load_owners[DISTRIBUTED_REFMEM_NODE_LOAD_OWNER_COUNT];
 static distributed_refmem_status_t s_status;
 static refmem_sync_context_t s_refmem_sync_context;
+/* VDC commands have a sequence domain separate from node-load deltas.
+ * Keep their retained receiver state in ordinary RAM.  The substantially
+ * larger cross-core VDC snapshot occupies SCRATCH_Y, while SCRATCH_X stays
+ * exclusively available to the Core1 stack. */
+static refmem_sync_vdc_context_t s_vdc_command_context;
 static distributed_refmem_node_load_auto_sync_t s_node_load_auto_sync;
 static uint32_t s_service_count;
 static bool s_initialized;
@@ -112,6 +143,45 @@ static uint32_t s_dpll_vector_publish_sequence;
 static uint32_t s_vdc_vector_source_update_seq = UINT32_MAX;
 static uint32_t s_dpll_vector_source_update_seq = UINT32_MAX;
 static uint32_t s_next_runtime_vector;
+static distributed_refmem_vdc_command_batch_t s_vdc_command_batch;
+static uint32_t s_vdc_command_sequence;
+static uint32_t s_vdc_command_frame_sequence;
+static uint32_t s_vdc_command_published_update_seq = UINT32_MAX;
+static uint32_t s_vdc_command_published_generation = UINT32_MAX;
+static uint32_t s_vdc_command_published_source_slot = UINT32_MAX;
+static uint32_t s_vdc_command_published_schedule_crc32 = UINT32_MAX;
+static uint8_t s_vdc_command_context_local_slot;
+static uint32_t s_vdc_command_context_epoch_id;
+static uint32_t s_vdc_command_context_run_id;
+static uint32_t s_vdc_command_context_schedule_epoch;
+static bool s_vdc_command_context_initialized;
+
+static bool distributed_refmem_refresh_vdc_command_context(void);
+static bool distributed_refmem_refresh_vdc_command_context_from_snapshot(
+    const vdc_dpll_manager_refmem_snapshot_t *snapshot);
+static void DISTRIBUTED_REFMEM_TIME_CRITICAL(
+    distributed_refmem_reset_vdc_command_batch)(void);
+static bool DISTRIBUTED_REFMEM_TIME_CRITICAL(
+    distributed_refmem_capture_vdc_command_batch)(
+    const vdc_dpll_manager_refmem_snapshot_t *snapshot);
+static bool distributed_refmem_publish_vdc_command_once(
+    const vdc_dpll_manager_refmem_snapshot_t *snapshot);
+static void DISTRIBUTED_REFMEM_TIME_CRITICAL(
+    distributed_refmem_publish_runtime_vector_if_pending)(
+    uint32_t source_update_seq);
+
+static uint32_t distributed_refmem_next_nonzero_sequence(uint32_t *sequence)
+{
+    if (sequence == NULL) {
+        return 1u;
+    }
+    uint32_t value = *sequence;
+    if (value == 0u) {
+        value = 1u;
+    }
+    *sequence = value == UINT32_MAX ? 1u : value + 1u;
+    return value;
+}
 
 typedef struct {
     uint32_t enabled;
@@ -794,26 +864,6 @@ static bool distributed_refmem_tdma_busy(const refmem_realtime_tdma_snapshot_t *
 {
     return snapshot != NULL &&
            snapshot->intent_seq > snapshot->completed_seq;
-}
-
-static bool distributed_refmem_node_load_auto_rx_preemptible(void)
-{
-    return s_node_load_auto_sync.enabled != 0u &&
-           s_node_load_auto_sync.active_intent ==
-               DISTRIBUTED_REFMEM_AUTO_INTENT_RX_WINDOW;
-}
-
-static void distributed_refmem_node_load_auto_preempt_rx(void)
-{
-    if (!distributed_refmem_node_load_auto_rx_preemptible()) {
-        return;
-    }
-
-    refmem_realtime_tdma_abort(&s_refmem_realtime_tdma);
-    s_node_load_auto_sync.active_intent = DISTRIBUTED_REFMEM_AUTO_INTENT_NONE;
-    s_node_load_auto_sync.active_instance_id = 0u;
-    s_node_load_auto_sync.active_intent_seq = 0u;
-    s_node_load_auto_sync.last_error = 0u;
 }
 
 static uint32_t distributed_refmem_u32_payload_crc32(const uint32_t *fields,
@@ -1578,12 +1628,29 @@ static void distributed_refmem_node_load_auto_process_completed(
             distributed_refmem_get_realtime_tdma_frame(frame,
                                                        sizeof(frame),
                                                        &frame_size)) {
+            refmem_sync_frame_header_t command_header;
+            const uint8_t *command_payload = NULL;
+            uint16_t command_payload_size = 0u;
+            const bool is_vdc_command =
+                refmem_sync_frame_validate(frame,
+                                           frame_size,
+                                           &command_header,
+                                           &command_payload,
+                                           &command_payload_size) ==
+                    REFMEM_SYNC_FRAME_OK &&
+                command_header.frame_type ==
+                    (uint8_t)REFMEM_SYNC_FRAME_COMMAND &&
+                command_payload_size == sizeof(refmem_sync_vdc_command_payload_t);
             refmem_sync_rx_snapshot_t rx;
-            const refmem_sync_rx_result_t result =
-                refmem_sync_receive_frame(&s_refmem_sync_context,
-                                          frame,
-                                          frame_size,
-                                          &rx);
+            const refmem_sync_rx_result_t result = is_vdc_command
+                ? refmem_sync_vdc_receive_frame(&s_vdc_command_context,
+                                            frame,
+                                            frame_size,
+                                            &rx)
+                : refmem_sync_receive_frame(&s_refmem_sync_context,
+                                            frame,
+                                            frame_size,
+                                            &rx);
             s_node_load_auto_sync.last_rx_result = result;
             s_node_load_auto_sync.last_frame_type = rx.header.frame_type;
             s_node_load_auto_sync.last_source_slot = rx.source_slot;
@@ -1723,14 +1790,17 @@ static void distributed_refmem_node_load_auto_service(void)
         return;
     }
 
+    if (!distributed_refmem_refresh_vdc_command_context()) {
+        s_node_load_auto_sync.last_error = 8u;
+        return;
+    }
+
     distributed_refmem_node_load_auto_process_completed(&snapshot);
 
     if (distributed_refmem_tdma_busy(&snapshot)) {
-        if (s_node_load_auto_sync.pending_count != 0u &&
-            s_node_load_auto_sync.active_intent ==
-                DISTRIBUTED_REFMEM_AUTO_INTENT_RX_WINDOW) {
-            refmem_realtime_tdma_abort(&s_refmem_realtime_tdma);
-        }
+        /* The shared scheduler owns the active VDC/node-load intent.  A
+         * maintenance request waits for completion and never aborts a
+         * command window already admitted by Core1. */
         return;
     }
 
@@ -1941,8 +2011,41 @@ void DISTRIBUTED_REFMEM_TIME_CRITICAL(
      * RefMem consumes its result here and must not run a second scheduler.
      * Only the already-published, core1-owned VDC snapshot crosses this phase;
      * no SCPI, storage, logging, or scheduler work is allowed here. */
-    const uint32_t source_update_seq =
-        vdc_dpll_manager_published_update_seq();
+    vdc_dpll_manager_refmem_snapshot_t snapshot;
+    const bool snapshot_valid = vdc_dpll_manager_get_refmem_snapshot(&snapshot);
+    if (!snapshot_valid) {
+        return;
+    }
+
+    /* Context identity follows the active clock/run/schedule identity.  A
+     * normal refresh preserves source-separated retained commands; only an
+     * actual identity change reinitializes that receiver state. */
+    (void)distributed_refmem_refresh_vdc_command_context_from_snapshot(
+        &snapshot);
+
+    const bool master_profile =
+        snapshot.control_profile.valid == 1u &&
+        snapshot.control_profile.mode == VDC_DPLL_CONTROL_MODE_MASTER;
+    if (master_profile) {
+        /* RefMem only freezes MASTER output fields in this phase.  The TDMA
+         * owner later selects the common future window and admits one target
+         * to its single scheduler. */
+        (void)distributed_refmem_capture_vdc_command_batch(&snapshot);
+    } else if (s_vdc_command_batch.active != 0u) {
+        distributed_refmem_reset_vdc_command_batch();
+    }
+
+    distributed_refmem_publish_runtime_vector_if_pending(
+        snapshot.dpll_update_seq);
+}
+
+/* Legacy RefMem vectors retain the full Domain observation surface, but they
+ * only change with a new DPLL generation.  Isolating that work keeps the
+ * normal Core1 RefMem beat free of its large snapshot and payload stack. */
+static void DISTRIBUTED_REFMEM_TIME_CRITICAL(
+    distributed_refmem_publish_runtime_vector_if_pending)(
+    uint32_t source_update_seq)
+{
     const bool vdc_pending =
         source_update_seq != s_vdc_vector_source_update_seq;
     const bool dpll_pending =
@@ -1951,18 +2054,29 @@ void DISTRIBUTED_REFMEM_TIME_CRITICAL(
         return;
     }
 
-    vdc_domain_snapshot_t snapshot;
-    const bool snapshot_valid = vdc_dpll_manager_get_snapshot(&snapshot);
-    const bool publish_vdc = vdc_pending &&
-        (!dpll_pending || s_next_runtime_vector == 0u);
+    vdc_domain_snapshot_t vector_snapshot;
+    if (!vdc_dpll_manager_get_snapshot(&vector_snapshot)) {
+        return;
+    }
+    source_update_seq = vector_snapshot.dpll.update_seq;
+    const bool current_vdc_pending =
+        source_update_seq != s_vdc_vector_source_update_seq;
+    const bool current_dpll_pending =
+        source_update_seq != s_dpll_vector_source_update_seq;
+    if (!current_vdc_pending && !current_dpll_pending) {
+        return;
+    }
+
+    const bool publish_vdc = current_vdc_pending &&
+        (!current_dpll_pending || s_next_runtime_vector == 0u);
     if (publish_vdc) {
         refmem_vdc_vector_payload_t payload;
         distributed_refmem_fill_vdc_vector_payload(
             &payload,
-            snapshot_valid ? &snapshot : NULL,
+            &vector_snapshot,
             distributed_refmem_next_publish_sequence(
                 &s_vdc_vector_publish_sequence),
-            snapshot_valid);
+            true);
         distributed_refmem_publish_vdc_vector_payload(
             distributed_refmem_vdc_vector_region(), &payload);
         s_vdc_vector_source_update_seq = source_update_seq;
@@ -1973,10 +2087,10 @@ void DISTRIBUTED_REFMEM_TIME_CRITICAL(
     refmem_dpll_vector_payload_t payload;
     distributed_refmem_fill_dpll_vector_payload(
         &payload,
-        snapshot_valid ? &snapshot : NULL,
+        &vector_snapshot,
         distributed_refmem_next_publish_sequence(
             &s_dpll_vector_publish_sequence),
-        snapshot_valid);
+        true);
     distributed_refmem_publish_dpll_vector_payload(
         distributed_refmem_dpll_vector_region(), &payload);
     s_dpll_vector_source_update_seq = source_update_seq;
@@ -2285,8 +2399,10 @@ bool distributed_refmem_can_accept_node_load_intent(uint32_t realtime_idle)
     if (realtime_idle != 0u) {
         return true;
     }
-
-    return distributed_refmem_node_load_auto_rx_preemptible();
+    /* A busy scheduler may be carrying a VDC command or another admitted
+     * realtime intent.  Node-load configuration is deferred until the
+     * scheduler is idle; it must not gain permission by preempting traffic. */
+    return false;
 }
 
 bool distributed_refmem_stage_node_load(uint32_t node_id,
@@ -2300,7 +2416,6 @@ bool distributed_refmem_stage_node_load(uint32_t node_id,
     if (!s_initialized) {
         return false;
     }
-    distributed_refmem_node_load_auto_preempt_rx();
 
     if (node_id >= DISTRIBUTED_REFMEM_NODE_COUNT) {
         (void)refmem_application_model_stage_scpi_node_config(node_id,
@@ -2883,11 +2998,6 @@ bool distributed_refmem_configure_node_load_auto_sync(
         return false;
     }
 
-    if (s_node_load_auto_sync.active_intent != DISTRIBUTED_REFMEM_AUTO_INTENT_NONE ||
-        s_node_load_auto_sync.enabled != enabled) {
-        refmem_realtime_tdma_abort(&s_refmem_realtime_tdma);
-    }
-
     s_node_load_auto_sync.enabled = enabled;
     s_node_load_auto_sync.local_slot = (uint8_t)local_slot;
     s_node_load_auto_sync.target_mask = (uint8_t)target_mask;
@@ -2903,10 +3013,13 @@ bool distributed_refmem_configure_node_load_auto_sync(
     s_node_load_auto_sync.active_intent_seq = 0u;
     s_node_load_auto_sync.last_processed_completed_seq = 0u;
     s_node_load_auto_sync.last_error = 0u;
-    return refmem_sync_init(&s_refmem_sync_context,
-                            s_node_load_auto_sync.local_slot,
-                            s_node_load_auto_sync.epoch_id,
-                            s_node_load_auto_sync.run_id);
+    if (!refmem_sync_init(&s_refmem_sync_context,
+                          s_node_load_auto_sync.local_slot,
+                          s_node_load_auto_sync.epoch_id,
+                          s_node_load_auto_sync.run_id)) {
+        return false;
+    }
+    return distributed_refmem_refresh_vdc_command_context();
 }
 
 void distributed_refmem_get_node_load_auto_sync(
@@ -3027,6 +3140,292 @@ bool distributed_refmem_get_tdma_flight_sync_mirror(
         return false;
     }
     *snapshot = *mirror;
+    return true;
+}
+
+/* Keep the dedicated VDC receiver context alive across node-load control
+ * changes.  Reinitialization is reserved for an identity change; ordinary
+ * service calls never memset retained peer commands. */
+static bool distributed_refmem_refresh_vdc_command_context(void)
+{
+    vdc_dpll_manager_refmem_snapshot_t snapshot;
+    if (!vdc_dpll_manager_get_refmem_snapshot(&snapshot)) {
+        return false;
+    }
+    return distributed_refmem_refresh_vdc_command_context_from_snapshot(
+        &snapshot);
+}
+
+static bool distributed_refmem_refresh_vdc_command_context_from_snapshot(
+    const vdc_dpll_manager_refmem_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) {
+        return false;
+    }
+    const uint8_t local_slot =
+        (uint8_t)snapshot->schedule.local_slot_id;
+    const uint32_t epoch_id = snapshot->clock_epoch_id;
+    const uint32_t run_id = snapshot->clock_run_id;
+    const uint32_t schedule_epoch = snapshot->schedule.schedule_epoch;
+    if (local_slot >= REFMEM_SYNC_NODE_COUNT) {
+        return false;
+    }
+
+    const bool identity_changed =
+        !s_vdc_command_context_initialized ||
+        s_vdc_command_context_local_slot != local_slot ||
+        s_vdc_command_context_epoch_id != epoch_id ||
+        s_vdc_command_context_run_id != run_id ||
+        s_vdc_command_context_schedule_epoch != schedule_epoch;
+    if (!identity_changed) {
+        return true;
+    }
+
+    if (!refmem_sync_vdc_init(&s_vdc_command_context,
+                              local_slot,
+                              epoch_id,
+                              run_id)) {
+        return false;
+    }
+    s_vdc_command_context_local_slot = local_slot;
+    s_vdc_command_context_epoch_id = epoch_id;
+    s_vdc_command_context_run_id = run_id;
+    s_vdc_command_context_schedule_epoch = schedule_epoch;
+    s_vdc_command_context_initialized = true;
+    return true;
+}
+
+static void DISTRIBUTED_REFMEM_TIME_CRITICAL(
+    distributed_refmem_reset_vdc_command_batch)(void)
+{
+    memset(&s_vdc_command_batch, 0, sizeof(s_vdc_command_batch));
+}
+
+static bool DISTRIBUTED_REFMEM_TIME_CRITICAL(
+    distributed_refmem_begin_vdc_command_batch)(
+    const vdc_dpll_manager_refmem_snapshot_t *snapshot)
+{
+    if (snapshot == NULL ||
+        snapshot->control_profile.valid != 1u ||
+        snapshot->control_profile.mode != VDC_DPLL_CONTROL_MODE_MASTER ||
+        snapshot->schedule.local_slot_id >= REFMEM_SYNC_NODE_COUNT ||
+        snapshot->schedule.ring_binding.node_count == 0u ||
+        snapshot->schedule.ring_binding.node_count > REFMEM_SYNC_NODE_COUNT ||
+        (snapshot->dpll_update_seq == s_vdc_command_published_update_seq &&
+         snapshot->control_profile.generation ==
+             s_vdc_command_published_generation &&
+         snapshot->schedule.local_slot_id ==
+             s_vdc_command_published_source_slot &&
+         snapshot->schedule.schedule_crc32 ==
+             s_vdc_command_published_schedule_crc32)) {
+        return false;
+    }
+
+    memset(&s_vdc_command_batch, 0, sizeof(s_vdc_command_batch));
+    s_vdc_command_batch.active = 1u;
+    s_vdc_command_batch.source_slot = snapshot->schedule.local_slot_id;
+    s_vdc_command_batch.node_count =
+        snapshot->schedule.ring_binding.node_count;
+    s_vdc_command_batch.command_seq =
+        distributed_refmem_next_nonzero_sequence(&s_vdc_command_sequence);
+    s_vdc_command_batch.control_generation = snapshot->control_profile.generation;
+    s_vdc_command_batch.schedule_crc32 = snapshot->schedule.schedule_crc32;
+    s_vdc_command_batch.period_adjust_ppb =
+        snapshot->dco_period_adjust_ppb;
+    s_vdc_command_batch.phase_offset_ns = snapshot->dco_phase_offset_ns;
+    s_vdc_command_batch.lock_state = snapshot->dpll_state;
+    s_vdc_command_batch.quality = snapshot->quality_health_state;
+    s_vdc_command_batch.epoch_id = snapshot->clock_epoch_id;
+    s_vdc_command_batch.run_id = snapshot->clock_run_id;
+    s_vdc_command_batch.source_update_seq = snapshot->dpll_update_seq;
+    return true;
+}
+
+static bool DISTRIBUTED_REFMEM_TIME_CRITICAL(
+    distributed_refmem_capture_vdc_command_batch)(
+    const vdc_dpll_manager_refmem_snapshot_t *snapshot)
+{
+    if (snapshot == NULL || snapshot->control_profile.valid != 1u ||
+        snapshot->control_profile.mode != VDC_DPLL_CONTROL_MODE_MASTER) {
+        if (s_vdc_command_batch.active != 0u) {
+            distributed_refmem_reset_vdc_command_batch();
+        }
+        return false;
+    }
+    if (s_vdc_command_batch.active == 0u) {
+        return distributed_refmem_begin_vdc_command_batch(snapshot);
+    }
+    if (s_vdc_command_batch.source_slot != snapshot->schedule.local_slot_id ||
+        s_vdc_command_batch.node_count !=
+            snapshot->schedule.ring_binding.node_count ||
+        s_vdc_command_batch.control_generation !=
+            snapshot->control_profile.generation ||
+        s_vdc_command_batch.schedule_crc32 != snapshot->schedule.schedule_crc32 ||
+        s_vdc_command_batch.epoch_id != snapshot->clock_epoch_id ||
+        s_vdc_command_batch.run_id != snapshot->clock_run_id) {
+        distributed_refmem_reset_vdc_command_batch();
+        return false;
+    }
+    return true;
+}
+
+/* Enqueue at most one target at the TDMA owner boundary.  The frozen batch
+ * prevents source fields from changing while its per-target frames are
+ * admitted, and the first admission selects the common future window. */
+static bool distributed_refmem_publish_vdc_command_once(
+    const vdc_dpll_manager_refmem_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) {
+        return false;
+    }
+
+    if (snapshot->control_profile.valid != 1u ||
+        snapshot->control_profile.mode != VDC_DPLL_CONTROL_MODE_MASTER) {
+        if (s_vdc_command_batch.active != 0u) {
+            distributed_refmem_reset_vdc_command_batch();
+        }
+        return false;
+    }
+
+    if (s_vdc_command_batch.active == 0u ||
+        s_vdc_command_batch.source_slot != snapshot->schedule.local_slot_id ||
+               s_vdc_command_batch.node_count !=
+                   snapshot->schedule.ring_binding.node_count ||
+               s_vdc_command_batch.control_generation !=
+                   snapshot->control_profile.generation ||
+               s_vdc_command_batch.schedule_crc32 !=
+                   snapshot->schedule.schedule_crc32 ||
+               s_vdc_command_batch.epoch_id != snapshot->clock_epoch_id ||
+               s_vdc_command_batch.run_id != snapshot->clock_run_id) {
+        distributed_refmem_reset_vdc_command_batch();
+        return false;
+    }
+
+    if (s_vdc_command_batch.window_planned == 0u) {
+        vdc_tdma_window_plan_t plan;
+        vdc_gate_result_t gate;
+        if (!vdc_dpll_manager_plan_published_tdma_window(
+                snapshot,
+                VDC_DOMAIN_WINDOW_REFMEM_DATA,
+                VDC_DPLL_MANAGER_PLAN_NOW_NS,
+                &plan,
+                &gate) ||
+            !plan.valid || plan.window_start_ns == 0u ||
+            plan.schedule_crc32 != s_vdc_command_batch.schedule_crc32) {
+            (void)gate;
+            distributed_refmem_reset_vdc_command_batch();
+            return false;
+        }
+        s_vdc_command_batch.window_epoch = plan.schedule_epoch;
+        s_vdc_command_batch.effective_vdc_time_ns = plan.window_start_ns;
+        s_vdc_command_batch.window_end_ns = plan.window_end_ns;
+        s_vdc_command_batch.guard_start_ns = plan.guard_start_ns;
+        s_vdc_command_batch.guard_end_ns = plan.guard_end_ns;
+        s_vdc_command_batch.window_planned = 1u;
+    }
+
+    while (s_vdc_command_batch.next_target_index <
+           s_vdc_command_batch.node_count) {
+        const uint32_t target = s_vdc_command_batch.next_target_index;
+        if (target == s_vdc_command_batch.source_slot) {
+            s_vdc_command_batch.next_target_index++;
+            continue;
+        }
+
+        uint8_t frame[REFMEM_REALTIME_TDMA_FRAME_MAX];
+        size_t frame_size = 0u;
+        const uint32_t frame_seq =
+            distributed_refmem_next_nonzero_sequence(
+                &s_vdc_command_frame_sequence);
+        if (!refmem_sync_vdc_command_frame_build(
+                (uint8_t)s_vdc_command_batch.source_slot,
+                (uint8_t)target,
+                s_vdc_command_batch.epoch_id,
+                s_vdc_command_batch.run_id,
+                frame_seq,
+                osal_tick_ms(),
+                s_vdc_command_batch.control_generation,
+                s_vdc_command_batch.command_seq,
+                s_vdc_command_batch.schedule_crc32,
+                s_vdc_command_batch.effective_vdc_time_ns,
+                s_vdc_command_batch.period_adjust_ppb,
+                s_vdc_command_batch.phase_offset_ns,
+                s_vdc_command_batch.lock_state,
+                s_vdc_command_batch.quality,
+                frame,
+                sizeof(frame),
+                &frame_size)) {
+            return false;
+        }
+
+        refmem_realtime_tdma_intent_config_t config = {
+            .window_epoch = s_vdc_command_batch.window_epoch,
+            .window_index = frame_seq,
+            .deadline_us = 1000000u,
+            .role = REFMEM_SPI_PHYSICAL_ROLE_MASTER,
+            .baud_hz = BOARD_REFMEM_SPI_BAUD_HZ,
+            .pins = {
+                .rx_pin = BOARD_REFMEM_SPI_RX_PIN,
+                .csn_pin = REFMEM_SPI_PHYSICAL_PIN_UNUSED,
+                .sck_pin = BOARD_REFMEM_SPI_SCK_PIN,
+                .tx_pin = BOARD_REFMEM_SPI_TX_PIN,
+            },
+            .payload_class = REFMEM_REALTIME_TDMA_PAYLOAD_VDC_COMMAND,
+            .vdc_window_plan_valid = 1u,
+            .vdc_window_class = VDC_DOMAIN_WINDOW_REFMEM_DATA,
+            .vdc_schedule_crc32 = s_vdc_command_batch.schedule_crc32,
+            .vdc_window_start_ns = s_vdc_command_batch.effective_vdc_time_ns,
+            .vdc_window_end_ns = s_vdc_command_batch.window_end_ns,
+            .vdc_guard_start_ns = s_vdc_command_batch.guard_start_ns,
+            .vdc_guard_end_ns = s_vdc_command_batch.guard_end_ns,
+            .frame = frame,
+            .frame_size = frame_size,
+        };
+        if (!refmem_realtime_tdma_submit_tx(&s_refmem_realtime_tdma,
+                                            &config)) {
+            return false;
+        }
+        s_vdc_command_batch.next_target_index++;
+        return true;
+    }
+
+    s_vdc_command_published_update_seq =
+        s_vdc_command_batch.source_update_seq;
+    s_vdc_command_published_generation =
+        s_vdc_command_batch.control_generation;
+    s_vdc_command_published_source_slot = s_vdc_command_batch.source_slot;
+    s_vdc_command_published_schedule_crc32 =
+        s_vdc_command_batch.schedule_crc32;
+    distributed_refmem_reset_vdc_command_batch();
+    return false;
+}
+
+void distributed_refmem_tdma_publish_service(void)
+{
+    if (!s_initialized || s_vdc_command_batch.active == 0u) {
+        return;
+    }
+    vdc_dpll_manager_refmem_snapshot_t snapshot;
+    if (!vdc_dpll_manager_get_refmem_snapshot(&snapshot)) {
+        return;
+    }
+    (void)distributed_refmem_publish_vdc_command_once(&snapshot);
+}
+
+bool distributed_refmem_get_vdc_follower_command(
+    uint32_t source_slot,
+    refmem_sync_vdc_command_snapshot_t *snapshot)
+{
+    if (snapshot == NULL || source_slot >= REFMEM_SYNC_NODE_COUNT) {
+        return false;
+    }
+    const refmem_sync_vdc_command_snapshot_t *command =
+        refmem_sync_vdc_get_command(&s_vdc_command_context,
+                                    (uint8_t)source_slot);
+    if (command == NULL) {
+        return false;
+    }
+    *snapshot = *command;
     return true;
 }
 

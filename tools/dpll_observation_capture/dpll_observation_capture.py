@@ -129,6 +129,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout", type=float, default=2.0)
     parser.add_argument("--settle", type=float, default=0.2)
     parser.add_argument("--out-dir", type=Path, required=True)
+    parser.add_argument(
+        "--skip-capture", action="store_true",
+        help="observe trace status without arming, saving, or downloading SD data")
     return parser.parse_args()
 
 
@@ -139,6 +142,37 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if args.duration_s <= 0:
         raise ValueError("duration must be positive")
     args.out_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.skip_capture:
+        # Keep the internal status probe available when waveform collection is
+        # disabled by the acceptance policy.  This path deliberately emits no
+        # TRACE:ARM/STOP/SAVE or file-read commands.
+        board_results: list[dict[str, Any]] = []
+        for board in boards:
+            status = query(board, "SYSTem:SYNC:VDC:DPLL:TRACe:STATus?", args)
+            fields = [item.strip().strip('"')
+                      for item in next(csv.reader([status]), [])]
+            if len(fields) != 8:
+                raise ValueError(f"{board.name}: invalid trace status {status!r}")
+            board_results.append({
+                "board": board.name,
+                "port": board.port,
+                "status": fields,
+            })
+        result = {
+            "schema": "HAOFV_DPLL_OBSERVATION_CAPTURE_RUN_V1",
+            "duration_s": args.duration_s,
+            "boards": board_results,
+            "analysis": {},
+            "combined_convergence_svg": None,
+            "capture_skipped": True,
+            "capture_skip_reason": "disabled_by_acceptance_policy",
+            "realtime_path_untouched": True,
+        }
+        (args.out_dir / "summary.json").write_text(
+            json.dumps(result, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8")
+        return result
 
     armed: list[Board] = []
     try:

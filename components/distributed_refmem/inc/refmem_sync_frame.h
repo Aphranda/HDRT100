@@ -9,6 +9,7 @@
 #define REFMEM_SYNC_FRAME_VERSION 1u
 #define REFMEM_SYNC_FRAME_HEADER_SIZE 36u
 #define REFMEM_SYNC_FRAME_PAYLOAD_MAX 256u
+#define REFMEM_SYNC_VDC_COMMAND_VERSION 1u
 
 typedef enum {
     REFMEM_SYNC_FRAME_HELLO = 1u,
@@ -106,6 +107,27 @@ typedef struct {
     uint32_t timeout_us;
 } refmem_sync_command_payload_t;
 
+/* VDC signal-DCO command.  This is carried in a REFMEM_SYNC_FRAME_COMMAND
+ * frame, separately from the maintenance command payload above.  The inner
+ * CRC protects the command fields after the frame has been copied/retained. */
+typedef struct __attribute__((packed)) {
+    uint32_t version;
+    uint32_t source_slot;
+    uint32_t target_slot;
+    uint32_t control_generation;
+    uint32_t command_seq;
+    uint32_t schedule_crc32;
+    uint64_t effective_vdc_time_ns;
+    int32_t period_adjust_ppb;
+    int32_t phase_offset_ns;
+    uint32_t lock_state;
+    uint32_t quality;
+    uint32_t payload_crc32;
+} refmem_sync_vdc_command_payload_t;
+
+_Static_assert(sizeof(refmem_sync_vdc_command_payload_t) == 52u,
+               "VDC command payload wire size must remain stable");
+
 typedef struct {
     uint32_t command_seq;
     uint32_t delta_seq32;
@@ -181,5 +203,27 @@ refmem_sync_frame_result_t refmem_sync_frame_validate(
 uint32_t refmem_sync_frame_payload_crc32(const void *payload, uint16_t payload_size);
 uint16_t refmem_sync_frame_header_crc16(const refmem_sync_frame_header_t *header);
 bool refmem_sync_frame_type_is_valid(uint8_t frame_type);
+uint32_t refmem_sync_vdc_command_payload_crc32(
+    const refmem_sync_vdc_command_payload_t *payload);
+bool refmem_sync_vdc_command_payload_validate(
+    const void *payload, uint16_t payload_size);
+bool refmem_sync_vdc_command_frame_build(
+    uint8_t source_slot,
+    uint8_t target_slot,
+    uint32_t epoch_id,
+    uint32_t run_id,
+    uint32_t frame_seq32,
+    uint32_t compact_time,
+    uint32_t control_generation,
+    uint32_t command_seq,
+    uint32_t schedule_crc32,
+    uint64_t effective_vdc_time_ns,
+    int32_t period_adjust_ppb,
+    int32_t phase_offset_ns,
+    uint32_t lock_state,
+    uint32_t quality,
+    uint8_t *frame,
+    size_t frame_capacity,
+    size_t *frame_size);
 
 #endif

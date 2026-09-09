@@ -147,6 +147,7 @@ def _monitor_run_args(tmp_path: Path, *, diagnostic_continue: bool) -> SimpleNam
         phase_max_span_ns=500,
         phase_min_complete_rounds=3,
         waveform_flush_timeout_s=1.0,
+        capture_waveform=True,
         internal_only=False,
         internal_lock_threshold_ns=1_000,
     )
@@ -241,6 +242,85 @@ def test_diagnostic_continue_retains_failed_preflight_and_collects_no5(
         (tmp_path / "diagnostic" / "summary.json").read_text(encoding="utf-8"))
     assert summary["passed"] is False
     assert summary["tdma_preflight"]["passed"] is False
+
+
+def test_monitor_arms_phase_without_waveform_and_excludes_setup_time(
+        monkeypatch, tmp_path) -> None:
+    """NO5 phase observation is required even when SD capture is disabled."""
+    preflight = {"passed": True, "sample_delay_s": 0.1, "boards": {}, "errors": []}
+    calls: list[str] = []
+    elapsed_samples: list[float] = []
+    clock = {"now": 0.0}
+
+    class SerialPorts:
+        def __enter__(self):
+            return {"NO1": object(), "NO5": object()}
+
+        def __exit__(self, _exc_type, _exc, _tb) -> None:
+            return None
+
+    def ring_sample(_ser, spec, _timeout, elapsed, _previous):
+        elapsed_samples.append(elapsed)
+        return BoardSample(
+            ts_utc="2026-09-08T00:00:00+00:00", elapsed_s=elapsed,
+            board=spec.name, port=spec.port,
+            tdma=_tdma_snapshot(seq=100, reference=0, feedback=1),
+            vdc_status={}, dpll_status={}, readiness={},
+            vdc_vector={"flags": VECTOR_FLAG_VALID, "gate_passed": 1},
+            dpll_vector={"flags": VECTOR_FLAG_VALID, "gate_passed": 1},
+            trigger_sequence=100, trigger_interval_ms=1.0,
+            simultaneous_feedback=True)
+
+    def observer_sample(_ser, spec, _timeout, elapsed):
+        elapsed_samples.append(elapsed)
+        return BoardSample(
+            ts_utc="2026-09-08T00:00:00+00:00", elapsed_s=elapsed,
+            board=spec.name, port=spec.port, tdma={}, vdc_status={},
+            dpll_status={}, readiness={}, vdc_vector={}, dpll_vector={},
+            trigger_sequence=0, trigger_interval_ms=None,
+            simultaneous_feedback=False)
+
+    def preflight_after_setup(*_args):
+        clock["now"] += 3.0
+        return preflight
+
+    def arm_after_setup(*_args):
+        calls.append("arm")
+        clock["now"] += 2.0
+
+    monkeypatch.setattr(
+        "tools.dpll_vdc_monitor.dpll_vdc_monitor.open_serial_ports",
+        lambda _specs, _args: SerialPorts())
+    monkeypatch.setattr(
+        "tools.dpll_vdc_monitor.dpll_vdc_monitor._tdma_preflight",
+        preflight_after_setup)
+    monkeypatch.setattr(
+        "tools.dpll_vdc_monitor.dpll_vdc_monitor._read_board", ring_sample)
+    monkeypatch.setattr(
+        "tools.dpll_vdc_monitor.dpll_vdc_monitor._read_observer",
+        observer_sample)
+    monkeypatch.setattr(
+        "tools.dpll_vdc_monitor.dpll_vdc_monitor._arm_phase_observation",
+        arm_after_setup)
+    monkeypatch.setattr(
+        "tools.dpll_vdc_monitor.dpll_vdc_monitor._stop_phase_observation",
+        lambda *_args: calls.append("stop"))
+    monkeypatch.setattr(
+        "tools.dpll_vdc_monitor.dpll_vdc_monitor.time.monotonic",
+        lambda: clock["now"])
+    monkeypatch.setattr(
+        "tools.dpll_vdc_monitor.dpll_vdc_monitor.time.sleep",
+        lambda seconds: clock.__setitem__("now", clock["now"] + seconds))
+
+    args = _monitor_run_args(tmp_path, diagnostic_continue=False)
+    args.capture_waveform = False
+    args.duration_s = 0.1
+    result = run(args)
+
+    assert result["tdma_preflight_passed"] is True
+    assert calls == ["arm", "stop"]
+    assert elapsed_samples[:2] == [0.0, 0.0]
+    assert elapsed_samples[-1] >= args.duration_s - args.poll_interval_s
 
 
 def test_selftest_progress_exposes_tx_schedule_without_becoming_evidence(

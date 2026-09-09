@@ -39,6 +39,8 @@ typedef struct {
 } product_config_record_t;
 
 #define PRODUCT_CONFIG_DPLL_PROFILE_VALID 0x44504C4Cu /* DPLL */
+#define PRODUCT_CONFIG_DPLL_CONTROL_PROFILE_VALID 0x44524F4Cu /* DROL */
+#define PRODUCT_CONFIG_DPLL_MAX_SOURCE_SLOT 7u
 
 static product_config_record_t s_product_config;
 static uint32_t s_product_config_provider_generation;
@@ -162,6 +164,16 @@ product_config_default_dpll_servo_profile(void)
     };
 }
 
+static product_config_dpll_control_profile_t
+product_config_default_dpll_control_profile(void)
+{
+    return (product_config_dpll_control_profile_t){
+        .mode = 0u, /* VDC_DPLL_CONTROL_MODE_MASTER */
+        .follow_master_slot_id = 0u,
+        .generation = 1u,
+    };
+}
+
 static bool product_config_dpll_profile_is_valid(
     const product_config_record_t *record)
 {
@@ -182,6 +194,27 @@ static void product_config_record_set_dpll_profile(
     record->reserved[5] = profile->sanity_freq_limit_ppb;
 }
 
+static bool product_config_dpll_control_profile_is_valid(
+    const product_config_record_t *record)
+{
+    return record != NULL && record->version == PRODUCT_CONFIG_VERSION &&
+           record->reserved[6] == PRODUCT_CONFIG_DPLL_CONTROL_PROFILE_VALID &&
+           record->reserved[7] <= 1u &&
+           record->reserved[8] <= PRODUCT_CONFIG_DPLL_MAX_SOURCE_SLOT &&
+           record->reserved[9] != 0u;
+}
+
+static void product_config_record_set_dpll_control_profile(
+    product_config_record_t *record,
+    const product_config_dpll_control_profile_t *profile)
+{
+    record->version = PRODUCT_CONFIG_VERSION;
+    record->reserved[6] = PRODUCT_CONFIG_DPLL_CONTROL_PROFILE_VALID;
+    record->reserved[7] = profile->mode;
+    record->reserved[8] = profile->follow_master_slot_id;
+    record->reserved[9] = profile->generation == 0u ? 1u : profile->generation;
+}
+
 static bool product_config_dpll_profiles_equal(
     const product_config_dpll_servo_profile_t *left,
     const product_config_dpll_servo_profile_t *right)
@@ -198,6 +231,8 @@ static void product_config_set_default(product_config_record_t *record)
 {
     const product_config_dpll_servo_profile_t default_profile =
         product_config_default_dpll_servo_profile();
+    const product_config_dpll_control_profile_t default_control =
+        product_config_default_dpll_control_profile();
     memset(record, 0, sizeof(*record));
     record->magic = PRODUCT_CONFIG_MAGIC;
     record->version = PRODUCT_CONFIG_VERSION;
@@ -205,6 +240,7 @@ static void product_config_set_default(product_config_record_t *record)
     record->usb_mode = (uint32_t)product_config_default_usb_mode();
     record->board_no = 0u;
     product_config_record_set_dpll_profile(record, &default_profile);
+    product_config_record_set_dpll_control_profile(record, &default_control);
     record->crc32 = product_config_crc32(record);
 }
 
@@ -344,8 +380,12 @@ bool product_config_init(void)
      * in RAM; the explicit DPLL:STORE command persists it after bring-up. */
     const product_config_dpll_servo_profile_t default_profile =
         product_config_default_dpll_servo_profile();
+    const product_config_dpll_control_profile_t default_control =
+        product_config_default_dpll_control_profile();
     product_config_record_set_dpll_profile(&s_product_config,
                                            &default_profile);
+    product_config_record_set_dpll_control_profile(&s_product_config,
+                                                   &default_control);
     s_product_config.crc32 = product_config_crc32(&s_product_config);
     return true;
 }
@@ -451,6 +491,44 @@ bool product_config_set_dpll_servo_profile(
     return product_config_store(&record) &&
            product_config_get_dpll_servo_profile(&readback) &&
            product_config_dpll_profiles_equal(&readback, profile);
+}
+
+bool product_config_get_dpll_control_profile(
+    product_config_dpll_control_profile_t *profile)
+{
+    if (profile == NULL || !product_config_record_is_valid(&s_product_config)) {
+        return false;
+    }
+    if (!product_config_dpll_control_profile_is_valid(&s_product_config)) {
+        *profile = product_config_default_dpll_control_profile();
+        return true;
+    }
+    profile->mode = s_product_config.reserved[7];
+    profile->follow_master_slot_id = s_product_config.reserved[8];
+    profile->generation = s_product_config.reserved[9];
+    return true;
+}
+
+bool product_config_set_dpll_control_profile(
+    const product_config_dpll_control_profile_t *profile)
+{
+    if (profile == NULL || profile->mode > 1u ||
+        profile->follow_master_slot_id > PRODUCT_CONFIG_DPLL_MAX_SOURCE_SLOT) {
+        return false;
+    }
+
+    product_config_record_t record = s_product_config;
+    if (!product_config_record_is_valid(&record)) {
+        product_config_set_default(&record);
+    }
+    product_config_record_set_dpll_control_profile(&record, profile);
+    record.sequence++;
+    record.crc32 = product_config_crc32(&record);
+    product_config_dpll_control_profile_t readback;
+    return product_config_store(&record) &&
+           product_config_get_dpll_control_profile(&readback) &&
+           readback.mode == profile->mode &&
+           readback.follow_master_slot_id == profile->follow_master_slot_id;
 }
 
 const char *product_config_usb_mode_to_string(product_config_usb_mode_t mode)

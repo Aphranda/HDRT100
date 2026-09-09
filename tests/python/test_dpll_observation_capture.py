@@ -86,6 +86,21 @@ def test_trace_save_response_rejects_non_capture_tuple() -> None:
     assert not scpi_response_matches_command(
         "SYSTem:SYNC:VDC:DPLL:TRACe:SAVE", '"OK",3,"/traces/run/no1.bin"'
     )
+
+
+def test_debug_admission_is_applied_before_follower_early_return() -> None:
+    manager = Path(
+        "components/vdc_dpll_manager/src/vdc_dpll_manager.c"
+    ).read_text(encoding="utf-8")
+    service_start = manager.index(
+        "void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_fb_service)(void)")
+    service_end = manager.index(
+        "void vdc_dpll_manager_dpll_service(void)", service_start)
+    service = manager[service_start:service_end]
+    assert service.index("vdc_dpll_manager_apply_pending_debug_continue()") < service.index(
+        "vdc_dpll_manager_get_dpll_role_status")
+    assert service.index("vdc_dpll_manager_apply_pending_debug_servo_tune()") > service.index(
+        "role_snapshot.control.profile.mode == VDC_DPLL_CONTROL_MODE_FOLLOWER")
     with pytest.raises(ValueError):
         parse_save('"OK",3,"/traces/run/no1.bin"')
 

@@ -28,6 +28,7 @@ Last updated: 2026-09-08
 VDC-TDMA-001
   -> VDC-CAL-001
   -> VDC-EVID-001
+  -> VDC-ROLE-001 / VDC-ROLE-002 / VDC-ROLE-003 / VDC-ROLE-004 / VDC-ROLE-005
   -> VDC-SERVO-001 / VDC-SERVO-002
   -> VDC-LOCK-001
   -> VDC-SNAPSHOT-001
@@ -36,10 +37,30 @@ VDC-TDMA-001
   -> VDC-VERIFY-001
 ```
 
-当前允许推进的 gate 是 `VDC-TDMA-001`、`VDC-CAL-001` 和 `VDC-EVID-001`；
-`VDC-SERVO-001/002` 在正式 evidence 未闭环前只允许 host/replay 验证，不得用于发布板端目标锁。
+当前最高优先级 gate 是 `VDC-ROLE-001`；`VDC-TDMA-001`、`VDC-CAL-001` 和
+`VDC-EVID-001` 继续作为它不变的 evidence 输入。`VDC-SERVO-001/002` 在正式
+evidence 未闭环前只允许 host/replay 验证，不得用于发布板端目标锁。
 
 ## 进度记录
+
+### VDC-PROGRESS-20260908-006 — configurable DPLL role and oscillator discipline priority raised
+
+- TODO task ID：`VDC-ROLE-001`、`VDC-ROLE-002`、`VDC-ROLE-003`、`VDC-ROLE-004`、`VDC-ROLE-005`。
+- 状态：IN PROGRESS。
+- 日期：2026-09-08。
+- 变更：将可配置 DPLL 控制角色提升为当前最高优先级。设计固定为每节点保留 PI
+  能力，角色为 `MASTER` 时执行既有 local evidence 到 PI/DCO 路径，角色为
+  `FOLLOWER` 时只接收显式 source slot 的已验证 peer command；从机 local evidence
+  不得更新积分、rate、phase 或成为隐式 fallback。训练与 Calibration 只测量时延，
+  不因角色改造改变。
+- 实现计划：先完成 Domain control profile 与 role switch 清理，再完成按 source slot
+  的 RefMem command retention 和 manager apply，随后接入 Flash/SCPI staging/store；
+  再建立不改写 DDS phase owner 的本地晶振 trim、clock-model 连续性和 stale/fault
+  freeze，最后执行主从组合、切换、陈旧/错误来源/丢命令/trim fault 的故障注入与 P3/HIL。
+- 证据与边界：本 checkpoint 仅冻结任务优先级与验证边界，尚无本切片源码、构建或 HIL
+  结果；不宣称角色模式已生效、DPLL 已收敛或 `FORMAL_LOCKED`。
+- 下一 gate：`VDC-ROLE-001`。实现并运行 Domain host C 单测，证明 master local PI
+  保持可用、follower 旁路 local PI 且 role switch 清理旧积分/连续锁定状态。
 
 ### VDC-PROGRESS-20260908-005 — four-slot live batch coalescing
 

@@ -248,6 +248,10 @@ typedef refmem_dpll_vector_payload_t distributed_refmem_dpll_vector_snapshot_t;
 bool distributed_refmem_init(void);
 void distributed_refmem_service(void);
 void distributed_refmem_realtime_run_once(void);
+/* Core1 TDMA-owner boundary for a frozen MASTER command batch.  RefMem's
+ * own realtime phase may capture a batch, but it must never enqueue work
+ * into the shared TDMA scheduler. */
+void distributed_refmem_tdma_publish_service(void);
 void distributed_refmem_get_status(distributed_refmem_status_t *status);
 bool distributed_refmem_get_node(uint32_t node_id, distributed_refmem_node_snapshot_t *snapshot);
 void distributed_refmem_get_core_vector(distributed_refmem_core_vector_snapshot_t *snapshot);
@@ -350,6 +354,9 @@ bool distributed_refmem_get_tdma_flight_sync_peer(
 bool distributed_refmem_get_tdma_flight_sync_mirror(
     uint32_t source_slot,
     refmem_sync_mirror_snapshot_t *snapshot);
+bool distributed_refmem_get_vdc_follower_command(
+    uint32_t source_slot,
+    refmem_sync_vdc_command_snapshot_t *snapshot);
 void distributed_refmem_get_tdma_flight_sync_quality(
     refmem_sync_quality_counters_t *snapshot);
 

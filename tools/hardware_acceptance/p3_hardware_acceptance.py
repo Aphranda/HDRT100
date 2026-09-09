@@ -159,6 +159,17 @@ def selected_sck_offsets(
         summary: dict[str, Any], node_count: int,
         diagnostic_fallback: list[int] | None = None) -> list[int]:
     """Return the measured TRN-01 row that will feed TRN-03."""
+    fallback = diagnostic_fallback
+    fallback_valid = (
+        isinstance(fallback, list) and len(fallback) == node_count and
+        all(not isinstance(value, bool) and isinstance(value, int)
+            and -10 <= int(value) <= 10 for value in fallback))
+    # A recoverable tool-side failure may leave no matrix at all.  The
+    # diagnostic gate has already written the raw log and a non-passing
+    # summary; use only the configured bounded row to reach later runtime
+    # gates, never a guessed measurement.
+    if fallback_valid and summary.get("debug_forced_continue") is True:
+        return [int(value) for value in fallback]
     matrix = summary.get("matrix")
     offset_matrix = matrix.get("offset_matrix") if isinstance(matrix, dict) else None
     rows = offset_matrix.get("rows") if isinstance(offset_matrix, dict) else None
@@ -174,11 +185,6 @@ def selected_sck_offsets(
             raise AcceptanceError("TRN-01 active offset row is incomplete")
         return [int(value) for value in values]
 
-    fallback = diagnostic_fallback
-    fallback_valid = (
-        isinstance(fallback, list) and len(fallback) == node_count and
-        all(not isinstance(value, bool) and isinstance(value, int)
-            and -10 <= int(value) <= 10 for value in fallback))
     candidates = (offset_matrix.get("candidate_values_by_node")
                   if isinstance(offset_matrix, dict) else None)
     if (fallback_valid and summary.get("diagnostic_only") is True and
@@ -830,6 +836,20 @@ def add_serial_timing(command: list[str], timing: dict[str, float], *,
         command.extend(["--gap", str(timing["output_handoff_s"])])
 
 
+def waveform_capture_enabled(config: dict[str, Any], stage: str) -> bool:
+    """Return the explicit waveform policy for one acceptance stage.
+
+    Capture is diagnostic-only and must be opt-in.  Keeping the lookup in one
+    place prevents a legacy global switch from silently enabling captures in
+    unrelated stages.
+    """
+    key = f"{stage}_capture_waveforms"
+    value = config.get(key, False)
+    if not isinstance(value, bool):
+        raise AcceptanceError(f"{key} must be boolean")
+    return value
+
+
 def calibration_probe_phase_cycles(config: dict[str, Any],
                                    level: int) -> int:
     """Return the stopped probe phase selected for one operating profile.
@@ -1043,7 +1063,7 @@ def _validate_evidence_file(root: Path, evidence: object, name: str) -> Path:
 
 def validate_tdma_diagnostic_summary(
         summary: dict[str, Any], board_ids: list[str], *,
-        capture_required: bool = True) -> None:
+        capture_required: bool | None = None) -> None:
     """Prove the four-node flow completed without hiding quality failures."""
     errors: list[str] = []
     if summary.get("diagnostic_continue") is not True:
@@ -1081,8 +1101,11 @@ def validate_tdma_diagnostic_summary(
                 errors.append(f"{address}:{field}_not_advancing")
             if handoff_delta == 0:
                 errors.append(f"{address}:{field}_stopped_after_capture")
+    capture = summary.get("ring_capture", {})
+    if capture_required is None:
+        capture_required = not bool(
+            isinstance(capture, dict) and capture.get("capture_skipped"))
     if capture_required:
-        capture = summary.get("ring_capture", {})
         saved = capture.get("saved", []) if isinstance(capture, dict) else []
         downloaded = (capture.get("downloaded", [])
                       if isinstance(capture, dict) else [])
@@ -1167,15 +1190,17 @@ def _validate_tdma_diagnostic_receipt(
     if any(int(row.get("quarantined_mask", 0)) & calibration_mask
            for row in schedules.values() if isinstance(row, dict)):
         raise AcceptanceError("diagnostic receipt calibration is quarantined")
-    for name in ("ring_capture_raw", "ring_capture_svg"):
-        artifacts = record.get(name)
-        if (not isinstance(artifacts, list) or
-                len(artifacts) != len(record["tdma_board_ids"])):
-            raise AcceptanceError(f"diagnostic receipt has invalid {name}")
-        for index, evidence in enumerate(artifacts):
-            _validate_evidence_file(root, evidence, f"{name}[{index}]")
-    _validate_evidence_file(
-        root, record.get("ring_capture_analysis"), "ring_capture_analysis")
+    if not (isinstance(tdma.get("ring_capture"), dict) and
+            tdma["ring_capture"].get("capture_skipped")):
+        for name in ("ring_capture_raw", "ring_capture_svg"):
+            artifacts = record.get(name)
+            if (not isinstance(artifacts, list) or
+                    len(artifacts) != len(record["tdma_board_ids"])):
+                raise AcceptanceError(f"diagnostic receipt has invalid {name}")
+            for index, evidence in enumerate(artifacts):
+                _validate_evidence_file(root, evidence, f"{name}[{index}]")
+        _validate_evidence_file(
+            root, record.get("ring_capture_analysis"), "ring_capture_analysis")
     _validate_evidence_file(
         root, record.get("diagnostic_summary"), "diagnostic_summary")
 
@@ -1886,6 +1911,10 @@ def run_acceptance(args: argparse.Namespace) -> None:
     config_path = acceptance_config_path(args, root)
     receipt_path = root / args.receipt
     config = load_bench_config(config_path)
+    capture_policy = {
+        stage: waveform_capture_enabled(config, stage)
+        for stage in ("trn00", "trn01", "trn02", "trn03", "tdma", "dpll")
+    }
     baseline_divisor = resolve_path_delay_baseline_divisor(config)
     previous_baseline_divisor = resolve_previous_path_delay_baseline_divisor(
         config)
@@ -2159,9 +2188,9 @@ def run_acceptance(args: argparse.Namespace) -> None:
     # the reduced 10 MHz input explicit rather than silently weakening it.
     if config["frequency_ladder_mhz"] != [10, 25, 30]:
         p3_command.append("--diagnostic-frequency-only")
-    add_serial_timing(
-        p3_command, timing, action=True,
-        capture=bool(config.get("tdma_capture_waveforms", True)), gap=True)
+    # P3 capture is part of the latency measurement itself, not an optional
+    # diagnostic waveform.  Always provide its timeout to the measurement tool.
+    add_serial_timing(p3_command, timing, action=True, capture=True, gap=True)
     _run_step(p3_command, root, out_dir / "p3.log")
     p3_summary_path = p3_dir / "summary.json"
     p3_summary = json.loads(p3_summary_path.read_text(encoding="utf-8"))
@@ -2243,7 +2272,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
     for node, value in enumerate(config["training_marker_offsets_by_node"]):
         marker_command.extend([
             "--matrix-filter-node-offset", f"{node}={value}"])
-    if not config.get("tdma_capture_waveforms", True):
+    if not waveform_capture_enabled(config, "trn00"):
         marker_command.append("--skip-capture")
     add_serial_timing(marker_command, timing, action=True, gap=True)
     print("Hardware acceptance: TRN-00 accepted MARK offset row", flush=True)
@@ -2280,7 +2309,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
     ]
     for value in marker_offsets_by_node:
         residence_command.extend(["--node-offset-samples", str(value)])
-    if not config.get("tdma_capture_waveforms", True):
+    if not waveform_capture_enabled(config, "trn00"):
         residence_command.append("--skip-capture")
     add_serial_timing(residence_command, timing, action=True, gap=True)
     print("Hardware acceptance: TRN-00 full residence matrix", flush=True)
@@ -2317,7 +2346,9 @@ def run_acceptance(args: argparse.Namespace) -> None:
     ]
     for value in config["training_sck_offsets_by_node"]:
         sck_command.extend(["--node-sck-offset-samples", str(value)])
-    if not config.get("tdma_capture_waveforms", True):
+    if diagnostic_continue:
+        sck_command.append("--diagnostic-continue")
+    if not waveform_capture_enabled(config, "trn01"):
         sck_command.append("--skip-capture")
     add_serial_timing(sck_command, timing, action=True, gap=True)
     print("Hardware acceptance: TRN-01 SCK offset matrix", flush=True)
@@ -2375,7 +2406,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
         "--path-delay-baseline-divisor", str(baseline_divisor),
         "--out-dir", str(data_dir),
     ]
-    if not config.get("tdma_capture_waveforms", True):
+    if not waveform_capture_enabled(config, "trn02"):
         data_command.append("--skip-capture")
     for value in marker_offsets_by_node:
         data_command.extend(["--node-marker-offset-samples", str(value)])
@@ -2560,8 +2591,8 @@ def run_acceptance(args: argparse.Namespace) -> None:
     ]
     add_serial_timing(
         tdma_command, timing, action=True,
-        capture=bool(config.get("tdma_capture_waveforms", True)))
-    if config.get("tdma_capture_waveforms", True):
+        capture=capture_policy["tdma"])
+    if capture_policy["tdma"]:
         tdma_command.append("--capture-waveforms")
     if diagnostic_continue:
         tdma_command.append("--diagnostic-continue")
@@ -2609,7 +2640,11 @@ def run_acceptance(args: argparse.Namespace) -> None:
         add_serial_timing(internal_command, timing)
         for index, board_id in enumerate(board_ids, 1):
             internal_command.extend(["--board", f"NO{index}={ports[board_id]}"])
-        print("Hardware acceptance: internal DPLL SD capture NO1..NO4", flush=True)
+        if not capture_policy["dpll"]:
+            internal_command.append("--skip-capture")
+        print("Hardware acceptance: internal DPLL observation NO1..NO4" +
+              (" with SD capture" if capture_policy["dpll"] else
+               " (SD capture disabled)"), flush=True)
         internal_returncode = _run_step(
             internal_command, root, out_dir / "dpll-internal.log",
             allow_failure=diagnostic_continue)
@@ -2667,6 +2702,8 @@ def run_acceptance(args: argparse.Namespace) -> None:
         ]
         if diagnostic_continue:
             dpll_command.append("--diagnostic-continue")
+        if capture_policy["dpll"]:
+            dpll_command.append("--capture-waveform")
         add_serial_timing(dpll_command, timing)
         for index, board_id in enumerate(board_ids, 1):
             dpll_command.extend(["--board", f"NO{index}={ports[board_id]}"])
@@ -2674,10 +2711,10 @@ def run_acceptance(args: argparse.Namespace) -> None:
         dpll_command.extend([
             "--board", f"{config['dpll_observer_name']}={ports[observer_id]}"])
         waveform_analysis_path = tdma_dir / "analysis" / "ring_capture_analysis.json"
-        if config["tdma_capture_waveforms"] and waveform_analysis_path.is_file():
+        if capture_policy["tdma"] and waveform_analysis_path.is_file():
             dpll_command.extend([
                 "--waveform-analysis", str(waveform_analysis_path)])
-        elif config["tdma_capture_waveforms"]:
+        elif capture_policy["tdma"]:
             # SD capture/analysis is an offline diagnostic attachment.  A
             # missing attachment must not block the independent NO5 DPLL
             # state/sequence observation after the realtime TDMA gate passed.
@@ -2773,6 +2810,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
             "path_delay_baseline_divisor": baseline_divisor,
             "calibration_generation": training_generation,
             "calibration_load_mask": int(config["calibration_load_mask"]),
+            "waveform_capture_policy": dict(capture_policy),
             "schedule_before": schedule_before,
             "schedule_after": final_schedules,
             "realtime_load_mask_unchanged": True,
@@ -2875,23 +2913,29 @@ def run_acceptance(args: argparse.Namespace) -> None:
             receipt = make_receipt(
                 TDMA_DIAGNOSTIC_RECEIPT_SCHEMA,
                 "FOUR_NODE_TDMA_DIAGNOSTIC")
-            downloaded = tdma_summary["ring_capture"]["downloaded"]
-            analysis_nodes = tdma_summary["ring_analysis"]["nodes"]
             receipt.update({
                 "flow_completed": True,
                 "strict_gates_passed": False,
                 "diagnostic_failures": diagnostic_failures,
                 "diagnostic_summary": evidence_entry(root, diagnostic_path),
-                "ring_capture_raw": [
-                    evidence_entry(root, Path(str(row["local_path"])))
-                    for row in downloaded],
-                "ring_capture_svg": [
-                    evidence_entry(root, Path(str(row["svg"])))
-                    for row in analysis_nodes],
-                "ring_capture_analysis": evidence_entry(
-                    root, tdma_dir / "analysis" /
-                    "ring_capture_analysis.json"),
             })
+            ring_capture = tdma_summary.get("ring_capture", {})
+            if not (isinstance(ring_capture, dict) and
+                    ring_capture.get("capture_skipped")):
+                downloaded = ring_capture.get("downloaded", [])
+                analysis_nodes = tdma_summary.get("ring_analysis", {}).get(
+                    "nodes", [])
+                receipt.update({
+                    "ring_capture_raw": [
+                        evidence_entry(root, Path(str(row["local_path"])))
+                        for row in downloaded],
+                    "ring_capture_svg": [
+                        evidence_entry(root, Path(str(row["svg"])))
+                        for row in analysis_nodes],
+                    "ring_capture_analysis": evidence_entry(
+                        root, tdma_dir / "analysis" /
+                        "ring_capture_analysis.json"),
+                })
             _validate_tdma_diagnostic_receipt(root, receipt)
             persist_receipt(receipt)
             diagnostic_receipt_written = True

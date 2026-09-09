@@ -18,6 +18,11 @@ uint32_t ota_crc32_update(uint32_t crc, const uint8_t *data, size_t length)
     return crc;
 }
 
+uint32_t ota_crc32_compute(const uint8_t *data, size_t length)
+{
+    return ota_crc32_update(0u, data, length);
+}
+
 static int expect_u32(const char *name, uint32_t actual, uint32_t expected)
 {
     if (actual != expected) {

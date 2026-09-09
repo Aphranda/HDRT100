@@ -497,6 +497,10 @@ def parse_args() -> argparse.Namespace:
                         help="do not persist/download SD raw waveform on clean runs")
     parser.add_argument("--short-open", action="store_true",
                         help="open/close CDC for every command (diagnostic fallback)")
+    parser.add_argument(
+        "--diagnostic-continue", action="store_true",
+        help=("write a non-passing summary and continue after recoverable "
+              "calibration-load guard failures"))
     return parser.parse_args()
 
 

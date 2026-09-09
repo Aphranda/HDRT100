@@ -20,7 +20,9 @@
  * three-buffer queue absorbs asynchronous SD hand-off latency; realtime
  * TDMA/RefMem objects are untouched and queue exhaustion remains observable
  * through dropped_count. */
-#define VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS 640u
+/* Keep the three-buffer hand-off while fitting the RP2350 application RAM
+ * budget after the guarded VDC role snapshot was extended for P0A. */
+#define VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS 576u
 
 typedef enum {
     VDC_DPLL_MANAGER_SELF_TEST_ROLE_NONE = 0u,
@@ -46,6 +48,14 @@ typedef struct {
     uint32_t last_service_ms;
     uint32_t update_seq;
 } vdc_dpll_manager_dpll_status_t;
+
+typedef struct {
+    uint32_t mode;
+    uint32_t follow_master_slot_id;
+    uint32_t requested_generation;
+    uint32_t applied_generation;
+    bool pending;
+} vdc_dpll_manager_dpll_role_status_t;
 
 typedef struct {
     bool valid;
@@ -288,6 +298,22 @@ typedef struct {
     bool pending;
 } vdc_dpll_manager_debug_admission_status_t;
 
+/* RefMem Core1 only needs the schedule identity and the command fields it
+ * republishes for a MASTER.  Keeping this publication separate from the
+ * full Domain snapshot prevents the RefMem realtime beat from copying path
+ * delay and diagnostic tables on every invocation. */
+typedef struct {
+    vdc_tdma_schedule_profile_t schedule;
+    uint32_t clock_epoch_id;
+    uint32_t clock_run_id;
+    int32_t dco_period_adjust_ppb;
+    int32_t dco_phase_offset_ns;
+    uint32_t dpll_update_seq;
+    uint32_t dpll_state;
+    vdc_dpll_control_profile_t control_profile;
+    uint32_t quality_health_state;
+} vdc_dpll_manager_refmem_snapshot_t;
+
 bool vdc_dpll_manager_init(void);
 void vdc_dpll_manager_set_vdc_ready(bool ready);
 void vdc_dpll_manager_set_dpll_ready(bool ready);
@@ -318,6 +344,14 @@ bool vdc_dpll_manager_request_default_debug_servo_tune(uint32_t *generation);
 bool vdc_dpll_manager_store_debug_servo_profile(void);
 void vdc_dpll_manager_get_debug_servo_tune_status(
     vdc_dpll_manager_debug_servo_tune_status_t *status);
+/* Role changes follow the same Core0 mailbox/Core1 owner boundary as PI
+ * tuning.  STORE persists the requested profile; runtime ROLE is volatile. */
+bool vdc_dpll_manager_request_dpll_role(uint32_t mode,
+                                        uint32_t follow_master_slot_id,
+                                        uint32_t *generation);
+bool vdc_dpll_manager_store_dpll_role(void);
+void vdc_dpll_manager_get_dpll_role_status(
+    vdc_dpll_manager_dpll_role_status_t *status);
 /* Core0 stages a single debug-admission intent. Core1 applies it before the
  * next evidence pipeline beat; pending intents are never overwritten. */
 bool vdc_dpll_manager_request_debug_continue(bool enabled,
@@ -354,12 +388,23 @@ bool vdc_dpll_manager_waveform_capture_manifest(char *path_prefix,
                                                 size_t path_prefix_size,
                                                 uint32_t *segment_count);
 bool vdc_dpll_manager_get_snapshot(vdc_domain_snapshot_t *snapshot);
+/* Lock-free, seqlock-consistent publication for the RefMem Core1 path. */
+bool vdc_dpll_manager_get_refmem_snapshot(
+    vdc_dpll_manager_refmem_snapshot_t *snapshot);
 uint32_t vdc_dpll_manager_published_update_seq(void);
 bool vdc_dpll_manager_get_tdma_snapshot(tdma_service_snapshot_t *snapshot);
 bool vdc_dpll_manager_plan_tdma_window(uint32_t window_class,
                                        uint64_t now_ns,
                                        vdc_tdma_window_plan_t *plan,
                                        vdc_gate_result_t *gate);
+/* Plan from one already validated, seqlock-consistent VDC publication.  Core1
+ * callers use this instead of taking the manager's control-plane lock again. */
+bool vdc_dpll_manager_plan_published_tdma_window(
+    const vdc_dpll_manager_refmem_snapshot_t *snapshot,
+    uint32_t window_class,
+    uint64_t now_ns,
+    vdc_tdma_window_plan_t *plan,
+    vdc_gate_result_t *gate);
 bool vdc_dpll_manager_plan_tdma_ring(vdc_tdma_ring_plan_t *plan);
 bool vdc_dpll_manager_set_tdma_ring_local_slot(uint32_t local_slot_id);
 bool vdc_dpll_manager_set_tdma_ring_topology(uint32_t local_slot_id,

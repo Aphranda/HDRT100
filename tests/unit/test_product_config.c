@@ -283,6 +283,28 @@ static void test_explicit_profile_survives_other_product_updates(void)
     assert(product_config_get_board_no() == 4u);
 }
 
+static void test_dpll_role_profile_defaults_and_survives_restart(void)
+{
+    test_reset_flash();
+    assert(product_config_init());
+
+    product_config_dpll_control_profile_t role;
+    assert(product_config_get_dpll_control_profile(&role));
+    assert(role.mode == 0u);
+    assert(role.follow_master_slot_id == 0u);
+
+    const product_config_dpll_control_profile_t saved = {
+        .mode = 1u,
+        .follow_master_slot_id = 0u,
+        .generation = 9u,
+    };
+    assert(product_config_set_dpll_control_profile(&saved));
+    assert(product_config_init());
+    assert(product_config_get_dpll_control_profile(&role));
+    assert(role.mode == saved.mode);
+    assert(role.follow_master_slot_id == saved.follow_master_slot_id);
+}
+
 int main(void)
 {
     test_blank_flash_seeds_conservative_profile_without_write();
@@ -290,6 +312,7 @@ int main(void)
     test_corrupt_record_seeds_profile_without_write();
     test_flash_write_fault_does_not_block_read_only_initialization();
     test_explicit_profile_survives_other_product_updates();
+    test_dpll_role_profile_defaults_and_survives_restart();
     puts("product config host unit tests passed");
     return 0;
 }
