@@ -323,6 +323,40 @@ scpi_result_t scpi_cmd_sync_vdc_dpll_role_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+/* ROLE? remains the compact configuration readback.  This extended query is
+ * intentionally a distinct, append-only diagnostic contract so a follower
+ * can prove command consumption or bounded hold without sampling local PI. */
+scpi_result_t scpi_cmd_sync_vdc_dpll_role_status_q(scpi_t *context)
+{
+    vdc_dpll_manager_dpll_role_status_t role;
+    vdc_domain_snapshot_t snapshot;
+    if (!vdc_dpll_manager_get_snapshot(&snapshot)) {
+        return SCPI_RES_ERR;
+    }
+    vdc_dpll_manager_get_dpll_role_status(&role);
+    SCPI_ResultUInt32(context, role.mode);
+    SCPI_ResultUInt32(context, role.follow_master_slot_id);
+    SCPI_ResultUInt32(context, role.requested_generation);
+    SCPI_ResultUInt32(context, role.applied_generation);
+    SCPI_ResultBool(context, role.pending ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, snapshot.control.follower_apply_count);
+    SCPI_ResultUInt32(context, snapshot.control.follower_no_command_count);
+    SCPI_ResultUInt32(context, snapshot.control.follower_wrong_source_count);
+    SCPI_ResultUInt32(context, snapshot.control.follower_stale_command_count);
+    SCPI_ResultUInt32(context, snapshot.control.follower_invalid_command_count);
+    SCPI_ResultUInt32(context, snapshot.control.follower_local_evidence_bypass_count);
+    SCPI_ResultUInt32(context, snapshot.control.last_follower_source_slot_id);
+    SCPI_ResultUInt32(context,
+                      snapshot.control.last_follower_control_generation);
+    SCPI_ResultUInt32(context, snapshot.control.last_follower_command_seq);
+    SCPI_ResultUInt32(context, snapshot.control.last_follower_quality);
+    SCPI_ResultUInt32(context, (uint32_t)(
+        snapshot.control.last_follower_effective_vdc_time_ns & UINT32_MAX));
+    SCPI_ResultUInt32(context, (uint32_t)(
+        snapshot.control.last_follower_effective_vdc_time_ns >> 32u));
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_sync_vdc_dpll_role(scpi_t *context)
 {
     uint32_t mode = 0u;

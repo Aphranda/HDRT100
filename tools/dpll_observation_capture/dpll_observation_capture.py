@@ -46,6 +46,24 @@ class Board:
     port: str
 
 
+ROLE_STATUS_FIELDS = (
+    "mode", "follow_master_slot_id", "requested_generation",
+    "applied_generation", "pending", "follower_apply_count",
+    "follower_no_command_count", "follower_wrong_source_count",
+    "follower_stale_command_count", "follower_invalid_command_count",
+    "follower_local_evidence_bypass_count", "last_follower_source_slot_id",
+    "last_follower_control_generation", "last_follower_command_seq",
+    "last_follower_quality", "last_follower_effective_vdc_time_lo",
+    "last_follower_effective_vdc_time_hi",
+)
+FOLLOWER_MODE = 1
+FOLLOWER_COUNTER_FIELDS = (
+    "follower_apply_count", "follower_no_command_count",
+    "follower_wrong_source_count", "follower_stale_command_count",
+    "follower_invalid_command_count", "follower_local_evidence_bypass_count",
+)
+
+
 def parse_board(value: str) -> Board:
     if "=" not in value:
         raise ValueError("board must be NAME=PORT")
@@ -69,6 +87,26 @@ def query(board: Board, text: str, args: argparse.Namespace) -> str:
         if "DHRT100" not in identity:
             raise RuntimeError(f"{board.name}/{board.port}: unexpected identity {identity!r}")
         return command(ser, text, args.timeout)
+
+
+def parse_role_status(response: str) -> dict[str, int]:
+    fields = [item.strip().strip('"')
+              for item in next(csv.reader([response]), [])]
+    if len(fields) != len(ROLE_STATUS_FIELDS):
+        raise ValueError(f"invalid DPLL role status {response!r}")
+    try:
+        return {name: int(value, 0) for name, value in
+                zip(ROLE_STATUS_FIELDS, fields)}
+    except ValueError as exc:
+        raise ValueError(f"invalid DPLL role status {response!r}") from exc
+
+
+def role_status_delta(before: dict[str, int], after: dict[str, int]) -> dict[str, int]:
+    """Return wrap-safe follower counter deltas for one capture window."""
+    return {
+        field: (after[field] - before[field]) & 0xFFFFFFFF
+        for field in FOLLOWER_COUNTER_FIELDS
+    }
 
 
 def parse_save(response: str) -> tuple[int, str, int]:
@@ -143,6 +181,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("duration must be positive")
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
+    role_before = {
+        board.name: parse_role_status(query(
+            board, "SYSTem:SYNC:VDC:DPLL:ROLE:STATus?", args))
+        for board in boards
+    }
+
     if args.skip_capture:
         # Keep the internal status probe available when waveform collection is
         # disabled by the acceptance policy.  This path deliberately emits no
@@ -158,6 +202,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 "board": board.name,
                 "port": board.port,
                 "status": fields,
+                "follower_status_before": role_before[board.name],
+                "follower_status_after": role_before[board.name],
+                "follower_status_delta": {
+                    field: 0 for field in FOLLOWER_COUNTER_FIELDS
+                },
             })
         result = {
             "schema": "HAOFV_DPLL_OBSERVATION_CAPTURE_RUN_V1",
@@ -201,11 +250,28 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         status_fields = [item.strip().strip('"') for item in next(csv.reader([status]), [])]
         if len(status_fields) != 8:
             raise ValueError(f"{board.name}: invalid trace status {status!r}")
-        if int(status_fields[2], 0) == 0:
+        role_after = parse_role_status(query(
+            board, "SYSTem:SYNC:VDC:DPLL:ROLE:STATus?", args))
+        role_window = role_status_delta(role_before[board.name], role_after)
+        sample_count = int(status_fields[2], 0)
+        follower = role_after["mode"] == FOLLOWER_MODE
+        if sample_count == 0 and not follower:
             raise RuntimeError(
                 f"{board.name}: trace contains no samples; DPLL update service "
                 "is not active during the capture window"
             )
+        if sample_count == 0:
+            board_results.append({
+                "board": board.name,
+                "port": board.port,
+                "status": status_fields,
+                "sample_count": 0,
+                "trace_absent_reason": "follower_no_dco_update",
+                "follower_status_before": role_before[board.name],
+                "follower_status_after": role_after,
+                "follower_status_delta": role_window,
+            })
+            continue
         save_response = query(board, "SYSTem:SYNC:VDC:DPLL:TRACe:SAVE", args)
         job_id, sd_path, sample_count = parse_save(save_response)
         job = wait_job(board, job_id, args)
@@ -223,6 +289,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "board": board.name,
             "port": board.port,
             "status": status_fields,
+            "follower_status_before": role_before[board.name],
+            "follower_status_after": role_after,
+            "follower_status_delta": role_window,
             "sd_path": sd_path,
             "job": job,
             "sample_count": sample_count,
@@ -233,14 +302,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
     series = load_monitor_samples(decoded_inputs)
     analysis_dir = args.out_dir / "analysis"
-    analysis = write_reports(
+    analysis = (write_reports(
         series,
         analysis_dir,
         input_paths=decoded_inputs,
         rolling_window=5,
         lock_threshold_ns=10000,
         mad_multiplier=6.0,
-    )
+    ) if decoded_inputs else {
+        "reason": "no_dco_updates_in_capture_window",
+        "combined_svg": None,
+    })
     result = {
         "schema": "HAOFV_DPLL_OBSERVATION_CAPTURE_RUN_V1",
         "duration_s": args.duration_s,

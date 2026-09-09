@@ -9,6 +9,8 @@ import pytest
 from tools.dpll_observation_capture.dpll_observation_capture import (
     parse_save,
     parse_board,
+    parse_role_status,
+    role_status_delta,
 )
 from tools.dpll_servo_tune.dpll_servo_tune import Profile, parse_profile
 from tools.dpll_residual_analyze.dpll_residual_analyze import render_combined_svg
@@ -111,12 +113,30 @@ def test_board_parser_keeps_physical_no_identity() -> None:
         parse_board("slot5=COM25")
 
 
+def test_follower_status_is_complete_and_counter_delta_is_wrap_safe() -> None:
+    before = parse_role_status(
+        "1,0,7,7,0,4294967295,3,4,5,6,7,0,7,9,10,11,12"
+    )
+    after = parse_role_status("1,0,7,7,0,1,5,4,6,6,7,0,7,10,10,11,12")
+    delta = role_status_delta(before, after)
+    assert before["mode"] == 1
+    assert delta["follower_apply_count"] == 2
+    assert delta["follower_no_command_count"] == 2
+    assert delta["follower_stale_command_count"] == 1
+
+
+def test_follower_status_rejects_partial_scpi_response() -> None:
+    with pytest.raises(ValueError):
+        parse_role_status("1,0,7,7,0")
+
+
 def test_capture_tool_is_explicitly_off_realtime_path() -> None:
     source = Path(
         "tools/dpll_observation_capture/dpll_observation_capture.py"
     ).read_text(encoding="utf-8")
     assert "realtime_path_untouched" in source
     assert "StorageAO" in source
+    assert "ROLE:STATus?" in source
 
 
 def test_combined_convergence_svg_keys_nodes_and_marks_missing() -> None:
