@@ -201,6 +201,28 @@ typedef struct {
     uint32_t last_error;
 } distributed_refmem_node_load_auto_sync_snapshot_t;
 
+/* Dedicated VDC command RX telemetry.  This channel is independent from
+ * node-load maintenance so a follower can receive commands while that
+ * maintenance path remains disabled. */
+typedef struct {
+    uint32_t active;
+    uint32_t active_intent_seq;
+    uint32_t next_window_seq;
+    uint32_t last_processed_completed_seq;
+    uint32_t submitted_count;
+    uint32_t frame_ready_count;
+    uint32_t accepted_count;
+    uint32_t invalid_count;
+    uint32_t timeout_count;
+    uint32_t window_miss_count;
+    uint32_t submit_reject_count;
+    uint32_t last_result;
+    uint32_t last_rx_result;
+    uint32_t last_error;
+    uint32_t last_source_slot;
+    uint32_t last_command_seq;
+} distributed_refmem_vdc_follower_rx_snapshot_t;
+
 typedef struct {
     uint32_t enabled;
     uint32_t local_slot;
@@ -257,6 +279,8 @@ bool distributed_refmem_get_node(uint32_t node_id, distributed_refmem_node_snaps
 void distributed_refmem_get_core_vector(distributed_refmem_core_vector_snapshot_t *snapshot);
 void distributed_refmem_get_runtime_protection(distributed_refmem_runtime_protection_snapshot_t *snapshot);
 bool distributed_refmem_get_realtime_tdma(refmem_realtime_tdma_snapshot_t *snapshot);
+void distributed_refmem_get_vdc_follower_rx(
+    distributed_refmem_vdc_follower_rx_snapshot_t *snapshot);
 bool distributed_refmem_get_vdc_vector_snapshot(
     distributed_refmem_vdc_vector_snapshot_t *snapshot);
 bool distributed_refmem_get_dpll_vector_snapshot(

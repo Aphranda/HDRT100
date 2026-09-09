@@ -94,6 +94,25 @@ typedef struct {
     uint32_t last_error;
 } distributed_refmem_node_load_auto_sync_t;
 
+typedef struct {
+    uint32_t active;
+    uint32_t active_intent_seq;
+    uint32_t next_window_seq;
+    uint32_t last_processed_completed_seq;
+    uint32_t submitted_count;
+    uint32_t frame_ready_count;
+    uint32_t accepted_count;
+    uint32_t invalid_count;
+    uint32_t timeout_count;
+    uint32_t window_miss_count;
+    uint32_t submit_reject_count;
+    uint32_t last_result;
+    uint32_t last_rx_result;
+    uint32_t last_error;
+    uint32_t last_source_slot;
+    uint32_t last_command_seq;
+} distributed_refmem_vdc_follower_rx_t;
+
 /* A master snapshot is fanned out over multiple CONFIG_CONTROL windows.  The
  * batch freezes all command fields so backpressure cannot mix generations or
  * effective times within one publication. */
@@ -134,6 +153,7 @@ static refmem_sync_context_t s_refmem_sync_context;
  * exclusively available to the Core1 stack. */
 static refmem_sync_vdc_context_t s_vdc_command_context;
 static distributed_refmem_node_load_auto_sync_t s_node_load_auto_sync;
+static distributed_refmem_vdc_follower_rx_t s_vdc_follower_rx;
 static uint32_t s_service_count;
 static bool s_initialized;
 static uint32_t s_tdma_ring_log_last_ms;
@@ -155,6 +175,8 @@ static uint32_t s_vdc_command_context_epoch_id;
 static uint32_t s_vdc_command_context_run_id;
 static uint32_t s_vdc_command_context_schedule_epoch;
 static bool s_vdc_command_context_initialized;
+
+static void distributed_refmem_vdc_follower_rx_service(void);
 
 static bool distributed_refmem_refresh_vdc_command_context(void);
 static bool distributed_refmem_refresh_vdc_command_context_from_snapshot(
@@ -1815,6 +1837,155 @@ static void distributed_refmem_node_load_auto_service(void)
     }
 }
 
+/* VDC follower command reception deliberately has its own intent lifecycle.
+ * Node-load sync is a maintenance channel and defaults disabled; coupling this
+ * receive path to it left followers permanently without a command source. */
+static void distributed_refmem_vdc_follower_rx_process_completed(
+    const refmem_realtime_tdma_snapshot_t *tdma,
+    uint32_t expected_source_slot)
+{
+    if (tdma == NULL || s_vdc_follower_rx.active == 0u ||
+        tdma->completed_seq == s_vdc_follower_rx.last_processed_completed_seq ||
+        tdma->completed_seq < s_vdc_follower_rx.active_intent_seq) {
+        return;
+    }
+
+    s_vdc_follower_rx.last_processed_completed_seq = tdma->completed_seq;
+    s_vdc_follower_rx.last_result = tdma->last_result;
+    if (tdma->last_result == REFMEM_REALTIME_TDMA_RESULT_FRAME_READY) {
+        uint8_t frame[REFMEM_REALTIME_TDMA_FRAME_MAX];
+        size_t frame_size = 0u;
+        if (!distributed_refmem_get_realtime_tdma_frame(frame,
+                                                        sizeof(frame),
+                                                        &frame_size)) {
+            s_vdc_follower_rx.invalid_count++;
+            s_vdc_follower_rx.last_error = 5u;
+        } else {
+            refmem_sync_rx_snapshot_t rx;
+            const refmem_sync_rx_result_t result =
+                refmem_sync_vdc_receive_frame(&s_vdc_command_context,
+                                               frame,
+                                               frame_size,
+                                               &rx);
+            s_vdc_follower_rx.frame_ready_count++;
+            s_vdc_follower_rx.last_rx_result = result;
+            s_vdc_follower_rx.last_source_slot = rx.source_slot;
+            if (result == REFMEM_SYNC_RX_ACCEPTED) {
+                s_vdc_follower_rx.accepted_count++;
+                s_vdc_follower_rx.last_error =
+                    rx.source_slot == expected_source_slot ? 0u : 6u;
+                if (rx.source_slot == expected_source_slot) {
+                    const refmem_sync_vdc_command_snapshot_t *command =
+                        refmem_sync_vdc_get_command(&s_vdc_command_context,
+                                                    (uint8_t)rx.source_slot);
+                    if (command != NULL) {
+                        s_vdc_follower_rx.last_command_seq =
+                            command->command_seq;
+                    }
+                }
+            } else {
+                s_vdc_follower_rx.invalid_count++;
+                s_vdc_follower_rx.last_error = 6u;
+            }
+        }
+    } else if (tdma->last_result == REFMEM_REALTIME_TDMA_RESULT_TIMEOUT) {
+        s_vdc_follower_rx.timeout_count++;
+        s_vdc_follower_rx.last_error = 7u;
+    } else if (tdma->last_result == REFMEM_REALTIME_TDMA_RESULT_WINDOW_MISSED) {
+        s_vdc_follower_rx.window_miss_count++;
+        s_vdc_follower_rx.last_error = 8u;
+    } else {
+        s_vdc_follower_rx.invalid_count++;
+        s_vdc_follower_rx.last_error = 9u;
+    }
+
+    s_vdc_follower_rx.active = 0u;
+    s_vdc_follower_rx.active_intent_seq = 0u;
+}
+
+static void distributed_refmem_vdc_follower_rx_service(void)
+{
+    if (board_identity_get_no() == 5u) {
+        return;
+    }
+
+    vdc_dpll_manager_refmem_snapshot_t vdc;
+    refmem_realtime_tdma_snapshot_t tdma;
+    if (!vdc_dpll_manager_get_refmem_snapshot(&vdc) ||
+        !refmem_realtime_tdma_get_snapshot(&s_refmem_realtime_tdma, &tdma)) {
+        s_vdc_follower_rx.last_error = 1u;
+        return;
+    }
+    if (!distributed_refmem_refresh_vdc_command_context_from_snapshot(&vdc)) {
+        s_vdc_follower_rx.last_error = 2u;
+        return;
+    }
+
+    const bool follower = vdc.control_profile.valid == 1u &&
+        vdc.control_profile.mode == VDC_DPLL_CONTROL_MODE_FOLLOWER &&
+        vdc.control_profile.follow_master_slot_id < REFMEM_SYNC_NODE_COUNT;
+    const uint32_t expected_source_slot =
+        follower ? vdc.control_profile.follow_master_slot_id : UINT32_MAX;
+    distributed_refmem_vdc_follower_rx_process_completed(&tdma,
+                                                          expected_source_slot);
+    if (!follower || s_vdc_follower_rx.active != 0u ||
+        distributed_refmem_tdma_busy(&tdma)) {
+        return;
+    }
+
+    vdc_tdma_window_plan_t plan;
+    vdc_gate_result_t gate;
+    if (!vdc_dpll_manager_plan_published_tdma_window(
+            &vdc,
+            VDC_DOMAIN_WINDOW_REFMEM_DATA,
+            VDC_DPLL_MANAGER_PLAN_NOW_NS,
+            &plan,
+            &gate) ||
+        plan.valid == 0u || plan.window_start_ns == 0u ||
+        plan.schedule_crc32 != vdc.schedule.schedule_crc32) {
+        (void)gate;
+        s_vdc_follower_rx.last_error = 3u;
+        return;
+    }
+
+    const uint32_t window_seq =
+        distributed_refmem_next_nonzero_sequence(&s_vdc_follower_rx.next_window_seq);
+    const refmem_realtime_tdma_intent_config_t config = {
+        .window_epoch = plan.schedule_epoch,
+        .window_index = window_seq,
+        .deadline_us = 1000000u,
+        .role = REFMEM_SPI_PHYSICAL_ROLE_SLAVE,
+        .baud_hz = BOARD_REFMEM_SPI_BAUD_HZ,
+        .pins = {
+            .rx_pin = BOARD_REFMEM_SPI_RX_PIN,
+            .csn_pin = REFMEM_SPI_PHYSICAL_PIN_UNUSED,
+            .sck_pin = BOARD_REFMEM_SPI_SCK_PIN,
+            .tx_pin = BOARD_REFMEM_SPI_TX_PIN,
+        },
+        .payload_class = REFMEM_REALTIME_TDMA_PAYLOAD_VDC_COMMAND,
+        .vdc_window_plan_valid = 1u,
+        .vdc_window_class = VDC_DOMAIN_WINDOW_REFMEM_DATA,
+        .vdc_schedule_crc32 = plan.schedule_crc32,
+        .vdc_window_start_ns = plan.window_start_ns,
+        .vdc_window_end_ns = plan.window_end_ns,
+        .vdc_guard_start_ns = plan.guard_start_ns,
+        .vdc_guard_end_ns = plan.guard_end_ns,
+        .frame = NULL,
+        .frame_size = 0u,
+    };
+    if (!refmem_realtime_tdma_submit_rx(&s_refmem_realtime_tdma, &config)) {
+        s_vdc_follower_rx.submit_reject_count++;
+        s_vdc_follower_rx.last_error = 4u;
+        return;
+    }
+
+    (void)refmem_realtime_tdma_get_snapshot(&s_refmem_realtime_tdma, &tdma);
+    s_vdc_follower_rx.active = 1u;
+    s_vdc_follower_rx.active_intent_seq = tdma.intent_seq;
+    s_vdc_follower_rx.submitted_count++;
+    s_vdc_follower_rx.last_error = 0u;
+}
+
 static void distributed_refmem_refresh_directory_flags_locked(void)
 {
     refmem_vector_header_region_t *header = distributed_refmem_header();
@@ -1925,6 +2096,8 @@ bool distributed_refmem_init(void)
     }
     s_status.init_stage = DISTRIBUTED_REFMEM_INIT_STAGE_NODE_LOAD_AUTO;
     distributed_refmem_node_load_auto_init();
+    memset(&s_vdc_follower_rx, 0, sizeof(s_vdc_follower_rx));
+    s_vdc_follower_rx.next_window_seq = 1u;
     distributed_refmem_tdma_flight_sync_init();
     static const refmem_realtime_tdma_ops_t tdma_ops = {
         .transmit = distributed_refmem_tdma_transmit,
@@ -2123,6 +2296,7 @@ void distributed_refmem_service(void)
     if (ota_ao_is_active()) {
         return;
     }
+    distributed_refmem_vdc_follower_rx_service();
     distributed_refmem_node_load_auto_service();
     distributed_refmem_tdma_flight_sync_service();
     distributed_refmem_log_tdma_ring_service();
@@ -2166,6 +2340,31 @@ static void distributed_refmem_log_tdma_ring_service(void)
 bool distributed_refmem_get_realtime_tdma(refmem_realtime_tdma_snapshot_t *snapshot)
 {
     return refmem_realtime_tdma_get_snapshot(&s_refmem_realtime_tdma, snapshot);
+}
+
+void distributed_refmem_get_vdc_follower_rx(
+    distributed_refmem_vdc_follower_rx_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) {
+        return;
+    }
+    snapshot->active = s_vdc_follower_rx.active;
+    snapshot->active_intent_seq = s_vdc_follower_rx.active_intent_seq;
+    snapshot->next_window_seq = s_vdc_follower_rx.next_window_seq;
+    snapshot->last_processed_completed_seq =
+        s_vdc_follower_rx.last_processed_completed_seq;
+    snapshot->submitted_count = s_vdc_follower_rx.submitted_count;
+    snapshot->frame_ready_count = s_vdc_follower_rx.frame_ready_count;
+    snapshot->accepted_count = s_vdc_follower_rx.accepted_count;
+    snapshot->invalid_count = s_vdc_follower_rx.invalid_count;
+    snapshot->timeout_count = s_vdc_follower_rx.timeout_count;
+    snapshot->window_miss_count = s_vdc_follower_rx.window_miss_count;
+    snapshot->submit_reject_count = s_vdc_follower_rx.submit_reject_count;
+    snapshot->last_result = s_vdc_follower_rx.last_result;
+    snapshot->last_rx_result = s_vdc_follower_rx.last_rx_result;
+    snapshot->last_error = s_vdc_follower_rx.last_error;
+    snapshot->last_source_slot = s_vdc_follower_rx.last_source_slot;
+    snapshot->last_command_seq = s_vdc_follower_rx.last_command_seq;
 }
 
 bool distributed_refmem_get_vdc_vector_snapshot(

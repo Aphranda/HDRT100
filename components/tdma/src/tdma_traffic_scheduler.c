@@ -831,6 +831,41 @@ tdma_traffic_scheduler_result_t tdma_traffic_scheduler_select(
     }
 
     if (!maintenance_gate_open) {
+        /* VDC command replication uses CONFIG_CONTROL framing for its
+         * source/sequence contract, but it is a time-bounded DPLL command,
+         * not maintenance.  Admit only explicitly scheduled control work;
+         * ordinary configuration remains behind the maintenance gate. */
+        tdma_traffic_scheduler_slot_t *scheduled_control =
+            tdma_traffic_scheduler_queue_head(
+                scheduler, TDMA_TRAFFIC_CONFIG_CONTROL);
+        if (scheduled_control != NULL &&
+            scheduled_control->scheduled_window_valid != 0u &&
+            now_ns >= scheduled_control->scheduled_guard_start_ns &&
+            tdma_traffic_scheduler_before_higher_priority_guard(
+                scheduler,
+                scheduled_control,
+                now_ns,
+                TDMA_TRAFFIC_CONFIG_CONTROL)) {
+            if (!tdma_traffic_scheduler_budget_available(
+                    scheduler, scheduled_control)) {
+                tdma_traffic_scheduler_note_budget_overrun(
+                    scheduler, TDMA_TRAFFIC_CONFIG_CONTROL);
+                (void)tdma_traffic_scheduler_note_result(
+                    scheduler,
+                    TDMA_TRAFFIC_CONFIG_CONTROL,
+                    TDMA_TRAFFIC_SCHEDULER_BUDGET_EXHAUSTED);
+                tdma_traffic_scheduler_unlock(scheduler);
+                return TDMA_TRAFFIC_SCHEDULER_BUDGET_EXHAUSTED;
+            }
+            (void)tdma_traffic_scheduler_dispatch_head(
+                scheduler, TDMA_TRAFFIC_CONFIG_CONTROL, dispatch);
+            (void)tdma_traffic_scheduler_note_result(
+                scheduler,
+                TDMA_TRAFFIC_CONFIG_CONTROL,
+                TDMA_TRAFFIC_SCHEDULER_OK);
+            tdma_traffic_scheduler_unlock(scheduler);
+            return TDMA_TRAFFIC_SCHEDULER_OK;
+        }
         (void)tdma_traffic_scheduler_note_result(
             scheduler, UINT32_MAX, TDMA_TRAFFIC_SCHEDULER_GATE_CLOSED);
         tdma_traffic_scheduler_unlock(scheduler);
