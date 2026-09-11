@@ -700,20 +700,33 @@ store-and-forward 热路径中拆出。
 
 当前四板/profile 的 raw 字节流水物理能力取证见 `TDMA-PROGRESS-20260911-006`：同钟
 完整 packet 重叠、固定上一 byte 映射与逐窗上下界已经保留。该运行点的结论不替代其它
-profile 或新 persona 的准入与取证，也不提升 resident/cycle-level 声明。当前 process-image
-PIO 的 byte 命令分派还存在边界 phase 预算缺口；仅检查 bit body 的 re-arm 路径不足以
-证明整条最坏指令路径满足 active profile，整改由 `TDMA-FLIGHT-006` 跟踪。非字节对齐的
-整 physical byte REPLACE 还会带入脚本准备时的邻接 owner bit；当前观测已发现邻居邮箱
-CRC 被覆盖，整改由 `TDMA-FLIGHT-007` 跟踪，不能据此声明沿途 owner 隔离通过。
+profile 或新 persona 的准入与取证，也不提升 resident/cycle-level 声明。原 process-image
+PIO 的 byte 命令分派存在边界 phase 预算缺口，且非字节对齐的整 physical byte REPLACE
+会带入脚本准备时的邻接 owner bit、覆盖邻居邮箱 CRC；两项历史失败由
+`TDMA-FLIGHT-006/007` 及 `TDMA-PROGRESS-20260911-006` 保留。
 
 `TDMA-PROGRESS-20260911-007` 保留内部 bit 选择与稀疏命令存储的候选审计：由既有
 TDMA owner 生成白名单命令，在同一 follower DATA SM 内选择实际在途 bit 或本地授权
-bit，RX 仍经原唯一 FIFO/DMA 端点卸载。候选保持一字节流水，但命令格式、完整 byte
-路径、DMA 带宽、描述符装载角色及静态 RAM 仍须完成准入与当前源码 HIL；该离线原型
-不是已激活 persona 或新冻结契约，不能据其模型结果提升运行时能力声明。
+bit，RX 仍经原唯一 FIFO/DMA 端点卸载。后续集成切片见 `TDMA-PROGRESS-20260912-001`：
+`tdma_flight_overlay_build_plan` 只授权 transport helper 指定的头字段和本节点 mailbox，
+其余 bit 选择实际在途输入，reference 独占的 DPLL trailer 也保持透传。固定双 plan 池
+采用 `TDMA_FLIGHT_OVERLAY_RUN_MAX` 与 `TDMA_FLIGHT_OVERLAY_TOKEN_WORD_MAX` 限容；
+安装后的 PIO terminal PC 经 pioasm 标签、编译断言和内部 token 白名单绑定。
+
+描述符加载由 `tdma_state_machine_command_dma_contract()` 显式声明，复用既有
+DMA_FORWARD 仲裁投影，与旧 forward 角色在 persona 生命周期内互斥；不取得 RX FIFO
+或额外 DREQ owner。最终输出段禁止继续 chain，池复用同时检查 loader 终端游标和两通道
+完成状态；加载/输出通道停止失败时保留资源和池。完整 byte 路径使用
+`TDMA_PIO_SPI_PROCESS_DATA_DECODE_CYCLES` 与 `TDMA_PIO_SPI_PROCESS_BYTE_REARM_CYCLES`
+准入，非法 delay 编码不允许 diagnostic continue 绕过。
+
+当前源码已完成软件模型、build/P3 流程、合法基线矩阵下的独立四板短帧闭环与逐 hop
+owner/CRC 原始采集；这些是有限窗口的修复证据。新校准矩阵的 SCK 门禁失败、P3 严格
+失败、完整 Core1 WCET 超限和正式 RAM 余量不足分别保留。DMA 最坏仲裁/断粮、环境
+覆盖与自主续装仍未完成，不据此冻结新能力或提升登记状态。
 
 这仍不是最终 resident process-image flight：当前 process-image follower 已有本机固定 segment
-的替换路径，但其邻接 owner 保护仍有上述缺口，也未形成飞行修改后的 WKC、尾部 CRC V2 和 segment
+的 bit 保护路径，但尚未形成飞行修改后的 WKC、尾部 CRC V2 和完整 segment
 完整性闭环。现有完整帧 flight engine/FIFO/map apply 仍是事后证据与迁移基础，不能把
 `raw-flight` 通过等同于 `process-image` 通过。
 
