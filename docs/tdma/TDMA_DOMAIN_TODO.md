@@ -150,7 +150,7 @@ byte-level cut-through 被当作 cycle-level flight 使用，使上层观测证�
 | TDMA-FLIGHT-002E | B4 契约收敛与 byte/cycle 分级飞行声明 | PENDING | 新契约登记、C11 交叉审核、顶层 7 天内刷新、`TDMA-RESIDENT-01` 状态变更留证；byte-level 与 cycle-level 声明分开记录。 |
 | TDMA-FLIGHT-003 | 发车节拍预算显式化与 fail-closed 准入（Track A，B1 的前置使能） | PENDING | 可达节拍下界由符号声明；低于下界的 profile 必须被**拒绝**而非静默漏拍；节拍证据字段可只读查询。 |
 | TDMA-FLIGHT-004 | 2026-09-11 四节点闭环回归归因 | DONE | 受控实验分别复现非阻塞 PIO 改动、缩短共享反馈/发车预算的回归；归档最终 PIO 下标正确；四板恢复基线后闭环和稳态错误增量复验通过。见 `TDMA-PROGRESS-20260911-003`。完成范围是改动族归因，电气错位机制及自主续转仍由 B0/B1/B3 继续验证。 |
-| TDMA-FLIGHT-005 | `process_follower` 补丁下标与指令插入位置绑定 | PENDING | 命令 FIFO 退化路径新增指令后，`instr_mem` 补丁下标有静态/host 断言保护；人为改错下标必须使检查失败。 |
+| TDMA-FLIGHT-005 | `process_follower` 补丁下标与指令插入位置绑定 | DONE | WAIT 补丁改用 pioasm public label 导出位置；host 变异测试拒绝手写下标、标签脱离 WAIT 和边沿符号错配。当前源码 build、四板 OTA、P3 quick diagnostic 与独立短帧复测已留证；严格校准失败和 SD 超时原报告保留，见 `TDMA-PROGRESS-20260911-004`。 |
 | TDMA-HIL-001 | 四板 TDMA 环路的 WCET/频率/占空比/SD 波形基线 | PENDING | 四板 OTA 后原始波形、SVG、schedule snapshot 与零错误基线归档；不要求 NO5，NO5 不进入环路 bitmap/WKC。 |
 | TDMA-HIL-002 | 逐 phase 开载且 TDMA 零回归 | PENDING | 依次启用 VDC/DPLL/RefMem/control，TDMA deadline/error 不增加。 |
 | TDMA-DPLL-001 | PIO/DMA hardware latch correlation | IN PROGRESS | reference TX latch 已作为固定 process-image trailer 关联上一帧 sequence；仍需 active PATH_DELAY、四板同圈 eligible sample 和 wrap/失配 HIL。 |
@@ -203,7 +203,7 @@ DPLL/诊断结果掩盖前一阶段 TDMA 或校准失败。
   `TDMA-FLIGHT-001`），发车仍由 Core1 的 deadline 与 FSM 完成条件共同门控。
 - `TDMA-FLIGHT-004` 已完成改动族归因并恢复四板基线，见 `TDMA-PROGRESS-20260911-003`。
   非阻塞 PIO 与缩短共享反馈/发车预算均可独立触发回归；原始失败和恢复后通过的证据分别
-  保留。后续切片先补 B0 的同钟观测和指令位置保护，不得直接复用归档中的混合改动作为
+  保留。指令位置保护已完成，后续切片补 B0 的同钟观测，不得直接复用归档中的混合改动作为
   自主循环方案，也不得将受控归因扩大为全部历史 build 的电气因果证明。
 - `feedback_timeout` 当前在 `tdma_service.c` 由 TDMA 自行乘算，违反
   `TDMA_DOMAIN_ARCHITECTURE.md` 的窗口量所有权条款。`TDMA-FLIGHT-003` 收敛前，该值不构成

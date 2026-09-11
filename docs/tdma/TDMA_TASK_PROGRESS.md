@@ -14,6 +14,37 @@ Last updated: 2026-09-11
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
 
+### TDMA-PROGRESS-20260911-004 - PIO WAIT 补丁位置保护与当前源码闭环
+
+- TODO task ID：`TDMA-FLIGHT-005`；实现提交 `4083104`。以下 build、计数、采样预算和
+  时序数字均为本轮快照，非事实源。证据根为
+  `out/HardwareAcceptance/20260911/tdma-flight-005/`，入口 `slice-manifest.json`。
+- 变更边界：`tdma_pio_spi_flight_process_follower_program_init()` 在 ARM 安装 WAIT 操作数时，
+  使用 PIO public label 生成的 offset，替代手写下标。没有改变命令流、PIO 指令序列、
+  phase、owner 或状态迁移。相关 host 测试覆盖插入指令后的重定位，以及错误数字下标、
+  标签离开 WAIT、时钟边沿符号错配的拒绝；相关测试合计 `15 passed`。
+- 汇编/构建：真实 pioasm 生成的全部程序机器指令与基线逐项一致，见
+  `pio-equivalence.json`；当前源码 build `20260911130454`，四板 OTA 回读成功。
+  默认 pre-commit 的源码指纹验收通过，scope 为 `FOUR_NODE_TDMA_QUICK_DIAGNOSTIC`；
+  新 receipt 保留该 scope 和原始失败，不能解释为严格产品 P3 或长期目标验收。
+- P3 原始结果：`p3/diagnostic.json` 的 `strict_gates_passed=false`。coarse CLK 在 NO4
+  ARM 返回 `result=8`，coded marker 与 MARK offset 校准也失败；P3 Latency Cal 和
+  TDMA process-image 子门禁通过。所有拒绝、诊断继续和原始日志保留。
+- 独立闭环：沿用先前基线 matrix 与 DPLL provisional 设置，`controlled/summary.json`
+  的 `passed`、`closed_loop_passed`、`realtime_gate_passed` 均为 true，
+  `diagnostic_continue=false`。启动填充错误按原工具 startup barrier 单独记录；稳态四板
+  good RX 增量分别为 1281、1285、1283、1283，基础收帧/transport/schedule/profile 错误
+  增量均为零。此结果只覆盖 TDMA 工具定义的范围，完整 HAOFV WCET 仍未验收。
+- 波形取证：原 SD job 超时保留为 `diagnostic_passed=false`；原 job DONE 后取回四板
+  文件于 `recovered/`，没有重发 SAVE。离线 SCK 短窗检查通过，RX 窗口未含完整 packet，
+  也没有同钟本地 TX 样本；内容相关偏移不能作为 B0 pipeline delay。
+  `live-state.json` 确认四板均为本 build 且 STOPPED。
+- B0 下一切片：`b0-budget-design.json` 核对现有 SYNC_IO workspace、DMA 与存储分段上限。
+  设计候选为六 pad 同拍打包、硬件边沿触发、PIO 自计数后停住和有限 DMA；原始 sample
+  index、实际 clk_sys/分频和 RXSTALL 必须随冻结缓冲发布。Core1 只执行有界控制，
+  Core0/StorageAO 在保留 workspace 所有权期间分段导出。该文件是设计输入，尚未实现
+  或通过资源/WCET/HIL 门禁；不新增冻结契约。
+
 ### TDMA-PROGRESS-20260911-003 - 独立工作树单变量回归实验
 
 - TODO task ID：`TDMA-FLIGHT-004`、`TDMA-FLIGHT-005`。
@@ -228,7 +259,9 @@ HAOFV 自主循环长期目标已完成 `TDMA-FLIGHT-004` 的改动族受控归�
 `TDMA-PROGRESS-20260911-003`。四板已恢复当前主工作树固件并通过 process-image 闭环复验。
 原始 P3 严格失败与 SD 观测超时均保留；取回的 RX/SCK 数据不足以证明 B0 的同钟
 RX/TX pipeline delay，现有 analyzer 的 Core1 消费时间戳也不能替代该证据。
-`TDMA-FLIGHT-002/002A` 继续执行；下一切片为 B0 观测与指令位置保护，随后再实施硬件
+`TDMA-FLIGHT-005` 指令位置保护已完成并以当前源码复测闭环，见
+`TDMA-PROGRESS-20260911-004`；四板当前为该切片 build 的 STOPPED。
+`TDMA-FLIGHT-002/002A` 继续执行；下一切片为 B0 的硬件触发、有限采集与同钟观测，随后再实施硬件
 自主续转和 Core1 WCET 收敛。resident/flight 契约保持原状态。
 
 ### 历史 checkpoint（2026-08-28，保留原始状态）
@@ -252,6 +285,7 @@ NO5 观测仍未完成，因此 DPLL 尚不能进入 active matrix/eligible/serv
 
 | progress ID | TODO task ID | 证据 |
 |---|---|---|
+| TDMA-PROGRESS-20260911-004 | TDMA-FLIGHT-005/002A | `out/HardwareAcceptance/20260911/tdma-flight-005/slice-manifest.json`：host 变异测试、汇编等价检查、P3/OTA、独立闭环、原 SD job 后续取证、停止状态和 B0 设计输入。 |
 | TDMA-PROGRESS-20260911-001 | TDMA-FLIGHT-002/004/005 | `out/HardwareAcceptance/20260911/tdma-flight-baseline-ab/baseline/`：板卡身份、历史子门禁、PIO 指令下标、byte-dispatch 模型及 adapter 主机测试。 |
 | TDMA-PROGRESS-20260911-002 | TDMA-FLIGHT-002A/004/005 | 归档根 `out/HardwareAcceptance/20260911/tdma-flight-baseline-ab/` 下的 `p3-baseline/`、`baseline-process-retry/`、`b0-raw-flight/`、`b0-recovered/`；严格失败、未改固件复测和原 SD job 后续取证分别保留。 |
 | TDMA-PROGRESS-20260911-003 | TDMA-FLIGHT-004/005 | 归档根 `out/HardwareAcceptance/20260911/tdma-flight-baseline-ab/` 下的 `ab-experiment-index.json`、各组 manifest、`ab-*-p3/`、`ab-*-controlled/`、`ab-*-recovered/` 及 `restore-baseline-*/`；`archive-index.json` 保留两个来源工作树的路径映射和完整文件摘要。 |
