@@ -8,7 +8,9 @@ Last updated: 2026-09-12
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前完整 origin 图离线证据入口为
+当前 STOP 生命周期切片证据根为
+`out/HardwareAcceptance/20260911/tdma-flight-origin-stop/`，入口为 `slice-manifest.json`；
+完整 origin 图离线证据入口为
 `out/HardwareAcceptance/20260911/tdma-flight-origin-frame/frame-manifest.json`；
 前序 reference 头部离线审计入口为
 `out/HardwareAcceptance/20260911/tdma-flight-origin-audit/audit-manifest.json`；
@@ -23,6 +25,60 @@ Last updated: 2026-09-12
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260912-006 - STOP 依赖链、清理结果传播与停止态调度竞争
+
+- 日期：2026-09-12；TODO task ID：`TDMA-FLIGHT-002B`。基于 `541b512`，代码提交
+  `237bfba`，证据根为
+  `out/HardwareAcceptance/20260911/tdma-flight-origin-stop/`。本项数字均为实验快照，
+  非事实源。origin C builder/PIO 候选完整保存在 `pending-origin/components/tdma/`，
+  尚未安装；本切片不取得 executor、sniffer、PIO0 或 DMA7，也不声称自主 origin 已完成。
+- 物理 STOP 在暂停自有 SM 后按 loader 到下游 output/capture 停止，每层重新清 EN，
+  检查自有 ABORT/BUSY 并共用既有超时预算。失败不清 FIFO/IRQ、不回收池/资源；
+  persona release 同时检查 capture，即使不存在 loader 也不得提前放行。
+  coded/MARK/DATA 训练入口和显式 STOP 经过同一停止边界。
+- 初版 build `20260911203945` 的独立 process/raw 检查通过，训练后恢复在 NO2
+  TRAIN512 超时；`after-training-failure.json` 与 `stop-retry-no2.txt` 保留上层已
+  STOPPED、物理 armed 仍置位且 PERSONA_BUSY 的失败。根因是 void STOP 丢失底层
+  拒绝，上层随后丢弃清理入口。修复将 physical/adapter STOP 改为 bool，runtime
+  保留 context 和显式 pending 并由 owner 重试；停止配置 applied ACK、新 ARM、
+  adapter 重绑定与 profile 元数据替换均不能越过未完成 STOP。部分 ARM 的残留图
+  同样保留清理入口，配置序号回绕不替代 pending 状态。
+- build `20260911205929` 的 `p3-r2/` 完成真实四板 OTA 和新矩阵 process-image/FIFO
+  检查；粗 CLK 校准拓扑读回不一致，凭证仍为 QUICK_DIAGNOSTIC、strict=false。
+  `lifecycle-r2/` 的 process 通过，raw ARM 在 NO3 以 result=8 拒绝；一次有界重试
+  `lifecycle-r3/` 在 reference ARM 同样拒绝。该码属于 RefMem ARM runtime config，
+  不能解释为物理错误码。NO3 配置序号推进两次，与 service 配置后 scheduler resume
+  失败撤回分支一致；失败后 physical armed 为零且停止 ACK 完成。
+- 审计发现已关闭的 traffic admission 仍使 Core1 每拍取队列锁、刷新周期并扫描空队列。
+  `traffic-before.log` 的真实 C 负测复现停止态推进周期与争锁；修复以原子关闭提示
+  提前返回，开放提示仍须取锁后复核，队列所有权不变。`traffic-after.log`、
+  `service-r3.log` 通过。它消除停止态 consumer 的无效竞争，不承诺任意并发控制
+  操作永不拒绝，也不替代后续完整 owner mailbox 治理。
+- 软件：`pytest-r6.log` 为 153 通过，包含真实 STOP C 例程的晚写入、独立 ABORT/BUSY、
+  共享超时与重试；runtime/adapter/service C 用例覆盖失败清理、ACK、重绑定与回绕。
+  `pytest-r1-setup.txt` 保留目录准备失败，`pytest-r4.log` 保留签名断言未同步的失败。
+  build-r3 `20260911211655` 编译及 Flash 链接检查通过；`ram-r3.log` 正式 RAM 仍
+  FAIL，剩余 2,660 B，低于正式门禁 49,152 B。
+- 当前源码 `p3-r3/` 完成真实四板 OTA/校准/环路，凭证绑定源码指纹
+  `bf3ea067356e6213204cf5b45ad6d4e7d3118ca3b2f414d3df26ccf62e3c0e28`。
+  校准阶段均通过，启动屏障在两秒内仅取得所需两次中的一次稳定采样，故 strict=false；
+  首次采样保留初始 receive/bitmap 拒绝增长，第二次及后续 soak 通过。该失败不能
+  隐去，也不能据此直接归因为矩阵错误。QUICK_DIAGNOSTIC 流程完成不代表产品验收。
+- `lifecycle-r4/` 使用明确记录的前序实测对照矩阵与既有四秒启动窗口，process→raw→
+  带 clock training 的 process 三阶段均通过，closed-loop/realtime 门禁通过且
+  diagnostic_continue=false；本轮无 ARM 拒绝。四板各自有限采集的 SD 原始段可完整
+  重建 JSON；`owner-audit.json` 接受每板同钟入/出包、逐 follower 字节所有权、头部
+  完整性和活动 mailbox CRC16。对照矩阵不是本轮校准证明，各板局部包对也不是全局
+  同一圈更新或 service blackout 证明。
+- `schedule-audit.json` 中各板采集/导出期间增加约 1.94 万接收帧，transport 错误无
+  增长，但 TDMA phase 历史最大耗时约 2.396–2.930 ms，超过 380 µs 预算，超限计数
+  继续增长；历史最大值包含前序 P3/启动，不能归因为纯采集开销。完整 Core1 WCET
+  仍失败。`final-stopped.json` 验证四板均为当前 build、physical armed/runtime started
+  为零，STOP 配置等于 applied，analyzer RELEASED、SD job DONE。
+- 下一 gate：恢复完整 origin builder、资源准入、异步 completion 与安全内存生命周期
+  集成，再执行新的当前源码 P3/原始波形与真实 service blackout。正式 RAM、严格 P3
+  启动门禁、完整 WCET 与 C11 仍开放，`TDMA-FLIGHT-002B` 保持 IN PROGRESS，registry 不变。
 
 ### TDMA-PROGRESS-20260912-005 - origin 完整执行图、交接竞态与固定窗口候选
 
@@ -668,11 +724,11 @@ Last updated: 2026-09-12
 短帧与原始波形证据，不能外推到 reference 自主发车或完整 Core1 WCET。
 reference header 与返回 ring 反例见 `TDMA-PROGRESS-20260912-004`；完整 origin 图、
 交接竞态、紧凑 RX/CRC 和固定窗口候选已完成离线执行，见 `TDMA-PROGRESS-20260912-005`。
-下一步集成完整 C builder、origin DMA/sniffer 准入与异步 completion，并把准备窗口
-和迟到故障策略纳入 Calibration 预算；模型续转不能替代固定节拍或硅上生命周期证明。
-最近硬件终态来自 follower recurrence 切片，记录为 STOPPED、采集 RELEASED；本次
-没有板端重读，不能当作当前硬件状态。后续硬件动作须重新绑定 HEAD、身份与 build。
-P3 严格校准、正式 RAM 和完整 Core1 WCET 仍未通过；真正 TDMA service blackout 尚未取证。
+STOP 依赖链、拒绝传播与停止态调度竞争的前置修复已提交，四板恢复闭环与原始 owner/CRC
+验证见 `TDMA-PROGRESS-20260912-006`。下一步集成完整 C builder、origin DMA/sniffer
+准入与异步 completion，并把准备窗口和迟到故障策略纳入 Calibration 预算。
+本轮四板停止快照已绑定源码/build，模型续转不能替代硅上证明。
+严格 P3 启动门禁、正式 RAM 和完整 Core1 WCET 仍未通过；真正 TDMA service blackout 尚未取证。
 `TDMA-FLIGHT-002` 继续执行，resident/flight 契约保持原状态。
 
 ### 历史 checkpoint（2026-08-28，保留原始状态）

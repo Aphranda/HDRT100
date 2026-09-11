@@ -728,7 +728,18 @@ generation，末控制段从受保护 SRAM 指针装入 loader 的触发别名�
 
 Core1 只构建 inactive pool，完整绑定并执行内存屏障后原子发布 successor 地址；同时
 最多一个 pending publication。只有 DMA 写回新 generation 后，owner 才能回收旧池。
-段间瞬态 BUSY 清零不释放池；STOP 必须禁用并有界停止 loader/output，失败保留资源和池。
+段间瞬态 BUSY 清零不释放池。STOP 先暂停拥有的 SM，只禁用、不清 FIFO；按描述符
+写入依赖先停止 loader，再停止下游 output/capture，每层在上游收敛后重新清 EN，
+同时检查本层 ABORT 与 BUSY。所有层共用 `TDMA_PIO_SPI_COMMAND_STOP_TIMEOUT_US`
+预算；失败保留资源、池、FIFO 和 IRQ 状态，由 owner 后续重试，禁止 persona 切换或
+缓冲复用。训练入口也必须先通过相同停止边界；成功后才能清 FIFO、重置 PC 和释放资源。
+物理 `disarm` 与 adapter `stop` 返回实际清理结果。runtime 在失败时保留原 adapter
+及 context，以显式 pending 状态在后续 owner service 重试，不能提前发布停止配置的
+applied ACK，也不能重绑定或启动新 persona；失败 ARM 的残留图使用同一路径清理。
+foundation profile 切换必须传播该拒绝，不能先替换 profile 或 payload 元数据。
+STOP 已关闭的 traffic admission 由原子标量发布；Core1 consumer 在关闭时直接返回，
+不扫描队列或刷新预算周期，也不与恢复操作争用队列锁。开放提示只允许尝试取锁，
+取得锁后仍须复核 admission，不能据锁外提示读写队列。
 内部 generation 跳过零，单 pending 与顺序选择约束避免跨版本误认；仅在完全停止后
 重建 ARM epoch。DMA 预取可能领先物理 CS 边界，selection 只证明内存读取交接，
 不能当作 SENT、wire completion、RefMem ACK/fence 或 DPLL 时间。
