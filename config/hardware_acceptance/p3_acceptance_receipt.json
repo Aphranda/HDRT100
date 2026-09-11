@@ -4,64 +4,64 @@
   "acceptance_profile": "QUICK_DIAGNOSTIC",
   "dpll_observation": "SKIPPED_TDMA_ONLY",
   "passed": true,
-  "generated_at_utc": "2026-09-11T17:30:45.412020+00:00",
-  "source_tree_sha256": "fca9003c2f528f9a5916e56622887edb38bd687c21b73ae69c9063b78022514c",
+  "generated_at_utc": "2026-09-11T18:27:25.524631+00:00",
+  "source_tree_sha256": "da774652f2a50cb812c32efc57d8afba4b515458fc787447ca54474744112bd4",
   "source_file_count": 979,
   "bench_config_path": "config/hardware_acceptance/p3_bench_quick.json",
   "bench_config_sha256": "c032843ba0eab2e87bb3399920c0fe54f79cf1eddbb4404a7ed1d85b1ea34fc2",
-  "build_id": "20260911172347",
+  "build_id": "20260911182033",
   "firmware_package": {
-    "path": "out/build/tdma-flight-live-crc-20260912/DHRT100_UPDATE.pkg",
-    "sha256": "a4abdb6b186837c6fe7d3eac2014da67f076c39fc087d5558a90dae12fd579fd"
+    "path": "out/build/tdma-flight-follower-recurrence-20260912/DHRT100_UPDATE.pkg",
+    "sha256": "ff102836f9f1d028163a70c452cdf48074464e66528ec994f313ab9c72f9c7a1"
   },
   "ota_summary": {
-    "path": "out/HardwareAcceptance/20260911/tdma-flight-live-crc/p3-r1/ota-four-board-tdma/summary.json",
-    "sha256": "c5cab5dbf4da96a123b419d7945dd836b2b26330ee17bb7a0d0e90ffdc93dcfe",
+    "path": "out/HardwareAcceptance/20260911/tdma-flight-follower-recurrence/p3-r2/ota-four-board-tdma/summary.json",
+    "sha256": "ebcf7337ed3e4eb13950aa2d54b51dd7fbf25fece8712e8bc815df17b5c7bafe",
     "board_count": 4
   },
   "topology_summary": {
-    "path": "out/HardwareAcceptance/20260911/tdma-flight-live-crc/p3-r1/p0t-topology/summary.json",
-    "sha256": "c9965b407a3dd45577f48d614ef514935a2030d5e6434116742642c17cf56a98"
+    "path": "out/HardwareAcceptance/20260911/tdma-flight-follower-recurrence/p3-r2/p0t-topology/summary.json",
+    "sha256": "567153803822536c439dac823eaa6745d2e4695039f2984e0fe75d5fed9eb6ee"
   },
   "coarse_calibration_summary": {
-    "path": "out/HardwareAcceptance/20260911/tdma-flight-live-crc/p3-r1/coarse-calibration-summary.json",
-    "sha256": "0ce673eca4da38989806dad42063a7bec08ea57463c37e9835dbc7ed356b2566"
+    "path": "out/HardwareAcceptance/20260911/tdma-flight-follower-recurrence/p3-r2/coarse-calibration-summary.json",
+    "sha256": "e026c185ade2536259fb2761493129b117f2bbafd8080cca46120fd03e913778"
   },
   "coded_calibration_summary": {
-    "path": "out/HardwareAcceptance/20260911/tdma-flight-live-crc/p3-r1/coded-calibration-summary.json",
-    "sha256": "900a81b003a0909c03c0667d1f1364b1b05b4d43ea9e7bc1a8670ce1ba7729f8"
+    "path": "out/HardwareAcceptance/20260911/tdma-flight-follower-recurrence/p3-r2/coded-calibration-summary.json",
+    "sha256": "434f956490107275d4c12efd9c2d096b2c67423c122169c1942a7675125ea5ac"
   },
   "initialization_reset": {
-    "path": "out/HardwareAcceptance/20260911/tdma-flight-live-crc/p3-r1/initialization-reset.json",
-    "sha256": "0063bdefc9fa88b097902d45363f130ebef9bdcb61edb34c3146efa64cb4defe"
+    "path": "out/HardwareAcceptance/20260911/tdma-flight-follower-recurrence/p3-r2/initialization-reset.json",
+    "sha256": "ac65d17f8a4527cb47e5fe05e2233c9c156e1b03b66caa9352e4f514d3d65583"
   },
   "p3_summary": {
-    "path": "out/HardwareAcceptance/20260911/tdma-flight-live-crc/p3-r1/p3-four-board/summary.json",
-    "sha256": "e9251c407ca3d1dfcefec6f83b8285d0578f9b97db5864762533daa8e1f36cfa"
+    "path": "out/HardwareAcceptance/20260911/tdma-flight-follower-recurrence/p3-r2/p3-four-board/summary.json",
+    "sha256": "c2e4072224c9492c9100ea5209cea86d524ef2d360b1274849f0538b79a6ecd2"
   },
   "trn00_summary": {
-    "path": "out/HardwareAcceptance/20260911/tdma-flight-live-crc/p3-r1/trn00-summary.json",
-    "sha256": "97e47148d7a847156454d1a077e92e5a206478d6437dd3af7d6b9a187f4c55ff"
+    "path": "out/HardwareAcceptance/20260911/tdma-flight-follower-recurrence/p3-r2/trn00-summary.json",
+    "sha256": "0cee61ef5b82d277cd9ac4b04e57f83beb81d8baa345e8c2e9064a6b55337e5b"
   },
   "trn01_summary": {
-    "path": "out/HardwareAcceptance/20260911/tdma-flight-live-crc/p3-r1/trn01-summary.json",
-    "sha256": "55f39c43dedbf68e78f2ec5f7575fc82fd5ad7a2144dad389ae8455f697cafaf"
+    "path": "out/HardwareAcceptance/20260911/tdma-flight-follower-recurrence/p3-r2/trn01-summary.json",
+    "sha256": "3c165fa64bd6856f87a0ad371e4b14d0cedb1fb5300c84c8f0909b5712b7a484"
   },
   "trn02_summary": {
-    "path": "out/HardwareAcceptance/20260911/tdma-flight-live-crc/p3-r1/trn02-data/summary.json",
-    "sha256": "20550e4ea1e45abf7abf03e503e01a975d059847dfbd4f102ab9b29d7366c8ba"
+    "path": "out/HardwareAcceptance/20260911/tdma-flight-follower-recurrence/p3-r2/trn02-data/summary.json",
+    "sha256": "b4e19b7d7d4c2d20e8e2acbcc90d3be363acdd027d5e415dd33a9524e2161e1b"
   },
   "trn03_matrix": {
-    "path": "out/HardwareAcceptance/20260911/tdma-flight-live-crc/p3-r1/trn03-matrix.json",
-    "sha256": "007205948940aaf4ecc37b80a8e3a0a52711f3ca782a2377ff3d9d9f69893b11"
+    "path": "out/HardwareAcceptance/20260911/tdma-flight-follower-recurrence/p3-r2/trn03-matrix.json",
+    "sha256": "1532fa4e5dd4457c8c27e6ebd63b7d882b154d6d7786c1f30971d83839553b78"
   },
   "calibration_parameter_handoff": {
-    "path": "out/HardwareAcceptance/20260911/tdma-flight-live-crc/p3-r1/calibration-parameter-handoff.json",
-    "sha256": "9efcd932a9d915a1b1fe2c801825acb61326b82a4b3e6466eea5178a1e8c91ea"
+    "path": "out/HardwareAcceptance/20260911/tdma-flight-follower-recurrence/p3-r2/calibration-parameter-handoff.json",
+    "sha256": "bf38d33fa9bc281d607cf0ffae8b94d5d5055cda5c7ebb8f513a65226367ce0d"
   },
   "tdma_summary": {
-    "path": "out/HardwareAcceptance/20260911/tdma-flight-live-crc/p3-r1/tdma-process-image/summary.json",
-    "sha256": "7e6182cf5f778cf129e8de66e12de250779b582cfa9b6212f315180f212aaef6"
+    "path": "out/HardwareAcceptance/20260911/tdma-flight-follower-recurrence/p3-r2/tdma-process-image/summary.json",
+    "sha256": "6f1903c9dcf029ba6ffb3b99f14c3222cdeba096b9d4db797a097d00dd5b3d47"
   },
   "ota_board_ids": [
     "0010071E65B5CB38",
@@ -92,7 +92,7 @@
     41
   ],
   "path_delay_baseline_divisor": 2,
-  "calibration_generation": 1789147794,
+  "calibration_generation": 1789151191,
   "calibration_load_mask": 4,
   "waveform_capture_policy": {
     "trn00": false,
@@ -106,52 +106,52 @@
     "0010071E65B5CB38": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 40649,
-      "schedule_miss_count": 44131
+      "cycle_count": 32750,
+      "schedule_miss_count": 36343
     },
     "FB276192BEF9CCE1": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 40740,
-      "schedule_miss_count": 44519
+      "cycle_count": 33018,
+      "schedule_miss_count": 37390
     },
     "2BD5090FE009FA2A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 40745,
-      "schedule_miss_count": 44420
+      "cycle_count": 33066,
+      "schedule_miss_count": 37444
     },
     "A1E549202D18ED6A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 40839,
-      "schedule_miss_count": 44540
+      "cycle_count": 33091,
+      "schedule_miss_count": 37270
     }
   },
   "schedule_after": {
     "0010071E65B5CB38": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 91312,
-      "schedule_miss_count": 112720
+      "cycle_count": 86829,
+      "schedule_miss_count": 109142
     },
     "FB276192BEF9CCE1": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 90166,
-      "schedule_miss_count": 105109
+      "cycle_count": 85779,
+      "schedule_miss_count": 102104
     },
     "2BD5090FE009FA2A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 89412,
-      "schedule_miss_count": 105739
+      "cycle_count": 84929,
+      "schedule_miss_count": 103009
     },
     "A1E549202D18ED6A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 89089,
-      "schedule_miss_count": 105228
+      "cycle_count": 84240,
+      "schedule_miss_count": 101676
     }
   },
   "realtime_load_mask_unchanged": true,
@@ -170,8 +170,8 @@
     "output_handoff_s": 0.05
   },
   "timing_probe": {
-    "path": "out/HardwareAcceptance/20260911/tdma-flight-live-crc/p3-r1/timing.json",
-    "sha256": "ed699a4b4d6b342b0a006cefea829124a010cfa4767c3075e6b2dc62b3a8e653"
+    "path": "out/HardwareAcceptance/20260911/tdma-flight-follower-recurrence/p3-r2/timing.json",
+    "sha256": "67380af837a13a6939d242f80e8b3d0ac3a04740832e0a138b9daa30767491b3"
   },
   "flow_completed": true,
   "strict_gates_passed": false,
@@ -179,18 +179,43 @@
     {
       "phase": "coarse CLK calibration level 7",
       "returncode": 1,
-      "error": "RuntimeError: A1E549202D18ED6A: ARM timeout, last={}, last_error=A1E549202D18ED6A: TDMA status query timed out",
-      "summary": "out/HardwareAcceptance/20260911/tdma-flight-live-crc/p3-r1/coarse-clk-level7/summary.json"
+      "error": "RuntimeError: 0010071E65B5CB38: ARM rejected with result=5",
+      "summary": "out/HardwareAcceptance/20260911/tdma-flight-follower-recurrence/p3-r2/coarse-clk-level7/summary.json"
+    },
+    {
+      "phase": "coded marker calibration level 7",
+      "returncode": 1,
+      "error": "gate did not pass",
+      "summary": "out/HardwareAcceptance/20260911/tdma-flight-follower-recurrence/p3-r2/coded-marker-level7/summary.json"
+    },
+    {
+      "phase": "TRN-01 SCK training",
+      "returncode": 1,
+      "error": "gate did not pass",
+      "summary": "out/HardwareAcceptance/20260911/tdma-flight-follower-recurrence/p3-r2/trn01-sck/summary.json"
+    },
+    {
+      "phase": "TRN-03 SCK replay row selection",
+      "returncode": 1,
+      "error": "no measured SCK row satisfies the flight re-arm budget",
+      "selected_offset_sample_counts_by_node": [
+        1,
+        0,
+        0,
+        1
+      ],
+      "selected_min_follower_margin_samples": -1,
+      "matrix": "out/HardwareAcceptance/20260911/tdma-flight-follower-recurrence/p3-r2/trn03-matrix.json"
     },
     {
       "phase": "four-Node TDMA closed loop",
       "returncode": 1,
       "error": "explicit startup barrier timed out",
-      "summary": "out/HardwareAcceptance/20260911/tdma-flight-live-crc/p3-r1/tdma-process-image/summary.json"
+      "summary": "out/HardwareAcceptance/20260911/tdma-flight-follower-recurrence/p3-r2/tdma-process-image/summary.json"
     }
   ],
   "diagnostic_summary": {
-    "path": "out/HardwareAcceptance/20260911/tdma-flight-live-crc/p3-r1/diagnostic.json",
-    "sha256": "9c03000b1dbfcacc0a0860493b8b7f9711391ad25c9c6e2193157d08cf379146"
+    "path": "out/HardwareAcceptance/20260911/tdma-flight-follower-recurrence/p3-r2/diagnostic.json",
+    "sha256": "52918fc9345c682e1ecfe2ee6f01e0025f85dfd2bdabaedce4a3d51c3c13eba7"
   }
 }

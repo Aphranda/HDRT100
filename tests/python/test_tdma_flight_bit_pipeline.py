@@ -21,9 +21,9 @@ class Run(C.Structure):
 
 
 class Plan(C.Structure):
-    _fields_ = [("run", Run * 6), ("token", C.c_uint32 * 259)] + [
+    _fields_ = [("run", Run * 8), ("token", C.c_uint32 * 259)] + [
         (name, C.c_uint32) for name in ("run_count", "token_word_count",
-                                      "command_word_count", "replacement_byte_count")]
+                                      "command_word_count", "replacement_byte_count", "generation")]
 
 
 class Config(C.Structure):

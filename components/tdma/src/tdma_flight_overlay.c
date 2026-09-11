@@ -150,7 +150,8 @@ bool tdma_flight_overlay_build_plan(
 bool tdma_flight_overlay_plan_valid(const tdma_flight_overlay_plan_t *plan,
                                    uint32_t final_bit_pc)
 {
-    if (plan == NULL || !tdma_flight_overlay_valid_terminal(final_bit_pc) ||
+    if (plan == NULL || plan->generation != 0u ||
+        !tdma_flight_overlay_valid_terminal(final_bit_pc) ||
         plan->run_count == 0u || plan->run_count > TDMA_FLIGHT_OVERLAY_RUN_MAX ||
         plan->token_word_count == 0u || plan->token_word_count > TDMA_FLIGHT_OVERLAY_TOKEN_WORD_MAX ||
         plan->command_word_count == 0u || plan->command_word_count > 0x0FFFFFFFu ||

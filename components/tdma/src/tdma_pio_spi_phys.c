@@ -164,9 +164,8 @@ static uint32_t s_tdma_pio_spi_rx_ring[TDMA_PIO_SPI_RX_RING_WORDS]
     __attribute__((aligned(TDMA_PIO_SPI_RX_RING_WORDS * sizeof(uint32_t))));
 static uint32_t s_tdma_pio_spi_flight_tx_words[
     TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS] __attribute__((aligned(4)));
-/* Two resident scripts allow core1 to prepare the next process-image
- * overlay while the PIO/DMA engine is still draining the current one.  The
- * active buffer is never mutated until its DMA transfer has completed. */
+/* Two resident plans: only selection of the successor retires the old pool.
+ * A BUSY sample or physical frame IRQ does not authorize pool reuse. */
 static tdma_flight_overlay_plan_t s_tdma_pio_spi_flight_overlay_plan[2u];
 /* SRAM: PASS traffic must not depend on XIP cache latency. */
 static uint32_t s_tdma_pio_spi_flight_live_word = TDMA_FLIGHT_OVERLAY_LIVE_WORD;
@@ -1199,20 +1198,25 @@ static uint32_t tdma_pio_spi_phys_overlay_final_pc(void)
 
 static bool tdma_pio_spi_phys_overlay_dma_busy(tdma_pio_spi_phys_t *phys)
 {
-    if (!phys->flight_overlay_dma_active) return false;
-    if (s_tdma_pio_spi_command_dma_channel < 0 ||
-        s_tdma_pio_spi_tx_dma_channel < 0) return true;
-    const tdma_flight_overlay_plan_t *plan =
-        &s_tdma_pio_spi_flight_overlay_plan[phys->flight_overlay_active_buffer];
-    /* Read the cursor first. Before the final AL3 trigger has drained, no
-     * combination of two transient BUSY observations proves completion. */
-    if (dma_hw->ch[s_tdma_pio_spi_command_dma_channel].read_addr !=
-            (uintptr_t)&plan->run[plan->run_count] ||
-        dma_channel_is_busy((uint)s_tdma_pio_spi_command_dma_channel) ||
-        dma_channel_is_busy((uint)s_tdma_pio_spi_tx_dma_channel)) return true;
+    /* Both channels may briefly be idle between control blocks. Recurrence
+     * owns its pools until bounded STOP, independently of a BUSY sample. */
+    return phys->flight_overlay_dma_active;
+}
+
+static void tdma_pio_spi_phys_service_overlay_pending(tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL || !phys->flight_overlay_dma_active) {
+        return;
+    }
+    const uint32_t selected = phys->flight_overlay_selected_generation;
     __dmb();
-    phys->flight_overlay_dma_active = false;
-    return false;
+    phys->snapshot.overlay_selected_generation = selected;
+    if (phys->flight_overlay_pending &&
+        selected == phys->flight_overlay_published_generation) {
+        phys->flight_overlay_active_buffer = phys->flight_overlay_pending_buffer;
+        phys->flight_overlay_pending = false;
+        phys->snapshot.overlay_selection_pending = 0u;
+    }
 }
 
 static bool tdma_pio_spi_phys_start_overlay_script(
@@ -1227,10 +1231,10 @@ static bool tdma_pio_spi_phys_start_overlay_script(
         }
         return false;
     }
-    /* A busy DMA channel is normal while the previous frame drains.  The
-     * caller keeps the prepared script in the other resident buffer and
-     * retries from core1 service; it never waits here. */
-    if (tdma_pio_spi_phys_overlay_dma_busy(phys)) {
+    tdma_pio_spi_phys_service_overlay_pending(phys);
+    if (phys->flight_overlay_pending ||
+        (phys->flight_overlay_dma_active &&
+         buffer_index == phys->flight_overlay_active_buffer)) {
         phys->snapshot.overlay_last_error =
             TDMA_PIO_SPI_OVERLAY_ERROR_DMA_BUSY_TIMEOUT;
         phys->snapshot.overlay_tx_dma_remaining =
@@ -1252,6 +1256,12 @@ static bool tdma_pio_spi_phys_start_overlay_script(
     }
     const uint output = (uint)s_tdma_pio_spi_tx_dma_channel;
     const uint loader = (uint)s_tdma_pio_spi_command_dma_channel;
+    const tdma_state_machine_command_dma_contract_t command =
+        tdma_state_machine_command_dma_contract();
+    if (command.control_descriptor_count != TDMA_FLIGHT_OVERLAY_CONTROL_RUNS) {
+        phys->snapshot.overlay_last_error = TDMA_PIO_SPI_OVERLAY_ERROR_BUILD_FAILED;
+        return false;
+    }
     dma_channel_config dma_cfg = dma_channel_get_default_config(output);
     channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
     channel_config_set_high_priority(&dma_cfg, true);
@@ -1260,32 +1270,68 @@ static bool tdma_pio_spi_phys_start_overlay_script(
         &dma_cfg,
         pio_get_dreq(tdma_pio_spi_phys_data_pio(phys),
                      tdma_pio_spi_phys_data_sm(phys), true));
-    for (uint32_t i = 0u; i < plan->run_count; ++i) {
+    const uint32_t data_runs = plan->run_count;
+    for (uint32_t i = data_runs; i != 0u; --i) {
+        const tdma_flight_overlay_dma_run_t source = plan->run[i - 1u];
         tdma_flight_overlay_dma_run_t *run = &plan->run[i];
-        channel_config_set_read_increment(&dma_cfg, run->control != 0u);
-        channel_config_set_chain_to(&dma_cfg, i + 1u == plan->run_count ? output : loader);
-        run->read_address = (uint32_t)(uintptr_t)(run->control != 0u
-            ? &plan->token[run->read_address] : &s_tdma_pio_spi_flight_live_word);
+        channel_config_set_read_increment(&dma_cfg, source.control != 0u);
+        channel_config_set_chain_to(&dma_cfg, loader);
+        run->read_address = (uint32_t)(uintptr_t)(source.control != 0u
+            ? &plan->token[source.read_address] : &s_tdma_pio_spi_flight_live_word);
         run->write_address = (uint32_t)(uintptr_t)
             &tdma_pio_spi_phys_data_pio(phys)->txf[tdma_pio_spi_phys_data_sm(phys)];
+        run->transfer_count = source.transfer_count;
         run->control = channel_config_get_ctrl_value(&dma_cfg);
     }
-    const tdma_state_machine_command_dma_contract_t command =
-        tdma_state_machine_command_dma_contract();
-    dma_channel_config loader_cfg = dma_channel_get_default_config(loader);
-    channel_config_set_transfer_data_size(&loader_cfg, DMA_SIZE_32);
-    channel_config_set_read_increment(&loader_cfg, true);
-    channel_config_set_write_increment(&loader_cfg, true);
-    channel_config_set_ring(&loader_cfg, true, command.descriptor_write_ring_log2);
-    channel_config_set_high_priority(&loader_cfg, true);
-    channel_config_set_chain_to(&loader_cfg, loader);
-    phys->flight_overlay_active_buffer = buffer_index;
-    phys->flight_overlay_dma_active = true;
+    uint32_t generation = phys->flight_overlay_published_generation + 1u;
+    if (generation == 0u) generation = 1u;
+    plan->generation = generation;
+    channel_config_set_read_increment(&dma_cfg, false);
+    channel_config_set_dreq(&dma_cfg, DREQ_FORCE);
+    plan->run[0] = (tdma_flight_overlay_dma_run_t){
+        .control = channel_config_get_ctrl_value(&dma_cfg),
+        .write_address = (uint32_t)(uintptr_t)&phys->flight_overlay_selected_generation,
+        .transfer_count = 1u,
+        .read_address = (uint32_t)(uintptr_t)&plan->generation,
+    };
+    /* Reset the loader cursor via its trigger alias. No read-address ring is
+     * needed: the control list may have any admitted number of descriptors.
+     * The pointer is sampled once, after the entire old plan has been read. */
+    channel_config_set_chain_to(&dma_cfg, output);
+    plan->run[data_runs + 1u] = (tdma_flight_overlay_dma_run_t){
+        .control = channel_config_get_ctrl_value(&dma_cfg),
+        .write_address = (uint32_t)(uintptr_t)&dma_hw->ch[loader].al3_read_addr_trig,
+        .transfer_count = 1u,
+        .read_address = (uint32_t)(uintptr_t)&phys->flight_overlay_next_address,
+    };
+    plan->run_count = data_runs + TDMA_FLIGHT_OVERLAY_CONTROL_RUNS;
+
+    /* Publish only one successor. DMA selection may lead physical CS by FIFO
+     * prefetch; it proves memory retirement, never SENT or wire completion. */
+    phys->flight_overlay_pending_buffer = buffer_index;
+    phys->flight_overlay_published_generation = generation;
+    phys->flight_overlay_pending = true;
+    phys->snapshot.overlay_published_generation = generation;
+    phys->snapshot.overlay_selection_pending = 1u;
     __dmb();
-    dma_channel_configure(loader, &loader_cfg, &dma_hw->ch[output].al3_ctrl,
-                          plan->run, command.descriptor_words, true);
-    phys->flight_overlay_pending = false;
-    phys->flight_overlay_pending_words = 0u;
+    phys->flight_overlay_next_address = (uint32_t)(uintptr_t)plan->run;
+    __dmb();
+
+    /* ARM starts the loader once. Every later publication changes only the
+     * protected SRAM pointer; hardware chooses it at its next plan boundary. */
+    if (!phys->flight_overlay_dma_active) {
+        dma_channel_config loader_cfg = dma_channel_get_default_config(loader);
+        channel_config_set_transfer_data_size(&loader_cfg, DMA_SIZE_32);
+        channel_config_set_read_increment(&loader_cfg, true);
+        channel_config_set_write_increment(&loader_cfg, true);
+        channel_config_set_ring(&loader_cfg, true, command.descriptor_write_ring_log2);
+        channel_config_set_high_priority(&loader_cfg, true);
+        channel_config_set_chain_to(&loader_cfg, loader);
+        phys->flight_overlay_dma_active = true;
+        __dmb();
+        dma_channel_configure(loader, &loader_cfg, &dma_hw->ch[output].al3_ctrl,
+                              plan->run, command.descriptor_words, true);
+    }
     phys->snapshot.overlay_tx_dma_remaining = plan->command_word_count;
     phys->snapshot.overlay_tx_dma_busy = 1u;
     phys->snapshot.overlay_prepare_wait_us = 0u;
@@ -1309,40 +1355,17 @@ static bool tdma_pio_spi_phys_queue_overlay_script(
     if (phys == NULL || buffer_index >= 2u) {
         return false;
     }
-    /* There is only one future frame at a time.  Never overwrite a script
-     * that is already waiting for the DMA channel: doing so would make the
-     * PIO command stream depend on parser/service jitter. */
-    if (phys->flight_overlay_pending) {
-        return false;
-    }
-    if (tdma_pio_spi_phys_overlay_dma_busy(phys)) {
-        phys->flight_overlay_pending_buffer = buffer_index;
-        phys->flight_overlay_pending_words =
-            s_tdma_pio_spi_flight_overlay_plan[buffer_index].command_word_count;
-        phys->flight_overlay_pending = true;
-        phys->snapshot.overlay_last_error =
-            TDMA_PIO_SPI_OVERLAY_ERROR_DMA_BUSY_TIMEOUT;
-        phys->snapshot.overlay_tx_dma_busy = 1u;
-        phys->snapshot.overlay_tx_dma_remaining =
-            dma_hw->ch[s_tdma_pio_spi_tx_dma_channel].transfer_count;
-        return true;
-    }
     return tdma_pio_spi_phys_start_overlay_script(phys, buffer_index);
 }
 
-static void tdma_pio_spi_phys_service_overlay_pending(
-    tdma_pio_spi_phys_t *phys)
+bool tdma_pio_spi_phys_process_overlay_ready(void *context)
 {
-    if (phys == NULL || !phys->flight_overlay_pending ||
-        s_tdma_pio_spi_tx_dma_channel < 0 ||
-        tdma_pio_spi_phys_overlay_dma_busy(phys)) {
-        return;
-    }
-    const uint32_t buffer_index = phys->flight_overlay_pending_buffer;
-    if (tdma_pio_spi_phys_start_overlay_script(phys, buffer_index)) {
-        phys->flight_overlay_pending = false;
-        phys->flight_overlay_pending_words = 0u;
-    }
+    tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
+    if (phys == NULL || !phys->armed || !phys->flight_overlay_dma_active) return false;
+    tdma_pio_spi_phys_service_overlay_pending(phys);
+    return !phys->flight_overlay_pending &&
+        phys->flight_overlay_alignment_samples >=
+            TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES;
 }
 
 static bool tdma_pio_spi_phys_prepare_pass_overlay(
@@ -1377,52 +1400,13 @@ bool tdma_pio_spi_phys_service_process_overlay_boundary(void *context)
     const PIO data_pio = tdma_pio_spi_phys_data_pio(phys);
     const bool boundary_observed = pio_interrupt_get(data_pio, 3u);
     if (boundary_observed) {
-        /* IRQ3 is raised only after the fixed physical byte count and CS
-         * rising edge.  RX DMA publication can become visible a bounded
-         * number of core1 service passes later than this edge.  Record an
-         * explicit grace state instead of committing PASS immediately:
-         * otherwise the late parser result is coalesced behind PASS and this
-         * Node's mailbox is absent from an otherwise transport-valid process
-         * image. */
+        /* IRQ3 is sticky: these are observed boundaries, not an exact count
+         * of physical cycles while Core1 was absent. No refill follows. */
         pio_interrupt_clear(data_pio, 3u);
         phys->snapshot.overlay_frame_boundary_count++;
-        phys->flight_overlay_boundary_pending = true;
-        phys->flight_overlay_grace_remaining =
-            TDMA_PIO_SPI_OVERLAY_GRACE_SERVICE_PASSES;
+        if (!phys->flight_overlay_pending && phys->flight_overlay_alignment_locked)
+            phys->snapshot.overlay_reuse_observation_count++;
     }
-    if (!phys->flight_overlay_boundary_pending) {
-        return true;
-    }
-    if (phys->flight_overlay_next_prepared) {
-        phys->flight_overlay_next_prepared = false;
-        phys->flight_overlay_boundary_pending = false;
-        phys->flight_overlay_grace_remaining = 0u;
-        return true;
-    }
-    /* A prepared script may still be waiting for the DMA channel.  It is
-     * already the successor for this boundary; do not replace it with PASS
-     * merely because the bounded service pass observed the channel busy. */
-    if (phys->flight_overlay_pending) {
-        phys->flight_overlay_next_prepared = false;
-        phys->flight_overlay_boundary_pending = false;
-        phys->flight_overlay_grace_remaining = 0u;
-        return true;
-    }
-    if (phys->flight_overlay_grace_remaining != 0u) {
-        phys->flight_overlay_grace_remaining--;
-        return true;
-    }
-    /* No complete parser result arrived within the fixed grace.  PASS is a
-     * bounded recovery action for an actually missing/bad frame, not the
-     * normal response to RX-DMA publication latency. */
-    if (!tdma_pio_spi_phys_prepare_pass_overlay(phys)) {
-        phys->snapshot.overlay_prepare_fail_count++;
-        return false;
-    }
-    phys->flight_overlay_pass_committed = true;
-    phys->flight_overlay_boundary_pending = false;
-    phys->flight_overlay_grace_remaining = 0u;
-    phys->snapshot.overlay_pass_recovery_count++;
     return true;
 }
 
@@ -1498,31 +1482,11 @@ bool tdma_pio_spi_phys_prepare_process_overlay(
         }
         return false;
     }
-    /* A boundary recovery may already have committed PASS for the upcoming
-     * frame. During the idle-high inter-frame gap its DMA remains busy because
-     * the process SM is waiting for SCK, so a late decode of the preceding
-     * frame cannot replace that script. Coalesce that stale result instead of
-     * blocking core1 for the generic DMA timeout or reporting a wire failure.
-     * Once CS is active, the committed PASS is draining and the normal bounded
-     * wait below may prepare the following frame's overlay. */
-    if (phys->flight_overlay_pass_committed &&
-        s_tdma_pio_spi_tx_dma_channel >= 0 &&
-        tdma_pio_spi_phys_overlay_dma_busy(phys) &&
-        gpio_get(phys->rx_csn_pin)) {
+    /* The owner preflights readiness before acquiring TX. A pending plan
+     * must never be overwritten or reported as an accepted publication. */
+    if (!tdma_pio_spi_phys_process_overlay_ready(phys)) {
         phys->snapshot.overlay_late_coalesce_count++;
-        return true;
-    }
-    if (phys->flight_overlay_pass_committed &&
-        (s_tdma_pio_spi_tx_dma_channel < 0 ||
-         !tdma_pio_spi_phys_overlay_dma_busy(phys))) {
-        phys->flight_overlay_pass_committed = false;
-    }
-    /* Keep at most one successor script.  The PIO stream is strictly
-     * serial, so a second parser result before the pending script is armed is
-     * stale with respect to the next boundary and must not overwrite it. */
-    if (phys->flight_overlay_pending) {
-        phys->snapshot.overlay_late_coalesce_count++;
-        return true;
+        return false;
     }
     if (s_tdma_pio_spi_tx_dma_channel < 0) {
         phys->snapshot.overlay_prepare_fail_count++;
@@ -1571,8 +1535,7 @@ bool tdma_pio_spi_phys_prepare_process_overlay(
         phys->snapshot.overlay_prepare_fail_count++;
         return false;
     }
-    phys->flight_overlay_next_prepared = true;
-    phys->flight_overlay_pass_committed = false;
+    phys->flight_overlay_alignment_locked = true;
     phys->snapshot.overlay_prepare_count++;
     phys->snapshot.overlay_replacement_byte_count +=
         plan->replacement_byte_count;
@@ -1836,11 +1799,27 @@ static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
              * frame when the origin capture has no idle raw byte between
              * frames. */
             s_tdma_pio_spi_rx_scan_produced = candidate + total_words;
+            /* Parser-copy loss may move candidate without moving the wire
+             * slots. Freeze the physical alignment after first publication
+             * for this ARM epoch; parsing may still realign its own copy. */
             if (phys->process_image_enabled &&
+                !phys->flight_overlay_alignment_locked &&
                 phys->flight_physical_byte_count != 0u) {
-                phys->flight_alignment_byte_shift =
-                    (uint32_t)(candidate %
-                               phys->flight_physical_byte_count);
+                const uint32_t byte_shift = (uint32_t)(candidate %
+                    phys->flight_physical_byte_count);
+                if (phys->flight_overlay_alignment_samples != 0u &&
+                    candidate - phys->flight_overlay_alignment_candidate ==
+                        phys->flight_physical_byte_count &&
+                    byte_shift == phys->flight_alignment_byte_shift &&
+                    bit_shift == phys->flight_alignment_bit_shift) {
+                    if (phys->flight_overlay_alignment_samples <
+                            TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES)
+                        phys->flight_overlay_alignment_samples++;
+                } else {
+                    phys->flight_overlay_alignment_samples = 1u;
+                }
+                phys->flight_overlay_alignment_candidate = candidate;
+                phys->flight_alignment_byte_shift = byte_shift;
                 phys->flight_alignment_bit_shift = bit_shift;
             }
             if (bit_shift == 0u) {
@@ -1964,14 +1943,18 @@ bool tdma_pio_spi_phys_arm(void *context,
     }
     phys->flight_alignment_byte_shift = 0u;
     phys->flight_alignment_bit_shift = 0u;
-    phys->flight_overlay_next_prepared = false;
-    phys->flight_overlay_pass_committed = false;
-    phys->flight_overlay_boundary_pending = false;
-    phys->flight_overlay_grace_remaining = 0u;
+    phys->flight_overlay_alignment_locked = false;
+    phys->flight_overlay_alignment_samples = 0u;
+    phys->flight_overlay_alignment_candidate = 0u;
     phys->flight_overlay_pending = false;
     phys->flight_overlay_active_buffer = 0u;
     phys->flight_overlay_pending_buffer = 0u;
-    phys->flight_overlay_pending_words = 0u;
+    phys->flight_overlay_published_generation = 0u;
+    phys->flight_overlay_selected_generation = 0u;
+    phys->flight_overlay_next_address = 0u;
+    phys->snapshot.overlay_published_generation = 0u;
+    phys->snapshot.overlay_selected_generation = 0u;
+    phys->snapshot.overlay_selection_pending = 0u;
     phys->flight_tx_pending = false;
     phys->flight_tx_completion_pending = false;
     phys->flight_tx_completion_timestamp_ns = 0ull;
@@ -2122,6 +2105,7 @@ bool tdma_pio_spi_phys_arm(void *context,
     phys->snapshot.overlay_frame_boundary_count = 0u;
     phys->snapshot.overlay_pass_recovery_count = 0u;
     phys->snapshot.overlay_late_coalesce_count = 0u;
+    phys->snapshot.overlay_reuse_observation_count = 0u;
     phys->snapshot.rx_busy_word0 = 0u;
     phys->snapshot.rx_busy_word1 = 0u;
     phys->snapshot.rx_busy_word2 = 0u;
@@ -2201,11 +2185,9 @@ void tdma_pio_spi_phys_disarm(void *context)
     phys->flight_sck_waveform_capture_deadline_us = 0ull;
     phys->rx_capture_active = false;
     phys->flight_overlay_pending = false;
-    phys->flight_overlay_pending_words = 0u;
-    phys->flight_overlay_next_prepared = false;
-    phys->flight_overlay_pass_committed = false;
-    phys->flight_overlay_boundary_pending = false;
-    phys->flight_overlay_grace_remaining = 0u;
+    phys->flight_overlay_alignment_locked = false;
+    phys->flight_overlay_alignment_samples = 0u;
+    phys->snapshot.overlay_selection_pending = 0u;
     phys->flight_tx_pending = false;
     phys->flight_tx_completion_pending = false;
     phys->flight_tx_packet_size = 0u;

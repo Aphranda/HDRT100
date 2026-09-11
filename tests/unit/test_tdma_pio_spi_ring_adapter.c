@@ -93,7 +93,14 @@ typedef struct {
     size_t force_replace_payload_bitmap_words;
     uint32_t prepare_count;
     uint32_t boundary_count;
+    bool not_ready;
+    bool reject_prepare;
 } overlay_capture_t;
+
+static bool capture_overlay_ready(void *context)
+{
+    return !((overlay_capture_t *)context)->not_ready;
+}
 
 static bool capture_overlay(void *context,
                             const uint8_t *incoming_packet,
@@ -109,6 +116,9 @@ static bool capture_overlay(void *context,
         force_replace_payload_bitmap == NULL ||
         force_replace_payload_bitmap_words >
             TDMA_FLIGHT_OUTPUT_BITMAP_WORDS) {
+        return false;
+    }
+    if (capture->reject_prepare) {
         return false;
     }
     memcpy(capture->incoming, incoming_packet, packet_size);
@@ -2621,7 +2631,7 @@ int main(void)
             tdma_pio_spi_ring_adapter_set_phys_ctrl(
                 &adapter, NULL, NULL, NULL, NULL, &capture);
             tdma_pio_spi_ring_adapter_set_phys_overlay(
-                &adapter, capture_overlay, capture_overlay_boundary);
+                &adapter, capture_overlay, capture_overlay_boundary, NULL);
             tdma_pio_spi_ring_adapter_set_flight_fifo(&adapter, &fifo);
             tdma_pio_spi_ring_adapter_set_flight_engine(&adapter, &engine);
             failed += expect_bool(
@@ -2819,6 +2829,48 @@ int main(void)
                                  incoming_view.transport_sequence, 0u);
             failed += expect_u32("overlay wrapped processed sequence",
                                  processed_view.transport_sequence, 0u);
+
+            /* Switch the fixture to recurring hardware. Reused TX skips
+             * rebuilding; backpressure must leave the FIFO unacquired. */
+            adapter.phys_overlay_ready = capture_overlay_ready;
+            for (unsigned round = 0u; round < 5u; ++round) {
+                if (round == 1u) {
+                    failed += expect_bool("recurrence new TX", tdma_flight_fifo_core0_publish_tx(
+                        &fifo, tx_mailbox, sizeof(tx_mailbox), 2u, 2u,
+                        1u << local_slots[node]), true);
+                    capture.not_ready = true;
+                }
+                if (round == 2u) {
+                    capture.not_ready = false;
+                    capture.reject_prepare = true;
+                }
+                if (round == 3u) capture.reject_prepare = false;
+                failed += expect_bool("recurrence inject", tdma_pio_spi_ring_adapter_inject_rx(
+                    &adapter, packet, packet_size, 400ull + round * 100ull), true);
+                failed += expect_bool("recurrence service", tdma_pio_spi_ring_adapter_ops()->service(
+                    &adapter, 400ull + round * 100ull, &status), round != 2u);
+                failed += expect_u32("recurrence accepted count", capture.prepare_count,
+                    round < 3u ? 3u : 4u);
+                failed += expect_u32("recurrence accepted generation",
+                    adapter.resident_overlay_tx_generation, round < 3u ? 1u : 2u);
+                if (round == 1u) {
+                    failed += expect_bool("recurrence pending FIFO snapshot",
+                        tdma_flight_fifo_get_snapshot(&fifo, &fifo_snapshot), true);
+                    failed += expect_u32("recurrence busy retains FIFO",
+                        fifo_snapshot.tx_active_generation, 1u);
+                }
+            }
+            tdma_pio_spi_ring_adapter_ops()->stop(&adapter);
+            tdma_pio_spi_ring_adapter_set_flight_fifo(&adapter, NULL);
+            failed += expect_bool("recurrence empty restart",
+                tdma_pio_spi_ring_adapter_ops()->start(&adapter, &config), true);
+            for (unsigned round = 0u; round < 2u; ++round) {
+                failed += expect_bool("recurrence empty inject", tdma_pio_spi_ring_adapter_inject_rx(
+                    &adapter, packet, packet_size, 1000ull + round * 100ull), true);
+                failed += expect_bool("recurrence empty service", tdma_pio_spi_ring_adapter_ops()->service(
+                    &adapter, 1000ull + round * 100ull, &status), true);
+                failed += expect_u32("recurrence empty bootstrap only", capture.prepare_count, 5u);
+            }
         }
     }
 
@@ -2883,7 +2935,7 @@ int main(void)
             tdma_pio_spi_ring_adapter_set_phys_ctrl(
                 &adapters[node], NULL, NULL, NULL, NULL, &captures[node]);
             tdma_pio_spi_ring_adapter_set_phys_overlay(
-                &adapters[node], capture_overlay, capture_overlay_boundary);
+                &adapters[node], capture_overlay, capture_overlay_boundary, NULL);
             tdma_pio_spi_ring_adapter_set_flight_fifo(
                 &adapters[node], &fifos[node]);
             tdma_pio_spi_ring_adapter_set_flight_engine(

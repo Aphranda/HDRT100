@@ -742,6 +742,10 @@ scpi_result_t scpi_cmd_sync_vdc_tdma_phys_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.program_previous_persona);
     SCPI_ResultUInt32(context, snapshot.program_transition_seq);
     SCPI_ResultUInt32(context, snapshot.program_lifecycle_error);
+    SCPI_ResultUInt32(context, snapshot.overlay_published_generation);
+    SCPI_ResultUInt32(context, snapshot.overlay_selected_generation);
+    SCPI_ResultUInt32(context, snapshot.overlay_selection_pending);
+    SCPI_ResultUInt32(context, snapshot.overlay_reuse_observation_count);
     return SCPI_RES_OK;
 }
 

@@ -584,13 +584,15 @@ void tdma_pio_spi_ring_adapter_set_phys_local_tx_edge_ex(
 void tdma_pio_spi_ring_adapter_set_phys_overlay(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_phys_overlay_fn prepare_overlay,
-    tdma_pio_spi_ring_phys_overlay_boundary_fn service_overlay_boundary)
+    tdma_pio_spi_ring_phys_overlay_boundary_fn service_overlay_boundary,
+    tdma_pio_spi_ring_phys_overlay_ready_fn overlay_ready)
 {
     if (adapter == NULL || adapter->started != 0u) {
         return;
     }
     adapter->phys_prepare_overlay = prepare_overlay;
     adapter->phys_service_overlay_boundary = service_overlay_boundary;
+    adapter->phys_overlay_ready = overlay_ready;
 }
 
 void tdma_pio_spi_ring_adapter_set_timestamp_metadata(
@@ -954,6 +956,8 @@ static bool tdma_pio_spi_ring_adapter_start(
     adapter->resident_packet_size = 0u;
     adapter->resident_overlay_bootstrap_prepared = false;
     adapter->resident_overlay_target_sequence = 0u;
+    adapter->resident_overlay_tx_generation = 0u;
+    adapter->resident_overlay_tx_sequence = 0u;
     adapter->resident_stale_cycle_count = 0u;
     adapter->resident_last_completed_cycle = 0u;
     adapter->resident_last_completed_segment_mask = 0u;
@@ -1036,6 +1040,8 @@ static void tdma_pio_spi_ring_adapter_stop(void *context)
     adapter->resident_packet_size = 0u;
     adapter->resident_overlay_bootstrap_prepared = false;
     adapter->resident_overlay_target_sequence = 0u;
+    adapter->resident_overlay_tx_generation = 0u;
+    adapter->resident_overlay_tx_sequence = 0u;
     adapter->resident_stale_cycle_count = 0u;
     adapter->resident_last_completed_cycle = 0u;
     adapter->resident_last_completed_segment_mask = 0u;
@@ -2248,6 +2254,12 @@ static bool tdma_pio_spi_ring_adapter_prepare_process_overlay(
         adapter->phys_prepare_overlay == NULL) {
         return false;
     }
+    const bool recurring = adapter->phys_overlay_ready != NULL;
+    if (recurring && !adapter->phys_overlay_ready(adapter->phys_ctrl_context)) {
+        /* No TX acquire, copy, or acceptance while the inactive pool is
+         * pending. The old plan keeps circulating without owner service. */
+        return true;
+    }
     tdma_transport_frame_view_t view;
     tdma_transport_result_t result = TDMA_TRANSPORT_OK;
     if (!tdma_transport_frame_decode(adapter->last_rx_packet,
@@ -2267,6 +2279,16 @@ static bool tdma_pio_spi_ring_adapter_prepare_process_overlay(
         adapter->resident_overlay_bootstrap_prepared
             ? view.transport_sequence + 1u
             : view.transport_sequence;
+
+    tdma_flight_tx_view_t tx_view;
+    const bool has_tx = adapter->flight_fifo != NULL &&
+        tdma_flight_fifo_core1_acquire_tx(adapter->flight_fifo, &tx_view);
+    if (recurring && adapter->resident_overlay_bootstrap_prepared &&
+        (!has_tx || (tx_view.reused_previous &&
+            tx_view.generation == adapter->resident_overlay_tx_generation &&
+            tx_view.sequence == adapter->resident_overlay_tx_sequence))) {
+        return true;
+    }
 
     uint8_t incoming_model[TDMA_TRANSPORT_SHORT_PACKET_MAX];
     uint8_t processed_model[TDMA_TRANSPORT_SHORT_PACKET_MAX];
@@ -2292,9 +2314,6 @@ static bool tdma_pio_spi_ring_adapter_prepare_process_overlay(
         tdma_flight_engine_is_active(adapter->flight_engine) &&
         view.payload_class == TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE &&
         (view.flags & TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE) != 0u) {
-        tdma_flight_tx_view_t tx_view;
-        const bool has_tx = adapter->flight_fifo != NULL &&
-            tdma_flight_fifo_core1_acquire_tx(adapter->flight_fifo, &tx_view);
         tdma_flight_engine_result_t engine_result =
             TDMA_FLIGHT_ENGINE_BAD_ARGUMENT;
         applied_ok = tdma_flight_engine_tx_load(
@@ -2330,6 +2349,8 @@ static bool tdma_pio_spi_ring_adapter_prepare_process_overlay(
     if (prepared && applied_ok) {
         adapter->resident_overlay_bootstrap_prepared = true;
         adapter->resident_overlay_target_sequence = target_sequence;
+        adapter->resident_overlay_tx_generation = has_tx ? tx_view.generation : 0u;
+        adapter->resident_overlay_tx_sequence = has_tx ? tx_view.sequence : 0u;
     }
     return prepared && applied_ok;
 }

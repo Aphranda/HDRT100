@@ -77,6 +77,7 @@ typedef struct {
     uint8_t capture_dma;
     uint8_t descriptor_words;
     uint8_t descriptor_write_ring_log2;
+    uint8_t control_descriptor_count;
 } tdma_state_machine_command_dma_contract_t;
 
 static inline tdma_state_machine_command_dma_contract_t
@@ -88,6 +89,7 @@ tdma_state_machine_command_dma_contract(void)
         .capture_dma = BOARD_TDMA_TX_DATA_IN_CAPTURE_DMA_CHANNEL,
         .descriptor_words = 4u,
         .descriptor_write_ring_log2 = 4u,
+        .control_descriptor_count = 2u,
     };
 }
 
@@ -102,7 +104,8 @@ static inline bool tdma_state_machine_command_dma_contract_valid(
            contract->loader_dma != contract->capture_dma &&
            contract->loader_dma != BOARD_TDMA_TX_SYNC_EDGE_DMA_CHANNEL &&
            contract->descriptor_words == 4u &&
-           contract->descriptor_write_ring_log2 == 4u;
+           contract->descriptor_write_ring_log2 == 4u &&
+           contract->control_descriptor_count == 2u;
 }
 
 typedef enum {

@@ -621,6 +621,9 @@ int main(void)
     command = tdma_state_machine_command_dma_contract();
     command.descriptor_write_ring_log2++;
     assert(!tdma_state_machine_command_dma_contract_valid(&command));
+    command = tdma_state_machine_command_dma_contract();
+    command.control_descriptor_count--;
+    assert(!tdma_state_machine_command_dma_contract_valid(&command));
     test_directional_tdma_resources();
     test_tdma_rx_endpoint_contract();
     test_tdma_persona_owner_transfer();

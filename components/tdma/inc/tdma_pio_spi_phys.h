@@ -38,8 +38,9 @@
 #define TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS \
     (TDMA_PIO_SPI_RX_DMA_WORD_MAX + \
      TDMA_TRANSPORT_FRAME_MAX_SLOT_COUNT + 4u)
-#define TDMA_PIO_SPI_OVERLAY_GRACE_SERVICE_PASSES 1u
 #define TDMA_PIO_SPI_RX_STABLE_US 1000u
+/* Reject a first-frame startup phase until consecutive complete frames agree. */
+#define TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES 2u
 
 typedef enum {
     TDMA_PIO_SPI_OVERLAY_ERROR_NONE = 0,
@@ -666,6 +667,10 @@ typedef struct {
     uint32_t overlay_frame_boundary_count;
     uint32_t overlay_pass_recovery_count;
     uint32_t overlay_late_coalesce_count;
+    uint32_t overlay_published_generation;
+    uint32_t overlay_selected_generation;
+    uint32_t overlay_selection_pending;
+    uint32_t overlay_reuse_observation_count;
 } tdma_pio_spi_phys_snapshot_t;
 
 typedef struct {
@@ -696,14 +701,15 @@ typedef struct {
     uint32_t flight_alignment_bit_shift;
     uint32_t flight_local_slot_id;
     bool flight_overlay_dma_active;
-    bool flight_overlay_next_prepared;
-    bool flight_overlay_pass_committed;
-    bool flight_overlay_boundary_pending;
-    uint32_t flight_overlay_grace_remaining;
+    bool flight_overlay_alignment_locked;
+    uint32_t flight_overlay_alignment_samples;
+    uint64_t flight_overlay_alignment_candidate;
     bool flight_overlay_pending;
     uint32_t flight_overlay_active_buffer;
     uint32_t flight_overlay_pending_buffer;
-    uint32_t flight_overlay_pending_words;
+    uint32_t flight_overlay_published_generation;
+    volatile uint32_t flight_overlay_selected_generation;
+    volatile uint32_t flight_overlay_next_address;
     /* Flight-origin TX is submitted by core1 and completed by a later
      * service pass.  The wire/PIO duration never blocks the TDMA phase. */
     bool flight_tx_pending;
@@ -858,11 +864,11 @@ bool tdma_pio_spi_phys_prepare_process_overlay(
     size_t packet_size,
     const uint32_t *force_replace_payload_bitmap,
     size_t force_replace_payload_bitmap_words);
-/* Core1-only frame-boundary service.  A failed raw-frame decode must remain
- * visible in RX evidence, but it must not strand the process follower at its
- * next blocking PULL.  This queues exactly one PASS script when IRQ3 proves
- * that a frame ended without a prepared successor. */
+/* Core1 only: harvest selection/observed boundaries, never refill wire DMA.
+ * Selection precedes wire completion and is only a pool-reclamation fact. */
 bool tdma_pio_spi_phys_service_process_overlay_boundary(void *context);
+/* A false result leaves the active plan recurring; the owner retries later. */
+bool tdma_pio_spi_phys_process_overlay_ready(void *context);
 /* Poll the terminal token of a previously submitted flight-origin burst.
  * This is deliberately separate from the TX submit callback so core1 can
  * account the hardware launch and completion in distinct bounded passes.

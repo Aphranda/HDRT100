@@ -18,6 +18,9 @@
 #define TDMA_FLIGHT_OVERLAY_STORAGE_WINDOWS 2u
 #define TDMA_FLIGHT_OVERLAY_RUN_MAX \
     (2u * TDMA_FLIGHT_OVERLAY_STORAGE_WINDOWS + 2u)
+#define TDMA_FLIGHT_OVERLAY_CONTROL_RUNS 2u
+#define TDMA_FLIGHT_OVERLAY_BOUND_RUN_MAX \
+    (TDMA_FLIGHT_OVERLAY_RUN_MAX + TDMA_FLIGHT_OVERLAY_CONTROL_RUNS)
 #define TDMA_FLIGHT_OVERLAY_TOKEN_WORD_MAX \
     ((TDMA_TRANSPORT_FRAME_HEADER_SIZE + TDMA_FLIGHT_SHORT_SLOT_SIZE) * \
          TDMA_FLIGHT_OVERLAY_COMMAND_WORDS_PER_BYTE + \
@@ -35,12 +38,14 @@ typedef struct {
 } tdma_flight_overlay_dma_run_t;
 
 typedef struct {
-    tdma_flight_overlay_dma_run_t run[TDMA_FLIGHT_OVERLAY_RUN_MAX];
+    /* Binding inserts selection evidence before data and a restart after it. */
+    tdma_flight_overlay_dma_run_t run[TDMA_FLIGHT_OVERLAY_BOUND_RUN_MAX];
     uint32_t token[TDMA_FLIGHT_OVERLAY_TOKEN_WORD_MAX];
     uint32_t run_count;
     uint32_t token_word_count;
     uint32_t command_word_count;
     uint32_t replacement_byte_count;
+    uint32_t generation; /* Zero until bound; immutable while published. */
 } tdma_flight_overlay_plan_t;
 
 typedef struct {

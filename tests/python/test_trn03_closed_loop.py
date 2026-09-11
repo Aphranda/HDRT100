@@ -652,45 +652,29 @@ def test_clock_training_quiesces_complete_flight_persona() -> None:
     assert train.index("phys->rx_sm = BOARD_TDMA_SPI_SLAVE_SM") > select
 
 
-def test_process_follower_recovers_pass_script_after_bad_frame() -> None:
+def test_process_follower_boundary_only_harvests_evidence() -> None:
     phys = _read_phys_source()
     service = phys.split(
         "bool tdma_pio_spi_phys_service_process_overlay_boundary", 1
     )[1].split("bool tdma_pio_spi_phys_set_process_image_mode", 1)[0]
     assert "pio_interrupt_get(data_pio, 3u)" in service
     assert "pio_interrupt_clear(data_pio, 3u)" in service
-    assert "phys->flight_overlay_next_prepared" in service
-    assert "phys->flight_overlay_boundary_pending = true" in service
-    assert "TDMA_PIO_SPI_OVERLAY_GRACE_SERVICE_PASSES" in service
-    assert "tdma_pio_spi_phys_prepare_pass_overlay(phys)" in service
-    assert "overlay_pass_recovery_count++" in service
-    assert "flight_overlay_pass_committed = true" in service
-    grace = service.index("phys->flight_overlay_grace_remaining != 0u")
-    fallback = service.index("tdma_pio_spi_phys_prepare_pass_overlay(phys)")
-    assert grace < fallback
+    assert "tdma_pio_spi_phys_service_overlay_pending(phys)" in service
+    assert "tdma_pio_spi_phys_prepare_pass_overlay" not in service
+    assert "tdma_pio_spi_phys_start_overlay_script" not in service
+    assert "dma_channel_configure" not in service
 
     adapter = (ROOT / "components" / "tdma" / "src" /
                "tdma_pio_spi_ring_adapter.c").read_text(encoding="utf-8")
     assert "phys_service_overlay_boundary" in adapter
 
 
-def test_process_follower_defers_pass_until_parser_grace_expires() -> None:
-    header = (ROOT / "components" / "tdma" / "inc" /
-              "tdma_pio_spi_phys.h").read_text(encoding="utf-8")
-    assert "#define TDMA_PIO_SPI_OVERLAY_GRACE_SERVICE_PASSES 1u" in header
-    assert "bool flight_overlay_boundary_pending;" in header
-    assert "uint32_t flight_overlay_grace_remaining;" in header
-
-    phys = _read_phys_source()
-    service = phys.split(
-        "bool tdma_pio_spi_phys_service_process_overlay_boundary", 1
-    )[1].split("bool tdma_pio_spi_phys_set_process_image_mode", 1)[0]
-    boundary = service.index("if (boundary_observed)")
-    pending = service.index("phys->flight_overlay_boundary_pending = true")
-    prepared = service.index("if (phys->flight_overlay_next_prepared)")
-    grace = service.index("if (phys->flight_overlay_grace_remaining != 0u)")
-    fallback = service.index("tdma_pio_spi_phys_prepare_pass_overlay(phys)")
-    assert boundary < pending < prepared < grace < fallback
+def test_runtime_owner_binds_recurrence_readiness() -> None:
+    owner = (ROOT / "components/tdma/src/tdma_runtime_owner.c").read_text(encoding="utf-8")
+    binding = owner.split("tdma_pio_spi_ring_adapter_set_phys_overlay(", 1)[1].split(");", 1)[0]
+    assert "tdma_pio_spi_phys_process_overlay_ready" in binding
+    assert "tdma_pio_spi_phys_prepare_process_overlay" in binding
+    assert "tdma_pio_spi_phys_service_process_overlay_boundary" in binding
 
 
 def test_rx_scanner_retains_complete_shifted_outer_header_prefix() -> None:
@@ -1046,18 +1030,15 @@ def test_core1_static_phase_schedule_fits_with_tdma_and_guard() -> None:
     assert "phases must be ordered, disjoint, and fill the cycle" in runtime
 
 
-def test_process_follower_coalesces_late_overlay_behind_committed_pass() -> None:
+def test_process_follower_rejects_busy_before_pool_write() -> None:
     phys = _read_phys_source()
     prepare = phys.split(
         "bool tdma_pio_spi_phys_prepare_process_overlay", 1
     )[1].split("static void tdma_pio_spi_phys_set_line_drivers", 1)[0]
-    committed = prepare.index("phys->flight_overlay_pass_committed")
-    dma_busy = prepare.index("tdma_pio_spi_phys_overlay_dma_busy", committed)
-    idle_high = prepare.index("gpio_get(phys->rx_csn_pin)", dma_busy)
-    coalesced = prepare.index("overlay_late_coalesce_count++", idle_high)
-    overlay_build = prepare.index("tdma_flight_overlay_build", coalesced)
-    assert committed < dma_busy < idle_high < coalesced < overlay_build
-    assert "return true;" in prepare[coalesced:overlay_build]
+    ready = prepare.index("if (!tdma_pio_spi_phys_process_overlay_ready(phys))")
+    overlay_build = prepare.index("tdma_flight_overlay_build", ready)
+    assert "return false;" in prepare[ready:overlay_build]
+    assert "return true;" not in prepare[ready:overlay_build]
 
 
 def test_overlay_script_uses_nonblocking_double_buffer_submission() -> None:
@@ -1085,7 +1066,7 @@ def test_overlay_script_uses_nonblocking_double_buffer_submission() -> None:
     prepare_queue = prepare.index(
         "tdma_pio_spi_phys_queue_overlay_script")
     assert prepare_buffer < overlay_build < prepare_queue
-    assert "flight_overlay_pending" in prepare
+    assert prepare.index("tdma_pio_spi_phys_process_overlay_ready") < prepare_buffer
 
 
 def test_origin_data_waits_csn_once_per_counted_frame() -> None:

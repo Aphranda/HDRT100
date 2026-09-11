@@ -175,6 +175,8 @@ PHYS_FIELDS = (
     "program_lifecycle_state", "program_target_persona",
     "program_previous_persona", "program_transition_seq",
     "program_lifecycle_error",
+    "overlay_published_generation", "overlay_selected_generation",
+    "overlay_selection_pending", "overlay_reuse_observation_count",
 )
 
 KEY = [

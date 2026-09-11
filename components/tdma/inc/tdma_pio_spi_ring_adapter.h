@@ -135,6 +135,8 @@ typedef bool (*tdma_pio_spi_ring_phys_overlay_fn)(
     const uint32_t *force_replace_payload_bitmap,
     size_t force_replace_payload_bitmap_words);
 typedef bool (*tdma_pio_spi_ring_phys_overlay_boundary_fn)(void *context);
+/* Optional recurrence backend: false retains the active plan and queued TX. */
+typedef bool (*tdma_pio_spi_ring_phys_overlay_ready_fn)(void *context);
 
 /* phys_tx pushes one complete packet onto the wire. On success it may fill
  * *tx_timestamp_ns with the hardware latch timestamp (0 means no hardware
@@ -324,6 +326,7 @@ typedef struct {
     tdma_pio_spi_ring_phys_train_service_fn phys_train_service;
     tdma_pio_spi_ring_phys_overlay_fn phys_prepare_overlay;
     tdma_pio_spi_ring_phys_overlay_boundary_fn phys_service_overlay_boundary;
+    tdma_pio_spi_ring_phys_overlay_ready_fn phys_overlay_ready;
     void *phys_ctrl_context;
     tdma_flight_fifo_t *flight_fifo;
     tdma_flight_engine_t *flight_engine;
@@ -414,6 +417,8 @@ typedef struct {
     size_t resident_packet_size;
     bool resident_overlay_bootstrap_prepared;
     uint32_t resident_overlay_target_sequence;
+    uint32_t resident_overlay_tx_generation;
+    uint32_t resident_overlay_tx_sequence;
     uint32_t resident_stale_cycle_count;
     uint32_t resident_last_completed_cycle;
     uint32_t resident_last_completed_segment_mask;
@@ -506,7 +511,8 @@ void tdma_pio_spi_ring_adapter_set_phys_local_tx_edge_ex(
 void tdma_pio_spi_ring_adapter_set_phys_overlay(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_phys_overlay_fn prepare_overlay,
-    tdma_pio_spi_ring_phys_overlay_boundary_fn service_overlay_boundary);
+    tdma_pio_spi_ring_phys_overlay_boundary_fn service_overlay_boundary,
+    tdma_pio_spi_ring_phys_overlay_ready_fn overlay_ready);
 void tdma_pio_spi_ring_adapter_set_timestamp_metadata(
     tdma_pio_spi_ring_adapter_t *adapter,
     uint32_t resolution_ns,
