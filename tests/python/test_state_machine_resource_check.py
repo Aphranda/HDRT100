@@ -14,6 +14,15 @@ def test_directional_resource_contract_is_valid() -> None:
     assert failures == []
 
 
+def test_process_output_requires_the_declared_live_bit_register(tmp_path: Path) -> None:
+    pio = tmp_path / "tdma.pio"
+    source = (ROOT / "components/tdma/src/tdma_pio_spi.pio").read_text(encoding="utf-8")
+    body = state_machine_resource_check.program_body(source, "tdma_pio_spi_flight_process_follower")
+    pio.write_text(source.replace(body, body.replace("mov pins, x", "mov pins, y")), encoding="utf-8")
+    failures = state_machine_resource_check.check(ROOT / "boards/rp2350_trig/inc/board_config.h", pio)
+    assert "process-image DATA follower does not forward outgoing DATA" in failures
+
+
 def test_directional_contract_rejects_mixed_data_program(tmp_path: Path) -> None:
     board = tmp_path / "board_config.h"
     board.write_text(
@@ -66,10 +75,10 @@ def test_rx_endpoint_contract_rejects_process_fifo_join(tmp_path: Path) -> None:
     ).read_text(encoding="utf-8")
     pio.write_text(
         pio_text.replace(
-            "    sm_config_set_out_shift(&c, false, false, 32u);\n"
+            "    sm_config_set_out_shift(&c, false, true, 32u);\n"
             "    sm_config_set_clkdiv(&c, 1.0f);\n"
             "    pio_sm_init(pio, sm, offset, &c);",
-            "    sm_config_set_out_shift(&c, false, false, 32u);\n"
+            "    sm_config_set_out_shift(&c, false, true, 32u);\n"
             "    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);\n"
             "    sm_config_set_clkdiv(&c, 1.0f);\n"
             "    pio_sm_init(pio, sm, offset, &c);",
@@ -344,12 +353,14 @@ def test_flight_claim_is_released_on_arm_failure_and_stop() -> None:
     )[0]
 
     assert "tdma_pio_spi_phys_claim_flight_resources" not in arm
-    assert arm.count("tdma_pio_spi_phys_release_flight_resources(phys)") == 5
+    assert arm.count("tdma_pio_spi_phys_release_flight_resources(phys)") == 6
+    assert "tdma_pio_spi_phys_disarm(phys)" in arm  # Bounded OSR prime rollback.
     assert "tdma_pio_spi_phys_release_flight_resources(phys)" in disarm
     release_helper = phys.split(
         "static void tdma_pio_spi_phys_release_flight_resources", 1
     )[1].split("static void tdma_pio_spi_phys_enable_sm_pair", 1)[0]
     assert "s_tdma_pio_spi_program_persona" in release_helper
+    assert "if (!tdma_pio_spi_phys_stop_command_dma(phys)) return;" in release_helper
     assert "TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN" not in release_helper
 
 

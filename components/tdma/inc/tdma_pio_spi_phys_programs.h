@@ -48,6 +48,7 @@ typedef struct {
     uint *flight_origin_rtt_offset;
     int *tx_dma_channel;
     int *rx_dma_channel;
+    int *command_dma_channel;
 } tdma_pio_spi_program_manager_t;
 
 bool tdma_pio_spi_programs_select(

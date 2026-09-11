@@ -217,7 +217,21 @@ static bool tdma_pio_spi_programs_claim_resources(
     const bool sms_claimed = flight
         ? tdma_pio_spi_programs_ensure_flight_sms_claimed(manager)
         : tdma_pio_spi_programs_ensure_maintenance_sms_claimed(manager);
-    if (sms_claimed) {
+    bool command_claimed = true;
+    if (sms_claimed && persona == TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER) {
+        const tdma_state_machine_command_dma_contract_t command =
+            tdma_state_machine_command_dma_contract();
+        command_claimed = manager->command_dma_channel != NULL &&
+            tdma_state_machine_command_dma_contract_valid(&command);
+        if (command_claimed && *manager->command_dma_channel < 0) {
+            command_claimed = !dma_channel_is_claimed(command.loader_dma);
+            if (command_claimed) {
+                dma_channel_claim(command.loader_dma);
+                *manager->command_dma_channel = command.loader_dma;
+            }
+        }
+    }
+    if (sms_claimed && command_claimed) {
         return true;
     }
     if (flight) {
@@ -302,6 +316,20 @@ void tdma_pio_spi_programs_release_resources(
         return;
     }
     if (tdma_pio_spi_programs_is_flight_persona(persona)) {
+        /* A failed bounded abort retains the pool and arbiter ownership. */
+        if (phys->flight_overlay_dma_active ||
+            (manager->command_dma_channel != NULL &&
+             *manager->command_dma_channel >= 0 &&
+             (dma_channel_is_busy((uint)*manager->command_dma_channel) ||
+              (*manager->tx_dma_channel >= 0 &&
+               dma_channel_is_busy((uint)*manager->tx_dma_channel))))) {
+            phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_PERSONA_BUSY;
+            return;
+        }
+        if (manager->command_dma_channel != NULL && *manager->command_dma_channel >= 0) {
+            dma_channel_unclaim((uint)*manager->command_dma_channel);
+            *manager->command_dma_channel = -1;
+        }
         tdma_pio_spi_programs_release_flight_sms(manager);
         if (phys->flight_resource_claimed) {
             resource_arbiter_release_owned(
@@ -330,7 +358,9 @@ bool tdma_pio_spi_programs_transfer_resources(
         tdma_pio_spi_programs_is_flight_persona(target);
     if (previous != TDMA_PIO_SPI_PROGRAM_PERSONA_NONE &&
         target != TDMA_PIO_SPI_PROGRAM_PERSONA_NONE &&
-        previous_flight == target_flight) {
+        previous_flight == target_flight &&
+        !(previous == TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER &&
+          target != previous)) {
         return tdma_pio_spi_programs_claim_resources(
             manager, phys, target);
     }
@@ -1087,7 +1117,10 @@ static bool tdma_pio_spi_programs_current_persona_quiesced(
             return false;
         }
     }
-    return (*manager->tx_dma_channel < 0 ||
+    return !phys->flight_overlay_dma_active &&
+           (*manager->command_dma_channel < 0 ||
+            !dma_channel_is_busy((uint)*manager->command_dma_channel)) &&
+           (*manager->tx_dma_channel < 0 ||
             !dma_channel_is_busy((uint)*manager->tx_dma_channel)) &&
            (*manager->rx_dma_channel < 0 ||
             !dma_channel_is_busy((uint)*manager->rx_dma_channel));
@@ -1102,7 +1135,8 @@ bool tdma_pio_spi_programs_select(
         manager->program_persona == NULL || manager->sms_claimed == NULL ||
         manager->flight_sms_claimed == NULL ||
         manager->maintenance_resources_claimed == NULL ||
-        manager->tx_dma_channel == NULL || manager->rx_dma_channel == NULL) {
+        manager->tx_dma_channel == NULL || manager->rx_dma_channel == NULL ||
+        manager->command_dma_channel == NULL) {
         if (phys != NULL) {
             phys->snapshot.last_error =
                 TDMA_PIO_SPI_PHYS_ERROR_BAD_ARGUMENT;

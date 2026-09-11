@@ -58,6 +58,53 @@
 #define TDMA_STATE_MACHINE_RESOURCE_CONTRACT_DIRECTIONAL 1u
 #define TDMA_STATE_MACHINE_DMA_CHANNEL_NONE UINT8_MAX
 
+#if BOARD_TDMA_RX_COMMAND_LOADER_DMA_CHANNEL != BOARD_TDMA_TX_DATA_IN_FORWARD_DMA_CHANNEL
+#error "Command loader must use the DMA_FORWARD arbiter projection"
+#endif
+
+#if BOARD_TDMA_RX_COMMAND_LOADER_DMA_CHANNEL == BOARD_TDMA_RX_DATA_OUT_DMA_CHANNEL || \
+    BOARD_TDMA_RX_COMMAND_LOADER_DMA_CHANNEL == BOARD_TDMA_TX_DATA_IN_CAPTURE_DMA_CHANNEL || \
+    BOARD_TDMA_RX_COMMAND_LOADER_DMA_CHANNEL == BOARD_TDMA_TX_SYNC_EDGE_DMA_CHANNEL
+#error "TDMA command descriptor loader must not share an active FIFO/edge DMA"
+#endif
+
+/* Process follower only. The loader writes the output channel's AL3 alias
+ * registers; it never reads a PIO FIFO. Both channels belong to TDMA and must
+ * quiesce together before pool reuse, persona transfer or resource release. */
+typedef struct {
+    uint8_t loader_dma;
+    uint8_t output_dma;
+    uint8_t capture_dma;
+    uint8_t descriptor_words;
+    uint8_t descriptor_write_ring_log2;
+} tdma_state_machine_command_dma_contract_t;
+
+static inline tdma_state_machine_command_dma_contract_t
+tdma_state_machine_command_dma_contract(void)
+{
+    return (tdma_state_machine_command_dma_contract_t){
+        .loader_dma = BOARD_TDMA_RX_COMMAND_LOADER_DMA_CHANNEL,
+        .output_dma = BOARD_TDMA_RX_DATA_OUT_DMA_CHANNEL,
+        .capture_dma = BOARD_TDMA_TX_DATA_IN_CAPTURE_DMA_CHANNEL,
+        .descriptor_words = 4u,
+        .descriptor_write_ring_log2 = 4u,
+    };
+}
+
+static inline bool tdma_state_machine_command_dma_contract_valid(
+    const tdma_state_machine_command_dma_contract_t *contract)
+{
+    return contract != NULL &&
+           contract->loader_dma == BOARD_TDMA_RX_COMMAND_LOADER_DMA_CHANNEL &&
+           contract->output_dma == BOARD_TDMA_RX_DATA_OUT_DMA_CHANNEL &&
+           contract->capture_dma == BOARD_TDMA_TX_DATA_IN_CAPTURE_DMA_CHANNEL &&
+           contract->loader_dma != contract->output_dma &&
+           contract->loader_dma != contract->capture_dma &&
+           contract->loader_dma != BOARD_TDMA_TX_SYNC_EDGE_DMA_CHANNEL &&
+           contract->descriptor_words == 4u &&
+           contract->descriptor_write_ring_log2 == 4u;
+}
+
 typedef enum {
     TDMA_STATE_MACHINE_FIFO_TX = 1u,
     TDMA_STATE_MACHINE_FIFO_RX = 2u,

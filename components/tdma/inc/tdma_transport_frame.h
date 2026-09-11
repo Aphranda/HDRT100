@@ -16,6 +16,10 @@
     (TDMA_TRANSPORT_LONG_PACKET_MAX - TDMA_TRANSPORT_FRAME_HEADER_SIZE)
 #define TDMA_TRANSPORT_FRAME_MAX_SLOT_COUNT 8u
 
+/* Fields a follower may replace when advancing the same resident instance.
+ * Sequence, identity and the reference-owned fields remain live on the wire. */
+uint32_t tdma_transport_frame_resident_overlay_header_mask(void);
+
 #define TDMA_TRANSPORT_FLAG_REQUIRE_FEEDBACK 0x01u
 #define TDMA_TRANSPORT_FLAG_IDLE_BEACON 0x02u
 #define TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE 0x04u

@@ -20,6 +20,12 @@ enum {
     TDMA_TRANSPORT_OFFSET_TRANSPORT_CRC = 28u,
 };
 
+uint32_t tdma_transport_frame_resident_overlay_header_mask(void)
+{
+    return (1u << TDMA_TRANSPORT_OFFSET_HOP_COUNT) |
+           (0xFu << TDMA_TRANSPORT_OFFSET_TRANSPORT_CRC);
+}
+
 static void tdma_transport_set_result(tdma_transport_result_t *result,
                                       tdma_transport_result_t value)
 {

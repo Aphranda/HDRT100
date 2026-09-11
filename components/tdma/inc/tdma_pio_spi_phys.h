@@ -73,6 +73,11 @@ typedef enum {
  * budget. DATA has its own fixed replay budget. */
 #define TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES 2u
 #define TDMA_PIO_SPI_FLIGHT_DATA_REARM_CYCLES 5u
+/* Complete byte path of the token follower: max(D + 2, SCK high) + 7. */
+#define TDMA_PIO_SPI_PROCESS_DATA_DECODE_CYCLES 2u
+#define TDMA_PIO_SPI_PROCESS_BYTE_REARM_CYCLES 7u
+#define TDMA_PIO_SPI_RAW_BYTE_REARM_CYCLES 8u
+#define TDMA_PIO_SPI_COMMAND_STOP_TIMEOUT_US 64u
 #define TDMA_PIO_SPI_TX_DMA_CHANNEL \
     TDMA_PROFILE_DEFAULT_TX_DMA_CHANNEL_ID
 #define TDMA_PIO_SPI_RX_DMA_CHANNEL \
@@ -689,6 +694,8 @@ typedef struct {
     uint32_t flight_physical_byte_count;
     uint32_t flight_alignment_byte_shift;
     uint32_t flight_alignment_bit_shift;
+    uint32_t flight_local_slot_id;
+    bool flight_overlay_dma_active;
     bool flight_overlay_next_prepared;
     bool flight_overlay_pass_committed;
     bool flight_overlay_boundary_pending;

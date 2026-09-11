@@ -18,7 +18,7 @@ PROGRAM = "tdma_pio_spi_flight_process_follower"
 
 def _check_patch_targets(source: str) -> dict[str, int]:
     body = re.search(
-        rf"^\.program {PROGRAM}\s*$([\s\S]*?)^\.wrap\s*$",
+        rf"^\.program {PROGRAM}\s*$([\s\S]*?)(?=^\.program )",
         source, re.MULTILINE,
     )
     assert body is not None
@@ -39,11 +39,10 @@ def _check_patch_targets(source: str) -> dict[str, int]:
         r"pio->instr_mem\[offset\s*\+\s*([^\]]+)\]\s*=([^;]+);",
         init.group(0),
     )
-    expected = {
-        ("true", "rx_csn_pin"): "wait 1 gpio 0",
-        ("true", "rx_sck_pin"): "wait 1 gpio 1",
-        ("false", "rx_sck_pin"): "wait 0 gpio 1",
-    }
+    expected = {"wait_csn_high": ("true", "rx_csn_pin", "wait 1 gpio 0")}
+    for suffix in ("", "_eighth", "_final"):
+        expected[f"wait_sck_high{suffix}"] = ("true", "rx_sck_pin", "wait 1 gpio 1")
+        expected[f"wait_sck_low{suffix}"] = ("false", "rx_sck_pin", "wait 0 gpio 1")
     assert len(patches) == len(expected)
     remaining = dict(expected)
     positions = {}
@@ -55,10 +54,13 @@ def _check_patch_targets(source: str) -> dict[str, int]:
         edge = re.search(r"pio_encode_wait_gpio\((true|false),\s*(\w+)\)", value)
         assert edge is not None
         key = edge.groups()
-        assert key in remaining, "missing or duplicate edge patch"
-        assert instructions[labels[label]] == remaining.pop(key), "patch overwrites wrong instruction"
+        assert label in remaining, "patch overwrites wrong instruction"
+        polarity, pin, instruction = remaining.pop(label)
+        assert key == (polarity, pin), "patch overwrites wrong instruction"
+        assert instructions[labels[label]] == instruction, "patch overwrites wrong instruction"
         if key == ("true", "rx_sck_pin"):
-            assert "pio_encode_delay(data_phase_delay_cycles)" in value
+            delay = "data_phase_delay_cycles - 2u" if label == "wait_sck_high" else "data_phase_delay_cycles"
+            assert f"pio_encode_delay({delay})" in value
         positions[label] = labels[label]
     assert not remaining
     return positions

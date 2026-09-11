@@ -590,7 +590,10 @@ def check(
         ):
             if not re.search(r"\bin\s+pins\b", body):
                 failures.append(f"{name} does not sample incoming DATA")
-            if not re.search(r"\bout\s+pins\b", body):
+            output_action = (r"^\s*mov\s+pins,\s*x\s*$"
+                             if name == "process-image DATA follower"
+                             else r"^\s*out\s+pins,\s*1\s*$")
+            if not re.search(output_action, instruction_text(body), re.MULTILINE):
                 failures.append(f"{name} does not forward outgoing DATA")
             if not re.search(
                 r"^\s*push\s+noblock\b",

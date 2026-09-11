@@ -611,6 +611,16 @@ static void test_sync_io_persona_manager_failure_rollback(void)
 
 int main(void)
 {
+    tdma_state_machine_command_dma_contract_t command = tdma_state_machine_command_dma_contract();
+    assert(tdma_state_machine_command_dma_contract_valid(&command));
+    command.loader_dma = command.output_dma;
+    assert(!tdma_state_machine_command_dma_contract_valid(&command));
+    command = tdma_state_machine_command_dma_contract();
+    command.loader_dma = command.capture_dma;
+    assert(!tdma_state_machine_command_dma_contract_valid(&command));
+    command = tdma_state_machine_command_dma_contract();
+    command.descriptor_write_ring_log2++;
+    assert(!tdma_state_machine_command_dma_contract_valid(&command));
     test_directional_tdma_resources();
     test_tdma_rx_endpoint_contract();
     test_tdma_persona_owner_transfer();

@@ -27,4 +27,11 @@ $exe = Join-Path $build "test_tdma_flight_overlay.exe"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $exe
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$bitTestSource = Join-Path $repo "tests\unit\test_tdma_flight_bit_plan.c"
+$bitExe = Join-Path $build "test_tdma_flight_bit_plan.exe"
+& $hostCc -std=c11 -O2 -Wall -Wextra -Werror "-I$include" `
+    $bitTestSource $overlaySource -o $bitExe
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& $bitExe
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Host "tdma_flight_overlay host unit tests passed"

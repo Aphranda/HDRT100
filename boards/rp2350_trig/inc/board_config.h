@@ -135,6 +135,11 @@
 #define BOARD_TDMA_RX_DATA_OUT_DMA_CHANNEL 5u
 #define BOARD_TDMA_TX_DATA_IN_FORWARD_DMA_CHANNEL 6u
 #define BOARD_TDMA_TX_SYNC_EDGE_DMA_CHANNEL 7u
+/* Process follower persona: the reserved forward channel loads command DMA
+ * descriptors. It has no DATA FIFO/DREQ ownership and is exclusive with the
+ * legacy forward role under the stopped TDMA flight resource claim. */
+#define BOARD_TDMA_RX_COMMAND_LOADER_DMA_CHANNEL \
+    BOARD_TDMA_TX_DATA_IN_FORWARD_DMA_CHANNEL
 /* Deprecated names retain the old PIO2 SM numbering until runtime migration
  * is complete. They must not be used to infer the crossed-PIO flight roles. */
 #define BOARD_TDMA_TX_CONTROL_SM 0u

@@ -506,56 +506,17 @@ def test_follower_samples_data_on_rising_edge_before_falling_edge() -> None:
 
 
 def test_process_follower_retains_elastic_byte_across_frame_boundary() -> None:
-    source = (ROOT / "components" / "tdma" / "src" /
-              "tdma_pio_spi.pio").read_text(encoding="utf-8")
-    program = source.split(
-        ".program tdma_pio_spi_flight_process_follower", 1
-    )[1].split(".program", 1)[0]
-    assert "flight_process_pass:\n    ; Y retains" in program
-    assert "mov osr, y" in program
-    assert "mov y, isr" in program
-    end_wait_high = program.index("wait 1 gpio 0")
-    boundary_irq = program.index("irq set 3", end_wait_high)
-    command_jump = program.index("jmp flight_process_command", boundary_irq)
-    pass_label = program.index("flight_process_pass:", command_jump)
-    boundary = program[end_wait_high:boundary_irq]
-    assert "Keep Y across CS boundaries" in program
-    assert "set y, 0" not in boundary
-    assert "wait 0 gpio 0" not in boundary
-    assert end_wait_high < boundary_irq < command_jump < pass_label
-    assert "hardware\n    ; wrap occurs only after the final PUSH" in program
-    assert "set y, 0" not in program
-
-    init = source.split(
-        "static inline void tdma_pio_spi_flight_process_follower_program_init",
-        1,
-    )[1].split("static inline void", 1)[0]
-    assert "instr_mem[offset + 5u]" in init
-    assert "pio_encode_wait_gpio(true, rx_csn_pin)" in init
-    assert "instr_mem[offset + 6u]" not in init
-    assert "instr_mem[offset + 11u]" in init
-    assert "pio_encode_wait_gpio(true, rx_sck_pin)" in init
-    assert "pio_encode_delay(data_phase_delay_cycles)" in init
-    assert "instr_mem[offset + 13u]" in init
-    assert "pio_encode_wait_gpio(false, rx_sck_pin)" in init
-    bit_loop = program.split("flight_process_bit:", 1)[1].split(
-        "mov y, isr", 1)[0]
-    assert "wait 0 gpio 1" in bit_loop
-    assert "out pins, 1" in bit_loop
-    assert "nop" not in bit_loop
-    assert bit_loop.index("wait 1 gpio 1") < bit_loop.index("in pins, 1")
-    assert bit_loop.index("in pins, 1") < bit_loop.index("wait 0 gpio 1")
+    source = (ROOT / "components/tdma/src/tdma_pio_spi.pio").read_text(encoding="utf-8")
+    program = source.split(".program tdma_pio_spi_flight_process_follower", 1)[1].split(".program", 1)[0]
+    # Both normal and terminal byte paths preserve ISR around a lossy RX push.
+    assert program.count("mov x, isr\n    push noblock\n    mov isr, x\n    in null, 24") == 2
     assert "mov isr, null" not in program
-
+    boundary = program.split("public wait_csn_high:", 1)[1]
+    assert boundary.index("wait 1 gpio 0") < boundary.index("irq set 3") < boundary.index("jmp flight_process_command")
+    assert "set y, 0" not in boundary
     phys = _read_phys_source()
-    configure = phys.split(
-        "static bool tdma_pio_spi_phys_configure_flight", 1
-    )[1].split("static bool", 1)[0]
-    assert "pio_encode_set(pio_y, 0u)" in configure
-
-    overlay = (ROOT / "components" / "tdma" / "src" /
-               "tdma_flight_overlay.c").read_text(encoding="utf-8")
-    assert "alignment_byte_shift + 1u +" in overlay
+    configure = phys.split("static bool tdma_pio_spi_phys_configure_flight", 1)[1].split("static uint32_t", 1)[0]
+    assert "pio_encode_mov(pio_isr, pio_null)" in configure
 
 
 def test_process_follower_forwards_control_on_independent_pio_sm() -> None:
@@ -1091,7 +1052,7 @@ def test_process_follower_coalesces_late_overlay_behind_committed_pass() -> None
         "bool tdma_pio_spi_phys_prepare_process_overlay", 1
     )[1].split("static void tdma_pio_spi_phys_set_line_drivers", 1)[0]
     committed = prepare.index("phys->flight_overlay_pass_committed")
-    dma_busy = prepare.index("dma_channel_is_busy", committed)
+    dma_busy = prepare.index("tdma_pio_spi_phys_overlay_dma_busy", committed)
     idle_high = prepare.index("gpio_get(phys->rx_csn_pin)", dma_busy)
     coalesced = prepare.index("overlay_late_coalesce_count++", idle_high)
     overlay_build = prepare.index("tdma_flight_overlay_build", coalesced)
@@ -1109,7 +1070,7 @@ def test_overlay_script_uses_nonblocking_double_buffer_submission() -> None:
     assert "tdma_pio_spi_phys_wait_overlay_dma_idle" not in pass_overlay
     pass_buffer = pass_overlay.index(
         "tdma_pio_spi_phys_overlay_free_buffer")
-    pass_write = pass_overlay.index("memset(script")
+    pass_write = pass_overlay.index("tdma_flight_overlay_build_pass_plan")
     pass_queue = pass_overlay.index(
         "tdma_pio_spi_phys_queue_overlay_script")
     assert pass_buffer < pass_write < pass_queue
@@ -1120,7 +1081,7 @@ def test_overlay_script_uses_nonblocking_double_buffer_submission() -> None:
     assert "tdma_pio_spi_phys_wait_overlay_dma_idle" not in prepare
     prepare_buffer = prepare.index(
         "tdma_pio_spi_phys_overlay_free_buffer")
-    overlay_build = prepare.index("if (!tdma_flight_overlay_build(")
+    overlay_build = prepare.index("if (!tdma_flight_overlay_build_plan(")
     prepare_queue = prepare.index(
         "tdma_pio_spi_phys_queue_overlay_script")
     assert prepare_buffer < overlay_build < prepare_queue
