@@ -13,10 +13,162 @@ from tools.state_machine_resource_check.state_machine_resource_check import c_de
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_three_level_abort_late_writes_and_shared_deadline(tmp_path):
+    """Execute the production STOP algorithm with in-flight AL3 writes.
+
+    The three-level fixture is the proposed origin dependency shape; it does
+    not claim that the origin persona is installed or admitted on hardware.
+    """
+    source = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    routines = "\n".join(kind + " " + name + signature + " {" +
+        c_definition_body(source, name) + "}\n" for kind, name, signature in [
+            ("static void", "tdma_pio_spi_phys_disable_dma_mask", "(uint32_t mask)"),
+            ("static bool", "tdma_pio_spi_phys_stop_dma_level", "(uint32_t mask, uint64_t deadline)"),
+            ("static bool", "tdma_pio_spi_phys_stop_dma_chain", "(uint32_t loader_mask, uint32_t executor_mask, uint32_t children_mask, uint64_t deadline)")])
+    fixture = r'''
+#include <assert.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+typedef unsigned uint;
+enum { NUM_DMA_CHANNELS = 16, DMA_CH0_CTRL_TRIG_EN_BITS = 1, BUDGET = 64,
+       LOADER = 1u << 6, EXECUTOR = 1u << 8, CHILDREN = (1u << 4) | (1u << 5),
+       OWNED = LOADER | EXECUTOR | CHILDREN, FOREIGN = 1u << 7 };
+static struct { struct { uint32_t ctrl_trig; } ch[16]; uint32_t abort; } bus;
+#define dma_hw (&bus)
+static bool busy[16];
+static uint now, delay[3], remaining[3], races, barriers, touched, poll_mask;
+static uint pending_abort, observation_mode;
+static int hung;
+static uint fifo_clears, pool_releases, irq_clears, sniff_ctrl;
+static void __dmb(void) { ++barriers; }
+static void hw_clear_bits(uint32_t *reg, uint32_t mask) {
+    for (uint ch = 0; ch < 16; ++ch) if (reg == &bus.ch[ch].ctrl_trig) {
+        assert((OWNED & (1u << ch)) != 0); touched |= 1u << ch;
+        *reg &= ~mask; return;
+    }
+    assert(!"unowned register");
+}
+static bool dma_channel_is_busy(uint ch) {
+    assert(OWNED & (1u << ch)); poll_mask |= 1u << ch; return busy[ch];
+}
+static uint64_t tdma_pio_spi_phys_now_us(void) {
+    ++now;
+    if (bus.abort & OWNED) pending_abort = bus.abort & OWNED;
+    uint mask = pending_abort;
+    if (mask) {
+        int level = mask == LOADER ? 0 : mask == EXECUTOR ? 1 : 2;
+        assert(mask == LOADER || mask == EXECUTOR || mask == CHILDREN);
+        if (observation_mode == 1) bus.abort &= ~mask;
+        if (observation_mode == 2)
+            for (uint ch = 0; ch < 16; ++ch) if (mask & (1u << ch)) busy[ch] = false;
+        if (hung != level && remaining[level] && --remaining[level] == 0) {
+            /* The last bus write retires at abort completion, even if EN
+             * was already clear. The downstream AL3 CTRL contains EN=1. */
+            if (level == 0 && (races & 1)) {
+                bus.ch[8].ctrl_trig |= 1; busy[8] = true;
+            }
+            if (level == 1 && (races & 2)) {
+                bus.ch[4].ctrl_trig |= 1; busy[4] = true;
+                bus.ch[5].ctrl_trig |= 1; busy[5] = true;
+            }
+            if (level == 1 && (races & 4)) {
+                /* A branch READ_ADDR_TRIG must not revive disabled loader. */
+                if (bus.ch[6].ctrl_trig & 1) busy[6] = true;
+            }
+            if (level == 2 && (races & 8)) {
+                if (bus.ch[8].ctrl_trig & 1) busy[8] = true;
+            }
+            for (uint ch = 0; ch < 16; ++ch) if (mask & (1u << ch)) busy[ch] = false;
+            bus.abort &= ~mask;
+            pending_abort = 0;
+        }
+    }
+    /* An unrelated abort/BUSY can persist throughout our STOP. */
+    bus.abort |= FOREIGN;
+    return now;
+}
+static void setup(void) {
+    memset(&bus, 0, sizeof(bus)); memset(busy, 0, sizeof(busy));
+    for (uint ch = 0; ch < 16; ++ch) if ((OWNED | FOREIGN) & (1u << ch)) {
+        bus.ch[ch].ctrl_trig = 1; busy[ch] = true;
+    }
+    memcpy(remaining, delay, sizeof(remaining));
+    now = barriers = touched = poll_mask = pending_abort = 0;
+    fifo_clears = pool_releases = irq_clears = 0; sniff_ctrl = 0x123456;
+}
+static void assert_preserved(void) {
+    assert(bus.ch[7].ctrl_trig == 1 && busy[7]);
+    assert(fifo_clears == 0 && pool_releases == 0 && irq_clears == 0);
+    assert(sniff_ctrl == 0x123456);
+    assert(touched == OWNED);
+}
+static void assert_quiesced(void) {
+    for (uint ch = 0; ch < 16; ++ch) if (OWNED & (1u << ch)) {
+        assert(!busy[ch]); assert(!(bus.ch[ch].ctrl_trig & 1));
+    }
+    assert(!(bus.abort & OWNED)); assert(barriers > 0);
+    assert_preserved();
+}
+'''
+    assertions = r'''
+int main(void) {
+    uint success = 0, failures = 0;
+    for (observation_mode = 0; observation_mode < 3; ++observation_mode)
+    for (races = 0; races < 16; ++races)
+    for (delay[0] = 1; delay[0] <= 4; ++delay[0])
+    for (delay[1] = 1; delay[1] <= 4; ++delay[1])
+    for (delay[2] = 1; delay[2] <= 4; ++delay[2]) {
+        hung = -1; setup();
+        assert(tdma_pio_spi_phys_stop_dma_chain(LOADER, EXECUTOR, CHILDREN, BUDGET));
+        assert(now == delay[0] + delay[1] + delay[2]); assert_quiesced(); ++success;
+    }
+    observation_mode = 0; races = 15; delay[0] = delay[1] = delay[2] = 2;
+    for (hung = 0; hung < 3; ++hung) {
+        setup();
+        assert(!tdma_pio_spi_phys_stop_dma_chain(LOADER, EXECUTOR, CHILDREN, BUDGET));
+        assert(now == BUDGET && barriers == 0); assert_preserved();
+        for (uint ch = 0; ch < 16; ++ch) if (OWNED & (1u << ch))
+            assert(!(bus.ch[ch].ctrl_trig & 1));
+        int saved = hung; hung = -1;
+        memcpy(remaining, delay, sizeof(remaining));
+        assert(tdma_pio_spi_phys_stop_dma_chain(LOADER, EXECUTOR, CHILDREN, now + BUDGET));
+        assert_quiesced(); hung = saved; ++failures;
+    }
+    /* Each individual level fits, their sum exceeds the single budget. */
+    hung = -1; delay[0] = 30; delay[1] = 30; delay[2] = 30; setup();
+    assert(!tdma_pio_spi_phys_stop_dma_chain(LOADER, EXECUTOR, CHILDREN, BUDGET));
+    assert(now == BUDGET && barriers == 0); assert_preserved(); ++failures;
+    /* Negative control: child-first STOP leaves live children after the
+     * executor's late CTRL write. This bus detects the original hazard. */
+    delay[0] = delay[1] = delay[2] = 2; setup();
+    tdma_pio_spi_phys_disable_dma_mask(OWNED);
+    assert(tdma_pio_spi_phys_stop_dma_level(CHILDREN, BUDGET));
+    assert(tdma_pio_spi_phys_stop_dma_level(LOADER, BUDGET));
+    assert(tdma_pio_spi_phys_stop_dma_level(EXECUTOR, BUDGET));
+    assert(busy[4] && busy[5] && (bus.ch[4].ctrl_trig & 1) && (bus.ch[5].ctrl_trig & 1));
+    printf("three-level STOP: %u late-write cases, %u timeouts, retry and negative control passed\n", success, failures);
+}
+'''
+    unit = tmp_path / "stop_chain.c"
+    unit.write_text(fixture + routines + assertions, encoding="utf-8")
+    gcc = os.environ.get("HOST_CC") or shutil.which("gcc") or "D:/Microsoft/mingw64/bin/gcc.exe"
+    exe = tmp_path / "stop_chain.exe"
+    build = subprocess.run([gcc, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
+                            str(unit), "-o", str(exe)], capture_output=True, text=True)
+    assert build.returncode == 0, build.stdout + build.stderr
+    run = subprocess.run([str(exe)], capture_output=True, text=True)
+    assert run.returncode == 0, run.stdout + run.stderr
+
+
 def test_descriptor_completion_and_bounded_stop(tmp_path):
     source = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(encoding="utf-8")
     routines = "\n".join(kind + " " + name + signature + " {" +
         c_definition_body(source, name) + "}\n" for kind, name, signature in [
+            ("static void", "tdma_pio_spi_phys_disable_dma_mask", "(uint32_t mask)"),
+            ("static bool", "tdma_pio_spi_phys_stop_dma_level", "(uint32_t mask, uint64_t deadline)"),
+            ("static bool", "tdma_pio_spi_phys_stop_dma_chain", "(uint32_t loader_mask, uint32_t executor_mask, uint32_t children_mask, uint64_t deadline)"),
             ("static bool", "tdma_pio_spi_phys_stop_command_dma", "(tdma_pio_spi_phys_t *phys)"),
             ("static bool", "tdma_pio_spi_phys_overlay_dma_busy", "(tdma_pio_spi_phys_t *phys)"),
             ("static void", "tdma_pio_spi_phys_service_overlay_pending", "(tdma_pio_spi_phys_t *phys)"),
@@ -28,18 +180,20 @@ def test_descriptor_completion_and_bounded_stop(tmp_path):
 #include <stdio.h>
 #include <string.h>
 typedef unsigned uint;
-enum { DMA_SIZE_32 = 2, DMA_CH0_CTRL_TRIG_EN_BITS = 1, DREQ_FORCE = 63,
+enum { DMA_SIZE_32 = 2, DMA_CH0_CTRL_TRIG_EN_BITS = 1, DREQ_FORCE = 63, NUM_DMA_CHANNELS = 16,
        TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES = 2,
        TDMA_PIO_SPI_COMMAND_STOP_TIMEOUT_US = 64, TDMA_PIO_SPI_PHYS_ERROR_PERSONA_BUSY = 6,
        TDMA_PIO_SPI_OVERLAY_ERROR_DMA_START_INVALID = 4, TDMA_PIO_SPI_OVERLAY_ERROR_DMA_BUSY_TIMEOUT = 3,
        TDMA_PIO_SPI_OVERLAY_ERROR_BUILD_FAILED = 2, TDMA_PIO_SPI_OVERLAY_ERROR_NONE = 0 };
 typedef struct {
+    uint32_t armed;
     uint32_t last_error, overlay_last_error, overlay_tx_dma_remaining, overlay_tx_dma_busy;
     uint32_t overlay_tx_fifo_level_at_fail, overlay_prepare_wait_us;
     uint32_t overlay_published_generation, overlay_selected_generation, overlay_selection_pending;
 } Snapshot;
 typedef struct {
     bool armed, flight_resource_claimed, flight_overlay_dma_active, flight_overlay_pending;
+    bool rx_capture_active;
     uint32_t flight_overlay_active_buffer, flight_physical_byte_count, flight_overlay_pending_buffer;
     uint32_t flight_overlay_published_generation;
     uint32_t flight_overlay_alignment_samples;
@@ -47,11 +201,12 @@ typedef struct {
     Snapshot snapshot;
 } tdma_pio_spi_phys_t;
 typedef struct { uintptr_t read_addr; uint32_t ctrl_trig, transfer_count, al3_ctrl, al3_read_addr_trig, write_addr; } Channel;
-static struct { Channel ch[8]; uint32_t abort; } bus;
+static struct { Channel ch[16]; uint32_t abort; } bus;
 #define dma_hw (&bus)
-static bool busy[8], hang_abort, stopped, enabled, late_trigger, late_restart;
+static bool busy[16], hang_abort, stopped, enabled, late_trigger, late_restart;
 static unsigned now, stop_clear_output_count, start_calls;
 static int s_tdma_pio_spi_command_dma_channel = 6, s_tdma_pio_spi_tx_dma_channel = 5;
+static int s_tdma_pio_spi_rx_dma_channel = 4;
 static tdma_flight_overlay_plan_t s_tdma_pio_spi_flight_overlay_plan[2];
 static uint32_t s_tdma_pio_spi_flight_live_word = TDMA_FLIGHT_OVERLAY_LIVE_WORD;
 static struct { uint32_t txf[4]; } pio;
@@ -79,14 +234,14 @@ static uint64_t tdma_pio_spi_phys_now_us(void) {
             if (bus.ch[6].ctrl_trig & 1) busy[6] = true;
             late_restart = false;
         }
-        for (uint ch = 0; ch < 8; ++ch) if (bus.abort & (1u << ch)) busy[ch] = false;
+        for (uint ch = 0; ch < 16; ++ch) if (bus.abort & (1u << ch)) busy[ch] = false;
         bus.abort = 0;
     }
     return now;
 }
 static void __dmb(void) {}
 static void tdma_pio_spi_phys_set_line_drivers(bool value) { enabled = value; }
-static void tdma_pio_spi_phys_prepare_sm_pair(tdma_pio_spi_phys_t *phys) { (void)phys; stopped = true; }
+static void tdma_pio_spi_phys_pause_sm_pair(tdma_pio_spi_phys_t *phys) { (void)phys; stopped = true; }
 #define tdma_pio_spi_phys_data_pio(phys) (&pio)
 #define tdma_pio_spi_phys_data_sm(phys) (2u)
 #define pio_sm_get_tx_fifo_level(p, s) (0u)
@@ -278,6 +433,90 @@ int main(void) {
                     str(ROOT / "components/tdma/src/tdma_transport_frame.c"), "-o", str(exe)],
                    check=True, capture_output=True)
     subprocess.run([str(exe)], check=True, capture_output=True)
+
+
+def test_persona_release_retains_all_resources_until_capture_abort_retires(tmp_path):
+    source = (ROOT / "components/tdma/src/tdma_pio_spi_phys_programs.c").read_text(encoding="utf-8")
+    routines = "\n".join(kind + " " + name + signature + " {" +
+        c_definition_body(source, name) + "}\n" for kind, name, signature in [
+            ("static bool", "tdma_pio_spi_programs_dma_quiesced", "(const tdma_pio_spi_program_manager_t *manager)"),
+            ("void", "tdma_pio_spi_programs_release_resources", "(tdma_pio_spi_program_manager_t *manager, tdma_pio_spi_phys_t *phys, tdma_pio_spi_program_persona_t persona)")])
+    fixture = r'''
+#include <assert.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stddef.h>
+typedef unsigned uint;
+typedef uint tdma_pio_spi_program_persona_t;
+enum { TDMA_PIO_SPI_PHYS_ERROR_PERSONA_BUSY = 6,
+       TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK = 3,
+       TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK = 1 };
+static const char *TDMA_FLIGHT_RESOURCE_OWNER = "TDMA_FLIGHT_PIO";
+static const char *TDMA_MAINTENANCE_RESOURCE_OWNER = "TDMA_MAINTENANCE_PIO";
+typedef struct {
+    int *command_dma_channel, *tx_dma_channel, *rx_dma_channel;
+    bool *maintenance_resources_claimed;
+} tdma_pio_spi_program_manager_t;
+typedef struct {
+    bool flight_overlay_dma_active, flight_resource_claimed;
+    struct { uint last_error; } snapshot;
+} tdma_pio_spi_phys_t;
+static struct { uint32_t abort; } bus;
+#define dma_hw (&bus)
+static bool busy[16];
+static uint dma_releases, sm_releases, arbiter_releases;
+static bool dma_channel_is_busy(uint ch) { return busy[ch]; }
+static void dma_channel_unclaim(uint ch) { assert(ch == 6); ++dma_releases; }
+static bool tdma_pio_spi_programs_is_flight_persona(uint p) { return p == 1; }
+static void tdma_pio_spi_programs_release_flight_sms(tdma_pio_spi_program_manager_t *m) { (void)m; ++sm_releases; }
+static void tdma_pio_spi_programs_release_maintenance_sms(tdma_pio_spi_program_manager_t *m) { (void)m; ++sm_releases; }
+static void resource_arbiter_release_owned(uint mask, const char *owner) {
+    assert(mask == TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK);
+    assert(owner == TDMA_FLIGHT_RESOURCE_OWNER); ++arbiter_releases;
+}
+'''
+    assertions = r'''
+int main(void) {
+    int loader = 6, tx = 5, rx = 4; bool maintenance = false;
+    tdma_pio_spi_program_manager_t manager = {&loader, &tx, &rx, &maintenance};
+    tdma_pio_spi_phys_t phys = {.flight_resource_claimed = true};
+    for (uint ch = 4; ch <= 6; ++ch) {
+        for (uint phase = 0; phase < 2; ++phase) {
+            busy[ch] = phase == 0; bus.abort = phase == 1 ? 1u << ch : 0;
+            tdma_pio_spi_programs_release_resources(&manager, &phys, 1);
+            assert(phys.flight_resource_claimed && loader == 6);
+            assert(phys.snapshot.last_error == TDMA_PIO_SPI_PHYS_ERROR_PERSONA_BUSY);
+            assert(!dma_releases && !sm_releases && !arbiter_releases);
+            busy[ch] = false; bus.abort = 0;
+        }
+    }
+    /* BUSY may briefly be zero in a recurring descriptor gap. Only a
+     * successful full STOP clears the physical owner's lifetime latch. */
+    phys.flight_overlay_dma_active = true;
+    tdma_pio_spi_programs_release_resources(&manager, &phys, 1);
+    assert(phys.flight_resource_claimed && !dma_releases && !sm_releases && !arbiter_releases);
+    phys.flight_overlay_dma_active = false;
+    /* Origin/raw personas may have capture work even without a loader. */
+    loader = -1; busy[4] = true;
+    tdma_pio_spi_programs_release_resources(&manager, &phys, 1);
+    assert(phys.flight_resource_claimed && !sm_releases && !arbiter_releases);
+    busy[4] = false; loader = 6;
+    busy[7] = true; bus.abort = 1u << 7;
+    tdma_pio_spi_programs_release_resources(&manager, &phys, 1);
+    assert(!phys.flight_resource_claimed && loader == -1);
+    assert(dma_releases == 1 && sm_releases == 1 && arbiter_releases == 1);
+    assert(busy[7] && bus.abort == (1u << 7));
+}
+'''
+    unit = tmp_path / "release_resources.c"
+    unit.write_text(fixture + routines + assertions, encoding="utf-8")
+    gcc = os.environ.get("HOST_CC") or shutil.which("gcc") or "D:/Microsoft/mingw64/bin/gcc.exe"
+    exe = tmp_path / "release_resources.exe"
+    build = subprocess.run([gcc, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
+                            str(unit), "-o", str(exe)], capture_output=True, text=True)
+    assert build.returncode == 0, build.stdout + build.stderr
+    run = subprocess.run([str(exe)], capture_output=True, text=True)
+    assert run.returncode == 0, run.stdout + run.stderr
 
 
 def test_observation_copy_realign_does_not_move_published_wire_slots(tmp_path):

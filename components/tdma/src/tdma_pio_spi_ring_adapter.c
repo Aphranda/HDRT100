@@ -969,16 +969,22 @@ static bool tdma_pio_spi_ring_adapter_start(
     return true;
 }
 
-static void tdma_pio_spi_ring_adapter_stop(void *context)
+static bool tdma_pio_spi_ring_adapter_stop(void *context)
 {
     tdma_pio_spi_ring_adapter_t *adapter =
         (tdma_pio_spi_ring_adapter_t *)context;
     if (adapter == NULL) {
-        return;
+        return false;
     }
     tdma_pio_spi_ring_adapter_snapshot_write_begin(adapter);
-    if (adapter->started != 0u && adapter->phys_disarm != NULL) {
-        adapter->phys_disarm(adapter->phys_ctrl_context);
+    if (adapter->phys_disarm != NULL &&
+        !adapter->phys_disarm(adapter->phys_ctrl_context)) {
+        const uint32_t error = adapter->phys_last_error != NULL
+            ? adapter->phys_last_error(adapter->phys_ctrl_context) : 0u;
+        tdma_pio_spi_ring_adapter_set_error(adapter,
+            TDMA_PIO_SPI_RING_ADAPTER_PHYS_ARM_ERROR(error));
+        tdma_pio_spi_ring_adapter_snapshot_write_end(adapter);
+        return false;
     }
     if (adapter->phys_timestamp_ready != NULL) {
         tdma_pio_spi_ring_adapter_set_timestamp_metadata(
@@ -1058,6 +1064,7 @@ static void tdma_pio_spi_ring_adapter_stop(void *context)
            sizeof(adapter->local_tx_edge_evidence));
     memset(&adapter->clock_observation, 0, sizeof(adapter->clock_observation));
     tdma_pio_spi_ring_adapter_snapshot_write_end(adapter);
+    return true;
 }
 
 static bool tdma_pio_spi_ring_adapter_resident_process_image(

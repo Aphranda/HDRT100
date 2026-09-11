@@ -836,7 +836,7 @@ bool tdma_pio_spi_phys_take_local_tx_edge_ex(
     uint32_t expected_sequence,
     uint32_t expected_identity_crc32,
     tdma_ring_local_tx_edge_evidence_t *evidence);
-void tdma_pio_spi_phys_disarm(void *context);
+bool tdma_pio_spi_phys_disarm(void *context);
 bool tdma_pio_spi_phys_set_process_image_mode(
     tdma_pio_spi_phys_t *phys,
     bool enabled,

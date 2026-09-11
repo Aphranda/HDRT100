@@ -39,17 +39,22 @@ static uint64_t tdma_ring_runtime_now_ns(void)
 #endif
 }
 
-static void tdma_ring_runtime_stop_adapter(tdma_ring_runtime_t *runtime)
+static bool tdma_ring_runtime_stop_adapter(tdma_ring_runtime_t *runtime)
 {
     if (runtime->adapter_started != 0u) {
         if (runtime->adapter_ops != NULL &&
             runtime->adapter_ops->stop != NULL) {
-            runtime->adapter_ops->stop(runtime->adapter_context);
+            if (!runtime->adapter_ops->stop(runtime->adapter_context)) {
+                runtime->adapter_stop_pending = 1u;
+                return false;
+            }
         }
         runtime->adapter_started = 0u;
+        runtime->adapter_stop_pending = 0u;
         runtime->adapter_config_seq = 0u;
         runtime->adapter_stop_count++;
     }
+    return true;
 }
 
 static bool tdma_ring_runtime_feedback_correlated(
@@ -505,7 +510,11 @@ bool tdma_ring_runtime_bind_adapter(tdma_ring_runtime_t *runtime,
         return false;
     }
     tdma_ring_runtime_write_guard(&runtime->result_guard);
-    tdma_ring_runtime_stop_adapter(runtime);
+    if (!tdma_ring_runtime_stop_adapter(runtime)) {
+        runtime->last_reason = TDMA_RING_RUNTIME_REASON_EVIDENCE_MISSING;
+        tdma_ring_runtime_write_guard(&runtime->result_guard);
+        return false;
+    }
     runtime->adapter_ops = ops;
     runtime->adapter_context = context;
     runtime->last_reason = TDMA_RING_RUNTIME_REASON_NONE;
@@ -519,7 +528,11 @@ void tdma_ring_runtime_unbind_adapter(tdma_ring_runtime_t *runtime)
         return;
     }
     tdma_ring_runtime_write_guard(&runtime->result_guard);
-    tdma_ring_runtime_stop_adapter(runtime);
+    if (!tdma_ring_runtime_stop_adapter(runtime)) {
+        runtime->last_reason = TDMA_RING_RUNTIME_REASON_EVIDENCE_MISSING;
+        tdma_ring_runtime_write_guard(&runtime->result_guard);
+        return;
+    }
     runtime->adapter_ops = NULL;
     runtime->adapter_context = NULL;
     runtime->last_reason = TDMA_RING_RUNTIME_REASON_NONE;
@@ -560,11 +573,12 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
     uint32_t train_reject_count = runtime->train_reject_count;
     uint32_t training_dirty = runtime->training_dirty;
     uint32_t applied_config_seq = runtime->applied_config_seq;
+    bool stop_failed = false;
     if (!up_down_config_ready) {
-        tdma_ring_runtime_stop_adapter(runtime);
+        stop_failed = !tdma_ring_runtime_stop_adapter(runtime);
         if (enabled != 0u) {
             reason = TDMA_RING_RUNTIME_REASON_BAD_CONFIG;
-        } else if (tdma_ring_runtime_load(&runtime->config_seq) ==
+        } else if (!stop_failed && tdma_ring_runtime_load(&runtime->config_seq) ==
                        service_config_seq &&
                    tdma_ring_runtime_load(&runtime->enabled) == 0u) {
             applied_config_seq = service_config_seq;
@@ -572,9 +586,12 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
     } else if (runtime->adapter_ops == NULL) {
         reason = TDMA_RING_RUNTIME_REASON_ADAPTER_MISSING;
     } else {
-        if (runtime->adapter_started == 0u ||
+        if (runtime->adapter_started == 0u || runtime->adapter_stop_pending != 0u ||
             runtime->adapter_config_seq != service_config_seq) {
-            tdma_ring_runtime_stop_adapter(runtime);
+            if (!tdma_ring_runtime_stop_adapter(runtime)) {
+                stop_failed = true;
+                goto publish;
+            }
             if (runtime->adapter_ops->start(runtime->adapter_context,
                                             &service_config)) {
                 runtime->adapter_started = 1u;
@@ -586,7 +603,8 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
                     /* Core0 superseded this generation while the physical
                      * ARM callback was running.  Revoke it before publishing
                      * an acknowledgement for the stale configuration. */
-                    tdma_ring_runtime_stop_adapter(runtime);
+                    stop_failed = !tdma_ring_runtime_stop_adapter(runtime);
+                    if (stop_failed) goto publish;
                 } else {
                     applied_config_seq = service_config_seq;
                 }
@@ -596,6 +614,15 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
                     adapter_status.last_error =
                         runtime->adapter_ops->last_error(
                             runtime->adapter_context);
+                }
+                /* A rejected ARM may still own an incompletely stopped
+                 * graph. Retain the callback/context for later cleanup. */
+                if (!runtime->adapter_ops->stop(runtime->adapter_context)) {
+                    runtime->adapter_started = 1u;
+                    runtime->adapter_stop_pending = 1u;
+                    runtime->adapter_config_seq = 0u;
+                    stop_failed = true;
+                    goto publish;
                 }
             }
         } else {
@@ -631,7 +658,8 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
                    data_enabled != 0u && training_dirty != 0u) {
             /* Training replaces both PIO programs. Restore the normal DATA/CS
              * persona before cyclic service is allowed to run. */
-            tdma_ring_runtime_stop_adapter(runtime);
+            stop_failed = !tdma_ring_runtime_stop_adapter(runtime);
+            if (stop_failed) goto publish;
             training_dirty = 0u;
         }
         if (runtime->adapter_started != 0u && data_enabled != 0u) {
@@ -646,6 +674,12 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
         }
     }
 
+publish:
+    if (stop_failed) {
+        reason = TDMA_RING_RUNTIME_REASON_EVIDENCE_MISSING;
+        if (runtime->adapter_ops != NULL && runtime->adapter_ops->last_error != NULL)
+            adapter_status.last_error = runtime->adapter_ops->last_error(runtime->adapter_context);
+    }
     uint32_t correlated_round_trip_ns = 0u;
     uint32_t round_trip_ns = runtime->feedback_round_trip_ns;
     const bool feedback_updated = adapter_service_ok &&

@@ -129,6 +129,11 @@ bool tdma_pio_spi_phys_coded_start(
         return false;
     }
 
+    if (!tdma_pio_spi_phys_stop_command_dma(phys)) {
+        tdma_pio_spi_phys_coded_publish_error(
+            phys, request->epoch, TDMA_PIO_SPI_CODED_REJECT_RESOURCE);
+        return false;
+    }
     if (s_tdma_pio_spi_tx_dma_channel >= 0) {
         dma_channel_abort((uint)s_tdma_pio_spi_tx_dma_channel);
     }
@@ -241,6 +246,7 @@ bool tdma_pio_spi_phys_coded_start(
 void tdma_pio_spi_phys_coded_stop(tdma_pio_spi_phys_t *phys)
 {
     if (phys == NULL) return;
+    if (!tdma_pio_spi_phys_stop_command_dma(phys)) return;
     if (s_tdma_pio_spi_tx_dma_channel >= 0) {
         dma_channel_abort((uint)s_tdma_pio_spi_tx_dma_channel);
     }

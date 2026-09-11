@@ -27,6 +27,8 @@ static int expect_u32(const char *name, uint32_t actual, uint32_t expected)
 typedef struct {
     bool started;
     bool fail_start;
+    bool fail_stop;
+    uint32_t stop_attempts;
     bool disable_during_start;
     tdma_ring_runtime_t *runtime;
     uint32_t start_count;
@@ -63,13 +65,18 @@ static uint32_t fake_ring_last_error(const void *context)
     return adapter != NULL ? adapter->last_error : 0xFFFFFFFFu;
 }
 
-static void fake_ring_stop(void *context)
+static bool fake_ring_stop(void *context)
 {
     fake_ring_adapter_t *adapter = (fake_ring_adapter_t *)context;
+    if (adapter != NULL) {
+        adapter->stop_attempts++;
+        if (adapter->fail_stop) return false;
+    }
     if (adapter != NULL && adapter->started) {
         adapter->started = false;
         adapter->stop_count++;
     }
+    return true;
 }
 
 static bool fake_ring_service(void *context,
@@ -448,6 +455,64 @@ int main(void)
     failed += expect_u32("disabled generation acknowledged",
                          snapshot.applied_config_seq,
                          snapshot.config_seq);
+
+    /* A physical abort timeout must survive STOP/configure/unbind until a
+     * later owner service proves quiescence. No new ARM or DATA may run. */
+    {
+        tdma_ring_runtime_t stop_runtime;
+        tdma_ring_runtime_snapshot_t stop_snapshot;
+        fake_ring_adapter_t stop_adapter = {0}, replacement = {0};
+        tdma_ring_runtime_init(&stop_runtime);
+        tdma_ring_runtime_configure(&stop_runtime, &valid);
+        tdma_ring_runtime_bind_adapter(&stop_runtime, &s_fake_ring_ops, &stop_adapter);
+        tdma_ring_runtime_service(&stop_runtime);
+        const uint32_t accepted = stop_runtime.applied_config_seq;
+        stop_adapter.fail_stop = true;
+        stop_adapter.last_error = 9u;
+        tdma_ring_runtime_configure(&stop_runtime, NULL);
+        tdma_ring_runtime_service(&stop_runtime);
+        tdma_ring_runtime_get_snapshot(&stop_runtime, &stop_snapshot);
+        failed += expect_u32("failed STOP retains adapter", stop_snapshot.adapter_started, 1u);
+        failed += expect_u32("failed STOP has no stopped ACK", stop_snapshot.applied_config_seq, accepted);
+        failed += expect_u32("failed STOP does not count retirement", stop_adapter.stop_count, 0u);
+        failed += expect_u32("one bounded STOP per service", stop_adapter.stop_attempts, 1u);
+        failed += expect_u32("failed STOP reports physical error", stop_snapshot.adapter_last_error, 9u);
+        failed += expect_bool("pending STOP rejects rebind",
+            tdma_ring_runtime_bind_adapter(&stop_runtime, &s_fake_ring_ops, &replacement), false);
+        tdma_ring_runtime_unbind_adapter(&stop_runtime);
+        failed += expect_bool("pending STOP retains callback context", stop_runtime.adapter_context == &stop_adapter, true);
+        /* Even if config sequence wraps to the previous applied value, the
+         * explicit pending bit must require STOP before replacing the graph. */
+        tdma_ring_runtime_configure(&stop_runtime, &valid);
+        stop_runtime.config_seq = stop_runtime.adapter_config_seq;
+        tdma_ring_runtime_service(&stop_runtime);
+        failed += expect_u32("pending STOP blocks new start", stop_adapter.start_count, 1u);
+        failed += expect_u32("pending STOP blocks DATA", stop_runtime.up_running, 0u);
+        stop_adapter.fail_stop = false;
+        tdma_ring_runtime_configure(&stop_runtime, NULL);
+        tdma_ring_runtime_service(&stop_runtime);
+        tdma_ring_runtime_get_snapshot(&stop_runtime, &stop_snapshot);
+        failed += expect_u32("STOP retry retires once", stop_adapter.stop_count, 1u);
+        failed += expect_u32("STOP retry clears pending", stop_runtime.adapter_stop_pending, 0u);
+        failed += expect_u32("STOP retry acknowledges disabled config", stop_snapshot.applied_config_seq, stop_snapshot.config_seq);
+        tdma_ring_runtime_configure(&stop_runtime, &valid);
+        tdma_ring_runtime_service(&stop_runtime);
+        failed += expect_u32("ARM resumes after STOP success", stop_adapter.start_count, 2u);
+        tdma_ring_runtime_configure(&stop_runtime, NULL);
+        tdma_ring_runtime_service(&stop_runtime);
+        stop_adapter.fail_start = true;
+        stop_adapter.fail_stop = true;
+        tdma_ring_runtime_configure(&stop_runtime, &valid);
+        tdma_ring_runtime_service(&stop_runtime);
+        failed += expect_u32("partial ARM retains cleanup callback", stop_runtime.adapter_started, 1u);
+        failed += expect_u32("partial ARM marks pending STOP", stop_runtime.adapter_stop_pending, 1u);
+        stop_adapter.fail_start = false;
+        tdma_ring_runtime_service(&stop_runtime);
+        failed += expect_u32("partial ARM cannot restart before cleanup", stop_adapter.start_count, 2u);
+        stop_adapter.fail_stop = false;
+        tdma_ring_runtime_service(&stop_runtime);
+        failed += expect_u32("partial ARM restarts after cleanup", stop_adapter.start_count, 3u);
+    }
 
     /* A STOP may supersede an ARM while the physical start callback is in
      * progress on core1. The stale generation must be revoked in the same

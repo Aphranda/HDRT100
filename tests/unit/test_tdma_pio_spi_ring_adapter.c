@@ -350,6 +350,7 @@ typedef struct {
     uint32_t *disarm_calls;
     uint32_t *arm_schedule_crc;
     uint32_t *arm_result;
+    bool fail_disarm;
     bool timestamp_ready;
     uint32_t timestamp_resolution_ns;
     uint32_t timestamp_flags;
@@ -370,12 +371,13 @@ static bool phys_ctrl_stub_arm(void *context,
     return ctrl->arm_result == NULL ? true : *ctrl->arm_result;
 }
 
-static void phys_ctrl_stub_disarm(void *context)
+static bool phys_ctrl_stub_disarm(void *context)
 {
     phys_ctrl_stub_t *ctrl = (phys_ctrl_stub_t *)context;
     if (ctrl != NULL && ctrl->disarm_calls != NULL) {
         (*ctrl->disarm_calls)++;
     }
+    return ctrl != NULL && !ctrl->fail_disarm;
 }
 
 static uint32_t test_get_u32_le(const uint8_t *src)
@@ -1765,8 +1767,20 @@ int main(void)
         failed += expect_u32("up running with phys ctrl", snapshot.up_running, 1u);
 
         tdma_ring_runtime_configure(&runtime, NULL);
+        ctrl.fail_disarm = true;
+        adapter.resident_packet_size = 32u;
+        adapter.resident_packet[0] = 0xa5u;
         tdma_ring_runtime_service(&runtime);
         failed += expect_u32("phys disarm called on stop", disarm_calls, 1u);
+        failed += expect_u32("failed disarm preserves adapter lifetime", adapter.started, 1u);
+        failed += expect_u32("failed disarm preserves pool size", adapter.resident_packet_size, 32u);
+        failed += expect_u32("failed disarm preserves pool bytes", adapter.resident_packet[0], 0xa5u);
+        failed += expect_u32("failed disarm retains runtime callback", runtime.adapter_started, 1u);
+        ctrl.fail_disarm = false;
+        tdma_ring_runtime_service(&runtime);
+        failed += expect_u32("next boundary retries physical disarm", disarm_calls, 2u);
+        failed += expect_u32("successful disarm retires adapter", adapter.started, 0u);
+        failed += expect_u32("successful disarm clears pool size", adapter.resident_packet_size, 0u);
     }
 
     /* --- Hardware timestamp eligibility follows the physical arm lifetime.

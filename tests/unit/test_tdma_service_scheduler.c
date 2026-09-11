@@ -107,6 +107,7 @@ typedef struct {
     uint32_t started;
     uint32_t service_count;
     uint32_t marker;
+    bool fail_stop;
 } mock_ring_adapter_t;
 
 static bool mock_ring_start(void *context,
@@ -120,12 +121,14 @@ static bool mock_ring_start(void *context,
     return true;
 }
 
-static void mock_ring_stop(void *context)
+static bool mock_ring_stop(void *context)
 {
     mock_ring_adapter_t *adapter = (mock_ring_adapter_t *)context;
+    if (adapter != NULL && adapter->fail_stop) return false;
     if (adapter != NULL) {
         adapter->started = 0u;
     }
+    return true;
 }
 
 static bool mock_ring_service(void *context,
@@ -501,6 +504,18 @@ int main(void)
         /* BISS-C profile switches to the BISS-C implementation. */
         (void)tdma_foundation_profile_default(
             &profile, 1u, 0u, 0u, TDMA_ADAPTER_BISS_C);
+        spi_ring.fail_stop = true;
+        const uint32_t old_profile_crc = service.foundation_profile_crc32;
+        failed += expect_u32("pending STOP rejects foundation replacement",
+                             tdma_service_configure_foundation_profile(
+                                 &service, &profile, 0x12345678u), 0u);
+        failed += expect_u32("pending STOP preserves foundation metadata",
+                             service.foundation_profile_crc32, old_profile_crc);
+        failed += expect_u32("pending STOP preserves adapter type",
+                             service.adapter_type, TDMA_ADAPTER_PIO_SPI);
+        failed += expect_u32("pending STOP preserves adapter context",
+                             service.ring_runtime.adapter_context == &spi_ring, 1u);
+        spi_ring.fail_stop = false;
         failed += expect_u32("configure bissc profile",
                              tdma_service_configure_foundation_profile(
                                  &service, &profile, 0x12345678u),

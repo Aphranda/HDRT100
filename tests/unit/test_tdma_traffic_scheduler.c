@@ -376,6 +376,24 @@ static int test_cycle_change_requires_explicit_cancel(void)
     failed += expect_u32("suspended admission rejects enqueue",
                          tdma_traffic_scheduler_enqueue(&scheduler, &vdc),
                          TDMA_TRAFFIC_SCHEDULER_GATE_CLOSED);
+    tdma_traffic_dispatch_t stopped_dispatch;
+    const uint32_t stopped_cycle = scheduler.cycle_seq;
+    failed += expect_u32("suspended selection has no queue work",
+                         tdma_traffic_scheduler_select(&scheduler,
+                             now_ns + 10000000ull, true, &stopped_dispatch),
+                         TDMA_TRAFFIC_SCHEDULER_GATE_CLOSED);
+    failed += expect_u32("suspended selection does not advance budget cycle",
+                         scheduler.cycle_seq, stopped_cycle);
+    /* Model another owner holding the lock while changing admission. A
+     * closed consumer must not compete with ARM/profile/cancellation. */
+    scheduler.lock = 1u;
+    failed += expect_u32("suspended selection never contends for lock",
+                         tdma_traffic_scheduler_select(&scheduler,
+                             now_ns, true, &stopped_dispatch),
+                         TDMA_TRAFFIC_SCHEDULER_GATE_CLOSED);
+    failed += expect_u32("suspended selection preserves other lock owner",
+                         scheduler.lock, 1u);
+    scheduler.lock = 0u;
     failed += expect_bool("resume scheduler",
                           tdma_traffic_scheduler_resume(&scheduler),
                           true);

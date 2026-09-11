@@ -388,8 +388,8 @@ bool tdma_traffic_scheduler_configure(
         scheduler->budget_reported_cycle[i] = UINT64_MAX;
         slot_base += profile->resource.traffic[i].queue_depth;
     }
-    scheduler->configured = 1u;
-    scheduler->admission_open = 1u;
+    __atomic_store_n(&scheduler->configured, 1u, __ATOMIC_RELEASE);
+    __atomic_store_n(&scheduler->admission_open, 1u, __ATOMIC_RELEASE);
     scheduler->config_seq++;
     scheduler->enqueue_seq = 0u;
     scheduler->dispatch_seq = 0u;
@@ -474,7 +474,7 @@ bool tdma_traffic_scheduler_suspend(
     if (scheduler == NULL || !tdma_traffic_scheduler_try_lock(scheduler)) {
         return false;
     }
-    scheduler->admission_open = 0u;
+    __atomic_store_n(&scheduler->admission_open, 0u, __ATOMIC_RELEASE);
     const uint32_t total_canceled =
         tdma_traffic_scheduler_cancel_pending_locked(scheduler);
     if (canceled_count != NULL) {
@@ -489,7 +489,7 @@ bool tdma_traffic_scheduler_resume(tdma_traffic_scheduler_t *scheduler)
     if (scheduler == NULL || !tdma_traffic_scheduler_try_lock(scheduler)) {
         return false;
     }
-    scheduler->admission_open = 1u;
+    __atomic_store_n(&scheduler->admission_open, 1u, __ATOMIC_RELEASE);
     tdma_traffic_scheduler_unlock(scheduler);
     return true;
 }
@@ -748,12 +748,25 @@ tdma_traffic_scheduler_result_t tdma_traffic_scheduler_select(
     if (scheduler == NULL || dispatch == NULL) {
         return TDMA_TRAFFIC_SCHEDULER_BAD_ARGUMENT;
     }
+    /* STOP cancels pending traffic under the lock. While admission is closed,
+     * the Core1 consumer has no queue work and must not repeatedly contend
+     * with the control owner's resume/profile operations. This atomic hint
+     * grants no access to queue data; an open gate is rechecked under lock. */
+    if (__atomic_load_n(&scheduler->admission_open, __ATOMIC_ACQUIRE) == 0u) {
+        return __atomic_load_n(&scheduler->configured, __ATOMIC_ACQUIRE) != 0u
+            ? TDMA_TRAFFIC_SCHEDULER_GATE_CLOSED
+            : TDMA_TRAFFIC_SCHEDULER_NOT_CONFIGURED;
+    }
     if (!tdma_traffic_scheduler_try_lock(scheduler)) {
         return TDMA_TRAFFIC_SCHEDULER_BUSY;
     }
     if (scheduler->configured == 0u) {
         tdma_traffic_scheduler_unlock(scheduler);
         return TDMA_TRAFFIC_SCHEDULER_NOT_CONFIGURED;
+    }
+    if (scheduler->admission_open == 0u) {
+        tdma_traffic_scheduler_unlock(scheduler);
+        return TDMA_TRAFFIC_SCHEDULER_GATE_CLOSED;
     }
 
     tdma_traffic_scheduler_refresh_cycle(scheduler, now_ns);

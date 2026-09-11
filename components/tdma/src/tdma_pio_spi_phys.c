@@ -547,38 +547,101 @@ static void tdma_pio_spi_phys_prepare_sm_pair(tdma_pio_spi_phys_t *phys)
     }
 }
 
-static bool tdma_pio_spi_phys_stop_command_dma(tdma_pio_spi_phys_t *phys)
+/* Disabling an SM does not retire pending DMA FIFO accesses. Keep FIFO/PC
+ * reset separate: a failed abort must retain both the pool and FIFO state. */
+static void tdma_pio_spi_phys_pause_sm_pair(tdma_pio_spi_phys_t *phys)
 {
-    if (s_tdma_pio_spi_command_dma_channel < 0) return true;
-    const uint loader = (uint)s_tdma_pio_spi_command_dma_channel;
-    const int output = s_tdma_pio_spi_tx_dma_channel;
-    hw_clear_bits(&dma_hw->ch[loader].ctrl_trig, DMA_CH0_CTRL_TRIG_EN_BITS);
-    if (output >= 0)
-        hw_clear_bits(&dma_hw->ch[output].ctrl_trig, DMA_CH0_CTRL_TRIG_EN_BITS);
-    const uint64_t deadline = tdma_pio_spi_phys_now_us() + TDMA_PIO_SPI_COMMAND_STOP_TIMEOUT_US;
-    dma_hw->abort = 1u << loader;
-    while ((dma_hw->abort & (1u << loader)) != 0u || dma_channel_is_busy(loader)) {
-        if (tdma_pio_spi_phys_now_us() >= deadline) goto failed;
+    if (tdma_pio_spi_phys_is_flight_persona()) {
+        for (uint sm = 0u; sm < 4u; ++sm) {
+            pio_sm_set_enabled(phys->flight_resources.tx_pio, sm, false);
+            pio_sm_set_enabled(phys->flight_resources.rx_pio, sm, false);
+        }
+    } else {
+        pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM, false);
+        pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM, false);
+        pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM, false);
+        pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_RTT_SM, false);
     }
-    if (output >= 0) {
-        /* The loader may have had an AL3 CTRL write in flight at disable. */
-        hw_clear_bits(&dma_hw->ch[output].ctrl_trig, DMA_CH0_CTRL_TRIG_EN_BITS);
-        dma_hw->abort = 1u << output;
-        while ((dma_hw->abort & (1u << output)) != 0u ||
-               dma_channel_is_busy((uint)output)) {
-            if (tdma_pio_spi_phys_now_us() >= deadline) goto failed;
+}
+
+static void tdma_pio_spi_phys_disable_dma_mask(uint32_t mask)
+{
+    for (uint channel = 0u; channel < NUM_DMA_CHANNELS; ++channel) {
+        if ((mask & (1u << channel)) != 0u) {
+            hw_clear_bits(&dma_hw->ch[channel].ctrl_trig,
+                          DMA_CH0_CTRL_TRIG_EN_BITS);
         }
     }
+}
+
+static bool tdma_pio_spi_phys_stop_dma_level(uint32_t mask, uint64_t deadline)
+{
+    if (mask == 0u) return true;
+    /* Re-clear EN after upstream quiescence: an in-flight AL3 CTRL write
+     * can undo the initial disable. RP2350-E5 also requires EN clear before
+     * aborting a channel with downstream triggers still in flight. */
+    tdma_pio_spi_phys_disable_dma_mask(mask);
+    dma_hw->abort = mask;
+    for (;;) {
+        uint32_t pending = dma_hw->abort & mask;
+        for (uint channel = 0u; channel < NUM_DMA_CHANNELS; ++channel) {
+            if ((mask & (1u << channel)) != 0u &&
+                dma_channel_is_busy(channel)) pending |= 1u << channel;
+        }
+        if (pending == 0u) return true;
+        if (tdma_pio_spi_phys_now_us() >= deadline) return false;
+    }
+}
+
+/* Owner-supplied masks name dependency levels, not completion samples.
+ * The follower has no executor level; origin integration can insert its
+ * executor between the loader and both finite DATA children. Every level
+ * shares one deadline, and failure authorizes no pool/FIFO/program reuse. */
+static bool tdma_pio_spi_phys_stop_dma_chain(uint32_t loader_mask,
+                                            uint32_t executor_mask,
+                                            uint32_t children_mask,
+                                            uint64_t deadline)
+{
+    const uint32_t all = loader_mask | executor_mask | children_mask;
+    tdma_pio_spi_phys_disable_dma_mask(all);
+    if (!tdma_pio_spi_phys_stop_dma_level(loader_mask, deadline) ||
+        !tdma_pio_spi_phys_stop_dma_level(executor_mask, deadline) ||
+        !tdma_pio_spi_phys_stop_dma_level(children_mask, deadline)) {
+        tdma_pio_spi_phys_disable_dma_mask(all);
+        return false;
+    }
+    __dmb();
+    return true;
+}
+
+static bool tdma_pio_spi_phys_stop_command_dma(tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL) return false;
+    if (s_tdma_pio_spi_command_dma_channel < 0) return true;
+    const uint32_t loader_mask = 1u << (uint)s_tdma_pio_spi_command_dma_channel;
+    const uint32_t children_mask =
+        (s_tdma_pio_spi_tx_dma_channel < 0 ? 0u :
+            1u << (uint)s_tdma_pio_spi_tx_dma_channel) |
+        (s_tdma_pio_spi_rx_dma_channel < 0 ? 0u :
+            1u << (uint)s_tdma_pio_spi_rx_dma_channel);
+    const uint64_t deadline = tdma_pio_spi_phys_now_us() +
+                              TDMA_PIO_SPI_COMMAND_STOP_TIMEOUT_US;
+    tdma_pio_spi_phys_pause_sm_pair(phys);
+    if (!tdma_pio_spi_phys_stop_dma_chain(loader_mask, 0u, children_mask,
+                                         deadline)) goto failed;
+    tdma_pio_spi_phys_pause_sm_pair(phys);
     __dmb();
     phys->flight_overlay_dma_active = false;
+    phys->rx_capture_active = false;
     return true;
 failed:
-    if (output >= 0)
-        hw_clear_bits(&dma_hw->ch[output].ctrl_trig, DMA_CH0_CTRL_TRIG_EN_BITS);
     tdma_pio_spi_phys_set_line_drivers(false);
-    tdma_pio_spi_phys_prepare_sm_pair(phys);
+    tdma_pio_spi_phys_pause_sm_pair(phys);
+    /* A pending write can still reach a child after failure. Leave memory,
+     * FIFOs and IRQs intact and retain the ownership latch until STOP retry. */
     phys->armed = false;
     phys->flight_overlay_dma_active = true;
+    phys->snapshot.armed = 0u;
     phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_PERSONA_BUSY;
     return false;
 }
@@ -2124,18 +2187,18 @@ bool tdma_pio_spi_phys_arm(void *context,
     return true;
 }
 
-void tdma_pio_spi_phys_disarm(void *context)
+bool tdma_pio_spi_phys_disarm(void *context)
 {
     tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
     if (phys == NULL) {
-        return;
+        return false;
     }
     /* Process-image followers keep the overlay TX DMA blocked on the PIO TX
      * FIFO between frames.  A failed ARM can also leave a DMA or SM active
      * before phys->armed is published.  STOP is the common idempotent
      * rollback for both states, so hardware cleanup must not be conditional
      * on the software armed flag. */
-    if (!tdma_pio_spi_phys_stop_command_dma(phys)) return;
+    if (!tdma_pio_spi_phys_stop_command_dma(phys)) return false;
     if (s_tdma_pio_spi_tx_dma_channel >= 0) {
         dma_channel_abort((uint)s_tdma_pio_spi_tx_dma_channel);
     }
@@ -2196,6 +2259,7 @@ void tdma_pio_spi_phys_disarm(void *context)
     tdma_pio_spi_phys_clk_train_reset(phys);
     tdma_pio_spi_phys_fill_static_snapshot(phys);
     tdma_pio_spi_phys_release_flight_resources(phys);
+    return !phys->flight_resource_claimed;
 }
 
 static bool tdma_pio_spi_phys_tx_put(tdma_pio_spi_phys_t *phys,

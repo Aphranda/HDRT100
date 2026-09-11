@@ -122,7 +122,7 @@ typedef enum {
 typedef bool (*tdma_pio_spi_ring_phys_arm_fn)(
     void *context,
     const tdma_ring_runtime_config_t *config);
-typedef void (*tdma_pio_spi_ring_phys_disarm_fn)(void *context);
+typedef bool (*tdma_pio_spi_ring_phys_disarm_fn)(void *context);
 typedef bool (*tdma_pio_spi_ring_phys_train_fn)(void *context,
                                                 uint32_t cycles);
 typedef void (*tdma_pio_spi_ring_phys_train_service_fn)(void *context,

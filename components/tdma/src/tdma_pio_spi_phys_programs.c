@@ -59,6 +59,24 @@ static bool tdma_pio_spi_programs_is_flight_persona(
                TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER;
 }
 
+static bool tdma_pio_spi_programs_dma_quiesced(
+    const tdma_pio_spi_program_manager_t *manager)
+{
+    if (manager == NULL || manager->command_dma_channel == NULL ||
+        manager->tx_dma_channel == NULL || manager->rx_dma_channel == NULL) {
+        return false;
+    }
+    const int channels[] = {*manager->command_dma_channel,
+                            *manager->tx_dma_channel,
+                            *manager->rx_dma_channel};
+    for (size_t i = 0u; i < sizeof(channels) / sizeof(channels[0]); ++i) {
+        if (channels[i] >= 0 &&
+            ((dma_hw->abort & (1u << (uint)channels[i])) != 0u ||
+             dma_channel_is_busy((uint)channels[i]))) return false;
+    }
+    return true;
+}
+
 static bool tdma_pio_spi_programs_ensure_maintenance_sms_claimed(
     tdma_pio_spi_program_manager_t *manager)
 {
@@ -318,11 +336,7 @@ void tdma_pio_spi_programs_release_resources(
     if (tdma_pio_spi_programs_is_flight_persona(persona)) {
         /* A failed bounded abort retains the pool and arbiter ownership. */
         if (phys->flight_overlay_dma_active ||
-            (manager->command_dma_channel != NULL &&
-             *manager->command_dma_channel >= 0 &&
-             (dma_channel_is_busy((uint)*manager->command_dma_channel) ||
-              (*manager->tx_dma_channel >= 0 &&
-               dma_channel_is_busy((uint)*manager->tx_dma_channel))))) {
+            !tdma_pio_spi_programs_dma_quiesced(manager)) {
             phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_PERSONA_BUSY;
             return;
         }
@@ -1118,12 +1132,7 @@ static bool tdma_pio_spi_programs_current_persona_quiesced(
         }
     }
     return !phys->flight_overlay_dma_active &&
-           (*manager->command_dma_channel < 0 ||
-            !dma_channel_is_busy((uint)*manager->command_dma_channel)) &&
-           (*manager->tx_dma_channel < 0 ||
-            !dma_channel_is_busy((uint)*manager->tx_dma_channel)) &&
-           (*manager->rx_dma_channel < 0 ||
-            !dma_channel_is_busy((uint)*manager->rx_dma_channel));
+           tdma_pio_spi_programs_dma_quiesced(manager);
 }
 
 bool tdma_pio_spi_programs_select(

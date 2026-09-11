@@ -418,19 +418,19 @@ bool tdma_service_register_adapter_impl(tdma_service_service_t *service,
  * that is not registered. This keeps the ring runtime transport-agnostic and
  * lets future BISS-C / UART / RS485 adapters plug in without changing the
  * scheduler contract. */
-static void tdma_service_apply_profile_adapter(tdma_service_service_t *service,
+static bool tdma_service_apply_profile_adapter(tdma_service_service_t *service,
                                                uint32_t adapter_type)
 {
     for (uint32_t i = 0u; i < service->adapter_impl_count; i++) {
         if (service->adapter_impls[i].adapter_type == adapter_type) {
-            (void)tdma_ring_runtime_bind_adapter(
+            return tdma_ring_runtime_bind_adapter(
                 &service->ring_runtime,
                 service->adapter_impls[i].ops,
                 service->adapter_impls[i].context);
-            return;
         }
     }
     tdma_ring_runtime_unbind_adapter(&service->ring_runtime);
+    return service->ring_runtime.adapter_ops == NULL;
 }
 
 bool tdma_service_configure_ring_runtime(
@@ -462,6 +462,11 @@ bool tdma_service_configure_foundation_profile(
         profile->resource.short_frame_capacity > TDMA_SERVICE_SHORT_FRAME_MAX ||
         profile->resource.long_frame_capacity > TDMA_SERVICE_LONG_FRAME_MAX ||
         schedule_crc32 == 0u) {
+        return false;
+    }
+    /* A failed physical STOP retains the old adapter and its payload pools.
+     * Reject before publishing or reconfiguring any replacement metadata. */
+    if (!tdma_service_apply_profile_adapter(service, profile->resource.adapter_type)) {
         return false;
     }
     if (!tdma_payload_registry_configure(
@@ -535,7 +540,6 @@ bool tdma_service_configure_foundation_profile(
     tdma_service_end_intent_write(service);
     service->ring_base_schedule_crc32 = schedule_crc32;
     service->ring_staged_config = ring;
-    tdma_service_apply_profile_adapter(service, profile->resource.adapter_type);
     /* Product links start explicitly after both boards have roles assigned.
      * Keep the adapter and all ISO1452 drivers stopped at boot/profile load. */
     return tdma_service_ring_stop(service);

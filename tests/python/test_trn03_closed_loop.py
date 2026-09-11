@@ -615,7 +615,7 @@ def test_product_clock_latch_captures_first_csn_edge() -> None:
 
 def test_process_follower_disarm_releases_overlay_tx_dma() -> None:
     phys = _read_phys_source()
-    disarm = phys.split("void tdma_pio_spi_phys_disarm", 1)[1].split(
+    disarm = phys.split("bool tdma_pio_spi_phys_disarm", 1)[1].split(
         "static bool tdma_pio_spi_phys_tx_put", 1)[0]
     tx_abort = disarm.index(
         "dma_channel_abort((uint)s_tdma_pio_spi_tx_dma_channel)")
@@ -628,7 +628,7 @@ def test_process_follower_disarm_releases_overlay_tx_dma() -> None:
 
 def test_partial_arm_disarm_cannot_return_before_hardware_cleanup() -> None:
     phys = _read_phys_source()
-    disarm = phys.split("void tdma_pio_spi_phys_disarm", 1)[1].split(
+    disarm = phys.split("bool tdma_pio_spi_phys_disarm", 1)[1].split(
         "static bool tdma_pio_spi_phys_tx_put", 1)[0]
     first_dma_abort = disarm.index("dma_channel_abort")
     first_sm_disable = disarm.index("pio_sm_set_enabled")
@@ -1151,7 +1151,7 @@ def test_flight_preserves_sck_and_advances_serial_data_one_cycle() -> None:
     assert "phys->flight_data_phase_delay_cycles" in origin_call
 
     arm = phys_source.split("bool tdma_pio_spi_phys_arm", 1)[1].split(
-        "void tdma_pio_spi_phys_disarm", 1)[0]
+        "bool tdma_pio_spi_phys_disarm", 1)[0]
     assert "TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES" in arm
     assert "half_period_cycles" in arm
     assert "TDMA_PIO_SPI_FLIGHT_DATA_REARM_CYCLES" in arm

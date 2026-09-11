@@ -346,9 +346,9 @@ def test_flight_claim_is_released_on_arm_failure_and_stop() -> None:
         encoding="utf-8"
     )
     arm = phys.split("bool tdma_pio_spi_phys_arm(void *context", 1)[1].split(
-        "void tdma_pio_spi_phys_disarm", 1
+        "bool tdma_pio_spi_phys_disarm", 1
     )[0]
-    disarm = phys.split("void tdma_pio_spi_phys_disarm", 1)[1].split(
+    disarm = phys.split("bool tdma_pio_spi_phys_disarm", 1)[1].split(
         "static bool tdma_pio_spi_phys_tx_put", 1
     )[0]
 

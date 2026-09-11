@@ -214,7 +214,9 @@ typedef struct {
 typedef struct {
     bool (*start)(void *context, const tdma_ring_runtime_config_t *config);
     uint32_t (*last_error)(const void *context);
-    void (*stop)(void *context);
+    /* False retains owner/context and requests another bounded STOP at the
+     * next service boundary. No rebind, START or stopped ACK may pass it. */
+    bool (*stop)(void *context);
     bool (*train_clock)(void *context, uint32_t cycles);
     void (*train_clock_service)(void *context, uint64_t now_ns);
     bool (*service)(void *context,
@@ -339,6 +341,7 @@ typedef struct {
     volatile uint32_t last_reason;
     volatile uint32_t simultaneous_feedback_loop_evidence;
     volatile uint32_t adapter_started;
+    volatile uint32_t adapter_stop_pending;
     volatile uint32_t adapter_config_seq;
     volatile uint32_t adapter_start_count;
     volatile uint32_t adapter_stop_count;
