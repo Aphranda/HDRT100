@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-09-11
+Last updated: 2026-09-12
 
 本文档定义 TDMA 在 HAOFV 下的基础件主域。TDMA 是分布式硬实时系统的确定性通讯骨架，负责在 core1/PIO/DMA 侧按窗口执行上行、下行、payload、timestamp 和 completion；VDC、RefMem、OTA、诊断等域只挂载 payload 或消费 evidence，不能拥有 TDMA 物理环路。
 
@@ -705,6 +705,12 @@ PIO 的 byte 命令分派还存在边界 phase 预算缺口；仅检查 bit body
 证明整条最坏指令路径满足 active profile，整改由 `TDMA-FLIGHT-006` 跟踪。非字节对齐的
 整 physical byte REPLACE 还会带入脚本准备时的邻接 owner bit；当前观测已发现邻居邮箱
 CRC 被覆盖，整改由 `TDMA-FLIGHT-007` 跟踪，不能据此声明沿途 owner 隔离通过。
+
+`TDMA-PROGRESS-20260911-007` 保留内部 bit 选择与稀疏命令存储的候选审计：由既有
+TDMA owner 生成白名单命令，在同一 follower DATA SM 内选择实际在途 bit 或本地授权
+bit，RX 仍经原唯一 FIFO/DMA 端点卸载。候选保持一字节流水，但命令格式、完整 byte
+路径、DMA 带宽、描述符装载角色及静态 RAM 仍须完成准入与当前源码 HIL；该离线原型
+不是已激活 persona 或新冻结契约，不能据其模型结果提升运行时能力声明。
 
 这仍不是最终 resident process-image flight：当前 process-image follower 已有本机固定 segment
 的替换路径，但其邻接 owner 保护仍有上述缺口，也未形成飞行修改后的 WKC、尾部 CRC V2 和 segment

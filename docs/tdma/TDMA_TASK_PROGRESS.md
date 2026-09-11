@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_TASK_PROGRESS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
-Last updated: 2026-09-11
+Last updated: 2026-09-12
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
@@ -15,6 +15,48 @@ Last updated: 2026-09-11
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260911-007 - bit 所有权保护候选与完整指令/存储预算审计
+
+- TODO task ID：`TDMA-FLIGHT-006/007`。以下数字均为离线候选快照，非事实源；本轮未改
+  固件、正式工具或正式测试，未执行新 build/OTA 或板端重读。硬件状态只引用前项采集
+  结束时的快照，不代表共享工作区后续任务结束后的状态。
+  证据根为 `out/HardwareAcceptance/20260911/tdma-flight-owner-bit-plan/`，入口
+  `candidate-review.json` 与 `workspace-addendum.json`。原 B0 与 owner 失败证据已通过
+  文档提交 `288629c` 单独归档。期间另有 UI/单板验收提交 `d5ed7bc` 进入 HEAD；本候选
+  使用的 TDMA 源码锚点未变，但 R3 全局源码指纹和 RAM map 不能代表该最新 HEAD。
+- 机制：候选命令只允许选择实际在途 bit、写本地零/一、或在末尾保留位跳入固定 frame
+  boundary；不允许外部输入任意 PIO 指令。ISR 同时保留上一 byte 与新采样 byte，RX
+  `push noblock` 前后保存/恢复流水内容。这样解析 FIFO 丢弃不会改变透传，邻接 owner
+  bit 不再来自准备脚本时的 whole-frame snapshot。内部命令需要安装位置重定位和
+  ARM 前白名单检查；末 bit 必须位于不可更新的 tail，不能跳过本节点合法 bit。
+- 指令可装载性：候选 `masked_follower.pio` 已由项目使用的 pioasm 汇编，DATA 程序
+  28 条，加现有 clock-latch 4 条合计 32 条，保持原 PIO 分区和同 SM RX/TX 端点。
+  该组合没有额外指令余量；任何后续改动都须重新核算完整 persona。
+- owner 模型：`candidate-model.json` 解释实际汇编出的指令字，覆盖所有 8 种 shift、
+  256 种邻居 byte、脚本准备后的邻居变代和双帧流水，共 2048 组、688128 个输出 bit。
+  输出与独立“仅改本节点 logical segment 后再串行化”的 oracle 相同，RX 卸载与实际
+  输入相同。另有完整 packet 大小及 RX 全丢弃对照；结果不等于固件已有 slot CRC 或
+  当前业务 header/bitmap 的授权策略验证，实际 C builder 集成与沿途 CRC HIL 仍待完成。
+- 完整路径：将第八 bit 的选择提前到 WAIT 前，使 byte 收尾与最终 frame boundary 都有
+  确定时序；当前 D=15、period=25、high=12 拍的候选在第 24 拍回到下一 WAIT，采样和
+  输出仍在名义 rising 后第 16/18 拍。`candidate-timing.json` 的 450 组延迟/周期/占空比
+  检查中，258 组满足候选预算、192 组不足周期负测均被识别。算式仍是指令域候选；
+  小 delay 编码、pad/synchronizer、真实边沿 jitter 和此前绝对模型偏移不能由此宣告解决。
+- RAM 拒绝：以 R3 linker map 快照为准，`__end__` 到 RAM 顶仅余 2624 B；该双脚本池
+  为 2464 B。直接整帧展开需 9824 B，增量 7360 B，超过剩余容量 4736 B，明确拒绝
+  该存储实现。当前 RAM 本身也未达到正式余量目标，不以“增量能放下”冒充产品 RAM 通过。
+- 稀疏替代：固定 header/local-mailbox/trailer 存储窗口使用 token 池，其它位置由固定
+  PASS word 重复读取。`candidate-resources.json` 的 192 组 slot/byte-shift/bit-shift
+  布局重建均与完整指令流相同；包含候选描述符的双版本主体最坏 2464 B，另需共享
+  PASS 常量与元数据。这些是存储窗口，不授予窗口内任意 bit 的修改权。描述符重启、
+  对齐和元数据仍未计入真实 linker；必须明确 TDMA owner 的 descriptor loader DMA
+  角色、静态冲突表与生命周期，不能临时借用其它已冻结 DMA 端点。
+- 带宽与下一切片：该候选在本运行点的命令 TX DMA 为 20 MB/s，原 RX 卸载仍为
+  5 MB/s；稀疏存储不减少线路命令带宽。模型假定命令已到 FIFO，不能证明 DMA 仲裁、
+  断粮或自主续装；优先核验 RP2350 descriptor/trigger/abort 与 SRAM/带宽准入，再实施
+  006/007 固件切片，完成软件回归、build、P3、四板短帧和每 hop owner/CRC 采集后再迁移。
+  本项不是 B1 自主发车通过，不提升 `TDMA-RESIDENT-01` 或其它登记状态。
 
 ### TDMA-PROGRESS-20260911-006 - B0 当前夹具字节流水证明与 byte 边界预算缺口
 
@@ -370,9 +412,12 @@ Last updated: 2026-09-11
 HAOFV 自主循环长期目标已完成改动族归因、PIO WAIT 位置保护和有限同钟采集切片。
 当前四板/profile 的 B0 物理能力取证完成，见 `TDMA-PROGRESS-20260911-006`：raw 完整包
 重叠、固定上一 byte 映射与逐窗 DATA 上下界成立；process-image 的 byte 边界预算与邻接
-owner CRC 覆盖缺陷分别由 `TDMA-FLIGHT-006/007` 优先整改。下一步为 B1 硬件自主续转
-方案与静态资源准入设计，不将现有整环返回通过解释为沿途 owner 约束已通过。
-四板已恢复 process-image 并复验闭环，终态为 STOPPED、采集 RELEASED；P3 严格校准失败、
+owner CRC 覆盖缺陷分别由 `TDMA-FLIGHT-006/007` 优先整改。bit 选择与稀疏命令候选已完成
+离线汇编、所有权、完整路径正/负测和存储审计，见 `TDMA-PROGRESS-20260911-007`；下一步
+为 DMA 角色/延迟与静态池准入，再进入修复切片及 B1 硬件自主续转。现有整环返回通过
+不能解释为沿途 owner 约束已通过。
+本任务上次硬件操作已恢复 process-image 并复验闭环，记录终态为 STOPPED、采集 RELEASED；
+该历史快照未经本次板端重读，后续切片须重新绑定最新 HEAD 与板卡 build。P3 严格校准失败、
 Core1 WCET 超限和逐帧门控依赖均未消除。`TDMA-FLIGHT-002` 继续执行，resident/flight
 契约保持原状态。
 

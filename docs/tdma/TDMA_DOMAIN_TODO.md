@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_TODO.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`
-Last updated: 2026-09-11
+Last updated: 2026-09-12
 
 本文档维护 TDMA foundation 的独立待办。这里记录影响上/下行 TDMA、ring runtime、payload registry、adapter、completion、quality、HAOFV system node 和 HIL 验收的事项。
 
@@ -153,8 +153,8 @@ SD/SVG 分析由 Core0 或主机执行。完整窗口和 clock-edge 配对不能
 | TDMA-FLIGHT-003 | 发车节拍预算显式化与 fail-closed 准入（Track A，B1 的前置使能） | PENDING | 可达节拍下界由符号声明；低于下界的 profile 必须被**拒绝**而非静默漏拍；节拍证据字段可只读查询。 |
 | TDMA-FLIGHT-004 | 2026-09-11 四节点闭环回归归因 | DONE | 受控实验分别复现非阻塞 PIO 改动、缩短共享反馈/发车预算的回归；归档最终 PIO 下标正确；四板恢复基线后闭环和稳态错误增量复验通过。见 `TDMA-PROGRESS-20260911-003`。完成范围是改动族归因，电气错位机制及自主续转仍由 B0/B1/B3 继续验证。 |
 | TDMA-FLIGHT-005 | `process_follower` 补丁下标与指令插入位置绑定 | DONE | WAIT 补丁改用 pioasm public label 导出位置；host 变异测试拒绝手写下标、标签脱离 WAIT 和边沿符号错配。当前源码 build、四板 OTA、P3 quick diagnostic 与独立短帧复测已留证；严格校准失败和 SD 超时原报告保留，见 `TDMA-PROGRESS-20260911-004`。 |
-| TDMA-FLIGHT-006 | process-image byte 边界时序与 phase 准入 | IN PROGRESS | 将 byte 分派、采样、输出及边界回到 WAIT 的最坏指令路径纳入准入；优化后保持固定布局、owner、PIO 分区和逐物理 byte 对齐，通过模型、真实 PIO、当前源码四板闭环及同钟 DATA 复验。不得以 bit body 预算代替 byte 边界，也不得放宽 phase 掩盖迟到。审计起点见 `TDMA-PROGRESS-20260911-006`。 |
-| TDMA-FLIGHT-007 | 非字节对齐 overlay 的邻接 owner 保护 | IN PROGRESS | 脚本准备后邻居出现新 generation 时，本节点只能更新获授权 bit，必须从实际在途输入保留边界邻居 bit；覆盖所有 alignment、代际差、slot CRC 与同圈多 owner，并完成当前源码四板沿途采集。整环返回正确不能替代沿途 owner 约束；优先修复后再扩大自主 process-image 能力。实测及真实 C 反例见 `TDMA-PROGRESS-20260911-006`。 |
+| TDMA-FLIGHT-006 | process-image byte 边界时序与 phase 准入 | IN PROGRESS | 将 byte 分派、采样、输出及边界回到 WAIT 的最坏指令路径纳入准入；优化后保持固定布局、owner、PIO 分区和逐物理 byte 对齐，通过模型、真实 PIO、当前源码四板闭环及同钟 DATA 复验。不得以 bit body 预算代替 byte 边界，也不得放宽 phase 掩盖迟到。起点见 `TDMA-PROGRESS-20260911-006`；候选完整指令路径正/负测见 `TDMA-PROGRESS-20260911-007`，尚未完成硬件准入。 |
+| TDMA-FLIGHT-007 | 非字节对齐 overlay 的邻接 owner 保护 | IN PROGRESS | 脚本准备后邻居出现新 generation 时，本节点只能更新获授权 bit，必须从实际在途输入保留边界邻居 bit；覆盖所有 alignment、代际差、slot CRC 与同圈多 owner，并完成当前源码四板沿途采集。整环返回正确不能替代沿途 owner 约束。实测及真实 C 反例见 `TDMA-PROGRESS-20260911-006`；bit 选择/稀疏命令候选见 `TDMA-PROGRESS-20260911-007`，下一步为 DMA 角色、延迟及静态池准入，随后实施当前源码闭环切片。 |
 | TDMA-HIL-001 | 四板 TDMA 环路的 WCET/频率/占空比/SD 波形基线 | PENDING | 四板 OTA 后原始波形、SVG、schedule snapshot 与零错误基线归档；不要求 NO5，NO5 不进入环路 bitmap/WKC。 |
 | TDMA-HIL-002 | 逐 phase 开载且 TDMA 零回归 | PENDING | 依次启用 VDC/DPLL/RefMem/control，TDMA deadline/error 不增加。 |
 | TDMA-DPLL-001 | PIO/DMA hardware latch correlation | IN PROGRESS | reference TX latch 已作为固定 process-image trailer 关联上一帧 sequence；仍需 active PATH_DELAY、四板同圈 eligible sample 和 wrap/失配 HIL。 |
