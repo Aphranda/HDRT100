@@ -624,7 +624,10 @@ Domain AO / FB local fact commit
 - core0/domain task 只写 inactive shadow；PIO/DMA 只读 active buffer。cycle boundary 由 core1 唯一 owner 原子切换，避免半更新段上总线。
 - 无 dirty 时段头发布 `NO_UPDATE` 或等价 generation 状态，对端不得重复提交旧值。
 - 状态事实可合并为最新 generation；command/event 使用独立有界队列，不塞进可覆盖的状态段。
-- `FLIGHT_MUTABLE` 只允许 `SHORT`。identity CRC 不覆盖可变 payload；每个 segment 自带 owner CRC/version，transport CRC 覆盖当前 hop 的完整 packet。
+- `FLIGHT_MUTABLE` 只允许 `SHORT`。identity CRC 不覆盖可变 payload；当前 V1 transport
+  CRC 只覆盖 `TDMA_TRANSPORT_FRAME_HEADER_SIZE`，计算时将 transport CRC 字段视为零，
+  代码事实源为 `tdma_transport_packet_crc32()`。Node mailbox 的完整性由其 owner
+  CRC/version 负责；不能把 header CRC 推广为全 payload 或 DPLL trailer 的完整性证明。
 - origin TX 与 feedback RX 的闭环相关使用 immutable identity CRC、sequence、schedule CRC 和 ring CRC，不能比较飞行前后的 mutable payload CRC。
 - `VDC_TDMA_DIAGNOSTIC_FRAME_SIZE` 对应的 VDC 诊断内帧可作为 bring-up 的独立短帧，
   但不是最终 process-image 形态；产品飞行帧必须使用 compact VDC/DPLL 元素，把同一
@@ -720,10 +723,19 @@ DMA_FORWARD 仲裁投影，与旧 forward 角色在 persona 生命周期内互�
 `TDMA_PIO_SPI_PROCESS_DATA_DECODE_CYCLES` 与 `TDMA_PIO_SPI_PROCESS_BYTE_REARM_CYCLES`
 准入，非法 delay 编码不允许 diagnostic continue 绕过。
 
-当前源码已完成软件模型、build/P3 流程、合法基线矩阵下的独立四板短帧闭环与逐 hop
-owner/CRC 原始采集；这些是有限窗口的修复证据。新校准矩阵的 SCK 门禁失败、P3 严格
-失败、完整 Core1 WCET 超限和正式 RAM 余量不足分别保留。DMA 最坏仲裁/断粮、环境
-覆盖与自主续装仍未完成，不据此冻结新能力或提升登记状态。
+软件模型、build/P3 流程、矩阵下的独立四板短帧闭环与逐 hop owner/CRC 原始采集，
+只能证明各自声明的有限范围。严格校准、完整 Core1 WCET、正式 RAM 余量、DMA 最坏
+仲裁/断粮、环境覆盖与自主续装必须分别验证；成功与失败由 Task Progress 绑定当前
+源码保存，不能据局部通过冻结新能力或提升登记状态。
+
+供硬件复用的 follower 计划必须与预测的下一圈 sequence 解耦。固定 hop 的 header
+变换使用实际在途 bit 的 XOR：hop 与 transport CRC 仅应用两个合法头模型之间的差分，
+sequence、identity CRC 和其他 reference 字段持续透传。固定长度 CRC 的差分与 sequence
+无关，同时保留输入头错误的 syndrome；不得用旧模型的绝对 CRC 替换在途 CRC。
+本地 mailbox 仍只装载 owner 准备的值，CRC XOR 不能授予其他 segment 写权限。
+`TDMA_FLIGHT_OVERLAY_TOKEN_INVERT` 与 LIVE token 由内部 PIO catalog 定义，process
+follower 的 ISR 右移表示支持两者；RX observation copy 在 adapter 中恢复字节顺序。
+这种表示不新增 PIO/SM/DMA owner，不等于完成硬件 recurrence 或 generation 切换。
 
 这仍不是最终 resident process-image flight：当前 process-image follower 已有本机固定 segment
 的 bit 保护路径，但尚未形成飞行修改后的 WKC、尾部 CRC V2 和完整 segment

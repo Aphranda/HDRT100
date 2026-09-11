@@ -8,13 +8,64 @@ Last updated: 2026-09-12
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-本轮新增有限同钟采集的证据入口为
+当前 live-header XOR 切片证据入口为
+`out/HardwareAcceptance/20260911/tdma-flight-live-crc/slice-manifest.json`；
+前序有限同钟采集的证据入口为
 `out/HardwareAcceptance/20260911/tdma-flight-b0/slice-manifest.json`。
 前序 P3 与回归硬件证据入口为
 `out/HardwareAcceptance/20260911/tdma-flight-baseline-ab/archive-index.json`。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260912-002 - 可跨 sequence 复用的 follower header 计划
+
+- 日期：2026-09-12；TODO task ID：`TDMA-FLIGHT-002B/006/007`。本项数字均为实验
+  快照，非事实源。代码提交 `7259cb4`，基于 `2f6efd5` 并保留已有单板合入；证据根为
+  `out/HardwareAcceptance/20260911/tdma-flight-live-crc/`，入口 `slice-manifest.json`。
+  build `20260911172347`，源码指纹
+  `fca9003c2f528f9a5916e56622887edb38bd687c21b73ae69c9063b78022514c`，共 979 个源文件。
+- 固件：header 的 hop/CRC 由绝对值 REPLACE 改为对实际在途 bit 应用 XOR 差分，
+  消除计划对预测 sequence CRC 的依赖；本地 mailbox 仍使用 owner 准备的值。
+  process follower 将 ISR 改为右移，内部 LIVE/INVERT 分别选择当前 bit/反相 bit，
+  DATA 程序仍为 28 条，PIO2 总预算仍为 32 条，完整 byte 时序预算不变。adapter
+  仅对该 persona 的 RX observation copy 恢复 bit 顺序，raw/reference 表示保持原语义。
+  header mask 也不能扩大到 sequence 等未授权字段。
+- 软件：当前真实 C plan、transport encode/advance、pioasm 指令与实际 adapter RX
+  归一化函数联合测试 44 项通过，DMA/资源套件 30 项通过，PIO patch 测试 9 项通过。
+  C runner 保持 163840 组 owner/alignment/value 组合通过。固定计划覆盖全部合法 hop、
+  sequence 基向量与回绕；所有 header 单 bit 错误保留原 CRC syndrome，旧绝对 CRC
+  重放为负例。首次 DMA 测试因新增 transport helper 链接依赖缺失而失败，已同步修正
+  Python fixture 与 C runner；原失败日志 `model-tests-r1.log` 保留。模型仍不证明 DMA
+  仲裁/断粮最坏情况，也不证明硬件自主重复执行。
+- 构建与资源：Release build、A/B/boot Flash gate 通过；双 plan 池和静态 RAM 占用
+  未增加。`ram-release-r2.log` 中 free 2788 B，正式阈值 49152 B，正式 RAM 门禁仍失败。
+- P3：真实 `run` 完成四板 OTA、校准和 quick diagnostic 流程，归档凭证为
+  `p3-r1/receipt.json`，`strict_gates_passed=false`。coarse CLK 阶段 NO4 ARM/status
+  查询超时，以及默认 2 秒 startup barrier 只取得一个稳定样本的失败均保留，尚未证明
+  ARM 超时根因。不得把 quick diagnostic receipt 的 passed 解释为产品验收通过。
+- 独立复验：`controlled-fresh-matrix/` 使用本轮生成的 replay matrix，在既有受控
+  4 秒启动窗口下通过 passed/closed_loop_passed/realtime_gate_passed，
+  diagnostic_continue=false；矩阵自身保留 diagnostic provenance。startup 首窗错误
+  仍在原始记录，稳定屏障后才统计无新增基础错误。这不修复或覆盖 P3 默认窗口的失败。
+- 沿途复核：`round1-owner-audit.json` 绑定四板原始 SD capture，每块板均找到完整同钟
+  packet 对，三个 follower 窗口均无越权 byte 改动，全部 active mailbox CRC16 有效。
+  `round1-byte-phases.json` 的各 physical bit 位置均观测到 RX SCK 上升后 88 ns 输出，
+  采样量化为 8 ns；仅是当前有限窗口，不是同步器/DMA/环境最坏延迟证明。采集使用已有
+  1024 B 下载页参数，四板导出通过，不声称修复前序大页串口截断问题。
+- 完整调度：`schedule-audit.json` 的区间内各板 RX 增量约 23000，基础 transport 错误
+  增量为零，但 TDMA overrun/deadline 继续增长；累计 max runtime 为约 2387–2930 us，
+  phase WCET 为 380 us。累计最大值含先前启动事件，不把差异归因到某一个操作。
+  `full_haofv_wcet_accepted=false`，独立短帧工具的 realtime gate 不能覆盖这个失败。
+- 生命周期：`raw-transition/` 与 `restored-process-training/` 在本轮矩阵下均通过非强制
+  闭环，后者覆盖维护 clock training 后恢复 process。初次 raw 命令误带仅适用于 process
+  的参数，被主机解析器拒绝；纠正后执行，原日志 `raw-transition.log` 保留。最终四板
+  build 一致、STOPPED、capture RELEASED、SD DONE，见 `final-stopped.json`。
+- 下一 gate：推进 follower descriptor recurrence 和不可撕裂的 generation 发布。
+  reference 的 CONTROL FIFO 发车、返回映像保留、sequence/identity CRC 更新
+  是另一独立门禁；不得以旧帧固定重放代替持续循环。未冻结的后续设计、资源风险和
+  DMA 预取选择与 wire completion 的区别保存在 `next-slice-notes.txt`。
+  当前仍由 Core1 逐帧供给；B1、自主循环、完整 WCET 与长期目标均未完成，登记状态不变。
 
 ### TDMA-PROGRESS-20260912-001 - bit 沿途更新与稀疏 DMA 集成验证
 
