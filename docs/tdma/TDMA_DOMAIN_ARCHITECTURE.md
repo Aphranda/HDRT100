@@ -761,10 +761,20 @@ reference 的自主续转还需要独立的返回映像所有权和完整帧位�
 仅有 DMA write pointer 或软件 scanner 恢复，均不足以证明下一圈可读的完整映像。
 硬件供给必须保留其他 Node 的实际返回值，并在 Core1 缺席、缺失或截断返回时保持
 有界行为。header sequence/CRC 计算候选及固定指针反例见
-`TDMA-PROGRESS-20260912-004`，该离线审计尚未接入产品路径。若候选使用 DMA sniffer，
+`TDMA-PROGRESS-20260912-004`；后续完整 origin 图与交接模型见
+`TDMA-PROGRESS-20260912-005`，这些离线候选尚未接入产品路径。若候选使用 DMA sniffer，
 必须将其作为全局独占资源纳入统一仲裁，同时显式声明 origin 的 command DMA 角色；
 不能直接沿用当前仅限 follower 的准入。计算子图可重复执行不代表物理发车、返回
 完整性、硬件 completion 或 DPLL observation 已闭合。
+
+后续候选把 DATA 输出与恢复执行器分离，使返回时钟缺失造成的 DATA DREQ 停顿不会
+同时阻断本地边界处理。返回池在完整捕获、DMA 中止收敛与校验后才切换；软件观察副本
+另受银行版本和有界读取约束。本地 shadow 保持单 pending generation 的不可变发布与
+替代版本选择证据，不能仅凭指针切换回收旧池。上述是尚未准入的方案进度；其资源编号、
+窄 FIFO 访问和静态存储必须在生产 C builder、board contract 与 Resource Arbiter 中验证。
+当前图按所选校验分支结束后立即发车，尚不满足固定节拍证明；独立 PIO 准备窗口候选
+同样需要 Calibration 预算、完整执行上界和迟到故障策略。mailbox CRC 有效不能代替
+source/target 校验、逐圈参与证据或完整 V2，selection token 也不能充当硬件时间戳。
 
 这仍不是最终 resident process-image flight：当前 process-image follower 已有本机固定 segment
 的 bit 保护路径，但尚未形成飞行修改后的 WKC、尾部 CRC V2 和完整 segment

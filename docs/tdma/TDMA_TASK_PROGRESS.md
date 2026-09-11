@@ -8,7 +8,9 @@ Last updated: 2026-09-12
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 reference 离线审计入口为
+当前完整 origin 图离线证据入口为
+`out/HardwareAcceptance/20260911/tdma-flight-origin-frame/frame-manifest.json`；
+前序 reference 头部离线审计入口为
 `out/HardwareAcceptance/20260911/tdma-flight-origin-audit/audit-manifest.json`；
 最近一次 follower recurrence 固件切片证据入口为
 `out/HardwareAcceptance/20260911/tdma-flight-follower-recurrence/slice-manifest.json`；
@@ -21,6 +23,51 @@ Last updated: 2026-09-12
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260912-005 - origin 完整执行图、交接竞态与固定窗口候选
+
+- 日期：2026-09-12；TODO task ID：`TDMA-FLIGHT-002B`。基于 `e87eea4`，证据根为
+  `out/HardwareAcceptance/20260911/tdma-flight-origin-frame/`，入口为
+  `frame-manifest.json`。本项数字均为离线实验快照，非事实源。生产源码未改，未执行
+  硬件查询、OTA、ARM 或新的 P3；既有单板合入与上一固件验收来源保持独立。
+- `candidate.pio` 与真实既有 DATA/RTT/latch 程序联合汇编，两个 TDMA PIO 均恰好
+  占满 32 words。helper PACK/COMPARE 无 GPIO，候选独立 DMA8 执行器处理本地
+  CONTROL 边界，DMA6 装载其 AL3，DMA4/5 分别捕获/输出；DMA8 与全局 sniffer
+  尚未声明或获得资源准入。模型通过 19,968 个 helper、876 个 capture、27 个
+  截断输入和 13 个重定位串接用例；不占用 PIO0 或 DMA7。
+- `origin_graph.py` 生成完整有限图，修复常量零与未解析分支地址共用存储的错误。
+  字宽捕获候选含 226 个 descriptor、77 个 literal，逻辑占用 3,924 B，fixture
+  预留 4,608 B；这不是固件 RAM 准入。`check_graph.py` 执行 AL3、拆分的 DMA
+  读写事件、有限 FIFO、真实 helper 指令、sniffer 和子通道中止/重装，输出与本仓库
+  编译的 transport C oracle 一致。257 帧涵盖缺包、半包、坏 identity/transport、
+  错 hop、旧 sequence 与错误 profile；四种中止不收敛/总线错误进入稳定 FAULT，
+  保留资源。本地边界可在 DATA 停顿时继续；抽象步数不能换算成硬件周期上界。
+- `check_graph_races.py` 覆盖最后一次捕获写入晚于剩余量快照的 16 种交错；即使
+  后续写入完成，已记录的半包仍不被接纳。128 圈并发发布完成 128 次旧 shadow 池
+  回收；RX 版本检查接受 68 份一致副本、丢弃 62 份跨复用观察。八种描述符变异均
+  被所有权检查或 C oracle 检出。另保留未等替代 generation 就复用池导致混合 mailbox、
+  以及无界挂起 reader 遭版本回绕 ABA 的反例；生产内存屏障、读取上界和 STOP/debug
+  epoch 仍待实现，不能仅用 seqlock 版本相等宣称跨任意停顿安全。
+- 窄访问候选：RX FIFO 低字节直接进入紧凑银行，省去 PACK；TX 使用 halfword
+  高字节和 DMA stride。真实 DATA 指令的 36 组表示对照与 65,536 组 padding 检查
+  通过。紧凑图加入四个显式活动槽的 CRC16 后为 224 个 descriptor、87 个 literal，
+  逻辑占用 3,932 B；与真实 mailbox CRC16/transport C 一致，接受 32 个有效返回，
+  拒绝覆盖各活动 mailbox 全部字节的 128 个损坏用例。字宽/紧凑路径在 17 帧中一致；
+  八活动槽超出此 fixture 的 descriptor 上界而被拒绝，不作为新的产品容量限制。
+  窄 FIFO 读写、CRC16 寄存器高位及真实总线行为仍需硅上验证；CRC 正确的错误
+  source/target/class、逐圈参与与 V2 尚未闭合，DPLL trailer 当前明确无效。
+- 节拍缺口：当前 AL3 图在校验分支结束后立即发车，不能证明固定帧间隔。
+  `guard_candidate.pio` 将 bit count 与准备窗口 count 放入启动字，在 CS 撤销后
+  先发布边界 token，再等待固定 PIO 窗口；替代 CONTROL/capture 各 10 words，
+  PIO1 联合布局仍为 32 words。16 组窗口/长度与 144 组正 prefix 指令测试通过；
+  迟到供给确实延长节拍的反例也保留。该窗口未与 AL3 图合并，须由 Calibration
+  发布预算并完成供给最坏上界及有界迟到故障策略，不能只加等待后宣布 F2/F3 通过。
+- 下一切片按 `working-design.txt` 集成完整 C builder、地址/PC 白名单、DMA8/sniffer
+  仲裁、启动 alignment、异步 adapter completion 和 owner 生命周期，先审计所有
+  calibration/RX/TX/follower workspace 的互斥性，再考虑复用内存。固件实现后执行
+  软件/构建/当前源码 P3/四板原始波形闭环。上一 strict=false、正式 RAM 和完整
+  Core1 WCET 失败仍开放；真实 service blackout、DPLL latch 与 C11 尚未完成。
+  本项执行离线回归及文档门禁，`TDMA-FLIGHT-002B` 保持 `IN PROGRESS`，registry 不变。
 
 ### TDMA-PROGRESS-20260912-004 - reference 头部计算候选与返回映像交接审计
 
@@ -619,9 +666,10 @@ Last updated: 2026-09-12
 所有权修复、live header CRC 变换、自主 descriptor 续转、generation 交接和启动对齐
 验证见 `TDMA-PROGRESS-20260912-001/002/003`。这些已集成切片具备各自绑定源码的
 短帧与原始波形证据，不能外推到 reference 自主发车或完整 Core1 WCET。
-reference header 计算候选和返回 ring 固定指针反例已完成离线审计，见
-`TDMA-PROGRESS-20260912-004`。下一步先闭合硬件帧位置/返回映像交接和 origin
-DMA/sniffer 资源准入，再接入物理边界发车及完整硬件 completion。
+reference header 与返回 ring 反例见 `TDMA-PROGRESS-20260912-004`；完整 origin 图、
+交接竞态、紧凑 RX/CRC 和固定窗口候选已完成离线执行，见 `TDMA-PROGRESS-20260912-005`。
+下一步集成完整 C builder、origin DMA/sniffer 准入与异步 completion，并把准备窗口
+和迟到故障策略纳入 Calibration 预算；模型续转不能替代固定节拍或硅上生命周期证明。
 最近硬件终态来自 follower recurrence 切片，记录为 STOPPED、采集 RELEASED；本次
 没有板端重读，不能当作当前硬件状态。后续硬件动作须重新绑定 HEAD、身份与 build。
 P3 严格校准、正式 RAM 和完整 Core1 WCET 仍未通过；真正 TDMA service blackout 尚未取证。
