@@ -122,6 +122,7 @@ flight_process_command:
     ; Raise the boundary as soon as the completed frame releases CS. The next
     ; command PULL is the inter-frame gate, so waiting for the following CS
     ; falling edge here only shortens the core1 preparation window.
+public wait_csn_high:
     wait 1 gpio 0
     ; IRQ3 is the physical frame-boundary evidence consumed by core1. If
     ; the just-finished raw frame cannot be decoded, core1 still queues one
@@ -141,12 +142,14 @@ flight_process_pass:
 flight_process_byte:
     set y, 7
 flight_process_bit:
+public wait_sck_high:
     wait 1 gpio 1
     ; Match the raw follower's edge-relative sample point without spending
     ; another instruction. Command decoding occurs before WAIT and therefore
     ; cannot compensate the raw follower's post-WAIT NOP; program_init folds
     ; that NOP into this WAIT delay while preserving the 32-instruction budget.
     in pins, 1
+public wait_sck_low:
     wait 0 gpio 1
     out pins, 1
     jmp y-- flight_process_bit
@@ -795,12 +798,17 @@ static inline void tdma_pio_spi_flight_process_follower_program_init(
     uint32_t sck_phase_delay_cycles, uint32_t data_phase_delay_cycles)
 {
     (void)sck_phase_delay_cycles;
-    pio->instr_mem[offset + 5u] =
+    /* pioasm exports these instruction locations from public labels. Keep
+     * patches bound to their WAIT even when command dispatch grows. */
+    pio->instr_mem[offset +
+                   tdma_pio_spi_flight_process_follower_offset_wait_csn_high] =
         (uint16_t)pio_encode_wait_gpio(true, rx_csn_pin);
-    pio->instr_mem[offset + 11u] =
+    pio->instr_mem[offset +
+                   tdma_pio_spi_flight_process_follower_offset_wait_sck_high] =
         (uint16_t)(pio_encode_wait_gpio(true, rx_sck_pin) |
                    pio_encode_delay(data_phase_delay_cycles));
-    pio->instr_mem[offset + 13u] =
+    pio->instr_mem[offset +
+                   tdma_pio_spi_flight_process_follower_offset_wait_sck_low] =
         (uint16_t)pio_encode_wait_gpio(false, rx_sck_pin);
     pio_gpio_init(pio, rx_data_pin);
     pio_gpio_init(pio, tx_data_pin);
