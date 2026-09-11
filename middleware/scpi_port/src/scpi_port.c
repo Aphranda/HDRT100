@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "app.h"
+#include "board_identity.h"
 #include "diagnostics.h"
 #include "distributed_config.h"
 #include "distributed_refmem.h"
@@ -68,6 +69,21 @@ static volatile uint32_t s_scpi_trigger_debug_posted;
 
 static bool scpi_port_trigger_is_armed(void);
 static void scpi_port_flush_output(void);
+
+static scpi_result_t scpi_port_idn_q(scpi_t *context)
+{
+    char board_no[8];
+    snprintf(board_no,
+             sizeof(board_no),
+             "NO.%u",
+             (unsigned int)board_identity_get_no());
+
+    SCPI_ResultMnemonic(context, board_no);
+    SCPI_ResultMnemonic(context, SCPI_PORT_IDN_MODEL);
+    SCPI_ResultMnemonic(context, s_scpi_idn_serial);
+    SCPI_ResultMnemonic(context, PROJECT_VERSION_STRING);
+    return SCPI_RES_OK;
+}
 
 static size_t scpi_port_write(scpi_t *context, const char *data, size_t len)
 {
@@ -263,7 +279,7 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "*ESE", .callback = SCPI_CoreEse},
     {.pattern = "*ESE?", .callback = SCPI_CoreEseQ},
     {.pattern = "*ESR?", .callback = SCPI_CoreEsrQ},
-    {.pattern = "*IDN?", .callback = SCPI_CoreIdnQ},
+    {.pattern = "*IDN?", .callback = scpi_port_idn_q},
     {.pattern = "*OPC", .callback = SCPI_CoreOpc},
     {.pattern = "*OPC?", .callback = SCPI_CoreOpcQ},
     {.pattern = "*RST", .callback = SCPI_CoreRst},

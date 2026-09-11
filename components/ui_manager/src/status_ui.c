@@ -30,6 +30,7 @@
 #define UI_CARD_H 92u
 #define UI_FOOTER_Y 124u
 #define UI_TAB_ANIM_STEPS 4u
+#define UI_COVER_IDLE_TIMEOUT_MS 60000u
 
 typedef enum {
     UI_PAGE_OVERVIEW = 0,
@@ -82,6 +83,7 @@ typedef struct {
     uint8_t subpage;
     uint8_t overview_active_mask;
     uint8_t overview_fault_mask;
+    uint32_t last_interaction_ms;
     bool cover_active;
     bool cover_fault_active;
     bool boot_splash_active;
@@ -94,16 +96,18 @@ static status_ui_t s_ui;
  * render. */
 static ui_snapshot_t s_snapshot;
 
-/* Official GTS symbol, rasterized from the four #D60037 paths in
- * docs/reports/distributed-trigger/...0804.html <g id="gts-logo">. */
-static const uint8_t s_gts_logo_xbm[] = {
-    0x00u, 0x00u, 0x00u, 0x1Eu, 0x80u, 0x01u, 0x7Fu, 0xE0u, 0x03u, 0xFFu, 0xF1u, 0x03u,
-    0xFFu, 0xE7u, 0x03u, 0xFFu, 0xDFu, 0x03u, 0xFFu, 0x3Fu, 0x03u, 0xFFu, 0x7Fu, 0x00u,
-    0xFEu, 0xFFu, 0x00u, 0xFEu, 0x1Fu, 0x00u, 0xFEu, 0xE0u, 0x02u, 0x0Cu, 0x7Cu, 0x07u,
-    0x80u, 0x3Fu, 0x07u, 0xF0u, 0x9Fu, 0x07u, 0xFCu, 0xCFu, 0x07u, 0xFCu, 0xE7u, 0x0Fu,
-    0xFCu, 0xF3u, 0x0Fu, 0xFCu, 0xF1u, 0x0Fu, 0xFCu, 0xF8u, 0x0Fu, 0x7Cu, 0xF0u, 0x07u,
-    0x18u, 0x80u, 0x03u, 0x00u, 0x00u, 0x00u,
-};
+/* Monochrome u8g2 rendering of the mark in
+ * docs/reports/distributed-trigger/DHRT100-brand.svg. */
+static void draw_dhrt100_brand_mark(u8g2_t *u8g2, u8g2_uint_t x, u8g2_uint_t y)
+{
+    u8g2_DrawFrame(u8g2, x, y, 20u, 20u);
+    u8g2_DrawFrame(u8g2,
+                   (u8g2_uint_t)(x + 1u),
+                   (u8g2_uint_t)(y + 1u),
+                   18u,
+                   18u);
+    u8g2_DrawBox(u8g2, (u8g2_uint_t)(x + 14u), (u8g2_uint_t)(y + 14u), 10u, 10u);
+}
 
 static uint8_t ui_subpage_count(ui_page_t page)
 {
@@ -1303,18 +1307,11 @@ static void draw_product_header(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
 {
     static const char *const labels[] = {"OVR", "SYN", "VDC", "TRG", "SYS", "HLT"};
     const uint8_t tab_x = 40u;
-    /* Keep a clear 28-pixel identity area at the upper-right.  The previous
-     * 6x20 tab layout occupied the whole row and painted over NO.n. */
+    /* Keep the left identity area clear of the page tabs. */
     const uint8_t tab_w = 16u;
     const uint8_t active = (uint8_t)(s_ui.tab_anim > 0u ? s_ui.target_page : s_ui.page);
-    const uint8_t phase = (uint8_t)((snapshot->uptime_ms / 100u) % 20u);
-    const uint8_t triangle = phase <= 10u ? phase : (uint8_t)(20u - phase);
-    const uint8_t breath_radius = (uint8_t)(1u + (triangle / 5u));
 
     u8g2_SetFont(u8g2, u8g2_font_5x8_tr);
-    u8g2_DrawStr(u8g2, 1u, 10u, "DHRT100");
-    u8g2_DrawCircle(u8g2, 35u, 6u, 3u, U8G2_DRAW_ALL);
-    u8g2_DrawDisc(u8g2, 35u, 6u, breath_radius, U8G2_DRAW_ALL);
     for (uint8_t page = 0u; page < (uint8_t)UI_PAGE_COUNT; page++) {
         const uint8_t x = (uint8_t)(tab_x + (page * tab_w));
         if (page == active) {
@@ -1327,7 +1324,6 @@ static void draw_product_header(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
         u8g2_SetDrawColor(u8g2, 1u);
     }
 
-    /* Draw the logical board number last so it cannot be hidden by tabs. */
     char no_label[8];
     uint8_t logical_no = board_identity_get_no();
     if (logical_no == 0u && snapshot->tdma_valid &&
@@ -1336,7 +1332,7 @@ static void draw_product_header(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
     }
     if (logical_no != 0u) {
         snprintf(no_label, sizeof(no_label), "NO.%u", (unsigned int)logical_no);
-        draw_fit_str(u8g2, 137u, 10u, 23u, no_label);
+        draw_fit_str(u8g2, 1u, 10u, 35u, no_label);
     }
 }
 
@@ -1345,6 +1341,7 @@ static void draw_product_cover(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
     char build[12];
     char status[24];
     char no_label[8];
+    char uptime[12];
     const uint8_t phase = (uint8_t)((snapshot->uptime_ms / 100u) % 20u);
     const uint8_t triangle = phase <= 10u ? phase : (uint8_t)(20u - phase);
     const uint8_t breath_radius = (uint8_t)(1u + (triangle / 5u));
@@ -1352,7 +1349,7 @@ static void draw_product_cover(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
     s_ui.cover_fault_active = snapshot->fault_active || snapshot->led.fault_latched;
     u8g2_DrawFrame(u8g2, 2u, 2u, 156u, 76u);
     u8g2_DrawFrame(u8g2, 4u, 4u, 152u, 72u);
-    u8g2_DrawXBMP(u8g2, 18u, 8u, 20u, 22u, s_gts_logo_xbm);
+    draw_dhrt100_brand_mark(u8g2, 17u, 7u);
     u8g2_SetFont(u8g2, u8g2_font_6x13B_tf);
     draw_tracked_title_with_breath(u8g2,
                                    0u,
@@ -1384,7 +1381,10 @@ static void draw_product_cover(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
              s_ui.cover_fault_active ? "FAULT" : "READY",
              build);
     draw_fit_str(u8g2, 37u, 64u, 90u, status);
-    u8g2_DrawStr(u8g2, 53u, 73u, "PRESS ANY KEY");
+    format_uptime(uptime, sizeof(uptime), snapshot->uptime_ms);
+    u8g2_DrawStr(u8g2, 8u, 73u, "UP");
+    u8g2_DrawStr(u8g2, 23u, 73u, uptime);
+    u8g2_DrawStr(u8g2, 84u, 73u, "PRESS ANY KEY");
 }
 
 static void draw_overview_status_dot(u8g2_t *u8g2,
@@ -2135,7 +2135,7 @@ static uint16_t themed_foreground(uint16_t x, uint16_t y)
         return rgb565(225, 236, 232);
     }
     if (s_ui.cover_active) {
-        if (x >= 18u && x < 38u && y >= 8u && y < 30u) {
+        if (x >= 15u && x < 43u && y >= 5u && y < 33u) {
             return rgb565(214, 0, 55);
         }
         if (x >= 94u && x <= 102u && y >= 13u && y <= 21u) {
@@ -2351,11 +2351,32 @@ static bool dismiss_product_cover(void)
     return true;
 }
 
+static void note_ui_interaction(void)
+{
+    s_ui.last_interaction_ms = board_uptime_ms();
+}
+
+static void apply_cover_idle_timeout(uint32_t now_ms)
+{
+    if (s_ui.cover_active ||
+        (uint32_t)(now_ms - s_ui.last_interaction_ms) < UI_COVER_IDLE_TIMEOUT_MS) {
+        return;
+    }
+
+    s_ui.cover_active = true;
+    s_ui.page = UI_PAGE_OVERVIEW;
+    s_ui.target_page = UI_PAGE_OVERVIEW;
+    s_ui.previous_page = UI_PAGE_OVERVIEW;
+    s_ui.subpage = 0u;
+    s_ui.tab_anim = 0u;
+}
+
 void status_ui_key_next(void)
 {
     if (!s_ui.initialized) {
         return;
     }
+    note_ui_interaction();
     if (dismiss_product_cover()) {
         return;
     }
@@ -2383,6 +2404,7 @@ void status_ui_key_previous(void)
     if (!s_ui.initialized) {
         return;
     }
+    note_ui_interaction();
     if (dismiss_product_cover()) {
         return;
     }
@@ -2412,6 +2434,7 @@ void status_ui_key_select(void)
     if (!s_ui.initialized) {
         return;
     }
+    note_ui_interaction();
     if (dismiss_product_cover()) {
         return;
     }
@@ -2426,6 +2449,7 @@ void status_ui_key_back(void)
     if (!s_ui.initialized) {
         return;
     }
+    note_ui_interaction();
     if (dismiss_product_cover()) {
         return;
     }
@@ -2462,6 +2486,7 @@ bool status_ui_render(void)
     board_prepare_lcd_spi();
 
     capture_snapshot(snapshot);
+    apply_cover_idle_timeout(snapshot->uptime_ms);
     drv_watchdog_mark_progress(0u, 0x0A1Au);
 
     u8g2_t *u8g2 = &s_ui.u8g2;

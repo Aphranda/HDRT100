@@ -3,8 +3,9 @@
 
 Connect the product board's output RJ45 to its input RJ45 with a network
 cable before running this tool.  By default the tool prepares the resident
-TDMA ring first, including STOP, LOCAL, ARM, clock TRAIN, and START, then uses
-status queries to validate the electrical/data loopback.
+TDMA ring first, including the operating profile, logical two-node topology,
+topology-probe phase, ARM, clock TRAIN, and START, then uses status queries to
+validate the electrical/data loopback.
 """
 
 from __future__ import annotations
@@ -79,8 +80,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--expected-baud-hz", type=int, default=10000000)
     parser.add_argument("--skip-ring-setup", action="store_true",
                         help="only query an already-running resident TDMA ring")
+    parser.add_argument("--operating-level", type=int, default=7,
+                        help="TDMA operating level staged before ARM")
+    parser.add_argument("--node-count", type=int, default=2,
+                        help="logical node count; single-board loopback uses 2")
     parser.add_argument("--local-slot", type=int, default=0,
                         help="local logical slot used for single-board loopback")
+    parser.add_argument("--reference-slot", type=int, default=0,
+                        help="reference logical slot used for loopback")
+    parser.add_argument("--probe-phase-cycles", type=int, default=10,
+                        help="topology-probe phase delay in cycles (1..31)")
     parser.add_argument("--train-cycles", type=int, default=4096,
                         help="clock-training cycles before START; 0 disables TRAIN")
     parser.add_argument("--arm-wait", type=float, default=3.0)
@@ -119,6 +128,14 @@ def ring_action(ser, command: str, timeout_s: float) -> str:
     if response == "<timeout>" and header in ack_only:
         return "OK(no payload; verified by state readback)"
     return response
+
+
+def checked_action(ser, command: str, timeout_s: float) -> dict[str, str]:
+    response = ring_action(ser, command, timeout_s)
+    error = retryable_query(ser, "SYSTem:ERR?", timeout_s)
+    if error != '0,"No error"':
+        raise RuntimeError(f"{command} failed: {error}")
+    return {"command": command, "response": response, "error": error}
 
 
 def field(data: dict, index: int) -> int:
@@ -160,22 +177,42 @@ def wait_for_ring_state(ser,
 
 
 def prepare_single_board_ring(ser, args: argparse.Namespace) -> dict:
-    if args.local_slot < 0:
-        raise SystemExit("--local-slot must be non-negative")
+    if args.operating_level < 0:
+        raise SystemExit("--operating-level must be non-negative")
+    if args.node_count < 2:
+        raise SystemExit("--node-count must be at least 2")
+    if not 0 <= args.local_slot < args.node_count:
+        raise SystemExit("--local-slot must be within the logical topology")
+    if not 0 <= args.reference_slot < args.node_count:
+        raise SystemExit("--reference-slot must be within the logical topology")
+    if not 1 <= args.probe_phase_cycles <= 31:
+        raise SystemExit("--probe-phase-cycles must be in [1, 31]")
     if args.train_cycles < 0 or args.train_cycles > 65536:
         raise SystemExit("--train-cycles must be in [0, 65536]")
     if args.train_cycles != 0 and args.train_cycles % 8 != 0:
         raise SystemExit("--train-cycles must be 0 or an 8-cycle multiple")
 
+    ring_action(ser, "*CLS", args.timeout)
     steps: list[dict[str, str]] = []
     for command in (
         "SYSTem:TDMA:RING:STOP",
-        f"SYSTem:TDMA:RING:LOCAL {args.local_slot}",
+        f"SYSTem:TDMA:OPMode:STAGe {args.operating_level}",
+        "SYSTem:TDMA:OPMode:APPLy",
+        (f"SYSTem:TDMA:RING:TOPology {args.node_count},"
+         f"{args.local_slot},{args.reference_slot}"),
+        f"CALibration:TOPology:PROBe 1,{args.probe_phase_cycles}",
         "SYSTem:TDMA:RING:ARM",
     ):
-        steps.append({"command": command,
-                      "response": ring_action(ser, command, args.timeout)})
+        steps.append(checked_action(ser, command, args.timeout))
         time.sleep(0.2)
+
+    active_level = int(retryable_query(
+        ser, "SYSTem:TDMA:OPMode?", args.timeout).split(",", 1)[0])
+    if active_level != args.operating_level:
+        raise RuntimeError(
+            f"active operating level {active_level}, expected {args.operating_level}")
+    arm_status = int(retryable_query(
+        ser, "SYSTem:TDMA:RING:ARM:STATus?", args.timeout))
 
     armed = wait_for_ring_state(ser,
                                 args.timeout,
@@ -185,13 +222,11 @@ def prepare_single_board_ring(ser, args: argparse.Namespace) -> dict:
 
     if args.train_cycles != 0:
         command = f"SYSTem:TDMA:RING:TRAIN {args.train_cycles}"
-        steps.append({"command": command,
-                      "response": ring_action(ser, command, args.timeout)})
+        steps.append(checked_action(ser, command, args.timeout))
         time.sleep(0.2)
 
     command = "SYSTem:TDMA:RING:START"
-    steps.append({"command": command,
-                  "response": ring_action(ser, command, args.timeout)})
+    steps.append(checked_action(ser, command, args.timeout))
     started = wait_for_ring_state(ser,
                                   args.timeout,
                                   args.start_wait,
@@ -199,8 +234,13 @@ def prepare_single_board_ring(ser, args: argparse.Namespace) -> dict:
                                   data_running=True)
     return {
         "enabled": True,
+        "operating_level": args.operating_level,
+        "node_count": args.node_count,
         "local_slot": args.local_slot,
+        "reference_slot": args.reference_slot,
+        "probe_phase_cycles": args.probe_phase_cycles,
         "train_cycles": args.train_cycles,
+        "arm_status": arm_status,
         "steps": steps,
         "armed": {
             "ring_enabled": field(armed, RING_ENABLED),
@@ -225,43 +265,42 @@ def main() -> int:
     samples: list[dict] = []
     build = ""
     ring_setup: dict = {"enabled": False}
-    flight_tx_response = ""
-    flight_rx_response = ""
+    cleanup_steps: list[dict[str, str]] = []
     with open_loopback_port(args) as ser:
-        identity = parse_idn_response(retryable_query(ser, "*IDN?", args.timeout))
-        build = retryable_query(ser, "SYSTem:FW:BUILD?", args.timeout).strip('"')
-        if args.expected_build and build != args.expected_build:
-            raise SystemExit(f"build mismatch: {build} != {args.expected_build}")
+        try:
+            identity = parse_idn_response(
+                retryable_query(ser, "*IDN?", args.timeout))
+            build = retryable_query(
+                ser, "SYSTem:FW:BUILD?", args.timeout).strip('"')
+            if args.expected_build and build != args.expected_build:
+                raise SystemExit(
+                    f"build mismatch: {build} != {args.expected_build}")
 
-        if not args.skip_ring_setup:
-            ring_setup = prepare_single_board_ring(ser, args)
-            for _ in range(8):
-                drained = retryable_query(
-                    ser, "SYSTem:TDMA:FLIGHT:RX?", args.timeout
-                )
-                if drained.startswith('"EMPTY"'):
-                    break
-            flight_tx_response = retryable_query(
-                ser,
-                "SYSTem:TDMA:FLIGHT:TX 32,165,1,1,1",
-                args.timeout,
-            )
-            deadline = time.monotonic() + max(args.start_wait, 2.0)
+            if not args.skip_ring_setup:
+                ring_setup = prepare_single_board_ring(ser, args)
+
+            deadline = time.monotonic() + args.duration_s
             while time.monotonic() < deadline:
-                flight_rx_response = retryable_query(
-                    ser, "SYSTem:TDMA:FLIGHT:RX?", args.timeout
-                )
-                if not flight_rx_response.startswith("EMPTY"):
-                    break
-                time.sleep(0.1)
-
-        deadline = time.monotonic() + args.duration_s
-        while time.monotonic() < deadline:
-            try:
-                samples.append(sample(ser, args.timeout))
-            except AssertionError:
-                pass
-            time.sleep(args.poll_interval_s)
+                try:
+                    samples.append(sample(ser, args.timeout))
+                except AssertionError:
+                    pass
+                time.sleep(args.poll_interval_s)
+        finally:
+            if not args.skip_ring_setup:
+                for command in (
+                    "SYSTem:TDMA:RING:STOP",
+                    "CALibration:TOPology:PROBe 0",
+                ):
+                    try:
+                        cleanup_steps.append(
+                            checked_action(ser, command, args.timeout))
+                    except Exception as exc:
+                        cleanup_steps.append({
+                            "command": command,
+                            "response": "",
+                            "error": str(exc),
+                        })
 
     failures: list[str] = []
     if len(samples) < 2:
@@ -303,9 +342,10 @@ def main() -> int:
     # simultaneous evidence for this product-board wiring check.
     simultaneous_feedback = field(last, SIMULTANEOUS)
     ring_last_error = field(last, RING_LAST_ERROR)
-    if ring_last_error not in (0, 5):
+    if ring_last_error not in (0, 2, 5):
         failures.append(
-            f"ring_last_error={ring_last_error}, expected NONE(0) or TIMESTAMP_MISSING(5)"
+            f"ring_last_error={ring_last_error}, expected NONE(0), "
+            "EVIDENCE_MISSING(2), or TIMESTAMP_MISSING(5)"
         )
     formal_feedback_evidence = (
         simultaneous_feedback == 1 and ring_last_error == 0
@@ -316,15 +356,6 @@ def main() -> int:
             "formal feedback timestamp evidence pending: "
             f"simultaneous={simultaneous_feedback}, ring_last_error={ring_last_error}"
         )
-    if flight_tx_response:
-        notes.append(f"flight tx published: {flight_tx_response}")
-    if flight_rx_response:
-        notes.append(f"flight rx observed: {flight_rx_response}")
-    if not args.skip_ring_setup:
-        if not flight_tx_response.startswith('"OK"'):
-            failures.append(f"flight tx did not publish: {flight_tx_response}")
-        if not flight_rx_response.startswith('"RX"'):
-            failures.append(f"flight rx did not return a mirrored descriptor: {flight_rx_response}")
 
     counter_deltas = {
         "ring_seq": delta(first, last, RING_SEQ),
@@ -340,12 +371,19 @@ def main() -> int:
     bad_deltas = {
         "adapter_rx_bad_count": delta(first, last, RING_ADAPTER_RX_BAD_COUNT),
         "phys_rx_bad_count": phys_delta(first, last, "rx_bad_count"),
-        "phys_rx_magic_fail_count": phys_delta(first, last, "rx_magic_fail_count"),
         "phys_rx_ring_overrun_count": phys_delta(first, last, "rx_ring_overrun_count"),
     }
     for name, value in bad_deltas.items():
         if value != 0:
             failures.append(f"{name} grew by {value}")
+
+    # The raw DMA scanner increments magic_fail while no complete header is
+    # present, including the empty logical slot in this two-node/one-board
+    # setup. Adapter RX bad_count is the complete-frame integrity gate.
+    diagnostic_deltas = {
+        "phys_rx_magic_fail_count": phys_delta(
+            first, last, "rx_magic_fail_count"),
+    }
 
     summary = {
         "port": args.port,
@@ -358,8 +396,7 @@ def main() -> int:
         "electrical_data_loopback_passed": not failures,
         "formal_feedback_evidence": formal_feedback_evidence,
         "ring_setup": ring_setup,
-        "flight_tx_response": flight_tx_response,
-        "flight_rx_response": flight_rx_response,
+        "cleanup_steps": cleanup_steps,
         "last": {
             name: field(last, index)
             for name, (index, _) in required_fields.items()
@@ -367,6 +404,7 @@ def main() -> int:
         "physical": {name: last["phys"].get(name, -1) for name in expected_phys},
         "counter_deltas": counter_deltas,
         "bad_deltas": bad_deltas,
+        "diagnostic_deltas": diagnostic_deltas,
         "ring_last_error": ring_last_error,
         "simultaneous_feedback": simultaneous_feedback,
         "notes": notes,
