@@ -713,19 +713,37 @@ TDMA owner 生成白名单命令，在同一 follower DATA SM 内选择实际在
 bit，RX 仍经原唯一 FIFO/DMA 端点卸载。后续集成切片见 `TDMA-PROGRESS-20260912-001`：
 `tdma_flight_overlay_build_plan` 只授权 transport helper 指定的头字段和本节点 mailbox，
 其余 bit 选择实际在途输入，reference 独占的 DPLL trailer 也保持透传。固定双 plan 池
-采用 `TDMA_FLIGHT_OVERLAY_RUN_MAX` 与 `TDMA_FLIGHT_OVERLAY_TOKEN_WORD_MAX` 限容；
+采用 `TDMA_FLIGHT_OVERLAY_BOUND_RUN_MAX` 与 `TDMA_FLIGHT_OVERLAY_TOKEN_WORD_MAX` 限容；
 安装后的 PIO terminal PC 经 pioasm 标签、编译断言和内部 token 白名单绑定。
 
 描述符加载由 `tdma_state_machine_command_dma_contract()` 显式声明，复用既有
 DMA_FORWARD 仲裁投影，与旧 forward 角色在 persona 生命周期内互斥；不取得 RX FIFO
-或额外 DREQ owner。最终输出段禁止继续 chain，池复用同时检查 loader 终端游标和两通道
-完成状态；加载/输出通道停止失败时保留资源和池。完整 byte 路径使用
+或额外 FIFO owner。follower 的数据段全部 chain 到 loader；首控制段回写所选计划的
+generation，末控制段从受保护 SRAM 指针装入 loader 的触发别名，硬件自行续转。
+控制段使用 `DREQ_FORCE`，数据段仍只消费已声明的 PIO TX DREQ；描述符数量由
+`TDMA_FLIGHT_OVERLAY_CONTROL_RUNS` 和资源契约共同限制，不能把非幂次描述符列表
+误配成 DMA read-address ring。完整 byte 路径使用
 `TDMA_PIO_SPI_PROCESS_DATA_DECODE_CYCLES` 与 `TDMA_PIO_SPI_PROCESS_BYTE_REARM_CYCLES`
 准入，非法 delay 编码不允许 diagnostic continue 绕过。
 
+Core1 只构建 inactive pool，完整绑定并执行内存屏障后原子发布 successor 地址；同时
+最多一个 pending publication。只有 DMA 写回新 generation 后，owner 才能回收旧池。
+段间瞬态 BUSY 清零不释放池；STOP 必须禁用并有界停止 loader/output，失败保留资源和池。
+内部 generation 跳过零，单 pending 与顺序选择约束避免跨版本误认；仅在完全停止后
+重建 ARM epoch。DMA 预取可能领先物理 CS 边界，selection 只证明内存读取交接，
+不能当作 SENT、wire completion、RefMem ACK/fence 或 DPLL 时间。
+
+recurrence backend 在获取 TX FIFO 前检查可发布性；未就绪保持旧计划。无新 TX 时，
+已接受的计划持续复用，不再次构建；成功发布后才更新接受版本。初始无 TX 仍可准备
+hop 变换。ARM 后先由 PASS 计划持续运行，完整包的 byte/bit alignment 必须在相邻
+physical frame 间连续一致，达到 `TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES`
+后才允许首份修改计划；首帧启动瞬态不得直接冻结。首次发布后锁定该 ARM epoch 的
+physical alignment，解析副本的后续恢复不得重新定位线上的 owner 槽位；持续异常
+时的初始对齐准入和真实线路失步仍需独立故障证据。
+
 软件模型、build/P3 流程、矩阵下的独立四板短帧闭环与逐 hop owner/CRC 原始采集，
 只能证明各自声明的有限范围。严格校准、完整 Core1 WCET、正式 RAM 余量、DMA 最坏
-仲裁/断粮、环境覆盖与自主续装必须分别验证；成功与失败由 Task Progress 绑定当前
+仲裁/断粮、环境覆盖与 reference 自主发车必须分别验证；成功与失败由 Task Progress 绑定当前
 源码保存，不能据局部通过冻结新能力或提升登记状态。
 
 供硬件复用的 follower 计划必须与预测的下一圈 sequence 解耦。固定 hop 的 header
@@ -735,7 +753,8 @@ sequence、identity CRC 和其他 reference 字段持续透传。固定长度 CR
 本地 mailbox 仍只装载 owner 准备的值，CRC XOR 不能授予其他 segment 写权限。
 `TDMA_FLIGHT_OVERLAY_TOKEN_INVERT` 与 LIVE token 由内部 PIO catalog 定义，process
 follower 的 ISR 右移表示支持两者；RX observation copy 在 adapter 中恢复字节顺序。
-这种表示不新增 PIO/SM/DMA owner，不等于完成硬件 recurrence 或 generation 切换。
+这种表示不新增 PIO/SM/DMA owner；follower recurrence 的实现与验证见
+`TDMA-PROGRESS-20260912-003`，不能外推为整环自主运行或完整 completion 闭环。
 
 这仍不是最终 resident process-image flight：当前 process-image follower 已有本机固定 segment
 的 bit 保护路径，但尚未形成飞行修改后的 WKC、尾部 CRC V2 和完整 segment

@@ -146,7 +146,7 @@ SD/SVG 分析由 Core0 或主机执行。完整窗口和 clock-edge 配对不能
 | TDMA-FLIGHT-001 | 常驻循环过程映像与单轮多 Node overlay | IN PROGRESS | ARM 后只初始化一次 resident image；`RUNNING` 中每个 Node 在固定窗口执行 UNLOAD/LOAD 并继续 FORWARD；无新 generation 时原值透传；物理 frame 完成回到 cycle boundary，不进入终止态；STOP、复位、故障或重新配置可停止并保留 evidence。 |
 | TDMA-FLIGHT-002 | 真飞行处理：wire-self-clocked resident flight（**最高优先级主线**，详见上文） | IN PROGRESS | F1–F5、HAOFV owner/resource/跨核契约、Core1 phase/WCET 和周期映射全部通过当前源码对应的多板验证；`TDMA-RESIDENT-01` 由 `pending` 收敛为 `active` 并经 C11 交叉审核。 |
 | TDMA-FLIGHT-002A | B0 前置门禁：RX/TX 重叠与固定 pipeline delay 实测 | DONE | 当前四板/profile 已以同钟完整包、raw 固定上一 byte 映射、反向错位负测和各节点逐窗上下界完成物理能力取证，见 `TDMA-PROGRESS-20260911-006`。不代表其它 profile/环境或 cycle-level flight 通过；PIO/profile 改动须重新取证。process-image byte 边界预算缺口另见 `TDMA-FLIGHT-006`。 |
-| TDMA-FLIGHT-002B | B1 自激发车时钟：Core1 退出发车门控 | IN PROGRESS | 屏蔽 core1 service 后环持续运行；`emission_clock_source` 为环边界来源；帧间隔 min/max 落在固定拍数窗口内。先收敛可跨 sequence 复用的 follower hop/CRC 计划，再联通 reference 发车、descriptor 续转及 generation 边界；证据见 `TDMA-PROGRESS-20260912-002`，局部实现不代表本项通过。 |
+| TDMA-FLIGHT-002B | B1 自激发车时钟：Core1 退出发车门控 | IN PROGRESS | 屏蔽 core1 service 后环持续运行；`emission_clock_source` 为环边界来源；帧间隔 min/max 落在固定拍数窗口内。follower 已接入可跨 sequence 复用的 hop/CRC 计划、descriptor 续转和单 pending generation 交接，证据见 `TDMA-PROGRESS-20260912-003`。reference 发车、返回映像与完整 completion 尚未闭合，局部实现不代表本项通过。 |
 | TDMA-FLIGHT-002C | B2 预装双缓冲与无更新零 Core1 稳态 | PENDING | `tdma_flight_fifo` 双槽按 boundary 切换；无更新时沿用上一版（`tx_reuse_count`）且节拍不变；稳态 core1 不改变线行为。 |
 | TDMA-FLIGHT-002D | B3 overlay 非阻塞注入与单轮多 Node LOAD/UNLOAD | PENDING | 未就绪透传顺延、就绪命中，两种情况节拍均不变；单轮多 Node overlay 有原始波形证据。 |
 | TDMA-FLIGHT-002E | B4 契约收敛与 byte/cycle 分级飞行声明 | PENDING | 新契约登记、C11 交叉审核、顶层 7 天内刷新、`TDMA-RESIDENT-01` 状态变更留证；byte-level 与 cycle-level 声明分开记录。 |

@@ -8,7 +8,9 @@ Last updated: 2026-09-12
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 live-header XOR 切片证据入口为
+当前 follower recurrence 切片证据入口为
+`out/HardwareAcceptance/20260911/tdma-flight-follower-recurrence/slice-manifest.json`；
+前序 live-header XOR 切片证据入口为
 `out/HardwareAcceptance/20260911/tdma-flight-live-crc/slice-manifest.json`；
 前序有限同钟采集的证据入口为
 `out/HardwareAcceptance/20260911/tdma-flight-b0/slice-manifest.json`。
@@ -17,6 +19,66 @@ Last updated: 2026-09-12
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260912-003 - follower 自主续转、池交接与启动对齐修复
+
+- 日期：2026-09-12；TODO task ID：`TDMA-FLIGHT-002B/006/007`。本项数字均为实验
+  快照，非事实源。基于 `9b8d5f7`，证据根为
+  `out/HardwareAcceptance/20260911/tdma-flight-follower-recurrence/`。
+  最终 build `20260911182033`，源码指纹
+  `da774652f2a50cb812c32efc57d8afba4b515458fc787447ca54474744112bd4`，共 979 个源文件。
+- 固件：既有 DMA output/loader 通过 selection、数据段和 restart 控制段持续执行。
+  Core1 仅初始化 loader，后续完整构建 inactive plan 后发布 SRAM successor 指针；
+  单 pending publication 被 DMA 选择后才回收旧池。未就绪不 acquire TX，无新版本
+  不重建计划，失败不更新接受版本。资源仍由 TDMA owner/Resource Arbiter 管理；
+  PIO 指令、SM、RX FIFO owner 不增加。selected generation 可能领先物理 CS，
+  只作内存交接证据，不是 SENT、wire completion、RefMem ACK/fence 或 DPLL 时间。
+- 首轮真实失败：build `20260911180139` 的 P3 和独立复验均保留。既有校准矩阵下
+  三个 follower 接收连续，但 reference 持续报 `BAD_ROUTE`。`round1-node*/` 的 SD
+  原始采集及 `return-failure-decode.json` 证明 NO2 输入头 CRC 正确，输出将
+  `hop_limit` 从 3 改为 131，CRC 也错误。`diagnostic-running.json` 显示首帧 bit
+  shift 为 1，随后 10293 个包为 zero shift；第一次修改计划过早锁定了启动瞬态。
+  `diagnose-return/` 明确使用 diagnostic continue 取证，未计为通过。
+- 修复：ARM 后 PASS 由硬件重复执行；相邻完整 physical frame 的 byte/bit alignment
+  连续一致，达到 `TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES` 后才允许首份
+  修改计划。之后锁定该 ARM epoch 的槽位，解析副本丢失不得再次移动线上位置。
+  真实 C scanner 回归覆盖首次 `1 → 0 → 0`、新 epoch 与锁定后的副本丢失；
+  当前波形确认 NO2 正确推进 hop 且不再改动 hop_limit。持续异常初始流和真实时钟
+  丢失的恢复证明仍开放，稳定样本门槛不能替代全部环境故障验证。
+- 软件：bit/CRC/资源/字段解析 79 项通过；DMA/scanner/TRN-03 最终 112 项通过。
+  实际 DMA 绑定函数的 host bus 验证连续 200 份计划、48 个发布时间点、池回收、
+  generation 回绕、段间 idle、迟到 trigger、STOP 超时与重试；C adapter 覆盖无更新、
+  busy 不取走 TX、失败后重试及无 TX bootstrap。C owner/alignment/value 163840 组
+  通过，ResourceArbiter 负测通过。首轮 fixture 误提取前置声明和旧 one-shot/PASS
+  静态断言失败均保留，已同步修正。命令及日志见 `software-verification.json`。
+- 构建与 P3：Release 与 A/B/Boot Flash gate 通过。`ram-release-r2.log` 的 free
+  为 2668 B，正式阈值为 49152 B，正式 RAM 门禁失败。两轮都执行真实 P3 `run`；
+  最终 `p3-r2/receipt.json` 仍为 quick diagnostic，`strict_gates_passed=false`。
+  coarse ARM/map、coded marker、SCK training/replay 和默认 2 秒 startup 屏障失败
+  原样保留；runtime 稳态各 Node 与最后 handoff 通过不覆盖这些失败。
+- 独立闭环：新矩阵的 SCK 行重装余量为负，独立工具在硬件动作前拒绝，日志为
+  `controlled-fresh-matrix.log`。`controlled-prior-matrix-fixed/` 在当前新固件上使用
+  前序 live-CRC 切片中满足重装预算的既有矩阵，通过 passed/closed_loop_passed/
+  realtime_gate_passed，diagnostic_continue=false；沿用受控 4 秒 startup 窗口。
+  既有矩阵本身有 diagnostic provenance，不能称为本轮新校准或严格产品验收。
+- 沿途复核：`round2-owner-audit.json` 绑定四板完整同钟 packet 对及 SD 原始页，
+  三个 follower 均无越权 byte，全部 active mailbox CRC16 有效；`round2-byte-phases.json`
+  的有限窗口各 bit 位置输出 phase 均为 88 ns，采样量化为 8 ns，不是 DMA/环境最坏证明。
+  采集继续使用既有 1024 B 下载页参数。`handoff-audit.json` 中发布和选择 generation
+  持续推进，无新增准备失败；分次 SCPI 读数及 sticky IRQ3 不能换算成精确圈数或
+  无 Core1 service 的证明。
+- 完整调度：`schedule-audit.json` 区间每板接收约 28800 帧，基础 transport 错误
+  增量为零；TDMA overrun/deadline 仍增长，累计 max 为约 2408–3328 us，WCET
+  为 380 us。累计峰值包含启动事件，不把差异归因于单操作，也不据短帧工具通过
+  宣称 HAOFV 完整 WCET 已满足。
+- 生命周期：`raw-transition/` 与 `restored-process-training/` 在同一既有矩阵和当前
+  build 下均通过非强制闭环；后者覆盖 clock training 后恢复 process。最终四板均
+  STOPPED、analyzer RELEASED、SD DONE，见 `final-stopped.json`。成功与首轮
+  失败、旧/新矩阵来源及最终源码指纹由 `slice-manifest.json` 分别绑定。
+- 后续边界：reference 仍由 Core1 逐帧准备并写 CONTROL FIFO；自主 sequence/identity
+  CRC、返回映像保留和硬件发车是下一独立切片。当前 LOAD MASK 不能屏蔽 mandatory
+  TDMA service；未执行完整 Core1 blackout。正式 RAM、完整 WCET、严格校准、尾部
+  完整性、最坏 DMA/环境和 HAOFV-879/C11 继续开放，登记状态不变。
 
 ### TDMA-PROGRESS-20260912-002 - 可跨 sequence 复用的 follower header 计划
 
