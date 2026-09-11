@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
 Related: `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_ARCHITECTURE.md`
-Last updated: 2026-09-08
+Last updated: 2026-09-10
 
 本文是 HAOFV Virtual Distributed Clock（VDC）内部基础主域的稳定架构事实源。
 VDC 负责多节点共同时间、offset/rate 估计、质量 promotion 和时间快照发布；不拥有
@@ -158,6 +158,25 @@ cycle[k]
 - source/reference slot、window class、payload class、late/jitter；
 - timestamp source/resolution/flags、dictionary/profile CRC；
 - active path-delay entry、calibration generation、freshness 和 bias generation。
+
+### 共同时间相位域
+
+`common_effective_time_ns` 是由 TDMA sequence 和 origin TX phase 导出的共同逻辑时间，
+它不能把另一块板的 raw RX hardware-latch 自动变成共同时间。每个 evidence 必须明确
+`correlation_flags` 中的相位域：origin 与 local latch 同一硬件计数器，或 local latch 已由
+冻结的、generation-bound mapping 映射到共同时间。二者都不成立时，local phase 只能是
+`LOCAL_PHASE_RAW` 诊断事实。
+
+- MASTER 不能把跨板 raw local phase 输入 PI/DCO；`VDC_DOMAIN_GATE_LOCAL_PHASE_UNALIGNED`
+  必须拒绝该输入并保持重获取路径可见。
+- FOLLOWER 使用完全相同的 timestamp、directed path 和 residual 公式，但只记录 raw
+  observation、gate 和 provenance；它不改变 PI、DCO 或 local lock promotion。
+- 报告必须分别给出 absolute bias、raw spread 与可信 jitter。只有 path/bias generation、
+  direction、continuity 和 local-to-common phase mapping 全部有效时，jitter 才是可信输出
+  jitter；否则该字段为空，不能由 raw spread 或 `LOCKED` 填充。
+- `local_tx_edge` 只有在 sequence、identity 和 capture generation 与接收 frame 绑定，且
+  已声明其到共同时间的 mapping 时，才能作为 output observation。未绑定边沿不得跨记录
+  补边或与 NO5 外部边沿配对。
 
 对于一条双向链路，T1/T2/T3/T4 可作为校准/诊断参考：
 

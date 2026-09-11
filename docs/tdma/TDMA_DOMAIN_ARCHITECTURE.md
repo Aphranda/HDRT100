@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-09-02
+Last updated: 2026-09-11
 
 本文档定义 TDMA 在 HAOFV 下的基础件主域。TDMA 是分布式硬实时系统的确定性通讯骨架，负责在 core1/PIO/DMA 侧按窗口执行上行、下行、payload、timestamp 和 completion；VDC、RefMem、OTA、诊断等域只挂载 payload 或消费 evidence，不能拥有 TDMA 物理环路。
 
@@ -100,6 +100,44 @@ Node 没有新 generation 时，继续发送该 segment 的上一版有效值。
 这是最终运行架构契约。当前 adapter 仍有按周期构造 beacon、按 `hop_limit` 结束一次
 frame 的过渡实现，迁移任务必须将其收敛为上述 resident cycle 语义；过渡代码通过不等于
 常驻过程映像已经完成。
+
+#### 飞行处理实现框架
+
+`TDMA-RESIDENT-01` 要求物理转发持续、cycle boundary 只是事件。实现该语义必须同时满足
+下列五项可判据化的条件；任一不满足时只能声明 byte-level cut-through，**不得**据此声明
+cycle-level flight：
+
+| # | 条件 | 判据（以证据字段表达，不写死数值） |
+|---|---|---|
+| F1 | 发车不依赖 Core1 | 屏蔽 core1 TDMA service 后环仍持续运行，`ring_free_run_cycles` 单调增长 |
+| F2 | 节拍 = 环回 + 固定 pipeline | `emission_interval_min_ns` 与环回证据之差为固定 clk_sys 拍数的整数倍 |
+| F3 | 抖动有界且量化 | `emission_interval_max_ns - emission_interval_min_ns` 不超过固定拍数 |
+| F4 | 无更新零 Core1 参与 | `emission_clock_source` 为环边界来源；稳态下 core1 不改变线行为 |
+| F5 | 更新非阻塞注入 | overlay 未就绪时 `tx_reuse_count` 增长且 `emission_interval_*` 不变 |
+
+实现框架由四处构成，缺一不成立：
+
+1. **自激发车时钟**：origin 的发射由**回环边界硬件事件**再触发，不由 core1 的
+   `next_tx_deadline_ns` 决定。该 deadline 降级为**节拍健康度观测**（只计
+   `emission_late_count`），不再是发车门控；否则 resident loop 仍被 frame completion
+   终止，直接违反本条款。
+2. **image 预装**：下一帧的 TX image 在当前帧仍在线上时写入 `tdma_flight_fifo` 的非
+   active slot；PIO 在 boundary 按硬件条件切换 active slot，不等待 Core0/Core1。无可用
+   新 image 时沿用上一版（`tx_reuse_count`），对应“无新 generation 时继续发送上一版
+   有效值”。
+3. **overlay 非阻塞注入**：process-image overlay 脚本在上一帧期间预置；未就绪时该帧
+   透传并顺延到下一圈，**不改变节拍**。PIO 命令 FIFO 为空时必须自行退化为 PASS 透传。
+4. **FSM 生命周期收敛**：一轮的终点只能是 `CYCLE_BOUNDARY`；`FRAME_COMPLETE` 不得作为
+   运行态终点，退出条件只允许 STOP、复位、不可恢复故障或显式重新配置。
+
+**回环的角色**：回环从发车**门控**降级为**观测事实**，`resident_return_ready` 与
+`CYCLE_BOUNDARY` 不再参与发射条件。反馈相关条件中的 round trip 判据保留为质量判据
+（归 `TIMESTAMP_MISSING`），但不再阻止下一帧；`simultaneous_feedback_loop_evidence` 改由
+sequence 异步关联产生。该语义变更属于冻结契约的语义修订，必须经 C11 交叉审核。
+
+**声明门禁**：只有 PIO/DMA 实测证明 RX/TX 重叠与固定 pipeline delay 后，才允许把
+`TDMA-RESIDENT-01` 由 `pending` 收敛为 `active`。byte-level 与 cycle-level 的声明必须
+分开记录，不得用前者支撑后者。上述证据字段一律按 `HAOFV-879` 的 seqlock 要求发布。
 
 ### Owner 与负载分层
 

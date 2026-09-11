@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_TASK_PROGRESS.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
-Last updated: 2026-09-08
+Last updated: 2026-09-10
 
 本文只记录当前 VDC 迁移的实施 checkpoint 和证据闭环。任务状态以 `VDC_DOMAIN_TODO.md`
 为唯一事实源，稳定语义以 `VDC_DOMAIN_ARCHITECTURE.md` 为准。重构前的长历史记录已移入
@@ -40,6 +40,302 @@ VDC-TDMA-001
 当前最高优先级 gate 是 `VDC-ROLE-001`；`VDC-TDMA-001`、`VDC-CAL-001` 和
 `VDC-EVID-001` 继续作为它不变的 evidence 输入。`VDC-SERVO-001/002` 在正式
 evidence 未闭环前只允许 host/replay 验证，不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260910-012 — P3 phase-domain finding and fail-closed admission
+
+- TODO task ID：`VDC-OBS-ALG-001` 阶段 B、`VDC-ROLE-002`、`VDC-VERIFY-001`。
+- 状态：IN PROGRESS。
+- 日期：2026-09-10。
+- 证据：`out/HardwareAcceptance/20260910/p3-094720/dpll-no1-4-internal/` 的原始 capture
+  显示 NO1 是 self-loop source/reference，而 NO2--NO4 将远端 origin phase 与各自 raw
+  RX counter phase 相减。该目录是单次采集快照，不是稳定性能事实源；重分析产物位于
+  `out/pytest/p3-094720-observation-reanalysis/`。
+- 结论：NO1 的 ns 级 raw spread 与从机 us 级 raw spread 不是同一已证明物理量。三台
+  FOLLOWER 在该快照中没有成功应用 peer command，且 active path 缺 bias generation；
+  因此没有任一节点可报告可信 output jitter、corrected residual 或 formal lock。
+- 变更：TDMA observation 现在标识 same-clock、common-mapped 或 raw-local phase domain。
+  MASTER 遇到跨板 raw local phase 以 `VDC_DOMAIN_GATE_LOCAL_PHASE_UNALIGNED` fail-closed；
+  FOLLOWER 继续记录同一 observation，但只旁路 PI/DCO/local promotion。离线报告将
+  `raw_jitter_*` 和可信 `jitter_*` 分开，未对齐或 generation 不完整时可信值为空。
+- 验证：VDC domain、TDMA adapter host C tests 与 DPLL observation/decode/residual/waveform
+  Python regressions 已通过；本 checkpoint 不替代当前源码 P3/HIL。
+- 下一 gate：完成 `VDC-ROLE-002` 的 RefMem command receive 闭环，并由 hardware output
+  observation owner 发布 generation-bound local-to-common mapping；随后执行同窗 NO1--NO4/
+  NO5、role matrix、fault injection 和长期观测。
+
+### VDC-PROGRESS-20260910-011 — dual-observer algorithm remediation objective
+
+- TODO task ID：`VDC-OBS-ALG-001` 阶段 A--D。
+- 状态：IN PROGRESS。
+- 日期：2026-09-10。
+- 长期任务目标：把 NO1--NO4 的内部 DPLL 观测和 NO5 的外部波形观测统一为一个可审计、
+  可重放、可比较的测量算法。两类算法当前都视为未证明正确；在物理边沿、共同时间锚、
+  有向路径和质量准入闭合前，任何散点、微秒级偏差或单节点 ns 级曲线都不能解释为真实
+  抖动、锁相成功或失锁。
+- 统一样本必须能追溯 `source_slot_id`/`reference_slot_id`、自身 TX/RX 边沿、TDMA
+  `sample_sequence`、共同绝对生效时间、segment continuity、CRC/调度结果以及
+  `delay_generation`/`bias_generation`。MASTER 和 FOLLOWER 使用同一观测算法；FOLLOWER
+  只旁路 PI、积分器、DCO 和本地 lock promotion，不得用主机命令应用记录替代自身相位观测。
+- 分阶段交付：
+  1. 审计并修正内部/外部 evidence 的物理方向，确保每个节点配对自身发出与自身接收的
+     同一边沿；明确 `source`、`reference` 与 TDMA 反向数据路径，禁止把参考节点 TX 到
+     本地 RX 当作自身环路观测。
+  2. 以 TDMA correlated sequence 及共同绝对生效时间建立跨节点时间锚，按 active
+     有向 delay/bias generation 做扣除；禁止用接收时刻、本地重建 cycle 或零默认值对齐。
+  3. 建立 fail-closed admission：坏帧、CRC/调度错误、来源错误、序列缺口、segment drop、
+     stale、generation 不一致和外部线缆不完整样本只保留 raw diagnostic，并单独统计覆盖率。
+  4. 在同一窗口分别计算 raw phase、固定 path bias、transport-corrected residual、真实
+     jitter、频率斜率、命令应用和置信度；NO5 只能做同窗只读相关，不能驱动 DPLL 或提升 lock。
+  5. 用 host/C、故障注入、`1M3F`/`2M2F`/`3M1F`、主机切换、当前源码指纹 P3/HIL 和长期
+     soak 验证；不通过时保留失败证据，不扩大锁定门限或使用旧 receipt/replay。
+- 完成定义：NO1--NO4 与 NO5 对同一物理量给出一致的字段和质量语义；每个有效样本可由
+  原始边沿重放并定位到 source/sequence/segment；不完整窗口不会生成 corrected jitter、
+  `LOCKED` 或 `FORMAL_LOCKED`；主从角色差异只体现在 PI/DCO 控制权。
+- 当前边界：最近源码 P3 `out/HardwareAcceptance/20260910/p3-082217/` 的
+  `strict_gates_passed=false`，且 TDMA ARM/拓扑/coded-marker 前置失败，不能作为算法
+  正确性或锁相证据。下一 gate 是完成 C 端 TX/RX evidence 生命周期审计，再补 admission
+  和同窗关联测试。
+
+### VDC-PROGRESS-20260910-007 - unified observation algorithm kickoff
+
+- TODO task ID：`VDC-OBS-ALG-001` 阶段 A/B。
+- 状态：IN PROGRESS。
+- 日期：2026-09-10。
+- 长期目标：建立一套对 NO1--NO4 内部 DPLL 和 NO5 外部波形都适用的观测定义，
+  以“同一 source/reference 有向路径、同一 delay/bias generation、同一 sample
+  sequence 和同一共同绝对生效时间”为前提，分别输出 raw phase、transport-corrected
+  residual、固定 bias、真实 jitter、频率斜率、命令应用和覆盖率；FOLLOWER 与 MASTER
+  使用相同观测路径，FOLLOWER 只旁路 PI/DCO/本地 lock promotion。
+- 当前问题陈述：已有 P3 诊断中 NO1--NO4 的内部曲线和 NO5 外部曲线量级不一致，现阶段
+  不能把差异解释为真实节点抖动或锁相失败。优先排查内部各节点是否都在测量自身 TX
+  到自身 RX 的同一边沿对、NO5 是否使用同窗外部边沿、共同时间锚是否来自 TDMA
+  correlated sequence，以及有向反向 delay/bias 是否被正确扣除；坏帧、序列缺口、
+  segment drop 和 generation mismatch 必须只进入诊断统计。
+- 现有证据边界：当前源码 P3 证据目录为
+  `out/HardwareAcceptance/20260910/p3-075811/`；该轮 `strict_gates_passed=false`，
+  且报告尚未形成完整 metadata/generation/continuity 证据，因此不能证明内部或外部
+  算法正确，也不能宣称 `LOCKED`/`FORMAL_LOCKED`。
+- 下一 gate：逐节点核对 C 端 reference/local timestamp 的物理方向和 owner，补齐
+  sequence/segment continuity、坏帧和缺口 admission，再用同一窗口比较 NO1--NO4 与
+  NO5；完成前不调整锁相判定门限、不用接收时刻重建共同时间，也不以从机不调 PI 为
+  理由减少观测点。
+
+### VDC-PROGRESS-20260910-008 — observation provenance capture schema 5
+
+- TODO task ID：`VDC-OBS-ALG-001` 阶段 B。
+- 状态：IN PROGRESS。
+- 日期：2026-09-10。
+- 变更：将 TDMA correlation flags、reference/local phase、common effective time 及
+  双方 logical observation time 从 ring observation 传播到 VDC timestamp evidence、
+  DPLL state 和内部 maintenance capture。MASTER/FOLLOWER 的本地观测记录现在可用
+  同一 provenance 重放；FOLLOWER 仍只旁路 PI/DCO/本地 lock promotion。
+- Capture：DPLL capture schema 升为 5，记录从 64 字节扩展为 100 字节；为保持现有
+  8 KiB 文件和固件 RAM 预算，maintenance capture 上限调整为
+  `VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES`（当前 76），不改变 TDMA 短帧或实时队列。
+- 软件验证：`test_dpll_observation_decode.py` schema 1--5 兼容回归通过（8 项）；
+  DPLL capture/residual/waveform 相关 Python 回归通过（62 项）；release 双镜像构建、
+  flash-link contract 和 RAM 链接检查通过。
+- 边界：schema 5 只完善可重放 provenance，尚未完成 NO1--NO4 与 NO5 的同窗/segment
+  continuity 关联、坏帧排除和 formal lock 规则；任何 P3 结果仍不能宣称锁相成功。
+- 下一 gate：补齐 schema 5 的长期窗口关联与坏帧/缺口 admission，随后执行当前源码
+  指纹下 P3/HIL 和长期观测，不得使用旧 receipt 或诊断 replay 替代。
+
+### VDC-PROGRESS-20260910-009 — schema 5 current-source P3 diagnostic
+
+- TODO task ID：`VDC-OBS-ALG-001` 阶段 B。
+- 状态：IN PROGRESS。
+- 日期：2026-09-10。
+- 当前源码指纹下 P3 quick diagnostic 已完成，build `20260909235818`，证据目录为
+  `out/HardwareAcceptance/20260910/p3-075811/`。流程 `passed=true`，但
+  `strict_gates_passed=false`。
+- 失败事实：coarse CLK ARM 被拒、coded marker gate 未通过、TDMA closed loop 返回失败，
+  NO5 仍为 `insufficient_stable_circular_span_windows`。内部 NO1--NO4 capture 已执行，
+  但报告中 NO2--NO4 仍只有单点，不能作为多点收敛或 formal lock 证据。
+- TDMA 接收质量在该轮未出现持续坏帧扩散；启动阶段仍记录已有的单次 transport bad/
+  process reject，必须与观测缺口分开归因。该轮 P3 只证明 schema 5 固件和观测流程可运行，
+  不证明内部/外部算法或跨板锁相正确。
+- 下一 gate：继续实现同窗 sequence/segment continuity 与坏帧 admission，优先让
+  NO2--NO4 获得与 NO1 相同语义的多点本地 TX/RX 观测，再重复 P3/HIL。
+
+### VDC-PROGRESS-20260910-010 — generation admission hardening
+
+- TODO task ID：`VDC-OBS-ALG-001` 阶段 A/B。
+- 状态：IN PROGRESS。
+- 日期：2026-09-10。
+- 变更：离线 residual analyzer 现在要求每个可修正样本同时携带正值
+  `delay_generation` 和 `bias_generation`；缺失、只存在一个、非整数、非正值或跨样本
+  generation 变化时，样本保留 raw diagnostic，整段 `delay_correction_available=false`
+  且 `transport_corrected_sample_count=0`。路径/方向校验仍独立保留具体拒绝原因。
+- 软件验证：观测工具回归及 schema/capture/waveform 相关 Python 测试共 `65 passed`；
+  `py_compile` 通过。新增覆盖缺失 generation、部分 generation 和 generation 漂移。
+- 当前源码指纹下 P3 quick diagnostic 已完成，build `20260910002225`，证据目录为
+  `out/HardwareAcceptance/20260910/p3-082217/`；流程 `passed=true`，但
+  `strict_gates_passed=false`。原始失败事实为 coarse CLK topology readback mismatch、
+  coded marker gate、2BD5090FE009FA2A 的 TDMA ARM/运行交接失败，以及由此导致内部
+  DPLL/NO5 无有效 TDMA 前置窗口；不能据此判断 generation 算法或锁相状态。
+- 下一 gate：在不改变 TDMA 短帧和 Calibration training 的前提下，补齐
+  source/reference、sample sequence、segment continuity 和坏帧 admission，再用有效
+  多窗口验证 NO1--NO4 与 NO5 的同窗 corrected residual。
+
+### VDC-PROGRESS-20260910-001 — unified observation algorithm baseline
+
+- TODO task ID：`VDC-OBS-ALG-001` 阶段 A。
+- 状态：IN PROGRESS。
+- 日期：2026-09-10。
+- 目标：统一 NO1--NO4 内部 DPLL 与 NO5 外部观测的 residual 语义，明确有向路径、
+  固定 bias、真实 jitter、控制命令应用和观测缺口的边界。MASTER/FOLLOWER 共用观测
+  计算；FOLLOWER 仅旁路 PI/DCO/本地 lock promotion。
+- 已完成：`tools/dpll_residual_analyze/dpll_residual_analyze.py` 现在只在 path/delay
+  元数据完整且方向一致时生成 transport-corrected residual；缺失、负值或方向不匹配
+  时保留 raw residual，并输出 `delay_correction_available`、修正样本数和拒绝原因。
+  path bias 不再把缺失字段静默归入 `0 -> 0`。
+- 软件验证：`python -m pytest tests/python/test_dpll_residual_analyze.py -p no:cacheprovider`
+  通过，`13 passed`；覆盖缺失 delay、错误方向、固定 delay 改变不影响 corrected
+  jitter、命令应用不冒充 local residual 和 follower 元数据缺失。
+- 当前源码指纹下 P3：`python tools/hardware_acceptance/p3_hardware_acceptance.py run`
+  完成 quick diagnostic flow；证据目录为
+  `out/HardwareAcceptance/20260910/p3-052612/`。TDMA、Calibration、内部 NO1--NO4
+  观测和 NO5 观测流程均执行完成，但 receipt 的 `strict_gates_passed=false`，NO5
+  失败为 `insufficient_stable_circular_span_windows`。该结果证明验收链路可运行，
+  不证明 NO5 同窗关联或 `FORMAL_LOCKED`。
+- 工具边界修正后的再次 P3 尝试使用 build `20260909213559`，在 Latency Cal 前置阶段
+  停止：NO1 calibration profile apply 回读 `active_level=0`，其余三板为请求 level，
+  因此没有进入 DPLL/NO5 算法验收。该硬件前置失败不能作为算法回归结论，需在下一次
+  P3 前先恢复四板 calibration profile 一致性。
+- 最新当前源码 P3 使用 build `20260909214240`，完整执行到内部/NO5 观测；flow
+  `passed=true`，但 `strict_gates_passed=false`。失败事实包括一板 coarse CLK ARM
+  被拒、coded marker gate 未通过，以及 NO5 的
+  `source_dma_or_latch_dropped_records`、`source_dropped_records` 和
+  `insufficient_stable_circular_span_windows`。证据目录为
+  `out/HardwareAcceptance/20260910/p3-054234/`；该结果不能宣称正式锁相，且说明
+  观测丢样与窗口完整性必须和 DPLL 控制状态分开判定。
+- 边界：尚未完成 C 端 `reference_tx_phase`/`local_rx_phase` 的物理方向和共同绝对
+  生效时间审计；尚未建立 NO1--NO4 与 NO5 的同窗关联，也不宣称板端锁相或
+  `FORMAL_LOCKED`。
+- 下一 gate：完成 `VDC-OBS-ALG-001` 阶段 B，审计并补齐 C 端 sequence、source/reference、
+  delay generation 和共同时间锚字段，再运行相关 host/C 回归和当前源码指纹下 P3。
+
+### VDC-PROGRESS-20260910-002 — observation algorithm problem statement
+
+- TODO task ID：`VDC-OBS-ALG-001` 阶段 B。
+- 状态：IN PROGRESS。
+- 日期：2026-09-10。
+- 长期目标确认：NO1--NO4 内部观测和 NO5 外部观测必须使用同一条物理测量定义——
+  同一 `source/reference` 有向路径、同一校准 delay/bias generation、同一 sample
+  sequence 和同一共同绝对生效时间；输出分别报告 raw phase、transport-corrected
+  residual、固定 bias、真实 jitter、频率斜率、命令应用和观测覆盖率。FOLLOWER 只
+  旁路 PI/DCO，不得减少自身观测点或用主机命令应用记录替代本地相位残差。
+- 当前 C 端已确认的算法缺口：TDMA observation trailer 只编码 frozen-cycle phase；
+  接收端将 `reference_tx_timestamp_ns` 置零并只保留本地 RX timestamp；没有随样本
+  传递共同绝对生效时间、delay generation 或 bias generation。`vdc_ring_observer`
+  又从本地 RX timestamp 重建 window start，这个值不能作为跨板 absolute-time anchor。
+  因此目前 NO1--NO4 与 NO5 的数值不能证明处于同一时间窗，散点、微秒级偏差和
+  丢窗既可能是算法语义错误，也可能是观测缺口，不能直接解释为锁相或失锁。
+- 阶段 B 首个代码切片已落地：TDMA adapter 根据已校验的
+  `correlated_sequence * cycle_period + reference_tx_phase` 生成
+  `common_effective_time_ns`，并以 `TDMA_RING_CLOCK_OBSERVATION_FLAG_COMMON_TIME`
+  明确标记；VDC observer 的窗口、start/observed/done/apply 时间全部从该 logical
+  TDMA 锚派生，不再从本地 RX timestamp 重建。local RX timestamp 仍仅作硬件接收事实
+  和 provenance，短帧布局及 Calibration training 未改变。
+- 已验证：VDC、TDMA adapter、TDMA ring runtime、TDMA service scheduler 和 RefMem
+  realtime TDMA host C tests 通过；snapshot 可读回 common time。仍未完成 delay/bias
+  generation、NO5 同窗关联和物理绝对时间闭环，因此不能据此宣称跨板锁相。
+- 本次 P3 运行完成 quick diagnostic flow，证据目录为
+  `out/HardwareAcceptance/20260910/p3-060954/`，使用异步 OTA build
+  `20260909221000`；receipt 的 `strict_gates_passed=false`。失败事实为 coarse CLK
+  topology readback mismatch 和 NO5 `insufficient_stable_circular_span_windows`，
+  该结果不构成 common-time 算法或正式锁相通过证据。
+- 启动条件：先在 TDMA/RefMem/VDC 之间冻结 source/reference、sequence、CRC、共同
+  时间锚、delay/bias generation 的 owner 和拒绝规则；在锚点缺失时只允许 diagnostic
+  raw evidence，禁止 corrected jitter、formal lock 或从机实时应用。契约冻结后再修改
+  C 端字段/adapter/observer，并同步更新 host/C 单测和 P3 证据。
+- 下一 gate：完成 `VDC-OBS-ALG-001` 阶段 B 的 delay/bias generation、物理方向和
+  owner 审计；未完成前不把 NO5 外部曲线与内部 DPLL 曲线做跨板锁相结论。
+
+### VDC-PROGRESS-20260910-003 — generation admission and capture schema v4
+
+- TODO task ID：`VDC-OBS-ALG-001` 阶段 B。
+- 状态：IN PROGRESS。
+- 日期：2026-09-10。
+- 变更：正式 path table 下，Core1 evidence admission 现在要求非零且匹配 active
+  `calibration_generation`/`bias_generation`；缺失或不匹配分别以
+  `VDC_DOMAIN_GATE_DELAY_GENERATION`、`VDC_DOMAIN_GATE_BIAS_GENERATION` 拒绝，不能
+  通过 debug continuation 进入 PI/DCO、corrected jitter 或 formal lock。临时训练表
+  仍保持 diagnostic-only 语义。DPLL capture record 升为 schema 4，保留 generation
+  provenance；decoder 继续兼容 schema 1/2/3。
+- 软件验证：`run_vdc_domain_tests.ps1`、相关 Python 观测回归（88 passed）和
+  `cmake --build --preset pico2-release --parallel 4` 通过；新增覆盖正式 generation
+  缺失/错误的 C gate 和 schema 4 decoder generation 保留测试。
+- P3 证据：当前源码指纹下 quick diagnostic 完成，证据目录为
+  `out/HardwareAcceptance/20260910/p3-064132/`。receipt 的
+  `strict_gates_passed=false`；TRN-01/03、TDMA startup barrier、NO5 RX bad counter
+  和时间预算仍失败。该结果只证明验收流程到达内部/NO5 观测阶段，不构成正式锁相或
+  `FORMAL_LOCKED` 证据。
+- 边界：generation 目前已进入 C 端正式 admission 和 capture provenance，但 NO5
+  waveform quality flags、内部/外部同窗关联、segment continuity 和质量报告仍未闭环。
+- 下一 gate：补齐 raw-only/corrected-eligible 的 waveform flags 与同窗关联，再执行
+  `1M3F`、`2M2F`、`3M1F`、主站切换及丢样/坏帧/背压故障注入。
+
+### VDC-PROGRESS-20260910-004 — waveform quality separation and diagnostic SVG layers
+
+- TODO task ID：`VDC-OBS-ALG-001` 阶段 B/C。
+- 状态：IN PROGRESS。
+- 日期：2026-09-10。
+- 变更：NO5 waveform schema 4 的每条记录显式保留 `sample_seq` 和
+  `quality_flags`。质量位区分 timestamp eligibility、sequence continuity、source
+  drop、matched-window validity、gap、ambiguous edge、incomplete window、raw-only
+  和 corrected eligibility。decoder 对旧 schema 继续兼容，但只把可证明的字段推导为
+  弱质量事实；sequence/capture gap 会清除 corrected eligibility。
+- 分析边界：raw tracking 继续保留用于诊断；phase/jitter/convergence、CSV 和 summary
+  的正式统计只使用 corrected-eligible 且窗口完整的样本。SVG 同时显示 raw-only 灰色点、
+  incomplete window 标记和 corrected 曲线，并写出质量 flags，避免把观测缺口误读为
+  节点 jitter 或锁相失败。
+- 软件验证：`python -m py_compile tools/dpll_waveform_capture/dpll_waveform_capture.py`
+  通过；DPLL waveform/observation decode/residual analyzer 回归为 `44 passed`。
+  新增 schema 4 quality 保留、置信度兼容和 SVG 分层覆盖。
+- 边界：尚未完成 C 端与 NO5 的同窗 sequence/capture-generation 关联，也没有新的
+  当前源码 P3/HIL 证据；本 checkpoint 不证明任一节点 `LOCKED` 或 `FORMAL_LOCKED`。
+- 下一 gate：完成阶段 B 的 C 端 source/reference、delay/bias generation 和共同时间
+  锚审计，再实现阶段 C 的内部/外部同窗关联及坏帧、丢样、跨 segment 缺口故障注入。
+
+### VDC-PROGRESS-20260910-005 — schema-v4 build and P3 preflight result
+
+- TODO task ID：`VDC-OBS-ALG-001` 阶段 B/C、`VDC-VERIFY-001`。
+- 状态：IN PROGRESS。
+- 日期：2026-09-10。
+- 构建：`cmake --build --preset pico2-release --parallel 4` 通过。schema 4 记录扩容后
+  首次链接超出 RP2350 RAM；将 `VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS`
+  从代码原值调整为当前符号定义的 416，并重新链接通过。分段、drop 计数和 decoder
+  连续性语义未改变。
+- 软件验证：VDC/RefMem/TDMA host unit scripts 全量 `37/37` 通过，观测 Python 回归
+  `44 passed`，文档门禁与文档回归 `18 passed`。
+- P3：当前源码指纹下运行 `python tools/hardware_acceptance/p3_hardware_acceptance.py run`
+  使用 build `20260909231608`，在 Latency Cal profile apply 前置阶段停止；板
+  `2BD5090FE009FA2A` 回读 `active_level=0`，其余三板回读请求 level 7。原始证据位于
+  `out/HardwareAcceptance/20260910/p3-071601/p0t-topology/`。未进入内部/NO5 观测，
+  不构成算法或锁相结论。
+- 下一 gate：先恢复四板 calibration profile 一致性，再执行当前源码 P3；算法侧继续
+  完成 C 端物理方向、generation 和同窗关联，不以本次硬件前置失败修改观测结论。
+
+### VDC-PROGRESS-20260910-006 — current-source P3 reaches observation gates
+
+- TODO task ID：`VDC-OBS-ALG-001` 阶段 B/C、`VDC-VERIFY-001`。
+- 状态：IN PROGRESS。
+- 日期：2026-09-10。
+- P3：当前源码指纹下完整运行 `python tools/hardware_acceptance/p3_hardware_acceptance.py run`，
+  build `20260909232400`，证据目录 `out/HardwareAcceptance/20260910/p3-072352/`。
+  流程完成但 `strict_gates_passed=false`，profile 为 `FOUR_NODE_TDMA_QUICK_DIAGNOSTIC`。
+- 原始失败事实：coarse CLK topology readback mismatch、coded marker gate 未通过，
+  NO5 为 `insufficient_stable_circular_span_windows`。NO5 只有 1 个观测样本，
+  `timestamp_eligible=false`、`phase_round_count=0`；NO1--NO4 也只有单点快照，
+  均为 provisional，不能据此判断锁相或 jitter。TDMA startup barrier 最终稳定，但早期
+  仍记录 NO1 transport/header 差异、process reject 和 bitmap incomplete；这些事实保留
+  在 `diagnostic.json`，不能被观测算法摘要覆盖。
+- 算法边界：本轮 schema 4 质量层、raw/corrected SVG 分层已进入当前源码 build，
+  但由于硬件 gate 没有产生可用同窗窗口，未验证 corrected jitter 或内部/NO5 关联。
+- 下一 gate：修复 P3 的 topology/coded-marker 前置状态并收集多窗口、多点 NO1--NO4/NO5
+  样本；随后执行阶段 C sequence、capture-generation、segment continuity 和坏帧/丢样
+  故障注入，仍禁止将 provisional/diagnostic 结果升级为 `FORMAL_LOCKED`。
 
 ## 进度记录
 

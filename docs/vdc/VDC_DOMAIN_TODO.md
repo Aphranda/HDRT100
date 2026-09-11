@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_TODO.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/sync/SYNC_IO_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`
-Last updated: 2026-09-09
+Last updated: 2026-09-10
 
 本文只维护当前 VDC 架构迁移的任务、依赖和退出门禁。稳定语义见 Architecture，实施证据
 见 Task Progress，重构前内容已归档到 `docs/legacy/vdc/`。
@@ -149,6 +149,42 @@ PIO/DMA EDGE_TIMESTAMP producer
 P0 主线不得跳过 `VDC-TDMA-001`、`VDC-CAL-001`、`VDC-EVID-001` 的正式门禁；在正式
 evidence 未闭环前，观测与调参结果只能标记为诊断或 tracking candidate。P0 观测任务完成
 后，才允许用长时间数据评估 `VDC-SERVO-001/002`、`VDC-LOCK-001` 和最终 RUN gate。
+
+## P0C：统一内部/外部观测算法
+
+长期算法目标 ID：`VDC-OBS-ALG-001`。
+
+统一 NO1--NO4 内部 DPLL 与 NO5 外部只读观测的物理语义和证据链。两类观测必须回答同一
+问题：指定有向路径上，发送相位经过已验收的有向链路时延后，到达相位相对共同 TDMA
+时间锚的残差是多少。MASTER 与 FOLLOWER 使用相同的采样、路径、延迟扣除、固定 bias
+分离和 jitter 计算；FOLLOWER 只旁路 PI、积分器、DCO 和本地 lock promotion，不得因为
+不调 PI 而减少自身观测点或改用命令应用记录冒充相位残差。
+
+算法不变量：
+
+- 每个样本必须带 `source_slot_id`、`reference_slot_id`、有向 delay/bias generation、
+  evidence/sample sequence 和共同绝对生效时间；字段缺失、方向不匹配、序列断裂、CRC/
+  schedule 不合法或跨 segment 缺口时，样本只能进入 raw diagnostic，不能进入 corrected
+  jitter 或 formal lock 统计。
+- 固定 path bias、真实相位 jitter、频率斜率、控制命令应用和观测缺口必须分开统计；
+  接收时刻、本地重建时刻或零默认 delay 不得被当作共同时间锚。
+- delay correction 是否可用、实际修正样本数和拒绝原因必须出现在 JSON/CSV/SVG 报告中；
+  不能用字段名或默认值宣称“已扣除传输延迟”。
+- NO5 只能与同一 `sample_seq`/共同时间窗口的内部证据做关联，不能驱动 DPLL、替代
+  TDMA formal evidence 或提升 `LOCKED`/`FORMAL_LOCKED`。
+
+实施阶段与退出门禁：
+
+| 阶段 | 任务 | 状态 | 退出门禁 |
+|---|---|---|---|
+| A | 离线 residual 语义：显式校验 path/delay 元数据，区分 raw、corrected、bias、jitter 和 command-apply 记录。 | IN PROGRESS | 缺元数据/错误方向不再报告 delay 已扣除；固定 delay 改变不改变 corrected jitter；MASTER/FOLLOWER 计算路径一致。 |
+| B | C 端观测审计：确认 `reference_tx_phase`、`local_rx_phase`、有向反向 delay 和共同绝对生效时间的物理方向与 owner。 | IN PROGRESS | 每个 evidence 可追溯 source/reference、sequence、delay generation、共同时间锚和 phase-domain flag；跨板 raw local phase 只能诊断，MASTER 必须 fail-closed，FOLLOWER 保留同语义 observation。 |
+| C | NO1--NO4 与 NO5 同窗关联：按 sequence、capture generation、segment continuity 和窗口完整性关联。 | PENDING | 坏帧、丢样、跨 segment 缺口和外部线缆异常可分别定位；不完整窗口不得生成锁定结论。 |
+| D | 长期验证：`1M3F`、`2M2F`、`3M1F`、主机切换、丢命令/陈旧/错误来源、方向错误和观测背压故障注入。 | PENDING | 当前源码指纹下的软件测试、构建、P3/HIL 和长期观测证据闭合后，才评估正式锁定。 |
+
+当前切片完成阶段 A 的主机侧离线工具和回归测试，并完成阶段 B 的 logical TDMA
+common-time anchor 第一段；它不证明任何板端节点已经锁相，也不改变
+TDMA/Calibration 的训练与有向时延测量流程。
 
 ## HAOFV owner 边界
 

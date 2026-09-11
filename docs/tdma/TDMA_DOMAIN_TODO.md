@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_TODO.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`
-Last updated: 2026-09-08
+Last updated: 2026-09-11
 
 本文档维护 TDMA foundation 的独立待办。这里记录影响上/下行 TDMA、ring runtime、payload registry、adapter、completion、quality、HAOFV system node 和 HIL 验收的事项。
 
@@ -37,6 +37,43 @@ NO1–NO4 在同一轮完成各自 segment 的卸载/装载，负载不变时继
 TDMA WCET/波形基线。NO5 环外观测只属于后续 DPLL/VDC gate。任何负载回归都修复责任
 负载，不放宽 TDMA phase。短帧重传必须保持固定原 Node offset，并使用独立 recovery 预算，不能临时
 扩帧或借用 guard。
+
+## 最高优先级主线：TDMA-FLIGHT-002 真飞行处理
+
+**优先级声明**：本主线**优先于** `DPLL-LONG-001` 的后续阶段。理由：DPLL/VDC 的观测质量
+建立在环的节拍确定性之上；当前 resident loop 仍由 Core1 逐帧门控，节拍不确定，且
+byte-level cut-through 被当作 cycle-level flight 使用，使上层观测证据失去可解释性。在
+本主线 B1 完成前，DPLL 锁定结论只能按诊断证据对待，不得作为产品闭环质量结论。
+
+**目标**：补齐 `TDMA-RESIDENT-01` 已冻结、但至今仍为 `pending` 的目标语义——把 Core1
+从每帧关键路径移除，使物理转发按固定 pipeline 自激运行。
+
+**不可变约束**：
+
+- 帧型、长度、序列语义和 SHORT 静态布局不变。本主线改变的是**发车时钟源与 image 供给
+  方式**；任何涉及帧结构或 PIO 节拍本身的变化必须另行登记契约。
+- 回环从发车门控降级为观测事实后，`simultaneous_feedback_loop_evidence` 改为按 sequence
+  异步关联。冻结的反馈相关条件中，round trip 判据保留为质量判据而非发车门控。**该语义
+  变更必须经 C11 交叉审核，禁止自审自批。**
+- `feedback_timeout`、`rx_window`、`guard`、`acquisition_timeout` 等窗口量仍由 Calibration
+  Domain 计算发布；TDMA 只消费与准入，**不得在 `tdma_service.c` 自行乘算推导**。
+- 所有新增证据字段必须按 `HAOFV-879` 的 seqlock 要求发布；该条款当前为 `VIOLATED`，本
+  主线一并收敛。
+- NO5 仍为环外只读观测，不进入环路 bitmap/WKC。
+
+**阶段顺序与门禁**：
+
+| 阶段 | 交付目标 | 必须留下的证据 | 进入下一阶段的条件 |
+|---|---|---|---|
+| B0 | RX/TX 重叠与固定 pipeline delay 实测（只读诊断 persona，不改产品路径） | 原始 SD 波形、逐帧 pipeline delay 上界/下界、四节点与最坏链路结果 | 证明 RX/TX 可重叠且 pipeline delay 恒定；**否则本主线就地终止**，并与 `TDMA-RESIDENT-01` 的 `blocked` 结论一并登记 |
+| B1 | 自激发车时钟（Core1 退出发车门控） | 屏蔽 core1 service 后的持续运行证据、`emission_clock_source`、帧间隔 min/max | F1/F2/F3 成立 |
+| B2 | image 预装双缓冲与无更新零 Core1 稳态 | `tx_reuse_count`、稳态「core1 不改变线行为」的前后对比波形 | F4 成立，且“无更新透传”语义可回溯 |
+| B3 | overlay 非阻塞注入与单轮多 Node LOAD/UNLOAD | 单轮多 Node overlay 原始波形、更新顺延证据、节拍不变性 | F5 成立 |
+| B4 | 契约收敛与 byte/cycle 分级飞行声明 | C11 交叉审核记录、顶层刷新、`TDMA-RESIDENT-01` 状态变更证据 | 契约与文档门禁全绿 |
+
+**工具与证据**：B0 使用只读诊断 persona 与 `tools/tdma_ring_monitor/`；原始波形沿用
+`tools/calibration_ring_validate/trn03_waveform.py`，不得把 SD/SVG 分析挂到 Core1 实时
+路径。所有中间产物写入 `out/` 的任务子目录。
 
 ## 阶段性长期任务发布：DPLL-LONG-001
 
@@ -94,6 +131,15 @@ TDMA WCET/波形基线。NO5 环外观测只属于后续 DPLL/VDC gate。任何�
 | TDMA-PAYLOAD-005 | optional 静态余量准入门禁 | DONE | optional 只使用 mandatory 后余量，layout 不保留 runtime-free 字节。 |
 | TDMA-PAYLOAD-006 | 短帧基础诊断压缩与实时路径隔离 | IN PROGRESS | 短帧只保留 CRC/sequence/FIFO/bitmap/WKC/profile/deadline 基础摘要；SD、SVG、原始波形和详细归因不进入 Core1 或 recovery frame。 |
 | TDMA-FLIGHT-001 | 常驻循环过程映像与单轮多 Node overlay | IN PROGRESS | ARM 后只初始化一次 resident image；`RUNNING` 中每个 Node 在固定窗口执行 UNLOAD/LOAD 并继续 FORWARD；无新 generation 时原值透传；物理 frame 完成回到 cycle boundary，不进入终止态；STOP、复位、故障或重新配置可停止并保留 evidence。 |
+| TDMA-FLIGHT-002 | 真飞行处理：wire-self-clocked resident flight（**最高优先级主线**，详见上文） | PENDING | F1–F5 全部成立，且 `TDMA-RESIDENT-01` 由 `pending` 收敛为 `active` 并经 C11 交叉审核。 |
+| TDMA-FLIGHT-002A | B0 前置门禁：RX/TX 重叠与固定 pipeline delay 实测 | PENDING | 只读诊断 persona 下证明重叠成立且 pipeline delay 恒定（逐帧上界/下界 + 原始波形）；失败则本主线终止并登记 `blocked`。 |
+| TDMA-FLIGHT-002B | B1 自激发车时钟：Core1 退出发车门控 | PENDING | 屏蔽 core1 service 后环持续运行；`emission_clock_source` 为环边界来源；帧间隔 min/max 落在固定拍数窗口内。 |
+| TDMA-FLIGHT-002C | B2 预装双缓冲与无更新零 Core1 稳态 | PENDING | `tdma_flight_fifo` 双槽按 boundary 切换；无更新时沿用上一版（`tx_reuse_count`）且节拍不变；稳态 core1 不改变线行为。 |
+| TDMA-FLIGHT-002D | B3 overlay 非阻塞注入与单轮多 Node LOAD/UNLOAD | PENDING | 未就绪透传顺延、就绪命中，两种情况节拍均不变；单轮多 Node overlay 有原始波形证据。 |
+| TDMA-FLIGHT-002E | B4 契约收敛与 byte/cycle 分级飞行声明 | PENDING | 新契约登记、C11 交叉审核、顶层 7 天内刷新、`TDMA-RESIDENT-01` 状态变更留证；byte-level 与 cycle-level 声明分开记录。 |
+| TDMA-FLIGHT-003 | 发车节拍预算显式化与 fail-closed 准入（Track A，B1 的前置使能） | PENDING | 可达节拍下界由符号声明；低于下界的 profile 必须被**拒绝**而非静默漏拍；节拍证据字段可只读查询。 |
+| TDMA-FLIGHT-004 | 2026-09-11 四节点闭环回归归因 | IN PROGRESS | 以单变量 A/B 分离“发车节拍改动”与“process follower PIO 补丁下标”；结论写入 `TDMA_TASK_PROGRESS.md` 并保留改前/改后两组原始证据。 |
+| TDMA-FLIGHT-005 | `process_follower` 补丁下标与指令插入位置绑定 | PENDING | 命令 FIFO 退化路径新增指令后，`instr_mem` 补丁下标有静态/host 断言保护；人为改错下标必须使检查失败。 |
 | TDMA-HIL-001 | 四板 TDMA 环路的 WCET/频率/占空比/SD 波形基线 | PENDING | 四板 OTA 后原始波形、SVG、schedule snapshot 与零错误基线归档；不要求 NO5，NO5 不进入环路 bitmap/WKC。 |
 | TDMA-HIL-002 | 逐 phase 开载且 TDMA 零回归 | PENDING | 依次启用 VDC/DPLL/RefMem/control，TDMA deadline/error 不增加。 |
 | TDMA-DPLL-001 | PIO/DMA hardware latch correlation | IN PROGRESS | reference TX latch 已作为固定 process-image trailer 关联上一帧 sequence；仍需 active PATH_DELAY、四板同圈 eligible sample 和 wrap/失配 HIL。 |
@@ -141,6 +187,18 @@ DPLL/诊断结果掩盖前一阶段 TDMA 或校准失败。
 
 ## 当前阻塞项
 
+- `TDMA-FLIGHT-002A`（B0 前置门禁）未执行前，byte-level cut-through 不得声明为 cycle-level
+  flight；当前 ring adapter 的 beacon/physical-frame completion 仍是过渡模型（见
+  `TDMA-FLIGHT-001`），发车仍由 Core1 的 deadline 与 FSM 完成条件共同门控。
+- 2026-09-11 四节点 TDMA 闭环出现回归：`closed_loop_passed` 由通过转为失败，错误为
+  `explicit startup barrier timed out`，且 RX bad / transport bad / bitmap incomplete 计数
+  在 soak 期持续增长。归因未完成，见 `TDMA-FLIGHT-004`；**归因完成前不得在该源码树上叠加
+  固件改动**。
+- `feedback_timeout` 当前在 `tdma_service.c` 由 TDMA 自行乘算，违反
+  `TDMA_DOMAIN_ARCHITECTURE.md` 的窗口量所有权条款。`TDMA-FLIGHT-003` 收敛前，该值不构成
+  可追溯的校准事实。
+- `HAOFV-879`（ring adapter snapshot 必须 seqlock）当前为 `VIOLATED`，随
+  `TDMA-FLIGHT-002` 一并收敛。
 - `TDMA-HIL-001` 尚未执行，因此拍级 phase 和新 wire layout 只能视为代码/host 基线。
 - `TDMA-FLIGHT-001` 尚未完成；当前 ring adapter 的 beacon/physical-frame completion 仍是过渡模型，尚不能证明一次注入后 resident process image 在同一轮完成多 Node overlay，也不能把 `FRAME_COMPLETE` 当作持续运行证据。
 - P0 RAM 的 debug 闭环已完成：当前代码值构建、四板 Watermark、4096 OTA、P3/TRN、TDMA SHORT

@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_REGISTRY.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`
-Last updated: 2026-09-04
+Last updated: 2026-09-11
 
 > 注：本文件必须满足 `tools/docs_check/docs_check.py` 的元数据要求（5 字段齐全），否则自回归门禁自相矛盾。
 
@@ -21,6 +21,7 @@ Last updated: 2026-09-04
 | REFMEM-260B-01 | refmem | critical delta ≤260B | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | refmem_sync.h | 常量比对 | 2026-08-19 | active |
 | VDC-DPLL-01 | vdc | DPLL 准入 resolution≤100ns | 1 | docs/vdc/VDC_DOMAIN_ARCHITECTURE.md | vdc_timestamp_clock.h | 符号存在性 | 2026-08-19 | active |
 | VDC-PATHMATRIX-01 | vdc | calibration load 生成完整 observation path matrix，运行态禁止 ring path inference | 1 | docs/vdc/VDC_DOMAIN_ARCHITECTURE.md | vdc_domain.h | C/host matrix completeness and lookup tests | 2026-08-28 | pending |
+| VDC-OBSALIGN-01 | vdc | 跨板 observation 必须声明 local phase 与共同 TDMA 时间的同钟或映射关系；raw local phase 不得进入 MASTER PI 或可信 jitter | 1 | docs/vdc/VDC_DOMAIN_ARCHITECTURE.md | vdc_domain.c | VDC phase-domain gate、TDMA adapter flag 与 host/P3 replay | 2026-09-10 | pending |
 | TDMA-FLIGHT-BITMAP-01 | tdma | SHORT process image 固定 8×32B，slot 前 8B 由 core1 生成 RX 位图（旧 ID 不符合检查器单段主题格式，由 TDMA-FLIGHTBITMAP-01 接替） | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_flight_engine.h | 常量与单测比对 | 2026-08-20 | superseded |
 | TDMA-FLIGHTBITMAP-01 | tdma | SHORT process image 固定 8×32B，slot 前 8B 由 core1 生成 RX 位图 | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_flight_engine.h | 常量与单测比对 | 2026-08-21 | pending |
 | TDMA-PROCESSIMAGE-01 | tdma | 固定 SHORT process image 静态装配 Node mailbox 与全局 DPLL observation trailer；DPLL 不得替换帧型、长度、序列或 PIO 节拍 | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_process_image_layout.h | 编译断言、预算工具、固定帧型回归、publisher/parser 与多板 HIL | 2026-08-28 | pending |
@@ -41,6 +42,9 @@ Last updated: 2026-09-04
 | ARCH-IOANALYZER-02 | sync_io | analyzer ARM/STOP 由 Core0 单槽 intent mailbox 提交、Core1 在不可隔离的 mandatory boundary 消费并发布 request/handled/result snapshot，SCPI 不直接触碰硬件 | 1 | docs/sync/SYNC_IO_ARCHITECTURE.md:ARCH-IOANALYZER-02 | sync_io_logic_analyzer.h | mailbox 单测、SCPI 静态边界、Core1 realtime service、TDMA 短帧 HIL | 2026-09-04 | pending |
 | CALIBRATION-PHASE-01 | calibration | MARK/SCK/DATA 共用 per-link base、per-Node offset、原始证据、全量矩阵和 residual gate | 1 | docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md | calibration_training_phase.h | C/host/矩阵/TRN-03 回归与四板 HIL | 2026-08-26 | pending |
 | CALIBRATION-P3HIL-01 | calibration | 实现代码变更必须绑定同源码指纹的 release build、全配置 Node OTA、四 link P3 重复矩阵与 TDMA 隔离硬件验收凭证 | 1 | docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md | p3_hardware_acceptance.py | staged 指纹、凭证 digest、正反回归与多板 HIL | 2026-08-30 | pending |
+| TDMA-EMISSIONCLOCK-01 | tdma | 发车节拍由环边界硬件事件驱动，Core1 不得作为发车门控；可达节拍下界由符号声明，低于下界的 profile 必须 fail-closed 拒绝 | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_pio_spi_ring_adapter.c | 发射条件静态审查 + 屏蔽 core1 的 HIL + 准入负测 | 2026-09-11 | pending |
+| TDMA-UPDATEINJECT-01 | tdma | process-image overlay 更新为非阻塞 best-effort 注入；未就绪必须透传上一版且不得改变节拍 | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_flight_fifo.h | 单轮多 Node overlay 原始波形 + 节拍不变性 | 2026-09-11 | pending |
+| TDMA-FLIGHTCLAIM-01 | tdma | 飞行声明分级：byte-level 与 cycle-level 分开记录，cycle-level 必须绑定 RX/TX 重叠与固定 pipeline delay 实测证据 | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_pio_spi_phys.h | B0 前置门禁证据审查 | 2026-09-11 | pending |
 
 | TDMA-CAPTURE-01 | tdma | DPLL residual 只经固定 SRAM capture，停止后由 Core0/StorageAO 写 SD 并离线解码；不得进入 TDMA realtime path | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | vdc_dpll_manager.h | C build、CRC decoder、SD/OTA/HIL | 2026-08-29 | pending |
 
