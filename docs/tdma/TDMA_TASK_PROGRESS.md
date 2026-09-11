@@ -8,7 +8,9 @@ Last updated: 2026-09-12
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 follower recurrence 切片证据入口为
+当前 reference 离线审计入口为
+`out/HardwareAcceptance/20260911/tdma-flight-origin-audit/audit-manifest.json`；
+最近一次 follower recurrence 固件切片证据入口为
 `out/HardwareAcceptance/20260911/tdma-flight-follower-recurrence/slice-manifest.json`；
 前序 live-header XOR 切片证据入口为
 `out/HardwareAcceptance/20260911/tdma-flight-live-crc/slice-manifest.json`；
@@ -19,6 +21,41 @@ Last updated: 2026-09-12
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260912-004 - reference 头部计算候选与返回映像交接审计
+
+- 日期：2026-09-12；TODO task ID：`TDMA-FLIGHT-002B`。基于 `dd5d8c0`，证据根为
+  `out/HardwareAcceptance/20260911/tdma-flight-origin-audit/`。本项数字均为离线实验
+  或历史快照，非事实源。仅审计并更新文档，产品源码未改，未执行硬件查询、OTA 或 ARM。
+- 当前依赖：reference 每圈仍由 Core1 构建 TX words、准备返回映像、更新 sequence/CRC
+  并向 CONTROL FIFO 写入发车字；DATA 长度供给、TX completion 收割、clock-latch
+  重装和 RTT seed 也不能直接作为 Core1 缺席下的持续路径。真实 pioasm 汇编得到
+  origin 当前 PIO1 程序合计 25 words、PIO2 合计 12 words；PIO1 的四个 SM 均已有
+  owner。空余指令不等于空余 SM，更不证明新增握手程序已经通过准入。
+- `origin_header_model.py` 使用 SDK 的 RP2350 寄存器值编码候选 AL3 描述符，并以
+  本仓库实际编译的 `tdma_transport_frame.c` 为独立 oracle。SUM 执行 sequence 加一，
+  CRC32R 与输出反转/取反生成 identity 和 transport CRC；identity 排除 hop_count，
+  transport CRC 字段按零输入。21,280 个用例及同图连续 2,048 次跨回绕一致，公开
+  CRC check vector 与错误链、越权地址、未对齐、无界 count、DREQ 和 CRC 覆盖负测
+  通过。计算图只写 reference header 指定字段，payload 保持不变；这不是返回包验证。
+- 候选子图含 15 个 descriptor、逻辑工作存储 300 B，每次 66 个 output transfer
+  和 60 个 loader word transfer，见 `header-model-report.json`。这些是描述符模型
+  的事务数与存储量，不是 DMA 周期上界、固件 RAM 余量或完整 origin 资源预算。
+  该图没有接入固件，末尾的模型重触发也不是可直接装板的物理发车程序。
+- `return_ring_audit.py` 按当前 RX ring 符号和上一切片 physical frame 快照复现四类
+  反例：固定地址读到上一旧帧、回绕后混帧、reader 落后遭覆盖、未完成帧发布混入旧尾部。
+  在历史 301 words/frame 和当前 1,024 words/ring 下，frame start 遍历全部 ring
+  位置才重复。另有 308,224 个起点/word 位置检查证明：若硬件另行保证完整固定帧
+  cursor 及最多一个后继帧写入，则上一帧与下一帧不重叠。该有条件的内存结论不包含
+  cursor 实现、真实 bit alignment、缺失/额外 clock 或截断返回的恢复证明。
+- HAOFV 准入缺口：DMA6 command contract 目前仅适用于 process follower，资源仲裁
+  尚未声明全局 sniffer；二者必须先显式声明及冲突验证。下一实现先完成硬件帧位置与
+  返回映像交接，再联合证明 CONTROL/DATA/capture 边界、硬件完成及 sequence 关联。
+  DMA selection 仍不能当作 wire completion、ACK/fence 或 DPLL 时间。完整方案和
+  下一切片退出条件见 `design-audit.txt`。
+- 验证范围：本项执行离线模型、C oracle 编译、现有 PIO 汇编和文档门禁；未产生新的
+  P3 固件验收或多板波形。上一切片的 strict=false、正式 RAM 与完整 Core1 WCET
+  失败继续保留。`TDMA-FLIGHT-002B` 保持 `IN PROGRESS`，registry 状态不变。
 
 ### TDMA-PROGRESS-20260912-003 - follower 自主续转、池交接与启动对齐修复
 
@@ -578,17 +615,17 @@ Last updated: 2026-09-12
 
 ## 当前 checkpoint
 
-HAOFV 自主循环长期目标已完成改动族归因、PIO WAIT 位置保护和有限同钟采集切片。
-当前四板/profile 的 B0 物理能力取证完成，见 `TDMA-PROGRESS-20260911-006`：raw 完整包
-重叠、固定上一 byte 映射与逐窗 DATA 上下界成立；process-image 的 byte 边界预算与邻接
-owner CRC 覆盖缺陷分别由 `TDMA-FLIGHT-006/007` 优先整改。bit 选择与稀疏命令候选已完成
-离线汇编、所有权、完整路径正/负测和存储审计，见 `TDMA-PROGRESS-20260911-007`；下一步
-为 DMA 角色/延迟与静态池准入，再进入修复切片及 B1 硬件自主续转。现有整环返回通过
-不能解释为沿途 owner 约束已通过。
-本任务上次硬件操作已恢复 process-image 并复验闭环，记录终态为 STOPPED、采集 RELEASED；
-该历史快照未经本次板端重读，后续切片须重新绑定最新 HEAD 与板卡 build。P3 严格校准失败、
-Core1 WCET 超限和逐帧门控依赖均未消除。`TDMA-FLIGHT-002` 继续执行，resident/flight
-契约保持原状态。
+当前四板/profile 的 B0 物理能力取证见 `TDMA-PROGRESS-20260911-006`；follower bit
+所有权修复、live header CRC 变换、自主 descriptor 续转、generation 交接和启动对齐
+验证见 `TDMA-PROGRESS-20260912-001/002/003`。这些已集成切片具备各自绑定源码的
+短帧与原始波形证据，不能外推到 reference 自主发车或完整 Core1 WCET。
+reference header 计算候选和返回 ring 固定指针反例已完成离线审计，见
+`TDMA-PROGRESS-20260912-004`。下一步先闭合硬件帧位置/返回映像交接和 origin
+DMA/sniffer 资源准入，再接入物理边界发车及完整硬件 completion。
+最近硬件终态来自 follower recurrence 切片，记录为 STOPPED、采集 RELEASED；本次
+没有板端重读，不能当作当前硬件状态。后续硬件动作须重新绑定 HEAD、身份与 build。
+P3 严格校准、正式 RAM 和完整 Core1 WCET 仍未通过；真正 TDMA service blackout 尚未取证。
+`TDMA-FLIGHT-002` 继续执行，resident/flight 契约保持原状态。
 
 ### 历史 checkpoint（2026-08-28，保留原始状态）
 

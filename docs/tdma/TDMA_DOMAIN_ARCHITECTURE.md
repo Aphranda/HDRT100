@@ -756,6 +756,16 @@ follower 的 ISR 右移表示支持两者；RX observation copy 在 adapter 中�
 这种表示不新增 PIO/SM/DMA owner；follower recurrence 的实现与验证见
 `TDMA-PROGRESS-20260912-003`，不能外推为整环自主运行或完整 completion 闭环。
 
+reference 的自主续转还需要独立的返回映像所有权和完整帧位置机制。当前
+`tdma_pio_spi_phys_rx_arm()` 的连续 RX ring 是可丢弃解析副本的来源；固定 SRAM 地址、
+仅有 DMA write pointer 或软件 scanner 恢复，均不足以证明下一圈可读的完整映像。
+硬件供给必须保留其他 Node 的实际返回值，并在 Core1 缺席、缺失或截断返回时保持
+有界行为。header sequence/CRC 计算候选及固定指针反例见
+`TDMA-PROGRESS-20260912-004`，该离线审计尚未接入产品路径。若候选使用 DMA sniffer，
+必须将其作为全局独占资源纳入统一仲裁，同时显式声明 origin 的 command DMA 角色；
+不能直接沿用当前仅限 follower 的准入。计算子图可重复执行不代表物理发车、返回
+完整性、硬件 completion 或 DPLL observation 已闭合。
+
 这仍不是最终 resident process-image flight：当前 process-image follower 已有本机固定 segment
 的 bit 保护路径，但尚未形成飞行修改后的 WKC、尾部 CRC V2 和完整 segment
 完整性闭环。现有完整帧 flight engine/FIFO/map apply 仍是事后证据与迁移基础，不能把
