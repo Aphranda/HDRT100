@@ -4,7 +4,7 @@ Status: Active
 Domain: SYNC_IO
 Canonical: `docs/sync/SYNC_IO_ARCHITECTURE.md`
 Related: `docs/sync/SYNC_IO_TODO.md`, `docs/sync/SYNC_IO_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`
-Last updated: 2026-09-04
+Last updated: 2026-09-11
 
 本文档定义本机 realtime IO capability、PIO persona、逻辑分析仪、SMA 维护能力和
 PIO/DMA/IRQ 执行资源之间的稳定边界。它不定义产品 Trigger 状态机、TDMA 协议、
@@ -209,6 +209,26 @@ quarantine 的 optional load 下。
 重复或未处理的 intent 返回 `BUSY`；ARM/STOP 的 request/handled sequence、命令和结果进入本地
 snapshot。SCPI 不得直接调用 `hw_start`、`hw_stop` 或 persona manager；停止后的原始记录仍由
 后续 Core0/StorageAO drain 负责。
+
+### 有限原始采集的实现边界
+
+`sync_io_analyzer_burst.h` 提供用于 TDMA 同钟观测的有限采集 backend，复用上述 analyzer
+owner、单槽邮箱与 `LOGIC_ANALYZER` 资源声明。PIO 只读 board contract 定义的 pad 组，
+使用私有计数终止采样；DMA 写入范围受 `SYNC_IO_ANALYZER_BURST_MAX_WORDS` 限制。
+`sync_io_persona_manager` 持有工作区租约，Core1 冻结数据并按版本发布结束原因、采样配置、
+PIO/DMA 错误和实际保留量；Core0 按 `SYNC_IO_ANALYZER_BURST_COPY_WORDS` 分段导出。
+旧 analyzer 待写或在途批次先完成，全部 burst 分段达到 StorageAO DONE 后才经原邮箱
+确认释放。写失败保留 frozen 数据与 job 证据；显式 `BURSt:SAVE` 以 capture sequence
+经同一 Core1 邮箱授权，Core0 仅重试当前失败分段。`BURSt:EXPORT?` 读取独立的 Core0
+版本快照，保留失败次数、最近失败 job/错误与重试次数；重试成功不清除失败历史。
+
+这里的时间坐标为本地原始 sample index，由实际 `clk_sys`、分频与
+`SYNC_IO_ANALYZER_BURST_SAMPLE_CYCLES` 换算；Core1 消费时刻不能替代采样时刻。
+`capture_tag` 是主机提供的关联标识，`profile_identity` 是 board 引脚映射，均不是 VDC
+时间或 active TDMA profile generation。外部验收报告另行绑定 build、板卡、active matrix
+与运行状态。RXSTALL、DMA 错误、时钟变化或不完整采集不具备有效时序声明。
+该 backend 与 `tools/analyzer_burst/analyzer_burst.py` 的诊断 schema 不构成新的冻结 wire
+契约，也不提供 DPLL eligibility 或 cycle-level flight 验收结论。
 
 ## 语义 IO 与 Board Profile
 

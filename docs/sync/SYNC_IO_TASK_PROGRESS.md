@@ -4,10 +4,39 @@ Status: Active
 Domain: SYNC_IO
 Canonical: `docs/sync/SYNC_IO_TASK_PROGRESS.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`, `docs/storage/LOG_SYSTEM_TODO.md`
-Last updated: 2026-09-06
+Last updated: 2026-09-11
 
 本文档只记录 SYNC_IO 域的提交、构建、测试、OTA/HIL、失败、回退和证据位置。任务状态以
 `SYNC_IO_TODO.md` 为唯一事实源，稳定语义以 `SYNC_IO_ARCHITECTURE.md` 为准。
+
+### SYNC-PROGRESS-20260911-001 - 有限同钟采集与冻结租约存储恢复
+
+- TODO task ID：`SYNC-LA-009`。以下 build、数量与测量值为快照，非事实源。证据根为
+  `out/HardwareAcceptance/20260911/tdma-flight-b0/`，入口 `slice-manifest.json`；
+  实现提交 `7f128cb`，当前源码 build `20260911142352`，四板回读一致。
+- 实现：`sync_io_analyzer_burst` 复用 analyzer 原单槽邮箱、LOGIC_ANALYZER persona 与
+  Resource Arbiter。GPIO 只读、不改变 mux/方向/pull/latch；PIO 自计数，有限 DMA
+  写 shared workspace，Core1 停机后发布实际量、sample 配置和错误 snapshot。
+  原始 sample index 是本地采样坐标；capture tag 和板级 pin mapping 不代替 VDC 时间。
+- Core0 存储：复用旧 analyzer 分段 buffer，旧 pending/inflight 批次先完成。固定租约
+  持续到全部 StorageAO DONE；失败保留当前 offset 与原 capture，显式 SAVE 经原 Core1
+  邮箱按 sequence 授权后仅重试失败段。Core0 export seqlock 保留 failure/job/error/retry
+  历史，成功不清除失败。主机按 epoch 生成路径、逐段核对 build/metadata/CRC 后重建样本。
+- 验证：相关 Python 合计 `86 passed`，analyzer/Resource Arbiter C 用例通过，真实
+  pioasm 保留既有程序机器指令；固件归档见 `firmware-r3-index.json`。R3 的独立 TDMA
+  短帧闭环通过且 `diagnostic_continue=false`；P3 quick diagnostic 完成，但 coarse CLK
+  NO1 ARM `result=5` 和 TRN-00 MARK offset 失败保留，严格产品 P3 未通过。
+- 采集 HIL：`final-round3-*`、`final-round4-*` 四板两轮均完整导出、释放，未产生基础
+  TDMA 帧错误增量。`r3-export-retry-hil/summary.json` 用目录冲突制造真实分段写失败，
+  验证错误 sequence 拒绝、正确 sequence 补齐原数据、未重采、失败历史保留。
+  `r3-timeout-hil-summary.json` 验证无边沿时零样本 TIMEOUT 的 header-only 导出与释放，
+  原 capture 的 passed/timing_valid 均为 false。最终四板 STOPPED、租约 RELEASED。
+- 历史失败：候选版本目录分页错误后来按 epoch 取回原数据；R2 NO3 第三分段真实
+  WRITE_FAILED 后只取回前两段，剩余 RAM 在后续 OTA 被重置，没有完整恢复证据。
+  R3 增加显式重试正是为闭合该故障。原始失败、启动及 profile 拒绝在 manifest 中保留。
+- 边界：有限采集工具及存储恢复已闭合，任务状态见 TODO。完整 HAOFV WCET 仍超限，
+  B0 最坏 DATA 延迟与多帧稳定性仍由 `TDMA-FLIGHT-002A` 验收；DPLL eligibility 和
+  产品 cycle-level flight 未通过，详见 `TDMA-PROGRESS-20260911-005`。
 
 ### SYNC-PROGRESS-20260906-015 - NO5 统一 build 与 Logic Analyzer 同窗关联
 

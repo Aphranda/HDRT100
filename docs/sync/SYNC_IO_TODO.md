@@ -4,7 +4,7 @@ Status: Active
 Domain: SYNC_IO
 Canonical: `docs/sync/SYNC_IO_TODO.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`
-Last updated: 2026-09-05
+Last updated: 2026-09-11
 
 本文档只维护 SYNC_IO 域的里程碑、任务状态和退出门禁。稳定语义以
 `SYNC_IO_ARCHITECTURE.md` 为准，提交、构建、OTA/HIL 和失败证据只写入
@@ -80,6 +80,7 @@ Last updated: 2026-09-05
 | SYNC-LA-006 | 建立离线 decoder、波形图和分析元数据 | IN PROGRESS | SLAY decoder、SVG 波形和 profile/source/timebase 扩展 header 已完成并通过验收；drop interval 标注和完整 SD 批量导出索引仍待完成。 |
 | SYNC-LA-007 | 逻辑分析仪只读与 TDMA 无扰动 HIL | DONE | 专用 HIL 以 baseline 窗口校准既有链路误码后，验证 analyzer ARM/STOP 前后 TDMA ring 持续运行、accepted/sequence 前进，bad/transport/schedule/profile/error 增量无 analyzer 诱发增长；只读 GPIO 与业务 FIFO 约束由 analyzer contract/P3 同时覆盖。 |
 | SYNC-LA-008 | NO5/SMA 外部波形关联 | IN PROGRESS | 离线关联器、共同时间基匹配和证据边界已完成；仍需真实同窗本机/NO5 capture pair 与 sequence anchor 验收。 |
+| SYNC-LA-009 | TDMA 同钟有限原始采集 | DONE | analyzer 原邮箱、只读有限采集、冻结租约、Core0 分段导出与按 epoch 下载已由当前源码四板采集、CRC、显式失败恢复、零样本 timeout 和短帧闭环验证，见 `SYNC-PROGRESS-20260911-001`。完整 WCET、B0 最坏延迟及多帧稳定性仍由 `TDMA-FLIGHT-002A` 验收，不代表严格产品 P3 通过。 |
 
 ## 既有能力收尾
 

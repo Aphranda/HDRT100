@@ -8,11 +8,65 @@ Last updated: 2026-09-11
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-本轮 P3 与关联硬件证据统一入口为
+本轮新增有限同钟采集的证据入口为
+`out/HardwareAcceptance/20260911/tdma-flight-b0/slice-manifest.json`。
+前序 P3 与回归硬件证据入口为
 `out/HardwareAcceptance/20260911/tdma-flight-baseline-ab/archive-index.json`。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260911-005 - 有限同钟采集、显式存储恢复与 DATA 边沿取证
+
+- TODO task ID：`TDMA-FLIGHT-002A`、`SYNC-LA-009`。以下 build、样本量、计数和时序数字
+  均为本轮快照，非事实源。证据根为 `out/HardwareAcceptance/20260911/tdma-flight-b0/`，
+  入口 `slice-manifest.json`；实现提交 `7f128cb`，当前源码 build 为 `20260911142352`。
+- HAOFV 边界：有限采集复用 SYNC_IO analyzer owner、原单槽邮箱、persona manager 与
+  Resource Arbiter。PIO 只读六 pad、自计数后停住，DMA 只写固定 workspace；Core1 冻结
+  数据和版本化 metadata，Core0/StorageAO 分段导出，全部 DONE 后经原邮箱释放租约。
+  旧 analyzer pending/inflight 批次先完成；没有把原始复制、CRC 或 SD 写入挂到 Core1。
+- 软件与构建：相关 Python 用例合计 `86 passed`，analyzer 与 Resource Arbiter C 测试通过。
+  App handoff harness 编译真实导出函数，覆盖旧批次保护、分段失败、错误 epoch、显式
+  重试、尾段和零样本。真实 pioasm 核对既有程序机器指令未变，仅增加有限采集程序。
+  `firmware-r3-index.json` 绑定 package、ELF/map、UF2 与生成 PIO header 的 digest。
+- P3：当前源码 receipt scope 为 `FOUR_NODE_TDMA_QUICK_DIAGNOSTIC`，staged fingerprint
+  核对通过；`p3-r3/diagnostic.json` 的 `strict_gates_passed=false`。coarse CLK level 7
+  在 NO1 ARM 返回 `result=5`，TRN-00 MARK offset row 未通过；外层 passed 只说明诊断
+  流程完成。原始拒绝保留，不解释为严格产品 P3 或完整 HAOFV 验收。
+- 独立闭环：同 build、原基线 matrix、DPLL provisional 的 `r3-controlled/summary.json`
+  中 `passed`、`closed_loop_passed`、`realtime_gate_passed` 均为 true，
+  `diagnostic_continue=false`。该工具的 TDMA 范围不能替代完整 phase/WCET。
+- 四板原始采集：`final-round3-*` 与 `final-round4-*` 两轮均完整采得并下载每板
+  8192 words、8 ns 同钟样本，全部 RELEASED、无 RXSTALL。`r3-schedule-deltas.json`
+  记录采样、导出及主机间隔内各板 good RX 增量均超过 147000，基础收帧、transport、
+  schedule/profile 错误增量均为零，enabled/quarantined mask 未变。它不是采集开销的
+  单变量测量：TDMA phase overrun/deadline 计数持续增长，历史最大约 1.65–1.82 ms，
+  高于本 profile 的 380 us WCET；长期目标保留该失败。
+- DATA 取证：`r3-two-rounds-phase-sweep.json` 从原始 bin 重建样本，检查完整 PHY/transport
+  CRC、sequence、identity 与 hop 进展。逻辑 TX/RX 是连接器名称；跟随节点 DATA 方向是
+  `BOARD_TDMA_TX_DATA_IN_PIN` → `BOARD_TDMA_RX_DATA_OUT_PIN`，reference 则观测发出到
+  返回。逐位对应边沿排除变化字节，两轮跟随节点观测范围为 848–912 ns，reference
+  发出到返回为 2952–2992 ns；完整包在本地进出窗口内重叠。量化误差为各侧采样差分
+  的一个 sample period 范围，不能声明模拟 pad 精确时延或跨板共同时间。
+- 解码边界：直接在 clock rising sample 读 DATA 时，部分完整窗口没有通过 CRC，原结果
+  保留在 `r3-round3-packet-edges.json`、`r3-round4-packet-edges.json`。后续仅在离线端
+  扫描 bit 内采样相位，保留全部相位结果，选择完整 CRC 有效区的中点；没有修改 bin、
+  修补 bit 或放宽 CRC。当前是有限重复窗口，尚不足以冻结最坏链路/环境和 pipeline
+  恒定上界，`TDMA-FLIGHT-002A` 保持 IN PROGRESS。
+- 线路节拍：`r3-reference-cadence-summary.json` 的 128 ns 分辨率 CS 长窗口测得有效
+  传输宽度 240.896 us、相邻 RX CS 起点间隔 4115.2 us。首个 TX CS 起点被触发截断，
+  不当作完整起点；低速采样的 CLK/DATA 存在混叠，只用于 CS 节拍，不参与 DATA 证明。
+- 存储失败与恢复：候选包的目录分页失败保留，后来按 epoch 取回原数据。R2 的 NO3
+  第三分段真实 WRITE_FAILED 后，仅前两段可取回，剩余 RAM 随后 OTA 重置，未假称
+  完整恢复。R3 新增显式 `BURSt:SAVE <sequence>` 和 Core0 export failure/retry snapshot；
+  `r3-export-retry-hil/summary.json` 通过真实目录冲突制造失败，拒绝错误 sequence，移走
+  冲突目录后按正确 sequence 补齐原 capture，失败历史保留且未重采。原 profile apply
+  失败、启动稳定样本不足及 P3 严格失败均由 manifest 指向原始目录。
+- 终态：`r3-timeout-hil-summary.json` 证明 STOP 后无边沿产生零样本 TIMEOUT，header-only
+  文件导出并释放租约；原 capture CLI 的 `passed=false`、`timing_valid=false` 保留。
+  `r3-final-stopped.json` 确认四板均为本 build、STOPPED、采集 RELEASED、SD job DONE。
+- 后续：先闭合本采集切片，再收敛 B0 的逐帧、最坏链路和 bit 内延迟解释。随后按既定
+  阶段实施自主续转及 Core1 WCET 收敛；resident/flight、反馈与 HAOFV-879 契约状态不提升。
 
 ### TDMA-PROGRESS-20260911-004 - PIO WAIT 补丁位置保护与当前源码闭环
 
@@ -255,14 +309,13 @@ Last updated: 2026-09-11
 
 ## 当前 checkpoint
 
-HAOFV 自主循环长期目标已完成 `TDMA-FLIGHT-004` 的改动族受控归因，见
-`TDMA-PROGRESS-20260911-003`。四板已恢复当前主工作树固件并通过 process-image 闭环复验。
-原始 P3 严格失败与 SD 观测超时均保留；取回的 RX/SCK 数据不足以证明 B0 的同钟
-RX/TX pipeline delay，现有 analyzer 的 Core1 消费时间戳也不能替代该证据。
-`TDMA-FLIGHT-005` 指令位置保护已完成并以当前源码复测闭环，见
-`TDMA-PROGRESS-20260911-004`；四板当前为该切片 build 的 STOPPED。
-`TDMA-FLIGHT-002/002A` 继续执行；下一切片为 B0 的硬件触发、有限采集与同钟观测，随后再实施硬件
-自主续转和 Core1 WCET 收敛。resident/flight 契约保持原状态。
+HAOFV 自主循环长期目标已完成改动族受控归因与 PIO WAIT 位置保护；有限同钟采集、
+分段导出及显式失败恢复已取得当前源码四板证据，见 `TDMA-PROGRESS-20260911-005`。
+两轮原始数据已按完整 CRC/sequence 对齐并测量对应 DATA 边沿；B0 的最坏情况与稳定性
+仍待收敛。长窗口 CS 证据同时保留有效传输时间和帧间等待，完整 Core1 WCET 超限继续留证。
+四板当前为该切片 build 的 STOPPED，采集租约已释放，原始 P3 严格失败与历史存储失败保留。
+`TDMA-FLIGHT-002/002A` 继续执行；完成 B0 后再实施硬件自主续转和 Core1 WCET 收敛。
+resident/flight 契约保持原状态。
 
 ### 历史 checkpoint（2026-08-28，保留原始状态）
 
