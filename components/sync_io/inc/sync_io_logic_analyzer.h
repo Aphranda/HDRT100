@@ -7,6 +7,7 @@
 
 #include "sync_io_persona_resources.h"
 #include "sync_io_persona_manager.h"
+#include "sync_io_analyzer_burst.h"
 
 #define SYNC_IO_LOGIC_ANALYZER_CONTRACT_VERSION 1u
 #define SYNC_IO_LOGIC_ANALYZER_SNAPSHOT_READ_ATTEMPTS 8u
@@ -260,6 +261,9 @@ typedef enum {
     SYNC_IO_LOGIC_ANALYZER_COMMAND_NONE = 0u,
     SYNC_IO_LOGIC_ANALYZER_COMMAND_ARM,
     SYNC_IO_LOGIC_ANALYZER_COMMAND_STOP,
+    SYNC_IO_LOGIC_ANALYZER_COMMAND_BURST_ARM,
+    SYNC_IO_LOGIC_ANALYZER_COMMAND_BURST_RELEASE,
+    SYNC_IO_LOGIC_ANALYZER_COMMAND_BURST_EXPORT_RETRY,
 } sync_io_logic_analyzer_command_t;
 
 typedef enum {
@@ -303,6 +307,10 @@ typedef struct {
 bool sync_io_logic_analyzer_request_arm(
     const sync_io_logic_analyzer_config_t *config);
 bool sync_io_logic_analyzer_request_stop(void);
+bool sync_io_logic_analyzer_request_burst(
+    const sync_io_analyzer_burst_config_t *config);
+bool sync_io_logic_analyzer_request_burst_release(uint32_t sequence);
+bool sync_io_logic_analyzer_request_burst_export_retry(uint32_t sequence);
 void sync_io_logic_analyzer_service_core1(uint32_t max_records);
 void sync_io_logic_analyzer_get_control_status(
     uint32_t *request_sequence,

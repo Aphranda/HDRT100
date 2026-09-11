@@ -636,6 +636,71 @@ scpi_result_t scpi_cmd_analyzer_stop(scpi_t *context)
                : SCPI_RES_ERR;
 }
 
+scpi_result_t scpi_cmd_analyzer_burst_arm(scpi_t *context)
+{
+    if (scpi_port_reject_if_run_forbidden(
+            context, DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) return SCPI_RES_ERR;
+    sync_io_analyzer_burst_config_t config;
+    if (!scpi_port_read_u32(context, &config.word_count) ||
+        !scpi_port_read_u32(context, &config.clkdiv) ||
+        !scpi_port_read_u32(context, &config.timeout_us) ||
+        !scpi_port_read_u32(context, &config.trigger_rx) ||
+        !scpi_port_read_u32(context, &config.capture_tag)) return SCPI_RES_ERR;
+    return sync_io_logic_analyzer_request_burst(&config)
+        ? scpi_port_result_accepted(context) : SCPI_RES_ERR;
+}
+
+scpi_result_t scpi_cmd_analyzer_burst_save(scpi_t *context)
+{
+    uint32_t sequence;
+    if (!scpi_port_read_u32(context, &sequence)) return SCPI_RES_ERR;
+    return sync_io_logic_analyzer_request_burst_export_retry(sequence)
+        ? scpi_port_result_accepted(context) : SCPI_RES_ERR;
+}
+
+scpi_result_t scpi_cmd_analyzer_burst_export_q(scpi_t *context)
+{
+    sync_io_analyzer_burst_export_snapshot_t snapshot = {0};
+    (void)sync_io_analyzer_burst_get_export_snapshot(&snapshot);
+    SCPI_ResultUInt32(context, snapshot.capture_sequence);
+    SCPI_ResultUInt32(context, snapshot.failure_count);
+    SCPI_ResultUInt32(context, snapshot.last_failed_job);
+    SCPI_ResultUInt32(context, snapshot.last_error);
+    SCPI_ResultUInt32(context, snapshot.retry_count);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_analyzer_burst_state_q(scpi_t *context)
+{
+    sync_io_analyzer_burst_snapshot_t snapshot = {0};
+    (void)sync_io_analyzer_burst_get_snapshot(&snapshot);
+    SCPI_ResultUInt32(context, snapshot.schema);
+    SCPI_ResultUInt32(context, snapshot.state);
+    SCPI_ResultUInt32(context, snapshot.capture_sequence);
+    SCPI_ResultUInt32(context, snapshot.end_reason);
+    SCPI_ResultUInt32(context, snapshot.timing_valid);
+    SCPI_ResultUInt32(context, snapshot.requested_words);
+    SCPI_ResultUInt32(context, snapshot.captured_words);
+    SCPI_ResultUInt32(context, snapshot.clk_sys_hz);
+    SCPI_ResultUInt32(context, snapshot.clkdiv_256);
+    SCPI_ResultUInt32(context, snapshot.sample_cycles);
+    SCPI_ResultUInt32(context, snapshot.samples_per_word);
+    SCPI_ResultUInt32(context, snapshot.sample_bits);
+    SCPI_ResultUInt32(context, snapshot.pin_base);
+    SCPI_ResultUInt32(context, snapshot.source_mask);
+    SCPI_ResultUInt32(context, snapshot.trigger_pin);
+    SCPI_ResultUInt32(context, snapshot.trigger_level);
+    SCPI_ResultUInt32(context, snapshot.profile_identity);
+    SCPI_ResultUInt32(context, snapshot.persona_generation);
+    SCPI_ResultUInt32(context, snapshot.pio_fdebug);
+    SCPI_ResultUInt32(context, snapshot.dma_ctrl);
+    SCPI_ResultUInt32(context, snapshot.manager_error);
+    SCPI_ResultUInt32(context, snapshot.conflict_mask);
+    SCPI_ResultUInt32(context, snapshot.capture_tag);
+    SCPI_ResultUInt32(context, snapshot.dma_remaining);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_analyzer_state_q(scpi_t *context)
 {
     (void)context;

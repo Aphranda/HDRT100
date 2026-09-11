@@ -43,6 +43,10 @@ scpi_result_t scpi_cmd_analyzer_arm(scpi_t *context);
 scpi_result_t scpi_cmd_analyzer_edge_arm(scpi_t *context);
 scpi_result_t scpi_cmd_analyzer_trigger_arm(scpi_t *context);
 scpi_result_t scpi_cmd_analyzer_stop(scpi_t *context);
+scpi_result_t scpi_cmd_analyzer_burst_arm(scpi_t *context);
+scpi_result_t scpi_cmd_analyzer_burst_state_q(scpi_t *context);
+scpi_result_t scpi_cmd_analyzer_burst_save(scpi_t *context);
+scpi_result_t scpi_cmd_analyzer_burst_export_q(scpi_t *context);
 scpi_result_t scpi_cmd_clock_freq(scpi_t *context);
 scpi_result_t scpi_cmd_clock_freq_q(scpi_t *context);
 scpi_result_t scpi_cmd_clock_state(scpi_t *context);
@@ -90,6 +94,10 @@ scpi_result_t scpi_cmd_status_q(scpi_t *context);
     {.pattern = "REALtime:IO:ANALyzer:EDGE:ARM", .callback = scpi_cmd_analyzer_edge_arm}, \
     {.pattern = "REALtime:IO:ANALyzer:TRIGger:ARM", .callback = scpi_cmd_analyzer_trigger_arm}, \
     {.pattern = "REALtime:IO:ANALyzer:STOP", .callback = scpi_cmd_analyzer_stop}, \
+    {.pattern = "REALtime:IO:ANALyzer:BURSt:ARM", .callback = scpi_cmd_analyzer_burst_arm}, \
+    {.pattern = "REALtime:IO:ANALyzer:BURSt:STATe?", .callback = scpi_cmd_analyzer_burst_state_q}, \
+    {.pattern = "REALtime:IO:ANALyzer:BURSt:SAVE", .callback = scpi_cmd_analyzer_burst_save}, \
+    {.pattern = "REALtime:IO:ANALyzer:BURSt:EXPORT?", .callback = scpi_cmd_analyzer_burst_export_q}, \
     {.pattern = "REALtime:IO:CLOCk:FREQuency", .callback = scpi_cmd_clock_freq}, \
     {.pattern = "REALtime:IO:CLOCk:FREQuency?", .callback = scpi_cmd_clock_freq_q}, \
     {.pattern = "REALtime:IO:CLOCk:STATe", .callback = scpi_cmd_clock_state}, \

@@ -354,6 +354,44 @@ static void test_live_batch_handoff_keeps_active_ring_private(void)
 
 int main(void)
 {
+    sync_io_analyzer_burst_config_t burst = {
+        .word_count = SYNC_IO_ANALYZER_BURST_MAX_WORDS,
+        .clkdiv = 1u, .timeout_us = 100000u, .trigger_rx = 0u, .capture_tag = 9u,
+    };
+    assert(sync_io_analyzer_burst_config_valid(&burst));
+    burst.word_count++;
+    assert(!sync_io_analyzer_burst_config_valid(&burst));
+    burst.word_count = 0u;
+    assert(!sync_io_analyzer_burst_config_valid(&burst));
+    burst.word_count = 1u;
+    burst.clkdiv = 0u;
+    assert(!sync_io_analyzer_burst_config_valid(&burst));
+    burst.clkdiv = SYNC_IO_ANALYZER_BURST_MAX_DIVIDER + 1u;
+    assert(!sync_io_analyzer_burst_config_valid(&burst));
+    burst.clkdiv = 1u;
+    burst.trigger_rx = 2u;
+    assert(!sync_io_analyzer_burst_config_valid(&burst));
+    burst.trigger_rx = 1u;
+    burst.timeout_us = SYNC_IO_ANALYZER_BURST_MAX_TIMEOUT_US + 1u;
+    assert(!sync_io_analyzer_burst_config_valid(&burst));
+    assert(!sync_io_analyzer_burst_config_valid(NULL));
+    sync_io_analyzer_burst_snapshot_t burst_snapshot;
+    assert(!sync_io_analyzer_burst_get_snapshot(&burst_snapshot));
+    assert(!sync_io_analyzer_burst_busy());
+    sync_io_analyzer_burst_export_snapshot_t export;
+    assert(sync_io_analyzer_burst_get_export_snapshot(&export));
+    assert(export.capture_sequence == 0u && export.failure_count == 0u);
+    assert(!sync_io_analyzer_burst_retry_export_core1(1u));
+    assert(!sync_io_analyzer_burst_take_export_retry_core0(1u));
+    sync_io_analyzer_burst_begin_export_core0(17u);
+    sync_io_analyzer_burst_export_failed_core0(8u, 6u);
+    sync_io_analyzer_burst_export_failed_core0(0u, 77u);
+    assert(sync_io_analyzer_burst_get_export_snapshot(&export));
+    assert(export.capture_sequence == 17u && export.failure_count == 2u);
+    assert(export.last_failed_job == 0u && export.last_error == 77u);
+    sync_io_analyzer_burst_begin_export_core0(18u);
+    assert(sync_io_analyzer_burst_get_export_snapshot(&export));
+    assert(export.capture_sequence == 18u && export.failure_count == 0u);
     assert(sizeof(sync_io_logic_analyzer_record_t) == 32u);
     test_raw_and_edge_config();
     test_trigger_config();

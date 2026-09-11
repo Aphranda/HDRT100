@@ -45,6 +45,8 @@ typedef struct {
     volatile uint32_t command;
     volatile uint32_t result;
     sync_io_logic_analyzer_config_t config;
+    sync_io_analyzer_burst_config_t burst_config;
+    uint32_t burst_release_sequence;
     sync_io_logic_analyzer_persona_t persona;
     sync_io_logic_analyzer_raw_capture_t capture;
     sync_io_logic_analyzer_raw_capture_t shadow_capture;
@@ -603,6 +605,7 @@ bool sync_io_logic_analyzer_request_arm(
     const uint32_t handled =
         __atomic_load_n(&s_control.handled_sequence, __ATOMIC_ACQUIRE);
     if (request != handled ||
+        sync_io_analyzer_burst_busy() ||
         __atomic_load_n(&s_control.shadow_ready, __ATOMIC_ACQUIRE) != 0u ||
         sync_io_logic_analyzer_live_batches_pending() ||
         s_control.live_finalizing ||
@@ -655,6 +658,56 @@ bool sync_io_logic_analyzer_request_stop(void)
     return true;
 }
 
+static bool sync_io_logic_analyzer_burst_mailbox_ready(uint32_t *request)
+{
+    *request = __atomic_load_n(&s_control.request_sequence, __ATOMIC_ACQUIRE);
+    return *request == __atomic_load_n(&s_control.handled_sequence, __ATOMIC_ACQUIRE);
+}
+
+static void sync_io_logic_analyzer_post_burst_command(
+    uint32_t request, sync_io_logic_analyzer_command_t command)
+{
+    __atomic_store_n(&s_control.command, command, __ATOMIC_RELAXED);
+    __atomic_store_n(&s_control.result, SYNC_IO_LOGIC_ANALYZER_COMMAND_RESULT_NONE,
+                     __ATOMIC_RELAXED);
+    uint32_t next = request + 1u;
+    if (next == 0u) next = 1u;
+    __atomic_store_n(&s_control.request_sequence, next, __ATOMIC_RELEASE);
+}
+
+bool sync_io_logic_analyzer_request_burst(
+    const sync_io_analyzer_burst_config_t *config)
+{
+    uint32_t request;
+    if (!sync_io_analyzer_burst_config_valid(config) ||
+        sync_io_analyzer_burst_busy() ||
+        !sync_io_logic_analyzer_burst_mailbox_ready(&request)) return false;
+    s_control.burst_config = *config;
+    sync_io_logic_analyzer_post_burst_command(
+        request, SYNC_IO_LOGIC_ANALYZER_COMMAND_BURST_ARM);
+    return true;
+}
+
+bool sync_io_logic_analyzer_request_burst_release(uint32_t sequence)
+{
+    uint32_t request;
+    if (sequence == 0u || !sync_io_logic_analyzer_burst_mailbox_ready(&request)) return false;
+    s_control.burst_release_sequence = sequence;
+    sync_io_logic_analyzer_post_burst_command(
+        request, SYNC_IO_LOGIC_ANALYZER_COMMAND_BURST_RELEASE);
+    return true;
+}
+
+bool sync_io_logic_analyzer_request_burst_export_retry(uint32_t sequence)
+{
+    uint32_t request;
+    if (sequence == 0u || !sync_io_logic_analyzer_burst_mailbox_ready(&request)) return false;
+    s_control.burst_release_sequence = sequence;
+    sync_io_logic_analyzer_post_burst_command(
+        request, SYNC_IO_LOGIC_ANALYZER_COMMAND_BURST_EXPORT_RETRY);
+    return true;
+}
+
 void sync_io_logic_analyzer_service_core1(uint32_t max_records)
 {
     const uint32_t request =
@@ -677,6 +730,7 @@ void sync_io_logic_analyzer_service_core1(uint32_t max_records)
                 accepted = false;
             }
         } else if (command == SYNC_IO_LOGIC_ANALYZER_COMMAND_STOP) {
+            sync_io_analyzer_burst_stop_core1();
             if (s_control.persona.initialized) {
                 sync_io_logic_analyzer_persona_end(&s_control.persona);
             }
@@ -687,6 +741,19 @@ void sync_io_logic_analyzer_service_core1(uint32_t max_records)
                 s_control.live_finalizing = true;
             }
             accepted = true;
+        } else if (command == SYNC_IO_LOGIC_ANALYZER_COMMAND_BURST_ARM) {
+            /* Recheck legacy ownership on Core1. Core0 only enqueues intent;
+             * it does not decide whether live capture/shadow storage is free. */
+            if ((s_active_persona == NULL || !s_active_persona->initialized) &&
+                __atomic_load_n(&s_control.shadow_ready, __ATOMIC_ACQUIRE) == 0u &&
+                !s_control.live_finalizing &&
+                !sync_io_logic_analyzer_live_batches_pending()) {
+                accepted = sync_io_analyzer_burst_begin_core1(&s_control.burst_config);
+            }
+        } else if (command == SYNC_IO_LOGIC_ANALYZER_COMMAND_BURST_RELEASE) {
+            accepted = sync_io_analyzer_burst_release_core1(s_control.burst_release_sequence);
+        } else if (command == SYNC_IO_LOGIC_ANALYZER_COMMAND_BURST_EXPORT_RETRY) {
+            accepted = sync_io_analyzer_burst_retry_export_core1(s_control.burst_release_sequence);
         }
         __atomic_store_n(
             &s_control.result,
@@ -696,6 +763,8 @@ void sync_io_logic_analyzer_service_core1(uint32_t max_records)
         __atomic_store_n(&s_control.handled_sequence, request,
                          __ATOMIC_RELEASE);
     }
+
+    sync_io_analyzer_burst_service_core1();
 
     if (s_active_persona != NULL && s_active_persona->initialized &&
         s_active_persona->active) {

@@ -8,6 +8,7 @@ $repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $build = Join-Path $repo $BuildDir
 $testSource = Join-Path $repo "tests\unit\test_sync_io_logic_analyzer.c"
 $serviceSource = Join-Path $repo "components\sync_io\src\sync_io_logic_analyzer.c"
+$burstSource = Join-Path $repo "components\sync_io\src\sync_io_analyzer_burst.c"
 $resourceSource = Join-Path $repo "components\sync_io\src\sync_io_persona_resources.c"
 $syncInclude = Join-Path $repo "components\sync_io\inc"
 $boardInclude = Join-Path $repo "boards\rp2350_trig\inc"
@@ -34,7 +35,7 @@ $hostCcPath = if ($hostCc.PSObject.Properties.Name -contains 'Source') {
 $exe = Join-Path $build "test_sync_io_logic_analyzer.exe"
 & $hostCcPath -std=c11 -Wall -Wextra -Werror `
     "-I$hostStubs" "-I$boardInclude" "-I$syncInclude" `
-    $testSource $serviceSource $resourceSource -o $exe
+    $testSource $serviceSource $burstSource $resourceSource -o $exe
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $exe
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

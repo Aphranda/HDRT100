@@ -11,6 +11,21 @@
     in pins, 32
 .wrap
 
+; Finite, read-only six-pad capture. The analyzer owner preloads X with
+; sample_count minus one before ARM, without a TX FIFO. Sampling and termination
+; do not require Core1 service.
+; Autopush at 30 bits packs five consecutive samples in one DMA word.
+.program logic_analyzer_finite_sample
+public trigger_idle:
+    wait 1 gpio 0
+public trigger_active:
+    wait 0 gpio 0
+finite_sample:
+    in pins, 6
+    jmp x-- finite_sample
+public finite_halt:
+    jmp finite_halt
+
 .program sync_pulse
 .wrap_target
     pull block

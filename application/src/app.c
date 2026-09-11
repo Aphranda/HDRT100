@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "board.h"
 #include "board_config.h"
@@ -28,6 +29,7 @@
 #include "sync_io.h"
 #include "sync_io_logic_analyzer.h"
 #include "ota_crc32.h"
+#include "project_build_info.h"
 #include "trigger_measure.h"
 #include "ui_manager.h"
 #include "vdc_dpll_manager.h"
@@ -64,8 +66,11 @@ typedef struct __attribute__((packed)) {
     uint32_t batch_sequence;
 } app_analyzer_storage_header_t;
 
-static sync_io_logic_analyzer_record_t
-    s_analyzer_storage_records[APP_ANALYZER_STORAGE_SEGMENT_RECORDS];
+static union {
+    sync_io_logic_analyzer_record_t records[APP_ANALYZER_STORAGE_SEGMENT_RECORDS];
+    uint32_t burst_words[SYNC_IO_ANALYZER_BURST_COPY_WORDS];
+} s_analyzer_storage_buffer;
+#define s_analyzer_storage_records s_analyzer_storage_buffer.records
 static uint32_t s_analyzer_storage_record_count;
 static uint32_t s_analyzer_storage_job_id;
 static uint32_t s_analyzer_storage_session;
@@ -75,10 +80,123 @@ static sync_io_logic_analyzer_live_batch_t s_analyzer_storage_batch;
 static bool s_analyzer_storage_pending;
 static bool s_analyzer_storage_job_inflight;
 
+typedef struct __attribute__((packed)) {
+    uint32_t magic;
+    uint16_t schema;
+    uint16_t header_size;
+    uint32_t session;
+    uint32_t segment_index;
+    uint32_t first_word;
+    uint32_t word_count;
+    uint32_t payload_crc32;
+    sync_io_analyzer_burst_snapshot_t capture;
+    char build_id[16];
+} app_analyzer_burst_header_t;
+
+_Static_assert(sizeof(app_analyzer_burst_header_t) == 140u,
+               "finite capture schema must match the host decoder");
+
+static struct {
+    uint32_t sequence;
+    uint32_t session;
+    uint32_t next_word;
+    uint32_t words;
+    uint32_t segment;
+    uint32_t job;
+    bool inflight;
+    bool failed;
+} s_analyzer_burst_storage;
+
+/* Core0 only: packed samples stay in the owner's frozen workspace until all
+ * segments reach StorageAO DONE. A failed job retains the data and original
+ * job result for diagnosis instead of recycling the capture buffer. */
+static bool app_analyzer_burst_storage_service(void)
+{
+    sync_io_analyzer_burst_snapshot_t capture;
+    if (!sync_io_analyzer_burst_get_snapshot(&capture)) return false;
+    if (capture.state == SYNC_IO_ANALYZER_BURST_CAPTURING) return true;
+    if (capture.state != SYNC_IO_ANALYZER_BURST_FROZEN) return false;
+    if (s_analyzer_burst_storage.sequence != capture.capture_sequence) {
+        memset(&s_analyzer_burst_storage, 0, sizeof(s_analyzer_burst_storage));
+        s_analyzer_burst_storage.sequence = capture.capture_sequence;
+        s_analyzer_burst_storage.session = capture.capture_tag;
+        sync_io_analyzer_burst_begin_export_core0(capture.capture_sequence);
+    }
+    const bool retry = sync_io_analyzer_burst_take_export_retry_core0(capture.capture_sequence);
+    if (s_analyzer_burst_storage.failed) {
+        if (!retry) return true;
+        s_analyzer_burst_storage.failed = false;
+        s_analyzer_burst_storage.inflight = false;
+    }
+    if (s_analyzer_burst_storage.inflight) {
+        storage_manager_job_result_t result;
+        storage_manager_get_job_result(&result);
+        if (result.id != s_analyzer_burst_storage.job) return true;
+        if (result.state == STORAGE_MANAGER_JOB_STATE_FAILED) {
+            sync_io_analyzer_burst_export_failed_core0(result.id, result.error);
+            s_analyzer_burst_storage.failed = true;
+            if (!retry) return true;
+            s_analyzer_burst_storage.failed = false;
+            s_analyzer_burst_storage.inflight = false;
+        } else {
+            if (result.state != STORAGE_MANAGER_JOB_STATE_DONE) return true;
+            s_analyzer_burst_storage.inflight = false;
+            s_analyzer_burst_storage.next_word += s_analyzer_burst_storage.words;
+            ++s_analyzer_burst_storage.segment;
+        }
+    }
+    /* Even a trigger timeout with no samples emits one header-only segment. */
+    if (s_analyzer_burst_storage.next_word == capture.captured_words &&
+        s_analyzer_burst_storage.segment != 0u) {
+        (void)sync_io_logic_analyzer_request_burst_release(capture.capture_sequence);
+        return true;
+    }
+    s_analyzer_burst_storage.words = (uint32_t)sync_io_analyzer_burst_copy_core0(
+        capture.capture_sequence, s_analyzer_burst_storage.next_word,
+        s_analyzer_storage_buffer.burst_words, SYNC_IO_ANALYZER_BURST_COPY_WORDS);
+    if (s_analyzer_burst_storage.words == 0u && capture.captured_words != 0u) return true;
+    const size_t size = s_analyzer_burst_storage.words * sizeof(uint32_t);
+    app_analyzer_burst_header_t header = {
+        .magic = 0x54534241u, /* ABST, diagnostic packed burst schema */
+        .schema = SYNC_IO_ANALYZER_BURST_SCHEMA,
+        .header_size = (uint16_t)sizeof(header),
+        .session = s_analyzer_burst_storage.session,
+        .segment_index = s_analyzer_burst_storage.segment,
+        .first_word = s_analyzer_burst_storage.next_word,
+        .word_count = s_analyzer_burst_storage.words,
+        .payload_crc32 = ota_crc32_compute(
+            (const uint8_t *)s_analyzer_storage_buffer.burst_words, size),
+        .capture = capture,
+    };
+    (void)snprintf(header.build_id, sizeof(header.build_id), "%s", g_project_build_id);
+    const uint32_t file_size = (uint32_t)(sizeof(header) + size);
+    const uint32_t crc = ota_crc32_update(
+        ota_crc32_update(0u, (const uint8_t *)&header, sizeof(header)),
+        (const uint8_t *)s_analyzer_storage_buffer.burst_words, size);
+    char path[96];
+    (void)snprintf(path, sizeof(path), "/traces/run/burst_%08lu_%08lu_%04lu.bin",
+        (unsigned long)header.session, (unsigned long)capture.capture_sequence,
+        (unsigned long)header.segment_index);
+    uint32_t txn = 0u;
+    if (file_size > STORAGE_MANAGER_FILE_WRITE_MAX_BYTES ||
+        !storage_manager_begin_evidence_write(path, file_size, crc, &txn)) return true;
+    if (!storage_manager_write_file_chunk(txn, 0u, (const uint8_t *)&header, sizeof(header)) ||
+        (size != 0u && !storage_manager_write_file_chunk(txn, sizeof(header),
+            (const uint8_t *)s_analyzer_storage_buffer.burst_words, size)) ||
+        !storage_manager_commit_file_write(txn, &s_analyzer_burst_storage.job)) {
+        storage_manager_write_snapshot_t failure;
+        storage_manager_get_write_snapshot(&failure);
+        sync_io_analyzer_burst_export_failed_core0(0u, failure.error);
+        (void)storage_manager_abort_file_write(txn);
+        s_analyzer_burst_storage.failed = true;
+        return true;
+    }
+    s_analyzer_burst_storage.inflight = true;
+    return true;
+}
+
 static void app_analyzer_storage_service(void)
 {
-    sync_io_logic_analyzer_status_t analyzer;
-    sync_io_logic_analyzer_get_status(&analyzer);
     if (s_analyzer_storage_job_inflight) {
         storage_manager_job_result_t result;
         storage_manager_get_job_result(&result);
@@ -93,6 +211,12 @@ static void app_analyzer_storage_service(void)
             }
         }
     }
+    if (s_analyzer_storage_job_inflight) return;
+    /* A legacy batch may already occupy the union even if StorageAO has not
+     * accepted its write yet. Drain that pending batch before burst export. */
+    if (!s_analyzer_storage_pending && app_analyzer_burst_storage_service()) return;
+    sync_io_logic_analyzer_status_t analyzer;
+    sync_io_logic_analyzer_get_status(&analyzer);
     if (s_analyzer_storage_job_inflight ||
         analyzer.state == SYNC_IO_LOGIC_ANALYZER_STATE_STOPPED) {
         return;
