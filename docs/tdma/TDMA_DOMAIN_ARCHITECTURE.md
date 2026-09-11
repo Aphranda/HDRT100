@@ -698,8 +698,16 @@ CS/SCK burst，同时从真实回环输入捕获返回流；follower 在 PIO 中
 非字节对齐的返回流恢复 packet magic。因此 raw byte-level cut-through 已从软件
 store-and-forward 热路径中拆出。
 
-这仍不是最终 resident process-image flight：当前 follower 只透明转发 byte，尚未在本机固定 segment
-到达时从 active TX image 替换内容，也未形成飞行修改后的 WKC、尾部 CRC V2 和 segment
+当前四板/profile 的 raw 字节流水物理能力取证见 `TDMA-PROGRESS-20260911-006`：同钟
+完整 packet 重叠、固定上一 byte 映射与逐窗上下界已经保留。该运行点的结论不替代其它
+profile 或新 persona 的准入与取证，也不提升 resident/cycle-level 声明。当前 process-image
+PIO 的 byte 命令分派还存在边界 phase 预算缺口；仅检查 bit body 的 re-arm 路径不足以
+证明整条最坏指令路径满足 active profile，整改由 `TDMA-FLIGHT-006` 跟踪。非字节对齐的
+整 physical byte REPLACE 还会带入脚本准备时的邻接 owner bit；当前观测已发现邻居邮箱
+CRC 被覆盖，整改由 `TDMA-FLIGHT-007` 跟踪，不能据此声明沿途 owner 隔离通过。
+
+这仍不是最终 resident process-image flight：当前 process-image follower 已有本机固定 segment
+的替换路径，但其邻接 owner 保护仍有上述缺口，也未形成飞行修改后的 WKC、尾部 CRC V2 和 segment
 完整性闭环。现有完整帧 flight engine/FIFO/map apply 仍是事后证据与迁移基础，不能把
 `raw-flight` 通过等同于 `process-image` 通过。
 

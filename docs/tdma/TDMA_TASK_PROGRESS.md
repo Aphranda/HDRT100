@@ -16,6 +16,63 @@ Last updated: 2026-09-11
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
 
+### TDMA-PROGRESS-20260911-006 - B0 当前夹具字节流水证明与 byte 边界预算缺口
+
+- TODO task ID：`TDMA-FLIGHT-002A`、`TDMA-FLIGHT-006`、`TDMA-FLIGHT-007`。以下数字、build 和结果均为
+  本轮快照，非事实源；没有修改固件、PIO 或正式工具。源码仍为 `7f128cb`，build
+  `20260911142352`。证据根为 `out/HardwareAcceptance/20260911/tdma-flight-b0-repeat/`，
+  入口 `b0-observation-manifest.json` 与其后发现完整性缺陷的 `integrity-addendum.json`
+  （联合读取，后者保留 owner/integrity 未通过及后续优先级），采样文件位于同日 `tdma-flight-b0/final-round5-*`
+  至 `final-round8-*`；原始 bin、metadata、脚本和摘要均有 digest。
+- 当前配置：四板、原基线 matrix、level 7、实际 SCK 10 MHz；通过既有 owner 命令在
+  STOPPED 边界切换 process-image/raw-flight。`controlled/`、`raw-controlled/` 与
+  `restored-process-image/` 的 passed、closed_loop_passed、realtime_gate_passed 均为
+  true，diagnostic_continue=false。raw 对照没有请求 DPLL provisional，仍保留原负载
+  mask；模式差异完整记录，不作为相同业务/DPLL 负载下的单变量 CPU 性能比较。
+- process-image 重复窗口：新增两轮四板完整采集，CRC/sequence/hop 对齐与资源释放
+  均通过；跟随节点 DATA 对应边沿范围继续落在 848–912 ns，reference 同一 bit 的
+  发出到返回为 2952–3000 ns。原四板完整窗口与本次共覆盖独立的两个启动会话。
+- raw 对照：两轮四板均保留完整 296-byte packet，进出 packet 逐字节相同、协议头 CRC
+  正确、hop 保持原值。三个跟随节点共 14208 个 packet bit 与前一个 byte 的输入逐项
+  一致；原始输入采样附近的全部相位点均一致，改按 7 bit 或 9 bit 深度对齐则失败，见
+  `raw-byte-depth-r2.json`。这证明当前采样窗口中的固定上一 byte 流水映射，不能把
+  零填充区或相同 clock ordinal 当作额外 packet/身份依据。
+- B0 物理结果：本夹具 raw 跟随节点对应 DATA 边沿为 848–896 ns，最坏观测上界由
+  各跟随节点窗口共同覆盖；reference 同一 bit 发出到返回为 2960–3000 ns。完整包
+  进出窗口重叠成立。输入 DATA 到达相位会改变实际 transition-to-transition 延迟；
+  固定字节流水深度、逐 bit 的时序位置与量化上下界共同构成本次物理能力结论，
+  不声称所有 bit 的纳秒延迟完全相同，也不把同 bit 返回时间当作整帧串行化时间。
+- 模型边界：独立 PIO 指令时序模型相对输出边沿存在约 16 ns 的绝对偏移，原始
+  `model_matches_within_sample=false` 保留；该偏移未完全归因，不是新冻结硬件常数。
+  模型只帮助定位 byte 分派位置，B0 结论来自原始完整包、逐 bit 映射与实测上下界，
+  不将拟合模型的绝对时序失败改成成功。
+- 新缺口：当前 `TDMA_PIO_SPI_FLIGHT_DATA_REARM_CYCLES` 只覆盖 bit body。按现有
+  PIO 程序计数，raw 与 process-image 的 byte 边界回到 WAIT 分别还需不同的指令预算；
+  当前 delay=15、名义 bit period=25 clk_sys 拍时，raw 边界名义上在第 25 拍返回 WAIT，
+  process-image 则在第 28 拍。实测 process-image 的 byte 首 bit 输出更晚，而 raw
+  没有同等延后。该算式是审计快照，仍需模型/真实 PIO 与完整资源准入回归后才能
+  冻结预算；新增 `TDMA-FLIGHT-006`，禁止通过放宽 phase 或降低频率掩盖该缺口。
+- 完整性补审：所有本批捕获的 transport flags 均含 `FLIGHT_MUTABLE`，按现有协议
+  transport CRC 仅覆盖 header。此前“完整 packet + CRC”不代表 payload 整体受同一 CRC
+  保护。`wire-integrity-audit.json` 另按真实 mailbox layout 校验 CRC16；raw 只有 origin
+  mailbox 有效，其余为原样 padding，DPLL trailer 不在本次 segment CRC 覆盖范围内。
+- owner 缺陷：process-image 跟随窗口中有 7 个出现本节点写入邻接 owner 的 CRC bit，
+  使原本有效的邻居 mailbox 校验失败。`overlay-boundary-audit.json` 将变化定位到本地
+  slot 前一 CRC byte 的低位，分别对应实际 alignment shift；字节对齐节点未出现该变化。
+  下一 owner 重写自身 mailbox 后，reference 返回帧和现有基本计数可以恢复正常，因此
+  端到端通过不能证明沿途所有权。新增 `TDMA-FLIGHT-007`，保留该未修复缺陷。
+- 真实源码反例：`reproduce_stale_neighbor.c` 链接当前 `tdma_flight_overlay.c`，让邻居在
+  本地脚本准备后更新，再按 bit 序列模拟原 PIO 的 PASS/REPLACE。字节对齐保留邻居，
+  其余 7 种 shift 都覆盖邻居新 bit，见 `stale-neighbor-counterexample.json`。命令退出
+  成功只表示反例复现，`owner_boundary_accepted=false`；未将反例写成产品测试通过。
+- 状态：`TDMA-FLIGHT-002A` 的当前四板/profile 物理能力取证完成，允许进入 B1 方案
+  和资源设计，并优先整改 `TDMA-FLIGHT-006/007`。该结论不覆盖新 persona、其它频率/环境、无 Core1 发车/续装、单圈多 Node
+  更新、完整 WCET 或严格产品 P3；相关改动仍需对应源码的重新取证。`TDMA-RESIDENT-01`
+  与 HAOFV-879 等登记状态保持原样，长期目标尚未完成。
+- 终态：对照结束后恢复 process-image、独立复验短帧闭环，再经工具停止。`final-stopped.json`
+  确认四板均为本 build、STOPPED，采集 RELEASED、SD job DONE。原 P3 strict 校准失败
+  与 Core1 WCET 超限仍保留，不能用本次 B0 结果覆盖。
+
 ### TDMA-PROGRESS-20260911-005 - 有限同钟采集、显式存储恢复与 DATA 边沿取证
 
 - TODO task ID：`TDMA-FLIGHT-002A`、`SYNC-LA-009`。以下 build、样本量、计数和时序数字
@@ -42,8 +99,9 @@ Last updated: 2026-09-11
   schedule/profile 错误增量均为零，enabled/quarantined mask 未变。它不是采集开销的
   单变量测量：TDMA phase overrun/deadline 计数持续增长，历史最大约 1.65–1.82 ms，
   高于本 profile 的 380 us WCET；长期目标保留该失败。
-- DATA 取证：`r3-two-rounds-phase-sweep.json` 从原始 bin 重建样本，检查完整 PHY/transport
-  CRC、sequence、identity 与 hop 进展。逻辑 TX/RX 是连接器名称；跟随节点 DATA 方向是
+- DATA 取证：`r3-two-rounds-phase-sweep.json` 从原始 bin 重建完整 PHY packet，检查协议头
+  CRC、sequence、identity 与 hop 进展；`FLIGHT_MUTABLE` 下该 CRC 不覆盖 payload，后续
+  segment 完整性补审见 `TDMA-PROGRESS-20260911-006`。逻辑 TX/RX 是连接器名称；跟随节点 DATA 方向是
   `BOARD_TDMA_TX_DATA_IN_PIN` → `BOARD_TDMA_RX_DATA_OUT_PIN`，reference 则观测发出到
   返回。逐位对应边沿排除变化字节，两轮跟随节点观测范围为 848–912 ns，reference
   发出到返回为 2952–2992 ns；完整包在本地进出窗口内重叠。量化误差为各侧采样差分
@@ -309,13 +367,14 @@ Last updated: 2026-09-11
 
 ## 当前 checkpoint
 
-HAOFV 自主循环长期目标已完成改动族受控归因与 PIO WAIT 位置保护；有限同钟采集、
-分段导出及显式失败恢复已取得当前源码四板证据，见 `TDMA-PROGRESS-20260911-005`。
-两轮原始数据已按完整 CRC/sequence 对齐并测量对应 DATA 边沿；B0 的最坏情况与稳定性
-仍待收敛。长窗口 CS 证据同时保留有效传输时间和帧间等待，完整 Core1 WCET 超限继续留证。
-四板当前为该切片 build 的 STOPPED，采集租约已释放，原始 P3 严格失败与历史存储失败保留。
-`TDMA-FLIGHT-002/002A` 继续执行；完成 B0 后再实施硬件自主续转和 Core1 WCET 收敛。
-resident/flight 契约保持原状态。
+HAOFV 自主循环长期目标已完成改动族归因、PIO WAIT 位置保护和有限同钟采集切片。
+当前四板/profile 的 B0 物理能力取证完成，见 `TDMA-PROGRESS-20260911-006`：raw 完整包
+重叠、固定上一 byte 映射与逐窗 DATA 上下界成立；process-image 的 byte 边界预算与邻接
+owner CRC 覆盖缺陷分别由 `TDMA-FLIGHT-006/007` 优先整改。下一步为 B1 硬件自主续转
+方案与静态资源准入设计，不将现有整环返回通过解释为沿途 owner 约束已通过。
+四板已恢复 process-image 并复验闭环，终态为 STOPPED、采集 RELEASED；P3 严格校准失败、
+Core1 WCET 超限和逐帧门控依赖均未消除。`TDMA-FLIGHT-002` 继续执行，resident/flight
+契约保持原状态。
 
 ### 历史 checkpoint（2026-08-28，保留原始状态）
 

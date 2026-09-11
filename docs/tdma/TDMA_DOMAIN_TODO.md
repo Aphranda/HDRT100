@@ -145,7 +145,7 @@ SD/SVG 分析由 Core0 或主机执行。完整窗口和 clock-edge 配对不能
 | TDMA-PAYLOAD-006 | 短帧基础诊断压缩与实时路径隔离 | IN PROGRESS | 短帧只保留 CRC/sequence/FIFO/bitmap/WKC/profile/deadline 基础摘要；SD、SVG、原始波形和详细归因不进入 Core1 或 recovery frame。 |
 | TDMA-FLIGHT-001 | 常驻循环过程映像与单轮多 Node overlay | IN PROGRESS | ARM 后只初始化一次 resident image；`RUNNING` 中每个 Node 在固定窗口执行 UNLOAD/LOAD 并继续 FORWARD；无新 generation 时原值透传；物理 frame 完成回到 cycle boundary，不进入终止态；STOP、复位、故障或重新配置可停止并保留 evidence。 |
 | TDMA-FLIGHT-002 | 真飞行处理：wire-self-clocked resident flight（**最高优先级主线**，详见上文） | IN PROGRESS | F1–F5、HAOFV owner/resource/跨核契约、Core1 phase/WCET 和周期映射全部通过当前源码对应的多板验证；`TDMA-RESIDENT-01` 由 `pending` 收敛为 `active` 并经 C11 交叉审核。 |
-| TDMA-FLIGHT-002A | B0 前置门禁：RX/TX 重叠与固定 pipeline delay 实测 | IN PROGRESS | 只读诊断 persona 下证明重叠成立且 pipeline delay 恒定（逐帧上界/下界 + 原始波形）；物理能力实测不满足时本主线终止并登记 `blocked`。有限同钟观测接入记录见 `TDMA-PROGRESS-20260911-005`；采集成功尚不等于固定 DATA pipeline delay 通过。 |
+| TDMA-FLIGHT-002A | B0 前置门禁：RX/TX 重叠与固定 pipeline delay 实测 | DONE | 当前四板/profile 已以同钟完整包、raw 固定上一 byte 映射、反向错位负测和各节点逐窗上下界完成物理能力取证，见 `TDMA-PROGRESS-20260911-006`。不代表其它 profile/环境或 cycle-level flight 通过；PIO/profile 改动须重新取证。process-image byte 边界预算缺口另见 `TDMA-FLIGHT-006`。 |
 | TDMA-FLIGHT-002B | B1 自激发车时钟：Core1 退出发车门控 | PENDING | 屏蔽 core1 service 后环持续运行；`emission_clock_source` 为环边界来源；帧间隔 min/max 落在固定拍数窗口内。 |
 | TDMA-FLIGHT-002C | B2 预装双缓冲与无更新零 Core1 稳态 | PENDING | `tdma_flight_fifo` 双槽按 boundary 切换；无更新时沿用上一版（`tx_reuse_count`）且节拍不变；稳态 core1 不改变线行为。 |
 | TDMA-FLIGHT-002D | B3 overlay 非阻塞注入与单轮多 Node LOAD/UNLOAD | PENDING | 未就绪透传顺延、就绪命中，两种情况节拍均不变；单轮多 Node overlay 有原始波形证据。 |
@@ -153,6 +153,8 @@ SD/SVG 分析由 Core0 或主机执行。完整窗口和 clock-edge 配对不能
 | TDMA-FLIGHT-003 | 发车节拍预算显式化与 fail-closed 准入（Track A，B1 的前置使能） | PENDING | 可达节拍下界由符号声明；低于下界的 profile 必须被**拒绝**而非静默漏拍；节拍证据字段可只读查询。 |
 | TDMA-FLIGHT-004 | 2026-09-11 四节点闭环回归归因 | DONE | 受控实验分别复现非阻塞 PIO 改动、缩短共享反馈/发车预算的回归；归档最终 PIO 下标正确；四板恢复基线后闭环和稳态错误增量复验通过。见 `TDMA-PROGRESS-20260911-003`。完成范围是改动族归因，电气错位机制及自主续转仍由 B0/B1/B3 继续验证。 |
 | TDMA-FLIGHT-005 | `process_follower` 补丁下标与指令插入位置绑定 | DONE | WAIT 补丁改用 pioasm public label 导出位置；host 变异测试拒绝手写下标、标签脱离 WAIT 和边沿符号错配。当前源码 build、四板 OTA、P3 quick diagnostic 与独立短帧复测已留证；严格校准失败和 SD 超时原报告保留，见 `TDMA-PROGRESS-20260911-004`。 |
+| TDMA-FLIGHT-006 | process-image byte 边界时序与 phase 准入 | IN PROGRESS | 将 byte 分派、采样、输出及边界回到 WAIT 的最坏指令路径纳入准入；优化后保持固定布局、owner、PIO 分区和逐物理 byte 对齐，通过模型、真实 PIO、当前源码四板闭环及同钟 DATA 复验。不得以 bit body 预算代替 byte 边界，也不得放宽 phase 掩盖迟到。审计起点见 `TDMA-PROGRESS-20260911-006`。 |
+| TDMA-FLIGHT-007 | 非字节对齐 overlay 的邻接 owner 保护 | IN PROGRESS | 脚本准备后邻居出现新 generation 时，本节点只能更新获授权 bit，必须从实际在途输入保留边界邻居 bit；覆盖所有 alignment、代际差、slot CRC 与同圈多 owner，并完成当前源码四板沿途采集。整环返回正确不能替代沿途 owner 约束；优先修复后再扩大自主 process-image 能力。实测及真实 C 反例见 `TDMA-PROGRESS-20260911-006`。 |
 | TDMA-HIL-001 | 四板 TDMA 环路的 WCET/频率/占空比/SD 波形基线 | PENDING | 四板 OTA 后原始波形、SVG、schedule snapshot 与零错误基线归档；不要求 NO5，NO5 不进入环路 bitmap/WKC。 |
 | TDMA-HIL-002 | 逐 phase 开载且 TDMA 零回归 | PENDING | 依次启用 VDC/DPLL/RefMem/control，TDMA deadline/error 不增加。 |
 | TDMA-DPLL-001 | PIO/DMA hardware latch correlation | IN PROGRESS | reference TX latch 已作为固定 process-image trailer 关联上一帧 sequence；仍需 active PATH_DELAY、四板同圈 eligible sample 和 wrap/失配 HIL。 |
