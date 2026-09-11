@@ -4,9 +4,143 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_TASK_PROGRESS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
-Last updated: 2026-09-02
+Last updated: 2026-09-11
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
+
+本轮 P3 与关联硬件证据统一入口为
+`out/HardwareAcceptance/20260911/tdma-flight-baseline-ab/archive-index.json`。
+该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
+原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
+以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260911-003 - 独立工作树单变量回归实验
+
+- TODO task ID：`TDMA-FLIGHT-004`、`TDMA-FLIGHT-005`。
+- 日期：2026-09-11；实验目录为 `out/tdma-flight-ab-20260911/`，基于 `44e06d8` 的独立
+  detached worktree。主工作树固件保持基线；以下 build、周期和测量值均为快照，非事实源。
+- 非阻塞 PIO 组：只修改 `tdma_pio_spi.pio`，生成的 Git blob 为
+  `d4b7f87d9c836a0362dc2419489233ac15d7fc91`，与归档最终 PIO 完全一致。
+  保留原 operating profile、反馈/发车预算、overlay grace 和 RefMem 逻辑。
+  overlay 主机测试与 build/四板 OTA 通过，build 为 `20260911122224`。
+  同一基线 matrix 的 process-image 实测在原启动期限内失败；四板原始 SD 文件已取回。
+  因而该非阻塞 PIO 改动在原节拍下即可独立触发回归，不能归咎于本组未修改的发车周期。
+- 非阻塞组 P3 边界：构建与 OTA 完成后，coarse calibration 报告因输出目录位于独立
+  worktree 外触发 `relative_to(root)` 异常。原日志保留；后续实验改用 worktree 内的
+  `out/` 输出，未修改工具或放宽产品门禁。本组没有严格验收凭证。
+- 反馈/发车预算组：恢复基线 PIO blob `1ce8a6996f7e16a9b23d92310e40b36a807a5add`；仅将
+  `tdma_service.c` 两处 `cycle_period_ns * node_count` 改为 `cycle_period_ns`，并调整
+  对应主机测试预期。level 7 周期表仍为原值；四节点预算从 4 ms 变为 1 ms。
+  scheduler 主机测试及 build/四板 OTA 完成，build `20260911122909`；P3 的严格门禁和
+  process-image 失败，使用原基线 matrix 独立复测同样未通过启动闭环。
+  此实验改变现有共享的反馈超时与发车间隔，尚未将这两个用途彼此分离。
+- 归档 2 ms profile 补测准备：只再应用归档的 operating profile 行，初次 P3 在 matrix
+  生成时被 profile CRC 校验拒绝，尚未进入 TDMA 闭环。原因是工具的 `PROFILE_FACTS`
+  仍镜像旧周期；同步归档对应工具元数据及其 source-consistency 断言后，matrix 测试
+  `19 passed`，重新执行完整 P3。初次拒绝保留于 worktree 的 `out/ab-period2-p3/`；
+  未引入归档里的串口重试、mode 重试或其他业务改动，也未关闭 CRC 校验。
+- 归档 2 ms profile 结果：匹配工具后的 build 为 `20260911124102`，P3 matrix 生成完成，
+  但 NO1 的 DPLL provisional owner 在 ARM 前拒绝激活。保留该失败后另执行不请求 DPLL
+  provisional 的 TDMA process-image 探测，仍在原启动期限内出现 transport/bitmap 错误。
+  四板 SD 原始文件已取回；`ab-period2-manifest.json` 记录完整来源。这一补测使用新的
+  profile/matrix，且未请求 DPLL 激活，不能把它当作相同 DPLL 负载下的单变量性能比较。
+- 波形边界：上述两组原始 SCK 短窗频率/占空比检查均通过，同时 process-image 失败。
+  SCK gate 只能证明相应短窗时钟，不代表完整数据流、所有 frame 或 B0 delay 通过。
+  SD 写入超时均保留原报告，在原 job DONE 后取回数据，没有重新 SAVE 或修改超时。
+- 证据：`out/HardwareAcceptance/20260911/tdma-flight-baseline-ab/ab-noblock-manifest.json`、
+  `ab-period-manifest.json`、`ab-period2-manifest.json` 绑定差异、package、生成 PIO header
+  与原始波形 digest；同一目录下 `ab-*-controlled/`、`ab-*-recovered/` 保存独立复测和原始数据。
+  反馈/发车预算组完整 P3 归档在同一目录下的 `ab-period-p3/`；归档包含原本位于独立
+  worktree 的 `ab-period2-controlled/`、`ab-period2-p3/` 与 `ab-period2-matched-tools-p3/`。
+- 当前结论：已分别证明非阻塞 PIO 改动和缩短共享预算可以使基线回归；归档最终 PIO
+  的补丁位置正确。byte-dispatch 模型提供错位机制线索，但未证明全部历史 build 的
+  电气失败过程；仍需显式 frame boundary、descriptor generation 与物理 byte 位置绑定。
+- 恢复验证：`restore-baseline-ota/summary.json` 确认四板恢复 build `20260911120622`，
+  `updated_count=4`、`failed_count=0`。沿用原 matrix、load mask 与 DPLL provisional
+  设置，`restore-baseline-controlled/summary.json` 的闭环/实时门禁通过，四板稳态
+  RX bad、transport/schedule/profile bad 增量均为零。capture 原 SD job 超时仍保留为
+  `diagnostic_passed=false`；原 job 完成后四板原始文件取回于 `restore-baseline-recovered/`。
+  硬件最后处于原基线 build 的 STOPPED；实验固件没有留作现场运行版本。
+- 状态：`TDMA-FLIGHT-004` 完成上述改动族受控归因；不宣称原始混合 patch 的全部历史
+  电气失败路径已经证明，也不宣称 B0 或自主循环通过。独立工作树保留实验源码与产物，
+  主工作树没有合入这些固件/工具改动。
+- 下一 gate：B0 同钟观测、`TDMA-FLIGHT-005` 指令位置保护；发车间隔、反馈健康窗口与
+  Core1 phase 的独立契约随后按 HAOFV owner 边界收敛。
+
+### TDMA-PROGRESS-20260911-002 - 当前源码四板基线与 SD 超时后取证
+
+- TODO task ID：`TDMA-FLIGHT-002A`、`TDMA-FLIGHT-004`、`TDMA-FLIGHT-005`。
+- 日期：2026-09-11；下列 build、计数和实测数字均为本轮快照，非事实源。
+- 构建/OTA：当前固件源码与 `e45695c` 一致；独立目录
+  `out/build/tdma-flight-baseline-20260911/` 完成构建，四板均更新并回读 build
+  `20260911120622`。身份顺序为 NO1 `0010071E65B5CB38`、NO2 `FB276192BEF9CCE1`、
+  NO3 `2BD5090FE009FA2A`、NO4 `A1E549202D18ED6A`；端口以实时身份查询为准。
+- P3 失败：`p3-baseline/diagnostic.json` 为 `strict_gates_passed=false`；coded marker
+  校准失败，process-image 首次在 NO2 ARM 时返回
+  `DISTRIBUTED_REFMEM_TDMA_ARM_FLIGHT_MAP_REJECTED`。其子报告的 `passed`、
+  `closed_loop_passed` 和 `realtime_gate_passed` 均为 false；外层 quick diagnostic
+  完成及退出码不能替代严格验收。隔离 receipt 只留作证据，不用于放行源码提交。
+- 未改固件的复测：沿用同一 calibration matrix 和默认时序门限，
+  `baseline-process-retry/summary.json` 的上述三项及 `diagnostic_passed` 均为 true，
+  `diagnostic_continue=false`。稳态四板 transport bad、bitmap/reject 增量为零。
+  matrix 本身仍有 diagnostic 校准来源；本结论只证明过渡实现闭环，不证明正式校准、
+  自主发车或单轮多 Node flight，也不消除首次 ARM 拒绝。
+- Core1 边界：该复测的 `dpll_schedule_gate` 仍记录 DPLL overrun、deadline miss 和
+  max runtime 超 WCET 的诊断反馈；`realtime_gate_passed=true` 是工具当前 TDMA 门禁
+  范围内的结果，不能外推为全部 HAOFV phase/WCET 已通过。长期目标保留这一独立验收项。
+- 原始捕获：`b0-raw-flight/summary.json` 的闭环/实时门禁通过，但
+  `diagnostic_passed=false`：NO1 SD FILE_WRITE job 在工具原观测期限内仍为 RUNNING。
+  未重发 SAVE、复位或放宽超时；后续查询确认原 job DONE，随后取回同 epoch 的四板
+  `/cal/trn03b_node*_g1789128644_e1789128869.json`。原超时报告保留不变，后续证据在
+  `b0-sd-job-followup.json`、`b0-recovered/all-recovery.json` 和 `b0-recovered/node*.json`。
+- B0 边界：四板文件均只有 physical RX 与短窗 SCK 样本，TX 字节数为零。代码
+  `tdma_pio_spi_phys_copy_normal_capture()` 明确不复制可变软件 TX history；相邻节点
+  RX 内容对齐与 SCK 频率/占空比不能替代同钟 RX/TX 边沿、逐帧延迟上/下界。因此 B0
+  未完成，也不能将缺少观测能力写成物理 cut-through 不可行。
+- B0 观测审计：现有 SYNC_IO analyzer 同时采样 pad 电平，但
+  `sync_io_logic_analyzer_hw_service()` 在 Core1 消费样本时填写 `hardware_tick`，且未
+  导出原始 DMA sample index；不能将该时间戳当作采样边沿时刻。短窗 SCK 分析通过，
+  但相邻 RX 内容相关偏移不代表传播时间；缺口与原始文件 digest 在
+  `b0-capability-audit.json`。需要硬件触发的完整采样窗口或可审计的 sample position。
+- 回归模型：`baseline/overlay-dispatch-model.json` 显示非阻塞 PULL 在 END 后预取
+  fallback PASS、随后才收到脚本时，脚本替换位置会落后物理 byte。它只是 byte-dispatch
+  模型，不模拟电气边沿或 DMA 仲裁，不能单独认定历史失败原因。
+- 下一 gate：独立工作树 `out/tdma-flight-ab-20260911/` 对归档 PIO 与节拍改动分别执行
+  单变量构建/四板实验；主工作树不叠加自主循环固件。B0 同时核对既有 SYNC_IO 只读
+  analyzer 的同钟观测能力。首次 ARM map 拒绝的精确原因仍待复现。
+
+### TDMA-PROGRESS-20260911-001 - HAOFV 自主循环长期目标启动与回归证据核对
+
+- TODO task ID：`TDMA-FLIGHT-002`、`TDMA-FLIGHT-004`、`TDMA-FLIGHT-005`。
+- 日期：2026-09-11。
+- 变更/提交：启动用户授权的长期目标；起始 HEAD 为 `44e06d8`，工作树干净。
+  当前固件源码与 `e45695c` 一致，后续差异为文档及示波器工具。尚未修改固件或 PIO。
+- 实时目标快照，非事实源：用户报告物理环路约 240 us、Core1 操作约 1.5 ms；后续必须
+  分别实测 wire、帧间等待、CPU phase 和业务更新周期，不能将上述数字直接冻结为合同。
+- 验证：通过 `SYSTem:FW:BUILD?`、`SYSTem:BOARD:NO?`、`SYSTem:CORE?` 和 runtime 查询
+  确认四块环内板可访问，均运行 build `20260911105221` 且 ring 停止（本次快照）。
+  板卡身份和实际端口以 `baseline/live-identity.json` 为准，不沿用历史 COM/NO 对应关系。
+- 回归证据：`baseline/history-index.json` 索引了原始验收与闭环结果。部分历史 quick
+  diagnostic 总表虽为 `passed=true`，但 `strict_gates_passed=false`，对应 TDMA 子报告
+  `closed_loop_passed=false`，不能用于证明正常闭环。原始失败保留不变。
+- 静态复核：`out/bug-code-archive-20260911/uncommitted.patch` 实际为带 BOM 的 UTF-16
+  归档；按其真实编码解码后在内存中重建 PIO 变体，未应用到源码。当前与归档最终版本的
+  WAIT 补丁均指向相应指令，见 `baseline/pio-patch-audit.json`。这仅排除该归档最终
+  版本的补丁下标错误，不能替代历史各 build 的单变量 A/B。空 FIFO 退化后的脚本/物理
+  byte 对齐仍需验证。归档中声称 follower 未保存 packet 的改动也不是已证实缺陷：
+  `resident_process_image()` 仅对 reference 返回真，现有条件已保留 follower 的收包。
+- 软件验证：现有 ring adapter 主机单测通过，输出为 `baseline/adapter-tests.log`。
+  文档检查与回归检查通过；登记表旧格式 ID 警告保持原样，未擅自改变契约状态。
+- 构建/硬件：已启动当前工作树的 `p3_hardware_acceptance.py run --tdma-only`，独立 build、
+  OTA 和 receipt 写入本轮证据目录；完成结果待后续记录，不宣称本条已通过硬件验收。
+- 证据位置：`out/tdma-flight-goal-20260911/`，其中 `baseline/` 保存静态和板端读取证据，
+  `p3-baseline/` 保存当前源码验收；`p3-baseline-run.log` 保存编排输出。
+- 工具入口：板端访问及项目 PowerShell 主机测试使用 Windows 原生 Python/PowerShell，
+  保持 COM 驱动及 `.ps1` 工具兼容；文档与源码按 UTF-8 读取。
+- 失败/回退：未改写、删除或重新标记历史失败；不把 quick diagnostic 总体完成当作
+  strict gate 通过。没有固件变更需要回退。
+- 下一 gate：完成当前源码四节点基线与原始波形验证，再以单变量实验闭合回归归因；
+  `TDMA-FLIGHT-004` 仍未完成，不叠加自主循环固件改造。
 
 ### TDMA-PROGRESS-20260902-003 - resident process image 架构决策记录
 
@@ -90,6 +224,15 @@ Last updated: 2026-09-02
 
 ## 当前 checkpoint
 
+HAOFV 自主循环长期目标已完成 `TDMA-FLIGHT-004` 的改动族受控归因，见
+`TDMA-PROGRESS-20260911-003`。四板已恢复当前主工作树固件并通过 process-image 闭环复验。
+原始 P3 严格失败与 SD 观测超时均保留；取回的 RX/SCK 数据不足以证明 B0 的同钟
+RX/TX pipeline delay，现有 analyzer 的 Core1 消费时间戳也不能替代该证据。
+`TDMA-FLIGHT-002/002A` 继续执行；下一切片为 B0 观测与指令位置保护，随后再实施硬件
+自主续转和 Core1 WCET 收敛。resident/flight 契约保持原状态。
+
+### 历史 checkpoint（2026-08-28，保留原始状态）
+
 拍级 Core1 schedule、mandatory-first Node mailbox 与四节点 TDMA 环路已形成闭环基线；NO5
 仅作为 SMA/DPLL 观测节点，不加入 TDMA 物理环路。
 `TDMA-DET-001`、`TDMA-DET-002`、`TDMA-DET-003`、`TDMA-PAYLOAD-001` 和
@@ -109,6 +252,9 @@ NO5 观测仍未完成，因此 DPLL 尚不能进入 active matrix/eligible/serv
 
 | progress ID | TODO task ID | 证据 |
 |---|---|---|
+| TDMA-PROGRESS-20260911-001 | TDMA-FLIGHT-002/004/005 | `out/HardwareAcceptance/20260911/tdma-flight-baseline-ab/baseline/`：板卡身份、历史子门禁、PIO 指令下标、byte-dispatch 模型及 adapter 主机测试。 |
+| TDMA-PROGRESS-20260911-002 | TDMA-FLIGHT-002A/004/005 | 归档根 `out/HardwareAcceptance/20260911/tdma-flight-baseline-ab/` 下的 `p3-baseline/`、`baseline-process-retry/`、`b0-raw-flight/`、`b0-recovered/`；严格失败、未改固件复测和原 SD job 后续取证分别保留。 |
+| TDMA-PROGRESS-20260911-003 | TDMA-FLIGHT-004/005 | 归档根 `out/HardwareAcceptance/20260911/tdma-flight-baseline-ab/` 下的 `ab-experiment-index.json`、各组 manifest、`ab-*-p3/`、`ab-*-controlled/`、`ab-*-recovered/` 及 `restore-baseline-*/`；`archive-index.json` 保留两个来源工作树的路径映射和完整文件摘要。 |
 | TDMA-PROGRESS-20260828-001 | TDMA-DET-001..003、TDMA-PAYLOAD-001..005 | `out/tdma_cycle_schedule/`、`out/tdma_process_image_budget/`、`out/build/pico2-release/`、`out/pytest/`。 |
 | TDMA-PROGRESS-20260828-002 | TDMA-M1、TDMA-M2、TDMA-DET-003、TDMA-PAYLOAD-001/005 | `out/tdma_cycle_schedule/foundation_sync_trigger21.md`、`out/tdma_process_image_budget/current.md`、`out/ota/tdma_foundation_sync21_final_20260828/`。 |
 | TDMA-PROGRESS-20260828-003 | TDMA-M4、TDMA-DET-003 | `out/build/recovery-20260828/DHRT100_UPDATE.pkg`、`out/ota/tdma-recovery-20260828-r2/summary.json`、`out/tdma/ring-baseline-20260828-four/`、`out/tdma/tdma_recovery_budget_20260828.md`。 |
