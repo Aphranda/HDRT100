@@ -50,6 +50,8 @@ bool tdma_flight_overlay_build_plan(
     if (config == NULL || incoming_packet == NULL || processed_packet == NULL ||
         packet_size != TDMA_TRANSPORT_SHORT_PACKET_MAX ||
         config->local_slot_id >= TDMA_FLIGHT_SHORT_SLOT_COUNT ||
+        (config->header_write_mask &
+         ~tdma_transport_frame_resident_overlay_header_mask()) != 0u ||
         config->alignment_bit_shift >= 8u ||
         config->physical_byte_count == 0u ||
         config->physical_byte_count > UINT32_MAX / 8u ||
@@ -117,8 +119,18 @@ bool tdma_flight_overlay_build_plan(
             const uint32_t word = position / 2u;
             const uint32_t which = window_count == 1u || word < window[0].end ? 0u : 1u;
             const uint32_t index = window[which].token + word - window[which].first;
-            const uint32_t token = (processed_packet[i] & (0x80u >> bit)) != 0u
-                ? TDMA_FLIGHT_OVERLAY_TOKEN_ONE : TDMA_FLIGHT_OVERLAY_TOKEN_ZERO;
+            const uint32_t mask = 0x80u >> bit;
+            /* CRC is affine over a fixed-length header. Applying the hop
+             * delta and its CRC delta to LIVE bits preserves every sequence
+             * and any existing header error syndrome. Forcing a predicted
+             * CRC would corrupt later cycles or repair corrupted wire bits. */
+            const uint32_t token = i < TDMA_TRANSPORT_FRAME_HEADER_SIZE
+                ? (((incoming_packet[i] ^ processed_packet[i]) & mask) != 0u
+                       ? TDMA_FLIGHT_OVERLAY_TOKEN_INVERT
+                       : TDMA_FLIGHT_OVERLAY_TOKEN_LIVE)
+                : ((processed_packet[i] & mask) != 0u
+                       ? TDMA_FLIGHT_OVERLAY_TOKEN_ONE
+                       : TDMA_FLIGHT_OVERLAY_TOKEN_ZERO);
             const uint32_t shift = (position & 1u) == 0u ? 16u : 0u;
             plan->token[index] = (plan->token[index] & ~(0xFFFFu << shift)) | (token << shift);
             if (position / 8u != previous_physical_byte) {
@@ -167,6 +179,7 @@ bool tdma_flight_overlay_plan_valid(const tdma_flight_overlay_plan_t *plan,
             if (i + 1u == token_cursor && half == 1u) {
                 if (token != final_bit_pc) return false;
             } else if (token != TDMA_FLIGHT_OVERLAY_TOKEN_LIVE &&
+                       token != TDMA_FLIGHT_OVERLAY_TOKEN_INVERT &&
                        token != TDMA_FLIGHT_OVERLAY_TOKEN_ZERO &&
                        token != TDMA_FLIGHT_OVERLAY_TOKEN_ONE) return false;
         }

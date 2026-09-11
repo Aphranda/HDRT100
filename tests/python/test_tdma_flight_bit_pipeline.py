@@ -6,9 +6,11 @@ import random
 import re
 import shutil
 import subprocess
+import zlib
 
 import pytest
-from tdma_flight_pio_model import Machine, bytes_to_bits, LIVE
+from tdma_flight_pio_model import Machine, bytes_to_bits, reverse32, LIVE
+from tools.state_machine_resource_check.state_machine_resource_check import c_definition_body
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -37,10 +39,30 @@ def engine(tmp_path_factory):
     pioasm = os.environ.get("PIOASM") or shutil.which("pioasm") or str(
         Path.home() / ".pico-sdk/tools/2.2.0/pioasm/pioasm.exe")
     libpath = directory / ("overlay.dll" if os.name == "nt" else "overlay.so")
+    adapter = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    normalize = directory / "normalize.c"
+    normalize.write_text('''#include <stdint.h>
+enum { TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER = 3 };
+static unsigned s_tdma_pio_spi_program_persona;
+static uint32_t tdma_pio_spi_phys_rx_ring_word(uint64_t produced) { return produced; }
+static uint32_t __rev(uint32_t word) {
+    uint32_t result = 0;
+    for (unsigned i = 0; i < 32; ++i) { result = (result << 1) | (word & 1); word >>= 1; }
+    return result;
+}
+static uint8_t tdma_pio_spi_phys_rx_ring_byte(uint64_t produced) {
+''' + c_definition_body(adapter, "tdma_pio_spi_phys_rx_ring_byte") + '''
+}
+uint8_t normalize_rx(uint32_t word, unsigned persona) {
+    s_tdma_pio_spi_program_persona = persona;
+    return tdma_pio_spi_phys_rx_ring_byte(word);
+}
+''', encoding="utf-8")
     subprocess.run([gcc, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-shared",
                     "-I" + str(ROOT / "components/tdma/inc"),
                     str(ROOT / "components/tdma/src/tdma_flight_overlay.c"),
                     str(ROOT / "components/tdma/src/tdma_transport_frame.c"),
+                    str(normalize),
                     "-o", str(libpath)], check=True, capture_output=True)
     header = directory / "tdma.pio.h"
     subprocess.run([pioasm, "-o", "c-sdk", str(ROOT / "components/tdma/src/tdma_pio_spi.pio"),
@@ -52,11 +74,19 @@ def engine(tmp_path_factory):
     final = int(re.search(rf"#define {program}_offset_final_bit (\d+)u", source)[1])
     wrap = int(re.search(rf"#define {program}_wrap (\d+)", source)[1])
     assert len(instructions) == 28 and instructions[final] == LIVE
+    init = source.split(f"static inline void {program}_program_init(", 1)[1].split("\n}", 1)[0]
+    assert "sm_config_set_in_shift(&c, true, false, 32u)" in init
     lib = C.CDLL(str(libpath))
     lib.tdma_flight_overlay_build_plan.argtypes = [C.c_void_p, C.c_void_p, C.c_size_t,
         C.c_void_p, C.c_size_t, C.POINTER(Config), C.POINTER(Plan)]
     lib.tdma_flight_overlay_build_plan.restype = C.c_bool
     lib.tdma_transport_frame_resident_overlay_header_mask.restype = C.c_uint32
+    lib.normalize_rx.argtypes = [C.c_uint32, C.c_uint32]
+    lib.normalize_rx.restype = C.c_uint8
+    for byte in range(256):
+        assert lib.normalize_rx(reverse32(byte), 3) == byte
+        for persona in (0, 1, 2):
+            assert lib.normalize_rx(0x89ABCD00 | byte, persona) == byte
     return lib, instructions, final, wrap
 
 
@@ -105,7 +135,7 @@ def case(engine, slot, shift, byte_shift, installed, delay, period, high, rx_dro
         physical.append(pack(wire))
         live[start:end] = updated[start:end]
         for i in range(32):
-            if header_mask & (1 << i): live[i] = updated[i]
+            if header_mask & (1 << i): live[i] ^= old[i] ^ updated[i]
         oracle = wire[:]
         oracle[base:base + len(live) * 8] = bytes_to_bits(live)
         previous = [0] * 8 if not frame else bytes_to_bits(physical[frame - 1][-1:])
@@ -114,7 +144,8 @@ def case(engine, slot, shift, byte_shift, installed, delay, period, high, rx_dro
                       wrap=wrap + installed, final=final + installed, period=period,
                       high=high, rx_drop=rx_drop).run()
     assert [bit for _, bit in machine.output] == expected
-    assert machine.pushes == ([] if rx_drop else list(physical[0] + physical[1]))
+    assert [lib.normalize_rx(word, 3) for word in machine.pushes] == (
+        [] if rx_drop else list(physical[0] + physical[1]))
     for index, (frame, ordinal, sample, _) in enumerate(machine.samples):
         assert index == frame * machine.frame_bits + ordinal
         assert sample == machine.starts[frame] + ordinal * period + delay + 1
@@ -135,3 +166,89 @@ def test_complete_byte_budget_and_negative_control(engine, delay, high):
     case(engine, 3, 5, 0, 4, delay, bound, high, False)
     with pytest.raises(AssertionError):
         case(engine, 3, 5, 0, 4, delay, bound - 1, high, False)
+
+
+class Build(C.Structure):
+    _fields_ = [(name, C.c_uint32) for name in (
+        "frame_class", "origin_slot_id", "transport_sequence", "payload_class",
+        "flags", "schedule_crc32", "ring_profile_crc32", "hop_limit")] + [
+        ("payload", C.c_void_p), ("payload_size", C.c_size_t)]
+
+
+def transport(lib, sequence, hop):
+    payload = C.create_string_buffer(bytes(range(256)) + bytes(4))
+    build = Build(1, 0, sequence, 7, 5, 0xABCDEF12, 0x12567890, 8,
+                  C.cast(payload, C.c_void_p), 260)
+    packet, size, result = C.create_string_buffer(292), C.c_size_t(), C.c_uint32()
+    assert lib.tdma_transport_frame_encode(C.byref(build), packet, 292,
+                                           C.byref(size), C.byref(result))
+    assert size.value == 292
+    for _ in range(hop):
+        assert lib.tdma_transport_frame_advance_hop(packet, 292, C.byref(result))
+    return packet.raw
+
+
+def expand(plan):
+    words = []
+    for run in plan.run[:plan.run_count]:
+        words.extend(plan.token[run.read_address:run.read_address + run.transfer_count]
+                     if run.control else [LIVE << 16 | LIVE] * run.transfer_count)
+    return [half for word in words for half in (word >> 16, word & 65535)]
+
+
+def syndrome(packet):
+    return zlib.crc32(packet[:28] + bytes(4)) ^ int.from_bytes(packet[28:32], "little")
+
+
+@pytest.mark.parametrize("hop", range(8))
+def test_reused_hop_plan_advances_live_sequences_and_preserves_errors(engine, hop):
+    lib, instructions, final, wrap = engine
+    old, processed = transport(lib, 123, hop), transport(lib, 123, hop + 1)
+    plan = Plan()
+    config = Config(307, 4, 0, 7, 3,
+                    lib.tdma_transport_frame_resident_overlay_header_mask(), final)
+    assert lib.tdma_flight_overlay_build_plan(old, processed, 292, None, 0,
+                                             C.byref(config), C.byref(plan))
+    tokens = expand(plan)
+    # Header deltas from the real builder, executed on both possible live bits.
+    # The local mailbox is unchanged, so every token is LIVE or INVERT.
+    from tdma_flight_pio_model import INVERT
+    base = (config.outer_header_size + 1) * 8 + config.alignment_bit_shift
+    mask = bytes(sum((tokens[base + byte * 8 + bit] == INVERT) << (7 - bit)
+                     for bit in range(8)) for byte in range(292))
+    assert all(token in (LIVE, INVERT, final) for token in tokens)
+    assert mask == bytes(a ^ b for a, b in zip(old, processed))
+    sequences = [0, 0xFFFFFFFF, 0xFFFFFFFE] + [1 << bit for bit in range(32)]
+    for sequence in sequences:
+        live = transport(lib, sequence, hop)
+        expected = transport(lib, sequence, hop + 1)
+        transformed = bytes(a ^ b for a, b in zip(live, mask))
+        assert transformed == expected and syndrome(transformed) == 0
+        # Every single header bit corruption must retain its exact syndrome,
+        # including corrupted hop and transport CRC bits (no silent repair).
+        for error_bit in range(256):
+            corrupt = bytearray(live)
+            corrupt[error_bit // 8] ^= 1 << (error_bit % 8)
+            outgoing = bytes(a ^ b for a, b in zip(corrupt, mask))
+            assert syndrome(outgoing) == syndrome(corrupt) != 0
+    # A predicted CRC used as a constant is a concrete negative control.
+    stale = bytearray(transport(lib, 124, hop + 1))
+    stale[28:32] = processed[28:32]
+    assert syndrome(stale) != 0
+
+    program = list(instructions)
+    for i, position in enumerate(j for j, word in enumerate(program) if word == 0x2081):
+        program[position] |= (13 if i == 0 else 15) << 8
+    physical, expected = [], []
+    wire_base = 4 * 8 + 7
+    for sequence in [0xFFFFFFFF, 0]:
+        incoming, outgoing = transport(lib, sequence, hop), transport(lib, sequence, hop + 1)
+        wire = [0] * (307 * 8)
+        wire[wire_base:wire_base + 292 * 8] = bytes_to_bits(incoming)
+        physical.append(pack(wire))
+        wire[wire_base:wire_base + 292 * 8] = bytes_to_bits(outgoing)
+        expected.extend([0] * 8 + wire[:-8])
+    machine = Machine(physical, [tokens, tokens], program=program, entry=0,
+                      wrap=wrap, final=final).run()
+    assert [bit for _, bit in machine.output] == expected
+    assert [lib.normalize_rx(word, 3) for word in machine.pushes] == list(b"".join(physical))

@@ -9,6 +9,7 @@
 #include "hardware/gpio.h"
 #include "hardware/clocks.h"
 #include "hardware/pio.h"
+#include "pico/bit_ops.h"
 #include "pico/time.h"
 #include "tdma_flight_overlay.h"
 #include "tdma_pio_spi.pio.h"
@@ -1700,7 +1701,13 @@ static uint32_t tdma_pio_spi_phys_rx_ring_word(uint64_t produced)
 
 static uint8_t tdma_pio_spi_phys_rx_ring_byte(uint64_t produced)
 {
-    return (uint8_t)(tdma_pio_spi_phys_rx_ring_word(produced) & 0xFFu);
+    const uint32_t word = tdma_pio_spi_phys_rx_ring_word(produced);
+    /* Only the process follower uses right-shifting ISR to support live XOR.
+     * Normalize the observation copy; wire forwarding never reads this ring. */
+    return (uint8_t)(s_tdma_pio_spi_program_persona ==
+                            TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER
+                        ? __rev(word)
+                        : word);
 }
 
 static uint8_t tdma_pio_spi_phys_rx_ring_aligned_byte(uint64_t produced,

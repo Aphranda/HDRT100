@@ -59,6 +59,10 @@ int main(void)
     }
     config.alignment_bit_shift = config.alignment_byte_shift = 0;
     config.local_slot_id = 2;
+    config.header_write_mask |= 1u << 8; /* Cannot acquire sequence ownership. */
+    assert(!tdma_flight_overlay_build_plan(incoming, incoming, sizeof incoming,
+        NULL, 0, &config, &plan));
+    config.header_write_mask = tdma_transport_frame_resident_overlay_header_mask();
     memset(force, 0, sizeof force);
     for (unsigned i = 0; i < sizeof incoming; ++i) {
         memcpy(processed, incoming, sizeof incoming);
@@ -80,6 +84,19 @@ int main(void)
     assert(!tdma_flight_overlay_build_pass_plan(UINT32_MAX, 20, &plan));
     assert(!tdma_flight_overlay_build_pass_plan(307, 21, &plan));
     assert(tdma_flight_overlay_build_pass_plan(307, 20, &plan));
+    for (unsigned bit = 0; bit < 8; ++bit) {
+        memcpy(processed, incoming, sizeof incoming);
+        processed[14] = 1u << bit;
+        assert(tdma_flight_overlay_build_plan(incoming, processed, sizeof incoming,
+            NULL, 0, &config, &corrupt));
+        for (unsigned b = 0; b < 8; ++b) {
+            const unsigned index = (5 + 14) * 8 + b;
+            const unsigned token = (command_at(&corrupt, index / 2) >>
+                ((index & 1) ? 0 : 16)) & 65535;
+            assert(token == (b == 7 - bit ? TDMA_FLIGHT_OVERLAY_TOKEN_INVERT :
+                                           TDMA_FLIGHT_OVERLAY_TOKEN_LIVE));
+        }
+    }
     for (unsigned token = 0; token < 65536; ++token) {
         corrupt = plan;
         corrupt.token[0] = (TDMA_FLIGHT_OVERLAY_TOKEN_LIVE << 16) | token;

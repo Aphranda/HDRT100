@@ -102,8 +102,11 @@ flight_follower_bit:
 .wrap
 
 ; Process follower: two whitelisted bit-selection tokens per TX DMA word.
-; MOV X, ::ISR selects the actual previous-byte bit; SET X,0/1 selects an
-; authorized local value. ISR carries the live byte through RX FIFO loss.
+; Right-shifting ISR keeps the previous byte's next bit at bit zero. MOV X,ISR
+; selects it, MOV X,~ISR inverts it, and SET X,0/1 selects a local value. A
+; fixed hop/CRC XOR therefore operates on every live sequence without a new
+; plan. RX FIFO words are bit-reversed and the adapter normalizes its copy.
+; ISR carries the live byte through RX FIFO loss.
 ; The eighth token is decoded before WAIT, including the final tail branch,
 ; so byte and frame boundaries preserve the same sampling/output phase.
 .program tdma_pio_spi_flight_process_follower
@@ -132,7 +135,7 @@ public wait_sck_low_eighth:
     in null, 24
 .wrap
 public final_bit:
-    mov x, ::isr
+    mov x, isr
 public wait_sck_high_final:
     wait 1 gpio 1
     in pins, 1
@@ -830,7 +833,7 @@ static inline void tdma_pio_spi_flight_process_follower_program_init(
             offset);
     sm_config_set_in_pins(&c, rx_data_pin);
     sm_config_set_out_pins(&c, tx_data_pin, 1u);
-    sm_config_set_in_shift(&c, false, false, 32u);
+    sm_config_set_in_shift(&c, true, false, 32u);
     sm_config_set_out_shift(&c, false, true, 32u);
     sm_config_set_clkdiv(&c, 1.0f);
     pio_sm_init(pio, sm, offset, &c);

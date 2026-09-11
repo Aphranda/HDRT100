@@ -158,6 +158,7 @@ int main(void) {
     exe = tmp_path / "command_dma.exe"
     subprocess.run([gcc, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
                     "-I" + str(ROOT / "components/tdma/inc"), str(unit),
-                    str(ROOT / "components/tdma/src/tdma_flight_overlay.c"), "-o", str(exe)],
+                    str(ROOT / "components/tdma/src/tdma_flight_overlay.c"),
+                    str(ROOT / "components/tdma/src/tdma_transport_frame.c"), "-o", str(exe)],
                    check=True, capture_output=True)
     subprocess.run([str(exe)], check=True, capture_output=True)

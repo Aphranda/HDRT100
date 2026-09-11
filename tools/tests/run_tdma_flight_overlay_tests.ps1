@@ -9,6 +9,7 @@ $build = Join-Path $repo $BuildDir
 $include = Join-Path $repo "components\tdma\inc"
 $testSource = Join-Path $repo "tests\unit\test_tdma_flight_overlay.c"
 $overlaySource = Join-Path $repo "components\tdma\src\tdma_flight_overlay.c"
+$transportSource = Join-Path $repo "components\tdma\src\tdma_transport_frame.c"
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 
 if ($HostGccDir -and (Test-Path $HostGccDir)) {
@@ -23,14 +24,14 @@ if (-not $hostCc) {
 }
 $exe = Join-Path $build "test_tdma_flight_overlay.exe"
 & $hostCc -std=c11 -Wall -Wextra -Werror "-I$include" `
-    $testSource $overlaySource -o $exe
+    $testSource $overlaySource $transportSource -o $exe
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $exe
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $bitTestSource = Join-Path $repo "tests\unit\test_tdma_flight_bit_plan.c"
 $bitExe = Join-Path $build "test_tdma_flight_bit_plan.exe"
 & $hostCc -std=c11 -O2 -Wall -Wextra -Werror "-I$include" `
-    $bitTestSource $overlaySource -o $bitExe
+    $bitTestSource $overlaySource $transportSource -o $bitExe
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $bitExe
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -8,7 +8,8 @@
 #include "tdma_flight_engine.h"
 
 /* Internal PIO catalog tokens, never accepted from a transport payload. */
-#define TDMA_FLIGHT_OVERLAY_TOKEN_LIVE 0xA036u
+#define TDMA_FLIGHT_OVERLAY_TOKEN_LIVE 0xA026u
+#define TDMA_FLIGHT_OVERLAY_TOKEN_INVERT 0xA02Eu
 #define TDMA_FLIGHT_OVERLAY_TOKEN_ZERO 0xE020u
 #define TDMA_FLIGHT_OVERLAY_TOKEN_ONE 0xE021u
 #define TDMA_FLIGHT_OVERLAY_LIVE_WORD \
@@ -52,6 +53,9 @@ typedef struct {
     uint32_t final_bit_pc;
 } tdma_flight_overlay_config_t;
 
+/* Header changes XOR the actual wire bits; they never replay a predicted
+ * sequence's CRC. Local payload changes still select owner-prepared values.
+ * The owner supplies two valid FLIGHT_MUTABLE models at the admitted hop. */
 bool tdma_flight_overlay_build_plan(
     const uint8_t *incoming_packet, const uint8_t *processed_packet,
     size_t packet_size, const uint32_t *force_payload_bitmap,

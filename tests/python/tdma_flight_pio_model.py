@@ -1,6 +1,6 @@
 """Instruction-word model of the flight DATA SM; DMA latency is not modeled."""
 UINT32 = (1 << 32) - 1
-LIVE, ZERO, ONE = 0xA036, 0xE020, 0xE021
+LIVE, INVERT, ZERO, ONE = 0xA026, 0xA02E, 0xE020, 0xE021
 
 def bytes_to_bits(data):
     return [(byte >> (7 - bit)) & 1 for byte in data for bit in range(8)]
@@ -96,7 +96,7 @@ class Machine:
                 self.wait(arg & 31, arg >> 7)
                 if arg & 31 == 1 and arg >> 7:
                     self.waits.append(self.time)
-            elif major == 2:  # IN left, manual PUSH
+            elif major == 2:  # IN right, manual PUSH
                 source, count = arg >> 5, arg & 31 or 32
                 if source == 0:
                     frame, offset, active = self.position()
@@ -107,11 +107,11 @@ class Machine:
                 else:
                     assert source == 3
                     bit = 0
-                self.isr = ((self.isr << count) | bit) & UINT32
+                self.isr = (self.isr >> count) | (bit << (32 - count))
             elif major == 3:
                 assert arg == 0xF0 and self.out_count <= 16
                 token = self.osr >> 16
-                assert token in (LIVE, ZERO, ONE, self.final), hex(token)
+                assert token in (LIVE, INVERT, ZERO, ONE, self.final), hex(token)
                 self.osr = (self.osr << 16) & UINT32
                 self.out_count += 16
                 self.pending = token
@@ -125,6 +125,8 @@ class Machine:
                 value = {1: self.x, 6: self.isr}[source]
                 if operation == 2:
                     value = reverse32(value)
+                elif operation == 1:
+                    value ^= UINT32
                 else:
                     assert operation == 0
                 if dest == 0:
@@ -148,5 +150,4 @@ class Machine:
                 raise AssertionError(hex(instruction))
             self.time += 1 + delay
         raise AssertionError("instruction limit")
-
 
