@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "tdma_ring_runtime.h"
 #include "vdc_domain.h"
 
 typedef struct {
@@ -16,7 +17,15 @@ typedef struct {
     uint32_t timestamp_resolution_ns;
     uint32_t timestamp_flags;
     uint32_t correlated_frame_evidence;
+    uint32_t correlation_flags;
+    uint32_t reference_tx_phase_ns;
+    uint32_t local_rx_phase_ns;
     uint32_t link_delay_ns;
+    uint64_t common_effective_time_ns;
+    uint32_t delay_generation;
+    uint32_t bias_generation;
+    /* Local hardware-latch provenance. They are not a shared absolute time
+     * base and are never subtracted across boards. */
     uint64_t reference_tx_timestamp_ns;
     uint64_t local_rx_timestamp_ns;
 } vdc_ring_observation_t;

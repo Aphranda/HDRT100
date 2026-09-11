@@ -20,6 +20,7 @@
 #define s_tdma_pio_spi_flight_process_follower_offset (*manager->flight_process_follower_offset)
 #define s_tdma_pio_spi_flight_control_forward_offset (*manager->flight_control_forward_offset)
 #define s_tdma_pio_spi_flight_clock_latch_offset (*manager->flight_clock_latch_offset)
+#define s_tdma_pio_spi_flight_rx_clock_latch_offset (*manager->flight_rx_clock_latch_offset)
 #define s_tdma_pio_spi_tx_offset (*manager->tx_offset)
 #define s_tdma_pio_spi_rx_offset (*manager->rx_offset)
 #define s_tdma_pio_spi_clk_forward_offset (*manager->clk_forward_offset)
@@ -342,14 +343,21 @@ bool tdma_pio_spi_programs_transfer_resources(
 
 static bool tdma_pio_spi_phys_load_flight_clock_latch_program(
     tdma_pio_spi_program_manager_t *manager,
-    PIO pio)
+    PIO pio,
+    bool rx_latch)
 {
     if (pio == NULL || !pio_can_add_program(
             pio,
             &tdma_pio_spi_flight_clock_latch_program)) {
         return false;
     }
-    *manager->flight_clock_latch_offset = (uint)pio_add_program(
+    uint *offset = rx_latch
+        ? manager->flight_rx_clock_latch_offset
+        : manager->flight_clock_latch_offset;
+    if (offset == NULL) {
+        return false;
+    }
+    *offset = (uint)pio_add_program(
         pio, &tdma_pio_spi_flight_clock_latch_program);
     return true;
 }
@@ -614,7 +622,7 @@ static bool tdma_pio_spi_phys_load_flight_origin_programs(
     s_tdma_pio_spi_flight_origin_rtt_offset = (uint)pio_add_program(
         tx_pio, &tdma_pio_spi_flight_origin_rtt_program);
     if (!tdma_pio_spi_phys_load_flight_clock_latch_program(
-            manager, tx_pio)) {
+            manager, tx_pio, false)) {
         pio_remove_program(
             tx_pio,
             &tdma_pio_spi_flight_origin_rtt_program,
@@ -659,7 +667,13 @@ static bool tdma_pio_spi_phys_load_flight_follower_programs(
         rx_pio,
         &tdma_pio_spi_flight_data_follower_program);
     if (!tdma_pio_spi_phys_load_flight_clock_latch_program(
-            manager, rx_pio)) {
+            manager, rx_pio, true) ||
+        !tdma_pio_spi_phys_load_flight_clock_latch_program(
+            manager, tx_pio, false)) {
+        pio_remove_program(
+            rx_pio,
+            &tdma_pio_spi_flight_clock_latch_program,
+            s_tdma_pio_spi_flight_rx_clock_latch_offset);
         pio_remove_program(rx_pio,
                            &tdma_pio_spi_flight_data_follower_program,
                            s_tdma_pio_spi_flight_data_follower_offset);
@@ -695,7 +709,13 @@ static bool tdma_pio_spi_phys_load_flight_process_follower_programs(
         rx_pio,
         &tdma_pio_spi_flight_process_follower_program);
     if (!tdma_pio_spi_phys_load_flight_clock_latch_program(
-            manager, rx_pio)) {
+            manager, rx_pio, true) ||
+        !tdma_pio_spi_phys_load_flight_clock_latch_program(
+            manager, tx_pio, false)) {
+        pio_remove_program(
+            rx_pio,
+            &tdma_pio_spi_flight_clock_latch_program,
+            s_tdma_pio_spi_flight_rx_clock_latch_offset);
         pio_remove_program(
             rx_pio,
             &tdma_pio_spi_flight_process_follower_program,
@@ -961,6 +981,10 @@ static void tdma_pio_spi_phys_unload_programs(
         pio_remove_program(
             BOARD_TDMA_RX_PIO,
             &tdma_pio_spi_flight_clock_latch_program,
+            s_tdma_pio_spi_flight_rx_clock_latch_offset);
+        pio_remove_program(
+            BOARD_TDMA_TX_PIO,
+            &tdma_pio_spi_flight_clock_latch_program,
             s_tdma_pio_spi_flight_clock_latch_offset);
         pio_remove_program(BOARD_TDMA_RX_PIO,
                            &tdma_pio_spi_flight_data_follower_program,
@@ -972,6 +996,10 @@ static void tdma_pio_spi_phys_unload_programs(
     case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER:
         pio_remove_program(
             BOARD_TDMA_RX_PIO,
+            &tdma_pio_spi_flight_clock_latch_program,
+            s_tdma_pio_spi_flight_rx_clock_latch_offset);
+        pio_remove_program(
+            BOARD_TDMA_TX_PIO,
             &tdma_pio_spi_flight_clock_latch_program,
             s_tdma_pio_spi_flight_clock_latch_offset);
         pio_remove_program(

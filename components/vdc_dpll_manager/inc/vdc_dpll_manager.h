@@ -17,14 +17,30 @@
 /* The DPLL capture is a maintenance/evidence buffer, not a realtime queue. */
 /* Keep the expanded master/follower event record inside the existing 8 KiB
  * maintenance capture budget.  This buffer is never part of TDMA traffic. */
-#define VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES 200u
+#define VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES 76u
 /* Schema v3 removes segment-common and reconstructable fields.  A bounded
  * three-buffer queue absorbs asynchronous SD hand-off latency; realtime
  * TDMA/RefMem objects are untouched and queue exhaustion remains observable
  * through dropped_count. */
-/* Keep the three-buffer hand-off while fitting the RP2350 application RAM
- * budget after the guarded VDC role snapshot was extended for P0A. */
-#define VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS 576u
+/* Schema v4 records carry explicit sequence and quality provenance.  Keep
+ * three 400-record buffers: the v4 record grew by two provenance words, and
+ * this releases 1,344 bytes versus the previous 416-record geometry so both
+ * A/B images fit the RP2350 application RAM.  SD segmentation and
+ * dropped-count accounting preserve long-run continuity. */
+#define VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS 400u
+
+/* Per-record provenance for the external waveform evidence.  These bits are
+ * diagnostic facts; only CORRECTED_ELIGIBLE records may enter corrected phase
+ * and jitter statistics after the offline window-completeness check. */
+#define VDC_DPLL_MANAGER_WAVEFORM_QUALITY_TIMESTAMP_ELIGIBLE (1u << 0u)
+#define VDC_DPLL_MANAGER_WAVEFORM_QUALITY_SEQUENCE_CONTINUOUS (1u << 1u)
+#define VDC_DPLL_MANAGER_WAVEFORM_QUALITY_NO_SOURCE_DROP (1u << 2u)
+#define VDC_DPLL_MANAGER_WAVEFORM_QUALITY_MATCHED_WINDOW_VALID (1u << 3u)
+#define VDC_DPLL_MANAGER_WAVEFORM_QUALITY_RAW_DIAGNOSTIC_ONLY (1u << 4u)
+#define VDC_DPLL_MANAGER_WAVEFORM_QUALITY_CORRECTED_ELIGIBLE (1u << 5u)
+#define VDC_DPLL_MANAGER_WAVEFORM_QUALITY_GAP_BEFORE (1u << 6u)
+#define VDC_DPLL_MANAGER_WAVEFORM_QUALITY_AMBIGUOUS (1u << 7u)
+#define VDC_DPLL_MANAGER_WAVEFORM_QUALITY_INCOMPLETE_WINDOW (1u << 8u)
 
 typedef enum {
     VDC_DPLL_MANAGER_SELF_TEST_ROLE_NONE = 0u,
@@ -200,6 +216,7 @@ typedef struct {
     uint32_t phase_last_window_start_lo;
     uint32_t phase_last_window_start_hi;
     uint32_t phase_dropped_word_count;
+    uint32_t phase_gap_count;
 } vdc_dpll_manager_sync_io_observer_status_t;
 
 typedef enum {
@@ -244,6 +261,20 @@ typedef struct __attribute__((packed)) {
     uint32_t command_seq;
     uint32_t effective_vdc_time_lo;
     uint32_t effective_vdc_time_hi;
+    /* Observation metadata is populated for MASTER and FOLLOWER evidence;
+     * command records leave these fields zero. */
+    int32_t raw_phase_value_ns;
+    uint32_t observation_source_reference;
+    uint32_t observation_delay_ns;
+    uint32_t observation_jitter_ns;
+    uint32_t observation_delay_generation;
+    uint32_t observation_bias_generation;
+    uint32_t observation_correlation_flags;
+    uint32_t observation_reference_tx_phase_ns;
+    uint32_t observation_local_rx_phase_ns;
+    uint64_t observation_common_effective_time_ns;
+    uint64_t observation_expected_window_start_ns;
+    uint64_t observation_observed_time_ns;
 } vdc_dpll_manager_dpll_capture_record_t;
 
 typedef struct {
@@ -268,6 +299,7 @@ typedef struct __attribute__((packed)) {
     uint32_t timestamp_resolution_ns;
     uint32_t timestamp_flags;
     uint32_t dropped_before;
+    uint32_t quality_flags;
 } vdc_dpll_manager_waveform_record_t;
 
 typedef struct {

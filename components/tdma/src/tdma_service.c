@@ -1484,6 +1484,16 @@ bool tdma_service_get_snapshot(const tdma_service_service_t *service,
         ring_snapshot.clock_observation.timestamp_flags;
     snapshot->ring_clock_observation_correlated =
         ring_snapshot.clock_observation.correlated_frame_evidence;
+    snapshot->ring_clock_observation_correlation_flags =
+        ring_snapshot.clock_observation.correlation_flags;
+    snapshot->ring_clock_reference_tx_phase_ns =
+        ring_snapshot.clock_observation.reference_tx_phase_ns;
+    snapshot->ring_clock_local_rx_phase_ns =
+        ring_snapshot.clock_observation.local_rx_phase_ns;
+    tdma_service_split_u64(
+        ring_snapshot.clock_observation.common_effective_time_ns,
+        &snapshot->ring_clock_common_effective_time_ns_lo,
+        &snapshot->ring_clock_common_effective_time_ns_hi);
     tdma_service_split_u64(
         ring_snapshot.clock_observation.reference_tx_timestamp_ns,
         &snapshot->ring_clock_reference_tx_timestamp_ns_lo,

@@ -76,6 +76,7 @@ static uint s_tdma_pio_spi_flight_data_follower_offset;
 static uint s_tdma_pio_spi_flight_process_follower_offset;
 static uint s_tdma_pio_spi_flight_control_forward_offset;
 static uint s_tdma_pio_spi_flight_clock_latch_offset;
+static uint s_tdma_pio_spi_flight_rx_clock_latch_offset;
 static uint s_tdma_pio_spi_flight_origin_rtt_offset;
 static uint32_t s_tdma_pio_spi_cal_ring[TDMA_PIO_SPI_CAL_LOOPBACK_MAX_WORDS]
     __attribute__((aligned(4)));
@@ -149,6 +150,7 @@ static tdma_pio_spi_program_manager_t s_tdma_pio_spi_program_manager = {
     .flight_process_follower_offset = &s_tdma_pio_spi_flight_process_follower_offset,
     .flight_control_forward_offset = &s_tdma_pio_spi_flight_control_forward_offset,
     .flight_clock_latch_offset = &s_tdma_pio_spi_flight_clock_latch_offset,
+    .flight_rx_clock_latch_offset = &s_tdma_pio_spi_flight_rx_clock_latch_offset,
     .flight_origin_rtt_offset = &s_tdma_pio_spi_flight_origin_rtt_offset,
     .tx_dma_channel = &s_tdma_pio_spi_tx_dma_channel,
     .rx_dma_channel = &s_tdma_pio_spi_rx_dma_channel,
@@ -250,6 +252,24 @@ static uint tdma_pio_spi_phys_latch_sm(const tdma_pio_spi_phys_t *phys)
                ? phys->flight_resources.tx_clock_latch_sm
                : phys->flight_resources.rx_endpoints.clock_evidence.sm)
         : BOARD_TDMA_SPI_CAPTURE_SM;
+}
+
+static uint tdma_pio_spi_phys_latch_offset(const tdma_pio_spi_phys_t *phys)
+{
+    return phys != NULL && phys->role == TDMA_PIO_SPI_ROLE_SLAVE
+        ? s_tdma_pio_spi_flight_rx_clock_latch_offset
+        : s_tdma_pio_spi_flight_clock_latch_offset;
+}
+
+static PIO tdma_pio_spi_phys_tx_latch_pio(const tdma_pio_spi_phys_t *phys)
+{
+    return phys != NULL ? phys->flight_resources.tx_pio : BOARD_TDMA_TX_PIO;
+}
+
+static uint tdma_pio_spi_phys_tx_latch_sm(const tdma_pio_spi_phys_t *phys)
+{
+    return phys != NULL ? phys->flight_resources.tx_clock_latch_sm
+                        : BOARD_TDMA_TX_CLOCK_LATCH_SM;
 }
 
 static uint tdma_pio_spi_phys_rtt_sm(const tdma_pio_spi_phys_t *phys)
@@ -539,6 +559,10 @@ static void tdma_pio_spi_phys_enable_sm_pair(tdma_pio_spi_phys_t *phys)
                        tdma_pio_spi_phys_capture_sm(phys), true);
     pio_sm_set_enabled(tdma_pio_spi_phys_evidence_pio(phys),
                        tdma_pio_spi_phys_latch_sm(phys), true);
+    if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE) {
+        pio_sm_set_enabled(tdma_pio_spi_phys_tx_latch_pio(phys),
+                           tdma_pio_spi_phys_tx_latch_sm(phys), true);
+    }
     if (phys->role == TDMA_PIO_SPI_ROLE_MASTER &&
         s_tdma_pio_spi_program_persona ==
             TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN) {
@@ -579,12 +603,45 @@ static bool tdma_pio_spi_phys_clock_latch_rearm(
     pio_sm_exec(evidence_pio, sm, pio_encode_mov(pio_x, pio_osr));
     pio_sm_exec(evidence_pio,
                 sm,
-                pio_encode_jmp(s_tdma_pio_spi_flight_clock_latch_offset));
+                pio_encode_jmp(tdma_pio_spi_phys_latch_offset(phys)));
     phys->flight_clock_latch_epoch_ns = vdc_timestamp_clock_now_ns();
     phys->flight_clock_latch_resolution_ns = resolution_ns;
     phys->snapshot.clock_latch_resolution_ns = resolution_ns;
     phys->flight_clock_latch_armed = true;
     pio_sm_set_enabled(evidence_pio, sm, true);
+    return true;
+}
+
+static bool tdma_pio_spi_phys_tx_clock_latch_rearm(
+    tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL || phys->role != TDMA_PIO_SPI_ROLE_SLAVE ||
+        !tdma_pio_spi_phys_is_flight_persona()) {
+        return false;
+    }
+    const uint32_t clk_hz = clock_get_hz(clk_sys);
+    if (clk_hz == 0u) {
+        return false;
+    }
+    const uint32_t resolution_ns = (uint32_t)(
+        (2000000000ull + clk_hz / 2u) / clk_hz);
+    if (resolution_ns == 0u) {
+        return false;
+    }
+    const PIO pio = tdma_pio_spi_phys_tx_latch_pio(phys);
+    const uint sm = tdma_pio_spi_phys_tx_latch_sm(phys);
+    pio_sm_set_enabled(pio, sm, false);
+    pio_sm_clear_fifos(pio, sm);
+    pio_sm_restart(pio, sm);
+    pio_sm_put_blocking(pio, sm, UINT32_MAX);
+    pio_sm_exec(pio, sm, pio_encode_pull(false, true));
+    pio_sm_exec(pio, sm, pio_encode_mov(pio_x, pio_osr));
+    pio_sm_exec(pio, sm,
+                pio_encode_jmp(s_tdma_pio_spi_flight_clock_latch_offset));
+    phys->flight_tx_clock_latch_epoch_ns = vdc_timestamp_clock_now_ns();
+    phys->flight_tx_clock_latch_resolution_ns = resolution_ns;
+    phys->flight_tx_clock_latch_armed = true;
+    pio_sm_set_enabled(pio, sm, true);
     return true;
 }
 
@@ -643,6 +700,82 @@ static bool tdma_pio_spi_phys_clock_latch_read_and_rearm(
     return tdma_pio_spi_phys_clock_latch_rearm(phys);
 }
 
+static bool tdma_pio_spi_phys_tx_clock_latch_read_and_rearm(
+    tdma_pio_spi_phys_t *phys,
+    uint64_t *timestamp_ns)
+{
+    if (timestamp_ns != NULL) {
+        *timestamp_ns = 0ull;
+    }
+    if (phys == NULL || timestamp_ns == NULL ||
+        phys->role != TDMA_PIO_SPI_ROLE_SLAVE ||
+        !phys->flight_tx_clock_latch_armed) {
+        return false;
+    }
+    const PIO pio = tdma_pio_spi_phys_tx_latch_pio(phys);
+    const uint sm = tdma_pio_spi_phys_tx_latch_sm(phys);
+    if (pio_sm_is_rx_fifo_empty(pio, sm)) {
+        phys->snapshot.clock_latch_miss_count++;
+        return false;
+    }
+    const uint32_t remaining = pio_sm_get(pio, sm);
+    const uint64_t elapsed_count = (uint64_t)UINT32_MAX - remaining;
+    const uint64_t elapsed_ns = elapsed_count *
+        (uint64_t)phys->flight_tx_clock_latch_resolution_ns;
+    if (UINT64_MAX - phys->flight_tx_clock_latch_epoch_ns < elapsed_ns) {
+        phys->snapshot.clock_latch_miss_count++;
+        (void)tdma_pio_spi_phys_tx_clock_latch_rearm(phys);
+        return false;
+    }
+    *timestamp_ns = phys->flight_tx_clock_latch_epoch_ns + elapsed_ns;
+    phys->snapshot.clock_latch_count++;
+    return tdma_pio_spi_phys_tx_clock_latch_rearm(phys);
+}
+
+bool tdma_pio_spi_phys_take_local_tx_edge(void *context,
+                                          uint64_t *tx_timestamp_ns)
+{
+    tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
+    if (tx_timestamp_ns != NULL) {
+        *tx_timestamp_ns = 0ull;
+    }
+    if (phys == NULL || tx_timestamp_ns == NULL || !phys->armed ||
+        phys->role != TDMA_PIO_SPI_ROLE_SLAVE) {
+        return false;
+    }
+    return tdma_pio_spi_phys_tx_clock_latch_read_and_rearm(
+        phys, tx_timestamp_ns);
+}
+
+bool tdma_pio_spi_phys_take_local_tx_edge_ex(
+    void *context,
+    uint32_t expected_sequence,
+    uint32_t expected_identity_crc32,
+    tdma_ring_local_tx_edge_evidence_t *evidence)
+{
+    tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
+    if (evidence != NULL) {
+        memset(evidence, 0, sizeof(*evidence));
+    }
+    if (phys == NULL || evidence == NULL ||
+        !tdma_pio_spi_phys_take_local_tx_edge(phys,
+                                               &evidence->timestamp_ns)) {
+        return false;
+    }
+    phys->flight_tx_edge_capture_generation++;
+    evidence->sequence = expected_sequence;
+    evidence->identity_crc32 = expected_identity_crc32;
+    evidence->capture_generation = phys->flight_tx_edge_capture_generation;
+    evidence->flags = TDMA_RING_LOCAL_TX_EDGE_FLAG_TIMESTAMP_VALID;
+    if (expected_sequence != 0u) {
+        evidence->flags |= TDMA_RING_LOCAL_TX_EDGE_FLAG_SEQUENCE_BOUND;
+    }
+    if (expected_identity_crc32 != 0u) {
+        evidence->flags |= TDMA_RING_LOCAL_TX_EDGE_FLAG_IDENTITY_BOUND;
+    }
+    return true;
+}
+
 static bool tdma_pio_spi_phys_restore_clock_latch(
     tdma_pio_spi_phys_t *phys,
     bool rearm)
@@ -655,12 +788,12 @@ static bool tdma_pio_spi_phys_restore_clock_latch(
     pio_sm_restart(evidence_pio, sm);
     for (uint32_t index = 0u; index < 4u; index++) {
         evidence_pio->instr_mem[
-            s_tdma_pio_spi_flight_clock_latch_offset + index] =
+            tdma_pio_spi_phys_latch_offset(phys) + index] =
                 phys->flight_sck_waveform_saved_instructions[index];
     }
     tdma_pio_spi_flight_clock_latch_program_init(
         evidence_pio, sm,
-        s_tdma_pio_spi_flight_clock_latch_offset,
+        tdma_pio_spi_phys_latch_offset(phys),
         phys->role == TDMA_PIO_SPI_ROLE_MASTER
             ? phys->tx_csn_pin
             : phys->rx_csn_pin);
@@ -681,7 +814,7 @@ static bool tdma_pio_spi_phys_capture_restore_step(
     *complete = false;
     const PIO evidence_pio = tdma_pio_spi_phys_evidence_pio(phys);
     const uint sm = tdma_pio_spi_phys_latch_sm(phys);
-    const uint offset = s_tdma_pio_spi_flight_clock_latch_offset;
+    const uint offset = tdma_pio_spi_phys_latch_offset(phys);
     switch (phys->flight_normal_capture_restore_stage) {
     case 0u:
         pio_sm_set_enabled(evidence_pio, sm, false);
@@ -758,7 +891,7 @@ tdma_pio_spi_phys_service_ring_waveform_capture(
     if (phys == NULL) return TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_FAILED;
     const PIO evidence_pio = tdma_pio_spi_phys_evidence_pio(phys);
     const uint sm = tdma_pio_spi_phys_latch_sm(phys);
-    const uint offset = s_tdma_pio_spi_flight_clock_latch_offset;
+    const uint offset = tdma_pio_spi_phys_latch_offset(phys);
     if (phys->flight_sck_waveform_capture_state ==
         TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_REQUESTED) {
         pio_sm_set_enabled(evidence_pio, sm, false);
@@ -984,10 +1117,17 @@ static bool tdma_pio_spi_phys_configure_flight(
     tdma_pio_spi_flight_clock_latch_program_init(
         tdma_pio_spi_phys_evidence_pio(phys),
         tdma_pio_spi_phys_latch_sm(phys),
-        s_tdma_pio_spi_flight_clock_latch_offset,
+        tdma_pio_spi_phys_latch_offset(phys),
         phys->role == TDMA_PIO_SPI_ROLE_MASTER
             ? phys->tx_csn_pin
             : phys->rx_csn_pin);
+    if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE) {
+        tdma_pio_spi_flight_clock_latch_program_init(
+            tdma_pio_spi_phys_tx_latch_pio(phys),
+            tdma_pio_spi_phys_tx_latch_sm(phys),
+        tdma_pio_spi_phys_latch_offset(phys),
+            phys->tx_csn_pin);
+    }
     tdma_pio_spi_phys_prepare_sm_pair(phys);
     if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE &&
         phys->process_image_enabled) {
@@ -1794,6 +1934,14 @@ bool tdma_pio_spi_phys_arm(void *context,
         return tdma_pio_spi_phys_arm_reject(
             phys, TDMA_PIO_SPI_PHYS_ERROR_CLOCK_LATCH);
     }
+    if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE &&
+        !tdma_pio_spi_phys_tx_clock_latch_rearm(phys)) {
+        dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
+        tdma_pio_spi_phys_set_line_drivers(false);
+        tdma_pio_spi_phys_release_flight_resources(phys);
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_CLOCK_LATCH);
+    }
     tdma_pio_spi_phys_enable_sm_pair(phys);
 
     tdma_pio_spi_phys_reset_normal_capture();
@@ -1822,6 +1970,7 @@ bool tdma_pio_spi_phys_arm(void *context,
     phys->snapshot.last_rx_extract_timestamp_ns = 0ull;
     phys->snapshot.clock_latch_count = 0u;
     phys->snapshot.clock_latch_miss_count = 0u;
+    phys->flight_tx_edge_capture_generation = 0u;
     phys->snapshot.origin_done_irq_count = 0u;
     phys->snapshot.origin_done_txstall_count = 0u;
     phys->snapshot.origin_clock_timeout_count = 0u;
@@ -1926,6 +2075,7 @@ void tdma_pio_spi_phys_disarm(void *context)
     gpio_set_dir(phys->rx_pin, GPIO_IN);
     phys->armed = false;
     phys->flight_clock_latch_armed = false;
+    phys->flight_tx_clock_latch_armed = false;
     phys->flight_sck_waveform_capture_state =
         TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_IDLE;
     phys->flight_sck_waveform_capture_deadline_us = 0ull;

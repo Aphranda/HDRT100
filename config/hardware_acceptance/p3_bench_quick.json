@@ -1,7 +1,7 @@
 {
   "extends": "p3_bench.json",
   "acceptance_profile": "QUICK_DIAGNOSTIC",
-  "acceptance_time_budget": {"warning_s": 330.0, "error_s": 390.0},
+  "acceptance_time_budget": {"warning_s": 390.0, "error_s": 450.0},
   "topology_probe_cycles": 64,
   "topology_probe_phase_cycles": 2,
   "topology_pair_wait_s": 0.05,
@@ -32,7 +32,7 @@
   "tdma_capture_waveforms": false,
   "dpll_capture_waveforms": true,
   "sma_observer_rtt_repeats": 1,
-  "dpll_monitor_duration_s": 3.0,
+  "dpll_monitor_duration_s": 30.0,
   "dpll_monitor_poll_interval_s": 0.1,
   "dpll_phase_pulse_count": 128,
   "dpll_phase_start_delay_ns": 100000000,

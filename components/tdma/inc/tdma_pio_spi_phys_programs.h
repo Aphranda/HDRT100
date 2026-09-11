@@ -44,6 +44,7 @@ typedef struct {
     uint *flight_process_follower_offset;
     uint *flight_control_forward_offset;
     uint *flight_clock_latch_offset;
+    uint *flight_rx_clock_latch_offset;
     uint *flight_origin_rtt_offset;
     int *tx_dma_channel;
     int *rx_dma_channel;

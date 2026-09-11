@@ -67,6 +67,10 @@ typedef enum {
 #define TDMA_PIO_SPI_CLOCK_OBSERVATION_IDENTITY_MISSING (1u << 3u)
 #define TDMA_PIO_SPI_CLOCK_OBSERVATION_TIMESTAMP_MISSING (1u << 4u)
 #define TDMA_PIO_SPI_CLOCK_OBSERVATION_COMPACT_DECODE (1u << 5u)
+#define TDMA_PIO_SPI_CLOCK_OBSERVATION_COMMON_TIME_INVALID (1u << 6u)
+#define TDMA_PIO_SPI_CLOCK_OBSERVATION_LOCAL_TX_INVALID (1u << 7u)
+#define TDMA_PIO_SPI_CLOCK_OBSERVATION_LOCAL_TX_SEQUENCE_MISMATCH (1u << 8u)
+#define TDMA_PIO_SPI_CLOCK_OBSERVATION_LOCAL_TX_IDENTITY_MISMATCH (1u << 9u)
 #define TDMA_PIO_SPI_RING_ADAPTER_RX_QUEUE_DEPTH 8u
 #define TDMA_PIO_SPI_RING_ADAPTER_TX_EVIDENCE_DEPTH 8u
 #define TDMA_PIO_SPI_RING_ADAPTER_RX_EVIDENCE_DEPTH 8u
@@ -165,6 +169,19 @@ typedef bool (*tdma_pio_spi_ring_phys_timestamp_ready_fn)(
 typedef bool (*tdma_pio_spi_ring_phys_tx_complete_fn)(
     void *context,
     uint64_t *tx_timestamp_ns);
+/* Optional follower observation token: one local regenerated TX edge for the
+ * frame returned by phys_rx().  Zero/false is diagnostic-only. */
+typedef bool (*tdma_pio_spi_ring_phys_local_tx_edge_fn)(
+    void *context,
+    uint64_t *tx_timestamp_ns);
+/* Sequence-aware local TX edge callback.  expected_sequence and identity are
+ * the frame currently being forwarded; the callback must return the physical
+ * latch token for that forwarding edge. */
+typedef bool (*tdma_pio_spi_ring_phys_local_tx_edge_ex_fn)(
+    void *context,
+    uint32_t expected_sequence,
+    uint32_t expected_identity_crc32,
+    tdma_ring_local_tx_edge_evidence_t *evidence);
 typedef bool (*tdma_pio_spi_ring_phys_tx_retryable_fn)(
     const void *context);
 
@@ -269,6 +286,14 @@ typedef struct {
     uint32_t comm_fsm_last_error;
     uint32_t resident_reseed_count;
     uint32_t resident_last_reseed_reason;
+    uint64_t local_tx_edge_timestamp_ns;
+    uint32_t local_tx_edge_count;
+    uint32_t local_tx_edge_miss_count;
+    uint32_t local_tx_edge_unpaired_count;
+    uint32_t local_tx_edge_sequence;
+    uint32_t local_tx_edge_identity_crc32;
+    uint32_t local_tx_edge_capture_generation;
+    uint32_t local_tx_edge_flags;
 } tdma_pio_spi_ring_adapter_snapshot_t;
 
 typedef struct {
@@ -293,6 +318,8 @@ typedef struct {
     tdma_pio_spi_ring_phys_disarm_fn phys_disarm;
     tdma_pio_spi_ring_phys_timestamp_ready_fn phys_timestamp_ready;
     tdma_pio_spi_ring_phys_tx_complete_fn phys_tx_complete;
+    tdma_pio_spi_ring_phys_local_tx_edge_fn phys_local_tx_edge;
+    tdma_pio_spi_ring_phys_local_tx_edge_ex_fn phys_local_tx_edge_ex;
     tdma_pio_spi_ring_phys_train_fn phys_train;
     tdma_pio_spi_ring_phys_train_service_fn phys_train_service;
     tdma_pio_spi_ring_phys_overlay_fn phys_prepare_overlay;
@@ -392,6 +419,18 @@ typedef struct {
     uint32_t resident_last_completed_segment_mask;
     uint32_t resident_reseed_count;
     uint32_t resident_last_reseed_reason;
+    /* Follower regenerated TX latches and reference origin-completion latches
+     * are retained as sequence/identity-bound diagnostic provenance. */
+    uint64_t local_tx_edge_timestamp_ns;
+    uint32_t local_tx_edge_count;
+    uint32_t local_tx_edge_miss_count;
+    uint32_t local_tx_edge_unpaired_count;
+    uint32_t local_tx_edge_sequence;
+    uint32_t local_tx_edge_identity_crc32;
+    uint32_t local_tx_edge_capture_generation;
+    uint32_t local_tx_edge_flags;
+    tdma_ring_local_tx_edge_evidence_t local_tx_edge_evidence[
+        TDMA_PIO_SPI_RING_ADAPTER_RX_EVIDENCE_DEPTH];
     /* Reference flight TX completes asynchronously.  A passed emission
      * deadline must not resubmit while the physical completion token is
      * outstanding. */
@@ -458,6 +497,12 @@ void tdma_pio_spi_ring_adapter_set_phys_timestamp_ready(
 void tdma_pio_spi_ring_adapter_set_phys_tx_complete(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_phys_tx_complete_fn tx_complete);
+void tdma_pio_spi_ring_adapter_set_phys_local_tx_edge(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_pio_spi_ring_phys_local_tx_edge_fn tx_edge);
+void tdma_pio_spi_ring_adapter_set_phys_local_tx_edge_ex(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_pio_spi_ring_phys_local_tx_edge_ex_fn tx_edge);
 void tdma_pio_spi_ring_adapter_set_phys_overlay(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_phys_overlay_fn prepare_overlay,

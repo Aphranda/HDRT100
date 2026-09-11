@@ -10,28 +10,29 @@
 #define VDC_RING_OBSERVER_TIME_CRITICAL(name) name
 #endif
 
-static int32_t vdc_ring_observer_residual(uint64_t reference_tx_timestamp_ns,
+static int32_t vdc_ring_observer_residual(uint32_t reference_tx_phase_ns,
                                           uint32_t link_delay_ns,
-                                          uint64_t local_rx_timestamp_ns,
+                                          uint32_t local_rx_phase_ns,
                                           uint32_t period_ns)
 {
-    if (UINT64_MAX - reference_tx_timestamp_ns < (uint64_t)link_delay_ns) {
+    if (period_ns == 0u || reference_tx_phase_ns >= period_ns ||
+        local_rx_phase_ns >= period_ns) {
         return INT32_MAX;
     }
-    const uint64_t expected_rx_timestamp_ns =
-        reference_tx_timestamp_ns + (uint64_t)link_delay_ns;
-    int64_t residual = local_rx_timestamp_ns >= expected_rx_timestamp_ns
-        ? (int64_t)(local_rx_timestamp_ns - expected_rx_timestamp_ns)
-        : -(int64_t)(expected_rx_timestamp_ns - local_rx_timestamp_ns);
-    if (period_ns != 0u) {
-        const int64_t period = (int64_t)period_ns;
-        const int64_t half_period = period / 2ll;
-        while (residual > half_period) {
-            residual -= period;
-        }
-        while (residual < -half_period) {
-            residual += period;
-        }
+    /* Both phases are captured by their respective local counters.  Only
+     * their position inside a frozen TDMA period is comparable across
+     * boards; subtracting the raw 64-bit latches would inject boot-epoch
+     * offsets as apparent DPLL phase error. */
+    const int64_t period = (int64_t)period_ns;
+    const int64_t expected_rx_phase_ns =
+        ((int64_t)reference_tx_phase_ns + (int64_t)link_delay_ns) % period;
+    int64_t residual = (int64_t)local_rx_phase_ns - expected_rx_phase_ns;
+    const int64_t half_period = period / 2ll;
+    while (residual > half_period) {
+        residual -= period;
+    }
+    while (residual < -half_period) {
+        residual += period;
     }
     if (residual > INT32_MAX) {
         return INT32_MAX;
@@ -88,7 +89,14 @@ static bool vdc_ring_observer_expand_checked(
          VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE) == 0u ||
         (observation->timestamp_flags &
          VDC_DOMAIN_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) != 0u ||
-        observation->reference_tx_timestamp_ns == 0ull ||
+        (observation->correlation_flags &
+         (TDMA_RING_CLOCK_OBSERVATION_FLAG_CYCLE_PHASE |
+          TDMA_RING_CLOCK_OBSERVATION_FLAG_COMMON_TIME)) !=
+            (TDMA_RING_CLOCK_OBSERVATION_FLAG_CYCLE_PHASE |
+             TDMA_RING_CLOCK_OBSERVATION_FLAG_COMMON_TIME) ||
+        observation->reference_tx_phase_ns >= schedule->period_ns ||
+        observation->local_rx_phase_ns >= schedule->period_ns ||
+        observation->common_effective_time_ns == 0ull ||
         observation->local_rx_timestamp_ns == 0ull) {
         return false;
     }
@@ -96,9 +104,14 @@ static bool vdc_ring_observer_expand_checked(
         return false;
     }
 
-    const uint64_t cycle_start_ns =
-        observation->local_rx_timestamp_ns -
-        observation->local_rx_timestamp_ns % schedule->period_ns;
+    if (observation->common_effective_time_ns % schedule->period_ns !=
+        observation->reference_tx_phase_ns ||
+        observation->common_effective_time_ns <
+            (uint64_t)observation->reference_tx_phase_ns) {
+        return false;
+    }
+    const uint64_t cycle_start_ns = observation->common_effective_time_ns -
+        (uint64_t)observation->reference_tx_phase_ns;
     if (UINT64_MAX - cycle_start_ns <
         (uint64_t)schedule->observation_window_offset_ns) {
         return false;
@@ -113,15 +126,18 @@ static bool vdc_ring_observer_expand_checked(
     evidence->payload_class = VDC_DOMAIN_PAYLOAD_IDLE_BEACON;
     evidence->expected_window_start_ns =
         cycle_start_ns + schedule->observation_window_offset_ns;
-    evidence->start_time_ns = observation->reference_tx_timestamp_ns;
-    evidence->observed_time_ns = observation->local_rx_timestamp_ns;
-    evidence->done_time_ns = observation->local_rx_timestamp_ns;
-    evidence->apply_time_ns = observation->local_rx_timestamp_ns;
+    /* All event times are in the logical TDMA schedule domain.  The local
+     * hardware RX latch remains provenance only and is never used here. */
+    evidence->start_time_ns = observation->common_effective_time_ns;
+    evidence->observed_time_ns = cycle_start_ns +
+        (uint64_t)observation->local_rx_phase_ns;
+    evidence->done_time_ns = evidence->observed_time_ns;
+    evidence->apply_time_ns = evidence->observed_time_ns;
     evidence->delay_ns = observation->link_delay_ns;
     evidence->phase_error_ns = vdc_ring_observer_residual(
-        observation->reference_tx_timestamp_ns,
+        observation->reference_tx_phase_ns,
         observation->link_delay_ns,
-        observation->local_rx_timestamp_ns,
+        observation->local_rx_phase_ns,
         schedule->period_ns);
     evidence->timestamp_source = VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK;
     evidence->timestamp_resolution_ns =
@@ -130,6 +146,14 @@ static bool vdc_ring_observer_expand_checked(
     evidence->schedule_crc32 = observation->schedule_crc32;
     evidence->frame_crc32 = observation->frame_crc32;
     evidence->sample_crc32 = observation->frame_crc32;
+    evidence->delay_generation = observation->delay_generation;
+    evidence->bias_generation = observation->bias_generation;
+    evidence->correlation_flags = observation->correlation_flags;
+    evidence->reference_tx_phase_ns = observation->reference_tx_phase_ns;
+    evidence->local_rx_phase_ns = observation->local_rx_phase_ns;
+    evidence->common_effective_time_ns = observation->common_effective_time_ns;
+    evidence->reference_tx_timestamp_ns = observation->reference_tx_timestamp_ns;
+    evidence->local_rx_timestamp_ns = observation->local_rx_timestamp_ns;
     return true;
 }
 

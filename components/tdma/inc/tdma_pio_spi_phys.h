@@ -715,6 +715,10 @@ typedef struct {
     uint64_t flight_clock_latch_epoch_ns;
     uint32_t flight_clock_latch_resolution_ns;
     bool flight_clock_latch_armed;
+    uint64_t flight_tx_clock_latch_epoch_ns;
+    uint32_t flight_tx_clock_latch_resolution_ns;
+    bool flight_tx_clock_latch_armed;
+    uint32_t flight_tx_edge_capture_generation;
     tdma_pio_spi_ring_waveform_capture_state_t
         flight_sck_waveform_capture_state;
     uint64_t flight_sck_waveform_capture_deadline_us;
@@ -810,6 +814,15 @@ void tdma_pio_spi_phys_publish_arm_error(
     tdma_pio_spi_phys_error_t error);
 uint32_t tdma_pio_spi_phys_last_error(const void *context);
 bool tdma_pio_spi_phys_tx_retryable(const void *context);
+/* Consume one regenerated follower-TX CS edge.  This is observation-only and
+ * never drives forwarding or DPLL control. */
+bool tdma_pio_spi_phys_take_local_tx_edge(void *context,
+                                          uint64_t *tx_timestamp_ns);
+bool tdma_pio_spi_phys_take_local_tx_edge_ex(
+    void *context,
+    uint32_t expected_sequence,
+    uint32_t expected_identity_crc32,
+    tdma_ring_local_tx_edge_evidence_t *evidence);
 void tdma_pio_spi_phys_disarm(void *context);
 bool tdma_pio_spi_phys_set_process_image_mode(
     tdma_pio_spi_phys_t *phys,

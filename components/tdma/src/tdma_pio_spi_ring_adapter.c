@@ -22,6 +22,46 @@ static uint32_t tdma_pio_spi_ring_get_u32(const uint8_t *src)
     return value;
 }
 
+static void tdma_pio_spi_ring_adapter_sample_local_tx_edge(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    bool paired_with_rx);
+
+/* The reference node has no regenerated follower TX edge to sample. Its
+ * origin TX completion is the physical edge for the same local clock. Bind
+ * that latch to the exact transport identity at publication so a returned
+ * process frame cannot be paired with a newer emission. A zero timestamp
+ * deliberately leaves no record: missing physical completion remains
+ * ineligible DPLL evidence. */
+static void tdma_pio_spi_ring_adapter_bind_reference_local_tx_edge(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    uint32_t sequence,
+    uint32_t identity_crc32,
+    uint64_t timestamp_ns)
+{
+    if (adapter == NULL ||
+        adapter->role != TDMA_PIO_SPI_RING_ROLE_REFERENCE ||
+        sequence == 0u || identity_crc32 == 0u || timestamp_ns == 0ull) {
+        return;
+    }
+    const uint32_t evidence_index = sequence %
+        TDMA_PIO_SPI_RING_ADAPTER_RX_EVIDENCE_DEPTH;
+    tdma_ring_local_tx_edge_evidence_t *evidence =
+        &adapter->local_tx_edge_evidence[evidence_index];
+    adapter->local_tx_edge_capture_generation++;
+    evidence->timestamp_ns = timestamp_ns;
+    evidence->sequence = sequence;
+    evidence->identity_crc32 = identity_crc32;
+    evidence->capture_generation = adapter->local_tx_edge_capture_generation;
+    evidence->flags = TDMA_RING_LOCAL_TX_EDGE_FLAG_TIMESTAMP_VALID |
+        TDMA_RING_LOCAL_TX_EDGE_FLAG_SEQUENCE_BOUND |
+        TDMA_RING_LOCAL_TX_EDGE_FLAG_IDENTITY_BOUND;
+    adapter->local_tx_edge_count++;
+    adapter->local_tx_edge_timestamp_ns = timestamp_ns;
+    adapter->local_tx_edge_sequence = sequence;
+    adapter->local_tx_edge_identity_crc32 = identity_crc32;
+    adapter->local_tx_edge_flags = evidence->flags;
+}
+
 static bool tdma_pio_spi_ring_adapter_build_dpll_observation(
     tdma_pio_spi_ring_adapter_t *adapter,
     uint8_t *payload,
@@ -144,20 +184,45 @@ static bool tdma_pio_spi_ring_adapter_correlate_dpll_observation(
     if (adapter->local_rx_evidence[evidence_index].timestamp_ns == 0ull) {
         reject_reason |= TDMA_PIO_SPI_CLOCK_OBSERVATION_TIMESTAMP_MISSING;
     }
+    const tdma_ring_local_tx_edge_evidence_t *local_tx =
+        &adapter->local_tx_edge_evidence[evidence_index];
+    if (adapter->phys_local_tx_edge_ex != NULL) {
+        if ((local_tx->flags & TDMA_RING_LOCAL_TX_EDGE_FLAG_TIMESTAMP_VALID) == 0u ||
+            local_tx->timestamp_ns == 0ull) {
+            reject_reason |= TDMA_PIO_SPI_CLOCK_OBSERVATION_LOCAL_TX_INVALID;
+        }
+        if ((local_tx->flags & TDMA_RING_LOCAL_TX_EDGE_FLAG_SEQUENCE_BOUND) == 0u ||
+            local_tx->sequence != sequence) {
+            reject_reason |= TDMA_PIO_SPI_CLOCK_OBSERVATION_LOCAL_TX_SEQUENCE_MISMATCH;
+        }
+        if ((local_tx->flags & TDMA_RING_LOCAL_TX_EDGE_FLAG_IDENTITY_BOUND) == 0u ||
+            local_tx->identity_crc32 !=
+                adapter->local_rx_evidence[evidence_index].identity_crc32) {
+            reject_reason |= TDMA_PIO_SPI_CLOCK_OBSERVATION_LOCAL_TX_IDENTITY_MISMATCH;
+        }
+    }
     if (reject_reason != 0u) {
         adapter->clock_observation_last_reject_reason = reject_reason;
         return false;
     }
-    uint64_t reference_tx_timestamp_ns = 0ull;
-    if (!tdma_process_image_dpll_observation_map_phase(
-            encoded,
-            adapter->config.cycle_period_ns,
-            adapter->local_rx_evidence[evidence_index].timestamp_ns,
-            &reference_tx_timestamp_ns)) {
+    const uint32_t reference_tx_phase_ns =
+        (encoded & TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_MASK) *
+        TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_TICK_QUANTUM_NS;
+    if (adapter->config.cycle_period_ns == 0u ||
+        reference_tx_phase_ns >= adapter->config.cycle_period_ns) {
         adapter->clock_observation_last_reject_reason =
             TDMA_PIO_SPI_CLOCK_OBSERVATION_COMPACT_DECODE;
         return false;
     }
+    const uint64_t sequence_time_ns =
+        (uint64_t)sequence * (uint64_t)adapter->config.cycle_period_ns;
+    if (UINT64_MAX - sequence_time_ns < (uint64_t)reference_tx_phase_ns) {
+        adapter->clock_observation_last_reject_reason =
+            TDMA_PIO_SPI_CLOCK_OBSERVATION_COMMON_TIME_INVALID;
+        return false;
+    }
+    const uint64_t common_effective_time_ns =
+        sequence_time_ns + (uint64_t)reference_tx_phase_ns;
 
     tdma_ring_clock_observation_t observation;
     memset(&observation, 0, sizeof(observation));
@@ -177,9 +242,34 @@ static bool tdma_pio_spi_ring_adapter_correlate_dpll_observation(
     observation.timestamp_flags =
         TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED;
     observation.correlated_frame_evidence = 1u;
-    observation.reference_tx_timestamp_ns = reference_tx_timestamp_ns;
+    observation.correlation_flags =
+        TDMA_RING_CLOCK_OBSERVATION_FLAG_CYCLE_PHASE |
+        TDMA_RING_CLOCK_OBSERVATION_FLAG_COMMON_TIME;
+    if (observation.source_node == observation.reference_node) {
+        observation.correlation_flags |=
+            TDMA_RING_CLOCK_OBSERVATION_FLAG_LOCAL_PHASE_SAME_CLOCK;
+    } else {
+        /* A forwarded frame supplies a remote origin phase and a receiver-
+         * local latch. Keep the raw phase for diagnostics until the output
+         * observer supplies a calibrated local-to-common mapping. */
+        observation.correlation_flags |=
+            TDMA_RING_CLOCK_OBSERVATION_FLAG_LOCAL_PHASE_RAW;
+    }
+    observation.reference_tx_phase_ns = reference_tx_phase_ns;
+    observation.local_rx_phase_ns = (uint32_t)(
+        adapter->local_rx_evidence[evidence_index].timestamp_ns %
+        adapter->config.cycle_period_ns);
+    observation.common_effective_time_ns = common_effective_time_ns;
+    /* Kept solely for compatibility/diagnostics. The receiver must not use
+     * this locally reconstructed value as a remote absolute TX latch. */
+    observation.reference_tx_timestamp_ns = 0ull;
     observation.local_rx_timestamp_ns =
         adapter->local_rx_evidence[evidence_index].timestamp_ns;
+    if (adapter->phys_local_tx_edge_ex != NULL) {
+        observation.local_tx_edge = *local_tx;
+        observation.local_tx_phase_ns = (uint32_t)(
+            local_tx->timestamp_ns % adapter->config.cycle_period_ns);
+    }
     adapter->clock_observation = observation;
     adapter->clock_observation_count++;
     adapter->clock_observation_last_reject_reason = 0u;
@@ -193,6 +283,57 @@ static void tdma_pio_spi_ring_adapter_set_error(
 {
     if (adapter != NULL) {
         adapter->last_error = error;
+    }
+}
+
+static void tdma_pio_spi_ring_adapter_sample_local_tx_edge(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    bool paired_with_rx)
+{
+    if (adapter == NULL ||
+        (adapter->phys_local_tx_edge == NULL &&
+         adapter->phys_local_tx_edge_ex == NULL)) {
+        return;
+    }
+    const uint32_t expected_sequence = paired_with_rx
+        ? adapter->last_rx_sequence : 0u;
+    const uint32_t expected_identity = paired_with_rx
+        ? adapter->last_rx_identity_crc32 : 0u;
+    tdma_ring_local_tx_edge_evidence_t evidence;
+    memset(&evidence, 0, sizeof(evidence));
+    bool captured = false;
+    if (adapter->phys_local_tx_edge_ex != NULL) {
+        captured = adapter->phys_local_tx_edge_ex(
+            adapter->phys_context,
+            expected_sequence,
+            expected_identity,
+            &evidence);
+    } else {
+        captured = adapter->phys_local_tx_edge(
+            adapter->phys_context, &evidence.timestamp_ns);
+        if (captured && evidence.timestamp_ns != 0ull) {
+            evidence.flags = TDMA_RING_LOCAL_TX_EDGE_FLAG_TIMESTAMP_VALID;
+        }
+    }
+    if (!captured || evidence.timestamp_ns == 0ull) {
+        adapter->local_tx_edge_miss_count++;
+        return;
+    }
+    adapter->local_tx_edge_count++;
+    adapter->local_tx_edge_timestamp_ns = evidence.timestamp_ns;
+    adapter->local_tx_edge_sequence = evidence.sequence;
+    adapter->local_tx_edge_identity_crc32 = evidence.identity_crc32;
+    adapter->local_tx_edge_capture_generation = evidence.capture_generation;
+    adapter->local_tx_edge_flags = evidence.flags;
+    if (!paired_with_rx ||
+        (evidence.flags & TDMA_RING_LOCAL_TX_EDGE_FLAG_SEQUENCE_BOUND) == 0u ||
+        (evidence.flags & TDMA_RING_LOCAL_TX_EDGE_FLAG_IDENTITY_BOUND) == 0u) {
+        adapter->local_tx_edge_unpaired_count++;
+    }
+    if (paired_with_rx && expected_sequence != 0u) {
+        const uint32_t evidence_index = expected_sequence %
+            TDMA_PIO_SPI_RING_ADAPTER_RX_EVIDENCE_DEPTH;
+        adapter->local_tx_edge_evidence[evidence_index] = evidence;
     }
 }
 
@@ -418,6 +559,26 @@ void tdma_pio_spi_ring_adapter_set_phys_tx_complete(
         return;
     }
     adapter->phys_tx_complete = tx_complete;
+}
+
+void tdma_pio_spi_ring_adapter_set_phys_local_tx_edge(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_pio_spi_ring_phys_local_tx_edge_fn tx_edge)
+{
+    if (adapter == NULL || adapter->started != 0u) {
+        return;
+    }
+    adapter->phys_local_tx_edge = tx_edge;
+}
+
+void tdma_pio_spi_ring_adapter_set_phys_local_tx_edge_ex(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_pio_spi_ring_phys_local_tx_edge_ex_fn tx_edge)
+{
+    if (adapter == NULL) {
+        return;
+    }
+    adapter->phys_local_tx_edge_ex = tx_edge;
 }
 
 void tdma_pio_spi_ring_adapter_set_phys_overlay(
@@ -754,6 +915,14 @@ static bool tdma_pio_spi_ring_adapter_start(
     adapter->last_rx_flags = 0u;
     adapter->last_rx_sequence = 0u;
     adapter->last_rx_identity_crc32 = 0u;
+    adapter->local_tx_edge_timestamp_ns = 0ull;
+    adapter->local_tx_edge_count = 0u;
+    adapter->local_tx_edge_miss_count = 0u;
+    adapter->local_tx_edge_unpaired_count = 0u;
+    adapter->local_tx_edge_sequence = 0u;
+    adapter->local_tx_edge_identity_crc32 = 0u;
+    adapter->local_tx_edge_capture_generation = 0u;
+    adapter->local_tx_edge_flags = 0u;
     adapter->resident_feedback_condition_mask = 0u;
     adapter->rx_queue_head = 0u;
     adapter->rx_queue_count = 0u;
@@ -761,6 +930,9 @@ static bool tdma_pio_spi_ring_adapter_start(
            0,
            sizeof(adapter->reference_tx_evidence));
     memset(adapter->local_rx_evidence, 0, sizeof(adapter->local_rx_evidence));
+    memset(adapter->local_tx_edge_evidence,
+           0,
+           sizeof(adapter->local_tx_edge_evidence));
     memset(&adapter->clock_observation, 0, sizeof(adapter->clock_observation));
     adapter->clock_observation_count = 0u;
     adapter->clock_observation_reject_count = 0u;
@@ -842,6 +1014,14 @@ static void tdma_pio_spi_ring_adapter_stop(void *context)
     adapter->last_rx_flags = 0u;
     adapter->last_rx_sequence = 0u;
     adapter->last_rx_identity_crc32 = 0u;
+    adapter->local_tx_edge_timestamp_ns = 0ull;
+    adapter->local_tx_edge_count = 0u;
+    adapter->local_tx_edge_miss_count = 0u;
+    adapter->local_tx_edge_unpaired_count = 0u;
+    adapter->local_tx_edge_sequence = 0u;
+    adapter->local_tx_edge_identity_crc32 = 0u;
+    adapter->local_tx_edge_capture_generation = 0u;
+    adapter->local_tx_edge_flags = 0u;
     adapter->resident_feedback_condition_mask = 0u;
     adapter->rx_queue_head = 0u;
     adapter->rx_queue_count = 0u;
@@ -867,6 +1047,9 @@ static void tdma_pio_spi_ring_adapter_stop(void *context)
            0,
            sizeof(adapter->reference_tx_evidence));
     memset(adapter->local_rx_evidence, 0, sizeof(adapter->local_rx_evidence));
+    memset(adapter->local_tx_edge_evidence,
+           0,
+           sizeof(adapter->local_tx_edge_evidence));
     memset(&adapter->clock_observation, 0, sizeof(adapter->clock_observation));
     tdma_pio_spi_ring_adapter_snapshot_write_end(adapter);
 }
@@ -1015,6 +1198,11 @@ static bool tdma_pio_spi_ring_adapter_launch_reference(
         clock_evidence;
     adapter->reference_tx_evidence[evidence_index].valid =
         tx_timestamp_ns != 0ull;
+    tdma_pio_spi_ring_adapter_bind_reference_local_tx_edge(
+        adapter,
+        view->transport_sequence,
+        view->identity_crc32,
+        tx_timestamp_ns);
     if (adapter->reference_tx_completion_pending) {
         adapter->pending_tx_evidence_sequence = view->transport_sequence;
         adapter->pending_tx_evidence_identity_crc32 = view->identity_crc32;
@@ -1610,6 +1798,18 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
             rx_timestamp_ns;
         adapter->local_rx_evidence[evidence_index].valid = true;
 
+        /* In physical cut-through mode the local forwarding edge occurred
+         * before the completed frame reached this parser. Drain every frame's
+         * latch here, prior to optional DPLL correlation, so a frame without
+         * a DPLL trailer cannot leave stale provenance for the next one. */
+        if (adapter->role != TDMA_PIO_SPI_RING_ROLE_REFERENCE &&
+            (adapter->forwarding_mode ==
+                 TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_FLIGHT ||
+             adapter->forwarding_mode ==
+                 TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE)) {
+            tdma_pio_spi_ring_adapter_sample_local_tx_edge(adapter, true);
+        }
+
         if (adapter->clock_evidence_enabled != 0u &&
             view.payload_size == TDMA_FLIGHT_SHORT_PAYLOAD_SIZE &&
             view.payload != NULL) {
@@ -2178,6 +2378,11 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
                         adapter->reference_tx_timestamp_ns =
                             completed_timestamp_ns;
                     }
+                    tdma_pio_spi_ring_adapter_bind_reference_local_tx_edge(
+                        adapter,
+                        adapter->pending_tx_evidence_sequence,
+                        adapter->pending_tx_evidence_identity_crc32,
+                        completed_timestamp_ns);
                 }
                 adapter->pending_tx_evidence = false;
             }
@@ -2630,6 +2835,19 @@ bool tdma_pio_spi_ring_adapter_get_snapshot(
         snapshot->resident_reseed_count = adapter->resident_reseed_count;
         snapshot->resident_last_reseed_reason =
             adapter->resident_last_reseed_reason;
+        snapshot->local_tx_edge_timestamp_ns =
+            adapter->local_tx_edge_timestamp_ns;
+        snapshot->local_tx_edge_count = adapter->local_tx_edge_count;
+        snapshot->local_tx_edge_miss_count =
+            adapter->local_tx_edge_miss_count;
+        snapshot->local_tx_edge_unpaired_count =
+            adapter->local_tx_edge_unpaired_count;
+        snapshot->local_tx_edge_sequence = adapter->local_tx_edge_sequence;
+        snapshot->local_tx_edge_identity_crc32 =
+            adapter->local_tx_edge_identity_crc32;
+        snapshot->local_tx_edge_capture_generation =
+            adapter->local_tx_edge_capture_generation;
+        snapshot->local_tx_edge_flags = adapter->local_tx_edge_flags;
         const uint32_t sequence_end =
             __atomic_load_n(&adapter->snapshot_guard, __ATOMIC_ACQUIRE);
         if (sequence_begin == sequence_end && (sequence_end & 1u) == 0u) {

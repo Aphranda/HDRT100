@@ -633,7 +633,7 @@ def test_sync_io_static_gate_rejects_schedule_without_capture_guard(
         (
             ROOT / "components/sync_io/src/sync_io_model_sched.c"
         ).read_text(encoding="utf-8").replace(
-            "sync_io_core_capture_is_running() ||",
+            "(sync_io_core_capture_is_running() && !observer_capture_overlap) ||",
             "false ||",
             1,
         ),
@@ -690,8 +690,9 @@ def test_sync_io_static_gate_rejects_schedule_replacement_before_disarm(
             ROOT / "components/sync_io/src/sync_io_model_sched.c"
         ).read_text(encoding="utf-8").replace(
             "sync_io_model_pulse_schedule_disarm();\n\n"
-            "    /* The schedule shares the capture DMA workspace.  Both APIs reject an\n"
-            "     * active peer, so assigning the workspace here cannot race a DMA owner. */\n"
+            "    /* Batch schedules share the capture DMA workspace.  A phase-only observer\n"
+            "     * uses its bounded one-entry buffer when capture is active, so the two DMA\n"
+            "     * clients cannot overwrite one another. */\n"
             "    s_model_pulse.words = sync_io_shared_workspace;",
             "s_model_pulse.words = sync_io_shared_workspace;\n"
             "    sync_io_model_pulse_schedule_disarm();",

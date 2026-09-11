@@ -41,6 +41,7 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_tx(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_tdma_rx(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_tdma_frame_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_tdma_vdc_q(scpi_t *context);
+scpi_result_t scpi_cmd_refmem_sync_tdma_vdc_rx_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_tdma_abort(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_flight_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_flight_fifo_q(scpi_t *context);
@@ -140,6 +141,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:REFMEM:SYNC:TDMA:RX", .callback = scpi_cmd_refmem_sync_tdma_rx}, \
     {.pattern = "SYSTem:REFMEM:SYNC:TDMA:FRAMe?", .callback = scpi_cmd_refmem_sync_tdma_frame_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:TDMA:VDC?", .callback = scpi_cmd_refmem_sync_tdma_vdc_q}, \
+    {.pattern = "SYSTem:REFMEM:SYNC:TDMA:VDC:RX?", .callback = scpi_cmd_refmem_sync_tdma_vdc_rx_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:TDMA:ABORt", .callback = scpi_cmd_refmem_sync_tdma_abort}, \
     {.pattern = "SYSTem:REFMEM:SYNC:FLIGHT?", .callback = scpi_cmd_refmem_sync_flight_q}, \
     {.pattern = "SYSTem:TDMA:FLIGHT:FIFO?", .callback = scpi_cmd_system_tdma_flight_fifo_q}, \

@@ -167,6 +167,13 @@ static int test_init_snapshot(void)
     service.scheduler->ring_runtime.clock_observation.timestamp_flags = 2u;
     service.scheduler->ring_runtime.clock_observation
         .correlated_frame_evidence = 1u;
+    service.scheduler->ring_runtime.clock_observation.correlation_flags = 1u;
+    service.scheduler->ring_runtime.clock_observation.reference_tx_phase_ns =
+        120u;
+    service.scheduler->ring_runtime.clock_observation.local_rx_phase_ns =
+        640u;
+    service.scheduler->ring_runtime.clock_observation
+        .common_effective_time_ns = UINT64_C(0x0102030405060708);
     service.scheduler->ring_runtime.clock_observation
         .reference_tx_timestamp_ns = UINT64_C(0x1122334455667788);
     service.scheduler->ring_runtime.clock_observation.local_rx_timestamp_ns =
@@ -239,6 +246,21 @@ static int test_init_snapshot(void)
     failed += expect_u32("clock observation correlated",
                          snapshot.ring_clock_observation_correlated,
                          1u);
+    failed += expect_u32("clock observation correlation flags",
+                         snapshot.ring_clock_observation_correlation_flags,
+                         1u);
+    failed += expect_u32("clock reference phase",
+                         snapshot.ring_clock_reference_tx_phase_ns,
+                         120u);
+    failed += expect_u32("clock local phase",
+                         snapshot.ring_clock_local_rx_phase_ns,
+                         640u);
+    failed += expect_u32("clock common time low",
+                         snapshot.ring_clock_common_effective_time_ns_lo,
+                         0x05060708u);
+    failed += expect_u32("clock common time high",
+                         snapshot.ring_clock_common_effective_time_ns_hi,
+                         0x01020304u);
     failed += expect_u32("clock reference timestamp low",
                          snapshot.ring_clock_reference_tx_timestamp_ns_lo,
                          0x55667788u);
@@ -251,6 +273,45 @@ static int test_init_snapshot(void)
     failed += expect_u32("clock local timestamp high",
                          snapshot.ring_clock_local_rx_timestamp_ns_hi,
                          0x88776655u);
+    return failed;
+}
+
+static int test_class_submit_watermarks_are_independent(void)
+{
+    int failed = 0;
+    refmem_realtime_tdma_service_t service;
+    refmem_realtime_tdma_snapshot_t snapshot;
+    fake_ops_context_t fake = {.tx_ok = true, .rx_ok = true};
+    const uint8_t frame[] = {0x52u, 0x4Du, 0x01u, 0x00u};
+    const refmem_realtime_tdma_intent_config_t config = {
+        .window_epoch = 1u,
+        .window_index = 1u,
+        .deadline_us = 1000u,
+        .role = REFMEM_SPI_PHYSICAL_ROLE_MASTER,
+        .frame = frame,
+        .frame_size = sizeof(frame),
+    };
+
+    (void)refmem_realtime_tdma_init(&service);
+    (void)refmem_realtime_tdma_bind_ops(&service, &s_fake_ops, &fake);
+    /* The host-only wrapper exposes the class watermarks even when the
+     * scheduler is not configured; this protects the storage contract. */
+    failed += expect_u32("initial class watermark",
+                         service.last_submit_seq_by_class[
+                             TDMA_TRAFFIC_CONFIG_CONTROL],
+                         0u);
+    failed += expect_u32("initial realtime watermark",
+                         service.last_submit_seq_by_class[
+                             TDMA_TRAFFIC_REFMEM_REALTIME],
+                         0u);
+    failed += expect_bool("submit baseline tx",
+                          refmem_realtime_tdma_submit_tx(&service, &config),
+                          true);
+    refmem_realtime_tdma_core1_service(&service);
+    (void)refmem_realtime_tdma_get_snapshot(&service, &snapshot);
+    failed += expect_u32("non-scheduler intent remains ordered",
+                         snapshot.intent_seq,
+                         snapshot.completed_seq);
     return failed;
 }
 
@@ -727,6 +788,7 @@ int main(void)
 {
     int failed = 0;
     failed += test_init_snapshot();
+    failed += test_class_submit_watermarks_are_independent();
     failed += test_refmem_payload_registration_contract();
     failed += test_tx_intent_completes_on_core1_service();
     failed += test_rejects_overrun();

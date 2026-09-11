@@ -884,8 +884,11 @@ static void distributed_refmem_node_load_auto_pop_front(void)
 
 static bool distributed_refmem_tdma_busy(const refmem_realtime_tdma_snapshot_t *snapshot)
 {
-    return snapshot != NULL &&
-           snapshot->intent_seq > snapshot->completed_seq;
+    /* intent_seq/completed_seq are now scoped to the selected traffic class
+     * by refmem_realtime_tdma_get_snapshot().  Comparing those values is
+     * therefore safe even while another class is carrying extra load. */
+    return snapshot != NULL && snapshot->intent_seq != 0u &&
+           (int32_t)(snapshot->intent_seq - snapshot->completed_seq) > 0;
 }
 
 static uint32_t distributed_refmem_u32_payload_crc32(const uint32_t *fields,
@@ -1647,9 +1650,12 @@ static void distributed_refmem_node_load_auto_process_completed(
         uint8_t frame[REFMEM_REALTIME_TDMA_FRAME_MAX];
         size_t frame_size = 0u;
         if (snapshot->last_result == REFMEM_REALTIME_TDMA_RESULT_FRAME_READY &&
-            distributed_refmem_get_realtime_tdma_frame(frame,
-                                                       sizeof(frame),
-                                                       &frame_size)) {
+            refmem_realtime_tdma_get_result_frame_for_payload_class(
+                &s_refmem_realtime_tdma,
+                REFMEM_REALTIME_TDMA_PAYLOAD_REFMEM_DELTA,
+                frame,
+                sizeof(frame),
+                &frame_size)) {
             refmem_sync_frame_header_t command_header;
             const uint8_t *command_payload = NULL;
             uint16_t command_payload_size = 0u;
@@ -1742,6 +1748,7 @@ static bool distributed_refmem_node_load_auto_submit_tx(void)
         .role = REFMEM_SPI_PHYSICAL_ROLE_MASTER,
         .baud_hz = s_node_load_auto_sync.baud_hz,
         .pins = s_node_load_auto_sync.downlink_adapter_pins,
+        .payload_class = REFMEM_REALTIME_TDMA_PAYLOAD_REFMEM_DELTA,
         .frame = frame,
         .frame_size = frame_size,
     };
@@ -1755,7 +1762,10 @@ static bool distributed_refmem_node_load_auto_submit_tx(void)
     }
 
     refmem_realtime_tdma_snapshot_t snapshot;
-    (void)refmem_realtime_tdma_get_snapshot(&s_refmem_realtime_tdma, &snapshot);
+    (void)refmem_realtime_tdma_get_snapshot_for_payload_class(
+        &s_refmem_realtime_tdma,
+        REFMEM_REALTIME_TDMA_PAYLOAD_REFMEM_DELTA,
+        &snapshot);
     s_node_load_auto_sync.active_intent = DISTRIBUTED_REFMEM_AUTO_INTENT_TX_NODE_LOAD;
     s_node_load_auto_sync.active_instance_id = instance_id;
     s_node_load_auto_sync.active_intent_seq = snapshot.intent_seq;
@@ -1778,6 +1788,7 @@ static bool distributed_refmem_node_load_auto_submit_rx(void)
         .role = REFMEM_SPI_PHYSICAL_ROLE_SLAVE,
         .baud_hz = s_node_load_auto_sync.baud_hz,
         .pins = s_node_load_auto_sync.uplink_adapter_pins,
+        .payload_class = REFMEM_REALTIME_TDMA_PAYLOAD_REFMEM_DELTA,
         .frame = NULL,
         .frame_size = 0u,
     };
@@ -1791,7 +1802,10 @@ static bool distributed_refmem_node_load_auto_submit_rx(void)
     }
 
     refmem_realtime_tdma_snapshot_t snapshot;
-    (void)refmem_realtime_tdma_get_snapshot(&s_refmem_realtime_tdma, &snapshot);
+    (void)refmem_realtime_tdma_get_snapshot_for_payload_class(
+        &s_refmem_realtime_tdma,
+        REFMEM_REALTIME_TDMA_PAYLOAD_REFMEM_DELTA,
+        &snapshot);
     s_node_load_auto_sync.active_intent = DISTRIBUTED_REFMEM_AUTO_INTENT_RX_WINDOW;
     s_node_load_auto_sync.active_instance_id = 0u;
     s_node_load_auto_sync.active_intent_seq = snapshot.intent_seq;
@@ -1807,7 +1821,10 @@ static void distributed_refmem_node_load_auto_service(void)
     }
 
     refmem_realtime_tdma_snapshot_t snapshot;
-    if (!refmem_realtime_tdma_get_snapshot(&s_refmem_realtime_tdma, &snapshot)) {
+    if (!refmem_realtime_tdma_get_snapshot_for_payload_class(
+            &s_refmem_realtime_tdma,
+            REFMEM_REALTIME_TDMA_PAYLOAD_REFMEM_DELTA,
+            &snapshot)) {
         s_node_load_auto_sync.last_error = 7u;
         return;
     }
@@ -1855,9 +1872,12 @@ static void distributed_refmem_vdc_follower_rx_process_completed(
     if (tdma->last_result == REFMEM_REALTIME_TDMA_RESULT_FRAME_READY) {
         uint8_t frame[REFMEM_REALTIME_TDMA_FRAME_MAX];
         size_t frame_size = 0u;
-        if (!distributed_refmem_get_realtime_tdma_frame(frame,
-                                                        sizeof(frame),
-                                                        &frame_size)) {
+        if (!refmem_realtime_tdma_get_result_frame_for_payload_class(
+                &s_refmem_realtime_tdma,
+                REFMEM_REALTIME_TDMA_PAYLOAD_VDC_COMMAND,
+                frame,
+                sizeof(frame),
+                &frame_size)) {
             s_vdc_follower_rx.invalid_count++;
             s_vdc_follower_rx.last_error = 5u;
         } else {
@@ -1912,7 +1932,10 @@ static void distributed_refmem_vdc_follower_rx_service(void)
     vdc_dpll_manager_refmem_snapshot_t vdc;
     refmem_realtime_tdma_snapshot_t tdma;
     if (!vdc_dpll_manager_get_refmem_snapshot(&vdc) ||
-        !refmem_realtime_tdma_get_snapshot(&s_refmem_realtime_tdma, &tdma)) {
+        !refmem_realtime_tdma_get_snapshot_for_payload_class(
+            &s_refmem_realtime_tdma,
+            REFMEM_REALTIME_TDMA_PAYLOAD_VDC_COMMAND,
+            &tdma)) {
         s_vdc_follower_rx.last_error = 1u;
         return;
     }
@@ -1979,7 +2002,10 @@ static void distributed_refmem_vdc_follower_rx_service(void)
         return;
     }
 
-    (void)refmem_realtime_tdma_get_snapshot(&s_refmem_realtime_tdma, &tdma);
+    (void)refmem_realtime_tdma_get_snapshot_for_payload_class(
+        &s_refmem_realtime_tdma,
+        REFMEM_REALTIME_TDMA_PAYLOAD_VDC_COMMAND,
+        &tdma);
     s_vdc_follower_rx.active = 1u;
     s_vdc_follower_rx.active_intent_seq = tdma.intent_seq;
     s_vdc_follower_rx.submitted_count++;
@@ -2412,11 +2438,16 @@ bool distributed_refmem_build_realtime_tdma_vdc_envelope(
     size_t frame_size = 0u;
     refmem_realtime_tdma_snapshot_t snapshot;
 
-    if (!refmem_realtime_tdma_get_snapshot(&s_refmem_realtime_tdma, &snapshot) ||
-        !refmem_realtime_tdma_get_result_frame(&s_refmem_realtime_tdma,
-                                               frame,
-                                               sizeof(frame),
-                                               &frame_size)) {
+    if (!refmem_realtime_tdma_get_snapshot_for_payload_class(
+            &s_refmem_realtime_tdma,
+            REFMEM_REALTIME_TDMA_PAYLOAD_VDC_COMMAND,
+            &snapshot) ||
+        !refmem_realtime_tdma_get_result_frame_for_payload_class(
+            &s_refmem_realtime_tdma,
+            REFMEM_REALTIME_TDMA_PAYLOAD_VDC_COMMAND,
+            frame,
+            sizeof(frame),
+            &frame_size)) {
         if (status != NULL) {
             memset(status, 0, sizeof(*status));
             status->result = REFMEM_VDC_BRIDGE_BAD_TDMA_SNAPSHOT;

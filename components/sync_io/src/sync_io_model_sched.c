@@ -53,6 +53,10 @@ static bool s_wave_output_manager_active;
 static bool s_wave_output_sm_claimed;
 static bool s_wave_output_dma_claimed;
 static bool s_wave_output_program_loaded;
+/* A phase-only observer pulse may coexist with the normal input capture.
+ * Keep its one-entry schedule out of the capture ring; larger schedules still
+ * use the shared workspace and remain mutually exclusive with capture. */
+static uint32_t s_phase_observer_words[SYNC_IO_MODEL_PULSE_WORDS_PER_ENTRY];
 
 static float sync_io_model_clkdiv_for_tick_rate(uint32_t tick_hz);
 static uint32_t sync_io_model_tick_hz_from_period_ns(uint32_t tick_period_ns);
@@ -514,8 +518,14 @@ static bool sync_io_pulse_schedule_arm_on_pin_common(
     const bool use_periodic_entries =
         entries_us == NULL && entries_ns == NULL &&
         periodic_period_ns != 0u && periodic_high_ns != 0u;
+    const bool observer_persona =
+        pulse_pio == BOARD_SYNC_PIO_FAST &&
+        pulse_sm == BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM;
+    const bool observer_capture_overlap =
+        observer_persona && use_periodic_entries && entry_count == 1u &&
+        sync_io_core_capture_is_running();
     if (!sync_io_core_initialized() ||
-        sync_io_core_capture_is_running() ||
+        (sync_io_core_capture_is_running() && !observer_capture_overlap) ||
         (!use_periodic_entries && entries_us == NULL && entries_ns == NULL) ||
         entry_count == 0u ||
         entry_count > SYNC_IO_MODEL_PULSE_MAX_ENTRIES ||
@@ -531,9 +541,13 @@ static bool sync_io_pulse_schedule_arm_on_pin_common(
 
     sync_io_model_pulse_schedule_disarm();
 
-    /* The schedule shares the capture DMA workspace.  Both APIs reject an
-     * active peer, so assigning the workspace here cannot race a DMA owner. */
+    /* Batch schedules share the capture DMA workspace.  A phase-only observer
+     * uses its bounded one-entry buffer when capture is active, so the two DMA
+     * clients cannot overwrite one another. */
     s_model_pulse.words = sync_io_shared_workspace;
+    if (observer_capture_overlap) {
+        s_model_pulse.words = s_phase_observer_words;
+    }
 
     uint64_t cumulative_ns = 0u;
     for (uint32_t i = 0u; i < entry_count; i++) {

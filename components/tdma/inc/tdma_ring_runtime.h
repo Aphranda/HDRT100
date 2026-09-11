@@ -22,6 +22,40 @@
      TDMA_RING_CALIBRATION_FLAG_FORWARD_RESIDENCE_VALID)
 #define TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY 0x00000001u
 #define TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED 0x00000002u
+/* A DPLL process-image trailer transports an origin TX position within a
+ * frozen TDMA cycle.  It is deliberately not an absolute timestamp: every
+ * board has an independently booted hardware counter. */
+#define TDMA_RING_CLOCK_OBSERVATION_FLAG_CYCLE_PHASE 0x00000001u
+/* common_effective_time_ns is a logical TDMA schedule time derived from the
+ * correlated sequence, the frozen cycle period and reference TX phase.  It
+ * is not a board boot epoch and must never be reconstructed from RX time. */
+#define TDMA_RING_CLOCK_OBSERVATION_FLAG_COMMON_TIME 0x00000002u
+/* The origin and receiver latch share one hardware counter. This applies to
+ * the reference node's returned-loop observation, not to a forwarded frame
+ * merely because every node uses the same TDMA period. */
+#define TDMA_RING_CLOCK_OBSERVATION_FLAG_LOCAL_PHASE_SAME_CLOCK 0x00000004u
+/* The local latch has been explicitly mapped into the frozen common TDMA time
+ * domain under a generation-bound calibration/output contract. */
+#define TDMA_RING_CLOCK_OBSERVATION_FLAG_LOCAL_PHASE_COMMON_MAPPED 0x00000008u
+/* The phase remains a raw local-counter modulo value. It is diagnostic data,
+ * never a cross-board output residual or formal lock input. */
+#define TDMA_RING_CLOCK_OBSERVATION_FLAG_LOCAL_PHASE_RAW 0x00000010u
+
+/* Local regenerated-TX evidence is produced by the physical latch and
+ * annotated by the adapter with the frame it was expected to forward.  The
+ * annotation is only admissible when the physical callback returns a valid
+ * edge for the same RX frame; otherwise the sample remains raw diagnostic. */
+#define TDMA_RING_LOCAL_TX_EDGE_FLAG_TIMESTAMP_VALID (1u << 0u)
+#define TDMA_RING_LOCAL_TX_EDGE_FLAG_SEQUENCE_BOUND (1u << 1u)
+#define TDMA_RING_LOCAL_TX_EDGE_FLAG_IDENTITY_BOUND (1u << 2u)
+
+typedef struct {
+    uint64_t timestamp_ns;
+    uint32_t sequence;
+    uint32_t identity_crc32;
+    uint32_t capture_generation;
+    uint32_t flags;
+} tdma_ring_local_tx_edge_evidence_t;
 
 /* Correlated reference-TX/local-RX evidence published by the transport.
  * TDMA owns the wire correlation; clock policy remains in VDC. */
@@ -36,8 +70,18 @@ typedef struct {
     uint32_t timestamp_resolution_ns;
     uint32_t timestamp_flags;
     uint32_t correlated_frame_evidence;
+    uint32_t correlation_flags;
+    /* Local loop evidence: the same node's regenerated TX edge paired with
+     * its RX edge for this sequence.  A zero value is ineligible evidence. */
+    uint32_t local_tx_phase_ns;
+    uint32_t reference_tx_phase_ns;
+    uint32_t local_rx_phase_ns;
+    uint64_t common_effective_time_ns;
+    /* Raw local latches remain diagnostic provenance only.  Consumers must
+     * use the phase fields above for inter-board residual calculation. */
     uint64_t reference_tx_timestamp_ns;
     uint64_t local_rx_timestamp_ns;
+    tdma_ring_local_tx_edge_evidence_t local_tx_edge;
 } tdma_ring_clock_observation_t;
 
 typedef enum {

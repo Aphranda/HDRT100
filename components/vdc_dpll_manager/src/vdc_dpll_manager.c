@@ -31,12 +31,13 @@
 
 #define VDC_DPLL_MANAGER_SELF_TEST_CLEANUP_MARGIN_MS 250u
 #define VDC_DPLL_MANAGER_DPLL_CAPTURE_MAGIC 0x4C504444u /* DDPL */
-#define VDC_DPLL_MANAGER_DPLL_CAPTURE_SCHEMA 2u
+#define VDC_DPLL_MANAGER_DPLL_CAPTURE_SCHEMA 5u
 #define VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_MASTER 1u
 #define VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_COMMAND 2u
 #define VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_STATE 3u
+#define VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_EVIDENCE 4u
 #define VDC_DPLL_MANAGER_WAVEFORM_MAGIC 0x57524D53u /* SMRW */
-#define VDC_DPLL_MANAGER_WAVEFORM_SCHEMA 3u
+#define VDC_DPLL_MANAGER_WAVEFORM_SCHEMA 4u
 #define VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT 3u
 #define VDC_DPLL_MANAGER_PHASE_ARM_AHEAD_PERIODS 2u
 
@@ -80,6 +81,8 @@ typedef struct __attribute__((packed)) {
     uint32_t base_time_l32_ns;
     uint32_t matched_window_start_l32_ns;
     uint32_t dropped_before;
+    uint32_t sample_seq;
+    uint32_t quality_flags;
 } vdc_dpll_manager_waveform_storage_record_t;
 
 _Static_assert(
@@ -96,7 +99,7 @@ _Static_assert(
     "DPLL capture must stay inside the maintenance write budget");
 _Static_assert(sizeof(vdc_dpll_manager_dpll_capture_header_t) == 28u,
                "DPLL capture header ABI changed");
-_Static_assert(sizeof(vdc_dpll_manager_dpll_capture_record_t) == 40u,
+_Static_assert(sizeof(vdc_dpll_manager_dpll_capture_record_t) == 100u,
                "DPLL capture record ABI changed");
 
 static vdc_dpll_manager_vdc_status_t s_vdc_status;
@@ -168,6 +171,10 @@ static uint32_t s_dpll_capture_first_update_seq;
 static uint32_t s_dpll_capture_last_update_seq;
 static uint32_t s_dpll_capture_start_ms;
 static uint32_t s_dpll_capture_end_ms;
+/* Identifies which follower event caused the next runtime snapshot append.
+ * Domain update_seq is intentionally shared by command and observation
+ * events, so the hint avoids misclassifying a later command as evidence. */
+static uint32_t s_vdc_follower_capture_kind_hint;
 static vdc_dpll_manager_waveform_storage_record_t s_waveform_buffers
     [VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT]
     [VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS];
@@ -208,6 +215,10 @@ static uint32_t s_phase_stable_span_min_ns;
 static uint32_t s_phase_stable_span_max_ns;
 static uint64_t s_phase_tx_not_before_ns;
 static uint32_t s_phase_tx_scheduled_count;
+static uint32_t s_phase_last_sample_seq;
+static bool s_waveform_have_previous_word;
+static uint32_t s_waveform_last_sample_seq;
+static uint32_t s_waveform_last_dropped_before;
 
 static bool vdc_dpll_manager_waveform_queue_push(uint32_t buffer,
                                                   uint32_t first_record);
@@ -292,32 +303,46 @@ static void vdc_dpll_manager_publish_runtime_snapshot_locked(void)
                 s_vdc_domain.control.profile.mode ==
                     VDC_DPLL_CONTROL_MODE_FOLLOWER;
             const uint32_t command_seq =
-                follower ? s_vdc_domain.control.last_follower_command_seq : 0u;
+                follower &&
+                        s_vdc_follower_capture_kind_hint !=
+                            VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_EVIDENCE
+                    ? s_vdc_domain.control.last_follower_command_seq
+                    : 0u;
             const uint32_t kind = !follower
                                       ? VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_MASTER
-                                      : (command_seq != 0u
-                                             ? VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_COMMAND
-                                             : VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_STATE);
+                                      : (s_vdc_follower_capture_kind_hint != 0u
+                                             ? s_vdc_follower_capture_kind_hint
+                                             : (command_seq != 0u
+                                                    ? VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_COMMAND
+                                                    : VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_STATE));
             const uint32_t source_slot = follower
                                              ? s_vdc_domain.control.last_follower_source_slot_id
                                              : s_vdc_domain.schedule.local_slot_id;
             const uint32_t control_generation =
-                follower ? s_vdc_domain.control.last_follower_control_generation
-                         : s_vdc_domain.control.profile.generation;
+                follower && kind != VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_EVIDENCE
+                    ? s_vdc_domain.control.last_follower_control_generation
+                    : (!follower ? s_vdc_domain.control.profile.generation : 0u);
             const uint64_t effective_time =
-                follower ? s_vdc_domain.control.last_follower_effective_vdc_time_ns
-                         : 0u;
-            const uint32_t lock_state = s_vdc_domain.dco.lock_state;
-            const uint32_t quality = follower
-                                         ? s_vdc_domain.control.last_follower_quality
-                                         : s_vdc_domain.quality.health_state;
+                follower && kind != VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_EVIDENCE
+                    ? s_vdc_domain.control.last_follower_effective_vdc_time_ns
+                    : 0u;
+            const uint32_t lock_state =
+                kind == VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_EVIDENCE
+                    ? s_vdc_domain.dpll.state
+                    : s_vdc_domain.dco.lock_state;
+            const uint32_t quality =
+                follower &&
+                        kind !=
+                            VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_EVIDENCE
+                    ? s_vdc_domain.control.last_follower_quality
+                    : s_vdc_domain.quality.health_state;
             record->update_seq = s_vdc_domain.dpll.update_seq;
             record->timestamp_ms = now_ms;
-            record->phase_value_ns = follower
-                                         ? s_vdc_domain.dco.phase_offset_ns
-                                         : s_vdc_domain.dpll.last_phase_error_ns;
+            record->phase_value_ns = s_vdc_domain.dpll.last_phase_error_ns;
             record->frequency_value_ppb = follower
-                                             ? s_vdc_domain.dco.period_adjust_ppb
+                                             ? (kind == VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_COMMAND
+                                                    ? s_vdc_domain.dco.period_adjust_ppb
+                                                    : s_vdc_domain.dpll.last_frequency_error_ppb)
                                              : s_vdc_domain.dpll.last_frequency_error_ppb;
             record->state_and_reject =
                 (s_vdc_domain.dpll.state & 0xFFFFu) |
@@ -331,6 +356,65 @@ static void vdc_dpll_manager_publish_runtime_snapshot_locked(void)
             record->command_seq = command_seq;
             record->effective_vdc_time_lo = (uint32_t)effective_time;
             record->effective_vdc_time_hi = (uint32_t)(effective_time >> 32u);
+            record->raw_phase_value_ns =
+                kind == VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_COMMAND ||
+                        kind == VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_STATE
+                    ? 0
+                    : s_vdc_domain.dpll.last_observed_raw_phase_error_ns;
+            record->observation_source_reference =
+                (s_vdc_domain.dpll.last_observed_source_slot_id & 0xFFFFu) |
+                ((s_vdc_domain.dpll.last_observed_reference_slot_id & 0xFFFFu)
+                 << 16u);
+            record->observation_delay_ns =
+                kind == VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_COMMAND ||
+                        kind == VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_STATE
+                    ? 0u
+                    : s_vdc_domain.dpll.last_observed_delay_ns;
+            record->observation_jitter_ns =
+                kind == VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_COMMAND ||
+                        kind == VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_STATE
+                    ? 0u
+                    : s_vdc_domain.dpll.last_observed_jitter_ns;
+            record->observation_delay_generation =
+                kind == VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_COMMAND ||
+                        kind == VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_STATE
+                    ? 0u
+                    : s_vdc_domain.dpll.last_observed_delay_generation;
+            record->observation_bias_generation =
+                kind == VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_COMMAND ||
+                        kind == VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_STATE
+                    ? 0u
+                    : s_vdc_domain.dpll.last_observed_bias_generation;
+            record->observation_correlation_flags =
+                kind == VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_COMMAND ||
+                        kind == VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_STATE
+                    ? 0u
+                    : s_vdc_domain.dpll.last_observed_correlation_flags;
+            record->observation_reference_tx_phase_ns =
+                kind == VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_COMMAND ||
+                        kind == VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_STATE
+                    ? 0u
+                    : s_vdc_domain.dpll.last_observed_reference_tx_phase_ns;
+            record->observation_local_rx_phase_ns =
+                kind == VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_COMMAND ||
+                        kind == VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_STATE
+                    ? 0u
+                    : s_vdc_domain.dpll.last_observed_local_rx_phase_ns;
+            record->observation_common_effective_time_ns =
+                kind == VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_COMMAND ||
+                        kind == VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_STATE
+                    ? 0ull
+                    : s_vdc_domain.dpll.last_observed_common_effective_time_ns;
+            record->observation_expected_window_start_ns =
+                kind == VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_COMMAND ||
+                        kind == VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_STATE
+                    ? 0ull
+                    : s_vdc_domain.dpll.last_expected_window_start_ns;
+            record->observation_observed_time_ns =
+                kind == VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_COMMAND ||
+                        kind == VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_STATE
+                    ? 0ull
+                    : s_vdc_domain.dpll.last_observed_time_ns;
             if (s_dpll_capture_count == 0u) {
                 s_dpll_capture_first_update_seq = record->update_seq;
                 s_dpll_capture_start_ms = now_ms;
@@ -338,6 +422,7 @@ static void vdc_dpll_manager_publish_runtime_snapshot_locked(void)
             s_dpll_capture_count++;
             s_dpll_capture_last_update_seq = record->update_seq;
             s_dpll_capture_end_ms = now_ms;
+            s_vdc_follower_capture_kind_hint = 0u;
             if (s_dpll_capture_count ==
                 VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES) {
                 s_dpll_capture_armed = false;
@@ -493,7 +578,13 @@ static bool VDC_DPLL_MANAGER_TIME_CRITICAL(
         .timestamp_resolution_ns = clock->timestamp_resolution_ns,
         .timestamp_flags = clock->timestamp_flags,
         .correlated_frame_evidence = clock->correlated_frame_evidence,
+        .correlation_flags = clock->correlation_flags,
+        .reference_tx_phase_ns = clock->reference_tx_phase_ns,
+        .local_rx_phase_ns = clock->local_rx_phase_ns,
         .link_delay_ns = path_entry.delay_ns,
+        .delay_generation = s_vdc_domain.path_delay.calibration_generation,
+        .bias_generation = s_vdc_domain.path_delay.bias_generation,
+        .common_effective_time_ns = clock->common_effective_time_ns,
         .reference_tx_timestamp_ns = clock->reference_tx_timestamp_ns,
         .local_rx_timestamp_ns = clock->local_rx_timestamp_ns,
     };
@@ -598,8 +689,15 @@ static bool vdc_dpll_manager_finalize_ring_evidence(void)
             &s_vdc_ring_pending_evidence,
             &s_vdc_ring_preparation);
     const bool continued = s_vdc_ring_preparation.continued != 0u;
+    const bool follower_observation =
+        s_vdc_domain.control.profile.valid == 1u &&
+        s_vdc_domain.control.profile.mode == VDC_DPLL_CONTROL_MODE_FOLLOWER;
     s_vdc_ring_finalization_pending = false;
     memset(&s_vdc_ring_preparation, 0, sizeof(s_vdc_ring_preparation));
+    if (finalized && follower_observation) {
+        s_vdc_follower_capture_kind_hint =
+            VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_EVIDENCE;
+    }
     if (finalized && accepted) {
         status.accepted_count++;
         status.last_result =
@@ -1176,6 +1274,22 @@ static void vdc_dpll_manager_phase_observe_word(
         return;
     }
 
+    const bool sequence_gap =
+        (s_phase_last_sample_seq != 0u &&
+         word->sample_seq != s_phase_last_sample_seq + 1u) ||
+        word->dropped_before != 0u;
+    s_phase_last_sample_seq = word->sample_seq;
+    if (sequence_gap) {
+        /* A producer/capture gap invalidates the previous-sample mask. Drop
+         * the whole word so no rising edge can bridge an unknown interval. */
+        if (s_phase_edge_mask != 0u || s_phase_has_complete_round) {
+            status->phase_gap_count++;
+        }
+        vdc_dpll_manager_phase_reset(0u);
+        status->phase_dropped_word_count = word->dropped_before;
+        return;
+    }
+
     uint32_t previous = word->previous_sample_mask & config->observed_mask;
     for (uint32_t i = 0u; i < VDC_SYNC_IO_CAPTURE_SAMPLES_PER_WORD; i++) {
         const uint32_t current =
@@ -1292,7 +1406,7 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
         }
         vdc_dpll_manager_phase_observe_word(&status, &config, &words[i]);
 
-        bool waveform_rising_word = false;
+        uint32_t waveform_rising_count[4] = {0u, 0u, 0u, 0u};
         uint32_t waveform_previous =
             words[i].previous_sample_mask & config.observed_mask;
         for (uint32_t sample_index = 0u;
@@ -1303,11 +1417,90 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
                     words[i].raw_word, sample_index, config.sample0_lsb) &
                 config.observed_mask;
             if ((waveform_current & ~waveform_previous) != 0u) {
-                waveform_rising_word = true;
+                for (uint32_t channel = 0u; channel < 4u; ++channel) {
+                    if ((waveform_current & ~waveform_previous) &
+                        (1u << channel)) {
+                        waveform_rising_count[channel]++;
+                    }
+                }
             }
             waveform_previous = waveform_current;
         }
-        if (s_waveform_status.armed && waveform_rising_word) {
+        /* The SD waveform is the external phase-evidence artifact, not a
+         * dump of the diagnostic pre-window backlog.  A word is eligible
+         * only when the timestamp-window contract has accepted it.  Keeping
+         * DIAGNOSTIC_ONLY words here used to turn the initial idle/high
+         * sampler state into thousands of synthetic rising edges offline. */
+        const bool waveform_timestamp_eligible =
+            (words[i].timestamp_flags &
+             VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE) != 0u;
+        const bool waveform_window_valid =
+            waveform_timestamp_eligible &&
+            words[i].matched_window_start_ns != 0u &&
+            words[i].sample_period_ns != 0u &&
+            words[i].timestamp_source != VDC_DOMAIN_TIMESTAMP_SOURCE_NONE &&
+            words[i].timestamp_resolution_ns != 0u;
+        const bool waveform_sequence_continuous =
+            s_waveform_have_previous_word &&
+            words[i].sample_seq == s_waveform_last_sample_seq + 1u &&
+            words[i].dropped_before == s_waveform_last_dropped_before;
+        const bool waveform_gap_before =
+            s_waveform_have_previous_word && !waveform_sequence_continuous;
+        const bool waveform_no_source_drop = words[i].dropped_before == 0u;
+        bool waveform_ambiguous = false;
+        for (uint32_t channel = 0u; channel < 4u; ++channel) {
+            if (waveform_rising_count[channel] > 1u) {
+                waveform_ambiguous = true;
+                break;
+            }
+        }
+        uint32_t waveform_quality = 0u;
+        if (waveform_timestamp_eligible) {
+            waveform_quality |=
+                VDC_DPLL_MANAGER_WAVEFORM_QUALITY_TIMESTAMP_ELIGIBLE;
+        }
+        if (waveform_sequence_continuous) {
+            waveform_quality |=
+                VDC_DPLL_MANAGER_WAVEFORM_QUALITY_SEQUENCE_CONTINUOUS;
+        }
+        if (waveform_no_source_drop) {
+            waveform_quality |=
+                VDC_DPLL_MANAGER_WAVEFORM_QUALITY_NO_SOURCE_DROP;
+        }
+        if (waveform_window_valid) {
+            waveform_quality |=
+                VDC_DPLL_MANAGER_WAVEFORM_QUALITY_MATCHED_WINDOW_VALID;
+        }
+        if (waveform_gap_before) {
+            waveform_quality |= VDC_DPLL_MANAGER_WAVEFORM_QUALITY_GAP_BEFORE;
+        }
+        if (waveform_ambiguous) {
+            waveform_quality |= VDC_DPLL_MANAGER_WAVEFORM_QUALITY_AMBIGUOUS;
+        }
+        const bool waveform_corrected_eligible =
+            waveform_timestamp_eligible && waveform_sequence_continuous &&
+            waveform_no_source_drop && waveform_window_valid &&
+            !waveform_gap_before && !waveform_ambiguous;
+        if (waveform_corrected_eligible) {
+            waveform_quality |=
+                VDC_DPLL_MANAGER_WAVEFORM_QUALITY_CORRECTED_ELIGIBLE;
+        } else {
+            waveform_quality |=
+                VDC_DPLL_MANAGER_WAVEFORM_QUALITY_RAW_DIAGNOSTIC_ONLY;
+        }
+        if (waveform_timestamp_eligible) {
+            s_waveform_have_previous_word = true;
+            s_waveform_last_sample_seq = words[i].sample_seq;
+            s_waveform_last_dropped_before = words[i].dropped_before;
+        }
+        /*
+         * Preserve every timestamp-eligible PIO word.  Edge presence is an
+         * attribute of the word (used for ambiguity/phase statistics), not
+         * a storage admission gate: omitting no-edge words makes the offline
+         * decoder manufacture sequence gaps across otherwise continuous
+         * samples and can create false invalid edges/jitter degradation.
+         */
+        if (s_waveform_status.armed && waveform_timestamp_eligible) {
             uint32_t active_count =
                 s_waveform_buffer_count[s_waveform_active_buffer];
             if (active_count >= VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS) {
@@ -1349,6 +1542,8 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
                 record->matched_window_start_l32_ns =
                     (uint32_t)words[i].matched_window_start_ns;
                 record->dropped_before = words[i].dropped_before;
+                record->sample_seq = words[i].sample_seq;
+                record->quality_flags = waveform_quality;
                 s_waveform_buffer_count[s_waveform_active_buffer] =
                     active_count + 1u;
                 if (s_waveform_status.record_count == 0u) {
@@ -1517,6 +1712,7 @@ bool vdc_dpll_manager_init(void)
     s_dpll_capture_last_update_seq = 0u;
     s_dpll_capture_start_ms = 0u;
     s_dpll_capture_end_ms = 0u;
+    s_vdc_follower_capture_kind_hint = 0u;
     memset(s_waveform_buffers, 0, sizeof(s_waveform_buffers));
     memset(s_waveform_buffer_count, 0, sizeof(s_waveform_buffer_count));
     memset(s_waveform_buffer_sample_period_ns, 0,
@@ -1546,6 +1742,9 @@ bool vdc_dpll_manager_init(void)
     s_waveform_ready_count = 0u;
     memset(&s_waveform_status, 0, sizeof(s_waveform_status));
     s_waveform_observed_mask = 0u;
+    s_waveform_have_previous_word = false;
+    s_waveform_last_sample_seq = 0u;
+    s_waveform_last_dropped_before = 0u;
     s_phase_group_start_ns = 0u;
     s_phase_edge_mask = 0u;
     memset(s_phase_edge_ns, 0, sizeof(s_phase_edge_ns));
@@ -1555,6 +1754,7 @@ bool vdc_dpll_manager_init(void)
     s_phase_stable_span_max_ns = 0u;
     s_phase_tx_not_before_ns = 0u;
     s_phase_tx_scheduled_count = 0u;
+    s_phase_last_sample_seq = 0u;
     if (!vdc_domain_init(&s_vdc_domain)) {
         return false;
     }
@@ -1656,6 +1856,8 @@ static void vdc_dpll_manager_consume_follower_command(void)
             invalid.command_seq = retained.command_seq;
             (void)vdc_domain_apply_follower_command(&s_vdc_domain, &invalid);
             s_vdc_follower_last_applied_seq = retained.command_seq;
+            s_vdc_follower_capture_kind_hint =
+                VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_STATE;
         }
         return;
     }
@@ -1680,10 +1882,14 @@ static void vdc_dpll_manager_consume_follower_command(void)
     command.phase_offset_ns = retained.phase_offset_ns;
     command.lock_state = retained.lock_state;
     command.quality = retained.quality;
-    (void)vdc_domain_apply_follower_command(&s_vdc_domain, &command);
+    const bool applied =
+        vdc_domain_apply_follower_command(&s_vdc_domain, &command);
     /* Retain the attempted sequence even when Domain rejects its schedule,
      * rate or state fields; a bad command must not be retried as local PI. */
     s_vdc_follower_last_applied_seq = retained.command_seq;
+    s_vdc_follower_capture_kind_hint =
+        applied ? VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_COMMAND
+                : VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_STATE;
 }
 
 static uint32_t vdc_dpll_manager_stage_debug_servo_profile(
@@ -2733,16 +2939,10 @@ void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_fb_service)(void)
         vdc_dpll_manager_publish_runtime_snapshot_locked();
         return;
     }
-    /* FOLLOWER consumes only a verified, absolutely scheduled command.  Keep
-     * this before local evidence preparation so a follower never falls back
-     * into its own PI path while a peer command is absent or stale. */
+    /* FOLLOWER consumes only a verified, absolutely scheduled command.  The
+     * local TDMA evidence path still runs for observability, but Domain marks
+     * it as diagnostic-only and never feeds the local PI/DCO path. */
     vdc_dpll_manager_consume_follower_command();
-    vdc_domain_snapshot_t role_snapshot;
-    if (vdc_domain_get_snapshot(&s_vdc_domain, &role_snapshot) &&
-        role_snapshot.control.profile.mode == VDC_DPLL_CONTROL_MODE_FOLLOWER) {
-        vdc_dpll_manager_publish_runtime_snapshot_locked();
-        return;
-    }
     /* Complete already-admitted domain work before accepting another ring
      * sample. This keeps one bounded four-beat pipeline at the 4 ms evidence
      * cadence: prepare, servo, state/finalize, service/publish. */
@@ -2757,6 +2957,10 @@ void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_fb_service)(void)
         return;
     }
     if (vdc_dpll_manager_finalize_ring_evidence()) {
+        /* Finalization advances the follower observation sequence. Publish
+         * immediately so a subsequent peer command cannot overwrite the
+         * capture-kind hint before this local evidence is recorded. */
+        vdc_dpll_manager_publish_runtime_snapshot_locked();
         return;
     }
     if (vdc_dpll_manager_prepare_ring_evidence()) {
@@ -3078,6 +3282,7 @@ bool vdc_dpll_manager_dpll_capture_arm(void)
         s_dpll_capture_last_update_seq = 0u;
         s_dpll_capture_start_ms = 0u;
         s_dpll_capture_end_ms = 0u;
+        s_vdc_follower_capture_kind_hint = 0u;
         s_dpll_capture_armed = true;
         accepted = true;
     }
@@ -3228,6 +3433,9 @@ bool vdc_dpll_manager_waveform_capture_arm(void)
     s_waveform_ready_tail = 0u;
     s_waveform_ready_count = 0u;
     s_waveform_observed_mask = 0u;
+    s_waveform_have_previous_word = false;
+    s_waveform_last_sample_seq = 0u;
+    s_waveform_last_dropped_before = 0u;
     s_waveform_status.session_id = board_uptime_ms();
     if (s_waveform_status.session_id == 0u) {
         s_waveform_status.session_id = 1u;

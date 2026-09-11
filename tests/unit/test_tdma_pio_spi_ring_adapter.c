@@ -200,6 +200,23 @@ static bool async_tx_complete(void *context, uint64_t *tx_timestamp_ns)
     return true;
 }
 
+/* A reference node must use its origin completion latch; it must never need a
+ * follower-only regenerated-TX callback to form DPLL evidence. */
+static bool unavailable_local_tx_edge_ex(
+    void *context,
+    uint32_t expected_sequence,
+    uint32_t expected_identity_crc32,
+    tdma_ring_local_tx_edge_evidence_t *evidence)
+{
+    (void)context;
+    (void)expected_sequence;
+    (void)expected_identity_crc32;
+    if (evidence != NULL) {
+        memset(evidence, 0, sizeof(*evidence));
+    }
+    return false;
+}
+
 static void test_put_u32_le(uint8_t *dst, uint32_t value)
 {
     for (uint32_t i = 0u; i < 4u; i++) {
@@ -3637,10 +3654,25 @@ int main(void)
         failed += expect_u32("clock observation frame crc",
                              snapshot.clock_observation.frame_crc32,
                              source_frame_crc32);
-        failed += expect_u64("clock observation reference tx",
+        failed += expect_u32("clock observation correlation flags",
+                             snapshot.clock_observation.correlation_flags,
+                             TDMA_RING_CLOCK_OBSERVATION_FLAG_CYCLE_PHASE |
+                                 TDMA_RING_CLOCK_OBSERVATION_FLAG_COMMON_TIME |
+                                 TDMA_RING_CLOCK_OBSERVATION_FLAG_LOCAL_PHASE_RAW);
+        failed += expect_u64("clock observation common time",
+                             snapshot.clock_observation
+                                 .common_effective_time_ns,
+                             1000ull);
+        failed += expect_u32("clock observation reference phase",
+                             snapshot.clock_observation.reference_tx_phase_ns,
+                             0u);
+        failed += expect_u32("clock observation local phase",
+                             snapshot.clock_observation.local_rx_phase_ns,
+                             100u);
+        failed += expect_u64("clock observation reference tx diagnostic",
                              snapshot.clock_observation
                                  .reference_tx_timestamp_ns,
-                             2000000ull);
+                             0ull);
         failed += expect_u64("clock observation local rx",
                              snapshot.clock_observation.local_rx_timestamp_ns,
                              2000100ull);
@@ -3682,10 +3714,13 @@ int main(void)
         failed += expect_u32("clock epoch reject reason",
                              snapshot.clock_observation_last_reject_reason,
                              0u);
-        failed += expect_u64("clock epoch mapped reference",
+        failed += expect_u32("clock epoch reference phase",
+                             snapshot.clock_observation.reference_tx_phase_ns,
+                             0u);
+        failed += expect_u64("clock epoch reference diagnostic",
                              snapshot.clock_observation
                                  .reference_tx_timestamp_ns,
-                             2002000ull);
+                             0ull);
     }
 
     /* --- Compact DPLL phase mapping is independent of reference/follower
@@ -3745,6 +3780,8 @@ int main(void)
                                                loopback_tx,
                                                loopback_rx,
                                                &phys);
+            tdma_pio_spi_ring_adapter_set_phys_local_tx_edge_ex(
+                &adapter, unavailable_local_tx_edge_ex);
             tdma_pio_spi_ring_adapter_set_flight_engine(&adapter, &engine);
             tdma_pio_spi_ring_adapter_set_timestamp_metadata(
                 &adapter, 4u, TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED);
@@ -3782,6 +3819,117 @@ int main(void)
             observed_sequence[enabled] = view.transport_sequence;
             observed_trailer[enabled] = test_get_u32_le(
                 &view.payload[TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET]);
+            if (enabled != 0u) {
+                /* TX2 carries the seq1 trailer; its feedback becomes
+                 * observable on the following bounded service round. */
+                for (uint32_t tick = 8u; tick < 12u; tick++) {
+                    (void)tdma_pio_spi_ring_adapter_ops()->service(
+                        &adapter, (uint64_t)tick * 2000ull, &status);
+                }
+                tdma_pio_spi_ring_adapter_snapshot_t snapshot;
+                failed += expect_bool(
+                    "reference origin completion bound to DPLL observation",
+                    tdma_pio_spi_ring_adapter_get_snapshot(&adapter,
+                                                           &snapshot),
+                    true);
+                const uint32_t correlated_sequence =
+                    adapter.local_tx_edge_sequence;
+                const uint32_t evidence_index = correlated_sequence %
+                    TDMA_PIO_SPI_RING_ADAPTER_TX_EVIDENCE_DEPTH;
+                failed += expect_bool(
+                    "reference origin local TX binding retained",
+                    correlated_sequence != 0u &&
+                        adapter.local_tx_edge_evidence[evidence_index]
+                            .sequence == correlated_sequence &&
+                        adapter.local_tx_edge_evidence[evidence_index]
+                            .identity_crc32 ==
+                            adapter.reference_tx_evidence[evidence_index]
+                                .identity_crc32 &&
+                        (adapter.local_tx_edge_evidence[evidence_index].flags &
+                         (TDMA_RING_LOCAL_TX_EDGE_FLAG_TIMESTAMP_VALID |
+                          TDMA_RING_LOCAL_TX_EDGE_FLAG_SEQUENCE_BOUND |
+                          TDMA_RING_LOCAL_TX_EDGE_FLAG_IDENTITY_BOUND)) ==
+                            (TDMA_RING_LOCAL_TX_EDGE_FLAG_TIMESTAMP_VALID |
+                             TDMA_RING_LOCAL_TX_EDGE_FLAG_SEQUENCE_BOUND |
+                             TDMA_RING_LOCAL_TX_EDGE_FLAG_IDENTITY_BOUND),
+                    true);
+
+                /* Model the preceding returned frame using the retained
+                 * identity. The follower-only callback remains unavailable,
+                 * so the following trailer specifically verifies reference
+                 * correlation does not regress to the 0x380 rejection. */
+                adapter.local_rx_evidence[evidence_index].sequence =
+                    correlated_sequence;
+                adapter.local_rx_evidence[evidence_index].identity_crc32 =
+                    adapter.local_tx_edge_evidence[evidence_index]
+                        .identity_crc32;
+                adapter.local_rx_evidence[evidence_index].timestamp_ns =
+                    4999500ull;
+                adapter.local_rx_evidence[evidence_index].valid = true;
+                uint8_t feedback_payload[TDMA_FLIGHT_SHORT_PAYLOAD_SIZE];
+                uint8_t feedback_packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+                size_t feedback_packet_size = 0u;
+                tdma_flight_engine_fill_alignment_symbols(
+                    feedback_payload, sizeof(feedback_payload));
+                test_put_u32_le(
+                    &feedback_payload[
+                        TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET],
+                    tdma_process_image_dpll_observation_encode_phase(
+                        adapter.reference_tx_evidence[evidence_index]
+                            .timestamp_ns,
+                        config.cycle_period_ns));
+                const tdma_transport_frame_build_t feedback_build = {
+                    .frame_class = TDMA_TRANSPORT_FRAME_CLASS_SHORT,
+                    .origin_slot_id = config.local_slot_id,
+                    .transport_sequence = correlated_sequence + 1u,
+                    .payload_class =
+                        TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE,
+                    .flags = TDMA_TRANSPORT_FLAG_REQUIRE_FEEDBACK |
+                        TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE,
+                    .schedule_crc32 = config.schedule_crc32,
+                    .ring_profile_crc32 = config.ring_profile_crc32,
+                    .hop_limit = config.node_count - 1u,
+                    .payload = feedback_payload,
+                    .payload_size = sizeof(feedback_payload),
+                };
+                failed += expect_bool(
+                    "reference correlation feedback encode",
+                    tdma_transport_frame_encode(&feedback_build,
+                                                feedback_packet,
+                                                sizeof(feedback_packet),
+                                                &feedback_packet_size,
+                                                &result),
+                    true);
+                phys.suppress_echo = true;
+                phys.rx_pending = false;
+                failed += expect_bool(
+                    "reference correlation feedback inject",
+                    tdma_pio_spi_ring_adapter_inject_rx(
+                        &adapter, feedback_packet, feedback_packet_size,
+                        5000000ull),
+                    true);
+                failed += expect_bool(
+                    "reference correlation feedback service",
+                    tdma_pio_spi_ring_adapter_ops()->service(
+                        &adapter, 5000000ull, &status),
+                    true);
+                failed += expect_bool(
+                    "reference correlation snapshot",
+                    tdma_pio_spi_ring_adapter_get_snapshot(&adapter,
+                                                           &snapshot),
+                    true);
+                failed += expect_bool(
+                    "reference DPLL observation published",
+                    snapshot.clock_observation_count != 0u,
+                    true);
+                failed += expect_u32(
+                    "reference DPLL local TX binding rejection absent",
+                    snapshot.clock_observation_last_reject_reason &
+                        (TDMA_PIO_SPI_CLOCK_OBSERVATION_LOCAL_TX_INVALID |
+                         TDMA_PIO_SPI_CLOCK_OBSERVATION_LOCAL_TX_SEQUENCE_MISMATCH |
+                         TDMA_PIO_SPI_CLOCK_OBSERVATION_LOCAL_TX_IDENTITY_MISMATCH),
+                    0u);
+            }
         }
         failed += expect_u32("DPLL fixed frame class",
                              observed_class[1], observed_class[0]);

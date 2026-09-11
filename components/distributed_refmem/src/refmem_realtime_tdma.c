@@ -141,15 +141,52 @@ static uint32_t refmem_realtime_tdma_payload_class_or_default(
     return service->last_submit_payload_class;
 }
 
-static uint32_t refmem_realtime_tdma_traffic_class(
-    const refmem_realtime_tdma_service_t *service)
+static uint32_t refmem_realtime_tdma_normalize_payload_class(
+    uint32_t payload_class)
 {
-    switch (refmem_realtime_tdma_payload_class_or_default(service)) {
+    switch (payload_class) {
+    case TDMA_SERVICE_PAYLOAD_CLASS_CONFIG_CONTROL:
+        return TDMA_SERVICE_PAYLOAD_CLASS_CONFIG_CONTROL;
+    case TDMA_SERVICE_PAYLOAD_CLASS_REFMEM_DELTA:
+        return TDMA_SERVICE_PAYLOAD_CLASS_REFMEM_DELTA;
+    case TDMA_SERVICE_PAYLOAD_CLASS_NONE:
+    default:
+        return TDMA_SERVICE_PAYLOAD_CLASS_REFMEM_DELTA;
+    }
+}
+
+static uint32_t refmem_realtime_tdma_traffic_class_for_payload_class(
+    uint32_t payload_class)
+{
+    switch (refmem_realtime_tdma_normalize_payload_class(payload_class)) {
     case TDMA_SERVICE_PAYLOAD_CLASS_CONFIG_CONTROL:
         return TDMA_TRAFFIC_CONFIG_CONTROL;
     case TDMA_SERVICE_PAYLOAD_CLASS_REFMEM_DELTA:
     default:
         return TDMA_TRAFFIC_REFMEM_REALTIME;
+    }
+}
+
+static uint32_t refmem_realtime_tdma_traffic_class(
+    const refmem_realtime_tdma_service_t *service)
+{
+    return refmem_realtime_tdma_traffic_class_for_payload_class(
+        refmem_realtime_tdma_payload_class_or_default(service));
+}
+
+static void refmem_realtime_tdma_record_submit(
+    refmem_realtime_tdma_service_t *service)
+{
+    if (service == NULL || service->scheduler == NULL) {
+        return;
+    }
+    const uint32_t traffic_class =
+        refmem_realtime_tdma_traffic_class(service);
+    const uint32_t submit_seq = __atomic_load_n(
+        &service->scheduler->scheduler_submit_seq, __ATOMIC_ACQUIRE);
+    service->last_submit_seq = submit_seq;
+    if (traffic_class < TDMA_TRAFFIC_CLASS_COUNT) {
+        service->last_submit_seq_by_class[traffic_class] = submit_seq;
     }
 }
 
@@ -185,8 +222,14 @@ static tdma_service_intent_config_t refmem_realtime_tdma_to_service_config(
 static void refmem_realtime_tdma_from_service_snapshot(
     const refmem_realtime_tdma_service_t *service,
     const tdma_service_snapshot_t *source,
-    refmem_realtime_tdma_snapshot_t *target)
+    refmem_realtime_tdma_snapshot_t *target,
+    uint32_t payload_class)
 {
+    const uint32_t normalized_payload_class =
+        refmem_realtime_tdma_normalize_payload_class(payload_class);
+    const uint32_t traffic_class =
+        refmem_realtime_tdma_traffic_class_for_payload_class(
+            normalized_payload_class);
     memset(target, 0, sizeof(*target));
     target->state = source->state;
     target->owner_core = source->owner_core;
@@ -194,12 +237,11 @@ static void refmem_realtime_tdma_from_service_snapshot(
     target->service_count = source->service_count;
     target->intent_seq =
         source->traffic_scheduler_configured != 0u
-            ? service->last_submit_seq
+            ? service->last_submit_seq_by_class[traffic_class]
             : source->intent_seq;
     target->completed_seq =
         source->traffic_scheduler_configured != 0u
-            ? source->traffic_scheduler_completed_seq[
-                  refmem_realtime_tdma_traffic_class(service)]
+            ? source->traffic_scheduler_completed_seq[traffic_class]
             : source->completed_seq;
     target->dropped_seq = source->dropped_seq;
     target->window_epoch = source->window_epoch;
@@ -316,6 +358,16 @@ static void refmem_realtime_tdma_from_service_snapshot(
         source->ring_clock_observation_flags;
     target->ring_clock_observation_correlated =
         source->ring_clock_observation_correlated;
+    target->ring_clock_observation_correlation_flags =
+        source->ring_clock_observation_correlation_flags;
+    target->ring_clock_reference_tx_phase_ns =
+        source->ring_clock_reference_tx_phase_ns;
+    target->ring_clock_local_rx_phase_ns =
+        source->ring_clock_local_rx_phase_ns;
+    target->ring_clock_common_effective_time_ns_lo =
+        source->ring_clock_common_effective_time_ns_lo;
+    target->ring_clock_common_effective_time_ns_hi =
+        source->ring_clock_common_effective_time_ns_hi;
     target->ring_clock_reference_tx_timestamp_ns_lo =
         source->ring_clock_reference_tx_timestamp_ns_lo;
     target->ring_clock_reference_tx_timestamp_ns_hi =
@@ -354,8 +406,6 @@ static void refmem_realtime_tdma_from_service_snapshot(
     target->payload_registry_last_payload_class =
         source->payload_registry_last_payload_class;
     if (source->traffic_scheduler_configured != 0u) {
-        const uint32_t traffic_class =
-            refmem_realtime_tdma_traffic_class(service);
         target->last_result = source->traffic_class_last_result[traffic_class];
         target->last_error = source->traffic_class_last_error[traffic_class];
         target->timestamp_source = source->traffic_class_timestamp_source[
@@ -472,8 +522,7 @@ bool refmem_realtime_tdma_submit_tx(
     }
     service->last_submit_payload_class = mapped.payload_class;
     if (service->scheduler->traffic_scheduler != NULL) {
-        service->last_submit_seq = __atomic_load_n(
-            &service->scheduler->scheduler_submit_seq, __ATOMIC_ACQUIRE);
+        refmem_realtime_tdma_record_submit(service);
     }
     return true;
 }
@@ -493,8 +542,7 @@ bool refmem_realtime_tdma_submit_rx(
     }
     service->last_submit_payload_class = mapped.payload_class;
     if (service->scheduler->traffic_scheduler != NULL) {
-        service->last_submit_seq = __atomic_load_n(
-            &service->scheduler->scheduler_submit_seq, __ATOMIC_ACQUIRE);
+        refmem_realtime_tdma_record_submit(service);
     }
     return true;
 }
@@ -523,6 +571,17 @@ bool refmem_realtime_tdma_get_snapshot(
     const refmem_realtime_tdma_service_t *service,
     refmem_realtime_tdma_snapshot_t *snapshot)
 {
+    return refmem_realtime_tdma_get_snapshot_for_payload_class(
+        service,
+        refmem_realtime_tdma_payload_class_or_default(service),
+        snapshot);
+}
+
+bool refmem_realtime_tdma_get_snapshot_for_payload_class(
+    const refmem_realtime_tdma_service_t *service,
+    uint32_t payload_class,
+    refmem_realtime_tdma_snapshot_t *snapshot)
+{
     if (service == NULL || snapshot == NULL) {
         return false;
     }
@@ -532,12 +591,30 @@ bool refmem_realtime_tdma_get_snapshot(
     if (scheduler == NULL || !tdma_service_get_snapshot(scheduler, &source)) {
         return false;
     }
-    refmem_realtime_tdma_from_service_snapshot(service, &source, snapshot);
+    refmem_realtime_tdma_from_service_snapshot(service,
+                                               &source,
+                                               snapshot,
+                                               payload_class);
     return true;
 }
 
 bool refmem_realtime_tdma_get_result_frame(
     const refmem_realtime_tdma_service_t *service,
+    uint8_t *frame,
+    size_t frame_capacity,
+    size_t *frame_size)
+{
+    return refmem_realtime_tdma_get_result_frame_for_payload_class(
+        service,
+        refmem_realtime_tdma_payload_class_or_default(service),
+        frame,
+        frame_capacity,
+        frame_size);
+}
+
+bool refmem_realtime_tdma_get_result_frame_for_payload_class(
+    const refmem_realtime_tdma_service_t *service,
+    uint32_t payload_class,
     uint8_t *frame,
     size_t frame_capacity,
     size_t *frame_size)
@@ -556,7 +633,7 @@ bool refmem_realtime_tdma_get_result_frame(
     if (scheduler->traffic_scheduler != NULL) {
         return tdma_service_get_class_result_frame(
             scheduler,
-            refmem_realtime_tdma_traffic_class(service),
+            refmem_realtime_tdma_traffic_class_for_payload_class(payload_class),
             frame,
             frame_capacity,
             frame_size);

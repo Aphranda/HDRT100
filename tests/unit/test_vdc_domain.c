@@ -202,6 +202,8 @@ static vdc_tdma_timestamp_evidence_t make_hardware_sample(
     evidence.schedule_crc32 = schedule->schedule_crc32;
     evidence.frame_crc32 = 0x1000u + sample_seq;
     evidence.sample_crc32 = 0x2000u + sample_seq;
+    evidence.delay_generation = 1u;
+    evidence.bias_generation = 1u;
     return evidence;
 }
 
@@ -3145,8 +3147,14 @@ static int test_ring_observer_expands_correlated_feedback(void)
     observation.timestamp_flags =
         VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE;
     observation.correlated_frame_evidence = 1u;
+    observation.correlation_flags =
+        TDMA_RING_CLOCK_OBSERVATION_FLAG_CYCLE_PHASE |
+        TDMA_RING_CLOCK_OBSERVATION_FLAG_COMMON_TIME;
     observation.link_delay_ns = 480u;
-    observation.reference_tx_timestamp_ns = 2000000ull;
+    observation.reference_tx_phase_ns = 0u;
+    observation.local_rx_phase_ns = 496u;
+    observation.common_effective_time_ns = 1000000ull;
+    observation.reference_tx_timestamp_ns = 0ull;
     observation.local_rx_timestamp_ns = 2000496ull;
 
     failed += expect_bool("ring feedback expands",
@@ -3171,7 +3179,7 @@ static int test_ring_observer_expands_correlated_feedback(void)
                          VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK);
     failed += expect_u32("ring feedback window",
                          (uint32_t)evidence.expected_window_start_ns,
-                         2000000u + schedule.observation_window_offset_ns);
+                         1000000u + schedule.observation_window_offset_ns);
 
     failed += expect_bool("active ring feedback expands",
                           vdc_ring_observer_expand_active(&schedule,
@@ -3188,6 +3196,8 @@ static int test_ring_observer_expands_correlated_feedback(void)
     schedule.period_ns = active_period_ns;
 
     observation.reference_tx_timestamp_ns = 4000123000ull;
+    observation.reference_tx_phase_ns = 0u;
+    observation.local_rx_phase_ns = 496u;
     observation.local_rx_timestamp_ns = 2000123496ull;
     failed += expect_bool("ring feedback asynchronous epoch expands",
                           vdc_ring_observer_expand(&schedule,
@@ -3197,6 +3207,24 @@ static int test_ring_observer_expands_correlated_feedback(void)
     failed += expect_i32("ring feedback asynchronous epoch residual",
                          evidence.phase_error_ns,
                          16);
+
+    observation.common_effective_time_ns++;
+    failed += expect_bool("ring feedback invalid common time rejected",
+                          vdc_ring_observer_expand(&schedule,
+                                                   &observation,
+                                                   &evidence),
+                          false);
+    observation.common_effective_time_ns--;
+
+    observation.correlation_flags = 0u;
+    failed += expect_bool("ring feedback missing phase contract rejected",
+                          vdc_ring_observer_expand(&schedule,
+                                                   &observation,
+                                                   &evidence),
+                          false);
+    observation.correlation_flags =
+        TDMA_RING_CLOCK_OBSERVATION_FLAG_CYCLE_PHASE |
+        TDMA_RING_CLOCK_OBSERVATION_FLAG_COMMON_TIME;
 
     vdc_tdma_schedule_profile_t reference_schedule;
     failed += expect_bool("reference schedule topology",
@@ -3457,12 +3485,18 @@ static int test_dpll_role_boundary_and_oscillator_discipline(void)
     failed += expect_u32("follower local PI bypass count",
                          snapshot.control.follower_local_evidence_bypass_count,
                          1u);
-    failed += expect_u32("follower evidence leaves DPLL sequence",
+    failed += expect_u32("follower evidence advances observation sequence",
                          snapshot.dpll.update_seq,
-                         follower_dpll_seq);
-    failed += expect_u32("follower evidence leaves quality history",
+                         follower_dpll_seq + 1u);
+    failed += expect_u32("follower evidence updates quality history",
                          snapshot.quality.update_seq,
-                         follower_quality_seq);
+                         follower_quality_seq + 1u);
+    failed += expect_u32("follower evidence records sample sequence",
+                         snapshot.dpll.last_sample_seq,
+                         evidence.sample_seq);
+    failed += expect_i32("follower evidence records phase residual",
+                         snapshot.dpll.last_phase_error_ns,
+                         -525);
     failed += expect_u32("follower evidence leaves local accepted count",
                          snapshot.dpll.accepted_sample_count,
                          0u);
@@ -3896,6 +3930,87 @@ static int test_dpll_role_matrix_and_source_switch(void)
     return failed;
 }
 
+static int test_formal_evidence_generation_gate(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_domain_snapshot_t snapshot;
+    if (!vdc_domain_init(&context) || !install_test_path_delay(&context)) {
+        return 1;
+    }
+    vdc_domain_set_ready(&context, true);
+
+    vdc_tdma_timestamp_evidence_t evidence =
+        make_hardware_sample(&context.schedule, 1u, 20);
+    evidence.delay_generation = 0u;
+    failed += expect_bool("formal evidence rejects missing delay generation",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          false);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("missing delay generation gate",
+                         snapshot.gate.reject_code,
+                         VDC_DOMAIN_GATE_DELAY_GENERATION);
+
+    evidence = make_hardware_sample(&context.schedule, 2u, 20);
+    evidence.bias_generation = 9u;
+    failed += expect_bool("formal evidence rejects wrong bias generation",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          false);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("wrong bias generation gate",
+                         snapshot.gate.reject_code,
+                         VDC_DOMAIN_GATE_BIAS_GENERATION);
+    return failed;
+}
+
+static int test_master_rejects_unmapped_cross_board_phase(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_domain_snapshot_t snapshot;
+    if (!vdc_domain_init(&context) || !install_test_path_delay(&context)) {
+        return 1;
+    }
+    vdc_domain_set_ready(&context, true);
+
+    vdc_tdma_timestamp_evidence_t evidence =
+        make_hardware_sample(&context.schedule, 1u, 20);
+    evidence.correlation_flags =
+        TDMA_RING_CLOCK_OBSERVATION_FLAG_CYCLE_PHASE |
+        TDMA_RING_CLOCK_OBSERVATION_FLAG_COMMON_TIME |
+        TDMA_RING_CLOCK_OBSERVATION_FLAG_LOCAL_PHASE_RAW;
+    failed += expect_bool("master rejects raw local phase",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          false);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("raw local phase gate",
+                         snapshot.gate.reject_code,
+                         VDC_DOMAIN_GATE_LOCAL_PHASE_UNALIGNED);
+    failed += expect_u32("raw local phase cannot advance PI",
+                         snapshot.dpll.accepted_sample_count,
+                         0u);
+
+    evidence.correlation_flags =
+        TDMA_RING_CLOCK_OBSERVATION_FLAG_CYCLE_PHASE |
+        TDMA_RING_CLOCK_OBSERVATION_FLAG_COMMON_TIME |
+        TDMA_RING_CLOCK_OBSERVATION_FLAG_LOCAL_PHASE_COMMON_MAPPED;
+    evidence.sample_seq++;
+    evidence.expected_window_start_ns += context.schedule.period_ns;
+    evidence.arm_time_ns += context.schedule.period_ns;
+    evidence.start_time_ns += context.schedule.period_ns;
+    evidence.observed_time_ns += context.schedule.period_ns;
+    evidence.done_time_ns += context.schedule.period_ns;
+    evidence.apply_time_ns += context.schedule.period_ns;
+    failed += expect_bool("master accepts mapped local phase",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("mapped local phase advances PI",
+                         snapshot.dpll.accepted_sample_count,
+                         1u);
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -3939,6 +4054,8 @@ int main(void)
     failed += test_provisional_path_matrix_is_servo_only();
     failed += test_dpll_role_boundary_and_oscillator_discipline();
     failed += test_dpll_role_matrix_and_source_switch();
+    failed += test_formal_evidence_generation_gate();
+    failed += test_master_rejects_unmapped_cross_board_phase();
     if (failed != 0) {
         (void)printf("vdc_domain tests failed: %d\n", failed);
         return 1;

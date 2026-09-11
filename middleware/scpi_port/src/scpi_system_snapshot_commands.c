@@ -1899,6 +1899,13 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.ring_clock_observation_resolution_ns);
     SCPI_ResultUInt32(context, snapshot.ring_clock_observation_flags);
     SCPI_ResultUInt32(context, snapshot.ring_clock_observation_correlated);
+    SCPI_ResultUInt32(context, snapshot.ring_clock_observation_correlation_flags);
+    SCPI_ResultUInt32(context, snapshot.ring_clock_reference_tx_phase_ns);
+    SCPI_ResultUInt32(context, snapshot.ring_clock_local_rx_phase_ns);
+    SCPI_ResultUInt32(
+        context, snapshot.ring_clock_common_effective_time_ns_lo);
+    SCPI_ResultUInt32(
+        context, snapshot.ring_clock_common_effective_time_ns_hi);
     SCPI_ResultUInt32(
         context, snapshot.ring_clock_reference_tx_timestamp_ns_lo);
     SCPI_ResultUInt32(
@@ -2226,6 +2233,32 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_vdc_q(scpi_t *context)
     SCPI_ResultUInt32(context,
                       (uint32_t)(envelope.timestamp.done_time_ns & 0xFFFFFFFFull));
     SCPI_ResultUInt32(context, (uint32_t)(envelope.timestamp.done_time_ns >> 32u));
+    return SCPI_RES_OK;
+}
+
+/* Receive-side lifecycle telemetry for the dedicated follower command path.
+ * Unlike TDMA:VDC?, this does not synthesize a transmit envelope. */
+scpi_result_t scpi_cmd_refmem_sync_tdma_vdc_rx_q(scpi_t *context)
+{
+    distributed_refmem_vdc_follower_rx_snapshot_t snapshot;
+    distributed_refmem_get_vdc_follower_rx(&snapshot);
+
+    SCPI_ResultUInt32(context, snapshot.active);
+    SCPI_ResultUInt32(context, snapshot.active_intent_seq);
+    SCPI_ResultUInt32(context, snapshot.next_window_seq);
+    SCPI_ResultUInt32(context, snapshot.last_processed_completed_seq);
+    SCPI_ResultUInt32(context, snapshot.submitted_count);
+    SCPI_ResultUInt32(context, snapshot.frame_ready_count);
+    SCPI_ResultUInt32(context, snapshot.accepted_count);
+    SCPI_ResultUInt32(context, snapshot.invalid_count);
+    SCPI_ResultUInt32(context, snapshot.timeout_count);
+    SCPI_ResultUInt32(context, snapshot.window_miss_count);
+    SCPI_ResultUInt32(context, snapshot.submit_reject_count);
+    SCPI_ResultUInt32(context, snapshot.last_result);
+    SCPI_ResultUInt32(context, snapshot.last_rx_result);
+    SCPI_ResultUInt32(context, snapshot.last_error);
+    SCPI_ResultUInt32(context, snapshot.last_source_slot);
+    SCPI_ResultUInt32(context, snapshot.last_command_seq);
     return SCPI_RES_OK;
 }
 

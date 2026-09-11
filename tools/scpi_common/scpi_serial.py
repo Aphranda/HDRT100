@@ -83,7 +83,11 @@ SCK_ARM_HEADERS = {
 
 SERIAL_LIFECYCLE_COMMAND = "command"
 SERIAL_LIFECYCLE_PHASE = "phase"
-STORAGE_FILE_READ_MAX_BYTES = 4096
+# A storage read reply carries each byte as two ASCII hex characters, plus its
+# SCPI envelope.  Although firmware accepts 4096-byte requests, that expands
+# beyond the reliable USB CDC response capacity and can truncate the tail of a
+# valid page.  Keep every host-side downloader below that transport boundary.
+STORAGE_FILE_READ_MAX_BYTES = 2048
 
 
 def serial_lifecycle_mode() -> str:

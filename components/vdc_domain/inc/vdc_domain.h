@@ -119,6 +119,9 @@ typedef enum {
     VDC_DOMAIN_GATE_BAD_FRAME = 12u,
     VDC_DOMAIN_GATE_BAD_WINDOW_CLASS = 13u,
     VDC_DOMAIN_GATE_PAYLOAD_WINDOW_FORBIDDEN = 14u,
+    VDC_DOMAIN_GATE_DELAY_GENERATION = 15u,
+    VDC_DOMAIN_GATE_BIAS_GENERATION = 16u,
+    VDC_DOMAIN_GATE_LOCAL_PHASE_UNALIGNED = 17u,
 } vdc_domain_gate_code_t;
 
 #define VDC_DOMAIN_QUALITY_FLAG_PHASE_OUT_OF_LOCK (1u << 0u)
@@ -316,6 +319,19 @@ typedef struct {
     uint32_t frame_crc32;
     uint32_t sample_crc32;
     uint32_t quality_flags;
+    /* These generations identify the immutable directed path metadata used
+     * to derive delay_ns/phase_error_ns. They are diagnostic provenance and
+     * are intentionally not serialized into the legacy short TDMA frame. */
+    uint32_t delay_generation;
+    uint32_t bias_generation;
+    /* TDMA correlation provenance used to replay the same residual formula
+     * for MASTER and FOLLOWER observations. */
+    uint32_t correlation_flags;
+    uint32_t reference_tx_phase_ns;
+    uint32_t local_rx_phase_ns;
+    uint64_t common_effective_time_ns;
+    uint64_t reference_tx_timestamp_ns;
+    uint64_t local_rx_timestamp_ns;
 } vdc_tdma_timestamp_evidence_t;
 
 typedef struct {
@@ -556,6 +572,28 @@ typedef struct {
     int32_t last_raw_phase_error_ns;
     uint64_t last_expected_window_start_ns;
     uint64_t last_observed_time_ns;
+    /* Identity and transport measurements of the most recent timestamp
+     * evidence.  These fields are diagnostic metadata only; they do not
+     * participate in the PI/DCO state transition. */
+    uint32_t last_observed_source_slot_id;
+    uint32_t last_observed_reference_slot_id;
+    uint32_t last_observed_payload_class;
+    uint32_t last_observed_delay_ns;
+    uint32_t last_observed_jitter_ns;
+    uint32_t last_observed_frame_crc32;
+    uint32_t last_observed_sample_crc32;
+    uint32_t last_observed_timestamp_source;
+    uint32_t last_observed_timestamp_resolution_ns;
+    uint32_t last_observed_timestamp_flags;
+    int32_t last_observed_raw_phase_error_ns;
+    uint32_t last_observed_delay_generation;
+    uint32_t last_observed_bias_generation;
+    uint32_t last_observed_correlation_flags;
+    uint32_t last_observed_reference_tx_phase_ns;
+    uint32_t last_observed_local_rx_phase_ns;
+    uint64_t last_observed_common_effective_time_ns;
+    uint64_t last_observed_reference_tx_timestamp_ns;
+    uint64_t last_observed_local_rx_timestamp_ns;
     /* Debug continuation deliberately separates a recorded bad observation
      * from a product admission rejection. The raw gate remains inspectable
      * while last_reject_code stays PASS for the active debug session. */

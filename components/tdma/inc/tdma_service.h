@@ -254,6 +254,11 @@ typedef struct {
     uint32_t ring_clock_observation_resolution_ns;
     uint32_t ring_clock_observation_flags;
     uint32_t ring_clock_observation_correlated;
+    uint32_t ring_clock_observation_correlation_flags;
+    uint32_t ring_clock_reference_tx_phase_ns;
+    uint32_t ring_clock_local_rx_phase_ns;
+    uint32_t ring_clock_common_effective_time_ns_lo;
+    uint32_t ring_clock_common_effective_time_ns_hi;
     uint32_t ring_clock_reference_tx_timestamp_ns_lo;
     uint32_t ring_clock_reference_tx_timestamp_ns_hi;
     uint32_t ring_clock_local_rx_timestamp_ns_lo;

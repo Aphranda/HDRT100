@@ -194,6 +194,11 @@ typedef struct {
     uint32_t ring_clock_observation_resolution_ns;
     uint32_t ring_clock_observation_flags;
     uint32_t ring_clock_observation_correlated;
+    uint32_t ring_clock_observation_correlation_flags;
+    uint32_t ring_clock_reference_tx_phase_ns;
+    uint32_t ring_clock_local_rx_phase_ns;
+    uint32_t ring_clock_common_effective_time_ns_lo;
+    uint32_t ring_clock_common_effective_time_ns_hi;
     uint32_t ring_clock_reference_tx_timestamp_ns_lo;
     uint32_t ring_clock_reference_tx_timestamp_ns_hi;
     uint32_t ring_clock_local_rx_timestamp_ns_lo;
@@ -261,6 +266,11 @@ typedef struct {
 typedef struct {
     tdma_service_service_t *scheduler;
     uint32_t last_submit_seq;
+    /* The shared scheduler allocates one global enqueue sequence, while
+     * completion is reported per traffic class.  Keep the submit watermark
+     * per class so a busy CONFIG_CONTROL queue is not confused with a
+     * completed REFMEM_REALTIME intent (and vice versa). */
+    uint32_t last_submit_seq_by_class[TDMA_TRAFFIC_CLASS_COUNT];
     uint32_t last_submit_payload_class;
     const refmem_realtime_tdma_ops_t *ops;
     void *ops_context;
@@ -288,8 +298,18 @@ void refmem_realtime_tdma_core1_service(refmem_realtime_tdma_service_t *service)
 bool refmem_realtime_tdma_get_snapshot(
     const refmem_realtime_tdma_service_t *service,
     refmem_realtime_tdma_snapshot_t *snapshot);
+bool refmem_realtime_tdma_get_snapshot_for_payload_class(
+    const refmem_realtime_tdma_service_t *service,
+    uint32_t payload_class,
+    refmem_realtime_tdma_snapshot_t *snapshot);
 bool refmem_realtime_tdma_get_result_frame(
     const refmem_realtime_tdma_service_t *service,
+    uint8_t *frame,
+    size_t frame_capacity,
+    size_t *frame_size);
+bool refmem_realtime_tdma_get_result_frame_for_payload_class(
+    const refmem_realtime_tdma_service_t *service,
+    uint32_t payload_class,
     uint8_t *frame,
     size_t frame_capacity,
     size_t *frame_size);

@@ -1,5 +1,7 @@
 #include "vdc_domain.h"
 
+#include "tdma_ring_runtime.h"
+
 #include <limits.h>
 #include <string.h>
 
@@ -898,6 +900,83 @@ static bool vdc_domain_debug_gate_recoverable(uint32_t gate_code)
     }
 }
 
+/* Generation metadata is the provenance fence between a live evidence sample
+ * and the immutable directed path table used to correct it.  Provisional
+ * training tables intentionally have no bias generation and remain
+ * diagnostic-only; they must not be turned into a formal admission failure
+ * merely because that generation has not been minted yet. */
+static bool vdc_domain_validate_evidence_generations(
+    const vdc_domain_context_t *context,
+    const vdc_tdma_timestamp_evidence_t *evidence,
+    vdc_gate_result_t *gate)
+{
+    if (context == NULL || evidence == NULL) {
+        vdc_domain_gate_fail(gate, VDC_DOMAIN_GATE_BAD_ARGUMENT, 0u, 0u);
+        return false;
+    }
+
+    const vdc_path_delay_table_t *table = &context->path_delay;
+    if (table->bias_generation == 0u ||
+        (table->flags & VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY) != 0u) {
+        return true;
+    }
+
+    if (table->calibration_generation == 0u ||
+        evidence->delay_generation == 0u ||
+        evidence->delay_generation != table->calibration_generation) {
+        vdc_domain_gate_fail(gate,
+                             VDC_DOMAIN_GATE_DELAY_GENERATION,
+                             evidence->source_slot_id,
+                             evidence->sample_seq);
+        return false;
+    }
+    if (evidence->bias_generation == 0u ||
+        evidence->bias_generation != table->bias_generation) {
+        vdc_domain_gate_fail(gate,
+                             VDC_DOMAIN_GATE_BIAS_GENERATION,
+                             evidence->source_slot_id,
+                             evidence->sample_seq);
+        return false;
+    }
+    return true;
+}
+
+/* A process image carries an origin phase and a receiver-local latch. The
+ * latter cannot enter a MASTER servo until it has a common-time mapping. The
+ * reference node's returned-loop sample is the exception because both ends
+ * use the same counter. FOLLOWER still retains raw diagnostic evidence while
+ * its PI/DCO path remains bypassed. */
+static bool vdc_domain_validate_evidence_phase_domain(
+    const vdc_domain_context_t *context,
+    const vdc_tdma_timestamp_evidence_t *evidence,
+    vdc_gate_result_t *gate)
+{
+    if (context == NULL || evidence == NULL) {
+        vdc_domain_gate_fail(gate, VDC_DOMAIN_GATE_BAD_ARGUMENT, 0u, 0u);
+        return false;
+    }
+
+    const uint32_t flags = evidence->correlation_flags;
+    if (flags == 0u || vdc_domain_is_follower(context)) {
+        return true;
+    }
+    const uint32_t required = TDMA_RING_CLOCK_OBSERVATION_FLAG_CYCLE_PHASE |
+                              TDMA_RING_CLOCK_OBSERVATION_FLAG_COMMON_TIME;
+    const bool common_time = (flags & required) == required;
+    const bool same_clock =
+        (flags & TDMA_RING_CLOCK_OBSERVATION_FLAG_LOCAL_PHASE_SAME_CLOCK) != 0u;
+    const bool common_mapped = (flags &
+        TDMA_RING_CLOCK_OBSERVATION_FLAG_LOCAL_PHASE_COMMON_MAPPED) != 0u;
+    if (!common_time || (!same_clock && !common_mapped)) {
+        vdc_domain_gate_fail(gate,
+                             VDC_DOMAIN_GATE_LOCAL_PHASE_UNALIGNED,
+                             evidence->source_slot_id,
+                             evidence->sample_seq);
+        return false;
+    }
+    return true;
+}
+
 /* Debug continuation is deliberately not a hidden acceptance.  The failed
  * evidence stays out of the PI/DCO path and the raw gate is retained in the
  * DPLL snapshot.  The product rejection fields remain PASS so debug tooling
@@ -945,6 +1024,43 @@ static void vdc_domain_reset_lock_acquisition(vdc_domain_context_t *context)
     context->quality.consecutive_coarse_samples = 0u;
     context->quality.consecutive_debug_samples = 0u;
     context->quality.consecutive_fine_samples = 0u;
+}
+
+/* Keep the physical identity and raw timestamp measurements alongside the
+ * derived DPLL state.  The maintenance capture consumes these fields to
+ * distinguish an observed TDMA source from a FOLLOWER's selected master. */
+static void vdc_domain_record_observation_metadata(
+    vdc_domain_context_t *context,
+    const vdc_tdma_timestamp_evidence_t *evidence)
+{
+    if (context == NULL || evidence == NULL) {
+        return;
+    }
+    context->dpll.last_observed_source_slot_id = evidence->source_slot_id;
+    context->dpll.last_observed_reference_slot_id =
+        evidence->reference_slot_id;
+    context->dpll.last_observed_payload_class = evidence->payload_class;
+    context->dpll.last_observed_delay_ns = evidence->delay_ns;
+    context->dpll.last_observed_jitter_ns = evidence->jitter_ns;
+    context->dpll.last_observed_frame_crc32 = evidence->frame_crc32;
+    context->dpll.last_observed_sample_crc32 = evidence->sample_crc32;
+    context->dpll.last_observed_timestamp_source = evidence->timestamp_source;
+    context->dpll.last_observed_timestamp_resolution_ns =
+        evidence->timestamp_resolution_ns;
+    context->dpll.last_observed_timestamp_flags = evidence->timestamp_flags;
+    context->dpll.last_observed_raw_phase_error_ns = evidence->phase_error_ns;
+    context->dpll.last_observed_delay_generation = evidence->delay_generation;
+    context->dpll.last_observed_bias_generation = evidence->bias_generation;
+    context->dpll.last_observed_correlation_flags = evidence->correlation_flags;
+    context->dpll.last_observed_reference_tx_phase_ns =
+        evidence->reference_tx_phase_ns;
+    context->dpll.last_observed_local_rx_phase_ns = evidence->local_rx_phase_ns;
+    context->dpll.last_observed_common_effective_time_ns =
+        evidence->common_effective_time_ns;
+    context->dpll.last_observed_reference_tx_timestamp_ns =
+        evidence->reference_tx_timestamp_ns;
+    context->dpll.last_observed_local_rx_timestamp_ns =
+        evidence->local_rx_timestamp_ns;
 }
 
 static bool vdc_domain_reject_requires_reacquire(uint32_t reject_code)
@@ -2839,6 +2955,10 @@ static bool vdc_domain_expand_compact_observation_window(
     evidence->frame_crc32 = compact->frame_crc32;
     evidence->sample_crc32 = compact->sample_crc32;
     evidence->quality_flags = compact->quality_flags;
+    if (path_delay != NULL) {
+        evidence->delay_generation = path_delay->calibration_generation;
+        evidence->bias_generation = path_delay->bias_generation;
+    }
 
     return vdc_domain_validate_tdma_timestamp_evidence_window(
         profile,
@@ -3303,6 +3423,31 @@ static bool vdc_domain_prepare_tdma_evidence_checked(
         return true;
     }
 
+    if (!vdc_domain_validate_evidence_generations(context, evidence, &gate)) {
+        preparation->valid = 1u;
+        preparation->schedule_crc32 = context->schedule.schedule_crc32;
+        preparation->dpll_update_seq = context->dpll.update_seq;
+        preparation->gate = gate;
+        preparation->follower_bypassed =
+            vdc_domain_is_follower(context) ? 1u : 0u;
+        /* Generation mismatches are provenance failures, never recoverable
+         * debug continuation.  The caller records raw evidence and keeps it
+         * out of corrected jitter/formal lock. */
+        preparation->continued = 0u;
+        return true;
+    }
+
+    if (!vdc_domain_validate_evidence_phase_domain(context, evidence, &gate)) {
+        preparation->valid = 1u;
+        preparation->schedule_crc32 = context->schedule.schedule_crc32;
+        preparation->dpll_update_seq = context->dpll.update_seq;
+        preparation->gate = gate;
+        preparation->follower_bypassed =
+            vdc_domain_is_follower(context) ? 1u : 0u;
+        preparation->continued = 0u;
+        return true;
+    }
+
     const int32_t input_residual_ns =
         vdc_domain_corrected_phase_error_ns(context, evidence);
     preparation->valid = 1u;
@@ -3366,7 +3511,93 @@ bool VDC_DOMAIN_TIME_CRITICAL(vdc_domain_apply_prepared_tdma_evidence_state)(
 
     const vdc_gate_result_t gate = preparation->gate;
     context->gate = gate;
+    vdc_domain_record_observation_metadata(context, evidence);
     if (preparation->follower_bypassed != 0u) {
+        /* FOLLOWER runs the same timestamp/window and path-delay
+         * observation as MASTER.  The result is diagnostic state only: do
+         * not touch the local PI, integrator, DCO command or lock state. */
+        context->dpll.last_sample_seq = evidence->sample_seq;
+        context->dpll.last_raw_phase_error_ns = evidence->phase_error_ns;
+        context->dpll.last_phase_error_ns = evidence->phase_error_ns;
+        context->dpll.last_offset_ns = evidence->phase_error_ns;
+        context->dpll.last_expected_window_start_ns =
+            evidence->expected_window_start_ns;
+        context->dpll.last_observed_time_ns = evidence->observed_time_ns;
+        context->dpll.schedule_crc32 = context->schedule.schedule_crc32;
+        context->dpll.servo_profile_crc32 = context->servo.servo_profile_crc32;
+        context->quality.valid = 1u;
+        context->quality.lock_state = context->dpll.state;
+        context->quality.update_seq =
+            vdc_domain_increment_nonzero(context->quality.update_seq);
+        context->quality.last_sample_seq = evidence->sample_seq;
+        context->quality.last_timestamp_source = evidence->timestamp_source;
+        context->quality.last_timestamp_resolution_ns =
+            evidence->timestamp_resolution_ns;
+        context->quality.last_timestamp_flags = evidence->timestamp_flags;
+        context->quality.last_sample_time_ns =
+            vdc_domain_evidence_time_ns(evidence);
+        context->quality.last_sample_age_us = 0u;
+        context->quality.last_jitter_ns = evidence->jitter_ns;
+        context->quality.last_offset_ns = evidence->phase_error_ns;
+        context->quality.gate_reject_code = gate.reject_code;
+        context->quality.gate_reject_slot = gate.reject_slot;
+        context->quality.gate_reject_evidence = gate.reject_evidence;
+        context->quality.jitter_rms_ns =
+            vdc_domain_avg_u32(context->quality.jitter_rms_ns,
+                               evidence->jitter_ns);
+        if (preparation->accepted != 0u) {
+            const int32_t residual_ns = preparation->input_residual_ns;
+            const uint32_t abs_phase = vdc_domain_abs_i32(residual_ns);
+            context->dpll.last_reject_code = VDC_DOMAIN_GATE_PASS;
+            context->dpll.last_phase_error_ns = residual_ns;
+            context->dpll.last_offset_ns = residual_ns;
+            context->dpll.max_abs_offset_ns =
+                abs_phase > context->dpll.max_abs_offset_ns
+                    ? abs_phase
+                    : context->dpll.max_abs_offset_ns;
+            context->dpll.rms_offset_ns =
+                context->dpll.rms_offset_ns == 0u
+                    ? abs_phase
+                    : vdc_domain_avg_u32(context->dpll.rms_offset_ns,
+                                         abs_phase);
+            context->dpll.jitter_pk_ns =
+                evidence->jitter_ns > context->dpll.jitter_pk_ns
+                    ? evidence->jitter_ns
+                    : context->dpll.jitter_pk_ns;
+            context->quality.last_offset_ns = residual_ns;
+            context->quality.gate_reject_slot = evidence->source_slot_id;
+            context->quality.gate_reject_evidence = evidence->sample_seq;
+            context->quality.rms_offset_ns = context->dpll.rms_offset_ns;
+            context->quality.max_abs_offset_ns =
+                context->dpll.max_abs_offset_ns;
+            context->quality.jitter_pk_ns = context->dpll.jitter_pk_ns;
+            context->quality.quality_flags = 0u;
+            if (abs_phase >
+                vdc_domain_effective_lock_acceptance_threshold_ns(context)) {
+                context->quality.quality_flags |=
+                    VDC_DOMAIN_QUALITY_FLAG_PHASE_OUT_OF_LOCK;
+            }
+            const uint32_t diagnostic_threshold_ns =
+                vdc_domain_effective_phase_diagnostic_threshold_ns(context);
+            if (diagnostic_threshold_ns != 0u &&
+                abs_phase > diagnostic_threshold_ns) {
+                context->quality.quality_flags |=
+                    VDC_DOMAIN_QUALITY_FLAG_PHASE_LARGE;
+            }
+            if (vdc_domain_abs_i32(context->clock.period_adjust_ppb) >=
+                context->servo.sanity_freq_limit_ppb) {
+                context->quality.quality_flags |=
+                    VDC_DOMAIN_QUALITY_FLAG_RATE_LIMITED;
+            }
+            context->quality.last_reject_code = VDC_DOMAIN_GATE_PASS;
+        } else {
+            context->dpll.last_reject_code = gate.reject_code;
+            context->quality.last_reject_code = gate.reject_code;
+        }
+        /* update_seq is an observation sequence for FOLLOWER. It is not a
+         * lock or control sequence and therefore cannot authorize local PI. */
+        context->dpll.update_seq =
+            vdc_domain_increment_nonzero(context->dpll.update_seq);
         preparation->applied = 1u;
         preparation->post_apply_dpll_update_seq = context->dpll.update_seq;
         if (accepted != NULL) {

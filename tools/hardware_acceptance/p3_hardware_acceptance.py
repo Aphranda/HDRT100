@@ -2664,13 +2664,18 @@ def run_acceptance(args: argparse.Namespace) -> None:
         else:
             internal_summary = json.loads(
                 internal_dpll_summary_path.read_text(encoding="utf-8"))
-        if diagnostic_continue and internal_returncode != 0:
+        internal_capture_passed = internal_summary.get("passed") is True
+        if diagnostic_continue and (
+                internal_returncode != 0 or not internal_capture_passed):
             diagnostic_failures.append({
                 "phase": "internal DPLL SD capture NO1..NO4",
                 "returncode": internal_returncode,
-                "error": str(internal_summary.get("error", "")),
+                "error": str(internal_summary.get(
+                    "error", internal_summary.get("failures", ""))),
                 "summary": internal_dpll_summary_path.resolve().relative_to(root).as_posix(),
             })
+        elif not diagnostic_continue:
+            validate_pass_summary(internal_summary, "internal DPLL SD capture NO1..NO4")
         dpll_dir = out_dir / "dpll-no5-observation"
         dpll_command = [
             sys.executable,

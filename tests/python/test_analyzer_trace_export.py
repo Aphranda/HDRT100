@@ -124,22 +124,29 @@ def test_download_file_checks_size_hash_and_eof() -> None:
     assert pages[-1]["eof"] is True
 
 
-def test_download_file_defaults_to_firmware_maximum_block() -> None:
+def test_download_file_defaults_to_cdc_safe_block() -> None:
     payload = bytes(range(256)) * 16
     commands: list[str] = []
 
     def query(command: str) -> str:
         commands.append(command)
-        return (f'"OK",1,0,{STORAGE_FILE_READ_MAX_BYTES},'
-                f'{len(payload)},{len(payload)},1,123,0,"{payload.hex()}"')
+        offset, requested = (int(value) for value in
+                             command.rsplit(",", 2)[1:])
+        page = payload[offset:offset + requested]
+        eof = int(offset + len(page) == len(payload))
+        return (f'"OK",1,{offset},{requested},'
+                f'{len(page)},{len(payload)},{eof},123,0,"{page.hex()}"')
 
     data, pages = download_file(
         query, "/traces/run/analyzer_1.bin", expected_size=len(payload))
     assert data == payload
-    assert len(pages) == 1
+    assert len(pages) == 2
     assert commands == [
         'SYSTem:STORage:FILE:READ? '
-        f'"/traces/run/analyzer_1.bin",0,{STORAGE_FILE_READ_MAX_BYTES}'
+        f'"/traces/run/analyzer_1.bin",0,{STORAGE_FILE_READ_MAX_BYTES}',
+        'SYSTem:STORage:FILE:READ? '
+        f'"/traces/run/analyzer_1.bin",{STORAGE_FILE_READ_MAX_BYTES},'
+        f'{STORAGE_FILE_READ_MAX_BYTES}'
     ]
 
 

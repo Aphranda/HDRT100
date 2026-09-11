@@ -232,11 +232,17 @@ def check_sync_io_runtime(
             "sync_io_core_capture_is_running",
             "sync_io_model_pulse_schedule_disarm",
             "s_model_pulse.words = sync_io_shared_workspace",
-            "sync_io_wave_output_manager_start",
-        ),
+         "sync_io_wave_output_manager_start",
+         ),
         (),
         "SYNC output schedule common arm",
     )
+    if ("sync_io_core_capture_is_running() && !observer_capture_overlap"
+            not in arm_common):
+        failures.append(
+            "SYNC output schedule common arm is missing "
+            "sync_io_core_capture_is_running"
+        )
     arm_order_tokens = (
         "sync_io_core_capture_is_running",
         "sync_io_model_pulse_schedule_disarm",

@@ -284,6 +284,12 @@ bool tdma_runtime_owner_init(void)
         tdma_pio_spi_ring_adapter_set_phys_tx_complete(
             &s_tdma_pio_spi_ring_adapter,
             tdma_pio_spi_phys_take_tx_completion);
+        tdma_pio_spi_ring_adapter_set_phys_local_tx_edge(
+            &s_tdma_pio_spi_ring_adapter,
+            tdma_pio_spi_phys_take_local_tx_edge);
+        tdma_pio_spi_ring_adapter_set_phys_local_tx_edge_ex(
+            &s_tdma_pio_spi_ring_adapter,
+            tdma_pio_spi_phys_take_local_tx_edge_ex);
         tdma_pio_spi_ring_adapter_set_phys(
             &s_tdma_pio_spi_ring_adapter,
             tdma_pio_spi_phys_tx,

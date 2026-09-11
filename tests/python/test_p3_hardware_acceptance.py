@@ -595,7 +595,7 @@ def test_bench_and_orchestrator_cover_full_hardware_acceptance() -> None:
         assert quick[f"{stage}_capture_waveforms"] is False
     assert quick["tdma_capture_waveforms"] is False
     assert quick["dpll_capture_waveforms"] is True
-    assert quick["dpll_monitor_duration_s"] == 3.0
+    assert quick["dpll_monitor_duration_s"] == 30.0
     assert loaded_quick["training_sck_offsets_by_node"] == [0, 0, 0, 0]
     assert loaded_quick["training_max_offset_span"] == 1
     assert acceptance_timing(loaded_quick)["p3_capture_timeout_s"] == 20.0
@@ -978,9 +978,9 @@ def test_quick_acceptance_budget_warns_then_errors() -> None:
     quick = load_bench_config(
         ROOT / "config" / "hardware_acceptance" / "p3_bench_quick.json")
     assert quick["acceptance_profile"] == "QUICK_DIAGNOSTIC"
-    assert acceptance_budget_status(quick, 330.0)["status"] == "PASS"
-    assert acceptance_budget_status(quick, 330.001)["status"] == "WARN"
-    assert acceptance_budget_status(quick, 390.001)["status"] == "ERROR"
+    assert acceptance_budget_status(quick, 390.0)["status"] == "PASS"
+    assert acceptance_budget_status(quick, 390.001)["status"] == "WARN"
+    assert acceptance_budget_status(quick, 450.001)["status"] == "ERROR"
     with pytest.raises(AcceptanceError, match="acceptance_time_budget"):
         acceptance_budget_status({"acceptance_time_budget": {
             "warning_s": 100, "error_s": 60}}, 1)
