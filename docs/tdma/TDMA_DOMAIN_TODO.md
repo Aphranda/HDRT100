@@ -157,11 +157,16 @@ RX_HANDOFF 重复相加。STOP 应答超时及前序 ARM 拒绝保持开放，�
 通过。训练 gate 的读写者、pending command 与停止边界已完成源码绑定的主机回放，见
 `TDMA-PROGRESS-20260913-036`。已复现旧 inactive 覆盖新命令占用，且配置侧更新
 `train_accepted_seq` 先于真实停止；不能用当前状态缓存或单独的序列相等替代仲裁。
-下一实现须先建立命令可消费前的占用与 owner generation 绑定的完成证据，再移除
-Core1 每拍共享锁；拒绝、旧证据、重置和 STOP pending 必须保留占用语义。共享锁等待
-尚未单独计量。完整峰值同记录核算表明，即使移除整段训练发布，其余工作仍超预算，
-因此 owner/runtime/adapter RX handoff 拆分继续作为性能主线；不得把局部修正当作
-完整 WCET 收敛。预算、service blackout、同圈交换及特等席保全的退出门禁继续保留。
+命令可消费前的占用、owner generation 绑定的完成事实及 Core1 无共享锁发布已实现，
+见 `TDMA-PROGRESS-20260913-037`。拒绝、旧证据、重置、STOP pending 和 Flash 最终
+资源取得均有交错测试；实际 coarse-training SM 未停也不能据 ERROR 释放占用。
+实链与当前源码四板诊断已复核，训练发布子项下降，完整 profile 峰值仍未全部改善，
+严格启动、完整 WCET、正式 RAM 与观察无损仍未通过。新增静态占用与保留的 ARM
+map 拒绝、STOP 应答超时均见该进度；不能将复位恢复写作生命周期修复。
+下一性能切片拆分 owner/runtime/adapter RX handoff 的捕获、交接与事实提交，保持
+完整 generation、不可变输入、取消与池所有权；不得把局部修正当作完整 WCET 收敛，
+也不得把嵌套 RX_CAPTURE/RX_HANDOFF 相加。预算、service blackout、同圈交换及特等席
+保全的退出门禁继续保留，节点容量后续项仍后置。
 
 普通 RX 异步解析切片已按用户顺序封存，随后完成六节点编译容量的隔离 RAM 核算，见
 `TDMA-PROGRESS-20260912-019`。核算区分本地状态、固定 wire/RefMem/Calibration

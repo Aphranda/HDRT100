@@ -8,7 +8,12 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的训练发布竞态与成本审计见
+当前 `TDMA-FLIGHT-002F` 的训练仲裁占用与有界完成发布切片见
+`TDMA-PROGRESS-20260913-037`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-training-publication/`。命令发布前保留
+占用，Core1 改为单向版本化完成事实，Flash 最终取得资源也复核训练占用；训练发布
+子项下降，完整 WCET、正式 RAM 与逐圈保全仍未通过。
+前序训练发布竞态与成本审计见
 `TDMA-PROGRESS-20260913-036`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-training-gate-audit/`。主机回放复现旧状态
 清除 pending 占用，并排除将配置侧 accepted 序列当作硬件停止确认的方案；本轮未改
@@ -144,6 +149,67 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-037 - 训练仲裁占用与 Core1 有界完成发布
+
+- 日期：2026-09-13；TODO task ID：`TDMA-FLIGHT-002F`。以下数字为实验快照，非事实源；
+  证据根为 `out/HardwareAcceptance/20260913/tdma-flight-training-publication/`。基线提交
+  `e08a0d319c4e9c62e0f50ce516ac0533be504824`；本轮不变更 registry/C11 状态。
+- Resource Arbiter 在 Core0 原临界区内保留训练占用，再调用 TDMA owner 的有界软件
+  intent 发布；失败保留此前占用。Core1 改为原子字段与屏障保护的单 writer 完成事实，
+  仲裁侧一次读取，旧值、读竞争或 generation 不符都不提前释放。新增
+  `train_owner_sequence` 仅由 owner 执行/成功取消推进，配置侧 accepted 重置不再
+  充当硬件终态；STOP pending、配置未应用及仍 enabled 的 coarse-training SM 均
+  阻止释放。重复仲裁初始化保留请求，稳定语义已写入 TDMA 域架构。
+- FlashTransaction 的策略检查和 ACQUIRE 是不同 action，最终 Flash 资源取得现在
+  也在仲裁锁内检查训练占用；拒绝记录 holder `TDMA_CLOCK_TRAINING`。首版构建完成
+  后复核发现此窗口，补检查后以最终版本重新测试/构建；首版未部署且原件保留，见
+  `variant-history.json`。wire、PIO 程序、clock 源与编译容量未改变。
+- 源码提取的真实 owner/service/物理终态查询与真实 runtime/arbiter 通过 17 个主机
+  交错场景，覆盖旧完成覆盖、发布途中完成、拒绝保留旧请求、STOP、重置、回绕、
+  快照失败、兼容标志、仍运行的 SM 以及 Flash 最终取得资源。旧 runtime/arbiter、
+  Flash 普通/validation/OTA journal/journal 变体及 138 项集成回归通过，文档检查器
+  18 项通过。主机物理回调/PIO 是受控替身，不能替代板端并发或时序证明。
+- 最终 Release A/B/Boot 为 `20260912195528`，源码指纹
+  `aba4f6f37ae6672c450ba5416ea6731928eca59e135255e998198b9a4c95267c`，源码文件 1022。
+  A/B link free 各 4884 B，比前版减少 20 B，正式 RAM 仍 FAIL。实链检查发布路径只有
+  有界读取、屏障和写入，无共享 OSAL 锁、重试环、RMW atomic helper 或整份快照复制；
+  不将指令审查提升为完整 WCET 证明。见 `source-review-r1.json`、`assembly-review-r1.json`。
+- 当前源码四板 OTA/P3 完成，OTA 耗时约 91.266 s；凭证 `passed=true`、
+  `strict_gates_passed=false`。除严格启动屏障超时外，coded marker 的 NO1 reference
+  试验出现一次 NO3 ARM `FLIGHT_MAP_REJECTED`；P3 process-image 诊断 soak 通过。
+  计时前 NO4 STOP 应答超时，两次独立读回均确认四板 armed/enabled/adapter_started
+  为零、物理 last_error 为零，随后执行一次有界复位。原拒绝和超时不改判，见
+  `lifecycle-failures-r1.json`；本轮不宣称修复一般 ARM map 或 STOP 应答问题。
+- 对照仍采用前版 RX14 旧诊断行，逐样本核验相位、clock、负载掩码和 WCET；它仅用于
+  成本比较，不充当当前校准接受。普通首末跨度 22.217 s，自主 90.692 s；有效收帧
+  分别为 5394/5362/5451/5431 与 42793/34887/33680/30603。两个窗口 transport bad
+  和已检查物理故障增量均为零。临时许可证 9130370（epoch 14）已原始应答/读回确认
+  撤销；当前 P3 派生矩阵已实际恢复并四板 STOP，恢复诊断 soak 通过，严格启动仍失败。
+- 下表为自主窗口的完整 profile 峰值及**同条峰值记录**中的训练发布子项，单位 µs；
+  子项不是独立最大值，两个 build 的窗口长短和样本数也不同。
+
+| 节点 | 前版完整峰值 | 本版完整峰值 | 前版训练发布 | 本版训练发布 |
+|---|---:|---:|---:|---:|
+| NO1 | 906.880 | 927.788 | 29.204 | 16.892 |
+| NO2 | 986.032 | 942.964 | 27.976 | 12.752 |
+| NO3 | 1108.444 | 1041.824 | 23.276 | 19.864 |
+| NO4 | 1074.636 | 1072.412 | 20.776 | 14.700 |
+
+- 自主稀疏 last 样本的训练发布中位数由 18.228/10.120/10.200/12.160 µs 变为
+  6.726/7.812/9.428/9.420 µs；普通与自主的该中位数均下降。完整自主峰值三板下降、
+  NO1 上升；普通完整峰值为 1224.440/892.336/952.392/888.748 µs。有限样本支持
+  局部收益，不证明稳定整体收益；不能把 XIP、IRQ、分支和共享访问变化全部归因于
+  锁移除。profile 不含 recorder 发布，完整 `SCHEDULE` 超限另查；本轮自主超限增量
+  为 51436/60567/61235/60192，完整 WCET 仍 FAIL，见 `timing-comparison-r1.json`。
+- 自主 NO2/NO3/NO4 的 RX ring overrun 增量为 17442/19419/22887，观察副本 drop
+  为 34888/33665/30604；NO1 两项为零。transport good 不证明逐圈无损或时间戳保全，
+  这些观察损失也不是 wire 坏帧数。原件边界见 `observation-scope-r1.json`。
+- 下一切片聚焦仍超预算的 RX handoff 和 owner 内部工作；保持 generation、取消、
+  池归属与真实完成语义，不把耗时藏进另一个无预算 action。现有 phase 门限、六节点
+  配置与后续项顺序保持；service blackout、多 owner 同圈更新、逐圈 CRC/sequence
+  和特等时间戳保全仍须独立验收。切片 PARTIAL，长期目标 active；主控复核及分离
+  提交封存见 `review-r1.json`、`commit-proof.json`。
 
 ### TDMA-PROGRESS-20260913-036 - 训练发布竞态回放与完整峰值成本核算
 

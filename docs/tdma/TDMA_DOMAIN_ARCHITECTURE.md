@@ -891,6 +891,20 @@ STOP 已关闭的 traffic admission 由原子标量发布；Core1 consumer 在�
 重建 ARM epoch。DMA 预取可能领先物理 CS 边界，selection 只证明内存读取交接，
 不能当作 SENT、wire completion、RefMem ACK/fence 或 DPLL 时间。
 
+粗时钟训练的维护占用由 Resource Arbiter 在 Core0 请求临界区内先保留，再调用
+TDMA owner 的有界软件 intent 发布；发布拒绝只撤销本次请求，保留此前占用。
+Core1 不写仲裁快照或争用该锁，而由
+`resource_arbiter_complete_tdma_clock_training_core1()` 发布单 writer、带内存屏障的
+版本化完成事实。仲裁的准入、快照和 Flash 最终资源取得在原临界区内读取该事实，
+一次读取失败或 generation 不匹配均保留 pending；兼容活动标志与请求占用合并，
+不能互相清除。重复仲裁初始化也不丢弃尚未完成的训练请求。
+训练完成使用 `tdma_ring_runtime_t.train_owner_sequence` 的 owner 消费/取消事实，
+不采用配置侧可提前更新的 `train_accepted_seq`。实际完成或拒绝须经物理终态检查，
+包括 coarse-training SM 的 enable 状态；诊断 ERROR 本身不证明旧训练已停。
+配置未应用或 STOP pending 不能释放占用。成功停止才能确认被取消的命令；冷启动
+重建整个实例，已初始化 owner 的重复初始化不重置命令序列。该维护交接不改变
+process-image completion、wire generation 或业务 ACK/fence。
+
 recurrence backend 在获取 TX FIFO 前检查可发布性；未就绪保持旧计划。无新 TX 时，
 已接受的计划持续复用，不再次构建；成功发布后才更新接受版本。初始无 TX 仍可准备
 hop 变换。ARM 后先由 PASS 计划持续运行，完整包的 byte/bit alignment 必须在相邻
