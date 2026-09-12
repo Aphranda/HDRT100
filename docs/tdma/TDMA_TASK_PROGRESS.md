@@ -8,7 +8,12 @@ Last updated: 2026-09-12
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的 overlay 静态授权预计算切片见
+当前 `TDMA-FLIGHT-002F` 的 RX 取帧内部归因切片见
+`TDMA-PROGRESS-20260912-025`，证据根为
+`out/HardwareAcceptance/20260912/tdma-flight-rx-acquire-attribution/`。ring copy 是
+已测从站取帧的主要开销；下一切片验证逐字位反转内联，完整 WCET 与正式 RAM 仍未
+通过，现有门限保留，节点容量后续项保持后置。
+前序 overlay 静态授权预计算切片见
 `TDMA-PROGRESS-20260912-024`，证据根为
 `out/HardwareAcceptance/20260912/tdma-flight-overlay-layout/`。运行期已移除 map 扫描，
 完整 WCET 与正式 RAM 仍未通过，节点容量后续项保持后置。
@@ -86,6 +91,73 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260912-025 - RX 取帧内部归因与复制优先级
+
+- 日期：2026-09-12；TODO task ID：`TDMA-FLIGHT-002F`。以下数字为实验快照，
+  非事实源；证据根为 `out/HardwareAcceptance/20260912/tdma-flight-rx-acquire-attribution/`。
+- 变更：`TDMA_SERVICE_TIMING_VERSION` 从 V2 升至 V3，追加 DMA 观察、候选定位、
+  固定 header 校验和 ring copy 四子项，包含于 `TDMA_TIMING_RX_ACQUIRE`。初始和
+  复制后 DMA 观察累计计数；live 帧与后台发现私有窗口都报告复制，依调用次数及
+  定位/header 区分。主机明确支持 V1/V2/V3，未知版本或长度不匹配拒绝。探针包裹
+  原操作，保留 header 短路顺序、已完成范围准入、barrier、复制后 epoch/覆盖复验及
+  latch 因果边界；FIFO、wire、资源、节点容量和预算不变。实现复核见
+  `implementation-review-r1.json`。
+- 软件与构建：RX/recorder/parser `39 passed`，相关 flight/resource `156 passed`，
+  真实 adapter 主机 suite 通过，文档检查器自回归 `18 passed`。真实 recorder 与
+  推进中的 DMA 总线夹具验证 discovery/live 区分及复制被覆盖拒绝后的计时保留。
+  首次 RX 测试因新夹具未调用包含的取消 helper，被 `-Werror=unused-function` 拒绝，
+  保留 `1 failed/38 passed`；补充实际取消收尾断言后通过，未放宽告警。Release
+  A/B/Boot 与 Flash 链接检查通过，build `20260912120749`，源码指纹
+  `52f0dd17fb52b8a2fd73408f2d11130a4b48840ec27fd80ccd5b0812e59eb301`，
+  `1018` files，全部 `634` 个 app 翻译单元使用六容量。recorder work/snapshot
+  分别从 `144/304 B` 增至 `176/368 B`，合计新增 `96 B`，两镜像链接余量从
+  `5408 B` 降至 `5312 B`；`DEFAULT_MIN_FREE_BYTES` 本轮为 `49152 B`，正式 RAM FAIL。
+- P3 与当前源码闭环：真实 `p3-r1 run` 完成四板 OTA/复位/测量，凭证为
+  `FOUR_NODE_TDMA_QUICK_DIAGNOSTIC`，`passed=true/strict_gates_passed=false`。
+  粗时钟 NO3 `ARM result=5` 与 P3 process-image startup barrier timeout 两项严格
+  失败保留。编码标记、P0T、链路与 TRN00/01/02 通过。独立 `matrix-strict-r1.json`
+  首次 `passed=true/diagnostic_continue=false`，无需 P3 恢复重跑。
+  `lifecycle-r1` 的 process-before、raw-transition、process-restored+clock-train
+  均首次严格通过；普通四板 SD 原件重建、包对身份、mailbox CRC 和本地 owner
+  装卸边界通过，坏帧计数零增长，最终 STOP 成功且无 cleanup_error。
+- 计时：`timing-r1` 完成目标 `25 s` 普通窗口，随后以 trial `912036`、epoch `66`、
+  期限 `180 s` 的许可完成目标 `90 s` 自主窗口，期间无 SD 操作。普通完整峰值按
+  NO1..NO4 为 `1196.152/984.032/1037.704/1069.648 µs`；自主完整峰值为
+  `855.444/1093.168/1089.604/1104.808 µs`。自主从站各自同条完整峰值的取帧分解：
+
+  | 节点 | 取帧 µs | DMA 观察 µs | 定位 µs | header µs | ring copy µs | 未分配余项 µs |
+  |---|---:|---:|---:|---:|---:|---:|
+  | NO2 | 391.688 | 51.008 | 15.416 | 47.152 | 239.392 | 38.720 |
+  | NO3 | 429.128 | 30.628 | 20.076 | 85.508 | 266.020 | 26.896 |
+  | NO4 | 423.876 | 42.636 | 18.156 | 59.352 | 254.744 | 48.988 |
+
+  每条记录 DMA 观察调用两次，其余三子项各一次。ring copy 占取帧约 `60–62%`，
+  定位约 `4–5%`；普通从站 ring copy 为 `252.244/228.788/258.780 µs`，方向一致。
+  两窗口 RX 计数增加且 transport/schedule/profile 坏帧零增长；自主 scheduler
+  overrun 按 NO1..NO4 增加 `53791/58727/57473/57113`，完整 WCET 全 FAIL。
+  自主从站观察丢弃增加 `32955/30801/29459`，不能证明特等时间戳逐圈保全。
+  自主 origin 专用路径不报告新子项，零值不代表零成本；V3 增加探针和布局开销，
+  与前轮 V2 不是同条件速度对照。父子包含式不能重复相加或拼接独立最大值，
+  完整 phase 门禁不扣探针成本，有限峰值也不是 WCET 上界。
+- 下一修改依据：`acquire-assembly-r1.json` 绑定实际镜像反汇编。复制循环每个原始
+  word 调用外部 `__rev`，其实际实现为 `rbit` 后返回；`tdma_rx_scan_locate()` 虽有
+  两次长除法调用，实测占比较小。优先验证内联同语义位反转；注意 ACLE 同名 `__rev`
+  表示 byte swap，不能按名称直接替换。下一切片保持 V3 计时，先测试语义和镜像指令，
+  再完成当前源码硬件闭环和实测，不提前承诺收益；本切片未修改复制算法。
+- 自主原件与收尾：准备首次通过，`capture-r1` 使用独立 trial `912038`、epoch `82`、
+  期限 `180 s` 的许可。四板采集/导出在授权命令发出后主机单调时钟约
+  `44.610/59.141/52.047/50.922 s` 完成；下载可跨过许可到期，不将下载时长算作持续
+  自主运行。原件重建、包对身份、mailbox CRC 与本地 owner 装卸审计全部通过，坏帧
+  计数零增长。计时与采集分别撤销至 epoch `68/84`、inactive；两次最终四板
+  physical armed/runtime enabled/adapter started 均为零，无 error/cleanup_error。
+- 复核封存：`review-r1.json`、`slice-manifest.json` 绑定源码、构建、原件与命令 SHA；
+  门禁与代码/三文档分离提交见 `commit-proof.json`。结论 PARTIAL，保留首次主机
+  测试失败、真实 P3 两项严格失败和正式 RAM FAIL，不提升为产品通过。
+- 下一 gate：`TDMA-FLIGHT-002F` 保持 IN PROGRESS，现有 `380 µs` 门限保留；当前
+  差距不能靠适度放宽解决。先验收 ring copy 位反转内联，再调查剩余 owner/adapter
+  成本；正式 RAM、完整 WCET、特等逐圈保全、blackout、同圈更新、拥塞和恢复缺口
+  继续开放，节点容量后续项后置，registry/C11 状态不变。
 
 ### TDMA-PROGRESS-20260912-024 - overlay 静态授权预计算
 

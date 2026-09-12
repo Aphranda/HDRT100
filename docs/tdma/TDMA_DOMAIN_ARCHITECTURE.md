@@ -973,11 +973,19 @@ TDMA owner 在 begin 与每个准备步骤重新核验许可证绑定和期限�
 RefMem transport publish、training gate、analyzer、accounting，以及嵌套的 adapter、
 RX capture/parse、overlay prepare/boundary。时钟复用 `vdc_timestamp_clock_read_ticks64()`
 的 clk_sys 原始拍数；这只是执行耗时，不提供新的 wire timestamp 或共同时间证据。
-当前 `TDMA_SERVICE_TIMING_VERSION` 追加 follower/legacy RX 的
+follower/legacy RX 记录
 `TDMA_TIMING_RX_ACQUIRE`、`TDMA_TIMING_RX_PACKET_COPY`、`TDMA_TIMING_RX_CLOCK` 与
 `TDMA_TIMING_RX_LATCH`，分别覆盖取帧（含无帧返回）、包复制、时间换算和 latch 读取/重装。
 这些区间均包含于 `TDMA_TIMING_RX_CAPTURE`；origin 专用接收路径不报告这些子项，
-其零值不能解释为 origin 没有接收成本。主机使用
+其零值不能解释为 origin 没有接收成本。当前 `TDMA_SERVICE_TIMING_VERSION` 在异步
+取帧内追加 `TDMA_TIMING_RX_DMA_OBSERVE`、`TDMA_TIMING_RX_LOCATE`、
+`TDMA_TIMING_RX_HEADER_CHECK` 与 `TDMA_TIMING_RX_RING_COPY`，分别计量 DMA 计数
+观察、候选定位、固定 header 校验及归一化复制；这些子项包含于
+`TDMA_TIMING_RX_ACQUIRE`。初始与复制后 DMA 观察累计于同一子项；复制包括 live
+帧和用于后台发现的私有窗口，须结合调用次数及定位/header 子项解释。handoff、
+epoch/覆盖复验、分支和子项之间的计时开销仍保留在取帧总量中。legacy 和自主 origin
+专用接收路径不报告这些异步专用子项，不能把零值当成零成本。增加探针的版本与旧版本不是相同
+干扰条件下的速度对照，完整 phase 门禁不扣除探针成本。主机使用
 `tools/tdma_ring_monitor/tdma_service_timing.py` 校验版本、字段长度和 stage 数量，
 保留旧版本读取，未知版本拒绝，不能静默错配标签。
 每次 phase 的工作记录在结束时通过短 seqlock 发布；Core0 查询只尝试读取一次，
