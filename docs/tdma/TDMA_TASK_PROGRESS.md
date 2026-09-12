@@ -8,7 +8,10 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的锁存与线路时长等价算术切片见
+当前 `TDMA-FLIGHT-002F` 的 ARM 拒绝归因切片见 `TDMA-PROGRESS-20260913-041`，
+证据根为 `out/HardwareAcceptance/20260913/tdma-flight-arm-rejection/`。
+本轮区分管理面 map 准入的实际拒绝点，先闭合 STOP/re-ARM 故障，再继续性能拆分。
+前序锁存与线路时长等价算术切片见
 `TDMA-PROGRESS-20260913-040`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-latch-arithmetic/`。锁存分辨率使用硬件
 整数除法，整数位周期使用已证明范围内的乘法；重装顺序、舍入和时钟采样语义保持。
@@ -163,6 +166,67 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-041 - ARM 拒绝归因与管理面部分接受复现
+
+- 日期：2026-09-13；TODO task ID：`TDMA-FLIGHT-002F`。以下数字为实验快照，非事实源；
+  证据根为 `out/HardwareAcceptance/20260913/tdma-flight-arm-rejection/`。基线提交
+  `1c2f238791beac1ac19aa9084bbf99919b655768`，上一目标轮有提交和新证据，分类为 progress。
+  本轮不登记新冻结契约，不改变 registry/C11 状态。
+- 旧 ARM map 拒绝合并了 `tdma_service_configure_flight_map()` 的快照/运行态拒绝及
+  engine 的校验/写者冲突/活跃拒绝。新增 service/engine `configure_*_checked` 路径
+  返回实际拒绝点；原 bool API 作为等价包装保留。RefMem ARM 对快照不可用和 runtime
+  活跃复用已有结果，对 map 写者冲突和 engine 活跃分别报告新诊断枚举；现有
+  `SYSTem:TDMA:RING:ARM:STATus?` 可读取。成功路径、原准入顺序、map/generation
+  写入和拒绝计数不变；没有新增轮询、自动重试或静态对象。
+- 真实 service/engine 测试覆盖两个快照 writer、请求仍启用、adapter 未停、map guard
+  忙、engine 活跃、CRC 不符、成功和旧 bool API。拒绝不替换 map 或推进 generation；
+  真实 ARM 前端在受控依赖下覆盖所有 map 结果及早期/后续准入，不越过拒绝继续 ARM。
+  service 测试 7 项、前端测试 1 项、集成 121 项（含 service）、物理 DMA/RX 32 项及
+  真实 adapter C 回归通过。engine 旧配置函数与新受检函数除返回值外逐字等价，其他
+  engine 算法未改，见 `source-checkpoint-r1.json`。
+- `stop-reproduction-r1.json` 用真实 service/runtime/scheduler 复现另一条独立路径：
+  traffic scheduler writer/reader 暂持锁时，STOP 已发布 `ring.enabled=0` 和新 config
+  generation，随后 suspend 抢锁失败，命令返回 false，admission 仍开。释放锁后再次
+  STOP 成功。该 host 证据证明部分接受缺口存在；旧实板 STOP timeout 未读取紧随其后
+  的错误队列，尚不能直接归于该分支，也不能把停止读回当成原应答成功。
+- `arm-reproduction-r1.json` 在真实 service/runtime/scheduler 中复现合法配置先发布、
+  scheduler resume 抢锁失败再 STOP 回滚：config generation 推进两次、最终禁用，
+  config reject 计数未增；释放锁后同一配置可接受。这是 runtime-config 拒绝的一条
+  已证实源码路径，尚未证明实板拒绝瞬间持锁者；本轮只增加诊断，没有修复握手。
+- Release A/B/Boot 为 `20260912220459`，源码指纹
+  `dde8127cc0d01a145fe5a7b3128915a8cc71a878069397e50ffd7da741ff98e9`，源码文件 1024。
+  六节点和生成 PIO 相同，无新增静态 RAM，A/B link free 各 4848 B，正式 RAM 仍 FAIL。
+- 当前源码四板 OTA/P3 诊断流程完成，凭证 `passed=true`、
+  `strict_gates_passed=false`。coarse CLK 的 NO2 与 process-image 的 NO4 均 ARM
+  result 8；coded marker 的参考 NO2 被 Manchester/marker flags 拒绝，参考 NO4
+  试验中 NO1 ARM result 5。后者在诊断拆分后仍是非法 map，不能解释为 map 锁忙。
+  process-image 未交付运行环路，P3 本身没有 soak 通过证据。当前 TRN03 实测矩阵
+  `p3-r1/trn03-matrix.json` 的 `passed=true`，不能据此覆盖整套 P3 的严格失败。
+- 原始 `lifecycle-r1.json` 及逐命令文件记录 24 轮、96 次 ARM：93 次接受，NO2
+  arm-00 拒绝 result 5，NO4 arm-03 与 NO3 arm-13 拒绝 result 8；NO2 stop-07
+  与 NO4 stop-18 应答 timeout。上述五次均紧随命令读到 `-200,"Execution error"`。
+  STOP 后状态收敛不等于该命令应答成功。最初摘要漏记拒绝，主控逐文件审查已纠正，
+  原失败审计 `hardware-review-command-r1` 保留。该集合仅 ARM/STOP，不 START DATA，
+  总用时 38.906 s，无复位、发证或配置修改；不能称为无拒绝或负载下长稳。
+- 三次重应用当前实测配置并 START 的对照，ARM 均为 1、应答 OK、即时错误队列零。
+  三次严格启动屏障均超时：首个样本四板接收拒绝/bitmap incomplete 增长，随后只有
+  两个健康样本在截止前完成；后两次第三个健康样本完成时已超时。保留原 deadline，
+  没有延长超时或修改通过条件。后续有限 soak 窗口分别跨 8.141/8.141/7.641 s，
+  各节点 good 增量依次为 1992/1992/1991/1995、1967/1964/1959/1960、
+  1822/1829/1831/1818；传输坏帧及已检查物理故障在这些窗口内无增长。
+  `data-run-00..02/summary.json` 均 `diagnostic_passed=true`、严格标志 false；
+  这些窗口不包含完整启动/停机边界，也不是自主 blackout 或特等席逐圈保全证据。
+- `hardware-review-r1.json` 保留跨启动/STOP 的物理读回：NO1 在三次 STOP 前读到
+  TX timeout、origin DATA timeout/recovery 均零，STOP 后分别为 5/10/15；最终仍为
+  15，四板观察副本丢失各读到 1。运行窗口的零增长不能抹去这些停机边界读数，计数
+  发布时点与实际故障时点还需关联。最终四板应答 OK、runtime/engine/physical 已停，
+  requested/applied config 一致，当前实测 phase 已核对。读回许可证 inactive；本轮未
+  发证。相关原始命令、状态、CRC 诊断及哈希集中于上述 review。
+- 本切片状态 PARTIAL，长期目标 active；维持完整 phase 门限，不声称 WCET 改善。
+  下一步先闭合管理面准入关闭、配置接受/回滚、Core1 完成和后台退休的握手，并追查
+  非法 default map 的来源及停机超时；禁止无界等待或将大块取消清理移入 Core1。
+  当前完整预算、正式 RAM、严格启动、同圈交换和特等时间戳保全仍开放。
 
 ### TDMA-PROGRESS-20260913-040 - 锁存与线路时长等价算术
 

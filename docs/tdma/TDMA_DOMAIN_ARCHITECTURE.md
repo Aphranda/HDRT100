@@ -756,6 +756,13 @@ profile identity、deadline/overrun/missing 和基础 quality 计数。
 提交，但只在 STOP/ARM 边界生效。START 后 core1 是 wire fast path 唯一 owner；SCPI、
 UI、LOG 和 core0 domain task 只能读取 snapshot 或通过 FIFO 发布下一周期数据。
 
+管理面 map 准入由 `tdma_service_configure_flight_map_checked()` 与
+`tdma_flight_engine_configure_checked()` 保留原始拒绝点：快照不可用、runtime 活跃、
+非法 map、map 写者冲突或 engine 活跃。RefMem ARM 将其映射为现有状态查询可读的
+诊断结果，原 bool 配置入口保留为等价包装；拒绝不会自动重试、替换有效 map 或
+推进 generation。该诊断实现不提供停止完成证明，STOP 应答、Core1 配置确认、硬件
+停机与后台池退休仍须分别核验，也不以已观察到停止状态掩盖命令的部分接受失败。
+
 目标数据路径：
 
 ```text
