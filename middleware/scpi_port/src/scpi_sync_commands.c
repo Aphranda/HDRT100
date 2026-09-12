@@ -749,6 +749,7 @@ scpi_result_t scpi_cmd_sync_vdc_tdma_phys_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.rx_observation_drop_count);
     SCPI_ResultUInt32(context, snapshot.rx_scan_yield_count);
     SCPI_ResultUInt32(context, snapshot.rx_dma_transfer_count);
+    SCPI_ResultUInt32(context, snapshot.flight_origin_capture_phase_delay_cycles);
     return SCPI_RES_OK;
 }
 

@@ -1143,6 +1143,8 @@ scpi_result_t scpi_calibration_training_stage_link(scpi_t *context)
     uint32_t marker_phase_delay_cycles = 0u;
     uint32_t sck_phase_delay_cycles = 0u;
     uint32_t data_phase_delay_cycles = 0u;
+    int32_t origin_capture_offset_sample_count = 0;
+    uint32_t origin_capture_phase_delay_cycles = 0u;
     for (uint32_t i = 0u; i < 18u; i++) {
         if (SCPI_ParamUInt32(context, &values[i], TRUE) != TRUE) {
             return SCPI_RES_ERR;
@@ -1158,6 +1160,14 @@ scpi_result_t scpi_calibration_training_stage_link(scpi_t *context)
         SCPI_ParamUInt32(context, &data_phase_delay_cycles, TRUE) != TRUE) {
         return SCPI_RES_ERR;
     }
+    /* Legacy commands omit both fields. A supplied offset requires a phase;
+     * malformed optional input must never mutate the staged link. */
+    if (SCPI_ParamInt32(context, &origin_capture_offset_sample_count, FALSE) == TRUE) {
+        if (SCPI_ParamUInt32(context, &origin_capture_phase_delay_cycles, TRUE) != TRUE)
+            return SCPI_RES_ERR;
+    } else if (SCPI_ParamErrorOccurred(context)) {
+        return SCPI_RES_ERR;
+    }
     if (!calibration_manager_stage_training_link(
             values[0], values[1], values[2], values[3], values[4],
             values[5], values[6], values[7], values[8], values[9],
@@ -1166,7 +1176,8 @@ scpi_result_t scpi_calibration_training_stage_link(scpi_t *context)
             marker_offset_sample_count, sck_offset_sample_count,
             data_offset_sample_count, sample_period_ns,
             link_base_delay_ns, marker_phase_delay_cycles,
-            sck_phase_delay_cycles, data_phase_delay_cycles)) {
+            sck_phase_delay_cycles, data_phase_delay_cycles,
+            origin_capture_offset_sample_count, origin_capture_phase_delay_cycles)) {
         scpi_port_push_exec_error(context, "CAL_TRAIN_STAGE_LINK_REJECTED");
         return SCPI_RES_ERR;
     }
@@ -1249,6 +1260,8 @@ scpi_result_t scpi_calibration_training_stage_link_q(scpi_t *context)
     SCPI_ResultUInt32(context, link->marker_phase_delay_cycles);
     SCPI_ResultUInt32(context, link->sck_phase_delay_cycles);
     SCPI_ResultUInt32(context, link->data_phase_delay_cycles);
+    SCPI_ResultInt32(context, link->origin_capture_offset_sample_count);
+    SCPI_ResultUInt32(context, link->origin_capture_phase_delay_cycles);
     return SCPI_RES_OK;
 }
 

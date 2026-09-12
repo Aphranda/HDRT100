@@ -1130,7 +1130,7 @@ def expected_flight_phase(config: dict[str, Any],
             "per Node")
     marker_link = marker_links[0]
     data_link = data_links[0]
-    return {
+    expected = {
         "flight_marker_offset_sample_count":
             int(marker_link["marker_offset_sample_count"]),
         "flight_sck_offset_sample_count":
@@ -1144,6 +1144,12 @@ def expected_flight_phase(config: dict[str, Any],
         "flight_data_phase_delay_cycles":
             int(data_link["data_phase_delay_cycles"]),
     }
+    if "origin_capture_phase_delay_cycles" in data_link:
+        # TRN-03's anchor is Node zero; followers retain DATA sampling/replay.
+        expected["flight_origin_capture_phase_delay_cycles"] = int(
+            data_link["origin_capture_phase_delay_cycles"] or data_link["data_phase_delay_cycles"]
+            if node_index == 0 else data_link["data_phase_delay_cycles"])
+    return expected
 
 
 def validate_flight_phase_readback(

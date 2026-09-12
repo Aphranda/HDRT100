@@ -204,6 +204,14 @@ static bool tdma_ring_runtime_read_config(
     return false;
 }
 
+uint32_t tdma_ring_runtime_origin_capture_phase(
+    const tdma_ring_calibration_link_t *link)
+{
+    if (link == NULL) return 0u;
+    return link->origin_capture_phase_delay_cycles != 0u
+        ? link->origin_capture_phase_delay_cycles : link->data_phase_delay_cycles;
+}
+
 bool tdma_ring_runtime_validate_calibration_link_phase(
     const tdma_ring_calibration_link_t *link)
 {
@@ -231,6 +239,12 @@ bool tdma_ring_runtime_validate_calibration_link_phase(
             return false;
         }
     }
+    if (link->origin_capture_phase_delay_cycles == 0u) {
+        return link->origin_capture_offset_sample_count == 0;
+    }
+    const int64_t capture_phase = base_samples + link->origin_capture_offset_sample_count;
+    if (capture_phase <= 0 || capture_phase > 31 ||
+        link->origin_capture_phase_delay_cycles != (uint32_t)capture_phase) return false;
     return true;
 }
 

@@ -258,7 +258,9 @@ bool calibration_manager_stage_training_link(
     uint32_t link_base_delay_ns,
     uint32_t marker_phase_delay_cycles,
     uint32_t sck_phase_delay_cycles,
-    uint32_t data_phase_delay_cycles);
+    uint32_t data_phase_delay_cycles,
+    int32_t origin_capture_offset_sample_count,
+    uint32_t origin_capture_phase_delay_cycles);
 bool calibration_manager_get_training_stage(
     tdma_ring_calibration_stage_t *stage,
     bool *complete);

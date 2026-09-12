@@ -179,6 +179,7 @@ PHYS_FIELDS = (
     "overlay_selection_pending", "overlay_reuse_observation_count",
     "rx_observation_drop_count", "rx_scan_yield_count",
     "rx_dma_transfer_count",
+    "flight_origin_capture_phase_delay_cycles",
 )
 
 KEY = [

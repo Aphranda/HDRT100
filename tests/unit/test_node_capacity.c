@@ -39,8 +39,10 @@ _Static_assert(offsetof(refmem_vector_table_t, trigger) == 16384u,
                "Fixed RefMem region must not move with local capacity");
 _Static_assert(TDMA_TRANSPORT_SHORT_PACKET_MAX == 292u, "SHORT ABI");
 _Static_assert(TDMA_FLIGHT_SHORT_SLOT_COUNT == 8u, "Fixed wire slots");
-_Static_assert(CALIBRATION_TRAINING_STORE_PAYLOAD_SIZE == 1072u,
-               "Persisted training ABI");
+_Static_assert(CALIBRATION_TRAINING_STORE_PAYLOAD_V1_SIZE == 1072u,
+               "Legacy persisted training ABI");
+_Static_assert(CALIBRATION_TRAINING_STORE_PAYLOAD_SIZE == 1136u,
+               "Version 2 training ABI stays independent of compiled capacity");
 
 static tdma_ring_calibration_stage_t stage_for(uint32_t count)
 {

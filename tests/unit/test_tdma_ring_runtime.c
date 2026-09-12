@@ -232,6 +232,26 @@ int main(void)
                           true);
     calibration.links[0].data_offset_sample_count = 5;
     calibration.links[0].data_phase_delay_cycles = 15u;
+    failed += expect_bool("legacy origin capture follows DATA",
+        tdma_ring_runtime_origin_capture_phase(&calibration.links[0]) == 15u, true);
+    calibration.links[0].origin_capture_offset_sample_count = 4;
+    calibration.links[0].origin_capture_phase_delay_cycles = 14u;
+    failed += expect_bool("independent origin capture accepted with DATA unchanged",
+        tdma_ring_runtime_validate_calibration_stage(&calibration, 4u, &calibration_reason) &&
+        tdma_ring_runtime_origin_capture_phase(&calibration.links[0]) == 14u &&
+        calibration.links[0].data_phase_delay_cycles == 15u, true);
+    calibration.links[0].origin_capture_phase_delay_cycles = 15u;
+    failed += expect_bool("origin capture offset/phase mismatch rejected",
+        tdma_ring_runtime_validate_calibration_stage(&calibration, 4u, &calibration_reason), false);
+    calibration.links[0].origin_capture_phase_delay_cycles = 0u;
+    failed += expect_bool("origin capture cannot omit phase with nonzero offset",
+        tdma_ring_runtime_validate_calibration_stage(&calibration, 4u, &calibration_reason), false);
+    calibration.links[0].origin_capture_offset_sample_count = INT32_MAX;
+    calibration.links[0].origin_capture_phase_delay_cycles = 31u;
+    failed += expect_bool("origin capture arithmetic cannot overflow to a valid phase",
+        tdma_ring_runtime_validate_calibration_stage(&calibration, 4u, &calibration_reason), false);
+    calibration.links[0].origin_capture_offset_sample_count = 0;
+    calibration.links[0].origin_capture_phase_delay_cycles = 0u;
     calibration.links[2].marker_offset_sample_count = -1;
     failed += expect_bool("marker offset and phase mismatch rejected",
                           tdma_ring_runtime_validate_calibration_stage(

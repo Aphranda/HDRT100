@@ -1299,7 +1299,7 @@ def test_origin_capture_dma_uses_tx_pio_capture_sm() -> None:
     assert "phys->rx_sck_pin" in capture_init
     assert "phys->tx_csn_pin" not in capture_init
     assert "phys->tx_sck_pin" not in capture_init
-    assert "phys->flight_data_phase_delay_cycles" in capture_init
+    assert "phys->flight_origin_capture_phase_delay_cycles" in capture_init
 
     pio_source = (ROOT / "components" / "tdma" / "src" /
                   "tdma_pio_spi.pio").read_text(encoding="utf-8")

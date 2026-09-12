@@ -141,6 +141,55 @@ def test_load_config_replaces_stale_values_for_every_node_and_signal(
     ]
 
 
+def test_origin_capture_matrix_changes_rx_without_changing_data(tmp_path: Path) -> None:
+    value = matrix()
+    rows = value["offset_matrix"]["rows"]
+    rows[0][stage_module.ORIGIN_CAPTURE_MATRIX_FIELD] = [4, 5, 5, 5]
+    config = load_config(write_matrix(tmp_path, value))
+    link = config["links"][0]
+    assert link["origin_capture_phase_delay_cycles"] == 14
+    assert link["data_phase_delay_cycles"] == 15
+    assert stage_link_command(link).endswith(",4,14")
+    # A new firmware echoes both fields; a legacy echo means no independent
+    # calibration was applied and cannot compare equal to this request.
+    echo = ['TRN03LNK'] + ['0'] * (len(stage_module.LINK_QUERY_FIELDS) - 3)
+    observed = parse_query(','.join(echo), stage_module.LINK_QUERY_FIELDS, 'TRN03LNK')
+    assert observed["origin_capture_phase_delay_cycles"] == 0
+    assert observed["origin_capture_phase_delay_cycles"] != link["origin_capture_phase_delay_cycles"]
+
+
+def test_origin_capture_matrix_requires_full_independent_cartesian_set(tmp_path: Path) -> None:
+    import copy
+    value = matrix()
+    first = value["offset_matrix"]["rows"][0]
+    first[stage_module.ORIGIN_CAPTURE_MATRIX_FIELD] = [4, 5, 5, 5]
+    second = copy.deepcopy(first)
+    second["row_id"] = 1
+    second[stage_module.ORIGIN_CAPTURE_MATRIX_FIELD][0] = 5
+    second["data_offset_sample_counts_by_node"][0] = 4
+    value["offset_matrix"]["rows"].append(second)
+    value["offset_matrix"]["full_matrix_row_count"] = 2
+    with pytest.raises(ValueError, match="Cartesian"):
+        load_config(write_matrix(tmp_path, value))
+    second["data_offset_sample_counts_by_node"][0] = first["data_offset_sample_counts_by_node"][0]
+    assert load_config(write_matrix(tmp_path, value), 1)["links"][0]["origin_capture_phase_delay_cycles"] == 15
+
+
+@pytest.mark.parametrize("capture", [[True, 5, 5, 5], [4, 5], [31, 5, 5, 5], [-31, 5, 5, 5]])
+def test_origin_capture_matrix_rejects_invalid_phase(tmp_path: Path, capture: list) -> None:
+    value = matrix()
+    value["offset_matrix"]["rows"][0][stage_module.ORIGIN_CAPTURE_MATRIX_FIELD] = capture
+    with pytest.raises(ValueError, match="origin capture"):
+        load_config(write_matrix(tmp_path, value))
+
+
+def test_origin_capture_cannot_bypass_matrix(tmp_path: Path) -> None:
+    value = matrix()
+    value["links"][0]["origin_capture_phase_delay_cycles"] = 14
+    with pytest.raises(ValueError, match="full matrix"):
+        load_config(write_matrix(tmp_path, value))
+
+
 def test_load_config_rejects_missing_node(tmp_path: Path) -> None:
     value = matrix()
     value["links"] = value["links"][:-1]

@@ -133,6 +133,11 @@ typedef struct {
     uint32_t marker_phase_delay_cycles;
     uint32_t sck_phase_delay_cycles;
     uint32_t data_phase_delay_cycles;
+    /* Origin-only returned-DATA sampling, using the same link base/offset
+     * model. Both zero means the legacy coupled DATA phase. A nonzero phase
+     * must match base + origin_capture_offset_sample_count. */
+    int32_t origin_capture_offset_sample_count;
+    uint32_t origin_capture_phase_delay_cycles;
 } tdma_ring_calibration_link_t;
 
 typedef struct {
@@ -402,6 +407,8 @@ bool tdma_ring_runtime_validate_calibration_stage(
     uint32_t expected_node_count,
     tdma_ring_runtime_reason_t *reason);
 bool tdma_ring_runtime_validate_calibration_link_phase(
+    const tdma_ring_calibration_link_t *link);
+uint32_t tdma_ring_runtime_origin_capture_phase(
     const tdma_ring_calibration_link_t *link);
 bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
                                  const tdma_ring_runtime_config_t *config);

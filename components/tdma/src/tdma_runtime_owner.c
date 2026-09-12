@@ -98,7 +98,7 @@ static bool tdma_runtime_owner_flight_phys_arm(
             return false;
         }
         if (!tdma_pio_spi_phys_set_flight_offsets(
-                phys, 0, 0, 0, phase, phase, phase)) {
+                phys, 0, 0, 0, phase, phase, phase, phase)) {
             tdma_pio_spi_phys_publish_arm_error(
                 phys, TDMA_PIO_SPI_PHYS_ERROR_OWNER_FLIGHT_OFFSET);
             return false;
@@ -144,7 +144,10 @@ static bool tdma_runtime_owner_flight_phys_arm(
             data->data_offset_sample_count,
             marker->marker_phase_delay_cycles,
             marker->sck_phase_delay_cycles,
-            data->data_phase_delay_cycles)) {
+            data->data_phase_delay_cycles,
+            config->local_slot_id == config->reference_slot_id
+                ? tdma_ring_runtime_origin_capture_phase(data)
+                : data->data_phase_delay_cycles)) {
         tdma_pio_spi_phys_publish_arm_error(
             phys, TDMA_PIO_SPI_PHYS_ERROR_OWNER_FLIGHT_OFFSET);
         return false;

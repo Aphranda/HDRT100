@@ -2824,7 +2824,9 @@ bool calibration_manager_stage_training_link(
     uint32_t link_base_delay_ns,
     uint32_t marker_phase_delay_cycles,
     uint32_t sck_phase_delay_cycles,
-    uint32_t data_phase_delay_cycles)
+    uint32_t data_phase_delay_cycles,
+    int32_t origin_capture_offset_sample_count,
+    uint32_t origin_capture_phase_delay_cycles)
 {
     tdma_ring_calibration_stage_t stage;
     bool complete = false;
@@ -2866,6 +2868,8 @@ bool calibration_manager_stage_training_link(
         .marker_phase_delay_cycles = marker_phase_delay_cycles,
         .sck_phase_delay_cycles = sck_phase_delay_cycles,
         .data_phase_delay_cycles = data_phase_delay_cycles,
+        .origin_capture_offset_sample_count = origin_capture_offset_sample_count,
+        .origin_capture_phase_delay_cycles = origin_capture_phase_delay_cycles,
     };
     return tdma_runtime_owner_stage_calibration_link(&link);
 }

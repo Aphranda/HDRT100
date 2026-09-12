@@ -674,6 +674,7 @@ typedef struct {
     uint32_t rx_observation_drop_count;
     uint32_t rx_scan_yield_count;
     uint32_t rx_dma_transfer_count;
+    uint32_t flight_origin_capture_phase_delay_cycles;
 } tdma_pio_spi_phys_snapshot_t;
 
 typedef struct {
@@ -752,6 +753,7 @@ typedef struct {
     uint32_t flight_marker_phase_delay_cycles;
     uint32_t flight_sck_phase_delay_cycles;
     uint32_t flight_data_phase_delay_cycles;
+    uint32_t flight_origin_capture_phase_delay_cycles;
     uint64_t flight_clock_latch_epoch_ns;
     uint32_t flight_clock_latch_resolution_ns;
     bool flight_clock_latch_armed;
@@ -914,7 +916,8 @@ bool tdma_pio_spi_phys_set_flight_offsets(
     int32_t data_offset_sample_count,
     uint32_t marker_phase_delay_cycles,
     uint32_t sck_phase_delay_cycles,
-    uint32_t data_phase_delay_cycles);
+    uint32_t data_phase_delay_cycles,
+    uint32_t origin_capture_phase_delay_cycles);
 bool tdma_pio_spi_phys_prepare_process_overlay(
     void *context,
     const uint8_t *incoming_packet,

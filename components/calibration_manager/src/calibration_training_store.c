@@ -14,7 +14,7 @@
 enum {
     PAYLOAD_HEADER_WORDS = 4u,
     STAGE_WORDS = 8u,
-    LINK_WORDS = 32u,
+    LINK_WORDS = 34u,
 };
 
 _Static_assert(CALIBRATION_TRAINING_STORE_PAYLOAD_SIZE ==
@@ -100,11 +100,13 @@ static void encode_link(uint8_t **cursor,
     ENCODE_LINK_FIELD(marker_phase_delay_cycles);
     ENCODE_LINK_FIELD(sck_phase_delay_cycles);
     ENCODE_LINK_FIELD(data_phase_delay_cycles);
+    ENCODE_LINK_FIELD(origin_capture_offset_sample_count);
+    ENCODE_LINK_FIELD(origin_capture_phase_delay_cycles);
 #undef ENCODE_LINK_FIELD
 }
 
 static void decode_link(const uint8_t **cursor,
-                        tdma_ring_calibration_link_t *link)
+                        tdma_ring_calibration_link_t *link, uint32_t version)
 {
 #define DECODE_LINK_FIELD(field) link->field = read_le32(cursor)
     DECODE_LINK_FIELD(valid);
@@ -139,6 +141,10 @@ static void decode_link(const uint8_t **cursor,
     DECODE_LINK_FIELD(marker_phase_delay_cycles);
     DECODE_LINK_FIELD(sck_phase_delay_cycles);
     DECODE_LINK_FIELD(data_phase_delay_cycles);
+    if (version >= 2u) {
+        link->origin_capture_offset_sample_count = (int32_t)read_le32(cursor);
+        DECODE_LINK_FIELD(origin_capture_phase_delay_cycles);
+    }
 #undef DECODE_LINK_FIELD
 }
 
@@ -181,14 +187,19 @@ bool calibration_training_store_decode_payload(
     tdma_ring_calibration_stage_t *stage)
 {
     if (payload == NULL || stage == NULL ||
-        payload_size != CALIBRATION_TRAINING_STORE_PAYLOAD_SIZE) {
+        (payload_size != CALIBRATION_TRAINING_STORE_PAYLOAD_SIZE &&
+         payload_size != CALIBRATION_TRAINING_STORE_PAYLOAD_V1_SIZE)) {
         return false;
     }
     memset(stage, 0, sizeof(*stage));
     const uint8_t *cursor = payload;
-    if (read_le32(&cursor) != CALIBRATION_TRAINING_STORE_PAYLOAD_MAGIC ||
-        read_le32(&cursor) != CALIBRATION_TRAINING_STORE_PAYLOAD_VERSION ||
-        read_le32(&cursor) != CALIBRATION_TRAINING_STORE_PAYLOAD_SIZE ||
+    const uint32_t magic = read_le32(&cursor);
+    const uint32_t version = read_le32(&cursor);
+    const uint32_t expected_size = version == 1u
+        ? CALIBRATION_TRAINING_STORE_PAYLOAD_V1_SIZE : CALIBRATION_TRAINING_STORE_PAYLOAD_SIZE;
+    if (magic != CALIBRATION_TRAINING_STORE_PAYLOAD_MAGIC ||
+        (version != 1u && version != CALIBRATION_TRAINING_STORE_PAYLOAD_VERSION) ||
+        payload_size != expected_size || read_le32(&cursor) != expected_size ||
         read_le32(&cursor) != TDMA_RING_RUNTIME_VERSION) {
         return false;
     }
@@ -202,7 +213,7 @@ bool calibration_training_store_decode_payload(
     stage->schedule_crc32 = read_le32(&cursor);
     for (uint32_t link = 0u;
          link < TDMA_RING_CALIBRATION_LINK_MAX; link++) {
-        decode_link(&cursor, &stage->links[link]);
+        decode_link(&cursor, &stage->links[link], version);
     }
     return (size_t)(cursor - payload) == payload_size &&
            tdma_ring_runtime_validate_calibration_stage(

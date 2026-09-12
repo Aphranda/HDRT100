@@ -78,6 +78,11 @@ LINK_FIELDS = (
     "sck_phase_delay_cycles",
     "data_phase_delay_cycles",
 )
+ORIGIN_CAPTURE_FIELDS = (
+    "origin_capture_offset_sample_count",
+    "origin_capture_phase_delay_cycles",
+)
+ORIGIN_CAPTURE_MATRIX_FIELD = "origin_capture_offset_sample_counts_by_node"
 STAGE_QUERY_FIELDS = (
     "tag",
     "enabled",
@@ -121,6 +126,7 @@ LINK_QUERY_FIELDS = (
     "profile_crc32",
     "schedule_crc32",
     *LINK_FIELDS[6:],
+    *ORIGIN_CAPTURE_FIELDS,
 )
 REQUIRED_EVIDENCE_FLAGS = 0x1F
 DIAGNOSTIC_ONLY_FLAG = 1 << 31
@@ -251,11 +257,13 @@ def validate_config(raw: object,
         raise ValueError("offset_matrix rows are incomplete")
     matrix_sample_period_ns = integer_field(matrix, "sample_period_ns")
     row_ids: list[int] = []
-    row_signatures: set[tuple[tuple[int, ...], tuple[int, ...],
-                              tuple[int, ...]]] = set()
+    row_signatures: set[tuple[tuple[int, ...], ...]] = set()
     marker_signature: tuple[int, ...] | None = None
     sck_values_by_node: list[set[int]] = [set() for _ in range(node_count)]
     data_values_by_node: list[set[int]] = [set() for _ in range(node_count)]
+    independent_capture = any(isinstance(row, dict) and ORIGIN_CAPTURE_MATRIX_FIELD in row
+                              for row in rows)
+    capture_values_by_node: list[set[int]] = [set() for _ in range(node_count)]
     for row in rows:
         if not isinstance(row, dict):
             raise ValueError("every offset matrix row must be an object")
@@ -263,6 +271,13 @@ def validate_config(raw: object,
         marker_values = row.get("marker_offset_sample_counts_by_node")
         sck_values = row.get("sck_offset_sample_counts_by_node")
         data_values = row.get("data_offset_sample_counts_by_node")
+        capture_values = row.get(ORIGIN_CAPTURE_MATRIX_FIELD)
+        if independent_capture and (
+                not isinstance(capture_values, list) or len(capture_values) != node_count or
+                any(isinstance(value, bool) or not isinstance(value, int) or
+                    value < MIN_CALIBRATED_OFFSET_SAMPLES or value > MAX_CALIBRATED_OFFSET_SAMPLES
+                    for value in capture_values)):
+            raise ValueError("origin capture matrix row dimensions are invalid")
         if (not isinstance(marker_values, list) or
                 not isinstance(sck_values, list) or
                 not isinstance(data_values, list) or
@@ -279,6 +294,8 @@ def validate_config(raw: object,
             raise ValueError("offset matrix row dimensions are invalid")
         signature = (tuple(marker_values), tuple(sck_values),
                      tuple(data_values))
+        if independent_capture:
+            signature += (tuple(capture_values),)
         if signature in row_signatures:
             raise ValueError("offset matrix contains a duplicate row")
         if marker_signature is None:
@@ -290,13 +307,18 @@ def validate_config(raw: object,
         for node in range(node_count):
             sck_values_by_node[node].add(sck_values[node])
             data_values_by_node[node].add(data_values[node])
+            if independent_capture:
+                capture_values_by_node[node].add(capture_values[node])
     if sorted(row_ids) != list(range(len(rows))):
         raise ValueError("offset matrix row_id must cover every row exactly")
     expected_row_count = 1
     for values in (*sck_values_by_node, *data_values_by_node):
         expected_row_count *= len(values)
+    if independent_capture:
+        for values in capture_values_by_node:
+            expected_row_count *= len(values)
     if expected_row_count != len(rows):
-        raise ValueError("offset matrix is not the full SCK/DATA Cartesian set")
+        raise ValueError("offset matrix is not the full SCK/DATA Cartesian set including independent origin capture")
     selected_row_id = (int(matrix.get("active_row_id", -1))
                        if offset_row_id is None else offset_row_id)
     matches = [row for row in rows if isinstance(row, dict) and
@@ -307,6 +329,7 @@ def validate_config(raw: object,
     marker_offsets = selected_row["marker_offset_sample_counts_by_node"]
     sck_offsets = selected_row["sck_offset_sample_counts_by_node"]
     data_offsets = selected_row["data_offset_sample_counts_by_node"]
+    capture_offsets = selected_row.get(ORIGIN_CAPTURE_MATRIX_FIELD)
 
     links: list[dict[str, int]] = []
     unsafe_data_links: list[int] = []
@@ -366,6 +389,18 @@ def validate_config(raw: object,
         link["data_phase_delay_cycles"] = (
             offset_ns + link["sample_period_ns"] // 2
         ) // link["sample_period_ns"]
+        link[ORIGIN_CAPTURE_FIELDS[0]] = 0
+        link[ORIGIN_CAPTURE_FIELDS[1]] = 0
+        if independent_capture:
+            capture_offset = capture_offsets[data_destination]
+            capture_phase = ((link["link_base_delay_ns"] + link["sample_period_ns"] // 2)
+                             // link["sample_period_ns"] + capture_offset)
+            if not 0 < capture_phase <= 31:
+                raise ValueError("origin capture phase cannot map to PIO delay")
+            link[ORIGIN_CAPTURE_FIELDS[0]] = capture_offset
+            link[ORIGIN_CAPTURE_FIELDS[1]] = capture_phase
+        elif any(raw_link.get(field, 0) != 0 for field in ORIGIN_CAPTURE_FIELDS):
+            raise ValueError("independent origin capture requires its full matrix dimension")
         if ((link["evidence_flags"] & REQUIRED_EVIDENCE_FLAGS) !=
                 REQUIRED_EVIDENCE_FLAGS or
                 link["evidence_flags"] & DIAGNOSTIC_ONLY_FLAG):
@@ -405,6 +440,11 @@ def validate_config(raw: object,
                 raise ValueError(
                     f"link{link['link_index']} DATA replay phase cannot "
                     "re-arm before the next symbol")
+        if link[ORIGIN_CAPTURE_FIELDS[1]] + FLIGHT_DATA_REARM_SAMPLES > period_samples:
+            if link["link_index"] not in unsafe_data_links:
+                unsafe_data_links.append(link["link_index"])
+            if not allow_unsafe_data:
+                raise ValueError("origin capture phase cannot re-arm before the next symbol")
         links.append(link)
     if sorted(link["link_index"] for link in links) != list(range(node_count)):
         raise ValueError("link_index must cover [0, node_count) exactly")
@@ -468,11 +508,17 @@ def stage_begin_command(config: dict[str, Any]) -> str:
 
 def stage_link_command(link: dict[str, int]) -> str:
     values = ",".join(str(link[field]) for field in LINK_FIELDS)
+    if any(link.get(field, 0) != 0 for field in ORIGIN_CAPTURE_FIELDS):
+        values += "," + ",".join(str(link[field]) for field in ORIGIN_CAPTURE_FIELDS)
     return f"CALibration:TRAINing:STAGe:LINK {values}"
 
 
 def parse_query(raw: str, fields: tuple[str, ...], tag: str) -> dict[str, Any]:
     row = next(csv.reader([raw]), [])
+    if tag == "TRN03LNK" and fields == LINK_QUERY_FIELDS and len(row) == len(fields) - 2:
+        # Legacy firmware has no independent capture grant. Explicit requests
+        # still fail verify_board because their nonzero phase cannot match.
+        row += ["0", "0"]
     if len(row) != len(fields) or row[0].strip().strip('"') != tag:
         raise RuntimeError(f"invalid {tag} response: {raw!r}")
     result: dict[str, Any] = {"tag": tag}
@@ -577,6 +623,8 @@ def verify_board(board: Board, config: dict[str, Any],
             for field in LINK_FIELDS) and
         all(int(observed[field]) == int(config[field])
             for field in HEADER_FIELDS[2:])
+        and all(int(observed[field]) == int(expected.get(field, 0))
+                for field in ORIGIN_CAPTURE_FIELDS)
         for observed, expected in zip(links, config["links"]))
     return {
         "stage": stage,

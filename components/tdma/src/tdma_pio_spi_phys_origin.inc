@@ -46,7 +46,7 @@ static void tdma_pio_spi_phys_origin_configure_sms(tdma_pio_spi_phys_t *phys,
     tx->instr_mem[TDMA_ORIGIN_CAPTURE_PC + 4u] = pio_encode_wait_gpio(true, phys->rx_sck_pin);
     tx->instr_mem[TDMA_ORIGIN_CAPTURE_PC + 5u] = pio_encode_wait_gpio(false, phys->rx_sck_pin);
     tx->instr_mem[TDMA_ORIGIN_CAPTURE_PC + 7u] = pio_encode_wait_gpio(true, phys->rx_sck_pin) |
-        pio_encode_delay(phys->flight_data_phase_delay_cycles - 1u);
+        pio_encode_delay(phys->flight_origin_capture_phase_delay_cycles - 1u);
     tx->instr_mem[TDMA_ORIGIN_CAPTURE_PC + 9u] = pio_encode_wait_gpio(false, phys->rx_sck_pin);
     pio_sm_config capture = tdma_origin_capture_program_get_default_config(TDMA_ORIGIN_CAPTURE_PC);
     sm_config_set_in_pins(&capture, phys->rx_pin);
@@ -102,6 +102,8 @@ bool tdma_pio_spi_phys_origin_begin(
         (phys->flight_sck_waveform_capture_state != TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_IDLE &&
          phys->flight_sck_waveform_capture_state != TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_FAILED) ||
         phys->flight_data_phase_delay_cycles == 0u || phys->flight_data_phase_delay_cycles > 32u ||
+        phys->flight_origin_capture_phase_delay_cycles == 0u ||
+        phys->flight_origin_capture_phase_delay_cycles > 31u ||
         rearm_budget_ticks == 0u || abort_poll_count == 0u || abort_poll_count > UINT16_MAX)
         return false;
 

@@ -420,6 +420,8 @@ static void tdma_pio_spi_phys_fill_static_snapshot(tdma_pio_spi_phys_t *phys)
         phys->flight_sck_phase_delay_cycles;
     phys->snapshot.flight_data_phase_delay_cycles =
         phys->flight_data_phase_delay_cycles;
+    phys->snapshot.flight_origin_capture_phase_delay_cycles =
+        phys->flight_origin_capture_phase_delay_cycles;
 }
 
 static bool tdma_pio_spi_phys_ensure_rx_dma(void)
@@ -1191,7 +1193,7 @@ static bool tdma_pio_spi_phys_configure_flight(
             phys->rx_pin,
             phys->rx_csn_pin,
             phys->rx_sck_pin,
-            phys->flight_data_phase_delay_cycles);
+            phys->flight_origin_capture_phase_delay_cycles);
         tdma_pio_spi_flight_origin_rtt_program_init(
             phys->flight_resources.tx_pio,
             phys->flight_resources.tx_rtt_evidence_sm,
@@ -1574,13 +1576,15 @@ bool tdma_pio_spi_phys_set_flight_offsets(
     int32_t data_offset_sample_count,
     uint32_t marker_phase_delay_cycles,
     uint32_t sck_phase_delay_cycles,
-    uint32_t data_phase_delay_cycles)
+    uint32_t data_phase_delay_cycles,
+    uint32_t origin_capture_phase_delay_cycles)
 {
     if (phys == NULL || phys->armed || marker_phase_delay_cycles == 0u ||
         sck_phase_delay_cycles == 0u || data_phase_delay_cycles == 0u ||
         marker_phase_delay_cycles > 31u ||
         sck_phase_delay_cycles > 31u ||
-        data_phase_delay_cycles > 31u) {
+        data_phase_delay_cycles > 31u || origin_capture_phase_delay_cycles == 0u ||
+        origin_capture_phase_delay_cycles > 31u) {
         return false;
     }
     phys->flight_marker_offset_sample_count = marker_offset_sample_count;
@@ -1589,6 +1593,7 @@ bool tdma_pio_spi_phys_set_flight_offsets(
     phys->flight_marker_phase_delay_cycles = marker_phase_delay_cycles;
     phys->flight_sck_phase_delay_cycles = sck_phase_delay_cycles;
     phys->flight_data_phase_delay_cycles = data_phase_delay_cycles;
+    phys->flight_origin_capture_phase_delay_cycles = origin_capture_phase_delay_cycles;
     return true;
 }
 
@@ -2096,6 +2101,11 @@ bool tdma_pio_spi_phys_arm(void *context,
         (config->flags & TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE) != 0u;
     const bool process_follower = phys->role == TDMA_PIO_SPI_ROLE_SLAVE &&
                                   phys->process_image_enabled;
+    if (phys->role == TDMA_PIO_SPI_ROLE_MASTER &&
+        (phys->flight_origin_capture_phase_delay_cycles == 0u ||
+         phys->flight_origin_capture_phase_delay_cycles > 31u)) {
+        return tdma_pio_spi_phys_arm_reject(phys, TDMA_PIO_SPI_PHYS_ERROR_PHASE_ADMISSION);
+    }
     if (process_follower && (phys->flight_data_phase_delay_cycles <
             TDMA_PIO_SPI_PROCESS_DATA_DECODE_CYCLES ||
             phys->flight_data_phase_delay_cycles > 31u)) {
@@ -2113,6 +2123,9 @@ bool tdma_pio_spi_phys_arm(void *context,
                   TDMA_PIO_SPI_RAW_BYTE_REARM_CYCLES
             : phys->flight_data_phase_delay_cycles + TDMA_PIO_SPI_FLIGHT_DATA_REARM_CYCLES);
     const bool phase_admission_warning =
+        (phys->role == TDMA_PIO_SPI_ROLE_MASTER &&
+         phys->flight_origin_capture_phase_delay_cycles +
+             TDMA_PIO_SPI_FLIGHT_DATA_REARM_CYCLES > period_cycles) ||
         phys->flight_sck_phase_delay_cycles <
             TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES ||
         (phys->role == TDMA_PIO_SPI_ROLE_SLAVE &&
