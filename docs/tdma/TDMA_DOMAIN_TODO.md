@@ -60,6 +60,11 @@ action 耗时归因，消除逐圈发车等待及重复/超预算工作。基础
 或环路持续运行代替；列车阶段通过也不代表正式 VDC 同步通过。乘客设计保留供后续
 执行，registry/C11 状态不变。
 
+列车分项计时基线与实板归因见 `TDMA-PROGRESS-20260912-014`。下一实现优先限制
+单 phase 重复 RX 捕获/扫描，随后处理解析与 overlay 准备的超预算工作；完整 phase
+仍使用既有 `SCHEDULE` 验证，不能由局部优化或有限计时替代 WCET。flight map 准入
+及 STOP 应答异常继续保留为恢复门禁，不因复位或重试成功自动闭合。
+
 **优先级声明**：本主线**优先于** `DPLL-LONG-001` 的后续阶段。理由：DPLL/VDC 的观测质量
 建立在环的节拍确定性之上；当前 resident loop 仍由 Core1 逐帧门控，节拍不确定，且
 byte-level cut-through 被当作 cycle-level flight 使用，使上层观测证据失去可解释性。在

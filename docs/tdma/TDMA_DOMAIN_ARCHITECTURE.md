@@ -912,6 +912,24 @@ TDMA owner 在 begin 与每个准备步骤重新核验许可证绑定和期限�
 收发序号和累计值，仍报告未运行和无效时间戳，不能以计数归零表示缺少新观察。
 固定工作量仍须补充真实 clk_sys 的逐 action 与完整 Core1 WCET 证据。
 
+列车调度的耗时归因使用 `tdma_service_timing` 固定记录，由现有 Core1 TDMA phase
+唯一写入。`tdma_service_timing_stage_t` 覆盖物理完成/生命周期、owner service、
+RefMem transport publish、training gate、analyzer、accounting，以及嵌套的 adapter、
+RX capture/parse、overlay prepare/boundary。时钟复用 `vdc_timestamp_clock_read_ticks64()`
+的 clk_sys 原始拍数；这只是执行耗时，不提供新的 wire timestamp 或共同时间证据。
+每次 phase 的工作记录在结束时通过短 seqlock 发布；Core0 查询只尝试读取一次，
+writer 正在发布或版本变化时返回不可用，不重试自旋。最近记录与最慢记录分别保全
+一次完整 phase，不能把不同轮次的单项最大值拼成最坏执行路径。
+
+`SYSTem:TDMA:PROFile?` 和 `SYSTem:TDMA:PROFile:PEAK?` 返回版本、时钟、reset generation、
+phase count、stage count、记录类型、sequence、start ticks、total ticks、invalid count，
+随后按 stage enum 输出累计 ticks 和 calls。父子步骤都是包含式区间，不能重复求和；
+两次查询也不是同一原子观测。`SYSTem:TDMA:PROFile:RESet` 只发布 reset 请求，Core1
+在下一 phase 起点消费；返回的请求号须与后续 snapshot 的 reset generation 对上。
+时间逆行、区间或累计值超出记录表示范围时保留 invalid，不能折返成小的执行耗时。
+既有 `SYSTem:TDMA:SCHEDule?` 继续作为完整 phase 统计，包含计时器初始化、读取与发布
+开销；profile 的局部分解不能替代完整 WCET、deadline、调度缺失与 SRAM 门禁。
+
 adapter 候选只在已接受的 bootstrap boundary 交接；自主态每次 service 有界收割
 RX 观察与尝试本地 shadow 发布，不补发遗漏周期、不伪造逐帧 completion。返回包需与
 所属 bank 的 sequence、identity、driver generation 及本地 mailbox 对应，再进入
