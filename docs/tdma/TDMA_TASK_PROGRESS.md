@@ -8,7 +8,11 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的任务浮点上下文修复见 `TDMA-PROGRESS-20260913-042`，
+当前 `TDMA-FLIGHT-002F` 的启停异步准入切片见 `TDMA-PROGRESS-20260913-043`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-lifecycle-admission/`。队列锁不再决定 STOP
+接受或触发 ARM 回滚；物理完成与 Core0 存储退休分开。反复启停应答改善，严格启动、
+MARK 身份读回、停止边界计数与取证 SD 超时仍分别保留；未进入下一性能迁移。
+前序任务浮点上下文修复见 `TDMA-PROGRESS-20260913-042`，
 证据根为 `out/HardwareAcceptance/20260913/tdma-flight-fpu-context/`。先闭合编译器 ABI
 与 RTOS 保存区不一致的缺口，再继续 ARM/STOP 握手修复；不宣称旧拒绝的因果已闭合。
 前序 ARM 拒绝归因切片见 `TDMA-PROGRESS-20260913-041`，
@@ -169,6 +173,64 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-043 - 启停异步准入与后台队列退休
+
+- 日期：2026-09-13；TODO task ID：`TDMA-FLIGHT-002F`。以下数字为实验快照，非事实源；
+  证据根为 `out/HardwareAcceptance/20260913/tdma-flight-lifecycle-admission/`。基线
+  `5829116036b3442a9e539fe4e18a9c00f1e0fa0d`，上一目标轮分类为 progress。本轮
+  不登记新冻结契约、不改变 registry/C11 状态；其他设备的单板改动保持独立。
+- STOP 先经 Core0 有界管理保护关闭准入并发布禁用请求，不获取队列锁；Core0 后台
+  仅在同一 requested/applied generation 已确认且物理 adapter 停止后取消队列与
+  recovery 存储。ARM 只发布一次配置，物理应用确认后才开放准入，移除 resume 锁忙
+  导致的 disable 回滚。管理保护冲突仍可在发布前拒绝，不能宣称所有管理拒绝已消除。
+- 所有权复核补齐“已选中但尚未执行”的交错：Core1 先有界完成已有通用传输，再通过
+  `tdma_ring_runtime_service_with_stop_gate()` 确认 STOP；运行中等待业务窗口仍服务
+  常驻环路。foundation profile 替换先完成停止/退休，配置 scheduler 时不短暂开门。
+  大块池清理留在 Core0。此保证针对生产绑定的 traffic scheduler；永久 PENDING 的
+  adapter 会阻止停止确认，不能强清存储。现有全部跨核写者及 HAOFV-879 未在本轮闭合。
+- 真实 C 的冻结时钟、锁忙、拷贝中断、物理 STOP 失败、PENDING 完成与 generation
+  回绕共 10 项通过，包含在相关 Python 65 项中；另有 traffic scheduler、service
+  scheduler、ring runtime、RefMem 四组 host runner 通过。旧同步测试的首轮失败
+  原件保留，后续按真实 Core1 应用与 Core0 退休边界推进，缺失 adapter 必须保持
+  准入关闭。文档检查器回归 18 项通过。
+- Release A/B/Boot 为 `20260912231352`，源码指纹
+  `96a0b36045b0f919c94e7ced3dc97eaee241bfe0a533ef12e424d4fdc04df12d`，源码文件 1025。
+  六节点、生成 PIO 与前版相同；A/B 各增加链接 RAM 16 B，link free 各为 4832 B。
+  指纹、产物、PIO 字节对照与 map 见 `source-checkpoint-r1.json`，正式 RAM 仍未通过。
+- 当前源码四板 OTA/P3 流程完成，凭证 `passed=true`、`strict_gates_passed=false`。
+  粗 CLK、coded marker、Latency Cal 通过；MARK 偏移行仍因 `topology_crc32`、
+  `schedule_crc32` 不一致失败：NO3 的 topology generation/CRC、schedule CRC 与
+  其他三板不同，四板 marker capture 均完成且 reject reason 为零。原始身份值见
+  `hardware-review-r1.json` 的 mark_trials；不得将其简化为线路相关失败已消除。
+- 同配置 24 轮用时 27.031 s：96 次 ARM 全部接受且读到对应物理应用确认；104 次
+  STOP 全部应答 OK、紧随错误查询为零、物理停止与配置确认收敛。前版同范围有一次
+  STOP 应答失败；有限试验支持当前准入修正，但不证明所有任务抢占组合均可靠。
+  三次完整配置另有 12 次 ARM 全接受、20 次 STOP 全应答成功，用时 142.485 s。
+- P3 和三次完整配置均保留严格启动超时，后续有限 soak 各通过。P3 窗口 7.078 s，
+  good 为 1747/1745/1749/1745；三次窗口为 7.219/7.344/7.843 s，good 分别为
+  1812/1820/1818/1816、1771/1772/1765/1763、1951/1947/1948/1952；这些窗口内传输
+  CRC 与检查的物理故障计数无增长。启动首样本仍有接收拒绝/bitmap 不完整增长；
+  data-run-00 后续在截止前仅取得两个稳定样本，未满足该次要求的三个。不改超时
+  或样本门限来覆盖失败，窗口通过不等于严格闭环通过。
+- 部分停止边界 NO1 的 TX timeout、origin DATA timeout/recovery 从零读到
+  30（P3 后首次 STOP）、26（data-run-00）、53（data-run-02）；data-run-01 无增长。
+  各运行重新初始化计数，不能跨段累加。并行主机 STOP 不证明物理同时停止，这些
+  前后读数不能单独确定事件时点或因果。原始命令、前后状态与计数全部保留。
+- `waveform-r1` 再次严格启动超时；运行期间 SD SAVE job 超时，NO1 仍为 RUNNING。
+  停止后一次有界只读恢复取回四板原任务文件，generation/epoch/build 全绑定，见
+  `waveform-recovery-r1.json` 及其原始 JSON/SVG。原超时不改为通过。四板 SCK
+  中位频率均 10 MHz、占空比 44/52/48/52%，现有频率/占空比门禁通过；只有 NO2
+  有完整 RX transport 帧且 CRC 有效，其余三板未找到完整帧。捕获属于后续运行
+  窗口，不是启动拒收当帧；不能证明四板整帧链路、最坏周期抖动或逐圈时间戳保全。
+- 最终四板均 STOP，engine/physical/requested 关闭、config requested/applied
+  一致、当前测量相位核验通过、许可证 inactive。任务水位通过现有检查：最小
+  free 556 B，SCPI 各 2700 B，RefMem 4952/4976/4976/4952 B；heap 最低仍为
+  20352 B，heap/正式 RAM 门禁仍 FAIL。水位仅覆盖本轮负载。
+- 代码与文档分离提交，门禁和封存见 `review-r1.json`、`commit-proof.json`。
+  本切片 PARTIAL，长期目标 active：继续闭合启动位图、身份发布与停止/SD 边界，
+  当前 380 µs、blackout、同圈交换及特等时间戳逐圈保全门禁保持；节点容量后续项
+  仍后置，不用本轮应答改善替代完整列车调度验收。
 
 ### TDMA-PROGRESS-20260913-042 - Core0 任务浮点上下文保护
 

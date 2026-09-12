@@ -763,6 +763,16 @@ UI、LOG 和 core0 domain task 只能读取 snapshot 或通过 FIFO 发布下一
 推进 generation。该诊断实现不提供停止完成证明，STOP 应答、Core1 配置确认、硬件
 停机与后台池退休仍须分别核验，也不以已观察到停止状态掩盖命令的部分接受失败。
 
+`tdma_service_ring_stop()` 在 Core0 管理发布保护内先关闭 scheduler 准入，再发布禁用
+请求；队列锁竞争不参与该请求的接受。`tdma_service_core0_lifecycle_service()` 仅在
+同一配置 generation 已由 Core1 确认、物理 adapter 停止后退休队列和恢复池，锁忙时
+留待后续调用。Core1 使用 `tdma_ring_runtime_service_with_stop_gate()`，先让准入关闭前
+已选中的通用传输完成，再确认物理 STOP；运行中等待业务窗口不阻断常驻环路服务。
+ARM 接受只发布一次配置，Core0 观察到对应物理应用确认后才开放准入；失败不会再因
+scheduler resume 锁忙而回滚已发布配置。foundation profile 替换必须先完成停止与退休，
+配置期间保持准入关闭；STOP、ARM 和 profile 发布由同一有界 Core0 保护串行化。
+上述实现不消除现有全部跨核写者问题，也不替代短帧、完整 WCET 与故障恢复验收。
+
 Core0 的任务隔离还依赖编译器 ABI 与 RTOS 上下文保存一致。当前 RP2350 softfp
 构建可用浮点寄存器搬运整数结构，`configENABLE_FPU` 因此启用现有 FreeRTOS port
 的浮点上下文保护；这不是新增 TDMA owner 或数据通道。软件保存区计入 task stack，
