@@ -50,6 +50,9 @@ static uint32_t __rev(uint32_t word) {
     for (unsigned i = 0; i < 32; ++i) { result = (result << 1) | (word & 1); word >>= 1; }
     return result;
 }
+static uint8_t tdma_pio_spi_phys_rx_ring_reversed_byte(uint64_t produced) {
+''' + c_definition_body(adapter, "tdma_pio_spi_phys_rx_ring_reversed_byte") + '''
+}
 static uint8_t tdma_pio_spi_phys_rx_ring_byte(uint64_t produced) {
 ''' + c_definition_body(adapter, "tdma_pio_spi_phys_rx_ring_byte") + '''
 }

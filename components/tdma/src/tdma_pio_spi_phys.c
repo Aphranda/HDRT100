@@ -1798,26 +1798,32 @@ static uint64_t tdma_pio_spi_phys_rx_produced_words(
 
 static uint32_t tdma_pio_spi_phys_rx_ring_word(uint64_t produced)
 {
-    return s_tdma_pio_spi_rx_ring[produced &
-                                  (TDMA_PIO_SPI_RX_RING_WORDS - 1u)];
+    /* The DMA writer is outside the C abstract machine. Read each completed
+     * word at its declared width; callers still revalidate epoch/overwrite. */
+    const volatile uint32_t *ring = s_tdma_pio_spi_rx_ring;
+    return ring[produced & (TDMA_PIO_SPI_RX_RING_WORDS - 1u)];
+}
+
+static uint8_t tdma_pio_spi_phys_rx_ring_reversed_byte(uint64_t produced)
+{
+    const uint32_t word = tdma_pio_spi_phys_rx_ring_word(produced);
+#if defined(__ARM_ARCH) && __ARM_ARCH >= 7 && defined(__GNUC__)
+    /* Pico's __rev is an external bit reverse, unlike ACLE's byte swap.
+     * Keep the RBIT in the copy loop on the supported ARM target. */
+    return (uint8_t)__builtin_arm_rbit(word);
+#else
+    return (uint8_t)__rev(word);
+#endif
 }
 
 static uint8_t tdma_pio_spi_phys_rx_ring_byte(uint64_t produced)
 {
-    const uint32_t word = tdma_pio_spi_phys_rx_ring_word(produced);
     /* Only the process follower uses right-shifting ISR to support live XOR.
      * Normalize the observation copy; wire forwarding never reads this ring. */
     if (s_tdma_pio_spi_program_persona ==
-        TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER) {
-#if defined(__ARM_ARCH) && __ARM_ARCH >= 7 && defined(__GNUC__)
-        /* Pico's __rev is an external bit reverse, unlike ACLE's byte swap.
-         * Keep the RBIT in the copy loop on the supported ARM target. */
-        return (uint8_t)__builtin_arm_rbit(word);
-#else
-        return (uint8_t)__rev(word);
-#endif
-    }
-    return (uint8_t)word;
+        TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER)
+        return tdma_pio_spi_phys_rx_ring_reversed_byte(produced);
+    return (uint8_t)tdma_pio_spi_phys_rx_ring_word(produced);
 }
 
 static uint8_t tdma_pio_spi_phys_rx_ring_aligned_byte(uint64_t produced,
@@ -1833,19 +1839,38 @@ static uint8_t tdma_pio_spi_phys_rx_ring_aligned_byte(uint64_t produced,
 }
 
 /* Callers prove the entire raw interval is completed before copying, then
- * recheck epoch and overwrite afterwards. Normalize each raw word once. */
+ * recheck epoch and overwrite afterwards. Normalize each raw word once.
+ * The Core1 owner cannot switch persona during this synchronous copy. Select
+ * its ISR direction outside the loops; each ring word remains a volatile DMA
+ * read, and configuration/STOP retain their existing owner boundaries. */
 static void tdma_pio_spi_phys_rx_ring_copy(uint8_t *destination,
     uint64_t produced, uint32_t count, uint32_t bit_shift)
 {
     if (count == 0u) return;
-    if (bit_shift == 0u) {
-        for (uint32_t i = 0u; i < count; ++i)
-            destination[i] = tdma_pio_spi_phys_rx_ring_byte(produced + i);
+    if (s_tdma_pio_spi_program_persona ==
+        TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER) {
+        if (bit_shift == 0u) {
+            for (uint32_t i = 0u; i < count; ++i)
+                destination[i] = tdma_pio_spi_phys_rx_ring_reversed_byte(produced + i);
+            return;
+        }
+        uint8_t previous = tdma_pio_spi_phys_rx_ring_reversed_byte(produced);
+        for (uint32_t i = 0u; i < count; ++i) {
+            const uint8_t next = tdma_pio_spi_phys_rx_ring_reversed_byte(produced + i + 1u);
+            destination[i] = (uint8_t)(((uint32_t)previous << bit_shift) |
+                                      ((uint32_t)next >> (8u - bit_shift)));
+            previous = next;
+        }
         return;
     }
-    uint8_t previous = tdma_pio_spi_phys_rx_ring_byte(produced);
+    if (bit_shift == 0u) {
+        for (uint32_t i = 0u; i < count; ++i)
+            destination[i] = (uint8_t)tdma_pio_spi_phys_rx_ring_word(produced + i);
+        return;
+    }
+    uint8_t previous = (uint8_t)tdma_pio_spi_phys_rx_ring_word(produced);
     for (uint32_t i = 0u; i < count; ++i) {
-        const uint8_t next = tdma_pio_spi_phys_rx_ring_byte(produced + i + 1u);
+        const uint8_t next = (uint8_t)tdma_pio_spi_phys_rx_ring_word(produced + i + 1u);
         destination[i] = (uint8_t)(((uint32_t)previous << bit_shift) |
                                   ((uint32_t)next >> (8u - bit_shift)));
         previous = next;

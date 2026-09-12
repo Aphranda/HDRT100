@@ -189,11 +189,17 @@ int main(int argc, char **argv) {
         assert(!tdma_pio_spi_phys_capture_words(&phys,TDMA_PIO_SPI_RX_DMA_WORD_MAX,&received));
         assert(received==0 && word_reads==0);
     } else if (!strcmp(argv[1],"copy_window")) {
-        /* All byte values across SRAM and 32-bit sequence wrap, with both
-         * ISR directions. Sentinels also check an unaligned destination. */
+        /* Compare against individual wire bits, across SRAM and sequence
+         * wrap, both ISR directions, and short/full discovery intervals. */
+        const uint64_t starts[] = {0, 1023, (1ull<<32)-19u, UINT64_MAX-19u};
+        const unsigned counts[] = {0, 1, 2, TDMA_PIO_SPI_RX_DMA_WORD_MAX,
+            TDMA_RX_SCAN_WINDOW_BYTES};
+        for (unsigned start=0;start<sizeof(starts)/sizeof(starts[0]);++start)
+        for (unsigned size=0;size<sizeof(counts)/sizeof(counts[0]);++size)
         for (unsigned reverse=0;reverse<2;++reverse) for (unsigned shift=0;shift<8;++shift) {
             (void)setup(0,0,0);
-            const uint64_t first=(1ull<<32)-19u;
+            const uint64_t first=starts[start];
+            const unsigned count=counts[size];
             uint8_t raw[TDMA_RX_SCAN_WINDOW_BYTES+1];
             uint8_t output[TDMA_RX_SCAN_WINDOW_BYTES+2];
             memset(output,0xcc,sizeof(output));
@@ -203,13 +209,18 @@ int main(int argc, char **argv) {
                 ring[(first+i)&1023]=reverse ? __rev(word) : word;
             }
             if (reverse) s_tdma_pio_spi_program_persona=TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER;
-            tdma_pio_spi_phys_rx_ring_copy(output+1,first,TDMA_RX_SCAN_WINDOW_BYTES,shift);
-            assert(output[0]==0xcc && output[sizeof(output)-1]==0xcc);
-            for (unsigned i=0;i<TDMA_RX_SCAN_WINDOW_BYTES;++i) {
-                const uint8_t expected=shift ? (uint8_t)((raw[i]<<shift)|(raw[i+1]>>(8-shift))) : raw[i];
+            tdma_pio_spi_phys_rx_ring_copy(output+1,first,count,shift);
+            assert(output[0]==0xcc);
+            for (unsigned i=count+1;i<sizeof(output);++i) assert(output[i]==0xcc);
+            for (unsigned i=0;i<count;++i) {
+                uint8_t expected=0;
+                for (unsigned bit=0;bit<8;++bit) {
+                    const unsigned position=i*8u+shift+bit;
+                    expected=(uint8_t)((expected<<1)|((raw[position/8]>>(7-position%8))&1));
+                }
                 assert(output[i+1]==expected);
             }
-            assert(word_reads==TDMA_RX_SCAN_WINDOW_BYTES+(shift!=0));
+            assert(word_reads==count+(count!=0 && shift!=0));
             const uint32_t before=word_reads;
             tdma_pio_spi_phys_rx_ring_copy(NULL,UINT64_MAX,0,shift);
             assert(word_reads==before);

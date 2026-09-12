@@ -16,6 +16,7 @@ def build_scanner(directory, asynchronous=False, instrumented=False):
     capture = Path(os.environ.get("TDMA_RX_CAPTURE_SOURCE", ROOT/"components/tdma/src/tdma_pio_spi_phys.c")).read_text(encoding="utf-8")
     definitions = [
         ("uint64_t", "tdma_pio_spi_phys_rx_produced_words", "tdma_pio_spi_phys_t *phys"),
+        ("uint8_t", "tdma_pio_spi_phys_rx_ring_reversed_byte", "uint64_t produced"),
         ("uint8_t", "tdma_pio_spi_phys_rx_ring_byte", "uint64_t produced"),
         ("uint8_t", "tdma_pio_spi_phys_rx_ring_aligned_byte", "uint64_t produced, uint32_t bit_shift"),
         ("void", "tdma_pio_spi_phys_rx_ring_copy", "uint8_t *destination, uint64_t produced, uint32_t count, uint32_t bit_shift"),
