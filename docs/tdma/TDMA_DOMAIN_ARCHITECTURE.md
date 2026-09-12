@@ -1268,6 +1268,22 @@ active 节点确认同一 profile CRC，并执行 STOP -> APPLY -> TRAIN -> STAR
 开放可审计的手动 staging/apply 和 `tools/tdma_ring_monitor/tdma_frequency_sweep.py`
 闭环扫频，避免形成两板不同速率的半连接状态。
 
+### 编译节点容量候选（待实施设计）
+
+编译期本地存储容量、active profile 的在线节点数和固定 wire 槽位容量分别建模。
+容量候选只裁剪本地 per-node 状态、路径表及缓存；`TDMA_FLIGHT_SHORT_SLOT_COUNT`、
+`DISTRIBUTED_REFMEM_TABLE_SIZE` 与固定目录、Calibration 持久化格式继续由原契约
+定义。`TDMA_RING_CALIBRATION_LINK_MAX` 同时影响 runtime stage 和持久化编解码，
+进一步裁剪前须分离两者；不能把宏统一替换当作存储兼容性证明。
+
+候选实现采用单一编译配置约束各域本地容量，由既有 owner/profile 和 HAOFV 统一准入
+核验拓扑、节点编号、表尺寸和版本。超容量输入应在索引本地数组或激活配置前拒绝；
+节点身份与物理连接仍来自 active profile/Calibration，不按裁剪后的数组位置推断。
+编译容量变化后的 profile/CRC、旧存储读取及不同容量构建组合必须独立验证；运行时
+在线数变小不会自动减少静态 RAM，也不改变 owner、WCET、资源分区或固定载荷规则。
+本节是 `TDMA-FLIGHT-002I` 的待实施边界，不新增冻结契约；隔离测量见
+`TDMA-PROGRESS-20260912-019`，测量 ELF 不作为六节点运行或硬件验收结论。
+
 ### EtherCAT DC 风格训练的 TDMA 边界
 
 训练的测量、校准和接受门禁属于 Calibration Domain；详细流程、双向时间传递、

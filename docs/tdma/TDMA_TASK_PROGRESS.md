@@ -10,8 +10,10 @@ Last updated: 2026-09-12
 
 当前 `TDMA-FLIGHT-002F` 的普通 RX Core0 解析切片见 `TDMA-PROGRESS-20260912-018`，
 证据根为 `out/HardwareAcceptance/20260912/tdma-flight-async-rx/`；原始 DMA 扫描仍在
-Core1，特等时间戳独立快速通道保持单独验收。用户要求先封存本切片，再核算六节点
-编译容量的 RAM 收益；本切片未修改节点容量。
+Core1，特等时间戳独立快速通道保持单独验收。该切片已封存；随后完成的六节点编译
+容量隔离核算见 `TDMA-PROGRESS-20260912-019`，证据根为
+`out/HardwareAcceptance/20260912/node-capacity-ram-audit/`。核算未修改运行固件，
+编译容量统一配置及准入仍待独立实现验收。
 前序 follower Core0 overlay 实现与验证记录见
 `TDMA-PROGRESS-20260912-017`，证据根为
 `out/HardwareAcceptance/20260912/tdma-flight-async-overlay/`。
@@ -67,6 +69,42 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260912-019 - RX 切片封存后的六节点 RAM 隔离核算
+
+- 日期：2026-09-12；TODO task ID：`TDMA-FLIGHT-002I`。以下数字均为实验快照，非事实源。
+- 顺序：先封存 `TDMA-PROGRESS-20260912-018`，代码提交 `2b7fb79`、文档提交
+  `f47751e`，再以干净 HEAD 进行容量核算。该核算没有修改受控固件、运行配置或板端
+  状态，没有重用旧 P3 凭证为六节点候选放行。
+- 方法：使用前一切片 `build-r2/compile_commands.json` 的 ARM Release 原始参数，
+  在证据目录内复制源码，只将 `BOARD_IDENTITY_MAX_NODES`、`TDMA_RING_NODE_MAX`、
+  `VDC_DOMAIN_NODE_COUNT`、`REFMEM_SYNC_NODE_COUNT`、`CALIBRATION_PATH_MAX_LINKS`
+  和 `CALIBRATION_TRAINING_PHASE_MAX_NODES` 从八改为六。八节点/六节点各重编译
+  158 个项目翻译单元，316 次编译全部成功；当前 map 内存活静态对象的八节点尺寸与
+  已验收对象逐项相符，未链接的对象和 Flash 常量不计收益。
+- 范围：保留 `TDMA_FLIGHT_SHORT_SLOT_COUNT`、SHORT packet/payload 布局、
+  `DISTRIBUTED_REFMEM_TABLE_SIZE`、`DISTRIBUTED_REFMEM_NODE_COUNT`、应用模型表，
+  以及 `TDMA_RING_CALIBRATION_LINK_MAX` 和 Calibration 持久化 payload 容量。
+  仅限制实际在线节点数不会自动释放静态 RAM。RefMem 固定目录不能按节点比例缩减；
+  校准 stage/训练缓存进一步裁剪须先解耦运行容量和持久化格式，本次收益不包含该项。
+- 静态对象收益：RefMem 三处同步上下文合计 1,728 B、VDC command retention 128 B、
+  飞行同步的 per-source 序号 8 B；Calibration 三份 path snapshot 与 import links
+  合计 704 B；VDC runtime path table 200 B，其中矩阵 112 B、路径 entry 88 B。
+  主 SRAM 合计 **2,768 B**；发布 snapshot 另省 **200 B scratch_y**，不计入主 SRAM
+  余量。堆、任务栈预留、DMA ring 和固定 packet 池未缩减。
+- 链接复核：两组隔离对象各重链接一次，八节点各段尺寸/地址与验收 ELF 完全相符。
+  六节点 `.bss` 从 468,448 B 降为 465,680 B，`link_free_bytes` 从 2,592 B 增至
+  **5,360 B**，主 SRAM 净增 **2,768 B（2.703125 KiB）**。两组正式 RAM checker
+  均返回 FAIL，要求仍为 49,152 B；六节点候选仍缺 43,792 B。容量缩减不能代替
+  完整 Core1 WCET、原始 RX scanner 拆分和特等快速通道验收。
+- 原件：`input-r1.json` 保存源码哈希、容量边界和完整编译命令；
+  `compile-results-r1.json`、`report-r1.json` 保存逐对象结果；
+  `link-report-r1.json` 保存编译器版本、ELF/map 哈希和完整链接指标。
+  `eight-baseline/`、`six-local/` 保留测量 ELF/map、链接日志及正式 RAM FAIL 日志。
+  这些是容量测量产物，不是可部署六节点固件或硬件验收凭证。
+- 后续：`TDMA-FLIGHT-002I` 保持 `PENDING`。独立实现编译容量单一配置、HAOFV
+  准入、超容量拓扑/编号拒绝及兼容性验证，再完成软件测试、受影响构建和真实 P3/短帧
+  复核；不更改 registry/C11 状态，`TDMA-FLIGHT-002` 继续执行。
 
 ### TDMA-PROGRESS-20260912-018 - 普通 RX 的 Core0 异步解析与采集证据绑定
 
@@ -1405,6 +1443,7 @@ NO5 观测仍未完成，因此 DPLL 尚不能进入 active matrix/eligible/serv
 
 | progress ID | TODO task ID | 证据 |
 |---|---|---|
+| TDMA-PROGRESS-20260912-019 | TDMA-FLIGHT-002I | `out/HardwareAcceptance/20260912/node-capacity-ram-audit/report-r1.json`、`link-report-r1.json`：RX 切片封存后，固定 wire/RefMem/Calibration 存储布局下的六节点隔离编译、存活对象与 ELF/map 对照；保留正式 RAM FAIL，未部署候选。 |
 | TDMA-PROGRESS-20260912-016 | TDMA-FLIGHT-002B/002F | `out/HardwareAcceptance/20260912/tdma-flight-async-platform/owner-boundary-r2.json`：将异步准备/解析纳入列车调度基础，区分纯构建、跨核版本交接与硬件提交；尚非运行验收。 |
 | TDMA-PROGRESS-20260912-015 | TDMA-FLIGHT-002B | `out/HardwareAcceptance/20260912/tdma-flight-rx-budget/hardware-review.json`、`slice-manifest.json`：同拍 RX 限制、真实旧 scanner 反例、同源码 P3、SCK 原件恢复与有效矩阵、短帧闭环、完整 phase 对比和保留的失败。 |
 | TDMA-PROGRESS-20260912-014 | TDMA-FLIGHT-002B | `out/HardwareAcceptance/20260912/tdma-flight-service-timing/hardware-review.json`、`slice-manifest.json`：固定分项计时、同源码 P3、复位恢复短帧、普通/自主完整 phase 归因、原始采集与下载恢复、STOP 确认及未通过的 RAM/WCET。 |
