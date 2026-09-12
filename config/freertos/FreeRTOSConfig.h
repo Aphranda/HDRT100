@@ -27,7 +27,9 @@
 #define configUSE_NEWLIB_REENTRANT              0
 #define configENABLE_BACKWARD_COMPATIBILITY     0
 #define configSTACK_DEPTH_TYPE                  uint32_t
-#define configENABLE_FPU                        0
+/* RP2350 softfp code uses FP registers for scalar and structure operations.
+ * PendSV must preserve s16-s31 even when application data is all integers. */
+#define configENABLE_FPU                        1
 #define configENABLE_MPU                        0
 #define configENABLE_TRUSTZONE                  0
 #define configRUN_FREERTOS_SECURE_ONLY          1
