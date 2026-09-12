@@ -1013,6 +1013,14 @@ phase count、stage count、记录类型、sequence、start ticks、total ticks�
 既有 `SYSTem:TDMA:SCHEDule?` 继续作为完整 phase 统计，包含计时器初始化、读取与发布
 开销；profile 的局部分解不能替代完整 WCET、deadline、调度缺失与 SRAM 门禁。
 
+启动验收工具 `trn03_closed_loop.py::wait_startup_barrier()` 的稳定区间同时要求
+节点健康和整组查询在请求的 startup deadline 内完成。poll 等待耗尽期限后不再开始
+新查询；已经开始的有界串口查询若迟到，其健康结果、完成时间与错误仍留证，但不得
+计入期限内稳定样本。调试继续只能保留失败后继续取证，不能把迟到样本提升为按期通过。
+该检查约束主机观测完成时间，不等同于板端启动耗时，也不改变固件生命周期与
+`PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES`。实现与有限硬件证据见
+`TDMA-PROGRESS-20260912-028`。
+
 adapter 候选只在已接受的 bootstrap boundary 交接；自主态每次 service 有界收割
 RX 观察与尝试本地 shadow 发布，不补发遗漏周期、不伪造逐帧 completion。返回包需与
 所属 bank 的 sequence、identity、driver generation 及本地 mailbox 对应，再进入

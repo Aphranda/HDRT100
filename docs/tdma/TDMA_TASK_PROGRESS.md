@@ -8,7 +8,12 @@ Last updated: 2026-09-12
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的 owner/runtime/adapter 归因切片见
+当前 `TDMA-FLIGHT-002F` 的启动截止检查与 origin CRC 调查切片见
+`TDMA-PROGRESS-20260912-028`，证据根为
+`out/HardwareAcceptance/20260912/tdma-flight-origin-crc/`。主机启动观测已拒绝迟到
+稳定样本；CRC 采样相位线索尚未确认根因。完整 WCET、正式 RAM 与特等席保全仍开放，
+门限和节点容量后续项顺序保持。
+前序 owner/runtime/adapter 归因切片见
 `TDMA-PROGRESS-20260912-027`，证据根为
 `out/HardwareAcceptance/20260912/tdma-flight-owner-attribution/`。完整 WCET、正式 RAM
 仍失败，普通 origin CRC 异常与启动观测截止时间盲点须先定位修复；本轮为诊断归因，
@@ -101,6 +106,63 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260912-028 - 启动采样截止检查与 origin CRC 相位调查
+
+- 日期：2026-09-12；TODO task ID：`TDMA-FLIGHT-002F`。以下数字为实验快照，
+  非事实源；证据根为 `out/HardwareAcceptance/20260912/tdma-flight-origin-crc/`。
+- 基线：`a1ae54f17dbd6d28625e97fe2d82a5aee99e4245`；此前封存的
+  `tdma-flight-owner-attribution/` 原件只读引用。当前切片实现仅修改启动验收工具与
+  回归测试，未改变 firmware/PIO、跨核 owner、FIFO、wire 或现有完整 phase 门禁。
+- 确认并修复 `wait_startup_barrier()` 的迟到误判：poll 后再次检查剩余期限，整组
+  串口查询完成后复验；健康性与按期完成分别留证，迟到样本不能增加稳定计数。
+  正常与 diagnostic-continue 路径均保留失败，未增加 startup timeout 或减少稳定样本数。
+  这里验收的是主机完成观察的期限，不是直接测量板端启动延迟。
+- `startup-negative-r0.log` 在旧实现上复现失败：按前轮样本完成时刻
+  `2.063/3.969/5.891/7.735 s` 重放，首个区间有 pipeline-fill 错误，随后三个健康
+  区间的末次完成超过配置的 `6 s`，旧工具仍通过。新实现拒绝该路径，并覆盖按时完成、
+  恰在截止点完成、poll 耗尽期限后不再查询；相关工具/P3 回归 `156 passed`，见
+  `startup-regression-r1.log`。
+- 原件重放：`sampling-replay-r1.json` 从前轮普通与自主 NO1 SD 二进制原件重建，
+  校验 SHA 与 capture JSON 一致，按固件实际 `RX_CLK/RX_CS/TX_DATA` 引脚组合解码。
+  `sampling-bits-r1.json` 固定同一组 bit/clock 位置，保留 CRC-invalid/PHY-invalid
+  结果，避免自动重对齐掩盖坏采样。所选两帧在相对时钟 `16–56 ns` 样点解码正常，
+  `64 ns` 样点不正常；这是有限、量化后的相位线索，不能证明实际固件坏帧的损坏位置，
+  更不能由离线选择直接冻结新相位。普通 origin 原有 CRC 失败仍保留。
+- `bad-header-correlations-r2.json` 从 CRC 有效原始帧读取 transport ring-profile
+  CRC，确认保存的三次 profile 字段异常均为单 bit `1→0` 且下一线上 bit 为 `0`；
+  对应有限波形下降沿在相对时钟 `64/72 ns` 的量化样点，符合但未证明偏晚采样假设。
+  首版 `bad-header-correlations-r1.json` 误将 operating-profile CRC 与 transport
+  ring-profile CRC 比较，r2 明确标为无效分析并保留，不用其差异或结论作为证据。
+- 已核对普通 TX 私有 DMA 缓冲与完成握手、RX ring 完成范围与覆盖复验、异步解析
+  claim/release 生命周期；未形成内存损坏或提前复用的可复现根因。首个 header 差异
+  `hop_count` 可合法变化，不能拿该位置充当坏字节定位。
+- 当前 Release A/B/Boot 和 Flash link gates 通过；build `20260912144225`，源码指纹
+  `b0d8daf294f26844c8cb01da84ff942101de8f39940bb30e88aa5a24caf345f0`，
+  `1018` 个源码文件、`634` 个 app 编译单元均为容量 `6`。两应用链接 RAM 增量均为
+  `0 B`，剩余仍 `5168 B`，正式 RAM 缺口未改善，见 `source-checkpoint-r1.json`。
+- 当前源码真实 P3：r1 完成四板 OTA，但 P0T 未检测到 NO4→NO1 回传，未生成凭证；
+  `p3-r1-state.json` 确认四板停止。r2 同包复位复测恢复拓扑并完成 quick diagnostic
+  flow，凭证 `passed=true/strict_gates_passed=false`；保留 NO2 ARM result `8` 和
+  running handoff 失败。独立 `matrix-strict-r1.json` 从本轮原始校准结果生成，
+  `passed=true/diagnostic_continue=false`。该恢复链不等于一次连续严格通过。
+- 单独启动复核 `startup-hardware-r1/` 使用同 build/新矩阵、`6 s` startup timeout
+  与 `5 ms` 串口 read quantum：样本完成 `2.188/4.375/6.641 s`，首段 pipeline fill
+  失败，末段健康但迟到，已正确拒绝。错误 JSON 保留在严格路径的 exception/summary 中；
+  没有进入 soak 或交出 running loop，最终四板 STOP 确认通过。
+- 诊断复核 `startup-hardware-r2/` 的样本完成 `1.922/3.812/5.906 s`：首段 fill
+  失败，随后仅两个稳定区间，poll 耗尽剩余期限后未再启动查询。工具按授权继续有限
+  soak，但 startup/closed-loop/realtime 仍为失败，`diagnostic_continue=true`。
+  soak 主机窗口实际 `8.640 s`（配置目标 `1 s`，查询自身耗时另计），四板 RX 增量
+  `2126/2129/2134/2122`，transport bad 增量均零、无 physical fault 或 down event；
+  最终四板 STOP 成功。新矩阵 NO2 的 DATA phase 相比前轮改变，其他条件也未完全控制，
+  该有限零错误窗口不能证明旧 CRC 问题已修复，也不替代完整 phase/WCET 验收。
+- 主控复核、源码/文档分离提交及 SHA 封存分别见 `review-r1.json`、
+  `slice-manifest.json`、`commit-proof.json`。本次完成的是启动截止检查修复和有限
+  CRC 调查，切片结论 PARTIAL；未提升产品、registry 或 C11 状态。
+- 状态与下一 gate：`TDMA-FLIGHT-002F` 保持 IN PROGRESS。普通 CRC 尚未恢复正确性，
+  完整 WCET、正式 RAM 与特等席逐圈保全未验收；先关联同一坏帧的物理采样与观察副本，
+  验证采样边缘假设，再推进 overlay/RX 开销削减。registry/C11、预算与动态节点顺序不变。
 
 ### TDMA-PROGRESS-20260912-027 - owner 剩余开销归因与普通 CRC 失败
 
