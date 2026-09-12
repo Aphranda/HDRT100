@@ -133,6 +133,9 @@ bool tdma_pio_spi_phys_origin_begin(
         view.ring_profile_crc32 != config->ring_profile_crc32 ||
         view.flags != (TDMA_TRANSPORT_FLAG_REQUIRE_FEEDBACK | TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE))
         return false;
+    /* This scanner owns only its private byte copy. Invalidate its hint now;
+     * Core0 may finish cancellation while the owner switches the union. */
+    (void)tdma_pio_spi_phys_rx_scan_cancel(phys);
     phys->flight_origin_prepare = (tdma_origin_prepare_t){
         .live_config = config, .seed = returned_packet,
         .stage = TDMA_ORIGIN_PREPARE_MAILBOX, .prefix_bits = (uint32_t)prefix,

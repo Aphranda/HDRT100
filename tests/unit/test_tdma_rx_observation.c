@@ -1,12 +1,12 @@
 #include "tdma_rx_sequence.h"
 #include "tdma_transport_frame.h"
+#include "tdma_rx_scan.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
-enum { TDMA_PIO_SPI_RX_RING_WORDS = 1024, TDMA_PIO_SPI_PACKET_HEADER_SIZE = 4,
+enum { TDMA_PIO_SPI_RX_RING_WORDS = 1024,
     TDMA_PIO_SPI_RX_DMA_WORD_MAX = 4 + TDMA_TRANSPORT_SHORT_PACKET_MAX,
-    TDMA_PIO_SPI_PACKET_MAGIC0 = 0x54, TDMA_PIO_SPI_PACKET_MAGIC1 = 0x44,
     TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES = 2,
     TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN = 16,
     TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER = 3,
@@ -16,7 +16,10 @@ enum { TDMA_PIO_SPI_RX_RING_WORDS = 1024, TDMA_PIO_SPI_PACKET_HEADER_SIZE = 4,
 typedef struct {
     bool rx_capture_active, process_image_enabled, flight_overlay_alignment_locked;
     bool flight_origin_workspace_owned;
+    tdma_rx_scan_t *rx_scan_preparation;
+    tdma_rx_scan_hint_t rx_scan_hint;
     uint32_t flight_physical_byte_count, flight_alignment_byte_shift, flight_alignment_bit_shift;
+    uint32_t flight_tail_bytes;
     uint32_t flight_overlay_alignment_samples;
     uint64_t flight_overlay_alignment_candidate;
     struct {
@@ -51,9 +54,9 @@ static void publish_count(void) {
 static uint32_t tdma_pio_spi_phys_rx_write_index(void) { return completed & 1023; }
 static uint32_t tdma_pio_spi_phys_rx_ring_word(uint64_t position) {
     ++word_reads;
-    if (copy_phase && position >= packet_start+12 && stimulus && !stimulus_ran) {
-        const uint64_t advance = stimulus == 1 ? 600u : s_tdma_pio_spi_rx_sequence.reload_words;
-        if (stimulus == 1) {
+    if ((copy_phase || stimulus >= 3) && position >= packet_start+12 && stimulus && !stimulus_ran) {
+        const uint64_t advance = (stimulus == 1 || stimulus == 3) ? 600u : s_tdma_pio_spi_rx_sequence.reload_words;
+        if (stimulus == 1 || stimulus == 3) {
             for (uint64_t i = completed; i < completed+advance; ++i) ring[i & 1023] = 0x77;
         } else {
             for (unsigned i = 0; i < 1024; ++i) ring[i] = 0x77;
@@ -88,7 +91,7 @@ static tdma_pio_spi_phys_t setup(unsigned shift, uint64_t first, uint64_t produc
         if (shift) ring[(first+i+1)&1023] |= (packet[i] << (8-shift)) & 255;
     }
     return (tdma_pio_spi_phys_t){.rx_capture_active=true,.process_image_enabled=true,
-        .flight_physical_byte_count=301,.flight_alignment_byte_shift=17,.flight_alignment_bit_shift=5,
+        .flight_physical_byte_count=301,.flight_tail_bytes=5,.flight_alignment_byte_shift=17,.flight_alignment_bit_shift=5,
         .flight_overlay_alignment_locked=true};
 }
 
@@ -186,4 +189,5 @@ int main(int argc, char **argv) {
         assert(received==0 && word_reads==0);
     } else assert(!"unknown case");
     printf("RX observation %s passed\n",argv[1]);
+    return 0;
 }

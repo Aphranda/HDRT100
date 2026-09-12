@@ -1851,7 +1851,7 @@ static bool tdma_pio_spi_phys_transport_header_matches(
                TDMA_TRANSPORT_FRAME_HEADER_SIZE;
 }
 
-static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
+static bool tdma_pio_spi_phys_capture_words_legacy(tdma_pio_spi_phys_t *phys,
                                             size_t max_words,
                                             size_t *received_words)
 {
@@ -2021,12 +2021,25 @@ static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
     return false;
 }
 
+#include "tdma_pio_spi_phys_rx_scan.inc"
+
+static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
+                                            size_t max_words,
+                                            size_t *received_words)
+{
+    if (phys != NULL && phys->rx_scan_preparation != NULL &&
+        tdma_pio_spi_phys_is_flight_persona())
+        return tdma_pio_spi_phys_capture_words_async(phys, max_words, received_words);
+    return tdma_pio_spi_phys_capture_words_legacy(phys, max_words, received_words);
+}
+
 bool tdma_pio_spi_phys_arm(void *context,
                            const tdma_ring_runtime_config_t *config)
 {
     tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
     if (phys != NULL && (phys->armed || phys->flight_overlay_dma_active ||
                          tdma_overlay_prepare_state(phys->overlay_preparation) != TDMA_OVERLAY_PREPARE_IDLE ||
+                         tdma_rx_scan_state(phys->rx_scan_preparation) != TDMA_RX_SCAN_IDLE ||
                          phys->flight_origin_workspace_owned ||
                          phys->flight_origin_prepare.stage != TDMA_ORIGIN_PREPARE_IDLE)) {
         return tdma_pio_spi_phys_arm_reject(phys, TDMA_PIO_SPI_PHYS_ERROR_PERSONA_BUSY);
@@ -2083,6 +2096,7 @@ bool tdma_pio_spi_phys_arm(void *context,
         return tdma_pio_spi_phys_arm_reject(
             phys, TDMA_PIO_SPI_PHYS_ERROR_PHASE_ADMISSION);
     }
+    (void)tdma_pio_spi_phys_rx_scan_cancel(phys);
     phys->node_count = config->node_count;
     phys->flight_local_slot_id = config->local_slot_id;
     phys->flight_tail_bytes = tdma_pio_spi_phys_flight_tail_bytes(config);
@@ -2301,6 +2315,7 @@ bool tdma_pio_spi_phys_disarm(void *context)
         return false;
     }
     const bool worker_retired = tdma_overlay_prepare_cancel(phys->overlay_preparation);
+    const bool scanner_retired = tdma_pio_spi_phys_rx_scan_cancel(phys);
     /* Process-image followers keep the overlay TX DMA blocked on the PIO TX
      * FIFO between frames.  A failed ARM can also leave a DMA or SM active
      * before phys->armed is published.  STOP is the common idempotent
@@ -2371,7 +2386,7 @@ bool tdma_pio_spi_phys_disarm(void *context)
     memset(&phys->flight_origin_prepare, 0, sizeof(phys->flight_origin_prepare));
     /* Hardware is already stopped. A cancelled Core0 writer keeps STOP
      * pending until ACK, so neither ARM nor the origin union can reuse it. */
-    return worker_retired;
+    return worker_retired && scanner_retired;
 }
 
 static bool tdma_pio_spi_phys_tx_put(tdma_pio_spi_phys_t *phys,
@@ -2393,6 +2408,7 @@ bool tdma_pio_spi_phys_train_clock(void *context, uint32_t cycles)
 {
     tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
     if (phys != NULL && !tdma_overlay_prepare_cancel(phys->overlay_preparation)) return false;
+    if (phys != NULL && !tdma_pio_spi_phys_rx_scan_cancel(phys)) return false;
     if (phys == NULL || !phys->armed || cycles == 0u ||
         cycles > TDMA_PIO_SPI_TRAIN_CLOCK_MAX_CYCLES) {
         if (phys != NULL) {

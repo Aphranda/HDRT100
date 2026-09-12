@@ -11,9 +11,7 @@ from tools.state_machine_resource_check.state_machine_resource_check import c_de
 ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.fixture(scope="module")
-def scanner(tmp_path_factory):
-    directory = tmp_path_factory.mktemp("rx-observation")
+def build_scanner(directory, asynchronous=False):
     live = (ROOT/"components/tdma/src/tdma_pio_spi_phys.c").read_text(encoding="utf-8")
     capture = Path(os.environ.get("TDMA_RX_CAPTURE_SOURCE", ROOT/"components/tdma/src/tdma_pio_spi_phys.c")).read_text(encoding="utf-8")
     definitions = [
@@ -32,22 +30,48 @@ static bool tdma_pio_spi_phys_transport_header_matches(uint64_t p, uint32_t s, u
     if (result) copy_phase = true;
     return result;
 }
-static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys, size_t max_words, size_t *received_words) {
-""" + c_definition_body(capture, "tdma_pio_spi_phys_capture_words") + "}\n"
+"""
+    if asynchronous:
+        code += '#include "tdma_pio_spi_phys_rx_scan.inc"\n'
+        body = 'return tdma_pio_spi_phys_capture_words_async(phys, max_words, received_words);'
+    else:
+        name = ("tdma_pio_spi_phys_capture_words_legacy" if "tdma_pio_spi_phys_capture_words_legacy(" in capture
+                else "tdma_pio_spi_phys_capture_words")
+        body = c_definition_body(capture, name)
+    code += "static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys, size_t max_words, size_t *received_words) {" + body + "}\n"
     (directory/"capture_routines.inc").write_text(code, encoding="utf-8")
     gcc = os.environ.get("HOST_CC") or shutil.which("gcc") or "D:/Microsoft/mingw64/bin/gcc.exe"
     exe = directory/"rx_observation.exe"
     command = [gcc, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
-        "-I"+str(directory), "-I"+str(ROOT/"components/tdma/inc"),
-        str(ROOT/"tests/unit/test_tdma_rx_observation.c"),
+        "-I"+str(directory), "-I"+str(ROOT/"components/tdma/inc"), "-I"+str(ROOT/"components/tdma/src"),
+        str(ROOT/"tests/unit"/("test_tdma_rx_scan.c" if asynchronous else "test_tdma_rx_observation.c")),
         str(ROOT/"components/tdma/src/tdma_rx_sequence.c"),
+        str(ROOT/"components/tdma/src/tdma_rx_scan.c"),
         str(ROOT/"components/tdma/src/tdma_transport_frame.c"), "-o", str(exe)]
     result = subprocess.run(command, capture_output=True, text=True)
     assert result.returncode == 0, result.stdout+result.stderr
     return exe
 
 
+@pytest.fixture(scope="module")
+def scanner(tmp_path_factory):
+    return build_scanner(tmp_path_factory.mktemp("rx-observation"))
+
+
+@pytest.fixture(scope="module")
+def async_scanner(tmp_path_factory):
+    return build_scanner(tmp_path_factory.mktemp("rx-scan-async"), asynchronous=True)
+
+
 @pytest.mark.parametrize("case", ["stable", "overwrite", "counter_alias", "bounded", "prefix", "incomplete", "wrong_mode", "idle_gap", "phase_gap"])
 def test_real_scanner_dma_interleavings(scanner, case):
     result = subprocess.run([str(scanner), case], capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout+result.stderr
+
+
+@pytest.mark.parametrize("case", ["phases", "worker_pause", "live_overwrite", "live_epoch",
+    "snapshot_overwrite", "snapshot_epoch", "cancel", "resync", "incomplete", "geometry", "age", "epoch",
+    "persona", "config", "false_magic", "capacity"])
+def test_async_discovery_and_live_dma_copy(async_scanner, case):
+    result = subprocess.run([str(async_scanner), case], capture_output=True, text=True)
     assert result.returncode == 0, result.stdout+result.stderr

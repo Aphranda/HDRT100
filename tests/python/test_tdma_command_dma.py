@@ -661,7 +661,7 @@ static bool tdma_pio_spi_phys_transport_header_matches(uint64_t p, uint32_t s, u
     return p == packet_start + 4 && s == alignment && n == 32;
 }
 '''
-    routine = "static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys, size_t max_words, size_t *received_words) {" + c_definition_body(source, "tdma_pio_spi_phys_capture_words") + "}\n"
+    routine = "static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys, size_t max_words, size_t *received_words) {" + c_definition_body(source, "tdma_pio_spi_phys_capture_words_legacy") + "}\n"
     assertions = r'''
 int main(void) {
     tdma_pio_spi_phys_t phys = {.rx_capture_active = true, .process_image_enabled = true,

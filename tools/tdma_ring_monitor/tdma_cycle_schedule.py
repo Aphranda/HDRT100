@@ -17,6 +17,7 @@ CONFIG_PATHS = (
     Path("config/project_config.h"),
     Path("boards/rp2350_trig/inc/board_config.h"),
     Path("components/tdma/inc/tdma_transport_frame.h"),
+    Path("components/tdma/inc/tdma_rx_scan.h"),
     Path("components/tdma/inc/tdma_pio_spi_phys.h"),
 )
 DEFINE_RE = re.compile(r"^\s*#define\s+([A-Za-z_]\w*)\s+(.+?)\s*$")

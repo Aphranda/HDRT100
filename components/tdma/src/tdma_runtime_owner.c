@@ -18,6 +18,7 @@ static tdma_traffic_scheduler_t s_tdma_traffic_scheduler;
 static tdma_pio_spi_ring_adapter_t s_tdma_pio_spi_ring_adapter;
 static tdma_pio_spi_phys_t s_tdma_pio_spi_phys;
 static tdma_overlay_prepare_t s_tdma_overlay_preparation;
+static tdma_rx_scan_t s_tdma_rx_scan_preparation;
 static tdma_operating_profile_manager_t s_tdma_operating_profile_manager;
 typedef enum {
     TDMA_CAL_LOOPBACK_INTENT_NONE = 0u,
@@ -311,6 +312,7 @@ bool tdma_runtime_owner_init(void)
             tdma_pio_spi_phys_service_process_overlay_boundary,
             tdma_pio_spi_phys_process_overlay_ready);
         s_tdma_pio_spi_phys.overlay_preparation = &s_tdma_overlay_preparation;
+        s_tdma_pio_spi_phys.rx_scan_preparation = &s_tdma_rx_scan_preparation;
         s_tdma_pio_spi_ring_adapter.overlay_preparation = &s_tdma_overlay_preparation;
         if (!tdma_pio_spi_ring_adapter_enable_async_rx(&s_tdma_pio_spi_ring_adapter)) return false;
         s_tdma_pio_spi_ring_adapter.phys_grant_overlay = tdma_pio_spi_phys_grant_overlay;
@@ -804,6 +806,7 @@ bool tdma_runtime_owner_copy_coded_capture_core1(
 void tdma_runtime_owner_core0_prepare_service(void)
 {
     if (s_tdma_runtime_owner_initialized) {
+        tdma_rx_scan_core0_service(&s_tdma_rx_scan_preparation);
         tdma_rx_prepare_core0_service(&s_tdma_pio_spi_ring_adapter.rx_station);
         tdma_overlay_prepare_core0_service(&s_tdma_overlay_preparation);
     }

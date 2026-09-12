@@ -10,6 +10,7 @@
 #include "tdma_transport_frame.h"
 #include "tdma_origin_plan.h"
 #include "tdma_overlay_prepare.h"
+#include "tdma_rx_scan.h"
 
 /* TDMA PIO SPI resident physical layer.
  *
@@ -31,10 +32,6 @@
  * VDC/RefMem inner frames.
  */
 
-#define TDMA_PIO_SPI_PACKET_MAGIC0 0x54u
-#define TDMA_PIO_SPI_PACKET_MAGIC1 0x44u
-#define TDMA_PIO_SPI_PACKET_HEADER_SIZE 4u
-#define TDMA_PIO_SPI_FLIGHT_MAX_TAIL_BYTES 11u
 #define TDMA_PIO_SPI_RX_DMA_WORD_MAX \
     (TDMA_PIO_SPI_PACKET_HEADER_SIZE + TDMA_TRANSPORT_SHORT_PACKET_MAX)
 #define TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS \
@@ -729,6 +726,8 @@ typedef struct {
     uint32_t flight_local_slot_id;
     bool flight_overlay_dma_active;
     tdma_overlay_prepare_t *overlay_preparation;
+    tdma_rx_scan_t *rx_scan_preparation;
+    tdma_rx_scan_hint_t rx_scan_hint;
     bool flight_overlay_alignment_locked;
     uint32_t flight_overlay_alignment_samples;
     uint64_t flight_overlay_alignment_candidate;
