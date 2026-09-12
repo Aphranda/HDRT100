@@ -16,6 +16,7 @@
 #include "sync_io.h"
 #include "tdma_runtime_owner.h"
 #include "tdma_service.h"
+#include "tdma_service_timing.h"
 #include "vdc_domain.h"
 #include "vdc_ring_observer.h"
 #include "vdc_sync_io_adapter.h"
@@ -2985,14 +2986,22 @@ void tdma_component_core1_service(void)
     /* The PIO/DMA flight origin is submitted without waiting for wire
      * completion.  This bounded poll only harvests a completed launch/latch
      * token before the scheduler advances the next TDMA window. */
+    uint64_t timing_start = tdma_service_timing_now();
     tdma_runtime_owner_service_phys_tx(vdc_dpll_manager_now_ns());
+    tdma_service_timing_record(TDMA_TIMING_PHYS_SERVICE, timing_start);
+    timing_start = tdma_service_timing_now();
     if (s_vdc_tdma_service != NULL) {
         tdma_service_core1_service(s_vdc_tdma_service);
     }
+    tdma_service_timing_record(TDMA_TIMING_OWNER_SERVICE, timing_start);
     /* RefMem captured any MASTER command in its own phase.  Admit that
      * frozen batch only after the sole TDMA scheduler has advanced. */
+    timing_start = tdma_service_timing_now();
     distributed_refmem_tdma_publish_service();
+    tdma_service_timing_record(TDMA_TIMING_REFMEM_PUBLISH, timing_start);
+    timing_start = tdma_service_timing_now();
     tdma_runtime_owner_update_training_gate();
+    tdma_service_timing_record(TDMA_TIMING_TRAINING_GATE, timing_start);
 }
 
 void vdc_dpll_manager_tdma_core1_service(void)

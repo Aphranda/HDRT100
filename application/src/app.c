@@ -26,6 +26,7 @@
 #include "system_manager.h"
 #include "sync_trigger.h"
 #include "tdma_runtime_owner.h"
+#include "tdma_service_timing.h"
 #include "sync_io.h"
 #include "sync_io_logic_analyzer.h"
 #include "ota_crc32.h"
@@ -737,6 +738,7 @@ static bool app_realtime_run_phase(
 
 static void app_realtime_tdma_phase(void)
 {
+    tdma_service_timing_phase_begin();
     /* NO5 is a ring-external read-only observer.  Keep its phase-only
      * SyncIO/VDC path alive, but never service the TDMA owner on that board;
      * this prevents accidental PIO/SM/DMA/GPIO/IRQ/DREQ activity while the
@@ -748,11 +750,16 @@ static void app_realtime_tdma_phase(void)
      * It must not live behind an optional/quarantinable load, otherwise an
      * accepted ARM/STOP could remain pending forever.  TDMA remains first;
      * analyzer work is capped to a small record budget afterward. */
+    uint64_t timing_start = tdma_service_timing_now();
     sync_io_logic_analyzer_service_core1(8u);
+    tdma_service_timing_record(TDMA_TIMING_ANALYZER, timing_start);
+    timing_start = tdma_service_timing_now();
     drv_watchdog_mark_progress(1u, 0x0101u);
     diagnostics_record_core1_loop();
     diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_CORE1);
     drv_watchdog_mark_progress(1u, 0x0103u);
+    tdma_service_timing_record(TDMA_TIMING_ACCOUNTING, timing_start);
+    tdma_service_timing_phase_end();
 }
 
 static void app_realtime_vdc_phase(void)

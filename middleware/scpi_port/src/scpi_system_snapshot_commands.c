@@ -25,6 +25,7 @@
 #include "system_manager.h"
 #include "sync_trigger.h"
 #include "tdma_runtime_owner.h"
+#include "tdma_service_timing.h"
 
 #define SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS 10000u
 #define SCPI_REFMEM_PACKAGE_PATH "/refmem/app_model.rmtp"
@@ -2483,6 +2484,47 @@ scpi_result_t scpi_cmd_system_tdma_schedule_q(scpi_t *context)
         SCPI_ResultUInt32(context,
                           snapshot.phase_deadline_miss_count[phase]);
     }
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_tdma_profile_result(scpi_t *context, bool peak)
+{
+    tdma_service_timing_snapshot_t snapshot;
+    if (!tdma_service_timing_try_snapshot(&snapshot)) {
+        SCPI_ResultText(context, "UNAVAILABLE");
+        return SCPI_RES_OK;
+    }
+    const tdma_service_timing_record_t *record = peak ? &snapshot.peak : &snapshot.last;
+    SCPI_ResultUInt32(context, snapshot.version);
+    SCPI_ResultUInt32(context, snapshot.clock_hz);
+    SCPI_ResultUInt32(context, snapshot.reset_generation);
+    SCPI_ResultUInt32(context, snapshot.phase_count);
+    SCPI_ResultUInt32(context, TDMA_TIMING_STAGE_COUNT);
+    SCPI_ResultUInt32(context, peak ? 1u : 0u);
+    SCPI_ResultUInt32(context, record->sequence);
+    SCPI_ResultUInt64(context, record->start_ticks);
+    SCPI_ResultUInt32(context, record->total_ticks);
+    SCPI_ResultUInt32(context, record->invalid_count);
+    for (uint32_t stage = 0u; stage < TDMA_TIMING_STAGE_COUNT; stage++) {
+        SCPI_ResultUInt32(context, record->elapsed_ticks[stage]);
+        SCPI_ResultUInt32(context, record->calls[stage]);
+    }
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_profile_q(scpi_t *context)
+{
+    return scpi_tdma_profile_result(context, false);
+}
+
+scpi_result_t scpi_cmd_system_tdma_profile_peak_q(scpi_t *context)
+{
+    return scpi_tdma_profile_result(context, true);
+}
+
+scpi_result_t scpi_cmd_system_tdma_profile_reset(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, tdma_service_timing_request_reset());
     return SCPI_RES_OK;
 }
 

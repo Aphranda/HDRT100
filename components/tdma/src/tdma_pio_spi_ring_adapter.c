@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "tdma_process_image_layout.h"
+#include "tdma_service_timing.h"
 
 #define TDMA_PIO_SPI_RING_RESIDENT_BOOTSTRAP_RETRY_MAX 1u
 
@@ -1595,7 +1596,7 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
 
 #include "tdma_pio_spi_ring_origin.inc"
 
-static bool tdma_pio_spi_ring_adapter_process_rx(
+static bool tdma_pio_spi_ring_adapter_process_rx_impl(
     tdma_pio_spi_ring_adapter_t *adapter,
     const uint8_t *packet,
     size_t packet_size,
@@ -2033,6 +2034,20 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
  * advancing hop/transport CRC. The feedback returns only to the reference
  * node, so this path proves ring service (up/down running) without
  * fabricating simultaneous_feedback_loop_evidence. */
+static bool tdma_pio_spi_ring_adapter_process_rx(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    const uint8_t *packet,
+    size_t packet_size,
+    uint64_t rx_timestamp_ns,
+    const tdma_origin_observation_t *origin_observation)
+{
+    const uint64_t started = tdma_service_timing_now();
+    const bool result = tdma_pio_spi_ring_adapter_process_rx_impl(
+        adapter, packet, packet_size, rx_timestamp_ns, origin_observation);
+    tdma_service_timing_record(TDMA_TIMING_RX_PARSE, started);
+    return result;
+}
+
 static bool tdma_pio_spi_ring_adapter_tx_forward(
     tdma_pio_spi_ring_adapter_t *adapter)
 {
@@ -2181,11 +2196,14 @@ static bool tdma_pio_spi_ring_adapter_rx_once(
     if (adapter->phys_rx == NULL) {
         return false;
     }
-    if (!adapter->phys_rx(adapter->phys_context,
-                          packet,
-                          sizeof(packet),
-                          &packet_size,
-                          &rx_timestamp_ns)) {
+    const uint64_t capture_start = tdma_service_timing_now();
+    const bool captured = adapter->phys_rx(adapter->phys_context,
+                                           packet,
+                                           sizeof(packet),
+                                           &packet_size,
+                                           &rx_timestamp_ns);
+    tdma_service_timing_record(TDMA_TIMING_RX_CAPTURE, capture_start);
+    if (!captured) {
         return false;
     }
     tdma_origin_observation_t observation;
@@ -2279,7 +2297,7 @@ static bool tdma_pio_spi_ring_adapter_forward_poll(
     return true;
 }
 
-static bool tdma_pio_spi_ring_adapter_prepare_process_overlay(
+static bool tdma_pio_spi_ring_adapter_prepare_process_overlay_impl(
     tdma_pio_spi_ring_adapter_t *adapter)
 {
     if (adapter == NULL || adapter->last_rx_packet_size == 0u ||
@@ -2385,6 +2403,25 @@ static bool tdma_pio_spi_ring_adapter_prepare_process_overlay(
         adapter->resident_overlay_tx_sequence = has_tx ? tx_view.sequence : 0u;
     }
     return prepared && applied_ok;
+}
+
+static bool tdma_pio_spi_ring_adapter_prepare_process_overlay(
+    tdma_pio_spi_ring_adapter_t *adapter)
+{
+    const uint64_t started = tdma_service_timing_now();
+    const bool result = tdma_pio_spi_ring_adapter_prepare_process_overlay_impl(adapter);
+    tdma_service_timing_record(TDMA_TIMING_OVERLAY_PREPARE, started);
+    return result;
+}
+
+static bool tdma_pio_spi_ring_adapter_service_overlay_boundary(
+    tdma_pio_spi_ring_adapter_t *adapter)
+{
+    const uint64_t started = tdma_service_timing_now();
+    const bool result = adapter->phys_service_overlay_boundary != NULL &&
+        adapter->phys_service_overlay_boundary(adapter->phys_ctrl_context);
+    tdma_service_timing_record(TDMA_TIMING_OVERLAY_BOUNDARY, started);
+    return result;
 }
 
 /* Cumulative facts survive a parked preparation. Publishing them does not
@@ -2710,9 +2747,7 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
             }
             if (adapter->forwarding_mode ==
                     TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE &&
-                (adapter->phys_service_overlay_boundary == NULL ||
-                 !adapter->phys_service_overlay_boundary(
-                     adapter->phys_ctrl_context))) {
+                !tdma_pio_spi_ring_adapter_service_overlay_boundary(adapter)) {
                 process_overlay_ok = false;
             }
             if (!process_overlay_ok) {
@@ -2763,11 +2798,13 @@ static bool tdma_pio_spi_ring_adapter_service(
     if (adapter == NULL) {
         return false;
     }
+    const uint64_t started = tdma_service_timing_now();
     tdma_pio_spi_ring_adapter_snapshot_write_begin(adapter);
     const bool result = tdma_pio_spi_ring_adapter_service_impl(context,
                                                                now_ns,
                                                                status);
     tdma_pio_spi_ring_adapter_snapshot_write_end(adapter);
+    tdma_service_timing_record(TDMA_TIMING_ADAPTER, started);
     return result;
 }
 

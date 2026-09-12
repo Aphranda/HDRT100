@@ -516,6 +516,7 @@ set(PROJECT_APP_SOURCES
         components/sync_io/src/sync_io_persona_resources.c
         components/sync_io/src/sync_io_persona_manager.c
         components/tdma/src/tdma_service.c
+        components/tdma/src/tdma_service_timing.c
         components/tdma/src/tdma_operating_profile.c
         components/tdma/src/tdma_profile.c
         components/tdma/src/tdma_payload_registry.c
