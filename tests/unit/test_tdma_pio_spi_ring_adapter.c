@@ -530,10 +530,12 @@ static void fill_test_process_mailbox(uint8_t *mailbox,
 
 #include "tdma_origin_adapter_cases.inc"
 #include "tdma_overlay_prepare_cases.inc"
+#include "tdma_rx_prepare_cases.inc"
 
 int main(void)
 {
-    int failed = test_origin_adapter() + test_overlay_prepare_cases();
+    int failed = test_origin_adapter() + test_overlay_prepare_cases() +
+        test_rx_prepare_cases() + test_rx_prepare_origin();
 
     /* --- Adapter without physical TX: honest EVIDENCE_MISSING. --- */
     {

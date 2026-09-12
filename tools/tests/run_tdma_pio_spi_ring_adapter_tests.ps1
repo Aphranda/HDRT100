@@ -16,6 +16,7 @@ $flightFifoSource = Join-Path $repo "components\tdma\src\tdma_flight_fifo.c"
 $flightEngineSource = Join-Path $repo "components\tdma\src\tdma_flight_engine.c"
 $overlaySource = Join-Path $repo "components\tdma\src\tdma_flight_overlay.c"
 $prepareSource = Join-Path $repo "components\tdma\src\tdma_overlay_prepare.c"
+$rxPrepareSource = Join-Path $repo "components\tdma\src\tdma_rx_prepare.c"
 $receiveHealthSource = Join-Path $repo "components\tdma\src\tdma_receive_health.c"
 $processMapSource = Join-Path $repo "components\tdma\src\tdma_process_image_map.c"
 $runtimeSource = Join-Path $repo "components\tdma\src\tdma_ring_runtime.c"
@@ -36,7 +37,7 @@ if (-not $hostCc) {
 if ($hostCc) {
     $exe = Join-Path $build "test_tdma_pio_spi_ring_adapter.exe"
     & $hostCc -std=c11 -Wall -Wextra -Werror "-I$include" `
-        $testSource $adapterSource $commFsmSource $flightFifoSource $flightEngineSource $overlaySource $prepareSource $receiveHealthSource $processMapSource $runtimeSource $transportSource $profileSource `
+        $testSource $adapterSource $commFsmSource $flightFifoSource $flightEngineSource $overlaySource $prepareSource $rxPrepareSource $receiveHealthSource $processMapSource $runtimeSource $transportSource $profileSource `
         -o $exe
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
@@ -59,7 +60,7 @@ if (-not $ArmGcc -or -not (Test-Path $ArmGcc)) {
     throw "No host C compiler or ARM GCC found"
 }
 
-foreach ($source in @($testSource, $adapterSource, $commFsmSource, $flightFifoSource, $flightEngineSource, $overlaySource, $prepareSource, $receiveHealthSource, $processMapSource, $runtimeSource, $transportSource, $profileSource)) {
+foreach ($source in @($testSource, $adapterSource, $commFsmSource, $flightFifoSource, $flightEngineSource, $overlaySource, $prepareSource, $rxPrepareSource, $receiveHealthSource, $processMapSource, $runtimeSource, $transportSource, $profileSource)) {
     $object = Join-Path $build ((Split-Path -Leaf $source) + ".o")
     & $ArmGcc -std=c11 -Wall -Wextra -Werror "-I$include" -c $source -o $object
     if ($LASTEXITCODE -ne 0) {

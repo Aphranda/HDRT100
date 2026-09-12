@@ -66,6 +66,17 @@ static uint32_t tdma_transport_read_le32(const uint8_t *data, size_t offset)
            ((uint32_t)data[offset + 3u] << 24u);
 }
 
+bool tdma_transport_frame_capture_hint(const uint8_t *packet, size_t size,
+    uint32_t *sequence, uint32_t *identity)
+{
+    if (sequence == NULL || identity == NULL) return false;
+    *sequence = *identity = 0u;
+    if (packet == NULL || size < TDMA_TRANSPORT_FRAME_HEADER_SIZE) return false;
+    *sequence = tdma_transport_read_le32(packet, TDMA_TRANSPORT_OFFSET_SEQUENCE);
+    *identity = tdma_transport_read_le32(packet, TDMA_TRANSPORT_OFFSET_IDENTITY_CRC);
+    return true;
+}
+
 static uint32_t tdma_transport_crc32_update(uint32_t crc,
                                             const uint8_t *data,
                                             size_t size)

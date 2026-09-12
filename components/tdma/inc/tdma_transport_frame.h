@@ -20,6 +20,11 @@
  * Sequence, identity and the reference-owned fields remain live on the wire. */
 uint32_t tdma_transport_frame_resident_overlay_header_mask(void);
 
+/* Fixed-cost capture hint only. Unvalidated fields may select a diagnostic
+ * snapshot/latch, but must never commit transport identity before decode. */
+bool tdma_transport_frame_capture_hint(const uint8_t *packet, size_t size,
+    uint32_t *sequence, uint32_t *identity);
+
 #define TDMA_TRANSPORT_FLAG_REQUIRE_FEEDBACK 0x01u
 #define TDMA_TRANSPORT_FLAG_IDLE_BEACON 0x02u
 #define TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE 0x04u

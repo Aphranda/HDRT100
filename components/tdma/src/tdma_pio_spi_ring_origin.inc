@@ -87,6 +87,7 @@ static bool tdma_pio_spi_ring_adapter_start_origin_impl(tdma_pio_spi_ring_adapte
         !adapter->resident_seeded || !adapter->resident_return_ready ||
         !adapter->last_rx_gate_accepted || adapter->reference_tx_completion_pending ||
         adapter->pending_tx_evidence || adapter->rx_queue_count != 0u ||
+        tdma_rx_prepare_state(adapter->rx_preparation) != TDMA_RX_PREPARE_IDLE ||
         adapter->last_rx_packet_size != TDMA_TRANSPORT_SHORT_PACKET_MAX ||
         adapter->receive_health.configured == 0u || rearm_budget_ticks == 0u ||
         abort_poll_count == 0u || abort_poll_count > UINT16_MAX) return false;
@@ -154,13 +155,18 @@ static bool tdma_pio_spi_ring_origin_prepare_service(tdma_pio_spi_ring_adapter_t
 }
 
 static bool tdma_pio_spi_ring_origin_pair_valid(tdma_pio_spi_ring_adapter_t *adapter,
-    const tdma_transport_frame_view_t *view, const tdma_origin_observation_t *observation)
+    const tdma_transport_frame_view_t *view, const tdma_origin_observation_t *observation,
+    const tdma_rx_prepare_t *prepared)
 {
-    if (observation == NULL || !tdma_pio_spi_ring_origin_packet_valid(adapter, view) ||
+    const bool packet_valid = prepared != NULL
+        ? prepared->origin_mailboxes_valid && tdma_pio_spi_ring_origin_header_valid(adapter, view)
+        : tdma_pio_spi_ring_origin_packet_valid(adapter, view);
+    if (observation == NULL || !packet_valid ||
         observation->sequence != view->transport_sequence || observation->identity != view->identity_crc32 ||
         observation->local_generation == 0u || observation->output_remaining != 0u) return false;
     const uint32_t advance = view->transport_sequence - adapter->origin.returned.sequence;
     if (advance == 0u || advance > INT32_MAX) return false;
+    if (prepared != NULL) return prepared->origin_owner_match;
     for (uint32_t i = 0u; i < TDMA_ORIGIN_PLAN_BANK_COUNT; ++i) {
         if (adapter->origin_shadow[i].generation == observation->local_generation &&
             memcmp(adapter->origin_shadow[i].mailbox,

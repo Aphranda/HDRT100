@@ -312,6 +312,7 @@ bool tdma_runtime_owner_init(void)
             tdma_pio_spi_phys_process_overlay_ready);
         s_tdma_pio_spi_phys.overlay_preparation = &s_tdma_overlay_preparation;
         s_tdma_pio_spi_ring_adapter.overlay_preparation = &s_tdma_overlay_preparation;
+        if (!tdma_pio_spi_ring_adapter_enable_async_rx(&s_tdma_pio_spi_ring_adapter)) return false;
         s_tdma_pio_spi_ring_adapter.phys_grant_overlay = tdma_pio_spi_phys_grant_overlay;
         s_tdma_pio_spi_ring_adapter.phys_commit_overlay = tdma_pio_spi_phys_commit_overlay;
         const tdma_pio_spi_ring_origin_ops_t origin_ops = {
@@ -802,8 +803,10 @@ bool tdma_runtime_owner_copy_coded_capture_core1(
 
 void tdma_runtime_owner_core0_prepare_service(void)
 {
-    if (s_tdma_runtime_owner_initialized)
+    if (s_tdma_runtime_owner_initialized) {
+        tdma_rx_prepare_core0_service(&s_tdma_pio_spi_ring_adapter.rx_station);
         tdma_overlay_prepare_core0_service(&s_tdma_overlay_preparation);
+    }
 }
 
 bool tdma_runtime_owner_core0_publish_ring_tx(

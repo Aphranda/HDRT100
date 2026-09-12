@@ -9,6 +9,7 @@
 #include "tdma_flight_fifo.h"
 #include "tdma_flight_engine.h"
 #include "tdma_overlay_prepare.h"
+#include "tdma_rx_prepare.h"
 #include "tdma_origin_plan.h"
 #include "tdma_receive_health.h"
 #include "tdma_ring_runtime.h"
@@ -371,6 +372,7 @@ typedef struct {
     tdma_pio_spi_ring_phys_overlay_boundary_fn phys_service_overlay_boundary;
     tdma_pio_spi_ring_phys_overlay_ready_fn phys_overlay_ready;
     tdma_overlay_prepare_t *overlay_preparation;
+    tdma_rx_prepare_t *rx_preparation;
     tdma_pio_spi_ring_phys_overlay_job_fn phys_grant_overlay;
     tdma_pio_spi_ring_phys_overlay_job_fn phys_commit_overlay;
     tdma_pio_spi_ring_origin_ops_t phys_origin;
@@ -512,17 +514,25 @@ typedef struct {
         uint64_t timestamp_ns;
         bool valid;
     } local_rx_evidence[TDMA_PIO_SPI_RING_ADAPTER_RX_EVIDENCE_DEPTH];
-    struct {
-        uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
-        size_t packet_size;
-        uint64_t timestamp_ns;
-        bool valid;
-    } rx_queue[TDMA_PIO_SPI_RING_ADAPTER_RX_QUEUE_DEPTH];
+    /* Runtime physical station and legacy injected queue are exclusive
+     * stopped-time bindings. DMA never owns this storage. */
+    union {
+        struct {
+            uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+            size_t packet_size;
+            uint64_t timestamp_ns;
+            bool valid;
+        } rx_queue[TDMA_PIO_SPI_RING_ADAPTER_RX_QUEUE_DEPTH];
+        tdma_rx_prepare_t rx_station;
+    };
     uint32_t rx_queue_head;
     uint32_t rx_queue_count;
 } tdma_pio_spi_ring_adapter_t;
 
 bool tdma_pio_spi_ring_adapter_init(tdma_pio_spi_ring_adapter_t *adapter);
+/* Reuses the existing injection pool. Once bound, inject_rx is rejected;
+ * only physical admission can write this station. Call only while stopped. */
+bool tdma_pio_spi_ring_adapter_enable_async_rx(tdma_pio_spi_ring_adapter_t *adapter);
 bool tdma_pio_spi_ring_adapter_set_phys_origin(
     tdma_pio_spi_ring_adapter_t *adapter, const tdma_pio_spi_ring_origin_ops_t *ops);
 /* Core1 owner only. The caller supplies an admitted budget; this function

@@ -7,6 +7,9 @@
 
 #define TDMA_PIO_SPI_RING_RESIDENT_BOOTSTRAP_RETRY_MAX 1u
 
+_Static_assert(sizeof(tdma_rx_prepare_t) <= sizeof(((tdma_pio_spi_ring_adapter_t *)0)->rx_queue),
+               "RX station must fit the existing injected packet pool");
+
 static void tdma_pio_spi_ring_put_u32(uint8_t *dst, uint32_t value)
 {
     for (uint32_t i = 0u; i < 4u; i++) {
@@ -364,7 +367,8 @@ static bool tdma_pio_spi_ring_adapter_queue_push(
     uint64_t timestamp_ns)
 {
     if (adapter == NULL || packet == NULL || packet_size == 0u ||
-        packet_size > TDMA_TRANSPORT_SHORT_PACKET_MAX) {
+        packet_size > TDMA_TRANSPORT_SHORT_PACKET_MAX ||
+        adapter->rx_preparation == &adapter->rx_station) {
         return false;
     }
     if (adapter->rx_queue_count >= TDMA_PIO_SPI_RING_ADAPTER_RX_QUEUE_DEPTH) {
@@ -424,6 +428,15 @@ bool tdma_pio_spi_ring_adapter_init(tdma_pio_spi_ring_adapter_t *adapter)
     tdma_adapter_comm_fsm_init(&adapter->comm_fsm);
     tdma_pio_spi_ring_adapter_reset_bad_packet_diagnostic(adapter);
     (void)tdma_receive_health_init(&adapter->receive_health);
+    return true;
+}
+
+bool tdma_pio_spi_ring_adapter_enable_async_rx(tdma_pio_spi_ring_adapter_t *adapter)
+{
+    if (adapter == NULL || adapter->started != 0u || adapter->origin.active != 0u ||
+        adapter->rx_queue_count != 0u || adapter->rx_preparation != NULL) return false;
+    memset(&adapter->rx_station, 0, sizeof(adapter->rx_station));
+    adapter->rx_preparation = &adapter->rx_station;
     return true;
 }
 
@@ -742,6 +755,7 @@ static bool tdma_pio_spi_ring_adapter_start(
     tdma_pio_spi_ring_adapter_snapshot_write_begin(adapter);
     if (adapter->origin.active != 0u ||
         tdma_overlay_prepare_state(adapter->overlay_preparation) != TDMA_OVERLAY_PREPARE_IDLE ||
+        tdma_rx_prepare_state(adapter->rx_preparation) != TDMA_RX_PREPARE_IDLE ||
         config == NULL || config->enabled == 0u ||
         config->node_count < 2u ||
         config->node_count > TDMA_TRANSPORT_FRAME_MAX_SLOT_COUNT ||
@@ -982,6 +996,7 @@ static bool tdma_pio_spi_ring_adapter_stop(void *context)
         return false;
     }
     tdma_pio_spi_ring_adapter_snapshot_write_begin(adapter);
+    const bool rx_retired = tdma_rx_prepare_cancel(adapter->rx_preparation);
     if (adapter->phys_disarm != NULL &&
         !adapter->phys_disarm(adapter->phys_ctrl_context)) {
         const uint32_t error = adapter->phys_last_error != NULL
@@ -994,6 +1009,11 @@ static bool tdma_pio_spi_ring_adapter_stop(void *context)
     if (adapter->phys_timestamp_ready != NULL) {
         tdma_pio_spi_ring_adapter_set_timestamp_metadata(
             adapter, 0u, TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY);
+    }
+    /* Hardware has stopped; only the static station lease awaits an ACK. */
+    if (!rx_retired) {
+        tdma_pio_spi_ring_adapter_snapshot_write_end(adapter);
+        return false;
     }
     tdma_flight_engine_deactivate(adapter->flight_engine);
     if (adapter->comm_fsm.state == TDMA_ADAPTER_COMM_STATE_FAULT) {
@@ -1603,20 +1623,22 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
     const uint8_t *packet,
     size_t packet_size,
     uint64_t rx_timestamp_ns,
-    const tdma_origin_observation_t *origin_observation)
+    const tdma_origin_observation_t *origin_observation,
+    const tdma_rx_prepare_t *prepared)
 {
     adapter->last_rx_gate_accepted = false;
     adapter->last_rx_new_segment_mask = 0u;
     /* Receive-health age belongs to the adapter service clock domain. The
      * physical RX timestamp is a separate hardware-latch domain used for
      * RTT/FIFO evidence and cannot be subtracted from service now_ns. */
-    const uint64_t health_observation_ns = adapter->last_service_ns != 0ull
+    const uint64_t health_observation_ns = prepared != NULL ? prepared->capture_service_ns :
+        adapter->last_service_ns != 0ull
         ? adapter->last_service_ns
         : rx_timestamp_ns;
-    uint32_t hardware_round_trip_ns = 0u;
-    uint32_t hardware_resolution_ns = 0u;
-    uint32_t hardware_flags = 0u;
-    const bool hardware_round_trip_valid =
+    uint32_t hardware_round_trip_ns = prepared != NULL ? prepared->round_trip_ns : 0u;
+    uint32_t hardware_resolution_ns = prepared != NULL ? prepared->resolution_ns : 0u;
+    uint32_t hardware_flags = prepared != NULL ? prepared->flags : 0u;
+    const bool hardware_round_trip_valid = prepared != NULL ? prepared->round_trip_valid :
         adapter->origin.active == 0u &&
         adapter->role == TDMA_PIO_SPI_RING_ROLE_REFERENCE &&
         adapter->phys_feedback != NULL &&
@@ -1627,10 +1649,14 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
     bool dpll_correlation_pending = false;
     tdma_transport_frame_view_t view;
     tdma_transport_result_t result = TDMA_TRANSPORT_OK;
-    const bool decoded = tdma_transport_frame_decode(packet,
+    const bool decoded = prepared != NULL ? prepared->decoded : tdma_transport_frame_decode(packet,
                                                      packet_size,
                                                      &view,
                                                      &result);
+    if (prepared != NULL) {
+        view = prepared->view;
+        result = prepared->result;
+    }
     const bool schedule_bad = decoded &&
         view.schedule_crc32 != adapter->config.schedule_crc32;
     const bool profile_bad = decoded && !schedule_bad &&
@@ -1662,7 +1688,23 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
         adapter->last_bad_schedule_crc32 = view.schedule_crc32;
         adapter->last_bad_profile_crc32 = view.ring_profile_crc32;
         tdma_pio_spi_ring_adapter_reset_bad_packet_diagnostic(adapter);
-        if (adapter->role == TDMA_PIO_SPI_RING_ROLE_REFERENCE &&
+        if (prepared != NULL) {
+            const tdma_rx_diagnostic_t *d = &prepared->diagnostic;
+            adapter->last_bad_header_diff_count = d->header_diff_count;
+            adapter->last_bad_header_first_diff_offset = d->header_first_diff_offset;
+            adapter->last_bad_header_expected_byte = d->header_expected_byte;
+            adapter->last_bad_header_observed_byte = d->header_observed_byte;
+            adapter->last_bad_packet_diff_count = d->packet_diff_count;
+            adapter->last_bad_packet_first_diff_offset = d->packet_first_diff_offset;
+            adapter->last_bad_packet_expected_byte = d->packet_expected_byte;
+            adapter->last_bad_packet_observed_byte = d->packet_observed_byte;
+            adapter->last_bad_clock_evidence = d->clock_evidence;
+            adapter->last_bad_expected_transport_crc32 = d->expected_transport_crc32;
+            adapter->last_bad_observed_transport_crc32 = d->observed_transport_crc32;
+            adapter->last_bad_recomputed_transport_crc32 = d->recomputed_transport_crc32;
+            adapter->last_bad_expected_payload_crc32 = d->expected_payload_crc32;
+            adapter->last_bad_observed_payload_crc32 = d->observed_payload_crc32;
+        } else if (adapter->role == TDMA_PIO_SPI_RING_ROLE_REFERENCE &&
             packet_size >= TDMA_TRANSPORT_FRAME_HEADER_SIZE &&
             view.transport_sequence != 0u) {
             const uint32_t evidence_index =
@@ -1737,7 +1779,7 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
     }
 
     if (adapter->origin.active != 0u &&
-        !tdma_pio_spi_ring_origin_pair_valid(adapter, &view, origin_observation)) {
+        !tdma_pio_spi_ring_origin_pair_valid(adapter, &view, origin_observation, prepared)) {
         adapter->origin.rejected_observation_count++;
         tdma_pio_spi_ring_adapter_set_error(adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_RX_GATE_REJECT);
         return false;
@@ -1785,6 +1827,10 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
             return false;
         }
         tdma_pio_spi_ring_origin_accept(adapter, origin_observation);
+        if (prepared != NULL) {
+            adapter->origin.matched_owner_generation = prepared->origin_owner_generation;
+            adapter->origin.matched_owner_sequence = prepared->origin_owner_sequence;
+        }
     }
     uint32_t resident_feedback_conditions = 0u;
     if (tdma_pio_spi_ring_adapter_resident_process_image(adapter)) {
@@ -1844,7 +1890,25 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
                  TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_FLIGHT ||
              adapter->forwarding_mode ==
                  TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE)) {
-            tdma_pio_spi_ring_adapter_sample_local_tx_edge(adapter, true);
+            if (prepared == NULL) {
+                tdma_pio_spi_ring_adapter_sample_local_tx_edge(adapter, true);
+            } else {
+                const tdma_ring_local_tx_edge_evidence_t *e = &prepared->local_tx;
+                if (!prepared->local_tx_captured || e->timestamp_ns == 0ull) {
+                    adapter->local_tx_edge_miss_count++;
+                } else {
+                    adapter->local_tx_edge_count++;
+                    adapter->local_tx_edge_timestamp_ns = e->timestamp_ns;
+                    adapter->local_tx_edge_sequence = e->sequence;
+                    adapter->local_tx_edge_identity_crc32 = e->identity_crc32;
+                    adapter->local_tx_edge_capture_generation = e->capture_generation;
+                    adapter->local_tx_edge_flags = e->flags;
+                    if ((e->flags & TDMA_RING_LOCAL_TX_EDGE_FLAG_SEQUENCE_BOUND) == 0u ||
+                        (e->flags & TDMA_RING_LOCAL_TX_EDGE_FLAG_IDENTITY_BOUND) == 0u)
+                        adapter->local_tx_edge_unpaired_count++;
+                    adapter->local_tx_edge_evidence[evidence_index] = *e;
+                }
+            }
         }
 
         if (adapter->clock_evidence_enabled != 0u &&
@@ -2028,6 +2092,7 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
     if (!receive_health_rejected) {
         adapter->last_error = TDMA_PIO_SPI_RING_ADAPTER_ERROR_NONE;
     }
+    adapter->last_rx_service_ns = health_observation_ns;
     return true;
 }
 
@@ -2040,7 +2105,7 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
 {
     const uint64_t started = tdma_service_timing_now();
     const bool result = tdma_pio_spi_ring_adapter_process_rx_impl(
-        adapter, packet, packet_size, rx_timestamp_ns, origin_observation);
+        adapter, packet, packet_size, rx_timestamp_ns, origin_observation, NULL);
     tdma_service_timing_record(TDMA_TIMING_RX_PARSE, started);
     return result;
 }
@@ -2174,12 +2239,18 @@ static bool tdma_pio_spi_ring_adapter_tx_forward(
     return true;
 }
 
+#include "tdma_pio_spi_ring_rx_prepare.inc"
+
 static bool tdma_pio_spi_ring_adapter_rx_once(
     tdma_pio_spi_ring_adapter_t *adapter)
 {
     uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
     size_t packet_size = 0u;
     uint64_t rx_timestamp_ns = 0ull;
+
+    tdma_rx_prepare_t *job = adapter->rx_preparation;
+    if (job != NULL && tdma_rx_prepare_state(job) != TDMA_RX_PREPARE_IDLE)
+        return tdma_pio_spi_ring_rx_accept(adapter, job);
 
     if (adapter->rx_queue_count != 0u) {
         if (!tdma_pio_spi_ring_adapter_queue_pop(adapter,
@@ -2200,7 +2271,7 @@ static bool tdma_pio_spi_ring_adapter_rx_once(
     }
     const uint64_t capture_start = tdma_service_timing_now();
     const bool captured = adapter->phys_rx(adapter->phys_context,
-                                           packet,
+                                           job != NULL ? job->packet : packet,
                                            sizeof(packet),
                                            &packet_size,
                                            &rx_timestamp_ns);
@@ -2211,6 +2282,11 @@ static bool tdma_pio_spi_ring_adapter_rx_once(
     tdma_origin_observation_t observation;
     const bool paired = adapter->origin.active != 0u &&
         adapter->phys_origin.take_rx_observation(adapter->phys_ctrl_context, &observation);
+    if (job != NULL) {
+        (void)tdma_pio_spi_ring_rx_request(adapter, job, packet_size, rx_timestamp_ns,
+            paired ? &observation : NULL);
+        return false; /* Admission is not an accepted receive. */
+    }
     return tdma_pio_spi_ring_adapter_process_rx(adapter,
                                                 packet,
                                                 packet_size,
@@ -2823,7 +2899,8 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
         return false;
     }
     if (rx_ok) {
-        adapter->last_rx_service_ns = now_ns;
+        /* process_rx owns the capture service time. A delayed worker result
+         * must not extend receive freshness to its later acceptance phase. */
     } else if (adapter->receive_health.configured != 0u) {
         tdma_receive_health_observe_missing(&adapter->receive_health, now_ns);
     }
