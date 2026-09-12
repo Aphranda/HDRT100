@@ -8,7 +8,9 @@
 #define TDMA_RING_PROFILE_VERSION 1u
 #define TDMA_FOUNDATION_PROFILE_VERSION 1u
 #define TDMA_FOUNDATION_PROFILE_TABLE_VERSION 1u
-#define TDMA_RING_NODE_MAX 8u
+#include "../../../config/project_node_capacity.h"
+
+#define TDMA_RING_NODE_MAX PROJECT_NODE_CAPACITY
 #define TDMA_PROFILE_DEFAULT_ACTIVE_NODE_COUNT 2u
 #define TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN 0x00000001u
 /* Debug bring-up: execute phase-budget violations and retain the warning in

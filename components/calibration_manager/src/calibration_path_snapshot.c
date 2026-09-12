@@ -80,8 +80,10 @@ uint32_t calibration_path_snapshot_crc32(
     hash = hash_u64(hash, snapshot->predicted_ring_round_trip_ns);
     hash = hash_u64(hash, snapshot->ring_round_trip_ns);
     hash = hash_u64(hash, snapshot->residual_ns);
-    for (uint32_t i = 0u; i < CALIBRATION_PATH_MAX_LINKS; i++) {
-        const calibration_path_link_evidence_t *link = &snapshot->links[i];
+    const calibration_path_link_evidence_t absent = {0};
+    for (uint32_t i = 0u; i < CALIBRATION_PATH_CRC_LINK_COUNT; i++) {
+        const calibration_path_link_evidence_t *link =
+            i < CALIBRATION_PATH_MAX_LINKS ? &snapshot->links[i] : &absent;
         hash = hash_u32(hash, link->source_node);
         hash = hash_u32(hash, link->destination_node);
         hash = hash_u32(hash, link->profile_crc32);

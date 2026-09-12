@@ -5,7 +5,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define BOARD_IDENTITY_MAX_NODES 8u
+#include "../../../config/project_node_capacity.h"
+
+#define BOARD_IDENTITY_MAX_NODES PROJECT_NODE_CAPACITY
 #define BOARD_IDENTITY_SERIAL_MAX 17u
 
 bool board_identity_init(void);

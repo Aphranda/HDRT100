@@ -126,7 +126,7 @@ bool tdma_ring_runtime_validate_config(
         return false;
     }
     if (config->node_count < 2u ||
-        config->node_count > TDMA_TRANSPORT_FRAME_MAX_SLOT_COUNT ||
+        config->node_count > TDMA_RING_NODE_MAX ||
         config->local_slot_id >= config->node_count ||
         config->reference_slot_id >= config->node_count ||
         (config->flags & TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN) == 0u ||
@@ -245,6 +245,7 @@ bool tdma_ring_runtime_validate_calibration_stage(
         return false;
     }
     if (expected_node_count < 2u ||
+        expected_node_count > TDMA_RING_NODE_MAX ||
         expected_node_count > TDMA_RING_CALIBRATION_LINK_MAX ||
         stage->node_count != expected_node_count ||
         (stage->evidence_flags & TDMA_RING_CALIBRATION_REQUIRED_FLAGS) !=

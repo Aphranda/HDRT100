@@ -537,6 +537,25 @@ int main(void)
     int failed = test_origin_adapter() + test_overlay_prepare_cases() +
         test_rx_prepare_cases() + test_rx_prepare_origin();
 
+    /* Direct adapter callers must obey the same capacity gate as the owner. */
+    {
+        tdma_pio_spi_ring_adapter_t adapter;
+        tdma_ring_runtime_config_t config = make_valid_config();
+        failed += expect_bool("capacity adapter init",
+                              tdma_pio_spi_ring_adapter_init(&adapter), true);
+        config.node_count = TDMA_RING_NODE_MAX + 1u;
+        failed += expect_bool("direct adapter rejects excessive nodes",
+            tdma_pio_spi_ring_adapter_ops()->start(&adapter, &config), false);
+        failed += expect_bool("rejected topology not configured",
+                              adapter.configured, false);
+        config = make_valid_config();
+        config.reference_slot_id = config.node_count;
+        failed += expect_bool("direct adapter rejects invalid reference",
+            tdma_pio_spi_ring_adapter_ops()->start(&adapter, &config), false);
+        failed += expect_bool("rejected reference not configured",
+                              adapter.configured, false);
+    }
+
     /* --- Adapter without physical TX: honest EVIDENCE_MISSING. --- */
     {
         tdma_ring_runtime_t runtime;

@@ -354,17 +354,18 @@ static int test_tdma_ring_profile_contract(void)
 
     (void)memset(&context, 0, sizeof(context));
     context.schedule = schedule;
-    failed += expect_bool("set eight-node topology",
+    failed += expect_bool("set maximum compiled topology",
                           vdc_domain_set_schedule_ring_topology(
-                              &context, 7u, 0u, 8u),
+                              &context, VDC_DOMAIN_NODE_COUNT - 1u, 0u,
+                              VDC_DOMAIN_NODE_COUNT),
                           true);
-    failed += expect_u32("eight-node local slot",
+    failed += expect_u32("maximum topology local slot",
                          context.schedule.local_slot_id,
-                         7u);
-    failed += expect_u32("eight-node upstream",
+                         VDC_DOMAIN_NODE_COUNT - 1u);
+    failed += expect_u32("maximum topology upstream",
                          context.schedule.ring_binding.upstream_slot_id,
-                         6u);
-    failed += expect_u32("eight-node downstream wraps",
+                         VDC_DOMAIN_NODE_COUNT - 2u);
+    failed += expect_u32("maximum topology downstream wraps",
                          context.schedule.ring_binding.downstream_slot_id,
                          0u);
     failed += expect_bool("nine-node topology rejected",
@@ -2952,7 +2953,7 @@ static int test_observation_path_matrix_is_explicit(void)
                           vdc_domain_publish_path_delay_table(&context,
                                                               &table), false);
     table.observation_matrix.valid_bitmap[0] &= ~(1u << 4u);
-    table.observation_matrix.valid_bitmap[0] &= ~(1u << 8u);
+    table.observation_matrix.valid_bitmap[0] &= ~(1u << VDC_DOMAIN_NODE_COUNT);
     table.table_crc32 = vdc_domain_path_delay_table_crc32(&table);
     failed += expect_bool("incomplete matrix rejected",
                           vdc_domain_publish_path_delay_table(&context,

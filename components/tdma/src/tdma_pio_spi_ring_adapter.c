@@ -691,7 +691,7 @@ static uint32_t tdma_pio_spi_ring_adapter_expected_owner_mask(
     const tdma_ring_runtime_config_t *config)
 {
     if (adapter == NULL || config == NULL || config->node_count < 2u ||
-        config->node_count > TDMA_TRANSPORT_FRAME_MAX_SLOT_COUNT ||
+        config->node_count > TDMA_RING_NODE_MAX ||
         config->local_slot_id >= config->node_count ||
         config->reference_slot_id >= config->node_count ||
         adapter->topology.valid == 0u ||
@@ -758,8 +758,9 @@ static bool tdma_pio_spi_ring_adapter_start(
         tdma_rx_prepare_state(adapter->rx_preparation) != TDMA_RX_PREPARE_IDLE ||
         config == NULL || config->enabled == 0u ||
         config->node_count < 2u ||
-        config->node_count > TDMA_TRANSPORT_FRAME_MAX_SLOT_COUNT ||
+        config->node_count > TDMA_RING_NODE_MAX ||
         config->local_slot_id >= config->node_count ||
+        config->reference_slot_id >= config->node_count ||
         config->up_group_id == 0u || config->down_group_id == 0u ||
         config->up_group_id == config->down_group_id ||
         config->ring_profile_crc32 == 0u ||

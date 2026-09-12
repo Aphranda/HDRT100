@@ -7,7 +7,9 @@
 
 #include "refmem_sync_frame.h"
 
-#define REFMEM_SYNC_NODE_COUNT 8u
+#include "../../../config/project_node_capacity.h"
+
+#define REFMEM_SYNC_NODE_COUNT PROJECT_NODE_CAPACITY
 
 typedef enum {
     REFMEM_SYNC_RX_ACCEPTED = 0u,

@@ -6,7 +6,9 @@
 
 #define CALIBRATION_TRAINING_PHASE_MIN_OFFSET_SAMPLES (-10)
 #define CALIBRATION_TRAINING_PHASE_MAX_OFFSET_SAMPLES 10
-#define CALIBRATION_TRAINING_PHASE_MAX_NODES 8u
+#include "../../../config/project_node_capacity.h"
+
+#define CALIBRATION_TRAINING_PHASE_MAX_NODES PROJECT_NODE_CAPACITY
 
 bool calibration_training_phase_delay_samples(
     uint32_t link_base_delay_ns,

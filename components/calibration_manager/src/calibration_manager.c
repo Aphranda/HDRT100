@@ -4032,7 +4032,7 @@ bool calibration_manager_start_clk_coded(
         .source_node = (uint8_t)request->local_node,
         .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
     };
-    if (request->local_node > 7u ||
+    if (request->local_node >= CALIBRATION_TRAINING_PHASE_MAX_NODES ||
         request->train_epoch > UINT8_MAX || request->codebook_id > UINT8_MAX ||
         request->sample_period_ns == 0u ||
         request->coarse_min_sample >= request->coarse_max_sample ||
@@ -4071,6 +4071,7 @@ bool calibration_manager_request_clk_coded(
         ring.enabled != 0u ||
         !tdma_runtime_owner_get_staged_ring_config(&staged) ||
         staged.node_count < 2u ||
+        staged.node_count > CALIBRATION_TRAINING_PHASE_MAX_NODES ||
         staged.local_slot_id >= staged.node_count ||
         staged.ring_profile_crc32 == 0u ||
         staged.operating_profile_crc32 == 0u ||

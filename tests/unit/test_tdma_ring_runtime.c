@@ -220,9 +220,9 @@ int main(void)
             eight_node.links[node].data_destination_node = node;
         }
         failed += expect_bool(
-            "eight Node measured topology accepted",
+            "eight Node measured topology follows compiled capacity",
             tdma_ring_runtime_validate_calibration_stage(
-                &eight_node, 8u, &calibration_reason), true);
+                &eight_node, 8u, &calibration_reason), TDMA_RING_NODE_MAX >= 8u);
     }
     calibration.links[0].data_offset_sample_count = 1;
     calibration.links[0].data_phase_delay_cycles = 11u;

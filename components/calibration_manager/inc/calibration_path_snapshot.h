@@ -6,7 +6,11 @@
 
 #include "calibration_bidirectional.h"
 
-#define CALIBRATION_PATH_MAX_LINKS 8u
+#include "../../../config/project_node_capacity.h"
+
+#define CALIBRATION_PATH_MAX_LINKS PROJECT_NODE_CAPACITY
+/* Canonical CRC includes the original zero-filled tail for host imports. */
+#define CALIBRATION_PATH_CRC_LINK_COUNT 8u
 
 typedef enum {
     CALIBRATION_PATH_REJECT_NONE = 0u,

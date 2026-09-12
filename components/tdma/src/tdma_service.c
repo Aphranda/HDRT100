@@ -652,6 +652,7 @@ static bool tdma_service_calibration_header_is_valid(
 {
     return service != NULL && header != NULL && header->enabled != 0u &&
            header->node_count >= 2u &&
+           header->node_count <= TDMA_RING_NODE_MAX &&
            header->node_count <= TDMA_RING_CALIBRATION_LINK_MAX &&
            header->node_count == service->ring_staged_config.node_count &&
            (header->evidence_flags &
