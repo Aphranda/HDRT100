@@ -4,6 +4,7 @@ import copy
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -1717,6 +1718,89 @@ def test_startup_barrier_resets_on_pipeline_reject_growth() -> None:
         previous, current, node_index=0, node_count=2,
         require_process_image=True)
     assert "rx_bitmap_incomplete_count_grew" in errors
+
+
+def _startup_sampler(monkeypatch, completions, *, first_rejected=False):
+    """Advance a fake clock inside real barrier sampling, as slow serial IO does."""
+    clock = [100.0]
+    calls = []
+    boards = [SimpleNamespace(address=str(i)) for i in range(2)]
+    before = {board.address: soak_snapshot(i, 0)
+              for i, board in enumerate(boards)}
+
+    def sleep(duration):
+        clock[0] += duration
+
+    def sample(ordered, args):
+        index = len(calls)
+        calls.append(clock[0] - 100.0)
+        clock[0] = 100.0 + completions[index]
+        snapshots = {}
+        for i, board in enumerate(ordered):
+            current = soak_snapshot(i, index + 1)
+            current['flight']['process']['receive_accepted_sequence'] += index + 1
+            if first_rejected:
+                current['flight']['process']['rx_bitmap_incomplete_count'] += 1
+            snapshots[board.address] = current
+        return snapshots, {}
+
+    monkeypatch.setattr(trn03.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(trn03.time, 'sleep', sleep)
+    monkeypatch.setattr(trn03, 'sample_all_with_evidence', sample)
+    args = SimpleNamespace(startup_timeout_s=6.0, startup_stable_samples=3,
+                           startup_poll_interval_s=0.1)
+    return boards, args, before, calls
+
+
+@pytest.mark.parametrize('continue_on_failure', [False, True])
+def test_startup_barrier_rejects_stable_sample_completed_after_deadline(
+        monkeypatch, continue_on_failure):
+    # Retained r5 had a rejected fill sample followed by three healthy samples;
+    # its last serial snapshot completed after the configured six seconds.
+    boards, args, before, calls = _startup_sampler(
+        monkeypatch, [2.063, 3.969, 5.891, 7.735], first_rejected=True)
+    if continue_on_failure:
+        _, evidence = trn03.wait_startup_barrier(
+            boards, args, startup_before=before, require_process_image=True,
+            continue_on_failure=True)
+    else:
+        with pytest.raises(RuntimeError, match='startup barrier timed out') as error:
+            trn03.wait_startup_barrier(
+                boards, args, startup_before=before, require_process_image=True)
+        evidence = json.loads(str(error.value).split(': ', 1)[1])
+    assert not evidence['passed']
+    assert len(calls) == 4
+    assert not evidence['samples'][0]['passed']
+    assert evidence['samples'][2]['stable_count'] == 2
+    late = evidence['samples'][-1]
+    assert late['elapsed_s'] == 7.735
+    assert late['health_passed']
+    assert not late['completed_within_deadline']
+    assert not late['passed']
+    assert late['deadline_error'] == 'startup_sample_completed_after_deadline'
+    assert evidence['stable_samples_observed'] < args.startup_stable_samples
+
+
+@pytest.mark.parametrize('last_completion', [0.9, 6.0])
+def test_startup_barrier_accepts_all_samples_completed_by_deadline(
+        monkeypatch, last_completion):
+    boards, args, before, calls = _startup_sampler(
+        monkeypatch, [0.3, 0.6, last_completion])
+    _, evidence = trn03.wait_startup_barrier(
+        boards, args, startup_before=before, require_process_image=True)
+    assert evidence['passed'] and len(calls) == 3
+    assert evidence['stable_samples_observed'] == 3
+    assert all(s['completed_within_deadline'] for s in evidence['samples'])
+
+
+def test_startup_barrier_does_not_start_read_after_poll_exhausts_deadline(monkeypatch):
+    boards, args, before, calls = _startup_sampler(monkeypatch, [])
+    args.startup_poll_interval_s = args.startup_timeout_s
+    _, evidence = trn03.wait_startup_barrier(
+        boards, args, startup_before=before, require_process_image=True,
+        continue_on_failure=True)
+    assert not evidence['passed']
+    assert calls == [] and evidence['samples'] == []
 
 
 def test_closed_loop_uses_explicit_startup_barrier_not_fixed_sleep() -> None:

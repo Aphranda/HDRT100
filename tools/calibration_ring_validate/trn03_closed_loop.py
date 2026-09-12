@@ -977,13 +977,22 @@ def wait_startup_barrier(
     previous = startup_before
     stable_count = 0
     started = time.monotonic()
+    deadline = started + timeout_s
     samples: list[dict[str, Any]] = []
     while True:
-        remaining = started + timeout_s - time.monotonic()
+        remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
         time.sleep(min(poll_interval_s, remaining))
+        sample_started = time.monotonic()
+        if sample_started >= deadline:
+            break
         current, transport_errors = sample_all_with_evidence(ordered, args)
+        # Serial collection is bounded separately and can finish after the
+        # startup deadline. Keep its evidence, but never promote a late healthy
+        # observation to a stable interval inside the requested startup window.
+        sample_completed = time.monotonic()
+        completed_within_deadline = sample_completed <= deadline
         node_errors: dict[str, list[str]] = {}
         for node_index, address in enumerate(board_ids):
             if address in transport_errors:
@@ -999,11 +1008,16 @@ def wait_startup_barrier(
                 require_process_image=require_process_image)
             if errors:
                 node_errors[address] = errors
-        interval_passed = not node_errors
+        interval_passed = not node_errors and completed_within_deadline
         stable_count = stable_count + 1 if interval_passed else 0
         samples.append({
             "sample_index": len(samples),
-            "elapsed_s": round(time.monotonic() - started, 6),
+            "sample_started_elapsed_s": round(sample_started - started, 6),
+            "elapsed_s": round(sample_completed - started, 6),
+            "completed_within_deadline": completed_within_deadline,
+            "deadline_error": (None if completed_within_deadline else
+                               "startup_sample_completed_after_deadline"),
+            "health_passed": not node_errors,
             "passed": interval_passed,
             "stable_count": stable_count,
             "errors": node_errors,
@@ -1014,9 +1028,12 @@ def wait_startup_barrier(
                 passed=interval_passed, stable_count=stable_count,
                 required_stable_count=stable_required,
                 observed_board_count=len(current), errors=node_errors,
+                completed_within_deadline=completed_within_deadline,
                 transport_errors=transport_errors)
         if not transport_errors and set(current) == set(board_ids):
             previous = current
+        if not completed_within_deadline:
+            break
         if stable_count >= stable_required:
             startup_deltas: dict[str, Any] = {}
             for address in board_ids:
