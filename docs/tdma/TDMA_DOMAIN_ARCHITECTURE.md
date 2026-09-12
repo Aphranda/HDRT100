@@ -337,8 +337,13 @@ STOP/config 失效应先撤销旧 epoch 的发布资格；后台任务尚持有�
 
 固定 mailbox 的模型编码、完整性检查和 overlay 构建通过现有 Core0 数据任务执行。
 `tdma_overlay_prepare_t` 保存
-输入副本与固定本地授权，输出借用既有闲置计划池；Core1 经 READY/epoch/alignment
-核验后绑定描述符并发布，当前 RX 副本是否成功不再控制该更新的推进。STOP 先停硬件，
+输入副本与固定本地授权，输出借用既有闲置计划池。物理 owner 在 ARM 初始 PASS 计划
+绑定时冻结 `tdma_flight_overlay_binding_t`，其控制字与地址来自已准入的物理资源。
+Core0 使用 `tdma_flight_overlay_bind_plan()` 校验原始计划并完成选择证据、数据及重启
+描述符，只写租用的计划 SRAM，不解引用硬件地址或发布 DMA 指针。READY 表示描述符
+也已准备完成，generation 留待 Core1 接受时赋值；Core1 经 epoch/map/alignment、
+inactive pool 与资源生命周期复验后发布后继指针，不再逐项转换描述符。
+当前 RX 副本是否成功不再控制该更新的推进。STOP 先停硬件，
 仍有后台写者时保留 pending，收到取消 ACK 后才能完成退休与重新 ARM。
 固定本地授权由 `tdma_flight_engine_activate()` 在 map writer guard 内预计算，
 与 local slot 一起在 active 发布前确定；active 期间禁止替换 map。运行中的

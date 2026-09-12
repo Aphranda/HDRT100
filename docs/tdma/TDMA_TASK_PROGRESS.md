@@ -8,7 +8,12 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的私有 RX 头部检查与 DMA 保留期限切片见
+当前 `TDMA-FLIGHT-002F` 的 overlay DMA 描述符异步绑定切片见
+`TDMA-PROGRESS-20260913-039`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-overlay-dma-bind/`。Core0 使用 ARM 时冻结的
+资源模板准备完整描述符，Core1 保留生命周期复验、generation 和后继指针发布；
+完整 WCET、严格启动、正式 RAM 与逐圈保全继续独立验收。
+前序私有 RX 头部检查与 DMA 保留期限切片见
 `TDMA-PROGRESS-20260913-038`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-rx-private-header/`。已完成候选复制和覆盖
 复验后，再检查同一私有帧的固定头；从站头检查下降，完整 WCET、严格启动及逐圈
@@ -153,6 +158,71 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-039 - overlay DMA 描述符异步绑定
+
+- 日期：2026-09-13；TODO task ID：`TDMA-FLIGHT-002F`。以下数字为实验快照，非事实源；
+  证据根为 `out/HardwareAcceptance/20260913/tdma-flight-overlay-dma-bind/`。基线提交
+  `aeaf416339972bcb2a37dcba210e338bc8749f29`，registry/C11 状态不变。
+- 物理 owner 在 ARM 初始 PASS 绑定时，将已准入资源的控制字和地址冻结到
+  `tdma_flight_overlay_binding_t`。Core0 在既有不可变输入与 inactive pool 租约内，
+  用 `tdma_flight_overlay_bind_plan()` 校验并转换全部 DMA 描述符；仅写计划 SRAM，
+  不访问外设。READY 后 Core1 继续核对 epoch/map/alignment、大小、local slot、
+  terminal PC 与空闲池，赋予非零 generation 并发布后继指针，不再逐项转换描述符。
+- 选择证据 → 数据 → loader 重启的顺序保持。新版本未就绪时旧计划继续；grant 仍先
+  收割 pending selection，成功接受才更新 engine 事实。STOP 取消与后台 ACK 仍先于
+  计划池/资源退休；同步后端复用同一 binder，存在后台写者时拒绝同步绑定。
+  DMA selected generation 只证明计划内存可退休，不能解释为 SENT 或线路完成。
+- 相关 Python 集成 120 项、真实物理 DMA/RX 回归 32 项和真实 adapter C 测试通过。
+  已绑定描述符的数据流与原计划逐字相同，并通过移位/重定位 PIO 模型；无效 token、
+  offset/count、端点、generation、terminal PC 及重复绑定拒绝不修改计划。DMA 总线
+  模型覆盖 CPU 缺席、描述符空隙、池退休、generation 回绕、迟到写与 STOP；adapter
+  覆盖暂停 Core0、源槽复用、旧 map/epoch 与取消。host 模型不替代硅上时序。
+- 扩大检查暴露旧 RX 对齐夹具未同步 persona 字/字节接口，已修复测试模型，生产 RX
+  未改；首次失败保留在 `dma-tests-r1`，复验见 `dma-tests-r2`。构建审计首次寻找已内联
+  的 worker 符号失败，改为记录真实链接的 build/service 符号，固件未改；两次命令保留。
+- Release A/B/Boot 为 `20260912205804`，源码指纹
+  `1a802cf4eb4c734aaf6fc1ecc5f572cb1525844b3fee0c574f5940a35555660f`，源码文件 1022。
+  六节点容量与生成 PIO 相同；模板新增 36 B 静态占用，A/B link free 各 4848 B，
+  正式 RAM 仍 FAIL。源码/实链分支与边界见 `source-checkpoint-r1.json`、
+  `source-review-r1.json`、`binding-boundary-review.json`。
+- 当前源码四板 OTA/P3 完成，OTA 约 90.844 s，凭证 `passed=true`、
+  `strict_gates_passed=false`。粗 CLK 拓扑读回不一致、严格启动屏障超时保留。
+  STOP 应答成功，但 NO1 从 P3 最后快照至停止读回之间，TX timeout、origin DATA
+  timeout/recovery 各增加 4，last_error 为 `TX_BUSY`；不能定位事件发生在运行或
+  停止的具体边界，也不能归因于本次修改。一次有界复位仅恢复对照条件，不代表修复。
+- 对照使用相同 RX14 旧诊断行、TX 相位、250 MHz 和负载 mask；逐样本核对配置，
+  不作本轮校准接受。普通首末跨度 25.194 s（7 样本），自主 86.501 s（19 样本）；
+  有效收帧为 6087/5987/6124/6089 和 41316/33904/32721/30491。两个窗口的
+  transport bad 与已检查物理故障增量均为零，不能外推到 P3/停止期间或逐圈无损。
+- 三从站普通窗口 overlay prepare 增量 5995/6113/6068，selected generation 增量
+  同值；自主 prepare 增量 24370/24865/26078，selected 增量 24369/24864/26079。
+  说明新后台绑定计划实际反复发布和选择，首末 pending 状态可使两类增量相差一；
+  这些计数仍不能证明同圈多 owner 交换、逐帧 completion 或特等时间戳保全。
+- 下表为自主窗口完整 profile 峰值及**同条峰值记录**中的 overlay 子项，单位 µs。
+  不同分支、XIP/IRQ 和窗口变化仍存在，不能把完整降幅全部归因于描述符绑定迁移。
+
+| 节点 | 前版完整峰值 | 本版完整峰值 | 前版 overlay | 本版 overlay |
+|---|---:|---:|---:|---:|
+| NO1 | 891.128 | 864.488 | 0 | 0 |
+| NO2 | 945.096 | 839.368 | 181.836 | 114.064 |
+| NO3 | 944.956 | 871.176 | 173.876 | 123.172 |
+| NO4 | 942.132 | 872.328 | 173.596 | 99.896 |
+
+- 普通完整峰值 1258.304/854.748/893.900/853.992 µs，尚未一致改善；自主完整
+  SCHEDULE 超限增量 52317/57602/58011/55417。完整 380 µs 门禁仍失败，不能仅以
+  自主完整峰值下降或局部 overlay 下降宣布 WCET 通过。profile 不含 recorder 发布，
+  SCHEDULE 独立复核；嵌套阶段不可累加，稀疏 last 与完整峰值中的子项不可混用。
+- 普通 RX ring overrun/observation drop 无增长；自主 NO2/NO3/NO4 分别增加
+  15492/17402/21257 和 33890/32678/30452，NO1 两项为零。解析副本丢失不是
+  wire 坏帧数，transport good 不能证明时间戳无损。见 `timing-comparison-r1.json`、
+  `observation-scope-r1.json`、`retained-failures.json`。
+- 临时许可证 9130390（grant epoch 14）已按原始应答和 inactive 读回撤销；本轮 P3
+  派生矩阵已实际恢复，恢复诊断 soak 通过，四板 armed/enabled/adapter_started 为零。
+  严格启动仍失败；当前切片 PARTIAL，长期目标 active。下一切片继续削减 RX handoff
+  和 owner 提交成本，先取得不可变输入并保持帧/latch/generation 绑定，不能把 live ring
+  copy 直接跨拍。380 µs、六节点、正式 RAM、blackout、同圈交换与特等席保全门禁保持；
+  主控复核、分离提交与封存见 `review-r1.json`、`commit-proof.json`。
 
 ### TDMA-PROGRESS-20260913-038 - 私有 RX 头检查与 DMA 保留期限核验
 

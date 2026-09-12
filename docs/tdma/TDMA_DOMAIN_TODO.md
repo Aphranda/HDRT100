@@ -167,7 +167,14 @@ map 拒绝、STOP 应答超时均见该进度；不能将复位恢复写作生�
 `TDMA-PROGRESS-20260913-038`。从站头检查子项明显下降，无新增静态 RAM；完整
 phase 仍超限，严格启动和逐圈保全仍未通过。本轮粗校准拓扑读回不一致及 NO1
 在 P3 最后快照至停止读回之间的超时/恢复计数保留，不以复位后的干净窗口覆盖。
-下一性能切片继续拆分 owner/runtime/adapter RX handoff 的交接与事实提交，保持
+overlay 的 DMA 描述符转换已移入现有 Core0 准备工位，见
+`TDMA-PROGRESS-20260913-039`。Core1 在 ARM 冻结已准入资源的控制字与地址，Core0
+只绑定租用计划 SRAM；READY 后 Core1 复验并赋予 generation、发布指针。新版本迟到
+时旧计划继续，pending selection 和 STOP 取消/资源退休顺序保持。新增静态模板的
+RAM 代价、完整 phase 与 overlay 子项分别核算，不能用源码循环减少代替实板 WCET。
+本轮自主从站的完整峰值和同记录 overlay 子项下降，普通窗口尚未一致改善；当前
+完整预算、严格启动与正式 RAM 继续开放，观察副本仍有丢失。下一性能切片继续拆分
+owner/runtime/adapter RX handoff 的交接与事实提交，保持
 完整 generation、不可变输入、取消与池所有权。live ring 复制不能直接跨拍，须先
 证明覆盖期限或取得私有输入；已捕获的帧与 latch 绑定后才可分步推进后续工作。
 不得把局部修正当作完整 WCET 收敛，
