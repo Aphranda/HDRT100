@@ -1606,16 +1606,34 @@ bool tdma_service_configure_flight_map(
     tdma_service_service_t *service,
     const tdma_process_image_map_t *map)
 {
+    return tdma_service_configure_flight_map_checked(service, map) ==
+           TDMA_SERVICE_FLIGHT_MAP_OK;
+}
+
+tdma_service_flight_map_result_t tdma_service_configure_flight_map_checked(
+    tdma_service_service_t *service, const tdma_process_image_map_t *map)
+{
     if (service == NULL || map == NULL) {
-        return false;
+        return TDMA_SERVICE_FLIGHT_MAP_INVALID;
     }
     tdma_ring_runtime_snapshot_t ring_snapshot;
     if (!tdma_ring_runtime_get_snapshot(&service->ring_runtime,
-                                        &ring_snapshot) ||
-        ring_snapshot.enabled != 0u || ring_snapshot.adapter_started != 0u) {
-        return false;
+                                        &ring_snapshot)) {
+        return TDMA_SERVICE_FLIGHT_MAP_SNAPSHOT_UNAVAILABLE;
     }
-    return tdma_flight_engine_configure(&service->flight_engine, map);
+    if (ring_snapshot.enabled != 0u || ring_snapshot.adapter_started != 0u) {
+        return TDMA_SERVICE_FLIGHT_MAP_RUNTIME_ACTIVE;
+    }
+    switch (tdma_flight_engine_configure_checked(&service->flight_engine, map)) {
+    case TDMA_FLIGHT_MAP_CONFIG_OK:
+        return TDMA_SERVICE_FLIGHT_MAP_OK;
+    case TDMA_FLIGHT_MAP_CONFIG_BUSY:
+        return TDMA_SERVICE_FLIGHT_MAP_BUSY;
+    case TDMA_FLIGHT_MAP_CONFIG_ACTIVE:
+        return TDMA_SERVICE_FLIGHT_MAP_ENGINE_ACTIVE;
+    default:
+        return TDMA_SERVICE_FLIGHT_MAP_INVALID;
+    }
 }
 
 bool tdma_service_get_flight_engine_snapshot(

@@ -44,6 +44,14 @@ typedef enum {
     TDMA_FLIGHT_ENGINE_MAP_UNAVAILABLE = 4u,
 } tdma_flight_engine_result_t;
 
+/* Configuration diagnostics preserve the exact rejection point. */
+typedef enum {
+    TDMA_FLIGHT_MAP_CONFIG_OK = 0u,
+    TDMA_FLIGHT_MAP_CONFIG_INVALID = 1u,
+    TDMA_FLIGHT_MAP_CONFIG_BUSY = 2u,
+    TDMA_FLIGHT_MAP_CONFIG_ACTIVE = 3u,
+} tdma_flight_map_config_result_t;
+
 typedef struct {
     uint32_t input_segment_mask;
     uint32_t output_segment_mask;
@@ -129,6 +137,8 @@ bool tdma_flight_engine_accept_tx(tdma_flight_engine_t *engine,
 bool tdma_flight_engine_init(tdma_flight_engine_t *engine);
 bool tdma_flight_engine_configure(tdma_flight_engine_t *engine,
                                   const tdma_process_image_map_t *map);
+tdma_flight_map_config_result_t tdma_flight_engine_configure_checked(
+    tdma_flight_engine_t *engine, const tdma_process_image_map_t *map);
 bool tdma_flight_engine_activate(tdma_flight_engine_t *engine,
                                  uint32_t local_slot_id);
 void tdma_flight_engine_deactivate(tdma_flight_engine_t *engine);

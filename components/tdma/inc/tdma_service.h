@@ -515,6 +515,16 @@ bool tdma_service_get_flight_fifo_snapshot(
     const tdma_service_service_t *service,
     tdma_flight_fifo_snapshot_t *snapshot);
 bool tdma_service_reset_flight_fifo(tdma_service_service_t *service);
+typedef enum {
+    TDMA_SERVICE_FLIGHT_MAP_OK = 0u,
+    TDMA_SERVICE_FLIGHT_MAP_INVALID = 1u,
+    TDMA_SERVICE_FLIGHT_MAP_SNAPSHOT_UNAVAILABLE = 2u,
+    TDMA_SERVICE_FLIGHT_MAP_RUNTIME_ACTIVE = 3u,
+    TDMA_SERVICE_FLIGHT_MAP_BUSY = 4u,
+    TDMA_SERVICE_FLIGHT_MAP_ENGINE_ACTIVE = 5u,
+} tdma_service_flight_map_result_t;
+tdma_service_flight_map_result_t tdma_service_configure_flight_map_checked(
+    tdma_service_service_t *service, const tdma_process_image_map_t *map);
 bool tdma_service_configure_flight_map(
     tdma_service_service_t *service,
     const tdma_process_image_map_t *map);

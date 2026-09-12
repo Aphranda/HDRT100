@@ -230,6 +230,57 @@ int main(int argc, char **argv)
         tick(1500u); pending();
         assert(ring_stops == 1u && service.ring_runtime.adapter_started == 0u);
         service.intent_guard++;
+    } else if (strcmp(test, "map_admission") == 0) {
+        assert(tdma_service_init(&service));
+        tdma_process_image_map_t map = {
+            .version = TDMA_PROCESS_IMAGE_MAP_VERSION,
+            .payload_size = TDMA_FLIGHT_SHORT_PAYLOAD_SIZE, .segment_count = 1u};
+        map.segment[0] = (tdma_process_image_segment_t){
+            .used = 1u, .byte_length = TDMA_FLIGHT_SHORT_SLOT_SIZE,
+            .payload_class = TDMA_PAYLOAD_CLASS_VDC_SYNC_SAMPLE,
+            .flags = TDMA_PROCESS_SEGMENT_FLAG_FLIGHT_WRITE};
+        map.map_crc32 = tdma_process_image_map_crc32(&map);
+        assert(tdma_process_image_map_validate(&map, NULL));
+        tdma_flight_engine_t *engine = &service.flight_engine;
+        assert(tdma_service_configure_flight_map_checked(NULL, &map) == TDMA_SERVICE_FLIGHT_MAP_INVALID);
+        assert(tdma_service_configure_flight_map_checked(&service, NULL) == TDMA_SERVICE_FLIGHT_MAP_INVALID);
+        for (unsigned guard = 0u; guard < 2u; ++guard) {
+            volatile uint32_t *writer = guard ? &service.ring_runtime.result_guard : &service.ring_runtime.config_guard;
+            ++*writer;
+            assert(tdma_service_configure_flight_map_checked(&service, &map) == TDMA_SERVICE_FLIGHT_MAP_SNAPSHOT_UNAVAILABLE);
+            assert(!tdma_service_configure_flight_map(&service, &map));
+            assert(engine->map_generation == 0u && engine->map_reject_count == 0u);
+            ++*writer;
+        }
+        service.ring_runtime.enabled = 1u;
+        assert(tdma_service_configure_flight_map_checked(&service, &map) == TDMA_SERVICE_FLIGHT_MAP_RUNTIME_ACTIVE);
+        service.ring_runtime.enabled = 0u;
+        service.ring_runtime.adapter_started = 1u;
+        assert(tdma_service_configure_flight_map_checked(&service, &map) == TDMA_SERVICE_FLIGHT_MAP_RUNTIME_ACTIVE);
+        service.ring_runtime.adapter_started = 0u;
+        assert(tdma_service_configure_flight_map_checked(&service, &map) == TDMA_SERVICE_FLIGHT_MAP_OK);
+        assert(engine->map_generation == 1u && engine->configured == 1u);
+        const tdma_process_image_map_t published = engine->map;
+        engine->map_sequence++;
+        const uint32_t held_guard = engine->map_sequence;
+        assert(tdma_service_configure_flight_map_checked(&service, &map) == TDMA_SERVICE_FLIGHT_MAP_BUSY);
+        assert(engine->map_sequence == held_guard && engine->map_generation == 1u);
+        assert(memcmp(&engine->map, &published, sizeof(published)) == 0);
+        engine->map_sequence++;
+        assert(tdma_flight_engine_activate(engine, 0u));
+        assert(tdma_service_configure_flight_map_checked(&service, &map) == TDMA_SERVICE_FLIGHT_MAP_ENGINE_ACTIVE);
+        assert(tdma_flight_engine_is_active(engine) && engine->map_generation == 1u);
+        assert(memcmp(&engine->map, &published, sizeof(published)) == 0);
+        tdma_flight_engine_deactivate(engine);
+        map.map_crc32 ^= 1u;
+        assert(tdma_service_configure_flight_map_checked(&service, &map) == TDMA_SERVICE_FLIGHT_MAP_INVALID);
+        assert(engine->map_generation == 1u && engine->map_reject_count == 3u);
+        assert(memcmp(&engine->map, &published, sizeof(published)) == 0);
+        map = published;
+        assert(tdma_service_configure_flight_map(&service, &map));
+        assert(engine->map_generation == 2u && (engine->map_sequence & 1u) == 0u);
+        assert(tdma_flight_engine_configure_checked(NULL, &map) == TDMA_FLIGHT_MAP_CONFIG_INVALID);
+        assert(!tdma_flight_engine_configure(NULL, &map));
     } else {
         assert(!"unknown test");
     }

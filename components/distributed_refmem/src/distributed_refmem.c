@@ -3749,10 +3749,29 @@ bool distributed_refmem_tdma_ring_arm(void)
     }
     const tdma_process_image_map_t map =
         distributed_refmem_default_flight_map();
-    if (!tdma_service_configure_flight_map(owner, &map)) {
+    const tdma_service_flight_map_result_t map_result =
+        tdma_service_configure_flight_map_checked(owner, &map);
+    if (map_result != TDMA_SERVICE_FLIGHT_MAP_OK) {
+        distributed_refmem_tdma_arm_result_t result =
+            DISTRIBUTED_REFMEM_TDMA_ARM_FLIGHT_MAP_REJECTED;
+        switch (map_result) {
+        case TDMA_SERVICE_FLIGHT_MAP_SNAPSHOT_UNAVAILABLE:
+            result = DISTRIBUTED_REFMEM_TDMA_ARM_SNAPSHOT_UNAVAILABLE;
+            break;
+        case TDMA_SERVICE_FLIGHT_MAP_RUNTIME_ACTIVE:
+            result = DISTRIBUTED_REFMEM_TDMA_ARM_RUNTIME_ACTIVE;
+            break;
+        case TDMA_SERVICE_FLIGHT_MAP_BUSY:
+            result = DISTRIBUTED_REFMEM_TDMA_ARM_FLIGHT_MAP_BUSY;
+            break;
+        case TDMA_SERVICE_FLIGHT_MAP_ENGINE_ACTIVE:
+            result = DISTRIBUTED_REFMEM_TDMA_ARM_FLIGHT_ENGINE_ACTIVE;
+            break;
+        default:
+            break;
+        }
         __atomic_store_n(&s_tdma_ring_arm_last_result,
-                         DISTRIBUTED_REFMEM_TDMA_ARM_FLIGHT_MAP_REJECTED,
-                         __ATOMIC_RELEASE);
+                         result, __ATOMIC_RELEASE);
         return false;
     }
     if (owner->ring_staged_config.enabled == 0u) {

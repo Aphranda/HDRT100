@@ -271,6 +271,13 @@ static uint32_t tdma_flight_engine_fixed_tx_mask(
 bool tdma_flight_engine_configure(tdma_flight_engine_t *engine,
                                   const tdma_process_image_map_t *map)
 {
+    return tdma_flight_engine_configure_checked(engine, map) ==
+           TDMA_FLIGHT_MAP_CONFIG_OK;
+}
+
+tdma_flight_map_config_result_t tdma_flight_engine_configure_checked(
+    tdma_flight_engine_t *engine, const tdma_process_image_map_t *map)
+{
     tdma_process_image_map_result_t map_result =
         TDMA_PROCESS_IMAGE_MAP_BAD_ARGUMENT;
     if (engine == NULL || map == NULL ||
@@ -278,17 +285,17 @@ bool tdma_flight_engine_configure(tdma_flight_engine_t *engine,
         if (engine != NULL) {
             tdma_flight_engine_counter_inc(&engine->map_reject_count);
         }
-        return false;
+        return TDMA_FLIGHT_MAP_CONFIG_INVALID;
     }
     uint32_t sequence = 0u;
     if (!tdma_flight_engine_lock_map(engine, &sequence)) {
         tdma_flight_engine_counter_inc(&engine->map_reject_count);
-        return false;
+        return TDMA_FLIGHT_MAP_CONFIG_BUSY;
     }
     if (tdma_flight_engine_is_active(engine)) {
         tdma_flight_engine_unlock_map(engine, sequence);
         tdma_flight_engine_counter_inc(&engine->map_reject_count);
-        return false;
+        return TDMA_FLIGHT_MAP_CONFIG_ACTIVE;
     }
     engine->map = *map;
     engine->tx_output_segment_mask = 0u;
@@ -299,7 +306,7 @@ bool tdma_flight_engine_configure(tdma_flight_engine_t *engine,
     (void)__atomic_add_fetch(&engine->map_generation, 1u, __ATOMIC_RELAXED);
     __atomic_store_n(&engine->configured, 1u, __ATOMIC_RELEASE);
     tdma_flight_engine_unlock_map(engine, sequence);
-    return true;
+    return TDMA_FLIGHT_MAP_CONFIG_OK;
 }
 
 bool tdma_flight_engine_activate(tdma_flight_engine_t *engine,
