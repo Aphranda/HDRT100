@@ -10,6 +10,22 @@ Last updated: 2026-09-13
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20260913-026 - 当前测量基线上的独立 RX 诊断窗口
+
+- 对应 TODO：`TRN-ORIGIN-RX-01`、`TDMA-FLIGHT-002F`，保持 IN PROGRESS。
+  证据根为 `out/HardwareAcceptance/20260913/tdma-flight-origin-rx-window/`，完整
+  实验记录见 `TDMA-PROGRESS-20260913-032`。
+- 保持上一切片固件；当前 P3 测量提供 link base、拓扑、profile 与 generation。
+  独立 RX 搜索和 NO2 DATA 压力点是显式未接受的诊断扩展，矩阵结构与所选行通过
+  host 编码/re-arm 校验不等于有效窗口测量通过。只在停止态 staging 后由 TDMA owner
+  应用，各试验核对实际 TX/RX phase 并保留严格启动失败。
+- 观察相邻 RX 选行和回切压力控制，目标是选取后续验证的内部采样点；不冻结
+  采样常数、模拟 setup/hold 余量或 active calibration。ARM 拒绝、停止态现场、
+  有界重试和当前矩阵实际恢复分别留证，不能用重试成功提升原始失败。
+- 本轮普通模式已取得多个零错误选行及晚相位回切错误，RX12 保留为后续内部
+  候选。最终当前矩阵已核对 staging、实际运行参数和 STOP；严格启动失败、
+  最坏接收余量、同帧绑定及自主/逐圈证据仍开放。
+
 ## CAL-TASK-20260913-025 - origin 独立 RX 采样参数与存储兼容验证
 
 - 对应 TODO：`TRN-ORIGIN-RX-01`、`TDMA-FLIGHT-002F`。本项仍 IN PROGRESS；证据根为

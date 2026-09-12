@@ -8,7 +8,12 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的独立 origin RX 采样参数切片见
+当前 `TDMA-FLIGHT-002F` 的独立 RX 窗口扫描与后续复制成本核验见
+`TDMA-PROGRESS-20260913-032`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-origin-rx-window/`。本轮保持已提交固件，
+在当前 P3 测量基线上显式扩展诊断维度；接收有效窗口、保守余量与完整 WCET 仍待
+验收，不据相邻零错误点冻结采样常数或调整门限。
+前序独立 origin RX 采样参数切片见
 `TDMA-PROGRESS-20260913-031`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-origin-rx-phase/`。参数经 Calibration
 staging 和 TDMA owner 配置；发送时序不随 RX 选相改变。普通模式对照支持接收采样
@@ -122,6 +127,61 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-032 - 当前测量基线上的独立 RX 窗口扫描
+
+- 日期：2026-09-13；TODO task ID：`TDMA-FLIGHT-002F`、`TRN-ORIGIN-RX-01`。
+  以下数值为实验快照，非事实源。证据根为
+  `out/HardwareAcceptance/20260913/tdma-flight-origin-rx-window/`。
+- 基线提交 `de69869873f5a1a95a5ac94b7c25bb871933b573`，build 保持
+  `20260912164001`、源码指纹
+  `a34652c8546de0f77a1f0dd409953ad7e0209c2be6a37a8b74fd08dd36c894d6`。
+  先复核上一切片 manifest 的 349 份原件、构建产物与 helper，再读取四板实际
+  build、运行/物理状态并确认 STOP。本轮为有界硬件诊断、离线审阅及文档更新，
+  未修改固件、PIO 或正式工具，未重新构建或以新 P3 凭证替代既有失败。
+- `matrix-window-diagnostic-r1.json` 的链路 base 来自上一轮当前 P3 测量，
+  generation 保持 1789231681；独立 RX 与 NO2 DATA 压力点显式标记为未接受的
+  诊断扩展。完整矩阵共 192 行；选行通过现有 base/offset、编码范围和 re-arm
+  检查，但这不是接收有效窗口的测量通过。全部压力组 TX phase 保持一致，
+  仅 origin RX 分别取 15 / 14 / 13 / 12 / 10 / 8，并以 RX15 回切作控制。
+- 初始基线观察 40.719 s，NO1 good 9928 / transport bad 0。首个压力组在 NO2
+  ARM result 8 拒绝，原始错误和停止态快照保留；只有 physical 未 armed、无物理
+  error、runtime 未启动且 map configured/inactive 的证据齐全时才允许一次
+  STOP 后重试。重试不提升先前失败或替代正式恢复闭环。
+- 固定 TX 的压力组结果如下；每行是独立有限窗口，不能相加为连续长稳记录。
+
+  | origin RX phase | 观察时间 / s | NO1 good frame | NO1 transport bad |
+  |---|---:|---:|---:|
+  | 15，初次控制 | 41.687 | 9959 | 33 |
+  | 14 | 40.000 | 9723 | 0 |
+  | 13 | 40.188 | 9828 | 0 |
+  | 12 | 40.453 | 9860 | 0 |
+  | 10 | 40.515 | 9815 | 0 |
+  | 8 | 40.031 | 9735 | 0 |
+  | 15，最终回切 | 40.609 | 9666 | 66 |
+
+  其余从站的 transport CRC 无增长，四板物理 fault 和 counter regression 均无
+  增长。最终 RX15 回切的 NO1 出现一次接收健康 DOWN 判定及一次恢复：16.812 s
+  样本的 receive state 为 2、failure streak 为 1，18.687 s 回到 state 1、streak 0；
+  两次 runtime 的 enabled/adapter_started 均为真，不能据健康判定声称物理线路
+  停止。其余窗口没有 down event。首次主控复核因此拒绝“全程无 down event”
+  摘要，原失败和脚本保留，修正复核见 `review-r2.json`。
+  已测的相邻点与回切反例支持将 RX12 作为后续内部候选，
+  不插值未测选行，也不把离散相位差解释为已保证的模拟余量。
+- `window-analysis-r1.json` 重新核对各原始 summary 的 build、实际 TX/RX phase、
+  全部选行、失败重试与最后恢复。恢复使用当前原矩阵，8.391 s 内 NO1 good
+  2106 / bad 0，四板实际 RX/TX 回到原共用基线并最终 STOP。所有严格 startup
+  barrier 超时原样保留，诊断 soak 通过不提升 `passed/closed_loop_passed`。
+- 后续成本候选的源码与镜像核验见 `copy-path-inspection-r1.json`。当前 A/B
+  镜像都已有内联 RBIT，但 RX 复制循环仍逐字读取 persona 并分支，带 bit-shift
+  的路径在分支前后重复计算部分字节结果。可验证的下一候选是在既有 Core1 owner
+  边界内读取稳定 persona、选择专用归一化循环；必须保留 DMA volatile 读取、
+  ring wrap、位对齐、epoch/覆盖复验和 STOP/配置边界。未改变实现，静态指令
+  检查不提供性能收益承诺。overlay 的无新版本早退仍位于 grant/layout 之后，
+  其调整另需核对 FIFO 消费顺序和 pending 硬件确认，不能直接跳过有副作用的步骤。
+- 本轮保持 PARTIAL，`002F` 与长期目标继续 IN PROGRESS/active。正式 RAM、
+  完整 WCET、同一拒收帧绑定、无 service 自主循环、多 owner 同圈更新和特等席
+  逐圈保全仍开放；保持当前门限、节点容量后续项顺序和 registry/C11 状态。
 
 ### TDMA-PROGRESS-20260913-031 - Calibration 所有的独立 origin RX 相位与实板对照
 

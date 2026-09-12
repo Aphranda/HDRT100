@@ -1022,10 +1022,13 @@ phase count、stage count、记录类型、sequence、start ticks、total ticks�
 `TDMA-PROGRESS-20260912-028`。
 
 物理相位归因以各板 `flight_marker_phase_delay_cycles`、
-`flight_sck_phase_delay_cycles`、`flight_data_phase_delay_cycles` 的实际读回为准；
+`flight_sck_phase_delay_cycles`、`flight_data_phase_delay_cycles` 与
+`flight_origin_capture_phase_delay_cycles` 的实际读回为准；
 矩阵 link 顺序不能直接充当板卡应用参数。现有 follower DATA 参数同时影响采样与
-输出重定时；origin 的同名参数同时进入 DATA TX 与返回 DATA capture 初始化，故
-相位组合对照不能直接解释为仅改变接收采样。PIO re-arm 准入只约束指令能否赶上
+输出重定时；origin 在独立 capture 参数省略时保留 DATA TX/RX 共用行为，显式参数
+通过 Calibration staging 与 TDMA owner 分别配置。比较旧共用参数的相位组合时，
+不能直接解释为仅改变接收采样；独立 RX 对照仍须证明全部 TX 读回保持一致。
+PIO re-arm 准入只约束指令能否赶上
 后续边沿，不能单独证明返回 DATA 的有效采样窗口和稳定余量。有限诊断零错误窗口
 也不能替代 Calibration 事实、新配置准入、完整性和长稳验收。
 runtime 与 CRC diagnostic 是不同查询快照，关联坏帧须核对各自 sequence，不能按
@@ -1038,12 +1041,15 @@ setup/hold 保证，假设的时钟/DATA 相对延迟不能当作已测同步器
 有效与各 owner mailbox 完整性分别复核；选定参考帧的 mailbox CRC 正确，不能证明
 固件收到的是同一帧或特等时间戳已逐圈保全。普通 capture 指令模型也不能替代自主态
 prefix、skip 与 DMA 行为验收。
-下一修复方向是独立表达 origin 返回 DATA 的采样时序，使 Calibration 能分别校验
-发送重定时和接收有效窗口，再由 TDMA owner 在停止态配置、经准入后 ARM。该方向仍
-属待验证设计；独立配置维度的实现与接受边界见
+独立 origin 返回 DATA 采样时序已接入，有限实板对照见
+`TDMA-PROGRESS-20260913-031`；Calibration 的接收有效窗口与保守余量仍需验证，
+参数继续由 TDMA owner 在停止态配置、经准入后 ARM。独立配置维度的实现与接受边界见
 `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md` 的 origin 返回 DATA 候选说明，
 尚未冻结采样常数。相位恢复须核对当前矩阵 generation、
 staging、实际运行参数与最终 STOP；仅停止成功不能证明前一次配置已应用。
+当前测量基线之外新增的压力 DATA 点和独立 RX 搜索维度必须显式标记为未接受的
+诊断扩展。观察到相邻零错误选行只能支持候选内部采样点，不能据此补写测量通过、
+冻结模拟余量或放宽完整 phase 门禁；证据入口见 `TDMA-PROGRESS-20260913-032`。
 
 adapter 候选只在已接受的 bootstrap boundary 交接；自主态每次 service 有界收割
 RX 观察与尝试本地 shadow 发布，不补发遗漏周期、不伪造逐帧 completion。返回包需与
