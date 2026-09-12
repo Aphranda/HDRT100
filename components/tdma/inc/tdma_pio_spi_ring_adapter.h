@@ -8,6 +8,7 @@
 #include "tdma_adapter_comm_fsm.h"
 #include "tdma_flight_fifo.h"
 #include "tdma_flight_engine.h"
+#include "tdma_overlay_prepare.h"
 #include "tdma_origin_plan.h"
 #include "tdma_receive_health.h"
 #include "tdma_ring_runtime.h"
@@ -138,6 +139,8 @@ typedef bool (*tdma_pio_spi_ring_phys_overlay_fn)(
 typedef bool (*tdma_pio_spi_ring_phys_overlay_boundary_fn)(void *context);
 /* Optional recurrence backend: false retains the active plan and queued TX. */
 typedef bool (*tdma_pio_spi_ring_phys_overlay_ready_fn)(void *context);
+typedef bool (*tdma_pio_spi_ring_phys_overlay_job_fn)(
+    void *context, tdma_overlay_prepare_t *job);
 
 /* phys_tx pushes one complete packet onto the wire. On success it may fill
  * *tx_timestamp_ns with the hardware latch timestamp (0 means no hardware
@@ -367,6 +370,9 @@ typedef struct {
     tdma_pio_spi_ring_phys_overlay_fn phys_prepare_overlay;
     tdma_pio_spi_ring_phys_overlay_boundary_fn phys_service_overlay_boundary;
     tdma_pio_spi_ring_phys_overlay_ready_fn phys_overlay_ready;
+    tdma_overlay_prepare_t *overlay_preparation;
+    tdma_pio_spi_ring_phys_overlay_job_fn phys_grant_overlay;
+    tdma_pio_spi_ring_phys_overlay_job_fn phys_commit_overlay;
     tdma_pio_spi_ring_origin_ops_t phys_origin;
     tdma_pio_spi_ring_origin_status_t origin;
     struct {

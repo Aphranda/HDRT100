@@ -740,7 +740,9 @@ static bool tdma_pio_spi_ring_adapter_start(
         return false;
     }
     tdma_pio_spi_ring_adapter_snapshot_write_begin(adapter);
-    if (adapter->origin.active != 0u || config == NULL || config->enabled == 0u ||
+    if (adapter->origin.active != 0u ||
+        tdma_overlay_prepare_state(adapter->overlay_preparation) != TDMA_OVERLAY_PREPARE_IDLE ||
+        config == NULL || config->enabled == 0u ||
         config->node_count < 2u ||
         config->node_count > TDMA_TRANSPORT_FRAME_MAX_SLOT_COUNT ||
         config->local_slot_id >= config->node_count ||
@@ -2293,9 +2295,72 @@ static bool tdma_pio_spi_ring_adapter_forward_poll(
     return true;
 }
 
+static bool tdma_pio_spi_ring_adapter_prepare_overlay_async(
+    tdma_pio_spi_ring_adapter_t *adapter)
+{
+    tdma_overlay_prepare_t *job = adapter->overlay_preparation;
+    const uint32_t state = tdma_overlay_prepare_state(job);
+    if (state == TDMA_OVERLAY_PREPARE_READY) {
+        /* Core0 is finished; it cannot touch the plan during Core1 binding.
+         * The epoch/map check precedes physical publication, not vice versa. */
+        const bool current = job->request_epoch == job->epoch &&
+            tdma_flight_engine_is_active(adapter->flight_engine) &&
+            adapter->flight_engine->local_slot_id == job->layout.local_slot_id &&
+            __atomic_load_n(&adapter->flight_engine->map_generation, __ATOMIC_ACQUIRE) ==
+                job->layout.map_generation;
+        if (current && adapter->phys_commit_overlay(adapter->phys_ctrl_context, job)) {
+            (void)tdma_flight_engine_accept_tx(adapter->flight_engine, &job->layout,
+                                              &job->applied, job->tx.reused_previous);
+            adapter->resident_overlay_bootstrap_prepared = true;
+            adapter->resident_overlay_target_sequence = job->target_sequence;
+            adapter->resident_overlay_tx_generation = job->tx.generation;
+            adapter->resident_overlay_tx_sequence = job->tx.sequence;
+        }
+        /* A changed alignment/config invalidates only this ordinary update.
+         * Keep the live generation, and prepare from new facts next phase. */
+        tdma_overlay_prepare_release(job);
+        return true;
+    }
+    if (state == TDMA_OVERLAY_PREPARE_FAILED) {
+        tdma_overlay_prepare_release(job);
+        tdma_pio_spi_ring_adapter_set_error(
+            adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_FLIGHT_MAP_REJECT);
+        return false;
+    }
+    if (state != TDMA_OVERLAY_PREPARE_IDLE ||
+        adapter->last_rx_packet_size != sizeof(job->packet) ||
+        !adapter->phys_grant_overlay(adapter->phys_ctrl_context, job)) return true;
+    if (!tdma_flight_engine_copy_tx_layout(adapter->flight_engine, &job->layout) ||
+        !tdma_pio_spi_ring_adapter_resident_hop_position(
+            adapter, &job->ingress_hop, &job->egress_hop)) return false;
+    tdma_flight_tx_view_t tx = {0};
+    const bool has_tx = adapter->flight_fifo != NULL &&
+        tdma_flight_fifo_core1_acquire_tx(adapter->flight_fifo, &tx);
+    if (adapter->resident_overlay_bootstrap_prepared &&
+        (!has_tx || (tx.reused_previous &&
+            tx.generation == adapter->resident_overlay_tx_generation &&
+            tx.sequence == adapter->resident_overlay_tx_sequence))) return true;
+    const uint32_t local_offset = job->layout.local_slot_id * TDMA_FLIGHT_SHORT_SLOT_SIZE;
+    if (has_tx && (tx.data == NULL || (tx.data_size != sizeof(job->tx_data) &&
+        tx.data_size < local_offset + sizeof(job->tx_data)))) return false;
+    job->tx = tx;
+    if (has_tx) {
+        memcpy(job->tx_data, tx.data + (tx.data_size == sizeof(job->tx_data) ? 0u : local_offset),
+               sizeof(job->tx_data));
+        job->tx.data_size = sizeof(job->tx_data);
+    }
+    memcpy(job->packet, adapter->last_rx_packet, sizeof(job->packet));
+    job->target_sequence = adapter->down_rx_sequence +
+        (adapter->resident_overlay_bootstrap_prepared ? 1u : 0u);
+    return tdma_overlay_prepare_request(job);
+}
+
 static bool tdma_pio_spi_ring_adapter_prepare_process_overlay_impl(
     tdma_pio_spi_ring_adapter_t *adapter)
 {
+    if (adapter != NULL && adapter->overlay_preparation != NULL &&
+        adapter->phys_grant_overlay != NULL && adapter->phys_commit_overlay != NULL)
+        return tdma_pio_spi_ring_adapter_prepare_overlay_async(adapter);
     if (adapter == NULL || adapter->last_rx_packet_size == 0u ||
         adapter->phys_prepare_overlay == NULL) {
         return false;
@@ -2729,13 +2794,14 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
             rx_ok = tdma_pio_spi_ring_adapter_rx_poll(adapter, now_ns);
             tx_ok = true;
             bool process_overlay_ok = true;
-            if (rx_ok) {
-                if (adapter->forwarding_mode ==
+            if (adapter->forwarding_mode ==
                         TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE &&
+                    (rx_ok || adapter->overlay_preparation != NULL) &&
                     !tdma_pio_spi_ring_adapter_prepare_process_overlay(
                         adapter)) {
                     process_overlay_ok = false;
-                }
+            }
+            if (rx_ok) {
                 adapter->up_sequence = adapter->down_rx_sequence;
                 adapter->up_tx_frame_crc32 = adapter->down_rx_frame_crc32;
                 adapter->forward_count++;

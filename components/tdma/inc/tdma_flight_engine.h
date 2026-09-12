@@ -104,6 +104,25 @@ typedef struct {
     volatile uint32_t rx_bitmap_incomplete_count;
 } tdma_flight_engine_t;
 
+/* Immutable authorization for the product's fixed local mailbox. Arbitrary
+ * maps stay on the legacy engine path; they cannot authorize a larger overlay. */
+typedef struct {
+    uint32_t local_slot_id;
+    uint32_t map_generation;
+    uint32_t output_segment_mask;
+} tdma_flight_tx_layout_t;
+
+bool tdma_flight_engine_copy_tx_layout(const tdma_flight_engine_t *engine,
+                                      tdma_flight_tx_layout_t *layout);
+bool tdma_flight_engine_build_tx(const tdma_flight_tx_layout_t *layout,
+    const uint8_t *incoming, size_t incoming_size,
+    const tdma_flight_tx_view_t *tx, uint8_t *output, size_t output_capacity,
+    tdma_flight_engine_apply_t *applied);
+/* Core1 records an accepted prepared generation, never a physical SENT. */
+bool tdma_flight_engine_accept_tx(tdma_flight_engine_t *engine,
+    const tdma_flight_tx_layout_t *layout, const tdma_flight_engine_apply_t *applied,
+    bool reused);
+
 bool tdma_flight_engine_init(tdma_flight_engine_t *engine);
 bool tdma_flight_engine_configure(tdma_flight_engine_t *engine,
                                   const tdma_process_image_map_t *map);

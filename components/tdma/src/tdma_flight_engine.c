@@ -327,6 +327,72 @@ bool tdma_flight_engine_is_active(const tdma_flight_engine_t *engine)
            __atomic_load_n(&engine->active, __ATOMIC_ACQUIRE) != 0u;
 }
 
+bool tdma_flight_engine_copy_tx_layout(const tdma_flight_engine_t *engine,
+                                      tdma_flight_tx_layout_t *layout)
+{
+    if (layout == NULL || !tdma_flight_engine_is_active(engine)) return false;
+    const uint32_t begin = __atomic_load_n(&engine->map_sequence, __ATOMIC_ACQUIRE);
+    if ((begin & 1u) != 0u) return false;
+    *layout = (tdma_flight_tx_layout_t){
+        .local_slot_id = engine->local_slot_id,
+        .map_generation = __atomic_load_n(&engine->map_generation, __ATOMIC_RELAXED),
+    };
+    if (layout->local_slot_id >= TDMA_FLIGHT_SHORT_SLOT_COUNT ||
+        engine->map.payload_size != TDMA_FLIGHT_SHORT_PAYLOAD_SIZE) return false;
+    for (uint32_t i = 0u; i < TDMA_PROCESS_IMAGE_SEGMENT_COUNT; ++i) {
+        const tdma_process_image_segment_t *segment = &engine->map.segment[i];
+        if (segment->used == 0u || segment->owner_slot_id != layout->local_slot_id ||
+            (segment->flags & TDMA_PROCESS_SEGMENT_FLAG_FLIGHT_WRITE) == 0u) continue;
+        if (layout->output_segment_mask != 0u ||
+            segment->segment_id >= TDMA_PROCESS_IMAGE_SEGMENT_COUNT ||
+            segment->byte_offset != layout->local_slot_id * TDMA_FLIGHT_SHORT_SLOT_SIZE ||
+            segment->byte_length != TDMA_FLIGHT_SHORT_SLOT_SIZE) return false;
+        layout->output_segment_mask = 1u << segment->segment_id;
+    }
+    return layout->output_segment_mask != 0u &&
+        begin == __atomic_load_n(&engine->map_sequence, __ATOMIC_ACQUIRE);
+}
+
+bool tdma_flight_engine_build_tx(const tdma_flight_tx_layout_t *layout,
+    const uint8_t *incoming, size_t incoming_size,
+    const tdma_flight_tx_view_t *tx, uint8_t *output, size_t output_capacity,
+    tdma_flight_engine_apply_t *applied)
+{
+    if (applied != NULL) memset(applied, 0, sizeof(*applied));
+    if (layout == NULL || incoming == NULL || output == NULL || applied == NULL ||
+        incoming_size != TDMA_FLIGHT_SHORT_PAYLOAD_SIZE || output_capacity < incoming_size ||
+        layout->local_slot_id >= TDMA_FLIGHT_SHORT_SLOT_COUNT ||
+        layout->output_segment_mask == 0u ||
+        (layout->output_segment_mask & (layout->output_segment_mask - 1u)) != 0u ||
+        (layout->output_segment_mask >> TDMA_PROCESS_IMAGE_SEGMENT_COUNT) != 0u) return false;
+    memcpy(output, incoming, incoming_size);
+    if (tx != NULL && tx->data != NULL) {
+        const uint32_t start = layout->local_slot_id * TDMA_FLIGHT_SHORT_SLOT_SIZE;
+        const uint8_t *data = tx->data;
+        if (tx->data_size != TDMA_FLIGHT_SHORT_SLOT_SIZE) return false;
+        memcpy(output + start, data, TDMA_FLIGHT_SHORT_SLOT_SIZE);
+        applied->output_segment_mask = layout->output_segment_mask;
+        applied->output_bytes = TDMA_FLIGHT_SHORT_SLOT_SIZE;
+        for (uint32_t byte = start; byte < start + TDMA_FLIGHT_SHORT_SLOT_SIZE; ++byte)
+            applied->output_byte_bitmap[byte / 32u] |= 1u << (byte % 32u);
+    }
+    return true;
+}
+
+bool tdma_flight_engine_accept_tx(tdma_flight_engine_t *engine,
+    const tdma_flight_tx_layout_t *layout, const tdma_flight_engine_apply_t *applied,
+    bool reused)
+{
+    if (!tdma_flight_engine_is_active(engine) || layout == NULL || applied == NULL ||
+        engine->local_slot_id != layout->local_slot_id ||
+        __atomic_load_n(&engine->map_generation, __ATOMIC_ACQUIRE) !=
+            layout->map_generation) return false;
+    tdma_flight_engine_counter_inc(&engine->map_apply_count);
+    tdma_flight_engine_counter_add(&engine->output_bytes, applied->output_bytes);
+    if (reused) tdma_flight_engine_counter_inc(&engine->tx_stale_reuse_count);
+    return true;
+}
+
 static bool tdma_flight_engine_tx_load_impl(
     tdma_flight_engine_t *engine,
     const uint8_t *incoming,

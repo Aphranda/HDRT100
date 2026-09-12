@@ -173,13 +173,20 @@ def test_descriptor_completion_and_bounded_stop(tmp_path):
             ("static bool", "tdma_pio_spi_phys_overlay_dma_busy", "(tdma_pio_spi_phys_t *phys)"),
             ("static void", "tdma_pio_spi_phys_service_overlay_pending", "(tdma_pio_spi_phys_t *phys)"),
             ("bool", "tdma_pio_spi_phys_process_overlay_ready", "(void *context)"),
-            ("static bool", "tdma_pio_spi_phys_start_overlay_script", "(tdma_pio_spi_phys_t *phys, uint32_t buffer_index)")])
+            ("static bool", "tdma_pio_spi_phys_start_overlay_script", "(tdma_pio_spi_phys_t *phys, uint32_t buffer_index, bool worker_validated)"),
+            ("static uint32_t", "tdma_pio_spi_phys_overlay_free_buffer", "(const tdma_pio_spi_phys_t *phys)"),
+            ("bool", "tdma_pio_spi_phys_grant_overlay", "(void *context, tdma_overlay_prepare_t *job)"),
+            ("bool", "tdma_pio_spi_phys_commit_overlay", "(void *context, tdma_overlay_prepare_t *job)")])
     fixture = r'''
-#include "tdma_flight_overlay.h"
+#include "tdma_overlay_prepare.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
 typedef unsigned uint;
+
+enum { TDMA_PIO_SPI_ROLE_SLAVE = 2, TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER = 9,
+       TDMA_PIO_SPI_PACKET_HEADER_SIZE = 4 };
+static unsigned s_tdma_pio_spi_program_persona = TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER;
 enum { DMA_SIZE_32 = 2, DMA_CH0_CTRL_TRIG_EN_BITS = 1, DREQ_FORCE = 63, NUM_DMA_CHANNELS = 16,
        TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES = 2,
        TDMA_PIO_SPI_COMMAND_STOP_TIMEOUT_US = 64, TDMA_PIO_SPI_PHYS_ERROR_PERSONA_BUSY = 6,
@@ -190,11 +197,16 @@ typedef struct {
     uint32_t last_error, overlay_last_error, overlay_tx_dma_remaining, overlay_tx_dma_busy;
     uint32_t overlay_tx_fifo_level_at_fail, overlay_prepare_wait_us;
     uint32_t overlay_published_generation, overlay_selected_generation, overlay_selection_pending;
+    uint32_t overlay_prepare_count, overlay_replacement_byte_count;
+    uint32_t overlay_alignment_byte_shift, overlay_alignment_bit_shift, overlay_physical_byte_count;
 } Snapshot;
 typedef struct {
     bool armed, flight_resource_claimed, flight_overlay_dma_active, flight_overlay_pending;
     bool flight_origin_workspace_owned, flight_origin_rx_observation_ready;
     bool rx_capture_active;
+    tdma_overlay_prepare_t *overlay_preparation;
+    bool process_image_enabled, flight_overlay_alignment_locked;
+    uint32_t role, flight_local_slot_id, flight_alignment_byte_shift, flight_alignment_bit_shift;
     uint32_t flight_overlay_active_buffer, flight_physical_byte_count, flight_overlay_pending_buffer;
     uint32_t flight_overlay_published_generation;
     uint32_t flight_overlay_alignment_samples;
@@ -353,7 +365,7 @@ int main(void) {
     phys.armed = true;
     tdma_flight_overlay_plan_t *plan = &s_tdma_pio_spi_flight_overlay_plan[1];
     assert(tdma_flight_overlay_build_pass_plan(307, 20, plan));
-    assert(!tdma_pio_spi_phys_start_overlay_script(&phys, 1));
+    assert(!tdma_pio_spi_phys_start_overlay_script(&phys, 1, false));
     assert(start_calls == 0);
     phys.flight_resource_claimed = true;
     uint8_t before[292] = {0}, after[292] = {0};
@@ -362,9 +374,9 @@ int main(void) {
     assert(tdma_flight_overlay_build_plan(before, after, 292, NULL, 0, &config, plan));
     tdma_flight_overlay_plan_t generic = *plan;
     plan->run[0].transfer_count++;
-    assert(!tdma_pio_spi_phys_start_overlay_script(&phys, 1) && start_calls == 0);
+    assert(!tdma_pio_spi_phys_start_overlay_script(&phys, 1, false) && start_calls == 0);
     *plan = generic;
-    assert(tdma_pio_spi_phys_start_overlay_script(&phys, 1));
+    assert(tdma_pio_spi_phys_start_overlay_script(&phys, 1, false));
     assert(start_calls == 1 && phys.flight_overlay_pending);
     assert(!tdma_pio_spi_phys_process_overlay_ready(&phys));
     assert(!tdma_flight_overlay_plan_valid(plan, 20)); /* no rebinding */
@@ -383,7 +395,7 @@ int main(void) {
     phys.flight_overlay_alignment_samples = 2;
     assert(tdma_pio_spi_phys_process_overlay_ready(&phys));
     assert(phys.flight_overlay_active_buffer == 1);
-    assert(!tdma_pio_spi_phys_start_overlay_script(&phys, 1));
+    assert(!tdma_pio_spi_phys_start_overlay_script(&phys, 1, false));
     /* CPU absence and PIO backpressure do not require another configure.
      * Selection precedes the first data word and is NOT wire completion. */
     assert(wire_words == 0 && phys.snapshot.overlay_selected_generation == 1);
@@ -397,9 +409,9 @@ int main(void) {
         uint free_pool = phys.flight_overlay_active_buffer ^ 1;
         assert(tdma_flight_overlay_build_pass_plan(307, 20,
             &s_tdma_pio_spi_flight_overlay_plan[free_pool]));
-        assert(tdma_pio_spi_phys_start_overlay_script(&phys, free_pool));
+        assert(tdma_pio_spi_phys_start_overlay_script(&phys, free_pool, false));
         tdma_flight_overlay_plan_t frozen = s_tdma_pio_spi_flight_overlay_plan[free_pool];
-        assert(!tdma_pio_spi_phys_start_overlay_script(&phys, free_pool ^ 1));
+        assert(!tdma_pio_spi_phys_start_overlay_script(&phys, free_pool ^ 1, false));
         assert(memcmp(&frozen, &s_tdma_pio_spi_flight_overlay_plan[free_pool], sizeof(frozen)) == 0);
         /* A transient all-idle register observation never retires a pool. */
         bool b5 = busy[5], b6 = busy[6]; busy[5] = busy[6] = false;
@@ -415,9 +427,40 @@ int main(void) {
     uint free_pool = phys.flight_overlay_active_buffer ^ 1;
     assert(tdma_flight_overlay_build_pass_plan(307, 20,
         &s_tdma_pio_spi_flight_overlay_plan[free_pool]));
-    assert(tdma_pio_spi_phys_start_overlay_script(&phys, free_pool));
+    assert(tdma_pio_spi_phys_start_overlay_script(&phys, free_pool, false));
     assert(phys.flight_overlay_published_generation == 1 && phys.flight_overlay_pending);
     until_selected();
+    /* Exercise real grant/commit with a Core0 lease while DMA keeps reading
+     * the old plan. Alignment and epoch changes invalidate the READY result. */
+    tdma_overlay_prepare_t job = {0};
+    phys.overlay_preparation = &job;
+    phys.process_image_enabled = true;
+    phys.role = TDMA_PIO_SPI_ROLE_SLAVE;
+    assert(tdma_pio_spi_phys_grant_overlay(&phys, &job));
+    tdma_flight_overlay_plan_t live = s_tdma_pio_spi_flight_overlay_plan[phys.flight_overlay_active_buffer];
+    assert(tdma_overlay_prepare_request(&job));
+    assert(tdma_overlay_prepare_core0_claim(&job));
+    for (unsigned n = 0; n < 5000; ++n) bus_step();
+    assert(!tdma_pio_spi_phys_grant_overlay(&phys, &job));
+    assert(!tdma_pio_spi_phys_commit_overlay(&phys, &job));
+    assert(memcmp(&live, &s_tdma_pio_spi_flight_overlay_plan[phys.flight_overlay_active_buffer], sizeof(live)) == 0);
+    /* Substitute the pure worker's already validated PASS output here; the
+     * full adapter fixture executes its transport/model builder separately. */
+    assert(tdma_flight_overlay_build_pass_plan(307, 20, job.plan));
+    assert(tdma_flight_overlay_plan_valid(job.plan, 20));
+    job.state = TDMA_OVERLAY_PREPARE_READY;
+    ++job.epoch;
+    assert(!tdma_pio_spi_phys_commit_overlay(&phys, &job));
+    job.request_epoch = job.epoch;
+    ++phys.flight_alignment_bit_shift;
+    assert(!tdma_pio_spi_phys_commit_overlay(&phys, &job));
+    --phys.flight_alignment_bit_shift;
+    assert(tdma_pio_spi_phys_commit_overlay(&phys, &job));
+    assert(start_calls == 1); /* Publication never launches another DMA graph. */
+    tdma_overlay_prepare_release(&job);
+    assert(!tdma_pio_spi_phys_grant_overlay(&phys, &job));
+    until_selected();
+    assert(tdma_pio_spi_phys_grant_overlay(&phys, &job));
     stop_race(false, true, true);
     assert(stop_clear_output_count == 2);
     stop_race(true, true, true);
@@ -446,6 +489,9 @@ int main(void) {
     subprocess.run([gcc, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
                     "-I" + str(ROOT / "components/tdma/inc"), str(unit),
                     str(ROOT / "components/tdma/src/tdma_flight_overlay.c"),
+                    str(ROOT / "components/tdma/src/tdma_overlay_prepare.c"),
+                    str(ROOT / "components/tdma/src/tdma_flight_engine.c"),
+                    str(ROOT / "components/tdma/src/tdma_process_image_map.c"),
                     str(ROOT / "components/tdma/src/tdma_transport_frame.c"), "-o", str(exe)],
                    check=True, capture_output=True)
     subprocess.run([str(exe)], check=True, capture_output=True)

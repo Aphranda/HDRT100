@@ -1294,7 +1294,7 @@ static void tdma_pio_spi_phys_service_overlay_pending(tdma_pio_spi_phys_t *phys)
 }
 
 static bool tdma_pio_spi_phys_start_overlay_script(
-    tdma_pio_spi_phys_t *phys, uint32_t buffer_index)
+    tdma_pio_spi_phys_t *phys, uint32_t buffer_index, bool worker_validated)
 {
     if (phys == NULL || !phys->flight_resource_claimed ||
         s_tdma_pio_spi_command_dma_channel < 0 ||
@@ -1324,7 +1324,10 @@ static bool tdma_pio_spi_phys_start_overlay_script(
         &s_tdma_pio_spi_flight_overlay_plan[buffer_index];
     if (plan->command_word_count != phys->flight_physical_byte_count *
             TDMA_FLIGHT_OVERLAY_COMMAND_WORDS_PER_BYTE ||
-        !tdma_flight_overlay_plan_valid(plan, tdma_pio_spi_phys_overlay_final_pc())) {
+        plan->run_count == 0u || plan->run_count > TDMA_FLIGHT_OVERLAY_RUN_MAX ||
+        plan->token_word_count > TDMA_FLIGHT_OVERLAY_TOKEN_WORD_MAX ||
+        (!worker_validated &&
+         !tdma_flight_overlay_plan_valid(plan, tdma_pio_spi_phys_overlay_final_pc()))) {
         phys->snapshot.overlay_last_error = TDMA_PIO_SPI_OVERLAY_ERROR_BUILD_FAILED;
         return false;
     }
@@ -1429,7 +1432,7 @@ static bool tdma_pio_spi_phys_queue_overlay_script(
     if (phys == NULL || buffer_index >= 2u) {
         return false;
     }
-    return tdma_pio_spi_phys_start_overlay_script(phys, buffer_index);
+    return tdma_pio_spi_phys_start_overlay_script(phys, buffer_index, false);
 }
 
 bool tdma_pio_spi_phys_process_overlay_ready(void *context)
@@ -1440,6 +1443,56 @@ bool tdma_pio_spi_phys_process_overlay_ready(void *context)
     return !phys->flight_overlay_pending &&
         phys->flight_overlay_alignment_samples >=
             TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES;
+}
+
+bool tdma_pio_spi_phys_grant_overlay(void *context, tdma_overlay_prepare_t *job)
+{
+    tdma_pio_spi_phys_t *phys = context;
+    if (phys == NULL || job == NULL || phys->overlay_preparation != job ||
+        tdma_overlay_prepare_state(job) != TDMA_OVERLAY_PREPARE_IDLE ||
+        !phys->process_image_enabled || phys->role != TDMA_PIO_SPI_ROLE_SLAVE ||
+        s_tdma_pio_spi_program_persona != TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER ||
+        !tdma_pio_spi_phys_process_overlay_ready(phys)) return false;
+    job->buffer_index = tdma_pio_spi_phys_overlay_free_buffer(phys);
+    job->plan = &s_tdma_pio_spi_flight_overlay_plan[job->buffer_index];
+    job->config = (tdma_flight_overlay_config_t){
+        .outer_header_size = TDMA_PIO_SPI_PACKET_HEADER_SIZE,
+        .alignment_byte_shift = phys->flight_alignment_byte_shift,
+        .alignment_bit_shift = phys->flight_alignment_bit_shift,
+        .physical_byte_count = phys->flight_physical_byte_count,
+        .local_slot_id = phys->flight_local_slot_id,
+        .header_write_mask = tdma_transport_frame_resident_overlay_header_mask(),
+        .final_bit_pc = tdma_pio_spi_phys_overlay_final_pc(),
+    };
+    return true;
+}
+
+bool tdma_pio_spi_phys_commit_overlay(void *context, tdma_overlay_prepare_t *job)
+{
+    tdma_pio_spi_phys_t *phys = context;
+    if (phys == NULL || job == NULL || phys->overlay_preparation != job ||
+        tdma_overlay_prepare_state(job) != TDMA_OVERLAY_PREPARE_READY ||
+        job->request_epoch != job->epoch ||
+        !phys->process_image_enabled || phys->role != TDMA_PIO_SPI_ROLE_SLAVE ||
+        s_tdma_pio_spi_program_persona != TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER ||
+        !tdma_pio_spi_phys_process_overlay_ready(phys) ||
+        job->buffer_index != tdma_pio_spi_phys_overlay_free_buffer(phys) ||
+        job->plan != &s_tdma_pio_spi_flight_overlay_plan[job->buffer_index] ||
+        job->config.alignment_byte_shift != phys->flight_alignment_byte_shift ||
+        job->config.alignment_bit_shift != phys->flight_alignment_bit_shift ||
+        job->config.physical_byte_count != phys->flight_physical_byte_count ||
+        job->config.local_slot_id != phys->flight_local_slot_id ||
+        job->config.final_bit_pc != tdma_pio_spi_phys_overlay_final_pc()) return false;
+    /* build_plan validated every token on Core0, then released READY. The
+     * leased pool is immutable until this Core1 bind; scan no tokens here. */
+    if (!tdma_pio_spi_phys_start_overlay_script(phys, job->buffer_index, true)) return false;
+    phys->flight_overlay_alignment_locked = true;
+    phys->snapshot.overlay_prepare_count++;
+    phys->snapshot.overlay_replacement_byte_count += job->plan->replacement_byte_count;
+    phys->snapshot.overlay_alignment_byte_shift = job->config.alignment_byte_shift;
+    phys->snapshot.overlay_alignment_bit_shift = job->config.alignment_bit_shift;
+    phys->snapshot.overlay_physical_byte_count = job->config.physical_byte_count;
+    return true;
 }
 
 static bool tdma_pio_spi_phys_prepare_pass_overlay(
@@ -1545,7 +1598,9 @@ bool tdma_pio_spi_phys_prepare_process_overlay(
     size_t force_replace_payload_bitmap_words)
 {
     tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
-    if (phys == NULL || !phys->armed || !phys->process_image_enabled ||
+    if (phys == NULL ||
+        tdma_overlay_prepare_state(phys->overlay_preparation) != TDMA_OVERLAY_PREPARE_IDLE ||
+        !phys->armed || !phys->process_image_enabled ||
         phys->role != TDMA_PIO_SPI_ROLE_SLAVE ||
         s_tdma_pio_spi_program_persona !=
             TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER) {
@@ -1971,6 +2026,7 @@ bool tdma_pio_spi_phys_arm(void *context,
 {
     tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
     if (phys != NULL && (phys->armed || phys->flight_overlay_dma_active ||
+                         tdma_overlay_prepare_state(phys->overlay_preparation) != TDMA_OVERLAY_PREPARE_IDLE ||
                          phys->flight_origin_workspace_owned ||
                          phys->flight_origin_prepare.stage != TDMA_ORIGIN_PREPARE_IDLE)) {
         return tdma_pio_spi_phys_arm_reject(phys, TDMA_PIO_SPI_PHYS_ERROR_PERSONA_BUSY);
@@ -2244,6 +2300,7 @@ bool tdma_pio_spi_phys_disarm(void *context)
     if (phys == NULL) {
         return false;
     }
+    const bool worker_retired = tdma_overlay_prepare_cancel(phys->overlay_preparation);
     /* Process-image followers keep the overlay TX DMA blocked on the PIO TX
      * FIFO between frames.  A failed ARM can also leave a DMA or SM active
      * before phys->armed is published.  STOP is the common idempotent
@@ -2312,7 +2369,9 @@ bool tdma_pio_spi_phys_disarm(void *context)
     phys->flight_origin_workspace_owned = false;
     phys->flight_origin_rx_observation_ready = false;
     memset(&phys->flight_origin_prepare, 0, sizeof(phys->flight_origin_prepare));
-    return true;
+    /* Hardware is already stopped. A cancelled Core0 writer keeps STOP
+     * pending until ACK, so neither ARM nor the origin union can reuse it. */
+    return worker_retired;
 }
 
 static bool tdma_pio_spi_phys_tx_put(tdma_pio_spi_phys_t *phys,
@@ -2333,6 +2392,7 @@ static bool tdma_pio_spi_phys_tx_put(tdma_pio_spi_phys_t *phys,
 bool tdma_pio_spi_phys_train_clock(void *context, uint32_t cycles)
 {
     tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
+    if (phys != NULL && !tdma_overlay_prepare_cancel(phys->overlay_preparation)) return false;
     if (phys == NULL || !phys->armed || cycles == 0u ||
         cycles > TDMA_PIO_SPI_TRAIN_CLOCK_MAX_CYCLES) {
         if (phys != NULL) {

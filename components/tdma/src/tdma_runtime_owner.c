@@ -17,6 +17,7 @@ static tdma_service_service_t s_tdma_runtime_owner;
 static tdma_traffic_scheduler_t s_tdma_traffic_scheduler;
 static tdma_pio_spi_ring_adapter_t s_tdma_pio_spi_ring_adapter;
 static tdma_pio_spi_phys_t s_tdma_pio_spi_phys;
+static tdma_overlay_prepare_t s_tdma_overlay_preparation;
 static tdma_operating_profile_manager_t s_tdma_operating_profile_manager;
 typedef enum {
     TDMA_CAL_LOOPBACK_INTENT_NONE = 0u,
@@ -309,6 +310,10 @@ bool tdma_runtime_owner_init(void)
             tdma_pio_spi_phys_prepare_process_overlay,
             tdma_pio_spi_phys_service_process_overlay_boundary,
             tdma_pio_spi_phys_process_overlay_ready);
+        s_tdma_pio_spi_phys.overlay_preparation = &s_tdma_overlay_preparation;
+        s_tdma_pio_spi_ring_adapter.overlay_preparation = &s_tdma_overlay_preparation;
+        s_tdma_pio_spi_ring_adapter.phys_grant_overlay = tdma_pio_spi_phys_grant_overlay;
+        s_tdma_pio_spi_ring_adapter.phys_commit_overlay = tdma_pio_spi_phys_commit_overlay;
         const tdma_pio_spi_ring_origin_ops_t origin_ops = {
             .admit = tdma_runtime_owner_origin_admit,
             .begin = tdma_runtime_owner_origin_begin,
@@ -793,6 +798,12 @@ bool tdma_runtime_owner_copy_coded_capture_core1(
            tdma_pio_spi_phys_copy_coded_capture(
                &s_tdma_pio_spi_phys, capture_words,
                capture_word_capacity, capture_word_count);
+}
+
+void tdma_runtime_owner_core0_prepare_service(void)
+{
+    if (s_tdma_runtime_owner_initialized)
+        tdma_overlay_prepare_core0_service(&s_tdma_overlay_preparation);
 }
 
 bool tdma_runtime_owner_core0_publish_ring_tx(

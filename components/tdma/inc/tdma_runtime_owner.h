@@ -12,6 +12,9 @@
 /* Product firmware has one TDMA owner. Domain wrappers register payloads and
  * adapter operations against it; they do not create parallel runtimes. */
 bool tdma_runtime_owner_init(void);
+/* Called by the existing Core0 data task. Computes only owner-granted SRAM
+ * plans; it never accesses adapter facts, hardware registers or live DMA. */
+void tdma_runtime_owner_core0_prepare_service(void);
 tdma_service_service_t *tdma_runtime_owner_get(void);
 tdma_traffic_scheduler_t *tdma_runtime_owner_get_scheduler(void);
 tdma_pio_spi_ring_adapter_t *tdma_runtime_owner_get_ring_adapter(void);

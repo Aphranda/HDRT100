@@ -81,6 +81,7 @@ bool tdma_pio_spi_phys_origin_begin(
         packet_size != TDMA_TRANSPORT_SHORT_PACKET_MAX || !phys->armed ||
         !phys->process_image_enabled || phys->role != TDMA_PIO_SPI_ROLE_MASTER ||
         phys->flight_origin_workspace_owned ||
+        tdma_overlay_prepare_state(phys->overlay_preparation) != TDMA_OVERLAY_PREPARE_IDLE ||
         phys->flight_origin_prepare.stage != TDMA_ORIGIN_PREPARE_IDLE || phys->flight_tx_pending ||
         phys->flight_tx_completion_pending ||
         s_tdma_pio_spi_program_persona != TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN ||

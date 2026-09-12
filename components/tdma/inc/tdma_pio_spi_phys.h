@@ -9,6 +9,7 @@
 #include "tdma_state_machine_resources.h"
 #include "tdma_transport_frame.h"
 #include "tdma_origin_plan.h"
+#include "tdma_overlay_prepare.h"
 
 /* TDMA PIO SPI resident physical layer.
  *
@@ -727,6 +728,7 @@ typedef struct {
     uint32_t flight_alignment_bit_shift;
     uint32_t flight_local_slot_id;
     bool flight_overlay_dma_active;
+    tdma_overlay_prepare_t *overlay_preparation;
     bool flight_overlay_alignment_locked;
     uint32_t flight_overlay_alignment_samples;
     uint64_t flight_overlay_alignment_candidate;
@@ -926,6 +928,8 @@ bool tdma_pio_spi_phys_prepare_process_overlay(
 bool tdma_pio_spi_phys_service_process_overlay_boundary(void *context);
 /* A false result leaves the active plan recurring; the owner retries later. */
 bool tdma_pio_spi_phys_process_overlay_ready(void *context);
+bool tdma_pio_spi_phys_grant_overlay(void *context, tdma_overlay_prepare_t *job);
+bool tdma_pio_spi_phys_commit_overlay(void *context, tdma_overlay_prepare_t *job);
 /* Poll the terminal token of a previously submitted flight-origin burst.
  * This is deliberately separate from the TX submit callback so core1 can
  * account the hardware launch and completion in distinct bounded passes.

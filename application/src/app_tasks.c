@@ -14,6 +14,7 @@
 #include "osal.h"
 #include "ota_event.h"
 #include "project_config.h"
+#include "tdma_runtime_owner.h"
 #include "ui_manager.h"
 
 #define APP_PROGRESS(task, phase) (((uint32_t)(task) << 8u) | (uint32_t)(phase))
@@ -122,6 +123,7 @@ static void task_refmem_sync(void *context)
 
         drv_watchdog_mark_progress(0u, APP_PROGRESS(4u, 1u));
         app_refmem_service();
+        tdma_runtime_owner_core0_prepare_service();
         drv_watchdog_mark_progress(0u, APP_PROGRESS(4u, 2u));
         diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_REFMEM_SYNC);
         osal_task_delay_ms(1u);
