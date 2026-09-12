@@ -763,6 +763,12 @@ UI、LOG 和 core0 domain task 只能读取 snapshot 或通过 FIFO 发布下一
 推进 generation。该诊断实现不提供停止完成证明，STOP 应答、Core1 配置确认、硬件
 停机与后台池退休仍须分别核验，也不以已观察到停止状态掩盖命令的部分接受失败。
 
+Core0 的任务隔离还依赖编译器 ABI 与 RTOS 上下文保存一致。当前 RP2350 softfp
+构建可用浮点寄存器搬运整数结构，`configENABLE_FPU` 因此启用现有 FreeRTOS port
+的浮点上下文保护；这不是新增 TDMA owner 或数据通道。软件保存区计入 task stack，
+以实际链接的 PendSV 指令及任务水位复核，不能只核算静态链接 RAM。该修正也不能
+代替 ARM/STOP 握手、Core1 WCET 或飞行时间戳的独立验收。
+
 目标数据路径：
 
 ```text

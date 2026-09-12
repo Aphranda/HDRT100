@@ -8,7 +8,10 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的 ARM 拒绝归因切片见 `TDMA-PROGRESS-20260913-041`，
+当前 `TDMA-FLIGHT-002F` 的任务浮点上下文修复见 `TDMA-PROGRESS-20260913-042`，
+证据根为 `out/HardwareAcceptance/20260913/tdma-flight-fpu-context/`。先闭合编译器 ABI
+与 RTOS 保存区不一致的缺口，再继续 ARM/STOP 握手修复；不宣称旧拒绝的因果已闭合。
+前序 ARM 拒绝归因切片见 `TDMA-PROGRESS-20260913-041`，
 证据根为 `out/HardwareAcceptance/20260913/tdma-flight-arm-rejection/`。
 本轮区分管理面 map 准入的实际拒绝点，先闭合 STOP/re-ARM 故障，再继续性能拆分。
 前序锁存与线路时长等价算术切片见
@@ -166,6 +169,60 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-042 - Core0 任务浮点上下文保护
+
+- 日期：2026-09-13；TODO task ID：`TDMA-FLIGHT-002F`。以下数字为实验快照，非事实源；
+  证据根为 `out/HardwareAcceptance/20260913/tdma-flight-fpu-context/`。基线提交
+  `76bc4f13b12de35b3519452b8698a02cda6f2666`，上一目标轮完成提交和原始证据纠错，
+  分类为 progress。本轮不登记新冻结契约、不改变 registry/C11 状态。
+- 追查非法 default map 时，发现 `FreeRTOSConfig.h` 禁用 FPU 上下文保存，但真实
+  RP2350 softfp 镜像已使用高位浮点寄存器，包含 Core0 的 Calibration/RefMem 路径；
+  旧 A/B 的 `PendSV_Handler` 均未保存/恢复 `s16-s31`。这构成独立任务隔离缺口，
+  不能根据该发现直接把历史 ARM result 5 或 result 8 归因于浮点寄存器损坏。
+- 启用 `configENABLE_FPU`，使用既有 FreeRTOS port 的条件保存/恢复及 FPU 设置。
+  本轮不改变 TDMA 生命周期、owner、wire、PIO 或 gate；Core1 仍按原 schedule 运行。
+  新软件 FP 保存区每个使用扩展异常帧的任务占 64 B，来自既有 task stack，不能用
+  静态 RAM 无增长掩盖任务栈额外用量，硬件自动异常帧也需在实板水位中核算。
+- `test_rp2350_fpu_context.py` 交叉编译真实 non-MPU PendSV 函数，检查生成指令的
+  条件 FP 保存、基本寄存器及 DCP 区布局；模型在两个浮点任务交替及中间插入普通
+  任务时验证寄存器/PSP/EXC_RETURN/PSPLIM/DCP 恢复。关闭保存的对照重现高位 FP
+  内容被后续任务覆盖。独立 3 项及相关集成 129 项通过；模型不模拟硅上异常进入、
+  lazy stacking 或切换时延，也不能替代物理抢占验收。
+- Release A/B/Boot 为 `20260912223717`，源码指纹
+  `670154f8c8a51227714a5f92f8fef0ef954deb3bf1a3577fe09e427280469b41`，源码文件 1025。
+  实链 A/B 上下文均通过相同模型，旧 A/B 保留为失败对照；完整指令与哈希见
+  `source-checkpoint-r1.json`。六节点、生成 PIO 相同；静态链接 RAM 无增长，A/B
+  link free 仍各 4848 B，正式 RAM 验收仍开放。
+
+- 当前源码四板 OTA/P3 的诊断流程完成，凭证 `passed=true`、
+  `strict_gates_passed=false`。coarse CLK 中 NO4 ARM result 8；coded marker 的
+  参考 NO4 完成超时，原始 capture/DMA 计数为零；严格启动屏障超时均保留。P3 后续
+  有限 soak 为 passed，四板 good 增量 1894/1890/1891/1891、传输坏帧零；该窗口
+  不覆盖启动和 STOP。当前实测 TRN03 矩阵 `passed=true`，不代表整个 P3 严格通过。
+- 相同有界 ARM/STOP 对照：24 轮的 96 次 ARM 全接受；104 次 STOP 中 103 次应答
+  成功，NO1 stop-04 timeout，紧随命令读取 `-200,"Execution error"`。用时 30.062 s，
+  未 START DATA。前版同范围为 93 次 ARM 接受、两次 STOP 错误；该有限差异不能
+  建立浮点修正与 map 拒绝的因果，也不证明管理面锁冲突已消除。
+- 三次完整配置尝试保留全部结果：data-run-01 在 NO4 ARM result 8 拒绝，无运行
+  窗口，不能计作 soak 成功；data-run-00/02 均严格启动超时，后续有限 soak 各跨
+  7.828/7.891 s，四板 good 增量分别为 1877/1877/1881/1880、1934/1934/1930/1932，
+  传输坏帧和已检查物理故障在这些窗口内无增长。三次严格标志均 false，诊断标志
+  true；外层收集成功只代表证据齐全。此集合用时 125.016 s，未复位或发证。
+- STOP 边界仍有故障读数：P3 运行后首次 STOP，NO1 TX timeout、origin DATA
+  timeout/recovery 从零读到 15；之后 ARM/STOP 集合重新初始化了物理计数。两次
+  完整数据试验 STOP 前上述计数为零，STOP 后分别读到 1 和 7，最终为 7。最终
+  四板观察副本丢失各读到 1。保留 `hardware-review-r1.json` 中各阶段原始前后值；
+  不跨重初始化直接累加，也不把状态发布时点等同于实际故障时点。
+- `baseline-status.json` 与 `final-status.json` 按 UID/build 读取 RTOS 原件。新板
+  任务水位均通过现有门限：最小 free 仍为 556 B，SCPI 各为 3064 B，RefMem 为
+  4952/4960/4952/4952 B；部分任务水位下降，符合额外上下文需要但不是 WCET 证明。
+  四板 heap 最低余量仍为 20352 B，低于现有检查器要求，heap/正式 RAM 门禁仍 FAIL。
+  水位只覆盖本轮负载，不能证明最坏异常嵌套或所有任务抢占组合。
+- 最终四板 ARM/engine/运行请求已停、config requested/applied 一致，当前实测
+  phase 核验完成；四板许可证读回 inactive。本切片状态 PARTIAL，长期目标 active。
+  任务上下文配置缺口已修正，ARM/STOP 部分接受、停机超时、完整 phase/WCET、
+  blackout、同圈交换和特等时间戳逐圈保全继续开放；下一步回到管理面握手修复。
 
 ### TDMA-PROGRESS-20260913-041 - ARM 拒绝归因与管理面部分接受复现
 
