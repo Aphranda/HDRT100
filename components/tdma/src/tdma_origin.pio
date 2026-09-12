@@ -1,0 +1,99 @@
+; Owner-installed resident-origin catalog for RP2350. CONTROL always starts
+; at PC0 and faults at PC31. STATUS is TXLEVEL<1. The launch word holds
+; bit_count-1 in low16 and guard_count-1 in high16, OUT shifts right.
+; Only the TDMA owner may clear fault IRQ1, after stopping the entire graph.
+.program tdma_origin_control
+.origin 0
+.wrap_target
+    pull block
+    out x, 16
+    out y, 16
+    set pins, 0 [1]
+clock_bit:
+    set pins, 1 [2]
+    set pins, 0 [1]
+    jmp x-- clock_bit
+    set pins, 2
+    push block
+guard:
+    jmp y-- guard [31]
+    mov pc, status
+.wrap
+
+; Supply a strictly positive admitted prefix_bits-1. RX bytes appear in
+; low8, allowing one SIZE8 DMA read/pop per byte into compact SRAM banks.
+.program tdma_origin_capture
+.origin 11
+    pull block
+    mov y, osr
+    wait 1 gpio 0
+    wait 0 gpio 0
+skip:
+    wait 1 gpio 1
+    wait 0 gpio 1
+    jmp y-- skip
+.wrap_target
+public sample:
+    wait 1 gpio 1
+    in pins, 1
+    wait 0 gpio 1
+.wrap
+
+; The hardware executor must harvest then reset/rearm this SM each boundary.
+; First FIFO result is the TX-CS -> returned-CS countdown. Subsequent pushes
+; may fill/stall the FIFO while CS remains low; they are not additional edges.
+.program tdma_origin_rtt
+.origin 21
+.wrap_target
+    mov x, ~null
+    wait 0 gpio 0
+count:
+    jmp pin high
+    mov isr, x
+    push block
+.wrap
+high:
+    jmp x-- count
+
+; PIO1 words27..30 belong to the existing clock_latch catalog entry.
+; Late launch supply cannot release this stall. Generic completion code must
+; never clear this IRQ while the resident-origin persona is running.
+.program tdma_origin_fault
+.origin 31
+.wrap_target
+    irq wait 1
+.wrap
+
+; PIO2 internal helper, single FIFO owner: origin executor DMA. TEST_BIT takes
+; an owner-built OUT NULL,n (NOP for n=0), then a sampled register word. No
+; received data can supply the injected instruction, PC, or branch addresses.
+.program tdma_origin_helper
+.origin 0
+.wrap_target
+dispatch:
+    pull block
+    out pc, 5
+public test_bit:
+    pull block
+    mov x, osr
+    pull block
+    mov exec, x
+    out x, 1
+    jmp compare_expected
+    nop
+public compare:
+    pull block
+    mov x, osr
+compare_expected:
+    pull block
+    mov y, osr
+    pull block
+    mov isr, osr
+    pull block
+    jmp x!=y different
+    jmp output
+different:
+    mov isr, osr
+output:
+    push block
+.wrap

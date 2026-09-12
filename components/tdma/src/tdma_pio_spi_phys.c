@@ -1,5 +1,6 @@
 #include "tdma_pio_spi_phys.h"
 #include "tdma_pio_spi_phys_programs.h"
+#include "tdma_pio_spi_origin_workspace.h"
 
 #include <string.h>
 
@@ -13,6 +14,8 @@
 #include "pico/time.h"
 #include "tdma_flight_overlay.h"
 #include "tdma_pio_spi.pio.h"
+#include "tdma_origin.pio.h"
+#include "tdma_process_image_layout.h"
 #include "tdma_pio_spi_phys_timing.h"
 #include "tdma_rx_sequence.h"
 #include "vdc_timestamp_clock.h"
@@ -42,6 +45,15 @@
 _Static_assert(TDMA_PIO_SPI_RX_RING_WORDS >=
                    3u * TDMA_PIO_SPI_RX_DMA_WORD_MAX,
                "TDMA SPI RX ring must hold three maximum short packets");
+_Static_assert(TDMA_RX_DMA_RELOAD_FRAMES % TDMA_PIO_SPI_RX_RING_WORDS == 0u,
+               "RX hardware count reload must preserve the SRAM ring index");
+_Static_assert(TDMA_RX_DMA_COUNT_MAX == DMA_CH0_TRANS_COUNT_COUNT_BITS,
+               "RX count admission must match the hardware field width");
+_Static_assert(TDMA_RX_OBSERVATION_SCAN_WORDS + TDMA_PIO_SPI_RX_DMA_WORD_MAX <
+                   TDMA_PIO_SPI_RX_RING_WORDS,
+               "RX scan window must leave space before the DMA writer");
+_Static_assert(TDMA_RX_OBSERVATION_SCAN_WORDS >= TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS,
+               "RX resynchronization must cover a full physical frame");
 _Static_assert(TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES >=
                    TDMA_PIO_SPI_RX_DMA_WORD_MAX,
                "TRN-03B TX capture must hold one maximum short packet");
@@ -119,6 +131,7 @@ static void tdma_pio_spi_phys_set_line_drivers(bool enabled);
 static int s_tdma_pio_spi_tx_dma_channel = -1;
 static int s_tdma_pio_spi_rx_dma_channel = -1;
 static int s_tdma_pio_spi_command_dma_channel = -1;
+static int s_tdma_pio_spi_executor_dma_channel = -1;
 static tdma_pio_spi_program_manager_t s_tdma_pio_spi_program_manager = {
     .sms_claimed = &s_tdma_pio_spi_sms_claimed,
     .flight_sms_claimed = &s_tdma_pio_spi_flight_sms_claimed,
@@ -159,14 +172,15 @@ static tdma_pio_spi_program_manager_t s_tdma_pio_spi_program_manager = {
     .tx_dma_channel = &s_tdma_pio_spi_tx_dma_channel,
     .rx_dma_channel = &s_tdma_pio_spi_rx_dma_channel,
     .command_dma_channel = &s_tdma_pio_spi_command_dma_channel,
+    .executor_dma_channel = &s_tdma_pio_spi_executor_dma_channel,
 };
-static uint32_t s_tdma_pio_spi_rx_ring[TDMA_PIO_SPI_RX_RING_WORDS]
+static tdma_pio_spi_workspace_t s_tdma_pio_spi_workspace
     __attribute__((aligned(TDMA_PIO_SPI_RX_RING_WORDS * sizeof(uint32_t))));
-static uint32_t s_tdma_pio_spi_flight_tx_words[
-    TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS] __attribute__((aligned(4)));
+#define s_tdma_pio_spi_rx_ring (s_tdma_pio_spi_workspace.service.rx_ring)
+#define s_tdma_pio_spi_flight_tx_words (s_tdma_pio_spi_workspace.service.tx_words)
+#define s_tdma_pio_spi_flight_overlay_plan (s_tdma_pio_spi_workspace.service.follower_plan)
 /* Two resident plans: only selection of the successor retires the old pool.
  * A BUSY sample or physical frame IRQ does not authorize pool reuse. */
-static tdma_flight_overlay_plan_t s_tdma_pio_spi_flight_overlay_plan[2u];
 /* SRAM: PASS traffic must not depend on XIP cache latency. */
 static uint32_t s_tdma_pio_spi_flight_live_word = TDMA_FLIGHT_OVERLAY_LIVE_WORD;
 _Static_assert(tdma_pio_spi_flight_process_follower_offset_final_bit == 16u,
@@ -177,24 +191,17 @@ _Static_assert(sizeof(tdma_flight_overlay_dma_run_t) == 16u &&
                offsetof(dma_channel_hw_t, al3_ctrl) == 0x30u &&
                offsetof(dma_channel_hw_t, al3_read_addr_trig) == 0x3cu,
                "Command descriptors must match the RP2350 AL3 register alias");
-static uint32_t s_tdma_pio_spi_tx_last_frame[
-    TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES]
-    __attribute__((aligned(4)));
-static volatile uint32_t s_tdma_pio_spi_tx_history_produced;
-static volatile uint32_t s_tdma_pio_spi_tx_history_guard;
-static volatile uint32_t s_tdma_pio_spi_tx_last_frame_bytes;
-static volatile uint32_t s_tdma_pio_spi_tx_complete_frame_count;
 static uint64_t s_tdma_pio_spi_rx_scan_produced;
-static tdma_rx_sequence_tracker_t s_tdma_pio_spi_rx_sequence;
+static tdma_rx_dma_counter_t s_tdma_pio_spi_rx_sequence;
 /* Assembled frame (magic-aligned) copied out of the continuous DMA ring. */
 static uint32_t s_tdma_pio_spi_rx_frame[TDMA_PIO_SPI_RX_DMA_WORD_MAX];
-
-static void tdma_pio_spi_phys_reset_normal_capture(void);
 
 static bool tdma_pio_spi_phys_is_flight_persona(void)
 {
     return s_tdma_pio_spi_program_persona ==
                TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN ||
+           s_tdma_pio_spi_program_persona ==
+               TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN ||
            s_tdma_pio_spi_program_persona ==
                TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER ||
            s_tdma_pio_spi_program_persona ==
@@ -617,8 +624,10 @@ static bool tdma_pio_spi_phys_stop_dma_chain(uint32_t loader_mask,
 static bool tdma_pio_spi_phys_stop_command_dma(tdma_pio_spi_phys_t *phys)
 {
     if (phys == NULL) return false;
-    if (s_tdma_pio_spi_command_dma_channel < 0) return true;
-    const uint32_t loader_mask = 1u << (uint)s_tdma_pio_spi_command_dma_channel;
+    const uint32_t loader_mask = s_tdma_pio_spi_command_dma_channel < 0 ? 0u :
+        1u << (uint)s_tdma_pio_spi_command_dma_channel;
+    const uint32_t executor_mask = s_tdma_pio_spi_executor_dma_channel < 0 ? 0u :
+        1u << (uint)s_tdma_pio_spi_executor_dma_channel;
     const uint32_t children_mask =
         (s_tdma_pio_spi_tx_dma_channel < 0 ? 0u :
             1u << (uint)s_tdma_pio_spi_tx_dma_channel) |
@@ -627,12 +636,14 @@ static bool tdma_pio_spi_phys_stop_command_dma(tdma_pio_spi_phys_t *phys)
     const uint64_t deadline = tdma_pio_spi_phys_now_us() +
                               TDMA_PIO_SPI_COMMAND_STOP_TIMEOUT_US;
     tdma_pio_spi_phys_pause_sm_pair(phys);
-    if (!tdma_pio_spi_phys_stop_dma_chain(loader_mask, 0u, children_mask,
+    if (!tdma_pio_spi_phys_stop_dma_chain(loader_mask, executor_mask, children_mask,
                                          deadline)) goto failed;
     tdma_pio_spi_phys_pause_sm_pair(phys);
     __dmb();
     phys->flight_overlay_dma_active = false;
     phys->rx_capture_active = false;
+    phys->flight_origin_workspace_owned = false;
+    phys->flight_origin_rx_observation_ready = false;
     return true;
 failed:
     tdma_pio_spi_phys_set_line_drivers(false);
@@ -1649,17 +1660,17 @@ static void tdma_pio_spi_phys_cal_cleanup(tdma_pio_spi_phys_t *phys)
 
 static bool tdma_pio_spi_phys_rx_arm(tdma_pio_spi_phys_t *phys)
 {
-    if (phys == NULL || !tdma_pio_spi_phys_ensure_rx_dma()) {
+    if (phys == NULL || phys->flight_origin_workspace_owned) return false;
+    if (!tdma_pio_spi_phys_ensure_rx_dma()) {
         return false;
     }
     dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
     tdma_pio_spi_phys_rx_prepare(phys);
     memset(s_tdma_pio_spi_rx_ring, 0, sizeof(s_tdma_pio_spi_rx_ring));
     s_tdma_pio_spi_rx_scan_produced = 0u;
-    if (!tdma_rx_sequence_reset(&s_tdma_pio_spi_rx_sequence,
-                                TDMA_PIO_SPI_RX_RING_WORDS,
-                                0u,
-                                0u)) {
+    if (!tdma_rx_dma_counter_reset(&s_tdma_pio_spi_rx_sequence,
+                                    phys->flight_physical_byte_count,
+                                    vdc_timestamp_clock_read_ticks64())) {
         return false;
     }
     dma_channel_config dma_cfg =
@@ -1668,6 +1679,7 @@ static bool tdma_pio_spi_phys_rx_arm(tdma_pio_spi_phys_t *phys)
     channel_config_set_read_increment(&dma_cfg, false);
     channel_config_set_write_increment(&dma_cfg, true);
     channel_config_set_ring(&dma_cfg, true, TDMA_PIO_SPI_RX_RING_LOG2);
+    channel_config_set_irq_quiet(&dma_cfg, true);
     const PIO capture_pio = tdma_pio_spi_phys_capture_pio(phys);
     const uint capture_sm = tdma_pio_spi_phys_capture_sm(phys);
     channel_config_set_dreq(
@@ -1677,7 +1689,7 @@ static bool tdma_pio_spi_phys_rx_arm(tdma_pio_spi_phys_t *phys)
         &dma_cfg,
         s_tdma_pio_spi_rx_ring,
         &capture_pio->rxf[capture_sm],
-        UINT32_MAX,
+        dma_encode_transfer_count_with_self_trigger(s_tdma_pio_spi_rx_sequence.reload_words),
         false);
     dma_start_channel_mask(1u << (uint)s_tdma_pio_spi_rx_dma_channel);
     phys->rx_capture_active = true;
@@ -1696,25 +1708,27 @@ static uint32_t tdma_pio_spi_phys_rx_write_index(void)
 }
 
 static uint64_t tdma_pio_spi_phys_rx_produced_words(
-    const tdma_pio_spi_phys_t *phys)
+    tdma_pio_spi_phys_t *phys)
 {
-    const uint32_t write_index = tdma_pio_spi_phys_rx_write_index();
-    const bool fixed_frames = phys != NULL && phys->process_image_enabled &&
-        phys->flight_physical_byte_count != 0u;
-    const uint32_t complete_frames = !fixed_frames
-        ? 0u
-        : (phys->role == TDMA_PIO_SPI_ROLE_MASTER
-               ? phys->snapshot.tx_count
-               : phys->snapshot.overlay_frame_boundary_count);
-    const uint32_t frame_words = fixed_frames
-        ? phys->flight_physical_byte_count : 0u;
-    uint64_t produced = s_tdma_pio_spi_rx_sequence.produced_words;
-    if (!tdma_rx_sequence_observe(&s_tdma_pio_spi_rx_sequence,
-                                  write_index,
-                                  complete_frames,
-                                  frame_words,
-                                  &produced)) {
-        return s_tdma_pio_spi_rx_sequence.produced_words;
+    if (phys == NULL || s_tdma_pio_spi_rx_dma_channel < 0) return 0u;
+    const uint64_t before_ticks = vdc_timestamp_clock_read_ticks64();
+    const uint32_t count = dma_hw->ch[s_tdma_pio_spi_rx_dma_channel].transfer_count;
+    __dmb();
+    const uint64_t after_ticks = vdc_timestamp_clock_read_ticks64();
+    uint64_t produced;
+    bool discontinuity;
+    if ((count & DMA_CH0_TRANS_COUNT_MODE_BITS) !=
+            (DMA_CH0_TRANS_COUNT_MODE_VALUE_TRIGGER_SELF << DMA_CH0_TRANS_COUNT_MODE_LSB) ||
+        !tdma_rx_dma_counter_observe(&s_tdma_pio_spi_rx_sequence,
+            count & DMA_CH0_TRANS_COUNT_COUNT_BITS, before_ticks, after_ticks,
+            &produced, &discontinuity)) return 0u;
+    if (discontinuity) {
+        /* An ambiguous counter epoch is observation loss, never a reason to
+         * stop, rearm, or relocate the hardware wire slots. */
+        phys->snapshot.rx_observation_drop_count++;
+        s_tdma_pio_spi_rx_scan_produced = produced;
+        if (!phys->flight_overlay_alignment_locked)
+            phys->flight_overlay_alignment_samples = 0u;
     }
     return produced;
 }
@@ -1791,10 +1805,12 @@ static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
     }
     if (phys == NULL || received_words == NULL ||
         max_words == 0u || max_words > TDMA_PIO_SPI_RX_DMA_WORD_MAX ||
-        !phys->rx_capture_active) {
+        !phys->rx_capture_active || phys->flight_origin_workspace_owned ||
+        s_tdma_pio_spi_program_persona == TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN) {
         return false;
     }
     const uint64_t produced = tdma_pio_spi_phys_rx_produced_words(phys);
+    const uint64_t observation_epoch = s_tdma_pio_spi_rx_sequence.observation_epoch;
     phys->snapshot.rx_dma_produced_words = (uint32_t)produced;
     phys->snapshot.rx_scan_produced_words =
         (uint32_t)s_tdma_pio_spi_rx_scan_produced;
@@ -1811,8 +1827,23 @@ static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
             produced - TDMA_PIO_SPI_RX_RING_WORDS;
     }
 
+    /* When the consumer falls behind, inspect a bounded newest window with
+     * space for a complete packet plus one physical frame of candidate
+     * positions. Do not spend subsequent beats chasing overwritten bytes. */
+    const uint32_t keep_words = (uint32_t)max_words + TDMA_RX_OBSERVATION_SCAN_WORDS;
+    if (produced - s_tdma_pio_spi_rx_scan_produced > keep_words) {
+        s_tdma_pio_spi_rx_scan_produced = produced - keep_words;
+        phys->snapshot.rx_observation_drop_count++;
+    }
+
     uint64_t candidate = s_tdma_pio_spi_rx_scan_produced;
+    uint32_t inspected = 0u;
     while (candidate + TDMA_PIO_SPI_PACKET_HEADER_SIZE <= produced) {
+        if (inspected++ == TDMA_RX_OBSERVATION_SCAN_WORDS) {
+            s_tdma_pio_spi_rx_scan_produced = candidate;
+            phys->snapshot.rx_scan_yield_count++;
+            return false;
+        }
         for (uint32_t bit_shift = 0u; bit_shift < 8u; bit_shift++) {
             const uint32_t alignment_extra = bit_shift == 0u ? 0u : 1u;
             if (candidate + TDMA_PIO_SPI_PACKET_HEADER_SIZE +
@@ -1855,6 +1886,17 @@ static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
                 s_tdma_pio_spi_rx_frame[i] = (uint32_t)
                     tdma_pio_spi_phys_rx_ring_aligned_byte(
                         candidate + i, bit_shift);
+            }
+            __dmb();
+            const uint64_t after_copy = tdma_pio_spi_phys_rx_produced_words(phys);
+            /* Count retires completed SRAM writes. Exclude the next writer
+             * slot as well; a boundary or full counter-epoch ambiguity must
+             * never publish a mixed packet or update wire alignment. */
+            if (s_tdma_pio_spi_rx_sequence.observation_epoch != observation_epoch ||
+                after_copy < produced || after_copy - candidate >= TDMA_PIO_SPI_RX_RING_WORDS) {
+                phys->snapshot.rx_observation_drop_count++;
+                s_tdma_pio_spi_rx_scan_produced = after_copy >= produced ? after_copy : produced;
+                return false;
             }
             /* A shifted aligned byte uses raw[i] and raw[i+1].  The final
              * raw word is therefore also the first word for the next aligned
@@ -1922,7 +1964,9 @@ bool tdma_pio_spi_phys_arm(void *context,
                            const tdma_ring_runtime_config_t *config)
 {
     tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
-    if (phys != NULL && (phys->armed || phys->flight_overlay_dma_active)) {
+    if (phys != NULL && (phys->armed || phys->flight_overlay_dma_active ||
+                         phys->flight_origin_workspace_owned ||
+                         phys->flight_origin_prepare.stage != TDMA_ORIGIN_PREPARE_IDLE)) {
         return tdma_pio_spi_phys_arm_reject(phys, TDMA_PIO_SPI_PHYS_ERROR_PERSONA_BUSY);
     }
     if (phys == NULL || config == NULL || config->enabled == 0u ||
@@ -2109,7 +2153,6 @@ bool tdma_pio_spi_phys_arm(void *context,
     }
     tdma_pio_spi_phys_enable_sm_pair(phys);
 
-    tdma_pio_spi_phys_reset_normal_capture();
     phys->armed = true;
     phys->snapshot.tx_count = 0u;
     phys->snapshot.rx_count = 0u;
@@ -2169,6 +2212,8 @@ bool tdma_pio_spi_phys_arm(void *context,
     phys->snapshot.overlay_pass_recovery_count = 0u;
     phys->snapshot.overlay_late_coalesce_count = 0u;
     phys->snapshot.overlay_reuse_observation_count = 0u;
+    phys->snapshot.rx_observation_drop_count = 0u;
+    phys->snapshot.rx_scan_yield_count = 0u;
     phys->snapshot.rx_busy_word0 = 0u;
     phys->snapshot.rx_busy_word1 = 0u;
     phys->snapshot.rx_busy_word2 = 0u;
@@ -2199,12 +2244,8 @@ bool tdma_pio_spi_phys_disarm(void *context)
      * rollback for both states, so hardware cleanup must not be conditional
      * on the software armed flag. */
     if (!tdma_pio_spi_phys_stop_command_dma(phys)) return false;
-    if (s_tdma_pio_spi_tx_dma_channel >= 0) {
-        dma_channel_abort((uint)s_tdma_pio_spi_tx_dma_channel);
-    }
-    if (s_tdma_pio_spi_rx_dma_channel >= 0) {
-        dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
-    }
+    /* stop_command_dma also retires legacy children without a loader. Do not
+     * re-enter the SDK's unbounded abort after that common deadline. */
     if (phys->flight_sck_waveform_capture_state ==
             TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_PATCHED ||
         phys->flight_sck_waveform_capture_state ==
@@ -2259,7 +2300,13 @@ bool tdma_pio_spi_phys_disarm(void *context)
     tdma_pio_spi_phys_clk_train_reset(phys);
     tdma_pio_spi_phys_fill_static_snapshot(phys);
     tdma_pio_spi_phys_release_flight_resources(phys);
-    return !phys->flight_resource_claimed;
+    if (phys->flight_resource_claimed || phys->flight_origin_resource_claimed) return false;
+    /* Also cancel preparation before persona claim, when no command DMA
+     * exists and stop_command_dma has no active graph to retire. */
+    phys->flight_origin_workspace_owned = false;
+    phys->flight_origin_rx_observation_ready = false;
+    memset(&phys->flight_origin_prepare, 0, sizeof(phys->flight_origin_prepare));
+    return true;
 }
 
 static bool tdma_pio_spi_phys_tx_put(tdma_pio_spi_phys_t *phys,
@@ -2439,6 +2486,16 @@ void tdma_pio_spi_phys_train_clock_service(void *context, uint64_t now_ns)
     tdma_pio_spi_phys_clk_train_write_end(phys);
 }
 
+/* Maintenance starts at the common stopped boundary. In particular an
+ * origin executor can keep writing after its DATA child reports BUSY=0.
+ * The incremental legacy loaders operate only on the NORMAL catalog. */
+static bool tdma_pio_spi_phys_leave_flight_for_maintenance(tdma_pio_spi_phys_t *phys)
+{
+    if (!tdma_pio_spi_phys_is_flight_persona()) return true;
+    return tdma_pio_spi_phys_disarm(phys) &&
+        tdma_pio_spi_phys_select_program_persona(phys, TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL);
+}
+
 #include "tdma_pio_spi_phys_cal_control.inc"
 #include "tdma_pio_spi_phys_cal_service.inc"
 #include "tdma_pio_spi_phys_coded.inc"
@@ -2468,4 +2525,5 @@ bool tdma_pio_spi_phys_get_clk_train_snapshot(
     return false;
 }
 
+#include "tdma_pio_spi_phys_origin.inc"
 #include "tdma_pio_spi_phys_flight_io.inc"

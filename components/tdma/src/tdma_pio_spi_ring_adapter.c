@@ -739,7 +739,7 @@ static bool tdma_pio_spi_ring_adapter_start(
         return false;
     }
     tdma_pio_spi_ring_adapter_snapshot_write_begin(adapter);
-    if (config == NULL || config->enabled == 0u ||
+    if (adapter->origin.active != 0u || config == NULL || config->enabled == 0u ||
         config->node_count < 2u ||
         config->node_count > TDMA_TRANSPORT_FRAME_MAX_SLOT_COUNT ||
         config->local_slot_id >= config->node_count ||
@@ -875,6 +875,8 @@ static bool tdma_pio_spi_ring_adapter_start(
         return false;
     }
     adapter->started = 1u;
+    memset(&adapter->origin, 0, sizeof(adapter->origin));
+    memset(adapter->origin_shadow, 0, sizeof(adapter->origin_shadow));
     /* These counters describe one armed ring session.  Keeping values from a
      * previous topology makes a follower that has not received any frame look
      * as if it is still forwarding traffic, and invalidates START readback. */
@@ -1000,6 +1002,8 @@ static bool tdma_pio_spi_ring_adapter_stop(void *context)
             &adapter->comm_fsm, TDMA_ADAPTER_COMM_EVENT_STOP, 0u);
     }
     adapter->started = 0u;
+    memset(&adapter->origin, 0, sizeof(adapter->origin));
+    memset(adapter->origin_shadow, 0, sizeof(adapter->origin_shadow));
     adapter->up_sequence = 0u;
     adapter->down_rx_sequence = 0u;
     adapter->up_tx_frame_crc32 = 0u;
@@ -1589,11 +1593,14 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
         launched);
 }
 
+#include "tdma_pio_spi_ring_origin.inc"
+
 static bool tdma_pio_spi_ring_adapter_process_rx(
     tdma_pio_spi_ring_adapter_t *adapter,
     const uint8_t *packet,
     size_t packet_size,
-    uint64_t rx_timestamp_ns)
+    uint64_t rx_timestamp_ns,
+    const tdma_origin_observation_t *origin_observation)
 {
     adapter->last_rx_gate_accepted = false;
     adapter->last_rx_new_segment_mask = 0u;
@@ -1607,6 +1614,7 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
     uint32_t hardware_resolution_ns = 0u;
     uint32_t hardware_flags = 0u;
     const bool hardware_round_trip_valid =
+        adapter->origin.active == 0u &&
         adapter->role == TDMA_PIO_SPI_RING_ROLE_REFERENCE &&
         adapter->phys_feedback != NULL &&
         adapter->phys_feedback(adapter->phys_context,
@@ -1725,6 +1733,12 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
         return false;
     }
 
+    if (adapter->origin.active != 0u &&
+        !tdma_pio_spi_ring_origin_pair_valid(adapter, &view, origin_observation)) {
+        adapter->origin.rejected_observation_count++;
+        tdma_pio_spi_ring_adapter_set_error(adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_RX_GATE_REJECT);
+        return false;
+    }
     bool receive_health_rejected = false;
     uint32_t inspected_present_mask = 0u;
     uint32_t inspected_new_mask = 0u;
@@ -1762,6 +1776,13 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
         }
     }
 
+    if (adapter->origin.active != 0u) {
+        if (receive_health_rejected) {
+            adapter->origin.rejected_observation_count++;
+            return false;
+        }
+        tdma_pio_spi_ring_origin_accept(adapter, origin_observation);
+    }
     uint32_t resident_feedback_conditions = 0u;
     if (tdma_pio_spi_ring_adapter_resident_process_image(adapter)) {
         resident_feedback_conditions |=
@@ -1983,7 +2004,7 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
         memcpy(adapter->last_rx_packet, packet, packet_size);
         adapter->last_rx_packet_size = packet_size;
     }
-    if (resident_feedback && !adapter->resident_return_ready) {
+    if (resident_feedback && adapter->origin.active == 0u && !adapter->resident_return_ready) {
         adapter->resident_return_new_segment_mask = inspected_new_mask;
         adapter->resident_return_ready = true;
         if (!tdma_adapter_comm_fsm_dispatch(
@@ -2154,7 +2175,7 @@ static bool tdma_pio_spi_ring_adapter_rx_once(
         return tdma_pio_spi_ring_adapter_process_rx(adapter,
                                                     packet,
                                                     packet_size,
-                                                    rx_timestamp_ns);
+                                                    rx_timestamp_ns, NULL);
     }
 
     if (adapter->phys_rx == NULL) {
@@ -2167,10 +2188,14 @@ static bool tdma_pio_spi_ring_adapter_rx_once(
                           &rx_timestamp_ns)) {
         return false;
     }
+    tdma_origin_observation_t observation;
+    const bool paired = adapter->origin.active != 0u &&
+        adapter->phys_origin.take_rx_observation(adapter->phys_ctrl_context, &observation);
     return tdma_pio_spi_ring_adapter_process_rx(adapter,
                                                 packet,
                                                 packet_size,
-                                                rx_timestamp_ns);
+                                                adapter->origin.active != 0u ? 0ull : rx_timestamp_ns,
+                                                paired ? &observation : NULL);
 }
 
 /* Poll the uplink capture up to RX_POLLS times per service: at 4x the frame
@@ -2362,6 +2387,54 @@ static bool tdma_pio_spi_ring_adapter_prepare_process_overlay(
     return prepared && applied_ok;
 }
 
+/* Cumulative facts survive a parked preparation. Publishing them does not
+ * assert new RX progress or restore the timestamp eligibility cleared by
+ * the handoff. Both paths run under the existing service writer guard. */
+static void tdma_pio_spi_ring_adapter_publish_status(
+    const tdma_pio_spi_ring_adapter_t *adapter, tdma_ring_adapter_status_t *status)
+{
+    status->up_tx_sequence = adapter->up_sequence;
+    status->down_rx_sequence = adapter->down_rx_sequence;
+    status->up_tx_frame_crc32 = adapter->up_tx_frame_crc32;
+    status->down_rx_frame_crc32 = adapter->down_rx_frame_crc32;
+    status->timestamp_resolution_ns =
+        adapter->feedback_reference_sequence != 0u
+            ? adapter->feedback_timestamp_resolution_ns
+            : adapter->timestamp_resolution_ns;
+    status->timestamp_flags =
+        adapter->feedback_reference_sequence != 0u
+            ? adapter->feedback_timestamp_flags
+            : adapter->timestamp_flags;
+    status->idle_beacon_tx_count = adapter->idle_beacon_tx_count;
+    status->idle_beacon_rx_count = adapter->idle_beacon_rx_count;
+    status->last_error = adapter->last_error;
+    status->tx_count = adapter->tx_count;
+    status->rx_count = adapter->rx_count;
+    status->rx_bad_count = adapter->rx_bad_count;
+    status->rx_transport_bad_count = adapter->rx_transport_bad_count;
+    status->rx_schedule_bad_count = adapter->rx_schedule_bad_count;
+    status->rx_profile_bad_count = adapter->rx_profile_bad_count;
+    status->last_bad_transport_result = adapter->last_bad_transport_result;
+    status->last_bad_sequence = adapter->last_bad_sequence;
+    status->last_bad_schedule_crc32 = adapter->last_bad_schedule_crc32;
+    status->last_bad_profile_crc32 = adapter->last_bad_profile_crc32;
+    status->last_bad_header_diff_count =
+        adapter->last_bad_header_diff_count;
+    status->last_bad_header_first_diff_offset =
+        adapter->last_bad_header_first_diff_offset;
+    status->last_bad_header_expected_byte =
+        adapter->last_bad_header_expected_byte;
+    status->last_bad_header_observed_byte =
+        adapter->last_bad_header_observed_byte;
+    status->feedback_reference_sequence =
+        adapter->feedback_reference_sequence;
+    status->feedback_reference_frame_crc32 =
+        adapter->feedback_reference_frame_crc32;
+    status->reference_tx_timestamp_ns = adapter->reference_tx_timestamp_ns;
+    status->feedback_rx_timestamp_ns = adapter->feedback_rx_timestamp_ns;
+    status->clock_observation = adapter->clock_observation;
+}
+
 static bool tdma_pio_spi_ring_adapter_service_impl(
     void *context,
     uint64_t now_ns,
@@ -2380,7 +2453,7 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
      * hardware latch is harvested on a later core1 pass and attached to the
      * exact sequence/identity entry that was published at launch. */
     bool comm_tx_completion_failed = false;
-    if (adapter->phys_tx_complete != NULL) {
+    if (adapter->origin.active == 0u && adapter->phys_tx_complete != NULL) {
         uint64_t completed_timestamp_ns = 0ull;
         const bool completion_pending =
             adapter->reference_tx_completion_pending;
@@ -2458,7 +2531,18 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
 
     bool tx_ok = false;
     bool rx_ok = false;
-    if (adapter->role == TDMA_PIO_SPI_RING_ROLE_REFERENCE) {
+    if (adapter->origin.active != 0u) {
+        if (adapter->comm_fsm.state == TDMA_ADAPTER_COMM_STATE_RESIDENT_PREPARING) {
+            const bool progressing = tdma_pio_spi_ring_origin_prepare_service(adapter);
+            /* No fake running/timeout evidence during a parked startup. Even
+             * DONE returns here; RX/publication wait until the next phase. */
+            status->up_running = status->down_running = 0u;
+            status->timestamp_flags = TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
+            tdma_pio_spi_ring_adapter_publish_status(adapter, status);
+            return progressing;
+        }
+        tx_ok = tdma_pio_spi_ring_origin_service(adapter, &rx_ok);
+    } else if (adapter->role == TDMA_PIO_SPI_RING_ROLE_REFERENCE) {
         const bool resident =
             tdma_pio_spi_ring_adapter_resident_process_image(adapter);
         /* Reference node is the ring origin: it emits one IDLE_BEACON per
@@ -2529,6 +2613,30 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
             tx_ok = true; /* throttled round: keep the UP leg running. */
         }
         rx_ok = tdma_pio_spi_ring_adapter_rx_poll(adapter, now_ns);
+        /* The owner hands over a completed bootstrap at this boundary,
+         * before any legacy next-cycle or stale-cycle TX can launch. */
+        if (resident && adapter->resident_seeded && adapter->resident_return_ready &&
+            adapter->comm_fsm.state == TDMA_ADAPTER_COMM_STATE_CYCLE_BOUNDARY &&
+            !adapter->reference_tx_completion_pending && !adapter->pending_tx_evidence &&
+            adapter->phys_origin.admit != NULL) {
+            uint32_t rearm_ticks = 0u, abort_polls = 0u;
+            const tdma_origin_admission_result_t admission = adapter->phys_origin.admit(
+                adapter->phys_ctrl_context, &adapter->config, &rearm_ticks, &abort_polls);
+            if (admission != TDMA_ORIGIN_ADMISSION_NONE) {
+                const bool preparing = admission == TDMA_ORIGIN_ADMISSION_READY &&
+                    tdma_pio_spi_ring_adapter_start_origin_impl(adapter, rearm_ticks, abort_polls);
+                if (!preparing) {
+                    adapter->origin.active = 1u; /* STOP owns retirement, including rejected handoff */
+                    tdma_pio_spi_ring_origin_invalidate_time(adapter);
+                    (void)tdma_adapter_comm_fsm_dispatch(&adapter->comm_fsm,
+                        TDMA_ADAPTER_COMM_EVENT_ERROR, TDMA_ADAPTER_COMM_ERROR_RUNTIME);
+                    tdma_pio_spi_ring_adapter_set_error(adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_COMM_FSM);
+                }
+                status->up_running = status->down_running = 0u;
+                tdma_pio_spi_ring_adapter_publish_status(adapter, status);
+                return preparing; /* Poll starts on a later service, under one writer guard. */
+            }
+        }
         if (resident && adapter->resident_seeded &&
             adapter->comm_fsm.completed_window_count == 0u &&
             !adapter->resident_return_ready &&
@@ -2641,46 +2749,7 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
     } else {
         status->down_running = 0u;
     }
-    status->up_tx_sequence = adapter->up_sequence;
-    status->down_rx_sequence = adapter->down_rx_sequence;
-    status->up_tx_frame_crc32 = adapter->up_tx_frame_crc32;
-    status->down_rx_frame_crc32 = adapter->down_rx_frame_crc32;
-    status->timestamp_resolution_ns =
-        adapter->feedback_reference_sequence != 0u
-            ? adapter->feedback_timestamp_resolution_ns
-            : adapter->timestamp_resolution_ns;
-    status->timestamp_flags =
-        adapter->feedback_reference_sequence != 0u
-            ? adapter->feedback_timestamp_flags
-            : adapter->timestamp_flags;
-    status->idle_beacon_tx_count = adapter->idle_beacon_tx_count;
-    status->idle_beacon_rx_count = adapter->idle_beacon_rx_count;
-    status->last_error = adapter->last_error;
-    status->tx_count = adapter->tx_count;
-    status->rx_count = adapter->rx_count;
-    status->rx_bad_count = adapter->rx_bad_count;
-    status->rx_transport_bad_count = adapter->rx_transport_bad_count;
-    status->rx_schedule_bad_count = adapter->rx_schedule_bad_count;
-    status->rx_profile_bad_count = adapter->rx_profile_bad_count;
-    status->last_bad_transport_result = adapter->last_bad_transport_result;
-    status->last_bad_sequence = adapter->last_bad_sequence;
-    status->last_bad_schedule_crc32 = adapter->last_bad_schedule_crc32;
-    status->last_bad_profile_crc32 = adapter->last_bad_profile_crc32;
-    status->last_bad_header_diff_count =
-        adapter->last_bad_header_diff_count;
-    status->last_bad_header_first_diff_offset =
-        adapter->last_bad_header_first_diff_offset;
-    status->last_bad_header_expected_byte =
-        adapter->last_bad_header_expected_byte;
-    status->last_bad_header_observed_byte =
-        adapter->last_bad_header_observed_byte;
-    status->feedback_reference_sequence =
-        adapter->feedback_reference_sequence;
-    status->feedback_reference_frame_crc32 =
-        adapter->feedback_reference_frame_crc32;
-    status->reference_tx_timestamp_ns = adapter->reference_tx_timestamp_ns;
-    status->feedback_rx_timestamp_ns = adapter->feedback_rx_timestamp_ns;
-    status->clock_observation = adapter->clock_observation;
+    tdma_pio_spi_ring_adapter_publish_status(adapter, status);
     return true;
 }
 
@@ -2716,18 +2785,18 @@ const tdma_ring_adapter_ops_t *tdma_pio_spi_ring_adapter_ops(void)
     return &s_tdma_pio_spi_ring_adapter_ops;
 }
 
-bool tdma_pio_spi_ring_adapter_get_snapshot(
+bool tdma_pio_spi_ring_adapter_try_get_snapshot(
     const tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_adapter_snapshot_t *snapshot)
 {
     if (adapter == NULL || snapshot == NULL) {
         return false;
     }
-    for (;;) {
+    do {
         const uint32_t sequence_begin =
             __atomic_load_n(&adapter->snapshot_guard, __ATOMIC_ACQUIRE);
         if ((sequence_begin & 1u) != 0u) {
-            continue;
+            return false;
         }
         memset(snapshot, 0, sizeof(*snapshot));
         snapshot->version = TDMA_PIO_SPI_RING_ADAPTER_VERSION;
@@ -2737,6 +2806,7 @@ bool tdma_pio_spi_ring_adapter_get_snapshot(
         snapshot->forwarding_mode = (uint32_t)adapter->forwarding_mode;
         snapshot->forward_count = adapter->forward_count;
         snapshot->up_sequence = adapter->up_sequence;
+        snapshot->origin = adapter->origin;
         snapshot->down_rx_sequence = adapter->down_rx_sequence;
         snapshot->up_tx_frame_crc32 = adapter->up_tx_frame_crc32;
         snapshot->down_rx_frame_crc32 = adapter->down_rx_frame_crc32;
@@ -2876,12 +2946,14 @@ bool tdma_pio_spi_ring_adapter_get_snapshot(
         snapshot->local_tx_edge_capture_generation =
             adapter->local_tx_edge_capture_generation;
         snapshot->local_tx_edge_flags = adapter->local_tx_edge_flags;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
         const uint32_t sequence_end =
             __atomic_load_n(&adapter->snapshot_guard, __ATOMIC_ACQUIRE);
         if (sequence_begin == sequence_end && (sequence_end & 1u) == 0u) {
             break;
         }
-    }
+        return false;
+    } while (false);
     if (adapter->flight_engine != NULL) {
         tdma_flight_engine_snapshot_t engine_snapshot;
         if (tdma_flight_engine_get_snapshot(adapter->flight_engine,
@@ -2905,6 +2977,17 @@ bool tdma_pio_spi_ring_adapter_get_snapshot(
     (void)tdma_receive_health_get_snapshot(&adapter->receive_health,
                                            adapter->last_service_ns,
                                            &snapshot->receive_health);
+    return true;
+}
+
+bool tdma_pio_spi_ring_adapter_get_snapshot(
+    const tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_pio_spi_ring_adapter_snapshot_t *snapshot)
+{
+    if (adapter == NULL || snapshot == NULL) return false;
+    /* Existing Core0 SCPI callers require a complete response. Preserve
+     * their retry semantics; realtime/callback consumers must use try_get. */
+    while (!tdma_pio_spi_ring_adapter_try_get_snapshot(adapter, snapshot)) {}
     return true;
 }
 

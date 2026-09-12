@@ -8,10 +8,20 @@ static void tdma_pio_spi_phys_cal_mark_persona(
 }
 static bool tdma_pio_spi_phys_cal_persona_switch_ready(void)
 {
+    /* A caller must enter maintenance through the complete flight STOP.
+     * Never infer executor retirement from only capture/output BUSY. */
+    if (tdma_pio_spi_phys_is_flight_persona() ||
+        s_tdma_pio_spi_command_dma_channel >= 0 ||
+        s_tdma_pio_spi_executor_dma_channel >= 0) return false;
     const uint32_t sm_mask = (1u << BOARD_TDMA_SPI_MASTER_SM) |
                              (1u << BOARD_TDMA_SPI_SLAVE_SM) |
-                             (1u << BOARD_TDMA_SPI_CAPTURE_SM);
+                             (1u << BOARD_TDMA_SPI_CAPTURE_SM) |
+                             (1u << BOARD_TDMA_SPI_RTT_SM);
+    const uint32_t dma_mask =
+        (s_tdma_pio_spi_tx_dma_channel < 0 ? 0u : 1u << (uint)s_tdma_pio_spi_tx_dma_channel) |
+        (s_tdma_pio_spi_rx_dma_channel < 0 ? 0u : 1u << (uint)s_tdma_pio_spi_rx_dma_channel);
     return (BOARD_TDMA_SPI_PIO->ctrl & sm_mask) == 0u &&
+           (dma_hw->abort & dma_mask) == 0u &&
            (s_tdma_pio_spi_tx_dma_channel < 0 ||
             !dma_channel_is_busy((uint)s_tdma_pio_spi_tx_dma_channel)) &&
            (s_tdma_pio_spi_rx_dma_channel < 0 ||
@@ -39,58 +49,6 @@ static bool tdma_pio_spi_phys_cal_unload_source_step(
             pio_remove_program(BOARD_TDMA_SPI_PIO,
                                &tdma_pio_spi_tx_byte_program,
                                s_tdma_pio_spi_tx_offset);
-        }
-        break;
-    case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN:
-        count = 4u;
-        if (step == 0u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
-                               &tdma_pio_spi_flight_clock_latch_program,
-                               s_tdma_pio_spi_flight_clock_latch_offset);
-        } else if (step == 1u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
-                               &tdma_pio_spi_flight_origin_rtt_program,
-                               s_tdma_pio_spi_flight_origin_rtt_offset);
-        } else if (step == 2u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
-                               &tdma_pio_spi_flight_origin_data_tx_program,
-                               s_tdma_pio_spi_flight_origin_data_offset);
-        } else if (step == 3u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
-                               &tdma_pio_spi_flight_origin_clock_rx_program,
-                               s_tdma_pio_spi_flight_origin_clock_offset);
-        }
-        break;
-    case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER:
-        count = 3u;
-        if (step == 0u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
-                               &tdma_pio_spi_flight_clock_latch_program,
-                               s_tdma_pio_spi_flight_clock_latch_offset);
-        } else if (step == 1u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
-                               &tdma_pio_spi_flight_data_follower_program,
-                               s_tdma_pio_spi_flight_data_follower_offset);
-        } else if (step == 2u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
-                               &tdma_pio_spi_flight_control_forward_program,
-                               s_tdma_pio_spi_flight_control_forward_offset);
-        }
-        break;
-    case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER:
-        count = 3u;
-        if (step == 0u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
-                               &tdma_pio_spi_flight_clock_latch_program,
-                               s_tdma_pio_spi_flight_clock_latch_offset);
-        } else if (step == 1u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
-                               &tdma_pio_spi_flight_process_follower_program,
-                               s_tdma_pio_spi_flight_process_follower_offset);
-        } else if (step == 2u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
-                               &tdma_pio_spi_flight_control_forward_program,
-                               s_tdma_pio_spi_flight_control_forward_offset);
         }
         break;
     default:

@@ -8,6 +8,7 @@
 #include "tdma_adapter_comm_fsm.h"
 #include "tdma_flight_fifo.h"
 #include "tdma_flight_engine.h"
+#include "tdma_origin_plan.h"
 #include "tdma_receive_health.h"
 #include "tdma_ring_runtime.h"
 #include "tdma_transport_frame.h"
@@ -30,7 +31,7 @@
  * the ring is up.
  */
 
-#define TDMA_PIO_SPI_RING_ADAPTER_VERSION 12u
+#define TDMA_PIO_SPI_RING_ADAPTER_VERSION 13u
 
 #define TDMA_PIO_SPI_RESIDENT_FEEDBACK_RESIDENT (1u << 0u)
 #define TDMA_PIO_SPI_RESIDENT_FEEDBACK_SEEDED (1u << 1u)
@@ -187,6 +188,44 @@ typedef bool (*tdma_pio_spi_ring_phys_local_tx_edge_ex_fn)(
 typedef bool (*tdma_pio_spi_ring_phys_tx_retryable_fn)(
     const void *context);
 
+/* Bound by the TDMA owner while stopped. begin is called only after the
+ * owner has admitted a timing/resource budget at a completed bootstrap
+ * boundary. No callback is an authorization to choose that budget here. */
+typedef enum {
+    TDMA_ORIGIN_ADMISSION_NONE = 0u,
+    TDMA_ORIGIN_ADMISSION_READY = 1u,
+    TDMA_ORIGIN_ADMISSION_REJECTED = 2u,
+} tdma_origin_admission_result_t;
+
+typedef struct {
+    tdma_origin_admission_result_t (*admit)(void *context,
+        const tdma_ring_runtime_config_t *config,
+        uint32_t *rearm_budget_ticks, uint32_t *abort_poll_count);
+    bool (*begin)(void *context, const tdma_ring_runtime_config_t *config,
+                  const uint8_t *packet, size_t size,
+                  uint32_t rearm_budget_ticks, uint32_t abort_poll_count);
+    tdma_origin_build_result_t (*poll)(void *context);
+    bool (*healthy)(const void *context);
+    bool (*ready)(void *context);
+    bool (*publish)(void *context, const uint8_t *mailbox, uint32_t *generation);
+    bool (*observe)(void *context, tdma_origin_observation_t *observation);
+    bool (*take_rx_observation)(void *context, tdma_origin_observation_t *observation);
+} tdma_pio_spi_ring_origin_ops_t;
+
+typedef struct {
+    uint32_t active; /* lifetime latch, retained on failure until STOP succeeds */
+    uint32_t observed_return_count;
+    uint32_t unobserved_cycle_count; /* gaps, never fabricated RX timeouts */
+    uint32_t rejected_observation_count;
+    uint32_t published_generation;
+    uint32_t published_owner_generation;
+    uint32_t published_owner_sequence;
+    uint32_t matched_owner_generation;
+    uint32_t matched_owner_sequence;
+    tdma_origin_observation_t returned;
+    tdma_origin_observation_t boundary; /* independent, may be newer than RX */
+} tdma_pio_spi_ring_origin_status_t;
+
 typedef struct {
     uint32_t version;
     uint32_t started;
@@ -296,6 +335,7 @@ typedef struct {
     uint32_t local_tx_edge_identity_crc32;
     uint32_t local_tx_edge_capture_generation;
     uint32_t local_tx_edge_flags;
+    tdma_pio_spi_ring_origin_status_t origin;
 } tdma_pio_spi_ring_adapter_snapshot_t;
 
 typedef struct {
@@ -327,6 +367,14 @@ typedef struct {
     tdma_pio_spi_ring_phys_overlay_fn phys_prepare_overlay;
     tdma_pio_spi_ring_phys_overlay_boundary_fn phys_service_overlay_boundary;
     tdma_pio_spi_ring_phys_overlay_ready_fn phys_overlay_ready;
+    tdma_pio_spi_ring_origin_ops_t phys_origin;
+    tdma_pio_spi_ring_origin_status_t origin;
+    struct {
+        uint32_t generation;
+        uint32_t owner_generation;
+        uint32_t owner_sequence;
+        uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE];
+    } origin_shadow[TDMA_ORIGIN_PLAN_BANK_COUNT];
     void *phys_ctrl_context;
     tdma_flight_fifo_t *flight_fifo;
     tdma_flight_engine_t *flight_engine;
@@ -469,6 +517,13 @@ typedef struct {
 } tdma_pio_spi_ring_adapter_t;
 
 bool tdma_pio_spi_ring_adapter_init(tdma_pio_spi_ring_adapter_t *adapter);
+bool tdma_pio_spi_ring_adapter_set_phys_origin(
+    tdma_pio_spi_ring_adapter_t *adapter, const tdma_pio_spi_ring_origin_ops_t *ops);
+/* Core1 owner only. The caller supplies an admitted budget; this function
+ * never derives admission from a measured/nominal physical period. Success
+ * begins PREPARING; subsequent service calls poll once until installed. */
+bool tdma_pio_spi_ring_adapter_start_origin(tdma_pio_spi_ring_adapter_t *adapter,
+    uint32_t rearm_budget_ticks, uint32_t abort_poll_count);
 bool tdma_pio_spi_ring_adapter_set_calibration_topology(
     tdma_pio_spi_ring_adapter_t *adapter,
     const tdma_ring_calibration_stage_t *stage);
@@ -533,6 +588,11 @@ bool tdma_pio_spi_ring_adapter_inject_rx(tdma_pio_spi_ring_adapter_t *adapter,
                                          size_t packet_size,
                                          uint64_t rx_timestamp_ns);
 const tdma_ring_adapter_ops_t *tdma_pio_spi_ring_adapter_ops(void);
+/* One bounded read. A writer in progress or changed version returns false. */
+bool tdma_pio_spi_ring_adapter_try_get_snapshot(
+    const tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_pio_spi_ring_adapter_snapshot_t *snapshot);
+/* Legacy Core0 maintenance query; may retry until the owner publishes. */
 bool tdma_pio_spi_ring_adapter_get_snapshot(
     const tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_adapter_snapshot_t *snapshot);

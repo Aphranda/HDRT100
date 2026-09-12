@@ -8,6 +8,7 @@
 #include "tdma_ring_runtime.h"
 #include "tdma_state_machine_resources.h"
 #include "tdma_transport_frame.h"
+#include "tdma_origin_plan.h"
 
 /* TDMA PIO SPI resident physical layer.
  *
@@ -56,10 +57,9 @@ typedef enum {
  * per-frame abort, FIFO clear, or DMA reconfiguration gap. */
 #define TDMA_PIO_SPI_RX_RING_WORDS 1024u
 #define TDMA_PIO_SPI_RX_RING_LOG2 12u
-/* Bounded NORMAL-persona diagnostic evidence copied to SD by TRN-03B. RX is
- * the newest raw stream sampled on RX SCK rising edges. TX is the newest
- * complete frame accepted by the local TX FIFO, including its packet header.
- * The buffer is larger than a maximum short packet so TX keeps its boundary. */
+/* Bounded diagnostic evidence copied to SD by TRN-03B. RX is the newest raw
+ * stream sampled on RX SCK rising edges. Legacy TX fields remain zero; the
+ * offline reference is the adjacent Node's immutable physical RX capture. */
 #define TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES 512u
 #define TDMA_PIO_SPI_NORMAL_CAPTURE_VERSION 3u
 #define TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_WORDS 8u
@@ -194,10 +194,11 @@ typedef enum {
     TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER = 13u,
     TDMA_PIO_SPI_PROGRAM_PERSONA_SCK_TRAIN = 14u,
     TDMA_PIO_SPI_PROGRAM_PERSONA_P3_REFERENCE = 15u,
+    TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN = 16u,
 } tdma_pio_spi_program_persona_t;
 
 #define TDMA_PIO_SPI_PROGRAM_PERSONA_MAX \
-    TDMA_PIO_SPI_PROGRAM_PERSONA_P3_REFERENCE
+    TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN
 
 typedef enum {
     TDMA_PIO_SPI_DATA_TRAIN_IDLE = 0u,
@@ -671,6 +672,10 @@ typedef struct {
     uint32_t overlay_selected_generation;
     uint32_t overlay_selection_pending;
     uint32_t overlay_reuse_observation_count;
+    /* Parser-copy loss and bounded scan yields do not describe wire errors. */
+    uint32_t rx_observation_drop_count;
+    uint32_t rx_scan_yield_count;
+    uint32_t rx_dma_transfer_count;
 } tdma_pio_spi_phys_snapshot_t;
 
 typedef struct {
@@ -687,6 +692,27 @@ typedef struct {
     uint32_t sck_word_count;
     uint32_t sck_words[TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_WORDS];
 } tdma_pio_spi_normal_capture_snapshot_t;
+
+typedef enum {
+    TDMA_ORIGIN_PREPARE_IDLE = 0u,
+    TDMA_ORIGIN_PREPARE_MAILBOX,
+    TDMA_ORIGIN_PREPARE_STOP,
+    TDMA_ORIGIN_PREPARE_PERSONA,
+    TDMA_ORIGIN_PREPARE_BUILD_BEGIN,
+    TDMA_ORIGIN_PREPARE_BUILD_STEP,
+    TDMA_ORIGIN_PREPARE_SEED,
+    TDMA_ORIGIN_PREPARE_SMS,
+    TDMA_ORIGIN_PREPARE_INSTALL,
+    TDMA_ORIGIN_PREPARE_COMPLETE,
+    TDMA_ORIGIN_PREPARE_FAILED,
+} tdma_origin_prepare_stage_t;
+
+typedef struct {
+    tdma_ring_runtime_config_t config;
+    const tdma_ring_runtime_config_t *live_config;
+    const uint8_t *seed;
+    uint32_t stage, mailbox, prefix_bits, abort_poll_count, clk_sys_hz;
+} tdma_origin_prepare_t;
 
 typedef struct {
     bool armed;
@@ -758,6 +784,13 @@ typedef struct {
      * loaded. Legacy maintenance fields remain until that persona migrates. */
     tdma_state_machine_resource_contract_t flight_resources;
     bool flight_resource_claimed;
+    bool flight_origin_resource_claimed;
+    /* Origin pool lifetime extends through a failed STOP, independently of
+     * armed and persona. Cleared only after the complete DMA tree settles. */
+    bool flight_origin_workspace_owned;
+    bool flight_origin_rx_observation_ready;
+    tdma_origin_cadence_t flight_origin_cadence;
+    tdma_origin_prepare_t flight_origin_prepare;
     tdma_pio_spi_phys_snapshot_t snapshot;
     bool rx_capture_active;
     size_t rx_capture_max_words;
@@ -837,6 +870,30 @@ bool tdma_pio_spi_phys_take_local_tx_edge_ex(
     uint32_t expected_identity_crc32,
     tdma_ring_local_tx_edge_evidence_t *evidence);
 bool tdma_pio_spi_phys_disarm(void *context);
+/* Core1 owner preparation only, at a completed bootstrap boundary. The caller
+ * supplies its admitted rearm/poll budget; calculation of a physical period
+ * does not constitute RealtimeCapabilityContract/DeploymentGate admission.
+ * Until those gates and the absolute timestamp spine are integrated this
+ * backend accepts only the existing diagnostic-continue profile. begin freezes
+ * config by value; caller retains immutable seed/config outside the persona
+ * workspace until successful common STOP or DONE. begin does not arm hardware;
+ * each poll executes one preparation block. Failure requires common STOP. */
+bool tdma_pio_spi_phys_origin_begin(
+    void *context, const tdma_ring_runtime_config_t *config,
+    const uint8_t *returned_packet, size_t packet_size,
+    uint32_t rearm_budget_ticks, uint32_t abort_poll_count);
+tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *context);
+bool tdma_pio_spi_phys_origin_active(const void *context);
+bool tdma_pio_spi_phys_origin_healthy(const void *context);
+bool tdma_pio_spi_phys_origin_ready(void *context);
+bool tdma_pio_spi_phys_origin_publish(void *context,
+    const uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE], uint32_t *generation);
+bool tdma_pio_spi_phys_origin_observe(void *context,
+                                    tdma_origin_observation_t *observation);
+/* Consumes the observation paired with the most recent successful phys_rx.
+ * It is interval/identity evidence, never an absolute VDC edge timestamp. */
+bool tdma_pio_spi_phys_origin_take_rx_observation(void *context,
+    tdma_origin_observation_t *observation);
 bool tdma_pio_spi_phys_set_process_image_mode(
     tdma_pio_spi_phys_t *phys,
     bool enabled,

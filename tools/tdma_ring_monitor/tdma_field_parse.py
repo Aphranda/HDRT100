@@ -177,6 +177,8 @@ PHYS_FIELDS = (
     "program_lifecycle_error",
     "overlay_published_generation", "overlay_selected_generation",
     "overlay_selection_pending", "overlay_reuse_observation_count",
+    "rx_observation_drop_count", "rx_scan_yield_count",
+    "rx_dma_transfer_count",
 )
 
 KEY = [

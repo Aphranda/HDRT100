@@ -4,6 +4,10 @@
 #include "tdma_pio_spi_ring_adapter.h"
 #include "vdc_timestamp_clock.h"
 #include "resource_arbiter.h"
+#include "calibration_origin_timing.h"
+#include "ota_crc32.h"
+#include "hardware/clocks.h"
+#include <string.h>
 
 #if defined(PROJECT_USE_FREERTOS) && PROJECT_USE_FREERTOS
 #include "FreeRTOS.h"
@@ -41,6 +45,8 @@ static tdma_traffic_scheduler_slot_t
 #endif
 static bool s_tdma_runtime_owner_initialized;
 static uint32_t s_tdma_topology_probe_phase_delay_cycles;
+
+#include "tdma_runtime_origin.inc"
 
 static bool tdma_runtime_owner_flight_phys_arm(
     void *context,
@@ -303,6 +309,19 @@ bool tdma_runtime_owner_init(void)
             tdma_pio_spi_phys_prepare_process_overlay,
             tdma_pio_spi_phys_service_process_overlay_boundary,
             tdma_pio_spi_phys_process_overlay_ready);
+        const tdma_pio_spi_ring_origin_ops_t origin_ops = {
+            .admit = tdma_runtime_owner_origin_admit,
+            .begin = tdma_runtime_owner_origin_begin,
+            .poll = tdma_runtime_owner_origin_poll,
+            .healthy = tdma_runtime_owner_origin_healthy,
+            .ready = tdma_pio_spi_phys_origin_ready,
+            .publish = tdma_pio_spi_phys_origin_publish,
+            .observe = tdma_pio_spi_phys_origin_observe,
+            .take_rx_observation = tdma_pio_spi_phys_origin_take_rx_observation,
+        };
+        /* Admission and physical callbacks share the same TDMA owner. */
+        if (!tdma_pio_spi_ring_adapter_set_phys_origin(
+                &s_tdma_pio_spi_ring_adapter, &origin_ops)) return false;
         tdma_pio_spi_ring_adapter_set_flight_fifo(
             &s_tdma_pio_spi_ring_adapter,
             &s_tdma_runtime_owner.flight_fifo);
@@ -375,6 +394,7 @@ void tdma_runtime_owner_service_phys_tx(uint64_t now_ns)
     if (!s_tdma_runtime_owner_initialized) {
         return;
     }
+    tdma_runtime_owner_origin_lifetime_core1();
     tdma_pio_spi_phys_service_tx(&s_tdma_pio_spi_phys, now_ns);
 }
 
@@ -639,6 +659,7 @@ bool tdma_runtime_owner_set_loop_delay_ns(uint32_t loop_delay_ns,
 bool tdma_runtime_owner_begin_calibration_stage(
     const tdma_ring_calibration_stage_t *header)
 {
+    calibration_manager_origin_revoke();
     if (!s_tdma_runtime_owner_initialized ||
         !tdma_service_begin_calibration_stage(&s_tdma_runtime_owner,
                                               header)) {
@@ -652,6 +673,7 @@ bool tdma_runtime_owner_begin_calibration_stage(
 bool tdma_runtime_owner_set_calibration_stage(
     const tdma_ring_calibration_stage_t *stage)
 {
+    calibration_manager_origin_revoke();
     if (!s_tdma_runtime_owner_initialized ||
         !tdma_service_stage_calibration(&s_tdma_runtime_owner, stage) ||
         !tdma_pio_spi_ring_adapter_set_calibration_topology(
@@ -664,6 +686,7 @@ bool tdma_runtime_owner_set_calibration_stage(
 bool tdma_runtime_owner_stage_calibration_link(
     const tdma_ring_calibration_link_t *link)
 {
+    calibration_manager_origin_revoke();
     if (!s_tdma_runtime_owner_initialized ||
         !tdma_service_stage_calibration_link(&s_tdma_runtime_owner, link)) {
         return false;
@@ -689,6 +712,7 @@ bool tdma_runtime_owner_get_calibration_stage(
 
 bool tdma_runtime_owner_clear_calibration_stage(void)
 {
+    calibration_manager_origin_revoke();
     if (!s_tdma_runtime_owner_initialized ||
         !tdma_service_clear_calibration_stage(&s_tdma_runtime_owner)) {
         return false;

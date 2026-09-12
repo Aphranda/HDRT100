@@ -183,8 +183,6 @@ void tdma_pio_spi_phys_service_tx(void *context, uint64_t now_ns)
     (void)tdma_pio_spi_phys_clock_latch_read_and_rearm(
         phys, &tx_edge_timestamp_ns);
 
-    uint8_t header[TDMA_PIO_SPI_PACKET_HEADER_SIZE];
-    uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
     const uint32_t packet_size = phys->flight_tx_packet_size;
     const uint32_t wire_bytes = phys->flight_tx_wire_bytes;
     if (packet_size == 0u || wire_bytes != packet_size +
@@ -196,16 +194,6 @@ void tdma_pio_spi_phys_service_tx(void *context, uint64_t now_ns)
         phys->flight_tx_completion_pending = true;
         return;
     }
-    for (uint32_t index = 0u; index < wire_bytes; index++) {
-        const uint8_t value = (uint8_t)(
-            s_tdma_pio_spi_flight_tx_words[index] >> 24u);
-        if (index < TDMA_PIO_SPI_PACKET_HEADER_SIZE) {
-            header[index] = value;
-        } else {
-            packet[index - TDMA_PIO_SPI_PACKET_HEADER_SIZE] = value;
-        }
-    }
-    tdma_pio_spi_phys_record_complete_tx_frame(header, packet, packet_size);
     phys->snapshot.tx_count++;
     phys->snapshot.tx_edge_count++;
     phys->snapshot.last_tx_size = packet_size;
@@ -296,7 +284,6 @@ bool tdma_pio_spi_phys_tx(void *context,
         phys->baud_hz, packet_size, TDMA_PIO_SPI_PACKET_HEADER_SIZE));
     gpio_put(phys->tx_csn_pin, true);
     const uint64_t tx_done_timestamp_ns = vdc_timestamp_clock_now_ns();
-    tdma_pio_spi_phys_record_complete_tx_frame(header, packet, packet_size);
 
     phys->snapshot.tx_count++;
     phys->snapshot.tx_edge_count++;
@@ -330,6 +317,11 @@ bool tdma_pio_spi_phys_rx(void *context,
         return false;
     }
 
+    if (phys->flight_origin_workspace_owned || s_tdma_pio_spi_program_persona ==
+            TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN) {
+        return tdma_pio_spi_phys_origin_rx(phys, packet, packet_capacity,
+                                          packet_size, rx_timestamp_ns);
+    }
     size_t received_words = 0u;
     if (!tdma_pio_spi_phys_capture_words(phys,
                                          TDMA_PIO_SPI_RX_DMA_WORD_MAX,
@@ -473,6 +465,8 @@ bool tdma_pio_spi_phys_get_snapshot(const tdma_pio_spi_phys_t *phys,
         return false;
     }
     *snapshot = phys->snapshot;
+    snapshot->rx_dma_transfer_count = s_tdma_pio_spi_rx_dma_channel < 0 ? 0u :
+        dma_hw->ch[(uint)s_tdma_pio_spi_rx_dma_channel].transfer_count;
     const bool flight = tdma_pio_spi_phys_is_flight_persona();
     const PIO tx_diag_pio = flight
         ? (phys->role == TDMA_PIO_SPI_ROLE_MASTER
@@ -665,11 +659,10 @@ tdma_pio_spi_phys_copy_normal_capture(
         return TDMA_PIO_SPI_NORMAL_CAPTURE_COPY_FAILED;
     }
 
-    /* Flight evidence is the physical RX loop stream. The origin's software
-     * TX history is a continuously rewritten single buffer, not a waveform;
-     * seqlock-copying it here can consume an unbounded number of retries and
-     * violate the calibration beat. Offline reference selection therefore
-     * uses the adjacent Node's immutable physical RX capture. */
+    /* Flight evidence is the physical RX loop stream. Offline reference
+     * selection uses the adjacent Node's immutable physical RX capture.
+     * TX counters remain in the physical snapshot; no software frame history
+     * is generated or presented as wire evidence. */
     (void)tx_bytes;
     snapshot->tx_byte_count = 0u;
     snapshot->tx_produced_bytes = 0u;

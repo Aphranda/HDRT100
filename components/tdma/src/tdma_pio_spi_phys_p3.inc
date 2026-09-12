@@ -47,48 +47,6 @@ static bool tdma_pio_spi_phys_p3_unload_source_step(
                                s_tdma_pio_spi_tx_offset);
         }
         break;
-    case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN:
-        count = 4u;
-        if (step == 0u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
-                &tdma_pio_spi_flight_clock_latch_program,
-                s_tdma_pio_spi_flight_clock_latch_offset);
-        } else if (step == 1u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
-                &tdma_pio_spi_flight_origin_rtt_program,
-                s_tdma_pio_spi_flight_origin_rtt_offset);
-        } else if (step == 2u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
-                &tdma_pio_spi_flight_origin_data_tx_program,
-                s_tdma_pio_spi_flight_origin_data_offset);
-        } else if (step == 3u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
-                &tdma_pio_spi_flight_origin_clock_rx_program,
-                s_tdma_pio_spi_flight_origin_clock_offset);
-        }
-        break;
-    case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER:
-    case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER:
-        count = 3u;
-        if (step == 0u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
-                &tdma_pio_spi_flight_clock_latch_program,
-                s_tdma_pio_spi_flight_clock_latch_offset);
-        } else if (step == 1u && s_tdma_pio_spi_program_persona ==
-                   TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
-                &tdma_pio_spi_flight_data_follower_program,
-                s_tdma_pio_spi_flight_data_follower_offset);
-        } else if (step == 1u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
-                &tdma_pio_spi_flight_process_follower_program,
-                s_tdma_pio_spi_flight_process_follower_offset);
-        } else if (step == 2u) {
-            pio_remove_program(BOARD_TDMA_SPI_PIO,
-                &tdma_pio_spi_flight_control_forward_program,
-                s_tdma_pio_spi_flight_control_forward_offset);
-        }
-        break;
     default:
         return false;
     }
@@ -337,6 +295,7 @@ bool tdma_pio_spi_phys_p3_start(
         phys->marker.state == TDMA_PIO_SPI_MARKER_RUNNING) {
         return false;
     }
+    if (!tdma_pio_spi_phys_leave_flight_for_maintenance(phys)) return false;
     const tdma_pio_spi_program_persona_t persona =
         request->role == TDMA_PIO_SPI_P3_ROLE_INITIATOR
             ? (request->signal_group == TDMA_PIO_SPI_P3_GROUP_CS_DATA

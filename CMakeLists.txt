@@ -521,6 +521,8 @@ set(PROJECT_APP_SOURCES
         components/tdma/src/tdma_payload_registry.c
         components/tdma/src/tdma_flight_fifo.c
         components/tdma/src/tdma_flight_overlay.c
+        components/tdma/src/tdma_origin_plan.c
+        components/tdma/src/tdma_origin_exchange.c
         components/tdma/src/tdma_flight_engine.c
         components/tdma/src/tdma_receive_health.c
         components/tdma/src/tdma_adapter_comm_fsm.c
@@ -647,6 +649,7 @@ function(project_configure_app_target target_name app_name linker_script)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/biss_tap_rx.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/distributed_refmem/src/refmem_spi_physical.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/tdma/src/tdma_pio_spi.pio)
+    pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/tdma/src/tdma_origin.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sma_cable_delay/src/sma_cable_delay.pio)
 
     pico_enable_stdio_uart(${target_name} ${PROJECT_ENABLE_UART_STDIO})

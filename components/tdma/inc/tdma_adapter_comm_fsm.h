@@ -13,6 +13,9 @@ typedef enum {
     TDMA_ADAPTER_COMM_STATE_RUNNING = 2u,
     TDMA_ADAPTER_COMM_STATE_CYCLE_BOUNDARY = 3u,
     TDMA_ADAPTER_COMM_STATE_FAULT = 4u,
+    /* Hardware owns subsequent cycles; software observes bounded samples. */
+    TDMA_ADAPTER_COMM_STATE_AUTONOMOUS = 5u,
+    TDMA_ADAPTER_COMM_STATE_RESIDENT_PREPARING = 6u,
 } tdma_adapter_comm_state_t;
 
 typedef enum {
@@ -28,6 +31,8 @@ typedef enum {
     TDMA_ADAPTER_COMM_EVENT_BOOTSTRAP_TX_STARTED = 9u,
     TDMA_ADAPTER_COMM_EVENT_BOOTSTRAP_TX_COMPLETED = 10u,
     TDMA_ADAPTER_COMM_EVENT_DATA_RX_TIMED_OUT = 11u,
+    TDMA_ADAPTER_COMM_EVENT_RESIDENT_INSTALLED = 12u,
+    TDMA_ADAPTER_COMM_EVENT_RESIDENT_PREPARE = 13u,
 } tdma_adapter_comm_event_t;
 
 typedef enum {

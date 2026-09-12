@@ -418,6 +418,7 @@ static refmem_fb_instance_table_t s_active_fb_instance_table;
 static refmem_event_link_table_t s_active_event_link_table;
 static refmem_data_link_table_t s_active_data_link_table;
 static refmem_deployment_gate_table_t s_active_deployment_gate;
+static uint32_t s_origin_model_epoch = 2u;
 static refmem_connection_quality_table_t s_active_connection_quality;
 static tdma_foundation_profile_t s_active_tdma_foundation_profile;
 static bool s_staging_node_load_valid;
@@ -2384,6 +2385,7 @@ static void refmem_model_apply_parsed_tables(const refmem_model_parsed_tables_t 
         return;
     }
 
+    (void)__atomic_add_fetch(&s_origin_model_epoch, 1u, __ATOMIC_ACQ_REL);
     s_active_application_map = parsed->application_map;
     s_active_board_capability_table = parsed->board_capability;
     s_active_generic_node_table = parsed->generic_node;
@@ -2416,6 +2418,7 @@ static void refmem_model_apply_parsed_tables(const refmem_model_parsed_tables_t 
     s_snapshot.first_lint_error = REFMEM_APP_LINT_OK;
     s_load_snapshot.active_package_crc32 = parsed->package_crc32;
     s_board_load_snapshot.active_crc32 = s_snapshot.board_capability_crc32;
+    (void)__atomic_add_fetch(&s_origin_model_epoch, 1u, __ATOMIC_RELEASE);
 }
 
 bool refmem_application_model_apply_active_table_views(void)
@@ -2570,6 +2573,7 @@ bool refmem_application_model_validate(void)
 
 bool refmem_application_model_init(void)
 {
+    (void)__atomic_add_fetch(&s_origin_model_epoch, 1u, __ATOMIC_ACQ_REL);
     s_active_tables_from_image = false;
     refmem_application_model_discard_prepared_table_views();
 
@@ -2578,6 +2582,8 @@ bool refmem_application_model_init(void)
                                          0u,
                                          0u,
                                          TDMA_ADAPTER_PIO_SPI)) {
+        s_snapshot.valid = 0u;
+        (void)__atomic_add_fetch(&s_origin_model_epoch, 1u, __ATOMIC_RELEASE);
         return false;
     }
     s_tdma_foundation_profile.resource.io_claim_mask =
@@ -2644,6 +2650,7 @@ bool refmem_application_model_init(void)
     s_staging_board_capability_valid = false;
     s_initialized = true;
     refmem_table_registry_init(&s_snapshot);
+    (void)__atomic_add_fetch(&s_origin_model_epoch, 1u, __ATOMIC_RELEASE);
     return s_snapshot.valid != 0u;
 }
 
@@ -3047,7 +3054,74 @@ bool refmem_application_model_set_tdma_ring_topology(uint32_t local_slot_id,
         return false;
     }
     updated.profile_crc32 = tdma_foundation_profile_crc32(&updated);
+    (void)__atomic_add_fetch(&s_origin_model_epoch, 1u, __ATOMIC_ACQ_REL);
     *profile = updated;
+    (void)__atomic_add_fetch(&s_origin_model_epoch, 1u, __ATOMIC_RELEASE);
+    return true;
+}
+
+uint32_t refmem_realtime_contract_origin_model_epoch(void)
+{
+    return __atomic_load_n(&s_origin_model_epoch, __ATOMIC_ACQUIRE);
+}
+
+bool refmem_realtime_contract_admit_origin_trial(
+    const refmem_realtime_origin_capability_t *capability,
+    uint32_t foundation_crc32, refmem_realtime_origin_admission_t *admission)
+{
+    if (admission == NULL) return false;
+    memset(admission, 0, sizeof(*admission));
+    if (capability == NULL || !s_initialized || !s_snapshot.valid ||
+        (capability->features & REFMEM_RT_ORIGIN_REQUIRED_FEATURES) !=
+            REFMEM_RT_ORIGIN_REQUIRED_FEATURES ||
+        capability->persona == 0u || capability->clk_sys_hz == 0u ||
+        capability->physical_bytes == 0u || capability->resource_mask == 0u ||
+        capability->dma_mask == 0u || (capability->dma_mask & (1u << 7u)) != 0u ||
+        capability->tx_pio == 0u || capability->rx_pio == 0u ||
+        capability->tx_pio == capability->rx_pio) return false;
+    const uint32_t epoch = refmem_realtime_contract_origin_model_epoch();
+    if ((epoch & 1u) != 0u || epoch == 0u) return false;
+    const tdma_foundation_profile_t *profile = refmem_model_current_tdma_foundation_profile();
+    const refmem_generic_node_table_t *nodes = refmem_model_current_generic_node_table();
+    const refmem_board_capability_table_t *boards = refmem_model_current_board_capability_table();
+    const refmem_node_load_table_t *loads = refmem_model_current_node_load_table();
+    const refmem_fb_instance_table_t *instances = refmem_model_current_fb_instance_table();
+    const refmem_deployment_gate_table_t *gate = refmem_model_current_deployment_gate_table();
+    if (profile->profile_crc32 != foundation_crc32 ||
+        profile->ring.local_index != profile->ring.reference_index ||
+        !refmem_model_validate_tdma_profile_contract(profile, nodes, boards, loads, instances) ||
+        gate->version != REFMEM_APP_MODEL_VERSION ||
+        gate->check_count != REFMEM_APP_MODEL_DEPLOYMENT_CHECK_COUNT) return false;
+    uint32_t gate_mask = 0u;
+    for (uint32_t i = 0u; i < gate->check_count; ++i) {
+        const refmem_deployment_gate_entry_t *check = &gate->check[i];
+        if (check->check_id >= REFMEM_APP_MODEL_DEPLOYMENT_CHECK_COUNT ||
+            (gate_mask & (1u << check->check_id)) != 0u || check->required == 0u ||
+            check->last_state != REFMEM_APP_GATE_PASS || check->reject_code != 0u)
+            return false;
+        gate_mask |= 1u << check->check_id;
+    }
+    refmem_slot_claim_map_t map;
+    if (!refmem_slot_claim_derive_map(nodes, boards, loads, instances, &map)) return false;
+    const refmem_slot_claim_assignment_t *assignment =
+        refmem_slot_claim_find_assignment(&map, profile->ring.local_index);
+    if (assignment == NULL || assignment->claim_state != REFMEM_SLOT_CLAIM_CLAIMED)
+        return false;
+    if (epoch != refmem_realtime_contract_origin_model_epoch()) return false;
+    *admission = (refmem_realtime_origin_admission_t){
+        .model_epoch = epoch, .foundation_crc32 = foundation_crc32,
+        .deployment_crc32 = s_snapshot.deployment_gate_crc32,
+        .owner_instance = profile->owner_instance_id, .node_id = profile->ring.local_index,
+        .board_id = assignment->board_id, .gate_mask = gate_mask,
+        .diagnostic_valid = 1u, .product_valid = 0u,
+        /* No product timing record is implemented by this experimental API. */
+        .product_reject_mask = capability->product_reject_mask | REFMEM_RT_ORIGIN_PRODUCT_TIMING,
+        .capability = *capability};
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    if (epoch != refmem_realtime_contract_origin_model_epoch()) {
+        memset(admission, 0, sizeof(*admission));
+        return false;
+    }
     return true;
 }
 

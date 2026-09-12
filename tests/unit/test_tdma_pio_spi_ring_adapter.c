@@ -527,9 +527,11 @@ static void fill_test_process_mailbox(uint8_t *mailbox,
     mailbox[TDMA_PROCESS_IMAGE_CRC_OFFSET + 1u] = (uint8_t)(crc >> 8u);
 }
 
+#include "tdma_origin_adapter_cases.inc"
+
 int main(void)
 {
-    int failed = 0;
+    int failed = test_origin_adapter();
 
     /* --- Adapter without physical TX: honest EVIDENCE_MISSING. --- */
     {

@@ -617,20 +617,19 @@ def test_process_follower_disarm_releases_overlay_tx_dma() -> None:
     phys = _read_phys_source()
     disarm = phys.split("bool tdma_pio_spi_phys_disarm", 1)[1].split(
         "static bool tdma_pio_spi_phys_tx_put", 1)[0]
-    tx_abort = disarm.index(
-        "dma_channel_abort((uint)s_tdma_pio_spi_tx_dma_channel)")
-    rx_abort = disarm.index(
-        "dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel)")
+    common_stop = disarm.index("if (!tdma_pio_spi_phys_stop_command_dma(phys)) return false;")
     disable = disarm.index("pio_sm_set_enabled")
-    assert tx_abort < disable
-    assert rx_abort < disable
+    assert common_stop < disable
+    assert "dma_channel_abort(" not in disarm
+    # Real C bus regression in test_tdma_command_dma also verifies children
+    # are stopped when no loader/executor exists; this checks the wiring.
 
 
 def test_partial_arm_disarm_cannot_return_before_hardware_cleanup() -> None:
     phys = _read_phys_source()
     disarm = phys.split("bool tdma_pio_spi_phys_disarm", 1)[1].split(
         "static bool tdma_pio_spi_phys_tx_put", 1)[0]
-    first_dma_abort = disarm.index("dma_channel_abort")
+    first_dma_abort = disarm.index("tdma_pio_spi_phys_stop_command_dma(phys)")
     first_sm_disable = disarm.index("pio_sm_set_enabled")
     assert "if (!phys->armed)" not in disarm[:first_dma_abort]
     assert first_dma_abort < first_sm_disable
@@ -1448,17 +1447,21 @@ def test_p3_is_an_offline_bounded_core1_session() -> None:
     assert "TDMA_PIO_SPI_P3_TRANSITION_RESTORE_LOAD" in service
 
 
-def test_process_rx_reconstructs_absolute_fixed_frame_sequence() -> None:
+def test_process_rx_uses_completed_dma_count_without_software_frame_inference() -> None:
     source = _read_phys_source()
     produced = source.split(
         "static uint64_t tdma_pio_spi_phys_rx_produced_words", 1
     )[1].split("static uint32_t tdma_pio_spi_phys_rx_ring_word", 1)[0]
-    assert "snapshot.overlay_frame_boundary_count" in produced
-    assert "snapshot.tx_count" in produced
-    assert "tdma_rx_sequence_observe" in produced
-    assert "phys->flight_physical_byte_count : 0u" in produced
-    assert "sequence_floor" not in produced
-    assert "transfer_count" not in produced
+    assert "snapshot.overlay_frame_boundary_count" not in produced
+    assert "snapshot.tx_count" not in produced
+    assert "tdma_rx_dma_counter_observe" in produced
+    assert "transfer_count" in produced
+    assert "DMA_CH0_TRANS_COUNT_MODE_VALUE_TRIGGER_SELF" in produced
+    arm = source.split("static bool tdma_pio_spi_phys_rx_arm",1)[1].split(
+        "static uint32_t tdma_pio_spi_phys_rx_write_index",1)[0]
+    assert "dma_encode_transfer_count_with_self_trigger(s_tdma_pio_spi_rx_sequence.reload_words)" in arm
+    assert "phys->flight_physical_byte_count" in arm
+    assert "channel_config_set_irq_quiet(&dma_cfg, true)" in arm
 
 
 def test_process_rx_only_restores_a_proven_complete_ring() -> None:

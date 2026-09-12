@@ -1,5 +1,6 @@
 #include "refmem_table_registry.h"
 #include "refmem_vector_table.h"
+#include "refmem_realtime_contract.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -1248,6 +1249,46 @@ static int test_scpi_node_load_stages_activation_ready_package(void)
     return failed;
 }
 
+static int test_origin_trial_model_projection(void)
+{
+    int failed = 0;
+    failed += expect_bool("origin model init", refmem_application_model_init(), true);
+    const tdma_foundation_profile_t *profile = refmem_application_model_get_tdma_foundation_profile();
+    refmem_realtime_origin_capability_t capability = {
+        .features = REFMEM_RT_ORIGIN_REQUIRED_FEATURES, .persona = 16u,
+        .clk_sys_hz = 150000000u, .physical_bytes = 300u, .resource_mask = 3u,
+        .dma_mask = (1u << 4u) | (1u << 5u) | (1u << 6u) | (1u << 8u),
+        .tx_pio = 1u, .rx_pio = 2u,
+        .product_reject_mask = REFMEM_RT_ORIGIN_PRODUCT_RAM | REFMEM_RT_ORIGIN_PRODUCT_WCET};
+    refmem_realtime_origin_admission_t admission;
+    failed += expect_bool("origin default model projection",
+        refmem_realtime_contract_admit_origin_trial(&capability, profile->profile_crc32, &admission), true);
+    failed += expect_u32("origin product remains rejected", admission.product_valid, 0u);
+    failed += expect_u32("origin rejection reasons retained", admission.product_reject_mask,
+        REFMEM_RT_ORIGIN_PRODUCT_RAM | REFMEM_RT_ORIGIN_PRODUCT_WCET | REFMEM_RT_ORIGIN_PRODUCT_TIMING);
+    const uint32_t epoch = admission.model_epoch;
+    for (unsigned bad = 0; bad < 7; ++bad) {
+        refmem_realtime_origin_capability_t invalid = capability;
+        if (bad == 0) invalid.features = 0u;
+        if (bad == 1) invalid.dma_mask |= 1u << 7u;
+        if (bad == 2) invalid.tx_pio = 0u;
+        if (bad == 3) invalid.rx_pio = invalid.tx_pio;
+        if (bad == 4) invalid.physical_bytes = 0u;
+        if (bad == 5) invalid.resource_mask = 0u;
+        failed += expect_bool("origin malformed capability rejected",
+            refmem_realtime_contract_admit_origin_trial(&invalid,
+                profile->profile_crc32 ^ (bad == 6 ? 1u : 0u), &admission), false);
+        failed += expect_u32("origin no stale grant after reject", admission.diagnostic_valid, 0u);
+    }
+    failed += expect_bool("origin topology publication",
+        refmem_application_model_set_tdma_ring_topology(0u, 1u, 4u), true);
+    failed += expect_bool("origin topology revokes old epoch",
+        refmem_realtime_contract_origin_model_epoch() != epoch, true);
+    failed += expect_bool("origin follower cannot originate",
+        refmem_realtime_contract_admit_origin_trial(&capability, profile->profile_crc32, &admission), false);
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -1267,6 +1308,7 @@ int main(void)
     failed += test_activation_rejects_unreleased_table_view();
     failed += test_scpi_board_load_stages_board_table_crc();
     failed += test_scpi_node_load_stages_activation_ready_package();
+    failed += test_origin_trial_model_projection();
 
     if (failed != 0) {
         (void)printf("refmem_table_registry tests failed: %d\n", failed);

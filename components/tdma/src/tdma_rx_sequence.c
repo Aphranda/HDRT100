@@ -2,6 +2,47 @@
 
 #include <stddef.h>
 
+bool tdma_rx_dma_counter_reset(tdma_rx_dma_counter_t *counter,
+                               uint32_t physical_frame_words, uint64_t now_ticks)
+{
+    if (counter == NULL || physical_frame_words == 0u ||
+        physical_frame_words > TDMA_RX_DMA_COUNT_MAX / TDMA_RX_DMA_RELOAD_FRAMES)
+        return false;
+    *counter = (tdma_rx_dma_counter_t){
+        .reload_words = physical_frame_words * TDMA_RX_DMA_RELOAD_FRAMES,
+        .sample_before_ticks = now_ticks, .initialized = true};
+    return true;
+}
+
+bool tdma_rx_dma_counter_observe(tdma_rx_dma_counter_t *counter,
+                                 uint32_t remaining_words,
+                                 uint64_t before_ticks,
+                                 uint64_t after_ticks,
+                                 uint64_t *produced_words,
+                                 bool *discontinuity)
+{
+    if (counter == NULL || produced_words == NULL || discontinuity == NULL ||
+        !counter->initialized || remaining_words > counter->reload_words ||
+        after_ticks < before_ticks || before_ticks < counter->sample_before_ticks)
+        return false;
+    const uint32_t reload = counter->reload_words;
+    const uint32_t position = remaining_words == 0u ? 0u : reload - remaining_words;
+    /* One DMA channel cannot retire more than one write per clk_sys tick.
+     * Use this hardware ceiling, not baud or a software frame estimate. */
+    const bool lost = after_ticks - counter->sample_before_ticks >= reload;
+    const uint32_t advance = position >= counter->position
+        ? position - counter->position : reload - counter->position + position;
+    if (UINT64_MAX - counter->produced_words < advance ||
+        (lost && counter->observation_epoch == UINT64_MAX)) return false;
+    if (lost) counter->observation_epoch++;
+    counter->produced_words += advance;
+    counter->sample_before_ticks = before_ticks;
+    counter->position = position;
+    *produced_words = counter->produced_words;
+    *discontinuity = lost;
+    return true;
+}
+
 bool tdma_rx_sequence_reset(tdma_rx_sequence_tracker_t *tracker,
                             uint32_t ring_words,
                             uint32_t initial_write_index,

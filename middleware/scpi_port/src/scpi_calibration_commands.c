@@ -6,6 +6,7 @@
 #include "sma_cable_delay.h"
 #include "sma_cable_delay_pio.h"
 #include "sync_io.h"
+#include "tdma_runtime_owner.h"
 
 #define SCPI_SMA_CABLE_CAPTURE_MAX_WORDS 512u
 #define SCPI_SMA_CABLE_CAPTURE_DEFAULT_WORDS 256u
@@ -13,6 +14,96 @@
 #define SCPI_SMA_CABLE_RTT_RESPONDER_TIMEOUT_US 2000000u
 
 static uint32_t s_scpi_sma_cable_capture[SCPI_SMA_CABLE_CAPTURE_MAX_WORDS];
+
+scpi_result_t scpi_calibration_origin_runtime_q(scpi_t *context)
+{
+    tdma_pio_spi_ring_adapter_snapshot_t snapshot;
+    if (!tdma_pio_spi_ring_adapter_try_get_snapshot(tdma_runtime_owner_get_ring_adapter(), &snapshot)) {
+        SCPI_ResultText(context, "UNAVAILABLE");
+        return SCPI_RES_OK;
+    }
+    SCPI_ResultText(context, "ORIGINRUNTIME");
+    SCPI_ResultUInt32(context, snapshot.origin.active);
+    SCPI_ResultUInt32(context, snapshot.comm_fsm_state);
+    SCPI_ResultUInt32(context, snapshot.comm_fsm_last_error);
+    SCPI_ResultUInt32(context, snapshot.origin.observed_return_count);
+    SCPI_ResultUInt32(context, snapshot.origin.unobserved_cycle_count);
+    SCPI_ResultUInt32(context, snapshot.origin.rejected_observation_count);
+    SCPI_ResultUInt32(context, snapshot.origin.published_generation);
+    SCPI_ResultUInt32(context, snapshot.origin.published_owner_generation);
+    SCPI_ResultUInt32(context, snapshot.origin.matched_owner_generation);
+    SCPI_ResultUInt32(context, snapshot.origin.returned.sequence);
+    SCPI_ResultUInt32(context, snapshot.origin.returned.identity);
+    SCPI_ResultUInt32(context, snapshot.origin.returned.local_generation);
+    SCPI_ResultUInt32(context, snapshot.origin.boundary.sequence);
+    SCPI_ResultUInt32(context, snapshot.origin.boundary.identity);
+    SCPI_ResultUInt32(context, snapshot.origin.boundary.local_generation);
+    SCPI_ResultUInt32(context, snapshot.origin.boundary.output_remaining);
+    SCPI_ResultUInt32(context, snapshot.timestamp_flags);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_origin_trial(scpi_t *context)
+{
+    uint32_t trial, rearm, polls;
+    uint64_t duration;
+    if (!SCPI_ParamUInt32(context, &trial, TRUE) ||
+        !SCPI_ParamUInt32(context, &rearm, TRUE) ||
+        !SCPI_ParamUInt32(context, &polls, TRUE) ||
+        !SCPI_ParamUInt64(context, &duration, TRUE)) return SCPI_RES_ERR;
+    if (!calibration_manager_origin_trial(trial, rearm, polls, duration)) {
+        scpi_port_push_exec_error(context, "CAL_ORIGIN_TRIAL_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, calibration_manager_origin_epoch());
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_origin_revoke(scpi_t *context)
+{
+    calibration_manager_origin_revoke();
+    return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_calibration_origin_q(scpi_t *context)
+{
+    calibration_origin_timing_t trial;
+    if (!calibration_manager_origin_get_timing(&trial)) {
+        SCPI_ResultText(context, "UNAVAILABLE");
+        return SCPI_RES_OK;
+    }
+    /* Publication facts only. Runtime/physical queries remain independent
+     * observations and are never represented as one atomic grant snapshot. */
+    SCPI_ResultText(context, "ORIGINTRIAL");
+    SCPI_ResultUInt32(context, trial.version);
+    SCPI_ResultUInt32(context, trial.epoch);
+    SCPI_ResultUInt32(context, trial.enabled);
+    SCPI_ResultUInt32(context, trial.trial_id);
+    SCPI_ResultUInt32(context, trial.config_seq);
+    SCPI_ResultUInt32(context, trial.calibration_generation);
+    SCPI_ResultUInt32(context, trial.topology_generation);
+    SCPI_ResultUInt32(context, trial.topology_crc32);
+    SCPI_ResultUInt32(context, trial.calibration_crc32);
+    SCPI_ResultUInt32(context, trial.rearm_budget_ticks);
+    SCPI_ResultUInt32(context, trial.abort_poll_count);
+    SCPI_ResultUInt64(context, trial.expires_ticks);
+    SCPI_ResultUInt32(context, trial.admission.model_epoch);
+    SCPI_ResultUInt32(context, trial.admission.foundation_crc32);
+    SCPI_ResultUInt32(context, trial.admission.deployment_crc32);
+    SCPI_ResultUInt32(context, trial.admission.owner_instance);
+    SCPI_ResultUInt32(context, trial.admission.node_id);
+    SCPI_ResultUInt32(context, trial.admission.board_id);
+    SCPI_ResultUInt32(context, trial.admission.gate_mask);
+    SCPI_ResultUInt32(context, trial.admission.diagnostic_valid);
+    SCPI_ResultUInt32(context, trial.admission.product_valid);
+    SCPI_ResultUInt32(context, trial.admission.product_reject_mask);
+    SCPI_ResultUInt32(context, trial.admission.capability.persona);
+    SCPI_ResultUInt32(context, trial.admission.capability.clk_sys_hz);
+    SCPI_ResultUInt32(context, trial.admission.capability.physical_bytes);
+    SCPI_ResultUInt32(context, trial.admission.capability.resource_mask);
+    SCPI_ResultUInt32(context, trial.admission.capability.dma_mask);
+    return SCPI_RES_OK;
+}
 
 static bool scpi_sma_cable_input_pin(uint32_t input_channel,
                                      uint32_t *input_pin)

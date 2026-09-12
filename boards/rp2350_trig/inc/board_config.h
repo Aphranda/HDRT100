@@ -135,6 +135,10 @@
 #define BOARD_TDMA_RX_DATA_OUT_DMA_CHANNEL 5u
 #define BOARD_TDMA_TX_DATA_IN_FORWARD_DMA_CHANNEL 6u
 #define BOARD_TDMA_TX_SYNC_EDGE_DMA_CHANNEL 7u
+/* Resident origin: loader -> executor -> capture/output. DMA7 remains the
+ * separate SYNC_IO/observation projection and is never used by this graph. */
+#define BOARD_TDMA_ORIGIN_EXECUTOR_DMA_CHANNEL 8u
+#define BOARD_TDMA_ORIGIN_HELPER_SM BOARD_TDMA_RX_RESERVED_CONTROL_SM
 /* Process follower persona: the reserved forward channel loads command DMA
  * descriptors. It has no DATA FIFO/DREQ ownership and is exclusive with the
  * legacy forward role under the stopped TDMA flight resource claim. */

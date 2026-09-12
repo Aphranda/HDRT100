@@ -32,6 +32,8 @@ bool tdma_pio_spi_phys_cal_loopback_start(tdma_pio_spi_phys_t *phys,
         s_tdma_pio_spi_program_persona ==
             TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN ||
         s_tdma_pio_spi_program_persona ==
+            TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN ||
+        s_tdma_pio_spi_program_persona ==
             TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER ||
         s_tdma_pio_spi_program_persona ==
             TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER ||
@@ -48,6 +50,7 @@ bool tdma_pio_spi_phys_cal_loopback_start(tdma_pio_spi_phys_t *phys,
         phys->marker.state == TDMA_PIO_SPI_MARKER_RUNNING) {
         return false;
     }
+    if (!tdma_pio_spi_phys_leave_flight_for_maintenance(phys)) return false;
     phys->cal_loopback_sample_hz = sample_hz == 0u
         ? TDMA_PIO_SPI_CAL_LOOPBACK_DEFAULT_HZ : sample_hz;
     phys->cal_loopback_sample_words = sample_words;

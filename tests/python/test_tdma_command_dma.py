@@ -193,6 +193,7 @@ typedef struct {
 } Snapshot;
 typedef struct {
     bool armed, flight_resource_claimed, flight_overlay_dma_active, flight_overlay_pending;
+    bool flight_origin_workspace_owned, flight_origin_rx_observation_ready;
     bool rx_capture_active;
     uint32_t flight_overlay_active_buffer, flight_physical_byte_count, flight_overlay_pending_buffer;
     uint32_t flight_overlay_published_generation;
@@ -207,6 +208,7 @@ static bool busy[16], hang_abort, stopped, enabled, late_trigger, late_restart;
 static unsigned now, stop_clear_output_count, start_calls;
 static int s_tdma_pio_spi_command_dma_channel = 6, s_tdma_pio_spi_tx_dma_channel = 5;
 static int s_tdma_pio_spi_rx_dma_channel = 4;
+static int s_tdma_pio_spi_executor_dma_channel = -1;
 static tdma_flight_overlay_plan_t s_tdma_pio_spi_flight_overlay_plan[2];
 static uint32_t s_tdma_pio_spi_flight_live_word = TDMA_FLIGHT_OVERLAY_LIVE_WORD;
 static struct { uint32_t txf[4]; } pio;
@@ -420,6 +422,20 @@ int main(void) {
     assert(stop_clear_output_count == 2);
     stop_race(true, true, true);
     stop_race(false, false, true);
+    /* Bootstrap preparation can be cancelled before a command DMA exists.
+     * Its old capture/output children still require the common deadline. */
+    s_tdma_pio_spi_command_dma_channel = -1;
+    s_tdma_pio_spi_executor_dma_channel = -1;
+    busy[4] = busy[5] = true;
+    bus.ch[4].ctrl_trig = bus.ch[5].ctrl_trig = 1;
+    hang_abort = true;
+    unsigned child_stop_started = now;
+    assert(!tdma_pio_spi_phys_stop_command_dma(&phys));
+    assert(now - child_stop_started <= TDMA_PIO_SPI_COMMAND_STOP_TIMEOUT_US + 1);
+    assert(busy[4] && busy[5] && phys.flight_overlay_dma_active);
+    hang_abort = false;
+    assert(tdma_pio_spi_phys_stop_command_dma(&phys));
+    assert(!busy[4] && !busy[5] && !phys.flight_overlay_dma_active);
     puts("DMA: 200 autonomous plans, 48 publication phases, pool retirement, wrap, late triggers, bounded STOP/retry passed");
 }
 '''
@@ -450,35 +466,39 @@ typedef unsigned uint;
 typedef uint tdma_pio_spi_program_persona_t;
 enum { TDMA_PIO_SPI_PHYS_ERROR_PERSONA_BUSY = 6,
        TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK = 3,
+       TDMA_STATE_MACHINE_ORIGIN_ADDITIONAL_RESOURCE_MASK = 12,
        TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK = 1 };
 static const char *TDMA_FLIGHT_RESOURCE_OWNER = "TDMA_FLIGHT_PIO";
 static const char *TDMA_MAINTENANCE_RESOURCE_OWNER = "TDMA_MAINTENANCE_PIO";
 typedef struct {
     int *command_dma_channel, *tx_dma_channel, *rx_dma_channel;
     bool *maintenance_resources_claimed;
+    int *executor_dma_channel;
 } tdma_pio_spi_program_manager_t;
 typedef struct {
-    bool flight_overlay_dma_active, flight_resource_claimed;
+    bool flight_overlay_dma_active, flight_resource_claimed, flight_origin_resource_claimed;
     struct { uint last_error; } snapshot;
 } tdma_pio_spi_phys_t;
-static struct { uint32_t abort; } bus;
+static struct { uint32_t abort, sniff_ctrl; } bus;
 #define dma_hw (&bus)
 static bool busy[16];
 static uint dma_releases, sm_releases, arbiter_releases;
 static bool dma_channel_is_busy(uint ch) { return busy[ch]; }
-static void dma_channel_unclaim(uint ch) { assert(ch == 6); ++dma_releases; }
+static void dma_channel_unclaim(uint ch) { assert(ch == 6 || ch == 8); ++dma_releases; }
 static bool tdma_pio_spi_programs_is_flight_persona(uint p) { return p == 1; }
 static void tdma_pio_spi_programs_release_flight_sms(tdma_pio_spi_program_manager_t *m) { (void)m; ++sm_releases; }
 static void tdma_pio_spi_programs_release_maintenance_sms(tdma_pio_spi_program_manager_t *m) { (void)m; ++sm_releases; }
 static void resource_arbiter_release_owned(uint mask, const char *owner) {
-    assert(mask == TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK);
+    assert(mask == TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK ||
+           mask == TDMA_STATE_MACHINE_ORIGIN_ADDITIONAL_RESOURCE_MASK);
     assert(owner == TDMA_FLIGHT_RESOURCE_OWNER); ++arbiter_releases;
 }
 '''
     assertions = r'''
 int main(void) {
     int loader = 6, tx = 5, rx = 4; bool maintenance = false;
-    tdma_pio_spi_program_manager_t manager = {&loader, &tx, &rx, &maintenance};
+    int executor = -1;
+    tdma_pio_spi_program_manager_t manager = {&loader, &tx, &rx, &maintenance, &executor};
     tdma_pio_spi_phys_t phys = {.flight_resource_claimed = true};
     for (uint ch = 4; ch <= 6; ++ch) {
         for (uint phase = 0; phase < 2; ++phase) {
@@ -506,6 +526,24 @@ int main(void) {
     assert(!phys.flight_resource_claimed && loader == -1);
     assert(dma_releases == 1 && sm_releases == 1 && arbiter_releases == 1);
     assert(busy[7] && bus.abort == (1u << 7));
+    /* The actual origin resource tree retains its global sniffer even if
+     * only executor ABORT (or only BUSY) remains after loader quiescence. */
+    loader = 6; executor = 8;
+    phys.flight_resource_claimed = phys.flight_origin_resource_claimed = true;
+    bus.sniff_ctrl = 0x12345;
+    dma_releases = sm_releases = arbiter_releases = 0;
+    for (uint phase = 0; phase < 2; ++phase) {
+        busy[8] = phase == 0;
+        bus.abort = (1u << 7) | (phase == 1 ? 1u << 8 : 0);
+        tdma_pio_spi_programs_release_resources(&manager, &phys, 1);
+        assert(executor == 8 && loader == 6 && phys.flight_origin_resource_claimed);
+        assert(bus.sniff_ctrl == 0x12345 && !dma_releases && !sm_releases && !arbiter_releases);
+    }
+    busy[8] = false; bus.abort = 1u << 7;
+    tdma_pio_spi_programs_release_resources(&manager, &phys, 1);
+    assert(executor == -1 && loader == -1 && !phys.flight_origin_resource_claimed);
+    assert(!bus.sniff_ctrl && dma_releases == 2 && sm_releases == 1 && arbiter_releases == 2);
+    assert(busy[7] && bus.abort == (1u << 7));
 }
 '''
     unit = tmp_path / "release_resources.c"
@@ -527,11 +565,15 @@ def test_observation_copy_realign_does_not_move_published_wire_slots(tmp_path):
 #include <stdint.h>
 #include <stddef.h>
 enum { TDMA_PIO_SPI_RX_RING_WORDS = 1024, TDMA_PIO_SPI_RX_DMA_WORD_MAX = 64,
+       TDMA_RX_OBSERVATION_SCAN_WORDS = 320,
        TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES = 2,
        TDMA_PIO_SPI_PACKET_HEADER_SIZE = 4, TDMA_TRANSPORT_FRAME_HEADER_SIZE = 32,
        TDMA_PIO_SPI_PACKET_MAGIC0 = 0xa5, TDMA_PIO_SPI_PACKET_MAGIC1 = 0x5a };
+enum { TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN = 16 };
+static unsigned s_tdma_pio_spi_program_persona;
 typedef struct {
     bool rx_capture_active, process_image_enabled, flight_overlay_alignment_locked;
+    bool flight_origin_workspace_owned;
     uint32_t flight_physical_byte_count, flight_alignment_byte_shift, flight_alignment_bit_shift;
     uint32_t flight_overlay_alignment_samples;
     uint64_t flight_overlay_alignment_candidate;
@@ -539,10 +581,13 @@ typedef struct {
         uint32_t rx_dma_produced_words, rx_scan_produced_words, rx_dma_write_index, rx_dma_channel;
         uint32_t rx_ring_overrun_count, rx_magic_at_zero, rx_magic_at_shift, rx_magic_fail_count;
         uint32_t last_bad_header0, last_bad_header1, last_bad_header2, last_bad_header3, last_bad_words;
+        uint32_t rx_observation_drop_count, rx_scan_yield_count;
     } snapshot;
 } tdma_pio_spi_phys_t;
 static uint64_t s_tdma_pio_spi_rx_scan_produced, produced, packet_start;
+static struct { uint64_t observation_epoch; } s_tdma_pio_spi_rx_sequence;
 static unsigned alignment;
+static void __dmb(void) {}
 static int s_tdma_pio_spi_rx_dma_channel = 4;
 static uint32_t s_tdma_pio_spi_rx_frame[64];
 static uint64_t tdma_pio_spi_phys_rx_produced_words(tdma_pio_spi_phys_t *p) { (void)p; return produced; }
@@ -580,6 +625,8 @@ int main(void) {
     assert(phys.flight_alignment_byte_shift == 5 && phys.flight_alignment_bit_shift == 0);
     phys.flight_overlay_alignment_locked = true;
     packet_start = 2058; produced = 2095; alignment = 3;
+    assert(!tdma_pio_spi_phys_capture_words(&phys, 64, &received) && received == 0);
+    assert(phys.snapshot.rx_scan_yield_count == 1);
     assert(tdma_pio_spi_phys_capture_words(&phys, 64, &received) && received == 36);
     assert(phys.snapshot.rx_ring_overrun_count == 1 && phys.snapshot.rx_magic_at_shift == 2);
     assert(phys.flight_alignment_byte_shift == 5 && phys.flight_alignment_bit_shift == 0);
@@ -590,6 +637,15 @@ int main(void) {
     packet_start = 11; produced = 48; alignment = 2;
     assert(tdma_pio_spi_phys_capture_words(&phys, 64, &received));
     assert(phys.flight_alignment_byte_shift == 11 && phys.flight_alignment_bit_shift == 2);
+    /* Compact origin banks overlay the legacy ring storage. Neither an
+     * active graph nor a stopped origin persona may enter the word scanner. */
+    const uint64_t cursor = s_tdma_pio_spi_rx_scan_produced;
+    phys.flight_origin_workspace_owned = true;
+    assert(!tdma_pio_spi_phys_capture_words(&phys, 64, &received) && received == 0);
+    phys.flight_origin_workspace_owned = false;
+    s_tdma_pio_spi_program_persona = TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN;
+    assert(!tdma_pio_spi_phys_capture_words(&phys, 64, &received) && received == 0);
+    assert(s_tdma_pio_spi_rx_scan_produced == cursor);
 }
 '''
     unit = tmp_path / "capture_alignment.c"

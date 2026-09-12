@@ -40,47 +40,6 @@ static void tdma_pio_spi_phys_prepare_maintenance_mapping(
     phys->armed = true;
 }
 
-static void tdma_pio_spi_phys_reset_normal_capture(void)
-{
-    (void)__atomic_add_fetch(&s_tdma_pio_spi_tx_history_guard,
-                             1u, __ATOMIC_ACQ_REL);
-    memset(s_tdma_pio_spi_tx_last_frame, 0,
-           sizeof(s_tdma_pio_spi_tx_last_frame));
-    s_tdma_pio_spi_tx_history_produced = 0u;
-    s_tdma_pio_spi_tx_last_frame_bytes = 0u;
-    s_tdma_pio_spi_tx_complete_frame_count = 0u;
-    (void)__atomic_add_fetch(&s_tdma_pio_spi_tx_history_guard,
-                             1u, __ATOMIC_RELEASE);
-}
-
-static void tdma_pio_spi_phys_record_complete_tx_frame(
-    const uint8_t *header,
-    const uint8_t *packet,
-    size_t packet_size)
-{
-    const uint32_t frame_bytes =
-        (uint32_t)packet_size + TDMA_PIO_SPI_PACKET_HEADER_SIZE;
-    if (header == NULL || packet == NULL ||
-        frame_bytes > TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES) {
-        return;
-    }
-    (void)__atomic_add_fetch(&s_tdma_pio_spi_tx_history_guard,
-                             1u, __ATOMIC_ACQ_REL);
-    for (uint32_t index = 0u;
-         index < TDMA_PIO_SPI_PACKET_HEADER_SIZE; index++) {
-        s_tdma_pio_spi_tx_last_frame[index] = header[index];
-    }
-    for (uint32_t index = 0u; index < (uint32_t)packet_size; index++) {
-        s_tdma_pio_spi_tx_last_frame[
-            TDMA_PIO_SPI_PACKET_HEADER_SIZE + index] = packet[index];
-    }
-    s_tdma_pio_spi_tx_last_frame_bytes = frame_bytes;
-    s_tdma_pio_spi_tx_history_produced += frame_bytes;
-    s_tdma_pio_spi_tx_complete_frame_count++;
-    (void)__atomic_add_fetch(&s_tdma_pio_spi_tx_history_guard,
-                             1u, __ATOMIC_RELEASE);
-}
-
 static void tdma_pio_spi_phys_prepare_maintenance_pins(
     tdma_pio_spi_phys_t *phys)
 {

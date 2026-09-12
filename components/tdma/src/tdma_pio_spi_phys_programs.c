@@ -8,6 +8,8 @@
 #include "hardware/pio.h"
 #include "resource_arbiter.h"
 #include "tdma_pio_spi.pio.h"
+#include "tdma_origin.pio.h"
+#include "tdma_origin_plan.h"
 #include "tdma_state_machine_resources.h"
 
 /* Keep the migrated implementation readable while making every former
@@ -54,6 +56,7 @@ static bool tdma_pio_spi_programs_is_flight_persona(
     tdma_pio_spi_program_persona_t persona)
 {
     return persona == TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN ||
+           persona == TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN ||
            persona == TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER ||
            persona ==
                TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER;
@@ -67,6 +70,7 @@ static bool tdma_pio_spi_programs_dma_quiesced(
         return false;
     }
     const int channels[] = {*manager->command_dma_channel,
+                            manager->executor_dma_channel == NULL ? -1 : *manager->executor_dma_channel,
                             *manager->tx_dma_channel,
                             *manager->rx_dma_channel};
     for (size_t i = 0u; i < sizeof(channels) / sizeof(channels[0]); ++i) {
@@ -189,6 +193,38 @@ static void tdma_pio_spi_programs_release_flight_sms(
     *manager->flight_sms_claimed = false;
 }
 
+static bool tdma_pio_spi_programs_claim_origin_dma(
+    tdma_pio_spi_program_manager_t *manager, tdma_pio_spi_phys_t *phys)
+{
+    const tdma_state_machine_origin_dma_contract_t c = tdma_state_machine_origin_dma_contract();
+    if (phys->role != TDMA_PIO_SPI_ROLE_MASTER || !phys->process_image_enabled ||
+        manager->command_dma_channel == NULL || manager->executor_dma_channel == NULL ||
+        !tdma_state_machine_origin_dma_contract_valid(&c)) return false;
+    const int loader = *manager->command_dma_channel;
+    const int executor = *manager->executor_dma_channel;
+    if ((loader >= 0 && loader != c.loader_dma) ||
+        (executor >= 0 && executor != c.executor_dma) ||
+        (loader < 0 && dma_channel_is_claimed(c.loader_dma)) ||
+        (executor < 0 && dma_channel_is_claimed(c.executor_dma))) return false;
+    if (!phys->flight_origin_resource_claimed) {
+        /* An enabled unowned sniffer is an admission conflict, not state we
+         * may clear. The lease covers the global accumulator and control. */
+        if ((dma_hw->sniff_ctrl & DMA_SNIFF_CTRL_EN_BITS) != 0u ||
+            !resource_arbiter_acquire_owned(TDMA_STATE_MACHINE_ORIGIN_ADDITIONAL_RESOURCE_MASK,
+                                            TDMA_FLIGHT_RESOURCE_OWNER)) return false;
+        phys->flight_origin_resource_claimed = true;
+    }
+    if (loader < 0) {
+        dma_channel_claim(c.loader_dma);
+        *manager->command_dma_channel = c.loader_dma;
+    }
+    if (executor < 0) {
+        dma_channel_claim(c.executor_dma);
+        *manager->executor_dma_channel = c.executor_dma;
+    }
+    return true;
+}
+
 static bool tdma_pio_spi_programs_claim_resources(
     tdma_pio_spi_program_manager_t *manager,
     tdma_pio_spi_phys_t *phys,
@@ -236,6 +272,9 @@ static bool tdma_pio_spi_programs_claim_resources(
         ? tdma_pio_spi_programs_ensure_flight_sms_claimed(manager)
         : tdma_pio_spi_programs_ensure_maintenance_sms_claimed(manager);
     bool command_claimed = true;
+    if (sms_claimed && persona == TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN) {
+        command_claimed = tdma_pio_spi_programs_claim_origin_dma(manager, phys);
+    }
     if (sms_claimed && persona == TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER) {
         const tdma_state_machine_command_dma_contract_t command =
             tdma_state_machine_command_dma_contract();
@@ -253,13 +292,7 @@ static bool tdma_pio_spi_programs_claim_resources(
         return true;
     }
     if (flight) {
-        tdma_pio_spi_programs_release_flight_sms(manager);
-        if (phys->flight_resource_claimed) {
-            resource_arbiter_release_owned(
-                TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK,
-                TDMA_FLIGHT_RESOURCE_OWNER);
-            phys->flight_resource_claimed = false;
-        }
+        tdma_pio_spi_programs_release_resources(manager, phys, persona);
     } else if (claimed_here) {
         resource_arbiter_release_owned(
             TDMA_STATE_MACHINE_MAINTENANCE_RESOURCE_MASK,
@@ -344,6 +377,16 @@ void tdma_pio_spi_programs_release_resources(
             dma_channel_unclaim((uint)*manager->command_dma_channel);
             *manager->command_dma_channel = -1;
         }
+        if (manager->executor_dma_channel != NULL && *manager->executor_dma_channel >= 0) {
+            dma_channel_unclaim((uint)*manager->executor_dma_channel);
+            *manager->executor_dma_channel = -1;
+        }
+        if (phys->flight_origin_resource_claimed) {
+            dma_hw->sniff_ctrl = 0u;
+            resource_arbiter_release_owned(TDMA_STATE_MACHINE_ORIGIN_ADDITIONAL_RESOURCE_MASK,
+                                           TDMA_FLIGHT_RESOURCE_OWNER);
+            phys->flight_origin_resource_claimed = false;
+        }
         tdma_pio_spi_programs_release_flight_sms(manager);
         if (phys->flight_resource_claimed) {
             resource_arbiter_release_owned(
@@ -373,7 +416,8 @@ bool tdma_pio_spi_programs_transfer_resources(
     if (previous != TDMA_PIO_SPI_PROGRAM_PERSONA_NONE &&
         target != TDMA_PIO_SPI_PROGRAM_PERSONA_NONE &&
         previous_flight == target_flight &&
-        !(previous == TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER &&
+        !((previous == TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER ||
+           previous == TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN) &&
           target != previous)) {
         return tdma_pio_spi_programs_claim_resources(
             manager, phys, target);
@@ -841,6 +885,45 @@ static bool tdma_pio_spi_phys_load_p3_reference_programs(
     return true;
 }
 
+typedef struct {
+    const struct pio_program *program;
+    uint offset;
+    bool tx;
+} tdma_origin_catalog_entry_t;
+
+static const tdma_origin_catalog_entry_t s_origin_catalog[] = {
+    {&tdma_origin_control_program, TDMA_ORIGIN_CONTROL_PC, true},
+    {&tdma_origin_capture_program, TDMA_ORIGIN_CAPTURE_PC, true},
+    {&tdma_origin_rtt_program, TDMA_ORIGIN_RTT_PC, true},
+    {&tdma_pio_spi_flight_clock_latch_program, TDMA_ORIGIN_LATCH_PC, true},
+    {&tdma_origin_fault_program, TDMA_ORIGIN_FAULT_PC, true},
+    {&tdma_origin_helper_program, TDMA_ORIGIN_HELPER_PC, false},
+    {&tdma_pio_spi_flight_origin_data_tx_program, TDMA_ORIGIN_DATA_PC, false},
+};
+
+static bool tdma_pio_spi_phys_load_process_origin_programs(tdma_pio_spi_program_manager_t *manager)
+{
+    _Static_assert(tdma_origin_helper_offset_test_bit == TDMA_ORIGIN_TEST_BIT_PC &&
+                   tdma_origin_helper_offset_compare == TDMA_ORIGIN_COMPARE_PC,
+                   "Origin AL3 helper entries must match the assembled PIO catalog");
+    for (size_t i = 0u; i < sizeof(s_origin_catalog) / sizeof(s_origin_catalog[0]); ++i) {
+        const tdma_origin_catalog_entry_t *entry = &s_origin_catalog[i];
+        if (!pio_can_add_program_at_offset(entry->tx ? BOARD_TDMA_TX_PIO : BOARD_TDMA_RX_PIO,
+                                           entry->program, entry->offset)) return false;
+    }
+    for (size_t i = 0u; i < sizeof(s_origin_catalog) / sizeof(s_origin_catalog[0]); ++i) {
+        const tdma_origin_catalog_entry_t *entry = &s_origin_catalog[i];
+        pio_add_program_at_offset(entry->tx ? BOARD_TDMA_TX_PIO : BOARD_TDMA_RX_PIO,
+                                  entry->program, entry->offset);
+    }
+    s_tdma_pio_spi_flight_origin_clock_offset = TDMA_ORIGIN_CONTROL_PC;
+    s_tdma_pio_spi_flight_origin_data_capture_offset = TDMA_ORIGIN_CAPTURE_PC;
+    s_tdma_pio_spi_flight_origin_rtt_offset = TDMA_ORIGIN_RTT_PC;
+    s_tdma_pio_spi_flight_clock_latch_offset = TDMA_ORIGIN_LATCH_PC;
+    s_tdma_pio_spi_flight_origin_data_offset = TDMA_ORIGIN_DATA_PC;
+    return true;
+}
+
 static bool tdma_pio_spi_phys_load_programs(
     tdma_pio_spi_program_manager_t *manager,
     tdma_pio_spi_program_persona_t persona)
@@ -872,6 +955,8 @@ static bool tdma_pio_spi_phys_load_programs(
         return tdma_pio_spi_phys_load_sck_train_programs(manager);
     case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN:
         return tdma_pio_spi_phys_load_flight_origin_programs(manager);
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN:
+        return tdma_pio_spi_phys_load_process_origin_programs(manager);
     case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER:
         return tdma_pio_spi_phys_load_flight_follower_programs(manager);
     case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER:
@@ -998,6 +1083,13 @@ static void tdma_pio_spi_phys_unload_programs(
         pio_remove_program(BOARD_TDMA_SPI_PIO,
                            &tdma_pio_spi_sck_train_trigger_program,
                            s_tdma_pio_spi_sck_train_trigger_offset);
+        break;
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN:
+        for (size_t i = sizeof(s_origin_catalog) / sizeof(s_origin_catalog[0]); i > 0u; --i) {
+            const tdma_origin_catalog_entry_t *entry = &s_origin_catalog[i - 1u];
+            pio_remove_program(entry->tx ? BOARD_TDMA_TX_PIO : BOARD_TDMA_RX_PIO,
+                                entry->program, entry->offset);
+        }
         break;
     case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN:
         pio_remove_program(

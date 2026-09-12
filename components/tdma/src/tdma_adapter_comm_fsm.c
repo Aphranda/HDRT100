@@ -202,6 +202,17 @@ bool tdma_adapter_comm_fsm_dispatch(tdma_adapter_comm_fsm_t *fsm,
         break;
 
     case TDMA_ADAPTER_COMM_STATE_CYCLE_BOUNDARY:
+        if (event == TDMA_ADAPTER_COMM_EVENT_RESIDENT_PREPARE) {
+            fsm->clock_tx_active = false;
+            fsm->data_rx_active = false;
+            fsm->clock_tx_complete = false;
+            fsm->data_rx_complete = false;
+            fsm->bootstrap_tx_active = false;
+            tdma_adapter_comm_fsm_transition(
+                fsm, TDMA_ADAPTER_COMM_STATE_RESIDENT_PREPARING,
+                TDMA_ADAPTER_COMM_ERROR_NONE);
+            return true;
+        }
         if (event == TDMA_ADAPTER_COMM_EVENT_BEGIN_NEXT_CYCLE) {
             fsm->window_sequence++;
             fsm->clock_tx_active = false;
@@ -223,6 +234,27 @@ bool tdma_adapter_comm_fsm_dispatch(tdma_adapter_comm_fsm_t *fsm,
             }
             return true;
         }
+        break;
+
+    case TDMA_ADAPTER_COMM_STATE_RESIDENT_PREPARING:
+        if (event == TDMA_ADAPTER_COMM_EVENT_RESIDENT_INSTALLED) {
+            tdma_adapter_comm_fsm_transition(fsm, TDMA_ADAPTER_COMM_STATE_AUTONOMOUS,
+                                            TDMA_ADAPTER_COMM_ERROR_NONE);
+            return true;
+        }
+        /* Preparation polls are not wire events. STOP remains valid at every
+         * block; adapter dispatches it only after physical cleanup succeeds. */
+        /* fall through */
+    case TDMA_ADAPTER_COMM_STATE_AUTONOMOUS:
+        if (event == TDMA_ADAPTER_COMM_EVENT_STOP) {
+            tdma_adapter_comm_fsm_stop(fsm);
+            return true;
+        }
+        if (event == TDMA_ADAPTER_COMM_EVENT_RESET) {
+            tdma_adapter_comm_fsm_init(fsm);
+            return true;
+        }
+        /* No synthetic per-frame START/COMPLETE events for skipped cycles. */
         break;
 
     case TDMA_ADAPTER_COMM_STATE_FAULT:

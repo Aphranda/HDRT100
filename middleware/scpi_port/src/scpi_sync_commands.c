@@ -746,6 +746,9 @@ scpi_result_t scpi_cmd_sync_vdc_tdma_phys_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.overlay_selected_generation);
     SCPI_ResultUInt32(context, snapshot.overlay_selection_pending);
     SCPI_ResultUInt32(context, snapshot.overlay_reuse_observation_count);
+    SCPI_ResultUInt32(context, snapshot.rx_observation_drop_count);
+    SCPI_ResultUInt32(context, snapshot.rx_scan_yield_count);
+    SCPI_ResultUInt32(context, snapshot.rx_dma_transfer_count);
     return SCPI_RES_OK;
 }
 

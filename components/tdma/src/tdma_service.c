@@ -14,7 +14,6 @@
 #define tdma_service_DEFAULT_TIMESTAMP_FLAGS \
     tdma_service_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY
 #define tdma_service_ERROR_WINDOW_MISSED 101u
-#define tdma_service_WINDOW_ARM_AHEAD_NS 2000000u
 #define TDMA_SERVICE_SNAPSHOT_RETRY_LIMIT 64u
 
 static uint64_t tdma_service_now_ns(void)
@@ -44,15 +43,6 @@ static uint32_t tdma_service_delta_ns(uint64_t end_ns,
     return end_ns > start_ns
                ? tdma_service_elapsed_ns(start_ns, end_ns)
                : 0u;
-}
-
-static uint64_t tdma_service_wait_until_ns(uint64_t target_ns)
-{
-    uint64_t now_ns = tdma_service_now_ns();
-    while (now_ns < target_ns) {
-        now_ns = tdma_service_now_ns();
-    }
-    return now_ns;
 }
 
 static void tdma_service_split_u64(uint64_t value,
@@ -1006,46 +996,34 @@ void tdma_service_core1_service(tdma_service_service_t *service)
 
     tdma_ring_runtime_service(&service->ring_runtime);
 
+    tdma_service_begin_result_write(service);
+    service->service_count++;
+    tdma_service_end_result_write(service);
+
+    /* A preempted producer must not hold the realtime phase in a spin loop
+     * or let dispatch nest another intent writer inside its publication.
+     * The resident ring has already received this phase's service. */
+    if ((tdma_service_load(&service->intent_guard) & 1u) != 0u) {
+        return;
+    }
     (void)tdma_service_dispatch_next_scheduled(service);
 
+    const uint32_t seq_begin = tdma_service_load(&service->intent_guard);
+    if ((seq_begin & 1u) != 0u) {
+        return;
+    }
     const uint32_t intent_seq = tdma_service_load(&service->intent_seq);
     const uint32_t abort_seq = tdma_service_load(&service->abort_seq);
     if (intent_seq <= service->completed_seq) {
+        if (seq_begin != tdma_service_load(&service->intent_guard)) {
+            return;
+        }
         tdma_service_begin_result_write(service);
-        service->service_count++;
         service->armed = 0u;
         if (service->state == tdma_service_STATE_UNINIT) {
             service->state = tdma_service_STATE_IDLE;
         }
         tdma_service_end_result_write(service);
-        return;
-    }
-
-    tdma_service_begin_result_write(service);
-    service->service_count++;
-    if (intent_seq > service->completed_seq) {
-        if (abort_seq >= intent_seq) {
-            tdma_service_complete_scheduled(service,
-                                            TDMA_TRAFFIC_COMPLETION_DROP);
-            service->dropped_seq = intent_seq;
-            service->completed_seq = intent_seq;
-            service->armed = 0u;
-            service->state = tdma_service_STATE_IDLE;
-            service->last_result = tdma_service_RESULT_NONE;
-        } else {
-            if (service->timing_intent_seq != intent_seq) {
-                service->timing_intent_seq = intent_seq;
-                service->core1_arm_time_ns = tdma_service_now_ns();
-                service->core1_start_time_ns = 0ull;
-                service->core1_done_time_ns = 0ull;
-                service->core1_elapsed_ns = 0u;
-            }
-            service->armed = 1u;
-            service->state = tdma_service_STATE_ARMED;
-        }
-    }
-    tdma_service_end_result_write(service);
-    if (abort_seq >= intent_seq) {
         return;
     }
 
@@ -1061,11 +1039,7 @@ void tdma_service_core1_service(tdma_service_service_t *service)
     uint64_t scheduled_guard_start_ns;
     uint64_t scheduled_guard_end_ns;
     size_t frame_size;
-    while (true) {
-        const uint32_t seq_begin = tdma_service_load(&service->intent_guard);
-        if ((seq_begin & 1u) != 0u) {
-            continue;
-        }
+    {
         intent_type = service->intent_type;
         role = (tdma_service_role_t)service->role;
         pins.rx_pin = service->rx_pin;
@@ -1087,32 +1061,38 @@ void tdma_service_core1_service(tdma_service_service_t *service)
             memcpy(frame, service->frame, frame_size);
         }
         const uint32_t seq_end = tdma_service_load(&service->intent_guard);
-        if (seq_begin == seq_end && (seq_end & 1u) == 0u) {
-            break;
+        if (seq_begin != seq_end || (seq_end & 1u) != 0u) {
+            /* Discard the partial copy. Do not arm, consume or complete an
+             * intent until its sequence, abort and payload agree. */
+            return;
         }
     }
 
+    tdma_service_begin_result_write(service);
+    if (abort_seq >= intent_seq) {
+        tdma_service_complete_scheduled(service,
+                                        TDMA_TRAFFIC_COMPLETION_DROP);
+        service->dropped_seq = intent_seq;
+        service->completed_seq = intent_seq;
+        service->armed = 0u;
+        service->state = tdma_service_STATE_IDLE;
+        service->last_result = tdma_service_RESULT_NONE;
+        tdma_service_end_result_write(service);
+        return;
+    }
+    if (service->timing_intent_seq != intent_seq) {
+        service->timing_intent_seq = intent_seq;
+        service->core1_arm_time_ns = tdma_service_now_ns();
+        service->core1_start_time_ns = 0ull;
+        service->core1_done_time_ns = 0ull;
+        service->core1_elapsed_ns = 0u;
+    }
+    service->armed = 1u;
+    service->state = tdma_service_STATE_ARMED;
+    tdma_service_end_result_write(service);
+
     if (scheduled_window_valid != 0u) {
-        uint64_t now_ns = tdma_service_now_ns();
-        if (now_ns < scheduled_guard_start_ns) {
-            const uint32_t wait_ns =
-                tdma_service_delta_ns(scheduled_guard_start_ns, now_ns);
-            if (wait_ns <= tdma_service_WINDOW_ARM_AHEAD_NS) {
-                now_ns = tdma_service_wait_until_ns(scheduled_guard_start_ns);
-            } else {
-                tdma_service_begin_result_write(service);
-                service->armed = 1u;
-                service->scheduled_window_wait_ns = wait_ns;
-                service->scheduled_window_late_ns = 0u;
-                service->last_result = tdma_service_RESULT_WAITING_FOR_WINDOW;
-                service->state = tdma_service_STATE_ARMED;
-                tdma_service_end_result_write(service);
-                return;
-            }
-        }
-        if (now_ns < scheduled_window_start_ns) {
-            now_ns = tdma_service_wait_until_ns(scheduled_window_start_ns);
-        }
+        const uint64_t now_ns = tdma_service_now_ns();
         if (now_ns > scheduled_guard_end_ns || now_ns > scheduled_window_end_ns) {
             tdma_service_begin_result_write(service);
             service->completed_seq = intent_seq;
@@ -1126,6 +1106,19 @@ void tdma_service_core1_service(tdma_service_service_t *service)
             service->state = tdma_service_STATE_ERROR;
             tdma_service_complete_scheduled(
                 service, TDMA_TRAFFIC_COMPLETION_WINDOW_MISSED);
+            tdma_service_end_result_write(service);
+            return;
+        }
+        const uint64_t ready_ns = scheduled_guard_start_ns > scheduled_window_start_ns
+            ? scheduled_guard_start_ns : scheduled_window_start_ns;
+        if (now_ns < ready_ns) {
+            /* Revisit the frozen window on a later phase. A window narrower
+             * than service cadence may expire; preserve that miss instead
+             * of occupying Core1 until the opening edge. */
+            tdma_service_begin_result_write(service);
+            service->scheduled_window_wait_ns = tdma_service_delta_ns(ready_ns, now_ns);
+            service->scheduled_window_late_ns = 0u;
+            service->last_result = tdma_service_RESULT_WAITING_FOR_WINDOW;
             tdma_service_end_result_write(service);
             return;
         }

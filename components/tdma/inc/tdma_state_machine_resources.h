@@ -58,6 +58,61 @@
 #define TDMA_STATE_MACHINE_RESOURCE_CONTRACT_DIRECTIONAL 1u
 #define TDMA_STATE_MACHINE_DMA_CHANNEL_NONE UINT8_MAX
 
+#if BOARD_TDMA_ORIGIN_EXECUTOR_DMA_CHANNEL >= 16u || \
+    BOARD_TDMA_ORIGIN_EXECUTOR_DMA_CHANNEL == 7u || \
+    BOARD_TDMA_ORIGIN_EXECUTOR_DMA_CHANNEL == BOARD_TDMA_RX_COMMAND_LOADER_DMA_CHANNEL || \
+    BOARD_TDMA_ORIGIN_EXECUTOR_DMA_CHANNEL == BOARD_TDMA_RX_DATA_OUT_DMA_CHANNEL || \
+    BOARD_TDMA_ORIGIN_EXECUTOR_DMA_CHANNEL == BOARD_TDMA_TX_DATA_IN_CAPTURE_DMA_CHANNEL
+#error "Origin executor must be a distinct admitted DMA channel, excluding DMA7"
+#endif
+#if BOARD_TDMA_ORIGIN_HELPER_SM != BOARD_TDMA_RX_RESERVED_CONTROL_SM
+#error "Origin helper belongs to the reserved RX control SM"
+#endif
+
+#define TDMA_STATE_MACHINE_ORIGIN_ADDITIONAL_RESOURCE_MASK \
+    (RESOURCE_ARBITER_RESOURCE_TDMA_DMA_EXECUTOR | RESOURCE_ARBITER_RESOURCE_DMA_SNIFFER)
+
+typedef struct {
+    uint8_t loader_dma;
+    uint8_t executor_dma;
+    uint8_t output_dma;
+    uint8_t capture_dma;
+    uint8_t helper_sm;
+    uint8_t descriptor_words;
+    uint8_t descriptor_write_ring_log2;
+} tdma_state_machine_origin_dma_contract_t;
+
+static inline tdma_state_machine_origin_dma_contract_t
+tdma_state_machine_origin_dma_contract(void)
+{
+    return (tdma_state_machine_origin_dma_contract_t){
+        .loader_dma = BOARD_TDMA_RX_COMMAND_LOADER_DMA_CHANNEL,
+        .executor_dma = BOARD_TDMA_ORIGIN_EXECUTOR_DMA_CHANNEL,
+        .output_dma = BOARD_TDMA_RX_DATA_OUT_DMA_CHANNEL,
+        .capture_dma = BOARD_TDMA_TX_DATA_IN_CAPTURE_DMA_CHANNEL,
+        .helper_sm = BOARD_TDMA_ORIGIN_HELPER_SM,
+        .descriptor_words = 4u,
+        .descriptor_write_ring_log2 = 4u,
+    };
+}
+
+static inline bool tdma_state_machine_origin_dma_contract_valid(
+    const tdma_state_machine_origin_dma_contract_t *c)
+{
+    if (c == NULL || c->loader_dma != BOARD_TDMA_RX_COMMAND_LOADER_DMA_CHANNEL ||
+        c->executor_dma != BOARD_TDMA_ORIGIN_EXECUTOR_DMA_CHANNEL ||
+        c->output_dma != BOARD_TDMA_RX_DATA_OUT_DMA_CHANNEL ||
+        c->capture_dma != BOARD_TDMA_TX_DATA_IN_CAPTURE_DMA_CHANNEL ||
+        c->helper_sm != BOARD_TDMA_ORIGIN_HELPER_SM || c->descriptor_words != 4u ||
+        c->descriptor_write_ring_log2 != 4u) return false;
+    const uint8_t channels[] = {c->loader_dma, c->executor_dma, c->output_dma, c->capture_dma};
+    for (uint32_t i = 0u; i < sizeof(channels); ++i) {
+        if (channels[i] >= 16u || channels[i] == 7u) return false;
+        for (uint32_t j = 0u; j < i; ++j) if (channels[i] == channels[j]) return false;
+    }
+    return true;
+}
+
 #if BOARD_TDMA_RX_COMMAND_LOADER_DMA_CHANNEL != BOARD_TDMA_TX_DATA_IN_FORWARD_DMA_CHANNEL
 #error "Command loader must use the DMA_FORWARD arbiter projection"
 #endif
