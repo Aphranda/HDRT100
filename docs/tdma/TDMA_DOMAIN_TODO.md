@@ -80,12 +80,15 @@ RX UNLOAD / TX LOAD 和 PIO 分区。硬件自主运行的实现仍由 TDMA owne
 flight map 准入及 STOP 应答异常继续保留为恢复门禁，不因复位或重试成功自动闭合。
 
 RX 内部分项计时切片与预算复评见 `TDMA-PROGRESS-20260912-022`；紧凑私有帧、相邻
-字节共享复制及当前源码验证见 `TDMA-PROGRESS-20260912-023`。局部复制成本与 SRAM
-占用已降低，但完整 phase、正式 RAM 和 STOP 应答缺陷仍未闭合，不能据局部改善宣布
-列车阶段通过。下一步继续区分 live ring 取帧内部的复制、计数/提示/复验成本与
-owner/adapter 交接成本，并调查代码布局、共享访问和 IRQ 干扰；不能从指令数直接推算
-硬件上界。DMA word ring、复制后 epoch/覆盖验证、latch 因果边界与完整 phase 门禁
-保持；有限计时尚不支持调整现有预算，特等席逐圈保全和节点容量后续项仍按原顺序推进。
+字节共享复制见 `TDMA-PROGRESS-20260912-023`。固定 mailbox 授权已移到激活阶段，
+运行期读取受版本保护的紧凑快照，当前源码验证见 `TDMA-PROGRESS-20260912-024`。
+本轮没有增加链接 RAM，overlay 子项有所改善，但完整 phase 的变化有升有降，正式
+RAM/WCET 及 SCK 候选覆盖、ARM/STOP 恢复缺陷仍开放，不能据局部改善宣布列车通过。
+下一步区分 live ring 取帧内部的复制、计数/提示/复验成本与 owner/adapter 交接成本，
+并调查代码布局、共享访问和 IRQ 干扰；再评估无更新时的 overlay 准入工作，保持 FIFO
+消费顺序与复用证据，不能从指令数直接推算硬件上界。DMA word ring、复制后 epoch/
+覆盖验证、latch 因果边界与完整 phase 门禁保持；有限计时尚不支持调整现有预算，
+特等席逐圈保全和节点容量后续项仍按原顺序推进。
 
 普通 RX 异步解析切片已按用户顺序封存，随后完成六节点编译容量的隔离 RAM 核算，见
 `TDMA-PROGRESS-20260912-019`。核算区分本地状态、固定 wire/RefMem/Calibration

@@ -340,6 +340,12 @@ STOP/config 失效应先撤销旧 epoch 的发布资格；后台任务尚持有�
 输入副本与固定本地授权，输出借用既有闲置计划池；Core1 经 READY/epoch/alignment
 核验后绑定描述符并发布，当前 RX 副本是否成功不再控制该更新的推进。STOP 先停硬件，
 仍有后台写者时保留 pending，收到取消 ACK 后才能完成退休与重新 ARM。
+固定本地授权由 `tdma_flight_engine_activate()` 在 map writer guard 内预计算，
+与 local slot 一起在 active 发布前确定；active 期间禁止替换 map。运行中的
+`tdma_flight_engine_copy_tx_layout()` 只读取 local slot、map generation 和授权 mask，
+遇到发布中、版本变化或停用立即拒绝。成功换配置清除旧授权，重新激活按新 owner
+计算；一般 legacy map 仍可激活，但不满足唯一完整固定 mailbox 的 map 不授予
+compact overlay 权限。该缓存不改变 FIFO 交接、复用计数或硬件提交顺序。
 
 普通物理 RX 使用 `tdma_rx_prepare_t` 固定工位。Core1 交入独立 packet、采集时的
 RX/TX latch、RTT 和成对 origin observation；Core0 只完成 transport decode/CRC、

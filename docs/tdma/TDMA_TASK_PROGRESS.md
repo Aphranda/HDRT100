@@ -8,7 +8,11 @@ Last updated: 2026-09-12
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的紧凑 RX 副本切片见 `TDMA-PROGRESS-20260912-023`，
+当前 `TDMA-FLIGHT-002F` 的 overlay 静态授权预计算切片见
+`TDMA-PROGRESS-20260912-024`，证据根为
+`out/HardwareAcceptance/20260912/tdma-flight-overlay-layout/`。运行期已移除 map 扫描，
+完整 WCET 与正式 RAM 仍未通过，节点容量后续项保持后置。
+前序紧凑 RX 副本切片见 `TDMA-PROGRESS-20260912-023`，
 证据根为 `out/HardwareAcceptance/20260912/tdma-flight-rx-copy/`。已降低私有存储与
 包复制成本，完整 WCET、正式 RAM 及 STOP 应答问题仍开放，节点容量后续项保持后置。
 前序 RX 分项计时切片与预算复评见
@@ -82,6 +86,74 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260912-024 - overlay 静态授权预计算
+
+- 日期：2026-09-12；TODO task ID：`TDMA-FLIGHT-002F`。以下数字为实验快照，
+  非事实源；证据根为 `out/HardwareAcceptance/20260912/tdma-flight-overlay-layout/`。
+- 变更：`tdma_flight_engine_activate()` 在现有 map writer guard 下预计算固定本地
+  mailbox 的唯一完整授权；`tdma_flight_engine_copy_tx_layout()` 运行时只读取 slot、
+  generation 和 mask，发布中、版本变化或停用立即拒绝。成功换配置清除缓存，换本地
+  owner 重新计算；一般 legacy map 的激活准入不变，不适合 compact overlay 的 map
+  得到零授权。FIFO 消费/复用计数、物理 grant/commit/selection、wire、资源、节点容量
+  和计时版本均不变。源码复核见 `implementation-review-r1.json`。
+- 软件与构建：真实 adapter/overlay、FIFO、service scheduler 主机测试通过，覆盖
+  所有固定 wire slot、停用/重激活、active 配置失败、发布中读取、部分 mailbox、移除
+  写权限和重复 owner span。相关 flight/计时/资源回归 `165 passed`，文档检查器
+  自回归 `18 passed`。Release A/B/Boot 与 Flash 链接检查通过，build
+  `20260912112529`，源码指纹
+  `c95aa9b43ead3d30e65fa8c72e6de61b38af86ef86e849deff0c689f265f935a`，
+  `1017` files，全部 `634` 个 app 翻译单元使用六容量。新增字段被外层对象的对齐空间
+  吸收，两镜像 owner 大小仍为 `12056 B`，链接余量仍为 `5408 B`；
+  `DEFAULT_MIN_FREE_BYTES` 本轮为 `49152 B`，正式 RAM FAIL 保留。map 与实际访问器
+  反汇编见 `build-inspection-r1.json`，指令形态不能代替硬件时延。
+- P3 与严格矩阵：真实 `p3-r1` 完成四板 OTA/复位/测量，凭证为
+  `FOUR_NODE_TDMA_QUICK_DIAGNOSTIC`，`passed=true/strict_gates_passed=false`。
+  粗时钟 NO3 `ARM result=8`、编码标记失败、SCK 候选覆盖不足和 process-image
+  startup barrier timeout 保留；独立严格矩阵首次退出 `1`，未产生结果文件，也未
+  进入依赖生命周期。一次同 build `p3-r2 resume` 复位重测后，独立
+  `matrix-strict-r2.json` 退出 `0`、`passed=true/diagnostic_continue=false`。
+  r2 的粗时钟 NO1 `ARM result=5`、编码标记失败与 process-image NO4 `ARM result=5`
+  仍保留。默认源码凭证原样采用真实 `run` 的 r1，恢复证据单独绑定，不替代原始失败。
+- 当前 build 闭环：确认严格矩阵通过后，`lifecycle-r1` 的 process-before、
+  raw-transition、process-restored+clock-train 均首次
+  `passed/closed_loop_passed/realtime_gate_passed=true`、`diagnostic_continue=false`。
+  普通四板 SD 原件重建、包对身份、mailbox CRC 与本地 owner 装卸边界全部通过，
+  原件期间坏帧计数零增长；本次最终 STOP 成功，不代表历史 STOP 缺陷已闭合。
+- 计时：`timing-r1` 完成目标 `25 s` 普通窗口，随后以 trial `912032`、epoch `66`、
+  期限 `180 s` 的许可证完成目标 `90 s` 自主窗口，期间无 SD 下载，撤销和 STOP 成功。
+  普通完整峰值按 NO1..NO4 为 `1218.124/953.812/1016.808/967.384 µs`。
+  自主完整峰值及各自同条 overlay 子项如下；origin 不走 follower overlay，零值
+  不能解释为无接收或装卸成本。
+
+  | 节点 | 上轮完整 µs | 本轮完整 µs | 上轮 overlay µs | 本轮 overlay µs |
+  |---|---:|---:|---:|---:|
+  | NO1 | 902.872 | 869.044 | 0 | 0 |
+  | NO2 | 1004.324 | 1040.240 | 141.840 | 137.944 |
+  | NO3 | 1080.560 | 1081.272 | 197.404 | 177.472 |
+  | NO4 | 1083.240 | 1026.104 | 145.464 | 114.484 |
+
+  自主完整峰值变化约 `-3.75%/+3.58%/+0.07%/-5.27%`；overlay 子项虽下降，
+  完整耗时仍有升有降，独立有限窗口也不能证明差值全部来自本修改。两窗口 RX 有
+  进展，transport/schedule/profile 坏帧计数零增长，但 scheduler overrun 仍增加，
+  四板完整 WCET 均 FAIL。自主从站观察丢弃增加 `32897/30888/29108`，不能代替
+  特等时间戳逐圈无损保全。同条从站记录中 RX_CAPTURE 之外仍有约 `438–550 µs`，
+  相减不是移除 RX 后的性能承诺。父子区间包含式，不能相加或拼接独立最大值。
+  对照与限制见 `comparison-r1.json`、`measurement-conclusion-r1.json`。
+- 自主原件与收尾：采集准备首次通过，`capture-r1` 使用独立 trial `912034`、
+  epoch `82`、期限 `180 s` 的许可。主机单调时钟显示四板采集/导出在授权命令发出后
+  约 `43.079/57.438/50.719/47.860 s` 完成；这是主机时窗证据，不冒充硬件同钟证据。
+  批量下载可在许可到期后完成，不据下载结束时间扩展自主运行结论。四板 SD 原件
+  重建、包对身份、mailbox CRC 和本地 owner 装卸边界全部通过，坏帧计数零增长。
+  最终撤销至 epoch `84`、inactive，四板 physical armed/runtime enabled/adapter
+  started 均为零；前一计时许可撤销至 epoch `68`。两次有限授权不能拼成连续长稳证据。
+- 复核封存：`review-r1.json` 与 `slice-manifest.json` 绑定源码、构建、命令结果和
+  原始证据 SHA；代码与文档分开提交，门禁和提交 ID 见 `commit-proof.json`。
+  切片结论 PARTIAL，保留真实 P3 两轮的严格失败、首次独立矩阵失败及正式 RAM FAIL。
+- 下一 gate：`TDMA-FLIGHT-002F` 保持 IN PROGRESS，现有 `380 µs` 门限保留。
+  当前差距不能靠适度放宽解决；继续拆分 live RX 与 owner/adapter 交接成本、调查
+  干扰，并评估保留 FIFO 语义的无更新路径。正式 RAM、完整 WCET、逐圈特等保全、
+  service blackout 与同圈多 owner 证据分别闭合，动态节点后续项继续后置。
 
 ### TDMA-PROGRESS-20260912-023 - 紧凑 RX 副本与共享相邻字节复制
 
