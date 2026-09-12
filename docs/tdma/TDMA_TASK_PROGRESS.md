@@ -8,7 +8,12 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的 overlay DMA 描述符异步绑定切片见
+当前 `TDMA-FLIGHT-002F` 的锁存与线路时长等价算术切片见
+`TDMA-PROGRESS-20260913-040`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-latch-arithmetic/`。锁存分辨率使用硬件
+整数除法，整数位周期使用已证明范围内的乘法；重装顺序、舍入和时钟采样语义保持。
+完整 WCET、严格启动、正式 RAM 与逐圈时间证据保全继续独立验收。
+前序 overlay DMA 描述符异步绑定切片见
 `TDMA-PROGRESS-20260913-039`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-overlay-dma-bind/`。Core0 使用 ARM 时冻结的
 资源模板准备完整描述符，Core1 保留生命周期复验、generation 和后继指针发布；
@@ -158,6 +163,88 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-040 - 锁存与线路时长等价算术
+
+- 日期：2026-09-13；TODO task ID：`TDMA-FLIGHT-002F`。以下数字为实验快照，非事实源；
+  证据根为 `out/HardwareAcceptance/20260913/tdma-flight-latch-arithmetic/`。基线提交
+  `13a91180d434b076a0db92c7bd9c56bb43ba9911`，registry/C11 状态不变。
+- 前版自主从站 RX handoff 为 430.880/483.924/475.548 µs，已超过完整门限。
+  实链显示 RX/TX latch 重装与 RTT 分辨率都调用 64 位软件除法。本轮引入
+  `tdma_pio_spi_phys_latch_resolution_ns()`，利用完整输入范围的分子上界证明，
+  保持相同舍入并改为硬件整数除法。物理后端三个函数只替换分辨率表达式，时钟
+  读取、FIFO 清理、restart/pull/mov/jump、epoch 记录、enable 与拒绝顺序均保持。
+- `tdma_pio_spi_phys_wire_time_ns()` 在 bits 不超过 `UINT32_MAX` 且位周期为整数
+  时使用等价乘法，该分支也证明原式的分子不会溢出。其他输入继续原有加法、乘法和
+  向上舍入除法，包括大诊断尺寸的既有无符号 wrap 行为；baud 为零的回退保持。
+  完整整数证明、源码差异等价核验和 A/B 汇编路径见 `arithmetic-review-r1.json`。
+- 算术/锁存模型 11 项、相关集成 120 项、物理 DMA/RX 32 项以及真实 adapter C
+  回归通过。主机用独立整数 oracle 检查商/半整数边界、全范围随机频率、整数/非整数
+  位周期与 size_t/uint64 边界；同一真实线路时长函数体分别按本机 ABI 和显式
+  RP2350 尺寸算术运行。真实重装/RTT 函数在受控 PIO/clock 总线上验证拒绝、操作
+  顺序、epoch 与最新区间选择。host 模型不能替代硅上 WCET 或帧/边沿因果证据。
+- Release A/B/Boot 为 `20260912212759`，源码指纹
+  `5f65ac70caf763b8ee47c14b61b727616299d8b13264801f9e314ae002bd31cd`，源码文件 1023。
+  A/B 对应三个物理路径已无软件长除法、均有硬件 UDIV；线路时长包含硬件快速分支和
+  原通用回退。六节点与生成 PIO 相同，无新增静态 RAM，A/B link free 各 4848 B，
+  正式 RAM 仍 FAIL。见 `source-checkpoint-r1.json`、`source-review-r1.json`。
+
+- 当前源码四板 OTA/P3 的诊断流程完成，凭证 `passed=true`、
+  `strict_gates_passed=false`；SCK repeat 未接受、没有满足 re-arm 预算的实测 SCK 行、
+  严格启动屏障超时均保留。独立严格矩阵生成也明确拒绝，见 `matrix-command-r1`。
+  当前测量只能派生 `matrix-diagnostic-r1.json`，其 `passed=false`，不能称为已接受校准。
+- P3 快照至停止读回间，NO1 TX timeout、origin DATA timeout/recovery 各从零增至 6，
+  last_error 为 `TX_BUSY`；其余节点已检查物理故障无增长。STOP 应答成功，单次有界
+  复位成功；计数不能定位事件发生于运行还是停止，也不能归因于本次修改。
+  `lifecycle-audit-r1.json` 保留原始边界，不以后续干净窗口消除这些失败。
+- 首次计时编排在任何硬件操作前，被诊断矩阵的 SCK 严格加载检查拒绝，原件见
+  `autonomous-command-r1`。第二次编排使用显式诊断恢复路径；旧脚本与失败日志保留，
+  固件和产品校准检查未改。恢复仅允许本轮测得的非通过矩阵作有界诊断，不提供准入。
+
+- 同条件对照继续使用前版 RX14 旧诊断行、TX 相位、250 MHz 和负载 mask，逐样本
+  复核配置。普通首末跨度 25.110 s（7 样本），自主 86.751 s（19 样本）；transport
+  good 增量为 6091/6066/6073/6108 和 41264/34425/33216/30327。这两个窗口的
+  transport bad 与已检查物理故障增量为零，不能外推到 P3/停止/恢复或逐圈无损。
+- 普通 latch count 增量为 6119/12128/12136/12262，自主为 0/68772/66342/60576，
+  miss 无增长、读回分辨率均为 8 ns。自主 origin 的此计数未增长，不能据此宣称其
+  特等席路径被实际覆盖；从站计数增长也不证明逐圈帧/边沿因果配对。
+  三从站普通 overlay prepare 增量 6051/6052/6120，selected 增量 6052/6051/6121；
+  自主分别为 24271/24828/25647 和 24271/24827/25646，证明后台计划仍在持续选择，
+  不证明 SENT、wire completion 或同圈多 owner 交换。
+- 下表为自主窗口完整 profile 峰值及**同条峰值记录**的 RX latch 子项，单位 µs。
+  三从站该子项下降，但 NO1/NO3 的完整峰值上升；有限不同窗口仍含分支、XIP/IRQ
+  干扰，不能把局部差异全部归于算术指令，也不能宣称整段 WCET 得到一致改善。
+
+| 节点 | 前版完整峰值 | 本版完整峰值 | 前版 RX latch | 本版 RX latch |
+|---|---:|---:|---:|---:|
+| NO1 | 864.488 | 904.776 | 0（无调用） | 0（无调用） |
+| NO2 | 839.368 | 817.756 | 62.292 | 54.308 |
+| NO3 | 871.176 | 910.324 | 51.680 | 48.968 |
+| NO4 | 872.328 | 857.520 | 65.172 | 50.840 |
+
+- 普通完整峰值为 1261.520/866.964/869.128/858.056 µs；自主完整 SCHEDULE 超限
+  增量为 50251/58011/58629/56076。自主从站 RX handoff 为 424.336/455.224/
+  493.616 µs，单项仍超过完整门限。380 µs 门禁继续 FAIL；不能把约 240 µs 的物理
+  飞行全额扣出异步 CPU 预算，也不能靠小幅放宽门限覆盖当前缺口。profile 不含
+  recorder 发布，SCHEDULE 独立复核；嵌套阶段不相加，稀疏 last 不充当子项 WCET。
+- 普通 RX ring overrun/observation drop 无增长；自主 NO2/NO3/NO4 分别增加
+  14647/16642/20588 和 34344/33141/30263，NO1 两项为零。它们是观察副本损失，
+  不能解释为 wire 坏帧数；锁存 miss 为零也不能抵消这些缺口。见
+  `timing-comparison-r1.json`、`observation-scope-r1.json`、`retained-failures.json`。
+- 许可证 9130400（grant epoch 14）已撤销，原始应答 `OK`、inactive 读回齐全。
+  计时结束后的恢复前 STOP 在 NO3 应答超时；独立四板停止读回后，首次恢复仍遇到
+  NO1 ARM map 拒绝（arm_result=5），并再次出现 NO3 STOP 应答超时。两次原件保留。
+  另一次有界复位后仅重试恢复一次；本轮共有一次对照基线复位、一次恢复复位。
+- `restore-r2` 已完成当前测量矩阵的四板 staging、运行期相位复核和最终 STOP，
+  但严格启动仍失败，恢复 soak 在 NO1 记录 good 1795、transport bad 1，不能称为
+  稳定恢复或校准接受。首次恢复审计因缺失停止成功字段报错，第二次编排误读了
+  `restore-r1` 摘要；错误日志不改写，`final-restoration-audit-r1.json` 只读核对真实
+  `restore-r2` 原件，确认当前相位已应用、四板 armed/enabled/adapter_started 为零。
+- 文档回归 18 项通过；本切片软件/实链等价验证通过，硬件验收结论为 PARTIAL，
+  长期目标 active。先处理当前 SCK/ARM/STOP/恢复坏帧失败，再推进 RX handoff 的
+  不可变输入与有界提交；不能将 live ring copy 直接跨拍。六节点、正式 RAM、
+  blackout、同圈交换与特等席保全门禁保持。主控复核、分离提交和证据封存见
+  `review-r1.json`、`commit-proof.json`。
 
 ### TDMA-PROGRESS-20260913-039 - overlay DMA 描述符异步绑定
 

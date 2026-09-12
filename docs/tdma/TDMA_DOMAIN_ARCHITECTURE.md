@@ -421,6 +421,12 @@ RefMem ACK/fence 仍属于二等可靠性闭环。STOP、故障收敛、配置�
 卸载与本地边沿记录不授予它改写该字段的权限。各板 raw timestamp 到共同相位的映射、
 path matrix 与质量判定继续由 VDC/Calibration 拥有。
 
+现有物理后端用 `tdma_pio_spi_phys_latch_resolution_ns()` 保留锁存计数步长的原有
+舍入语义，分子范围已证明可用 `uint32_t`；RX/TX 重装和 RTT 读取共用该纯计算。
+`tdma_pio_spi_phys_wire_time_ns()` 仅在整数位周期且原分子不会溢出的范围内使用
+等价乘法，其他输入保留原有回退计算。上述算术优化不改变时钟采样、PIO 重装与
+epoch 记录顺序，也不提供逐圈时间证据保全或帧/边沿因果绑定的证明。
+
 “每站下车”首先表示每圈完成接收记录的独立保全，随后进行校验和业务提交；DMA 写入
 完成不等于记录有效，软件解析完成也不等于硬件到站时间。特等记录必须关联 epoch、
 cycle/sequence、source、硬件时钟域、完整性与有效状态，保持生产、发布、消费和回收
