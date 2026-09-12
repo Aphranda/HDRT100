@@ -770,22 +770,72 @@ follower 的 ISR 右移表示支持两者；RX observation copy 在 adapter 中�
 reference 的自主续转还需要独立的返回映像所有权和完整帧位置机制。当前
 `tdma_pio_spi_phys_rx_arm()` 的连续 RX ring 是可丢弃解析副本的来源；固定 SRAM 地址、
 仅有 DMA write pointer 或软件 scanner 恢复，均不足以证明下一圈可读的完整映像。
+解析副本使用 `tdma_rx_dma_counter_observe()` 读取 RX DMA 已完成写入的计数；
+当前物理帧长度乘以 `TDMA_RX_DMA_RELOAD_FRAMES` 对应硬件自动重触发周期，
+重装周期是 SRAM ring 和物理帧长度的公倍数，软件不逐帧续装，也不由
+TX 或 overlay 的软件帧计数推算写入进度。MMIO 计数观察使用 `clk_sys` 时间夹取；
+间隔足以混淆完整计数周期时，丢弃旧候选并递增独立的 observation epoch；
+公开接收计数只累计硬件余量的模差，缺口之后是接收字节的下界，不添加虚构的
+整周期字节数。遗漏整周期仍保持 SRAM 和物理帧相位。scanner 每次最多检查
+`TDMA_RX_OBSERVATION_SCAN_WORDS` 个候选位置，落后时只保留有界的较新搜索窗口。
+完整复制后重新观察 DMA，跨 observation epoch、写入触及候选的环形生命周期边界
+或计数无效时，不发布副本，
+不推进 wire alignment。`rx_observation_drop_count` 与 `rx_scan_yield_count` 分别记录
+软件观察丢弃与拆拍扫描；transport 错误继续由原门禁判断。只读
+`rx_dma_transfer_count` 保留原始硬件模式与余量，不能单独作为有效帧或逐圈参与证据。
 硬件供给必须保留其他 Node 的实际返回值，并在 Core1 缺席、缺失或截断返回时保持
 有界行为。header sequence/CRC 计算候选及固定指针反例见
 `TDMA-PROGRESS-20260912-004`；后续完整 origin 图与交接模型见
-`TDMA-PROGRESS-20260912-005`，这些离线候选尚未接入产品路径。若候选使用 DMA sniffer，
-必须将其作为全局独占资源纳入统一仲裁，同时显式声明 origin 的 command DMA 角色；
-不能直接沿用当前仅限 follower 的准入。计算子图可重复执行不代表物理发车、返回
-完整性、硬件 completion 或 DPLL observation 已闭合。
+`TDMA-PROGRESS-20260912-005`。后续 C builder、物理 workspace、persona 和 adapter
+候选已进入工作树并由 `tdma_runtime_owner_init()` 绑定真实回调，见
+`TDMA-PROGRESS-20260912-007/008/009`；正常 ARM 仍使用旧 origin。显式调试接入现由
+Calibration 的 `calibration_manager_origin_trial()` 发布临时许可证，再由唯一 TDMA
+owner 在已接受返回帧、旧 TX 完成且下一次旧 TX 决策前消费。该入口不改变正常 ARM 的产品准入。
+候选已为 executor 与全局独占 DMA sniffer 声明 board/resource 角色，不能将局部
+Resource Arbiter claim 等同于完整 RealtimeCapabilityContract/DeploymentGate 放行。
+计算子图可重复执行不代表物理发车、返回完整性、硬件 completion 或 DPLL observation 已闭合。
+
+临时许可证是 `calibration_origin_timing_t` 的易失版本记录：绑定 ring config sequence、
+完整配置、Calibration/topology generation 与 CRC、active model epoch、foundation 与
+DeploymentGate 投影、board/persona/resource 以及源时钟；重装预算、abort 次数和绝对期限
+显式给出。时间参数使用 `clk_sys` 拍数，不从 Core1 `time_budget_us` 推导。现有
+RealtimeCapabilityContract 投影仍校验唯一已加载 TDMA owner、NodeLoad、SlotClaim 和
+DeploymentGate；实际资源取得留在 TDMA 物理层的分步准备与仲裁路径。
+`diagnostic_valid` 只表示本次试验准入；`product_valid` 保持拒绝，RAM、完整 Core1 WCET
+和未测得的重装时序拒绝位必须保留。SCPI 的许可证查询报告发布事实，runtime 查询独立报告
+实际状态，二者不合成为伪原子快照。
+到期由 TDMA owner 比较绝对期限并停止；Calibration 发布记录可以保留原 epoch 与 enabled，
+不能单凭该字段宣称许可证仍有效。runtime 查询若遇到 writer 竞争则返回 `UNAVAILABLE`，
+调用者必须保留缺样；既有 Core0 snapshot 重试接口的行为不因此改变。
+
+TDMA owner 在 begin 与每个准备步骤重新核验许可证绑定和期限。撤销、过期、配置或
+模型变化及 adapter FAULT 均通过现有 STOP 生命周期清理；清理失败保留所有权，禁止自动
+回退到旧发车器。已消费 epoch 在 STOP 后保留，重启试验需要重新签发。该临时许可不授权
+借用观测 PIO/DMA、不证明正式 SRAM/WCET 门禁通过，也不提升登记契约状态。
 
 后续候选把 DATA 输出与恢复执行器分离，使返回时钟缺失造成的 DATA DREQ 停顿不会
 同时阻断本地边界处理。返回池在完整捕获、DMA 中止收敛与校验后才切换；软件观察副本
 另受银行版本和有界读取约束。本地 shadow 保持单 pending generation 的不可变发布与
-替代版本选择证据，不能仅凭指针切换回收旧池。上述是尚未准入的方案进度；其资源编号、
-窄 FIFO 访问和静态存储必须在生产 C builder、board contract 与 Resource Arbiter 中验证。
-当前图按所选校验分支结束后立即发车，尚不满足固定节拍证明；独立 PIO 准备窗口候选
-同样需要 Calibration 预算、完整执行上界和迟到故障策略。mailbox CRC 有效不能代替
-source/target 校验、逐圈参与证据或完整 V2，selection token 也不能充当硬件时间戳。
+替代版本选择证据，不能仅凭指针切换回收旧池。候选 `tdma_origin_plan_begin/step()` 已纳入
+独立 PIO 固定准备窗口、各自收敛的自有 DMA BUSY/ABORT 检查和迟到故障路径；离线
+执行与 ARM 编译仍不能代替硅上仲裁上界。`tdma_origin_cadence_calculate()` 只描述
+所选分频下的物理周期，计算所得 guard 不是 Calibration 对 DMA 重装的授权，也不
+改变 Core1 schedule 或 VDC 观测周期。候选启动采用 begin/poll，准备态按 owner service
+依次推进 mailbox 校验、完整 DMA STOP、persona 切换、分步构图、seed、禁用态 SM 配置
+与一次安装。每次 poll 只执行当前步骤；构图 scratch 复用尚未发布的 live storage，
+最终图和 seed banks 独立保留，BUSY 时不发布入口。配置和源时钟在非终态步骤复核，
+安装前再次检查资源与 persona；失败保留清理责任，common STOP 成功前不允许复用或
+重启。准备态与稳态在同一 service writer guard 内发布累计事实；准备态保持最近
+收发序号和累计值，仍报告未运行和无效时间戳，不能以计数归零表示缺少新观察。
+固定工作量仍须补充真实 clk_sys 的逐 action 与完整 Core1 WCET 证据。
+
+adapter 候选只在已接受的 bootstrap boundary 交接；自主态每次 service 有界收割
+RX 观察与尝试本地 shadow 发布，不补发遗漏周期、不伪造逐帧 completion。返回包需与
+所属 bank 的 sequence、identity、driver generation 及本地 mailbox 对应，再进入
+receive-health/FIFO；完整 owner generation 独立保留，不能由 wire 短序号推回。
+缺少绝对 latch/epoch 时保留 diagnostic 标志并清空旧 DPLL trailer。软件校验不能撤回
+已由硬件透传的数据；mailbox CRC 有效仍不能代替硬件 source/target 授权、逐圈参与
+证据或完整 V2，selection token 也不能充当 SENT、ACK 或硬件时间戳。
 
 这仍不是最终 resident process-image flight：当前 process-image follower 已有本机固定 segment
 的 bit 保护路径，但尚未形成飞行修改后的 WKC、尾部 CRC V2 和完整 segment
@@ -857,6 +907,14 @@ TDMA/Core1 调度的唯一事实源是 `clk_sys` 拍数。板级时钟引用
 - 编译门禁验证 phase 有序、不重叠、周期闭合、WCET 容纳和最大 wire serialization 容纳。
   `tools/tdma_ring_monitor/tdma_cycle_schedule.py` 从同一代码符号生成表格、JSON 或 SVG，
   并可用实测 runtime 做 WCET 回归判定。
+
+兼容 intent 执行路径 `tdma_service_core1_service()` 在每次调用中只尝试读取一次完整
+intent。`intent_guard` 为写入态或复制期间版本变化时，本拍返回，不能据半份 intent
+更新 ARM、取消或 completion；已接受的命令保留到后续拍。常驻 ring service 与 STOP
+处理在这项读取之前推进。计划窗口尚未打开时发布 `WAITING_FOR_WINDOW` 后返回，
+后续拍重新检查同一窗口；若已过期则记录 `WINDOW_MISSED`，不能通过忙等或迟到发送
+掩盖失配。该有界读取不替代多 writer 仲裁，也不证明适配器 action、所有读取接口或
+整个 Core1 已满足 WCET；兼容窗口的时间表示仍需按 `TDMA-DET-01` 收敛。
 
 ### TDMA-DET-02：wire phase 与 CPU phase 分离
 
