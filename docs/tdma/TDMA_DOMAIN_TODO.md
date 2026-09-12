@@ -154,9 +154,14 @@ RX_HANDOFF 重复相加。STOP 应答超时及前序 ARM 拒绝保持开放，�
 物理 RX 提取及 latch 重装使用的公共时钟已加入精确整数周期换算，见
 `TDMA-PROGRESS-20260913-035`。算术结果与原无符号商余数表达式等价，实际时钟路径
 绕过长除法且无新增 RAM；完整 phase 仍未一致改善，WCET/正式 RAM 和观察无损性未
-通过。下一步审计每拍训练 gate 发布中的共享锁等待、快照复制与全部读写者，尤其
-保留 pending command 的提前准入投影、初始化和停止边界；不能以缓存当前状态代替
-完整仲裁语义。预算、service blackout、同圈交换及特等席保全的退出门禁继续保留。
+通过。训练 gate 的读写者、pending command 与停止边界已完成源码绑定的主机回放，见
+`TDMA-PROGRESS-20260913-036`。已复现旧 inactive 覆盖新命令占用，且配置侧更新
+`train_accepted_seq` 先于真实停止；不能用当前状态缓存或单独的序列相等替代仲裁。
+下一实现须先建立命令可消费前的占用与 owner generation 绑定的完成证据，再移除
+Core1 每拍共享锁；拒绝、旧证据、重置和 STOP pending 必须保留占用语义。共享锁等待
+尚未单独计量。完整峰值同记录核算表明，即使移除整段训练发布，其余工作仍超预算，
+因此 owner/runtime/adapter RX handoff 拆分继续作为性能主线；不得把局部修正当作
+完整 WCET 收敛。预算、service blackout、同圈交换及特等席保全的退出门禁继续保留。
 
 普通 RX 异步解析切片已按用户顺序封存，随后完成六节点编译容量的隔离 RAM 核算，见
 `TDMA-PROGRESS-20260912-019`。核算区分本地状态、固定 wire/RefMem/Calibration

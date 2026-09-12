@@ -8,7 +8,12 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的公共时钟精确整数换算切片见
+当前 `TDMA-FLIGHT-002F` 的训练发布竞态与成本审计见
+`TDMA-PROGRESS-20260913-036`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-training-gate-audit/`。主机回放复现旧状态
+清除 pending 占用，并排除将配置侧 accepted 序列当作硬件停止确认的方案；本轮未改
+固件。训练发布的整段成本不足以解释完整 WCET 缺口，后续仍须拆分 owner/RX 工作。
+前序公共时钟精确整数换算切片见
 `TDMA-PROGRESS-20260913-035`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-clock-conversion/`。算术等价与实链除法
 旁路已验证，完整 phase 尚未一致改善，严格 WCET、正式 RAM 与逐圈保全仍未通过。
@@ -139,6 +144,54 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-036 - 训练发布竞态回放与完整峰值成本核算
+
+- 日期：2026-09-13；TODO task ID：`TDMA-FLIGHT-002F`。以下数字为实验快照，非事实源；
+  证据根为 `out/HardwareAcceptance/20260913/tdma-flight-training-gate-audit/`。基线为
+  `8147e6b9eb5b05cee579ff1bdd14797f3ae4f83f`，源码指纹继续为
+  `64b266f3dcdea28162073b5662f3e7e253ea701a1f8d51d4d11078dfd9ab0f91`。前序切片已
+  完成分离提交和 336 份证据校验；本轮只运行主机诊断与既有计时核算，没有新固件、
+  板端命令、许可证或 P3，不把前序硬件证据写成本轮新验收。
+- 从当前源码逐字提取 owner 训练入口、gate 发布、service facade 和物理快照 getter，
+  与真实 runtime/Resource Arbiter 一起编译；OSAL 与物理回调使用可控主机替身。
+  `replay-results-r1.json` 的 9 个场景覆盖不变值发布、旧值覆盖、命令可见顺序、活跃、
+  完成、拒绝、STOP 失败/成功与快照读取失败；测试成功表示预期行为被复现，未表示
+  固件缺陷修复或真实板上已发生并发 Flash 操作。
+- 已复现：Core1 算出 inactive 后、进入共享锁前，Core0 可以提交训练并发布 true；
+  Core1 随后写入旧 false。此时 command/accepted 为 1/0，真实 arbiter 的 eligibility
+  和 admission 接口均允许 OTA。命令 release 也确实先于 true 发布，与原注释承诺的
+  顺序不同；实际调用者的其他策略与 Core0 串行化可能进一步限制操作，不能外推硬件
+  损坏或线上发生率。注入 odd guard 后清占用仅证明失败返回语义，未证明该状态在
+  实际唯一 owner 边界可达。
+- `stop-boundary-results-r1.json` 补充两个真实 runtime 控制路径：配置 STOP 即更新
+  accepted 序列，而 adapter 仍 started；物理 STOP 被替身拒绝后，command/accepted
+  仍相等且 stop_pending 为真。因此序列相等不能独立作为终态确认。SCPI 与后台准备
+  位于不同 Core0 任务，迁移发布到 Core0 后仍需请求与同步的显式串行化。
+- 每拍不变值发布回放 100 次，确实进入 OSAL 100 次；目标多核 OSAL 使用共享
+  `spin_lock_blocking()`。这只证明路径存在，不证明具体锁等待耗时。当前 build 的
+  普通/自主计时原件逐文件校验后，按**同一完整峰值记录**扣除训练 gate 子项；
+  `budget-audit-r1.json` 保留时钟拍数、序列、嵌套关系和原件 SHA。
+
+| 自主节点 | 完整峰值 µs | 其中训练发布 µs | 扣除此项后的其余已记录工作 µs |
+|---|---:|---:|---:|
+| NO1 | 906.880 | 29.204 | 877.676 |
+| NO2 | 986.032 | 27.976 | 958.056 |
+| NO3 | 1108.444 | 23.276 | 1085.168 |
+| NO4 | 1074.636 | 20.776 | 1053.860 |
+
+- 普通模式扣除此项后的其余工作为 1229.368/930.908/984.204/972.672 µs，同样超出
+  `PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES`。这是原记录成本核算，不是新实现性能预测
+  或 WCET 下界；XIP/IRQ/竞争随实现改变，物理飞行与 CPU 工作也可重叠。不得再将
+  物理飞行时间从异步 CPU 总预算完整扣除，或把嵌套子项重复相加。
+- 下一实现边界见 `design-findings.json`：命令可消费前建立占用，Core1 只发布有界、
+  generation 绑定的执行/完成证据，仲裁侧保留 pending、拒绝、旧证据、重置及真实
+  STOP 的语义；移除每拍共享锁前须证明上述交错均不提前释放。完整性能主线继续
+  拆分 owner/runtime/adapter RX handoff 工作，不能只做训练发布局部优化。
+- 本轮为 AUDIT_COMPLETE，固件修复、严格启动、完整 WCET、正式 RAM、观察无损、
+  service blackout、同圈多 owner 更新与特等时间戳保全仍开放；长期目标 active。
+  未变更稳定架构语义或 registry/C11 状态，文档门禁与封存见 `review-r1.json`、
+  `commit-proof.json`。
 
 ### TDMA-PROGRESS-20260913-035 - 公共时钟精确整数换算与物理 RX 成本对照
 
