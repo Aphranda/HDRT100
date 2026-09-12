@@ -1040,7 +1040,9 @@ setup/hold 保证，假设的时钟/DATA 相对延迟不能当作已测同步器
 prefix、skip 与 DMA 行为验收。
 下一修复方向是独立表达 origin 返回 DATA 的采样时序，使 Calibration 能分别校验
 发送重定时和接收有效窗口，再由 TDMA owner 在停止态配置、经准入后 ARM。该方向仍
-属待验证设计；尚未新增配置字段或冻结采样常数。相位恢复须核对当前矩阵 generation、
+属待验证设计；独立配置维度的实现与接受边界见
+`docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md` 的 origin 返回 DATA 候选说明，
+尚未冻结采样常数。相位恢复须核对当前矩阵 generation、
 staging、实际运行参数与最终 STOP；仅停止成功不能证明前一次配置已应用。
 
 adapter 候选只在已接受的 bootstrap boundary 交接；自主态每次 service 有界收割

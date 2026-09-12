@@ -8,7 +8,12 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的返回 DATA 采样窗口与指令模型审计见
+当前 `TDMA-FLIGHT-002F` 的独立 origin RX 采样参数切片见
+`TDMA-PROGRESS-20260913-031`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-origin-rx-phase/`。参数经 Calibration
+staging 和 TDMA owner 配置；发送时序不随 RX 选相改变。普通模式对照支持接收采样
+余量方向，严格启动、完整 WCET、正式 RAM、自主路径及特等席保全仍须分别闭合。
+前序返回 DATA 采样窗口与指令模型审计见
 `TDMA-PROGRESS-20260913-030`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-origin-sample-eye/`。较长窗口再次复现
 相位相关的 CRC 增长；采样余量方向得到进一步支持，同一拒收帧绑定及根因修复仍未
@@ -117,6 +122,72 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-031 - Calibration 所有的独立 origin RX 相位与实板对照
+
+- 日期：2026-09-13；TODO task ID：`TDMA-FLIGHT-002F`、`TRN-ORIGIN-RX-01`。
+  以下数值为实验快照，非事实源。证据根为
+  `out/HardwareAcceptance/20260913/tdma-flight-origin-rx-phase/`。
+- 基线提交 `8ef214eee7b5b973ff8dff07f12ab54badbb2def`；新增独立 capture offset/phase，
+  沿 Calibration stopped staging → TDMA owner → ARM 物理配置传递。普通与自主
+  origin 的 RX 使用独立参数，TX 与 follower 重定时保留原 DATA 参数。新增 PHYS
+  读回、完整矩阵维度和 base/offset 一致性校验；省略参数或旧 payload 恢复原共用
+  行为。版本化存储保存新字段，固定槽数与 Flash 分区不变。没有改动 PIO 指令布局、
+  资源分区、运行期 owner 或正式预算；候选接口说明见 Calibration training plan。
+- 软件：相关 Python 用例共 256 个通过，runtime、training store 与 service scheduler
+  的真实 host C 编译运行通过。首次测试为 178 passed / 12 setup errors，失败来自旧
+  payload 大小断言；区分新旧版本后容量组 17 passed，另有集成组 66 passed。
+  前后容量组重复用例未重复计数；原始失败与修正后运行日志均保留。
+- 构建与资源：Release A/B/Boot build `20260912164001`，当前源码指纹
+  `a34652c8546de0f77a1f0dd409953ad7e0209c2be6a37a8b74fd08dd36c894d6`。
+  build 与 Flash link contracts 通过；App A/B 链接剩余均 4904 B，比上一版多占
+  264 B，正式 RAM 门禁仍失败。编译容量保持当前配置，节点容量后续项仍后置。
+- 当前源码真实 P3 `p3-r1/` 完成四板 OTA、拓扑与物理训练流程；凭证
+  `p3-receipt-r1.json` 为 `passed=true/strict_gates_passed=false`。process-image
+  原始 summary 的 `passed/closed_loop_passed/realtime_gate_passed` 均 false，
+  `diagnostic_passed/diagnostic_continue` 均 true；保留启动屏障超时，不提升为产品通过。
+  本轮新矩阵 `matrix-strict-r1.json` 来自当前 P3 测量，generation 为 1789231681。
+  RX 对照矩阵另以旧已封存矩阵扩展完整搜索维度，明确 `passed=false`、diagnostic
+  replay；没有把人工候选选行当作新校准有效窗口。
+- 首轮普通模式 `rx-comparison-r1.json`：基线 RX/TX 共用参数时，NO1 在 39.703 s
+  窗口取得 good 9707 / transport bad 0。只把 NO2 DATA 改为 14 后，NO1 在
+  38.782 s 为 good 9171 / bad 49；保持全部 TX 参数，仅将 origin RX 从 15 改为
+  14，38.406 s 为 good 9380 / bad 0。各窗口从站 transport CRC 均无增长，四板
+  down event、物理 fault growth 与 counter regression 均无增长。回切组在 NO3
+  ARM result 5 拒绝，未取得 soak，首轮往返对照不完整。result 5 对应 flight map
+  准入拒绝，具体瞬态原因未确认；原始失败不能由后续复验覆盖。
+- 第二轮固定 TX 的 RX15 → RX14 → RX15 对照：NO1 分别为
+  38.921 s / good 9329 / bad 25、119.094 s / good 29020 / bad 0、
+  41.391 s / good 9656 / bad 87。各从站仍未见 transport CRC 增长。该往返关系
+  进一步支持接收采样相位的影响，不能仅凭有限零错误把 RX14 固化为产品参数。
+- 当前源码普通模式波形 `waveform-analysis-r1.json`：两份 capture 均由下载的原始
+  segment 逐字重建，参考帧 sequence 30928 / 12016 的四个活动 mailbox owner 与
+  CRC16 均通过。固定参考 decode 下，离散同值区间相同；它不是模拟 setup/hold
+  下界，也没有绑定固件拒收的同一帧副本。RX14 / RX15 capture-export 区间的
+  transport bad 分别为 0 / 127；该区间不包含之后的串口下载，不能与 soak 数值
+  直接相加。第二轮最终恢复在 NO4 ARM result 8（runtime config rejected）失败，
+  对照已完成但首个恢复失败原件保留；独立恢复使用同一当前矩阵重新验证。
+  `restoration-verification-r2.json` 已核对 staging、运行中实际 phase 和最终 STOP；
+  恢复后的健康 soak 不改变严格启动超时结论。
+- 命令负测 `stage-rejections-r1.json`：NO1 停止态下，offset-only、格式错误、
+  offset/phase 不一致与不可编码相位均被拒绝，LINK staging 原始读回逐字相同。
+  合法显式参数读回通过，随后恢复原 LINK 并确认停止。非查询命令无回复的 timeout
+  记录仍保留，接受/拒绝由 SCPI 错误队列和实际 staging 读回共同判断。
+- 限时自主路径：临时 trial 913031 / epoch 144 下观察到 origin persona 16，保持
+  TX15/RX14，follower 沿用原 DATA 重定时。91.024 s 计时窗口内 NO1–NO4 的 good frame
+  增量为 43007 / 34503 / 32894 / 30380，transport CRC 无增长；试验结束撤销许可。
+  普通模式完整 profile 峰值为 1213.772 / 1002.252 / 1039.396 / 1022.132 us，
+  自主模式为 894.100 / 1024.856 / 1096.108 / 1113.456 us，各板 SCHEDULE overrun
+  均增长，完整 WCET 仍 FAIL。这是带 Core1 service 的有限观察，未验证 service
+  blackout，也没有自主 prefix/skip/DMA 波形或特等席逐圈保全证据。
+  `autonomous-analysis-r1.json` 绑定原始计时样本、phase 与物理故障计数；观察区间
+  物理 fault 无增长。最终 `autonomous-rx-restore/` 已验证当前矩阵实际应用及四板
+  STOP，RX/TX 回到基线共用行为；许可证撤销原始读回保留。
+- 本切片仍 PARTIAL，`002F` 与长期目标保持 IN PROGRESS/active。有限普通模式
+  零错误不证明最坏接收窗口、同一拒收帧的物理/私有副本绑定或自主 prefix/skip/DMA
+  路径通过；新 payload 的实际 Flash commit/reboot 保全也尚需硬件证据。严格启动、
+  flight-map 恢复、完整 Core1 WCET、正式 RAM、无 service 自主循环与特等席逐圈
+  保全继续开放。当前 WCET 门限保留，registry/C11 状态不变。
 
 ### TDMA-PROGRESS-20260913-030 - origin 采样窗口、指令模型与跨日原始证据复核
 

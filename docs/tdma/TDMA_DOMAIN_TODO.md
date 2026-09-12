@@ -125,8 +125,12 @@ overlay/RX 成本削减；完整 WCET、正式 RAM 与特等席逐圈保全仍�
 证据根为 `out/HardwareAcceptance/20260913/tdma-flight-origin-sample-eye/`。新证据
 继续支持采样余量方向，但第三组合在 flight-map ARM 准入时被拒绝，未取得波形。
 独立恢复已核对当前矩阵应用及最终 STOP；启动、完整 WCET 与正式 RAM 仍失败。
-下一切片先隔离 origin RX 与 TX 共用参数的作用，建立 Calibration 可复核的接收
-有效窗口、相对延迟反例和保守余量，再验证 owner 控制的修正。离散同值区间与假设
+独立 origin RX 参数已沿 Calibration staging → TDMA owner → ARM 配置接入，见
+`TDMA-PROGRESS-20260913-031`。普通模式固定 TX 的对照支持接收相位方向；旧参数
+和旧 payload 保持原共用语义，新矩阵维度及显式参数拒绝已验证。真实 P3 诊断流程
+完成，严格接受仍失败，不能把候选 RX 选行提升为 active calibration。下一步建立
+Calibration 可复核的接收有效窗口、相对延迟反例和保守余量，补齐自主路径与新存储
+硬件保全证据，再验证 owner 控制的修正。离散同值区间与假设
 同步器延迟不能直接冻结为配置依据；同一拒收帧的波形/副本绑定与自主 prefix 路径
 仍需闭合。flight-map 瞬态拒绝的具体原因另留证，禁止用重复 ARM 或 STOP 成功覆盖。
 

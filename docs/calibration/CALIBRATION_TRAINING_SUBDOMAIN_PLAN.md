@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION / TRAINING
 Canonical: `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`
-Last updated: 2026-08-30
+Last updated: 2026-09-13
 
 本文档把“先发送同步 marker，再按本地 PIO 周期发送编码 DATA，并在接收端按 marker 建立相对时间基准”的方案收敛为校准域下的独立训练子域。本文档是实施方案和待冻结候选接口，不把当前诊断值直接提升为 active calibration，也不允许训练子域绕过 TDMA core1 owner 直接操作 PIO、SM 或 DMA。
 
@@ -67,6 +67,29 @@ effective_phase_delay_samples = base_samples + node_offset_sample_count
 所以范围是当前 profile 的搜索能力，
 不是所有 codebook 都能无条件加载的范围。当前第三阶段约 `81 ns` 的观测值只能作为诊断输入
 快照，不能写成训练算法的硬编码事实。
+
+origin 返回 DATA 采样与输出重定时的独立维度正在 `TDMA-FLIGHT-002F` 中验证，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-origin-rx-phase/`。该扩展是待验收候选，
+不新增 active calibration 声明、不更改 `CALIBRATION-PHASE-01` 登记状态，也不冻结
+任何采样常数。`tdma_ring_calibration_link_t` 中的
+`origin_capture_offset_sample_count` / `origin_capture_phase_delay_cycles` 仍使用该链路
+的 `link_base_delay_ns` 与 `sample_period_ns`，phase 必须等于同一 base 的取整值加 offset。
+两字段均零表示旧的 DATA 共用行为；显式 phase 必须可编码且通过接收 re-arm 准入。
+TDMA owner 按有向 DATA destination 找到 origin 的链路，在 STOP→ARM 边界配置；
+普通与自主 origin 使用同一接收参数，DATA TX 与 follower 重定时继续使用原 DATA 参数。
+
+训练工具的候选矩阵行用 `origin_capture_offset_sample_counts_by_node` 表达独立搜索
+维度。只要一行提供该维度，所有行必须提供完整 per-Node 向量，并与 SCK/DATA 一起
+覆盖完整笛卡尔集；不得仅修改 resolved link 来绕过原始矩阵。原始证据仍需绑定当前
+build、topology、profile、generation、persona 与选行，证明接收有效区间和保守余量，
+旧矩阵 replay、离散 pad 同值区间与假设同步器延迟均不能替代正式接受门。
+
+候选 `CALibration:TRAINing:STAGe:LINK` 在原参数后接受上述 offset/phase 对；省略时
+保留旧行为，格式错误或仅给一项必须在写 staging 前拒绝。LINK 查询追加该对，PHYS
+查询追加 `flight_origin_capture_phase_delay_cycles`；新请求遇到旧固件读回不能当作
+已应用。保存使用 `CALIBRATION_TRAINING_STORE_PAYLOAD_VERSION` 对应的新 payload，
+旧 payload 仅恢复旧共用行为。固定槽数与 Flash 分区不变；新增格式必须完成新旧解码、
+容量兼容、当前构建和真实 P3 后才形成切片结论，不能把旧 payload 丢失新参数视为成功。
 
 marker 与 DATA 走公共传播路径时，接收端使用相对间隔而非绝对延迟：
 

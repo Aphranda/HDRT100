@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/calibration/CALIBRATION_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-08-31
+Last updated: 2026-09-13
 
 本文档把 [`CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`](CALIBRATION_TDMA_CLK_TRAINING_PLAN.md) 和
 [`CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`](CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md)
@@ -22,6 +22,14 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 - 本文不是新的跨域冻结契约；wire layout、阈值或 SCPI 拼写冻结时，必须遵循文档登记流程。
 
 ## 一、工作板规则与当前状态
+
+`TRN-ORIGIN-RX-01`（IN PROGRESS，关联 `TDMA-FLIGHT-002F`）：将 origin 返回 DATA
+采样从输出重定时参数中分离，保持同一 per-link base/offset、完整矩阵、身份和
+generation 规则。独立参数必须经过停止态 staging、PIO 编码/re-arm 准入和实际读回；
+普通与自主 origin 分别验证，旧存储恢复旧行为，新存储保全独立参数。退出门禁包括
+TX 固定的 RX 相位反例、接收有效窗口及保守余量、原始波形/同帧副本绑定、当前源码
+软件/构建/P3 与停止恢复。诊断对照不能升级为 active calibration；进度见
+`CAL-TASK-20260913-025` 与 `TDMA_TASK_PROGRESS.md` 的本轮记录。
 
 ### 1.1 状态规则
 

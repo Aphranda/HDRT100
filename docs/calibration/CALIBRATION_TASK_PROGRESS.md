@@ -4,11 +4,35 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_TASK_PROGRESS.md`
 Related: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_TASK_PROGRESS.md`
-Last updated: 2026-08-31
+Last updated: 2026-09-13
 
 本文档记录校准域从方案、粗捕获到双向测距和 VDC/DPLL 接入的实际进展。记录中的 HIL
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
+
+## CAL-TASK-20260913-025 - origin 独立 RX 采样参数与存储兼容验证
+
+- 对应 TODO：`TRN-ORIGIN-RX-01`、`TDMA-FLIGHT-002F`。本项仍 IN PROGRESS；证据根为
+  `out/HardwareAcceptance/20260913/tdma-flight-origin-rx-phase/`。
+- 独立 origin capture offset/phase 经 Calibration stage 与同一 base/offset 校验传给
+  TDMA owner；只在停止态配置，普通/自主 origin 的接收端使用独立 phase，DATA TX 与
+  follower 重定时使用原 DATA 参数。候选矩阵增加完整独立搜索维度，旧 LINK 命令与
+  旧存储恢复原共用行为；新 payload 保存独立参数并核对版本和长度。
+- 软件与 build 数值为快照，非事实源：相关 Python 用例及 runtime/service/存储 C
+  测试通过。首次容量测试仍断言旧 payload 大小，失败日志保留，区分新旧格式后重跑
+  通过。Release A/B/Boot build `20260912164001`、源码指纹
+  `a34652c8546de0f77a1f0dd409953ad7e0209c2be6a37a8b74fd08dd36c894d6`，静态占用
+  增加 264 B，两份 App 链接剩余均 4904 B，正式 RAM 门禁仍失败。
+- 当前源码真实 P3 已完成，四板 OTA 与物理训练流程通过，凭证
+  `p3-receipt-r1.json` 为 `passed=true/strict_gates_passed=false`。严格实时与完整
+  process-image 接受结论不因诊断凭证而改变。固定 TX 的 RX 单变量对照已取得有限
+  普通模式证据，支持独立接收相位方向；首轮回切 ARM 拒绝保留，不能据此宣布根因
+  修复或接收窗口验收。停止态参数负测及原 staging 恢复已通过。完整实验结果、失败
+  及最终恢复统一记录在 `TDMA-PROGRESS-20260913-031`，不在本表固化
+  采样常数或 active calibration；实际 Flash commit/reboot 保全尚需专门硬件证据。
+- 临时许可证下自主 origin 已使用独立 RX 参数完成有限计时观察，实际 phase 读回
+  与普通模式一致；窗口内 transport CRC 无增长，完整 WCET 仍超限。原始波形、
+  命令拒绝和恢复失败均在同根保留；这不替代接收窗口搜索、最坏余量与逐圈证据验收。
 
 ## CAL-TASK-20260831-024 - PHY timing 模块拆分后的快速 10 MHz 验收
 
