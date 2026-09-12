@@ -18,6 +18,13 @@ static bool async_overlay_grant(void *context, tdma_overlay_prepare_t *job)
         return false;
     job->buffer_index = phys->active ^ 1u;
     job->plan = &phys->plan[job->buffer_index];
+    job->binding = (tdma_flight_overlay_binding_t){
+        .pass_control = 0x100u, .token_control = 0x110u,
+        .selection_control = 0x200u, .restart_control = 0x300u,
+        .tx_fifo_address = 0x50000010u, .live_word_address = 0x20001000u,
+        .selected_generation_address = 0x20001004u,
+        .loader_trigger_address = 0x50000100u, .next_address_address = 0x20001008u,
+    };
     job->config = (tdma_flight_overlay_config_t){
         .physical_byte_count = TDMA_TRANSPORT_SHORT_PACKET_MAX + 12u,
         .outer_header_size = 4u, .local_slot_id = 3u,
@@ -33,7 +40,11 @@ static bool async_overlay_commit(void *context, tdma_overlay_prepare_t *job)
     if (phys->pending || job->request_epoch != job->epoch ||
         tdma_overlay_prepare_state(job) != TDMA_OVERLAY_PREPARE_READY ||
         job->buffer_index != (phys->active ^ 1u) ||
-        !tdma_flight_overlay_plan_valid(job->plan, 16u)) return false;
+        job->plan->generation != 0u ||
+        job->plan->run_count <= TDMA_FLIGHT_OVERLAY_CONTROL_RUNS ||
+        job->plan->run[0].write_address != job->binding.selected_generation_address ||
+        job->plan->run[job->plan->run_count - 1u].write_address !=
+            job->binding.loader_trigger_address) return false;
     phys->commits++;
     phys->pending = true;
     return true;
@@ -198,6 +209,9 @@ static int test_overlay_prepare_cases(void)
     tdma_overlay_prepare_core0_build_claimed(&phys.job);
     failed += expect_u32("worker ready", tdma_overlay_prepare_state(&phys.job), TDMA_OVERLAY_PREPARE_READY);
     failed += expect_u32("worker cannot publish DMA", phys.commits, 0u);
+    failed += expect_u32("worker leaves generation unpublished", phys.job.plan->generation, 0u);
+    failed += expect_u32("worker already binds DMA selection", phys.job.plan->run[0].write_address,
+        phys.job.binding.selected_generation_address);
     failed += expect_u32("worker cannot commit engine facts", engine.map_apply_count, 0u);
     failed += expect_u32("owner-only output", phys.job.applied.output_bytes, sizeof(mailbox));
     /* TX acceptance progresses despite a corrupt observation on this phase. */

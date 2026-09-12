@@ -1298,8 +1298,40 @@ static void tdma_pio_spi_phys_service_overlay_pending(tdma_pio_spi_phys_t *phys)
     }
 }
 
+static tdma_flight_overlay_binding_t tdma_pio_spi_phys_overlay_binding(
+    const tdma_pio_spi_phys_t *phys)
+{
+    const uint output = (uint)s_tdma_pio_spi_tx_dma_channel;
+    const uint loader = (uint)s_tdma_pio_spi_command_dma_channel;
+    dma_channel_config cfg = dma_channel_get_default_config(output);
+    channel_config_set_transfer_data_size(&cfg, DMA_SIZE_32);
+    channel_config_set_high_priority(&cfg, true);
+    channel_config_set_write_increment(&cfg, false);
+    channel_config_set_read_increment(&cfg, false);
+    channel_config_set_chain_to(&cfg, loader);
+    channel_config_set_dreq(&cfg, pio_get_dreq(tdma_pio_spi_phys_data_pio(phys),
+                                             tdma_pio_spi_phys_data_sm(phys), true));
+    tdma_flight_overlay_binding_t binding = {
+        .pass_control = channel_config_get_ctrl_value(&cfg),
+        .tx_fifo_address = (uint32_t)(uintptr_t)
+            &tdma_pio_spi_phys_data_pio(phys)->txf[tdma_pio_spi_phys_data_sm(phys)],
+        .live_word_address = (uint32_t)(uintptr_t)&s_tdma_pio_spi_flight_live_word,
+        .selected_generation_address = (uint32_t)(uintptr_t)&phys->flight_overlay_selected_generation,
+        .loader_trigger_address = (uint32_t)(uintptr_t)&dma_hw->ch[loader].al3_read_addr_trig,
+        .next_address_address = (uint32_t)(uintptr_t)&phys->flight_overlay_next_address,
+    };
+    channel_config_set_read_increment(&cfg, true);
+    binding.token_control = channel_config_get_ctrl_value(&cfg);
+    channel_config_set_read_increment(&cfg, false);
+    channel_config_set_dreq(&cfg, DREQ_FORCE);
+    binding.selection_control = channel_config_get_ctrl_value(&cfg);
+    channel_config_set_chain_to(&cfg, output);
+    binding.restart_control = channel_config_get_ctrl_value(&cfg);
+    return binding;
+}
+
 static bool tdma_pio_spi_phys_start_overlay_script(
-    tdma_pio_spi_phys_t *phys, uint32_t buffer_index, bool worker_validated)
+    tdma_pio_spi_phys_t *phys, uint32_t buffer_index, bool worker_bound)
 {
     if (phys == NULL || !phys->flight_resource_claimed ||
         s_tdma_pio_spi_command_dma_channel < 0 ||
@@ -1329,10 +1361,12 @@ static bool tdma_pio_spi_phys_start_overlay_script(
         &s_tdma_pio_spi_flight_overlay_plan[buffer_index];
     if (plan->command_word_count != phys->flight_physical_byte_count *
             TDMA_FLIGHT_OVERLAY_COMMAND_WORDS_PER_BYTE ||
-        plan->run_count == 0u || plan->run_count > TDMA_FLIGHT_OVERLAY_RUN_MAX ||
+        plan->generation != 0u ||
+        plan->run_count <= (worker_bound ? TDMA_FLIGHT_OVERLAY_CONTROL_RUNS : 0u) ||
+        plan->run_count > (worker_bound ? TDMA_FLIGHT_OVERLAY_BOUND_RUN_MAX : TDMA_FLIGHT_OVERLAY_RUN_MAX) ||
         plan->token_word_count > TDMA_FLIGHT_OVERLAY_TOKEN_WORD_MAX ||
-        (!worker_validated &&
-         !tdma_flight_overlay_plan_valid(plan, tdma_pio_spi_phys_overlay_final_pc()))) {
+        (!worker_bound && tdma_overlay_prepare_state(phys->overlay_preparation) !=
+            TDMA_OVERLAY_PREPARE_IDLE)) {
         phys->snapshot.overlay_last_error = TDMA_PIO_SPI_OVERLAY_ERROR_BUILD_FAILED;
         return false;
     }
@@ -1344,49 +1378,20 @@ static bool tdma_pio_spi_phys_start_overlay_script(
         phys->snapshot.overlay_last_error = TDMA_PIO_SPI_OVERLAY_ERROR_BUILD_FAILED;
         return false;
     }
-    dma_channel_config dma_cfg = dma_channel_get_default_config(output);
-    channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
-    channel_config_set_high_priority(&dma_cfg, true);
-    channel_config_set_write_increment(&dma_cfg, false);
-    channel_config_set_dreq(
-        &dma_cfg,
-        pio_get_dreq(tdma_pio_spi_phys_data_pio(phys),
-                     tdma_pio_spi_phys_data_sm(phys), true));
-    const uint32_t data_runs = plan->run_count;
-    for (uint32_t i = data_runs; i != 0u; --i) {
-        const tdma_flight_overlay_dma_run_t source = plan->run[i - 1u];
-        tdma_flight_overlay_dma_run_t *run = &plan->run[i];
-        channel_config_set_read_increment(&dma_cfg, source.control != 0u);
-        channel_config_set_chain_to(&dma_cfg, loader);
-        run->read_address = (uint32_t)(uintptr_t)(source.control != 0u
-            ? &plan->token[source.read_address] : &s_tdma_pio_spi_flight_live_word);
-        run->write_address = (uint32_t)(uintptr_t)
-            &tdma_pio_spi_phys_data_pio(phys)->txf[tdma_pio_spi_phys_data_sm(phys)];
-        run->transfer_count = source.transfer_count;
-        run->control = channel_config_get_ctrl_value(&dma_cfg);
+    if (!worker_bound) {
+        const tdma_flight_overlay_binding_t binding = tdma_pio_spi_phys_overlay_binding(phys);
+        if (!tdma_flight_overlay_bind_plan(plan, tdma_pio_spi_phys_overlay_final_pc(), &binding)) {
+            phys->snapshot.overlay_last_error = TDMA_PIO_SPI_OVERLAY_ERROR_BUILD_FAILED;
+            return false;
+        }
+        /* ARM's pass plan freezes the admitted register words and addresses.
+         * No worker exists here; later grants lease only inactive SRAM. The
+         * template remains unchanged until STOP drains the job and hardware. */
+        if (phys->overlay_preparation != NULL) phys->overlay_preparation->binding = binding;
     }
     uint32_t generation = phys->flight_overlay_published_generation + 1u;
     if (generation == 0u) generation = 1u;
     plan->generation = generation;
-    channel_config_set_read_increment(&dma_cfg, false);
-    channel_config_set_dreq(&dma_cfg, DREQ_FORCE);
-    plan->run[0] = (tdma_flight_overlay_dma_run_t){
-        .control = channel_config_get_ctrl_value(&dma_cfg),
-        .write_address = (uint32_t)(uintptr_t)&phys->flight_overlay_selected_generation,
-        .transfer_count = 1u,
-        .read_address = (uint32_t)(uintptr_t)&plan->generation,
-    };
-    /* Reset the loader cursor via its trigger alias. No read-address ring is
-     * needed: the control list may have any admitted number of descriptors.
-     * The pointer is sampled once, after the entire old plan has been read. */
-    channel_config_set_chain_to(&dma_cfg, output);
-    plan->run[data_runs + 1u] = (tdma_flight_overlay_dma_run_t){
-        .control = channel_config_get_ctrl_value(&dma_cfg),
-        .write_address = (uint32_t)(uintptr_t)&dma_hw->ch[loader].al3_read_addr_trig,
-        .transfer_count = 1u,
-        .read_address = (uint32_t)(uintptr_t)&phys->flight_overlay_next_address,
-    };
-    plan->run_count = data_runs + TDMA_FLIGHT_OVERLAY_CONTROL_RUNS;
 
     /* Publish only one successor. DMA selection may lead physical CS by FIFO
      * prefetch; it proves memory retirement, never SENT or wire completion. */
@@ -1488,8 +1493,9 @@ bool tdma_pio_spi_phys_commit_overlay(void *context, tdma_overlay_prepare_t *job
         job->config.physical_byte_count != phys->flight_physical_byte_count ||
         job->config.local_slot_id != phys->flight_local_slot_id ||
         job->config.final_bit_pc != tdma_pio_spi_phys_overlay_final_pc()) return false;
-    /* build_plan validated every token on Core0, then released READY. The
-     * leased pool is immutable until this Core1 bind; scan no tokens here. */
+    /* Core0 validated tokens and bound every descriptor using the template
+     * frozen at ARM, then released READY. Resources stay owned until STOP
+     * drains the lease. Only generation and publication remain on Core1. */
     if (!tdma_pio_spi_phys_start_overlay_script(phys, job->buffer_index, true)) return false;
     phys->flight_overlay_alignment_locked = true;
     phys->snapshot.overlay_prepare_count++;

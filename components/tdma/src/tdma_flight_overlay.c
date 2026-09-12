@@ -188,6 +188,44 @@ bool tdma_flight_overlay_plan_valid(const tdma_flight_overlay_plan_t *plan,
     return true;
 }
 
+bool tdma_flight_overlay_bind_plan(tdma_flight_overlay_plan_t *plan,
+    uint32_t final_bit_pc, const tdma_flight_overlay_binding_t *binding)
+{
+    if (binding == NULL || binding->tx_fifo_address == 0u ||
+        binding->live_word_address == 0u || binding->selected_generation_address == 0u ||
+        binding->loader_trigger_address == 0u || binding->next_address_address == 0u ||
+        ((binding->tx_fifo_address | binding->live_word_address |
+          binding->selected_generation_address | binding->loader_trigger_address |
+          binding->next_address_address) & 3u) != 0u ||
+        !tdma_flight_overlay_plan_valid(plan, final_bit_pc)) return false;
+    const uint32_t data_runs = plan->run_count;
+    for (uint32_t i = data_runs; i != 0u; --i) {
+        const tdma_flight_overlay_dma_run_t source = plan->run[i - 1u];
+        plan->run[i] = (tdma_flight_overlay_dma_run_t){
+            .control = source.control != 0u ? binding->token_control : binding->pass_control,
+            .write_address = binding->tx_fifo_address,
+            .transfer_count = source.transfer_count,
+            .read_address = source.control != 0u
+                ? (uint32_t)(uintptr_t)&plan->token[source.read_address]
+                : binding->live_word_address,
+        };
+    }
+    plan->run[0] = (tdma_flight_overlay_dma_run_t){
+        .control = binding->selection_control,
+        .write_address = binding->selected_generation_address,
+        .transfer_count = 1u,
+        .read_address = (uint32_t)(uintptr_t)&plan->generation,
+    };
+    plan->run[data_runs + 1u] = (tdma_flight_overlay_dma_run_t){
+        .control = binding->restart_control,
+        .write_address = binding->loader_trigger_address,
+        .transfer_count = 1u,
+        .read_address = binding->next_address_address,
+    };
+    plan->run_count = data_runs + TDMA_FLIGHT_OVERLAY_CONTROL_RUNS;
+    return true;
+}
+
 static uint8_t tdma_flight_overlay_aligned_byte(
     const uint8_t *packet,
     size_t packet_size,

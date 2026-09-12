@@ -32,6 +32,13 @@ class Config(C.Structure):
                  "alignment_bit_shift", "local_slot_id", "header_write_mask", "final_bit_pc")]
 
 
+class Binding(C.Structure):
+    _fields_ = [(name, C.c_uint32) for name in
+                ("pass_control", "token_control", "selection_control", "restart_control",
+                 "tx_fifo_address", "live_word_address", "selected_generation_address",
+                 "loader_trigger_address", "next_address_address")]
+
+
 @pytest.fixture(scope="module")
 def engine(tmp_path_factory):
     directory = tmp_path_factory.mktemp("bit-pipeline")
@@ -83,6 +90,10 @@ uint8_t normalize_rx(uint32_t word, unsigned persona) {
     lib.tdma_flight_overlay_build_plan.argtypes = [C.c_void_p, C.c_void_p, C.c_size_t,
         C.c_void_p, C.c_size_t, C.POINTER(Config), C.POINTER(Plan)]
     lib.tdma_flight_overlay_build_plan.restype = C.c_bool
+    lib.tdma_flight_overlay_bind_plan.argtypes = [C.POINTER(Plan), C.c_uint32, C.POINTER(Binding)]
+    lib.tdma_flight_overlay_bind_plan.restype = C.c_bool
+    lib.tdma_flight_overlay_build_pass_plan.argtypes = [C.c_uint32, C.c_uint32, C.POINTER(Plan)]
+    lib.tdma_flight_overlay_build_pass_plan.restype = C.c_bool
     lib.tdma_transport_frame_resident_overlay_header_mask.restype = C.c_uint32
     lib.normalize_rx.argtypes = [C.c_uint32, C.c_uint32]
     lib.normalize_rx.restype = C.c_uint8
@@ -96,6 +107,66 @@ uint8_t normalize_rx(uint32_t word, unsigned persona) {
 def pack(bits):
     return bytes(sum(bits[i + k] << (7 - k) for k in range(8))
                  for i in range(0, len(bits), 8))
+
+
+def binding_template():
+    # Opaque fake endpoints: the C binder must never access peripheral memory.
+    return Binding(0x101, 0x111, 0x201, 0x301, 0x50000010, 0x20001000,
+                   0x20001004, 0x50000100, 0x20001008)
+
+
+def bound_words(lib, plan, final):
+    binding = binding_template()
+    tokens = bytes(plan.token)
+    assert lib.tdma_flight_overlay_bind_plan(C.byref(plan), final, C.byref(binding))
+    assert bytes(plan.token) == tokens and plan.generation == 0
+    first, last = plan.run[0], plan.run[plan.run_count - 1]
+    assert (first.control, first.write_address, first.transfer_count, first.read_address) == (
+        binding.selection_control, binding.selected_generation_address, 1,
+        (C.addressof(plan) + Plan.generation.offset) & 0xFFFFFFFF)
+    assert (last.control, last.write_address, last.transfer_count, last.read_address) == (
+        binding.restart_control, binding.loader_trigger_address, 1, binding.next_address_address)
+    # Interpret DMA data descriptors independently, resolving only the granted
+    # live constant and this plan's token pool; compare their PIO input stream.
+    words = []
+    token_base = C.addressof(plan.token) & 0xFFFFFFFF
+    for run in plan.run[1:plan.run_count - 1]:
+        assert run.write_address == binding.tx_fifo_address and run.transfer_count > 0
+        if run.control == binding.pass_control:
+            assert run.read_address == binding.live_word_address
+            words.extend([LIVE << 16 | LIVE] * run.transfer_count)
+        else:
+            assert run.control == binding.token_control
+            offset = (run.read_address - token_base) & 0xFFFFFFFF
+            assert offset % 4 == 0 and offset // 4 + run.transfer_count <= plan.token_word_count
+            words.extend(plan.token[offset // 4:offset // 4 + run.transfer_count])
+    assert len(words) == plan.command_word_count
+    frozen = bytes(plan)
+    assert not lib.tdma_flight_overlay_bind_plan(C.byref(plan), final, C.byref(binding))
+    assert bytes(plan) == frozen  # A second bind cannot shift the live descriptors.
+    return words
+
+
+@pytest.mark.parametrize("damage", ["none", "token", "offset", "count", "runs", "generation",
+                                    "endpoint_zero", "endpoint_alignment", "final_pc"])
+def test_binding_pass_and_rejection(engine, damage):
+    lib, _, final, _ = engine
+    plan, binding = Plan(), binding_template()
+    assert lib.tdma_flight_overlay_build_pass_plan(307, final, C.byref(plan))
+    if damage == "none":
+        assert bound_words(lib, plan, final) == [LIVE << 16 | LIVE] * (307 * 4 - 1) + [LIVE << 16 | final]
+        return
+    if damage == "token": plan.token[0] ^= 0x10000
+    if damage == "offset": plan.run[1].read_address = 1
+    if damage == "count": plan.run[1].transfer_count = 0xFFFFFFFF
+    if damage == "runs": plan.run_count = 8
+    if damage == "generation": plan.generation = 1
+    if damage == "endpoint_zero": binding.loader_trigger_address = 0
+    if damage == "endpoint_alignment": binding.tx_fifo_address |= 1
+    if damage == "final_pc": final += 1
+    frozen = bytes(plan)
+    assert not lib.tdma_flight_overlay_bind_plan(C.byref(plan), final, C.byref(binding))
+    assert bytes(plan) == frozen
 
 
 def case(engine, slot, shift, byte_shift, installed, delay, period, high, rx_drop):
@@ -128,6 +199,7 @@ def case(engine, slot, shift, byte_shift, installed, delay, period, high, rx_dro
     for run in plan.run[:plan.run_count]:
         words.extend(plan.token[run.read_address:run.read_address + run.transfer_count]
                      if run.control else [LIVE << 16 | LIVE] * run.transfer_count)
+    assert bound_words(lib, plan, final + installed) == words
     tokens = [half for word in words for half in (word >> 16, word & 65535)]
     physical, expected = [], []
     base = (4 + byte_shift) * 8 + shift

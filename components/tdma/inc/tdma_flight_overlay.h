@@ -29,7 +29,8 @@
 
 /* Before DMA binding, control is read_increment, read_address is a token
  * offset (or SOURCE_PASS), and write_address is zero. The adapter binds these
- * four words to the RP2350 AL3 register order only after the plan is complete. */
+ * four words to the RP2350 AL3 register order only after the plan is complete.
+ * A worker may bind a leased inactive plan using an owner-frozen template. */
 typedef struct {
     uint32_t control;
     uint32_t write_address;
@@ -57,6 +58,26 @@ typedef struct {
     uint32_t header_write_mask;
     uint32_t final_bit_pc;
 } tdma_flight_overlay_config_t;
+
+/* Core1 supplies these opaque values from its admitted physical resources.
+ * The pure binder writes only plan SRAM; it never dereferences these addresses
+ * or publishes a DMA pointer. STOP must drain the lease before resources move. */
+typedef struct {
+    uint32_t pass_control;
+    uint32_t token_control;
+    uint32_t selection_control;
+    uint32_t restart_control;
+    uint32_t tx_fifo_address;
+    uint32_t live_word_address;
+    uint32_t selected_generation_address;
+    uint32_t loader_trigger_address;
+    uint32_t next_address_address;
+} tdma_flight_overlay_binding_t;
+
+/* Validates the unbound plan before any mutation; binding is single-use.
+ * Generation stays zero until the physical owner accepts and publishes it. */
+bool tdma_flight_overlay_bind_plan(tdma_flight_overlay_plan_t *plan,
+    uint32_t final_bit_pc, const tdma_flight_overlay_binding_t *binding);
 
 /* Header changes XOR the actual wire bits; they never replay a predicted
  * sequence's CRC. Local payload changes still select owner-prepared values.

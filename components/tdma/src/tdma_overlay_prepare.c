@@ -48,7 +48,8 @@ static bool tdma_overlay_prepare_build(tdma_overlay_prepare_t *job)
             job->target_sequence, job->egress_hop, &result)) return false;
     return tdma_flight_overlay_build_plan(incoming, processed, sizeof(incoming),
         job->applied.output_byte_bitmap, TDMA_FLIGHT_OUTPUT_BITMAP_WORDS,
-        &job->config, job->plan);
+        &job->config, job->plan) &&
+        tdma_flight_overlay_bind_plan(job->plan, job->config.final_bit_pc, &job->binding);
 }
 
 void tdma_overlay_prepare_core0_build_claimed(tdma_overlay_prepare_t *job)

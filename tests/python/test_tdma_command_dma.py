@@ -173,7 +173,8 @@ def test_descriptor_completion_and_bounded_stop(tmp_path):
             ("static bool", "tdma_pio_spi_phys_overlay_dma_busy", "(tdma_pio_spi_phys_t *phys)"),
             ("static void", "tdma_pio_spi_phys_service_overlay_pending", "(tdma_pio_spi_phys_t *phys)"),
             ("bool", "tdma_pio_spi_phys_process_overlay_ready", "(void *context)"),
-            ("static bool", "tdma_pio_spi_phys_start_overlay_script", "(tdma_pio_spi_phys_t *phys, uint32_t buffer_index, bool worker_validated)"),
+            ("static tdma_flight_overlay_binding_t", "tdma_pio_spi_phys_overlay_binding", "(const tdma_pio_spi_phys_t *phys)"),
+            ("static bool", "tdma_pio_spi_phys_start_overlay_script", "(tdma_pio_spi_phys_t *phys, uint32_t buffer_index, bool worker_bound)"),
             ("static uint32_t", "tdma_pio_spi_phys_overlay_free_buffer", "(const tdma_pio_spi_phys_t *phys)"),
             ("bool", "tdma_pio_spi_phys_grant_overlay", "(void *context, tdma_overlay_prepare_t *job)"),
             ("bool", "tdma_pio_spi_phys_commit_overlay", "(void *context, tdma_overlay_prepare_t *job)")])
@@ -360,6 +361,8 @@ static void stop_race(bool hang, bool loader_write, bool restart_write) {
     assert(!(bus.ch[5].ctrl_trig & 1) && !(bus.ch[6].ctrl_trig & 1));
 }
 int main(void) {
+    tdma_overlay_prepare_t job = {0};
+    phys.overlay_preparation = &job; /* Bound before ARM, as in the runtime owner. */
     phys.flight_physical_byte_count = 307;
     phys.flight_overlay_alignment_samples = 2;
     phys.armed = true;
@@ -432,22 +435,25 @@ int main(void) {
     until_selected();
     /* Exercise real grant/commit with a Core0 lease while DMA keeps reading
      * the old plan. Alignment and epoch changes invalidate the READY result. */
-    tdma_overlay_prepare_t job = {0};
-    phys.overlay_preparation = &job;
     phys.process_image_enabled = true;
     phys.role = TDMA_PIO_SPI_ROLE_SLAVE;
     assert(tdma_pio_spi_phys_grant_overlay(&phys, &job));
     tdma_flight_overlay_plan_t live = s_tdma_pio_spi_flight_overlay_plan[phys.flight_overlay_active_buffer];
     assert(tdma_overlay_prepare_request(&job));
     assert(tdma_overlay_prepare_core0_claim(&job));
+    const tdma_flight_overlay_binding_t frozen_binding = job.binding;
     for (unsigned n = 0; n < 5000; ++n) bus_step();
     assert(!tdma_pio_spi_phys_grant_overlay(&phys, &job));
     assert(!tdma_pio_spi_phys_commit_overlay(&phys, &job));
     assert(memcmp(&live, &s_tdma_pio_spi_flight_overlay_plan[phys.flight_overlay_active_buffer], sizeof(live)) == 0);
+    assert(memcmp(&job.binding, &frozen_binding, sizeof(frozen_binding)) == 0);
     /* Substitute the pure worker's already validated PASS output here; the
      * full adapter fixture executes its transport/model builder separately. */
     assert(tdma_flight_overlay_build_pass_plan(307, 20, job.plan));
     assert(tdma_flight_overlay_plan_valid(job.plan, 20));
+    assert(tdma_flight_overlay_bind_plan(job.plan, 20, &job.binding));
+    const tdma_flight_overlay_plan_t ready = *job.plan;
+    assert(job.plan->generation == 0);
     job.state = TDMA_OVERLAY_PREPARE_READY;
     ++job.epoch;
     assert(!tdma_pio_spi_phys_commit_overlay(&phys, &job));
@@ -456,6 +462,9 @@ int main(void) {
     assert(!tdma_pio_spi_phys_commit_overlay(&phys, &job));
     --phys.flight_alignment_bit_shift;
     assert(tdma_pio_spi_phys_commit_overlay(&phys, &job));
+    assert(memcmp(job.plan->run, ready.run, sizeof(ready.run)) == 0);
+    assert(memcmp(job.plan->token, ready.token, sizeof(ready.token)) == 0);
+    assert(job.plan->generation != 0); /* Owner publishes; it never rebinds READY. */
     assert(start_calls == 1); /* Publication never launches another DMA graph. */
     tdma_overlay_prepare_release(&job);
     assert(!tdma_pio_spi_phys_grant_overlay(&phys, &job));
@@ -615,7 +624,8 @@ enum { TDMA_PIO_SPI_RX_RING_WORDS = 1024, TDMA_PIO_SPI_RX_DMA_WORD_MAX = 64,
        TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES = 2,
        TDMA_PIO_SPI_PACKET_HEADER_SIZE = 4, TDMA_TRANSPORT_FRAME_HEADER_SIZE = 32,
        TDMA_PIO_SPI_PACKET_MAGIC0 = 0xa5, TDMA_PIO_SPI_PACKET_MAGIC1 = 0x5a };
-enum { TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN = 16 };
+enum { TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN = 16,
+       TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER = 9 };
 static unsigned s_tdma_pio_spi_program_persona;
 typedef struct {
     bool rx_capture_active, process_image_enabled, flight_overlay_alignment_locked;
@@ -638,7 +648,8 @@ static int s_tdma_pio_spi_rx_dma_channel = 4;
 static uint8_t s_tdma_pio_spi_rx_frame[64];
 static uint64_t tdma_pio_spi_phys_rx_produced_words(tdma_pio_spi_phys_t *p) { (void)p; return produced; }
 static uint32_t tdma_pio_spi_phys_rx_write_index(void) { return produced % 128; }
-static uint32_t tdma_pio_spi_phys_rx_ring_word(uint64_t p) { (void)p; return 0; }
+static uint8_t model_raw_byte(uint64_t p);
+static uint32_t tdma_pio_spi_phys_rx_ring_word(uint64_t p) { return model_raw_byte(p); }
 /* Model a valid decoded packet found in an observation stream whose words
  * have been dropped. The real scanner must recover it without retargeting
  * a previously published plan. Bit extraction itself has separate PIO tests. */
@@ -653,7 +664,7 @@ static uint8_t model_raw_byte(uint64_t p) {
     const uint8_t previous = p ? model_packet_byte(p - 1) : 0;
     return (uint8_t)((value >> alignment) | (previous << (8 - alignment)));
 }
-static uint8_t tdma_pio_spi_phys_rx_ring_byte(uint64_t p) { return model_raw_byte(p); }
+static uint8_t tdma_pio_spi_phys_rx_ring_reversed_byte(uint64_t p) { return model_raw_byte(p); }
 static uint8_t tdma_pio_spi_phys_rx_ring_aligned_byte(uint64_t p, uint32_t shift) {
     const uint8_t first = model_raw_byte(p);
     return shift ? (uint8_t)((first << shift) | (model_raw_byte(p + 1) >> (8 - shift))) : first;
