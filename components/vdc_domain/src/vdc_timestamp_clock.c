@@ -92,6 +92,13 @@ uint64_t vdc_timestamp_clock_ticks_to_ns(uint64_t ticks)
     if (hz == 0u) {
         return 0u;
     }
+    /* Resolution is rounded up for general clocks. Use it as a scale only
+     * when one second is exactly hz periods. Unsigned multiplication keeps
+     * the same modulo-uint64 result as the quotient/remainder expression. */
+    const uint32_t period_ns = s_vdc_timestamp_clock_resolution_ns;
+    if ((uint64_t)hz * period_ns == 1000000000ull) {
+        return ticks * period_ns;
+    }
     const uint64_t seconds = ticks / (uint64_t)hz;
     const uint64_t remainder = ticks % (uint64_t)hz;
     return seconds * 1000000000ull +

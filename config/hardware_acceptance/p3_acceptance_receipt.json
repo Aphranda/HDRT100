@@ -4,64 +4,64 @@
   "acceptance_profile": "QUICK_DIAGNOSTIC",
   "dpll_observation": "SKIPPED_TDMA_ONLY",
   "passed": true,
-  "generated_at_utc": "2026-09-12T18:40:29.505341+00:00",
-  "source_tree_sha256": "743487d0290a8d32461574004e3c3fca8fc350b0b5a62509e261e8e90a01db65",
-  "source_file_count": 1018,
+  "generated_at_utc": "2026-09-12T19:08:51.839660+00:00",
+  "source_tree_sha256": "64b266f3dcdea28162073b5662f3e7e253ea701a1f8d51d4d11078dfd9ab0f91",
+  "source_file_count": 1020,
   "bench_config_path": "config/hardware_acceptance/p3_bench_quick.json",
   "bench_config_sha256": "c032843ba0eab2e87bb3399920c0fe54f79cf1eddbb4404a7ed1d85b1ea34fc2",
-  "build_id": "20260912183136",
+  "build_id": "20260912185952",
   "firmware_package": {
-    "path": "out/HardwareAcceptance/20260913/tdma-flight-overlay-reuse/build-r1/DHRT100_UPDATE.pkg",
-    "sha256": "5180dc5dcaf8485e5d17ce700dfd40091d95ddc5e866e4b34a76f626329ed374"
+    "path": "out/HardwareAcceptance/20260913/tdma-flight-clock-conversion/build-r1/DHRT100_UPDATE.pkg",
+    "sha256": "759a55cdd895df06b5014c00138d4d77aff28af6c9f431e66318922bb35484a7"
   },
   "ota_summary": {
-    "path": "out/HardwareAcceptance/20260913/tdma-flight-overlay-reuse/p3-r1/ota-four-board-tdma/summary.json",
-    "sha256": "7e894ea7a4891245a86e5e209bc12f8388896e4e4bd106a0902cbe6ae3f880ab",
+    "path": "out/HardwareAcceptance/20260913/tdma-flight-clock-conversion/p3-r1/ota-four-board-tdma/summary.json",
+    "sha256": "a6f868fb9cd85f2ac2eb1715b828c6cc60205a5db2f273ea5413cd4f08f0d09d",
     "board_count": 4
   },
   "topology_summary": {
-    "path": "out/HardwareAcceptance/20260913/tdma-flight-overlay-reuse/p3-r1/p0t-topology/summary.json",
-    "sha256": "e33f407ed2d3d97a9154742fedab9f1347fe83be4a72e5bb22cdea8413d17097"
+    "path": "out/HardwareAcceptance/20260913/tdma-flight-clock-conversion/p3-r1/p0t-topology/summary.json",
+    "sha256": "f09c32fd44012e864bf4985b8d65673fb927b7b0ccded589362957201a929f84"
   },
   "coarse_calibration_summary": {
-    "path": "out/HardwareAcceptance/20260913/tdma-flight-overlay-reuse/p3-r1/coarse-calibration-summary.json",
-    "sha256": "7aa32181436e5a59e4aa613642cb00c3c327e139dae97bf0fd00f364c30c0cc8"
+    "path": "out/HardwareAcceptance/20260913/tdma-flight-clock-conversion/p3-r1/coarse-calibration-summary.json",
+    "sha256": "2dc7bf580c07524e49be537e3f331fc5f54ab23a4ed6c16940c01cced83511ea"
   },
   "coded_calibration_summary": {
-    "path": "out/HardwareAcceptance/20260913/tdma-flight-overlay-reuse/p3-r1/coded-calibration-summary.json",
-    "sha256": "2b884c094b40a613217e88eb095c28251a53291d70436cae49204177b5e4a115"
+    "path": "out/HardwareAcceptance/20260913/tdma-flight-clock-conversion/p3-r1/coded-calibration-summary.json",
+    "sha256": "e644b2c73c1d19d2754db5b466f4913872a8952772ee5ce05a7ff2066effe310"
   },
   "initialization_reset": {
-    "path": "out/HardwareAcceptance/20260913/tdma-flight-overlay-reuse/p3-r1/initialization-reset.json",
-    "sha256": "a375bf2cc6a4a49724b641d6947e727c1853c50577728fcb01486176cd4831ca"
+    "path": "out/HardwareAcceptance/20260913/tdma-flight-clock-conversion/p3-r1/initialization-reset.json",
+    "sha256": "34b7e9032111557547bfb7afbc91a740ee32cf9a595650a17c9e52b2d87ea7ec"
   },
   "p3_summary": {
-    "path": "out/HardwareAcceptance/20260913/tdma-flight-overlay-reuse/p3-r1/p3-four-board/summary.json",
-    "sha256": "990be62fe5c718843794826cb9b8942553809f737891b30ec43fdbb9a7f90f7e"
+    "path": "out/HardwareAcceptance/20260913/tdma-flight-clock-conversion/p3-r1/p3-four-board/summary.json",
+    "sha256": "cc743976650f9a7375fac246b13292b0ef1bec65a61a7bf6b5594bccc5f66da0"
   },
   "trn00_summary": {
-    "path": "out/HardwareAcceptance/20260913/tdma-flight-overlay-reuse/p3-r1/trn00-summary.json",
-    "sha256": "80bcadefeb0aa813b9bc57a8d6fd76fb244f9c2e998291ba80f0f63a80e35b3d"
+    "path": "out/HardwareAcceptance/20260913/tdma-flight-clock-conversion/p3-r1/trn00-summary.json",
+    "sha256": "82466749fa5f975f136af0055f8f8adaebeff2f951264c5a196caf9177f97634"
   },
   "trn01_summary": {
-    "path": "out/HardwareAcceptance/20260913/tdma-flight-overlay-reuse/p3-r1/trn01-summary.json",
-    "sha256": "757c2d5e98a66cfb7775ce4d2e2cb8004792de0a08f7d75c09fb6d9333974aa8"
+    "path": "out/HardwareAcceptance/20260913/tdma-flight-clock-conversion/p3-r1/trn01-summary.json",
+    "sha256": "cfddea5c777f6fb97a51bc23186611350360bfe7f707261f3046a292d8c1cfd1"
   },
   "trn02_summary": {
-    "path": "out/HardwareAcceptance/20260913/tdma-flight-overlay-reuse/p3-r1/trn02-data/summary.json",
-    "sha256": "080d1774b00bd11f530cc4f7a188007bbde99cdbcad62f72ce06eefda863eeef"
+    "path": "out/HardwareAcceptance/20260913/tdma-flight-clock-conversion/p3-r1/trn02-data/summary.json",
+    "sha256": "657b8b0fa08facff2f34f97cada56870c55399f6f04ab780c3ab002cacff75fe"
   },
   "trn03_matrix": {
-    "path": "out/HardwareAcceptance/20260913/tdma-flight-overlay-reuse/p3-r1/trn03-matrix.json",
-    "sha256": "95eeb30232586a5aefe8c6637a5a462b420ba2b784598e1fa434f3eaf9378871"
+    "path": "out/HardwareAcceptance/20260913/tdma-flight-clock-conversion/p3-r1/trn03-matrix.json",
+    "sha256": "b753afb5e3fccb34b2d6bc401b6c17f5289cca17c38d398a6ce9aa96b6a508f3"
   },
   "calibration_parameter_handoff": {
-    "path": "out/HardwareAcceptance/20260913/tdma-flight-overlay-reuse/p3-r1/calibration-parameter-handoff.json",
-    "sha256": "10fc21ce1212c2ea28df7a336ff3d06610497a55142e91f27f21f0ed91c85aa2"
+    "path": "out/HardwareAcceptance/20260913/tdma-flight-clock-conversion/p3-r1/calibration-parameter-handoff.json",
+    "sha256": "441b1c95932897172d3663b6077537bb55185deed54087f39d3189911d4d0c78"
   },
   "tdma_summary": {
-    "path": "out/HardwareAcceptance/20260913/tdma-flight-overlay-reuse/p3-r1/tdma-process-image/summary.json",
-    "sha256": "ad5319072115791fd0605497bfa3b320fcef9317a6d2432f902bb8f9c8f08173"
+    "path": "out/HardwareAcceptance/20260913/tdma-flight-clock-conversion/p3-r1/tdma-process-image/summary.json",
+    "sha256": "775a461f90c8e022328df6aea9b2ecd475633722fea9696d4992f8d234f896a4"
   },
   "ota_board_ids": [
     "0010071E65B5CB38",
@@ -92,7 +92,7 @@
     41
   ],
   "path_delay_baseline_divisor": 2,
-  "calibration_generation": 1789238371,
+  "calibration_generation": 1789240076,
   "calibration_load_mask": 4,
   "waveform_capture_policy": {
     "trn00": false,
@@ -106,52 +106,52 @@
     "0010071E65B5CB38": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 52700,
-      "schedule_miss_count": 60909
+      "cycle_count": 44878,
+      "schedule_miss_count": 48567
     },
     "FB276192BEF9CCE1": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 52734,
-      "schedule_miss_count": 57482
+      "cycle_count": 44900,
+      "schedule_miss_count": 48609
     },
     "2BD5090FE009FA2A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 52833,
-      "schedule_miss_count": 56186
+      "cycle_count": 44954,
+      "schedule_miss_count": 48431
     },
     "A1E549202D18ED6A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 52929,
-      "schedule_miss_count": 56303
+      "cycle_count": 45051,
+      "schedule_miss_count": 48550
     }
   },
   "schedule_after": {
     "0010071E65B5CB38": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 109404,
-      "schedule_miss_count": 146576
+      "cycle_count": 99220,
+      "schedule_miss_count": 131555
     },
     "FB276192BEF9CCE1": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 110105,
-      "schedule_miss_count": 135710
+      "cycle_count": 100026,
+      "schedule_miss_count": 124210
     },
     "2BD5090FE009FA2A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 110102,
-      "schedule_miss_count": 135275
+      "cycle_count": 100576,
+      "schedule_miss_count": 125852
     },
     "A1E549202D18ED6A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 111620,
-      "schedule_miss_count": 139873
+      "cycle_count": 102055,
+      "schedule_miss_count": 130666
     }
   },
   "realtime_load_mask_unchanged": true,
@@ -170,8 +170,8 @@
     "output_handoff_s": 0.05
   },
   "timing_probe": {
-    "path": "out/HardwareAcceptance/20260913/tdma-flight-overlay-reuse/p3-r1/timing.json",
-    "sha256": "2d4e99e2f5abccfc5f33aeee82981401dc102495e17954a78323fa048e18f327"
+    "path": "out/HardwareAcceptance/20260913/tdma-flight-clock-conversion/p3-r1/timing.json",
+    "sha256": "a4b89cb532ff98b14c35aa72acaeaf32f4f002d77c92e976b9bb9a647665e71e"
   },
   "flow_completed": true,
   "strict_gates_passed": false,
@@ -180,11 +180,11 @@
       "phase": "four-Node TDMA closed loop",
       "returncode": 1,
       "error": "explicit startup barrier timed out",
-      "summary": "out/HardwareAcceptance/20260913/tdma-flight-overlay-reuse/p3-r1/tdma-process-image/summary.json"
+      "summary": "out/HardwareAcceptance/20260913/tdma-flight-clock-conversion/p3-r1/tdma-process-image/summary.json"
     }
   ],
   "diagnostic_summary": {
-    "path": "out/HardwareAcceptance/20260913/tdma-flight-overlay-reuse/p3-r1/diagnostic.json",
-    "sha256": "550fab8a8981eb7fa444b6932298207f9b2fa600c09a57926ccc440def439e47"
+    "path": "out/HardwareAcceptance/20260913/tdma-flight-clock-conversion/p3-r1/diagnostic.json",
+    "sha256": "c71375601f87442a1dd17b95c3c2c09a1d69f33bfaf1a7430804e7be11204284"
   }
 }
