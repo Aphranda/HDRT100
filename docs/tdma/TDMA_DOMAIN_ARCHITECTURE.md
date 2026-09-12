@@ -963,6 +963,13 @@ TDMA owner 在 begin 与每个准备步骤重新核验许可证绑定和期限�
 RefMem transport publish、training gate、analyzer、accounting，以及嵌套的 adapter、
 RX capture/parse、overlay prepare/boundary。时钟复用 `vdc_timestamp_clock_read_ticks64()`
 的 clk_sys 原始拍数；这只是执行耗时，不提供新的 wire timestamp 或共同时间证据。
+当前 `TDMA_SERVICE_TIMING_VERSION` 追加 follower/legacy RX 的
+`TDMA_TIMING_RX_ACQUIRE`、`TDMA_TIMING_RX_PACKET_COPY`、`TDMA_TIMING_RX_CLOCK` 与
+`TDMA_TIMING_RX_LATCH`，分别覆盖取帧（含无帧返回）、包复制、时间换算和 latch 读取/重装。
+这些区间均包含于 `TDMA_TIMING_RX_CAPTURE`；origin 专用接收路径不报告这些子项，
+其零值不能解释为 origin 没有接收成本。主机使用
+`tools/tdma_ring_monitor/tdma_service_timing.py` 校验版本、字段长度和 stage 数量，
+保留旧版本读取，未知版本拒绝，不能静默错配标签。
 每次 phase 的工作记录在结束时通过短 seqlock 发布；Core0 查询只尝试读取一次，
 writer 正在发布或版本变化时返回不可用，不重试自旋。最近记录与最慢记录分别保全
 一次完整 phase，不能把不同轮次的单项最大值拼成最坏执行路径。
@@ -1075,6 +1082,16 @@ profile。
 的组合调用，因此本阶段只能约束整个 `TDMA` phase。下一阶段必须拆成“上一周期构建 shadow
 image → DMA/FIFO preload → PIO hardware launch → wire → feedback/commit”子 phase；CS/SCK/DATA
 首边沿由 PIO/硬件事件产生，Core1 只能提前预装，不能靠函数调用到达时间决定物理起点。
+
+当前预算复评属于 `TDMA-FLIGHT-002F` 的分析工作，数值快照见
+`TDMA-PROGRESS-20260912-022`，不在此冻结新门限。自主硬件飞行与 CPU phase 能够重叠，
+CPU 必需预算应按 owner 固定工作、普通装卸配额、最坏同拍同步记录数及其单条成本、
+共享资源干扰和计时发布成本核算；仍有 wire wait 的兼容路径须单独计入等待。
+`PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES` 与窗口末端之间的余量还承担起始抖动和收尾，
+不能全部视为可用乘客时间。特等席逐圈硬件 LOAD/UNLOAD 的期限与 VDC 后台消费期限
+分别验证；平均吞吐可行不代表逐圈截止期满足。若实测证明需要适度调整，应先提出
+全表/profile 候选并复核其他 mandatory phase、guard、资源与跨域契约；目前符号、
+准入逻辑和登记状态均不因分析而改变。
 
 ### TDMA-DET-03：基础载荷优先的静态装配
 
