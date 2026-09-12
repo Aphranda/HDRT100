@@ -506,25 +506,35 @@ bool tdma_runtime_owner_get_clk_train_snapshot(
                                                      snapshot);
 }
 
-bool tdma_runtime_owner_train_clock(uint32_t cycles)
+static bool tdma_runtime_owner_submit_training(
+    void *context, uint32_t *command_sequence)
 {
-    if (!s_tdma_runtime_owner_initialized || cycles == 0u ||
-        !tdma_service_ring_train_clock(&s_tdma_runtime_owner, cycles)) {
+    const uint32_t cycles = *(const uint32_t *)context;
+    if (!tdma_service_ring_train_clock(&s_tdma_runtime_owner, cycles)) {
         return false;
     }
-    /* Publish before core1 consumes the command to close the admission race. */
-    resource_arbiter_publish_tdma_clock_training(true);
+    *command_sequence = __atomic_load_n(
+        &s_tdma_runtime_owner.ring_runtime.train_command_seq, __ATOMIC_ACQUIRE);
     return true;
+}
+
+bool tdma_runtime_owner_train_clock(uint32_t cycles)
+{
+    return s_tdma_runtime_owner_initialized && cycles != 0u &&
+        resource_arbiter_request_tdma_clock_training(
+            tdma_runtime_owner_submit_training, &cycles);
 }
 
 void tdma_runtime_owner_update_training_gate(void)
 {
-    tdma_pio_spi_clk_train_snapshot_t snapshot;
-    const bool active =
-        tdma_runtime_owner_get_clk_train_snapshot(&snapshot) &&
-        (snapshot.state == TDMA_PIO_SPI_CLK_TRAIN_FORWARDING ||
-         snapshot.state == TDMA_PIO_SPI_CLK_TRAIN_MASTER_RUNNING);
-    resource_arbiter_publish_tdma_clock_training(active);
+    if (!s_tdma_runtime_owner_initialized) return;
+    const tdma_ring_runtime_t *runtime = &s_tdma_runtime_owner.ring_runtime;
+    const bool terminal = runtime->adapter_stop_pending == 0u &&
+        __atomic_load_n(&runtime->config_seq, __ATOMIC_ACQUIRE) ==
+            runtime->applied_config_seq &&
+        tdma_pio_spi_phys_clk_train_terminal_core1(&s_tdma_pio_spi_phys);
+    resource_arbiter_complete_tdma_clock_training_core1(
+        runtime->train_owner_sequence, terminal);
 }
 
 bool tdma_runtime_owner_get_operating_profile(

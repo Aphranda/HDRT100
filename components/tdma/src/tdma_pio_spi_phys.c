@@ -2649,6 +2649,25 @@ static bool tdma_pio_spi_phys_leave_flight_for_maintenance(tdma_pio_spi_phys_t *
 #include "tdma_pio_spi_phys_marker_restored.inc"
 #include "tdma_pio_spi_phys_data_train_restored.inc"
 #include "tdma_pio_spi_phys_p3.inc"
+bool tdma_pio_spi_phys_clk_train_terminal_core1(
+    const tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL) return false;
+    const uint32_t begin = __atomic_load_n(&phys->clk_train_guard,
+                                           __ATOMIC_ACQUIRE);
+    if ((begin & 1u) != 0u) return false;
+    const uint32_t state = phys->clk_train.state;
+    if (state != TDMA_PIO_SPI_CLK_TRAIN_IDLE &&
+        state != TDMA_PIO_SPI_CLK_TRAIN_MASTER_COMPLETE &&
+        state != TDMA_PIO_SPI_CLK_TRAIN_ERROR) return false;
+    if (s_tdma_pio_spi_program_persona == TDMA_PIO_SPI_PROGRAM_PERSONA_CLOCK_COARSE &&
+        (BOARD_TDMA_SPI_PIO->ctrl &
+         ((1u << BOARD_TDMA_SPI_MASTER_SM) | (1u << BOARD_TDMA_SPI_SLAVE_SM))) != 0u) {
+        return false;
+    }
+    return begin == __atomic_load_n(&phys->clk_train_guard, __ATOMIC_ACQUIRE);
+}
+
 bool tdma_pio_spi_phys_get_clk_train_snapshot(
     const tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_clk_train_snapshot_t *snapshot)

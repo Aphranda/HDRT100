@@ -378,6 +378,9 @@ typedef struct {
     volatile uint32_t data_enabled;
     volatile uint32_t train_command_seq;
     volatile uint32_t train_command_cycles;
+    /* Core1 service only (apart from cold init). Core0 configure may reset
+     * train_accepted_seq, but cannot acknowledge physical cancellation. */
+    uint32_t train_owner_sequence;
     volatile uint32_t train_request_seq;
     volatile uint32_t train_accepted_seq;
     volatile uint32_t train_request_cycles;

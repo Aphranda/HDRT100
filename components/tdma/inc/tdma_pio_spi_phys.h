@@ -947,6 +947,10 @@ void tdma_pio_spi_phys_train_clock_service(void *context, uint64_t now_ns);
 bool tdma_pio_spi_phys_get_clk_train_snapshot(
     const tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_clk_train_snapshot_t *snapshot);
+/* Sole Core1 owner only. One bounded observation, including actual coarse
+ * training SM enable state; a rejected request may leave earlier SMs live. */
+bool tdma_pio_spi_phys_clk_train_terminal_core1(
+    const tdma_pio_spi_phys_t *phys);
 bool tdma_pio_spi_phys_cal_loopback_start(tdma_pio_spi_phys_t *phys,
                                           uint32_t sample_hz,
                                           uint32_t sample_words,

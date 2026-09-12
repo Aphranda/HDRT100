@@ -584,6 +584,9 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
     const uint64_t now_ns = tdma_ring_runtime_now_ns();
     uint32_t train_request_seq = runtime->train_request_seq;
     uint32_t train_accepted_seq = runtime->train_accepted_seq;
+    uint32_t train_owner_sequence = runtime->train_owner_sequence;
+    const uint32_t service_train_sequence =
+        tdma_ring_runtime_load(&runtime->train_command_seq);
     uint32_t train_request_cycles = runtime->train_request_cycles;
     uint32_t train_start_count = runtime->train_start_count;
     uint32_t train_reject_count = runtime->train_reject_count;
@@ -593,6 +596,7 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
     bool stop_failed = false;
     if (!up_down_config_ready) {
         stop_failed = !tdma_ring_runtime_stop_adapter(runtime);
+        if (!stop_failed) train_owner_sequence = service_train_sequence;
         if (enabled != 0u) {
             reason = TDMA_RING_RUNTIME_REASON_BAD_CONFIG;
         } else if (!stop_failed && tdma_ring_runtime_load(&runtime->config_seq) ==
@@ -609,6 +613,7 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
                 stop_failed = true;
                 goto publish;
             }
+            train_owner_sequence = service_train_sequence;
             if (runtime->adapter_ops->start(runtime->adapter_context,
                                             &service_config)) {
                 runtime->adapter_started = 1u;
@@ -656,6 +661,7 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
                 train_request_seq = command_seq;
                 train_request_cycles = cycles;
                 train_accepted_seq = command_seq;
+                train_owner_sequence = command_seq;
                 if (runtime->adapter_ops->train_clock != NULL &&
                     runtime->adapter_ops->train_clock_service != NULL &&
                     runtime->adapter_ops->train_clock(runtime->adapter_context,
@@ -677,6 +683,7 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
              * persona before cyclic service is allowed to run. */
             stop_failed = !tdma_ring_runtime_stop_adapter(runtime);
             if (stop_failed) goto publish;
+            train_owner_sequence = service_train_sequence;
             training_dirty = 0u;
         }
         if (runtime->adapter_started != 0u && data_enabled != 0u) {
@@ -804,6 +811,7 @@ publish:
     runtime->adapter_last_bad_header_observed_byte =
         adapter_status.last_bad_header_observed_byte;
     runtime->train_request_seq = train_request_seq;
+    runtime->train_owner_sequence = train_owner_sequence;
     __atomic_store_n(&runtime->train_accepted_seq,
                      train_accepted_seq,
                      __ATOMIC_RELEASE);

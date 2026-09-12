@@ -59,6 +59,19 @@ void resource_arbiter_publish_calibration_training(bool active);
 void resource_arbiter_publish_tdma_clock_training(bool active);
 void resource_arbiter_publish_training_activity(bool calibration_active,
                                                  bool tdma_clock_training_active);
+/* Core0 only. The callback publishes a bounded software intent while the
+ * arbiter holds its existing lock; it must not touch hardware or wait. On
+ * success it returns the published command sequence. Rejection preserves
+ * any preceding reservation. OTA/Flash cannot enter across this boundary. */
+typedef bool (*resource_arbiter_tdma_training_submit_t)(
+    void *context, uint32_t *command_sequence);
+bool resource_arbiter_request_tdma_clock_training(
+    resource_arbiter_tdma_training_submit_t submit, void *context);
+/* Sole Core1 writer: sequence is owner-consumed/cancelled, not a Core0
+ * configuration acknowledgement. Terminal includes actual STOP completion.
+ * This bounded publication never acquires the shared OSAL lock. */
+void resource_arbiter_complete_tdma_clock_training_core1(
+    uint32_t command_sequence, bool terminal);
 bool resource_arbiter_can_begin_ota(void);
 /* Explicit maintenance admission owned by the system/control plane.  OTA AO
  * and FlashTransactionAO may consume the admission but must not create it. */
