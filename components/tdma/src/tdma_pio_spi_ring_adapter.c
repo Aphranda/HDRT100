@@ -2381,6 +2381,27 @@ static bool tdma_pio_spi_ring_adapter_forward_poll(
     return true;
 }
 
+static bool tdma_pio_spi_ring_adapter_reuse_overlay_tx(
+    tdma_pio_spi_ring_adapter_t *adapter, const tdma_overlay_prepare_t *job)
+{
+    if (!adapter->resident_overlay_bootstrap_prepared ||
+        job->request_epoch != job->epoch ||
+        !tdma_flight_engine_is_active(adapter->flight_engine)) return false;
+    const tdma_flight_engine_t *engine = adapter->flight_engine;
+    const uint32_t begin = __atomic_load_n(&engine->map_sequence, __ATOMIC_ACQUIRE);
+    if ((begin & 1u) != 0u || engine->local_slot_id != job->layout.local_slot_id ||
+        __atomic_load_n(&engine->map_generation, __ATOMIC_RELAXED) != job->layout.map_generation)
+        return false;
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    if (begin != __atomic_load_n(&engine->map_sequence, __ATOMIC_ACQUIRE) ||
+        !tdma_flight_engine_is_active(engine)) return false;
+    /* Successful preparation already validated layout and hop for this epoch.
+     * Active maps and topology cannot change before STOP cancels this job.
+     * A queued descriptor always takes the full acquisition/validation path. */
+    return tdma_flight_fifo_core1_reuse_current_tx(adapter->flight_fifo,
+        adapter->resident_overlay_tx_generation, adapter->resident_overlay_tx_sequence);
+}
+
 static bool tdma_pio_spi_ring_adapter_prepare_overlay_async(
     tdma_pio_spi_ring_adapter_t *adapter)
 {
@@ -2416,6 +2437,9 @@ static bool tdma_pio_spi_ring_adapter_prepare_overlay_async(
     if (state != TDMA_OVERLAY_PREPARE_IDLE ||
         adapter->last_rx_packet_size != sizeof(job->packet) ||
         !adapter->phys_grant_overlay(adapter->phys_ctrl_context, job)) return true;
+    /* Grant still services pending DMA selection before any reuse accounting.
+     * Only an unchanged complete TX can skip repeated layout/hop/view work. */
+    if (tdma_pio_spi_ring_adapter_reuse_overlay_tx(adapter, job)) return true;
     if (!tdma_flight_engine_copy_tx_layout(adapter->flight_engine, &job->layout) ||
         !tdma_pio_spi_ring_adapter_resident_hop_position(
             adapter, &job->ingress_hop, &job->egress_hop)) return false;

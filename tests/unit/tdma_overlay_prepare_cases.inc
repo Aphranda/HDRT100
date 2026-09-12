@@ -6,12 +6,14 @@ typedef struct {
     uint32_t active;
     uint32_t commits;
     uint32_t stops;
+    uint32_t grants;
     bool pending;
 } async_overlay_phys_t;
 
 static bool async_overlay_grant(void *context, tdma_overlay_prepare_t *job)
 {
     async_overlay_phys_t *phys = context;
+    phys->grants++;
     if (phys->pending || tdma_overlay_prepare_state(job) != TDMA_OVERLAY_PREPARE_IDLE)
         return false;
     job->buffer_index = phys->active ^ 1u;
@@ -229,6 +231,26 @@ static int test_overlay_prepare_cases(void)
     /* A requested but unclaimed job can be cancelled immediately. */
     phys.active ^= 1u;
     phys.pending = false;
+    const uint32_t reuse_before = fifo.tx_reuse_count;
+    const uint32_t grant_before = phys.grants;
+    const uint32_t acquire_before = fifo.tx_acquire_count;
+    const uint32_t release_before = fifo.tx_release_count;
+    const tdma_flight_overlay_plan_t active_plan = phys.plan[phys.active];
+    for (uint32_t i = 0; i < 12u; ++i) ops->service(&adapter, 145u + i, &status);
+    failed += expect_u32("unchanged TX still services physical grant", phys.grants, grant_before + 12u);
+    failed += expect_u32("unchanged TX keeps exact reuse evidence", fifo.tx_reuse_count, reuse_before + 12u);
+    failed += expect_u32("unchanged TX does not acquire", fifo.tx_acquire_count, acquire_before);
+    failed += expect_u32("unchanged TX does not release", fifo.tx_release_count, release_before);
+    failed += expect_u32("unchanged TX leaves worker idle", tdma_overlay_prepare_state(&phys.job), TDMA_OVERLAY_PREPARE_IDLE);
+    failed += expect_u32("unchanged TX never recommits DMA", phys.commits, 2u);
+    failed += expect_bool("unchanged TX preserves active plan",
+        memcmp(&active_plan, &phys.plan[phys.active], sizeof(active_plan)) == 0, true);
+    const uint32_t map_sequence = engine.map_sequence;
+    engine.map_sequence |= 1u; /* Interrupted map publisher cannot authorize reuse. */
+    ops->service(&adapter, 158u, &status);
+    failed += expect_u32("in-progress map cannot account reuse", fifo.tx_reuse_count, reuse_before + 12u);
+    failed += expect_u32("in-progress map cannot consume TX", fifo.tx_acquire_count, acquire_before);
+    engine.map_sequence = map_sequence;
     tdma_flight_fifo_core0_publish_tx(&fifo, mailbox, sizeof(mailbox), 3u, 11u, 1u << 3u);
     ops->service(&adapter, 160u, &status);
     failed += expect_bool("unclaimed STOP", ops->stop(&adapter), true);

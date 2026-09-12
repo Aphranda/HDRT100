@@ -44,9 +44,61 @@ static int expect_mem(const char *name,
     return 1;
 }
 
-int main(void)
+static int test_current_tx_reuse(void)
 {
     int failed = 0;
+    tdma_flight_fifo_t fifo, before, reference;
+    tdma_flight_tx_view_t view;
+    const uint8_t first[] = {1, 2, 3}, next[] = {4, 5, 6};
+    tdma_flight_fifo_init(&fifo);
+    failed += expect_bool("null reuse", tdma_flight_fifo_core1_reuse_current_tx(NULL, 1, 2), false);
+    before = fifo;
+    failed += expect_bool("empty reuse", tdma_flight_fifo_core1_reuse_current_tx(&fifo, 1, 2), false);
+    failed += expect_bool("empty rejection is read-only", memcmp(&before, &fifo, sizeof(fifo)) == 0, true);
+    tdma_flight_fifo_core0_publish_tx(&fifo, first, sizeof(first), 1, 2, 1);
+    before = fifo;
+    failed += expect_bool("queued version requires acquire", tdma_flight_fifo_core1_reuse_current_tx(&fifo, 1, 2), false);
+    failed += expect_bool("queue rejection is read-only", memcmp(&before, &fifo, sizeof(fifo)) == 0, true);
+    tdma_flight_fifo_core1_acquire_tx(&fifo, &view);
+    before = fifo;
+    failed += expect_bool("generation identity", tdma_flight_fifo_core1_reuse_current_tx(&fifo, 2, 2), false);
+    failed += expect_bool("sequence identity", tdma_flight_fifo_core1_reuse_current_tx(&fifo, 1, 3), false);
+    failed += expect_bool("identity rejection is read-only", memcmp(&before, &fifo, sizeof(fifo)) == 0, true);
+    reference = fifo;
+    for (unsigned i = 0; i < 16; ++i) {
+        failed += expect_bool("complete version reused", tdma_flight_fifo_core1_reuse_current_tx(&fifo, 1, 2), true);
+        tdma_flight_fifo_core1_acquire_tx(&reference, &view);
+        failed += expect_bool("same entire FIFO state as normal acquire",
+            memcmp(&reference, &fifo, sizeof(fifo)) == 0, true);
+    }
+    /* Publication after a successful empty observation must still be selected
+     * next time; publication before it must prevent the fast reuse. */
+    tdma_flight_fifo_core0_publish_tx(&fifo, next, sizeof(next), 2, 3, 1);
+    before = fifo;
+    failed += expect_bool("new publication never skipped", tdma_flight_fifo_core1_reuse_current_tx(&fifo, 1, 2), false);
+    failed += expect_bool("new publication stays queued", memcmp(&before, &fifo, sizeof(fifo)) == 0, true);
+    tdma_flight_fifo_core1_acquire_tx(&fifo, &view);
+    failed += expect_mem("new complete payload selected", view.data, next, sizeof(next));
+    failed += expect_u32("new generation selected", view.generation, 2);
+    tdma_flight_fifo_core0_publish_tx(&fifo, first, sizeof(first), 3, 4, 1);
+    fifo.tx_ring[fifo.tx_tail % TDMA_FLIGHT_TX_IMAGE_SLOT_COUNT].generation ^= 1u;
+    before = fifo;
+    failed += expect_bool("invalid descriptor is not hidden", tdma_flight_fifo_core1_reuse_current_tx(&fifo, 2, 3), false);
+    failed += expect_bool("invalid descriptor retained for normal validation",
+        memcmp(&before, &fifo, sizeof(fifo)) == 0, true);
+    tdma_flight_fifo_core1_acquire_tx(&fifo, &view);
+    failed += expect_u32("normal path records rejection", fifo.tx_publish_reject_count, before.tx_publish_reject_count + 1u);
+    failed += expect_u32("normal path keeps complete active version", view.generation, 2);
+    tdma_flight_fifo_core1_release_tx(&fifo);
+    before = fifo;
+    failed += expect_bool("released slot cannot be reused", tdma_flight_fifo_core1_reuse_current_tx(&fifo, 2, 3), false);
+    failed += expect_bool("released rejection is read-only", memcmp(&before, &fifo, sizeof(fifo)) == 0, true);
+    return failed;
+}
+
+int main(void)
+{
+    int failed = test_current_tx_reuse();
     tdma_flight_fifo_t fifo;
     tdma_flight_tx_view_t tx_view;
     tdma_flight_rx_view_t rx_view;

@@ -129,6 +129,13 @@ bool tdma_flight_fifo_core0_publish_tx(tdma_flight_fifo_t *fifo,
                                        uint32_t segment_mask);
 bool tdma_flight_fifo_core1_acquire_tx(tdma_flight_fifo_t *fifo,
                                        tdma_flight_tx_view_t *view);
+/* Core1 only: account one ordinary reuse without constructing a view, iff
+ * the queue is empty and the active complete version matches. A false result
+ * changes nothing; acquire_tx must handle queued (including invalid) entries.
+ * Publication after the empty observation is consumed on the next service. */
+bool tdma_flight_fifo_core1_reuse_current_tx(tdma_flight_fifo_t *fifo,
+                                            uint32_t generation,
+                                            uint32_t sequence);
 void tdma_flight_fifo_core1_release_tx(tdma_flight_fifo_t *fifo);
 bool tdma_flight_fifo_core1_publish_rx(tdma_flight_fifo_t *fifo,
                                        const uint8_t *data,

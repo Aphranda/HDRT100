@@ -162,6 +162,27 @@ void tdma_flight_fifo_core1_release_tx(tdma_flight_fifo_t *fifo)
     tdma_flight_counter_inc(&fifo->tx_release_count);
 }
 
+bool tdma_flight_fifo_core1_reuse_current_tx(tdma_flight_fifo_t *fifo,
+                                            uint32_t generation,
+                                            uint32_t sequence)
+{
+    if (fifo == NULL) return false;
+    const uint32_t head = tdma_flight_load_u32(&fifo->tx_head);
+    const uint32_t tail = tdma_flight_load_u32(&fifo->tx_tail);
+    if (!tdma_flight_ring_empty(head, tail)) return false;
+    const uint32_t active = tdma_flight_load_u32(&fifo->tx_active_slot);
+    if (active >= TDMA_FLIGHT_TX_IMAGE_SLOT_COUNT) return false;
+    /* Core1 owns this slot until its next acquire/release. Core0 may publish
+     * another slot concurrently; that does not change this complete version. */
+    const tdma_flight_tx_slot_t *slot = &fifo->tx_slots[active];
+    if (tdma_flight_load_u32(&slot->owner) != TDMA_FLIGHT_TX_OWNER_CORE1_ACTIVE ||
+        tdma_flight_load_u32(&slot->generation) != generation ||
+        tdma_flight_load_u32(&slot->sequence) != sequence) return false;
+    tdma_flight_counter_inc(&fifo->tx_image_stale_count);
+    tdma_flight_counter_inc(&fifo->tx_reuse_count);
+    return true;
+}
+
 bool tdma_flight_fifo_core1_acquire_tx(tdma_flight_fifo_t *fifo,
                                        tdma_flight_tx_view_t *view)
 {
