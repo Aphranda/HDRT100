@@ -370,6 +370,12 @@ receive health、novelty 和 RX FIFO。origin 授权在采集时绑定，后续 
 transport CRC 校验，返回位置、帧长与连续帧证据，不持有 live DMA 或物理 owner
 指针。Core1 据此直接定位当前已完成帧，重新读取 live ring，并在复制后再次核对覆盖
 和 epoch；该次 live copy 之后才沿原边界绑定 latch/RTT，不能把旧扫描副本当作新接收。
+异步捕获的几何与已完成区间由 `tdma_rx_scan_locate()` 在复制前核验；物理头和
+transport 固定头则在复制后、覆盖与 epoch 复验通过后检查同一私有帧。头部不合法时
+撤销提示并重新请求发现，不推进接收 cursor、alignment 或成功事实。该顺序避免
+反复读取和归一化 live header，后续交接使用的也是已检查的副本；完整 CRC 仍由原
+解析工位校验。不得把 live ring 复制直接延后到另一拍，除非先证明覆盖期限或取得
+不可变输入所有权。
 DMA ring 保持字宽存储，归一化后的 Core1 私有帧使用紧凑字节表示；它不作为 DMA
 目标。私有窗口复制由 `tdma_pio_spi_phys_rx_ring_copy()` 复用相邻原始字节，减少错位
 提取的重复读取。`tdma_pio_spi_phys_rx_ring_word()` 通过显式 volatile 字视图读取 DMA
@@ -1010,8 +1016,10 @@ follower/legacy RX 记录
 `TDMA_TIMING_RX_HEADER_CHECK` 与 `TDMA_TIMING_RX_RING_COPY`，分别计量 DMA 计数
 观察、候选定位、固定 header 校验及归一化复制；这些子项包含于
 `TDMA_TIMING_RX_ACQUIRE`。初始与复制后 DMA 观察累计于同一子项；复制包括 live
-帧和用于后台发现的私有窗口，须结合调用次数及定位/header 子项解释。handoff、
-epoch/覆盖复验、分支和子项之间的计时开销仍保留在取帧总量中。legacy 和自主 origin
+帧和用于后台发现的私有窗口，须结合调用次数及定位/header 子项解释。
+复制后覆盖/epoch 拒绝会保留 copy 计时且不执行 header 检查；该 header 子项的零调用
+不表示没有尝试取帧。有效副本的 header 子项计量私有头检查。
+handoff、epoch/覆盖复验、分支和子项之间的计时开销仍保留在取帧总量中。legacy 和自主 origin
 专用接收路径不报告这些异步专用子项，不能把零值当成零成本。增加探针的版本与旧版本不是相同
 干扰条件下的速度对照，完整 phase 门禁不扣除探针成本。主机使用
 `tools/tdma_ring_monitor/tdma_service_timing.py` 校验版本、字段长度和 stage 数量，

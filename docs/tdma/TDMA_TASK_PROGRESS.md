@@ -8,7 +8,11 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的训练仲裁占用与有界完成发布切片见
+当前 `TDMA-FLIGHT-002F` 的私有 RX 头部检查与 DMA 保留期限切片见
+`TDMA-PROGRESS-20260913-038`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-rx-private-header/`。已完成候选复制和覆盖
+复验后，再检查同一私有帧的固定头；从站头检查下降，完整 WCET、严格启动及逐圈
+保全仍未通过。前序训练仲裁占用与有界完成发布切片见
 `TDMA-PROGRESS-20260913-037`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-training-publication/`。命令发布前保留
 占用，Core1 改为单向版本化完成事实，Flash 最终取得资源也复核训练占用；训练发布
@@ -149,6 +153,69 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-038 - 私有 RX 头检查与 DMA 保留期限核验
+
+- 日期：2026-09-13；TODO task ID：`TDMA-FLIGHT-002F`。以下数字为实验快照，非事实源；
+  证据根为 `out/HardwareAcceptance/20260913/tdma-flight-rx-private-header/`。基线提交
+  `854ab8121bc1b214327acb582976fd4dc6c11559`，registry/C11 状态不变。
+- 已将 async RX 的物理头和 transport 固定头检查移到现有私有帧：先由
+  `tdma_rx_scan_locate()` 核验几何、长度与已完成区间，单次归一化复制后检查 DMA
+  observation epoch、计数及覆盖，再检查同一副本的完整固定头谓词。拒绝不推进
+  接收 cursor、alignment 或成功事实；重新发现沿原工位推进，CRC 仍由原解析工位
+  校验。Core0 不获得 live ring/硬件指针，wire、旧后端与唯一 owner 语义保持。
+- 源码绑定的模拟 DMA 刺激改在实际 copy 入口触发，避免原来依赖 pre-copy header
+  的测试钩子失效。RX 回归 28 项、相关集成 111 项与文档测试 18 项通过；新场景覆盖
+  固定头 11 字节逐项损坏及有效对照，在 8 位相、2 种 ISR 方向下验证拒绝/接受。
+  有效候选只读 frame_words 加非零位移的额外原始字；覆盖/epoch 拒绝保留 copy
+  计时且不执行 header 检查。host DMA 为受控替身，不能替代硅上时序。
+- `capture-boundary-audit-r1.json` 绑定 ring、帧长、编译 baud、调度符号及前版实测
+  clock。连续 10 MHz 字节流下，1024 原始字 ring 约 819.2 µs 覆盖一轮；296 字帧
+  刚完成后首部最多再保留约 582.4 µs，旧候选更短，均不能保证跨 1 ms 调度周期。
+  这是连续线速上界模型，不是新测得的 CS 间隔；不把整个物理飞行时间扣出 CPU
+  预算。因此先保全完整私有输入，再异步/分步处理，不能直接把 live copy 切到下一拍。
+- Release A/B/Boot 为 `20260912202605`，源码指纹
+  `2b2f09673ef1ec100d29a7838fb4d2c6d970cdfa5641289ae5fdbd70e6e5de5a`，源码文件 1022。
+  六节点容量与生成 PIO 相同，A/B link free 各 4884 B，本轮新增静态 RAM 为零；
+  正式 RAM 仍 FAIL。见 `source-checkpoint-r1.json`、`source-review-r1.json`。
+- 当前源码四板 OTA/P3 完成，OTA 约 90.141 s，凭证 `passed=true`、
+  `strict_gates_passed=false`。粗 CLK 校准出现拓扑读回不一致，严格启动屏障超时；
+  coded marker 无拒绝、process-image 诊断 soak 通过。本轮 STOP 应答均成功，但
+  NO1 在 P3 最后物理快照至停止读回之间，TX timeout、origin DATA timeout/recovery
+  各增加 7，停止读回 last_error 为 `TX_BUSY`。现有证据不能定位在运行还是停止期间，
+  也不能归因于本次修改；原件见 `lifecycle-audit-r1.json`。一次有界复位成功，不能
+  以其后的无故障窗口清除这些失败，也不宣称修复前序 ARM map 或 STOP 应答缺陷。
+- 对照使用与前版相同的 RX14 旧诊断行，逐样本复核 TX/RX 相位、负载与 clock，
+  不作本轮校准接受。普通首末跨度 25.631 s（7 样本），自主 86.319 s（19 样本）；
+  有效收帧分别为 6194/6108/6171/6210 和 41452/33684/32718/30143。两个窗口的
+  transport bad 与已检查物理故障增量均为零，不能外推到 P3/停止期间或逐圈无损。
+- 下表是自主窗口完整 profile 峰值，以及**同条峰值记录**中的固定头子项，单位 µs；
+  它不是各子项独立最大值。NO1 此条记录没有走 follower/legacy 的异步取帧分项。
+
+| 节点 | 前版完整峰值 | 本版完整峰值 | 前版头检查 | 本版头检查 |
+|---|---:|---:|---:|---:|
+| NO1 | 927.788 | 891.128 | 0 | 0 |
+| NO2 | 942.964 | 945.096 | 41.404 | 9.444 |
+| NO3 | 1041.824 | 944.956 | 88.308 | 4.600 |
+| NO4 | 1072.412 | 942.132 | 95.720 | 10.280 |
+
+- 普通完整峰值为 1233.076/851.060/891.148/859.772 µs；自主同记录的从站 RX
+  handoff 仍为 441.140/491.412/427.744 µs，取帧分别为 224.392/269.648/242.404 µs。
+  自主稀疏 last 头检查中位数 NO2/NO3 由 36.264/68.870 降至 3.640/3.676 µs；
+  NO4 本轮为 4.134 µs，前版无该子项 last 样本，不能补成零值对照。窗口和分支不同，
+  有限样本支持局部收益，不证明完整 WCET。自主完整 SCHEDULE 超限增量为
+  50584/59187/61138/60744；profile 不含 recorder 发布，嵌套阶段不可累加。
+- 普通 RX ring overrun/observation drop 无增长；自主 NO2/NO3/NO4 分别增加
+  15951/17521/21075 和 33606/32668/30141，NO1 两项为零。观察丢失不是 wire
+  坏帧数，transport good 不能证明时间戳保全。见 `timing-comparison-r1.json`、
+  `observation-scope-r1.json`、`retained-failures.json`。
+- 临时许可证 9130380（grant epoch 14）已由原始应答与读回确认撤销；本轮 P3 派生
+  矩阵已实际恢复，恢复诊断 soak 通过，四板最终 armed/enabled/adapter_started 为零，
+  严格启动仍失败。下一切片继续收敛 RX 交接与 owner 内部工作，先绑定完整 generation
+  和帧/时间戳，再分步推进私有数据；不能把耗时藏入另一个无预算 action。现有
+  380 µs 门限、六节点与后续项顺序保持，service blackout、同圈 owner 更新、逐圈
+  CRC/sequence、特等时间戳和正式 RAM 仍须独立验收。切片 PARTIAL，长期目标 active；
+  主控复核与分离提交封存见 `review-r1.json`、`commit-proof.json`。
 
 ### TDMA-PROGRESS-20260913-037 - 训练仲裁占用与 Core1 有界完成发布
 
