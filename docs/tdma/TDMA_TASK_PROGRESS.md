@@ -8,7 +8,11 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的 persona 专用 RX 复制与 DMA 字读取切片见
+当前 `TDMA-FLIGHT-002F` 的无新版本 TX 快速复用切片见
+`TDMA-PROGRESS-20260913-034`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-overlay-reuse/`。FIFO/生命周期语义与实链
+路径已核验，有限计时尚未证明完整 phase 一致改善，严格 WCET 与正式 RAM 仍失败。
+前序 persona 专用 RX 复制与 DMA 字读取切片见
 `TDMA-PROGRESS-20260913-033`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-rx-copy-persona/`。复制子项与完整 phase
 分别测量，严格启动、完整 WCET、正式 RAM 和特等席保全继续独立验收。
@@ -131,6 +135,61 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-034 - 无新版本 TX 快速复用与完整阶段对照
+
+- 日期：2026-09-13；TODO task ID：`TDMA-FLIGHT-002F`。以下数字为实验快照，非事实源；
+  证据根为 `out/HardwareAcceptance/20260913/tdma-flight-overlay-reuse/`。
+- Core1 在物理 grant 服务 pending selection 后，核对上次成功准备的 epoch、active
+  map、local slot 和 map generation。FIFO 空且 active 槽完整 generation/sequence
+  匹配时，直接保留旧镜像，跳过重复 layout、hop 与 TX view 准备；复用证据与原 acquire
+  空队列路径一致。排队或损坏描述符、变化版本仍走完整获取与校验，STOP 取消和池归还
+  顺序保持。该切片不新增 RAM、PIO/DMA 资源或新的 owner。
+- 真实 C adapter/FIFO 两套测试通过：重复复用与原 acquire 的完整 FIFO 状态逐次相同；
+  覆盖新发布、损坏描述符、已释放槽、map 发布中、物理 pending、后台暂停及 STOP/rearm。
+  Python 集成 138 项、文档检查器测试 18 项通过。A/B 反汇编确认物理 grant 在前，复用
+  成功直接返回，失败回完整路径；源码与实链审核见 `assembly-review-r1.json`。
+- Release A/B/Boot build 为 `20260912183136`，源码指纹为
+  `743487d0290a8d32461574004e3c3fca8fc350b0b5a62509e261e8e90a01db65`。
+  编译容量保持 `PROJECT_NODE_CAPACITY=6`，A/B link free 各 4904 B，PIO 生成头与前版
+  相同。四板真实 P3 `run --tdma-only` 完成，凭证 `passed=true`、
+  `strict_gates_passed=false`；本次编码 marker 未列为失败，严格启动屏障仍超时。
+- 计时前 STOP 的 NO4 应答超时，首个 reset helper 拒绝执行复位；两次独立快照确认
+  四板 armed/ring_enabled/ring_adapter_started 均为零，NO1 留有
+  `TDMA_PIO_SPI_PHYS_ERROR_TX_BUSY=5`。保留原始失败后执行原定的一次软件复位，
+  核对 build/UID，再成功 ARM。复位用于匹配 progress033 起点，不关闭 STOP 应答及
+  前序 ARM 聚合拒绝缺陷，见 `reset-recovery-r1/r2.json`、`retained-failures.json`。
+- 普通/自主对照沿用 progress033 的 RX14 旧诊断行，TX 为 15/14/15/15；每组读回均核验。
+  该行只作比较，不作为本次有效采样窗口。样本首末跨度分别为 21.630 s / 87.424 s，
+  普通有效收帧 5361/5293/5352/5319，自主 41983/33526/32266/30476；各板 transport bad
+  与已检查 physical fault 均无增长。trial 9130340 / epoch 14 已撤销，本次 P3 新矩阵
+  已实际恢复，并确认四板 STOP；恢复诊断 soak 通过，严格启动超时仍保留。
+- 已接收帧零 CRC 错误不代表观察无损。自主窗口 NO2/NO3/NO4 的
+  `rx_ring_overrun_count` 增量为 18422/19260/22030，`rx_observation_drop_count` 增量为
+  33522/32185/30469；前版对应覆盖增量为 17362/18961/22246，观察丢弃为
+  33958/33076/30895，两个窗口长度不同。NO1 两项均无增长。这些是观察链路覆盖与
+  副本丢弃证据，不能推成同等数量的 wire 坏帧，也不能据 transport bad 无增长宣布
+  逐圈保全通过；补充原件审核见 `observation-scope-r1.json`。
+- 下表是两版自主窗口的完整 profile 峰值及该峰值记录中的 overlay 子项，单位 µs。
+  子项不是独立 overlay WCET，也没有区分当拍是否命中快速复用；不同版本的独立窗口
+  不能排除代码布局、IRQ/共享访问或工作分支差异。原始记录与 SCHEDULE 分别审计。
+
+| 节点 | 前版完整峰值 | 本版完整峰值 | 前版峰值内 overlay | 本版峰值内 overlay |
+|---|---:|---:|---:|---:|
+| NO1 | 920.296 | 900.652 | 0 | 0 |
+| NO2 | 969.008 | 1029.816 | 174.736 | 133.984 |
+| NO3 | 1048.148 | 1020.324 | 196.032 | 147.916 |
+| NO4 | 1113.092 | 1091.112 | 176.760 | 163.872 |
+
+- 自主完整峰值三板降低、NO2 上升；普通完整峰值为
+  1303.676/952.200/996.052/1023.772 µs，也未一致改善。自主 `SCHEDULE` overrun
+  增量为 58948/61046/62053/63013；窗口长度不同，不能把增量直接作改善率。稀疏
+  last 样本的 overlay 中位数同样有升有降，不能宣布稳定的整体性能收益。
+- 完整 WCET、正式 RAM 仍 FAIL，门限保持 `PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES`。
+  下一步按同一条完整记录区分 RX handoff、runtime 事实发布与运行干扰；RX_CAPTURE
+  已包含在 RX_HANDOFF 中，不能重复相加。没有新增 service blackout、自主波形、同圈
+  多 owner 更新或特等时间戳保全证据；切片 PARTIAL，长期目标保持 active，节点容量
+  后续项后置。审核与分离提交封存入口为 `review-r1.json`、`commit-proof.json`。
 
 ### TDMA-PROGRESS-20260913-033 - persona 专用 RX 复制与显式 DMA 字读取
 

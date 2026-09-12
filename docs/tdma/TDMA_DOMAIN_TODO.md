@@ -144,6 +144,13 @@ FAIL。下一步核验无新版本时 overlay 准入和 RX handoff 的剩余工�
 硬件处理、FIFO 所有权与配置失效边界；并定位本轮保留的 flight-map/runtime ARM
 拒绝谓词，不能把有界复位恢复当成生命周期修复。特等逐圈保全仍须独立闭合。
 
+无新版本 TX 快速复用已完成 FIFO/adapter 语义测试、实链审核和四板诊断对照，见
+`TDMA-PROGRESS-20260913-034`。物理 pending selection 先服务，只有相同完整 active
+版本与稳定 map/epoch 才跳过重复准备；新描述符仍走原校验。未增加链接 RAM，但有限
+窗口未证明完整 phase 一致改善，WCET/正式 RAM 仍 FAIL。下一步区分 RX handoff、
+runtime 事实发布与运行干扰的成本；保留嵌套计时关系，不能把 RX_CAPTURE 与包含它的
+RX_HANDOFF 重复相加。STOP 应答超时及前序 ARM 拒绝保持开放，预算与后续项顺序保持。
+
 普通 RX 异步解析切片已按用户顺序封存，随后完成六节点编译容量的隔离 RAM 核算，见
 `TDMA-PROGRESS-20260912-019`。核算区分本地状态、固定 wire/RefMem/Calibration
 存储容量与 scratch_y；收益不能代替正式 RAM/WCET 门禁。编译容量作为独立辅助切片

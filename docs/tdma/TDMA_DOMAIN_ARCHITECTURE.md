@@ -347,6 +347,14 @@ STOP/config 失效应先撤销旧 epoch 的发布资格；后台任务尚持有�
 计算；一般 legacy map 仍可激活，但不满足唯一完整固定 mailbox 的 map 不授予
 compact overlay 权限。该缓存不改变 FIFO 交接、复用计数或硬件提交顺序。
 
+无新 TX 版本时，`tdma_pio_spi_ring_adapter_reuse_overlay_tx()` 在物理 grant 已推进
+pending selection 后，核对既有成功准备的 epoch、active map、local slot 与 map generation。
+仅当 `tdma_flight_fifo_core1_reuse_current_tx()` 观察到空队列且 Core1 active 槽的完整
+generation/sequence 匹配时，跳过重复 layout、hop 与 TX view 准备，并保留原 acquire
+空队列路径的 stale/reuse 计数。任何排队描述符（包括损坏描述符）仍走完整获取与
+校验；观察空队列之后的新发布由后续 service 消费。STOP 取消 epoch 并清除 bootstrap，
+active 期间的 map/拓扑冻结仍是该复用成立的前提；本路径不新增池或硬件提交。
+
 普通物理 RX 使用 `tdma_rx_prepare_t` 固定工位。Core1 交入独立 packet、采集时的
 RX/TX latch、RTT 和成对 origin observation；Core0 只完成 transport decode/CRC、
 坏帧诊断与自主 origin mailbox 完整性检查。工位忙时不等待、不覆盖输入；READY
