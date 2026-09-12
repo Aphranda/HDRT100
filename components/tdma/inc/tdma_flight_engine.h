@@ -87,6 +87,9 @@ typedef struct {
     volatile uint32_t map_sequence;
     volatile uint32_t map_generation;
     uint32_t local_slot_id;
+    /* Immutable while active, published with the map guard. Zero means the
+     * legacy map cannot authorize the fixed local mailbox overlay. */
+    uint32_t tx_output_segment_mask;
     tdma_process_image_map_t map;
     volatile uint32_t map_apply_count;
     volatile uint32_t input_bytes;

@@ -51,9 +51,76 @@ static bool async_overlay_stop(void *context)
     return tdma_overlay_prepare_cancel(&phys->job);
 }
 
-static int test_overlay_prepare_cases(void)
+static int test_overlay_layout_activation(void)
 {
     int failed = 0;
+    tdma_flight_engine_t engine;
+    tdma_flight_tx_layout_t layout;
+    tdma_process_image_map_t map = make_eight_slot_flight_map();
+    tdma_flight_engine_init(&engine);
+    failed += expect_bool("unconfigured layout rejected",
+        tdma_flight_engine_copy_tx_layout(&engine, &layout), false);
+    failed += expect_bool("configure layout", tdma_flight_engine_configure(&engine, &map), true);
+    failed += expect_bool("inactive layout rejected",
+        tdma_flight_engine_copy_tx_layout(&engine, &layout), false);
+    for (uint32_t slot = 0u; slot < TDMA_FLIGHT_SHORT_SLOT_COUNT; ++slot) {
+        failed += expect_bool("activate each owner", tdma_flight_engine_activate(&engine, slot), true);
+        failed += expect_bool("activated layout available",
+            tdma_flight_engine_copy_tx_layout(&engine, &layout), true);
+        failed += expect_u32("exact activated owner", layout.local_slot_id, slot);
+        failed += expect_u32("exact activated span", layout.output_segment_mask, 1u << slot);
+        failed += expect_u32("stable configured generation", layout.map_generation, 1u);
+        failed += expect_bool("active map cannot change",
+            tdma_flight_engine_configure(&engine, &map), false);
+        failed += expect_bool("failed configure preserves authorization",
+            tdma_flight_engine_copy_tx_layout(&engine, &layout), true);
+        failed += expect_u32("failed configure preserves span", layout.output_segment_mask, 1u << slot);
+        const uint32_t sequence = engine.map_sequence;
+        engine.map_sequence = sequence | 1u; /* Paused publication must not spin. */
+        failed += expect_bool("in-progress map snapshot rejected",
+            tdma_flight_engine_copy_tx_layout(&engine, &layout), false);
+        engine.map_sequence = sequence;
+        tdma_flight_engine_deactivate(&engine);
+        failed += expect_bool("deactivated authorization unavailable",
+            tdma_flight_engine_copy_tx_layout(&engine, &layout), false);
+    }
+    /* A valid general map still activates, but an earlier full mailbox
+     * authorization must not survive a partial or foreign replacement. */
+    map.segment[3].byte_length = TDMA_FLIGHT_SHORT_SLOT_SIZE / 2u;
+    map.map_crc32 = tdma_process_image_map_crc32(&map);
+    failed += expect_bool("reconfigure partial map", tdma_flight_engine_configure(&engine, &map), true);
+    failed += expect_bool("activate general partial map", tdma_flight_engine_activate(&engine, 3u), true);
+    failed += expect_bool("old complete span not reused",
+        tdma_flight_engine_copy_tx_layout(&engine, &layout), false);
+    tdma_flight_engine_deactivate(&engine);
+    failed += expect_bool("other full owner still activates", tdma_flight_engine_activate(&engine, 4u), true);
+    failed += expect_bool("other full owner still authorized",
+        tdma_flight_engine_copy_tx_layout(&engine, &layout), true);
+    failed += expect_u32("reconfigured generation", layout.map_generation, 2u);
+    failed += expect_u32("new owner span", layout.output_segment_mask, 1u << 4u);
+    tdma_flight_engine_deactivate(&engine);
+    map = make_eight_slot_flight_map();
+    map.segment[3].flags &= ~TDMA_PROCESS_SEGMENT_FLAG_FLIGHT_WRITE;
+    map.map_crc32 = tdma_process_image_map_crc32(&map);
+    tdma_flight_engine_configure(&engine, &map);
+    tdma_flight_engine_activate(&engine, 3u);
+    failed += expect_bool("missing write permission cannot reuse old span",
+        tdma_flight_engine_copy_tx_layout(&engine, &layout), false);
+    tdma_flight_engine_deactivate(&engine);
+    map = make_eight_slot_flight_map();
+    map.segment[4].owner_slot_id = 3u;
+    map.map_crc32 = tdma_process_image_map_crc32(&map);
+    tdma_flight_engine_configure(&engine, &map);
+    tdma_flight_engine_activate(&engine, 3u);
+    failed += expect_bool("multiple owned spans never authorize overlay",
+        tdma_flight_engine_copy_tx_layout(&engine, &layout), false);
+    tdma_flight_engine_deactivate(&engine);
+    return failed;
+}
+
+static int test_overlay_prepare_cases(void)
+{
+    int failed = test_overlay_layout_activation();
     tdma_pio_spi_ring_adapter_t adapter;
     tdma_flight_fifo_t fifo;
     tdma_flight_engine_t engine;

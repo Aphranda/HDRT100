@@ -249,6 +249,25 @@ bool tdma_flight_engine_init(tdma_flight_engine_t *engine)
     return true;
 }
 
+static uint32_t tdma_flight_engine_fixed_tx_mask(
+    const tdma_process_image_map_t *map, uint32_t local_slot_id)
+{
+    if (local_slot_id >= TDMA_FLIGHT_SHORT_SLOT_COUNT ||
+        map->payload_size != TDMA_FLIGHT_SHORT_PAYLOAD_SIZE) return 0u;
+    uint32_t output_mask = 0u;
+    for (uint32_t i = 0u; i < TDMA_PROCESS_IMAGE_SEGMENT_COUNT; ++i) {
+        const tdma_process_image_segment_t *segment = &map->segment[i];
+        if (segment->used == 0u || segment->owner_slot_id != local_slot_id ||
+            (segment->flags & TDMA_PROCESS_SEGMENT_FLAG_FLIGHT_WRITE) == 0u) continue;
+        if (output_mask != 0u ||
+            segment->segment_id >= TDMA_PROCESS_IMAGE_SEGMENT_COUNT ||
+            segment->byte_offset != local_slot_id * TDMA_FLIGHT_SHORT_SLOT_SIZE ||
+            segment->byte_length != TDMA_FLIGHT_SHORT_SLOT_SIZE) return 0u;
+        output_mask = 1u << segment->segment_id;
+    }
+    return output_mask;
+}
+
 bool tdma_flight_engine_configure(tdma_flight_engine_t *engine,
                                   const tdma_process_image_map_t *map)
 {
@@ -272,6 +291,7 @@ bool tdma_flight_engine_configure(tdma_flight_engine_t *engine,
         return false;
     }
     engine->map = *map;
+    engine->tx_output_segment_mask = 0u;
     engine->rx_seen_segment_mask = 0u;
     memset(engine->rx_last_seq16_by_segment,
            0,
@@ -298,6 +318,11 @@ bool tdma_flight_engine_activate(tdma_flight_engine_t *engine,
         return false;
     }
     engine->local_slot_id = local_slot_id;
+    /* Configure cannot replace an active map. Perform the full authorization
+     * scan once under this writer guard, before publishing active. General
+     * legacy maps still activate; a zero mask only rejects compact overlay. */
+    engine->tx_output_segment_mask =
+        tdma_flight_engine_fixed_tx_mask(&engine->map, local_slot_id);
     engine->rx_seen_segment_mask = 0u;
     memset(engine->rx_last_seq16_by_segment,
            0,
@@ -336,21 +361,12 @@ bool tdma_flight_engine_copy_tx_layout(const tdma_flight_engine_t *engine,
     *layout = (tdma_flight_tx_layout_t){
         .local_slot_id = engine->local_slot_id,
         .map_generation = __atomic_load_n(&engine->map_generation, __ATOMIC_RELAXED),
+        .output_segment_mask = engine->tx_output_segment_mask,
     };
-    if (layout->local_slot_id >= TDMA_FLIGHT_SHORT_SLOT_COUNT ||
-        engine->map.payload_size != TDMA_FLIGHT_SHORT_PAYLOAD_SIZE) return false;
-    for (uint32_t i = 0u; i < TDMA_PROCESS_IMAGE_SEGMENT_COUNT; ++i) {
-        const tdma_process_image_segment_t *segment = &engine->map.segment[i];
-        if (segment->used == 0u || segment->owner_slot_id != layout->local_slot_id ||
-            (segment->flags & TDMA_PROCESS_SEGMENT_FLAG_FLIGHT_WRITE) == 0u) continue;
-        if (layout->output_segment_mask != 0u ||
-            segment->segment_id >= TDMA_PROCESS_IMAGE_SEGMENT_COUNT ||
-            segment->byte_offset != layout->local_slot_id * TDMA_FLIGHT_SHORT_SLOT_SIZE ||
-            segment->byte_length != TDMA_FLIGHT_SHORT_SLOT_SIZE) return false;
-        layout->output_segment_mask = 1u << segment->segment_id;
-    }
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
     return layout->output_segment_mask != 0u &&
-        begin == __atomic_load_n(&engine->map_sequence, __ATOMIC_ACQUIRE);
+        begin == __atomic_load_n(&engine->map_sequence, __ATOMIC_ACQUIRE) &&
+        tdma_flight_engine_is_active(engine);
 }
 
 bool tdma_flight_engine_build_tx(const tdma_flight_tx_layout_t *layout,
