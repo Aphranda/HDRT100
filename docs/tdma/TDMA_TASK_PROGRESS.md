@@ -8,7 +8,13 @@ Last updated: 2026-09-12
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前列车调度分项计时切片证据根为
+当前按用户进一步要求推进 `TDMA-FLIGHT-002F` 的异步准备与解析边界，设计记录见
+`TDMA-PROGRESS-20260912-016`；该项纳入列车调度基础，四级服务策略保持后置。
+最近完成的列车调度 RX 工作量限制切片证据根为
+`out/HardwareAcceptance/20260912/tdma-flight-rx-budget/`，执行记录为
+`TDMA-PROGRESS-20260912-015`。限制可丢弃镜像的同拍重复处理，并共享 magic 候选前缀；
+完整 Core1 WCET、无更新稳态与 service blackout 仍需分别闭合，乘客调度继续后置。
+前序列车调度分项计时切片证据根为
 `out/HardwareAcceptance/20260912/tdma-flight-service-timing/`，入口为 `hardware-review.json`
 与 `slice-manifest.json`，执行记录为 `TDMA-PROGRESS-20260912-014`。已取得正常和临时
 许可证自主模式的完整 phase 归因；重复 RX 捕获/扫描是自主从站的主要开销，完整
@@ -54,6 +60,95 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260912-016 - 将异步准备与解析纳入列车调度基础
+
+- 日期：2026-09-12；TODO task ID：`TDMA-FLIGHT-002B/002F`。用户再次明确“检票入站”
+  时间不纳入列车环路；因此异步准备/消费属于当前列车基础，服务等级策略仍后置。
+- 变更：依据已完成的代码提交 `285ff44` 和完整计时，更新 Architecture 的待实施
+  owner 边界及 TODO 进入顺序。`002F` 进入 IN PROGRESS；`002G/002H` 仍 PENDING。
+  本记录未实现新的 Core0 后台构建、RX 卸载或跨核发布，也不提升 registry/C11 状态。
+- 源码核验：follower 的 `prepare_process_overlay()` 仍位于 `if (rx_ok)` 内；其实现
+  在 Core1 解码、复制模型、执行 flight engine 并构图。物理层
+  `tdma_pio_spi_phys_prepare_process_overlay()` 还混合了纯计划构建与 DMA 发布。
+  既有 flight FIFO 已提供 Core0 payload 发布和业务消费，但 payload READY 不等于
+  DMA 可直接使用的完整计划，不能仅改变函数调用所在核。
+- 下一 gate：先拆开纯 overlay 构建与硬件提交，明确输入/构建池 lease、停止取消与
+  epoch，再接入 Core0 准备和 Core1 有界发布；已准备 TX 不依赖本拍普通 RX 解析成功。
+  普通解析在固定记录交接后执行，其结果经版本机制返回唯一 TDMA owner；不得直接
+  从 Core0 修改 runtime/flight engine。随后验证 Core0 拥塞、迟到准备和解析停顿时
+  环路节拍、旧版本复用、STOP、资源与完整 Core1 WCET。
+- 证据：`out/HardwareAcceptance/20260912/tdma-flight-async-platform/owner-boundary-r2.json`。
+  本项为源码边界与执行顺序核验，不生成新固件或新的硬件通过声明；基础运输完整性
+  和同步时间的独立硬件保全仍按原契约约束。
+
+### TDMA-PROGRESS-20260912-015 - 限制同拍 RX 工作量与 SCK 前置证据恢复
+
+- 日期：2026-09-12；TODO task ID：`TDMA-FLIGHT-002B`。以下数字为实验快照，非事实源。
+- 变更：以 `0888b0a` 为基线，代码提交 `285ff44`。硬件飞行副本每 phase 只调用一次捕获/解析；软件
+  store-forward 保留独立的有界排空。scanner 每个候选只读取共享字节前缀，再在
+  寄存器检查各 bit phase；保留 header、CRC、对齐稳定性及复制后 epoch/覆盖复验。
+  不增加静态 RAM、PIO/SM/DMA 资源或乘客服务等级。
+- 软件与构建：实际 scanner 的两种 ISR 方向、全部 bit phase、SRAM wrap、假 magic、
+  部分帧、覆盖和计数歧义回归通过；持续 ready 的 adapter 每 phase 只处理一个副本，
+  坏帧仍拒绝，后继正常序列可恢复且无软件重发。相关 Python/实际 C 回归
+  `129 passed`，adapter host runner 通过；首次测试 stub 编译错误保留。上一版真实
+  scanner 对新 SRAM 读取预算按预期失败，见 `old-scanner-check.json`。
+  Release build `20260912050200`，源指纹
+  `2dc1b351547ec9130e391ff846c837f6b4967625d51595195ecec28e8d53189b`，源文件数
+  `1001`，产物摘要见 `source-checkpoint-r1.json`；RAM 仍为 free `3092 B` / minimum
+  `49152 B`，门禁失败，不放宽预算。
+- P3 与前置拒绝：`p3-r1` 四板 OTA 成功；顺序复位后 `p3-r2` 使用同包和在线 build
+  核验恢复实测。两份真实凭证均仅为 `FOUR_NODE_TDMA_QUICK_DIAGNOSTIC` PASS，
+  `strict_gates_passed=false`。粗 CLK ARM8、coded marker、SCK 候选覆盖不足、启动超时
+  及 NO2 flight map ARM5 原件保留。`lifecycle-r1/r2` 在主机检查 SCK opposite-edge
+  重装余量时拒绝，未进入自主试验。
+- SCK 取证：单链路 ARM 回复截断、SD 下载非法 hex、原时限内未收齐整行分别保存。
+  `sck-waveform-r2-tail/` 仅收集同一已保存 epoch `177` 的迟到回复，未重新捕获或改写
+  原失败。七个存储页完整回复均超过原 `3 s` 期限，范围约 `3.03–3.25 s`；已收字节
+  的最大相邻间隔约 `16 ms`，本记录不能证明 idle-gap 提前结束是根因。
+  `sck-recovery-audit.json` 独立验证头部/CRC/训练身份，并恢复 residual `0`；该原件
+  缺完整板端状态元组，未被补入合格矩阵。
+- 校准恢复：持久连接补测 `sck-matrix-r3` 仍因 link0 候选覆盖失败；使用已有
+  `--short-open` 的有界对照 `sck-short-open-r4` 共 `13` 次通过，三个 follower 都取得
+  `0/1` 候选。与同源码、同 Calibration generation 的 DATA/residence 原件生成
+  `matrix-r4.json`，`passed=true`、`diagnostic_continue=false`，选中 `[1,0,0,0]`，
+  最小重装余量 `0` sample。未使用旧源码矩阵、手改候选或放宽重装预算；对照结果
+  尚不足以证明持久连接导致采样偏置。
+- 短帧闭环：`lifecycle-r3` 的 process-image → raw-flight → 恢复 process-image 最终
+  均为 `passed/closed_loop_passed/realtime_gate_passed=true`、`diagnostic_continue=false`。
+  raw-flight 首次 NO2 ARM8 拒绝，经 STOP 后下一次通过，原失败保留。四板 SD 原始
+  segment 重建、CRC/sequence/owner 范围审计通过，采集窗口基础 transport 错误增量
+  为零，最终 STOP 通过。证据见 `lifecycle-r3/validation.json`、`capture-audit.json`。
+- 完整计时：`prepare-r1` 显式诊断配置通过；`trial-r1` 取得临时许可 epoch `76`，
+  实读自主状态 `5`，普通模式取样后，在自主原始采集结束后继续取样。下表的每个
+  peak 及其子项均属于某一次完整 phase；前后是同板、同 persona、同 clk_sys 和预算
+  的独立有限窗口，不能把峰值降幅当作已证明的 WCET 上界。
+
+  | 节点 | 普通完整 peak µs | 自主旧 peak µs | 自主新 peak µs | 自主新 RX capture µs / calls | 自主新 RX parse µs | 自主新 overlay µs |
+  |---|---|---|---|---|---|---|
+  | NO1 | 1346.896 | 1185.548 | 1233.220 | 43.392 / 1 | 545.972 | 0 |
+  | NO2 | 2409.916 | 8537.728 | 3617.076 | 1944.840 / 1 | 192.600 | 1267.876 |
+  | NO3 | 2696.252 | 9580.068 | 3702.320 | 1654.108 / 1 | 413.008 | 1261.336 |
+  | NO4 | 2857.184 | 9691.712 | 3945.428 | 1932.944 / 1 | 468.568 | 1353.172 |
+
+- 归因与限制：自主从站有限 peak 下降约 `57.6–61.4%`；NO1 增加约 `4.0%`，不宣称
+  全节点一致加速。全部采样的 RX capture calls 不超过一次，完整 `SCHEDULE` 预算
+  仍为 `380 µs`，全部节点仍失败；RX capture 和 overlay 准备仍是从站主要开销。
+  自主计时窗口基础 transport 错误增量均为零，可丢弃观察副本的 drop 增量依次为
+  `0/31921/35380/35278`，不代表逐圈记录无损。原始数据与逐节点 overrun、计数和
+  对比范围见 `trial-r1/normal-audit.json`、`autonomous-audit.json` 及两份 comparison。
+- 自主采集与停止：NO2–NO4 原始捕获通过；NO1 首次下载声明 `512 B`、实际 `487 B`，
+  原 capture 和首次 audit 失败保留。撤销许可并确认四板 STOP 后，仅重读同一冻结
+  捕获，原始 segment/CRC/sequence/owner 复核通过，见
+  `trial-r1/recovered/capture1-node0/recovery.json`、`capture-audit-r2.json`。
+  该恢复不改变原 trial 的非零退出码。许可撤销后 inactive，四板
+  `armed/enabled/adapter_started=0`，无本轮 cleanup error。
+- 证据已由 `hardware-review.json` / `slice-manifest.json` 封存。下一 gate 继续收敛
+  RX capture、解析与 overlay 准备，按 owner/版本/静态资源边界推进异步准备与消费；
+  完整 Core1 WCET、无更新稳态及真正 service blackout 均保持开放。
+  不由局部工作量限制推导逐圈同步样本或列车调度完成；
+  `TDMA-FLIGHT-002B` 保持 IN PROGRESS，`002F/002G/002H` 保持 PENDING，registry/C11 不变。
 
 ### TDMA-PROGRESS-20260912-014 - 列车调度分项计时与重复 RX 开销归因
 
@@ -1161,8 +1256,9 @@ STOP 依赖链、拒绝传播与停止态调度竞争的前置修复已提交，
 transport 错误或替代 service blackout；RX ring 复制竞态已有主机反例，实板归因待闭合。
 RX DMA 计数与副本复制生命周期复验见 `TDMA-PROGRESS-20260912-012`；列车优先与四级
 候车设计见 `TDMA-PROGRESS-20260912-013`。分项计时与当前源码实板归因见
-`TDMA-PROGRESS-20260912-014`：自主从站的重复 RX 捕获/扫描成为主要开销，先收敛单
-phase 工作上限，再推进无更新稳态及真正 service blackout。正式 RAM、完整 Core1 WCET、
+`TDMA-PROGRESS-20260912-014`：自主从站的重复 RX 捕获/扫描成为主要开销；
+`TDMA-PROGRESS-20260912-015` 限制同拍 RX 工作量并保留校准、下载与恢复原件。
+继续收敛完整 phase 的剩余超预算工作，再推进无更新稳态及真正 service blackout。正式 RAM、完整 Core1 WCET、
 硬件 mailbox 授权/参与证据和绝对 VDC 时间
 仍未闭合；真正 TDMA service blackout 尚未取证，模型续转不能替代硅上证明。
 `TDMA-FLIGHT-002` 继续执行，resident/flight 契约保持原状态。
@@ -1188,6 +1284,8 @@ NO5 观测仍未完成，因此 DPLL 尚不能进入 active matrix/eligible/serv
 
 | progress ID | TODO task ID | 证据 |
 |---|---|---|
+| TDMA-PROGRESS-20260912-016 | TDMA-FLIGHT-002B/002F | `out/HardwareAcceptance/20260912/tdma-flight-async-platform/owner-boundary-r2.json`：将异步准备/解析纳入列车调度基础，区分纯构建、跨核版本交接与硬件提交；尚非运行验收。 |
+| TDMA-PROGRESS-20260912-015 | TDMA-FLIGHT-002B | `out/HardwareAcceptance/20260912/tdma-flight-rx-budget/hardware-review.json`、`slice-manifest.json`：同拍 RX 限制、真实旧 scanner 反例、同源码 P3、SCK 原件恢复与有效矩阵、短帧闭环、完整 phase 对比和保留的失败。 |
 | TDMA-PROGRESS-20260912-014 | TDMA-FLIGHT-002B | `out/HardwareAcceptance/20260912/tdma-flight-service-timing/hardware-review.json`、`slice-manifest.json`：固定分项计时、同源码 P3、复位恢复短帧、普通/自主完整 phase 归因、原始采集与下载恢复、STOP 确认及未通过的 RAM/WCET。 |
 | TDMA-PROGRESS-20260912-011 | TDMA-FLIGHT-002B | `out/HardwareAcceptance/20260912/tdma-flight-origin-admission/slice-manifest.json`、`hardware-review.json`：当前源码临时许可证、实际自主运行、有限原始 CRC/owner 审计、到期/撤销/新 epoch 重入、复制竞态反例及保留的 transport/RAM/WCET 失败；旧原件由报告引用。 |
 | TDMA-PROGRESS-20260912-010 | TDMA-FLIGHT-002B | `out/HardwareAcceptance/20260911/tdma-flight-service-boundary/slice-manifest.json`：owner intent 有界读取与窗口等待拆拍、当前源码前置闭环及完整 WCET 未通过证据。 |
