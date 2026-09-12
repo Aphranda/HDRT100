@@ -351,7 +351,15 @@ receive health、novelty 和 RX FIFO。origin 授权在采集时绑定，后续 
 年龄。STOP 先停硬件；被取消的 worker 只归还静态工位，不访问 adapter 或物理池。
 物理工位复用 adapter 的注入队列存储，仅在 STOPPED 且无待处理注入时绑定；绑定后
 拒绝注入与重新绑定，防止另一入口覆盖 worker 输入。未绑定的注入后端保持原队列。
-原始 DMA 候选扫描仍属于待拆分的 Core1 工作，普通镜像工位也不承担逐圈时间保全。
+原始 DMA 候选发现使用独立 `tdma_rx_scan_t` 工位：Core1 只复制有界的已完成 DMA
+字节窗口并复验覆盖与 observation epoch；Core0 在不可变副本中完成位相位搜索和
+transport CRC 校验，返回位置、帧长与连续帧证据，不持有 live DMA 或物理 owner
+指针。Core1 据此直接定位当前已完成帧，重新读取 live ring，并在复制后再次核对覆盖
+和 epoch；该次 live copy 之后才沿原边界绑定 latch/RTT，不能把旧扫描副本当作新接收。
+工位忙时不等待，旧提示失效时重新请求发现；READY 还须核对 persona、配置与请求
+epoch。观察副本的重同步不得移动已锁定的 wire overlay 相位。STOP/训练/自主 origin
+切换撤销提示，重新 ARM 必须等待扫描工位取消 ACK；普通镜像工位不承担逐圈时间
+保全，扫描异步化也不替代完整 Core1 WCET 和资源验收。
 
 | 席位 | 内容与既有布局锚点 | 准备、上车与下车保证 | 迟到或拥塞处理 |
 |---|---|---|---|

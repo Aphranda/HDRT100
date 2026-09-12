@@ -8,9 +8,13 @@ Last updated: 2026-09-12
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的普通 RX Core0 解析切片见 `TDMA-PROGRESS-20260912-018`，
-证据根为 `out/HardwareAcceptance/20260912/tdma-flight-async-rx/`；原始 DMA 扫描仍在
-Core1，特等时间戳独立快速通道保持单独验收。该切片已封存；随后完成的六节点编译
+当前 `TDMA-FLIGHT-002F` 的原始 DMA 候选异步发现切片见
+`TDMA-PROGRESS-20260912-021`，证据根为
+`out/HardwareAcceptance/20260912/tdma-flight-async-scan/`。Core0 扫描私有窗口，Core1
+按提示重新复制 live ring；完整 WCET、正式 RAM 和特等时间戳快速通道分别验收。
+先闭合本切片，节点容量后续项保持后置。前序普通 RX Core0 解析切片见
+`TDMA-PROGRESS-20260912-018`，证据根为
+`out/HardwareAcceptance/20260912/tdma-flight-async-rx/`。随后完成的六节点编译
 容量隔离核算见 `TDMA-PROGRESS-20260912-019`，证据根为
 `out/HardwareAcceptance/20260912/node-capacity-ram-audit/`。核算未修改运行固件，
 编译容量统一配置、准入及本轮硬件复核见 `TDMA-PROGRESS-20260912-020`，证据根为
@@ -71,6 +75,70 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260912-021 - 原始 DMA 候选发现异步工位与当前切片验收
+
+- 日期：2026-09-12；TODO task ID：`TDMA-FLIGHT-002F`。以下数字均为实验快照，非事实源。
+  证据根为 `out/HardwareAcceptance/20260912/tdma-flight-async-scan/`。按用户要求先
+  完成本切片验收；未继续调整节点容量，也未操作 NO5 或另一台设备的单板工作。
+- 实现：独立 `tdma_rx_scan_t` 保存至多 `TDMA_RX_SCAN_WINDOW_BYTES` 的已完成
+  DMA 字节副本，Core0 用真实 transport CRC 解码器发现几何位置、bit shift、帧长
+  和连续帧证据。Core1 直接定位当前完整帧、重新复制 live ring，并复验覆盖与
+  observation epoch；原 RX 工位仍在 live copy 后绑定当时 latch/RTT，后台完成
+  时刻不充当接收时刻。tail 独立建模，不能从最大 payload 长度反推实际帧间距。
+  工位忙时不等待、不覆盖输入；旧请求、persona 或配置提示拒绝。STOP/训练/origin
+  切换取消提示，被取消 worker 只归还私有工位，重新 ARM 等待取消 ACK。parser
+  重同步不能改变已锁定 overlay 相位；维护路径保留原扫描器。
+- 软件：真实 legacy/async DMA 捕获共 `25` 项，相关 flight 回归共 `150 passed`。
+  覆盖所有 bit shift、ISR 方向、跨环回绕、worker 暂停后读新帧、复制时覆盖和 epoch
+  变化、取消 ACK、CRC 假头、陈旧配置提示及容量越界。补充资源、PIO、NO5 隔离、
+  调度和计时回归中 `77 passed / 7 failed`，失败来自预算工具未跟随共享头文件
+  常量位置；补入 `CONFIG_PATHS` 后调度/计时 `8 passed`，原失败保留。
+- 构建：Release A/B/Boot 及 Flash 链接检查通过；build `20260912091130`，源码
+  指纹 `75dcc6c58fed028c7973f13ebd2a40a9fd6ee99948b968b868b6de29eae8fd83`，
+  `1016` files，全部 `634` 个 app 翻译单元仍使用六容量。摘要和产物 SHA-256 见
+  `source-checkpoint-r1.json`。扫描工位占 `704 B`，物理对象增加 `40 B`，主 SRAM
+  净增 `744 B`，链接余量 `5360 → 4616 B`；正式要求仍由
+  `DEFAULT_MIN_FREE_BYTES` 定义，本轮为 `49152 B`，`ram-r1.log` 保留 FAIL。
+- P3：四板 OTA 和四链路双组测量通过。凭证为
+  `FOUR_NODE_TDMA_QUICK_DIAGNOSTIC`，`passed=true`、`strict_gates_passed=false`。
+  coarse CLK 的 NO4 `ARM result=8`、首次 process-image 的 NO3 `result=8` 及未
+  handoff running 保留失败。本轮 TRN00/01/02 独立生成严格 `matrix-r1.json`，
+  `passed=true`、`diagnostic_continue=false`；自动 row `3` 的 DATA 为 `[5,5,5,5]`。
+  本次自动行成功不消除前轮自动选行/CRC 失败，也没有复用旧 build 矩阵。
+- 生命周期：`lifecycle-r1` 的过程映像通过，raw 切换在 NO1 flight-map 准入
+  `result=5` 处拒绝，发生在物理 ARM 前；`lifecycle-r2` 的 NO3 同类拒绝保留。
+  第二轮 STOP 响应有一次超时，后续四板 physical/runtime/adapter 停止快照均为零，
+  不能用状态读回抹去串口超时。原始动作、失败快照和有界恢复见
+  `lifecycle-rejection-r1.json`、`reset-recovery-r1.json`。软件复位后
+  `lifecycle-r3` 先保留 NO2 `result=8` 及 STOP 恢复，随后 process-before、
+  raw-transition、带 clock-train 的 process-restored 均严格通过，
+  `passed/closed_loop_passed/realtime_gate_passed=true`、`diagnostic_continue=false`。
+- 原始采集：`lifecycle-r3` 四板 SD 片段重建、有限包对身份、mailbox CRC 与局部
+  owner 装卸边界全部通过，采集期间 transport/schedule/profile 错误零增长。
+  `trial-r1` 的自主采集在 NO2/NO4 下载时出现 non-hexadecimal 响应，原 summary
+  和整体 trial 退出码仍为失败；两板原运行快照的 TDMA 错误增量均为零。STOP 后以
+  较小串口页重读同一批已导出文件，核对 build、capture tag/sequence 与状态完全
+  不变，未重做 ARM/SAVE；`recovered/` 保留重读日志。自主四板原件均可重建，
+  有限包对身份、mailbox CRC 与装卸边界通过，但重读不能消除首次串口下载失败。
+- 计时：`trial-r1` 使用有限期 trial `912022`，普通采集目标 `25 s`、自主目标
+  `90 s`，实际命令、样本与完整 profile 记录均保留。普通完整峰值按 NO1..NO4 为
+  `1243.000/1015.344/1156.704/1170.200 µs`；自主为
+  `869.380/1049.844/1227.028/1260.388 µs`。自主 follower 最坏完整记录内的
+  RX capture 为 `567.540/721.836/709.588 µs`，相较上一轮
+  `1706.128/2110.744/2073.776 µs` 有明显下降；普通模式完整峰值未一致下降。
+  比较见 `timing-compare-r1.json`，这是分次有限观测，不是 WCET 上界。
+  四板仍未通过当前 `380 µs` 完整 phase 预算，两个计时窗口均有 RX 进展且
+  transport/schedule/profile 错误零增长。剩余 live copy、交接和 owner 工作仍须
+  用完整记录继续归因，不能以扫描已移出 Core1 宣布实时通过。
+- 收尾：trial 授权 epoch `54`，撤销后 epoch `56`、inactive；四板最终 physical
+  armed/runtime enabled/adapter started 均为零。源码复核、成功/失败尝试、原始
+  SD、构建与计时证据入口为 `review-r1.json`、`slice-manifest.json`，本轮验收
+  结论为 PARTIAL。代码提交 `590b9a0` 已通过当前 staged 源码的 P3 凭证门禁；
+  文档独立提交，全部文档门禁和提交后指纹核对见 `commit-proof.json`。
+- 状态：`TDMA-FLIGHT-002F` 保持 IN PROGRESS；启动准入与串口失败、正式 RAM、
+  完整 Core1 WCET、origin 准备、service blackout、同圈多 owner 及特等逐圈保全
+  继续保留各自门禁。registry/C11 不变，长期目标保持 active。
 
 ### TDMA-PROGRESS-20260912-020 - 编译节点容量实现与四板复核
 
