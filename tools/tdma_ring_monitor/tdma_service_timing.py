@@ -6,9 +6,11 @@ STAGES_V1 = (
     "phys_service", "owner_service", "refmem_publish", "training_gate", "analyzer",
     "accounting", "adapter", "rx_capture", "rx_parse", "overlay_prepare", "overlay_boundary",
 )
+STAGES_V2 = STAGES_V1 + ("rx_acquire", "rx_packet_copy", "rx_clock", "rx_latch")
 STAGES_BY_VERSION = {
     1: STAGES_V1,
-    2: STAGES_V1 + ("rx_acquire", "rx_packet_copy", "rx_clock", "rx_latch"),
+    2: STAGES_V2,
+    3: STAGES_V2 + ("rx_dma_observe", "rx_locate", "rx_header_check", "rx_ring_copy"),
 }
 FIELDS = (
     "version", "clock_hz", "reset_generation", "phase_count", "stage_count",

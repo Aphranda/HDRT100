@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define TDMA_SERVICE_TIMING_VERSION 2u
+#define TDMA_SERVICE_TIMING_VERSION 3u
 #ifndef TDMA_SERVICE_TIMING_ENABLED
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #define TDMA_SERVICE_TIMING_ENABLED 1
@@ -32,6 +32,12 @@ typedef enum {
     TDMA_TIMING_RX_PACKET_COPY,
     TDMA_TIMING_RX_CLOCK,
     TDMA_TIMING_RX_LATCH,
+    /* Async acquisition and discovery copies only; nested in RX_ACQUIRE.
+     * DMA observations include both the initial and post-copy count reads. */
+    TDMA_TIMING_RX_DMA_OBSERVE,
+    TDMA_TIMING_RX_LOCATE,
+    TDMA_TIMING_RX_HEADER_CHECK,
+    TDMA_TIMING_RX_RING_COPY,
     TDMA_TIMING_STAGE_COUNT,
 } tdma_service_timing_stage_t;
 

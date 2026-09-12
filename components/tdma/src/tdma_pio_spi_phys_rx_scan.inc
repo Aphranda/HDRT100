@@ -1,5 +1,7 @@
 /* Only Core1 reads the live ring. Core0 discovers geometry in its private
  * snapshot; a returned hint is revalidated against current completed words. */
+#include "tdma_service_timing.h"
+
 static bool tdma_pio_spi_phys_rx_scan_cancel(tdma_pio_spi_phys_t *phys)
 {
     phys->rx_scan_hint.valid = false;
@@ -21,9 +23,13 @@ static bool tdma_pio_spi_phys_rx_scan_request(tdma_pio_spi_phys_t *phys,
     job->tail_words = phys->flight_tail_bytes;
     job->persona = s_tdma_pio_spi_program_persona;
     job->observation_epoch = s_tdma_pio_spi_rx_sequence.observation_epoch;
+    const uint64_t copy_start = tdma_service_timing_now();
     tdma_pio_spi_phys_rx_ring_copy(job->bytes, start, job->byte_count, 0u);
+    tdma_service_timing_record(TDMA_TIMING_RX_RING_COPY, copy_start);
     __dmb();
+    const uint64_t observe_start = tdma_service_timing_now();
     const uint64_t after = tdma_pio_spi_phys_rx_produced_words(phys);
+    tdma_service_timing_record(TDMA_TIMING_RX_DMA_OBSERVE, observe_start);
     if (job->observation_epoch != s_tdma_pio_spi_rx_sequence.observation_epoch ||
         after < produced || after - start >= TDMA_PIO_SPI_RX_RING_WORDS) {
         phys->snapshot.rx_observation_drop_count++;
@@ -41,7 +47,9 @@ static bool tdma_pio_spi_phys_capture_words_async(tdma_pio_spi_phys_t *phys,
         !phys->rx_capture_active || phys->flight_origin_workspace_owned ||
         s_tdma_pio_spi_program_persona == TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN)
         return false;
+    const uint64_t observe_start = tdma_service_timing_now();
     const uint64_t produced = tdma_pio_spi_phys_rx_produced_words(phys);
+    tdma_service_timing_record(TDMA_TIMING_RX_DMA_OBSERVE, observe_start);
     const uint64_t observation_epoch = s_tdma_pio_spi_rx_sequence.observation_epoch;
     phys->snapshot.rx_dma_produced_words = (uint32_t)produced;
     phys->snapshot.rx_scan_produced_words = (uint32_t)s_tdma_pio_spi_rx_scan_produced;
@@ -79,22 +87,34 @@ static bool tdma_pio_spi_phys_capture_words_async(tdma_pio_spi_phys_t *phys,
         return false;
     }
     uint64_t candidate;
-    if (!tdma_rx_scan_locate(hint, produced, s_tdma_pio_spi_rx_scan_produced, &candidate)) return false;
+    const uint64_t locate_start = tdma_service_timing_now();
+    const bool located = tdma_rx_scan_locate(
+        hint, produced, s_tdma_pio_spi_rx_scan_produced, &candidate);
+    tdma_service_timing_record(TDMA_TIMING_RX_LOCATE, locate_start);
+    if (!located) return false;
     const uint32_t shift = hint->bit_shift;
     const uint32_t size = hint->frame_words - TDMA_PIO_SPI_PACKET_HEADER_SIZE;
-    if (tdma_pio_spi_phys_rx_ring_aligned_byte(candidate, shift) != TDMA_PIO_SPI_PACKET_MAGIC0 ||
+    const uint64_t header_start = tdma_service_timing_now();
+    const bool header_invalid =
+        tdma_pio_spi_phys_rx_ring_aligned_byte(candidate, shift) != TDMA_PIO_SPI_PACKET_MAGIC0 ||
         tdma_pio_spi_phys_rx_ring_aligned_byte(candidate + 1u, shift) != TDMA_PIO_SPI_PACKET_MAGIC1 ||
         ((uint32_t)tdma_pio_spi_phys_rx_ring_aligned_byte(candidate + 2u, shift) |
           ((uint32_t)tdma_pio_spi_phys_rx_ring_aligned_byte(candidate + 3u, shift) << 8u)) != size ||
-        !tdma_pio_spi_phys_transport_header_matches(candidate + TDMA_PIO_SPI_PACKET_HEADER_SIZE, shift, (uint16_t)size)) {
+        !tdma_pio_spi_phys_transport_header_matches(candidate + TDMA_PIO_SPI_PACKET_HEADER_SIZE, shift, (uint16_t)size);
+    tdma_service_timing_record(TDMA_TIMING_RX_HEADER_CHECK, header_start);
+    if (header_invalid) {
         hint->valid = false;
         (void)tdma_pio_spi_phys_rx_scan_request(phys, produced, (uint32_t)max_words);
         return false;
     }
+    const uint64_t copy_start = tdma_service_timing_now();
     tdma_pio_spi_phys_rx_ring_copy(s_tdma_pio_spi_rx_frame,
         candidate, hint->frame_words, shift);
+    tdma_service_timing_record(TDMA_TIMING_RX_RING_COPY, copy_start);
     __dmb();
+    const uint64_t recheck_start = tdma_service_timing_now();
     const uint64_t after = tdma_pio_spi_phys_rx_produced_words(phys);
+    tdma_service_timing_record(TDMA_TIMING_RX_DMA_OBSERVE, recheck_start);
     if (s_tdma_pio_spi_rx_sequence.observation_epoch != observation_epoch ||
         after < produced || after - candidate >= TDMA_PIO_SPI_RX_RING_WORDS) {
         hint->valid = false;

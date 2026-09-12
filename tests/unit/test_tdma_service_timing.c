@@ -21,7 +21,16 @@ int main(void)
     ticks = UINT32_MAX - 10ull;
     tdma_service_timing_phase_begin();
     const uint64_t beginning = ticks;
-    ticks += 7;
+    ticks += 1;
+    tdma_service_timing_record(TDMA_TIMING_RX_DMA_OBSERVE, beginning);
+    ticks += 1;
+    tdma_service_timing_record(TDMA_TIMING_RX_LOCATE, beginning + 1);
+    ticks += 1;
+    tdma_service_timing_record(TDMA_TIMING_RX_HEADER_CHECK, beginning + 2);
+    ticks += 2;
+    tdma_service_timing_record(TDMA_TIMING_RX_RING_COPY, beginning + 3);
+    ticks += 2;
+    tdma_service_timing_record(TDMA_TIMING_RX_DMA_OBSERVE, beginning + 5);
     tdma_service_timing_record(TDMA_TIMING_RX_ACQUIRE, beginning);
     ticks += 5;
     tdma_service_timing_record(TDMA_TIMING_RX_PACKET_COPY, beginning + 7);
@@ -40,7 +49,12 @@ int main(void)
     tdma_service_timing_phase_end();
     assert(tdma_service_timing_try_snapshot(&before));
     assert(before.last.total_ticks == 100 && before.last.invalid_count == 0);
-    assert(before.version == 2);
+    assert(before.version == 3);
+    assert(before.last.elapsed_ticks[TDMA_TIMING_RX_DMA_OBSERVE] == 3);
+    assert(before.last.calls[TDMA_TIMING_RX_DMA_OBSERVE] == 2);
+    assert(before.last.elapsed_ticks[TDMA_TIMING_RX_LOCATE] == 1);
+    assert(before.last.elapsed_ticks[TDMA_TIMING_RX_HEADER_CHECK] == 1);
+    assert(before.last.elapsed_ticks[TDMA_TIMING_RX_RING_COPY] == 2);
     assert(before.last.elapsed_ticks[TDMA_TIMING_RX_ACQUIRE] == 7);
     assert(before.last.elapsed_ticks[TDMA_TIMING_RX_PACKET_COPY] == 5);
     assert(before.last.elapsed_ticks[TDMA_TIMING_RX_CLOCK] == 3);
@@ -67,6 +81,8 @@ int main(void)
     assert(after.phase_count == 2 && after.last.total_ticks == 80);
     assert(after.peak.total_ticks == 100 && after.peak.elapsed_ticks[TDMA_TIMING_RX_CAPTURE] == 30);
     assert(after.last.calls[TDMA_TIMING_RX_ACQUIRE] == 0);
+    assert(after.last.calls[TDMA_TIMING_RX_DMA_OBSERVE] == 0);
+    assert(after.peak.elapsed_ticks[TDMA_TIMING_RX_DMA_OBSERVE] == 3);
     assert(after.peak.elapsed_ticks[TDMA_TIMING_RX_ACQUIRE] == 7);
     assert(after.reset_generation != reset);
 
@@ -78,6 +94,7 @@ int main(void)
     assert(tdma_service_timing_try_snapshot(&after));
     assert(after.reset_generation == reset && after.phase_count == 1);
     assert(after.last.calls[TDMA_TIMING_RX_CAPTURE] == 0);
+    assert(after.last.calls[TDMA_TIMING_RX_DMA_OBSERVE] == 0);
     assert(after.peak.total_ticks == 120 && after.peak.elapsed_ticks[TDMA_TIMING_RX_PARSE] == 120);
 
     /* A suspended writer never makes a Core0 query spin. */
