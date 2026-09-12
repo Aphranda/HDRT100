@@ -21,8 +21,7 @@ static bool tdma_pio_spi_phys_rx_scan_request(tdma_pio_spi_phys_t *phys,
     job->tail_words = phys->flight_tail_bytes;
     job->persona = s_tdma_pio_spi_program_persona;
     job->observation_epoch = s_tdma_pio_spi_rx_sequence.observation_epoch;
-    for (uint32_t i = 0u; i < job->byte_count; ++i)
-        job->bytes[i] = tdma_pio_spi_phys_rx_ring_byte(start + i);
+    tdma_pio_spi_phys_rx_ring_copy(job->bytes, start, job->byte_count, 0u);
     __dmb();
     const uint64_t after = tdma_pio_spi_phys_rx_produced_words(phys);
     if (job->observation_epoch != s_tdma_pio_spi_rx_sequence.observation_epoch ||
@@ -92,8 +91,8 @@ static bool tdma_pio_spi_phys_capture_words_async(tdma_pio_spi_phys_t *phys,
         (void)tdma_pio_spi_phys_rx_scan_request(phys, produced, (uint32_t)max_words);
         return false;
     }
-    for (uint32_t i = 0u; i < hint->frame_words; ++i)
-        s_tdma_pio_spi_rx_frame[i] = tdma_pio_spi_phys_rx_ring_aligned_byte(candidate + i, shift);
+    tdma_pio_spi_phys_rx_ring_copy(s_tdma_pio_spi_rx_frame,
+        candidate, hint->frame_words, shift);
     __dmb();
     const uint64_t after = tdma_pio_spi_phys_rx_produced_words(phys);
     if (s_tdma_pio_spi_rx_sequence.observation_epoch != observation_epoch ||

@@ -635,7 +635,7 @@ static struct { uint64_t observation_epoch; } s_tdma_pio_spi_rx_sequence;
 static unsigned alignment;
 static void __dmb(void) {}
 static int s_tdma_pio_spi_rx_dma_channel = 4;
-static uint32_t s_tdma_pio_spi_rx_frame[64];
+static uint8_t s_tdma_pio_spi_rx_frame[64];
 static uint64_t tdma_pio_spi_phys_rx_produced_words(tdma_pio_spi_phys_t *p) { (void)p; return produced; }
 static uint32_t tdma_pio_spi_phys_rx_write_index(void) { return produced % 128; }
 static uint32_t tdma_pio_spi_phys_rx_ring_word(uint64_t p) { (void)p; return 0; }
@@ -653,6 +653,7 @@ static uint8_t model_raw_byte(uint64_t p) {
     const uint8_t previous = p ? model_packet_byte(p - 1) : 0;
     return (uint8_t)((value >> alignment) | (previous << (8 - alignment)));
 }
+static uint8_t tdma_pio_spi_phys_rx_ring_byte(uint64_t p) { return model_raw_byte(p); }
 static uint8_t tdma_pio_spi_phys_rx_ring_aligned_byte(uint64_t p, uint32_t shift) {
     const uint8_t first = model_raw_byte(p);
     return shift ? (uint8_t)((first << shift) | (model_raw_byte(p + 1) >> (8 - shift))) : first;
@@ -661,7 +662,8 @@ static bool tdma_pio_spi_phys_transport_header_matches(uint64_t p, uint32_t s, u
     return p == packet_start + 4 && s == alignment && n == 32;
 }
 '''
-    routine = "static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys, size_t max_words, size_t *received_words) {" + c_definition_body(source, "tdma_pio_spi_phys_capture_words_legacy") + "}\n"
+    routine = "static void tdma_pio_spi_phys_rx_ring_copy(uint8_t *destination, uint64_t produced, uint32_t count, uint32_t bit_shift) {" + c_definition_body(source, "tdma_pio_spi_phys_rx_ring_copy") + "}\n"
+    routine += "static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys, size_t max_words, size_t *received_words) {" + c_definition_body(source, "tdma_pio_spi_phys_capture_words_legacy") + "}\n"
     assertions = r'''
 int main(void) {
     tdma_pio_spi_phys_t phys = {.rx_capture_active = true, .process_image_enabled = true,

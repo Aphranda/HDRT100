@@ -337,10 +337,7 @@ bool tdma_pio_spi_phys_rx(void *context,
         return false;
     }
 
-    uint8_t header[TDMA_PIO_SPI_PACKET_HEADER_SIZE];
-    for (uint32_t i = 0u; i < TDMA_PIO_SPI_PACKET_HEADER_SIZE; i++) {
-        header[i] = (uint8_t)(s_tdma_pio_spi_rx_frame[i] & 0xFFu);
-    }
+    const uint8_t *header = s_tdma_pio_spi_rx_frame;
     const uint16_t frame_size =
         (uint16_t)header[2] | ((uint16_t)header[3] << 8u);
     if (header[0] != TDMA_PIO_SPI_PACKET_MAGIC0 ||
@@ -370,11 +367,8 @@ bool tdma_pio_spi_phys_rx(void *context,
     }
 
     const uint64_t packet_copy_start = tdma_service_timing_now();
-    for (uint16_t i = 0u; i < frame_size; i++) {
-        packet[i] = (uint8_t)(
-            s_tdma_pio_spi_rx_frame[TDMA_PIO_SPI_PACKET_HEADER_SIZE + i] &
-            0xFFu);
-    }
+    memcpy(packet, &s_tdma_pio_spi_rx_frame[TDMA_PIO_SPI_PACKET_HEADER_SIZE],
+           frame_size);
     *packet_size = frame_size;
     tdma_service_timing_record(TDMA_TIMING_RX_PACKET_COPY, packet_copy_start);
     const uint64_t clock_start = tdma_service_timing_now();

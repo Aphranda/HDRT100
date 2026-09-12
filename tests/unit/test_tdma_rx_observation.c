@@ -35,7 +35,8 @@ static int s_tdma_pio_spi_rx_dma_channel = 4;
 static uint32_t s_tdma_pio_spi_program_persona;
 static tdma_rx_dma_counter_t s_tdma_pio_spi_rx_sequence;
 static uint64_t s_tdma_pio_spi_rx_scan_produced;
-static uint32_t ring[TDMA_PIO_SPI_RX_RING_WORDS], s_tdma_pio_spi_rx_frame[TDMA_PIO_SPI_RX_DMA_WORD_MAX];
+static uint32_t ring[TDMA_PIO_SPI_RX_RING_WORDS];
+static uint8_t s_tdma_pio_spi_rx_frame[TDMA_PIO_SPI_RX_DMA_WORD_MAX];
 static uint64_t tick, completed, packet_start;
 static uint32_t stimulus, word_reads;
 static bool copy_phase, stimulus_ran;
@@ -187,6 +188,32 @@ int main(int argc, char **argv) {
         hardware.ch[4].transfer_count=UINT32_MAX;
         assert(!tdma_pio_spi_phys_capture_words(&phys,TDMA_PIO_SPI_RX_DMA_WORD_MAX,&received));
         assert(received==0 && word_reads==0);
+    } else if (!strcmp(argv[1],"copy_window")) {
+        /* All byte values across SRAM and 32-bit sequence wrap, with both
+         * ISR directions. Sentinels also check an unaligned destination. */
+        for (unsigned reverse=0;reverse<2;++reverse) for (unsigned shift=0;shift<8;++shift) {
+            (void)setup(0,0,0);
+            const uint64_t first=(1ull<<32)-19u;
+            uint8_t raw[TDMA_RX_SCAN_WINDOW_BYTES+1];
+            uint8_t output[TDMA_RX_SCAN_WINDOW_BYTES+2];
+            memset(output,0xcc,sizeof(output));
+            for (unsigned i=0;i<sizeof(raw);++i) {
+                raw[i]=(uint8_t)(i*37u+13u);
+                const uint32_t word=0xabcdef00u|raw[i];
+                ring[(first+i)&1023]=reverse ? __rev(word) : word;
+            }
+            if (reverse) s_tdma_pio_spi_program_persona=TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER;
+            tdma_pio_spi_phys_rx_ring_copy(output+1,first,TDMA_RX_SCAN_WINDOW_BYTES,shift);
+            assert(output[0]==0xcc && output[sizeof(output)-1]==0xcc);
+            for (unsigned i=0;i<TDMA_RX_SCAN_WINDOW_BYTES;++i) {
+                const uint8_t expected=shift ? (uint8_t)((raw[i]<<shift)|(raw[i+1]>>(8-shift))) : raw[i];
+                assert(output[i+1]==expected);
+            }
+            assert(word_reads==TDMA_RX_SCAN_WINDOW_BYTES+(shift!=0));
+            const uint32_t before=word_reads;
+            tdma_pio_spi_phys_rx_ring_copy(NULL,UINT64_MAX,0,shift);
+            assert(word_reads==before);
+        }
     } else assert(!"unknown case");
     printf("RX observation %s passed\n",argv[1]);
     return 0;

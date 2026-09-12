@@ -18,6 +18,7 @@ def build_scanner(directory, asynchronous=False):
         ("uint64_t", "tdma_pio_spi_phys_rx_produced_words", "tdma_pio_spi_phys_t *phys"),
         ("uint8_t", "tdma_pio_spi_phys_rx_ring_byte", "uint64_t produced"),
         ("uint8_t", "tdma_pio_spi_phys_rx_ring_aligned_byte", "uint64_t produced, uint32_t bit_shift"),
+        ("void", "tdma_pio_spi_phys_rx_ring_copy", "uint8_t *destination, uint64_t produced, uint32_t count, uint32_t bit_shift"),
         ("bool", "tdma_pio_spi_phys_transport_header_matches", "uint64_t packet_start, uint32_t bit_shift, uint16_t frame_size"),
     ]
     code = ""
@@ -63,7 +64,7 @@ def async_scanner(tmp_path_factory):
     return build_scanner(tmp_path_factory.mktemp("rx-scan-async"), asynchronous=True)
 
 
-@pytest.mark.parametrize("case", ["stable", "overwrite", "counter_alias", "bounded", "prefix", "incomplete", "wrong_mode", "idle_gap", "phase_gap"])
+@pytest.mark.parametrize("case", ["stable", "overwrite", "counter_alias", "bounded", "prefix", "incomplete", "wrong_mode", "idle_gap", "phase_gap", "copy_window"])
 def test_real_scanner_dma_interleavings(scanner, case):
     result = subprocess.run([str(scanner), case], capture_output=True, text=True)
     assert result.returncode == 0, result.stdout+result.stderr

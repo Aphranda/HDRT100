@@ -194,8 +194,10 @@ _Static_assert(sizeof(tdma_flight_overlay_dma_run_t) == 16u &&
                "Command descriptors must match the RP2350 AL3 register alias");
 static uint64_t s_tdma_pio_spi_rx_scan_produced;
 static tdma_rx_dma_counter_t s_tdma_pio_spi_rx_sequence;
-/* Assembled frame (magic-aligned) copied out of the continuous DMA ring. */
-static uint32_t s_tdma_pio_spi_rx_frame[TDMA_PIO_SPI_RX_DMA_WORD_MAX];
+/* Core1-private normalized bytes, never a DMA target. The live DMA ring
+ * remains word-wide; only this assembled observation is compacted. */
+static uint8_t s_tdma_pio_spi_rx_frame[TDMA_PIO_SPI_RX_DMA_WORD_MAX]
+    __attribute__((aligned(4)));
 
 static bool tdma_pio_spi_phys_is_flight_persona(void)
 {
@@ -1818,6 +1820,26 @@ static uint8_t tdma_pio_spi_phys_rx_ring_aligned_byte(uint64_t produced,
                      ((uint32_t)second >> (8u - bit_shift)));
 }
 
+/* Callers prove the entire raw interval is completed before copying, then
+ * recheck epoch and overwrite afterwards. Normalize each raw word once. */
+static void tdma_pio_spi_phys_rx_ring_copy(uint8_t *destination,
+    uint64_t produced, uint32_t count, uint32_t bit_shift)
+{
+    if (count == 0u) return;
+    if (bit_shift == 0u) {
+        for (uint32_t i = 0u; i < count; ++i)
+            destination[i] = tdma_pio_spi_phys_rx_ring_byte(produced + i);
+        return;
+    }
+    uint8_t previous = tdma_pio_spi_phys_rx_ring_byte(produced);
+    for (uint32_t i = 0u; i < count; ++i) {
+        const uint8_t next = tdma_pio_spi_phys_rx_ring_byte(produced + i + 1u);
+        destination[i] = (uint8_t)(((uint32_t)previous << bit_shift) |
+                                  ((uint32_t)next >> (8u - bit_shift)));
+        previous = next;
+    }
+}
+
 static bool tdma_pio_spi_phys_transport_header_matches(
     uint64_t packet_start,
     uint32_t bit_shift,
@@ -1944,11 +1966,8 @@ static bool tdma_pio_spi_phys_capture_words_legacy(tdma_pio_spi_phys_t *phys,
                 s_tdma_pio_spi_rx_scan_produced = candidate;
                 return false;
             }
-            for (uint32_t i = 0u; i < total_words; i++) {
-                s_tdma_pio_spi_rx_frame[i] = (uint32_t)
-                    tdma_pio_spi_phys_rx_ring_aligned_byte(
-                        candidate + i, bit_shift);
-            }
+            tdma_pio_spi_phys_rx_ring_copy(s_tdma_pio_spi_rx_frame,
+                candidate, total_words, bit_shift);
             __dmb();
             const uint64_t after_copy = tdma_pio_spi_phys_rx_produced_words(phys);
             /* Count retires completed SRAM writes. Exclude the next writer
