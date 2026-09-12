@@ -293,6 +293,89 @@ payload region 是各 domain 在固定帧中的静态字段。VDC observation �
 - Node mailbox 没有新业务值时复用上一版 shadow 或发布无效/质量状态；不得改发另一种帧来“填空”。
 - `IDLE_BEACON` 仅保留为启动、维护或 adapter 兼容路径，禁止在产品 RUN 中周期性替换 process image。
 
+### 异步候车平台与四级服务目标（TDMA-FLIGHT-002，待实施设计）
+
+本节将异步装卸与服务等级落实为后续实现和审核的设计边界，不新增已冻结契约，也不改变
+登记表状态。wire、timestamp lag、completion 或跨域发布接口的修订必须完成域间核验与
+C11 后才能作为产品契约；这里的服务等级不等于 `tdma_profile.h` 的既有 traffic enum，
+不能只重排软件队列便宣称每圈交付成立。
+迁移依赖为先完成列车调度、再实现乘客调度：硬件自主续转、无更新循环、完整 Core1
+预算和停止生命周期先取得证据，随后才接入各等级的更新、交付与拥塞隔离。列车阶段
+继续保留基础运输完整性门禁，不以关闭错误检查换取运行时间。
+
+物理环路、负载准备和业务消费分别推进：
+
+```text
+各域 owner 准备 / 校验 -> 固定 TX shadow -> 完整版本 READY
+                                              |
+                                    TDMA owner 预授权边界选择
+                                              v
+硬件环路 -------------------------- 本地 LOAD / FORWARD --------> 下一站
+                                              |
+                                        本地 RX UNLOAD
+                                              v
+                              固定 RX 记录 -> 各域 owner 异步消费
+
+同步事件 -> 硬件 latch / 有界编码 -> 特等席固定字段与独立接收记录
+```
+
+准备工作属于“进站检票”，不应成为每次硬件发车的前置条件。Core0 的各域 owner 提前
+准备自身 shadow，TDMA 的装配接口机械组合已就绪版本；PIO/DMA 按预授权计划在确定边界
+装卸。普通状态更新迟到时沿用上次完整版本并保留 age/stale；收到新 RX 解析副本不是选择
+已就绪 TX 的必要条件。初始 layout、alignment、epoch 与硬件资源仍须先通过准入。
+
+| 席位 | 内容与既有布局锚点 | 准备、上车与下车保证 | 迟到或拥塞处理 |
+|---|---|---|---|
+| 特等 | VDC 最关键的同步时间证据；全局 `TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_*` 与本地 RX/TX latch 记录 | 固定字段、独立记录配额；稳态每圈生成并承载对应事件样本，到站由硬件或经证明的有界路径卸入受保护缓冲，之后 VDC 异步关联和消费 | 不允许旧 timestamp 冒充新样本，不允许按普通镜像满队列规则静默丢弃；缺失、CRC 错误、epoch 错误或 overflow 明确形成缺口并使正式同步质量拒绝 |
+| 一等 | VDC 其余跟随数据，包括 phase/rate/quality 与有时限的主机跟随命令；`TDMA_PROCESS_IMAGE_VDC_*` | 固定保留位置、独立就绪版本与 freshness/deadline；状态值允许按 owner 规则合并为最新值，命令按其 sequence、deadline 和确认语义处理 | 不等待 RefMem 或日志准备；缺少新状态时沿用上一稳定值并标记年龄，过期命令不得重复执行 |
+| 二等 | RefMem 数据与对应 ACK/fence；`TDMA_PROCESS_IMAGE_REFMEM_*`、`TDMA_PROCESS_IMAGE_ACK_*` | 固定保留位置和静态运输配额；由 RefMem owner 决定 validated、committed、acked/fenced，LOAD/selection 只报告运输进度 | 普通最新值可按原契约合并；要求可靠性的 delta、事件、ACK/fence 保留有界重试、backpressure 与明确失败，不因优先级较低静默覆盖 |
+| 无座 | 普通控制、低频诊断和 Log；`TDMA_PROCESS_IMAGE_CONTROL_*`、`TDMA_PROCESS_IMAGE_OPTIONAL_DIAGNOSTIC_*` 及维护流 | 只消费预先声明的低优先级配额；控制使用有界命令队列，日志在 Core0 预编码并按固定上限分片，接收后后台处理 | 普通控制可排队或显式拒绝，Log 可限流、丢弃并计数；不能占用前述席位、guard、增帧或延长物理周期 |
+
+分类依据是业务语义和交付期限。VDC 跟随命令即使封装为 `CONFIG_CONTROL` 也属于一等；
+RefMem ACK/fence 仍属于二等可靠性闭环。STOP、故障收敛、配置失效和资源回收属于 AO/FB
+生命周期边界，不能排在无座日志后面。无座不表示可在运行时抢占“暂时空着”的固定位置。
+现有完整 LOG 流仍受 LONG/maintenance 约束；若需要在每圈短帧运输微量 Log，须先定义
+静态字段、分片序号、丢弃规则和预算并修订相应契约，不能把 optional diagnostic 字段
+直接解释成已支持的任意长度日志通道。
+
+特等席必须显式处理事件因果关系。现有 `TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_SEQUENCE_LAG`
+声明流水延迟，reference TX 的真实 latch 与承载它的帧按该 lag 关联；每圈交付不等于
+零延迟。初始化流水尚未填满时发布无效状态，不能补造前圈时间戳。若要求本圈载本圈
+发车时刻，须先证明 latch 完成、编码与完整性更新均早于该字段的物理发送边界；不能
+使用预计发车时刻或软件回填冒充实测值。全局 trailer 仍由 reference 独占，follower
+卸载与本地边沿记录不授予它改写该字段的权限。各板 raw timestamp 到共同相位的映射、
+path matrix 与质量判定继续由 VDC/Calibration 拥有。
+
+“每站下车”首先表示每圈完成接收记录的独立保全，随后进行校验和业务提交；DMA 写入
+完成不等于记录有效，软件解析完成也不等于硬件到站时间。特等记录必须关联 epoch、
+cycle/sequence、source、硬件时钟域、完整性与有效状态，保持生产、发布、消费和回收
+的版本边界。普通 `tdma_flight_fifo` RX mirror 的可丢弃策略不能承担该保证。独立记录
+通道可以使用已准入数据流中的静态分区或描述符图，但不能增加同一 RX FIFO 的竞争
+消费者，也不能借用 SYNC_IO/观测 PIO、SM 或 DMA。
+本地卸载是提取本站记录，不是清空后续节点仍需读取的全局同步字段；FORWARD 继续保留
+其实际在途值，直至拥有该字段的 reference 在授权边界装入下一份对应样本。
+
+固定队列需要证明容量与持续服务能力。作为待投影到 profile 的设计变量，令 `T_min`
+为最短物理循环间隔、`L_max` 为已准入的最长消费停顿、`B_max` 为突发记录量、`M`
+为在途/交接余量，则记录容量至少覆盖 `ceil(L_max / T_min) + B_max + M`，且消费路径
+的保证吞吐必须覆盖生产率并留有恢复积压的裕量。多事件/多来源应按实际记录率计算。
+这些变量不是新增配置符号；RAM、总线仲裁与完整 Core1 phase 必须一并纳入
+RealtimeCapabilityContract/DeploymentGate。无限停顿无法由有限静态池保证无损，超过
+准入边界应留下明确缺口和同步质量失效，不得掩盖为正常复用，也不以暂停列车作为背压。
+
+不同等级还须隔离准备工作：VDC owner 与 RefMem owner 分别发布完整版本，由唯一的
+装配者组合固定 mailbox 并计算其 CRC；不得让两个核或两个域并发补写同一 mailbox。
+慢速二等/无座准备不能阻止一等版本发布。实际所用的各域 generation 应能从装配描述符
+追溯；是否需要新增 wire 字段必须单独审核。同步时间字段及其完整性更新由 TDMA owner
+配置的确定性路径完成，不能依赖 Core0 每圈重新检票。
+
+现有双 plan 的 pending/selected 保护延续到分步准备：任务持有的 TX slot lease 在
+最后一次读取前不可释放；构建过程中不可再次 acquire 而让生产者覆盖其输入。计划完整
+校验后才发布，DMA selection 只证明内存交接，不能作为 SENT 或业务 ACK。STOP/config
+epoch 失效先撤销未发布任务，再按硬件停止依赖回收已发布池，旧 epoch 的延迟结果不得
+进入新 ARM。CPU 只执行有界收割与交接；RX 扫描、TX 装配、证据发布的分步耗时和完整
+Core1 WCET 均须实测。异步化不能把超预算 action 藏到另一个 Core1 phase。
+
 ### Transport Envelope 与长短帧
 
 所有 adapter 共用同一层 `TdmaTransportFrame`，物理层不解析 VDC、RefMem、

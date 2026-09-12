@@ -8,9 +8,12 @@ Last updated: 2026-09-12
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 RX 观察副本与 DMA 接收计数切片证据根为
+当前异步候车平台与四级服务设计核验入口为
+`out/HardwareAcceptance/20260912/tdma-flight-async-platform/design-audit.json`；
+执行记录为 `TDMA-PROGRESS-20260912-013`，本次尚未改变固件或运行硬件。
+最近已完成提交的 RX 观察副本与 DMA 接收计数切片证据根为
 `out/HardwareAcceptance/20260912/tdma-flight-rx-observation/`；
-当前执行记录为 `TDMA-PROGRESS-20260912-012`，尚未形成自主循环或产品验收结论。
+执行记录为 `TDMA-PROGRESS-20260912-012`，尚未形成自主循环或产品验收结论。
 前序 Calibration 临时许可证与实际自主 origin 试验的复核证据根为
 `out/HardwareAcceptance/20260912/tdma-flight-origin-admission/`，入口为
 `slice-manifest.json` 与 `hardware-review.json`。用户明确要求后，新证据使用日期目录
@@ -46,6 +49,56 @@ Last updated: 2026-09-12
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260912-013 - 异步候车平台与四级服务设计核验
+
+- 日期：2026-09-12；TODO task ID：`TDMA-FLIGHT-002B/002C/002F/002G/002H`，归属 `TDMA-FLIGHT-002`。
+- 变更/提交：按用户要求先完成在制代码提交 `7bfbcdef6efb3d5869caf358986b39e58139b326`
+  与文档提交 `252ea7bdaff8ab45629b6c06e83bbcdf40415499`。提交后工作区干净；真实源码
+  指纹与本轮 P3 相符，代码 commit 通过非空暂存区硬件门禁。新建的
+  `tdma-flight-rx-observation/commit-proof.json` 绑定两个提交、实际 hook 日志和提交态
+  文档 hash；原 sealed manifest 的提交前文档快照保留。没有 push。
+- 本次范围：读取现有代码与 HAOFV/状态机/VDC 契约，维护 TDMA 三件套中的待实施设计和
+  退出门禁。未修改固件、PIO、工具或测试实现，未烧录或启动板卡；不引用历史 P3 作为
+  新实现验收，也未改变 registry/C11 状态。
+- 源码核验结果：
+  - `tdma_flight_fifo_core0_publish_tx()` 已能发布固定池的完整版本，物理双计划也已有
+    pending/selected 生命周期；follower 的 `prepare_process_overlay()` 仍受本次
+    `rx_ok` 门控，违背方向独立推进的目标。
+  - `TDMA_PIO_SPI_RING_ADAPTER_RX_POLLS` 会在每次 service 内重复运行 RX 观察与解析；
+    单次 scanner 上界不等于整个 TDMA phase 的工作量上界。本次未进行逐 action 实测，
+    不能把前轮超预算全部归因于该循环。
+  - `tdma_process_image_layout.h` 已固定 timestamp trailer、VDC、RefMem、ACK/control
+    和 optional diagnostic 区域；这只提供布局基础，尚不保证独立准备或逐圈卸载。
+    当前 composite mailbox 由 `distributed_refmem_tdma_flight_sync_publish()` 统一
+    生成，后续要隔离各域准备并保留唯一装配/CRC writer。
+  - 自主交接的 `tdma_pio_spi_ring_origin.inc` 清除原正式 timestamp evidence，
+    `tdma_pio_spi_phys_origin.inc` 的 RX observation 返回无正式时间戳；因此既有
+    自主 persona 证据不能证明特等席每圈有效同步样本。现有协议使用
+    `TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_SEQUENCE_LAG`，不能把前圈样本冒充本圈 latch。
+  - 普通 RX mirror 允许拥塞丢弃，不能用作特等席的无损接收队列；必须核算独立记录
+    的最坏停顿容量、持续消费能力和资源准入，并保留 overflow/invalid 缺口。
+  - `tdma_traffic_scheduler.c` 已区分使用控制封装的有时限 VDC 跟随命令；服务等级应
+    按业务含义映射。RefMem ACK/fence、STOP 等生命周期入口也不能跟随普通日志降级。
+- 方案结果：明确进站准备、完整 READY、硬件边界 LOAD/UNLOAD 与后台消费；特等逐圈
+  同步样本、一等 VDC 跟随数据、二等 RefMem、无座普通控制与 Log 分别给出保留位置、
+  版本、迟到/拥塞策略和证据要求。短帧微量 Log 需先定义静态预算和分片契约；既有
+  LONG/maintenance 日志能力不能直接视作每圈短帧能力。架构正文记录设计边界，不冻结
+  新 contract；整体目标及正式 Core1 WCET、RAM 和产品准入仍未通过。
+- 执行顺序调整：用户随后明确“先解决列车调度，再解决乘客调度”。本次四级设计留档，
+  `TDMA-FLIGHT-002F/002G/002H` 均为后续 `PENDING`；当前回到自主续转、无更新稳态、
+  完整 Core1 WCET 和 STOP 边界。基础运输校验继续执行，特等正式同步能力不冒充已实现。
+- 验证与证据：
+  - 只读核验：`out/HardwareAcceptance/20260912/tdma-flight-async-platform/design-audit.json`，
+    含源码 hash、真实符号/行号、基线提交、解释与下一 gate。
+  - 文档门禁与提交凭据：同目录 `docs-*.log`、`doc-tests-r1.log`、`pre-commit-r1.log`、
+    `p3-staged-r1.log`、`design-review.json`；最终结论以该复核文件和原始日志为准。
+  - 项目文档门禁通过 Git Bash 执行；UTF-8 源码读取和只读指纹记录使用 PowerShell/
+    原生 Python。按用户当前日期要求，所有新产物保存在 `20260912`，不改写旧目录。
+- 下一 gate：先取得完整 owner phase 与各步骤的 clk_sys 归因，收敛重复轮询、重准备及
+  软件发车依赖，完成正反例、fresh build/P3、短帧闭环、无更新自主循环与原始波形。
+  列车调度及完整 Core1 时间门禁通过后，再推进异步乘客更新、特等硬件时间样本和
+  四级隔离；不提前实现乘客优先级或提升产品同步、周期级飞行声明。
 
 ### TDMA-PROGRESS-20260912-012 - RX 观察副本生命周期、计数回归与有界扫描
 

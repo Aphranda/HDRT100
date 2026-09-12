@@ -47,6 +47,19 @@ RX UNLOAD / TX LOAD 和 PIO 分区。硬件自主运行的实现仍由 TDMA owne
 完成验收同时检查物理循环、Core1 phase/WCET 和 VDC 观测周期的契约映射。
 执行记录从 `TDMA-PROGRESS-20260911-001` 开始追溯。
 
+用户进一步指定“进站准备 → 候车平台 → 边界装卸 → 后台消费”的异步模型，以及特等
+同步时间戳、一等 VDC 跟随数据、二等 RefMem、无座普通控制/Log 的服务等级。设计边界见
+`TDMA_DOMAIN_ARCHITECTURE.md` 的“异步候车平台与四级服务目标”，源码核验与缺口见
+`TDMA-PROGRESS-20260912-013`。按用户最新顺序，**先列车调度、后乘客调度**：当前只推进
+硬件自主发车/续转、无更新稳态、STOP 生命周期和完整 Core1 WCET；先完成整体及分
+action 耗时归因，消除逐圈发车等待及重复/超预算工作。基础 CRC、sequence 和所有权
+检查保持有效，不能通过关闭检查或增加预算完成列车阶段。
+
+列车调度通过对应硬件门禁后，才进入 `TDMA-FLIGHT-002F/002G/002H` 的异步版本更新与
+四级服务实现。特等席每圈硬件保全仍是后续独立验收项，不能由普通可丢弃 RX mirror
+或环路持续运行代替；列车阶段通过也不代表正式 VDC 同步通过。乘客设计保留供后续
+执行，registry/C11 状态不变。
+
 **优先级声明**：本主线**优先于** `DPLL-LONG-001` 的后续阶段。理由：DPLL/VDC 的观测质量
 建立在环的节拍确定性之上；当前 resident loop 仍由 Core1 逐帧门控，节拍不确定，且
 byte-level cut-through 被当作 cycle-level flight 使用，使上层观测证据失去可解释性。在
@@ -83,10 +96,10 @@ byte-level cut-through 被当作 cycle-level flight 使用，使上层观测证�
 `tools/calibration_ring_validate/trn03_waveform.py`。两类工具的时间域与观测范围分别留证；
 SD/SVG 分析由 Core0 或主机执行。完整窗口和 clock-edge 配对不能替代 DATA byte identity、
 逐帧 pipeline 上下界与完整 Core1 WCET 门禁。所有中间产物写入 `out/` 的任务子目录。
-本轮按用户指定，将 P3、关联闭环和原始波形集中到
-`out/HardwareAcceptance/20260911/` 的独立任务子目录；已有回归证据入口为
-`tdma-flight-baseline-ab/archive-index.json`。归档保留原始文件内容、来源根和失败状态，
-不改写验收凭证中的历史路径，也不覆盖同日其他任务产物。
+用户指定的新证据日期目录为 `out/HardwareAcceptance/20260912/`，P3、关联闭环和原始
+波形继续按独立任务子目录保存。此前 `out/HardwareAcceptance/20260911/` 保留原位，
+已有回归入口为其下的 `tdma-flight-baseline-ab/archive-index.json`。归档保留原始文件
+内容、来源根和失败状态，不改写验收凭证中的历史路径，也不覆盖同日其他任务产物。
 
 ## 阶段性长期任务发布：DPLL-LONG-001
 
@@ -150,6 +163,9 @@ SD/SVG 分析由 Core0 或主机执行。完整窗口和 clock-edge 配对不能
 | TDMA-FLIGHT-002C | B2 预装双缓冲与无更新零 Core1 稳态 | PENDING | `tdma_flight_fifo` 双槽按 boundary 切换；无更新时沿用上一版（`tx_reuse_count`）且节拍不变；稳态 core1 不改变线行为。 |
 | TDMA-FLIGHT-002D | B3 overlay 非阻塞注入与单轮多 Node LOAD/UNLOAD | PENDING | 未就绪透传顺延、就绪命中，两种情况节拍均不变；单轮多 Node overlay 有原始波形证据。 |
 | TDMA-FLIGHT-002E | B4 契约收敛与 byte/cycle 分级飞行声明 | PENDING | 新契约登记、C11 交叉审核、顶层 7 天内刷新、`TDMA-RESIDENT-01` 状态变更留证；byte-level 与 cycle-level 声明分开记录。 |
+| TDMA-FLIGHT-002F | 异步候车平台：TX 准备与 RX 观测独立推进 | PENDING | 列车调度的硬件自主续转、无更新稳态、完整 Core1 WCET 与 STOP 先通过；随后验证 RX 无新副本、持续坏副本或镜像满时已准备 TX 仍有界发布，普通负载迟到复用、跨步 lease、STOP/config epoch、DMA 池回收和同圈 owner/CRC 波形全部闭合。设计及源码核验见 `TDMA-PROGRESS-20260912-013`。 |
+| TDMA-FLIGHT-002G | 特等席：逐圈同步样本生成、装载与独立卸载 | PENDING | 明确并验证 timestamp lag 与事件因果；每圈硬件 latch、编码/完整性更新和受保护卸载均不依赖普通 parser；固定记录容量、最长消费停顿、持续吞吐、溢出负测、epoch/sequence/quality、资源与完整 WCET 通过当前源码多板验证；没有正式证据时不得以旧值或诊断时间戳补齐。 |
+| TDMA-FLIGHT-002H | 四级准备与服务隔离、固定配额准入 | PENDING | 各域独立发布与唯一 mailbox 装配者可追溯；VDC 跟随命令按业务语义归一等，RefMem ACK/fence 保留可靠性；普通控制/Log 负载饱和不影响特等逐圈交付及一等 freshness，低级流也不挪用固定席位；短帧微量 Log 的契约修订、正反测试、原始波形、资源/WCET 与 C11 闭合。 |
 | TDMA-FLIGHT-003 | 发车节拍预算显式化与 fail-closed 准入（Track A，B1 的前置使能） | PENDING | 可达节拍下界由符号声明；低于下界的 profile 必须被**拒绝**而非静默漏拍；节拍证据字段可只读查询。 |
 | TDMA-FLIGHT-004 | 2026-09-11 四节点闭环回归归因 | DONE | 受控实验分别复现非阻塞 PIO 改动、缩短共享反馈/发车预算的回归；归档最终 PIO 下标正确；四板恢复基线后闭环和稳态错误增量复验通过。见 `TDMA-PROGRESS-20260911-003`。完成范围是改动族归因，电气错位机制及自主续转仍由 B0/B1/B3 继续验证。 |
 | TDMA-FLIGHT-005 | `process_follower` 补丁下标与指令插入位置绑定 | DONE | WAIT 补丁改用 pioasm public label 导出位置；host 变异测试拒绝手写下标、标签脱离 WAIT 和边沿符号错配。当前源码 build、四板 OTA、P3 quick diagnostic 与独立短帧复测已留证；严格校准失败和 SD 超时原报告保留，见 `TDMA-PROGRESS-20260911-004`。 |
