@@ -4,11 +4,17 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_TASK_PROGRESS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
-Last updated: 2026-09-12
+Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的返回 DATA 相位对照见 `TDMA-PROGRESS-20260912-029`，
+当前 `TDMA-FLIGHT-002F` 的返回 DATA 采样窗口与指令模型审计见
+`TDMA-PROGRESS-20260913-030`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-origin-sample-eye/`。较长窗口再次复现
+相位相关的 CRC 增长；采样余量方向得到进一步支持，同一拒收帧绑定及根因修复仍未
+完成。跨日原件按路径和 SHA 归档；四板最终已核对当前矩阵应用并 STOP。
+完整 WCET、正式 RAM 和特等席逐圈保全继续开放，现有门限与节点容量后续项顺序保持。
+前序返回 DATA 相位对照见 `TDMA-PROGRESS-20260912-029`，
 证据根为 `out/HardwareAcceptance/20260912/tdma-flight-origin-phase-ab/`。近端从站
 与 origin 的相位组合已复现并消除有限观察窗口内的 CRC 增长，采样余量是重点方向；
 尚未完成根因修复或严格验收。四板已恢复当前矩阵并 STOP，完整 WCET、正式 RAM、
@@ -111,6 +117,70 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-030 - origin 采样窗口、指令模型与跨日原始证据复核
+
+- 日期：2026-09-13；TODO task ID：`TDMA-FLIGHT-002F`。以下数值为实验快照，非事实源。
+  证据根为 `out/HardwareAcceptance/20260913/tdma-flight-origin-sample-eye/`，入口为
+  `sample-eye-analysis-r1.json`、`review-r1.json` 与 `slice-manifest.json`。
+- 基线提交 `6d3a3a7759154bd81e7ec99f6826678cdbeb6e2b`；四板保持 build
+  `20260912144225`、源码指纹
+  `b0d8daf294f26844c8cb01da84ff942101de8f39940bb30e88aa5a24caf345f0`。
+  本轮为有界硬件诊断、离线分析与文档更新，无固件/PIO/正式工具实现变更、重新 OTA、
+  新 build 或新 P3。六节点编译容量、PIO/DMA 分区及 NO5 排除范围保持。
+- 采集启动于前一日，运行中的命令保留在
+  `out/HardwareAcceptance/20260912/tdma-flight-origin-sample-eye/`；终止后复制至本根
+  `started-20260912/`，`cross-day-archive-r1.json` 记录原路径、归档路径和逐文件 SHA。
+  原件与内嵌路径不改写，118 个文件已逐一核对；新恢复、分析及检查使用本日目录。
+- 使用前轮封存旧矩阵合法行进行 diagnostic replay。两组各完成两次 NO1 pad 采集，
+  引脚组合为 RX_CLK/RX_CS/TX_DATA，即 `[28,27,24]`；每次 8192 words、8 ns 采样网格，
+  经现有 SYNC_IO burst analyzer、StorageAO 和串口下载，采集耗时包含 SD 导出/下载。
+  相位按四板 physical 原始读回核对，MARK/SCK 及其余 DATA 不变。
+
+  | 组合 | origin / NO2 DATA phase | 前后快照主机窗口（s） | NO1 RX good / transport bad 增量 | NO2 / NO3 / NO4 transport bad 增量 |
+  |---|---|---|---|---|
+  | A | 15 / 15 | 650.588 | 158312 / 0 | 0 / 0 / 0 |
+  | B | 15 / 14 | 661.730 | 157777 / 1075 | 0 / 0 / 0 |
+
+- A 两次 capture 报告通过；B 两次报告均失败，其各自较短 capture/export 统计区间
+  新增 CRC 为 138 / 88，不能相加替代包含下载时间的全窗口 1075。三次快照之间所查
+  physical fault 无增长、相关接收计数无回退，快照时四板运行；稀疏快照不证明逐圈
+  无瞬态事件。所有准备阶段的 startup、closed-loop、realtime 严格标志仍为 false。
+- 失败完整保留：首轮 `r1` 在 NO4 ARM、恢复在 NO1 ARM 收到 result=5，无采集；
+  `r2` 的 C（14 / 14）在 NO4 ARM 收到 result=5，未取得波形，包装器因断言失败退出。
+  随后的恢复在 NO2 ARM 再次拒绝。该结果对应
+  `DISTRIBUTED_REFMEM_TDMA_ARM_FLIGHT_MAP_REJECTED`，不是许可证拒绝；map 校验、
+  snapshot/lock 竞争或 active 状态等具体原因未确定。旧包装器字段
+  `fresh_matrix_restored_and_stopped=true` 实际仅验证 STOP；NO2 当时仍为 DATA14，
+  本轮审计显式纠正其含义，不改写原始报告。
+- 独立 `restore-baseline-r3/` 经完整 owner 生命周期应用当前矩阵 row1，各板 staging
+  generation 为 `1789224796`，ARM 与运行参数均已读回。实际 soak `8.516 s`，四板
+  RX good 增量 `2065/2056/2056/2057`，transport bad 均零。最终四板 STOP 通过，
+  实际 MARK/SCK/DATA 分别为 `(11,11,15)/(9,10,15)/(10,10,15)/(11,10,15)`。
+  startup timeout 仍使严格验收失败；该恢复不能补记 C 组合已完成。
+- 当前 PIO 源经实际 pioasm 汇编后，普通 origin capture 的 WAIT1 SCK delay patch
+  对应 `IN` 在 WAIT 成功后 14 / 15 个 clk_sys 拍，即名义 56 / 60 ns；这是指令相对
+  时间，不是已测 pad 绝对采样时刻。固定包/clock 对齐的模型中，假设 clock 与 DATA
+  各自附加零或一拍延迟：delay14 的四种组合均保留参考包，delay15 在仅 clock 多一拍
+  时 A0/B0 分别改变 43 / 154 bytes。该差分延迟仅是反例假设，DMA/FIFO 可用亦为
+  模型前提；不能宣称已测同步器偏移或确认硬件根因。普通程序重放自主波形也未验证
+  自主 prefix、skip 与 DMA 路径。
+- 固定参考相位 16 ns、各试验不重新对齐时，当前 A0 的离散同值区间为 -16..56 ns，
+  A1/B0/B1 为 -24..56 ns（8 ns 网格）；B 的相邻 DATA 跳变有更多落在相对 64 ns 的
+  采样格点。该区间不是模拟 setup/hold 保证，相对边沿量化误差仍在。实际 TX 指令模型
+  同时确认 DATA15→14 会让首 bit 后的输出前移一拍，进一步说明共享参数不是纯 RX 调节。
+- 四个选定参考帧的 sequence 为 `4512/83256/5076/85490`，每帧四个 mailbox 的
+  magic/version、owner、target-mask 和独立 CRC16 均通过；transport 头部 CRC 与
+  payload mailbox CRC 分开核验。选定物理参考帧不等同于固件拒收的同一帧，尚不能排除
+  其他接收路径问题、保证后续全部 mailbox 或特等席逐圈保全。
+- 下一 gate：独立表达 origin RX 采样时序与 TX 重定时，在 Calibration owner 的
+  有效窗口、相对延迟反例和余量证据下提出修复，再由 TDMA owner 停止态配置并准入。
+  保留同一坏帧波形/私有副本绑定与自主路径验证要求，不直接硬编码 phase。
+  正确性闭合后继续 overlay/RX 成本削减；保留
+  `PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES`、正式 RAM、特等席与节点容量后续项门禁。
+- 文档检查、主控原始证据复核、本地文档提交及 SHA 封存见本根检查日志与
+  `commit-proof.json`。切片 PARTIAL，`TDMA-FLIGHT-002F` 仍 IN PROGRESS，长期目标
+  active；无 registry/C11 状态变更，无严格稳定性或产品验收结论。
 
 ### TDMA-PROGRESS-20260912-029 - origin 与近端从站 DATA 相位组合归因
 

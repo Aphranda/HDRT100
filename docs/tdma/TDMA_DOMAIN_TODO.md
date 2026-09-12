@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_TODO.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`
-Last updated: 2026-09-12
+Last updated: 2026-09-13
 
 本文档维护 TDMA foundation 的独立待办。这里记录影响上/下行 TDMA、ring runtime、payload registry、adapter、completion、quality、HAOFV system node 和 HIL 验收的事项。
 
@@ -120,6 +120,15 @@ overlay/RX 成本削减；完整 WCET、正式 RAM 与特等席逐圈保全仍�
 返回 DATA 有效窗口与同一坏帧副本绑定，区分 origin TX 与 RX 共享相位的影响，再
 经 Calibration owner 提出可验证的配置或实现修复。禁止据短时零错误硬编码相位、
 修补接收 bit 或提升验收状态；随后才继续 overlay/RX 与特等席快速通道工作。
+
+更长观察窗口、实际汇编模型和参考帧 mailbox 审计见 `TDMA-PROGRESS-20260913-030`，
+证据根为 `out/HardwareAcceptance/20260913/tdma-flight-origin-sample-eye/`。新证据
+继续支持采样余量方向，但第三组合在 flight-map ARM 准入时被拒绝，未取得波形。
+独立恢复已核对当前矩阵应用及最终 STOP；启动、完整 WCET 与正式 RAM 仍失败。
+下一切片先隔离 origin RX 与 TX 共用参数的作用，建立 Calibration 可复核的接收
+有效窗口、相对延迟反例和保守余量，再验证 owner 控制的修正。离散同值区间与假设
+同步器延迟不能直接冻结为配置依据；同一拒收帧的波形/副本绑定与自主 prefix 路径
+仍需闭合。flight-map 瞬态拒绝的具体原因另留证，禁止用重复 ARM 或 STOP 成功覆盖。
 
 普通 RX 异步解析切片已按用户顺序封存，随后完成六节点编译容量的隔离 RAM 核算，见
 `TDMA-PROGRESS-20260912-019`。核算区分本地状态、固定 wire/RefMem/Calibration

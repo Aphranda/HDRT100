@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-09-12
+Last updated: 2026-09-13
 
 本文档定义 TDMA 在 HAOFV 下的基础件主域。TDMA 是分布式硬实时系统的确定性通讯骨架，负责在 core1/PIO/DMA 侧按窗口执行上行、下行、payload、timestamp 和 completion；VDC、RefMem、OTA、诊断等域只挂载 payload 或消费 evidence，不能拥有 TDMA 物理环路。
 
@@ -1031,6 +1031,17 @@ phase count、stage count、记录类型、sequence、start ticks、total ticks�
 runtime 与 CRC diagnostic 是不同查询快照，关联坏帧须核对各自 sequence，不能按
 主机 sample index 拼接；未保留同一坏帧原件时，字段差异仅作为归因线索。验证映射
 见 `TDMA-PROGRESS-20260912-029`，不在本节冻结相位常数或改变现有 WCET 门禁。
+
+实际汇编指令重放与 pad 窗口对照见 `TDMA-PROGRESS-20260913-030`。WAIT 成功后的
+指令拍数与 pad 的绝对采样时刻分别记录；离散采样下相同解码结果的区间不能当作模拟
+setup/hold 保证，假设的时钟/DATA 相对延迟不能当作已测同步器行为。transport 头部
+有效与各 owner mailbox 完整性分别复核；选定参考帧的 mailbox CRC 正确，不能证明
+固件收到的是同一帧或特等时间戳已逐圈保全。普通 capture 指令模型也不能替代自主态
+prefix、skip 与 DMA 行为验收。
+下一修复方向是独立表达 origin 返回 DATA 的采样时序，使 Calibration 能分别校验
+发送重定时和接收有效窗口，再由 TDMA owner 在停止态配置、经准入后 ARM。该方向仍
+属待验证设计；尚未新增配置字段或冻结采样常数。相位恢复须核对当前矩阵 generation、
+staging、实际运行参数与最终 STOP；仅停止成功不能证明前一次配置已应用。
 
 adapter 候选只在已接受的 bootstrap boundary 交接；自主态每次 service 有界收割
 RX 观察与尝试本地 shadow 发布，不补发遗漏周期、不伪造逐帧 completion。返回包需与
