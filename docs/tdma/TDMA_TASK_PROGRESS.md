@@ -8,7 +8,10 @@ Last updated: 2026-09-12
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前按用户进一步要求推进 `TDMA-FLIGHT-002F` 的异步准备与解析边界，设计记录见
+当前 `TDMA-FLIGHT-002F` 的 follower Core0 overlay 实现与验证记录见
+`TDMA-PROGRESS-20260912-017`，证据根为
+`out/HardwareAcceptance/20260912/tdma-flight-async-overlay/`；普通 RX 解析仍待迁移。
+按用户进一步要求推进异步准备与解析边界，设计记录见
 `TDMA-PROGRESS-20260912-016`；该项纳入列车调度基础，四级服务策略保持后置。
 最近完成的列车调度 RX 工作量限制切片证据根为
 `out/HardwareAcceptance/20260912/tdma-flight-rx-budget/`，执行记录为
@@ -60,6 +63,59 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260912-017 - follower overlay 的 Core0 异步准备
+
+- 日期：2026-09-12；TODO task ID：`TDMA-FLIGHT-002F`。以下数字均为实验快照，非事实源。
+- 变更：Core1 复制有效 RX 模型、本地 mailbox 和紧凑固定授权，通过
+  `tdma_overlay_prepare_t` 向 Core0 发布请求。现有 Core0 数据任务执行纯编码、校验与
+  overlay 构建，不写 adapter/engine 的 Core1 事实或硬件寄存器。完整 READY 发布后，
+  Core1 检查 epoch、map generation、alignment 和闲置池，再绑定固定上限的 DMA
+  描述符。已就绪 TX 不依赖本拍普通 RX；无新版本保留现有硬件计划。
+- 生命周期：输入是独立副本，FIFO 槽复用不影响构建；输出只借用现有闲置计划池，
+  DMA 选择后继计划前旧池不可复用。STOP 立即执行硬件停止，取消已发布请求；若
+  Core0 仍持有写权限，STOP 保持 pending，迟到 worker 只交还权限，不能进入新 ARM。
+  该 worker 的轮询有界，不在 Core1 等待后台计算。
+- 软件：adapter 主机负测覆盖无 RX、坏 RX、Core0 暂停、源槽复用、整图生产者到本地
+  mailbox 规范化、旧 DMA 池保全、取消前后 ARM、旧 READY 结果和越权 layout 拒绝；
+  实际物理 grant/commit 与 DMA 总线模型共同检查旧计划持续运行、epoch/alignment
+  失效及选择后退休。相关 Python/实际 C 回归 `129 passed`，adapter host runner 通过。
+  首轮缺失 include、fixture 签名未同步的失败原件保留。
+- 资源：首次构建因 RAM 链接区超出 `204 B` 失败，未上板。授权快照随后缩为固定本地
+  segment 资格，TX 输入只复制 `TDMA_FLIGHT_SHORT_SLOT_SIZE`；仍使用既有计划池，
+  不放宽 RAM/WCET 门槛。最终 job 为 `476 B`，链接余量相对前版减少 `492 B`；
+  `build-r2` 的 Release 及 A/B/Boot 链接门禁通过，正式 RAM 仍以余量 `2600 B`
+  小于要求 `49152 B` 判 FAIL。build 为 `20260912061753`，源码指纹及产物哈希见
+  `source-checkpoint-r1.json`。
+- 实板：同包四板 OTA 与 P3 quick diagnostic 流程完成；首次短帧启动屏障失败原件
+  保留。第一轮观测包含 receive reject/incomplete 增长，后续出现干净样本，但未达到
+  原启动期限内所需连续样本数，不能写成严格 P3 通过。使用本源码同 generation
+  实测数据生成 `matrix-r1.json`，重装安全行通过且 `diagnostic_continue=false`。
+  `lifecycle-r1` 的 process-image → raw-flight → process-image 三段均首次严格通过；
+  四板原始 SD capture 可重建，CRC/sequence/owner 范围审计通过，基础运输错误增量为零。
+- 计时：普通与有限临时许可证自主模式均采集完整 phase；下表分项来自各节点同一次
+  自主完整峰值，单位为微秒，事实源为 `trial-r1/normal-audit.json` 与
+  `trial-r1/autonomous-audit.json`，不是 WCET 上界证明。
+
+  | 节点 | 普通完整峰值 | 自主完整峰值 | 自主 RX capture | 自主 RX parse | 自主 overlay |
+  |---|---:|---:|---:|---:|---:|
+  | NO1 | 1341.272 | 1219.204 | 64.688 | 639.568 | 0.000 |
+  | NO2 | 1368.072 | 2685.240 | 1880.912 | 487.064 | 60.320 |
+  | NO3 | 1625.776 | 2976.964 | 2107.376 | 394.524 | 104.936 |
+  | NO4 | 1596.108 | 2874.376 | 2152.672 | 380.464 | 79.900 |
+
+- 对照：相对 `tdma-flight-rx-budget` 切片，从站普通完整峰值下降约 `39.7%–44.1%`，
+  自主下降约 `19.6%–27.1%`；NO1 普通/自主分别下降约 `0.4%/1.1%`。全部节点仍超出
+  当前 schedule 的完整预算，RX 捕获/解析仍是主要开销。自主计时区间基础运输错误
+  增量为零，普通观察副本 drop 增量为 `[0,12009,20481,21282]`，不证明同步样本无损。
+- 自主取证：临时许可 epoch `66` 下确认自主 state，完成计时后撤销到 epoch `68`
+  inactive，四板 STOP 成功。四板初始 SD 下载均截断，原 capture/trial 失败保持原样；
+  停机后只重读相同冻结文件，未重新 ARM/SAVE。`capture-audit-r2.json` 的原始重建与
+  有限 owner/CRC 审计全通过，原窗口基础运输错误增量为零；不据此消除串口下载失败。
+- 证据入口：`out/HardwareAcceptance/20260912/tdma-flight-async-overlay/hardware-review.json`
+  与 `slice-manifest.json`，各次失败、软件检查、构建、P3、矩阵、短帧、原始波形和
+  计时对照均保留引用。普通 RX 捕获/解析、origin 准备、完整 Core1 WCET、无更新
+  节拍、service blackout、同圈多 owner 与特等同步时间戳逐圈保全仍未完成。
 
 ### TDMA-PROGRESS-20260912-016 - 将异步准备与解析纳入列车调度基础
 

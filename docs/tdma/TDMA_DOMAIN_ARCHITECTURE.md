@@ -335,6 +335,15 @@ STOP/config 失效应先撤销旧 epoch 的发布资格；后台任务尚持有�
 取消交接前不可复用，Core1 不等待后台计算结束。同步时间字段的硬件捕获与保全继续
 满足下述独立要求，不能并入普通可丢弃解析队列。
 
+`TDMA-PROGRESS-20260912-017` 的 follower 切片已把固定 mailbox 的模型编码、
+完整性检查和 overlay 构建接到现有 Core0 数据任务。`tdma_overlay_prepare_t` 保存
+输入副本与固定本地授权，输出借用既有闲置计划池；Core1 经 READY/epoch/alignment
+核验后绑定描述符并发布，当前 RX 副本是否成功不再控制该更新的推进。STOP 先停硬件，
+仍有后台写者时保留 pending，收到取消 ACK 后才能完成退休与重新 ARM。此切片的
+源码/测试/构建、严格短帧生命周期及有限自主波形/计时结论分别记录在
+`out/HardwareAcceptance/20260912/tdma-flight-async-overlay/`；尚不代表普通 RX 解析
+已退出 Core1，也不代表完整 WCET、RAM 或特等时间戳逐圈交付已通过。
+
 | 席位 | 内容与既有布局锚点 | 准备、上车与下车保证 | 迟到或拥塞处理 |
 |---|---|---|---|
 | 特等 | VDC 最关键的同步时间证据；全局 `TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_*` 与本地 RX/TX latch 记录 | 固定字段、独立记录配额；稳态每圈生成并承载对应事件样本，到站由硬件或经证明的有界路径卸入受保护缓冲，之后 VDC 异步关联和消费 | 不允许旧 timestamp 冒充新样本，不允许按普通镜像满队列规则静默丢弃；缺失、CRC 错误、epoch 错误或 overflow 明确形成缺口并使正式同步质量拒绝 |

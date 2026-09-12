@@ -171,7 +171,7 @@ SD/SVG 分析由 Core0 或主机执行。完整窗口和 clock-edge 配对不能
 | TDMA-FLIGHT-002C | B2 预装双缓冲与无更新零 Core1 稳态 | PENDING | `tdma_flight_fifo` 双槽按 boundary 切换；无更新时沿用上一版（`tx_reuse_count`）且节拍不变；稳态 core1 不改变线行为。 |
 | TDMA-FLIGHT-002D | B3 overlay 非阻塞注入与单轮多 Node LOAD/UNLOAD | PENDING | 未就绪透传顺延、就绪命中，两种情况节拍均不变；单轮多 Node overlay 有原始波形证据。 |
 | TDMA-FLIGHT-002E | B4 契约收敛与 byte/cycle 分级飞行声明 | PENDING | 新契约登记、C11 交叉审核、顶层 7 天内刷新、`TDMA-RESIDENT-01` 状态变更留证；byte-level 与 cycle-level 声明分开记录。 |
-| TDMA-FLIGHT-002F | 异步候车平台：TX 准备与 RX 解析移出实时服务路径 | IN PROGRESS | 先配合列车阶段拆分纯构建与硬件提交，建立 Core0 准备/消费、Core1 有界交接及固定池 lease；验证 RX 无新副本、持续坏副本或镜像满时已准备 TX 仍有界发布。完整退出须覆盖普通负载迟到复用、STOP/config epoch、DMA 池回收、完整 Core1 WCET、无更新节拍和同圈 owner/CRC 波形。设计及源码核验见 `TDMA-PROGRESS-20260912-013/016`；四级服务策略仍后置。 |
+| TDMA-FLIGHT-002F | 异步候车平台：TX 准备与 RX 解析移出实时服务路径 | IN PROGRESS | follower Core0 overlay 已接入现有数据任务，Core1 授予输入/闲置池并提交 READY；无新/坏 RX、FIFO 输入复用、DMA 池退休和 STOP 取消负测，以及当前源码严格短帧生命周期和有限自主波形已闭合，见 `TDMA-PROGRESS-20260912-017`。完整 Core1 WCET 与正式 RAM 仍失败。下一步普通 RX 固定记录交接与后台解析；完整退出须覆盖普通负载迟到复用、完整预算、无更新节拍、service blackout 和同圈 owner/CRC 波形。设计核验见 `TDMA-PROGRESS-20260912-013/016`；四级服务策略仍后置。 |
 | TDMA-FLIGHT-002G | 特等席：逐圈同步样本生成、装载与独立卸载 | PENDING | 明确并验证 timestamp lag 与事件因果；每圈硬件 latch、编码/完整性更新和受保护卸载均不依赖普通 parser；固定记录容量、最长消费停顿、持续吞吐、溢出负测、epoch/sequence/quality、资源与完整 WCET 通过当前源码多板验证；没有正式证据时不得以旧值或诊断时间戳补齐。 |
 | TDMA-FLIGHT-002H | 四级准备与服务隔离、固定配额准入 | PENDING | 各域独立发布与唯一 mailbox 装配者可追溯；VDC 跟随命令按业务语义归一等，RefMem ACK/fence 保留可靠性；普通控制/Log 负载饱和不影响特等逐圈交付及一等 freshness，低级流也不挪用固定席位；短帧微量 Log 的契约修订、正反测试、原始波形、资源/WCET 与 C11 闭合。 |
 | TDMA-FLIGHT-003 | 发车节拍预算显式化与 fail-closed 准入（Track A，B1 的前置使能） | PENDING | 可达节拍下界由符号声明；低于下界的 profile 必须被**拒绝**而非静默漏拍；节拍证据字段可只读查询。 |
