@@ -323,9 +323,12 @@ bool tdma_pio_spi_phys_rx(void *context,
                                           packet_size, rx_timestamp_ns);
     }
     size_t received_words = 0u;
-    if (!tdma_pio_spi_phys_capture_words(phys,
+    const uint64_t acquire_start = tdma_service_timing_now();
+    const bool captured = tdma_pio_spi_phys_capture_words(phys,
                                          TDMA_PIO_SPI_RX_DMA_WORD_MAX,
-                                         &received_words)) {
+                                         &received_words);
+    tdma_service_timing_record(TDMA_TIMING_RX_ACQUIRE, acquire_start);
+    if (!captured) {
         return false;
     }
     if (received_words < TDMA_PIO_SPI_PACKET_HEADER_SIZE) {
@@ -366,12 +369,15 @@ bool tdma_pio_spi_phys_rx(void *context,
         return false;
     }
 
+    const uint64_t packet_copy_start = tdma_service_timing_now();
     for (uint16_t i = 0u; i < frame_size; i++) {
         packet[i] = (uint8_t)(
             s_tdma_pio_spi_rx_frame[TDMA_PIO_SPI_PACKET_HEADER_SIZE + i] &
             0xFFu);
     }
     *packet_size = frame_size;
+    tdma_service_timing_record(TDMA_TIMING_RX_PACKET_COPY, packet_copy_start);
+    const uint64_t clock_start = tdma_service_timing_now();
     const uint64_t rx_extract_timestamp_ns = vdc_timestamp_clock_now_ns();
     const uint64_t wire_time_ns =
         tdma_pio_spi_phys_wire_time_ns(
@@ -380,10 +386,13 @@ bool tdma_pio_spi_phys_rx(void *context,
         rx_extract_timestamp_ns > wire_time_ns
             ? rx_extract_timestamp_ns - wire_time_ns
             : rx_extract_timestamp_ns;
+    tdma_service_timing_record(TDMA_TIMING_RX_CLOCK, clock_start);
     uint64_t hardware_rx_edge_timestamp_ns = 0ull;
     if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE) {
+        const uint64_t latch_start = tdma_service_timing_now();
         (void)tdma_pio_spi_phys_clock_latch_read_and_rearm(
             phys, &hardware_rx_edge_timestamp_ns);
+        tdma_service_timing_record(TDMA_TIMING_RX_LATCH, latch_start);
     }
     *rx_timestamp_ns = phys->role == TDMA_PIO_SPI_ROLE_SLAVE
         ? hardware_rx_edge_timestamp_ns

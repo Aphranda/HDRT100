@@ -21,7 +21,15 @@ int main(void)
     ticks = UINT32_MAX - 10ull;
     tdma_service_timing_phase_begin();
     const uint64_t beginning = ticks;
-    ticks += 20;
+    ticks += 7;
+    tdma_service_timing_record(TDMA_TIMING_RX_ACQUIRE, beginning);
+    ticks += 5;
+    tdma_service_timing_record(TDMA_TIMING_RX_PACKET_COPY, beginning + 7);
+    ticks += 3;
+    tdma_service_timing_record(TDMA_TIMING_RX_CLOCK, beginning + 12);
+    ticks += 4;
+    tdma_service_timing_record(TDMA_TIMING_RX_LATCH, beginning + 15);
+    ticks += 1;
     tdma_service_timing_record(TDMA_TIMING_RX_CAPTURE, beginning);
     ticks += 30;
     tdma_service_timing_record(TDMA_TIMING_RX_PARSE, beginning + 20);
@@ -32,6 +40,11 @@ int main(void)
     tdma_service_timing_phase_end();
     assert(tdma_service_timing_try_snapshot(&before));
     assert(before.last.total_ticks == 100 && before.last.invalid_count == 0);
+    assert(before.version == 2);
+    assert(before.last.elapsed_ticks[TDMA_TIMING_RX_ACQUIRE] == 7);
+    assert(before.last.elapsed_ticks[TDMA_TIMING_RX_PACKET_COPY] == 5);
+    assert(before.last.elapsed_ticks[TDMA_TIMING_RX_CLOCK] == 3);
+    assert(before.last.elapsed_ticks[TDMA_TIMING_RX_LATCH] == 4);
     assert(before.last.elapsed_ticks[TDMA_TIMING_RX_CAPTURE] == 30);
     assert(before.last.calls[TDMA_TIMING_RX_CAPTURE] == 2);
     assert(before.last.elapsed_ticks[TDMA_TIMING_RX_PARSE] == 30);
@@ -53,6 +66,8 @@ int main(void)
     assert(tdma_service_timing_try_snapshot(&after));
     assert(after.phase_count == 2 && after.last.total_ticks == 80);
     assert(after.peak.total_ticks == 100 && after.peak.elapsed_ticks[TDMA_TIMING_RX_CAPTURE] == 30);
+    assert(after.last.calls[TDMA_TIMING_RX_ACQUIRE] == 0);
+    assert(after.peak.elapsed_ticks[TDMA_TIMING_RX_ACQUIRE] == 7);
     assert(after.reset_generation != reset);
 
     ticks += 1;

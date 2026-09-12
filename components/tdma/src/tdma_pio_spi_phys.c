@@ -1,4 +1,5 @@
 #include "tdma_pio_spi_phys.h"
+#include "tdma_service_timing.h"
 #include "tdma_pio_spi_phys_programs.h"
 #include "tdma_pio_spi_origin_workspace.h"
 

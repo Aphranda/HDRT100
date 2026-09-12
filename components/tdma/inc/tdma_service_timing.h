@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define TDMA_SERVICE_TIMING_VERSION 1u
+#define TDMA_SERVICE_TIMING_VERSION 2u
 #ifndef TDMA_SERVICE_TIMING_ENABLED
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #define TDMA_SERVICE_TIMING_ENABLED 1
@@ -26,6 +26,12 @@ typedef enum {
     TDMA_TIMING_RX_PARSE,
     TDMA_TIMING_OVERLAY_PREPARE,
     TDMA_TIMING_OVERLAY_BOUNDARY,
+    /* Follower/legacy RX only; all nested inside RX_CAPTURE. The origin
+     * owns a separate RX path and does not report these intervals. */
+    TDMA_TIMING_RX_ACQUIRE,
+    TDMA_TIMING_RX_PACKET_COPY,
+    TDMA_TIMING_RX_CLOCK,
+    TDMA_TIMING_RX_LATCH,
     TDMA_TIMING_STAGE_COUNT,
 } tdma_service_timing_stage_t;
 
