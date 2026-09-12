@@ -446,8 +446,7 @@ bool tdma_pio_spi_phys_feedback_round_trip(
     if (clk_hz == 0u) {
         return false;
     }
-    const uint32_t edge_resolution_ns = (uint32_t)(
-        (2000000000ull + clk_hz / 2u) / clk_hz);
+    const uint32_t edge_resolution_ns = tdma_pio_spi_phys_latch_resolution_ns(clk_hz);
     const uint64_t elapsed_counts = (uint64_t)UINT32_MAX - remaining;
     const uint64_t duration_ns =
         elapsed_counts * (uint64_t)edge_resolution_ns;

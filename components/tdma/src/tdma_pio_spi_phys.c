@@ -716,8 +716,7 @@ static bool tdma_pio_spi_phys_clock_latch_rearm(
     if (clk_hz == 0u) {
         return false;
     }
-    const uint32_t resolution_ns = (uint32_t)(
-        (2000000000ull + clk_hz / 2u) / clk_hz);
+    const uint32_t resolution_ns = tdma_pio_spi_phys_latch_resolution_ns(clk_hz);
     if (resolution_ns == 0u) {
         return false;
     }
@@ -752,8 +751,7 @@ static bool tdma_pio_spi_phys_tx_clock_latch_rearm(
     if (clk_hz == 0u) {
         return false;
     }
-    const uint32_t resolution_ns = (uint32_t)(
-        (2000000000ull + clk_hz / 2u) / clk_hz);
+    const uint32_t resolution_ns = tdma_pio_spi_phys_latch_resolution_ns(clk_hz);
     if (resolution_ns == 0u) {
         return false;
     }

@@ -34,6 +34,11 @@ uint64_t tdma_pio_spi_phys_wire_time_ns(uint32_t baud_hz,
     }
     const uint64_t bits =
         (uint64_t)(packet_size + packet_header_size) * 8ull;
+    /* An integral bit period needs no rounded 64-bit division. This bound
+     * also proves the original numerator cannot wrap in the fast branch.
+     * Large diagnostic sizes and non-integral periods retain the old math. */
+    if (bits <= UINT32_MAX && 1000000000u % baud_hz == 0u)
+        return bits * (uint64_t)(1000000000u / baud_hz);
     return (bits * 1000000000ull + baud_hz - 1ull) / baud_hz;
 }
 
