@@ -8,7 +8,12 @@ Last updated: 2026-09-12
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的 RX 位反转内联切片见
+当前 `TDMA-FLIGHT-002F` 的 owner/runtime/adapter 归因切片见
+`TDMA-PROGRESS-20260912-027`，证据根为
+`out/HardwareAcceptance/20260912/tdma-flight-owner-attribution/`。完整 WCET、正式 RAM
+仍失败，普通 origin CRC 异常与启动观测截止时间盲点须先定位修复；本轮为诊断归因，
+不作为稳定性验收通过，预算保留，节点容量后续项后置。
+前序 RX 位反转内联切片见
 `TDMA-PROGRESS-20260912-026`，证据根为
 `out/HardwareAcceptance/20260912/tdma-flight-rx-rbit/`。自主从站复制成本下降，但完整
 WCET 与正式 RAM 仍未通过；下一步归因剩余 owner/adapter 工作与运行干扰，现有
@@ -96,6 +101,92 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260912-027 - owner 剩余开销归因与普通 CRC 失败
+
+- 日期：2026-09-12；TODO task ID：`TDMA-FLIGHT-002F`。以下数字为实验快照，
+  非事实源；证据根为 `out/HardwareAcceptance/20260912/tdma-flight-owner-attribution/`。
+- 实现：`TDMA_SERVICE_TIMING_VERSION` 升至 V4，在原顺序后追加 runtime、runtime
+  publish、intent dispatch、adapter prologue、RX handoff 与 adapter status 子项。
+  普通 RX 工位区间包含执行到的 capture/parse，自主 origin 另有专用分支；零值不
+  表示父路径无成本。所有阶段保留在同条完整记录，跨记录峰值与包含式区间不得求和。
+  无生命周期、FIFO、wire、PIO/DMA 分区或容量变更；完整门禁包含探针开销。
+- 软件：RX/recorder/parser `42 passed`，真实 runtime、scheduler、adapter 主机 suite
+  通过，文档检查器自回归 `18 passed`。首轮 flight/resource 为 `150 passed/6 errors`：
+  非阻塞测试启用设备分支，却未链接新增 recorder 依赖。改为链接真实 recorder，
+  使用有界且冻结的 clk_sys 测试时钟，校验每次 service 的 runtime/dispatch 计数；
+  r2 全部 `156 passed`，首轮失败日志保留。
+- 构建：Release A/B/Boot 与 Flash 链接检查通过，build `20260912134107`，源码指纹
+  `9314b599837a1bdba66a4680fcace52524916cfadae74406872d14e94bdb805b`，`1018` files，
+  全部 `634` 个 app 翻译单元保持六容量。两 map 的 recorder 从 `176/368 B` 变为
+  `224/464 B`，新增 `144 B`；链接余量 `5168 B`，本轮 `DEFAULT_MIN_FREE_BYTES`
+  为 `49152 B`，正式 RAM FAIL。V4 增加探针与布局影响，不能把 V3/V4 差值当作同
+  干扰条件下的速度对照。源码、镜像与主控复核见 `source-checkpoint-r1.json`、
+  `build-inspection-r1.json`、`implementation-review-r1.json`。
+- P3：真实 r1 run 完成四板 OTA、复位和测量，凭证为 quick diagnostic，
+  `passed=true/strict_gates_passed=false`。粗 CLK 的 NO4 ARM `8`、process-image
+  的 NO3 ARM `5` 和未交出运行环三项失败保留。独立 `matrix-strict-r1.json` 为
+  `passed=true/diagnostic_continue=false`。一次同包 r2 resume 完成复位，但 NO4
+  profile 读回 `active_level=0`，P0T 提前退出，未生成 r2 凭证；r1 保持原样。
+  P3 重建后原八份构建产物 SHA 不变。
+- 生命周期与恢复：r1 外层预停在 NO2 应答超时，最终 STOP 成功。r2 使用闭环工具
+  内部的串行 STOP/精确代次 STOP_ACK，process-before 启动屏障超时。r3 首次 ARM
+  `8` 经有界 STOP 恢复后 process-before 严格标志通过，raw-transition 首次通过，
+  restored+clock-train 启动屏障超时。r4 仅复测 restored，在 NO1 ARM `5` 退出；
+  拒绝时 physical armed/runtime enabled/adapter started/engine active 均为零，
+  既有 map 已配置。该错误也可能来自一次性快照或 map 锁，尚未证明根因。
+  helper 为此停止状态增加有界恢复准入，不跳过 map 检查。r5 保留前序链条，只重做
+  restored+clock-train，首次取得严格标志通过；这是一条含失败/STOP 的有限恢复链，
+  不是一次不中断全通过的生命周期试验。
+- 启动观测盲点：r5 将主机 read quantum 从 `20 ms` 改为 `5 ms`，其他门禁参数
+  保持。原始 startup 样本在 `2.063/3.969/5.891/7.735 s` 完成，首个有 pipeline
+  fill 拒绝增长，随后三个稳定。工具因只在开始查询前检查 `6 s` 截止时间而返回
+  PASS，不能据此宣称在 `6 s` 内完成。此前超时原样保留，读取粒度变化与恢复不能
+  当作此盲点已修复；下一修复须校验采样完成时间并覆盖慢读取负测。
+- 普通 SD：r5 四板原件全部重建，有限包对、mailbox CRC 和本地 owner 装卸审计
+  通过；NO1 在采集/导出观察窗口内新增 `49` 次 transport bad，其余三板为零，
+  因此原采集及 lifecycle wrapper 均失败。`capture-audit-r1.json` 的原件接受不
+  覆盖窗口坏帧失败；最后一次返回码为 `TDMA_TRANSPORT_CRC_MISMATCH`。没有执行
+  wrapper 后续 running-after 快照，最终 STOP 全部成功。
+- 诊断计时准备：`timing-prepare-r1` 启动屏障与 NO1 周期间隔完整性失败，helper
+  收尾 STOP。r2 保留同类失败，在四板仍收发、无物理故障增长/计数倒退/掉线的
+  读回下，按用户已授权调试规则作有界继续，显式 `forced_continue=true`，不是
+  产品准入通过。之后 `timing-r1` 完成目标 `25 s` 普通及 `90 s` 自主窗口，期间
+  无 SD 操作。自主 trial `912050`、epoch `84`、期限 `180 s`，撤销至 epoch `86`
+  inactive，四板 STOP 成功，无 cleanup_error。
+- 完整计时：下表每个节点均使用自身同条完整峰值，单位 `µs`；有限峰值不是 WCET。
+
+  | 节点 | 普通完整 | 自主完整 | 自主 RX handoff | 自主 overlay | 自主 dispatch | 自主 runtime publish |
+  |---|---:|---:|---:|---:|---:|---:|
+  | NO1 | 1472.352 | 892.916 | 281.192 | 0 | 46.012 | 25.412 |
+  | NO2 | 972.664 | 1029.760 | 533.180 | 124.864 | 29.268 | 34.340 |
+  | NO3 | 1053.256 | 1127.712 | 622.576 | 157.276 | 49.376 | 33.656 |
+  | NO4 | 1054.716 | 1139.320 | 593.116 | 189.796 | 38.060 | 30.892 |
+
+  自主从站 handoff 在 capture/parse 之外仍占 `102.200/54.028/66.552 µs`。
+  另有未执行 capture/parse 的 last 样本达 `377.528/465.796/426.164 µs`，其中
+  overlay 占 `91.040/182.192/152.104 µs`；这些记录不证明无更新稳态，差额不是
+  删除某操作后的速度承诺。两窗口四板完整 WCET 均失败；自主 overrun 增量为
+  `57244/59185/60535/60723`，从站观察丢弃增量为 `33252/31673/29799`。
+  普通 NO1 在无 SD 计时窗口内又新增 `54` 次 transport CRC 错误，其他节点为零；
+  自主四板坏帧增长均为零、RX 计数均增加。这只能定位模式差异，不能证明根因或
+  自主长稳。完整父子区间检查和逐条来源见 `comparison-r1.json`。
+- 自主原件：`capture-prepare-r1` 同样记录启动/普通 origin 完整性失败，在既有
+  调试继续准入下准备。`capture-r1` 使用独立 trial `912052`、epoch `100`、期限
+  `180 s` 的许可；四板采集/导出主机时窗为 `51.766/75.344/71.562/62.891 s`。
+  这些时窗止于导出后的运行快照，批量下载可跨许可到期，不能将下载时长算成
+  持续自主运行。四板原始分段重建、有限包对/CRC/本地 owner 装卸审计全部通过，
+  窗口坏帧增量全零。撤销至 epoch `102` inactive，最终四板 armed/enabled/started
+  全零，无 error/cleanup_error；这是独立有限窗口，不能覆盖前述普通模式失败。
+- 复核封存：`review-r1.json`、`slice-manifest.json` 绑定当前源码、构建、普通/自主
+  原件、计时和所有保留失败；`commit-proof.json` 记录代码/三文档分离提交与门禁。
+  提交用于保存可追溯的诊断实现，不表示当前切片严格验收通过或推进产品状态。
+- 下一 gate：本轮只形成有失败的诊断归因，结论 PARTIAL，`TDMA-FLIGHT-002F`
+  保持 IN PROGRESS。先定位普通 origin 首个 CRC 坏帧及观察副本/物理帧/版本因果，
+  修正启动截止时间取证盲点，再用现有探针优化复用时的 overlay 准入和 RX 交接。
+  不继续堆叠探针或以局部余量代替完整 WCET；现有 `380 µs` 门限保持。正式 RAM、
+  特等逐圈保全、blackout、同圈更新、拥塞和故障恢复仍开放，节点容量后续项后置。
+  主控证据与决策入口为 `measurement-conclusion-r1.json`；registry/C11 状态不变。
 
 ### TDMA-PROGRESS-20260912-026 - RX 位反转内联与同版本计时复核
 

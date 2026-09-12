@@ -991,6 +991,15 @@ epoch/覆盖复验、分支和子项之间的计时开销仍保留在取帧总�
 干扰条件下的速度对照，完整 phase 门禁不扣除探针成本。主机使用
 `tools/tdma_ring_monitor/tdma_service_timing.py` 校验版本、字段长度和 stage 数量，
 保留旧版本读取，未知版本拒绝，不能静默错配标签。
+owner 内部由 `TDMA_TIMING_RING_RUNTIME` 与 `TDMA_TIMING_INTENT_DISPATCH` 分别记录
+ring runtime 和随后队列选择；runtime 内的 `TDMA_TIMING_RING_PUBLISH` 包含反馈关联、
+运行事实与 clock observation 发布，包括停止和故障的发布路径。adapter 的
+`TDMA_TIMING_ADAPTER_PROLOGUE` 记录状态清零与 TX completion/FSM 收尾，
+`TDMA_TIMING_RX_HANDOFF` 包裹普通/legacy RX 工位交接（执行时包含 capture/parse），
+`TDMA_TIMING_ADAPTER_STATUS` 记录 adapter 状态发布。自主 origin 可以绕过普通
+RX 工位；未执行子项的零值不能代表父路径没有成本。同条记录的父区间扣除不重叠
+子区间可用于定位剩余工作，但差额包括探针和分支成本，不能当作移除某操作后的
+运行时间承诺。状态、FIFO 和硬件操作仍由原 owner 执行，计时不改变其授权边界。
 每次 phase 的工作记录在结束时通过短 seqlock 发布；Core0 查询只尝试读取一次，
 writer 正在发布或版本变化时返回不可用，不重试自旋。最近记录与最慢记录分别保全
 一次完整 phase，不能把不同轮次的单项最大值拼成最坏执行路径。
