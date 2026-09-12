@@ -8,9 +8,13 @@ Last updated: 2026-09-12
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的 follower Core0 overlay 实现与验证记录见
+当前 `TDMA-FLIGHT-002F` 的普通 RX Core0 解析切片见 `TDMA-PROGRESS-20260912-018`，
+证据根为 `out/HardwareAcceptance/20260912/tdma-flight-async-rx/`；原始 DMA 扫描仍在
+Core1，特等时间戳独立快速通道保持单独验收。用户要求先封存本切片，再核算六节点
+编译容量的 RAM 收益；本切片未修改节点容量。
+前序 follower Core0 overlay 实现与验证记录见
 `TDMA-PROGRESS-20260912-017`，证据根为
-`out/HardwareAcceptance/20260912/tdma-flight-async-overlay/`；普通 RX 解析仍待迁移。
+`out/HardwareAcceptance/20260912/tdma-flight-async-overlay/`。
 按用户进一步要求推进异步准备与解析边界，设计记录见
 `TDMA-PROGRESS-20260912-016`；该项纳入列车调度基础，四级服务策略保持后置。
 最近完成的列车调度 RX 工作量限制切片证据根为
@@ -63,6 +67,67 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260912-018 - 普通 RX 的 Core0 异步解析与采集证据绑定
+
+- 日期：2026-09-12；TODO task ID：`TDMA-FLIGHT-002F`。以下数字均为实验快照，非事实源。
+- 变更：新增 `tdma_rx_prepare_t` 固定工位，Core1 交入 packet 副本、原始 RX/TX latch、
+  RTT、origin observation 与 owner 匹配资格。Core0 完成 transport decode/CRC、
+  自主 origin mailbox 完整性检查和参考节点坏帧诊断；Core1 只消费当前 epoch、
+  配置/map、时间资格和采集年龄合格的结果，继续独占 health、novelty、FIFO 与生命周期
+  事实。结果提交不重读最新硬件时间，也不延长旧帧的接收年龄。
+- 所有权：Core0 不持有 adapter、engine、FIFO、DMA 或 origin bank 指针；bank 复用
+  不替换已采集帧的 observation 与 owner generation。STOP 先取消资格并停硬件，
+  若 worker 已 claim 则保留静态工位直到取消 ACK，旧 READY 不能进入新 ARM。
+  忙工位不等待、不再次采集和覆盖输入；这仍是允许缺口的普通观察路径。
+- 软件：adapter 主机回归覆盖 Core0 暂停、输入复用、采集时的 latch/RTT 保全、
+  REQUESTED/BUILDING/READY 取消、ARM 拒绝、epoch/config/map/age 失效、坏帧诊断、
+  异步 bootstrap→origin、成对元数据/bank 复用以及 mutable remote mailbox CRC 拒绝。
+  实际 scanner、DMA、非阻塞与短帧工具相关回归 `129 passed`；文档检查器单测
+  `18 passed`。首轮测试在启动后绑定 RTT callback，绑定按既有规则被拒，fixture 修正
+  后回归通过；失败原件保留，未更改接口生命周期来适配测试。
+- 资源：首次 `build-r1` 因 RAM 超出 `296 B` 链接失败，未部署。随后把物理工位与
+  原有注入队列做 STOPPED 互斥绑定，拒绝重绑及注入覆盖，不增加 DMA/PIO/任务栈。
+  ARM ABI 工位 `840 B`，复用既有 `2496 B` 池，整机静态区相对前版仅增加 `8 B`。
+  `build-r2` 的 Release、A/B/Boot 链接门禁通过；正式 RAM 仍以余量 `2592 B`
+  小于要求 `49152 B` 判 FAIL，未放宽门槛。build 为 `20260912071055`，源码
+  SHA-256 与产物哈希绑定在 `source-checkpoint-r1.json`。
+- 实板：四板 OTA 和 P3 quick diagnostic 流程完成并签发当前源码凭证，
+  `strict_gates_passed=false`。初始启动屏障在原 `2 s` 窗口内仅获得所需两个稳定
+  样本中的一个；首样本含 receive reject/incomplete 增长，失败原件保留。
+  同源码同 generation 的实测矩阵通过且 `diagnostic_continue=false`。
+  `lifecycle-r1` 首次 process-image ARM 在 NO2 遇到 `arm_result=8` 配置拒绝；
+  既有有界恢复 STOP 后第二次严格通过。raw-flight 与恢复 process-image 首次严格
+  通过，三段通过记录均无 diagnostic continue。四板原始 SD capture 全部重建，
+  有限 CRC、sequence 与 owner 范围审计通过。
+- 计时：普通模式与有限许可证自主模式均完成完整 phase 记录，下表单位为微秒。
+  RX 分项取各自有限查询记录中有调用的最大值，与完整峰值不一定在同一拍，不能
+  相加或视为 WCET 上界。`RX_PARSE` 现在度量 Core1 的结果验证与事实提交。
+
+  | 节点 | 普通完整峰值 | 自主完整峰值 | 自主 RX capture 采样最大值 | 自主 RX_PARSE 采样最大值 |
+  |---|---:|---:|---:|---:|
+  | NO1 | 1249.580 | 893.948 | 65.664 | 307.660 |
+  | NO2 | 1002.432 | 2484.624 | 1954.332 | 208.244 |
+  | NO3 | 1238.584 | 2499.692 | 2027.832 | 204.188 |
+  | NO4 | 1206.168 | 2508.672 | 2083.900 | 215.324 |
+
+- 对照：相对上一 overlay 切片，普通完整峰值 NO1 下降约 `6.8%`，从站下降约
+  `23.8%–26.7%`；自主 NO1 下降约 `26.7%`，从站下降约 `7.5%–16.0%`。自主
+  RX_PARSE 的有限分项样本最大值从 `[639.568,487.064,506.780,473.772]` 降为
+  表内值，但所有节点完整 phase 仍超出当前 schedule 预算。普通 NO1/NO3/NO4 的
+  查询未采到有 RX_PARSE 调用的记录，明确记为未采到，不能记作零耗时。
+  从站自主完整峰值仍由原始 DMA 扫描主导，结果提交本身也仍需收敛。
+- 基础运输：两种计时窗口的 transport/schedule/profile 错误增量均为零；普通观察
+  drop 增量为零，自主为 `[0,31662,27834,27420]`。普通镜像允许缺口，这不证明
+  时间戳逐圈无损。`stage-comparison.json` 保留每个分项有调用记录的样本数和范围。
+- 自主取证：trial `912018`、grant epoch `76` 下确认自主状态，四板原始 SD 下载
+  与有限 owner/CRC 审计首次通过，完成自主计时窗口后撤销到 epoch `78` inactive。
+  `final-stopped.json` 证明四板 `armed/ring_enabled/adapter_started` 全为零。
+- 证据入口：`out/HardwareAcceptance/20260912/tdma-flight-async-rx/` 中的
+  `hardware-review.json`、`slice-manifest.json`、`source-checkpoint-r1.json`、
+  `ownership-review.json` 与原始日志；分离提交与门禁核验见 `commit-proof.json`。
+  完整 Core1 WCET、正式 RAM、原始 DMA 扫描、origin 准备、service blackout、
+  Core0 拥塞、同圈多 owner 和特等快速通道逐圈保全继续作为未闭合项。
 
 ### TDMA-PROGRESS-20260912-017 - follower overlay 的 Core0 异步准备
 

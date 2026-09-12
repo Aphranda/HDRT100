@@ -335,14 +335,23 @@ STOP/config 失效应先撤销旧 epoch 的发布资格；后台任务尚持有�
 取消交接前不可复用，Core1 不等待后台计算结束。同步时间字段的硬件捕获与保全继续
 满足下述独立要求，不能并入普通可丢弃解析队列。
 
-`TDMA-PROGRESS-20260912-017` 的 follower 切片已把固定 mailbox 的模型编码、
-完整性检查和 overlay 构建接到现有 Core0 数据任务。`tdma_overlay_prepare_t` 保存
+固定 mailbox 的模型编码、完整性检查和 overlay 构建通过现有 Core0 数据任务执行。
+`tdma_overlay_prepare_t` 保存
 输入副本与固定本地授权，输出借用既有闲置计划池；Core1 经 READY/epoch/alignment
 核验后绑定描述符并发布，当前 RX 副本是否成功不再控制该更新的推进。STOP 先停硬件，
-仍有后台写者时保留 pending，收到取消 ACK 后才能完成退休与重新 ARM。此切片的
-源码/测试/构建、严格短帧生命周期及有限自主波形/计时结论分别记录在
-`out/HardwareAcceptance/20260912/tdma-flight-async-overlay/`；尚不代表普通 RX 解析
-已退出 Core1，也不代表完整 WCET、RAM 或特等时间戳逐圈交付已通过。
+仍有后台写者时保留 pending，收到取消 ACK 后才能完成退休与重新 ARM。
+
+普通物理 RX 使用 `tdma_rx_prepare_t` 固定工位。Core1 交入独立 packet、采集时的
+RX/TX latch、RTT 和成对 origin observation；Core0 只完成 transport decode/CRC、
+坏帧诊断与自主 origin mailbox 完整性检查。工位忙时不等待、不覆盖输入；READY
+仍须由 Core1 核对 epoch、配置、map generation、时间资格与采集年龄，之后才提交
+receive health、novelty 和 RX FIFO。origin 授权在采集时绑定，后续 bank 复用不能
+替换该帧的 observation 或 owner generation；reference 证据环被覆盖时关联拒绝。
+解析完成后不重读最新 latch/RTT，也不把后台完成时刻改写为接收时刻或刷新旧数据
+年龄。STOP 先停硬件；被取消的 worker 只归还静态工位，不访问 adapter 或物理池。
+物理工位复用 adapter 的注入队列存储，仅在 STOPPED 且无待处理注入时绑定；绑定后
+拒绝注入与重新绑定，防止另一入口覆盖 worker 输入。未绑定的注入后端保持原队列。
+原始 DMA 候选扫描仍属于待拆分的 Core1 工作，普通镜像工位也不承担逐圈时间保全。
 
 | 席位 | 内容与既有布局锚点 | 准备、上车与下车保证 | 迟到或拥塞处理 |
 |---|---|---|---|
@@ -358,6 +367,9 @@ RefMem ACK/fence 仍属于二等可靠性闭环。STOP、故障收敛、配置�
 静态字段、分片序号、丢弃规则和预算并修订相应契约，不能把 optional diagnostic 字段
 直接解释成已支持的任意长度日志通道。
 
+特等席使用独立快速通道：硬件边沿锁存、固定同步字段与受保护记录的有界交接不排在
+通用 RX 工位、整包解析、RefMem 或 Log 后面。VDC 后台关联与控制计算可以异步，
+每圈时间证据的捕获和卸载期限必须单独证明；普通 parser 平均变快不能替代该门禁。
 特等席必须显式处理事件因果关系。现有 `TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_SEQUENCE_LAG`
 声明流水延迟，reference TX 的真实 latch 与承载它的帧按该 lag 关联；每圈交付不等于
 零延迟。初始化流水尚未填满时发布无效状态，不能补造前圈时间戳。若要求本圈载本圈
