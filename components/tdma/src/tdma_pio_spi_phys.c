@@ -1802,10 +1802,17 @@ static uint8_t tdma_pio_spi_phys_rx_ring_byte(uint64_t produced)
     const uint32_t word = tdma_pio_spi_phys_rx_ring_word(produced);
     /* Only the process follower uses right-shifting ISR to support live XOR.
      * Normalize the observation copy; wire forwarding never reads this ring. */
-    return (uint8_t)(s_tdma_pio_spi_program_persona ==
-                            TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER
-                        ? __rev(word)
-                        : word);
+    if (s_tdma_pio_spi_program_persona ==
+        TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER) {
+#if defined(__ARM_ARCH) && __ARM_ARCH >= 7 && defined(__GNUC__)
+        /* Pico's __rev is an external bit reverse, unlike ACLE's byte swap.
+         * Keep the RBIT in the copy loop on the supported ARM target. */
+        return (uint8_t)__builtin_arm_rbit(word);
+#else
+        return (uint8_t)__rev(word);
+#endif
+    }
+    return (uint8_t)word;
 }
 
 static uint8_t tdma_pio_spi_phys_rx_ring_aligned_byte(uint64_t produced,
