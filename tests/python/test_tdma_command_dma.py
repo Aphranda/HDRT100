@@ -596,10 +596,20 @@ static uint32_t tdma_pio_spi_phys_rx_ring_word(uint64_t p) { (void)p; return 0; 
 /* Model a valid decoded packet found in an observation stream whose words
  * have been dropped. The real scanner must recover it without retargeting
  * a previously published plan. Bit extraction itself has separate PIO tests. */
-static uint8_t tdma_pio_spi_phys_rx_ring_aligned_byte(uint64_t p, uint32_t shift) {
-    if (shift != alignment || p < packet_start || p >= packet_start + 36) return 0;
+static uint8_t model_packet_byte(uint64_t p) {
+    if (p < packet_start || p >= packet_start + 36) return 0;
     const uint8_t header[] = {0xa5, 0x5a, 32, 0};
     return p < packet_start + 4 ? header[p - packet_start] : 0x33;
+}
+static uint8_t model_raw_byte(uint64_t p) {
+    const uint8_t value = model_packet_byte(p);
+    if (!alignment) return value;
+    const uint8_t previous = p ? model_packet_byte(p - 1) : 0;
+    return (uint8_t)((value >> alignment) | (previous << (8 - alignment)));
+}
+static uint8_t tdma_pio_spi_phys_rx_ring_aligned_byte(uint64_t p, uint32_t shift) {
+    const uint8_t first = model_raw_byte(p);
+    return shift ? (uint8_t)((first << shift) | (model_raw_byte(p + 1) >> (8 - shift))) : first;
 }
 static bool tdma_pio_spi_phys_transport_header_matches(uint64_t p, uint32_t s, uint16_t n) {
     return p == packet_start + 4 && s == alignment && n == 32;

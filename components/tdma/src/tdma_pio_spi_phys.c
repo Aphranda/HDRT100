@@ -1844,15 +1844,21 @@ static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
             phys->snapshot.rx_scan_yield_count++;
             return false;
         }
+        /* All candidate phases share the same three raw bytes. Read them
+         * once, then test the two-byte magic in registers. Candidate bounds
+         * already guarantee the complete outer-header prefix is published;
+         * shifted length/header and post-copy epoch checks still apply. */
+        const uint32_t prefix =
+            ((uint32_t)tdma_pio_spi_phys_rx_ring_aligned_byte(candidate, 0u) << 16u) |
+            ((uint32_t)tdma_pio_spi_phys_rx_ring_aligned_byte(candidate + 1u, 0u) << 8u) |
+            tdma_pio_spi_phys_rx_ring_aligned_byte(candidate + 2u, 0u);
+        const uint32_t magic = (TDMA_PIO_SPI_PACKET_MAGIC0 << 8u) |
+                               TDMA_PIO_SPI_PACKET_MAGIC1;
         for (uint32_t bit_shift = 0u; bit_shift < 8u; bit_shift++) {
             const uint32_t alignment_extra = bit_shift == 0u ? 0u : 1u;
             if (candidate + TDMA_PIO_SPI_PACKET_HEADER_SIZE +
                     alignment_extra > produced ||
-                tdma_pio_spi_phys_rx_ring_aligned_byte(
-                    candidate, bit_shift) != TDMA_PIO_SPI_PACKET_MAGIC0 ||
-                tdma_pio_spi_phys_rx_ring_aligned_byte(
-                    candidate + 1u, bit_shift) !=
-                    TDMA_PIO_SPI_PACKET_MAGIC1) {
+                ((prefix >> (8u - bit_shift)) & 0xFFFFu) != magic) {
                 continue;
             }
             const uint16_t frame_size =

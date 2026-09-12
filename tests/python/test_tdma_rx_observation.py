@@ -47,7 +47,7 @@ static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys, size_t ma
     return exe
 
 
-@pytest.mark.parametrize("case", ["stable", "overwrite", "counter_alias", "bounded", "incomplete", "wrong_mode", "idle_gap", "phase_gap"])
+@pytest.mark.parametrize("case", ["stable", "overwrite", "counter_alias", "bounded", "prefix", "incomplete", "wrong_mode", "idle_gap", "phase_gap"])
 def test_real_scanner_dma_interleavings(scanner, case):
     result = subprocess.run([str(scanner), case], capture_output=True, text=True)
     assert result.returncode == 0, result.stdout+result.stderr

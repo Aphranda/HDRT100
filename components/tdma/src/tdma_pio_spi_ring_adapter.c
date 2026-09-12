@@ -2029,11 +2029,6 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
     return true;
 }
 
-/* FORWARD-node emission: re-emit the frame received from the previous board
- * toward the next board, keeping origin/sequence/identity CRC unchanged and
- * advancing hop/transport CRC. The feedback returns only to the reference
- * node, so this path proves ring service (up/down running) without
- * fabricating simultaneous_feedback_loop_evidence. */
 static bool tdma_pio_spi_ring_adapter_process_rx(
     tdma_pio_spi_ring_adapter_t *adapter,
     const uint8_t *packet,
@@ -2048,6 +2043,11 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
     return result;
 }
 
+/* FORWARD-node emission: re-emit the frame received from the previous board
+ * toward the next board, keeping origin/sequence/identity CRC unchanged and
+ * advancing hop/transport CRC. The feedback returns only to the reference
+ * node, so this path proves ring service (up/down running) without
+ * fabricating simultaneous_feedback_loop_evidence. */
 static bool tdma_pio_spi_ring_adapter_tx_forward(
     tdma_pio_spi_ring_adapter_t *adapter)
 {
@@ -2216,11 +2216,9 @@ static bool tdma_pio_spi_ring_adapter_rx_once(
                                                 paired ? &observation : NULL);
 }
 
-/* Poll the uplink capture up to RX_POLLS times per service: at 4x the frame
- * rate the DMA re-arm follows frame arrival within a fraction of a frame
- * interval, shrinking the inter-frame noise window and removing phase
- * sensitivity to the free-running core1 tick. */
-#define TDMA_PIO_SPI_RING_ADAPTER_RX_POLLS 4u
+/* Software forwarding has its own bounded queue drain. Hardware forwarding
+ * never waits for this drain; its observation path samples once per phase. */
+#define TDMA_PIO_SPI_RING_ADAPTER_FORWARD_POLLS 4u
 
 static bool tdma_pio_spi_ring_adapter_rx_poll(
     tdma_pio_spi_ring_adapter_t *adapter,
@@ -2238,12 +2236,10 @@ static bool tdma_pio_spi_ring_adapter_rx_poll(
         now_ns < adapter->rx_ready_timestamp_ns) {
         return false;
     }
-    bool rx_ok = false;
-    for (uint32_t i = 0u; i < TDMA_PIO_SPI_RING_ADAPTER_RX_POLLS; i++) {
-        if (tdma_pio_spi_ring_adapter_rx_once(adapter)) {
-            rx_ok = true;
-        }
-    }
+    /* PIO/DMA stay armed independently. A continuously producing ring must
+     * not multiply capture/scan/parse work inside one Core1 phase. Retain the
+     * scanner cursor and consume another observation on the next phase. */
+    const bool rx_ok = tdma_pio_spi_ring_adapter_rx_once(adapter);
     if (rx_ok && adapter->role == TDMA_PIO_SPI_RING_ROLE_REFERENCE) {
         adapter->rx_ready_timestamp_ns = 0ull;
     }
@@ -2279,7 +2275,7 @@ static bool tdma_pio_spi_ring_adapter_forward_poll(
     bool *rx_ok)
 {
     bool any_rx = false;
-    for (uint32_t i = 0u; i < TDMA_PIO_SPI_RING_ADAPTER_RX_POLLS; i++) {
+    for (uint32_t i = 0u; i < TDMA_PIO_SPI_RING_ADAPTER_FORWARD_POLLS; i++) {
         if (!tdma_pio_spi_ring_adapter_rx_once(adapter)) {
             continue;
         }

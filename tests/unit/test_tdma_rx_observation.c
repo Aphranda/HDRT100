@@ -118,8 +118,27 @@ int main(int argc, char **argv) {
         memset(ring,0,sizeof(ring));
         assert(!tdma_pio_spi_phys_capture_words(&phys,TDMA_PIO_SPI_RX_DMA_WORD_MAX,&received));
         assert(phys.snapshot.rx_scan_yield_count==1 && received==0);
-        assert(word_reads<=TDMA_RX_OBSERVATION_SCAN_WORDS*16);
+        assert(word_reads<=TDMA_RX_OBSERVATION_SCAN_WORDS*3);
         assert(s_tdma_pio_spi_rx_scan_produced==900-TDMA_PIO_SPI_RX_DMA_WORD_MAX);
+    } else if (!strcmp(argv[1],"prefix")) {
+        /* Search repeated false magic prefixes before a real frame across
+         * SRAM wrap, for every bit phase and both physical ISR directions. */
+        for (unsigned follower=0; follower<2; ++follower) {
+            for (unsigned shift=0; shift<8; ++shift) {
+                tdma_pio_spi_phys_t phys=setup(shift,980,1280);
+                for (unsigned i=664;i<980;++i) ring[i&1023]=0x54;
+                if (follower) {
+                    s_tdma_pio_spi_program_persona=TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER;
+                    for (unsigned i=0;i<1024;++i) ring[i]=__rev(ring[i]);
+                }
+                assert(tdma_pio_spi_phys_capture_words(&phys,TDMA_PIO_SPI_RX_DMA_WORD_MAX,&received));
+                uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+                for (unsigned i=0;i<sizeof(packet);++i) packet[i]=(uint8_t)s_tdma_pio_spi_rx_frame[i+4];
+                tdma_transport_frame_view_t view; tdma_transport_result_t result;
+                assert(tdma_transport_frame_decode(packet,sizeof(packet),&view,&result));
+                assert(view.transport_sequence==1234 && received==TDMA_PIO_SPI_RX_DMA_WORD_MAX);
+            }
+        }
     } else if (!strcmp(argv[1],"incomplete")) {
         tdma_pio_spi_phys_t phys=setup(3,11,100);
         assert(!tdma_pio_spi_phys_capture_words(&phys,TDMA_PIO_SPI_RX_DMA_WORD_MAX,&received));

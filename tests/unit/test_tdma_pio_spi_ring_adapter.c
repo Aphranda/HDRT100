@@ -51,6 +51,7 @@ typedef struct {
     uint32_t tx_calls;
     uint32_t rx_calls;
     bool rx_pending;
+    bool keep_rx_pending;
     bool suppress_echo;
     uint32_t suppress_echo_count;
     bool advance_echo_to_feedback;
@@ -340,7 +341,7 @@ static bool loopback_rx(void *context,
     memcpy(packet, phys->echo_packet, phys->echo_packet_size);
     *packet_size = phys->echo_packet_size;
     *rx_timestamp_ns = phys->rx_timestamp_ns;
-    phys->rx_pending = false;
+    phys->rx_pending = phys->keep_rx_pending;
     phys->rx_calls++;
     return true;
 }
@@ -1710,6 +1711,32 @@ int main(void)
                 &adapter,
                 TDMA_PIO_SPI_RING_FORWARDING_STORE_FORWARD),
             false);
+
+        /* A permanently ready observation source cannot drain repeatedly in
+         * one phase. A malformed next observation is still rejected, then a
+         * later intact sequence can be accepted without a software re-send. */
+        phys.keep_rx_pending = phys.rx_pending = true;
+        phys.rx_timestamp_ns = 2000500ull;
+        build.transport_sequence = 12u;
+        failed += expect_bool("encode continuously ready RX",
+            tdma_transport_frame_encode(&build, phys.echo_packet, sizeof(phys.echo_packet),
+                &phys.echo_packet_size, &result), true);
+        tdma_ring_runtime_service(&runtime);
+        failed += expect_u32("one available observation per phase", phys.rx_calls, 1u);
+        failed += expect_u32("next observation accepted", adapter.down_rx_sequence, 12u);
+        const uint32_t rejected_before = adapter.rx_bad_count;
+        phys.echo_packet[0] ^= 1u;
+        tdma_ring_runtime_service(&runtime);
+        failed += expect_u32("one malformed observation per phase", phys.rx_calls, 2u);
+        failed += expect_u32("malformed observation retained", adapter.rx_bad_count, rejected_before + 1u);
+        build.transport_sequence = 13u;
+        failed += expect_bool("encode recovery observation",
+            tdma_transport_frame_encode(&build, phys.echo_packet, sizeof(phys.echo_packet),
+                &phys.echo_packet_size, &result), true);
+        tdma_ring_runtime_service(&runtime);
+        failed += expect_u32("recovery on following phase", phys.rx_calls, 3u);
+        failed += expect_u32("recovery sequence accepted", adapter.down_rx_sequence, 13u);
+        failed += expect_u32("backlog never resends hardware traffic", phys.tx_calls, 0u);
     }
 
     /* --- phys_ctrl: arm/disarm callbacks driven by adapter start/stop. --- */
