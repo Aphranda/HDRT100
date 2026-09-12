@@ -26,7 +26,7 @@ def test_phase_attribution_preserves_one_complete_worst_case(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-@pytest.mark.parametrize("version,count", [(1, 11), (2, 15), (3, 19)])
+@pytest.mark.parametrize("version,count", [(1, 11), (2, 15), (3, 19), (4, 25)])
 def test_profile_wire_versions_and_inclusive_intervals(version, count):
     fields = [version, 250000000, 2, 9, count, 1, 8, 2**40, 1000, 0]
     fields += [value for i in range(count) for value in (100 + i, i + 1)]
@@ -37,11 +37,16 @@ def test_profile_wire_versions_and_inclusive_intervals(version, count):
         assert result["stages"]["rx_latch"] == {"ticks": 114, "calls": 15}
     else:
         assert "rx_latch" not in result["stages"]
-    if version == 3:
+    if version >= 3:
         assert result["stages"]["rx_dma_observe"] == {"ticks": 115, "calls": 16}
         assert result["stages"]["rx_ring_copy"] == {"ticks": 118, "calls": 19}
     else:
         assert "rx_dma_observe" not in result["stages"]
+    if version == 4:
+        assert result["stages"]["ring_runtime"] == {"ticks": 119, "calls": 20}
+        assert result["stages"]["adapter_status"] == {"ticks": 124, "calls": 25}
+    else:
+        assert "ring_runtime" not in result["stages"]
 
 
 @pytest.mark.parametrize("raw", [
@@ -51,6 +56,8 @@ def test_profile_wire_versions_and_inclusive_intervals(version, count):
     "2,250000000,0,1,15,0,1,20,100,0" + ",0,0"*14,
     "3,250000000,0,1,15,0,1,20,100,0" + ",0,0"*15,
     "3,250000000,0,1,19,0,1,20,100,0" + ",0,0"*18,
+    "4,250000000,0,1,19,0,1,20,100,0" + ",0,0"*19,
+    "4,250000000,0,1,25,0,1,20,100,0" + ",0,0"*24,
 ])
 def test_profile_rejects_unknown_truncated_or_mismatched_schema(raw):
     with pytest.raises(ValueError):

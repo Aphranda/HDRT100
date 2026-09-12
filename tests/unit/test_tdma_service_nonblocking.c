@@ -5,13 +5,23 @@
 #include <string.h>
 
 #include "tdma_service.h"
+#include "tdma_service_timing.h"
 
 static tdma_service_service_t service;
 static uint64_t now_us;
 static uint32_t clock_reads, tx_calls;
+static uint32_t timing_reads;
 static bool replace_during_copy;
 static uint8_t transmitted;
 static uint32_t ring_calls, ring_stops;
+
+uint64_t vdc_timestamp_clock_read_ticks64(void)
+{
+    assert(++timing_reads < 64u);
+    return now_us * 250u;
+}
+
+uint32_t vdc_timestamp_clock_tick_hz(void) { return 250000000u; }
 
 uint64_t time_us_64(void)
 {
@@ -68,7 +78,15 @@ static void tick(uint64_t time_us)
 {
     now_us = time_us;
     clock_reads = 0u;
+    timing_reads = 0u;
+    tdma_service_timing_phase_begin();
     tdma_service_core1_service(&service);
+    tdma_service_timing_phase_end();
+    tdma_service_timing_snapshot_t timing;
+    assert(tdma_service_timing_try_snapshot(&timing));
+    assert(timing.last.invalid_count == 0u);
+    assert(timing.last.calls[TDMA_TIMING_RING_RUNTIME] == 1u);
+    assert(timing.last.calls[TDMA_TIMING_INTENT_DISPATCH] <= 1u);
     assert((service.result_guard & 1u) == 0u);
 }
 

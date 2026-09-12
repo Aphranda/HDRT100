@@ -1,4 +1,5 @@
 #include "tdma_service.h"
+#include "tdma_service_timing.h"
 
 #include <string.h>
 
@@ -995,7 +996,9 @@ void tdma_service_core1_service(tdma_service_service_t *service)
         return;
     }
 
+    const uint64_t runtime_start = tdma_service_timing_now();
     tdma_ring_runtime_service(&service->ring_runtime);
+    tdma_service_timing_record(TDMA_TIMING_RING_RUNTIME, runtime_start);
 
     tdma_service_begin_result_write(service);
     service->service_count++;
@@ -1007,7 +1010,9 @@ void tdma_service_core1_service(tdma_service_service_t *service)
     if ((tdma_service_load(&service->intent_guard) & 1u) != 0u) {
         return;
     }
+    const uint64_t dispatch_start = tdma_service_timing_now();
     (void)tdma_service_dispatch_next_scheduled(service);
+    tdma_service_timing_record(TDMA_TIMING_INTENT_DISPATCH, dispatch_start);
 
     const uint32_t seq_begin = tdma_service_load(&service->intent_guard);
     if ((seq_begin & 1u) != 0u) {

@@ -7,10 +7,12 @@ STAGES_V1 = (
     "accounting", "adapter", "rx_capture", "rx_parse", "overlay_prepare", "overlay_boundary",
 )
 STAGES_V2 = STAGES_V1 + ("rx_acquire", "rx_packet_copy", "rx_clock", "rx_latch")
+STAGES_V3 = STAGES_V2 + ("rx_dma_observe", "rx_locate", "rx_header_check", "rx_ring_copy")
 STAGES_BY_VERSION = {
     1: STAGES_V1,
     2: STAGES_V2,
-    3: STAGES_V2 + ("rx_dma_observe", "rx_locate", "rx_header_check", "rx_ring_copy"),
+    3: STAGES_V3,
+    4: STAGES_V3 + ("ring_runtime", "ring_publish", "intent_dispatch", "adapter_prologue", "rx_handoff", "adapter_status"),
 }
 FIELDS = (
     "version", "clock_hz", "reset_generation", "phase_count", "stage_count",

@@ -1,4 +1,5 @@
 #include "tdma_ring_runtime.h"
+#include "tdma_service_timing.h"
 
 #include "tdma_transport_frame.h"
 
@@ -574,6 +575,7 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
     uint32_t train_reject_count = runtime->train_reject_count;
     uint32_t training_dirty = runtime->training_dirty;
     uint32_t applied_config_seq = runtime->applied_config_seq;
+    uint64_t publish_start;
     bool stop_failed = false;
     if (!up_down_config_ready) {
         stop_failed = !tdma_ring_runtime_stop_adapter(runtime);
@@ -676,6 +678,7 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
     }
 
 publish:
+    publish_start = tdma_service_timing_now();
     if (stop_failed) {
         reason = TDMA_RING_RUNTIME_REASON_EVIDENCE_MISSING;
         if (runtime->adapter_ops != NULL && runtime->adapter_ops->last_error != NULL)
@@ -800,6 +803,7 @@ publish:
         adapter_status.feedback_rx_timestamp_ns;
     runtime->clock_observation = adapter_status.clock_observation;
     tdma_ring_runtime_write_guard(&runtime->result_guard);
+    tdma_service_timing_record(TDMA_TIMING_RING_PUBLISH, publish_start);
 }
 
 bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime,

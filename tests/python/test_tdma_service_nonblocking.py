@@ -23,10 +23,12 @@ def service_exe(tmp_path_factory):
     sources += [ROOT / f"components/tdma/src/{name}.c" for name in (
         "tdma_profile", "tdma_operating_profile", "tdma_payload_registry",
         "tdma_flight_fifo", "tdma_flight_engine", "tdma_process_image_map",
-        "tdma_ring_runtime", "tdma_traffic_scheduler")]
+        "tdma_ring_runtime", "tdma_traffic_scheduler", "tdma_service_timing")]
     exe = build / ("service.exe" if os.name == "nt" else "service")
     subprocess.run([compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
+                    "-DTDMA_SERVICE_TIMING_ENABLED=1",
                     "-I" + str(build), "-I" + str(ROOT / "components/tdma/inc"),
+                    "-I" + str(ROOT / "components/vdc_domain/inc"),
                     *map(str, sources), "-o", str(exe)], check=True, timeout=60)
     return exe
 

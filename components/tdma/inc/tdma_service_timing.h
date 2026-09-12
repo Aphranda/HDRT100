@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define TDMA_SERVICE_TIMING_VERSION 3u
+#define TDMA_SERVICE_TIMING_VERSION 4u
 #ifndef TDMA_SERVICE_TIMING_ENABLED
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #define TDMA_SERVICE_TIMING_ENABLED 1
@@ -38,6 +38,15 @@ typedef enum {
     TDMA_TIMING_RX_LOCATE,
     TDMA_TIMING_RX_HEADER_CHECK,
     TDMA_TIMING_RX_RING_COPY,
+    /* Runtime and intent dispatch are separate children of OWNER_SERVICE.
+     * Runtime includes ADAPTER and RING_PUBLISH. RX_HANDOFF wraps rx_once,
+     * including capture/parse when that path executes; origin may bypass it. */
+    TDMA_TIMING_RING_RUNTIME,
+    TDMA_TIMING_RING_PUBLISH,
+    TDMA_TIMING_INTENT_DISPATCH,
+    TDMA_TIMING_ADAPTER_PROLOGUE,
+    TDMA_TIMING_RX_HANDOFF,
+    TDMA_TIMING_ADAPTER_STATUS,
     TDMA_TIMING_STAGE_COUNT,
 } tdma_service_timing_stage_t;
 

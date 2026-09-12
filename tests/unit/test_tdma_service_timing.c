@@ -49,7 +49,7 @@ int main(void)
     tdma_service_timing_phase_end();
     assert(tdma_service_timing_try_snapshot(&before));
     assert(before.last.total_ticks == 100 && before.last.invalid_count == 0);
-    assert(before.version == 3);
+    assert(before.version == 4);
     assert(before.last.elapsed_ticks[TDMA_TIMING_RX_DMA_OBSERVE] == 3);
     assert(before.last.calls[TDMA_TIMING_RX_DMA_OBSERVE] == 2);
     assert(before.last.elapsed_ticks[TDMA_TIMING_RX_LOCATE] == 1);
@@ -120,6 +120,45 @@ int main(void)
     assert(tdma_service_timing_try_snapshot(&after));
     assert(after.last.invalid_count >= 3 && after.peak.total_ticks == 120);
     assert(after.last.elapsed_ticks[TDMA_TIMING_RX_CAPTURE] == UINT32_MAX);
+    /* New owner/adapter intervals stay in one complete peak, including a
+     * handoff which does more work than its physical capture child. */
+    tdma_service_timing_request_reset();
+    tdma_service_timing_phase_begin();
+    const uint64_t owner_start = ticks;
+    ticks += 1;
+    tdma_service_timing_record(TDMA_TIMING_ADAPTER_PROLOGUE, owner_start);
+    ticks += 4;
+    tdma_service_timing_record(TDMA_TIMING_RX_CAPTURE, owner_start + 1);
+    ticks += 2;
+    tdma_service_timing_record(TDMA_TIMING_RX_HANDOFF, owner_start + 1);
+    ticks += 2;
+    tdma_service_timing_record(TDMA_TIMING_ADAPTER_STATUS, owner_start + 7);
+    tdma_service_timing_record(TDMA_TIMING_ADAPTER, owner_start);
+    ticks += 3;
+    tdma_service_timing_record(TDMA_TIMING_RING_PUBLISH, owner_start + 9);
+    tdma_service_timing_record(TDMA_TIMING_RING_RUNTIME, owner_start);
+    ticks += 4;
+    tdma_service_timing_record(TDMA_TIMING_INTENT_DISPATCH, owner_start + 12);
+    tdma_service_timing_record(TDMA_TIMING_OWNER_SERVICE, owner_start);
+    ticks += 2;
+    tdma_service_timing_phase_end();
+    assert(tdma_service_timing_try_snapshot(&before));
+    assert(before.last.total_ticks == 18 && before.last.invalid_count == 0);
+    assert(before.last.elapsed_ticks[TDMA_TIMING_RING_RUNTIME] == 12);
+    assert(before.last.elapsed_ticks[TDMA_TIMING_RING_PUBLISH] == 3);
+    assert(before.last.elapsed_ticks[TDMA_TIMING_INTENT_DISPATCH] == 4);
+    assert(before.last.elapsed_ticks[TDMA_TIMING_ADAPTER_PROLOGUE] == 1);
+    assert(before.last.elapsed_ticks[TDMA_TIMING_RX_HANDOFF] == 6);
+    assert(before.last.elapsed_ticks[TDMA_TIMING_ADAPTER_STATUS] == 2);
+    for (unsigned stage = TDMA_TIMING_RING_RUNTIME; stage < TDMA_TIMING_STAGE_COUNT; ++stage)
+        assert(before.last.calls[stage] == 1);
+    tdma_service_timing_phase_begin();
+    ticks += 1;
+    tdma_service_timing_phase_end();
+    assert(tdma_service_timing_try_snapshot(&after));
+    assert(after.peak.total_ticks == 18 && after.peak.elapsed_ticks[TDMA_TIMING_RX_HANDOFF] == 6);
+    for (unsigned stage = TDMA_TIMING_RING_RUNTIME; stage < TDMA_TIMING_STAGE_COUNT; ++stage)
+        assert(after.last.calls[stage] == 0);
     puts("PASS: timing wrap, inclusive stages, coherent peak, deferred reset, interrupted writer and invalid clock");
     return 0;
 }

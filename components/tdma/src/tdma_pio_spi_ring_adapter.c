@@ -2242,7 +2242,7 @@ static bool tdma_pio_spi_ring_adapter_tx_forward(
 
 #include "tdma_pio_spi_ring_rx_prepare.inc"
 
-static bool tdma_pio_spi_ring_adapter_rx_once(
+static bool tdma_pio_spi_ring_adapter_rx_once_impl(
     tdma_pio_spi_ring_adapter_t *adapter)
 {
     uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
@@ -2293,6 +2293,15 @@ static bool tdma_pio_spi_ring_adapter_rx_once(
                                                 packet_size,
                                                 adapter->origin.active != 0u ? 0ull : rx_timestamp_ns,
                                                 paired ? &observation : NULL);
+}
+
+static bool tdma_pio_spi_ring_adapter_rx_once(
+    tdma_pio_spi_ring_adapter_t *adapter)
+{
+    const uint64_t started = tdma_service_timing_now();
+    const bool result = tdma_pio_spi_ring_adapter_rx_once_impl(adapter);
+    tdma_service_timing_record(TDMA_TIMING_RX_HANDOFF, started);
+    return result;
 }
 
 /* Software forwarding has its own bounded queue drain. Hardware forwarding
@@ -2568,6 +2577,7 @@ static bool tdma_pio_spi_ring_adapter_service_overlay_boundary(
 static void tdma_pio_spi_ring_adapter_publish_status(
     const tdma_pio_spi_ring_adapter_t *adapter, tdma_ring_adapter_status_t *status)
 {
+    const uint64_t started = tdma_service_timing_now();
     status->up_tx_sequence = adapter->up_sequence;
     status->down_rx_sequence = adapter->down_rx_sequence;
     status->up_tx_frame_crc32 = adapter->up_tx_frame_crc32;
@@ -2608,6 +2618,7 @@ static void tdma_pio_spi_ring_adapter_publish_status(
     status->reference_tx_timestamp_ns = adapter->reference_tx_timestamp_ns;
     status->feedback_rx_timestamp_ns = adapter->feedback_rx_timestamp_ns;
     status->clock_observation = adapter->clock_observation;
+    tdma_service_timing_record(TDMA_TIMING_ADAPTER_STATUS, started);
 }
 
 static bool tdma_pio_spi_ring_adapter_service_impl(
@@ -2620,6 +2631,7 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
     if (adapter == NULL || status == NULL) {
         return false;
     }
+    const uint64_t prologue_start = tdma_service_timing_now();
     memset(status, 0, sizeof(*status));
     adapter->service_count++;
     adapter->last_service_ns = now_ns;
@@ -2681,6 +2693,7 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
         }
     }
 
+    tdma_service_timing_record(TDMA_TIMING_ADAPTER_PROLOGUE, prologue_start);
     if (adapter->started == 0u || !adapter->configured) {
         tdma_pio_spi_ring_adapter_set_error(
             adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_BAD_ARGUMENT);

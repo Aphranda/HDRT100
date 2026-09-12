@@ -22,7 +22,7 @@ static tdma_service_timing_record_t capture_profile(tdma_pio_spi_phys_t *phys,
     assert(received == (expected_capture ? TDMA_PIO_SPI_RX_DMA_WORD_MAX : 0));
     tdma_service_timing_snapshot_t snapshot;
     assert(tdma_service_timing_try_snapshot(&snapshot));
-    assert(snapshot.version == 3 && snapshot.last.invalid_count == 0);
+    assert(snapshot.version == 4 && snapshot.last.invalid_count == 0);
     const tdma_service_timing_record_t *last = &snapshot.last;
     uint32_t child_ticks = 0;
     for (uint32_t stage = TDMA_TIMING_RX_DMA_OBSERVE;
