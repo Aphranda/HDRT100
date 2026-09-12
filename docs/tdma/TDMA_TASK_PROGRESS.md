@@ -8,7 +8,11 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的无新版本 TX 快速复用切片见
+当前 `TDMA-FLIGHT-002F` 的公共时钟精确整数换算切片见
+`TDMA-PROGRESS-20260913-035`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-clock-conversion/`。算术等价与实链除法
+旁路已验证，完整 phase 尚未一致改善，严格 WCET、正式 RAM 与逐圈保全仍未通过。
+前序无新版本 TX 快速复用切片见
 `TDMA-PROGRESS-20260913-034`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-overlay-reuse/`。FIFO/生命周期语义与实链
 路径已核验，有限计时尚未证明完整 phase 一致改善，严格 WCET 与正式 RAM 仍失败。
@@ -135,6 +139,60 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-035 - 公共时钟精确整数换算与物理 RX 成本对照
+
+- 日期：2026-09-13；TODO task ID：`TDMA-FLIGHT-002F`。以下数字为实验快照，非事实源；
+  证据根为 `out/HardwareAcceptance/20260913/tdma-flight-clock-conversion/`。
+- 实链确认物理 RX 提取、RX/TX latch rearm 调用 `vdc_timestamp_clock_now_ns()`，
+  原实现每次进行两次通用无符号长除法。`vdc_timestamp_clock_ticks_to_ns()` 现在检查
+  缓存 frequency 与向上取整 resolution 的乘积；只有精确组成一秒时才直接相乘，否则
+  仍使用原商余数公式。保留零频率处理、向下取整与无符号结果回绕；timer 源、原始拍数
+  读取、epoch、初始化和 Core1 schedule 未改变，稳定语义写入 VDC 域架构。
+- 真实 C 设备分支通过模拟 clock/timer 运行，与 Python 无界整数参考对照。覆盖全部
+  整数纳秒周期频率、随机及边界非整数频率、零频率、秒边界、原始计数器字边界、
+  纳秒输出回绕和重复初始化不重置 epoch。新增 2 项算术测试及原 138 项集成测试通过，
+  文档检查器 18 项通过；A/B 实链确认整数路径跳到 UMULL/MLA/返回，避开两次除法，
+  非整数频率和冷初始化保留除法。证据见 `clock-tests-r1.*`、`assembly-review-r1.json`。
+- Release A/B/Boot build 为 `20260912185952`，源码指纹为
+  `64b266f3dcdea28162073b5662f3e7e253ea701a1f8d51d4d11078dfd9ab0f91`。
+  编译容量仍为 `PROJECT_NODE_CAPACITY=6`，A/B link free 各 4904 B，无新增静态 RAM，
+  PIO 生成头与前版相同。四板真实 P3 `run --tdma-only` 完成，凭证 `passed=true`、
+  `strict_gates_passed=false`；严格启动屏障超时保留，诊断继续不作为产品通过。
+- 计时前四板 STOP 应答和停止读回正常，物理错误均为零；一次有记录的软件复位匹配
+  progress034 起点，之后四板正常 ARM。使用同一 RX14 旧诊断行，逐样本核验 TX/RX
+  相位、clock、WCET 与负载掩码；该行不作为本次有效采样窗口或校准接受。
+  普通首末样本跨度为 22.038 s，自主为 87.539 s；有效收帧分别为
+  5336/5325/5382/5328 与 41704/33007/32322/30103，transport bad 与所检查 physical
+  fault 均无增长。trial 9130350 / epoch 14 已撤销；本次 P3 新矩阵已实际恢复，四板
+  最终 STOP，恢复诊断 soak 通过，严格启动超时继续保留。
+- 下表为自主窗口的完整 profile 峰值及该条峰值记录中的 RX_CLOCK/RX_LATCH 子项，
+  单位 µs。两版是独立窗口；子项不是单函数微基准或独立 WCET，不能把两版不同分支、
+  代码布局、共享总线或 IRQ 干扰下的差值全部归因于换算实现。
+
+| 节点 | 前版完整峰值 | 本版完整峰值 | 前版 clock / latch | 本版 clock / latch |
+|---|---:|---:|---:|---:|
+| NO1 | 900.652 | 906.880 | 0 / 0 | 0 / 0 |
+| NO2 | 1029.816 | 986.032 | 30.076 / 56.068 | 13.360 / 26.896 |
+| NO3 | 1020.324 | 1108.444 | 17.920 / 27.720 | 23.568 / 50.180 |
+| NO4 | 1091.112 | 1074.636 | 23.352 / 59.196 | 19.084 / 31.076 |
+
+- 自主完整峰值两板下降、两板上升；普通完整峰值为
+  1288.272/948.256/1000.956/995.680 µs，也未全部改善。稀疏 last-clock 样本很少且
+  中位数未一致下降，不能宣布稳定的整体收益。自主 `SCHEDULE` overrun 增量为
+  58628/60499/61602/62384，完整 WCET 与正式 RAM 仍 FAIL。
+- 自主 NO2/NO3/NO4 的 `rx_ring_overrun_count` 增量为 18252/19481/21848，
+  `rx_observation_drop_count` 为 33002/32402/30081，NO1 两项均无增长。已接收帧的
+  CRC 正确性不证明逐圈观察无损；这些计数表示观察覆盖/丢弃，不能换算成 wire 坏帧数。
+  当前/前版原件对照与撤销读回见 `observation-scope-r1.json`。
+- 下一步审计每拍训练 gate 发布的全部读写者、pending command 与初始化边界：当前
+  `tdma_runtime_owner_update_training_gate()` 复制训练快照后进入 Resource Arbiter
+  的共享 OSAL 临界区，多核入口为 `spin_lock_blocking()`；尚未隔离其等待时间。
+  不能通过仅缓存 Core1 当前状态破坏命令侧的提前准入投影，见
+  `next-boundary-inspection.json`。本轮不修改该路径。
+- 预算保持 `PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES`，节点容量后续项后置；没有新增
+  service blackout、自主波形、同圈多 owner 更新或特等时间戳保全证明。切片 PARTIAL，
+  长期目标保持 active；审核与分离提交封存入口为 `review-r1.json`、`commit-proof.json`。
 
 ### TDMA-PROGRESS-20260913-034 - 无新版本 TX 快速复用与完整阶段对照
 

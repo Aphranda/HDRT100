@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
 Related: `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_ARCHITECTURE.md`
-Last updated: 2026-09-10
+Last updated: 2026-09-13
 
 本文是 HAOFV Virtual Distributed Clock（VDC）内部基础主域的稳定架构事实源。
 VDC 负责多节点共同时间、offset/rate 估计、质量 promotion 和时间快照发布；不拥有
@@ -104,6 +104,13 @@ VDC command snapshot；禁止以“最后一个收到的 mailbox”作为从机�
   fallback；未验证的 peer command 同样不能驱动 DCO。
 - oscillator trim 与 DCO signal phase owner 分离；任何 trim 更新都必须保持 clock-model
   连续性，且不能单独提高 DPLL lock 或产品质量等级。
+
+公共本地时钟的拍数读取与纳秒派生由 `vdc_timestamp_clock_read_ticks64()` 和
+`vdc_timestamp_clock_ticks_to_ns()` 提供。初始化保存实际 tick frequency 与向上取整的
+resolution；只有二者乘积精确等于一秒纳秒数时，resolution 才能作为整数换算因子，
+其余频率仍按商余数计算向下取整结果。该实现保留原无符号结果回绕语义，不重新
+初始化 timer、调整 epoch 或改变 `local_tick_raw`；Core1 schedule 的边界与 WCET
+继续使用原始拍数。换算加速不能提升 latch 精度、evidence 资格或逐圈保全声明。
 
 ## 两层状态机
 

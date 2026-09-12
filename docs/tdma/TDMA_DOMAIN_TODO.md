@@ -151,6 +151,13 @@ FAIL。下一步核验无新版本时 overlay 准入和 RX handoff 的剩余工�
 runtime 事实发布与运行干扰的成本；保留嵌套计时关系，不能把 RX_CAPTURE 与包含它的
 RX_HANDOFF 重复相加。STOP 应答超时及前序 ARM 拒绝保持开放，预算与后续项顺序保持。
 
+物理 RX 提取及 latch 重装使用的公共时钟已加入精确整数周期换算，见
+`TDMA-PROGRESS-20260913-035`。算术结果与原无符号商余数表达式等价，实际时钟路径
+绕过长除法且无新增 RAM；完整 phase 仍未一致改善，WCET/正式 RAM 和观察无损性未
+通过。下一步审计每拍训练 gate 发布中的共享锁等待、快照复制与全部读写者，尤其
+保留 pending command 的提前准入投影、初始化和停止边界；不能以缓存当前状态代替
+完整仲裁语义。预算、service blackout、同圈交换及特等席保全的退出门禁继续保留。
+
 普通 RX 异步解析切片已按用户顺序封存，随后完成六节点编译容量的隔离 RAM 核算，见
 `TDMA-PROGRESS-20260912-019`。核算区分本地状态、固定 wire/RefMem/Calibration
 存储容量与 scratch_y；收益不能代替正式 RAM/WCET 门禁。编译容量作为独立辅助切片
