@@ -356,6 +356,10 @@ receive health、novelty 和 RX FIFO。origin 授权在采集时绑定，后续 
 transport CRC 校验，返回位置、帧长与连续帧证据，不持有 live DMA 或物理 owner
 指针。Core1 据此直接定位当前已完成帧，重新读取 live ring，并在复制后再次核对覆盖
 和 epoch；该次 live copy 之后才沿原边界绑定 latch/RTT，不能把旧扫描副本当作新接收。
+DMA ring 保持字宽存储，归一化后的 Core1 私有帧使用紧凑字节表示；它不作为 DMA
+目标。私有窗口复制由 `tdma_pio_spi_phys_rx_ring_copy()` 复用相邻原始字节，减少错位
+提取的重复读取；完整区间准入与复制后复验仍由调用者负责。私有 packet 的批量复制
+只能在帧长和容量校验后进行，不能据复制更快跳过 epoch、覆盖或 latch 因果边界。
 工位忙时不等待，旧提示失效时重新请求发现；READY 还须核对 persona、配置与请求
 epoch。观察副本的重同步不得移动已锁定的 wire overlay 相位。STOP/训练/自主 origin
 切换撤销提示，重新 ARM 必须等待扫描工位取消 ACK；普通镜像工位不承担逐圈时间
