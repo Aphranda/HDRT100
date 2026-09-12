@@ -8,7 +8,12 @@ Last updated: 2026-09-12
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的启动截止检查与 origin CRC 调查切片见
+当前 `TDMA-FLIGHT-002F` 的返回 DATA 相位对照见 `TDMA-PROGRESS-20260912-029`，
+证据根为 `out/HardwareAcceptance/20260912/tdma-flight-origin-phase-ab/`。近端从站
+与 origin 的相位组合已复现并消除有限观察窗口内的 CRC 增长，采样余量是重点方向；
+尚未完成根因修复或严格验收。四板已恢复当前矩阵并 STOP，完整 WCET、正式 RAM、
+特等席保全及节点容量后续项顺序保持。
+前序启动截止检查与 origin CRC 调查切片见
 `TDMA-PROGRESS-20260912-028`，证据根为
 `out/HardwareAcceptance/20260912/tdma-flight-origin-crc/`。主机启动观测已拒绝迟到
 稳定样本；CRC 采样相位线索尚未确认根因。完整 WCET、正式 RAM 与特等席保全仍开放，
@@ -106,6 +111,59 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260912-029 - origin 与近端从站 DATA 相位组合归因
+
+- 日期：2026-09-12；TODO task ID：`TDMA-FLIGHT-002F`。以下数字为实验快照，
+  非事实源；证据根为 `out/HardwareAcceptance/20260912/tdma-flight-origin-phase-ab/`。
+- 基线 `dcb5eb09d5ca1379dd63bfc1744e9bd59a7a2d35`；四板保持 build
+  `20260912144225`，源码指纹
+  `b0d8daf294f26844c8cb01da84ff942101de8f39940bb30e88aa5a24caf345f0`。
+  本轮仅执行已授权的有界诊断与文档更新，没有固件/PIO/构建/正式工具实现变更、
+  重新 OTA 或新 P3 凭证。前轮真实 P3 的严格失败仍保留，不将本轮对照提升为 P3 通过。
+- 最初 SCK 行对照在 `load_config()` 预检时因不能在 opposite edge 前 re-arm 被拒绝，
+  尚未发送硬件命令；失败保留在 `phase-ab-command-r1.log/json`，未放宽准入。
+  随后的 NO3 DATA 对照使用当前矩阵行 `1→0→1`，实际 phase `15→14→15`，
+  三段实际 soak `24.906/25.141/24.485 s`，四板 transport bad 增量均零。
+- 为复现前轮差异，使用封存旧矩阵 `tdma-flight-owner-attribution/matrix-strict-r1.json`
+  的合法行，矩阵原件与 `passed/diagnostic_continue` 未编辑；固件源与前轮相同，
+  但矩阵生成早于当前 build，因此只作 diagnostic replay。MARK/SCK 及其他从站
+  DATA 参数不变，以下均按各板原始 physical 读回确认，不能按矩阵 link 编号猜测。
+
+  | 窗口 | 旧矩阵行 | origin / NO2 DATA phase | 实际 soak（s） | NO1 RX good / bad 增量 | 四板掉线事件 |
+  |---|---|---|---|---|---|
+  | `no2-a1` | 7 | 15 / 15 | 25.657 | 6188 / 0 | 均零 |
+  | `no2-b` | 5 | 15 / 14 | 25.984 | 6170 / 18 | NO1 一次，随后恢复 |
+  | `no2-a-recovery` | 7 | 15 / 15 | 25.859 | 6278 / 0 | 均零 |
+  | `origin14-no2-14` | 1 | 14 / 14 | 25.438 | 6059 / 0 | 均零 |
+  | `origin14-no2-15` | 3 | 14 / 15 | 25.656 | 6194 / 0 | 均零 |
+
+- 所有窗口的 NO2/NO3/NO4 CRC 增量均零，无 physical fault 增长或 counter regression。
+  原 NO2 A/B/A 脚本在 B 段发现 down event 后终止，`no2-a2` 未执行；
+  `no2-a-recovery` 是核实 STOP 并恢复当前矩阵后的独立恢复对照，不能改写原脚本为完成。
+  两个 origin 组合均完成有限 soak；第二段后的独立 STOP helper 在 NO3 收到
+  `<timeout>`，使组合包装器失败。后续原始状态已是四板 stopped，但该命令失败保留，
+  不用状态读回覆盖。最终 `restore-current-r3/` 经现有 owner 生命周期恢复当前矩阵
+  active row 并再次确认 STOP；实际 soak `8.172 s`，四板 RX good 增量
+  `1990/1998/1997/1998`，CRC 与 down 增量均零。
+- `phase-analysis-r1.json` 逐样本校验 build、相位读回、matrix generation，并从首末
+  runtime counter 与逐区间增量交叉核算接收统计。B 段保存的 schedule/profile
+  异常 bit 均为 `1→0`，其中可在同字段确定的下一线上 bit 为 `0`；跨字段下一 bit
+  未推断。这与前轮偏晚采样线索一致，但尚未保留同一坏帧的物理波形与接收私有副本。
+  runtime 与 CRC diagnostic 的坏帧 sequence 在多个同 sample 查询中不同，分析
+  显式记录并分开处理，不能拼成同一错误帧。
+- 结论：在受测条件中，相位组合可触发和消除有限窗口内的错误，排查重点收敛到
+  NO2→origin 返回 DATA 的采样余量；不能据此直接冻结新 phase。origin DATA 参数
+  同时影响 TX 与 RX，NO2 参数同时影响采样与输出重定时，仍需区分具体机制。
+  所有运行均保留 startup timeout，`passed/closed_loop_passed/realtime_gate_passed=false`，
+  `diagnostic_continue=true`；有限 soak 通过不能替代完整 phase/WCET 或稳定性验收。
+- 文档自回归、主控原始证据复核、独立文档提交与 SHA 封存见本根的检查日志、
+  `review-r1.json`、`slice-manifest.json`、`commit-proof.json`。本轮为归因进展，
+  `TDMA-FLIGHT-002F` 仍 IN PROGRESS，切片 PARTIAL；无 registry/C11 状态变更。
+- 下一 gate：绑定实际 PIO 时序、返回 DATA 有效窗口和同一坏帧副本，建立可复核的
+  采样余量及反例，再由 Calibration owner 提出修复并完成当前源码软件/构建/P3。
+  正确性闭合后继续 overlay/RX 削减；保留 `PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES`、
+  正式 RAM、特等席逐圈保全和动态节点后续项的原有门禁。
 
 ### TDMA-PROGRESS-20260912-028 - 启动采样截止检查与 origin CRC 相位调查
 

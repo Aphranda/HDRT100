@@ -1021,6 +1021,17 @@ phase count、stage count、记录类型、sequence、start ticks、total ticks�
 `PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES`。实现与有限硬件证据见
 `TDMA-PROGRESS-20260912-028`。
 
+物理相位归因以各板 `flight_marker_phase_delay_cycles`、
+`flight_sck_phase_delay_cycles`、`flight_data_phase_delay_cycles` 的实际读回为准；
+矩阵 link 顺序不能直接充当板卡应用参数。现有 follower DATA 参数同时影响采样与
+输出重定时；origin 的同名参数同时进入 DATA TX 与返回 DATA capture 初始化，故
+相位组合对照不能直接解释为仅改变接收采样。PIO re-arm 准入只约束指令能否赶上
+后续边沿，不能单独证明返回 DATA 的有效采样窗口和稳定余量。有限诊断零错误窗口
+也不能替代 Calibration 事实、新配置准入、完整性和长稳验收。
+runtime 与 CRC diagnostic 是不同查询快照，关联坏帧须核对各自 sequence，不能按
+主机 sample index 拼接；未保留同一坏帧原件时，字段差异仅作为归因线索。验证映射
+见 `TDMA-PROGRESS-20260912-029`，不在本节冻结相位常数或改变现有 WCET 门禁。
+
 adapter 候选只在已接受的 bootstrap boundary 交接；自主态每次 service 有界收割
 RX 观察与尝试本地 shadow 发布，不补发遗漏周期、不伪造逐帧 completion。返回包需与
 所属 bank 的 sequence、identity、driver generation 及本地 mailbox 对应，再进入
