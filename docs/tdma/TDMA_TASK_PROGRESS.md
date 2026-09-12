@@ -8,7 +8,11 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的独立 RX 窗口扫描与后续复制成本核验见
+当前 `TDMA-FLIGHT-002F` 的 persona 专用 RX 复制与 DMA 字读取切片见
+`TDMA-PROGRESS-20260913-033`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-rx-copy-persona/`。复制子项与完整 phase
+分别测量，严格启动、完整 WCET、正式 RAM 和特等席保全继续独立验收。
+前序独立 RX 窗口扫描与后续复制成本核验见
 `TDMA-PROGRESS-20260913-032`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-origin-rx-window/`。本轮保持已提交固件，
 在当前 P3 测量基线上显式扩展诊断维度；接收有效窗口、保守余量与完整 WCET 仍待
@@ -127,6 +131,59 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-033 - persona 专用 RX 复制与显式 DMA 字读取
+
+- 日期：2026-09-13；TODO task ID：`TDMA-FLIGHT-002F`。以下数值为实验快照，非事实源；
+  证据根为 `out/HardwareAcceptance/20260913/tdma-flight-rx-copy-persona/`。
+- `tdma_pio_spi_phys_rx_ring_copy()` 在既有 Core1 owner 同步边界内一次选择 persona，
+  普通与反转方向分别使用对齐/错位循环；反转通过共用 helper 内联 RBIT。复制后
+  observation epoch/覆盖复验、STOP/配置取消、latch 因果边界与原始 wire 路径保持。
+  ARM/PIO/DMA 资源分配与正式预算未改变。
+- 反汇编复核抓到旧 word reader 未显式 volatile：首版出现 byte-width load 和多余的
+  入口读取。该候选 P3 在 build 阶段主动终止，未 OTA；`p3-command-r1.*`、首版镜像
+  和 checkpoint 保留。最终在 word reader 使用 `const volatile uint32_t *`，实链 A/B
+  确认模式判断只在入口，DMA 读取为 LDR.W，归一化循环无外部调用。
+- `rx-tests-r2` 与 `final-integration-tests-r1` 合计 147 项不同 Python case 通过；真实 C
+  差分覆盖 320 种组合，按独立 wire bit 预期验证两种位序、全部 bit shift、不同长度、
+  SRAM/sequence 回绕、未对齐目标哨兵及精确读取次数。保留推进中 DMA 覆盖/epoch
+  和异步取消测试。第一次集成夹具漏引 helper 的 44 项 setup error 保留，修正后重测。
+- Release A/B/Boot 为 build `20260912180157`，源码指纹
+  `c385db6faa778e1804f3498279792886edfb5813ab9167d751e9f0ea45eedf3e`；编译容量仍为
+  `PROJECT_NODE_CAPACITY=6`，A/B link free 各 4904 B，未增加链接 RAM。PIO 生成头与
+  前序版本逐字节相同。四板真实 P3 `run --tdma-only` 完成，诊断凭证 `passed=true`、
+  `strict_gates_passed=false`；编码 marker 拒绝及短帧启动屏障超时保留。
+- RX14 对照准备先遇 NO4 `FLIGHT_MAP_REJECTED=5`；一次有界重试再遇 NO3
+  `RUNTIME_CONFIG_REJECTED=8`。两次均未进入自主试验，均实际恢复本次矩阵并四板 STOP。
+  原始拒绝快照显示 stopped、physical last_error 为零、process configured/inactive。
+  随后一次软件复位复核相同 build/UID，再成功四板 ARM；不能以该成功消除原拒绝事实。
+  具体 predicate/跨核 generation 仍须定位，见 `arm-boundary-inspection.json`。
+- 复位后的 RX14 对照使用与 progress031 相同的旧诊断矩阵行；发送相位为
+  15/14/15/15，RX/TX 读回逐样本核验。这用于比较两版复制实现，不作为本次有效
+  校准窗口。普通样本首末跨度 21.823 s，自主首末跨度 88.920 s；名义采集时长包括
+  第一组查询，不能直接当作计数差分窗口。自主模式有效收帧为
+  42426/34025/33122/30914，各板 transport bad 与已检查 physical fault 均无增长。
+  临时许可证已撤销，恢复本次 P3 矩阵并确认四板 STOP；原始 SCPI/计时/阶段记录在
+  `autonomous-r3.json`、`timing-r3/`、`restore-r3/`，比较入口为 `timing-comparison-r1.json`。
+- 以下是各版自主窗口中**完整 profile 峰值所对应的同一条记录**，单位 µs；copy 列
+  是该条记录的子项，不是独立复制 WCET。两版是分开采集，不能将减少量解释为
+  排除代码布局、IRQ/共享总线干扰后的纯指令收益。
+
+| 节点 | 前版完整峰值 | 本版完整峰值 | 前版峰值内 copy | 本版峰值内 copy |
+|---|---:|---:|---:|---:|
+| NO1 | 894.100 | 920.296 | 0（该路径无 ring copy） | 0 |
+| NO2 | 1024.856 | 969.008 | 146.584 | 89.476 |
+| NO3 | 1096.108 | 1048.148 | 245.244 | 127.664 |
+| NO4 | 1113.456 | 1113.092 | 212.052 | 157.856 |
+
+- 自主从站 copy 子项下降，完整峰值改善较小且 NO1 上升；普通完整峰值为
+  1231.076/928.396/949.336/1025.940 µs，也未统一改善。自主 `SCHEDULE` overrun
+  增量为 57101/62188/63239/62719，完整 WCET 仍 FAIL；正式 RAM 仍 FAIL。
+  门禁保持 `PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES`，不因本次局部收益放宽。
+- 下一步优先核验无新版本时 overlay 准入与 RX handoff 的剩余成本，并保留 pending
+  硬件服务、FIFO 消费/释放顺序和配置失效检查；ARM 聚合拒绝须细化到实际谓词与
+  owner 边界。暂未新增自主 waveform、service blackout、同圈多 owner 更新或特等
+  时间戳保全证据。切片为 PARTIAL，`TDMA-FLIGHT-002` 持续推进，节点容量后续项后置。
 
 ### TDMA-PROGRESS-20260913-032 - 当前测量基线上的独立 RX 窗口扫描
 

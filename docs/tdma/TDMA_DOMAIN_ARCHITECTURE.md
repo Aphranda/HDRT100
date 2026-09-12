@@ -364,8 +364,11 @@ transport CRC 校验，返回位置、帧长与连续帧证据，不持有 live 
 和 epoch；该次 live copy 之后才沿原边界绑定 latch/RTT，不能把旧扫描副本当作新接收。
 DMA ring 保持字宽存储，归一化后的 Core1 私有帧使用紧凑字节表示；它不作为 DMA
 目标。私有窗口复制由 `tdma_pio_spi_phys_rx_ring_copy()` 复用相邻原始字节，减少错位
-提取的重复读取；process follower 的观察字在
-`tdma_pio_spi_phys_rx_ring_byte()` 中按位反转。支持该指令的 ARM 构建直接内联
+提取的重复读取。`tdma_pio_spi_phys_rx_ring_word()` 通过显式 volatile 字视图读取 DMA
+ring，完整复制在既有 Core1 owner 边界内一次选择 persona 位序，分别执行普通与
+反转循环；persona 切换仍通过原 STOP/配置路径，不能在复制中途发生。process follower
+的观察字由 `tdma_pio_spi_phys_rx_ring_reversed_byte()` 按位反转，单字节读取入口与
+批量复制共用该语义。支持该指令的 ARM 构建直接内联
 `__builtin_arm_rbit()`，其他目标保留 Pico bit reverse 后备；它不是 byte swap，
 也不改变 wire forwarding 的数据。完整区间准入与复制后复验仍由调用者负责。私有 packet 的批量复制
 只能在帧长和容量校验后进行，不能据复制更快跳过 epoch、覆盖或 latch 因果边界。
