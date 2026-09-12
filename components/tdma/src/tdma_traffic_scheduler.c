@@ -358,9 +358,10 @@ bool tdma_traffic_scheduler_init(
     return true;
 }
 
-bool tdma_traffic_scheduler_configure(
+static bool tdma_traffic_scheduler_configure_admission(
     tdma_traffic_scheduler_t *scheduler,
-    const tdma_foundation_profile_t *profile)
+    const tdma_foundation_profile_t *profile,
+    bool open)
 {
     tdma_profile_result_t profile_result = TDMA_PROFILE_BAD_ARGUMENT;
     if (scheduler == NULL || profile == NULL ||
@@ -389,7 +390,7 @@ bool tdma_traffic_scheduler_configure(
         slot_base += profile->resource.traffic[i].queue_depth;
     }
     __atomic_store_n(&scheduler->configured, 1u, __ATOMIC_RELEASE);
-    __atomic_store_n(&scheduler->admission_open, 1u, __ATOMIC_RELEASE);
+    __atomic_store_n(&scheduler->admission_open, open ? 1u : 0u, __ATOMIC_RELEASE);
     scheduler->config_seq++;
     scheduler->enqueue_seq = 0u;
     scheduler->dispatch_seq = 0u;
@@ -419,6 +420,20 @@ bool tdma_traffic_scheduler_configure(
     scheduler->last_traffic_class = UINT32_MAX;
     tdma_traffic_scheduler_unlock(scheduler);
     return true;
+}
+
+bool tdma_traffic_scheduler_configure(
+    tdma_traffic_scheduler_t *scheduler,
+    const tdma_foundation_profile_t *profile)
+{
+    return tdma_traffic_scheduler_configure_admission(scheduler, profile, true);
+}
+
+bool tdma_traffic_scheduler_configure_closed(
+    tdma_traffic_scheduler_t *scheduler,
+    const tdma_foundation_profile_t *profile)
+{
+    return tdma_traffic_scheduler_configure_admission(scheduler, profile, false);
 }
 
 bool tdma_traffic_scheduler_set_cycle_period(
@@ -484,13 +499,19 @@ bool tdma_traffic_scheduler_suspend(
     return true;
 }
 
+void tdma_traffic_scheduler_close_admission(tdma_traffic_scheduler_t *scheduler)
+{
+    if (scheduler != NULL) {
+        __atomic_store_n(&scheduler->admission_open, 0u, __ATOMIC_RELEASE);
+    }
+}
+
 bool tdma_traffic_scheduler_resume(tdma_traffic_scheduler_t *scheduler)
 {
-    if (scheduler == NULL || !tdma_traffic_scheduler_try_lock(scheduler)) {
+    if (scheduler == NULL) {
         return false;
     }
     __atomic_store_n(&scheduler->admission_open, 1u, __ATOMIC_RELEASE);
-    tdma_traffic_scheduler_unlock(scheduler);
     return true;
 }
 
@@ -510,7 +531,7 @@ tdma_traffic_scheduler_result_t tdma_traffic_scheduler_enqueue(
         tdma_traffic_scheduler_unlock(scheduler);
         return TDMA_TRAFFIC_SCHEDULER_NOT_CONFIGURED;
     }
-    if (scheduler->admission_open == 0u) {
+    if (__atomic_load_n(&scheduler->admission_open, __ATOMIC_ACQUIRE) == 0u) {
         (void)tdma_traffic_scheduler_note_result(
             scheduler, UINT32_MAX, TDMA_TRAFFIC_SCHEDULER_GATE_CLOSED);
         tdma_traffic_scheduler_unlock(scheduler);
@@ -628,7 +649,7 @@ tdma_traffic_scheduler_result_t tdma_traffic_scheduler_enqueue_recovery(
         tdma_traffic_scheduler_unlock(scheduler);
         return TDMA_TRAFFIC_SCHEDULER_NOT_CONFIGURED;
     }
-    if (scheduler->admission_open == 0u) {
+    if (__atomic_load_n(&scheduler->admission_open, __ATOMIC_ACQUIRE) == 0u) {
         tdma_traffic_scheduler_unlock(scheduler);
         return TDMA_TRAFFIC_SCHEDULER_GATE_CLOSED;
     }
@@ -764,7 +785,7 @@ tdma_traffic_scheduler_result_t tdma_traffic_scheduler_select(
         tdma_traffic_scheduler_unlock(scheduler);
         return TDMA_TRAFFIC_SCHEDULER_NOT_CONFIGURED;
     }
-    if (scheduler->admission_open == 0u) {
+    if (__atomic_load_n(&scheduler->admission_open, __ATOMIC_ACQUIRE) == 0u) {
         tdma_traffic_scheduler_unlock(scheduler);
         return TDMA_TRAFFIC_SCHEDULER_GATE_CLOSED;
     }
@@ -1004,7 +1025,8 @@ bool tdma_traffic_scheduler_get_snapshot(
     memset(snapshot, 0, sizeof(*snapshot));
     snapshot->version = TDMA_TRAFFIC_SCHEDULER_VERSION;
     snapshot->configured = scheduler->configured;
-    snapshot->admission_open = scheduler->admission_open;
+    snapshot->admission_open =
+        __atomic_load_n(&scheduler->admission_open, __ATOMIC_ACQUIRE);
     snapshot->config_seq = scheduler->config_seq;
     snapshot->enqueue_seq = scheduler->enqueue_seq;
     snapshot->dispatch_seq = scheduler->dispatch_seq;

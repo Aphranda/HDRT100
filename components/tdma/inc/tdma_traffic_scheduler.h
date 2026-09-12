@@ -232,6 +232,10 @@ bool tdma_traffic_scheduler_init(
 bool tdma_traffic_scheduler_configure(
     tdma_traffic_scheduler_t *scheduler,
     const tdma_foundation_profile_t *profile);
+/* Profile replacement for a stopped lifecycle keeps producer admission shut. */
+bool tdma_traffic_scheduler_configure_closed(
+    tdma_traffic_scheduler_t *scheduler,
+    const tdma_foundation_profile_t *profile);
 bool tdma_traffic_scheduler_set_cycle_period(
     tdma_traffic_scheduler_t *scheduler,
     uint32_t cycle_period_ns);
@@ -241,6 +245,9 @@ bool tdma_traffic_scheduler_cancel_pending(
 bool tdma_traffic_scheduler_suspend(
     tdma_traffic_scheduler_t *scheduler,
     uint32_t *canceled_count);
+/* Lifecycle owner closes before physical STOP; retirement is separate. */
+void tdma_traffic_scheduler_close_admission(tdma_traffic_scheduler_t *scheduler);
+/* Reopen only after retirement and physical ARM acknowledgement. */
 bool tdma_traffic_scheduler_resume(tdma_traffic_scheduler_t *scheduler);
 tdma_traffic_scheduler_result_t tdma_traffic_scheduler_enqueue(
     tdma_traffic_scheduler_t *scheduler,

@@ -557,6 +557,12 @@ void tdma_ring_runtime_unbind_adapter(tdma_ring_runtime_t *runtime)
 
 void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
 {
+    tdma_ring_runtime_service_with_stop_gate(runtime, true);
+}
+
+void tdma_ring_runtime_service_with_stop_gate(tdma_ring_runtime_t *runtime,
+                                             bool allow_stop)
+{
     if (runtime == NULL) {
         return;
     }
@@ -575,6 +581,15 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
         enabled != 0u && up_group != 0u && down_group != 0u &&
         up_group != down_group &&
         (flags & TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN) != 0u;
+
+    /* A generic transfer selected before admission closed still owns its
+     * adapter/recovery storage. Do not acknowledge STOP (even if the ring
+     * adapter is already idle) until that Core1 operation has retired. */
+    if (!allow_stop && (!up_down_config_ready ||
+                       runtime->adapter_stop_pending != 0u ||
+                       runtime->adapter_config_seq != service_config_seq)) {
+        return;
+    }
 
     const uint32_t previous_down_rx_sequence = runtime->down_rx_sequence;
     tdma_ring_adapter_status_t adapter_status;

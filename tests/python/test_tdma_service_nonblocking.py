@@ -33,7 +33,7 @@ def service_exe(tmp_path_factory):
     return exe
 
 
-@pytest.mark.parametrize("case", ["writer", "changed", "window", "miss", "abort", "resident", "map_admission"])
+@pytest.mark.parametrize("case", ["writer", "changed", "window", "miss", "abort", "resident", "map_admission", "lifecycle", "lifecycle_selected", "lifecycle_pending"])
 def test_service_yields_without_losing_intent(service_exe, case):
     result = subprocess.run([str(service_exe), case], capture_output=True,
                             text=True, timeout=3)

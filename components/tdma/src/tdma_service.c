@@ -17,6 +17,17 @@
 #define tdma_service_ERROR_WINDOW_MISSED 101u
 #define TDMA_SERVICE_SNAPSHOT_RETRY_LIMIT 64u
 
+enum {
+    TDMA_RING_CONTROL_NONE = 0u,
+    TDMA_RING_CONTROL_RETIRE = 1u,
+    TDMA_RING_CONTROL_ARM = 2u,
+};
+
+static bool tdma_service_ring_control_lock(tdma_service_service_t *service);
+static void tdma_service_ring_control_unlock(tdma_service_service_t *service);
+static bool tdma_service_ring_retire_stopped(tdma_service_service_t *service);
+static void tdma_service_ring_stop_locked(tdma_service_service_t *service);
+
 static uint64_t tdma_service_now_ns(void)
 {
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
@@ -442,7 +453,7 @@ bool tdma_service_bind_ring_adapter(tdma_service_service_t *service,
                                           context);
 }
 
-bool tdma_service_configure_foundation_profile(
+static bool tdma_service_configure_foundation_profile_locked(
     tdma_service_service_t *service,
     const tdma_foundation_profile_t *profile,
     uint32_t schedule_crc32)
@@ -478,7 +489,7 @@ bool tdma_service_configure_foundation_profile(
     scheduler_profile.profile_crc32 =
         tdma_foundation_profile_crc32(&scheduler_profile);
     if (service->traffic_scheduler != NULL &&
-        !tdma_traffic_scheduler_configure(service->traffic_scheduler,
+        !tdma_traffic_scheduler_configure_closed(service->traffic_scheduler,
                                           &scheduler_profile)) {
         return false;
     }
@@ -533,10 +544,29 @@ bool tdma_service_configure_foundation_profile(
     service->ring_staged_config = ring;
     /* Product links start explicitly after both boards have roles assigned.
      * Keep the adapter and all ISO1452 drivers stopped at boot/profile load. */
-    return tdma_service_ring_stop(service);
+    tdma_service_ring_stop_locked(service);
+    return true;
 }
 
-bool tdma_service_set_operating_profile(
+bool tdma_service_configure_foundation_profile(
+    tdma_service_service_t *service,
+    const tdma_foundation_profile_t *profile,
+    uint32_t schedule_crc32)
+{
+    if (service == NULL || !tdma_service_ring_control_lock(service)) return false;
+    tdma_ring_runtime_snapshot_t snapshot;
+    const bool ok = tdma_service_ring_retire_stopped(service) &&
+        tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot) &&
+        snapshot.enabled == 0u && snapshot.adapter_started == 0u &&
+        snapshot.config_seq == snapshot.applied_config_seq &&
+        tdma_service_load(&service->intent_seq) == service->completed_seq &&
+        tdma_service_configure_foundation_profile_locked(service, profile,
+                                                         schedule_crc32);
+    tdma_service_ring_control_unlock(service);
+    return ok;
+}
+
+static bool tdma_service_set_operating_profile_locked(
     tdma_service_service_t *service,
     const tdma_operating_profile_t *profile)
 {
@@ -575,6 +605,17 @@ bool tdma_service_set_operating_profile(
     service->operating_profile = *profile;
     service->ring_staged_config = staged;
     return true;
+}
+
+bool tdma_service_set_operating_profile(
+    tdma_service_service_t *service,
+    const tdma_operating_profile_t *profile)
+{
+    if (service == NULL || !tdma_service_ring_control_lock(service)) return false;
+    const bool ok = tdma_service_ring_retire_stopped(service) &&
+        tdma_service_set_operating_profile_locked(service, profile);
+    tdma_service_ring_control_unlock(service);
+    return ok;
 }
 
 bool tdma_service_set_loop_delay_ns(tdma_service_service_t *service,
@@ -780,10 +821,78 @@ bool tdma_service_clear_calibration_stage(tdma_service_service_t *service)
     return true;
 }
 
+static bool tdma_service_ring_control_lock(tdma_service_service_t *service)
+{
+    uint32_t expected = 0u;
+    return __atomic_compare_exchange_n(&service->ring_control_guard,
+        &expected, 1u, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED);
+}
+
+static void tdma_service_ring_control_unlock(tdma_service_service_t *service)
+{
+    __atomic_store_n(&service->ring_control_guard, 0u, __ATOMIC_RELEASE);
+}
+
+/* Caller owns the Core0 control guard. Do not retire queue/recovery storage
+ * until the matching physical STOP has been acknowledged by Core1. */
+static bool tdma_service_ring_retire_stopped(tdma_service_service_t *service)
+{
+    if (service->ring_control_pending != TDMA_RING_CONTROL_RETIRE) {
+        return true;
+    }
+    tdma_ring_runtime_snapshot_t snapshot;
+    if (!tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot) ||
+        snapshot.enabled != 0u || snapshot.adapter_started != 0u ||
+        snapshot.config_seq != service->ring_control_config_seq ||
+        snapshot.applied_config_seq != service->ring_control_config_seq) {
+        return false;
+    }
+    if (service->traffic_scheduler != NULL &&
+        !tdma_traffic_scheduler_cancel_pending(service->traffic_scheduler, NULL)) {
+        return false;
+    }
+    service->ring_control_pending = TDMA_RING_CONTROL_NONE;
+    return true;
+}
+
+void tdma_service_core0_lifecycle_service(tdma_service_service_t *service)
+{
+    if (service == NULL || !tdma_service_ring_control_lock(service)) {
+        return;
+    }
+    if (service->ring_control_pending == TDMA_RING_CONTROL_RETIRE) {
+        (void)tdma_service_ring_retire_stopped(service);
+    } else if (service->ring_control_pending == TDMA_RING_CONTROL_ARM) {
+        tdma_ring_runtime_snapshot_t snapshot;
+        if (tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot)) {
+            if (snapshot.config_seq != service->ring_control_config_seq ||
+                snapshot.enabled == 0u) {
+                service->ring_control_pending = TDMA_RING_CONTROL_NONE;
+            } else if (snapshot.adapter_started != 0u &&
+                       snapshot.applied_config_seq == service->ring_control_config_seq) {
+                if (service->traffic_scheduler != NULL) {
+                    (void)tdma_traffic_scheduler_resume(service->traffic_scheduler);
+                }
+                service->ring_control_pending = TDMA_RING_CONTROL_NONE;
+            }
+        }
+    }
+    tdma_service_ring_control_unlock(service);
+}
+
 bool tdma_service_ring_arm(tdma_service_service_t *service)
 {
-    if (service == NULL || service->ring_staged_config.enabled == 0u) {
+    if (service == NULL || !tdma_service_ring_control_lock(service)) {
         return false;
+    }
+    bool accepted = false;
+    tdma_ring_runtime_snapshot_t snapshot;
+    if (service->ring_staged_config.enabled == 0u ||
+        !tdma_service_ring_retire_stopped(service) ||
+        !tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot) ||
+        snapshot.enabled != 0u || snapshot.adapter_started != 0u ||
+        snapshot.applied_config_seq != snapshot.config_seq) {
+        goto done;
     }
     if (service->calibration_gate_required != 0u &&
         (service->calibration_stage.profile_crc32 !=
@@ -793,18 +902,19 @@ bool tdma_service_ring_arm(tdma_service_service_t *service)
          !tdma_ring_runtime_validate_calibration_stage(
              &service->calibration_stage,
              service->ring_staged_config.node_count, NULL))) {
-        return false;
+        goto done;
     }
+    tdma_traffic_scheduler_close_admission(service->traffic_scheduler);
     if (!tdma_service_configure_ring_runtime(
             service, &service->ring_staged_config)) {
-        return false;
+        goto done;
     }
-    if (service->traffic_scheduler == NULL ||
-        tdma_traffic_scheduler_resume(service->traffic_scheduler)) {
-        return true;
-    }
-    (void)tdma_service_configure_ring_runtime(service, NULL);
-    return false;
+    service->ring_control_config_seq = service->ring_runtime.config_seq;
+    service->ring_control_pending = TDMA_RING_CONTROL_ARM;
+    accepted = true;
+done:
+    tdma_service_ring_control_unlock(service);
+    return accepted;
 }
 
 bool tdma_service_ring_train_clock(tdma_service_service_t *service,
@@ -820,14 +930,24 @@ bool tdma_service_ring_start(tdma_service_service_t *service)
            tdma_ring_runtime_set_data_enabled(&service->ring_runtime, true);
 }
 
+static void tdma_service_ring_stop_locked(tdma_service_service_t *service)
+{
+    tdma_traffic_scheduler_close_admission(service->traffic_scheduler);
+    /* NULL is an unconditional disable request for this valid runtime.
+     * Acceptance does not wait for physical stop or queue-lock ownership. */
+    (void)tdma_service_configure_ring_runtime(service, NULL);
+    service->ring_control_config_seq = service->ring_runtime.config_seq;
+    service->ring_control_pending = TDMA_RING_CONTROL_RETIRE;
+}
+
 bool tdma_service_ring_stop(tdma_service_service_t *service)
 {
-    if (service == NULL ||
-        !tdma_service_configure_ring_runtime(service, NULL)) {
+    if (service == NULL || !tdma_service_ring_control_lock(service)) {
         return false;
     }
-    return service->traffic_scheduler == NULL ||
-           tdma_traffic_scheduler_suspend(service->traffic_scheduler, NULL);
+    tdma_service_ring_stop_locked(service);
+    tdma_service_ring_control_unlock(service);
+    return true;
 }
 
 bool tdma_service_submit_tx(tdma_service_service_t *service,
@@ -997,7 +1117,11 @@ void tdma_service_core1_service(tdma_service_service_t *service)
     }
 
     const uint64_t runtime_start = tdma_service_timing_now();
-    tdma_ring_runtime_service(&service->ring_runtime);
+    const bool generic_quiescent = service->traffic_scheduler == NULL ||
+        ((tdma_service_load(&service->intent_guard) & 1u) == 0u &&
+         tdma_service_load(&service->intent_seq) == service->completed_seq);
+    tdma_ring_runtime_service_with_stop_gate(&service->ring_runtime,
+                                            generic_quiescent);
     tdma_service_timing_record(TDMA_TIMING_RING_RUNTIME, runtime_start);
 
     tdma_service_begin_result_write(service);

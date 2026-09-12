@@ -442,6 +442,10 @@ typedef struct {
     uint32_t calibration_gate_required;
     tdma_operating_profile_t operating_profile;
     uint32_t ring_base_schedule_crc32;
+    /* Core0 command/worker handshake; never acquired by Core1. */
+    volatile uint32_t ring_control_guard;
+    uint32_t ring_control_pending;
+    uint32_t ring_control_config_seq;
     tdma_traffic_scheduler_t *traffic_scheduler;
     tdma_service_adapter_impl_t adapter_impls[TDMA_SERVICE_ADAPTER_IMPL_MAX];
     uint32_t adapter_impl_count;
@@ -499,6 +503,7 @@ bool tdma_service_ring_train_clock(tdma_service_service_t *service,
                                    uint32_t cycles);
 bool tdma_service_ring_start(tdma_service_service_t *service);
 bool tdma_service_ring_stop(tdma_service_service_t *service);
+void tdma_service_core0_lifecycle_service(tdma_service_service_t *service);
 bool tdma_service_submit_tx(tdma_service_service_t *service,
                                     const tdma_service_intent_config_t *config);
 bool tdma_service_submit_rx(tdma_service_service_t *service,

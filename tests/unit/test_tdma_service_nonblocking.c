@@ -14,6 +14,10 @@ static uint32_t timing_reads;
 static bool replace_during_copy;
 static uint8_t transmitted;
 static uint32_t ring_calls, ring_stops;
+static bool ring_stop_fails;
+static bool schedule_intent, stop_during_dispatch, tx_pending;
+static tdma_traffic_scheduler_t selected_scheduler;
+static tdma_traffic_scheduler_slot_t selected_slots[TDMA_TRAFFIC_SCHEDULER_SLOT_COUNT];
 
 uint64_t vdc_timestamp_clock_read_ticks64(void)
 {
@@ -34,6 +38,11 @@ uint64_t time_us_64(void)
 static void *interrupted_copy(void *destination, const void *source, size_t size)
 {
     void *result = memcpy(destination, source, size);
+    if (stop_during_dispatch && destination == service.frame) {
+        stop_during_dispatch = false;
+        assert(tdma_service_ring_stop(&service));
+        tdma_service_core0_lifecycle_service(&service);
+    }
     if (replace_during_copy && source == service.frame) {
         replace_during_copy = false;
         service.intent_guard++;
@@ -59,9 +68,9 @@ static bool transmit(void *context, const uint8_t *frame, size_t size,
     assert(size == 4u);
     tx_calls++;
     transmitted = frame[0];
-    status->result = tdma_service_EXEC_TX_OK;
+    status->result = tx_pending ? tdma_service_EXEC_PENDING : tdma_service_EXEC_TX_OK;
     status->frame_size = size;
-    return true;
+    return !tx_pending;
 }
 
 static bool receive(void *context, uint8_t *frame, size_t size,
@@ -102,6 +111,14 @@ static void setup(bool window)
         .payload_class = TDMA_PAYLOAD_CLASS_VDC_SYNC_SAMPLE,
         .frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT, .max_payload_size = 4u};
     assert(tdma_service_register_payload(&service, &binding));
+    if (schedule_intent) {
+        tdma_foundation_profile_t profile;
+        assert(tdma_foundation_profile_default(&profile, 1u, 0u, 0u, TDMA_ADAPTER_PIO_SPI));
+        assert(tdma_traffic_scheduler_init(&selected_scheduler, selected_slots,
+                                          TDMA_TRAFFIC_SCHEDULER_SLOT_COUNT));
+        assert(tdma_traffic_scheduler_configure(&selected_scheduler, &profile));
+        assert(tdma_service_bind_traffic_scheduler(&service, &selected_scheduler));
+    }
     const uint8_t frame[] = {0xA1u, 2u, 3u, 4u};
     const tdma_service_intent_config_t intent = {
         .role = TDMA_SERVICE_ROLE_MASTER, .baud_hz = 10000000u,
@@ -134,7 +151,7 @@ static bool ring_stop(void *context)
 {
     (void)context;
     ring_stops++;
-    return true;
+    return !ring_stop_fails;
 }
 
 static bool ring_service(void *context, uint64_t time, tdma_ring_adapter_status_t *status)
@@ -230,6 +247,149 @@ int main(int argc, char **argv)
         tick(1500u); pending();
         assert(ring_stops == 1u && service.ring_runtime.adapter_started == 0u);
         service.intent_guard++;
+    } else if (strcmp(test, "lifecycle_selected") == 0 ||
+               strcmp(test, "lifecycle_pending") == 0) {
+        schedule_intent = true;
+        setup(true);
+        const tdma_ring_runtime_config_t config = {
+            .enabled = 1u, .node_count = 2u, .up_group_id = 1u, .down_group_id = 2u,
+            .flags = TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN,
+            .ring_profile_crc32 = 1u, .schedule_crc32 = 2u,
+            .operating_profile_crc32 = 3u, .baud_hz = 10000000u,
+            .cycle_period_ns = 1000000u, .feedback_timeout_ns = 2000000u,
+            .tx_dma_channel_id = 4u, .rx_dma_channel_id = 5u};
+        const tdma_ring_adapter_ops_t ops = {
+            .start = ring_start, .stop = ring_stop, .service = ring_service};
+        assert(tdma_ring_runtime_bind_adapter(&service.ring_runtime, &ops, NULL));
+        assert(tdma_ring_runtime_configure(&service.ring_runtime, &config));
+        service.ring_staged_config = config;
+        stop_during_dispatch = strcmp(test, "lifecycle_selected") == 0;
+        tick(1500u); /* Actual scheduler selection; STOP may interrupt its copy. */
+        assert(service.intent_seq == 1u && service.completed_seq == 0u);
+        assert(service.last_result == tdma_service_RESULT_WAITING_FOR_WINDOW);
+        tx_pending = true;
+        tick(2000u);
+        assert(tx_calls == 1u && service.completed_seq == 0u);
+        if (strcmp(test, "lifecycle_pending") == 0) {
+            assert(tdma_service_ring_stop(&service));
+        }
+        tick(2001u);
+        tdma_service_core0_lifecycle_service(&service);
+        assert(ring_stops == 0u && service.ring_runtime.adapter_started == 1u);
+        assert(service.ring_runtime.applied_config_seq != service.ring_runtime.config_seq);
+        assert(service.ring_control_pending == TDMA_RING_CONTROL_RETIRE);
+        assert(selected_scheduler.admission_open == 0u);
+        assert(!tdma_service_ring_arm(&service));
+        tx_pending = false;
+        tick(2002u);
+        assert(service.completed_seq == service.intent_seq && tx_calls == 3u);
+        assert(ring_stops == 0u);
+        tdma_service_core0_lifecycle_service(&service);
+        assert(service.ring_control_pending == TDMA_RING_CONTROL_RETIRE);
+        tick(2003u);
+        tdma_service_core0_lifecycle_service(&service);
+        assert(ring_stops == 1u && service.ring_control_pending == TDMA_RING_CONTROL_NONE);
+        assert(tdma_service_ring_arm(&service));
+        tick(2004u);
+        tdma_service_core0_lifecycle_service(&service);
+        tick(2005u);
+        assert(tx_calls == 3u && selected_scheduler.admission_open == 1u);
+    } else if (strcmp(test, "lifecycle") == 0) {
+        assert(tdma_service_init(&service));
+        static tdma_traffic_scheduler_t scheduler;
+        static tdma_traffic_scheduler_slot_t slots[2];
+        scheduler.configured = scheduler.admission_open = 1u;
+        scheduler.slot = slots; scheduler.slot_capacity = 2u;
+        scheduler.queue[0].count = scheduler.quality[0].current_depth = 1u;
+        slots[0].frame[0] = 0xA5u;
+        scheduler.recovery[0].state = TDMA_RECOVERY_BUFFER_IN_FLIGHT;
+        scheduler.recovery_quality.current_depth = 1u;
+        service.traffic_scheduler = &scheduler;
+        const tdma_ring_runtime_config_t config = {
+            .enabled = 1u, .node_count = 2u, .up_group_id = 1u, .down_group_id = 2u,
+            .flags = TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN,
+            .ring_profile_crc32 = 1u, .schedule_crc32 = 2u,
+            .operating_profile_crc32 = 3u, .baud_hz = 10000000u,
+            .cycle_period_ns = 1000000u, .feedback_timeout_ns = 2000000u,
+            .tx_dma_channel_id = 4u, .rx_dma_channel_id = 5u};
+        const tdma_ring_adapter_ops_t ops = {
+            .start = ring_start, .stop = ring_stop, .service = ring_service};
+        assert(tdma_ring_runtime_bind_adapter(&service.ring_runtime, &ops, NULL));
+        assert(tdma_ring_runtime_configure(&service.ring_runtime, &config));
+        service.ring_staged_config = config;
+        tick(500u);
+        assert(service.ring_runtime.adapter_started == 1u);
+        scheduler.lock = 1u;
+        const uint32_t running_seq = service.ring_runtime.config_seq;
+        assert(tdma_service_ring_stop(&service));
+        assert(service.ring_runtime.config_seq == running_seq + 1u);
+        assert(scheduler.admission_open == 0u && scheduler.lock == 1u);
+        assert(ring_stops == 0u); /* Core0 acceptance does not call hardware. */
+        tdma_traffic_dispatch_t dispatch;
+        assert(tdma_traffic_scheduler_select(&scheduler, 0u, true, &dispatch) == TDMA_TRAFFIC_SCHEDULER_GATE_CLOSED);
+        tdma_service_core0_lifecycle_service(&service);
+        assert(slots[0].frame[0] == 0xA5u && scheduler.recovery[0].state == TDMA_RECOVERY_BUFFER_IN_FLIGHT);
+        assert(!tdma_service_ring_arm(&service));
+        assert(service.ring_runtime.config_seq == running_seq + 1u);
+        ring_stop_fails = true;
+        tick(500u);
+        tdma_service_core0_lifecycle_service(&service);
+        assert(service.ring_runtime.adapter_started == 1u && scheduler.queue[0].count == 1u);
+        ring_stop_fails = false;
+        tick(500u);
+        assert(service.ring_runtime.adapter_started == 0u && scheduler.queue[0].count == 1u);
+        tdma_service_core0_lifecycle_service(&service); /* Busy queue lock defers retirement. */
+        assert(scheduler.lock == 1u && scheduler.queue[0].count == 1u);
+        scheduler.lock = 0u;
+        service.ring_runtime.result_guard++;
+        tdma_service_core0_lifecycle_service(&service);
+        assert(scheduler.queue[0].count == 1u);
+        service.ring_runtime.result_guard++;
+        const uint32_t stopped_callbacks = ring_stops;
+        tdma_service_core0_lifecycle_service(&service);
+        assert(ring_stops == stopped_callbacks && scheduler.queue[0].count == 0u);
+        assert(slots[0].frame[0] == 0u && scheduler.recovery[0].state == TDMA_RECOVERY_BUFFER_EMPTY);
+        assert(scheduler.quality[0].canceled_count == 1u);
+        assert(service.ring_control_pending == TDMA_RING_CONTROL_NONE);
+        scheduler.lock = 1u;
+        const uint32_t stopped_seq = service.ring_runtime.config_seq;
+        assert(tdma_service_ring_arm(&service));
+        assert(service.ring_runtime.config_seq == stopped_seq + 1u);
+        assert(scheduler.admission_open == 0u && scheduler.lock == 1u);
+        assert(!tdma_service_ring_arm(&service));
+        assert(service.ring_runtime.config_seq == stopped_seq + 1u);
+        tdma_service_core0_lifecycle_service(&service);
+        assert(scheduler.admission_open == 0u);
+        tick(500u);
+        tdma_service_core0_lifecycle_service(&service);
+        assert(scheduler.admission_open == 1u && scheduler.lock == 1u);
+        scheduler.lock = 0u;
+        assert(tdma_service_ring_stop(&service));
+        tick(500u);
+        tdma_service_core0_lifecycle_service(&service);
+        /* Sequence zero is a valid generation, not a no-request sentinel. */
+        service.ring_runtime.config_seq = service.ring_runtime.applied_config_seq = UINT32_MAX;
+        assert(tdma_service_ring_arm(&service));
+        assert(service.ring_control_config_seq == 0u);
+        tick(500u);
+        tdma_service_core0_lifecycle_service(&service);
+        assert(scheduler.admission_open == 1u);
+        assert(tdma_service_ring_stop(&service));
+        tick(500u);
+        tdma_service_core0_lifecycle_service(&service);
+        assert(tdma_service_ring_arm(&service));
+        assert(tdma_service_ring_stop(&service)); /* Supersede an unacknowledged ARM. */
+        tdma_service_core0_lifecycle_service(&service);
+        assert(scheduler.admission_open == 0u);
+        tick(500u);
+        tdma_service_core0_lifecycle_service(&service);
+        assert(scheduler.admission_open == 0u && service.ring_control_pending == TDMA_RING_CONTROL_NONE);
+        const uint32_t final_seq = service.ring_runtime.config_seq;
+        service.ring_control_guard = 1u;
+        assert(!tdma_service_ring_stop(&service) && !tdma_service_ring_arm(&service));
+        tdma_service_core0_lifecycle_service(&service);
+        assert(service.ring_control_guard == 1u && service.ring_runtime.config_seq == final_seq);
+        service.ring_control_guard = 0u;
     } else if (strcmp(test, "map_admission") == 0) {
         assert(tdma_service_init(&service));
         tdma_process_image_map_t map = {

@@ -420,6 +420,10 @@ bool tdma_ring_runtime_bind_adapter(tdma_ring_runtime_t *runtime,
                                     void *context);
 void tdma_ring_runtime_unbind_adapter(tdma_ring_runtime_t *runtime);
 void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime);
+/* Core1 may defer a physical STOP until a previously selected generic
+ * transfer has completed. Running service remains independent of this gate. */
+void tdma_ring_runtime_service_with_stop_gate(tdma_ring_runtime_t *runtime,
+                                             bool allow_stop);
 bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime,
                                     tdma_ring_runtime_snapshot_t *snapshot);
 bool tdma_ring_runtime_get_clock_snapshot(

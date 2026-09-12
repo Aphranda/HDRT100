@@ -162,6 +162,12 @@ static const tdma_ring_adapter_ops_t s_mock_bissc_ring_ops = {
     .service = mock_ring_service,
 };
 
+static void lifecycle_boundary(tdma_service_service_t *service)
+{
+    tdma_service_core1_service(service);
+    tdma_service_core0_lifecycle_service(service);
+}
+
 int main(void)
 {
     int failed = 0;
@@ -173,6 +179,7 @@ int main(void)
     tdma_service_snapshot_t snapshot;
     tdma_flight_fifo_snapshot_t flight_snapshot;
     mock_adapter_t adapter = {0};
+    mock_ring_adapter_t initial_ring = {0};
     const tdma_service_ops_t ops = {
         .transmit = mock_transmit,
         .receive = mock_receive,
@@ -209,10 +216,15 @@ int main(void)
                          1u);
     (void)tdma_foundation_profile_default(
         &profile, 1u, 0u, 0u, TDMA_ADAPTER_PIO_SPI);
+    failed += expect_u32("register initial ring",
+        tdma_service_register_adapter_impl(&service, TDMA_ADAPTER_PIO_SPI,
+                                           &s_mock_spi_ring_ops, &initial_ring), 1u);
     failed += expect_u32("configure profile",
                          tdma_service_configure_foundation_profile(
                              &service, &profile, 0x12345678u),
                          1u);
+    lifecycle_boundary(&service);
+    failed += expect_u32("configured profile keeps admission closed", scheduler.admission_open, 0u);
     failed += expect_u32("factory active nodes",
                          service.ring_staged_config.node_count,
                          TDMA_PROFILE_DEFAULT_ACTIVE_NODE_COUNT);
@@ -364,11 +376,15 @@ int main(void)
                              tdma_service_ring_arm(&service), 1u);
         failed += expect_u32("stop staged ring",
                              tdma_service_ring_stop(&service), 1u);
+        lifecycle_boundary(&service);
         failed += expect_u32("clear calibration matrix",
                              tdma_service_clear_calibration_stage(&service),
                              1u);
         failed += expect_u32("rearm after calibration stop",
                              tdma_service_ring_arm(&service), 1u);
+        failed += expect_u32("ARM acceptance keeps admission closed", scheduler.admission_open, 0u);
+        lifecycle_boundary(&service);
+        failed += expect_u32("ARM acknowledgement opens admission", scheduler.admission_open, 1u);
     }
 
     tdma_service_intent_config_t config = make_intent(
@@ -457,6 +473,8 @@ int main(void)
         mock_ring_adapter_t spi_ring = {.marker = 0x11u};
         mock_ring_adapter_t bissc_ring = {.marker = 0x22u};
         tdma_ring_runtime_snapshot_t ring_snap;
+        failed += expect_u32("stop before adapter replacement", tdma_service_ring_stop(&service), 1u);
+        lifecycle_boundary(&service);
 
         failed += expect_u32("register spi impl",
                              tdma_service_register_adapter_impl(
@@ -481,7 +499,7 @@ int main(void)
                                  &service, &profile, 0x12345678u),
                              1u);
         failed += expect_u32("arm pio spi ring",
-                             tdma_service_ring_arm(&service), 1u);
+                             (lifecycle_boundary(&service), tdma_service_ring_arm(&service)), 1u);
         tdma_service_core1_service(&service);
         failed += expect_u32("start pio spi ring",
                              tdma_service_ring_start(&service), 1u);
@@ -505,6 +523,8 @@ int main(void)
         (void)tdma_foundation_profile_default(
             &profile, 1u, 0u, 0u, TDMA_ADAPTER_BISS_C);
         spi_ring.fail_stop = true;
+        failed += expect_u32("accept failing physical STOP", tdma_service_ring_stop(&service), 1u);
+        lifecycle_boundary(&service);
         const uint32_t old_profile_crc = service.foundation_profile_crc32;
         failed += expect_u32("pending STOP rejects foundation replacement",
                              tdma_service_configure_foundation_profile(
@@ -516,12 +536,13 @@ int main(void)
         failed += expect_u32("pending STOP preserves adapter context",
                              service.ring_runtime.adapter_context == &spi_ring, 1u);
         spi_ring.fail_stop = false;
+        lifecycle_boundary(&service);
         failed += expect_u32("configure bissc profile",
                              tdma_service_configure_foundation_profile(
                                  &service, &profile, 0x12345678u),
                              1u);
         failed += expect_u32("arm bissc ring",
-                             tdma_service_ring_arm(&service), 1u);
+                             (lifecycle_boundary(&service), tdma_service_ring_arm(&service)), 1u);
         tdma_service_core1_service(&service);
         failed += expect_u32("start bissc ring",
                              tdma_service_ring_start(&service), 1u);
@@ -538,12 +559,14 @@ int main(void)
          * ADAPTER_MISSING instead of running the wrong transport. */
         (void)tdma_foundation_profile_default(
             &profile, 1u, 0u, 0u, TDMA_ADAPTER_UART);
+        failed += expect_u32("stop before UART replacement", tdma_service_ring_stop(&service), 1u);
+        lifecycle_boundary(&service);
         failed += expect_u32("configure uart profile",
                              tdma_service_configure_foundation_profile(
                                  &service, &profile, 0x12345678u),
                              1u);
         failed += expect_u32("arm uart ring",
-                             tdma_service_ring_arm(&service), 1u);
+                             (lifecycle_boundary(&service), tdma_service_ring_arm(&service)), 1u);
         tdma_service_core1_service(&service);
         (void)tdma_ring_runtime_get_snapshot(&service.ring_runtime, &ring_snap);
         failed += expect_u32("unregistered adapter reports missing",
@@ -564,8 +587,8 @@ int main(void)
                                                     &pending_config),
                              0u);
         failed += expect_u32("profile change after stop cancel",
-                             tdma_service_set_operating_profile(
-                                 &service, &operating_profile),
+                             (lifecycle_boundary(&service), tdma_service_set_operating_profile(
+                                 &service, &operating_profile)),
                              1u);
         failed += expect_u32("snapshot after stop cancel",
                              tdma_service_get_snapshot(&service, &snapshot),
@@ -573,14 +596,27 @@ int main(void)
         failed += expect_u32("stop leaves scheduler queue empty",
                              snapshot.traffic_scheduler_queued_count,
                              0u);
-        failed += expect_u32("arm reopens scheduler admission",
+        failed += expect_u32("missing adapter ARM request accepted",
                              tdma_service_ring_arm(&service), 1u);
+        lifecycle_boundary(&service);
+        failed += expect_u32("missing adapter keeps producer admission closed",
+                             tdma_service_submit_tx(&service, &pending_config), 0u);
+        failed += expect_u32("stop missing adapter", tdma_service_ring_stop(&service), 1u);
+        lifecycle_boundary(&service);
+        (void)tdma_foundation_profile_default(&profile, 1u, 0u, 0u, TDMA_ADAPTER_PIO_SPI);
+        failed += expect_u32("restore available adapter",
+            tdma_service_configure_foundation_profile(&service, &profile, 0x12345678u), 1u);
+        lifecycle_boundary(&service);
+        failed += expect_u32("accept available adapter ARM", tdma_service_ring_arm(&service), 1u);
+        lifecycle_boundary(&service);
         failed += expect_u32("armed ring accepts producer load",
                              tdma_service_submit_tx(&service,
                                                     &pending_config),
                              1u);
         failed += expect_u32("final stop cancels producer load",
                              tdma_service_ring_stop(&service), 1u);
+        lifecycle_boundary(&service);
+        failed += expect_u32("final queue retired", scheduler.queue[TDMA_TRAFFIC_CONFIG_CONTROL].count, 0u);
     }
 
     if (failed != 0) {

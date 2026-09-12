@@ -753,6 +753,8 @@ static int test_foundation_profile_freezes_runtime_resources(void)
     failed += expect_u32("foundation ring staged not started",
                          snapshot.ring_enabled,
                          0u);
+    refmem_realtime_tdma_core1_service(&service);
+    tdma_service_core0_lifecycle_service(service.scheduler);
     failed += expect_bool("foundation ring arm",
                           service.scheduler != NULL &&
                               tdma_service_ring_arm(service.scheduler),
