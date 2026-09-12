@@ -53,7 +53,7 @@ int main(void)
         record = capture_profile(&phys, !overwrite);
         assert(record.calls[TDMA_TIMING_RX_DMA_OBSERVE] == 2);
         assert(record.calls[TDMA_TIMING_RX_LOCATE] == 1);
-        assert(record.calls[TDMA_TIMING_RX_HEADER_CHECK] == 1);
+        assert(record.calls[TDMA_TIMING_RX_HEADER_CHECK] == (overwrite ? 0u : 1u));
         assert(record.calls[TDMA_TIMING_RX_RING_COPY] == 1);
         assert(record.elapsed_ticks[TDMA_TIMING_RX_RING_COPY] > 0);
         if (overwrite) {

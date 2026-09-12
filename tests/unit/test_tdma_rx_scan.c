@@ -150,6 +150,40 @@ int main(int argc,char **argv)
         request(&phys,&job);tdma_rx_scan_core0_service(&job);
         assert(!job.result.valid);
         assert(!tdma_pio_spi_phys_capture_words(&phys,TDMA_PIO_SPI_RX_DMA_WORD_MAX,&received));
+    } else if (!strcmp(argv[1],"private_header")) {
+        /* A previously discovered geometry cannot authorize a different
+         * physical/transport header. Check every byte of both fixed prefixes,
+         * across all phases/directions; the live copy reads each word once. */
+        for (unsigned reverse=0;reverse<2;++reverse) for (unsigned shift=0;shift<8;++shift)
+        for (unsigned corrupt=0;corrupt<=11;++corrupt) {
+            tdma_rx_scan_t job={0};tdma_pio_spi_phys_t phys=setup(shift,980,1280);
+            if (reverse) {
+                s_tdma_pio_spi_program_persona=TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER;
+                for (unsigned i=0;i<1024;++i) ring[i]=__rev(ring[i]);
+            }
+            request(&phys,&job);tdma_rx_scan_core0_service(&job);
+            assert(job.result.valid);
+            /* Flip the high bit of one decoded header byte in the completed
+             * DMA image, after discovery. Never alter the worker's copy. */
+            if (corrupt<11) {
+                uint32_t mask=0x80u>>shift;
+                if (reverse) mask=__rev(mask);
+                ring[(980+corrupt)&1023]^=mask;
+            }
+            const uint64_t cursor=s_tdma_pio_spi_rx_scan_produced;
+            const uint32_t reads=word_reads;
+            const bool accepted=tdma_pio_spi_phys_capture_words(&phys,TDMA_PIO_SPI_RX_DMA_WORD_MAX,&received);
+            assert(accepted==(corrupt==11));
+            assert(phys.flight_alignment_byte_shift==17 && phys.flight_alignment_bit_shift==5);
+            if (accepted) {
+                assert_packet(1234,received);
+                assert(word_reads-reads==TDMA_PIO_SPI_RX_DMA_WORD_MAX+(shift!=0));
+            } else {
+                assert(received==0 && !phys.rx_scan_hint.valid);
+                assert(s_tdma_pio_spi_rx_scan_produced==cursor);
+                assert(phys.snapshot.rx_magic_at_zero==0 && phys.snapshot.rx_magic_at_shift==0);
+            }
+        }
     } else if (!strcmp(argv[1],"capacity")) {
         tdma_rx_scan_t job={0};tdma_pio_spi_phys_t phys=setup(0,384,1000);
         request(&phys,&job);tdma_rx_scan_core0_service(&job);

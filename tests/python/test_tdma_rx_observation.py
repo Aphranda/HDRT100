@@ -24,13 +24,12 @@ def build_scanner(directory, asynchronous=False, instrumented=False):
     ]
     code = ""
     for kind, name, signature in definitions:
-        symbol = "real_header_matches" if name.endswith("transport_header_matches") else name
-        code += f"static {kind} {symbol}({signature}) {{" + c_definition_body(live, name) + "}\n"
+        symbol = "real_ring_copy" if name.endswith("rx_ring_copy") else name
+        code += f"static {kind} __attribute__((unused)) {symbol}({signature}) {{" + c_definition_body(live, name) + "}\n"
     code += """
-static bool tdma_pio_spi_phys_transport_header_matches(uint64_t p, uint32_t s, uint16_t n) {
-    const bool result = real_header_matches(p, s, n);
-    if (result) copy_phase = true;
-    return result;
+static void tdma_pio_spi_phys_rx_ring_copy(uint8_t *out, uint64_t p, uint32_t n, uint32_t s) {
+    copy_phase = true;
+    real_ring_copy(out, p, n, s);
 }
 """
     if asynchronous:
@@ -75,7 +74,7 @@ def test_real_scanner_dma_interleavings(scanner, case):
 
 @pytest.mark.parametrize("case", ["phases", "worker_pause", "live_overwrite", "live_epoch",
     "snapshot_overwrite", "snapshot_epoch", "cancel", "resync", "incomplete", "geometry", "age", "epoch",
-    "persona", "config", "false_magic", "capacity"])
+    "persona", "config", "false_magic", "capacity", "private_header"])
 def test_async_discovery_and_live_dma_copy(async_scanner, case):
     result = subprocess.run([str(async_scanner), case], capture_output=True, text=True)
     assert result.returncode == 0, result.stdout+result.stderr

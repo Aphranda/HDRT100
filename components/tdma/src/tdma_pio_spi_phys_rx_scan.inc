@@ -94,19 +94,9 @@ static bool tdma_pio_spi_phys_capture_words_async(tdma_pio_spi_phys_t *phys,
     if (!located) return false;
     const uint32_t shift = hint->bit_shift;
     const uint32_t size = hint->frame_words - TDMA_PIO_SPI_PACKET_HEADER_SIZE;
-    const uint64_t header_start = tdma_service_timing_now();
-    const bool header_invalid =
-        tdma_pio_spi_phys_rx_ring_aligned_byte(candidate, shift) != TDMA_PIO_SPI_PACKET_MAGIC0 ||
-        tdma_pio_spi_phys_rx_ring_aligned_byte(candidate + 1u, shift) != TDMA_PIO_SPI_PACKET_MAGIC1 ||
-        ((uint32_t)tdma_pio_spi_phys_rx_ring_aligned_byte(candidate + 2u, shift) |
-          ((uint32_t)tdma_pio_spi_phys_rx_ring_aligned_byte(candidate + 3u, shift) << 8u)) != size ||
-        !tdma_pio_spi_phys_transport_header_matches(candidate + TDMA_PIO_SPI_PACKET_HEADER_SIZE, shift, (uint16_t)size);
-    tdma_service_timing_record(TDMA_TIMING_RX_HEADER_CHECK, header_start);
-    if (header_invalid) {
-        hint->valid = false;
-        (void)tdma_pio_spi_phys_rx_scan_request(phys, produced, (uint32_t)max_words);
-        return false;
-    }
+    /* locate proves geometry and completion independently of packet bytes.
+     * Copy once, then validate the same private bytes that phys_rx hands off.
+     * No live-ring header read is needed before this bounded copy. */
     const uint64_t copy_start = tdma_service_timing_now();
     tdma_pio_spi_phys_rx_ring_copy(s_tdma_pio_spi_rx_frame,
         candidate, hint->frame_words, shift);
@@ -120,6 +110,25 @@ static bool tdma_pio_spi_phys_capture_words_async(tdma_pio_spi_phys_t *phys,
         hint->valid = false;
         phys->snapshot.rx_observation_drop_count++;
         s_tdma_pio_spi_rx_scan_produced = after >= produced ? after : produced;
+        return false;
+    }
+    const uint64_t header_start = tdma_service_timing_now();
+    const uint8_t *header = s_tdma_pio_spi_rx_frame;
+    const uint8_t *transport = header + TDMA_PIO_SPI_PACKET_HEADER_SIZE;
+    const bool header_invalid =
+        header[0] != TDMA_PIO_SPI_PACKET_MAGIC0 ||
+        header[1] != TDMA_PIO_SPI_PACKET_MAGIC1 ||
+        ((uint32_t)header[2] | ((uint32_t)header[3] << 8u)) != size ||
+        ((uint32_t)transport[0] | ((uint32_t)transport[1] << 8u)) != TDMA_TRANSPORT_FRAME_MAGIC ||
+        transport[2] != TDMA_TRANSPORT_FRAME_VERSION ||
+        (transport[3] != TDMA_TRANSPORT_FRAME_CLASS_SHORT &&
+         transport[3] != TDMA_TRANSPORT_FRAME_CLASS_LONG) ||
+        ((uint32_t)transport[4] | ((uint32_t)transport[5] << 8u)) != size ||
+        transport[6] != TDMA_TRANSPORT_FRAME_HEADER_SIZE;
+    tdma_service_timing_record(TDMA_TIMING_RX_HEADER_CHECK, header_start);
+    if (header_invalid) {
+        hint->valid = false;
+        (void)tdma_pio_spi_phys_rx_scan_request(phys, after, (uint32_t)max_words);
         return false;
     }
     s_tdma_pio_spi_rx_scan_produced = candidate + hint->frame_words;
