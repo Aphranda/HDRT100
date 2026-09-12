@@ -1268,7 +1268,7 @@ active 节点确认同一 profile CRC，并执行 STOP -> APPLY -> TRAIN -> STAR
 开放可审计的手动 staging/apply 和 `tools/tdma_ring_monitor/tdma_frequency_sweep.py`
 闭环扫频，避免形成两板不同速率的半连接状态。
 
-### 编译节点容量候选（待实施设计）
+### 编译节点容量候选（实现与验收边界）
 
 编译期本地存储容量、active profile 的在线节点数和固定 wire 槽位容量分别建模。
 容量候选只裁剪本地 per-node 状态、路径表及缓存；`TDMA_FLIGHT_SHORT_SLOT_COUNT`、
@@ -1276,13 +1276,25 @@ active 节点确认同一 profile CRC，并执行 STOP -> APPLY -> TRAIN -> STAR
 定义。`TDMA_RING_CALIBRATION_LINK_MAX` 同时影响 runtime stage 和持久化编解码，
 进一步裁剪前须分离两者；不能把宏统一替换当作存储兼容性证明。
 
-候选实现采用单一编译配置约束各域本地容量，由既有 owner/profile 和 HAOFV 统一准入
-核验拓扑、节点编号、表尺寸和版本。超容量输入应在索引本地数组或激活配置前拒绝；
+候选实现以 `config/project_node_capacity.h` 的 `PROJECT_NODE_CAPACITY` 统一
+Board Identity、TDMA、VDC、RefMem sync 与 Calibration 的本地容量。CMake 从同一头
+读取默认值，并向两个 app target 的编译单元一致传入容量；独立域测试使用同一默认值。
+既有 owner/profile 与 HAOFV 准入继续核验拓扑、节点编号、表尺寸和版本，runtime、
+adapter 直接启动、Calibration staging 和 CLK coded 入口同时约束本地容量。
+超容量输入在索引本地数组或激活配置前拒绝；
 节点身份与物理连接仍来自 active profile/Calibration，不按裁剪后的数组位置推断。
-编译容量变化后的 profile/CRC、旧存储读取及不同容量构建组合必须独立验证；运行时
-在线数变小不会自动减少静态 RAM，也不改变 owner、WCET、资源分区或固定载荷规则。
-本节是 `TDMA-FLIGHT-002I` 的待实施边界，不新增冻结契约；隔离测量见
-`TDMA-PROGRESS-20260912-019`，测量 ELF 不作为六节点运行或硬件验收结论。
+
+Calibration path import 的 CRC 逻辑序列仍按 `CALIBRATION_PATH_CRC_LINK_COUNT`
+计算，裁掉的尾项以零值补入，保持同一有效拓扑的主机导入 CRC；VDC 本地路径表的
+完整性 CRC 仍按本地布局计算，不能跨容量比较该内部 CRC。Calibration 持久化
+编解码仍使用固定 stage，解码后由真实 runtime validator 拒绝超容量拓扑。
+不同容量的共同拓扑 schedule CRC、Calibration import CRC 和存储字节已做互操作
+测试；这不构成混合容量实板组网或满容量组网的验收。
+
+实现与本轮硬件边界见 `TDMA-PROGRESS-20260912-020`，隔离测量保留在
+`TDMA-PROGRESS-20260912-019`。运行时在线数变小不会自动减少静态 RAM，也不改变
+owner、WCET、资源分区或固定载荷规则。本节仍为 `TDMA-FLIGHT-002I` 候选实现记录，
+不新增冻结契约；正式 RAM、完整 Core1 WCET 和严格硬件失败项须继续独立收敛。
 
 ### EtherCAT DC 风格训练的 TDMA 边界
 

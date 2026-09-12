@@ -13,7 +13,9 @@ Last updated: 2026-09-12
 Core1，特等时间戳独立快速通道保持单独验收。该切片已封存；随后完成的六节点编译
 容量隔离核算见 `TDMA-PROGRESS-20260912-019`，证据根为
 `out/HardwareAcceptance/20260912/node-capacity-ram-audit/`。核算未修改运行固件，
-编译容量统一配置及准入仍待独立实现验收。
+编译容量统一配置、准入及本轮硬件复核见 `TDMA-PROGRESS-20260912-020`，证据根为
+`out/HardwareAcceptance/20260912/tdma-node-capacity/`。该实现保持固定 wire/存储布局，
+严格失败和正式 RAM/WCET 缺口继续保留，`TDMA-FLIGHT-002I` 保持 IN PROGRESS。
 前序 follower Core0 overlay 实现与验证记录见
 `TDMA-PROGRESS-20260912-017`，证据根为
 `out/HardwareAcceptance/20260912/tdma-flight-async-overlay/`。
@@ -69,6 +71,69 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260912-020 - 编译节点容量实现与四板复核
+
+- 日期：2026-09-12；TODO task ID：`TDMA-FLIGHT-002I`。以下数字均为实验快照，非事实源。
+  证据根为 `out/HardwareAcceptance/20260912/tdma-node-capacity/`。按用户顺序先封存
+  RX 切片，再实施容量辅助切片；未覆盖前序证据，也未操作另一台设备的单板工作。
+- 实现：`PROJECT_NODE_CAPACITY` 默认六，CMake 和头文件校验二至八的编译容量，
+  统一 Board Identity、TDMA、VDC、RefMem sync、Calibration path/training 本地
+  存储。active profile 仍定义实际在线数；固定 SHORT、RefMem 目录、应用模型表及
+  Calibration 持久化 stage 不裁剪。既有 HAOFV/profile 准入和直接 runtime、adapter、
+  Calibration 入口均约束本地容量，adapter 同时拒绝非法 reference 编号。
+- 兼容性：`CALIBRATION_PATH_CRC_LINK_COUNT` 保留原主机 import CRC 的固定逻辑
+  序列，缺少的尾项补零。VDC 本地路径表 CRC 随内部布局计算，不声称该 CRC 跨容量
+  相同。真实存储 codec/validator 验证共同拓扑的字节兼容及超容量解码拒绝。
+- 软件：容量测试 `17 passed`，覆盖二至八边界、失败不修改已有 profile/编号、
+  runtime/stage 拒绝、RefMem source canary/peer 保护、VDC 矩阵及六/八容量的二/四/六
+  节点存储互读，并验证六容量拒绝七/八节点持久化拓扑；
+  RX、command DMA、TRN03、nonblocking 和 origin admission 回归 `134 passed`。
+  adapter、runtime、service、VDC、Calibration path/store 和 RefMem application
+  contract 测试通过；八容量历史 profile/runtime/adapter/service/VDC/RefMem sync
+  真实编译运行通过。早期 fixture 缺依赖、CRC 上下文及临时运行脚本失败保留在
+  `capacity-tests-r1/r2/r3`、`legacy-eight-r1/r2`，后续修正未放宽产品判据。
+- 构建：六/八容量 Release A/B/Boot 完整构建及 Flash 链接检查均通过。两组 app
+  各 `632` 个翻译单元采用对应容量；六容量 build 为 `20260912081155`，源码指纹
+  `36fdfc894e34b866ae10cf6498857c0461b1f35905f7635bd416c6561ad83d16`，
+  `1012` files；产物摘要见 `source-checkpoint-r1.json` 与 `ram-compare-r1.json`。
+- RAM：两套 app 的主 SRAM 净省均为 `2768 B`，scratch_y 另省 `200 B`；
+  `.bss` 为 `468448 → 465680 B`，`link_free_bytes` 为 `2592 → 5360 B`。
+  正式要求仍由 `DEFAULT_MIN_FREE_BYTES` 定义，本轮快照为 `49152 B`，六容量仍缺
+  `43792 B`；两组正式 RAM 检查均 FAIL。没有放宽 RAM/WCET 或借用 PIO0/DMA7。
+- P3：四板 OTA 均确认本轮六容量 build，四链路双组测量通过；凭证 scope 为
+  `FOUR_NODE_TDMA_QUICK_DIAGNOSTIC`，`passed=true`、`strict_gates_passed=false`。
+  coded marker 保留 ARM 拒绝、串口响应形状异常和缺 summary 失败；原始 process-image
+  保留启动屏障超时。`matrix-r1.json` 从本轮 TRN00/01/02 原件独立生成，
+  `passed=true`、`diagnostic_continue=false`，未移植旧 build 的矩阵或凭证。
+- 严格失败：`lifecycle-r1/process-before-r1` 在启动屏障通过后，NO1 观察窗口新增
+  一个 transport CRC 错误，其他节点未增长；`diagnostic-lifecycle-r1` 的恢复段再次
+  记录 NO1 transport CRC 增长。原始计数、坏帧诊断和有界 STOP 均保留；不能用随后
+  恢复或诊断流程抹去这些失败。`crc-diagnostic-r1` 随后保留 NO1 在整个采集期间
+  新增 `43` 个 transport CRC 错误；四板 SD 分段均能重建、有限包对通过，但原采集
+  总结果仍失败。有限窗口的好包不能覆盖窗口之外的坏帧。
+- 候选行恢复：当前矩阵自动选择 row `1`，DATA 为 `[5,4,5,5]`；显式 row `3`
+  为 `[5,5,5,5]`，两者均来自本轮矩阵候选，未覆盖原矩阵或借用旧验收。
+  `lifecycle-row3-r1` 使用既有 `--offset-row-id 3`，process-before、raw-transition、
+  process-restored 全部 `passed/closed_loop_passed/realtime_gate_passed=true`、
+  `diagnostic_continue=false`。随后四板采集的 transport/schedule/profile bad 增量
+  均为零，SD 原件重建、有限包对身份、mailbox CRC 与 owner 装卸边界审计通过。
+  这是显式候选行的有限恢复证据；自动选行与采样余量仍未闭合，不能直接把原失败
+  归因于容量实现，也不构成最坏时序、同圈多 owner 或长期零误码证明。
+- 自主复核：`trial-row3-r1` 使用有限期 trial `912020`，普通采集目标 `25 s`、
+  自主采集目标 `90 s`；自主 persona、四板 SD 采集和原件审计通过，最后撤销授权、
+  确认四板 physical armed/runtime enabled/adapter started 均为零。普通完整记录
+  峰值依 NO1..NO4 为 `1221.004/987.268/1246.964/1262.896 µs`；自主为
+  `877.932/2292.692/2517.876/2541.132 µs`，均未满足当前 `380 µs` phase 预算。
+  自主 follower 最坏完整记录中的 RX capture 仍达 `1706.128/2110.744/2073.776 µs`。
+  这些是有限观测，不是 WCET 上界；容量收益不能代替 scanner/origin 的后续拆分。
+  命令、原始拒绝、软件/构建/OTA/运行证据、候选行对照和主控复核分别收录于
+  `row-comparison-r1.json`、`review-r1.json` 与 `slice-manifest.json`，提交证明另见
+  `commit-proof.json`；代码、文档按仓库门禁分离提交。
+- 状态：`TDMA-FLIGHT-002I` 保持 IN PROGRESS。实现、编译收益及四板候选证据不等于
+  六板/混合容量实板通过；严格校准/启动/CRC 失败、完整 Core1 WCET、正式 RAM、
+  scanner/origin 异步拆分及特等逐圈通道仍需各自验收。registry/C11 状态不变，
+  长期目标 `TDMA-FLIGHT-002` 保持 active。
 
 ### TDMA-PROGRESS-20260912-019 - RX 切片封存后的六节点 RAM 隔离核算
 
@@ -1443,6 +1508,7 @@ NO5 观测仍未完成，因此 DPLL 尚不能进入 active matrix/eligible/serv
 
 | progress ID | TODO task ID | 证据 |
 |---|---|---|
+| TDMA-PROGRESS-20260912-020 | TDMA-FLIGHT-002I | `out/HardwareAcceptance/20260912/tdma-node-capacity/`：统一编译容量、真实边界与存储互操作测试、六/八完整构建、ARM RAM 对照和当前四板 P3/闭环证据；严格失败及正式 RAM/WCET 缺口保留。 |
 | TDMA-PROGRESS-20260912-019 | TDMA-FLIGHT-002I | `out/HardwareAcceptance/20260912/node-capacity-ram-audit/report-r1.json`、`link-report-r1.json`：RX 切片封存后，固定 wire/RefMem/Calibration 存储布局下的六节点隔离编译、存活对象与 ELF/map 对照；保留正式 RAM FAIL，未部署候选。 |
 | TDMA-PROGRESS-20260912-016 | TDMA-FLIGHT-002B/002F | `out/HardwareAcceptance/20260912/tdma-flight-async-platform/owner-boundary-r2.json`：将异步准备/解析纳入列车调度基础，区分纯构建、跨核版本交接与硬件提交；尚非运行验收。 |
 | TDMA-PROGRESS-20260912-015 | TDMA-FLIGHT-002B | `out/HardwareAcceptance/20260912/tdma-flight-rx-budget/hardware-review.json`、`slice-manifest.json`：同拍 RX 限制、真实旧 scanner 反例、同源码 P3、SCK 原件恢复与有效矩阵、短帧闭环、完整 phase 对比和保留的失败。 |
