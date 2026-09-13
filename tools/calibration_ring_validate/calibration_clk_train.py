@@ -28,10 +28,8 @@ if str(ROOT / "tools" / "tdma_ring_monitor") not in sys.path:
 from tdma_start_ring import (  # noqa: E402
     board_command,
     discover,
-    status as ring_status,
-    wait_started,
 )
-from tdma_field_parse import PHYS_FIELDS  # noqa: E402
+from tdma_field_parse import PHYS_FIELDS, RUNTIME_FIELDS  # noqa: E402
 from calibration_ring_validate.calibration_timeout_config import (  # noqa: E402
     DEFAULT_ACTION_TIMEOUT_S,
     DEFAULT_PHASE_GAP_S,
@@ -104,18 +102,60 @@ def wait_calibration_idle(board, args: argparse.Namespace) -> dict[str, int]:
         f"{board.address}: calibration persona did not become idle: {last}")
 
 
-def wait_ring_stopped(board, args: argparse.Namespace) -> dict[str, int]:
-    """Wait for the asynchronous RING:STOP generation to be applied."""
+def _control_command(board, command, args, actions, *, expected=None,
+                     fields=None, ack=False):
+    """Keep partial preparation evidence before any later action can fail."""
+    record = {"board": board.address, "command": command}
+    actions.append(record)
+    try:
+        raw = board_command(board, command, args)
+        record["response"] = raw
+        if ack and raw.strip().strip('"') not in {"OK", "1"}:
+            raise RuntimeError(f"{board.address}: {command} ACK missing: {raw!r}")
+        if fields is not None or expected is not None:
+            values = tuple(int(v.strip().strip('"'), 0) for v in raw.split(','))
+            count = len(expected) if expected is not None else fields
+            if len(values) != count or any(v < 0 or v > 0xffffffff for v in values):
+                raise ValueError(f"expected {count} uint32 fields")
+            if expected is not None and values != tuple(expected):
+                raise ValueError(f"expected {tuple(expected)}")
+            return values
+        return raw
+    except Exception as exc:
+        record["error"] = f"{type(exc).__name__}: {exc}"
+        raise RuntimeError(f"{board.address}: {command} failed: {record}") from exc
+
+
+def _wait_ring_state(board, args, *, started, topology=None):
     deadline = time.monotonic() + args.arm_wait
     last: dict[str, int] = {}
+    last_error = ""
     while time.monotonic() < deadline:
-        last = ring_status(board, args)
-        if last.get("ring_enabled", 1) == 0 and \
-                last.get("ring_adapter_started", 1) == 0:
+        try:
+            last = _parse_snapshot(board_command(
+                board, "SYSTem:TDMA:RING:STATus?", args), RUNTIME_FIELDS)
+        except (RuntimeError, ValueError) as exc:
+            last_error = str(exc)
+            last = {}
+        # A query can itself consume the remaining deadline. Late evidence
+        # remains in the failure, but cannot establish an on-time barrier.
+        if time.monotonic() >= deadline:
+            break
+        applied = last and last["ring_config_seq"] == last["ring_applied_config_seq"]
+        matched = topology is None or (last and tuple(last[key] for key in (
+            "ring_node_count", "ring_local_slot_id", "ring_reference_slot_id")) == topology)
+        if (applied and matched and last["ring_enabled"] == int(started) and
+                last["ring_adapter_started"] == int(started)):
             return last
-        time.sleep(args.idle_poll_interval)
+        time.sleep(min(args.idle_poll_interval, max(0., deadline-time.monotonic())))
     raise RuntimeError(
-        f"{board.address}: TDMA ring did not stop before CLK training: {last}")
+        f"{board.address}: ring state deadline started={started} topology={topology}, "
+        f"last={last}, last_error={last_error}")
+
+
+def wait_ring_stopped(board, args: argparse.Namespace) -> dict[str, int]:
+    """Wait for physical adapter STOP and its applied configuration."""
+    return _wait_ring_state(board, args, started=False)
 
 
 def parse_args() -> argparse.Namespace:
@@ -205,21 +245,24 @@ def wait_train(board, previous_seq: int, terminal_states: set[int],
 
 
 def arm_training_persona(ordered, reference_node: int,
-                         args: argparse.Namespace) -> list[dict[str, object]]:
-    actions: list[dict[str, object]] = []
+                         args: argparse.Namespace, actions=None) -> list[dict[str, object]]:
+    if actions is None:
+        actions = []
     node_count = len(ordered)
 
     def stop_and_drain(board):
         # The per-board order is mandatory; boards are independent here.
-        loopback = board_command(board, "CALibration:LOOPback:STOP", args)
+        loopback = _control_command(board, "CALibration:LOOPback:STOP", args, actions, ack=True)
         idle = wait_calibration_idle(board, args)
-        stop = board_command(board, "SYSTem:TDMA:RING:STOP", args)
+        stop = _control_command(board, "SYSTem:TDMA:RING:STOP", args, actions, ack=True)
+        stopped = wait_ring_stopped(board, args)
         return (
             {"board": board.address, "command": "LOOPBACK_STOP",
              "response": loopback},
             {"board": board.address, "command": "CALIBRATION_IDLE",
              "readback": idle},
             {"board": board.address, "command": "STOP", "response": stop},
+            {"board": board.address, "command": "STOP_APPLIED", "readback": stopped},
         )
 
     with ThreadPoolExecutor(max_workers=node_count) as executor:
@@ -233,7 +276,8 @@ def arm_training_persona(ordered, reference_node: int,
             f"SYSTem:TDMA:RING:TOPology "
             f"{node_count},{node},{reference_node}")
         return {"board": board.address, "command": command,
-                "response": board_command(board, command, args)}
+                "response": _control_command(board, command, args, actions,
+                    expected=(node_count, node, reference_node))}
 
     with ThreadPoolExecutor(max_workers=node_count) as executor:
         actions.extend(executor.map(set_topology, enumerate(ordered)))
@@ -244,7 +288,7 @@ def arm_training_persona(ordered, reference_node: int,
 
     def arm_one(board):
         node = ordered.index(board)
-        response = board_command(board, "SYSTem:TDMA:RING:ARM", args)
+        response = _control_command(board, "SYSTem:TDMA:RING:ARM", args, actions, ack=True)
         arm_result = int(board_command(
             board, "SYSTem:TDMA:RING:ARM:STATus?", args
         ).strip().strip('"'), 0)
@@ -264,7 +308,8 @@ def arm_training_persona(ordered, reference_node: int,
 
     def await_started(board):
         node = ordered.index(board)
-        readback = wait_started(board, args)
+        readback = _wait_ring_state(board, args, started=True,
+                                   topology=(node_count, node, reference_node))
         if (readback["ring_node_count"] != node_count or
                 # TDMA reports RefMem/TDMA slot IDs at this boundary;
                 # map them explicitly to Calibration node indices.
@@ -334,9 +379,14 @@ def measure_burst(reference, cycles: int,
 
 
 def acquire_reference_node(ordered, reference_node: int,
-                           args: argparse.Namespace) -> dict[str, object]:
+                           args: argparse.Namespace, actions=None) -> dict[str, object]:
     reference = ordered[reference_node]
-    actions = arm_training_persona(ordered, reference_node, args)
+    # Each reference result owns its action list; the run also retains it
+    # before ARM so a partial failure cannot discard the preparation trace.
+    reference_actions = []
+    if actions is not None:
+        actions.append({"reference_node": reference_node, "actions": reference_actions})
+    actions = arm_training_persona(ordered, reference_node, args, reference_actions)
     samples: list[dict[str, object]] = []
     n_low = 0
     n_high = 0
@@ -479,31 +529,39 @@ def main() -> int:
     if args.dry_run:
         return 0
 
+    preparation_actions = []
+    reference_actions = []
+    cleanup_actions = []
+
     def prepare_board(board):
-        board_command(board, "SYSTem:TDMA:RING:STOP", args)
+        _control_command(board, "SYSTem:TDMA:RING:STOP", args, preparation_actions, ack=True)
         # STOP is a core1 intent.  Do not race the subsequent topology-probe
         # admission against the old enabled runtime generation.
         wait_ring_stopped(board, args)
         # Coarse acquisition starts a new calibration chain.  A valid Flash
         # record remains persisted, but its RAM stage can target a previous
         # profile/topology and must not gate this stopped diagnostic ARM.
-        board_command(board, "CALibration:TRAINing:STAGe:CLEar", args)
-        board_command(
+        _control_command(board, "CALibration:TRAINing:STAGe:CLEar", args, preparation_actions, ack=True)
+        _control_command(
             board,
-            f"CALibration:TOPology:PROBe 1,{args.probe_phase_cycles}", args)
-        board_command(board,
-                      f"SYSTem:TDMA:OPMode:STAGe {args.level}", args)
-        board_command(board, "SYSTem:TDMA:OPMode:APPLy", args)
-
-    with ThreadPoolExecutor(max_workers=len(ordered)) as executor:
-        list(executor.map(prepare_board, ordered))
+            f"CALibration:TOPology:PROBe 1,{args.probe_phase_cycles}", args,
+            preparation_actions, expected=(1, args.probe_phase_cycles))
+        staged = _control_command(board,
+            f"SYSTem:TDMA:OPMode:STAGe {args.level}", args, preparation_actions, fields=6)
+        if staged[0] != args.level:
+            raise RuntimeError(f"{board.address}: staged profile mismatch: {staged}")
+        _control_command(board, "SYSTem:TDMA:OPMode:APPLy", args,
+                         preparation_actions, expected=staged)
 
     reference_nodes: list[dict[str, object]] = []
     passed = False
     error = ""
+    cleanup_errors = []
     try:
+        with ThreadPoolExecutor(max_workers=len(ordered)) as executor:
+            list(executor.map(prepare_board, ordered))
         for reference_node in range(len(ordered)):
-            result = acquire_reference_node(ordered, reference_node, args)
+            result = acquire_reference_node(ordered, reference_node, args, reference_actions)
             reference_nodes.append(result)
             print(json.dumps({"reference_node_complete": {
                 key: result[key] for key in (
@@ -518,12 +576,17 @@ def main() -> int:
     finally:
         def cleanup_board(board):
             try:
-                board_command(board, "SYSTem:TDMA:RING:STOP", args)
-                board_command(board, "CALibration:TOPology:PROBe 0", args)
-            except Exception:  # noqa: BLE001 - best-effort bench cleanup
-                pass
+                _control_command(board, "SYSTem:TDMA:RING:STOP", args, cleanup_actions, ack=True)
+                stopped = wait_ring_stopped(board, args)
+                cleanup_actions.append({"board": board.address, "command": "STOP_APPLIED", "readback": stopped})
+                _control_command(board, "CALibration:TOPology:PROBe 0", args,
+                                 cleanup_actions, expected=(0, 0))
+            except Exception as exc:  # noqa: BLE001 - retain every cleanup failure
+                cleanup_errors.append(f"{board.address}: {type(exc).__name__}: {exc}")
         with ThreadPoolExecutor(max_workers=len(ordered)) as executor:
             list(executor.map(cleanup_board, ordered))
+
+    passed = passed and not cleanup_errors
 
     output = {
         "measurement_domain": "calibration",
@@ -532,6 +595,10 @@ def main() -> int:
         "measurement_semantics": "diagnostic overlap bracket, not DPLL eligible",
         "plan": plan,
         "reference_nodes": reference_nodes,
+        "preparation_actions": preparation_actions,
+        "reference_actions": reference_actions,
+        "cleanup_actions": cleanup_actions,
+        "cleanup_errors": cleanup_errors,
         "error": error,
     }
     out_dir = args.out_dir or (

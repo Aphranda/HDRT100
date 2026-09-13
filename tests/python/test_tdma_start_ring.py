@@ -114,6 +114,35 @@ def test_operating_profile_preserves_firmware_result_tuple(action):
         require_match=True) == "7,10000000,1000000,8,0,123"
 
 
+@pytest.mark.parametrize("text,payload", [
+    ("CALibration:TOPology:PROBe 1,2", "1,2"),
+    ("CALibration:TOPology:PROBe 0", "0,0"),
+    ("SYSTem:TDMA:RING:TOPology 4,2,0", "4,2,0"),
+    ("SYSTem:TDMA:OPMode:STAGe 7", "7,10000000,1000000,4096,0,1383759744"),
+    ("SYSTem:TDMA:OPMode:APPLy", "7,10000000,1000000,4096,0,1383759744"),
+])
+def test_result_write_waits_for_tuple_after_unrelated_bare_ack(text, payload):
+    serial = _ReadSerial(("OK\r\n"+payload+"\r\n").encode("ascii"))
+    assert read_scpi_response(serial,text,.05,require_match=True) == payload
+
+
+@pytest.mark.parametrize("text", [
+    "CALibration:TOPology:PROBe 1,2", "CALibration:TOPology:PROBe 0",
+    "SYSTem:TDMA:RING:TOPology 4,2,0",
+    "SYSTem:TDMA:OPMode:STAGe 7", "SYSTem:TDMA:OPMode:APPLy",
+])
+def test_result_write_uses_response_budget_and_preserves_timeout(monkeypatch, text):
+    import tools.tdma_ring_monitor.tdma_start_ring as ring
+    observed = []
+    def no_result(_serial, _text, timeout):
+        observed.append(timeout)
+        return "<timeout>"
+    monkeypatch.setattr(ring,"command",no_result)
+    response = _board_command_on_serial(object(),text,Namespace(timeout=3.,action_timeout=.05),object())
+    assert response == "<timeout>"
+    assert observed == [3.]
+
+
 def test_topology_timeout_is_not_reported_as_verified(monkeypatch):
     import tools.tdma_ring_monitor.tdma_start_ring as ring
     monkeypatch.setattr(ring, "command", lambda *args: "<timeout>")

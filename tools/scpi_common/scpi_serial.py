@@ -81,6 +81,17 @@ SCK_ARM_HEADERS = {
     "CAL:SCK:ARM", "CALIBRATION:SCK:ARM",
 }
 
+# These maintenance writes return numeric result tuples, not a bare ACK.
+# Share their shape with callers selecting the response (rather than ACK)
+# deadline so a valid result cannot be discarded as an ordinary write reply.
+TDMA_CONTROL_RESULT_FIELDS = {
+    "SYST:TDMA:RING:TOP": 3, "SYSTEM:TDMA:RING:TOP": 3,
+    "SYST:TDMA:RING:TOPOLOGY": 3, "SYSTEM:TDMA:RING:TOPOLOGY": 3,
+    "SYST:TDMA:OPMODE:STAGE": 6, "SYSTEM:TDMA:OPMODE:STAGE": 6,
+    "SYST:TDMA:OPMODE:APPLY": 6, "SYSTEM:TDMA:OPMODE:APPLY": 6,
+    "CAL:TOP:PROB": 2, "CALIBRATION:TOPOLOGY:PROBE": 2,
+}
+
 SERIAL_LIFECYCLE_COMMAND = "command"
 SERIAL_LIFECYCLE_PHASE = "phase"
 # A storage read reply carries each byte as two ASCII hex characters, plus its
@@ -284,14 +295,8 @@ def scpi_response_matches_command(command: str, line: str) -> bool:
         return _csv_uints_match(text, 5)
     if header in {"SYST:OTA:TXN?", "SYSTEM:OTA:TXN?"}:
         return _csv_uints_match(text, 8)
-    if header in {
-            "SYST:TDMA:RING:TOP", "SYSTEM:TDMA:RING:TOP",
-            "SYST:TDMA:RING:TOPOLOGY", "SYSTEM:TDMA:RING:TOPOLOGY"}:
-        return _csv_uints_match(text, 3)
-    if header in {
-            "SYST:TDMA:OPMODE:STAGE", "SYSTEM:TDMA:OPMODE:STAGE",
-            "SYST:TDMA:OPMODE:APPLY", "SYSTEM:TDMA:OPMODE:APPLY"}:
-        return _csv_uints_match(text, 6)
+    if header in TDMA_CONTROL_RESULT_FIELDS:
+        return _csv_uints_match(text, TDMA_CONTROL_RESULT_FIELDS[header])
     if header in {"SYST:OTA:JOUR?", "SYSTEM:OTA:JOURNAL?"}:
         return _csv_uints_match(text, 13)
     if header in {
@@ -414,7 +419,8 @@ def read_scpi_response(ser: serial.Serial,
                 # must be consumed in this transaction; discarding it makes
                 # every action wait for the full query timeout and can leave
                 # a delayed ACK in front of the next query.
-                if not query:
+                if not query and not (
+                        require_match and header in TDMA_CONTROL_RESULT_FIELDS):
                     return "OK"
                 continue
             line = without_ack
