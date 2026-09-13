@@ -381,6 +381,14 @@ union 原型提供后续存储路径，但必须以真实链接和 DMA/Core0 生
 不能只装短程序或复用旧 RTT 字段宣布逐圈时间证据完成。实际 service blackout
 独立验收，不能借用 OTA 已有的 TDMA skip 路径制造验收条件。
 
+自主 origin 的有限 service 主体屏蔽实板证据见 `TDMA-PROGRESS-20260914-005`。
+新增诊断许可证由 TDMA owner 门控，有限区间内整个 service 主体未调用，DMA
+连续返回档案保留；进入试验前普通短帧与最终恢复、STOP/SD 已闭合。此切片仅推进
+主站硬件自主性，后续继续从站屏蔽、实际逐帧节拍和绝对时间证据。屏蔽前 pending
+shadow 可以延后被 DMA 选中，仍须绑定其授权与 generation；不能用 generation
+恒定替代该生命周期。未屏蔽完整 phase 继续超预算；当前 P3 严格 SCK/启动屏障、
+正式 RAM 和峰值增长因果继续开放。首次链接跨对齐边界失败及 P0T 回链漏检均留证。
+
 普通 RX 异步解析切片已按用户顺序封存，随后完成六节点编译容量的隔离 RAM 核算，见
 `TDMA-PROGRESS-20260912-019`。核算区分本地状态、固定 wire/RefMem/Calibration
 存储容量与 scratch_y；收益不能代替正式 RAM/WCET 门禁。编译容量作为独立辅助切片

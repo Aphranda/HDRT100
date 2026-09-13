@@ -1079,6 +1079,15 @@ owner 边界执行。候选应计入完整 phase 的收益，并独立验证逐�
 确定时钟映射。互斥 persona 的缓存复用原型和链接对齐填充仅供后续资源核算，不是
 静态资源授权；完整 DMA 树及 Core0 工位退休后才允许切换和复用。
 
+有限主站 service 屏蔽诊断见 `tdma_origin_blackout.h`、`tdma_runtime_origin.inc`
+及 `TDMA-PROGRESS-20260914-005`。它使用独立的 Calibration 诊断标志，由 TDMA
+owner 准入后门控完整 service 主体；门控期间只读授权与档案发布版本，完成或取消后
+恢复既有 STOP 退休。终态快照与停止后的逐圈档案共同验证有限区间内的硬件进展；
+区间检查上限不是硬件 watchdog，CPU 边界时间也不是物理边沿时间。该诊断不改变
+PIO/DMA 程序、帧格式或产品门禁，不将被屏蔽的工作计作 WCET 优化。屏蔽前已经发布
+的 pending selection 可以在后续硬件边界退休，须独立绑定授权与 generation；
+主站有限试验不能替代从站屏蔽、逐帧节拍、绝对 VDC 时间及完整记录消费期限验收。
+
 临时许可证是 `calibration_origin_timing_t` 的易失版本记录：绑定 ring config sequence、
 完整配置、Calibration/topology generation 与 CRC、active model epoch、foundation 与
 DeploymentGate 投影、board/persona/resource 以及源时钟；重装预算、abort 次数和绝对期限

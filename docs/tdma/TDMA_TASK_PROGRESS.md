@@ -8,7 +8,13 @@ Last updated: 2026-09-14
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前完成连续计数器自身压缩与记录池复用核算，见 `TDMA-PROGRESS-20260914-004`，
+当前完成自主 origin 有限 service 屏蔽实板切片，见 `TDMA-PROGRESS-20260914-005`，
+证据根为 `out/HardwareAcceptance/20260914/tdma-flight-origin-service-blackout/`。
+两轮均在连续跳过完整 service 主体期间保留连续且检查通过的 DMA 返回档案；普通
+短帧预验收与最终恢复、STOP/config ACK 和 SD 核对通过。此证据仅覆盖主站有限
+区间的硬件进展；从站屏蔽、逐帧物理节拍、绝对时间和完整 CPU/RAM 门禁仍未闭合。
+P3 首轮回链漏检、第二轮 SCK/启动屏障拒绝及首次链接失败均保留，严格验收未通过。
+前序完成连续计数器自身压缩与记录池复用核算，见 `TDMA-PROGRESS-20260914-004`，
 证据根为 `out/HardwareAcceptance/20260914/tdma-flight-edge-counter-compact/`。
 新候选保持计数语义并缩减 PIO 指令，ARM ABI 原型也找到互斥缓存复用的空间；
 两者尚未安装，不能计作生产 RAM 释放、CPU 省时或逐圈时间交付。下一实现仍须
@@ -340,6 +346,54 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260914-005 - 自主 origin 有限 service 屏蔽实板验证
+
+- 日期：2026-09-14
+- 状态：PARTIAL；主站有限 service 主体屏蔽和 DMA 进展验证完成，完整目标保持进行中。
+- 新增 `CALIBRATION_ORIGIN_DIAGNOSTIC_SERVICE_BLACKOUT`，经既有 Calibration 易失
+  许可证与 TDMA owner 准入。SCPI 仅发布试验意图；owner 等待自主态稳定后，在
+  `tdma_component_core1_service()` 主体之前执行有限门控，跳过 physical、owner、
+  RefMem publish 和 training gate。屏蔽时只读授权与 DMA 档案版本，不读 FIFO、
+  不收割 RX、不选取新 payload、不重装 PIO/DMA；没有借用 OTA skip 路径。
+- 等待和跳过次数、区间检出上限来自 `tdma_origin_blackout.h` 的
+  `TDMA_ORIGIN_BLACKOUT_SETTLE_CALLS/SKIP_CALLS/MAX_INTERVAL_US`。撤销、STOP、配置
+  或时钟代际变化、硬件不就绪及超限会取消试验，恢复既有 owner STOP/退休路径。
+  上限在后继 service 入口检查，不是独立硬件 watchdog 的强制恢复保证。终态快照
+  使用版本保护；完成后立即退休 DMA 保留档案，新的准入会替换旧试验快照。
+- 两轮实测快照（非事实源）：分别连续跳过四次完整 service 主体，CPU 边界区间为
+  4023.392/4068.688 us，DMA 档案发布版本分别从 132→140、130→138；各保留四个
+  区间内完整返回，sequence 为 587–590、588–591。epoch 与双端 sequence 一致，
+  transport checked、capture/output remaining、RTT present 和 fault 检查通过。
+  SCPI 在 START 后零查询，STOP 后统一导出；各窗口 SD 字节核对通过。
+- 第二轮记录 local generation 25→26（快照，非事实源）。屏蔽前已发布的待选 shadow
+  可以在屏蔽后由 DMA 选取，因此不能要求整个区间 generation 恒定；当前 watermark
+  快照没有绑定屏蔽前的 pending selection 租约，本轮不声明新的 generation 准入证明。
+- 本轮证明有限主站区间内硬件继续完成传输；CPU 边界时间与旧 `FORMAT_RTT` 档案
+  不能证明逐帧物理抖动、绝对 VDC 时间、全部从站同时屏蔽或任意长度的逐圈保全。
+  屏蔽区间的低 CPU 耗时不作为完整 phase 的优化收益。
+- 未屏蔽对照快照（非事实源）：主站 RUN 外层为 622.952/620.976 us；NO2 OTHER
+  为 691.924/704.320 us，NO3 为 692.900/700.740 us，NO4 为 678.896/679.576 us。
+  当前与前序保留拍并非同拍配对，完整 500 us 仍未达到，增长因果继续开放。
+- 软件快照（非事实源）：十项许可证/屏蔽回归及十二项档案、构图取消、DMA 和 NO5
+  隔离回归通过；真实包装函数验证整个主体跳过与恢复 STOP。首次 host 编译因测试桩
+  static 声明冲突失败，修复后通过，原日志保留。
+- 首次 A 链接失败：诊断慢路径被内联入 SRAM 快速入口，跨越对齐边界导致 BSS
+  后移。失败源字节、map 和日志保留；明确禁止慢路径内联后，A/B/Boot 构建通过。
+  ARM 快照（非事实源）：入口 24 B 驻 SRAM，慢路径 440 B 驻 Flash，新增静态记录
+  64 B；workspace 保持原地址和大小，A/B heap 外余量由 152 B 变为 88 B。PIO 产物
+  字节相同，正式 RAM 未通过，没有扩大预算、超时或存储区域。
+- 当前源码 P3 首轮在 NO4→NO1 邻接漏检处失败。独立复核检出四链路，但继承串口
+  默认读取粒度与 P3 不同，不能据此关闭因果；恢复原 P3 时序的第二轮拓扑通过，
+  仍有 TRN-01 SCK、TRN-03 重装余量及短帧启动屏障拒绝，诊断流程完成、strict=false。
+  首轮清理报告因校准前与基线矩阵比对而未通过，四板实际 STOP/配置确认/许可证失效
+  均已记录。进入屏蔽前补做同矩阵普通短帧闭环通过；最终普通恢复、STOP 和 SD 通过。
+- 当前 build 为 `20260913182559`，源码指纹为
+  `5ca17b871eb56d5a8847874e5419dba0aa44cb8f19e7b3ba23bddc5511af548d`（本切片快照，
+  非事实源）。NO5 未操作，registry 状态不变；后续继续从站证据路径、完整 WCET、
+  严格校准、绝对时间、generation 准入及正式 RAM 闭环。
+- 原件入口：`blackout-r1-review.json`、`blackout-r2-review.json`、`linkage-review-r1.json`、
+  `p0t-recheck-context.json`、`p3-r2/diagnostic.json` 与 `review-final-r1.json`。
 
 ### TDMA-PROGRESS-20260914-004 - 连续计数器压缩与记录池复用核算
 
