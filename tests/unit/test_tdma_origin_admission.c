@@ -18,7 +18,10 @@ typedef struct { bool armed; uint32_t program_persona, overlay_physical_byte_cou
     tdma_pio_spi_phys_snapshot_t;
 static tdma_service_service_t s_tdma_runtime_owner;
 static tdma_pio_spi_ring_adapter_t s_tdma_pio_spi_ring_adapter;
-static struct { uint32_t flight_physical_byte_count; } s_tdma_pio_spi_phys;
+static struct {
+    uint32_t flight_physical_byte_count;
+    struct { bool diagnostic_skip_records; } flight_origin_prepare;
+} s_tdma_pio_spi_phys;
 static uint32_t model_epoch = 2, clock_hz = 150000000, begins, polls, stops;
 static uint64_t ticks = 100;
 static bool complete = true, model_valid = true, resources_valid = true, begin_ok = true;
@@ -145,6 +148,21 @@ int main(int argc, char **argv)
             assert(tdma_runtime_owner_origin_poll(&s_tdma_pio_spi_phys) == TDMA_ORIGIN_BUILD_FAILED);
             assert(polls == before);
         }
+    } else if (!strcmp(argv[1], "record-mode")) {
+        for (uint32_t mode = 0; mode < 2; ++mode) {
+            assert(calibration_manager_origin_trial_configured(3, 100, 8, 1000000, mode));
+            assert(admit() == TDMA_ORIGIN_ADMISSION_READY);
+            assert(tdma_runtime_owner_origin_begin(&s_tdma_pio_spi_phys, &config, NULL, 0, 100, 8));
+            assert(s_tdma_pio_spi_phys.flight_origin_prepare.diagnostic_skip_records == (mode != 0));
+            /* A later Core0 publication cannot modify the already consumed request. */
+            assert(calibration_manager_origin_trial_configured(4, 100, 8, 1000000, mode ^ 1u));
+            assert(s_tdma_pio_spi_phys.flight_origin_prepare.diagnostic_skip_records == (mode != 0));
+            assert(tdma_runtime_owner_origin_poll(&s_tdma_pio_spi_phys) == TDMA_ORIGIN_BUILD_FAILED);
+        }
+        assert(!calibration_manager_origin_trial_configured(5, 100, 8, 1000000, 2));
+        assert(!s_origin_timing.enabled);
+        publish();
+        assert(s_origin_timing.diagnostic_flags == 0);
     } else if (!strcmp(argv[1], "fault")) {
         publish(); assert(admit() == TDMA_ORIGIN_ADMISSION_READY);
         s_tdma_pio_spi_ring_adapter.origin.active = 1;

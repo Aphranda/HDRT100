@@ -2489,24 +2489,36 @@ scpi_result_t scpi_cmd_system_tdma_schedule_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-static scpi_result_t scpi_tdma_profile_result(scpi_t *context, bool peak)
+static scpi_result_t scpi_tdma_profile_result(scpi_t *context, uint32_t selection)
 {
     tdma_service_timing_snapshot_t snapshot;
     if (!tdma_service_timing_try_snapshot(&snapshot)) {
         SCPI_ResultText(context, "UNAVAILABLE");
         return SCPI_RES_OK;
     }
-    const tdma_service_timing_record_t *record = peak ? &snapshot.peak : &snapshot.last;
+    const tdma_service_timing_record_t *record = selection == 2u ? &snapshot.autonomous_peak :
+        selection == 3u ? &snapshot.other_peak : selection == 1u ? &snapshot.peak : &snapshot.last;
     SCPI_ResultUInt32(context, snapshot.version);
     SCPI_ResultUInt32(context, snapshot.clock_hz);
     SCPI_ResultUInt32(context, snapshot.reset_generation);
     SCPI_ResultUInt32(context, snapshot.phase_count);
     SCPI_ResultUInt32(context, TDMA_TIMING_STAGE_COUNT);
-    SCPI_ResultUInt32(context, peak ? 1u : 0u);
+    SCPI_ResultUInt32(context, selection);
     SCPI_ResultUInt32(context, record->sequence);
     SCPI_ResultUInt64(context, record->start_ticks);
     SCPI_ResultUInt32(context, record->total_ticks);
     SCPI_ResultUInt32(context, record->invalid_count);
+    SCPI_ResultUInt32(context, record->full_phase_ticks);
+    SCPI_ResultUInt32(context, record->entry.state);
+    SCPI_ResultUInt32(context, record->entry.config_generation);
+    SCPI_ResultUInt32(context, record->entry.trial_epoch);
+    SCPI_ResultUInt32(context, record->entry.return_sequence);
+    SCPI_ResultUInt32(context, record->exit.state);
+    SCPI_ResultUInt32(context, record->exit.config_generation);
+    SCPI_ResultUInt32(context, record->exit.trial_epoch);
+    SCPI_ResultUInt32(context, record->exit.return_sequence);
+    SCPI_ResultUInt32(context, snapshot.autonomous_phase_count);
+    SCPI_ResultUInt32(context, snapshot.other_phase_count);
     for (uint32_t stage = 0u; stage < TDMA_TIMING_STAGE_COUNT; stage++) {
         SCPI_ResultUInt32(context, record->elapsed_ticks[stage]);
         SCPI_ResultUInt32(context, record->calls[stage]);
@@ -2522,6 +2534,16 @@ scpi_result_t scpi_cmd_system_tdma_profile_q(scpi_t *context)
 scpi_result_t scpi_cmd_system_tdma_profile_peak_q(scpi_t *context)
 {
     return scpi_tdma_profile_result(context, true);
+}
+
+scpi_result_t scpi_cmd_system_tdma_profile_run_q(scpi_t *context)
+{
+    return scpi_tdma_profile_result(context, 2u);
+}
+
+scpi_result_t scpi_cmd_system_tdma_profile_other_q(scpi_t *context)
+{
+    return scpi_tdma_profile_result(context, 3u);
 }
 
 scpi_result_t scpi_cmd_system_tdma_profile_reset(scpi_t *context)

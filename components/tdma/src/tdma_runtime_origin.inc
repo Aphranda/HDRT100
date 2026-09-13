@@ -1,5 +1,12 @@
 /* The sole TDMA owner consumes Calibration's explicit diagnostic trial.
  * This file never constructs a product timing grant. */
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#include "pico.h"
+#define TDMA_ORIGIN_OWNER_RAM __not_in_flash("tdma_origin_owner")
+#else
+#define TDMA_ORIGIN_OWNER_RAM
+#endif
+
 static calibration_origin_timing_t s_origin_trial;
 static uint32_t s_origin_consumed_epoch;
 static bool s_origin_trial_fault;
@@ -45,6 +52,8 @@ bool tdma_runtime_owner_get_origin_capability(refmem_realtime_origin_capability_
     return true;
 }
 
+/* Revalidate every existing boundary; only instruction residency changes. */
+TDMA_ORIGIN_OWNER_RAM
 static bool tdma_runtime_owner_origin_authorized(void)
 {
     const calibration_origin_timing_t *trial = &s_origin_trial;
@@ -101,7 +110,12 @@ static bool tdma_runtime_owner_origin_begin(void *context,
         memcmp(config, &s_origin_trial.config, sizeof(*config)) == 0 &&
         tdma_pio_spi_phys_origin_begin(context, config, packet, size,
                                        rearm_budget_ticks, abort_poll_count);
-    if (!started) s_origin_trial_fault = true;
+    if (started) {
+        /* Owner-private request, frozen before the first preparation poll.
+         * No running descriptor or hardware register is modified here. */
+        s_tdma_pio_spi_phys.flight_origin_prepare.diagnostic_skip_records =
+            (s_origin_trial.diagnostic_flags & CALIBRATION_ORIGIN_DIAGNOSTIC_SKIP_RECORDS) != 0u;
+    } else s_origin_trial_fault = true;
     return started;
 }
 

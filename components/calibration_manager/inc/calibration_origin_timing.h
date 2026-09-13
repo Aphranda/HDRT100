@@ -6,7 +6,8 @@
 #include "tdma_ring_runtime.h"
 #include "refmem_realtime_contract.h"
 
-#define CALIBRATION_ORIGIN_TIMING_VERSION 1u
+#define CALIBRATION_ORIGIN_TIMING_VERSION 2u
+#define CALIBRATION_ORIGIN_DIAGNOSTIC_SKIP_RECORDS 1u
 
 /* Volatile diagnostic experiment, never a measured product timing grant.
  * The owner validates this exact epoch before preparation and installation.
@@ -26,10 +27,13 @@ typedef struct {
     uint64_t expires_ticks;
     tdma_ring_runtime_config_t config;
     refmem_realtime_origin_admission_t admission;
+    uint32_t diagnostic_flags;
 } calibration_origin_timing_t;
 
 bool calibration_manager_origin_trial(uint32_t trial_id, uint32_t rearm_budget_ticks,
     uint32_t abort_poll_count, uint64_t duration_ticks);
+bool calibration_manager_origin_trial_configured(uint32_t trial_id, uint32_t rearm_budget_ticks,
+    uint32_t abort_poll_count, uint64_t duration_ticks, uint32_t diagnostic_flags);
 void calibration_manager_origin_revoke(void);
 uint32_t calibration_manager_origin_epoch(void);
 /* One bounded attempt; false is an unavailable snapshot, never permission. */

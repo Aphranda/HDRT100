@@ -151,6 +151,9 @@ typedef struct {
     uint8_t compare_pc;
     uint8_t rtt_sm;
     uint8_t rtt_pc;
+    /* Default zero retains records. A bounded diagnostic trial may build a
+     * graph without the archive writer before installation, never in flight. */
+    uint32_t diagnostic_skip_records;
 } tdma_origin_plan_config_t;
 
 typedef struct {

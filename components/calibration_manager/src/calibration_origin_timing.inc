@@ -1,8 +1,16 @@
 /* Calibration owns this volatile trial record; TDMA owns every hardware
  * transition. Core0 publishes one record, Core1 consumes an immutable copy. */
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#include "pico.h"
+#define CALIBRATION_ORIGIN_EPOCH_RAM __not_in_flash("calibration_origin_epoch")
+#else
+#define CALIBRATION_ORIGIN_EPOCH_RAM
+#endif
+
 static uint32_t s_origin_timing_guard;
 static calibration_origin_timing_t s_origin_timing;
 
+CALIBRATION_ORIGIN_EPOCH_RAM
 uint32_t calibration_manager_origin_epoch(void)
 {
     return __atomic_load_n(&s_origin_timing_guard, __ATOMIC_ACQUIRE);
@@ -30,6 +38,13 @@ void calibration_manager_origin_revoke(void)
 bool calibration_manager_origin_trial(uint32_t trial_id, uint32_t rearm_budget_ticks,
     uint32_t abort_poll_count, uint64_t duration_ticks)
 {
+    return calibration_manager_origin_trial_configured(trial_id, rearm_budget_ticks,
+        abort_poll_count, duration_ticks, 0u);
+}
+
+bool calibration_manager_origin_trial_configured(uint32_t trial_id, uint32_t rearm_budget_ticks,
+    uint32_t abort_poll_count, uint64_t duration_ticks, uint32_t diagnostic_flags)
+{
     /* A rejected replacement must not leave the previous trial authorized. */
     calibration_manager_origin_revoke();
     tdma_ring_runtime_snapshot_t ring;
@@ -38,7 +53,8 @@ bool calibration_manager_origin_trial(uint32_t trial_id, uint32_t rearm_budget_t
     refmem_realtime_origin_capability_t capability;
     tdma_service_snapshot_t owner;
     bool complete = false;
-    if (trial_id == 0u || rearm_budget_ticks == 0u || abort_poll_count == 0u ||
+    if ((diagnostic_flags & ~CALIBRATION_ORIGIN_DIAGNOSTIC_SKIP_RECORDS) != 0u ||
+        trial_id == 0u || rearm_budget_ticks == 0u || abort_poll_count == 0u ||
         abort_poll_count > UINT16_MAX || duration_ticks == 0u || duration_ticks > INT64_MAX ||
         !tdma_runtime_owner_get_ring_snapshot(&ring) || ring.enabled == 0u ||
         ring.adapter_started == 0u || ring.config_seq != ring.applied_config_seq ||
@@ -62,7 +78,8 @@ bool calibration_manager_origin_trial(uint32_t trial_id, uint32_t rearm_budget_t
         .topology_generation = stage.topology_generation, .topology_crc32 = stage.topology_crc32,
         .calibration_crc32 = ota_crc32_compute((const uint8_t *)&stage, sizeof(stage)),
         .rearm_budget_ticks = rearm_budget_ticks, .abort_poll_count = abort_poll_count,
-        .expires_ticks = now + duration_ticks, .config = config};
+        .expires_ticks = now + duration_ticks, .config = config,
+        .diagnostic_flags = diagnostic_flags};
     if (!refmem_realtime_contract_admit_origin_trial(&capability, owner.foundation_profile_crc32,
             &record.admission)) return false;
     tdma_ring_runtime_snapshot_t current;

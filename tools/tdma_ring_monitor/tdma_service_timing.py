@@ -16,9 +16,15 @@ STAGES_BY_VERSION = {
     4: STAGES_V4,
     5: STAGES_V4 + ("rx_inspect", "rx_health", "rx_evidence", "rx_fifo_publish", "rx_commit", "rx_complete"),
 }
+STAGES_BY_VERSION[6] = STAGES_BY_VERSION[5]
 FIELDS = (
     "version", "clock_hz", "reset_generation", "phase_count", "stage_count",
     "peak", "sequence", "start_ticks", "total_ticks", "invalid_count",
+)
+FIELDS_V6 = FIELDS + (
+    "full_phase_ticks", "entry_state", "entry_config_generation", "entry_trial_epoch",
+    "entry_return_sequence", "exit_state", "exit_config_generation", "exit_trial_epoch",
+    "exit_return_sequence", "autonomous_phase_count", "other_phase_count",
 )
 
 
@@ -32,11 +38,12 @@ def parse_service_timing(raw: str) -> dict | None:
     stages = STAGES_BY_VERSION.get(values[0])
     if stages is None:
         raise ValueError(f"Unsupported TDMA profile version: {values[0]}")
-    if values[4] != len(stages) or len(values) != len(FIELDS) + 2 * len(stages):
+    fields = FIELDS_V6 if values[0] == 6 else FIELDS
+    if values[4] != len(stages) or len(values) != len(fields) + 2 * len(stages):
         raise ValueError("TDMA profile stage count or length mismatch")
-    result = dict(zip(FIELDS, values[:len(FIELDS)]))
+    result = dict(zip(fields, values[:len(fields)]))
     result["stages"] = {
-        name: {"ticks": values[len(FIELDS) + 2*i], "calls": values[len(FIELDS) + 2*i + 1]}
+        name: {"ticks": values[len(fields) + 2*i], "calls": values[len(fields) + 2*i + 1]}
         for i, name in enumerate(stages)
     }
     return result

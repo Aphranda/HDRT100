@@ -1,8 +1,12 @@
 #include "vdc_timestamp_clock.h"
 
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#include "pico.h"
 #include "hardware/clocks.h"
 #include "hardware/timer.h"
+#define VDC_TIMESTAMP_TIME_CRITICAL(name) __not_in_flash_func(name)
+#else
+#define VDC_TIMESTAMP_TIME_CRITICAL(name) name
 #endif
 
 #define VDC_TIMESTAMP_CLOCK_DEFAULT_HZ 1000000u
@@ -61,7 +65,7 @@ uint32_t vdc_timestamp_clock_resolution_ns(void)
     return s_vdc_timestamp_clock_resolution_ns;
 }
 
-uint64_t vdc_timestamp_clock_read_ticks64(void)
+uint64_t VDC_TIMESTAMP_TIME_CRITICAL(vdc_timestamp_clock_read_ticks64)(void)
 {
     if (!s_vdc_timestamp_clock_initialized) {
         (void)vdc_timestamp_clock_init();

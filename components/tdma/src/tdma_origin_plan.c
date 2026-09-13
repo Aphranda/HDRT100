@@ -112,6 +112,7 @@ static bool config_valid(const tdma_origin_plan_config_t *c, const tdma_origin_p
         !host_disjoint(p->literals, literal_bytes, c, sizeof(*c)) ||
         !host_disjoint(p->runs, run_bytes, p, sizeof(*p)) ||
         !host_disjoint(p->literals, literal_bytes, p, sizeof(*p))) return false;
+    if (c->diagnostic_skip_records > 1u) return false;
     const uint8_t channels[] = {c->capture_dma, c->output_dma, c->loader_dma, c->executor_dma};
     for (size_t i = 0u; i < sizeof(channels); ++i) {
         if (channels[i] >= 16u || channels[i] == 7u) return false;
@@ -295,10 +296,12 @@ static void emit(builder_t *b)
     break;
     case L_RTT_DONE:
     mark(b, L_RTT_DONE);
-    move(b, STATE(remaining_snapshot), STATE(record_capture_remaining));
-    move(b, STATE(observation_sequence), STATE(record_sequence_end));
-    put(b, 0u, STATE(record_flags));
-    put(b, 0u, STATE(record_returned_trailer));
+    if (!c->diagnostic_skip_records) {
+        move(b, STATE(remaining_snapshot), STATE(record_capture_remaining));
+        move(b, STATE(observation_sequence), STATE(record_sequence_end));
+        put(b, 0u, STATE(record_flags));
+        put(b, 0u, STATE(record_returned_trailer));
+    }
     put(b, c->abort_poll_count, STATE(polls_left));
     break;
     case L_POLL_CAPTURE:
@@ -395,9 +398,11 @@ static void emit(builder_t *b)
     break;
     case L_ACCEPT_SELECT:
     mark(b, L_ACCEPT_SELECT);
-    move(b, a->rx_packet + TDMA_TRANSPORT_FRAME_HEADER_SIZE + TDMA_FLIGHT_NODE_IMAGE_SIZE,
-         STATE(record_returned_trailer));
-    put(b, TDMA_ORIGIN_RECORD_TRANSPORT_CHECKED, STATE(record_flags));
+    if (!c->diagnostic_skip_records) {
+        move(b, a->rx_packet + TDMA_TRANSPORT_FRAME_HEADER_SIZE + TDMA_FLIGHT_NODE_IMAGE_SIZE,
+             STATE(record_returned_trailer));
+        put(b, TDMA_ORIGIN_RECORD_TRANSPORT_CHECKED, STATE(record_flags));
+    }
     move(b, a->rx_packet + 8u, STATE(last_return_sequence));
     compare(b, STATE(capture_bank), literal(b, 0u), L_ACCEPT_A, L_ACCEPT_B);
     break;
@@ -414,6 +419,10 @@ static void emit(builder_t *b)
     break;
     case L_RECORD_SELECT:
     mark(b, L_RECORD_SELECT);
+    if (c->diagnostic_skip_records) {
+        jump(b, L_PREPARE_SELECT);
+        break;
+    }
     /* Only owner-built successor addresses reach this indirection. Records
      * are emitted even for a missing/bad return, before any seed reuse. */
     copy(b, STATE(record_next_address), dma_reg(loader, DMA_CH0_AL3_READ_ADDR_TRIG_OFFSET),
@@ -421,6 +430,7 @@ static void emit(builder_t *b)
     break;
     case L_RECORD_0: case L_RECORD_0 + 1: case L_RECORD_0 + 2: case L_RECORD_0 + 3:
     case L_RECORD_0 + 4: case L_RECORD_0 + 5: case L_RECORD_0 + 6: case L_RECORD_7: {
+        if (c->diagnostic_skip_records) break;
         const uint32_t bank = b->step - L_RECORD_0;
         mark(b, L_RECORD_0 + bank);
         copy(b, STATE(observation_sequence), a->records + bank * sizeof(tdma_origin_record_t),
@@ -432,6 +442,7 @@ static void emit(builder_t *b)
     }
     break;
     case L_RECORD_DONE:
+    if (c->diagnostic_skip_records) break;
     mark(b, L_RECORD_DONE);
     move(b, STATE(observation_version), STATE(record_published_version));
     jump(b, L_PREPARE_SELECT);
@@ -648,7 +659,7 @@ tdma_origin_build_result_t tdma_origin_plan_step(builder_t *b)
     p->fault_entry = b->label[L_FAULT];
     p->local_entry[0] = b->label[L_LOCAL_A];
     p->local_entry[1] = b->label[L_LOCAL_B];
-    p->record_entry = b->label[L_RECORD_0];
+    p->record_entry = b->c->diagnostic_skip_records ? 0u : b->label[L_RECORD_0];
     return TDMA_ORIGIN_BUILD_DONE;
 }
 

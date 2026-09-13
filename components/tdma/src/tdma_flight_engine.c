@@ -2,6 +2,13 @@
 
 #include <string.h>
 
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#include "pico.h"
+#define TDMA_FLIGHT_RX_RAM __not_in_flash("tdma_flight_rx")
+#else
+#define TDMA_FLIGHT_RX_RAM
+#endif
+
 static void tdma_flight_engine_counter_inc(volatile uint32_t *counter)
 {
     (void)__atomic_add_fetch(counter, 1u, __ATOMIC_RELAXED);
@@ -48,6 +55,7 @@ void tdma_flight_engine_fill_alignment_symbols(uint8_t *payload,
     }
 }
 
+TDMA_FLIGHT_RX_RAM
 static bool tdma_flight_engine_fast_mailbox_header(
     const uint8_t *payload,
     const tdma_process_image_segment_t *segment,
@@ -83,6 +91,7 @@ static bool tdma_flight_engine_fast_mailbox_header(
 /* Core1 fast RX inspector. It only reads the fixed mailbox header; the
  * payload remains opaque and is parsed by core0.  Presence and novelty are
  * separate facts: an unchanged mailbox still contributes to full-frame WKC. */
+TDMA_FLIGHT_RX_RAM
 static bool tdma_flight_engine_inspect_input_map(
     tdma_flight_engine_t *engine,
     const uint8_t *incoming,
@@ -206,6 +215,7 @@ static void tdma_flight_engine_unlock_map(tdma_flight_engine_t *engine,
                      __ATOMIC_RELEASE);
 }
 
+TDMA_FLIGHT_RX_RAM
 static bool tdma_flight_engine_read_map(
     const tdma_flight_engine_t *engine,
     tdma_process_image_map_t *map,
@@ -615,6 +625,9 @@ bool tdma_flight_engine_tx_load(
         output_capacity, applied, result);
 }
 
+/* Keep the bounded RX header scan and post-publication commit resident.
+ * The map snapshot, freshness checks and evidence counters are unchanged. */
+TDMA_FLIGHT_RX_RAM
 bool tdma_flight_engine_inspect_input(
     tdma_flight_engine_t *engine,
     const uint8_t *incoming,
@@ -659,6 +672,7 @@ bool tdma_flight_engine_inspect_input(
                                                 true);
 }
 
+TDMA_FLIGHT_RX_RAM
 bool tdma_flight_engine_rx_unload(
     tdma_flight_engine_t *engine,
     const uint8_t *incoming,
@@ -715,6 +729,7 @@ bool tdma_flight_engine_expected_input_mask(
     return expected != 0u;
 }
 
+TDMA_FLIGHT_RX_RAM
 bool tdma_flight_engine_commit_input(
     tdma_flight_engine_t *engine,
     const uint8_t *incoming,
@@ -762,6 +777,7 @@ bool tdma_flight_engine_commit_input(
     return committed_mask == input_segment_mask;
 }
 
+TDMA_FLIGHT_RX_RAM
 bool tdma_flight_engine_rx_commit(
     tdma_flight_engine_t *engine,
     const uint8_t *incoming,

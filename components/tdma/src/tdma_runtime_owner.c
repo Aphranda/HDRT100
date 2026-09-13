@@ -50,6 +50,25 @@ static uint32_t s_tdma_topology_probe_phase_delay_cycles;
 
 #include "tdma_runtime_origin.inc"
 
+TDMA_ORIGIN_OWNER_RAM
+tdma_service_timing_context_t tdma_runtime_owner_timing_context(void)
+{
+    const tdma_pio_spi_ring_adapter_t *a = &s_tdma_pio_spi_ring_adapter;
+    const tdma_ring_runtime_t *r = &s_tdma_runtime_owner.ring_runtime;
+    uint32_t state = 0u;
+    if (s_tdma_runtime_owner_initialized && r->enabled && a->started && s_tdma_pio_spi_phys.armed) {
+        state = 1u;
+        if (a->origin.active && a->comm_fsm.state == TDMA_ADAPTER_COMM_STATE_AUTONOMOUS &&
+            s_origin_trial.enabled && s_origin_trial.epoch == calibration_manager_origin_epoch())
+            state = TDMA_TIMING_STATE_AUTONOMOUS;
+    }
+    return (tdma_service_timing_context_t){
+        .state = state | (a->comm_fsm.state << 8u),
+        .config_generation = __atomic_load_n(&r->config_seq, __ATOMIC_ACQUIRE),
+        .trial_epoch = s_origin_trial.epoch,
+        .return_sequence = a->origin.returned.sequence};
+}
+
 static bool tdma_runtime_owner_flight_phys_arm(
     void *context,
     const tdma_ring_runtime_config_t *config)

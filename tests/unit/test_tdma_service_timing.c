@@ -49,7 +49,7 @@ int main(void)
     tdma_service_timing_phase_end();
     assert(tdma_service_timing_try_snapshot(&before));
     assert(before.last.total_ticks == 100 && before.last.invalid_count == 0);
-    assert(before.version == 5);
+    assert(before.version == TDMA_SERVICE_TIMING_VERSION);
     assert(before.last.elapsed_ticks[TDMA_TIMING_RX_DMA_OBSERVE] == 3);
     assert(before.last.calls[TDMA_TIMING_RX_DMA_OBSERVE] == 2);
     assert(before.last.elapsed_ticks[TDMA_TIMING_RX_LOCATE] == 1);
@@ -198,6 +198,63 @@ int main(void)
     assert(tdma_service_timing_try_snapshot(&after));
     for (unsigned stage = TDMA_TIMING_RX_INSPECT; stage <= TDMA_TIMING_RX_COMPLETE; ++stage)
         assert(after.peak.calls[stage] == 0 && after.peak.elapsed_ticks[stage] == 0);
-    puts("PASS: timing wrap, inclusive stages, coherent peak, deferred reset, interrupted writer and invalid clock");
+    /* RUN peak survives a larger STOP phase. Complete scheduler duration,
+     * rather than the nested body, selects each state-specific peak. */
+    tdma_service_timing_request_reset();
+    const tdma_service_timing_context_t run = {2u, 4u, 6u, 9u};
+    tdma_service_timing_phase_begin();
+    tdma_service_timing_context(run, true);
+    ticks += 100;
+    tdma_service_timing_context(run, false);
+    tdma_service_timing_phase_end();
+    tdma_service_timing_scheduler_end(120);
+    tdma_service_timing_scheduler_end(900); /* duplicate notification ignored */
+    assert(tdma_service_timing_try_snapshot(&before));
+    assert(before.autonomous_peak.total_ticks == 100 && before.autonomous_peak.full_phase_ticks == 120);
+    assert(before.autonomous_phase_count == 1 && before.other_phase_count == 0);
+    tdma_service_timing_phase_begin();
+    tdma_service_timing_context(run, true);
+    ticks += 90;
+    tdma_service_timing_context(run, false);
+    tdma_service_timing_phase_end();
+    tdma_service_timing_scheduler_end(130);
+    tdma_service_timing_phase_begin();
+    tdma_service_timing_context(run, true);
+    ticks += 900;
+    tdma_service_timing_context((tdma_service_timing_context_t){0u, 5u, 6u, 9u}, false);
+    tdma_service_timing_phase_end();
+    tdma_service_timing_scheduler_end(950);
+    assert(tdma_service_timing_try_snapshot(&after));
+    assert(after.autonomous_peak.total_ticks == 90 && after.autonomous_peak.full_phase_ticks == 130);
+    assert(after.other_peak.total_ticks == 900 && after.other_peak.full_phase_ticks == 950);
+    assert(after.peak.total_ticks == 900 && after.peak.full_phase_ticks == 950);
+    assert(after.autonomous_phase_count == 2 && after.other_phase_count == 1);
+    /* Same state with a replaced generation/epoch is transitional, not RUN. */
+    tdma_service_timing_phase_begin();
+    tdma_service_timing_context(run, true);
+    ticks += 1000;
+    tdma_service_timing_context((tdma_service_timing_context_t){2u, 4u, 8u, 10u}, false);
+    tdma_service_timing_phase_end();
+    tdma_service_timing_scheduler_end(1100);
+    assert(tdma_service_timing_try_snapshot(&after));
+    assert(after.autonomous_phase_count == 2 && after.other_phase_count == 2);
+    assert(after.other_peak.exit.trial_epoch == 8);
+    tdma_service_timing_phase_begin();
+    tdma_service_timing_context(run, true);
+    ticks += 2000;
+    tdma_service_timing_context(run, false);
+    tdma_service_timing_phase_end();
+    tdma_service_timing_scheduler_end(1);
+    assert(tdma_service_timing_try_snapshot(&after));
+    assert(after.last.invalid_count && after.autonomous_peak.full_phase_ticks == 130);
+    tdma_service_timing_request_reset();
+    tdma_service_timing_phase_begin();
+    ticks++;
+    tdma_service_timing_phase_end();
+    tdma_service_timing_scheduler_end(5);
+    assert(tdma_service_timing_try_snapshot(&after));
+    assert(after.autonomous_peak.sequence == 0 && after.autonomous_phase_count == 0);
+    assert(after.other_phase_count == 1 && after.other_peak.full_phase_ticks == 5);
+    puts("PASS: timing, state attribution, scheduler interval, deferred reset and invalid clock");
     return 0;
 }

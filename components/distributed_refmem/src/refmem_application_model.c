@@ -3060,6 +3060,9 @@ bool refmem_application_model_set_tdma_ring_topology(uint32_t local_slot_id,
     return true;
 }
 
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+__attribute__((section(".time_critical.refmem_origin_model_epoch")))
+#endif
 uint32_t refmem_realtime_contract_origin_model_epoch(void)
 {
     return __atomic_load_n(&s_origin_model_epoch, __ATOMIC_ACQUIRE);

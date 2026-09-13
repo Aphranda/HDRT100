@@ -8,6 +8,10 @@
 #include "tdma_service.h"
 #include "tdma_operating_profile.h"
 #include "refmem_realtime_contract.h"
+#include "tdma_service_timing.h"
+
+/* Core1-only direct owner facts for phase attribution; no hardware access. */
+tdma_service_timing_context_t tdma_runtime_owner_timing_context(void);
 
 /* Product firmware has one TDMA owner. Domain wrappers register payloads and
  * adapter operations against it; they do not create parallel runtimes. */

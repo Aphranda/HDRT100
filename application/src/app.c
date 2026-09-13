@@ -697,6 +697,8 @@ static bool app_realtime_run_phase(
         start_counter, end_counter);
     const uint32_t phase_end = app_realtime_elapsed_cycles(
         cycle_epoch, end_counter);
+    if (phase_id == APP_REALTIME_PHASE_TDMA)
+        tdma_service_timing_scheduler_end(runtime_cycles);
     const bool overrun = runtime_cycles > contract->wcet_cycles;
     const bool deadline_missed = phase_end > contract->end_cycle;
     const bool inherited_lateness = phase_start > contract->start_cycle;
@@ -740,6 +742,7 @@ static bool app_realtime_run_phase(
 static void app_realtime_tdma_phase(void)
 {
     tdma_service_timing_phase_begin();
+    tdma_service_timing_context(tdma_runtime_owner_timing_context(), true);
     /* NO5 is a ring-external read-only observer.  Keep its phase-only
      * SyncIO/VDC path alive, but never service the TDMA owner on that board;
      * this prevents accidental PIO/SM/DMA/GPIO/IRQ/DREQ activity while the
@@ -760,6 +763,7 @@ static void app_realtime_tdma_phase(void)
     diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_CORE1);
     drv_watchdog_mark_progress(1u, 0x0103u);
     tdma_service_timing_record(TDMA_TIMING_ACCOUNTING, timing_start);
+    tdma_service_timing_context(tdma_runtime_owner_timing_context(), false);
     tdma_service_timing_phase_end();
 }
 

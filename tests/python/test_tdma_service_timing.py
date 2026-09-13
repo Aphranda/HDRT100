@@ -5,7 +5,7 @@ import shutil
 import subprocess
 import pytest
 
-from tools.tdma_ring_monitor.tdma_service_timing import parse_service_timing
+from tools.tdma_ring_monitor.tdma_service_timing import parse_service_timing, FIELDS_V6
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -74,3 +74,17 @@ def test_profile_rejects_unknown_truncated_or_mismatched_schema(raw):
 
 def test_profile_unavailable():
     assert parse_service_timing('"UNAVAILABLE"') is None
+
+
+def test_state_profile_schema_preserves_full_interval_and_generations():
+    fields = [6, 250000000, 2, 90, 31, 2, 42, 2**40, 1000, 0,
+              1200, 2, 4, 6, 80, 2, 4, 6, 81, 60, 30]
+    assert len(fields) == len(FIELDS_V6)
+    fields += [n for i in range(31) for n in (100+i, i+1)]
+    result = parse_service_timing(','.join(map(str, fields)))
+    assert result['full_phase_ticks'] == 1200 and result['total_ticks'] == 1000
+    assert result['entry_return_sequence'] == 80 and result['exit_return_sequence'] == 81
+    assert result['autonomous_phase_count'] == 60 and result['other_phase_count'] == 30
+    assert result['stages']['rx_complete'] == {'ticks': 130, 'calls': 31}
+    with pytest.raises(ValueError):
+        parse_service_timing(','.join(map(str, fields[:-1])))

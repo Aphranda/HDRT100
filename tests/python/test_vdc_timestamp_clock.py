@@ -14,6 +14,8 @@ MASK = (1 << 64) - 1
 @pytest.fixture(scope="module")
 def clock_executable(tmp_path_factory):
     directory = tmp_path_factory.mktemp("vdc-timestamp-clock")
+    (directory / "pico.h").write_text(
+        "#define __not_in_flash_func(name) name\n", encoding="utf-8")
     hardware = directory / "hardware"
     hardware.mkdir()
     (hardware / "clocks.h").write_text(

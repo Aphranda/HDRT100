@@ -38,7 +38,7 @@ def admission_exe(tmp_path_factory):
     return exe
 
 
-@pytest.mark.parametrize("case", ["publish", "stale", "expiry", "prepare", "fault"])
+@pytest.mark.parametrize("case", ["publish", "stale", "expiry", "prepare", "fault", "record-mode"])
 def test_origin_trial_lifecycle(admission_exe, case):
     result = subprocess.run([str(admission_exe), case], capture_output=True,
                             text=True, timeout=3)

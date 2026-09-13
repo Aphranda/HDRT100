@@ -241,6 +241,7 @@ tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *context)
         .data_pc = TDMA_ORIGIN_DATA_PC, .helper_pc = TDMA_ORIGIN_HELPER_PC,
         .compare_pc = TDMA_ORIGIN_COMPARE_PC,
         .rtt_sm = phys->flight_resources.tx_rtt_evidence_sm, .rtt_pc = TDMA_ORIGIN_RTT_PC,
+        .diagnostic_skip_records = request->diagnostic_skip_records,
     };
     memcpy(&plan_config.returned_route_word, s_tdma_origin.capture[0] + 12u, sizeof(uint32_t));
     s_tdma_origin.plan = (tdma_origin_plan_t){.runs = s_tdma_origin.runs,

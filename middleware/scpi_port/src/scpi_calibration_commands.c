@@ -73,7 +73,7 @@ scpi_result_t scpi_calibration_origin_runtime_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_calibration_origin_trial(scpi_t *context)
+static scpi_result_t scpi_calibration_origin_trial_flags(scpi_t *context, uint32_t flags)
 {
     uint32_t trial, rearm, polls;
     uint64_t duration;
@@ -81,12 +81,22 @@ scpi_result_t scpi_calibration_origin_trial(scpi_t *context)
         !SCPI_ParamUInt32(context, &rearm, TRUE) ||
         !SCPI_ParamUInt32(context, &polls, TRUE) ||
         !SCPI_ParamUInt64(context, &duration, TRUE)) return SCPI_RES_ERR;
-    if (!calibration_manager_origin_trial(trial, rearm, polls, duration)) {
+    if (!calibration_manager_origin_trial_configured(trial, rearm, polls, duration, flags)) {
         scpi_port_push_exec_error(context, "CAL_ORIGIN_TRIAL_REJECTED");
         return SCPI_RES_ERR;
     }
     SCPI_ResultUInt32(context, calibration_manager_origin_epoch());
     return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_origin_trial(scpi_t *context)
+{
+    return scpi_calibration_origin_trial_flags(context, 0u);
+}
+
+scpi_result_t scpi_calibration_origin_trial_no_record(scpi_t *context)
+{
+    return scpi_calibration_origin_trial_flags(context, CALIBRATION_ORIGIN_DIAGNOSTIC_SKIP_RECORDS);
 }
 
 scpi_result_t scpi_calibration_origin_revoke(scpi_t *context)
@@ -132,6 +142,7 @@ scpi_result_t scpi_calibration_origin_q(scpi_t *context)
     SCPI_ResultUInt32(context, trial.admission.capability.physical_bytes);
     SCPI_ResultUInt32(context, trial.admission.capability.resource_mask);
     SCPI_ResultUInt32(context, trial.admission.capability.dma_mask);
+    SCPI_ResultUInt32(context, trial.diagnostic_flags);
     return SCPI_RES_OK;
 }
 
