@@ -901,6 +901,10 @@ bool tdma_pio_spi_phys_origin_begin(
 tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *context);
 bool tdma_pio_spi_phys_origin_active(const void *context);
 bool tdma_pio_spi_phys_origin_healthy(const void *context);
+/* Sole Core1 owner, read-only archive publication watermark. No FIFO read,
+ * exchange harvest, descriptor update or rearm. Not an atomic record copy. */
+bool tdma_pio_spi_phys_origin_record_watermark(const void *context,
+    uint32_t *epoch, uint32_t *published_version);
 bool tdma_pio_spi_phys_origin_ready(void *context);
 bool tdma_pio_spi_phys_origin_publish(void *context,
     const uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE], uint32_t *generation);

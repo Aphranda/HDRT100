@@ -32,13 +32,18 @@ def admission_exe(tmp_path_factory):
         'bool tdma_origin_cadence_calculate(uint32_t clk_sys_hz, uint32_t baud_hz, '
         'uint32_t physical_bytes, uint32_t period_ns, tdma_origin_cadence_t *cadence) {'
         + c_definition_body(source, "tdma_origin_cadence_calculate") + '}\n', encoding="utf-8")
+    wrapper = (ROOT / 'components/vdc_dpll_manager/src/vdc_dpll_manager.c').read_text(encoding='utf-8')
+    (build / 'tdma_component_service.inc').write_text('void tdma_component_core1_service(void) {' +
+        c_definition_body(wrapper, 'tdma_component_core1_service') + '}\n', encoding='utf-8')
+    command += ['-I' + str(build)]
     command += [str(ROOT / "tests/unit/test_tdma_origin_admission.c"),
-                str(cadence), "-o", str(exe)]
+                str(ROOT / 'components/tdma/src/tdma_origin_blackout.c'), str(cadence), "-o", str(exe)]
     subprocess.run(command, check=True, timeout=60)
     return exe
 
 
-@pytest.mark.parametrize("case", ["publish", "stale", "expiry", "prepare", "fault", "record-mode"])
+@pytest.mark.parametrize("case", ["publish", "stale", "expiry", "prepare", "fault", "record-mode",
+    'blackout', 'blackout-cancel', 'blackout-deadline', 'blackout-invalid'])
 def test_origin_trial_lifecycle(admission_exe, case):
     result = subprocess.run([str(admission_exe), case], capture_output=True,
                             text=True, timeout=3)

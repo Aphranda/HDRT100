@@ -9,6 +9,12 @@
 #include "tdma_operating_profile.h"
 #include "refmem_realtime_contract.h"
 #include "tdma_service_timing.h"
+#include "tdma_origin_blackout.h"
+
+/* Core1 gate before all TDMA service work. Enabled only by an admitted finite
+ * diagnostic trial; false runs the normal service, including STOP retirement. */
+bool tdma_runtime_owner_skip_tdma_service(void);
+bool tdma_runtime_owner_get_origin_blackout(tdma_origin_blackout_snapshot_t *out);
 
 /* Core1-only direct owner facts for phase attribution; no hardware access. */
 tdma_service_timing_context_t tdma_runtime_owner_timing_context(void);

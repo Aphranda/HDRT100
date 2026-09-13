@@ -2983,6 +2983,11 @@ void tdma_component_core1_service(void)
     if (ota_ao_is_active()) {
         return;
     }
+    /* Explicit finite TDMA-owner diagnostic, independent of OTA. The entire
+     * physical/owner/RefMem/training service body is omitted on these calls. */
+    if (tdma_runtime_owner_skip_tdma_service()) {
+        return;
+    }
     /* The PIO/DMA flight origin is submitted without waiting for wire
      * completion.  This bounded poll only harvests a completed launch/latch
      * token before the scheduler advances the next TDMA window. */

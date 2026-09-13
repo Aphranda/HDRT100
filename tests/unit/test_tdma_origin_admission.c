@@ -5,6 +5,8 @@
 #include "tdma_service.h"
 #include "tdma_pio_spi_ring_adapter.h"
 #include "ota_crc32.h"
+#include "tdma_origin_blackout.h"
+#include "tdma_service_timing.h"
 
 /* Host device facade; no hardware ownership is exercised in this fixture. */
 enum { clk_sys, BOARD_TDMA_TX_PIO_BLOCK_ID = 1, BOARD_TDMA_RX_PIO_BLOCK_ID = 2,
@@ -28,6 +30,10 @@ static bool complete = true, model_valid = true, resources_valid = true, begin_o
 static tdma_origin_build_result_t poll_result = TDMA_ORIGIN_BUILD_BUSY;
 static tdma_ring_runtime_snapshot_t ring;
 static tdma_ring_runtime_config_t config;
+static uint32_t watermark_epoch = 77, watermark_version = 100;
+static bool watermark_ready = true;
+static bool tdma_pio_spi_phys_origin_record_watermark(const void *ctx, uint32_t *epoch, uint32_t *version)
+{ (void)ctx; *epoch = watermark_epoch; *version = watermark_version; return watermark_ready; }
 static tdma_state_machine_origin_dma_contract_t tdma_state_machine_origin_dma_contract(void)
 { return (tdma_state_machine_origin_dma_contract_t){4, 5, 6, 8}; }
 static bool tdma_state_machine_origin_dma_contract_valid(const tdma_state_machine_origin_dma_contract_t *d)
@@ -68,6 +74,19 @@ bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime, const tdma_ring_r
 #include "../../components/tdma/src/tdma_runtime_origin.inc"
 #include "../../components/calibration_manager/src/calibration_origin_timing.inc"
 
+static tdma_service_service_t *s_vdc_tdma_service = &s_tdma_runtime_owner;
+static uint32_t full_service_calls[4];
+static bool ota_active;
+static bool ota_ao_is_active(void) { return ota_active; }
+static uint64_t vdc_dpll_manager_now_ns(void) { return ticks; }
+static void tdma_runtime_owner_service_phys_tx(uint64_t now)
+{ (void)now; full_service_calls[0]++; tdma_runtime_owner_origin_lifetime_core1(); }
+void tdma_service_core1_service(tdma_service_service_t *owner)
+{ assert(owner == s_vdc_tdma_service); full_service_calls[1]++; }
+void distributed_refmem_tdma_publish_service(void) { full_service_calls[2]++; }
+static void tdma_runtime_owner_update_training_gate(void) { full_service_calls[3]++; }
+#include "tdma_component_service.inc"
+
 static void setup(void)
 {
     config = (tdma_ring_runtime_config_t){.baud_hz = 10000000, .cycle_period_ns = 1000000,
@@ -85,6 +104,25 @@ static tdma_origin_admission_result_t admit(void)
 { uint32_t rearm, abort; return tdma_runtime_owner_origin_admit(&s_tdma_pio_spi_phys, &config, &rearm, &abort); }
 static void publish(void)
 { assert(calibration_manager_origin_trial(1, 100, 8, 1000000)); }
+
+static void blackout_start(void)
+{
+    setup(); ticks = 100; clock_hz = 150000000; watermark_ready = true;
+    watermark_epoch = 77; watermark_version = 100;
+    s_tdma_pio_spi_ring_adapter.origin.active = 1;
+    s_tdma_pio_spi_ring_adapter.comm_fsm.state = TDMA_ADAPTER_COMM_STATE_AUTONOMOUS;
+    assert(calibration_manager_origin_trial_configured(9, 100, 8, clock_hz,
+        CALIBRATION_ORIGIN_DIAGNOSTIC_SERVICE_BLACKOUT));
+    assert(admit() == TDMA_ORIGIN_ADMISSION_READY);
+    memset(full_service_calls, 0, sizeof(full_service_calls));
+    for (uint32_t i = 1; i < TDMA_ORIGIN_BLACKOUT_SETTLE_CALLS; ++i) {
+        tdma_component_core1_service(); ticks += clock_hz / 1000; watermark_version += 2;
+        for (unsigned j = 0; j < 4; ++j) assert(full_service_calls[j] == i);
+    }
+    tdma_component_core1_service();
+    assert(s_origin_blackout.snapshot.state == TDMA_ORIGIN_BLACKOUT_ACTIVE);
+    for (unsigned j = 0; j < 4; ++j) assert(full_service_calls[j] == TDMA_ORIGIN_BLACKOUT_SETTLE_CALLS - 1);
+}
 
 int main(int argc, char **argv)
 {
@@ -159,10 +197,68 @@ int main(int argc, char **argv)
             assert(s_tdma_pio_spi_phys.flight_origin_prepare.diagnostic_skip_records == (mode != 0));
             assert(tdma_runtime_owner_origin_poll(&s_tdma_pio_spi_phys) == TDMA_ORIGIN_BUILD_FAILED);
         }
-        assert(!calibration_manager_origin_trial_configured(5, 100, 8, 1000000, 2));
+        assert(!calibration_manager_origin_trial_configured(5, 100, 8, 1000000, 3));
+        assert(!calibration_manager_origin_trial_configured(5, 100, 8, 1000000, 4));
         assert(!s_origin_timing.enabled);
         publish();
         assert(s_origin_timing.diagnostic_flags == 0);
+    } else if (!strcmp(argv[1], "blackout")) {
+        tdma_origin_blackout_snapshot_t out;
+        assert(!tdma_runtime_owner_get_origin_blackout(&out));
+        /* An ordinary trial cannot omit the service. */
+        publish(); assert(admit() == TDMA_ORIGIN_ADMISSION_READY);
+        for (unsigned i = 0; i < 80; ++i) tdma_component_core1_service();
+        for (unsigned j = 0; j < 4; ++j) assert(full_service_calls[j] == 80);
+        blackout_start();
+        assert(!tdma_runtime_owner_get_origin_blackout(&out));
+        for (unsigned i = 1; i < TDMA_ORIGIN_BLACKOUT_SKIP_CALLS; ++i) {
+            ticks += clock_hz / 1000; watermark_version += 2;
+            tdma_component_core1_service();
+            for (unsigned j = 0; j < 4; ++j) assert(full_service_calls[j] == TDMA_ORIGIN_BLACKOUT_SETTLE_CALLS - 1);
+        }
+        ticks += clock_hz / 1000; watermark_version += 2;
+        tdma_component_core1_service();
+        assert(stops == 1 && !s_tdma_runtime_owner.ring_runtime.enabled);
+        for (unsigned j = 0; j < 4; ++j) assert(full_service_calls[j] == TDMA_ORIGIN_BLACKOUT_SETTLE_CALLS);
+        assert(tdma_runtime_owner_get_origin_blackout(&out));
+        assert(out.state == TDMA_ORIGIN_BLACKOUT_COMPLETE && out.skipped_calls == TDMA_ORIGIN_BLACKOUT_SKIP_CALLS);
+        assert(out.after_version - out.before_version == 2 * TDMA_ORIGIN_BLACKOUT_SKIP_CALLS);
+        assert(out.end_ticks - out.begin_ticks == (uint64_t)clock_hz / 1000 * TDMA_ORIGIN_BLACKOUT_SKIP_CALLS);
+        for (unsigned i = 0; i < 80; ++i) tdma_component_core1_service();
+        assert(tdma_runtime_owner_get_origin_blackout(&out) && out.skipped_calls == TDMA_ORIGIN_BLACKOUT_SKIP_CALLS);
+        s_origin_blackout.guard++;
+        assert(!tdma_runtime_owner_get_origin_blackout(&out));
+        s_origin_blackout.guard++;
+    } else if (!strcmp(argv[1], "blackout-cancel")) {
+        for (unsigned bad = 0; bad < 5; ++bad) {
+            blackout_start();
+            if (bad == 0) calibration_manager_origin_revoke();
+            if (bad == 1) s_tdma_runtime_owner.ring_runtime.config_seq++;
+            if (bad == 2) model_epoch += 2;
+            if (bad == 3) ticks = s_origin_trial.expires_ticks;
+            if (bad == 4) s_tdma_runtime_owner.ring_runtime.enabled = 0;
+            tdma_component_core1_service();
+            assert(s_origin_blackout.snapshot.state == TDMA_ORIGIN_BLACKOUT_CANCELLED);
+            for (unsigned j = 0; j < 4; ++j) assert(full_service_calls[j] == TDMA_ORIGIN_BLACKOUT_SETTLE_CALLS);
+        }
+    } else if (!strcmp(argv[1], "blackout-deadline")) {
+        for (unsigned bad = 0; bad < 2; ++bad) {
+            blackout_start();
+            ticks = bad ? s_origin_blackout.snapshot.begin_ticks - 1 :
+                s_origin_blackout.snapshot.begin_ticks + (uint64_t)clock_hz * TDMA_ORIGIN_BLACKOUT_MAX_INTERVAL_US / 1000000 + 1;
+            tdma_component_core1_service();
+            assert(s_origin_blackout.snapshot.state == TDMA_ORIGIN_BLACKOUT_DEADLINE);
+            assert(s_origin_blackout.snapshot.skipped_calls == 1);
+        }
+    } else if (!strcmp(argv[1], "blackout-invalid")) {
+        for (unsigned bad = 0; bad < 3; ++bad) {
+            blackout_start();
+            if (bad == 0) watermark_epoch++;
+            if (bad == 1) watermark_version |= 1;
+            if (bad == 2) watermark_ready = false;
+            tdma_component_core1_service();
+            assert(s_origin_blackout.snapshot.state == TDMA_ORIGIN_BLACKOUT_INVALID);
+        }
     } else if (!strcmp(argv[1], "fault")) {
         publish(); assert(admit() == TDMA_ORIGIN_ADMISSION_READY);
         s_tdma_pio_spi_ring_adapter.origin.active = 1;

@@ -6,6 +6,8 @@
 
 scpi_result_t scpi_calibration_origin_trial(scpi_t *context);
 scpi_result_t scpi_calibration_origin_trial_no_record(scpi_t *context);
+scpi_result_t scpi_calibration_origin_trial_blackout(scpi_t *context);
+scpi_result_t scpi_calibration_origin_blackout_q(scpi_t *context);
 scpi_result_t scpi_calibration_origin_revoke(scpi_t *context);
 scpi_result_t scpi_calibration_origin_q(scpi_t *context);
 scpi_result_t scpi_calibration_origin_runtime_q(scpi_t *context);
@@ -81,6 +83,8 @@ scpi_result_t scpi_calibration_sma_cable_rtt_responder_q(scpi_t *context);
 #define SCPI_CALIBRATION_COMMANDS \
     {.pattern = "CALibration:ORIGin:TRIAL", .callback = scpi_calibration_origin_trial}, \
     {.pattern = "CALibration:ORIGin:TRIAL:NORECord", .callback = scpi_calibration_origin_trial_no_record}, \
+    {.pattern = "CALibration:ORIGin:TRIAL:BLACKout", .callback = scpi_calibration_origin_trial_blackout}, \
+    {.pattern = "READ:CALibration:ORIGin:BLACKout?", .callback = scpi_calibration_origin_blackout_q}, \
     {.pattern = "CALibration:ORIGin:REVOKe", .callback = scpi_calibration_origin_revoke}, \
     {.pattern = "READ:CALibration:ORIGin?", .callback = scpi_calibration_origin_q}, \
     {.pattern = "READ:CALibration:ORIGin:RUNTIme?", .callback = scpi_calibration_origin_runtime_q}, \

@@ -10,6 +10,7 @@
 static calibration_origin_timing_t s_origin_trial;
 static uint32_t s_origin_consumed_epoch;
 static bool s_origin_trial_fault;
+static tdma_origin_blackout_t s_origin_blackout;
 
 static bool tdma_runtime_owner_origin_capability_matches(
     const refmem_realtime_origin_capability_t *capability)
@@ -96,6 +97,9 @@ static tdma_origin_admission_result_t tdma_runtime_owner_origin_admit(
     }
     *rearm_budget_ticks = trial.rearm_budget_ticks;
     *abort_poll_count = trial.abort_poll_count;
+    tdma_origin_blackout_reset(&s_origin_blackout,
+        trial.diagnostic_flags == CALIBRATION_ORIGIN_DIAGNOSTIC_SERVICE_BLACKOUT,
+        trial.epoch, trial.config_seq);
     return TDMA_ORIGIN_ADMISSION_READY;
 }
 
@@ -146,4 +150,40 @@ static void tdma_runtime_owner_origin_lifetime_core1(void)
          * retrying failed cleanup; never fall back to the legacy emitter. */
         (void)tdma_ring_runtime_configure(&s_tdma_runtime_owner.ring_runtime, NULL);
     }
+}
+
+/* Keep the diagnostic slow branch out of the always-resident fast gate. */
+__attribute__((noinline)) static bool tdma_runtime_owner_origin_blackout_step(void)
+{
+    tdma_origin_blackout_input_t input = {
+        .authorized = tdma_runtime_owner_origin_authorized(),
+        .clock_hz = clock_get_hz(clk_sys)};
+    /* This reads only a DMA publication watermark; it cannot advance the
+     * graph, consume a FIFO or choose a new payload. The retained RTT records
+     * and these CPU boundary times do not establish absolute edge cadence. */
+    input.ready = input.authorized && s_tdma_pio_spi_ring_adapter.origin.active &&
+        s_tdma_pio_spi_ring_adapter.comm_fsm.state == TDMA_ADAPTER_COMM_STATE_AUTONOMOUS &&
+        tdma_pio_spi_phys_origin_record_watermark(&s_tdma_pio_spi_phys,
+            &input.record_epoch, &input.record_version);
+    input.now_ticks = vdc_timestamp_clock_read_ticks64();
+    const tdma_origin_blackout_action_t action = tdma_origin_blackout_step(&s_origin_blackout, &input);
+    if (action == TDMA_ORIGIN_BLACKOUT_STOP) {
+        /* Resume the ordinary service to run its existing lifetime STOP.
+         * That path retries cleanup and freezes the complete DMA archive. */
+        s_origin_trial_fault = true;
+    }
+    return action == TDMA_ORIGIN_BLACKOUT_SKIP;
+}
+
+TDMA_ORIGIN_OWNER_RAM
+bool tdma_runtime_owner_skip_tdma_service(void)
+{
+    const uint32_t state = s_origin_blackout.snapshot.state;
+    if (state != TDMA_ORIGIN_BLACKOUT_WAITING && state != TDMA_ORIGIN_BLACKOUT_ACTIVE) return false;
+    return tdma_runtime_owner_origin_blackout_step();
+}
+
+bool tdma_runtime_owner_get_origin_blackout(tdma_origin_blackout_snapshot_t *out)
+{
+    return tdma_origin_blackout_get(&s_origin_blackout, out);
 }

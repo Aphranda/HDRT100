@@ -8,6 +8,7 @@
 
 #define CALIBRATION_ORIGIN_TIMING_VERSION 2u
 #define CALIBRATION_ORIGIN_DIAGNOSTIC_SKIP_RECORDS 1u
+#define CALIBRATION_ORIGIN_DIAGNOSTIC_SERVICE_BLACKOUT 2u
 
 /* Volatile diagnostic experiment, never a measured product timing grant.
  * The owner validates this exact epoch before preparation and installation.

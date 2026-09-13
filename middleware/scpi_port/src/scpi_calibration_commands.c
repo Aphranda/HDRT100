@@ -99,6 +99,36 @@ scpi_result_t scpi_calibration_origin_trial_no_record(scpi_t *context)
     return scpi_calibration_origin_trial_flags(context, CALIBRATION_ORIGIN_DIAGNOSTIC_SKIP_RECORDS);
 }
 
+scpi_result_t scpi_calibration_origin_trial_blackout(scpi_t *context)
+{
+    return scpi_calibration_origin_trial_flags(context, CALIBRATION_ORIGIN_DIAGNOSTIC_SERVICE_BLACKOUT);
+}
+
+scpi_result_t scpi_calibration_origin_blackout_q(scpi_t *context)
+{
+    tdma_origin_blackout_snapshot_t s;
+    tdma_ring_runtime_snapshot_t ring;
+    if (!tdma_runtime_owner_get_ring_snapshot(&ring) || ring.enabled || ring.adapter_started ||
+        ring.config_seq != ring.applied_config_seq || !tdma_runtime_owner_get_origin_blackout(&s)) {
+        SCPI_ResultText(context, "UNAVAILABLE");
+        return SCPI_RES_OK;
+    }
+    SCPI_ResultText(context, "ORIGINBLACKOUT");
+    SCPI_ResultUInt32(context, s.schema);
+    SCPI_ResultUInt32(context, s.state);
+    SCPI_ResultUInt32(context, s.trial_epoch);
+    SCPI_ResultUInt32(context, s.config_seq);
+    SCPI_ResultUInt32(context, s.record_epoch);
+    SCPI_ResultUInt32(context, s.clock_hz);
+    SCPI_ResultUInt32(context, s.wait_calls);
+    SCPI_ResultUInt32(context, s.skipped_calls);
+    SCPI_ResultUInt32(context, s.before_version);
+    SCPI_ResultUInt32(context, s.after_version);
+    SCPI_ResultUInt64(context, s.begin_ticks);
+    SCPI_ResultUInt64(context, s.end_ticks);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_calibration_origin_revoke(scpi_t *context)
 {
     calibration_manager_origin_revoke();

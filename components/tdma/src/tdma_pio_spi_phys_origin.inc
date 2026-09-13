@@ -378,6 +378,18 @@ bool tdma_pio_spi_phys_origin_ready(void *context)
         tdma_origin_exchange_ready(&s_tdma_origin.exchange);
 }
 
+bool tdma_pio_spi_phys_origin_record_watermark(const void *context,
+    uint32_t *epoch, uint32_t *published_version)
+{
+    const tdma_pio_spi_phys_t *phys = context;
+    if (epoch == NULL || published_version == NULL ||
+        !tdma_pio_spi_phys_origin_healthy(context) ||
+        phys->flight_origin_prepare.diagnostic_skip_records) return false;
+    *epoch = phys->flight_origin_record_epoch;
+    *published_version = __atomic_load_n(&s_tdma_origin.state.record_published_version, __ATOMIC_ACQUIRE);
+    return true;
+}
+
 bool tdma_pio_spi_phys_origin_publish(void *context,
     const uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE], uint32_t *generation)
 {
