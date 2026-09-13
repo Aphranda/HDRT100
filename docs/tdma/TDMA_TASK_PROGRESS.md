@@ -8,7 +8,13 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002B/002F` 的时间增长修复切片见
+当前 `TDMA-FLIGHT-002B/002F` 的启停准备切片见 `TDMA-PROGRESS-20260913-058`，
+证据根为 `out/HardwareAcceptance/20260913/tdma-flight-lifecycle-preparation/`。纯 DMA
+构图交给既有 Core0 准备服务，Core1 保留授权、安装和取消交接；准备态采样区间从旧版
+97.180–139.295 ms 收敛到两轮上界 42.718/49.217 ms（有限窗口快照，非事实源）。
+本轮普通短帧和恢复通过，SCK 严格准入、切换 missing、完整 500 us 仍未闭合。
+完整 TDMA PREPARE/READY/目标圈与排空协议尚未实现，本切片保持 PARTIAL。
+前序 `TDMA-FLIGHT-002B/002F` 的时间增长修复切片见
 `TDMA-PROGRESS-20260913-057`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-runtime-growth-fix/`。同矩阵、同档案模式的
 两轮主站 body 峰值已降至 697.956/707.240 us，外层 service 为 720.820/725.524 us
@@ -251,6 +257,66 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-058 - 纯 origin 构图移出 Core1 准备步进与取消交接
+
+- 任务：`TDMA-FLIGHT-002B/002F`。日期：2026-09-13。状态：`PARTIAL`。响应用户通过
+  TDMA 协调逐步启停的方向，先完成本地准备空窗切片；HAOFV 唯一 owner、静态调度与
+  500 us 目标保持，未改 wire、PIO 程序、DMA/SM 分配或编译节点容量。
+- 证据根：`out/HardwareAcceptance/20260913/tdma-flight-lifecycle-preparation/`。
+  以下数字均为当前构建、离线测试或有限窗口快照，非事实源。
+- 归因：旧 `tdma_pio_spi_phys_origin_poll()` 先停旧 DMA，再每次 owner poll 构建一个
+  graph block，两遍完成才允许 seed/安装。origin runs 与活动 RX ring 共享 union，
+  Calibration 缓冲还持有独立完成读回，不能在运行时直接覆盖或借用这些存储。
+- 实施：`tdma_origin_build_job` 位于 union 外，由 Core1 初始化 builder 并发布借用；
+  Core0 既有准备服务完成固定 label catalog 两遍纯构图，逐块检查取消，不访问 MMIO。
+  READY release 发布完整图，Core1 单次 acquire 接收后继续 seed/配置/安装，动态授权、
+  配置/时钟/资源复验保留。STOP 即使已停硬件，也等活动后台写者最后写入并确认退休，
+  再释放 workspace；旧结果不能进入新请求。没有新增实时任务或运行期逐圈构图。
+- 软件验证：18 项初始回归、33 项 job/档案/资源回归和完整 ring-adapter host 单测通过。
+  覆盖 claim 前后、块内、最后发布、READY、失败与步骤上限的取消和复用；实际 STOP
+  函数在后台未退出时拒绝提前冻结/释放。真实 builder 对 2–8 节点及档案 ON/OFF 共
+  14 组图逐字节比对，descriptor、literal 和入口一致。文档检查器 18 项测试通过。
+- A/B/Boot 构建 `20260913105135`，源码指纹
+  `077a0a418f6a63002fdeb006bcd7f0994db3c7b8179609ea0b0f8841b0757bf3`，
+  1,040 个源码文件，含新增文件。A/B link-free 从 2,320 B 到 2,312 B，交接状态占用
+  8 B；生成 PIO 头与 057 最终构建逐字节相同。正式 RAM/运行栈门禁未据此通过。
+- 切换对照：固定 057 的 `p3-r1/trn03-matrix.json`，板端 `20000 us × 26`；SCPI
+  只触发，运行中零查询，STOP 后导出。以 owner 准备态所在样本的 started/completed
+  区间给出保守边界；这不是逻辑分析仪测得的真实停线边沿。
+
+  | 固件与轮次 | 观察到的准备态样本 | 准备态区间 ms |
+  |---|---:|---|
+  | 旧版 baseline-r1 | 6 | 97.180–139.295 |
+  | 新版 transition-r1 | 1 | 上界 42.718 |
+  | 新版 transition-r2 | 1 | 上界 49.217 |
+
+- 两轮新上界均低于旧下界，支持减少逐拍构图等待；共享 union 仍需先停旧 DMA，
+  不能宣称无缝切换。首轮出现一次主站切换 missing，第二轮短窗未记录到 missing；
+  两轮后段 accepted 增长且 reject/missing 未再增长。短观察窗口不满足通用长窗口验收：旧版记录原报
+  `no complete board record available after failed startup`，新版原报
+  `final periodic samples missing`。实际所有板端原件均完整 26 条、missed/reason=0，
+  原评估失败保留，未修改门禁让短窗口通过。
+- 独立长窗口 `250000 us × 26` 两轮主站 body 为 713.720/698.812 us，外层为
+  744.960/728.164 us；两轮均记录到一次主站切换 missing，后段 accepted 增量
+  847/842、reject/missing 增量均为零。
+  当前较大外层峰值比 057 两轮较大值高 19.436 us，仍远低于早期 903–916 us 增长
+  区间，但本切片没有证明运行期收益，也未归因这部分峰值差异。准备态毫秒收益不能
+  抵扣完整 phase 微秒预算。两轮 startup barrier 通过，整段 periodic interval 和
+  实时门禁仍失败；后段健康不能取消原失败，完整 500 us 继续开放。
+- 当前源码真实四板 OTA/P3 已完成；普通短帧 passed/closed_loop/realtime 为 true，
+  整体 `strict_gates_passed=false`。TRN-01 SCK 训练失败，TRN-03 无满足 flight re-arm
+  budget 的实测 SCK 组合，最佳候选 margin=-1 sample；诊断继续和原始失败保留。
+  最终固定矩阵普通恢复通过。基线、P3、两轮短窗、两轮长窗与普通恢复均完成四板
+  STOP/config ACK、许可证失效和 SD 逐字节读回。构建、源码、P3 凭证与产物核对见
+  `source-checkpoint-r1.json`、各 `*-review.json`、`review-final-r2.json`；代码与文档
+  分离提交及封存索引见 `commit-proof.json`、`slice-manifest.json`。
+- 下一 gate：按本地接收/转发预备、TDMA PREPARE/READY/NACK、提前约定生效圈与
+  排空停止评审生命周期协议。当前两字节 opcode/seq8 没有这些执行语义，固定配额、
+  epoch/generation、确认集合、超时/重复/迟到/取消必须先完成 wire 与资源评审；
+  同圈与 VDC 合格共同时间下的同时执行分开验收。继续定位切换 missing、完整 WCET、
+  SCK 准入与正式 RAM，后续 service blackout/特等逐圈交付/邮箱容量仍未闭合。
+  本轮未更改 registry 状态，长期目标保持进行中。
 
 ### TDMA-PROGRESS-20260913-057 - 分状态取证与高频路径 SRAM 驻留压回时间增长
 

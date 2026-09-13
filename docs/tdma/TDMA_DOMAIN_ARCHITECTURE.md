@@ -417,6 +417,18 @@ RefMem ACK/fence 仍属于二等可靠性闭环。STOP、故障收敛、配置�
 静态字段、分片序号、丢弃规则和预算并修订相应契约，不能把 optional diagnostic 字段
 直接解释成已支持的任意长度日志通道。
 
+TDMA 协调启停是 `TDMA-FLIGHT-002B` 的后续候选，不是当前控制字段已提供的能力。
+冷启动先由本地 owner 建立接收/转发与受控初始帧，之后才可通过 TDMA 运输 PREPARE、
+READY/NACK 和提前约定的生效边界。候选须绑定配置/拓扑 epoch、命令 generation、
+参与集合和目标圈号，处理重复、迟到、缺失与取消；接收方只向合法 owner 提交 intent。
+普通停止先关闭新负载准入，再排空既有承诺、确认最后完整回环，最后由 owner 停止续转
+并回收资源；链路已断或故障收敛不能等待网络确认。目标圈号只保证同圈语义，精确同时
+执行还须由 VDC 提供合格的共同目标时间和误差界，并经本地预授权硬件边界执行。
+现有 `TDMA_PROCESS_IMAGE_CONTROL_OPCODE_OFFSET` 与
+`TDMA_PROCESS_IMAGE_CONTROL_SEQ8_OFFSET` 仅提供 opcode/seq8 的载荷位置；
+新握手、确认聚合及时间字段必须先完成固定配额、wire 契约与资源/WCET 评审，不能
+占用特等席时间证据或把普通 snapshot 发布解释为启停已经执行。
+
 特等席使用独立快速通道：硬件边沿锁存、固定同步字段与受保护记录的有界交接不排在
 通用 RX 工位、整包解析、RefMem 或 Log 后面。VDC 后台关联与控制计算可以异步，
 每圈时间证据的捕获和卸载期限必须单独证明；普通 parser 平均变快不能替代该门禁。
@@ -1058,13 +1070,21 @@ TDMA owner 在 begin 与每个准备步骤重新核验许可证绑定和期限�
 执行与 ARM 编译仍不能代替硅上仲裁上界。`tdma_origin_cadence_calculate()` 只描述
 所选分频下的物理周期，计算所得 guard 不是 Calibration 对 DMA 重装的授权，也不
 改变 Core1 schedule 或 VDC 观测周期。候选启动采用 begin/poll，准备态按 owner service
-依次推进 mailbox 校验、完整 DMA STOP、persona 切换、分步构图、seed、禁用态 SM 配置
-与一次安装。每次 poll 只执行当前步骤；构图 scratch 复用尚未发布的 live storage，
+依次推进 mailbox 校验、完整 DMA STOP、persona 切换、构图请求/接收、seed、禁用态 SM
+配置与一次安装。`tdma_origin_build_job` 由 Core1 初始化并借出未发布的 builder 和输出，
+既有 Core0 准备服务执行纯 C 构图，不能访问 MMIO 或启动硬件。构图按固定 label catalog
+两遍有界推进，每块仍受 descriptor 上限约束；完成后用 release/acquire 交回整图，
+Core1 的 poll 只尝试接收一次，不等待后台。构图 scratch 复用尚未发布的 live storage，
 最终图和 seed banks 独立保留，BUSY 时不发布入口。配置和源时钟在非终态步骤复核，
 安装前再次检查资源与 persona；失败保留清理责任，common STOP 成功前不允许复用或
 重启。准备态与稳态在同一 service writer guard 内发布累计事实；准备态保持最近
 收发序号和累计值，仍报告未运行和无效时间戳，不能以计数归零表示缺少新观察。
 固定工作量仍须补充真实 clk_sys 的逐 action 与完整 Core1 WCET 证据。
+
+构图 job 的状态置于 persona union 外；STOP 即使已停硬件，也必须等活动 Core0 写者
+确认最后写入完成后才能释放 workspace、确认配置或重启。取消的旧结果不得进入下一次
+启动。当前图存储与旧 RX ring 重叠，借出前仍须完整停止旧 DMA；后台构图缩短的是等待
+Core1 多次推进的准备空窗，不能据此声称可以在旧环运行中覆盖图或已完成 TDMA 协调启停。
 
 自主 origin 的本地边界记录使用 `tdma_origin_record_t` 与
 `TDMA_ORIGIN_RECORD_COUNT` 固定池，由原 loader/executor DMA 的不可变描述符路径
