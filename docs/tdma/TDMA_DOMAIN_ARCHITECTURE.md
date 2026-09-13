@@ -1086,6 +1086,15 @@ Core1 的 poll 只尝试接收一次，不等待后台。构图 scratch 复用�
 启动。当前图存储与旧 RX ring 重叠，借出前仍须完整停止旧 DMA；后台构图缩短的是等待
 Core1 多次推进的准备空窗，不能据此声称可以在旧环运行中覆盖图或已完成 TDMA 协调启停。
 
+自主 origin 的 TX 只选取 Core0 已发布的完整本节点 mailbox。激活时通过完整 map
+检查形成固定位置授权；`tdma_flight_engine_copy_tx_layout()` 单次读取该授权，Core1
+核对本地 slot、输入长度、owner mask、mailbox 头和 CRC，复验 active/map generation
+后交给物理 shadow 发布。紧凑 mailbox 与整映像输入都只取本节点固定位置；不复制
+远端数据，不在逐拍路径重新遍历完整 map 或构造输出位图。没有固定整邮箱授权的
+map 不得进入该硬件发布路径。FIFO active 版本在调用内保持不可变，物理回调同步
+复制本地字节，未返回成功前不更新硬件 generation 的软件映射；迟到继续用旧 shadow。
+engine 的准备接受计数不等于物理 SENT、接收确认或逐圈更新。
+
 自主 origin 的本地边界记录使用 `tdma_origin_record_t` 与
 `TDMA_ORIGIN_RECORD_COUNT` 固定池，由原 loader/executor DMA 的不可变描述符路径
 逐圈写入；不占用新 DMA 通道、PIO 指令或硬件 FIFO consumer，也不由 Core1 逐圈触发。

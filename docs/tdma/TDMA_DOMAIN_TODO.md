@@ -303,6 +303,10 @@ TDMA 协调分阶段启停按 `TDMA-FLIGHT-002B` 推进：先收敛本地准备�
 `TDMA-PROGRESS-20260913-058` 将纯 origin 构图交给既有 Core0 准备服务，Core1 保留
 授权、整图接收、安装和 STOP；共享 union 仍需停旧 DMA，不能提升为无缝切换或完整协议。
 
+自主 origin 的固定邮箱装载切片见 `TDMA-PROGRESS-20260913-059`：复用激活时的固定
+map 授权，直接选择 Core0 准备的本地邮箱并保持动态复验，减少 Core1 的整映像构造。
+局部装载简化不替代完整 WCET、同圈多节点交换、特等席保全或切换无损门禁。
+
 普通 RX 异步解析切片已按用户顺序封存，随后完成六节点编译容量的隔离 RAM 核算，见
 `TDMA-PROGRESS-20260912-019`。核算区分本地状态、固定 wire/RefMem/Calibration
 存储容量与 scratch_y；收益不能代替正式 RAM/WCET 门禁。编译容量作为独立辅助切片
