@@ -8,7 +8,13 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的 Core0 有界输出与启动观察闭合切片见
+当前 `TDMA-FLIGHT-002F` 的板端记录与 SD 后处理切片见
+`TDMA-PROGRESS-20260913-047`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-board-recording/`。SCPI 只触发流程，板端
+有限窗口记录、冻结导出和 STOP 后 SD 逐字节读回通过；同固件第二轮 P3 严格短帧门禁
+通过，首轮 SCK 重放行拒绝及运行失败完整保留。持续写 SD、完整 WCET、正式 RAM 与
+逐圈特等席证据仍未闭合，长期目标保持进行中。
+前序 Core0 有界输出与启动观察闭合切片见
 `TDMA-PROGRESS-20260913-046`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-serial-observation/`。原短帧启动门禁通过，
 SD RUN 保存、完整波形、完整 WCET 和正式 RAM 仍未闭合。按用户最新要求，后续 SCPI
@@ -187,6 +193,52 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-047 - 板端自主记录、冻结导出与停机 SD 验证
+
+- 日期：2026-09-13；TODO task ID：`TDMA-FLIGHT-002F`。以下数字为实验快照，非事实源；
+  证据根为 `out/HardwareAcceptance/20260913/tdma-flight-board-recording/`，基线为
+  `81183d93c310651c32206456341a979acf9ae1d6`。提交与原始证据 SHA 见 `commit-proof.json`
+  和 `slice-manifest.json`；代码/文档分离提交，不 push。
+- 实现：`diagnostics_tdma_record` 由既有 Core0 Storage task 独占推进。SCPI 提交 ARM/
+  START/CANCEL/SAVE 意图；采集期不能读取变化中的缓冲。ARM 保留基线，START 绑定本板
+  请求时刻，板端按固定目标槽采集既有 owner 快照。完整保留 runtime/process/FIFO/
+  physical/CRC 健康项及所有调度 phase，包括 GUARD；用变更位图压缩，未复用 SCPI parser
+  做采样。目标/开始/完成时间、序号、有效位、漏采和终止原因均进入文件，不循环补样。
+- 所有权与存储：复用现有 `STORAGE_MANAGER_FILE_WRITE_MAX_BYTES` 写事务，新增旧值向量
+  和少量状态。FROZEN 后可统一导出 RAM，SAVE 在 STOP 和配置序号确认后才交给 StorageAO。
+  本地证据封口仍通过正常 commit 的独立长度/CRC 检查；普通上传不获得放宽。Core1 phase、
+  PIO/DMA、wire 和六节点容量保持。此实现是有限窗口实验，不是持续 SD 记录或逐圈采样。
+- 软件与构建：相关回归 `286 passed`、文档测试 `18 passed`；测试执行生产记录器、真实
+  portable OTA CRC 和实际 Storage commit，覆盖正常采集、延迟漏槽、容量耗尽、取消、
+  保存重试、身份/CRC/截断拒绝、原健康条件、迟到样本及中途掉线后恢复。首轮构建由 phase
+  数量断言发现遗漏 GUARD，修正后 A/B/Boot 和 Flash link gate 通过。另保留两条旧串口
+  主流程断言失败及其向板端行为测试迁移的证据。
+- build `20260913013149`；当前源码指纹
+  `f25fabe20f0f5e4a6d1ca77a54b4dc4082dee13ef144405652bb5bcc37279db4`，文件数 `1032`。
+  A/B 静态 RAM 各增加 `1572 B`，link free 为 `3260 B`；既有存储缓冲仍为 `16384 B`。
+  实际反汇编局部帧 `record_sample=3160 B`、`app_record_snapshot=2656 B`，不能当作完整
+  调用链栈界。初次审计漏识别 `subw`，原报告保留，修正见 `build-review-r2.json`。
+- 第一轮真实 `run` 完成构建、四板 OTA 和 P3，但 `strict_gates_passed=false`：SCK 校准
+  与 TRN-03 重放行准入先失败，随后 NO1 接收拒绝/坏帧增长，启动与 soak 均未通过。
+  四板记录仍各完成 `14/14`、零漏采，原文件在 STOP 后落 SD 并逐字节读回。失败数据
+  见 `p3-r1/tdma-process-image/` 与 `sd-recordings-r1.json`，不能归因为记录器或被重测覆盖。
+- 同一源码/固件复用已验真的 OTA 包，第二轮 `resume` 重新进行真实四板校准与闭环，
+  不是离线 replay。`p3-receipt-r2.json` 的 QUICK_DIAGNOSTIC 严格门禁通过；启动在本板
+  请求时刻后的最坏 `0.759863 s` 达到所需连续稳定间隔，原 `2 s` 门限保持。初始两次
+  不健康观测和 pipeline fill 拒绝仍在。soak 接收好帧增量依次 `304/304/303/304`，坏帧
+  增量均为零；这不是长稳误码率证明。
+- 第二轮四板各保留 `14` 个周期样本及独立基线，采集周期 `250000 us`，零漏采/溢出，
+  文件大小依次 `7804/7472/7524/7560 B`。记录快照读取区间的中位数约 `3.438–4.221 ms`，
+  包含 Core0 抢占与 getter 等待，不是 Core1 action 时间；不能直接提升到逐圈采样。
+  TDMA phase 累计最大值仍约 `1251–1495 us`，包括启动历史，未据此宣布稳态 WCET 通过。
+- 第二轮 STOP 后 SD 保存控制事务约 `0.156 s`，四个文件与原冻结 RAM 逐字节相同，见
+  `sd-recordings-r2.json`。未使用 Flash，未验证 RUN 持续写盘。最终四板 STOP、配置应用
+  确认、当前相位与临时许可证 inactive 均通过；Storage 栈余量至少 `5288 B`，SCPI 为
+  `2408 B`，heap min 均 `20344 B`，仍低于正式 RAM 门禁。
+- 结论：有限板端记录与 SD 后处理子项通过，长期目标仍为 `PARTIAL/active`。后续定位
+  首轮 SCK 重放不稳定与 SD RUN 等待，收敛高密度记录成本和原 owner/runtime RX handoff。
+  完整 `380 us`、blackout、同圈交换、逐圈时间戳、故障恢复和当前完整波形继续独立验收。
 
 ### TDMA-PROGRESS-20260913-046 - Core0 有界输出、原启动门禁闭合与板端记录转向
 

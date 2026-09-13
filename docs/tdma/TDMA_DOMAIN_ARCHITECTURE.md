@@ -1656,12 +1656,29 @@ components/tdma/
 ## 验证门禁
 
 主机观察成本与板端事件时间分开记录。按用户当前要求，SCPI 只触发流程，不承担运行期
-实时采样；后续验收改由板端时钟驱动记录，结束后统一导出。旧 runtime/process/FIFO/
+实时采样；有限窗口验收改由板端时钟驱动记录，结束后统一导出。旧 runtime/process/FIFO/
 physical/CRC 五查询只保留为历史对照；迁移必须保留相应健康项、连续稳定间隔、采样期限
 与初始 pipeline fill 拒绝计数，不能用减少字段或主机完成时间代替板端事实。板端记录先
 进入有界 RAM，Core0 经 Storage owner 异步保存到 SD；Core1 不等待文件系统。记录容量、
 覆盖/丢弃、generation、取消和保存完成分别留证，SD/Flash 不得绕过资源仲裁或实时准入。
-当前存储路径尚未完成持续记录验收，不能由维护输出优化声明替代。默认 SCPI stdio 路径
+当前实验入口为 `diagnostics_tdma_record_arm/start/service`：SCPI 仅提交控制意图，既有
+Core0 Storage task 独占推进记录状态；TDMA owner 的生命周期和 Core1 phase 不接入记录器。
+ARM 保留基线，已接受的 RING START 绑定本板触发时刻，运行期按板端时钟读取既有 owner
+快照。记录保留上述全部健康字段与调度 phase，使用变更位图和旧值向量压缩；每条包含
+目标、开始与完成时刻、有效位、序号及漏采数。迟到跳过已失效的采样槽，不循环补采。
+这些字段是一个观测区间，不能表述为跨域同时快照或逐圈特等席证据。
+
+数据复用 `STORAGE_MANAGER_FILE_WRITE_MAX_BYTES` 的既有写事务缓冲；记录或冻结期间暂缓
+后台文件操作。窗口结束、取消或容量不足均写终止记录及 CRC。FROZEN 后可统一导出 RAM，
+其间环路继续；SAVE 仅在 TDMA STOP 与配置应用序号确认后交给 StorageAO。该有限窗口入口
+不证明 RUN 中持续写 SD 已可用。采集状态下读接口不可导出变化中的缓冲，普通上传事务
+仍执行原有长度和 CRC 检查。Flash 不在本实验记录路径中。
+
+`trn03_closed_loop` 在冻结后执行原健康谓词、连续稳定间隔和启动时限；记录周期显式来自
+`sample_interval_s`，时限取板端实际完成时刻。漏采、无效字段、身份不符、文件不完整或
+CRC 错误不能被后续健康样本覆盖；soak 还核对每板实际覆盖时间。记录格式仅为实验取证
+接口，尚未冻结为跨域契约。当前存储路径尚未完成持续记录验收，不能由维护输出优化声明
+替代。默认 SCPI stdio 路径
 由 `scpi_port_input` 在单次同步输入调用中借用 context 的 `user_context` 槽，使用上限为
 `SCPI_PORT_STDIO_BATCH_BYTES` 的栈缓冲合并 parser 小片段。`scpi_port_write` 保持字节顺序；
 缓冲用满、显式 flush、传输切换、错误日志前和输入返回时排出待发字节，返回前恢复
