@@ -15,8 +15,14 @@ typedef enum {
     TDMA_OVERLAY_PREPARE_CANCELLED,
 } tdma_overlay_prepare_state_t;
 
+typedef enum {
+    TDMA_OVERLAY_PREPARE_FOLLOWER = 0u,
+    TDMA_OVERLAY_PREPARE_ORIGIN,
+} tdma_overlay_prepare_kind_t;
+
 typedef struct {
     volatile uint32_t state;
+    uint32_t kind; /* Frozen with each request; both personas share this station. */
     uint32_t epoch;
     uint32_t request_epoch;
     uint32_t buffer_index;
@@ -37,6 +43,11 @@ uint32_t tdma_overlay_prepare_state(const tdma_overlay_prepare_t *job);
 /* Input fields are filled by Core1 only while IDLE. Publication freezes them
  * until Core1 consumes READY/FAILED or cancellation returns true. */
 bool tdma_overlay_prepare_request(tdma_overlay_prepare_t *job);
+/* Origin prepares only its private mailbox and accounting result. It leases
+ * no physical plan or shadow; the Core1 physical owner publishes after READY. */
+bool tdma_overlay_prepare_origin_request(tdma_overlay_prepare_t *job);
+bool tdma_overlay_prepare_origin_current(const tdma_overlay_prepare_t *job,
+                                        uint32_t packet_size, uint32_t local_slot_id);
 bool tdma_overlay_prepare_core0_claim(tdma_overlay_prepare_t *job);
 void tdma_overlay_prepare_core0_build_claimed(tdma_overlay_prepare_t *job);
 void tdma_overlay_prepare_core0_service(tdma_overlay_prepare_t *job);

@@ -50,7 +50,8 @@ bool tdma_pio_spi_ring_adapter_set_phys_origin(tdma_pio_spi_ring_adapter_t *adap
     if (adapter == NULL || adapter->started != 0u || adapter->origin.active != 0u ||
         (ops != NULL && (ops->begin == NULL || ops->poll == NULL || ops->healthy == NULL ||
          ops->ready == NULL || ops->publish == NULL || ops->observe == NULL ||
-         ops->take_rx_observation == NULL))) return false;
+         ops->take_rx_observation == NULL ||
+         ((ops->grant_tx == NULL) != (ops->commit_tx == NULL))))) return false;
     adapter->phys_origin = ops != NULL ? *ops : (tdma_pio_spi_ring_origin_ops_t){0};
     return true;
 }
@@ -198,8 +199,73 @@ static void tdma_pio_spi_ring_origin_accept(tdma_pio_spi_ring_adapter_t *adapter
     adapter->up_tx_frame_crc32 = observation->identity;
 }
 
+static void tdma_pio_spi_ring_origin_commit_owner(tdma_pio_spi_ring_adapter_t *adapter,
+    const tdma_flight_tx_view_t *tx, const uint8_t *mailbox, uint32_t generation)
+{
+    const uint32_t bank = adapter->origin_shadow[0].generation == adapter->origin.published_generation ? 1u : 0u;
+    adapter->origin_shadow[bank].generation = generation;
+    adapter->origin_shadow[bank].owner_generation = tx->generation;
+    adapter->origin_shadow[bank].owner_sequence = tx->sequence;
+    memcpy(adapter->origin_shadow[bank].mailbox, mailbox, TDMA_FLIGHT_SHORT_SLOT_SIZE);
+    adapter->origin.published_generation = generation;
+    adapter->origin.published_owner_generation = tx->generation;
+    adapter->origin.published_owner_sequence = tx->sequence;
+}
+
+static bool tdma_pio_spi_ring_origin_publish_async(tdma_pio_spi_ring_adapter_t *adapter)
+{
+    tdma_overlay_prepare_t *job = adapter->overlay_preparation;
+    const uint32_t state = tdma_overlay_prepare_state(job);
+    if (state == TDMA_OVERLAY_PREPARE_READY) {
+        const bool current = job->kind == TDMA_OVERLAY_PREPARE_ORIGIN &&
+            job->request_epoch == job->epoch &&
+            tdma_flight_engine_is_active(adapter->flight_engine) &&
+            adapter->config.local_slot_id == job->layout.local_slot_id &&
+            adapter->flight_engine->local_slot_id == job->layout.local_slot_id &&
+            adapter->flight_engine->map.payload_size == job->layout.payload_size &&
+            __atomic_load_n(&adapter->flight_engine->map_generation, __ATOMIC_ACQUIRE) == job->layout.map_generation;
+        if (!current) {
+            tdma_overlay_prepare_release(job);
+            return false;
+        }
+        uint32_t generation = 0u;
+        if (!adapter->phys_origin.commit_tx(adapter->phys_ctrl_context, job, &generation))
+            return true; /* Deferred admission retains this complete private version. */
+        const bool valid = generation != 0u && generation != adapter->origin.published_generation;
+        if (valid) {
+            (void)tdma_flight_engine_accept_tx(adapter->flight_engine, &job->layout,
+                &job->applied, job->tx.reused_previous);
+            tdma_pio_spi_ring_origin_commit_owner(adapter, &job->tx, job->tx_data, generation);
+        }
+        tdma_overlay_prepare_release(job);
+        return valid;
+    }
+    if (state == TDMA_OVERLAY_PREPARE_FAILED) {
+        tdma_overlay_prepare_release(job);
+        return false;
+    }
+    if (state != TDMA_OVERLAY_PREPARE_IDLE ||
+        !adapter->phys_origin.ready(adapter->phys_ctrl_context) || adapter->flight_fifo == NULL) return true;
+    tdma_flight_tx_view_t tx;
+    if (!tdma_flight_fifo_core1_acquire_tx(adapter->flight_fifo, &tx) ||
+        (adapter->origin.published_owner_generation == tx.generation &&
+         adapter->origin.published_owner_sequence == tx.sequence)) return true;
+    if (tx.data == NULL ||
+        !tdma_flight_engine_copy_tx_layout(adapter->flight_engine, &job->layout) ||
+        job->layout.local_slot_id != adapter->config.local_slot_id) return false;
+    const uint32_t offset = job->layout.local_slot_id * TDMA_FLIGHT_SHORT_SLOT_SIZE;
+    if (tx.data_size != sizeof(job->tx_data) && tx.data_size < offset + sizeof(job->tx_data)) return false;
+    if (!adapter->phys_origin.grant_tx(adapter->phys_ctrl_context, job)) return true;
+    job->tx = tx;
+    memcpy(job->tx_data, tx.data + (tx.data_size == sizeof(job->tx_data) ? 0u : offset), sizeof(job->tx_data));
+    job->tx.data_size = sizeof(job->tx_data);
+    return tdma_overlay_prepare_origin_request(job);
+}
+
 static bool tdma_pio_spi_ring_origin_publish(tdma_pio_spi_ring_adapter_t *adapter)
 {
+    if (adapter->overlay_preparation != NULL && adapter->phys_origin.grant_tx != NULL)
+        return tdma_pio_spi_ring_origin_publish_async(adapter);
     if (!adapter->phys_origin.ready(adapter->phys_ctrl_context) || adapter->flight_fifo == NULL)
         return true;
     tdma_flight_tx_view_t tx;
@@ -233,14 +299,7 @@ static bool tdma_pio_spi_ring_origin_publish(tdma_pio_spi_ring_adapter_t *adapte
     if (!adapter->phys_origin.publish(adapter->phys_ctrl_context, mailbox, &generation))
         return true; /* deferred: active FIFO view remains available for retry */
     if (generation == 0u || generation == adapter->origin.published_generation) return false;
-    const uint32_t bank = adapter->origin_shadow[0].generation == adapter->origin.published_generation ? 1u : 0u;
-    adapter->origin_shadow[bank].generation = generation;
-    adapter->origin_shadow[bank].owner_generation = tx.generation;
-    adapter->origin_shadow[bank].owner_sequence = tx.sequence;
-    memcpy(adapter->origin_shadow[bank].mailbox, mailbox, TDMA_FLIGHT_SHORT_SLOT_SIZE);
-    adapter->origin.published_generation = generation;
-    adapter->origin.published_owner_generation = tx.generation;
-    adapter->origin.published_owner_sequence = tx.sequence;
+    tdma_pio_spi_ring_origin_commit_owner(adapter, &tx, mailbox, generation);
     return true;
 }
 

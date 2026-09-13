@@ -908,6 +908,8 @@ bool tdma_pio_spi_phys_origin_record_watermark(const void *context,
 bool tdma_pio_spi_phys_origin_ready(void *context);
 bool tdma_pio_spi_phys_origin_publish(void *context,
     const uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE], uint32_t *generation);
+bool tdma_pio_spi_phys_origin_grant_tx(void *context, tdma_overlay_prepare_t *job);
+bool tdma_pio_spi_phys_origin_commit_tx(void *context, tdma_overlay_prepare_t *job, uint32_t *generation);
 bool tdma_pio_spi_phys_origin_observe(void *context,
                                     tdma_origin_observation_t *observation);
 /* Consumes the observation paired with the most recent successful phys_rx.

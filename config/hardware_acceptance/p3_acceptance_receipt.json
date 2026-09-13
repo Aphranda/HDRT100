@@ -4,64 +4,64 @@
   "acceptance_profile": "QUICK_DIAGNOSTIC",
   "dpll_observation": "SKIPPED_TDMA_ONLY",
   "passed": true,
-  "generated_at_utc": "2026-09-13T22:50:43.728764+00:00",
-  "source_tree_sha256": "6d1cd151c66fe784d88054fe018ee244717485ffaecfeae621440d506be837bb",
+  "generated_at_utc": "2026-09-13T23:29:27.508847+00:00",
+  "source_tree_sha256": "685857c8b481970496834a8d68d3062cf8da5b6c87e13eeeec0550e51634fdd0",
   "source_file_count": 1046,
   "bench_config_path": "config/hardware_acceptance/p3_bench_quick.json",
   "bench_config_sha256": "c032843ba0eab2e87bb3399920c0fe54f79cf1eddbb4404a7ed1d85b1ea34fc2",
-  "build_id": "20260913224213",
+  "build_id": "20260913231728",
   "firmware_package": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-early-reuse/restored-build-r1/DHRT100_UPDATE.pkg",
-    "sha256": "0c5929001c252e0f72f573cfc26a764aa9bfa38fc1bc00ecda5e548b5073e4b6"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-async-mailbox/build-r1/DHRT100_UPDATE.pkg",
+    "sha256": "016cf172e62051860c10365235d0e5109490db0d48379ace93cc2e128ec1bf9a"
   },
   "ota_summary": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-early-reuse/p3-restored-r1/ota-four-board-tdma/summary.json",
-    "sha256": "29f0e1e2ed5ef2f346c239498fd786cccaada2850ffe5618943f6cc8736ae8c0",
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-async-mailbox/p3-r1/ota-four-board-tdma/summary.json",
+    "sha256": "bbf27a7bb8a8f56efcf7d3a1bce1c3e6a0367ca09f2d4380b52108468991b4a3",
     "board_count": 4
   },
   "topology_summary": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-early-reuse/p3-restored-r1/p0t-topology/summary.json",
-    "sha256": "8d91102309ad96e82f0ea4618c4e28536a27c8d944c4c2e454b54c4267eb6457"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-async-mailbox/p3-r1/p0t-topology/summary.json",
+    "sha256": "26ec1f1412e5da34a4d1e224a5861662f6c293d0fafc5eb0456e7ce5012be8a4"
   },
   "coarse_calibration_summary": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-early-reuse/p3-restored-r1/coarse-calibration-summary.json",
-    "sha256": "7c8654f46c5ec8866b922ba9dcf3c7656556997470f6493a08317a5c0573d1e1"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-async-mailbox/p3-r1/coarse-calibration-summary.json",
+    "sha256": "d75c635e42d83319e229d6894e9eb9cd8466593e302e10c21263b7dad157cb4a"
   },
   "coded_calibration_summary": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-early-reuse/p3-restored-r1/coded-calibration-summary.json",
-    "sha256": "101eea0b522b257468f72630b080d278434e0d9c83c186f779a0b0f151759f63"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-async-mailbox/p3-r1/coded-calibration-summary.json",
+    "sha256": "4b4bde3547027cea06fe8eb5ad4fc0ad1ce015604c6c0bba892f7cf7e76e1626"
   },
   "initialization_reset": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-early-reuse/p3-restored-r1/initialization-reset.json",
-    "sha256": "22b7af472b6710892d783872d18164d60b16adc08143e5dc4a857ee2fbe593e3"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-async-mailbox/p3-r1/initialization-reset.json",
+    "sha256": "490421a2ef4214c1f5319c2d5d885f838c1520de1a235b619a2d6f9eee3f02f6"
   },
   "p3_summary": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-early-reuse/p3-restored-r1/p3-four-board/summary.json",
-    "sha256": "442bee33acb6867dc2b0878844c613f22a2885a3359d720c0b93bf1fbab84ed2"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-async-mailbox/p3-r1/p3-four-board/summary.json",
+    "sha256": "95e83d5551e71623dd1859c1092ca0d11302c338bddb2f9ab46d5aec389023f8"
   },
   "trn00_summary": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-early-reuse/p3-restored-r1/trn00-summary.json",
-    "sha256": "56d5ab285dc8ba6b1905bba44e9565441b7c293f2b2c115405910e54ce98ae19"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-async-mailbox/p3-r1/trn00-summary.json",
+    "sha256": "355827cc5ace21a4ad76a89ad8b6ee771b297d0cddded835b18564ab5ada0d0f"
   },
   "trn01_summary": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-early-reuse/p3-restored-r1/trn01-summary.json",
-    "sha256": "9a1ddce9ec083b7b8659766f05eabdf656ccf2a3cfea6a954bdb8708e3fa4e7f"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-async-mailbox/p3-r1/trn01-summary.json",
+    "sha256": "5fd3ffbc5a29259fafb67370e421b2dda6e6d8f5e4739785e23f850b909643f3"
   },
   "trn02_summary": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-early-reuse/p3-restored-r1/trn02-data/summary.json",
-    "sha256": "b47a8fe0a7aad8cecc15852103912d2ce93fe6d3ed0436f495921046fb112ebd"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-async-mailbox/p3-r1/trn02-data/summary.json",
+    "sha256": "808761a55273467cece3547bfcda4863e854b25dc1147cd5a05ee5241374e855"
   },
   "trn03_matrix": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-early-reuse/p3-restored-r1/trn03-matrix.json",
-    "sha256": "bf69efa10af475636a29a011d9ad1c68776116e61e957af15e5f7008d310ac9a"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-async-mailbox/p3-r1/trn03-matrix.json",
+    "sha256": "f182ca474ccb1d6c8ebcedd68f2f4e3c3a66f5724ff96b8a76a8fb93a9da835f"
   },
   "calibration_parameter_handoff": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-early-reuse/p3-restored-r1/calibration-parameter-handoff.json",
-    "sha256": "bade15057f27e8fefd1a0e9c55718e3897481cad804b68d4214f72d335ec470d"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-async-mailbox/p3-r1/calibration-parameter-handoff.json",
+    "sha256": "9bc75a6ea1ade986100a26ef62d1e2bab55d5ab58a6c34d587ab55817eb5b06f"
   },
   "tdma_summary": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-early-reuse/p3-restored-r1/tdma-process-image/summary.json",
-    "sha256": "8eeaab54fbfac17f4d2c55826c3145ff5ade21108bfe11a0f937a8042d39ea30"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-async-mailbox/p3-r1/tdma-process-image/summary.json",
+    "sha256": "235d5777d7beff51c526b4e2b548099def2c811e65ba6ed81213527797e1eaaa"
   },
   "ota_board_ids": [
     "0010071E65B5CB38",
@@ -80,19 +80,19 @@
   "delay_max_ns": 82.0,
   "highest_stable_frequency_mhz": 10,
   "link_delay_ns_by_link": [
-    82,
-    82,
     80,
-    82
+    82,
+    82,
+    80
   ],
   "link_base_delay_ns_by_link": [
-    41,
-    41,
     40,
-    41
+    41,
+    41,
+    40
   ],
   "path_delay_baseline_divisor": 2,
-  "calibration_generation": 1789339805,
+  "calibration_generation": 1789342130,
   "calibration_load_mask": 4,
   "waveform_capture_policy": {
     "trn00": false,
@@ -106,52 +106,52 @@
     "0010071E65B5CB38": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 26638,
-      "schedule_miss_count": 28428
+      "cycle_count": 33184,
+      "schedule_miss_count": 35102
     },
     "FB276192BEF9CCE1": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 26589,
-      "schedule_miss_count": 28259
+      "cycle_count": 33156,
+      "schedule_miss_count": 35087
     },
     "2BD5090FE009FA2A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 26544,
-      "schedule_miss_count": 28405
+      "cycle_count": 33118,
+      "schedule_miss_count": 35009
     },
     "A1E549202D18ED6A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 26465,
-      "schedule_miss_count": 28508
+      "cycle_count": 33057,
+      "schedule_miss_count": 35023
     }
   },
   "schedule_after": {
     "0010071E65B5CB38": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 65935,
-      "schedule_miss_count": 75362
+      "cycle_count": 71248,
+      "schedule_miss_count": 81201
     },
     "FB276192BEF9CCE1": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 65986,
-      "schedule_miss_count": 69558
+      "cycle_count": 71659,
+      "schedule_miss_count": 75684
     },
     "2BD5090FE009FA2A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 65178,
-      "schedule_miss_count": 69170
+      "cycle_count": 71384,
+      "schedule_miss_count": 75575
     },
     "A1E549202D18ED6A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 65816,
-      "schedule_miss_count": 69833
+      "cycle_count": 71986,
+      "schedule_miss_count": 76188
     }
   },
   "realtime_load_mask_unchanged": true,
@@ -170,34 +170,14 @@
     "output_handoff_s": 0.05
   },
   "timing_probe": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-early-reuse/p3-restored-r1/timing.json",
-    "sha256": "4f40c2e66e3853e94a89b8142d3e6e4f6555ce4509fec99efb52b1bbc9887395"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-async-mailbox/p3-r1/timing.json",
+    "sha256": "6c095313b206212c86ebcdad6d0655e25cf1211ade9f0426ff3d1997067535e6"
   },
   "flow_completed": true,
-  "strict_gates_passed": false,
-  "diagnostic_failures": [
-    {
-      "phase": "TRN-01 SCK training",
-      "returncode": 1,
-      "error": "gate did not pass",
-      "summary": "out/HardwareAcceptance/20260914/tdma-flight-origin-early-reuse/p3-restored-r1/trn01-sck/summary.json"
-    },
-    {
-      "phase": "TRN-03 SCK replay row selection",
-      "returncode": 1,
-      "error": "no measured SCK row satisfies the flight re-arm budget",
-      "selected_offset_sample_counts_by_node": [
-        0,
-        0,
-        1,
-        0
-      ],
-      "selected_min_follower_margin_samples": -1,
-      "matrix": "out/HardwareAcceptance/20260914/tdma-flight-origin-early-reuse/p3-restored-r1/trn03-matrix.json"
-    }
-  ],
+  "strict_gates_passed": true,
+  "diagnostic_failures": [],
   "diagnostic_summary": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-early-reuse/p3-restored-r1/diagnostic.json",
-    "sha256": "73855fa685755727e7a12102f74f23d3c6cf002b365a872b48d68edf9c0b95f8"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-origin-async-mailbox/p3-r1/diagnostic.json",
+    "sha256": "5a9ada1a23e047e9295db28d9d49bdab04f587d4a460de09e03ee9af97e086c0"
   }
 }

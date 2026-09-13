@@ -407,6 +407,35 @@ bool tdma_pio_spi_phys_origin_observe(void *context, tdma_origin_observation_t *
         tdma_origin_exchange_observe(&s_tdma_origin.exchange, observation);
 }
 
+bool tdma_pio_spi_phys_origin_grant_tx(void *context, tdma_overlay_prepare_t *job)
+{
+    tdma_pio_spi_phys_t *phys = context;
+    if (phys == NULL || job == NULL || phys->overlay_preparation != job ||
+        tdma_overlay_prepare_state(job) != TDMA_OVERLAY_PREPARE_IDLE ||
+        !tdma_pio_spi_phys_origin_ready(context)) return false;
+    /* Origin uses only a private mailbox in the existing station. Core0
+     * neither receives an MMIO pointer nor leases a live DMA shadow. */
+    job->plan = NULL;
+    job->config = (tdma_flight_overlay_config_t){
+        .packet_size = TDMA_TRANSPORT_FRAME_HEADER_SIZE + phys->flight_payload_size,
+        .local_slot_id = phys->flight_local_slot_id,
+    };
+    return true;
+}
+
+bool tdma_pio_spi_phys_origin_commit_tx(void *context, tdma_overlay_prepare_t *job, uint32_t *generation)
+{
+    tdma_pio_spi_phys_t *phys = context;
+    if (generation != NULL) *generation = 0u;
+    return phys != NULL && job != NULL && phys->overlay_preparation == job &&
+        tdma_pio_spi_phys_origin_healthy(context) &&
+        tdma_overlay_prepare_origin_current(job,
+            TDMA_TRANSPORT_FRAME_HEADER_SIZE + phys->flight_payload_size, phys->flight_local_slot_id) &&
+        /* READY is the release/acquire publication of Core0's validation
+         * of this same private mailbox. Only Core1 can release/reuse it. */
+        tdma_origin_exchange_publish(&s_tdma_origin.exchange, job->tx_data, generation);
+}
+
 bool tdma_pio_spi_phys_origin_take_rx_observation(void *context,
     tdma_origin_observation_t *observation)
 {

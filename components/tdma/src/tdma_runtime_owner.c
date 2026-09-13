@@ -348,6 +348,8 @@ bool tdma_runtime_owner_init(void)
             .publish = tdma_pio_spi_phys_origin_publish,
             .observe = tdma_pio_spi_phys_origin_observe,
             .take_rx_observation = tdma_pio_spi_phys_origin_take_rx_observation,
+            .grant_tx = tdma_pio_spi_phys_origin_grant_tx,
+            .commit_tx = tdma_pio_spi_phys_origin_commit_tx,
         };
         /* Admission and physical callbacks share the same TDMA owner. */
         if (!tdma_pio_spi_ring_adapter_set_phys_origin(

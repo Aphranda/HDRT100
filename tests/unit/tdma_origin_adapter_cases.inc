@@ -4,9 +4,12 @@ typedef struct {
     loopback_phys_t bootstrap;
     bool active, fault, pending, fail_start, fail_stop, rx_pending, paired;
     bool omit_pair, reject_publish, fail_poll;
+    bool selection_seen;
+    tdma_overlay_prepare_t *job;
     uint32_t starts, publications, completion_calls, feedback_calls, rx_calls;
     uint32_t generation;
     uint32_t prepare_polls;
+    uint32_t ready_calls, grants, commit_attempts;
     tdma_pio_spi_ring_adapter_t *adapter;
     uint32_t admission_calls;
     tdma_origin_admission_result_t admission;
@@ -84,7 +87,7 @@ static bool origin_adapter_stop(void *context)
     origin_adapter_phys_t *p = context;
     if (p->fail_stop) return false;
     p->active = false;
-    return true;
+    return tdma_overlay_prepare_cancel(p->job);
 }
 
 static bool origin_adapter_healthy(const void *context)
@@ -95,7 +98,13 @@ static bool origin_adapter_healthy(const void *context)
 
 static bool origin_adapter_ready(void *context)
 {
-    return !((origin_adapter_phys_t *)context)->pending;
+    origin_adapter_phys_t *p = context;
+    ++p->ready_calls;
+    if (p->selection_seen) {
+        p->pending = false;
+        p->selection_seen = false;
+    }
+    return !p->pending;
 }
 
 static bool origin_adapter_publish(void *context, const uint8_t *mailbox, uint32_t *generation)
@@ -239,9 +248,141 @@ static int test_origin_mailbox_selection(void)
     return failed;
 }
 
+static bool origin_adapter_grant_tx(void *context, tdma_overlay_prepare_t *job)
+{
+    origin_adapter_phys_t *p = context;
+    if (job != p->job || tdma_overlay_prepare_state(job) != TDMA_OVERLAY_PREPARE_IDLE ||
+        !origin_adapter_ready(p)) return false;
+    ++p->grants;
+    job->plan = NULL;
+    job->config = (tdma_flight_overlay_config_t){
+        .packet_size = TDMA_TRANSPORT_FRAME_HEADER_SIZE + p->adapter->flight_engine->map.payload_size,
+        .local_slot_id = p->adapter->config.local_slot_id,
+    };
+    return true;
+}
+
+static bool origin_adapter_commit_tx(void *context, tdma_overlay_prepare_t *job, uint32_t *generation)
+{
+    origin_adapter_phys_t *p = context;
+    ++p->commit_attempts;
+    return job == p->job && tdma_overlay_prepare_origin_current(job,
+        TDMA_TRANSPORT_FRAME_HEADER_SIZE + p->adapter->flight_engine->map.payload_size,
+        p->adapter->config.local_slot_id) && origin_adapter_publish(p, job->tx_data, generation);
+}
+
+static int test_origin_async_mailbox(void)
+{
+    int failed = 0;
+    tdma_pio_spi_ring_adapter_t adapter;
+    tdma_flight_engine_t engine;
+    tdma_flight_fifo_t fifo;
+    tdma_overlay_prepare_t job = {0};
+    tdma_ring_adapter_status_t status;
+    origin_adapter_phys_t p = {.active = true, .generation = 1u, .adapter = &adapter, .job = &job};
+    const tdma_process_image_map_t map = make_eight_slot_flight_map();
+    failed += expect_bool("origin async fixture", tdma_pio_spi_ring_adapter_init(&adapter) &&
+        tdma_flight_engine_init(&engine) && tdma_flight_fifo_init(&fifo) &&
+        tdma_flight_engine_configure(&engine, &map) && tdma_flight_engine_activate(&engine, 0u), true);
+    if (failed) return failed;
+    tdma_pio_spi_ring_adapter_set_flight_engine(&adapter, &engine);
+    tdma_pio_spi_ring_adapter_set_flight_fifo(&adapter, &fifo);
+    tdma_pio_spi_ring_adapter_set_phys(&adapter, origin_adapter_tx, origin_adapter_rx, &p);
+    tdma_pio_spi_ring_adapter_set_phys_ctrl(&adapter, NULL, origin_adapter_stop, NULL, NULL, &p);
+    tdma_pio_spi_ring_origin_ops_t ops = {
+        .begin = origin_adapter_start, .poll = origin_adapter_poll, .healthy = origin_adapter_healthy,
+        .ready = origin_adapter_ready, .publish = origin_adapter_publish,
+        .observe = origin_adapter_observe, .take_rx_observation = origin_adapter_take_pair,
+        .grant_tx = origin_adapter_grant_tx};
+    failed += expect_bool("origin async callback pair required", tdma_pio_spi_ring_adapter_set_phys_origin(&adapter, &ops), false);
+    ops.commit_tx = origin_adapter_commit_tx;
+    failed += expect_bool("origin async callbacks", tdma_pio_spi_ring_adapter_set_phys_origin(&adapter, &ops), true);
+    adapter.overlay_preparation = &job;
+    adapter.config = make_valid_config();
+    adapter.config.node_count = TDMA_FLIGHT_SHORT_SLOT_COUNT;
+    adapter.config.local_slot_id = adapter.config.reference_slot_id = 0u;
+    adapter.started = 1u;
+    adapter.configured = true;
+    adapter.origin.active = adapter.origin.published_generation = 1u;
+    adapter.comm_fsm.state = TDMA_ADAPTER_COMM_STATE_AUTONOMOUS;
+    uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE], first[TDMA_FLIGHT_SHORT_SLOT_SIZE];
+    fill_test_process_mailbox(first, 0u, 1u, 0x31u);
+    failed += expect_bool("origin async first FIFO version", tdma_flight_fifo_core0_publish_tx(&fifo,
+        first, sizeof(first), 0x10001u, 0x10001u, 1u), true);
+    failed += expect_bool("origin async request yields", tdma_pio_spi_ring_adapter_ops()->service(&adapter, 1000u, &status), true);
+    failed += expect_u32("origin async requested", tdma_overlay_prepare_state(&job), TDMA_OVERLAY_PREPARE_REQUESTED);
+    failed += expect_bool("origin worker has private bytes", job.tx.data == job.tx_data && job.plan == NULL, true);
+    failed += expect_u32("origin request leaves wire generation", p.publications, 0u);
+    failed += expect_bool("origin worker paused after claim", tdma_overlay_prepare_core0_claim(&job), true);
+    const uint32_t tail = fifo.tx_tail;
+    fill_test_process_mailbox(mailbox, 0u, 1u, 0x62u);
+    failed += expect_bool("origin concurrent next version", tdma_flight_fifo_core0_publish_tx(&fifo,
+        mailbox, sizeof(mailbox), 0x20001u, 0x20001u, 1u), true);
+    failed += expect_bool("origin slow worker retains live wire", tdma_pio_spi_ring_adapter_ops()->service(&adapter, 2000u, &status), true);
+    failed += expect_u32("origin slow worker keeps queued version", fifo.tx_tail, tail);
+    failed += expect_u32("origin slow worker does not publish", p.publications, 0u);
+    tdma_overlay_prepare_core0_build_claimed(&job);
+    failed += expect_u32("origin worker READY", tdma_overlay_prepare_state(&job), TDMA_OVERLAY_PREPARE_READY);
+    p.reject_publish = true;
+    failed += expect_bool("origin deferred commit yields", tdma_pio_spi_ring_adapter_ops()->service(&adapter, 3000u, &status), true);
+    failed += expect_u32("origin deferred retains READY", tdma_overlay_prepare_state(&job), TDMA_OVERLAY_PREPARE_READY);
+    failed += expect_u32("origin deferred does not account accepted output", engine.map_apply_count, 0u);
+    p.reject_publish = false;
+    failed += expect_bool("origin prepared commit", tdma_pio_spi_ring_adapter_ops()->service(&adapter, 4000u, &status), true);
+    failed += expect_u32("origin exact first complete generation", adapter.origin.published_owner_generation, 0x10001u);
+    failed += expect_bool("origin first private bytes preserved", memcmp(p.shadow, first, sizeof(first)) == 0, true);
+    failed += expect_u32("origin successful output accounted once", engine.map_apply_count, 1u);
+    failed += expect_bool("origin pending selection yields", tdma_pio_spi_ring_adapter_ops()->service(&adapter, 5000u, &status), true);
+    failed += expect_u32("origin pending keeps next FIFO version", fifo.tx_tail, tail);
+    p.selection_seen = true;
+    failed += expect_bool("origin retires then requests queued version", tdma_pio_spi_ring_adapter_ops()->service(&adapter, 6000u, &status), true);
+    failed += expect_bool("origin selection consumed before grant", !p.pending && !p.selection_seen, true);
+    failed += expect_u32("origin queued full generation accepted", job.tx.generation, 0x20001u);
+    tdma_overlay_prepare_core0_service(&job);
+    failed += expect_bool("origin second prepared commit", tdma_pio_spi_ring_adapter_ops()->service(&adapter, 7000u, &status), true);
+    failed += expect_u32("origin equal low bits do not alias", adapter.origin.published_owner_sequence, 0x20001u);
+    failed += expect_bool("origin second private bytes selected", memcmp(p.shadow, mailbox, sizeof(mailbox)) == 0, true);
+    p.selection_seen = true;
+    const uint32_t reused = fifo.tx_reuse_count;
+    failed += expect_bool("origin unchanged service", tdma_pio_spi_ring_adapter_ops()->service(&adapter, 8000u, &status), true);
+    failed += expect_u32("origin unchanged counts one reuse", fifo.tx_reuse_count, reused + 1u);
+    failed += expect_u32("origin unchanged does not request worker", tdma_overlay_prepare_state(&job), TDMA_OVERLAY_PREPARE_IDLE);
+    mailbox[20] ^= 1u;
+    failed += expect_bool("origin invalid version FIFO", tdma_flight_fifo_core0_publish_tx(&fifo,
+        mailbox, sizeof(mailbox), 0x30001u, 0x30001u, 1u), true);
+    failed += expect_bool("origin invalid version awaits worker validation", tdma_pio_spi_ring_adapter_ops()->service(&adapter, 9000u, &status), true);
+    failed += expect_u32("origin CRC work is requested", tdma_overlay_prepare_state(&job), TDMA_OVERLAY_PREPARE_REQUESTED);
+    tdma_overlay_prepare_core0_service(&job);
+    failed += expect_u32("origin worker rejects invalid CRC", tdma_overlay_prepare_state(&job), TDMA_OVERLAY_PREPARE_FAILED);
+    failed += expect_bool("origin failed update leaves wire running", tdma_pio_spi_ring_adapter_ops()->service(&adapter, 10000u, &status), true);
+    failed += expect_u32("origin invalid version not published", p.publications, 2u);
+    failed += expect_u32("origin invalid version reports rejection", adapter.last_error, TDMA_PIO_SPI_RING_ADAPTER_ERROR_FLIGHT_MAP_REJECT);
+    fill_test_process_mailbox(mailbox, 0u, 2u, 0x73u);
+    failed += expect_bool("origin stale map fixture", tdma_flight_fifo_core0_publish_tx(&fifo,
+        mailbox, sizeof(mailbox), 0x40002u, 0x40002u, 1u), true);
+    failed += expect_bool("origin stale map request", tdma_pio_spi_ring_adapter_ops()->service(&adapter, 11000u, &status), true);
+    tdma_overlay_prepare_core0_service(&job);
+    const uint32_t attempts = p.commit_attempts, map_generation = engine.map_generation;
+    ++engine.map_generation; /* Inject a foreign completion without changing its private input. */
+    failed += expect_bool("origin stale map yields", tdma_pio_spi_ring_adapter_ops()->service(&adapter, 12000u, &status), true);
+    failed += expect_u32("origin stale map rejected before hardware", p.commit_attempts, attempts);
+    engine.map_generation = map_generation;
+    failed += expect_bool("origin active FIFO retries after stale result", tdma_pio_spi_ring_adapter_ops()->service(&adapter, 13000u, &status), true);
+    failed += expect_bool("origin cancel during worker", tdma_overlay_prepare_core0_claim(&job), true);
+    failed += expect_bool("origin STOP waits for private writer ACK", tdma_pio_spi_ring_adapter_ops()->stop(&adapter), false);
+    failed += expect_u32("origin cancelled worker retains lifetime", adapter.origin.active, 1u);
+    failed += expect_u32("origin cancelled worker state", tdma_overlay_prepare_state(&job), TDMA_OVERLAY_PREPARE_CANCELLED);
+    tdma_overlay_prepare_core0_build_claimed(&job);
+    failed += expect_u32("origin cancelled result never READY", tdma_overlay_prepare_state(&job), TDMA_OVERLAY_PREPARE_IDLE);
+    failed += expect_bool("origin STOP completes after ACK", tdma_pio_spi_ring_adapter_ops()->stop(&adapter), true);
+    failed += expect_u32("origin successful STOP clears owner", adapter.origin.published_owner_generation, 0u);
+    failed += expect_u32("origin cancellation never publishes", p.publications, 2u);
+    return failed;
+}
+
 static int test_origin_adapter(void)
 {
-    int failed = test_origin_mailbox_selection();
+    int failed = test_origin_mailbox_selection() + test_origin_async_mailbox();
     const tdma_pio_spi_ring_origin_ops_t ops = {
         .admit = origin_adapter_admit,
         .begin = origin_adapter_start, .poll = origin_adapter_poll, .healthy = origin_adapter_healthy,

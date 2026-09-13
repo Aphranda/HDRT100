@@ -216,6 +216,10 @@ typedef struct {
     bool (*publish)(void *context, const uint8_t *mailbox, uint32_t *generation);
     bool (*observe)(void *context, tdma_origin_observation_t *observation);
     bool (*take_rx_observation)(void *context, tdma_origin_observation_t *observation);
+    /* Optional paired callbacks use the existing cancellable preparation
+     * station. Commit admits a READY private mailbox; it does not wait for it. */
+    bool (*grant_tx)(void *context, tdma_overlay_prepare_t *job);
+    bool (*commit_tx)(void *context, tdma_overlay_prepare_t *job, uint32_t *generation);
 } tdma_pio_spi_ring_origin_ops_t;
 
 typedef struct {
