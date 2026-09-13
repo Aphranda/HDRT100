@@ -127,6 +127,7 @@ typedef struct {
 typedef struct {
     tdma_origin_plan_addresses_t address;
     uint32_t physical_bytes;
+    uint32_t packet_size;
     uint32_t outer_header_bytes;
     uint32_t capture_prefix_bits;
     uint32_t guard_count;

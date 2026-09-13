@@ -17,12 +17,13 @@ static uint32_t command_at(const tdma_flight_overlay_plan_t *plan, uint32_t inde
 
 int main(void)
 {
-    uint8_t incoming[TDMA_TRANSPORT_SHORT_PACKET_MAX] = {0};
+    uint8_t incoming[TDMA_FLIGHT_SHORT_PACKET_SIZE] = {0};
     uint8_t processed[sizeof incoming];
     uint32_t force[TDMA_FLIGHT_OUTPUT_BITMAP_WORDS] = {0};
     tdma_flight_overlay_plan_t plan, corrupt;
     tdma_flight_overlay_config_t config = {
-        .physical_byte_count = 307, .outer_header_size = 4, .final_bit_pc = 20,
+        .physical_byte_count = sizeof incoming + 15u, .outer_header_size = 4, .final_bit_pc = 20,
+        .packet_size = sizeof incoming,
         .header_write_mask = (1u << 14) | (15u << 28),
     };
     unsigned cases = 0;
@@ -72,13 +73,13 @@ int main(void)
             NULL, 0, &config, &plan) == allowed);
     }
     memcpy(processed, incoming, sizeof incoming);
-    force[8] = 16u; /* First bit outside the fixed payload. */
+    force[TDMA_FLIGHT_SHORT_SLOT_COUNT] = 16u; /* First bit outside the fixed payload. */
     assert(!tdma_flight_overlay_build_plan(incoming, processed, sizeof incoming,
         force, TDMA_FLIGHT_OUTPUT_BITMAP_WORDS, &config, &plan));
-    force[8] = 1u; /* Reference-only DPLL trailer. */
+    force[TDMA_FLIGHT_SHORT_SLOT_COUNT] = 1u; /* Reference-only DPLL trailer. */
     assert(!tdma_flight_overlay_build_plan(incoming, processed, sizeof incoming,
         force, TDMA_FLIGHT_OUTPUT_BITMAP_WORDS, &config, &plan));
-    force[8] = 0; force[1] = 1; /* Another owner. */
+    force[TDMA_FLIGHT_SHORT_SLOT_COUNT] = 0; force[1] = 1; /* Another owner. */
     assert(!tdma_flight_overlay_build_plan(incoming, processed, sizeof incoming,
         force, TDMA_FLIGHT_OUTPUT_BITMAP_WORDS, &config, &plan));
     assert(!tdma_flight_overlay_build_pass_plan(UINT32_MAX, 20, &plan));

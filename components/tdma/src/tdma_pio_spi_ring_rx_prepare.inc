@@ -49,7 +49,8 @@ static bool tdma_pio_spi_ring_rx_request(tdma_pio_spi_ring_adapter_t *adapter,
     job->origin_owner_match = false;
     job->origin_owner_generation = job->origin_owner_sequence = 0u;
     job->origin = observation != NULL ? *observation : (tdma_origin_observation_t){0};
-    if (observation != NULL && packet_size == TDMA_FLIGHT_SHORT_PACKET_SIZE) {
+    if (observation != NULL && tdma_pio_spi_ring_product_payload(adapter,
+            packet_size - TDMA_TRANSPORT_FRAME_HEADER_SIZE)) {
         for (uint32_t i = 0u; i < TDMA_ORIGIN_PLAN_BANK_COUNT; ++i) {
             if (adapter->origin_shadow[i].generation == observation->local_generation &&
                 memcmp(adapter->origin_shadow[i].mailbox,

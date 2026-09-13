@@ -83,7 +83,7 @@ bool tdma_pio_spi_phys_origin_begin(
 {
     tdma_pio_spi_phys_t *phys = context;
     if (phys == NULL || config == NULL || returned_packet == NULL ||
-        packet_size != TDMA_FLIGHT_SHORT_PACKET_SIZE || !phys->armed ||
+        packet_size != TDMA_TRANSPORT_FRAME_HEADER_SIZE + phys->flight_payload_size || !phys->armed ||
         !phys->process_image_enabled || phys->role != TDMA_PIO_SPI_ROLE_MASTER ||
         phys->flight_origin_workspace_owned ||
         tdma_origin_build_job_state(&s_tdma_origin_build_job) != TDMA_ORIGIN_JOB_IDLE ||
@@ -102,7 +102,7 @@ bool tdma_pio_spi_phys_origin_begin(
         config->local_slot_id >= config->node_count ||
         config->tx_dma_channel_id != TDMA_PIO_SPI_TX_DMA_CHANNEL ||
         config->rx_dma_channel_id != TDMA_PIO_SPI_RX_DMA_CHANNEL ||
-        phys->flight_payload_size != TDMA_FLIGHT_SHORT_PAYLOAD_SIZE ||
+        config->node_count > tdma_flight_payload_slots(phys->flight_payload_size) ||
         phys->flight_overlay_alignment_samples < TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES ||
         (phys->flight_normal_capture_copy_stage != 0u && phys->flight_normal_capture_copy_stage != 5u) ||
         (phys->flight_sck_waveform_capture_state != TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_IDLE &&
@@ -135,7 +135,7 @@ bool tdma_pio_spi_phys_origin_begin(
     tdma_transport_result_t result;
     if (!tdma_transport_frame_decode(returned_packet, packet_size, &view, &result) ||
         view.payload_class != TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE ||
-        view.payload_size != TDMA_FLIGHT_SHORT_PAYLOAD_SIZE ||
+        view.payload_size != phys->flight_payload_size ||
         view.origin_slot_id != config->local_slot_id || view.hop_count != config->node_count - 1u ||
         view.hop_limit != view.hop_count || view.schedule_crc32 != config->schedule_crc32 ||
         view.ring_profile_crc32 != config->ring_profile_crc32 ||
@@ -145,6 +145,7 @@ bool tdma_pio_spi_phys_origin_begin(
      * Core0 may finish cancellation while the owner switches the union. */
     (void)tdma_pio_spi_phys_rx_scan_cancel(phys);
     phys->flight_origin_prepare = (tdma_origin_prepare_t){
+        .packet_size = (uint32_t)packet_size,
         .live_config = config, .seed = returned_packet,
         .stage = TDMA_ORIGIN_PREPARE_MAILBOX, .prefix_bits = (uint32_t)prefix,
         .abort_poll_count = abort_poll_count, .clk_sys_hz = clock_get_hz(clk_sys)};
@@ -164,6 +165,7 @@ tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *context)
     /* The owner cannot replace accepted config/clock facts in the middle of
      * preparation. Check again in the installation poll, before the trigger. */
     if (request->live_config == NULL ||
+        request->packet_size != TDMA_TRANSPORT_FRAME_HEADER_SIZE + phys->flight_payload_size ||
         memcmp(request->live_config, &request->config, sizeof(request->config)) != 0 ||
         clock_get_hz(clk_sys) != request->clk_sys_hz) goto failed;
     const tdma_ring_runtime_config_t *config = &request->config;
@@ -196,9 +198,9 @@ tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *context)
     /* All old readers have retired. Preserve seed banks outside construction
      * scratch; no memset of the entire union may erase this frozen return. */
     tdma_pio_spi_phys_origin_record_invalidate(phys);
-    memcpy(s_tdma_origin.capture[0], request->seed, TDMA_FLIGHT_SHORT_PACKET_SIZE);
-    memset(s_tdma_origin.capture[0] + TDMA_TRANSPORT_FRAME_HEADER_SIZE +
-        TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET, 0, TDMA_FLIGHT_DPLL_OBSERVATION_SIZE);
+    memcpy(s_tdma_origin.capture[0], request->seed, request->packet_size);
+    memset(s_tdma_origin.capture[0] + request->packet_size -
+        TDMA_FLIGHT_DPLL_OBSERVATION_SIZE, 0, TDMA_FLIGHT_DPLL_OBSERVATION_SIZE);
     request->seed = NULL;
     phys->flight_origin_workspace_owned = true;
     phys->flight_origin_rx_observation_ready = false;
@@ -233,6 +235,7 @@ tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *context)
             .records = (uint32_t)(uintptr_t)s_tdma_origin.record,
         },
         .physical_bytes = phys->flight_physical_byte_count,
+        .packet_size = request->packet_size,
         .outer_header_bytes = TDMA_PIO_SPI_PACKET_HEADER_SIZE,
         .capture_prefix_bits = request->prefix_bits,
         .guard_count = phys->flight_origin_cadence.guard_count, .abort_poll_count = request->abort_poll_count,
@@ -267,12 +270,12 @@ tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *context)
     }
     case TDMA_ORIGIN_PREPARE_SEED: {
     uint8_t seed[TDMA_FLIGHT_SHORT_PACKET_SIZE];
-    memcpy(seed, s_tdma_origin.capture[0], sizeof(seed));
-    memcpy(s_tdma_origin.capture[1], seed, sizeof(seed));
+    memcpy(seed, s_tdma_origin.capture[0], request->packet_size);
+    memcpy(s_tdma_origin.capture[1], seed, request->packet_size);
     uint32_t sequence;
     memcpy(&sequence, seed + 8u, sizeof(sequence));
     tdma_transport_result_t result;
-    if (!tdma_transport_frame_prepare_resident_position(seed, sizeof(seed),
+    if (!tdma_transport_frame_prepare_resident_position(seed, request->packet_size,
             sequence, 0u, &result)) goto failed;
     /* Construction is complete; retire its scratch before live initialization. */
     memset(s_tdma_origin.stage, 0, sizeof(s_tdma_origin.stage));
@@ -284,8 +287,8 @@ tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *context)
     memcpy(s_tdma_origin.local_shadow[1], s_tdma_origin.local_shadow[0], TDMA_ORIGIN_PLAN_SHADOW_BYTES);
     s_tdma_origin.stage[0] = TDMA_PIO_SPI_PACKET_MAGIC0 << 8u;
     s_tdma_origin.stage[1] = TDMA_PIO_SPI_PACKET_MAGIC1 << 8u;
-    s_tdma_origin.stage[2] = (sizeof(seed) & 0xffu) << 8u;
-    s_tdma_origin.stage[3] = (sizeof(seed) >> 8u) << 8u;
+    s_tdma_origin.stage[2] = (request->packet_size & 0xffu) << 8u;
+    s_tdma_origin.stage[3] = (request->packet_size >> 8u) << 8u;
     uint32_t record_epoch = __atomic_load_n(&phys->flight_origin_record_epoch, __ATOMIC_RELAXED) + 1u;
     if (record_epoch == 0u) ++record_epoch;
     __atomic_store_n(&phys->flight_origin_record_epoch, record_epoch, __ATOMIC_RELAXED);
@@ -299,7 +302,7 @@ tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *context)
     if (!tdma_origin_exchange_bind(&s_tdma_origin.exchange, &s_tdma_origin.state,
             s_tdma_origin.capture[0], s_tdma_origin.capture[1],
             s_tdma_origin.local_shadow[0], s_tdma_origin.local_shadow[1],
-            s_tdma_origin.plan.local_entry[0], s_tdma_origin.plan.local_entry[1])) goto failed;
+            s_tdma_origin.plan.local_entry[0], s_tdma_origin.plan.local_entry[1], request->packet_size)) goto failed;
     request->stage = TDMA_ORIGIN_PREPARE_SMS;
     return TDMA_ORIGIN_BUILD_BUSY;
     }
@@ -434,12 +437,12 @@ static bool tdma_pio_spi_phys_origin_rx(tdma_pio_spi_phys_t *phys, uint8_t *pack
 {
     phys->flight_origin_rx_observation_ready = false;
     *rx_timestamp_ns = 0ull;
-    if (capacity < TDMA_FLIGHT_SHORT_PACKET_SIZE ||
+    if (capacity < s_tdma_origin.exchange.packet_size ||
         !tdma_pio_spi_phys_origin_healthy(phys) ||
-        !tdma_origin_exchange_copy_rx_observation(&s_tdma_origin.exchange, packet,
+        !tdma_origin_exchange_copy_rx_observation(&s_tdma_origin.exchange, packet, capacity,
                                                  &s_tdma_origin.rx_observation)) return false;
     phys->flight_origin_rx_observation_ready = true;
-    *packet_size = TDMA_FLIGHT_SHORT_PACKET_SIZE;
+    *packet_size = s_tdma_origin.exchange.packet_size;
     phys->snapshot.rx_count++;
     phys->snapshot.last_rx_size = *packet_size;
     phys->snapshot.last_rx_timestamp_ns = 0ull;

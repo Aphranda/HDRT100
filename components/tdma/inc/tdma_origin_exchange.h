@@ -14,6 +14,7 @@ typedef struct {
     uint32_t selected_bank;
     uint32_t rx_version[TDMA_ORIGIN_PLAN_BANK_COUNT];
     uint32_t observation_version;
+    uint32_t packet_size;
     bool pending;
 } tdma_origin_exchange_t;
 
@@ -24,7 +25,7 @@ bool tdma_origin_exchange_bind(tdma_origin_exchange_t *exchange,
                               tdma_origin_plan_state_t *state,
                               const uint8_t *capture_a, const uint8_t *capture_b,
                               uint32_t *shadow_a, uint32_t *shadow_b,
-                              uint32_t entry_a, uint32_t entry_b);
+                              uint32_t entry_a, uint32_t entry_b, uint32_t packet_size);
 
 /* False leaves all publication and shadow bytes unchanged. One pending
  * replacement at a time. The caller supplies an owner-validated mailbox. */
@@ -36,9 +37,9 @@ bool tdma_origin_exchange_publish(tdma_origin_exchange_t *exchange,
 /* One bounded attempt. A false result leaves the destination unspecified;
  * consumers must discard it. Initial seed images are never received data. */
 bool tdma_origin_exchange_copy_rx(tdma_origin_exchange_t *exchange,
-                                 uint8_t packet[TDMA_FLIGHT_SHORT_PACKET_SIZE]);
+                                 uint8_t *packet, size_t capacity);
 bool tdma_origin_exchange_copy_rx_observation(tdma_origin_exchange_t *exchange,
-                                            uint8_t packet[TDMA_FLIGHT_SHORT_PACKET_SIZE],
+                                            uint8_t *packet, size_t capacity,
                                             tdma_origin_observation_t *observation);
 bool tdma_origin_exchange_observe(tdma_origin_exchange_t *exchange,
                                  tdma_origin_observation_t *observation);

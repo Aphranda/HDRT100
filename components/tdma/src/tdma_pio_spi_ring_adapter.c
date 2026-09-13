@@ -66,17 +66,25 @@ static void tdma_pio_spi_ring_adapter_bind_reference_local_tx_edge(
     adapter->local_tx_edge_flags = evidence->flags;
 }
 
+static bool tdma_pio_spi_ring_product_payload(const tdma_pio_spi_ring_adapter_t *adapter,
+                                             size_t payload_size)
+{
+    return adapter != NULL && adapter->flight_engine != NULL &&
+        tdma_flight_payload_slots(payload_size) != 0u &&
+        adapter->flight_engine->map.payload_size == payload_size;
+}
+
 static bool tdma_pio_spi_ring_adapter_build_dpll_observation(
     tdma_pio_spi_ring_adapter_t *adapter,
     uint8_t *payload,
     size_t payload_size)
 {
     if (payload == NULL ||
-        payload_size != TDMA_FLIGHT_SHORT_PAYLOAD_SIZE) {
+        !tdma_pio_spi_ring_product_payload(adapter, payload_size)) {
         return false;
     }
     tdma_pio_spi_ring_put_u32(
-        &payload[TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET], 0u);
+        &payload[payload_size - TDMA_FLIGHT_DPLL_OBSERVATION_SIZE], 0u);
     if (adapter == NULL) {
         return false;
     }
@@ -134,7 +142,7 @@ static bool tdma_pio_spi_ring_adapter_build_dpll_observation(
         return false;
     }
     tdma_pio_spi_ring_put_u32(
-        &payload[TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET], encoded);
+        &payload[payload_size - TDMA_FLIGHT_DPLL_OBSERVATION_SIZE], encoded);
     adapter->clock_evidence_build_count++;
     adapter->clock_evidence_build_last_reason = 0u;
     adapter->clock_evidence_last_tx_encoded = encoded;
@@ -149,7 +157,7 @@ static bool tdma_pio_spi_ring_adapter_correlate_dpll_observation(
         adapter->clock_evidence_enabled == 0u ||
         view->payload_class != TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE ||
         (view->flags & TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE) == 0u ||
-        view->payload_size != TDMA_FLIGHT_SHORT_PAYLOAD_SIZE ||
+        !tdma_pio_spi_ring_product_payload(adapter, view->payload_size) ||
         view->payload == NULL ||
         view->transport_sequence <=
             TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_SEQUENCE_LAG) {
@@ -158,7 +166,7 @@ static bool tdma_pio_spi_ring_adapter_correlate_dpll_observation(
     adapter->clock_observation_last_reject_reason = 0u;
 
     const uint32_t encoded = tdma_pio_spi_ring_get_u32(
-        &view->payload[TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET]);
+        &view->payload[view->payload_size - TDMA_FLIGHT_DPLL_OBSERVATION_SIZE]);
     if ((encoded & TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_VALID_MASK) == 0u) {
         return false;
     }
@@ -1919,11 +1927,11 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
         }
 
         if (adapter->clock_evidence_enabled != 0u &&
-            view.payload_size == TDMA_FLIGHT_SHORT_PAYLOAD_SIZE &&
+            tdma_pio_spi_ring_product_payload(adapter, view.payload_size) &&
             view.payload != NULL) {
             const uint32_t encoded = tdma_pio_spi_ring_get_u32(
                 &view.payload[
-                    TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET]);
+                    view.payload_size - TDMA_FLIGHT_DPLL_OBSERVATION_SIZE]);
             adapter->clock_evidence_last_rx_encoded = encoded;
             if ((encoded &
                  TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_VALID_MASK) != 0u) {
@@ -2449,7 +2457,9 @@ static bool tdma_pio_spi_ring_adapter_prepare_overlay_async(
         return false;
     }
     if (state != TDMA_OVERLAY_PREPARE_IDLE ||
-        adapter->last_rx_packet_size != sizeof(job->packet) ||
+        adapter->last_rx_packet_size > sizeof(job->packet) ||
+        !tdma_pio_spi_ring_product_payload(adapter,
+            adapter->last_rx_packet_size - TDMA_TRANSPORT_FRAME_HEADER_SIZE) ||
         !adapter->phys_grant_overlay(adapter->phys_ctrl_context, job)) return true;
     /* Grant still services pending DMA selection before any reuse accounting.
      * Only an unchanged complete TX can skip repeated layout/hop/view work. */
@@ -2473,7 +2483,8 @@ static bool tdma_pio_spi_ring_adapter_prepare_overlay_async(
                sizeof(job->tx_data));
         job->tx.data_size = sizeof(job->tx_data);
     }
-    memcpy(job->packet, adapter->last_rx_packet, sizeof(job->packet));
+    if (job->config.packet_size != adapter->last_rx_packet_size) return false;
+    memcpy(job->packet, adapter->last_rx_packet, adapter->last_rx_packet_size);
     job->target_sequence = adapter->down_rx_sequence +
         (adapter->resident_overlay_bootstrap_prepared ? 1u : 0u);
     return tdma_overlay_prepare_request(job);

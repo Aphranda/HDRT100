@@ -259,15 +259,16 @@ static uint32_t distributed_refmem_flight_publish_mask_for_slot(uint32_t slot)
     return slot < TDMA_PROCESS_IMAGE_SEGMENT_COUNT ? (1u << slot) : 0u;
 }
 
-static tdma_process_image_map_t distributed_refmem_default_flight_map(void)
+static tdma_process_image_map_t distributed_refmem_default_flight_map(uint32_t node_count)
 {
     tdma_process_image_map_t map;
     memset(&map, 0, sizeof(map));
     map.version = TDMA_PROCESS_IMAGE_MAP_VERSION;
-    map.payload_size = DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_PAYLOAD_SIZE;
-    map.segment_count = DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_SLOT_COUNT;
+    map.payload_size = tdma_flight_payload_size(node_count);
+    if (map.payload_size == 0u) return map;
+    map.segment_count = node_count;
     for (uint32_t slot = 0u;
-         slot < DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_SLOT_COUNT;
+         slot < node_count;
          slot++) {
         map.segment[slot].used = 1u;
         map.segment[slot].segment_id = slot;
@@ -319,6 +320,7 @@ static void distributed_refmem_tdma_flight_sync_update_ring(
     s_tdma_flight_sync.local_slot = ring->local_slot_id;
     s_tdma_flight_sync.reference_slot = ring->reference_slot_id;
     s_tdma_flight_sync.node_count = ring->node_count;
+    memset(s_tdma_flight_sync.tx_image, 0, sizeof(s_tdma_flight_sync.tx_image));
     s_tdma_flight_sync.active_mask =
         ring->node_count >= 32u ? UINT32_MAX : ((1u << ring->node_count) - 1u);
     s_tdma_flight_sync.remote_slot =
@@ -702,7 +704,7 @@ static void distributed_refmem_tdma_flight_sync_publish(
     if (tdma_service_publish_flight_tx(
             owner,
             s_tdma_flight_sync.tx_image,
-            sizeof(s_tdma_flight_sync.tx_image),
+            tdma_flight_payload_size(ring->node_count),
             seq32,
             seq32,
             distributed_refmem_flight_publish_mask_for_slot(
@@ -731,7 +733,7 @@ static void distributed_refmem_tdma_flight_sync_receive(
         }
         s_tdma_flight_sync.rx_acquire_count++;
         if (view.data != NULL &&
-            view.data_size == DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_PAYLOAD_SIZE) {
+            view.data_size == tdma_flight_payload_size(ring->node_count)) {
             uint32_t scan_mask = view.segment_mask;
             scan_mask &= s_tdma_flight_sync.active_mask;
             scan_mask &= ~(1u << ring->local_slot_id);
@@ -3304,7 +3306,7 @@ void distributed_refmem_get_tdma_flight_sync(
     snapshot->active_mask = s_tdma_flight_sync.active_mask;
     snapshot->reference_slot = s_tdma_flight_sync.reference_slot;
     snapshot->remote_slot = s_tdma_flight_sync.remote_slot;
-    snapshot->payload_size = DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_PAYLOAD_SIZE;
+    snapshot->payload_size = tdma_flight_payload_size(s_tdma_flight_sync.node_count);
     snapshot->mailbox_size = DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE;
     snapshot->publish_interval_ms = s_tdma_flight_sync.publish_interval_ms;
     snapshot->next_seq32 = s_tdma_flight_sync.next_seq32;
@@ -3747,8 +3749,14 @@ bool distributed_refmem_tdma_ring_arm(void)
                          __ATOMIC_RELEASE);
         return false;
     }
+    if (owner->ring_staged_config.enabled == 0u) {
+        __atomic_store_n(&s_tdma_ring_arm_last_result,
+                         DISTRIBUTED_REFMEM_TDMA_ARM_STAGED_CONFIG_MISSING,
+                         __ATOMIC_RELEASE);
+        return false;
+    }
     const tdma_process_image_map_t map =
-        distributed_refmem_default_flight_map();
+        distributed_refmem_default_flight_map(owner->ring_staged_config.node_count);
     const tdma_service_flight_map_result_t map_result =
         tdma_service_configure_flight_map_checked(owner, &map);
     if (map_result != TDMA_SERVICE_FLIGHT_MAP_OK) {
@@ -3772,12 +3780,6 @@ bool distributed_refmem_tdma_ring_arm(void)
         }
         __atomic_store_n(&s_tdma_ring_arm_last_result,
                          result, __ATOMIC_RELEASE);
-        return false;
-    }
-    if (owner->ring_staged_config.enabled == 0u) {
-        __atomic_store_n(&s_tdma_ring_arm_last_result,
-                         DISTRIBUTED_REFMEM_TDMA_ARM_STAGED_CONFIG_MISSING,
-                         __ATOMIC_RELEASE);
         return false;
     }
     if (owner->calibration_gate_required != 0u &&

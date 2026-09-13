@@ -33,6 +33,20 @@ def test_explicit_compiled_capacity(capacity, image_bytes, payload_bytes) -> Non
     assert validate_budget(budget) == []
 
 
+@pytest.mark.parametrize("nodes,payload", [(4, 132), (5, 164), (6, 196)])
+def test_runtime_topology_within_six_node_firmware(nodes, payload) -> None:
+    budget = load_budget(node_capacity=6, node_count=nodes)
+    assert budget.node_count == nodes
+    assert budget.process_image_bytes == payload
+    assert validate_budget(budget) == []
+
+
+@pytest.mark.parametrize("nodes", [0, 1, 7, 8, 4.5, True])
+def test_runtime_topology_cannot_exceed_or_bypass_compiled_capacity(nodes) -> None:
+    with pytest.raises(ValueError, match="node count"):
+        load_budget(node_capacity=6, node_count=nodes)
+
+
 @pytest.mark.parametrize("capacity", [1, 9, 6.5, True])
 def test_invalid_capacity_is_not_reported_as_a_valid_layout(capacity) -> None:
     with pytest.raises(ValueError, match="node capacity"):

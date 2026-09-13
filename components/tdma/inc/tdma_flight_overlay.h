@@ -57,6 +57,7 @@ typedef struct {
     uint32_t local_slot_id;
     uint32_t header_write_mask;
     uint32_t final_bit_pc;
+    uint32_t packet_size; /* Frozen physical layout, not the backing array size. */
 } tdma_flight_overlay_config_t;
 
 /* Core1 supplies these opaque values from its admitted physical resources.

@@ -12,6 +12,8 @@ uint32_t tdma_overlay_prepare_state(const tdma_overlay_prepare_t *job)
 bool tdma_overlay_prepare_request(tdma_overlay_prepare_t *job)
 {
     if (job == NULL || job->plan == NULL ||
+        tdma_flight_payload_slots(job->layout.payload_size) == 0u ||
+        job->config.packet_size != TDMA_TRANSPORT_FRAME_HEADER_SIZE + job->layout.payload_size ||
         tdma_overlay_prepare_state(job) != TDMA_OVERLAY_PREPARE_IDLE) return false;
     job->request_epoch = job->epoch;
     /* Never retain a FIFO source pointer beyond this Core1 publication. */
@@ -34,19 +36,22 @@ static bool tdma_overlay_prepare_build(tdma_overlay_prepare_t *job)
     tdma_transport_result_t result;
     uint8_t incoming[TDMA_FLIGHT_SHORT_PACKET_SIZE];
     uint8_t processed[TDMA_FLIGHT_SHORT_PACKET_SIZE];
-    memcpy(incoming, job->packet, sizeof(incoming));
-    memcpy(processed, job->packet, sizeof(processed));
-    if (!tdma_transport_frame_decode(job->packet, sizeof(job->packet), &view, &result) ||
+    const size_t packet_size = job->config.packet_size;
+    if (packet_size > sizeof(incoming) ||
+        packet_size != TDMA_TRANSPORT_FRAME_HEADER_SIZE + job->layout.payload_size) return false;
+    memcpy(incoming, job->packet, packet_size);
+    memcpy(processed, job->packet, packet_size);
+    if (!tdma_transport_frame_decode(job->packet, packet_size, &view, &result) ||
         view.payload_class != TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE ||
         (view.flags & TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE) == 0u ||
-        !tdma_transport_frame_prepare_resident_position(incoming, sizeof(incoming),
+        !tdma_transport_frame_prepare_resident_position(incoming, packet_size,
             job->target_sequence, job->ingress_hop, &result) ||
         !tdma_flight_engine_build_tx(&job->layout, view.payload, view.payload_size,
             &job->tx, processed + TDMA_TRANSPORT_FRAME_HEADER_SIZE,
             sizeof(processed) - TDMA_TRANSPORT_FRAME_HEADER_SIZE, &job->applied) ||
-        !tdma_transport_frame_prepare_resident_position(processed, sizeof(processed),
+        !tdma_transport_frame_prepare_resident_position(processed, packet_size,
             job->target_sequence, job->egress_hop, &result)) return false;
-    return tdma_flight_overlay_build_plan(incoming, processed, sizeof(incoming),
+    return tdma_flight_overlay_build_plan(incoming, processed, packet_size,
         job->applied.output_byte_bitmap, TDMA_FLIGHT_OUTPUT_BITMAP_WORDS,
         &job->config, job->plan) &&
         tdma_flight_overlay_bind_plan(job->plan, job->config.final_bit_pc, &job->binding);

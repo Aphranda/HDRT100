@@ -81,6 +81,8 @@
  * A cycle phase is independent of each Node's asynchronous boot epoch.  The
  * receiver maps it into its local cycle before applying the VDC path matrix.
  */
+/* Capacity-layout offset only. An admitted runtime image places the trailer
+ * at payload_size - TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_SIZE. */
 #define TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET \
     TDMA_FLIGHT_NODE_IMAGE_SIZE
 #define TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_SIZE \

@@ -711,6 +711,7 @@ typedef struct {
     const tdma_ring_runtime_config_t *live_config;
     const uint8_t *seed;
     uint32_t stage, mailbox, prefix_bits, abort_poll_count, clk_sys_hz;
+    uint32_t packet_size;
     bool diagnostic_skip_records;
 } tdma_origin_prepare_t;
 

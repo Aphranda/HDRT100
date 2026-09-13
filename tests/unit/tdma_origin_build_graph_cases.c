@@ -8,7 +8,7 @@
 #include "hardware/regs/addressmap.h"
 #include "hardware/regs/dma.h"
 
-static void check_packet_and_receive_lengths(void)
+static void check_packet_and_receive_lengths(uint32_t nodes)
 {
     uint8_t payload[TDMA_TRANSPORT_SHORT_PAYLOAD_MAX] = {0};
     uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
@@ -31,19 +31,20 @@ static void check_packet_and_receive_lengths(void)
         assert(tdma_receive_health_init(&health));
         tdma_receive_health_config_t config = {
             .schedule_crc32 = build.schedule_crc32, .ring_profile_crc32 = build.ring_profile_crc32,
-            .map_generation = 1u, .expected_payload_size = TDMA_FLIGHT_SHORT_PAYLOAD_SIZE,
+            .map_generation = 1u, .expected_payload_size = nodes * 32u + 4u,
             .expected_segment_mask = 1u, .stale_timeout_ns = 1000u};
         assert(tdma_receive_health_configure_stopped(&health, &config));
         tdma_receive_reason_t reason;
         const bool accepted = tdma_receive_health_evaluate(&health, &view, result, 1u, 1u, &reason);
-        assert(accepted == (peer_capacity == PROJECT_NODE_CAPACITY));
+        assert(accepted == (peer_capacity == nodes));
         assert(reason == (accepted ? TDMA_RECEIVE_REASON_NONE : TDMA_RECEIVE_REASON_PAYLOAD_SIZE));
         assert(health.accepted_count == (accepted ? 1u : 0u));
     }
 }
 
-static void check_origin_copy_extent(void)
+static void check_origin_copy_extent(uint32_t nodes)
 {
+    const uint32_t packet_size = nodes * 32u + 4u + 32u;
     uint8_t capture[2][TDMA_TRANSPORT_SHORT_PACKET_MAX];
     memset(capture, 0x37, sizeof(capture));
     uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX + 16u];
@@ -54,23 +55,25 @@ static void check_origin_copy_extent(void)
         .bank_version = {2u, 2u}, .local_next_address = 16u, .local_selected_generation = 1u};
     tdma_origin_exchange_t exchange;
     assert(tdma_origin_exchange_bind(&exchange, &state, capture[0], capture[1],
-                                   shadows[0], shadows[1], 16u, 32u));
+                                   shadows[0], shadows[1], 16u, 32u, packet_size));
     state.bank_version[0] = 4u;
     state.bank_observation[0].sequence = 7u;
     tdma_origin_observation_t observation;
-    assert(tdma_origin_exchange_copy_rx_observation(&exchange, packet, &observation));
+    assert(!tdma_origin_exchange_copy_rx_observation(&exchange, packet, packet_size - 1u, &observation));
+    assert(tdma_origin_exchange_copy_rx_observation(&exchange, packet, sizeof(packet), &observation));
     assert(observation.sequence == 7u);
-    for (size_t i = 0u; i < TDMA_FLIGHT_SHORT_PACKET_SIZE; ++i) assert(packet[i] == 0x37);
-    for (size_t i = TDMA_FLIGHT_SHORT_PACKET_SIZE; i < sizeof(packet); ++i) assert(packet[i] == 0xa5);
-    assert(!tdma_origin_exchange_copy_rx_observation(&exchange, packet, &observation));
+    for (size_t i = 0u; i < packet_size; ++i) assert(packet[i] == 0x37);
+    for (size_t i = packet_size; i < sizeof(packet); ++i) assert(packet[i] == 0xa5);
+    assert(!tdma_origin_exchange_copy_rx_observation(&exchange, packet, sizeof(packet), &observation));
 }
 
 static void check_dma_extents(const tdma_origin_plan_config_t *c, const tdma_origin_plan_t *p)
 {
-    unsigned copies = 0u, stages = 0u, captures = 0u, padding = 0u;
-    const uint32_t packet_size = PROJECT_NODE_CAPACITY * 32u + 4u + 32u;
+    unsigned copies = 0u, stages = 0u, captures = 0u, padding = 0u, trailers = 0u;
+    const uint32_t packet_size = c->packet_size;
     for (uint32_t i = 0u; i < p->run_count; ++i) {
         const tdma_flight_overlay_dma_run_t *r = &p->runs[i];
+        if (r->read_address == c->address.rx_packet + packet_size - 4u) ++trailers;
         if (r->write_address == c->address.rx_packet) {
             assert(r->transfer_count == packet_size);
             assert(r->read_address == c->address.capture_bank[0] ||
@@ -97,14 +100,15 @@ static void check_dma_extents(const tdma_origin_plan_config_t *c, const tdma_ori
         }
     }
     assert(copies == 2u && stages == 2u && captures == 2u && padding == 1u);
+    assert(trailers == (c->diagnostic_skip_records ? 0u : 1u));
 }
 
 int main(void)
 {
-    check_packet_and_receive_lengths();
-    check_origin_copy_extent();
     unsigned cases = 0;
     for (unsigned nodes = 2; nodes <= TDMA_FLIGHT_SHORT_SLOT_COUNT; ++nodes) {
+        check_packet_and_receive_lengths(nodes);
+        check_origin_copy_extent(nodes);
         for (unsigned skip = 0; skip <= 1; ++skip) {
             tdma_origin_plan_config_t c = {
                 .address = {.capture_bank = {0x20000000, 0x20000800},
@@ -112,7 +116,8 @@ int main(void)
                     .rx_packet = 0x20003000, .state = 0x20004000,
                     .local_shadow = {0x20005000, 0x20005800}, .scratch = 0x20006000,
                     .runs = 0x20008000, .literals = 0x2000a000, .records = 0x2000b000},
-                .physical_bytes = TDMA_FLIGHT_SHORT_PACKET_SIZE + 15u,
+                .physical_bytes = nodes * 32u + 4u + 32u + 15u,
+                .packet_size = nodes * 32u + 4u + 32u,
                 .outer_header_bytes = 4, .capture_prefix_bits = 36,
                 .guard_count = 1, .abort_poll_count = 8,
                 .local_slot = 0, .active_slot_mask = (1u << nodes) - 1u,
@@ -149,7 +154,11 @@ int main(void)
             check_dma_extents(&c, &actual);
             assert(tdma_origin_build_job_cancel(&job));
             tdma_origin_plan_config_t invalid = c;
-            invalid.active_slot_mask |= 1u << TDMA_FLIGHT_SHORT_SLOT_COUNT;
+            invalid.active_slot_mask |= 1u << nodes;
+            assert(!tdma_origin_plan_build(&invalid, &actual));
+            assert(actual.seed_entry == 0u);
+            invalid = c;
+            ++invalid.packet_size;
             assert(!tdma_origin_plan_build(&invalid, &actual));
             assert(actual.seed_entry == 0u);
             ++cases;

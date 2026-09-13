@@ -26,6 +26,7 @@ static bool async_overlay_grant(void *context, tdma_overlay_prepare_t *job)
         .loader_trigger_address = 0x50000100u, .next_address_address = 0x20001008u,
     };
     job->config = (tdma_flight_overlay_config_t){
+        .packet_size = TDMA_FLIGHT_SHORT_PACKET_SIZE,
         .physical_byte_count = TDMA_FLIGHT_SHORT_PACKET_SIZE + 12u,
         .outer_header_size = 4u, .local_slot_id = 3u,
         .header_write_mask = tdma_transport_frame_resident_overlay_header_mask(),
@@ -131,9 +132,79 @@ static int test_overlay_layout_activation(void)
     return failed;
 }
 
+static int test_overlay_runtime_sizes(void)
+{
+    int failed = 0;
+    tdma_flight_engine_t engine;
+    tdma_flight_engine_init(&engine);
+    tdma_flight_tx_layout_t old_layout = {0};
+    const uint32_t counts[] = {4u, 5u, 6u, 4u};
+    for (uint32_t turn = 0u; turn < sizeof(counts) / sizeof(counts[0]); ++turn) {
+        const uint32_t nodes = counts[turn], payload_size = nodes * 32u + 4u;
+        tdma_process_image_map_t map = make_eight_slot_flight_map();
+        map.segment_count = nodes;
+        map.payload_size = payload_size;
+        for (uint32_t slot = nodes; slot < TDMA_PROCESS_IMAGE_SEGMENT_COUNT; ++slot)
+            memset(&map.segment[slot], 0, sizeof(map.segment[slot]));
+        map.map_crc32 = tdma_process_image_map_crc32(&map);
+        failed += expect_bool("runtime map configure stopped", tdma_flight_engine_configure(&engine, &map), true);
+        failed += expect_bool("runtime map activate", tdma_flight_engine_activate(&engine, nodes - 1u), true);
+        async_overlay_phys_t phys = {0};
+        tdma_overlay_prepare_t *job = &phys.job;
+        failed += expect_bool("runtime immutable layout", tdma_flight_engine_copy_tx_layout(&engine, &job->layout), true);
+        failed += expect_u32("runtime exact payload grant", job->layout.payload_size, payload_size);
+        failed += expect_bool("runtime grant", async_overlay_grant(&phys, job), true);
+        job->config.local_slot_id = nodes - 1u;
+        job->config.packet_size = payload_size + TDMA_TRANSPORT_FRAME_HEADER_SIZE;
+        job->config.physical_byte_count = job->config.packet_size + 12u;
+        uint8_t payload[TDMA_FLIGHT_SHORT_PAYLOAD_SIZE] = {0};
+        tdma_transport_frame_build_t frame = {
+            .frame_class = TDMA_TRANSPORT_FRAME_CLASS_SHORT,
+            .origin_slot_id = 0u, .transport_sequence = 7u,
+            .payload_class = TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE,
+            .flags = TDMA_TRANSPORT_FLAG_REQUIRE_FEEDBACK | TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE,
+            .schedule_crc32 = 0x123u, .ring_profile_crc32 = 0x456u,
+            .hop_limit = nodes - 1u, .payload = payload, .payload_size = payload_size};
+        size_t packet_size = 0u;
+        tdma_transport_result_t result;
+        failed += expect_bool("runtime packet encode", tdma_transport_frame_encode(
+            &frame, job->packet, sizeof(job->packet), &packet_size, &result), true);
+        failed += expect_u32("runtime exact packet", packet_size, job->config.packet_size);
+        job->target_sequence = 7u;
+        job->egress_hop = 1u;
+        fill_test_process_mailbox(job->tx_data, nodes - 1u, turn + 1u, 0x36u);
+        job->tx.data_size = sizeof(job->tx_data);
+        failed += expect_bool("runtime active reconfigure rejected", tdma_flight_engine_configure(&engine, &map), false);
+        ++job->config.packet_size;
+        failed += expect_bool("runtime worker wrong length rejected", tdma_overlay_prepare_request(job), false);
+        --job->config.packet_size;
+        failed += expect_bool("runtime worker publish", tdma_overlay_prepare_request(job), true);
+        tdma_overlay_prepare_core0_service(job);
+        failed += expect_u32("runtime worker ready", tdma_overlay_prepare_state(job), TDMA_OVERLAY_PREPARE_READY);
+        failed += expect_u32("runtime physical plan extent", job->plan->command_word_count,
+                             job->config.physical_byte_count * 4u);
+        failed += expect_u32("runtime only local mailbox loaded", job->applied.output_bytes, 32u);
+        failed += expect_bool("runtime owner accepts current layout",
+            tdma_flight_engine_accept_tx(&engine, &job->layout, &job->applied, false), true);
+        if (turn != 0u)
+            failed += expect_bool("runtime stale layout rejected after rearm",
+                tdma_flight_engine_accept_tx(&engine, &old_layout, &job->applied, false), false);
+        old_layout = job->layout;
+        tdma_overlay_prepare_release(job);
+        failed += expect_bool("runtime cancellation publish", tdma_overlay_prepare_request(job), true);
+        failed += expect_bool("runtime cancellation worker claims", tdma_overlay_prepare_core0_claim(job), true);
+        failed += expect_bool("runtime STOP retains building lease", tdma_overlay_prepare_cancel(job), false);
+        failed += expect_bool("runtime cannot reuse cancelled lease", tdma_overlay_prepare_request(job), false);
+        tdma_overlay_prepare_core0_build_claimed(job);
+        failed += expect_u32("runtime STOP worker acknowledgement", tdma_overlay_prepare_state(job), TDMA_OVERLAY_PREPARE_IDLE);
+        tdma_flight_engine_deactivate(&engine);
+    }
+    return failed;
+}
+
 static int test_overlay_prepare_cases(void)
 {
-    int failed = test_overlay_layout_activation();
+    int failed = test_overlay_layout_activation() + test_overlay_runtime_sizes();
     tdma_pio_spi_ring_adapter_t adapter;
     tdma_flight_fifo_t fifo;
     tdma_flight_engine_t engine;

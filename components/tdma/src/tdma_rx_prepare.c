@@ -71,8 +71,8 @@ void tdma_rx_diagnose(const uint8_t *packet, size_t packet_size,
 
 static bool tdma_rx_prepare_origin_mailboxes(const tdma_rx_prepare_t *job)
 {
-    if (!job->decoded || job->view.payload_size != TDMA_FLIGHT_SHORT_PAYLOAD_SIZE ||
-        job->node_count < 2u || job->node_count > TDMA_FLIGHT_SHORT_SLOT_COUNT) return false;
+    if (!job->decoded || job->node_count < 2u ||
+        job->node_count > tdma_flight_payload_slots(job->view.payload_size)) return false;
     const uint32_t mask = (1u << job->node_count) - 1u;
     for (uint32_t slot = 0u; slot < job->node_count; ++slot) {
         const uint8_t *p = job->view.payload + slot * TDMA_FLIGHT_SHORT_SLOT_SIZE;

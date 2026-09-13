@@ -48,8 +48,8 @@ bool tdma_flight_overlay_build_plan(
     if (plan == NULL) return false;
     memset(plan, 0, sizeof(*plan));
     if (config == NULL || incoming_packet == NULL || processed_packet == NULL ||
-        packet_size != TDMA_FLIGHT_SHORT_PACKET_SIZE ||
-        config->local_slot_id >= TDMA_FLIGHT_SHORT_SLOT_COUNT ||
+        packet_size < TDMA_TRANSPORT_FRAME_HEADER_SIZE || packet_size != config->packet_size ||
+        config->local_slot_id >= tdma_flight_payload_slots(packet_size - TDMA_TRANSPORT_FRAME_HEADER_SIZE) ||
         (config->header_write_mask &
          ~tdma_transport_frame_resident_overlay_header_mask()) != 0u ||
         config->alignment_bit_shift >= 8u ||
@@ -84,9 +84,12 @@ bool tdma_flight_overlay_build_plan(
         replace[i / 32u] |= 1u << (i % 32u);
     }
     /* Unused bitmap bits are not a second mutation channel. */
-    if (force_payload_bitmap_words == TDMA_FLIGHT_OUTPUT_BITMAP_WORDS &&
-        (force_payload_bitmap[force_payload_bitmap_words - 1u] &
-         ~((1u << (TDMA_FLIGHT_SHORT_PAYLOAD_SIZE % 32u)) - 1u)) != 0u) return false;
+    const uint32_t payload_size = (uint32_t)packet_size - TDMA_TRANSPORT_FRAME_HEADER_SIZE;
+    for (uint32_t word = payload_size / 32u; word < force_payload_bitmap_words; ++word) {
+        const uint32_t allowed = word == payload_size / 32u
+            ? (1u << (payload_size % 32u)) - 1u : 0u;
+        if ((force_payload_bitmap[word] & ~allowed) != 0u) return false;
+    }
 
     struct window { uint32_t first, end, token; } window[2u] = {
         {base / 2u, (base + TDMA_TRANSPORT_FRAME_HEADER_SIZE * 8u + 1u) / 2u, 0u},

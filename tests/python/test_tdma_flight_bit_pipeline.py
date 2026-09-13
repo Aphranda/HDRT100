@@ -29,7 +29,7 @@ class Plan(C.Structure):
 class Config(C.Structure):
     _fields_ = [(name, C.c_uint32) for name in
                 ("physical_byte_count", "outer_header_size", "alignment_byte_shift",
-                 "alignment_bit_shift", "local_slot_id", "header_write_mask", "final_bit_pc")]
+                 "alignment_bit_shift", "local_slot_id", "header_write_mask", "final_bit_pc", "packet_size")]
 
 
 class Binding(C.Structure):
@@ -39,7 +39,7 @@ class Binding(C.Structure):
                  "loader_trigger_address", "next_address_address")]
 
 
-@pytest.fixture(scope="module", params=(6, 8))
+@pytest.fixture(scope="module", params=((6, 4), (6, 5), (6, 6), (8, 8)))
 def engine(tmp_path_factory, request):
     directory = tmp_path_factory.mktemp("bit-pipeline")
     gcc = os.environ.get("HOST_CC") or shutil.which("gcc") or "D:/Microsoft/mingw64/bin/gcc.exe"
@@ -69,7 +69,7 @@ uint8_t normalize_rx(uint32_t word, unsigned persona) {
 }
 ''', encoding="utf-8")
     subprocess.run([gcc, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-shared",
-                    f"-DPROJECT_NODE_CAPACITY={request.param}",
+                    f"-DPROJECT_NODE_CAPACITY={request.param[0]}",
                     "-I" + str(ROOT / "components/tdma/inc"),
                     str(ROOT / "components/tdma/src/tdma_flight_overlay.c"),
                     str(ROOT / "components/tdma/src/tdma_transport_frame.c"),
@@ -88,8 +88,8 @@ uint8_t normalize_rx(uint32_t word, unsigned persona) {
     init = source.split(f"static inline void {program}_program_init(", 1)[1].split("\n}", 1)[0]
     assert "sm_config_set_in_shift(&c, true, false, 32u)" in init
     lib = C.CDLL(str(libpath))
-    lib.node_capacity = request.param
-    lib.packet_size = request.param * 32 + 4 + 32
+    lib.compiled_capacity, lib.node_capacity = request.param
+    lib.packet_size = lib.node_capacity * 32 + 4 + 32
     lib.physical_bytes = lib.packet_size + 15
     lib.tdma_flight_overlay_build_plan.argtypes = [C.c_void_p, C.c_void_p, C.c_size_t,
         C.c_void_p, C.c_size_t, C.POINTER(Config), C.POINTER(Plan)]
@@ -195,7 +195,7 @@ def case(engine, slot, shift, byte_shift, installed, delay, period, high, rx_dro
         if header_mask & (1 << i): updated[i] ^= 255
     forced = (C.c_uint32 * (lib.node_capacity + 1))()
     forced[slot] = 0xFFFFFFFF
-    config = Config(lib.physical_bytes, 4, byte_shift, shift, slot, header_mask, final + installed)
+    config = Config(lib.physical_bytes, 4, byte_shift, shift, slot, header_mask, final + installed, lib.packet_size)
     plan = Plan()
     assert lib.tdma_flight_overlay_build_plan(old, bytes(updated), len(old), forced,
                                              len(forced), C.byref(config), C.byref(plan))
@@ -286,7 +286,7 @@ def test_reused_hop_plan_advances_live_sequences_and_preserves_errors(engine, ho
     old, processed = transport(lib, 123, hop), transport(lib, 123, hop + 1)
     plan = Plan()
     config = Config(lib.physical_bytes, 4, 0, 7, 3,
-                    lib.tdma_transport_frame_resident_overlay_header_mask(), final)
+                    lib.tdma_transport_frame_resident_overlay_header_mask(), final, lib.packet_size)
     assert lib.tdma_flight_overlay_build_plan(old, processed, lib.packet_size, None, 0,
                                              C.byref(config), C.byref(plan))
     tokens = expand(plan)
@@ -338,7 +338,7 @@ def test_compiled_overlay_rejects_another_packet_length(engine):
     lib, _, final, _ = engine
     packet = bytes(292)
     other_size = 292 if lib.node_capacity == 6 else 228
-    config = Config(307, 4, 0, 0, 0, 0, final)
+    config = Config(307, 4, 0, 0, 0, 0, final, lib.packet_size)
     plan = Plan()
     assert not lib.tdma_flight_overlay_build_plan(packet, packet, other_size, None, 0,
                                                  C.byref(config), C.byref(plan))

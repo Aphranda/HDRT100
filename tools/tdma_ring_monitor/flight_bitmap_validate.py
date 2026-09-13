@@ -201,17 +201,19 @@ def validate_board(before: dict, after: dict) -> list[str]:
     fifo = after["fifo"]
     refmem = after["refmem"]
     is_reference = refmem["local_slot"] == refmem["reference_slot"]
+    nodes = refmem["node_count"]
+    expected_payload = nodes * PROCESS_IMAGE_BUDGET.node_bytes + PROCESS_IMAGE_BUDGET.dpll_observation_bytes
     checks = (
         (process["version"] >= 2, "flight engine version < 2"),
         (process["configured"] == 1, "flight map not configured"),
         (process["active"] == 1, "flight map not active"),
-        (process["payload_size"] == PROCESS_IMAGE_BUDGET.process_image_bytes,
+        (process["payload_size"] == expected_payload,
          "process payload does not match the configured fixed image"),
         (process["local_segment_count"] == 1, "local segment count is not 1"),
         (fifo["version"] >= 2, "flight FIFO version < 2"),
         (refmem["enabled"] == 1, "RefMem flight sync disabled"),
-        (2 <= refmem["node_count"] <= 8, "active node count outside 2..8"),
-        (refmem["payload_size"] == PROCESS_IMAGE_BUDGET.process_image_bytes,
+        (2 <= nodes <= PROCESS_IMAGE_BUDGET.node_count, "active node count exceeds compiled capacity"),
+        (refmem["payload_size"] == expected_payload,
          "RefMem payload does not match the configured fixed image"),
         (refmem["mailbox_size"] == PROCESS_IMAGE_BUDGET.node_bytes,
          "RefMem mailbox does not match the configured Node image"),

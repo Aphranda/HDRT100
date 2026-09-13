@@ -11,11 +11,13 @@ bool tdma_origin_exchange_bind(tdma_origin_exchange_t *e,
                               tdma_origin_plan_state_t *state,
                               const uint8_t *capture_a, const uint8_t *capture_b,
                               uint32_t *shadow_a, uint32_t *shadow_b,
-                              uint32_t entry_a, uint32_t entry_b)
+                              uint32_t entry_a, uint32_t entry_b, uint32_t packet_size)
 {
     if (e == NULL) return false;
     memset(e, 0, sizeof(*e));
     if (state == NULL || capture_a == NULL || capture_b == NULL ||
+        packet_size < TDMA_TRANSPORT_FRAME_HEADER_SIZE ||
+        tdma_flight_payload_slots(packet_size - TDMA_TRANSPORT_FRAME_HEADER_SIZE) == 0u ||
         shadow_a == NULL || shadow_b == NULL || capture_a == capture_b ||
         shadow_a == shadow_b || entry_a == 0u || entry_b == 0u || entry_a == entry_b ||
         (entry_a | entry_b) % 16u != 0u ||
@@ -29,6 +31,7 @@ bool tdma_origin_exchange_bind(tdma_origin_exchange_t *e,
         return false;
     }
     e->state = state;
+    e->packet_size = packet_size;
     e->capture[0] = capture_a;
     e->capture[1] = capture_b;
     e->shadow[0] = shadow_a;
@@ -74,21 +77,22 @@ bool tdma_origin_exchange_publish(tdma_origin_exchange_t *e,
 }
 
 bool tdma_origin_exchange_copy_rx(tdma_origin_exchange_t *e,
-                                 uint8_t packet[TDMA_FLIGHT_SHORT_PACKET_SIZE])
+                                 uint8_t *packet, size_t capacity)
 {
-    return tdma_origin_exchange_copy_rx_observation(e, packet, NULL);
+    return tdma_origin_exchange_copy_rx_observation(e, packet, capacity, NULL);
 }
 
 bool tdma_origin_exchange_copy_rx_observation(tdma_origin_exchange_t *e,
-                                            uint8_t packet[TDMA_FLIGHT_SHORT_PACKET_SIZE],
+                                            uint8_t *packet, size_t capacity,
                                             tdma_origin_observation_t *observation)
 {
-    if (e == NULL || e->state == NULL || packet == NULL || load(&e->state->fault) != 0u) return false;
+    if (e == NULL || e->state == NULL || packet == NULL || capacity < e->packet_size ||
+        load(&e->state->fault) != 0u) return false;
     const uint32_t bank = load(&e->state->good_bank);
     if (bank >= TDMA_ORIGIN_PLAN_BANK_COUNT) return false;
     const uint32_t version = load(&e->state->bank_version[bank]);
     if ((version & 1u) != 0u || version == e->rx_version[bank]) return false;
-    memcpy(packet, e->capture[bank], TDMA_FLIGHT_SHORT_PACKET_SIZE);
+    memcpy(packet, e->capture[bank], e->packet_size);
     if (observation != NULL) {
         memcpy(observation, &e->state->bank_observation[bank], sizeof(*observation));
     }

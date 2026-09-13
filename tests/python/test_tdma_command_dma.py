@@ -216,6 +216,7 @@ typedef struct {
     bool process_image_enabled, flight_overlay_alignment_locked;
     uint32_t role, flight_local_slot_id, flight_alignment_byte_shift, flight_alignment_bit_shift;
     uint32_t flight_overlay_active_buffer, flight_physical_byte_count, flight_overlay_pending_buffer;
+    uint32_t flight_payload_size;
     uint32_t flight_overlay_published_generation;
     uint32_t flight_overlay_alignment_samples;
     volatile uint32_t flight_overlay_selected_generation, flight_overlay_next_address;
@@ -382,6 +383,7 @@ int main(void) {
     tdma_overlay_prepare_t job = {0};
     phys.overlay_preparation = &job; /* Bound before ARM, as in the runtime owner. */
     phys.flight_physical_byte_count = TEST_PHYSICAL_BYTES;
+    phys.flight_payload_size = TDMA_FLIGHT_SHORT_PAYLOAD_SIZE;
     phys.flight_overlay_alignment_samples = 2;
     phys.armed = true;
     tdma_flight_overlay_plan_t *plan = &s_tdma_pio_spi_flight_overlay_plan[1];
@@ -391,7 +393,7 @@ int main(void) {
     phys.flight_resource_claimed = true;
     uint8_t before[TEST_PACKET_BYTES] = {0}, after[TEST_PACKET_BYTES] = {0};
     memset(after + 96, 0x5a, 32); after[14] = 1;
-    tdma_flight_overlay_config_t config = {TEST_PHYSICAL_BYTES, 4, 0, 5, 2, 1u << 14, 20};
+    tdma_flight_overlay_config_t config = {TEST_PHYSICAL_BYTES, 4, 0, 5, 2, 1u << 14, 20, TDMA_FLIGHT_SHORT_PACKET_SIZE};
     assert(tdma_flight_overlay_build_plan(before, after, sizeof(before), NULL, 0, &config, plan));
     tdma_flight_overlay_plan_t generic = *plan;
     plan->run[0].transfer_count++;
@@ -457,6 +459,7 @@ int main(void) {
     phys.role = TDMA_PIO_SPI_ROLE_SLAVE;
     assert(tdma_pio_spi_phys_grant_overlay(&phys, &job));
     tdma_flight_overlay_plan_t live = s_tdma_pio_spi_flight_overlay_plan[phys.flight_overlay_active_buffer];
+    job.layout.payload_size = TDMA_FLIGHT_SHORT_PAYLOAD_SIZE;
     assert(tdma_overlay_prepare_request(&job));
     assert(tdma_overlay_prepare_core0_claim(&job));
     const tdma_flight_overlay_binding_t frozen_binding = job.binding;

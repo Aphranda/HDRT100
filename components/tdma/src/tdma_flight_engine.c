@@ -262,8 +262,7 @@ bool tdma_flight_engine_init(tdma_flight_engine_t *engine)
 static uint32_t tdma_flight_engine_fixed_tx_mask(
     const tdma_process_image_map_t *map, uint32_t local_slot_id)
 {
-    if (local_slot_id >= TDMA_FLIGHT_SHORT_SLOT_COUNT ||
-        map->payload_size != TDMA_FLIGHT_SHORT_PAYLOAD_SIZE) return 0u;
+    if (local_slot_id >= tdma_flight_payload_slots(map->payload_size)) return 0u;
     uint32_t output_mask = 0u;
     for (uint32_t i = 0u; i < TDMA_PROCESS_IMAGE_SEGMENT_COUNT; ++i) {
         const tdma_process_image_segment_t *segment = &map->segment[i];
@@ -379,6 +378,7 @@ bool tdma_flight_engine_copy_tx_layout(const tdma_flight_engine_t *engine,
         .local_slot_id = engine->local_slot_id,
         .map_generation = __atomic_load_n(&engine->map_generation, __ATOMIC_RELAXED),
         .output_segment_mask = engine->tx_output_segment_mask,
+        .payload_size = engine->map.payload_size,
     };
     __atomic_thread_fence(__ATOMIC_ACQUIRE);
     return layout->output_segment_mask != 0u &&
@@ -393,8 +393,8 @@ bool tdma_flight_engine_build_tx(const tdma_flight_tx_layout_t *layout,
 {
     if (applied != NULL) memset(applied, 0, sizeof(*applied));
     if (layout == NULL || incoming == NULL || output == NULL || applied == NULL ||
-        incoming_size != TDMA_FLIGHT_SHORT_PAYLOAD_SIZE || output_capacity < incoming_size ||
-        layout->local_slot_id >= TDMA_FLIGHT_SHORT_SLOT_COUNT ||
+        incoming_size != layout->payload_size || output_capacity < incoming_size ||
+        layout->local_slot_id >= tdma_flight_payload_slots(incoming_size) ||
         layout->output_segment_mask == 0u ||
         (layout->output_segment_mask & (layout->output_segment_mask - 1u)) != 0u ||
         (layout->output_segment_mask >> TDMA_PROCESS_IMAGE_SEGMENT_COUNT) != 0u) return false;
@@ -418,6 +418,7 @@ bool tdma_flight_engine_accept_tx(tdma_flight_engine_t *engine,
 {
     if (!tdma_flight_engine_is_active(engine) || layout == NULL || applied == NULL ||
         engine->local_slot_id != layout->local_slot_id ||
+        engine->map.payload_size != layout->payload_size ||
         __atomic_load_n(&engine->map_generation, __ATOMIC_ACQUIRE) !=
             layout->map_generation) return false;
     tdma_flight_engine_counter_inc(&engine->map_apply_count);

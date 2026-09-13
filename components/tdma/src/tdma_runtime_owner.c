@@ -85,9 +85,8 @@ static bool tdma_runtime_owner_flight_phys_arm(
 
     /* The adapter and PIO must agree on one fixed flight payload length.  A
      * configured ProcessImage map is available before the runtime arm and is
-     * therefore the authoritative source; do not let the physical layer fall
-     * back to the transport maximum (260 B) while the adapter emits the map
-     * payload (currently 256 B).  Keep the fallback only for standalone
+     * therefore the authoritative source. Verify it matches the admitted
+     * topology before programming physical length. Keep the fallback only for standalone
      * topology/calibration probes that deliberately have no map yet. */
     tdma_flight_engine_snapshot_t engine_snapshot;
     const bool have_flight_map =
@@ -96,8 +95,9 @@ static bool tdma_runtime_owner_flight_phys_arm(
         engine_snapshot.configured != 0u &&
         engine_snapshot.payload_size != 0u;
     if (have_flight_map &&
-        !tdma_pio_spi_phys_set_flight_payload_size(
-            phys, engine_snapshot.payload_size)) {
+        (engine_snapshot.payload_size != tdma_flight_payload_size(config->node_count) ||
+         !tdma_pio_spi_phys_set_flight_payload_size(
+            phys, engine_snapshot.payload_size))) {
         tdma_pio_spi_phys_publish_arm_error(
             phys, TDMA_PIO_SPI_PHYS_ERROR_OWNER_FLIGHT_MAP);
         return false;

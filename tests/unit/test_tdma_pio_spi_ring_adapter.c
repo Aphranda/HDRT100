@@ -3700,6 +3700,12 @@ int main(void)
         config.local_slot_id = 1u;
         failed += expect_bool("clock follower init",
                               tdma_pio_spi_ring_adapter_init(&adapter), true);
+        tdma_flight_engine_t clock_engine;
+        tdma_process_image_map_t clock_map = make_eight_slot_flight_map();
+        failed += expect_bool("clock follower product map",
+            tdma_flight_engine_init(&clock_engine) &&
+            tdma_flight_engine_configure(&clock_engine, &clock_map), true);
+        tdma_pio_spi_ring_adapter_set_flight_engine(&adapter, &clock_engine);
         set_test_sequential_topology(&adapter, config.node_count);
         tdma_pio_spi_ring_adapter_set_phys(&adapter,
                                            loopback_tx,

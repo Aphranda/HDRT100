@@ -1,3 +1,5 @@
+import pytest
+
 from tools.tdma_ring_monitor.flight_bitmap_validate import (
     FIFO_FIELDS,
     PROCESS_IMAGE_BUDGET,
@@ -15,7 +17,7 @@ def _snapshot() -> dict[str, dict[str, int]]:
         "configured": 1,
         "active": 1,
         "local_slot": 1,
-        "payload_size": PROCESS_IMAGE_BUDGET.process_image_bytes,
+        "payload_size": 2 * PROCESS_IMAGE_BUDGET.node_bytes + PROCESS_IMAGE_BUDGET.dpll_observation_bytes,
         "local_segment_count": 1,
         "receive_version": 1,
         "receive_configured": 1,
@@ -33,7 +35,7 @@ def _snapshot() -> dict[str, dict[str, int]]:
         "local_slot": 1,
         "node_count": 2,
         "active_mask": 3,
-        "payload_size": PROCESS_IMAGE_BUDGET.process_image_bytes,
+        "payload_size": 2 * PROCESS_IMAGE_BUDGET.node_bytes + PROCESS_IMAGE_BUDGET.dpll_observation_bytes,
         "mailbox_size": PROCESS_IMAGE_BUDGET.node_bytes,
     })
     return {"process": process, "fifo": fifo, "refmem": refmem}
@@ -57,9 +59,14 @@ def test_parse_process_snapshot_exact_field_count() -> None:
         len(PROCESS_FIELDS) - 1)
 
 
-def test_validate_board_accepts_complete_bitmap_pipeline() -> None:
+@pytest.mark.parametrize("nodes", [2, 4, 5, 6])
+def test_validate_board_accepts_complete_bitmap_pipeline(nodes) -> None:
     before = _snapshot()
     after = _snapshot()
+    for snapshot in (before, after):
+        snapshot["refmem"]["node_count"] = nodes
+        snapshot["refmem"]["active_mask"] = (1 << nodes) - 1
+        snapshot["process"]["payload_size"] = snapshot["refmem"]["payload_size"] = nodes * 32 + 4
     after["process"].update({
         "map_apply_count": 10,
         "rx_bitmap_scan_count": 20,
@@ -72,6 +79,8 @@ def test_validate_board_accepts_complete_bitmap_pipeline() -> None:
         "rx_accept_count": 9,
     })
     assert validate_board(before, after) == []
+    after["process"]["payload_size"] += 32
+    assert "process payload does not match the configured fixed image" in validate_board(before, after)
 
 
 def test_validate_board_rejects_scan_without_delivery() -> None:

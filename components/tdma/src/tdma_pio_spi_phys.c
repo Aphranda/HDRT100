@@ -1497,6 +1497,7 @@ bool tdma_pio_spi_phys_grant_overlay(void *context, tdma_overlay_prepare_t *job)
     job->buffer_index = tdma_pio_spi_phys_overlay_free_buffer(phys);
     job->plan = &s_tdma_pio_spi_flight_overlay_plan[job->buffer_index];
     job->config = (tdma_flight_overlay_config_t){
+        .packet_size = TDMA_TRANSPORT_FRAME_HEADER_SIZE + phys->flight_payload_size,
         .outer_header_size = TDMA_PIO_SPI_PACKET_HEADER_SIZE,
         .alignment_byte_shift = phys->flight_alignment_byte_shift,
         .alignment_bit_shift = phys->flight_alignment_bit_shift,
@@ -1522,6 +1523,7 @@ bool tdma_pio_spi_phys_commit_overlay(void *context, tdma_overlay_prepare_t *job
         job->config.alignment_byte_shift != phys->flight_alignment_byte_shift ||
         job->config.alignment_bit_shift != phys->flight_alignment_bit_shift ||
         job->config.physical_byte_count != phys->flight_physical_byte_count ||
+        job->config.packet_size != TDMA_TRANSPORT_FRAME_HEADER_SIZE + phys->flight_payload_size ||
         job->config.local_slot_id != phys->flight_local_slot_id ||
         job->config.final_bit_pc != tdma_pio_spi_phys_overlay_final_pc()) return false;
     /* Core0 validated tokens and bound every descriptor using the template
@@ -1676,6 +1678,7 @@ bool tdma_pio_spi_phys_prepare_process_overlay(
     phys->snapshot.overlay_alignment_bit_shift =
         phys->flight_alignment_bit_shift;
     const tdma_flight_overlay_config_t config = {
+        .packet_size = TDMA_TRANSPORT_FRAME_HEADER_SIZE + phys->flight_payload_size,
         .outer_header_size = TDMA_PIO_SPI_PACKET_HEADER_SIZE,
         .alignment_byte_shift = phys->flight_alignment_byte_shift,
         .alignment_bit_shift = phys->flight_alignment_bit_shift,

@@ -12,8 +12,8 @@
 #define TDMA_FLIGHT_ENGINE_VERSION 4u
 #define TDMA_FLIGHT_MAP_SNAPSHOT_RETRY_MAX 64u
 
-/* Fixed for the entire compiled deployment, including inactive local slots.
- * The generic SHORT transport limit is independent of this product length. */
+/* Static storage bounds. ARM selects the actual layout within this capacity;
+ * its length is immutable until STOP has retired all readers. */
 #define TDMA_FLIGHT_SHORT_SLOT_COUNT PROJECT_NODE_CAPACITY
 #define TDMA_FLIGHT_SHORT_SLOT_SIZE 32u
 #define TDMA_FLIGHT_NODE_IMAGE_SIZE \
@@ -42,6 +42,21 @@ _Static_assert(TDMA_FLIGHT_SHORT_PAYLOAD_SIZE <=
                "compiled product process image must fit SHORT transport");
 _Static_assert(TDMA_FLIGHT_SHORT_SLOT_COUNT <= TDMA_TRANSPORT_FRAME_MAX_SLOT_COUNT,
                "compiled mailboxes must fit transport slot addressing");
+
+static inline uint32_t tdma_flight_payload_size(uint32_t nodes)
+{
+    return nodes >= 2u && nodes <= TDMA_FLIGHT_SHORT_SLOT_COUNT
+        ? nodes * TDMA_FLIGHT_SHORT_SLOT_SIZE + TDMA_FLIGHT_DPLL_OBSERVATION_SIZE : 0u;
+}
+
+static inline uint32_t tdma_flight_payload_slots(size_t payload_size)
+{
+    if (payload_size < 2u * TDMA_FLIGHT_SHORT_SLOT_SIZE + TDMA_FLIGHT_DPLL_OBSERVATION_SIZE ||
+        payload_size > TDMA_FLIGHT_SHORT_PAYLOAD_SIZE ||
+        (payload_size - TDMA_FLIGHT_DPLL_OBSERVATION_SIZE) % TDMA_FLIGHT_SHORT_SLOT_SIZE != 0u)
+        return 0u;
+    return (uint32_t)(payload_size - TDMA_FLIGHT_DPLL_OBSERVATION_SIZE) / TDMA_FLIGHT_SHORT_SLOT_SIZE;
+}
 
 typedef enum {
     TDMA_FLIGHT_ENGINE_OK = 0u,
@@ -128,6 +143,7 @@ typedef struct {
     uint32_t local_slot_id;
     uint32_t map_generation;
     uint32_t output_segment_mask;
+    uint32_t payload_size;
 } tdma_flight_tx_layout_t;
 
 bool tdma_flight_engine_copy_tx_layout(const tdma_flight_engine_t *engine,

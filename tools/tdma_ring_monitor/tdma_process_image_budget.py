@@ -62,6 +62,7 @@ def load_budget(
     flight_header: Path = FLIGHT_HEADER,
     *,
     node_capacity: int | None = None,
+    node_count: int | None = None,
     capacity_header: Path = CAPACITY_HEADER,
 ) -> ProcessImageBudget:
     values = _definitions(flight_header)
@@ -77,6 +78,11 @@ def load_budget(
         values["TDMA_FLIGHT_SHORT_SLOT_COUNT"] = node_capacity
     elif node_capacity is not None and node_capacity != values.get("TDMA_FLIGHT_SHORT_SLOT_COUNT"):
         raise ValueError("fixed-slot header does not support the requested node capacity")
+
+    if node_count is not None:
+        if type(node_count) is not int or not 2 <= node_count <= values["TDMA_FLIGHT_SHORT_SLOT_COUNT"]:
+            raise ValueError("node count must fit compiled node capacity")
+        values["TDMA_FLIGHT_SHORT_SLOT_COUNT"] = node_count
 
     required = (
         "TDMA_FLIGHT_SHORT_SLOT_COUNT",
@@ -208,12 +214,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out", type=Path)
     parser.add_argument("--node-capacity", type=int, choices=range(2, 9),
                         help="compiled PROJECT_NODE_CAPACITY; defaults to the project header")
+    parser.add_argument("--node-count", type=int, choices=range(2, 9),
+                        help="topology admitted at ARM; must fit compiled capacity")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    budget = load_budget(node_capacity=args.node_capacity)
+    budget = load_budget(node_capacity=args.node_capacity, node_count=args.node_count)
     errors = validate_budget(budget)
     if errors:
         for error in errors:
