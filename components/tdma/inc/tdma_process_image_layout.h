@@ -163,6 +163,17 @@ static inline int32_t tdma_process_image_expand_i16(int16_t value,
     return (int32_t)value * (int32_t)quantum;
 }
 
+/* Eight MSB-first steps of polynomial 0x1021, folded into one byte update.
+ * x stays within eight bits; the final cast applies the original 16-bit
+ * remainder. No lookup table, reflected input or final XOR is introduced. */
+static inline uint16_t tdma_process_image_crc16_update_byte(uint16_t crc,
+                                                          uint8_t byte)
+{
+    uint32_t x = ((uint32_t)crc >> 8u) ^ byte;
+    x ^= x >> 4u;
+    return (uint16_t)(((uint32_t)crc << 8u) ^ (x << 12u) ^ (x << 5u) ^ x);
+}
+
 static inline uint16_t tdma_process_image_crc16_ccitt(const uint8_t *data,
                                                        size_t size)
 {
@@ -171,12 +182,7 @@ static inline uint16_t tdma_process_image_crc16_ccitt(const uint8_t *data,
         return 0u;
     }
     for (size_t i = 0u; i < size; i++) {
-        crc ^= (uint16_t)data[i] << 8u;
-        for (uint32_t bit = 0u; bit < 8u; bit++) {
-            crc = (crc & 0x8000u) != 0u
-                      ? (uint16_t)((crc << 1u) ^ 0x1021u)
-                      : (uint16_t)(crc << 1u);
-        }
+        crc = tdma_process_image_crc16_update_byte(crc, data[i]);
     }
     return crc;
 }
