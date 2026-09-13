@@ -4,64 +4,64 @@
   "acceptance_profile": "QUICK_DIAGNOSTIC",
   "dpll_observation": "SKIPPED_TDMA_ONLY",
   "passed": true,
-  "generated_at_utc": "2026-09-13T20:37:45.732073+00:00",
+  "generated_at_utc": "2026-09-13T21:33:45.720899+00:00",
   "source_tree_sha256": "5ca17b871eb56d5a8847874e5419dba0aa44cb8f19e7b3ba23bddc5511af548d",
   "source_file_count": 1046,
   "bench_config_path": "config/hardware_acceptance/p3_bench_quick.json",
   "bench_config_sha256": "c032843ba0eab2e87bb3399920c0fe54f79cf1eddbb4404a7ed1d85b1ea34fc2",
-  "build_id": "20260913202953",
+  "build_id": "20260913212611",
   "firmware_package": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-clock-now-fastpath/build-restored-r1/DHRT100_UPDATE.pkg",
-    "sha256": "028a9dbf84986ea818ae6a58feb51114e047384f0fcf954cc038376df58e7d4b"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-timing-reset-retirement/build-restored-r1/DHRT100_UPDATE.pkg",
+    "sha256": "7063e7373e481dcd199ab0bcb3805ee0d00ac2c6f4c995cf6014e24a2911b603"
   },
   "ota_summary": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-clock-now-fastpath/p3-restored-r1/ota-four-board-tdma/summary.json",
-    "sha256": "ec6bb3e59717cf81bac97b9bb3e6a8674e788c1536b190cdd2f765685481a60f",
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-timing-reset-retirement/p3-restored-r1/ota-four-board-tdma/summary.json",
+    "sha256": "83a191d3a802387137d004ad2934573c74ad9f5c25176e8a20c2dc2432b6cd67",
     "board_count": 4
   },
   "topology_summary": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-clock-now-fastpath/p3-restored-r1/p0t-topology/summary.json",
-    "sha256": "cfa0e8bf3c702f18254099ec475ba13038a613012dc887ae6be87f6f5560f2d4"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-timing-reset-retirement/p3-restored-r1/p0t-topology/summary.json",
+    "sha256": "41cf9c090c3834a215824d80401b3578999dd13581c65345e262ca61873b8a64"
   },
   "coarse_calibration_summary": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-clock-now-fastpath/p3-restored-r1/coarse-calibration-summary.json",
-    "sha256": "f63fc4c6a68bcb662f6a548b5003ff4fd6c8cfde37aa18ff22c02f2c2243023b"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-timing-reset-retirement/p3-restored-r1/coarse-calibration-summary.json",
+    "sha256": "5794b2ac9e12b34b1db13874962feed045197d823b7c285251a385249fd4c05f"
   },
   "coded_calibration_summary": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-clock-now-fastpath/p3-restored-r1/coded-calibration-summary.json",
-    "sha256": "20fd2cd5d59e4727c3744232f206a9cb86bce69f83f7927a49ff289ad5e8c6de"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-timing-reset-retirement/p3-restored-r1/coded-calibration-summary.json",
+    "sha256": "ff0d16a8ae65ef9a51d21f735f9c2b5903eef50c6ae95a33dd3551a1b1e8bb5c"
   },
   "initialization_reset": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-clock-now-fastpath/p3-restored-r1/initialization-reset.json",
-    "sha256": "27a000132562765f6a89abf10536c742ff4fd7bca9dc7634ee4a476992d5d9fd"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-timing-reset-retirement/p3-restored-r1/initialization-reset.json",
+    "sha256": "de230bf4645a5bf4e5a006ba47a34113b591e094970a55a801ca9a6cebbbcb8c"
   },
   "p3_summary": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-clock-now-fastpath/p3-restored-r1/p3-four-board/summary.json",
-    "sha256": "1cbbd5c3f001fc0b4d2af890e25b2436215851c7eca64e3646b1e369572e4559"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-timing-reset-retirement/p3-restored-r1/p3-four-board/summary.json",
+    "sha256": "c49a52143bd633e16b665563c10a128d6e05a69869c6ade9a8406f39e40ce500"
   },
   "trn00_summary": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-clock-now-fastpath/p3-restored-r1/trn00-summary.json",
-    "sha256": "53dd9ed53e178a1032bd0130241d35cecce75baeef506ddb657ec778a6deadad"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-timing-reset-retirement/p3-restored-r1/trn00-summary.json",
+    "sha256": "509b179074a144526149030478b1974573db4afabeb55ffa9072205bfd70f4e0"
   },
   "trn01_summary": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-clock-now-fastpath/p3-restored-r1/trn01-summary.json",
-    "sha256": "2fb6c083d36c15d9a59c6f01775ad661b0b74dbad494ae778f140132f3b5972b"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-timing-reset-retirement/p3-restored-r1/trn01-summary.json",
+    "sha256": "864a23146d56c2373ede5f4d7bb4e5156b77f370ead90b4abfedb5aa1adde726"
   },
   "trn02_summary": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-clock-now-fastpath/p3-restored-r1/trn02-data/summary.json",
-    "sha256": "5bf94f9d1d501c8a14fa7e4c226c141f7b01ae22534165b24cff71e99efef1ec"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-timing-reset-retirement/p3-restored-r1/trn02-data/summary.json",
+    "sha256": "7a15dc52db57178e64c8da7cd1315f3a0799d1c7a9919238af74a0bcb7ffb15f"
   },
   "trn03_matrix": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-clock-now-fastpath/p3-restored-r1/trn03-matrix.json",
-    "sha256": "7d361b3e75ca31f452ef3a95e11d720cf8339f1f90f6adec6c981ff82b33c62a"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-timing-reset-retirement/p3-restored-r1/trn03-matrix.json",
+    "sha256": "fd274ba4c928442f8642e0f24b38ca413c07467c7bcb0988b78681f6f98c1eb4"
   },
   "calibration_parameter_handoff": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-clock-now-fastpath/p3-restored-r1/calibration-parameter-handoff.json",
-    "sha256": "0556dcd8dd8a610941e99b4f6979a8fc91682f37753202eb9b2ce6a527d1ccf2"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-timing-reset-retirement/p3-restored-r1/calibration-parameter-handoff.json",
+    "sha256": "93269dd8963f1381bd63711e2b4ac3d0850d5c103fc703daf4260f8e0b04afd1"
   },
   "tdma_summary": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-clock-now-fastpath/p3-restored-r1/tdma-process-image/summary.json",
-    "sha256": "6665d9978697bb48804e7a0ca9a4ca1da1ed7b223484f7446fbe117243c0638a"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-timing-reset-retirement/p3-restored-r1/tdma-process-image/summary.json",
+    "sha256": "b2cb9836dbefa519eee09f938c8692e1521de4b4d72981ca247b21394964425e"
   },
   "ota_board_ids": [
     "0010071E65B5CB38",
@@ -82,17 +82,17 @@
   "link_delay_ns_by_link": [
     82,
     80,
-    80,
-    82
+    82,
+    80
   ],
   "link_base_delay_ns_by_link": [
     41,
     40,
-    40,
-    41
+    41,
+    40
   ],
   "path_delay_baseline_divisor": 2,
-  "calibration_generation": 1789331829,
+  "calibration_generation": 1789335191,
   "calibration_load_mask": 4,
   "waveform_capture_policy": {
     "trn00": false,
@@ -106,52 +106,52 @@
     "0010071E65B5CB38": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 35874,
-      "schedule_miss_count": 37547
+      "cycle_count": 32711,
+      "schedule_miss_count": 34306
     },
     "FB276192BEF9CCE1": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 35804,
-      "schedule_miss_count": 37612
+      "cycle_count": 32641,
+      "schedule_miss_count": 34616
     },
     "2BD5090FE009FA2A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 35651,
-      "schedule_miss_count": 42395
+      "cycle_count": 32573,
+      "schedule_miss_count": 34455
     },
     "A1E549202D18ED6A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 35713,
-      "schedule_miss_count": 37430
+      "cycle_count": 32466,
+      "schedule_miss_count": 39631
     }
   },
   "schedule_after": {
     "0010071E65B5CB38": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 73070,
-      "schedule_miss_count": 81690
+      "cycle_count": 68384,
+      "schedule_miss_count": 76734
     },
     "FB276192BEF9CCE1": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 73028,
-      "schedule_miss_count": 76391
+      "cycle_count": 68643,
+      "schedule_miss_count": 72230
     },
     "2BD5090FE009FA2A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 73964,
-      "schedule_miss_count": 82699
+      "cycle_count": 68604,
+      "schedule_miss_count": 72134
     },
     "A1E549202D18ED6A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 74125,
-      "schedule_miss_count": 77670
+      "cycle_count": 68748,
+      "schedule_miss_count": 77807
     }
   },
   "realtime_load_mask_unchanged": true,
@@ -170,46 +170,21 @@
     "output_handoff_s": 0.05
   },
   "timing_probe": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-clock-now-fastpath/p3-restored-r1/timing.json",
-    "sha256": "6310585cc0ac6f577d1a28f7c9812d1f0bf418e418dda8578917f6278db00071"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-timing-reset-retirement/p3-restored-r1/timing.json",
+    "sha256": "e74b140ac43d1dee957d3de2901ac3e51e2281565b05f8fee88720736e94d278"
   },
   "flow_completed": true,
   "strict_gates_passed": false,
   "diagnostic_failures": [
     {
-      "phase": "coarse CLK calibration level 7",
-      "returncode": 1,
-      "error": "RuntimeError: 2BD5090FE009FA2A: SYSTem:TDMA:OPMode:APPLy failed: {'board': '2BD5090FE009FA2A', 'command': 'SYSTem:TDMA:OPMode:APPLy', 'response': '<timeout>', 'error': \"ValueError: invalid literal for int() with base 0: '<timeout>'\"}",
-      "summary": "out/HardwareAcceptance/20260914/tdma-flight-clock-now-fastpath/p3-restored-r1/coarse-clk-level7/summary.json"
-    },
-    {
-      "phase": "TRN-01 SCK training",
-      "returncode": 1,
-      "error": "gate did not pass",
-      "summary": "out/HardwareAcceptance/20260914/tdma-flight-clock-now-fastpath/p3-restored-r1/trn01-sck/summary.json"
-    },
-    {
-      "phase": "TRN-03 SCK replay row selection",
-      "returncode": 1,
-      "error": "no measured SCK row satisfies the flight re-arm budget",
-      "selected_offset_sample_counts_by_node": [
-        1,
-        1,
-        0,
-        0
-      ],
-      "selected_min_follower_margin_samples": -1,
-      "matrix": "out/HardwareAcceptance/20260914/tdma-flight-clock-now-fastpath/p3-restored-r1/trn03-matrix.json"
-    },
-    {
       "phase": "acceptance time budget",
       "returncode": 1,
-      "error": "elapsed 480.478s exceeds error budget 450.000s",
+      "error": "elapsed 462.835s exceeds error budget 450.000s",
       "action": "DEBUG_BOUNDED_FORCE_CONTINUE"
     }
   ],
   "diagnostic_summary": {
-    "path": "out/HardwareAcceptance/20260914/tdma-flight-clock-now-fastpath/p3-restored-r1/diagnostic.json",
-    "sha256": "fe820e6d47d998cc3e98353fa965a57f51d2abdc1acb8273e990a5efd0ce3b61"
+    "path": "out/HardwareAcceptance/20260914/tdma-flight-timing-reset-retirement/p3-restored-r1/diagnostic.json",
+    "sha256": "1e3c5e1064b72e522861eefd59776f0e0ef051f6bf5897ac8332a0fed81eda12"
   }
 }
