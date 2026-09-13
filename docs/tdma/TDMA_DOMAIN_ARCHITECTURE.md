@@ -151,8 +151,9 @@ sequence 异步关联产生。该语义变更属于冻结契约的语义修订�
 
 代码事实源为 `TDMA_FLIGHT_NODE_IMAGE_SIZE`、`TDMA_FLIGHT_SHORT_PAYLOAD_SIZE` 和
 `TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_*`。Node image 使用固定 mailbox；全局 trailer 使用 SHORT
-payload 的固定尾部。二者之和必须在编译期精确闭合 `TDMA_TRANSPORT_SHORT_PAYLOAD_MAX`，因此
-不存在供 DPLL 临时追加独立帧的运行时余量。
+payload 的固定尾部。二者之和在编译期等于 `TDMA_FLIGHT_SHORT_PAYLOAD_SIZE`，并且不得
+超过 `TDMA_TRANSPORT_SHORT_PAYLOAD_MAX`；通用 transport 剩余容量不构成产品运行时
+配额，不得供 DPLL 临时追加数据或独立帧。
 
 ### 当前验证部署边界（四板环路 + NO5 环外观测）
 
@@ -572,8 +573,11 @@ active wire plan，并在 RUN 中保持不变。
 process-image payload 由 `TDMA_FLIGHT_NODE_IMAGE_SIZE` 的固定 Node image 和
 `TDMA_FLIGHT_DPLL_OBSERVATION_SIZE` 的全局 trailer 组成。Node image 分成
 `TDMA_FLIGHT_SHORT_SLOT_COUNT` 个 `TDMA_FLIGHT_SHORT_SLOT_SIZE` mailbox，每个 Node 是自己
-mailbox 的唯一 writer；任意 active Node 可以读取其他 mailbox。不同 Node 数使用同一 wire
-plan，只改变 active mask，不改变 offset 或重新协商帧格式。代码中的 `slot_id` 仅是固定 wire
+mailbox 的唯一 writer；任意 active Node 可以读取其他 mailbox。按用户授权的容量修订，
+`TDMA_FLIGHT_SHORT_SLOT_COUNT` 随 `PROJECT_NODE_CAPACITY` 编译；单邮箱 offset 和内容不变，
+trailer 随 Node image 尾部移动。当前同一固件内 active Node 数只改变 active mask，
+实际包长由 `TDMA_FLIGHT_SHORT_PACKET_SIZE` 定义，通用 transport 上限不能用作 DMA 实际长度。
+不同布局必须通过长度和配置准入拒绝混用；RUN 期间禁止改变布局。代码中的 `slot_id` 仅是固定 wire
 mailbox 索引，不表示 Calibration 训练层的 slot。
 
 ```text
@@ -910,7 +914,7 @@ clock-training frame 与 reservation segment 可共享 cyclic process image 和�
 本节描述的是分阶段实现，不能把透明 byte pipeline 或固定块替换单独等同于完整 ESC
 process-image cut-through，也不能把按周期重建的 beacon loop 等同于 resident process image。
 当前实现已经具备 `TDMA_TX_IMAGE_FIFO`、`TDMA_RX_FRAME_FIFO`、固定
-buffer pool、descriptor 的 generation/sequence 一致性校验、8 × 32 B process-image
+buffer pool、descriptor 的 generation/sequence 一致性校验、按编译容量固定的 process-image
 map、本机 slot 替换，以及 core1 固定 8 B mailbox 头扫描和 RX segment bitmap。core0
 只解析 bitmap 命中的 slot，RX FIFO 满或 descriptor 损坏不会阻塞 wire path。
 
@@ -1571,7 +1575,7 @@ active 节点确认同一 profile CRC，并执行 STOP -> APPLY -> TRAIN -> STAR
 ### 编译节点容量候选（实现与验收边界）
 
 编译期本地存储容量、active profile 的在线节点数和固定 wire 槽位容量分别建模。
-容量候选只裁剪本地 per-node 状态、路径表及缓存；`TDMA_FLIGHT_SHORT_SLOT_COUNT`、
+容量候选裁剪本地 per-node 状态、路径表、缓存及产品邮箱数量；
 `DISTRIBUTED_REFMEM_TABLE_SIZE` 与固定目录、Calibration 持久化格式继续由原契约
 定义。`TDMA_RING_CALIBRATION_LINK_MAX` 同时影响 runtime stage 和持久化编解码，
 进一步裁剪前须分离两者；不能把宏统一替换当作存储兼容性证明。
@@ -1588,13 +1592,19 @@ Calibration path import 的 CRC 逻辑序列仍按 `CALIBRATION_PATH_CRC_LINK_CO
 计算，裁掉的尾项以零值补入，保持同一有效拓扑的主机导入 CRC；VDC 本地路径表的
 完整性 CRC 仍按本地布局计算，不能跨容量比较该内部 CRC。Calibration 持久化
 编解码仍使用固定 stage，解码后由真实 runtime validator 拒绝超容量拓扑。
-不同容量的共同拓扑 schedule CRC、Calibration import CRC 和存储字节已做互操作
-测试；这不构成混合容量实板组网或满容量组网的验收。
+前序不同容量的共同拓扑 schedule CRC、Calibration import CRC 和存储字节已做互操作
+测试；当前邮箱数量也随编译容量变化，旧存储测试不证明新 wire 布局互通，必须另验异长度拒绝。
 
 实现与本轮硬件边界见 `TDMA-PROGRESS-20260912-020`，隔离测量保留在
 `TDMA-PROGRESS-20260912-019`。运行时在线数变小不会自动减少静态 RAM，也不改变
 owner、WCET、资源分区或固定载荷规则。本节仍为 `TDMA-FLIGHT-002I` 候选实现记录，
 不新增冻结契约；正式 RAM、完整 Core1 WCET 和严格硬件失败项须继续独立收敛。
+
+用户后续已明确要求 STOP 后配置节点数，重新 ARM 使用相应邮箱区，覆盖旧固定邮箱
+容量限制。运行时候选复用已有 topology 配置：静态池仍由 `PROJECT_NODE_CAPACITY`
+限定，ARM 按已准入拓扑生成 map、trailer offset 与 DMA 长度，RUN 内冻结；新配置须
+等待 STOP 完成后台取消、DMA 退休与资源回收，并使旧 generation/epoch 失效。
+该运行时切换尚未实现；当前切片先完成编译容量邮箱的硬件对照，不宣称已支持在线缩帧。
 
 ### EtherCAT DC 风格训练的 TDMA 边界
 

@@ -321,7 +321,14 @@ GPIO/程序/资源回收和 adapter 清理，不能用较低 RUN 峰值覆盖 ST
 先修复现有 `test_descriptor_completion_and_bounded_stop` 夹具缺少 origin build-job
 取消依赖的问题，再验证同次 owner 调用复用退休结果或跨拍清理的实现。特别覆盖 ARM
 失败回滚与 maintenance 入口；只有 DMA 退休、后台取消 ACK 和资源释放都完成才能
-确认 STOP。该审查没有实现网络协议或降低实测 WCET，仍保持耗时增长修复优先。
+确认 STOP。该审查没有实现网络协议或降低实测 WCET。
+
+用户最新指令将邮箱容量切片提前：邮箱数量随 `PROJECT_NODE_CAPACITY` 的实现与
+六邮箱实测见 `TDMA-PROGRESS-20260913-062`；主站 RUN 外层下降但完整预算仍未达，
+P3 粗校准超时原件保留。下一步接入 STOP 后配置拓扑、重新 ARM 使用相应邮箱区，需覆盖
+四、五、六邮箱布局；实际长度、DPLL trailer、overlay 与 origin DMA 必须来自同一
+已准入配置，RUN 内固定。静态 RAM 按编译容量预留，运行时减少节点不等于释放静态 RAM。
+完整 phase 与 STOP 增长仍分别审查；缩帧不能替代完整预算和生命周期验收。
 
 普通 RX 异步解析切片已按用户顺序封存，随后完成六节点编译容量的隔离 RAM 核算，见
 `TDMA-PROGRESS-20260912-019`。核算区分本地状态、固定 wire/RefMem/Calibration
@@ -339,8 +346,9 @@ byte-level cut-through 被当作 cycle-level flight 使用，使上层观测证�
 
 **不可变约束**：
 
-- 帧型、长度、序列语义和 SHORT 静态布局不变。本主线改变的是**发车时钟源与 image 供给
-  方式**；任何涉及帧结构或 PIO 节拍本身的变化必须另行登记契约。
+- 帧型、序列语义和单邮箱布局固定；按最新用户授权，邮箱数量可以在已准入容量内选择，
+  RUN 内长度固定。容量修订同步 `TDMA-FLIGHTBITMAP-01`，状态保持 pending；
+  PIO 节拍及其它帧结构变更仍须另行审查登记。
 - 回环从发车门控降级为观测事实后，`simultaneous_feedback_loop_evidence` 改为按 sequence
   异步关联。冻结的反馈相关条件中，round trip 判据保留为质量判据而非发车门控。**该语义
   变更必须经 C11 交叉审核，禁止自审自批。**

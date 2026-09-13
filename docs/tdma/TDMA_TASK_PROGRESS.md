@@ -8,7 +8,15 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002B/002F` 的协调启停与本地停止边界审查见
+当前 `TDMA-FLIGHT-002I/002B/002F` 的编译容量邮箱切片见
+`TDMA-PROGRESS-20260913-062`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-compiled-mailboxes/`。软件回归与 A/B/Boot
+构建通过，六邮箱实板两轮主站 RUN 外层为 634.448/627.672 us，相比旧八邮箱低
+34.348/47.484 us（有限窗口快照，非事实源）；仍未达到完整 500 us。
+当前源码短帧与普通恢复通过，P3 粗校准一次拓扑命令超时使严格门禁为 false。
+用户已确认后续按 STOP 后配置节点数、重新 ARM 使用相应邮箱区推进，运行时切换
+尚未实现。本切片为 PARTIAL，完整目标继续。
+前序 `TDMA-FLIGHT-002B/002F` 的协调启停与本地停止边界审查见
 `TDMA-PROGRESS-20260913-061`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-coordinated-lifecycle-review/`。完成候选
 阶段、通知载荷、精度条件、链路关闭顺序与现有 STOP 调用关系核对；网络协议未实现，
@@ -279,6 +287,49 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-062 - 编译容量邮箱与运行时节点切换前置验证
+
+- 日期：2026-09-13
+- 状态：PARTIAL；编译容量邮箱实现、实板对照与普通恢复完成，完整目标未通过。
+- 用户授权与范围：先将产品邮箱数量与 `PROJECT_NODE_CAPACITY` 对齐，再接入 STOP 后
+  配置节点数、重新 ARM 生效；用户明确后续有四、五、六邮箱版本。该指令覆盖此前
+  邮箱工作后置与固定八邮箱限制，单邮箱内容、DPLL 语义、owner 和完整预算不变。
+- 当前实现：产品包长由 `TDMA_FLIGHT_SHORT_PACKET_SIZE` 推导，origin capture、RX copy、
+  stage、DMA 捕获计数与 padding 使用实际包长；overlay 工位和 owner 配对使用同一长度。
+  超容量 active mask 在构图前拒绝；通用 transport 上限及 RefMem/Calibration 存储 ABI 保留。
+  `TDMA-FLIGHTBITMAP-01` 修订版本，状态仍为 pending，不自批独立审核。
+- 软件与构建快照（非事实源）：容量/预算/bitmap/origin/DMA 回归 48 项通过，实际 PIO
+  模型 108 项通过；完整 adapter 与 map host 通过，CRC 保留全部状态/字节穷举。
+  初始 host 失败记录保留：旧包长可进入缩短位图而越界，overlay 工位仍按旧 sizeof
+  处理，以及旧 owner 配对条件未改；均已修复并回归，未在硬件运行失败版本。
+  既有 STOP 夹具补齐真实 build-job 取消依赖，未改变生产 STOP 流程。
+  build `20260913125033`，源码指纹
+  `20b31c39c04e3c674b1016fd7cb02f51aa127c6ee86ec6423335e563e0ce31cf`；A/B/Boot 构建通过。
+  六邮箱 payload 为 196 B、transport packet 为 228 B；相对旧八邮箱 packet 减少 64 B。
+  A/B link-free 均从 2312 B 增至 2448 B，增加 136 B；不是正式运行时 RAM 门禁通过。
+  生成 PIO 头与前序构建逐字节一致，无新增 SM 或 DMA 资源。
+- 硬件快照（有限窗口，非事实源）：当前源码四板 OTA 成功，P3 process-image 的
+  passed/closed_loop/realtime/diagnostic 均为 true；但粗校准阶段主站 topology 命令
+  应答超时，P3 流程有界继续且 strict_gates_passed=false，原始失败保留，不能写成严格全绿。
+  固定 057 矩阵、档案 ON 的两轮自主记录如下；前序为 060 构建，同计时版本、相同配置。
+
+  | 指标（us） | 旧八邮箱 R1 / R2 | 六邮箱 R1 / R2 |
+  |---|---:|---:|
+  | 主站 RUN body | 639.188 / 656.208 | 606.628 / 605.028 |
+  | 主站 RUN 外层 | 668.796 / 675.156 | 634.448 / 627.672 |
+  | 主站 STOP 外层 | 795.472 / 696.516 | 478.988 / 543.060 |
+
+  四板记录的 map payload 和已接受 payload 均为 196 B，物理 byte count 为 237；
+  PIO 周期仍由既有 cadence/guard 保持，不能将减小传输区等同于降低完整循环周期。
+  两轮后段各板 accepted 持续增长，rejected/missing 均无增长；全窗口各板 missing
+  最大值仍为 1。自主切换整段 passed/closed_loop/realtime=false、diagnostic=true，
+  不提升为产品稳定性通过。follower ALL body 峰值约 625–660 us，不能混用主站 RUN
+  状态分类宣称整环达标。各轮 START 后零查询，板端记录完整、STOP 后导出，SD 保存
+  逐字节核对通过。最后普通恢复全部判据通过，四板 STOP 确认、许可证失效。
+- 下一步：完整 RUN、STOP、ALL 分别比较；完成本切片后再使 ARM 从已准入 topology
+  生成运行时 map、DPLL trailer 与 DMA 长度。静态池以编译容量为上限，RUN 不改变帧长，
+  旧后台任务、generation、epoch 和不同长度不得跨配置复用。
 
 ### TDMA-PROGRESS-20260913-061 - TDMA 协调启停候选与本地停止调用审查
 

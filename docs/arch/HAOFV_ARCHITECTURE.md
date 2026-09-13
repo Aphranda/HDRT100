@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-09-06
+Last updated: 2026-09-13
 Version: 5
 
 本文档定义 Distributed Hard Real-Time Trigger System 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
@@ -173,7 +173,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 
 | contract_id | 契约 | 域文档位置 | 状态 |
 |---|---|---|---|
-| `TDMA-FLIGHTBITMAP-01` | SHORT process image 固定 mailbox 与 core1 RX 位图 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` 的“固定 Node image、DPLL trailer 与 RX 位图快路径”章节 | pending |
+| `TDMA-FLIGHTBITMAP-01` | SHORT mailbox 数随编译容量，RUN 布局固定；STOP 后按拓扑选择为后续候选，静态资源上限不变 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` 的“固定 Node image、DPLL trailer 与 RX 位图快路径”章节 | pending |
 | `TDMA-PROCESSIMAGE-01` | 固定 SHORT process image 静态装配 Node mailbox 与 DPLL observation trailer，DPLL 不得替换 wire frame | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` | pending |
 | `TDMA-RESIDENT-01` | process image 启动时一次注入并持续循环；单轮多 Node 局部 UNLOAD/LOAD，无更新透传，frame completion 不终止 resident loop | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:TDMA-RESIDENT-01` | pending |
 | `TDMA-RECOVERY-01` | 双 recovery buffer 原 Node 位置重传、Core0/Core1/PIO owner 边界与独立静态预算 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` | pending |
