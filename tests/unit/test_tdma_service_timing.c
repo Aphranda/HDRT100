@@ -49,7 +49,7 @@ int main(void)
     tdma_service_timing_phase_end();
     assert(tdma_service_timing_try_snapshot(&before));
     assert(before.last.total_ticks == 100 && before.last.invalid_count == 0);
-    assert(before.version == 4);
+    assert(before.version == 5);
     assert(before.last.elapsed_ticks[TDMA_TIMING_RX_DMA_OBSERVE] == 3);
     assert(before.last.calls[TDMA_TIMING_RX_DMA_OBSERVE] == 2);
     assert(before.last.elapsed_ticks[TDMA_TIMING_RX_LOCATE] == 1);
@@ -150,7 +150,7 @@ int main(void)
     assert(before.last.elapsed_ticks[TDMA_TIMING_ADAPTER_PROLOGUE] == 1);
     assert(before.last.elapsed_ticks[TDMA_TIMING_RX_HANDOFF] == 6);
     assert(before.last.elapsed_ticks[TDMA_TIMING_ADAPTER_STATUS] == 2);
-    for (unsigned stage = TDMA_TIMING_RING_RUNTIME; stage < TDMA_TIMING_STAGE_COUNT; ++stage)
+    for (unsigned stage = TDMA_TIMING_RING_RUNTIME; stage <= TDMA_TIMING_ADAPTER_STATUS; ++stage)
         assert(before.last.calls[stage] == 1);
     tdma_service_timing_phase_begin();
     ticks += 1;
@@ -159,6 +159,45 @@ int main(void)
     assert(after.peak.total_ticks == 18 && after.peak.elapsed_ticks[TDMA_TIMING_RX_HANDOFF] == 6);
     for (unsigned stage = TDMA_TIMING_RING_RUNTIME; stage < TDMA_TIMING_STAGE_COUNT; ++stage)
         assert(after.last.calls[stage] == 0);
+    /* Accepting a prepared RX includes several owner actions. Preserve all
+     * children of the same longest phase, even if a shorter phase later
+     * spends more time on one child. Publication and freshness commit are
+     * measured separately, and absent work must stay absent after RESET. */
+    tdma_service_timing_request_reset();
+    tdma_service_timing_phase_begin();
+    const uint64_t accept_start = ticks;
+    for (unsigned stage = TDMA_TIMING_RX_INSPECT; stage <= TDMA_TIMING_RX_COMPLETE; ++stage) {
+        const uint64_t child_start = ticks;
+        ticks += stage - TDMA_TIMING_RX_INSPECT + 1;
+        tdma_service_timing_record((tdma_service_timing_stage_t)stage, child_start);
+    }
+    tdma_service_timing_record(TDMA_TIMING_RX_PARSE, accept_start);
+    ticks += 4;
+    tdma_service_timing_phase_end();
+    assert(tdma_service_timing_try_snapshot(&before));
+    assert(before.peak.total_ticks == 25);
+    assert(before.peak.elapsed_ticks[TDMA_TIMING_RX_PARSE] == 21);
+    assert(before.peak.elapsed_ticks[TDMA_TIMING_RX_FIFO_PUBLISH] == 4);
+    assert(before.peak.elapsed_ticks[TDMA_TIMING_RX_COMMIT] == 5);
+    tdma_service_timing_phase_begin();
+    const uint64_t short_start = ticks;
+    ticks += 10;
+    tdma_service_timing_record(TDMA_TIMING_RX_HEALTH, short_start);
+    tdma_service_timing_phase_end();
+    assert(tdma_service_timing_try_snapshot(&after));
+    assert(after.last.elapsed_ticks[TDMA_TIMING_RX_HEALTH] == 10);
+    assert(after.last.calls[TDMA_TIMING_RX_COMMIT] == 0);
+    assert(after.peak.total_ticks == 25);
+    assert(after.peak.elapsed_ticks[TDMA_TIMING_RX_HEALTH] == 2);
+    for (unsigned stage = TDMA_TIMING_RX_INSPECT; stage <= TDMA_TIMING_RX_COMPLETE; ++stage)
+        assert(after.peak.calls[stage] == 1);
+    tdma_service_timing_request_reset();
+    tdma_service_timing_phase_begin();
+    ticks++;
+    tdma_service_timing_phase_end();
+    assert(tdma_service_timing_try_snapshot(&after));
+    for (unsigned stage = TDMA_TIMING_RX_INSPECT; stage <= TDMA_TIMING_RX_COMPLETE; ++stage)
+        assert(after.peak.calls[stage] == 0 && after.peak.elapsed_ticks[stage] == 0);
     puts("PASS: timing wrap, inclusive stages, coherent peak, deferred reset, interrupted writer and invalid clock");
     return 0;
 }

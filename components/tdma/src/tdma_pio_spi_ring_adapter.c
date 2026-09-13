@@ -1792,6 +1792,7 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
          adapter->receive_health.configured == 0u) &&
         view.payload_class == TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE &&
         adapter->receive_health.configured != 0u) {
+        const uint64_t rx_inspect_start = tdma_service_timing_now();
         tdma_flight_engine_unload_t unloaded;
         const uint32_t expected_owner_mask =
             tdma_pio_spi_ring_adapter_expected_owner_mask(
@@ -1804,6 +1805,8 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
             &unloaded);
         inspected_present_mask = unloaded.present_segment_mask;
         inspected_new_mask = unloaded.new_segment_mask;
+        tdma_service_timing_record(TDMA_TIMING_RX_INSPECT, rx_inspect_start);
+        const uint64_t rx_health_start = tdma_service_timing_now();
         tdma_receive_reason_t receive_reason = TDMA_RECEIVE_REASON_NONE;
         const bool receive_health_accepted = tdma_receive_health_evaluate(
             &adapter->receive_health,
@@ -1812,6 +1815,7 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
             inspected_present_mask,
             health_observation_ns,
             &receive_reason);
+        tdma_service_timing_record(TDMA_TIMING_RX_HEALTH, rx_health_start);
         adapter->last_rx_gate_accepted =
             inspected && receive_health_accepted;
         adapter->last_rx_new_segment_mask = inspected_new_mask;
@@ -1822,9 +1826,11 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
         }
     }
 
+    const uint64_t rx_evidence_start = tdma_service_timing_now();
     if (adapter->origin.active != 0u) {
         if (receive_health_rejected) {
             adapter->origin.rejected_observation_count++;
+            tdma_service_timing_record(TDMA_TIMING_RX_EVIDENCE, rx_evidence_start);
             return false;
         }
         tdma_pio_spi_ring_origin_accept(adapter, origin_observation);
@@ -2009,6 +2015,7 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
         !tdma_pio_spi_ring_adapter_correlate_dpll_observation(adapter, &view)) {
         adapter->clock_observation_reject_count++;
     }
+    tdma_service_timing_record(TDMA_TIMING_RX_EVIDENCE, rx_evidence_start);
     adapter->rx_count++;
     if ((view.flags & TDMA_TRANSPORT_FLAG_IDLE_BEACON) != 0u) {
         adapter->idle_beacon_rx_count++;
@@ -2046,6 +2053,7 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
                 (adapter->receive_health.configured != 0u
                      ? adapter->receive_health.quality_flags
                      : 0u);
+            const uint64_t rx_publish_start = tdma_service_timing_now();
             const bool published = tdma_flight_fifo_core1_publish_rx(
                 adapter->flight_fifo,
                 view.payload,
@@ -2055,17 +2063,21 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
                 input_mask,
                 rx_timestamp_ns,
                 rx_quality);
+            tdma_service_timing_record(TDMA_TIMING_RX_FIFO_PUBLISH, rx_publish_start);
             if (published && input_mask != 0u &&
                 adapter->flight_engine != NULL &&
                 tdma_flight_engine_is_active(adapter->flight_engine)) {
+                const uint64_t rx_commit_start = tdma_service_timing_now();
                 (void)tdma_flight_engine_rx_commit(
                     adapter->flight_engine,
                     view.payload,
                     view.payload_size,
                     input_mask);
+                tdma_service_timing_record(TDMA_TIMING_RX_COMMIT, rx_commit_start);
             }
         }
     }
+    const uint64_t rx_complete_start = tdma_service_timing_now();
     if (packet_size <= sizeof(adapter->last_rx_packet) &&
         (!tdma_pio_spi_ring_adapter_resident_process_image(adapter) ||
          resident_feedback)) {
@@ -2082,6 +2094,7 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
             adapter->resident_return_ready = false;
             tdma_pio_spi_ring_adapter_set_error(
                 adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_COMM_FSM);
+            tdma_service_timing_record(TDMA_TIMING_RX_COMPLETE, rx_complete_start);
             return false;
         }
         adapter->resident_pending_completed_cycle = view.transport_sequence;
@@ -2094,6 +2107,7 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
         adapter->last_error = TDMA_PIO_SPI_RING_ADAPTER_ERROR_NONE;
     }
     adapter->last_rx_service_ns = health_observation_ns;
+    tdma_service_timing_record(TDMA_TIMING_RX_COMPLETE, rx_complete_start);
     return true;
 }
 

@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define TDMA_SERVICE_TIMING_VERSION 4u
+#define TDMA_SERVICE_TIMING_VERSION 5u
 #ifndef TDMA_SERVICE_TIMING_ENABLED
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #define TDMA_SERVICE_TIMING_ENABLED 1
@@ -47,6 +47,15 @@ typedef enum {
     TDMA_TIMING_ADAPTER_PROLOGUE,
     TDMA_TIMING_RX_HANDOFF,
     TDMA_TIMING_ADAPTER_STATUS,
+    /* Children of RX_PARSE (Core1 acceptance, including prepared frames).
+     * Inspect/health and FIFO publish/commit stay separate: observing a new
+     * mailbox does not commit its freshness before publication succeeds. */
+    TDMA_TIMING_RX_INSPECT,
+    TDMA_TIMING_RX_HEALTH,
+    TDMA_TIMING_RX_EVIDENCE,
+    TDMA_TIMING_RX_FIFO_PUBLISH,
+    TDMA_TIMING_RX_COMMIT,
+    TDMA_TIMING_RX_COMPLETE,
     TDMA_TIMING_STAGE_COUNT,
 } tdma_service_timing_stage_t;
 
