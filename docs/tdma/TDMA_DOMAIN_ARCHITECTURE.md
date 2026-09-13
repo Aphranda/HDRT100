@@ -1272,6 +1272,13 @@ phase count、stage count、记录类型、sequence、start ticks、total ticks�
 初始化与结束发布；分类统计自身的后置发布仍需作为观察开销核算，不能免除 deadline
 与完整静态调度验收。外层区间小于 body 时保留 invalid，不得替换有效分类峰值。
 RESET 在下一 phase 同时清空各类记录，较大的 STOP 峰值不会覆盖已保留的自主类峰值。
+当前 `tdma_service_timing_phase_begin()` 在 body 起点前初始化 RESET snapshot 并
+清理 work，`tdma_service_timing_phase_end()` 发布记录；这些开销由完整调度口径
+保留。RESET 首拍的 `full_phase_ticks - total_ticks` 还包含正常初始化、发布及
+边界读取，不能全部解释为 memset，也不能作为可扣减的固定开销。首拍线索与
+时钟快速路径候选撤回见 `TDMA-PROGRESS-20260914-007`。后续若采用已有失效标志
+进行有界退休，仍须验证 generation、空记录规范化、Core1 写所有权和 Core0 单次
+快照语义；该方案尚未实现，不计作生产省时。
 按 body 选拍的 PEAK 所携带的外层值不保证是外层最大值，预算对照须同时核对
 RUN/OTHER；同固件重复窗口中的低值不能覆盖已保留高值。有限 B/A/B 对照和符号
 地址/指令字一致性只能缩小归因范围，不能证明 WCET 或排除数据、缓存、总线与中断
