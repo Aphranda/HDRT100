@@ -331,6 +331,16 @@ P3 粗校准超时原件保留。STOP 后配置拓扑、重新 ARM 使用相应�
 已准入配置，RUN 内固定。静态 RAM 按编译容量预留，运行时减少节点不等于释放静态 RAM。
 完整 phase 与 STOP 增长仍分别审查；缩帧不能替代完整预算和生命周期验收。
 
+按用户确认的 review 借鉴顺序推进：先 O3/O5 的 RX 请求、本地 TX latch 读取/重装
+和空队列调度归因，再 O1 无更新提前复用，随后 O2/O4 DMA 观察及 RX latch 分解，
+最后 O6 现有游标的取模、hint 失效与窗口复制优化。复核依据为
+`out/doc-audit/20260913-tdma-cross-review05/review-conclusions.json`；旧 review 的
+整段 overlay 时间不作为提前返回收益，增加诊断也不计作优化收益。当前 O3/O5
+切片见 `TDMA-PROGRESS-20260913-064`，以 063 四邮箱为前序基线，分别保留 origin
+RUN/STOP 与 follower ALL；当前源码短帧、两轮归因、记录和普通恢复已通过复核，
+完整 500 us 和正式 RAM 仍未闭合。下一项 O1 必须保留 selection 退休与物理准入、
+新数据准入和 STOP 取消，再验证无更新提前复用的实际收益。
+
 普通 RX 异步解析切片已按用户顺序封存，随后完成六节点编译容量的隔离 RAM 核算，见
 `TDMA-PROGRESS-20260912-019`。核算区分本地状态、固定 wire/RefMem/Calibration
 存储容量与 scratch_y；收益不能代替正式 RAM/WCET 门禁。编译容量作为独立辅助切片

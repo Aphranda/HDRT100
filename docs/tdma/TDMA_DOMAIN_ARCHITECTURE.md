@@ -1176,6 +1176,22 @@ inspect/health 子项覆盖成功解码后的 process-image 路径；decode、�
 配对及分支等剩余工作仍在父区间内。发布失败不执行 commit，origin 健康拒绝与 resident
 收尾失败分别保留已执行的子项。探针不改变提交条件、epoch、池所有权或生命周期；
 版本扩展与旧记录解码兼容性单独验证，不能把子项零调用解释成父路径零耗时。
+请求阶段由 `TDMA_TIMING_RX_REQUEST` 包裹，内含 `TDMA_TIMING_RX_REQUEST_HINT` 的
+header hint/参考证据准备、`TDMA_TIMING_RX_LOCAL_TX_EDGE` 的本地 TX 边沿取证和
+`TDMA_TIMING_RX_REQUEST_PUBLISH` 的后台请求发布。本地 TX 边沿取证进一步记录
+`TDMA_TIMING_TX_LATCH_READ` 的 FIFO 读取/时间换算和 `TDMA_TIMING_TX_LATCH_REARM`
+的重装；空 FIFO 不执行重装，算术拒绝仍保留已执行的读取和重装计时。
+接受 READY 结果使用既有 RX_PARSE，不再次记录请求或读取该帧 latch。
+队列派发由 `TDMA_TIMING_INTENT_CLOCK` 记录调度时间读取，`TDMA_TIMING_INTENT_BIND`
+记录已选中任务绑定。每次 scheduler select 恰好记录 SELECT_EMPTY、SELECT_BLOCKED、
+SELECT_BUSY、SELECT_DISPATCH 中一个结果，分别对应锁内清理后普通/恢复队列均为空、
+其他未派发结果、锁忙和实际派发；使用 `TDMA_TIMING_SELECT_*` 枚举定义。
+SELECT_REFRESH 是该结果区间内的周期刷新/过期清理子项。EMPTY 不代表本次未发生
+过期清理，BLOCKED 不等于空队列，也不能将这些嵌套区间重复累加。此诊断不改变
+任务准入、时间戳完整性、DMA 选择或 STOP 行为，新增记录和探针成本计入完整门禁。
+单 phase 的调用计数使用 `tdma_service_timing_record_t.calls` 的紧凑类型存储；达到
+`UINT16_MAX` 后饱和并增加 invalid_count，该记录不得替换有效峰值，RESET 清零。
+SCPI 仍逐字段输出无符号整数，旧版本解码不变；不得静默截断计数或删除状态峰值以省 RAM。
 高频 `tdma_service_timing_now`、`tdma_service_timing_record` 与其调用的
 `vdc_timestamp_clock_read_ticks64` 在设备构建中驻留 SRAM，避免每个嵌套边界从
 SRAM 接收路径返回 XIP 取计时代码。时钟初始化、回绕读取、区间校验与所有探针保留；
