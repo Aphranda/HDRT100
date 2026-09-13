@@ -1009,8 +1009,13 @@ physical frame 间连续一致，达到 `TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_F
 physical alignment，解析副本的后续恢复不得重新定位线上的 owner 槽位；持续异常
 时的初始对齐准入和真实线路失步仍需独立故障证据。
 
-自主 origin 的发布仍先调用物理 ready 服务 selection 退休，再经 FIFO acquire
-取得完整版本并判定是否已发布。尝试提前调用
+自主 origin 的异步发布复用 `tdma_overlay_prepare_t`，由
+`TDMA_OVERLAY_PREPARE_ORIGIN` 区分本地邮箱准备与 follower 计划准备。工位 IDLE 时
+先调用物理 ready 服务 selection 退休，再经 FIFO acquire 取得完整版本并判定是否
+已发布；新版本复制本地邮箱、完整 owner generation/sequence 与固定 layout 后，
+以 REQUESTED 交给既有 Core0 worker。工位忙时不等待，硬件继续使用已发布的值；
+Core1 接收 READY 并完成物理发布后才更新接受计数和版本映射，见
+`TDMA-PROGRESS-20260914-011`。尝试提前调用
 `tdma_flight_fifo_core1_reuse_current_tx()` 的候选虽保持 owner/版本/STOP 边界，
 但实板未证明完整 phase 稳定改善，已撤回，见 `TDMA-PROGRESS-20260914-010`。
 这不改变前述 follower 提前复用基线；不同角色和负载的发布成本须分别验证。
@@ -1140,12 +1145,22 @@ Core1 多次推进的准备空窗，不能据此声称可以在旧环运行中�
 
 自主 origin 的 TX 只选取 Core0 已发布的完整本节点 mailbox。激活时通过完整 map
 检查形成固定位置授权；`tdma_flight_engine_copy_tx_layout()` 单次读取该授权，Core1
-核对本地 slot、输入长度、owner mask、mailbox 头和 CRC，复验 active/map generation
-后交给物理 shadow 发布。紧凑 mailbox 与整映像输入都只取本节点固定位置；不复制
-远端数据，不在逐拍路径重新遍历完整 map 或构造输出位图。没有固定整邮箱授权的
-map 不得进入该硬件发布路径。FIFO active 版本在调用内保持不可变，物理回调同步
-复制本地字节，未返回成功前不更新硬件 generation 的软件映射；迟到继续用旧 shadow。
-engine 的准备接受计数不等于物理 SENT、接收确认或逐圈更新。
+核对本地 slot 和输入长度，只把本节点固定位置复制到工位私有 `tx_data`。紧凑邮箱
+与整映像输入使用同一授权，不复制远端数据，不在逐拍路径重新遍历完整 map。
+没有固定整邮箱授权的 map 不得进入该硬件发布路径。
+`tdma_overlay_prepare_origin_request()` 以 release 发布完整请求；Core0 只读工位中的
+layout、完整版本与邮箱副本，校验 owner mask、mailbox 头、目标节点范围和 CRC，
+准备 `applied` 后发布 READY/FAILED。origin 工位的 `plan` 必须为空，worker 不持有
+adapter、MMIO 或 DMA shadow 指针，不能发布硬件或修改 engine 统计。
+Core1 取得 READY 后复验 epoch、active engine、map generation、payload 和 local
+slot；`tdma_pio_spi_phys_origin_commit_tx()` 再检查工位身份、kind、READY/epoch、物理
+包长/slot 和 healthy，随后执行有界 shadow 复制和指针发布。物理 defer 保留 READY
+下拍重试，成功后才更新 engine 接受计数与完整 owner 版本映射；stale/FAILED 丢弃
+本次结果，迟到继续使用旧 shadow。FIFO 原指针不跨请求保存，工位只在 owner 消费
+终态或 worker 确认取消后复用；STOP 沿既有 cancel/ACK 路径排空，取消结果不能晚到
+新 epoch。没有成对 grant/commit 回调的 backend 保留同步校验路径，实际 runtime
+owner 已绑定异步回调。engine 接受计数仍不等于物理 SENT、接收确认或逐圈更新，
+异步新版本准入也不证明特等同步样本逐圈卸载。
 
 自主 origin 的本地边界记录使用 `tdma_origin_record_t` 与
 `TDMA_ORIGIN_RECORD_COUNT` 固定池，由原 loader/executor DMA 的不可变描述符路径
@@ -1269,8 +1284,11 @@ phase count、stage count、记录类型、sequence、start ticks、total ticks�
 自主主站的 `TDMA_TIMING_ORIGIN_OBSERVE` 与 `TDMA_TIMING_ORIGIN_PUBLISH` 是
 `TDMA_TIMING_ADAPTER` 内、`TDMA_TIMING_RX_HANDOFF` 外的两个互不重叠区间：前者
 包围物理 observation 读取和成功时的边界副本更新，后者包围本地版本发布 helper，
-包含物理就绪、FIFO 取得、版本/授权/完整性校验及延后或无更新返回。它不是单次
-硬件指针写入的计时。前置健康检查拒绝时两项不执行，从站路径也不借用这些字段。
+包含物理就绪、FIFO 取得、版本/授权检查、请求复制、READY 提交及等待或无更新返回。
+异步 runtime 的邮箱格式/CRC 校验由 Core0 worker 执行，legacy 同步 backend 的
+校验仍落在发布 helper 内。独立高峰没有请求/等待/提交的分支标签，不能把新旧
+整个区间相减作为固定收益；它也不是单次硬件指针写入的计时。前置健康检查拒绝时
+两项不执行，从站路径也不借用这些字段。
 实现与版本入口为 `tdma_pio_spi_ring_origin_service()`、`TDMA_SERVICE_TIMING_VERSION`
 和 `STAGES_BY_VERSION`；原分项索引保持，旧版本仍按自己的字段数解析，见
 `TDMA-PROGRESS-20260914-009`。新增计时及快照存储成本仍计入完整 CPU/RAM 核算，
