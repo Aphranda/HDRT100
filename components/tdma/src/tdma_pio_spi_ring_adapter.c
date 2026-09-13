@@ -2461,11 +2461,18 @@ static bool tdma_pio_spi_ring_adapter_prepare_overlay_async(
     if (state != TDMA_OVERLAY_PREPARE_IDLE ||
         adapter->last_rx_packet_size > sizeof(job->packet) ||
         !tdma_pio_spi_ring_product_payload(adapter,
-            adapter->last_rx_packet_size - TDMA_TRANSPORT_FRAME_HEADER_SIZE) ||
-        !adapter->phys_grant_overlay(adapter->phys_ctrl_context, job)) return true;
-    /* Grant still services pending DMA selection before any reuse accounting.
-     * Only an unchanged complete TX can skip repeated layout/hop/view work. */
-    if (tdma_pio_spi_ring_adapter_reuse_overlay_tx(adapter, job)) return true;
+            adapter->last_rx_packet_size - TDMA_TRANSPORT_FRAME_HEADER_SIZE)) return true;
+    if (adapter->phys_overlay_ready != NULL) {
+        /* Retire observed DMA selection and check the live physical gate
+         * before reuse accounting. An unchanged TX needs no inactive plan
+         * grant/configuration; a queued descriptor still takes that path. */
+        if (!adapter->phys_overlay_ready(adapter->phys_ctrl_context)) return true;
+        if (tdma_pio_spi_ring_adapter_reuse_overlay_tx(adapter, job)) return true;
+    }
+    if (!adapter->phys_grant_overlay(adapter->phys_ctrl_context, job)) return true;
+    /* Backends without a separate readiness callback retain grant-before-reuse. */
+    if (adapter->phys_overlay_ready == NULL &&
+        tdma_pio_spi_ring_adapter_reuse_overlay_tx(adapter, job)) return true;
     if (!tdma_flight_engine_copy_tx_layout(adapter->flight_engine, &job->layout) ||
         !tdma_pio_spi_ring_adapter_resident_hop_position(
             adapter, &job->ingress_hop, &job->egress_hop)) return false;

@@ -1488,7 +1488,10 @@ static bool tdma_pio_spi_phys_queue_overlay_script(
 bool tdma_pio_spi_phys_process_overlay_ready(void *context)
 {
     tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
-    if (phys == NULL || !phys->armed || !phys->flight_overlay_dma_active) return false;
+    if (phys == NULL || !phys->armed || !phys->flight_overlay_dma_active ||
+        !phys->process_image_enabled || phys->role != TDMA_PIO_SPI_ROLE_SLAVE ||
+        s_tdma_pio_spi_program_persona != TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER)
+        return false;
     tdma_pio_spi_phys_service_overlay_pending(phys);
     return !phys->flight_overlay_pending &&
         phys->flight_overlay_alignment_samples >=

@@ -386,6 +386,8 @@ int main(void) {
     phys.flight_payload_size = TDMA_FLIGHT_SHORT_PAYLOAD_SIZE;
     phys.flight_overlay_alignment_samples = 2;
     phys.armed = true;
+    phys.process_image_enabled = true;
+    phys.role = TDMA_PIO_SPI_ROLE_SLAVE;
     tdma_flight_overlay_plan_t *plan = &s_tdma_pio_spi_flight_overlay_plan[1];
     assert(tdma_flight_overlay_build_pass_plan(TEST_PHYSICAL_BYTES, 20, plan));
     assert(!tdma_pio_spi_phys_start_overlay_script(&phys, 1, false));
@@ -416,6 +418,23 @@ int main(void) {
     phys.flight_overlay_alignment_samples = 1;
     assert(!tdma_pio_spi_phys_process_overlay_ready(&phys));
     phys.flight_overlay_alignment_samples = 2;
+    assert(tdma_pio_spi_phys_process_overlay_ready(&phys));
+    /* The readiness callback can now authorize unchanged-TX reuse without
+     * grant, so it must enforce the same live physical eligibility. */
+    assert(!tdma_pio_spi_phys_process_overlay_ready(NULL));
+    phys.process_image_enabled = false;
+    assert(!tdma_pio_spi_phys_process_overlay_ready(&phys));
+    phys.process_image_enabled = true;
+    phys.role = TDMA_PIO_SPI_ROLE_SLAVE + 1;
+    assert(!tdma_pio_spi_phys_process_overlay_ready(&phys));
+    phys.role = TDMA_PIO_SPI_ROLE_SLAVE;
+    const uint32_t saved_persona = s_tdma_pio_spi_program_persona;
+    s_tdma_pio_spi_program_persona = saved_persona + 1;
+    assert(!tdma_pio_spi_phys_process_overlay_ready(&phys));
+    s_tdma_pio_spi_program_persona = saved_persona;
+    phys.armed = false;
+    assert(!tdma_pio_spi_phys_process_overlay_ready(&phys));
+    phys.armed = true;
     assert(tdma_pio_spi_phys_process_overlay_ready(&phys));
     assert(phys.flight_overlay_active_buffer == 1);
     assert(!tdma_pio_spi_phys_start_overlay_script(&phys, 1, false));

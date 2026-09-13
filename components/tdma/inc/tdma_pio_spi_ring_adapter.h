@@ -138,7 +138,9 @@ typedef bool (*tdma_pio_spi_ring_phys_overlay_fn)(
     const uint32_t *force_replace_payload_bitmap,
     size_t force_replace_payload_bitmap_words);
 typedef bool (*tdma_pio_spi_ring_phys_overlay_boundary_fn)(void *context);
-/* Optional recurrence backend: false retains the active plan and queued TX. */
+/* Optional recurrence backend: retire only observed DMA selection and check
+ * the physical mode/role/persona and alignment gate. True may authorize reuse
+ * without a new job grant; false retains the active plan and queued TX. */
 typedef bool (*tdma_pio_spi_ring_phys_overlay_ready_fn)(void *context);
 typedef bool (*tdma_pio_spi_ring_phys_overlay_job_fn)(
     void *context, tdma_overlay_prepare_t *job);

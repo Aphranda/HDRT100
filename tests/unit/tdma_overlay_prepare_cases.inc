@@ -8,13 +8,32 @@ typedef struct {
     uint32_t stops;
     uint32_t grants;
     bool pending;
+    bool selected;
+    bool blocked;
+    uint32_t retirements;
 } async_overlay_phys_t;
+
+static void async_overlay_retire(async_overlay_phys_t *phys)
+{
+    if (phys->pending && phys->selected) {
+        phys->active ^= 1u;
+        phys->pending = phys->selected = false;
+        phys->retirements++;
+    }
+}
+
+static bool async_overlay_ready(void *context)
+{
+    async_overlay_phys_t *phys = context;
+    async_overlay_retire(phys);
+    return !phys->pending && !phys->blocked;
+}
 
 static bool async_overlay_grant(void *context, tdma_overlay_prepare_t *job)
 {
     async_overlay_phys_t *phys = context;
     phys->grants++;
-    if (phys->pending || tdma_overlay_prepare_state(job) != TDMA_OVERLAY_PREPARE_IDLE)
+    if (!async_overlay_ready(phys) || tdma_overlay_prepare_state(job) != TDMA_OVERLAY_PREPARE_IDLE)
         return false;
     job->buffer_index = phys->active ^ 1u;
     job->plan = &phys->plan[job->buffer_index];
@@ -53,7 +72,7 @@ static bool async_overlay_commit(void *context, tdma_overlay_prepare_t *job)
 
 static bool async_overlay_boundary(void *context)
 {
-    (void)context;
+    async_overlay_retire(context);
     return true; /* Observation alone cannot retire a DMA pool. */
 }
 
@@ -242,7 +261,7 @@ static int test_overlay_prepare_cases(void)
     tdma_flight_engine_configure(&engine, &map);
     tdma_pio_spi_ring_adapter_set_phys(&adapter, loopback_tx, loopback_rx, &wire);
     tdma_pio_spi_ring_adapter_set_phys_ctrl(&adapter, NULL, async_overlay_stop, NULL, NULL, &phys);
-    tdma_pio_spi_ring_adapter_set_phys_overlay(&adapter, NULL, async_overlay_boundary, NULL);
+    tdma_pio_spi_ring_adapter_set_phys_overlay(&adapter, NULL, async_overlay_boundary, async_overlay_ready);
     tdma_pio_spi_ring_adapter_set_flight_fifo(&adapter, &fifo);
     tdma_pio_spi_ring_adapter_set_flight_engine(&adapter, &engine);
     adapter.overlay_preparation = &phys.job;
@@ -299,9 +318,9 @@ static int test_overlay_prepare_cases(void)
         TDMA_OVERLAY_PREPARE_IDLE);
     failed += expect_bool("pending pool immutable", memcmp(&committed,
         &phys.plan[phys.active ^ 1u], sizeof(committed)) == 0, true);
-    phys.active ^= 1u; /* Only a simulated DMA selection retires the old pool. */
-    phys.pending = false;
+    phys.selected = true; /* Only a DMA selection retires the old pool. */
     ops->service(&adapter, 140u, &status);
+    failed += expect_u32("readiness retires selected pool before new grant", phys.retirements, 1u);
     failed += expect_u32("new TX request without new RX", tdma_overlay_prepare_state(&phys.job),
         TDMA_OVERLAY_PREPARE_REQUESTED);
     failed += expect_u32("next generation independently acquired", phys.job.tx.generation, 2u);
@@ -314,16 +333,26 @@ static int test_overlay_prepare_cases(void)
         &phys.plan[phys.active], sizeof(committed)) == 0, true);
 
     /* A requested but unclaimed job can be cancelled immediately. */
-    phys.active ^= 1u;
-    phys.pending = false;
     const uint32_t reuse_before = fifo.tx_reuse_count;
     const uint32_t grant_before = phys.grants;
     const uint32_t acquire_before = fifo.tx_acquire_count;
     const uint32_t release_before = fifo.tx_release_count;
+    ops->service(&adapter, 142u, &status);
+    failed += expect_bool("boundary alone leaves selection pending", phys.pending, true);
+    failed += expect_u32("pending selection cannot account reuse", fifo.tx_reuse_count, reuse_before);
+    failed += expect_u32("pending selection cannot grant", phys.grants, grant_before);
+    phys.selected = true;
+    ops->service(&adapter, 143u, &status);
+    failed += expect_u32("reuse readiness retires selected pool", phys.retirements, 2u);
+    failed += expect_u32("selected unchanged TX reuses once", fifo.tx_reuse_count, reuse_before + 1u);
+    phys.blocked = true;
+    ops->service(&adapter, 144u, &status);
+    failed += expect_u32("physical gate prevents early reuse", fifo.tx_reuse_count, reuse_before + 1u);
+    phys.blocked = false;
     const tdma_flight_overlay_plan_t active_plan = phys.plan[phys.active];
     for (uint32_t i = 0; i < 12u; ++i) ops->service(&adapter, 145u + i, &status);
-    failed += expect_u32("unchanged TX still services physical grant", phys.grants, grant_before + 12u);
-    failed += expect_u32("unchanged TX keeps exact reuse evidence", fifo.tx_reuse_count, reuse_before + 12u);
+    failed += expect_u32("unchanged TX skips physical grant", phys.grants, grant_before);
+    failed += expect_u32("unchanged TX keeps exact reuse evidence", fifo.tx_reuse_count, reuse_before + 13u);
     failed += expect_u32("unchanged TX does not acquire", fifo.tx_acquire_count, acquire_before);
     failed += expect_u32("unchanged TX does not release", fifo.tx_release_count, release_before);
     failed += expect_u32("unchanged TX leaves worker idle", tdma_overlay_prepare_state(&phys.job), TDMA_OVERLAY_PREPARE_IDLE);
@@ -333,11 +362,23 @@ static int test_overlay_prepare_cases(void)
     const uint32_t map_sequence = engine.map_sequence;
     engine.map_sequence |= 1u; /* Interrupted map publisher cannot authorize reuse. */
     ops->service(&adapter, 158u, &status);
-    failed += expect_u32("in-progress map cannot account reuse", fifo.tx_reuse_count, reuse_before + 12u);
+    failed += expect_u32("in-progress map cannot account reuse", fifo.tx_reuse_count, reuse_before + 13u);
     failed += expect_u32("in-progress map cannot consume TX", fifo.tx_acquire_count, acquire_before);
     engine.map_sequence = map_sequence;
+    adapter.phys_overlay_ready = NULL;
+    const uint32_t fallback_grants = phys.grants;
+    ops->service(&adapter, 159u, &status);
+    failed += expect_u32("legacy backend still grants before reuse", phys.grants, fallback_grants + 1u);
+    failed += expect_u32("legacy backend keeps reuse evidence", fifo.tx_reuse_count, reuse_before + 14u);
+    adapter.phys_overlay_ready = async_overlay_ready;
     tdma_flight_fifo_core0_publish_tx(&fifo, mailbox, sizeof(mailbox), 3u, 11u, 1u << 3u);
+    phys.blocked = true;
+    ops->service(&adapter, 159u, &status);
+    failed += expect_u32("blocked new TX stays queued", fifo.tx_acquire_count, acquire_before);
+    phys.blocked = false;
     ops->service(&adapter, 160u, &status);
+    failed += expect_u32("new descriptor defeats early reuse", phys.job.tx.generation, 3u);
+    failed += expect_u32("new descriptor requests worker", tdma_overlay_prepare_state(&phys.job), TDMA_OVERLAY_PREPARE_REQUESTED);
     failed += expect_bool("unclaimed STOP", ops->stop(&adapter), true);
     failed += expect_bool("cancelled request cannot be claimed", tdma_overlay_prepare_core0_claim(&phys.job), false);
     failed += expect_bool("restart after retired request", ops->start(&adapter, &config), true);
