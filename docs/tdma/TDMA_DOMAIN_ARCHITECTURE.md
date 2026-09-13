@@ -1087,6 +1087,15 @@ TDMA owner 在 begin 与每个准备步骤重新核验许可证绑定和期限�
 交付。当前实现和验收范围由 `TDMA-PROGRESS-20260913-056` 记录，连续边沿计数与
 VDC 时钟域映射仍须独立闭合。
 
+为隔离记录写入对运行耗时的影响，Calibration 的有限诊断许可证支持
+`CALIBRATION_ORIGIN_DIAGNOSTIC_SKIP_RECORDS`。普通 `CALibration:ORIGin:TRIAL`
+保持档案写入；`CALibration:ORIGin:TRIAL:NORECord` 使用相同参数申请跳过档案写入的
+诊断轮次，`READ:CALibration:ORIGin?` 按 `CALIBRATION_ORIGIN_TIMING_VERSION` 在
+原字段末尾报告 `diagnostic_flags`。Core1 owner 消费该 epoch 后，仅在尚未安装的
+prepare request 中冻结选择；builder 生成对应的不可变图，运行中禁止改写图或热切换。
+跳过模式不发布记录完成版本，停止后不得将空池或旧池解释为本轮档案。该例外仅用于
+同固件归因，不改变默认逐圈保全要求或任何产品准入状态。
+
 列车调度的耗时归因使用 `tdma_service_timing` 固定记录，由现有 Core1 TDMA phase
 唯一写入。`tdma_service_timing_stage_t` 覆盖物理完成/生命周期、owner service、
 RefMem transport publish、training gate、analyzer、accounting，以及嵌套的 adapter、
@@ -1126,18 +1135,41 @@ inspect/health 子项覆盖成功解码后的 process-image 路径；decode、�
 配对及分支等剩余工作仍在父区间内。发布失败不执行 commit，origin 健康拒绝与 resident
 收尾失败分别保留已执行的子项。探针不改变提交条件、epoch、池所有权或生命周期；
 版本扩展与旧记录解码兼容性单独验证，不能把子项零调用解释成父路径零耗时。
+高频 `tdma_service_timing_now`、`tdma_service_timing_record` 与其调用的
+`vdc_timestamp_clock_read_ticks64` 在设备构建中驻留 SRAM，避免每个嵌套边界从
+SRAM 接收路径返回 XIP 取计时代码。时钟初始化、回绕读取、区间校验与所有探针保留；
+最终链接位置和真实板端收益分别验证，驻留声明不构成 WCET 达标或历史增长的唯一归因。
+固定邮箱的 RX inspect/unload 与发布后的 commit 使用 `TDMA_FLIGHT_RX_RAM` 驻留；
+owner 的重复授权检查和计时上下文读取使用 `TDMA_ORIGIN_OWNER_RAM` 驻留。map
+快照、邮箱头/目标/新鲜度检查、提交先后顺序及每个既有边界的许可证复验继续执行，
+不得用缓存一次授权代替到期、撤销、配置代际和模型代际的动态核验。
+上下文累计和 Calibration/RefMem 的原子 epoch getter 同样驻留 SRAM，保留原有
+acquire 读取；减少取指往返不能改变各域的发布所有权或取消动态复验。
 每次 phase 的工作记录在结束时通过短 seqlock 发布；Core0 查询只尝试读取一次，
 writer 正在发布或版本变化时返回不可用，不重试自旋。最近记录与最慢记录分别保全
 一次完整 phase，不能把不同轮次的单项最大值拼成最坏执行路径。
 
 `SYSTem:TDMA:PROFile?` 和 `SYSTem:TDMA:PROFile:PEAK?` 返回版本、时钟、reset generation、
-phase count、stage count、记录类型、sequence、start ticks、total ticks、invalid count，
-随后按 stage enum 输出累计 ticks 和 calls。父子步骤都是包含式区间，不能重复求和；
+phase count、stage count、记录类型、sequence、start ticks、total ticks、invalid count。
+当前版本随后报告 `full_phase_ticks`、entry/exit 的 state、config generation、trial epoch
+和 return sequence，以及 autonomous/other phase count，再按 stage enum 输出累计 ticks
+和 calls。父子步骤都是包含式区间，不能重复求和；
 两次查询也不是同一原子观测。`SYSTem:TDMA:PROFile:RESet` 只发布 reset 请求，Core1
 在下一 phase 起点消费；返回的请求号须与后续 snapshot 的 reset generation 对上。
 时间逆行、区间或累计值超出记录表示范围时保留 invalid，不能折返成小的执行耗时。
 既有 `SYSTem:TDMA:SCHEDule?` 继续作为完整 phase 统计，包含计时器初始化、读取与发布
 开销；profile 的局部分解不能替代完整 WCET、deadline、调度缺失与 SRAM 门禁。
+
+`SYSTem:TDMA:PROFile:RUN?` 保留自主运行类的外层 service 最大区间，
+`SYSTem:TDMA:PROFile:OTHer?` 保留其他阶段的最大区间；原 PEAK 继续保留所有阶段
+的最大 body 区间。分类由 Core1 直接读取 owner 的入口/出口事实：仅两端均为
+`TDMA_TIMING_STATE_AUTONOMOUS`、state/config generation/trial epoch 一致且 epoch
+非零时归入自主类；其余阶段继续留证。返回 sequence 与同条 stage calls 可用于区别
+准备帧消费、捕获和未执行分支；两端采样不证明整个区间的硬件状态恒定。
+`full_phase_ticks` 直接采用现有调度器包围 service 的 clk_sys 区间，包含 profile 的
+初始化与结束发布；分类统计自身的后置发布仍需作为观察开销核算，不能免除 deadline
+与完整静态调度验收。外层区间小于 body 时保留 invalid，不得替换有效分类峰值。
+RESET 在下一 phase 同时清空各类记录，较大的 STOP 峰值不会覆盖已保留的自主类峰值。
 
 校准维护中的 OPMode、TOPology 和 topology PROBe 写命令返回结构化数值结果；
 `TDMA_CONTROL_RESULT_FIELDS` 统一声明结果形状，主机按完整 response 等待处理，

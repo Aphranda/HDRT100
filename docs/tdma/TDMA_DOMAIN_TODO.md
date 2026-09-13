@@ -75,6 +75,12 @@ WCET 调整，保持 `PROJECT_CORE1_CYCLE_RATE_HZ`、各 phase 余量与 GUARD�
 本次不变更 registry 状态；需要变更登记状态时仍执行 C11。节点容量保持后续项。
 前序预算分析见 `TDMA-PROGRESS-20260912-022`。
 
+按用户最新顺序，先解决完整服务时间增长，再推进邮箱随编译节点容量配置。当前
+比较必须固定静态表、wire、校准矩阵与采样方式，区分自主运行及其他阶段，并保留
+档案开关对照、探针自身开销和全部失败；不能通过少处理负载或省去计量宣布性能恢复。
+分状态取证与高频计时 SRAM 放置的当前证据见 `TDMA-PROGRESS-20260913-057`；完整
+预算、自主切换稳定性和正式 RAM 门禁仍按原退出条件验收。
+
 按用户进一步要求，PIO/SM 下沉评估见 `TDMA-PROGRESS-20260913-052` 与该条证据的
 `pio-offload-assessment-r1.json`。当前自主 origin 两侧及 process follower RX 的程序
 已占满共享指令空间；follower TX 的剩余空间只作为需重新验证资源的候选。下一步

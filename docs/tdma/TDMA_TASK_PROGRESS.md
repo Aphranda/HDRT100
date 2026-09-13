@@ -8,7 +8,14 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002B` 的自主 origin 逐圈 DMA 档案切片见
+当前 `TDMA-FLIGHT-002B/002F` 的时间增长修复切片见
+`TDMA-PROGRESS-20260913-057`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-runtime-growth-fix/`。同矩阵、同档案模式的
+两轮主站 body 峰值已降至 697.956/707.240 us，外层 service 为 720.820/725.524 us
+（有限窗口快照，非事实源），回到前序 713.480 us body 参考值以内。高频探针、固定
+RX 检查/提交及授权上下文驻留 SRAM，校验和动态复验保留。当前源码 QUICK P3 通过，
+完整 500 us、自主切换稳定性与正式 RAM 仍未通过；本切片为 PARTIAL，长期目标继续。
+前序 `TDMA-FLIGHT-002B` 的自主 origin 逐圈 DMA 档案切片见
 `TDMA-PROGRESS-20260913-056`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-cycle-record/`。现有 DMA 图写固定记录池，
 STOP 后可读最新完整记录；两轮实板验证连续 sequence、重新 ARM 的 epoch 更新与
@@ -244,6 +251,86 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-057 - 分状态取证与高频路径 SRAM 驻留压回时间增长
+
+- 任务：`TDMA-FLIGHT-002B/002F`。状态：`PARTIAL`。按用户顺序先处理时间增长，
+  邮箱随编译节点容量配置排后。HAOFV Core1 唯一 owner、1 kHz 静态表、TDMA 500 us /
+  VDC 96 us / SYNC 39.2 us 预算保持；本轮未改 wire、PIO 指令或 DMA/SM 分配。
+- 证据根：`out/HardwareAcceptance/20260913/tdma-flight-runtime-growth-fix/`。以下数字
+  均为有限采样窗口、当前构建或离线模型快照，非事实源；源代码与原始证据为准。
+- 历史归因：051 的主站 body 为 713.480 us，056 为 769.120/754.512 us。前序
+  `tdma-flight-peak-growth/analysis-r1.txt` 已把后两者定位在 STOP 前，不能用导出解释
+  增长。六个 TDMA TU 的 147 段与 relocation 相同而最终地址改变；本轮未取得 Core1
+  专属 cache miss 轨迹，不能把历史差额全部归为缓存。新增 DMA 档案的有效路径每圈
+  多 17 个 descriptor、776 B 总读写，这些总线量不能直接换算成 CPU 微秒。
+- 计量：`TDMA_SERVICE_TIMING_VERSION` 扩展 owner 双端 state/config generation/
+  trial epoch/return sequence 与现有调度器外层区间。原 PEAK 按全部 phase 的 body
+  保全，RUN/OTHER 分别按外层峰值保全整条记录。自主类要求两端 state/config/非零
+  epoch 一致；不证明区间内硬件状态连续恒定。从站不是自主 origin，RUN=0 不代表
+  零耗时。外层包含原 begin/end 探针，不含分类后置发布，不能代替完整 WCET 门禁。
+- 同固件档案对照：默认 TRIAL 保持档案；NORECord 只能通过有限诊断许可证在准备
+  前冻结，运行图不可变。停止后 OFF 档案必须 UNAVAILABLE。三种随机种子、每模式
+  64 圈的实际 builder 总线模型输出逐字节相同，OFF 零档案，非法模式拒绝；默认
+  档案的 128 圈 valid/missing/partial/bad-mailbox 覆盖仍通过。首次图对照未重置
+  payload RNG 导致输入不同而失败，R2 纠正输入，原失败保留。
+- 实施分三步：先将计时 now/record 与 VDC 读钟驻留 SRAM；再驻留固定邮箱 RX
+  inspect/unload、发布后的 commit、owner 动态授权复验及上下文读取；最后驻留
+  context 累计和 Calibration/RefMem 的两个原子 epoch getter。map seqlock、邮箱
+  头/目标/新鲜度检查、发布提交顺序、到期/撤销/代际复验及所有探针保持。A/B 实际
+  符号和调用位置见 `residency-review-r1/r2/r3.json`，不是仅凭源码 attribute 判断。
+- 固定 `p3-r1/trn03-matrix.json`、板端 `250000 us × 26`，运行期间 SCPI 零查询，
+  STOP 后导出。先 ON/OFF/OFF/ON，再对三步优化各采两轮；主站结果如下。body 为
+  同条外层峰值的 body，子项是包含式区间，不能叠加为更大的虚构总耗时。
+
+  | 模式 | build | body us | 外层 service us | 后段 accepted/reject/missing |
+  |---|---|---:|---:|---|
+  | ON R1 | 20260913090342 | 877.848 | 903.248 | 822/0/0 |
+  | OFF R1 | 20260913090342 | 855.716 | 877.500 | 820/0/0 |
+  | OFF R2 | 20260913090342 | 876.320 | 891.728 | 827/0/0 |
+  | ON R2 | 20260913090342 | 891.000 | 915.764 | 818/0/0 |
+  | 读钟/计时 SRAM R1 | 20260913092845 | 743.072 | 780.064 | 829/0/0 |
+  | 读钟/计时 SRAM R2 | 20260913092845 | 858.016 | 872.296 | 831/0/0 |
+  | RX/授权 SRAM R1 | 20260913094619 | 723.928 | 745.856 | 828/0/0 |
+  | RX/授权 SRAM R2 | 20260913094619 | 735.312 | 758.492 | 830/0/0 |
+  | context/epoch SRAM R1 | 20260913100801 | 697.956 | 720.820 | 832/0/0 |
+  | context/epoch SRAM R2 | 20260913100801 | 707.240 | 725.524 | 837/0/0 |
+
+- 当前两轮中较大的 body 峰值相较本轮 ON 基线减少 183.760 us，较大外层峰值减少
+  190.240 us；均保留档案。两轮 body 都低于历史 713.480 us 参考值，但 V6 新增探针
+  与布局不同，不能把与旧版本的差额当成单变量收益或 WCET 证明。ON/OFF 四轮不足
+  以把任意一对差额称为固定档案成本，也未证明档案写入是增长的主要原因。
+- 当前外层较高峰的非重叠分解为 RX parse 212.688 us、handoff 其余 20.552 us、
+  adapter 其余 289.604 us、owner 其余 115.032 us、body 其余 69.364 us、外层其余
+  18.284 us，总计 725.524 us。下一轮降预算仍应沿 adapter/owner 及接收证据发布
+  路径定位。当前两轮 NO2/NO3/NO4 的 ALL body 分别为 658.684/657.828/663.856 us
+  与 667.104/665.972/636.588 us；独立节点峰值不拼成同一帧。
+- 当前 A/B/Boot build `20260913100801`，源码指纹
+  `fede03f2120b0d8147c118d9a32679e087cacbb694475887e561fe0c6f6eab1f`，
+  1,035 个源码文件。V6 诊断使 link-free 从 3,100 B 到 2,320 B，新增 780 B；三步
+  SRAM 驻留利用链接对齐空隙，A/B 余量未再下降。生成 PIO 头与前序逐字节相同。
+  这些是链接快照，不代表 formal RAM/运行栈余量验收通过。
+- 验证：27 项 timing/admission、63 项 service、22 项 clock/timing、46 项
+  engine/授权/资源、26 项 context/epoch 回归，完整 ring-adapter 与 RefMem 表模型
+  host 单测及文档检查器测试通过。四个构建均完成真实四板 OTA/P3；第一、三、四版
+  QUICK 严格门禁通过。第二版 SCK 覆盖/重装余量失败及新矩阵普通恢复失败保留，
+  用既有实测 baseline 矩阵恢复成功。第二版首次 STOP helper 错引旧 build，在发
+  STOP 前退出，修正嵌套引用后的恢复 STOP/SD 通过。
+- 十轮自主试验的整段 `passed/closed_loop_passed/realtime_gate_passed=false`，
+  `diagnostic_passed=true`；切换 missing/DOWN 与 periodic interval 拒绝继续保留。
+  后段 accepted/reject/missing 是观测窗口事实，不证明逐圈无损 VDC 交付。当前两轮
+  自主、P3 和最终普通恢复均完成四板 STOP/config ACK/许可证失效与 SD 逐字节核对。
+- 存储失败保全：第三版 `er-on-r1` 的 NO3 recorder SAVE 为 FAILED/state 9；原始
+  RAM 导出结构/CRC/主机 SHA 完整。原文件读回为空，另存恢复也失败；恢复脚本先
+  错读 INFO 字段，再因通用匹配器过滤写命令 tuple 超时，按真实事务 offset 有界
+  续传后 expected/computed CRC 一致，但 END 仍报存储 error 6。未删除、格式化或
+  改动存储实现；不能声称该轮 SD 闭环。原失败、主机原件及继续决定留在证据根，
+  后续各轮四板 SD 成功不证明该存储根因已关闭。
+- 最终普通恢复使用同一 baseline 矩阵，短帧闭环通过；见 `normal-baseline-r4/`、
+  `normal-baseline-r4-stop.json`、`normal-baseline-r4-sd/`。主控复核、代码/文档分离
+  提交及封存见 `review-final-r1.json`、`commit-proof.json`、`slice-manifest.json`。
+  时间增长已在本轮有限窗口内压回前序水平；完整 500 us、自主切换稳定性、正式
+  SRAM、无损逐圈 VDC 消费和 service blackout 仍开放，不提升产品状态或 registry。
 
 ### TDMA-PROGRESS-20260913-056 - 既有 DMA 逐圈档案与 STOP 冻结读回
 
