@@ -957,6 +957,12 @@ generation，末控制段从受保护 SRAM 指针装入 loader 的触发别名�
 `TDMA_PIO_SPI_PROCESS_DATA_DECODE_CYCLES` 与 `TDMA_PIO_SPI_PROCESS_BYTE_REARM_CYCLES`
 准入，非法 delay 编码不允许 diagnostic continue 绕过。
 
+PIO 指令压缩还必须保持最短实际 SCK 间隔下的采样相位。普通 origin 的
+`tdma_pio_spi_clkdiv_for_baud()` 和自主 origin 的 `tdma_origin_cadence_calculate()`
+受硬件分频表示限制，不能只用理想整数 bit 周期证明 byte 重装余量。follower 共尾
+候选的分数分频反例与回退见 `TDMA-PROGRESS-20260914-003`：有限实板短帧通过未
+覆盖其模型中的相位偏移，候选未进入生产基线，现有 PIO 资源占用未因此减少。
+
 Core1 只构建 inactive pool，完整绑定并执行内存屏障后原子发布 successor 地址；同时
 最多一个 pending publication。只有 DMA 写回新 generation 后，owner 才能回收旧池。
 段间瞬态 BUSY 清零不释放池。STOP 先暂停拥有的 SM，只禁用、不清 FIFO；按描述符

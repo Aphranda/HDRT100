@@ -8,7 +8,12 @@ Last updated: 2026-09-14
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前完成锁内空队列提前结束切片，见 `TDMA-PROGRESS-20260914-002`，证据根为
+当前完成 follower PIO 共尾候选的验证与回退，见 `TDMA-PROGRESS-20260914-003`，
+证据根为 `out/HardwareAcceptance/20260914/tdma-flight-follower-pio-tail/`。候选可以
+缩减指令占用，但新增的 byte 重装周期在分数分频模型中造成采样相位偏移，未采纳。
+四板及生产源码已恢复前序版本，普通闭环、STOP/config ACK 和 SD 核对通过。
+本轮没有释放生产 PIO 空间，也没有证明 CPU 省时；完整预算与增长因果继续开放。
+前序完成锁内空队列提前结束切片，见 `TDMA-PROGRESS-20260914-002`，证据根为
 `out/HardwareAcceptance/20260914/tdma-flight-empty-select/`。预算刷新、过期统计、
 新数据准入、恢复队列及 STOP 行为保留；软件、A/B/Boot、当前源码 P3 流程、两轮
 板端记录和普通恢复完成。保留外层峰值中的空队列分项下降，完整外层仍超预算；
@@ -330,6 +335,58 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260914-003 - follower PIO 共尾压缩反例与回退
+
+- 日期：2026-09-14
+- 状态：PARTIAL；候选已拒绝并回退，取证与恢复闭合，长期目标继续。
+- 目的：为连续边沿计数腾出 follower RX 指令空间。候选用 Y 区分普通第八位与
+  末位，共享采样及 ISR/FIFO 保全尾部；同步调整 terminal PC 白名单、WAIT 补丁和
+  byte 重装计算，不增加 DMA、SM 或缓冲池，不安装连续计数器。
+- 软件与构建快照（非事实源）：候选 DATA 程序由 28 条压到 22 条，含旧 latch 的
+  follower RX 由 32/32 降到 26/32；代价是完整 byte 重装项由 7 增到 8 个时钟。
+  离线候选 216 项、生产候选流水线等 232 项、资源/DMA 34 项通过；C 计划覆盖六、
+  八节点容量分别 122880/163840 个 ownership/alignment 用例。ARM 测试另有两个
+  既有 fixture 偏差：缺少 node-count 参数及禁用 staging 时仍预期调用 map；两次
+  失败、候选内修正和最终 1 项通过均留证。修正随拒绝的候选一并归档，生产测试恢复
+  原版，该既有测试缺口仍需后续处理。
+- 否决依据：`tdma_pio_spi_clkdiv_for_baud()` 与 `tdma_origin_cadence_calculate()`
+  使用硬件可表示的分频。当前配置的离线快照（非事实源）为 divider256=1066、
+  每 bit 六个 PIO 周期，实际 bit 间隔包含 24/25 个 `clk_sys` 时钟；DATA delay=15
+  时候选完整 byte 需要 25 个时钟。`fractional-probe-r1.json` 覆盖 128 个分频初相、
+  每相两帧，原版相位偏差为零，候选出现 692 个晚一个时钟的采样；当前频率下对应
+  4 ns。此为指令模型反例，不是实板测得的抖动。只在固定整数 bit 周期下通过不能
+  证明实际分频相位保持，不用缩减指令空间的收益抵消此偏差。
+- 候选构建快照（非事实源）：A/B/Boot 通过，build `20260913171122`，源码指纹
+  `f69799cafb1400dc788b1637ff0ca70ea151e28eea9f64eaa93828654403dad2`。
+  仅 follower DATA 的 PIO 指令字改变，其余程序含自主 origin 一致；A/B link-free
+  各 2200 B，含 2048 B heap 预留，额外各 152 B，没有新增 RAM。候选源码原始字节、
+  patch、生成头、构建和模型保存在证据根，回退不删除这些原件。
+- 候选当前源码 QUICK P3 流程、短帧及普通恢复通过；strict=false，TRN-01 SCK
+  gate 和 TRN-03 SCK row 选择未通过，原始拒绝单列保留，不归因于 DATA 模型反例。
+  两轮自主整段 passed/closed_loop/realtime=false、diagnostic=true；后段各板
+  accepted 增长，rejected/missing 无增长，不能据此提升整段稳定性或采样相位保证。
+- 完整外层对照（us，有限窗口快照，非事实源；前序 002 与候选各两轮，同矩阵、
+  四邮箱及 v8 探针；NO1 使用 RUN，其余使用 OTHER，不是各分项独立最大值）：
+
+  | 节点 | 前序 R1/R2 | 被拒候选 R1/R2 |
+  |---|---:|---:|
+  | NO1 | 650.544/681.388 | 646.196/649.388 |
+  | NO2 | 697.232/711.556 | 728.840/702.072 |
+  | NO3 | 714.424/697.948 | 705.000/695.772 |
+  | NO4 | 732.284/676.340 | 691.716/672.764 |
+
+  完整预算仍未达，变化不一致；本次没有消除 latch 的逐圈读取/重装，不声称 CPU
+  固定收益，前序增长峰值及因果缺口保留。
+- 恢复：四板经 STOP、OTA 回到 build `20260913163720`，固定矩阵普通闭环通过，
+  STOP/config ACK、许可证失效和 SD 逐字节核对通过；生产源码恢复前序指纹
+  `280f9ddcba018de2068c79541b00263d07fa199f0e0e3f4b8f972d2f857afd6f`。
+  候选 P3 凭证只绑定候选，不替换恢复版本凭证；本轮仅提交文档记录。
+- 下一边界：先保持最短实际 SCK 间隔下的采样相位与 byte 余量，再评估连续计数器
+  自身压缩或观察性边界工作迁移。新的 FIFO 独占交接、逐圈身份/时间记录、静态
+  缓冲期限及 VDC 时钟映射仍须一起证明。完整 WCET、blackout、正式 RAM 和 registry
+  状态不变；原件入口为 `review-final-r1.json`、`rejection-decision.json`、
+  `fractional-probe-r1.json`、候选 P3/记录/SD 和 `rollback-normal-r1`。
 
 ### TDMA-PROGRESS-20260914-002 - 锁内空队列选择提前结束
 
