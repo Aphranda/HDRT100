@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_TODO.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`
-Last updated: 2026-09-13
+Last updated: 2026-09-14
 
 本文档维护 TDMA foundation 的独立待办。这里记录影响上/下行 TDMA、ring runtime、payload registry、adapter、completion、quality、HAOFV system node 和 HIL 验收的事项。
 
@@ -351,6 +351,12 @@ O6 算术切片见 `TDMA-PROGRESS-20260913-067`：相对距离窄位宽取模和
 完整峰值一致改善，NO3 与主站第二轮 RUN/STOP 增长保留。后续优先收敛这些新增
 峰值；锁内刷新与过期清理后 EMPTY 的后续扫描，以及 RX 接受处理和 latch 重装
 继续作为候选，不能预记节省或通过删除有效性检查来满足预算。
+O6 前后固件的 B/A/B 重复性对照见 `TDMA-PROGRESS-20260914-001`：生产源码不变，
+主站先前 RUN 高值未重现，NO3 高峰重现且 NO4 也出现较高值；增长因果仍开放。
+预算对照须使用 RUN/OTHER 外层峰值，保留按 body 选拍的 PEAK 及原始失败。主要
+RX/调度函数地址和指令字相同不能排除数据、缓存、总线或 IRQ 干扰；下一步继续
+定位这些成本及空队列的无效扫描，高频探针成本计入完整门禁，不通过减采样或关闭
+完整调度计量宣布性能恢复。最终当前固件普通闭环、STOP 和 SD 核对已完成。
 
 普通 RX 异步解析切片已按用户顺序封存，随后完成六节点编译容量的隔离 RAM 核算，见
 `TDMA-PROGRESS-20260912-019`。核算区分本地状态、固定 wire/RefMem/Calibration

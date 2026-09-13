@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-09-13
+Last updated: 2026-09-14
 
 本文档定义 TDMA 在 HAOFV 下的基础件主域。TDMA 是分布式硬实时系统的确定性通讯骨架，负责在 core1/PIO/DMA 侧按窗口执行上行、下行、payload、timestamp 和 completion；VDC、RefMem、OTA、诊断等域只挂载 payload 或消费 evidence，不能拥有 TDMA 物理环路。
 
@@ -1245,6 +1245,10 @@ phase count、stage count、记录类型、sequence、start ticks、total ticks�
 初始化与结束发布；分类统计自身的后置发布仍需作为观察开销核算，不能免除 deadline
 与完整静态调度验收。外层区间小于 body 时保留 invalid，不得替换有效分类峰值。
 RESET 在下一 phase 同时清空各类记录，较大的 STOP 峰值不会覆盖已保留的自主类峰值。
+按 body 选拍的 PEAK 所携带的外层值不保证是外层最大值，预算对照须同时核对
+RUN/OTHER；同固件重复窗口中的低值不能覆盖已保留高值。有限 B/A/B 对照和符号
+地址/指令字一致性只能缩小归因范围，不能证明 WCET 或排除数据、缓存、总线与中断
+造成的差异。原件及本轮边界见 `TDMA-PROGRESS-20260914-001`。
 
 校准维护中的 OPMode、TOPology 和 topology PROBe 写命令返回结构化数值结果；
 `TDMA_CONTROL_RESULT_FIELDS` 统一声明结果形状，主机按完整 response 等待处理，

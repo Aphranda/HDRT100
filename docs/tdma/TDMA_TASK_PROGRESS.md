@@ -4,11 +4,17 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_TASK_PROGRESS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
-Last updated: 2026-09-13
+Last updated: 2026-09-14
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前按用户确认的 O3/O5→O1→O2/O4→O6 顺序推进，O6 定位算术切片见
+当前完成 O6 前后固件的 B/A/B 峰值重复性对照，见 `TDMA-PROGRESS-20260914-001`，
+证据根为 `out/HardwareAcceptance/20260914/tdma-flight-peak-repeatability/`。
+生产源码未变，主站先前 RUN 高值在本轮未重现，但 NO3 OTHER 外层达到 789.932 us，
+NO4 达到 755.336 us（有限窗口快照，非事实源）。增长因果仍未解决，完整 500 us
+未达；四板已恢复当前固件，普通闭环、STOP/config ACK 和 SD 字节核对通过。
+后续继续定位高峰及有效工作占用，不以重复性对照替代 WCET 或稳定性验收。
+前序按用户确认的 O3/O5→O1→O2/O4→O6 顺序推进，O6 定位算术切片见
 `TDMA-PROGRESS-20260913-067`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-rx-cursor-math/`。保留既有增量游标、
 hint 失效和窗口复制，只优化定位取模；软件、A/B/Boot、当前源码 P3 和两轮对照
@@ -319,6 +325,47 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260914-001 - O6 前后固件峰值重复性对照
+
+- 日期：2026-09-14
+- 状态：PARTIAL；有限对照和恢复完成，时间增长因果未解决，完整预算未达。
+- 范围：生产源码不变，以 067 当前版、066 基线版、067 恢复版各两个窗口执行
+  B/A/B。重核两版封存 manifest、原 OTA 包和 build，沿用同一四邮箱矩阵、板端
+  记录窗口与 v8 探针；START 后零查询，STOP 后导出及 SD 逐字节核对。
+- 外层峰值（us，R1/R2；有限窗口快照，非事实源；NO1 取 RUN，follower 取 OTHER，
+  各板各窗口各自选拍，不是同步跨板观测）：
+
+  | 固件/次序 | NO1 RUN | NO2 OTHER | NO3 OTHER | NO4 OTHER |
+  |---|---:|---:|---:|---:|
+  | 当前 067，前置 | 663.396/654.184 | 701.596/713.220 | 692.884/710.052 | 696.372/701.456 |
+  | 基线 066 | 668.980/675.264 | 716.092/723.888 | 726.332/704.352 | 681.680/686.080 |
+  | 当前 067，恢复 | 671.352/664.472 | 726.776/723.756 | 789.932/709.992 | 701.248/755.336 |
+
+- 主站前序 714.560 us RUN 高值未在本轮当前版窗口重现，但 NO3 高峰重现，NO4
+  也出现较高值。不能宣布增长消失、排除回归或确认 O6 算术的唯一因果。主站
+  OTHER 外层三组依次为 725.176/729.352、685.668/708.396、485.580/576.388 us；
+  低值不覆盖原高值，全部 body 与分类外层记录保留。
+- 口径：PEAK 按 `total_ticks` 选 body 峰值，RUN/OTHER 按 `full_phase_ticks`
+  选外层峰值。PEAK 携带的外层值不是外层最大值保证；预算按分类外层复核，并保留
+  `SCHEDule` 对完整 WCET、deadline 和后置分类/调度发布开销的验收责任。
+- 布局复核：实际 A/B 的 RX 接受、flight unload、receive health、traffic select、
+  timing record 和 adapter service 六个函数，地址及抽取的指令字在两版完全相同。
+  每个目标共比较 2927 个唯一符号，10 个地址变化、3 个符号指令字变化（构建快照，
+  非事实源）。这不覆盖 literal/data、缓存、总线或中断行为，不能由此确定共享
+  干扰的因果；扩展 RX impl 的补充分析与首轮分析分别保留。
+- 六个自主窗口整段 passed/closed_loop/realtime=false、diagnostic=true，原始
+  拒绝保留；后段 accepted 增长而 rejected/missing 无增长，不提升为整段稳定性。
+  两次四板 OTA 均通过，最终当前 build 为 `20260913154535`。每轮 STOP/config ACK、
+  许可证失效及 SD 核对通过，普通模式恢复 passed/closed_loop=true。
+- 当前源码指纹仍为 `814e12c7c49a5fe39856d4f2542e83c3030de3d46b8eda6c69740b4f23dcc3e1`，
+  沿用 067 绑定同源码的真实 QUICK P3（strict=true）；本轮没有新生产实现或新 P3
+  凭证，旧版运行仅作为明确标注的对照。正式 RAM、完整 500 us、逐圈特等席和
+  blackout 继续开放。
+- 原件：`plan.json`、`repeat-comparison-r1.json`、`layout-analysis-r1.json`、
+  `rx-hot-layout-r1.json`、两次 OTA、六轮记录/STOP/SD 及 `normal-r1` 恢复证据。
+  后续在不改变工作量与门禁口径的条件下，检查共享干扰、高频探针自身成本、RX
+  接受和空队列调度，实际收益须重新实测。
 
 ### TDMA-PROGRESS-20260913-067 - O6 相对游标定位取模
 
