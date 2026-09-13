@@ -8,7 +8,12 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前按用户确认的 O3/O5→O1→O2/O4→O6 顺序推进，O3/O5 分支计时切片见
+当前按用户确认的 O3/O5→O1→O2/O4→O6 顺序推进，O1 提前复用切片见
+`TDMA-PROGRESS-20260913-065`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-overlay-early-reuse/`。先确认 DMA
+selection 退休及物理就绪，再让无更新 TX 跳过 grant 配置；软件、构建、当前源码
+P3 和两轮对照完成。正确性通过，完整峰值未一致下降；本负载下无更新复用机会有限，
+下一项为 O2/O4。前序 O3/O5 分支计时切片见
 `TDMA-PROGRESS-20260913-064`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-request-dispatch-timing/`。请求与接受阶段、
 TX latch 读取/重装及空队列调度已完成软件、构建和两轮实板归因；follower 请求
@@ -302,6 +307,59 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-065 - O1 物理准入后提前复用无更新 TX
+
+- 日期：2026-09-13
+- 状态：PARTIAL；实现、正确性及实板对照完成，未证明完整峰值一致改善。
+- 范围：异步 overlay 的 IDLE 路径先做已有物理 readiness 检查，处理 DMA selection
+  退休并保留 armed/DMA/mode/role/persona/alignment 准入；无排队更新且原 map、
+  epoch、local slot、TX generation/sequence 匹配时，跳过 inactive plan grant/configure。
+  新描述符仍走完整准入与后台请求，未提供 readiness callback 的 backend 保留旧顺序。
+  READY 提交、FAILED 处置、后台租约及 STOP/重新 ARM 的取消条件不变。
+- 软件快照（非事实源）：真实物理 DMA 模型 4 项通过，覆盖连续自主计划、不同
+  descriptor 相位发布、selection 退休、persona/role/mode/armed 拒绝、晚触发及
+  有界 STOP；计时/非阻塞服务 33 项通过。完整 adapter 和 overlay 回归通过，位图
+  所有权/对齐组合验证通过。新增 adapter 情景证明 pending selection 不计复用、
+  PIO boundary 不自行退休、选中确认先于复用/新 grant、新描述符不能被快路径吞掉，
+  REQUESTED/BUILDING/READY 的 STOP 取消与旧 epoch 拒绝继续通过。
+- 构建快照（非事实源）：A/B/Boot 通过，build `20260913145049`，源码指纹
+  `86b2132c464c685fe2f57c48ef926ccdf77a8fb19867b76c45153f1b5ac32b1d`。
+  A/B link-free 均为 2360 B，扣除预留 heap 后额外余量仍为 312 B，PIO 生成头与
+  064 字节一致。继续使用同版探针、四邮箱载荷、固定 057 矩阵与档案 ON。
+- 当前源码四板 OTA、QUICK P3 流程及所执行严格门禁通过，短帧与最终普通恢复的
+  passed/closed_loop/realtime/diagnostic 均为 true。两轮 START 后零查询、STOP 后
+  导出与 SD 逐字节核对通过，最终四板 STOP、配置 ACK 和许可证失效均确认。
+- 完整耗时快照（us，有限窗口，非事实源）：
+
+  | 指标 | 064 R1 / R2 | 065 R1 / R2 |
+  |---|---:|---:|
+  | 主站 RUN body | 618.216 / 615.256 | 612.676 / 592.596 |
+  | 主站 RUN 外层 | 634.632 / 645.780 | 637.576 / 659.388 |
+  | 主站 STOP 外层 | 555.020 / 663.140 | 613.840 / 633.348 |
+  | NO2 ALL body | 660.312 / 680.460 | 681.524 / 652.088 |
+  | NO3 ALL body | 651.152 / 663.648 | 675.104 / 655.492 |
+  | NO4 ALL body | 658.984 / 634.616 | 658.880 / 648.416 |
+
+  当前 follower body 峰值的同拍外层分别为 NO2 703.944/685.660、NO3
+  699.704/681.320、NO4 687.444/671.904 us。第二轮主站另有 ALL body 峰值
+  615.268 us、同拍外层 630.812 us；它与按外层选中的 RUN 峰值不同，不能混拼。
+  主站 RUN 外层高 2.944/13.608 us，follower 各轮有升有降，完整 500 us 仍未达到。
+- 无更新机会快照（非事实源）：后段样本 18→25，NO2/NO3/NO4 的 TX 获取增量
+  分别为 528/552/554 和 529/543/555，TX 复用增量仅为 55/18/1 和 43/10/0。
+  `tx_reuse_count` 包含所有 FIFO 复用路径，只是本次提前复用次数的上界，不是
+  快路径专属计数；尤其 NO4 此负载下几乎没有无更新机会。同期 TX 发布拒绝和 RX
+  发布丢弃增量均为零，新 TX 与 overlay 提交持续推进。
+  follower ALL body 峰值内 overlay 为 86.420/91.048/81.212 和
+  81.180/76.288/112.388 us，不能把整段时间当作可删除 grant 成本或快路径收益。
+  本切片证明可安全省掉无更新配置工作，未证明满更新负载的完整峰值获益。
+- 两轮自主整段仍 passed/closed_loop/realtime=false、diagnostic=true；后段
+  accepted 持续增长，rejected/missing 无增长，全窗口 missing 最大值各为 1。
+  原失败保留。比较与原件引用见本根的 `overlay-comparison-r1.json`、
+  `profile-comparison-r1.json`、`branch-attribution-r1.json` 和两轮 review。
+- 下一步：进入 O2/O4，分开 DMA 初始观察/复制后复验和 RX latch 读取/重装；
+  完整 500 us、逐圈特等席与正式 RAM
+  要求继续独立验证。
 
 ### TDMA-PROGRESS-20260913-064 - O3/O5 请求交接与调度结果分支计时
 

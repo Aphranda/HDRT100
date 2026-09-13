@@ -985,7 +985,13 @@ Core1 不写仲裁快照或争用该锁，而由
 重建整个实例，已初始化 owner 的重复初始化不重置命令序列。该维护交接不改变
 process-image completion、wire generation 或业务 ACK/fence。
 
-recurrence backend 在获取 TX FIFO 前检查可发布性；未就绪保持旧计划。无新 TX 时，
+recurrence backend 在获取 TX FIFO 前检查可发布性；未就绪保持旧计划。异步 IDLE 路径
+先调用 `phys_overlay_ready`，由物理 owner 处理已观察到的 DMA selection 退休，并复核
+armed、DMA active、process mode、role/persona 和 alignment。随后无更新且既有
+epoch/map/local slot/TX generation/sequence 均匹配时，可提前复用而不 grant/configure
+新的 inactive plan。有排队描述符仍进入完整 grant、布局授权和后台请求；没有独立
+readiness callback 的 backend 保留 grant-before-reuse。READY 提交及各态 STOP 取消
+保持原 owner 边界，PIO sticky boundary 本身不代表 DMA 内存退休。无新 TX 时，
 已接受的计划持续复用，不再次构建；成功发布后才更新接受版本。初始无 TX 仍可准备
 hop 变换。ARM 后先由 PASS 计划持续运行，完整包的 byte/bit alignment 必须在相邻
 physical frame 间连续一致，达到 `TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES`
