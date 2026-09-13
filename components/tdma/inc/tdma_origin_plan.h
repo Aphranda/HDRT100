@@ -12,6 +12,10 @@
 #define TDMA_ORIGIN_PLAN_RUN_MAX 384u
 #define TDMA_ORIGIN_PLAN_LITERAL_MAX 160u
 #define TDMA_ORIGIN_PLAN_BANK_COUNT 2u
+#define TDMA_ORIGIN_RECORD_COUNT 8u
+#define TDMA_ORIGIN_RECORD_FORMAT_RTT 1u
+#define TDMA_ORIGIN_RECORD_TRANSPORT_CHECKED 1u
+#define TDMA_ORIGIN_RECORD_COPY_MAX_US 1000u
 #define TDMA_ORIGIN_PLAN_SHADOW_BYTES (TDMA_FLIGHT_SHORT_SLOT_SIZE + sizeof(uint32_t))
 #define TDMA_ORIGIN_CONTROL_PC 0u
 #define TDMA_ORIGIN_CAPTURE_PC 11u
@@ -50,6 +54,26 @@ typedef struct {
     uint32_t rtt_present;
 } tdma_origin_observation_t;
 
+/* Local transport evidence only; no new wire fields or VDC time validity.
+ * Both sequence words must match the expected frame, with bounded epoch/
+ * producer revalidation around a copy. A tail marker alone is insufficient. */
+typedef struct {
+    tdma_origin_observation_t observation;
+    uint32_t capture_remaining;
+    uint32_t returned_trailer;
+    uint32_t epoch;
+    uint32_t flags;
+    uint32_t format;
+    uint32_t sequence_end;
+} tdma_origin_record_t;
+
+typedef struct {
+    uint32_t epoch;
+    uint32_t published_version;
+    uint32_t fault;
+    tdma_origin_record_t record;
+} tdma_origin_record_frozen_t;
+
 typedef struct {
     uint32_t remaining_snapshot;
     uint32_t polls_left;
@@ -71,6 +95,14 @@ typedef struct {
     uint32_t output_remaining_snapshot;
     uint32_t rtt_remaining;
     uint32_t rtt_present;
+    uint32_t record_capture_remaining;
+    uint32_t record_returned_trailer;
+    uint32_t record_epoch;
+    uint32_t record_flags;
+    uint32_t record_format;
+    uint32_t record_sequence_end;
+    uint32_t record_next_address;
+    uint32_t record_published_version;
     /* Written before publishing good_bank. Each RX bank carries the local
      * observation for its own returned identity, even if Core1 skips cycles. */
     tdma_origin_observation_t bank_observation[TDMA_ORIGIN_PLAN_BANK_COUNT];
@@ -86,6 +118,7 @@ typedef struct {
     uint32_t scratch;
     uint32_t runs;
     uint32_t literals;
+    uint32_t records;
 } tdma_origin_plan_addresses_t;
 
 /* Addresses must be derived from owner-owned SRAM. Binding to actual CPU
@@ -131,12 +164,13 @@ typedef struct {
     uint32_t boundary_entry;
     uint32_t local_entry[TDMA_ORIGIN_PLAN_BANK_COUNT];
     uint32_t fault_entry;
+    uint32_t record_entry;
 } tdma_origin_plan_t;
 
 /* Owner-private construction state, reusable only after completion/cancel.
  * Each step emits one fixed graph block (bounded by STEP_RUN_MAX), including
  * either pass. These work bounds are not a clk_sys WCET grant. */
-#define TDMA_ORIGIN_BUILD_LABEL_CAPACITY 48u
+#define TDMA_ORIGIN_BUILD_LABEL_CAPACITY 64u
 #define TDMA_ORIGIN_BUILD_STEP_RUN_MAX 24u
 typedef enum {
     TDMA_ORIGIN_BUILD_FAILED = 0u,

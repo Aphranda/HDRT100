@@ -180,13 +180,14 @@ def test_descriptor_completion_and_bounded_stop(tmp_path):
             ("bool", "tdma_pio_spi_phys_commit_overlay", "(void *context, tdma_overlay_prepare_t *job)")])
     fixture = r'''
 #include "tdma_overlay_prepare.h"
+#include "tdma_origin_plan.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
 typedef unsigned uint;
 
 enum { TDMA_PIO_SPI_ROLE_SLAVE = 2, TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER = 9,
-       TDMA_PIO_SPI_PACKET_HEADER_SIZE = 4 };
+       TDMA_PIO_SPI_PACKET_HEADER_SIZE = 4, TDMA_ORIGIN_PREPARE_COMPLETE = 9 };
 static unsigned s_tdma_pio_spi_program_persona = TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER;
 enum { DMA_SIZE_32 = 2, DMA_CH0_CTRL_TRIG_EN_BITS = 1, DREQ_FORCE = 63, NUM_DMA_CHANNELS = 16,
        TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES = 2,
@@ -204,6 +205,9 @@ typedef struct {
 typedef struct {
     bool armed, flight_resource_claimed, flight_overlay_dma_active, flight_overlay_pending;
     bool flight_origin_workspace_owned, flight_origin_rx_observation_ready;
+    bool flight_origin_record_frozen;
+    uint32_t flight_origin_record_guard, flight_origin_record_published_version, flight_origin_record_fault;
+    struct { uint32_t stage; } flight_origin_prepare;
     bool rx_capture_active;
     tdma_overlay_prepare_t *overlay_preparation;
     bool process_image_enabled, flight_overlay_alignment_locked;
@@ -214,6 +218,7 @@ typedef struct {
     volatile uint32_t flight_overlay_selected_generation, flight_overlay_next_address;
     Snapshot snapshot;
 } tdma_pio_spi_phys_t;
+static struct { struct { tdma_origin_plan_state_t state; } origin; } s_tdma_pio_spi_workspace;
 typedef struct { uintptr_t read_addr; uint32_t ctrl_trig, transfer_count, al3_ctrl, al3_read_addr_trig, write_addr; } Channel;
 static struct { Channel ch[16]; uint32_t abort; } bus;
 #define dma_hw (&bus)

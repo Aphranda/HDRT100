@@ -7,8 +7,8 @@
 
 /* Physical SRAM allocation is tighter than the builder's construction
  * bounds. All supported slot masks must fit these capacities before ARM. */
-#define TDMA_PIO_SPI_ORIGIN_RUN_CAPACITY 320u
-#define TDMA_PIO_SPI_ORIGIN_LITERAL_CAPACITY 128u
+#define TDMA_PIO_SPI_ORIGIN_RUN_CAPACITY (TDMA_RING_NODE_MAX <= 6u ? 320u : 352u)
+#define TDMA_PIO_SPI_ORIGIN_LITERAL_CAPACITY (TDMA_RING_NODE_MAX <= 7u ? 128u : 136u)
 
 /* Persona storage, owned by the physical TDMA owner. The three service
  * arrays may be active together; none may be accessed while the origin
@@ -46,6 +46,7 @@ typedef union {
         tdma_origin_plan_t plan;
         tdma_origin_exchange_t exchange;
         tdma_origin_observation_t rx_observation;
+        tdma_origin_record_t record[TDMA_ORIGIN_RECORD_COUNT];
     } origin;
 } tdma_pio_spi_workspace_t;
 

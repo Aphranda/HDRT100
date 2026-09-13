@@ -14,6 +14,20 @@ def test_directional_resource_contract_is_valid() -> None:
     assert failures == []
 
 
+def test_overlay_binding_rejects_crossed_fifo_and_dreq() -> None:
+    phys = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    flight = (ROOT / "components/tdma/src/tdma_pio_spi_phys_flight_io.inc").read_text(encoding="utf-8")
+    body = state_machine_resource_check.c_function_body(phys, "tdma_pio_spi_phys_overlay_binding")
+    for before, after, expected in (
+        ("tdma_pio_spi_phys_data_sm(phys), true", "tdma_pio_spi_phys_data_sm(phys), false",
+         "follower overlay output must use the TX DREQ"),
+        ("->txf[", "->rxf[", "follower overlay output must write the declared TX FIFO"),
+    ):
+        assert before in body
+        changed = phys.replace(body, body.replace(before, after))
+        assert expected in state_machine_resource_check.check_rx_endpoint_runtime(changed, flight)
+
+
 def test_process_output_requires_the_declared_live_bit_register(tmp_path: Path) -> None:
     pio = tmp_path / "tdma.pio"
     source = (ROOT / "components/tdma/src/tdma_pio_spi.pio").read_text(encoding="utf-8")

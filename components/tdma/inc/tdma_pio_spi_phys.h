@@ -792,6 +792,13 @@ typedef struct {
      * armed and persona. Cleared only after the complete DMA tree settles. */
     bool flight_origin_workspace_owned;
     bool flight_origin_rx_observation_ready;
+    /* Core1 publishes only after the complete DMA tree has stopped. Persona
+     * selection invalidates this archive before the union can be reused. */
+    volatile uint32_t flight_origin_record_guard;
+    uint32_t flight_origin_record_epoch;
+    uint32_t flight_origin_record_published_version;
+    uint32_t flight_origin_record_fault;
+    bool flight_origin_record_frozen;
     tdma_origin_cadence_t flight_origin_cadence;
     tdma_origin_prepare_t flight_origin_prepare;
     tdma_pio_spi_phys_snapshot_t snapshot;
@@ -897,6 +904,10 @@ bool tdma_pio_spi_phys_origin_observe(void *context,
  * It is interval/identity evidence, never an absolute VDC edge timestamp. */
 bool tdma_pio_spi_phys_origin_take_rx_observation(void *context,
     tdma_origin_observation_t *observation);
+/* Read-only stopped archive, age=0 is newest. No PIO/DMA access or live acquisition.
+ * False leaves output unspecified; restart/persona change invalidates it. */
+bool tdma_pio_spi_phys_origin_get_frozen_record(const tdma_pio_spi_phys_t *phys,
+    uint32_t age, tdma_origin_record_frozen_t *out);
 bool tdma_pio_spi_phys_set_process_image_mode(
     tdma_pio_spi_phys_t *phys,
     bool enabled,

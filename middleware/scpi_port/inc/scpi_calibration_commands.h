@@ -8,6 +8,7 @@ scpi_result_t scpi_calibration_origin_trial(scpi_t *context);
 scpi_result_t scpi_calibration_origin_revoke(scpi_t *context);
 scpi_result_t scpi_calibration_origin_q(scpi_t *context);
 scpi_result_t scpi_calibration_origin_runtime_q(scpi_t *context);
+scpi_result_t scpi_calibration_origin_record_q(scpi_t *context);
 
 scpi_result_t scpi_calibration_link_q(scpi_t *context);
 scpi_result_t scpi_calibration_parameter_q(scpi_t *context);
@@ -81,6 +82,7 @@ scpi_result_t scpi_calibration_sma_cable_rtt_responder_q(scpi_t *context);
     {.pattern = "CALibration:ORIGin:REVOKe", .callback = scpi_calibration_origin_revoke}, \
     {.pattern = "READ:CALibration:ORIGin?", .callback = scpi_calibration_origin_q}, \
     {.pattern = "READ:CALibration:ORIGin:RUNTIme?", .callback = scpi_calibration_origin_runtime_q}, \
+    {.pattern = "READ:CALibration:ORIGin:RECord?", .callback = scpi_calibration_origin_record_q}, \
     {.pattern = "CONFigure:CALibration:LINK:ADD", .callback = scpi_port_result_accepted}, \
     {.pattern = "CONFigure:CALibration:LINK:UPDate", .callback = scpi_port_result_accepted}, \
     {.pattern = "CONFigure:CALibration:LINK:DELete", .callback = scpi_port_result_accepted}, \

@@ -25,6 +25,11 @@ _Static_assert(sizeof(tdma_origin_observation_t) == 6u * sizeof(uint32_t) &&
                    offsetof(tdma_origin_plan_state_t, observation_sequence) ==
                        sizeof(tdma_origin_observation_t),
                "Per-bank observation copy must cover the complete guarded record");
+_Static_assert(sizeof(tdma_origin_record_t) == 12u * sizeof(uint32_t) &&
+    offsetof(tdma_origin_plan_state_t, record_sequence_end) + sizeof(uint32_t) -
+        offsetof(tdma_origin_plan_state_t, observation_sequence) == sizeof(tdma_origin_record_t),
+    "Record transfer must cover prefix and final sequence with the complete body");
+_Static_assert(TDMA_ORIGIN_RECORD_COUNT == 8u, "Immutable record writer catalog has eight entries");
 
 enum {
     L_SEED, L_BOUNDARY, L_RTT_PRESENT, L_RTT_DONE, L_POLL_CAPTURE, L_POLL_OUTPUT,
@@ -32,7 +37,8 @@ enum {
     L_PUBLISH_SELECT, L_PUBLISH_A, L_PUBLISH_B, L_CHECK_COUNT, L_PACK_SELECT,
     L_PACK_A, L_PACK_B, L_IDENTITY, L_MATCH, L_TRANSPORT, L_ROUTE,
     L_MAILBOX, L_MAILBOX_NEXT_0, L_MAILBOX_NEXT_7 = L_MAILBOX_NEXT_0 + 7,
-    L_ACCEPT_SELECT, L_ACCEPT_A, L_ACCEPT_B, L_PREPARE_SELECT,
+    L_ACCEPT_SELECT, L_ACCEPT_A, L_ACCEPT_B, L_RECORD_SELECT,
+    L_RECORD_0, L_RECORD_7 = L_RECORD_0 + 7, L_RECORD_DONE, L_PREPARE_SELECT,
     L_PREPARE_A, L_PREPARE_B, L_HEADER, L_LOCAL_A, L_LOCAL_B, L_STAGE,
     L_ARM_A, L_ARM_B, L_ARM_OUTPUT, L_FAULT, L_COUNT
 };
@@ -122,11 +128,12 @@ static bool config_valid(const tdma_origin_plan_config_t *c, const tdma_origin_p
     const uint32_t starts[] = {c->address.capture_bank[0], c->address.capture_bank[1],
         c->address.stage, c->address.tx_header, c->address.rx_packet, c->address.state,
         c->address.local_shadow[0], c->address.local_shadow[1], c->address.scratch,
-        c->address.runs, c->address.literals};
+        c->address.runs, c->address.literals, c->address.records};
     const uint32_t sizes[] = {TDMA_TRANSPORT_SHORT_PACKET_MAX, TDMA_TRANSPORT_SHORT_PACKET_MAX,
         c->physical_bytes * 2u, TDMA_TRANSPORT_FRAME_HEADER_SIZE, TDMA_TRANSPORT_SHORT_PACKET_MAX,
         sizeof(tdma_origin_plan_state_t), TDMA_ORIGIN_PLAN_SHADOW_BYTES, TDMA_ORIGIN_PLAN_SHADOW_BYTES,
-        8u, p->run_capacity * sizeof(p->runs[0]), p->literal_capacity * sizeof(uint32_t)};
+        8u, p->run_capacity * sizeof(p->runs[0]), p->literal_capacity * sizeof(uint32_t),
+        TDMA_ORIGIN_RECORD_COUNT * sizeof(tdma_origin_record_t)};
     for (size_t i = 0u; i < sizeof(starts) / sizeof(starts[0]); ++i) {
         if (!interval(starts[i], sizes[i], i == 9u ? 16u : 4u)) return false;
         for (size_t j = 0u; j < i; ++j)
@@ -288,6 +295,10 @@ static void emit(builder_t *b)
     break;
     case L_RTT_DONE:
     mark(b, L_RTT_DONE);
+    move(b, STATE(remaining_snapshot), STATE(record_capture_remaining));
+    move(b, STATE(observation_sequence), STATE(record_sequence_end));
+    put(b, 0u, STATE(record_flags));
+    put(b, 0u, STATE(record_returned_trailer));
     put(b, c->abort_poll_count, STATE(polls_left));
     break;
     case L_POLL_CAPTURE:
@@ -330,7 +341,7 @@ static void emit(builder_t *b)
     break;
     case L_CHECK_COUNT:
     mark(b, L_CHECK_COUNT);
-    compare(b, STATE(remaining_snapshot), literal(b, 0u), L_PACK_SELECT, L_PREPARE_SELECT);
+    compare(b, STATE(remaining_snapshot), literal(b, 0u), L_PACK_SELECT, L_RECORD_SELECT);
     break;
     case L_PACK_SELECT:
     mark(b, L_PACK_SELECT);
@@ -347,20 +358,20 @@ static void emit(builder_t *b)
     case L_IDENTITY:
     mark(b, L_IDENTITY);
     crc(b, a->rx_packet, true, a->scratch + 4u);
-    compare(b, a->scratch + 4u, a->rx_packet + 24u, L_MATCH, L_PREPARE_SELECT);
+    compare(b, a->scratch + 4u, a->rx_packet + 24u, L_MATCH, L_RECORD_SELECT);
     break;
     case L_MATCH:
     mark(b, L_MATCH);
-    compare(b, a->rx_packet + 24u, a->tx_header + 24u, L_TRANSPORT, L_PREPARE_SELECT);
+    compare(b, a->rx_packet + 24u, a->tx_header + 24u, L_TRANSPORT, L_RECORD_SELECT);
     break;
     case L_TRANSPORT:
     mark(b, L_TRANSPORT);
     crc(b, a->rx_packet, false, a->scratch + 4u);
-    compare(b, a->scratch + 4u, a->rx_packet + 28u, L_ROUTE, L_PREPARE_SELECT);
+    compare(b, a->scratch + 4u, a->rx_packet + 28u, L_ROUTE, L_RECORD_SELECT);
     break;
     case L_ROUTE:
     mark(b, L_ROUTE);
-    compare(b, a->rx_packet + 12u, literal(b, c->returned_route_word), L_MAILBOX, L_PREPARE_SELECT);
+    compare(b, a->rx_packet + 12u, literal(b, c->returned_route_word), L_MAILBOX, L_RECORD_SELECT);
     break;
     case L_MAILBOX:
     mark(b, L_MAILBOX);
@@ -378,12 +389,15 @@ static void emit(builder_t *b)
         copy(b, mailbox + TDMA_FLIGHT_SHORT_SLOT_SIZE - 2u, a->scratch, 1u, 2u, 63u, SWAP | SNIFF, loader);
         move(b, DMA_BASE + DMA_SNIFF_DATA_OFFSET, a->scratch + 4u);
         put(b, 0u, DMA_BASE + DMA_SNIFF_CTRL_OFFSET);
-        compare(b, a->scratch + 4u, literal(b, 0u), L_MAILBOX_NEXT_0 + slot, L_PREPARE_SELECT);
+        compare(b, a->scratch + 4u, literal(b, 0u), L_MAILBOX_NEXT_0 + slot, L_RECORD_SELECT);
         mark(b, L_MAILBOX_NEXT_0 + slot);
     }
     break;
     case L_ACCEPT_SELECT:
     mark(b, L_ACCEPT_SELECT);
+    move(b, a->rx_packet + TDMA_TRANSPORT_FRAME_HEADER_SIZE + TDMA_FLIGHT_NODE_IMAGE_SIZE,
+         STATE(record_returned_trailer));
+    put(b, TDMA_ORIGIN_RECORD_TRANSPORT_CHECKED, STATE(record_flags));
     move(b, a->rx_packet + 8u, STATE(last_return_sequence));
     compare(b, STATE(capture_bank), literal(b, 0u), L_ACCEPT_A, L_ACCEPT_B);
     break;
@@ -395,8 +409,32 @@ static void emit(builder_t *b)
              sizeof(tdma_origin_observation_t) / sizeof(uint32_t), 4u, 63u, READ | WRITE, loader);
         put(b, bank, STATE(good_bank));
         put(b, bank ^ 1u, STATE(capture_bank));
-        jump(b, L_PREPARE_A + bank);
+        jump(b, L_RECORD_SELECT);
     }
+    break;
+    case L_RECORD_SELECT:
+    mark(b, L_RECORD_SELECT);
+    /* Only owner-built successor addresses reach this indirection. Records
+     * are emitted even for a missing/bad return, before any seed reuse. */
+    copy(b, STATE(record_next_address), dma_reg(loader, DMA_CH0_AL3_READ_ADDR_TRIG_OFFSET),
+         1u, 4u, 63u, 0u, c->executor_dma);
+    break;
+    case L_RECORD_0: case L_RECORD_0 + 1: case L_RECORD_0 + 2: case L_RECORD_0 + 3:
+    case L_RECORD_0 + 4: case L_RECORD_0 + 5: case L_RECORD_0 + 6: case L_RECORD_7: {
+        const uint32_t bank = b->step - L_RECORD_0;
+        mark(b, L_RECORD_0 + bank);
+        copy(b, STATE(observation_sequence), a->records + bank * sizeof(tdma_origin_record_t),
+            sizeof(tdma_origin_record_t) / sizeof(uint32_t), 4u, 63u, READ | WRITE, loader);
+        const uint32_t next = b->label[L_RECORD_0 + (bank + 1u) % TDMA_ORIGIN_RECORD_COUNT];
+        /* Forward labels use private literal storage in both build passes. */
+        move(b, block(b, &next, 1u), STATE(record_next_address));
+        jump(b, L_RECORD_DONE);
+    }
+    break;
+    case L_RECORD_DONE:
+    mark(b, L_RECORD_DONE);
+    move(b, STATE(observation_version), STATE(record_published_version));
+    jump(b, L_PREPARE_SELECT);
     break;
     case L_PREPARE_SELECT:
     mark(b, L_PREPARE_SELECT);
@@ -530,6 +568,7 @@ static void clear_entries(tdma_origin_plan_t *p)
 {
     p->run_count = p->literal_count = 0u;
     p->seed_entry = p->boundary_entry = p->fault_entry = 0u;
+    p->record_entry = 0u;
     memset(p->local_entry, 0, sizeof(p->local_entry));
 }
 
@@ -609,6 +648,7 @@ tdma_origin_build_result_t tdma_origin_plan_step(builder_t *b)
     p->fault_entry = b->label[L_FAULT];
     p->local_entry[0] = b->label[L_LOCAL_A];
     p->local_entry[1] = b->label[L_LOCAL_B];
+    p->record_entry = b->label[L_RECORD_0];
     return TDMA_ORIGIN_BUILD_DONE;
 }
 

@@ -450,7 +450,7 @@ def check_rx_endpoint_runtime(phys_text: str, flight_io_text: str) -> list[str]:
     try:
         rx_arm = c_function_body(phys_text, "tdma_pio_spi_phys_rx_arm")
         overlay = c_function_body(
-            phys_text, "tdma_pio_spi_phys_start_overlay_script")
+            phys_text, "tdma_pio_spi_phys_overlay_binding")
         clock_evidence = c_function_body(
             phys_text, "tdma_pio_spi_phys_clock_latch_read_and_rearm")
         origin_tx = c_function_body(
@@ -482,8 +482,8 @@ def check_rx_endpoint_runtime(phys_text: str, flight_io_text: str) -> list[str]:
     ):
         failures.append("origin DATA output must write the declared TX FIFO")
     if not re.search(
-        r"pio_get_dreq\s*\(.*?tdma_pio_spi_phys_data_pio\s*\(\s*phys\s*\)"
-        r".*?tdma_pio_spi_phys_data_sm\s*\(\s*phys\s*\).*?true\s*\)",
+        r"pio_get_dreq\s*\(\s*tdma_pio_spi_phys_data_pio\s*\(\s*phys\s*\)\s*,"
+        r"\s*tdma_pio_spi_phys_data_sm\s*\(\s*phys\s*\)\s*,\s*true\s*\)",
         overlay,
         re.DOTALL,
     ):

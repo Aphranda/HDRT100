@@ -189,6 +189,7 @@ tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *context)
     tdma_pio_spi_phys_set_line_drivers(false);
     /* All old readers have retired. Preserve seed banks outside construction
      * scratch; no memset of the entire union may erase this frozen return. */
+    tdma_pio_spi_phys_origin_record_invalidate(phys);
     memcpy(s_tdma_origin.capture[0], request->seed, TDMA_TRANSPORT_SHORT_PACKET_MAX);
     memset(s_tdma_origin.capture[0] + TDMA_TRANSPORT_FRAME_HEADER_SIZE +
         TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET, 0, TDMA_FLIGHT_DPLL_OBSERVATION_SIZE);
@@ -223,6 +224,7 @@ tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *context)
             .scratch = (uint32_t)(uintptr_t)s_tdma_origin.scratch,
             .runs = (uint32_t)(uintptr_t)s_tdma_origin.runs,
             .literals = (uint32_t)(uintptr_t)s_tdma_origin.literals,
+            .records = (uint32_t)(uintptr_t)s_tdma_origin.record,
         },
         .physical_bytes = phys->flight_physical_byte_count,
         .outer_header_bytes = TDMA_PIO_SPI_PACKET_HEADER_SIZE,
@@ -276,9 +278,16 @@ tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *context)
     s_tdma_origin.stage[1] = TDMA_PIO_SPI_PACKET_MAGIC1 << 8u;
     s_tdma_origin.stage[2] = (sizeof(seed) & 0xffu) << 8u;
     s_tdma_origin.stage[3] = (sizeof(seed) >> 8u) << 8u;
+    uint32_t record_epoch = __atomic_load_n(&phys->flight_origin_record_epoch, __ATOMIC_RELAXED) + 1u;
+    if (record_epoch == 0u) ++record_epoch;
+    __atomic_store_n(&phys->flight_origin_record_epoch, record_epoch, __ATOMIC_RELAXED);
+    memset(s_tdma_origin.record, 0, sizeof(s_tdma_origin.record));
     s_tdma_origin.state = (tdma_origin_plan_state_t){.capture_bank = 1u,
         .local_next_address = s_tdma_origin.plan.local_entry[0],
-        .local_selected_generation = 1u, .bank_version = {2u, 2u}};
+        .local_selected_generation = 1u, .bank_version = {2u, 2u},
+        .record_next_address = s_tdma_origin.plan.record_entry,
+        .record_epoch = record_epoch,
+        .record_format = TDMA_ORIGIN_RECORD_FORMAT_RTT};
     if (!tdma_origin_exchange_bind(&s_tdma_origin.exchange, &s_tdma_origin.state,
             s_tdma_origin.capture[0], s_tdma_origin.capture[1],
             s_tdma_origin.local_shadow[0], s_tdma_origin.local_shadow[1],
@@ -384,6 +393,32 @@ bool tdma_pio_spi_phys_origin_take_rx_observation(void *context,
     *observation = s_tdma_origin.rx_observation;
     phys->flight_origin_rx_observation_ready = false;
     return true;
+}
+
+bool tdma_pio_spi_phys_origin_get_frozen_record(const tdma_pio_spi_phys_t *phys,
+    uint32_t age, tdma_origin_record_frozen_t *out)
+{
+    if (phys == NULL || out == NULL || age >= TDMA_ORIGIN_RECORD_COUNT - 1u) return false;
+    /* Bound a preempted reader so guard wrap cannot create an old-epoch ABA.
+     * This is a copy lifetime bound, not a TDMA phase or bus-time grant. */
+    const uint64_t before = vdc_timestamp_clock_read_ticks64();
+    const uint32_t guard = __atomic_load_n(&phys->flight_origin_record_guard, __ATOMIC_ACQUIRE);
+    if ((guard & 1u) != 0u ||
+        !__atomic_load_n(&phys->flight_origin_record_frozen, __ATOMIC_ACQUIRE)) return false;
+    out->epoch = __atomic_load_n(&phys->flight_origin_record_epoch, __ATOMIC_ACQUIRE);
+    out->published_version = __atomic_load_n(&phys->flight_origin_record_published_version, __ATOMIC_ACQUIRE);
+    out->fault = __atomic_load_n(&phys->flight_origin_record_fault, __ATOMIC_ACQUIRE);
+    const uint32_t index = (out->published_version / 2u - 1u - age) % TDMA_ORIGIN_RECORD_COUNT;
+    memcpy(&out->record, &s_tdma_origin.record[index], sizeof(out->record));
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    const uint32_t after_guard = __atomic_load_n(&phys->flight_origin_record_guard, __ATOMIC_ACQUIRE);
+    const uint64_t after = vdc_timestamp_clock_read_ticks64();
+    return guard == after_guard && after >= before &&
+        after - before <= (uint64_t)vdc_timestamp_clock_tick_hz() *
+            TDMA_ORIGIN_RECORD_COPY_MAX_US / 1000000u &&
+        (out->published_version & 1u) == 0u && out->epoch != 0u &&
+        out->record.epoch == out->epoch && out->record.format == TDMA_ORIGIN_RECORD_FORMAT_RTT &&
+        out->record.observation.sequence == out->record.sequence_end;
 }
 
 static bool tdma_pio_spi_phys_origin_rx(tdma_pio_spi_phys_t *phys, uint8_t *packet,

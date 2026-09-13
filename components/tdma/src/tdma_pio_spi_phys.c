@@ -379,12 +379,27 @@ bool tdma_pio_spi_phys_tx_retryable(const void *context)
            phys->snapshot.last_error == TDMA_PIO_SPI_PHYS_ERROR_TX_BUSY;
 }
 
+static void tdma_pio_spi_phys_origin_record_invalidate(tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL) return;
+    const uint32_t guard = __atomic_load_n(&phys->flight_origin_record_guard, __ATOMIC_RELAXED);
+    __atomic_store_n(&phys->flight_origin_record_guard, guard + 1u, __ATOMIC_RELEASE);
+    __dmb();
+    __atomic_store_n(&phys->flight_origin_record_frozen, false, __ATOMIC_RELAXED);
+    __atomic_store_n(&phys->flight_origin_record_guard, guard + 2u, __ATOMIC_RELEASE);
+}
+
 bool tdma_pio_spi_phys_select_program_persona(
     tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_program_persona_t persona)
 {
-    return tdma_pio_spi_programs_select(
+    tdma_pio_spi_phys_origin_record_invalidate(phys);
+    const bool selected = tdma_pio_spi_programs_select(
         &s_tdma_pio_spi_program_manager, phys, persona);
+    /* The manager may have frozen an old origin while stopping its tree.
+     * A requested persona starts a new memory lifetime after it returns. */
+    tdma_pio_spi_phys_origin_record_invalidate(phys);
+    return selected;
 }
 
 /* Compatibility entry point for calibration service includes.  The owner
@@ -629,6 +644,8 @@ static bool tdma_pio_spi_phys_stop_dma_chain(uint32_t loader_mask,
 static bool tdma_pio_spi_phys_stop_command_dma(tdma_pio_spi_phys_t *phys)
 {
     if (phys == NULL) return false;
+    const bool completed_origin = phys->flight_origin_workspace_owned &&
+        phys->flight_origin_prepare.stage == TDMA_ORIGIN_PREPARE_COMPLETE;
     const uint32_t loader_mask = s_tdma_pio_spi_command_dma_channel < 0 ? 0u :
         1u << (uint)s_tdma_pio_spi_command_dma_channel;
     const uint32_t executor_mask = s_tdma_pio_spi_executor_dma_channel < 0 ? 0u :
@@ -645,6 +662,17 @@ static bool tdma_pio_spi_phys_stop_command_dma(tdma_pio_spi_phys_t *phys)
                                          deadline)) goto failed;
     tdma_pio_spi_phys_pause_sm_pair(phys);
     __dmb();
+    if (completed_origin) {
+        const uint32_t guard = __atomic_load_n(&phys->flight_origin_record_guard, __ATOMIC_RELAXED);
+        __atomic_store_n(&phys->flight_origin_record_guard, guard + 1u, __ATOMIC_RELEASE);
+        __dmb();
+        __atomic_store_n(&phys->flight_origin_record_published_version,
+            s_tdma_pio_spi_workspace.origin.state.record_published_version, __ATOMIC_RELAXED);
+        __atomic_store_n(&phys->flight_origin_record_fault,
+            s_tdma_pio_spi_workspace.origin.state.fault, __ATOMIC_RELAXED);
+        __atomic_store_n(&phys->flight_origin_record_frozen, true, __ATOMIC_RELAXED);
+        __atomic_store_n(&phys->flight_origin_record_guard, guard + 2u, __ATOMIC_RELEASE);
+    }
     phys->flight_overlay_dma_active = false;
     phys->rx_capture_active = false;
     phys->flight_origin_workspace_owned = false;

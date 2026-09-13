@@ -15,6 +15,36 @@
 
 static uint32_t s_scpi_sma_cable_capture[SCPI_SMA_CABLE_CAPTURE_MAX_WORDS];
 
+scpi_result_t scpi_calibration_origin_record_q(scpi_t *context)
+{
+    uint32_t age;
+    tdma_origin_record_frozen_t snapshot;
+    if (!SCPI_ParamUInt32(context, &age, TRUE)) return SCPI_RES_ERR;
+    if (!tdma_runtime_owner_get_origin_frozen_record(age, &snapshot)) {
+        SCPI_ResultText(context, "UNAVAILABLE");
+        return SCPI_RES_OK;
+    }
+    SCPI_ResultText(context, "ORIGINRECORD");
+    SCPI_ResultUInt32(context, age);
+    SCPI_ResultUInt32(context, snapshot.epoch);
+    SCPI_ResultUInt32(context, snapshot.published_version);
+    SCPI_ResultUInt32(context, snapshot.fault);
+    const tdma_origin_record_t *r = &snapshot.record;
+    SCPI_ResultUInt32(context, r->observation.sequence);
+    SCPI_ResultUInt32(context, r->observation.identity);
+    SCPI_ResultUInt32(context, r->observation.local_generation);
+    SCPI_ResultUInt32(context, r->observation.output_remaining);
+    SCPI_ResultUInt32(context, r->observation.rtt_remaining);
+    SCPI_ResultUInt32(context, r->observation.rtt_present);
+    SCPI_ResultUInt32(context, r->capture_remaining);
+    SCPI_ResultUInt32(context, r->returned_trailer);
+    SCPI_ResultUInt32(context, r->epoch);
+    SCPI_ResultUInt32(context, r->flags);
+    SCPI_ResultUInt32(context, r->format);
+    SCPI_ResultUInt32(context, r->sequence_end);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_calibration_origin_runtime_q(scpi_t *context)
 {
     tdma_pio_spi_ring_adapter_snapshot_t snapshot;
