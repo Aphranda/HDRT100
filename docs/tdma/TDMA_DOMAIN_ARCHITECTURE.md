@@ -1655,6 +1655,13 @@ components/tdma/
 
 ## 验证门禁
 
+主机观察成本与板端事件时间分开记录。启动门禁继续使用完整 runtime/process/FIFO/
+physical/CRC 采样，保留原健康项、连续稳定间隔和采样完成截止；初始 pipeline fill 的
+拒绝计数也必须留存。优化 Core0 的维护输出不能删减这些条件。默认 SCPI stdio 路径
+由 `scpi_port_write` 将已有 parser fragment 原样交给驱动，避免逐字节进入驱动；
+不得插入换行或转换 CR/LF，capture/custom stream 的路由和返回语义保持独立。
+该观察链优化不证明 Core1 WCET、物理节拍、逐圈时间戳或 blackout 门禁通过。
+
 TDMA Domain 最小验证必须覆盖：
 
 - payload registry admission/rejection。

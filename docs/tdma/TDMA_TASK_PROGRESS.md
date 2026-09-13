@@ -8,7 +8,12 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的 MARK 准备证据切片见 `TDMA-PROGRESS-20260913-044`，证据根为
+当前 `TDMA-FLIGHT-002F` 的启动观测成本与 SCPI raw 输出切片见
+`TDMA-PROGRESS-20260913-045`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-startup-observation/`。完整五查询对照已测得
+主机采样耗时下降，严格启动仍失败；SD 超时、原始捕获完整性、完整 WCET、正式 RAM 与
+特等席逐圈保全继续独立验收，长期目标保持进行中。
+前序 MARK 准备证据切片见 `TDMA-PROGRESS-20260913-044`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-marker-preparation/`。真实命令结果、停止与配置
 应用确认、prepared identity 已串联；四板 MARK 与注入源轮换通过。严格启动、主机采样
 成本、SD 取证超时、完整 WCET 和正式 RAM 仍分别保留，长期目标保持进行中。
@@ -177,6 +182,49 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-045 - 启动观测成本归因与默认 SCPI raw 分片输出
+
+- 日期：2026-09-13；TODO task ID：`TDMA-FLIGHT-002F`。以下数字为实验快照，非事实源；
+  证据根为 `out/HardwareAcceptance/20260913/tdma-flight-startup-observation/`，基线为
+  `8a5efe7f8fdc916b48b17b6a65ce1e78d8013f10`。代码/文档分离提交，提交号、门禁及原始
+  文件 SHA 见 `commit-proof.json` 与 `slice-manifest.json`；不 push。
+- 归因：未修改的 `sample_node` 完整执行 runtime/process/FIFO/physical/CRC 五查询。
+  基线 STOP 采样约 `0.162–0.211 s`，RUN 采样显著变慢；逐事务开始/完成时间、响应字节
+  和完整快照见 `stopped-query-cost-r1.json`、`running-query-cost-r1.json`。真实 A/B
+  反汇编及所用 SDK 路径确认默认 `scpi_port_write` 每字节调用 raw stdio、进入 USB
+  驱动；不据此断言所有运行期延迟或初始参与位图拒绝的根因已经闭合。
+- 实现：默认 writer 按已有 parser fragment 调用同 raw flags 的 `stdio_put_string`，
+  按其整型长度接口有界分段；保持原字节、CR/LF、不附加换行。capture/custom stream
+  的路由优先级、截断和返回语义不变；无新增静态缓冲，不改 Core1 路径或运行状态边界。
+  `implementation-plan.json` 保留 stdout 串行化持有时间与既有传输返回语义的限制。
+- 软件与构建：相关回归 `256 passed`、文档回归 `18 passed`；真实 C writer 测试覆盖
+  含 NUL/高位字节的分片、空写、截断/canary、capture 优先级及 custom 部分返回。
+  A/B/Boot 与 Flash link gate 通过，build `20260913002647`，源码指纹
+  `8e4e9e9577a75f454982aeaad5f6e98406fc38483cbb8e767fde9d4a3c2bab00`，文件数 `1026`。
+  六节点、固定 wire 和生成 TDMA PIO 保持；A/B link free 均为 `4832 B`，无静态 RAM
+  增长。源码、产物与驱动调用检查见 `source-checkpoint-r1.json`、`build-review-r1.json`。
+- 硬件与观察对照：当前源码 P3 QUICK_DIAGNOSTIC 流程完成，MARK 准备与四个 origin 的
+  residence、SCK、DATA 测量通过；严格通过仍为 false。相同五查询、原 `6 s` 截止和
+  三个连续稳定样本条件下，前后各 `32` 组 RUN 单板采样的中位数从 `1.592 s` 降到
+  `1.208 s`，约下降 `24.1%`，最大值从 `2.047 s` 降到 `1.712 s`。运行计数及响应长度
+  会变化，故该有限比较不等于固定比例或 WCET 保证；见 `query-comparison-r1.json`。
+- 原严格失败完整保留：基线第三个健康样本在 `7.485 s` 完成；当前在 `6.672 s` 完成，
+  仍超过截止。P3 首样本在 `1.703 s` 完成并观察到初始 incomplete/rejected 增长，
+  下一健康样本在 `3.250 s` 完成，超过其 `2 s` 截止。波形运行第三个健康样本也在
+  `6.844 s` 才完成。各后续有限 soak 窗口通过；独立对照当前窗口实际 `6.250 s`，
+  四板 good 增长 `1506/1507/1504/1505`、bad 增长均为零。不得把后续稳定覆盖启动失败。
+- 波形与资源：RUN 中 SD 保存再次超时；STOP 后按原 job/path/generation/epoch 只读
+  取回四份文件，见 `waveform-recovery-r1.json`。四板 SCK 中位频率均为 `10 MHz`，
+  中位占空比门禁通过；NO2 找到完整长度候选但 transport 为 `BAD_MAGIC`，其余三板未
+  找到完整帧。这不证明全板有效帧、最坏周期抖动或失败首圈；原位流和 SVG 保留。
+  初次证据汇总因错误假定无效 transport 仍有 sequence 字段而失败，改为保留完整结果
+  后复核通过；未修改采集数据。最终四板 STOP/config/phase/license 读回通过，最低堆
+  余量均为 `20352 B`，低于正式 `24576 B` 门禁；任务栈水位通过。
+- 结论与下一步：当前切片为 PARTIAL。先继续区分主机事务、板端输出及运行负载成本，
+  定位 SD 保存与捕获完整性缺口；完整 owner/RX handoff 拆分仍须保持不可变输入与保留
+  期限。`380 us`、完整 WCET、正式 RAM、service blackout、同圈交换及特等席逐圈保全
+  继续独立验收；本次不调整预算、registry/C11 或节点容量后续项顺序。
 
 ### TDMA-PROGRESS-20260913-044 - MARK 准备结果、异步停止确认与注入前身份复核
 
