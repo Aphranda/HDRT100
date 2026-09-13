@@ -1,4 +1,5 @@
 #include "tdma_traffic_scheduler.h"
+#include "tdma_service_timing.h"
 
 #include <string.h>
 
@@ -760,11 +761,12 @@ static bool tdma_traffic_scheduler_dispatch_recovery(
     return false;
 }
 
-tdma_traffic_scheduler_result_t tdma_traffic_scheduler_select(
+static tdma_traffic_scheduler_result_t tdma_traffic_scheduler_select_impl(
     tdma_traffic_scheduler_t *scheduler,
     uint64_t now_ns,
     bool maintenance_gate_open,
-    tdma_traffic_dispatch_t *dispatch)
+    tdma_traffic_dispatch_t *dispatch,
+    tdma_service_timing_stage_t *outcome)
 {
     if (scheduler == NULL || dispatch == NULL) {
         return TDMA_TRAFFIC_SCHEDULER_BAD_ARGUMENT;
@@ -779,6 +781,7 @@ tdma_traffic_scheduler_result_t tdma_traffic_scheduler_select(
             : TDMA_TRAFFIC_SCHEDULER_NOT_CONFIGURED;
     }
     if (!tdma_traffic_scheduler_try_lock(scheduler)) {
+        *outcome = TDMA_TIMING_SELECT_BUSY;
         return TDMA_TRAFFIC_SCHEDULER_BUSY;
     }
     if (scheduler->configured == 0u) {
@@ -790,10 +793,15 @@ tdma_traffic_scheduler_result_t tdma_traffic_scheduler_select(
         return TDMA_TRAFFIC_SCHEDULER_GATE_CLOSED;
     }
 
+    const uint64_t refresh_start = tdma_service_timing_now();
+    bool has_queued = scheduler->recovery_quality.current_depth != 0u;
     tdma_traffic_scheduler_refresh_cycle(scheduler, now_ns);
     for (uint32_t i = 0u; i < TDMA_TRAFFIC_CLASS_COUNT; i++) {
         tdma_traffic_scheduler_drop_expired(scheduler, i, now_ns);
+        has_queued = has_queued || scheduler->queue[i].count != 0u;
     }
+    tdma_service_timing_record(TDMA_TIMING_SELECT_REFRESH, refresh_start);
+    if (!has_queued) *outcome = TDMA_TIMING_SELECT_EMPTY;
 
     for (uint32_t i = TDMA_TRAFFIC_VDC_REALTIME;
          i <= TDMA_TRAFFIC_VDC_REALTIME;
@@ -934,6 +942,21 @@ tdma_traffic_scheduler_result_t tdma_traffic_scheduler_select(
         scheduler, UINT32_MAX, TDMA_TRAFFIC_SCHEDULER_GATE_CLOSED);
     tdma_traffic_scheduler_unlock(scheduler);
     return TDMA_TRAFFIC_SCHEDULER_GATE_CLOSED;
+}
+
+tdma_traffic_scheduler_result_t tdma_traffic_scheduler_select(
+    tdma_traffic_scheduler_t *scheduler,
+    uint64_t now_ns,
+    bool maintenance_gate_open,
+    tdma_traffic_dispatch_t *dispatch)
+{
+    const uint64_t started = tdma_service_timing_now();
+    tdma_service_timing_stage_t outcome = TDMA_TIMING_SELECT_BLOCKED;
+    const tdma_traffic_scheduler_result_t result = tdma_traffic_scheduler_select_impl(
+        scheduler, now_ns, maintenance_gate_open, dispatch, &outcome);
+    if (result == TDMA_TRAFFIC_SCHEDULER_OK) outcome = TDMA_TIMING_SELECT_DISPATCH;
+    tdma_service_timing_record(outcome, started);
+    return result;
 }
 
 bool tdma_traffic_scheduler_complete(

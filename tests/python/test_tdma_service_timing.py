@@ -76,15 +76,39 @@ def test_profile_unavailable():
     assert parse_service_timing('"UNAVAILABLE"') is None
 
 
-def test_state_profile_schema_preserves_full_interval_and_generations():
-    fields = [6, 250000000, 2, 90, 31, 2, 42, 2**40, 1000, 0,
+@pytest.mark.parametrize('version,count', [(6, 31), (7, 44)])
+def test_state_profile_schema_preserves_full_interval_and_generations(version, count):
+    fields = [version, 250000000, 2, 90, count, 2, 42, 2**40, 1000, 0,
               1200, 2, 4, 6, 80, 2, 4, 6, 81, 60, 30]
     assert len(fields) == len(FIELDS_V6)
-    fields += [n for i in range(31) for n in (100+i, i+1)]
+    fields += [n for i in range(count) for n in (100+i, i+1)]
     result = parse_service_timing(','.join(map(str, fields)))
     assert result['full_phase_ticks'] == 1200 and result['total_ticks'] == 1000
     assert result['entry_return_sequence'] == 80 and result['exit_return_sequence'] == 81
     assert result['autonomous_phase_count'] == 60 and result['other_phase_count'] == 30
     assert result['stages']['rx_complete'] == {'ticks': 130, 'calls': 31}
+    if version == 7:
+        assert result['stages']['rx_request'] == {'ticks': 131, 'calls': 32}
+        assert result['stages']['select_empty'] == {'ticks': 138, 'calls': 39}
+        assert result['stages']['intent_bind'] == {'ticks': 143, 'calls': 44}
     with pytest.raises(ValueError):
         parse_service_timing(','.join(map(str, fields[:-1])))
+
+
+@pytest.mark.parametrize('case', ['request', 'dispatch'])
+def test_real_request_and_dispatch_branch_attribution(tmp_path, case):
+    compiler = shutil.which('gcc') or shutil.which('clang')
+    assert compiler, 'A host C compiler is required'
+    names = ['tdma_profile', 'tdma_traffic_scheduler'] if case == 'dispatch' else [
+        'tdma_pio_spi_ring_adapter', 'tdma_adapter_comm_fsm', 'tdma_flight_fifo',
+        'tdma_flight_engine', 'tdma_flight_overlay', 'tdma_overlay_prepare', 'tdma_rx_prepare',
+        'tdma_receive_health', 'tdma_process_image_map', 'tdma_ring_runtime',
+        'tdma_transport_frame', 'tdma_profile']
+    exe = tmp_path / (case + ('.exe' if os.name == 'nt' else ''))
+    subprocess.run([compiler, '-std=c11', '-Wall', '-Wextra', '-Werror',
+        '-DTDMA_SERVICE_TIMING_ENABLED=1', '-I' + str(ROOT/'components/tdma/inc'),
+        '-I' + str(ROOT/'components/vdc_domain/inc'),
+        str(ROOT/f'tests/unit/test_tdma_{case}_timing.c'),
+        *[str(ROOT/f'components/tdma/src/{name}.c') for name in names], '-o', str(exe)],
+        check=True, timeout=60)
+    subprocess.run([str(exe)], check=True, timeout=5)

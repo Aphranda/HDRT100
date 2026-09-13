@@ -70,6 +70,7 @@ static bool tdma_pio_spi_ring_rx_request(tdma_pio_spi_ring_adapter_t *adapter,
         adapter->phys_feedback(adapter->phys_context, &job->round_trip_ns,
             &job->resolution_ns, &job->flags);
     uint32_t sequence = 0u, identity = 0u;
+    const uint64_t hint_start = tdma_service_timing_now();
     (void)tdma_transport_frame_capture_hint(job->packet, packet_size, &sequence, &identity);
     job->expected_size = 0u;
     job->expected_clock = false;
@@ -82,6 +83,7 @@ static bool tdma_pio_spi_ring_rx_request(tdma_pio_spi_ring_adapter_t *adapter,
         job->expected_clock = adapter->reference_tx_evidence[index].clock_evidence;
         memcpy(job->expected, adapter->reference_tx_evidence[index].packet, job->expected_size);
     }
+    tdma_service_timing_record(TDMA_TIMING_RX_REQUEST_HINT, hint_start);
     /* Drain the captured frame's TX latch now. Binding is only a hint until
      * Core0 validates this same packet; no evidence record is published here. */
     job->local_tx_captured = false;
@@ -89,6 +91,7 @@ static bool tdma_pio_spi_ring_rx_request(tdma_pio_spi_ring_adapter_t *adapter,
     if (!job->origin_active && adapter->role != TDMA_PIO_SPI_RING_ROLE_REFERENCE &&
         (adapter->forwarding_mode == TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_FLIGHT ||
          adapter->forwarding_mode == TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE)) {
+        const uint64_t edge_start = tdma_service_timing_now();
         if (adapter->phys_local_tx_edge_ex != NULL) {
             job->local_tx_captured = adapter->phys_local_tx_edge_ex(adapter->phys_context,
                 sequence, identity, &job->local_tx);
@@ -98,6 +101,10 @@ static bool tdma_pio_spi_ring_rx_request(tdma_pio_spi_ring_adapter_t *adapter,
             if (job->local_tx_captured && job->local_tx.timestamp_ns != 0ull)
                 job->local_tx.flags = TDMA_RING_LOCAL_TX_EDGE_FLAG_TIMESTAMP_VALID;
         }
+        tdma_service_timing_record(TDMA_TIMING_RX_LOCAL_TX_EDGE, edge_start);
     }
-    return tdma_rx_prepare_request(job);
+    const uint64_t publish_start = tdma_service_timing_now();
+    const bool requested = tdma_rx_prepare_request(job);
+    tdma_service_timing_record(TDMA_TIMING_RX_REQUEST_PUBLISH, publish_start);
+    return requested;
 }

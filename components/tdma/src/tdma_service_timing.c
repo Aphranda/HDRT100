@@ -84,7 +84,11 @@ void TDMA_TIMING_TIME_CRITICAL(tdma_service_timing_record)(
     } else {
         s_work.elapsed_ticks[stage] += ticks;
     }
-    s_work.calls[stage]++;
+    if (s_work.calls[stage] == UINT16_MAX) {
+        s_work.invalid_count++;
+    } else {
+        s_work.calls[stage]++;
+    }
 }
 
 void tdma_service_timing_phase_end(void)

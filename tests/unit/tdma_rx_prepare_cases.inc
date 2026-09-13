@@ -64,7 +64,29 @@ static int test_rx_prepare_cases(void)
         packet, sizeof(packet), &size, &result), true);
     memcpy(phys.wire.echo_packet, packet, size);
     phys.wire.echo_packet_size = size; phys.wire.rx_pending = true;
+#if TDMA_SERVICE_TIMING_ENABLED
+    tdma_service_timing_request_reset();
+    tdma_service_timing_phase_begin();
+#endif
     ops->service(&adapter, 100u, &status);
+#if TDMA_SERVICE_TIMING_ENABLED
+    tdma_service_timing_phase_end();
+    tdma_service_timing_snapshot_t timing;
+    assert(tdma_service_timing_try_snapshot(&timing));
+    assert(timing.last.invalid_count == 0u);
+    assert(timing.last.calls[TDMA_TIMING_RX_REQUEST] == 1u);
+    assert(timing.last.calls[TDMA_TIMING_RX_REQUEST_HINT] == 1u);
+    assert(timing.last.calls[TDMA_TIMING_RX_LOCAL_TX_EDGE] == 1u);
+    assert(timing.last.calls[TDMA_TIMING_RX_REQUEST_PUBLISH] == 1u);
+    assert(timing.last.calls[TDMA_TIMING_RX_PARSE] == 0u);
+    assert(timing.last.elapsed_ticks[TDMA_TIMING_RX_REQUEST_HINT] +
+        timing.last.elapsed_ticks[TDMA_TIMING_RX_LOCAL_TX_EDGE] +
+        timing.last.elapsed_ticks[TDMA_TIMING_RX_REQUEST_PUBLISH] <=
+        timing.last.elapsed_ticks[TDMA_TIMING_RX_REQUEST]);
+    assert(timing.last.elapsed_ticks[TDMA_TIMING_RX_CAPTURE] +
+        timing.last.elapsed_ticks[TDMA_TIMING_RX_REQUEST] <=
+        timing.last.elapsed_ticks[TDMA_TIMING_RX_HANDOFF]);
+#endif
     failed += expect_u32("RX admission not acceptance", adapter.rx_count, 0u);
     failed += expect_u32("RX admitted", tdma_rx_prepare_state(&job), TDMA_RX_PREPARE_REQUESTED);
     failed += expect_u32("latch drained at admission", phys.latch_calls, 1u);
@@ -76,7 +98,19 @@ static int test_rx_prepare_cases(void)
     tdma_rx_prepare_core0_service(&job);
     failed += expect_u32("worker cannot commit adapter", adapter.rx_count, 0u);
     failed += expect_u32("worker ready", tdma_rx_prepare_state(&job), TDMA_RX_PREPARE_READY);
+#if TDMA_SERVICE_TIMING_ENABLED
+    tdma_service_timing_phase_begin();
+#endif
     ops->service(&adapter, 150u, &status);
+#if TDMA_SERVICE_TIMING_ENABLED
+    tdma_service_timing_phase_end();
+    assert(tdma_service_timing_try_snapshot(&timing));
+    assert(timing.last.calls[TDMA_TIMING_RX_CAPTURE] == 0u);
+    assert(timing.last.calls[TDMA_TIMING_RX_REQUEST] == 0u);
+    assert(timing.last.calls[TDMA_TIMING_RX_LOCAL_TX_EDGE] == 0u);
+    assert(timing.last.calls[TDMA_TIMING_RX_REQUEST_PUBLISH] == 0u);
+    assert(timing.last.calls[TDMA_TIMING_RX_PARSE] == 1u);
+#endif
     failed += expect_u32("Core1 accepts RX", adapter.rx_count, 1u);
     failed += expect_u32("no late latch read", phys.latch_calls, 1u);
     failed += expect_u64("original RX time", adapter.feedback_rx_timestamp_ns, 123u);

@@ -864,32 +864,41 @@ static bool tdma_pio_spi_phys_tx_clock_latch_read_and_rearm(
     tdma_pio_spi_phys_t *phys,
     uint64_t *timestamp_ns)
 {
+    const uint64_t read_start = tdma_service_timing_now();
     if (timestamp_ns != NULL) {
         *timestamp_ns = 0ull;
     }
     if (phys == NULL || timestamp_ns == NULL ||
         phys->role != TDMA_PIO_SPI_ROLE_SLAVE ||
         !phys->flight_tx_clock_latch_armed) {
+        tdma_service_timing_record(TDMA_TIMING_TX_LATCH_READ, read_start);
         return false;
     }
     const PIO pio = tdma_pio_spi_phys_tx_latch_pio(phys);
     const uint sm = tdma_pio_spi_phys_tx_latch_sm(phys);
     if (pio_sm_is_rx_fifo_empty(pio, sm)) {
         phys->snapshot.clock_latch_miss_count++;
+        tdma_service_timing_record(TDMA_TIMING_TX_LATCH_READ, read_start);
         return false;
     }
     const uint32_t remaining = pio_sm_get(pio, sm);
     const uint64_t elapsed_count = (uint64_t)UINT32_MAX - remaining;
     const uint64_t elapsed_ns = elapsed_count *
         (uint64_t)phys->flight_tx_clock_latch_resolution_ns;
+    tdma_service_timing_record(TDMA_TIMING_TX_LATCH_READ, read_start);
     if (UINT64_MAX - phys->flight_tx_clock_latch_epoch_ns < elapsed_ns) {
         phys->snapshot.clock_latch_miss_count++;
+        const uint64_t rearm_start = tdma_service_timing_now();
         (void)tdma_pio_spi_phys_tx_clock_latch_rearm(phys);
+        tdma_service_timing_record(TDMA_TIMING_TX_LATCH_REARM, rearm_start);
         return false;
     }
     *timestamp_ns = phys->flight_tx_clock_latch_epoch_ns + elapsed_ns;
     phys->snapshot.clock_latch_count++;
-    return tdma_pio_spi_phys_tx_clock_latch_rearm(phys);
+    const uint64_t rearm_start = tdma_service_timing_now();
+    const bool rearmed = tdma_pio_spi_phys_tx_clock_latch_rearm(phys);
+    tdma_service_timing_record(TDMA_TIMING_TX_LATCH_REARM, rearm_start);
+    return rearmed;
 }
 
 bool tdma_pio_spi_phys_take_local_tx_edge(void *context,

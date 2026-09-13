@@ -2306,8 +2306,10 @@ static bool tdma_pio_spi_ring_adapter_rx_once_impl(
     const bool paired = adapter->origin.active != 0u &&
         adapter->phys_origin.take_rx_observation(adapter->phys_ctrl_context, &observation);
     if (job != NULL) {
+        const uint64_t request_start = tdma_service_timing_now();
         (void)tdma_pio_spi_ring_rx_request(adapter, job, packet_size, rx_timestamp_ns,
             paired ? &observation : NULL);
+        tdma_service_timing_record(TDMA_TIMING_RX_REQUEST, request_start);
         return false; /* Admission is not an accepted receive. */
     }
     return tdma_pio_spi_ring_adapter_process_rx(adapter,

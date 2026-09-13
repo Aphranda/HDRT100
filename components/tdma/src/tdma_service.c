@@ -981,9 +981,12 @@ static bool tdma_service_dispatch_next_scheduled(
         return false;
     }
     tdma_traffic_dispatch_t dispatch;
+    const uint64_t clock_start = tdma_service_timing_now();
+    const uint64_t now_ns = tdma_service_now_ns();
+    tdma_service_timing_record(TDMA_TIMING_INTENT_CLOCK, clock_start);
     const tdma_traffic_scheduler_result_t result =
         tdma_traffic_scheduler_select(service->traffic_scheduler,
-                                      tdma_service_now_ns(),
+                                      now_ns,
                                       tdma_service_load(
                                           &service->maintenance_gate_open) != 0u,
                                       &dispatch);
@@ -991,6 +994,7 @@ static bool tdma_service_dispatch_next_scheduled(
         return false;
     }
 
+    const uint64_t bind_start = tdma_service_timing_now();
     tdma_service_begin_intent_write(service);
     service->intent_seq++;
     service->window_epoch = dispatch.request.window_epoch;
@@ -1029,6 +1033,7 @@ static bool tdma_service_dispatch_next_scheduled(
                dispatch.request.frame_size);
     }
     tdma_service_end_intent_write(service);
+    tdma_service_timing_record(TDMA_TIMING_INTENT_BIND, bind_start);
     return true;
 }
 

@@ -17,6 +17,11 @@ STAGES_BY_VERSION = {
     5: STAGES_V4 + ("rx_inspect", "rx_health", "rx_evidence", "rx_fifo_publish", "rx_commit", "rx_complete"),
 }
 STAGES_BY_VERSION[6] = STAGES_BY_VERSION[5]
+STAGES_BY_VERSION[7] = STAGES_BY_VERSION[6] + (
+    "rx_request", "rx_request_hint", "rx_local_tx_edge", "tx_latch_read",
+    "tx_latch_rearm", "rx_request_publish", "intent_clock", "select_empty",
+    "select_blocked", "select_busy", "select_dispatch", "select_refresh", "intent_bind",
+)
 FIELDS = (
     "version", "clock_hz", "reset_generation", "phase_count", "stage_count",
     "peak", "sequence", "start_ticks", "total_ticks", "invalid_count",
@@ -38,7 +43,7 @@ def parse_service_timing(raw: str) -> dict | None:
     stages = STAGES_BY_VERSION.get(values[0])
     if stages is None:
         raise ValueError(f"Unsupported TDMA profile version: {values[0]}")
-    fields = FIELDS_V6 if values[0] == 6 else FIELDS
+    fields = FIELDS_V6 if values[0] >= 6 else FIELDS
     if values[4] != len(stages) or len(values) != len(fields) + 2 * len(stages):
         raise ValueError("TDMA profile stage count or length mismatch")
     result = dict(zip(fields, values[:len(fields)]))

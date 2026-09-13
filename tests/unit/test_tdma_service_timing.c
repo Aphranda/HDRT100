@@ -255,6 +255,32 @@ int main(void)
     assert(tdma_service_timing_try_snapshot(&after));
     assert(after.autonomous_peak.sequence == 0 && after.autonomous_phase_count == 0);
     assert(after.other_phase_count == 1 && after.other_peak.full_phase_ticks == 5);
-    puts("PASS: timing, state attribution, scheduler interval, deferred reset and invalid clock");
+    /* Compact per-phase counts must never wrap or replace a valid peak.
+     * Exercise the production accumulator through the saturation boundary. */
+    const uint32_t valid_peak_sequence = after.peak.sequence;
+    tdma_service_timing_phase_begin();
+    const uint64_t count_start = ticks;
+    for (uint32_t i = 0u; i < UINT16_MAX; ++i)
+        tdma_service_timing_record(TDMA_TIMING_SELECT_EMPTY, count_start);
+    assert(s_work.calls[TDMA_TIMING_SELECT_EMPTY] == UINT16_MAX);
+    assert(s_work.invalid_count == 0u);
+    ticks += 10;
+    tdma_service_timing_record(TDMA_TIMING_SELECT_EMPTY, count_start);
+    tdma_service_timing_phase_end();
+    tdma_service_timing_scheduler_end(15);
+    assert(tdma_service_timing_try_snapshot(&after));
+    assert(after.last.calls[TDMA_TIMING_SELECT_EMPTY] == UINT16_MAX);
+    assert(after.last.invalid_count == 1u);
+    assert(after.peak.sequence == valid_peak_sequence);
+    assert(after.other_peak.full_phase_ticks == 5u);
+    tdma_service_timing_request_reset();
+    tdma_service_timing_phase_begin();
+    ticks++;
+    tdma_service_timing_phase_end();
+    tdma_service_timing_scheduler_end(5);
+    assert(tdma_service_timing_try_snapshot(&after));
+    assert(after.last.calls[TDMA_TIMING_SELECT_EMPTY] == 0u);
+    assert(after.last.invalid_count == 0u);
+    puts("PASS: timing, state attribution, scheduler interval, deferred reset, count saturation and invalid clock");
     return 0;
 }

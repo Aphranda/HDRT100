@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define TDMA_SERVICE_TIMING_VERSION 6u
+#define TDMA_SERVICE_TIMING_VERSION 7u
 #ifndef TDMA_SERVICE_TIMING_ENABLED
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #define TDMA_SERVICE_TIMING_ENABLED 1
@@ -56,6 +56,24 @@ typedef enum {
     TDMA_TIMING_RX_FIFO_PUBLISH,
     TDMA_TIMING_RX_COMMIT,
     TDMA_TIMING_RX_COMPLETE,
+    /* Request-only path inside RX_HANDOFF; accepting a READY result instead
+     * reports RX_PARSE. Edge read and rearm are children of LOCAL_TX_EDGE. */
+    TDMA_TIMING_RX_REQUEST,
+    TDMA_TIMING_RX_REQUEST_HINT,
+    TDMA_TIMING_RX_LOCAL_TX_EDGE,
+    TDMA_TIMING_TX_LATCH_READ,
+    TDMA_TIMING_TX_LATCH_REARM,
+    TDMA_TIMING_RX_REQUEST_PUBLISH,
+    /* CLOCK and BIND are children of INTENT_DISPATCH. Exactly one SELECT
+     * outcome is recorded per scheduler call. REFRESH is nested inside it;
+     * EMPTY means all queues and recovery buffers were empty under lock. */
+    TDMA_TIMING_INTENT_CLOCK,
+    TDMA_TIMING_SELECT_EMPTY,
+    TDMA_TIMING_SELECT_BLOCKED,
+    TDMA_TIMING_SELECT_BUSY,
+    TDMA_TIMING_SELECT_DISPATCH,
+    TDMA_TIMING_SELECT_REFRESH,
+    TDMA_TIMING_INTENT_BIND,
     TDMA_TIMING_STAGE_COUNT,
 } tdma_service_timing_stage_t;
 
@@ -78,7 +96,9 @@ typedef struct {
     tdma_service_timing_context_t entry;
     tdma_service_timing_context_t exit;
     uint32_t elapsed_ticks[TDMA_TIMING_STAGE_COUNT];
-    uint32_t calls[TDMA_TIMING_STAGE_COUNT];
+    /* Counts are per phase. Saturation invalidates the record instead of
+     * wrapping; SCPI still exports each count as an unsigned integer. */
+    uint16_t calls[TDMA_TIMING_STAGE_COUNT];
 } tdma_service_timing_record_t;
 
 typedef struct {

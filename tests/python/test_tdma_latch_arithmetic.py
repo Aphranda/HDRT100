@@ -22,6 +22,8 @@ def timing(tmp_path_factory):
     arithmetic = (ROOT / "components/tdma/src/tdma_pio_spi_phys_timing.c").read_text(encoding="utf-8")
     prefix = r'''
 #include "tdma_pio_spi_phys_timing.h"
+#define TDMA_SERVICE_TIMING_ENABLED 1
+#include "tdma_service_timing.h"
 #include <assert.h>
 #include <stdbool.h>
 #include <string.h>
@@ -38,12 +40,18 @@ typedef struct {
     bool armed, flight_clock_latch_armed, flight_tx_clock_latch_armed;
     uint64_t flight_clock_latch_epoch_ns, flight_tx_clock_latch_epoch_ns;
     uint32_t flight_clock_latch_resolution_ns, flight_tx_clock_latch_resolution_ns;
-    struct { uint32_t clock_latch_resolution_ns; } snapshot;
+    struct { uint32_t clock_latch_resolution_ns, clock_latch_miss_count, clock_latch_count; } snapshot;
 } tdma_pio_spi_phys_t;
 static unsigned s_tdma_pio_spi_program_persona;
 static uint32_t hz, clock_calls, event[16], events, endpoint, fifo[2], fifo_cursor;
 static const uint64_t epoch = UINT64_C(0x100000001);
 static uint32_t s_tdma_pio_spi_flight_clock_latch_offset = 19;
+static uint64_t probe_ticks;
+static uint32_t probe_calls[TDMA_TIMING_STAGE_COUNT];
+uint64_t tdma_service_timing_now(void) { return ++probe_ticks; }
+void tdma_service_timing_record(tdma_service_timing_stage_t stage, uint64_t start) {
+    assert(start <= probe_ticks && stage < TDMA_TIMING_STAGE_COUNT); ++probe_calls[stage];
+}
 static void record(uint32_t e) { assert(events < 16); event[events++] = e; }
 static void endpoint_check(PIO p, uint sm) { assert(p == endpoint && sm == endpoint + 1); }
 static uint32_t clock_get_hz(uint c) { assert(c == clk_sys); ++clock_calls; return hz; }
@@ -75,6 +83,7 @@ static uint32_t pio_sm_get(PIO p, uint sm) { endpoint_check(p,sm); assert(fifo_c
     routines = "\n".join("static bool " + name + "(tdma_pio_spi_phys_t *phys) {" +
         c_definition_body(phys, name) + "}\n" for name in (
             "tdma_pio_spi_phys_clock_latch_rearm", "tdma_pio_spi_phys_tx_clock_latch_rearm"))
+    routines += "static bool tdma_pio_spi_phys_tx_clock_latch_read_and_rearm(tdma_pio_spi_phys_t *phys, uint64_t *timestamp_ns) {" + c_definition_body(phys, "tdma_pio_spi_phys_tx_clock_latch_read_and_rearm") + "}\n"
     routines += "bool tdma_pio_spi_phys_feedback_round_trip(void *context, uint32_t *round_trip_ns, uint32_t *resolution_ns, uint32_t *flags) {" + c_definition_body(io, "tdma_pio_spi_phys_feedback_round_trip") + "}\n"
     # Native ABI and explicitly modeled RP2350 size_t arithmetic execute the
     # same production body. Python supplies an independent unsigned oracle.
@@ -83,6 +92,25 @@ static uint32_t pio_sm_get(PIO p, uint sm) { endpoint_check(p,sm); assert(fifo_c
     routines += "uint64_t wire_32(uint32_t baud_hz, uint32_t packet_size, uint32_t packet_header_size) {" + wire + "}\n"
     suffix = r'''
 uint32_t resolution(uint32_t frequency) { return tdma_pio_spi_phys_latch_resolution_ns(frequency); }
+void exercise_tx_read(unsigned mode) {
+    tdma_pio_spi_phys_t p = {.role = TDMA_PIO_SPI_ROLE_SLAVE, .flight_tx_clock_latch_armed = true,
+        .flight_tx_clock_latch_epoch_ns = mode == 3 ? UINT64_MAX - 1 : 1000,
+        .flight_tx_clock_latch_resolution_ns = 8};
+    uint64_t timestamp = 9999;
+    hz = mode == 4 ? 0 : 250000000; s_tdma_pio_spi_program_persona = 13;
+    endpoint = 2; events = clock_calls = 0; fifo_cursor = mode == 1 ? 2 : 0;
+    fifo[0] = UINT32_MAX - 2;
+    memset(probe_calls, 0, sizeof(probe_calls));
+    const bool ok = tdma_pio_spi_phys_tx_clock_latch_read_and_rearm(mode == 0 ? NULL : &p, &timestamp);
+    assert(ok == (mode == 2));
+    assert(timestamp == ((mode == 2 || mode == 4) ? 1016u : 0u));
+    assert(probe_calls[TDMA_TIMING_TX_LATCH_READ] == 1);
+    assert(probe_calls[TDMA_TIMING_TX_LATCH_REARM] == (mode >= 2));
+    assert(clock_calls == (mode >= 2));
+    assert(events == ((mode == 2 || mode == 3) ? 9u : 0u));
+    assert(p.snapshot.clock_latch_miss_count == (mode == 1 || mode == 3));
+    assert(p.snapshot.clock_latch_count == (mode == 2 || mode == 4));
+}
 void exercise_rearm(uint32_t frequency, unsigned persona, unsigned role, unsigned tx, unsigned null_phys) {
     tdma_pio_spi_phys_t p = {.role = role};
     const tdma_pio_spi_phys_t before = p;
@@ -129,9 +157,15 @@ unsigned exercise_feedback(uint32_t frequency, uint32_t remaining, uint32_t *dur
     lib.wire_native.argtypes, lib.wire_native.restype = [C.c_uint32, C.c_size_t, C.c_size_t], C.c_uint64
     lib.wire_32.argtypes, lib.wire_32.restype = [C.c_uint32] * 3, C.c_uint64
     lib.exercise_rearm.argtypes, lib.exercise_rearm.restype = [C.c_uint32] * 5, None
+    lib.exercise_tx_read.argtypes, lib.exercise_tx_read.restype = [C.c_uint32], None
     lib.exercise_feedback.argtypes = [C.c_uint32] * 2 + [C.POINTER(C.c_uint32)] * 3
     lib.exercise_feedback.restype = C.c_uint
     return lib
+
+
+def test_tx_latch_probe_preserves_empty_overflow_and_failed_rearm(timing):
+    for mode in range(5):
+        timing.exercise_tx_read(mode)
 
 
 def test_latch_resolution_rounding_transitions(timing):
