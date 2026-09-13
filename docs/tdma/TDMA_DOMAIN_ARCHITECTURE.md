@@ -1009,6 +1009,14 @@ physical frame 间连续一致，达到 `TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_F
 physical alignment，解析副本的后续恢复不得重新定位线上的 owner 槽位；持续异常
 时的初始对齐准入和真实线路失步仍需独立故障证据。
 
+自主 origin 的发布仍先调用物理 ready 服务 selection 退休，再经 FIFO acquire
+取得完整版本并判定是否已发布。尝试提前调用
+`tdma_flight_fifo_core1_reuse_current_tx()` 的候选虽保持 owner/版本/STOP 边界，
+但实板未证明完整 phase 稳定改善，已撤回，见 `TDMA-PROGRESS-20260914-010`。
+这不改变前述 follower 提前复用基线；不同角色和负载的发布成本须分别验证。
+FIFO 窗口复用计数不能确定独立高峰的子分支，临时 view 减少也不等于整段发布
+耗时可省。所有原计时与 STOP 区间仍属于完整 CPU/RAM 核算。
+
 软件模型、build/P3 流程、矩阵下的独立四板短帧闭环与逐 hop owner/CRC 原始采集，
 只能证明各自声明的有限范围。严格校准、完整 Core1 WCET、正式 RAM 余量、DMA 最坏
 仲裁/断粮、环境覆盖与 reference 自主发车必须分别验证；成功与失败由 Task Progress 绑定当前

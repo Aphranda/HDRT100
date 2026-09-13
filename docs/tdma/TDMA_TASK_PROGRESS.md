@@ -8,7 +8,16 @@ Last updated: 2026-09-14
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前完成自主主站 observation 与本地版本发布的独立归因，见
+当前完成自主主站提前复用候选的对照并决定撤回，见
+`TDMA-PROGRESS-20260914-010`，证据根为
+`out/HardwareAcceptance/20260914/tdma-flight-origin-early-reuse/`。候选先服务 DMA
+selection 退休，再检查完整 owner 版本；边界回归通过且不增加静态 RAM，但同节点/
+同槽位窗口未证明完整 phase 稳定改善，发布分项反而升高，未采纳。候选源码、补丁、
+两槽四轮及全部 PEAK/RUN/OTHER 均保留。生产源码已恢复前序指纹；新包软件、构建、
+P3 调试流程、两轮记录和普通恢复完成。恢复 P3 的 SCK training 与 re-arm 行选择
+拒绝保留，strict=false；最终四板 STOP/config ACK、许可证退出及 SD 核对通过。
+完整预算、正式 RAM、增长因果及历史 SD 写失败根因仍开放。
+前序完成自主主站 observation 与本地版本发布的独立归因，见
 `TDMA-PROGRESS-20260914-009`，证据根为
 `out/HardwareAcceptance/20260914/tdma-flight-origin-service-attribution/`。既有探针
 保留，新增两项区间分别覆盖边界读取/更新及本地发布 helper；后者包含无更新、
@@ -378,6 +387,77 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260914-010 - 自主主站提前复用候选撤回与恢复验收
+
+- 日期：2026-09-14
+- 状态：PARTIAL；候选软件、构建、P3、两槽四轮记录及普通恢复完成；未证明完整
+  phase 稳定收益，未采纳。恢复源码的软件、构建、P3 调试流程、两轮记录和普通
+  恢复完成，严格失败保留，完整预算继续开放。
+- 延续 009 发布归因，在 `tdma_pio_spi_ring_origin_publish()` 的物理 ready 之后、
+  `tdma_flight_fifo_core1_acquire_tx()` 之前，尝试以既有
+  `tdma_flight_fifo_core1_reuse_current_tx()` 提前复用已发布的完整版本。先服务 DMA
+  selection 退休，仅空队列且 active owner/generation/sequence 一致时返回；坏描述符、
+  新版本及延后发布继续原 acquire/validation。只省无更新时临时 view 构造，不绕过
+  新版本的布局授权或完整性检查。
+- 候选与撤回后软件回归各为 50 passed（本轮快照，非事实源）。候选测试覆盖 pending
+  selection、退休后一次复用、坏描述符消费/拒绝、相同低位但不同完整版本、新数据准入、
+  空队列下延后版本重试及失败/成功 STOP 的保留/清理；两份候选源码一起归档并恢复。
+- 候选与恢复包 A/B/Boot、Flash link contract 通过。链接快照（非事实源）：编译容量
+  为 6、实环为 4、payload/packet 为 132/164 B；v9 的 51 项探针保持，work/snapshot
+  为 368/1496 B，heap 外余量保持 48 B。PIO headers 与前序逐字节一致，无新增静态
+  RAM 或资源借用。容量/布局/计时仍以 `PROJECT_NODE_CAPACITY`、active topology 与
+  `TDMA_SERVICE_TIMING_VERSION` 为实现入口，不提升正式 RAM 状态。
+- 候选 build `20260913221822`、源码指纹
+  `c1a8dade26301bc83dfabbece794caa59eb5041646c50afd09d19db4ed3ddffc`；恢复 build
+  `20260913224213`、指纹
+  `6d1cd151c66fe784d88054fe018ee244717485ffaecfeae621440d506be837bb` 与前序源码一致
+  （本轮快照，非事实源）。`candidate-source/`、`candidate-source.patch` 与
+  `decision-r1.json` 绑定撤回前原件；不使用旧凭证代替恢复包 P3。
+- 009 主站稳定窗口 FIFO reuse/service 为 987/1716、977/1711，候选四轮为
+  990/1715、989/1716、990/1716、994/1712（有限窗口快照，非事实源）。窗口计数说明
+  复用机会存在，不能证明独立高峰走了复用分支，也不能把整段发布时间视为可省收益。
+- 同 UID、同实际启动槽完整外层对照如下。NO1 为 RUN，其余为 OTHER；每格为两轮
+  各自选中记录，单位 us（有限窗口快照，非事实源，不是同拍配对或 WCET 证明）。
+
+  | 节点 / 实际槽 | 009 基线 | 提前复用候选 |
+  |---|---|---|
+  | NO1 / A | 629.668 / 655.348 | 635.172 / 647.540 |
+  | NO2 / A | 692.492 / 698.088 | 705.392 / 724.084 |
+  | NO3 / A | 706.400 / 703.424 | 713.280 / 717.372 |
+  | NO4 / B | 674.444 / 662.208 | 672.692 / 663.872 |
+
+- 同槽主站 RUN 的 ORIGIN_PUBLISH 从基线 107.244/117.772 us 变为候选
+  145.488/149.208 us，RX_PARSE 为 145.944/146.944 us。另一槽主站 RUN 为
+  680.664/638.512 us，发布分项为 138.584/108.600 us（有限窗口快照，非事实源）。
+  分项变化不能抵扣成固定收益；新数据路径增加一次快速检查，但源码布局、调度与
+  共享干扰尚未隔离，不能将全部变化归因于该检查或槽位。
+- 候选 slot-r1 主站 OTHER 为 759.472 us、body 为 728.944 us，入口自主、出口停止，
+  ORIGIN_PUBLISH 未执行（有限窗口快照，非事实源）。这是独立 STOP 成本线索，仍计入
+  完整预算；候选四轮 48 条 PEAK/RUN/OTHER 与基线 24 条全部保留，不用较低 RUN 覆盖
+  其它高值。完整静态预算未达，增长因果仍未闭合。
+- 候选 P3 quick diagnostic 流程 strict=true，普通 process-image 的
+  passed/closed_loop/realtime/diagnostic 全过；四轮自主记录原始
+  passed/closed_loop/realtime=false、diagnostic=true 保持。START 后零查询，各轮
+  STOP 后导出并核对 SD，两次普通恢复及四板 STOP/config ACK、许可证退出通过。
+  调试窗口不升级为正式产品 P3、物理节拍或 CPU/RAM 验收。
+- 恢复源码 P3 调试流程完成但 strict=false：TRN-01 SCK training 拒绝，TRN-03 未选出
+  满足 flight re-arm 预算的实测 SCK 行。P3 普通 process-image 闭环全过；随后使用
+  已固定矩阵的两轮自主原始 passed/closed_loop/realtime=false、diagnostic=true
+  保持，不能以有界调试继续覆盖前述拒绝。
+- 恢复包实际槽位为 NO1/NO2/NO3 B、NO4 A；UID、build、包、镜像长度/CRC、启动来源
+  和全部 24 条 PEAK/RUN/OTHER 由 `restored-review-r1.json` 绑定。主站 RUN 为
+  661.060/669.236 us、发布分项为 121.672/126.408 us；从站 OTHER 为 NO2
+  719.440/704.992 us、NO3 696.472/698.624 us、NO4 659.472/667.772 us（有限窗口
+  快照，非事实源）。同源码恢复不代表时序问题消失，不将不同槽的基线直接相减。
+- 恢复两轮 START 后零查询，STOP 后 SD 字节核对通过；最终普通闭环、四板
+  STOP/config ACK、许可证退出及 SD 核对通过，只关闭本轮恢复。本轮没有新增 SD
+  写失败；008 的两次 NO3 SD 写失败及历史生命周期间歇故障继续开放；NO5 和 registry
+  未改。后续按角色分离新版本准入/发布、RX 接受与 STOP 成本，完整预算不扣除诊断。
+- 原件入口：`source-checkpoint-r1.json`、`baseline-load-review-r1.json`、
+  `current-load-review-r1.json`、`slot-comparison-r1.json`、`decision-r1.json`、
+  `restored-source-checkpoint-r1.json`、`restored-review-r1.json`、`review-final-r1.json`；证据根为
+  `out/HardwareAcceptance/20260914/tdma-flight-origin-early-reuse/`。
 
 ### TDMA-PROGRESS-20260914-009 - 自主主站边界读取与本地发布归因
 
