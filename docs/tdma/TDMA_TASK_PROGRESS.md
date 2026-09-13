@@ -8,7 +8,12 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的启动观测成本与 SCPI raw 输出切片见
+当前 `TDMA-FLIGHT-002F` 的 Core0 有界输出与启动观察闭合切片见
+`TDMA-PROGRESS-20260913-046`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-serial-observation/`。原短帧启动门禁通过，
+SD RUN 保存、完整波形、完整 WCET 和正式 RAM 仍未闭合。按用户最新要求，后续 SCPI
+只触发流程，实时采样改为板端记录，结束后统一导出；不再扩展串口轮询方案。
+前序启动观测成本与 SCPI raw 输出切片见
 `TDMA-PROGRESS-20260913-045`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-startup-observation/`。完整五查询对照已测得
 主机采样耗时下降，严格启动仍失败；SD 超时、原始捕获完整性、完整 WCET、正式 RAM 与
@@ -182,6 +187,49 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-046 - Core0 有界输出、原启动门禁闭合与板端记录转向
+
+- 日期：2026-09-13；TODO task ID：`TDMA-FLIGHT-002F`。以下数字为实验快照，非事实源；
+  证据根为 `out/HardwareAcceptance/20260913/tdma-flight-serial-observation/`，基线为
+  `8cb7ac95ef5306c4cc77d3968c7b0a9cdb6103d5`。提交号与原始证据 SHA 见 `commit-proof.json`
+  和 `slice-manifest.json`；代码/文档分离提交，不 push。
+- 归因：完整查询中的串口读取与字节到达记录见 `serial-arrival-r1.json`、
+  `serial-arrival-analysis-r1.json`。已排队字节的读取中位成本约 `13–21 us`，较长响应
+  到达跨度约 `0.321–0.461 s`；主要等待不是主机处理积压字节。实际 parser 将数字和
+  分隔符分开写入，SDK 默认驱动每次输出执行 USB service/flush。此证据不定位具体板端
+  task/IRQ 的全部耗时，也不构成 silicon event time 或 Core1 WCET 证明。
+- 实现：仅 Core0 默认 stdio 路径使用 `SCPI_PORT_STDIO_BATCH_BYTES` 栈缓冲合并小片段，
+  借用现有 context 槽，函数返回前排出尾部并恢复指针。用满、显式 flush、路由切换及
+  错误日志前排出待发字节；capture/custom 语义保持。没有新增静态缓冲或 Core1 action，
+  不改 TDMA 生命周期、PIO/DMA、wire、owner、节点容量或预算。
+- 软件与构建：相关测试 `264 passed`、文档测试 `18 passed`。真实生产 C 和真实 parser
+  验证分片/重复输入、长二进制响应、复位前显式 flush、捕获截断/canary、custom 路由、
+  错误退出和 context 恢复。前三次测试 harness 的定义提取、MinGW visibility 及 query
+  换行预期修正均保留；未据测试修改 parser 语义。A/B/Boot 与 Flash link gate 通过，
+  build `20260913005845`；源码指纹
+  `a3e9e6fff7842cd1b4f3679eec7cdfc8c518c721c44dcfbc061ff2ca4d0ace8a`，文件数 `1026`。
+  六节点、生成 PIO 保持，A/B link free 均 `4832 B`。实际 service 局部栈帧由 `48 B`
+  增至 `136 B`、writer 由 `24 B` 增至 `48 B`；局部帧不等于完整调用链栈上界。
+- 原观察门禁闭合：当前源码 P3 QUICK_DIAGNOSTIC 流程的 `strict_gates_passed=true`，
+  MARK 与全部轮换 origin、SCK、DATA 测量通过。原 `2 s` 启动条件下，初始样本仍记录
+  incomplete/rejected 增长，后两个健康样本在 `0.969/1.437 s` 完成，原门禁通过。
+  独立完整五查询对照中，前后各 `32` 组 RUN 单板采样中位数 `1.208 → 0.358 s`，
+  约下降 `70.4%`；最大值 `1.712 → 0.442 s`，第三个稳定样本由超时 `6.672 s` 提前至
+  `2.156 s`，原 `6 s` 截止通过。实际应用相位相同，校准 identity、链路实测及计数
+  仍变化；有限对照不保证固定收益比例。见 `query-comparison-r1.json`。
+- 通过范围与存储失败分开：独立窗口 `1.938 s` 内四板 good 增长
+  `473/475/484/475`，bad 增长为零。波形运行短帧门禁也通过，但 SD RUN 保存仍超时，
+  `diagnostic_passed=false`；其 `passed=true` 不得提升为波形通过。STOP 后只读取回
+  原四份文件；NO2 当前完整帧 transport 有效，其余三板仍无完整帧。SCK 中位门禁通过，
+  不证明最坏抖动或失败首圈。最终四板停止、配置应用、相位与许可证读回通过；SCPI 栈
+  最低余量 `2612/2612/2408/2612 B`，任务水位门禁通过；最低堆均 `20352 B`，正式 RAM
+  仍失败。证据见 `hardware-review-r1.json`。
+- 用户进一步明确 SCPI 只触发流程，不做实时采样；上述五查询对照在该要求前完成，
+  后续不再扩展该方案。下一切片改为板端时钟驱动的固定容量记录，先进入 RAM，再由
+  Core0 Storage owner 保存到 SD，结束后统一导出；先定位现有 RUN 保存等待，保留
+  原健康/时限/覆盖证据。整体仍为 PARTIAL，完整 TDMA WCET、正式 RAM、service blackout、
+  同圈交换与特等席逐圈保全继续开放；门限与节点容量后续项顺序保持。
 
 ### TDMA-PROGRESS-20260913-045 - 启动观测成本归因与默认 SCPI raw 分片输出
 

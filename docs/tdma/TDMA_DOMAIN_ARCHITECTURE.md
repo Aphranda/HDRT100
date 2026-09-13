@@ -1655,11 +1655,18 @@ components/tdma/
 
 ## 验证门禁
 
-主机观察成本与板端事件时间分开记录。启动门禁继续使用完整 runtime/process/FIFO/
-physical/CRC 采样，保留原健康项、连续稳定间隔和采样完成截止；初始 pipeline fill 的
-拒绝计数也必须留存。优化 Core0 的维护输出不能删减这些条件。默认 SCPI stdio 路径
-由 `scpi_port_write` 将已有 parser fragment 原样交给驱动，避免逐字节进入驱动；
-不得插入换行或转换 CR/LF，capture/custom stream 的路由和返回语义保持独立。
+主机观察成本与板端事件时间分开记录。按用户当前要求，SCPI 只触发流程，不承担运行期
+实时采样；后续验收改由板端时钟驱动记录，结束后统一导出。旧 runtime/process/FIFO/
+physical/CRC 五查询只保留为历史对照；迁移必须保留相应健康项、连续稳定间隔、采样期限
+与初始 pipeline fill 拒绝计数，不能用减少字段或主机完成时间代替板端事实。板端记录先
+进入有界 RAM，Core0 经 Storage owner 异步保存到 SD；Core1 不等待文件系统。记录容量、
+覆盖/丢弃、generation、取消和保存完成分别留证，SD/Flash 不得绕过资源仲裁或实时准入。
+当前存储路径尚未完成持续记录验收，不能由维护输出优化声明替代。默认 SCPI stdio 路径
+由 `scpi_port_input` 在单次同步输入调用中借用 context 的 `user_context` 槽，使用上限为
+`SCPI_PORT_STDIO_BATCH_BYTES` 的栈缓冲合并 parser 小片段。`scpi_port_write` 保持字节顺序；
+缓冲用满、显式 flush、传输切换、错误日志前和输入返回时排出待发字节，返回前恢复
+context，不得把栈指针留到后续调用。不得插入换行或转换 CR/LF，capture/custom stream
+的路由和返回语义保持独立；临时批量只减少 Core0 驱动交接，不新增静态存储池。
 该观察链优化不证明 Core1 WCET、物理节拍、逐圈时间戳或 blackout 门禁通过。
 
 TDMA Domain 最小验证必须覆盖：
