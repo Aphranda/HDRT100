@@ -8,7 +8,14 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002B/002F` 的 mailbox CRC 等价运算切片见
+当前 `TDMA-FLIGHT-002B/002F` 的协调启停与本地停止边界审查见
+`TDMA-PROGRESS-20260913-061`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-coordinated-lifecycle-review/`。完成候选
+阶段、通知载荷、精度条件、链路关闭顺序与现有 STOP 调用关系核对；网络协议未实现，
+未产生新的固件或硬件计时结论。既有生命周期回归通过 22 项，另 1 项夹具缺少构图
+取消依赖而编译失败（本次验证快照，非事实源）；原错误保留，作为后续 STOP 修改
+前置修复项。耗时增长仍优先，完整目标保持进行中。
+前序 `TDMA-FLIGHT-002B/002F` 的 mailbox CRC 等价运算切片见
 `TDMA-PROGRESS-20260913-060`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-mailbox-crc-byte/`。全部状态/字节组合与原
 逐位算法一致，实际 A/B 每字节 CRC 循环从 44 条指令缩为 9 条，既有校验均保留。
@@ -272,6 +279,76 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-061 - TDMA 协调启停候选与本地停止调用审查
+
+- 任务：`TDMA-FLIGHT-002B/002F`。日期：2026-09-13。状态：`PARTIAL`。本轮为设计与
+  现有源码审查，不冻结契约、不修改 registry 状态；以下阶段名为候选语义，未实现。
+  基线提交 `20592bde233e6e2c84567ec425e807207811a30d`，证据根为
+  `out/HardwareAcceptance/20260913/tdma-flight-coordinated-lifecycle-review/`。
+- 可行性：TDMA 可以在最小通路建立后承载生命周期意图和确认。HAOFV 仍由
+  `TdmaSchedulerAO`/Core1 owner 管生命周期，FB/ECC 分步推进，Vector 发布事实；
+  Core0 只做授权准备与命令交接，VDC 提供合格共同时间，PIO/DMA 执行预授权边界
+  动作。SCPI 只触发，板端记录，停止后统一导出。分阶段增加准备或停止总延迟，
+  目的是压低单次 action 峰值并约束生效边界，不能直接宣称完整 phase 达标。
+- 候选执行阶段：
+
+  | 阶段 | 处理与退出条件 |
+  |---|---|
+  | 本地最小通路 | 本地 owner 完成资源准入并建立接收/转发和必要基础发射；完全关断的环不能接收自身 START。冷启动不能先要求依赖该环取得的 VDC lock。 |
+  | PREPARE / READY / NACK | 各节点准备固定工位、布局和计划；READY 绑定真实资源、配置与事务。准备期间保留已准入的旧通路；共享 union 必须停止旧 DMA 的现有限制仍有效。 |
+  | 分发执行目标 / COMMIT | 提前分发目标圈或 VDC 共同时间并验证必要参与者就绪、目标仍在未来和截止期限。目标改变必须使旧确认失效；消息迟到不能改成收到即执行。 |
+  | 边界执行 | Core1 事先安装完整计划，硬件到达授权边界只做短动作；实际执行记录绑定事务与边界，协调方收齐实际事实后才能发布完整 RUN。 |
+  | STOP_PREPARE / DRAIN | 先关闭新业务装载，保留转发、生命周期通知及最后有效时间证据；等待已接收业务与末圈退休，排空不能无限等待。 |
+  | 关断 / 回收 | 在链路尚通时完成必要确认及最终关断安排，再按预装末圈边界或共同时间停线；后台取消 ACK、DMA 退休和资源回收可有界分拍，全部完成后才确认本地 STOP。 |
+
+- 通知与业务载荷：`TDMA_PROCESS_IMAGE_CONTROL_SIZE` 当前仅容纳 opcode/seq8。
+  `distributed_refmem.c` 的发送路径写 `NONE` 和空序号，接收路径只保存
+  `last_control_opcode/last_control_seq8`；不存在上述握手。候选利用已注册的固定
+  命令/事实 slice 提前传完整事务，再由短控制字段引用，但具体编码、分片、静态
+  配额和 owner 须先评审。事务至少绑定发起者、生命周期 epoch、完整 generation、
+  配置标识、参与节点集合、操作及执行目标；短序号回绕、重复、旧命令和重启均需
+  拒绝或幂等处理，不能把现有 RefMem ACK 直接解释成 TDMA READY。生命周期控制
+  应有独立固定服务保证，不能与日志共用可丢弃队列；VDC 时间戳保全仍是独立要求。
+  本候选不假定有空闲 wire、PIO 指令、DMA 或新增 RAM 可用。
+- 精度：收到即执行会叠加逐跳传播、接收解析和 Core1 调度延迟。目标圈只约束逻辑
+  次序，各节点到达该圈的物理时刻仍不同；物理同时执行还需要合格 VDC、局部硬件
+  时间映射和边界触发。误差预算须分列共同时间误差、映射误差、硬件量化和触发
+  抖动；目标提前量覆盖控制传输/确认上界、最慢准备者与安装余量，不能只取物理
+  一圈时间。最小通路先建立再收敛 VDC，避免冷启动依赖闭环。
+- 丢失与关闭：READY/COMMIT 丢失、配置改变、迟到或 NACK 必须保留拒绝事实并按
+  截止期限处理。链路关闭后不能再依赖该链路收 STOPPED 确认；最终关断安排预先
+  分发，关断后的本地完成事实由后续诊断读取。网络在提交中断裂时可能出现部分
+  节点已执行，消息握手本身不保证故障下原子切换；本地 watchdog/截止期限及
+  epoch 失效承担恢复，协调方不得发布全环成功。不可恢复硬件故障保留本地立即
+  停止路径，不等待网络排空。正常分段关闭不应制造中间节点提前断转发的失联。
+- 本地 STOP 审查：`tdma_pio_spi_phys_disarm()` 首次调用
+  `tdma_pio_spi_phys_stop_command_dma()`，末尾的
+  `tdma_pio_spi_phys_release_flight_resources()` 再调用同一函数。后者还服务多个
+  ARM 失败路径，不能全局去掉停止检查；`armed=false` 也不证明 DMA 已退休。
+  program manager 会复验 overlay 活动与 DMA quiesced，再释放实际 persona 资源。
+  首次退休与释放之间的 waveform restore 使用 `rearm=false`，但完整调用关系、
+  所有权、失败重试仍须通过真实函数执行验证，才可复用同次 owner 调用的退休结果。
+  跨拍清理还须审查 adapter ARM 回滚中忽略 disarm 返回值的入口，以及返回
+  `disarm && select_persona` 的 maintenance 入口，不能直接使现有同步回滚提前完成。
+- 耗时归因仍受原数据限制：`060/stop-review-r1.json` 的 ring_runtime 子项包含
+  adapter、物理停止和后续清理，未分解到单次 DMA 停止。共享 deadline 只约束该次
+  DMA 轮询，不覆盖 GPIO、程序恢复、快照与数组清理；重复调用结构早已存在，
+  不能据它解释全部新增长，嵌套计时也不能相加。未新增硬件采样，旧 RUN/STOP
+  原始峰值及失败继续保留，本轮没有新的 WCET 收益声明。
+- 验证：现有 command-DMA、origin record/build-job、service nonblocking 和 origin
+  admission pytest 共 22 项通过、1 项失败（本次测试快照，非事实源）。失败项
+  `test_descriptor_completion_and_bounded_stop` 的生成夹具未声明
+  `s_tdma_origin_build_job`，也未接入 `tdma_origin_build_job_cancel`；对原生成 C
+  单独编译复现相同错误，见 `lifecycle-tests-r1.log` 与 `dma-fixture-compiler-r1.log`。
+  三层晚写/共享 deadline、记录冻结、后台取消等其他用例通过，不替代失败用例。
+  源码锚点、前序证据 SHA-256 与本轮文档门禁归档见 `source-audit-r1.json` 和
+  `review-final-r1.json`。仅文档提交，无新 build、OTA、P3 或网络协议验收声明。
+- 下一 gate：先补齐该测试夹具依赖，再进行最小 STOP 退休/清理切片；覆盖取消未
+  ACK、DMA 超时与晚写、失败 ARM、重复 STOP、maintenance 切换、资源保留及重用。
+  实现改动后必须重新构建、真实 P3 和固定矩阵板端取证，分别核对 RUN/STOP/ALL
+  完整 phase。该门禁之后再进入网络编码及协议实现；完整 500 us、切换稳定性、
+  service blackout、特等席逐圈交付与正式 RAM 仍开放，邮箱容量调整保持后置。
 
 ### TDMA-PROGRESS-20260913-060 - mailbox CRC 逐字节等价运算与 STOP 峰值增长留证
 
