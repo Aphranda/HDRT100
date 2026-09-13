@@ -109,9 +109,13 @@ bool tdma_rx_scan_locate(const tdma_rx_scan_hint_t *hint, uint64_t produced,
         hint->stride_words - hint->frame_words > TDMA_PIO_SPI_FLIGHT_MAX_TAIL_BYTES ||
         produced < hint->candidate) return false;
     uint64_t start = cursor > hint->candidate ? cursor : hint->candidate;
-    const uint32_t phase = (uint32_t)(hint->candidate % hint->stride_words);
-    const uint32_t current = (uint32_t)(start % hint->stride_words);
-    const uint32_t advance = (phase + hint->stride_words - current) % hint->stride_words;
+    /* Align relative to the discovery anchor. The subtraction cannot
+     * underflow; narrow only a proven distance, never the absolute cursor. */
+    const uint64_t distance = start - hint->candidate;
+    const uint32_t remainder = distance < hint->stride_words ? (uint32_t)distance :
+        distance <= UINT32_MAX ? (uint32_t)distance % hint->stride_words :
+        (uint32_t)(distance % hint->stride_words);
+    const uint32_t advance = remainder == 0u ? 0u : hint->stride_words - remainder;
     if (UINT64_MAX - start < advance) return false;
     start += advance;
     if (start > produced || produced - start < hint->frame_words + (hint->bit_shift != 0u)) return false;
