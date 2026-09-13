@@ -1198,6 +1198,14 @@ SELECT_REFRESH 是该结果区间内的周期刷新/过期清理子项。EMPTY �
 单 phase 的调用计数使用 `tdma_service_timing_record_t.calls` 的紧凑类型存储；达到
 `UINT16_MAX` 后饱和并增加 invalid_count，该记录不得替换有效峰值，RESET 清零。
 SCPI 仍逐字段输出无符号整数，旧版本解码不变；不得静默截断计数或删除状态峰值以省 RAM。
+`TDMA_TIMING_RX_DMA_OBSERVE` 内进一步区分 `TDMA_TIMING_RX_DMA_INITIAL`、
+`TDMA_TIMING_RX_DMA_FRAME_RECHECK` 和 `TDMA_TIMING_RX_DMA_DISCOVERY_RECHECK`：
+分别记录初始完成字数、已定位帧复制后的复验，以及后台发现窗口复制后的复验。
+总项包含子项记录成本，不能与子项重复相加；后两者保留各自 epoch、回退和覆盖检查。
+`TDMA_TIMING_RX_LATCH_READ` 与 `TDMA_TIMING_RX_LATCH_REARM` 是 RX_LATCH 子项，
+区分 FIFO/时间换算和重装；波形捕获占用、未 armed 或空 FIFO 不执行重装，时间溢出
+仍保留原重装和 miss，重装失败不改变已读时间戳赋值语义。共享 helper 用于普通
+origin TX completion 时不产生 RX 子项；未执行子项不是零耗时证明。
 高频 `tdma_service_timing_now`、`tdma_service_timing_record` 与其调用的
 `vdc_timestamp_clock_read_ticks64` 在设备构建中驻留 SRAM，避免每个嵌套边界从
 SRAM 接收路径返回 XIP 取计时代码。时钟初始化、回绕读取、区间校验与所有探针保留；

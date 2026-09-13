@@ -8,7 +8,13 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前按用户确认的 O3/O5→O1→O2/O4→O6 顺序推进，O1 提前复用切片见
+当前按用户确认的 O3/O5→O1→O2/O4→O6 顺序推进，O2/O4 分项切片见
+`TDMA-PROGRESS-20260913-066`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-dma-latch-attribution/`。DMA 初始观察、
+帧/发现窗口复制后复验及 RX latch 读取/重装分项已完成软件、构建、当前源码 P3
+和两轮实板归因。初始 DMA 观察为 12.300–36.316 us，帧复制后复验为
+6.264–9.808 us，RX 重装为 17.440–30.156 us（保留峰值分项快照，非事实源）；
+主站 RUN 外层为 668.092/668.296 us，仍超预算，随后推进 O6。前序 O1 提前复用切片见
 `TDMA-PROGRESS-20260913-065`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-overlay-early-reuse/`。先确认 DMA
 selection 退休及物理就绪，再让无更新 TX 跳过 grant 配置；软件、构建、当前源码
@@ -307,6 +313,61 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-066 - O2/O4 DMA 观察和 RX latch 分项
+
+- 日期：2026-09-13
+- 状态：PARTIAL；分项实现、回归与实板归因完成，完整预算和长期目标未达。
+- 范围：在既有 DMA_OBSERVE 总项内拆出初始完成字数、已定位帧复制后复验和
+  发现窗口复制后复验，保留每处 epoch/覆盖/回退检查；RX_LATCH 内拆出读取和
+  重装，保留波形捕获占用、未 armed、空 FIFO、时间溢出和重装失败的原始行为。
+  全部状态峰值和旧版本解码继续保留，不把新增诊断计作性能优化。
+- 首轮归属修正：共享 latch helper 也被普通 origin TX completion 调用；首版
+  无条件 RX 标签不满足父子关系，作为 superseded candidate 保留在
+  `out/HardwareAcceptance/20260913/tdma-flight-dma-latch-timing/`，包含源码副本、
+  build、P3、STOP 和 SD 原件。修正版只在 slave RX 路径记录这两个子项，并用
+  实际共享 helper 的 master 情景验证硬件动作保留而 RX 标签为零，重新构建和验收。
+  首轮 QUICK P3 的 strict_gates_passed=false，粗校准 NO1 的
+  `TOPology 4,0,0` 应答超时；该拒绝与标签归属问题分别保留，不由后续成功覆盖。
+- 软件快照（非事实源）：计时/非阻塞/latch 综合 47 项、RX/DMA 交错 28 项和
+  完整 adapter 回归通过。实际生产代码验证两种复制后复验的次数与总项相符，
+  覆盖后不得接受捕获；latch 捕获占用各状态均不消费 FIFO，不重装，原 PIO 顺序、
+  时间戳、miss/count 和失败返回值继续保留。
+- 构建快照（非事实源）：A/B/Boot 通过，build `20260913152450`，源码指纹
+  `6a7a67db1e1a4803a7f358c8146f201e71a8d6e81cbe9716c5f783354015db75`，
+  源文件数 1043。PIO 生成头与 065 字节一致。A/B link-free 各 2200 B，其中
+  2048 B 为预留 heap，额外余量仅 152 B；较 065 净增 160 B，不代表正式 RAM 通过。
+- 硬件：修正版当前源码 QUICK P3 的 strict_gates_passed=true，四板短帧及普通
+  恢复通过；P3、两轮自主记录和恢复均完成 STOP/config ACK、许可证失效确认与
+  SD 逐字节核对。START 后零查询，仍使用固定矩阵、四邮箱与相同板端记录窗口。
+- 同拍分项（us，有限窗口快照，非事实源；每行取该板 ALL 峰值）：
+
+  | 节点/轮次 | DMA 初始 | 帧复制后复验 | RX latch 读取 | RX latch 重装 | RX locate |
+  |---|---:|---:|---:|---:|---:|
+  | NO2 R1 | 12.300 | 6.736 | 11.736 | 22.684 | 15.968 |
+  | NO3 R1 | 36.316 | 9.808 | 8.220 | 30.156 | 20.260 |
+  | NO4 R1 | 15.708 | 9.392 | 21.780 | 19.876 | 18.776 |
+  | NO2 R2 | 32.008 | 6.264 | 6.428 | 22.584 | 23.320 |
+  | NO3 R2 | 28.032 | 9.460 | 13.264 | 17.440 | 13.524 |
+  | NO4 R2 | 22.312 | 9.748 | 11.676 | 20.232 | 21.320 |
+
+  各行初始观察、帧复验、RX 读取与重装各调用一次；发现窗口复验在这些保留峰值
+  中未调用，不等于其全窗口成本为零。DMA 总项包含子项及记录成本，RX_LATCH
+  包含读取和重装；原始调用数和包含关系已逐项核对。数据不支持把 latch 差异
+  直接解释为超时重试，也不能把两个 DMA 观察点当作可删除的重复读取。
+- 完整耗时（R1/R2，us，有限窗口快照，非事实源）：主站 RUN body 为
+  640.008/631.364，外层 668.092/668.296；STOP 外层 686.840/696.296。
+  follower ALL body 为 NO2 682.772/687.824、NO3 670.484/682.084、
+  NO4 668.640/670.276。主站 RUN 外层较 065 高 30.516/8.908 us，但 v7/v8
+  探针不同且主站峰值属于 RX 接受路径，不能把差值全归于新增 RX 探针或称为省时。
+- 自主两轮整段 passed/closed_loop/realtime 仍为 false，diagnostic=true；后段
+  accepted 增长，四板 rejected/missing 无增长，但全窗口 missing 最大仍为 1。
+  periodic_interval/persona/adapter_tx/receive_missing 原失败保留，不外推逐圈稳定性。
+- 原件：`source-checkpoint-r1.json`、`profile-comparison-r1.json`、
+  `branch-attribution-r1.json`、`dma-latch-attribution-r1.json` 和首轮
+  `attempt-manifest.json`；各自源码、构建与记录哈希纳入最终封存。
+- 下一步：完成本切片证据闭环后进入 O6；不以减少复验或省略特等席证据来满足
+  完整 500 us 和正式资源门禁。
 
 ### TDMA-PROGRESS-20260913-065 - O1 物理准入后提前复用无更新 TX
 
