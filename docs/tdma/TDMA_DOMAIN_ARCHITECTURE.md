@@ -1066,6 +1066,27 @@ TDMA owner 在 begin 与每个准备步骤重新核验许可证绑定和期限�
 收发序号和累计值，仍报告未运行和无效时间戳，不能以计数归零表示缺少新观察。
 固定工作量仍须补充真实 clk_sys 的逐 action 与完整 Core1 WCET 证据。
 
+自主 origin 的本地边界记录使用 `tdma_origin_record_t` 与
+`TDMA_ORIGIN_RECORD_COUNT` 固定池，由原 loader/executor DMA 的不可变描述符路径
+逐圈写入；不占用新 DMA 通道、PIO 指令或硬件 FIFO consumer，也不由 Core1 逐圈触发。
+记录独立于两份返回映像，包含本地 sequence/identity/generation、输出和捕获余量、
+原始 RTT、实际返回 trailer 及 epoch/format。缺帧、部分返回和完整性拒绝仍留下记录，
+不使用保留的旧返回替代本圈成功事实。`TDMA_ORIGIN_RECORD_TRANSPORT_CHECKED` 只说明
+现有 header、route 和 mailbox CRC 链通过；不证明 trailer 自身完整性、业务 owner
+语义或 VDC 接受。`TDMA_ORIGIN_RECORD_FORMAT_RTT` 仍是相对 RTT，不提供绝对时间；
+自主发送的全局同步字段继续保持现有无效质量，不补造有效同步时间戳。
+
+每槽先写起始 sequence、再写完整内容和尾部 sequence，最后发布完成版本。
+`tdma_pio_spi_phys_origin_get_frozen_record()` 仅在 owner 成功停止整个 DMA 树后，
+经 runtime facade 提供冻结副本；活动态、停止失败、epoch/format 错配、首尾不一致
+或复制超过 `TDMA_ORIGIN_RECORD_COPY_MAX_US` 时拒绝。物理 owner 使用独立 guard
+发布冻结元数据，persona 切换和工作区新生命周期在复用前使旧副本失效；重复 STOP
+保留同一档案。可读 age 从最新槽起，数量比固定池少一槽，排除 STOP 时可能被下一圈
+写到一半的目标槽。SCPI 只在 STOP/config ACK 后读取，不能作为实时采样入口。
+该有限诊断档案会覆盖旧记录，尚无生产态逐圈消费者；它不等同于完整特等席无损
+交付。当前实现和验收范围由 `TDMA-PROGRESS-20260913-056` 记录，连续边沿计数与
+VDC 时钟域映射仍须独立闭合。
+
 列车调度的耗时归因使用 `tdma_service_timing` 固定记录，由现有 Core1 TDMA phase
 唯一写入。`tdma_service_timing_stage_t` 覆盖物理完成/生命周期、owner service、
 RefMem transport publish、training gate、analyzer、accounting，以及嵌套的 adapter、

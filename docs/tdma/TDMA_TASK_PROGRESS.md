@@ -8,7 +8,14 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002B` 的连续边沿计数与 DMA 保全候选见
+当前 `TDMA-FLIGHT-002B` 的自主 origin 逐圈 DMA 档案切片见
+`TDMA-PROGRESS-20260913-056`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-cycle-record/`。现有 DMA 图写固定记录池，
+STOP 后可读最新完整记录；两轮实板验证连续 sequence、重新 ARM 的 epoch 更新与
+persona 复用失效。当前源码 QUICK P3 和普通恢复短帧通过，两轮自主切换的整段稳定性
+仍失败，完整 WCET 仍高于 500 us。有限冻结档案没有生产态逐圈消费者或绝对 VDC 时间
+映射；本切片为 PARTIAL，目标继续进行。
+前序连续边沿计数与 DMA 保全候选见
 `TDMA-PROGRESS-20260913-055`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-edge-counter/`。离线模型验证共享指令、
 自动续传和有界消费，并保留缺边沿、FIFO 丢数、SRAM 覆盖及 epoch 错配反例；尚未
@@ -237,6 +244,70 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-056 - 既有 DMA 逐圈档案与 STOP 冻结读回
+
+- 任务：`TDMA-FLIGHT-002B`。状态：`PARTIAL`。继续采用已确认的 TDMA 500 us 预算、
+  原周期与 HAOFV 静态表。此轮解决有限档案的硬件写入及停止后取证，未完成特等席
+  生产态逐圈消费、绝对时间或完整 WCET。
+- 证据根：`out/HardwareAcceptance/20260913/tdma-flight-cycle-record/`。以下数字为
+  当前源码和本轮硬件快照，非事实源；代码符号与原始产物为准。
+- 实现：原 origin loader/executor DMA 通过不可变的八个 writer 入口轮换写入
+  `tdma_origin_record_t` 固定池，每槽 48 B，总计 384 B。记录与双 RX bank 独立，
+  包括 sequence/identity/local generation、输出与捕获余量、raw RTT、实际返回
+  全局 trailer、epoch/format 和首尾 sequence。缺帧、部分返回、坏 mailbox 仍留
+  本圈失败事实；transport checked 标志不授予 trailer 完整性、业务 owner 或 VDC
+  接受，当前同步 trailer 仍无效。没有新增 DMA/PIO 资源或 Core1 每圈触发。
+- 生命周期：完成整个 DMA 树的 STOP 后才发布冻结元数据；停止失败保留 workspace
+  责任且不发布。重复 STOP 保留档案，persona 选择和复用前使旧档案失效。新 SCPI
+  `READ:CALibration:ORIGin:RECord? <age>` 经 owner facade 提供最新七槽，预留一槽
+  排除中途停止的下一次覆盖。复制检查独立 guard、epoch、format、首尾 sequence
+  和最大复制期限；没有安装离线原型中的活动态 reader。
+- 软件验证：正式 C builder 的实际 AL3 words 在离线总线执行 128 圈，valid/missing/
+  partial/bad mailbox 各 32 圈，转发字节与原 transport C oracle 一致；12 项地址/
+  容量拒绝，1,016 种 supported mask/local-slot 组合构图通过。六节点占 315 个 run、
+  126 个 literal；七/八节点的较大构图容量只做 builder 验证，当前固件仍编译六节点，
+  不代表其整机 RAM/部署准入。候选活动态 reader 另有 300 组交错、20 个读取边界与
+  229 次覆盖拒绝，仅为离线证据；尾标单检反例保留。
+- 相关 Python/C 功能回归与 adapter host 测试通过。首轮三处失败分别为新增 STOP
+  元数据未同步测试桩、旧 timing version 常量断言、资源检查器仍扫描旧 start 函数。
+  修正后新增负测又发现 TX DREQ 正则可跨越后续语句误认 `true`，收紧参数边界后
+  资源检查 30 项通过；其余相关 Python 60 项与 adapter host 回归通过。失败原始
+  日志、修正和最终输出均保留。
+- A/B/Boot build `20260913074316`，源码指纹
+  `982ba20f1c671cd336da20f4f86850a58f718d116fddd61aa296079d0520243f`，
+  1,035 个源码文件。实际 ARM workspace 从 7,696 B 到 7,900 B，增长 204 B，消耗
+  既有对齐空隙，剩余空隙 292 B；physical owner 从 1,816 B 到 1,832 B。A/B 最终
+  链接各增加 16 B，link-free 各为 3,100 B；不能当作 formal RAM/栈余量通过。PIO
+  生成头与前序 build 逐字节相同。见 `production-link-r1.json`、`source-checkpoint-r1.json`。
+- 当前源码四板 OTA、QUICK P3 的校准和普通 process-image/FIFO 短帧闭环通过，
+  `flow_completed=true`、`strict_gates_passed=true` 仅适用于本轮 QUICK 配置；不覆盖
+  NO5/DPLL、多源满载、完整 Core1 WCET 或生产态长期稳定性。前序 SCK 失败仍保留。
+- 两轮自主试验均按板端 `250000 us × 26` 窗口采样，START 后仅发临时许可证和
+  一次 profile RESET，STOP/config ACK/physical STOP 后才查询档案。NO1 的自主
+  样本内序号分别增长 3,749、3,750；这些是软件快照的采样事实，不是 wire cadence
+  或 Core1 blackout 证明。七条冻结记录分别为 sequence 5,355–5,361、5,372–5,378，
+  epoch 为 1、2，完成版本 9,670、9,712。两轮首尾一致、fault=0、capture/output
+  remaining=0、transport checked=1、返回同步 trailer=0。重复 STOP 后原档案一致；
+  恢复普通 persona 后全部返回 `UNAVAILABLE`。
+- 两轮自主整段仍 `passed=false`、`closed_loop_passed=false`，startup 通过后仍有
+  切换 missing/DOWN 与 periodic interval 拒绝；本轮没有关闭这些缺口。一次 RESET
+  后的累计完整 phase 峰值如下，包含 STOP/idle，不是纯稳态 WCET，也不能与不同
+  探针、矩阵、预算表下的旧峰值直接解释为性能增减：
+
+  | 轮次 | NO1 us | NO2 us | NO3 us | NO4 us |
+  |---|---:|---:|---:|---:|
+  | 自主 R1 | 769.120 | 677.908 | 677.668 | 687.952 |
+  | 自主 R2 | 754.512 | 691.788 | 675.012 | 680.992 |
+  | 普通恢复 | 996.072 | 654.468 | 627.580 | 657.952 |
+
+- 普通恢复短帧闭环通过。P3、两轮自主、普通恢复的四板 SRAM 记录均在物理 STOP
+  后保存 SD，离线解码和逐字节回读一致；最终四板 STOP/config ACK、许可证失效及
+  当前矩阵读回通过。主控复核见 `hardware-review-r1.json`；封存与分离提交以
+  `review-r1.json`、`slice-manifest.json`、`commit-proof.json` 为准。
+- 下一步：沿现有 owner 边界继续减少有界软件准备和提交成本，补充连续边沿与绝对
+  VDC 时间映射、生产态有界消费者/覆盖拒绝及切换 missing 根因。固定记录池只保留
+  最新有限历史，不能宣布逐圈特等席无损交付、500 us 达标或长期目标完成。
 
 ### TDMA-PROGRESS-20260913-055 - 共享边沿计数与 DMA 保全候选离线验证
 

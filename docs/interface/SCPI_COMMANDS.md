@@ -4,7 +4,7 @@ Status: Active
 Domain: SCPI
 Canonical: `docs/interface/SCPI_COMMANDS.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/storage/SD_TODO.md`, `docs/interface/SCPI_USB_INTERFACE_DESIGN.md`
-Last updated: 2026-09-06
+Last updated: 2026-09-13
 
 成品默认 SCPI 服务通过 USBTMC/USB488 接入。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
 
@@ -91,6 +91,18 @@ Last updated: 2026-09-06
 |---|---|
 | `CONFigure:CAL <...>` | 配置校准参数、补偿表或校准目标。 |
 | `READ:CAL?` | 查询校准状态、结果或补偿快照。 |
+| `READ:CALibration:ORIGin:RECord? <age>` | 调试维护查询：仅在 TDMA 物理 STOP/config ACK 后读自主 origin 的冻结边界记录；不可用返回 `UNAVAILABLE`。`age=0` 表示最新记录，可读数量为 `TDMA_ORIGIN_RECORD_COUNT - 1`，排除下一圈可能写到一半的槽。 |
+
+origin 记录查询经 TDMA runtime owner 的只读 facade 访问冻结 SRAM，不读取活动
+DMA/PIO，也不触发采集。成功返回 `ORIGINRECORD`，随后依次为：
+`age,epoch,published_version,fault,sequence,identity,local_generation,output_remaining,`
+`rtt_remaining,rtt_present,capture_remaining,returned_trailer,record_epoch,flags,format,sequence_end`。
+字段由 `tdma_origin_record_frozen_t` 和 `tdma_origin_record_t` 定义；实际 format 为
+`TDMA_ORIGIN_RECORD_FORMAT_RTT`，保留相对原始 RTT。transport checked 标志不授予
+业务接受或 VDC 时间有效性，返回 trailer 按原始位保存。成功 STOP 后的重复读取可以
+使用同一档案；persona 切换、工作区复用或新 ARM 生命周期会使旧档案失效。有限池会
+覆盖旧记录，不提供运行中串口采样或完整逐圈持久化。实现验收见
+`docs/tdma/TDMA_TASK_PROGRESS.md` 的 `TDMA-PROGRESS-20260913-056`。
 
 ## 同步域
 
