@@ -395,6 +395,9 @@ ring，完整复制在既有 Core1 owner 边界内一次选择 persona 位序，
 避免逐字循环从 XIP 取指；指令存储计入静态 RAM，实际 A/B 镜像须核对执行地址、
 循环内调用和完整占用。该放置不改变同步复制、Core1 owner 或调用者的生命周期复验，
 性能结论仍由当前源码对应的完整 phase、复制子项与资源门禁共同决定。
+有界的 `tdma_pio_spi_phys_capture_words_async()` 控制函数也使用独立 time-critical
+section；其函数体、失败分支与同步复验顺序保持。被调用函数按各自链接位置核算，
+跨 SRAM/XIP 调用所需的跳板也计入 RAM，不能仅依据捕获函数大小估算总增量。
 工位忙时不等待，旧提示失效时重新请求发现；READY 还须核对 persona、配置与请求
 epoch。观察副本的重同步不得移动已锁定的 wire overlay 相位。STOP/训练/自主 origin
 切换撤销提示，重新 ARM 必须等待扫描工位取消 ACK；普通镜像工位不承担逐圈时间

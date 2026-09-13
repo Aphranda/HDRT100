@@ -8,7 +8,12 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的 RX 复制 SRAM 放置切片见
+当前 `TDMA-FLIGHT-002F` 的 RX 捕获控制 SRAM 放置切片见
+`TDMA-PROGRESS-20260913-049`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-rx-capture-residency/`。固定矩阵板端对照显示
+捕获及完整累计峰值下降，仍超预算；首轮 SCK/短帧失败保留，同固件第二轮当前源码
+P3 严格门禁通过。新测矩阵、STOP、配置确认与 SD 读回闭合，长期目标保持进行中。
+前序 RX 复制 SRAM 放置切片见
 `TDMA-PROGRESS-20260913-048`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-rx-copy-residency/`。当前源码 P3 与短帧
 门禁通过；板端记录和停止后读回显示复制子项下降，完整峰值仍超预算。正式 RAM、
@@ -198,6 +203,56 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-049 - RX 捕获控制 SRAM 放置与保留失败的板端对照
+
+- 日期：2026-09-13；TODO task ID：`TDMA-FLIGHT-002F`。以下数字为实验快照，非事实源。
+  证据根为 `out/HardwareAcceptance/20260913/tdma-flight-rx-capture-residency/`，基线为
+  `1aabad0bea6ea0c88833ddb8cfe0b44099e3bcf3`。代码/文档分离提交，提交与原始证据 SHA
+  见 `commit-proof.json`、`slice-manifest.json`，不 push。
+- 实现：仅为 `tdma_pio_spi_phys_capture_words_async()` 增加 SRAM section 和 noinline。
+  函数体逐字保持，Core1 的完成区间、几何、复制、覆盖/epoch、私有头检查和失败处理
+  顺序不变；Core0 继续只提供不可变发现提示。未修改 owner、生命周期、PIO/DMA、固定
+  wire、节点容量或预算。不能把该控制函数驻留当作所有被调函数都已驻留。
+- 软件与资源：相关测试 `223 passed`、文档测试 `18 passed`，A/B/Boot 与 Flash link
+  gate 通过。A/B 捕获控制函数均位于 `0x20008970`，各占 `936 B`，新增七个 SRAM 调用
+  跳板另占 `56 B`；`.data` 总增量 `992 B`。BSS 前对齐空隙从 `2744 B` 降到 `1752 B`，
+  BSS 和链接末端保持，link free 仍为 `3260 B`。见 `build-review-r1.json` 与
+  `resident-calls-review-r1.json`；该空隙不能当作后续通用 RAM 配额。
+- build `20260913025147`；源码指纹
+  `af9cab8c8b4ac3f368d61f2162c55d26e8140200f04c96c9b908267ed5616216`，文件数 `1032`。
+  首轮真实 `run` 完成四板 OTA，但 `strict_gates_passed=false`：SCK 校准及重放行准入
+  失败，所选行 follower 最小余量为负，随后短帧启动超时，NO1 坏帧/拒绝持续增长。
+  原矩阵、诊断、板端记录与 SD 文件保留；不能用流程退出成功或 receipt 的 `passed`
+  字段替代严格门禁。见 `p3-receipt-r1.json` 和 `hardware-review-r1.json`。
+- 同一固件使用前序已验矩阵完成诊断对照后，第二轮 `resume` 复用已验真的 OTA 包，
+  重新执行真实四板校准和短帧，并非离线 replay。`p3-receipt-r2.json` 的
+  `strict_gates_passed=true`，无诊断失败；该 QUICK_DIAGNOSTIC 凭证绑定当前源码。
+  第二轮在固定矩阵对照之后运行，已应用新测矩阵并确认实际相位和 STOP，复用该闭环
+  作为矩阵恢复证据，没有再执行一轮相同采集。首次失败的根因与校准长稳仍待定位。
+- 采样仍由板端时钟驱动，每板 `250000 us` 周期、`14` 个样本及独立基线。性能对照
+  在 START 后只发一次 profile RESET 控制，STOP 后导出冻结记录和累计峰值；标准 P3
+  在板端窗口结束/冻结后导出。所有 SD SAVE/读回都在 owner STOP 与配置确认后执行。
+  累计峰值含 RESET 后的 STOP/idle，不能提升为纯稳态 WCET；嵌套子项保持同一完整
+  phase，不拼接独立最大值。
+- 同一前序矩阵的完整对照见 `profile-comparison-r1.json`。NO2/NO3/NO4 完整峰值从
+  `713.560/707.576/689.448 us` 降为 `635.340/618.296/631.744 us`；同峰值内 RX capture
+  从 `265.364/259.208/239.940 us` 降为 `201.748/209.768/219.840 us`。
+  NO1 普通 origin 完整峰值从 `1131.052 us` 变为 `981.976 us`，对应 capture 为
+  `43.208→24.832 us`；不能将整个峰值变化都归因为捕获代码放置。各运行的峰值对应
+  不同 phase，局部耗时差也不是所有调度拍的稳定余量。
+- 另保留首轮基线峰值导出缺口：NO3 的 `PROFILE:PEAK?` 返回 `UNAVAILABLE`，原 helper
+  保留 null/不匹配标记但没有让短帧采集失败。该轮板端记录与 SD 字节有效，未用于
+  四板峰值比较；第二轮完整基线使用新的 helper，STOP 后最多八次读取，逐次保留响应，
+  仍不可用或 reset generation 不匹配则拒绝。没有增加采集窗口内的串口数据查询。
+- 两轮基线、两轮 P3 和固定矩阵候选对照共 `20` 个板端文件，身份、CRC、`14/14`、
+  零漏采/溢出和 SD 逐字节核对均通过；其中首轮 P3 的通信失败事实独立保留。最终四板
+  STOP、配置应用、实际相位和许可证 inactive 已确认，heap min 均为 `20344 B`，正式
+  RAM 仍未通过。见 `hardware-review-r1.json`、`final-state-r2.json`、`final-status.json`。
+- 结论：保留有界捕获控制驻留的局部收益，完整 `380 us` 门禁继续拒绝。本切片未新增
+  自主 blackout 或完整原始波形，仍须推进交接/latch、owner/adapter 和普通 origin
+  发车开销，随后独立闭合同圈 owner/CRC 更新、特等席逐圈保全、故障恢复与长稳。
+  registry/C11 状态保持，长期目标仍为 `PARTIAL/active`。
 
 ### TDMA-PROGRESS-20260913-048 - RX 复制 SRAM 放置与板端峰值对照
 
