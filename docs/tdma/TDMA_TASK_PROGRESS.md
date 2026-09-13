@@ -8,7 +8,12 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的 RX 捕获控制 SRAM 放置切片见
+当前 `TDMA-FLIGHT-002B` 的自主交接板端取证切片见
+`TDMA-PROGRESS-20260913-050`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-autonomous-board-evidence/`。本轮未改生产
+源码；自主序号持续增长，但切换 missing/DOWN、观察副本丢弃与完整 WCET 仍未闭合。
+SCPI 只控制，原失败、离线归因、普通模式恢复和 STOP 后 SD 字节核对均保留。
+长期目标保持进行中。前序 `TDMA-FLIGHT-002F` 的 RX 捕获控制 SRAM 放置切片见
 `TDMA-PROGRESS-20260913-049`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-rx-capture-residency/`。固定矩阵板端对照显示
 捕获及完整累计峰值下降，仍超预算；首轮 SCK/短帧失败保留，同固件第二轮当前源码
@@ -203,6 +208,57 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-050 - 自主交接板端取证与接收提交成本归因
+
+- 日期：2026-09-13；TODO task ID：`TDMA-FLIGHT-002B`，关联 `TDMA-FLIGHT-002F`。
+  以下数字为实验快照，非事实源。证据根为
+  `out/HardwareAcceptance/20260913/tdma-flight-autonomous-board-evidence/`，基线提交为
+  `095fea8499040babd50829953a0901d81130dda3`。本轮仅新增诊断证据与文档，没有生产
+  源码、固件或记录格式修改；提交与原始证据 SHA 见 `commit-proof.json`、
+  `slice-manifest.json`，不 push。
+- 四板沿用 build `20260913025147`、源码指纹
+  `af9cab8c8b4ac3f368d61f2162c55d26e8140200f04c96c9b908267ed5616216`、`1032` 个文件。
+  `source-checkpoint-r1.json` 绑定前序严格 P3 凭证和新测矩阵行；本轮未重编译或 OTA。
+  既有 P3 仅证明同源码普通短帧基线，不能提升为本轮自主模式已验收。
+- 取证：先 ARM 板端记录器与 START，再按固定延迟发一次 Calibration 临时授权和
+  一次 profile RESET；运行窗口内没有 SCPI 数据查询。STOP、撤销后导出冻结记录与
+  累计峰值，owner STOP/config ACK 后才 SAVE/读回 SD。首次每板 `500000 us × 20`
+  样本，第二次改为原 `250000 us × 26`，启动期限 `2 s` 与三次连续稳定要求未放宽。
+  两轮均保留完整文件和命令；有限窗口记录不等于持续 RUN 写 SD。
+- 首轮启动失败：第三个稳定样本完成时已超过原期限。保留 `first-probe-review.json`
+  的早期解释，并在 `autonomous-review-r1.json` 更正：`periodic_interval_gate_failed`
+  汇总区间错误，不能归因于采样周期本身。第二轮启动通过，整体原评估仍失败；NO1
+  还触发普通 persona/TX 计数谓词，四板各增长一次 receive missing，NO4 在本板约
+  `2.25 s` 的样本中 DOWN、下一样本恢复。模式谓词不适配与真实切换失败分别保留。
+- 自主证据：首轮 NO1 在本地 `2.50–9.50 s` 样本持续 persona `16`、FSM `5`；第二轮
+  为 `2.25–6.25 s`。样本间接收序号约每秒增长 `1000`，NO1 接收接受数约每秒 `484`。
+  该比率是软件快照证据，不是物理线速、每圈波形或同圈多节点更新证明；各板触发
+  时刻独立，不能直接按相同 slot 对齐。本轮 Core1 service 始终启用，没有 blackout。
+- 第二轮各板本地 `4.5 s` 之后的约 `1.75 s` 描述性区间均 UP/DOWN 运行，missing、
+  reject、transport bad 与 bitmap incomplete 没有增长；原失败不因此撤销。
+  NO2/NO3/NO4 的 RX observation drop 分别增长 `684/679/626`，RX ring overrun
+  增长 `333/336/434`，接收接受数约每秒 `390/391/357`；FIFO publish/mirror drop
+  为零也不能覆盖上游观察丢弃。逐圈时间戳须独立保全，普通可丢弃镜像不能承担特等席。
+- 第二轮同次完整累计峰值：NO1/NO2/NO3/NO4 为
+  `705.280/658.376/653.224/650.224 us`，对应 RX_PARSE 为
+  `137.372/255.180/276.784/248.620 us`。这些峰值含 RESET 后的 STOP/idle；嵌套
+  子项不能相加，也不能与板端不同纪元时钟的采样时刻直接匹配。完整 `380 us` 门禁
+  继续拒绝，未据此放宽预算。
+- 源码复核：RX_PARSE 包围 prepared 帧的 Core1 接收提交，decode 与 origin mailbox
+  CRC/诊断已由 Core0 准备。`tdma_flight_engine_fast_mailbox_header()` 不计算 CRC；
+  unload 和 FIFO 发布成功后的 commit 会各读取 map/固定头。仅确认存在重复遍历，
+  尚未测得它在总时间中的占比，不能宣称删除该遍历即可达标。后续先隔离健康判定、
+  时间关联、FIFO 发布与 owner 提交成本，保持不可变输入、generation/epoch 与提交
+  顺序；证据和下一门禁见 `source-review-r1.json`。
+- 使用当前矩阵恢复普通模式，原启动/短帧评估通过；三轮合计 `12` 个板端文件重新
+  解码身份、CRC、终止状态、有效字段和零漏采，SD 字节均一致。最终四板物理/runtime
+  STOP、配置应用、相位与许可证 inactive 确认通过，heap min 均为 `20344 B`，正式
+  RAM 仍失败。见 `autonomous-review-r1.json`、`final-state-r1.json`、`final-status.json`。
+- 验证与封存见 `review-r1.json`、`commit-proof.json`。文档门禁独立执行，生产源码
+  指纹再次复核；本轮是诊断取证切片，不是新的固件验收凭证。下一步保留切换失效
+  定位，推进有界 Core1 RX 提交，并独立闭合硬件 blackout、同圈更新、特等席逐圈
+  保全、完整波形及长稳。registry/C11 状态不变，长期目标保持 `PARTIAL/active`。
 
 ### TDMA-PROGRESS-20260913-049 - RX 捕获控制 SRAM 放置与保留失败的板端对照
 

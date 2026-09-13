@@ -1675,6 +1675,18 @@ ARM 保留基线，已接受的 RING START 绑定本板触发时刻，运行期�
 目标、开始与完成时刻、有效位、序号及漏采数。迟到跳过已失效的采样槽，不循环补采。
 这些字段是一个观测区间，不能表述为跨域同时快照或逐圈特等席证据。
 
+普通启动与临时授权的自主交接必须分别解释观测语义。普通模式的 persona 和软件 TX
+计数谓词不能直接充当自主硬件循环的判据；原评估结果、切换区间与后续区间均须保留。
+后续区间健康不能覆盖切换时的 missing、DOWN 或恢复事件；观察 ring 的覆盖/副本丢弃
+也不能被 FIFO 零丢弃替代。各板 START 绑定各自本地时刻，相同样本槽不代表同一圈。
+硬件边界计数、版本与独立逐圈时间证据仍须另行采集，不能由采样序号增速推算验收。
+
+`tdma_pio_spi_ring_rx_accept()` 的 `TDMA_TIMING_RX_PARSE` 计时包围 Core1 接收提交，
+包括 `tdma_pio_spi_ring_adapter_process_rx_impl()` 内的健康判定、时间关联和 FIFO
+发布等工作。使用 prepared job 时复用 Core0 的 decode/诊断；该名称不代表全部耗时
+来自重复解析。flight engine 的固定 mailbox 头检查只判身份、目标和序号，不计算
+payload CRC。后续拆分须保持 map/epoch 绑定及 FIFO 发布成功后的 owner 新鲜度提交。
+
 数据复用 `STORAGE_MANAGER_FILE_WRITE_MAX_BYTES` 的既有写事务缓冲；记录或冻结期间暂缓
 后台文件操作。窗口结束、取消或容量不足均写终止记录及 CRC。FROZEN 后可统一导出 RAM，
 其间环路继续；SAVE 仅在 TDMA STOP 与配置应用序号确认后交给 StorageAO。该有限窗口入口
