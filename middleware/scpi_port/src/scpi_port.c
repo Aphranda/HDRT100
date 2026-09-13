@@ -107,8 +107,15 @@ static size_t scpi_port_write(scpi_t *context, const char *data, size_t len)
         return s_scpi_stream_write(data, len, s_scpi_stream_context);
     }
 
-    for (size_t i = 0u; i < len; i++) {
-        putchar_raw(data[i]);
+    /* Keep each parser fragment raw, but enter the stdio/USB driver once per
+     * fragment instead of once per byte.  Both raw APIs disable CR translation
+     * and newline insertion.  This remains Core0 transport work. */
+    size_t offset = 0u;
+    while (offset < len) {
+        const size_t remaining = len - offset;
+        const int chunk = remaining > (size_t)INT_MAX ? INT_MAX : (int)remaining;
+        (void)stdio_put_string(&data[offset], chunk, false, false);
+        offset += (size_t)chunk;
     }
     return len;
 }
