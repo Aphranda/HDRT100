@@ -801,7 +801,16 @@ static tdma_traffic_scheduler_result_t tdma_traffic_scheduler_select_impl(
         has_queued = has_queued || scheduler->queue[i].count != 0u;
     }
     tdma_service_timing_record(TDMA_TIMING_SELECT_REFRESH, refresh_start);
-    if (!has_queued) *outcome = TDMA_TIMING_SELECT_EMPTY;
+    if (!has_queued) {
+        /* Queue emptiness is authoritative only under this lock, after
+         * cycle refresh and expiry accounting. Recovery depth includes
+         * in-flight buffers; those must still use the normal path. */
+        *outcome = TDMA_TIMING_SELECT_EMPTY;
+        (void)tdma_traffic_scheduler_note_result(
+            scheduler, UINT32_MAX, TDMA_TRAFFIC_SCHEDULER_GATE_CLOSED);
+        tdma_traffic_scheduler_unlock(scheduler);
+        return TDMA_TRAFFIC_SCHEDULER_GATE_CLOSED;
+    }
 
     for (uint32_t i = TDMA_TRAFFIC_VDC_REALTIME;
          i <= TDMA_TRAFFIC_VDC_REALTIME;

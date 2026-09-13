@@ -472,6 +472,64 @@ static int test_budget_and_deadline(void)
     return failed;
 }
 
+static int test_empty_select_keeps_budget_and_next_admission(void)
+{
+    int failed = 0;
+    for (uint32_t maintenance = 0u; maintenance < 2u; maintenance++) {
+        tdma_foundation_profile_t profile;
+        tdma_traffic_scheduler_t scheduler;
+        tdma_traffic_scheduler_slot_t slots[TDMA_TRAFFIC_SCHEDULER_SLOT_COUNT];
+        tdma_traffic_dispatch_t dispatch;
+        tdma_traffic_scheduler_snapshot_t snapshot;
+        const uint64_t now_ns = 8000000ull;
+        (void)tdma_foundation_profile_default(
+            &profile, 1u, 0u, 0u, TDMA_ADAPTER_PIO_SPI);
+        (void)tdma_traffic_scheduler_init(
+            &scheduler, slots, TDMA_TRAFFIC_SCHEDULER_SLOT_COUNT);
+        (void)tdma_traffic_scheduler_configure(&scheduler, &profile);
+        tdma_traffic_request_t request =
+            make_request(TDMA_PAYLOAD_CLASS_VDC_SYNC_SAMPLE, 0xE1u, now_ns);
+        failed += expect_u32("before empty enqueue",
+            tdma_traffic_scheduler_enqueue(&scheduler, &request),
+            TDMA_TRAFFIC_SCHEDULER_OK);
+        failed += expect_u32("before empty dispatch",
+            tdma_traffic_scheduler_select(&scheduler, now_ns, maintenance != 0u, &dispatch),
+            TDMA_TRAFFIC_SCHEDULER_OK);
+        failed += expect_bool("before empty complete",
+            tdma_traffic_scheduler_complete(&scheduler, TDMA_TRAFFIC_VDC_REALTIME,
+                TDMA_TRAFFIC_COMPLETION_SENT), true);
+        (void)tdma_traffic_scheduler_get_snapshot(&scheduler, &snapshot);
+        const uint32_t cycle_seq = snapshot.cycle_seq;
+        const uint64_t next_ns = now_ns + profile.resource.cycle_period_ns;
+        unsigned char untouched[sizeof(dispatch)];
+        memset(untouched, 0x5a, sizeof(untouched));
+        memcpy(&dispatch, untouched, sizeof(dispatch));
+        failed += expect_u32("empty next cycle",
+            tdma_traffic_scheduler_select(&scheduler, next_ns, maintenance != 0u, &dispatch),
+            TDMA_TRAFFIC_SCHEDULER_GATE_CLOSED);
+        failed += expect_bool("empty leaves dispatch untouched",
+            memcmp(&dispatch, untouched, sizeof(dispatch)) == 0, true);
+        failed += expect_bool("empty snapshot lock released",
+            tdma_traffic_scheduler_get_snapshot(&scheduler, &snapshot), true);
+        failed += expect_u32("empty advances cycle", snapshot.cycle_seq, cycle_seq + 1u);
+        failed += expect_u32("empty resets cycle bytes", snapshot.cycle_bytes, 0u);
+        failed += expect_u32("empty resets class budget",
+            snapshot.traffic[TDMA_TRAFFIC_VDC_REALTIME].cycle_frames, 0u);
+        failed += expect_u32("empty keeps result", snapshot.last_result,
+            TDMA_TRAFFIC_SCHEDULER_GATE_CLOSED);
+        failed += expect_u32("empty keeps no class", snapshot.last_traffic_class, UINT32_MAX);
+        request.enqueue_time_ns = next_ns;
+        failed += expect_u32("new data after empty admitted",
+            tdma_traffic_scheduler_enqueue(&scheduler, &request), TDMA_TRAFFIC_SCHEDULER_OK);
+        failed += expect_u32("new data after empty dispatched in same cycle",
+            tdma_traffic_scheduler_select(&scheduler, next_ns, maintenance != 0u, &dispatch),
+            TDMA_TRAFFIC_SCHEDULER_OK);
+        failed += expect_u32("new data class", dispatch.traffic_class, TDMA_TRAFFIC_VDC_REALTIME);
+        failed += expect_u32("new data marker", dispatch.frame[0], 0xE1u);
+    }
+    return failed;
+}
+
 static int test_recovery_ping_pong_budget(void)
 {
     int failed = 0;
@@ -530,6 +588,12 @@ static int test_recovery_ping_pong_budget(void)
     failed += expect_u32("dispatch recovery flag", dispatch.is_recovery, 1u);
     failed += expect_u32("first recovery node", dispatch.recovery_node_id, 1u);
     failed += expect_u32("first recovery marker", dispatch.frame[0], 0xD1u);
+    failed += expect_u32("in-flight recovery is not empty",
+        tdma_traffic_scheduler_select(&scheduler, now_ns, false, &dispatch),
+        TDMA_TRAFFIC_SCHEDULER_GATE_CLOSED);
+    (void)tdma_traffic_scheduler_get_snapshot(&scheduler, &snapshot);
+    failed += expect_u32("in-flight and ready recovery retained",
+        snapshot.recovery.current_depth, 2u);
     failed += expect_bool(
         "first recovery completion",
         tdma_traffic_scheduler_complete(
@@ -595,6 +659,7 @@ int main(void)
     failed += test_budget_and_deadline();
     failed += test_short_long_class_gate();
     failed += test_cycle_change_requires_explicit_cancel();
+    failed += test_empty_select_keeps_budget_and_next_admission();
     failed += test_recovery_ping_pong_budget();
     if (failed != 0) {
         return 1;
