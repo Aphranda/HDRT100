@@ -1484,6 +1484,15 @@ TDMA 只负责训练 transport/persona 和实时执行编排：
 - `RING:STOP` 清空 live runtime，但 TDMA service 保留最后一次 accepted
   `ring_staged_config`；Calibration 只能通过 TDMA owner 的只读 snapshot 绑定维护态 evidence，
   不得借该 snapshot arm、启动或改写 ring。
+- 维护态验收区分命令接受、物理停止与配置应用。`calibration_marker_train.prepare_ring`
+  核对 SCPI 结果和错误队列，并等待 runtime 禁用、adapter 停止及 requested/applied
+  configuration generation 相等后才进行后续配置。停止后的 live topology 可能已清空，
+  `BOARD:NO` 也只证明板号；两者均不能替代 accepted staged topology 的证据。
+  MARK 的 prepared record 由 Calibration 绑定 owner 的 staged snapshot；注入前核对
+  节点映射、训练 epoch/generation 与共同 topology/profile/schedule identity。
+  MARK record 的 `reference_node` 表示本次注入源，可以随 residence 试验轮换；固定
+  TDMA reference 由 topology identity 绑定，不能用它拒绝合法的注入源轮换。
+  无应答、拒绝或身份不一致必须保留为失败，不得由主机合成“读回已验证”。
 
 PIO instruction memory 采用按功能动态装载，不把所有程序永久并存。当前 persona 枚举的
 事实源是 `tdma_pio_spi_program_persona_t`；普通帧、粗 CLK 训练、板内校准回环和编码 CLK
