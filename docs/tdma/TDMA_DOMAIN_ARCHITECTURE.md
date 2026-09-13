@@ -1072,6 +1072,13 @@ PIO 无通用 SRAM 访问，缓冲与记录仍须通过已仲裁 DMA 及唯一 F
 owner 边界执行。候选应计入完整 phase 的收益，并独立验证逐圈时间证据保留期限；
 新增 SM 或已有 CRC/sniffer 子图均不构成未经实测的 WCET 节省。
 
+连续计数器自身压缩及记录池布局的后续离线证据见
+`TDMA-PROGRESS-20260914-004`。该候选未安装，生产端点和 catalog 未改变；原始
+计数值不能替换 `tdma_origin_observation_t` 的 RTT 语义。记录路径须同时绑定
+实际边沿、CONTROL 身份、capture/trailer、epoch 与完整版本，并由 VDC/Calibration
+确定时钟映射。互斥 persona 的缓存复用原型和链接对齐填充仅供后续资源核算，不是
+静态资源授权；完整 DMA 树及 Core0 工位退休后才允许切换和复用。
+
 临时许可证是 `calibration_origin_timing_t` 的易失版本记录：绑定 ring config sequence、
 完整配置、Calibration/topology generation 与 CRC、active model epoch、foundation 与
 DeploymentGate 投影、board/persona/resource 以及源时钟；重装预算、abort 次数和绝对期限

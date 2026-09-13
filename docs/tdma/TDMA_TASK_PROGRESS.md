@@ -8,7 +8,12 @@ Last updated: 2026-09-14
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前完成 follower PIO 共尾候选的验证与回退，见 `TDMA-PROGRESS-20260914-003`，
+当前完成连续计数器自身压缩与记录池复用核算，见 `TDMA-PROGRESS-20260914-004`，
+证据根为 `out/HardwareAcceptance/20260914/tdma-flight-edge-counter-compact/`。
+新候选保持计数语义并缩减 PIO 指令，ARM ABI 原型也找到互斥缓存复用的空间；
+两者尚未安装，不能计作生产 RAM 释放、CPU 省时或逐圈时间交付。下一实现仍须
+联合闭合 FIFO 独占、身份/版本、记录格式、消费期限及 VDC 时钟映射。
+前序完成 follower PIO 共尾候选的验证与回退，见 `TDMA-PROGRESS-20260914-003`，
 证据根为 `out/HardwareAcceptance/20260914/tdma-flight-follower-pio-tail/`。候选可以
 缩减指令占用，但新增的 byte 重装周期在分数分频模型中造成采样相位偏移，未采纳。
 四板及生产源码已恢复前序版本，普通闭环、STOP/config ACK 和 SD 核对通过。
@@ -335,6 +340,47 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260914-004 - 连续计数器压缩与记录池复用核算
+
+- 日期：2026-09-14
+- 状态：PARTIAL；离线指令与 ARM 布局核算完成，固件及板端状态未改变。
+- 新方案压缩计数器自身，保留生产 DATA 字节路径。使用 SM wrap 处理高电平路径
+  的 X=0，下降路径零值直接落入 LOW，配合 delay 保持所有路径同样的计数节拍。
+  指令模型快照（非事实源）：由 10 条减到 8 条，每次轮询仍为五个时钟；当前时钟下
+  派生量化为 20 ns，不代表绝对时间精度。
+- 验证快照（非事实源）：继承的 1460 个波形、200 个双计数器回绕用例通过；新增
+  35840 个电平序列/初相/X 初值组合逐项比较旧、新汇编程序，轮询时间、计数值、
+  FIFO PUSH 和丢失记录完全相同。错误 delay 与 wrap 负测被拒。首次 LOW 伪记录、
+  短脉冲漏采、FIFO 满和 blocking PUSH 破坏映射的反例继续保留。
+- 空间快照（非事实源）：自主 origin 若替换旧 RTT 与保留 latch，TX catalog 可从
+  32 条变为 30 条；已有 RTT 本来由 DMA 重装，不能算新 Core1 收益。follower TX
+  的候选占用为 18 条，但保持现有 DATA 时 RX 仍需 36 条，不能直接安装；不能
+  因共享程序可运行就静默迁移 RX 端点到 TX。实际资源、入口及 persona 生命周期
+  仍须按 `tdma_state_machine_resources.h` 和 program manager 重新核验。
+- ARM ABI 快照（非事实源）：采用当前固件编译选项，单独编译尺寸对象并核对当前
+  map；workspace/origin 为 7712 B，service 为 7696 B，现成 follower 余量仅
+  16 B，后方存在 480 B 链接对齐填充。旧 origin TX 数组 1232 B，follower 双计划
+  2368 B；前者仅 MASTER/FLIGHT_ORIGIN 路径使用，后者公共入口要求
+  SLAVE/FLIGHT_PROCESS_FOLLOWER，为进一步互斥复用提供依据。
+- 独立布局原型快照（非事实源）：保持 RX ring 起点，嵌套 union 复用上述互斥数组，
+  放入两路各 32 word、按 128 B 对齐的原始环及 1024 B 不透明记录预算，workspace
+  为 7808 B，较当前增加 96 B；原始环/记录预算偏移为 6528/6784 B。原型没有进入
+  固件，记录预算不是冻结结构，现有对齐填充也不是可用 RAM 凭证；必须用真实实现
+  重新链接 A/B，核验地址、代码驻留、STOP/DMA/Core0 退休及消费期限。
+- 自主 origin 的既有 AL3 executor 可作为双 FIFO 收取候选，避免直接新增两路 DMA；
+  但必须同时退休旧暂停/清 FIFO/重装路径，并证明每圈边沿数量、实际 CONTROL 身份、
+  完整 capture/trailer 和版本一致。`tdma_origin_observation_t` 与现有
+  `TDMA_ORIGIN_RECORD_FORMAT_RTT` 不能被静默改作绝对计数器；需要明确记录格式、
+  getter/解析器及 VDC/Calibration 时钟映射。不把计数器入环等同于特等席交付。
+- 首次 ARM 尺寸命令因 Windows 引号解析和缺少 build-job 头失败，原日志保留；
+  修正命令解析及审计源后，当前布局和独立原型均编译通过，未扩大超时或运行预算。
+- 本轮仅离线汇编、指令执行及 ARM 尺寸对象，无新固件构建、OTA 或 P3 声明；
+  当前源码指纹仍为 `280f9ddcba018de2068c79541b00263d07fa199f0e0e3f4b8f972d2f857afd6f`，
+  板端最后验证版本仍是 `20260913163720`。完整 WCET、严格 P3、正式 RAM、实际
+  service blackout 与逐圈绝对时间/身份保全继续开放；registry 状态不变。
+- 原件入口：`working-design.txt`、`edge-model-r1.json`、`equivalence-r1.json`、
+  `workspace-audit-r2.json`、`workspace-audit-r3.json` 和 `review-final-r1.json`。
 
 ### TDMA-PROGRESS-20260914-003 - follower PIO 共尾压缩反例与回退
 

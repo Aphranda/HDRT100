@@ -373,6 +373,14 @@ DATA 指令占用，却增加普通 byte 重装周期；实际可表示的分数
 不把此被拒候选计为资源释放或 CPU 收益；ARM fixture 的既有接口/调用次序偏差
 已在候选证据留存，仍须后续独立修正。逐圈保全、完整 WCET 与增长因果继续开放。
 
+计数器自身压缩与 ARM 记录池原型见 `TDMA-PROGRESS-20260914-004`。新候选保留
+DATA 字节余量，指令与回绕等价验证通过；follower RX 仍不能直接容纳，现有
+workspace 的现成余量也不能容纳完整记录池。互斥 origin TX/follower 计划的嵌套
+union 原型提供后续存储路径，但必须以真实链接和 DMA/Core0 生命周期测试确认。
+下一实现联合处理静态端点、FIFO 数量与身份绑定、版本化记录及 VDC 时钟映射；
+不能只装短程序或复用旧 RTT 字段宣布逐圈时间证据完成。实际 service blackout
+独立验收，不能借用 OTA 已有的 TDMA skip 路径制造验收条件。
+
 普通 RX 异步解析切片已按用户顺序封存，随后完成六节点编译容量的隔离 RAM 核算，见
 `TDMA-PROGRESS-20260912-019`。核算区分本地状态、固定 wire/RefMem/Calibration
 存储容量与 scratch_y；收益不能代替正式 RAM/WCET 门禁。编译容量作为独立辅助切片
