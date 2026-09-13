@@ -51,6 +51,12 @@
 #define SCPI_PORT_IDN_MODEL           PROJECT_MODEL_NAME
 #define SCPI_PORT_IDN_SERIAL          NULL
 #define SCPI_PORT_POLL_CHARS          32u
+#define SCPI_PORT_STDIO_BATCH_BYTES   64u
+
+typedef struct {
+    char bytes[SCPI_PORT_STDIO_BATCH_BYTES];
+    size_t count;
+} scpi_stdio_batch_t;
 
 static scpi_t s_scpi_context;
 static char s_scpi_input_buffer[SCPI_PORT_INPUT_BUFFER_LENGTH];
@@ -85,9 +91,28 @@ static scpi_result_t scpi_port_idn_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+static void scpi_port_write_raw(const char *data, size_t len)
+{
+    size_t offset = 0u;
+    while (offset < len) {
+        const size_t remaining = len - offset;
+        const int chunk = remaining > (size_t)INT_MAX ? INT_MAX : (int)remaining;
+        (void)stdio_put_string(&data[offset], chunk, false, false);
+        offset += (size_t)chunk;
+    }
+}
+
+static void scpi_port_stdio_drain(scpi_t *context)
+{
+    scpi_stdio_batch_t *batch = context != NULL ? context->user_context : NULL;
+    if (batch != NULL && batch->count > 0u) {
+        scpi_port_write_raw(batch->bytes, batch->count);
+        batch->count = 0u;
+    }
+}
+
 static size_t scpi_port_write(scpi_t *context, const char *data, size_t len)
 {
-    (void)context;
     if (s_scpi_capture_buffer != NULL) {
         const size_t space = s_scpi_capture_capacity > s_scpi_capture_len ?
                              s_scpi_capture_capacity - s_scpi_capture_len :
@@ -107,15 +132,26 @@ static size_t scpi_port_write(scpi_t *context, const char *data, size_t len)
         return s_scpi_stream_write(data, len, s_scpi_stream_context);
     }
 
-    /* Keep each parser fragment raw, but enter the stdio/USB driver once per
-     * fragment instead of once per byte.  Both raw APIs disable CR translation
-     * and newline insertion.  This remains Core0 transport work. */
+    scpi_stdio_batch_t *batch = context != NULL ? context->user_context : NULL;
+    if (batch == NULL) {
+        scpi_port_write_raw(data, len);
+        return len;
+    }
+
+    /* The stack batch belongs to the synchronous Core0 input call.  Preserve
+     * all raw bytes while avoiding a USB driver handoff for every scalar or
+     * delimiter emitted by the parser. */
     size_t offset = 0u;
     while (offset < len) {
         const size_t remaining = len - offset;
-        const int chunk = remaining > (size_t)INT_MAX ? INT_MAX : (int)remaining;
-        (void)stdio_put_string(&data[offset], chunk, false, false);
-        offset += (size_t)chunk;
+        const size_t space = sizeof(batch->bytes) - batch->count;
+        const size_t chunk = remaining < space ? remaining : space;
+        memcpy(&batch->bytes[batch->count], &data[offset], chunk);
+        batch->count += chunk;
+        offset += chunk;
+        if (batch->count == sizeof(batch->bytes)) {
+            scpi_port_stdio_drain(context);
+        }
     }
     return len;
 }
@@ -129,6 +165,7 @@ static scpi_result_t scpi_port_flush(scpi_t *context)
 
 static void scpi_port_flush_output(void)
 {
+    scpi_port_stdio_drain(&s_scpi_context);
     if (s_scpi_stream_flush != NULL) {
         s_scpi_stream_flush(s_scpi_stream_context);
         return;
@@ -144,7 +181,7 @@ void scpi_port_flush_now(void)
 
 static int scpi_port_error(scpi_t *context, int_fast16_t error)
 {
-    (void)context;
+    scpi_port_stdio_drain(context);
     LOG_WARN("scpi", "error=%d", (int)error);
     return 0;
 }
@@ -353,6 +390,21 @@ bool scpi_port_init(void)
     return true;
 }
 
+static void scpi_port_input(const char *data, int len)
+{
+    if (s_scpi_capture_buffer != NULL || s_scpi_stream_write != NULL) {
+        SCPI_Input(&s_scpi_context, data, len);
+        return;
+    }
+
+    scpi_stdio_batch_t batch = {.count = 0u};
+    void *previous_context = s_scpi_context.user_context;
+    s_scpi_context.user_context = &batch;
+    SCPI_Input(&s_scpi_context, data, len);
+    scpi_port_stdio_drain(&s_scpi_context);
+    s_scpi_context.user_context = previous_context;
+}
+
 void scpi_port_service(void)
 {
     char buffer[SCPI_PORT_POLL_CHARS];
@@ -371,7 +423,7 @@ void scpi_port_service(void)
     }
 
     if (count > 0u) {
-        SCPI_Input(&s_scpi_context, buffer, (int)count);
+        scpi_port_input(buffer, (int)count);
     }
 }
 
@@ -381,11 +433,12 @@ void scpi_port_feed(const char *data, size_t len)
         return;
     }
 
-    SCPI_Input(&s_scpi_context, data, (int)len);
+    scpi_port_input(data, (int)len);
 }
 
 void scpi_port_set_stream(scpi_port_write_fn_t write_fn, scpi_port_flush_fn_t flush_fn, void *context)
 {
+    scpi_port_stdio_drain(&s_scpi_context);
     s_scpi_stream_write = write_fn;
     s_scpi_stream_flush = flush_fn;
     s_scpi_stream_context = context;
