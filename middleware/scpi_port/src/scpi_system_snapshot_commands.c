@@ -6,6 +6,8 @@
 #include <string.h>
 
 #include "app.h"
+#include "diagnostics_tdma_record.h"
+#include "pico/time.h"
 #include "board_config.h"
 #include "distributed_config.h"
 #include "distributed_refmem.h"
@@ -2975,11 +2977,80 @@ scpi_result_t scpi_cmd_system_tdma_ring_train_status_q(scpi_t *context)
 
 scpi_result_t scpi_cmd_system_tdma_ring_start(scpi_t *context)
 {
+    const uint64_t requested_us = time_us_64();
     if (!distributed_refmem_tdma_ring_start()) {
         scpi_port_push_exec_error(context, "TDMA_RING_START");
         return SCPI_RES_ERR;
     }
+    diagnostics_tdma_record_start(requested_us);
     return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_cmd_system_tdma_record_arm(scpi_t *context)
+{
+    uint32_t epoch, interval_us, samples;
+    if (!scpi_port_read_u32(context, &epoch) ||
+        !scpi_port_read_u32(context, &interval_us) ||
+        !scpi_port_read_u32(context, &samples) ||
+        !diagnostics_tdma_record_arm(epoch, interval_us, samples)) {
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_cmd_system_tdma_record_status_q(scpi_t *context)
+{
+    diagnostics_tdma_record_status_t status;
+    if (!diagnostics_tdma_record_status(&status)) {
+        SCPI_ResultText(context, "BUSY");
+        return SCPI_RES_OK;
+    }
+    SCPI_ResultUInt32(context, status.state);
+    SCPI_ResultUInt32(context, status.epoch);
+    SCPI_ResultUInt32(context, status.interval_us);
+    SCPI_ResultUInt32(context, status.requested);
+    SCPI_ResultUInt32(context, status.written);
+    SCPI_ResultUInt32(context, status.missed);
+    SCPI_ResultUInt32(context, status.reason);
+    SCPI_ResultUInt32(context, status.bytes);
+    SCPI_ResultUInt32(context, status.job_id);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_record_cancel(scpi_t *context)
+{
+    diagnostics_tdma_record_cancel();
+    return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_cmd_system_tdma_record_save(scpi_t *context)
+{
+    if (!diagnostics_tdma_record_save()) {
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_cmd_system_tdma_record_read_q(scpi_t *context)
+{
+    uint32_t offset, size;
+    uint8_t data[256];
+    char hex[sizeof(data) * 2u + 1u];
+    static const char digits[] = "0123456789abcdef";
+    if (!scpi_port_read_u32(context, &offset) ||
+        !scpi_port_read_u32(context, &size) || size == 0u || size > sizeof(data) ||
+        !app_tdma_record_copy(offset, data, size)) {
+        return SCPI_RES_ERR;
+    }
+    for (uint32_t i = 0u; i < size; ++i) {
+        hex[i * 2u] = digits[data[i] >> 4u];
+        hex[i * 2u + 1u] = digits[data[i] & 15u];
+    }
+    hex[size * 2u] = '\0';
+    SCPI_ResultUInt32(context, offset);
+    SCPI_ResultUInt32(context, size);
+    SCPI_ResultText(context, hex);
+    return SCPI_RES_OK;
 }
 
 scpi_result_t scpi_cmd_system_tdma_ring_stop(scpi_t *context)
@@ -2988,6 +3059,7 @@ scpi_result_t scpi_cmd_system_tdma_ring_stop(scpi_t *context)
         scpi_port_push_exec_error(context, "TDMA_RING_STOP");
         return SCPI_RES_ERR;
     }
+    diagnostics_tdma_record_cancel();
     return scpi_port_result_ok(context);
 }
 

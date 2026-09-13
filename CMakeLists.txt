@@ -439,6 +439,7 @@ set(PROJECT_APP_SOURCES
         application/src/main.c
         application/src/app_runtime.c
         application/src/app.c
+        application/src/app_tdma_record.c
         application/src/app_tasks.c
         ${PROJECT_BUILD_INFO_SOURCE}
         boards/rp2350_trig/src/board.c
@@ -459,6 +460,7 @@ set(PROJECT_APP_SOURCES
         components/calibration_manager/src/calibration_pio_loopback.c
         components/board_identity/src/board_identity.c
         components/diagnostics/src/diagnostics.c
+        components/diagnostics/src/diagnostics_tdma_record.c
         components/distributed_config/src/distributed_config.c
         components/distributed_refmem/src/distributed_refmem.c
         components/distributed_refmem/src/refmem_application_contract.c

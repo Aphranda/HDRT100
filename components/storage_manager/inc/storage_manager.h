@@ -231,6 +231,15 @@ bool storage_manager_write_file_chunk(uint32_t txn_id,
                                       const uint8_t *data,
                                       size_t data_size);
 bool storage_manager_commit_file_write(uint32_t txn_id, uint32_t *job_id);
+/* Core0 local producer only: seal an evidence lease at its received length.
+ * The producer's incremental CRC is independently checked against buffered
+ * bytes by the normal commit path. Upload/object transactions keep exact size. */
+bool storage_manager_finish_evidence_write(uint32_t txn_id,
+                                            uint32_t expected_crc32,
+                                            uint32_t *job_id);
+/* Caller holds its producer frozen; this copies only its own RAM lease. */
+bool storage_manager_copy_evidence_write(uint32_t txn_id, uint32_t offset,
+                                          uint8_t *data, size_t size);
 bool storage_manager_abort_file_write(uint32_t txn_id);
 bool storage_manager_begin_object_write(storage_manager_object_t object,
                                         uint32_t expected_size,

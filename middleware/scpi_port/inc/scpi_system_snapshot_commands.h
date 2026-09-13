@@ -71,6 +71,11 @@ scpi_result_t scpi_cmd_system_tdma_ring_diagnostic_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_arm(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_arm_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_status_q(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_record_arm(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_record_status_q(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_record_cancel(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_record_save(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_record_read_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_train(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_train_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_start(scpi_t *context);
@@ -172,6 +177,11 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:TDMA:RING:DIAGnostic?", .callback = scpi_cmd_system_tdma_ring_diagnostic_q}, \
     {.pattern = "SYSTem:TDMA:RING:ARM:STATus?", .callback = scpi_cmd_system_tdma_ring_arm_status_q}, \
     {.pattern = "SYSTem:TDMA:RING:STATus?", .callback = scpi_cmd_system_tdma_ring_status_q}, \
+    {.pattern = "SYSTem:TDMA:RECord:ARM", .callback = scpi_cmd_system_tdma_record_arm}, \
+    {.pattern = "SYSTem:TDMA:RECord:STATus?", .callback = scpi_cmd_system_tdma_record_status_q}, \
+    {.pattern = "SYSTem:TDMA:RECord:CANCel", .callback = scpi_cmd_system_tdma_record_cancel}, \
+    {.pattern = "SYSTem:TDMA:RECord:SAVE", .callback = scpi_cmd_system_tdma_record_save}, \
+    {.pattern = "SYSTem:TDMA:RECord:READ?", .callback = scpi_cmd_system_tdma_record_read_q}, \
     {.pattern = "SYSTem:TDMA:RING:ARM", .callback = scpi_cmd_system_tdma_ring_arm}, \
     {.pattern = "SYSTem:TDMA:RING:TRAIN", .callback = scpi_cmd_system_tdma_ring_train}, \
     {.pattern = "SYSTem:TDMA:RING:TRAIN:STATus?", .callback = scpi_cmd_system_tdma_ring_train_status_q}, \

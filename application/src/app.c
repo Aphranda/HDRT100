@@ -503,6 +503,7 @@ void app_diag_service(void)
 
 void app_storage_service(void)
 {
+    app_tdma_record_service();
     storage_manager_service(250u);
 }
 

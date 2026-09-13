@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -46,6 +47,7 @@ from trn03_waveform import (  # noqa: E402
     read_tdma_schedule,
     save_ring_capture,
 )
+from tdma_board_record import export_frozen, record_status  # noqa: E402
 
 
 CRC_DIAGNOSTIC_FIELDS = (
@@ -1034,6 +1036,152 @@ def wait_startup_barrier(
         json.dumps(evidence, separators=(",", ":")))
 
 
+def evaluate_board_records(records: dict[str, Any], ordered: list[Board],
+                           args: argparse.Namespace, config: dict[str, Any]):
+    """Apply the existing health predicates to each actual board-clock sample."""
+    ids = [board.address for board in ordered]
+    decoded = {address: records[address]["decoded"] for address in ids}
+    baseline = {address: decoded[address]["baseline"]["snapshot"] for address in ids}
+    by_slot = {address: {row["slot"]: row for row in decoded[address]["samples"]} for address in ids}
+    collection_errors = {address: decoded[address]["errors"] for address in ids if decoded[address]["errors"]}
+    requested = {decoded[address]["terminal"]["requested"] for address in ids}
+    periods = {decoded[address]["interval_us"] for address in ids}
+    if len(requested) != 1 or len(periods) != 1:
+        raise ValueError("board recording configurations differ")
+    period = periods.pop() / 1e6
+    previous = baseline
+    stable = 0
+    barrier_rows = []
+    anchor = None
+    require_image = args.stage == "process-image"
+    for slot in range(requested.pop()):
+        rows = {address: by_slot[address][slot] for address in ids if slot in by_slot[address]}
+        elapsed = {address: (row["completed_us"] - decoded[address]["terminal"]["trigger_us"]) / 1e6
+                   for address, row in rows.items()}
+        errors = {}
+        current = {address: row["snapshot"] for address, row in rows.items()}
+        for index, address in enumerate(ids):
+            if address not in rows:
+                errors[address] = ["board_sample_missing"]
+                continue
+            row = rows[address]
+            node_errors = startup_barrier_interval_errors(previous[address], current[address],
+                node_index=index, node_count=len(ids), require_process_image=require_image)
+            if row["valid_mask"] != 0x3F or row["skipped_before"]:
+                node_errors.append("board_sample_invalid_or_missed")
+            if node_errors:
+                errors[address] = node_errors
+        timely = len(elapsed) == len(ids) and all(value <= args.startup_timeout_s for value in elapsed.values())
+        passed = not errors and timely
+        stable = stable + 1 if passed else 0
+        barrier_rows.append(dict(sample_index=slot, elapsed_s=max(elapsed.values(), default=slot * period),
+            board_elapsed_s=elapsed, completed_within_deadline=timely,
+            health_passed=not errors, passed=passed, stable_count=stable, errors=errors))
+        if len(current) == len(ids):
+            previous = current
+        if stable >= args.startup_stable_samples:
+            anchor = slot
+            break
+        if slot * period >= args.startup_timeout_s:
+            break
+    barrier = dict(passed=anchor is not None and not collection_errors,
+        timeout_s=args.startup_timeout_s, stable_samples_required=args.startup_stable_samples,
+        stable_samples_observed=stable, samples=barrier_rows,
+        clock_source="board trigger and snapshot timestamps", collection_errors=collection_errors,
+        startup_pipeline_fill_deltas={address: {
+            "runtime_errors": counter_deltas(baseline[address]["runtime"], previous[address]["runtime"], STARTUP_RUNTIME_ERROR_COUNTERS),
+            "process_errors": counter_deltas(baseline[address]["flight"]["process"], previous[address]["flight"]["process"], STARTUP_PROCESS_ERROR_COUNTERS) if require_image else {},
+            "accepted_sequence_delta": u32_delta(baseline[address]["flight"]["process"]["receive_accepted_sequence"], previous[address]["flight"]["process"]["receive_accepted_sequence"]) if require_image else 0,
+        } for address in ids})
+    # A rejected startup still gets a bounded diagnostic soak with all failures
+    # retained. It cannot be promoted by a later recovery.
+    if anchor is None:
+        common = set.intersection(*(set(by_slot[address]) for address in ids))
+        candidates = [slot for slot in common if slot * period >= args.startup_timeout_s]
+        if not candidates:
+            raise RuntimeError("no complete board record available after failed startup")
+        anchor = min(candidates)
+    last_slot = anchor + math.ceil(args.window_s / period)
+    # Keep the actual observed duration, including release jitter, at least
+    # the requested soak window on every board. An extra existing record may
+    # be needed; never fabricate an endpoint at the nominal target time.
+    common_slots = set.intersection(*(set(by_slot[address]) for address in ids))
+    endpoints = [slot for slot in sorted(common_slots) if slot >= last_slot and
+        all(by_slot[address][slot]["completed_us"] - by_slot[address][anchor]["completed_us"] >=
+            args.window_s * 1e6 for address in ids)]
+    duration_complete = bool(endpoints)
+    if endpoints:
+        last_slot = endpoints[0]
+    timeline = []
+    for slot in range(anchor, last_slot + 1):
+        rows = {address: by_slot[address][slot] for address in ids if slot in by_slot[address]}
+        errors = {address: "board_sample_missing" for address in ids if address not in rows}
+        for address, row in rows.items():
+            if row["valid_mask"] != 0x3F or row["skipped_before"]:
+                errors[address] = "board_sample_invalid_or_missed"
+        elapsed = {address: (row["completed_us"] - by_slot[address][anchor]["completed_us"]) / 1e6
+                   for address, row in rows.items()}
+        timeline.append(dict(sample_index=len(timeline), elapsed_s=max(elapsed.values(), default=(slot - anchor) * period),
+            board_elapsed_s=elapsed, target_elapsed_s=(slot - anchor) * period,
+            nodes={address: row["snapshot"] for address, row in rows.items()}, errors=errors))
+    validation = validate_soak_timeline(timeline, ids, config, require_process_image=require_image)
+    if not duration_complete:
+        validation["passed"] = False
+        validation.setdefault("errors", []).append("board_soak_duration_incomplete")
+    if collection_errors:
+        validation["passed"] = False
+        validation.setdefault("errors", []).append("board_record_collection_failed")
+    return timeline[0]["nodes"], timeline[-1]["nodes"], barrier, timeline, validation
+
+
+def acquire_board_records(ordered, start_order, args, actions, progress, out_dir):
+    """Trigger once; make no SCPI data queries until the board window has ended."""
+    epoch = int(time.time()) & 0xFFFFFFFF
+    period_us = round(args.sample_interval_s * 1e6)
+    count = math.ceil((args.startup_timeout_s + args.window_s) * 1e6 / period_us) + 2
+    for board in ordered:
+        actions.append(dict(node=board.address, action="RECORD_ARM", epoch=epoch,
+            response=board_command(board, f"SYSTem:TDMA:RECord:ARM {epoch},{period_us},{count}", args)))
+        deadline = time.monotonic() + args.arm_wait
+        status = None
+        while time.monotonic() < deadline:
+            status = record_status(board_command(board, "SYSTem:TDMA:RECord:STATus?", args))
+            if status is not None and status["state"] == 3 and status["epoch"] == epoch:
+                break
+            if status is not None and status["state"] == 9:
+                raise RuntimeError(f"recorder ARM rejected: {status}")
+            time.sleep(0.05)
+        else:
+            raise RuntimeError(f"recorder ARM acknowledgement timeout: {status}")
+    for board in start_order:
+        actions.append(dict(node=board.address, action="START",
+            response=board_command(board, "SYSTem:TDMA:RING:START", args)))
+    progress.emit("board_recording_started", epoch=epoch, samples=count,
+                  interval_us=period_us, query_policy="TRIGGER_ONLY_DURING_ACQUISITION")
+    # This host wait does not release samples. Every sample and missed deadline
+    # is generated by the board's own clock and retained in the frozen file.
+    deadline = time.monotonic() + count * period_us / 1e6 + 0.5
+    while time.monotonic() < deadline:
+        time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
+    with ThreadPoolExecutor(max_workers=len(ordered)) as pool:
+        futures = {board.address: pool.submit(export_frozen, board, args, board_command,
+            epoch=epoch, path=out_dir / f"node{index}_board_record.bin")
+            for index, board in enumerate(ordered)}
+        records = {}
+        export_errors = {}
+        for address, future in futures.items():
+            try:
+                records[address] = future.result()
+            except Exception as exc:
+                export_errors[address] = f"{type(exc).__name__}: {exc}"
+    (out_dir / "board-records.json").write_text(json.dumps(dict(records=records,
+        errors=export_errors, epoch=epoch), indent=2), encoding="utf-8")
+    if export_errors:
+        raise RuntimeError(f"board frozen export failed: {export_errors}")
+    progress.emit("board_recording_exported", epoch=epoch, board_count=len(records))
+    return records
+
+
 def validate_tx_seed(flight_before: dict[str, Any],
                      flight_after: dict[str, Any]
                      ) -> tuple[list[str], dict[str, int]]:
@@ -1712,6 +1860,8 @@ def main() -> int:
         "startup_timeout_s": args.startup_timeout_s,
         "startup_stable_samples": args.startup_stable_samples,
         "startup_poll_interval_s": args.startup_poll_interval_s,
+        "acquisition_policy": "SCPI_TRIGGER_BOARD_CLOCK_FROZEN_EXPORT",
+        "board_record_interval_s": args.sample_interval_s,
         "diagnostic_continue": args.diagnostic_continue,
         "waveform_window_ns": args.waveform_window_ns,
         "sck_frequency_tolerance_percent":
@@ -1769,6 +1919,7 @@ def main() -> int:
     soak_timeline: list[dict[str, Any]] = []
     soak_validation: dict[str, Any] = {}
     startup_barrier: dict[str, Any] = {}
+    board_records: dict[str, Any] = {}
     dpll_schedule_before: dict[str, Any] = {}
     dpll_schedule_required = bool(
         args.stage == "process-image" and args.dpll_provisional)
@@ -1991,22 +2142,12 @@ def main() -> int:
                     "action": "CLOCK_TRAIN",
                     "response": train(board, args),
                 })
-        startup_before = sample_all(ordered, args)
-        for board in start_order:
-            actions.append({"node": board.address, "action": "START",
-                            "response": board_command(
-                                board, "SYSTem:TDMA:RING:START", args)})
-        progress.emit("ring_started", board_count=len(start_order))
-        before, startup_barrier = wait_startup_barrier(
-            ordered, args, startup_before=startup_before,
-            require_process_image=args.stage == "process-image",
-            continue_on_failure=args.diagnostic_continue,
-            progress=progress)
+        board_records = acquire_board_records(
+            ordered, start_order, args, actions, progress, out_dir)
+        before, after, startup_barrier, soak_timeline, soak_validation = evaluate_board_records(
+            board_records, ordered, args, config)
         if not startup_barrier.get("passed"):
             startup_gate_error = "explicit startup barrier timed out"
-        soak_timeline = collect_soak_timeline(
-            ordered, args, initial=before, window_s=args.window_s,
-            sample_interval_s=args.sample_interval_s, progress=progress)
         final_nodes = soak_timeline[-1]["nodes"]
         missing_final = set(board_ids) - set(final_nodes)
         if missing_final:
@@ -2014,12 +2155,9 @@ def main() -> int:
                 "final periodic samples missing: " +
                 ", ".join(sorted(missing_final)))
         after = final_nodes
-        soak_validation = validate_soak_timeline(
-            soak_timeline, board_ids, config,
-            require_process_image=args.stage == "process-image")
         if dpll_schedule_required:
             for board in ordered:
-                after_schedule = read_tdma_schedule(board, args)
+                after_schedule = after[board.address]["schedule"]
                 dpll_schedule_gate["nodes"][board.address] = (
                     validate_dpll_schedule(
                         dpll_schedule_before[board.address], after_schedule))
@@ -2200,6 +2338,7 @@ def main() -> int:
         "soak_validation": soak_validation,
         "dpll_schedule_gate": dpll_schedule_gate,
         "startup_barrier": startup_barrier,
+        "board_records": board_records,
         "ring_capture": ring_capture,
         "ring_capture_error": capture_error,
         "ring_analysis": ring_analysis,

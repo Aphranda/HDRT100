@@ -1794,6 +1794,37 @@ bool storage_manager_commit_file_write(uint32_t txn_id, uint32_t *job_id)
     return true;
 }
 
+bool storage_manager_finish_evidence_write(uint32_t txn_id,
+                                            uint32_t expected_crc32,
+                                            uint32_t *job_id)
+{
+    if (s_write_snapshot.txn_id != txn_id || !s_write_snapshot.direct_write ||
+        s_write_snapshot.received_size == 0u ||
+        (s_write_snapshot.state != STORAGE_MANAGER_WRITE_STATE_RECEIVING &&
+         s_write_snapshot.state != STORAGE_MANAGER_WRITE_STATE_READY)) {
+        return false;
+    }
+    s_write_snapshot.expected_size = s_write_snapshot.received_size;
+    s_write_snapshot.expected_crc32 = expected_crc32;
+    s_write_snapshot.state = STORAGE_MANAGER_WRITE_STATE_READY;
+    return storage_manager_commit_file_write(txn_id, job_id);
+}
+
+bool storage_manager_copy_evidence_write(uint32_t txn_id, uint32_t offset,
+                                          uint8_t *data, size_t size)
+{
+    if (data == NULL || size == 0u || s_write_snapshot.txn_id != txn_id ||
+        !s_write_snapshot.direct_write ||
+        (s_write_snapshot.state != STORAGE_MANAGER_WRITE_STATE_RECEIVING &&
+         s_write_snapshot.state != STORAGE_MANAGER_WRITE_STATE_READY) ||
+        offset > s_write_snapshot.received_size ||
+        size > s_write_snapshot.received_size - offset) {
+        return false;
+    }
+    memcpy(data, s_write_buffer + offset, size);
+    return true;
+}
+
 bool storage_manager_abort_file_write(uint32_t txn_id)
 {
     if (storage_job_is_active()) {
@@ -3371,6 +3402,13 @@ void storage_manager_service(uint32_t budget_us)
     const uint64_t start_us = storage_now_us();
     if (storage_job_is_active()) {
         storage_manager_service_job();
+        return;
+    }
+
+    /* A local recorder or upload holds the bounded RAM transaction until it
+     * explicitly commits. Do not start background filesystem work while its
+     * producer is collecting or retaining that immutable evidence. */
+    if (storage_write_buffer_is_active()) {
         return;
     }
 

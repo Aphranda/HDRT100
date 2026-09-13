@@ -58,6 +58,8 @@ typedef struct {
 
 bool app_init(void);
 bool app_is_ready(void);
+void app_tdma_record_service(void);
+bool app_tdma_record_copy(uint32_t offset, uint8_t *data, uint32_t size);
 bool app_is_control_plane_ready(void);
 void app_realtime_cycle_counter_init(void);
 void app_realtime_run_once(void);

@@ -1803,12 +1803,91 @@ def test_startup_barrier_does_not_start_read_after_poll_exhausts_deadline(monkey
     assert calls == [] and evidence['samples'] == []
 
 
-def test_closed_loop_uses_explicit_startup_barrier_not_fixed_sleep() -> None:
+def test_closed_loop_uses_board_evidence_without_runtime_serial_sampling() -> None:
     source = (ROOT / "tools" / "calibration_ring_validate" /
               "trn03_closed_loop.py").read_text(encoding="utf-8")
     main = source.split("def main() -> int:", 1)[1]
-    assert "wait_startup_barrier(" in main
+    assert "evaluate_board_records(" in main
+    assert "acquire_board_records(" in main
+    assert "wait_startup_barrier(" not in main
+    assert "sample_all(" not in main
+    assert "collect_soak_timeline(" not in main
     assert "time.sleep(args.start_wait)" not in main
+
+
+def board_record_fixture():
+    boards = [SimpleNamespace(address=f"node{i}") for i in range(2)]
+    args = SimpleNamespace(stage="process-image", startup_timeout_s=0.5,
+                           startup_stable_samples=2, window_s=0.5)
+    records = {}
+    for index, board in enumerate(boards):
+        rows = []
+        for slot in range(6):
+            snapshot = soak_snapshot(index, slot + 1)
+            snapshot["flight"]["process"]["receive_accepted_sequence"] += slot + 1
+            rows.append(dict(slot=slot, valid_mask=0x3F, skipped_before=0,
+                started_us=1000000 + slot * 250000, completed_us=1000010 + slot * 250000,
+                snapshot=snapshot))
+        records[board.address] = {"decoded": dict(baseline={"snapshot": soak_snapshot(index, 0)},
+            samples=rows, terminal=dict(trigger_us=1000000, requested=6),
+            interval_us=250000, errors=[])}
+    return boards, args, records
+
+
+def test_board_records_replay_original_startup_and_all_soak_intervals():
+    boards, args, records = board_record_fixture()
+    before, after, barrier, timeline, validation = trn03.evaluate_board_records(
+        records, boards, args, soak_config())
+    assert barrier["passed"] and validation["passed"]
+    assert barrier["stable_samples_observed"] == 2
+    assert len(timeline) == 3
+    assert after["node0"]["runtime"]["ring_seq"] > before["node0"]["runtime"]["ring_seq"]
+
+
+def test_late_board_startup_sample_cannot_be_promoted_by_later_health():
+    boards, args, records = board_record_fixture()
+    records["node1"]["decoded"]["samples"][0]["completed_us"] = 1600000
+    records["node1"]["decoded"]["samples"][1]["completed_us"] = 1600010
+    _, _, barrier, _, _ = trn03.evaluate_board_records(records, boards, args, soak_config())
+    assert not barrier["passed"]
+    assert not barrier["samples"][0]["completed_within_deadline"]
+
+
+def test_board_soak_keeps_transient_down_even_after_recovery():
+    boards, args, records = board_record_fixture()
+    records["node1"]["decoded"]["samples"][2]["snapshot"]["runtime"]["ring_down_running"] = 0
+    _, _, barrier, _, validation = trn03.evaluate_board_records(records, boards, args, soak_config())
+    assert barrier["passed"] and not validation["passed"]
+    assert validation["nodes"]["node1"]["down_event_count"] == 1
+    assert validation["nodes"]["node1"]["recovery_count"] == 1
+
+
+def test_missing_board_slot_is_not_replaced_by_a_later_snapshot():
+    boards, args, records = board_record_fixture()
+    records["node1"]["decoded"]["samples"].pop(2)
+    records["node1"]["decoded"]["errors"] = ["record_missed_sampling_slots"]
+    _, _, barrier, timeline, validation = trn03.evaluate_board_records(records, boards, args, soak_config())
+    assert not barrier["passed"] and not validation["passed"]
+    assert timeline[1]["errors"]["node1"] == "board_sample_missing"
+
+
+def test_board_acquisition_sends_no_query_in_collection_window(monkeypatch, tmp_path):
+    clock = [10.0]
+    calls = []
+    monkeypatch.setattr(trn03.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(trn03.time, "time", lambda: 123)
+    monkeypatch.setattr(trn03.time, "sleep", lambda delay: clock.__setitem__(0, clock[0] + delay))
+    def command(board, text, args):
+        calls.append((clock[0], text))
+        return "3,123,250000,8,0,0,0,1600,0" if text.endswith("STATus?") else '"OK"'
+    monkeypatch.setattr(trn03, "board_command", command)
+    monkeypatch.setattr(trn03, "export_frozen", lambda *a, **kw: {"exported_at": clock[0]})
+    args = SimpleNamespace(sample_interval_s=0.25, startup_timeout_s=0.5, window_s=0.5, arm_wait=1)
+    boards = [SimpleNamespace(address="node0")]
+    progress = SimpleNamespace(emit=lambda *a, **kw: None)
+    result = trn03.acquire_board_records(boards, boards, args, [], progress, tmp_path)
+    assert len(calls) == 3  # ARM, control acknowledgement, START.
+    assert result["node0"]["exported_at"] >= 12.0
 
 
 def test_closed_loop_diagnostic_mode_preserves_failed_gate_and_continues() -> None:
@@ -1816,7 +1895,7 @@ def test_closed_loop_diagnostic_mode_preserves_failed_gate_and_continues() -> No
               "trn03_closed_loop.py").read_text(encoding="utf-8")
     main = source.split("def main() -> int:", 1)[1]
     assert '"--diagnostic-continue"' in source
-    assert "continue_on_failure=args.diagnostic_continue" in main
+    assert 'startup_gate_error = "explicit startup barrier timed out"' in main
     assert "args.diagnostic_continue and bool(soak_timeline)" in main
     assert '"diagnostic_continue": args.diagnostic_continue' in main
 
