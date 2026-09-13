@@ -1277,6 +1277,17 @@ RUN/OTHER；同固件重复窗口中的低值不能覆盖已保留高值。有�
 地址/指令字一致性只能缩小归因范围，不能证明 WCET 或排除数据、缓存、总线与中断
 造成的差异。原件及本轮边界见 `TDMA-PROGRESS-20260914-001`。
 
+新旧固件的耗时对照还须绑定板卡、实际启动来源槽与包内 image。实现锚点为
+`scpi_cmd_ota_slot_q()`、`scpi_cmd_ota_result_q()` 与
+`tools/ota_packager/ota_packager.py::put_image()`：SLOT 查询提供 metadata，RES
+提供启动来源槽、镜像大小和 CRC，须与包内描述符交叉核验；不能把 confirmed slot
+查询当作 COMMIT 已同步完成的保证。同一个包包含不同运行地址的 A/B image，
+只核对 build ID 或包哈希不足以固定可执行布局。先前同时变化的源码与槽位不能
+独立证明代码效应；同包换槽的少量窗口范围重叠，也不能证明槽位无影响。
+latch 直接初始化候选的撤回与对照见 `TDMA-PROGRESS-20260914-006`。该候选没有
+进入生产，CPU 指令减少不计作固定收益；未调用 latch 子项的主站峰值不能直接
+归因于该 helper 的单次工作。所有探针及完整外层预算继续保留。
+
 校准维护中的 OPMode、TOPology 和 topology PROBe 写命令返回结构化数值结果；
 `TDMA_CONTROL_RESULT_FIELDS` 统一声明结果形状，主机按完整 response 等待处理，
 不能把缺失 tuple 或无关裸 ACK 当作命令已生效。coarse 校准在准备失败时保留已执行

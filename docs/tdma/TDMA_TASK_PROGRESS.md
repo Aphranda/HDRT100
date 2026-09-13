@@ -8,7 +8,14 @@ Last updated: 2026-09-14
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前完成自主 origin 有限 service 屏蔽实板切片，见 `TDMA-PROGRESS-20260914-005`，
+当前完成 latch 直接初始化候选的撤回与同包跨槽位对照，见
+`TDMA-PROGRESS-20260914-006`，证据根为
+`out/HardwareAcceptance/20260914/tdma-flight-latch-direct-seed/`。候选静态指令减少，
+但未证明完整 phase 稳定改善；生产源码已恢复前序版本。初始新旧包对照同时改变
+源码与 OTA 槽位，不能单独归因；恢复包跨槽位的重复窗口范围重叠，也不能据此排除
+槽位、布局或共享干扰。恢复源码 P3 的本轮 quick diagnostic 检查全过，最终普通
+闭环、STOP/config ACK 和 SD 核对通过；完整 500 us、正式 RAM 和增长因果仍开放。
+前序完成自主 origin 有限 service 屏蔽实板切片，见 `TDMA-PROGRESS-20260914-005`，
 证据根为 `out/HardwareAcceptance/20260914/tdma-flight-origin-service-blackout/`。
 两轮均在连续跳过完整 service 主体期间保留连续且检查通过的 DMA 返回档案；普通
 短帧预验收与最终恢复、STOP/config ACK 和 SD 核对通过。此证据仅覆盖主站有限
@@ -346,6 +353,56 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260914-006 - latch 初始化候选撤回与同包跨槽位对照
+
+- 日期：2026-09-14
+- 状态：PARTIAL；候选验证与回退闭环完成，无生产实现差异，不计优化收益。
+- 延续 O2/O4 的读取/重装分解，候选只将禁用状态下 RX/TX latch 的
+  `put UINT32_MAX → PULL → MOV X,OSR` 改为 `MOV X,~NULL`。FIFO 清理、SM restart、
+  PC、epoch-before-enable、许可/状态检查和所有探针保持。两处 CPU helper 的静态
+  指令分别由 103→92、73→62（ARM 快照，非事实源）；PIO 程序字节相同，原 latch
+  不消费 OSR。候选与恢复后的相关 host 回归各为 32 passed，A/B/Boot 均构建通过。
+- 初始“候选→旧包→候选”的同探针对照中，NO2 OTHER 外层候选四轮为
+  723.396–736.432 us，旧包两轮为 699.760–710.348 us（有限窗口快照，非事实源）。
+  没有稳定的完整收益，候选已撤回；该决定不等于已经证明改动造成增长。
+  原候选源码字节、patch、build、失败与采样均保存，不能用恢复源码替换候选证据。
+- 进一步核对发现初始三批 NO1–NO3 槽位为 B→A→B，NO4 为 A→B→A（启动快照，
+  非事实源）。源码和槽位同时变化，原对照不能隔离代码效应；候选还移动了其他
+  函数布局。主站保留的 RUN 峰值中 RX/TX latch 读取/重装均未调用，主站增长不能
+  直接解释为这些 helper 的单次执行成本。缓存、总线和 IRQ 干扰尚无隔离证据。
+- 恢复源码重新构建、真实 P3 后，用同一个包在两槽位各采集重复窗口。以下为
+  各窗口保留的完整外层峰值范围（us，有限窗口快照，非事实源；不是同拍配对）：
+
+  | 节点/选拍 | 第一槽位/两轮范围 | 另一槽位/两轮范围 |
+  |---|---|---|
+  | NO1 RUN | A：608.852–630.380 | B：618.580–619.512 |
+  | NO2 OTHER | A：706.908–726.904 | B：710.148–725.988 |
+  | NO3 OTHER | A：667.440–692.212 | B：692.184–708.308 |
+  | NO4 OTHER | B：650.508–676.316 | A：669.632–683.868 |
+
+- 同包各节点的两组范围重叠，当前不能建立固定的槽位增量，也不能证明槽位无影响。
+  每个样本绑定 UID、build、包哈希、active slot、启动来源槽、镜像大小和 CRC；
+  `SYSTem:OTA:SLOT?` 读取的是 metadata，须与 `SYSTem:OTA:RES?` 及包内 image 对应。
+  COMMIT 后的 confirmed slot 查询保留原值，不假设同步更新。全部保留拍的
+  `TDMA_SERVICE_TIMING_VERSION` 与枚举分项、ticks/calls 原样存档，不混加嵌套项。
+- 本轮采样 START 后零查询、STOP 后导出，板端记录及 SD 逐字节核对通过；自主
+  采样原始 passed/closed_loop/realtime=false、diagnostic=true 保留，普通恢复通过
+  不能提升整段自主窗口。候选、旧包复查和最终恢复各轮的 STOP/config ACK、许可
+  退出和普通闭环均留证。初次旧包 OTA 后误用运行后收尾检查，因许可 UNAVAILABLE
+  与未加载矩阵而失败；原失败保留，另行只核验配置前的硬件 STOP 与 config ACK，
+  不伪造许可失效，也不放宽运行后的原收尾检查。
+- 候选 P3 的 coarse CLK topology 响应超时保留，strict=false；恢复源码本轮
+  `FOUR_NODE_TDMA_QUICK_DIAGNOSTIC` 的 failures 为空、strict_gates_passed=true。
+  此字段只描述该诊断范围，不是正式产品 P3、完整 WCET 或历史间歇故障的关闭证明。
+  恢复 A/B 的 heap 外余量仍为 88 B（map 快照，非事实源），正式 RAM 未通过。
+- 最终 build 为 `20260913192602`，源码指纹恢复为
+  `5ca17b871eb56d5a8847874e5419dba0aa44cb8f19e7b3ba23bddc5511af548d`（本切片快照，
+  非事实源）。默认凭证绑定恢复源码，候选未进入生产；NO5 未操作，registry 不变。
+  后续按实际槽位和镜像分组，继续隔离 RX/latch 有效工作与布局、缓存/总线/IRQ
+  干扰，不能凭静态指令减少、某轮低值或重刷恢复宣布完整 500 us 达标。
+- 原件入口：`candidate-source.json`、`rollback-source-r1.json`、`layout-review-r1.json`、
+  `slot-review-restored-r1.json`、`p3-restored-r1/diagnostic.json`、`review-final-r1.json`。
 
 ### TDMA-PROGRESS-20260914-005 - 自主 origin 有限 service 屏蔽实板验证
 
