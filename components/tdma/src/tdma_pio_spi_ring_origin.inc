@@ -206,21 +206,28 @@ static bool tdma_pio_spi_ring_origin_publish(tdma_pio_spi_ring_adapter_t *adapte
         (adapter->origin.published_owner_generation == tx.generation &&
          adapter->origin.published_owner_sequence == tx.sequence)) return true;
     if (tx.generation == 0u || tx.segment_mask != (1u << adapter->config.local_slot_id)) return false;
-    uint8_t payload[TDMA_FLIGHT_SHORT_PAYLOAD_SIZE];
-    tdma_flight_engine_apply_t applied;
-    tdma_flight_engine_result_t result;
-    if (!tdma_flight_engine_tx_load(adapter->flight_engine,
-            adapter->last_rx_packet + TDMA_TRANSPORT_FRAME_HEADER_SIZE, sizeof(payload),
-            &tx, payload, sizeof(payload), &applied, &result)) return false;
-    /* The graph can replace exactly one fixed local mailbox. A changed map
-     * must be rejected, never silently truncated into a smaller grant. */
-    for (uint32_t word = 0u; word < TDMA_FLIGHT_OUTPUT_BITMAP_WORDS; ++word) {
-        if (applied.output_byte_bitmap[word] !=
-            (word == adapter->config.local_slot_id ? UINT32_MAX : 0u)) return false;
+    /* Activation already validated the complete map under its writer guard.
+     * Only that fixed local-mailbox grant can authorize this hardware graph.
+     * The active FIFO owns complete Core0-prepared bytes throughout this call;
+     * no remote image, full map copy or byte bitmap construction is needed. */
+    tdma_flight_tx_layout_t layout;
+    if (!tdma_flight_engine_copy_tx_layout(adapter->flight_engine, &layout) ||
+        layout.local_slot_id != adapter->config.local_slot_id || tx.data == NULL) return false;
+    const uint32_t offset = layout.local_slot_id * TDMA_FLIGHT_SHORT_SLOT_SIZE;
+    const uint8_t *mailbox = tx.data;
+    if (tx.data_size != TDMA_FLIGHT_SHORT_SLOT_SIZE) {
+        /* Preserve full-image producer support, selecting only our grant. */
+        if (tx.data_size < offset + TDMA_FLIGHT_SHORT_SLOT_SIZE) return false;
+        mailbox += offset;
     }
-    const uint8_t *mailbox = payload + adapter->config.local_slot_id * TDMA_FLIGHT_SHORT_SLOT_SIZE;
     if (!tdma_pio_spi_ring_origin_mailbox_valid(mailbox, adapter->config.local_slot_id,
             (1u << adapter->config.node_count) - 1u)) return false;
+    const tdma_flight_engine_apply_t applied = {
+        .output_segment_mask = layout.output_segment_mask,
+        .output_bytes = TDMA_FLIGHT_SHORT_SLOT_SIZE,
+    };
+    if (!tdma_flight_engine_accept_tx(adapter->flight_engine, &layout, &applied,
+                                    tx.reused_previous)) return false;
     uint32_t generation = 0u;
     if (!adapter->phys_origin.publish(adapter->phys_ctrl_context, mailbox, &generation))
         return true; /* deferred: active FIFO view remains available for retry */

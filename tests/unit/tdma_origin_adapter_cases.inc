@@ -155,9 +155,93 @@ static void origin_adapter_enqueue(origin_adapter_phys_t *p, uint32_t sequence, 
     p->rx_pending = true;
 }
 
-static int test_origin_adapter(void)
+static int test_origin_mailbox_selection(void)
 {
     int failed = 0;
+    for (uint32_t slot = 0u; slot < TDMA_FLIGHT_SHORT_SLOT_COUNT; ++slot) {
+        for (uint32_t scenario = 0u; scenario < 12u; ++scenario) {
+            tdma_pio_spi_ring_adapter_t adapter;
+            tdma_flight_engine_t engine;
+            tdma_flight_fifo_t fifo;
+            tdma_ring_adapter_status_t status;
+            origin_adapter_phys_t p = {.active = true, .generation = 1u, .adapter = &adapter};
+            tdma_process_image_map_t map = make_eight_slot_flight_map();
+            if (scenario == 8u) {
+                map.segment[slot].byte_length--;
+                map.map_crc32 = tdma_process_image_map_crc32(&map);
+            }
+            failed += expect_bool("mailbox selection fixture", tdma_pio_spi_ring_adapter_init(&adapter) &&
+                tdma_flight_fifo_init(&fifo) && tdma_flight_engine_init(&engine) &&
+                tdma_flight_engine_configure(&engine, &map) &&
+                tdma_flight_engine_activate(&engine, slot), true);
+            tdma_pio_spi_ring_adapter_set_flight_engine(&adapter, &engine);
+            tdma_pio_spi_ring_adapter_set_flight_fifo(&adapter, &fifo);
+            tdma_pio_spi_ring_adapter_set_phys(&adapter, origin_adapter_tx, origin_adapter_rx, &p);
+            tdma_pio_spi_ring_adapter_set_phys_ctrl(&adapter, NULL, origin_adapter_stop, NULL, NULL, &p);
+            const tdma_pio_spi_ring_origin_ops_t ops = {
+                .begin = origin_adapter_start, .poll = origin_adapter_poll, .healthy = origin_adapter_healthy,
+                .ready = origin_adapter_ready, .publish = origin_adapter_publish,
+                .observe = origin_adapter_observe, .take_rx_observation = origin_adapter_take_pair};
+            failed += expect_bool("mailbox selection callbacks", tdma_pio_spi_ring_adapter_set_phys_origin(&adapter, &ops), true);
+            /* Isolate the running publication boundary. The tests below also
+             * exercise the real bootstrap/prepare/STOP path end to end. */
+            adapter.config = make_valid_config();
+            adapter.config.node_count = TDMA_FLIGHT_SHORT_SLOT_COUNT;
+            adapter.config.local_slot_id = adapter.config.reference_slot_id = slot;
+            adapter.started = 1u;
+            adapter.configured = true;
+            adapter.origin.active = 1u;
+            adapter.origin.published_generation = 1u;
+            adapter.comm_fsm.state = TDMA_ADAPTER_COMM_STATE_AUTONOMOUS;
+            memset(adapter.last_rx_packet, 0xa5, sizeof(adapter.last_rx_packet));
+            uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE];
+            fill_test_process_mailbox(mailbox, scenario == 3u ? (slot + 1u) % 8u : slot, 0x42u, (uint8_t)(slot + 0x20u));
+            if (scenario == 2u) mailbox[12] ^= 1u;
+            uint8_t image[TDMA_FLIGHT_SHORT_PAYLOAD_SIZE];
+            memset(image, 0x69, sizeof(image));
+            memcpy(image + slot * TDMA_FLIGHT_SHORT_SLOT_SIZE, mailbox, sizeof(mailbox));
+            const bool full = scenario == 1u || scenario == 11u;
+            const size_t size = scenario == 4u ? sizeof(mailbox) - 1u :
+                (full ? (scenario == 11u ? (slot + 1u) * sizeof(mailbox) : sizeof(image)) : sizeof(mailbox));
+            const uint32_t mask = 1u << (scenario == 5u ? (slot + 1u) % 8u : slot);
+            failed += expect_bool("mailbox immutable FIFO publication", tdma_flight_fifo_core0_publish_tx(
+                &fifo, full ? image : mailbox, size, 0x10042u, 0x20042u, mask), true);
+            if (scenario == 6u) engine.map_sequence |= 1u;
+            if (scenario == 7u) tdma_flight_engine_deactivate(&engine);
+            if (scenario == 9u) adapter.config.local_slot_id = (slot + 1u) % 8u;
+            p.reject_publish = scenario == 10u;
+            failed += expect_bool("mailbox rejection never stops autonomous wire",
+                tdma_pio_spi_ring_adapter_ops()->service(&adapter, 1000u, &status), true);
+            if (scenario == 10u) {
+                failed += expect_u32("mailbox deferred no new hardware generation", p.publications, 0u);
+                failed += expect_u32("mailbox deferred no owner acknowledgement", adapter.origin.published_owner_generation, 0u);
+                p.reject_publish = false;
+                memset(image, 0, sizeof(image)); /* Caller storage is not the active FIFO view. */
+                failed += expect_bool("mailbox deferred retries complete active view",
+                    tdma_pio_spi_ring_adapter_ops()->service(&adapter, 2000u, &status), true);
+            }
+            const bool valid = scenario < 2u || scenario >= 10u;
+            failed += expect_u32("mailbox hardware publication authorization", p.publications, valid ? 1u : 0u);
+            if (valid) {
+                failed += expect_bool("mailbox selected bytes equal prepared local payload",
+                    memcmp(p.shadow, mailbox, sizeof(mailbox)) == 0, true);
+                failed += expect_u32("mailbox full owner generation preserved", adapter.origin.published_owner_generation, 0x10042u);
+                failed += expect_u32("mailbox full owner sequence preserved", adapter.origin.published_owner_sequence, 0x20042u);
+                p.pending = false;
+                failed += expect_bool("mailbox unchanged generation service",
+                    tdma_pio_spi_ring_adapter_ops()->service(&adapter, 3000u, &status), true);
+                failed += expect_u32("mailbox unchanged generation not republished", p.publications, 1u);
+            } else {
+                failed += expect_u32("mailbox rejected leaves old hardware generation", adapter.origin.published_generation, 1u);
+            }
+        }
+    }
+    return failed;
+}
+
+static int test_origin_adapter(void)
+{
+    int failed = test_origin_mailbox_selection();
     const tdma_pio_spi_ring_origin_ops_t ops = {
         .admit = origin_adapter_admit,
         .begin = origin_adapter_start, .poll = origin_adapter_poll, .healthy = origin_adapter_healthy,
