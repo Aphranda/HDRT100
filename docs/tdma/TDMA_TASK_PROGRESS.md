@@ -8,7 +8,13 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的静态预算迁移见 `TDMA-PROGRESS-20260913-054`，证据根为
+当前 `TDMA-FLIGHT-002B` 的连续边沿计数与 DMA 保全候选见
+`TDMA-PROGRESS-20260913-055`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-edge-counter/`。离线模型验证共享指令、
+自动续传和有界消费，并保留缺边沿、FIFO 丢数、SRAM 覆盖及 epoch 错配反例；尚未
+安装固件或证明完整 VDC 逐圈交付。静态资源、绝对时间关联、完整记录池与硬件验收
+继续开放，TDMA 目标保持用户已确认的 500 us。
+前序 `TDMA-FLIGHT-002F` 的静态预算迁移见 `TDMA-PROGRESS-20260913-054`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-budget-500/`。按用户确认，TDMA 后续目标
 采用 500 us，源码完整静态表同步调整，旧 380 us 不再作为长期硬门槛；周期与 GUARD
 保持。四板已 OTA，板端记录确认新表生效，短帧闭环与停止后的 SD 读回通过；SCK
@@ -231,6 +237,45 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-055 - 共享边沿计数与 DMA 保全候选离线验证
+
+- 日期：2026-09-13；TODO task ID：`TDMA-FLIGHT-002B`。基于 `4cde88d`，证据根为
+  `out/HardwareAcceptance/20260913/tdma-flight-edge-counter/`，入口为
+  `review-r1.json` 与 `slice-manifest.json`。本项数字均为离线实验快照，非事实源。
+  生产源码未改，未执行板卡查询、OTA、ARM 或新的 P3。当前预算仍由已采用的完整
+  静态表派生；本轮不改变 500 us 目标，也不声称取得新的 WCET 收益。
+- `edge_counter.pio` 经实际 pioasm 汇编后为 10 words，可替代自主 origin PIO1
+  的 RTT 与未启用 latch 合计空间，由两个既有 evidence SM 共用；PIO1 总量仍为
+  32 words。`edge-model-r1.json` 执行实际重定位指令字，1,460 组波形与 200 组
+  双计数器/回绕检查通过，各边沿路径均每五个指令时钟递减一次。在当前时钟下派生
+  步长为 20 ns，不能当作含同步器与 epoch 误差的实测精度。启动 LOW 会产生伪首
+  记录、短脉冲可漏采、非阻塞 PUSH 会丢数、阻塞 PUSH 会破坏计数映射的反例保留。
+- `audit_plan_capacity.c` 编译并执行当前实际 C builder：四/六/八活动槽分别使用
+  260/282/304 个 descriptor 和 105/109/113 个 literal；物理预留为 320/128。
+  这只是空间核算。源代码确认自主 origin 的旧 RTT 已由 DMA 收取并重装，不能将其
+  再次计算为 Core1 下沉收益。现有两份 RX bank observation 也不是逐圈保全队列。
+- `handoff-model-r2.json` 使用独立 DREQ 收取、拆分的 FIFO 读取/SRAM 写入与自动
+  计数续装模型；80 组各 400 条记录含消费停顿及每组三次自动续装通过，另有 25 组
+  回绕扩展和 2,040 组启动时间区间检查。候选寄存器使用 SDK 的 TRIGGER_SELF；
+  ENDLESS 不递减计数，不能提供本方案的完成进度。实验双环共 512 B，只保存原始
+  计数；示例 DMA9/10 尚未获得静态声明、SDK 独占或资源仲裁准入。
+- 负测区分两种丢失：SDK 规定 `FDEBUG.RXSTALL` 记录非阻塞 PUSH 遇满，但不记录
+  SRAM 整圈覆盖。循环写指针可回到原位，须结合完成计数检测；计数和指针都回绕的
+  无界停顿仍须由读取期限拒绝。FIFO pop 早于 SRAM 完成、复制时写入、STOP 在途写
+  退休及旧 epoch reader 均有反例/拒绝检查。缺 RX 后按 FIFO 序号配对会整体错位；
+  模型按声明窗口检测缺失与重复，但尚未证明真实 CONTROL sequence/identity 关联。
+- 首次 handoff 模型运行因 SDK DREQ 常量采用普通数值定义而非 `_u(...)` 导致
+  `KeyError`，保留 `handoff-model-command-r1.log/json`；解析修正后通过，后续补强
+  双寄存器同时回绕及时间区间检查。离线模型没有生产 MMIO 顺序、真实 DMA 仲裁或
+  总线 WCET 证明，不以 host 通过代替当前源码硬件验收。
+- 下一实现边界见 `working-design.txt`：静态准入两路独占证据 DMA，并与旧 RTT
+  executor 的 FIFO 读取/暂停/重装一起交接；完整帧同步字段及身份需独立保全，不能
+  从已覆盖的 RX 银行补取。VDC/Calibration 负责连续计数到公共时钟的 epoch 与
+  不确定度；启动时间区间不能伪装为精确时刻。完成 owner/STOP 树、完整记录池和
+  时钟映射后，再执行固件 A/B/Boot、当前源码 P3、板端采集及 STOP 后 SD 核对。
+  前序 SCK 覆盖/重装余量、完整 WCET、正式 RAM 与 donor 满载门禁仍开放；本轮
+  为离线方案证据切片，`TDMA-FLIGHT-002B` 保持 `IN PROGRESS`，registry 不变。
 
 ### TDMA-PROGRESS-20260913-054 - 采用 TDMA 新目标预算与完整静态表迁移
 
