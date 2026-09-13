@@ -8,7 +8,13 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的 Core1 RX 接收提交计时切片见
+当前 `TDMA-FLIGHT-002F` 的 PIO/SM 下沉核算与校准前置失败调查见
+`TDMA-PROGRESS-20260913-052`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-calibration-arm-generation/`。自主 origin
+两侧共享指令空间已满，process follower TX 尚有候选余量；优先评估时间证据自动
+收割/重装与固定 DMA 计划复用，尚无新 WCET 收益。QUICK 前置 OPMODE APPLY 超时
+保留，原拓扑错配根因未确认；普通短帧恢复、STOP/config ACK 与 SD 读回闭合。
+本轮未改生产源码和预算，长期目标保持进行中。前序 Core1 RX 接收提交计时切片见
 `TDMA-PROGRESS-20260913-051`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-rx-accept-timing/`。新增分项定位 mailbox/map
 检查和发布后 commit 成本，完整 WCET 仍失败；当前源码两轮 P3 普通短帧通过，粗校准
@@ -214,6 +220,55 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-052 - PIO 状态机下沉核算与校准前置失败留证
+
+- 状态：`IN PROGRESS` / `PARTIAL`；完成资源与候选审计、有限校准对照和四板恢复，
+  没有生产实现变更、新 WCET 收益或严格产品验收结论。`TDMA-FLIGHT-002` 继续 active。
+- 证据根：`out/HardwareAcceptance/20260913/tdma-flight-calibration-arm-generation/`。
+  当前硬件沿用前序构建与源码指纹；本条数字均为 **2026-09-13 快照，非事实源**，
+  绑定信息见 `pio-offload-assessment-r1.json`、`review-r1.json` 和 `commit-proof.json`。
+- PIO/SM 核算：读取实际 persona loader、board/resource 契约、PIO 源文件及前序构建
+  生成头，逐程序核对指令数。每组 PIO 的四个 SM 共享指令空间；flight owner 声明
+  整组 SM，空闲执行槽不代表可由其他 owner 借用。占用快照如下：
+
+  | persona | TX PIO 指令字 | RX PIO 指令字 | 说明 |
+  |---|---|---|---|
+  | 普通 origin | 25/32 | 12/32 | 不能把该余量沿用到自主 persona |
+  | 自主 process origin | 32/32 | 32/32 | RX helper 已承担 DMA 比较；TX latch 槽位/程序保留但未武装 |
+  | process follower | 14/32 | 32/32 | TX 剩余 18 字仍须验证 GPIO、DMA、FIFO、生命周期与准入 |
+
+- 已有下沉：follower DATA SM 已完成延迟转发、白名单 overlay 和 RX 卸载，DMA
+  descriptor 负责续转；自主 origin 的 header/CRC、旧值与本地 shadow 选择、RTT
+  收割/重装也已有硬件执行图。不能把已有能力再次算作本次新增节省。PIO 无通用
+  SRAM 读写，全局 DMA sniffer 是独占资源；继续保持 PIO0/DMA7 的既定分区。
+- 后续候选：优先比较连续首边沿 latch 与已有 executor 收割/重装方案，绑定
+  node/sequence/epoch 并计算最短圈周期下的保留容量；再复用固定装卸与不可变
+  DMA 准备结果。增加采样 SM 必须保持唯一业务 FIFO 消费者，缺边沿、FIFO 满、
+  计数回绕、STOP 与 Core1 缺席均需独立证明。普通 `push noblock` 不保证特等席
+  每圈保全；相对 RTT 不是绝对 VDC epoch。RX map/health/发布后 commit 仍需 owner
+  语义，不能把整个 RX_PARSE 搬入 PIO。前序距 500 us 的缺口仍为约 157–213 us，
+  本条不承诺新增 SM 足以消除它；生产门限未修改。
+- 校准调查：`baseline-command-r1/r2` 保留 coarse 原判断与逐命令 raw trace，四个
+  reference 均通过，停止后配置代际相等。第二轮包含 reset/P0T，但使用 FULL
+  时序，不能称为原 QUICK 失败的等条件复现。源码追溯表明 RefMem 聚合状态最终
+  也读取 TDMA owner，尚无证据支持“独立 RefMem 缓存”根因。
+- 实际 QUICK 前置流程见 `baseline-prepare-command-r2`：NO3 OPMODE APPLY 超时、
+  active level 仍为零，在 pair ARM 前失败，原日志保留；未继续盲目重试 coarse。
+  FULL 中部分 TOPology ACK 已超过 QUICK action timeout，这是时序线索，仍需
+  ACK/配置应用完成交错证据，不能据此确定原拓扑错配根因或只扩大全局 timeout。
+- 恢复与原始复核：首次停止检查收到两板许可证 `UNAVAILABLE`，脚本解析失败留存；
+  同次 runtime/physical 已停止且配置代际相等，缺样没有解释为许可证失效。
+  随后使用前序当前源码矩阵恢复普通模式；`normal-restore-r1` 短帧闭环通过，采样由
+  板端有限记录完成，RUN 期间 SCPI 只发控制命令。`final-state-r1.json` 复核四板
+  物理/运行态 STOP、config ACK、矩阵和许可证停用，随后 SD SAVE/读回四份记录
+  逐字节一致。恢复成功不关闭 QUICK 失败、完整 WCET、RAM 与逐圈特等证据缺口。
+- 验证：源/生成头容量一致性、文档完整门禁及主控 raw 记录解码复核。
+  现有状态机资源检查器报告 overlay TX DREQ/FIFO 两项失败，raw 输出保留；源码
+  中二者已由 `tdma_pio_spi_phys_overlay_binding()` 生成并传给 plan，检查器仍只
+  扫描 start 函数。本轮不修改检查器或把源码追溯改写为自动门禁通过。
+  证据摘要与单独文档提交见 `review-r1.json`、`slice-manifest.json`。
+  本轮不重放或重签前序 P3，也不以普通恢复代替新实现的 P3 验收。
 
 ### TDMA-PROGRESS-20260913-051 - Core1 RX 接收提交分项计时与严格失败保留
 

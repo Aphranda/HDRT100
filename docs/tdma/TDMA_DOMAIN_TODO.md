@@ -71,6 +71,20 @@ RX UNLOAD / TX LOAD 和 PIO 分区。硬件自主运行的实现仍由 TDMA owne
 全负载时序与跨域/C11 审核；本切片只完成候选评估，不改变生产预算、registry 或节点
 容量。前序预算分析见 `TDMA-PROGRESS-20260912-022`。
 
+按用户进一步要求，PIO/SM 下沉评估见 `TDMA-PROGRESS-20260913-052` 与该条证据的
+`pio-offload-assessment-r1.json`。当前自主 origin 两侧及 process follower RX 的程序
+已占满共享指令空间；follower TX 的剩余空间只作为需重新验证资源的候选。下一步
+优先核算首边沿证据收割/重装的自治方案，保留 node/sequence/epoch 和有界缓冲期限，
+再推进固定装卸/描述符复用及 RX 准备结果复用；不把已存在的 DMA/CRC/overlay 再次
+计作收益，不用普通镜像丢弃策略代替特等席逐圈保全。完整乘客优先级仍在列车阶段后。
+校准调查的普通时序基线通过，实际 QUICK 前置流程在 OPMODE APPLY 已失败；尚未
+证明原拓扑错配来自哪个状态边界。先保留命令 ACK、requested/applied 配置与部分
+失败证据，形成可重复交错后再修工具，不依据单次超时全局扩大等待。此轮只做评估与
+恢复验证，固件、预算、registry/C11 状态均未变，长期目标保持 `IN PROGRESS`。
+本轮现有状态机资源检查器还报告 overlay TX DREQ/FIFO 两项失败：实际绑定已移至
+`tdma_pio_spi_phys_overlay_binding()`，检查器仍只扫描 start 函数。保留失败，后续
+以绑定模板传递的行为测试修正检查范围；本次只读资源核算不提升为该检查器通过。
+
 `TDMA-FLIGHT-002F` 的 owner/版本/池交接与异步准备先配合列车阶段推进；列车门禁
 通过后再闭合完整载荷交付与 `002G/002H` 的四级服务实现。特等席每圈硬件保全仍是
 独立验收项，不能由普通可丢弃 RX mirror

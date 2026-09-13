@@ -1009,6 +1009,20 @@ owner 在已接受返回帧、旧 TX 完成且下一次旧 TX 决策前消费。
 Resource Arbiter claim 等同于完整 RealtimeCapabilityContract/DeploymentGate 放行。
 计算子图可重复执行不代表物理发车、返回完整性、硬件 completion 或 DPLL observation 已闭合。
 
+继续下沉 CPU 工作时，资源核算必须区分普通 origin、自主 process origin 与 process
+follower。当前 `tdma_pio_spi_phys_programs.c::s_origin_catalog` 的固定入口包含 control、
+capture、RTT、保留 latch、fault、helper 与 DATA 程序；辅助 SM 已由
+`BOARD_TDMA_ORIGIN_HELPER_SM` 承担 executor 的受限比较，不是可直接再分配的空槽。
+自主准备在 `tdma_pio_spi_phys_origin_configure_sms()` 中保留 latch 指令但不武装该
+绝对时间证据路径；已有 RTT 收割只能证明相对传输观察，不能代替 VDC epoch。
+源码与当前生成头的容量核算见 `TDMA-PROGRESS-20260913-052`，其中未运行或保留的
+SM 不代表该 PIO 仍有指令空间，普通 persona 的余量也不能跨自主交接沿用。
+进一步的候选是首边沿证据自动收割/重装、已授权固定位置装卸和 DMA 计划复用；
+PIO 无通用 SRAM 访问，缓冲与记录仍须通过已仲裁 DMA 及唯一 FIFO 消费者。
+检查准备可以异步化，Core1 的 generation/epoch、健康与发布后新鲜度提交仍按原
+owner 边界执行。候选应计入完整 phase 的收益，并独立验证逐圈时间证据保留期限；
+新增 SM 或已有 CRC/sniffer 子图均不构成未经实测的 WCET 节省。
+
 临时许可证是 `calibration_origin_timing_t` 的易失版本记录：绑定 ring config sequence、
 完整配置、Calibration/topology generation 与 CRC、active model epoch、foundation 与
 DeploymentGate 投影、board/persona/resource 以及源时钟；重装预算、abort 次数和绝对期限
