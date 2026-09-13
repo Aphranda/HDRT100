@@ -39,8 +39,8 @@ class Binding(C.Structure):
                  "loader_trigger_address", "next_address_address")]
 
 
-@pytest.fixture(scope="module")
-def engine(tmp_path_factory):
+@pytest.fixture(scope="module", params=(6, 8))
+def engine(tmp_path_factory, request):
     directory = tmp_path_factory.mktemp("bit-pipeline")
     gcc = os.environ.get("HOST_CC") or shutil.which("gcc") or "D:/Microsoft/mingw64/bin/gcc.exe"
     pioasm = os.environ.get("PIOASM") or shutil.which("pioasm") or str(
@@ -69,6 +69,7 @@ uint8_t normalize_rx(uint32_t word, unsigned persona) {
 }
 ''', encoding="utf-8")
     subprocess.run([gcc, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-shared",
+                    f"-DPROJECT_NODE_CAPACITY={request.param}",
                     "-I" + str(ROOT / "components/tdma/inc"),
                     str(ROOT / "components/tdma/src/tdma_flight_overlay.c"),
                     str(ROOT / "components/tdma/src/tdma_transport_frame.c"),
@@ -87,6 +88,9 @@ uint8_t normalize_rx(uint32_t word, unsigned persona) {
     init = source.split(f"static inline void {program}_program_init(", 1)[1].split("\n}", 1)[0]
     assert "sm_config_set_in_shift(&c, true, false, 32u)" in init
     lib = C.CDLL(str(libpath))
+    lib.node_capacity = request.param
+    lib.packet_size = request.param * 32 + 4 + 32
+    lib.physical_bytes = lib.packet_size + 15
     lib.tdma_flight_overlay_build_plan.argtypes = [C.c_void_p, C.c_void_p, C.c_size_t,
         C.c_void_p, C.c_size_t, C.POINTER(Config), C.POINTER(Plan)]
     lib.tdma_flight_overlay_build_plan.restype = C.c_bool
@@ -181,7 +185,7 @@ def case(engine, slot, shift, byte_shift, installed, delay, period, high, rx_dro
     for i, position in enumerate(rising):
         program[position] |= (delay - 2 if i == 0 else delay) << 8
     rng = random.Random(slot * 8192 + shift * 256 + byte_shift)
-    old = bytes(rng.randrange(256) for _ in range(292))
+    old = bytes(rng.randrange(256) for _ in range(lib.packet_size))
     updated = bytearray(old)
     start, end = 32 + slot * 32, 64 + slot * 32
     updated[start:end] = bytes(rng.randrange(256) for _ in range(32))
@@ -189,9 +193,9 @@ def case(engine, slot, shift, byte_shift, installed, delay, period, high, rx_dro
     header_mask = lib.tdma_transport_frame_resident_overlay_header_mask()
     for i in range(32):
         if header_mask & (1 << i): updated[i] ^= 255
-    forced = (C.c_uint32 * 9)()
+    forced = (C.c_uint32 * (lib.node_capacity + 1))()
     forced[slot] = 0xFFFFFFFF
-    config = Config(307, 4, byte_shift, shift, slot, header_mask, final + installed)
+    config = Config(lib.physical_bytes, 4, byte_shift, shift, slot, header_mask, final + installed)
     plan = Plan()
     assert lib.tdma_flight_overlay_build_plan(old, bytes(updated), len(old), forced,
                                              len(forced), C.byref(config), C.byref(plan))
@@ -204,8 +208,8 @@ def case(engine, slot, shift, byte_shift, installed, delay, period, high, rx_dro
     physical, expected = [], []
     base = (4 + byte_shift) * 8 + shift
     for frame in range(2):
-        live = bytearray(rng.randrange(256) for _ in range(292))
-        wire = [rng.randrange(2) for _ in range(307 * 8)]
+        live = bytearray(rng.randrange(256) for _ in range(lib.packet_size))
+        wire = [rng.randrange(2) for _ in range(lib.physical_bytes * 8)]
         wire[base:base + len(live) * 8] = bytes_to_bits(live)
         physical.append(pack(wire))
         live[start:end] = updated[start:end]
@@ -231,7 +235,7 @@ def case(engine, slot, shift, byte_shift, installed, delay, period, high, rx_dro
 @pytest.mark.parametrize("byte_shift", [0, 9])
 @pytest.mark.parametrize("shift", range(8))
 def test_live_neighbor_and_rx_loss(engine, installed, rx_drop, byte_shift, shift):
-    for slot in range(8):
+    for slot in range(engine[0].node_capacity):
         case(engine, slot, shift, byte_shift, installed, 15, 25, 12, rx_drop)
 
 
@@ -251,15 +255,16 @@ class Build(C.Structure):
 
 
 def transport(lib, sequence, hop):
-    payload = C.create_string_buffer(bytes(range(256)) + bytes(4))
+    payload_size = lib.node_capacity * 32 + 4
+    payload = C.create_string_buffer(bytes(range(lib.node_capacity * 32)) + bytes(4))
     build = Build(1, 0, sequence, 7, 5, 0xABCDEF12, 0x12567890, 8,
-                  C.cast(payload, C.c_void_p), 260)
-    packet, size, result = C.create_string_buffer(292), C.c_size_t(), C.c_uint32()
-    assert lib.tdma_transport_frame_encode(C.byref(build), packet, 292,
+                  C.cast(payload, C.c_void_p), payload_size)
+    packet, size, result = C.create_string_buffer(lib.packet_size), C.c_size_t(), C.c_uint32()
+    assert lib.tdma_transport_frame_encode(C.byref(build), packet, lib.packet_size,
                                            C.byref(size), C.byref(result))
-    assert size.value == 292
+    assert size.value == lib.packet_size
     for _ in range(hop):
-        assert lib.tdma_transport_frame_advance_hop(packet, 292, C.byref(result))
+        assert lib.tdma_transport_frame_advance_hop(packet, lib.packet_size, C.byref(result))
     return packet.raw
 
 
@@ -280,9 +285,9 @@ def test_reused_hop_plan_advances_live_sequences_and_preserves_errors(engine, ho
     lib, instructions, final, wrap = engine
     old, processed = transport(lib, 123, hop), transport(lib, 123, hop + 1)
     plan = Plan()
-    config = Config(307, 4, 0, 7, 3,
+    config = Config(lib.physical_bytes, 4, 0, 7, 3,
                     lib.tdma_transport_frame_resident_overlay_header_mask(), final)
-    assert lib.tdma_flight_overlay_build_plan(old, processed, 292, None, 0,
+    assert lib.tdma_flight_overlay_build_plan(old, processed, lib.packet_size, None, 0,
                                              C.byref(config), C.byref(plan))
     tokens = expand(plan)
     # Header deltas from the real builder, executed on both possible live bits.
@@ -290,7 +295,7 @@ def test_reused_hop_plan_advances_live_sequences_and_preserves_errors(engine, ho
     from tdma_flight_pio_model import INVERT
     base = (config.outer_header_size + 1) * 8 + config.alignment_bit_shift
     mask = bytes(sum((tokens[base + byte * 8 + bit] == INVERT) << (7 - bit)
-                     for bit in range(8)) for byte in range(292))
+                     for bit in range(8)) for byte in range(lib.packet_size))
     assert all(token in (LIVE, INVERT, final) for token in tokens)
     assert mask == bytes(a ^ b for a, b in zip(old, processed))
     sequences = [0, 0xFFFFFFFF, 0xFFFFFFFE] + [1 << bit for bit in range(32)]
@@ -318,12 +323,23 @@ def test_reused_hop_plan_advances_live_sequences_and_preserves_errors(engine, ho
     wire_base = 4 * 8 + 7
     for sequence in [0xFFFFFFFF, 0]:
         incoming, outgoing = transport(lib, sequence, hop), transport(lib, sequence, hop + 1)
-        wire = [0] * (307 * 8)
-        wire[wire_base:wire_base + 292 * 8] = bytes_to_bits(incoming)
+        wire = [0] * (lib.physical_bytes * 8)
+        wire[wire_base:wire_base + lib.packet_size * 8] = bytes_to_bits(incoming)
         physical.append(pack(wire))
-        wire[wire_base:wire_base + 292 * 8] = bytes_to_bits(outgoing)
+        wire[wire_base:wire_base + lib.packet_size * 8] = bytes_to_bits(outgoing)
         expected.extend([0] * 8 + wire[:-8])
     machine = Machine(physical, [tokens, tokens], program=program, entry=0,
                       wrap=wrap, final=final).run()
     assert [bit for _, bit in machine.output] == expected
     assert [lib.normalize_rx(word, 3) for word in machine.pushes] == list(b"".join(physical))
+
+
+def test_compiled_overlay_rejects_another_packet_length(engine):
+    lib, _, final, _ = engine
+    packet = bytes(292)
+    other_size = 292 if lib.node_capacity == 6 else 228
+    config = Config(307, 4, 0, 0, 0, 0, final)
+    plan = Plan()
+    assert not lib.tdma_flight_overlay_build_plan(packet, packet, other_size, None, 0,
+                                                 C.byref(config), C.byref(plan))
+    assert plan.run_count == 0 and plan.generation == 0

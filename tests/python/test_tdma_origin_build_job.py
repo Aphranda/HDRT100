@@ -21,7 +21,8 @@ def test_origin_build_job_ownership(tmp_path):
     subprocess.run([str(exe)], check=True, capture_output=True, text=True, timeout=5)
 
 
-def test_origin_build_job_actual_graph(tmp_path):
+@pytest.mark.parametrize("capacity", (2, 6, 8))
+def test_origin_build_job_actual_graph(tmp_path, capacity):
     sdk = os.environ.get("PICO_SDK_PATH")
     candidates = [Path(sdk)] if sdk else sorted((Path.home()/".pico-sdk/sdk").glob("*"))
     includes = [p/"src/rp2350/hardware_regs/include" for p in candidates]
@@ -32,9 +33,13 @@ def test_origin_build_job_actual_graph(tmp_path):
     assert compiler
     exe = tmp_path / ("origin-job-graph.exe" if os.name == "nt" else "origin-job-graph")
     subprocess.run([compiler, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
+                    f"-DPROJECT_NODE_CAPACITY={capacity}",
                     "-I" + str(ROOT/"components/tdma/inc"), "-I" + str(registers),
                     str(ROOT/"tests/unit/tdma_origin_build_graph_cases.c"),
                     str(ROOT/"components/tdma/src/tdma_origin_build_job.c"),
                     str(ROOT/"components/tdma/src/tdma_origin_plan.c"),
+                    str(ROOT/"components/tdma/src/tdma_origin_exchange.c"),
+                    str(ROOT/"components/tdma/src/tdma_transport_frame.c"),
+                    str(ROOT/"components/tdma/src/tdma_receive_health.c"),
                     "-o", str(exe)], check=True, capture_output=True, text=True, timeout=60)
     subprocess.run([str(exe)], check=True, capture_output=True, text=True, timeout=5)

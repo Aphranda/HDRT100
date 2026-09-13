@@ -3131,15 +3131,16 @@ int main(void)
                               false);
     }
 
-    /* The wire map is always eight slots. Active 2/3/4/8-node topologies
+    /* The wire map follows compiled capacity. Active topologies
      * only change which mailbox headers are present and the target mask. */
     {
-        static const uint32_t node_counts[] = {2u, 3u, 4u, 8u};
+        static const uint32_t node_counts[] = {2u, 3u, 4u, 6u, 8u};
         for (uint32_t topology = 0u;
              topology < (uint32_t)(sizeof(node_counts) /
                                    sizeof(node_counts[0]));
              topology++) {
             const uint32_t node_count = node_counts[topology];
+            if (node_count > TDMA_FLIGHT_SHORT_SLOT_COUNT) continue;
             const uint32_t active_mask = (1u << node_count) - 1u;
             for (uint32_t local_slot = 0u;
                  local_slot < node_count;
@@ -3848,9 +3849,9 @@ int main(void)
         const uint64_t local_rx = 2000456000ull;
         uint64_t decoded_reference_tx = 0ull;
         failed += expect_u32("Node image bytes",
-                             TDMA_FLIGHT_NODE_IMAGE_SIZE, 256u);
+                             TDMA_FLIGHT_NODE_IMAGE_SIZE, PROJECT_NODE_CAPACITY * 32u);
         failed += expect_u32("fixed process payload bytes",
-                             TDMA_FLIGHT_SHORT_PAYLOAD_SIZE, 260u);
+                             TDMA_FLIGHT_SHORT_PAYLOAD_SIZE, PROJECT_NODE_CAPACITY * 32u + 4u);
         failed += expect_bool(
             "DPLL observation phase map",
             tdma_process_image_dpll_observation_map_phase(

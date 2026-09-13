@@ -5,19 +5,24 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "../../../config/project_node_capacity.h"
 #include "tdma_flight_fifo.h"
 #include "tdma_process_image_map.h"
 
 #define TDMA_FLIGHT_ENGINE_VERSION 4u
 #define TDMA_FLIGHT_MAP_SNAPSHOT_RETRY_MAX 64u
 
-#define TDMA_FLIGHT_SHORT_SLOT_COUNT 8u
+/* Fixed for the entire compiled deployment, including inactive local slots.
+ * The generic SHORT transport limit is independent of this product length. */
+#define TDMA_FLIGHT_SHORT_SLOT_COUNT PROJECT_NODE_CAPACITY
 #define TDMA_FLIGHT_SHORT_SLOT_SIZE 32u
 #define TDMA_FLIGHT_NODE_IMAGE_SIZE \
     (TDMA_FLIGHT_SHORT_SLOT_COUNT * TDMA_FLIGHT_SHORT_SLOT_SIZE)
 #define TDMA_FLIGHT_DPLL_OBSERVATION_SIZE 4u
 #define TDMA_FLIGHT_SHORT_PAYLOAD_SIZE \
     (TDMA_FLIGHT_NODE_IMAGE_SIZE + TDMA_FLIGHT_DPLL_OBSERVATION_SIZE)
+#define TDMA_FLIGHT_SHORT_PACKET_SIZE \
+    (TDMA_TRANSPORT_FRAME_HEADER_SIZE + TDMA_FLIGHT_SHORT_PAYLOAD_SIZE)
 #define TDMA_FLIGHT_OUTPUT_BITMAP_WORDS \
     ((TDMA_FLIGHT_SHORT_PAYLOAD_SIZE + 31u) / 32u)
 #define TDMA_FLIGHT_MAILBOX_MAGIC 0x4652u
@@ -32,9 +37,11 @@
 #define TDMA_FLIGHT_ALIGNMENT_LFSR_SEED 0x01u
 #define TDMA_FLIGHT_ALIGNMENT_LFSR_MASK 0x8Eu
 
-_Static_assert(TDMA_FLIGHT_SHORT_PAYLOAD_SIZE ==
+_Static_assert(TDMA_FLIGHT_SHORT_PAYLOAD_SIZE <=
                    TDMA_TRANSPORT_SHORT_PAYLOAD_MAX,
-               "product process image must consume the fixed SHORT payload");
+               "compiled product process image must fit SHORT transport");
+_Static_assert(TDMA_FLIGHT_SHORT_SLOT_COUNT <= TDMA_TRANSPORT_FRAME_MAX_SLOT_COUNT,
+               "compiled mailboxes must fit transport slot addressing");
 
 typedef enum {
     TDMA_FLIGHT_ENGINE_OK = 0u,

@@ -48,7 +48,7 @@ bool tdma_flight_overlay_build_plan(
     if (plan == NULL) return false;
     memset(plan, 0, sizeof(*plan));
     if (config == NULL || incoming_packet == NULL || processed_packet == NULL ||
-        packet_size != TDMA_TRANSPORT_SHORT_PACKET_MAX ||
+        packet_size != TDMA_FLIGHT_SHORT_PACKET_SIZE ||
         config->local_slot_id >= TDMA_FLIGHT_SHORT_SLOT_COUNT ||
         (config->header_write_mask &
          ~tdma_transport_frame_resident_overlay_header_mask()) != 0u ||

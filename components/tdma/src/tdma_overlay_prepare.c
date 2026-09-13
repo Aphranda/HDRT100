@@ -32,8 +32,8 @@ static bool tdma_overlay_prepare_build(tdma_overlay_prepare_t *job)
 {
     tdma_transport_frame_view_t view;
     tdma_transport_result_t result;
-    uint8_t incoming[TDMA_TRANSPORT_SHORT_PACKET_MAX];
-    uint8_t processed[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+    uint8_t incoming[TDMA_FLIGHT_SHORT_PACKET_SIZE];
+    uint8_t processed[TDMA_FLIGHT_SHORT_PACKET_SIZE];
     memcpy(incoming, job->packet, sizeof(incoming));
     memcpy(processed, job->packet, sizeof(processed));
     if (!tdma_transport_frame_decode(job->packet, sizeof(job->packet), &view, &result) ||

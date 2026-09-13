@@ -1,8 +1,8 @@
 #ifndef PROJECT_NODE_CAPACITY_H
 #define PROJECT_NODE_CAPACITY_H
 
-/* Local storage/admission capacity. Wire slots, RefMem regions and persisted
- * Calibration records have independent fixed layouts. CMake reads this default
+/* Local storage/admission and product TDMA mailbox capacity. RefMem regions
+ * and persisted Calibration records keep their fixed layouts. CMake reads this default
  * so standalone domain tests and the application select the same capacity. */
 #define PROJECT_NODE_CAPACITY_DEFAULT 6
 #ifndef PROJECT_NODE_CAPACITY

@@ -87,13 +87,14 @@ static bool config_valid(const tdma_origin_plan_config_t *c, const tdma_origin_p
     if (c == NULL || p == NULL || p->runs == NULL || p->literals == NULL ||
         p->run_capacity == 0u || p->run_capacity > TDMA_ORIGIN_PLAN_RUN_MAX ||
         p->literal_capacity == 0u || p->literal_capacity > TDMA_ORIGIN_PLAN_LITERAL_MAX ||
-        c->physical_bytes <= c->outer_header_bytes + TDMA_TRANSPORT_SHORT_PACKET_MAX ||
-        c->physical_bytes > TDMA_TRANSPORT_SHORT_PACKET_MAX + 64u ||
+        c->physical_bytes <= c->outer_header_bytes + TDMA_FLIGHT_SHORT_PACKET_SIZE ||
+        c->physical_bytes > TDMA_FLIGHT_SHORT_PACKET_SIZE + 64u ||
         c->outer_header_bytes != 4u || c->capture_prefix_bits == 0u ||
-        c->capture_prefix_bits > (c->physical_bytes - TDMA_TRANSPORT_SHORT_PACKET_MAX) * 8u ||
+        c->capture_prefix_bits > (c->physical_bytes - TDMA_FLIGHT_SHORT_PACKET_SIZE) * 8u ||
         c->guard_count == 0u || c->guard_count > 65536u ||
         c->abort_poll_count == 0u || c->abort_poll_count > UINT16_MAX ||
-        c->local_slot >= TDMA_FLIGHT_SHORT_SLOT_COUNT || c->active_slot_mask > UINT8_MAX ||
+        c->local_slot >= TDMA_FLIGHT_SHORT_SLOT_COUNT ||
+        c->active_slot_mask >= (1u << TDMA_FLIGHT_SHORT_SLOT_COUNT) ||
         (c->active_slot_mask & (1u << c->local_slot)) == 0u ||
         c->control_pio < 1u || c->control_pio > 2u ||
         c->data_pio < 1u || c->data_pio > 2u || c->control_pio == c->data_pio ||
@@ -130,8 +131,8 @@ static bool config_valid(const tdma_origin_plan_config_t *c, const tdma_origin_p
         c->address.stage, c->address.tx_header, c->address.rx_packet, c->address.state,
         c->address.local_shadow[0], c->address.local_shadow[1], c->address.scratch,
         c->address.runs, c->address.literals, c->address.records};
-    const uint32_t sizes[] = {TDMA_TRANSPORT_SHORT_PACKET_MAX, TDMA_TRANSPORT_SHORT_PACKET_MAX,
-        c->physical_bytes * 2u, TDMA_TRANSPORT_FRAME_HEADER_SIZE, TDMA_TRANSPORT_SHORT_PACKET_MAX,
+    const uint32_t sizes[] = {TDMA_FLIGHT_SHORT_PACKET_SIZE, TDMA_FLIGHT_SHORT_PACKET_SIZE,
+        c->physical_bytes * 2u, TDMA_TRANSPORT_FRAME_HEADER_SIZE, TDMA_FLIGHT_SHORT_PACKET_SIZE,
         sizeof(tdma_origin_plan_state_t), TDMA_ORIGIN_PLAN_SHADOW_BYTES, TDMA_ORIGIN_PLAN_SHADOW_BYTES,
         8u, p->run_capacity * sizeof(p->runs[0]), p->literal_capacity * sizeof(uint32_t),
         TDMA_ORIGIN_RECORD_COUNT * sizeof(tdma_origin_record_t)};
@@ -354,7 +355,7 @@ static void emit(builder_t *b)
     case L_PACK_B: {
         const uint32_t bank = b->step - L_PACK_A;
         mark(b, L_PACK_A + bank);
-        copy(b, a->capture_bank[bank], a->rx_packet, TDMA_TRANSPORT_SHORT_PACKET_MAX, 1u, 63u, READ | WRITE, loader);
+        copy(b, a->capture_bank[bank], a->rx_packet, TDMA_FLIGHT_SHORT_PACKET_SIZE, 1u, 63u, READ | WRITE, loader);
         jump(b, L_IDENTITY);
     }
     break;
@@ -456,7 +457,7 @@ static void emit(builder_t *b)
         const uint32_t bank = b->step - L_PREPARE_A;
         mark(b, L_PREPARE_A + bank);
         copy(b, a->capture_bank[bank], a->stage + c->outer_header_bytes * 2u + 1u,
-             TDMA_TRANSPORT_SHORT_PACKET_MAX, 1u, 63u, READ | SKIP_WRITE, loader);
+             TDMA_FLIGHT_SHORT_PACKET_SIZE, 1u, 63u, READ | SKIP_WRITE, loader);
         jump(b, L_HEADER);
     }
     break;
@@ -485,8 +486,8 @@ static void emit(builder_t *b)
          TDMA_TRANSPORT_FRAME_HEADER_SIZE, 1u, 63u, READ | SKIP_WRITE, loader);
     copy(b, literal(b, 0u), a->stage + (c->outer_header_bytes + TDMA_TRANSPORT_FRAME_HEADER_SIZE +
         TDMA_FLIGHT_NODE_IMAGE_SIZE) * 2u, TDMA_FLIGHT_DPLL_OBSERVATION_SIZE, 2u, 63u, WRITE, loader);
-    copy(b, literal(b, 0u), a->stage + (c->outer_header_bytes + TDMA_TRANSPORT_SHORT_PACKET_MAX) * 2u,
-        c->physical_bytes - c->outer_header_bytes - TDMA_TRANSPORT_SHORT_PACKET_MAX, 2u, 63u, WRITE, loader);
+    copy(b, literal(b, 0u), a->stage + (c->outer_header_bytes + TDMA_FLIGHT_SHORT_PACKET_SIZE) * 2u,
+        c->physical_bytes - c->outer_header_bytes - TDMA_FLIGHT_SHORT_PACKET_SIZE, 2u, 63u, WRITE, loader);
     /* Discard duplicate/late RTT words and restart at the admitted entry.
      * Never let an old FIFO word acquire the next frame's sequence tag. */
     put(b, PIO_SM0_SHIFTCTRL_FJOIN_RX_BITS, sm_reg(b->tx_pio, c->rtt_sm, PIO_SM0_SHIFTCTRL_OFFSET));
@@ -511,7 +512,7 @@ static void emit(builder_t *b)
         const uint32_t bank = b->step - L_ARM_A;
         mark(b, L_ARM_A + bank);
         add(b, STATE(bank_version) + bank * 4u, 1u);
-        const uint32_t words[] = {b->cap_ctrl, a->capture_bank[bank], TDMA_TRANSPORT_SHORT_PACKET_MAX, b->cap_rx};
+        const uint32_t words[] = {b->cap_ctrl, a->capture_bank[bank], TDMA_FLIGHT_SHORT_PACKET_SIZE, b->cap_rx};
         copy(b, block(b, words, 4u), dma_reg(c->capture_dma, DMA_CH0_AL3_CTRL_OFFSET), 4u, 4u, 63u, READ | WRITE, loader);
         jump(b, L_ARM_OUTPUT);
     }

@@ -11,8 +11,8 @@ typedef struct {
     uint32_t admission_calls;
     tdma_origin_admission_result_t admission;
     bool begin_guarded, reader_deferred;
-    uint8_t seed[TDMA_TRANSPORT_SHORT_PACKET_MAX];
-    uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+    uint8_t seed[TDMA_FLIGHT_SHORT_PACKET_SIZE];
+    uint8_t packet[TDMA_FLIGHT_SHORT_PACKET_SIZE];
     uint8_t shadow[TDMA_FLIGHT_SHORT_SLOT_SIZE];
     tdma_origin_observation_t observation;
 } origin_adapter_phys_t;

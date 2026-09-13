@@ -13,6 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 LAYOUT_HEADER = ROOT / "components/tdma/inc/tdma_process_image_layout.h"
 FLIGHT_HEADER = ROOT / "components/tdma/inc/tdma_flight_engine.h"
+CAPACITY_HEADER = ROOT / "config/project_node_capacity.h"
 
 NUMBER_RE = re.compile(
     r"^#define\s+([A-Z0-9_]+)\s+(0x[0-9A-Fa-f]+|[0-9]+)u?\s*$",
@@ -59,9 +60,23 @@ def _definitions(path: Path) -> dict[str, int]:
 def load_budget(
     layout_header: Path = LAYOUT_HEADER,
     flight_header: Path = FLIGHT_HEADER,
+    *,
+    node_capacity: int | None = None,
+    capacity_header: Path = CAPACITY_HEADER,
 ) -> ProcessImageBudget:
     values = _definitions(flight_header)
     values.update(_definitions(layout_header))
+    compiled_slots = re.search(
+        r"^#define\s+TDMA_FLIGHT_SHORT_SLOT_COUNT\s+PROJECT_NODE_CAPACITY\s*$",
+        flight_header.read_text(encoding="utf-8"), re.MULTILINE)
+    if compiled_slots:
+        if node_capacity is None:
+            node_capacity = _definitions(capacity_header)["PROJECT_NODE_CAPACITY_DEFAULT"]
+        if type(node_capacity) is not int or not 2 <= node_capacity <= 8:
+            raise ValueError("node capacity must be an integer from 2 through 8")
+        values["TDMA_FLIGHT_SHORT_SLOT_COUNT"] = node_capacity
+    elif node_capacity is not None and node_capacity != values.get("TDMA_FLIGHT_SHORT_SLOT_COUNT"):
+        raise ValueError("fixed-slot header does not support the requested node capacity")
 
     required = (
         "TDMA_FLIGHT_SHORT_SLOT_COUNT",
@@ -191,12 +206,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--format", choices=("markdown", "json"),
                         default="markdown")
     parser.add_argument("--out", type=Path)
+    parser.add_argument("--node-capacity", type=int, choices=range(2, 9),
+                        help="compiled PROJECT_NODE_CAPACITY; defaults to the project header")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    budget = load_budget()
+    budget = load_budget(node_capacity=args.node_capacity)
     errors = validate_budget(budget)
     if errors:
         for error in errors:

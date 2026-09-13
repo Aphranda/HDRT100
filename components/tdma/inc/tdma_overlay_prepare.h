@@ -27,7 +27,7 @@ typedef struct {
     tdma_flight_overlay_config_t config;
     tdma_flight_overlay_binding_t binding;
     tdma_flight_overlay_plan_t *plan;
-    uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+    uint8_t packet[TDMA_FLIGHT_SHORT_PACKET_SIZE];
     uint8_t tx_data[TDMA_FLIGHT_SHORT_SLOT_SIZE];
     tdma_flight_tx_view_t tx;
     tdma_flight_engine_apply_t applied;

@@ -83,7 +83,7 @@ bool tdma_pio_spi_phys_origin_begin(
 {
     tdma_pio_spi_phys_t *phys = context;
     if (phys == NULL || config == NULL || returned_packet == NULL ||
-        packet_size != TDMA_TRANSPORT_SHORT_PACKET_MAX || !phys->armed ||
+        packet_size != TDMA_FLIGHT_SHORT_PACKET_SIZE || !phys->armed ||
         !phys->process_image_enabled || phys->role != TDMA_PIO_SPI_ROLE_MASTER ||
         phys->flight_origin_workspace_owned ||
         tdma_origin_build_job_state(&s_tdma_origin_build_job) != TDMA_ORIGIN_JOB_IDLE ||
@@ -196,7 +196,7 @@ tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *context)
     /* All old readers have retired. Preserve seed banks outside construction
      * scratch; no memset of the entire union may erase this frozen return. */
     tdma_pio_spi_phys_origin_record_invalidate(phys);
-    memcpy(s_tdma_origin.capture[0], request->seed, TDMA_TRANSPORT_SHORT_PACKET_MAX);
+    memcpy(s_tdma_origin.capture[0], request->seed, TDMA_FLIGHT_SHORT_PACKET_SIZE);
     memset(s_tdma_origin.capture[0] + TDMA_TRANSPORT_FRAME_HEADER_SIZE +
         TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET, 0, TDMA_FLIGHT_DPLL_OBSERVATION_SIZE);
     request->seed = NULL;
@@ -266,7 +266,7 @@ tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *context)
         return TDMA_ORIGIN_BUILD_BUSY;
     }
     case TDMA_ORIGIN_PREPARE_SEED: {
-    uint8_t seed[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+    uint8_t seed[TDMA_FLIGHT_SHORT_PACKET_SIZE];
     memcpy(seed, s_tdma_origin.capture[0], sizeof(seed));
     memcpy(s_tdma_origin.capture[1], seed, sizeof(seed));
     uint32_t sequence;
@@ -434,12 +434,12 @@ static bool tdma_pio_spi_phys_origin_rx(tdma_pio_spi_phys_t *phys, uint8_t *pack
 {
     phys->flight_origin_rx_observation_ready = false;
     *rx_timestamp_ns = 0ull;
-    if (capacity < TDMA_TRANSPORT_SHORT_PACKET_MAX ||
+    if (capacity < TDMA_FLIGHT_SHORT_PACKET_SIZE ||
         !tdma_pio_spi_phys_origin_healthy(phys) ||
         !tdma_origin_exchange_copy_rx_observation(&s_tdma_origin.exchange, packet,
                                                  &s_tdma_origin.rx_observation)) return false;
     phys->flight_origin_rx_observation_ready = true;
-    *packet_size = TDMA_TRANSPORT_SHORT_PACKET_MAX;
+    *packet_size = TDMA_FLIGHT_SHORT_PACKET_SIZE;
     phys->snapshot.rx_count++;
     phys->snapshot.last_rx_size = *packet_size;
     phys->snapshot.last_rx_timestamp_ns = 0ull;

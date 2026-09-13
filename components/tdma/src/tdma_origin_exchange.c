@@ -74,13 +74,13 @@ bool tdma_origin_exchange_publish(tdma_origin_exchange_t *e,
 }
 
 bool tdma_origin_exchange_copy_rx(tdma_origin_exchange_t *e,
-                                 uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX])
+                                 uint8_t packet[TDMA_FLIGHT_SHORT_PACKET_SIZE])
 {
     return tdma_origin_exchange_copy_rx_observation(e, packet, NULL);
 }
 
 bool tdma_origin_exchange_copy_rx_observation(tdma_origin_exchange_t *e,
-                                            uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX],
+                                            uint8_t packet[TDMA_FLIGHT_SHORT_PACKET_SIZE],
                                             tdma_origin_observation_t *observation)
 {
     if (e == NULL || e->state == NULL || packet == NULL || load(&e->state->fault) != 0u) return false;
@@ -88,7 +88,7 @@ bool tdma_origin_exchange_copy_rx_observation(tdma_origin_exchange_t *e,
     if (bank >= TDMA_ORIGIN_PLAN_BANK_COUNT) return false;
     const uint32_t version = load(&e->state->bank_version[bank]);
     if ((version & 1u) != 0u || version == e->rx_version[bank]) return false;
-    memcpy(packet, e->capture[bank], TDMA_TRANSPORT_SHORT_PACKET_MAX);
+    memcpy(packet, e->capture[bank], TDMA_FLIGHT_SHORT_PACKET_SIZE);
     if (observation != NULL) {
         memcpy(observation, &e->state->bank_observation[bank], sizeof(*observation));
     }

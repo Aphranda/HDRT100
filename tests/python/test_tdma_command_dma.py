@@ -181,6 +181,9 @@ def test_descriptor_completion_and_bounded_stop(tmp_path):
     fixture = r'''
 #include "tdma_overlay_prepare.h"
 #include "tdma_origin_plan.h"
+#include "tdma_origin_build_job.h"
+#define TEST_PACKET_BYTES TDMA_FLIGHT_SHORT_PACKET_SIZE
+#define TEST_PHYSICAL_BYTES (TEST_PACKET_BYTES + 15u)
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -219,6 +222,16 @@ typedef struct {
     Snapshot snapshot;
 } tdma_pio_spi_phys_t;
 static struct { struct { tdma_origin_plan_state_t state; } origin; } s_tdma_pio_spi_workspace;
+static tdma_origin_build_job_t s_tdma_origin_build_job;
+/* This follower fixture never leases an origin builder. Execute the real
+ * cancellation API; cross-core leases are exercised by the build-job tests. */
+void tdma_origin_plan_cancel(tdma_origin_plan_builder_t *builder) {
+    (void)builder; assert(!"unexpected origin builder lease in follower fixture");
+}
+tdma_origin_build_result_t tdma_origin_plan_step(tdma_origin_plan_builder_t *builder) {
+    (void)builder; assert(!"unexpected origin construction in follower fixture");
+    return TDMA_ORIGIN_BUILD_FAILED;
+}
 typedef struct { uintptr_t read_addr; uint32_t ctrl_trig, transfer_count, al3_ctrl, al3_read_addr_trig, write_addr; } Channel;
 static struct { Channel ch[16]; uint32_t abort; } bus;
 #define dma_hw (&bus)
@@ -343,7 +356,7 @@ static void bus_step(void) {
     } else assert(!"recurrence stopped");
 }
 static void until_selected(void) {
-    unsigned bound = 2 * 307 * 4 + 64;
+    unsigned bound = 2 * TEST_PHYSICAL_BYTES * 4 + 64;
     while (phys.flight_overlay_selected_generation != phys.flight_overlay_published_generation && bound--)
         bus_step();
     assert(bound != 0);
@@ -368,18 +381,18 @@ static void stop_race(bool hang, bool loader_write, bool restart_write) {
 int main(void) {
     tdma_overlay_prepare_t job = {0};
     phys.overlay_preparation = &job; /* Bound before ARM, as in the runtime owner. */
-    phys.flight_physical_byte_count = 307;
+    phys.flight_physical_byte_count = TEST_PHYSICAL_BYTES;
     phys.flight_overlay_alignment_samples = 2;
     phys.armed = true;
     tdma_flight_overlay_plan_t *plan = &s_tdma_pio_spi_flight_overlay_plan[1];
-    assert(tdma_flight_overlay_build_pass_plan(307, 20, plan));
+    assert(tdma_flight_overlay_build_pass_plan(TEST_PHYSICAL_BYTES, 20, plan));
     assert(!tdma_pio_spi_phys_start_overlay_script(&phys, 1, false));
     assert(start_calls == 0);
     phys.flight_resource_claimed = true;
-    uint8_t before[292] = {0}, after[292] = {0};
+    uint8_t before[TEST_PACKET_BYTES] = {0}, after[TEST_PACKET_BYTES] = {0};
     memset(after + 96, 0x5a, 32); after[14] = 1;
-    tdma_flight_overlay_config_t config = {307, 4, 0, 5, 2, 1u << 14, 20};
-    assert(tdma_flight_overlay_build_plan(before, after, 292, NULL, 0, &config, plan));
+    tdma_flight_overlay_config_t config = {TEST_PHYSICAL_BYTES, 4, 0, 5, 2, 1u << 14, 20};
+    assert(tdma_flight_overlay_build_plan(before, after, sizeof(before), NULL, 0, &config, plan));
     tdma_flight_overlay_plan_t generic = *plan;
     plan->run[0].transfer_count++;
     assert(!tdma_pio_spi_phys_start_overlay_script(&phys, 1, false) && start_calls == 0);
@@ -410,12 +423,12 @@ int main(void) {
     for (unsigned cycle = 0; cycle < 200; ++cycle) {
         while (completed_plans <= cycle) bus_step();
     }
-    assert(start_calls == 1 && wire_words == 200 * 307 * 4);
+    assert(start_calls == 1 && wire_words == 200 * TEST_PHYSICAL_BYTES * 4);
     /* Inactive pool publication during any descriptor/word phase. */
     for (unsigned phase = 0; phase < 48; ++phase) {
         for (unsigned n = 0; n < phase; ++n) bus_step();
         uint free_pool = phys.flight_overlay_active_buffer ^ 1;
-        assert(tdma_flight_overlay_build_pass_plan(307, 20,
+        assert(tdma_flight_overlay_build_pass_plan(TEST_PHYSICAL_BYTES, 20,
             &s_tdma_pio_spi_flight_overlay_plan[free_pool]));
         assert(tdma_pio_spi_phys_start_overlay_script(&phys, free_pool, false));
         tdma_flight_overlay_plan_t frozen = s_tdma_pio_spi_flight_overlay_plan[free_pool];
@@ -433,7 +446,7 @@ int main(void) {
     phys.flight_overlay_published_generation = UINT32_MAX;
     phys.flight_overlay_selected_generation = UINT32_MAX;
     uint free_pool = phys.flight_overlay_active_buffer ^ 1;
-    assert(tdma_flight_overlay_build_pass_plan(307, 20,
+    assert(tdma_flight_overlay_build_pass_plan(TEST_PHYSICAL_BYTES, 20,
         &s_tdma_pio_spi_flight_overlay_plan[free_pool]));
     assert(tdma_pio_spi_phys_start_overlay_script(&phys, free_pool, false));
     assert(phys.flight_overlay_published_generation == 1 && phys.flight_overlay_pending);
@@ -454,7 +467,7 @@ int main(void) {
     assert(memcmp(&job.binding, &frozen_binding, sizeof(frozen_binding)) == 0);
     /* Substitute the pure worker's already validated PASS output here; the
      * full adapter fixture executes its transport/model builder separately. */
-    assert(tdma_flight_overlay_build_pass_plan(307, 20, job.plan));
+    assert(tdma_flight_overlay_build_pass_plan(TEST_PHYSICAL_BYTES, 20, job.plan));
     assert(tdma_flight_overlay_plan_valid(job.plan, 20));
     assert(tdma_flight_overlay_bind_plan(job.plan, 20, &job.binding));
     const tdma_flight_overlay_plan_t ready = *job.plan;
@@ -504,6 +517,7 @@ int main(void) {
                     "-I" + str(ROOT / "components/tdma/inc"), str(unit),
                     str(ROOT / "components/tdma/src/tdma_flight_overlay.c"),
                     str(ROOT / "components/tdma/src/tdma_overlay_prepare.c"),
+                    str(ROOT / "components/tdma/src/tdma_origin_build_job.c"),
                     str(ROOT / "components/tdma/src/tdma_flight_engine.c"),
                     str(ROOT / "components/tdma/src/tdma_process_image_map.c"),
                     str(ROOT / "components/tdma/src/tdma_transport_frame.c"), "-o", str(exe)],

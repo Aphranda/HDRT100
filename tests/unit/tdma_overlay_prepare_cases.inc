@@ -26,7 +26,7 @@ static bool async_overlay_grant(void *context, tdma_overlay_prepare_t *job)
         .loader_trigger_address = 0x50000100u, .next_address_address = 0x20001008u,
     };
     job->config = (tdma_flight_overlay_config_t){
-        .physical_byte_count = TDMA_TRANSPORT_SHORT_PACKET_MAX + 12u,
+        .physical_byte_count = TDMA_FLIGHT_SHORT_PACKET_SIZE + 12u,
         .outer_header_size = 4u, .local_slot_id = 3u,
         .header_write_mask = tdma_transport_frame_resident_overlay_header_mask(),
         .final_bit_pc = 16u,

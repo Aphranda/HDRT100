@@ -88,7 +88,7 @@ static bool tdma_pio_spi_ring_adapter_start_origin_impl(tdma_pio_spi_ring_adapte
         !adapter->last_rx_gate_accepted || adapter->reference_tx_completion_pending ||
         adapter->pending_tx_evidence || adapter->rx_queue_count != 0u ||
         tdma_rx_prepare_state(adapter->rx_preparation) != TDMA_RX_PREPARE_IDLE ||
-        adapter->last_rx_packet_size != TDMA_TRANSPORT_SHORT_PACKET_MAX ||
+        adapter->last_rx_packet_size != TDMA_FLIGHT_SHORT_PACKET_SIZE ||
         adapter->receive_health.configured == 0u || rearm_budget_ticks == 0u ||
         abort_poll_count == 0u || abort_poll_count > UINT16_MAX) return false;
     tdma_transport_frame_view_t view;

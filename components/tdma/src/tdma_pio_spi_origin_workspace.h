@@ -27,7 +27,7 @@ typedef union {
     struct {
         tdma_flight_overlay_dma_run_t runs[TDMA_PIO_SPI_ORIGIN_RUN_CAPACITY];
         uint32_t literals[TDMA_PIO_SPI_ORIGIN_LITERAL_CAPACITY];
-        uint8_t capture[TDMA_ORIGIN_PLAN_BANK_COUNT][TDMA_TRANSPORT_SHORT_PACKET_MAX];
+        uint8_t capture[TDMA_ORIGIN_PLAN_BANK_COUNT][TDMA_FLIGHT_SHORT_PACKET_SIZE];
         /* No DMA reads these fields during construction. Seed banks and the
          * graph lie outside this union; complete/cancel construction before
          * initializing the live fields, then never use builder while armed. */
@@ -35,7 +35,7 @@ typedef union {
             struct {
                 uint16_t stage[TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS];
                 uint8_t tx_header[TDMA_TRANSPORT_FRAME_HEADER_SIZE];
-                uint8_t rx_packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+                uint8_t rx_packet[TDMA_FLIGHT_SHORT_PACKET_SIZE];
             };
             tdma_origin_plan_builder_t builder;
         };

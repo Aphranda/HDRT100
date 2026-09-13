@@ -36,9 +36,9 @@ bool tdma_origin_exchange_publish(tdma_origin_exchange_t *exchange,
 /* One bounded attempt. A false result leaves the destination unspecified;
  * consumers must discard it. Initial seed images are never received data. */
 bool tdma_origin_exchange_copy_rx(tdma_origin_exchange_t *exchange,
-                                 uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX]);
+                                 uint8_t packet[TDMA_FLIGHT_SHORT_PACKET_SIZE]);
 bool tdma_origin_exchange_copy_rx_observation(tdma_origin_exchange_t *exchange,
-                                            uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX],
+                                            uint8_t packet[TDMA_FLIGHT_SHORT_PACKET_SIZE],
                                             tdma_origin_observation_t *observation);
 bool tdma_origin_exchange_observe(tdma_origin_exchange_t *exchange,
                                  tdma_origin_observation_t *observation);
