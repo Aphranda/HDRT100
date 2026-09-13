@@ -76,7 +76,7 @@ def test_profile_unavailable():
     assert parse_service_timing('"UNAVAILABLE"') is None
 
 
-@pytest.mark.parametrize('version,count', [(6, 31), (7, 44)])
+@pytest.mark.parametrize('version,count', [(6, 31), (7, 44), (8, 49)])
 def test_state_profile_schema_preserves_full_interval_and_generations(version, count):
     fields = [version, 250000000, 2, 90, count, 2, 42, 2**40, 1000, 0,
               1200, 2, 4, 6, 80, 2, 4, 6, 81, 60, 30]
@@ -87,10 +87,16 @@ def test_state_profile_schema_preserves_full_interval_and_generations(version, c
     assert result['entry_return_sequence'] == 80 and result['exit_return_sequence'] == 81
     assert result['autonomous_phase_count'] == 60 and result['other_phase_count'] == 30
     assert result['stages']['rx_complete'] == {'ticks': 130, 'calls': 31}
-    if version == 7:
+    if version >= 7:
         assert result['stages']['rx_request'] == {'ticks': 131, 'calls': 32}
         assert result['stages']['select_empty'] == {'ticks': 138, 'calls': 39}
         assert result['stages']['intent_bind'] == {'ticks': 143, 'calls': 44}
+    if version >= 8:
+        assert result['stages']['rx_dma_initial'] == {'ticks': 144, 'calls': 45}
+        assert result['stages']['rx_dma_frame_recheck'] == {'ticks': 145, 'calls': 46}
+        assert result['stages']['rx_dma_discovery_recheck'] == {'ticks': 146, 'calls': 47}
+        assert result['stages']['rx_latch_read'] == {'ticks': 147, 'calls': 48}
+        assert result['stages']['rx_latch_rearm'] == {'ticks': 148, 'calls': 49}
     with pytest.raises(ValueError):
         parse_service_timing(','.join(map(str, fields[:-1])))
 

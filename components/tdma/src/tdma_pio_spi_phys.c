@@ -826,6 +826,10 @@ static bool tdma_pio_spi_phys_clock_latch_read_and_rearm(
     tdma_pio_spi_phys_t *phys,
     uint64_t *timestamp_ns)
 {
+    /* The normal origin also uses this helper for TX completion. Only the
+     * slave's RX extraction belongs to the RX_LATCH timing parent. */
+    const bool rx_probe = phys != NULL && phys->role == TDMA_PIO_SPI_ROLE_SLAVE;
+    const uint64_t read_start = rx_probe ? tdma_service_timing_now() : 0ull;
     if (timestamp_ns != NULL) {
         *timestamp_ns = 0ull;
     }
@@ -834,6 +838,7 @@ static bool tdma_pio_spi_phys_clock_latch_read_and_rearm(
      * Treating capture data as a normal edge latch would consume its FIFO
      * word and reinstall the clock-latch persona before capture completes. */
     if (phys == NULL || timestamp_ns == NULL) {
+        if (rx_probe) tdma_service_timing_record(TDMA_TIMING_RX_LATCH_READ, read_start);
         return false;
     }
     const PIO evidence_pio = tdma_pio_spi_phys_evidence_pio(phys);
@@ -843,6 +848,7 @@ static bool tdma_pio_spi_phys_clock_latch_read_and_rearm(
         !phys->flight_clock_latch_armed ||
         pio_sm_is_rx_fifo_empty(evidence_pio, latch_sm)) {
         phys->snapshot.clock_latch_miss_count++;
+        if (rx_probe) tdma_service_timing_record(TDMA_TIMING_RX_LATCH_READ, read_start);
         return false;
     }
 
@@ -850,14 +856,20 @@ static bool tdma_pio_spi_phys_clock_latch_read_and_rearm(
     const uint64_t elapsed_count = (uint64_t)UINT32_MAX - remaining;
     const uint64_t elapsed_ns = elapsed_count *
         (uint64_t)phys->flight_clock_latch_resolution_ns;
+    if (rx_probe) tdma_service_timing_record(TDMA_TIMING_RX_LATCH_READ, read_start);
     if (UINT64_MAX - phys->flight_clock_latch_epoch_ns < elapsed_ns) {
         phys->snapshot.clock_latch_miss_count++;
+        const uint64_t rearm_start = rx_probe ? tdma_service_timing_now() : 0ull;
         (void)tdma_pio_spi_phys_clock_latch_rearm(phys);
+        if (rx_probe) tdma_service_timing_record(TDMA_TIMING_RX_LATCH_REARM, rearm_start);
         return false;
     }
     *timestamp_ns = phys->flight_clock_latch_epoch_ns + elapsed_ns;
     phys->snapshot.clock_latch_count++;
-    return tdma_pio_spi_phys_clock_latch_rearm(phys);
+    const uint64_t rearm_start = rx_probe ? tdma_service_timing_now() : 0ull;
+    const bool rearmed = tdma_pio_spi_phys_clock_latch_rearm(phys);
+    if (rx_probe) tdma_service_timing_record(TDMA_TIMING_RX_LATCH_REARM, rearm_start);
+    return rearmed;
 }
 
 static bool tdma_pio_spi_phys_tx_clock_latch_read_and_rearm(

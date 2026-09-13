@@ -29,6 +29,14 @@ static tdma_service_timing_record_t capture_profile(tdma_pio_spi_phys_t *phys,
          stage <= TDMA_TIMING_RX_RING_COPY; ++stage)
         child_ticks += last->elapsed_ticks[stage];
     assert(child_ticks <= last->elapsed_ticks[TDMA_TIMING_RX_ACQUIRE]);
+    uint32_t observe_ticks = 0u, observe_calls = 0u;
+    for (uint32_t stage = TDMA_TIMING_RX_DMA_INITIAL;
+         stage <= TDMA_TIMING_RX_DMA_DISCOVERY_RECHECK; ++stage) {
+        observe_ticks += last->elapsed_ticks[stage];
+        observe_calls += last->calls[stage];
+    }
+    assert(observe_ticks <= last->elapsed_ticks[TDMA_TIMING_RX_DMA_OBSERVE]);
+    assert(observe_calls == last->calls[TDMA_TIMING_RX_DMA_OBSERVE]);
     assert(last->elapsed_ticks[TDMA_TIMING_RX_ACQUIRE] <= last->total_ticks);
     return *last;
 }
@@ -43,6 +51,9 @@ int main(void)
         tdma_service_timing_request_reset();
         tdma_service_timing_record_t record = capture_profile(&phys, false);
         assert(tdma_rx_scan_state(&job) == TDMA_RX_SCAN_REQUESTED);
+        assert(record.calls[TDMA_TIMING_RX_DMA_INITIAL] == 1);
+        assert(record.calls[TDMA_TIMING_RX_DMA_DISCOVERY_RECHECK] == 1);
+        assert(record.calls[TDMA_TIMING_RX_DMA_FRAME_RECHECK] == 0);
         assert(record.calls[TDMA_TIMING_RX_DMA_OBSERVE] == 2);
         assert(record.calls[TDMA_TIMING_RX_RING_COPY] == 1);
         assert(record.calls[TDMA_TIMING_RX_LOCATE] == 0);
@@ -51,6 +62,9 @@ int main(void)
         assert(tdma_rx_scan_state(&job) == TDMA_RX_SCAN_READY && job.result.valid);
         stimulus = overwrite;
         record = capture_profile(&phys, !overwrite);
+        assert(record.calls[TDMA_TIMING_RX_DMA_INITIAL] == 1);
+        assert(record.calls[TDMA_TIMING_RX_DMA_FRAME_RECHECK] == 1);
+        assert(record.calls[TDMA_TIMING_RX_DMA_DISCOVERY_RECHECK] == 0);
         assert(record.calls[TDMA_TIMING_RX_DMA_OBSERVE] == 2);
         assert(record.calls[TDMA_TIMING_RX_LOCATE] == 1);
         assert(record.calls[TDMA_TIMING_RX_HEADER_CHECK] == (overwrite ? 0u : 1u));

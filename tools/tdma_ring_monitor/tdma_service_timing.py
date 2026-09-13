@@ -22,6 +22,10 @@ STAGES_BY_VERSION[7] = STAGES_BY_VERSION[6] + (
     "tx_latch_rearm", "rx_request_publish", "intent_clock", "select_empty",
     "select_blocked", "select_busy", "select_dispatch", "select_refresh", "intent_bind",
 )
+STAGES_BY_VERSION[8] = STAGES_BY_VERSION[7] + (
+    "rx_dma_initial", "rx_dma_frame_recheck", "rx_dma_discovery_recheck",
+    "rx_latch_read", "rx_latch_rearm",
+)
 FIELDS = (
     "version", "clock_hz", "reset_generation", "phase_count", "stage_count",
     "peak", "sequence", "start_ticks", "total_ticks", "invalid_count",

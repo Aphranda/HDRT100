@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define TDMA_SERVICE_TIMING_VERSION 7u
+#define TDMA_SERVICE_TIMING_VERSION 8u
 #ifndef TDMA_SERVICE_TIMING_ENABLED
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #define TDMA_SERVICE_TIMING_ENABLED 1
@@ -74,6 +74,14 @@ typedef enum {
     TDMA_TIMING_SELECT_DISPATCH,
     TDMA_TIMING_SELECT_REFRESH,
     TDMA_TIMING_INTENT_BIND,
+    /* DMA_OBSERVE includes these disjoint sites and their recording cost.
+     * Copy rechecks protect different private buffers; neither is optional. */
+    TDMA_TIMING_RX_DMA_INITIAL,
+    TDMA_TIMING_RX_DMA_FRAME_RECHECK,
+    TDMA_TIMING_RX_DMA_DISCOVERY_RECHECK,
+    /* Children of RX_LATCH; capture ownership and empty FIFO skip rearm. */
+    TDMA_TIMING_RX_LATCH_READ,
+    TDMA_TIMING_RX_LATCH_REARM,
     TDMA_TIMING_STAGE_COUNT,
 } tdma_service_timing_stage_t;
 

@@ -33,10 +33,15 @@ enum { clk_sys = 5, TDMA_PIO_SPI_ROLE_MASTER = 0, TDMA_PIO_SPI_ROLE_SLAVE = 1,
     TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN = 11,
     TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER = 12,
     TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER = 13,
+    TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_REQUESTED = 1,
+    TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_PATCHED = 2,
+    TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_ARMED = 3,
+    TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_READY = 4,
     TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY = 1,
     TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED = 2 };
 typedef struct {
     uint32_t role;
+    uint32_t flight_sck_waveform_capture_state;
     bool armed, flight_clock_latch_armed, flight_tx_clock_latch_armed;
     uint64_t flight_clock_latch_epoch_ns, flight_tx_clock_latch_epoch_ns;
     uint32_t flight_clock_latch_resolution_ns, flight_tx_clock_latch_resolution_ns;
@@ -84,6 +89,8 @@ static uint32_t pio_sm_get(PIO p, uint sm) { endpoint_check(p,sm); assert(fifo_c
         c_definition_body(phys, name) + "}\n" for name in (
             "tdma_pio_spi_phys_clock_latch_rearm", "tdma_pio_spi_phys_tx_clock_latch_rearm"))
     routines += "static bool tdma_pio_spi_phys_tx_clock_latch_read_and_rearm(tdma_pio_spi_phys_t *phys, uint64_t *timestamp_ns) {" + c_definition_body(phys, "tdma_pio_spi_phys_tx_clock_latch_read_and_rearm") + "}\n"
+    routines += "static bool tdma_pio_spi_phys_capture_owns_clock_latch(const tdma_pio_spi_phys_t *phys) {" + c_definition_body(phys, "tdma_pio_spi_phys_capture_owns_clock_latch") + "}\n"
+    routines += "static bool tdma_pio_spi_phys_clock_latch_read_and_rearm(tdma_pio_spi_phys_t *phys, uint64_t *timestamp_ns) {" + c_definition_body(phys, "tdma_pio_spi_phys_clock_latch_read_and_rearm") + "}\n"
     routines += "bool tdma_pio_spi_phys_feedback_round_trip(void *context, uint32_t *round_trip_ns, uint32_t *resolution_ns, uint32_t *flags) {" + c_definition_body(io, "tdma_pio_spi_phys_feedback_round_trip") + "}\n"
     # Native ABI and explicitly modeled RP2350 size_t arithmetic execute the
     # same production body. Python supplies an independent unsigned oracle.
@@ -92,6 +99,33 @@ static uint32_t pio_sm_get(PIO p, uint sm) { endpoint_check(p,sm); assert(fifo_c
     routines += "uint64_t wire_32(uint32_t baud_hz, uint32_t packet_size, uint32_t packet_header_size) {" + wire + "}\n"
     suffix = r'''
 uint32_t resolution(uint32_t frequency) { return tdma_pio_spi_phys_latch_resolution_ns(frequency); }
+void exercise_rx_read(unsigned mode, unsigned capture_state) {
+    tdma_pio_spi_phys_t p = {.role = TDMA_PIO_SPI_ROLE_SLAVE, .flight_clock_latch_armed = mode != 6,
+        .flight_clock_latch_epoch_ns = mode == 3 ? UINT64_MAX - 1 : 1000,
+        .flight_clock_latch_resolution_ns = 8,
+        .flight_sck_waveform_capture_state = mode == 5 ? capture_state : 0};
+    uint64_t timestamp = 9999;
+    hz = mode == 4 ? 0 : 250000000; s_tdma_pio_spi_program_persona = 13;
+    endpoint = 1; events = clock_calls = 0; fifo_cursor = mode == 1 ? 2 : 0;
+    if (mode == 8) {
+        p.role = TDMA_PIO_SPI_ROLE_MASTER;
+        s_tdma_pio_spi_program_persona = TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN;
+    }
+    fifo[0] = UINT32_MAX - 2;
+    memset(probe_calls, 0, sizeof(probe_calls));
+    const bool rearm = (mode >= 2 && mode <= 4) || mode == 8;
+    const bool ok = tdma_pio_spi_phys_clock_latch_read_and_rearm(mode == 0 ? NULL : &p,
+        mode == 7 ? NULL : &timestamp);
+    assert(ok == (mode == 2 || mode == 8));
+    assert(timestamp == (mode == 7 ? 9999u : (mode == 2 || mode == 4 || mode == 8) ? 1016u : 0u));
+    assert(probe_calls[TDMA_TIMING_RX_LATCH_READ] == (mode != 0 && mode != 8));
+    assert(probe_calls[TDMA_TIMING_RX_LATCH_REARM] == (rearm && mode != 8));
+    assert(clock_calls == rearm);
+    assert(events == ((mode == 2 || mode == 3 || mode == 8) ? 9u : 0u));
+    assert(fifo_cursor == (mode == 1 ? 2u : rearm ? 1u : 0u));
+    assert(p.snapshot.clock_latch_miss_count == (mode == 1 || mode == 3 || mode == 5 || mode == 6));
+    assert(p.snapshot.clock_latch_count == (mode == 2 || mode == 4 || mode == 8));
+}
 void exercise_tx_read(unsigned mode) {
     tdma_pio_spi_phys_t p = {.role = TDMA_PIO_SPI_ROLE_SLAVE, .flight_tx_clock_latch_armed = true,
         .flight_tx_clock_latch_epoch_ns = mode == 3 ? UINT64_MAX - 1 : 1000,
@@ -158,6 +192,7 @@ unsigned exercise_feedback(uint32_t frequency, uint32_t remaining, uint32_t *dur
     lib.wire_32.argtypes, lib.wire_32.restype = [C.c_uint32] * 3, C.c_uint64
     lib.exercise_rearm.argtypes, lib.exercise_rearm.restype = [C.c_uint32] * 5, None
     lib.exercise_tx_read.argtypes, lib.exercise_tx_read.restype = [C.c_uint32], None
+    lib.exercise_rx_read.argtypes, lib.exercise_rx_read.restype = [C.c_uint32, C.c_uint32], None
     lib.exercise_feedback.argtypes = [C.c_uint32] * 2 + [C.POINTER(C.c_uint32)] * 3
     lib.exercise_feedback.restype = C.c_uint
     return lib
@@ -166,6 +201,12 @@ unsigned exercise_feedback(uint32_t frequency, uint32_t remaining, uint32_t *dur
 def test_tx_latch_probe_preserves_empty_overflow_and_failed_rearm(timing):
     for mode in range(5):
         timing.exercise_tx_read(mode)
+
+
+def test_rx_latch_probe_preserves_capture_ownership_and_failed_rearm(timing):
+    for mode in range(9):
+        for capture_state in range(1, 5):
+            timing.exercise_rx_read(mode, capture_state)
 
 
 def test_latch_resolution_rounding_transitions(timing):

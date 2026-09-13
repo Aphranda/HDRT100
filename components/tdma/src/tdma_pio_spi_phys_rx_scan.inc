@@ -29,6 +29,7 @@ static bool tdma_pio_spi_phys_rx_scan_request(tdma_pio_spi_phys_t *phys,
     __dmb();
     const uint64_t observe_start = tdma_service_timing_now();
     const uint64_t after = tdma_pio_spi_phys_rx_produced_words(phys);
+    tdma_service_timing_record(TDMA_TIMING_RX_DMA_DISCOVERY_RECHECK, observe_start);
     tdma_service_timing_record(TDMA_TIMING_RX_DMA_OBSERVE, observe_start);
     if (job->observation_epoch != s_tdma_pio_spi_rx_sequence.observation_epoch ||
         after < produced || after - start >= TDMA_PIO_SPI_RX_RING_WORDS) {
@@ -54,6 +55,7 @@ static bool tdma_pio_spi_phys_capture_words_async(tdma_pio_spi_phys_t *phys,
         return false;
     const uint64_t observe_start = tdma_service_timing_now();
     const uint64_t produced = tdma_pio_spi_phys_rx_produced_words(phys);
+    tdma_service_timing_record(TDMA_TIMING_RX_DMA_INITIAL, observe_start);
     tdma_service_timing_record(TDMA_TIMING_RX_DMA_OBSERVE, observe_start);
     const uint64_t observation_epoch = s_tdma_pio_spi_rx_sequence.observation_epoch;
     phys->snapshot.rx_dma_produced_words = (uint32_t)produced;
@@ -109,6 +111,7 @@ static bool tdma_pio_spi_phys_capture_words_async(tdma_pio_spi_phys_t *phys,
     __dmb();
     const uint64_t recheck_start = tdma_service_timing_now();
     const uint64_t after = tdma_pio_spi_phys_rx_produced_words(phys);
+    tdma_service_timing_record(TDMA_TIMING_RX_DMA_FRAME_RECHECK, recheck_start);
     tdma_service_timing_record(TDMA_TIMING_RX_DMA_OBSERVE, recheck_start);
     if (s_tdma_pio_spi_rx_sequence.observation_epoch != observation_epoch ||
         after < produced || after - candidate >= TDMA_PIO_SPI_RX_RING_WORDS) {
