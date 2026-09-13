@@ -8,7 +8,16 @@ Last updated: 2026-09-14
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前完成时钟快速路径候选的撤回与恢复验收，见 `TDMA-PROGRESS-20260914-007`，
+当前完成 RESET 有效位退休候选的验证与源码撤回，见 `TDMA-PROGRESS-20260914-008`，
+证据根为 `out/HardwareAcceptance/20260914/tdma-flight-timing-reset-retirement/`。
+候选减少 RESET snapshot 批量清零，但同节点/槽位对照未证明完整 phase 稳定收益，
+没有采纳。常规非 RESET 高峰仍存在，下一优先项为 RX 接受/发布与 adapter 剩余
+成本；RESET 外围差值不能全部认定为 memset，也不能扣减预算。两次 NO3 SD 写失败
+保留全部 RAM 记录和高峰；软复位后的普通闭环及补采保存通过，写失败根因仍开放。
+恢复源码 P3 流程完成，仅总流程时限拒绝使 strict=false；两轮记录、最终普通闭环、
+STOP/config ACK、许可证退出和 SD 字节核对通过。主站高峰仍有较大的 adapter
+未分解区间，从站高峰走捕获/请求分支，后续按角色分别定位，完整预算仍未达。
+前序完成时钟快速路径候选的撤回与恢复验收，见 `TDMA-PROGRESS-20260914-007`，
 证据根为 `out/HardwareAcceptance/20260914/tdma-flight-clock-now-fastpath/`。
 同节点/槽位的全部对照组未证明完整 phase 收益，候选增加静态 RAM，未采纳；生产
 源码已恢复。RESET 首拍发现较大的 body 外区间，但尚未分离初始化与发布成本，
@@ -360,6 +369,87 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260914-008 - RESET 有效位退休候选撤回与 SD 失败保全
+
+- 日期：2026-09-14
+- 状态：PARTIAL；候选验证与源码撤回完成，不计生产优化收益，完整目标继续。
+- 延续 007 的 RESET 首拍线索，候选在既有 Core1 seqlock 内用私有有效位退休记录，
+  Core0 只在成功复制并复验 guard 后规范化自己的副本。RESET 不再清整个 snapshot，
+  每拍 work 初始化、generation、公开计时格式与全部探针保留。有效位必须独立于
+  sequence：回绕后的 sequence=0 仍可能是合法记录，不能据此删除。
+- 软件回归为 62 passed；确定性混合动作与前序原实现进行 100000 步逐字节 snapshot
+  差分一致（本轮验证快照，非事实源）。覆盖 RESET 延迟/合并、空记录、有效峰值、
+  回绕和旧 scheduler notification 取消；该回放不构成并发内存模型或硬件 WCET 证明。
+  首次 host 命令引用不存在的测试文件，exit=4、零测试；修正入口后的原始日志均保留。
+- 候选 A/B/Boot 构建通过。ARM/map 快照（非事实源）：RESET 路径减少一次 1464 B
+  snapshot 清零，360 B work 清理保留；私有有效位增加 1 B 静态占用并使用既有布局
+  余量，heap 外仍为 88 B，不能称为零 RAM 占用。PIO headers 逐字节相同。首次符号
+  审计误选其他模块同名局部符号，exit=1；按所属 recorder 对象定位后通过，非链接失败。
+- 下表为同 UID、实际槽位下两轮保留的完整外层峰值范围（us，有限窗口快照，非事实源）；
+  基线来自 006 的恢复源码双槽窗口，候选来自本轮。不同窗口不是同拍配对，也不是 WCET：
+
+  | 节点/选拍/槽位 | 基线两轮范围 | 候选两轮范围 |
+  |---|---|---|
+  | NO1 RUN A | 608.852–630.380 | 648.416–692.724 |
+  | NO1 RUN B | 618.580–619.512 | 651.200–701.984 |
+  | NO2 OTHER A | 706.908–726.904 | 724.344–736.124 |
+  | NO2 OTHER B | 710.148–725.988 | 715.820–726.816 |
+  | NO3 OTHER A | 667.440–692.212 | 720.708–729.276 |
+  | NO3 OTHER B | 692.184–708.308 | 692.456–719.108 |
+  | NO4 OTHER A | 669.632–683.868 | 673.756–685.012 |
+  | NO4 OTHER B | 650.508–676.316 | 663.580–687.812 |
+
+- 全部组的候选最大值高于该基线；与紧邻 007 恢复包的同 UID/槽位比较，仅主站最大值
+  下降，也不能建立稳定的完整收益。因此撤回候选，不等于已证明候选导致增长。候选
+  第一槽主站两轮高峰为 sequence=860/1318，均非 RESET 首拍；body 分别为
+  676.580/631.432 us，外围为 25.404/19.768 us（同拍快照，非事实源）。RESET 批量
+  初始化不是常规高峰的主要解释，007 的外围差值不能全部解释为 memset 或扣减门禁。
+- 候选 `slot-r2` 与原参数补采 `slot-r3` 均在 NO3 保存失败：storage job 为
+  `FAILED,FILE_WRITE`，error=6 对应 `STORAGE_MANAGER_ERROR_WRITE_FAILED`；接收字节
+  与预期一致、CRC 相符，读回目标文件却为 0 B（本轮失败快照，非事实源）。两轮
+  RAM 导出、计时及 STOP/config ACK/许可证退出有效，其余三板 SD 字节相符；不能将
+  取证命令 exit=0 或另开 epoch 的 release 标志写为原 SAVE 通过。
+- 两个 SD 失败窗口的全部 PEAK/RUN/OTHER 均保留，包括 `slot-r2` 的 NO3 OTHER
+  749.384 us（有限窗口快照，非事实源），没有因保存失败而丢弃高值。只软复位 NO3，
+  核验同 UID/端口/build 后，`normal-r2` 普通闭环、`slot-r4` 补采和 `normal-r3`
+  普通恢复的 STOP/SD 均通过；没有擦卡、格式化或删除文件。SD 写失败根因尚未隔离。
+- 候选 P3 的本轮 `FOUR_NODE_TDMA_QUICK_DIAGNOSTIC` 严格检查通过，仍不是正式产品
+  P3 或完整预算验收。候选源码已归档并撤回，恢复源码相关回归为 62 passed（本轮
+  验证快照，非事实源）。恢复 A/B/Boot 与四板 OTA、校准、普通环路检查通过；恢复
+  P3 流程完成但 strict=false，仅保留总流程耗时 462.835 s 超过 450.000 s 的拒绝
+  （诊断快照，非事实源），不放宽时限或提升正式产品验收声明。
+- 恢复包两轮完整外层峰值如下（us，有限窗口快照，非事实源；实际启动槽位已与
+  候选包绑定，不是同拍配对）：
+
+  | 节点/选拍/槽位 | 第一轮 | 第二轮 |
+  |---|---|---|
+  | NO1 RUN B | 618.868 | 607.964 |
+  | NO2 OTHER B | 725.000 | 719.976 |
+  | NO3 OTHER B | 706.792 | 688.868 |
+  | NO4 OTHER A | 666.824 | 647.780 |
+
+- `restored-residual-review-r1.json` 保留全部 PEAK/RUN/OTHER，并对同条记录的互不
+  重叠子区间作差。主站两轮高峰走 READY 结果接受分支，RX_PARSE 为
+  229.660/203.708 us；从 adapter 扣除 prologue、handoff、overlay prepare/boundary
+  与 status 后，余下 164.152/173.536 us。从站高峰均走 capture/request 分支，
+  RX_PARSE 未执行，adapter 余下 36.684–41.608 us（同拍分项快照，非事实源）。
+  主站下一步分解 `tdma_pio_spi_ring_origin_service()` 中的 observe/publish 和 RX
+  接受；从站继续 capture/request、latch 及准备准入归因。这些差值包含控制工作、
+  探针及可能的运行干扰，不是已经证明的可节省时间，不可重复加到父项或跨角色混算。
+- 恢复包两轮 START 后零查询、STOP 后导出并核对 SD 字节；自主窗口原始
+  passed/closed_loop/realtime=false、diagnostic=true 保留。最终普通闭环、四板
+  STOP/config ACK、许可证退出及 SD 字节核对通过；没有新增 SD 写失败。当前 build
+  为 `20260913212611`，源码指纹为
+  `5ca17b871eb56d5a8847874e5419dba0aa44cb8f19e7b3ba23bddc5511af548d`（本轮快照，
+  非事实源），无生产实现差异；NO5 未操作、registry 未变，完整预算、正式 RAM、
+  逐圈物理节拍、SD 失败根因及增长因果仍开放。
+- 原件入口：`candidate-source.json`、`differential-review-r1.json`、`linkage-review-r1.json`、
+  `phase-comparison-r1.json`、`latest-baseline-comparison-r1.json`、`decision-r1.json`、
+  `slot-r2-sd-inspection-r1.json`、`slot-r3-sd-inspection-r1.json`、`no3-reset-r1.json`、
+  `rollback-source-r1.json`、`restored-checkpoint-r1.json`、`p3-restored-r1/diagnostic.json`、
+  `restored-slot-review-r1.json`、`restored-residual-review-r1.json`、`review-final-r1.json`；证据根为
+  `out/HardwareAcceptance/20260914/tdma-flight-timing-reset-retirement/`。
 
 ### TDMA-PROGRESS-20260914-007 - 时钟快速路径候选撤回与 RESET 首拍归因
 
