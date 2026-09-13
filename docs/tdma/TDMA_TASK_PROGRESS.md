@@ -8,7 +8,13 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的 PIO/SM 下沉核算与校准前置失败调查见
+当前 `TDMA-FLIGHT-002F` 的维护命令应答与 coarse 准备屏障切片见
+`TDMA-PROGRESS-20260913-053`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-calibration-command-boundary/`。主机已按
+真实数值结果与 owner 应用配置确认完成；第二轮当前源码 QUICK P3 校准及短帧门禁
+通过。首轮 MARK 拓扑实际拒绝及恢复采集顺序错误保留，不能据第二轮成功宣称原
+拓扑错配根因闭合。生产预算与 PIO 未改，时间证据自治、完整 WCET 与 RAM 继续开放。
+前序 PIO/SM 下沉核算与校准前置失败调查见
 `TDMA-PROGRESS-20260913-052`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-calibration-arm-generation/`。自主 origin
 两侧共享指令空间已满，process follower TX 尚有候选余量；优先评估时间证据自动
@@ -220,6 +226,58 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-053 - 维护命令真实应答与 coarse 配置屏障
+
+- 状态：`IN PROGRESS` / `PARTIAL`；对应 `TDMA-FLIGHT-002F`。本轮修正校准主机
+  控制完成判据，不产生 Core1 WCET 优化，不修改固件 C/PIO、生产预算或契约状态。
+  证据根为 `out/HardwareAcceptance/20260913/tdma-flight-calibration-command-boundary/`；
+  以下数字为 **2026-09-13 快照，非事实源**，完整绑定见 `source-checkpoint-r1.json`、
+  `hardware-review-r1.json`、`review-r1.json` 和提交后的 `commit-proof.json`。
+- 等条件对照纠正：前序独立 QUICK 前置尝试没有显式固定 P3 的 phase 会话环境。
+  本轮 `baseline-command-r1` / `corrected-command-r1` 固定相同 QUICK 时序、phase
+  生命周期与串口读超时，均软件复位后执行 P0T→coarse；trace 保存响应匹配前原始行，
+  不增加运行中状态采样。对照固件为 `20260913034710`，两轮均完成四个 reference。
+- 已证明的缺陷：PROBe 开启真实应答 `1,2`、关闭 `0,0` 被公共匹配器丢弃；旧主机
+  两阶段共 16 个有效 tuple 被变成 timeout。TOPology、OPMode STAGE/APPLY 另被当成
+  普通写命令使用短 ACK 窗口，部分 timeout 被转换为没有自行验证的合成成功。
+  `TDMA_CONTROL_RESULT_FIELDS` 统一维护数值结果形状；结构化写命令使用完整 response
+  等待，匹配要求启用时无关裸 ACK 不再提前完成，真实 timeout 原样返回。
+  修正对照的 16 个 PROBe tuple 全部识别，coarse 保留 16 个 STOP_APPLIED 和
+  16 个 ARM_STARTED 记录，requested/applied 配置一致。
+- coarse 屏障：STOP 必须等 enabled/adapter 停止与 config ACK，TOPology tuple
+  必须匹配完整请求，ARM 后复核实际拓扑与应用代际；迟到读回不能通过 deadline。
+  准备动作先留痕，失败也进入全板清理；清理 STOP/PROBe 关闭失败进入失败结论。
+  这不是原拓扑错配的完整根因证明，也未修改 P0T/coded/MARK 的准备编排。
+- 验证：新用例在旧实现上先出现 10 项预期失败；修正后响应回归、握手回归与相关
+  Python 回归通过，完整相关套件 366 项。A/B/Boot 构建与 Flash 门禁通过，build
+  `20260913052726`，源码指纹
+  `29651877e2589e8731924bac9d05a814eac7821da628003cdc6834af1b166167`，
+  1033 个源文件。六节点编译容量保持，PIO 生成头与前序字节一致，A/B 链接余量
+  均为 3116 B，新增链接占用为零；不提升正式 RAM 准入。
+- 首轮当前源码 P3：四板 OTA、P0T、coarse/coded 通过；MARK 准备中 NO2 在
+  STOP/config 59/59 后执行 TOPology 返回 timeout，随后错误队列为
+  `-200,"Execution error"`。尚未 MARK ARM/注入，也未生成完整选行或凭证。
+  源码 setter 仍有快照、控制锁和 activation 拒绝路径；该证据不支持仅增加等待，
+  也不能归结为 STOP 未应用。失败原件保留于 `p3-r1/`。
+- 有界恢复：`post-marker-failure-r1.json` 保存身份、当前 build、四板 STOP、物理
+  停止、config ACK 和许可证停用；NO2 单独同命令成功，只证明可恢复。随后
+  `p3-command-r2` 复用刚 OTA 的同一包，重新复位并实际执行所有四板测量阶段，
+  不重放旧结果。`p3-receipt-r2.json` 为 QUICK_DIAGNOSTIC，flow_completed、该配置
+  strict_gates_passed 均为 true，diagnostic_failures 为空；当前短帧
+  passed/closed_loop_passed/realtime_gate_passed 均为 true。调试继续配置仍保留，
+  NO5/DPLL 不在本轮范围；不提升为完整产品验收。
+- 恢复采集顺序失败：`normal-restore-r1` 在旧记录仍 FROZEN 时请求 RECord ARM，
+  记录器按现有生命周期拒绝，未 START。raw 仍为上一 epoch 的完整冻结记录；
+  `diagnostics_tdma_record_arm()` 只接受 IDLE/SAVED/FAILED，根因是本轮辅助流程
+  漏做 SAVE。先重新核对 STOP/物理/config，再将 P3 原记录 SAVE 并逐字节核对；
+  `normal-restore-r2` 以 SAVED 前置条件重做普通模式板端采集。记录及停止后的 SD
+  读回分别见 `p3-r2-sd/`、`normal-restore-r2/`、`normal-restore-r2-sd/`；最终状态
+  见 `final-state-r1.json`。首轮恢复失败没有被覆盖。
+- 下一步仍按 PIO 容量实况推进：follower TX 可评估首边沿自动保全；自主 origin
+  要先压缩、复用或重排程序。时间戳收割/重装、固定 LOAD/UNLOAD 与 DMA 计划复用
+  由 TDMA owner 静态授权，保持 sequence/epoch、唯一 FIFO 所有权和既定资源分区。
+  500 us 是预算候选，完整 WCET、逐圈特等席、Core1 blackout 和多板长稳继续开放。
 
 ### TDMA-PROGRESS-20260913-052 - PIO 状态机下沉核算与校准前置失败留证
 

@@ -1109,6 +1109,15 @@ phase count、stage count、记录类型、sequence、start ticks、total ticks�
 既有 `SYSTem:TDMA:SCHEDule?` 继续作为完整 phase 统计，包含计时器初始化、读取与发布
 开销；profile 的局部分解不能替代完整 WCET、deadline、调度缺失与 SRAM 门禁。
 
+校准维护中的 OPMode、TOPology 和 topology PROBe 写命令返回结构化数值结果；
+`TDMA_CONTROL_RESULT_FIELDS` 统一声明结果形状，主机按完整 response 等待处理，
+不能把缺失 tuple 或无关裸 ACK 当作命令已生效。coarse 校准在准备失败时保留已执行
+动作、原始应答与清理结果；STOP 屏障读取 TDMA runtime，检查 adapter 停止和
+`ring_config_seq == ring_applied_config_seq`，TOPology 应答必须匹配请求的完整拓扑。
+ARM 后再次核对实际拓扑与已应用配置，超出主机状态屏障期限的读回保留但不计通过。
+这些约束属于维护控制完成事实，不构成实时串口采样，也不提升 wire timestamp 或
+产品准入。命令匹配对照及剩余原拓扑错配缺口见 `TDMA-PROGRESS-20260913-053`。
+
 启动验收工具 `trn03_closed_loop.py::wait_startup_barrier()` 的稳定区间同时要求
 节点健康和整组查询在请求的 startup deadline 内完成。poll 等待耗尽期限后不再开始
 新查询；已经开始的有界串口查询若迟到，其健康结果、完成时间与错误仍留证，但不得
