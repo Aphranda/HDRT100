@@ -8,7 +8,13 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002B` 的自主交接板端取证切片见
+当前 `TDMA-FLIGHT-002F` 的 Core1 RX 接收提交计时切片见
+`TDMA-PROGRESS-20260913-051`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-rx-accept-timing/`。新增分项定位 mailbox/map
+检查和发布后 commit 成本，完整 WCET 仍失败；当前源码两轮 P3 普通短帧通过，粗校准
+拓扑读回重复失败，严格门禁继续拒绝。自主离线取证、普通模式恢复和 STOP 后 SD 读回
+闭合；后续先定位校准状态代际问题，再推进准备结果复用，长期目标保持进行中。
+前序 `TDMA-FLIGHT-002B` 的自主交接板端取证切片见
 `TDMA-PROGRESS-20260913-050`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-autonomous-board-evidence/`。本轮未改生产
 源码；自主序号持续增长，但切换 missing/DOWN、观察副本丢弃与完整 WCET 仍未闭合。
@@ -208,6 +214,89 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-051 - Core1 RX 接收提交分项计时与严格失败保留
+
+- 日期：2026-09-13；TODO task ID：`TDMA-FLIGHT-002F`，关联 `TDMA-FLIGHT-002B`。
+  以下数字为实验快照，非事实源。证据根为
+  `out/HardwareAcceptance/20260913/tdma-flight-rx-accept-timing/`，基线提交
+  `b2e64131dbb9dc747cf1d2a65adf357526b89021`。代码/文档分离提交及证据 SHA 见
+  `commit-proof.json`、`slice-manifest.json`，不 push。
+- 实现：`TDMA_SERVICE_TIMING_VERSION` 扩展为版本 `5`，在 RX_PARSE 内新增 inspect、
+  health、evidence、FIFO publish、commit、complete 子区间。剥离新增 `14` 行计时
+  语句后，接收处理源文件与基线逐字一致；保留成功发布后的新鲜度提交、原拒绝条件、
+  owner 与生命周期。主机保留旧版本解码，前序四板实际 profile 原始响应仍解码为
+  相同记录；板端二进制采样格式保持。见 `build-review-r1.json`。
+- 软件与资源：计时测试 `19 passed`、相关回归 `190 passed`、文档测试 `18 passed`；
+  A/B/Boot 和 Flash link gate 通过。计时工作记录增长 `48 B`，最近/峰值快照增长
+  `96 B`，总新增 BSS `144 B`；A/B 链接余量均由 `3260 B` 降为 `3116 B`，BSS 前
+  对齐空隙仍为 `1752 B`。新增探针的时间与内存成本不从门禁中扣除。
+- build `20260913034710`；源码指纹
+  `36cc2be4b8fcad38ea1a9f858ca723aaf8189bd06c91c3baaaaf3a13a6ab3240`、文件数 `1032`。
+  编译容量保持六节点，PIO 生成字节与固定 wire 保持；未借用新 PIO/DMA 资源。
+- 首轮真实 P3 `run` 完成四板 OTA、校准流程和普通短帧。短帧 startup/soak 通过，但
+  粗 CLK 校准读回拓扑不一致，SCK 校准和重装余量行选择也失败。第二轮使用同一包及
+  OTA 证据执行真实 `resume`，重新校准；SCK/矩阵和普通短帧通过，粗校准仍读到
+  node count `2` 的运行状态，与该步请求的四节点拓扑不一致。两份凭证均保留
+  `strict_gates_passed=false`，不进行相同条件的盲目第三次复测。
+- 当前 staged 凭证选择第二轮 `QUICK_DIAGNOSTIC`，只证明同源码诊断流程完成，不能
+  以 receipt `passed` 或提交门禁接受替代严格验收。粗校准 helper 在 STOP 后仅留
+  固定 gap，再写 topology/ARM；该步没有使用已有停止等待函数，启动读回也不绑定
+  本次配置应用代际。这是待验证的时序线索，尚未证明为根因；下一步先保留该控制
+  流逐条应答并核对 STOP、拓扑应用和 ARM。见 `coarse-state-review-r1.json`。
+- 首次 SD 保存 helper 被停止预检查拦截：P3 的 `left_running=true`，helper 读到
+  runtime 仍启用，未发送 SAVE。原失败和空导出文件保留；随后显式 STOP 并确认
+  physical/runtime、配置应用及许可证状态，再在新目录保存与逐字节读回成功。
+  第二轮也先 STOP 再 SAVE；这是调用顺序遗漏，不是已发生的 SD 写入故障。
+- 自主取证沿用板端 `250000 us × 26` 窗口，START 后仅发临时许可证和一次 profile
+  RESET；STOP/撤销后统一导出，采集窗口内零 SCPI 数据查询。原启动门禁通过，自主
+  总评仍失败：保留普通 persona/TX 计数谓词、切换 missing，以及 NO1/NO4 的 DOWN/
+  恢复事件。后段本地窗口未见 missing/reject 增长，但从站观察丢弃仍增长；不能把
+  这些周期性状态采样当作每圈时间证据。原记录和分析见 `hardware-review-r1.json`。
+- 同次完整累计峰值及子项如下，单位为 `us`，均是实验快照。每板各有一个峰值 phase，
+  包含 RESET 后至读取之间的 STOP/idle；不是纯稳态 WCET，也不是跨板同一圈。
+
+  | 节点 | 完整峰值 | RX_PARSE | inspect | health | evidence | FIFO publish | commit | complete |
+  |---|---:|---:|---:|---:|---:|---:|---:|---:|
+  | NO1 | 713.480 | 216.388 | 89.420 | 20.816 | 21.372 | 15.168 | 26.696 | 5.108 |
+  | NO2 | 676.168 | 268.688 | 76.128 | 35.904 | 26.676 | 18.892 | 57.092 | 15.600 |
+  | NO3 | 660.992 | 293.704 | 66.164 | 35.280 | 31.532 | 34.424 | 58.756 | 12.508 |
+  | NO4 | 656.528 | 293.004 | 75.868 | 49.952 | 48.984 | 29.908 | 31.500 | 8.928 |
+
+- 上表各新子项在相应完整峰值中调用一次，父子区间不得相加。inspect 与 commit
+  都涉及 map/固定头遍历，是后续准备结果复用的优先项；总区间也包含计数与 owner
+  操作，不能把整个区间视为可消除的重复复制。health 和 FIFO 发布的 payload 复制
+  仍存在，但实测不能支持把它们当作 RX_PARSE 的全部成本。本切片只新增归因能力，
+  不是执行时间优化；完整 `380 us` 门禁继续拒绝。
+- 对上述完整峰值按调用层级作互不重叠的总账复核，见同目录
+  `timing-analysis-r1.json`、`timing-analysis-r1.txt`。达到现门禁仍需压缩约
+  `42%–47%`；即使假设 RX_PARSE 全部消失，NO1/NO2 仍约 `497/407 us`。这是预算
+  算术，不是收益预测。NO1 独立 origin 路径使 overlay 项为零，adapter 仍有约
+  `268 us` 未细分，包含发车准备及共同分支，不能全归给 TX。后续还须压缩 owner
+  外围并检查 Core0 积压；不可通过提前 freshness、少处理帧或丢弃逐圈时间戳达标。
+- 用户追加评估 `500 us` 候选：当前 TDMA 窗口仅 `400 us`，后续即为 VDC；各 phase
+  WCET 合计 `959.2 us`，单改 TDMA 后为 `1079.2 us`，超出当前周期。保持现有相位
+  余量和尾部 guard 需真实释放并重分配 `120 us`，不能借用相邻窗口。当前峰值即使
+  对照候选仍需减少约 `157–213 us`。同目录分析保留从代码生成的全表、候选校验拒绝
+  和两档预算算术；候选可作后续优化里程碑，正式调整还需全负载及跨域复评。
+- 用户进一步要求增加预算后，优先形成保持当前周期的 `500 us` 完整静态候选：VDC
+  窗口由 `172 us` 改为 `100 us`，同步触发由 `88 us` 改为 `40 us`，分别供出
+  `72/48 us`；WCET 同步调整并保持原各相位余量与尾部 guard。候选通过现有全表
+  静态检查，生产配置未改。留存四轮调度记录中 VDC 累计最大为 `66.004 us`、同步
+  触发为 `24.788 us`，可支持优先验证此方向；样本包含启动/STOP、skip 与隔离，
+  不构成全负载 WCET。DPLL/Sync Capture 已有累计超限继续保留，不能挤压它们。
+  完整候选、原始 JSON 落点和负载覆盖条件见 `budget-assessment-r2.json/txt`；首轮
+  本地分析脚本名称错误失败保留，修正后重算。当前不再以坚守旧门限为唯一目标，
+  下一预算 gate 是供出相位的全负载复评、绝对 deadline 与跨域审查。
+- 使用第二轮当前矩阵恢复普通模式，原 startup/soak 通过。两轮 P3、自主取证和恢复
+  共 `16` 个有效板端文件，重新解码身份、CRC、全部有效字段与零漏采，并逐字节核对
+  SD；停止前被拒绝的保存尝试另行保留。最终四板 STOP、配置应用、相位和许可证
+  inactive 通过，heap min 均为 `20344 B`，正式 RAM 仍失败。见 `final-state-r1.json`、
+  `final-status.json`、`hardware-review-r1.json`。
+- 文档、源码指纹、真实 P3 与失败保留的主控复核见 `review-r1.json`。下一 gate 是
+  校准状态代际拒绝的闭合，以及有界 RX inspect/commit 准备结果复用；不得提前提交
+  新鲜度或绕过 map/epoch。硬件 blackout、同圈更新、逐圈特等席、完整波形与长稳
+  继续开放；registry/C11 不变，长期目标保持 `PARTIAL/active`。
 
 ### TDMA-PROGRESS-20260913-050 - 自主交接板端取证与接收提交成本归因
 

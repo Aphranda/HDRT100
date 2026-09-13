@@ -1074,6 +1074,14 @@ ring runtime 和随后队列选择；runtime 内的 `TDMA_TIMING_RING_PUBLISH` �
 RX 工位；未执行子项的零值不能代表父路径没有成本。同条记录的父区间扣除不重叠
 子区间可用于定位剩余工作，但差额包括探针和分支成本，不能当作移除某操作后的
 运行时间承诺。状态、FIFO 和硬件操作仍由原 owner 执行，计时不改变其授权边界。
+Core1 接收提交在 `TDMA_TIMING_RX_PARSE` 内细分为 `TDMA_TIMING_RX_INSPECT` 的固定
+mailbox/map 检查、`TDMA_TIMING_RX_HEALTH` 的接收健康判定、`TDMA_TIMING_RX_EVIDENCE`
+的 origin/resident 与时间证据处理、`TDMA_TIMING_RX_FIFO_PUBLISH` 的镜像发布、
+`TDMA_TIMING_RX_COMMIT` 的发布后新鲜度提交，以及 `TDMA_TIMING_RX_COMPLETE` 的收尾。
+inspect/health 子项覆盖成功解码后的 process-image 路径；decode、坏帧诊断、origin
+配对及分支等剩余工作仍在父区间内。发布失败不执行 commit，origin 健康拒绝与 resident
+收尾失败分别保留已执行的子项。探针不改变提交条件、epoch、池所有权或生命周期；
+版本扩展与旧记录解码兼容性单独验证，不能把子项零调用解释成父路径零耗时。
 每次 phase 的工作记录在结束时通过短 seqlock 发布；Core0 查询只尝试读取一次，
 writer 正在发布或版本变化时返回不可用，不重试自旋。最近记录与最慢记录分别保全
 一次完整 phase，不能把不同轮次的单项最大值拼成最坏执行路径。
