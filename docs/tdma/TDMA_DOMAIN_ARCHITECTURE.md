@@ -391,6 +391,10 @@ ring，完整复制在既有 Core1 owner 边界内一次选择 persona 位序，
 `__builtin_arm_rbit()`，其他目标保留 Pico bit reverse 后备；它不是 byte swap，
 也不改变 wire forwarding 的数据。完整区间准入与复制后复验仍由调用者负责。私有 packet 的批量复制
 只能在帧长和容量校验后进行，不能据复制更快跳过 epoch、覆盖或 latch 因果边界。
+归一化复制叶函数通过 `.time_critical.tdma_pio_spi_phys_rx_ring_copy` 链接到 SRAM，
+避免逐字循环从 XIP 取指；指令存储计入静态 RAM，实际 A/B 镜像须核对执行地址、
+循环内调用和完整占用。该放置不改变同步复制、Core1 owner 或调用者的生命周期复验，
+性能结论仍由当前源码对应的完整 phase、复制子项与资源门禁共同决定。
 工位忙时不等待，旧提示失效时重新请求发现；READY 还须核对 persona、配置与请求
 epoch。观察副本的重同步不得移动已锁定的 wire overlay 相位。STOP/训练/自主 origin
 切换撤销提示，重新 ARM 必须等待扫描工位取消 ACK；普通镜像工位不承担逐圈时间

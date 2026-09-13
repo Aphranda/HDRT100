@@ -8,7 +8,12 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的板端记录与 SD 后处理切片见
+当前 `TDMA-FLIGHT-002F` 的 RX 复制 SRAM 放置切片见
+`TDMA-PROGRESS-20260913-048`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-rx-copy-residency/`。当前源码 P3 与短帧
+门禁通过；板端记录和停止后读回显示复制子项下降，完整峰值仍超预算。正式 RAM、
+完整 WCET、硬件自主 blackout 和逐圈证据继续开放，长期目标保持进行中。
+前序板端记录与 SD 后处理切片见
 `TDMA-PROGRESS-20260913-047`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-board-recording/`。SCPI 只触发流程，板端
 有限窗口记录、冻结导出和 STOP 后 SD 逐字节读回通过；同固件第二轮 P3 严格短帧门禁
@@ -193,6 +198,47 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-048 - RX 复制 SRAM 放置与板端峰值对照
+
+- 日期：2026-09-13；TODO task ID：`TDMA-FLIGHT-002F`。以下数字为实验快照，非事实源。
+  证据根为 `out/HardwareAcceptance/20260913/tdma-flight-rx-copy-residency/`，基线为
+  `ca55dd9b2585e070f294e7f0611224d09176d04c`。代码/文档分离提交，提交及原始证据 SHA
+  见 `commit-proof.json` 和 `slice-manifest.json`，不 push。
+- 实现：仅将 `tdma_pio_spi_phys_rx_ring_copy()` 叶函数放到 SRAM 并禁止内联。函数体
+  逐字保持，归一化、volatile DMA 读取、已完成区间、复制后覆盖/epoch 复验和同次取帧
+  内的 latch 绑定均沿原路径；未改 Core1 owner、生命周期、PIO/DMA、固定 wire、节点
+  容量或 phase 预算。A/B 实际指令均在 SRAM，包含 RBIT 且没有外部调用。
+- 资源与软件：相关测试 `223 passed`、文档测试 `18 passed`，A/B/Boot 和 Flash link
+  gate 通过。叶函数各占 `216 B` SRAM，`.data` 增长由 BSS 前对齐空隙吸收，该空隙从
+  `2960 B` 降到 `2744 B`；BSS、链接末端及 `3260 B` link free 保持。不能把对齐空隙
+  当作任意后续改动的免费 RAM。见 `build-review-r1.json` 和 `ram-padding-review-r1.json`。
+- build `20260913022156`；源码指纹
+  `2792c55257e742bb7193dd21af5cb08475e8f11ff7292fdd5b2e6cb7c4d30cea`，文件数 `1032`。
+  当前源码真实 `run` 完成四板 OTA、校准及短帧，`p3-receipt-r1.json` 的
+  `strict_gates_passed=true`，无诊断失败；本凭证仍为 QUICK_DIAGNOSTIC 范围。
+- 采集：使用现有板端记录器，每板 `250000 us` 周期、`14` 个样本和独立基线。运行
+  窗口内 SCPI 只发一次 profile RESET 控制，不查询实时数据；STOP 后统一导出 RAM、
+  读取板内累计峰值并保存/读回 SD。累计峰值含 RESET 后至读取之间的 STOP 和 idle
+  service，不能称为纯稳态 WCET；保留峰值的完整同次 phase，各嵌套子项不相加。
+- 同一前序矩阵、相同板端采集条件的结果见 `profile-comparison-r1.json`。NO2/NO3/NO4
+  同峰值内复制耗时分别由 `127.756/159.100/150.888 us` 降为
+  `17.176/20.948/22.976 us`；完整峰值分别由 `722.452/750.820/744.968 us` 降为
+  `706.140/688.964/686.100 us`。对应 capture 仍为 `246.556/239.048/249.636 us`，
+  RX handoff 为 `327.308/325.112/318.716 us`。NO1 普通 origin 完整峰值为
+  `1058.524 us`，该峰值未执行复制，不能把它的变化归因为此叶函数。各记录属于不同
+  phase/运行窗口，不能把局部差值直接作为全表稳定余量或 XIP 争用的完整因果证明。
+- 失败保留：首次基线采集和二进制导出成功，但后处理调用遗漏 node index；第二次
+  ARM 因原冻结事务未保存而被拒绝。原 helper、命令、错误及文件全部保留，先将首次
+  冻结记录保存到 SD 后才完成第三次基线。没有清空缓冲、复位或改状态以伪造成功。
+- 基线、候选对照和新测矩阵恢复的短帧门禁均通过。包括首次恢复出来的基线记录在内，
+  共 `20` 个板端文件逐一通过 CRC、身份、漏槽和 SD 逐字节核对，每个文件均为 `14/14`、
+  零漏采/溢出。新测矩阵恢复后最终四板 STOP、配置序号、实际相位和许可证 inactive
+  均核验；heap min 均为 `20344 B`，正式 RAM 门禁仍未闭合。见 `hardware-review-r1.json`。
+- 结论：保留复制热路径的局部收益，完整 `380 us` 预算仍未通过。下一步继续处理
+  live capture 剩余固定开销、交接/latch 与 owner/adapter 工作；普通 origin 的发车
+  耗时仍须经自主硬件路径和 blackout 独立闭合。持续 SD、逐圈时间戳、同圈交换、
+  故障恢复、完整波形与正式资源验收继续开放，不改变 registry/C11 状态。
 
 ### TDMA-PROGRESS-20260913-047 - 板端自主记录、冻结导出与停机 SD 验证
 
