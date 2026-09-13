@@ -8,7 +8,13 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前按用户确认的 O3/O5→O1→O2/O4→O6 顺序推进，O2/O4 分项切片见
+当前按用户确认的 O3/O5→O1→O2/O4→O6 顺序推进，O6 定位算术切片见
+`TDMA-PROGRESS-20260913-067`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-rx-cursor-math/`。保留既有增量游标、
+hint 失效和窗口复制，只优化定位取模；软件、A/B/Boot、当前源码 P3 和两轮对照
+完成。实际除法调用减少且无新增 RAM，但完整峰值未一致改善；主站 RUN 外层为
+646.920/714.560 us，NO3 第一轮 ALL 外层为 778.248 us（有限窗口快照，非事实源）。
+新增增长的同拍构成已保留，因果仍待收敛，完整 500 us 未达。前序 O2/O4 分项切片见
 `TDMA-PROGRESS-20260913-066`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-dma-latch-attribution/`。DMA 初始观察、
 帧/发现窗口复制后复验及 RX latch 读取/重装分项已完成软件、构建、当前源码 P3
@@ -313,6 +319,64 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-067 - O6 相对游标定位取模
+
+- 日期：2026-09-13
+- 状态：PARTIAL；算术、生命周期和实板验证完成，完整峰值收益未证实，新增增长保留。
+- 范围：`tdma_rx_scan_locate()` 依据 cursor 与 hint anchor 的相对距离对齐，
+  短距离免除法、在 `UINT32_MAX` 范围内使用窄位宽取模，更大距离回退完整位宽。
+  绝对 cursor、hint、完成字数、溢出保护和接收成功推进边界不变。当前路径已是
+  增量游标，不把这次算术改写描述成从每拍全量扫描迁移为增量扫描。
+- hint 与复制复核：继续保留 observation/request epoch、persona、配置、覆盖
+  和坏头失效；STOP 保留取消 ACK。现有 ring 索引已用掩码、persona 在循环外
+  选择位序、错位复制复用相邻字，不重复改写这些路径或删除复制后 DMA 复验。
+- 软件快照（非事实源）：独立大整数 ceiling 模型执行真实定位函数，覆盖全部
+  合法位相位、帧/尾边界、完成长度、窄/宽距离交界、绝对计数跨界、接近
+  `UINT64_MAX`、空指针与无效 hint，以及固定种子的随机绝对计数；4 项通过。
+  真实 RX/DMA 交错 28 项与完整 adapter 回归通过。首轮并行 pytest 共用默认
+  basetemp，出现 10 项夹具文件丢失错误；改用独立目录后通过，`rx-tests-r1.log`
+  原件保留，不作为固件错误或静默覆盖。
+- 构建快照（非事实源）：A/B/Boot 通过，build `20260913154535`，源码指纹
+  `814e12c7c49a5fe39856d4f2542e83c3030de3d46b8eda6c69740b4f23dcc3e1`，
+  源文件数 1044。A/B 实际反汇编由两处 64 位除法调用减为一处大距离回退，
+  短距离分支跳过除法，窄位宽路径使用原生 UDIV。A/B link-free 仍各 2200 B，
+  扣除预留 heap 后额外余量各 152 B，无新增 RAM；PIO 产物字节一致。
+- 硬件：当前源码 QUICK P3 的 strict_gates_passed=true，短帧与普通恢复通过。
+  P3、两轮自主记录和普通恢复均完成 STOP/config ACK、许可证失效及 SD 逐字节
+  核对；START 后零查询，使用 066 的四邮箱、固定矩阵与相同 v8 探针。
+- 定位分项与完整外层（us，有限窗口快照，非事实源；每格 066→067；每行各取
+  自己那一版该板的 ALL 峰值，不是独立分项最大值或跨板同一拍）：
+
+  | 节点/轮次 | RX locate | ALL 外层 |
+  |---|---:|---:|
+  | NO2 R1 | 15.968→18.096 | 713.976→715.820 |
+  | NO3 R1 | 20.260→20.324 | 695.712→778.248 |
+  | NO4 R1 | 18.776→5.800 | 704.220→692.112 |
+  | NO2 R2 | 23.320→19.904 | 711.248→711.868 |
+  | NO3 R2 | 13.524→18.832 | 710.512→735.484 |
+  | NO4 R2 | 21.320→21.820 | 696.256→685.252 |
+
+  原始分项都有一次 RX 请求及一次定位，包含关系核对通过。指令减少未形成
+  一致的定位或整环峰值收益，不能把 NO4 第一轮下降外推为固定 WCET 节省。
+- 主站（R1/R2，us，有限窗口快照，非事实源）：RUN body 为 611.536/689.424，
+  外层 646.920/714.560；STOP 外层 694.552/784.412。RUN 外层相对 066
+  第一轮低 21.172 us、第二轮高 46.264 us，完整预算仍未达到。
+- 新增增长归因：NO3 第一轮 body 增加 66.992 us，而定位仅增加 0.064 us；
+  同拍 RX handoff 增加 28.088 us、overlay 增加 16.052 us、ring publish 增加
+  11.104 us。主站第二轮 RUN 没有 locate 调用，RX_PARSE 从 151.324 增至
+  238.544 us，其中 evidence/health/inspect 的增长分别为 37.492/34.036/
+  20.108 us。主站第二轮 STOP 的 ring_runtime 增加 64.572 us。以上是不同
+  保留峰值的分项对照，父子项不得相加；不能据此确认取模、缓存、总线或代码布局
+  的因果。增长原件保留，后续先收敛这些峰值，不将局部算术验证写成性能验收通过。
+- 自主两轮整段 passed/closed_loop/realtime=false，diagnostic=true。后段
+  accepted 继续增长，四板 rejected/missing 无增长；全窗口 missing 最大仍为 1。
+  periodic_interval/persona/adapter_tx/receive_missing 原失败保留。完整 500 us、
+  正式 RAM、切换稳定性和逐圈特等席交付仍开放。
+- 原件：`source-checkpoint-r1.json`、`disassembly-r1.json`、
+  `cursor-comparison-r1.json`、`growth-attribution-r1.json`、
+  `profile-comparison-r1.json` 及 `review-initial-r1.json`；已逐项重核 066 封存
+  原件。按用户确认的四项顺序完成本轮借鉴，后续优先解决新增峰值与完整预算。
 
 ### TDMA-PROGRESS-20260913-066 - O2/O4 DMA 观察和 RX latch 分项
 

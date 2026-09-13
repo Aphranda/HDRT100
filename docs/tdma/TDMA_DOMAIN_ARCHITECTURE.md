@@ -376,8 +376,12 @@ receive health、novelty 和 RX FIFO。origin 授权在采集时绑定，后续 
 transport CRC 校验，返回位置、帧长与连续帧证据，不持有 live DMA 或物理 owner
 指针。Core1 据此直接定位当前已完成帧，重新读取 live ring，并在复制后再次核对覆盖
 和 epoch；该次 live copy 之后才沿原边界绑定 latch/RTT，不能把旧扫描副本当作新接收。
-异步捕获的几何与已完成区间由 `tdma_rx_scan_locate()` 在复制前核验；物理头和
-transport 固定头则在复制后、覆盖与 epoch 复验通过后检查同一私有帧。头部不合法时
+异步捕获的几何与已完成区间由 `tdma_rx_scan_locate()` 在复制前核验。
+定位按当前 cursor 距 discovery anchor 的非负距离对齐；距离小于 stride 时无需
+取模，在 `UINT32_MAX` 内使用窄位宽取模，更大距离保留完整位宽回退。窄化仅用于
+已证明范围内的相对距离，不截断绝对 cursor；对齐加法溢出、尾部及错位读取所需
+的已完成字数检查继续保留，不改变 hint 或推进接收成功事实。
+物理头和 transport 固定头则在复制后、覆盖与 epoch 复验通过后检查同一私有帧。头部不合法时
 撤销提示并重新请求发现，不推进接收 cursor、alignment 或成功事实。该顺序避免
 反复读取和归一化 live header，后续交接使用的也是已检查的副本；完整 CRC 仍由原
 解析工位校验。不得把 live ring 复制直接延后到另一拍，除非先证明覆盖期限或取得
