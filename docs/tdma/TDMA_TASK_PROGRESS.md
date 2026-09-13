@@ -8,7 +8,12 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002F` 的维护命令应答与 coarse 准备屏障切片见
+当前 `TDMA-FLIGHT-002F` 的静态预算迁移见 `TDMA-PROGRESS-20260913-054`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-budget-500/`。按用户确认，TDMA 后续目标
+采用 500 us，源码完整静态表同步调整，旧 380 us 不再作为长期硬门槛；周期与 GUARD
+保持。四板已 OTA，板端记录确认新表生效，短帧闭环与停止后的 SD 读回通过；SCK
+候选覆盖/重装余量和完整 WCET 仍失败。时间戳硬件自治和满载覆盖继续推进。
+前序维护命令应答与 coarse 准备屏障切片见
 `TDMA-PROGRESS-20260913-053`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-calibration-command-boundary/`。主机已按
 真实数值结果与 owner 应用配置确认完成；第二轮当前源码 QUICK P3 校准及短帧门禁
@@ -226,6 +231,65 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-054 - 采用 TDMA 新目标预算与完整静态表迁移
+
+- 状态：`IN PROGRESS` / `PARTIAL`；对应 `TDMA-FLIGHT-002F`。用户确认 TDMA 目标
+  改为 500 us，旧 380 us 不再作为长期硬门槛。本条落实静态预算，完整 WCET、
+  逐圈特等席与产品准入仍独立验证，不能据预算增加宣布长期目标完成。
+- 证据根：`out/HardwareAcceptance/20260913/tdma-flight-budget-500/`。以下数字为
+  **2026-09-13 快照，非事实源**；实现事实源为 `config/project_config.h` 中
+  `PROJECT_CORE1_PHASE_*`，派生使用 `BOARD_SYS_CLOCK_HZ`。基线为前序已封存的
+  `404f3948595ee16ca13f40df60248cb705fa134d`，计划见 `slice-plan.json`。
+- 唯一实现修改为静态调度配置：TDMA WCET 从 95000 拍变为 125000 拍，窗口末端
+  改为 130000 拍；VDC 让出 18000 拍，SYNC_TRIGGER 让出 12000 拍。相邻执行项起点
+  与终点同步平移，没有运行中借用余量；PIO、wire、节点容量、owner 和门禁算法保持。
+  当前完整表及生成 SVG 见 `schedule-review-r1.json`、`schedule-500us-r1.svg`。
+
+  | phase | start–end us | WCET us | 保留余量 us |
+  |---|---|---:|---:|
+  | TDMA | 0–520 | 500 | 20 |
+  | VDC | 520–620 | 96 | 4 |
+  | DPLL | 620–756 | 136 | 0 |
+  | CALIBRATION | 756–816 | 56 | 4 |
+  | SYNC_CAPTURE | 816–836 | 16 | 4 |
+  | REFMEM | 836–936 | 96 | 4 |
+  | MODEL | 936–948 | 12 | 0 |
+  | SYNC_TRIGGER | 948–988 | 39.2 | 0.8 |
+  | TRIGGER_MEASURE | 988–996 | 8 | 0 |
+  | GUARD | 996–1000 | 0 | 4 |
+
+- 静态复核：周期保持 250000 拍 / 1 kHz，每个 phase 原有余量不变，总 WCET 不变，
+  guard 不执行负载。三个调整项在各自新 WCET 内通过、超一拍仍拒绝；没有只修改
+  报警数字而保留旧窗口。相关 Python 回归 168 项通过，A/B/Boot 和 Flash 门禁通过。
+  build `20260913060514`，当前源码指纹
+  `922b625fd880891e07d07004c9178ac6cf65b24fbb7745e66e8e689bbb206d17`，
+  1033 个源文件，编译容量六节点；A/B 链接余量各 3116 B，PIO 生成头与前序一致。
+- 当前源码硬件流程：四板 OTA、复位、P0T、coarse/coded、MARK/residence、DATA
+  和短帧完成。`p3-receipt-r1.json` 为 QUICK_DIAGNOSTIC，flow_completed 为 true，
+  strict_gates_passed 为 false；SCK 两项原拒绝保留。link0 的八次有效结果全部为
+  同一 offset，未达到 candidate_coverage；没有实测行满足 flight re-arm 余量，
+  调试选择 `[1,1,0,0]`，最小 follower margin 为 -1 sample。没有手改成未测的安全行，
+  也没有重复运行筛选通过结果。`p3-r1/trn01-sck/summary.json`、新矩阵 derivation 和
+  diagnostic_failures 保留原判定；本轮不确认 SCK 失败与预算调整的因果。
+- 新表实际生效：P3 与 `normal-restore-r1` 的板端冻结记录全部重新解码，逐样本比对
+  每个 phase 的 start/end/WCET、时钟与周期，均匹配当前源码。两轮短帧的
+  passed/closed_loop_passed/realtime_gate_passed 均为 true，但 diagnostic_continue
+  保持启用。每轮先 STOP/物理/config ACK，再 SAVE 和逐字节核对，共八份记录相符；
+  最终四板停止、配置应用完成、临时许可证停用。SCPI 只做准备、控制和停止后导出。
+- 新预算下的执行证据：恢复记录中 VDC 累计最大 52.452–59.080 us，同步触发
+  23.252–24.592 us；观察区间没有这两相位自身 overrun 增量，但有 start-miss/skip，
+  未覆盖供出预算相位的最大输入负载。不能以这组低于预算的数字放行满载 WCET。
+  同区间四板 TDMA overrun 增量为 1215/359/411/432，完整调度仍失败。
+  一次 RESET 后的完整 profile 峰值为 1009.948/639.396/670.028/630.636 us，仍超
+  新目标；它包含 STOP/idle，并且是普通 origin 模式，不能与前序自主模式峰值直接
+  作优化对比。原始字段、mask、计数与独立复核见 `hardware-review-r1.json`。
+- 交付边界：已采用新静态预算并完成当前源码调试硬件闭环；未宣称完整 WCET、
+  SCK 严格门禁或产品验收通过。代码、文档分离提交和证据封存见 `review-r1.json`、
+  `slice-manifest.json`、`commit-proof.json`，后续性能优化继续按 500 us 目标执行。
+- 新目标不降低其余验证要求：VDC 多源与 epoch 转换、同步触发峰值请求/取消/迟到、
+  后移 phase 绝对 deadline、完整调度 WCET、正式 RAM、逐圈时间戳与 Core1 blackout
+  继续开放。未变更 registry 状态；需要登记状态迁移时仍执行跨域与 C11 审核。
 
 ### TDMA-PROGRESS-20260913-053 - 维护命令真实应答与 coarse 配置屏障
 

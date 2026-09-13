@@ -1221,6 +1221,13 @@ TDMA/Core1 调度的唯一事实源是 `clk_sys` 拍数。板级时钟引用
 `PROJECT_CORE1_PHASE_GUARD_*`。其中 `DPLL` 只推进节点锁相与 VDC 必需的 DCO/lock 输出，
 不执行维护、历史重算或全域复制；`GUARD` 禁止承载任何负载。
 
+当前 TDMA 目标预算按用户确认的完整静态重分配落实到
+`PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES`；按 `BOARD_SYS_CLOCK_HZ` 派生为 `500 us`。
+VDC 与 SYNC_TRIGGER 的窗口和 WCET 同步缩减，其他执行项按表平移，保留原有 phase
+余量、`PROJECT_CORE1_CYCLE_RATE_HZ` 和 GUARD。旧预算属于历史基线，不是不可调整的
+长期门槛；新表实测及仍缺的供出预算相位满载证据见 `TDMA-PROGRESS-20260913-054`。
+修改预算不消除已有 overrun/deadline 事实，也不构成完整 WCET 或产品准入通过。
+
 硬不变量：
 
 - phase 按表顺序排列、互不重叠、首 phase 从拍零开始、末 phase 结束于
@@ -1256,15 +1263,15 @@ profile。
 image → DMA/FIFO preload → PIO hardware launch → wire → feedback/commit”子 phase；CS/SCK/DATA
 首边沿由 PIO/硬件事件产生，Core1 只能提前预装，不能靠函数调用到达时间决定物理起点。
 
-当前预算复评属于 `TDMA-FLIGHT-002F` 的分析工作，数值快照见
-`TDMA-PROGRESS-20260912-022`，不在此冻结新门限。自主硬件飞行与 CPU phase 能够重叠，
+当前预算迁移属于 `TDMA-FLIGHT-002F`，实现与证据见 `TDMA-PROGRESS-20260913-054`；
+前序分析快照见 `TDMA-PROGRESS-20260912-022`。自主硬件飞行与 CPU phase 能够重叠，
 CPU 必需预算应按 owner 固定工作、普通装卸配额、最坏同拍同步记录数及其单条成本、
 共享资源干扰和计时发布成本核算；仍有 wire wait 的兼容路径须单独计入等待。
 `PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES` 与窗口末端之间的余量还承担起始抖动和收尾，
 不能全部视为可用乘客时间。特等席逐圈硬件 LOAD/UNLOAD 的期限与 VDC 后台消费期限
-分别验证；平均吞吐可行不代表逐圈截止期满足。若实测证明需要适度调整，应先提出
-全表/profile 候选并复核其他 mandatory phase、guard、资源与跨域契约；目前符号、
-准入逻辑和登记状态均不因分析而改变。
+分别验证；平均吞吐可行不代表逐圈截止期满足。后续再调整预算时仍须给出完整
+静态表/profile 并复核其他 mandatory phase、guard、资源与跨域契约；门禁按当前
+代码符号执行，登记状态不因预算迁移自动提升。
 
 ### TDMA-DET-03：基础载荷优先的静态装配
 

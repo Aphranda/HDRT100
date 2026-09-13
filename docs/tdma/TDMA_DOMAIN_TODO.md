@@ -64,12 +64,16 @@ RX UNLOAD / TX LOAD 和 PIO 分区。硬件自主运行的实现仍由 TDMA owne
 逐圈采集/卸载与后续 VDC 批量消费分别有期限；队列容量依据最短圈周期和最长消费停顿，
 普通可丢弃镜像不能替代无损保全。余量足够则保留门限；不足时可提出有证据的适度调整，
 同时保持全表窗口无重叠、GUARD 不承载负载及其他 mandatory phase 的可调度性。
-用户于 2026-09-13 再次要求增加预算，当前优先评估保持现有 Core1 周期的 `500 us`
-候选，不将现有门限视为不可调整的长期设计目标。完整静态候选与供出预算的相位覆盖
-缺口见 `TDMA-PROGRESS-20260913-051` 和该条证据目录 `budget-assessment-r2.json`；
-静态表通过不代表新 WCET 获得硬件证明。修改正式预算/profile 前须完成当前源码短帧、
-全负载时序与跨域/C11 审核；本切片只完成候选评估，不改变生产预算、registry 或节点
-容量。前序预算分析见 `TDMA-PROGRESS-20260912-022`。
+用户于 2026-09-13 确认采用 `500 us` 的 TDMA 目标预算，原 `380 us` 不再作为长期
+硬门槛；数值由 `PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES` 和 `BOARD_SYS_CLOCK_HZ`
+派生。当前实现将完整静态表同步迁移：TDMA 增量来自 VDC 与 SYNC_TRIGGER 的窗口及
+WCET 调整，保持 `PROJECT_CORE1_CYCLE_RATE_HZ`、各 phase 余量与 GUARD。落实与当前
+源码验收见 `TDMA-PROGRESS-20260913-054`；前序全表候选及负载覆盖缺口见
+`TDMA-PROGRESS-20260913-051` 的 `budget-assessment-r2.json`。
+新预算配置不代表完整最坏情况已获硬件证明，VDC 最大准入多源/epoch 转换、同步触发
+峰值请求/取消/迟到、后移 phase 的绝对 deadline、完整 WCET 和跨域审核继续验收。
+本次不变更 registry 状态；需要变更登记状态时仍执行 C11。节点容量保持后续项。
+前序预算分析见 `TDMA-PROGRESS-20260912-022`。
 
 按用户进一步要求，PIO/SM 下沉评估见 `TDMA-PROGRESS-20260913-052` 与该条证据的
 `pio-offload-assessment-r1.json`。当前自主 origin 两侧及 process follower RX 的程序
