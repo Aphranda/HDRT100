@@ -8,7 +8,12 @@ Last updated: 2026-09-14
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前完成 O6 前后固件的 B/A/B 峰值重复性对照，见 `TDMA-PROGRESS-20260914-001`，
+当前完成锁内空队列提前结束切片，见 `TDMA-PROGRESS-20260914-002`，证据根为
+`out/HardwareAcceptance/20260914/tdma-flight-empty-select/`。预算刷新、过期统计、
+新数据准入、恢复队列及 STOP 行为保留；软件、A/B/Boot、当前源码 P3 流程、两轮
+板端记录和普通恢复完成。保留外层峰值中的空队列分项下降，完整外层仍超预算；
+P3 粗校准 topology 超时与 coded marker gate 拒绝使 strict=false，不能写为严格通过。
+此前峰值增长因果仍未解决。前序 O6 前后固件的 B/A/B 峰值重复性对照，见 `TDMA-PROGRESS-20260914-001`，
 证据根为 `out/HardwareAcceptance/20260914/tdma-flight-peak-repeatability/`。
 生产源码未变，主站先前 RUN 高值在本轮未重现，但 NO3 OTHER 外层达到 789.932 us，
 NO4 达到 755.336 us（有限窗口快照，非事实源）。增长因果仍未解决，完整 500 us
@@ -325,6 +330,53 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260914-002 - 锁内空队列选择提前结束
+
+- 日期：2026-09-14
+- 状态：PARTIAL；空队列行为和有限实板对照完成，完整预算及严格 P3 未通过。
+- 范围：`tdma_traffic_scheduler_select_impl()` 在既有锁内完成周期刷新与普通队列
+  过期清理后，若普通队列及 recovery depth 均为空，直接记录原 GATE_CLOSED、
+  无 traffic class，释放锁并返回；跳过后续 VDC/recovery/RefMem/控制队列扫描。
+  recovery depth 包含在途帧，非空时继续原路径；不提前读取无锁队列，不省略统计，
+  不改派发输出、准入和 STOP 边界，不新增计时探针。
+- 软件：调度器 host 回归及计时回归 24 项通过（验证快照，非事实源）。新覆盖包含
+  空拍预算刷新、结果和输出保留、同周期新数据准入与恢复帧在途；既有过期清理、
+  恢复重试/预算、优先级、STOP 取消及重新开放继续通过。
+- 构建快照（非事实源）：A/B/Boot 通过，build `20260913163720`，源码指纹
+  `280f9ddcba018de2068c79541b00263d07fa199f0e0e3f4b8f972d2f857afd6f`，
+  源文件数 1044。实际汇编在刷新计时后进入空分支并跳转至结果记录、解锁和返回。
+  A/B link-free 各 2200 B，含 2048 B heap 预留，额外余量各 152 B；无新增 RAM，
+  PIO 产物字节一致。保持六节点编译容量、四邮箱运行布局与同 v8 探针。
+- 同矩阵分项对照（us，有限窗口快照，非事实源；前序 067 四个当前版窗口、候选
+  两个窗口；均取每板 RUN/OTHER 外层峰值所在拍，分项不是独立最大值）：
+
+  | 节点 | 前序 SELECT_EMPTY 范围 | 候选 SELECT_EMPTY 范围 | 候选外层 R1/R2 |
+  |---|---:|---:|---:|
+  | NO1 RUN | 27.116–40.432 | 11.168–20.692 | 650.544/681.388 |
+  | NO2 OTHER | 28.940–48.184 | 25.312–26.544 | 697.232/711.556 |
+  | NO3 OTHER | 33.696–48.816 | 30.296–31.680 | 714.424/697.948 |
+  | NO4 OTHER | 29.800–39.424 | 28.420–29.492 | 732.284/676.340 |
+
+  各板候选保留拍中的 EMPTY 分项均低于该板前序四个记录，但刷新成本本身也有波动，
+  不能将区间相减当作固定节省。完整外层未一致改善，主站第二轮高于前序本轮窗口；
+  原 NO3 789.932 us 高峰继续保留，增长因果未解决，完整 500 us 未达。
+- 当前源码 QUICK P3 完成，短帧通过；strict_gates_passed=false。粗 CLK 校准中
+  NO2 的 `TOPology 4,1,2` 应答超时，coded marker gate 同轮未通过；原始拒绝保留，
+  不用流程完成或后续普通闭环替代严格门禁。两轮自主整段
+  passed/closed_loop/realtime=false、diagnostic=true，后段 accepted 增长，
+  rejected/missing 无增长；有限后段不提升为整段稳定性。
+- 取证流程失败与恢复：首个编排脚本将诊断退出码 1 当作中断，提前进入恢复；
+  恢复的 recorder ARM 命令超时，读回仍为首轮冻结 epoch，未建立新记录。
+  `sequence-command-r1` 和 `recovery-normal-r1` 原件保留。随后独立 STOP 复核，
+  对板上首轮记录执行实际 SAVE/读回，与主机原件逐字节一致，补齐首轮 SD 证据；
+  新的继续脚本保留诊断失败并完成第二轮及普通恢复，没有修改退出门禁或延长期限。
+- P3、两轮记录及最终普通恢复均完成 STOP/config ACK、许可证失效与 SD 核对。
+  START 后零查询，实测 payload 与接收长度维持固定四邮箱。最终当前固件普通模式
+  passed/closed_loop=true。完整 WCET、正式 RAM、逐圈特等席、blackout 和增长因果
+  继续开放；下一步聚焦 RX 交接/接受及 latch 重装等主成本，避免仅凭局部优化宣称达标。
+- 原件：`source-checkpoint-r1.json`、`comparison-r1.json`、A/B 选择函数反汇编、
+  `p3-r1/diagnostic.json`、两次编排命令、恢复失败、全部记录/STOP/SD 及 `normal-r1`。
 
 ### TDMA-PROGRESS-20260914-001 - O6 前后固件峰值重复性对照
 

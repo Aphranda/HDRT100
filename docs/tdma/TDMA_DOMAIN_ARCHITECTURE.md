@@ -1199,6 +1199,11 @@ SELECT_BUSY、SELECT_DISPATCH 中一个结果，分别对应锁内清理后普�
 SELECT_REFRESH 是该结果区间内的周期刷新/过期清理子项。EMPTY 不代表本次未发生
 过期清理，BLOCKED 不等于空队列，也不能将这些嵌套区间重复累加。此诊断不改变
 任务准入、时间戳完整性、DMA 选择或 STOP 行为，新增记录和探针成本计入完整门禁。
+select 在锁内完成周期刷新和过期清理后，普通队列与 recovery depth 均为空时，
+直接保留原空结果、无 traffic class 和派发输出，解锁返回，跳过后续派发扫描。
+recovery depth 包含在途缓冲；存在恢复或普通任务时继续原选择路径。此判断不读取
+无锁队列、不缓存空状态，不免除下一次新数据准入、刷新和 STOP 取消。实现及有限
+成本对照见 `TDMA-PROGRESS-20260914-002`，不能替代完整 phase 门禁。
 单 phase 的调用计数使用 `tdma_service_timing_record_t.calls` 的紧凑类型存储；达到
 `UINT16_MAX` 后饱和并增加 invalid_count，该记录不得替换有效峰值，RESET 清零。
 SCPI 仍逐字段输出无符号整数，旧版本解码不变；不得静默截断计数或删除状态峰值以省 RAM。
