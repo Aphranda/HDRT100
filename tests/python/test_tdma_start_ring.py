@@ -99,6 +99,29 @@ def test_query_skips_stale_ack_and_returns_matching_payload():
         require_match=True) == "1"
 
 
+def test_topology_command_preserves_firmware_result_tuple():
+    serial = _ReadSerial(b"[123] DBG ignored\r\n4,2\r\n4,2,0\r\n")
+    assert read_scpi_response(
+        serial, "SYSTem:TDMA:RING:TOPology 4,2,0", 0.1,
+        require_match=True) == "4,2,0"
+
+
+@pytest.mark.parametrize("action", ["STAGe 7", "APPLy"])
+def test_operating_profile_preserves_firmware_result_tuple(action):
+    serial = _ReadSerial(b"7,10000000,1000000,8,0,123\r\n")
+    assert read_scpi_response(
+        serial, "SYSTem:TDMA:OPMode:" + action, 0.1,
+        require_match=True) == "7,10000000,1000000,8,0,123"
+
+
+def test_topology_timeout_is_not_reported_as_verified(monkeypatch):
+    import tools.tdma_ring_monitor.tdma_start_ring as ring
+    monkeypatch.setattr(ring, "command", lambda *args: "<timeout>")
+    assert _board_command_on_serial(
+        object(), "SYSTem:TDMA:RING:TOPology 4,2,0",
+        Namespace(timeout=3.0, action_timeout=0.1), object()) == "<timeout>"
+
+
 def test_unknown_write_uses_action_timeout(monkeypatch):
     observed = []
     import tools.tdma_ring_monitor.tdma_start_ring as ring

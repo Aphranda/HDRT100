@@ -31,7 +31,7 @@ from flight_bitmap_validate import (  # noqa: E402
     FIFO_FIELDS,
     PROCESS_FIELDS,
 )
-from tdma_field_parse import PHYS_FIELDS  # noqa: E402
+from tdma_field_parse import PHYS_FIELDS, RUNTIME_FIELDS  # noqa: E402
 from trn03_stage import (  # noqa: E402
     checked_action,
     drain_errors,
@@ -47,49 +47,6 @@ from trn03_waveform import (  # noqa: E402
     save_ring_capture,
 )
 
-
-RUNTIME_FIELDS = (
-    "ring_enabled",
-    "ring_node_count",
-    "ring_local_slot_id",
-    "ring_reference_slot_id",
-    "ring_up_running",
-    "ring_down_running",
-    "ring_seq",
-    "ring_last_error",
-    "ring_adapter_started",
-    "ring_adapter_service_count",
-    "ring_up_tx_sequence",
-    "ring_down_rx_sequence",
-    "ring_up_tx_frame_crc32",
-    "ring_down_rx_frame_crc32",
-    "ring_idle_beacon_tx_count",
-    "ring_idle_beacon_rx_count",
-    "ring_feedback_round_trip_ns",
-    "ring_timestamp_resolution_ns",
-    "ring_timestamp_flags",
-    "ring_reference_tx_timestamp_ns_lo",
-    "ring_reference_tx_timestamp_ns_hi",
-    "ring_feedback_rx_timestamp_ns_lo",
-    "ring_feedback_rx_timestamp_ns_hi",
-    "ring_adapter_last_error",
-    "ring_adapter_tx_count",
-    "ring_adapter_rx_count",
-    "ring_adapter_rx_bad_count",
-    "ring_adapter_rx_transport_bad_count",
-    "ring_adapter_rx_schedule_bad_count",
-    "ring_adapter_rx_profile_bad_count",
-    "ring_adapter_last_bad_transport_result",
-    "ring_adapter_last_bad_sequence",
-    "ring_adapter_last_bad_schedule_crc32",
-    "ring_adapter_last_bad_profile_crc32",
-    "ring_adapter_last_bad_header_diff_count",
-    "ring_adapter_last_bad_header_first_diff_offset",
-    "ring_adapter_last_bad_header_expected_byte",
-    "ring_adapter_last_bad_header_observed_byte",
-    "ring_config_seq",
-    "ring_applied_config_seq",
-)
 
 CRC_DIAGNOSTIC_FIELDS = (
     "clock_evidence_enabled",

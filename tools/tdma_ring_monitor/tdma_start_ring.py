@@ -242,11 +242,8 @@ def _board_command_on_serial(board: Board, text: str,
     action = text.strip().split(maxsplit=1)[0].upper()
     ack_only_actions = {
         "SYSTEM:TDMA:RING:STOP", "SYST:TDMA:RING:STOP",
-        "SYSTEM:TDMA:RING:TOPOLOGY", "SYST:TDMA:RING:TOPOLOGY",
         "SYSTEM:TDMA:RING:ARM", "SYST:TDMA:RING:ARM",
         "SYSTEM:TDMA:RING:START", "SYST:TDMA:RING:START",
-        "SYSTEM:TDMA:OPMODE:STAGE", "SYST:TDMA:OPMODE:STAGE",
-        "SYSTEM:TDMA:OPMODE:APPLY", "SYST:TDMA:OPMODE:APPLY",
         "CALIBRATION:TOPOLOGY:PROBE",
         "CALIBRATION:TRAINING:STAGE:CLEAR",
         "CAL:TRAINING:STAGE:CLEAR",

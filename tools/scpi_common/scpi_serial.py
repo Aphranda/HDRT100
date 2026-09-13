@@ -284,6 +284,14 @@ def scpi_response_matches_command(command: str, line: str) -> bool:
         return _csv_uints_match(text, 5)
     if header in {"SYST:OTA:TXN?", "SYSTEM:OTA:TXN?"}:
         return _csv_uints_match(text, 8)
+    if header in {
+            "SYST:TDMA:RING:TOP", "SYSTEM:TDMA:RING:TOP",
+            "SYST:TDMA:RING:TOPOLOGY", "SYSTEM:TDMA:RING:TOPOLOGY"}:
+        return _csv_uints_match(text, 3)
+    if header in {
+            "SYST:TDMA:OPMODE:STAGE", "SYSTEM:TDMA:OPMODE:STAGE",
+            "SYST:TDMA:OPMODE:APPLY", "SYSTEM:TDMA:OPMODE:APPLY"}:
+        return _csv_uints_match(text, 6)
     if header in {"SYST:OTA:JOUR?", "SYSTEM:OTA:JOURNAL?"}:
         return _csv_uints_match(text, 13)
     if header in {

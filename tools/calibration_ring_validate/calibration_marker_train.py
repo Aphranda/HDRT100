@@ -51,6 +51,8 @@ from calibration_ring_validate.calibration_timeout_config import (  # noqa: E402
 from calibration_ring_validate.calibration_storage_job import (  # noqa: E402
     wait_file_write_job,
 )
+from tdma_field_parse import RUNTIME_FIELDS  # noqa: E402
+from calibration_ring_validate.trn03_stage import error_is_clear  # noqa: E402
 
 
 MARKER_FIELDS = (
@@ -479,55 +481,123 @@ def active_operating_level(board: Board, args: argparse.Namespace) -> int:
             f"{raw!r}") from exc
 
 
+class RingPreparationError(RuntimeError):
+    """Retain every board's preparation attempts when one board fails."""
+
+    def __init__(self, actions: list[dict[str, object]]):
+        self.actions = actions
+        super().__init__("MARK ring preparation failed: " + json.dumps(actions))
+
+
+def wait_preparation_stopped(board: Board, args: argparse.Namespace,
+                             actions: list[dict[str, object]]) -> None:
+    started = time.monotonic()
+    samples: list[dict[str, object]] = []
+    evidence = {"board": board.address, "command": "STOPPED_READBACK",
+                "samples": samples, "passed": False}
+    actions.append(evidence)
+    while time.monotonic() - started < args.arm_wait:
+        sample: dict[str, object] = {}
+        samples.append(sample)
+        raw = board_command(board, "SYSTem:TDMA:RING:STATus?", args)
+        sample["raw"] = raw
+        values = [int(value.strip().strip('"'), 0)
+                  for value in next(csv.reader([raw]), [])]
+        if len(values) != len(RUNTIME_FIELDS):
+            raise RuntimeError(f"{board.address}: invalid STOP status {raw!r}")
+        status = dict(zip(RUNTIME_FIELDS, values))
+        sample["status"] = status
+        elapsed = time.monotonic() - started
+        sample["elapsed_s"] = elapsed
+        if (elapsed < args.arm_wait and status["ring_enabled"] == 0 and
+                status["ring_adapter_started"] == 0 and
+                status["ring_config_seq"] == status["ring_applied_config_seq"]):
+            evidence["passed"] = True
+            return
+        time.sleep(args.gap)
+    raise RuntimeError(f"{board.address}: STOP/config acknowledgement timeout")
+
+
+def preparation_action(board: Board, label: str, command: str,
+                       args: argparse.Namespace, actions: list[dict[str, object]],
+                       expected: list[int] | None = None,
+                       profile_level: int | None = None) -> None:
+    drained: list[str] = []
+    evidence = {"board": board.address, "command": label, "scpi": command,
+                "errors_drained_before": drained, "passed": False}
+    actions.append(evidence)
+    for _ in range(16):
+        raw = board_command(board, "SYSTem:ERR?", args)
+        drained.append(raw)
+        if error_is_clear(raw):
+            break
+    else:
+        raise RuntimeError(f"{board.address}: error queue did not drain")
+    response = board_command(board, command, args)
+    evidence["response"] = response
+    error = board_command(board, "SYSTem:ERR?", args)
+    evidence["error_after"] = error
+    if (not error_is_clear(error) or response == "<timeout>" or
+            response.startswith("OK(no payload") or not response):
+        raise RuntimeError(f"{board.address}: {label} unconfirmed or rejected")
+    if expected is not None or profile_level is not None:
+        actual = [int(value.strip().strip('"'), 0)
+                  for value in next(csv.reader([response]), [])]
+        evidence["expected_result"] = expected
+        evidence["expected_profile_level"] = profile_level
+        if (expected is not None and actual != expected) or (
+                profile_level is not None and
+                (len(actual) != 6 or actual[0] != profile_level)):
+            raise RuntimeError(f"{board.address}: {label} result mismatch")
+    elif response.strip('"') != "OK":
+        raise RuntimeError(f"{board.address}: {label} invalid acknowledgement")
+    evidence["passed"] = True
+
+
 def prepare_ring(ordered: list[Board], args: argparse.Namespace) -> list[dict[str, object]]:
-    actions: list[dict[str, object]] = []
     node_count = len(ordered)
-    def prepare_board(board: Board):
-        stop = board_command(board, "SYSTem:TDMA:RING:STOP", args)
-        active_level = active_operating_level(board, args)
-        if active_level == args.level:
-            return (
-                {"board": board.address, "command": "STOP", "response": stop},
-                {"board": board.address, "command": "OPMODE_REUSE",
-                 "active_level": active_level},
-            )
-        else:
-            stage = board_command(
-                board, f"SYSTem:TDMA:OPMode:STAGe {args.level}", args)
-            apply = board_command(board, "SYSTem:TDMA:OPMode:APPLy", args)
-            return (
-                {"board": board.address, "command": "STOP", "response": stop},
-                {"board": board.address, "command": "OPMODE",
-                 "response": stage},
-                {"board": board.address, "command": "OPMODE_APPLY",
-                 "response": apply},
-            )
 
-    with ThreadPoolExecutor(max_workers=node_count) as executor:
-        for result in executor.map(prepare_board, ordered):
-            actions.extend(result)
-
-    def stage_topology(item):
+    def prepare_board(item):
         node, board = item
-        topology = board_command(
-            board, f"SYSTem:TDMA:RING:TOPology "
-            f"{node_count},{node},{args.reference_node}", args)
-        board_no_raw = board_command(board, "SYSTem:BOARD:NO?", args)
-        board_no = int(board_no_raw.strip().strip('"'), 0)
-        if board_no != node + 1:
-            raise RuntimeError(
-                f"{board.address}: BOARD:NO changed during topology staging: "
-                f"expected {node + 1}, observed {board_no}")
-        return (
-            {"board": board.address, "command": "TOPOLOGY",
-             "response": topology, "node": node, "board_no": board_no},
-            {"board": board.address, "command": "BOARD_NO_READBACK",
-             "board_no": board_no},
-        )
+        actions: list[dict[str, object]] = []
+        try:
+            preparation_action(board, "STOP", "SYSTem:TDMA:RING:STOP", args, actions)
+            wait_preparation_stopped(board, args, actions)
+            active_level = active_operating_level(board, args)
+            actions.append({"board": board.address, "command": "OPMODE_READBACK",
+                            "active_level": active_level})
+            if active_level != args.level:
+                preparation_action(board, "OPMODE", f"SYSTem:TDMA:OPMode:STAGe {args.level}",
+                                   args, actions, profile_level=args.level)
+                preparation_action(board, "OPMODE_APPLY", "SYSTem:TDMA:OPMode:APPLy",
+                                   args, actions, profile_level=args.level)
+                wait_preparation_stopped(board, args, actions)
+                active_level = active_operating_level(board, args)
+                actions.append({"board": board.address, "command": "OPMODE_READBACK",
+                                "active_level": active_level})
+                if active_level != args.level:
+                    raise RuntimeError(f"{board.address}: operating level did not apply")
+            expected = [node_count, node, args.reference_node]
+            preparation_action(board, "TOPOLOGY", "SYSTem:TDMA:RING:TOPology " +
+                               ",".join(map(str, expected)), args, actions, expected)
+            wait_preparation_stopped(board, args, actions)
+            raw = board_command(board, "SYSTem:BOARD:NO?", args)
+            board_no = int(raw.strip().strip('"'), 0)
+            actions.append({"board": board.address, "command": "BOARD_NO_READBACK",
+                            "raw": raw, "board_no": board_no})
+            if board_no != node + 1:
+                raise RuntimeError(f"{board.address}: BOARD:NO changed during preparation")
+        except Exception as exc:
+            actions.append({"board": board.address, "command": "PREPARATION_FAILED",
+                            "error": f"{type(exc).__name__}: {exc}"})
+        return actions
 
+    actions: list[dict[str, object]] = []
     with ThreadPoolExecutor(max_workers=node_count) as executor:
-        for result in executor.map(stage_topology, enumerate(ordered)):
+        for result in executor.map(prepare_board, enumerate(ordered)):
             actions.extend(result)
+    if any(row["command"] == "PREPARATION_FAILED" for row in actions):
+        raise RingPreparationError(actions)
     # Calibration owns PIO/SM/DMA directly.  Do not ARM the flight adapter
     # here: flight runtime requires a complete MARK+SCK+DATA calibration
     # stage, while this preparation path exists to create that stage.
@@ -582,6 +652,33 @@ def wait_marker_armed(ordered: list[Board], args: argparse.Namespace) -> list[di
             last = list(executor.map(marker_status, ordered,
                                      [args] * len(ordered)))
     raise RuntimeError(f"marker ARM readiness timeout: {last}")
+
+
+def prepared_identity_errors(records: list[dict[str, int | str]],
+                             args: argparse.Namespace) -> list[str]:
+    """Check the owner-staged identity before allowing any physical injection."""
+    errors: list[str] = []
+    for field in ("topology_generation", "topology_crc32", "profile_crc32",
+                  "schedule_crc32"):
+        values = {int(record[field]) for record in records}
+        if len(values) != 1 or 0 in values:
+            errors.append(field)
+    for node, record in enumerate(records):
+        expected = {
+            "state": STATE_PREPARED, "local_node": node,
+            # The MARK record names the injection origin as reference_node;
+            # the fixed TDMA reference is bound into the topology CRC instead.
+            "reference_node": args.origin_node,
+            "predecessor_node": (node - 1) % len(records),
+            "successor_node": (node + 1) % len(records),
+            "train_epoch": args.epoch, "train_sequence": args.epoch,
+            "marker_id": args.epoch, "marker_codebook_id": args.codebook,
+            "calibration_generation": args.generation,
+        }
+        for field, value in expected.items():
+            if int(record[field]) != value:
+                errors.append(f"node_{node}_{field}")
+    return errors
 
 
 def inject_marker(board: Board, args: argparse.Namespace) -> str:
@@ -791,7 +888,11 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
     }
     if args.dry_run:
         return {**plan, "passed": False, "dry_run": True}
-    actions = [] if args.reuse_ring_identity else prepare_ring(ordered, args)
+    try:
+        actions = [] if args.reuse_ring_identity else prepare_ring(ordered, args)
+    except RingPreparationError as exc:
+        return {**plan, "passed": False, "errors": ["ring_preparation"],
+                "actions": exc.actions, "arms": [], "injection": None}
     with ThreadPoolExecutor(max_workers=len(ordered)) as executor:
         active_values = list(executor.map(
             lambda board: board_command(
@@ -829,20 +930,26 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
                          offsets[args.origin_node],
                          FAULT_IDLE_HIGH if args.fault_idle_high else 0)})
         armed = wait_marker_armed(ordered, args)
-        injection = {
-            "board": originator.address,
-            "response": inject_marker(originator, args),
-        }
-        if args.fault_idle_high:
-            records = wait_marker_timeout(ordered, args)
-            validation = validate_idle_high_timeout(
-                records, args.origin_node)
+        identity_errors = prepared_identity_errors(armed, args)
+        injection = None
+        if identity_errors:
+            validation = {"passed": False, "errors": identity_errors,
+                          "failure_phase": "prepared_identity", "records": armed}
             capture_files = []
         else:
-            records = wait_marker(ordered, args)
-            validation = validate_ring(records)
-            capture_files = [] if args.skip_capture else [
-                save_marker_capture(board, args) for board in ordered]
+            injection = {
+                "board": originator.address,
+                "response": inject_marker(originator, args),
+            }
+            if args.fault_idle_high:
+                records = wait_marker_timeout(ordered, args)
+                validation = validate_idle_high_timeout(records, args.origin_node)
+                capture_files = []
+            else:
+                records = wait_marker(ordered, args)
+                validation = validate_ring(records)
+                capture_files = [] if args.skip_capture else [
+                    save_marker_capture(board, args) for board in ordered]
     finally:
         idle = stop_marker(ordered, args)
     with ThreadPoolExecutor(max_workers=len(ordered)) as executor:

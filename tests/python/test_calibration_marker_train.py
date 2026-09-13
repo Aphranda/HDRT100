@@ -67,12 +67,18 @@ def test_training_preparation_stages_topology_without_flight_arm(
             return "7,10000000"
         if command == "SYSTem:BOARD:NO?":
             return str(ordered.index(board) + 1)
+        if command == "SYSTem:ERR?":
+            return '0,"No error"'
+        if command == "SYSTem:TDMA:RING:STATus?":
+            return ",".join("0" for _ in marker_train.RUNTIME_FIELDS)
+        if command.startswith("SYSTem:TDMA:RING:TOPology "):
+            return command.split()[1]
         return "OK"
 
     monkeypatch.setattr(marker_train, "board_command", fake_command)
     monkeypatch.setattr(marker_train.time, "sleep", lambda seconds: None)
     actions = prepare_ring(
-        ordered, argparse.Namespace(reference_node=0, level=7, gap=0.0))
+        ordered, argparse.Namespace(reference_node=0, level=7, gap=0.0, arm_wait=1.0))
     command_texts = [command for _, command in commands]
     assert not any("RING:ARM" in command for command in command_texts)
     assert command_texts.count("SYSTem:TDMA:RING:STOP") == 4
@@ -80,6 +86,132 @@ def test_training_preparation_stages_topology_without_flight_arm(
                for command in command_texts) == 4
     assert [row["board_no"] for row in actions
             if row["command"] == "BOARD_NO_READBACK"] == [1, 2, 3, 4]
+
+
+@pytest.mark.parametrize("failure", [None, "opmode", "rejected", "timeout", "wrong_tuple", "stop_pending", "late_stop"])
+def test_preparation_waits_for_owner_and_retains_failures(monkeypatch, failure):
+    board = Board("COM3", "board-0", "idn", "build")
+    clock = [0.0]
+    requested, applied = [1], [0]
+    topology_sent = [False]
+    active_level = [6 if failure == "opmode" else 7]
+    queries = []
+
+    def command(_board, text, args):
+        queries.append(text)
+        if text == "SYSTem:ERR?":
+            if topology_sent[0] and failure == "rejected":
+                return '-200,"TDMA_RING_TOPOLOGY"'
+            return '0,"No error"'
+        if text == "SYSTem:TDMA:RING:STOP":
+            return "OK"
+        if text == "SYSTem:TDMA:RING:STATus?":
+            clock[0] += 1.1 if failure == "late_stop" else 0.1
+            status = dict.fromkeys(marker_train.RUNTIME_FIELDS, 0)
+            status.update(ring_config_seq=requested[0], ring_applied_config_seq=applied[0])
+            if failure != "stop_pending":
+                applied[0] = requested[0]
+            if failure == "late_stop":
+                status["ring_applied_config_seq"] = requested[0]
+            return ",".join(str(status[field]) for field in marker_train.RUNTIME_FIELDS)
+        if text == "SYSTem:TDMA:OPMode?":
+            assert applied == requested
+            return f"{active_level[0]},10000000"
+        if text == "SYSTem:TDMA:OPMode:STAGe 7":
+            return "7,10000000,1000000,8,0,123"
+        if text == "SYSTem:TDMA:OPMode:APPLy":
+            active_level[0] = 7
+            requested[0] += 1
+            return "7,10000000,1000000,8,0,123"
+        if text.startswith("SYSTem:TDMA:RING:TOPology "):
+            assert applied == requested
+            topology_sent[0] = True
+            requested[0] += 1
+            return {"timeout": "<timeout>", "wrong_tuple": "4,2,0"}.get(failure, "1,0,0")
+        if text == "SYSTem:BOARD:NO?":
+            assert applied == requested
+            return "1"
+        raise AssertionError(text)
+
+    monkeypatch.setattr(marker_train, "board_command", command)
+    monkeypatch.setattr(marker_train.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(marker_train.time, "sleep", lambda _: None)
+    args = argparse.Namespace(reference_node=0, level=7, gap=0, arm_wait=1)
+    if failure in {None, "opmode"}:
+        actions = prepare_ring([board], args)
+        snapshots = [row for row in actions if row["command"] == "STOPPED_READBACK"]
+        assert [len(row["samples"]) for row in snapshots] == (
+            [2, 2, 2] if failure == "opmode" else [2, 2])
+        assert all(row["passed"] for row in snapshots)
+    else:
+        with pytest.raises(marker_train.RingPreparationError) as caught:
+            prepare_ring([board], args)
+        actions = caught.value.actions
+        assert actions[-1]["command"] == "PREPARATION_FAILED"
+        assert "SYSTem:BOARD:NO?" not in queries
+        if failure in {"stop_pending", "late_stop"}:
+            assert not topology_sent[0]
+            assert actions[1]["samples"][-1]["raw"]
+        else:
+            rejected = next(row for row in actions if row["command"] == "TOPOLOGY")
+            assert rejected["passed"] is False
+            assert rejected["response"]
+            assert rejected["error_after"]
+
+
+@pytest.mark.parametrize("origin", range(4))
+def test_prepared_identity_rejects_previous_no3_crc_disagreement(origin):
+    args = argparse.Namespace(reference_node=0, origin_node=origin,
+                              epoch=11, codebook=1, generation=4)
+    records = [parse_marker_status(marker_row(node)) for node in range(4)]
+    for record in records:
+        record.update(state=marker_train.STATE_PREPARED, train_epoch=11, marker_id=11,
+                      reference_node=origin)
+    assert marker_train.prepared_identity_errors(records, args) == []
+    records[2].update(topology_generation=206367705, topology_crc32=2577228514,
+                      schedule_crc32=111704776)
+    assert marker_train.prepared_identity_errors(records, args) == [
+        "topology_generation", "topology_crc32", "schedule_crc32"]
+
+
+@pytest.mark.parametrize("failure", ["preparation", "identity"])
+def test_hil_retains_failed_preparation_and_never_injects(monkeypatch, failure):
+    monkeypatch.setattr(marker_train.sys, "argv", [
+        "marker", "--board-id", "board-0", "--board-id", "board-1",
+        "--link-delay-ns", "80", "--link-delay-ns", "80",
+        "--epoch", "11", "--codebook", "1", "--generation", "4"])
+    args = marker_train.parse_args()
+    ordered = [Board(f"COM{node}", f"board-{node}", "idn", "build") for node in range(2)]
+    args.discovered_boards = {board.address: board for board in ordered}
+    monkeypatch.setattr(marker_train, "order_boards_by_board_no", lambda *a: ordered)
+    evidence = [{"command": "TOPOLOGY", "response": "<timeout>", "error_after": '-200,"rejected"'}]
+
+    def prepare(*_):
+        if failure == "preparation":
+            raise marker_train.RingPreparationError(evidence)
+        return evidence
+
+    monkeypatch.setattr(marker_train, "prepare_ring", prepare)
+    monkeypatch.setattr(marker_train, "board_command", lambda *a: "active")
+    calls = []
+    monkeypatch.setattr(marker_train, "arm_marker", lambda *a: calls.append("arm") or "OK")
+    records = [parse_marker_status(marker_row(node, count=2)) for node in range(2)]
+    for record in records:
+        record.update(state=marker_train.STATE_PREPARED, train_epoch=11, marker_id=11)
+    records[1]["schedule_crc32"] += 1
+    monkeypatch.setattr(marker_train, "wait_marker_armed", lambda *a: records)
+    monkeypatch.setattr(marker_train, "inject_marker", lambda *a: pytest.fail("injection after failed preparation"))
+    monkeypatch.setattr(marker_train, "stop_marker", lambda *a: calls.append("stop") or [])
+    result = marker_train.run_hil(args)
+    assert result["passed"] is False
+    assert result["actions"] == evidence
+    assert result["injection"] is None
+    if failure == "preparation":
+        assert calls == []
+    else:
+        assert calls == ["arm", "arm", "stop"]
+        assert result["armed"] == records
+        assert result["errors"] == ["schedule_crc32"]
 
 
 def marker_row(node: int, count: int = 4, *, sequence: int = 11,
