@@ -8,7 +8,16 @@ Last updated: 2026-09-14
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前完成 RESET 有效位退休候选的验证与源码撤回，见 `TDMA-PROGRESS-20260914-008`，
+当前完成自主主站 observation 与本地版本发布的独立归因，见
+`TDMA-PROGRESS-20260914-009`，证据根为
+`out/HardwareAcceptance/20260914/tdma-flight-origin-service-attribution/`。既有探针
+保留，新增两项区间分别覆盖边界读取/更新及本地发布 helper；后者包含无更新、
+pending、准入及延后返回，不能解释为单次 DMA 指针写入成本。
+两轮主站高峰中发布路径明显大于边界读取，下一步优先拆分发布准入与校验，RX
+接受处理继续独立收敛。软件、构建、当前源码 P3 流程、两轮记录及普通恢复完成；
+P3 粗校准的 NO2 topology 应答超时保留，strict=false。最终四板 STOP/config ACK、
+许可证退出和 SD 核对通过，完整预算与正式 RAM 仍未通过。
+前序完成 RESET 有效位退休候选的验证与源码撤回，见 `TDMA-PROGRESS-20260914-008`，
 证据根为 `out/HardwareAcceptance/20260914/tdma-flight-timing-reset-retirement/`。
 候选减少 RESET snapshot 批量清零，但同节点/槽位对照未证明完整 phase 稳定收益，
 没有采纳。常规非 RESET 高峰仍存在，下一优先项为 RX 接受/发布与 adapter 剩余
@@ -369,6 +378,65 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260914-009 - 自主主站边界读取与本地发布归因
+
+- 日期：2026-09-14
+- 状态：PARTIAL；软件、构建、当前源码 P3 流程、两轮实板归因与普通恢复完成；
+  保持完整预算和全部原始峰值，诊断细化不计优化收益。
+- 延续 008 的同拍残差线索，在 `tdma_pio_spi_ring_origin_service()` 增加
+  `TDMA_TIMING_ORIGIN_OBSERVE` 与 `TDMA_TIMING_ORIGIN_PUBLISH`。两者为 ADAPTER
+  内、RX_HANDOFF 外的独立区间；保留前置健康检查、RX、observe、publish 的操作
+  顺序与 owner 边界，未改变自主发车、shadow 选择、DMA、wire 或 STOP 状态迁移。
+- 计时版本由 `TDMA_SERVICE_TIMING_VERSION` 声明，解码由 `STAGES_BY_VERSION`
+  分派；追加字段保留原索引，不复用从站 overlay/latch 字段。observe 包括成功时
+  将 boundary 写入 adapter 的工作，publish 包括 ready、FIFO、版本/授权/邮箱
+  完整性校验和延后、无更新返回。健康检查拒绝时两者不执行，从站不报告这两项。
+- 相关软件回归为 50 passed（本轮验证快照，非事实源）。真实 adapter/engine/FIFO
+  测试以不同耗时的物理回调区分两项，覆盖空队列、新版本、pending、相同版本复用、
+  发布延后、无效邮箱、无新 observation 及故障；同时保留既有请求/调度分解、
+  origin 准入、构建、记录与 STOP 生命周期回归，旧格式和截断拒绝继续验证。
+- A/B/Boot 构建与实链复核通过；ARM/map 快照（非事实源）：v9 为 51 项，work
+  由 360 B 增至 368 B，snapshot 由 1464 B 增至 1496 B，总静态记录占用增加
+  40 B；heap 外余量由 88 B 降至 48 B，heap 预留未变。PIO headers 逐字节相同，
+  没有借用额外 PIO/SM/DMA 或硬件缓冲区；正式 RAM 门禁仍未闭合。
+- 当前 build 为 `20260913215117`，源码指纹为
+  `6d1cd151c66fe784d88054fe018ee244717485ffaecfeae621440d506be837bb`（本轮快照，
+  非事实源）。计时与记录成本仍保留在完整调度口径中；不能把 v8/v9 峰值差异
+  当作固定优化收益，也不能将嵌套分项或不同角色、不同拍的最大值相加。
+- 两轮自主主站 RUN 外层高峰均走准备结果接受分支，新增两项各执行一次。下表为
+  各自同拍记录的包含式分项（us，有限窗口快照，非事实源；行间不能重复相加）：
+
+  | 项目 | 第一轮 | 第二轮 |
+  |---|---|---|
+  | 完整外层 | 629.668 | 655.348 |
+  | body | 609.708 | 624.112 |
+  | RX_PARSE | 200.068 | 203.688 |
+  | ORIGIN_OBSERVE | 6.316 | 9.756 |
+  | ORIGIN_PUBLISH | 107.244 | 117.772 |
+  | adapter 扣除同拍直接子项后的余量 | 34.532 | 45.332 |
+
+- 两轮 sequence 为 428/3，实际主站启动来源为槽 A；UID、build、包哈希、槽位、
+  镜像长度/CRC 与原始记录已绑定。余量公式由 `attribution-review-r1.json` 明确
+  保存，包含控制工作、探针和可能的干扰，不能视为可直接省掉的时间。发布路径
+  明显大于边界读取，后续优先检查本地新版本的准入、重复校验和发布工位成本；
+  现有记录不能区分单次 ready、FIFO、校验或硬件写入，不能提前归因于某一子操作。
+- 从站两轮 OTHER 外层分别为 NO2 692.492/698.088 us、NO3 706.400/703.424 us、
+  NO4 674.444/662.208 us（有限窗口快照，非事实源）。这些高峰均走 capture/request
+  分支，RX_PARSE 与两项 origin 分项未执行；不能将主站发布或解析成本套到从站。
+  原 PEAK、RUN、OTHER 及其全部分项均保留，完整 500 us 仍未达。
+- 当前源码 P3 的 quick diagnostic 流程完成但 strict=false：粗 CLK 校准时 NO2
+  `SYSTem:TDMA:RING:TOPology 4,1,0` 应答超时，原命令和失败摘要保留；后续普通
+  process-image 闭环的 passed/closed_loop/realtime/diagnostic 均为 true，只证明
+  该普通窗口。两轮自主窗口原始 passed/closed_loop/realtime=false、diagnostic=true
+  保持，调试继续不构成正式产品 P3 或完整 CPU/RAM 验收。
+- 两轮 START 后零查询，STOP 后导出并核对 SD；最终普通闭环、四板 STOP/config
+  ACK、许可证退出与 SD 字节核对通过，本轮没有新增 SD 写失败。前序 008 的存储
+  失败根因和历史生命周期间歇故障仍开放；NO5 未操作，registry 未变。保留本次
+  计时细化以支持后续定位，不宣称生产省时、增长因果解决或长期目标完成。
+- 原件入口：`source-checkpoint-r1.json`、`linkage-review-r1.json`、`origin-host-r1.json`、
+  `p3-r1/diagnostic.json`、`attribution-review-r1.json`、`review-final-r1.json`；
+  证据根为 `out/HardwareAcceptance/20260914/tdma-flight-origin-service-attribution/`。
 
 ### TDMA-PROGRESS-20260914-008 - RESET 有效位退休候选撤回与 SD 失败保全
 

@@ -1258,6 +1258,15 @@ phase count、stage count、记录类型、sequence、start ticks、total ticks�
 和 calls。父子步骤都是包含式区间，不能重复求和；
 两次查询也不是同一原子观测。`SYSTem:TDMA:PROFile:RESet` 只发布 reset 请求，Core1
 在下一 phase 起点消费；返回的请求号须与后续 snapshot 的 reset generation 对上。
+自主主站的 `TDMA_TIMING_ORIGIN_OBSERVE` 与 `TDMA_TIMING_ORIGIN_PUBLISH` 是
+`TDMA_TIMING_ADAPTER` 内、`TDMA_TIMING_RX_HANDOFF` 外的两个互不重叠区间：前者
+包围物理 observation 读取和成功时的边界副本更新，后者包围本地版本发布 helper，
+包含物理就绪、FIFO 取得、版本/授权/完整性校验及延后或无更新返回。它不是单次
+硬件指针写入的计时。前置健康检查拒绝时两项不执行，从站路径也不借用这些字段。
+实现与版本入口为 `tdma_pio_spi_ring_origin_service()`、`TDMA_SERVICE_TIMING_VERSION`
+和 `STAGES_BY_VERSION`；原分项索引保持，旧版本仍按自己的字段数解析，见
+`TDMA-PROGRESS-20260914-009`。新增计时及快照存储成本仍计入完整 CPU/RAM 核算，
+不得把分项细化当作省时或把新旧探针版本的峰值直接当作优化对照。
 时间逆行、区间或累计值超出记录表示范围时保留 invalid，不能折返成小的执行耗时。
 既有 `SYSTem:TDMA:SCHEDule?` 继续作为完整 phase 统计，包含计时器初始化、读取与发布
 开销；profile 的局部分解不能替代完整 WCET、deadline、调度缺失与 SRAM 门禁。
