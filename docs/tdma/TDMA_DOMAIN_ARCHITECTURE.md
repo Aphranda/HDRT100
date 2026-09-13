@@ -570,23 +570,27 @@ active wire plan，并在 RUN 中保持不变。
 #### 固定 Node image、DPLL trailer 与 RX 位图快路径
 
 首版多板 cyclic process image 固定使用 `tdma_flight_engine.h` 中的 wire 常量：短帧
-process-image payload 由 `TDMA_FLIGHT_NODE_IMAGE_SIZE` 的固定 Node image 和
-`TDMA_FLIGHT_DPLL_OBSERVATION_SIZE` 的全局 trailer 组成。Node image 分成
-`TDMA_FLIGHT_SHORT_SLOT_COUNT` 个 `TDMA_FLIGHT_SHORT_SLOT_SIZE` mailbox，每个 Node 是自己
+process-image payload 由 Node image 和 `TDMA_FLIGHT_DPLL_OBSERVATION_SIZE` 的全局
+trailer 组成；`TDMA_FLIGHT_NODE_IMAGE_SIZE` 表示 Node image 的编译容量上限。
+Node image 按已准入节点数包含若干 `TDMA_FLIGHT_SHORT_SLOT_SIZE` mailbox，每个 Node 是自己
 mailbox 的唯一 writer；任意 active Node 可以读取其他 mailbox。按用户授权的容量修订，
-`TDMA_FLIGHT_SHORT_SLOT_COUNT` 随 `PROJECT_NODE_CAPACITY` 编译；单邮箱 offset 和内容不变，
-trailer 随 Node image 尾部移动。当前同一固件内 active Node 数只改变 active mask，
-实际包长由 `TDMA_FLIGHT_SHORT_PACKET_SIZE` 定义，通用 transport 上限不能用作 DMA 实际长度。
+`TDMA_FLIGHT_SHORT_SLOT_COUNT` 随 `PROJECT_NODE_CAPACITY` 编译并限定静态存储上限；
+单邮箱 offset 和内容不变。产品 ARM 根据 `ring_staged_config.node_count` 生成 map，
+payload 由 `tdma_flight_payload_size()` 定义，trailer 位于实际 payload 尾部。
+`TDMA_FLIGHT_SHORT_PACKET_SIZE` 是编译容量的包长上限；实际包长取已准入 payload
+加 `TDMA_TRANSPORT_FRAME_HEADER_SIZE`，通用 transport 上限不能用作 DMA 实际长度。
 不同布局必须通过长度和配置准入拒绝混用；RUN 期间禁止改变布局。代码中的 `slot_id` 仅是固定 wire
 mailbox 索引，不表示 Calibration 训练层的 slot。
 
 ```text
 fixed SHORT payload = Node image + DPLL observation trailer
-Node image = mailbox[0] ... mailbox[TDMA_FLIGHT_SHORT_SLOT_COUNT-1]
+Node image = mailbox[0] ... mailbox[admitted_node_count-1]
 mailbox[n] = fast header + mandatory-first domain body
 ```
 
-DPLL trailer 由 `TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_*` 冻结：valid bit 加 reference TX
+DPLL trailer 的内容由 `TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_*` 冻结；其中
+`TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_OFFSET` 仅表示编译容量布局位置，运行时位置是
+已准入 payload 长度减 `TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_SIZE`。内容为 valid bit 加 reference TX
 timestamp 的模 tick。frame N 的 trailer 描述 frame N-1，关联序号由当前 transport sequence
 减去 `TDMA_PROCESS_IMAGE_DPLL_OBSERVATION_SEQUENCE_LAG` 得到；timestamp quantum 和回绕窗口
 由同一组符号定义。reference metadata、schedule/ring CRC 和 source Node 已由 active profile 与
@@ -1601,10 +1605,18 @@ owner、WCET、资源分区或固定载荷规则。本节仍为 `TDMA-FLIGHT-002
 不新增冻结契约；正式 RAM、完整 Core1 WCET 和严格硬件失败项须继续独立收敛。
 
 用户后续已明确要求 STOP 后配置节点数，重新 ARM 使用相应邮箱区，覆盖旧固定邮箱
-容量限制。运行时候选复用已有 topology 配置：静态池仍由 `PROJECT_NODE_CAPACITY`
+容量限制。运行时配置复用已有 topology：静态池仍由 `PROJECT_NODE_CAPACITY`
 限定，ARM 按已准入拓扑生成 map、trailer offset 与 DMA 长度，RUN 内冻结；新配置须
 等待 STOP 完成后台取消、DMA 退休与资源回收，并使旧 generation/epoch 失效。
-该运行时切换尚未实现；当前切片先完成编译容量邮箱的硬件对照，不宣称已支持在线缩帧。
+编译容量邮箱的先行实测见 `TDMA-PROGRESS-20260913-062`。运行时切片以现有
+`SYSTem:TDMA:RING:TOPology` 设置拓扑，不增加另一套邮箱数量配置：`distributed_refmem`
+在 ARM 前生成 map，TDMA physical owner 安装前核对 map 长度与已准入拓扑相符。
+紧凑 TX layout 同时携带 payload 长度与 map generation；overlay 工位、origin capture
+和 exchange 只复制已冻结长度，DMA 构图验证 active mask 不越过该布局。
+原有本地 mailbox 及其完整前缀 TX 视图继续仅授权本地 segment，不改变 producer 接口。
+异长度 RX 由现有 receive-health 拒绝，旧后台请求由取消 ACK、epoch 和 generation
+边界退休。实现与当前验收边界见 `TDMA-PROGRESS-20260913-063`；运行中不能通过
+改 topology 或 DPLL 开关改变帧长。
 
 ### EtherCAT DC 风格训练的 TDMA 边界
 

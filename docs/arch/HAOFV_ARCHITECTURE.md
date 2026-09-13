@@ -173,7 +173,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 
 | contract_id | 契约 | 域文档位置 | 状态 |
 |---|---|---|---|
-| `TDMA-FLIGHTBITMAP-01` | SHORT mailbox 数随编译容量，RUN 布局固定；STOP 后按拓扑选择为后续候选，静态资源上限不变 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` 的“固定 Node image、DPLL trailer 与 RX 位图快路径”章节 | pending |
+| `TDMA-FLIGHTBITMAP-01` | 编译容量限定静态资源，STOP 后按已准入拓扑选择 SHORT 邮箱数量，ARM 冻结布局与 DMA 长度，RUN 固定 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` 的“固定 Node image、DPLL trailer 与 RX 位图快路径”章节 | pending |
 | `TDMA-PROCESSIMAGE-01` | 固定 SHORT process image 静态装配 Node mailbox 与 DPLL observation trailer，DPLL 不得替换 wire frame | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` | pending |
 | `TDMA-RESIDENT-01` | process image 启动时一次注入并持续循环；单轮多 Node 局部 UNLOAD/LOAD，无更新透传，frame completion 不终止 resident loop | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:TDMA-RESIDENT-01` | pending |
 | `TDMA-RECOVERY-01` | 双 recovery buffer 原 Node 位置重传、Core0/Core1/PIO owner 边界与独立静态预算 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` | pending |

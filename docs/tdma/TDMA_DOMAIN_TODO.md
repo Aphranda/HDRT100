@@ -325,7 +325,8 @@ GPIO/程序/资源回收和 adapter 清理，不能用较低 RUN 峰值覆盖 ST
 
 用户最新指令将邮箱容量切片提前：邮箱数量随 `PROJECT_NODE_CAPACITY` 的实现与
 六邮箱实测见 `TDMA-PROGRESS-20260913-062`；主站 RUN 外层下降但完整预算仍未达，
-P3 粗校准超时原件保留。下一步接入 STOP 后配置拓扑、重新 ARM 使用相应邮箱区，需覆盖
+P3 粗校准超时原件保留。STOP 后配置拓扑、重新 ARM 使用相应邮箱区的实现见
+`TDMA-PROGRESS-20260913-063`；软件已覆盖
 四、五、六邮箱布局；实际长度、DPLL trailer、overlay 与 origin DMA 必须来自同一
 已准入配置，RUN 内固定。静态 RAM 按编译容量预留，运行时减少节点不等于释放静态 RAM。
 完整 phase 与 STOP 增长仍分别审查；缩帧不能替代完整预算和生命周期验收。
@@ -443,7 +444,7 @@ SD/SVG 分析由 Core0 或主机执行。完整窗口和 clock-edge 配对不能
 | TDMA-FLIGHT-002F | 异步候车平台：TX 准备与 RX 解析移出实时服务路径 | IN PROGRESS | follower overlay 与普通物理 RX decode/CRC、origin mailbox 校验及坏帧诊断接入 Core0，Core1 保留有界交接与事实提交；输入/证据绑定、池复用和 STOP 取消见 `TDMA-PROGRESS-20260912-017/018`。原始 DMA 候选发现已拆至 Core0 私有窗口，Core1 用几何提示重新读取 live ring；扫描取消、旧提示拒绝及当前切片验收见 `TDMA-PROGRESS-20260912-021`。完整 Core1 WCET、正式 RAM 与 origin 准备仍须收敛；完整退出须覆盖普通负载迟到复用、完整预算、无更新节拍、service blackout 和同圈 owner/CRC 波形。先闭合当前切片，再推进节点容量后续项；四级服务策略及独立时间戳快速通道按后续门禁推进。 |
 | TDMA-FLIGHT-002G | 特等席快速通道：逐圈同步样本生成、装载与独立卸载 | PENDING | 明确并验证 timestamp lag 与事件因果；每圈硬件 latch、编码/完整性更新和受保护卸载均不依赖普通 parser，不排在通用 RX 工位、RefMem 或 Log 后面；固定记录容量、最长消费停顿、持续吞吐、溢出负测、epoch/sequence/quality、资源与完整 WCET 通过当前源码多板验证；没有正式证据时不得以旧值或诊断时间戳补齐。 |
 | TDMA-FLIGHT-002H | 四级准备与服务隔离、固定配额准入 | PENDING | 各域独立发布与唯一 mailbox 装配者可追溯；VDC 跟随命令按业务语义归一等，RefMem ACK/fence 保留可靠性；普通控制/Log 负载饱和不影响特等逐圈交付及一等 freshness，低级流也不挪用固定席位；短帧微量 Log 的契约修订、正反测试、原始波形、资源/WCET 与 C11 闭合。 |
-| TDMA-FLIGHT-002I | 编译节点容量与固定布局分离 | IN PROGRESS | `PROJECT_NODE_CAPACITY` 统一本地容量，保持 fixed SHORT/RefMem/Calibration 存储布局；既有 HAOFV/profile 准入及直接 runtime/adapter/Calibration 入口拒绝超容量输入。软件边界、存储互操作、六/八容量构建与当前四板硬件证据见 `TDMA-PROGRESS-20260912-020`；隔离核算保留于 `019`。严格校准、启动及本轮 CRC 失败仍保留待收敛，不以调试流程或有限重测替代产品通过、六板或混合容量实板验收。 |
+| TDMA-FLIGHT-002I | 编译容量与运行时邮箱布局 | IN PROGRESS | `PROJECT_NODE_CAPACITY` 限定静态容量；STOP 后通过已有 topology 选择节点数，ARM 冻结对应 map、DPLL trailer 和 DMA 长度，RUN 不变。RefMem/Calibration 持久化布局保留，超容量仍由既有准入拒绝。编译容量先行实测见 `TDMA-PROGRESS-20260913-062`，运行时实现与切换回归见 `063`；前序存储核算与兼容性见 `TDMA-PROGRESS-20260912-019/020`。完整预算、正式 RAM、五/六板及混合容量实环验收仍需独立证据。 |
 | TDMA-FLIGHT-003 | 发车节拍预算显式化与 fail-closed 准入（Track A，B1 的前置使能） | PENDING | 可达节拍下界由符号声明；低于下界的 profile 必须被**拒绝**而非静默漏拍；节拍证据字段可只读查询。 |
 | TDMA-FLIGHT-004 | 2026-09-11 四节点闭环回归归因 | DONE | 受控实验分别复现非阻塞 PIO 改动、缩短共享反馈/发车预算的回归；归档最终 PIO 下标正确；四板恢复基线后闭环和稳态错误增量复验通过。见 `TDMA-PROGRESS-20260911-003`。完成范围是改动族归因，电气错位机制及自主续转仍由 B0/B1/B3 继续验证。 |
 | TDMA-FLIGHT-005 | `process_follower` 补丁下标与指令插入位置绑定 | DONE | WAIT 补丁改用 pioasm public label 导出位置；host 变异测试拒绝手写下标、标签脱离 WAIT 和边沿符号错配。当前源码 build、四板 OTA、P3 quick diagnostic 与独立短帧复测已留证；严格校准失败和 SD 超时原报告保留，见 `TDMA-PROGRESS-20260911-004`。 |

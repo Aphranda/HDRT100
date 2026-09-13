@@ -8,14 +8,22 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002I/002B/002F` 的编译容量邮箱切片见
+当前 `TDMA-FLIGHT-002I/002B/002F` 的运行时邮箱切片见
+`TDMA-PROGRESS-20260913-063`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-runtime-mailboxes/`。同一六节点容量固件
+在 STOP 后按 topology 选择邮箱数量、ARM 冻结布局；软件回归、A/B/Boot 构建与
+四节点实板对照完成。四邮箱两轮主站 RUN 外层为 621.084/622.020 us，较六邮箱
+下降 13.364/5.652 us（有限窗口快照，非事实源）；STOP 和 follower 峰值未一致改善。
+普通恢复通过，P3 粗校准拓扑应答超时使严格门禁仍为 false。本切片为 PARTIAL，
+五/六节点实环、完整 500 us 与长期目标未完成。
+前序 `TDMA-FLIGHT-002I/002B/002F` 的编译容量邮箱切片见
 `TDMA-PROGRESS-20260913-062`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-compiled-mailboxes/`。软件回归与 A/B/Boot
 构建通过，六邮箱实板两轮主站 RUN 外层为 634.448/627.672 us，相比旧八邮箱低
 34.348/47.484 us（有限窗口快照，非事实源）；仍未达到完整 500 us。
 当前源码短帧与普通恢复通过，P3 粗校准一次拓扑命令超时使严格门禁为 false。
-用户已确认后续按 STOP 后配置节点数、重新 ARM 使用相应邮箱区推进，运行时切换
-尚未实现。本切片为 PARTIAL，完整目标继续。
+用户已确认按 STOP 后配置节点数、重新 ARM 使用相应邮箱区推进；截至该先行切片，
+运行时切换尚未实现，其后续实现见 063。该先行切片为 PARTIAL，完整目标继续。
 前序 `TDMA-FLIGHT-002B/002F` 的协调启停与本地停止边界审查见
 `TDMA-PROGRESS-20260913-061`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-coordinated-lifecycle-review/`。完成候选
@@ -287,6 +295,61 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-063 - STOP 后按拓扑选择邮箱数量并在 ARM 冻结布局
+
+- 日期：2026-09-13
+- 状态：PARTIAL；运行时布局实现、软件边界回归、构建与四节点实板对照完成，
+  完整预算、严格校准及全拓扑验收未完成。
+- 范围：复用已有 `SYSTem:TDMA:RING:TOPology`，按 staged topology 的节点数生成
+  产品 map；不增加独立邮箱数，不改变静态容量、单邮箱内容、1 kHz 或完整 phase 预算。
+  节点数必须适配全环 profile、slot、reference 和 Calibration 配置，旧校准不能跨新拓扑
+  直接准入。物理 ARM 复核 map 长度与 config 节点数相符，RUN 内长度固定。
+- 实现：静态数组仍由 `PROJECT_NODE_CAPACITY` 限定；紧凑 TX layout 携带 payload 长度，
+  后台 overlay 使用冻结的包长和物理配置，origin DMA 构图与 exchange 显式绑定包长，
+  trailer 使用实际 payload 尾部；超容量、异长度、越界 active mask 在读取或发布前拒绝。
+  原有本地 mailbox/完整前缀 TX 视图继续只授权本节点，不扩展 writer 边界。STOP 的后台
+  取消 ACK、epoch、generation 和 DMA 退休要求保留，拒绝旧准备结果进入新布局。
+- 软件快照（非事实源）：同一容量下的 4→5→6→4 map 激活、overlay 构建、运行中
+  配置拒绝、旧 generation 拒绝及取消租约回归通过；实际 DMA 图逐节点长度、trailer
+  地址、复制末尾 canary 与异长度 receive-health 拒绝通过；当前四/五/六邮箱与八容量
+  对照的实际 PIO 模型 216 项通过，C 位图/权限/非字节对齐穷举 122880 例通过。
+  ARM map 工厂直接从生产函数构建测试，验证允许范围及每个 segment 的真实布局。
+  初始 host 夹具缺少新增物理 payload 长度、紧凑 layout 长度和 profile 常量 include 的
+  错误均保留并修复；原 partial TX 输入行为保留，时钟测试显式配置产品 map。
+- 构建快照（非事实源）：容量/预算/bitmap/origin/DMA 综合回归 61 项通过，A/B/Boot
+  构建通过，build `20260913132754`，源码指纹
+  `8fa59d764de603e6ec7f4b4d111edca5fdce591cb4ce6a18fe4cb072271a0f69`。
+  编译容量为六节点，四/五/六节点 payload 分别为 132/164/196 B，transport packet
+  分别为 164/196/228 B。A/B link-free 均为 2440 B，比 062 少 8 B；运行时减少节点
+  不释放预留静态池。PIO 生成头与 062 逐字节一致，资源归属不变。
+- 硬件快照（有限窗口，非事实源）：当前源码四板 OTA 成功，QUICK P3 流程完成，
+  process-image 的 passed/closed_loop/realtime/diagnostic 均为 true。粗校准阶段
+  NO3 的 `TOPology 4,2,2` 应答超时，strict_gates_passed=false；保留原件，不能
+  宣称严格全绿。沿用固定 057 矩阵、档案 ON，两轮对照如下；062 为相同四板环内
+  节点但固定六邮箱，063 按四节点拓扑使用四邮箱。各数值为有限窗口保留峰值，
+  不是固定 WCET 节省量，嵌套计时不得相加。
+
+  | 指标（us） | 062 六邮箱 R1 / R2 | 063 四邮箱 R1 / R2 |
+  |---|---:|---:|
+  | 主站 RUN body | 606.628 / 605.028 | 591.748 / 596.876 |
+  | 主站 RUN 外层 | 634.448 / 627.672 | 621.084 / 622.020 |
+  | 主站 STOP 外层 | 478.988 / 543.060 | 593.480 / 536.524 |
+  | 主站 ALL body | 611.008 / 605.028 | 591.748 / 596.876 |
+  | NO2 ALL body | 649.208 / 651.732 | 648.760 / 668.592 |
+  | NO3 ALL body | 659.992 / 654.460 | 630.712 / 639.144 |
+  | NO4 ALL body | 652.548 / 624.996 | 604.944 / 610.420 |
+
+  四板 map payload 和已接受 payload 均为 132 B，物理 byte count 为 173，比 062
+  减少 64 B。主站 RUN 外层分别下降 13.364/5.652 us，但首轮 STOP 外层上升
+  114.492 us、第二轮 NO2 ALL body 上升，不能宣称完整 phase 或整环一致改善。
+  两轮后段各板 accepted 持续增长，rejected/missing 无增长；全窗口 missing 最大值
+  各板仍为 1。自主整段 passed/closed_loop/realtime=false、diagnostic=true，
+  原 periodic_interval、persona、adapter_tx 与 receive_missing 失败保留。
+  两轮 START 后零查询，板端记录完整、STOP 后导出，SD 副本逐字节核对通过。
+  最后普通恢复全部判据通过，四板 STOP、配置 ACK 和许可证失效均确认。
+- 后续：五、六个实际环内节点需要对应实环验收；host 布局切换不能代替缺失硬件拓扑，
+  完整 500 us、正式 RAM、协调启停与长稳仍按原目标继续。
 
 ### TDMA-PROGRESS-20260913-062 - 编译容量邮箱与运行时节点切换前置验证
 
