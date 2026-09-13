@@ -714,6 +714,10 @@ typedef struct {
     bool diagnostic_skip_records;
 } tdma_origin_prepare_t;
 
+/* Core0 preparation only: consumes a Core1-authorized unpublished graph,
+ * accesses no peripheral and does not install or grant the hardware plan. */
+void tdma_pio_spi_phys_origin_core0_prepare_service(void);
+
 typedef struct {
     bool armed;
     uint32_t role;

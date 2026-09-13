@@ -846,6 +846,7 @@ void tdma_runtime_owner_core0_prepare_service(void)
 {
     if (s_tdma_runtime_owner_initialized) {
         tdma_service_core0_lifecycle_service(&s_tdma_runtime_owner);
+        tdma_pio_spi_phys_origin_core0_prepare_service();
         tdma_rx_scan_core0_service(&s_tdma_rx_scan_preparation);
         tdma_rx_prepare_core0_service(&s_tdma_pio_spi_ring_adapter.rx_station);
         tdma_overlay_prepare_core0_service(&s_tdma_overlay_preparation);

@@ -30,7 +30,8 @@ def test_origin_record_frozen_lifetime(tmp_path):
     exe = tmp_path/('origin-frozen.exe' if os.name=='nt' else 'origin-frozen')
     command = [compiler,'-std=c11','-O2','-Wall','-Wextra','-Werror',
                '-I'+str(ROOT/'components/tdma/inc'),'-I'+str(tmp_path),
-               str(ROOT/'tests/unit/tdma_origin_record_frozen_cases.c'),'-o',str(exe)]
+               str(ROOT/'tests/unit/tdma_origin_record_frozen_cases.c'),
+               str(ROOT/'components/tdma/src/tdma_origin_build_job.c'),'-o',str(exe)]
     subprocess.run(command,check=True,capture_output=True,text=True,timeout=60)
     result = subprocess.run([str(exe)],capture_output=True,text=True,timeout=5)
     assert result.returncode==0,result.stdout+result.stderr

@@ -2,6 +2,7 @@
 #include "tdma_service_timing.h"
 #include "tdma_pio_spi_phys_programs.h"
 #include "tdma_pio_spi_origin_workspace.h"
+#include "tdma_origin_build_job.h"
 
 #include <string.h>
 
@@ -177,6 +178,8 @@ static tdma_pio_spi_program_manager_t s_tdma_pio_spi_program_manager = {
 };
 static tdma_pio_spi_workspace_t s_tdma_pio_spi_workspace
     __attribute__((aligned(TDMA_PIO_SPI_RX_RING_WORDS * sizeof(uint32_t))));
+/* The cancellation handshake must outlive every persona in the union. */
+static tdma_origin_build_job_t s_tdma_origin_build_job;
 #define s_tdma_pio_spi_rx_ring (s_tdma_pio_spi_workspace.service.rx_ring)
 #define s_tdma_pio_spi_flight_tx_words (s_tdma_pio_spi_workspace.service.tx_words)
 #define s_tdma_pio_spi_flight_overlay_plan (s_tdma_pio_spi_workspace.service.follower_plan)
@@ -644,6 +647,7 @@ static bool tdma_pio_spi_phys_stop_dma_chain(uint32_t loader_mask,
 static bool tdma_pio_spi_phys_stop_command_dma(tdma_pio_spi_phys_t *phys)
 {
     if (phys == NULL) return false;
+    const bool builder_retired = tdma_origin_build_job_cancel(&s_tdma_origin_build_job);
     const bool completed_origin = phys->flight_origin_workspace_owned &&
         phys->flight_origin_prepare.stage == TDMA_ORIGIN_PREPARE_COMPLETE;
     const uint32_t loader_mask = s_tdma_pio_spi_command_dma_channel < 0 ? 0u :
@@ -660,6 +664,7 @@ static bool tdma_pio_spi_phys_stop_command_dma(tdma_pio_spi_phys_t *phys)
     tdma_pio_spi_phys_pause_sm_pair(phys);
     if (!tdma_pio_spi_phys_stop_dma_chain(loader_mask, executor_mask, children_mask,
                                          deadline)) goto failed;
+    if (!builder_retired) goto failed;
     tdma_pio_spi_phys_pause_sm_pair(phys);
     __dmb();
     if (completed_origin) {

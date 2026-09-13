@@ -4,6 +4,14 @@
 #include <stdio.h>
 #include <string.h>
 #include "tdma_origin_plan.h"
+#include "tdma_origin_build_job.h"
+
+static tdma_origin_build_job_t s_tdma_origin_build_job;
+static tdma_origin_plan_builder_t test_builder;
+tdma_origin_build_result_t tdma_origin_plan_step(tdma_origin_plan_builder_t *b)
+{ (void)b; return TDMA_ORIGIN_BUILD_FAILED; }
+void tdma_origin_plan_cancel(tdma_origin_plan_builder_t *b)
+{ b->active = b->complete = false; b->failed = true; }
 
 typedef unsigned int uint;
 typedef int tdma_pio_spi_program_persona_t;
@@ -77,6 +85,15 @@ static void setup(void)
 int main(void)
 {
     tdma_origin_record_frozen_t out;
+    setup();
+    test_builder.active = true;
+    assert(tdma_origin_build_job_request(&s_tdma_origin_build_job, &test_builder));
+    assert(tdma_origin_build_job_core0_claim(&s_tdma_origin_build_job));
+    assert(!tdma_pio_spi_phys_stop_command_dma(&phys));
+    assert(phys.flight_origin_workspace_owned && !phys.flight_origin_record_frozen);
+    tdma_origin_build_job_core0_build_claimed(&s_tdma_origin_build_job);
+    assert(tdma_pio_spi_phys_stop_command_dma(&phys));
+    assert(!phys.flight_origin_workspace_owned);
     setup();
     assert(!tdma_pio_spi_phys_origin_get_frozen_record(&phys,0,&out));
     stop_ok=false;
