@@ -1846,7 +1846,11 @@ static uint8_t tdma_pio_spi_phys_rx_ring_aligned_byte(uint64_t produced,
  * recheck epoch and overwrite afterwards. Normalize each raw word once.
  * The Core1 owner cannot switch persona during this synchronous copy. Select
  * its ISR direction outside the loops; each ring word remains a volatile DMA
- * read, and configuration/STOP retain their existing owner boundaries. */
+ * read, and configuration/STOP retain their existing owner boundaries.
+ * Keep this bounded leaf in SRAM so its per-word loop does not fetch XIP
+ * instructions while competing with the background parser. Its instruction
+ * storage is part of the linked RAM budget; callers still prove retention. */
+__attribute__((noinline, section(".time_critical.tdma_pio_spi_phys_rx_ring_copy")))
 static void tdma_pio_spi_phys_rx_ring_copy(uint8_t *destination,
     uint64_t produced, uint32_t count, uint32_t bit_shift)
 {
