@@ -39,6 +39,11 @@ static bool tdma_pio_spi_phys_rx_scan_request(tdma_pio_spi_phys_t *phys,
     return tdma_rx_scan_request(job);
 }
 
+/* Keep the bounded live-window control path resident as well as the copy
+ * leaf. Core0 discovery still supplies geometry only; completion, epoch and
+ * overwrite checks stay together in the Core1 call. Account for this code
+ * in the linked SRAM budget independently of any measured timing benefit. */
+__attribute__((noinline, section(".time_critical.tdma_pio_spi_phys_capture_words_async")))
 static bool tdma_pio_spi_phys_capture_words_async(tdma_pio_spi_phys_t *phys,
     size_t max_words, size_t *received_words)
 {
