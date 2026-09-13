@@ -843,6 +843,10 @@ Domain AO / FB local fact commit
   CRC 只覆盖 `TDMA_TRANSPORT_FRAME_HEADER_SIZE`，计算时将 transport CRC 字段视为零，
   代码事实源为 `tdma_transport_packet_crc32()`。Node mailbox 的完整性由其 owner
   CRC/version 负责；不能把 header CRC 推广为全 payload 或 DPLL trailer 的完整性证明。
+- mailbox CRC 计算由 `tdma_process_image_crc16_ccitt()` 定义；其内部使用无查表的
+  `tdma_process_image_crc16_update_byte()`，将同一多项式的逐位递推等价折叠为逐字节
+  运算。初始值、输入顺序、余数和空输入语义保持，Core0 编码/解析与 Core1 adapter、
+  物理 shadow 发布的既有检查都仍执行；算术优化不授予跳过校验或改变 wire 的权限。
 - origin TX 与 feedback RX 的闭环相关使用 immutable identity CRC、sequence、schedule CRC 和 ring CRC，不能比较飞行前后的 mutable payload CRC。
 - `VDC_TDMA_DIAGNOSTIC_FRAME_SIZE` 对应的 VDC 诊断内帧可作为 bring-up 的独立短帧，
   但不是最终 process-image 形态；产品飞行帧必须使用 compact VDC/DPLL 元素，把同一

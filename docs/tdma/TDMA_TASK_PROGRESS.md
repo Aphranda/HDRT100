@@ -8,7 +8,15 @@ Last updated: 2026-09-13
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前 `TDMA-FLIGHT-002B/002F` 的自主 origin 固定邮箱装载切片见
+当前 `TDMA-FLIGHT-002B/002F` 的 mailbox CRC 等价运算切片见
+`TDMA-PROGRESS-20260913-060`，证据根为
+`out/HardwareAcceptance/20260913/tdma-flight-mailbox-crc-byte/`。全部状态/字节组合与原
+逐位算法一致，实际 A/B 每字节 CRC 循环从 44 条指令缩为 9 条，既有校验均保留。
+两轮主站 RUN 外层为 668.796/675.156 us，STOP 外层为 795.472/696.516 us（当前
+构建与有限窗口快照，非事实源）；未证明完整 phase 一致改善，新增 STOP 增长继续
+定位。当前源码 QUICK P3、普通恢复与 SD 核对通过，完整 500 us、切换稳定性、正式
+RAM 与协调启停仍未闭合，本切片为 PARTIAL，长期目标继续。
+前序 `TDMA-FLIGHT-002B/002F` 的自主 origin 固定邮箱装载切片见
 `TDMA-PROGRESS-20260913-059`，证据根为
 `out/HardwareAcceptance/20260913/tdma-flight-origin-mailbox-load/`。直接选取 Core0 已准备
 的本地邮箱，保持固定 map 授权及动态复验；同矩阵两轮主站 RUN body 为
@@ -264,6 +272,65 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260913-060 - mailbox CRC 逐字节等价运算与 STOP 峰值增长留证
+
+- 任务：`TDMA-FLIGHT-002B/002F`。日期：2026-09-13。状态：`PARTIAL`。继续降低 Core1
+  完整执行成本；HAOFV 唯一 owner、静态调度和 500 us 目标保持。
+  证据根：`out/HardwareAcceptance/20260913/tdma-flight-mailbox-crc-byte/`。
+  以下数字均为当前构建、离线测试或有限窗口快照，非事实源。
+- 实施：`tdma_process_image_crc16_ccitt()` 原来逐字节执行多次位递推，现由
+  `tdma_process_image_crc16_update_byte()` 以移位和异或等价折叠。多项式、初始值、
+  输入顺序、余数截断和 NULL/空输入行为保持，无查表、附加存储或新资源。
+  Core0 mailbox 编码/解析及 Core1 adapter、物理 shadow 发布的全部既有 CRC
+  检查仍执行；没有以准备接受或 header CRC 替代 mailbox 完整性。
+- 软件验证：实际公共字节更新函数对全部 65,536 个 CRC 状态 × 256 个字节，即
+  16,777,216 次转移，与独立保留的逐位参考递推逐项比较通过。CCITT-FALSE 标准向量、
+  NULL/空输入及零、全一、递增/递减和伪随机数据的 4,104 个前缀通过；由相同初态和
+  全转移等价保证任意字节流与旧算法兼容。原 map 与完整 ring-adapter host 测试通过，
+  包括上一切片的错误 CRC/source/owner、物理拒绝重试等用例。测试沿用仓库原生
+  PowerShell runner，完整命令记录在 `crc-tests-command-r1.json` 与
+  `adapter-tests-command-r1.json`；文档检查器 18 项测试通过。
+- A/B/Boot 构建 `20260913114847`，源码指纹
+  `334bb7f7faf1521615270571c96727f7c88af2f66529a50b14bf7b9d6d05b166`，
+  1,040 个源码文件；六节点编译、固定 wire 和 PIO/DMA/SM 资源保持。A/B link-free
+  均仍为 2,312 B，生成 PIO 头与 059 逐字节相同，正式 RAM 门禁未据此通过。
+- 实际链接 A/B 的 adapter mailbox validator 与物理 origin publish 中，CRC 每字节
+  循环均从 44 个指令位置缩为 9 个，旧的八组条件异或已替换，最终存储 CRC 比较仍在。
+  两函数代码分别从 170/268 B 缩为 94/188 B，见 `crc-codegen-r1.json`；指令数
+  不等于时钟周期或完整 WCET，不能直接按比例推算 phase 收益。
+- 固定 057 的 `p3-r1/trn03-matrix.json`、档案 ON、板端 `250000 us × 26`，保持
+  START 后固定延迟授权及 RESET，运行中零查询，STOP 后导出。比较保留同条 RUN
+  body/外层及全部状态峰值，核对两端 state/config/非零 epoch 与 RESET generation。
+
+  | 固件 | RUN body 两轮 us | RUN 外层两轮 us | STOP 外层两轮 us |
+  |---|---|---|---|
+  | 059 | 657.276 / 633.520 | 697.100 / 658.300 | 471.308 / 596.672 |
+  | 060 | 639.188 / 656.208 | 668.796 / 675.156 | 795.472 / 696.516 |
+
+- 第一轮 RUN 外层较旧同轮次低 28.304 us，第二轮高 16.856 us；不能宣称完整 phase
+  一致改善。两轮新 STOP 均高于旧两轮保全峰值；第一轮 ALL body 的 765.224 us
+  来自 STOP，同条外层为 795.472 us，不能并入 RUN 或用较低 RUN 值覆盖。
+  `stop-review-r1.json` 确认两端状态为禁用自主 owner 到停止态，同一 config/epoch；
+  第一轮 ring_runtime 子项为 644.468 us。停止源码未修改，A/B disarm 去除地址后的
+  指令序列与旧版相同，但这不足以把增幅归因到缓存、总线或 CRC。既有 disarm 直接
+  停 DMA，后续 release_flight_resources 又进入停 DMA；该调用结构早于本切片，
+  是否可安全分段或复用已完成退休事实，须保持取消 ACK、故障重试和资源所有权验证。
+- 两轮 startup barrier 均通过，原整段 passed/closed_loop/realtime 均为 false，
+  diagnostic=true、error 为空。第一轮仅 NO2 记录一次 missing；第二轮 NO1/NO2
+  各一次，其他节点为零。后段主站 accepted 增量为 852/850，四板后段 reject/missing
+  均不再增长。原 `receive_missing_grew`、`adapter_tx_not_growing` 和
+  `physical_flight_persona_mismatch` 等失败保留；映像陈旧计数没有被重置或屏蔽，
+  有限窗口较少 missing 不构成切换无损或逐圈可靠性证明。
+- 当前源码真实四板 OTA/P3 完成，QUICK 范围 strict_gates_passed=true、failures
+  为空，普通短帧与最终固定矩阵普通恢复均通过。P3、两轮自主窗口和普通恢复全部
+  完成四板 STOP/config ACK、许可证失效、SD 保存及逐字节读回。源码、build、P3
+  与原始数据绑定见 `source-checkpoint-r1.json`、`profile-comparison-r1.json`、
+  `review-final-r1.json`；分离提交与封存索引见 `commit-proof.json`、`slice-manifest.json`。
+- 下一 gate：优先拆分 STOP 的 DMA 退休、GPIO/程序/资源回收及 adapter 清理成本，
+  继续收敛 RX/owner 完整开销。CRC 等价与局部指令减少已验证，完整 500 us、STOP
+  峰值增长、自主切换、service blackout、特等席逐圈交付及正式 RAM 均继续开放。
+  TDMA 协调启停协议与邮箱容量后续项保持原顺序；registry 状态未改，长期目标继续。
 
 ### TDMA-PROGRESS-20260913-059 - 自主 origin 直接装载已准备的固定本地邮箱
 
