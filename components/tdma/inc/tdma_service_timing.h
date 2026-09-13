@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define TDMA_SERVICE_TIMING_VERSION 8u
+#define TDMA_SERVICE_TIMING_VERSION 9u
 #ifndef TDMA_SERVICE_TIMING_ENABLED
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #define TDMA_SERVICE_TIMING_ENABLED 1
@@ -82,6 +82,11 @@ typedef enum {
     /* Children of RX_LATCH; capture ownership and empty FIFO skip rearm. */
     TDMA_TIMING_RX_LATCH_READ,
     TDMA_TIMING_RX_LATCH_REARM,
+    /* Autonomous origin only, disjoint children of ADAPTER outside RX_HANDOFF.
+     * Observe includes copying an accepted boundary; publish includes readiness,
+     * FIFO acquisition, validation and deferred/unchanged publication paths. */
+    TDMA_TIMING_ORIGIN_OBSERVE,
+    TDMA_TIMING_ORIGIN_PUBLISH,
     TDMA_TIMING_STAGE_COUNT,
 } tdma_service_timing_stage_t;
 

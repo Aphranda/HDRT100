@@ -26,6 +26,7 @@ STAGES_BY_VERSION[8] = STAGES_BY_VERSION[7] + (
     "rx_dma_initial", "rx_dma_frame_recheck", "rx_dma_discovery_recheck",
     "rx_latch_read", "rx_latch_rearm",
 )
+STAGES_BY_VERSION[9] = STAGES_BY_VERSION[8] + ("origin_observe", "origin_publish")
 FIELDS = (
     "version", "clock_hz", "reset_generation", "phase_count", "stage_count",
     "peak", "sequence", "start_ticks", "total_ticks", "invalid_count",

@@ -55,7 +55,7 @@ def test_profile_wire_versions_and_inclusive_intervals(version, count):
 
 
 @pytest.mark.parametrize("raw", [
-    "2,250000000", "9,250000000,0,1,15,0,1,20,100,0",
+    "2,250000000", "10,250000000,0,1,15,0,1,20,100,0",
     "2,250000000,0,1,11,0,1,20,100,0" + ",0,0"*11,
     "1,250000000,0,1,11,0,1,20,100,0" + ",0,0"*15,
     "2,250000000,0,1,15,0,1,20,100,0" + ",0,0"*14,
@@ -76,7 +76,7 @@ def test_profile_unavailable():
     assert parse_service_timing('"UNAVAILABLE"') is None
 
 
-@pytest.mark.parametrize('version,count', [(6, 31), (7, 44), (8, 49)])
+@pytest.mark.parametrize('version,count', [(6, 31), (7, 44), (8, 49), (9, 51)])
 def test_state_profile_schema_preserves_full_interval_and_generations(version, count):
     fields = [version, 250000000, 2, 90, count, 2, 42, 2**40, 1000, 0,
               1200, 2, 4, 6, 80, 2, 4, 6, 81, 60, 30]
@@ -97,6 +97,9 @@ def test_state_profile_schema_preserves_full_interval_and_generations(version, c
         assert result['stages']['rx_dma_discovery_recheck'] == {'ticks': 146, 'calls': 47}
         assert result['stages']['rx_latch_read'] == {'ticks': 147, 'calls': 48}
         assert result['stages']['rx_latch_rearm'] == {'ticks': 148, 'calls': 49}
+    if version >= 9:
+        assert result['stages']['origin_observe'] == {'ticks': 149, 'calls': 50}
+        assert result['stages']['origin_publish'] == {'ticks': 150, 'calls': 51}
     with pytest.raises(ValueError):
         parse_service_timing(','.join(map(str, fields[:-1])))
 

@@ -254,10 +254,15 @@ static bool tdma_pio_spi_ring_origin_service(tdma_pio_spi_ring_adapter_t *adapte
         return false;
     }
     *rx_ok = tdma_pio_spi_ring_adapter_rx_once(adapter);
+    const uint64_t observe_start = tdma_service_timing_now();
     tdma_origin_observation_t observation;
     if (adapter->phys_origin.observe(adapter->phys_ctrl_context, &observation))
         adapter->origin.boundary = observation;
-    if (!tdma_pio_spi_ring_origin_publish(adapter)) {
+    tdma_service_timing_record(TDMA_TIMING_ORIGIN_OBSERVE, observe_start);
+    const uint64_t publish_start = tdma_service_timing_now();
+    const bool published = tdma_pio_spi_ring_origin_publish(adapter);
+    tdma_service_timing_record(TDMA_TIMING_ORIGIN_PUBLISH, publish_start);
+    if (!published) {
         tdma_pio_spi_ring_adapter_set_error(adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_FLIGHT_MAP_REJECT);
         /* Invalid/late software publication keeps the old hardware shadow. */
     }
