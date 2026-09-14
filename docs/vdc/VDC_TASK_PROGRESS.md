@@ -33,13 +33,46 @@ Last updated: 2026-09-14
 `VDC-PROGRESS-20260914-010`；owner 几何与目标容量资源补测见
 `VDC-PROGRESS-20260914-011`；其余编译容量链接及真实地址构造、上限容量四板预采见
 `VDC-PROGRESS-20260914-013`；RefMem 向量更新的栈/复制收敛与快速验收对照见
-`VDC-PROGRESS-20260914-014`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、取消
+`VDC-PROGRESS-20260914-014`；真实构造块取消与复用的软件补证见
+`VDC-PROGRESS-20260914-015`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、取消
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
 `VDC-ROLE-001`；全表 WCET 和正式锁相仍未闭合，
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260914-015 — 真实 DMA 构造块取消与复用补证
+
+- TODO task ID：`VDC-TIME-002`。
+- 状态：IN PROGRESS。完成当前软件补证，不关闭实际硬件配置/取消门禁。
+- 日期：2026-09-14。
+- 证据根：`out/HardwareAcceptance/20260914/dpll-build-cancellation/`；前序 manifest
+  由 `baseline-plan.json` 绑定，当前身份和主控复核见 `current-plan.json` /
+  `review-final-r1.json`。以下计数与耗时均为本轮快照，非事实源。
+- 变更：扩展 `test_tdma_origin_build_job.py` / `tdma_origin_build_graph_cases.c`，
+  生产 builder 仅在 host 编译时重命名单步入口，真实 Core0 job 经过包装器在每个
+  块前后注入取消。覆盖最终块已写出 entry、worker 尚未发布 READY 的窗口；取消
+  返回 false 时禁止 take/request/复用，worker 退休后 entry 全部失效；将 builder
+  和输出填入 poison 后，迟到入口无写入，再构造与正常图逐字节一致。固件未修改。
+- 软件结果：容量 2/6/8 分别通过 448/2240/3136 组，共 5824 组；对应 26 张基准图，
+  覆盖各容量下的运行节点数、local slot 0、连续 active mask 和记录开关。未将此
+  子矩阵扩称为所有物理配置。连同既有三层 DMA STOP、物理 owner 退休、raw 和准入
+  测试共 19 项通过。原有 mock 写入中断与本次真实块边界互补，均不是芯片实测延迟。
+- 反向验证：仅在 `out/` 副本去掉最终取消清理，真实构造测试触发断言；原始退出码
+  和 stderr 保留于 `mutation-result-r2.json`。r1 辅助探针因 pytest 临时目录名错误
+  未编译，失败原件保留；修正入口后成功检测反例，没有修改生产代码以制造失败。
+- 构建与身份：复用容量 6 live build，构建复核通过；A/B map/ELF/package 归档于
+  `build-archive/`。build 仍为 `20260914093110`，包 SHA 与前序完全一致；测试变更
+  后源码指纹为 `969902c55fc43dc652dc7feb60dbe8845245e2528cddfb0d30581e3f25eb6365`，
+  为该指纹重新执行 P3，不沿用前序 receipt。
+- 四板 quick：内部 181.431 s、外部 181.656 s；构建复核 2.401 s、OTA 106.033 s。
+  strict_gates_passed 和短帧 passed/closed_loop_passed/realtime_gate_passed 均 true。
+  四板原生记录各 14 条、无漏采，全部 STOP 后 SD 字节一致；config ACK、临时许可证
+  inactive。SCPI 仅控制流程，未操作 NO5。原始调度计数仍单独保留，quick 聚合通过
+  不等于整表 WCET、前序间歇 SCK 失败根因或正式锁相已闭合。
+- 下一 gate：`VDC-TIME-002` 的芯片上构造中取消、配置切换及有界交接；之后才开放
+  `VDC-TIME-003/004`。本轮没有新增自主 timestamp、命令运输或 DCO 应用。
 
 ### VDC-PROGRESS-20260914-014 — RefMem 向量快照收敛与两种容量快速验收
 
