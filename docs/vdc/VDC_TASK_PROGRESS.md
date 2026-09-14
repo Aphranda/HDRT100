@@ -49,7 +49,8 @@ Last updated: 2026-09-15
 `VDC-PROGRESS-20260914-027`；从板连续事件观察的 PIO 原型与边界反例见
 `VDC-PROGRESS-20260914-028`；共享采样区 RAM 验收见 `VDC-PROGRESS-20260915-001`，
 成对事件计数及有界联合读取原型见 `VDC-PROGRESS-20260915-002`；生产观察器接入与
-原生记录复核见 `VDC-PROGRESS-20260915-003`。当前入口仍为
+原生记录复核见 `VDC-PROGRESS-20260915-003`；自主模式观察 FIFO 容量与服务路径
+定位见 `VDC-PROGRESS-20260915-004`。当前入口仍为
 `VDC-TIME-002`，补齐硬件配置、交接时延
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
@@ -57,6 +58,69 @@ Last updated: 2026-09-15
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260915-004 — 自主事件 FIFO 与解析交接解耦
+
+- TODO task ID：`VDC-TIME-002`、`VDC-VERIFY-001`。状态：IN PROGRESS。普通模式
+  验收之后继续自主发车诊断；不开放正式时间戳、共同时间映射或锁相准入。
+- 证据：`out/HardwareAcceptance/20260915/dpll-event-observer-autonomous/`。
+  以下数量和时间均为本轮快照，非事实源。`preflight-r1.json` 核对原普通模式
+  固件包、源码指纹、四板 UID/build 与 STOP/ACK；失败原件单独保留。
+- 修复前：`capture-r1` 采集耗时 40.312 s，STOP/ACK 后顺序 SD 保存与读取耗时
+  9.875 s。每板 34 个定时槽加一条 baseline 全部有效，无漏采；CRC、build、UID、
+  epoch 和 SD/SRAM 原件一致。记录完整不代表事件有效。
+- 失效证据：三从在定时 slot 8 首次报告 `TDMA_EVENT_PRE_FAULT`，fault 为
+  `TDMA_EVENT_FAULT_STALL`，FDEBUG 指向两个 counter SM 的 RXSTALL；RX/TX FIFO
+  高水位各 8 words，sequence 为 5 words。NO2/NO3/NO4 发布计数停在
+  395/638/521，最大服务间隔 4479/4500/4542 µs，此后保持 INVALID。
+  失效前相邻快照的 elapsed/ordinal 增量给出约 1000.3 µs 的自主事件间隔，
+  与矩阵的 wire 周期相符；Core1 整表周期是另一配置，不能混为发车周期。
+- 定位：原 `tdma_pio_spi_phys_event_service` 仅从 capture 路径调用，而
+  `tdma_pio_spi_ring_adapter_rx_once_impl` 在 RX_PREPARE 未退休时提前返回，导致观察 FIFO
+  等待 Core0 解析交接。固定 FIFO 可容纳的完整事件数量由
+  `TDMA_EVENT_FIFO_WORDS` 与成对 counter 输出决定；本轮五事件积压已超过该容量。
+- 门禁边界：修复前工具的 diagnostic_passed 为 true，但 passed、closed_loop 和
+  realtime 均为 false；主板还有自主 persona 不匹配和一次停止/恢复观察，必须保留，
+  不能全部归因于从板 observer。三从原有 TDMA 节点门禁通过，事件失效后只停观察。
+- 修复：在 `tdma_pio_spi_phys_service_tx` 的 origin 条件早退前服务观察 FIFO，
+  删除 capture 中的旧调用。既有 `tdma_runtime_owner_service_phys_tx` 每个获准执行
+  的 TDMA 相位先处理生命周期，再进行有界物理服务；RX_PREPARE 繁忙不再阻挡观察。
+  原 OTA/显式跳步、armed/persona、epoch 和 fault 条件保留，不增加 PIO/DMA。
+- 软件/资源：四个 observer 测试模块共 6 项通过。新增测试执行真实 component、
+  runtime owner、物理服务及 consumer 调用链，在 24 个模拟相位中覆盖 RX 准备各
+  非 IDLE 状态、队列早退、无待发 TX、capture 不重复、未 ARM/错误 persona/未初始化
+  及 FIFO 堵塞永久拒绝。寄存器和无关 owner 边界仍为 stub，不证明实板时序。
+  独立源码/host 审核通过；容量 6/8 的 A/B 构建通过，静态 RAM 增量为零，
+  记录 schema 和 PIO 程序未变。当前源码/固件身份见 `current-plan-r1.json`。
+- 当前源码 P3：`p3-r1` 完整流程 180.407 s，普通短帧 passed、closed_loop、realtime、
+  diagnostic 全部通过；每板 14 个定时槽加 baseline 完整有效，三从最大服务间隔
+  降到 1575/1590/1580 µs。四板 STOP/ACK 后顺序保存 SD，与 SRAM 原件逐字节一致。
+- 自主复测的容量失败：`capture-r2` 中三从从首次 ACTIVE 至最后已记录 slot 30
+  持续无 fault，FIFO 高水位为 4/4/2 words；但原生记录只写入 31/34 槽，
+  `TDMA_RECORD_OVERFLOW` 终止，不能声称整窗通过。事件持续变化增加 delta 文件
+  长度，耗尽 `STORAGE_MANAGER_FILE_WRITE_MAX_BYTES`；不是 STOP 或 FIFO 堵塞。
+  工具泛化的 startup timeout 在本轮实际由 collection_errors 导致，独立原因见
+  `recorder-capacity-correction-r2.json`。因此保持运行窗口和逐事件验证不变，后两轮
+  仅将状态快照间隔改为 500 ms；快照分辨率与区间门禁密度减半，不等价于原采样密度。
+- 启动拒绝：`capture-r3` 四板均完成 18 槽，但 NO3 在启动时报告
+  `TDMA_EVENT_FAULT_DIRTY_START`，未发布事件。最终 enable 前后的 pad 快照中
+  RX/TX CS 都已为低，两次快照间只有 RX DATA 改变；不能描述为该区间内 CS 才下降。
+  原早期 CS 检查在配置/seed 之前，最后 pad-before 后没有阻止 enable 的准入复验。
+  故障拒绝有效，启动竞态未修；NO2/NO4 在完整记录中保持 ACTIVE，所有原件保留。
+- 显式重臂：`capture-r4` 用相同固件/配置重新 STOP/ARM，三从进入新 epoch，四板
+  18 个定时槽加 baseline 全部有效、无漏采、reason 为 COMPLETE。NO2/NO3/NO4
+  启动等待后至窗末均 ACTIVE、fault 为零，发布 7094/7185/7258 条事件；最大服务
+  间隔 1640/1590/1592 µs，最大服务耗时 301/312/304 µs，FIFO 高水位为
+  4/4/2 words。采集与导出 39.625 s，STOP/ACK 后顺序 SD 保存及读取 7.828 s，
+  CRC/身份/SD-SRAM 字节一致。该窗口支持本配置成功启动后的 FIFO 服务容量，
+  不消除上一轮启动失败，也不是更长周期配置或任意调度阻塞的证明。
+- 验收边界：`analysis-r4.json` 的诊断事件连续性通过，原工具 passed、closed_loop、
+  realtime 仍为 false。startup 的三次连续稳定观察受启动填充、自主切换及采样间隔
+  影响；主板软件 TX 计数与普通 persona 检查也不适配自主模式。保留这些失败，不修改
+  gate 来授予完整自主验收，更不授予 `timestamp_valid`、`dpll_eligible` 或锁相。
+- 下一 gate：服务与解析解耦切片完成，继续 `VDC-TIME-002` 的最终 enable 前 CS
+  准入复验及有界等待，保留 enable 后 DIRTY_START 拒绝和显式重臂要求；随后补齐
+  物理首事件、完整 identity 和时钟 anchor。`VDC-TIME-003/004` 继续 PENDING。
 
 ### VDC-PROGRESS-20260915-003 — 成对事件观察器生产接入与原生记录
 
@@ -93,7 +157,8 @@ Last updated: 2026-09-15
   启动等待后至窗末均保持 ACTIVE 且 fault 为零，RX/TX FIFO 高水位均为两个字，
   sequence 为一个字；主板不启用此 follower 观察器。
   四板 STOP/ACK 后顺序 SD 保存，`p3-sd-r4.json` 核对全部文件与 SRAM 原件一致。
-- 资源/耗时：最终容量 6/8 的 A/B 链接均通过，静态 RAM 余量为 18932/15172 B，
+- 资源/耗时：最终容量 6/8 的 A/B 链接均通过，扣除链接器 `.heap` 保留后的静态 RAM
+  余量为 18932/15172 B，
   相对 RAM 回收切片新增 1820 B，OTA 未改。从板本轮 service 最大耗时为
   255/240/275 µs，服务最大间隔为 4562/4515/4586 µs；这些包含启动/调度影响的
   诊断最大值不能当作自主发车下的容量证明或新增阶段的独立 WCET。
