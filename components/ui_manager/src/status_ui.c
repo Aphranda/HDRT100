@@ -52,7 +52,7 @@ enum {
 };
 
 typedef struct {
-    sync_trigger_summary_t trigger;
+    sync_trigger_status_t trigger;
     ota_vector_t ota;
     storage_manager_vector_t storage;
     resource_arbiter_snapshot_t arbiter;
@@ -621,7 +621,7 @@ static void capture_snapshot(ui_snapshot_t *snapshot)
 {
     memset(snapshot, 0, sizeof(*snapshot));
     drv_watchdog_mark_progress(0u, 0x0A11u);
-    sync_trigger_get_summary(&snapshot->trigger);
+    sync_trigger_get_status(&snapshot->trigger);
     drv_watchdog_mark_progress(0u, 0x0A12u);
     ota_ao_get_vector(&snapshot->ota);
     drv_watchdog_mark_progress(0u, 0x0A13u);

@@ -10,6 +10,30 @@
 
 typedef trigger_vector_t sync_trigger_summary_t;
 
+/* Scalar status for management consumers that do not need the aligned
+ * sequence table or protocol configuration carried by TriggerVector. */
+typedef struct {
+    trig_mode_t active_mode;
+    trig_state_t state;
+    trig_edge_t edge;
+    trig_safe_state_t safe_state;
+    uint32_t trigger_source_pin;
+    uint32_t trigger_width_us;
+    uint32_t pulse_width_us;
+    uint32_t rj45_trigger_width_us;
+    uint32_t capture_sample_hz;
+    uint32_t sync_clock_hz;
+    uint32_t trigger_count;
+    uint32_t output_count;
+    uint32_t missed_count;
+    uint32_t dropped_capture_words;
+    bool initialized;
+    bool io_initialized;
+    bool capture_running;
+    bool sync_clock_enabled;
+    bool sync_clock_running;
+} sync_trigger_status_t;
+
 typedef enum {
     SYNC_TRIGGER_EVENT_RESET               = TRIG_EVENT_RESET,
     SYNC_TRIGGER_EVENT_SET_TRIGGER_WIDTH   = TRIG_EVENT_SET_TRIGGER_WIDTH,
@@ -45,6 +69,7 @@ void sync_trigger_service(void);
 
 /* 快照查询 */
 void sync_trigger_get_summary(sync_trigger_summary_t *summary);
+void sync_trigger_get_status(sync_trigger_status_t *status);
 void sync_trigger_get_vector(trigger_vector_t *vector);
 void sync_trigger_get_debug(uint32_t *stage,
                             uint32_t *event_type,

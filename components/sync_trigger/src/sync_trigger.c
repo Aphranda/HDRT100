@@ -669,6 +669,37 @@ void sync_trigger_get_summary(sync_trigger_summary_t *summary)
     osal_critical_exit();
 }
 
+void sync_trigger_get_status(sync_trigger_status_t *status)
+{
+    if (status == NULL) {
+        return;
+    }
+
+    osal_critical_enter();
+    *status = (sync_trigger_status_t){
+        .active_mode = s_ao.vector.active_mode,
+        .state = s_ao.vector.state,
+        .edge = s_ao.vector.edge,
+        .safe_state = s_ao.vector.safe_state,
+        .trigger_source_pin = s_ao.vector.trigger_source_pin,
+        .trigger_width_us = s_ao.vector.trigger_width_us,
+        .pulse_width_us = s_ao.vector.pulse_width_us,
+        .rj45_trigger_width_us = s_ao.vector.rj45_trigger_width_us,
+        .capture_sample_hz = s_ao.vector.capture_sample_hz,
+        .sync_clock_hz = s_ao.vector.sync_clock_hz,
+        .trigger_count = s_ao.vector.trigger_count,
+        .output_count = s_ao.vector.output_count,
+        .missed_count = s_ao.vector.missed_count,
+        .dropped_capture_words = s_ao.vector.dropped_capture_words,
+        .initialized = s_ao.vector.initialized,
+        .io_initialized = s_ao.vector.io_initialized,
+        .capture_running = s_ao.vector.capture_running,
+        .sync_clock_enabled = s_ao.vector.sync_clock_enabled,
+        .sync_clock_running = s_ao.vector.sync_clock_running,
+    };
+    osal_critical_exit();
+}
+
 void sync_trigger_get_vector(trigger_vector_t *vector)
 {
     if (vector == NULL) {
