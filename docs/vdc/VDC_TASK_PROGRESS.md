@@ -35,13 +35,56 @@ Last updated: 2026-09-14
 `VDC-PROGRESS-20260914-013`；RefMem 向量更新的栈/复制收敛与快速验收对照见
 `VDC-PROGRESS-20260914-014`；真实构造块取消与复用的软件补证见
 `VDC-PROGRESS-20260914-015`；实板暂停构造任务的取消探针见
-`VDC-PROGRESS-20260914-016`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
+`VDC-PROGRESS-20260914-016`；交接分阶段计时及两轮自主切换原件见
+`VDC-PROGRESS-20260914-017`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
 `VDC-ROLE-001`；全表 WCET 和正式锁相仍未闭合，
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260914-017 — 自主 origin 交接分阶段计时
+
+- TODO task ID：`VDC-TIME-002`。
+- 状态：IN PROGRESS。完成软件交接计时切片；完整窗口连续性未通过，尚未测得物理
+  边沿间隙或通用 WCET，不开放 `VDC-TIME-003/004` 和命令接线。
+- 日期：2026-09-14。
+- 证据根：`out/HardwareAcceptance/20260914/dpll-origin-handoff-timing/`；
+  `current-plan.json` 绑定前序 manifest、STOP、源码与部署包；两次复核见
+  `handoff-r1-review.json` / `handoff-r2-review.json`，主控汇总见
+  `review-final-r1.json`。以下数字均为本轮测量快照，非事实源。
+- 实现：`tdma_origin_handoff.c` 由 Core1 单 writer 记录每个准备阶段的首次进入、
+  调用次数和累计调用体耗时，guard 保护跨核快照；DONE/FAILED 冻结到下一有效 begin。
+  `READ:CALibration:ORIGin:HANDoff?` 仅 STOP/config ACK 后可读，BUSY 表示未完成。
+  调用体包含 owner 授权复验和 physical poll，记录器 bookkeeping 在计时体之外；
+  总交接包含跨周期等待、Core0 构造与排队、其他任务和仪器开销，不能全部称为空闲。
+  本切片没有修改 grant 准入、wire、PIO/DMA 或 DCO，也没有测量 Core0 builder CPU。
+- 软件与资源：相关测试 22 项通过，含时间低字回绕、累加/终态冻结、非法顺序/溢出、
+  grant 撤销和 STOP 读回准入。容量 6/8 的 A/B 与 boot 增量构建通过，分别为
+  22.359/21.875 s；记录器增加 BSS 160 B，预留堆后主 RAM 余量为 4716/956 B。
+  SCRATCH_X 未增加数据；目标与资源原件见 `capacityN-checkpoint.json`。
+  部署容量 6，build `20260914104205`；源码指纹为
+  `7912871406ab71ad0b55cf88f6694e6f23dc1fbdee87264a533bd72287f04ff3`。
+- 四板 quick P3：外部 184.656 s，短帧 passed/closed_loop/realtime 三项均 true，
+  四板原生记录各 14 条，无漏采，STOP 后 SD 字节一致。但 strict_gates_passed=false：
+  coarse CLK level 7 时 NO2 的 `SYSTem:TDMA:RING:TOPology 4,1,1` 超时，随后返回
+  `-200,"Execution error"`，失败原件保留于 `p3-r1/diagnostic.json`。诊断流程完成
+  及 quick 凭证有效不代表严格校准通过，未重复 P3 覆盖该失败。
+- 两轮自主交接：NO1 trial/config 为 36/64 和 52/70，总时长分别 16868.584 和
+  16933.140 µs；累计 Core1 调用体为 1213.440 和 1146.284 µs，体外时间为
+  15655.144 和 15786.856 µs。四次 mailbox 检查调用体仅 163.152/134.004 µs，
+  从首次 mailbox 进入到 STOP 阶段进入却跨 5982.020/5914.160 µs。STOP 阶段进入
+  到 INSTALL 返回为 10554.988/10622.972 µs；这些软件边界不等于 wire 边沿间隙。
+- 完整窗口：每轮四板原生记录各 34 条、无漏采，NO1 各有 28 条 persona 16 样本，
+  接收序列持续增长，全部 STOP 后 SD 字节一致。两轮四板 transport missing 均各
+  增加 1，完整窗口短帧/连续性三项均 false；不得提升稳定子段或以记录无漏采掩盖
+  传输 missing。首次 START 至最后 STOP 之间无 SCPI 查询；最终四板 STOP/config
+  ACK，临时 grant inactive，NO5 未操作。未增加 DPLL trace 或正式时间戳资格。
+- 下一 gate：先在 `VDC-TIME-002` 合并有界的冻结邮箱检查，验证准入容量的相位预算、
+  坏 CRC 拒绝、每次 poll 的 grant 复验及 STOP 生命周期，再复测完整切换窗口。
+  四次检查合为一次名义上可减少三个静态周期，但这是待验证估算；其余准备动作仍需
+  分阶段，不能将约 1.2 ms 的累计调用体整体塞入单个 TDMA 相位。
 
 ### VDC-PROGRESS-20260914-016 — 构造中取消的板端诊断探针
 
