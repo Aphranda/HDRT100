@@ -62,6 +62,7 @@ scpi_result_t scpi_cmd_system_tdma_profile_peak_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_profile_run_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_profile_other_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_profile_rx_q(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_rx_start_cut_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_profile_reset(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_flight_crc_diagnostic_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_flight_process_q(scpi_t *context);
@@ -174,6 +175,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:TDMA:PROFile:RUN?", .callback = scpi_cmd_system_tdma_profile_run_q}, \
     {.pattern = "SYSTem:TDMA:PROFile:OTHer?", .callback = scpi_cmd_system_tdma_profile_other_q}, \
     {.pattern = "SYSTem:TDMA:PROFile:RX?", .callback = scpi_cmd_system_tdma_profile_rx_q}, \
+    {.pattern = "SYSTem:TDMA:FLIGHT:RX:CUT?", .callback = scpi_cmd_system_tdma_rx_start_cut_q}, \
     {.pattern = "SYSTem:TDMA:PROFile:RESet", .callback = scpi_cmd_system_tdma_profile_reset}, \
     {.pattern = "SYSTem:TDMA:FLIGHT:CRC:DIAGnostic?", .callback = scpi_cmd_system_tdma_flight_crc_diagnostic_q}, \
     {.pattern = "SYSTem:TDMA:FLIGHT:PROCess?", .callback = scpi_cmd_system_tdma_flight_process_q}, \

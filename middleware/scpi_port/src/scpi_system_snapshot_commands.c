@@ -27,6 +27,7 @@
 #include "system_manager.h"
 #include "sync_trigger.h"
 #include "tdma_runtime_owner.h"
+#include "tdma_rx_start_cut.h"
 #include "tdma_service_timing.h"
 
 #define SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS 10000u
@@ -2602,6 +2603,47 @@ scpi_result_t scpi_cmd_system_tdma_profile_rx_q(scpi_t *context)
     }
     for (uint32_t cause = 0u; cause < TDMA_RX_DROP_CAUSE_COUNT; ++cause)
         SCPI_ResultUInt32(context, snapshot.drop_count[cause]);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_rx_start_cut_q(scpi_t *context)
+{
+    /* A frozen, owner-published startup record. This STOP-only export does
+     * not read live PIO/DMA capture state or expand the owner snapshot. */
+    tdma_rx_start_cut_t cut;
+    if (!tdma_pio_spi_phys_get_rx_start_cut(&cut)) {
+        SCPI_ResultText(context, "UNAVAILABLE");
+        return SCPI_RES_OK;
+    }
+    SCPI_ResultText(context, "RXSTARTCUT");
+    SCPI_ResultUInt32(context, cut.schema);
+    SCPI_ResultUInt32(context, cut.flags);
+    SCPI_ResultUInt32(context, cut.retire_reasons);
+    SCPI_ResultUInt32(context, cut.observer_epoch);
+    SCPI_ResultUInt32(context, cut.pio_hz);
+    SCPI_ResultUInt32(context, cut.physical_frame_words);
+    SCPI_ResultUInt32(context, cut.alignment_byte_shift);
+    SCPI_ResultUInt32(context, cut.alignment_bit_shift);
+    SCPI_ResultUInt64(context, cut.arm_epoch);
+    SCPI_ResultUInt64(context, cut.observation_epoch_before);
+    SCPI_ResultUInt64(context, cut.observation_epoch_after);
+    SCPI_ResultUInt64(context, cut.sample_before_ticks);
+    SCPI_ResultUInt64(context, cut.sample_after_ticks);
+    SCPI_ResultUInt64(context, cut.produced_before);
+    SCPI_ResultUInt64(context, cut.produced_after);
+    SCPI_ResultUInt32(context, cut.dma_count_before);
+    SCPI_ResultUInt32(context, cut.dma_count_after);
+    SCPI_ResultUInt32(context, cut.dma_ctrl_before);
+    SCPI_ResultUInt32(context, cut.dma_ctrl_after);
+    SCPI_ResultUInt32(context, cut.capture_fdebug_before);
+    SCPI_ResultUInt32(context, cut.capture_fdebug_after);
+    SCPI_ResultUInt32(context, cut.pads_before);
+    SCPI_ResultUInt32(context, cut.pads_after);
+    SCPI_ResultUInt32(context, cut.dma_channel);
+    SCPI_ResultUInt32(context, cut.capture_fifo_before);
+    SCPI_ResultUInt32(context, cut.capture_fifo_after);
+    SCPI_ResultUInt32(context, cut.capture_pc_before);
+    SCPI_ResultUInt32(context, cut.capture_pc_after);
     return SCPI_RES_OK;
 }
 

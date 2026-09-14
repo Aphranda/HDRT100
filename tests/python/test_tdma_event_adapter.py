@@ -30,6 +30,14 @@ def production(directory: Path) -> str:
     offsets = "\n".join(line for line in generated.read_text(encoding="utf-8").splitlines()
                         if line.startswith("#define tdma_event_"))
     contract_definitions = []
+    sdk_dma = Path.home() / ".pico-sdk/sdk/2.2.0/src/rp2350/hardware_regs/include/hardware/regs/dma.h"
+    dma_registers = sdk_dma.read_text(encoding="utf-8")
+    for symbol in ("DMA_CH0_CTRL_TRIG_BITS", "DMA_CH0_CTRL_TRIG_AHB_ERROR_BITS",
+                   "DMA_CH0_CTRL_TRIG_READ_ERROR_BITS", "DMA_CH0_CTRL_TRIG_WRITE_ERROR_BITS",
+                   "DMA_CH0_CTRL_TRIG_BUSY_BITS", "DMA_CH0_CTRL_TRIG_EN_BITS",
+                   "DMA_CH0_TRANS_COUNT_MODE_VALUE_TRIGGER_SELF", "DMA_CH0_TRANS_COUNT_MODE_LSB",
+                   "DMA_CH0_TRANS_COUNT_MODE_BITS", "DMA_CH0_TRANS_COUNT_COUNT_BITS"):
+        contract_definitions.append(re.search(rf"(?m)^#define {symbol}\s+[^\n]+$", dma_registers).group(0))
     for file, symbol in (("tdma_transport_frame.h", "TDMA_TRANSPORT_FRAME_SEQUENCE_OFFSET"),
                          ("tdma_rx_scan.h", "TDMA_PIO_SPI_PACKET_HEADER_SIZE")):
         contract = (ROOT / "components/tdma/inc" / file).read_text(encoding="utf-8")
@@ -62,8 +70,9 @@ def production(directory: Path) -> str:
     name = "tdma_pio_spi_phys_prepare_sm_pair"
     routines.append(f"static void {name}(tdma_pio_spi_phys_t *phys) {{" +
                     c_definition_body(phys, name) + "}\n")
+    cut_block = source[source.index("/* RX_START_CUT_STORAGE_BEGIN"):source.index("/* RX_START_CUT_STORAGE_END */")]
     return (PREFIX + snapshot + "\n" + offsets + "\n" +
-            "\n".join(contract_definitions) + "\n" + FIXTURE + "\n".join(routines) + ASSERTIONS)
+            "\n".join(contract_definitions) + "\n" + FIXTURE + cut_block + "\n".join(routines) + ASSERTIONS)
 
 
 PREFIX = r'''
@@ -76,6 +85,9 @@ PREFIX = r'''
 #include "tdma_event_observer.h"
 #include "tdma_event_history.h"
 #include "tdma_rx_event_candidate.h"
+#include "tdma_rx_start_cut.h"
+#include "tdma_rx_sequence.h"
+#define _u(x) x##u
 typedef unsigned uint;
 '''
 
@@ -129,6 +141,23 @@ static unsigned time_reads, guard_reads, fences, publication_stores, publication
 static unsigned mutation_mode, commit_reads;
 static unsigned interrupt_saves, interrupt_restores, interrupt_depth, blocked_preemptions;
 static uint32_t interrupt_mask, saved_interrupt_mask;
+static bool cut_copying;
+static void (*cut_read_hook)(void);
+static void (*cut_enable_hook)(void);
+static unsigned cut_fences, cut_guard_reads, cut_publications, cut_mmio_barriers;
+enum { NUM_DMA_CHANNELS = 16u };
+static struct { struct { uint32_t transfer_count, ctrl_trig; } ch[16]; } dma_bank;
+#define dma_hw (&dma_bank)
+static int s_tdma_pio_spi_rx_dma_channel = 4;
+static tdma_rx_dma_counter_t s_tdma_pio_spi_rx_sequence;
+static uint64_t tick_now = 1000u, tick_step = 1u;
+static uint64_t vdc_timestamp_clock_read_ticks64(void) {
+    const uint64_t result = tick_now; tick_now += tick_step; return result;
+}
+static unsigned fifo_level_reads;
+static uint32_t pio_sm_get_rx_fifo_level(PIO pio, uint sm) {
+    ++fifo_level_reads; return pio->level[sm];
+}
 static bool preemption_pending;
 static uint32_t gpio_script[3];
 static unsigned gpio_script_count, gpio_script_index, gpio_reads;
@@ -153,7 +182,7 @@ static void restore_interrupts(uint32_t previous) {
     --interrupt_depth; ++interrupt_restores;
 }
 static uint64_t time_us_64(void) {
-    if (copying) {
+    if (copying || cut_copying) {
         assert(interrupt_depth == 1u && interrupt_mask == 1u);
         if (preemption_pending) {
             if (interrupt_mask == 0u) clock_us += 5000u;
@@ -182,8 +211,15 @@ static bool checked_event_copy(const tdma_pio_spi_phys_t *phys,
     assert(interrupt_saves == saves_before + 1u && interrupt_restores == restores_before + 1u);
     return result;
 }
-static uint32_t load_guard(const uint32_t *ptr) { ++guard_reads; return *ptr; }
-static void store_guard(uint32_t *ptr, uint32_t value) {
+static __attribute__((noinline, noclone)) uint32_t load_guard(const uint32_t *ptr) {
+    if (ptr != &physical.flight_event_guard) ++cut_guard_reads;
+    else ++guard_reads;
+    return __atomic_load_n(ptr, __ATOMIC_ACQUIRE);
+}
+static __attribute__((noinline, noclone)) void store_guard(uint32_t *ptr, uint32_t value) {
+    if (ptr != &physical.flight_event_guard) {
+        ++cut_publications; __atomic_store_n(ptr, value, __ATOMIC_RELEASE); return;
+    }
     assert((value & 1u) == 0u); /* Publication never makes the current slot unreadable. */
     assert(value == *ptr + 2u);
     assert(publication_barriers == publication_stores + 1u);
@@ -196,9 +232,10 @@ static void store_guard(uint32_t *ptr, uint32_t value) {
         ++commit_reads;
     }
     ++publication_stores;
-    *ptr = value;
+    __atomic_store_n(ptr, value, __ATOMIC_RELEASE);
 }
-static void writer_barrier(void) {
+static __attribute__((noinline, noclone)) void writer_barrier(void) {
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
     /* This is the ordering point BEFORE old-slot reuse, not the release
      * publication. A barrier moved after the target copy fails this check. */
     assert((physical.flight_event_guard & 1u) == 0u);
@@ -208,9 +245,12 @@ static void writer_barrier(void) {
         assert(published_slot()->rx_elapsed_cycles == expected_before_commit);
     }
     ++publication_barriers;
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
 }
-static void read_fence(void) {
+static __attribute__((noinline, noclone)) void read_fence(void) {
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
     assert(interrupt_depth == 1u && interrupt_mask == 1u);
+    if (cut_copying) { ++cut_fences; if (cut_read_hook != NULL) cut_read_hook(); return; }
     ++fences;
     if (((mutation_mode == 1u || mutation_mode == 5u) && fences == 1u) ||
         mutation_mode == 2u || mutation_mode == 3u) {
@@ -240,7 +280,8 @@ static void read_fence(void) {
 }
 #define __atomic_load_n(ptr, order) load_guard(ptr)
 #define __atomic_store_n(ptr, value, order) store_guard(ptr, value)
-#define __atomic_thread_fence(order) read_fence()
+#define __atomic_thread_fence(order) ((order) == __ATOMIC_ACQUIRE ? read_fence() : \
+    (void)((order) == __ATOMIC_SEQ_CST ? ++cut_mmio_barriers : 0u))
 #define __dmb() writer_barrier()
 static uint32_t clock_get_hz(unsigned ignored) {
     (void)ignored;
@@ -286,7 +327,7 @@ static void pio_sm_set_enabled(PIO pio, uint sm, bool enabled) {
 #define tdma_pio_spi_phys_evidence_pio(phys) (&bank)
 #define tdma_pio_spi_phys_control_sm(phys) 0u
 #define tdma_pio_spi_phys_data_sm(phys) 0u
-#define tdma_pio_spi_phys_capture_sm(phys) 1u
+#define tdma_pio_spi_phys_capture_sm(phys) 2u
 #define tdma_pio_spi_phys_latch_sm(phys) 2u
 #define tdma_pio_spi_phys_rtt_sm(phys) 3u
 #define tdma_pio_spi_phys_is_flight_persona() \
@@ -322,6 +363,7 @@ static void pio_enable_sm_mask_in_sync(PIO pio, uint mask) {
     assert(mask == TDMA_EVENT_SM_MASK); ++enabled_masks;
     pio->ctrl |= mask;
     pio->fdebug = 0u; /* Emulate previous W1C write to hardware fdebug. */
+    if (cut_enable_hook != NULL) cut_enable_hook();
 }
 static void tdma_pio_spi_phys_origin_record_invalidate(tdma_pio_spi_phys_t *phys) { (void)phys; }
 static bool tdma_pio_spi_programs_select(int *manager, tdma_pio_spi_phys_t *phys,
@@ -618,6 +660,7 @@ static void test_post_enable_low_remains_invalid_until_explicit_rearm(void) {
     gpio_script_count = 0u;
 }
 int main(void) {
+    tdma_rx_start_cut_disarmed(); /* No recorded enable is not exportable. */
     /* Every success and rejection path is run with caller IRQs both enabled
      * and already disabled. The latter must never be unconditionally enabled. */
     for (uint32_t original = 0u; original < 2u; ++original) {
@@ -646,7 +689,8 @@ def test_production_event_seqlock_and_persona_retirement(tmp_path: Path) -> None
         gcc, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
         "-I" + str(ROOT / "components/tdma/inc"), str(unit),
         str(ROOT / "components/tdma/src/tdma_event_observer.c"),
-        str(ROOT / "components/tdma/src/tdma_event_history.c"), "-o", str(executable)],
+        str(ROOT / "components/tdma/src/tdma_event_history.c"),
+        str(ROOT / "components/tdma/src/tdma_rx_sequence.c"), "-o", str(executable)],
         capture_output=True, text=True)
     assert built.returncode == 0, built.stdout + built.stderr
     ran = subprocess.run([str(executable)], capture_output=True, text=True)

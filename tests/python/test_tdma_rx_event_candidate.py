@@ -54,15 +54,11 @@ EXTRA_FIXTURE = r'''
 #include "tdma_rx_capture.h"
 #include "tdma_rx_sequence.h"
 #include "tdma_transport_frame.h"
-static tdma_rx_dma_counter_t s_tdma_pio_spi_rx_sequence;
 static uint64_t s_tdma_pio_spi_rx_capture_id;
 static tdma_event_batch_t s_tdma_event_batch;
 static tdma_event_record_t s_tdma_event_records[TDMA_EVENT_MAX_RECORDS];
 static uint32_t fifo[4][8], fifo_cursor[4];
-static unsigned fifo_reads, fifo_level_reads;
-static uint32_t pio_sm_get_rx_fifo_level(PIO pio, uint sm) {
-    ++fifo_level_reads; return pio->level[sm];
-}
+static unsigned fifo_reads;
 static bool pio_sm_is_rx_fifo_empty(PIO pio, uint sm) { return pio->level[sm] == 0u; }
 static uint32_t pio_sm_get(PIO pio, uint sm) {
     assert(sm > 0u && pio->level[sm] > 0u && fifo_cursor[sm] < 8u);
@@ -347,7 +343,8 @@ def run(directory: Path, source: str, name: str, *, enabled: bool) -> str:
                "-I" + str(ROOT / "components/tdma/inc"), str(unit)]
     if enabled:
         command += [str(ROOT / "components/tdma/src/tdma_event_observer.c"),
-                    str(ROOT / "components/tdma/src/tdma_event_history.c")]
+                    str(ROOT / "components/tdma/src/tdma_event_history.c"),
+                    str(ROOT / "components/tdma/src/tdma_rx_sequence.c")]
     command += ["-o", str(executable)]
     for stage, call in (("compile", command), ("run", [str(executable)])):
         result = subprocess.run(call, capture_output=True, text=True)
@@ -393,6 +390,14 @@ static void restore_interrupts(uint32_t saved) { assert(saved == 0u); }
 ''' + f'#include "{SOURCE.as_posix()}"\n' + r'''
 int main(void) {
     tdma_pio_spi_phys_t phys = {0};
+    tdma_rx_start_cut_t cut;
+    memset(&cut, 0xff, sizeof(cut));
+    tdma_rx_start_cut_arm_begin();
+    tdma_rx_start_cut_disarmed();
+    assert(!tdma_pio_spi_phys_get_rx_start_cut(&cut));
+    const tdma_rx_start_cut_t empty_cut = {0};
+    assert(memcmp(&cut, &empty_cut, sizeof(cut)) == 0);
+    assert(!tdma_pio_spi_phys_get_rx_start_cut(NULL));
     const tdma_rx_capture_t capture = {.capture_id = 7u, .arm_epoch = 9u};
     assert(!tdma_pio_spi_phys_event_selected(&phys));
     assert(tdma_pio_spi_phys_rx_event_pin(&phys, &capture) == 0u);

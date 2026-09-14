@@ -2206,6 +2206,7 @@ bool tdma_pio_spi_phys_arm(void *context,
 {
     s_tdma_pio_spi_rx_arm_valid = false;
     tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
+    if (phys != NULL) tdma_rx_start_cut_arm_begin();
     if (phys != NULL && (phys->armed || phys->flight_overlay_dma_active ||
                          tdma_overlay_prepare_state(phys->overlay_preparation) != TDMA_OVERLAY_PREPARE_IDLE ||
                          tdma_rx_scan_state(phys->rx_scan_preparation) != TDMA_RX_SCAN_IDLE ||
@@ -2565,6 +2566,7 @@ bool tdma_pio_spi_phys_disarm(void *context)
     memset(&phys->flight_origin_prepare, 0, sizeof(phys->flight_origin_prepare));
     /* Hardware is already stopped. A cancelled Core0 writer keeps STOP
      * pending until ACK, so neither ARM nor the origin union can reuse it. */
+    if (worker_retired && scanner_retired) tdma_rx_start_cut_disarmed();
     return worker_retired && scanner_retired;
 }
 
