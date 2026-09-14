@@ -100,7 +100,7 @@ class Machine:
                 source, count = arg >> 5, arg & 31 or 32
                 if source == 0:
                     frame, offset, active = self.position()
-                    assert active
+                    assert active, "DATA sampled outside a physical frame"
                     ordinal = offset // self.period
                     bit = self.input[frame * self.frame_bits + ordinal]
                     self.samples.append((frame, ordinal, self.time, bit))
@@ -150,4 +150,3 @@ class Machine:
                 raise AssertionError(hex(instruction))
             self.time += 1 + delay
         raise AssertionError("instruction limit")
-

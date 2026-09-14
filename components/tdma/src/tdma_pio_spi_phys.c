@@ -2405,6 +2405,18 @@ bool tdma_pio_spi_phys_arm(void *context,
         return tdma_pio_spi_phys_arm_reject(
             phys, TDMA_PIO_SPI_PHYS_ERROR_CLOCK_LATCH);
     }
+    if (process_follower) {
+        /* The capture program starts with SET Y / WAIT SCK. Hold its first
+         * entry until RXCS is low so idle-CS clocks cannot consume PASS bits.
+         * Inject after all PULL/seed/restart operations: another SM_INSTR write
+         * would replace this wait. It resumes the unchanged entry PC and adds
+         * no CPU wait or instruction-memory slot. CS already low (including a
+         * low pulse while disabled) remains late-entry diagnostic evidence;
+         * this one-shot guard does not establish a clean frame identity. */
+        pio_sm_exec(tdma_pio_spi_phys_data_pio(phys),
+                    tdma_pio_spi_phys_data_sm(phys),
+                    pio_encode_wait_gpio(false, phys->rx_csn_pin));
+    }
     tdma_pio_spi_phys_enable_sm_pair(phys);
 
     phys->armed = true;
