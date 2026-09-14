@@ -9,6 +9,9 @@
 #include "resource_arbiter.h"
 #include "tdma_pio_spi.pio.h"
 #include "tdma_origin.pio.h"
+#if PROJECT_TDMA_EVENT_OBSERVER
+#include "tdma_event.pio.h"
+#endif
 #include "tdma_origin_plan.h"
 #include "tdma_state_machine_resources.h"
 
@@ -776,6 +779,50 @@ static bool tdma_pio_spi_phys_load_flight_follower_programs(
 static bool tdma_pio_spi_phys_load_flight_process_follower_programs(
     tdma_pio_spi_program_manager_t *manager)
 {
+#if PROJECT_TDMA_EVENT_OBSERVER
+    /* Fixed TX layout is shared with the real control program. Track only
+     * successfully installed programs so failure cannot remove a peer. */
+    if (manager->event_counter_offset == NULL || manager->event_sequence_offset == NULL)
+        return false;
+    struct {
+        PIO pio;
+        const pio_program_t *program;
+        uint *offset;
+        int fixed;
+    } programs[] = {
+        {BOARD_TDMA_TX_PIO, &tdma_pio_spi_flight_control_forward_program,
+         manager->flight_control_forward_offset, 0},
+        {BOARD_TDMA_TX_PIO, &tdma_event_counter_program, manager->event_counter_offset, 10},
+        {BOARD_TDMA_TX_PIO, &tdma_event_sequence_program, manager->event_sequence_offset, 20},
+        {BOARD_TDMA_RX_PIO, &tdma_pio_spi_flight_process_follower_program,
+         manager->flight_process_follower_offset, -1},
+        {BOARD_TDMA_RX_PIO, &tdma_pio_spi_flight_clock_latch_program,
+         manager->flight_rx_clock_latch_offset, -1},
+    };
+    size_t installed = 0u;
+    for (; installed < sizeof(programs) / sizeof(programs[0]); ++installed) {
+        const bool fits = programs[installed].fixed >= 0
+            ? pio_can_add_program_at_offset(programs[installed].pio,
+                programs[installed].program, (uint)programs[installed].fixed)
+            : pio_can_add_program(programs[installed].pio, programs[installed].program);
+        if (!fits) break;
+        if (programs[installed].fixed >= 0) {
+            *programs[installed].offset = (uint)programs[installed].fixed;
+            pio_add_program_at_offset(programs[installed].pio, programs[installed].program,
+                                      *programs[installed].offset);
+        } else {
+            *programs[installed].offset = (uint)pio_add_program(
+                programs[installed].pio, programs[installed].program);
+        }
+    }
+    if (installed == sizeof(programs) / sizeof(programs[0])) return true;
+    while (installed != 0u) {
+        --installed;
+        pio_remove_program(programs[installed].pio, programs[installed].program,
+                            *programs[installed].offset);
+    }
+    return false;
+#else
     const PIO tx_pio = BOARD_TDMA_TX_PIO;
     const PIO rx_pio = BOARD_TDMA_RX_PIO;
     if (!pio_can_add_program(tx_pio,
@@ -814,6 +861,7 @@ static bool tdma_pio_spi_phys_load_flight_process_follower_programs(
         return false;
     }
     return true;
+#endif
 }
 
 static bool tdma_pio_spi_phys_load_p3_initiator_programs(
@@ -1134,10 +1182,17 @@ static void tdma_pio_spi_phys_unload_programs(
             BOARD_TDMA_RX_PIO,
             &tdma_pio_spi_flight_clock_latch_program,
             s_tdma_pio_spi_flight_rx_clock_latch_offset);
+#if PROJECT_TDMA_EVENT_OBSERVER
+        pio_remove_program(BOARD_TDMA_TX_PIO, &tdma_event_sequence_program,
+                            *manager->event_sequence_offset);
+        pio_remove_program(BOARD_TDMA_TX_PIO, &tdma_event_counter_program,
+                            *manager->event_counter_offset);
+#else
         pio_remove_program(
             BOARD_TDMA_TX_PIO,
             &tdma_pio_spi_flight_clock_latch_program,
             s_tdma_pio_spi_flight_clock_latch_offset);
+#endif
         pio_remove_program(
             BOARD_TDMA_RX_PIO,
             &tdma_pio_spi_flight_process_follower_program,

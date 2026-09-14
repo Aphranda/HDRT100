@@ -94,6 +94,8 @@ static uint s_tdma_pio_spi_flight_control_forward_offset;
 static uint s_tdma_pio_spi_flight_clock_latch_offset;
 static uint s_tdma_pio_spi_flight_rx_clock_latch_offset;
 static uint s_tdma_pio_spi_flight_origin_rtt_offset;
+static uint s_tdma_event_counter_offset;
+static uint s_tdma_event_sequence_offset;
 static uint32_t s_tdma_pio_spi_cal_ring[TDMA_PIO_SPI_CAL_LOOPBACK_MAX_WORDS]
     __attribute__((aligned(4)));
 /* Calibration personas are mutually exclusive: the TDMA owner restores the
@@ -171,6 +173,8 @@ static tdma_pio_spi_program_manager_t s_tdma_pio_spi_program_manager = {
     .flight_clock_latch_offset = &s_tdma_pio_spi_flight_clock_latch_offset,
     .flight_rx_clock_latch_offset = &s_tdma_pio_spi_flight_rx_clock_latch_offset,
     .flight_origin_rtt_offset = &s_tdma_pio_spi_flight_origin_rtt_offset,
+    .event_counter_offset = &s_tdma_event_counter_offset,
+    .event_sequence_offset = &s_tdma_event_sequence_offset,
     .tx_dma_channel = &s_tdma_pio_spi_tx_dma_channel,
     .rx_dma_channel = &s_tdma_pio_spi_rx_dma_channel,
     .command_dma_channel = &s_tdma_pio_spi_command_dma_channel,
@@ -392,10 +396,14 @@ static void tdma_pio_spi_phys_origin_record_invalidate(tdma_pio_spi_phys_t *phys
     __atomic_store_n(&phys->flight_origin_record_guard, guard + 2u, __ATOMIC_RELEASE);
 }
 
+#include "tdma_pio_spi_phys_event.inc"
+
 bool tdma_pio_spi_phys_select_program_persona(
     tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_program_persona_t persona)
 {
+    if (persona != s_tdma_pio_spi_program_persona)
+        tdma_pio_spi_phys_event_stop(phys);
     tdma_pio_spi_phys_origin_record_invalidate(phys);
     const bool selected = tdma_pio_spi_programs_select(
         &s_tdma_pio_spi_program_manager, phys, persona);
@@ -531,6 +539,7 @@ static uint32_t tdma_pio_spi_phys_flight_tail_bytes(
 
 static void tdma_pio_spi_phys_prepare_sm_pair(tdma_pio_spi_phys_t *phys)
 {
+    tdma_pio_spi_phys_event_stop(phys);
     const PIO control_pio = tdma_pio_spi_phys_control_pio(phys);
     const PIO data_pio = tdma_pio_spi_phys_data_pio(phys);
     const PIO capture_pio = tdma_pio_spi_phys_capture_pio(phys);
@@ -701,6 +710,7 @@ static void tdma_pio_spi_phys_release_flight_resources(
     if (phys == NULL) {
         return;
     }
+    tdma_pio_spi_phys_event_stop(phys);
     if (!tdma_pio_spi_phys_stop_command_dma(phys)) return;
     /* Release the persona that is actually selected.  Hard-coding ORIGIN
      * leaves follower/process-follower programs resident and makes the next
@@ -721,7 +731,7 @@ static void tdma_pio_spi_phys_enable_sm_pair(tdma_pio_spi_phys_t *phys)
                        tdma_pio_spi_phys_capture_sm(phys), true);
     pio_sm_set_enabled(tdma_pio_spi_phys_evidence_pio(phys),
                        tdma_pio_spi_phys_latch_sm(phys), true);
-    if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE) {
+    if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE && !tdma_pio_spi_phys_event_selected(phys)) {
         pio_sm_set_enabled(tdma_pio_spi_phys_tx_latch_pio(phys),
                            tdma_pio_spi_phys_tx_latch_sm(phys), true);
     }
@@ -776,6 +786,7 @@ static bool tdma_pio_spi_phys_clock_latch_rearm(
 static bool tdma_pio_spi_phys_tx_clock_latch_rearm(
     tdma_pio_spi_phys_t *phys)
 {
+    if (tdma_pio_spi_phys_event_selected(phys)) return true;
     if (phys == NULL || phys->role != TDMA_PIO_SPI_ROLE_SLAVE ||
         !tdma_pio_spi_phys_is_flight_persona()) {
         return false;
@@ -878,6 +889,12 @@ static bool tdma_pio_spi_phys_tx_clock_latch_read_and_rearm(
     const uint64_t read_start = tdma_service_timing_now();
     if (timestamp_ns != NULL) {
         *timestamp_ns = 0ull;
+    }
+    if (tdma_pio_spi_phys_event_selected(phys)) {
+        /* Paired observer FIFO words cannot be consumed by the legacy latch.
+         * Its raw diagnostics are not yet eligible timestamp evidence. */
+        tdma_service_timing_record(TDMA_TIMING_TX_LATCH_READ, read_start);
+        return false;
     }
     if (phys == NULL || timestamp_ns == NULL ||
         phys->role != TDMA_PIO_SPI_ROLE_SLAVE ||
@@ -1301,7 +1318,7 @@ static bool tdma_pio_spi_phys_configure_flight(
         phys->role == TDMA_PIO_SPI_ROLE_MASTER
             ? phys->tx_csn_pin
             : phys->rx_csn_pin);
-    if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE) {
+    if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE && !tdma_pio_spi_phys_event_selected(phys)) {
         tdma_pio_spi_flight_clock_latch_program_init(
             tdma_pio_spi_phys_tx_latch_pio(phys),
             tdma_pio_spi_phys_tx_latch_sm(phys),
@@ -1309,6 +1326,7 @@ static bool tdma_pio_spi_phys_configure_flight(
             phys->tx_csn_pin);
     }
     tdma_pio_spi_phys_prepare_sm_pair(phys);
+    tdma_pio_spi_phys_event_prepare(phys, config);
     if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE &&
         phys->process_image_enabled) {
         /* Initialize the elastic tail outside the wire loop, leaving the PIO
@@ -2155,6 +2173,7 @@ static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
                                             size_t max_words,
                                             size_t *received_words)
 {
+    tdma_pio_spi_phys_event_service(phys);
     if (phys != NULL && phys->rx_scan_preparation != NULL &&
         tdma_pio_spi_phys_is_flight_persona())
         return tdma_pio_spi_phys_capture_words_async(phys, max_words, received_words);
@@ -2450,6 +2469,7 @@ bool tdma_pio_spi_phys_disarm(void *context)
     if (phys == NULL) {
         return false;
     }
+    tdma_pio_spi_phys_event_stop(phys);
     const bool worker_retired = tdma_overlay_prepare_cancel(phys->overlay_preparation);
     const bool scanner_retired = tdma_pio_spi_phys_rx_scan_cancel(phys);
     /* Process-image followers keep the overlay TX DMA blocked on the PIO TX

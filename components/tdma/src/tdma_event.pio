@@ -1,0 +1,44 @@
+; Paired diagnostic observer. The TDMA owner initializes X/Y and retires the
+; whole epoch on RXSTALL. This program does not grant a physical timestamp.
+.program tdma_event_counter
+.origin 10
+.wrap_target
+high:
+    jmp pin high_count
+    in x, 32
+    in y, 32
+    jmp y-- low
+low:
+    jmp pin rising
+    jmp x-- low
+    jmp low
+rising:
+    irq set 0 rel
+high_count:
+    jmp x-- high
+    jmp high
+.wrap
+
+; Prefix/phase are frozen from the owner's admitted frame alignment. At least
+; 32 IN operations precede PUSH, so previous ISR contents are shifted out.
+.program tdma_event_sequence
+.origin 20
+.wrap_target
+public start:
+    wait 0 gpio 27
+    mov x, osr
+public sample:
+    wait 1 gpio 28
+    in pins, 1
+public sample_low:
+    wait 0 gpio 28
+    jmp x-- sample
+    mov y, status
+    jmp !y publish
+public bad:
+    jmp bad
+publish:
+    push block
+    wait 1 irq 1
+    jmp start
+.wrap

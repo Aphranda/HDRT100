@@ -59,6 +59,7 @@ set(PROJECT_USE_MULTICORE ON CACHE BOOL "Run realtime trigger service on RP2350 
 set(PROJECT_SYNC_IO_INPUT_BASE_PIN 20 CACHE STRING "Product SMA input GPIO base (physical order IN4..IN1)")
 set(PROJECT_SYNC_IO_OUTPUT_BASE_PIN 16 CACHE STRING "Product SMA output GPIO base (OUT1..OUT4)")
 set(PROJECT_TDMA_SPI_BAUD_HZ 10000000 CACHE STRING "Product TDMA PIO-SPI bit rate")
+option(PROJECT_TDMA_EVENT_OBSERVER "Follower paired PIO event diagnostic observer" ON)
 file(STRINGS "${CMAKE_CURRENT_LIST_DIR}/config/project_node_capacity.h"
     PROJECT_NODE_CAPACITY_DEFAULT_LINE REGEX "^#define PROJECT_NODE_CAPACITY_DEFAULT [0-9]+$")
 if(NOT PROJECT_NODE_CAPACITY_DEFAULT_LINE MATCHES "^#define PROJECT_NODE_CAPACITY_DEFAULT ([0-9]+)$")
@@ -540,6 +541,7 @@ set(PROJECT_APP_SOURCES
         components/tdma/src/tdma_rx_prepare.c
         components/tdma/src/tdma_rx_scan.c
         components/tdma/src/tdma_origin_plan.c
+        components/tdma/src/tdma_event_observer.c
         components/tdma/src/tdma_origin_build_job.c
         components/tdma/src/tdma_origin_blackout.c
         components/tdma/src/tdma_origin_handoff.c
@@ -672,6 +674,7 @@ function(project_configure_app_target target_name app_name linker_script)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/distributed_refmem/src/refmem_spi_physical.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/tdma/src/tdma_pio_spi.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/tdma/src/tdma_origin.pio)
+    pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/tdma/src/tdma_event.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sma_cable_delay/src/sma_cable_delay.pio)
 
     pico_enable_stdio_uart(${target_name} ${PROJECT_ENABLE_UART_STDIO})
@@ -767,6 +770,7 @@ function(project_configure_app_target target_name app_name linker_script)
         PROJECT_SYNC_IO_INPUT_BASE_PIN=${PROJECT_SYNC_IO_INPUT_BASE_PIN}
         PROJECT_SYNC_IO_OUTPUT_BASE_PIN=${PROJECT_SYNC_IO_OUTPUT_BASE_PIN}
         PROJECT_TDMA_SPI_BAUD_HZ=${PROJECT_TDMA_SPI_BAUD_HZ}
+        PROJECT_TDMA_EVENT_OBSERVER=$<BOOL:${PROJECT_TDMA_EVENT_OBSERVER}>
         PROJECT_NODE_CAPACITY=${PROJECT_NODE_CAPACITY}
         PORTABLE_OTA_PORT_ENABLE_SESSION=1
         DRV_FLASH_LOCKOUT_PICO_RAM=1

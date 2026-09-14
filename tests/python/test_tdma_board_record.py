@@ -153,6 +153,47 @@ def test_schema_preserves_the_complete_historical_health_field_sets():
         assert [name for _, actual, name in schema if actual == group] == list(expected)
 
 
+@pytest.mark.parametrize("version", [1, 2])
+def test_versioned_record_keeps_legacy_evidence_and_observer_values(version):
+    schema = decoder.field_schema(version)
+    values = []
+    for kind, group, name in schema:
+        value = 0
+        if group == "event":
+            value = {"state": 2, "fault_bits": 1, "joined": 9, "published": 8,
+                     "rx_elapsed_cycles": 0x123456789ABCDEF}.get(name, 0)
+        values.append(value & 0xFFFFFFFF)
+        if kind == "U64":
+            values.append(value >> 32)
+    count = len(values)
+    bitmap = [sum(1 << bit for bit in range(min(32, count - start)))
+              for start in range(0, count, 32)]
+    header = [decoder.MAGIC, version, 16, count, 1000, 1, 123,
+              1, 0, 2, 0, 1000000, len(bitmap), 0, 0, 0]
+    packet = [decoder.SAMPLE, 12 + len(bitmap) + count, 0xFFFFFFFF, 0x3F,
+              100, 0, 100, 0, 110, 0, 0, 0] + bitmap + values
+    body = struct.pack(f"<{len(header + packet)}I", *(header + packet))
+    footer = [decoder.END, 16, 1, 0, 0, 1, 100, 0, 110, 0,
+              len(body), zlib.crc32(body), 123, 0, 0, 0]
+    data = body + struct.pack("<16I", *footer)
+    result = decoder.decode_record(data, expected_build=1, expected_board=2, expected_epoch=123)
+    assert result["schema"] == f"HAOFV_TDMA_BOARD_RECORD_V{version}"
+    snapshot = result["baseline"]["snapshot"]
+    if version == 1:
+        assert "event" not in snapshot
+    else:
+        assert snapshot["event"]["rx_elapsed_cycles"] == 0x123456789ABCDEF
+        assert snapshot["event"]["published"] == 8
+        assert snapshot["event"]["joined"] == 9
+        assert snapshot["event"]["state"] == 2
+    # Merely relabelling a file cannot reinterpret a different-sized schema.
+    foreign = bytearray(data)
+    struct.pack_into("<I", foreign, 4, 3 - version)
+    struct.pack_into("<I", foreign, len(body) + 44, zlib.crc32(foreign[:len(body)]))
+    with pytest.raises(ValueError, match="unknown record schema"):
+        decoder.decode_record(foreign)
+
+
 def test_storage_evidence_seal_keeps_crc_length_and_lease_checks(tmp_path):
     source = (ROOT / "components/storage_manager/src/storage_manager.c").read_text(encoding="utf-8")
     def function(name):

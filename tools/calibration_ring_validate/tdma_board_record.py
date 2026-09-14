@@ -19,15 +19,20 @@ STATUS_FIELDS = ("state", "epoch", "interval_us", "requested", "written",
                  "missed", "reason", "bytes", "job_id")
 
 
-def field_schema():
-    return re.findall(r"^RECORD_(U32|I32|U64)\((\w+), (\w+),",
-                      FIELDS_PATH.read_text(encoding="utf-8"), re.M)
+def field_schema(version=2):
+    if version not in (1, 2):
+        raise ValueError("unknown record schema")
+    fields = re.findall(r"^RECORD_(U32|I32|U64)\((\w+), (\w+),",
+                        FIELDS_PATH.read_text(encoding="utf-8"), re.M)
+    # V2 appends observer diagnostics. The original V1 ordering is immutable,
+    # allowing offline review of sealed evidence from previous builds.
+    return [field for field in fields if version == 2 or field[1] != "event"]
 
 
-def named_snapshot(values):
+def named_snapshot(values, version=2):
     groups = {}
     cursor = 0
-    for kind, group, name in field_schema():
+    for kind, group, name in field_schema(version):
         value = values[cursor]
         cursor += 1
         if kind == "U64":
@@ -63,8 +68,9 @@ def decode_record(data: bytes, *, expected_build=None, expected_board=None,
         raise ValueError("record truncated or misaligned")
     words = struct.unpack(f"<{len(data) // 4}I", data)
     h = words[:16]
-    value_count = sum(2 if kind == "U64" else 1 for kind, _, _ in field_schema())
-    if (h[:4] != (MAGIC, 1, 16, value_count) or h[11] != 1000000 or
+    version = h[1]
+    value_count = sum(2 if kind == "U64" else 1 for kind, _, _ in field_schema(version))
+    if (h[:4] != (MAGIC, version, 16, value_count) or h[11] != 1000000 or
             h[12] != (value_count + 31) // 32 or any(h[13:])):
         raise ValueError("unknown record schema")
     build, board = h[7] | h[8] << 32, h[9] | h[10] << 32
@@ -110,7 +116,7 @@ def decode_record(data: bytes, *, expected_build=None, expected_board=None,
                             target_us=p[4] | p[5] << 32,
                             started_us=p[6] | p[7] << 32,
                             completed_us=p[8] | p[9] << 32,
-                            skipped_before=p[10], snapshot=named_snapshot(values)))
+                            skipped_before=p[10], snapshot=named_snapshot(values, version)))
         cursor += count
     if footer is None or not samples or footer["written"] != len(samples) - 1:
         raise ValueError("incomplete record or sample count mismatch")
@@ -138,7 +144,7 @@ def decode_record(data: bytes, *, expected_build=None, expected_board=None,
         errors.append(f"record_terminal_reason:{footer['reason']}")
     if footer["missed"]:
         errors.append("record_missed_sampling_slots")
-    return dict(schema="HAOFV_TDMA_BOARD_RECORD_V1", build=str(build), board=f"{board:016X}",
+    return dict(schema=f"HAOFV_TDMA_BOARD_RECORD_V{version}", build=str(build), board=f"{board:016X}",
                 epoch=h[6], interval_us=h[4], baseline=samples[0], samples=samples[1:],
                 terminal=footer, errors=errors, collection_passed=not errors,
                 timing_scope="Core0 snapshot interval; not simultaneous fields or per-cycle WCET")

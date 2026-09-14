@@ -467,6 +467,7 @@ bool tdma_pio_spi_phys_get_snapshot(const tdma_pio_spi_phys_t *phys,
         return false;
     }
     *snapshot = phys->snapshot;
+    if (!tdma_pio_spi_phys_event_copy(phys, &snapshot->event)) return false;
     snapshot->rx_dma_transfer_count = s_tdma_pio_spi_rx_dma_channel < 0 ? 0u :
         dma_hw->ch[(uint)s_tdma_pio_spi_rx_dma_channel].transfer_count;
     const bool flight = tdma_pio_spi_phys_is_flight_persona();

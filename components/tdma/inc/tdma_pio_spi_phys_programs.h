@@ -7,6 +7,10 @@
 #include "tdma_pio_spi_phys.h"
 #include "tdma_pio_spi_persona_fsm.h"
 
+#ifndef PROJECT_TDMA_EVENT_OBSERVER
+#define PROJECT_TDMA_EVENT_OBSERVER 0
+#endif
+
 /* Explicit owner context for PIO program persona transitions.  The physical
  * layer owns the storage; this module only mutates the supplied offsets and
  * persona while preserving the existing PIO/SM/DMA admission rules. */
@@ -46,6 +50,8 @@ typedef struct {
     uint *flight_clock_latch_offset;
     uint *flight_rx_clock_latch_offset;
     uint *flight_origin_rtt_offset;
+    uint *event_counter_offset;
+    uint *event_sequence_offset;
     int *tx_dma_channel;
     int *rx_dma_channel;
     int *command_dma_channel;

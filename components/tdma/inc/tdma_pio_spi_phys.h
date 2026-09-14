@@ -198,6 +198,19 @@ typedef enum {
 #define TDMA_PIO_SPI_PROGRAM_PERSONA_MAX \
     TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN
 
+/* Diagnostic snapshot published through its own versioned double buffer.
+ * Neither raw cycles nor the first wire sequence confer timestamp identity. */
+typedef struct {
+    uint32_t state, reason, epoch, waiting, pio_hz, prefix_bits;
+    uint32_t joined, published, sequence, ordinal, fault_bits, fdebug, sequence_pc;
+    uint32_t rx_level_max, tx_level_max, sequence_level_max;
+    uint32_t service_count, service_gap_max_us, service_max_us;
+    uint32_t fifo_rx_first, fifo_rx_second, fifo_tx_first, fifo_tx_second;
+    uint32_t fifo_sequence_first, pending_rx, pending_tx, pending_sequence;
+    uint32_t start_pad_before, start_pad_after;
+    uint64_t rx_elapsed_cycles, tx_elapsed_cycles, start_width_cycles;
+} tdma_pio_spi_event_snapshot_t;
+
 typedef enum {
     TDMA_PIO_SPI_DATA_TRAIN_IDLE = 0u,
     TDMA_PIO_SPI_DATA_TRAIN_ARMED = 1u,
@@ -675,6 +688,7 @@ typedef struct {
     uint32_t rx_scan_yield_count;
     uint32_t rx_dma_transfer_count;
     uint32_t flight_origin_capture_phase_delay_cycles;
+    tdma_pio_spi_event_snapshot_t event;
 } tdma_pio_spi_phys_snapshot_t;
 
 typedef struct {
@@ -792,6 +806,8 @@ typedef struct {
     /* Core1 publishes only after the complete DMA tree has stopped. Persona
      * selection invalidates this archive before the union can be reused. */
     volatile uint32_t flight_origin_record_guard;
+    uint32_t flight_event_guard;
+    tdma_pio_spi_event_snapshot_t flight_event_alternate;
     uint32_t flight_origin_record_epoch;
     uint32_t flight_origin_record_published_version;
     uint32_t flight_origin_record_fault;
