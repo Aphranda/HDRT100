@@ -51,7 +51,8 @@ Last updated: 2026-09-15
 成对事件计数及有界联合读取原型见 `VDC-PROGRESS-20260915-002`；生产观察器接入与
 原生记录复核见 `VDC-PROGRESS-20260915-003`；自主模式观察 FIFO 容量与服务路径
 定位见 `VDC-PROGRESS-20260915-004`；最终启用前 CS 准入复验见
-`VDC-PROGRESS-20260915-005`。当前入口仍为
+`VDC-PROGRESS-20260915-005`；有界原始事件保留基础见
+`VDC-PROGRESS-20260915-006`。当前入口仍为
 `VDC-TIME-002`，补齐硬件配置、交接时延
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
@@ -59,6 +60,72 @@ Last updated: 2026-09-15
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260915-006 — 原始事件有界历史与失效退休
+
+- TODO task ID：`VDC-TIME-002`、`VDC-VERIFY-001`。状态：IN PROGRESS。承接已封存的
+  启动准入切片，先补齐身份关联需要的原始事件保留；此切片尚未接入 packet 查询、
+  逐 capture lease 或 DPLL 输入。
+- 证据：`out/HardwareAcceptance/20260915/dpll-event-history/`。以下构建、容量、
+  数量及时间是本轮快照，非事实源；深度以 `TDMA_EVENT_HISTORY_CAPACITY` 为准。
+- 实现边界：原先每批只将末项写入快照，新历史由 TDMA Core1 physical owner 独占，
+  在整批 observer 校验及最终 sticky-fault 复验之后接收完整批次；分别检查源 joined
+  数、epoch、ordinal、sequence、原始时间和诊断 flags，失败不留下部分新记录。
+  容器接受正确的 sequence 回绕，生产 observer 仍在 sequence 上限拒绝，不能据此
+  宣称生产跨回绕连续性；ordinal 不得回绕。STOP、重新准备和 INVALID 退休
+  历史，旧 epoch 查询和已淘汰条目不使用 latest 回退。
+- 时间/容量边界：compact 条目只保存 RX/TX elapsed、raw counter、sequence 与
+  ordinal；context 保存保守初始 start 区间，查询不会将逐事件收窄的 anchor 伪装为
+  同一精确时间点。固定保留深度只限制资源与工作量，尚未证明覆盖所有准入配置的
+  最坏 DMA/捕获/解析等待；复制出的诊断条目也不是跨 STOP/INVALID 有效的 lease。
+- 验证边界：本切片沿用板端记录 schema，实板验证只判断静态资源与原观察器/TDMA
+  运输连续性；逐项历史查询由执行真实生产函数的 host 测试验证。完整报文身份、物理 anchor、
+  timestamp_valid/dpll_eligible 均未开放，`VDC-TIME-003/004` 继续 PENDING。
+- 软件验证：`host-core-r1` 运行完整容器实现，共 11 组 C 用例，覆盖多批次淘汰、
+  非法尾项整体退休、丢失/截断批次、旧 epoch、重复候选、时间溢出及 ordinal 边界；
+  `host-integration-r1` 的 adapter/service/observer 共 4 项 pytest 通过。真实
+  owner→phys→observer 路径在 RX 等待/队列早退时逐项查询整个保留窗，验证每批
+  非末条记录；feed 后的最终 fault 注入使旧记录和新批次全部不可查询。独立
+  source/host 审核结论为 `PASS_LIMITED_TO_DIAGNOSTIC_EVENT_HISTORY_BASE`。
+- 当前源码/资源：`current-plan-r1.json` 指纹为
+  `f3e9b0296c3904018b11ce640117026f812344286a21c3aa5bff7874dfff23a9`，6/8 节点
+  A/B 构建均通过，build ID 为 `20260914184059`，同时绑定各 package SHA。
+  目标 nm 的 history 对象为 568 B，条目为 512 B，其余是 context/对齐；两容量
+  静态 RAM 增量均为 568 B，扣 heap 预留后的余量分别为 18364/14604 B，
+  SCRATCH_X 数据为零。主机 sizeof 为 576 B，目标枚举 ABI 为 small，不混用。
+  `target-abi-r1.json` 复用目标实际编译参数，函数自身静态栈为 append 96 B、
+  lookup 40 B；不等于 Core1 调用链栈高水位，lookup 本轮尚未接入生产消费路径。
+- 当前源码 P3：`p3-run-r1` 耗时 182.359 s，普通短帧 passed/closed_loop/realtime/
+  diagnostic 均为 true，四板各 14 个定时槽加 baseline 完整，STOP/ACK 后顺序
+  SD 保存读取耗时 8.547 s，SD/SRAM 一致。三从 epoch 为 1，published 为
+  674/689/703，最大服务间隔为 1588/1583/1577 µs，FIFO 为 2/2/1 words。
+  本轮 coarse/coded 校准通过，但 `strict_gates_passed=false`：TRN-01 SCK 的
+  link 1 候选覆盖失败，TRN-03 没有满足 flight re-arm budget 的实测 SCK 行，
+  选择行 `[1,0,1,0]` 的最小从板 margin 为 -1 sample。原件留存，不能提升为严格
+  校准或物理时间精度通过；前一切片的 coarse NO2 失败仍保留于其封存目录。
+- 自主对照失败：预声明的唯一 `capture-r1` 在四板 START 和 PROFILE RESET 完成后，
+  `CALibration:ORIGin:TRIAL` 返回 `<timeout>`；工具将其转整数时异常，28.328 s
+  结束并执行全部 STOP/REVOKE，没有完成自主窗口。`capture-r1-recovery` 救回
+  epoch `1789411695` 的 SRAM 原件，四板仅 4/5/5/5 个定时槽加 baseline，已写槽
+  CRC/身份均正确，但 terminal reason 为 STOP、collection 全为 false；随后顺序
+  SD 保存读取 6.656 s，SD/SRAM 完全一致，不将救援成功改成采集成功。
+- 拒绝证据：恢复时首先读到 `-200 Execution error`；正确的 STOP 后
+  `READ:CALibration:ORIGin?` 显示 version/trial_id/enabled 均为零，HANDoff 为
+  UNAVAILABLE。SCPI 准入回调在返回 ERR 时不输出数值，因此 `<timeout>` 不能证明
+  命令执行超过预算。具体拒绝分支尚未记录；该准入链不直接读取 SCK replay-safe
+  字段，不能仅凭本轮 SCK 失败归因。救援中误发的 `CALibration:ORIGin?` 缺少 READ
+  前缀，错误命令原件单独保留，不能用作 grant 证据。
+- 有限结论：source/host、目标资源和普通短帧证据闭合，独立审核允许仅按
+  `PASS_LIMITED_TO_DIAGNOSTIC_EVENT_HISTORY_BASE` 提交；自主补测未闭合，不追加
+  择优轮次。已有从板 ACTIVE 样本来自授权失败前的普通发车，不能代表自主连续性。
+- 下一 gate：先为 grant 准入建立可观察的拒绝 reason/阶段，再按预声明计划复测
+  完整自主窗口；保持既有授权条件及有限许可证，不以增加 timeout 或忽略 ERR 放行。
+  随后逐 capture 唯一编号随真实 DMA observation epoch、复制范围和复制后
+  复验结果进入 RX station，捕获时保留所需候选，Core0 只解析 station 私有 packet，
+  Core1 在 READY 后复验配置/map/取消代际及龄期，再做诊断关联。不能把
+  RX_PREPARE 的 STOP 取消 epoch 当逐 packet token，也不能仅以 sequence 相同给
+  最新事件贴上调用者提供的 expected identity；同序列异配置、覆盖、错序、重臂与
+  迟到分别拒绝。后续物理 anchor 与正式资格另行验收。
 
 ### VDC-PROGRESS-20260915-005 — 最终启用前 CS 准入复验
 
