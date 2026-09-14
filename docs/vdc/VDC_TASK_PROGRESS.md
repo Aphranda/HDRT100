@@ -25,11 +25,66 @@ Last updated: 2026-09-14
 执行顺序与任务状态统一见 `VDC_DOMAIN_TODO.md` 的“分阶段执行清单”和任务依赖表；
 本文仅追加每个切片已经发生的验证、失败和下一 gate，不复制第二份迁移顺序。
 
-当前执行入口为 `VDC-CMD-001` 的契约审计与方案准备；下一固件切片先复核
-`VDC-RESOURCE-001` 的 compact RX 状态回收，再闭合 `VDC-SCHED-001`、`VDC-ROLE-001`，
+当前固件切片为 `VDC-RESOURCE-001` 的 compact RX 状态回收；代码、行为对照与目标
+链接、四板短帧及 SD 复核已完成，严格 P3 仍未闭合。随后复核 `VDC-SCHED-001`、`VDC-ROLE-001`，
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260914-005 — compact RX 专用状态与停止后导出
+
+- TODO task ID：`VDC-RESOURCE-001`、`VDC-SCHED-001`、`VDC-VERIFY-001`。
+- 状态：IN PROGRESS；资源代码、目标链接和四板短帧已复核，严格 P3 尚未闭合。
+- 日期：2026-09-14。
+- 证据根：`out/HardwareAcceptance/20260914/dpll-compact-rx-state/`；以下大小、次数与
+  构建号均为本切片快照，非架构事实源。`plan.json` 绑定前序审计封存 manifest。
+- 实现：仅将 resident compact DELTA 的实例改为 `refmem_sync_delta_context_t`，
+  保留 peer、mirror 和本地 quality，移除该实例未使用的 ACK/fence/remote-quality。
+  栈上私有 view 复用原接收校验与排序逻辑；通用 receiver 保留全部维护能力，wire
+  不变。有效非 DELTA 输入在修改 peer/mirror 前以 BAD_TYPE 拒绝，不使用布局强转、
+  动态分配或额外静态指针。旧 DELTA payload 接受及计数语义保持，不混入协议修复。
+- 行为对照：旧 HEAD 接收器独立编译后，与当前通用和 compact receiver 对照；容量
+  4/5/6 每种运行 16384 组通用输入与 2341 组 DELTA 输入，比较逻辑 snapshot、全部
+  通用 context 及 compact 的 peer/mirror/quality，通过；含序列回绕、CRC、截断、
+  错误身份、重复、stale、gap、NULL 和重置。现有及新增 C unit tests 通过，原件见
+  `differential-results.json`、`refmem-new-tests-r1.log`。
+- 接口回归：相关 Python 首轮 159 项通过、ARM 桩函数测试失败；桩函数仍沿用动态
+  节点改造前的无参签名和缺失 staged config 的调用次数预期。同步测试桩后通过；
+  两次失败与最终通过分别保留，不改变 ARM 生产代码。
+- 目标链接：A/B/Boot 构建和 Flash link checks 通过。`source-checkpoint-r2.json`
+  绑定 build `20260914044559` 及当前源码；A/B 的 compact 实例由 2140 B 降到
+  1036 B，`.bss` 减少 1104 B，heap 外余量由 28 B 增至 1132 B；`.data`、heap
+  保留量和 PIO 字节未变。容量 4/5 的 736/920 B 仍仅为 host sizeof 对照，未称为
+  对应目标固件的 RAM 验收。
+- 采集约束修复：标准短帧工具原先在记录窗口结束后、RING 仍运行时导出。有限采集
+  现在在首次 START 后通过 finally 尝试全部 STOP，再读取冻结记录；START 或 STOP
+  失败保留各板原始动作，不把失败导出为成功样本。四板 quick P3 不再请求
+  `--leave-running`；原有运行中交接门禁仍保留，停止导出不能冒充该门禁通过。
+  对应短帧/P3 软件回归 164 项通过，含多板顺序、启动失败和停止失败注入。
+- P3：当前源码四板 OTA、软件复位及短帧诊断流程完成，源码指纹为
+  `fdc2e509bf6565a375524ca7ad3061febcc77c55c9f2870bdbf69289faa69f67`。
+  `p3-r1/diagnostic.json` 保留 NO1 粗校准 TOPOLOGY 超时，以及停止导出导致未交接
+  运行中环路两项失败；`strict_gates_passed=false`，凭证只属于四板 QUICK_DIAGNOSTIC。
+  本轮总流程约 334 s，在配置时限内；不能因此覆盖前序超时或宣称严格验收通过。
+- 四板对照：`candidate-r1/r2` 使用相同 pinned matrix 启用真实 DPLL 更新，随后
+  `restored-r1` 恢复普通配置；三轮均 `passed/closed_loop_passed/realtime_gate_passed`
+  为真。各轮记录均在全部 STOP 后导出，先保存 TDMA 释放 StorageAO，再保存 DPLL；
+  TDMA SRAM/SD 字节一致、DPLL CRC 解码及重复 SD 读取通过，命令记录中没有运行窗口
+  查询。标准 P3 的板端短帧记录也在全部 STOP 后导出并保存 SD。
+- compact 接收：两轮四板接收增量分别为 4696/4700/3132/1570 和
+  4704/4709/3140/1572，拒绝及坏 mailbox 增量均为零。这些停止读回差值包含配置过程，
+  不能当作稳态包率；板端没有直接导出每个 peer/mirror/quality，存储行为等价性由
+  独立 host 对照证明。原始读回见各轮 `*-compact.json`。
+- 调度与锁相：同一板端稳定窗口内，四板 DPLL overrun 增量为 10/0/1/0 和 9/0/0/0；
+  主板 DPLL start miss 为 642/635，TDMA overrun 为 1343/1374，仍未闭合全表 WCET。
+  enabled/quarantined mask 保持前序值，未新增健康节点隔离。两轮每板各 76 条 trace，
+  NO1 均为内部 LOCKED，三从板仍为 CHECKING，命令接收和应用增量仍为零；本次 RAM
+  回收没有补齐命令路径，不能宣称四板锁相。
+- 最终复核：`review-final.json` 汇总当前源码、目标布局、短帧、调度与锁相边界。
+  四板恢复 STOP、配置 ACK 且临时许可证 inactive；代码/凭证与 TODO/进度分离提交。
+- 下一 gate：资源任务保持 IN PROGRESS，先解决严格配置/校准及符合停止采样方式的
+  验收交接缺口，再闭合 `VDC-SCHED-001`、`VDC-ROLE-001`。命令接线仍须等待阶段基础
+  与契约独立审核，不能将 QUICK_DIAGNOSTIC 凭证等同于目标完成。
 
 ### VDC-PROGRESS-20260914-004 — 命令时间域反例与固定邮箱候选
 

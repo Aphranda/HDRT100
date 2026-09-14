@@ -122,8 +122,9 @@ RELOCKING/FAULT 状态可追溯；最终相位精度只由当前源码指纹下�
 `VDC-PROGRESS-20260914-003`。当前先推进 `VDC-CMD-001` 的只读审计、协议方案及负测
 设计，明确 resident 诊断数据与控制命令的区别。原函数反例和资源审计见
 `VDC-PROGRESS-20260914-004`，待审方案见 `VDC_COMMAND_TRANSPORT_PLAN.md`。
-下一固件切片先完成 `VDC-RESOURCE-001`，再复核 `VDC-SCHED-001`、`VDC-ROLE-001`
-的实现和验收缺口；命令路径接线须等待契约审核。
+当前固件切片为 `VDC-RESOURCE-001`：compact RX 已改为专用 DELTA 状态，行为对照和
+目标链接和四板短帧/SD 已复核，严格 P3 仍未闭合；进度见 `VDC-PROGRESS-20260914-005`。
+随后复核 `VDC-SCHED-001`、`VDC-ROLE-001` 的实现和验收缺口；命令路径接线须等待契约审核。
 
 `VDC-CMD-001` 必须回答：现有 mailbox 如何承载完整的命令身份和共同生效时间；
 如何证明接收者本地时间可映射到该时间域；如何防止 Core0/Core1 混合快照、序列回绕、
@@ -137,7 +138,7 @@ RELOCKING/FAULT 状态可追溯；最终相位精度只由当前源码指纹下�
 
 | ID | 任务 | 状态 | 依赖 | 完成或退出门禁 |
 |---|---|---|---|---|
-| `VDC-RESOURCE-001` | 收敛 compact RX 专用状态，回收此实例中未使用的通用 RefMem ACK/fence/remote-quality 数组，为命令组装和时间锚提供预算。 | PENDING | 现有 compact DELTA wire/peer/mirror/quality 行为；审计见 `VDC-PROGRESS-20260914-004` | 原/新 DELTA 接收、拒绝、peer/mirror/quality 行为对照通过；通用 receiver 保持完整能力；容量矩阵、目标 link map、当前源码 P3/短帧闭环及原始证据确认实际 RAM 回收；不借用 DMA buffer 或调整锁相门限。 |
+| `VDC-RESOURCE-001` | 收敛 compact RX 专用状态，回收此实例中未使用的通用 RefMem ACK/fence/remote-quality 数组，为命令组装和时间锚提供预算。 | IN PROGRESS | 现有 compact DELTA wire/peer/mirror/quality 行为；审计与实现见 `VDC-PROGRESS-20260914-004/005` | 原/新 DELTA 接收、拒绝、peer/mirror/quality 行为对照通过；通用 receiver 保持完整能力；容量矩阵、目标 link map、当前源码 P3/短帧闭环及原始证据确认实际 RAM 回收；不借用 DMA buffer 或调整锁相门限。 |
 | `VDC-SCHED-001` | 给 DPLL 静态相位保留入口余量，消除窗口恰好等于 WCET 引起的调度饥饿。 | IN PROGRESS | `TDMA-DET-01` 完整静态表 | 全部周期目录闭合；保留原 WCET 与准入检查；当前源码 P3、短帧闭环和四板记录对照 start miss/执行/超限；SCPI 仅控制，STOP 后保存 SD；不以调度通过代替命令准入或 formal lock。 |
 
 入口余量的实现和有限对照已记录于 `VDC-PROGRESS-20260914-001`；四板锁相复测与
