@@ -40,13 +40,68 @@ Last updated: 2026-09-14
 `VDC-PROGRESS-20260914-018`；完整校准 CRC 的 SRAM 实现、初始化失败恢复及普通/
 自主相位分离复核见 `VDC-PROGRESS-20260914-019`；就绪阶段合批、构造取消与重臂
 交接对照见 `VDC-PROGRESS-20260914-020`；原生记录逐槽离线检查及从板观察缺口见
-`VDC-PROGRESS-20260914-021`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
+`VDC-PROGRESS-20260914-021`；RX 同相位补充捕获的失败与回退见
+`VDC-PROGRESS-20260914-022`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
 `VDC-ROLE-001`；全表 WCET 和正式锁相仍未闭合，
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260914-022 — RX 同相位补充捕获的失败与回退
+
+- TODO task ID：`VDC-TIME-002`、`VDC-VERIFY-001`。
+- 状态：IN PROGRESS。拒绝当前合并试验，恢复上一已提交实现；完整观察连续性和
+  全表 WCET 仍未闭合，`VDC-TIME-003/004` 保持 PENDING。
+- 日期：2026-09-14。
+- 失败证据根：`out/HardwareAcceptance/20260914/dpll-rx-station-pipeline/`；
+  `rejected-source-checkpoint.json` 绑定未提交源码、差异、测试及先前封存，
+  `rejection-review.json` 保留逐槽增量与完整相位分解。回退复核单独保存在
+  `out/HardwareAcceptance/20260914/dpll-rx-pipeline-rollback/`，不改写前轮证据。
+  以下数值均为本轮测量快照，非事实源。
+- 试验边界：process follower 接受一个 READY 结果、退休 station 后，在同一 service
+  中至多捕获一帧交给 Core0。未增加 station、静态缓冲或资源借用，保留身份/代际/
+  年龄检查和 STOP 取消。66 项相关 host 用例通过；前两次测试夹具错误保留，容量
+  6/8 的 A/B 和 boot 构建通过，静态 RAM 不变。普通模式 quick P3 为 191.063 s，
+  passed/closed_loop/realtime 和 strict 均通过，但不能覆盖自主试验中的回归。
+- 自主试验：各板原生记录 34 条且无漏采，missing 增量均零；NO1 至 NO4 的 TDMA
+  overrun/deadline 增量分别为 509/467、14/6、7/2、14/11，RX ring overrun 为
+  0/34/15/3。原始 passed/closed_loop/realtime 均 false。从板超限分布于后续多个
+  采样区间，不是只在启动时出现；平均接收速率提高不能证明最大观察间隔缩短。
+- 完整相位：NO2/NO3/NO4 的 OTHer 峰值从 728.108/760.668/742.696 µs 升至
+  881.324/908.356/894.040 µs，超过当前配置的 TDMA 850 µs 预算。峰值内 RX
+  acceptance 为 121–173 µs、捕获为 188–213 µs，加上 request、overlay 和 owner
+  其余工作，不能在同相位内无条件追加。stage 为嵌套区间，不能全部相加。
+- 计时归因：四板累计 scheduler max 在采集首末相同，不能把历史最大值当成本窗
+  新产生的峰值。NO1 两端均为自主 persona 的采样区间中 overrun/deadline 未增长，
+  普通 origin/交接区间的失败仍计入完整窗口；跨板 slot 不作为共同时间对齐证据。
+- 回退软件验证：源码指纹恢复为
+  `ef5b67799fd11a2151750cca1d526ddc6f6322a986b4f6f9b91c0bf6945df20a`；
+  两种容量重建的 package 和全部 ELF 与封存基线逐字节相同，89 项相关 host 测试
+  通过。试验源码/测试已完整归档，其他工作区改动散列保持原样。
+- 回退硬件复核：当前源码重新四板 OTA/quick P3 为 192.000 s，三项 TDMA gate
+  及 strict 均 true、无 diagnostic failure。两次有限自主采集各板均 34 条、无漏采，
+  从板 TDMA overrun/deadline 增量两轮均零；第二轮 NO2/NO3/NO4 完整相位峰值为
+  740.984/749.244/722.224 µs。两轮 RX ring overrun 为 0/1/2/7 与 0/20/2/11，
+  missing 均零，不能宣称观察缺口已修复。第二轮 NO1 TDMA overrun/deadline 为
+  498/475，交接 7107.624 µs，原始自主三项 gate 仍 false。
+- 存储失败与恢复：回退首轮 NO3 native SAVE 为 FAILED、storage error=6；四板
+  RAM 原件完整，另三板 SD 散列一致。NO3 的一次 PEAK 查询返回 UNAVAILABLE，
+  保留原响应和工具异常。软重启时 USB ClearCommError 也作为失败保留；随后按
+  UID/build 验证 STOP/ACK，重启清空的校准相位须由下一轮重新装载，不能把重启后
+  STOP 成功误写成校准通过。第二轮重新装载配置后的四板 STOP/相位检查通过，
+  native SAVE 和 SD 字节一致性全部通过；未用主机回写副本冒充原生保存。
+- 保存顺序勘误：本轮复核沿用的 `save_capture.py`，发现其实际使用四线程。
+  前述切片关于“顺序保存”的描述不准确；保留原始命令时间序列和失败，未改写
+  封存原件。回退第二轮改为逐板保存并由首末命令时间证明无重叠，耗时 41.094 s。
+  本轮全部 START 至最终 STOP 之间仍无 SCPI 查询；最终四板 STOP/config ACK/
+  grant inactive，未操作 NO5。总复核见回退目录 `review-final-r1.json`，失败试验的
+  `slice-manifest.json` 标记 optimization_accepted=false；本轮仅提交文档进度。
+- 下一 gate：保持独立的 RX 接受与捕获相位，先降低 latch 读取/重装、DMA 观察
+  及现有单相位开销。重新合并前必须评估完整相位的剩余预算和后续保留量，不能以
+  profiling 时钟代替 owner 的生产预算，也不能取消覆盖/代际/STOP 检查。当前
+  `VDC-TIME-002` 不关闭，未接通新的 DPLL 输入，不声明四板锁相。
 
 ### VDC-PROGRESS-20260914-021 — 原生记录逐槽检查与接收观察缺口
 
