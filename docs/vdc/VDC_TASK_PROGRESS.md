@@ -38,13 +38,81 @@ Last updated: 2026-09-14
 `VDC-PROGRESS-20260914-016`；交接分阶段计时及两轮自主切换原件见
 `VDC-PROGRESS-20260914-017`；有界邮箱合批及当前四板交接对照见
 `VDC-PROGRESS-20260914-018`；完整校准 CRC 的 SRAM 实现、初始化失败恢复及普通/
-自主相位分离复核见 `VDC-PROGRESS-20260914-019`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
+自主相位分离复核见 `VDC-PROGRESS-20260914-019`；就绪阶段合批、构造取消与重臂
+交接对照见 `VDC-PROGRESS-20260914-020`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
 `VDC-ROLE-001`；全表 WCET 和正式锁相仍未闭合，
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260914-020 — 就绪阶段有界合批与取消后重臂
+
+- TODO task ID：`VDC-TIME-002`。
+- 状态：IN PROGRESS。当前四板交接时间缩短，两轮 transport missing 增量为零；
+  完整窗口的自主模式验证、普通 origin 超限及物理边沿误差仍未验收。
+- 日期：2026-09-14。
+- 证据根：`out/HardwareAcceptance/20260914/dpll-origin-ready-batch/`。
+  实现提交：`60257e0`；文档单独提交，最终提交身份由证据 manifest 绑定。
+  `initial-checkpoint.json` 绑定前轮封存与四板 STOP；最终源码和包见
+  `current-plan.json`，逐阶段原件见 `handoff-r1-review.json` /
+  `handoff-r2-review.json`，取消探针见 `cancel-r1-review.json`，总复核见
+  `review-final-r1.json`。以下数值均为本轮测量快照，非事实源。
+- 实现：`tdma_runtime_owner_origin_poll()` 按显式白名单合并已就绪的
+  STOP→PERSONA→BUILD_BEGIN 和 BUILD_STEP→SEED→SMS→INSTALL。
+  `TDMA_ORIGIN_PREPARE_BATCH_MAX_STEPS` 限定单次步数，
+  `TDMA_ORIGIN_PREPARE_BATCH_YIELD_CYCLES` 到达后不再追加步骤；该阈值取 TDMA
+  静态预算的一半，不等于最后一步或完整相位的 WCET 证明。每步重验 owner grant、
+  配置代际、时钟、期限和 STOP，physical poll 继续核对冻结配置与安装资源。
+  MAILBOX 与 STOP、BUILD_BEGIN 与 Core0 任务接收之间仍让出；未就绪的
+  BUILD_STEP 一次读取后立即返回，不忙等，不提前复用仍有 DMA/worker 占用的 union。
+- 软件与构建：33 项相关测试通过。新用例覆盖合批顺序、Core0 未完成、精确预算边界、
+  五种可合并边界上的撤销/模型/时钟/配置/期限/STOP 变化，以及每阶段失败不能继续
+  安装。首轮 expiry 用例预期同次 FAILED，但推进时钟也越过预算，实际先 BUSY
+  让出；保留 `host-r1` 超时记录，修正为验证下一次调用前拒绝且没有后续 physical
+  操作，`host-r2` 全部通过。固件未因此放宽门禁。
+- 资源与部署：容量 6/8 的 A/B、boot 增量构建分别 8.359/8.296 s；主 RAM 余量仍
+  为 4636/876 B，全部静态 RAM 段与前轮一致，SCRATCH_X 数据为零；owner poll
+  静态栈从 40 B 到 64 B，physical poll 仍为 400/464 B，Core1 预留栈 2048 B。
+  `.su` 不替代完整调用链或动态栈水位验收。当前源码指纹为
+  `a8dfd83dac6184387894961d1250bfa0e93bbc65abc9d7eefe5a8f52f850f6e5`，
+  四板部署包 SHA-256 为
+  `0dc165fc11bf3540a247c35f16c825fbaec1e417f19f25bcda6bc15f56dc714f`；
+  增量 build ID 仍为 `20260914112635`，必须结合 SHA 和 OTA 原件区分。
+- 当前源码 quick P3：包含增量构建与四板 OTA 共 183.141 s，短帧 passed/
+  closed_loop/realtime 均 true，strict_gates_passed=true，无 diagnostic failure；
+  STOP 后原生 TDMA SD 保存及字节一致性通过。本轮没有重复初始化/校准超时，
+  不表示前轮间歇故障根因已解决。
+- 交接对照：两轮 trial/config 为 36/71、68/84；总交接由前轮
+  12904.364/12735.268 µs 降为 8281.476/5889.468 µs。STOP 进入至 INSTALL 返回
+  从 10478.576/10515.896 µs 降为 6167.708/3291.404 µs，分别缩短 41.14%/68.70%。
+  STOP→PERSONA、PERSONA→BUILD_BEGIN 的体外间隙从跨调度周期缩到约数十微秒以内。
+  r1 的 BUILD_STEP 观察三次，SEED 调用体 410.096 µs 后触发合批让出；r2 观察两次，
+  SEED/SMS/INSTALL 同次推进。准备体内合计 1144.180/839.728 µs，体外合计
+  7137.296/5049.740 µs，包含 Core0 构造、调度和等待，不全部当作空闲时间。
+- 取消与恢复：两轮正常交接之间插入有限 BUILDCancel 许可证。真实 builder 发出
+  一个 descriptor run 后暂停，公共 STOP 延迟取消一次，最终入口清零、worker IDLE，
+  trial/config 为 52/77。`cancel-r1` 的传输门禁失败是主动取消试验原件；后续新代际
+  handoff-r2 成功安装，证明本配置工作区可再次借出。该探针不证明任意指令边界竞态
+  或微秒级取消上界，其余物理配置仍保留门禁。
+- 连续性与检查器边界：两轮各板原生记录各 34 条、无漏采，transport missing
+  增量均为 0/0/0/0。原始 passed/closed_loop/realtime 仍为 false；soak 的唯一
+  错误类别来自 NO1 `physical_flight_persona_mismatch` 和 `adapter_tx_not_growing`。
+  `trn03_closed_loop.py` 当前要求普通 origin persona 和软件 TX 计数，自主 persona
+  的硬件发车不能套用该假设。保留失败结果，后续须用已授权 persona、硬件计数和
+  原始计时身份建立完整窗口检查，不能简单允许任意 persona 或忽略 TX 停滞。
+  missing 为零也不证明切换期间物理发车没有间隙。
+- 完整相位：NO1 自主 RUN 峰值为 572.184/587.664 µs；普通 origin
+  CYCLE_BOUNDARY→RUNNING 的峰值为 1579.056/1460.528 µs。全窗 TDMA overrun
+  增量仍为 484/478，deadline miss 为 453/455，三块 follower 两类增量均零。
+  合批后准备阶段的独立完整相位峰值尚未取得，不能以局部调用和 RUN 峰值关闭全表
+  WCET；整表和 TDMA 预算仍由原有项目配置符号定义。
+- 收尾与下一 gate：三轮首次 START 至最后 STOP 之间没有 SCPI 查询；全部 STOP
+  后顺序保存原生 TDMA SD，字节匹配，最终 config ACK/grant inactive，未操作 NO5。
+  继续 `VDC-TIME-002`，补齐独立准备/准入峰值和普通 origin 的 RefMem 发布分解，
+  审核自主模式完整窗口检查，再验证物理边沿间隙及其余配置；不新增 DPLL 输入或
+  宣布正式锁相，`VDC-TIME-003/004` 继续等待依赖。
 
 ### VDC-PROGRESS-20260914-019 — 校准 CRC 驻留与启动相位复核
 
