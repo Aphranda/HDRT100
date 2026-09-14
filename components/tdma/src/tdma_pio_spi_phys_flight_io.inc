@@ -135,7 +135,12 @@ static bool tdma_pio_spi_phys_flight_origin_tx(
 void tdma_pio_spi_phys_service_tx(void *context, uint64_t now_ns)
 {
     tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
-    if (phys == NULL || !phys->flight_tx_pending ||
+    if (phys == NULL) return;
+    /* This owner entry runs once per TDMA phase even while Core0 prepares
+     * a receive. Harvest the finite observer FIFOs before the origin-only
+     * completion check, independently of RX parser/capture progress. */
+    tdma_pio_spi_phys_event_service(phys);
+    if (!phys->flight_tx_pending ||
         s_tdma_pio_spi_tx_dma_channel < 0 ||
         s_tdma_pio_spi_program_persona !=
             TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN) {

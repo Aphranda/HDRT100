@@ -2173,7 +2173,6 @@ static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
                                             size_t max_words,
                                             size_t *received_words)
 {
-    tdma_pio_spi_phys_event_service(phys);
     if (phys != NULL && phys->rx_scan_preparation != NULL &&
         tdma_pio_spi_phys_is_flight_persona())
         return tdma_pio_spi_phys_capture_words_async(phys, max_words, received_words);

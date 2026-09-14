@@ -962,7 +962,8 @@ bool tdma_pio_spi_phys_service_process_overlay_boundary(void *context);
 bool tdma_pio_spi_phys_process_overlay_ready(void *context);
 bool tdma_pio_spi_phys_grant_overlay(void *context, tdma_overlay_prepare_t *job);
 bool tdma_pio_spi_phys_commit_overlay(void *context, tdma_overlay_prepare_t *job);
-/* Poll the terminal token of a previously submitted flight-origin burst.
+/* Service follower event FIFOs and poll a submitted flight-origin terminal
+ * token once per TDMA owner phase, independently of RX preparation progress.
  * This is deliberately separate from the TX submit callback so core1 can
  * account the hardware launch and completion in distinct bounded passes.
  * A zero timestamp reports an aborted/recovered burst and is not evidence. */
