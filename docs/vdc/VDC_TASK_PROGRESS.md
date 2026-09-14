@@ -27,12 +27,56 @@ Last updated: 2026-09-14
 
 `VDC-RESOURCE-001` 当前编译容量的 compact RX 资源切片已闭合，有限采集的 STOP 后
 交接通过当前源码四板 quick P3 验证，见下方 `VDC-PROGRESS-20260914-006`。
-自主 origin 补测发现时间输入尚未接通，见 `VDC-PROGRESS-20260914-007`；当前先补齐
+自主 origin 补测发现时间输入尚未接通，见 `VDC-PROGRESS-20260914-007`；事件与资源
+审计见 `VDC-PROGRESS-20260914-008`，当前入口为 `VDC-TIME-002` 的集成原型与资源
+收敛。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
 `VDC-ROLE-001`；全表 WCET 和正式锁相仍未闭合，
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260914-008 — 自主计时事件、资源与区间模型审计
+
+- TODO task ID：`VDC-TIME-001/002`、`VDC-TDMA-001`、`VDC-EVID-001`。
+- 状态：事件与资源只读审计 DONE；原始计时原型 IN PROGRESS；硬件验收 PENDING。
+- 日期：2026-09-14。
+- 证据根：`out/HardwareAcceptance/20260914/dpll-origin-time-audit/`。以下容量、数量和
+  模型结果为快照，非事实源；`plan.json` 绑定上一切片封存 manifest 与当前源码指纹。
+- 事件顺序：DMA 发车字可能在 PIO guard 期间提前进入 FIFO；control 的 boundary
+  token 在 CS 拉高后产生，既不是发车边沿也不是返回 CS。预留 TX latch 程序占位
+  仍在，但 `origin_configure_sms()` 未配置/使能；RTT 只保存两类 CS 事件的相对
+  倒计数。Timer1 从 `clk_sys` 计数，现有 CPU 读取采用 raw high/low/high 复验。
+- 实际 builder：`graph_audit.c` 编译当前生产 builder 并使用实际 workspace 容量，
+  编译容量 4/5/6/8、各自允许的运行节点数均构造成功。当前容量 6 下，运行节点
+  4/5/6 分别占 293/304/315 个 run、122/124/126 个 literal；实际分配为 320/128，
+  因此此探针满节点只余 5 个 run、2 个 literal。构造输入使用连续 active mask、
+  local slot 为零及固定 guard/prefix；literal 去重可能随配置值变化，不是本轮 live
+  profile 的容量读回。通用 builder 的 384/160 上限不是可用 SRAM；native sizeof
+  单独标记，未当作目标 link map。
+- 候选操作核算：复用现有 emitter 对 FIFO 清理、重装、Timer1 前后 high/low/high、
+  暂停及缺 FIFO 分支计数。独立操作为 18 个 run，其中两次 mask 写替换已有操作，
+  净增估算为 16；运行节点 4/5/6 的候选总数为 309/320/331，满节点超出当前分配。
+  probe 新用 8 个 literal，完整图的去重与准入仍待复核；不能把此探针当已集成的
+  可执行 DMA 图。候选 raw 字段增加 32 B，producer 加归档的布局估算增加 288 B，
+  临时副本、对齐和目标链接成本尚未闭合。
+- 时基模型：`timer_latch_model.py` 解释当前四条 latch 指令，显式假定 DMA 访问
+  顺序、使能区间、GPIO 和启动延迟。2400 组候选中 2269 组区间包含模拟实际边沿，
+  131 组跨字不一致被拒绝；直接以先读 timer 加倒计数计算单点，反例偏差达到
+  41 个 tick。以上为合成输入，不能换算成实板精度结论；模型证明需要传播误差区间。
+- 生命周期边界：模型确认 FIFO 满时首字保留、无边沿不产字、未清旧 FIFO 会读取旧
+  值，并区分采样内部跨字回绕和两个一致样本之间的回绕。来源/session/STOP 等
+  拒绝条件在模型中仅为抽象输入，不算生产实现负测通过；必须由下一集成切片验证。
+- 验证：现有 origin 构造/冻结记录/准入及 timestamp clock 回归 17 项通过，文档
+  自回归测试 18 项通过；原件与实际命令分别保存于 `origin-tests-r1` 和
+  `docs-tests-r1` 日志。文档检查、pre-commit 与证据复核完成后单独提交和封存。
+- 范围与回退：本轮未修改生产固件、PIO、构建、工具或测试，也未操作四板/NO5；
+  没有新 build 或新 P3 receipt，不提升上一轮整窗失败及锁相结论。硬件终态仍引用
+  上一切片最终 STOP 原件，未将其冒充本轮 live 查询。文档单独更新 TODO 子任务和
+  Draft 方案，不改变契约登记状态。
+- 下一 gate：`VDC-TIME-002`。先将候选事件记录纳入真实 builder、完整生命周期及
+  静态资源预算，完成目标链接；随后按既有流程执行当前源码 P3 和四板原始计时
+  验收。时间准入和 trailer 接线属于后续 `VDC-TIME-004`，不能直接开展锁相调参。
 
 ### VDC-PROGRESS-20260914-007 — 自主 origin 与 DPLL 输入缺口补测
 

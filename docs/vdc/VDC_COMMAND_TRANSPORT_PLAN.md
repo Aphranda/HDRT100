@@ -88,6 +88,38 @@ reference 与 DPLL MASTER 不强制是同一角色。
 - `VdcSyncAO` 只消费已验证且同圈的描述符；`SyncDpllFB` 仍独占 PI/DCO 应用。
   本地输入闭合后再测自主更新 WCET，随后由既有 mailbox 运输完整时间锚并建立 `M_i`。
 
+#### 当前候选：预留 latch 与 Timer1 的区间关联
+
+`tdma_pio_spi_phys_origin_configure_sms()` 当前不启用预留的 TX latch；其程序已由
+`TDMA_ORIGIN_LATCH_PC` 对应 catalog 保留。候选先复用该程序捕获发车 CS 边沿的
+首个倒计数，原有 RTT 保留为回传事件的独立原始观测。TX CS、返回 CS 和 DATA 注入
+是不同事件；将它们关联成正式边沿时间仍需验证各自延迟，不能把 RTT 加到估算 TX
+时间后直接宣称 RX hardware latch。
+
+在每圈准备时清理旧 FIFO、重装计数器，并在使能 latch 前后分别读取 Timer1 的
+`TIMER_TIMERAWH_OFFSET` / `TIMER_TIMERAWL_OFFSET`，以 high/low/high 复验跨字
+一致性。DMA 只存原始字；不一致、迟到或缺边沿作为无效记录保存，不能在发车路径
+重试到成功。使用 raw 寄存器避免依赖共享 `TIMELR/TIMEHR` 锁存副作用；时钟频率、
+初始化代际和本地 capture epoch 必须随记录上下文绑定，本地 epoch 不等于分布式 session。
+
+两个一致的 timer 样本只给出 SM 使能事件的候选区间，还必须证明 DMA/MMIO 顺序、
+SM 启动和 GPIO 同步延迟。PIO 高电平倒计数提供相对时间，将这些不确定度一起传播
+为边沿区间；不能选择中点后丢弃区间宽度。DMA 向 control FIFO 写发车字时 PIO
+可能仍在 guard，因此写入发车字的时间也不能替代实际 CS 边沿。
+
+局部记录先保留原始样本、首个 FIFO 字和缺失标记，再绑定 boundary 的 sequence /
+identity / epoch。记录发布必须在生产完成后进行，既有 observation/bank guard、
+首尾 sequence、覆盖检查和 STOP 退休要随布局扩展一并复核；候选仅为本地诊断，
+不承担共同时间初始化或修改 wire trailer。执行切片见 TODO 的 `VDC-TIME-001` 至
+`VDC-TIME-004`，真实 builder 核算及离线模型见 `VDC-PROGRESS-20260914-008`。
+
+资源准入以 `TDMA_PIO_SPI_ORIGIN_RUN_CAPACITY` /
+`TDMA_PIO_SPI_ORIGIN_LITERAL_CAPACITY` 为边界，不能使用更大的通用构造上限代替实际
+分配。操作成本探针已经显示直接追加方案不能覆盖当前编译容量的全部节点配置。
+下一步先完成集成图的重排/合并和完整存储核算，再决定是否调整静态分配；新增归档、
+producer 和临时副本都计入预算，并保留后续命令/时间锚所需 RAM。目标链接及硬件
+时序仍待验收，本候选不授予 timestamp eligibility，也不冻结新的时间契约。
+
 ## 3. 固定邮箱的候选承载方式
 
 首选验证完整记录跨多次 mailbox 更新运输。保留全局时间戳 trailer、RefMem、ACK 和
