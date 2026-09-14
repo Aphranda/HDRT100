@@ -2580,7 +2580,11 @@ def run_acceptance(args: argparse.Namespace) -> None:
         "--level", str(config["tdma_profile_level"]),
         "--cycles", str(config.get("tdma_cycles", 4096)),
         "--stage", "process-image", "--dpll-provisional",
-        "--clock-evidence", "enabled", "--leave-running",
+        "--clock-evidence", "enabled",
+        # Finite four-board diagnostics export only after every ring is STOPPED.
+        # Keep the existing running-handoff gate below: this mode does not prove
+        # a live handoff and must retain that strict-gate failure in its receipt.
+        *([] if tdma_only and quick_diagnostic else ["--leave-running"]),
         "--window-s", str(config["tdma_window_s"]),
         "--sample-interval-s", str(config["tdma_sample_interval_s"]),
         "--startup-timeout-s", str(config["tdma_startup_timeout_s"]),

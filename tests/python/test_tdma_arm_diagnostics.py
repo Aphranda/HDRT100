@@ -28,7 +28,8 @@ static uint32_t board_no, map_calls, arm_calls, s_tdma_ring_arm_last_result;
 static tdma_service_flight_map_result_t rejection;
 static tdma_service_service_t *tdma_runtime_owner_get(void) { return owner_available ? &owner : NULL; }
 static uint32_t board_identity_get_no(void) { return board_no; }
-static tdma_process_image_map_t distributed_refmem_default_flight_map(void) {
+static tdma_process_image_map_t distributed_refmem_default_flight_map(uint32_t node_count) {
+    assert(node_count == owner.ring_staged_config.node_count);
     tdma_process_image_map_t map = {0}; return map;
 }
 bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime, tdma_ring_runtime_snapshot_t *snapshot) {
@@ -78,7 +79,7 @@ int main(void) {
     reset(); owner_available = false; result(DISTRIBUTED_REFMEM_TDMA_ARM_OWNER_UNAVAILABLE, 0, 0);
     reset(); snapshot_available = false; result(DISTRIBUTED_REFMEM_TDMA_ARM_SNAPSHOT_UNAVAILABLE, 0, 0);
     reset(); runtime_active = true; result(DISTRIBUTED_REFMEM_TDMA_ARM_RUNTIME_ACTIVE, 0, 0);
-    reset(); owner.ring_staged_config.enabled = 0; result(DISTRIBUTED_REFMEM_TDMA_ARM_STAGED_CONFIG_MISSING, 1, 0);
+    reset(); owner.ring_staged_config.enabled = 0; result(DISTRIBUTED_REFMEM_TDMA_ARM_STAGED_CONFIG_MISSING, 0, 0);
     reset(); owner.calibration_gate_required = 1; calibration_valid = false;
     result(DISTRIBUTED_REFMEM_TDMA_ARM_CALIBRATION_GATE_REJECTED, 1, 0);
     reset(); runtime_accepts = false; result(DISTRIBUTED_REFMEM_TDMA_ARM_RUNTIME_CONFIG_REJECTED, 1, 1);

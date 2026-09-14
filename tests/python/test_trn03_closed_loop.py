@@ -1886,8 +1886,46 @@ def test_board_acquisition_sends_no_query_in_collection_window(monkeypatch, tmp_
     boards = [SimpleNamespace(address="node0")]
     progress = SimpleNamespace(emit=lambda *a, **kw: None)
     result = trn03.acquire_board_records(boards, boards, args, [], progress, tmp_path)
-    assert len(calls) == 3  # ARM, control acknowledgement, START.
+    assert len(calls) == 4  # ARM, control acknowledgement, START, STOP.
+    assert calls[-1][1] == "SYSTem:TDMA:RING:STOP"
     assert result["node0"]["exported_at"] >= 12.0
+
+
+@pytest.mark.parametrize("failure", [None, "start", "stop"])
+def test_finite_acquisition_stops_all_boards_before_export(monkeypatch, tmp_path, failure):
+    clock, calls = [10.0], []
+    monkeypatch.setattr(trn03.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(trn03.time, "time", lambda: 123)
+    monkeypatch.setattr(trn03.time, "sleep", lambda delay: clock.__setitem__(0, clock[0] + delay))
+    boards = [SimpleNamespace(address=f"node{i}") for i in range(4)]
+    args = SimpleNamespace(sample_interval_s=0.25, startup_timeout_s=0.5,
+                           window_s=0.5, arm_wait=1, leave_running=False)
+    def command(board, text, args):
+        calls.append((board.address, text))
+        if board.address == "node0" and (
+                (failure == "start" and text.endswith(":START")) or
+                (failure == "stop" and text.endswith(":STOP"))):
+            raise RuntimeError("injected " + failure)
+        return "3,123,250000,8,0,0,0,1600,0" if text.endswith("STATus?") else '"OK"'
+    def export(board, *unused, **kwargs):
+        assert sum(text.endswith(":STOP") for _, text in calls) == len(boards)
+        assert failure is None
+        return {"exported": True}
+    monkeypatch.setattr(trn03, "board_command", command)
+    monkeypatch.setattr(trn03, "export_frozen", export)
+    progress = SimpleNamespace(emit=lambda *a, **kw: None)
+    actions = []
+    if failure:
+        with pytest.raises(RuntimeError, match="injected " + failure):
+            trn03.acquire_board_records(boards, boards, args, actions, progress, tmp_path)
+    else:
+        result = trn03.acquire_board_records(boards, boards, args, actions, progress, tmp_path)
+        assert all(row["exported"] for row in result.values())
+    first = next(i for i, (_, text) in enumerate(calls) if text.endswith(":START"))
+    assert not any("?" in text for _, text in calls[first:])
+    stops = [row for row in actions if row["action"] == "STOP_BEFORE_EXPORT"]
+    assert [row["node"] for row in stops] == [board.address for board in boards]
+    assert sum("error" in row for row in stops) == (failure == "stop")
 
 
 def test_closed_loop_diagnostic_mode_preserves_failed_gate_and_continues() -> None:

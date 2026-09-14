@@ -2,6 +2,18 @@
 
 #include <string.h>
 
+/* Stack-only view: each receiver owns its storage. No cast between context
+ * layouts or heap allocation is needed to share validation and ordering. */
+typedef struct {
+    uint8_t local_slot;
+    uint32_t active_epoch_id;
+    uint32_t active_run_id;
+    refmem_sync_peer_state_t *peer;
+    refmem_sync_mirror_snapshot_t *mirror;
+    refmem_sync_quality_counters_t *quality;
+    refmem_sync_context_t *maintenance;
+} refmem_sync_rx_context_t;
+
 static bool refmem_sync_target_matches(uint8_t target_mask, uint8_t local_slot)
 {
     if (local_slot >= REFMEM_SYNC_NODE_COUNT) {
@@ -28,12 +40,12 @@ static uint32_t refmem_sync_read_le_u32(const uint8_t *data, uint16_t size)
     return value;
 }
 
-static bool refmem_sync_commit_delta(refmem_sync_context_t *context,
+static bool refmem_sync_commit_delta(refmem_sync_mirror_snapshot_t *mirror,
                                      const refmem_sync_frame_header_t *header,
                                      const uint8_t *payload,
                                      uint16_t payload_size)
 {
-    if (context == NULL || header == NULL || payload == NULL ||
+    if (mirror == NULL || header == NULL || payload == NULL ||
         header->source_slot >= REFMEM_SYNC_NODE_COUNT ||
         payload_size < sizeof(refmem_sync_delta_header_t)) {
         return false;
@@ -46,7 +58,6 @@ static bool refmem_sync_commit_delta(refmem_sync_context_t *context,
         return false;
     }
 
-    refmem_sync_mirror_snapshot_t *mirror = &context->mirror[header->source_slot];
     mirror->visible = 1u;
     mirror->source_slot = header->source_slot;
     mirror->slot_id = delta.slot_id;
@@ -232,10 +243,11 @@ bool refmem_sync_set_epoch(refmem_sync_context_t *context,
     return true;
 }
 
-refmem_sync_rx_result_t refmem_sync_receive_frame(refmem_sync_context_t *context,
-                                                  const uint8_t *frame,
-                                                  size_t frame_size,
-                                                  refmem_sync_rx_snapshot_t *snapshot)
+static refmem_sync_rx_result_t refmem_sync_receive_frame_impl(
+    const refmem_sync_rx_context_t *context,
+    const uint8_t *frame,
+    size_t frame_size,
+    refmem_sync_rx_snapshot_t *snapshot)
 {
     refmem_sync_frame_header_t header;
     const uint8_t *payload = NULL;
@@ -252,7 +264,7 @@ refmem_sync_rx_result_t refmem_sync_receive_frame(refmem_sync_context_t *context
         return REFMEM_SYNC_RX_BAD_ARGUMENT;
     }
 
-    context->quality.frame_rx_count++;
+    context->quality->frame_rx_count++;
 
     const refmem_sync_frame_result_t frame_result =
         refmem_sync_frame_validate(frame, frame_size, &header, &payload, &payload_size);
@@ -261,9 +273,9 @@ refmem_sync_rx_result_t refmem_sync_receive_frame(refmem_sync_context_t *context
         const refmem_sync_frame_header_t *snapshot_header = NULL;
         const uint8_t *snapshot_payload = NULL;
         uint16_t snapshot_payload_size = 0u;
-        context->quality.bad_frame_count++;
+        context->quality->bad_frame_count++;
         if (frame_result == REFMEM_SYNC_FRAME_BAD_PAYLOAD_CRC) {
-            context->quality.crc_error_count++;
+            context->quality->crc_error_count++;
             if (refmem_sync_frame_decode_header(frame,
                                                 frame_size,
                                                 &bad_header) == REFMEM_SYNC_FRAME_OK) {
@@ -272,7 +284,7 @@ refmem_sync_rx_result_t refmem_sync_receive_frame(refmem_sync_context_t *context
                 snapshot_payload_size = bad_header.payload_size;
             }
         } else {
-            context->quality.header_error_count++;
+            context->quality->header_error_count++;
         }
         refmem_sync_fill_snapshot(snapshot,
                                   REFMEM_SYNC_RX_FRAME_INVALID,
@@ -285,7 +297,7 @@ refmem_sync_rx_result_t refmem_sync_receive_frame(refmem_sync_context_t *context
     }
 
     if (header.source_slot >= REFMEM_SYNC_NODE_COUNT) {
-        context->quality.source_error_count++;
+        context->quality->source_error_count++;
         refmem_sync_fill_snapshot(snapshot,
                                   REFMEM_SYNC_RX_SOURCE_SLOT_INVALID,
                                   frame_result,
@@ -297,7 +309,7 @@ refmem_sync_rx_result_t refmem_sync_receive_frame(refmem_sync_context_t *context
     }
 
     if (!refmem_sync_target_matches(header.target_mask, context->local_slot)) {
-        context->quality.target_mismatch_count++;
+        context->quality->target_mismatch_count++;
         refmem_sync_fill_snapshot(snapshot,
                                   REFMEM_SYNC_RX_TARGET_MISMATCH,
                                   frame_result,
@@ -311,7 +323,7 @@ refmem_sync_rx_result_t refmem_sync_receive_frame(refmem_sync_context_t *context
     if (refmem_sync_requires_epoch_match(header.frame_type) &&
         (header.epoch_id != context->active_epoch_id ||
          header.run_id != context->active_run_id)) {
-        context->quality.epoch_mismatch_count++;
+        context->quality->epoch_mismatch_count++;
         refmem_sync_fill_snapshot(snapshot,
                                   REFMEM_SYNC_RX_EPOCH_MISMATCH,
                                   frame_result,
@@ -322,12 +334,26 @@ refmem_sync_rx_result_t refmem_sync_receive_frame(refmem_sync_context_t *context
         return REFMEM_SYNC_RX_EPOCH_MISMATCH;
     }
 
+    if (context->maintenance == NULL &&
+        header.frame_type != (uint8_t)REFMEM_SYNC_FRAME_DELTA) {
+        context->quality->bad_frame_count++;
+        context->quality->header_error_count++;
+        refmem_sync_fill_snapshot(snapshot,
+                                  REFMEM_SYNC_RX_FRAME_INVALID,
+                                  REFMEM_SYNC_FRAME_BAD_TYPE,
+                                  &header,
+                                  payload,
+                                  payload_size,
+                                  false);
+        return REFMEM_SYNC_RX_FRAME_INVALID;
+    }
+
     if (header.frame_type == (uint8_t)REFMEM_SYNC_FRAME_COMMAND &&
         payload_size == sizeof(refmem_sync_vdc_command_payload_t)) {
         /* Maintenance/node-load context must not consume the VDC command
          * sequence domain. The dedicated VDC context validates and retains
          * the same frame independently by source slot. */
-        context->quality.accepted_count++;
+        context->quality->accepted_count++;
         refmem_sync_fill_snapshot(snapshot,
                                   REFMEM_SYNC_RX_ACCEPTED,
                                   frame_result,
@@ -342,7 +368,7 @@ refmem_sync_rx_result_t refmem_sync_receive_frame(refmem_sync_context_t *context
     if (peer->seen != 0u) {
         if (header.seq32 == peer->last_seq32) {
             peer->duplicate_count++;
-            context->quality.duplicate_count++;
+            context->quality->duplicate_count++;
             refmem_sync_fill_snapshot(snapshot,
                                       REFMEM_SYNC_RX_DUPLICATE_SEQ,
                                       frame_result,
@@ -354,7 +380,7 @@ refmem_sync_rx_result_t refmem_sync_receive_frame(refmem_sync_context_t *context
         }
         if ((int32_t)(header.seq32 - peer->last_seq32) < 0) {
             peer->stale_count++;
-            context->quality.stale_count++;
+            context->quality->stale_count++;
             refmem_sync_fill_snapshot(snapshot,
                                       REFMEM_SYNC_RX_STALE_SEQ,
                                       frame_result,
@@ -367,7 +393,7 @@ refmem_sync_rx_result_t refmem_sync_receive_frame(refmem_sync_context_t *context
         if (header.seq32 > peer->expected_seq32) {
             const uint32_t dropped = header.seq32 - peer->expected_seq32;
             peer->drop_count += dropped;
-            context->quality.drop_count += dropped;
+            context->quality->drop_count += dropped;
         }
     }
 
@@ -385,16 +411,20 @@ refmem_sync_rx_result_t refmem_sync_receive_frame(refmem_sync_context_t *context
     peer->last_payload_crc32 = header.payload_crc32;
 
     if (header.frame_type == (uint8_t)REFMEM_SYNC_FRAME_DELTA) {
-        (void)refmem_sync_commit_delta(context, &header, payload, payload_size);
+        (void)refmem_sync_commit_delta(&context->mirror[header.source_slot],
+                                       &header, payload, payload_size);
     } else if (header.frame_type == (uint8_t)REFMEM_SYNC_FRAME_ACK_NACK) {
-        (void)refmem_sync_commit_ack_nack(context, &header, payload, payload_size);
+        (void)refmem_sync_commit_ack_nack(context->maintenance,
+                                          &header, payload, payload_size);
     } else if (header.frame_type == (uint8_t)REFMEM_SYNC_FRAME_FENCE) {
-        (void)refmem_sync_commit_fence(context, &header, payload, payload_size);
+        (void)refmem_sync_commit_fence(context->maintenance,
+                                       &header, payload, payload_size);
     } else if (header.frame_type == (uint8_t)REFMEM_SYNC_FRAME_QUALITY) {
-        (void)refmem_sync_commit_quality(context, &header, payload, payload_size);
+        (void)refmem_sync_commit_quality(context->maintenance,
+                                         &header, payload, payload_size);
     }
 
-    context->quality.accepted_count++;
+    context->quality->accepted_count++;
     refmem_sync_fill_snapshot(snapshot,
                               REFMEM_SYNC_RX_ACCEPTED,
                               frame_result,
@@ -403,6 +433,95 @@ refmem_sync_rx_result_t refmem_sync_receive_frame(refmem_sync_context_t *context
                               payload_size,
                               true);
     return REFMEM_SYNC_RX_ACCEPTED;
+}
+
+refmem_sync_rx_result_t refmem_sync_receive_frame(
+    refmem_sync_context_t *context,
+    const uint8_t *frame,
+    size_t frame_size,
+    refmem_sync_rx_snapshot_t *snapshot)
+{
+    if (context == NULL) {
+        return refmem_sync_receive_frame_impl(NULL, frame, frame_size, snapshot);
+    }
+    const refmem_sync_rx_context_t view = {
+        .local_slot = context->local_slot,
+        .active_epoch_id = context->active_epoch_id,
+        .active_run_id = context->active_run_id,
+        .peer = context->peer,
+        .mirror = context->mirror,
+        .quality = &context->quality,
+        .maintenance = context,
+    };
+    return refmem_sync_receive_frame_impl(&view, frame, frame_size, snapshot);
+}
+
+bool refmem_sync_delta_init(refmem_sync_delta_context_t *context,
+                            uint8_t local_slot,
+                            uint32_t active_epoch_id,
+                            uint32_t active_run_id)
+{
+    if (context == NULL || local_slot >= REFMEM_SYNC_NODE_COUNT) {
+        return false;
+    }
+    memset(context, 0, sizeof(*context));
+    context->local_slot = local_slot;
+    context->active_epoch_id = active_epoch_id;
+    context->active_run_id = active_run_id;
+    return true;
+}
+
+refmem_sync_rx_result_t refmem_sync_delta_receive_frame(
+    refmem_sync_delta_context_t *context,
+    const uint8_t *frame,
+    size_t frame_size,
+    refmem_sync_rx_snapshot_t *snapshot)
+{
+    if (context == NULL) {
+        return refmem_sync_receive_frame_impl(NULL, frame, frame_size, snapshot);
+    }
+    const refmem_sync_rx_context_t view = {
+        .local_slot = context->local_slot,
+        .active_epoch_id = context->active_epoch_id,
+        .active_run_id = context->active_run_id,
+        .peer = context->peer,
+        .mirror = context->mirror,
+        .quality = &context->quality,
+        .maintenance = NULL,
+    };
+    return refmem_sync_receive_frame_impl(&view, frame, frame_size, snapshot);
+}
+
+const refmem_sync_peer_state_t *refmem_sync_delta_get_peer(
+    const refmem_sync_delta_context_t *context,
+    uint8_t source_slot)
+{
+    if (context == NULL || source_slot >= REFMEM_SYNC_NODE_COUNT) {
+        return NULL;
+    }
+    return &context->peer[source_slot];
+}
+
+const refmem_sync_mirror_snapshot_t *refmem_sync_delta_get_mirror(
+    const refmem_sync_delta_context_t *context,
+    uint8_t source_slot)
+{
+    if (context == NULL || source_slot >= REFMEM_SYNC_NODE_COUNT) {
+        return NULL;
+    }
+    return &context->mirror[source_slot];
+}
+
+void refmem_sync_delta_get_quality(const refmem_sync_delta_context_t *context,
+                                   refmem_sync_quality_counters_t *quality)
+{
+    if (quality == NULL) {
+        return;
+    }
+    memset(quality, 0, sizeof(*quality));
+    if (context != NULL) {
+        *quality = context->quality;
+    }
 }
 
 bool refmem_sync_vdc_init(refmem_sync_vdc_context_t *context,

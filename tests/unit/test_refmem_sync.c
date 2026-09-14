@@ -774,6 +774,152 @@ static int test_vdc_command_retention_and_rejection(void)
     return failed;
 }
 
+static int test_delta_receiver_lifecycle_and_ordering(void)
+{
+    int failed = 0;
+    struct {
+        uint32_t before;
+        refmem_sync_delta_context_t context;
+        uint32_t after;
+    } guarded = {.before = 0xA5A5A5A5u, .after = 0x5A5A5A5Au};
+    refmem_sync_delta_context_t *context = &guarded.context;
+    failed += expect_bool("delta null init",
+                          refmem_sync_delta_init(NULL, 2u, 7u, 8u), false);
+    failed += expect_bool("delta invalid local",
+                          refmem_sync_delta_init(context, REFMEM_SYNC_NODE_COUNT,
+                                                 7u, 8u), false);
+    failed += expect_bool("delta init",
+                          refmem_sync_delta_init(context, 2u, 7u, 8u), true);
+    refmem_sync_delta_header_t delta = {0};
+    delta.slot_id = 0u;
+    delta.slot_seq = 11u;
+    delta.field_id = 3u;
+    delta.field_width = 4u;
+    delta.dirty_mask = 1u;
+    uint8_t payload[sizeof(delta) + 4u];
+    memcpy(payload, &delta, sizeof(delta));
+    payload[sizeof(delta)] = 0x12u;
+    payload[sizeof(delta) + 1u] = 0x34u;
+    payload[sizeof(delta) + 2u] = 0x56u;
+    payload[sizeof(delta) + 3u] = 0x78u;
+    uint8_t frame[128];
+    size_t size = 0u;
+    refmem_sync_rx_snapshot_t rx;
+    failed += expect_bool("delta initial frame",
+                          make_frame(REFMEM_SYNC_FRAME_DELTA, 0u, 4u, 7u, 8u,
+                                     UINT32_MAX, payload, sizeof(payload),
+                                     frame, sizeof(frame), &size), true);
+    failed += expect_u32("delta first accepted",
+                          refmem_sync_delta_receive_frame(context, frame, size,
+                                                          &rx),
+                          REFMEM_SYNC_RX_ACCEPTED);
+    failed += expect_u32("delta actual value",
+                          context->mirror[0].value_u32, 0x78563412u);
+    failed += expect_u32("delta duplicate",
+                          refmem_sync_delta_receive_frame(context, frame, size,
+                                                          &rx),
+                          REFMEM_SYNC_RX_DUPLICATE_SEQ);
+    failed += expect_bool("delta wrapped frame",
+                          make_frame(REFMEM_SYNC_FRAME_DELTA, 0u, 4u, 7u, 8u,
+                                     1u, payload, sizeof(payload),
+                                     frame, sizeof(frame), &size), true);
+    failed += expect_u32("delta wrap accepted",
+                          refmem_sync_delta_receive_frame(context, frame, size,
+                                                          &rx),
+                          REFMEM_SYNC_RX_ACCEPTED);
+    failed += expect_u32("delta wrap peer seq", context->peer[0].last_seq32, 1u);
+    failed += expect_u32("delta only accepted commits",
+                          context->mirror[0].committed_count, 2u);
+    frame[size - 1u] ^= 1u;
+    failed += expect_u32("delta bad CRC rejected",
+                          refmem_sync_delta_receive_frame(context, frame, size,
+                                                          &rx),
+                          REFMEM_SYNC_RX_FRAME_INVALID);
+    failed += expect_u32("delta CRC kept stable value",
+                          context->mirror[0].value_u32, 0x78563412u);
+    failed += expect_bool("delta wrong target frame",
+                          make_frame(REFMEM_SYNC_FRAME_DELTA, 1u, 2u, 7u, 8u,
+                                     2u, payload, sizeof(payload),
+                                     frame, sizeof(frame), &size), true);
+    failed += expect_u32("delta wrong target rejected",
+                          refmem_sync_delta_receive_frame(context, frame, size,
+                                                          &rx),
+                          REFMEM_SYNC_RX_TARGET_MISMATCH);
+    failed += expect_u32("delta wrong target source untouched",
+                          context->peer[1].seen, 0u);
+    failed += expect_bool("delta old session frame",
+                          make_frame(REFMEM_SYNC_FRAME_DELTA, 1u, 4u, 7u, 9u,
+                                     3u, payload, sizeof(payload),
+                                     frame, sizeof(frame), &size), true);
+    failed += expect_u32("delta old session rejected",
+                          refmem_sync_delta_receive_frame(context, frame, size,
+                                                          &rx),
+                          REFMEM_SYNC_RX_EPOCH_MISMATCH);
+    failed += expect_bool("delta peer accessor",
+                          refmem_sync_delta_get_peer(context, 0u) ==
+                              &context->peer[0], true);
+    failed += expect_bool("delta mirror accessor",
+                          refmem_sync_delta_get_mirror(context, 0u) ==
+                              &context->mirror[0], true);
+    failed += expect_bool("delta invalid peer accessor",
+                          refmem_sync_delta_get_peer(context,
+                              REFMEM_SYNC_NODE_COUNT) == NULL, true);
+    failed += expect_bool("delta null mirror accessor",
+                          refmem_sync_delta_get_mirror(NULL, 0u) == NULL, true);
+    refmem_sync_quality_counters_t quality;
+    refmem_sync_delta_get_quality(context, &quality);
+    failed += expect_u32("delta accepted quality", quality.accepted_count, 2u);
+    failed += expect_u32("delta duplicate quality", quality.duplicate_count, 1u);
+    failed += expect_u32("delta CRC quality", quality.crc_error_count, 1u);
+    refmem_sync_delta_get_quality(NULL, &quality);
+    failed += expect_u32("delta null quality cleared", quality.accepted_count, 0u);
+    failed += expect_bool("delta topology reset",
+                          refmem_sync_delta_init(context, 1u, 9u, 10u), true);
+    failed += expect_u32("delta reset peer", context->peer[0].seen, 0u);
+    failed += expect_u32("delta reset mirror", context->mirror[0].visible, 0u);
+    failed += expect_u32("delta reset quality", context->quality.frame_rx_count, 0u);
+    failed += expect_u32("delta lower canary", guarded.before, 0xA5A5A5A5u);
+    failed += expect_u32("delta upper canary", guarded.after, 0x5A5A5A5Au);
+    return failed;
+}
+
+static int test_delta_receiver_rejects_other_frame_types(void)
+{
+    int failed = 0;
+    refmem_sync_delta_context_t context;
+    (void)refmem_sync_delta_init(&context, 2u, 7u, 8u);
+    context.peer[0].last_seq32 = 123u;
+    context.mirror[0].value_u32 = 456u;
+    const uint8_t kinds[] = {
+        REFMEM_SYNC_FRAME_HELLO, REFMEM_SYNC_FRAME_EPOCH,
+        REFMEM_SYNC_FRAME_COMMAND, REFMEM_SYNC_FRAME_ACK_NACK,
+        REFMEM_SYNC_FRAME_FENCE, REFMEM_SYNC_FRAME_QUALITY,
+    };
+    const uint32_t payload = 1u;
+    uint8_t frame[128];
+    size_t size = 0u;
+    for (size_t i = 0; i < sizeof(kinds); i++) {
+        failed += expect_bool("non-delta frame build",
+                              make_frame(kinds[i], 0u, 4u, 7u, 8u, 124u,
+                                         &payload, sizeof(payload), frame,
+                                         sizeof(frame), &size), true);
+        refmem_sync_rx_snapshot_t rx;
+        failed += expect_u32("non-delta type rejected",
+                              refmem_sync_delta_receive_frame(&context, frame,
+                                                              size, &rx),
+                              REFMEM_SYNC_RX_FRAME_INVALID);
+        failed += expect_u32("non-delta reason", rx.frame_result,
+                              REFMEM_SYNC_FRAME_BAD_TYPE);
+        failed += expect_u32("non-delta peer untouched",
+                              context.peer[0].last_seq32, 123u);
+        failed += expect_u32("non-delta mirror untouched",
+                              context.mirror[0].value_u32, 456u);
+    }
+    failed += expect_u32("non-delta type counter",
+                          context.quality.header_error_count, sizeof(kinds));
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -786,6 +932,8 @@ int main(void)
     failed += test_quality_commit();
     failed += test_frame_error_quality();
     failed += test_vdc_command_retention_and_rejection();
+    failed += test_delta_receiver_lifecycle_and_ordering();
+    failed += test_delta_receiver_rejects_other_frame_types();
 
     if (failed != 0) {
         (void)printf("refmem_sync tests failed: %d\n", failed);

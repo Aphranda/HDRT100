@@ -241,7 +241,7 @@ typedef struct {
     uint32_t last_optional_diagnostic;
     uint32_t last_mailbox_crc16;
     uint32_t last_error;
-    refmem_sync_context_t context;
+    refmem_sync_delta_context_t context;
     uint8_t tx_image[DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_PAYLOAD_SIZE];
 } distributed_refmem_tdma_flight_sync_t;
 
@@ -297,7 +297,7 @@ static void distributed_refmem_tdma_flight_sync_init(void)
     s_tdma_flight_sync.publish_interval_ms =
         DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_INTERVAL_MS;
     s_tdma_flight_sync.next_seq32 = 1u;
-    (void)refmem_sync_init(&s_tdma_flight_sync.context,
+    (void)refmem_sync_delta_init(&s_tdma_flight_sync.context,
                            (uint8_t)s_tdma_flight_sync.local_slot,
                            DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_DEFAULT_EPOCH,
                            DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_DEFAULT_RUN);
@@ -329,7 +329,7 @@ static void distributed_refmem_tdma_flight_sync_update_ring(
     memset(s_tdma_flight_sync.rx_last_seq_by_source,
            0,
            sizeof(s_tdma_flight_sync.rx_last_seq_by_source));
-    (void)refmem_sync_init(&s_tdma_flight_sync.context,
+    (void)refmem_sync_delta_init(&s_tdma_flight_sync.context,
                            (uint8_t)s_tdma_flight_sync.local_slot,
                            DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_DEFAULT_EPOCH,
                            DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_DEFAULT_RUN);
@@ -581,7 +581,7 @@ static void distributed_refmem_tdma_flight_parse_mailbox(
     const uint32_t source_bit = 1u << header.source_slot;
     refmem_sync_rx_snapshot_t rx;
     const refmem_sync_rx_result_t result =
-        refmem_sync_receive_frame(&s_tdma_flight_sync.context,
+        refmem_sync_delta_receive_frame(&s_tdma_flight_sync.context,
                                   frame,
                                   frame_size,
                                   &rx);
@@ -3349,7 +3349,7 @@ bool distributed_refmem_get_tdma_flight_sync_peer(
         return false;
     }
     const refmem_sync_peer_state_t *peer =
-        refmem_sync_get_peer(&s_tdma_flight_sync.context,
+        refmem_sync_delta_get_peer(&s_tdma_flight_sync.context,
                              (uint8_t)source_slot);
     if (peer == NULL) {
         return false;
@@ -3366,7 +3366,7 @@ bool distributed_refmem_get_tdma_flight_sync_mirror(
         return false;
     }
     const refmem_sync_mirror_snapshot_t *mirror =
-        refmem_sync_get_mirror(&s_tdma_flight_sync.context,
+        refmem_sync_delta_get_mirror(&s_tdma_flight_sync.context,
                                (uint8_t)source_slot);
     if (mirror == NULL) {
         return false;
@@ -3664,7 +3664,7 @@ bool distributed_refmem_get_vdc_follower_command(
 void distributed_refmem_get_tdma_flight_sync_quality(
     refmem_sync_quality_counters_t *snapshot)
 {
-    refmem_sync_get_quality(&s_tdma_flight_sync.context, snapshot);
+    refmem_sync_delta_get_quality(&s_tdma_flight_sync.context, snapshot);
 }
 
 bool distributed_refmem_set_tdma_ring_local_slot(uint32_t local_slot_id)

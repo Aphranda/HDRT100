@@ -154,6 +154,19 @@ typedef struct {
     refmem_sync_quality_counters_t quality;
 } refmem_sync_context_t;
 
+/* The resident compact mailbox expands only to DELTA. It needs peer order,
+ * the value mirror and local quality counters, but no maintenance ACK/fence
+ * or remote-quality retention. This is private receiver state, not a wire
+ * layout. The generic receiver above keeps its complete maintenance state. */
+typedef struct {
+    uint8_t local_slot;
+    uint32_t active_epoch_id;
+    uint32_t active_run_id;
+    refmem_sync_peer_state_t peer[REFMEM_SYNC_NODE_COUNT];
+    refmem_sync_mirror_snapshot_t mirror[REFMEM_SYNC_NODE_COUNT];
+    refmem_sync_quality_counters_t quality;
+} refmem_sync_delta_context_t;
+
 /* VDC command retention is intentionally separate from the maintenance
  * mirror/ack/fence state.  Followers only need command ordering and the
  * retained signal-DCO command, so keeping a full refmem_sync_context_t here
@@ -187,6 +200,26 @@ refmem_sync_rx_result_t refmem_sync_receive_frame(refmem_sync_context_t *context
                                                   const uint8_t *frame,
                                                   size_t frame_size,
                                                   refmem_sync_rx_snapshot_t *snapshot);
+bool refmem_sync_delta_init(refmem_sync_delta_context_t *context,
+                            uint8_t local_slot,
+                            uint32_t active_epoch_id,
+                            uint32_t active_run_id);
+/* Valid non-DELTA frames are rejected as FRAME_INVALID / BAD_TYPE before
+ * touching peer or mirror state. Frame/CRC/identity/order checks are shared
+ * with the generic receiver, including its existing DELTA payload behavior. */
+refmem_sync_rx_result_t refmem_sync_delta_receive_frame(
+    refmem_sync_delta_context_t *context,
+    const uint8_t *frame,
+    size_t frame_size,
+    refmem_sync_rx_snapshot_t *snapshot);
+const refmem_sync_peer_state_t *refmem_sync_delta_get_peer(
+    const refmem_sync_delta_context_t *context,
+    uint8_t source_slot);
+const refmem_sync_mirror_snapshot_t *refmem_sync_delta_get_mirror(
+    const refmem_sync_delta_context_t *context,
+    uint8_t source_slot);
+void refmem_sync_delta_get_quality(const refmem_sync_delta_context_t *context,
+                                   refmem_sync_quality_counters_t *quality);
 bool refmem_sync_vdc_init(refmem_sync_vdc_context_t *context,
                           uint8_t local_slot,
                           uint32_t active_epoch_id,
