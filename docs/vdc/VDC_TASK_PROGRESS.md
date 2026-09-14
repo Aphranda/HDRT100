@@ -57,7 +57,8 @@ Last updated: 2026-09-15
 收敛见 `VDC-PROGRESS-20260915-008`；READY 有界候选查询与原生记录见
 `VDC-PROGRESS-20260915-009`，其自主准入拒绝及部分窗口原件保留；foundation 专用
 读取与随后获准的完整原生窗口见 `VDC-PROGRESS-20260915-010`；首次 observer 启用
-的 DMA 坐标括号及 capture 失效退休见 `VDC-PROGRESS-20260915-011`。当前入口仍为
+的 DMA 坐标括号及 capture 失效退休见 `VDC-PROGRESS-20260915-011`；后继首帧坐标
+证明与启动路线的只读收敛见 `VDC-PROGRESS-20260915-012`。当前入口仍为
 `VDC-TIME-002`，补齐硬件配置、交接时延
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
@@ -65,6 +66,40 @@ Last updated: 2026-09-15
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260915-012 — 首帧坐标证明与启动路线收敛
+
+- TODO task ID：`VDC-TIME-002`；状态 IN PROGRESS。证据根为
+  `out/HardwareAcceptance/20260915/dpll-rx-coordinate-proof-r1/`。本轮仅做只读
+  源码/官方硬件文档审计及离线数学模型，未修改固件、PIO 或执行新硬件采集。
+  以下数量与页码为快照，非事实源；011 已分离提交并封存，520 件文件独立复验通过。
+- 条件性结论：若两次完成写计数处于同一已证明 idle、未完成字数上界为 `Q_i`，
+  且物理边界余数 `r` 与跨度 `F` 独立已知，则边界位于
+  `[max(C_i), min(C_i+Q_i)] ∩ (r+Fℤ)`。区间宽度小于 `F` 时至多一个候选。
+  `coordinate-interval-model.json` 的 189800 组有限整数枚举通过，并用六份原始
+  cut 做假设上界敏感性分析；模型没有证明目标硬件的 Q、idle 或 r，不能直接准入。
+- 官方 RP2350 datasheet §12.6.4.2 说明 DREQ credit 在 transfer issue 时扣除；
+  已读出 FIFO、尚未完成 SRAM 写入的数据仍在内部流水线。外设 FIFO 深度及 credit
+  寄存器宽度不能直接当作总 Q；§12.6.7.3 的错误后抑制/地址偏移上界也不能当作
+  正常流水线总容量。官方 PDF、哈希和逐页摘录保留，本轮未获得足以关闭 Q 的证明。
+- 当前绝对 PC 5 为 capture 程序反复执行的 WAIT SCK high；IRQ3 为 service
+  读后清的粘性观察，不是精确物理计数。当前完成写数已超过一帧，在合法初始命令及
+  无重启等前提下可证明曾经过首个 terminal；仍须证明其后没有漏钟、额外采样或
+  命令停顿才能归纳边界余数。启动 cut 的 SM2 RXSTALL/TXSTALL/RXUNDER/TXOVER
+  均清，但当前运行监测只将其中 RXSTALL 纳入退休，不能据此证明整个后续窗口。
+- 时序缺口：首次 DMA count 在 start_pad_before 之前读取，末次 count 在
+  start_pad_after 之后读取。即使排除两个高电平 pad 样本之间藏入完整帧，也不能
+  自动把外侧两次 count 限定在同一 idle；首读可能仍在前帧尾，末读可能已到下一帧。
+  必须补齐见证或另建包含新增输入字数的保守模型，不能把当前等计数当作精确边界。
+- 后继优先评估受控首发路线：训练后完整 STOP/取消，冻结与当前配置/时钟代际绑定
+  的几何描述；ARM 阶段先使从板 capture 和 observer 就绪并证明零起点，再允许
+  origin 首次发帧。复用现有全板 `ARM_CONFIG_APPLIED_ACK` 和 started barrier；
+  本轮原件已有全板 ACK，不重复建设第二套确认。现有 START 文本响应不能替代
+  observer 就绪证明，现有 observer 仍在训练后晚启用，旧窗口不能追认零起点。
+- 下一 gate：完成该 ARM 前准备方案的 owner 状态、代际、静默、取消和迟到拒绝
+  审查后，才实现最小诊断切片。不得在健康 RUN 中暂停/abort DMA 来强求边界；
+  不新增忙等，不借用其他域 PIO/DMA。当前身份、正式时间戳和锁相仍未证明，
+  `VDC-TIME-003/004` 保持 PENDING；本设计不冻结跨域契约。
 
 ### VDC-PROGRESS-20260915-011 — 首次 observer 启用的 DMA 坐标括号
 
