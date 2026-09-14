@@ -45,13 +45,50 @@ Last updated: 2026-09-14
 `VDC-PROGRESS-20260914-023`；RX 消费能力和缓冲余量的离线审计见
 `VDC-PROGRESS-20260914-024`；TDMA review 06 的证据口径复核见
 `VDC-PROGRESS-20260914-025`；RX 站台等待、初次观察及 drop 原因的四板测量见
-`VDC-PROGRESS-20260914-026`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
+`VDC-PROGRESS-20260914-026`；最新帧策略的 latch 身份阻断及可执行反例见
+`VDC-PROGRESS-20260914-027`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
 `VDC-ROLE-001`；全表 WCET 和正式锁相仍未闭合，
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260914-027 — 最新帧选择前的边沿身份反例
+
+- TODO task ID：`VDC-TIME-002`、`VDC-EVID-001`、`VDC-VERIFY-001`。
+- 状态：IN PROGRESS。完成当前源码的独立只读审核与可执行反例；未修改固件、
+  未操作硬件或开放正式时间输入，当前板端仍为上一切片已验收版本。
+- 日期：2026-09-14。
+- 证据：`out/HardwareAcceptance/20260914/dpll-frame-edge-binding-audit/` 的
+  `binding-counterexample-r2.json`、`binding-probe-r2-command.json`、基线源码及独立
+  审核记录。以下编号和周期为测试刺激快照，非实板测量或物理时延事实源。
+- 反例：编译实际 `tdma_rx_scan.c`、`tdma_transport_frame.c` 和从当前源码抽取的
+  `tdma_pio_spi_phys_take_local_tx_edge_ex()`。真实编码/解码均通过的帧 100 与 102，
+  通过真实 capture-hint 提供各自 identity；受控边沿源保留帧 100 的时间戳，调用者
+  换成帧 102 后，真实 helper 仍返回新 identity 和完整 TIMESTAMP/SEQUENCE/IDENTITY
+  有效标志。正例、不可用及空 context 负例也执行。该结果证明接口没有独立的
+  事件身份校验，不能用随后 packet CRC 正确来证明边沿属于该 packet；不宣称已
+  测出实板错配率。
+- PIO 边界：指令模型核对当前 `tdma_pio_spi_flight_clock_latch` 的全部指令，
+  在默认未合并 FIFO 的刺激中，第一帧低电平填满 FIFO，后续帧 PUSH noblock 丢弃，
+  最早条目仍属于第一帧。RX 在取得 packet 后读取该 FIFO，adapter 再将时间戳写到
+  所选 view 的 sequence/identity 下；TX helper 直接采用 expected 字段并置 BOUND。
+  当前 earliest 策略也会在 clamp 后前跳，已有绑定前提同样未闭合；不能把 latest
+  回退到 earliest 当作同圈证明，也不能把单次 latch 可读当作逐圈保全。
+- 独立复核的其他约束：latest 可能跳过 trailer 关联所需的前序本地证据、可靠命令
+  或 ACK；未锁定 overlay 且 hint 仅有单帧稳定证据时，跨帧选择还会破坏相邻候选
+  累积。最新几何完整候选仍需 Core0 完整 CRC，末候选损坏/变长/换相时不可默认
+  它是最新有效帧。序列前跳可通过 receive-health，而 missing 计数是超时语义，
+  不能据此认定中间帧均被消费。当前 scanner 与 adapter 测试分别注入 DMA 和已绑定
+  edge，未覆盖真实硬件 helper 对旧 FIFO/新 packet 的组合。
+- 处置与下一 gate：不直接替换全局 locate，也不以清标志或降低门禁作为完成。
+  先在 TDMA owner 内验证由硬件事件产生的 epoch/事件序号或 DMA 位置与原始计时
+  的联合记录，再以独立捕获身份匹配候选帧；expected sequence/identity 只能作为
+  查询条件。边沿保全、普通镜像退休、可靠命令/ACK 消费分别证明，保留原有 FIFO
+  overflow、DMA copy 后复验、缺样、STOP/重臂及 persona 退休。通过事件绑定负测、
+  当前资源链接和四板原始记录后，才考虑已锁定固定布局的 follower 镜像 latest；
+  普通 origin、bootstrap 与重同步继续独立验收。`VDC-TIME-003/004` 保持 PENDING。
 
 ### VDC-PROGRESS-20260914-026 — RX 站台等待与观察裁剪诊断
 
