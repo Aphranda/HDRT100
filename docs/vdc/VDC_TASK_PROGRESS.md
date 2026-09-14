@@ -46,13 +46,52 @@ Last updated: 2026-09-14
 `VDC-PROGRESS-20260914-024`；TDMA review 06 的证据口径复核见
 `VDC-PROGRESS-20260914-025`；RX 站台等待、初次观察及 drop 原因的四板测量见
 `VDC-PROGRESS-20260914-026`；最新帧策略的 latch 身份阻断及可执行反例见
-`VDC-PROGRESS-20260914-027`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
+`VDC-PROGRESS-20260914-027`；从板连续事件观察的 PIO 原型与边界反例见
+`VDC-PROGRESS-20260914-028`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
 `VDC-ROLE-001`；全表 WCET 和正式锁相仍未闭合，
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260914-028 — 从板连续事件观察的 PIO 可执行原型
+
+- TODO task ID：`VDC-TIME-002`、`VDC-RESOURCE-001`、`VDC-VERIFY-001`。
+- 状态：IN PROGRESS。完成实际 pioasm 与机器码指令模型；未修改生产 persona、
+  固件或硬件，未开放正式时间输入。模型通过不代表四板绑定或锁相通过。
+- 日期：2026-09-14。
+- 证据：`out/HardwareAcceptance/20260914/dpll-event-observer-prototype/` 的
+  `placement.json`、`continuous-result.json`、`joint-gap-counterexample.json`、
+  `identity-ambiguity.json` 及独立审核。以下容量、编号和时间均为源码/刺激快照，
+  非事实源；PIO/RAM 生产准入仍以 owner 配置、目标链接和实板验收为准。
+- 资源方向：当前 process follower 的 TX PIO 为控制转发加旧 latch，RX PIO 已满。
+  原型以实际控制程序和两份新观察程序进行固定地址汇编：控制 10 字、RX/TX 共用
+  连续计数 9 字、wire sequence 采集 13 字，起点分别为 0/10/19，总计 32 字。
+  候选使用 TX PIO 的四个 SM；无新增 DMA、未借 PIO0/DMA7。该结果仅证明静态
+  指令布局可容纳；未执行真实控制 SM、生产加载器或 GPIO/资源安装路径。
+- 单次与连续边界：20 字单次 raw+sequence 原型通过 1560 组相位刺激，但采集
+  DATA 时倒计时暂停，且短 CS 高脉冲可漏检，不能直接成为逐圈时间通道。6 字
+  连续计数原型在低电平期间 X 回绕会重复产生 fall；实际机器码反例已保留。
+  9 字版本补齐两个回绕分支，并在 CS rising 发布相对 IRQ，序号 SM 在发布前
+  检查 sticky，跨帧截断进入错误分支；正常帧等待并清除对应 IRQ 后接下一帧。
+- 连续模型：272 组相位/前缀/SM 顺序刺激、20 组计数回绕、64 组普通截断通过。
+  无 stall/无漏事件且单次可辨回绕时，指令模型满足相邻事件间隔
+  `2 × raw decrement + 4 × event delta + wrap count`。当前 wrap 数使用模型内部
+  真值，尚未实现仅凭 raw 与有界 epoch 的生产重建。FIFO 满负测证明会 stall，
+  未证明真实 harvest 能在前后 sticky 检查后原子提交或永久失效；对象重置仅是
+  模型新 epoch，不能当作 STOP/重臂硬件退休验收。
+- 新反例：联合间隔扫描共 864 组，其中 CS 高仅一个模型周期的 108 组均失败；
+  可出现三路同漏中间帧、FIFO 数量仍一致且无 stall。较宽间隔在有限刺激中通过，
+  不能将其最小值固化为芯片门限。真实 transport 编解码另生成相同 sequence、
+  不同 schedule/identity 的两个 CRC 正确帧，序号观察无法区分；不能直接置
+  IDENTITY_BOUND。每个 epoch 的来源/配置/序号唯一性必须独立证明或补采身份。
+- 下一 gate：先实现三路共同 epoch 的有界 harvest、raw 回绕提升、缺样/溢出
+  永久失效和显式重新锚定；证明已准入 CS 高宽、首 SCK、真实 DATA 相位与前缀，
+  覆盖尾位截断、IRQ 设置/清除竞争、旧 FIFO 与 STOP/persona 退休。分辨率和
+  ARM timer 区间不能代替 pad 边沿精度。只有身份策略和这些负测闭合后才进入
+  当前资源链接/P3/四板原始计时诊断，继续维持 TDMA resident 与 HAOFV owner
+  边界。`VDC-TIME-002` 未关闭，`VDC-TIME-003/004` 保持 PENDING。
 
 ### VDC-PROGRESS-20260914-027 — 最新帧选择前的边沿身份反例
 
