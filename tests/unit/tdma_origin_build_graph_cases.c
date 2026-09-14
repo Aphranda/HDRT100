@@ -8,6 +8,94 @@
 #include "hardware/regs/addressmap.h"
 #include "hardware/regs/dma.h"
 
+/* Only the real plan translation unit renames this symbol. The production
+ * worker calls this wrapper, allowing deterministic STOP interleavings on
+ * both sides of every real graph block, including its final publication. */
+tdma_origin_build_result_t tdma_origin_plan_step_actual(tdma_origin_plan_builder_t *b);
+static tdma_origin_build_job_t *cancel_job;
+static uint32_t step_calls, cancel_step, cancel_after, cancellation_cases;
+
+static void interrupt_worker(tdma_origin_plan_builder_t *b)
+{
+    assert(!tdma_origin_build_job_cancel(cancel_job));
+    assert(!tdma_origin_build_job_cancel(cancel_job));
+    assert(!tdma_origin_build_job_request(cancel_job, b));
+    assert(tdma_origin_build_job_take(cancel_job) == TDMA_ORIGIN_BUILD_FAILED);
+    /* The owner must retain storage even when the last block has already
+     * produced entry addresses. Only the worker may finish retirement. */
+    assert(tdma_origin_build_job_state(cancel_job) == TDMA_ORIGIN_JOB_CANCELLED);
+}
+
+tdma_origin_build_result_t tdma_origin_plan_step(tdma_origin_plan_builder_t *b)
+{
+    ++step_calls;
+    const bool interrupt = cancel_job != NULL && step_calls == cancel_step;
+    if (interrupt && !cancel_after) interrupt_worker(b);
+    const tdma_origin_build_result_t result = tdma_origin_plan_step_actual(b);
+    if (interrupt && cancel_after) interrupt_worker(b);
+    return result;
+}
+
+static void check_cancellation(const tdma_origin_plan_config_t *config,
+                               tdma_origin_plan_t *plan, uint32_t steps,
+                               const tdma_flight_overlay_dma_run_t *expected_runs,
+                               const uint32_t *expected_literals)
+{
+    const size_t run_bytes = plan->run_capacity * sizeof(*plan->runs);
+    const size_t literal_bytes = plan->literal_capacity * sizeof(*plan->literals);
+    for (uint32_t after = 0u; after <= 1u; ++after) {
+        for (uint32_t cut = 1u; cut <= steps; ++cut) {
+            tdma_origin_build_job_t job = {0};
+            tdma_origin_plan_builder_t builder = {0};
+            memset(plan->runs, 0, run_bytes);
+            memset(plan->literals, 0, literal_bytes);
+            assert(tdma_origin_plan_begin(&builder, config, plan));
+            assert(tdma_origin_build_job_request(&job, &builder));
+            cancel_job = &job;
+            cancel_step = cut;
+            cancel_after = after;
+            step_calls = 0u;
+            tdma_origin_build_job_core0_service(&job);
+            cancel_job = NULL;
+            assert(step_calls == cut);
+            assert(tdma_origin_build_job_state(&job) == TDMA_ORIGIN_JOB_IDLE);
+            assert(!builder.active && !builder.complete && builder.failed);
+            assert(plan->seed_entry == 0u && plan->boundary_entry == 0u &&
+                   plan->fault_entry == 0u && plan->record_entry == 0u);
+            for (uint32_t bank = 0u; bank < TDMA_ORIGIN_PLAN_BANK_COUNT; ++bank)
+                assert(plan->local_entry[bank] == 0u);
+            assert(tdma_origin_build_job_take(&job) == TDMA_ORIGIN_BUILD_FAILED);
+            assert(tdma_origin_build_job_cancel(&job));
+
+            /* Reuse is legal only after IDLE. Late worker entry points must
+             * leave even a completely replaced builder and graph intact. */
+            memset(&builder, 0xa5, sizeof(builder));
+            const tdma_origin_plan_builder_t poisoned = builder;
+            memset(plan->runs, 0xa5, run_bytes);
+            memset(plan->literals, 0xa5, literal_bytes);
+            tdma_origin_build_job_core0_service(&job);
+            tdma_origin_build_job_core0_build_claimed(&job);
+            assert(memcmp(&builder, &poisoned, sizeof(builder)) == 0);
+            for (size_t i = 0u; i < run_bytes; ++i)
+                assert(((const uint8_t *)plan->runs)[i] == 0xa5u);
+            for (size_t i = 0u; i < literal_bytes; ++i)
+                assert(((const uint8_t *)plan->literals)[i] == 0xa5u);
+
+            memset(&builder, 0, sizeof(builder));
+            memset(plan->runs, 0, run_bytes);
+            memset(plan->literals, 0, literal_bytes);
+            assert(tdma_origin_plan_begin(&builder, config, plan));
+            assert(tdma_origin_build_job_request(&job, &builder));
+            tdma_origin_build_job_core0_service(&job);
+            assert(tdma_origin_build_job_take(&job) == TDMA_ORIGIN_BUILD_DONE);
+            assert(memcmp(plan->runs, expected_runs, run_bytes) == 0);
+            assert(memcmp(plan->literals, expected_literals, literal_bytes) == 0);
+            assert(plan->seed_entry != 0u);
+            ++cancellation_cases;
+        }
+    }
+}
+
 static void check_packet_and_receive_lengths(uint32_t nodes)
 {
     uint8_t payload[TDMA_TRANSPORT_SHORT_PAYLOAD_MAX] = {0};
@@ -144,7 +232,10 @@ int main(void)
             assert(tdma_origin_build_job_request(&job, &b));
             assert(tdma_origin_build_job_take(&job) == TDMA_ORIGIN_BUILD_BUSY);
             assert(actual.seed_entry == 0);
+            step_calls = 0u;
             tdma_origin_build_job_core0_service(&job);
+            const uint32_t actual_steps = step_calls;
+            assert(actual_steps > 0u && actual_steps <= 2u * TDMA_ORIGIN_BUILD_LABEL_CAPACITY);
             assert(tdma_origin_build_job_take(&job) == TDMA_ORIGIN_BUILD_DONE);
             assert(memcmp(expected_runs, actual_runs, sizeof(actual_runs)) == 0);
             assert(memcmp(expected_literals, actual_literals, sizeof(actual_literals)) == 0);
@@ -153,6 +244,7 @@ int main(void)
             assert(memcmp(&expected, &actual, sizeof(actual)) == 0);
             check_dma_extents(&c, &actual);
             assert(tdma_origin_build_job_cancel(&job));
+            check_cancellation(&c, &actual, actual_steps, expected_runs, expected_literals);
             tdma_origin_plan_config_t invalid = c;
             invalid.active_slot_mask |= 1u << nodes;
             assert(!tdma_origin_plan_build(&invalid, &actual));
@@ -164,6 +256,6 @@ int main(void)
             ++cases;
         }
     }
-    printf("%u actual-builder graph pairs identical\n", cases);
+    printf("{\"graph_pairs\":%u,\"cancellation_cases\":%u}\n", cases, cancellation_cases);
     return 0;
 }

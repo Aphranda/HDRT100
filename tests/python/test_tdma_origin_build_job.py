@@ -1,4 +1,5 @@
 """Exercise the real cross-core construction lease at interrupted writes."""
+import json
 import os
 from pathlib import Path
 import shutil
@@ -32,14 +33,23 @@ def test_origin_build_job_actual_graph(tmp_path, capacity):
     compiler = shutil.which("gcc") or shutil.which("clang")
     assert compiler
     exe = tmp_path / ("origin-job-graph.exe" if os.name == "nt" else "origin-job-graph")
-    subprocess.run([compiler, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
+    common = [compiler, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
                     f"-DPROJECT_NODE_CAPACITY={capacity}",
-                    "-I" + str(ROOT/"components/tdma/inc"), "-I" + str(registers),
+                    "-I" + str(ROOT/"components/tdma/inc"), "-I" + str(registers)]
+    plan_object = tmp_path / "origin-plan.o"
+    subprocess.run([*common, "-Dtdma_origin_plan_step=tdma_origin_plan_step_actual", "-c",
+                    str(ROOT/"components/tdma/src/tdma_origin_plan.c"), "-o", str(plan_object)],
+                   check=True, capture_output=True, text=True, timeout=60)
+    subprocess.run([*common,
                     str(ROOT/"tests/unit/tdma_origin_build_graph_cases.c"),
                     str(ROOT/"components/tdma/src/tdma_origin_build_job.c"),
-                    str(ROOT/"components/tdma/src/tdma_origin_plan.c"),
+                    str(plan_object),
                     str(ROOT/"components/tdma/src/tdma_origin_exchange.c"),
                     str(ROOT/"components/tdma/src/tdma_transport_frame.c"),
                     str(ROOT/"components/tdma/src/tdma_receive_health.c"),
                     "-o", str(exe)], check=True, capture_output=True, text=True, timeout=60)
-    subprocess.run([str(exe)], check=True, capture_output=True, text=True, timeout=5)
+    result = subprocess.run([str(exe)], check=True, capture_output=True, text=True, timeout=5)
+    report = json.loads(result.stdout)
+    assert report["graph_pairs"] == 2 * (capacity - 1)
+    assert report["cancellation_cases"] > 2 * report["graph_pairs"]
+    (tmp_path / "cancellation-summary.json").write_text(result.stdout, encoding="utf-8")
