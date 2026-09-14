@@ -27,6 +27,7 @@ STAGES_BY_VERSION[8] = STAGES_BY_VERSION[7] + (
     "rx_latch_read", "rx_latch_rearm",
 )
 STAGES_BY_VERSION[9] = STAGES_BY_VERSION[8] + ("origin_observe", "origin_publish")
+STAGES_BY_VERSION[10] = STAGES_BY_VERSION[9] + ("origin_admit", "origin_calibration_crc", "origin_begin")
 FIELDS = (
     "version", "clock_hz", "reset_generation", "phase_count", "stage_count",
     "peak", "sequence", "start_ticks", "total_ticks", "invalid_count",

@@ -9,6 +9,7 @@
 #include "tdma_service_timing.h"
 #include "tdma_origin_build_job.h"
 #include "tdma_origin_handoff.h"
+#include "pota_types.h"
 
 /* Host device facade; no hardware ownership is exercised in this fixture. */
 enum { clk_sys, BOARD_TDMA_TX_PIO_BLOCK_ID = 1, BOARD_TDMA_RX_PIO_BLOCK_ID = 2,
@@ -62,7 +63,7 @@ static tdma_service_service_t *tdma_runtime_owner_get(void) { return &s_tdma_run
 bool tdma_service_get_snapshot(const tdma_service_service_t *owner, tdma_service_snapshot_t *s)
 { memset(s, 0, sizeof(*s)); s->foundation_profile_crc32 = owner->foundation_profile_crc32; return true; }
 uint32_t ota_crc32_compute(const uint8_t *data, size_t size)
-{ uint32_t hash = 2166136261u; while (size--) hash = (hash ^ *data++) * 16777619u; return hash; }
+{ return pota_crc32_compute(data, size); }
 bool refmem_realtime_contract_admit_origin_trial(const refmem_realtime_origin_capability_t *c,
     uint32_t crc, refmem_realtime_origin_admission_t *a)
 {
@@ -159,7 +160,7 @@ int main(int argc, char **argv)
             complete = model_valid = resources_valid = true; setup();
         }
     } else if (!strcmp(argv[1], "stale")) {
-        for (unsigned bad = 0; bad < 9; bad++) {
+        for (unsigned bad = 0; bad < 10; bad++) {
             setup(); publish();
             if (bad == 0) s_tdma_runtime_owner.ring_runtime.config_seq++;
             if (bad == 1) s_origin_timing.config.baud_hz++;
@@ -170,6 +171,7 @@ int main(int argc, char **argv)
             if (bad == 6) s_origin_timing.calibration_crc32++;
             if (bad == 7) s_origin_timing.admission.product_valid = 1;
             if (bad == 8) ticks = s_origin_timing.expires_ticks;
+            if (bad == 9) s_tdma_runtime_owner.calibration_stage.links[TDMA_RING_CALIBRATION_LINK_MAX - 1u].guard_cycles++;
             assert(admit() == TDMA_ORIGIN_ADMISSION_REJECTED);
             assert(admit() == TDMA_ORIGIN_ADMISSION_NONE);
         }

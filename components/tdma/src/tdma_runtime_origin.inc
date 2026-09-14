@@ -1,5 +1,6 @@
 /* The sole TDMA owner consumes Calibration's explicit diagnostic trial.
  * This file never constructs a product timing grant. */
+#include "tdma_origin_calibration_crc.h"
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #include "pico.h"
 #define TDMA_ORIGIN_OWNER_RAM __not_in_flash("tdma_origin_owner")
@@ -75,7 +76,17 @@ static bool tdma_runtime_owner_origin_authorized(void)
         vdc_timestamp_clock_read_ticks64() < trial->expires_ticks;
 }
 
-static tdma_origin_admission_result_t tdma_runtime_owner_origin_admit(
+static uint32_t tdma_runtime_owner_origin_stage_crc(void)
+{
+    const uint64_t started = tdma_service_timing_now();
+    const uint32_t crc = tdma_origin_calibration_crc32(
+        (const uint8_t *)&s_tdma_runtime_owner.calibration_stage,
+        sizeof(s_tdma_runtime_owner.calibration_stage));
+    tdma_service_timing_record(TDMA_TIMING_ORIGIN_CALIBRATION_CRC, started);
+    return crc;
+}
+
+static tdma_origin_admission_result_t tdma_runtime_owner_origin_admit_impl(
     void *context, const tdma_ring_runtime_config_t *config,
     uint32_t *rearm_budget_ticks, uint32_t *abort_poll_count)
 {
@@ -90,9 +101,7 @@ static tdma_origin_admission_result_t tdma_runtime_owner_origin_admit(
         !tdma_runtime_owner_origin_authorized() ||
         memcmp(config, &trial.config, sizeof(*config)) != 0 ||
         s_tdma_pio_spi_phys.flight_physical_byte_count != trial.admission.capability.physical_bytes ||
-        trial.calibration_crc32 != ota_crc32_compute(
-            (const uint8_t *)&s_tdma_runtime_owner.calibration_stage,
-            sizeof(s_tdma_runtime_owner.calibration_stage))) {
+        trial.calibration_crc32 != tdma_runtime_owner_origin_stage_crc()) {
         s_origin_trial_fault = true;
         return TDMA_ORIGIN_ADMISSION_REJECTED;
     }
@@ -104,7 +113,18 @@ static tdma_origin_admission_result_t tdma_runtime_owner_origin_admit(
     return TDMA_ORIGIN_ADMISSION_READY;
 }
 
-static bool tdma_runtime_owner_origin_begin(void *context,
+static tdma_origin_admission_result_t tdma_runtime_owner_origin_admit(
+    void *context, const tdma_ring_runtime_config_t *config,
+    uint32_t *rearm_budget_ticks, uint32_t *abort_poll_count)
+{
+    const uint64_t started = tdma_service_timing_now();
+    const tdma_origin_admission_result_t result = tdma_runtime_owner_origin_admit_impl(
+        context, config, rearm_budget_ticks, abort_poll_count);
+    tdma_service_timing_record(TDMA_TIMING_ORIGIN_ADMIT, started);
+    return result;
+}
+
+static bool tdma_runtime_owner_origin_begin_impl(void *context,
     const tdma_ring_runtime_config_t *config, const uint8_t *packet, size_t size,
     uint32_t rearm_budget_ticks, uint32_t abort_poll_count)
 {
@@ -129,6 +149,17 @@ static bool tdma_runtime_owner_origin_begin(void *context,
         s_tdma_pio_spi_phys.flight_origin_prepare.diagnostic_build_probe_config_seq = s_origin_trial.config_seq;
     } else s_origin_trial_fault = true;
     return started;
+}
+
+static bool tdma_runtime_owner_origin_begin(void *context,
+    const tdma_ring_runtime_config_t *config, const uint8_t *packet, size_t size,
+    uint32_t rearm_budget_ticks, uint32_t abort_poll_count)
+{
+    const uint64_t started = tdma_service_timing_now();
+    const bool result = tdma_runtime_owner_origin_begin_impl(
+        context, config, packet, size, rearm_budget_ticks, abort_poll_count);
+    tdma_service_timing_record(TDMA_TIMING_ORIGIN_BEGIN, started);
+    return result;
 }
 
 static tdma_origin_build_result_t tdma_runtime_owner_origin_poll(void *context)

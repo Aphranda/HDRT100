@@ -21,7 +21,7 @@ def admission_exe(tmp_path_factory):
     assert compiler
     exe = build / ("admission.exe" if os.name == "nt" else "admission")
     includes = ["components/tdma/inc", "components/distributed_refmem/inc",
-                "components/calibration_manager/inc", "components/ota_manager/inc"]
+                "components/calibration_manager/inc", "components/ota_manager/inc", "third_party/portable_ota/include"]
     command = [compiler, "-std=c11", "-Wall", "-Wextra", "-Werror"]
     command += ["-I" + str(ROOT / path) for path in includes]
     # Compile the actual pure cadence calculation without the graph builder's
@@ -38,6 +38,8 @@ def admission_exe(tmp_path_factory):
     command += ['-I' + str(build)]
     command += [str(ROOT / "tests/unit/test_tdma_origin_admission.c"),
                 str(ROOT / 'components/tdma/src/tdma_origin_handoff.c'),
+                str(ROOT / 'components/tdma/src/tdma_origin_calibration_crc.c'),
+                str(ROOT / 'third_party/portable_ota/src/pota_crc32.c'),
                 str(ROOT / 'components/tdma/src/tdma_origin_blackout.c'), str(cadence), "-o", str(exe)]
     subprocess.run(command, check=True, timeout=60)
     return exe

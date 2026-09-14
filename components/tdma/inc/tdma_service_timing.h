@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define TDMA_SERVICE_TIMING_VERSION 9u
+#define TDMA_SERVICE_TIMING_VERSION 10u
 #ifndef TDMA_SERVICE_TIMING_ENABLED
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #define TDMA_SERVICE_TIMING_ENABLED 1
@@ -87,6 +87,11 @@ typedef enum {
      * FIFO acquisition, validation and deferred/unchanged publication paths. */
     TDMA_TIMING_ORIGIN_OBSERVE,
     TDMA_TIMING_ORIGIN_PUBLISH,
+    /* Initial handoff only: ADMIT and BEGIN are disjoint children of ADAPTER.
+     * CALIBRATION_CRC is nested inside ADMIT; it still reads every stage byte. */
+    TDMA_TIMING_ORIGIN_ADMIT,
+    TDMA_TIMING_ORIGIN_CALIBRATION_CRC,
+    TDMA_TIMING_ORIGIN_BEGIN,
     TDMA_TIMING_STAGE_COUNT,
 } tdma_service_timing_stage_t;
 
