@@ -759,9 +759,9 @@ static bool tdma_pio_spi_phys_clock_latch_rearm(
     pio_sm_set_enabled(evidence_pio, sm, false);
     pio_sm_clear_fifos(evidence_pio, sm);
     pio_sm_restart(evidence_pio, sm);
-    pio_sm_put_blocking(evidence_pio, sm, UINT32_MAX);
-    pio_sm_exec(evidence_pio, sm, pio_encode_pull(false, true));
-    pio_sm_exec(evidence_pio, sm, pio_encode_mov(pio_x, pio_osr));
+    /* The clock-latch program consumes X only. Seed it directly while the
+     * SM is disabled; no FIFO transfer or blocking PULL is needed. */
+    pio_sm_exec(evidence_pio, sm, pio_encode_mov_not(pio_x, pio_null));
     pio_sm_exec(evidence_pio,
                 sm,
                 pio_encode_jmp(tdma_pio_spi_phys_latch_offset(phys)));
@@ -793,9 +793,8 @@ static bool tdma_pio_spi_phys_tx_clock_latch_rearm(
     pio_sm_set_enabled(pio, sm, false);
     pio_sm_clear_fifos(pio, sm);
     pio_sm_restart(pio, sm);
-    pio_sm_put_blocking(pio, sm, UINT32_MAX);
-    pio_sm_exec(pio, sm, pio_encode_pull(false, true));
-    pio_sm_exec(pio, sm, pio_encode_mov(pio_x, pio_osr));
+    /* Same X-only clock-latch program as RX, on the owner's TX endpoint. */
+    pio_sm_exec(pio, sm, pio_encode_mov_not(pio_x, pio_null));
     pio_sm_exec(pio, sm,
                 pio_encode_jmp(s_tdma_pio_spi_flight_clock_latch_offset));
     phys->flight_tx_clock_latch_epoch_ns = vdc_timestamp_clock_now_ns();

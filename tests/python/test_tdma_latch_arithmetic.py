@@ -49,6 +49,8 @@ typedef struct {
 } tdma_pio_spi_phys_t;
 static unsigned s_tdma_pio_spi_program_persona;
 static uint32_t hz, clock_calls, event[16], events, endpoint, fifo[2], fifo_cursor;
+static uint32_t countdown_x, tx_fifo_words, latch_pc;
+static bool sm_enabled;
 static const uint64_t epoch = UINT64_C(0x100000001);
 static uint32_t s_tdma_pio_spi_flight_clock_latch_offset = 19;
 static uint64_t probe_ticks;
@@ -60,7 +62,11 @@ void tdma_service_timing_record(tdma_service_timing_stage_t stage, uint64_t star
 static void record(uint32_t e) { assert(events < 16); event[events++] = e; }
 static void endpoint_check(PIO p, uint sm) { assert(p == endpoint && sm == endpoint + 1); }
 static uint32_t clock_get_hz(uint c) { assert(c == clk_sys); ++clock_calls; return hz; }
-static uint64_t vdc_timestamp_clock_now_ns(void) { record(8); return epoch; }
+static uint64_t vdc_timestamp_clock_now_ns(void) {
+    assert(!sm_enabled && countdown_x == UINT32_MAX && tx_fifo_words == 0);
+    assert(latch_pc == (endpoint == 1 ? 17u : 19u));
+    record(8); return epoch;
+}
 static bool tdma_pio_spi_phys_is_flight_persona(void) {
     return (s_tdma_pio_spi_program_persona >= 11 && s_tdma_pio_spi_program_persona <= 13) ||
         s_tdma_pio_spi_program_persona == 16;
@@ -71,17 +77,33 @@ static uint tdma_pio_spi_phys_latch_offset(const tdma_pio_spi_phys_t *p) { (void
 static PIO tdma_pio_spi_phys_tx_latch_pio(const tdma_pio_spi_phys_t *p) { (void)p; return 2; }
 static uint tdma_pio_spi_phys_tx_latch_sm(const tdma_pio_spi_phys_t *p) { (void)p; return 3; }
 static uint tdma_pio_spi_phys_rtt_sm(const tdma_pio_spi_phys_t *p) { (void)p; return 2; }
-static void pio_sm_set_enabled(PIO p, uint sm, bool en) { endpoint_check(p,sm); record(en ? 9 : 1); }
-static void pio_sm_clear_fifos(PIO p, uint sm) { endpoint_check(p,sm); record(2); }
-static void pio_sm_restart(PIO p, uint sm) { endpoint_check(p,sm); record(3); }
-static void pio_sm_put_blocking(PIO p, uint sm, uint32_t word) {
-    endpoint_check(p,sm); assert(word == UINT32_MAX && events == 3 && event[1] == 2); record(4);
+static void pio_sm_set_enabled(PIO p, uint sm, bool en) {
+    endpoint_check(p,sm);
+    if (en) assert(!sm_enabled && countdown_x == UINT32_MAX && tx_fifo_words == 0);
+    sm_enabled = en; record(en ? 9 : 1);
 }
-enum { pio_x = 1, pio_osr = 2 };
-static uint pio_encode_pull(bool a, bool b) { assert(!a && b); return 5; }
-static uint pio_encode_mov(uint a, uint b) { assert(a == pio_x && b == pio_osr); return 6; }
-static uint pio_encode_jmp(uint offset) { assert(offset == (endpoint == 1 ? 17 : 19)); return 7; }
-static void pio_sm_exec(PIO p, uint sm, uint command) { endpoint_check(p,sm); record(command); }
+static void pio_sm_clear_fifos(PIO p, uint sm) {
+    endpoint_check(p,sm); assert(!sm_enabled); tx_fifo_words = 0; record(2);
+}
+static void pio_sm_restart(PIO p, uint sm) { endpoint_check(p,sm); assert(!sm_enabled); record(3); }
+enum { pio_x = 1, pio_null = 3 };
+/* RP PIO MOV encoding; pio_sm_exec interprets the emitted instruction. */
+static uint pio_encode_mov_not(uint dest, uint src) {
+    return 0xa000u | ((dest & 7u) << 5u) | (1u << 3u) | (src & 7u);
+}
+static uint pio_encode_jmp(uint offset) { assert(offset < 32u); return offset; }
+static void pio_sm_exec(PIO p, uint sm, uint command) {
+    endpoint_check(p,sm); assert(!sm_enabled);
+    if ((command & 0xe000u) == 0xa000u) {
+        assert(((command >> 5u) & 7u) == 1u); /* destination X */
+        assert(((command >> 3u) & 3u) == 1u); /* bitwise inversion */
+        assert((command & 7u) == 3u); /* NULL reads zero */
+        countdown_x = ~UINT32_C(0); record(6);
+    } else {
+        assert((command & ~31u) == 0u);
+        latch_pc = command; record(7);
+    }
+}
 static bool pio_sm_is_rx_fifo_empty(PIO p, uint sm) { endpoint_check(p,sm); return fifo_cursor == 2; }
 static uint32_t pio_sm_get(PIO p, uint sm) { endpoint_check(p,sm); assert(fifo_cursor < 2); return fifo[fifo_cursor++]; }
 '''
@@ -99,6 +121,7 @@ static uint32_t pio_sm_get(PIO p, uint sm) { endpoint_check(p,sm); assert(fifo_c
     routines += "uint64_t wire_32(uint32_t baud_hz, uint32_t packet_size, uint32_t packet_header_size) {" + wire + "}\n"
     suffix = r'''
 uint32_t resolution(uint32_t frequency) { return tdma_pio_spi_phys_latch_resolution_ns(frequency); }
+uint32_t seeded_x(void) { return countdown_x; }
 void exercise_rx_read(unsigned mode, unsigned capture_state) {
     tdma_pio_spi_phys_t p = {.role = TDMA_PIO_SPI_ROLE_SLAVE, .flight_clock_latch_armed = mode != 6,
         .flight_clock_latch_epoch_ns = mode == 3 ? UINT64_MAX - 1 : 1000,
@@ -121,7 +144,7 @@ void exercise_rx_read(unsigned mode, unsigned capture_state) {
     assert(probe_calls[TDMA_TIMING_RX_LATCH_READ] == (mode != 0 && mode != 8));
     assert(probe_calls[TDMA_TIMING_RX_LATCH_REARM] == (rearm && mode != 8));
     assert(clock_calls == rearm);
-    assert(events == ((mode == 2 || mode == 3 || mode == 8) ? 9u : 0u));
+    assert(events == ((mode == 2 || mode == 3 || mode == 8) ? 7u : 0u));
     assert(fifo_cursor == (mode == 1 ? 2u : rearm ? 1u : 0u));
     assert(p.snapshot.clock_latch_miss_count == (mode == 1 || mode == 3 || mode == 5 || mode == 6));
     assert(p.snapshot.clock_latch_count == (mode == 2 || mode == 4 || mode == 8));
@@ -141,7 +164,7 @@ void exercise_tx_read(unsigned mode) {
     assert(probe_calls[TDMA_TIMING_TX_LATCH_READ] == 1);
     assert(probe_calls[TDMA_TIMING_TX_LATCH_REARM] == (mode >= 2));
     assert(clock_calls == (mode >= 2));
-    assert(events == ((mode == 2 || mode == 3) ? 9u : 0u));
+    assert(events == ((mode == 2 || mode == 3) ? 7u : 0u));
     assert(p.snapshot.clock_latch_miss_count == (mode == 1 || mode == 3));
     assert(p.snapshot.clock_latch_count == (mode == 2 || mode == 4));
 }
@@ -150,6 +173,8 @@ void exercise_rearm(uint32_t frequency, unsigned persona, unsigned role, unsigne
     const tdma_pio_spi_phys_t before = p;
     hz = frequency; s_tdma_pio_spi_program_persona = persona;
     events = clock_calls = 0; endpoint = tx ? 2 : 1;
+    countdown_x = frequency ^ 0x13579bdfu; tx_fifo_words = 4u;
+    sm_enabled = true; latch_pc = 31u; /* Dirty state from a prior use. */
     const bool admitted = !null_phys && (tx ? role == TDMA_PIO_SPI_ROLE_SLAVE &&
         tdma_pio_spi_phys_is_flight_persona() : persona >= 11 && persona <= 13);
     const uint32_t expected = frequency ? (uint32_t)((UINT64_C(2000000000) + frequency / 2u) / frequency) : 0;
@@ -158,8 +183,10 @@ void exercise_rearm(uint32_t frequency, unsigned persona, unsigned role, unsigne
     assert(ok == (admitted && expected != 0));
     assert(clock_calls == (admitted ? 1u : 0u));
     if (!ok) { assert(events == 0 && memcmp(&p,&before,sizeof(p)) == 0); return; }
-    assert(events == 9);
-    for (uint i = 0; i < events; ++i) assert(event[i] == i + 1);
+    assert(events == 7);
+    const uint32_t order[] = {1, 2, 3, 6, 7, 8, 9};
+    assert(memcmp(event,order,sizeof(order)) == 0);
+    assert(countdown_x == UINT32_MAX && tx_fifo_words == 0 && sm_enabled);
     if (tx) {
         assert(p.flight_tx_clock_latch_armed && p.flight_tx_clock_latch_epoch_ns == epoch);
         assert(p.flight_tx_clock_latch_resolution_ns == expected && !p.flight_clock_latch_armed);
@@ -188,6 +215,7 @@ unsigned exercise_feedback(uint32_t frequency, uint32_t remaining, uint32_t *dur
     assert run.returncode == 0, run.stdout + run.stderr
     lib = C.CDLL(str(library))
     lib.resolution.argtypes, lib.resolution.restype = [C.c_uint32], C.c_uint32
+    lib.seeded_x.argtypes, lib.seeded_x.restype = [], C.c_uint32
     lib.wire_native.argtypes, lib.wire_native.restype = [C.c_uint32, C.c_size_t, C.c_size_t], C.c_uint64
     lib.wire_32.argtypes, lib.wire_32.restype = [C.c_uint32] * 3, C.c_uint64
     lib.exercise_rearm.argtypes, lib.exercise_rearm.restype = [C.c_uint32] * 5, None
@@ -246,6 +274,51 @@ def test_rearm_preserves_rejections_and_pio_epoch_order(timing, tx):
             for role in (0, 1):
                 for null_phys in (False, True):
                     timing.exercise_rearm(hz, persona, role, tx, null_phys)
+
+
+@pytest.mark.parametrize("tx", [False, True])
+def test_seed_runs_resident_latch_and_preserves_first_edge(timing, tx):
+    # Execute the resident PIO source with the X value emitted by production
+    # rearm. No FIFO/PULL is supplied by the model after the rearm boundary.
+    source = (ROOT / "components/tdma/src/tdma_pio_spi.pio").read_text(encoding="utf-8")
+    body = source.split(".program tdma_pio_spi_flight_clock_latch\n", 1)[1].split(".wrap\n", 1)[0]
+    program, labels = [], {}
+    for line in body.splitlines():
+        op = line.split(";", 1)[0].strip()
+        if not op or op.startswith("."):
+            continue
+        if op.endswith(":"):
+            labels[op[:-1]] = len(program)
+        else:
+            program.append(op.replace(",", "").split())
+    for high_steps in (0, 1, 2, 17, 257):
+        timing.exercise_rearm(250_000_000, 13, 1, tx, False)
+        registers = {"x": timing.seeded_x(), "isr": 0x87654321, "osr": 0x12345678}
+        pc, received = 0, []
+        for tick in range(2 * high_steps + 40):
+            op = program[pc]
+            next_pc = (pc + 1) % len(program)
+            if op[0] == "jmp":
+                if op[1] == "pin":
+                    taken = tick < 2 * high_steps
+                elif op[1] == "x--":
+                    taken = registers["x"] != 0
+                    registers["x"] = (registers["x"] - 1) & U32
+                else:
+                    pytest.fail(f"Unsupported countdown condition: {op}")
+                if taken:
+                    next_pc = labels[op[2]]
+            elif op[0] == "mov":
+                registers[op[1]] = registers[op[2]]
+            elif op == ["push", "noblock"]:
+                if len(received) < 4:
+                    received.append(registers["isr"])
+            else:
+                pytest.fail(f"Latch now needs unmodeled state: {op}")
+            pc = next_pc
+        assert len(received) == 4
+        assert received[0] == U32 - high_steps
+        assert registers["osr"] == 0x12345678
 
 
 @pytest.mark.parametrize("hz", [0, 1, 125_000_000, 250_000_000, 4_000_000_000, U32])
