@@ -371,6 +371,9 @@ receive health、novelty 和 RX FIFO。origin 授权在采集时绑定，后续 
 年龄。STOP 先停硬件；被取消的 worker 只归还静态工位，不访问 adapter 或物理池。
 物理工位复用 adapter 的注入队列存储，仅在 STOPPED 且无待处理注入时绑定；绑定后
 拒绝注入与重新绑定，防止另一入口覆盖 worker 输入。未绑定的注入后端保持原队列。
+尝试以既有诊断 scratch 预备 mailbox header/presence 的候选已经撤回，见
+`TDMA-PROGRESS-20260914-012`。该候选的软件边界通过，但 Core1 布局复验和请求成本
+增加，同槽完整 phase 未受益；生产实现保持本段的原检查与提交路径。
 原始 DMA 候选发现使用独立 `tdma_rx_scan_t` 工位：Core1 只复制有界的已完成 DMA
 字节窗口并复验覆盖与 observation epoch；Core0 在不可变副本中完成位相位搜索和
 transport CRC 校验，返回位置、帧长与连续帧证据，不持有 live DMA 或物理 owner
@@ -1452,6 +1455,16 @@ VDC 与 SYNC_TRIGGER 的窗口和 WCET 同步缩减，其他执行项按表平�
 余量、`PROJECT_CORE1_CYCLE_RATE_HZ` 和 GUARD。旧预算属于历史基线，不是不可调整的
 长期门槛；新表实测及仍缺的供出预算相位满载证据见 `TDMA-PROGRESS-20260913-054`。
 修改预算不消除已有 overrun/deadline 事实，也不构成完整 WCET 或产品准入通过。
+
+后续周期配置按用户确认的候选推进：整张 Core1 静态表采用可选周期，STOP 后配置、
+Core1 在完整周期边界应用并发布确认，重新 ARM 后冻结使用；SCPI 只触发流程。
+候选默认周期为 1.5 ms，并预留 5/10/15 ms 档位（用户需求快照，非事实源），整表
+算术核算见 `out/HardwareAcceptance/20260914/tdma-flight-configurable-period/candidate-schedules-r1.json`。
+此处尚未将候选记为已安装或已验收。每档必须显式声明各 phase、WCET 和 GUARD，
+以整数 clk_sys 拍表示精确周期；非整数频率只作有理数展示，不取整后驱动调度。
+Core1 服务周期、PIO/DMA 物理循环及 VDC 观测周期继续分别声明；周期切换须复验
+VDC/Trigger 时基、profile/CRC、旧任务取消和新配置准入。长周期不自动授予 LONG
+帧能力，也不免除帧长、节点数、带宽、固定池及完整 WCET 的独立验收。
 
 硬不变量：
 

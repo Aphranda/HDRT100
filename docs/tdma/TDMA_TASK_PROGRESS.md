@@ -8,7 +8,18 @@ Last updated: 2026-09-14
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前完成自主主站邮箱异步准备切片，见 `TDMA-PROGRESS-20260914-011`，证据根为
+当前完成 RX header/presence 后台准备候选的双槽比较并决定撤回，见
+`TDMA-PROGRESS-20260914-012`，证据根为
+`out/HardwareAcceptance/20260914/tdma-flight-rx-unload-prepare/`。候选软件、构建、
+P3 quick diagnostic、双槽四轮完整记录及普通恢复通过相应范围检查；同槽主站范围
+重叠，全部从站双轮峰值升高，未采纳。两次 NO3 SD 写失败及首次 P3 拓扑预检失败
+原件保留，后续 reboot 后普通闭环和 SD 恢复成功不关闭根因。生产源码已恢复前序
+异步邮箱基线，恢复版软件、构建、P3 quick diagnostic 严格检查、两轮记录和普通
+恢复完成，四组 STOP/config ACK、许可证退出及 SD 核对通过。按用户新指示，下一切片为整张
+Core1 静态表的可配置周期：STOP 后选择、确认完整表应用后 ARM；1.5 ms 为候选默认，
+另预留 5/10/15 ms（用户需求快照，非事实源）。候选整表核算和隔离工作树纯表回归
+已经完成，运行时交接尚未验收；旧预算失败保持原样，不以新表重判旧记录。
+前序完成自主主站邮箱异步准备切片，见 `TDMA-PROGRESS-20260914-011`，证据根为
 `out/HardwareAcceptance/20260914/tdma-flight-origin-async-mailbox/`。复用既有工位，
 Core0 校验私有邮箱并准备接受结果，Core1 保留 selection 退休、完整版本准入、
 物理发布及 STOP 取消责任。软件、A/B/Boot、当前源码 P3 quick diagnostic 严格检查、
@@ -396,6 +407,87 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260914-012 - RX 头检查后台准备候选撤回与周期配置衔接
+
+- 日期：2026-09-14
+- 状态：PARTIAL；候选完成软件、构建、P3、两槽记录及普通恢复；完整 phase 收益
+  未成立，因此未采纳。源码已恢复前序基线，恢复版软件、构建、P3、两轮记录及
+  普通恢复完成；完整预算、正式 RAM 和增长因果仍未闭合。
+- 候选将 compact map 放入 `tdma_rx_prepare_t` 的互斥 expected-frame scratch，
+  Core0 在私有 packet 上检查 header/presence/seq16，Core1 保留当前 novelty、布局
+  生命周期复验、receive health 和 FIFO 发布成功后的 commit。原始诊断输入优先，
+  同 epoch/map/local/payload/owner 的布局可缓存，STOP 沿原 cancel/ACK；发布失败不
+  消费序号，同值可重试。没有新增硬件写者、wire、PIO、DMA 或 recorder 探针。
+- 候选软件回归为 51 passed，完整 adapter C harness 通过（本轮快照，非事实源）。
+  覆盖四/五/六节点、非连续 segment ID、owner/offset/header 错误、expected owner
+  子集、seq16 wrap、worker 完成后的当前消费序号、重复值 WKC、计数差分、stale
+  map、STOP 取消及真实 RX FIFO 满后同值重试；原始坏帧诊断和 legacy 路径保留。
+- A/B/Boot 与 Flash link contract 通过。链接快照（非事实源）：compact layout/result
+  为 148/40 B，诊断 scratch 为 56 B；ARM ABI 下 RX job 从 840 增至 848 B，位于原有
+  更大的 injection/job union，adapter 仍为 7488 B，总静态 RAM 不增长。heap 预留
+  2048 B、heap 外余量 36 B，PIO headers 逐字节同基线；不提升正式 RAM 结论。
+  首次 `linkage-command-r1` 错误假定 job sizeof 不变，以 exit=1 保留；r2 以实际
+  ARM DWARF、symbol/map 和 code/data relocation 交叉核对后通过。
+- 候选 build 为 `20260914000205`，源码指纹为
+  `e2d82d9630177160dd50ef4b20c808fab722bd406053f05a54868ba1cde5d98a`
+  （本轮快照，非事实源）。编译容量六、实环四，payload/packet 为 132/164 B，
+  v9/51 项探针保持；实际入口由 `PROJECT_NODE_CAPACITY`、active topology 与
+  `TDMA_SERVICE_TIMING_VERSION` 约束。候选源码和完整补丁已独立留存。
+- 同 UID、同实际可执行槽与 011 比较如下；NO1 取 RUN、从站取 OTHER，每格为两轮
+  完整外层时间，单位 us（有限窗口快照，非事实源，不是同拍配对或 WCET 证明）。
+
+  | 节点 / 实际槽 | 011 基线 | RX 头检查候选 |
+  |---|---|---|
+  | NO1 / B | 671.252 / 661.372 | 688.884 / 665.280 |
+  | NO2 / B | 695.068 / 705.732 | 761.176 / 759.120 |
+  | NO3 / B | 700.004 / 709.544 | 734.668 / 757.812 |
+  | NO4 / A | 690.352 / 681.960 | 744.848 / 728.764 |
+
+- 主站 RX_INSPECT 由 23.452/23.376 us 变为 64.572/35.444 us，RX_COMMIT 由
+  12.420/18.296 us 变为 34.004/26.564 us；NO2 的 RX_REQUEST_HINT 由 6.928/6.712 us
+  变为 34.824/30.464 us（有限窗口快照，非事实源）。候选 hint 包含 compact layout
+  缓存核对/重建；完整检查迁移并未省去 Core1 当前授权和消费责任，新增复验成本
+  不应忽略。各父子项为包含关系，禁止跨拍加减，不能将全部增长归因于单一函数。
+  当前五轮全部 60 条 PEAK/RUN/OTHER、基线 48 条及实际 SLOT/RES、镜像长度/CRC
+  均保留；其中首轮 SD 失败的额外窗口没有从高值比较中删除。
+- 四轮 SD 完整窗口的稳定采样区间均有主站新版本物理提交及四板 RX 消费进展，
+  接收 reject/missing、incomplete/map/length reject、TX publish reject 与 RX publish
+  drop 增量为零；首轮失败 SD 的 RAM 窗口也完整分析。该证据仅证明有限交换进展，
+  不证明逐圈特等数据保全或完整 WCET。
+- 首次 P3 已完成四板 OTA，但 P0T 的 NO4→NO1 未检测到活动，exit=1 原件保留。
+  四板 STOP/身份/build 复核后，用工具 resume 复用成功 OTA、重新软复位并执行真实
+  验收；r2 quick diagnostic 的 strict=true、failures 为空。恢复通过不关闭初次间歇
+  拓扑失败原因；不是 replay，凭证仅覆盖 quick diagnostic 范围。
+- `profile-r1` 的 NO3 recorder SAVE 失败；现场 job 32 为 FILE_WRITE/error 6，
+  RAM 的 26/26 条记录、12644 B 完整，missed/reason 为零，SD 读回为空。一次软复位
+  后普通闭环通过，但 `sd-recovery-r1` 的新记录再次 SAVE 失败，job 1、12336 B，
+  RAM 仍完整、SD 仍为空（本轮快照，非事实源）。两次其余三板的 SD 核对均通过。
+  按用户后续 reboot 指示再次软复位后，`sd-recovery-r2` 普通闭环与 SD 核对通过，
+  随后的补采、另一槽和普通恢复通过；仅证明本次恢复，SD 根因继续开放。
+- 候选五轮自主记录的原始预算拒绝保持；START 后零查询、板端留证，STOP 后导出。
+  P3、成功的 SD 恢复、四轮补齐采样和两次普通恢复共八组 STOP/SD 通过；最终四板
+  STOP/config ACK、许可证退出及 SD 核对通过。`decision-r1.json` 明确撤回候选，
+  已以恢复版新构建/P3/普通闭环封闭撤回，从前序基线推进可配置 Core1 周期。
+- 恢复 build 为 `20260914004726`、源码指纹恢复为
+  `685857c8b481970496834a8d68d3062cf8da5b6c87e13eeeec0550e51634fdd0`
+  （本轮快照，非事实源）。七份生产文件无内容差异；软件 51 passed、完整 adapter
+  harness、A/B/Boot 与 Flash link contract 通过。新 P3 quick diagnostic strict=true、
+  failures 为空；两轮自主记录保留原预算拒绝，最终普通闭环各项通过。恢复 P3、两轮
+  记录和普通闭环的四组 STOP/config ACK、许可证退出及 SD 字节核对通过。
+  首次恢复收尾 helper 的字符串替换误改内层 checkpoint 匹配条件，仍读候选 build，
+  四板均在身份/build 校验后、发送 STOP 前被拒绝；失败原件保留。r2 修正精确绑定
+  后执行成功，没有放宽 build 校验。当前凭证只绑定恢复源码。
+- 新周期需求及整表算术候选见
+  `out/HardwareAcceptance/20260914/tdma-flight-configurable-period/candidate-schedules-r1.json`；
+  四档都以 clk_sys 拍表达，并保留完整相位和 GUARD。隔离工作树纯表回归通过，
+  首次 pytest 因临时目录父目录不存在失败的日志保留，修正目录后新标签运行通过。
+  尚未安装运行时周期配置，也未授予长帧能力。此候选不重判本轮旧表失败。
+- 原件入口：`source-checkpoint-r1.json`、`linkage-review-r2.json`、
+  `slot-comparison-r1.json`、`rx-cost-review-r1.json`、`workload-review-r1.json`、
+  `decision-r1.json`、`interruption-checkpoint-r1.json`、`restored-source-checkpoint-r1.json`、
+  `review-final-r1.json`、`slice-manifest.json`、`commit-proof.json`；证据根为
+  `out/HardwareAcceptance/20260914/tdma-flight-rx-unload-prepare/`。
 
 ### TDMA-PROGRESS-20260914-011 - 自主主站邮箱私有副本异步准备与双槽验收
 

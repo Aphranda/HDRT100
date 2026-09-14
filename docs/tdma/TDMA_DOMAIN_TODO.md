@@ -453,6 +453,23 @@ Core0 校验私有邮箱副本并准备接受结果，Core1 保留 DMA selection
 读回为空；软复位后普通闭环和补采保存成功只证明恢复，不关闭写失败原因。保留
 两次原失败、其余三板 SD 核对和 NO3 身份/build 复核，不放宽 SAVE 或完整预算判断。
 
+RX header/presence 后台准备候选撤回见 `TDMA-PROGRESS-20260914-012`。候选复用既有
+互斥 scratch，保留 Core1 当前 novelty、receive health 和 FIFO 成功后的 commit；
+软件和短帧闭环通过，但同槽主站范围重叠、全部从站双轮高峰升高，新增布局复验也
+增加 RX_INSPECT/COMMIT 和请求成本，因此未采纳，生产源码恢复前序异步邮箱基线。
+全部原探针与完整 phase 门禁保留；有限记录不能把全部增长归因于单一函数。NO3
+本轮原始采样和首次恢复的 SD 写失败，以及首次
+P3 的 NO4→NO1 拓扑预检无活动均保留，恢复成功不关闭根因。
+
+按用户新指示，接续推进整张 Core1 静态表的周期配置；默认 1.5 ms，预留 5/10/15 ms
+（用户需求快照，非事实源）。候选整表入口为
+`out/HardwareAcceptance/20260914/tdma-flight-configurable-period/candidate-schedules-r1.json`；
+当前只完成候选算术核算及隔离工作树的纯表回归，运行时配置交接尚未验收。优先补齐
+STOP/config ACK→配置请求→Core1 完整表应用及 generation 确认→ARM 的状态边界，
+覆盖 RUN 拒绝、并发 ARM、STOP 取消、旧 generation 与回退。VDC/Trigger 时基、物理
+循环关联及准入必须一起复核，不以取整 Hz、运行中临时借用余量或只改延时函数实现。
+长帧保持独立门禁；本轮仍按当前短帧、旧静态预算保留原失败，不用新候选预算重判旧证据。
+
 普通 RX 异步解析切片已按用户顺序封存，随后完成六节点编译容量的隔离 RAM 核算，见
 `TDMA-PROGRESS-20260912-019`。核算区分本地状态、固定 wire/RefMem/Calibration
 存储容量与 scratch_y；收益不能代替正式 RAM/WCET 门禁。编译容量作为独立辅助切片
