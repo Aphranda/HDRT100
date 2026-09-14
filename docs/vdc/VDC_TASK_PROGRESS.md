@@ -31,13 +31,71 @@ Last updated: 2026-09-14
 审计见 `VDC-PROGRESS-20260914-008`；原始记录原型、当前容量目标链接及板端预采见
 `VDC-PROGRESS-20260914-009`；配置矩阵、raw 退休及两次重臂补测见
 `VDC-PROGRESS-20260914-010`；owner 几何与目标容量资源补测见
-`VDC-PROGRESS-20260914-011`。当前入口仍为 `VDC-TIME-002`，补齐剩余目标容量和
-硬件配置验收后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
+`VDC-PROGRESS-20260914-011`；其余编译容量链接及真实地址构造、上限容量四板预采见
+`VDC-PROGRESS-20260914-013`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、取消
+及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
 `VDC-ROLE-001`；全表 WCET 和正式锁相仍未闭合，
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260914-013 — 编译容量矩阵和上限容量四板预采
+
+- TODO task ID：`VDC-TIME-002`；`VDC-TIME-003/004` 保持 PENDING。
+- 状态：IN PROGRESS。仅补证，无固件或正式时间输入变更，未接入从机命令。
+- 日期：2026-09-14。
+- 证据根：`out/HardwareAcceptance/20260914/dpll-capacity-matrix/`，主控复核见
+  `review-final-r1.json`。以下数字为本轮快照，非事实源。
+- 身份：源码指纹与前序 quick 加速切片一致，仍为
+  `87e98c7fef8e30d2607079b3d2c9946ec98c1eeb9f1bfcb1f99299bbc225aea2`。
+  各容量 package、A/B map/ELF 和实际地址绑定见 `capacityN-layout.json`；容量
+  6 的封存 build 仅读取。容量 2/8 同时构建产生相同时间 build 字符串，配置身份
+  必须同时使用容量、package SHA 和布局，不能只按 build 字符串互换。
+- 软件与资源：原始计时/记录/增量构造测试 54 项、准入测试 10 项通过。容量
+  2～8 的 A/B 链接全部通过，保留堆、Core1 栈和既有 SCRATCH_Y 快照；12 个
+  live origin 缓冲的真实地址、对齐和非重叠检查通过。实际地址构造共 1,939,224
+  组，覆盖每个准入运行节点数/本地槽、连续 owner mask、tail/prefix、选定 guard/
+  abort 和记录开关；单步最大 22 个描述符。非连续 active mask 的覆盖沿用前序
+  host 矩阵，不扩张成本轮实板拓扑结论。
+
+| 编译容量 | BSS | 预留堆之后主 RAM 余量 | 描述符峰值 / 分配 | literal 峰值 / 分配 |
+|---:|---:|---:|---:|---:|
+| 2 | 458796 B | 10196 B | 274 / 320 | 125 / 140 |
+| 3 | 460088 B | 8904 B | 284 / 320 | 127 / 140 |
+| 4 | 461404 B | 7588 B | 294 / 320 | 129 / 140 |
+| 5 | 462728 B | 6264 B | 304 / 320 | 131 / 140 |
+| 6 | 464084 B | 4908 B | 314 / 320 | 133 / 140 |
+| 7 | 466464 B | 2528 B | 324 / 352 | 135 / 140 |
+| 8 | 467844 B | 1148 B | 334 / 352 | 137 / 148 |
+
+- 四板 quick：容量 8 build `20260914085410` 配置为四节点运行，NO5 未操作。
+  内部流程 218.486 s、外部命令 219.500 s，增量复核 9.573 s、OTA 111.963 s。
+  此时其他容量仍在编译，不能把与前序 185.790 s 的差异归因为固件容量。receipt
+  流程完成，但 `strict_gates_passed=false`；启动稳定门通过，NO1 RefMem 曾达
+  26100 cycles，超出 24000 cycles 预算，随后被既有调度器隔离。四板原生 SRAM
+  各 14 条、无漏采，STOP 后 SD 一致；短帧严格失败保留，不能用诊断完成替代。
+- 自主预采：有限许可证下各板 34 条原生记录；切换期间每板一次真实 missing，
+  完整窗口失败。旧普通 persona 判据的 mismatch 另行保留。预选 3～6 s 诊断
+  窗口没有新增 missing/reject/TDMA overrun，不能替代整窗。NO1 原始记录 epoch
+  1、sequence 8149～8155 连续，timer 读取夹区为 252 ns，TDMA 完整相位峰值
+  603.020 µs；这些原始计时不是物理边沿或共同时间。自主 DPLL trace 为零，命令
+  接收/应用增量仍为零。原生 TDMA SD 与主机导出后写入 SD 的 raw 副本分开核验，
+  后者两次读回一致。
+- 恢复与限制：容量 8 普通模式恢复后，旧 raw 各 age 均 UNAVAILABLE；运输闭环
+  通过，四板各 26 条记录。此入口未要求 DPLL schedule gate；NO1 中段 TDMA
+  overrun 119、VDC start miss 105，不能宣称全表 WCET 通过。随后刷回容量 6
+  build `20260914084228` 并完成普通短帧恢复及 SD 一致性；同样保留中段 TDMA
+  overrun 176、VDC start miss 191。最终四板 STOP、config ACK、临时许可证
+  inactive，运行期间无 SCPI 查询。
+- 辅助脚本失败：首次回退 STOP 导出缺少 checkpoint 指纹；补齐后冷启动尚无
+  staged phase，部分 origin 查询 UNAVAILABLE。两次失败原件保留。单独核对
+  冷启动 STOP/config ACK 后再装载矩阵，最终配置后的相位/许可证检查全部通过；
+  没有把冷启动缺省值冒充已装载配置。
+- 下一 gate：`VDC-TIME-002` 的对应物理拓扑/运行配置、有界取消和容量 8 RefMem
+  失败仍未闭合。目标链接缺口已补齐；真实总线/边沿、切换连续性、同圈输入和正式
+  锁相继续按原依赖推进。日常切片复用匹配配置的可写构建目录并使用默认 quick；
+  本次容量矩阵作为独立补证，不加入每轮快速验收，也不重建已封存产物。
 
 ### VDC-PROGRESS-20260914-012 — quick 验收目录扫描加速
 

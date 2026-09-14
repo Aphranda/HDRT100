@@ -126,8 +126,10 @@ run 分配保持原边界，literal 分配按对应符号调整。新增归档�
 对齐均需计入预算，不能从总 BSS 不变推断没有消耗 RAM。当前容量目标链接和节点
 构造矩阵已有证据；扩展矩阵覆盖全部 active mask/有效 local slot 与选定 guard/abort
 组合。后续 owner 准入 tail/prefix 探针及当前/上限容量链接见
-`VDC-PROGRESS-20260914-011`，仍使用固定的 owner PIO/DMA 和合成地址。raw 复制
-交错、计数回绕与 STOP 后退休已有补测，剩余目标容量、硬件配置及有界取消证据仍由
+`VDC-PROGRESS-20260914-011`，使用固定的 owner PIO/DMA 和合成地址；
+`VDC-PROGRESS-20260914-013` 补齐其余编译容量的 A/B 链接，并使用各目标实际地址
+重跑构造矩阵。上限容量只实测了现有四板配置，quick P3 的 RefMem 调度失败仍保留。
+raw 复制交错、计数回绕与 STOP 后退休已有补测，硬件配置及有界取消证据仍由
 `VDC-TIME-002` 跟踪，不能从 host 构造或目标链接推断物理边沿已经验收。
 
 切换缺失的只读审计显示，旧环路停止之后才选择自主 persona、构建并安装 DMA 图；
@@ -218,8 +220,9 @@ receiver，保留 peer、mirror 和 quality，通用 RefMem receiver 保持完�
 `VDC-PROGRESS-20260914-011` 补充当前与上限容量的目标链接：上限容量曾出现真实
 RAM 溢出，随后由 Sync Trigger owner 提供 `sync_trigger_status_t` /
 `sync_trigger_get_status()`，使 UI 仅保存所消费的标量状态；完整 TriggerVector 和
-序列表继续由原 owner 持有，Core1 栈不用于补足主 RAM。剩余容量及相应硬件配置
-不能继承这两种容量的结果。组装区、稳定命令、guard、预约锚点和双缓冲仍须分别完成
+序列表继续由原 owner 持有，Core1 栈不用于补足主 RAM。其余编译容量的独立目标
+链接已由 `VDC-PROGRESS-20260914-013` 补齐；相应物理拓扑及运行配置仍须独立验收。
+组装区、稳定命令、guard、预约锚点和双缓冲仍须分别完成
 预算后再接线，已回收 RAM 不等于这些缓冲已经分配或准入。
 
 ## 6. 独立审核与负测清单

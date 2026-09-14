@@ -166,12 +166,15 @@ quick P3 验证，见 `VDC-PROGRESS-20260914-005/006`。这不关闭其他容量
 | ID | 任务 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
 | `VDC-TIME-001` | 核对自主 DMA/PIO 发车与回传事件、原始时钟来源及当前资源。 | DONE | 已用当前真实 builder 核算编译容量/运行节点矩阵，核对预留 latch、Timer1 和完整记录边界；结果见 `VDC-PROGRESS-20260914-008`。仅关闭只读审计，不代表新增时间路径或实板验收。 |
-| `VDC-TIME-002` | 完成 TDMA owner 内的原始计时记录原型及资源收敛。 | IN PROGRESS | 依赖 `VDC-TIME-001`。真实 builder 原型、当前容量目标链接和 raw 预采见 `VDC-PROGRESS-20260914-009`；全部 active mask/有效 local slot、选定 guard/abort/记录开关的 host 矩阵，以及 raw 复制交错、回绕、STOP/重臂和 persona 退休补测见 `VDC-PROGRESS-20260914-010`。owner 固定 PIO/DMA 下的 tail/prefix 几何、当前与上限容量的目标链接及 UI 状态副本资源修复见 `VDC-PROGRESS-20260914-011`；其余目标容量和对应硬件配置仍待验收，合成地址的 host 构造不证明实际总线或边沿精度。全部准入配置的描述符、literal、单步构造上界、记录布局、FIFO 和目标 RAM/link map 均通过后关闭；其他容量不能继承当前目标链接结论。跨字回绕、缺边沿、旧 FIFO、身份错配及覆盖分别验证，timer 读取区间不能作为实际边沿精度。 |
+| `VDC-TIME-002` | 完成 TDMA owner 内的原始计时记录原型及资源收敛。 | IN PROGRESS | 依赖 `VDC-TIME-001`。真实 builder 原型、当前容量目标链接和 raw 预采见 `VDC-PROGRESS-20260914-009`；全部 active mask/有效 local slot、选定 guard/abort/记录开关的 host 矩阵，以及 raw 复制交错、回绕、STOP/重臂和 persona 退休补测见 `VDC-PROGRESS-20260914-010`。owner 固定 PIO/DMA 下的 tail/prefix 几何和 UI 状态副本资源修复见 `VDC-PROGRESS-20260914-011`；其余编译容量的 A/B 链接、全部目标实际地址的构造矩阵和上限容量四板预采见 `VDC-PROGRESS-20260914-013`。目标链接缺口已补齐，对应物理节点拓扑、硬件配置和有界取消仍待验收；上限容量 quick P3 的 RefMem 调度失败保留。全部准入配置的描述符、literal、单步构造上界、记录布局、FIFO 和目标 RAM/link map 均通过后关闭；实际地址 host 构造不证明总线或边沿精度。跨字回绕、缺边沿、旧 FIFO、身份错配及覆盖分别验证，timer 读取区间不能作为实际边沿精度。 |
 | `VDC-TIME-003` | 验收四板自主模式的原始计时与完整窗口连续性。 | PENDING | 依赖 `VDC-TIME-002`。原型预采见 `VDC-PROGRESS-20260914-009`，未开放正式验收。当前源码构建/P3及四板有限许可证采集，原始记录按 epoch/sequence/identity 对账；约束实际边沿到计时的偏移和抖动，保留并解决切换期间的 missing 和迟到，不以预选稳定窗口替代整窗。SCPI 仅控制，全部 STOP 后顺序保存 TDMA/DPLL 并核对 CRC/SD；区分板端原生记录与主机导出后写入 SD 的副本。健康 TDMA 不因局部计时拒绝而隔离。 |
 | `VDC-TIME-004` | 将已验证的同圈计时接入 trailer 和 VDC evidence 准入。 | PENDING | 依赖 `VDC-TIME-003` 及相关契约门禁。同圈发射/回传事件可关联，旧 session/映射失效不能残留有效 flag；原始时间、共同时间及 formal qualification 分开。跨域语义变化须经独立审核；实板确实产生自主 DPLL 更新后才转入 `VDC-SCHED-001`，正式锁相继续由 Calibration/quality 和实际输出验收。 |
 
-下一次按 `VDC-PROGRESS-20260914-011` 的配置范围补齐 `VDC-TIME-002` 剩余容量的
-链接/硬件验收及取消证据；保持 Core1 栈和其他 owner 的资源边界。UI 只读状态副本
+下一次按 `VDC-PROGRESS-20260914-013` 补齐 `VDC-TIME-002` 的硬件配置及有界取消
+证据，并定位上限容量 RefMem 超限；已通过的目标链接不重复冷构建。日常切片继续
+默认 quick 验收，复用匹配配置的可写增量构建目录，容量矩阵补测独立留证；封存目录
+仅供读取。快速流程耗时与冷构建边界见 `VDC-PROGRESS-20260914-012/013`。
+保持 Core1 栈和其他 owner 的资源边界。UI 只读状态副本
 回收的 RAM 尚未分配给命令组装、时间锚或 guard，新增缓冲仍须逐项核算。随后处理
 `VDC-TIME-003` 的切换连续性及物理边沿误差界。切换审计已
 定位到旧 DMA 停止后才准备自主 persona/共享 workspace 的边界，仍须测量实际停发
