@@ -9,6 +9,7 @@
 #include "hardware/regs/dma.h"
 #include "hardware/regs/dreq.h"
 #include "hardware/regs/pio.h"
+#include "hardware/regs/timer.h"
 
 #define BIT(name) DMA_CH0_CTRL_TRIG_##name##_BITS
 #define FIELD(name, value) ((uint32_t)(value) << DMA_CH0_CTRL_TRIG_##name##_LSB)
@@ -25,21 +26,24 @@ _Static_assert(sizeof(tdma_origin_observation_t) == 6u * sizeof(uint32_t) &&
                    offsetof(tdma_origin_plan_state_t, observation_sequence) ==
                        sizeof(tdma_origin_observation_t),
                "Per-bank observation copy must cover the complete guarded record");
-_Static_assert(sizeof(tdma_origin_record_t) == 12u * sizeof(uint32_t) &&
+_Static_assert(sizeof(tdma_origin_raw_time_t) == 10u * sizeof(uint32_t),
+               "Raw timer record contains only complete register words");
+_Static_assert(sizeof(tdma_origin_record_t) == 22u * sizeof(uint32_t) &&
     offsetof(tdma_origin_plan_state_t, record_sequence_end) + sizeof(uint32_t) -
         offsetof(tdma_origin_plan_state_t, observation_sequence) == sizeof(tdma_origin_record_t),
     "Record transfer must cover prefix and final sequence with the complete body");
 _Static_assert(TDMA_ORIGIN_RECORD_COUNT == 8u, "Immutable record writer catalog has eight entries");
 
 enum {
-    L_SEED, L_BOUNDARY, L_RTT_PRESENT, L_RTT_DONE, L_POLL_CAPTURE, L_POLL_OUTPUT,
+    L_SEED, L_BOUNDARY, L_RTT_PRESENT, L_RTT_DONE, L_LATCH_PRESENT, L_LATCH_DONE,
+    L_POLL_CAPTURE, L_POLL_OUTPUT,
     L_POLL_CAPTURE_ABORT, L_POLL_OUTPUT_ABORT, L_POLL_DECREMENT,
     L_PUBLISH_SELECT, L_PUBLISH_A, L_PUBLISH_B, L_CHECK_COUNT, L_PACK_SELECT,
     L_PACK_A, L_PACK_B, L_IDENTITY, L_MATCH, L_TRANSPORT, L_ROUTE,
     L_MAILBOX, L_MAILBOX_NEXT_0, L_MAILBOX_NEXT_7 = L_MAILBOX_NEXT_0 + 7,
     L_ACCEPT_SELECT, L_ACCEPT_A, L_ACCEPT_B, L_RECORD_SELECT,
     L_RECORD_0, L_RECORD_7 = L_RECORD_0 + 7, L_RECORD_DONE, L_PREPARE_SELECT,
-    L_PREPARE_A, L_PREPARE_B, L_HEADER, L_LOCAL_A, L_LOCAL_B, L_STAGE,
+    L_PREPARE_A, L_PREPARE_B, L_HEADER, L_LOCAL_A, L_LOCAL_B, L_STAGE, L_LATCH_ARM,
     L_ARM_A, L_ARM_B, L_ARM_OUTPUT, L_FAULT, L_COUNT
 };
 
@@ -245,7 +249,9 @@ static void add(builder_t *b, uint32_t target, uint32_t value)
     move(b, target, DMA_BASE + DMA_SNIFF_DATA_OFFSET);
     copy(b, literal(b, value), b->c->address.scratch, 1u, 4u, 63u, SNIFF, b->c->loader_dma);
     move(b, DMA_BASE + DMA_SNIFF_DATA_OFFSET, target);
-    put(b, 0u, DMA_BASE + DMA_SNIFF_CTRL_OFFSET);
+    /* The resident owner retains the sniffer lease. Only transfers marked
+     * SNIFF on this executor affect it; every operation resets mode/seed.
+     * FAULT and resource retirement disable it before another owner can use it. */
 }
 
 static void crc(builder_t *b, uint32_t header, bool identity, uint32_t target)
@@ -256,7 +262,22 @@ static void crc(builder_t *b, uint32_t header, bool identity, uint32_t target)
     copy(b, identity ? header + 15u : literal(b, 0u), b->c->address.scratch,
          identity ? 9u : 4u, 1u, 63u, (identity ? READ : 0u) | SNIFF, b->c->loader_dma);
     move(b, DMA_BASE + DMA_SNIFF_DATA_OFFSET, target);
-    put(b, 0u, DMA_BASE + DMA_SNIFF_CTRL_OFFSET);
+}
+
+static uint32_t raw_latch_sm(const tdma_origin_plan_config_t *c)
+{
+    /* config_valid proves these are three distinct members of {0,1,2,3}.
+     * The remaining leased TX SM is the catalog's clock observer. */
+    return 6u - c->control_sm - c->capture_sm - c->rtt_sm;
+}
+
+static void raw_timer_sample(builder_t *b, uint32_t destination)
+{
+    _Static_assert(TIMER_TIMERAWL_OFFSET == TIMER_TIMERAWH_OFFSET + sizeof(uint32_t),
+                   "Raw timer registers must be high then low in address order");
+    copy(b, TIMER1_BASE + TIMER_TIMERAWH_OFFSET, destination,
+         2u, 4u, 63u, READ | WRITE, b->c->loader_dma);
+    move(b, TIMER1_BASE + TIMER_TIMERAWH_OFFSET, destination + 2u * sizeof(uint32_t));
 }
 
 static void emit(builder_t *b)
@@ -264,6 +285,8 @@ static void emit(builder_t *b)
     const tdma_origin_plan_config_t *c = b->c;
     const tdma_origin_plan_addresses_t *a = &c->address;
     const uint32_t loader = c->loader_dma;
+    const uint32_t latch_sm = raw_latch_sm(c);
+    const uint32_t latch_mask = c->diagnostic_skip_records ? 0u : 1u << latch_sm;
     switch (b->step) {
     case L_SEED:
     mark(b, L_SEED);
@@ -277,7 +300,7 @@ static void emit(builder_t *b)
     move(b, a->tx_header + 8u, STATE(observation_sequence));
     move(b, a->tx_header + 24u, STATE(observation_identity));
     move(b, STATE(local_selected_generation), STATE(observation_local_generation));
-    put(b, (1u << c->capture_sm) | (1u << c->rtt_sm), b->tx_pio + 0x3000u);
+    put(b, (1u << c->capture_sm) | (1u << c->rtt_sm) | latch_mask, b->tx_pio + 0x3000u);
     put(b, 1u << c->data_sm, b->rx_pio + 0x3000u);
     move(b, dma_reg(c->capture_dma, DMA_CH0_TRANS_COUNT_OFFSET), STATE(remaining_snapshot));
     move(b, dma_reg(c->output_dma, DMA_CH0_TRANS_COUNT_OFFSET), STATE(output_remaining_snapshot));
@@ -299,6 +322,25 @@ static void emit(builder_t *b)
     break;
     case L_RTT_DONE:
     mark(b, L_RTT_DONE);
+    if (!c->diagnostic_skip_records) {
+        move(b, b->tx_pio + PIO_FSTAT_OFFSET, STATE(record_time.latch_fstat));
+        put(b, 0u, STATE(record_time.latch_remaining));
+        test_bit(b, STATE(record_time.latch_fstat), PIO_FSTAT_RXEMPTY_LSB + latch_sm,
+                 L_LATCH_PRESENT, L_LATCH_DONE);
+    }
+    break;
+    case L_LATCH_PRESENT:
+    mark(b, L_LATCH_PRESENT);
+    if (!c->diagnostic_skip_records) {
+        /* Paused producer and a sampled nonempty FIFO: no wait for a missing
+         * edge, and no later CPU service can retag an old FIFO word. */
+        copy(b, b->tx_pio + PIO_RXF0_OFFSET + latch_sm * sizeof(uint32_t),
+             STATE(record_time.latch_remaining), 1u, 4u,
+             b->ctrl_q - c->control_sm + latch_sm, 0u, loader);
+    }
+    break;
+    case L_LATCH_DONE:
+    mark(b, L_LATCH_DONE);
     if (!c->diagnostic_skip_records) {
         move(b, STATE(remaining_snapshot), STATE(record_capture_remaining));
         move(b, STATE(observation_sequence), STATE(record_sequence_end));
@@ -394,7 +436,6 @@ static void emit(builder_t *b)
         copy(b, mailbox, a->scratch, TDMA_FLIGHT_SHORT_SLOT_SIZE - 2u, 1u, 63u, READ | SNIFF, loader);
         copy(b, mailbox + TDMA_FLIGHT_SHORT_SLOT_SIZE - 2u, a->scratch, 1u, 2u, 63u, SWAP | SNIFF, loader);
         move(b, DMA_BASE + DMA_SNIFF_DATA_OFFSET, a->scratch + 4u);
-        put(b, 0u, DMA_BASE + DMA_SNIFF_CTRL_OFFSET);
         compare(b, a->scratch + 4u, literal(b, 0u), L_MAILBOX_NEXT_0 + slot, L_RECORD_SELECT);
         mark(b, L_MAILBOX_NEXT_0 + slot);
     }
@@ -507,6 +548,18 @@ static void emit(builder_t *b)
     }
     fifo_put(b, c->capture_prefix_bits - 1u, b->cap_tx, b->cap_tx_q);
     fifo_put(b, c->physical_bytes - 1u, b->data_tx, b->data_q);
+    break;
+    case L_LATCH_ARM:
+    mark(b, L_LATCH_ARM);
+    if (!c->diagnostic_skip_records) {
+        put(b, PIO_SM0_SHIFTCTRL_FJOIN_RX_BITS, sm_reg(b->tx_pio, latch_sm, PIO_SM0_SHIFTCTRL_OFFSET));
+        put(b, 0u, sm_reg(b->tx_pio, latch_sm, PIO_SM0_SHIFTCTRL_OFFSET));
+        put(b, 1u << (4u + latch_sm), b->tx_pio + 0x2000u);
+        /* MOV X,~NULL is injected while disabled. This is an owner-built
+         * instruction, never a value taken from the process image. */
+        put(b, 0xa02bu, sm_reg(b->tx_pio, latch_sm, PIO_SM0_INSTR_OFFSET));
+        put(b, TDMA_ORIGIN_LATCH_PC, sm_reg(b->tx_pio, latch_sm, PIO_SM0_INSTR_OFFSET));
+    }
     compare(b, STATE(capture_bank), literal(b, 0u), L_ARM_A, L_ARM_B);
     break;
     case L_ARM_A:
@@ -523,7 +576,12 @@ static void emit(builder_t *b)
     mark(b, L_ARM_OUTPUT);
     const uint32_t output[] = {b->out_ctrl, b->data_tx, c->physical_bytes, a->stage};
     copy(b, block(b, output, 4u), dma_reg(c->output_dma, DMA_CH0_AL3_CTRL_OFFSET), 4u, 4u, 63u, READ | WRITE, loader);
-    put(b, (1u << c->capture_sm) | (1u << c->rtt_sm), b->tx_pio + 0x2000u);
+    if (!c->diagnostic_skip_records) {
+        raw_timer_sample(b, STATE(record_time.arm_before));
+        move(b, b->tx_pio + PIO_DBG_PADOUT_OFFSET, STATE(record_time.arm_padout));
+    }
+    put(b, (1u << c->capture_sm) | (1u << c->rtt_sm) | latch_mask, b->tx_pio + 0x2000u);
+    if (!c->diagnostic_skip_records) raw_timer_sample(b, STATE(record_time.arm_after));
     put(b, 1u << c->data_sm, b->rx_pio + 0x2000u);
     fifo_put(b, ((c->guard_count - 1u) << 16u) | (c->physical_bytes * 8u - 1u), b->ctrl_tx, b->ctrl_tx_q);
     jump(b, L_BOUNDARY);

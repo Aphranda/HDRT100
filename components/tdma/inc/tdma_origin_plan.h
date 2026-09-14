@@ -14,6 +14,7 @@
 #define TDMA_ORIGIN_PLAN_BANK_COUNT 2u
 #define TDMA_ORIGIN_RECORD_COUNT 8u
 #define TDMA_ORIGIN_RECORD_FORMAT_RTT 1u
+#define TDMA_ORIGIN_RECORD_FORMAT_RAW_TIME 2u
 #define TDMA_ORIGIN_RECORD_TRANSPORT_CHECKED 1u
 #define TDMA_ORIGIN_RECORD_COPY_MAX_US 1000u
 #define TDMA_ORIGIN_PLAN_SHADOW_BYTES (TDMA_FLIGHT_SHORT_SLOT_SIZE + sizeof(uint32_t))
@@ -54,6 +55,19 @@ typedef struct {
     uint32_t rtt_present;
 } tdma_origin_observation_t;
 
+/* Diagnostic clock provenance only. Each timer triplet is raw high/low/high
+ * around latch enable. It brackets an MMIO event; it is not an edge timestamp.
+ * The first FIFO countdown and sampled FSTAT remain separate, including when
+ * no edge arrived. GPIO/SM/bus uncertainty must be qualified before VDC use. */
+typedef struct {
+    uint32_t arm_before[3];
+    uint32_t arm_after[3];
+    uint32_t latch_remaining;
+    uint32_t latch_fstat;
+    uint32_t arm_padout;
+    uint32_t tick_hz;
+} tdma_origin_raw_time_t;
+
 /* Local transport evidence only; no new wire fields or VDC time validity.
  * Both sequence words must match the expected frame, with bounded epoch/
  * producer revalidation around a copy. A tail marker alone is insufficient. */
@@ -64,6 +78,7 @@ typedef struct {
     uint32_t epoch;
     uint32_t flags;
     uint32_t format;
+    tdma_origin_raw_time_t raw_time;
     uint32_t sequence_end;
 } tdma_origin_record_t;
 
@@ -100,6 +115,7 @@ typedef struct {
     uint32_t record_epoch;
     uint32_t record_flags;
     uint32_t record_format;
+    tdma_origin_raw_time_t record_time;
     uint32_t record_sequence_end;
     uint32_t record_next_address;
     uint32_t record_published_version;

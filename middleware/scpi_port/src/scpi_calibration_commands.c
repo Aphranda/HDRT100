@@ -42,6 +42,12 @@ scpi_result_t scpi_calibration_origin_record_q(scpi_t *context)
     SCPI_ResultUInt32(context, r->flags);
     SCPI_ResultUInt32(context, r->format);
     SCPI_ResultUInt32(context, r->sequence_end);
+    for (uint32_t i = 0u; i < 3u; ++i) SCPI_ResultUInt32(context, r->raw_time.arm_before[i]);
+    for (uint32_t i = 0u; i < 3u; ++i) SCPI_ResultUInt32(context, r->raw_time.arm_after[i]);
+    SCPI_ResultUInt32(context, r->raw_time.latch_remaining);
+    SCPI_ResultUInt32(context, r->raw_time.latch_fstat);
+    SCPI_ResultUInt32(context, r->raw_time.arm_padout);
+    SCPI_ResultUInt32(context, r->raw_time.tick_hz);
     return SCPI_RES_OK;
 }
 

@@ -74,7 +74,10 @@ static void setup(void)
         tdma_origin_record_t *r=&s_tdma_origin.record[(9-age)%8];
         *r=(tdma_origin_record_t){.observation={100-age,0xabc000u+age,5,0,17+age,1},
             .returned_trailer=0x80000000u+age,.epoch=77,.flags=1,
-            .format=TDMA_ORIGIN_RECORD_FORMAT_RTT,.sequence_end=100-age};
+            .format=TDMA_ORIGIN_RECORD_FORMAT_RAW_TIME,
+            .raw_time={.arm_before={7,1000-age,7},.arm_after={7,2000-age,7},
+                .latch_remaining=0xfffffff0u-age,.latch_fstat=0x1234u+age,
+                .arm_padout=0x4000000,.tick_hz=250000000},.sequence_end=100-age};
     }
     // Next DMA target may have been stopped halfway through overwriting.
     s_tdma_origin.record[2].observation.sequence=12345;
@@ -111,6 +114,11 @@ int main(void)
         assert(out.epoch==77 && out.published_version==20 && out.fault==0);
         assert(out.record.observation.sequence==100-age);
         assert(out.record.returned_trailer==0x80000000u+age);
+        assert(out.record.raw_time.arm_before[1]==1000-age);
+        assert(out.record.raw_time.arm_after[1]==2000-age);
+        assert(out.record.raw_time.latch_remaining==0xfffffff0u-age);
+        assert(out.record.raw_time.latch_fstat==0x1234u+age);
+        assert(out.record.raw_time.tick_hz==250000000);
     }
     assert(!tdma_pio_spi_phys_origin_get_frozen_record(&phys,7,&out));
     clock_calls=0;copy_mode=1;

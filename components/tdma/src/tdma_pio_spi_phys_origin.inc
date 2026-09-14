@@ -70,7 +70,9 @@ static void tdma_pio_spi_phys_origin_configure_sms(tdma_pio_spi_phys_t *phys,
     sm_config_set_out_shift(&helper, true, false, 32u);
     sm_config_set_clkdiv(&helper, 1.0f);
     pio_sm_init(rx, BOARD_TDMA_ORIGIN_HELPER_SM, TDMA_ORIGIN_HELPER_PC, &helper);
-    /* Latch words stay reserved. Raw RTT does not establish an absolute epoch. */
+    tdma_pio_spi_flight_clock_latch_program_init(tx,
+        phys->flight_resources.tx_clock_latch_sm, TDMA_ORIGIN_LATCH_PC, phys->tx_csn_pin);
+    /* The graph owns raw capture/rearm. No CPU epoch or VDC-valid flag. */
     phys->flight_clock_latch_armed = false;
     phys->flight_tx_clock_latch_armed = false;
     pio_interrupt_clear(tx, 1u);
@@ -219,6 +221,11 @@ tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *context)
     request->stage = TDMA_ORIGIN_PREPARE_BUILD_BEGIN;
     return TDMA_ORIGIN_BUILD_BUSY;
     case TDMA_ORIGIN_PREPARE_BUILD_BEGIN: {
+    if (vdc_timestamp_clock_tick_hz() != request->clk_sys_hz ||
+        phys->flight_resources.tx_clock_latch_sm != 6u -
+            phys->flight_resources.tx_control_out_sm -
+            phys->flight_resources.tx_data_capture_sm -
+            phys->flight_resources.tx_rtt_evidence_sm) goto failed;
     tdma_origin_plan_config_t plan_config = {
         .address = {
             .capture_bank = {(uint32_t)(uintptr_t)s_tdma_origin.capture[0],
@@ -298,7 +305,8 @@ tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *context)
         .local_selected_generation = 1u, .bank_version = {2u, 2u},
         .record_next_address = s_tdma_origin.plan.record_entry,
         .record_epoch = record_epoch,
-        .record_format = TDMA_ORIGIN_RECORD_FORMAT_RTT};
+        .record_format = TDMA_ORIGIN_RECORD_FORMAT_RAW_TIME,
+        .record_time = {.tick_hz = vdc_timestamp_clock_tick_hz()}};
     if (!tdma_origin_exchange_bind(&s_tdma_origin.exchange, &s_tdma_origin.state,
             s_tdma_origin.capture[0], s_tdma_origin.capture[1],
             s_tdma_origin.local_shadow[0], s_tdma_origin.local_shadow[1],
@@ -469,7 +477,7 @@ bool tdma_pio_spi_phys_origin_get_frozen_record(const tdma_pio_spi_phys_t *phys,
         after - before <= (uint64_t)vdc_timestamp_clock_tick_hz() *
             TDMA_ORIGIN_RECORD_COPY_MAX_US / 1000000u &&
         (out->published_version & 1u) == 0u && out->epoch != 0u &&
-        out->record.epoch == out->epoch && out->record.format == TDMA_ORIGIN_RECORD_FORMAT_RTT &&
+        out->record.epoch == out->epoch && out->record.format == TDMA_ORIGIN_RECORD_FORMAT_RAW_TIME &&
         out->record.observation.sequence == out->record.sequence_end;
 }
 

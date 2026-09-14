@@ -8,7 +8,7 @@
 /* Physical SRAM allocation is tighter than the builder's construction
  * bounds. All supported slot masks must fit these capacities before ARM. */
 #define TDMA_PIO_SPI_ORIGIN_RUN_CAPACITY (TDMA_RING_NODE_MAX <= 6u ? 320u : 352u)
-#define TDMA_PIO_SPI_ORIGIN_LITERAL_CAPACITY (TDMA_RING_NODE_MAX <= 7u ? 128u : 136u)
+#define TDMA_PIO_SPI_ORIGIN_LITERAL_CAPACITY (TDMA_RING_NODE_MAX <= 7u ? 140u : 148u)
 
 /* Persona storage, owned by the physical TDMA owner. The three service
  * arrays may be active together; none may be accessed while the origin
