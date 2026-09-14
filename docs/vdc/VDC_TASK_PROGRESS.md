@@ -41,13 +41,66 @@ Last updated: 2026-09-14
 自主相位分离复核见 `VDC-PROGRESS-20260914-019`；就绪阶段合批、构造取消与重臂
 交接对照见 `VDC-PROGRESS-20260914-020`；原生记录逐槽离线检查及从板观察缺口见
 `VDC-PROGRESS-20260914-021`；RX 同相位补充捕获的失败与回退见
-`VDC-PROGRESS-20260914-022`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
+`VDC-PROGRESS-20260914-022`；RX/TX latch 直接初始化及四板对照见
+`VDC-PROGRESS-20260914-023`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
 `VDC-ROLE-001`；全表 WCET 和正式锁相仍未闭合，
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260914-023 — RX/TX latch 直接初始化与四板对照
+
+- TODO task ID：`VDC-TIME-002`、`VDC-VERIFY-001`。
+- 状态：IN PROGRESS。当前重装切片已验收；完整观察连续性、正式时间输入及全表
+  WCET 仍未闭合，`VDC-TIME-003/004` 保持 PENDING。
+- 日期：2026-09-14。
+- 证据根：`out/HardwareAcceptance/20260914/dpll-latch-direct-seed/`。
+  `current-plan.json` 绑定部署包与回退基线，`review-final-r1.json` 为总复核；
+  提交身份和文件散列由 `commit-proof.json` / `slice-manifest.json` 绑定。
+  以下数值均为测量或构建快照，非事实源。
+- 实现：`tdma_pio_spi_phys_clock_latch_rearm()` 和
+  `tdma_pio_spi_phys_tx_clock_latch_rearm()` 使用 CPU 注入的 `MOV X, ~NULL`，
+  替代 FIFO 写入、PULL 和 OSR→X 搬运。既有 latch 程序只消费 X；保留禁用 SM、
+  清 FIFO、restart、恢复 PC、记录 epoch、启用 SM 的次序。resident PIO 指令、
+  owner/资源、静态 RAM 及接收/STOP 门禁不变，未重引入同相位补充捕获。
+- 软件与目标：最终 latch 用例 15 项、相关观察/计时用例 89 项通过，共 104 个
+  不重复用例；涵盖真实 C rearm/read、dirty state、无效输入、溢出和实际 PIO 源码
+  的首边沿/FIFO 保留行为。容量 6/8 的 A/B/boot 增量构建分别为 27.328/27.547 s；
+  目标反汇编均为 `0xa02b`，重装中不再有 FIFO 传送轮询。两包各减少 72 B，主 RAM
+  余量分别 4636/876 B、SCRATCH_Y 使用 1448/1648 B，SCRATCH_X 数据分配为零。
+  RX/TX rearm 的编译器局部栈为 32/40 B，不代表完整调用链或动态水位。
+- 源码提交：`447b93c`。源码指纹为
+  `836c8e42d6bd842ed18ab24da2ea71e2abd83ca5695073677561f91f54578b82`，
+  共 1069 个受验文件；当前容量 build `20260914112635` 的包 SHA-256 为
+  `3eb8c621be8499da61afef1f422a2d0a62b5e0d0bc9046d67dcf29dbe59ef6b7`。
+  增量 build ID 与基线相同，不能单凭 build ID 区分包；以源码和包散列为准。
+- P3 失败与恢复：首轮四板 OTA/quick 流程为 195.688 s，普通 TDMA 三项 gate
+  通过，但 NO2 coarse CLK APPLY 失败、TRN01 SCK gate 失败及无可用 rearm margin
+  行导致 strict=false。第二轮 resume 在 P0T 的 NO1 profile APPLY 失败，10.906 s
+  退出且没有 receipt。STOP 后 NO1 的 stage/apply/reject 为 1/0/1、last_result 为
+  BAD_ARGUMENT，不能归为单纯丢 ACK；一次有界 STAGE/APPLY 重试成功，具体拒绝
+  分支尚未证明。第三轮用同一包及已验证 OTA 的正式 resume，81.797 s，strict=true、
+  diagnostic failures 为空，普通 TDMA passed/closed_loop/realtime 均 true。
+  恢复耗时不含 build/OTA，不能冒充全流程加速结果；三轮原件和恢复读回均保留。
+- 自主有限采集：两轮各板原生样本均为 34 条、无漏采；四板 missing 和 latch miss
+  增量均零，从板 TDMA overrun/deadline 增量均零。NO2/NO3/NO4 OTHer 完整相位峰值
+  两轮分别为 716.452/732.512/737.296 µs 和 725.280/737.060/752.080 µs，均在当前
+  配置预算内；回退对照为 740.984/749.244/722.224 µs。RX/TX 重装分项涨跌不一，
+  这些是整相位峰值内的分项，非独立 stage 最大值或时延分布，稳定微秒收益未证实。
+- 未闭合反证：NO1 两轮 TDMA overrun/deadline 为 484/454 与 459/433；四板 RX ring
+  overrun 分别为 0/5/0/0 与 0/6/3/0，reject 两轮均 5/4/4/2。原始自主三项 gate
+  均 false，逐槽审计也未通过；不能用缺失计数为零代替 RX 无覆盖或全窗连续性。
+- 存储和观测边界：START 至最终 STOP 无 SCPI 查询，全部 STOP/ACK 后逐板 native
+  SD SAVE/readback，各轮均成功且字节匹配；命令时间证明各板保存没有重叠。首轮
+  STOP 后 profile 读回的 UNAVAILABLE 与工具异常保留，工具改为保留原响应并有界
+  重试，后续读回完整。最终四板 STOP/config ACK/phase/grant inactive，未操作 NO5，
+  未隔离健康 TDMA 节点。外来文件散列和上一封存均复核未变。
+- 下一 gate：`VDC-TIME-002`。继续拆分 DMA 初次观察、复制后复验及跨 service 消费
+  间隔，解决 RX 覆盖、普通 origin 超限及可恢复 APPLY 拒绝；保留代际/复制一致性
+  与 STOP 取消，不以扩大同相位工作或关闭诊断使门禁通过。未接通新的 DPLL 正式
+  时间输入，不声明四板锁相。
 
 ### VDC-PROGRESS-20260914-022 — RX 同相位补充捕获的失败与回退
 
