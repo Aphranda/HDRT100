@@ -8,17 +8,21 @@ Last updated: 2026-09-14
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
-当前完成 RX header/presence 后台准备候选的双槽比较并决定撤回，见
+当前已实现可配置 Core1 整表周期，见 `TDMA-PROGRESS-20260914-013`，证据根为
+`out/HardwareAcceptance/20260914/tdma-flight-configurable-period/`。STOP/config ACK 后
+发布请求，Core1 在完整表边界认领并确认，ARM/底层启用在交接期间拒绝；SCPI 已
+接入离散周期配置。软件、A/B/Boot、当前包 P3 quick diagnostic 严格检查、四档整表
+读回与 ARM 冻结验证通过。默认档普通短帧通过；长档循环运行准入仍有反馈窗口
+拒绝，自主切换缺帧、完整 WCET 和正式 RAM 继续开放。
+前序完成 RX header/presence 后台准备候选的双槽比较并决定撤回，见
 `TDMA-PROGRESS-20260914-012`，证据根为
 `out/HardwareAcceptance/20260914/tdma-flight-rx-unload-prepare/`。候选软件、构建、
 P3 quick diagnostic、双槽四轮完整记录及普通恢复通过相应范围检查；同槽主站范围
 重叠，全部从站双轮峰值升高，未采纳。两次 NO3 SD 写失败及首次 P3 拓扑预检失败
 原件保留，后续 reboot 后普通闭环和 SD 恢复成功不关闭根因。生产源码已恢复前序
 异步邮箱基线，恢复版软件、构建、P3 quick diagnostic 严格检查、两轮记录和普通
-恢复完成，四组 STOP/config ACK、许可证退出及 SD 核对通过。按用户新指示，下一切片为整张
-Core1 静态表的可配置周期：STOP 后选择、确认完整表应用后 ARM；1.5 ms 为候选默认，
-另预留 5/10/15 ms（用户需求快照，非事实源）。候选整表核算和隔离工作树纯表回归
-已经完成，运行时交接尚未验收；旧预算失败保持原样，不以新表重判旧记录。
+恢复完成，四组 STOP/config ACK、许可证退出及 SD 核对通过。其后接续的完整静态表
+周期配置以本页 013 记录为准；旧预算失败保持原样，不以新表重判旧记录。
 前序完成自主主站邮箱异步准备切片，见 `TDMA-PROGRESS-20260914-011`，证据根为
 `out/HardwareAcceptance/20260914/tdma-flight-origin-async-mailbox/`。复用既有工位，
 Core0 校验私有邮箱并准备接受结果，Core1 保留 selection 退休、完整版本准入、
@@ -407,6 +411,77 @@ Core1 WCET 与正式 RAM 仍失败。乘客调度保持后续任务。
 该索引记录原始工作树根、原路径、归档路径和逐文件 SHA-256；复制后已逐文件核对。
 原文件和报告内路径保持原样，严格失败与诊断继续状态保持原样；归档索引不是验收凭证。
 以下历史生成路径仍用于说明取证来源；同名子目录可由归档索引定位。
+
+### TDMA-PROGRESS-20260914-013 - STOP 后配置 Core1 完整静态表周期
+
+- 日期：2026-09-14
+- 状态：PARTIAL；配置实现、软件、构建和有限硬件验收完成。用户明确允许整张表改为
+  可配置周期；本轮不以新预算重判历史失败，也未授予长帧或产品 RUN 能力。
+- `app_realtime_profile_supported()` 声明四个离散档位；默认拍数由
+  `PROJECT_CORE1_CYCLE_CYCLES` 选择。默认周期/TDMA WCET 的派生快照为
+  1.5 ms / 850 us，长档为 5/10/15 ms（快照，非事实源）。每档保持全部 phase 及
+  GUARD，长档扩展 TDMA 后平移其他相位，不改变其他相位自己的窗口宽度/WCET。
+- Core0 在唯一 TDMA service 的 STOP/config ACK 门禁下发布不可拆分请求；Core1
+  单次 CAS 认领，在既有 schedule seqlock 中安装全表及 generation，再释放 ARM
+  条件。STOP 先于认领可取消；认领先于 STOP 时有界完成表更新，物理 STOP ACK
+  仍必须由后续 TDMA service 完成。拒绝覆盖 pending、旧 generation 完成及底层
+  enabled configure 旁路，不增加 Core1 control-lock 等待。
+- `SYSTem:TDMA:PERiod <us>` 返回 PENDING/generation；`PERiod?` 返回拍数和请求/
+  应用代际。ARM 后禁止更改；复位回到编译默认。Core1 只在 STOP 交接时重建绝对
+  deadline 起点，之后按所选周期累加，避免把 service 时间累积到周期中。
+- 软件记录：运行时/目录/相位测试 19 passed，既有邮箱/探针/回放工具测试
+  30 passed，实际 service scheduler、ring runtime、VDC domain C harness 均通过
+  （本轮快照，非事实源）。四档两两替换、非法输入、未完成 STOP、ARM 与底层启用
+  拒绝、STOP 认领前/后边界、代际 wrap 和累计故障保留覆盖。首次 pytest 临时目录
+  父目录不存在、首次候选 build 位于 worktree 根外被工具拒绝、首次整合补丁 hunk
+  格式不兼容均保留原件；修正路径/格式后新标签通过，未放宽验证。
+- 首版主区与隔离工作树源码指纹一致；首版验收 build 为 `20260914011803`，指纹为
+  `8c349e213645c30a43f755344fb6da945475f2c3b9fb850a14f57a7aa7b13a76`，1050 files
+  （本轮快照，非事实源）。A/B/Boot 与 Flash link contract 通过，PIO headers
+  逐字节同恢复基线。静态 RAM 增加 8 B、heap 外余量从 36 B 到 28 B，heap 预留
+  仍为 2048 B；可链接不代表正式 RAM 门禁通过。
+- 首版 P3 调试流程完成但 strict=false：SCK link2 候选覆盖不足、fresh replay row
+  从站重装余量为负及短帧启动屏障超时三项失败保留。固定相位矩阵下首版普通
+  短帧、配置代际确认、非法输入拒绝、ARM 冻结及 STOP/SD 核对通过。自主两轮
+  原始门禁失败包含切换时 receive_missing 增长，以及普通模式校验器要求 persona
+  和软件发送计数；后段稳定窗口不能取消这些拒绝，详见 `period-failure-review-r1.json`。
+- 首版 5 ms 表安装成功，但普通主站反馈始终落后五个序号；记录窗口内 completed
+  增量为零、timed-out/reseed 各增加 800、accepted 增加 400（有限窗口快照，非事实源）。
+  收发进展不能替代返回关联门禁，未将此档记为循环运行通过。STOP 后回退默认，
+  普通短帧和四板 SD 再次通过。长档后续须联合适配 operating profile 反馈窗口和
+  软件流水线；当前目录能力与循环运行验收分开记录。
+- SCK 补采保留 SD 原始数据、下载及 SVG：`sck-raw-r2/summary.json` 的板端 trial
+  passed=true，但离线 correlation.accepted=false，均原样记录；不能消除前序
+  多候选覆盖/重装失败。首次补采 epoch 超出工具范围，在设备操作前拒绝，原件保留。
+- 串口通用工具起初不识别 PENDING/generation，首版配置应答被丢弃为 timeout；
+  后续读回证实板端已应用。临时精确 matcher 和一次导入路径错误均保留。正式
+  `scpi_serial.py` 已支持长短命令拼写及严格应答匹配，相关回归 143 passed。
+  最终 build 为 `20260914014549`，源码指纹为
+  `fc5b65d64fa7f32c62a25171d7eaf7e1c3063bc37b359a2298abd0c8a27c88cb`，1050 files
+  （本轮快照，非事实源）；与首版固件功能相同，增加 host 匹配及其测试后重新构建
+  并执行当前源码 P3。最终 A/B/Boot、Flash link 与 PIO 一致性通过，RAM 数值同首版。
+- 最终 P3 为 FOUR_NODE_TDMA_QUICK_DIAGNOSTIC，本轮 strict_gates_passed=true，
+  failures 为空；四板 OTA、校准矩阵和普通短帧通过相应门禁。此范围不含 NO5，也
+  不是完整产品 P3 或伺服稳定性验收，首版 P3 失败仍保留。
+- 最终四板四档的整表参数和 requested/applied generation 读回、ARM 后拒绝修改
+  均通过，恢复默认配置。两轮最终自主记录的完整主站 RUN 为 609.984/602.180 us，
+  从站 OTHER 最大值为 734.352 us（有限窗口快照，非事实源）；全部 PEAK/RUN/OTHER
+  与原始板端记录保留。两轮原门禁仍拒绝切换时缺帧及普通 persona/发送计数判据，
+  后段四板 accepted 推进、rejected/missing 增量为零不能替代全窗口验收。计时 RESET
+  在切换后触发，保留峰值也不能覆盖切换全程或证明完整 WCET。
+- 准备过程的失败均留原件：首版 P3 后序列因闭环断言停止，初次收尾使用旧固定
+  matrix 导致相位读回不符，随后按该 P3 实际 matrix 核对 STOP/config ACK 通过；
+  串口 matcher、导入路径、长档运行拒绝和补采 epoch 失败亦未被覆盖。
+- 最终普通短帧恢复通过；四板默认周期应用代际一致、pending 清空，最终
+  STOP/config ACK、许可证退出及五组最终记录的 SD 字节核对通过。代码与文档
+  分离提交及封存入口为本目录 `review-final-r1.json`、`slice-manifest.json` 和
+  `commit-proof.json`；长期目标工具当前为 paused，本切片不提升长期验收状态。
+- Core1 的服务周期与 VDC physical nominal period、servo update 参数分别核验。
+  本入口不改变后两者；VDC 多拍处理和 Trigger 队列消费会变慢，不能把时基单位
+  正确、短帧通过或更宽预算解释为伺服稳定、触发吞吐、LONG 容量或逐圈特等保全。
+- 原件入口：首版 `scope.json`/`source-checkpoint-r1.json`/`plan.json` 与最终
+  `scope-r2.json`/`source-checkpoint-r2.json`/`plan-r2.json`、软件及 build
+  command 记录；证据根为 `out/HardwareAcceptance/20260914/tdma-flight-configurable-period/`。
 
 ### TDMA-PROGRESS-20260914-012 - RX 头检查后台准备候选撤回与周期配置衔接
 

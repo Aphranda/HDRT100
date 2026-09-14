@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-09-13
+Last updated: 2026-09-14
 Version: 5
 
 本文档定义 Distributed Hard Real-Time Trigger System 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
@@ -1541,13 +1541,20 @@ Bootloader 不引入 FreeRTOS。启动链路越小越可靠，OTA apply/rollback
 
 | 层次 | 存储位置 | 内容 | 修改方式 |
 |---|---|---|---|
-| **编译期** | `config/project_config.h` | 版本号、循环周期、看门狗超时 | 代码修改 + 重新构建 |
+| **编译期** | `config/project_config.h` | 版本号、默认循环周期、周期目录、看门狗超时 | 代码修改 + 重新构建 |
 | **板级** | `boards/rp2350_trig/inc/board_config.h` | 引脚映射、外设实例 | 代码修改 + 重新构建 |
 | **产品参数** | W25Q32 Product Config 区 `0x350000` | 校准数据、序列号 | 专用 SCPI 命令或生产工具 |
 | **运行时** | TriggerVector 配置快照 | 触发参数、序列表 | SCPI/UI 配置命令 |
+| **Core1 整表选择** | 应用调度快照和 TDMA owner 请求槽 | 已编译的静态相位表、请求/应用代际 | STOP/config ACK 后提交，Core1 在整表边界确认；ARM 后冻结 |
 | **OTA 策略** | OTA Metadata | slot 状态、版本策略、启动模式 | OTA 流程自动管理 |
 
 Product Config 区（64 KB）当前预留，后续存放校准系数、序列号、硬件版本号和默认触发参数。
+
+Core1 整表选择使用 `app_realtime_profile_supported()` 目录与整数 `clk_sys` 拍数，
+不将任意微秒值解释为可执行预算。选择是易失状态，复位回到编译默认；此入口不改变
+TDMA operating profile、PIO/DMA 物理节拍、VDC nominal period 或伺服参数。实现和
+验收进度见 `TDMA-PROGRESS-20260914-013`；服务间隔变化后的观测年龄、触发吞吐与
+完整 WCET 仍独立验收，不因增加周期自动提升任何 pending 契约状态。
 
 ## 诊断数据流
 

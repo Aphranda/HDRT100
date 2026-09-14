@@ -64,11 +64,11 @@ RX UNLOAD / TX LOAD 和 PIO 分区。硬件自主运行的实现仍由 TDMA owne
 逐圈采集/卸载与后续 VDC 批量消费分别有期限；队列容量依据最短圈周期和最长消费停顿，
 普通可丢弃镜像不能替代无损保全。余量足够则保留门限；不足时可提出有证据的适度调整，
 同时保持全表窗口无重叠、GUARD 不承载负载及其他 mandatory phase 的可调度性。
-用户于 2026-09-13 确认采用 `500 us` 的 TDMA 目标预算，原 `380 us` 不再作为长期
-硬门槛；数值由 `PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES` 和 `BOARD_SYS_CLOCK_HZ`
-派生。当前实现将完整静态表同步迁移：TDMA 增量来自 VDC 与 SYNC_TRIGGER 的窗口及
-WCET 调整，保持 `PROJECT_CORE1_CYCLE_RATE_HZ`、各 phase 余量与 GUARD。落实与当前
-源码验收见 `TDMA-PROGRESS-20260913-054`；前序全表候选及负载覆盖缺口见
+前序用户确认的 `500 us` 预算及更早 `380 us` 门限属于历史基线（需求快照，非事实源）；
+其重分配和验收见 `TDMA-PROGRESS-20260913-054`。当前预算由
+`PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES` 与 `app_realtime_profile_phase()` 按所选
+完整表声明；默认周期由 `PROJECT_CORE1_CYCLE_CYCLES` 选择，具体实现和有限验收见
+`TDMA-PROGRESS-20260914-013`，不能用旧取整 Hz 符号驱动新表。前序全表候选及负载覆盖缺口见
 `TDMA-PROGRESS-20260913-051` 的 `budget-assessment-r2.json`。
 新预算配置不代表完整最坏情况已获硬件证明，VDC 最大准入多源/epoch 转换、同步触发
 峰值请求/取消/迟到、后移 phase 的绝对 deadline、完整 WCET 和跨域审核继续验收。
@@ -309,7 +309,7 @@ map 授权，直接选择 Core0 准备的本地邮箱并保持动态复验，减
 
 mailbox CRC 逐字节等价运算切片见 `TDMA-PROGRESS-20260913-060`：保持原多项式和全部
 校验调用，以状态/字节穷举证明运算等价，再按相同矩阵复核完整 phase；局部算术收益
-不替代完整 500 us、切换稳定性或特等席时间证据门禁。
+不替代该轮完整预算、切换稳定性或特等席时间证据门禁。
 该轮两次 STOP 峰值增长已保留，完整 phase 未证明一致改善；后续优先拆分 DMA 退休、
 GPIO/程序/资源回收和 adapter 清理，不能用较低 RUN 峰值覆盖 STOP 超预算。
 
@@ -338,7 +338,7 @@ P3 粗校准超时原件保留。STOP 后配置拓扑、重新 ARM 使用相应�
 整段 overlay 时间不作为提前返回收益，增加诊断也不计作优化收益。当前 O3/O5
 切片见 `TDMA-PROGRESS-20260913-064`，以 063 四邮箱为前序基线，分别保留 origin
 RUN/STOP 与 follower ALL；当前源码短帧、两轮归因、记录和普通恢复已通过复核，
-完整 500 us 和正式 RAM 仍未闭合。O1 切片见 `TDMA-PROGRESS-20260913-065`，
+该轮完整预算和正式 RAM 未闭合。O1 切片见 `TDMA-PROGRESS-20260913-065`，
 保留 selection 退休与物理准入、新数据准入和 STOP 取消；软件、构建和同探针
 实板对照完成。无更新路径正确性通过，但该负载复用机会有限，完整峰值未一致下降；
 不把整段 overlay 当作收益。O2/O4 分项切片见 `TDMA-PROGRESS-20260913-066`，
@@ -464,9 +464,13 @@ P3 的 NO4→NO1 拓扑预检无活动均保留，恢复成功不关闭根因。
 按用户新指示，接续推进整张 Core1 静态表的周期配置；默认 1.5 ms，预留 5/10/15 ms
 （用户需求快照，非事实源）。候选整表入口为
 `out/HardwareAcceptance/20260914/tdma-flight-configurable-period/candidate-schedules-r1.json`；
-当前只完成候选算术核算及隔离工作树的纯表回归，运行时配置交接尚未验收。优先补齐
-STOP/config ACK→配置请求→Core1 完整表应用及 generation 确认→ARM 的状态边界，
-覆盖 RUN 拒绝、并发 ARM、STOP 取消、旧 generation 与回退。VDC/Trigger 时基、物理
+当前运行时交接、SCPI、四表及回退软件回归、A/B/Boot 构建完成。当前包 P3 quick
+diagnostic 严格检查、各目录整表读回和 ARM 冻结验证通过，见 `TDMA-PROGRESS-20260914-013`。
+STOP/config ACK→配置请求→Core1 完整表应用及 generation 确认→ARM 已实现。
+默认档普通短帧通过；长档仅完成配置/冻结验证，已记录的长档短帧反馈窗口拒绝保持
+未解决，不能当作 LONG 帧或循环运行能力。下一步联合核算反馈窗口、软件流水和
+时间戳消费期限，先定位原拒绝再推进长档运行验收。
+VDC/Trigger 时基、物理
 循环关联及准入必须一起复核，不以取整 Hz、运行中临时借用余量或只改延时函数实现。
 长帧保持独立门禁；本轮仍按当前短帧、旧静态预算保留原失败，不用新候选预算重判旧证据。
 

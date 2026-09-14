@@ -1437,7 +1437,9 @@ Adapter 不得直接写 VDC、RefMem 或 Trigger active fact。它只能返回 T
 ### TDMA-DET-01：唯一时间单位
 
 TDMA/Core1 调度的唯一事实源是 `clk_sys` 拍数。板级时钟引用
-`BOARD_SYS_CLOCK_HZ`，周期引用 `PROJECT_CORE1_CYCLE_CYCLES`。ns/us 只能按板级时钟
+`BOARD_SYS_CLOCK_HZ`，默认周期引用 `PROJECT_CORE1_CYCLE_CYCLES`，运行时完整表由
+`app_realtime_profile_supported()` 的离散目录选择，当前周期见 schedule snapshot 的
+`cycle_cycles`。ns/us 只能按板级时钟
 派生用于显示、报告和 SDK 等待接口，不能作为 admission、phase 边界或 WCET 的输入。
 
 每个 phase 独立声明 `start_cycle`、`end_cycle` 和 `wcet_cycles`。正式表由
@@ -1449,27 +1451,39 @@ TDMA/Core1 调度的唯一事实源是 `clk_sys` 拍数。板级时钟引用
 `PROJECT_CORE1_PHASE_GUARD_*`。其中 `DPLL` 只推进节点锁相与 VDC 必需的 DCO/lock 输出，
 不执行维护、历史重算或全域复制；`GUARD` 禁止承载任何负载。
 
-当前 TDMA 目标预算按用户确认的完整静态重分配落实到
-`PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES`；按 `BOARD_SYS_CLOCK_HZ` 派生为 `500 us`。
-VDC 与 SYNC_TRIGGER 的窗口和 WCET 同步缩减，其他执行项按表平移，保留原有 phase
-余量、`PROJECT_CORE1_CYCLE_RATE_HZ` 和 GUARD。旧预算属于历史基线，不是不可调整的
-长期门槛；新表实测及仍缺的供出预算相位满载证据见 `TDMA-PROGRESS-20260913-054`。
+前序固定周期的预算重分配见 `TDMA-PROGRESS-20260913-054`，其记录保留历史门禁。
+当前默认完整表由 `PROJECT_CORE1_PROFILE_1500US_CYCLES` 和
+`PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES` 等符号声明；VDC 与 SYNC_TRIGGER 的预算
+恢复到原先较宽的相位预算，其他相位和 GUARD 显式列出。长周期目录项由
+`app_realtime_profile_phase()` 扩展 TDMA 窗口及预算，后续相位整体平移，自己的宽度、
+WCET 和 GUARD 不变。非整数频率使用精确拍数或有理式，不再以取整 Hz 驱动周期。
 修改预算不消除已有 overrun/deadline 事实，也不构成完整 WCET 或产品准入通过。
 
-后续周期配置按用户确认的候选推进：整张 Core1 静态表采用可选周期，STOP 后配置、
-Core1 在完整周期边界应用并发布确认，重新 ARM 后冻结使用；SCPI 只触发流程。
-候选默认周期为 1.5 ms，并预留 5/10/15 ms 档位（用户需求快照，非事实源），整表
-算术核算见 `out/HardwareAcceptance/20260914/tdma-flight-configurable-period/candidate-schedules-r1.json`。
-此处尚未将候选记为已安装或已验收。每档必须显式声明各 phase、WCET 和 GUARD，
-以整数 clk_sys 拍表示精确周期；非整数频率只作有理数展示，不取整后驱动调度。
-Core1 服务周期、PIO/DMA 物理循环及 VDC 观测周期继续分别声明；周期切换须复验
-VDC/Trigger 时基、profile/CRC、旧任务取消和新配置准入。长周期不自动授予 LONG
-帧能力，也不免除帧长、节点数、带宽、固定池及完整 WCET 的独立验收。
+可配置周期实现与验收进度见 `TDMA-PROGRESS-20260914-013`。SCPI 的
+`SYSTem:TDMA:PERiod <us>` 只选择已编译目录项，Core0 在 STOP/config ACK 后向唯一
+TDMA owner 发布带 generation 的请求；不能输入任意相位或临时借用预算。
+Core1 在完整表执行前单次 CAS 认领，在既有 schedule seqlock 内安装全表并发布
+`profile_generation`，随后释放 ARM 排他条件。Core1 不争用 Core0 control guard。
+ARM 及底层 enabled configure 都拒绝未完成请求；STOP 取消未认领的请求，已经认领
+的更新有界完成，物理 STOP/config ACK 仍是重新 ARM 的前置条件。
+`SYSTem:TDMA:PERiod?` 按拍返回 active、applied generation、pending、requested
+generation 和 applying；只有对应 generation 已应用且 pending 清空才表示确认。
+运行时选择是易失配置，复位后恢复编译默认；累计超限、最大耗时和隔离事实保留。
+测试窗口必须绑定周期及代际，不能混用不同表下的峰值。
+
+Core1 服务周期、PIO/DMA 物理循环及 VDC 观测周期分别声明：此入口不更改 operating
+profile、SPI 速率、帧布局、VDC nominal period 或 servo update 参数。VDC 的多拍
+处理间隔和 Trigger 队列消费间隔随整表周期变化，必须另验收观测年龄、伺服稳定性、
+事件吞吐及截止期；时钟的数值单位正确不等于这些门禁已通过。长周期不自动授予
+LONG 帧能力，也不免除帧长、节点数、带宽、固定池及完整 WCET 的独立验收。
+整表配置确认仅证明 CPU 表已安装；普通主站的反馈窗口及软件流水线仍由 operating
+profile 和各自 owner 管理。长周期必须联合验证这些消费期限与返回关联，不能将
+`PERiod?` 的成功确认或 ARM 冻结检查解释为该档循环运行准入。
 
 硬不变量：
 
 - phase 按表顺序排列、互不重叠、首 phase 从拍零开始、末 phase 结束于
-  `PROJECT_CORE1_CYCLE_CYCLES`。
+  当前目录项的 `cycle_cycles`；编译默认项为 `PROJECT_CORE1_CYCLE_CYCLES`。
 - `wcet_cycles <= end_cycle - start_cycle`；提前完成必须等待下一 phase，剩余拍不得借用。
 - phase 开始时若自己的 WCET 已无法在 `end_cycle` 前完成，则本次不执行并记录
   `phase_start_miss_count`；执行超过 WCET 或 deadline 后隔离责任负载。TDMA phase 失败时隔离
