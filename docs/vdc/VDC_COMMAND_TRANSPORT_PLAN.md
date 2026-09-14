@@ -71,9 +71,11 @@ reference 与 DPLL MASTER 不强制是同一角色。
 `tdma_pio_spi_ring_origin.inc` 的 `tdma_pio_spi_ring_origin_invalidate_time()`、
 `tdma_pio_spi_phys_origin.inc` 的 `tdma_pio_spi_phys_origin_rx()`，以及
 `tdma_origin_plan.c` 的 `L_STAGE`：交接时清理旧 clock observation，RX 返回零边沿
-时间戳，DMA 每圈清零 DPLL trailer。`tdma_origin_observation_t` 和
-`tdma_origin_record_t` 目前只保留序列、身份、代际及 RTT 等运输事实，不能将它们
-直接提升为绝对时间锚。普通 origin 的鉴相更新不证明自主路径已经具备这些能力。
+时间戳，DMA 每圈清零 DPLL trailer。`tdma_origin_record_t` 的 raw 格式新增 Timer1
+与 TX latch 原始字段；
+`tdma_origin_observation_t` 仍只描述运输事实。新增 raw 记录没有改变 RX 时间有效性或
+DPLL trailer，不能直接提升为绝对时间锚。普通 origin 的鉴相更新不证明自主路径已经
+具备这些能力。
 
 下一候选切片按以下边界设计和审核，未完成前不改变 timestamp eligibility：
 
@@ -90,9 +92,10 @@ reference 与 DPLL MASTER 不强制是同一角色。
 
 #### 当前候选：预留 latch 与 Timer1 的区间关联
 
-`tdma_pio_spi_phys_origin_configure_sms()` 当前不启用预留的 TX latch；其程序已由
-`TDMA_ORIGIN_LATCH_PC` 对应 catalog 保留。候选先复用该程序捕获发车 CS 边沿的
-首个倒计数，原有 RTT 保留为回传事件的独立原始观测。TX CS、返回 CS 和 DATA 注入
+`tdma_pio_spi_phys_origin_configure_sms()` 的原型已配置预留 TX latch；其程序仍由
+`TDMA_ORIGIN_LATCH_PC` 对应 catalog 保留，并由自主 DMA 图负责重装/使能。原型复用
+该程序捕获发车 CS 边沿的首个倒计数，原有 RTT 保留为回传事件的独立原始观测。
+TX CS、返回 CS 和 DATA 注入
 是不同事件；将它们关联成正式边沿时间仍需验证各自延迟，不能把 RTT 加到估算 TX
 时间后直接宣称 RX hardware latch。
 
@@ -111,14 +114,23 @@ SM 启动和 GPIO 同步延迟。PIO 高电平倒计数提供相对时间，将�
 identity / epoch。记录发布必须在生产完成后进行，既有 observation/bank guard、
 首尾 sequence、覆盖检查和 STOP 退休要随布局扩展一并复核；候选仅为本地诊断，
 不承担共同时间初始化或修改 wire trailer。执行切片见 TODO 的 `VDC-TIME-001` 至
-`VDC-TIME-004`，真实 builder 核算及离线模型见 `VDC-PROGRESS-20260914-008`。
+`VDC-TIME-004`，真实 builder 核算及离线模型见 `VDC-PROGRESS-20260914-008`，
+集成原型、目标链接和板端预采见 `VDC-PROGRESS-20260914-009`。
 
 资源准入以 `TDMA_PIO_SPI_ORIGIN_RUN_CAPACITY` /
 `TDMA_PIO_SPI_ORIGIN_LITERAL_CAPACITY` 为边界，不能使用更大的通用构造上限代替实际
-分配。操作成本探针已经显示直接追加方案不能覆盖当前编译容量的全部节点配置。
-下一步先完成集成图的重排/合并和完整存储核算，再决定是否调整静态分配；新增归档、
-producer 和临时副本都计入预算，并保留后续命令/时间锚所需 RAM。目标链接及硬件
-时序仍待验收，本候选不授予 timestamp eligibility，也不冻结新的时间契约。
+分配。集成原型在独占 sniffer lease 内去掉重复禁用写，并保持各运算显式重设
+mode/seed、仅选中 executor 的 SNIFF transfer 参与计算；FAULT/资源释放仍关闭 sniffer。
+run 分配保持原边界，literal 分配按对应符号调整。新增归档、producer、冻结副本和
+对齐均需计入预算，不能从总 BSS 不变推断没有消耗 RAM。当前容量目标链接和节点
+构造矩阵已有证据，其他目标容量、配置变体及生命周期覆盖仍由 `VDC-TIME-002` 跟踪。
+
+原始计时格式由 `TDMA_ORIGIN_RECORD_FORMAT_RAW_TIME` 与 `tdma_origin_raw_time_t`
+描述；它追加 timer high/low/high、首个 latch 字、FIFO 状态、arm 前 GPIO 输出和
+tick rate，不赋予 COMMON_TIME 或 formal flag。缺 latch 的分支必须有界返回，运输
+通过与计时有效分开；STOP 导出不能重新给旧样本打时间标签。实测读取区间只证明该次
+原始读取，实际 GPIO 边沿、SM 启动、MMIO 顺序和跨域时间映射仍须独立验收。
+本候选不授予 timestamp eligibility，也不冻结新的时间契约。
 
 ## 3. 固定邮箱的候选承载方式
 

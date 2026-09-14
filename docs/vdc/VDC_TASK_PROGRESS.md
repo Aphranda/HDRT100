@@ -28,13 +28,77 @@ Last updated: 2026-09-14
 `VDC-RESOURCE-001` 当前编译容量的 compact RX 资源切片已闭合，有限采集的 STOP 后
 交接通过当前源码四板 quick P3 验证，见下方 `VDC-PROGRESS-20260914-006`。
 自主 origin 补测发现时间输入尚未接通，见 `VDC-PROGRESS-20260914-007`；事件与资源
-审计见 `VDC-PROGRESS-20260914-008`，当前入口为 `VDC-TIME-002` 的集成原型与资源
-收敛。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
+审计见 `VDC-PROGRESS-20260914-008`；原始记录原型、当前容量目标链接及板端预采见
+`VDC-PROGRESS-20260914-009`。当前入口仍为 `VDC-TIME-002`，补齐配置组合与 raw
+停止/重臂负测后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
 `VDC-ROLE-001`；全表 WCET 和正式锁相仍未闭合，
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260914-009 — 自主原始计时原型与四板预采
+
+- TODO task ID：`VDC-TIME-002/003`、`VDC-TDMA-001`、`VDC-EVID-001`、`VDC-SCHED-001`。
+- 状态：原型已实现，`VDC-TIME-002` 保持 IN PROGRESS；全窗计时正式验收及输入接线
+  仍为 PENDING，长期锁相目标未完成。
+- 日期：2026-09-14。
+- 变更：代码与当前源码 P3 凭证提交 `6127da3`。自主 DMA 在既有 TX owner/预留 SM 内
+  配置 latch，每圈清 FIFO、重装计数器，使能前后采 Timer1 raw high/low/high；
+  boundary 暂停后先判断 FIFO 非空再读取，缺边沿不等待。格式由
+  `TDMA_ORIGIN_RECORD_FORMAT_RAW_TIME` 描述，冻结读取与 SCPI 追加原始字段。
+  CPU 不在发车路径打时间戳，不改 PIO 指令、wire trailer、DPLL eligibility 或
+  COMMON_TIME/formal flag。独占 sniffer lease 内合并冗余禁用写，释放/FAULT 仍关闭。
+- 证据根：`out/HardwareAcceptance/20260914/dpll-origin-raw-time/`。以下容量、计数和
+  时序均为快照，非事实源；`plan.json` 绑定前一封存 manifest，`current-plan.json`
+  与 `source-checkpoint-r2.json` 绑定本轮源码和 package。
+- 资源：真实 builder 编译容量 4/5/6/8，各容量的运行节点矩阵构造及图执行通过；
+  探针使用连续 active mask、固定 local slot/guard，不能外推所有配置值。容量 6、
+  运行 6 占 314/320 runs、133/140 literals。原始记录由 48 B 增至 88 B；A/B 目标
+  workspace 由 7712 B 增至 8120 B，消耗后续对齐 padding 408 B，剩余 72 B。
+  总 `.data`/`.bss`、heap 位置不变，heap 外余量仍为 1132 B。不能据此声称新增记录
+  零 RAM 成本；其他容量仍需目标配置验收，详见 `graph-matrix.json` / `layout-review.json`。
+- 软件与构建：既有 origin 构造/记录/准入、command DMA 和 timestamp clock 回归
+  21 项通过；执行真实 DMA 图的模型 20 项通过，覆盖连续发布、序列回绕、完整 raw
+  字段、缺 latch、坏 mailbox、缺回传、raw 跨字和旧 FIFO。模型不模拟实际总线/PIO
+  延迟。初次缺 include 路径及合成回绕起点错误分别保留于 `graph-model-r1/r2`，修正
+  后 `graph-model-r3` 通过；配置变体和新 raw 生命周期的定向组合覆盖尚未全部闭合。
+- 当前硬件：build `20260914063601`，源码指纹
+  `1ac9b61466444cbf9564b39f6e8384fc7ce7b09c4818227d6ab045bd1fea7e1b`，package SHA
+  `246b6b857a77ba38b8701874e01fb64378ebd38037c3371946952716f18d751b`。四板 OTA、
+  quick P3/短帧通过，`p3-r1/diagnostic.json` 的 strict gates 通过；凭证范围为
+  FOUR_NODE_TDMA_QUICK_DIAGNOSTIC，不含四板正式锁相。未操作 NO5。
+- 自主预采：`resident-r1` 先普通启动、再有限自主许可。四板各 34 条 SRAM 记录完整、
+  无漏采，STOP 后原生 TDMA SD 字节一致。主板保留连续序列 8169–8175 的 7 条完整
+  raw 记录，epoch/首尾 sequence 一致，运输检查和 FIFO 存在成立，arm 前 TX CS 为高；
+  Timer1 high/low/high 一致，前后读取区间均为 252 ns，邻圈 arm 间隔为
+  999.896–1000.736 µs。该区间及 arm 间隔不是实际边沿误差或锁相精度。
+- 全窗失败：原 evaluator 保留 `passed/closed_loop_passed/realtime_gate_passed=false`。
+  普通 persona/software TX count 规则不适用于自主 origin，但四板各有一次真实
+  receive_missing 增量，切换期间的 reject/调度超限仍需定位；不能因为旧规则不适用
+  就放行整窗。预选 3–6 s 窗口四板 UP/DOWN 连续，接收增量为 916/917/917/916，
+  拒绝/缺失及各相位 start miss/overrun 无增长。完整窗口与预选窗口同时保留于
+  `review-final.json`，不会以裁短窗口消除失败。
+- 自主耗时：主板按同状态/配置/许可证保留的 TDMA RUN 完整峰值为 596.672 µs，
+  owner 508.796 µs、adapter 383.020 µs、RX parse 189.308 µs、origin publish
+  67.828 µs；嵌套区间不能相加。相较上一切片峰值增加 51.628 µs，但这不是受控
+  A/B 因果结论，也不是 DPLL 更新 WCET。四板自主 trace 均为零，主板仍为
+  diagnostic-only、resolution 为零，不能宣称真实 DPLL 更新预算已满足。
+- 存储与恢复：先保存 TDMA/释放 StorageAO，再处理 DPLL，零 trace 如实保存状态。
+  raw 的 728 B SCPI 导出另存 NO1 SD 并两次读回一致；这是主机导出的 SD 副本，
+  不是板端原生 recorder 文件。初次 BEGIN 应答被通用串口筛选丢弃，后续恢复误把
+  active 字段当事务 ID；两次失败、事务读回与正确续传保留于 `resident-raw-sd-r1/r2/r3`
+  和对应 JSON，未删除旧文件或重建事务。辅助诊断的未定义查询及错误响应也保留。
+  随后 `restored-r1` 普通短帧严格三项通过、四板各 26 条记录和 SD 一致；该恢复流程
+  仅验证运输，trace 为零不证明普通 DPLL 更新或锁相。最终四板 STOP/config ACK、
+  许可证 inactive，首次 START 至全部 STOP 无 SCPI 查询。
+- 主控复核：`audit.py` 从原始 `.bin` 重解码，核对 board/build/epoch/CRC/长度/SD，
+  复核 raw 字段、源码指纹、package 和 P3 凭证引用 SHA；失败原件保留。实现提交前
+  staged 指纹门禁及 pre-commit 通过；文档另行执行回归门禁并独立提交后封存。
+- 下一 gate：先补齐 `VDC-TIME-002` 的非连续 mask/local slot/guard 组合和 raw 的
+  STOP/重臂/取消证据，再解决 `VDC-TIME-003` 的切换缺失与边沿偏移/抖动。通过后
+  才能执行 `VDC-TIME-004` 同圈 trailer/evidence，继而测真实自主 DPLL 更新 WCET；
+  不跳到命令接线或 PI 调参。
 
 ### VDC-PROGRESS-20260914-008 — 自主计时事件、资源与区间模型审计
 
