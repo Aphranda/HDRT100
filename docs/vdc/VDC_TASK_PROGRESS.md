@@ -37,13 +37,77 @@ Last updated: 2026-09-14
 `VDC-PROGRESS-20260914-015`；实板暂停构造任务的取消探针见
 `VDC-PROGRESS-20260914-016`；交接分阶段计时及两轮自主切换原件见
 `VDC-PROGRESS-20260914-017`；有界邮箱合批及当前四板交接对照见
-`VDC-PROGRESS-20260914-018`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
+`VDC-PROGRESS-20260914-018`；完整校准 CRC 的 SRAM 实现、初始化失败恢复及普通/
+自主相位分离复核见 `VDC-PROGRESS-20260914-019`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
 `VDC-ROLE-001`；全表 WCET 和正式锁相仍未闭合，
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260914-019 — 校准 CRC 驻留与启动相位复核
+
+- TODO task ID：`VDC-TIME-002`。
+- 状态：IN PROGRESS。当前源码 quick P3 与 CRC 等价性验证已通过，完整窗口连续性、
+  普通 origin 超限及独立准入耗时仍未闭合；`VDC-TIME-003/004` 不提前开放。
+- 日期：2026-09-14。
+- 证据根：`out/HardwareAcceptance/20260914/dpll-origin-admission-crc-final/`。
+  实现提交：`c2e6684`；本记录及 TODO 单独提交，提交身份由证据 manifest 绑定。
+  `initial-checkpoint.json` 绑定前序邮箱合批切片和首个失败尝试；部署身份见
+  `current-plan.json`，总复核见 `review-final-r1.json`，普通/自主相位增长见
+  `phase-windows-reviewed-r2.json`。后者修正 r1 对状态方向的文字解释，数值未改。
+  以下数值均为本轮测量快照，非事实源，不构成全表 WCET 或物理边沿误差界。
+- 实现：`tdma_origin_calibration_crc32()` 使用与 Calibration 原 CRC 相同的
+  CRC-32/ISO-HDLC 四位查表算法。准入仍重算完整 `tdma_ring_calibration_stage_t`，
+  不缓存 CRC，不缩小校验范围；owner grant/config/clock/expiry、STOP 取消和 DMA
+  退休边界保持。函数驻留主 SRAM，常量表放在 SCRATCH_Y 的 Core0 栈下方数据区。
+  `TDMA_SERVICE_TIMING_VERSION` 新增 ADMIT、嵌套 CALIBRATION_CRC 和 BEGIN 阶段，
+  解码工具兼容旧版本；未新增 PIO/DMA 或改变 DPLL 时间戳资格。
+- 软件与资源：51 项相关测试通过，CRC 对照真实 portable OTA 库，覆盖容量 2/6/8、
+  各长度和非对齐输入、完整 stage 逐位变化及 owner 准入拒绝。容量 6/8 的 A/B 与
+  boot 增量构建均通过，分别 4.532/4.844 s。主 RAM 余量为 4636/876 B；CRC 函数
+  60 B、表 64 B，SCRATCH_Y 数据为 1448/1648 B，距各自预留 Core0 栈底仍有
+  600/400 B。Core0/Core1 栈各保留 2048 B，SCRATCH_X 数据为零。静态栈文件、
+  ELF/map 和实际符号复核分别见 `build6-archive`、`build8-archive`、
+  `stack-archive-r1.json` 和 `resources-reviewed-r1.json`。
+- 失败与修正：首次把表也放主 `.data`，跨越 DMA 工作区对齐边界，容量 8 链接
+  RAM 超出 3220 B。该次容量 6 已误启动的 P3 保留，短帧通过但 NO4 coarse CLK
+  APPLY 超时，strict=false。原件封存于相邻 `dpll-origin-admission-crc/`，
+  `attempt-manifest.json` 的 SHA-256 为
+  `c7c222d201e6d0d25da7dd71eccfdc8a5c510093b18abf56c0f2d8b1e44bb8e4`；
+  调整表的 RAM 落点后才形成当前容量 6/8 均通过的版本。
+- 部署与恢复：当前源码指纹为
+  `0ce28df0b5079b30d234f40c6f409b7cd98cba0983de2a8f1b4c5e758875e0d0`，
+  包 SHA-256 为 `e7edb9c2a945376c3b156df48c56be33f14dce517f51bfd90a551fdccb685755`。
+  增量 build ID `20260914112635` 与首个尝试相同，必须以源码/包 SHA 和 OTA 原件
+  区分。当前 `p3-r1` 四板 OTA 完成，但 NO2 在 P0T 的 APPLY 超时，115.266 s 后
+  退出。原清理器把未初始化 grant/校准偏移也判为失败，实际 STOP 已响应；另存
+  lifecycle-only 复核，显式撤销许可证后四板 stopped/config ACK/grant inactive
+  全部成立，不把未初始化偏移认定为校准通过。
+- 当前硬件验收：`p3-r2` 使用正式 `resume` 入口，复用当前包和成功 OTA，并重跑
+  软件复位、拓扑、校准及短帧闭环。80.235 s 完成，短帧 passed/closed_loop/
+  realtime 均 true，strict_gates_passed=true，无 diagnostic failure；STOP 后
+  原生 SD 字节校验通过。该时长是跳过 build/OTA 的恢复流程，不能写成全流程耗时；
+  未增大超时或修改门禁，初始化间歇超时的根因仍未解决。
+- 自主交接对照：两轮总交接为 12904.364/12735.268 µs，相对前轮一增一减，不能
+  宣称交接总时长改善。STOP 进入至 INSTALL 返回为 10478.576/10515.896 µs，
+  准备调用体合计 751.716/1118.864 µs，其余包含跨周期调度、Core0 工作和等待。
+  四板每轮各记录 34 条、无漏采，transport missing 增量均为 1/1/1/1；两轮完整
+  窗口三项门禁均 false。首次 START 至最后 STOP 无 SCPI 查询，全部 STOP 后
+  原生 SD 保存及字节一致性复核通过，临时 grant 已撤销，NO5 未操作。
+- 耗时构成：两轮 NO1 自主 RUN 峰值为 552.520/657.524 µs，OTHER 峰值为
+  1458.756/1490.044 µs。后者 context 769→513 对应普通 resident
+  CYCLE_BOUNDARY→RUNNING，其中 RefMem 发布为 557.676/601.760 µs。所选峰值的
+  CRC/BEGIN calls 均为零，因此只能说明峰值已落到其他调用，不能据此给出 CRC
+  的单独耗时或提速倍数。全窗 TDMA overrun 增量为 490/471，deadline miss 为
+  473/446；从第一条自主样本到末样本两类增量均零，不能用该子段替代整窗验收。
+  整表/TDMA 预算仍由 `PROJECT_CORE1_PROFILE_1500US_CYCLES` 和
+  `PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES` 定义，板端快照为 1500/850 µs。
+- 下一 gate：继续 `VDC-TIME-002`，独立捕获成功准入而不依赖总峰值选中，定位普通
+  origin 的 RefMem 发布及完整相位成本，压缩 STOP→INSTALL 的有界调度间隙；
+  补齐边沿/SD 波形和其他物理配置，保持 DMA 退休、CRC/grant 和取消门禁。
+  本轮未接通新的自主 DPLL 输入，不能声明四板实际输出锁相。
 
 ### VDC-PROGRESS-20260914-018 — 冻结邮箱有界合批与交接对照
 
