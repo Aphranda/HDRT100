@@ -48,7 +48,8 @@ Last updated: 2026-09-15
 `VDC-PROGRESS-20260914-026`；最新帧策略的 latch 身份阻断及可执行反例见
 `VDC-PROGRESS-20260914-027`；从板连续事件观察的 PIO 原型与边界反例见
 `VDC-PROGRESS-20260914-028`；共享采样区 RAM 验收见 `VDC-PROGRESS-20260915-001`，
-成对事件计数及有界联合读取原型见 `VDC-PROGRESS-20260915-002`。当前入口仍为
+成对事件计数及有界联合读取原型见 `VDC-PROGRESS-20260915-002`；生产观察器接入与
+原生记录复核见 `VDC-PROGRESS-20260915-003`。当前入口仍为
 `VDC-TIME-002`，补齐硬件配置、交接时延
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
@@ -56,6 +57,49 @@ Last updated: 2026-09-15
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260915-003 — 成对事件观察器生产接入与原生记录
+
+- TODO task ID：`VDC-TIME-002`、`VDC-VERIFY-001`。状态：IN PROGRESS。RAM 使能验收
+  后返回时间输入主线；本切片仅发布诊断数据，不开放正式时间戳或锁相准入。
+- 证据：`out/HardwareAcceptance/20260915/dpll-event-observer-production/`。以下构建、
+  数量、容量和时间均为本轮快照，非事实源；第一次失败及修复前源码/固件单独保留。
+- 实现：`PROJECT_TDMA_EVENT_OBSERVER` 选择 follower 的成对计数与序号采样程序，
+  真实汇编模板与已审核原型一致；控制与观察共用原 TX PIO 的固定布局，不新增 DMA。
+  纯 C consumer 每次最多接收 `TDMA_EVENT_STREAMS * TDMA_EVENT_FIFO_WORDS` 个字、
+  输出 `TDMA_EVENT_MAX_RECORDS` 条诊断记录。半对等待、共同 epoch、多次回绕唯一
+  提升、绝对年龄约束和发布前故障复验均在 TDMA owner 内完成；失效只停观察 SM。
+- 生命周期与交接：模式切换及 SM 复位前退休 pending 和旧 epoch；旧 TX latch 不再
+  消费新的成对 FIFO。事件状态由 Core1 私有工作区生成，经版本化双缓冲交给 Core0；
+  复用旧槽前 DMB、提交时 release，读取有界复验版本及复制时限。原生记录 schema
+  升级后仍可解码旧版封存记录，文件保存继续位于全部 STOP/ACK 后。
+- 软件证据：核心/记录器 19 项、loader/PIO 16 项、adapter 1 项通过。包含生产 C
+  生命周期、3440 组 bigint 时间提升对照、真实 pioasm 安装/冲突回滚、双向切槽、
+  发布前读取旧完整快照、旧槽复用/撕裂拒绝及 requested role 改变后的退休。独立
+  审核结论仅为诊断源码与 host 范围通过；PIO stub 不证明真实采样相位。
+- 首轮失败：quick P3 流程耗时 190.484 s，普通模式环路节点在 soak 中均健康，三块
+  从板事件发布增长且无事件 fault；NO2 一个原生样本 `valid_mask=0x37` 使整窗采集和
+  启动 gate 失败。该位图只能定位为物理快照不可用，未区分 odd/changing guard 与
+  复制期限分支；双缓冲修复消除单槽写入窗口，没有放宽读取复验。四板 SD 与 SRAM
+  原件一致。第二轮更新固件后，NO2 TOPOLOGY 未确认使 MARK 校准准备失败，原件保留。
+- 双缓冲复测：复用已核验固件/OTA 的校准验收耗时 77.579 s，不含编译与传输；NO3
+  又有一个物理快照不可用样本，整窗 gate 仍失败。完整 snapshot 耗时 2297 µs，不是
+  event copy 独立耗时，也不能据此认定唯一失败分支。随后仅为读取的固定次数复制及
+  复验屏蔽调用核中断，统一恢复原 PRIMASK，避免 RTOS 抢占消耗复制期限；未引入
+  跨核等待。该结果期限不是关中断 WCET，实际时长仍须独立测量。
+- 当前普通模式验收：`p3-r4` 对应源码指纹见 `current-plan-r3.json`，四板真实更新后
+  quick P3 用时 186.937 s，短帧 passed/closed_loop/realtime 与诊断门禁均通过。
+  每板原生记录 14 个采样槽均有效、无漏采；NO2/NO3/NO4 发布 674/690/703 条事件，
+  启动等待后至窗末均保持 ACTIVE 且 fault 为零，RX/TX FIFO 高水位均为两个字，
+  sequence 为一个字；主板不启用此 follower 观察器。
+  四板 STOP/ACK 后顺序 SD 保存，`p3-sd-r4.json` 核对全部文件与 SRAM 原件一致。
+- 资源/耗时：最终容量 6/8 的 A/B 链接均通过，静态 RAM 余量为 18932/15172 B，
+  相对 RAM 回收切片新增 1820 B，OTA 未改。从板本轮 service 最大耗时为
+  255/240/275 µs，服务最大间隔为 4562/4515/4586 µs；这些包含启动/调度影响的
+  诊断最大值不能当作自主发车下的容量证明或新增阶段的独立 WCET。
+- 下一 gate：继续核对当前固件短帧闭环及自主发车下的 FIFO 容量/服务间隔，随后补
+  物理首事件、CS 相对前缀、完整 packet identity 与物理时钟 anchor。
+  `timestamp_valid`、`dpll_eligible` 继续为 false；`VDC-TIME-003/004` 保持 PENDING。
 
 ### VDC-PROGRESS-20260915-002 — 成对事件计数与有界联合读取原型
 
