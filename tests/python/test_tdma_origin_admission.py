@@ -21,7 +21,7 @@ def admission_exe(tmp_path_factory):
     assert compiler
     exe = build / ("admission.exe" if os.name == "nt" else "admission")
     includes = ["components/tdma/inc", "components/distributed_refmem/inc",
-                "components/calibration_manager/inc", "components/ota_manager/inc", "third_party/portable_ota/include"]
+                "components/calibration_manager/inc", "components/ota_manager/inc", "third_party/portable_ota/include", "config"]
     command = [compiler, "-std=c11", "-Wall", "-Wextra", "-Werror"]
     command += ["-I" + str(ROOT / path) for path in includes]
     # Compile the actual pure cadence calculation without the graph builder's
@@ -46,7 +46,8 @@ def admission_exe(tmp_path_factory):
 
 
 @pytest.mark.parametrize("case", ["publish", "stale", "expiry", "prepare", "fault", "record-mode",
-    'build-cancel', 'handoff', 'blackout', 'blackout-cancel', 'blackout-deadline', 'blackout-invalid'])
+    'build-cancel', 'handoff', 'batch', 'batch-yield', 'batch-revoke', 'batch-failure',
+    'blackout', 'blackout-cancel', 'blackout-deadline', 'blackout-invalid'])
 def test_origin_trial_lifecycle(admission_exe, case):
     result = subprocess.run([str(admission_exe), case], capture_output=True,
                             text=True, timeout=3)

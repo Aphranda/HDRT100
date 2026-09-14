@@ -1,6 +1,7 @@
 /* The sole TDMA owner consumes Calibration's explicit diagnostic trial.
  * This file never constructs a product timing grant. */
 #include "tdma_origin_calibration_crc.h"
+#include "project_config.h"
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #include "pico.h"
 #define TDMA_ORIGIN_OWNER_RAM __not_in_flash("tdma_origin_owner")
@@ -162,17 +163,46 @@ static bool tdma_runtime_owner_origin_begin(void *context,
     return result;
 }
 
+/* Only already-ready preparation transitions may share a service. The
+ * half-budget threshold stops adding work; it is not a WCET certificate for
+ * the final step or the full TDMA phase. The static scheduler keeps its gate. */
+#define TDMA_ORIGIN_PREPARE_BATCH_MAX_STEPS 4u
+#define TDMA_ORIGIN_PREPARE_BATCH_YIELD_CYCLES (PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES / 2u)
+
+static bool tdma_runtime_owner_origin_follow_ready(uint32_t stage, uint32_t next)
+{
+    switch ((tdma_origin_prepare_stage_t)stage) {
+    case TDMA_ORIGIN_PREPARE_STOP: return next == TDMA_ORIGIN_PREPARE_PERSONA;
+    case TDMA_ORIGIN_PREPARE_PERSONA: return next == TDMA_ORIGIN_PREPARE_BUILD_BEGIN;
+    case TDMA_ORIGIN_PREPARE_BUILD_STEP: return next == TDMA_ORIGIN_PREPARE_SEED;
+    case TDMA_ORIGIN_PREPARE_SEED: return next == TDMA_ORIGIN_PREPARE_SMS;
+    case TDMA_ORIGIN_PREPARE_SMS: return next == TDMA_ORIGIN_PREPARE_INSTALL;
+    /* Keep mailbox/STOP separate. BUILD_BEGIN lends the workspace to Core0;
+     * neither that handoff nor an unchanged BUSY stage may be polled again. */
+    default: return false;
+    }
+}
+
 static tdma_origin_build_result_t tdma_runtime_owner_origin_poll(void *context)
 {
-    const uint32_t stage = s_tdma_pio_spi_phys.flight_origin_prepare.stage;
-    const uint64_t started = vdc_timestamp_clock_read_ticks64();
-    const tdma_origin_build_result_t result = context == &s_tdma_pio_spi_phys &&
-        tdma_runtime_owner_origin_authorized()
-        ? tdma_pio_spi_phys_origin_poll(context) : TDMA_ORIGIN_BUILD_FAILED;
-    tdma_origin_handoff_record(&s_origin_handoff, stage, started,
-        vdc_timestamp_clock_read_ticks64(), result);
-    if (result == TDMA_ORIGIN_BUILD_FAILED) s_origin_trial_fault = true;
-    return result;
+    const uint64_t batch_started = vdc_timestamp_clock_read_ticks64();
+    for (uint32_t step = 0u; step < TDMA_ORIGIN_PREPARE_BATCH_MAX_STEPS; ++step) {
+        const uint32_t stage = s_tdma_pio_spi_phys.flight_origin_prepare.stage;
+        const uint64_t started = vdc_timestamp_clock_read_ticks64();
+        /* A revoke, STOP, epoch or clock change between merged stages must
+         * stop the next physical operation, including the final DMA trigger. */
+        const tdma_origin_build_result_t result = context == &s_tdma_pio_spi_phys &&
+            tdma_runtime_owner_origin_authorized()
+            ? tdma_pio_spi_phys_origin_poll(context) : TDMA_ORIGIN_BUILD_FAILED;
+        const uint64_t ended = vdc_timestamp_clock_read_ticks64();
+        tdma_origin_handoff_record(&s_origin_handoff, stage, started, ended, result);
+        if (result == TDMA_ORIGIN_BUILD_FAILED) s_origin_trial_fault = true;
+        if (result != TDMA_ORIGIN_BUILD_BUSY || ended < batch_started ||
+            ended - batch_started >= TDMA_ORIGIN_PREPARE_BATCH_YIELD_CYCLES ||
+            !tdma_runtime_owner_origin_follow_ready(stage,
+                s_tdma_pio_spi_phys.flight_origin_prepare.stage)) return result;
+    }
+    return TDMA_ORIGIN_BUILD_BUSY;
 }
 
 static bool tdma_runtime_owner_origin_healthy(const void *context)

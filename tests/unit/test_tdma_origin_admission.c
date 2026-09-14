@@ -34,6 +34,9 @@ static uint32_t model_epoch = 2, clock_hz = 150000000, begins, polls, stops;
 static uint64_t ticks = 100;
 static bool complete = true, model_valid = true, resources_valid = true, begin_ok = true;
 static tdma_origin_build_result_t poll_result = TDMA_ORIGIN_BUILD_BUSY;
+static bool scripted_poll, builder_ready;
+static uint32_t poll_trace[TDMA_ORIGIN_PREPARE_FAILED + 1u], poll_trace_count;
+static uint32_t poll_cost, fail_stage, mutate_stage, mutate_kind;
 static tdma_ring_runtime_snapshot_t ring;
 static tdma_ring_runtime_config_t config;
 static uint32_t watermark_epoch = 77, watermark_version = 100;
@@ -76,7 +79,27 @@ static bool tdma_pio_spi_phys_origin_begin(void *ctx, const tdma_ring_runtime_co
     const uint8_t *p, size_t n, uint32_t r, uint32_t a)
 { (void)ctx; (void)c; (void)p; (void)n; (void)r; (void)a; begins++; return begin_ok; }
 static tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *ctx)
-{ (void)ctx; polls++; return poll_result; }
+{
+    (void)ctx; polls++;
+    if (!scripted_poll) return poll_result;
+    const uint32_t stage = s_tdma_pio_spi_phys.flight_origin_prepare.stage;
+    assert(poll_trace_count < sizeof(poll_trace) / sizeof(poll_trace[0]));
+    poll_trace[poll_trace_count++] = stage;
+    ticks += poll_cost;
+    if (stage == mutate_stage) {
+        if (mutate_kind == 0u) calibration_manager_origin_revoke();
+        if (mutate_kind == 1u) model_epoch += 2u;
+        if (mutate_kind == 2u) clock_hz++;
+        if (mutate_kind == 3u) s_tdma_runtime_owner.ring_runtime.config_seq++;
+        if (mutate_kind == 4u) ticks += 1000000u;
+        if (mutate_kind == 5u) s_tdma_runtime_owner.ring_runtime.enabled = 0u;
+    }
+    if (stage == fail_stage) return TDMA_ORIGIN_BUILD_FAILED;
+    if (stage == TDMA_ORIGIN_PREPARE_BUILD_STEP && !builder_ready)
+        return TDMA_ORIGIN_BUILD_BUSY;
+    ++s_tdma_pio_spi_phys.flight_origin_prepare.stage;
+    return stage == TDMA_ORIGIN_PREPARE_INSTALL ? TDMA_ORIGIN_BUILD_DONE : TDMA_ORIGIN_BUILD_BUSY;
+}
 static bool tdma_pio_spi_phys_origin_healthy(const void *ctx) { (void)ctx; return true; }
 bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime, const tdma_ring_runtime_config_t *c)
 { assert(c == NULL); stops++; runtime->enabled = 0; return true; }
@@ -114,6 +137,24 @@ static tdma_origin_admission_result_t admit(void)
 { uint32_t rearm, abort; return tdma_runtime_owner_origin_admit(&s_tdma_pio_spi_phys, &config, &rearm, &abort); }
 static void publish(void)
 { assert(calibration_manager_origin_trial(1, 100, 8, 1000000)); }
+
+static void batch_setup(uint32_t stage)
+{
+    setup(); ticks = 100u; clock_hz = 150000000u;
+    complete = model_valid = resources_valid = begin_ok = true;
+    publish(); assert(admit() == TDMA_ORIGIN_ADMISSION_READY);
+    assert(tdma_runtime_owner_origin_begin(&s_tdma_pio_spi_phys, &config, NULL, 0, 100, 8));
+    scripted_poll = builder_ready = true;
+    poll_trace_count = 0u; poll_cost = 10u;
+    fail_stage = mutate_stage = UINT32_MAX;
+    s_tdma_pio_spi_phys.flight_origin_prepare.stage = stage;
+}
+
+static tdma_origin_build_result_t batch_poll(void)
+{
+    poll_trace_count = 0u;
+    return tdma_runtime_owner_origin_poll(&s_tdma_pio_spi_phys);
+}
 
 static void blackout_start(void)
 {
@@ -271,6 +312,67 @@ int main(int argc, char **argv)
         ring.enabled = ring.adapter_started = 0u;
         assert(tdma_runtime_owner_get_origin_handoff(&out) && out.result == TDMA_ORIGIN_BUILD_FAILED);
         assert(out.calls[TDMA_ORIGIN_PREPARE_MAILBOX] == 0u);
+    } else if (!strcmp(argv[1], "batch")) {
+        batch_setup(TDMA_ORIGIN_PREPARE_MAILBOX);
+        assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY && poll_trace_count == 1u);
+        assert(s_tdma_pio_spi_phys.flight_origin_prepare.stage == TDMA_ORIGIN_PREPARE_STOP);
+        assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY && poll_trace_count == 3u);
+        assert(poll_trace[0] == TDMA_ORIGIN_PREPARE_STOP && poll_trace[1] == TDMA_ORIGIN_PREPARE_PERSONA &&
+            poll_trace[2] == TDMA_ORIGIN_PREPARE_BUILD_BEGIN);
+        assert(s_tdma_pio_spi_phys.flight_origin_prepare.stage == TDMA_ORIGIN_PREPARE_BUILD_STEP);
+        builder_ready = false;
+        assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY && poll_trace_count == 1u);
+        assert(s_tdma_pio_spi_phys.flight_origin_prepare.stage == TDMA_ORIGIN_PREPARE_BUILD_STEP);
+        builder_ready = true;
+        assert(batch_poll() == TDMA_ORIGIN_BUILD_DONE && poll_trace_count == 4u);
+        for (uint32_t i = 0u; i < poll_trace_count; ++i)
+            assert(poll_trace[i] == TDMA_ORIGIN_PREPARE_BUILD_STEP + i);
+        tdma_origin_handoff_snapshot_t out;
+        ring.enabled = ring.adapter_started = 0u;
+        assert(tdma_runtime_owner_get_origin_handoff(&out));
+        assert(out.result == TDMA_ORIGIN_BUILD_DONE && out.invalid_count == 0u);
+        for (uint32_t stage = TDMA_ORIGIN_PREPARE_MAILBOX; stage <= TDMA_ORIGIN_PREPARE_INSTALL; ++stage) {
+            uint32_t calls = stage == TDMA_ORIGIN_PREPARE_BUILD_STEP ? 2u : 1u;
+            assert(out.calls[stage] == calls && out.work_ticks[stage] == calls * poll_cost);
+        }
+    } else if (!strcmp(argv[1], "batch-yield")) {
+        batch_setup(TDMA_ORIGIN_PREPARE_STOP);
+        poll_cost = TDMA_ORIGIN_PREPARE_BATCH_YIELD_CYCLES;
+        assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY && poll_trace_count == 1u);
+        assert(s_tdma_pio_spi_phys.flight_origin_prepare.stage == TDMA_ORIGIN_PREPARE_PERSONA);
+        batch_setup(TDMA_ORIGIN_PREPARE_STOP);
+        poll_cost = TDMA_ORIGIN_PREPARE_BATCH_YIELD_CYCLES / 2u;
+        assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY && poll_trace_count == 2u);
+        assert(s_tdma_pio_spi_phys.flight_origin_prepare.stage == TDMA_ORIGIN_PREPARE_BUILD_BEGIN);
+        poll_cost = 0u;
+        assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY && poll_trace_count == 1u);
+        assert(s_tdma_pio_spi_phys.flight_origin_prepare.stage == TDMA_ORIGIN_PREPARE_BUILD_STEP);
+        assert(batch_poll() == TDMA_ORIGIN_BUILD_DONE && poll_trace_count == TDMA_ORIGIN_PREPARE_BATCH_MAX_STEPS);
+    } else if (!strcmp(argv[1], "batch-revoke")) {
+        const uint32_t stages[] = {TDMA_ORIGIN_PREPARE_STOP, TDMA_ORIGIN_PREPARE_PERSONA,
+            TDMA_ORIGIN_PREPARE_BUILD_STEP, TDMA_ORIGIN_PREPARE_SEED, TDMA_ORIGIN_PREPARE_SMS};
+        for (uint32_t i = 0u; i < sizeof(stages) / sizeof(stages[0]); ++i) {
+            for (uint32_t kind = 0u; kind < 6u; ++kind) {
+                batch_setup(stages[i]); mutate_stage = stages[i]; mutate_kind = kind;
+                /* Advancing beyond expiry also exceeds the batch time limit:
+                 * yield now, then reject before the next physical operation. */
+                assert(batch_poll() == (kind == 4u ? TDMA_ORIGIN_BUILD_BUSY : TDMA_ORIGIN_BUILD_FAILED));
+                assert(poll_trace_count == 1u && poll_trace[0] == stages[i]);
+                assert(s_tdma_pio_spi_phys.flight_origin_prepare.stage == stages[i] + 1u);
+                uint32_t before = polls;
+                assert(batch_poll() == TDMA_ORIGIN_BUILD_FAILED && polls == before);
+                assert(s_origin_trial_fault);
+            }
+        }
+    } else if (!strcmp(argv[1], "batch-failure")) {
+        for (uint32_t stage = TDMA_ORIGIN_PREPARE_STOP; stage <= TDMA_ORIGIN_PREPARE_INSTALL; ++stage) {
+            batch_setup(stage <= TDMA_ORIGIN_PREPARE_BUILD_BEGIN ? TDMA_ORIGIN_PREPARE_STOP : TDMA_ORIGIN_PREPARE_BUILD_STEP);
+            fail_stage = stage;
+            assert(batch_poll() == TDMA_ORIGIN_BUILD_FAILED);
+            assert(poll_trace[poll_trace_count - 1u] == stage && s_origin_trial_fault);
+        }
+        batch_setup(TDMA_ORIGIN_PREPARE_STOP);
+        assert(tdma_runtime_owner_origin_poll(NULL) == TDMA_ORIGIN_BUILD_FAILED && poll_trace_count == 0u);
     } else if (!strcmp(argv[1], "blackout")) {
         tdma_origin_blackout_snapshot_t out;
         assert(!tdma_runtime_owner_get_origin_blackout(&out));
