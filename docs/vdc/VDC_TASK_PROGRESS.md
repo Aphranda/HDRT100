@@ -50,7 +50,8 @@ Last updated: 2026-09-15
 `VDC-PROGRESS-20260914-028`；共享采样区 RAM 验收见 `VDC-PROGRESS-20260915-001`，
 成对事件计数及有界联合读取原型见 `VDC-PROGRESS-20260915-002`；生产观察器接入与
 原生记录复核见 `VDC-PROGRESS-20260915-003`；自主模式观察 FIFO 容量与服务路径
-定位见 `VDC-PROGRESS-20260915-004`。当前入口仍为
+定位见 `VDC-PROGRESS-20260915-004`；最终启用前 CS 准入复验见
+`VDC-PROGRESS-20260915-005`。当前入口仍为
 `VDC-TIME-002`，补齐硬件配置、交接时延
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
@@ -58,6 +59,52 @@ Last updated: 2026-09-15
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260915-005 — 最终启用前 CS 准入复验
+
+- TODO task ID：`VDC-TIME-002`、`VDC-VERIFY-001`。状态：IN PROGRESS。承接上一
+  checkpoint 的 NO3 启用前双 CS 已低反例，不改变时间戳或 DPLL 资格。
+- 证据：`out/HardwareAcceptance/20260915/dpll-event-observer-start-gate/`。
+  以下构建、数量、容量和时间均为本轮快照，非事实源；旧失败仍保留于上一切片。
+- 实现：`tdma_event_start` 在配置/seed 完成后的最终 pad-before 快照上复验双 CS；
+  任一为低时仅发布已有等待/pad 状态并返回，观察 SM 保持关闭，不递增 epoch。
+  下个已有 TDMA owner 相位可以重试，每次工作有界，没有内部轮询或新 PIO/DMA。
+  这不承诺有限的总启动等待时间；既有有限流程/许可证负责结束未启动的观察。
+- 拒绝边界：最终检查至 enable 之间仍可能遇到边沿，启用后原 DIRTY_START 检查保留，
+  INVALID 不因电平恢复而复活，必须显式 STOP/ARM。等待状态继续由 Core1 唯一写者
+  经版本化双缓冲发布，不授予正式 timestamp 或完整 packet identity。
+- 软件/资源：adapter pytest 通过，执行真实启动、退休、快照和读取函数；使用板级
+  RX/TX CS 宏注入单 RX 低、单 TX 低、双低。每组连续三次延后均不启用、不推进
+  epoch 或 enable 计时区间，SM0 不变；恢复高后只启用一次。三种启用后低组合均
+  永久拒绝，显式退休和重新准备后才进入新 epoch。既有跨核复制/IRQ/退休覆盖保留。
+  独立 source/host 审核通过；6/8 节点 A/B 构建通过，静态 RAM 增量为零。
+- 当前源码：`current-plan-r1.json` 绑定源码指纹
+  `b33ccea73ae8a10b1f62f4965221b9a44d7fd38e55e8d44ac934b3f90448b45f`；增量构建
+  沿用 build ID，身份同时核验 package SHA、OTA CRC 与源码指纹。容量 6/8 的 A/B
+  扣除 heap 预留后静态余量分别为 18932/15172 B，SCRATCH_X 数据占用为零。
+- 当前源码 P3：`p3-run-r1.json` 耗时 181.250 s，quick diagnostic 凭证通过，普通
+  短帧 passed、closed_loop、realtime、diagnostic 均为 true；四板各 14 个定时槽加
+  baseline 完整，SD/SRAM 一致。凭证的 `strict_gates_passed=false`：coarse CLK
+  level7 中 NO2 的 `TOPology 4,1,3` 超时及 `-200 Execution error` 原件保留，不能
+  将后续普通短帧通过描述为全部严格校准通过。
+- 固定三轮自主观察：按 `acquisition-plan.json` 完成 `capture-r1/r2/r3`，不追加择优
+  轮次。wire 周期 1 ms、Core1 整表 1.5 ms、startup 2 s 加运行窗口 6 s、状态快照
+  500 ms、有限 grant 30 s/8192 events；每轮四板均为 18 个定时槽加 baseline，
+  collection 为 COMPLETE、无漏采，全部 STOP/ACK 后顺序保存 SD，与 SRAM 逐字节
+  一致。快照间隔沿用上一轮容量修正，不能等同于原 250 ms 记录密度。
+- 三从连续性：各轮 observer epoch 依次为 2/3/4，从首次 ACTIVE 至末样本均为
+  ACTIVE/fault0/FDEBUG0，FIFO 高水位均为 4/4/2 words。NO2/NO3/NO4 的 published
+  依次为 7117/7191/7269、7169/7239/7316、7142/7205/7267；最大服务间隔分别为
+  1590/1583/1592、1591/1594/1626、1600/1588/1593 µs。采集耗时分别为
+  42.688/39.281/39.375 s，STOP 后 SD 保存读取为 7.375/7.297/7.390 s。
+- 结论边界：三轮 `diagnostic_observer_continuity=true`；原工具 passed、closed_loop、
+  realtime 仍为 false，diagnostic 为 true，startup 与主板自主 persona/software TX
+  条件失败保留。板端快照没有捕获 waiting 且最终低 CS 的短暂状态，延后分支只具有
+  host 注入覆盖，不能声称实板直接命中或任意启动均可成功，也未证明物理首事件精度。
+- 下一 gate：启动准入切片验收后继续 `VDC-TIME-002` 的原始事件与已校验 packet
+  身份候选关联，显式绑定 observer/ARM 代际、逐 capture lease、DMA 复制范围和
+  取消退休；拒绝覆盖、同序列异身份和旧会话。随后补物理时钟 anchor；诊断候选不
+  授予 timestamp_valid/dpll_eligible，`VDC-TIME-003/004` 继续 PENDING。
 
 ### VDC-PROGRESS-20260915-004 — 自主事件 FIFO 与解析交接解耦
 
