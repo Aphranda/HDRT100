@@ -54,7 +54,16 @@ typedef struct {
     uint32_t phase_start_miss_count[APP_REALTIME_PHASE_COUNT];
     uint32_t phase_overrun_count[APP_REALTIME_PHASE_COUNT];
     uint32_t phase_deadline_miss_count[APP_REALTIME_PHASE_COUNT];
+    uint32_t profile_generation;
 } app_realtime_schedule_snapshot_t;
+
+typedef struct {
+    uint32_t active_cycles;
+    uint32_t applied_generation;
+    uint32_t pending_cycles;
+    uint32_t requested_generation;
+    bool applying;
+} app_realtime_period_snapshot_t;
 
 bool app_init(void);
 bool app_is_ready(void);
@@ -63,6 +72,11 @@ bool app_tdma_record_copy(uint32_t offset, uint8_t *data, uint32_t size);
 bool app_is_control_plane_ready(void);
 void app_realtime_cycle_counter_init(void);
 void app_realtime_run_once(void);
+bool app_realtime_request_period_us(uint32_t period_us, uint32_t *generation);
+bool app_realtime_get_period_snapshot(app_realtime_period_snapshot_t *snapshot);
+/* Core1 only, before the next complete table starts. */
+bool app_realtime_apply_pending_profile_core1(void);
+uint32_t app_realtime_cycle_cycles_core1(void);
 bool app_realtime_set_load_mask(uint32_t enabled_mask);
 bool app_realtime_get_schedule_snapshot(
     app_realtime_schedule_snapshot_t *snapshot);

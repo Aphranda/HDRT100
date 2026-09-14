@@ -55,6 +55,8 @@ scpi_result_t scpi_cmd_system_tdma_flight_clock_evidence_status_q(
 scpi_result_t scpi_cmd_system_tdma_load_mask(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_load_mask_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_schedule_q(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_period(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_period_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_profile_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_profile_peak_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_profile_run_q(scpi_t *context);
@@ -164,6 +166,8 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:TDMA:LOAD:MASK?", .callback = scpi_cmd_system_tdma_load_mask_q}, \
     {.pattern = "SYSTem:TDMA:LOAD:MASK", .callback = scpi_cmd_system_tdma_load_mask}, \
     {.pattern = "SYSTem:TDMA:SCHEDule?", .callback = scpi_cmd_system_tdma_schedule_q}, \
+    {.pattern = "SYSTem:TDMA:PERiod", .callback = scpi_cmd_system_tdma_period}, \
+    {.pattern = "SYSTem:TDMA:PERiod?", .callback = scpi_cmd_system_tdma_period_q}, \
     {.pattern = "SYSTem:TDMA:PROFile?", .callback = scpi_cmd_system_tdma_profile_q}, \
     {.pattern = "SYSTem:TDMA:PROFile:PEAK?", .callback = scpi_cmd_system_tdma_profile_peak_q}, \
     {.pattern = "SYSTem:TDMA:PROFile:RUN?", .callback = scpi_cmd_system_tdma_profile_run_q}, \

@@ -2455,6 +2455,31 @@ scpi_result_t scpi_cmd_system_tdma_load_mask_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_system_tdma_period(scpi_t *context)
+{
+    uint32_t period_us, generation;
+    if (!scpi_port_read_u32(context, &period_us) ||
+        !app_realtime_request_period_us(period_us, &generation)) {
+        scpi_port_push_exec_error(context, "TDMA_PERIOD_STOP_REQUIRED_OR_BUSY");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "PENDING");
+    SCPI_ResultUInt32(context, generation);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_period_q(scpi_t *context)
+{
+    app_realtime_period_snapshot_t snapshot;
+    if (!app_realtime_get_period_snapshot(&snapshot)) return SCPI_RES_ERR;
+    SCPI_ResultUInt32(context, snapshot.active_cycles);
+    SCPI_ResultUInt32(context, snapshot.applied_generation);
+    SCPI_ResultUInt32(context, snapshot.pending_cycles);
+    SCPI_ResultUInt32(context, snapshot.requested_generation);
+    SCPI_ResultUInt32(context, snapshot.applying);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_system_tdma_schedule_q(scpi_t *context)
 {
     app_realtime_schedule_snapshot_t snapshot;

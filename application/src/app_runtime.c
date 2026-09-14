@@ -56,14 +56,17 @@ static bool s_core1_started;
 #define APP_REALTIME_WIRE_MAX_CYCLES \
     (APP_REALTIME_WIRE_MAX_BYTES * 8u * APP_REALTIME_SPI_CYCLES_PER_BIT)
 
-_Static_assert(BOARD_SYS_CLOCK_HZ % PROJECT_CORE1_CYCLE_RATE_HZ == 0u,
-               "core1 cycle rate must divide clk_sys exactly");
-_Static_assert(PROJECT_CORE1_CYCLE_CYCLES ==
-                   BOARD_SYS_CLOCK_HZ / PROJECT_CORE1_CYCLE_RATE_HZ,
-               "core1 cycle cycles must track the board clock");
+_Static_assert((uint64_t)PROJECT_CORE1_PROFILE_1500US_CYCLES * 2000u ==
+                   (uint64_t)BOARD_SYS_CLOCK_HZ * 3u,
+               "base core1 profile must be exactly 1.5 ms in clk_sys cycles");
+_Static_assert(PROJECT_CORE1_PROFILE_5MS_CYCLES * 200u == BOARD_SYS_CLOCK_HZ &&
+               PROJECT_CORE1_PROFILE_10MS_CYCLES * 100u == BOARD_SYS_CLOCK_HZ &&
+               (uint64_t)PROJECT_CORE1_PROFILE_15MS_CYCLES * 200u ==
+                   (uint64_t)BOARD_SYS_CLOCK_HZ * 3u,
+               "catalog periods must track the board clock without rate rounding");
 _Static_assert(BOARD_SYS_CLOCK_HZ % BOARD_TDMA_SPI_BAUD_HZ == 0u,
                "TDMA SPI bit time must be an integer clk_sys cycle count");
-_Static_assert(PROJECT_CORE1_CYCLE_CYCLES <= M33_SYST_RVR_RELOAD_BITS,
+_Static_assert(PROJECT_CORE1_PROFILE_15MS_CYCLES <= M33_SYST_RVR_RELOAD_BITS,
                "one core1 cycle must fit in the core-local SysTick counter");
 
 #define APP_REALTIME_ASSERT_PHASE(name, start, end, wcet) \
@@ -181,14 +184,21 @@ static void core1_realtime_entry(void)
      * derived representation. */
     _Static_assert(BOARD_SYS_CLOCK_HZ % 1000000u == 0u,
                    "clk_sys must convert to whole cycles per microsecond");
-    const uint64_t tick_us = PROJECT_CORE1_CYCLE_CYCLES /
+    uint64_t tick_us = PROJECT_CORE1_CYCLE_CYCLES /
         (BOARD_SYS_CLOCK_HZ / 1000000u);
     app_realtime_cycle_counter_init();
     uint64_t next_tick_us = to_us_since_boot(get_absolute_time()) + tick_us;
     while (true) {
         sleep_until(from_us_since_boot(next_tick_us));
-        next_tick_us += tick_us;
         drv_flash_core1_lockout_poll();
+        if (app_realtime_apply_pending_profile_core1()) {
+            tick_us = app_realtime_cycle_cycles_core1() /
+                (BOARD_SYS_CLOCK_HZ / 1000000u);
+            /* Rebase once at the stopped handover; later cycles keep absolute
+             * deadlines and never accumulate service-time drift. */
+            next_tick_us = to_us_since_boot(get_absolute_time());
+        }
+        next_tick_us += tick_us;
         app_realtime_run_once();
         tight_loop_contents();
     }

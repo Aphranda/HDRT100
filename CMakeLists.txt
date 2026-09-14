@@ -438,6 +438,7 @@ file(WRITE ${PROJECT_FATFS_CONFIGURED_DIR}/ffconf.h "${PROJECT_FATFS_CONFIG_TEXT
 set(PROJECT_APP_SOURCES
         application/src/main.c
         application/src/app_runtime.c
+        application/src/app_realtime_profile.c
         application/src/app.c
         application/src/app_tdma_record.c
         application/src/app_tasks.c

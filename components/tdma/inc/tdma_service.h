@@ -446,6 +446,10 @@ typedef struct {
     volatile uint32_t ring_control_guard;
     uint32_t ring_control_pending;
     uint32_t ring_control_config_seq;
+    /* Core0 publishes a stopped software-update token; Core1 claims it once.
+     * The request word includes the payload, so cancellation cannot tear it. */
+    volatile uint32_t stopped_update;
+    uint32_t stopped_update_generation;
     tdma_traffic_scheduler_t *traffic_scheduler;
     tdma_service_adapter_impl_t adapter_impls[TDMA_SERVICE_ADAPTER_IMPL_MAX];
     uint32_t adapter_impl_count;
@@ -469,6 +473,18 @@ bool tdma_service_register_adapter_impl(tdma_service_service_t *service,
 bool tdma_service_configure_ring_runtime(
     tdma_service_service_t *service,
     const tdma_service_ring_runtime_config_t *config);
+/* Application validates token semantics. Zero and the upper two bits are
+ * reserved. Pending/applying updates exclude all service ARM/config enables.
+ * STOP cancels an unclaimed request; an already claimed update completes. */
+bool tdma_service_request_stopped_update(tdma_service_service_t *service,
+    uint32_t token, uint32_t *generation);
+bool tdma_service_get_stopped_update(tdma_service_service_t *service,
+    uint32_t *token, uint32_t *generation, bool *applying);
+/* Core1: one CAS attempt, no control lock, callback, clock read or hardware. */
+bool tdma_service_claim_stopped_update_core1(tdma_service_service_t *service,
+    uint32_t *token, uint32_t *generation);
+bool tdma_service_finish_stopped_update_core1(tdma_service_service_t *service,
+    uint32_t token, uint32_t generation);
 bool tdma_service_bind_ring_adapter(tdma_service_service_t *service,
                                     const tdma_ring_adapter_ops_t *ops,
                                     void *context);

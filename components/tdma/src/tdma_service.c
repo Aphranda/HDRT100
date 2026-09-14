@@ -16,6 +16,9 @@
     tdma_service_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY
 #define tdma_service_ERROR_WINDOW_MISSED 101u
 #define TDMA_SERVICE_SNAPSHOT_RETRY_LIMIT 64u
+#define TDMA_STOPPED_UPDATE_REQUESTED (1u << 31u)
+#define TDMA_STOPPED_UPDATE_APPLYING (1u << 30u)
+#define TDMA_STOPPED_UPDATE_TOKEN_MASK (TDMA_STOPPED_UPDATE_APPLYING - 1u)
 
 enum {
     TDMA_RING_CONTROL_NONE = 0u,
@@ -435,12 +438,35 @@ static bool tdma_service_apply_profile_adapter(tdma_service_service_t *service,
     return service->ring_runtime.adapter_ops == NULL;
 }
 
-bool tdma_service_configure_ring_runtime(
+static void tdma_service_cancel_stopped_update(tdma_service_service_t *service)
+{
+    uint32_t expected = __atomic_load_n(&service->stopped_update, __ATOMIC_ACQUIRE);
+    if ((expected & TDMA_STOPPED_UPDATE_REQUESTED) != 0u) {
+        (void)__atomic_compare_exchange_n(&service->stopped_update, &expected,
+            0u, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+    }
+}
+
+static bool tdma_service_configure_ring_runtime_locked(
     tdma_service_service_t *service,
     const tdma_service_ring_runtime_config_t *config)
 {
-    return service != NULL &&
-           tdma_ring_runtime_configure(&service->ring_runtime, config);
+    if (config != NULL && config->enabled != 0u) {
+        if (__atomic_load_n(&service->stopped_update, __ATOMIC_ACQUIRE) != 0u)
+            return false;
+    } else {
+        tdma_service_cancel_stopped_update(service);
+    }
+    return tdma_ring_runtime_configure(&service->ring_runtime, config);
+}
+
+bool tdma_service_configure_ring_runtime(tdma_service_service_t *service,
+    const tdma_service_ring_runtime_config_t *config)
+{
+    if (service == NULL || !tdma_service_ring_control_lock(service)) return false;
+    const bool ok = tdma_service_configure_ring_runtime_locked(service, config);
+    tdma_service_ring_control_unlock(service);
+    return ok;
 }
 
 bool tdma_service_bind_ring_adapter(tdma_service_service_t *service,
@@ -880,6 +906,67 @@ void tdma_service_core0_lifecycle_service(tdma_service_service_t *service)
     tdma_service_ring_control_unlock(service);
 }
 
+bool tdma_service_request_stopped_update(tdma_service_service_t *service,
+    uint32_t token, uint32_t *generation)
+{
+    if (service == NULL || token == 0u ||
+        (token & ~TDMA_STOPPED_UPDATE_TOKEN_MASK) != 0u ||
+        !tdma_service_ring_control_lock(service)) return false;
+    tdma_ring_runtime_snapshot_t snapshot;
+    const bool ok = __atomic_load_n(&service->stopped_update, __ATOMIC_ACQUIRE) == 0u &&
+        tdma_service_ring_retire_stopped(service) &&
+        service->ring_control_pending == TDMA_RING_CONTROL_NONE &&
+        tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot) &&
+        snapshot.enabled == 0u && snapshot.adapter_started == 0u &&
+        snapshot.config_seq == snapshot.applied_config_seq;
+    if (ok) {
+        const uint32_t next = __atomic_add_fetch(&service->stopped_update_generation, 1u, __ATOMIC_RELAXED);
+        if (generation != NULL) *generation = next;
+        __atomic_store_n(&service->stopped_update,
+            token | TDMA_STOPPED_UPDATE_REQUESTED, __ATOMIC_RELEASE);
+    }
+    tdma_service_ring_control_unlock(service);
+    return ok;
+}
+
+bool tdma_service_get_stopped_update(tdma_service_service_t *service,
+    uint32_t *token, uint32_t *generation, bool *applying)
+{
+    if (service == NULL || token == NULL || generation == NULL || applying == NULL ||
+        !tdma_service_ring_control_lock(service)) return false;
+    const uint32_t request = __atomic_load_n(&service->stopped_update, __ATOMIC_ACQUIRE);
+    *token = request & TDMA_STOPPED_UPDATE_TOKEN_MASK;
+    *generation = __atomic_load_n(&service->stopped_update_generation, __ATOMIC_ACQUIRE);
+    *applying = (request & TDMA_STOPPED_UPDATE_APPLYING) != 0u;
+    tdma_service_ring_control_unlock(service);
+    return true;
+}
+
+bool tdma_service_claim_stopped_update_core1(tdma_service_service_t *service,
+    uint32_t *token, uint32_t *generation)
+{
+    if (service == NULL || token == NULL || generation == NULL) return false;
+    uint32_t expected = __atomic_load_n(&service->stopped_update, __ATOMIC_ACQUIRE);
+    if ((expected & TDMA_STOPPED_UPDATE_REQUESTED) == 0u) return false;
+    const uint32_t value = expected & TDMA_STOPPED_UPDATE_TOKEN_MASK;
+    if (!__atomic_compare_exchange_n(&service->stopped_update, &expected,
+            value | TDMA_STOPPED_UPDATE_APPLYING, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+        return false;
+    *token = value;
+    *generation = __atomic_load_n(&service->stopped_update_generation, __ATOMIC_ACQUIRE);
+    return true;
+}
+
+bool tdma_service_finish_stopped_update_core1(tdma_service_service_t *service,
+    uint32_t token, uint32_t generation)
+{
+    if (service == NULL || token == 0u || (token & ~TDMA_STOPPED_UPDATE_TOKEN_MASK) != 0u ||
+        generation != __atomic_load_n(&service->stopped_update_generation, __ATOMIC_ACQUIRE)) return false;
+    uint32_t expected = token | TDMA_STOPPED_UPDATE_APPLYING;
+    return __atomic_compare_exchange_n(&service->stopped_update, &expected,
+        0u, false, __ATOMIC_RELEASE, __ATOMIC_RELAXED);
+}
+
 bool tdma_service_ring_arm(tdma_service_service_t *service)
 {
     if (service == NULL || !tdma_service_ring_control_lock(service)) {
@@ -887,7 +974,8 @@ bool tdma_service_ring_arm(tdma_service_service_t *service)
     }
     bool accepted = false;
     tdma_ring_runtime_snapshot_t snapshot;
-    if (service->ring_staged_config.enabled == 0u ||
+    if (__atomic_load_n(&service->stopped_update, __ATOMIC_ACQUIRE) != 0u ||
+        service->ring_staged_config.enabled == 0u ||
         !tdma_service_ring_retire_stopped(service) ||
         !tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot) ||
         snapshot.enabled != 0u || snapshot.adapter_started != 0u ||
@@ -905,7 +993,7 @@ bool tdma_service_ring_arm(tdma_service_service_t *service)
         goto done;
     }
     tdma_traffic_scheduler_close_admission(service->traffic_scheduler);
-    if (!tdma_service_configure_ring_runtime(
+    if (!tdma_service_configure_ring_runtime_locked(
             service, &service->ring_staged_config)) {
         goto done;
     }
@@ -935,7 +1023,7 @@ static void tdma_service_ring_stop_locked(tdma_service_service_t *service)
     tdma_traffic_scheduler_close_admission(service->traffic_scheduler);
     /* NULL is an unconditional disable request for this valid runtime.
      * Acceptance does not wait for physical stop or queue-lock ownership. */
-    (void)tdma_service_configure_ring_runtime(service, NULL);
+    (void)tdma_service_configure_ring_runtime_locked(service, NULL);
     service->ring_control_config_seq = service->ring_runtime.config_seq;
     service->ring_control_pending = TDMA_RING_CONTROL_RETIRE;
 }

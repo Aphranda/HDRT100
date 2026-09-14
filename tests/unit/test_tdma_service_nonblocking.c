@@ -168,7 +168,70 @@ int main(int argc, char **argv)
 {
     assert(argc == 2);
     const char *test = argv[1];
-    if (strcmp(test, "writer") == 0) {
+    if (strcmp(test, "stopped_update") == 0) {
+        assert(tdma_service_init(&service));
+        uint32_t token = 99u, generation = 99u, requested = 0u;
+        bool applying = true;
+        assert(!tdma_service_request_stopped_update(NULL, 375000u, NULL));
+        assert(!tdma_service_request_stopped_update(&service, 0u, NULL));
+        assert(!tdma_service_request_stopped_update(&service, UINT32_MAX, NULL));
+        service.ring_control_guard = 1u;
+        assert(!tdma_service_request_stopped_update(&service, 375000u, NULL));
+        service.ring_control_guard = 0u;
+        service.ring_runtime.config_seq = 1u;
+        assert(!tdma_service_request_stopped_update(&service, 375000u, NULL));
+        service.ring_runtime.applied_config_seq = 1u;
+        service.ring_runtime.adapter_started = 1u;
+        assert(!tdma_service_request_stopped_update(&service, 375000u, NULL));
+        service.ring_runtime.adapter_started = 0u;
+        assert(tdma_service_request_stopped_update(&service, 375000u, &requested));
+        assert(requested == 1u);
+        assert(!tdma_service_request_stopped_update(&service, 1250000u, NULL));
+        tdma_ring_runtime_config_t enable = {.enabled = 1u};
+        const uint32_t original_seq = service.ring_runtime.config_seq;
+        assert(!tdma_service_ring_arm(&service));
+        assert(!tdma_service_configure_ring_runtime(&service, &enable));
+        assert(service.ring_runtime.config_seq == original_seq);
+        assert(tdma_service_get_stopped_update(&service, &token, &generation, &applying));
+        assert(token == 375000u && generation == requested && !applying);
+        /* STOP before claim cancels; it still needs physical/config ACK. */
+        assert(tdma_service_ring_stop(&service));
+        assert(!tdma_service_claim_stopped_update_core1(&service, &token, &generation));
+        assert(!tdma_service_request_stopped_update(&service, 1250000u, NULL));
+        tick(500u);
+        tdma_service_core0_lifecycle_service(&service);
+        assert(tdma_service_request_stopped_update(&service, 1250000u, &requested));
+        assert(requested == 2u);
+        /* Core1 never acquires the Core0 guard. It can claim a published token
+         * even when the Core0 task was interrupted while holding that guard. */
+        service.ring_control_guard = 1u;
+        assert(tdma_service_claim_stopped_update_core1(&service, &token, &generation));
+        assert(token == 1250000u && generation == requested && service.ring_control_guard == 1u);
+        service.ring_control_guard = 0u;
+        assert(!tdma_service_claim_stopped_update_core1(&service, &token, &generation));
+        assert(!tdma_service_finish_stopped_update_core1(&service, token, generation - 1u));
+        assert(!tdma_service_finish_stopped_update_core1(&service, 375000u, generation));
+        /* STOP after claim cannot replace the table in flight or release ARM. */
+        assert(tdma_service_ring_stop(&service));
+        assert(tdma_service_get_stopped_update(&service, &token, &generation, &applying));
+        assert(token == 1250000u && generation == requested && applying);
+        assert(!tdma_service_ring_arm(&service));
+        assert(!tdma_service_configure_ring_runtime(&service, &enable));
+        assert(!tdma_service_request_stopped_update(&service, 3750000u, NULL));
+        assert(tdma_service_finish_stopped_update_core1(&service, token, generation));
+        assert(!tdma_service_finish_stopped_update_core1(&service, token, generation));
+        tick(500u);
+        tdma_service_core0_lifecycle_service(&service);
+        service.stopped_update_generation = UINT32_MAX;
+        assert(tdma_service_request_stopped_update(&service, 3750000u, &requested));
+        assert(requested == 0u); /* Wrapped generation is valid. */
+        assert(tdma_service_claim_stopped_update_core1(&service, &token, &generation));
+        assert(token == 3750000u && generation == 0u);
+        assert(tdma_service_finish_stopped_update_core1(&service, token, generation));
+        assert(tdma_service_get_stopped_update(&service, &token, &generation, &applying));
+        assert(token == 0u && generation == 0u && !applying);
+        assert(ring_calls == 0u && ring_stops == 0u && tx_calls == 0u);
+    } else if (strcmp(test, "writer") == 0) {
         setup(false);
         service.intent_guard++;
         for (uint32_t i = 0u; i < 8u; ++i) tick(500u);

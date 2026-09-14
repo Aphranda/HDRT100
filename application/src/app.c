@@ -1,4 +1,5 @@
 #include "app.h"
+#include "app_realtime_profile.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -514,14 +515,6 @@ static volatile uint32_t s_realtime_load_enabled_mask =
     APP_REALTIME_LOAD_FOUNDATION_MASK;
 static volatile uint32_t s_realtime_load_quarantined_mask;
 
-#define APP_REALTIME_PHASE_CONTRACT_INIT(name, start, end, wcet) \
-    [APP_REALTIME_PHASE_##name] = {start, end, wcet},
-static const app_realtime_phase_contract_t
-    s_realtime_phase_contract[APP_REALTIME_PHASE_COUNT] = {
-        APP_REALTIME_PHASE_TABLE(APP_REALTIME_PHASE_CONTRACT_INIT)
-    };
-#undef APP_REALTIME_PHASE_CONTRACT_INIT
-
 #define APP_REALTIME_PHASE_VALUE_INIT(name, start, end, wcet) \
     [APP_REALTIME_PHASE_##name] = start,
 #define APP_REALTIME_PHASE_END_INIT(name, start, end, wcet) \
@@ -628,6 +621,58 @@ bool app_realtime_get_schedule_snapshot(
     return false;
 }
 
+bool app_realtime_request_period_us(uint32_t period_us, uint32_t *generation)
+{
+    const uint64_t cycles = (uint64_t)period_us * (BOARD_SYS_CLOCK_HZ / 1000000u);
+    return app_is_ready() && cycles <= UINT32_MAX &&
+        app_realtime_profile_supported((uint32_t)cycles) &&
+        tdma_service_request_stopped_update(tdma_runtime_owner_get(), (uint32_t)cycles, generation);
+}
+
+bool app_realtime_get_period_snapshot(app_realtime_period_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) return false;
+    tdma_service_service_t *owner = tdma_runtime_owner_get();
+    app_realtime_period_snapshot_t before, after;
+    app_realtime_schedule_snapshot_t schedule;
+    if (!tdma_service_get_stopped_update(owner, &before.pending_cycles,
+            &before.requested_generation, &before.applying) ||
+        !app_realtime_get_schedule_snapshot(&schedule) ||
+        !tdma_service_get_stopped_update(owner, &after.pending_cycles,
+            &after.requested_generation, &after.applying) ||
+        before.pending_cycles != after.pending_cycles ||
+        before.requested_generation != after.requested_generation ||
+        before.applying != after.applying) return false;
+    after.active_cycles = schedule.cycle_cycles;
+    after.applied_generation = schedule.profile_generation;
+    *snapshot = after;
+    return true;
+}
+
+uint32_t app_realtime_cycle_cycles_core1(void)
+{
+    return s_realtime_schedule.cycle_cycles;
+}
+
+bool app_realtime_apply_pending_profile_core1(void)
+{
+    tdma_service_service_t *owner = tdma_runtime_owner_get();
+    if (owner == NULL || __atomic_load_n(&owner->stopped_update, __ATOMIC_ACQUIRE) == 0u)
+        return false;
+    if (calibration_manager_p3_offline_active_core1() ||
+        calibration_manager_training_offline_active_core1() ||
+        calibration_manager_ring_capture_offline_active_core1()) return false;
+    uint32_t cycles, generation;
+    if (!tdma_service_claim_stopped_update_core1(owner, &cycles, &generation)) return false;
+    app_realtime_schedule_write_begin();
+    const bool installed = app_realtime_profile_install(&s_realtime_schedule, cycles, generation);
+    app_realtime_schedule_write_end();
+    /* Publication completes before releasing the service ARM exclusion. A
+     * rejected token leaves both the table and its applied generation intact. */
+    (void)tdma_service_finish_stopped_update_core1(owner, cycles, generation);
+    return installed;
+}
+
 static void app_realtime_record_skip(app_realtime_phase_id_t phase_id,
                                      bool start_missed)
 {
@@ -649,8 +694,11 @@ static bool app_realtime_run_phase(
     if (phase_id >= APP_REALTIME_PHASE_COUNT || service == NULL) {
         return false;
     }
-    const app_realtime_phase_contract_t *contract =
-        &s_realtime_phase_contract[phase_id];
+    const app_realtime_phase_contract_t active_contract = {
+        s_realtime_schedule.phase_start_cycle[phase_id],
+        s_realtime_schedule.phase_end_cycle[phase_id],
+        s_realtime_schedule.phase_wcet_cycles[phase_id]};
+    const app_realtime_phase_contract_t *contract = &active_contract;
     uint32_t phase_start = app_realtime_elapsed_cycles(
         cycle_epoch, app_realtime_cycle_now());
     while (phase_start < contract->start_cycle) {

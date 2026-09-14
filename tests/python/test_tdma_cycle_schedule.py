@@ -11,7 +11,7 @@ from tools.tdma_ring_monitor.tdma_cycle_schedule import (
 def test_repository_cycle_schedule_is_disjoint_and_bounded() -> None:
     schedule = load_schedule()
     assert validate_schedule(schedule) == []
-    assert schedule.cycle_cycles == 250_000
+    assert schedule.cycle_cycles == 375_000
     assert schedule.spi_cycles_per_bit == 25
     assert schedule.packet_header_bytes == 4
     assert schedule.transport_header_bytes == 32
@@ -80,5 +80,5 @@ def test_renderers_keep_cycles_as_source_of_truth() -> None:
     svg = render_svg(schedule)
     assert "start_cycle" in markdown
     assert "derived window" in markdown
-    assert "250000 clk_sys cycles" in svg
+    assert "375000 clk_sys cycles" in svg
     assert "TDMA" in svg

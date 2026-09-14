@@ -297,6 +297,11 @@ def scpi_response_matches_command(command: str, line: str) -> bool:
         return _csv_uints_match(text, 8)
     if header in TDMA_CONTROL_RESULT_FIELDS:
         return _csv_uints_match(text, TDMA_CONTROL_RESULT_FIELDS[header])
+    if re.fullmatch(r'SYST(?:EM)?:TDMA:PER(?:IOD)?', header):
+        pending = re.fullmatch(r'(?:"PENDING"|PENDING),\s*(\d+)', text)
+        return pending is not None and int(pending[1]) <= 0xFFFFFFFF
+    if re.fullmatch(r'SYST(?:EM)?:TDMA:PER(?:IOD)?\?', header):
+        return _csv_uints_match(text, 5)
     if header in {"SYST:OTA:JOUR?", "SYSTEM:OTA:JOURNAL?"}:
         return _csv_uints_match(text, 13)
     if header in {
