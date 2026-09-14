@@ -189,6 +189,38 @@ scpi_result_t scpi_calibration_origin_revoke(scpi_t *context)
     return scpi_port_result_ok(context);
 }
 
+scpi_result_t scpi_calibration_origin_diagnostic_q(scpi_t *context)
+{
+    calibration_origin_attempt_t attempt;
+    tdma_ring_runtime_snapshot_t ring;
+    if (!tdma_runtime_owner_get_ring_snapshot(&ring) || ring.enabled || ring.adapter_started ||
+        ring.config_seq != ring.applied_config_seq ||
+        !calibration_manager_origin_get_attempt(&attempt)) {
+        SCPI_ResultText(context, "UNAVAILABLE");
+        return SCPI_RES_OK;
+    }
+    SCPI_ResultText(context, "ORIGINADMISSION");
+    SCPI_ResultUInt32(context, 1u); /* Diagnostic schema; not grant authority. */
+    SCPI_ResultUInt32(context, attempt.attempt);
+    SCPI_ResultUInt32(context, attempt.trial_id);
+    SCPI_ResultUInt32(context, attempt.trial_epoch);
+    SCPI_ResultUInt32(context, attempt.reason);
+    SCPI_ResultUInt32(context, attempt.config_seq);
+    SCPI_ResultUInt32(context, attempt.applied_config_seq);
+    SCPI_ResultUInt32(context, attempt.recheck_config_seq);
+    SCPI_ResultUInt32(context, attempt.recheck_applied_config_seq);
+    SCPI_ResultUInt32(context, attempt.admitted_model_epoch);
+    SCPI_ResultUInt32(context, attempt.observed_model_epoch);
+    SCPI_ResultUInt64(context, attempt.observed);
+    SCPI_ResultUInt64(context, attempt.expected);
+    SCPI_ResultUInt32(context, attempt.observed_mask);
+    SCPI_ResultUInt32(context, attempt.requested_rearm_ticks);
+    SCPI_ResultUInt32(context, attempt.requested_abort_polls);
+    SCPI_ResultUInt32(context, attempt.requested_flags);
+    SCPI_ResultUInt64(context, attempt.requested_duration_ticks);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_calibration_origin_q(scpi_t *context)
 {
     calibration_origin_timing_t trial;

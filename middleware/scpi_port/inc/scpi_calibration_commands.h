@@ -13,6 +13,7 @@ scpi_result_t scpi_calibration_origin_handoff_q(scpi_t *context);
 scpi_result_t scpi_calibration_origin_blackout_q(scpi_t *context);
 scpi_result_t scpi_calibration_origin_revoke(scpi_t *context);
 scpi_result_t scpi_calibration_origin_q(scpi_t *context);
+scpi_result_t scpi_calibration_origin_diagnostic_q(scpi_t *context);
 scpi_result_t scpi_calibration_origin_runtime_q(scpi_t *context);
 scpi_result_t scpi_calibration_origin_record_q(scpi_t *context);
 
@@ -93,6 +94,7 @@ scpi_result_t scpi_calibration_sma_cable_rtt_responder_q(scpi_t *context);
     {.pattern = "READ:CALibration:ORIGin:BLACKout?", .callback = scpi_calibration_origin_blackout_q}, \
     {.pattern = "CALibration:ORIGin:REVOKe", .callback = scpi_calibration_origin_revoke}, \
     {.pattern = "READ:CALibration:ORIGin?", .callback = scpi_calibration_origin_q}, \
+    {.pattern = "READ:CALibration:ORIGin:DIAGnostic?", .callback = scpi_calibration_origin_diagnostic_q}, \
     {.pattern = "READ:CALibration:ORIGin:RUNTIme?", .callback = scpi_calibration_origin_runtime_q}, \
     {.pattern = "READ:CALibration:ORIGin:RECord?", .callback = scpi_calibration_origin_record_q}, \
     {.pattern = "CONFigure:CALibration:LINK:ADD", .callback = scpi_port_result_accepted}, \

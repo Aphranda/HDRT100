@@ -9,6 +9,23 @@
 
 static uint32_t s_origin_timing_guard;
 static calibration_origin_timing_t s_origin_timing;
+static calibration_origin_attempt_t s_origin_attempt;
+
+bool calibration_manager_origin_get_attempt(calibration_origin_attempt_t *attempt)
+{
+    if (attempt == NULL || s_origin_attempt.attempt == 0u) return false;
+    *attempt = s_origin_attempt;
+    return true;
+}
+
+static bool calibration_origin_attempt_reject(calibration_origin_attempt_reason_t reason,
+    uint64_t observed, uint64_t expected)
+{
+    s_origin_attempt.reason = reason;
+    s_origin_attempt.observed = observed;
+    s_origin_attempt.expected = expected;
+    return false;
+}
 
 CALIBRATION_ORIGIN_EPOCH_RAM
 uint32_t calibration_manager_origin_epoch(void)
@@ -47,6 +64,15 @@ bool calibration_manager_origin_trial_configured(uint32_t trial_id, uint32_t rea
 {
     /* A rejected replacement must not leave the previous trial authorized. */
     calibration_manager_origin_revoke();
+    const uint32_t attempt = s_origin_attempt.attempt;
+    s_origin_attempt = (calibration_origin_attempt_t){
+        .attempt = attempt == UINT32_MAX ? UINT32_MAX : attempt + 1u,
+        .trial_id = trial_id, .trial_epoch = calibration_manager_origin_epoch(),
+        .reason = CALIBRATION_ORIGIN_ATTEMPT_PENDING,
+        .requested_rearm_ticks = rearm_budget_ticks,
+        .requested_abort_polls = abort_poll_count,
+        .requested_flags = diagnostic_flags,
+        .requested_duration_ticks = duration_ticks};
     tdma_ring_runtime_snapshot_t ring;
     tdma_ring_calibration_stage_t stage;
     tdma_service_ring_runtime_config_t config;
@@ -59,23 +85,54 @@ bool calibration_manager_origin_trial_configured(uint32_t trial_id, uint32_t rea
          diagnostic_flags != CALIBRATION_ORIGIN_DIAGNOSTIC_SERVICE_BLACKOUT &&
          diagnostic_flags != CALIBRATION_ORIGIN_DIAGNOSTIC_BUILD_CANCEL) ||
         trial_id == 0u || rearm_budget_ticks == 0u || abort_poll_count == 0u ||
-        abort_poll_count > UINT16_MAX || duration_ticks == 0u || duration_ticks > INT64_MAX ||
-        !tdma_runtime_owner_get_ring_snapshot(&ring) || ring.enabled == 0u ||
-        ring.adapter_started == 0u || ring.config_seq != ring.applied_config_seq ||
-        !tdma_runtime_owner_get_staged_ring_config(&config) ||
-        (config.flags & TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE) == 0u ||
-        config.local_slot_id != config.reference_slot_id ||
-        !tdma_runtime_owner_get_calibration_stage(&stage, &complete) || !complete ||
-        !tdma_runtime_owner_get_origin_capability(&capability) ||
-        !tdma_service_get_snapshot(tdma_runtime_owner_get(), &owner) ||
-        stage.node_count != config.node_count || stage.profile_crc32 != config.operating_profile_crc32 ||
-        stage.schedule_crc32 != config.schedule_crc32) return false;
+        abort_poll_count > UINT16_MAX || duration_ticks == 0u || duration_ticks > INT64_MAX)
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_ARGUMENT, 0u, 0u);
+    if (!tdma_runtime_owner_get_ring_snapshot(&ring))
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_RING_UNAVAILABLE, 0u, 0u);
+    s_origin_attempt.config_seq = ring.config_seq;
+    s_origin_attempt.applied_config_seq = ring.applied_config_seq;
+    s_origin_attempt.observed_mask |= CALIBRATION_ORIGIN_OBS_RING;
+    if (ring.enabled == 0u)
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_RING_DISABLED, ring.enabled, 1u);
+    if (ring.adapter_started == 0u)
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_RING_NOT_STARTED, ring.adapter_started, 1u);
+    if (ring.config_seq != ring.applied_config_seq)
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_CONFIG_PENDING, ring.applied_config_seq, ring.config_seq);
+    if (!tdma_runtime_owner_get_staged_ring_config(&config))
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_CONFIG_UNAVAILABLE, 0u, 0u);
+    s_origin_attempt.observed_mask |= CALIBRATION_ORIGIN_OBS_CONFIG;
+    if ((config.flags & TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE) == 0u)
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_DIAGNOSTIC_REQUIRED, config.flags, TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE);
+    if (config.local_slot_id != config.reference_slot_id)
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_ROLE, config.local_slot_id, config.reference_slot_id);
+    if (!tdma_runtime_owner_get_calibration_stage(&stage, &complete))
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_STAGE_UNAVAILABLE, 0u, 0u);
+    s_origin_attempt.observed_mask |= CALIBRATION_ORIGIN_OBS_STAGE;
+    if (!complete)
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_STAGE_INCOMPLETE, 0u, 1u);
+    if (!tdma_runtime_owner_get_origin_capability(&capability))
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_CAPABILITY_UNAVAILABLE, 0u, 0u);
+    s_origin_attempt.observed_mask |= CALIBRATION_ORIGIN_OBS_CAPABILITY;
+    if (!tdma_service_get_snapshot(tdma_runtime_owner_get(), &owner))
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_OWNER_UNAVAILABLE, 0u, 0u);
+    s_origin_attempt.observed_mask |= CALIBRATION_ORIGIN_OBS_OWNER;
+    if (stage.node_count != config.node_count)
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_STAGE_NODES, stage.node_count, config.node_count);
+    if (stage.profile_crc32 != config.operating_profile_crc32)
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_STAGE_PROFILE, stage.profile_crc32, config.operating_profile_crc32);
+    if (stage.schedule_crc32 != config.schedule_crc32)
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_STAGE_SCHEDULE, stage.schedule_crc32, config.schedule_crc32);
     tdma_origin_cadence_t cadence;
     if (!tdma_origin_cadence_calculate(capability.clk_sys_hz, config.baud_hz,
-            capability.physical_bytes, config.cycle_period_ns, &cadence) ||
-        cadence.guard_floor_ticks <= rearm_budget_ticks) return false;
+            capability.physical_bytes, config.cycle_period_ns, &cadence))
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_CADENCE, 0u, 0u);
+    s_origin_attempt.observed_mask |= CALIBRATION_ORIGIN_OBS_CADENCE;
+    if (cadence.guard_floor_ticks <= rearm_budget_ticks)
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_REARM_MARGIN, cadence.guard_floor_ticks, rearm_budget_ticks);
     const uint64_t now = vdc_timestamp_clock_read_ticks64();
-    if (now > UINT64_MAX - duration_ticks) return false;
+    s_origin_attempt.observed_mask |= CALIBRATION_ORIGIN_OBS_CLOCK;
+    if (now > UINT64_MAX - duration_ticks)
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_EXPIRY, now, UINT64_MAX - duration_ticks);
     calibration_origin_timing_t record = {
         .version = CALIBRATION_ORIGIN_TIMING_VERSION, .enabled = 1u, .trial_id = trial_id,
         .config_seq = ring.config_seq, .calibration_generation = stage.calibration_generation,
@@ -85,15 +142,34 @@ bool calibration_manager_origin_trial_configured(uint32_t trial_id, uint32_t rea
         .expires_ticks = now + duration_ticks, .config = config,
         .diagnostic_flags = diagnostic_flags};
     if (!refmem_realtime_contract_admit_origin_trial(&capability, owner.foundation_profile_crc32,
-            &record.admission)) return false;
+            &record.admission))
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_MODEL_REJECTED, 0u, 0u);
+    s_origin_attempt.admitted_model_epoch = record.admission.model_epoch;
+    s_origin_attempt.observed_mask |= CALIBRATION_ORIGIN_OBS_ADMISSION;
     tdma_ring_runtime_snapshot_t current;
-    if (!tdma_runtime_owner_get_ring_snapshot(&current) || !current.enabled ||
-        !current.adapter_started || current.config_seq != ring.config_seq ||
-        current.applied_config_seq != ring.config_seq ||
-        record.admission.model_epoch != refmem_realtime_contract_origin_model_epoch()) return false;
+    if (!tdma_runtime_owner_get_ring_snapshot(&current))
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_RECHECK_UNAVAILABLE, 0u, 0u);
+    s_origin_attempt.recheck_config_seq = current.config_seq;
+    s_origin_attempt.recheck_applied_config_seq = current.applied_config_seq;
+    s_origin_attempt.observed_mask |= CALIBRATION_ORIGIN_OBS_RECHECK;
+    if (!current.enabled)
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_RECHECK_DISABLED, current.enabled, 1u);
+    if (!current.adapter_started)
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_RECHECK_NOT_STARTED, current.adapter_started, 1u);
+    if (current.config_seq != ring.config_seq)
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_RECHECK_CONFIG, current.config_seq, ring.config_seq);
+    if (current.applied_config_seq != ring.config_seq)
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_RECHECK_APPLIED, current.applied_config_seq, ring.config_seq);
+    s_origin_attempt.observed_model_epoch = refmem_realtime_contract_origin_model_epoch();
+    s_origin_attempt.observed_mask |= CALIBRATION_ORIGIN_OBS_MODEL_EPOCH;
+    if (record.admission.model_epoch != s_origin_attempt.observed_model_epoch)
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_MODEL_CHANGED,
+            s_origin_attempt.observed_model_epoch, record.admission.model_epoch);
     (void)__atomic_add_fetch(&s_origin_timing_guard, 1u, __ATOMIC_ACQ_REL);
     record.epoch = s_origin_timing_guard + 1u;
     s_origin_timing = record;
     (void)__atomic_add_fetch(&s_origin_timing_guard, 1u, __ATOMIC_RELEASE);
+    s_origin_attempt.trial_epoch = record.epoch;
+    s_origin_attempt.reason = CALIBRATION_ORIGIN_ATTEMPT_ACCEPTED;
     return true;
 }
