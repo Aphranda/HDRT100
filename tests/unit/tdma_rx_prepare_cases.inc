@@ -1,8 +1,28 @@
+#include <assert.h>
+
 typedef struct {
     loopback_phys_t wire;
     uint32_t latch_calls, feedback_calls, stops;
     uint64_t latch;
+    uint64_t next_capture;
+    bool fail_capture;
 } rx_station_phys_t;
+
+static bool rx_station_capture(void *context, uint8_t *packet, size_t capacity,
+    size_t *size, uint64_t *timestamp, tdma_rx_capture_t *capture)
+{
+    rx_station_phys_t *phys = context;
+    const bool received = loopback_rx(context, packet, capacity, size, timestamp);
+    if (capture != NULL) *capture = (tdma_rx_capture_t){
+        .arm_epoch = 17u, .capture_id = ++phys->next_capture,
+        .observation_epoch = 3u, .candidate = phys->next_capture * 301u,
+        .produced_before = phys->next_capture * 301u + 302u,
+        .produced_after = phys->next_capture * 301u + 303u,
+        .frame_words = (uint32_t)*size + 4u, .bit_shift = 5u, .persona = 8u,
+        .flags = TDMA_RX_CAPTURE_PRIVATE_COPY};
+    /* Deliberately return a dirty object on failure: adapter must not publish it. */
+    return received && !phys->fail_capture;
+}
 
 static bool rx_station_edge(void *context, uint32_t sequence, uint32_t identity,
                             tdma_ring_local_tx_edge_evidence_t *e)
@@ -45,6 +65,7 @@ static int test_rx_prepare_cases(void)
     adapter.rx_preparation = &job;
     set_test_sequential_topology(&adapter, 4u);
     tdma_pio_spi_ring_adapter_set_phys(&adapter, loopback_tx, loopback_rx, &phys);
+    tdma_pio_spi_ring_adapter_set_phys_rx_ex(&adapter, rx_station_capture);
     tdma_pio_spi_ring_adapter_set_phys_ctrl(&adapter, NULL, rx_station_stop, NULL, NULL, &phys);
     tdma_pio_spi_ring_adapter_set_phys_local_tx_edge_ex(&adapter, rx_station_edge);
     tdma_pio_spi_ring_adapter_set_forwarding_mode(&adapter, TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_FLIGHT);
@@ -89,6 +110,11 @@ static int test_rx_prepare_cases(void)
 #endif
     failed += expect_u32("RX admission not acceptance", adapter.rx_count, 0u);
     failed += expect_u32("RX admitted", tdma_rx_prepare_state(&job), TDMA_RX_PREPARE_REQUESTED);
+    const tdma_rx_capture_t first_capture = job.capture;
+    const uint32_t first_cancel_epoch = job.request_epoch;
+    failed += expect_u64("capture belongs to this receive", first_capture.capture_id, 1u);
+    failed += expect_u32("private copy is diagnostic only", first_capture.flags, TDMA_RX_CAPTURE_PRIVATE_COPY);
+    failed += expect_u32("physical envelope retained", first_capture.frame_words, (uint32_t)size + 4u);
     failed += expect_u32("latch drained at admission", phys.latch_calls, 1u);
     const uint32_t captures = phys.wire.rx_calls;
     memset(phys.wire.echo_packet, 0xA5, size); phys.latch = 999u;
@@ -107,6 +133,8 @@ static int test_rx_prepare_cases(void)
     tdma_rx_prepare_core0_build_claimed(&job);
     failed += expect_u32("worker cannot commit adapter", adapter.rx_count, 0u);
     failed += expect_u32("worker ready", tdma_rx_prepare_state(&job), TDMA_RX_PREPARE_READY);
+    failed += expect_bool("worker preserves capture bytes",
+        memcmp(&first_capture, &job.capture, sizeof(first_capture)) == 0, true);
 #if TDMA_SERVICE_TIMING_ENABLED
     tdma_service_timing_phase_begin();
 #endif
@@ -135,6 +163,21 @@ static int test_rx_prepare_cases(void)
     failed += expect_u64("original RX time", adapter.feedback_rx_timestamp_ns, 123u);
     failed += expect_u64("original TX time", adapter.local_tx_edge_timestamp_ns, 456u);
 
+    /* Cancellation epoch stays fixed for successive packets; the capture ID does not. */
+    memcpy(phys.wire.echo_packet, packet, size); phys.wire.rx_pending = true;
+    ops->service(&adapter, 160u, &status);
+    failed += expect_u32("same cancellation epoch", job.request_epoch, first_cancel_epoch);
+    failed += expect_bool("different capture ID", job.capture.capture_id > first_capture.capture_id, true);
+    tdma_rx_prepare_core0_service(&job);
+    ops->service(&adapter, 161u, &status);
+    phys.fail_capture = true; phys.wire.rx_pending = true;
+    ops->service(&adapter, 162u, &status);
+    failed += expect_u32("failed copy not requested", tdma_rx_prepare_state(&job), TDMA_RX_PREPARE_IDLE);
+    const tdma_rx_capture_t unavailable = {0};
+    failed += expect_bool("failed callback cannot leak old provenance",
+        memcmp(&unavailable, &job.capture, sizeof(unavailable)) == 0, true);
+    phys.fail_capture = false;
+
     /* STOP at REQUESTED, BUILDING, READY; only a claimed worker delays ACK.
      * No continuation may touch the new ARM's slot after ACK. */
     for (uint32_t phase = 0u; phase < 3u; ++phase) {
@@ -142,16 +185,21 @@ static int test_rx_prepare_cases(void)
         ops->service(&adapter, 200u, &status);
         if (phase == 1u) failed += expect_bool("RX claim", tdma_rx_prepare_core0_claim(&job), true);
         if (phase == 2u) tdma_rx_prepare_core0_service(&job);
+        const tdma_rx_capture_t cancelled_capture = job.capture;
+        const uint32_t accepted_before_stop = adapter.rx_count;
         const uint32_t stops = phys.stops;
         failed += expect_bool("bounded RX STOP", ops->stop(&adapter), phase != 1u);
         failed += expect_u32("hardware stops before worker ACK", phys.stops, stops + 1u);
         if (phase == 1u) {
             failed += expect_bool("ARM refuses claimed old slot", ops->start(&adapter, &config), false);
             failed += expect_bool("repeat STOP stays pending", ops->stop(&adapter), false);
+            failed += expect_bool("cancel cannot overwrite worker capture",
+                memcmp(&cancelled_capture, &job.capture, sizeof(cancelled_capture)) == 0, true);
             tdma_rx_prepare_core0_build_claimed(&job);
             failed += expect_bool("ACK completes STOP", ops->stop(&adapter), true);
         }
         failed += expect_u32("old slot retired", tdma_rx_prepare_state(&job), TDMA_RX_PREPARE_IDLE);
+        failed += expect_u32("cancelled capture never committed", adapter.rx_count, accepted_before_stop);
         failed += expect_bool("new ARM", ops->start(&adapter, &config), true);
     }
     for (uint32_t boundary = 0u; boundary < 4u; ++boundary) {
@@ -167,6 +215,19 @@ static int test_rx_prepare_cases(void)
         failed += expect_u32("foreign or aged RX drop fact", adapter.rx_drop_count, drops + 1u);
         adapter.config = config;
     }
+    ops->stop(&adapter);
+
+    /* Replacing the backend retires its optional extension. The legacy path
+     * clears the reused slot even if the previous bytes looked valid. */
+    tdma_pio_spi_ring_adapter_set_phys(&adapter, loopback_tx, loopback_rx, &phys);
+    failed += expect_bool("backend replace clears extension", adapter.phys_rx_ex == NULL, true);
+    failed += expect_bool("legacy station starts", ops->start(&adapter, &config), true);
+    tdma_pio_spi_ring_adapter_set_phys_rx_ex(&adapter, rx_station_capture);
+    failed += expect_bool("RUN cannot change extended callback", adapter.phys_rx_ex == NULL, true);
+    job.capture = first_capture;
+    memcpy(phys.wire.echo_packet, packet, size); phys.wire.rx_pending = true;
+    ops->service(&adapter, 1u, &status);
+    failed += expect_u32("legacy copy has no provenance", job.capture.flags, 0u);
     ops->stop(&adapter);
 
     /* Reference bad-frame diagnostics use a frozen TX copy. The newer RTT

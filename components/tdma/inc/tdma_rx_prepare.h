@@ -3,6 +3,7 @@
 
 #include "tdma_origin_plan.h"
 #include "tdma_ring_runtime.h"
+#include "tdma_rx_capture.h"
 
 typedef enum {
     TDMA_RX_PREPARE_IDLE = 0u,
@@ -31,6 +32,9 @@ typedef struct {
     uint32_t epoch, request_epoch;
     uint32_t schedule_crc32, profile_crc32, map_generation, node_count;
     uint64_t capture_service_ns, rx_timestamp_ns;
+    /* Core1 copies provenance with packet bytes before REQUESTED release.
+     * Core0 preserves it unchanged. Its flags confer no timestamp authority. */
+    tdma_rx_capture_t capture;
     uint32_t round_trip_ns, resolution_ns, flags;
     uint32_t capture_timestamp_resolution_ns, capture_timestamp_flags;
     bool round_trip_valid, local_tx_captured;

@@ -505,7 +505,14 @@ void tdma_pio_spi_ring_adapter_set_phys(tdma_pio_spi_ring_adapter_t *adapter,
     }
     adapter->phys_tx = tx;
     adapter->phys_rx = rx;
+    adapter->phys_rx_ex = NULL;
     adapter->phys_context = phys_context;
+}
+
+void tdma_pio_spi_ring_adapter_set_phys_rx_ex(tdma_pio_spi_ring_adapter_t *adapter,
+                                             tdma_pio_spi_ring_rx_ex_fn rx)
+{
+    if (adapter != NULL && adapter->started == 0u) adapter->phys_rx_ex = rx;
 }
 
 void tdma_pio_spi_ring_adapter_set_phys_feedback(
@@ -2298,17 +2305,24 @@ static bool tdma_pio_spi_ring_adapter_rx_once_impl(
                                                     rx_timestamp_ns, NULL);
     }
 
-    if (adapter->phys_rx == NULL) {
+    if (job != NULL) job->capture = (tdma_rx_capture_t){0};
+    if (adapter->phys_rx == NULL && adapter->phys_rx_ex == NULL) {
         return false;
     }
     const uint64_t capture_start = tdma_service_timing_now();
-    const bool captured = adapter->phys_rx(adapter->phys_context,
+    const bool captured = adapter->phys_rx_ex != NULL
+        ? adapter->phys_rx_ex(adapter->phys_context,
+                             job != NULL ? job->packet : packet, sizeof(packet),
+                             &packet_size, &rx_timestamp_ns,
+                             job != NULL ? &job->capture : NULL)
+        : adapter->phys_rx(adapter->phys_context,
                                            job != NULL ? job->packet : packet,
                                            sizeof(packet),
                                            &packet_size,
                                            &rx_timestamp_ns);
     tdma_service_timing_record(TDMA_TIMING_RX_CAPTURE, capture_start);
     if (!captured) {
+        if (job != NULL) job->capture = (tdma_rx_capture_t){0};
         return false;
     }
     tdma_origin_observation_t observation;
@@ -2316,8 +2330,8 @@ static bool tdma_pio_spi_ring_adapter_rx_once_impl(
         adapter->phys_origin.take_rx_observation(adapter->phys_ctrl_context, &observation);
     if (job != NULL) {
         const uint64_t request_start = tdma_service_timing_now();
-        (void)tdma_pio_spi_ring_rx_request(adapter, job, packet_size, rx_timestamp_ns,
-            paired ? &observation : NULL);
+        if (!tdma_pio_spi_ring_rx_request(adapter, job, packet_size, rx_timestamp_ns,
+            paired ? &observation : NULL)) job->capture = (tdma_rx_capture_t){0};
         tdma_service_timing_record(TDMA_TIMING_RX_REQUEST, request_start);
         return false; /* Admission is not an accepted receive. */
     }

@@ -41,16 +41,46 @@ static bool tdma_pio_spi_phys_rx_scan_request(tdma_pio_spi_phys_t *phys,
     return tdma_rx_scan_request(job);
 }
 
+/* Format only the already-validated private-copy coordinates. This bounded
+ * diagnostic helper never reads DMA/MMIO; keep it out of the resident control
+ * path's code allocation so provenance does not consume a BSS alignment page. */
+__attribute__((noinline, noclone))
+static void tdma_pio_spi_phys_capture_record(tdma_rx_capture_t *capture,
+    const tdma_rx_scan_hint_t *hint, uint64_t observation_epoch,
+    uint64_t candidate, uint64_t produced, uint64_t after)
+{
+    const uint32_t shift = hint->bit_shift;
+    if (s_tdma_pio_spi_rx_capture_id != UINT64_MAX) {
+        ++s_tdma_pio_spi_rx_capture_id;
+        if (capture != NULL && s_tdma_pio_spi_rx_arm_valid) {
+            *capture = (tdma_rx_capture_t){
+                .arm_epoch = s_tdma_pio_spi_rx_arm_epoch,
+                .capture_id = s_tdma_pio_spi_rx_capture_id,
+                .observation_epoch = observation_epoch,
+                .candidate = candidate,
+                .produced_before = produced,
+                .produced_after = after,
+                .frame_words = hint->frame_words,
+                .bit_shift = shift,
+                .persona = s_tdma_pio_spi_program_persona,
+                .flags = TDMA_RX_CAPTURE_PRIVATE_COPY};
+        }
+    }
+}
+
 /* Keep the bounded live-window control path resident as well as the copy
  * leaf. Core0 discovery still supplies geometry only; completion, epoch and
  * overwrite checks stay together in the Core1 call. Account for this code
- * in the linked SRAM budget independently of any measured timing benefit. */
-__attribute__((noinline, section(".time_critical.tdma_pio_spi_phys_capture_words_async")))
-static bool tdma_pio_spi_phys_capture_words_async(tdma_pio_spi_phys_t *phys,
-    size_t max_words, size_t *received_words)
+ * in the linked SRAM budget independently of any measured timing benefit.
+ * Compact only this control function; the copy leaf retains its build options.
+ * The dispatcher clears a non-NULL capture before entering this internal
+ * function. Its only other caller is the legacy wrapper passing NULL. */
+__attribute__((noinline, section(".time_critical.tdma_pio_spi_phys_capture_words_async"), optimize("Os")))
+static bool tdma_pio_spi_phys_capture_words_async_ex(tdma_pio_spi_phys_t *phys,
+    size_t max_words, size_t *received_words, tdma_rx_capture_t *capture)
 {
     if (received_words != NULL) *received_words = 0u;
-    if (received_words == NULL || max_words == 0u || max_words > TDMA_PIO_SPI_RX_DMA_WORD_MAX ||
+    if (phys == NULL || received_words == NULL || max_words == 0u || max_words > TDMA_PIO_SPI_RX_DMA_WORD_MAX ||
         !phys->rx_capture_active || phys->flight_origin_workspace_owned ||
         s_tdma_pio_spi_program_persona == TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN)
         return false;
@@ -166,5 +196,13 @@ static bool tdma_pio_spi_phys_capture_words_async(tdma_pio_spi_phys_t *phys,
     if (shift == 0u) phys->snapshot.rx_magic_at_zero++;
     else phys->snapshot.rx_magic_at_shift++;
     *received_words = hint->frame_words;
+    tdma_pio_spi_phys_capture_record(capture, hint, observation_epoch,
+                                    candidate, produced, after);
     return true;
+}
+
+static bool tdma_pio_spi_phys_capture_words_async(tdma_pio_spi_phys_t *phys,
+    size_t max_words, size_t *received_words)
+{
+    return tdma_pio_spi_phys_capture_words_async_ex(phys, max_words, received_words, NULL);
 }

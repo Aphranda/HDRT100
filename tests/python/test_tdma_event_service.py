@@ -52,6 +52,7 @@ PREFIX = r'''
 #include <string.h>
 #include "tdma_event_observer.h"
 #include "tdma_event_history.h"
+#include "tdma_rx_capture.h"
 typedef unsigned uint;
 '''
 
@@ -84,12 +85,16 @@ typedef struct {
     } snapshot;
 } tdma_pio_spi_phys_t;
 typedef struct { uint32_t dummy; } tdma_origin_observation_t;
-typedef struct { uint32_t state; uint64_t capture_service_ns; uint8_t packet[512]; } tdma_rx_prepare_t;
+typedef struct {
+    uint32_t state; uint64_t capture_service_ns; uint8_t packet[512];
+    tdma_rx_capture_t capture;
+} tdma_rx_prepare_t;
 typedef struct {
     tdma_rx_prepare_t *rx_preparation;
     uint64_t last_service_ns;
     uint32_t rx_queue_count;
     bool (*phys_rx)(void *, uint8_t *, size_t, size_t *, uint64_t *);
+    bool (*phys_rx_ex)(void *, uint8_t *, size_t, size_t *, uint64_t *, tdma_rx_capture_t *);
     void *phys_context, *phys_ctrl_context;
     struct { uint32_t active; } origin;
     struct { bool (*take_rx_observation)(void *, tdma_origin_observation_t *); } phys_origin;

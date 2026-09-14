@@ -303,12 +303,14 @@ bool tdma_pio_spi_phys_tx(void *context,
     return true;
 }
 
-bool tdma_pio_spi_phys_rx(void *context,
+bool tdma_pio_spi_phys_rx_ex(void *context,
                           uint8_t *packet,
                           size_t packet_capacity,
                           size_t *packet_size,
-                          uint64_t *rx_timestamp_ns)
+                          uint64_t *rx_timestamp_ns,
+                          tdma_rx_capture_t *capture)
 {
+    if (capture != NULL) memset(capture, 0, sizeof(*capture));
     tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
     if (packet_size != NULL) {
         *packet_size = 0u;
@@ -329,9 +331,9 @@ bool tdma_pio_spi_phys_rx(void *context,
     }
     size_t received_words = 0u;
     const uint64_t acquire_start = tdma_service_timing_now();
-    const bool captured = tdma_pio_spi_phys_capture_words(phys,
+    const bool captured = tdma_pio_spi_phys_capture_words_ex(phys,
                                          TDMA_PIO_SPI_RX_DMA_WORD_MAX,
-                                         &received_words);
+                                         &received_words, capture);
     tdma_service_timing_record(TDMA_TIMING_RX_ACQUIRE, acquire_start);
     if (!captured) {
         return false;
@@ -339,7 +341,7 @@ bool tdma_pio_spi_phys_rx(void *context,
     if (received_words < TDMA_PIO_SPI_PACKET_HEADER_SIZE) {
         phys->snapshot.last_bad_words = (uint32_t)received_words;
         tdma_pio_spi_phys_set_error(phys, TDMA_PIO_SPI_PHYS_ERROR_BAD_PACKET);
-        return false;
+        goto reject_capture;
     }
 
     const uint8_t *header = s_tdma_pio_spi_rx_frame;
@@ -354,7 +356,7 @@ bool tdma_pio_spi_phys_rx(void *context,
         phys->snapshot.last_bad_header3 = s_tdma_pio_spi_rx_frame[3];
         phys->snapshot.last_bad_words = (uint32_t)received_words;
         tdma_pio_spi_phys_set_error(phys, TDMA_PIO_SPI_PHYS_ERROR_BAD_PACKET);
-        return false;
+        goto reject_capture;
     }
     if ((size_t)frame_size > packet_capacity) {
         phys->snapshot.last_bad_header0 =
@@ -362,13 +364,13 @@ bool tdma_pio_spi_phys_rx(void *context,
         phys->snapshot.last_bad_words = (uint32_t)received_words;
         tdma_pio_spi_phys_set_error(phys,
                                     TDMA_PIO_SPI_PHYS_ERROR_PAYLOAD_TOO_LARGE);
-        return false;
+        goto reject_capture;
     }
     if (received_words <
         (size_t)frame_size + TDMA_PIO_SPI_PACKET_HEADER_SIZE) {
         phys->snapshot.last_bad_words = (uint32_t)received_words;
         tdma_pio_spi_phys_set_error(phys, TDMA_PIO_SPI_PHYS_ERROR_BAD_PACKET);
-        return false;
+        goto reject_capture;
     }
 
     const uint64_t packet_copy_start = tdma_service_timing_now();
@@ -409,6 +411,20 @@ bool tdma_pio_spi_phys_rx(void *context,
     phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_NONE;
     tdma_pio_spi_phys_fill_static_snapshot(phys);
     return true;
+
+reject_capture:
+    if (capture != NULL) memset(capture, 0, sizeof(*capture));
+    return false;
+}
+
+bool tdma_pio_spi_phys_rx(void *context,
+                          uint8_t *packet,
+                          size_t packet_capacity,
+                          size_t *packet_size,
+                          uint64_t *rx_timestamp_ns)
+{
+    return tdma_pio_spi_phys_rx_ex(context, packet, packet_capacity,
+                                 packet_size, rx_timestamp_ns, NULL);
 }
 
 bool tdma_pio_spi_phys_feedback_round_trip(

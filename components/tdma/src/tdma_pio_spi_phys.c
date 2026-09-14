@@ -201,6 +201,11 @@ _Static_assert(sizeof(tdma_flight_overlay_dma_run_t) == 16u &&
                "Command descriptors must match the RP2350 AL3 register alias");
 static uint64_t s_tdma_pio_spi_rx_scan_produced;
 static tdma_rx_dma_counter_t s_tdma_pio_spi_rx_sequence;
+/* Core1-only boot-local diagnostic IDs. Neither STOP nor a new phys object
+ * resets them. Exhaustion disables provenance, never healthy RX transport. */
+static uint64_t s_tdma_pio_spi_rx_arm_epoch;
+static uint64_t s_tdma_pio_spi_rx_capture_id;
+static bool s_tdma_pio_spi_rx_arm_valid;
 /* Core1-private normalized bytes, never a DMA target. The live DMA ring
  * remains word-wide; only this assembled observation is compacted. */
 static uint8_t s_tdma_pio_spi_rx_frame[TDMA_PIO_SPI_RX_DMA_WORD_MAX]
@@ -1804,6 +1809,7 @@ static void tdma_pio_spi_phys_cal_cleanup(tdma_pio_spi_phys_t *phys)
 
 static bool tdma_pio_spi_phys_rx_arm(tdma_pio_spi_phys_t *phys)
 {
+    s_tdma_pio_spi_rx_arm_valid = false;
     if (phys == NULL || phys->flight_origin_workspace_owned) return false;
     if (!tdma_pio_spi_phys_ensure_rx_dma()) {
         return false;
@@ -1836,6 +1842,10 @@ static bool tdma_pio_spi_phys_rx_arm(tdma_pio_spi_phys_t *phys)
         dma_encode_transfer_count_with_self_trigger(s_tdma_pio_spi_rx_sequence.reload_words),
         false);
     dma_start_channel_mask(1u << (uint)s_tdma_pio_spi_rx_dma_channel);
+    if (s_tdma_pio_spi_rx_arm_epoch != UINT64_MAX) {
+        ++s_tdma_pio_spi_rx_arm_epoch;
+        s_tdma_pio_spi_rx_arm_valid = true;
+    }
     phys->rx_capture_active = true;
     return true;
 }
@@ -2179,9 +2189,22 @@ static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
     return tdma_pio_spi_phys_capture_words_legacy(phys, max_words, received_words);
 }
 
+static bool tdma_pio_spi_phys_capture_words_ex(tdma_pio_spi_phys_t *phys,
+    size_t max_words, size_t *received_words, tdma_rx_capture_t *capture)
+{
+    if (capture == NULL)
+        return tdma_pio_spi_phys_capture_words(phys, max_words, received_words);
+    memset(capture, 0, sizeof(*capture));
+    if (phys != NULL && phys->rx_scan_preparation != NULL &&
+        tdma_pio_spi_phys_is_flight_persona())
+        return tdma_pio_spi_phys_capture_words_async_ex(phys, max_words, received_words, capture);
+    return tdma_pio_spi_phys_capture_words_legacy(phys, max_words, received_words);
+}
+
 bool tdma_pio_spi_phys_arm(void *context,
                            const tdma_ring_runtime_config_t *config)
 {
+    s_tdma_pio_spi_rx_arm_valid = false;
     tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
     if (phys != NULL && (phys->armed || phys->flight_overlay_dma_active ||
                          tdma_overlay_prepare_state(phys->overlay_preparation) != TDMA_OVERLAY_PREPARE_IDLE ||
@@ -2468,6 +2491,7 @@ bool tdma_pio_spi_phys_disarm(void *context)
     if (phys == NULL) {
         return false;
     }
+    s_tdma_pio_spi_rx_arm_valid = false;
     tdma_pio_spi_phys_event_stop(phys);
     const bool worker_retired = tdma_overlay_prepare_cancel(phys->overlay_preparation);
     const bool scanner_retired = tdma_pio_spi_phys_rx_scan_cancel(phys);

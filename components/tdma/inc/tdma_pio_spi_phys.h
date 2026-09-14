@@ -11,6 +11,7 @@
 #include "tdma_origin_plan.h"
 #include "tdma_overlay_prepare.h"
 #include "tdma_rx_scan.h"
+#include "tdma_rx_capture.h"
 
 /* TDMA PIO SPI resident physical layer.
  *
@@ -1102,6 +1103,15 @@ bool tdma_pio_spi_phys_rx(void *context,
                           size_t packet_capacity,
                           size_t *packet_size,
                           uint64_t *rx_timestamp_ns);
+/* Same-call diagnostic provenance. A successful asynchronous private copy
+ * may set PRIVATE_COPY; other paths leave capture zero. Every false return
+ * clears capture. NULL avoids constructing unused diagnostic metadata. */
+bool tdma_pio_spi_phys_rx_ex(void *context,
+                             uint8_t *packet,
+                             size_t packet_capacity,
+                             size_t *packet_size,
+                             uint64_t *rx_timestamp_ns,
+                             tdma_rx_capture_t *capture);
 /* Pop the oldest reference-node TX-CS -> returned-RX-CS duration latched by
  * the dedicated PIO counter.  False means no complete hardware edge pair is
  * available for the just-received frame. */

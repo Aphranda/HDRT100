@@ -160,6 +160,14 @@ typedef bool (*tdma_pio_spi_ring_rx_fn)(void *context,
                                         size_t packet_capacity,
                                         size_t *packet_size,
                                         uint64_t *rx_timestamp_ns);
+/* Optional same-call diagnostic provenance. A true receive may still have
+ * flags=0 (legacy/origin/unavailable). No new timestamp authority is granted. */
+typedef bool (*tdma_pio_spi_ring_rx_ex_fn)(void *context,
+                                        uint8_t *packet,
+                                        size_t packet_capacity,
+                                        size_t *packet_size,
+                                        uint64_t *rx_timestamp_ns,
+                                        tdma_rx_capture_t *capture);
 typedef bool (*tdma_pio_spi_ring_feedback_fn)(void *context,
                                               uint32_t *round_trip_ns,
                                               uint32_t *resolution_ns,
@@ -362,6 +370,7 @@ typedef struct {
     bool configured;
     tdma_pio_spi_ring_tx_fn phys_tx;
     tdma_pio_spi_ring_rx_fn phys_rx;
+    tdma_pio_spi_ring_rx_ex_fn phys_rx_ex;
     tdma_pio_spi_ring_feedback_fn phys_feedback;
     void *phys_context;
     tdma_pio_spi_ring_phys_arm_fn phys_arm;
@@ -557,6 +566,9 @@ void tdma_pio_spi_ring_adapter_set_phys(tdma_pio_spi_ring_adapter_t *adapter,
                                         tdma_pio_spi_ring_tx_fn tx,
                                         tdma_pio_spi_ring_rx_fn rx,
                                         void *phys_context);
+/* STOP setup only; set_phys clears this callback when replacing the backend. */
+void tdma_pio_spi_ring_adapter_set_phys_rx_ex(tdma_pio_spi_ring_adapter_t *adapter,
+                                             tdma_pio_spi_ring_rx_ex_fn rx);
 void tdma_pio_spi_ring_adapter_set_phys_feedback(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_feedback_fn feedback);
