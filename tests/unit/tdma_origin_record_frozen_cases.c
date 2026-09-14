@@ -35,6 +35,7 @@ static int s_tdma_pio_spi_tx_dma_channel=5, s_tdma_pio_spi_rx_dma_channel=4;
 static int s_tdma_pio_spi_program_manager;
 static bool stop_ok, select_ok;
 static uint32_t clock_calls, copy_mode;
+static size_t copy_split;
 static uint64_t end_tick;
 static tdma_pio_spi_phys_t phys;
 static uint64_t vdc_timestamp_clock_read_ticks64(void) { return clock_calls++ ? end_tick : 100; }
@@ -51,11 +52,12 @@ static bool tdma_pio_spi_programs_select(int *manager,tdma_pio_spi_phys_t *p,int
 static void controlled_copy(void *to,const void *from,size_t size)
 {
     if (copy_mode==1) {
-        memcpy(to,from,size/2);
+        assert(copy_split<size);
+        memcpy(to,from,copy_split);
         phys.flight_origin_record_guard+=2;
         phys.flight_origin_record_frozen=false;
         memset(&s_tdma_origin.record,0xaa,sizeof(s_tdma_origin.record));
-        memcpy((uint8_t *)to+size/2,(const uint8_t *)from+size/2,size-size/2);
+        memcpy((uint8_t *)to+copy_split,(const uint8_t *)from+copy_split,size-copy_split);
     } else memcpy(to,from,size);
 }
 #define memcpy controlled_copy
@@ -83,6 +85,56 @@ static void setup(void)
     s_tdma_origin.record[2].observation.sequence=12345;
     s_tdma_origin.record[2].sequence_end=67890;
     stop_ok=select_ok=true;clock_calls=copy_mode=0;end_tick=101;
+    copy_split=sizeof(tdma_origin_record_t)/2;
+}
+
+static void check_raw_retirement(void)
+{
+    tdma_origin_record_frozen_t out;
+    for (size_t split=1;split<sizeof(tdma_origin_record_t);++split) {
+        setup();assert(tdma_pio_spi_phys_stop_command_dma(&phys));
+        copy_mode=1;copy_split=split;
+        assert(!tdma_pio_spi_phys_origin_get_frozen_record(&phys,0,&out));
+    }
+    setup();assert(tdma_pio_spi_phys_stop_command_dma(&phys));
+    phys.flight_origin_record_guard=UINT32_MAX-1u;
+    copy_mode=1;
+    assert(!tdma_pio_spi_phys_origin_get_frozen_record(&phys,0,&out));
+    assert(phys.flight_origin_record_guard==0);
+
+    // A retained fault is raw diagnostic evidence, never an eligibility flag.
+    setup();s_tdma_origin.state.fault=9;
+    assert(tdma_pio_spi_phys_stop_command_dma(&phys));
+    assert(tdma_pio_spi_phys_origin_get_frozen_record(&phys,0,&out));
+    assert(out.fault==9 && out.record.raw_time.arm_before[1]==1000);
+
+    // Publication counter wrap still chooses the last complete record, not
+    // the next target that may have been interrupted by STOP.
+    setup();
+    tdma_origin_record_t newest=s_tdma_origin.record[1];
+    memset(s_tdma_origin.record,0,sizeof(s_tdma_origin.record));
+    s_tdma_origin.record[7]=newest;
+    s_tdma_origin.state.record_published_version=0;
+    assert(tdma_pio_spi_phys_stop_command_dma(&phys));
+    assert(tdma_pio_spi_phys_origin_get_frozen_record(&phys,0,&out));
+    assert(out.published_version==0 && out.record.raw_time.arm_after[1]==2000);
+    clock_calls=0;
+    assert(!tdma_pio_spi_phys_origin_get_frozen_record(&phys,1,&out));
+
+    // Preparing another persona makes the previous epoch unavailable before
+    // the union is reused; a later STOP cannot revive the retained archive.
+    setup();assert(tdma_pio_spi_phys_stop_command_dma(&phys));
+    assert(tdma_pio_spi_phys_select_program_persona(&phys,1));
+    memset(s_tdma_origin.record,0x5a,sizeof(s_tdma_origin.record));
+    assert(tdma_pio_spi_phys_stop_command_dma(&phys));
+    assert(!tdma_pio_spi_phys_origin_get_frozen_record(&phys,0,&out));
+
+    setup();assert(tdma_pio_spi_phys_stop_command_dma(&phys));
+    s_tdma_origin.record[1].format=TDMA_ORIGIN_RECORD_FORMAT_RTT;
+    assert(!tdma_pio_spi_phys_origin_get_frozen_record(&phys,0,&out));
+    setup();assert(tdma_pio_spi_phys_stop_command_dma(&phys));
+    s_tdma_origin.record[1].epoch=phys.flight_origin_record_epoch-1;
+    assert(!tdma_pio_spi_phys_origin_get_frozen_record(&phys,0,&out));
 }
 
 int main(void)
@@ -141,6 +193,7 @@ int main(void)
     assert(!phys.flight_origin_record_frozen);
     setup();select_ok=false;assert(!tdma_pio_spi_phys_select_program_persona(&phys,1));
     assert(!phys.flight_origin_record_frozen);
+    check_raw_retirement();
     puts("stopped origin archive, pending STOP, persona reuse and bounded copy passed");
     return 0;
 }

@@ -18,7 +18,7 @@ ROOT=Path(__file__).resolve().parents[2]
 U32=(1<<32)-1
 
 
-@pytest.fixture(scope='module',params=(4,5,6,8))
+@pytest.fixture(scope='module',params=(2,3,4,5,6,7,8))
 def graph_exe(request,tmp_path_factory):
     sdk=Path(os.environ.get('PICO_SDK_PATH',Path.home()/'.pico-sdk/sdk/2.2.0'))
     regs=sdk/'src/rp2350/hardware_regs/include'
@@ -73,7 +73,8 @@ class Model:
         # are checked independently after every trip through the emitted graph.
         n=graph['nodes']
         packet=bytearray(n*32+36)
-        struct.pack_into('<HBBHBBIBBBBII',packet,0,0x5444,1,1,len(packet),32,0,U32-2,2,5,0,n-1,0x123,0x456)
+        struct.pack_into('<HBBHBBIBBBBII',packet,0,0x5444,1,1,len(packet),32,graph['local'],
+                         U32-2,2,5,0,graph['mask'].bit_count()-1,0x123,0x456)
         self.fix_crc(packet)
         for slot in range(n):
             mailbox=bytes((i+slot)&255 for i in range(30))
@@ -81,7 +82,8 @@ class Model:
         self.write_bytes(0x20000000,packet)
         self.write_bytes(0x20000800,packet)
         self.write_bytes(0x20002000,packet[:32])
-        self.write_bytes(0x20005000,packet[32:64])
+        local_start=32+graph['local']*32
+        self.write_bytes(0x20005000,packet[local_start:local_start+32])
         self.store(0x20005020,1)
 
     @staticmethod
@@ -174,7 +176,7 @@ class Model:
             packet=bytearray(self.mem[0x1000+9:0x1000+9+count*2:2])
             assert struct.unpack_from('<I',packet,24)[0]==binascii.crc32(packet[:14]+packet[15:24])
             assert struct.unpack_from('<I',packet,28)[0]==binascii.crc32(packet[:28]+b'\0'*4)
-            packet[14]=n-1
+            packet[14]=self.g['mask'].bit_count()-1
             self.fix_crc(packet)
             if self.bad_mailbox:packet[38]^=1
             self.write_bytes(self.cap_target,packet)
@@ -214,10 +216,42 @@ class Model:
         raise AssertionError('graph failed to retire bounded cycles')
 
 
-def graph(exe,nodes):
-    result=subprocess.run([str(exe),str(nodes)],capture_output=True,text=True,timeout=5)
+def graph(exe,nodes,*config):
+    result=subprocess.run([str(exe),str(nodes),*map(str,config)],capture_output=True,text=True,timeout=5)
     assert result.returncode==0,result.stderr
     return json.loads(result.stdout)
+
+
+def test_raw_configuration_resources(graph_exe):
+    exe,capacity=graph_exe
+    result=subprocess.run([str(exe),'matrix'],capture_output=True,text=True,timeout=90)
+    assert result.returncode==0,result.stderr
+    summary=json.loads(result.stdout)
+    expected=sum(sum(mask.bit_count() for mask in range(1,1<<n) if mask.bit_count()>=2)
+                 for n in range(2,capacity+1))*7*3*2
+    assert summary['cases']==expected
+    assert summary['max_runs']<=summary['run_capacity']
+    assert summary['max_literals']<=summary['literal_capacity']
+    assert summary['max_step_runs']<=24
+    (exe.parent/'matrix-summary.json').write_text(json.dumps(summary,indent=2),encoding='utf-8')
+
+
+def test_raw_sparse_and_nonzero_local_transport(graph_exe):
+    exe,capacity=graph_exe
+    masks={3,(1<<capacity)-1,1|(1<<(capacity-1)),sum(1<<i for i in range(0,capacity,2))}
+    for mask in sorted(m for m in masks if m.bit_count()>=2):
+        for local in range(capacity):
+            if not mask&(1<<local):continue
+            for guard in (1,257,65536):
+                g=graph(exe,capacity,mask,local,guard)
+                m=Model(g).run(3)
+                assert m.state('fault')==0
+                for raw in m.completed:
+                    words=struct.unpack('<22I',raw)
+                    assert words[0]==words[-1] and words[8:11]==(7,1,2)
+                expected=bytes(m.mem[0x5000:0x5020])
+                start=0x1000+9+2*(32+local*32)
+                assert bytes(m.mem[start:start+64:2])==expected
 
 
 def test_raw_records_follow_real_graph(graph_exe):
