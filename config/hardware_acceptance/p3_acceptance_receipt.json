@@ -4,64 +4,64 @@
   "acceptance_profile": "QUICK_DIAGNOSTIC",
   "dpll_observation": "SKIPPED_TDMA_ONLY",
   "passed": true,
-  "generated_at_utc": "2026-09-14T10:20:43.218885+00:00",
-  "source_tree_sha256": "8b55a9557bc99ec7bde13b7ddd7be38962fe03efdddc98efb1334f2d67779173",
-  "source_file_count": 1057,
+  "generated_at_utc": "2026-09-14T10:47:32.467857+00:00",
+  "source_tree_sha256": "7912871406ab71ad0b55cf88f6694e6f23dc1fbdee87264a533bd72287f04ff3",
+  "source_file_count": 1061,
   "bench_config_path": "config/hardware_acceptance/p3_bench_quick.json",
   "bench_config_sha256": "c032843ba0eab2e87bb3399920c0fe54f79cf1eddbb4404a7ed1d85b1ea34fc2",
-  "build_id": "20260914101340",
+  "build_id": "20260914104205",
   "firmware_package": {
     "path": "out/build/dpll-node6-current/DHRT100_UPDATE.pkg",
-    "sha256": "b72494c4dc3c67dee1a21086388aa58ca802640a51bc3f64cdf0a2fcaf99a8e4"
+    "sha256": "10a31b3ab4b789b14845a2da279d5623140f6825140012cc4bab88c7a9fa1b81"
   },
   "ota_summary": {
-    "path": "out/HardwareAcceptance/20260914/dpll-build-cancel-probe/p3-r1/ota-four-board-tdma/summary.json",
-    "sha256": "f87fe30287ad1735b5046377d175412eff0d9682842e34b6eeedd1607d063d1e",
+    "path": "out/HardwareAcceptance/20260914/dpll-origin-handoff-timing/p3-r1/ota-four-board-tdma/summary.json",
+    "sha256": "a03fbfc7c6f78a960387f978303c5af2668a7ee2ee4d3e2366e384ab8927eae7",
     "board_count": 4
   },
   "topology_summary": {
-    "path": "out/HardwareAcceptance/20260914/dpll-build-cancel-probe/p3-r1/p0t-topology/summary.json",
-    "sha256": "22dd691b6dd9652daeb649372d6062558826d43a2061a0a1a061e12c2ed58e98"
+    "path": "out/HardwareAcceptance/20260914/dpll-origin-handoff-timing/p3-r1/p0t-topology/summary.json",
+    "sha256": "1c81beece708a01cb48ab1c7122f9a807be43cb7699ad09624f8876c55098fa7"
   },
   "coarse_calibration_summary": {
-    "path": "out/HardwareAcceptance/20260914/dpll-build-cancel-probe/p3-r1/coarse-calibration-summary.json",
-    "sha256": "862216a2798492cfb1a38a7ce13a2869399c829f9e882a429307577c56a77346"
+    "path": "out/HardwareAcceptance/20260914/dpll-origin-handoff-timing/p3-r1/coarse-calibration-summary.json",
+    "sha256": "a996dc345427c40bf1421c70f06c844c1240027f95d31b28fd1ae5406dd5aabd"
   },
   "coded_calibration_summary": {
-    "path": "out/HardwareAcceptance/20260914/dpll-build-cancel-probe/p3-r1/coded-calibration-summary.json",
-    "sha256": "9063fd828bd05bb19cf5917dfa9bcc97215b4c30ff0bbc6cb12599f762e78439"
+    "path": "out/HardwareAcceptance/20260914/dpll-origin-handoff-timing/p3-r1/coded-calibration-summary.json",
+    "sha256": "c4a1e75e7ca687ea023c4c70837e6cef1f05737dc0b783ff1bfd0aa5b51e7275"
   },
   "initialization_reset": {
-    "path": "out/HardwareAcceptance/20260914/dpll-build-cancel-probe/p3-r1/initialization-reset.json",
-    "sha256": "27df592f9e3227758e00fa35a65103c11ce26eec3668c975f3a0a3009cd8d8d6"
+    "path": "out/HardwareAcceptance/20260914/dpll-origin-handoff-timing/p3-r1/initialization-reset.json",
+    "sha256": "050d43a154547797d7941fe0dc9a2b3be2e8d6dec5479a7050f77c888b0a6e7f"
   },
   "p3_summary": {
-    "path": "out/HardwareAcceptance/20260914/dpll-build-cancel-probe/p3-r1/p3-four-board/summary.json",
-    "sha256": "18a01f4d347c3687010d69ed9f7f4b5554b8c04aa2d628aacd2f61984302c524"
+    "path": "out/HardwareAcceptance/20260914/dpll-origin-handoff-timing/p3-r1/p3-four-board/summary.json",
+    "sha256": "14bd422ebefcd9229609bc4f1d559fea70e2b57abab1e0d2ace51d407e674468"
   },
   "trn00_summary": {
-    "path": "out/HardwareAcceptance/20260914/dpll-build-cancel-probe/p3-r1/trn00-summary.json",
-    "sha256": "f2bc13d0fc71ce65f34910333859c77901238a8a04e8297f1d346e3908fc95e3"
+    "path": "out/HardwareAcceptance/20260914/dpll-origin-handoff-timing/p3-r1/trn00-summary.json",
+    "sha256": "cf7f27dc60c7cc0d7e31cd8c14b787a7b30ed891bfa517965b786c5ebcef2e26"
   },
   "trn01_summary": {
-    "path": "out/HardwareAcceptance/20260914/dpll-build-cancel-probe/p3-r1/trn01-summary.json",
-    "sha256": "4619cb15f7f2c037105448cbd8c2365912de8cb09a65717dd3801b922338b4a0"
+    "path": "out/HardwareAcceptance/20260914/dpll-origin-handoff-timing/p3-r1/trn01-summary.json",
+    "sha256": "7df0ed24d0c7b358351f98ea2683b30f200f07de3fd4ec1b4cb8267b7cd282d1"
   },
   "trn02_summary": {
-    "path": "out/HardwareAcceptance/20260914/dpll-build-cancel-probe/p3-r1/trn02-data/summary.json",
-    "sha256": "03dde65489506b8d5f640a149c87173512ef880acecf2778fa45d367dc33d8b8"
+    "path": "out/HardwareAcceptance/20260914/dpll-origin-handoff-timing/p3-r1/trn02-data/summary.json",
+    "sha256": "6ce9ed056120c1bf1b1dbfc3a3243f2b59b1f4598ff31fc0dd593fa36daaf9dc"
   },
   "trn03_matrix": {
-    "path": "out/HardwareAcceptance/20260914/dpll-build-cancel-probe/p3-r1/trn03-matrix.json",
-    "sha256": "9f6d2176fd49bb16c5a9a902c51499fb320f1f0697ded3012bfdbd3df58d65a7"
+    "path": "out/HardwareAcceptance/20260914/dpll-origin-handoff-timing/p3-r1/trn03-matrix.json",
+    "sha256": "224fe2277f9ecf4a851c62756ae19a7ceec82780c1edc6df0e398a6fc694d466"
   },
   "calibration_parameter_handoff": {
-    "path": "out/HardwareAcceptance/20260914/dpll-build-cancel-probe/p3-r1/calibration-parameter-handoff.json",
-    "sha256": "25001ee14dd754f61d693f5c79b57e3f8a423c25c33826d46a821980409d9b40"
+    "path": "out/HardwareAcceptance/20260914/dpll-origin-handoff-timing/p3-r1/calibration-parameter-handoff.json",
+    "sha256": "fd572425b652ebad9f27c2b13a704aac091294216943879b06900d79cd80f350"
   },
   "tdma_summary": {
-    "path": "out/HardwareAcceptance/20260914/dpll-build-cancel-probe/p3-r1/tdma-process-image/summary.json",
-    "sha256": "57b1d7699c38d6304b5a8e4c974e2c531384c7a57a7fb0960d6621f059191782"
+    "path": "out/HardwareAcceptance/20260914/dpll-origin-handoff-timing/p3-r1/tdma-process-image/summary.json",
+    "sha256": "3e14c79424056ee51241c562260e23d11b87c4513fee796f2e6f67bb0f2fb5a7"
   },
   "ota_board_ids": [
     "0010071E65B5CB38",
@@ -76,23 +76,23 @@
     "A1E549202D18ED6A"
   ],
   "trial_count": 8,
-  "delay_min_ns": 78.0,
+  "delay_min_ns": 80.0,
   "delay_max_ns": 82.0,
   "highest_stable_frequency_mhz": 10,
   "link_delay_ns_by_link": [
-    82,
-    82,
+    80,
+    80,
     82,
     82
   ],
   "link_base_delay_ns_by_link": [
-    41,
-    41,
+    40,
+    40,
     41,
     41
   ],
   "path_delay_baseline_divisor": 2,
-  "calibration_generation": 1789381208,
+  "calibration_generation": 1789382816,
   "calibration_load_mask": 4,
   "waveform_capture_policy": {
     "trn00": false,
@@ -106,52 +106,52 @@
     "0010071E65B5CB38": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 19570,
-      "schedule_miss_count": 2045
+      "cycle_count": 21079,
+      "schedule_miss_count": 3086
     },
     "FB276192BEF9CCE1": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 19551,
-      "schedule_miss_count": 1654
+      "cycle_count": 21048,
+      "schedule_miss_count": 2294
     },
     "2BD5090FE009FA2A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 19508,
-      "schedule_miss_count": 1803
+      "cycle_count": 21004,
+      "schedule_miss_count": 2691
     },
     "A1E549202D18ED6A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 19503,
-      "schedule_miss_count": 1869
+      "cycle_count": 20984,
+      "schedule_miss_count": 2255
     }
   },
   "schedule_after": {
     "0010071E65B5CB38": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 43508,
-      "schedule_miss_count": 7414
+      "cycle_count": 45452,
+      "schedule_miss_count": 8550
     },
     "FB276192BEF9CCE1": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 43851,
-      "schedule_miss_count": 2917
+      "cycle_count": 45750,
+      "schedule_miss_count": 3962
     },
     "2BD5090FE009FA2A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 43838,
-      "schedule_miss_count": 3016
+      "cycle_count": 45678,
+      "schedule_miss_count": 4481
     },
     "A1E549202D18ED6A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 43847,
-      "schedule_miss_count": 2973
+      "cycle_count": 45527,
+      "schedule_miss_count": 3988
     }
   },
   "realtime_load_mask_unchanged": true,
@@ -170,18 +170,25 @@
     "output_handoff_s": 0.05
   },
   "timing_probe": {
-    "path": "out/HardwareAcceptance/20260914/dpll-build-cancel-probe/p3-r1/timing.json",
-    "sha256": "510b4d42ced276cb0f165ec279a978884795c8c78691a5e043a5a6b3ce26e6ee"
+    "path": "out/HardwareAcceptance/20260914/dpll-origin-handoff-timing/p3-r1/timing.json",
+    "sha256": "36c4d2f69988203a5e992b088918acd0032286401750402d1fffeceaa729e7b6"
   },
   "tdma_stopped_handoff": {
-    "path": "out/HardwareAcceptance/20260914/dpll-build-cancel-probe/p3-r1/tdma-stopped-handoff.json",
-    "sha256": "96a2404779c097e3b22fd8e5d86eedc4022dfc916968854b84cbd51190802389"
+    "path": "out/HardwareAcceptance/20260914/dpll-origin-handoff-timing/p3-r1/tdma-stopped-handoff.json",
+    "sha256": "4a37cefe12c626ee41ab8495a2a974e7d4adb2f580e96c483ccafd189e774ea6"
   },
   "flow_completed": true,
-  "strict_gates_passed": true,
-  "diagnostic_failures": [],
+  "strict_gates_passed": false,
+  "diagnostic_failures": [
+    {
+      "phase": "coarse CLK calibration level 7",
+      "returncode": 1,
+      "error": "RuntimeError: FB276192BEF9CCE1: SYSTem:TDMA:RING:TOPology 4,1,1 failed: {'board': 'FB276192BEF9CCE1', 'command': 'SYSTem:TDMA:RING:TOPology 4,1,1', 'started_at': '2026-09-14T18:46:37.930572+08:00', 'response': '<timeout>', 'error': \"ValueError: invalid literal for int() with base 0: '<timeout>'\", 'error_after': '-200,\"Execution error\"'}",
+      "summary": "out/HardwareAcceptance/20260914/dpll-origin-handoff-timing/p3-r1/coarse-clk-level7/summary.json"
+    }
+  ],
   "diagnostic_summary": {
-    "path": "out/HardwareAcceptance/20260914/dpll-build-cancel-probe/p3-r1/diagnostic.json",
-    "sha256": "2d19366be4f0901a0d905a4e75a38a3377137981771147888731316169ab22ad"
+    "path": "out/HardwareAcceptance/20260914/dpll-origin-handoff-timing/p3-r1/diagnostic.json",
+    "sha256": "ca097ef5308e0683439f51a03315b37b57ab373f28734145500adc72a6ebcb9b"
   }
 }

@@ -11,6 +11,7 @@ static calibration_origin_timing_t s_origin_trial;
 static uint32_t s_origin_consumed_epoch;
 static bool s_origin_trial_fault;
 static tdma_origin_blackout_t s_origin_blackout;
+static tdma_origin_handoff_t s_origin_handoff;
 
 static bool tdma_runtime_owner_origin_capability_matches(
     const refmem_realtime_origin_capability_t *capability)
@@ -115,6 +116,9 @@ static bool tdma_runtime_owner_origin_begin(void *context,
         tdma_pio_spi_phys_origin_begin(context, config, packet, size,
                                        rearm_budget_ticks, abort_poll_count);
     if (started) {
+        tdma_origin_handoff_begin(&s_origin_handoff, s_origin_trial.epoch,
+            s_origin_trial.config_seq, s_origin_trial.admission.capability.clk_sys_hz,
+            vdc_timestamp_clock_read_ticks64());
         /* Owner-private request, frozen before the first preparation poll.
          * No running descriptor or hardware register is modified here. */
         s_tdma_pio_spi_phys.flight_origin_prepare.diagnostic_skip_records =
@@ -129,9 +133,13 @@ static bool tdma_runtime_owner_origin_begin(void *context,
 
 static tdma_origin_build_result_t tdma_runtime_owner_origin_poll(void *context)
 {
+    const uint32_t stage = s_tdma_pio_spi_phys.flight_origin_prepare.stage;
+    const uint64_t started = vdc_timestamp_clock_read_ticks64();
     const tdma_origin_build_result_t result = context == &s_tdma_pio_spi_phys &&
         tdma_runtime_owner_origin_authorized()
         ? tdma_pio_spi_phys_origin_poll(context) : TDMA_ORIGIN_BUILD_FAILED;
+    tdma_origin_handoff_record(&s_origin_handoff, stage, started,
+        vdc_timestamp_clock_read_ticks64(), result);
     if (result == TDMA_ORIGIN_BUILD_FAILED) s_origin_trial_fault = true;
     return result;
 }
@@ -198,6 +206,17 @@ bool tdma_runtime_owner_get_origin_build_probe(tdma_origin_build_probe_t *out)
     if (!tdma_runtime_owner_get_ring_snapshot(&before) || before.enabled || before.adapter_started ||
         before.config_seq != before.applied_config_seq ||
         !tdma_pio_spi_phys_get_origin_build_probe(out)) return false;
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    return tdma_runtime_owner_get_ring_snapshot(&after) && !after.enabled && !after.adapter_started &&
+        after.config_seq == before.config_seq && after.applied_config_seq == before.applied_config_seq;
+}
+
+bool tdma_runtime_owner_get_origin_handoff(tdma_origin_handoff_snapshot_t *out)
+{
+    tdma_ring_runtime_snapshot_t before, after;
+    if (!tdma_runtime_owner_get_ring_snapshot(&before) || before.enabled || before.adapter_started ||
+        before.config_seq != before.applied_config_seq ||
+        !tdma_origin_handoff_get(&s_origin_handoff, out)) return false;
     __atomic_thread_fence(__ATOMIC_ACQUIRE);
     return tdma_runtime_owner_get_ring_snapshot(&after) && !after.enabled && !after.adapter_started &&
         after.config_seq == before.config_seq && after.applied_config_seq == before.applied_config_seq;

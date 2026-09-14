@@ -133,6 +133,31 @@ scpi_result_t scpi_calibration_origin_build_cancel_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_calibration_origin_handoff_q(scpi_t *context)
+{
+    tdma_origin_handoff_snapshot_t s;
+    if (!tdma_runtime_owner_get_origin_handoff(&s)) {
+        SCPI_ResultText(context, "UNAVAILABLE");
+        return SCPI_RES_OK;
+    }
+    SCPI_ResultText(context, "ORIGINHANDOFF");
+    SCPI_ResultUInt32(context, s.schema);
+    SCPI_ResultUInt32(context, s.trial_epoch);
+    SCPI_ResultUInt32(context, s.config_seq);
+    SCPI_ResultUInt32(context, s.clock_hz);
+    SCPI_ResultUInt32(context, s.result);
+    SCPI_ResultUInt32(context, s.invalid_count);
+    SCPI_ResultUInt32(context, s.elapsed_ticks);
+    SCPI_ResultUInt64(context, s.begin_ticks);
+    SCPI_ResultUInt32(context, TDMA_ORIGIN_HANDOFF_STAGES);
+    for (uint32_t i = 0u; i < TDMA_ORIGIN_HANDOFF_STAGES; ++i) {
+        SCPI_ResultUInt32(context, s.first_ticks[i]);
+        SCPI_ResultUInt32(context, s.work_ticks[i]);
+        SCPI_ResultUInt32(context, s.calls[i]);
+    }
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_calibration_origin_blackout_q(scpi_t *context)
 {
     tdma_origin_blackout_snapshot_t s;

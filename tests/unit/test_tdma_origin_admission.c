@@ -8,6 +8,7 @@
 #include "tdma_origin_blackout.h"
 #include "tdma_service_timing.h"
 #include "tdma_origin_build_job.h"
+#include "tdma_origin_handoff.h"
 
 /* Host device facade; no hardware ownership is exercised in this fixture. */
 enum { clk_sys, BOARD_TDMA_TX_PIO_BLOCK_ID = 1, BOARD_TDMA_RX_PIO_BLOCK_ID = 2,
@@ -25,6 +26,7 @@ static struct {
     uint32_t flight_physical_byte_count;
     struct { bool diagnostic_skip_records;
         uint32_t diagnostic_build_probe_epoch, diagnostic_build_probe_config_seq;
+        uint32_t stage;
     } flight_origin_prepare;
 } s_tdma_pio_spi_phys;
 static uint32_t model_epoch = 2, clock_hz = 150000000, begins, polls, stops;
@@ -236,6 +238,37 @@ int main(int argc, char **argv)
         assert(tdma_runtime_owner_get_origin_build_probe(&out));
         probe_ready = false;
         assert(!tdma_runtime_owner_get_origin_build_probe(&out));
+    } else if (!strcmp(argv[1], "handoff")) {
+        tdma_origin_handoff_snapshot_t out;
+        assert(!tdma_runtime_owner_get_origin_handoff(&out));
+        publish(); assert(admit() == TDMA_ORIGIN_ADMISSION_READY);
+        assert(tdma_runtime_owner_origin_begin(&s_tdma_pio_spi_phys, &config, NULL, 0, 100, 8));
+        ticks += 1500u;
+        s_tdma_pio_spi_phys.flight_origin_prepare.stage = TDMA_ORIGIN_PREPARE_MAILBOX;
+        assert(tdma_runtime_owner_origin_poll(&s_tdma_pio_spi_phys) == TDMA_ORIGIN_BUILD_BUSY);
+        assert(!tdma_runtime_owner_get_origin_handoff(&out));
+        s_tdma_pio_spi_phys.flight_origin_prepare.stage = TDMA_ORIGIN_PREPARE_INSTALL;
+        ticks += 3000u; poll_result = TDMA_ORIGIN_BUILD_DONE;
+        assert(tdma_runtime_owner_origin_poll(&s_tdma_pio_spi_phys) == TDMA_ORIGIN_BUILD_DONE);
+        assert(!tdma_runtime_owner_get_origin_handoff(&out));
+        ring.enabled = ring.adapter_started = 0u;
+        assert(tdma_runtime_owner_get_origin_handoff(&out));
+        assert(out.result == TDMA_ORIGIN_BUILD_DONE && out.invalid_count == 0u);
+        assert(out.trial_epoch == s_origin_trial.epoch && out.config_seq == s_origin_trial.config_seq);
+        assert(out.clock_hz == clock_hz && out.elapsed_ticks == 4500u);
+        assert(out.calls[TDMA_ORIGIN_PREPARE_MAILBOX] == 1u && out.calls[TDMA_ORIGIN_PREPARE_INSTALL] == 1u);
+        assert(out.first_ticks[TDMA_ORIGIN_PREPARE_MAILBOX] == 1500u);
+        ring.applied_config_seq++;
+        assert(!tdma_runtime_owner_get_origin_handoff(&out));
+        setup(); poll_result = TDMA_ORIGIN_BUILD_BUSY;
+        publish(); assert(admit() == TDMA_ORIGIN_ADMISSION_READY);
+        assert(tdma_runtime_owner_origin_begin(&s_tdma_pio_spi_phys, &config, NULL, 0, 100, 8));
+        s_tdma_pio_spi_phys.flight_origin_prepare.stage = TDMA_ORIGIN_PREPARE_BUILD_STEP;
+        calibration_manager_origin_revoke();
+        assert(tdma_runtime_owner_origin_poll(&s_tdma_pio_spi_phys) == TDMA_ORIGIN_BUILD_FAILED);
+        ring.enabled = ring.adapter_started = 0u;
+        assert(tdma_runtime_owner_get_origin_handoff(&out) && out.result == TDMA_ORIGIN_BUILD_FAILED);
+        assert(out.calls[TDMA_ORIGIN_PREPARE_MAILBOX] == 0u);
     } else if (!strcmp(argv[1], "blackout")) {
         tdma_origin_blackout_snapshot_t out;
         assert(!tdma_runtime_owner_get_origin_blackout(&out));

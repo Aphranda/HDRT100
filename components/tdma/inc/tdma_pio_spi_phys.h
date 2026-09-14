@@ -693,20 +693,7 @@ typedef struct {
 } tdma_pio_spi_normal_capture_snapshot_t;
 
 #include "tdma_origin_build_job.h"
-
-typedef enum {
-    TDMA_ORIGIN_PREPARE_IDLE = 0u,
-    TDMA_ORIGIN_PREPARE_MAILBOX,
-    TDMA_ORIGIN_PREPARE_STOP,
-    TDMA_ORIGIN_PREPARE_PERSONA,
-    TDMA_ORIGIN_PREPARE_BUILD_BEGIN,
-    TDMA_ORIGIN_PREPARE_BUILD_STEP,
-    TDMA_ORIGIN_PREPARE_SEED,
-    TDMA_ORIGIN_PREPARE_SMS,
-    TDMA_ORIGIN_PREPARE_INSTALL,
-    TDMA_ORIGIN_PREPARE_COMPLETE,
-    TDMA_ORIGIN_PREPARE_FAILED,
-} tdma_origin_prepare_stage_t;
+#include "tdma_origin_handoff.h"
 
 typedef struct {
     tdma_ring_runtime_config_t config;

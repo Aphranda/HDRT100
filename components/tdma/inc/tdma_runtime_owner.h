@@ -17,6 +17,7 @@ bool tdma_runtime_owner_skip_tdma_service(void);
 bool tdma_runtime_owner_get_origin_blackout(tdma_origin_blackout_snapshot_t *out);
 /* Stopped/ACK only; no reads of the retired shared persona workspace. */
 bool tdma_runtime_owner_get_origin_build_probe(tdma_origin_build_probe_t *out);
+bool tdma_runtime_owner_get_origin_handoff(tdma_origin_handoff_snapshot_t *out);
 
 /* Core1-only direct owner facts for phase attribution; no hardware access. */
 tdma_service_timing_context_t tdma_runtime_owner_timing_context(void);

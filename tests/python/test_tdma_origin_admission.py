@@ -37,13 +37,14 @@ def admission_exe(tmp_path_factory):
         c_definition_body(wrapper, 'tdma_component_core1_service') + '}\n', encoding='utf-8')
     command += ['-I' + str(build)]
     command += [str(ROOT / "tests/unit/test_tdma_origin_admission.c"),
+                str(ROOT / 'components/tdma/src/tdma_origin_handoff.c'),
                 str(ROOT / 'components/tdma/src/tdma_origin_blackout.c'), str(cadence), "-o", str(exe)]
     subprocess.run(command, check=True, timeout=60)
     return exe
 
 
 @pytest.mark.parametrize("case", ["publish", "stale", "expiry", "prepare", "fault", "record-mode",
-    'build-cancel', 'blackout', 'blackout-cancel', 'blackout-deadline', 'blackout-invalid'])
+    'build-cancel', 'handoff', 'blackout', 'blackout-cancel', 'blackout-deadline', 'blackout-invalid'])
 def test_origin_trial_lifecycle(admission_exe, case):
     result = subprocess.run([str(admission_exe), case], capture_output=True,
                             text=True, timeout=3)
