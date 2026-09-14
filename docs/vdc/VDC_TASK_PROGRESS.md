@@ -42,13 +42,51 @@ Last updated: 2026-09-14
 交接对照见 `VDC-PROGRESS-20260914-020`；原生记录逐槽离线检查及从板观察缺口见
 `VDC-PROGRESS-20260914-021`；RX 同相位补充捕获的失败与回退见
 `VDC-PROGRESS-20260914-022`；RX/TX latch 直接初始化及四板对照见
-`VDC-PROGRESS-20260914-023`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
+`VDC-PROGRESS-20260914-023`；RX 消费能力和缓冲余量的离线审计见
+`VDC-PROGRESS-20260914-024`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
 `VDC-ROLE-001`；全表 WCET 和正式锁相仍未闭合，
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260914-024 — RX 单站台吞吐与观察缓冲余量审计
+
+- TODO task ID：`VDC-TIME-002`、`VDC-VERIFY-001`。
+- 状态：IN PROGRESS。仅完成只读源码及两轮完整原生窗口审计；没有新固件部署或
+  板端操作，`VDC-TIME-003/004` 保持 PENDING。
+- 日期：2026-09-14。
+- 证据：`out/HardwareAcceptance/20260914/dpll-rx-consumer-capacity/` 的
+  `capacity-audit-r2.json`；绑定上一封存、当前源码散列和六份从板原生记录，逐槽
+  保留启动与后续失败。以下数字均为本配置的源码推导或测量快照，非事实源。
+- 结构性限制：`tdma_pio_spi_ring_adapter_rx_once_impl()` 在 station 非 IDLE 时直接
+  进入接受路径；REQUESTED/BUILDING 等待或 READY 接受均不捕获下一帧。即使 Core0
+  立即完成，捕获与接受也至少分占两个 Core1 service。当前完整表周期为 1.5 ms，
+  因此理论捕获上限约 333.333 次/s；不能用缩短一项 CPU 操作证明突破该限制。
+  `task_refmem_sync()` 先运行 RefMem，再调用 Core0 prepare service，随后 delay；
+  现有原生记录没有逐次 station 等待或捕获间隔，尚未证明具体等待来源及最大值。
+- 两轮完整窗口：NO2/NO3/NO4 service 增量分别为 5499/5498/5498 和 5499/5500/5498，
+  捕获为 2514/2537/2557 和 2508/2536/2560，约每个 service 捕获 0.456–0.466 帧。
+  observation drop 增量为 2180/2202/2222 与 2193/2217/2242，明显多于 ring overrun
+  的 5/0/0 与 6/3/0。drop 合并窗口裁剪、epoch、过期 hint 与复制复验等原因，
+  不是丢帧数，也尚不能全部归为主动跳帧。从板本窗相位 overrun/deadline 仍均零，
+  证明局部预算通过不足以保证观察吞吐或无覆盖。
+- 容量边界：`TDMA_PIO_SPI_RX_RING_WORDS` 为 1024，每个 SRAM word 只承载一个
+  观察字节；虽然占用 4096 B RAM，对当前物理帧 173 个观察字节仅约 5.919 帧容量。
+  scanner 的最大窗口来自 `TDMA_PIO_SPI_RX_DMA_WORD_MAX` 加
+  `TDMA_RX_OBSERVATION_SCAN_WORDS`，本次为 616 words；有效 hint 在裁剪后仍选取
+  窗口内最早完整帧。复制本次 168-word 帧后，退休游标相对初次 produced 的积压
+  至多 448 words；这是相对初次计数的几何量，必须再加入复制期间及下一次观察前
+  的 DMA 增量，不能当作复制结束时的实时积压上界。初版报告命名未区分此时刻，
+  已在 r2 更正并保留 r1；未将名义物理帧周期代入为实测保持时间。
+- O2/O4 边界：DMA 初次观察建立 completed words 和 epoch，复制后复验排除期间
+  的覆盖及 epoch 变化，两者不是可直接删去的重复采样。完整窗口的稀疏快照也不能
+  给出逐圈物理周期、准确跳帧数或最大 worker 延迟。
+- 下一 gate：`VDC-TIME-002`。先为 station 等待、初次捕获间隔和裁剪/epoch/复制
+  拒绝补有界板端计数与最大值，独立核算 RAM 和整相位开销，再选择捕获节奏或
+  明确的载荷合并策略；特等席时间戳与整帧解析解耦。同相位无条件追加捕获仍维持
+  拒绝结论，身份、代际、DMA 复验与 STOP 取消必须保留。全目标与正式锁相不关闭。
 
 ### VDC-PROGRESS-20260914-023 — RX/TX latch 直接初始化与四板对照
 
