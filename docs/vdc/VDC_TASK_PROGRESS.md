@@ -47,13 +47,51 @@ Last updated: 2026-09-15
 `VDC-PROGRESS-20260914-025`；RX 站台等待、初次观察及 drop 原因的四板测量见
 `VDC-PROGRESS-20260914-026`；最新帧策略的 latch 身份阻断及可执行反例见
 `VDC-PROGRESS-20260914-027`；从板连续事件观察的 PIO 原型与边界反例见
-`VDC-PROGRESS-20260914-028`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
+`VDC-PROGRESS-20260914-028`；共享采样区 RAM 验收见 `VDC-PROGRESS-20260915-001`，
+成对事件计数及有界联合读取原型见 `VDC-PROGRESS-20260915-002`。当前入口仍为
+`VDC-TIME-002`，补齐硬件配置、交接时延
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
 `VDC-ROLE-001`；全表 WCET 和正式锁相仍未闭合，
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260915-002 — 成对事件计数与有界联合读取原型
+
+- TODO task ID：`VDC-TIME-002`、`VDC-VERIFY-001`。状态：IN PROGRESS；RAM 切片
+  验收提交后已返回时间输入主线。本条完成离线原型，不是生产加载或板端锁相验收。
+- 证据：`out/HardwareAcceptance/20260915/dpll-event-epoch-prototype/`。以下布局、
+  容量、案例数及公式参数均为原型与刺激快照，非事实源；旧失败原件保留。
+- 联合读取：`epoch_model.py` 建模共同启动条件、固定容量 staging、前后及提交前
+  状态复验、部分记录等待、有界超时、永久 INVALID、STOP 退休 ACK 与新代际。
+  运行中不清 rising IRQ；只停止观察 SM。旧代际输出在失效/STOP 后不可重新使用。
+  粗时间区间筛选回卷候选必须恰好唯一；累计时间还须与当前 FIFO 年龄区间及同一
+  启动区间相交。过期记录在消费前拒绝，不能由晚到 packet 复活。
+- 原方案反例：独立复核发现 RX/TX 同时少一条时，相对时差仍正常，旧三路按下标
+  联合会把后续 raw 配给前序 sequence，之后才因超时失效。真实执行反例见
+  `unpaired-both-raw-loss-counterexample.json`。因此未将旧模型测试通过当作身份
+  绑定通过，也不靠放宽时差门禁接入 DPLL。
+- 新候选：同一个 counter SM 通过两次 `IN ...,32` autopush 输出 X 原始倒计时及
+  Y 事件倒计数，再递减 Y。sequence 每帧至少移入完整序号位数，因此可去掉冗余
+  ISR 清零。`paired-placement.json` 实际汇编原控制与新程序：控制 10 字、共享
+  counter 10 字、sequence 12 字，固定起点 0/10/20，总计 32 字；仍在 follower
+  TX PIO 的原四个 SM 内，未新增 DMA、未借 PIO0/DMA7。
+- 模型验证：`r1-paired-result.json` 的 159 个案例通过，覆盖机器码相位/前缀、X
+  回卷、序号采完前截断、机器码模型中的 autopush stall、单双路完整记录遗漏、单 word
+  遗漏、半对等待及 STOP 交错。硬件 Y 值必须按共同 seed 连续递减，再与 wire
+  sequence 联合；仅比较 RX 的 Y 等于 TX 的 Y 仍不足。修复前失败、旧模型的
+  阻断反例与最终候选结果分别保留，不能混算为生产准入。
+- 时间/容量变化：新 raw 在检测后一个模型周期输出；相邻完整事件使用
+  `2*d + 5 + w0 + q*(2*M+1)`，首点开销为一个周期。其中 `M=2^32`，`d` 是 raw
+  模差，`w0` 来自 raw 大小关系；q 仅由粗时间区间唯一选择，不读模型 wrap 真值。
+  同时 raw FIFO 的八 words 仅容四个完整事件；半对是正常瞬态，不直接当作故障。
+- 边界与下一 gate：Y 只计本 SM 检测到的事件，尚未证明全部物理 CS 均被捕获。
+  仍须证明当前自主发车的序号唯一性、完整帧/身份候选来源、共同初始化、CS/SCK
+  和 DATA 相位、RX/TX 转发时差及四事件容量下的最坏服务间隔，再做目标 C/loader
+  与 STOP 路径、链接/P3、四板原始计时和实际物理 anchor。所有原型输出的
+  IDENTITY_BOUND、有效时间戳及 DPLL eligible 继续关闭；ARM 粗区间不取中点冒充
+  pad 时刻。`VDC-TIME-002` 未关闭，`VDC-TIME-003/004` 保持 PENDING。
 
 ### VDC-PROGRESS-20260915-001 — 为时间输入调试回收共享采样区 RAM
 
@@ -96,7 +134,10 @@ Last updated: 2026-09-15
   未证明真实 harvest 能在前后 sticky 检查后原子提交或永久失效；对象重置仅是
   模型新 epoch，不能当作 STOP/重臂硬件退休验收。
 - 新反例：联合间隔扫描共 864 组，其中 CS 高仅一个模型周期的 108 组均失败；
-  可出现三路同漏中间帧、FIFO 数量仍一致且无 stall。较宽间隔在有限刺激中通过，
+  可出现三路 FIFO 数量一致且无 stall，但保留的物理帧不同。后续逐条复核旧标签
+  的 36 个案例：RX/sequence 保留第 1、3 帧，TX 保留第 1、2 帧；不能称为三路
+  同漏中间帧。更正证据见新日期目录的 `prior-gap-label-correction.json`，旧原件
+  不改写。较宽间隔在有限刺激中通过，
   不能将其最小值固化为芯片门限。真实 transport 编解码另生成相同 sequence、
   不同 schedule/identity 的两个 CRC 正确帧，序号观察无法区分；不能直接置
   IDENTITY_BOUND。每个 epoch 的来源/配置/序号唯一性必须独立证明或补采身份。
