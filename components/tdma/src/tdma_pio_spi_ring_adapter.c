@@ -2264,6 +2264,11 @@ static bool tdma_pio_spi_ring_adapter_tx_forward(
 
 #include "tdma_pio_spi_ring_rx_prepare.inc"
 
+_Static_assert(TDMA_RX_PREPARE_IDLE == 0u && TDMA_RX_PREPARE_REQUESTED == 1u &&
+    TDMA_RX_PREPARE_BUILDING == 2u && TDMA_RX_PREPARE_READY == 3u &&
+    TDMA_RX_PREPARE_CANCELLED + 1u == TDMA_RX_TIMING_STATION_STATES,
+    "RX profile state indices must match station ownership states");
+
 static bool tdma_pio_spi_ring_adapter_rx_once_impl(
     tdma_pio_spi_ring_adapter_t *adapter)
 {
@@ -2272,8 +2277,12 @@ static bool tdma_pio_spi_ring_adapter_rx_once_impl(
     uint64_t rx_timestamp_ns = 0ull;
 
     tdma_rx_prepare_t *job = adapter->rx_preparation;
-    if (job != NULL && tdma_rx_prepare_state(job) != TDMA_RX_PREPARE_IDLE)
-        return tdma_pio_spi_ring_rx_accept(adapter, job);
+    if (job != NULL) {
+        const uint32_t state = tdma_rx_prepare_state(job);
+        tdma_service_timing_rx_station(state, adapter->last_service_ns, job->capture_service_ns);
+        if (state != TDMA_RX_PREPARE_IDLE)
+            return tdma_pio_spi_ring_rx_accept(adapter, job);
+    }
 
     if (adapter->rx_queue_count != 0u) {
         if (!tdma_pio_spi_ring_adapter_queue_pop(adapter,

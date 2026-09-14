@@ -1852,6 +1852,7 @@ static uint64_t tdma_pio_spi_phys_rx_produced_words(
         /* An ambiguous counter epoch is observation loss, never a reason to
          * stop, rearm, or relocate the hardware wire slots. */
         phys->snapshot.rx_observation_drop_count++;
+        tdma_service_timing_rx_drop(TDMA_RX_DROP_EPOCH, 0u);
         s_tdma_pio_spi_rx_scan_produced = produced;
         if (!phys->flight_overlay_alignment_locked)
             phys->flight_overlay_alignment_samples = 0u;
@@ -2014,6 +2015,8 @@ static bool tdma_pio_spi_phys_capture_words_legacy(tdma_pio_spi_phys_t *phys,
      * positions. Do not spend subsequent beats chasing overwritten bytes. */
     const uint32_t keep_words = (uint32_t)max_words + TDMA_RX_OBSERVATION_SCAN_WORDS;
     if (produced - s_tdma_pio_spi_rx_scan_produced > keep_words) {
+        tdma_service_timing_rx_drop(TDMA_RX_DROP_CLAMP,
+            produced - s_tdma_pio_spi_rx_scan_produced - keep_words);
         s_tdma_pio_spi_rx_scan_produced = produced - keep_words;
         phys->snapshot.rx_observation_drop_count++;
     }
@@ -2079,6 +2082,7 @@ static bool tdma_pio_spi_phys_capture_words_legacy(tdma_pio_spi_phys_t *phys,
              * never publish a mixed packet or update wire alignment. */
             if (s_tdma_pio_spi_rx_sequence.observation_epoch != observation_epoch ||
                 after_copy < produced || after_copy - candidate >= TDMA_PIO_SPI_RX_RING_WORDS) {
+                tdma_service_timing_rx_drop(TDMA_RX_DROP_FRAME_COPY, 0u);
                 phys->snapshot.rx_observation_drop_count++;
                 s_tdma_pio_spi_rx_scan_produced = after_copy >= produced ? after_copy : produced;
                 return false;

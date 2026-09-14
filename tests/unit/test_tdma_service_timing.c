@@ -9,6 +9,100 @@ uint32_t vdc_timestamp_clock_tick_hz(void) { return 250000000u; }
 /* Include the real recorder to inject a suspended publication deterministically. */
 #include "../../components/tdma/src/tdma_service_timing.c"
 
+static void test_rx_aggregate_lifecycle(void)
+{
+    tdma_rx_timing_snapshot_t rx, previous;
+    assert(!tdma_service_timing_rx_try_snapshot(NULL));
+    const uint32_t generation = tdma_service_timing_request_reset();
+    ticks += 1000u;
+    tdma_service_timing_phase_begin();
+    const tdma_service_timing_context_t running = {.state=1u,.config_generation=7u};
+    tdma_service_timing_context(running, true);
+    const uint64_t first = ticks;
+    tdma_service_timing_rx_initial(first, 900u);
+    tdma_service_timing_rx_station(0u, 0u, UINT64_MAX); /* IDLE has no age. */
+    tdma_service_timing_rx_station(1u, UINT64_C(1)<<40u, 10u);
+    tdma_service_timing_rx_station(2u, 200u, 100u);
+    tdma_service_timing_rx_station(3u, 300u, 100u);
+    tdma_service_timing_rx_station(4u, 400u, 100u);
+    tdma_service_timing_rx_drop(TDMA_RX_DROP_CLAMP, UINT64_C(1)<<40u);
+    tdma_service_timing_rx_drop(TDMA_RX_DROP_STALE_HINT, 0u);
+    tdma_service_timing_rx_drop(TDMA_RX_DROP_FRAME_COPY, 0u);
+    tdma_service_timing_rx_drop(TDMA_RX_DROP_DISCOVERY_COPY, 0u);
+    assert(ticks == first); /* Hooks do not add clock reads. */
+    assert(tdma_service_timing_rx_try_snapshot(&rx) && rx.initial_observation_count == 0u);
+    tdma_service_timing_phase_end();
+    assert(tdma_service_timing_rx_try_snapshot(&rx));
+    assert(rx.version == TDMA_RX_TIMING_VERSION && rx.reset_generation == generation);
+    assert(rx.initial_observation_count == 1u && rx.initial_gap_count == 0u);
+    assert(rx.initial_backlog_max_words == 900u && rx.invalid_count == 0u);
+    for (uint32_t i=0; i<TDMA_RX_TIMING_STATION_STATES; ++i) assert(rx.station_polls[i] == 1u);
+    assert(rx.station_age_max_ns[0] == (UINT64_C(1)<<40u)-10u);
+    assert(rx.clamp_skipped_words == (UINT64_C(1)<<40u));
+    previous = rx;
+    tdma_service_timing_rx_initial(0u, 0u);
+    tdma_service_timing_rx_station(99u, 0u, 1u);
+    tdma_service_timing_rx_drop(TDMA_RX_DROP_CAUSE_COUNT, 0u);
+    assert(tdma_service_timing_rx_try_snapshot(&rx) && memcmp(&rx,&previous,sizeof(rx)) == 0);
+
+    ticks += UINT64_C(1)<<40u;
+    tdma_service_timing_phase_begin();
+    tdma_service_timing_context(running, true);
+    tdma_service_timing_rx_initial(ticks, 12u);
+    tdma_service_timing_rx_drop(TDMA_RX_DROP_EPOCH, 0u);
+    ticks += 17u;
+    tdma_service_timing_rx_initial(ticks, 10u);
+    tdma_service_timing_phase_end();
+    assert(tdma_service_timing_rx_try_snapshot(&rx));
+    assert(rx.initial_gap_count == 2u && rx.initial_gap_max_ticks == (UINT64_C(1)<<40u));
+    assert(rx.drop_count[TDMA_RX_DROP_EPOCH] == 1u);
+    /* Re-arm and persona changes break the gap chain without hiding totals. */
+    for (unsigned change=0; change<3; ++change) {
+        ticks += UINT64_C(1)<<41u;
+        tdma_service_timing_phase_begin();
+        tdma_service_timing_context_t context = running;
+        if (change==0) context.state=0u;
+        if (change==1) context.config_generation++;
+        if (change==2) context.trial_epoch++;
+        tdma_service_timing_context(context, true);
+        tdma_service_timing_rx_initial(ticks, 7u);
+        tdma_service_timing_phase_end();
+        assert(tdma_service_timing_rx_try_snapshot(&rx) && rx.initial_gap_count == 2u);
+    }
+    /* Internal FSM progress within the same running class is not a new session. */
+    ticks += 20u;
+    tdma_service_timing_phase_begin();
+    tdma_service_timing_context((tdma_service_timing_context_t){.state=0x701u,
+        .config_generation=7u,.trial_epoch=1u}, true);
+    tdma_service_timing_rx_initial(ticks, 10u);
+    tdma_service_timing_phase_end();
+    assert(tdma_service_timing_rx_try_snapshot(&rx) && rx.initial_gap_count == 3u);
+    tdma_service_timing_phase_begin();
+    tdma_service_timing_rx_station(TDMA_RX_TIMING_STATION_STATES, 0u, 0u);
+    tdma_service_timing_rx_station(1u, 9u, 10u);
+    tdma_service_timing_rx_initial(ticks-1u, 0u);
+    tdma_service_timing_rx_initial(ticks, UINT64_C(1)<<32u);
+    tdma_service_timing_rx_drop(TDMA_RX_DROP_CAUSE_COUNT, 0u);
+    s_rx_work.station_polls[0] = UINT32_MAX;
+    tdma_service_timing_rx_station(0u, 0u, 0u);
+    s_rx_work.clamp_skipped_words = UINT64_MAX-3u;
+    tdma_service_timing_rx_drop(TDMA_RX_DROP_CLAMP, 4u);
+    tdma_service_timing_phase_end();
+    assert(tdma_service_timing_rx_try_snapshot(&rx));
+    assert(rx.invalid_count == 7u && rx.clamp_skipped_words == UINT64_MAX);
+    assert(rx.station_polls[0] == UINT32_MAX);
+    ++s_guard;
+    assert(!tdma_service_timing_rx_try_snapshot(&rx));
+    ++s_guard;
+    const uint32_t reset = tdma_service_timing_request_reset();
+    assert(tdma_service_timing_rx_try_snapshot(&rx) && rx.reset_generation == generation);
+    tdma_service_timing_phase_begin();
+    tdma_service_timing_phase_end();
+    assert(tdma_service_timing_rx_try_snapshot(&rx) && rx.reset_generation == reset);
+    assert(rx.invalid_count == 0u && rx.initial_observation_count == 0u);
+    assert(rx.initial_gap_max_ticks == 0u && rx.clamp_skipped_words == 0u);
+}
+
 int main(void)
 {
     tdma_service_timing_snapshot_t before, after;
@@ -281,6 +375,7 @@ int main(void)
     assert(tdma_service_timing_try_snapshot(&after));
     assert(after.last.calls[TDMA_TIMING_SELECT_EMPTY] == 0u);
     assert(after.last.invalid_count == 0u);
-    puts("PASS: timing, state attribution, scheduler interval, deferred reset, count saturation and invalid clock");
+    test_rx_aggregate_lifecycle();
+    puts("PASS: timing, RX aggregates, state attribution, scheduler interval, deferred reset, count saturation and invalid clock");
     return 0;
 }

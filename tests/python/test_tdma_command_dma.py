@@ -660,6 +660,7 @@ def test_observation_copy_realign_does_not_move_published_wire_slots(tmp_path):
 #include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
+#include "tdma_service_timing.h"
 enum { TDMA_PIO_SPI_RX_RING_WORDS = 1024, TDMA_PIO_SPI_RX_DMA_WORD_MAX = 64,
        TDMA_RX_OBSERVATION_SCAN_WORDS = 320,
        TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES = 2,
@@ -763,6 +764,7 @@ int main(void) {
     gcc = os.environ.get("HOST_CC") or shutil.which("gcc") or "D:/Microsoft/mingw64/bin/gcc.exe"
     exe = tmp_path / "capture_alignment.exe"
     build = subprocess.run([gcc, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
+                            "-I" + str(ROOT / "components/tdma/inc"),
                             str(unit), "-o", str(exe)], capture_output=True, text=True)
     assert build.returncode == 0, build.stdout + build.stderr
     run = subprocess.run([str(exe)], capture_output=True, text=True)

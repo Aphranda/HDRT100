@@ -6,6 +6,8 @@ import subprocess
 import pytest
 
 from tools.tdma_ring_monitor.tdma_service_timing import parse_service_timing, FIELDS_V6
+from tools.tdma_ring_monitor.tdma_service_timing import parse_rx_timing
+from tools.state_machine_resource_check.state_machine_resource_check import c_definition_body
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -125,3 +127,60 @@ def test_real_request_and_dispatch_branch_attribution(tmp_path, case):
         *[str(ROOT/f'components/tdma/src/{name}.c') for name in names], '-o', str(exe)],
         check=True, timeout=60)
     subprocess.run([str(exe)], check=True, timeout=5)
+
+
+def test_rx_profile_decodes_real_scpi_serialization(tmp_path):
+    source = (ROOT/'middleware/scpi_port/src/scpi_system_snapshot_commands.c').read_text(encoding='utf-8')
+    callback = c_definition_body(source, 'scpi_cmd_system_tdma_profile_rx_q')
+    unit = tmp_path/'rx_wire.c'
+    unit.write_text(r'''
+#include <stdio.h>
+#include <inttypes.h>
+#include "tdma_service_timing.h"
+typedef int scpi_t;
+typedef int scpi_result_t;
+#define SCPI_RES_OK 1
+static bool available = true;
+static tdma_rx_timing_snapshot_t model;
+bool tdma_service_timing_rx_try_snapshot(tdma_rx_timing_snapshot_t *s) { *s=model; return available; }
+static unsigned fields;
+static void SCPI_ResultUInt64(scpi_t *c, uint64_t n) { (void)c; printf("%s%" PRIu64, fields++ ? "," : "", n); }
+static void SCPI_ResultUInt32(scpi_t *c, uint32_t n) { SCPI_ResultUInt64(c,n); }
+static void SCPI_ResultText(scpi_t *c, const char *s) { (void)c; printf("%s",s); }
+static scpi_result_t result(scpi_t *context) {
+''' + callback + r'''
+}
+int main(void) {
+    model.version=TDMA_RX_TIMING_VERSION; model.clock_hz=250000000;
+    model.reset_generation=17; model.phase_count=99;
+    model.initial_observation_count=51; model.initial_gap_count=50;
+    model.initial_gap_max_ticks=UINT64_C(1)<<40;
+    model.initial_backlog_max_words=1090; model.clamp_skipped_words=UINT64_C(1)<<48;
+    for (unsigned i=0; i<TDMA_RX_TIMING_STATION_STATES; ++i) {
+        model.station_polls[i]=100+i;
+        if (i) model.station_age_max_ns[i-1]=(UINT64_C(1)<<36)+i;
+    }
+    for (unsigned i=0; i<TDMA_RX_DROP_CAUSE_COUNT; ++i) model.drop_count[i]=200+i;
+    result(NULL); puts(""); available=false; result(NULL); puts(""); return 0;
+}
+''', encoding='utf-8')
+    compiler = shutil.which('gcc') or shutil.which('clang')
+    assert compiler
+    exe = tmp_path/('rx_wire.exe' if os.name == 'nt' else 'rx_wire')
+    subprocess.run([compiler,'-std=c11','-Wall','-Wextra','-Werror',
+        '-DTDMA_SERVICE_TIMING_ENABLED=1','-I'+str(ROOT/'components/tdma/inc'),
+        str(unit),'-o',str(exe)],check=True,timeout=60)
+    output = subprocess.check_output([str(exe)],text=True,timeout=3).splitlines()
+    decoded = parse_rx_timing(output[0])
+    assert parse_rx_timing(output[1]) is None
+    assert decoded['reset_generation'] == 17 and decoded['phase_count'] == 99
+    assert decoded['initial_gap_max_ticks'] == 2**40 and decoded['clamp_skipped_words'] == 2**48
+    assert decoded['station']['idle'] == {'polls':100,'age_max_ns':0}
+    assert decoded['station']['ready'] == {'polls':103,'age_max_ns':2**36+3}
+    assert decoded['drops'] == dict(epoch=200,clamp=201,stale_hint=202,frame_copy=203,discovery_copy=204)
+    fields = output[0].split(',')
+    for bad in (fields[:-1],fields+['0'],['2']+fields[1:]):
+        with pytest.raises(ValueError): parse_rx_timing(','.join(bad))
+    for index, value in ((5,'4'),(6,'6'),(7,str(2**32)),(9,str(2**64)),(13,'-1'),(22,str(2**32))):
+        bad = fields.copy(); bad[index] = value
+        with pytest.raises(ValueError): parse_rx_timing(','.join(bad))

@@ -1,6 +1,7 @@
 #include "tdma_rx_sequence.h"
 #include "tdma_transport_frame.h"
 #include "tdma_rx_scan.h"
+#include "tdma_service_timing.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>

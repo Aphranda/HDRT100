@@ -92,10 +92,19 @@ static int test_rx_prepare_cases(void)
     failed += expect_u32("latch drained at admission", phys.latch_calls, 1u);
     const uint32_t captures = phys.wire.rx_calls;
     memset(phys.wire.echo_packet, 0xA5, size); phys.latch = 999u;
-    for (uint32_t i = 0u; i < 20u; ++i) ops->service(&adapter, 101u + i, &status);
+    for (uint32_t i = 0u; i < 20u; ++i) {
+        if (i == 10u) assert(tdma_rx_prepare_core0_claim(&job));
+#if TDMA_SERVICE_TIMING_ENABLED
+        tdma_service_timing_phase_begin();
+#endif
+        ops->service(&adapter, 101u + i, &status);
+#if TDMA_SERVICE_TIMING_ENABLED
+        tdma_service_timing_phase_end();
+#endif
+    }
     failed += expect_u32("paused worker never reacquires RX", phys.wire.rx_calls, captures);
     failed += expect_bool("DMA source reusable", memcmp(job.packet, packet, size) == 0, true);
-    tdma_rx_prepare_core0_service(&job);
+    tdma_rx_prepare_core0_build_claimed(&job);
     failed += expect_u32("worker cannot commit adapter", adapter.rx_count, 0u);
     failed += expect_u32("worker ready", tdma_rx_prepare_state(&job), TDMA_RX_PREPARE_READY);
 #if TDMA_SERVICE_TIMING_ENABLED
@@ -110,6 +119,16 @@ static int test_rx_prepare_cases(void)
     assert(timing.last.calls[TDMA_TIMING_RX_LOCAL_TX_EDGE] == 0u);
     assert(timing.last.calls[TDMA_TIMING_RX_REQUEST_PUBLISH] == 0u);
     assert(timing.last.calls[TDMA_TIMING_RX_PARSE] == 1u);
+    tdma_rx_timing_snapshot_t rx_timing;
+    assert(tdma_service_timing_rx_try_snapshot(&rx_timing));
+    assert(rx_timing.invalid_count == 0u);
+    assert(rx_timing.station_polls[TDMA_RX_PREPARE_IDLE] == 1u);
+    assert(rx_timing.station_polls[TDMA_RX_PREPARE_REQUESTED] == 10u);
+    assert(rx_timing.station_polls[TDMA_RX_PREPARE_BUILDING] == 10u);
+    assert(rx_timing.station_polls[TDMA_RX_PREPARE_READY] == 1u);
+    assert(rx_timing.station_age_max_ns[TDMA_RX_PREPARE_REQUESTED - 1u] == 10u);
+    assert(rx_timing.station_age_max_ns[TDMA_RX_PREPARE_BUILDING - 1u] == 20u);
+    assert(rx_timing.station_age_max_ns[TDMA_RX_PREPARE_READY - 1u] == 50u);
 #endif
     failed += expect_u32("Core1 accepts RX", adapter.rx_count, 1u);
     failed += expect_u32("no late latch read", phys.latch_calls, 1u);

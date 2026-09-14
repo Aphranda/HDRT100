@@ -62,6 +62,14 @@ int main(void)
         assert(tdma_rx_scan_state(&job) == TDMA_RX_SCAN_READY && job.result.valid);
         stimulus = overwrite;
         record = capture_profile(&phys, !overwrite);
+        tdma_rx_timing_snapshot_t rx_timing;
+        assert(tdma_service_timing_rx_try_snapshot(&rx_timing));
+        assert(rx_timing.initial_observation_count == 2u && rx_timing.initial_gap_count == 1u);
+        assert(rx_timing.initial_gap_max_ticks > 0u && rx_timing.invalid_count == 0u);
+        assert(rx_timing.drop_count[TDMA_RX_DROP_CLAMP] == 1u);
+        assert(rx_timing.clamp_skipped_words == 1000u - TDMA_PIO_SPI_RX_DMA_WORD_MAX - TDMA_RX_OBSERVATION_SCAN_WORDS);
+        assert(rx_timing.drop_count[TDMA_RX_DROP_FRAME_COPY] == overwrite);
+        assert(rx_timing.drop_count[TDMA_RX_DROP_DISCOVERY_COPY] == 0u);
         assert(record.calls[TDMA_TIMING_RX_DMA_INITIAL] == 1);
         assert(record.calls[TDMA_TIMING_RX_DMA_FRAME_RECHECK] == 1);
         assert(record.calls[TDMA_TIMING_RX_DMA_DISCOVERY_RECHECK] == 0);

@@ -2577,6 +2577,34 @@ scpi_result_t scpi_cmd_system_tdma_profile_reset(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_system_tdma_profile_rx_q(scpi_t *context)
+{
+    tdma_rx_timing_snapshot_t snapshot;
+    if (!tdma_service_timing_rx_try_snapshot(&snapshot)) {
+        SCPI_ResultText(context, "UNAVAILABLE");
+        return SCPI_RES_OK;
+    }
+    SCPI_ResultUInt32(context, snapshot.version);
+    SCPI_ResultUInt32(context, snapshot.clock_hz);
+    SCPI_ResultUInt32(context, snapshot.reset_generation);
+    SCPI_ResultUInt32(context, snapshot.phase_count);
+    SCPI_ResultUInt32(context, snapshot.invalid_count);
+    SCPI_ResultUInt32(context, TDMA_RX_TIMING_STATION_STATES);
+    SCPI_ResultUInt32(context, TDMA_RX_DROP_CAUSE_COUNT);
+    SCPI_ResultUInt32(context, snapshot.initial_observation_count);
+    SCPI_ResultUInt32(context, snapshot.initial_gap_count);
+    SCPI_ResultUInt64(context, snapshot.initial_gap_max_ticks);
+    SCPI_ResultUInt32(context, snapshot.initial_backlog_max_words);
+    SCPI_ResultUInt64(context, snapshot.clamp_skipped_words);
+    for (uint32_t state = 0u; state < TDMA_RX_TIMING_STATION_STATES; ++state) {
+        SCPI_ResultUInt32(context, snapshot.station_polls[state]);
+        SCPI_ResultUInt64(context, state == 0u ? 0u : snapshot.station_age_max_ns[state - 1u]);
+    }
+    for (uint32_t cause = 0u; cause < TDMA_RX_DROP_CAUSE_COUNT; ++cause)
+        SCPI_ResultUInt32(context, snapshot.drop_count[cause]);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_system_tdma_flight_crc_diagnostic_q(scpi_t *context)
 {
     tdma_pio_spi_ring_adapter_t *adapter =

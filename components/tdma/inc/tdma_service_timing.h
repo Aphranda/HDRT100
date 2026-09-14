@@ -135,6 +135,32 @@ typedef struct {
     uint32_t other_phase_count;
 } tdma_service_timing_snapshot_t;
 
+/* Aggregate diagnostics for the same RESET/phase lifecycle. Ages use the
+ * owner's existing service time in ns; DMA gaps use existing clk_sys probes.
+ * Neither is a wire timestamp or a production scheduling budget. */
+#define TDMA_RX_TIMING_VERSION 1u
+#define TDMA_RX_TIMING_STATION_STATES 5u
+typedef enum {
+    TDMA_RX_DROP_EPOCH = 0u,
+    TDMA_RX_DROP_CLAMP,
+    TDMA_RX_DROP_STALE_HINT,
+    TDMA_RX_DROP_FRAME_COPY,
+    TDMA_RX_DROP_DISCOVERY_COPY,
+    TDMA_RX_DROP_CAUSE_COUNT,
+} tdma_rx_drop_cause_t;
+
+typedef struct {
+    uint32_t version, clock_hz, reset_generation, phase_count, invalid_count;
+    /* Indexed by tdma_rx_prepare_state_t: IDLE through CANCELLED. */
+    uint32_t station_polls[TDMA_RX_TIMING_STATION_STATES];
+    uint64_t station_age_max_ns[TDMA_RX_TIMING_STATION_STATES - 1u];
+    uint32_t initial_observation_count, initial_gap_count;
+    uint64_t initial_gap_max_ticks;
+    uint32_t initial_backlog_max_words;
+    uint32_t drop_count[TDMA_RX_DROP_CAUSE_COUNT];
+    uint64_t clamp_skipped_words;
+} tdma_rx_timing_snapshot_t;
+
 #if TDMA_SERVICE_TIMING_ENABLED
 /* Core1-only instrumentation, owned by the existing app TDMA phase. */
 void tdma_service_timing_phase_begin(void);
@@ -148,6 +174,10 @@ void tdma_service_timing_record(tdma_service_timing_stage_t stage, uint64_t star
 /* Core0 read attempts once. RESET is consumed at the next Core1 phase. */
 bool tdma_service_timing_try_snapshot(tdma_service_timing_snapshot_t *snapshot);
 uint32_t tdma_service_timing_request_reset(void);
+void tdma_service_timing_rx_station(uint32_t state, uint64_t now_ns, uint64_t capture_ns);
+void tdma_service_timing_rx_initial(uint64_t ticks, uint64_t backlog_words);
+void tdma_service_timing_rx_drop(tdma_rx_drop_cause_t cause, uint64_t skipped_words);
+bool tdma_service_timing_rx_try_snapshot(tdma_rx_timing_snapshot_t *snapshot);
 #else
 /* Standalone host component tests do not own a realtime phase or clock. */
 static inline void tdma_service_timing_phase_begin(void) {}
@@ -163,6 +193,14 @@ static inline void tdma_service_timing_record(tdma_service_timing_stage_t stage,
 static inline bool tdma_service_timing_try_snapshot(tdma_service_timing_snapshot_t *snapshot)
 { (void)snapshot; return false; }
 static inline uint32_t tdma_service_timing_request_reset(void) { return 0u; }
+static inline void tdma_service_timing_rx_station(uint32_t state, uint64_t now_ns, uint64_t capture_ns)
+{ (void)state; (void)now_ns; (void)capture_ns; }
+static inline void tdma_service_timing_rx_initial(uint64_t ticks, uint64_t backlog_words)
+{ (void)ticks; (void)backlog_words; }
+static inline void tdma_service_timing_rx_drop(tdma_rx_drop_cause_t cause, uint64_t skipped_words)
+{ (void)cause; (void)skipped_words; }
+static inline bool tdma_service_timing_rx_try_snapshot(tdma_rx_timing_snapshot_t *snapshot)
+{ (void)snapshot; return false; }
 #endif
 
 #endif

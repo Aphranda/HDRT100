@@ -33,6 +33,7 @@ static bool tdma_pio_spi_phys_rx_scan_request(tdma_pio_spi_phys_t *phys,
     tdma_service_timing_record(TDMA_TIMING_RX_DMA_OBSERVE, observe_start);
     if (job->observation_epoch != s_tdma_pio_spi_rx_sequence.observation_epoch ||
         after < produced || after - start >= TDMA_PIO_SPI_RX_RING_WORDS) {
+        tdma_service_timing_rx_drop(TDMA_RX_DROP_DISCOVERY_COPY, 0u);
         phys->snapshot.rx_observation_drop_count++;
         s_tdma_pio_spi_rx_scan_produced = after >= produced ? after : produced;
         return false;
@@ -57,6 +58,8 @@ static bool tdma_pio_spi_phys_capture_words_async(tdma_pio_spi_phys_t *phys,
     const uint64_t produced = tdma_pio_spi_phys_rx_produced_words(phys);
     tdma_service_timing_record(TDMA_TIMING_RX_DMA_INITIAL, observe_start);
     tdma_service_timing_record(TDMA_TIMING_RX_DMA_OBSERVE, observe_start);
+    tdma_service_timing_rx_initial(observe_start,
+        produced > s_tdma_pio_spi_rx_scan_produced ? produced - s_tdma_pio_spi_rx_scan_produced : 0u);
     const uint64_t observation_epoch = s_tdma_pio_spi_rx_sequence.observation_epoch;
     phys->snapshot.rx_dma_produced_words = (uint32_t)produced;
     phys->snapshot.rx_scan_produced_words = (uint32_t)s_tdma_pio_spi_rx_scan_produced;
@@ -77,6 +80,7 @@ static bool tdma_pio_spi_phys_capture_words_async(tdma_pio_spi_phys_t *phys,
             }
         } else {
             hint->valid = false;
+            tdma_service_timing_rx_drop(TDMA_RX_DROP_STALE_HINT, 0u);
             phys->snapshot.rx_observation_drop_count++;
         }
         tdma_rx_scan_release(job);
@@ -86,6 +90,8 @@ static bool tdma_pio_spi_phys_capture_words_async(tdma_pio_spi_phys_t *phys,
         phys->snapshot.rx_ring_overrun_count++;
     const uint32_t keep = (uint32_t)max_words + TDMA_RX_OBSERVATION_SCAN_WORDS;
     if (produced - s_tdma_pio_spi_rx_scan_produced > keep) {
+        tdma_service_timing_rx_drop(TDMA_RX_DROP_CLAMP,
+            produced - s_tdma_pio_spi_rx_scan_produced - keep);
         s_tdma_pio_spi_rx_scan_produced = produced - keep;
         phys->snapshot.rx_observation_drop_count++;
     }
@@ -115,6 +121,7 @@ static bool tdma_pio_spi_phys_capture_words_async(tdma_pio_spi_phys_t *phys,
     tdma_service_timing_record(TDMA_TIMING_RX_DMA_OBSERVE, recheck_start);
     if (s_tdma_pio_spi_rx_sequence.observation_epoch != observation_epoch ||
         after < produced || after - candidate >= TDMA_PIO_SPI_RX_RING_WORDS) {
+        tdma_service_timing_rx_drop(TDMA_RX_DROP_FRAME_COPY, 0u);
         hint->valid = false;
         phys->snapshot.rx_observation_drop_count++;
         s_tdma_pio_spi_rx_scan_produced = after >= produced ? after : produced;

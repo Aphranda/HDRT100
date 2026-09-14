@@ -58,3 +58,32 @@ def parse_service_timing(raw: str) -> dict | None:
         for i, name in enumerate(stages)
     }
     return result
+
+
+RX_FIELDS = (
+    "version", "clock_hz", "reset_generation", "phase_count", "invalid_count",
+    "station_state_count", "drop_cause_count", "initial_observation_count",
+    "initial_gap_count", "initial_gap_max_ticks", "initial_backlog_max_words",
+    "clamp_skipped_words",
+)
+RX_STATES = ("idle", "requested", "building", "ready", "cancelled")
+RX_DROP_CAUSES = ("epoch", "clamp", "stale_hint", "frame_copy", "discovery_copy")
+
+
+def parse_rx_timing(raw: str) -> dict | None:
+    """Decode STOP-read aggregates; ns ages and clk_sys gaps have distinct units."""
+    if raw.strip().strip('"') == "UNAVAILABLE":
+        return None
+    values = list(map(int, next(csv.reader([raw]))))
+    base = len(RX_FIELDS)
+    if (len(values) != base + 2 * len(RX_STATES) + len(RX_DROP_CAUSES) or
+            values[0] != 1 or values[5:7] != [len(RX_STATES), len(RX_DROP_CAUSES)]):
+        raise ValueError("Unknown or truncated TDMA RX profile schema")
+    wide = {9, 11, *(base + 2*i + 1 for i in range(len(RX_STATES)))}
+    if any(v < 0 or v >= 1 << (64 if i in wide else 32) for i, v in enumerate(values)):
+        raise ValueError("TDMA RX profile field width mismatch")
+    result = dict(zip(RX_FIELDS, values[:base]))
+    result['station'] = {name:dict(polls=values[base+2*i], age_max_ns=values[base+2*i+1])
+        for i, name in enumerate(RX_STATES)}
+    result['drops'] = dict(zip(RX_DROP_CAUSES, values[base+2*len(RX_STATES):]))
+    return result
