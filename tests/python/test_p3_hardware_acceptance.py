@@ -2,10 +2,14 @@ import argparse
 import json
 import sys
 import types
+import struct
+import subprocess
+import zlib
 from pathlib import Path
 
 import pytest
 import tools.hardware_acceptance.p3_hardware_acceptance as p3_acceptance
+from test_tdma_board_record import recorder  # noqa: F401 - shared production C recorder fixture
 
 from tools.hardware_acceptance.p3_hardware_acceptance import (
     AcceptanceError,
@@ -532,6 +536,64 @@ def test_tdma_only_receipt_does_not_require_dpll_observer(tmp_path: Path) -> Non
             "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         }
     _validate_evidence(tmp_path, record, include_dpll=False)
+
+
+def stopped_handoff_fixture(recorder, tmp_path):
+    executable, _ = recorder
+    raw_path = tmp_path / 'producer.bin'
+    subprocess.run([str(executable), '1', str(raw_path)], check=True, capture_output=True, text=True)
+    producer = raw_path.read_bytes()
+    boards = [f'{number:016X}' for number in range(2,6)]
+    summary = dict(left_running=False, leave_running_requested=False, boards={},
+                   stopped={}, board_records={}, nodes=dict.fromkeys(boards, {}), actions=[], passed=False)
+    for address in boards:
+        raw = bytearray(producer)
+        struct.pack_into('<Q', raw, 9*4, int(address,16))
+        struct.pack_into('<I', raw, len(raw)-64+44, zlib.crc32(raw[:-64]))
+        path = tmp_path / (address+'.bin')
+        path.write_bytes(raw)
+        summary['boards'][address] = dict(address=address, build='1')
+        summary['stopped'][address] = dict(passed=1, ring_enabled=0, ring_adapter_started=0,
+                                           ring_config_seq=7, ring_applied_config_seq=7)
+        summary['board_records'][address] = dict(path=str(path),
+            status=dict(state=5, epoch=123, bytes=len(raw), requested=4, written=4, missed=0, reason=0),
+            decoded=dict(collection_passed=True))
+        summary['actions'].append(dict(node=address, action='START', response='OK'))
+    summary['actions'].extend(dict(node=address, action='STOP_BEFORE_EXPORT', response='OK') for address in boards)
+    return boards, summary
+
+
+def test_stopped_handoff_uses_production_records_and_does_not_promote_quality(recorder, tmp_path):
+    boards, summary = stopped_handoff_fixture(recorder, tmp_path)
+    proof = p3_acceptance.validate_tdma_stopped_handoff(tmp_path, summary, boards, '1')
+    assert proof['passed'] and proof['mode'] == 'STOPPED_RECORDS'
+    assert len(proof['records']) == 4 and proof['epoch'] == 123
+    assert summary['passed'] is False  # Independent quality failure remains a failure.
+
+
+@pytest.mark.parametrize('mutation', ['missing', 'running', 'skipped', 'unapplied', 'old_build',
+    'stop_order', 'stop_ack', 'crc', 'length', 'missing_raw', 'epoch', 'foreign_board', 'missed'])
+def test_stopped_handoff_rejects_incomplete_or_foreign_evidence(recorder, tmp_path, mutation):
+    boards, summary = stopped_handoff_fixture(recorder, tmp_path)
+    address = boards[0]
+    stop, record = summary['stopped'][address], summary['board_records'][address]
+    if mutation == 'missing': summary['stopped'].pop(address)
+    elif mutation == 'running': stop['ring_enabled'] = 1
+    elif mutation == 'skipped': stop['skipped'] = 1
+    elif mutation == 'unapplied': stop['ring_applied_config_seq'] = 6
+    elif mutation == 'old_build': summary['boards'][address]['build'] = '2'
+    elif mutation == 'stop_order': summary['actions'].insert(0, summary['actions'].pop())
+    elif mutation == 'stop_ack': summary['actions'][-1]['response'] = '<timeout>'
+    elif mutation == 'crc':
+        path = Path(record['path'])
+        raw = bytearray(path.read_bytes()); raw[100] ^= 1; path.write_bytes(raw)
+    elif mutation == 'length': record['status']['bytes'] += 4
+    elif mutation == 'missing_raw': record['path'] = str(tmp_path/'absent.bin')
+    elif mutation == 'epoch': record['status']['epoch'] += 1
+    elif mutation == 'foreign_board': record['path'] = summary['board_records'][boards[1]]['path']
+    elif mutation == 'missed': record['status']['missed'] = 1
+    with pytest.raises(AcceptanceError, match='stopped handoff incomplete'):
+        p3_acceptance.validate_tdma_stopped_handoff(tmp_path, summary, boards, '1')
 
 
 def test_acceptance_timing_probe_writes_action_events(tmp_path: Path) -> None:

@@ -98,3 +98,31 @@ def test_prepare_failure_is_written_and_all_boards_are_cleaned(monkeypatch,tmp_p
     assert {uid for uid,text in commands if text == 'CALibration:TOPology:PROBe 0'} == {'A','B'}
     assert not any(text == 'SYSTem:TDMA:RING:ARM' for _,text in commands)
     assert not report['cleanup_errors']
+
+
+@pytest.mark.parametrize('error_reply', ['-200,"TDMA_RING_TOPOLOGY"', '0,"No error"'])
+def test_failed_control_retains_error_queue_without_retry_or_promotion(monkeypatch, error_reply):
+    calls = []
+    def command(_board, text, _args):
+        calls.append(text)
+        return error_reply if text == 'SYSTem:ERRor?' else '<timeout>'
+    monkeypatch.setattr(coarse, 'board_command', command)
+    actions = []
+    with pytest.raises(RuntimeError, match='TOPology'):
+        coarse._control_command(Board('P','A','',''), 'SYSTem:TDMA:RING:TOPology 2,0,0',
+                                options(), actions, expected=(2,0,0))
+    assert calls == ['SYSTem:TDMA:RING:TOPology 2,0,0', 'SYSTem:ERRor?']
+    assert actions[0]['response'] == '<timeout>' and actions[0]['error_after'] == error_reply
+    assert actions[0]['elapsed_s'] >= 0 and actions[0]['started_at']
+
+
+def test_failed_error_readback_does_not_hide_original_control_failure(monkeypatch):
+    def command(_board, text, _args):
+        if text == 'SYSTem:ERRor?': raise OSError('disconnected')
+        return '<timeout>'
+    monkeypatch.setattr(coarse, 'board_command', command)
+    actions = []
+    with pytest.raises(RuntimeError, match='ACK missing'):
+        coarse._control_command(Board('P','A','',''), 'SYSTem:TDMA:RING:STOP', options(), actions, ack=True)
+    assert actions[0]['response'] == '<timeout>'
+    assert actions[0]['error_readback_failure'] == 'OSError: disconnected'

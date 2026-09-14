@@ -105,7 +105,9 @@ def wait_calibration_idle(board, args: argparse.Namespace) -> dict[str, int]:
 def _control_command(board, command, args, actions, *, expected=None,
                      fields=None, ack=False):
     """Keep partial preparation evidence before any later action can fail."""
-    record = {"board": board.address, "command": command}
+    started = time.monotonic()
+    record = {"board": board.address, "command": command,
+              "started_at": datetime.now().astimezone().isoformat()}
     actions.append(record)
     try:
         raw = board_command(board, command, args)
@@ -123,7 +125,16 @@ def _control_command(board, command, args, actions, *, expected=None,
         return raw
     except Exception as exc:
         record["error"] = f"{type(exc).__name__}: {exc}"
+        # A firmware SCPI_RES_ERR has no result payload: its reason is queued.
+        # Observe that reason after the failed action, without retrying the
+        # action or turning a timeout into successful topology admission.
+        try:
+            record["error_after"] = board_command(board, "SYSTem:ERRor?", args)
+        except Exception as readback_exc:
+            record["error_readback_failure"] = f"{type(readback_exc).__name__}: {readback_exc}"
         raise RuntimeError(f"{board.address}: {command} failed: {record}") from exc
+    finally:
+        record["elapsed_s"] = time.monotonic() - started
 
 
 def _wait_ring_state(board, args, *, started, topology=None):

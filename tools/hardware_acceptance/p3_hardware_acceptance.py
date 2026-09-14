@@ -1044,6 +1044,21 @@ def _validate_evidence(root: Path, record: dict[str, Any], *,
     if handoff is not None:
         _validate_evidence_file(
             root, handoff, "calibration_parameter_handoff")
+    stopped_handoff = record.get("tdma_stopped_handoff")
+    if stopped_handoff is not None:
+        path = _validate_evidence_file(root, stopped_handoff, "tdma_stopped_handoff")
+        proof = json.loads(path.read_text(encoding="utf-8"))
+        if proof.get("mode") != "STOPPED_RECORDS" or not isinstance(proof.get("passed"), bool):
+            raise AcceptanceError("invalid TDMA stopped handoff proof")
+        if proof["passed"]:
+            rows = proof.get("records", [])
+            board_ids = record.get("tdma_board_ids", [])
+            if (proof.get("build_id") != record.get("build_id") or
+                    len(rows) != len(board_ids) or
+                    {row.get("board") for row in rows} != set(board_ids)):
+                raise AcceptanceError("TDMA stopped handoff identity mismatch")
+            for row in rows:
+                _validate_evidence_file(root, row, "tdma_board_record")
 
 
 def _validate_evidence_file(root: Path, evidence: object, name: str) -> Path:
@@ -1059,6 +1074,73 @@ def _validate_evidence_file(root: Path, evidence: object, name: str) -> Path:
     if sha256_file(path) != expected:
         raise AcceptanceError(f"local {name} evidence digest changed: {relative}")
     return path
+
+
+def validate_tdma_stopped_handoff(
+        root: Path, summary: dict[str, Any], board_ids: list[str],
+        build_id: str) -> dict[str, Any]:
+    """Prove a finite observation ended cleanly using original board records.
+
+    This is a stopped handoff, independent of the live handoff required by
+    subsequent observers. Existing closed-loop/phase gates are evaluated by
+    their callers; no failed quality result is replaced by this proof.
+    """
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from tools.calibration_ring_validate.tdma_board_record import decode_record
+
+    try:
+        if (not board_ids or len(set(board_ids)) != len(board_ids) or
+                summary.get("left_running") is not False or
+                summary.get("leave_running_requested") is not False):
+            raise ValueError("finite stopped handoff was not requested/completed")
+        for field in ("stopped", "boards", "board_records", "nodes"):
+            if not isinstance(summary.get(field), dict) or set(summary[field]) != set(board_ids):
+                raise ValueError(f"{field} board set mismatch")
+        actions = summary["actions"]
+        starts = [(i, row) for i, row in enumerate(actions) if row.get("action") == "START"]
+        stops = [(i, row) for i, row in enumerate(actions) if row.get("action") == "STOP_BEFORE_EXPORT"]
+        for name, rows in (("START", starts), ("STOP_BEFORE_EXPORT", stops)):
+            if (len(rows) != len(board_ids) or {r["node"] for _, r in rows} != set(board_ids) or
+                    any(str(r.get("response", "")).strip().strip('"') != "OK" for _, r in rows)):
+                raise ValueError(f"{name} acknowledgement incomplete")
+        if min(i for i, _ in stops) <= max(i for i, _ in starts):
+            raise ValueError("STOP before all START acknowledgements")
+        evidence, epochs = [], set()
+        for address in board_ids:
+            stop = summary["stopped"][address]
+            if (stop.get("passed") != 1 or stop.get("skipped") or
+                    stop.get("ring_enabled") != 0 or stop.get("ring_adapter_started") != 0 or
+                    not isinstance(stop.get("ring_config_seq"), int) or
+                    stop["ring_config_seq"] != stop.get("ring_applied_config_seq")):
+                raise ValueError(f"{address}: STOP/configuration not acknowledged")
+            board = summary["boards"][address]
+            if board.get("address") != address or str(board.get("build")) != str(build_id):
+                raise ValueError(f"{address}: live build/board identity mismatch")
+            record = summary["board_records"][address]
+            status = record["status"]
+            path = (root / record["path"]).resolve()
+            path.relative_to(root.resolve())
+            raw = path.read_bytes()
+            if status.get("state") != 5 or status.get("bytes") != len(raw):
+                raise ValueError(f"{address}: frozen status/length mismatch")
+            decoded = decode_record(raw, expected_build=build_id,
+                                    expected_board=int(address, 16), expected_epoch=status["epoch"])
+            if decoded["collection_passed"] is not True:
+                raise ValueError(f"{address}: incomplete board record: {decoded['errors']}")
+            for field in ("requested", "written", "missed", "reason"):
+                if status.get(field) != decoded["terminal"][field]:
+                    raise ValueError(f"{address}: frozen {field} mismatch")
+            epochs.add(decoded["epoch"])
+            evidence.append(dict(board=address, **evidence_entry(root, path),
+                                 sample_count=len(decoded["samples"]),
+                                 stopped_config_seq=stop["ring_config_seq"]))
+        if len(epochs) != 1:
+            raise ValueError("board capture epochs differ")
+    except (KeyError, TypeError, ValueError, OSError) as exc:
+        raise AcceptanceError(f"TDMA stopped handoff incomplete: {exc}") from exc
+    return dict(mode="STOPPED_RECORDS", passed=True, build_id=build_id,
+                epoch=epochs.pop(), records=evidence)
 
 
 def validate_tdma_diagnostic_summary(
@@ -1923,6 +2005,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
     diagnostic_continue = bool(getattr(args, "diagnostic_continue", False))
     acceptance_profile = str(config.get("acceptance_profile", "FULL"))
     quick_diagnostic = acceptance_profile == "QUICK_DIAGNOSTIC"
+    finite_tdma = tdma_only and quick_diagnostic
     # QUICK_DIAGNOSTIC is the default iteration path. It retains every
     # rejection and never upgrades diagnostics to strict product PASS.
     if quick_diagnostic:
@@ -2582,9 +2665,8 @@ def run_acceptance(args: argparse.Namespace) -> None:
         "--stage", "process-image", "--dpll-provisional",
         "--clock-evidence", "enabled",
         # Finite four-board diagnostics export only after every ring is STOPPED.
-        # Keep the existing running-handoff gate below: this mode does not prove
-        # a live handoff and must retain that strict-gate failure in its receipt.
-        *([] if tdma_only and quick_diagnostic else ["--leave-running"]),
+        # The stopped-record proof below replaces only the live observer handoff.
+        *([] if finite_tdma else ["--leave-running"]),
         "--window-s", str(config["tdma_window_s"]),
         "--sample-interval-s", str(config["tdma_sample_interval_s"]),
         "--startup-timeout-s", str(config["tdma_startup_timeout_s"]),
@@ -2615,7 +2697,21 @@ def run_acceptance(args: argparse.Namespace) -> None:
         })
     else:
         validate_pass_summary(tdma_summary, "four-Node TDMA closed loop")
-    if tdma_summary.get("left_running") is not True:
+    stopped_handoff_path: Path | None = None
+    if finite_tdma:
+        try:
+            stopped_handoff = validate_tdma_stopped_handoff(root, tdma_summary, board_ids, build_id)
+        except AcceptanceError as exc:
+            if not diagnostic_continue:
+                raise
+            stopped_handoff = dict(mode="STOPPED_RECORDS", passed=False, error=str(exc))
+            diagnostic_failures.append({
+                "phase": "TDMA stopped-record handoff", "returncode": 1,
+                "error": str(exc), "summary": tdma_summary_path.resolve().relative_to(root).as_posix(),
+            })
+        stopped_handoff_path = out_dir / "tdma-stopped-handoff.json"
+        stopped_handoff_path.write_text(json.dumps(stopped_handoff, indent=2) + "\n", encoding="utf-8")
+    elif tdma_summary.get("left_running") is not True:
         if not diagnostic_continue:
             raise AcceptanceError("TDMA gate did not hand off a running loop")
         diagnostic_failures.append({
@@ -2829,6 +2925,8 @@ def run_acceptance(args: argparse.Namespace) -> None:
         }
         if dpll_summary_path is not None:
             value["dpll_summary"] = evidence_entry(root, dpll_summary_path)
+        if stopped_handoff_path is not None:
+            value["tdma_stopped_handoff"] = evidence_entry(root, stopped_handoff_path)
         if internal_dpll_summary_path is not None:
             value["internal_dpll_summary"] = evidence_entry(
                 root, internal_dpll_summary_path)
