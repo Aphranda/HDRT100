@@ -39,13 +39,63 @@ Last updated: 2026-09-14
 `VDC-PROGRESS-20260914-017`；有界邮箱合批及当前四板交接对照见
 `VDC-PROGRESS-20260914-018`；完整校准 CRC 的 SRAM 实现、初始化失败恢复及普通/
 自主相位分离复核见 `VDC-PROGRESS-20260914-019`；就绪阶段合批、构造取消与重臂
-交接对照见 `VDC-PROGRESS-20260914-020`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
+交接对照见 `VDC-PROGRESS-20260914-020`；原生记录逐槽离线检查及从板观察缺口见
+`VDC-PROGRESS-20260914-021`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
 `VDC-ROLE-001`；全表 WCET 和正式锁相仍未闭合，
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260914-021 — 原生记录逐槽检查与接收观察缺口
+
+- TODO task ID：`VDC-TIME-002`、`VDC-VERIFY-001`。
+- 状态：IN PROGRESS。离线诊断工具切片已验收；完整窗口连续性、同圈时间输入和
+  全表 WCET 仍未闭合，`VDC-TIME-003/004` 保持 PENDING。
+- 日期：2026-09-14。
+- 证据根：`out/HardwareAcceptance/20260914/dpll-observation-audit/`。
+  `current-plan.json` 绑定源码、部署包与前轮封存；`review-final-r1.json` 为总复核，
+  提交身份及逐文件散列由 `slice-manifest.json` / `commit-proof.json` 绑定。
+  以下数值均为测量快照，非事实源。
+- 实现：新增 `tools/calibration_ring_validate/tdma_observation_audit.py`，直接解码
+  原生二进制并校验 CRC、build/board/采集 epoch、预期槽数/间隔、配置代际、persona/
+  FSM、回传序号/身份、接收代际、FIFO 推进以及拒收/缺失/overrun 增量。全部采样槽
+  和 baseline 计数增量都进入报告，启动失败和中途失败不能被后续恢复隐藏。跨组
+  字段非同时采样，仅在序号相同时比较身份，否则明确记为不可比较。
+- 模式边界：STOP 后的成功 HANDoff 必须与独立控制记录中的 trial/config/clock
+  匹配，才能解释自主 persona 下的软件 TX 平台；实际回传、接收代际和 FIFO 仍须
+  前进。普通 origin/follower 继续要求 TX 推进。该工具是独立诊断伴随工具，未修改
+  TRN03 或 P3 门禁；它不证明逐样本 grant、逐圈 raw 身份、物理发车连续性、有效
+  时间戳或 WCET。现有采样 schema 没有这些完整字段，STOP 冻结的尾部记录也不能
+  替代整窗。`TDMA_RING_RUNTIME_REASON_TIMESTAMP_MISSING` 单列为时间输入缺口。
+- 软件与构建：173 项相关测试通过，使用生产 C recorder 输出验证停滞、回放/倒退、
+  正向回绕、半区间跳变、身份/代际错配、CRC 损坏、缺少交接上下文以及启动和中途
+  错误。容量 6/8 的 A/B、boot 增量构建分别 5.610/5.532 s，部署包及静态 RAM 段
+  与前轮完全相同；主 RAM 余量仍为 4636/876 B。本切片只有主机工具/测试变更，
+  不声称改变实时执行耗时。源码指纹为
+  `ef5b67799fd11a2151750cca1d526ddc6f6322a986b4f6f9b91c0bf6945df20a`；
+  build ID 仍为 `20260914112635`，包散列见 plan，结合当前 OTA 原件区分验收。
+- 当前源码 quick P3：含增量构建和四板 OTA 共 192.468 s，短帧 passed/closed_loop/
+  realtime 均 true，strict_gates_passed=true，无 diagnostic failure。STOP 后原生
+  TDMA SD 保存和字节一致性通过；该普通模式通过不提升后续自主诊断的失败结果。
+- 四板有限自主交接：trial/config 为 36/71，总交接 5904.296 µs；每板原生记录
+  各 34 条、无漏采，NO1 有 28 条自主样本。启动阶段接收拒绝增量为 5/4/4/2，
+  missing 均零，但 RX ring overrun 为 0/2/0/2；NO2 的早期接收未就绪也被保留。
+  当前报告为 `dpll-observation-audit-handoff-r1-observations.json`，
+  完整窗口 observation_checks_passed=false；原始 passed/closed_loop/realtime
+  仍全部 false。全窗 NO1 TDMA overrun/deadline 增量为 460/435，从板两类增量均零。
+- 旧证据复核：前轮两次原生文件经 SD 散列和控制记录重新绑定，未改写原件；RX
+  ring overrun 增量分别为 0/2/10/7 和 0/1/5/12，missing 同样均零。这是原有
+  观察缺口的新检出，不是本轮主机工具造成的固件回归。源码
+  `tdma_pio_spi_phys_capture_words_async()` 在 DMA 写入超过未观察位置一个
+  `TDMA_PIO_SPI_RX_RING_WORDS` 容量时累计 overrun，之后按有界新窗口推进游标。
+  因而 missing 为零不能证明无接收观察覆盖；overrun 也不直接证明物理环路停发。
+- 收尾与下一 gate：首次 START 至最终 STOP 之间没有 SCPI 查询，全部 STOP 后
+  顺序保存原生 SD；最终四板 STOP/config ACK/grant inactive，未操作 NO5。
+  继续 `VDC-TIME-002`，先定位从板 RX 消费积压/覆盖与启动拒收，同时保留普通
+  origin 超限、准备/准入完整相位、交接及其他配置的门禁；补齐逐圈身份与实际边沿
+  证据后才进入 `VDC-TIME-003/004`。本轮未接通新的 DPLL 输入，不声明正式锁相。
 
 ### VDC-PROGRESS-20260914-020 — 就绪阶段有界合批与取消后重臂
 
