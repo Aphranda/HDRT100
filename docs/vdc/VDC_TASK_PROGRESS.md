@@ -30,13 +30,81 @@ Last updated: 2026-09-14
 自主 origin 补测发现时间输入尚未接通，见 `VDC-PROGRESS-20260914-007`；事件与资源
 审计见 `VDC-PROGRESS-20260914-008`；原始记录原型、当前容量目标链接及板端预采见
 `VDC-PROGRESS-20260914-009`；配置矩阵、raw 退休及两次重臂补测见
-`VDC-PROGRESS-20260914-010`。当前入口仍为 `VDC-TIME-002`，补齐剩余准入几何与
-目标容量验收后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
+`VDC-PROGRESS-20260914-010`；owner 几何与目标容量资源补测见
+`VDC-PROGRESS-20260914-011`。当前入口仍为 `VDC-TIME-002`，补齐剩余目标容量和
+硬件配置验收后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
 `VDC-ROLE-001`；全表 WCET 和正式锁相仍未闭合，
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260914-011 — 目标容量 RAM 缺口与 UI 状态副本收敛
+
+- TODO task ID：`VDC-TIME-002`、`VDC-CONFIG-001`、`VDC-TDMA-001`、`VDC-EVID-001`。
+- 状态：`VDC-TIME-002` 保持 IN PROGRESS；`VDC-TIME-003/004` 保持 PENDING，
+  未关闭长期锁相目标。
+- 日期：2026-09-14。
+- 证据根：`out/HardwareAcceptance/20260914/dpll-raw-capacity/`。`plan.json` 绑定
+  前序 manifest，`current-plan.json` / `source-checkpoint-r2.json` 分别绑定两种容量。
+  以下容量、字节数、组合数及构建号均为本次快照，非事实源。
+- 原始失败：未修改 UI 时，容量 8 的实际 A 链接主 RAM 超出 2428 B；失败 map、
+  日志和源码指纹保留于 `build-capacity8-r1`，没有部署该失败产物。B 链接尚未产生
+  map，不能伪造修复前 B 对照，也不能从容量 6 的 host 测试推断容量 8 可部署。
+- 资源修复：UI 只消费触发器的 19 个标量，却持有包含对齐序列表的完整 3072 B
+  TriggerVector。Sync Trigger owner 新增 `sync_trigger_status_t` 和
+  `sync_trigger_get_status()`，沿用现有临界区复制这些状态；UI 改为保存紧凑副本。
+  原完整 getter、TriggerVector、序列表和硬件 owner 不变；未借用 Core1 栈或关闭
+  原始计时记录。host C 测试覆盖空指针、未初始化、极值、锁内复制、解锁后源更新和
+  UI 实际消费字段的等价性，`status-tests-r1` 通过。
+- 目标链接：修复后容量 6/8 的 A/B 和 boot 均通过。ARM ABI 的 status 为 52 B；
+  容量 6 UI 从 7168 B 缩到 3392 B，BSS 回收 3776 B，预留 2048 B heap 后主 RAM
+  余量为 4908 B。容量 8 UI 为 3592 B，BSS 相对失败 A map 回收 3576 B，heap 后
+  余量为 1148 B；新 A/B 主 RAM 布局一致。gdb 复核完整 TriggerVector 布局未变，
+  SCRATCH_X 未分配数据，Core1 栈和 SCRATCH_Y/主核栈边界通过。详见
+  `resource-review.json` / `source-checkpoint-r2.json`，回收空间尚未分配给命令缓冲。
+- 配置几何：实际 owner 使用连续 active mask；在其固定 PIO/SM/DMA 分配下，覆盖
+  每个运行节点数/local slot、准入 tail/prefix、选定 guard/abort 边界和记录开关。
+  容量 6 为 359940 组、容量 8 为 532140 组，最大单步均为 22 runs；最大 run/
+  literal 分别为 314/133 和 334/137。探针调用真实生产 builder，使用合成 SRAM
+  地址；不证明实际总线延迟、SM 启动偏移或边沿误差。首次容量 6 探针有编译错误，
+  首次 checkpoint 有失败 B map 路径错误，均保留原件；修正辅助入口后成功，未改变
+  生产图逻辑。原有 active mask、raw 退休/回绕和取消测试仍由前序证据分别证明。
+- 当前源码：指纹
+  `61dc542b045cc01fe402269b4b8bbdd1c2e1a07c332f834a81cf9f07d40774e8`；容量 6 build
+  `20260914080902`，容量 8 build `20260914075453`。两包 SHA 在 `current-plan.json`
+  中区分，map 绑定见 `source-checkpoint-r2.json`。当前硬件回归只部署容量 6 到 NO1–NO4；容量 8
+  只有目标链接，没有本轮 HIL。未操作 NO5。
+- 当前 P3：quick 流程完成，SCK 训练、replay 矩阵和短帧的
+  passed/closed_loop_passed/realtime_gate_passed 均通过；STOP 后四板原生 TDMA SD
+  一致。`strict_gates_passed=false`，本轮唯一失败项为总时长 513.447 s 超过
+  450 s；构建复核为 326.346 s、OTA 为 103.567 s，详见 `p3-r1/timing.json`。
+  不能把本轮 SCK 成功外推为间歇失败根因已解决，更不能直接提升正式锁相。
+- 自主预采：为保持与前序配置对账，显式使用 `current-plan.json` 绑定的既有诊断
+  matrix；没有把它替换成本轮新矩阵。四板各 34 条原生记录完整，无漏采，SD 字节
+  一致。NO1 保留 epoch 1、序列 8181–8187 的完整 raw 记录，读取区间均为 252 ns，
+  仅为 timer 访问诊断。自主整窗三项判据仍失败，四板各一次真实 missing；预选
+  3–6 s 中段接收增量为 917/917/917/918，拒绝、missing 和各相位 start miss/
+  overrun 无增长。主板 TDMA RUN 保留峰值为 594.996 µs，不能从此次单窗变化推断
+  UI 修复降低了实时 WCET。四板自主 DPLL trace 为零，真实更新路径仍未接通。
+- 导出修复：原生 TDMA SD 通过后，主机 raw 副本上传的 BEGIN 和首次 DATA 出现
+  应答超时。辅助脚本误用了通用应答过滤器，合法复合应答不能返回；事务状态证明
+  BEGIN 和首块 DATA 已执行。改用既有 `storage_file_upload` 完整应答入口，核对
+  transaction/path/length/CRC/offset 后续传，两次 SD 读回与主机副本一致。两次失败
+  均保留；该文件仍是主机导出后写 SD 的副本，不是板端原生 recorder。没有修改生产
+  SCPI 工具或增加超时以掩盖问题。
+- 普通恢复：三项短帧判据通过，四板各 26 条记录和 SD 一致；NO1 七个 raw age
+  查询均 UNAVAILABLE，旧自主记录没有复活。普通中段仍有主板 TDMA overrun 198、
+  VDC start miss 207，不能关闭全表 WCET。最终四板 STOP/config ACK、临时许可证
+  inactive。全窗、中段、raw/SD 和失败对照见 `review-final.json`。
+- 快速迭代：按用户要求，下一切片先降低 quick 验收自身耗时。优先修复源码扫描器
+  遍历历史 `out/` 后才排除的目录开销，保持既有扫描范围和 P3 硬件判据，重新测量
+  增量构建与完整 quick 流程；不能以跳过必跑门禁或提高超时门限替代提速。
+- 剩余门禁：编译容量 2/3/4/5/7 尚待当前源码目标链接；容量 8 及其他硬件配置尚未
+  验收，四板运行不能证明八块物理节点。`VDC-TIME-002` 的完整准入条件继续保留，
+  后续才进入 `VDC-TIME-003` 的切换连续性及实际边沿误差界，再进入
+  `VDC-TIME-004` 的 trailer/同圈输入。raw timer 读取不授予 COMMON_TIME 或 formal
+  qualification；本轮不接 follower command，不据 RAM 修复宣布 DPLL 已锁相。
 
 ### VDC-PROGRESS-20260914-010 — 原始计时配置矩阵、重臂与归档退休
 

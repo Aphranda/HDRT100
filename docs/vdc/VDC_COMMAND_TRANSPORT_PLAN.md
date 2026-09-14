@@ -125,8 +125,10 @@ mode/seed、仅选中 executor 的 SNIFF transfer 参与计算；FAULT/资源释
 run 分配保持原边界，literal 分配按对应符号调整。新增归档、producer、冻结副本和
 对齐均需计入预算，不能从总 BSS 不变推断没有消耗 RAM。当前容量目标链接和节点
 构造矩阵已有证据；扩展矩阵覆盖全部 active mask/有效 local slot 与选定 guard/abort
-组合，但使用固定 PIO/DMA、地址及 prefix 几何。raw 复制交错、计数回绕与 STOP 后
-退休已有补测，其他目标容量、其余准入几何及有界取消证据仍由 `VDC-TIME-002` 跟踪。
+组合。后续 owner 准入 tail/prefix 探针及当前/上限容量链接见
+`VDC-PROGRESS-20260914-011`，仍使用固定的 owner PIO/DMA 和合成地址。raw 复制
+交错、计数回绕与 STOP 后退休已有补测，剩余目标容量、硬件配置及有界取消证据仍由
+`VDC-TIME-002` 跟踪，不能从 host 构造或目标链接推断物理边沿已经验收。
 
 切换缺失的只读审计显示，旧环路停止之后才选择自主 persona、构建并安装 DMA 图；
 普通服务与自主图共享 workspace union，不能直接在旧 DMA 运行时覆盖构建。后续
@@ -212,9 +214,13 @@ prepared / applied 身份与实际时间。过期、映射无效或准备未完�
 
 `VDC-RESOURCE-001` 已将 `s_tdma_flight_sync.context` 收敛为专用 compact DELTA
 receiver，保留 peer、mirror 和 quality，通用 RefMem receiver 保持完整能力。当前
-编译容量的实际回收和剩余链接余量见 `VDC-PROGRESS-20260914-005/006`；其他容量
-仍只有 host 对照，不能继承目标链接结论。组装区、稳定命令、guard、预约锚点和
-双缓冲仍须分别完成预算后再接线，已回收 RAM 不等于这些缓冲已经分配或准入。
+编译容量的实际回收和剩余链接余量见 `VDC-PROGRESS-20260914-005/006`。
+`VDC-PROGRESS-20260914-011` 补充当前与上限容量的目标链接：上限容量曾出现真实
+RAM 溢出，随后由 Sync Trigger owner 提供 `sync_trigger_status_t` /
+`sync_trigger_get_status()`，使 UI 仅保存所消费的标量状态；完整 TriggerVector 和
+序列表继续由原 owner 持有，Core1 栈不用于补足主 RAM。剩余容量及相应硬件配置
+不能继承这两种容量的结果。组装区、稳定命令、guard、预约锚点和双缓冲仍须分别完成
+预算后再接线，已回收 RAM 不等于这些缓冲已经分配或准入。
 
 ## 6. 独立审核与负测清单
 
