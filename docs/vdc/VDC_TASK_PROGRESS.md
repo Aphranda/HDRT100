@@ -53,7 +53,8 @@ Last updated: 2026-09-15
 定位见 `VDC-PROGRESS-20260915-004`；最终启用前 CS 准入复验见
 `VDC-PROGRESS-20260915-005`；有界原始事件保留基础见
 `VDC-PROGRESS-20260915-006`；准入尝试诊断与失败采集自动留证见
-`VDC-PROGRESS-20260915-007`。当前入口仍为
+`VDC-PROGRESS-20260915-007`；DMA 私有捕获凭据到 RX station 的贯通及 RAM 布局
+收敛见 `VDC-PROGRESS-20260915-008`。当前入口仍为
 `VDC-TIME-002`，补齐硬件配置、交接时延
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
@@ -61,6 +62,67 @@ Last updated: 2026-09-15
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260915-008 — 私有报文携带 DMA 捕获凭据
+
+- TODO task ID：`VDC-TIME-002`、`VDC-VERIFY-001`；状态 IN PROGRESS。证据根为
+  `out/HardwareAcceptance/20260915/dpll-rx-capture-provenance/`。以下容量、数量、
+  时间及代际为本轮快照，非事实源；本切片只完成 private-copy provenance 基础。
+- 实现：TDMA physical owner 的 `tdma_pio_spi_phys_rx_ex()` 同调用交付私有 packet
+  与 `tdma_rx_capture_t`，记录独立 ARM/capture ID、本次 observation epoch、
+  candidate、复制前后 produced、frame words、bit shift 及 persona。两个 ID 在
+  本 boot 内不因物理对象初始化或重臂重复，饱和后只停止诊断资格；失败、旧 backend
+  及自主 origin 不生成凭据。STOP/RX 重装/ARM 入口退休 ARM 有效位。
+- 同次观察：沿用已有两次 DMA 水位观察和 header 复验，不新增寄存器读取。
+  candidate/frame words 包括交付前剥离的物理包头；非零 bit shift 实际读取一个
+  额外原始 word。`TDMA_RX_CAPTURE_PRIVATE_COPY` 只证明私有复制与 header 检查，
+  不证明 transport/mailbox CRC 或物理事件身份。成功后的凭据整理使用本次已有
+  局部值，不能重读水位或将后续状态冒充捕获现场。
+- 交接：可选扩展 callback 只能在 STOP 修改，更换 backend 清除旧扩展。只有
+  IDLE station 接收本次 packet/capture；Core0 解析私有副本并保留凭据。REQUESTED/
+  BUILDING/READY 取消沿用 ACK 所有权规则，不提前覆盖 worker 字段。字段容纳于
+  原 station/注入队列 union；本切片未查询事件历史，也未产生诊断候选 lease。
+- 软件：`host-station-r2` 真实 adapter 路径通过，覆盖同取消代际下连续包 ID 不同、
+  worker 暂停、副本不变、各阶段 STOP、脏输出清零和 backend 切换。初轮缺少
+  `assert.h` 的编译失败保留。`host-physical-r3` 共 34 项通过，六组专项执行真实
+  RX ARM/dispatcher/rx_ex/旧 wrapper，覆盖偏移、反向、ring wrap、覆盖/代际变化、
+  容量失败、连续包、重臂及 ID 饱和。SDK/latch/autonomous facade 不证明物理边沿。
+  event adapter 回归通过；event service 初轮 fixture 缺新成员，补公共结构后通过。
+- RAM 收敛：r1 热段增加导致 BSS 跨过既有对齐边界，6/8 节点余量降至
+  14172/10412 B。保留原件及 r1 实板 P3；r2 仅构建，六节点仍跨界，未部署。
+  最终 r3 将成功后的整理移至 Flash helper，仅扫描控制函数使用 `Os`，保留 SRAM
+  复制叶；删除由 dispatcher 保证的内部重复清零，公开失败清理不变。四份目标
+  map 恢复原 BSS 起点，余量为 18268/14508 B（已扣 heap 预留），净增静态 RAM
+  16 B，恢复 r1 的 4096 B；SCRATCH_X 数据为零。热段为 1040 B，目标函数自身
+  栈 async/helper/rx_ex/rx_once 为 112/16/64/416 B，不能当全调用链高水位。
+- 当前构建：`current-plan-r3.json` 绑定指纹
+  `74c67aaa7de5c5597aa027ebab9b915498268f22e3032d6d86b450f39ede66fc` / 1088，
+  6/8 节点 A/B 均通过。build ID 沿用 `20260914184059`，六节点 package SHA 为
+  `d15405355b43f9b364fa01cbb98b991e819da4ff6ab06841887422f79cdf5188`；各版本
+  源码、构建、反汇编及 SU 归档分开保存，不能用 r1 凭证放行 r3。
+- 当前 r3 P3 用时 178.265 s，普通短帧 passed/closed_loop/realtime/diagnostic
+  均为 true，`strict_gates_passed=true`、diagnostic failures 为空。四板各 14 槽
+  加 baseline，STOP/ACK 后顺序 SD 保存读取 6.907 s，与 SRAM 原件一致。
+- 预声明唯一自主 `capture-r1` 用时 39.422 s，准入 ACCEPTED，trial epoch 为
+  36、初末配置为 70、初末模型为 24。四板各 18 槽加 baseline，collection 全通过；
+  三从 epoch 为 2，published 为 7167/7239/7294，无 INVALID，最大服务间隔为
+  1588/1588/1581 µs，RX/TX FIFO 最大均为 4 words。STOP/ACK 后 SD 保存读取
+  7.406 s，四板与 SRAM 逐字节一致；RUN 内未用 SCPI 查询采样。
+- 失败保留：自主 passed/closed_loop/realtime 仍为 false，第三个健康样本最晚
+  2.016150 s，超过预声明 2 s startup 门；NO1 仍有 `adapter_tx_not_growing`、
+  `physical_flight_persona_mismatch`、`periodic_interval_gate_failed`。diagnostic
+  为 true 只表示原生记录和从板观察连续性。未追加轮次，未追认旧失败。
+- 时间反馈：`timing-feedback.json` 按原始 STOP peak 对照前切片。PEAK 由内部
+  `total_ticks` 选取；NO1 该记录的外层完整相位耗时为 1484.596 µs，并非已证明的
+  全窗外层最大值，且发生在 trial 前状态迁移，不能称自主稳态；NO3/NO4 对应耗时
+  为 1043.324/1032.832 µs，NO2 原响应 UNAVAILABLE。可用记录低于前轮同板记录，
+  但调用组合和 cache 状态不同，不能据此证明 `Os`/helper 的独立收益、完整 WCET
+  或全窗预算通过；缺失项不以旧值补齐。
+- 下一 gate：继续 `VDC-TIME-002`，在 Core1 READY 边界验证捕获仍属于当前 ARM/
+  observer 代际后执行有界 history 候选查询；显式处理覆盖、迟到、错序和 STOP/
+  INVALID 退休。同 sequence 只作候选，FLIGHT_MUTABLE 头 CRC 不替代所有邮箱
+  CRC；物理 anchor 与身份仍待证明。原生记录尚未导出逐包凭据字段，实板结果只
+  证明本切片资源及原 TDMA/observer 连续性，`VDC-TIME-003/004` 保持 PENDING。
 
 ### VDC-PROGRESS-20260915-007 — 临时准入原因与失败采集留证
 

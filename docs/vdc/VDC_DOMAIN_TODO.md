@@ -29,11 +29,13 @@ epoch、有界交接及失效退休。成对事件观察器的生产接入由 TD
 基础已完成 source/host、目标资源与普通短帧验收；随后准入诊断已通过独立 oracle、
 当前源码 P3 和 STOP 拒绝负测，单次自主采集获准并完成原生窗口。旧未知 grant 拒绝
 和本轮自主 startup/普通 persona 门禁失败均保留，不以新通过追认旧失败。
-继续原始事件与已校验 packet 的有界身份候选关联：先贯通真实 DMA 捕获凭据到
-RX station，验收后再接 Core1 READY 边界的历史候选查询；逐 capture lease 不复用 STOP 取消代际，
+真实 DMA 捕获凭据到 RX station 已通过 source/host、当前源码 P3 与原生连续性
+对照，资源布局恢复后保持小幅净增；自主 startup/普通 persona 失败仍保留。
+继续原始事件与已校验 packet 的有界身份候选关联，接 Core1 READY 边界的历史
+候选查询；逐 capture lease 不复用 STOP 取消代际，
 绑定 observer/ARM 代际及 DMA 复制范围，明确覆盖、迟到、错序与取消退休。候选仍为
 诊断属性，物理 anchor 和正式资格随后单独验收。自主总门禁、身份和物理精度仍未
-闭合；历史严格校准失败保留。证据见 `VDC-PROGRESS-20260915-001/003/004/005/006/007`；OTA 保持现状。
+闭合；历史严格校准失败保留。证据见 `VDC-PROGRESS-20260915-001/003/004/005/006/007/008`；OTA 保持现状。
 
 ## 长期执行目标：符合 HAOFV 的可配置多节点 DPLL 锁相闭环
 
