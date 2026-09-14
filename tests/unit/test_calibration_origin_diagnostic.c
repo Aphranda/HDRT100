@@ -10,7 +10,7 @@
 
 enum { CALL_RING, CALL_CONFIG, CALL_STAGE, CALL_CAPABILITY, CALL_OWNER,
        CALL_OWNER_SNAPSHOT, CALL_CADENCE, CALL_CLOCK, CALL_CRC, CALL_ADMISSION, CALL_MODEL };
-static unsigned trace[32], trace_count, ring_calls;
+static unsigned trace[32], trace_count, ring_calls, broad_calls, foundation_calls;
 static uint32_t observed_mask;
 static bool require_revoked;
 static void called(unsigned id);
@@ -22,6 +22,7 @@ static struct {
     tdma_service_snapshot_t owner;
     bool ring_available[2], config_available, stage_available, complete;
     bool capability_available, owner_available, admission_available;
+    bool unrelated_snapshot_available;
     uint32_t admitted_epoch, current_epoch;
     uint64_t ticks;
 } model;
@@ -59,8 +60,23 @@ static tdma_service_service_t *tdma_runtime_owner_get(void) { called(CALL_OWNER)
 bool tdma_service_get_snapshot(const tdma_service_service_t *instance, tdma_service_snapshot_t *out)
 {
     called(CALL_OWNER_SNAPSHOT); assert(instance == &owner);
-    if (!model.owner_available) { memset(out, 0xa5, sizeof(*out)); return false; }
+    ++broad_calls;
+    if (!model.owner_available || !model.unrelated_snapshot_available) {
+        memset(out, 0xa5, sizeof(*out)); return false;
+    }
     *out = model.owner; observed_mask |= CALIBRATION_ORIGIN_OBS_OWNER; return true;
+}
+bool tdma_service_get_foundation_crc32(const tdma_service_service_t *instance, uint32_t *out)
+{
+    /* Same logical owner-read point in the frozen helper-order oracle. The
+     * separate counters prove production uses only the narrow API. Actual
+     * generation/lock behavior executes in test_tdma_foundation_snapshot.py. */
+    called(CALL_OWNER_SNAPSHOT); assert(instance == &owner);
+    ++foundation_calls;
+    *out = 0u;
+    if (!model.owner_available) return false;
+    *out = model.owner.foundation_profile_crc32;
+    observed_mask |= CALIBRATION_ORIGIN_OBS_OWNER; return true;
 }
 static uint64_t vdc_timestamp_clock_read_ticks64(void)
 { called(CALL_CLOCK); observed_mask |= CALIBRATION_ORIGIN_OBS_CLOCK; return model.ticks; }
@@ -155,7 +171,8 @@ static bool baseline_trial(uint32_t trial_id, uint32_t rearm_budget_ticks,
     return true;
 }
 
-static void clear_trace(void) { trace_count = ring_calls = observed_mask = 0u; }
+static void clear_trace(void)
+{ trace_count = ring_calls = observed_mask = broad_calls = foundation_calls = 0u; }
 static void setup(void)
 {
     memset(&model, 0, sizeof(model));
@@ -174,6 +191,7 @@ static void setup(void)
     model.ring_available[0] = model.ring_available[1] = model.config_available = true;
     model.stage_available = model.complete = model.capability_available = true;
     model.owner_available = model.admission_available = true;
+    model.unrelated_snapshot_available = true;
     model.admitted_epoch = model.current_epoch = 808u;
     model.ticks = 100u;
     clear_trace(); require_revoked = true;
@@ -316,11 +334,13 @@ static void test_oracle(void)
     for (unsigned id = 0u; id < CASE_COUNT; ++id) {
         authorized(); request_t request = configure(id);
         const bool old_result = invoke(request, true);
+        assert(foundation_calls == 0u);
         calibration_origin_timing_t old_timing = s_origin_timing;
         const unsigned old_count = trace_count;
         unsigned old_trace[32]; memcpy(old_trace, trace, sizeof(trace));
         authorized(); request = configure(id);
         const bool result = invoke(request, false);
+        assert(broad_calls == 0u);
         assert(result == old_result);
         assert(result == (request.reason == CALIBRATION_ORIGIN_ATTEMPT_ACCEPTED));
         assert_timing_equal(&old_timing, &s_origin_timing);
@@ -332,7 +352,35 @@ static void test_oracle(void)
         assert(calibration_manager_origin_get_attempt(&attempt));
         assert_attempt(&request, &attempt);
     }
-    printf("origin diagnostic: %u frozen-oracle cases, unchanged grant/epoch/helper order, exact reasons/masks passed\n", CASE_COUNT);
+    printf("origin diagnostic: %u frozen-oracle cases with equivalent owner availability, unchanged grant/epoch/logical helper order, exact reasons/masks passed\n", CASE_COUNT);
+}
+
+static void test_foundation(void)
+{
+    authorized(); request_t good = configure(CASE_GOOD);
+    model.unrelated_snapshot_available = false;
+    assert(!invoke(good, true));
+    assert(broad_calls == 1u && foundation_calls == 0u && !s_origin_timing.enabled);
+    /* Deliberate availability difference from the unchanged frozen oracle. */
+    authorized(); good = configure(CASE_GOOD);
+    model.unrelated_snapshot_available = false;
+    model.owner.foundation_profile_crc32 = 0x12345678u;
+    assert(invoke(good, false));
+    assert(broad_calls == 0u && foundation_calls == 1u);
+    assert(s_origin_timing.admission.foundation_crc32 == 0x12345678u);
+    for (unsigned id = 0u; id < CASE_COUNT; ++id) {
+        authorized(); request_t request = configure(id);
+        model.unrelated_snapshot_available = false;
+        const bool result = invoke(request, false);
+        assert(result == (request.reason == CALIBRATION_ORIGIN_ATTEMPT_ACCEPTED));
+        assert(broad_calls == 0u && foundation_calls <= 1u);
+        assert(s_origin_timing.enabled == (result ? 1u : 0u));
+        assert(s_origin_timing_guard == (result ? 8u : 6u));
+        calibration_origin_attempt_t attempt;
+        assert(calibration_manager_origin_get_attempt(&attempt));
+        assert_attempt(&request, &attempt);
+    }
+    puts("foundation admission: broad-only unavailability removed; all actual rejection predicates and authority retirement passed");
 }
 
 static void test_lifetime(void)
@@ -425,7 +473,9 @@ static void test_scpi(void)
     const uint32_t flags[] = {0u, 1u, 2u, 4u};
     for (unsigned i = 0u; i < 4u; ++i) {
         fresh(); scpi_t context = {.parameters = {17u, 100u, 8u, 1000000u}, .available = 4u};
+        model.unrelated_snapshot_available = false;
         assert(callbacks[i](&context) == SCPI_RES_OK);
+        assert(broad_calls == 0u && foundation_calls == 1u);
         assert(context.errors == 0u && context.numbers == 1u && context.fields == 1u);
         assert(context.values[0] == calibration_manager_origin_epoch() && !strcmp(context.output, "4"));
         assert(s_origin_attempt.requested_flags == flags[i] && s_origin_timing.diagnostic_flags == flags[i]);
@@ -471,11 +521,19 @@ static void test_scpi(void)
     assert(memcmp(&saved, &s_origin_attempt, sizeof(saved)) == 0);
     printf("origin diagnostic SCPI wire: %s\n", context.output);
     puts("origin diagnostic SCPI: callbacks, parse failures, ERR without epoch, STOP/ACK gates, original-attempt 64-bit wire passed");
+    authorized(); model.owner_available = false;
+    context = (scpi_t){.parameters = {31u, 100u, 8u, 1000000u}, .available = 4u};
+    assert(scpi_calibration_origin_trial(&context) == SCPI_RES_ERR);
+    assert(context.numbers == 0u && context.fields == 0u && context.errors == 1u);
+    assert(s_origin_attempt.reason == CALIBRATION_ORIGIN_ATTEMPT_OWNER_UNAVAILABLE);
+    assert(s_origin_attempt.observed_mask == 15u && !s_origin_timing.enabled);
+    assert(broad_calls == 0u && foundation_calls == 1u);
 }
 int main(int argc, char **argv)
 {
     assert(argc == 2);
     if (!strcmp(argv[1], "oracle")) test_oracle();
+    else if (!strcmp(argv[1], "foundation")) test_foundation();
     else if (!strcmp(argv[1], "lifetime")) test_lifetime();
     else if (!strcmp(argv[1], "scpi")) test_scpi();
     else return 2;

@@ -3,6 +3,8 @@
 The C fixture retains the pre-diagnostic admission function as an independent
 behavior oracle. Hardware/model ownership and the SCPI parser are boundaries;
 the real publication, cadence, callbacks and diagnostic serialization execute.
+The oracle compares equivalent owner-read availability; a separate case proves
+the deliberate removal of unrelated diagnostic snapshot availability coupling.
 """
 import json
 import os
@@ -61,7 +63,7 @@ def diagnostic_exe(tmp_path_factory):
     return executable
 
 
-@pytest.mark.parametrize("case", ["oracle", "lifetime", "scpi"])
+@pytest.mark.parametrize("case", ["oracle", "lifetime", "scpi", "foundation"])
 def test_production_admission_diagnostic(diagnostic_exe, case):
     command = [str(diagnostic_exe), case]
     result = subprocess.run(command, capture_output=True, text=True, timeout=10)

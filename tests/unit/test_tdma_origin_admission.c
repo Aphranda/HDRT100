@@ -63,8 +63,8 @@ static bool tdma_runtime_owner_get_staged_ring_config(tdma_ring_runtime_config_t
 static bool tdma_runtime_owner_get_calibration_stage(tdma_ring_calibration_stage_t *s, bool *c)
 { *s = s_tdma_runtime_owner.calibration_stage; *c = complete; return true; }
 static tdma_service_service_t *tdma_runtime_owner_get(void) { return &s_tdma_runtime_owner; }
-bool tdma_service_get_snapshot(const tdma_service_service_t *owner, tdma_service_snapshot_t *s)
-{ memset(s, 0, sizeof(*s)); s->foundation_profile_crc32 = owner->foundation_profile_crc32; return true; }
+bool tdma_service_get_foundation_crc32(const tdma_service_service_t *owner, uint32_t *crc)
+{ *crc = owner->foundation_profile_crc32; return true; }
 uint32_t ota_crc32_compute(const uint8_t *data, size_t size)
 { return pota_crc32_compute(data, size); }
 bool refmem_realtime_contract_admit_origin_trial(const refmem_realtime_origin_capability_t *c,
@@ -201,7 +201,7 @@ int main(int argc, char **argv)
             complete = model_valid = resources_valid = true; setup();
         }
     } else if (!strcmp(argv[1], "stale")) {
-        for (unsigned bad = 0; bad < 10; bad++) {
+        for (unsigned bad = 0; bad < 11; bad++) {
             setup(); publish();
             if (bad == 0) s_tdma_runtime_owner.ring_runtime.config_seq++;
             if (bad == 1) s_origin_timing.config.baud_hz++;
@@ -213,6 +213,7 @@ int main(int argc, char **argv)
             if (bad == 7) s_origin_timing.admission.product_valid = 1;
             if (bad == 8) ticks = s_origin_timing.expires_ticks;
             if (bad == 9) s_tdma_runtime_owner.calibration_stage.links[TDMA_RING_CALIBRATION_LINK_MAX - 1u].guard_cycles++;
+            if (bad == 10) s_tdma_runtime_owner.foundation_profile_crc32++;
             assert(admit() == TDMA_ORIGIN_ADMISSION_REJECTED);
             assert(admit() == TDMA_ORIGIN_ADMISSION_NONE);
         }
@@ -225,7 +226,7 @@ int main(int argc, char **argv)
         tdma_runtime_owner_origin_lifetime_core1(); assert(stops == 1);
         assert(admit() == TDMA_ORIGIN_ADMISSION_NONE);
     } else if (!strcmp(argv[1], "prepare")) {
-        for (unsigned bad = 0; bad < 5; bad++) {
+        for (unsigned bad = 0; bad < 6; bad++) {
             setup(); publish(); assert(admit() == TDMA_ORIGIN_ADMISSION_READY);
             assert(tdma_runtime_owner_origin_begin(&s_tdma_pio_spi_phys, &config, NULL, 0, 100, 8));
             assert(tdma_runtime_owner_origin_poll(&s_tdma_pio_spi_phys) == TDMA_ORIGIN_BUILD_BUSY);
@@ -235,6 +236,7 @@ int main(int argc, char **argv)
             if (bad == 2) clock_hz++;
             if (bad == 3) s_tdma_runtime_owner.ring_runtime.config_seq++;
             if (bad == 4) ticks = s_origin_trial.expires_ticks;
+            if (bad == 5) s_tdma_runtime_owner.foundation_profile_crc32++;
             assert(tdma_runtime_owner_origin_poll(&s_tdma_pio_spi_phys) == TDMA_ORIGIN_BUILD_FAILED);
             assert(polls == before);
         }

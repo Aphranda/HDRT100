@@ -1445,6 +1445,27 @@ void tdma_service_core1_service(tdma_service_service_t *service)
     tdma_service_end_result_write(service);
 }
 
+bool tdma_service_get_foundation_crc32(const tdma_service_service_t *service,
+                                     uint32_t *crc32)
+{
+    if (crc32 == NULL) return false;
+    *crc32 = 0u;
+    if (service == NULL) return false;
+    for (uint32_t attempt = 0u; attempt < TDMA_SERVICE_SNAPSHOT_RETRY_LIMIT; ++attempt) {
+        const uint32_t begin = tdma_service_load(&service->intent_guard);
+        if ((begin & 1u) != 0u) continue;
+        const uint32_t value = __atomic_load_n(&service->foundation_profile_crc32, __ATOMIC_RELAXED);
+        /* Complete the scalar read before checking the publication again. */
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        const uint32_t end = tdma_service_load(&service->intent_guard);
+        if (begin == end && (end & 1u) == 0u) {
+            *crc32 = value;
+            return true;
+        }
+    }
+    return false;
+}
+
 bool tdma_service_get_snapshot(const tdma_service_service_t *service,
                                        tdma_service_snapshot_t *snapshot)
 {

@@ -77,7 +77,7 @@ bool calibration_manager_origin_trial_configured(uint32_t trial_id, uint32_t rea
     tdma_ring_calibration_stage_t stage;
     tdma_service_ring_runtime_config_t config;
     refmem_realtime_origin_capability_t capability;
-    tdma_service_snapshot_t owner;
+    uint32_t foundation_crc32;
     bool complete = false;
     /* The omission trial needs the archive: NORECORD and BLACKOUT cannot mix. */
     if ((diagnostic_flags != 0u &&
@@ -113,7 +113,8 @@ bool calibration_manager_origin_trial_configured(uint32_t trial_id, uint32_t rea
     if (!tdma_runtime_owner_get_origin_capability(&capability))
         return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_CAPABILITY_UNAVAILABLE, 0u, 0u);
     s_origin_attempt.observed_mask |= CALIBRATION_ORIGIN_OBS_CAPABILITY;
-    if (!tdma_service_get_snapshot(tdma_runtime_owner_get(), &owner))
+    /* Admission needs the foundation identity, not live diagnostic snapshots. */
+    if (!tdma_service_get_foundation_crc32(tdma_runtime_owner_get(), &foundation_crc32))
         return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_OWNER_UNAVAILABLE, 0u, 0u);
     s_origin_attempt.observed_mask |= CALIBRATION_ORIGIN_OBS_OWNER;
     if (stage.node_count != config.node_count)
@@ -141,7 +142,7 @@ bool calibration_manager_origin_trial_configured(uint32_t trial_id, uint32_t rea
         .rearm_budget_ticks = rearm_budget_ticks, .abort_poll_count = abort_poll_count,
         .expires_ticks = now + duration_ticks, .config = config,
         .diagnostic_flags = diagnostic_flags};
-    if (!refmem_realtime_contract_admit_origin_trial(&capability, owner.foundation_profile_crc32,
+    if (!refmem_realtime_contract_admit_origin_trial(&capability, foundation_crc32,
             &record.admission))
         return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_MODEL_REJECTED, 0u, 0u);
     s_origin_attempt.admitted_model_epoch = record.admission.model_epoch;

@@ -528,6 +528,13 @@ void tdma_service_abort(tdma_service_service_t *service);
 void tdma_service_core1_service(tdma_service_service_t *service);
 bool tdma_service_get_snapshot(const tdma_service_service_t *service,
                                        tdma_service_snapshot_t *snapshot);
+/* Bounded foundation identity read under the existing intent publication.
+ * Independent of result, registry, ring and scheduler diagnostic snapshots.
+ * False clears a non-NULL output. True may return zero (including an empty
+ * service); configuration/model validity remains the admission owner's job.
+ * Output must not alias the service. No cached value or grant is returned. */
+bool tdma_service_get_foundation_crc32(const tdma_service_service_t *service,
+                                     uint32_t *crc32);
 bool tdma_service_get_result_frame(const tdma_service_service_t *service,
                                            uint8_t *frame,
                                            size_t frame_capacity,
