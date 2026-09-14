@@ -495,6 +495,14 @@ bool tdma_runtime_owner_set_ring_diagnostic_mode(bool enabled)
                &s_tdma_runtime_owner, enabled);
 }
 
+bool tdma_runtime_owner_set_ring_diagnostic_burst(uint32_t limit)
+{
+    return s_tdma_runtime_owner_initialized &&
+        (limit == 0u || s_tdma_pio_spi_ring_adapter.forwarding_mode ==
+            TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE) &&
+        tdma_service_set_ring_diagnostic_burst(&s_tdma_runtime_owner, limit);
+}
+
 tdma_pio_spi_normal_capture_copy_result_t
 tdma_runtime_owner_copy_normal_capture_core1(
     uint32_t *rx_bytes,

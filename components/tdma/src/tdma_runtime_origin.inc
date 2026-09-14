@@ -63,6 +63,7 @@ static bool tdma_runtime_owner_origin_authorized(void)
     const calibration_origin_timing_t *trial = &s_origin_trial;
     const tdma_ring_calibration_stage_t *stage = &s_tdma_runtime_owner.calibration_stage;
     return !s_origin_trial_fault && trial->epoch != 0u && trial->enabled != 0u &&
+        tdma_ring_diagnostic_burst_limit(trial->config.flags) == 0u &&
         trial->version == CALIBRATION_ORIGIN_TIMING_VERSION &&
         trial->epoch == calibration_manager_origin_epoch() &&
         trial->admission.model_epoch == refmem_realtime_contract_origin_model_epoch() &&

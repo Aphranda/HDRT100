@@ -668,10 +668,14 @@ bool tdma_service_set_ring_diagnostic_mode(tdma_service_service_t *service,
                                            bool enabled)
 {
     tdma_ring_runtime_snapshot_t snapshot;
-    if (service == NULL ||
+    if (service == NULL || !tdma_service_ring_control_lock(service)) return false;
+    if (__atomic_load_n(&service->stopped_update, __ATOMIC_ACQUIRE) != 0u ||
+        !tdma_service_ring_retire_stopped(service) ||
         !tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot) ||
         snapshot.enabled != 0u || snapshot.adapter_started != 0u ||
+        snapshot.config_seq != snapshot.applied_config_seq ||
         service->ring_staged_config.enabled == 0u) {
+        tdma_service_ring_control_unlock(service);
         return false;
     }
     if (enabled) {
@@ -679,9 +683,39 @@ bool tdma_service_set_ring_diagnostic_mode(tdma_service_service_t *service,
             TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE;
     } else {
         service->ring_staged_config.flags &=
-            ~TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE;
+            ~(TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE |
+              TDMA_RING_FLAG_DIAGNOSTIC_BURST_MASK);
     }
+    tdma_service_ring_control_unlock(service);
     return true;
+}
+
+bool tdma_service_set_ring_diagnostic_burst(tdma_service_service_t *service,
+                                            uint32_t limit)
+{
+    if (service == NULL || limit > 2u ||
+        !tdma_service_ring_control_lock(service)) return false;
+    tdma_ring_runtime_snapshot_t snapshot;
+    const bool ok =
+        __atomic_load_n(&service->stopped_update, __ATOMIC_ACQUIRE) == 0u &&
+        tdma_service_ring_retire_stopped(service) &&
+        tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot) &&
+        snapshot.enabled == 0u && snapshot.adapter_started == 0u &&
+        snapshot.config_seq == snapshot.applied_config_seq &&
+        service->ring_staged_config.enabled != 0u &&
+        (limit == 0u ||
+         ((service->ring_staged_config.flags &
+           TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE) != 0u &&
+          service->ring_staged_config.local_slot_id ==
+              service->ring_staged_config.reference_slot_id));
+    if (ok) {
+        service->ring_staged_config.flags =
+            (service->ring_staged_config.flags &
+             ~TDMA_RING_FLAG_DIAGNOSTIC_BURST_MASK) |
+            (limit << TDMA_RING_FLAG_DIAGNOSTIC_BURST_SHIFT);
+    }
+    tdma_service_ring_control_unlock(service);
+    return ok;
 }
 
 bool tdma_service_stage_calibration(

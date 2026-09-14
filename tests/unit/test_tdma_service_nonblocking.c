@@ -168,6 +168,56 @@ int main(int argc, char **argv)
 {
     assert(argc == 2);
     const char *test = argv[1];
+    if (strcmp(test, "diagnostic_burst") == 0) {
+        assert(tdma_service_init(&service));
+        assert(!tdma_service_set_ring_diagnostic_burst(NULL, 1u));
+        assert(!tdma_service_set_ring_diagnostic_burst(&service, 1u));
+        tdma_foundation_profile_t profile;
+        assert(tdma_foundation_profile_default(&profile, 1u, 0u, 0u, TDMA_ADAPTER_PIO_SPI));
+        assert(tdma_service_configure_foundation_profile(&service, &profile, 7u));
+        assert(!tdma_service_set_ring_diagnostic_mode(&service, true)); /* STOP not applied */
+        tick(1u);
+        assert(tdma_service_set_ring_diagnostic_mode(&service, true));
+        assert(!tdma_service_set_ring_diagnostic_burst(&service, 3u));
+        assert(!tdma_service_set_ring_diagnostic_burst(&service, UINT32_MAX));
+        service.ring_staged_config.local_slot_id = 1u;
+        assert(!tdma_service_set_ring_diagnostic_burst(&service, 1u));
+        service.ring_staged_config.local_slot_id = service.ring_staged_config.reference_slot_id;
+        service.ring_control_guard = 1u;
+        assert(!tdma_service_set_ring_diagnostic_burst(&service, 1u));
+        assert(!tdma_service_set_ring_diagnostic_mode(&service, false));
+        service.ring_control_guard = 0u;
+        service.stopped_update = TDMA_STOPPED_UPDATE_REQUESTED | 1u;
+        assert(!tdma_service_set_ring_diagnostic_burst(&service, 1u));
+        service.stopped_update = 0u;
+        assert(tdma_service_set_ring_diagnostic_burst(&service, 2u));
+        const uint32_t staged = service.ring_staged_config.flags;
+        assert(tdma_ring_diagnostic_burst_limit(staged) == 2u);
+        assert(tdma_ring_diagnostic_burst_limit(service.ring_runtime.flags) == 0u);
+        const tdma_ring_adapter_ops_t ops = {
+            .start = ring_start, .stop = ring_stop, .service = ring_service};
+        assert(tdma_ring_runtime_bind_adapter(&service.ring_runtime, &ops, NULL));
+        assert(tdma_service_ring_arm(&service));
+        assert(service.ring_runtime.flags == staged);
+        assert(!tdma_service_set_ring_diagnostic_burst(&service, 0u));
+        tick(2u);
+        assert(tdma_service_ring_start(&service));
+        assert(tdma_service_ring_start(&service));
+        assert(service.ring_runtime.flags == staged);
+        assert(tdma_service_ring_stop(&service));
+        assert(!tdma_service_set_ring_diagnostic_burst(&service, 1u));
+        assert(!tdma_service_set_ring_diagnostic_mode(&service, false));
+        tick(3u);
+        assert(tdma_service_set_ring_diagnostic_mode(&service, false));
+        assert(tdma_ring_diagnostic_burst_limit(service.ring_staged_config.flags) == 0u);
+        assert(!tdma_service_set_ring_diagnostic_burst(&service, 1u));
+        assert(tdma_service_set_ring_diagnostic_burst(&service, 0u));
+        assert(tdma_service_set_ring_diagnostic_mode(&service, true));
+        assert(tdma_service_set_ring_diagnostic_burst(&service, 1u));
+        assert(tdma_service_ring_arm(&service));
+        assert(tdma_ring_diagnostic_burst_limit(service.ring_runtime.flags) == 1u);
+        return 0;
+    }
     if (strcmp(test, "stopped_update") == 0) {
         assert(tdma_service_init(&service));
         uint32_t token = 99u, generation = 99u, requested = 0u;

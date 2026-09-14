@@ -3039,6 +3039,61 @@ scpi_result_t scpi_cmd_system_tdma_ring_diagnostic_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_system_tdma_ring_burst(scpi_t *context)
+{
+    uint32_t limit = 0u;
+    if (!scpi_port_read_u32(context, &limit) || limit > 2u ||
+        !tdma_runtime_owner_set_ring_diagnostic_burst(limit)) {
+        scpi_port_push_exec_error(context, "TDMA_RING_BURST");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, limit);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_ring_burst_q(scpi_t *context)
+{
+    tdma_service_ring_runtime_config_t config;
+    if (!tdma_runtime_owner_get_staged_ring_config(&config)) {
+        scpi_port_push_exec_error(context, "TDMA_RING_BURST_QUERY");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, tdma_ring_diagnostic_burst_limit(config.flags));
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_ring_burst_status_q(scpi_t *context)
+{
+    tdma_ring_runtime_snapshot_t before, after;
+    tdma_pio_spi_ring_adapter_snapshot_t adapter;
+    tdma_pio_spi_phys_snapshot_t phys;
+    /* Post-STOP facts only. Bracket the independent owner snapshots with the
+     * same applied STOP generation; none of these counts grants identity. */
+    if (!tdma_runtime_owner_get_ring_snapshot(&before) ||
+        before.enabled != 0u || before.adapter_started != 0u ||
+        before.config_seq != before.applied_config_seq ||
+        !tdma_pio_spi_ring_adapter_get_snapshot(
+            tdma_runtime_owner_get_ring_adapter(), &adapter) ||
+        adapter.diagnostic_burst_valid == 0u ||
+        !tdma_runtime_owner_get_phys_snapshot(&phys) ||
+        !tdma_runtime_owner_get_ring_snapshot(&after) ||
+        after.enabled != 0u || after.adapter_started != 0u ||
+        after.config_seq != before.config_seq ||
+        after.applied_config_seq != before.applied_config_seq) {
+        scpi_port_push_exec_error(context, "TDMA_RING_BURST_STATUS");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, adapter.diagnostic_burst_limit);
+    SCPI_ResultUInt32(context, adapter.diagnostic_burst_launched);
+    SCPI_ResultUInt32(context, phys.tx_count);
+    SCPI_ResultUInt32(context, phys.tx_timeout_count);
+    SCPI_ResultUInt32(context, phys.last_error);
+    SCPI_ResultUInt32(context, adapter.last_error);
+    SCPI_ResultUInt32(context, after.applied_config_seq);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_system_tdma_ring_train_status_q(scpi_t *context)
 {
     tdma_pio_spi_clk_train_snapshot_t train;

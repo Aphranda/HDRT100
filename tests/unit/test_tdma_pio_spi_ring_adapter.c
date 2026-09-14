@@ -532,10 +532,246 @@ static void fill_test_process_mailbox(uint8_t *mailbox,
 #include "tdma_overlay_prepare_cases.inc"
 #include "tdma_rx_prepare_cases.inc"
 
+typedef struct {
+    loopback_phys_t wire;
+    tdma_pio_spi_ring_adapter_t *adapter;
+    bool fail_fsm_after_launch;
+} burst_failure_phys_t;
+
+static bool burst_failure_tx(void *context, const uint8_t *packet, size_t size,
+                             uint64_t *timestamp)
+{
+    burst_failure_phys_t *phys = context;
+    if (!loopback_tx(&phys->wire, packet, size, timestamp)) return false;
+    if (phys->fail_fsm_after_launch)
+        phys->adapter->comm_fsm.state = TDMA_ADAPTER_COMM_STATE_STOPPED;
+    return true;
+}
+
+static bool burst_train(void *context, uint32_t cycles)
+{
+    (void)cycles;
+    ++*(uint32_t *)context;
+    return true;
+}
+
+static int test_diagnostic_burst(void)
+{
+    int failed = 0;
+    const tdma_ring_adapter_ops_t *ops = tdma_pio_spi_ring_adapter_ops();
+    const tdma_process_image_map_t map = make_flight_map();
+    for (uint32_t scenario = 0u; scenario < 4u; ++scenario) {
+        tdma_pio_spi_ring_adapter_t adapter;
+        tdma_ring_runtime_config_t config = make_valid_config();
+        uint32_t arms = 0u;
+        phys_ctrl_stub_t ctrl = {.arm_calls = &arms};
+        config.flags |= TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE |
+            (1u << TDMA_RING_FLAG_DIAGNOSTIC_BURST_SHIFT);
+        failed += expect_bool("burst invalid init", tdma_pio_spi_ring_adapter_init(&adapter), true);
+        failed += expect_bool("burst invalid mode", tdma_pio_spi_ring_adapter_set_forwarding_mode(
+            &adapter, TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE), true);
+        tdma_pio_spi_ring_adapter_set_phys_ctrl(&adapter, phys_ctrl_stub_arm,
+            phys_ctrl_stub_disarm, NULL, NULL, &ctrl);
+        if (scenario == 0u) config.flags |= TDMA_RING_FLAG_DIAGNOSTIC_BURST_MASK;
+        if (scenario == 1u) config.flags &= ~TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE;
+        if (scenario == 2u) config.local_slot_id = 1u;
+        if (scenario == 3u) failed += expect_bool("burst invalid forwarding mode",
+            tdma_pio_spi_ring_adapter_set_forwarding_mode(
+                &adapter, TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_FLIGHT), true);
+        failed += expect_bool("burst invalid ARM rejected", ops->start(&adapter, &config), false);
+        failed += expect_u32("burst invalid never touches hardware", arms, 0u);
+    }
+
+    /* Quota exhaustion must still retire the asynchronous final TX and RX.
+     * A newly queued mailbox must remain untouched until the next ARM. */
+    for (uint32_t limit = 1u; limit <= 2u; ++limit) {
+        tdma_pio_spi_ring_adapter_t adapter;
+        tdma_flight_engine_t engine;
+        tdma_flight_fifo_t fifo;
+        tdma_ring_adapter_status_t status;
+        tdma_pio_spi_ring_adapter_snapshot_t snapshot;
+        tdma_ring_runtime_config_t config = make_valid_config();
+        async_phys_t phys = {0};
+        uint32_t train_calls = 0u;
+        config.flags |= TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE |
+            (limit << TDMA_RING_FLAG_DIAGNOSTIC_BURST_SHIFT);
+        failed += expect_bool("burst async fixture", tdma_pio_spi_ring_adapter_init(&adapter) &&
+            tdma_flight_engine_init(&engine) && tdma_flight_engine_configure(&engine, &map) &&
+            tdma_flight_fifo_init(&fifo), true);
+        set_test_sequential_topology(&adapter, config.node_count);
+        tdma_pio_spi_ring_adapter_set_flight_engine(&adapter, &engine);
+        tdma_pio_spi_ring_adapter_set_flight_fifo(&adapter, &fifo);
+        tdma_pio_spi_ring_adapter_set_phys(&adapter, async_tx, NULL, &phys);
+        tdma_pio_spi_ring_adapter_set_phys_tx_complete(&adapter, async_tx_complete);
+        tdma_pio_spi_ring_adapter_set_phys_ctrl(&adapter, NULL, NULL, burst_train, NULL, &train_calls);
+        failed += expect_bool("burst async mode", tdma_pio_spi_ring_adapter_set_forwarding_mode(
+            &adapter, TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE), true);
+        failed += expect_bool("burst async ARM", ops->start(&adapter, &config), true);
+        failed += expect_bool("burst training cannot change persona", ops->train_clock(&adapter, 4u), false);
+        failed += expect_u32("burst training callback not invoked", train_calls, 0u);
+        failed += expect_bool("burst async phase", ops->service(&adapter, 1u, &status), true);
+        failed += expect_bool("burst async seed", ops->service(&adapter, 2u, &status), true);
+        for (uint32_t frame = 1u; frame <= limit; ++frame) {
+            uint8_t feedback[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+            tdma_transport_result_t result;
+            memcpy(feedback, phys.last_tx, phys.last_tx_size);
+            failed += expect_bool("burst feedback hops", tdma_transport_frame_advance_hop(
+                feedback, phys.last_tx_size, &result), true);
+            failed += expect_bool("burst feedback inject", tdma_pio_spi_ring_adapter_inject_rx(
+                &adapter, feedback, phys.last_tx_size, 500u + frame), true);
+            phys.completion_ready = true;
+            phys.completion_timestamp_ns = frame * 100u;
+            failed += expect_bool("burst final completion and RX service",
+                ops->service(&adapter, frame * 2000u + 2u, &status), true);
+        }
+        failed += expect_u32("burst accepted physical launches", phys.tx_calls, limit);
+        failed += expect_u32("burst quota counter", adapter.diagnostic_burst_launched, limit);
+        failed += expect_u32("burst final receive retained", adapter.rx_count, limit);
+        failed += expect_u32("burst final completion retained", adapter.comm_fsm.completed_window_count, limit);
+        failed += expect_bool("burst final pending retired", adapter.reference_tx_completion_pending, false);
+        failed += expect_u32("burst final timestamp valid", adapter.reference_tx_evidence[limit].valid, 1u);
+        uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE];
+        fill_test_process_mailbox(mailbox, 0u, 10u, 0x61u);
+        failed += expect_bool("burst queue next mailbox", tdma_flight_fifo_core0_publish_tx(
+            &fifo, mailbox, sizeof(mailbox), 10u, 10u, 1u), true);
+        const uint32_t tail = fifo.tx_tail, applies = engine.map_apply_count;
+        const uint32_t reused = fifo.tx_reuse_count;
+        for (uint32_t pass = 0u; pass < 4u; ++pass)
+            failed += expect_bool("burst exhausted keeps servicing",
+                ops->service(&adapter, 10000u + pass * 2000u, &status), true);
+        failed += expect_u32("burst exhausted no TX preparation", engine.map_apply_count, applies);
+        failed += expect_u32("burst exhausted leaves mailbox queued", fifo.tx_tail, tail);
+        failed += expect_u32("burst exhausted no FIFO reuse", fifo.tx_reuse_count, reused);
+        failed += expect_u32("burst exhausted no extra TX", phys.tx_calls, limit);
+        failed += expect_bool("burst repeated ARM rejected", ops->start(&adapter, &config), false);
+        failed += expect_u32("burst repeated ARM does not refill", adapter.diagnostic_burst_launched, limit);
+        tdma_ring_runtime_config_t unlimited_config = config;
+        unlimited_config.flags &= ~TDMA_RING_FLAG_DIAGNOSTIC_BURST_MASK;
+        failed += expect_bool("burst live ARM cannot remove quota", ops->start(&adapter, &unlimited_config), false);
+        failed += expect_u32("burst rejected ARM preserves evidence validity", adapter.diagnostic_burst_valid, 1u);
+        failed += expect_bool("burst STOP", ops->stop(&adapter), true);
+        failed += expect_bool("burst STOP snapshot", tdma_pio_spi_ring_adapter_get_snapshot(&adapter, &snapshot), true);
+        failed += expect_u32("burst STOP retains limit", snapshot.diagnostic_burst_limit, limit);
+        failed += expect_u32("burst STOP retains launched", snapshot.diagnostic_burst_launched, limit);
+        failed += expect_u32("burst STOP retains valid evidence", snapshot.diagnostic_burst_valid, 1u);
+        failed += expect_bool("burst new ARM", ops->start(&adapter, &config), true);
+        failed += expect_u32("burst new ARM refills quota", adapter.diagnostic_burst_launched, 0u);
+        failed += expect_bool("burst rearmed phase", ops->service(&adapter, 1u, &status), true);
+        failed += expect_bool("burst rearmed launch", ops->service(&adapter, 2u, &status), true);
+        failed += expect_u32("burst rearmed one new physical launch", phys.tx_calls, limit + 1u);
+        if (limit == 1u) {
+            failed += expect_bool("burst STOP cancels incomplete last launch", ops->stop(&adapter), true);
+            uint32_t arms = 0u, arm_result = 0u;
+            phys_ctrl_stub_t ctrl = {.arm_calls = &arms, .arm_result = &arm_result};
+            tdma_pio_spi_ring_adapter_set_phys_ctrl(&adapter, phys_ctrl_stub_arm,
+                phys_ctrl_stub_disarm, NULL, NULL, &ctrl);
+            config.flags = (config.flags & ~TDMA_RING_FLAG_DIAGNOSTIC_BURST_MASK) |
+                (2u << TDMA_RING_FLAG_DIAGNOSTIC_BURST_SHIFT);
+            failed += expect_bool("burst new quota ARM failure", ops->start(&adapter, &config), false);
+            failed += expect_u32("burst new quota attempted physical ARM", arms, 1u);
+            failed += expect_bool("burst failed ARM cleanup STOP", ops->stop(&adapter), true);
+            failed += expect_bool("burst failed ARM snapshot", tdma_pio_spi_ring_adapter_get_snapshot(&adapter, &snapshot), true);
+            failed += expect_u32("burst failed ARM mixed counters invalid", snapshot.diagnostic_burst_valid, 0u);
+            failed += expect_u32("burst failed ARM preserves old counter for diagnosis", snapshot.diagnostic_burst_launched, 1u);
+            failed += expect_u32("burst failed ARM config quota changed", snapshot.diagnostic_burst_limit, 2u);
+        }
+    }
+
+    /* A missing return spends the second allowance on the same sequence's
+     * bootstrap. Busy rejection spends nothing; post-launch failure does. */
+    for (uint32_t scenario = 0u; scenario < 2u; ++scenario) {
+        tdma_pio_spi_ring_adapter_t adapter;
+        tdma_flight_engine_t engine;
+        tdma_ring_adapter_status_t status;
+        tdma_ring_runtime_config_t config = make_valid_config();
+        burst_failure_phys_t phys = {.wire = {.tx_timestamp_ns = 100u,
+            .suppress_echo = true, .defer_tx_count = 1u}, .adapter = &adapter,
+            .fail_fsm_after_launch = scenario != 0u};
+        config.flags |= TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE |
+            (2u << TDMA_RING_FLAG_DIAGNOSTIC_BURST_SHIFT);
+        failed += expect_bool("burst failure fixture", tdma_pio_spi_ring_adapter_init(&adapter) &&
+            tdma_flight_engine_init(&engine) && tdma_flight_engine_configure(&engine, &map), true);
+        set_test_sequential_topology(&adapter, config.node_count);
+        tdma_pio_spi_ring_adapter_set_flight_engine(&adapter, &engine);
+        tdma_pio_spi_ring_adapter_set_phys(&adapter, burst_failure_tx, NULL, &phys);
+        tdma_pio_spi_ring_adapter_set_phys_tx_retryable(&adapter, loopback_tx_retryable);
+        failed += expect_bool("burst failure mode", tdma_pio_spi_ring_adapter_set_forwarding_mode(
+            &adapter, TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE), true);
+        failed += expect_bool("burst failure ARM", ops->start(&adapter, &config), true);
+        failed += expect_bool("burst failure phase", ops->service(&adapter, 1u, &status), true);
+        failed += expect_bool("burst busy yields", ops->service(&adapter, 2u, &status), true);
+        failed += expect_u32("burst busy not counted", adapter.diagnostic_burst_launched, 0u);
+        failed += expect_bool("burst accepts before FSM", ops->service(&adapter, 3u, &status), scenario == 0u);
+        failed += expect_u32("burst physical acceptance counted before FSM", adapter.diagnostic_burst_launched, 1u);
+        if (scenario != 0u) {
+            failed += expect_u32("burst post-launch failure keeps legacy count separate", adapter.tx_count, 0u);
+            failed += expect_bool("burst failed launch STOP", ops->stop(&adapter), true);
+            failed += expect_u32("burst failed launch STOP evidence", adapter.diagnostic_burst_launched, 1u);
+            continue;
+        }
+        failed += expect_bool("burst missing RX bootstrap", ops->service(&adapter, 2003u, &status), true);
+        failed += expect_u32("burst bootstrap consumes allowance", adapter.diagnostic_burst_launched, 2u);
+        failed += expect_u32("burst bootstrap same sequence", adapter.up_sequence, 1u);
+        failed += expect_u32("burst bootstrap count", adapter.resident_bootstrap_retry_count, 1u);
+        for (uint32_t pass = 0u; pass < 3u; ++pass)
+            failed += expect_bool("burst suppresses stale reseed", ops->service(&adapter, 4003u + pass * 2000u, &status), true);
+        failed += expect_u32("burst no stale TX", phys.wire.tx_calls, 2u);
+        failed += expect_u32("burst no stale preparation", adapter.resident_stale_cycle_count, 0u);
+    }
+
+    /* Use the existing fully eligible autonomous-origin fixture so a false
+     * result proves the quota gate, not an unrelated missing prerequisite. */
+    {
+        tdma_pio_spi_ring_adapter_t adapter;
+        tdma_flight_engine_t engine;
+        tdma_flight_fifo_t fifo;
+        tdma_ring_adapter_status_t status;
+        tdma_ring_runtime_config_t config = make_valid_config();
+        origin_adapter_phys_t phys = {.bootstrap = {.tx_timestamp_ns = 100u,
+            .rx_timestamp_ns = 600u, .advance_echo_to_feedback = true},
+            .adapter = &adapter, .admission = TDMA_ORIGIN_ADMISSION_READY};
+        config.node_count = 4u;
+        config.feedback_timeout_ns = 4000u;
+        config.flags |= TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE |
+            (2u << TDMA_RING_FLAG_DIAGNOSTIC_BURST_SHIFT);
+        const tdma_process_image_map_t origin_map = make_eight_slot_flight_map();
+        const tdma_pio_spi_ring_origin_ops_t origin_ops = {
+            .admit = origin_adapter_admit, .begin = origin_adapter_start,
+            .poll = origin_adapter_poll, .healthy = origin_adapter_healthy,
+            .ready = origin_adapter_ready, .publish = origin_adapter_publish,
+            .observe = origin_adapter_observe, .take_rx_observation = origin_adapter_take_pair};
+        failed += expect_bool("burst origin fixture", tdma_pio_spi_ring_adapter_init(&adapter) &&
+            tdma_flight_engine_init(&engine) && tdma_flight_engine_configure(&engine, &origin_map) &&
+            tdma_flight_fifo_init(&fifo), true);
+        set_test_sequential_topology(&adapter, 4u);
+        tdma_pio_spi_ring_adapter_set_flight_engine(&adapter, &engine);
+        tdma_pio_spi_ring_adapter_set_flight_fifo(&adapter, &fifo);
+        tdma_pio_spi_ring_adapter_set_phys(&adapter, origin_adapter_tx, origin_adapter_rx, &phys);
+        tdma_pio_spi_ring_adapter_set_phys_ctrl(&adapter, NULL, origin_adapter_stop, NULL, NULL, &phys);
+        failed += expect_bool("burst origin callbacks", tdma_pio_spi_ring_adapter_set_phys_origin(&adapter, &origin_ops), true);
+        failed += expect_bool("burst origin mode", tdma_pio_spi_ring_adapter_set_forwarding_mode(
+            &adapter, TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE), true);
+        failed += expect_bool("burst origin ARM", ops->start(&adapter, &config), true);
+        uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE];
+        fill_test_process_mailbox(mailbox, 0u, 1u, 0x31u);
+        failed += expect_bool("burst origin mailbox", tdma_flight_fifo_core0_publish_tx(
+            &fifo, mailbox, sizeof(mailbox), 1u, 1u, 1u), true);
+        failed += expect_bool("burst origin phase", ops->service(&adapter, 1u, &status), true);
+        failed += expect_bool("burst origin seed", ops->service(&adapter, 2u, &status), true);
+        failed += expect_u32("burst origin eligible boundary", adapter.comm_fsm.state, TDMA_ADAPTER_COMM_STATE_CYCLE_BOUNDARY);
+        failed += expect_u32("burst origin automatic admission blocked before exhaustion", phys.admission_calls, 0u);
+        failed += expect_bool("burst origin direct handoff blocked before exhaustion",
+            tdma_pio_spi_ring_adapter_start_origin(&adapter, 100u, 2u), false);
+        failed += expect_u32("burst origin no hardware begin", phys.starts, 0u);
+        failed += expect_bool("burst origin STOP", ops->stop(&adapter), true);
+    }
+    return failed;
+}
+
 int main(void)
 {
     int failed = test_origin_adapter() + test_overlay_prepare_cases() +
-        test_rx_prepare_cases() + test_rx_prepare_origin();
+        test_rx_prepare_cases() + test_rx_prepare_origin() + test_diagnostic_burst();
 
     /* Direct adapter callers must obey the same capacity gate as the owner. */
     {

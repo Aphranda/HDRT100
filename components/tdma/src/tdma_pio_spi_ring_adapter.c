@@ -7,6 +7,13 @@
 
 #define TDMA_PIO_SPI_RING_RESIDENT_BOOTSTRAP_RETRY_MAX 1u
 
+static bool tdma_pio_spi_ring_adapter_burst_exhausted(
+    const tdma_pio_spi_ring_adapter_t *adapter)
+{
+    const uint32_t limit = tdma_ring_diagnostic_burst_limit(adapter->config.flags);
+    return limit != 0u && adapter->diagnostic_burst_launched >= limit;
+}
+
 _Static_assert(sizeof(tdma_rx_prepare_t) <= sizeof(((tdma_pio_spi_ring_adapter_t *)0)->rx_queue),
                "RX station must fit the existing injected packet pool");
 
@@ -778,7 +785,9 @@ static bool tdma_pio_spi_ring_adapter_start(
         return false;
     }
     tdma_pio_spi_ring_adapter_snapshot_write_begin(adapter);
-    if (adapter->origin.active != 0u ||
+    if ((adapter->started != 0u &&
+         tdma_ring_diagnostic_burst_limit(adapter->config.flags) != 0u) ||
+        adapter->origin.active != 0u ||
         tdma_overlay_prepare_state(adapter->overlay_preparation) != TDMA_OVERLAY_PREPARE_IDLE ||
         tdma_rx_prepare_state(adapter->rx_preparation) != TDMA_RX_PREPARE_IDLE ||
         config == NULL || config->enabled == 0u ||
@@ -793,12 +802,22 @@ static bool tdma_pio_spi_ring_adapter_start(
         config->operating_profile_crc32 == 0u ||
         config->baud_hz < 1000000u || config->baud_hz > 50000000u ||
         config->cycle_period_ns == 0u ||
-        config->feedback_timeout_ns == 0u) {
+        config->feedback_timeout_ns == 0u ||
+        (tdma_ring_diagnostic_burst_limit(config->flags) != 0u &&
+         (adapter->started != 0u ||
+          tdma_ring_diagnostic_burst_limit(config->flags) > 2u ||
+          (config->flags & TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE) == 0u ||
+          config->local_slot_id != config->reference_slot_id ||
+          adapter->forwarding_mode !=
+              TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE))) {
         tdma_pio_spi_ring_adapter_set_error(
             adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_BAD_ARGUMENT);
         tdma_pio_spi_ring_adapter_snapshot_write_end(adapter);
         return false;
     }
+    /* A failed new ARM must not pair its new quota with the prior session's
+     * retained launch count. Only a completely armed session is readable. */
+    adapter->diagnostic_burst_valid = 0u;
     adapter->config = *config;
     adapter->configured = true;
     adapter->role = (config->local_slot_id == config->reference_slot_id)
@@ -927,6 +946,8 @@ static bool tdma_pio_spi_ring_adapter_start(
     adapter->idle_beacon_tx_count = 0u;
     adapter->idle_beacon_rx_count = 0u;
     adapter->tx_count = 0u;
+    adapter->diagnostic_burst_launched = 0u;
+    adapter->diagnostic_burst_valid = 1u;
     adapter->rx_count = 0u;
     adapter->rx_bad_count = 0u;
     adapter->rx_transport_bad_count = 0u;
@@ -1161,6 +1182,9 @@ static bool tdma_pio_spi_ring_adapter_launch_reference(
     const bool resident =
         tdma_pio_spi_ring_adapter_resident_process_image(adapter);
     uint64_t tx_timestamp_ns = 0ull;
+    if (tdma_pio_spi_ring_adapter_burst_exhausted(adapter)) {
+        return true;
+    }
     if (!adapter->phys_tx(adapter->phys_context,
                           packet,
                           packet_size,
@@ -1186,6 +1210,11 @@ static bool tdma_pio_spi_ring_adapter_launch_reference(
         return false;
     }
 
+    /* An accepted submission may already be on the wire. Count it even if
+     * a later FSM/evidence step fails, and never refund an aborted frame. */
+    if (tdma_ring_diagnostic_burst_limit(adapter->config.flags) != 0u) {
+        adapter->diagnostic_burst_launched++;
+    }
     bool comm_started = true;
     if (resident && !bootstrap_retry &&
         adapter->comm_fsm.state ==
@@ -2407,7 +2436,8 @@ static bool tdma_pio_spi_ring_adapter_train_clock(void *context,
     tdma_pio_spi_ring_adapter_t *adapter =
         (tdma_pio_spi_ring_adapter_t *)context;
     if (adapter == NULL || adapter->started == 0u ||
-        adapter->phys_train == NULL || cycles == 0u) {
+        adapter->phys_train == NULL || cycles == 0u ||
+        tdma_ring_diagnostic_burst_limit(adapter->config.flags) != 0u) {
         return false;
     }
     return adapter->phys_train(adapter->phys_ctrl_context, cycles);
@@ -2871,7 +2901,9 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
         } else if (!resident || !adapter->resident_seeded) {
             emit_now = now_ns >= adapter->next_tx_deadline_ns;
         }
-        if (emit_now && adapter->reference_tx_completion_pending) {
+        if (tdma_pio_spi_ring_adapter_burst_exhausted(adapter)) {
+            tx_ok = true; /* Keep completion/RX service alive without TX preparation. */
+        } else if (emit_now && adapter->reference_tx_completion_pending) {
             /* The flight-origin callback accepts a launch before DMA/PIO has
              * drained.  Core1 may service the adapter several times during
              * that wire interval; keep the UP leg alive without treating
@@ -2904,7 +2936,8 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
         rx_ok = tdma_pio_spi_ring_adapter_rx_poll(adapter, now_ns);
         /* The owner hands over a completed bootstrap at this boundary,
          * before any legacy next-cycle or stale-cycle TX can launch. */
-        if (resident && adapter->resident_seeded && adapter->resident_return_ready &&
+        if (tdma_ring_diagnostic_burst_limit(adapter->config.flags) == 0u &&
+            resident && adapter->resident_seeded && adapter->resident_return_ready &&
             adapter->comm_fsm.state == TDMA_ADAPTER_COMM_STATE_CYCLE_BOUNDARY &&
             !adapter->reference_tx_completion_pending && !adapter->pending_tx_evidence &&
             adapter->phys_origin.admit != NULL) {
@@ -2926,7 +2959,8 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
                 return preparing; /* Poll starts on a later service, under one writer guard. */
             }
         }
-        if (resident && adapter->resident_seeded &&
+        if (!tdma_pio_spi_ring_adapter_burst_exhausted(adapter) &&
+            resident && adapter->resident_seeded &&
             adapter->comm_fsm.completed_window_count == 0u &&
             !adapter->resident_return_ready &&
             !adapter->reference_tx_completion_pending &&
@@ -2940,7 +2974,8 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
                 adapter->next_tx_deadline_ns = now_ns + emission_period_ns;
             }
         }
-        if (resident && adapter->resident_seeded &&
+        if (!tdma_pio_spi_ring_adapter_burst_exhausted(adapter) &&
+            resident && adapter->resident_seeded &&
             adapter->resident_return_ready &&
             adapter->comm_fsm.state ==
                 TDMA_ADAPTER_COMM_STATE_CYCLE_BOUNDARY &&
@@ -2952,7 +2987,8 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
                 adapter->next_tx_deadline_ns = now_ns + emission_period_ns;
             }
         }
-        if (resident && adapter->resident_seeded &&
+        if (!tdma_pio_spi_ring_adapter_burst_exhausted(adapter) &&
+            resident && adapter->resident_seeded &&
             !adapter->resident_return_ready &&
             !adapter->reference_tx_completion_pending &&
             (adapter->comm_fsm.completed_window_count != 0u ||
@@ -3104,6 +3140,10 @@ bool tdma_pio_spi_ring_adapter_try_get_snapshot(
         snapshot->idle_beacon_tx_count = adapter->idle_beacon_tx_count;
         snapshot->idle_beacon_rx_count = adapter->idle_beacon_rx_count;
         snapshot->tx_count = adapter->tx_count;
+        snapshot->diagnostic_burst_limit =
+            tdma_ring_diagnostic_burst_limit(adapter->config.flags);
+        snapshot->diagnostic_burst_launched = adapter->diagnostic_burst_launched;
+        snapshot->diagnostic_burst_valid = adapter->diagnostic_burst_valid;
         snapshot->rx_count = adapter->rx_count;
         snapshot->rx_bad_count = adapter->rx_bad_count;
         snapshot->rx_transport_bad_count = adapter->rx_transport_bad_count;

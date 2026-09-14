@@ -656,6 +656,48 @@ int main(void)
                              1u);
     }
 
+    {
+        tdma_ring_runtime_config_t burst = valid;
+        burst.local_slot_id = burst.reference_slot_id;
+        burst.flags |= TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE |
+                       (2u << TDMA_RING_FLAG_DIAGNOSTIC_BURST_SHIFT);
+        failed += expect_bool("bounded config", tdma_ring_runtime_validate_config(&burst, NULL), true);
+        burst.flags &= ~TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE;
+        failed += expect_bool("bounded needs diagnostic", tdma_ring_runtime_validate_config(&burst, NULL), false);
+        burst.flags |= TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE;
+        burst.local_slot_id = (burst.reference_slot_id + 1u) % burst.node_count;
+        failed += expect_bool("bounded rejects follower", tdma_ring_runtime_validate_config(&burst, NULL), false);
+        burst.local_slot_id = burst.reference_slot_id;
+        burst.flags |= TDMA_RING_FLAG_DIAGNOSTIC_BURST_MASK;
+        failed += expect_bool("bounded rejects reserved", tdma_ring_runtime_validate_config(&burst, NULL), false);
+        burst.flags &= ~(1u << TDMA_RING_FLAG_DIAGNOSTIC_BURST_SHIFT);
+        tdma_ring_runtime_t bounded;
+        fake_ring_adapter_t bounded_adapter = {0};
+        failed += expect_bool("bounded init", tdma_ring_runtime_init(&bounded), true);
+        failed += expect_bool("bounded bind", tdma_ring_runtime_bind_adapter(&bounded, &s_fake_ring_ops, &bounded_adapter), true);
+        failed += expect_bool("bounded configure", tdma_ring_runtime_configure(&bounded, &burst), true);
+        tdma_ring_runtime_service(&bounded);
+        failed += expect_bool("bounded TRAIN request rejected", tdma_ring_runtime_train_clock(&bounded, 32u), false);
+        /* Inject an already published request: the owner also refuses to
+         * replace the persona, so START cannot re-ARM the same quota. */
+        bounded.train_command_cycles = 32u;
+        bounded.train_command_seq++;
+        tdma_ring_runtime_service(&bounded);
+        failed += expect_u32("bounded TRAIN did not touch hardware", bounded_adapter.train_count, 0u);
+        failed += expect_u32("bounded TRAIN rejection published", bounded.train_reject_count, 1u);
+        failed += expect_u32("bounded TRAIN did not dirty persona", bounded.training_dirty, 0u);
+        failed += expect_bool("bounded START", tdma_ring_runtime_set_data_enabled(&bounded, true), true);
+        tdma_ring_runtime_service(&bounded);
+        failed += expect_bool("bounded duplicate START", tdma_ring_runtime_set_data_enabled(&bounded, true), true);
+        tdma_ring_runtime_service(&bounded);
+        failed += expect_u32("bounded no internal rearm", bounded_adapter.start_count, 1u);
+        failed += expect_bool("bounded STOP", tdma_ring_runtime_configure(&bounded, NULL), true);
+        tdma_ring_runtime_service(&bounded);
+        failed += expect_bool("bounded new ARM", tdma_ring_runtime_configure(&bounded, &burst), true);
+        tdma_ring_runtime_service(&bounded);
+        failed += expect_u32("bounded explicit rearm", bounded_adapter.start_count, 2u);
+    }
+
     runtime.config_guard = 1u;
     failed += expect_bool("odd config guard is bounded",
                           tdma_ring_runtime_get_snapshot(&runtime, &snapshot),

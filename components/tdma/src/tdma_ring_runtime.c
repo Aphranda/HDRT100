@@ -119,6 +119,13 @@ bool tdma_ring_runtime_validate_config(
     if (config == NULL || config->enabled == 0u) {
         return true;
     }
+    const uint32_t burst = tdma_ring_diagnostic_burst_limit(config->flags);
+    if (burst > 2u || (burst != 0u &&
+        ((config->flags & TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE) == 0u ||
+         config->local_slot_id != config->reference_slot_id))) {
+        tdma_ring_runtime_set_reason(reason, TDMA_RING_RUNTIME_REASON_BAD_CONFIG);
+        return false;
+    }
     if (config->up_group_id == 0u || config->down_group_id == 0u ||
         config->up_group_id == config->down_group_id) {
         tdma_ring_runtime_set_reason(
@@ -495,6 +502,7 @@ bool tdma_ring_runtime_train_clock(tdma_ring_runtime_t *runtime,
                                    uint32_t cycles)
 {
     if (runtime == NULL || cycles == 0u ||
+        tdma_ring_diagnostic_burst_limit(tdma_ring_runtime_load(&runtime->flags)) != 0u ||
         tdma_ring_runtime_load(&runtime->enabled) == 0u ||
         tdma_ring_runtime_load(&runtime->adapter_started) == 0u ||
         tdma_ring_runtime_load(&runtime->data_enabled) != 0u ||
@@ -677,7 +685,8 @@ void tdma_ring_runtime_service_with_stop_gate(tdma_ring_runtime_t *runtime,
                 train_request_cycles = cycles;
                 train_accepted_seq = command_seq;
                 train_owner_sequence = command_seq;
-                if (runtime->adapter_ops->train_clock != NULL &&
+                if (tdma_ring_diagnostic_burst_limit(flags) == 0u &&
+                    runtime->adapter_ops->train_clock != NULL &&
                     runtime->adapter_ops->train_clock_service != NULL &&
                     runtime->adapter_ops->train_clock(runtime->adapter_context,
                                                       cycles)) {

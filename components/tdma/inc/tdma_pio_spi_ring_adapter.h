@@ -265,6 +265,9 @@ typedef struct {
     uint32_t idle_beacon_tx_count;
     uint32_t idle_beacon_rx_count;
     uint32_t tx_count;
+    uint32_t diagnostic_burst_limit;
+    uint32_t diagnostic_burst_launched;
+    uint32_t diagnostic_burst_valid;
     uint32_t rx_count;
     uint32_t rx_bad_count;
     uint32_t rx_transport_bad_count;
@@ -426,6 +429,9 @@ typedef struct {
     uint32_t idle_beacon_tx_count;
     uint32_t idle_beacon_rx_count;
     uint32_t tx_count;
+    /* Accepted physical submissions in this ARM; retained across STOP. */
+    uint32_t diagnostic_burst_launched;
+    uint32_t diagnostic_burst_valid;
     uint32_t rx_count;
     uint32_t rx_bad_count;
     uint32_t rx_transport_bad_count;

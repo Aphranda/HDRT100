@@ -84,6 +84,7 @@ static bool tdma_pio_spi_ring_adapter_start_origin_impl(tdma_pio_spi_ring_adapte
         adapter->phys_disarm == NULL || adapter->phys_rx == NULL ||
         !tdma_pio_spi_ring_adapter_resident_process_image(adapter) ||
         (adapter->config.flags & TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE) == 0u ||
+        tdma_ring_diagnostic_burst_limit(adapter->config.flags) != 0u ||
         adapter->comm_fsm.state != TDMA_ADAPTER_COMM_STATE_CYCLE_BOUNDARY ||
         !adapter->resident_seeded || !adapter->resident_return_ready ||
         !adapter->last_rx_gate_accepted || adapter->reference_tx_completion_pending ||

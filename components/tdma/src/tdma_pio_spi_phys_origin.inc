@@ -124,6 +124,7 @@ bool tdma_pio_spi_phys_origin_begin(
         s_tdma_pio_spi_rx_dma_channel != TDMA_PIO_SPI_RX_DMA_CHANNEL ||
         config->enabled == 0u ||
         (config->flags & TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE) == 0u ||
+        tdma_ring_diagnostic_burst_limit(config->flags) != 0u ||
         config->node_count < 2u || config->node_count > TDMA_FLIGHT_SHORT_SLOT_COUNT ||
         config->node_count != phys->node_count || config->baud_hz != phys->baud_hz ||
         config->local_slot_id != config->reference_slot_id ||

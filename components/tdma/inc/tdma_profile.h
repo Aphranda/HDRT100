@@ -16,6 +16,18 @@
 /* Debug bring-up: execute phase-budget violations and retain the warning in
  * the physical snapshot so waveform evidence can explain packet loss. */
 #define TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE 0x00000002u
+/* STOP-configured ordinary-origin diagnostic launch quota: 0 is unlimited,
+ * 1/2 are bounded, and the reserved encoding 3 is rejected at ARM. */
+#define TDMA_RING_FLAG_DIAGNOSTIC_BURST_SHIFT 8u
+#define TDMA_RING_FLAG_DIAGNOSTIC_BURST_MASK \
+    (3u << TDMA_RING_FLAG_DIAGNOSTIC_BURST_SHIFT)
+
+static inline uint32_t tdma_ring_diagnostic_burst_limit(uint32_t flags)
+{
+    return (flags & TDMA_RING_FLAG_DIAGNOSTIC_BURST_MASK) >>
+        TDMA_RING_FLAG_DIAGNOSTIC_BURST_SHIFT;
+}
+
 #define TDMA_TRAFFIC_CLASS_COUNT 5u
 #define TDMA_RECOVERY_RESERVED_BYTES_PER_CYCLE 128u
 #define TDMA_RECOVERY_BUFFER_COUNT 2u
