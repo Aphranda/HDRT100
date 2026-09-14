@@ -8,7 +8,8 @@ Last updated: 2026-09-14
 
 本文是 `VDC-CMD-001` 的待审方案，服务于 `VDC-LONGTERM-001`，不冻结 wire 契约，
 不允许据此启用从机控制，也不替代调度、角色、Calibration 和正式锁相门禁。
-当前证据与 host 反例见 `VDC-PROGRESS-20260914-004`。
+当前证据与 host 反例见 `VDC-PROGRESS-20260914-004`；自主 origin 输入缺口及
+目标模式补测见 `VDC-PROGRESS-20260914-007`。
 
 ## 1. 需要解决的实际缺口
 
@@ -56,12 +57,36 @@ reference 与 DPLL MASTER 不强制是同一角色。
 3. reference 通过同一路径发布该 sequence 的完整时间锚；其他板将自己保留的 RX latch
    与该锚及 directed delay/bias 配对。丢失、错圈、过期、错误 reference/session 均拒绝。
 4. 经多锚点确认 epoch、频率比例和不确定度后才发布有效 `M_i`；漂移、有效期、溢出及
-   连续性必须有边界。现有 compact phase trailer 继续服务逐圈观测，不能独自恢复 epoch。
+   连续性必须有边界。compact phase trailer 须先在自主模式补齐生产和关联，才能服务
+   逐圈观测；它不能独自恢复 epoch。
 5. 映射失效时冻结可信信号输出并降低质量；新映射与命令在 Core1 边界组合，避免因更新
    映射而产生未经约束的相位跳变。重新 ARM 或切换会话不能复用旧锚点。
 
 上述时间模型尚未实现或验收；`COMMON_TIME`、`clock.valid`、主机内部 `LOCKED`
 或精确匹配的序列，单独都不足以建立这个映射。
+
+### 自主 origin 的原始计时前置
+
+当前自主路径尚未提供上述模型需要的时间输入。事实源为
+`tdma_pio_spi_ring_origin.inc` 的 `tdma_pio_spi_ring_origin_invalidate_time()`、
+`tdma_pio_spi_phys_origin.inc` 的 `tdma_pio_spi_phys_origin_rx()`，以及
+`tdma_origin_plan.c` 的 `L_STAGE`：交接时清理旧 clock observation，RX 返回零边沿
+时间戳，DMA 每圈清零 DPLL trailer。`tdma_origin_observation_t` 和
+`tdma_origin_record_t` 目前只保留序列、身份、代际及 RTT 等运输事实，不能将它们
+直接提升为绝对时间锚。普通 origin 的鉴相更新不证明自主路径已经具备这些能力。
+
+下一候选切片按以下边界设计和审核，未完成前不改变 timestamp eligibility：
+
+- TDMA owner 明确发射参考边沿与接收边沿的硬件事件、同圈身份、原始时基和不确定度。
+  若用 DMA 读系统计时器，必须给出该读取与真实边沿的偏移/抖动证据及跨字回绕处理；
+  “由 DMA 执行”本身不能证明读数就是边沿 latch。
+- 先证明本地记录的准备、捕获、发布、退休、缺失及 STOP 取消；保留 source/session/
+  schedule 绑定和 sequence 回绕。时间锚的保留不能阻塞下一圈，迟到时明确丢弃。
+- 在既有 PIO/DMA owner 和静态容量内核算程序、描述符、FIFO 与 RAM；逐圈 trailer
+  与原始边沿关联必须有可执行时序/负测及实板证据。若需要改变跨域格式或语义，先
+  完成对应冻结与独立审核；不能借用 NO5 的 PIO/DMA 或增加独立同步帧。
+- `VdcSyncAO` 只消费已验证且同圈的描述符；`SyncDpllFB` 仍独占 PI/DCO 应用。
+  本地输入闭合后再测自主更新 WCET，随后由既有 mailbox 运输完整时间锚并建立 `M_i`。
 
 ## 3. 固定邮箱的候选承载方式
 
@@ -132,12 +157,11 @@ prepared / applied 身份与实际时间。过期、映射无效或准备未完�
 | 5 | 920 B |
 | 6 | 1104 B |
 
-`s_tdma_flight_sync.context` 当前只由 compact DELTA 接收路径写入，对外只提供 peer、
-mirror 和 quality。建议先完成 `VDC-RESOURCE-001`：将该路径状态收敛为专用 compact
-receiver，上述未使用数组从此实例移除，通用 RefMem receiver 保持完整能力。必须用
-原实现与新实现的 DELTA 行为对照、当前源码 target link/P3 和短帧原件确认回收结果；
-不得先把理论字节数写为固件成果。组装区、稳定命令、guard、预约锚点和双缓冲各自预算
-闭合后，再实施命令接线。
+`VDC-RESOURCE-001` 已将 `s_tdma_flight_sync.context` 收敛为专用 compact DELTA
+receiver，保留 peer、mirror 和 quality，通用 RefMem receiver 保持完整能力。当前
+编译容量的实际回收和剩余链接余量见 `VDC-PROGRESS-20260914-005/006`；其他容量
+仍只有 host 对照，不能继承目标链接结论。组装区、稳定命令、guard、预约锚点和
+双缓冲仍须分别完成预算后再接线，已回收 RAM 不等于这些缓冲已经分配或准入。
 
 ## 6. 独立审核与负测清单
 

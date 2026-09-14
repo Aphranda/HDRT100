@@ -109,7 +109,7 @@ RELOCKING/FAULT 状态可追溯；最终相位精度只由当前源码指纹下�
 
 | 顺序 | 阶段 | 对应任务 | 阶段退出条件 |
 |---:|---|---|---|
-| 1 | 调度与角色基础 | `VDC-RESOURCE-001`、`VDC-SCHED-001`、`VDC-ROLE-001`，复核 `VDC-TDMA-001` | 命令缓冲的 RAM 预算经目标链接复核；真实更新路径具备静态预算证据；区分本相位超限和上游迟到；主从切换清理旧状态，从机本地 evidence 不驱动 PI/DCO，短帧连续。 |
+| 1 | 调度与角色基础 | `VDC-RESOURCE-001`、`VDC-SCHED-001`、`VDC-ROLE-001`，复核 `VDC-TDMA-001` 与 `VDC-EVID-001` 的 resident 输入 | 命令缓冲的 RAM 预算经目标链接复核；自主环路具有可关联的实际时间戳输入，真实更新路径具备静态预算证据；区分本相位超限和上游迟到；主从切换清理旧状态，从机本地 evidence 不驱动 PI/DCO，短帧连续。 |
 | 2 | 冻结定时命令契约 | `VDC-CMD-001` | 来源、序列、代际、完整性、共同生效时间和过期策略在域文档落点，完成登记及独立交叉审核；固定 process image 与各业务预算可复核。 |
 | 3 | 接通稳定命令运输 | `VDC-CMD-002`、`VDC-CMD-003` | Core0 按来源保留稳定命令，Core1 有界读取；从板接收计数增长；错误来源、损坏、重复、混合快照及旧会话被拒绝。 |
 | 4 | 共同时间与定时应用 | `VDC-CMD-004`、`VDC-CMD-005`，关闭 `VDC-ROLE-002` | 本地与共同时间映射可追溯；三块从板实际应用命令，应用时间与目标时间可对账；丢失或迟到命令保持可信输出，不启用本地 PI。 |
@@ -127,12 +127,19 @@ RELOCKING/FAULT 状态可追溯；最终相位精度只由当前源码指纹下�
 quick P3 验证，见 `VDC-PROGRESS-20260914-005/006`。这不关闭其他容量的目标验收、
 全表 WCET 或正式锁相，也不代表间歇性 TOPOLOGY 超时根因已解决。
 
-下一实现入口为 `VDC-SCHED-001`，按以下检查顺序推进，结果回写原任务表：
+`VDC-PROGRESS-20260914-007` 已确认前序 DPLL 更新对照使用普通 origin；自主 origin
+的 DMA 计划清零 DPLL trailer、RX 不提供有效边沿时间戳，当前没有新增 DPLL trace。
+因此入口先补齐 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再以该模式推进
+`VDC-SCHED-001`。普通 origin 的 LOCKED 和无输入的低耗时均不能关闭此依赖。
+按以下检查顺序推进，结果回写原任务表：
 
-1. 从实际更新窗口区分 TDMA 上游迟到、DPLL 入口错过及 DPLL 自身超限；先核对
-   静态相位边界和现有计时字段，再决定需要补充的有界板端记录。
-2. 分解真实更新路径的 prepare/servo/finalize/publish 成本，每次只实施可独立验收
-   的优化，并以同配置当前源码四板对照闭合；稀疏 last-call 样本不能代替 WCET。
+1. 绑定自主 origin 的硬件发射/接收事件、sequence/identity/session 与原始计时；
+   验证 DMA/PIO 资源和最坏时序，保留旧观测失效与 STOP 退休，不能将 RTT 倒数或
+   CPU 提取时刻升级为边沿时间戳。候选边界见 `VDC_COMMAND_TRANSPORT_PLAN.md`。
+2. 补齐逐圈 trailer 和本地 latch 的关联后，记录自主模式下实际更新的 prepare/
+   servo/finalize/publish 成本，区分上游迟到和自身超限；先处理切换连续性，再验收
+   稳定窗口。每个实现切片完成当前源码 P3/四板原件复核；无输入或普通 origin
+   结果不能代替自主更新预算，稀疏 last-call 样本不能代替 WCET。
 3. 调度门禁闭合后复核 `VDC-ROLE-001` 的主机 PI、从机旁路、角色切换清理与保持输出
    正反测试，完成对应短帧闭环；未退出前不开始命令接线。
 4. 完成 `VDC-CMD-001` 的跨域登记与独立审核后，依次执行 `VDC-CMD-002/003` 的
@@ -151,7 +158,7 @@ quick P3 验证，见 `VDC-PROGRESS-20260914-005/006`。这不关闭其他容量
 | ID | 任务 | 状态 | 依赖 | 完成或退出门禁 |
 |---|---|---|---|---|
 | `VDC-RESOURCE-001` | 收敛 compact RX 专用状态，回收此实例中未使用的通用 RefMem ACK/fence/remote-quality 数组，为命令组装和时间锚提供预算。 | DONE | 现有 compact DELTA wire/peer/mirror/quality 行为；审计与验收见 `VDC-PROGRESS-20260914-004/005/006` | 当前编译容量的原/新行为对照、目标 link map、当前源码四板 quick P3/短帧及 STOP 后原始记录闭合，确认实际 RAM 回收；通用 receiver 保持完整能力。其他容量目前只有 host 对照，目标配置验收由 `VDC-CONFIG-001` 跟踪；不以资源回收关闭调度或正式锁相门禁。 |
-| `VDC-SCHED-001` | 给 DPLL 静态相位保留入口余量，消除窗口恰好等于 WCET 引起的调度饥饿。 | IN PROGRESS | `TDMA-DET-01` 完整静态表 | 全部周期目录闭合；保留原 WCET 与准入检查；当前源码 P3、短帧闭环和四板记录对照 start miss/执行/超限；SCPI 仅控制，STOP 后保存 SD；不以调度通过代替命令准入或 formal lock。 |
+| `VDC-SCHED-001` | 给 DPLL 静态相位保留入口余量，消除窗口恰好等于 WCET 引起的调度饥饿。 | IN PROGRESS | `TDMA-DET-01` 完整静态表；`VDC-TDMA-001` / `VDC-EVID-001` 自主输入 | 全部周期目录闭合；保留原 WCET 与准入检查；当前源码 P3、短帧闭环和四板记录对照 start miss/执行/超限，并证明采集窗口确实运行自主模式且有 DPLL 更新；SCPI 仅控制，STOP 后保存 SD；不以调度通过代替命令准入或 formal lock。 |
 
 入口余量的实现和有限对照已记录于 `VDC-PROGRESS-20260914-001`；四板锁相复测与
 owner 快照复制优化见 `VDC-PROGRESS-20260914-002`。继续针对真实更新路径分解

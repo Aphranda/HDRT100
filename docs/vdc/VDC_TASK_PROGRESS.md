@@ -27,10 +27,58 @@ Last updated: 2026-09-14
 
 `VDC-RESOURCE-001` 当前编译容量的 compact RX 资源切片已闭合，有限采集的 STOP 后
 交接通过当前源码四板 quick P3 验证，见下方 `VDC-PROGRESS-20260914-006`。
-下一入口为 `VDC-SCHED-001`，随后复核 `VDC-ROLE-001`；全表 WCET 和正式锁相仍未闭合，
+自主 origin 补测发现时间输入尚未接通，见 `VDC-PROGRESS-20260914-007`；当前先补齐
+`VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
+`VDC-ROLE-001`；全表 WCET 和正式锁相仍未闭合，
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260914-007 — 自主 origin 与 DPLL 输入缺口补测
+
+- TODO task ID：`VDC-TDMA-001`、`VDC-EVID-001`、`VDC-SCHED-001`、`VDC-CMD-001`。
+- 状态：IN PROGRESS；目标模式的时间输入和全窗口连续性尚未闭合。
+- 日期：2026-09-14。
+- 证据根：`out/HardwareAcceptance/20260914/dpll-resident-baseline/`。以下计数、时长、
+  构建号与测量值均为快照，非架构事实源；`plan.json` 绑定上一切片 manifest。
+- 范围修正：前序 `dpll-four-board-profile`、compact RX 与停止验收切片的 DPLL 更新
+  对照使用普通 origin，没有启动自主 origin 许可证。其内部 LOCKED、调度迟到及
+  命令增量结论仍属于原运行模式，不证明 wire 自主环路中的 DPLL 更新已经实现。
+  原先资源回收和短帧结果仍有效，不能因此提升 resident 或锁相任务。
+- 当前源码/硬件：沿用已通过 quick P3 的 build `20260914051939`，指纹
+  `cfe924fbc3e53593280ccea6ddcefe778d69c0a6e180cb7a9c6cb17b7486aef8`；本轮没有
+  修改固件、PIO、构建或生产工具，也没有用新手工报告替换 P3 receipt。
+- 实板流程：四板先配置 provisional/clock evidence，普通启动后显式签发有限自主
+  origin 许可证并采集；首次 START 到全部 STOP 无 SCPI 查询。`resident-r1`
+  完成后全部 STOP/撤销许可证，再保存 TDMA、释放 StorageAO lease，处理 DPLL
+  trace。四板各 34 条板端记录完整、无漏采，SRAM/SD 字节一致；DPLL trace 均为
+  零条，不生成空样本的锁相结论。随后 `restored-r1` 恢复普通配置并通过短帧/SD。
+- 原验收失败保留：自主模式整窗 `passed/closed_loop_passed/realtime_gate_passed`
+  为假。NO1 的旧 evaluator 仍要求普通 persona 和软件 TX count 增长；这些不适用于
+  自主发车，但不得据此抹掉切换期间真实的 missing 增量，以及 NO4 的短暂 DOWN/
+  recovery。`review-final.json` 同时保留原错误及逐板区间计数，未修改验收器放行。
+- 固定中间窗口：预选启动后 3–6 s 的原始记录，四板 UP/DOWN 连续、接收/拒绝/丢失
+  对账正常；接收增量为 917/916/916/917，拒绝和丢失增量均为零。主板 persona 为
+  16、FSM 为 5，自主模式成立；四板 TDMA/VDC/DPLL start miss 与 overrun 均无增长。
+  这是定位稳定模式的窄窗口，不替代整窗失败或真实更新 WCET。
+- 主板自主计时：STOP 后读取已按自主状态/同配置/同许可证筛选的 `PROFile:RUN?`，
+  对应 5221 次自主 service 中保留的完整峰值为 545.044 µs；其中 owner 468.5 µs、
+  adapter 358.704 µs、RX handoff 204.412 µs、origin publish 73.228 µs。嵌套区间
+  不能相加；该峰值未包含有效 DPLL 更新，不能与普通 origin 的峰值直接归因比较。
+- 无输入直接原因：主板中间窗口 timestamp flags 为 diagnostic-only、resolution
+  为零。`tdma_pio_spi_ring_origin_invalidate_time()` 清理旧观测；物理 origin RX
+  显式返回零边沿时间戳；DMA `L_STAGE` 每圈清零 DPLL trailer。
+  `tdma_origin_observation_t` / `tdma_origin_record_t` 是运输/RTT 事实，缺少可用于
+  鉴相的绝对边沿时间。DPLL 相位在执行而 trace 不增长，与此路径一致；不能通过
+  修改 valid flag、保留旧 observation 或使用 CPU 提取时间伪造输入。
+- 验证与复核：`audit.py` 重新解码当前 `.bin`、核对 build/board/epoch/CRC/长度及 SD，
+  绑定源文件 SHA，保存全部失败和预选窗口；`resident-r1-stopped-readback.json`
+  保留自主峰值和停止后诊断读回。最终四板 STOP/config ACK、许可证 inactive。
+  文档按自回归门禁验证后单独提交，原件由 `slice-manifest.json` 封存。
+- 下一 gate：先推进 `VDC-TDMA-001` / `VDC-EVID-001` 的自主边沿计时与 trailer
+  关联，设计边界已补入 `VDC_COMMAND_TRANSPORT_PLAN.md`；随后才测自主 DPLL
+  实际更新成本。命令运输、共同时间和正式输出锁相仍未接通，不以无输入低耗时
+  或普通模式 LOCKED 关闭长期目标。
 
 ### VDC-PROGRESS-20260914-006 — 有限采集交接验收与资源切片闭合
 
