@@ -34,13 +34,65 @@ Last updated: 2026-09-14
 `VDC-PROGRESS-20260914-011`；其余编译容量链接及真实地址构造、上限容量四板预采见
 `VDC-PROGRESS-20260914-013`；RefMem 向量更新的栈/复制收敛与快速验收对照见
 `VDC-PROGRESS-20260914-014`；真实构造块取消与复用的软件补证见
-`VDC-PROGRESS-20260914-015`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、取消
+`VDC-PROGRESS-20260914-015`；实板暂停构造任务的取消探针见
+`VDC-PROGRESS-20260914-016`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
 `VDC-ROLE-001`；全表 WCET 和正式锁相仍未闭合，
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260914-016 — 构造中取消的板端诊断探针
+
+- TODO task ID：`VDC-TIME-002`。
+- 状态：IN PROGRESS。补齐当前四板拓扑上 NO1 构造任务的确定性取消证据，父任务
+  继续保留其他硬件配置与交接时延门禁；不提升自主时间输入或正式锁相状态。
+- 日期：2026-09-14。
+- 证据根：`out/HardwareAcceptance/20260914/dpll-build-cancel-probe/`；前序 manifest
+  由 `initial-checkpoint.json` 绑定，目标身份见 `current-plan.json`，逐轮复核见
+  `probe-r1-review.json` / `probe-r2-review.json`，主控复核见 `review-final-r1.json`。
+  以下数字均为本轮快照，非事实源。
+- 实现：新增显式有限诊断 `CALibration:ORIGin:TRIAL:BUILDCancel`，通过既有
+  Calibration grant 和 Core1 owner 准入，冻结 trial/config 代际。Core0 在真实
+  builder 的 emitting pass 写出首个描述符后让出执行；Core1 在 BUILD_STEP 发现
+  PAUSED 后进入现有故障／STOP 路径，STOP 未得到 worker ACK 时保留 workspace。
+  Core0 仅恢复带 PAUSED 标记的 CANCELLED 任务，清空 entry 并先撤销活跃标记再
+  发布 IDLE。普通 TRIAL 不启用探针；没有新增 PIO/DMA、时间戳资格或 DCO 应用。
+- 诊断读取：`READ:CALibration:ORIGin:BUILDCancel?` 仅在 ring STOP/config ACK
+  且 worker IDLE 后可用，读取保留的清理结果，不再访问已复用的 persona union。
+  此接口记录生命周期事实，不提供物理边沿时间或微秒级取消时延上界。
+- 软件：相关测试 20 项通过；容量 2/6/8 的真实构造矩阵额外覆盖 10/50/70 组探针
+  场景，共 130 组，包括暂停前后取消、取消早于 claim、旧 PAUSED 状态不能复活
+  writer，以及 poison 后重新构造逐字节一致。此前 5824 组逐块取消继续通过。
+  记录与命令分别见 `host-r1` / `host-r2`；本轮没有用 host 调度交错代替芯片测量。
+- 资源与构建：容量 6/8 的 A/B 与 boot 增量构建分别耗时 17.985/17.500 s。
+  新增静态 RAM 32 B；预留堆后主 RAM 余量为 4876/1116 B；SCRATCH_X 未增加数据，
+  详见两份 `capacityN-checkpoint.json`。未测容量不继承本轮目标资源或 HIL 结论。
+  当前部署容量 6，build `20260914101340`；源码指纹为
+  `8b55a9557bc99ec7bde13b7ddd7be38962fe03efdddc98efb1334f2d67779173`。
+- 四板 quick P3：内部 184.464 s、外部 184.656 s，构建复核 2.945 s、OTA 105.547 s；
+  strict_gates_passed 和短帧三项标记均 true。四板原生记录各 14 条，无漏采，STOP
+  后 SD 字节一致。quick 时间不包含首次增量编译及额外诊断实验，也不证明整表 WCET。
+- 两轮板端探针：NO1 的 trial/config 分别为 36/71 和 52/78，均在 emitting pass
+  写出 1 个描述符后暂停，记录 1 次取消未确认、入口清空成功、最终 RETIRED/IDLE。
+  第二轮新代际证明已重新 ARM 并建立新构造任务。每轮四板原生记录各 34 条，无漏采，
+  全部 STOP 后 SD 一致；采集期间无 SCPI 查询。这里只证明 NO1 作为 origin、当前
+  拓扑和固定构造块的暂停取消，不宣称所有板卡角色或任意指令竞态已实测。
+- 保留失败：两轮主动取消的连续性三项标记均 false；r2 另有
+  `explicit startup barrier timed out`，不得由取消清理成功覆盖。P3 后的辅助封装
+  曾因命令日志与 STOP 结果同名退出，实际 STOP 成功；失败原件保留于
+  `p3-finish-r1.json`，后续命令日志改用独立名称，SD 保存已完成。
+- 恢复对照：普通短帧 r1 已在约 1.26 s 内取得三个连续健康样本，但 NO1 最后一个
+  原生样本被主机 STOP 取消，终止原因 2、33/34 条，因 collection error 汇总为
+  启动屏障失败。保留 r1 原件；本轮 `collect_normal.py` 在停止截止时间中计入既有
+  启动触发预算，未改变启动健康门限，也未增加实时查询。r2 外部 41.844 s，四板各
+  34 条且无漏采，启动屏障和短帧三项标记均 true，STOP 后 SD 字节一致。该恢复
+  使用普通 origin，不能代替自主时间输入；NO1 TDMA overrun、上游迟到与部分 DPLL
+  相位超限仍保留于原始记录，不宣布全表 WCET。最终四板 STOP/config ACK，临时
+  许可证 inactive，NO5 未操作。
+- 下一 gate：`VDC-TIME-002` 的其他硬件配置与实测交接时延上界，然后进入
+  `VDC-TIME-003` 的完整窗口连续性与边沿误差界；`VDC-TIME-004` 和命令接线仍未开放。
 
 ### VDC-PROGRESS-20260914-015 — 真实 DMA 构造块取消与复用补证
 
