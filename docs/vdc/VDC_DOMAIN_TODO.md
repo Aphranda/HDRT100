@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_TODO.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/sync/SYNC_IO_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`
-Last updated: 2026-09-10
+Last updated: 2026-09-14
 
 本文只维护当前 VDC 架构迁移的任务、依赖和退出门禁。稳定语义见 Architecture，实施证据
 见 Task Progress，重构前内容已归档到 `docs/legacy/vdc/`。
@@ -84,6 +84,18 @@ RELOCKING/FAULT 状态可追溯；最终相位精度只由当前源码指纹下�
 把任何预设精度承诺写成架构事实。
 
 ## P0A 最高优先级：可配置 DPLL 控制角色
+
+前置执行条件由 `VDC-SCHED-001` 验证；这项调度修复不提升角色、命令运输或正式锁定
+任务的状态。现有角色/Flash/SCPI 和从机消费代码的存在不等于对应退出门禁已通过，
+须按当前源码与实板证据继续复核。
+
+| ID | 任务 | 状态 | 依赖 | 完成或退出门禁 |
+|---|---|---|---|---|
+| `VDC-SCHED-001` | 给 DPLL 静态相位保留入口余量，消除窗口恰好等于 WCET 引起的调度饥饿。 | IN PROGRESS | `TDMA-DET-01` 完整静态表 | 全部周期目录闭合；保留原 WCET 与准入检查；当前源码 P3、短帧闭环和四板记录对照 start miss/执行/超限；SCPI 仅控制，STOP 后保存 SD；不以调度通过代替命令准入或 formal lock。 |
+
+入口余量的实现和有限对照已记录于 `VDC-PROGRESS-20260914-001`；下一步须针对
+真实更新路径分解 prepare/servo/finalize/publish 成本，区分本相位超限与上游
+继承迟到，并完成严格校准/控制配置复核。无更新路径的执行恢复不能关闭本任务。
 
 `VDC-ROLE-001` 至 `VDC-ROLE-004` 是当前最高优先级切片，优先于新的长期观测能力和
 自动调参。目标是让每块板保留 PI 能力，但可独立配置为 `MASTER` 或跟随一个显式指定的

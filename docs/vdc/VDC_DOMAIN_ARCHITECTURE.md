@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
 Related: `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_ARCHITECTURE.md`
-Last updated: 2026-09-13
+Last updated: 2026-09-14
 
 本文是 HAOFV Virtual Distributed Clock（VDC）内部基础主域的稳定架构事实源。
 VDC 负责多节点共同时间、offset/rate 估计、质量 promotion 和时间快照发布；不拥有
@@ -196,6 +196,21 @@ clock_offset ~= (forward - reverse) / 2
 
 正式 ring path 不假设对称，方向 bias 和多 hop 结果只在 Calibration load 阶段写入
 `VdcObservationPathMatrix`；SyncDpllFB 运行态只读索引，不沿物理环临时累加。
+
+## DPLL 调度准入
+
+`SyncDpllFB` 由完整 Core1 静态表中的 DPLL phase 推进，窗口与 WCET 分别引用
+`PROJECT_CORE1_PHASE_DPLL_START_CYCLE`、`PROJECT_CORE1_PHASE_DPLL_END_CYCLE` 和
+`PROJECT_CORE1_PHASE_DPLL_WCET_CYCLES`。固定入口余量由
+`PROJECT_CORE1_DPLL_ENTRY_MARGIN_CYCLES` 声明，覆盖调度轮询与入口抖动；它不增加
+service WCET，也不随 DPLL 启停临时申请。全部已编译周期目录保留该余量，后续相位
+按完整表安装，GUARD 始终不执行负载。
+
+相位窗口恰好等于 WCET 时，`app_realtime_run_phase()` 的完整 WCET 容纳检查会使
+稍晚到达的调用整拍跳过。该检查继续保留；修复静态表必须同时验证 start miss、
+实际执行、overrun、deadline miss 和 TDMA 连续性。相位被调用不代表新 evidence 已
+准入，更不代表 FOLLOWER 已应用主机命令或达到正式锁定。当前切片记录见
+`VDC-PROGRESS-20260914-001`，完整表边界见 TDMA 的 `TDMA-DET-01`。
 
 ## DPLL 算法
 

@@ -1459,6 +1459,12 @@ TDMA/Core1 调度的唯一事实源是 `clk_sys` 拍数。板级时钟引用
 WCET 和 GUARD 不变。非整数频率使用精确拍数或有理式，不再以取整 Hz 驱动周期。
 修改预算不消除已有 overrun/deadline 事实，也不构成完整 WCET 或产品准入通过。
 
+DPLL 固定入口余量由 `PROJECT_CORE1_DPLL_ENTRY_MARGIN_CYCLES` 纳入窗口，原
+`PROJECT_CORE1_PHASE_DPLL_WCET_CYCLES` 保留；DPLL 之后的执行相位整体平移，尾部
+GUARD 按新静态边界保留且不运行负载。这是完整编译表的预算分配，DPLL 启停不会
+改变相位边界，运行时不能借用其他 phase 或 guard。全部离散周期目录沿用相同
+入口余量；实现与采样进度见 `VDC-PROGRESS-20260914-001`。
+
 可配置周期实现与验收进度见 `TDMA-PROGRESS-20260914-013`。SCPI 的
 `SYSTem:TDMA:PERiod <us>` 只选择已编译目录项，Core0 在 STOP/config ACK 后向唯一
 TDMA owner 发布带 generation 的请求；不能输入任意相位或临时借用预算。

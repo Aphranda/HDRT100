@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_TASK_PROGRESS.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
-Last updated: 2026-09-10
+Last updated: 2026-09-14
 
 本文只记录当前 VDC 迁移的实施 checkpoint 和证据闭环。任务状态以 `VDC_DOMAIN_TODO.md`
 为唯一事实源，稳定语义以 `VDC_DOMAIN_ARCHITECTURE.md` 为准。重构前的长历史记录已移入
@@ -40,6 +40,59 @@ VDC-TDMA-001
 当前最高优先级 gate 是 `VDC-ROLE-001`；`VDC-TDMA-001`、`VDC-CAL-001` 和
 `VDC-EVID-001` 继续作为它不变的 evidence 输入。`VDC-SERVO-001/002` 在正式
 evidence 未闭环前只允许 host/replay 验证，不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260914-001 — DPLL 静态相位入口余量
+
+- TODO task ID：`VDC-SCHED-001`、`VDC-ROLE-001`、`VDC-ROLE-002`、`VDC-VERIFY-001`。
+- 状态：IN PROGRESS。
+- 日期：2026-09-14。
+- 证据根：`out/HardwareAcceptance/20260914/dpll-phase-admission/`；下述板端计数和
+  构建数值均为该切片快照，非架构事实源。前序 TDMA 切片的 manifest 由本目录
+  `scope.json` 按 SHA 引用，原目录保持封存。
+- 原因：默认完整表的 DPLL 窗口恰好等于 WCET，`app_realtime_run_phase()` 只在
+  计数器恰好命中起点时容纳完整 WCET。基线 `baseline-r3` 的四板普通短帧闭环通过，
+  DPLL 全窗执行比例仅约 3.5%--6.4%，并无新 TRACE 更新；原始板端记录已 STOP 后
+  保存 SD，读回与 RAM 导出逐字节相同。历史对照见 `historical-dpll-review.json`。
+- 变更：`PROJECT_CORE1_DPLL_ENTRY_MARGIN_CYCLES` 为全部离散静态表声明入口余量；
+  DPLL WCET 和其他执行相位宽度/WCET 保留，DPLL 后续相位整体平移，尾部 guard
+  仍为空闲。未修改 runtime 准入检查、PI 参数、主从应用语义、wire 或 PIO/DMA。
+- 软件：相关 Python/host 回归 66 项及 VDC Domain C harness 通过；四档完整表均
+  通过目录闭合检查。A/B/Boot 与 Flash link checks 通过，build 为
+  `20260914022144`，源码指纹为
+  `baf58ba35b89cef7122b2727abbdf6042bbeb615cbe7db9f91d9f58bfc64539f`。
+  `source-checkpoint-r1.json` 证明静态 RAM 没有增加，原 heap 外余量快照仍为 28 B。
+  同一目录回归以旧配置编译时，明确在 DPLL 入口余量断言失败。
+- 板端调度：`normal-r1` 与 `restored-r1` 均完成普通短帧闭环；稳定区间的主站
+  DPLL 执行比例分别为 99.58% 和 98.98%，三个从站均为 100%，这些区间 DPLL 的
+  overrun/deadline 增量均为零。基线相同区间为约 3.11%--5.94%。主站仍有
+  start miss，TDMA phase 本身也存在 overrun/deadline；不能把短帧工具的
+  `realtime_gate_passed` 布尔解释为全表 WCET 已通过。
+- 真实更新路径：`provisional-r1` 显式启用既有调试 observation，短帧功能闭环
+  通过，四板各冻结 76 条 DPLL 记录。记录跨度约 503--599 ms，仅覆盖该有限
+  TRACE 区间；NO3 含一条 follower state transition，其余为本地观测，不存在
+  follower applied command。三台从机的命令 apply/接收进展增量均为零，bias
+  generation 仍缺失。SD 数据完成 CRC 解码及重复读取字节核对，原始数据位于
+  `provisional-r1-dpll-sd`，离线诊断图位于 `provisional-dpll-analysis/plots`。
+- 更新相位的剩余成本：同轮板端调度稳定区间内，NO1--NO4 的 DPLL overrun
+  增量依次为 216/107/85/80，deadline 增量为 211/104/83/75；主站 DPLL 执行
+  比例降为 78.47%，三个从站仍为 100%。调试负载未新增隔离，TDMA 节点继续
+  收发；仍须拆分真实更新分支并闭合当前 WCET，不能继续以无更新路径代替验收。
+- P3：`p3-r1` 在 NO3 MARK preparation 的 TOPOLOGY 配置被拒绝后中断；完整
+  软件复位重验 `p3-r2` 完成四板校准到短帧流程，但粗校准中的 NO3 TOPOLOGY
+  超时仍保留在 `diagnostic.json`，`strict_gates_passed=false`。本切片使用当前
+  源码的 QUICK_DIAGNOSTIC 凭证，不宣称严格 P3、完整实时预算或正式锁定通过。
+- 周期/恢复：四板对所有已编译周期目录逐项返回完整静态表及 generation ACK；
+  最终恢复默认周期，STOP/config ACK、inactive 临时许可证和 SD 保存核对通过。
+  `review-final.json` 是原始证据复核入口，最终 manifest 与提交回执分别封存。
+- 原始拒绝：`baseline-r1` 的临时采样脚本误将复合 TRACE ARM ACK 视为单字段；
+  `baseline-r2` 未先保存取消的 TDMA 记录而遭重 ARM 拒绝。取消记录按原 reason
+  导出至 `baseline-r1-recovered` 并保存 SD 后才执行新基线，原失败未覆盖或改判。
+- 下一 gate：`VDC-SCHED-001` 保持 IN PROGRESS，先拆清并约束真实更新分支的
+  prepare/servo/finalize/publish 成本及主站继承迟到，复核 NO3 控制配置拒绝，
+  再推进 `VDC-ROLE-002` 的来源/序号/共同生效时间闭环。只读审计
+  `followup-audit.json` 指向 manager 的 uptime 比较、
+  非回绕安全序号过滤和 RefMem window intent 接线；它们尚未修改，也不能据此
+  宣称已解释所有命令缺失。调度恢复不等于 peer command apply、可信 jitter 或 formal lock。
 
 ### VDC-PROGRESS-20260910-012 — P3 phase-domain finding and fail-closed admission
 
