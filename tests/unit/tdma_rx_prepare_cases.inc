@@ -5,8 +5,32 @@ typedef struct {
     uint32_t latch_calls, feedback_calls, stops;
     uint64_t latch;
     uint64_t next_capture;
-    bool fail_capture;
+    bool fail_capture, unqualified_capture;
+    uint32_t pin_epoch, pin_calls, query_calls, queried_epoch, queried_sequence;
+    uint64_t queried_age_ns;
+    size_t queried_size;
+    tdma_rx_capture_t queried_capture;
 } rx_station_phys_t;
+
+static uint32_t rx_station_event_pin(void *context, const tdma_rx_capture_t *capture)
+{
+    rx_station_phys_t *phys = context;
+    assert(capture->flags == TDMA_RX_CAPTURE_PRIVATE_COPY);
+    ++phys->pin_calls;
+    return phys->pin_epoch;
+}
+
+static void rx_station_event_query(void *context, const tdma_rx_capture_t *capture,
+    uint32_t epoch, uint32_t sequence, size_t size, uint64_t age_ns)
+{
+    rx_station_phys_t *phys = context;
+    ++phys->query_calls;
+    phys->queried_capture = *capture;
+    phys->queried_epoch = epoch;
+    phys->queried_sequence = sequence;
+    phys->queried_size = size;
+    phys->queried_age_ns = age_ns;
+}
 
 static bool rx_station_capture(void *context, uint8_t *packet, size_t capacity,
     size_t *size, uint64_t *timestamp, tdma_rx_capture_t *capture)
@@ -20,6 +44,7 @@ static bool rx_station_capture(void *context, uint8_t *packet, size_t capacity,
         .produced_after = phys->next_capture * 301u + 303u,
         .frame_words = (uint32_t)*size + 4u, .bit_shift = 5u, .persona = 8u,
         .flags = TDMA_RX_CAPTURE_PRIVATE_COPY};
+    if (capture != NULL && phys->unqualified_capture) *capture = (tdma_rx_capture_t){0};
     /* Deliberately return a dirty object on failure: adapter must not publish it. */
     return received && !phys->fail_capture;
 }
@@ -56,7 +81,8 @@ static int test_rx_prepare_cases(void)
     const tdma_ring_adapter_ops_t *ops = tdma_pio_spi_ring_adapter_ops();
     tdma_pio_spi_ring_adapter_t adapter;
     tdma_rx_prepare_t job = {0};
-    rx_station_phys_t phys = {.wire = {.rx_timestamp_ns = 123u, .suppress_echo = true}, .latch = 456u};
+    rx_station_phys_t phys = {.wire = {.rx_timestamp_ns = 123u, .suppress_echo = true},
+        .latch = 456u, .pin_epoch = 29u};
     tdma_ring_adapter_status_t status;
     tdma_ring_runtime_config_t config = make_valid_config();
     config.node_count = 4u; config.local_slot_id = 1u;
@@ -66,6 +92,7 @@ static int test_rx_prepare_cases(void)
     set_test_sequential_topology(&adapter, 4u);
     tdma_pio_spi_ring_adapter_set_phys(&adapter, loopback_tx, loopback_rx, &phys);
     tdma_pio_spi_ring_adapter_set_phys_rx_ex(&adapter, rx_station_capture);
+    tdma_pio_spi_ring_adapter_set_phys_rx_event(&adapter, rx_station_event_pin, rx_station_event_query);
     tdma_pio_spi_ring_adapter_set_phys_ctrl(&adapter, NULL, rx_station_stop, NULL, NULL, &phys);
     tdma_pio_spi_ring_adapter_set_phys_local_tx_edge_ex(&adapter, rx_station_edge);
     tdma_pio_spi_ring_adapter_set_forwarding_mode(&adapter, TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_FLIGHT);
@@ -112,6 +139,8 @@ static int test_rx_prepare_cases(void)
     failed += expect_u32("RX admitted", tdma_rx_prepare_state(&job), TDMA_RX_PREPARE_REQUESTED);
     const tdma_rx_capture_t first_capture = job.capture;
     const uint32_t first_cancel_epoch = job.request_epoch;
+    assert(job.capture_observer_epoch == 29u && phys.pin_calls == 1u && phys.query_calls == 0u);
+    phys.pin_epoch = 30u; /* READY must not borrow this new observer epoch. */
     failed += expect_u64("capture belongs to this receive", first_capture.capture_id, 1u);
     failed += expect_u32("private copy is diagnostic only", first_capture.flags, TDMA_RX_CAPTURE_PRIVATE_COPY);
     failed += expect_u32("physical envelope retained", first_capture.frame_words, (uint32_t)size + 4u);
@@ -162,6 +191,10 @@ static int test_rx_prepare_cases(void)
     failed += expect_u32("no late latch read", phys.latch_calls, 1u);
     failed += expect_u64("original RX time", adapter.feedback_rx_timestamp_ns, 123u);
     failed += expect_u64("original TX time", adapter.local_tx_edge_timestamp_ns, 456u);
+    assert(phys.pin_calls == 1u && phys.query_calls == 1u);
+    assert(phys.queried_epoch == 29u && phys.queried_sequence == build.transport_sequence);
+    assert(phys.queried_age_ns == 50u && phys.queried_size == size);
+    assert(memcmp(&phys.queried_capture, &first_capture, sizeof(first_capture)) == 0);
 
     /* Cancellation epoch stays fixed for successive packets; the capture ID does not. */
     memcpy(phys.wire.echo_packet, packet, size); phys.wire.rx_pending = true;
@@ -170,6 +203,9 @@ static int test_rx_prepare_cases(void)
     failed += expect_bool("different capture ID", job.capture.capture_id > first_capture.capture_id, true);
     tdma_rx_prepare_core0_service(&job);
     ops->service(&adapter, 161u, &status);
+    assert(phys.query_calls == 2u && phys.queried_epoch == 30u);
+    assert(phys.queried_capture.capture_id != first_capture.capture_id);
+    const uint32_t good_pins = phys.pin_calls;
     phys.fail_capture = true; phys.wire.rx_pending = true;
     ops->service(&adapter, 162u, &status);
     failed += expect_u32("failed copy not requested", tdma_rx_prepare_state(&job), TDMA_RX_PREPARE_IDLE);
@@ -177,6 +213,17 @@ static int test_rx_prepare_cases(void)
     failed += expect_bool("failed callback cannot leak old provenance",
         memcmp(&unavailable, &job.capture, sizeof(unavailable)) == 0, true);
     phys.fail_capture = false;
+    assert(job.capture_observer_epoch == 0u && phys.pin_calls == good_pins && phys.query_calls == 2u);
+    /* A true receive without provenance remains ordinary transport; it does
+     * not pay for an empty candidate publication on every legacy/origin RX. */
+    phys.unqualified_capture = true;
+    memcpy(phys.wire.echo_packet, packet, size); phys.wire.rx_pending = true;
+    ops->service(&adapter, 170u, &status);
+    assert(job.capture_observer_epoch == 0u && phys.pin_calls == good_pins);
+    tdma_rx_prepare_core0_service(&job);
+    ops->service(&adapter, 171u, &status);
+    assert(phys.query_calls == 2u);
+    phys.unqualified_capture = false;
 
     /* STOP at REQUESTED, BUILDING, READY; only a claimed worker delays ACK.
      * No continuation may touch the new ARM's slot after ACK. */
@@ -186,6 +233,7 @@ static int test_rx_prepare_cases(void)
         if (phase == 1u) failed += expect_bool("RX claim", tdma_rx_prepare_core0_claim(&job), true);
         if (phase == 2u) tdma_rx_prepare_core0_service(&job);
         const tdma_rx_capture_t cancelled_capture = job.capture;
+        const uint32_t cancelled_pin = job.capture_observer_epoch, queries = phys.query_calls;
         const uint32_t accepted_before_stop = adapter.rx_count;
         const uint32_t stops = phys.stops;
         failed += expect_bool("bounded RX STOP", ops->stop(&adapter), phase != 1u);
@@ -195,25 +243,55 @@ static int test_rx_prepare_cases(void)
             failed += expect_bool("repeat STOP stays pending", ops->stop(&adapter), false);
             failed += expect_bool("cancel cannot overwrite worker capture",
                 memcmp(&cancelled_capture, &job.capture, sizeof(cancelled_capture)) == 0, true);
+            assert(job.capture_observer_epoch == cancelled_pin);
             tdma_rx_prepare_core0_build_claimed(&job);
             failed += expect_bool("ACK completes STOP", ops->stop(&adapter), true);
         }
         failed += expect_u32("old slot retired", tdma_rx_prepare_state(&job), TDMA_RX_PREPARE_IDLE);
         failed += expect_u32("cancelled capture never committed", adapter.rx_count, accepted_before_stop);
         failed += expect_bool("new ARM", ops->start(&adapter, &config), true);
+        assert(phys.query_calls == queries);
     }
-    for (uint32_t boundary = 0u; boundary < 4u; ++boundary) {
+    for (uint32_t boundary = 0u; boundary < 7u; ++boundary) {
         memcpy(phys.wire.echo_packet, packet, size); phys.wire.rx_pending = true;
         ops->service(&adapter, 300u, &status);
         tdma_rx_prepare_core0_service(&job);
         if (boundary == 0u) ++job.epoch;
         if (boundary == 1u) ++adapter.config.schedule_crc32;
         if (boundary == 2u) ++job.map_generation;
+        if (boundary == 4u) ++adapter.config.ring_profile_crc32;
+        if (boundary == 5u) ++job.capture_timestamp_flags;
+        if (boundary == 6u) ++job.capture_timestamp_resolution_ns;
+        const uint32_t queries = phys.query_calls;
         const uint32_t rx = adapter.rx_count, drops = adapter.rx_drop_count;
         ops->service(&adapter, boundary == 3u ? 5000u : 301u, &status);
         failed += expect_u32("foreign or aged RX cannot commit", adapter.rx_count, rx);
         failed += expect_u32("foreign or aged RX drop fact", adapter.rx_drop_count, drops + 1u);
+        assert(phys.query_calls == queries);
         adapter.config = config;
+    }
+    for (uint32_t scenario = 0u; scenario < 6u; ++scenario) {
+        tdma_transport_frame_build_t query_build = build;
+        if (scenario == 1u) ++query_build.schedule_crc32;
+        if (scenario == 2u) ++query_build.ring_profile_crc32;
+        if (scenario == 3u) query_build.transport_sequence = 0u;
+        if (scenario == 4u) query_build.flags |= TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE;
+        assert(tdma_transport_frame_encode(&query_build, phys.wire.echo_packet,
+            sizeof(phys.wire.echo_packet), &phys.wire.echo_packet_size, &result));
+        if (scenario == 0u) phys.wire.echo_packet[TDMA_TRANSPORT_FRAME_SEQUENCE_OFFSET] ^= 1u;
+        if (scenario == 4u) phys.wire.echo_packet[TDMA_TRANSPORT_FRAME_HEADER_SIZE + 10u] ^= 1u;
+        phys.wire.rx_pending = true;
+        if (scenario == 5u) phys.pin_epoch = 0u;
+        ops->service(&adapter, 6000u + scenario * 10u, &status);
+        if (scenario == 5u) phys.pin_epoch = 99u;
+        tdma_rx_prepare_core0_service(&job);
+        assert(job.decoded == (scenario != 0u));
+        if (scenario == 4u) assert(!job.origin_mailboxes_valid);
+        const uint32_t queries = phys.query_calls;
+        ops->service(&adapter, 6001u + scenario * 10u, &status);
+        assert(phys.query_calls == queries + (scenario >= 3u ? 1u : 0u));
+        if (scenario == 3u) assert(phys.queried_sequence == 0u);
+        if (scenario == 5u) assert(phys.queried_epoch == 0u); /* No late pin repair. */
     }
     ops->stop(&adapter);
 
@@ -221,13 +299,18 @@ static int test_rx_prepare_cases(void)
      * clears the reused slot even if the previous bytes looked valid. */
     tdma_pio_spi_ring_adapter_set_phys(&adapter, loopback_tx, loopback_rx, &phys);
     failed += expect_bool("backend replace clears extension", adapter.phys_rx_ex == NULL, true);
+    assert(adapter.phys_rx_event_pin == NULL && adapter.phys_rx_event_query == NULL);
     failed += expect_bool("legacy station starts", ops->start(&adapter, &config), true);
     tdma_pio_spi_ring_adapter_set_phys_rx_ex(&adapter, rx_station_capture);
+    tdma_pio_spi_ring_adapter_set_phys_rx_event(&adapter, rx_station_event_pin, rx_station_event_query);
+    assert(adapter.phys_rx_event_pin == NULL && adapter.phys_rx_event_query == NULL);
     failed += expect_bool("RUN cannot change extended callback", adapter.phys_rx_ex == NULL, true);
     job.capture = first_capture;
+    job.capture_observer_epoch = 999u;
     memcpy(phys.wire.echo_packet, packet, size); phys.wire.rx_pending = true;
     ops->service(&adapter, 1u, &status);
     failed += expect_u32("legacy copy has no provenance", job.capture.flags, 0u);
+    assert(job.capture_observer_epoch == 0u);
     ops->stop(&adapter);
 
     /* Reference bad-frame diagnostics use a frozen TX copy. The newer RTT

@@ -327,6 +327,8 @@ bool tdma_runtime_owner_init(void)
             &s_tdma_pio_spi_phys);
         tdma_pio_spi_ring_adapter_set_phys_rx_ex(
             &s_tdma_pio_spi_ring_adapter, tdma_pio_spi_phys_rx_ex);
+        tdma_pio_spi_ring_adapter_set_phys_rx_event(&s_tdma_pio_spi_ring_adapter,
+            tdma_pio_spi_phys_rx_event_pin, tdma_pio_spi_phys_rx_event_query);
         tdma_pio_spi_ring_adapter_set_phys_feedback(
             &s_tdma_pio_spi_ring_adapter,
             tdma_pio_spi_phys_feedback_round_trip);

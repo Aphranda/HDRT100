@@ -29,6 +29,8 @@ def production_routines() -> str:
         ("components/tdma/src/tdma_pio_spi_phys_event.inc", "bool", "tdma_pio_spi_phys_event_selected", "const tdma_pio_spi_phys_t *phys"),
         ("components/tdma/src/tdma_pio_spi_phys_event.inc", "uint64_t", "tdma_event_cycles", "uint64_t us, bool upper"),
         ("components/tdma/src/tdma_pio_spi_phys_event.inc", "uint32_t", "tdma_event_faults", "tdma_pio_spi_phys_t *phys"),
+        ("components/tdma/src/tdma_pio_spi_phys_event.inc", "void", "tdma_event_publish_snapshot", "tdma_pio_spi_phys_t *phys"),
+        ("components/tdma/src/tdma_pio_spi_phys_event.inc", "void", "tdma_event_candidate_retire", "void"),
         ("components/tdma/src/tdma_pio_spi_phys_event.inc", "void", "tdma_event_publish_state", "tdma_pio_spi_phys_t *phys"),
         ("components/tdma/src/tdma_pio_spi_phys_event.inc", "void", "tdma_pio_spi_phys_event_service", "tdma_pio_spi_phys_t *phys"),
         ("components/tdma/src/tdma_pio_spi_phys.c", "bool", "tdma_pio_spi_phys_capture_words", "tdma_pio_spi_phys_t *phys, size_t max_words, size_t *received_words"),
@@ -53,6 +55,7 @@ PREFIX = r'''
 #include "tdma_event_observer.h"
 #include "tdma_event_history.h"
 #include "tdma_rx_capture.h"
+#include "tdma_rx_event_candidate.h"
 typedef unsigned uint;
 '''
 
@@ -88,6 +91,7 @@ typedef struct { uint32_t dummy; } tdma_origin_observation_t;
 typedef struct {
     uint32_t state; uint64_t capture_service_ns; uint8_t packet[512];
     tdma_rx_capture_t capture;
+    uint32_t capture_observer_epoch;
 } tdma_rx_prepare_t;
 typedef struct {
     tdma_rx_prepare_t *rx_preparation;
@@ -95,6 +99,7 @@ typedef struct {
     uint32_t rx_queue_count;
     bool (*phys_rx)(void *, uint8_t *, size_t, size_t *, uint64_t *);
     bool (*phys_rx_ex)(void *, uint8_t *, size_t, size_t *, uint64_t *, tdma_rx_capture_t *);
+    uint32_t (*phys_rx_event_pin)(void *, const tdma_rx_capture_t *);
     void *phys_context, *phys_ctrl_context;
     struct { uint32_t active; } origin;
     struct { bool (*take_rx_observation)(void *, tdma_origin_observation_t *); } phys_origin;
@@ -106,6 +111,8 @@ static tdma_rx_prepare_t job;
 static tdma_event_observer_t s_tdma_event_observer;
 static tdma_event_history_t s_tdma_event_history;
 static tdma_pio_spi_event_snapshot_t s_tdma_event_snapshot;
+static bool s_tdma_event_candidate_dirty;
+static uint64_t s_tdma_event_arm_epoch;
 static tdma_event_batch_t s_tdma_event_batch;
 static tdma_event_record_t s_tdma_event_records[TDMA_EVENT_MAX_RECORDS];
 static uint32_t s_tdma_event_hz=125000000u, s_tdma_event_sequence_offset=20u;

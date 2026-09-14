@@ -19,17 +19,18 @@ STATUS_FIELDS = ("state", "epoch", "interval_us", "requested", "written",
                  "missed", "reason", "bytes", "job_id")
 
 
-def field_schema(version=2):
-    if version not in (1, 2):
+def field_schema(version=3):
+    if version not in (1, 2, 3):
         raise ValueError("unknown record schema")
     fields = re.findall(r"^RECORD_(U32|I32|U64)\((\w+), (\w+),",
                         FIELDS_PATH.read_text(encoding="utf-8"), re.M)
-    # V2 appends observer diagnostics. The original V1 ordering is immutable,
-    # allowing offline review of sealed evidence from previous builds.
-    return [field for field in fields if version == 2 or field[1] != "event"]
+    # Each version only appends a group; older sealed evidence keeps its exact
+    # field order and size, even when the current firmware records more data.
+    introduced = {"event": 2, "candidate": 3}
+    return [field for field in fields if introduced.get(field[1], 1) <= version]
 
 
-def named_snapshot(values, version=2):
+def named_snapshot(values, version=3):
     groups = {}
     cursor = 0
     for kind, group, name in field_schema(version):

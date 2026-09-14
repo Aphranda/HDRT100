@@ -31,6 +31,8 @@ typedef struct {
     volatile uint32_t state;
     uint32_t epoch, request_epoch;
     uint32_t schedule_crc32, profile_crc32, map_generation, node_count;
+    /* Software observer epoch pinned at capture handoff, never filled at READY. */
+    uint32_t capture_observer_epoch;
     uint64_t capture_service_ns, rx_timestamp_ns;
     /* Core1 copies provenance with packet bytes before REQUESTED release.
      * Core0 preserves it unchanged. Its flags confer no timestamp authority. */

@@ -18,6 +18,18 @@ static bool tdma_pio_spi_ring_rx_accept(tdma_pio_spi_ring_adapter_t *adapter,
     bool accepted = false;
     if (current) {
         const uint64_t started = tdma_service_timing_now();
+        /* One historical candidate attempt while the same private bytes are
+         * still leased. FLIGHT_MUTABLE decode validates the header only; this
+         * diagnostic callback never changes transport or DPLL admission. */
+        if (adapter->phys_rx_event_query != NULL &&
+            job->capture.flags == TDMA_RX_CAPTURE_PRIVATE_COPY && job->decoded &&
+            job->result == TDMA_TRANSPORT_OK &&
+            job->view.schedule_crc32 == job->schedule_crc32 &&
+            job->view.ring_profile_crc32 == job->profile_crc32) {
+            adapter->phys_rx_event_query(adapter->phys_context, &job->capture,
+                job->capture_observer_epoch, job->view.transport_sequence,
+                job->packet_size, now - job->capture_service_ns);
+        }
         accepted = tdma_pio_spi_ring_adapter_process_rx_impl(adapter,
             job->packet, job->packet_size, job->rx_timestamp_ns,
             job->origin_paired ? &job->origin : NULL, job);

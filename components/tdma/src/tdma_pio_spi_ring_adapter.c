@@ -506,6 +506,8 @@ void tdma_pio_spi_ring_adapter_set_phys(tdma_pio_spi_ring_adapter_t *adapter,
     adapter->phys_tx = tx;
     adapter->phys_rx = rx;
     adapter->phys_rx_ex = NULL;
+    adapter->phys_rx_event_pin = NULL;
+    adapter->phys_rx_event_query = NULL;
     adapter->phys_context = phys_context;
 }
 
@@ -513,6 +515,14 @@ void tdma_pio_spi_ring_adapter_set_phys_rx_ex(tdma_pio_spi_ring_adapter_t *adapt
                                              tdma_pio_spi_ring_rx_ex_fn rx)
 {
     if (adapter != NULL && adapter->started == 0u) adapter->phys_rx_ex = rx;
+}
+
+void tdma_pio_spi_ring_adapter_set_phys_rx_event(tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_pio_spi_ring_rx_event_pin_fn pin, tdma_pio_spi_ring_rx_event_query_fn query)
+{
+    if (adapter == NULL || adapter->started != 0u) return;
+    adapter->phys_rx_event_pin = query != NULL ? pin : NULL;
+    adapter->phys_rx_event_query = pin != NULL ? query : NULL;
 }
 
 void tdma_pio_spi_ring_adapter_set_phys_feedback(
@@ -2305,7 +2315,10 @@ static bool tdma_pio_spi_ring_adapter_rx_once_impl(
                                                     rx_timestamp_ns, NULL);
     }
 
-    if (job != NULL) job->capture = (tdma_rx_capture_t){0};
+    if (job != NULL) {
+        job->capture = (tdma_rx_capture_t){0};
+        job->capture_observer_epoch = 0u;
+    }
     if (adapter->phys_rx == NULL && adapter->phys_rx_ex == NULL) {
         return false;
     }
@@ -2330,8 +2343,15 @@ static bool tdma_pio_spi_ring_adapter_rx_once_impl(
         adapter->phys_origin.take_rx_observation(adapter->phys_ctrl_context, &observation);
     if (job != NULL) {
         const uint64_t request_start = tdma_service_timing_now();
+        if (adapter->phys_rx_event_pin != NULL &&
+            job->capture.flags == TDMA_RX_CAPTURE_PRIVATE_COPY)
+            job->capture_observer_epoch = adapter->phys_rx_event_pin(
+                adapter->phys_context, &job->capture);
         if (!tdma_pio_spi_ring_rx_request(adapter, job, packet_size, rx_timestamp_ns,
-            paired ? &observation : NULL)) job->capture = (tdma_rx_capture_t){0};
+            paired ? &observation : NULL)) {
+            job->capture = (tdma_rx_capture_t){0};
+            job->capture_observer_epoch = 0u;
+        }
         tdma_service_timing_record(TDMA_TIMING_RX_REQUEST, request_start);
         return false; /* Admission is not an accepted receive. */
     }

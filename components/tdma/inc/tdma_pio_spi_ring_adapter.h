@@ -168,6 +168,13 @@ typedef bool (*tdma_pio_spi_ring_rx_ex_fn)(void *context,
                                         size_t *packet_size,
                                         uint64_t *rx_timestamp_ns,
                                         tdma_rx_capture_t *capture);
+/* Owner-local diagnostic callbacks; neither extends the byte lease nor grants
+ * timestamp authority. The query consumes only a worker-validated header. */
+typedef uint32_t (*tdma_pio_spi_ring_rx_event_pin_fn)(void *context,
+                                                    const tdma_rx_capture_t *capture);
+typedef void (*tdma_pio_spi_ring_rx_event_query_fn)(void *context,
+    const tdma_rx_capture_t *capture, uint32_t observer_epoch, uint32_t sequence,
+    size_t packet_size, uint64_t station_age_ns);
 typedef bool (*tdma_pio_spi_ring_feedback_fn)(void *context,
                                               uint32_t *round_trip_ns,
                                               uint32_t *resolution_ns,
@@ -371,6 +378,8 @@ typedef struct {
     tdma_pio_spi_ring_tx_fn phys_tx;
     tdma_pio_spi_ring_rx_fn phys_rx;
     tdma_pio_spi_ring_rx_ex_fn phys_rx_ex;
+    tdma_pio_spi_ring_rx_event_pin_fn phys_rx_event_pin;
+    tdma_pio_spi_ring_rx_event_query_fn phys_rx_event_query;
     tdma_pio_spi_ring_feedback_fn phys_feedback;
     void *phys_context;
     tdma_pio_spi_ring_phys_arm_fn phys_arm;
@@ -569,6 +578,9 @@ void tdma_pio_spi_ring_adapter_set_phys(tdma_pio_spi_ring_adapter_t *adapter,
 /* STOP setup only; set_phys clears this callback when replacing the backend. */
 void tdma_pio_spi_ring_adapter_set_phys_rx_ex(tdma_pio_spi_ring_adapter_t *adapter,
                                              tdma_pio_spi_ring_rx_ex_fn rx);
+/* STOP-only paired registration; a missing member disables both callbacks. */
+void tdma_pio_spi_ring_adapter_set_phys_rx_event(tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_pio_spi_ring_rx_event_pin_fn pin, tdma_pio_spi_ring_rx_event_query_fn query);
 void tdma_pio_spi_ring_adapter_set_phys_feedback(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_feedback_fn feedback);

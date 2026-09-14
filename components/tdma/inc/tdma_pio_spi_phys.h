@@ -12,6 +12,7 @@
 #include "tdma_overlay_prepare.h"
 #include "tdma_rx_scan.h"
 #include "tdma_rx_capture.h"
+#include "tdma_rx_event_candidate.h"
 
 /* TDMA PIO SPI resident physical layer.
  *
@@ -210,6 +211,7 @@ typedef struct {
     uint32_t fifo_sequence_first, pending_rx, pending_tx, pending_sequence;
     uint32_t start_pad_before, start_pad_after;
     uint64_t rx_elapsed_cycles, tx_elapsed_cycles, start_width_cycles;
+    tdma_rx_event_candidate_snapshot_t candidate;
 } tdma_pio_spi_event_snapshot_t;
 
 typedef enum {
@@ -894,6 +896,17 @@ bool tdma_pio_spi_phys_take_local_tx_edge_ex(
     uint32_t expected_identity_crc32,
     tdma_ring_local_tx_edge_evidence_t *evidence);
 bool tdma_pio_spi_phys_disarm(void *context);
+/* Core1-only station handoff. Pin after a successful private RX delivery,
+ * before REQUESTED publication. Zero means unavailable, never use latest. */
+uint32_t tdma_pio_spi_phys_rx_event_pin(void *context,
+                                      const tdma_rx_capture_t *capture);
+/* Once per current READY station, before release, after successful transport
+ * decode/CRC and matching schedule/profile. Only completed diagnostic output
+ * is recorded; no packet/timestamp/DPLL lease is returned or extended. The
+ * caller owns the station lifetime and supplies its validated header sequence. */
+void tdma_pio_spi_phys_rx_event_query(void *context,
+    const tdma_rx_capture_t *capture, uint32_t capture_observer_epoch,
+    uint32_t sequence, size_t packet_size, uint64_t station_age_ns);
 /* Core1 owner preparation only, at a completed bootstrap boundary. The caller
  * supplies its admitted rearm/poll budget; calculation of a physical period
  * does not constitute RealtimeCapabilityContract/DeploymentGate admission.

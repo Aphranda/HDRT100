@@ -1,5 +1,7 @@
 """Run the production recorder against bounded storage and a controlled board clock."""
 import importlib.util
+import hashlib
+import json
 from pathlib import Path
 import shutil
 import struct
@@ -153,7 +155,20 @@ def test_schema_preserves_the_complete_historical_health_field_sets():
         assert [name for _, actual, name in schema if actual == group] == list(expected)
 
 
-@pytest.mark.parametrize("version", [1, 2])
+@pytest.mark.parametrize("version,words,digest", [
+    (1, 375, "cf4955ea815ecb22a6b0b044b9aa8fe835228ef18bf701b1fbbe69a4036e0bf0"),
+    (2, 410, "6218599a86dfab094ac86198e991299b2ed9a2bec8d59d4fe69ca8e6e80933b4"),
+])
+def test_historical_schema_order_and_types_are_immutable(version, words, digest):
+    # Frozen from c2eab9c / provenance source-r3, independently of the new
+    # schema selector. A rename, type change or reordered old field must fail.
+    schema = decoder.field_schema(version)
+    assert sum(2 if kind == "U64" else 1 for kind, _, _ in schema) == words
+    encoded = json.dumps(schema, separators=(",", ":")).encode()
+    assert hashlib.sha256(encoded).hexdigest() == digest
+
+
+@pytest.mark.parametrize("version", [1, 2, 3])
 def test_versioned_record_keeps_legacy_evidence_and_observer_values(version):
     schema = decoder.field_schema(version)
     values = []
@@ -162,6 +177,11 @@ def test_versioned_record_keeps_legacy_evidence_and_observer_values(version):
         if group == "event":
             value = {"state": 2, "fault_bits": 1, "joined": 9, "published": 8,
                      "rx_elapsed_cycles": 0x123456789ABCDEF}.get(name, 0)
+        if group == "candidate":
+            value = {"capture_id": 0xDEADBEEF12345678, "query_count": 18,
+                     "matched_count": 7, "reason": 1, "flags": 0xFF,
+                     "event_sequence": 0, "event_ordinal": 23,
+                     "start_hi_cycles": 0x123456789ABCDEF}.get(name, 0)
         values.append(value & 0xFFFFFFFF)
         if kind == "U64":
             values.append(value >> 32)
@@ -186,9 +206,18 @@ def test_versioned_record_keeps_legacy_evidence_and_observer_values(version):
         assert snapshot["event"]["published"] == 8
         assert snapshot["event"]["joined"] == 9
         assert snapshot["event"]["state"] == 2
+    if version < 3:
+        assert "candidate" not in snapshot
+    else:
+        candidate = snapshot["candidate"]
+        assert candidate["capture_id"] == 0xDEADBEEF12345678
+        assert candidate["query_count"] == 18 and candidate["matched_count"] == 7
+        assert candidate["event_sequence"] == 0 and candidate["event_ordinal"] == 23
+        assert candidate["start_hi_cycles"] == 0x123456789ABCDEF
+        assert candidate["flags"] == 0xFF  # Retired historical match, no authority bits.
     # Merely relabelling a file cannot reinterpret a different-sized schema.
     foreign = bytearray(data)
-    struct.pack_into("<I", foreign, 4, 3 - version)
+    struct.pack_into("<I", foreign, 4, version % 3 + 1)
     struct.pack_into("<I", foreign, len(body) + 44, zlib.crc32(foreign[:len(body)]))
     with pytest.raises(ValueError, match="unknown record schema"):
         decoder.decode_record(foreign)

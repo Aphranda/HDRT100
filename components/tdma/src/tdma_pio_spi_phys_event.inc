@@ -1,5 +1,113 @@
 /* Included by the physical owner. Only Core1 mutates this state. Core0 sees
  * a versioned event double buffer; no recorder or filesystem lives here. */
+static tdma_pio_spi_event_snapshot_t s_tdma_event_snapshot;
+static bool s_tdma_event_candidate_dirty;
+
+static void tdma_event_publish_snapshot(tdma_pio_spi_phys_t *phys)
+{
+    const uint32_t guard = __atomic_load_n(&phys->flight_event_guard, __ATOMIC_RELAXED);
+    const uint32_t next = guard + 2u;
+    tdma_pio_spi_event_snapshot_t *target = ((next >> 1u) & 1u) != 0u
+        ? &phys->flight_event_alternate : &phys->snapshot.event;
+    /* The published slot stays readable throughout the writer's copy. A
+     * single release changes both generation and slot; the reader must still
+     * revalidate in case two publications reuse its slot while it is copying. */
+    __dmb(); /* Publish the prior slot switch before reusing an older slot. */
+    *target = s_tdma_event_snapshot;
+    __atomic_store_n(&phys->flight_event_guard, next, __ATOMIC_RELEASE);
+    s_tdma_event_candidate_dirty = false;
+}
+
+static bool tdma_pio_spi_phys_event_copy(const tdma_pio_spi_phys_t *phys,
+                                        tdma_pio_spi_event_snapshot_t *out)
+{
+    /* Pin only the bounded local copy, so Core0's RTOS cannot consume the
+     * guard's copy-lifetime allowance while another task runs. Core1 keeps
+     * publishing independently; no cross-core lock or wait is introduced. */
+    const uint32_t interrupts = save_and_disable_interrupts();
+    const uint64_t before = time_us_64();
+    bool copied = false;
+    for (uint attempt = 0u; attempt < 3u; ++attempt) {
+        const uint32_t guard = __atomic_load_n(&phys->flight_event_guard, __ATOMIC_ACQUIRE);
+        if ((guard & 1u) != 0u) continue;
+        *out = ((guard >> 1u) & 1u) != 0u ? phys->flight_event_alternate : phys->snapshot.event;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        const uint32_t after_guard = __atomic_load_n(&phys->flight_event_guard, __ATOMIC_ACQUIRE);
+        const uint64_t after = time_us_64();
+        if (after < before || after - before > 1000u) break;
+        if (guard == after_guard) {
+            copied = true;
+            break;
+        }
+    }
+    restore_interrupts(interrupts);
+    return copied;
+}
+
+static void tdma_event_candidate_retire(void)
+{
+    /* Retain the completed query as history, never as available evidence. */
+    if (s_tdma_event_snapshot.candidate.query_count != 0u)
+        s_tdma_event_snapshot.candidate.flags |= TDMA_RX_EVENT_RETIRED;
+}
+
+static void tdma_event_candidate_increment(uint32_t *counter)
+{
+    if (*counter != UINT32_MAX) ++*counter;
+}
+
+static void tdma_event_candidate_begin(const tdma_rx_capture_t *capture,
+    uint32_t pinned_epoch, uint32_t sequence, uint64_t station_age_ns)
+{
+    tdma_rx_event_candidate_snapshot_t *s = &s_tdma_event_snapshot.candidate;
+    tdma_event_candidate_increment(&s->query_count);
+    memset(&s->capture_id, 0,
+        sizeof(*s) - offsetof(tdma_rx_event_candidate_snapshot_t, capture_id));
+    if (capture != NULL) {
+        s->capture_id = capture->capture_id;
+        s->arm_epoch = capture->arm_epoch;
+        s->observation_epoch = capture->observation_epoch;
+        s->dma_candidate = capture->candidate;
+    }
+    s->capture_observer_epoch = pinned_epoch;
+    s->packet_sequence = sequence;
+    s->station_age_ns = station_age_ns;
+    s->event_ordinal = s->history_oldest_ordinal = UINT32_MAX;
+    /* HEADER_VALIDATED describes the READY caller's checked packet header;
+     * it does not validate mutable mailbox contents or this association. */
+    s->flags = TDMA_RX_EVENT_DIAGNOSTIC_ONLY | TDMA_RX_EVENT_HISTORICAL |
+        TDMA_RX_EVENT_HEADER_VALIDATED | TDMA_RX_EVENT_MAILBOX_UNKNOWN |
+        TDMA_RX_EVENT_IDENTITY_UNPROVED | TDMA_RX_EVENT_PHYSICAL_FIRST_UNPROVED;
+}
+
+static void tdma_event_candidate_finish(tdma_rx_event_reason_t reason)
+{
+    tdma_rx_event_candidate_snapshot_t *s = &s_tdma_event_snapshot.candidate;
+    s->reason = (uint32_t)reason;
+    switch (reason) {
+    case TDMA_RX_EVENT_MATCHED:
+        tdma_event_candidate_increment(&s->matched_count);
+        s->flags |= TDMA_RX_EVENT_MATCH_PRESENT;
+        break;
+    case TDMA_RX_EVENT_ARM_STALE:
+    case TDMA_RX_EVENT_OBSERVATION_STALE:
+    case TDMA_RX_EVENT_PIN_STALE:
+    case TDMA_RX_EVENT_CAPTURE_STALE:
+        tdma_event_candidate_increment(&s->stale_count);
+        break;
+    case TDMA_RX_EVENT_NOT_FOUND:
+        tdma_event_candidate_increment(&s->missing_count);
+        break;
+    case TDMA_RX_EVENT_AMBIGUOUS:
+        tdma_event_candidate_increment(&s->ambiguous_count);
+        break;
+    default:
+        tdma_event_candidate_increment(&s->unavailable_count);
+        break;
+    }
+    s_tdma_event_candidate_dirty = true;
+}
+
 #if PROJECT_TDMA_EVENT_OBSERVER
 #include "tdma_event_observer.h"
 #include "tdma_event_history.h"
@@ -16,7 +124,6 @@ _Static_assert(TDMA_EVENT_RX_SM == 1u && TDMA_EVENT_TX_SM == 2u &&
 
 static tdma_event_observer_t s_tdma_event_observer;
 static tdma_event_history_t s_tdma_event_history;
-static tdma_pio_spi_event_snapshot_t s_tdma_event_snapshot;
 static tdma_event_batch_t s_tdma_event_batch;
 static tdma_event_record_t s_tdma_event_records[TDMA_EVENT_MAX_RECORDS];
 static uint32_t s_tdma_event_epoch;
@@ -24,6 +131,7 @@ static uint32_t s_tdma_event_hz;
 static uint32_t s_tdma_event_period_ns;
 static uint64_t s_tdma_event_base_us;
 static uint64_t s_tdma_event_last_service_us;
+static uint64_t s_tdma_event_arm_epoch;
 static bool s_tdma_event_waiting;
 
 static bool tdma_pio_spi_phys_event_selected(const tdma_pio_spi_phys_t *phys)
@@ -73,42 +181,7 @@ static void tdma_event_publish_state(tdma_pio_spi_phys_t *phys)
     s->pending_rx = o->pending_count[0];
     s->pending_tx = o->pending_count[1];
     s->pending_sequence = o->pending_count[2];
-    const uint32_t guard = __atomic_load_n(&phys->flight_event_guard, __ATOMIC_RELAXED);
-    const uint32_t next = guard + 2u;
-    tdma_pio_spi_event_snapshot_t *target = ((next >> 1u) & 1u) != 0u
-        ? &phys->flight_event_alternate : &phys->snapshot.event;
-    /* The published slot stays readable throughout the writer's copy. A
-     * single release changes both generation and slot; the reader must still
-     * revalidate in case two publications reuse its slot while it is copying. */
-    __dmb(); /* Publish the prior slot switch before reusing an older slot. */
-    *target = *s;
-    __atomic_store_n(&phys->flight_event_guard, next, __ATOMIC_RELEASE);
-}
-
-static bool tdma_pio_spi_phys_event_copy(const tdma_pio_spi_phys_t *phys,
-                                        tdma_pio_spi_event_snapshot_t *out)
-{
-    /* Pin only the bounded local copy, so Core0's RTOS cannot consume the
-     * guard's copy-lifetime allowance while another task runs. Core1 keeps
-     * publishing independently; no cross-core lock or wait is introduced. */
-    const uint32_t interrupts = save_and_disable_interrupts();
-    const uint64_t before = time_us_64();
-    bool copied = false;
-    for (uint attempt = 0u; attempt < 3u; ++attempt) {
-        const uint32_t guard = __atomic_load_n(&phys->flight_event_guard, __ATOMIC_ACQUIRE);
-        if ((guard & 1u) != 0u) continue;
-        *out = ((guard >> 1u) & 1u) != 0u ? phys->flight_event_alternate : phys->snapshot.event;
-        __atomic_thread_fence(__ATOMIC_ACQUIRE);
-        const uint32_t after_guard = __atomic_load_n(&phys->flight_event_guard, __ATOMIC_ACQUIRE);
-        const uint64_t after = time_us_64();
-        if (after < before || after - before > 1000u) break;
-        if (guard == after_guard) {
-            copied = true;
-            break;
-        }
-    }
-    restore_interrupts(interrupts);
-    return copied;
+    tdma_event_publish_snapshot(phys);
 }
 
 static void tdma_pio_spi_phys_event_stop(tdma_pio_spi_phys_t *phys)
@@ -119,6 +192,8 @@ static void tdma_pio_spi_phys_event_stop(tdma_pio_spi_phys_t *phys)
         TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER) return;
     tdma_event_observer_stop(&s_tdma_event_observer);
     tdma_event_history_retire(&s_tdma_event_history);
+    s_tdma_event_arm_epoch = 0u;
+    tdma_event_candidate_retire();
     s_tdma_event_waiting = false;
     const PIO pio = phys->flight_resources.tx_pio;
     pio_set_sm_mask_enabled(pio, TDMA_EVENT_SM_MASK, false);
@@ -136,8 +211,11 @@ static void tdma_pio_spi_phys_event_prepare(tdma_pio_spi_phys_t *phys,
 {
     if (!tdma_pio_spi_phys_event_selected(phys)) return;
     tdma_event_history_retire(&s_tdma_event_history);
+    s_tdma_event_arm_epoch = 0u;
+    tdma_event_candidate_retire();
     tdma_event_observer_init(&s_tdma_event_observer);
-    memset(&s_tdma_event_snapshot, 0, sizeof(s_tdma_event_snapshot));
+    /* Candidate counters and the last historical result survive new ARM. */
+    memset(&s_tdma_event_snapshot, 0, offsetof(tdma_pio_spi_event_snapshot_t, candidate));
     s_tdma_event_hz = clock_get_hz(clk_sys);
     s_tdma_event_period_ns = config->cycle_period_ns;
     s_tdma_event_base_us = time_us_64();
@@ -233,13 +311,17 @@ static void tdma_event_start(tdma_pio_spi_phys_t *phys)
     };
     const tdma_event_interval_t start = {tdma_event_cycles(before, false), tdma_event_cycles(after, true)};
     ++s_tdma_event_epoch;
+    s_tdma_event_arm_epoch = 0u;
     (void)tdma_event_observer_start(&s_tdma_event_observer, &config,
                                    s_tdma_event_epoch, start, faults);
     if (s_tdma_event_observer.state == TDMA_EVENT_ACTIVE) {
         (void)tdma_event_history_start(&s_tdma_event_history,
             s_tdma_event_epoch, s_tdma_event_hz, start);
+        if (s_tdma_event_history.active && s_tdma_pio_spi_rx_arm_valid)
+            s_tdma_event_arm_epoch = s_tdma_pio_spi_rx_arm_epoch;
     } else {
         tdma_event_history_retire(&s_tdma_event_history);
+        tdma_event_candidate_retire();
     }
     s->start_width_cycles = start.hi - start.lo;
     s_tdma_event_waiting = false;
@@ -254,7 +336,10 @@ static void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys)
     const uint64_t entered = time_us_64();
     tdma_pio_spi_event_snapshot_t *s = &s_tdma_event_snapshot;
     if (s_tdma_event_waiting) tdma_event_start(phys);
-    if (s_tdma_event_observer.state != TDMA_EVENT_ACTIVE) return;
+    if (s_tdma_event_observer.state != TDMA_EVENT_ACTIVE) {
+        if (s_tdma_event_candidate_dirty) tdma_event_publish_state(phys);
+        return;
+    }
     if (s_tdma_event_last_service_us != 0u) {
         const uint64_t gap = entered - s_tdma_event_last_service_us;
         if (gap > s->service_gap_max_us) s->service_gap_max_us = gap > UINT32_MAX ? UINT32_MAX : (uint32_t)gap;
@@ -305,6 +390,7 @@ static void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys)
          * physical-clock qualification follows from retaining these words. */
         (void)tdma_event_history_append(&s_tdma_event_history, s_tdma_event_records,
             count, s_tdma_event_observer.joined);
+        if (!s_tdma_event_history.active) tdma_event_candidate_retire();
         const tdma_event_record_t *last = &s_tdma_event_records[count - 1u];
         s->published = count > UINT32_MAX - s->published ? UINT32_MAX :
                        s->published + (uint32_t)count;
@@ -315,21 +401,166 @@ static void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys)
     }
     if (s_tdma_event_observer.state == TDMA_EVENT_INVALID) {
         tdma_event_history_retire(&s_tdma_event_history);
+        s_tdma_event_arm_epoch = 0u;
+        tdma_event_candidate_retire();
         pio_set_sm_mask_enabled(pio, TDMA_EVENT_SM_MASK, false);
     }
     const uint64_t duration = time_us_64() - entered;
     if (duration > s->service_max_us) s->service_max_us = duration > UINT32_MAX ? UINT32_MAX : (uint32_t)duration;
     tdma_event_publish_state(phys);
 }
+
+/* Software-only eligibility. No MMIO access, packet decode or timestamp
+ * grant is hidden in either the capture pin or the delayed READY query. */
+static tdma_rx_event_reason_t tdma_event_capture_current(
+    const tdma_pio_spi_phys_t *phys, const tdma_rx_capture_t *capture)
+{
+    if (capture == NULL || capture->flags != TDMA_RX_CAPTURE_PRIVATE_COPY ||
+        capture->capture_id == 0u || capture->arm_epoch == 0u)
+        return TDMA_RX_EVENT_NO_CAPTURE;
+    if (!tdma_pio_spi_phys_event_selected(phys) || capture->persona !=
+            TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER)
+        return TDMA_RX_EVENT_UNSUPPORTED_PERSONA;
+    if (!phys->armed || !phys->rx_capture_active || !s_tdma_pio_spi_rx_arm_valid ||
+        capture->arm_epoch != s_tdma_pio_spi_rx_arm_epoch)
+        return TDMA_RX_EVENT_ARM_STALE;
+    /* One physical capture can occupy the station. A later capture cannot
+     * extend an older token's query eligibility under the same ARM. */
+    if (capture->capture_id != s_tdma_pio_spi_rx_capture_id)
+        return TDMA_RX_EVENT_CAPTURE_STALE;
+    if (capture->observation_epoch == 0u || capture->observation_epoch !=
+            s_tdma_pio_spi_rx_sequence.observation_epoch)
+        return TDMA_RX_EVENT_OBSERVATION_STALE;
+    return TDMA_RX_EVENT_NONE;
+}
+
+uint32_t tdma_pio_spi_phys_rx_event_pin(void *context,
+                                      const tdma_rx_capture_t *capture)
+{
+    const tdma_pio_spi_phys_t *phys = (const tdma_pio_spi_phys_t *)context;
+    if (phys == NULL || tdma_event_capture_current(phys, capture) != TDMA_RX_EVENT_NONE ||
+        s_tdma_event_observer.state != TDMA_EVENT_ACTIVE || s_tdma_event_waiting ||
+        !s_tdma_event_history.active || s_tdma_event_observer.epoch == 0u ||
+        s_tdma_event_history.epoch != s_tdma_event_observer.epoch ||
+        s_tdma_event_arm_epoch != capture->arm_epoch) return 0u;
+    /* This is the epoch at private-copy handoff, not proof that DMA bytes
+     * arrived after observer start or correspond to a particular ordinal. */
+    return s_tdma_event_observer.epoch;
+}
+
+static bool tdma_event_capture_envelope(const tdma_rx_capture_t *capture,
+                                       size_t packet_size)
+{
+    if (packet_size < TDMA_TRANSPORT_FRAME_HEADER_SIZE ||
+        packet_size > TDMA_TRANSPORT_SHORT_PACKET_MAX || capture->bit_shift > 7u ||
+        capture->frame_words != packet_size + TDMA_PIO_SPI_PACKET_HEADER_SIZE ||
+        capture->frame_words > TDMA_PIO_SPI_RX_DMA_WORD_MAX ||
+        capture->candidate > capture->produced_before ||
+        capture->produced_after < capture->produced_before) return false;
+    const uint64_t copied_words = (uint64_t)capture->frame_words + (capture->bit_shift != 0u);
+    return capture->produced_before - capture->candidate >= copied_words &&
+        capture->produced_after - capture->candidate < TDMA_PIO_SPI_RX_RING_WORDS;
+}
+
+static void tdma_event_candidate_history_state(void)
+{
+    tdma_rx_event_candidate_snapshot_t *s = &s_tdma_event_snapshot.candidate;
+    const tdma_event_history_t *history = &s_tdma_event_history;
+    s->observer_arm_epoch = s_tdma_event_arm_epoch;
+    s->query_observer_epoch = s_tdma_event_observer.epoch;
+    s->observer_state = (uint32_t)s_tdma_event_observer.state;
+    s->history_reason = (uint32_t)history->reason;
+    s->history_active = history->active ? 1u : 0u;
+    s->history_count = history->count;
+    s->history_oldest_ordinal = history->oldest_ordinal;
+    s->history_accepted = history->accepted;
+    s->history_evicted = history->evicted;
+    s->pio_hz = history->pio_hz;
+}
+
+void tdma_pio_spi_phys_rx_event_query(void *context,
+    const tdma_rx_capture_t *capture, uint32_t capture_observer_epoch,
+    uint32_t sequence, size_t packet_size, uint64_t station_age_ns)
+{
+    tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
+    if (phys == NULL) return;
+    tdma_event_candidate_begin(capture, capture_observer_epoch, sequence, station_age_ns);
+    tdma_rx_event_candidate_snapshot_t *s = &s_tdma_event_snapshot.candidate;
+    /* A skipped lookup must not expose a prior query's history result. */
+    s->history_query_reason = UINT32_MAX;
+    tdma_rx_event_reason_t reason = tdma_event_capture_current(phys, capture);
+    if (reason == TDMA_RX_EVENT_NONE) {
+        if (capture_observer_epoch == 0u) reason = TDMA_RX_EVENT_PIN_MISSING;
+        else if (s_tdma_event_observer.state != TDMA_EVENT_ACTIVE || s_tdma_event_waiting)
+            reason = TDMA_RX_EVENT_OBSERVER_UNAVAILABLE;
+        else if (capture_observer_epoch != s_tdma_event_observer.epoch)
+            reason = TDMA_RX_EVENT_PIN_STALE;
+        else if (s_tdma_event_arm_epoch != capture->arm_epoch)
+            reason = TDMA_RX_EVENT_ARM_STALE;
+        else if (!s_tdma_event_history.active) reason = TDMA_RX_EVENT_HISTORY_UNAVAILABLE;
+        else if (capture_observer_epoch != s_tdma_event_history.epoch)
+            reason = TDMA_RX_EVENT_PIN_STALE;
+        else if (!tdma_event_capture_envelope(capture, packet_size))
+            reason = TDMA_RX_EVENT_BAD_ENVELOPE;
+    }
+    if (reason == TDMA_RX_EVENT_NONE) {
+        tdma_event_record_t record;
+        if (tdma_event_history_lookup(&s_tdma_event_history,
+                capture_observer_epoch, sequence, &record)) {
+            /* Copy only independent event fields. Packet sequence is kept
+             * separately; no expected identity becomes observed identity. */
+            s->event_sequence = record.sequence;
+            s->event_ordinal = record.ordinal;
+            s->rx_elapsed_cycles = record.rx_elapsed_cycles;
+            s->tx_elapsed_cycles = record.tx_elapsed_cycles;
+            s->start_lo_cycles = record.start_bounds.lo;
+            s->start_hi_cycles = record.start_bounds.hi;
+            reason = TDMA_RX_EVENT_MATCHED;
+        } else if (s_tdma_event_history.query_reason == TDMA_EVENT_HISTORY_NOT_FOUND) {
+            reason = TDMA_RX_EVENT_NOT_FOUND;
+        } else if (s_tdma_event_history.query_reason == TDMA_EVENT_HISTORY_AMBIGUOUS) {
+            reason = TDMA_RX_EVENT_AMBIGUOUS;
+        } else {
+            reason = TDMA_RX_EVENT_HISTORY_REJECTED;
+        }
+        s->history_query_reason = (uint32_t)s_tdma_event_history.query_reason;
+    }
+    tdma_event_candidate_history_state();
+    tdma_event_candidate_finish(reason);
+    if (!s_tdma_event_history.active || reason == TDMA_RX_EVENT_ARM_STALE ||
+        reason == TDMA_RX_EVENT_OBSERVATION_STALE || reason == TDMA_RX_EVENT_CAPTURE_STALE ||
+        reason == TDMA_RX_EVENT_PIN_STALE) tdma_event_candidate_retire();
+    /* Active observers publish at the next existing service boundary. An
+     * inactive/unsupported owner has no guaranteed later event publication. */
+    if (!tdma_pio_spi_phys_event_selected(phys) || !phys->armed ||
+        s_tdma_event_observer.state != TDMA_EVENT_ACTIVE) tdma_event_publish_state(phys);
+}
 #else
-static bool tdma_pio_spi_phys_event_copy(const tdma_pio_spi_phys_t *phys,
-                                        tdma_pio_spi_event_snapshot_t *out)
-{ (void)phys; memset(out, 0, sizeof(*out)); return true; }
 static bool tdma_pio_spi_phys_event_selected(const tdma_pio_spi_phys_t *phys)
 { (void)phys; return false; }
-static void tdma_pio_spi_phys_event_stop(tdma_pio_spi_phys_t *phys) { (void)phys; }
+static void tdma_pio_spi_phys_event_stop(tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL) return;
+    tdma_event_candidate_retire();
+    if (s_tdma_event_snapshot.candidate.query_count != 0u) tdma_event_publish_snapshot(phys);
+}
 static void tdma_pio_spi_phys_event_prepare(tdma_pio_spi_phys_t *phys,
                                             const tdma_ring_runtime_config_t *config)
-{ (void)phys; (void)config; }
-static void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys) { (void)phys; }
+{ (void)config; tdma_pio_spi_phys_event_stop(phys); }
+static void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys)
+{ if (phys != NULL && s_tdma_event_candidate_dirty) tdma_event_publish_snapshot(phys); }
+uint32_t tdma_pio_spi_phys_rx_event_pin(void *context, const tdma_rx_capture_t *capture)
+{ (void)context; (void)capture; return 0u; }
+void tdma_pio_spi_phys_rx_event_query(void *context,
+    const tdma_rx_capture_t *capture, uint32_t capture_observer_epoch,
+    uint32_t sequence, size_t packet_size, uint64_t station_age_ns)
+{
+    (void)packet_size;
+    if (context == NULL) return;
+    tdma_event_candidate_begin(capture, capture_observer_epoch, sequence, station_age_ns);
+    s_tdma_event_snapshot.candidate.history_query_reason = UINT32_MAX;
+    tdma_event_candidate_finish(TDMA_RX_EVENT_OBSERVER_DISABLED);
+    tdma_event_candidate_retire();
+    tdma_event_publish_snapshot((tdma_pio_spi_phys_t *)context);
+}
 #endif

@@ -43,6 +43,8 @@ def production(directory: Path) -> str:
         contract_definitions.append(definition.group(0))
     routines = []
     signatures = [
+        ("void", "tdma_event_publish_snapshot", "tdma_pio_spi_phys_t *phys"),
+        ("void", "tdma_event_candidate_retire", "void"),
         ("bool", "tdma_pio_spi_phys_event_selected", "const tdma_pio_spi_phys_t *phys"),
         ("uint64_t", "tdma_event_cycles", "uint64_t us, bool upper"),
         ("uint32_t", "tdma_event_faults", "tdma_pio_spi_phys_t *phys"),
@@ -73,6 +75,7 @@ PREFIX = r'''
 #include <string.h>
 #include "tdma_event_observer.h"
 #include "tdma_event_history.h"
+#include "tdma_rx_event_candidate.h"
 typedef unsigned uint;
 '''
 
@@ -89,6 +92,7 @@ typedef struct {
     struct { tdma_pio_spi_event_snapshot_t event; } snapshot;
     tdma_pio_spi_event_snapshot_t flight_event_alternate;
     uint32_t flight_event_guard;
+    bool armed, rx_capture_active;
     bool flight_overlay_alignment_locked;
     uint32_t flight_overlay_alignment_samples, rx_csn_pin, tx_csn_pin;
     uint32_t flight_alignment_byte_shift, flight_alignment_bit_shift;
@@ -111,6 +115,8 @@ static tdma_pio_spi_event_snapshot_t s_tdma_event_snapshot;
 static tdma_event_history_t s_tdma_event_history;
 static uint32_t s_tdma_event_epoch, s_tdma_event_hz, s_tdma_event_period_ns;
 static uint64_t s_tdma_event_base_us, s_tdma_event_last_service_us;
+static uint64_t s_tdma_event_arm_epoch, s_tdma_pio_spi_rx_arm_epoch;
+static bool s_tdma_pio_spi_rx_arm_valid, s_tdma_event_candidate_dirty;
 static bool s_tdma_event_waiting;
 static uint s_tdma_event_counter_offset = 10u, s_tdma_event_sequence_offset = 20u;
 static tdma_pio_spi_program_persona_t s_tdma_pio_spi_program_persona;
@@ -127,6 +133,7 @@ static bool preemption_pending;
 static uint32_t gpio_script[3];
 static unsigned gpio_script_count, gpio_script_index, gpio_reads;
 static unsigned disabled_masks, enabled_masks, irq_clears, selectors;
+static unsigned hz_reads, fault_at_hz_read;
 static bool copying, require_retired, allow_pair_reset, inspect_commit;
 static uint64_t expected_before_commit, expected_after_commit;
 static const uint64_t OLD_RX = UINT64_C(0x1111111122222222);
@@ -211,12 +218,16 @@ static void read_fence(void) {
          * overlapping a writer could leave. The source reader is unchanged. */
         copied.rx_elapsed_cycles = (OLD_RX & UINT64_C(0xffffffff00000000)) |
                                     (NEW_RX & UINT64_C(0xffffffff));
+        copied.candidate.capture_id = copied.rx_elapsed_cycles;
         for (unsigned write = 0u; write < (mutation_mode == 5u ? 2u : 1u); ++write) {
             const uint32_t next_epoch = published_slot()->epoch + 1u;
             tdma_pio_spi_event_snapshot_t *next = unpublished_slot();
             next->epoch = next_epoch;
             next->rx_elapsed_cycles = NEW_RX;
             next->tx_elapsed_cycles = NEW_RX + 8u;
+            next->candidate.capture_id = NEW_RX;
+            next->candidate.capture_observer_epoch = next_epoch;
+            next->candidate.flags = TDMA_RX_EVENT_HISTORICAL | TDMA_RX_EVENT_RETIRED;
             physical.flight_event_guard += 2u;
         }
         if (mutation_mode == 3u) physical.flight_event_guard -= 2u; /* Simulated guard ABA. */
@@ -231,7 +242,11 @@ static void read_fence(void) {
 #define __atomic_store_n(ptr, value, order) store_guard(ptr, value)
 #define __atomic_thread_fence(order) read_fence()
 #define __dmb() writer_barrier()
-static uint32_t clock_get_hz(unsigned ignored) { (void)ignored; return 125000000u; }
+static uint32_t clock_get_hz(unsigned ignored) {
+    (void)ignored;
+    if (++hz_reads == fault_at_hz_read) bank.fdebug |= 1u << TDMA_EVENT_RX_SM;
+    return 125000000u;
+}
 static uint32_t gpio_get_all(void) {
     ++gpio_reads;
     if (gpio_script_count == 0u) return UINT32_MAX;
@@ -243,6 +258,9 @@ static void check_retired(void) {
     if (!require_retired) return;
     assert(s_tdma_event_observer.state == TDMA_EVENT_STOPPED);
     assert(!s_tdma_event_history.active && s_tdma_event_history.count == 0u);
+    assert(s_tdma_event_arm_epoch == 0u);
+    if (s_tdma_event_snapshot.candidate.query_count != 0u)
+        assert((s_tdma_event_snapshot.candidate.flags & TDMA_RX_EVENT_RETIRED) != 0u);
     assert(!s_tdma_event_waiting);
     for (uint i = 0; i < TDMA_EVENT_STREAMS; ++i)
         assert(s_tdma_event_observer.pending_count[i] == 0u);
@@ -326,7 +344,9 @@ static void reset_reader(unsigned mode, uint64_t delay) {
     mutation_mode = mode; read_delay = delay; time_reads = guard_reads = fences = 0u;
     physical.flight_event_guard = 0u;
     physical.snapshot.event = (tdma_pio_spi_event_snapshot_t){
-        .epoch = 7u, .rx_elapsed_cycles = OLD_RX, .tx_elapsed_cycles = OLD_RX + 8u};
+        .epoch = 7u, .rx_elapsed_cycles = OLD_RX, .tx_elapsed_cycles = OLD_RX + 8u,
+        .candidate = {.capture_id = OLD_RX, .capture_observer_epoch = 7u,
+                      .flags = TDMA_RX_EVENT_HISTORICAL}};
     physical.flight_event_alternate = (tdma_pio_spi_event_snapshot_t){0};
     memset(&copied, 0, sizeof(copied));
     copying = true;
@@ -352,6 +372,8 @@ static void test_reader(void) {
     assert(tdma_pio_spi_phys_event_copy(&physical, &copied));
     assert(fences == 2u && copied.epoch == 8u);
     assert(copied.rx_elapsed_cycles == NEW_RX && copied.tx_elapsed_cycles == NEW_RX + 8u);
+    assert(copied.candidate.capture_id == NEW_RX && copied.candidate.capture_observer_epoch == 8u);
+    assert(copied.candidate.flags == (TDMA_RX_EVENT_HISTORICAL | TDMA_RX_EVENT_RETIRED));
     reset_reader(2u, 2u);
     assert(!tdma_pio_spi_phys_event_copy(&physical, &copied));
     assert(fences == 3u); /* Never accept continually torn/rewritten data. */
@@ -398,6 +420,8 @@ static void test_copy_cannot_be_locally_preempted(void) {
     preemption_pending = false; copying = false;
 }
 static void prepare_follower(void) {
+    s_tdma_pio_spi_rx_arm_valid = true;
+    ++s_tdma_pio_spi_rx_arm_epoch;
     const tdma_ring_runtime_config_t config = {.cycle_period_ns = 1500000u};
     tdma_pio_spi_phys_event_prepare(&physical, &config);
     assert(s_tdma_event_waiting && s_tdma_event_observer.state == TDMA_EVENT_STOPPED);
@@ -406,6 +430,7 @@ static void prepare_follower(void) {
     tdma_event_start(&physical);
     assert(s_tdma_event_observer.state == TDMA_EVENT_ACTIVE);
     assert(s_tdma_event_history.active && s_tdma_event_history.epoch == s_tdma_event_epoch);
+    assert(s_tdma_event_arm_epoch == s_tdma_pio_spi_rx_arm_epoch);
     assert(!s_tdma_event_waiting && (bank.ctrl & TDMA_EVENT_SM_MASK) == TDMA_EVENT_SM_MASK);
     assert(published_slot()->epoch == s_tdma_event_epoch);
 }
@@ -436,6 +461,9 @@ static void test_retirement_and_persona_rearm(void) {
     s_tdma_pio_spi_program_persona = TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER;
     prepare_follower();
     const uint32_t first_epoch = s_tdma_event_epoch;
+    s_tdma_event_snapshot.candidate = (tdma_rx_event_candidate_snapshot_t){
+        .query_count = 3u, .matched_count = 2u, .capture_id = 99u,
+        .reason = TDMA_RX_EVENT_MATCHED, .flags = TDMA_RX_EVENT_HISTORICAL | TDMA_RX_EVENT_MATCH_PRESENT};
     put_pending();
     for (uint sm = 1u; sm <= 3u; ++sm) bank.level[sm] = 3u;
     /* Configure can change the requested role before the installed follower
@@ -444,6 +472,9 @@ static void test_retirement_and_persona_rearm(void) {
     require_retired = true;
     tdma_pio_spi_phys_event_stop(&physical);
     assert(s_tdma_event_observer.state == TDMA_EVENT_STOPPED);
+    assert(published_slot()->candidate.query_count == 3u);
+    assert(published_slot()->candidate.capture_id == 99u);
+    assert((published_slot()->candidate.flags & TDMA_RX_EVENT_RETIRED) != 0u);
     assert(published_slot()->pending_rx == 0u && published_slot()->waiting == 0u);
     assert(bank.ctrl == 1u && bank.level[0] == 5u && bank.pc[0] == 9u);
     assert(bank.restarts[0] == 0u && bank.clears[0] == 0u);
@@ -452,6 +483,8 @@ static void test_retirement_and_persona_rearm(void) {
     physical.role = TDMA_PIO_SPI_ROLE_SLAVE;
     prepare_follower();
     assert(s_tdma_event_epoch == first_epoch + 1u);
+    assert(published_slot()->candidate.query_count == 3u && published_slot()->candidate.matched_count == 2u);
+    assert(published_slot()->candidate.capture_id == 99u);
     put_pending();
     physical.role = TDMA_PIO_SPI_ROLE_MASTER;
     require_retired = true;
