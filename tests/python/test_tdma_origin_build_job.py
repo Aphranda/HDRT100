@@ -52,4 +52,5 @@ def test_origin_build_job_actual_graph(tmp_path, capacity):
     report = json.loads(result.stdout)
     assert report["graph_pairs"] == 2 * (capacity - 1)
     assert report["cancellation_cases"] > 2 * report["graph_pairs"]
+    assert report["probe_cases"] == 5 * report["graph_pairs"]
     (tmp_path / "cancellation-summary.json").write_text(result.stdout, encoding="utf-8")

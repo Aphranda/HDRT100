@@ -692,6 +692,8 @@ typedef struct {
     uint32_t sck_words[TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_WORDS];
 } tdma_pio_spi_normal_capture_snapshot_t;
 
+#include "tdma_origin_build_job.h"
+
 typedef enum {
     TDMA_ORIGIN_PREPARE_IDLE = 0u,
     TDMA_ORIGIN_PREPARE_MAILBOX,
@@ -713,11 +715,13 @@ typedef struct {
     uint32_t stage, mailbox, prefix_bits, abort_poll_count, clk_sys_hz;
     uint32_t packet_size;
     bool diagnostic_skip_records;
+    uint32_t diagnostic_build_probe_epoch, diagnostic_build_probe_config_seq;
 } tdma_origin_prepare_t;
 
 /* Core0 preparation only: consumes a Core1-authorized unpublished graph,
  * accesses no peripheral and does not install or grant the hardware plan. */
 void tdma_pio_spi_phys_origin_core0_prepare_service(void);
+bool tdma_pio_spi_phys_get_origin_build_probe(tdma_origin_build_probe_t *out);
 
 typedef struct {
     bool armed;

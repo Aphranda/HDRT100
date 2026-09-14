@@ -7,6 +7,7 @@
 #include "ota_crc32.h"
 #include "tdma_origin_blackout.h"
 #include "tdma_service_timing.h"
+#include "tdma_origin_build_job.h"
 
 /* Host device facade; no hardware ownership is exercised in this fixture. */
 enum { clk_sys, BOARD_TDMA_TX_PIO_BLOCK_ID = 1, BOARD_TDMA_RX_PIO_BLOCK_ID = 2,
@@ -22,7 +23,9 @@ static tdma_service_service_t s_tdma_runtime_owner;
 static tdma_pio_spi_ring_adapter_t s_tdma_pio_spi_ring_adapter;
 static struct {
     uint32_t flight_physical_byte_count;
-    struct { bool diagnostic_skip_records; } flight_origin_prepare;
+    struct { bool diagnostic_skip_records;
+        uint32_t diagnostic_build_probe_epoch, diagnostic_build_probe_config_seq;
+    } flight_origin_prepare;
 } s_tdma_pio_spi_phys;
 static uint32_t model_epoch = 2, clock_hz = 150000000, begins, polls, stops;
 static uint64_t ticks = 100;
@@ -32,6 +35,10 @@ static tdma_ring_runtime_snapshot_t ring;
 static tdma_ring_runtime_config_t config;
 static uint32_t watermark_epoch = 77, watermark_version = 100;
 static bool watermark_ready = true;
+static bool probe_ready;
+static bool tdma_pio_spi_phys_get_origin_build_probe(tdma_origin_build_probe_t *s)
+{ if (s == NULL || !probe_ready) return false;
+  *s = (tdma_origin_build_probe_t){.state = TDMA_ORIGIN_BUILD_PROBE_RETIRED}; return true; }
 static bool tdma_pio_spi_phys_origin_record_watermark(const void *ctx, uint32_t *epoch, uint32_t *version)
 { (void)ctx; *epoch = watermark_epoch; *version = watermark_version; return watermark_ready; }
 static tdma_state_machine_origin_dma_contract_t tdma_state_machine_origin_dma_contract(void)
@@ -198,10 +205,37 @@ int main(int argc, char **argv)
             assert(tdma_runtime_owner_origin_poll(&s_tdma_pio_spi_phys) == TDMA_ORIGIN_BUILD_FAILED);
         }
         assert(!calibration_manager_origin_trial_configured(5, 100, 8, 1000000, 3));
-        assert(!calibration_manager_origin_trial_configured(5, 100, 8, 1000000, 4));
+        assert(!calibration_manager_origin_trial_configured(5, 100, 8, 1000000, 8));
         assert(!s_origin_timing.enabled);
         publish();
         assert(s_origin_timing.diagnostic_flags == 0);
+    } else if (!strcmp(argv[1], "build-cancel")) {
+        tdma_origin_build_probe_t out;
+        for (uint32_t mode = 0u; mode < 2u; ++mode) {
+            assert(calibration_manager_origin_trial_configured(9, 100, 8, 1000000,
+                mode ? CALIBRATION_ORIGIN_DIAGNOSTIC_BUILD_CANCEL : 0u));
+            assert(admit() == TDMA_ORIGIN_ADMISSION_READY);
+            const uint32_t epoch = s_origin_trial.epoch;
+            assert(tdma_runtime_owner_origin_begin(&s_tdma_pio_spi_phys, &config, NULL, 0, 100, 8));
+            assert(s_tdma_pio_spi_phys.flight_origin_prepare.diagnostic_build_probe_epoch == (mode ? epoch : 0u));
+            assert(s_tdma_pio_spi_phys.flight_origin_prepare.diagnostic_build_probe_config_seq == ring.config_seq);
+            assert(!s_tdma_pio_spi_phys.flight_origin_prepare.diagnostic_skip_records);
+            calibration_manager_origin_revoke();
+            assert(tdma_runtime_owner_origin_poll(&s_tdma_pio_spi_phys) == TDMA_ORIGIN_BUILD_FAILED);
+            assert(s_tdma_pio_spi_phys.flight_origin_prepare.diagnostic_build_probe_epoch == (mode ? epoch : 0u));
+        }
+        for (uint32_t bad = 5u; bad <= 7u; ++bad)
+            assert(!calibration_manager_origin_trial_configured(9, 100, 8, 1000000, bad));
+        probe_ready = true;
+        assert(!tdma_runtime_owner_get_origin_build_probe(&out));
+        ring.enabled = 0u;
+        assert(!tdma_runtime_owner_get_origin_build_probe(&out));
+        ring.adapter_started = 0u; ring.applied_config_seq++;
+        assert(!tdma_runtime_owner_get_origin_build_probe(&out));
+        ring.applied_config_seq = ring.config_seq;
+        assert(tdma_runtime_owner_get_origin_build_probe(&out));
+        probe_ready = false;
+        assert(!tdma_runtime_owner_get_origin_build_probe(&out));
     } else if (!strcmp(argv[1], "blackout")) {
         tdma_origin_blackout_snapshot_t out;
         assert(!tdma_runtime_owner_get_origin_blackout(&out));

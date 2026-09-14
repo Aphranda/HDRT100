@@ -7,6 +7,11 @@ void tdma_pio_spi_phys_origin_core0_prepare_service(void)
     tdma_origin_build_job_core0_service(&s_tdma_origin_build_job);
 }
 
+bool tdma_pio_spi_phys_get_origin_build_probe(tdma_origin_build_probe_t *out)
+{
+    return tdma_origin_build_job_get_stopped_probe(&s_tdma_origin_build_job, out);
+}
+
 static bool tdma_pio_spi_phys_origin_mailbox_valid(const uint8_t *mailbox,
                                                  uint32_t slot,
                                                  uint32_t active_mask)
@@ -265,11 +270,16 @@ tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *context)
         .literal_capacity = TDMA_PIO_SPI_ORIGIN_LITERAL_CAPACITY};
     memset(&s_tdma_origin.builder, 0, sizeof(s_tdma_origin.builder));
     if (!tdma_origin_plan_begin(&s_tdma_origin.builder, &plan_config, &s_tdma_origin.plan)) goto failed;
-    if (!tdma_origin_build_job_request(&s_tdma_origin_build_job, &s_tdma_origin.builder)) goto failed;
+    if (!tdma_origin_build_job_request_probe(&s_tdma_origin_build_job, &s_tdma_origin.builder,
+            request->diagnostic_build_probe_epoch, request->diagnostic_build_probe_config_seq)) goto failed;
     request->stage = TDMA_ORIGIN_PREPARE_BUILD_STEP;
     return TDMA_ORIGIN_BUILD_BUSY;
     }
     case TDMA_ORIGIN_PREPARE_BUILD_STEP: {
+        /* An explicit diagnostic trial parks a live SRAM writer after real
+         * emission. Fail through the ordinary owner STOP, which retains the
+         * workspace until that worker acknowledges cancellation. */
+        if (tdma_origin_build_job_probe_paused(&s_tdma_origin_build_job)) goto failed;
         const tdma_origin_build_result_t result = tdma_origin_build_job_take(&s_tdma_origin_build_job);
         if (result == TDMA_ORIGIN_BUILD_FAILED) goto failed;
         if (result == TDMA_ORIGIN_BUILD_DONE) request->stage = TDMA_ORIGIN_PREPARE_SEED;

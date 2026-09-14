@@ -110,6 +110,29 @@ scpi_result_t scpi_calibration_origin_trial_blackout(scpi_t *context)
     return scpi_calibration_origin_trial_flags(context, CALIBRATION_ORIGIN_DIAGNOSTIC_SERVICE_BLACKOUT);
 }
 
+scpi_result_t scpi_calibration_origin_trial_build_cancel(scpi_t *context)
+{
+    return scpi_calibration_origin_trial_flags(context, CALIBRATION_ORIGIN_DIAGNOSTIC_BUILD_CANCEL);
+}
+
+scpi_result_t scpi_calibration_origin_build_cancel_q(scpi_t *context)
+{
+    tdma_origin_build_probe_t s;
+    if (!tdma_runtime_owner_get_origin_build_probe(&s)) {
+        SCPI_ResultText(context, "UNAVAILABLE");
+        return SCPI_RES_OK;
+    }
+    SCPI_ResultText(context, "ORIGINBUILDCANCEL");
+    SCPI_ResultUInt32(context, 1u); /* Diagnostic schema, not a timing grant. */
+    SCPI_ResultUInt32(context, s.state);
+    SCPI_ResultUInt32(context, s.trial_epoch);
+    SCPI_ResultUInt32(context, s.config_seq);
+    SCPI_ResultUInt32(context, s.emitted_runs);
+    SCPI_ResultUInt32(context, s.deferred_cancels);
+    SCPI_ResultUInt32(context, s.entries_cleared);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_calibration_origin_blackout_q(scpi_t *context)
 {
     tdma_origin_blackout_snapshot_t s;

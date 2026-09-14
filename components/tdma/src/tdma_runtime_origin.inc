@@ -119,6 +119,10 @@ static bool tdma_runtime_owner_origin_begin(void *context,
          * No running descriptor or hardware register is modified here. */
         s_tdma_pio_spi_phys.flight_origin_prepare.diagnostic_skip_records =
             (s_origin_trial.diagnostic_flags & CALIBRATION_ORIGIN_DIAGNOSTIC_SKIP_RECORDS) != 0u;
+        s_tdma_pio_spi_phys.flight_origin_prepare.diagnostic_build_probe_epoch =
+            s_origin_trial.diagnostic_flags == CALIBRATION_ORIGIN_DIAGNOSTIC_BUILD_CANCEL ?
+                s_origin_trial.epoch : 0u;
+        s_tdma_pio_spi_phys.flight_origin_prepare.diagnostic_build_probe_config_seq = s_origin_trial.config_seq;
     } else s_origin_trial_fault = true;
     return started;
 }
@@ -186,4 +190,15 @@ bool tdma_runtime_owner_skip_tdma_service(void)
 bool tdma_runtime_owner_get_origin_blackout(tdma_origin_blackout_snapshot_t *out)
 {
     return tdma_origin_blackout_get(&s_origin_blackout, out);
+}
+
+bool tdma_runtime_owner_get_origin_build_probe(tdma_origin_build_probe_t *out)
+{
+    tdma_ring_runtime_snapshot_t before, after;
+    if (!tdma_runtime_owner_get_ring_snapshot(&before) || before.enabled || before.adapter_started ||
+        before.config_seq != before.applied_config_seq ||
+        !tdma_pio_spi_phys_get_origin_build_probe(out)) return false;
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    return tdma_runtime_owner_get_ring_snapshot(&after) && !after.enabled && !after.adapter_started &&
+        after.config_seq == before.config_seq && after.applied_config_seq == before.applied_config_seq;
 }

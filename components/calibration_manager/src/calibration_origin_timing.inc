@@ -56,7 +56,8 @@ bool calibration_manager_origin_trial_configured(uint32_t trial_id, uint32_t rea
     /* The omission trial needs the archive: NORECORD and BLACKOUT cannot mix. */
     if ((diagnostic_flags != 0u &&
          diagnostic_flags != CALIBRATION_ORIGIN_DIAGNOSTIC_SKIP_RECORDS &&
-         diagnostic_flags != CALIBRATION_ORIGIN_DIAGNOSTIC_SERVICE_BLACKOUT) ||
+         diagnostic_flags != CALIBRATION_ORIGIN_DIAGNOSTIC_SERVICE_BLACKOUT &&
+         diagnostic_flags != CALIBRATION_ORIGIN_DIAGNOSTIC_BUILD_CANCEL) ||
         trial_id == 0u || rearm_budget_ticks == 0u || abort_poll_count == 0u ||
         abort_poll_count > UINT16_MAX || duration_ticks == 0u || duration_ticks > INT64_MAX ||
         !tdma_runtime_owner_get_ring_snapshot(&ring) || ring.enabled == 0u ||

@@ -43,7 +43,7 @@ def admission_exe(tmp_path_factory):
 
 
 @pytest.mark.parametrize("case", ["publish", "stale", "expiry", "prepare", "fault", "record-mode",
-    'blackout', 'blackout-cancel', 'blackout-deadline', 'blackout-invalid'])
+    'build-cancel', 'blackout', 'blackout-cancel', 'blackout-deadline', 'blackout-invalid'])
 def test_origin_trial_lifecycle(admission_exe, case):
     result = subprocess.run([str(admission_exe), case], capture_output=True,
                             text=True, timeout=3)

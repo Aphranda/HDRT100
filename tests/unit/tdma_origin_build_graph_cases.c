@@ -13,7 +13,7 @@
  * both sides of every real graph block, including its final publication. */
 tdma_origin_build_result_t tdma_origin_plan_step_actual(tdma_origin_plan_builder_t *b);
 static tdma_origin_build_job_t *cancel_job;
-static uint32_t step_calls, cancel_step, cancel_after, cancellation_cases;
+static uint32_t step_calls, cancel_step, cancel_after, cancellation_cases, probe_cases;
 
 static void interrupt_worker(tdma_origin_plan_builder_t *b)
 {
@@ -93,6 +93,88 @@ static void check_cancellation(const tdma_origin_plan_config_t *config,
             assert(plan->seed_entry != 0u);
             ++cancellation_cases;
         }
+    }
+}
+
+static void check_build_probe(const tdma_origin_plan_config_t *config,
+    tdma_origin_plan_t *plan, const tdma_flight_overlay_dma_run_t *expected_runs,
+    const uint32_t *expected_literals)
+{
+    uint32_t pause_step = 0u;
+    const size_t run_bytes = plan->run_capacity * sizeof(*plan->runs);
+    const size_t literal_bytes = plan->literal_capacity * sizeof(*plan->literals);
+    for (uint32_t mode = 0u; mode < 5u; ++mode) {
+        tdma_origin_build_job_t job = {0};
+        tdma_origin_plan_builder_t builder = {0};
+        tdma_origin_build_probe_t out;
+        assert(!tdma_origin_build_job_get_stopped_probe(&job, &out));
+        assert(tdma_origin_plan_begin(&builder, config, plan));
+        assert(tdma_origin_build_job_request_probe(&job, &builder, 42u + mode, 8u));
+        assert(!tdma_origin_build_job_get_stopped_probe(&job, &out));
+        step_calls = 0u;
+        if (mode == 1u || mode == 2u) {
+            cancel_job = &job; cancel_step = pause_step; cancel_after = mode == 2u;
+        }
+        if (mode == 3u) assert(tdma_origin_build_job_cancel(&job));
+        if (mode == 4u) {
+            assert(tdma_origin_build_job_core0_claim(&job));
+            assert(!tdma_origin_build_job_cancel(&job));
+            tdma_origin_build_job_core0_build_claimed(&job);
+        }
+        tdma_origin_build_job_core0_service(&job);
+        cancel_job = NULL;
+        if (mode < 3u) {
+            assert(tdma_origin_build_job_probe_paused(&job));
+            assert(builder.active && builder.emitting && plan->run_count > 0u);
+            assert(job.probe.emitted_runs == plan->run_count);
+            assert(!tdma_origin_build_job_request(&job, &builder));
+            if (mode == 0u) {
+                pause_step = step_calls;
+                const tdma_origin_plan_builder_t paused = builder;
+                for (unsigned i = 0u; i < 100u; ++i) {
+                    tdma_origin_build_job_core0_service(&job);
+                    tdma_origin_build_job_core0_build_claimed(&job);
+                    assert(tdma_origin_build_job_take(&job) == TDMA_ORIGIN_BUILD_BUSY);
+                    assert(memcmp(&builder, &paused, sizeof(builder)) == 0);
+                    assert(step_calls == pause_step);
+                }
+            }
+            assert(!tdma_origin_build_job_cancel(&job));
+            assert(!tdma_origin_build_job_get_stopped_probe(&job, &out));
+            tdma_origin_build_job_core0_service(&job);
+        }
+        assert(tdma_origin_build_job_state(&job) == TDMA_ORIGIN_JOB_IDLE);
+        assert(!tdma_origin_build_job_probe_paused(&job));
+        assert(tdma_origin_build_job_get_stopped_probe(&job, &out));
+        assert(out.state == TDMA_ORIGIN_BUILD_PROBE_RETIRED && out.entries_cleared == 1u);
+        assert(out.trial_epoch == 42u + mode && out.config_seq == 8u);
+        assert((out.emitted_runs != 0u) == (mode < 3u));
+        assert((out.deferred_cancels != 0u) == (mode != 3u));
+        assert(!builder.active && !builder.complete && builder.failed);
+        memset(&builder, 0xa5, sizeof(builder));
+        const tdma_origin_plan_builder_t poisoned = builder;
+        memset(plan->runs, 0xa5, run_bytes);
+        memset(plan->literals, 0xa5, literal_bytes);
+        /* Simulate Core1's transient IDLE -> CANCELLED exchange after
+         * retirement. A historical probe must not resurrect the writer. */
+        job.state = TDMA_ORIGIN_JOB_CANCELLED;
+        tdma_origin_build_job_core0_service(&job);
+        job.state = TDMA_ORIGIN_JOB_IDLE;
+        tdma_origin_build_job_core0_service(&job);
+        assert(memcmp(&builder, &poisoned, sizeof(builder)) == 0);
+        for (size_t i = 0u; i < run_bytes; ++i) assert(((uint8_t *)plan->runs)[i] == 0xa5u);
+        for (size_t i = 0u; i < literal_bytes; ++i) assert(((uint8_t *)plan->literals)[i] == 0xa5u);
+        memset(&builder, 0, sizeof(builder));
+        memset(plan->runs, 0, run_bytes);
+        memset(plan->literals, 0, literal_bytes);
+        assert(tdma_origin_plan_begin(&builder, config, plan));
+        assert(tdma_origin_build_job_request(&job, &builder));
+        tdma_origin_build_job_core0_service(&job);
+        assert(tdma_origin_build_job_take(&job) == TDMA_ORIGIN_BUILD_DONE);
+        assert(!tdma_origin_build_job_get_stopped_probe(&job, &out));
+        assert(memcmp(plan->runs, expected_runs, run_bytes) == 0);
+        assert(memcmp(plan->literals, expected_literals, literal_bytes) == 0);
+        ++probe_cases;
     }
 }
 
@@ -245,6 +327,7 @@ int main(void)
             check_dma_extents(&c, &actual);
             assert(tdma_origin_build_job_cancel(&job));
             check_cancellation(&c, &actual, actual_steps, expected_runs, expected_literals);
+            check_build_probe(&c, &actual, expected_runs, expected_literals);
             tdma_origin_plan_config_t invalid = c;
             invalid.active_slot_mask |= 1u << nodes;
             assert(!tdma_origin_plan_build(&invalid, &actual));
@@ -256,6 +339,7 @@ int main(void)
             ++cases;
         }
     }
-    printf("{\"graph_pairs\":%u,\"cancellation_cases\":%u}\n", cases, cancellation_cases);
+    printf("{\"graph_pairs\":%u,\"cancellation_cases\":%u,\"probe_cases\":%u}\n",
+        cases, cancellation_cases, probe_cases);
     return 0;
 }
