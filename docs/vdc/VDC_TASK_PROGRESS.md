@@ -25,11 +25,63 @@ Last updated: 2026-09-14
 执行顺序与任务状态统一见 `VDC_DOMAIN_TODO.md` 的“分阶段执行清单”和任务依赖表；
 本文仅追加每个切片已经发生的验证、失败和下一 gate，不复制第二份迁移顺序。
 
-当前固件切片为 `VDC-RESOURCE-001` 的 compact RX 状态回收；代码、行为对照与目标
-链接、四板短帧及 SD 复核已完成，严格 P3 仍未闭合。随后复核 `VDC-SCHED-001`、`VDC-ROLE-001`，
+`VDC-RESOURCE-001` 当前编译容量的 compact RX 资源切片已闭合，有限采集的 STOP 后
+交接通过当前源码四板 quick P3 验证，见下方 `VDC-PROGRESS-20260914-006`。
+下一入口为 `VDC-SCHED-001`，随后复核 `VDC-ROLE-001`；全表 WCET 和正式锁相仍未闭合，
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260914-006 — 有限采集交接验收与资源切片闭合
+
+- TODO task ID：`VDC-RESOURCE-001`、`VDC-SCHED-001`、`VDC-VERIFY-001`。
+- 状态：`VDC-RESOURCE-001` 当前编译容量切片 DONE；调度和锁相任务保持 IN PROGRESS。
+- 日期：2026-09-14。
+- 证据根：`out/HardwareAcceptance/20260914/dpll-stopped-acceptance/`；以下构建号、
+  大小、次数和时长均为本切片快照，非架构事实源。`plan.json` 绑定前序封存 manifest。
+- 粗校准调查：TOPOLOGY 使用完整控制响应时限，固件拒绝时可能只发布 SCPI 错误队列，
+  原工具的超时不能区分配置拒绝和丢响应。`_control_command()` 现在记录动作起点、
+  耗时及失败后一次错误队列读回；不重试动作、不抬高时限、不把超时晋级为成功。
+  独立粗校准重复八轮、P0T 后粗校准及软件复位后重跑均通过，本次 P3 也未复现；
+  旧失败原件保留，间歇问题根因仍未确认，复发时以 `error_after` 继续定位。
+- 交接检查：四板有限采集在全部 STOP 后导出，使用 `validate_tdma_stopped_handoff()`
+  复验 START/STOP ACK、板卡集合、配置生效、build/epoch、冻结终态和原始 `.bin` 的
+  CRC/长度/采集完整性。proof 与逐板原始字节 SHA256 纳入 receipt；其他模式继续
+  原有运行中交接。该 proof 只替换有限采集不适用的 live handoff，不改变收发、
+  调度或质量门禁，也不以 summary 缓存中的通过标志代替原始记录。
+- 软件与旧证据复核：相关校准/P3/板端记录/启动/TRN-03 回归 234 项通过，包含 C
+  recorder 真实输出及缺板、STOP 失败、旧 build、epoch、CRC、长度和漏采负测。
+  `previous-handoff-audit.json` 仅离线验证旧字节交接，保留旧 P3 的失败结论；
+  当前硬件验收单独执行，未使用 replay 或旧凭证放行。
+- 当前源码：build `20260914051939`，1050 文件指纹
+  `cfe924fbc3e53593280ccea6ddcefe778d69c0a6e180cb7a9c6cb17b7486aef8`。
+  A/B/Boot 构建和链接检查通过；`source-checkpoint-r2.json` 确认 A/B `.data/.bss/heap`
+  布局与上一切片完全相同、PIO 头文件字节一致，保留已验证的 1104 B RAM 回收及
+  1132 B heap 外余量。本轮只修改验收工具和测试，没有固件或 PIO 改动。
+- P3：四板 OTA、软件复位、配置校准和 process-image/FIFO 短帧流程完成；
+  `p3-r1/diagnostic.json` 的 `strict_gates_passed=true`、`failures=[]`，STOP 后交接
+  proof 验证四板各 14 条记录。约 416 s 的流程在当前配置时限内，凭证范围为
+  `FOUR_NODE_TDMA_QUICK_DIAGNOSTIC`；该范围通过不等于 full 验收、全表 WCET
+  闭合或正式锁相，也不覆盖前序 TOPOLOGY 超时原件。
+- 四板对照：一次 `candidate-r1` 显式启用 provisional/clock evidence，随后
+  `restored-r1` 恢复普通配置；两轮短帧 passed/closed-loop/realtime gate 通过。
+  首次 START 到全部 STOP 之间无 SCPI 查询；先保存 TDMA、释放 StorageAO lease，
+  再处理 DPLL。TDMA SRAM/SD 字节相同，DPLL CRC 与重复 SD 读取通过；普通恢复
+  没有 DPLL trace 样本，明确记录为空，不作为更新路径或锁相证据。
+- 调度结果：`comparison-r1.json` 的实际更新窗口中，主板 DPLL run/start miss/
+  overrun 为 2184/645/6，TDMA overrun 为 1371；三从板 DPLL start miss/overrun
+  均无增长。普通恢复后四板 DPLL start miss/overrun 均无增长，主板 TDMA overrun
+  仍增长 474。该对照支持继续区分真实更新负载与上游迟到，不能用无更新路径或
+  稀疏 last-call 峰值关闭静态预算。enabled/quarantined mask 没有新增节点隔离。
+- 锁相结果：实际更新每板 76 条 DPLL trace；NO1 全为内部 LOCKED，NO2–NO4 全为
+  CHECKING，三从板命令接收和应用增量仍为零。`candidate-r1-lock-review-r2/`
+  保留 trace、分析图和 STOP 后读回，仍未证明命令运输、共同时间应用或实际输出锁相。
+- 最终复核：`review-final.json` 核对当前源码、包、链接产物、P3 proof、四板原始
+  记录、SD、调度与锁相边界；四板最终 STOP、配置 ACK 且临时许可证 inactive。
+  代码/凭证与 VDC 文档分离提交，证据由 `slice-manifest.json` 和 `commit-proof.json`
+  封存；当前资源切片关闭不改变长期目标 active 状态。
+- 下一 gate：`VDC-SCHED-001`。先分解主板上游迟到和 DPLL 实际更新成本，再复核
+  `VDC-ROLE-001`；命令契约仍为 Draft，运输接线必须等待阶段基础与独立审核。
 
 ### VDC-PROGRESS-20260914-005 — compact RX 专用状态与停止后导出
 

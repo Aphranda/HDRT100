@@ -122,9 +122,21 @@ RELOCKING/FAULT 状态可追溯；最终相位精度只由当前源码指纹下�
 `VDC-PROGRESS-20260914-003`。当前先推进 `VDC-CMD-001` 的只读审计、协议方案及负测
 设计，明确 resident 诊断数据与控制命令的区别。原函数反例和资源审计见
 `VDC-PROGRESS-20260914-004`，待审方案见 `VDC_COMMAND_TRANSPORT_PLAN.md`。
-当前固件切片为 `VDC-RESOURCE-001`：compact RX 已改为专用 DELTA 状态，行为对照和
-目标链接和四板短帧/SD 已复核，严格 P3 仍未闭合；进度见 `VDC-PROGRESS-20260914-005`。
-随后复核 `VDC-SCHED-001`、`VDC-ROLE-001` 的实现和验收缺口；命令路径接线须等待契约审核。
+`VDC-RESOURCE-001` 的当前编译容量资源切片已闭合：compact RX 专用 DELTA 状态的
+行为对照、目标链接及四板短帧/SD 已复核；有限采集的 STOP 后交接通过当前源码
+quick P3 验证，见 `VDC-PROGRESS-20260914-005/006`。这不关闭其他容量的目标验收、
+全表 WCET 或正式锁相，也不代表间歇性 TOPOLOGY 超时根因已解决。
+
+下一实现入口为 `VDC-SCHED-001`，按以下检查顺序推进，结果回写原任务表：
+
+1. 从实际更新窗口区分 TDMA 上游迟到、DPLL 入口错过及 DPLL 自身超限；先核对
+   静态相位边界和现有计时字段，再决定需要补充的有界板端记录。
+2. 分解真实更新路径的 prepare/servo/finalize/publish 成本，每次只实施可独立验收
+   的优化，并以同配置当前源码四板对照闭合；稀疏 last-call 样本不能代替 WCET。
+3. 调度门禁闭合后复核 `VDC-ROLE-001` 的主机 PI、从机旁路、角色切换清理与保持输出
+   正反测试，完成对应短帧闭环；未退出前不开始命令接线。
+4. 完成 `VDC-CMD-001` 的跨域登记与独立审核后，依次执行 `VDC-CMD-002/003` 的
+   稳定交接和运输，再执行 `VDC-CMD-004/005` 的共同时间应用与一主三从对账。
 
 `VDC-CMD-001` 必须回答：现有 mailbox 如何承载完整的命令身份和共同生效时间；
 如何证明接收者本地时间可映射到该时间域；如何防止 Core0/Core1 混合快照、序列回绕、
@@ -138,7 +150,7 @@ RELOCKING/FAULT 状态可追溯；最终相位精度只由当前源码指纹下�
 
 | ID | 任务 | 状态 | 依赖 | 完成或退出门禁 |
 |---|---|---|---|---|
-| `VDC-RESOURCE-001` | 收敛 compact RX 专用状态，回收此实例中未使用的通用 RefMem ACK/fence/remote-quality 数组，为命令组装和时间锚提供预算。 | IN PROGRESS | 现有 compact DELTA wire/peer/mirror/quality 行为；审计与实现见 `VDC-PROGRESS-20260914-004/005` | 原/新 DELTA 接收、拒绝、peer/mirror/quality 行为对照通过；通用 receiver 保持完整能力；容量矩阵、目标 link map、当前源码 P3/短帧闭环及原始证据确认实际 RAM 回收；不借用 DMA buffer 或调整锁相门限。 |
+| `VDC-RESOURCE-001` | 收敛 compact RX 专用状态，回收此实例中未使用的通用 RefMem ACK/fence/remote-quality 数组，为命令组装和时间锚提供预算。 | DONE | 现有 compact DELTA wire/peer/mirror/quality 行为；审计与验收见 `VDC-PROGRESS-20260914-004/005/006` | 当前编译容量的原/新行为对照、目标 link map、当前源码四板 quick P3/短帧及 STOP 后原始记录闭合，确认实际 RAM 回收；通用 receiver 保持完整能力。其他容量目前只有 host 对照，目标配置验收由 `VDC-CONFIG-001` 跟踪；不以资源回收关闭调度或正式锁相门禁。 |
 | `VDC-SCHED-001` | 给 DPLL 静态相位保留入口余量，消除窗口恰好等于 WCET 引起的调度饥饿。 | IN PROGRESS | `TDMA-DET-01` 完整静态表 | 全部周期目录闭合；保留原 WCET 与准入检查；当前源码 P3、短帧闭环和四板记录对照 start miss/执行/超限；SCPI 仅控制，STOP 后保存 SD；不以调度通过代替命令准入或 formal lock。 |
 
 入口余量的实现和有限对照已记录于 `VDC-PROGRESS-20260914-001`；四板锁相复测与
