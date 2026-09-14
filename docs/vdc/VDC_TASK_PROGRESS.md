@@ -36,13 +36,65 @@ Last updated: 2026-09-14
 `VDC-PROGRESS-20260914-014`；真实构造块取消与复用的软件补证见
 `VDC-PROGRESS-20260914-015`；实板暂停构造任务的取消探针见
 `VDC-PROGRESS-20260914-016`；交接分阶段计时及两轮自主切换原件见
-`VDC-PROGRESS-20260914-017`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
+`VDC-PROGRESS-20260914-017`；有界邮箱合批及当前四板交接对照见
+`VDC-PROGRESS-20260914-018`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
 `VDC-ROLE-001`；全表 WCET 和正式锁相仍未闭合，
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260914-018 — 冻结邮箱有界合批与交接对照
+
+- TODO task ID：`VDC-TIME-002`。
+- 状态：IN PROGRESS。邮箱合批已取得当前拓扑的时延对照，完整交接连续性、原点相位
+  超限及其他物理配置继续保留门禁；`VDC-TIME-003/004` 和命令接线仍未开放。
+- 日期：2026-09-14。
+- 证据根：`out/HardwareAcceptance/20260914/dpll-origin-mailbox-batch/`；
+  `current-plan.json` 绑定前序 manifest、STOP、源码和固件包，逐轮记录见
+  `handoff-r1-review.json` / `handoff-r2-review.json`，对照见 `review-final-r1.json`。
+  以下数值均为本轮测量快照，非事实源，不构成 WCET 或物理边沿误差界。
+- 实现：`tdma_pio_spi_phys_origin_mailbox_batch()` 每次最多检查
+  `TDMA_ORIGIN_PREPARE_MAILBOX_BATCH` 个冻结邮箱，工作量不随编译容量无限增加。
+  仍逐个验证 magic/version/class/source/target/CRC；检查长度、容量和游标后才寻址。
+  STOP 保留在下一 poll，继续经过 owner grant/config/clock 复验，旧 DMA 退休后
+  才复用 persona union。未增加 PIO/DMA、静态 RAM、时间戳资格或 DCO 应用。
+- 软件与构建：29 项相关测试通过；新测试在编译容量 2 至 8 下覆盖全部准入节点数、
+  每邮箱逐字节损坏、重算合法 CRC 后的非法结构/来源/目标、后批损坏不能提前读取、
+  长度/NULL/游标/容量越界和输入不变。既有 grant 撤销、代际/clock/expiry 变化、
+  STOP 和构造任务取消回归继续通过。容量 6/8 的 A/B 与 boot 增量构建分别
+  7.718/7.219 s；预留堆后 RAM 余量仍为 4716/956 B，physical poll 静态栈仍 400 B，
+  SCRATCH_X 无数据增长。容量 6 实板使用四节点；其余物理节点配置不继承 HIL 结论。
+- 部署身份：增量构建保留 build ID `20260914104205`，不能只凭 build ID 区分切片。
+  本轮源码指纹为 `c5d553099a2e1babbe10423ee8ef61a34fbf96397eec4fb973db5fb531b42355`，
+  新包 SHA-256 为 `b65a4b27ef35dd638d362f1693b935a6b9653c529be3102c9bec87bf3944e4d1`；
+  archive、当前包、P3 凭证与四板 OTA 完成记录共同绑定本轮固件。
+- 四板 quick P3：外部 196.578 s，短帧 passed/closed_loop/realtime 三项均 true，
+  本轮 strict_gates_passed=true，无 diagnostic failure。四板原生记录各 14 条、
+  无漏采，STOP 后 SD 字节一致。前轮严格校准超时仍保留在其封存目录；本轮通过
+  不表示该间歇性失败根因已修复，也不关闭全表 WCET。
+- 交接对照：两轮 NO1 trial/config 分别 36/71、52/77；软件总交接由前轮
+  16868.584/16933.140 µs 降至 12444.264/12996.216 µs，分别缩短 26.23%/23.25%。
+  mailbox 调用次数从各 4 次降为各 1 次，首次 mailbox 至 STOP 从约 6 ms 降至
+  1511.436/1501.712 µs；合批调用体为 23.872/94.024 µs。第二轮初始等待
+  1003.964 µs，比第一轮 429.964 µs 更长，不把总时差全部归因于 CRC 或合批。
+  全部准备调用体为 690.480/1198.268 µs；STOP 进入至 INSTALL 返回仍为
+  10502.864/10490.540 µs，缩短邮箱检查尚未缩短这段软件停环区间。
+- 预算边界：本轮板端整表为 1500 µs，TDMA WCET 预算为 850 µs，事实源分别为
+  `PROJECT_CORE1_PROFILE_1500US_CYCLES`、`PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES`
+  及板端时钟；不是早期整表方案的 500 µs。两轮邮箱调用体小于该预算，但 NO1
+  完整 TDMA 相位峰值为 1558.196/1937.848 µs，全窗 overrun 增量 497/472、
+  deadline miss 增量 474/446。三块 follower 该相位两类增量为零。稀疏原生样本
+  与单个 peak 不能证明所有调用的 WCET，更不能以邮箱局部耗时代表完整相位通过。
+- 连续性与收尾：每轮四板原生记录各 34 条、无漏采，首次 START 至最后 STOP
+  之间无 SCPI 查询，STOP 后 SD 字节一致。r1 的 transport missing 增量依 NO1
+  至 NO4 为 1/1/0/0，r2 为 1/1/1/1；两轮完整窗口三项均 false，不提升稳定子段。
+  最终四板 STOP/config ACK、临时 grant inactive，NO5 未操作；未采集新的 DPLL
+  trace 或物理边沿波形，不能据此声明实际输出锁相。
+- 下一 gate：在 `VDC-TIME-002` 内继续定位 STOP→INSTALL 的交接间隙与 NO1 完整
+  相位超限，补齐板端边沿/SD 波形证据和其他物理配置；保留 grant/CRC 拒绝、DMA
+  退休与构造取消门禁，完整切换窗口闭合后才进入后续时间输入准入。
 
 ### VDC-PROGRESS-20260914-017 — 自主 origin 交接分阶段计时
 
