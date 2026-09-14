@@ -115,7 +115,8 @@ identity / epoch。记录发布必须在生产完成后进行，既有 observati
 首尾 sequence、覆盖检查和 STOP 退休要随布局扩展一并复核；候选仅为本地诊断，
 不承担共同时间初始化或修改 wire trailer。执行切片见 TODO 的 `VDC-TIME-001` 至
 `VDC-TIME-004`，真实 builder 核算及离线模型见 `VDC-PROGRESS-20260914-008`，
-集成原型、目标链接和板端预采见 `VDC-PROGRESS-20260914-009`。
+集成原型、目标链接和板端预采见 `VDC-PROGRESS-20260914-009`；配置矩阵与 raw
+生命周期补测见 `VDC-PROGRESS-20260914-010`。
 
 资源准入以 `TDMA_PIO_SPI_ORIGIN_RUN_CAPACITY` /
 `TDMA_PIO_SPI_ORIGIN_LITERAL_CAPACITY` 为边界，不能使用更大的通用构造上限代替实际
@@ -123,7 +124,15 @@ identity / epoch。记录发布必须在生产完成后进行，既有 observati
 mode/seed、仅选中 executor 的 SNIFF transfer 参与计算；FAULT/资源释放仍关闭 sniffer。
 run 分配保持原边界，literal 分配按对应符号调整。新增归档、producer、冻结副本和
 对齐均需计入预算，不能从总 BSS 不变推断没有消耗 RAM。当前容量目标链接和节点
-构造矩阵已有证据，其他目标容量、配置变体及生命周期覆盖仍由 `VDC-TIME-002` 跟踪。
+构造矩阵已有证据；扩展矩阵覆盖全部 active mask/有效 local slot 与选定 guard/abort
+组合，但使用固定 PIO/DMA、地址及 prefix 几何。raw 复制交错、计数回绕与 STOP 后
+退休已有补测，其他目标容量、其余准入几何及有界取消证据仍由 `VDC-TIME-002` 跟踪。
+
+切换缺失的只读审计显示，旧环路停止之后才选择自主 persona、构建并安装 DMA 图；
+普通服务与自主图共享 workspace union，不能直接在旧 DMA 运行时覆盖构建。后续
+连续性方案须在安全启动边界完成准备，或证明独立 owner 存储与有界交接，保留真实
+missing/迟到记录。当前快照只定位到切换区间，不提供精确停发时长；严格 SCK 校准
+失败与边沿误差界也须独立闭合，不能通过裁短采集窗口或调整锁相判据绕过。
 
 原始计时格式由 `TDMA_ORIGIN_RECORD_FORMAT_RAW_TIME` 与 `tdma_origin_raw_time_t`
 描述；它追加 timer high/low/high、首个 latch 字、FIFO 状态、arm 前 GPIO 输出和

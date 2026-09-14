@@ -29,13 +29,85 @@ Last updated: 2026-09-14
 交接通过当前源码四板 quick P3 验证，见下方 `VDC-PROGRESS-20260914-006`。
 自主 origin 补测发现时间输入尚未接通，见 `VDC-PROGRESS-20260914-007`；事件与资源
 审计见 `VDC-PROGRESS-20260914-008`；原始记录原型、当前容量目标链接及板端预采见
-`VDC-PROGRESS-20260914-009`。当前入口仍为 `VDC-TIME-002`，补齐配置组合与 raw
-停止/重臂负测后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
+`VDC-PROGRESS-20260914-009`；配置矩阵、raw 退休及两次重臂补测见
+`VDC-PROGRESS-20260914-010`。当前入口仍为 `VDC-TIME-002`，补齐剩余准入几何与
+目标容量验收后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
 `VDC-ROLE-001`；全表 WCET 和正式锁相仍未闭合，
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260914-010 — 原始计时配置矩阵、重臂与归档退休
+
+- TODO task ID：`VDC-TIME-002/003`、`VDC-TDMA-001`、`VDC-EVID-001`、`VDC-SCHED-001`。
+- 状态：本次配置/生命周期补测完成；`VDC-TIME-002` 保持 IN PROGRESS，
+  `VDC-TIME-003/004` 保持 PENDING，长期目标未完成。
+- 日期：2026-09-14。
+- 变更：扩展 `test_tdma_origin_raw_time.py`、`tdma_origin_raw_graph.c` 和
+  `tdma_origin_record_frozen_cases.c`，未改变生产固件或 PIO 逻辑；测试与当前源码
+  P3 凭证提交 `8ece6da`，文档另行提交。下述组合数、容量和时序均为快照，非事实源。
+- 证据根：`out/HardwareAcceptance/20260914/dpll-raw-lifecycle/`。`plan.json` 绑定
+  前一封存 manifest；`current-plan.json` / `source-checkpoint-r2.json` 绑定当前
+  build `20260914071502`，源码指纹
+  `0bc3adba3bd2da8a23bd79e485e7aaba32a6ba3e7ae0fcfc6af79feff3d5c700`，package SHA
+  `8c11f84ced9724aec9f6f9057cfdf2baba265c6fe8cdcc8407cf8fade4759de4`。
+- 配置矩阵：真实生产 builder 编译容量 2–8、各运行节点数的全部有效 active mask/
+  local slot，组合 guard 的 7 个边界值、abort 的 3 个值及记录开关，共 124488 组
+  构造通过；最大单步为 22 个 run，上限 24。当前容量 6 最大占 314/320 runs、
+  133/140 literals；容量 8 最大占 334/352、137/148，详见 `matrix-review.json`。
+  稀疏 mask/非零 local 的真实图执行与 mailbox overlay 对账通过。探针固定
+  PIO/SM/DMA、地址、prefix 和 padding，不能推断全部几何或实际总线延迟已覆盖。
+- 生命周期：生产 STOP/frozen read/persona/invalidate 路径覆盖 88 B raw record
+  每个内部复制分割点的退休交错、guard 回绕、published_version 回绕、FAULT 原始
+  诊断保留、旧 RTT 格式/epoch 拒绝和 persona 复用后 STOP 不复活旧归档；既有
+  admission/build-job 有界取消回归通过。配置/图模型 49 项和生命周期/准入/构造
+  15 项通过，完整命令见 `matrix-tests-r1`、`lifecycle-tests-r1`。
+- 目标资源：A/B 构建通过，`.data`、`.bss`、heap 地址/大小与上一实现一致，见
+  `layout-review.json`；本轮没有新增 RAM。目标链接仍只覆盖当前编译容量，其他
+  容量只有 host 矩阵，不能借本轮四板 HIL 关闭全部准入配置的目标验收。
+- 当前 P3：四板 OTA 和 quick 流程完成，receipt 为
+  FOUR_NODE_TDMA_QUICK_DIAGNOSTIC；`strict_gates_passed=false`。SCK 训练及
+  replay 行选择失败，没有满足飞行重装预算的实测行，完整失败保留于
+  `p3-r1/diagnostic.json` / `p3-receipt-r1.json`。后续生命周期采集显式使用
+  `current-plan.json` 绑定的既有诊断 matrix，未把旧校准或 quick 完成提升为严格
+  校准通过。未操作 NO5。
+- 两次自主预采：`resident-r1/r2` 均先普通启动，再有限自主许可，四板每轮各
+  34 条 SRAM 记录完整、无漏采。全部 STOP 后原生 TDMA SD 字节一致；NO1 raw
+  epoch 从 1 增至 2，各保留连续 7 条完整记录，序列分别为 8176–8182 与
+  8122–8128，第二代 timer 晚于第一代。epoch 为本地原始归档代际，不是分布式
+  session。FIFO 存在、arm 前 TX CS 为高、计时前后 high/low/high 一致；读取区间
+  均为 252 ns，邻圈 arm 间隔分别为 1000.020–1000.636 µs 和
+  1000.016–1000.600 µs，不能作为实际边沿偏移、抖动或锁相精度。
+- 全窗失败：两轮均保留 `passed/closed_loop_passed/realtime_gate_passed=false`。
+  四板每轮各有一次真实 receive_missing，启动/切换的拒绝及超限仍保留；旧
+  evaluator 的普通 persona/software TX count 规则也不适用于自主，不能因此
+  忽略真实缺失。预选 3–6 s 中段接收增量分别为 917/916/915/917 与
+  917/918/916/916，拒绝/缺失以及各相位 start miss/overrun 无增长。中段通过不
+  替代全窗，完整对照见 `review-final.json`。
+- 耗时边界：两轮自主主板保留的 TDMA RUN 完整峰值为 652.024 µs 与 592.484 µs；
+  本轮生产逻辑未变，同一 build 也有峰值变化，不能据此归因于某段代码或宣布
+  优化。四板自主 trace 均为零，真实 DPLL 更新 WCET 仍未测得。
+- 切换审计：`handoff-review.json` 重新解码上一 build 的原件，只将 missing 定位
+  在普通转自主的采样区间，未测出精确停发时长。源码顺序为 MAILBOX → STOP →
+  PERSONA → BUILD_BEGIN/BUILD_STEP → SEED → SMS → INSTALL；Core0 在固定上界
+  内完成构造，并非每个 label 等一个 Core1 周期。普通服务和自主图共享 workspace
+  union，必须证明安全准备与有界交接，不能边跑旧 DMA 边覆盖，也不能压掉 missing。
+- 存储与恢复：先完成 TDMA SAVE/释放 StorageAO，再处理 DPLL，零 trace 如实保留。
+  每轮 728 B raw 主机导出另存 NO1 SD、两次读回一致，明确区别于板端原生 recorder。
+  `restored-r1` 普通短帧三项判据通过，四板各 26 条原生记录与 SD 一致；NO1 的
+  raw age 查询全部为 UNAVAILABLE，后续 STOP 未复活旧归档。恢复的中段仍记录
+  主板 TDMA overrun 228、VDC start miss 230 和 DPLL start miss 1，三项运输判据
+  不代表全表 WCET 通过。最终四板 STOP/config ACK、许可证 inactive；各轮首次
+  START 至全部 STOP 无 SCPI 查询采样。
+- 主控复核：`audit.py` 从原生 `.bin` 重解码 board/build/epoch/CRC/长度，比较 SD
+  字节，核对两代 raw、退休查询、源码/package 和 P3 引用 SHA；保留 quick 严格
+  校准失败、自主整窗失败及普通模式超限。软件/P3 凭证与文档分别通过相应提交
+  门禁，最终提交身份和证据哈希由本目录 `slice-manifest.json` / `commit-proof.json`
+  在提交后封存。
+- 下一 gate：`VDC-TIME-002`。补齐其余准入几何/目标容量资源与取消验收；再闭合
+  严格校准、`VDC-TIME-003` 的切换连续性及边沿误差界，之后才开放同圈
+  trailer/evidence、真实自主 DPLL 更新预算及命令契约后的接线。
 
 ### VDC-PROGRESS-20260914-009 — 自主原始计时原型与四板预采
 
