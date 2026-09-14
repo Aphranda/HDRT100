@@ -55,7 +55,8 @@ Last updated: 2026-09-15
 `VDC-PROGRESS-20260915-006`；准入尝试诊断与失败采集自动留证见
 `VDC-PROGRESS-20260915-007`；DMA 私有捕获凭据到 RX station 的贯通及 RAM 布局
 收敛见 `VDC-PROGRESS-20260915-008`；READY 有界候选查询与原生记录见
-`VDC-PROGRESS-20260915-009`，本轮自主准入拒绝及部分窗口原件保留。当前入口仍为
+`VDC-PROGRESS-20260915-009`，其自主准入拒绝及部分窗口原件保留；foundation 专用
+读取与随后获准的完整原生窗口见 `VDC-PROGRESS-20260915-010`。当前入口仍为
 `VDC-TIME-002`，补齐硬件配置、交接时延
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
@@ -63,6 +64,88 @@ Last updated: 2026-09-15
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260915-010 — 自主准入只读 foundation 身份
+
+- TODO task ID：`VDC-TIME-002`、`VDC-VERIFY-001`；状态 IN PROGRESS。证据根为
+  `out/HardwareAcceptance/20260915/dpll-origin-foundation-read/`。以下数量、时间、
+  容量与代际为本轮快照，非事实源；本切片解除准入对无关诊断快照可用性的依赖。
+- 实现：新增 `tdma_service_get_foundation_crc32()`，在既有 intent guard 下有界
+  读取实际 CRC；首末 acquire、标量读取及中间 acquire fence 保证版本复验。
+  上界沿用 `TDMA_SERVICE_SNAPSHOT_RETRY_LIMIT`，不等待锁、不调用综合快照。
+  空指针或尝试耗尽返回 false，并清零非空输出；成功返回的零值只是实际 CRC，
+  不能当作配置有效或授权，模型匹配仍由原准入谓词验证。输出不能 alias service。
+- Calibration 仅用该标量替代整个 `tdma_service_snapshot_t`。综合诊断快照函数、
+  foundation 写入路径与 Core1 授权实现不变；保留 revoke-before-attempt、参数、
+  角色、stage、cadence、余量、expiry、model 及最终 config/model 复验。Core1
+  在准入、构造及运行边界仍比较实际 foundation CRC；无新增实时 PIO/DMA 工作。
+  这有意改变读取可用性的依赖，不能称新旧函数在所有忙碌情形下返回行为完全相同。
+- 软件：`host-admission-r1` 20 项通过，保留冻结旧函数的 47 场景 oracle，仅在
+  owner 可用性等价时比较 grant、epoch、逻辑调用顺序和拒绝原因；另对全部场景
+  注入无关快照不可用，验证实际门禁仍生效。真实 SCPI 回调在成功时才返回偶数
+  epoch，失败保留拒绝并撤销旧授权；实际 Core1 stale/prepare 路径新增 foundation
+  变化拒绝。getter 的锁与代际行为由独立生产函数测试覆盖，不由该 model stub 证明。
+- 并发：`host-foundation-r2` 通过，五组、16 次成功检查使用真实 service/scheduler/
+  registry/ring 结构与生产读取函数。实际 scheduler.lock 占用使综合读取失败，
+  专用读取仍成功且不释放锁；result/registry/ring 的不可用不再影响标量读取。
+  覆盖 NULL、零 CRC、odd guard、复制后 writer、持续代际变化、末次尝试及单次
+  guard 回绕；耗尽最多 128 次 guard load，无陈旧输出替代。r1 漏链接
+  `tdma_profile.c` 的失败原件保留，补真实依赖后通过；未声称实板争用时序已穷尽。
+- 构建：6/8 节点 A/B 均通过，用时分别 15.890/15.250 s。当前指纹为
+  `eaba0fbd9ec75f7276cb5b5b5301804204dd6b96950c4e29072ab98e925c28bd` / 1091；
+  build ID 沿用 `20260914184059`，六节点 package SHA 为
+  `e216cfffa428e20f3f1d7381d8c0abb1ce92c011770052b8d04ba7e1900ace5c`。
+  `current-plan-r1.json` 的源码与构建归档分开绑定，不以 build ID 代替指纹。
+- 资源：四份 map 静态 RAM 未增加，6/8 节点余量仍为 17552/13792 B（已扣 heap）；
+  DATA end 为 `0x20008ff0`、BSS 为 `0x20009000`、SCRATCH_X 数据为零。
+  实际 ELF 中 getter 位于 Flash，指令为 acquire load/scalar load/DMB/acquire
+  load，SU 为 4 B。准入函数自身栈从旧 ELF 的 3088 B 降至当前 2288 B，减少
+  800 B；综合快照自身为 936 B。仅为函数局部栈，不能推断完整 Core0/SCPI 栈
+  高水位或 WCET。证据脚本路径选择和同名报告冲突另见 `tooling-notes.json`，
+  成功编译/反汇编产物保留，未覆盖重跑。
+- 当前 P3 用时 188.641 s，quick passed、普通短帧 passed/closed_loop/realtime/
+  diagnostic 全 true；四板各 14 槽加 baseline 完整，STOP/ACK 后 SD 保存读取
+  8.094 s，与 SRAM 一致。普通三从 query/matched 增量为 678/675、692/690、
+  707/704；NO4 missing 增长一次，其他未匹配为 unavailable，不能将其删除或
+  称逐包关联无缺口。稀疏快照未直接记录这次 missing 的单次现场。
+- 严格失败：`strict_gates_passed=false`，NO3 coarse CLK level 7 的
+  `SYSTem:TDMA:RING:TOPology 4,2,2` 返回 timeout/Execution error；coded marker
+  的四个 trial 原件完整，但 NO4 best/second distance 同为 242、margin 为零，
+  `mixed_peak` 门失败。两者均保留，不能以 ordinary passed 代替严格校准。
+- 唯一自主 `capture-r1` 用时 39.782 s，准入 ACCEPTED，epoch 36，初末配置
+  66/66、初末模型 22/22，observed_mask 为 1023；NO1 persona 从普通态转至
+  16，并在 slot 3–17 保持，STOP profile 中自主相位计数为 6418。四板各 18 槽
+  加 baseline 完整，terminal reason/missed 均为零；字节数依次为
+  8592/11532/11600/11564 B，未满固定记录区。全板 STOP/ACK 后 SD 保存读取
+  8.188 s，UID/build/epoch/CRC 可解码，SD 与 SRAM 逐字节一致；RUN 内无 SCPI
+  查询采样，NO5 未操作。
+- 原生诊断：三从 event epoch 为 2，published 为 7126/7192/7271，均与 joined
+  一致、无 INVALID，最大服务间隔为 1586/1581/1585 µs。整个记录窗口的
+  query/matched 增量为 1914/1911、2114/2112、2378/2376；剩余分别为
+  3/2/2 次 unavailable，stale/missing/ambiguous 未增长。该增量包括准入前普通
+  阶段，不能全部归为自主匹配；baseline 的旧 RETIRED 候选也不能当本次查询。
+  候选与记录字段检查通过，仍是历史诊断，无物理身份、时间戳或 DPLL 正式资格。
+- 总门仍失败：第三个健康 startup 样本最晚 2.009369 s，超过预声明 2 s；前两个
+  健康样本在 1.007962/1.509057 s。NO1 还保留 `adapter_tx_not_growing`、
+  `physical_flight_persona_mismatch`、`periodic_interval_gate_failed`。
+  `analysis-r1.json` 诊断连续性为 true 仅证明当前记录范围；未追加采集、未放宽
+  时间门、未以本次准入成功追认 009 或确定其具体失败子读取。
+- 时间反馈：按内部 total_ticks 选取的 STOP PEAK，其外层相位耗时 NO1–NO4 为
+  1443.404/1098.596/1045.568/1076.392 µs。NO1 该记录仍在自主 trial 前的状态
+  迁移；其他板与 009 的流量模式不同，不由数值变化推断 getter 的独立性能收益。
+  PEAK 不是全窗外层最大值，完整静态表 WCET 仍未闭合。
+- 下一 gate：`VDC-TIME-002` 继续补齐物理 packet/event 身份、首事件/DMA anchor
+  与晚启用积压排除；保留 startup、普通计数/persona 与严格校准失败分别追踪。
+  `VDC-TIME-003/004` 仍 PENDING，不将完整诊断记录提升为正式时间输入或锁相。
+- 后继只读设计：
+  `out/HardwareAcceptance/20260915/dpll-rx-identity-design-review-r1/identity-design-review.json`
+  核对当前 observer=ON 的 follower TX 为 32/32 指令、4/4 SM，RX 指令也为
+  32/32；旧 observer=OFF 的 TX 余量不能借用于当前配置。建议下一切片先记录
+  首次 observer 启用前后的 DMA 完成坐标区间及 capture RXSTALL，保持 PIO/SM/DMA
+  资源不增；FIFO 为空或两次 count 相同不能单独排除在途 DMA 写入，CPU 观察不能
+  冒充边沿锁存。先证明首帧边界、积压与丢字排除，再考虑坐标/ordinal 关联；
+  未唯一的区间明确保留 unresolved，不授予物理身份。该报告是待实现设计，
+  不代表新增原型、资源预算或门禁已经验收。
 
 ### VDC-PROGRESS-20260915-009 — READY 有界事件候选关联与原生记录
 
