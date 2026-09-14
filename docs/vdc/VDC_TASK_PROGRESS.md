@@ -56,7 +56,8 @@ Last updated: 2026-09-15
 `VDC-PROGRESS-20260915-007`；DMA 私有捕获凭据到 RX station 的贯通及 RAM 布局
 收敛见 `VDC-PROGRESS-20260915-008`；READY 有界候选查询与原生记录见
 `VDC-PROGRESS-20260915-009`，其自主准入拒绝及部分窗口原件保留；foundation 专用
-读取与随后获准的完整原生窗口见 `VDC-PROGRESS-20260915-010`。当前入口仍为
+读取与随后获准的完整原生窗口见 `VDC-PROGRESS-20260915-010`；首次 observer 启用
+的 DMA 坐标括号及 capture 失效退休见 `VDC-PROGRESS-20260915-011`。当前入口仍为
 `VDC-TIME-002`，补齐硬件配置、交接时延
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
@@ -64,6 +65,68 @@ Last updated: 2026-09-15
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260915-011 — 首次 observer 启用的 DMA 坐标括号
+
+- TODO task ID：`VDC-TIME-002`、`VDC-VERIFY-001`；状态 IN PROGRESS。证据根为
+  `out/HardwareAcceptance/20260915/dpll-rx-start-cut/`。以下数量、时间、容量与
+  代际均为本轮快照，非事实源；本切片只补充诊断，不授予物理身份或时间戳。
+- TDMA owner 在首次实际 observer enable 两端记录 DMA completed-write count、
+  epoch、计时、capture FIFO/PC/pad/fdebug 和配置。使用真实 counter 的局部副本
+  lift 坐标，不推进 live scanner/drop accounting；capture RXSTALL、DMA 故障、
+  epoch/geometry/role/clock 变化或 observer 失效只退休 cut。首次 STOP 后终止
+  运行监测，完整 disarm 的两项取消 ACK 成功后冻结 STOPPED；新 ARM 先清旧代。
+- `tdma_rx_start_cut_t` 为 128 B，owner、双缓冲及控制标量共新增静态 RAM 396 B。
+  `SYSTem:TDMA:FLIGHT:RX:CUT?` 通过有界一致性 getter 读取冻结副本；getter
+  不读 live PIO/DMA，但读取系统计时器。全板 UID/build/STOP/config ACK barrier
+  后每板只查询一次，原始错误不重试。cut 单独导出到主机，不在 native SD 记录内；
+  通用 event snapshot、原生每槽 schema 和 PIO/DMA 分配保持原样。
+- 软件：`host-export-r2` 13 项、`host-adjacent-r1` 163 项、`host-owner-r1` 4 项、
+  `host-cut-unit-r2` 1 项通过；覆盖真实启用/service/STOP、feature OFF、真实
+  counter/lifecycle、并发读、SCPI 序列化及全板 STOP barrier。失败原件与 fixture/
+  host facade 修正见 `tooling-notes.json`，不称生产内存协议因此被修复。
+- 构建：6/8 节点 A/B 均通过，用时 18.953/16.828 s；源码指纹为
+  `8654c754bdc2cc39f2f4f0c2a256649028e23ad4b4cfb81c6c085ba8305d13e1` / 1096，
+  六节点 package SHA 为 `6c96a3f6290e6e7b9aeff406f71d7b846709f08d3df2739c423b6f4609b95074`。
+  四份 map 净增均为 396 B，6/8 节点余量 17156/13396 B（已扣 heap）。DATA/BSS
+  间隙仍 16 B，SCRATCH_X 数据为零；monitor/getter/SCPI 回调自身栈 96/48/152 B，
+  新函数在 XIP。该局部栈不代表完整调用链或 WCET；归档 ELF 的内联启动顺序另审。
+- 当前 P3 用时 184.219 s，quick 与 strict 均 true、diagnostic_failures 为空；
+  普通短帧 passed/closed_loop/realtime/diagnostic 全 true。四板各 14 槽加
+  baseline 完整，SD 保存读回 8.188 s，逐字节及 SHA 与 SRAM 一致。三从全窗
+  query/matched 增量为 678/675、693/691、707/705，其余为 unavailable，
+  stale/missing/ambiguous 均未增长。本轮通过不追认 010 的严格失败，也不能归因
+  cut 修复了校准。
+- 普通 cut：NO1 为预期 UNAVAILABLE；三从均记录成功，flags 127，retire_reasons
+  仅 STOP；observer epoch 1、ARM 15、DMA epoch 1/1，物理跨度为 173 words。
+  alignment byte/bit 为 3/0、1/5、0/2；两端 produced 分别均为 519、346、346，
+  FIFO 均零、PC 均 5，capture SM2 RXSTALL 未置位。整个启用括号耗时为
+  12.040/12.028/13.736 µs，仅为该括号，不是完整 observer 启动或 monitor WCET。
+- 唯一自主 `capture-r1` 用时 39.782 s、准入 ACCEPTED/epoch 36，config/applied
+  初末 70/70、model 初末 24/24；NO1 slots 3–17 为 persona 16，STOP 自主相位
+  累计 6397。四板各 18 槽加 baseline 完整、missed/terminal reason 均零；SD
+  保存读回 8.000 s，与 SRAM 字节/SHA 一致。RUN 无 SCPI 查询采样。
+- 自主窗口三从 event epoch 2，published=joined 为 7098/7180/7257、无 INVALID，
+  最大服务间隔 1576/1586/1579 µs。全窗 query/matched 增量为 1894/1891、
+  2109/2107、2379/2377，余项仅 unavailable；这些增量包括准入前普通阶段。
+  cut 的 observer epoch 2、ARM 16、两端 DMA epoch 1/1，STOP only，括号为
+  12.044/12.028/12.044 µs。cut 在从板 observer 初启时取得、早于主板自主 grant，
+  不能称自主切换边沿锁存；FIFO 空且 count 相等仍不能排除在途写或启用前积压。
+- 自主总门仍失败，diagnostic 为 true；startup 三个健康样本在
+  1.009730/1.510902/2.006068 s，第三个超过预声明门限。NO1 仍保留
+  `adapter_tx_not_growing`、`physical_flight_persona_mismatch`，soak 保留
+  `periodic_interval_gate_failed`；未重采挑窗或放宽门限。
+- 时间反馈以 `timing-feedback-r2.json` 为准，r1 复制来的两条过时说明保留并纠正。
+  按内部 total_ticks 选取的 PEAK 外层 NO1–NO4 为
+  1578.616/1097.692/1076.596/1118.852 µs；NO1 超过整表周期。该记录是
+  513→1537、trial 0→36 的自主准入迁移，010 所选记录为准入前迁移，两者不能
+  隔离本轮 cut/monitor 成本；嵌套 stage 不可求和，PEAK 也不是全窗外层最大。
+  完整 observer service_max_us 普通为 315/325/395、自主为 424/427/425，
+  包含 startup 与完整服务，不等于 monitor 独立成本；全表 WCET 仍未闭合。
+- 下一 gate：`VDC-TIME-002` 证明 pending DMA writes、prestart backlog 与唯一
+  物理边界，再建立 capture coordinate 到 event ordinal 的关系；当前所有 cut
+  恒为 unresolved、inflight unknown、prestart backlog unexcluded。物理身份、
+  正式时间戳及锁相均未证明，`VDC-TIME-003/004` 仍 PENDING。
 
 ### VDC-PROGRESS-20260915-010 — 自主准入只读 foundation 身份
 
