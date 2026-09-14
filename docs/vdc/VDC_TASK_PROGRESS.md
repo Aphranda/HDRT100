@@ -58,7 +58,8 @@ Last updated: 2026-09-15
 `VDC-PROGRESS-20260915-009`，其自主准入拒绝及部分窗口原件保留；foundation 专用
 读取与随后获准的完整原生窗口见 `VDC-PROGRESS-20260915-010`；首次 observer 启用
 的 DMA 坐标括号及 capture 失效退休见 `VDC-PROGRESS-20260915-011`；后继首帧坐标
-证明与启动路线的只读收敛见 `VDC-PROGRESS-20260915-012`。当前入口仍为
+证明与启动路线的只读收敛见 `VDC-PROGRESS-20260915-012`；首次 CS 保护及首帧采集
+缺口见 `VDC-PROGRESS-20260915-013`。当前入口仍为
 `VDC-TIME-002`，补齐硬件配置、交接时延
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
@@ -66,6 +67,50 @@ Last updated: 2026-09-15
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260915-013 — 首次 capture CS 保护与首帧采集缺口
+
+- TODO task ID：`VDC-TIME-002`；状态 IN PROGRESS。设计证据位于
+  `out/HardwareAcceptance/20260915/dpll-observer-prelaunch-design-r1/`，实现、测试与
+  硬件原件位于 `out/HardwareAcceptance/20260915/dpll-initial-cs-gate/`。以下数值
+  均为本轮快照，非事实源；本切片未授予正式时间戳或 packet/event 身份。
+- 独立设计审查支持先保护首次 capture：原程序直接进入 WAIT SCK，CS 高期间不足
+  一字节的 SCK 也可能改变位相而 DMA 仍为零。`tdma_pio_spi_phys_arm()` 在全部
+  seed/PULL/latch rearm 后、enable 前，仅对 process follower 注入一次 WAIT RXCS
+  low。未增加 CPU 等待、静态状态、PIO 指令槽、SM 或 DMA。既有 STOP 成功退休后
+  restart 清除挂起指令；CS 已低或 disabled 期低脉冲仍可能消费 WAIT，不授予 clean。
+- 完整预启动路线仍需独立冻结训练几何及稳定配置/时钟/校准绑定，复用 config 发布
+  链与既有全板 ARM ACK。物理 owner 在 START 前已有服务机会；不得抢占周期专用的
+  stopped_update token，也不得假置 overlay alignment locked 来绕过训练。
+- 软件：`host-r2` 336 项通过；真实 C PASS 命令与组装/重定位 PIO 模型覆盖首次 CS
+  前的零散时钟、完整首字节和后续帧。三个负例分别在帧外采样、首位相位偏移、缺失
+  首位时精确失败。模型不覆盖 disabled 期脉冲、跨板同步器、DMA 延迟或目标 PC 恢复。
+  `review-code-r1.json` 无源码/模型阻塞；目标首帧资格明确保留。
+- 6/8 节点 A/B 构建通过，静态 RAM 增量为零，扣 heap 后余量 17156/13396 B，
+  SCRATCH_X 数据为零。源码指纹为
+  `8911a9576f2b59f6ee62a4a71c89cf947a7622886e0ec25ab5abb4661f41bca8` / 1097；
+  六节点包 SHA 为 `ebf1daef696679f448427c6d827a5ba79a9e25622477daa792edcbc1f76d48a3`。
+- 当前 P3 流程耗时 178.079 s，quick passed，但 strict_gates_passed=false：保留
+  NO2 粗 CLK 校准的 OPMODE APPLY 超时及 Execution error。后续普通短帧
+  passed/closed_loop/realtime_gate/diagnostic 全 true；四板各 14 槽及 baseline，
+  missed/reason 为零，STOP 后顺序 SD 读回与 SRAM 逐字节一致。实际整表为 1500 µs、
+  TDMA 预算 850 µs，不能称 500 µs 达标。没有专用 ARM 耗时测量，不用稳态峰值代替。
+- 首帧专项执行了全板 ARM 无 START→STOP/ACK→重臂；采集前三从 capture PC 为 4、
+  DMA produced 为零。三从预置 SCK 采集后，主板短时 START/STOP，从板继续复制，
+  全板 STOP/ACK 后才查询/保存。RUN 无 SCPI 查询，NO5 未操作。
+- `first-frames-r1.json` 未通过首帧资格：主板 START/STOP 响应分别为 62/63 ms，
+  实际完成 22 帧；三从快照定界时 produced=1038，仅保留 512 B，首坐标已为 526；
+  最终发布 produced=3806。首帧已丢失，复制期间也不能排除覆盖。没有重采挑窗。
+  SCK 样本为 256×4 ns，首高样本为 8/11/11；这只是采样起点后的偏移，没有同步
+  CS 样本与物理 ARMED 回执，不能称精确 CS→首 SCK 门限或首帧 DATA 通过。
+- 通用 capture SAVE 在各自 12 s 截止时仍 RUNNING，原件保留。之后一次 STOP-only
+  恢复读取确认原 job 均 DONE，无再次 SAVE，三份原生 SD 文件成功下载并核对
+  generation/epoch。恢复不追认先前截止门；通用保存延迟原因尚未确定，不能归因 OTA。
+  `analysis-r2.json` 使用真实 realtime_gate_passed 字段，r1 的空字段保留并更正。
+- 下一 gate：仍在 `VDC-TIME-002` 内先实现或复用 owner 有限发帧/最早帧保留能力，
+  补齐首次 DATA、CS/SCK 建立时间、STOP 取消及目标恢复证据，再进入冻结几何与早启
+  observer 集成。不得在健康 RUN 暂停/abort DMA 强求边界；串口 ACK 不能决定帧数。
+  本次普通环路通过不关闭首帧验收、严格校准、身份或锁相缺口，TIME-003/004 仍 PENDING。
 
 ### VDC-PROGRESS-20260915-012 — 首帧坐标证明与启动路线收敛
 
