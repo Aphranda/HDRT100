@@ -4,7 +4,7 @@ Status: Active
 Domain: SYNC_IO
 Canonical: `docs/sync/SYNC_IO_TODO.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`
-Last updated: 2026-09-11
+Last updated: 2026-09-15
 
 本文档只维护 SYNC_IO 域的里程碑、任务状态和退出门禁。稳定语义以
 `SYNC_IO_ARCHITECTURE.md` 为准，提交、构建、OTA/HIL 和失败证据只写入
@@ -68,6 +68,7 @@ Last updated: 2026-09-11
 
 | ID | 任务 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
+| SYNC-RAM-001 | 收敛共享采样区容量，为 TDMA/DPLL/VDC 调试恢复静态余量；同步准备、运行及导出租约。 | DONE | 从单一容量派生 DMA 回绕、pulse 和 burst 上限；冲突拒绝不写入、空 STOP 不停其他 owner、失败后重臂及最后读取后回收通过；当前节点容量与上限容量 A/B 链接、当前源码四板 quick P3 和停止后的采样探针闭合。证据见 `SYNC-PROGRESS-20260915-001`；OTA 与其载荷池保持现状，本切片完成后回到 VDC 时间输入主线。 |
 | SYNC-DOC-001 | 重构 SYNC_IO 三件套并冻结 `ARCH-IOANALYZER-01` | DONE | 架构、TODO、进度、顶层和 registry 同步；检查器、pytest、pre-commit 全绿。 |
 | SYNC-RES-001 | 建立 PIO0 persona descriptor 与兼容矩阵 | DONE | 每个 persona 声明 SM、instruction、GPIO read/write、FIFO、DMA/DREQ、IRQ、workspace 和 safe state；静态冲突负测通过。 |
 | SYNC-RES-002 | 建立 PIO0 persona lifecycle manager | DONE | validate/claim/load/arm/stop/release 原子化；失败保持 STOPPED 或恢复旧 persona，无部分 claim；TDMA 短帧闭环通过。 |

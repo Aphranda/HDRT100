@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_TODO.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/sync/SYNC_IO_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`
-Last updated: 2026-09-14
+Last updated: 2026-09-15
 
 本文只维护当前 VDC 架构迁移的任务、依赖和退出门禁。稳定语义见 Architecture，实施证据
 见 Task Progress，重构前内容已归档到 `docs/legacy/vdc/`。
@@ -19,6 +19,10 @@ Last updated: 2026-09-14
 - `BLOCKED`：有明确外部阻塞、失败证据和下一解除条件。
 
 构建号、板端计数、replay 结果和 HIL 路径只进入 `VDC_TASK_PROGRESS.md`，不改变任务语义。
+
+当前 RAM 使能切片由 SYNC_IO 的 `SYNC-RAM-001` 承接，仅调整共享采样区及必要租约，
+OTA 保持现状；完成当前源码验收后回到 `VDC-TIME-002` 的连续事件共同 epoch、
+有界交接及失效退休，不把 RAM 优化扩展为独立主线。证据见 `VDC-PROGRESS-20260915-001`。
 
 ## 长期执行目标：符合 HAOFV 的可配置多节点 DPLL 锁相闭环
 

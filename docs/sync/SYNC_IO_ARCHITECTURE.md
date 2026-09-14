@@ -4,7 +4,7 @@ Status: Active
 Domain: SYNC_IO
 Canonical: `docs/sync/SYNC_IO_ARCHITECTURE.md`
 Related: `docs/sync/SYNC_IO_TODO.md`, `docs/sync/SYNC_IO_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`
-Last updated: 2026-09-11
+Last updated: 2026-09-15
 
 本文档定义本机 realtime IO capability、PIO persona、逻辑分析仪、SMA 维护能力和
 PIO/DMA/IRQ 执行资源之间的稳定边界。它不定义产品 Trigger 状态机、TDMA 协议、
@@ -127,6 +127,20 @@ STOPPED
 
 persona 切换必须在 quiesced boundary 完成。失败时恢复旧 persona 或保持 `STOPPED`，同时发布
 holder、requester、resource mask、failure stage 和 generation；不得留下部分 claim。
+
+当前共享采样区由 `SYNC_IO_SHARED_WORKSPACE_DMA_RING_BITS` 派生字节数、word 数和 DMA
+回绕范围，输入 capture、analyzer、有限 burst 及批量 pulse schedule 使用同一容量边界。
+`SYNC_IO_MODEL_PULSE_MAX_ENTRIES` 按每条所需 word 数推导；超过边界的请求在写入前拒绝。
+调整容量必须同时复核 analyzer shadow 的尺寸断言和 capture 的实际服务积压；不能把
+Core1 调度周期直接当作 Core0 phase-only 观测路径的最长服务间隔。
+
+这些共享区使用者通过 `sync_io_workspace_claim/held_by/release` 独立仲裁 SRAM，
+取得租约后才准备数据或配置 DMA；失败与 STOP 只清理自身资源。普通 analyzer 的
+PIO 停止不代表 shadow 生命周期结束，arena 保留到 live batches 排空或最后一次
+shadow 读取；burst 保留到对应 capture sequence 的导出 ACK。当前共享 workspace
+位使上述通用组合互斥，兼容矩阵的“条件并发”没有在此配置下自动成立。严格匹配
+单条 periodic phase observer 的路径使用独立小缓冲，仍按既有 PIO/SM/DMA owner
+准入，可与输入 capture 共存，不通过清除共享区冲突位放行通用批量调度。
 
 ## ARCH-IOANALYZER-01：独立逻辑分析仪 Persona
 

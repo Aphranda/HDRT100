@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_TASK_PROGRESS.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
-Last updated: 2026-09-14
+Last updated: 2026-09-15
 
 本文只记录当前 VDC 迁移的实施 checkpoint 和证据闭环。任务状态以 `VDC_DOMAIN_TODO.md`
 为唯一事实源，稳定语义以 `VDC_DOMAIN_ARCHITECTURE.md` 为准。重构前的长历史记录已移入
@@ -54,6 +54,20 @@ Last updated: 2026-09-14
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260915-001 — 为时间输入调试回收共享采样区 RAM
+
+- TODO task ID：`VDC-TIME-002`、`VDC-VERIFY-001`；资源实施由 SYNC_IO 的
+  `SYNC-RAM-001` 承接，详见 `SYNC-PROGRESS-20260915-001`。
+- 状态：DONE（RAM 使能切片）。用户选择最大收益的共享采样区缩容，明确保持 OTA
+  实现不变。容量派生、owner 租约、行为回归、当前源码四板 quick P3、STOP 后 SD
+  原生记录一致性和四板各两轮 RAW 重臂均通过；主线 `VDC-TIME-002` 仍在推进。
+- 证据：`out/HardwareAcceptance/20260914/dpll-ram-arena16/` 保留软件验证与失败；
+  `out/HardwareAcceptance/20260915/dpll-ram-arena16/` 保留最终构建和硬件验收。
+- 边界：回收静态余量用于继续 TDMA/DPLL/VDC 调试，不提升内部/正式锁相状态；
+  不以 map 通过证明高频采样可靠性，也不借用其他 PIO 或 DMA owner。
+- 下一 gate：返回 `VDC-TIME-002`，在 `VDC-PROGRESS-20260914-028` 原型上补共同 epoch、有界联合
+  harvest、丢事件永久失效及 raw 时间提升；生产加载与实际时间锚仍须独立验收。
 
 ### VDC-PROGRESS-20260914-028 — 从板连续事件观察的 PIO 可执行原型
 

@@ -4,10 +4,45 @@ Status: Active
 Domain: SYNC_IO
 Canonical: `docs/sync/SYNC_IO_TASK_PROGRESS.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`, `docs/storage/LOG_SYSTEM_TODO.md`
-Last updated: 2026-09-11
+Last updated: 2026-09-15
 
 本文档只记录 SYNC_IO 域的提交、构建、测试、OTA/HIL、失败、回退和证据位置。任务状态以
 `SYNC_IO_TODO.md` 为唯一事实源，稳定语义以 `SYNC_IO_ARCHITECTURE.md` 为准。
+
+### SYNC-PROGRESS-20260915-001 — 共享采样区缩容与准备/导出租约
+
+- TODO task ID：`SYNC-RAM-001`。状态：DONE；实现、软件验证及四板硬件闭环已完成。
+- 范围：用户要求只做有利于 TDMA/DPLL/VDC 调试的最大收益 RAM 项，完成后回到
+  时间输入主线；明确不改 OTA。本切片调整 SYNC_IO arena，不缩减 FreeRTOS heap、
+  波形流水线缓冲、RefMem 镜像或 OTA 载荷池。
+- 实现：容量由 `SYNC_IO_SHARED_WORKSPACE_DMA_RING_BITS` 单点派生；capture 和
+  analyzer DMA 回绕、pulse 最大条数、burst 最大长度及数组对齐同步。共享区从首次
+  CPU 写入/DMA 准备持有原子租约至最后访问；单条 private phase observer 保留原有
+  并行能力。输入空 STOP 不再 abort 其他 owner 的 DMA；analyzer 失败 cleanup、
+  同 persona 重入、空记录结束与 shadow 最后读取均核验自身租约。
+- 软件：Resource Arbiter/analyzer host C 通过，相关 Python 回归通过；新增行为
+  harness 执行生产 capture START/STOP、schedule prepare、persona 回调/manager、
+  analyzer STOP 与 shadow/drain，PIO/DMA 寄存器副作用由 host 模拟。覆盖最大/超长
+  调度、拒绝后哨兵不变、失败重臂、private observer、跨 owner cleanup、重入和分次
+  导出。独立审核的三个生命周期问题已修复并加入行为回归。
+- 证据：软件及失败原件位于 `out/HardwareAcceptance/20260914/dpll-ram-arena16/`；
+  新日期下的固件/板端验收位于 `out/HardwareAcceptance/20260915/dpll-ram-arena16/`。
+  静态审计原件见前一日期 `dpll-ram-review/`，不作为改动后的硬件凭证。
+- 构建复核：首轮强制套用构建预设将上限容量恢复为当前容量，已识别该配置错误，
+  原 map 保留作失败证据；最终上限容量必须显式配置并核对 cache、编译定义和 map，
+  不能按目录名称认定配置。最终 `maps-r2.json` 的 A/B 一致：六节点静态余量
+  20752 B，八节点 16992 B，均净回收 16380 B；这是扣除 CRT heap 后的链接快照，
+  非事实源，仍未达到正式 release 余量门禁。
+- 硬件：`p3-r1/diagnostic.json` 的流程及严格门禁均通过，quick P3 耗时约 186 秒；
+  四板 STOP/ACK 后，`p3-sd/summary.json` 确认 SD 与 SRAM 原生记录逐字节一致。
+  `raw-r5.json` 记录四板各两轮 ARM/STOP，最终导出段的 CRC、尺寸及本次 capture
+  sequence 均通过，前后 UID/build 一致，结束时四板保持 STOP；这些均为验收快照。
+- 失败保留：`raw.json` 至 `raw-r4.json` 保留目录路径丢失、CARD_READY、NO_PATH
+  及误将历史文件当新文件的拒绝。最终探针从当前完成的 Storage job 获取路径，
+  再以本次 capture sequence 绑定；未将异常空目录视为成功。该探针证明租约释放
+  和重臂，不是全部分段导出或无损采样证明；高频窗口的 drop/overrun 仍如实保留。
+- 下一 gate：返回 `VDC-TIME-002` 的共同 epoch、有界联合 harvest 和 raw 时间提升。
+  高频 Core0 观测的最长服务间隔与正式 DPLL 时间输入仍单独验收。
 
 ### SYNC-PROGRESS-20260911-001 - 有限同钟采集与冻结租约存储恢复
 
