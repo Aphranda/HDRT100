@@ -1220,7 +1220,7 @@ static void DISTRIBUTED_REFMEM_TIME_CRITICAL(
 
 static bool DISTRIBUTED_REFMEM_TIME_CRITICAL(
     distributed_refmem_vector_hardware_evidence_valid)(
-    const vdc_domain_snapshot_t *snapshot)
+    const vdc_dpll_manager_vector_snapshot_t *snapshot)
 {
     if (snapshot == NULL) {
         return false;
@@ -1235,10 +1235,48 @@ static bool DISTRIBUTED_REFMEM_TIME_CRITICAL(
            (flags & VDC_DOMAIN_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) == 0u;
 }
 
+static uint32_t __attribute__((noinline)) DISTRIBUTED_REFMEM_TIME_CRITICAL(
+    distributed_refmem_vector_flags)(
+    const vdc_dpll_manager_vector_snapshot_t *snapshot)
+{
+    uint32_t flags = REFMEM_VECTOR_FLAG_VALID;
+    const bool provisional =
+        (snapshot->path_delay.flags &
+         VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY) != 0u;
+    if (provisional) {
+        flags |= REFMEM_VECTOR_FLAG_PROVISIONAL;
+    }
+    if (snapshot->schedule.enabled != 0u &&
+        snapshot->schedule.schedule_crc32 != 0u) {
+        flags |= REFMEM_VECTOR_FLAG_SCHEDULE_VALID;
+    }
+    if (snapshot->path_delay.valid != 0u &&
+        (snapshot->path_delay.flags &
+         (VDC_PATH_DELAY_FLAG_ACCEPTED |
+          VDC_PATH_DELAY_FLAG_HARDWARE_LATCHED |
+          VDC_PATH_DELAY_FLAG_BIAS_VALID |
+          VDC_PATH_DELAY_FLAG_TOPOLOGY_FRESH)) ==
+            (VDC_PATH_DELAY_FLAG_ACCEPTED |
+             VDC_PATH_DELAY_FLAG_HARDWARE_LATCHED |
+             VDC_PATH_DELAY_FLAG_BIAS_VALID |
+             VDC_PATH_DELAY_FLAG_TOPOLOGY_FRESH)) {
+        flags |= REFMEM_VECTOR_FLAG_CALIBRATION_VALID;
+    }
+    if (distributed_refmem_vector_hardware_evidence_valid(snapshot)) {
+        flags |= REFMEM_VECTOR_FLAG_HARDWARE_EVIDENCE;
+    }
+    if (!provisional && snapshot->dpll.debug_continue_enabled == 0u &&
+        snapshot->dpll.state == VDC_DOMAIN_LOCK_LOCKED) {
+        flags |= REFMEM_VECTOR_FLAG_LOCKED;
+    }
+
+    return flags;
+}
+
 static void DISTRIBUTED_REFMEM_TIME_CRITICAL(
     distributed_refmem_fill_vdc_vector_payload)(
     refmem_vdc_vector_payload_t *payload,
-    const vdc_domain_snapshot_t *snapshot,
+    const vdc_dpll_manager_vector_snapshot_t *snapshot,
     uint32_t publish_sequence,
     bool snapshot_valid)
 {
@@ -1254,37 +1292,7 @@ static void DISTRIBUTED_REFMEM_TIME_CRITICAL(
         return;
     }
 
-    payload->flags = REFMEM_VECTOR_FLAG_VALID;
-    const bool provisional =
-        (snapshot->path_delay.flags &
-         VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY) != 0u;
-    if (provisional) {
-        payload->flags |= REFMEM_VECTOR_FLAG_PROVISIONAL;
-    }
-    if (snapshot->schedule.enabled != 0u &&
-        snapshot->schedule.schedule_crc32 != 0u) {
-        payload->flags |= REFMEM_VECTOR_FLAG_SCHEDULE_VALID;
-    }
-    if (snapshot->path_delay.valid != 0u &&
-        (snapshot->path_delay.flags &
-         (VDC_PATH_DELAY_FLAG_ACCEPTED |
-          VDC_PATH_DELAY_FLAG_HARDWARE_LATCHED |
-          VDC_PATH_DELAY_FLAG_BIAS_VALID |
-          VDC_PATH_DELAY_FLAG_TOPOLOGY_FRESH)) ==
-            (VDC_PATH_DELAY_FLAG_ACCEPTED |
-             VDC_PATH_DELAY_FLAG_HARDWARE_LATCHED |
-             VDC_PATH_DELAY_FLAG_BIAS_VALID |
-             VDC_PATH_DELAY_FLAG_TOPOLOGY_FRESH)) {
-        payload->flags |= REFMEM_VECTOR_FLAG_CALIBRATION_VALID;
-    }
-    if (distributed_refmem_vector_hardware_evidence_valid(snapshot)) {
-        payload->flags |= REFMEM_VECTOR_FLAG_HARDWARE_EVIDENCE;
-    }
-    if (!provisional && snapshot->dpll.debug_continue_enabled == 0u &&
-        snapshot->dpll.state == VDC_DOMAIN_LOCK_LOCKED) {
-        payload->flags |= REFMEM_VECTOR_FLAG_LOCKED;
-    }
-
+    payload->flags = distributed_refmem_vector_flags(snapshot);
     payload->source_update_seq = snapshot->dpll.update_seq;
     payload->source_service_count = (uint32_t)snapshot->service_count;
     payload->schedule_epoch = snapshot->schedule.schedule_epoch;
@@ -1339,7 +1347,7 @@ static void DISTRIBUTED_REFMEM_TIME_CRITICAL(
 static void DISTRIBUTED_REFMEM_TIME_CRITICAL(
     distributed_refmem_fill_dpll_vector_payload)(
     refmem_dpll_vector_payload_t *payload,
-    const vdc_domain_snapshot_t *snapshot,
+    const vdc_dpll_manager_vector_snapshot_t *snapshot,
     uint32_t publish_sequence,
     bool snapshot_valid)
 {
@@ -1355,37 +1363,7 @@ static void DISTRIBUTED_REFMEM_TIME_CRITICAL(
         return;
     }
 
-    payload->flags = REFMEM_VECTOR_FLAG_VALID;
-    const bool provisional =
-        (snapshot->path_delay.flags &
-         VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY) != 0u;
-    if (provisional) {
-        payload->flags |= REFMEM_VECTOR_FLAG_PROVISIONAL;
-    }
-    if (snapshot->schedule.enabled != 0u &&
-        snapshot->schedule.schedule_crc32 != 0u) {
-        payload->flags |= REFMEM_VECTOR_FLAG_SCHEDULE_VALID;
-    }
-    if (snapshot->path_delay.valid != 0u &&
-        (snapshot->path_delay.flags &
-         (VDC_PATH_DELAY_FLAG_ACCEPTED |
-          VDC_PATH_DELAY_FLAG_HARDWARE_LATCHED |
-          VDC_PATH_DELAY_FLAG_BIAS_VALID |
-          VDC_PATH_DELAY_FLAG_TOPOLOGY_FRESH)) ==
-            (VDC_PATH_DELAY_FLAG_ACCEPTED |
-             VDC_PATH_DELAY_FLAG_HARDWARE_LATCHED |
-             VDC_PATH_DELAY_FLAG_BIAS_VALID |
-             VDC_PATH_DELAY_FLAG_TOPOLOGY_FRESH)) {
-        payload->flags |= REFMEM_VECTOR_FLAG_CALIBRATION_VALID;
-    }
-    if (distributed_refmem_vector_hardware_evidence_valid(snapshot)) {
-        payload->flags |= REFMEM_VECTOR_FLAG_HARDWARE_EVIDENCE;
-    }
-    if (!provisional && snapshot->dpll.debug_continue_enabled == 0u &&
-        snapshot->dpll.state == VDC_DOMAIN_LOCK_LOCKED) {
-        payload->flags |= REFMEM_VECTOR_FLAG_LOCKED;
-    }
-
+    payload->flags = distributed_refmem_vector_flags(snapshot);
     payload->source_update_seq = snapshot->dpll.update_seq;
     payload->source_service_count = (uint32_t)snapshot->service_count;
     payload->ready = snapshot->ready;
@@ -2240,9 +2218,9 @@ void DISTRIBUTED_REFMEM_TIME_CRITICAL(
         snapshot.dpll_update_seq);
 }
 
-/* Legacy RefMem vectors retain the full Domain observation surface, but they
- * only change with a new DPLL generation.  Isolating that work keeps the
- * normal Core1 RefMem beat free of its large snapshot and payload stack. */
+/* Legacy vectors retain their wire layout and only change with a new DPLL
+ * generation. The VDC owner supplies the fields they consume without copying
+ * its path table and observation matrix into the realtime stack. */
 static void DISTRIBUTED_REFMEM_TIME_CRITICAL(
     distributed_refmem_publish_runtime_vector_if_pending)(
     uint32_t source_update_seq)
@@ -2255,8 +2233,8 @@ static void DISTRIBUTED_REFMEM_TIME_CRITICAL(
         return;
     }
 
-    vdc_domain_snapshot_t vector_snapshot;
-    if (!vdc_dpll_manager_get_snapshot(&vector_snapshot)) {
+    vdc_dpll_manager_vector_snapshot_t vector_snapshot;
+    if (!vdc_dpll_manager_get_vector_snapshot(&vector_snapshot)) {
         return;
     }
     source_update_seq = vector_snapshot.dpll.update_seq;

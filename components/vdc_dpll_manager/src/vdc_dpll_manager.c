@@ -3099,6 +3099,48 @@ bool VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_dpll_manager_get_snapshot)(
     return false;
 }
 
+bool VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_dpll_manager_get_vector_snapshot)(
+    vdc_dpll_manager_vector_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) {
+        return false;
+    }
+    for (uint32_t attempt = 0u; attempt < 8u; attempt++) {
+        const uint32_t begin = __atomic_load_n(
+            &s_published_snapshot_guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) {
+            continue;
+        }
+        const bool valid = s_published_snapshot_valid;
+        snapshot->ready = s_published_snapshot.ready;
+        snapshot->service_count = s_published_snapshot.service_count;
+        snapshot->schedule = s_published_snapshot.schedule;
+        snapshot->servo.servo_profile_crc32 =
+            s_published_snapshot.servo.servo_profile_crc32;
+        snapshot->clock = s_published_snapshot.clock;
+        snapshot->dco = s_published_snapshot.dco;
+        snapshot->dpll = s_published_snapshot.dpll;
+        snapshot->quality = s_published_snapshot.quality;
+        snapshot->path_delay.valid = s_published_snapshot.path_delay.valid;
+        snapshot->path_delay.flags = s_published_snapshot.path_delay.flags;
+        snapshot->path_delay.table_crc32 =
+            s_published_snapshot.path_delay.table_crc32;
+        snapshot->path_delay.calibration_generation =
+            s_published_snapshot.path_delay.calibration_generation;
+        snapshot->path_delay.freshness_us =
+            s_published_snapshot.path_delay.freshness_us;
+        snapshot->gate = s_published_snapshot.gate;
+        /* Finish all payload reads before rechecking the publication guard. */
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        const uint32_t end = __atomic_load_n(
+            &s_published_snapshot_guard, __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) {
+            return valid;
+        }
+    }
+    return false;
+}
+
 bool VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_dpll_manager_get_refmem_snapshot)(
     vdc_dpll_manager_refmem_snapshot_t *snapshot)
 {

@@ -355,6 +355,28 @@ typedef struct {
     uint32_t quality_health_state;
 } vdc_dpll_manager_refmem_snapshot_t;
 
+/* Read-only projection for the legacy RefMem runtime vectors. The full path
+ * table, observation matrix and other diagnostics stay with the VDC owner;
+ * a vector update must not put the full Domain snapshot on the Core1 stack. */
+typedef struct {
+    uint32_t ready;
+    uint32_t service_count;
+    vdc_tdma_schedule_profile_t schedule;
+    struct { uint32_t servo_profile_crc32; } servo;
+    vdc_clock_model_t clock;
+    vdc_dco_control_t dco;
+    vdc_dpll_state_t dpll;
+    vdc_quality_table_t quality;
+    struct {
+        uint32_t valid;
+        uint32_t flags;
+        uint32_t table_crc32;
+        uint32_t calibration_generation;
+        uint32_t freshness_us;
+    } path_delay;
+    vdc_gate_result_t gate;
+} vdc_dpll_manager_vector_snapshot_t;
+
 bool vdc_dpll_manager_init(void);
 void vdc_dpll_manager_set_vdc_ready(bool ready);
 void vdc_dpll_manager_set_dpll_ready(bool ready);
@@ -432,6 +454,8 @@ bool vdc_dpll_manager_get_snapshot(vdc_domain_snapshot_t *snapshot);
 /* Lock-free, seqlock-consistent publication for the RefMem Core1 path. */
 bool vdc_dpll_manager_get_refmem_snapshot(
     vdc_dpll_manager_refmem_snapshot_t *snapshot);
+bool vdc_dpll_manager_get_vector_snapshot(
+    vdc_dpll_manager_vector_snapshot_t *snapshot);
 uint32_t vdc_dpll_manager_published_update_seq(void);
 bool vdc_dpll_manager_get_tdma_snapshot(tdma_service_snapshot_t *snapshot);
 bool vdc_dpll_manager_plan_tdma_window(uint32_t window_class,
