@@ -36,6 +36,11 @@ def production(directory: Path) -> str:
         definition = re.search(rf"(?m)^#define {symbol}\s+[^\n]+$", contract)
         assert definition, symbol
         contract_definitions.append(definition.group(0))
+    board = (ROOT / "boards/rp2350_trig/inc/board_config.h").read_text(encoding="utf-8")
+    for symbol in ("BOARD_TDMA_SPI_UPLINK_CSN_PIN", "BOARD_TDMA_SPI_DOWNLINK_CSN_PIN"):
+        definition = re.search(rf"(?m)^#define {symbol}\s+[^\n]+$", board)
+        assert definition, symbol
+        contract_definitions.append(definition.group(0))
     routines = []
     signatures = [
         ("bool", "tdma_pio_spi_phys_event_selected", "const tdma_pio_spi_phys_t *phys"),
@@ -117,6 +122,8 @@ static unsigned mutation_mode, commit_reads;
 static unsigned interrupt_saves, interrupt_restores, interrupt_depth, blocked_preemptions;
 static uint32_t interrupt_mask, saved_interrupt_mask;
 static bool preemption_pending;
+static uint32_t gpio_script[3];
+static unsigned gpio_script_count, gpio_script_index, gpio_reads;
 static unsigned disabled_masks, enabled_masks, irq_clears, selectors;
 static bool copying, require_retired, allow_pair_reset, inspect_commit;
 static uint64_t expected_before_commit, expected_after_commit;
@@ -223,7 +230,12 @@ static void read_fence(void) {
 #define __atomic_thread_fence(order) read_fence()
 #define __dmb() writer_barrier()
 static uint32_t clock_get_hz(unsigned ignored) { (void)ignored; return 125000000u; }
-static uint32_t gpio_get_all(void) { return UINT32_MAX; }
+static uint32_t gpio_get_all(void) {
+    ++gpio_reads;
+    if (gpio_script_count == 0u) return UINT32_MAX;
+    assert(gpio_script_index < gpio_script_count);
+    return gpio_script[gpio_script_index++];
+}
 static uint32_t pio_sm_get_pc(PIO pio, uint sm) { return pio->pc[sm]; }
 static void check_retired(void) {
     if (!require_retired) return;
@@ -411,7 +423,8 @@ static void test_retirement_and_persona_rearm(void) {
     physical.flight_resources.rx_pio = &rx_bank;
     physical.flight_overlay_alignment_locked = true;
     physical.flight_overlay_alignment_samples = 3u;
-    physical.rx_csn_pin = 27u; physical.tx_csn_pin = 24u;
+    physical.rx_csn_pin = BOARD_TDMA_SPI_UPLINK_CSN_PIN;
+    physical.tx_csn_pin = BOARD_TDMA_SPI_DOWNLINK_CSN_PIN;
     physical.rx_sck_pin = 28u; physical.rx_pin = 29u;
     physical.flight_physical_byte_count = 240u; physical.baud_hz = 8000000u;
     bank.dbg_padout = UINT32_MAX;
@@ -464,6 +477,108 @@ static void test_retirement_and_persona_rearm(void) {
     prepare_follower();
     assert(s_tdma_event_epoch == first_epoch + 3u && enabled_masks == 4u);
 }
+static void script_start_pads(uint32_t early, uint32_t final, uint32_t post, unsigned count) {
+    assert(count == 2u || count == 3u);
+    gpio_script[0] = early; gpio_script[1] = final; gpio_script[2] = post;
+    gpio_script_count = count; gpio_script_index = 0u;
+}
+static void start_gate_setup(void) {
+    gpio_script_count = gpio_script_index = 0u;
+    copying = inspect_commit = false; mutation_mode = 0u;
+    require_retired = true;
+    tdma_pio_spi_phys_event_stop(&physical);
+    require_retired = false;
+    memset(&bank, 0, sizeof(bank)); memset(&physical, 0, sizeof(physical));
+    physical.role = TDMA_PIO_SPI_ROLE_SLAVE;
+    physical.flight_resources.tx_pio = &bank; physical.flight_resources.rx_pio = &rx_bank;
+    physical.flight_overlay_alignment_locked = true;
+    physical.flight_overlay_alignment_samples = TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES;
+    physical.rx_csn_pin = BOARD_TDMA_SPI_UPLINK_CSN_PIN;
+    physical.tx_csn_pin = BOARD_TDMA_SPI_DOWNLINK_CSN_PIN;
+    physical.rx_sck_pin = 28u; physical.rx_pin = 29u;
+    physical.flight_physical_byte_count = 240u; physical.baud_hz = 8000000u;
+    bank.dbg_padout = UINT32_MAX;
+    bank.ctrl = 1u; bank.level[0] = 5u; bank.pc[0] = 9u;
+    s_tdma_pio_spi_program_persona = TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER;
+    const tdma_ring_runtime_config_t config = {.cycle_period_ns = 1500000u};
+    tdma_pio_spi_phys_event_prepare(&physical, &config);
+    assert(s_tdma_event_waiting && s_tdma_event_observer.state == TDMA_EVENT_STOPPED);
+}
+static void assert_control_unchanged(void) {
+    assert((bank.ctrl & 1u) != 0u && bank.level[0] == 5u && bank.pc[0] == 9u);
+    assert(bank.clears[0] == 0u && bank.restarts[0] == 0u);
+}
+static void test_final_pre_enable_pad_gate_retries_without_epoch(void) {
+    const uint32_t rx_low = 1u << BOARD_TDMA_SPI_UPLINK_CSN_PIN;
+    const uint32_t tx_low = 1u << BOARD_TDMA_SPI_DOWNLINK_CSN_PIN;
+    const uint32_t low_masks[] = {rx_low, tx_low, rx_low | tx_low};
+    for (unsigned which = 0u; which < 3u; ++which) {
+        start_gate_setup();
+        const uint32_t epoch_before = s_tdma_event_epoch;
+        const unsigned enables_before = enabled_masks;
+        const uint64_t clock_before = clock_us;
+        /* Each caller invocation remains finite: no internal polling retries,
+         * no enable timing bracket and no claimed epoch while final CS is low. */
+        for (unsigned attempt = 0u; attempt < 3u; ++attempt) {
+            script_start_pads(UINT32_MAX, UINT32_MAX & ~low_masks[which], 0u, 2u);
+            tdma_event_start(&physical);
+            assert(gpio_script_index == 2u && enabled_masks == enables_before);
+            assert(s_tdma_event_epoch == epoch_before && clock_us == clock_before);
+            assert(s_tdma_event_waiting && s_tdma_event_observer.state == TDMA_EVENT_STOPPED);
+            assert(s_tdma_event_observer.epoch == 0u && bank.ctrl == 1u);
+            assert(published_slot()->waiting == 1u && published_slot()->epoch == 0u);
+            assert(published_slot()->state == TDMA_EVENT_STOPPED && published_slot()->published == 0u);
+            assert(published_slot()->start_pad_before == (UINT32_MAX & ~low_masks[which]));
+            assert_control_unchanged();
+        }
+        script_start_pads(UINT32_MAX, UINT32_MAX, UINT32_MAX, 3u);
+        tdma_event_start(&physical);
+        assert(gpio_script_index == 3u && enabled_masks == enables_before + 1u);
+        assert(s_tdma_event_epoch == epoch_before + 1u && s_tdma_event_observer.state == TDMA_EVENT_ACTIVE);
+        assert(!s_tdma_event_waiting && bank.ctrl == 15u);
+        const unsigned reads_before = gpio_reads;
+        tdma_event_start(&physical);
+        assert(gpio_reads == reads_before && enabled_masks == enables_before + 1u);
+        assert_control_unchanged();
+    }
+}
+static void test_post_enable_low_remains_invalid_until_explicit_rearm(void) {
+    const uint32_t rx_low = 1u << BOARD_TDMA_SPI_UPLINK_CSN_PIN;
+    const uint32_t tx_low = 1u << BOARD_TDMA_SPI_DOWNLINK_CSN_PIN;
+    const uint32_t low_masks[] = {rx_low, tx_low, rx_low | tx_low};
+    for (unsigned which = 0u; which < 3u; ++which) {
+        start_gate_setup();
+        const uint32_t epoch_before = s_tdma_event_epoch;
+        const unsigned enables_before = enabled_masks;
+        script_start_pads(UINT32_MAX, UINT32_MAX, UINT32_MAX & ~low_masks[which], 3u);
+        tdma_event_start(&physical);
+        assert(gpio_script_index == 3u && enabled_masks == enables_before + 1u);
+        assert(s_tdma_event_epoch == epoch_before + 1u && s_tdma_event_observer.state == TDMA_EVENT_INVALID);
+        assert(s_tdma_event_observer.reason == TDMA_EVENT_PRE_FAULT);
+        assert(s_tdma_event_observer.fault_bits == TDMA_EVENT_FAULT_DIRTY_START);
+        assert(!s_tdma_event_waiting && bank.ctrl == 1u);
+        assert(published_slot()->start_pad_before == UINT32_MAX);
+        assert(published_slot()->start_pad_after == (UINT32_MAX & ~low_masks[which]));
+        gpio_script_count = 0u; /* High pins alone cannot revive an invalid epoch. */
+        const unsigned reads_before = gpio_reads, disables_before = disabled_masks;
+        for (unsigned attempt = 0u; attempt < 3u; ++attempt) tdma_event_start(&physical);
+        assert(gpio_reads == reads_before && enabled_masks == enables_before + 1u);
+        assert(disabled_masks == disables_before && s_tdma_event_epoch == epoch_before + 1u);
+        assert(s_tdma_event_observer.state == TDMA_EVENT_INVALID);
+        require_retired = true;
+        tdma_pio_spi_phys_event_stop(&physical);
+        assert(s_tdma_event_observer.state == TDMA_EVENT_STOPPED);
+        require_retired = false;
+        const tdma_ring_runtime_config_t config = {.cycle_period_ns = 1500000u};
+        tdma_pio_spi_phys_event_prepare(&physical, &config);
+        script_start_pads(UINT32_MAX, UINT32_MAX, UINT32_MAX, 3u);
+        tdma_event_start(&physical);
+        assert(s_tdma_event_epoch == epoch_before + 2u && enabled_masks == enables_before + 2u);
+        assert(s_tdma_event_observer.state == TDMA_EVENT_ACTIVE && s_tdma_event_observer.fault_bits == 0u);
+        assert_control_unchanged();
+    }
+    gpio_script_count = 0u;
+}
 int main(void) {
     /* Every success and rejection path is run with caller IRQs both enabled
      * and already disabled. The latter must never be unconditionally enabled. */
@@ -476,6 +591,8 @@ int main(void) {
     interrupt_mask = 0u;
     test_publish_alternate_before_commit();
     test_retirement_and_persona_rearm();
+    test_final_pre_enable_pad_gate_retries_without_epoch();
+    test_post_enable_low_remains_invalid_until_explicit_rearm();
     puts("production adapter: seqlock tearing/age, STOP order, persona rearm passed");
     return 0;
 }

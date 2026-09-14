@@ -202,6 +202,14 @@ static void tdma_event_start(tdma_pio_spi_phys_t *phys)
     tdma_pio_spi_event_snapshot_t *s = &s_tdma_event_snapshot;
     s->prefix_bits = (uint32_t)bits - 32u;
     s->start_pad_before = gpio_get_all();
+    /* Configuration/seed work can outlive the earlier idle observation. Do
+     * not enable into a frame already in progress; leave the disabled SMs
+     * waiting for a later owner phase without consuming an event epoch.
+     * Edges after this check still face the post-enable dirty-start check. */
+    if ((s->start_pad_before & cs_mask) != cs_mask) {
+        tdma_event_publish_state(phys);
+        return;
+    }
     const uint64_t before = time_us_64();
     pio_enable_sm_mask_in_sync(pio, TDMA_EVENT_SM_MASK);
     const uint64_t after = time_us_64();
