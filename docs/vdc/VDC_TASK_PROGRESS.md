@@ -44,13 +44,63 @@ Last updated: 2026-09-14
 `VDC-PROGRESS-20260914-022`；RX/TX latch 直接初始化及四板对照见
 `VDC-PROGRESS-20260914-023`；RX 消费能力和缓冲余量的离线审计见
 `VDC-PROGRESS-20260914-024`；TDMA review 06 的证据口径复核见
-`VDC-PROGRESS-20260914-025`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
+`VDC-PROGRESS-20260914-025`；RX 站台等待、初次观察及 drop 原因的四板测量见
+`VDC-PROGRESS-20260914-026`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
 `VDC-ROLE-001`；全表 WCET 和正式锁相仍未闭合，
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260914-026 — RX 站台等待与观察裁剪诊断
+
+- TODO task ID：`VDC-TIME-002`、`VDC-RESOURCE-001`、`VDC-VERIFY-001`。
+- 状态：IN PROGRESS。诊断切片通过当前源码 quick P3；未改变捕获/接受节奏，
+  未接入正式时间输入，`VDC-TIME-003/004` 保持 PENDING。
+- 日期：2026-09-14。
+- 证据：`out/HardwareAcceptance/20260914/dpll-rx-wait-diagnostics-r2/` 的
+  `rx-review-r1.json`、`resource-review-r1.json`、`review-final-r1.json` 和
+  `p3-receipt-r3.json`。以下数字是本轮快照，非事实源；身份以源码及包 SHA 为准，
+  增量目录复用的 build ID 不能单独区分本轮与上一固件。
+- 实现：`tdma_service_timing.c` 在现有 Core1 phase/RESET 生命周期内汇总 station
+  轮询与捕获后年龄、初次 DMA 观察间隔/积压，以及 epoch、clamp、stale hint、
+  frame-copy、discovery-copy 五类丢弃；复用已有时钟读数。DMA epoch 丢失仍保留
+  导致它的长观察间隔，STOP、运行类别、配置及 trial 变化才切断会话间隔；内部
+  FSM 的高位变化不误拆同一会话。原有 DMA 复制复验、worker 退休及 STOP 取消保留。
+- 数据来源：新增 `SYSTem:TDMA:PROFile:RX?` 在全部 STOP/ACK 后读取 SRAM 汇总，
+  RESET 位于启动后的控制阶段，窗口延伸至 STOP；原生 TDMA 记录覆盖独立 ARM 的
+  完整采样窗，全部 STOP 后顺序 SD SAVE/readback 并核对散列。RX 汇总没有写入旧
+  原生记录 schema，不能将两种窗口的计数相等当作校验条件。station 年龄是 owner
+  服务时刻的捕获后年龄，不等于 Core0 CPU 时间或准确的任务完成时延。
+- 两轮从板结果：NO2/NO3/NO4 的 clamp 次数分别为 3139/3138/3138 和
+  3132/3133/3134，其他四类 drop 均为零；每板累计裁剪 790617–802686 个观察
+  words，不能换算成精确丢帧数。REQUESTED/BUILDING 轮询合计分别为 1/1/0 和
+  5/1/0，占全部 station 轮询最高不足 0.08%。初次观察最大间隔分别为
+  4485.076/4474.936/3153.708 µs 和 4535.772/4375.612/3143.744 µs；最大积压为
+  1213/1215/1043 和 1213/1049/1043 words，超过本配置环形观察容量。间隔最大值
+  与积压最大值未逐事件配对，不能据此反推精确 DMA 速率。
+- 调度与全窗：从板完整相位峰值为 706.612–753.064 µs，两轮原生窗内 TDMA
+  overrun/deadline 增量均零；对照上一切片 716–752 µs 的波动，未证明稳定提速。
+  四板 RX ring overrun 增量分别为 0/6/1/10 和 0/3/4/2，missing 与 latch miss
+  增量均零。NO1 TDMA overrun/deadline 仍为 497/471 和 488/466；启动拒收、
+  原 TRN03 自主模式 gate false 与全部逐槽失败保留，不能关闭全窗或全表 WCET。
+- 资源：首个上限容量构建失败是 `.data` 增加 128 B 越过对齐边界，导致 `.bss`
+  后移 4096 B、RAM 超出 3484 B。将仅在 phase entry/exit 使用的 context 记录
+  移回 Flash 后，最终 `.data` 相对基线增加 16 B、`.bss` 增加 264 B；容量 6/8
+  的 A/B 链接均通过，RAM 余量为 4372/612 B，SCRATCH_X 数据占用仍为零。嵌套
+  clock/record 探针保留 SRAM；编译器单函数栈报告已归档，不宣称动态整栈水位。
+- 验证与失败：相关 host 测试 109 项通过，间隔边界和放置调整后重跑的 55 项是
+  其中子集。首次 quick P3 用时 208.531 s，TDMA 闭环通过但 NO1 coded-marker
+  completion timeout；resume 在 NO2 APPLY timeout 后于 11.078 s 终止。
+  STOP/配置恢复后 r3 严格门禁通过，79.047 s 不含 build/OTA。一次离线 audit
+  早于 SD summary 完成而失败，随后读取完整原件复核通过；本地 launcher 已增加
+  上轮 SAVE terminal JSON 前置条件，保留该编排失败，避免只凭 STOP 放行下一轮。
+- 下一 gate：观测支持优先检查“捕获/接受跨 service、窗口保留较旧帧”的积压，
+  尚不支持将 Core0 构造等待定为主因。先评估最新完整帧选择与旧观察退休的有界
+  策略，分别验证新数据准入、帧身份、copy 后 DMA 复验、hint 失效与 STOP/重臂；
+  不将运输丢失与观察裁剪混为一谈。时间戳快速通道仍按 owner raw 身份与边沿
+  条件单独验收，不能依赖整帧解析或以本轮诊断替代正式时间输入。
 
 ### VDC-PROGRESS-20260914-025 — TDMA review 06 的模式、身份及窗口复核
 
