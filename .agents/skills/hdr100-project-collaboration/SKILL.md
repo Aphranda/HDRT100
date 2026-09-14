@@ -1,4 +1,4 @@
-﻿---
+---
 name: hdr100-project-collaboration
 description: Use for any work in the Distributed Hard Real-Time Trigger System (HDRT100 / RP2350_TRIG) repository — planning, doc changes, firmware/tool/test changes, or reviews. Loads the project operating rules: AGENTS.md doc self-regression system, docs/code separation, HAOFV owner boundaries, verification gates, and P3 hardware-acceptance obligation. Invoke when the task touches this repo or its docs corpus.
 ---
@@ -65,19 +65,21 @@ HAOFV non-negotiables the worker and reviewer must check:
 
 ## 3.1 Recommended operating shape: two parallel workers + one reviewer
 
-The simplest reliable shape for this project is two agents doing work in parallel plus one reviewer over their combined output:
+When a task splits into independent packages, run them in parallel and keep the file scopes disjoint:
 
 ```
-You (main session) -> assign task A to worker (instance 1) and task B to worker (instance 2)
-  - both workers run in parallel; keep them in disjoint file scopes so they cannot collide
+main -> assign task A and task B to two parallel workstreams (disjoint file scopes)
+  - both run in parallel; neither may touch the other's files
   - wait for both to finish
-  - then spawn the reviewer over the combined diff and evidence from both workers
+  - then hand the combined diff and evidence to an independent cross-reviewer
 ```
 
-- Two `worker` instances (`.agents/agents/worker.toml`, nickname_candidates worker-alpha / worker-beta) handle independent task packages; give each a disjoint file scope.
-- One `reviewer` instance (`.agents/agents/reviewer.toml`) audits the combined result, records findings, and ends with `accept` / `revise` / `escalate`.
-- If a task has no safe parallel split, a single worker suffices; do not force parallelism on dependent work.
-- Example prompt: "Run worker-alpha on the docs change and worker-beta on the firmware fix in parallel (disjoint scopes), wait for both, then spawn the reviewer on the combined diff."
+- Give each parallel workstream a **disjoint file scope**; no two workstreams may own the same file.
+- One **independent cross-reviewer** audits the combined result. It must not be the author (C11).
+- If a task has no safe parallel split, run it single-threaded; do not force parallelism on dependent work.
+- Cross-domain index and registry files (`docs/README.md`, `docs/check/DOCS_REGISTRY.md`,
+  `docs/check/submissions/README.md`) should be written by a single main controller only;
+  two writers on one index cause `file changed since it was read` failures.
 
 ## 4. Verification commands (run after any change)
 
@@ -98,25 +100,34 @@ Notes:
   `python tools/hardware_acceptance/p3_hardware_acceptance.py run` (receipt bound to the staged source fingerprint; manual reports or replays do not pass). `check-staged` verifies at commit time.
 - Build presets: release = `pico2-release`; firmware changes should at least compile via `python tools/cmake_build_auto/cmake_build_auto.py --preset pico2-release --build-dir <local>` when the SDK is available.
 
-## 5. Roles: two parallel workers + one reviewer
+## 5. Roles: parallel workstreams + independent cross-review
 
-| Agent | Sandbox | Lane | Ends with |
-|---|---|---|---|
-| worker (`.agents/agents/worker.toml`, 2 instances: worker-alpha / worker-beta) | workspace-write | runs an independent doc/firmware/tool task package; scopes must be disjoint | changed files + verification evidence |
-| reviewer (`.agents/agents/reviewer.toml`) | read-only | audits the combined output of the workers, records findings, reports back on completion | audit record + `accept` / `revise` / `escalate` |
-| main session (default) | as granted | assigns task packages, waits for workers, spawns reviewer | orchestrated result |
+Role-specific agent definitions were **archived** to `.agents/archived/agents/` (2026-09-14);
+the shape below is model-agnostic and applies to whichever agent fills each lane.
 
-How to use (Codex never auto-decomposes — you must ask):
+| Lane | Lane rule | Ends with |
+|---|---|---|
+| workstream (one per independent package) | writes only inside its assigned scope; scopes must be disjoint | changed files + verification evidence |
+| cross-reviewer (independent of the author) | read-only; must not be the author (C11) | numbered findings with file:line + one disposition |
+| main controller | assigns packages, waits for completion, runs the gates, commits | orchestrated result |
+
+How to use:
 
 ```
-Run worker-alpha on task A and worker-beta on task B in parallel (disjoint file scopes).
-Wait for both to finish, then spawn the reviewer on the combined diff and evidence.
-Reviewer stays read-only: audit record with file:line findings, end with accept / revise / escalate.
+Run task A and task B in parallel on disjoint file scopes.
+Wait for both, then hand the combined diff and evidence to an independent cross-reviewer.
+The cross-reviewer stays read-only: findings with file:line, then one disposition.
 ```
 
-- Workers only write inside their assigned scope; reviewer never edits files and never self-approves (C11 cross-review).
-- Parallelism is bounded by `[agents] max_threads` in `.agents/config.toml` (default 6) and nesting by `max_depth` (default 1).
-- If a task cannot be split into independent packages, use a single worker; do not force parallelism on dependent work.
+- Subagent parallelism is bounded by Codex's built-in `[agents]` defaults (`max_threads = 6`,
+  `max_depth = 1`, `job_max_runtime_seconds = 1800`). This repo does not override them in a
+  Codex-read config layer (project layers live at `.codex/config.toml`, and there is no `.codex/`
+  directory here), and the repo neither enforces nor needs a parallelism cap of its own (the old
+  `.agents/config.toml` record was removed 2026-09-14).
+- If a task cannot be split into independent packages, run it single-threaded; do not force parallelism on dependent work.
+- **C11** (contract / `docs/check/DOCS_REGISTRY.md` status changes must be cross-reviewed, never
+  self-approved) is a governance contract: it stays in force regardless of which agent fills
+  which lane, and records land in `docs/check/submissions/`.
 
 ## 6. Quick reference
 
