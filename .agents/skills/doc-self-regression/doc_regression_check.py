@@ -46,7 +46,7 @@ PLUGIN_FILES = (
 # Governance/temp dirs are not "domain content" for freshness purposes.
 FRESHNESS_EXCLUDE_DIRS = {"archive", "legacy", "check", "temp"}
 # Never scan these trees for anchors.
-SCAN_EXCLUDE_DIRS = {"build", ".git", "node_modules", "third_party"}
+SCAN_EXCLUDE_DIRS = {"build", ".git", "node_modules", "third_party", "out"}
 
 DATE_RE = re.compile(r"Last updated:\s*(\d{4})-(\d{2})-(\d{2})")
 ROW_RE = re.compile(
@@ -152,6 +152,16 @@ def registry_rows(text: str) -> list[list[str]]:
     return rows
 
 
+def source_files(root: Path):
+    """Scan beneath this root without admitting generated evidence as source."""
+    for directory, dirs, files in os.walk(root):
+        dirs[:] = [name for name in dirs if name not in SCAN_EXCLUDE_DIRS]
+        for name in files:
+            path = Path(directory) / name
+            if name not in SCAN_EXCLUDE_DIRS and path.is_file():
+                yield path
+
+
 def check_registry(root: Path, result: Result) -> None:
     reg = root / REGISTRY_REL
     if not reg.exists():
@@ -191,8 +201,7 @@ def check_registry(root: Path, result: Result) -> None:
     # Pre-index the file tree once (loop 2 anchor existence).
     anchor_index = {
         p.name: p
-        for p in root.rglob("*")
-        if p.is_file() and not any(d in SCAN_EXCLUDE_DIRS for d in p.parts)
+        for p in source_files(root)
     }
 
     for r in rows:
@@ -302,10 +311,8 @@ def subprocess_run(root: Path, args: list[str]) -> str:
 
 def code_define_map(root: Path) -> dict[str, str]:
     defines: dict[str, str] = {}
-    for p in root.rglob("*"):
+    for p in source_files(root):
         if p.suffix not in CODE_EXT:
-            continue
-        if any(d in SCAN_EXCLUDE_DIRS for d in p.parts):
             continue
         for name, val in DEFINE_RE.findall(read_text(p)):
             defines.setdefault(name, val)

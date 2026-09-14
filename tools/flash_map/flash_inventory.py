@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -36,7 +37,13 @@ def normalize(path: Path) -> str:
 
 def scan_raw_references(root: Path) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
-    for path in sorted(root.rglob("*.c")):
+    candidates = []
+    for directory, dirs, files in os.walk(root):
+        dirs[:] = [name for name in dirs
+                   if name not in EXCLUDED_PARTS and not name.startswith("build-")]
+        candidates.extend(Path(directory) / name for name in files
+                          if Path(name).match("*.c"))
+    for path in sorted(candidates):
         relative_path = path.relative_to(root)
         relative = normalize(relative_path)
         if relative in EXCLUDED_FILES or any(

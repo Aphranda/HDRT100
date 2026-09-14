@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import pathlib
 import re
 import sys
@@ -27,16 +28,17 @@ SKIP_DIRS = {"build", "out", ".git", "third_party", "docs"}
 
 
 def iter_files(root: pathlib.Path):
-    for path in root.rglob("*"):
-        if not path.is_file():
-            continue
-        rel = path.relative_to(root)
-        if any(part in SKIP_DIRS or part.startswith(".pytest")
-               for part in rel.parts):
-            continue
-        if path.suffix not in SCAN_SUFFIXES:
-            continue
-        yield rel, path
+    for directory, dirs, files in os.walk(root):
+        # Prune before descending: filtering rglob results still visits out/.
+        dirs[:] = [name for name in dirs
+                   if name not in SKIP_DIRS and not name.startswith(".pytest")]
+        for name in files:
+            path = pathlib.Path(directory) / name
+            if name in SKIP_DIRS or name.startswith(".pytest"):
+                continue
+            if path.suffix not in SCAN_SUFFIXES or not path.is_file():
+                continue
+            yield path.relative_to(root), path
 
 
 def main() -> int:
