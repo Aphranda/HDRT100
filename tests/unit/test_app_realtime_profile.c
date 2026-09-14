@@ -23,8 +23,15 @@ int main(void)
                 assert(phase.wcet_cycles==shortest.wcet_cycles);
                 assert(phase.end_cycle-phase.start_cycle==shortest.end_cycle-shortest.start_cycle);
             }
+            if (i==APP_REALTIME_PHASE_DPLL) {
+                /* All catalog entries must allow late entry while retaining
+                 * the existing servo WCET. A zero-headroom table starved the
+                 * real dispatcher unless it hit exactly the start cycle. */
+                assert(phase.wcet_cycles==34000u);
+                assert(phase.end_cycle-phase.start_cycle-phase.wcet_cycles>=1000u);
+            }
             if (i==APP_REALTIME_PHASE_GUARD) {
-                assert(phase.wcet_cycles==0u && phase.end_cycle-phase.start_cycle==8500u);
+                assert(phase.wcet_cycles==0u && phase.end_cycle-phase.start_cycle==7500u);
             }
             end=phase.end_cycle;
         }
