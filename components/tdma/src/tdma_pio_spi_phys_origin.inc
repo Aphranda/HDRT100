@@ -27,6 +27,28 @@ static bool tdma_pio_spi_phys_origin_mailbox_valid(const uint8_t *mailbox,
              ((uint32_t)mailbox[TDMA_PROCESS_IMAGE_CRC_OFFSET + 1u] << 8u));
 }
 
+/* Bound work independently of the admitted node count. The parked adapter
+ * owns this immutable seed; no live DMA memory or peripheral is accessed. */
+#define TDMA_ORIGIN_PREPARE_MAILBOX_BATCH 4u
+
+static bool tdma_pio_spi_phys_origin_mailbox_batch(const uint8_t *seed,
+    size_t packet_size, uint32_t node_count, uint32_t *cursor)
+{
+    if (seed == NULL || cursor == NULL || node_count < 2u ||
+        node_count > TDMA_FLIGHT_SHORT_SLOT_COUNT || *cursor >= node_count ||
+        packet_size < TDMA_TRANSPORT_FRAME_HEADER_SIZE +
+            node_count * TDMA_FLIGHT_SHORT_SLOT_SIZE + TDMA_FLIGHT_DPLL_OBSERVATION_SIZE)
+        return false;
+    const uint32_t active_mask = (1u << node_count) - 1u;
+    for (uint32_t checked = 0u; checked < TDMA_ORIGIN_PREPARE_MAILBOX_BATCH &&
+            *cursor < node_count; ++checked) {
+        if (!tdma_pio_spi_phys_origin_mailbox_valid(seed + TDMA_TRANSPORT_FRAME_HEADER_SIZE +
+                *cursor * TDMA_FLIGHT_SHORT_SLOT_SIZE, *cursor, active_mask)) return false;
+        ++*cursor;
+    }
+    return true;
+}
+
 static void tdma_pio_spi_phys_origin_configure_sms(tdma_pio_spi_phys_t *phys,
                                                  uint32_t divider256)
 {
@@ -180,9 +202,11 @@ tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *context)
     const tdma_state_machine_origin_dma_contract_t dma = tdma_state_machine_origin_dma_contract();
     switch ((tdma_origin_prepare_stage_t)request->stage) {
     case TDMA_ORIGIN_PREPARE_MAILBOX:
-        if (!tdma_pio_spi_phys_origin_mailbox_valid(request->seed + TDMA_TRANSPORT_FRAME_HEADER_SIZE +
-                request->mailbox * TDMA_FLIGHT_SHORT_SLOT_SIZE, request->mailbox, active_mask)) goto failed;
-        if (++request->mailbox == config->node_count) request->stage = TDMA_ORIGIN_PREPARE_STOP;
+        if (!tdma_pio_spi_phys_origin_mailbox_batch(request->seed, request->packet_size,
+                config->node_count, &request->mailbox)) goto failed;
+        /* STOP stays in the next poll, after owner grant/config revalidation.
+         * It must retire all old DMA readers before the workspace is reused. */
+        if (request->mailbox == config->node_count) request->stage = TDMA_ORIGIN_PREPARE_STOP;
         return TDMA_ORIGIN_BUILD_BUSY;
     case TDMA_ORIGIN_PREPARE_STOP: {
     const uint32_t loader = s_tdma_pio_spi_command_dma_channel < 0 ? 0u :
