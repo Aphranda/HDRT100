@@ -41,6 +41,70 @@ VDC-TDMA-001
 `VDC-EVID-001` 继续作为它不变的 evidence 输入。`VDC-SERVO-001/002` 在正式
 evidence 未闭环前只允许 host/replay 验证，不得用于发布板端目标锁。
 
+### VDC-PROGRESS-20260914-002 — 四板锁相复测与 owner 读取成本
+
+- TODO task ID：`VDC-SCHED-001`、`VDC-ROLE-002`、`VDC-LOCK-001`、`VDC-VERIFY-001`。
+- 状态：IN PROGRESS。
+- 日期：2026-09-14。
+- 证据根：`out/HardwareAcceptance/20260914/dpll-four-board-profile/`；下述记录数、
+  耗时和构建资源均为本切片快照，非架构事实源。`plan.json` 绑定前序封存 manifest、
+  基线源码和固件；原目录保持封存。
+- 锁相基线：`baseline-r1` 四板各冻结 76 条 SRAM 记录，先保存 TDMA 记录并释放
+  StorageAO lease，再保存 DPLL trace。四板 SD 的 CRC 解码和重复读取字节核对通过。
+  NO1 在约 590 ms 的记录内全部为 `VDC_DOMAIN_LOCK_LOCKED`，内部残差为 -9 至
+  9 ns；NO2--NO4 全部为 `VDC_DOMAIN_LOCK_CHECKING`，三从板命令接收和应用增量
+  均为零。NO1 缺失 bias generation，离线工具另按 update_seq 步长标记
+  `decimated_trace`；该计数还包含域内部状态更新，不能据此单独断言采样丢失。
+  离线结果仍为 `not_proven`；
+  内部状态为 LOCKED 不等于四板锁相、可信 corrected jitter 或正式同步验收通过。
+  原件与图见 `baseline-r1-lock-review-r2/`。
+- 调度基线：`baseline-analysis.json` 使用板端稳定区间的计数差；四板 DPLL
+  overrun 增量为 232/96/96/63，主板 start miss 为 606。稀疏 last-call 采样不能
+  用作每次调用分布或各分支 WCET，累计 max 也不能用作本窗口峰值。
+- 优化边界：`vdc_dpll_manager_consume_follower_command()` 改为读取 Core1 已拥有的
+  active control profile 与 local slot，移除每次整份域快照复制；Core0 的 guarded
+  published snapshot、角色/代际应用顺序、命令校验、PI 和静态预算保持原有语义。
+  临时 C harness 对旧、新实际函数体运行 1024 组边界组合，逻辑字段结果一致；
+  本配置整份快照为 1384 B。相关 Python/host 回归和 Domain C harness 通过。
+- 构建拒绝：首次优化触发编译器内联，SRAM service 增长将后续 DMA BSS 对齐到
+  下一页，链接超出 RAM；保留 `build-command-r1.log` 和失败 map。用 `noinline`
+  保留原 Flash 调用边界，不通过缩减记录器或改调度预算解决该拒绝。
+- 构建复核：A/B/Boot 及 Flash link checks 通过，build 为 `20260914025954`，
+  源码指纹为 `12a75cdf4252b1dda0f96430c37907c33e7d924cad13498519186ba40bd2dff5`。
+  `source-checkpoint-r2.json` 与 `layout-review.json` 证明静态 RAM 和 PIO 字节保持
+  原值；函数局部栈分配由 1500 B 降到 112 B，heap 外余量仍为 28 B。
+- P3：`p3-r1` 完成当前源码四板 OTA、软件复位、校准与短帧诊断流程；
+  `strict_gates_passed=false`。粗校准中 NO2 的 TOPOLOGY 命令超时，且包含构建
+  扫描的总流程超过配置时限；两项失败均保留于 `diagnostic.json`，凭证范围为
+  `FOUR_NODE_TDMA_QUICK_DIAGNOSTIC`，不得称为严格 P3 通过。控制配置拒绝并非
+  仅见于前序 NO3，本切片未将其归因于单板硬件或声明已修复。
+- 四板对照：`optimized-r1/r2` 都完成真实更新、短帧闭环和 STOP 后 SD 字节核对。
+  相同稳定区间内，四板 DPLL overrun 从基线 232/96/96/63 降为 11/1/0/0 和
+  8/1/0/0；两个优化区间的 deadline 增量分别与 overrun 相同。主板 start miss
+  仍为 619/627，主板 TDMA overrun 仍为 1325/1323；未新增负载隔离，不能据此
+  关闭全表 WCET。稀疏 last-call 中位数分别由基线 82.066/81.322/77.776/60.036 us
+  降至首轮 69.572/52.264/65.334/41.014 us、次轮 59.182/47.548/70.938/42.650 us，
+  这些值仅描述被采样调用，不代表 prepare/servo/finalize/publish 的独立分布。
+- 优化后锁相：两轮每板各 76 条原始 trace；NO1 全部为内部 LOCKED，NO2--NO4
+  全部为 CHECKING，三从板命令接收和应用增量仍为零。只读观测并未被性能优化
+  转换为控制命令或正式锁相证据。`review-final.json` 统一复核基线、两轮对照、
+  编译布局与 P3 原始失败。
+- 恢复：`restored-r1` 恢复普通短帧模式并通过闭环，四板 DPLL 稳定区间 overrun
+  和 deadline 增量为零，但没有新 trace 更新，不能用此结果代替真实更新门禁。
+  最终四板 STOP/config ACK、临时许可证 inactive；两类记录已顺序保存并核对。
+- 命令路径审计：`transport-audit.json` 证明 resident mailbox 的 VDC 字段目前
+  进入 `last_vdc_*` 诊断字段，而 DPLL 的 getter 读取独立、按来源保留的命令区；
+  既有命令接收路径仍使用 RefMem window intent。本切片不将诊断字段直接当命令，
+  也未证明所有 RX stall 的根因；来源、序列、代际和共同生效时间仍须在
+  `VDC-ROLE-002` 闭环。
+- 原始工具失败：首次锁相汇总读取了错误 JSON 字段名，保留失败输出并在新目录
+  重建报告；首次等价 harness 比较 C struct padding 导致失败，后续改为比较所有
+  逻辑字段，旧/新函数体和两次输出均保留。这些是报告/harness 失败，不改判为
+  板端丢记录或命令行为差异。
+- 下一 gate：`VDC-SCHED-001` 保持未关闭，继续分解主板真实更新的剩余超限和
+  上游 TDMA 迟到；`VDC-ROLE-002` 优先闭合 resident mailbox 到来源命令区的
+  语义交接，并单独复核控制配置超时。正式锁相 gate 保持未关闭。
+
 ### VDC-PROGRESS-20260914-001 — DPLL 静态相位入口余量
 
 - TODO task ID：`VDC-SCHED-001`、`VDC-ROLE-001`、`VDC-ROLE-002`、`VDC-VERIFY-001`。
