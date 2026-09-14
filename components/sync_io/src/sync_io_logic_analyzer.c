@@ -11,7 +11,8 @@
 #include "sync_io_core_internal.h"
 #endif
 
-#define SYNC_IO_LOGIC_ANALYZER_DMA_RING_BITS 15u
+#define SYNC_IO_LOGIC_ANALYZER_DMA_RING_BITS \
+    SYNC_IO_SHARED_WORKSPACE_DMA_RING_BITS
 #define SYNC_IO_LOGIC_ANALYZER_EDGE_SAMPLE_PERIOD_NS 1000u
 
 _Static_assert(SYNC_IO_LOGIC_ANALYZER_MAX_RECORDS > 0u,
@@ -95,6 +96,7 @@ static void sync_io_logic_analyzer_publish_shadow(void)
                               s_control.capture.consumed_records;
     if (retained == 0u) {
         memset(&s_control.capture, 0, sizeof(s_control.capture));
+        (void)sync_io_workspace_release(&s_control.capture);
         return;
     }
     sync_io_logic_analyzer_record_t *shadow_records =
@@ -177,12 +179,17 @@ bool sync_io_logic_analyzer_hw_arm(
         sync_io_core_wave_output_persona_active() || s_hw.running) {
         return false;
     }
+    if (!sync_io_workspace_claim(capture)) {
+        return false;
+    }
     if (!sync_io_logic_analyzer_raw_capture_init(capture, records,
                                                   capacity, config)) {
+        (void)sync_io_workspace_release(capture);
         return false;
     }
     if (!pio_can_add_program(BOARD_SYNC_PIO_FAST,
                              &logic_analyzer_raw_sample_program)) {
+        (void)sync_io_workspace_release(capture);
         return false;
     }
 
@@ -274,6 +281,12 @@ void sync_io_logic_analyzer_hw_stop(void)
         pio_remove_program(BOARD_SYNC_PIO_FAST,
                            &logic_analyzer_raw_sample_program,
                            s_hw.offset);
+    }
+    /* The control capture still owns live finalization and the arena shadow.
+     * Its Core0 drain releases the lease after the last read. Direct hardware
+     * clients have no shared shadow, so STOP completes their arena lifetime. */
+    if (s_hw.capture != &s_control.capture) {
+        (void)sync_io_workspace_release(s_hw.capture);
     }
     memset(&s_hw, 0, sizeof(s_hw));
 }
@@ -425,22 +438,20 @@ static void sync_io_logic_analyzer_persona_stop(
     void *context, const sync_io_persona_descriptor_t *descriptor,
     uint32_t dma_channel_mask)
 {
-    (void)context;
     (void)descriptor;
     (void)dma_channel_mask;
-    sync_io_logic_analyzer_hw_stop();
+    const sync_io_logic_analyzer_persona_t *persona = context;
+    if (persona != NULL && s_hw.capture == persona->capture &&
+        sync_io_workspace_held_by(persona->capture)) {
+        sync_io_logic_analyzer_hw_stop();
+    }
 }
 
 static void sync_io_logic_analyzer_persona_cleanup(
     void *context, const sync_io_persona_descriptor_t *descriptor,
     uint32_t dma_channel_mask)
 {
-    (void)context;
-    (void)descriptor;
-    (void)dma_channel_mask;
-    if (s_hw.capture != NULL) {
-        sync_io_logic_analyzer_hw_stop();
-    }
+    sync_io_logic_analyzer_persona_stop(context, descriptor, dma_channel_mask);
 }
 
 bool sync_io_logic_analyzer_persona_begin(
@@ -451,7 +462,8 @@ bool sync_io_logic_analyzer_persona_begin(
     const sync_io_logic_analyzer_config_t *config)
 {
     if (persona == NULL || capture == NULL || records == NULL ||
-        config == NULL) {
+        config == NULL || s_active_persona == persona ||
+        sync_io_workspace_held_by(capture)) {
         return false;
     }
     memset(persona, 0, sizeof(*persona));
@@ -479,6 +491,8 @@ bool sync_io_logic_analyzer_persona_begin(
                 &persona->manager, &persona->handle);
         }
         sync_io_persona_manager_deinit(&persona->manager);
+        (void)sync_io_workspace_release(capture);
+        memset(capture, 0, sizeof(*capture));
         persona->initialized = false;
         persona->capture = NULL;
         return false;
@@ -727,6 +741,8 @@ void sync_io_logic_analyzer_service_core1(uint32_t max_records)
             if (accepted && !sync_io_logic_analyzer_live_batch_begin_core1(
                                 &s_control.capture)) {
                 sync_io_logic_analyzer_persona_end(&s_control.persona);
+                (void)sync_io_workspace_release(&s_control.capture);
+                memset(&s_control.capture, 0, sizeof(s_control.capture));
                 accepted = false;
             }
         } else if (command == SYNC_IO_LOGIC_ANALYZER_COMMAND_STOP) {
@@ -901,6 +917,9 @@ size_t sync_io_logic_analyzer_drain_core0(
     }
     if (source == &s_control.shadow_capture &&
         source->consumed_records == source->produced_records) {
+        /* Publish availability only after the arena is no longer referenced.
+         * Core1 rejects re-ARM while shadow_ready is set. */
+        (void)sync_io_workspace_release(&s_control.capture);
         __atomic_store_n(&s_control.shadow_ready, 0u, __ATOMIC_RELEASE);
     }
     return drained;

@@ -18,7 +18,21 @@
 #define SYNC_IO_ENC_COUNT_DMA_CH 1u
 #define SYNC_IO_MODEL_PULSE_DMA_CH 2u
 #define SYNC_IO_CAPTURE_DMA_CH 3u
-#define SYNC_IO_SHARED_WORKSPACE_WORDS 8192u
+#define SYNC_IO_SHARED_WORKSPACE_DMA_RING_BITS 14u
+#define SYNC_IO_SHARED_WORKSPACE_BYTES \
+    (1u << SYNC_IO_SHARED_WORKSPACE_DMA_RING_BITS)
+#define SYNC_IO_SHARED_WORKSPACE_WORDS \
+    (SYNC_IO_SHARED_WORKSPACE_BYTES / sizeof(uint32_t))
+#define SYNC_IO_MODEL_PULSE_WORDS_PER_ENTRY 2u
+#define SYNC_IO_MODEL_PULSE_MAX_ENTRIES \
+    (SYNC_IO_SHARED_WORKSPACE_WORDS / SYNC_IO_MODEL_PULSE_WORDS_PER_ENTRY)
+
+/* One owner from the first CPU write/DMA preparation through the final read.
+ * This lease covers the arena only; PIO/SM/DMA admission remains separate.
+ * Tokens must have stable addresses for the whole lease. No recursive claim. */
+bool sync_io_workspace_claim(const void *owner);
+bool sync_io_workspace_held_by(const void *owner);
+bool sync_io_workspace_release(const void *owner);
 
 #define SYNC_IO_INPUT_CAPTURE_INSTRUCTION_WORDS 1u
 #define SYNC_IO_SCHEDULED_TRIGGER_INSTRUCTION_WORDS 8u

@@ -294,6 +294,7 @@ bool sync_io_analyzer_burst_begin_core1(
     sync_io_persona_manager_init(&s_burst.manager, &hooks, NULL);
     if (!sync_io_core_initialized() || sync_io_core_capture_is_running() ||
         sync_io_core_wave_output_persona_active() ||
+        !sync_io_workspace_claim(&s_burst) ||
         !sync_io_persona_manager_claim(&s_burst.manager,
             SYNC_IO_PERSONA_ID_LOGIC_ANALYZER, &s_burst.handle, NULL) ||
         !sync_io_persona_manager_load(&s_burst.manager, &s_burst.handle) ||
@@ -306,6 +307,7 @@ bool sync_io_analyzer_burst_begin_core1(
         if (sync_io_persona_manager_handle_valid(&s_burst.manager, &s_burst.handle))
             (void)sync_io_persona_manager_release(&s_burst.manager, &s_burst.handle);
         (void)sync_io_persona_manager_deinit(&s_burst.manager);
+        (void)sync_io_workspace_release(&s_burst);
         burst_publish();
         __atomic_store_n(&s_busy, 0u, __ATOMIC_RELEASE);
         return false;
@@ -372,6 +374,7 @@ bool sync_io_analyzer_burst_release_core1(uint32_t sequence)
         s_burst.facts.capture_sequence != sequence) return false;
     if (!sync_io_persona_manager_release(&s_burst.manager, &s_burst.handle)) return false;
     (void)sync_io_persona_manager_deinit(&s_burst.manager);
+    (void)sync_io_workspace_release(&s_burst);
     s_burst.facts.state = SYNC_IO_ANALYZER_BURST_RELEASED;
     burst_publish();
     __atomic_store_n(&s_busy, 0u, __ATOMIC_RELEASE);

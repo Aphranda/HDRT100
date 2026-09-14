@@ -36,8 +36,8 @@
 #define SYNC_IO_CLOCK_SM            BOARD_SYNC_AUX2_SM
 #define SYNC_IO_CLOCK_PIN           BOARD_SYNC_AUX_SYNC_CLK_OUT_PIN
 #define SYNC_IO_CAPTURE_LATCH_RING_SIZE 128u
-#define SYNC_IO_CAPTURE_DMA_RING_WORDS 8192u
-#define SYNC_IO_CAPTURE_DMA_RING_BITS 15u
+#define SYNC_IO_CAPTURE_DMA_RING_WORDS SYNC_IO_SHARED_WORKSPACE_WORDS
+#define SYNC_IO_CAPTURE_DMA_RING_BITS SYNC_IO_SHARED_WORKSPACE_DMA_RING_BITS
 #define SYNC_IO_CAPTURE_DMA_RING_BYTES \
     (SYNC_IO_CAPTURE_DMA_RING_WORDS * sizeof(uint32_t))
 #define SYNC_IO_CAPTURE_LATCH_SERVICE_MAX_WORDS 2048u
@@ -97,6 +97,10 @@ uint32_t sync_io_shared_workspace[SYNC_IO_SHARED_WORKSPACE_WORDS]
     __attribute__((section(".sync_io_dma_ring")))
     __attribute__((aligned(SYNC_IO_CAPTURE_DMA_RING_BYTES)));
 #define s_sync_io_capture_dma_ring sync_io_shared_workspace
+
+_Static_assert(sizeof(sync_io_shared_workspace) ==
+                   (1u << SYNC_IO_CAPTURE_DMA_RING_BITS),
+               "capture DMA wrap must equal the actual arena size");
 
 void sync_io_core_trace(sync_io_trace_event_t event_id,
                         uint8_t severity,
@@ -868,6 +872,14 @@ bool sync_io_start_capture(uint32_t sample_hz)
     if (sample_hz == 0u) {
         sample_hz = s_sync_io.capture_sample_hz;
     }
+    if (sync_io_workspace_held_by(&s_sync_io)) {
+        sync_io_stop_capture();
+    }
+    if (!sync_io_workspace_claim(&s_sync_io)) {
+        sync_io_trace(SYNC_IO_TRACE_CAPTURE_FAIL, SYNC_IO_TRACE_ERROR,
+                      sample_hz, SYNC_IO_PERSONA_CONFLICT_WORKSPACE);
+        return false;
+    }
 
     pio_sm_set_enabled(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM, false);
     pio_sm_clear_fifos(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM);
@@ -880,6 +892,7 @@ bool sync_io_start_capture(uint32_t sample_hz)
                       SYNC_IO_TRACE_ERROR,
                       sample_hz,
                       2u);
+        (void)sync_io_workspace_release(&s_sync_io);
         return false;
     }
 
@@ -907,7 +920,8 @@ bool sync_io_start_capture(uint32_t sample_hz)
 
 void sync_io_stop_capture(void)
 {
-    if (!s_sync_io.initialized) {
+    /* An idle STOP must not abort another owner's DMA3. */
+    if (!s_sync_io.initialized || !sync_io_workspace_held_by(&s_sync_io)) {
         return;
     }
 
@@ -918,6 +932,7 @@ void sync_io_stop_capture(void)
     s_sync_io.capture_timebase_valid = false;
     s_sync_io.capture_dma_write_index_valid = false;
     osal_critical_exit();
+    (void)sync_io_workspace_release(&s_sync_io);
     sync_io_trace(SYNC_IO_TRACE_CAPTURE_STOP,
                   SYNC_IO_TRACE_INFO,
                   s_sync_io.capture_sample_hz,

@@ -13,8 +13,6 @@
 #include "sync_io_core_internal.h"
 #include "sync_io_persona_manager.h"
 
-#define SYNC_IO_MODEL_PULSE_MAX_ENTRIES 4096u
-#define SYNC_IO_MODEL_PULSE_WORDS_PER_ENTRY 2u
 #define SYNC_IO_MODEL_PULSE_US_TICK_HZ 1000000u
 #define SYNC_IO_MODEL_PULSE_DEFAULT_TICK_PERIOD_NS 100u
 #define SYNC_IO_MODEL_PULSE_SECTION_OVERHEAD_TICKS 3u
@@ -39,9 +37,8 @@ typedef struct {
     uint64_t first_deadline_ns;
     uint32_t periodic_period_ns;
     PIO pio;
-    /* The maintenance schedule shares the capture DMA workspace.  Keep only
-     * a pointer in the persona state so the 32 KiB workspace is not duplicated
-     * in .bss.  The arm path assigns it after confirming capture is idle. */
+    /* The maintenance schedule holds the shared arena lease before writing
+     * any words. Only the one-entry phase observer uses private storage. */
     uint32_t *words;
 } sync_io_model_pulse_t;
 
@@ -491,6 +488,7 @@ static void sync_io_model_update_completion(void)
         if (s_model_pulse.persona_managed) {
             sync_io_wave_output_manager_release();
         }
+        (void)sync_io_workspace_release(&s_model_pulse);
     }
 }
 
@@ -541,6 +539,13 @@ static bool sync_io_pulse_schedule_arm_on_pin_common(
 
     sync_io_model_pulse_schedule_disarm();
 
+    if (!observer_capture_overlap &&
+        !sync_io_workspace_claim(&s_model_pulse)) {
+        sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL, SYNC_IO_TRACE_ERROR,
+                           entry_count, SYNC_IO_PERSONA_CONFLICT_WORKSPACE);
+        return false;
+    }
+
     /* Batch schedules share the capture DMA workspace.  A phase-only observer
      * uses its bounded one-entry buffer when capture is active, so the two DMA
      * clients cannot overwrite one another. */
@@ -559,12 +564,14 @@ static bool sync_io_pulse_schedule_arm_on_pin_common(
                                    SYNC_IO_TRACE_ERROR,
                                    i,
                                    3u);
+                (void)sync_io_workspace_release(&s_model_pulse);
                 return false;
             }
             if (i == 0u && periodic_first_deadline_ns != 0u) {
                 const uint64_t now_ns = time_us_64() * 1000ull;
                 if (periodic_first_deadline_ns > now_ns &&
                     periodic_first_deadline_ns - now_ns > UINT32_MAX) {
+                    (void)sync_io_workspace_release(&s_model_pulse);
                     return false;
                 }
                 delay_ns = periodic_first_deadline_ns > now_ns
@@ -596,6 +603,7 @@ static bool sync_io_pulse_schedule_arm_on_pin_common(
                                SYNC_IO_TRACE_ERROR,
                                i,
                                1u);
+            (void)sync_io_workspace_release(&s_model_pulse);
             return false;
         }
         s_model_pulse.words[(i * 2u) + 0u] =
@@ -644,6 +652,7 @@ static bool sync_io_pulse_schedule_arm_on_pin_common(
                                SYNC_IO_TRACE_ERROR,
                                entry_count,
                                trace_output_index);
+            (void)sync_io_workspace_release(&s_model_pulse);
             memset(&s_model_pulse, 0, sizeof(s_model_pulse));
             return false;
         }
@@ -663,6 +672,8 @@ static bool sync_io_pulse_schedule_arm_on_pin_common(
                            SYNC_IO_TRACE_ERROR,
                            entry_count,
                            2u);
+        (void)sync_io_workspace_release(&s_model_pulse);
+        memset(&s_model_pulse, 0, sizeof(s_model_pulse));
         return false;
     }
 
@@ -913,6 +924,7 @@ void sync_io_model_pulse_schedule_disarm(void)
         if (s_wave_output_manager_active) {
             sync_io_wave_output_manager_release();
         }
+        (void)sync_io_workspace_release(&s_model_pulse);
         sync_io_core_trace(SYNC_IO_TRACE_MODEL_DISARM,
                            SYNC_IO_TRACE_INFO,
                            completed,
@@ -949,6 +961,7 @@ void sync_io_model_pulse_schedule_disarm(void)
                            s_model_pulse.total_pulses);
     }
 
+    (void)sync_io_workspace_release(&s_model_pulse);
     memset(&s_model_pulse, 0, sizeof(s_model_pulse));
 }
 

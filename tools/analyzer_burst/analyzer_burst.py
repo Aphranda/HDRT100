@@ -219,7 +219,7 @@ def main() -> int:
     parser.add_argument("--port", required=True)
     parser.add_argument("--identity", required=True)
     parser.add_argument("--expected-build", required=True)
-    parser.add_argument("--words", type=int, default=8192)
+    parser.add_argument("--words", type=int, default=4096)
     parser.add_argument("--clkdiv", type=int, default=1)
     parser.add_argument("--trigger-rx", type=int, choices=(0, 1), default=0)
     parser.add_argument("--export-timeout", type=float, default=120.0)

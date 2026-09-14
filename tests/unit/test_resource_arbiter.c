@@ -609,8 +609,32 @@ static void test_sync_io_persona_manager_failure_rollback(void)
     assert(sync_io_persona_manager_deinit(&manager));
 }
 
+static void test_sync_io_workspace_ownership(void)
+{
+    static int capture, schedule, analyzer, burst;
+    assert(!sync_io_workspace_claim(NULL));
+    assert(!sync_io_workspace_release(NULL));
+    assert(sync_io_workspace_claim(&capture));
+    assert(!sync_io_workspace_claim(&capture));
+    assert(!sync_io_workspace_claim(&schedule));
+    assert(!sync_io_workspace_release(&schedule));
+    assert(sync_io_workspace_held_by(&capture));
+    assert(sync_io_workspace_release(&capture));
+    assert(sync_io_workspace_claim(&burst));
+    /* A delayed STOP from the previous owner cannot retire frozen data. */
+    assert(!sync_io_workspace_release(&capture));
+    assert(!sync_io_workspace_claim(&analyzer));
+    assert(sync_io_workspace_held_by(&burst));
+    assert(sync_io_workspace_release(&burst));
+    assert(sync_io_workspace_claim(&analyzer));
+    assert(sync_io_workspace_release(&analyzer));
+    assert(sync_io_workspace_claim(&schedule));
+    assert(sync_io_workspace_release(&schedule));
+}
+
 int main(void)
 {
+    test_sync_io_workspace_ownership();
     tdma_state_machine_command_dma_contract_t command = tdma_state_machine_command_dma_contract();
     assert(tdma_state_machine_command_dma_contract_valid(&command));
     command.loader_dma = command.output_dma;

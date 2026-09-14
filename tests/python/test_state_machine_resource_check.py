@@ -714,11 +714,7 @@ def test_sync_io_static_gate_rejects_schedule_replacement_before_disarm(
         (
             ROOT / "components/sync_io/src/sync_io_model_sched.c"
         ).read_text(encoding="utf-8").replace(
-            "sync_io_model_pulse_schedule_disarm();\n\n"
-            "    /* Batch schedules share the capture DMA workspace.  A phase-only observer\n"
-            "     * uses its bounded one-entry buffer when capture is active, so the two DMA\n"
-            "     * clients cannot overwrite one another. */\n"
-            "    s_model_pulse.words = sync_io_shared_workspace;",
+            "sync_io_model_pulse_schedule_disarm();",
             "s_model_pulse.words = sync_io_shared_workspace;\n"
             "    sync_io_model_pulse_schedule_disarm();",
             1,

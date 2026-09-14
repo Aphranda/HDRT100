@@ -155,7 +155,7 @@ SECTIONS
     . = ALIGN(4);
 
     .sync_io_dma_ring (NOLOAD): {
-        . = ALIGN(32768);
+        /* The input object supplies the alignment required by its DMA ring. */
         KEEP(*(.sync_io_dma_ring))
         . = ALIGN(4);
     } > RAM

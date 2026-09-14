@@ -16,10 +16,9 @@
 #define SYNC_IO_SHARED_DMA_IRQ   DMA_IRQ_0
 #define SYNC_IO_DMA_OVERFLOW_DELTA_THRESHOLD 1u
 
-/* Maintenance pulse schedules and SMA capture never own the DMA workspace at
- * the same time.  The owner checks below serialize those personas while this
- * shared buffer preserves the full 8192-word capture and 4096-entry schedule
- * capacities without duplicating 32 KiB of SRAM. */
+/* The shared arena has one lease from preparation through final export.
+ * Capture, pulse schedules, analyzer and burst derive their bounds from the
+ * same capacity. A one-entry phase observer uses its own private words. */
 extern uint32_t sync_io_shared_workspace[SYNC_IO_SHARED_WORKSPACE_WORDS];
 
 typedef enum {

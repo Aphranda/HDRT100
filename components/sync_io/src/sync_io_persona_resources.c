@@ -4,6 +4,40 @@
 
 #include "board_config.h"
 
+static uintptr_t s_workspace_owner;
+
+_Static_assert(SYNC_IO_SHARED_WORKSPACE_DMA_RING_BITS <= 15u,
+               "workspace ring must fit the DMA wrap field");
+_Static_assert(SYNC_IO_SHARED_WORKSPACE_WORDS * sizeof(uint32_t) ==
+                   SYNC_IO_SHARED_WORKSPACE_BYTES,
+               "workspace must contain whole DMA words");
+_Static_assert(SYNC_IO_MODEL_PULSE_MAX_ENTRIES *
+                   SYNC_IO_MODEL_PULSE_WORDS_PER_ENTRY <=
+                   SYNC_IO_SHARED_WORKSPACE_WORDS,
+               "pulse schedule must fit the shared workspace");
+
+bool sync_io_workspace_claim(const void *owner)
+{
+    uintptr_t expected = 0u;
+    return owner != NULL && __atomic_compare_exchange_n(
+        &s_workspace_owner, &expected, (uintptr_t)owner, false,
+        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+}
+
+bool sync_io_workspace_held_by(const void *owner)
+{
+    return owner != NULL && __atomic_load_n(
+        &s_workspace_owner, __ATOMIC_ACQUIRE) == (uintptr_t)owner;
+}
+
+bool sync_io_workspace_release(const void *owner)
+{
+    uintptr_t expected = (uintptr_t)owner;
+    return owner != NULL && __atomic_compare_exchange_n(
+        &s_workspace_owner, &expected, 0u, false,
+        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+}
+
 #define SYNC_IO_SM_BIT(sm) (1u << (sm))
 #define SYNC_IO_GPIO_BIT(pin) (1u << (pin))
 #define SYNC_IO_GPIO_RANGE_MASK(base, count) \
