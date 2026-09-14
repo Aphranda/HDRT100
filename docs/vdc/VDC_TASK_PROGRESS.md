@@ -32,13 +32,67 @@ Last updated: 2026-09-14
 `VDC-PROGRESS-20260914-009`；配置矩阵、raw 退休及两次重臂补测见
 `VDC-PROGRESS-20260914-010`；owner 几何与目标容量资源补测见
 `VDC-PROGRESS-20260914-011`；其余编译容量链接及真实地址构造、上限容量四板预采见
-`VDC-PROGRESS-20260914-013`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、取消
+`VDC-PROGRESS-20260914-013`；RefMem 向量更新的栈/复制收敛与快速验收对照见
+`VDC-PROGRESS-20260914-014`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、取消
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
 `VDC-ROLE-001`；全表 WCET 和正式锁相仍未闭合，
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260914-014 — RefMem 向量快照收敛与两种容量快速验收
+
+- TODO task ID：`VDC-TIME-002`、`VDC-SCHED-001` 的前置资源/调度修复。
+- 状态：IN PROGRESS。当前切片完成，父任务未关闭，`VDC-TIME-003/004` 保持 PENDING。
+- 日期：2026-09-14。
+- 证据根：`out/HardwareAcceptance/20260914/dpll-refmem-vector-projection/`，主控复核见
+  `review-final-r1.json`，身份见 `current-plan.json` / `capacityN-checkpoint.json`。
+  以下容量、耗时、帧大小及计数均为本轮快照，非事实源。
+- 变更：VDC owner 新增 `vdc_dpll_manager_get_vector_snapshot()`，在既有发布 guard
+  内有界复制旧 RefMem 向量实际消费的字段；排除完整 path table、observation matrix
+  和无关诊断。RefMem 仍由 Core1 发布，保留代际准入、交替向量、CRC 和 seqlock；
+  未增加静态副本，未改变 wire 布局、PIO/DMA、DCO owner 或从机命令接线。
+- 软件：容量 2/6/8 的生产 getter/fill 提取测试，与固定旧源码生成的每容量 32 组
+  向量 CRC 对照通过；另验 NULL、无效发布、奇数 guard、有界重试和复制后写入/回绕。
+  这属于序列化 CRC 对照，不宣称逐字节穷举等价。相关 Python 共 22 项、原有 RefMem
+  VDC vector host C 测试通过，命令和日志分别见 `projection-tests-r2` / `vector-tests-r1`。
+- 目标资源：容量 6/8 的 A/B 与 boot 均通过，投影在 ARM ABI 下均为 632 B，原完整
+  snapshot 分别为 1384/1584 B。容量 8 旧 realtime 和嵌套向量 helper 栈帧已合计
+  2088 B，超过保留的 2048 B Core1 栈；这尚不证明实际内存破坏或超时因果。新 helper
+  被编译器内联，realtime 帧为 1056 B，getter 为 48 B；未将 libc/ROM、调度祖先和
+  中断嵌套计入整栈证明。`.su`、反汇编和 map 均保存，SCRATCH_X 不新增数据。
+  主 RAM 预留堆后余量仍为容量 6 的 4908 B、容量 8 的 1148 B。
+- 构建失败：r1 辅助配置覆盖 SDK CPU flags，汇编失败；r2 RAM 代码增长使 BSS 跨越
+  对齐边界，容量 8 链接溢出。两次未部署，日志及失败 map 保留。合并重复向量 flags
+  计算后增量 r3 通过，容量 8 `.data` 相对旧版本减少 72 B，未借用栈或其他 owner RAM。
+- 当前源码指纹：`8e29cee4206bcb2d466e3c8c4f2e9f82f679f200528256df296d6de10b36d108`。
+  容量 8 build `20260914093008`，容量 6 build `20260914093110`；package SHA 分别
+  由独立 archive 和 checkpoint 绑定，P3 复核未更改归档包。仅操作 NO1–NO4。
+
+| 配置 | quick 内部 / 外部耗时 | 构建复核 / OTA | strict_gates_passed | 四板 RefMem 保留峰值上限 |
+|---|---:|---:|---|---:|
+| 容量 8 | 185.370 / 185.625 s | 3.250 / 106.200 s | true | 72.728 µs |
+| 容量 6 | 177.585 / 177.844 s | 2.731 / 98.860 s | false | 70.064 µs |
+
+- 两轮短帧 passed/closed_loop_passed/realtime_gate_passed 均 true，各板原生记录
+  14 条且无漏采，STOP 后 SD 字节一致。容量 6 的严格失败为 TRN-01 SCK 与 TRN-03
+  replay 选行，最小 follower margin 为负；没有用本轮容量 8 成功覆盖该间歇失败。
+  quick 使用可写增量构建目录；上述时间不包含首次构建和额外诊断采集，不能将本轮
+  两种容量补测总和当作每次日常验收成本。与前序 513 s 相比，单轮流程约减少六成半。
+- 实际更新补测：分别使用固定历史诊断矩阵、显式 provisional DPLL 和 clock evidence，
+  普通 origin 下各板 26 条原生 TDMA 记录、76 条 DPLL trace，更新序列持续增长；
+  first START 到 all STOP 无查询，TDMA SAVE 释放 StorageAO 后再保存 DPLL，读回一致。
+  两容量四板 RefMem 自身 overrun/deadline miss 增量均零，未被隔离；保留峰值上限
+  分别为 72.728/74.684 µs，低于既有 96 µs 预算。最终容量 6 的两种旧向量均读回
+  非零 publish/source update sequence。此结果支持修复有效，不代替自主更新 WCET。
+- 保留边界：尽管 quick 聚合标记与短帧通过，原始记录仍显示 NO1 TDMA overrun、
+  VDC/DPLL/RefMem start miss；不得写成整表 WCET 通过。普通主板内部状态为 LOCKED，
+  三从板为 CHECKING，命令接收和应用增量仍零；未验证自主时间输入、物理输出锁相
+  或正式 quality。最终四板为当前容量 6 STOP、config ACK、临时许可证 inactive。
+- 下一 gate：继续 `VDC-TIME-002` 的运行配置和有界取消；保留严格校准和上游迟到
+  缺口。日常默认 quick、复用增量目录；OTA 已是主要主机耗时，进一步加速须以刷写
+  各阶段原始计时另开工具切片，不能通过略过源码、设备身份或硬件判据放行。
 
 ### VDC-PROGRESS-20260914-013 — 编译容量矩阵和上限容量四板预采
 

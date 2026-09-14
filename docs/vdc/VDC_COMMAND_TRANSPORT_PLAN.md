@@ -222,6 +222,9 @@ RAM 溢出，随后由 Sync Trigger owner 提供 `sync_trigger_status_t` /
 `sync_trigger_get_status()`，使 UI 仅保存所消费的标量状态；完整 TriggerVector 和
 序列表继续由原 owner 持有，Core1 栈不用于补足主 RAM。其余编译容量的独立目标
 链接已由 `VDC-PROGRESS-20260914-013` 补齐；相应物理拓扑及运行配置仍须独立验收。
+RefMem 旧向量更新改用 VDC owner 提供的受保护字段投影，目标栈帧和四板诊断对照见
+`VDC-PROGRESS-20260914-014`。该副本收敛不改变旧向量布局，不分配命令缓冲，也不
+代表整表栈峰值、所有调用路径或自主更新 WCET 已通过。
 组装区、稳定命令、guard、预约锚点和双缓冲仍须分别完成
 预算后再接线，已回收 RAM 不等于这些缓冲已经分配或准入。
 
