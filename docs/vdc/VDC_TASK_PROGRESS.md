@@ -59,7 +59,8 @@ Last updated: 2026-09-15
 读取与随后获准的完整原生窗口见 `VDC-PROGRESS-20260915-010`；首次 observer 启用
 的 DMA 坐标括号及 capture 失效退休见 `VDC-PROGRESS-20260915-011`；后继首帧坐标
 证明与启动路线的只读收敛见 `VDC-PROGRESS-20260915-012`；首次 CS 保护及首帧采集
-缺口见 `VDC-PROGRESS-20260915-013`。当前入口仍为
+缺口见 `VDC-PROGRESS-20260915-013`；板端有限发帧与最早原始前缀保留见
+`VDC-PROGRESS-20260915-014`。当前入口仍为
 `VDC-TIME-002`，补齐硬件配置、交接时延
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
@@ -67,6 +68,53 @@ Last updated: 2026-09-15
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260915-014 — 板端有限发帧与最早原始前缀保留
+
+- TODO task ID：`VDC-TIME-002`；状态 IN PROGRESS。证据根为
+  `out/HardwareAcceptance/20260915/dpll-origin-bounded-burst/`。以下数字均为本轮快照，
+  非事实源；本切片关闭有限发车及最早 raw 前缀保留，不授予 packet/event 身份或锁相。
+- `TDMA_RING_FLAG_DIAGNOSTIC_BURST_MASK` 在既有 config.flags 中编码下一 ARM 的诊断
+  额度。`SYSTem:TDMA:RING:BURSt` 只在 STOP applied 后配置，零保留普通无限行为；
+  非零只允许 diagnostic reference 的 physical process-image。Core1 adapter 在
+  phys_tx 接受后、FSM 操作前记账；耗尽后继续完成与 RX，跳过 TX 准备及自主准入。
+  未增加 PIO 指令、SM、DMA、帧缓冲或 Core1 等待。
+- 重复 START 不填充额度；TRAIN、adapter/runtime/physical 自主入口均拒绝有限模式。
+  STOP 保留计数，新 ARM 成功才重置；ARM 失败使 diagnostic_burst_valid 失效，避免
+  新配置与旧计数混用。独立审查发现的物理公开入口防御缺口及失败 ARM 读回混配已修复，
+  `reviewer-code-r1.json` 支持上述代码边界；不将耗尽或 STOP 后 pending 清零当完成。
+- 最终 `host-r2` 52 项通过，包含真实 C adapter/runtime、Core0 生命周期与实际 SCPI
+  callback，覆盖忙时拒绝、物理已发后 FSM 失败、同序号 bootstrap、取消重臂、失败
+  ARM、重复 START 与自主互斥。早期 host-control-r1/build6-r1 在复核修复前已通过，
+  保留原件；最终构建为 build6-r2/build8-r1。
+- 6/8 节点 A/B 构建通过，静态 RAM 增加 8 B，扣 heap 后余量为 17148/13388 B；
+  SCRATCH_X 数据仍为零。源码指纹为
+  `254f0fd49d2a3ea93550164f57ea9e9cb2ddf2f96611b21448c8982e7fe265ac` / 1098；
+  六节点包 SHA 为 `f40c893ceaf3c16881bf698edc17c231b17efc760e31e6fd6640ddd2c2f89c99`。
+- 当前四板 P3 用时 178.171 s，quick passed、strict_gates_passed=true；普通短帧
+  passed/closed_loop/realtime_gate/diagnostic 全 true。STOP 后四板 native SD 读回与
+  SRAM 逐字节一致。本轮仍为整表 1500 µs、TDMA 预算 850 µs，不证明 500 µs 达标，
+  也不追认 013 的严格校准失败或完成 DPLL 验收。
+- 专项预声明主板额度为两次：全板 ARM 无 START→STOP/ACK→重臂，从板预置采集，
+  主板 START 后留复制时间，再重复 START，最后全板 STOP/ACK。主板实际接受/完成
+  均为两次，TX timeout、clock/data timeout、recovery 无增长；RX_GATE_REJECT=7
+  原样保留。三从各自 pre-produced=0、capture-produced=346、retained=346、最终
+  produced=346，F=173，首 raw 坐标为零，复制期间没有后续流量覆盖。没有 RUN 查询。
+- 最早 raw 前缀已经保留。固定 `[0,F)`、`[F,2F)` 分区各得到一个 168 B 合法
+  packet，三板两帧内容 SHA 一致，sequence=1、hop=0，identity/transport CRC
+  原样通过。header 起点分别为 24/13/2 bit，对应本轮 physical A/b=3/0、1/5、0/2；
+  这些偏移是位相几何，不是首帧丢失。原始证据与输入哈希见
+  `first-prefix-diagnosis-r1.json`。这仍不证明同步 CS 绝对锚、observer ready 或
+  连续 event 身份：每板 `rx_observation_drop_count=1`、scan produced 小于 DMA
+  produced，DPLL trailer=0，quota2 重复 sequence=1 也不能替代连续性。
+- 三从通用 SAVE 再次在各自 12 s 截止时仍 RUNNING，专项 exit=1 保留。之后只读确认
+  同一 job 7 已 DONE，原文件 2110/2126/2144 B 成功下载，node/build/generation/epoch
+  核对一致；没有重新 SAVE、重新采样或延长原截止门。保存延迟原因仍未确定。
+- 下一 gate：继续 `VDC-TIME-002`，将已验证 A/b 作为本轮 observer provenance，先处理
+  scan/drop 和重复 bootstrap 的连续性，再实现有代际的训练几何冻结及 ARM 前 observer
+  准备。不能复制旧
+  DMA 原点的 A/b 后假置 alignment locked，也不能以两帧有限诊断代替连续 resident
+  闭环。TIME-003/004 仍 PENDING，正式时间映射、命令应用及实际输出锁相继续未完成。
 
 ### VDC-PROGRESS-20260915-013 — 首次 capture CS 保护与首帧采集缺口
 
