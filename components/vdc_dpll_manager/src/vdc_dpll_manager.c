@@ -1820,18 +1820,25 @@ void vdc_dpll_manager_set_dpll_ready(bool ready)
     osal_critical_exit();
 }
 
-static void vdc_dpll_manager_consume_follower_command(void)
+/* Keep the command boundary in Flash as before. Inlining it into the SRAM
+ * service moves the following aligned DMA BSS region by a whole page. */
+static __attribute__((noinline)) void vdc_dpll_manager_consume_follower_command(void)
 {
-    vdc_domain_snapshot_t domain;
-    if (!vdc_domain_get_snapshot(&s_vdc_domain, &domain) ||
-        domain.control.profile.valid != 1u ||
-        domain.control.profile.mode != VDC_DPLL_CONTROL_MODE_FOLLOWER) {
+    /* This function runs only at the Core1 DPLL owner boundary, after role
+     * activation and before the next evidence beat. The owner needs only the
+     * active control profile and local slot; copying the complete domain here
+     * copied immutable schedule/path tables on every call, even on MASTER.
+     * Core0 readers continue to use the guarded published snapshot. */
+    const vdc_dpll_control_profile_t *profile = &s_vdc_domain.control.profile;
+    const uint32_t local_slot_id = s_vdc_domain.schedule.local_slot_id;
+    if (profile->valid != 1u ||
+        profile->mode != VDC_DPLL_CONTROL_MODE_FOLLOWER) {
         s_vdc_follower_last_applied_seq = 0u;
         s_vdc_follower_last_generation = 0u;
         return;
     }
 
-    const uint32_t generation = domain.control.profile.generation;
+    const uint32_t generation = profile->generation;
     if (generation != s_vdc_follower_last_generation) {
         s_vdc_follower_last_generation = generation;
         s_vdc_follower_last_applied_seq = 0u;
@@ -1839,7 +1846,7 @@ static void vdc_dpll_manager_consume_follower_command(void)
 
     refmem_sync_vdc_command_snapshot_t retained;
     if (!distributed_refmem_get_vdc_follower_command(
-            domain.control.profile.follow_master_slot_id, &retained) ||
+            profile->follow_master_slot_id, &retained) ||
         retained.valid == 0u) {
         vdc_domain_note_follower_command_missing(&s_vdc_domain);
         return;
@@ -1847,9 +1854,8 @@ static void vdc_dpll_manager_consume_follower_command(void)
 
     /* RefMem accepts only a single target bit for VDC commands.  Keep this
      * explicit check at the DPLL owner boundary as a second identity guard. */
-    if (retained.target_slot != domain.schedule.local_slot_id ||
-        retained.source_slot !=
-            domain.control.profile.follow_master_slot_id) {
+    if (retained.target_slot != local_slot_id ||
+        retained.source_slot != profile->follow_master_slot_id) {
         if (retained.command_seq != s_vdc_follower_last_applied_seq) {
             vdc_dpll_follower_command_t invalid = {0};
             invalid.valid = 0u;
