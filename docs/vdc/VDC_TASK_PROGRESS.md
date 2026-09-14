@@ -52,7 +52,8 @@ Last updated: 2026-09-15
 原生记录复核见 `VDC-PROGRESS-20260915-003`；自主模式观察 FIFO 容量与服务路径
 定位见 `VDC-PROGRESS-20260915-004`；最终启用前 CS 准入复验见
 `VDC-PROGRESS-20260915-005`；有界原始事件保留基础见
-`VDC-PROGRESS-20260915-006`。当前入口仍为
+`VDC-PROGRESS-20260915-006`；准入尝试诊断与失败采集自动留证见
+`VDC-PROGRESS-20260915-007`。当前入口仍为
 `VDC-TIME-002`，补齐硬件配置、交接时延
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
@@ -60,6 +61,65 @@ Last updated: 2026-09-15
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260915-007 — 临时准入原因与失败采集留证
+
+- TODO task ID：`VDC-TIME-002`、`VDC-VERIFY-001`；状态 IN PROGRESS。证据根为
+  `out/HardwareAcceptance/20260915/dpll-origin-admission-diagnostic/`。以下数量、
+  时间、容量及代际是本轮快照，非事实源。正式时间戳和 DPLL 资格未改变。
+- 实现：Calibration 的串行 Core0 控制路径记录最后一次已进入准入函数的尝试，
+  按实际短路分支保存 reason、请求参数、已观察字段 mask、初末配置/模型代际及
+  reason 对应的 observed/expected。`READ:CALibration:ORIGin:DIAGnostic?` 仅在
+  STOP/ACK 后读取；helper 不可得只报告该层不可得，不用事后快照猜内部原因。
+  STOP/REVOKE 保留历史；ACCEPTED 和 attempt 计数均不授予当前权限。
+  SCPI 参数解析失败发生在准入函数之前，仍维持旧行为，不创建尝试或撤销旧 grant。
+- 语义验证：`host-core-r1` 的三组真实 C/SCPI 测试通过，其中 47 个场景与
+  `5799b7f` 原函数逐字冻结的 oracle 对照，返回、grant 字段、epoch、helper
+  读取顺序及次数一致；覆盖所有短路 reason、代际、mask、计数饱和、64 位输出、
+  REVOKE 历史保留及 STOP/ACK 查询门。`host-existing-r2` 共 26 项通过，含
+  16 项既有准入和 10 项 collector 编排测试。后者使用 facade，不证明真实串口
+  或原生记录 CRC；当前实板负测和原生导出另行提供证据。
+- 工具：`tdma_autonomous_record.py` 单次申请有限许可证，RUN 内只发控制命令；
+  拒绝、非法代际、部分 START 或导出失败均保留为错误。异常后仍尝试全部 STOP
+  和 REVOKE，全部 STOP/ACK 成立才导出 SRAM；一个板导出失败不丢弃其余板，
+  后续可选诊断查询失败不丢弃已导出的原件。失败最终仍抛出，不自动重试或择优。
+- 参数勘误：此前 `VDC-PROGRESS-20260915-005` 及旧采集计划将 8192 标为 events/
+  `grant_event_limit` 的描述有误。真实 `calibration_manager_origin_trial_configured()`
+  第二参数是 `rearm_budget_ticks`；本轮请求为 8192 clk_sys ticks、256 次 abort
+  polls、30 s 期限（250 MHz 下为 7500000000 ticks），未证明任何事件数量配额。
+  旧封存原件不改写，本轮 `acquisition-plan.json` 明确纠正口径。
+- 资源与构建：`current-plan-r1.json` 绑定源码指纹
+  `116d29292bb64076e94f2691095c8490d26d4569ff4865400fe1c4ccacf39f0c` / 1087，
+  6/8 节点 A/B 均链接通过。build ID 沿用 `20260914184059`，必须同时核对
+  package SHA，六节点为 `c91efb6172c9097e52bd6b1706a676f353873c2c14b6e8fe481871355abb86e3`。
+  目标 map 的 `s_origin_attempt` 为 80 B，扣 heap 预留后的余量为
+  18284/14524 B，SCRATCH_X 数据为零；无新增 Core1 诊断消费路径。
+- 当前源码 P3 用时 184.562 s，普通短帧 passed/closed_loop/realtime/diagnostic
+  全为 true，`strict_gates_passed=true`、diagnostic failures 为空；本轮安全 SCK
+  行为 `[1,0,0,0]`、最小 margin 为零。四板各 14 槽加 baseline，STOP/ACK 后
+  顺序 SD 保存读取 7.766 s，CRC/UID/build/epoch 与 SRAM 原件一致。新一轮通过
+  不能追认此前 coarse/SCK 拒绝已通过，也不能据此归因旧 grant 失败。
+- 预声明负测 `negative-stopped-r1`：四板停稳后唯一 TRIAL 返回 `<timeout>`，
+  ERR 为 -200；reason 为 `RING_DISABLED`，mask 仅含 ring，observed/expected
+  为 0/1，请求值完整。REVOKE 前后历史逐字段一致，live grant enabled 为零。
+  这直接证明拒绝可表现为主机无数值响应，不能据此推断执行耗时超预算。
+- 预声明唯一自主 `capture-r1` 用时 39.969 s，准入 ACCEPTED，trial epoch 为
+  40、配置初末均为 71、模型初末均为 24，mask 为 1023。四板各 18 槽加 baseline，
+  collection 全通过；三从 epoch 为 2，published 为 7120/7185/7253，完整记录内
+  无 INVALID，最大服务间隔为 1579/1585/1588 µs，FIFO 最大为 4/4/2 words。
+  顺序 SD 保存读取 8.766 s，与 SRAM 逐字节一致。本轮没有发生 grant 拒绝，
+  `VDC-PROGRESS-20260915-006` 的具体拒绝原因仍 unknown。
+- 自主总门禁保持 false：第三个连续健康样本最晚在约 2.012 s 完成，超过预声明
+  2 s startup 门；NO1 另有 `adapter_tx_not_growing`、
+  `physical_flight_persona_mismatch` 和 `periodic_interval_gate_failed`。
+  diagnostic 为 true，只说明本次完整记录与从板观察连续性，不能提升为全部自主
+  门禁、真实输出锁相或物理时间精度通过；不追加择优轮次，不放宽期限。
+- 下一 gate：准入诊断完成后继续 `VDC-TIME-002`，先将真实 DMA 复制前后水位、
+  observation epoch、候选范围/bit shift 与跨 ARM 的独立代际随私有 packet 交给
+  RX station；独立验收后再做 Core1 READY 边界的原始事件候选查询。station 取消
+  epoch 不作逐包 ID，FLIGHT_MUTABLE 的头 CRC 不等于所有邮箱 CRC 通过；
+  同 sequence 仅是候选，物理身份与 anchor 仍待证明。`VDC-TIME-003/004` 保持
+  PENDING，OTA 实现和 NO5 保持本轮既定范围。
 
 ### VDC-PROGRESS-20260915-006 — 原始事件有界历史与失效退休
 
@@ -156,7 +216,7 @@ Last updated: 2026-09-15
   将后续普通短帧通过描述为全部严格校准通过。
 - 固定三轮自主观察：按 `acquisition-plan.json` 完成 `capture-r1/r2/r3`，不追加择优
   轮次。wire 周期 1 ms、Core1 整表 1.5 ms、startup 2 s 加运行窗口 6 s、状态快照
-  500 ms、有限 grant 30 s/8192 events；每轮四板均为 18 个定时槽加 baseline，
+  500 ms、有限 grant 30 s/8192 rearm ticks（原 events 口径勘误见 007）；每轮四板均为 18 个定时槽加 baseline，
   collection 为 COMPLETE、无漏采，全部 STOP/ACK 后顺序保存 SD，与 SRAM 逐字节
   一致。快照间隔沿用上一轮容量修正，不能等同于原 250 ms 记录密度。
 - 三从连续性：各轮 observer epoch 依次为 2/3/4，从首次 ACTIVE 至末样本均为
