@@ -14,20 +14,30 @@ Last updated: 2026-09-14
 任务状态只使用 `DONE`、`IN PROGRESS`、`PENDING`、`BLOCKED`。
 
 - `DONE`：代码/文档、必要构建和对应硬件/集成门禁均已闭合。
-- `IN PROGRESS`：当前唯一允许推进的任务切片，或已有实现但证据未闭合。
+- `IN PROGRESS`：当前执行切片，或已有实现但证据未闭合；后者不代表同时开放新的实现。
 - `PENDING`：依赖尚未完成，不得提前实现或验收。
 - `BLOCKED`：有明确外部阻塞、失败证据和下一解除条件。
 
 构建号、板端计数、replay 结果和 HIL 路径只进入 `VDC_TASK_PROGRESS.md`，不改变任务语义。
 
-## 长期执行目标：可配置主从 DPLL
+## 长期执行目标：符合 HAOFV 的可配置多节点 DPLL 锁相闭环
 
 目标 ID：`VDC-LONGTERM-001`。
 
 在不破坏 HAOFV owner 边界和 TDMA resident cycle 的前提下，将四节点环形系统实现为
 可配置的 DPLL 控制集群。每块板保留相同的 PI、DCO、lock 和 quality 能力；运行时由
 控制 profile 选择 `MASTER` 或 `FOLLOWER`。首个基线为一主三从，后续必须能够验证多主机
-组合和主机切换，而不需要复制另一套固件或修改物理拓扑。
+组合和主机切换，而不需要复制另一套固件或修改物理拓扑。闭环必须贯通命令运输、
+共同时间映射、定时应用和实际输出测量，最终达到经过评审的相位精度、稳定性及恢复
+门限，不能以状态位或命令计数代替实际输出锁相。
+
+节点容量由 `PROJECT_NODE_CAPACITY` 限定；STOP 后选择准入节点数和 operating profile，
+ARM 冻结 mailbox 布局及完整静态调度表，RUN 不改变配置。Core1 整表周期以
+`PROJECT_CORE1_PROFILE_1500US_CYCLES`、`PROJECT_CORE1_PROFILE_5MS_CYCLES`、
+`PROJECT_CORE1_PROFILE_10MS_CYCLES`、`PROJECT_CORE1_PROFILE_15MS_CYCLES` 和
+`app_realtime_profile.c` 为事实源；TDMA wire 周期另由 operating profile 描述，必须
+验证两者的关系，不能混用。后续长周期及长帧分别完成准入、资源和锁相验收，已有
+整表周期配置能力不代表长帧已经验收。
 
 ### 控制不变量
 
@@ -72,16 +82,52 @@ hardware latch；RefMem 只保存按 source slot 分离的稳定副本；Calibra
 
 ### 执行和完成定义
 
-后续严格按 `VDC-ROLE-001` 至 `VDC-ROLE-005` 的依赖推进：先完成 Domain 角色边界，
-再冻结并实现 TDMA/RefMem 定时命令契约，然后接入 Flash/SCPI，最后接入晶振驯服和主从
-组合验证。每一阶段必须同时保留 host 测试、当前源码构建、必要 P3/HIL、故障注入和回退
-证据；旧 build、旧 receipt、诊断 replay 或 NO5 外部观测不能替代当前切片验收。
+执行顺序由下方阶段表和任务依赖统一约束。`VDC-ROLE-002` 分解为 `VDC-CMD-001`
+至 `VDC-CMD-005`，全部退出条件满足后才可关闭父任务。契约审计和方案准备可以提前
+进行；固件接线、状态迁移和硬件验收必须等待相应前置 gate，不能以计划已写完代替准入。
+
+每个实现切片按“相关软件测试 → 当前源码构建 → P3/TDMA 短帧闭环 → 原始证据复核
+→ 代码与文档分离提交”完成后，再进入下一项。失败保留原件、原因和回退结果；
+quick diagnostic、forced continue、旧 receipt、旧 build 或 NO5 外部观测不能替代
+严格验收。契约冻结时另行更新域 Architecture、登记表及 C11 独立交叉审核；本 TODO
+只定义执行任务，不冻结新的 wire 格式或修改登记表状态。
+
+当前四板验证使用 SCPI 触发流程、板端 SRAM 记录、全部 RING STOP 后导出和写 SD；
+首次 RING START 到最后一次 RING STOP 之间不发查询采样。共享 StorageAO 时先保存
+TDMA 记录、释放冻结 lease，再保存 DPLL trace，并核对 CRC 和读回字节。长期分段
+观测按独立任务验收，不能成为当前命令闭环的前置依赖。
 
 长期目标只有在以下条件全部满足后才算完成：四节点 TDMA resident/process-image 连续；
 一主三从及后续主从组合均能按配置运行；丢命令、陈旧命令、错误来源、角色切换和晶振
 故障均可恢复且不启用隐式从机 PI；DCO snapshot、quality、formal gate 和 HOLDOVER/
 RELOCKING/FAULT 状态可追溯；最终相位精度只由当前源码指纹下的实测正式门禁判定，不能
 把任何预设精度承诺写成架构事实。
+
+### 分阶段执行清单
+
+下表是 `VDC-LONGTERM-001` 的执行导航；任务状态以对应任务表为准，不另建一套完成状态。
+
+| 顺序 | 阶段 | 对应任务 | 阶段退出条件 |
+|---:|---|---|---|
+| 1 | 调度与角色基础 | `VDC-RESOURCE-001`、`VDC-SCHED-001`、`VDC-ROLE-001`，复核 `VDC-TDMA-001` | 命令缓冲的 RAM 预算经目标链接复核；真实更新路径具备静态预算证据；区分本相位超限和上游迟到；主从切换清理旧状态，从机本地 evidence 不驱动 PI/DCO，短帧连续。 |
+| 2 | 冻结定时命令契约 | `VDC-CMD-001` | 来源、序列、代际、完整性、共同生效时间和过期策略在域文档落点，完成登记及独立交叉审核；固定 process image 与各业务预算可复核。 |
+| 3 | 接通稳定命令运输 | `VDC-CMD-002`、`VDC-CMD-003` | Core0 按来源保留稳定命令，Core1 有界读取；从板接收计数增长；错误来源、损坏、重复、混合快照及旧会话被拒绝。 |
+| 4 | 共同时间与定时应用 | `VDC-CMD-004`、`VDC-CMD-005`，关闭 `VDC-ROLE-002` | 本地与共同时间映射可追溯；三块从板实际应用命令，应用时间与目标时间可对账；丢失或迟到命令保持可信输出，不启用本地 PI。 |
+| 5 | 四板锁相与优化 | `VDC-CAL-001`、`VDC-EVID-001`、`VDC-ROLE-003`、`VDC-SERVO-001/002`、`VDC-LOCK-001`、`VDC-SNAPSHOT-001` | 补齐正式 latch、directed delay/bias 和 freshness；基于真实命令更新优化主机闭环，分别证明内部状态、从机实际输出跟随和正式质量门禁。 |
+| 6 | 恢复、配置扩展与长稳 | `VDC-HOLD-001`、`VDC-ROLE-004/005`、`VDC-CONFIG-001`、`VDC-RUN-001`、`VDC-VERIFY-001` | 主机切换、重启、丢命令、STOP/ARM、不同节点数和周期有正反证据；无旧命令重放、无健康 TDMA 节点隔离；长稳门限及正式 RUN 条件闭合。 |
+
+### 当前执行入口
+
+已有基线和未闭合结果见 `VDC-PROGRESS-20260914-001/002`；任务分解及源码审计索引见
+`VDC-PROGRESS-20260914-003`。当前先推进 `VDC-CMD-001` 的只读审计、协议方案及负测
+设计，明确 resident 诊断数据与控制命令的区别。原函数反例和资源审计见
+`VDC-PROGRESS-20260914-004`，待审方案见 `VDC_COMMAND_TRANSPORT_PLAN.md`。
+下一固件切片先完成 `VDC-RESOURCE-001`，再复核 `VDC-SCHED-001`、`VDC-ROLE-001`
+的实现和验收缺口；命令路径接线须等待契约审核。
+
+`VDC-CMD-001` 必须回答：现有 mailbox 如何承载完整的命令身份和共同生效时间；
+如何证明接收者本地时间可映射到该时间域；如何防止 Core0/Core1 混合快照、序列回绕、
+主机代际切换及 STOP 后旧命令重放。在这些条件满足前，四板调参不得作为锁相验收。
 
 ## P0A 最高优先级：可配置 DPLL 控制角色
 
@@ -91,6 +137,7 @@ RELOCKING/FAULT 状态可追溯；最终相位精度只由当前源码指纹下�
 
 | ID | 任务 | 状态 | 依赖 | 完成或退出门禁 |
 |---|---|---|---|---|
+| `VDC-RESOURCE-001` | 收敛 compact RX 专用状态，回收此实例中未使用的通用 RefMem ACK/fence/remote-quality 数组，为命令组装和时间锚提供预算。 | PENDING | 现有 compact DELTA wire/peer/mirror/quality 行为；审计见 `VDC-PROGRESS-20260914-004` | 原/新 DELTA 接收、拒绝、peer/mirror/quality 行为对照通过；通用 receiver 保持完整能力；容量矩阵、目标 link map、当前源码 P3/短帧闭环及原始证据确认实际 RAM 回收；不借用 DMA buffer 或调整锁相门限。 |
 | `VDC-SCHED-001` | 给 DPLL 静态相位保留入口余量，消除窗口恰好等于 WCET 引起的调度饥饿。 | IN PROGRESS | `TDMA-DET-01` 完整静态表 | 全部周期目录闭合；保留原 WCET 与准入检查；当前源码 P3、短帧闭环和四板记录对照 start miss/执行/超限；SCPI 仅控制，STOP 后保存 SD；不以调度通过代替命令准入或 formal lock。 |
 
 入口余量的实现和有限对照已记录于 `VDC-PROGRESS-20260914-001`；四板锁相复测与
@@ -99,27 +146,39 @@ prepare/servo/finalize/publish 成本，区分本相位超限与上游继承迟�
 校准/控制配置复核。无更新路径的执行恢复、主板的内部 LOCKED 状态以及 resident
 邮箱诊断字段更新均不能关闭本任务，也不能替代从板实际命令应用和正式锁相证据。
 
-`VDC-ROLE-001` 至 `VDC-ROLE-004` 是当前最高优先级切片，优先于新的长期观测能力和
-自动调参。目标是让每块板保留 PI 能力，但可独立配置为 `MASTER` 或跟随一个显式指定的
+角色与命令闭环优先于新的长期观测能力和自动调参；晶振驯服在阶段表指定的扩展阶段
+验收。目标是让每块板保留 PI 能力，但可独立配置为 `MASTER` 或跟随一个显式指定的
 `FOLLOWER` source；该目标不改变 TDMA/Calibration 的训练与测量职责。
 
 | ID | 任务 | 状态 | 依赖 | 完成或退出门禁 |
 |---|---|---|---|---|
 | `VDC-ROLE-001` | 在 VDC Domain 建立 control profile、generation 和角色切换边界：主机维持 local evidence 到 PI/DCO 的既有路径；从机旁路 local PI、清理旧积分/连续锁定状态，且无 peer command 时保持上一稳定输出。 | IN PROGRESS | `VDC-EVID-001` 当前可观测接口 | host C 覆盖主机 PI 不退化、从机 local evidence 不改 DCO/积分、角色切换清理旧状态、非法 profile 拒绝；不会改变 TDMA/Calibration 训练路径。 |
-| `VDC-ROLE-002` | 在 RefMem receiver 按 source slot 保存 CRC/identity 已验收的 VDC DCO command snapshot，并由 manager 以显式 follow slot 读取和应用。 | PENDING | `VDC-ROLE-001`, TDMA mailbox receiver | 多主机来源不互相覆盖；错误来源、陈旧 sequence、无效 payload 均不驱动从机且有独立计数；从机绝不回退 local PI。 |
+| `VDC-ROLE-002` | 通过 `VDC-CMD-001` 至 `VDC-CMD-005` 闭合 resident 命令、按来源稳定副本和定时 follower apply。 | PENDING | `VDC-SCHED-001`, `VDC-ROLE-001`, `VDC-CMD-005` | 契约审核、运输、跨核一致性、共同时间映射及四板应用证据全部闭合；从机绝不回退 local PI。 |
 | `VDC-ROLE-003` | 完成 Flash control profile、manager Core0/Core1 staging mailbox 和 SCPI `ROLE` 配置/读回/显式存储。 | PENDING | `VDC-ROLE-001`, `VDC-ROLE-002` | legacy record 安全取得默认角色；任一节点可选主机或从机并显式选择 source；requested/applied generation、当前角色和拒绝计数可读，Flash 只由显式 store 写入。 |
 | `VDC-ROLE-004` | 建立独立的本地晶振驯服通道：capability/trim profile、慢速限幅 actuator、clock-model 连续性、stale/fault freeze 和 snapshot/SCPI 可观测性。 | PENDING | `VDC-ROLE-001`, `VDC-ROLE-002` | host C 覆盖 master/follower trim、无 actuator、限幅、stale/fault freeze 和 clock-model 连续性；follower DDS phase/rate 只随指定主机 command，trim 不提升 lock/quality。 |
-| `VDC-ROLE-005` | 执行角色与晶振驯服矩阵验证：单主机跟随基线、多个主机与从机组合、主机 source 切换、命令丢失/陈旧/错误来源、trim actuator fault、角色切换和回退。 | PENDING | `VDC-ROLE-003`, `VDC-ROLE-004`, `VDC-VERIFY-001` | host/replay、当前源码 build 和 P3/HIL 证据分别闭合；从机 output 只随配置主机，trim 保持共同时间连续，TDMA 连续性不受角色实验影响，精度结论只依据实测正式门禁。 |
+| `VDC-ROLE-005` | 执行角色与晶振驯服矩阵验证：单主机跟随基线、多个主机与从机组合、主机 source 切换、命令丢失/陈旧/错误来源、trim actuator fault、角色切换和回退。 | PENDING | `VDC-ROLE-003`, `VDC-ROLE-004`, `VDC-HOLD-001` | host/replay、当前源码 build 和 P3/HIL 证据分别闭合；从机 output 只随配置主机，trim 保持共同时间连续，TDMA 连续性不受角色实验影响，精度结论只依据实测正式门禁；结果输入 `VDC-VERIFY-001` 总验收。 |
 
 `VDC-ROLE-001` 是 `VDC-SERVO-001/002` 的运行架构前置：在没有明确角色边界前，禁止
 继续以四节点同时 PI 的结果作为 PID 参数稳定性结论。`VDC-OBS-005` 的调参记录也必须
 记录 role profile、follow source 和 control generation。
 
-## P0B：长期观测与闭环证据
+### 定时命令子任务与配置验收
 
-长期观测基础设施提升为当前 VDC 的 P0 主线。它服务于 DPLL 调参、拒绝定位和
-`FORMAL_LOCKED` 的证据闭环，但不改变正式锁相的前置条件：不得用诊断采样、NO5
-外部观测或 `LOCKED` 状态替代 TDMA/Calibration/formal timestamp evidence。
+| ID | 任务 | 状态 | 依赖 | 完成或退出门禁 |
+|---|---|---|---|---|
+| `VDC-CMD-001` | 审计并冻结 resident 定时命令契约；明确 mailbox 编码、来源/目标、序列、代际、CRC、共同时间和过期行为。 | IN PROGRESS | 审计可先行；冻结与接线前闭合 `VDC-SCHED-001`、`VDC-ROLE-001` | 明确 source generation 与本地 role generation 的区别，绑定会话/拓扑/调度身份；若需跨圈组装，冻结片段关联、完整性、取消和超时规则；区分命令更新序列与运输序列；时间映射的建立者和准入证据明确；wire/RAM/WCET 预算、负测方案、Architecture 落点、登记及 C11 审核齐全，不增加独立同步帧。 |
+| `VDC-CMD-002` | 建立 RefMem 命令区的跨核一致性交接及生命周期清理。 | PENDING | `VDC-CMD-001` | 单写者和按 source slot 稳定副本明确；seqlock/双缓冲/等价 guard 覆盖发布、读取、reset；Core1 有界读取，忙时保留可信输出；撕裂读取、generation 切换、STOP/reset 交错负测通过；新增静态 RAM 和代码放置经链接 map 核验。 |
+| `VDC-CMD-003` | 将已审核命令编码接入固定 process image 的 Core0 准备及接收路径。 | PENDING | `VDC-CMD-002`, TDMA mailbox receiver | 准备/解析/必要重组在实时环路外；特等席时间戳通道和 mandatory-first 分配保留；未就绪时透传上一版，解析/CRC/复制成本有预算证据；按来源的接收计数实际增长；重复、乱序、回绕、CRC 损坏、错误来源/目标、旧会话及 STOP 取消均有负测；本阶段接收成功不代表允许定时应用。 |
+| `VDC-CMD-004` | 建立代际绑定的共同时间映射、提前准备和 Core1 确定边界应用。 | PENDING | `VDC-CMD-003`，契约要求的时间锚和映射 evidence | 明确共同时间初始化，不以 clock.valid 或异步启动的本地 uptime 代替共同时间证明；校验 schedule/session/source generation 及映射 freshness；未来命令等待、过期命令拒绝、无映射时保持输出；记录目标时间、实际应用时间和偏差；不同启动时刻、延迟、时钟偏差、回绕、重启及 STOP/ARM 负测通过。 |
+| `VDC-CMD-005` | 完成一主三从的命令接收、应用和回退闭环。 | PENDING | `VDC-CMD-004` | 当前源码四板 P3/短帧及板端记录中，三块从板接收与应用增量均非零，并按 source/sequence/generation/effective time 对账；确认实际 DCO 输出采用对应命令；缺失、错误及迟到保持可信输出且无本地 PI；SCPI 仅控制，STOP 后 SD 完整性核验；不据此单独宣布正式锁相。 |
+| `VDC-CONFIG-001` | 验证 STOP 后节点数、mailbox 数量和完整静态调度周期配置，以及后续长帧配置。 | PENDING | `VDC-ROLE-005`, TDMA 对应配置准入 | 编译容量与运行节点数分离；每个准入配置的 map/trailer/DMA 长度、schedule CRC、时间映射、DPLL/触发时基一致；RUN 配置拒绝，重新 ARM 清除旧命令和旧映射；短帧、长帧及不同周期分别给出预算、P3/HIL 和锁相结果，未测配置不继承通过。 |
+
+## P0B：长期观测与闭环证据扩展
+
+长期观测基础设施服务于后续长稳、调参和拒绝定位，当前优先完成上述命令闭环。
+现有 `IN PROGRESS` 记录表示已有实现仍待验收，不与当前执行入口竞争。四板短时验证
+使用既有 SRAM/STOP 后 SD 路径；NO5 外部观测和分段流式存储另行按对应资源准入推进，
+不能阻塞命令交接或替代 TDMA/Calibration/formal timestamp evidence。
 
 目标数据链路固定为：
 
@@ -130,7 +189,7 @@ PIO/DMA EDGE_TIMESTAMP producer
   -> StorageAO segmented SD writer
   -> decoder/drop-interval/SVG analysis
   -> NO1-NO4 internal DPLL + NO5 external same-window correlation
-  -> SCPI parameter tuning and serial feedback
+  -> STOP/readback and next-run SCPI parameter tuning
   -> convergence/formal-lock decision
 ```
 
@@ -158,11 +217,12 @@ PIO/DMA EDGE_TIMESTAMP producer
 | `VDC-OBS-003` | 完成离线 decoder、缺口审计、NO1--NO4 收敛曲线和 SVG：图例必须绑定 node/channel/edge mask/timebase，缺失数据不得被插值伪装。 | PENDING | `VDC-OBS-002`, `SYNC-LA-006` | decoder 可重放所有完整段；输出曲线、缺口、dropped count、质量等级和输入指纹一致；坏段可定位且不影响其他段。 |
 | `VDC-OBS-004` | 建立 NO1--NO4 内部 DPLL 与 NO5 外部观测的同窗关联：共同时间基、TDMA sequence anchor、capture generation、SD segment sequence 和外部线缆观测边界。 | PENDING | `VDC-OBS-002`, `VDC-OBS-003`, `SYNC-LA-008` | 关联结果能区分内部环路收敛、外部链路异常、SD 背压和观测缺口；NO5 不进入 DPLL 控制或 formal promotion。 |
 | `VDC-OBS-005` | 将 SCPI 调参、串口闭环状态、residual/frequency/reject/lock feedback 与分段观测统一记录，支持小步搜索、等待稳定窗口、评分、回退和参数 generation 对账。 | PENDING | `VDC-OBS-003`, `VDC-SERVO-002`, `VDC-ROLE-003` | requested/applied generation、active profile CRC、role profile/follow source/control generation、原始命令、状态读回、raw debug gate/continuation count 和回退结果齐全；异常参数或可恢复 admission 在 debug profile 留证，不自动宣称 formal lock。 |
-| `VDC-OBS-006` | 建立分级长期 soak 与发布验收：短时调试、工程长稳、发布级长稳均使用同一 segment/decoder/关联格式，并验证断电续采、SD 背压和 TDMA 无扰动。 | PENDING | `VDC-OBS-004`, `VDC-OBS-005`, `VDC-VERIFY-001` | 各级验收 profile 明确采样时长、允许/禁止的 drop、恢复点和退出条件；原始证据、失败事实和回退点完整，才可评估 `FORMAL_LOCKED`。 |
+| `VDC-OBS-006` | 建立分级长期 soak 与发布验收：短时调试、工程长稳、发布级长稳均使用同一 segment/decoder/关联格式，并验证断电续采、SD 背压和 TDMA 无扰动。 | PENDING | `VDC-OBS-004`, `VDC-OBS-005`, `VDC-RUN-001` | 各级验收 profile 明确采样时长、允许/禁止的 drop、恢复点和退出条件；原始证据、失败事实和回退点完整，才可评估长期 `FORMAL_LOCKED`；结果输入 `VDC-VERIFY-001`，不反向依赖总验收关闭。 |
 
-P0 主线不得跳过 `VDC-TDMA-001`、`VDC-CAL-001`、`VDC-EVID-001` 的正式门禁；在正式
-evidence 未闭环前，观测与调参结果只能标记为诊断或 tracking candidate。P0 观测任务完成
-后，才允许用长时间数据评估 `VDC-SERVO-001/002`、`VDC-LOCK-001` 和最终 RUN gate。
+观测扩展不得跳过 `VDC-TDMA-001`、`VDC-CAL-001`、`VDC-EVID-001` 的正式门禁；在正式
+evidence 未闭环前，观测与调参结果只能标记为诊断或 tracking candidate。分段长期观测
+完成后才可声明连续长稳能力；当前短时锁相验证可使用已验收的 SRAM/STOP 后 SD 路径，
+仍须满足相应完整性、窗口长度和 formal gate。
 
 ## P0C：统一内部/外部观测算法
 
@@ -214,25 +274,26 @@ TDMA/Calibration 的训练与有向时延测量流程。
 
 ## Canonical migration roadmap
 
-后续只能按下面顺序迁移。前置任务的退出门禁未闭合时，后续任务保持 `PENDING`。
+下表保留既有任务 ID 和各域责任，执行阶段以上方长期目标清单为准。前置任务的退出
+门禁未闭合时，后续实现保持 `PENDING`；已有实现的 `IN PROGRESS` 不表示允许越过 gate。
 
-| 顺序 | Task ID | 任务 | Owner | 状态 | 依赖 | 退出门禁 |
+| 索引 | Task ID | 任务 | Owner | 状态 | 依赖 | 退出门禁 |
 |---:|---|---|---|---|---|---|
 | 1 | `VDC-TDMA-001` | 对接 STATE_MACHINE 的 resident lifecycle 和 TDMA Foundation 的固定 process image、UP/DOWN cycle、sequence/CRC、hardware latch。 | TDMA Foundation + STATE_MACHINE | IN PROGRESS | active TDMA profile | `RUNNING` cycle evidence 连续有效；资源/方向/persona 无冲突；VDC 不拥有 transport。 |
 | 2 | `VDC-CAL-001` | 导入 active path delay、bias、generation/freshness 和完整 observation matrix。 | Calibration + VdcSyncAO | IN PROGRESS | `VDC-TDMA-001` profile/CRC | matrix 完整、table CRC/generation/freshness 通过；缺项 fail-closed。 |
 | 3 | `VDC-EVID-001` | 将同圈 latch descriptor 展开为正式 DPLL evidence。 | VdcSyncAO + Timestamp service | IN PROGRESS | `VDC-CAL-001` | sequence/CRC/window/payload/dictionary/timestamp gate 全通过；diagnostic-only 不得 formal。 |
 | 4 | `VDC-ROLE-001` | 建立主机 local PI 与从机 bypass 的 Domain 角色边界。 | SyncDpllFB | IN PROGRESS | `VDC-EVID-001` 当前可观测接口 | role switch 清理 PI/lock history；从机 local evidence 不更新 DCO。 |
-| 5 | `VDC-ROLE-002` | 建立按 source slot 的 peer command retention 和显式 follower apply。 | RefMem + SyncDpllFB | PENDING | `VDC-ROLE-001` | peer identity/sequence/validity 全部通过才驱动 follower。 |
+| 5 | `VDC-ROLE-002` | 按 `VDC-CMD-001` 至 `VDC-CMD-005` 完成契约、稳定命令运输及定时 follower apply。 | RefMem + SyncDpllFB | PENDING | `VDC-SCHED-001`, `VDC-ROLE-001`, `VDC-CMD-005` | 交叉审核、跨核一致性、来源/序列/代际、共同时间和四板实际应用全部闭合。 |
 | 6 | `VDC-ROLE-003` | 建立 Flash、manager mailbox 与 SCPI 的角色配置和显式持久化。 | System/maintenance | PENDING | `VDC-ROLE-002` | 任意节点角色/来源可配置并可读回 requested/applied generation。 |
 | 7 | `VDC-ROLE-004` | 建立独立的本地晶振 trim、连续 clock-model 和故障 freeze。 | SyncDpllFB + clock owner | PENDING | `VDC-ROLE-001`, `VDC-ROLE-002` | trim 不得改写 DDS phase owner 或提高 lock/quality。 |
-| 8 | `VDC-ROLE-005` | 完成角色/晶振驯服矩阵故障注入、当前源码 P3/HIL 和回退证据。 | 主控验收 | PENDING | `VDC-ROLE-003`, `VDC-ROLE-004` | 多角色实验与 trim 不破坏 TDMA，精度由实测门禁判定。 |
+| 8 | `VDC-ROLE-005` | 完成角色/晶振驯服矩阵故障注入、当前源码 P3/HIL 和回退证据。 | 主控验收 | PENDING | `VDC-ROLE-003`, `VDC-ROLE-004`, `VDC-HOLD-001` | 多角色实验与 trim 不破坏 TDMA，精度由实测门禁判定；结果输入总验收。 |
 | 9 | `VDC-SERVO-001` | 实现 FLL-assisted acquisition：多周期 phase slope、受限初始 step/feed-forward、frequency sanity/slew。 | SyncDpllFB | PENDING | `VDC-EVID-001`, `VDC-ROLE-001` | 进入 `FREQ_LOCK`，只发布 coarse/tracking candidate。 |
 | 10 | `VDC-SERVO-002` | 实现二阶 Type-II PI tracking：`kp_q16/ki_q16`、显式积分状态、anti-windup、phase/rate slew、input residual 统计，以及 debug SCPI generation/mailbox 和自动回退工具。 | SyncDpllFB + System/maintenance | PENDING | `VDC-SERVO-001`, `VDC-ROLE-003` | `PHASE_LOCK` 稳定，DCO snapshot 完整可消费；debug 异常参数不被数值范围门禁拒绝，格式/资源错误仍留证。 |
 | 11 | `VDC-LOCK-001` | 建立粗锁、tracking candidate、formal lock promotion gate。 | VdcQualityGateFB + VdcSyncAO | PENDING | `VDC-SERVO-002` | fine tier、连续窗口、RMS/peak/jitter、freshness、active calibration、formal timestamp 和非 provisional path 全通过。 |
 | 12 | `VDC-SNAPSHOT-001` | 重建 VdcVector/DCO guarded snapshot，接入 core1 stable read。 | VdcVector + core1 realtime | PENDING | `VDC-LOCK-001` | seqlock/双缓冲/等价 guard 通过；stale/late/半更新 fail-closed。 |
 | 13 | `VDC-HOLD-001` | 实现 HOLDOVER aging、dispersion/drift bound、RELOCKING 和 FAULT。 | VdcSyncAO + VdcQualityGateFB | PENDING | `VDC-SNAPSHOT-001` | 丢样本不伪造锁；超预算禁止 RUN；恢复重新 acquisition。 |
 | 14 | `VDC-RUN-001` | 将 formal VDC gate 接入 RefMem mirror、T2/READY、FIRE_LOAD/RUN。 | Trigger + RefMem + SystemManager | PENDING | `VDC-LOCK-001`, `VDC-SNAPSHOT-001`, `VDC-HOLD-001` | coarse/provisional/holdover 超预算/unlocked 全部拒绝正式 FIRE_LOAD。 |
-| 15 | `VDC-VERIFY-001` | 完成 replay、故障注入、两板/四板 HIL、NO5 只读观测和长稳报告。 | 主控验收 | IN PROGRESS | 前置任务按阶段开放 | 诊断证据与正式硬件验收分离；每个失败保留原始证据和回退点。 |
+| 15 | `VDC-VERIFY-001` | 汇总阶段 replay、故障注入、四板实际输出测量、配置矩阵和长稳报告；NO5 关联见观测扩展任务。 | 主控验收 | IN PROGRESS | 分阶段开放；最终关闭需 `VDC-RUN-001`、`VDC-ROLE-005`、`VDC-CONFIG-001` 及对应长稳证据 | 诊断、命令应用、内部锁定和正式锁相分别判定；各配置绑定当前源码及原始证据，失败和回退可追溯。 |
 
 ## 迁移阶段门禁
 
@@ -250,7 +311,7 @@ TDMA/Calibration 的训练与有向时延测量流程。
 
 ### M2：粗锁与目标锁
 
-- 入口：正式 evidence 连续有效。
+- 入口：正式 evidence 连续有效；一主三从验证另需 `VDC-ROLE-002` 命令运输、时间映射和定时应用闭环。
 - 粗锁：FLL-assisted acquisition 进入 `FREQ_LOCK`，只用于 bring-up/tracking candidate。
 - 目标锁：Type-II PI tracking 满足 formal promotion，才允许 `FORMAL_LOCKED`。
 - 禁止：用 state=`LOCKED`、累计 sample count、单向 leg 或 replay passed 替代 formal lock。
@@ -263,14 +324,21 @@ TDMA/Calibration 的训练与有向时延测量流程。
 
 ## 当前阻塞与统一完成定义
 
-当前主线阻塞集中在 `VDC-TDMA-001`/`VDC-EVID-001` 的正式 hardware-latch、path matrix
-和同圈 evidence 闭环；在它们完成前，`VDC-SERVO-001/002` 只能做隔离 replay 和 host
-单测，不能用来宣称板端目标锁。
+当前缺口分别由以下任务承接，证据只引用 Task Progress，不在本表抄录单次采样数字：
+
+| 缺口 | 对应任务 | 解除条件 |
+|---|---|---|
+| 真实更新路径的 DPLL 超限、上游 TDMA 迟到和严格配置/校准验收仍待闭合 | `VDC-SCHED-001` | 用相同配置的板端窗口计数与当前源码 P3 复核，不能以无更新路径代替。 |
+| resident VDC 诊断字段与从机命令区尚未形成已验收交接 | `VDC-CMD-001/003/005` | 先审核协议，再证明三块从板有效接收及实际应用。 |
+| 命令快照一致性、序列回绕和会话取消需要闭合 | `VDC-CMD-002/003` | 有界跨核稳定读取和 reset/STOP/重启负测通过。 |
+| 共同生效时间与本地时钟映射尚未闭合 | `VDC-CMD-004` | 映射身份、建立过程和有效期可验证，实际应用时间可对账。 |
+| 正式 hardware-latch、directed delay/bias、完整 matrix 和同圈 evidence 仍待闭合 | `VDC-TDMA-001`、`VDC-CAL-001`、`VDC-EVID-001` | 正式 evidence 连续有效；此前 host/replay 和板端诊断均不能宣称目标锁。 |
 
 VDC 迁移完成必须同时满足：
 
 - HAOFV owner 边界和 STATE_MACHINE/TDMA resident lifecycle 不被破坏；
 - host/build、资源/状态机门禁和必要 OTA/HIL 通过；
 - active Calibration/path matrix、formal timestamp evidence、FLL/PI、promotion、snapshot 和 failure recovery 全链路可追溯；
+- 主机闭环、从机命令应用、实际输出跟随和正式锁相分别有证据；不同节点数、周期和帧型分别验收；
 - coarse lock、formal lock、HOLDOVER、RELOCKING、FAULT 语义在 snapshot/SCPI/report 中分离；
 - 失败时回退到最近已验证状态，不以旧复合路径、旧 receipt 或旧 build 掩盖缺口。

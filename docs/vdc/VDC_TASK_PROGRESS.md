@@ -22,24 +22,74 @@ Last updated: 2026-09-14
 
 ## 当前 checkpoint
 
-当前迁移顺序：
+执行顺序与任务状态统一见 `VDC_DOMAIN_TODO.md` 的“分阶段执行清单”和任务依赖表；
+本文仅追加每个切片已经发生的验证、失败和下一 gate，不复制第二份迁移顺序。
 
-```text
-VDC-TDMA-001
-  -> VDC-CAL-001
-  -> VDC-EVID-001
-  -> VDC-ROLE-001 / VDC-ROLE-002 / VDC-ROLE-003 / VDC-ROLE-004 / VDC-ROLE-005
-  -> VDC-SERVO-001 / VDC-SERVO-002
-  -> VDC-LOCK-001
-  -> VDC-SNAPSHOT-001
-  -> VDC-HOLD-001
-  -> VDC-RUN-001
-  -> VDC-VERIFY-001
-```
+当前执行入口为 `VDC-CMD-001` 的契约审计与方案准备；下一固件切片先复核
+`VDC-RESOURCE-001` 的 compact RX 状态回收，再闭合 `VDC-SCHED-001`、`VDC-ROLE-001`，
+命令接线须等待契约独立审核。`VDC-TDMA-001`、
+`VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
+正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
 
-当前最高优先级 gate 是 `VDC-ROLE-001`；`VDC-TDMA-001`、`VDC-CAL-001` 和
-`VDC-EVID-001` 继续作为它不变的 evidence 输入。`VDC-SERVO-001/002` 在正式
-evidence 未闭环前只允许 host/replay 验证，不得用于发布板端目标锁。
+### VDC-PROGRESS-20260914-004 — 命令时间域反例与固定邮箱候选
+
+- TODO task ID：`VDC-CMD-001`、`VDC-CMD-002`、`VDC-CMD-004`、`VDC-RESOURCE-001`。
+- 状态：IN PROGRESS；契约未冻结，固件和硬件验收状态不提升。
+- 日期：2026-09-14。
+- 证据根：`out/HardwareAcceptance/20260914/dpll-command-contract-audit/`。
+  `audit-results.json` 绑定当前 HEAD、相关源码 SHA256、提取的函数体和前序封存 manifest。
+  以下计数/容量是本轮快照，非架构事实源。
+- 原函数 host 反例：在编译容量 4/5/6 下运行当前 manager 消费函数体，每种配置包含
+  容量探针与 7 个行为案例。同时间域到期/未来正例成立；uptime 领先时提前尝试应用、
+  落后时错过已到期命令、过期无年龄上限，以及最大序列回绕到 1 被跳过均复现。
+  getter、当前时间和 Domain apply 为受控 stub，结果是 manager 的应用尝试，不是
+  新的板端应用或锁相证据。当前 clock conversion 原函数的 identity model 仍保留
+  异步启动 epoch 差，不能仅靠调用转换 API 完成共同时间初始化。
+- 时间锚反例：对 adapter 的 `sequence * cycle_period + reference_tx_phase` 算式，
+  连续 reference latch 的合成输入在 phase 回绕处产生一个 nominal period 的增量差。
+  这是算术反例，不是新采样的硬件故障；它不否定该字段用于关联，但阻止把关联标签
+  直接当作与物理时间等速的共同绝对时钟。
+- 已有 RefMem host 回归通过。首个编译命令遗漏 OTA CRC header include，失败命令
+  和 stderr 保留于 `refmem-compile.json`；按既有测试脚本补 include 后在
+  `refmem-compile-r2.json` 及 `refmem-run.json` 记录成功，不覆盖原始失败。
+- RAM 审计：compact 路径只生成 DELTA，context 对外只提供 peer、mirror、quality。
+  `resource-probe-r1.json` 记录容量 4/5/6 中未使用的 ACK/fence/remote-quality 数组
+  分别占 736/920/1104 B。它们是 native sizeof 与调用点审计，尚未移除，不能称为
+  target RAM 已释放；下一切片必须用原/新行为对照、目标 link map 和 P3 验证。
+- 方案：`VDC_COMMAND_TRANSPORT_PLAN.md` 将 local-to-common 映射与主机信号模型分开，
+  提出未来 sequence 的 latch reservation、完整时间锚和固定邮箱记录分片候选；
+  MASTER 与 FOLLOWER 都须按共同时间提交，不能发送已应用快照后声称同步提交。
+  session fence、记录字段和提前量待审核，未登记契约、未启用 parser 或实时 apply。
+- 验证：本轮文档门禁结果另存证据根的 `docs-*-r1.log`；没有运行 OTA、板端采样或
+  新 P3。此前短帧/调度/正式锁相失败保持原结论。
+- 下一 gate：`VDC-RESOURCE-001` 先落实 compact 状态回收的行为等价性及当前源码
+  build/P3，再继续阶段基础和 `VDC-CMD-001` 可执行规格/独立审核。
+
+### VDC-PROGRESS-20260914-003 — 锁相长期目标与分阶段执行清单
+
+- TODO task ID：`VDC-LONGTERM-001`、`VDC-SCHED-001`、`VDC-ROLE-001/002`、
+  `VDC-CMD-001`、`VDC-CONFIG-001`、`VDC-VERIFY-001`。
+- 状态：IN PROGRESS；本次只更新执行计划和审计索引，不提升固件或锁相验收状态。
+- 日期：2026-09-14。
+- 变更：按用户要求将长期目标拆为调度/角色基础、命令契约、稳定运输、共同时间应用、
+  四板锁相优化、恢复/配置/长稳阶段；保留既有 Task ID，将 `VDC-ROLE-002` 细分为
+  `VDC-CMD-001` 至 `VDC-CMD-005`，新增 `VDC-CONFIG-001` 跟踪配置矩阵验收。
+  明确审计可先行而接线须等前置 gate；长期分段观测作为扩展，不阻塞当前短时验证。
+- 基线证据：沿用 `VDC-PROGRESS-20260914-002` 的封存四板记录和
+  `out/HardwareAcceptance/20260914/dpll-four-board-profile/transport-audit.json`。
+  本次没有运行硬件采集或生成新的 P3 凭证。
+- 源码审计：`distributed_refmem_tdma_flight_parse_mailbox()` 将 VDC 字段写入
+  `last_vdc_*` 诊断状态，manager 从独立的 `s_vdc_command_context` 读取命令。
+  `distributed_refmem_get_vdc_follower_command()` 使用裸结构复制，需在
+  `VDC-CMD-002` 覆盖发布和 reset 的一致性交接；本轮未以并发实测宣称发生撕裂。
+- 时间与序列审计：`vdc_dpll_manager_consume_follower_command()` 将
+  `effective_vdc_time_ns` 与 `vdc_dpll_manager_now_ns()` 比较，并使用普通大小比较
+  跳过命令序列；共同时间映射和回绕语义分别纳入 `VDC-CMD-004` 与
+  `VDC-CMD-001/003`。这两项不是三从板零接收增量的实测原因，不能混同运输缺口。
+- 验证记录：`out/doc-audit/20260914-vdc-lock-todo/` 保存本次文档检查命令与结果。
+  TODO 本身不冻结新 wire 契约；Architecture 和登记表状态不因本次计划更新而改变。
+- 下一 gate：完成 `VDC-CMD-001` 的编码/时间域/资源预算及正反测试方案，独立审核后
+  再按 TODO 的前置条件实施；调度、角色及正式 evidence 缺口继续保留。
 
 ### VDC-PROGRESS-20260914-002 — 四板锁相复测与 owner 读取成本
 
