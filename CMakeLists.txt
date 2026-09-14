@@ -542,6 +542,7 @@ set(PROJECT_APP_SOURCES
         components/tdma/src/tdma_rx_scan.c
         components/tdma/src/tdma_origin_plan.c
         components/tdma/src/tdma_event_observer.c
+        components/tdma/src/tdma_event_history.c
         components/tdma/src/tdma_origin_build_job.c
         components/tdma/src/tdma_origin_blackout.c
         components/tdma/src/tdma_origin_handoff.c

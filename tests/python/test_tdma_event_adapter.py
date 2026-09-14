@@ -72,6 +72,7 @@ PREFIX = r'''
 #include <stdio.h>
 #include <string.h>
 #include "tdma_event_observer.h"
+#include "tdma_event_history.h"
 typedef unsigned uint;
 '''
 
@@ -107,6 +108,7 @@ enum { TDMA_PIO_SPI_ROLE_MASTER = 0u, TDMA_PIO_SPI_ROLE_SLAVE = 1u,
        pio_x = 1u, pio_y = 2u, pio_null = 3u, pio_osr = 4u, pio_isr = 5u };
 static tdma_event_observer_t s_tdma_event_observer;
 static tdma_pio_spi_event_snapshot_t s_tdma_event_snapshot;
+static tdma_event_history_t s_tdma_event_history;
 static uint32_t s_tdma_event_epoch, s_tdma_event_hz, s_tdma_event_period_ns;
 static uint64_t s_tdma_event_base_us, s_tdma_event_last_service_us;
 static bool s_tdma_event_waiting;
@@ -240,6 +242,7 @@ static uint32_t pio_sm_get_pc(PIO pio, uint sm) { return pio->pc[sm]; }
 static void check_retired(void) {
     if (!require_retired) return;
     assert(s_tdma_event_observer.state == TDMA_EVENT_STOPPED);
+    assert(!s_tdma_event_history.active && s_tdma_event_history.count == 0u);
     assert(!s_tdma_event_waiting);
     for (uint i = 0; i < TDMA_EVENT_STREAMS; ++i)
         assert(s_tdma_event_observer.pending_count[i] == 0u);
@@ -402,6 +405,7 @@ static void prepare_follower(void) {
     require_retired = false;
     tdma_event_start(&physical);
     assert(s_tdma_event_observer.state == TDMA_EVENT_ACTIVE);
+    assert(s_tdma_event_history.active && s_tdma_event_history.epoch == s_tdma_event_epoch);
     assert(!s_tdma_event_waiting && (bank.ctrl & TDMA_EVENT_SM_MASK) == TDMA_EVENT_SM_MASK);
     assert(published_slot()->epoch == s_tdma_event_epoch);
 }
@@ -554,6 +558,7 @@ static void test_post_enable_low_remains_invalid_until_explicit_rearm(void) {
         tdma_event_start(&physical);
         assert(gpio_script_index == 3u && enabled_masks == enables_before + 1u);
         assert(s_tdma_event_epoch == epoch_before + 1u && s_tdma_event_observer.state == TDMA_EVENT_INVALID);
+        assert(!s_tdma_event_history.active && s_tdma_event_history.count == 0u);
         assert(s_tdma_event_observer.reason == TDMA_EVENT_PRE_FAULT);
         assert(s_tdma_event_observer.fault_bits == TDMA_EVENT_FAULT_DIRTY_START);
         assert(!s_tdma_event_waiting && bank.ctrl == 1u);
@@ -607,7 +612,8 @@ def test_production_event_seqlock_and_persona_retirement(tmp_path: Path) -> None
     built = subprocess.run([
         gcc, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
         "-I" + str(ROOT / "components/tdma/inc"), str(unit),
-        str(ROOT / "components/tdma/src/tdma_event_observer.c"), "-o", str(executable)],
+        str(ROOT / "components/tdma/src/tdma_event_observer.c"),
+        str(ROOT / "components/tdma/src/tdma_event_history.c"), "-o", str(executable)],
         capture_output=True, text=True)
     assert built.returncode == 0, built.stdout + built.stderr
     ran = subprocess.run([str(executable)], capture_output=True, text=True)

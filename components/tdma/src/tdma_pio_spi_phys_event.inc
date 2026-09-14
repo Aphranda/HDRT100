@@ -2,6 +2,7 @@
  * a versioned event double buffer; no recorder or filesystem lives here. */
 #if PROJECT_TDMA_EVENT_OBSERVER
 #include "tdma_event_observer.h"
+#include "tdma_event_history.h"
 #include "tdma_event.pio.h"
 
 #define TDMA_EVENT_RX_SM BOARD_TDMA_TX_RTT_EVIDENCE_SM
@@ -14,6 +15,7 @@ _Static_assert(TDMA_EVENT_RX_SM == 1u && TDMA_EVENT_TX_SM == 2u &&
                "Relative IRQ layout must match the paired observer programs");
 
 static tdma_event_observer_t s_tdma_event_observer;
+static tdma_event_history_t s_tdma_event_history;
 static tdma_pio_spi_event_snapshot_t s_tdma_event_snapshot;
 static tdma_event_batch_t s_tdma_event_batch;
 static tdma_event_record_t s_tdma_event_records[TDMA_EVENT_MAX_RECORDS];
@@ -116,6 +118,7 @@ static void tdma_pio_spi_phys_event_stop(tdma_pio_spi_phys_t *phys)
     if (phys == NULL || s_tdma_pio_spi_program_persona !=
         TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER) return;
     tdma_event_observer_stop(&s_tdma_event_observer);
+    tdma_event_history_retire(&s_tdma_event_history);
     s_tdma_event_waiting = false;
     const PIO pio = phys->flight_resources.tx_pio;
     pio_set_sm_mask_enabled(pio, TDMA_EVENT_SM_MASK, false);
@@ -132,6 +135,7 @@ static void tdma_pio_spi_phys_event_prepare(tdma_pio_spi_phys_t *phys,
                                             const tdma_ring_runtime_config_t *config)
 {
     if (!tdma_pio_spi_phys_event_selected(phys)) return;
+    tdma_event_history_retire(&s_tdma_event_history);
     tdma_event_observer_init(&s_tdma_event_observer);
     memset(&s_tdma_event_snapshot, 0, sizeof(s_tdma_event_snapshot));
     s_tdma_event_hz = clock_get_hz(clk_sys);
@@ -231,6 +235,12 @@ static void tdma_event_start(tdma_pio_spi_phys_t *phys)
     ++s_tdma_event_epoch;
     (void)tdma_event_observer_start(&s_tdma_event_observer, &config,
                                    s_tdma_event_epoch, start, faults);
+    if (s_tdma_event_observer.state == TDMA_EVENT_ACTIVE) {
+        (void)tdma_event_history_start(&s_tdma_event_history,
+            s_tdma_event_epoch, s_tdma_event_hz, start);
+    } else {
+        tdma_event_history_retire(&s_tdma_event_history);
+    }
     s->start_width_cycles = start.hi - start.lo;
     s_tdma_event_waiting = false;
     if (s_tdma_event_observer.state != TDMA_EVENT_ACTIVE)
@@ -290,6 +300,11 @@ static void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys)
         (void)tdma_event_observer_feed(&s_tdma_event_observer, batch, s_tdma_event_records);
     }
     if (s_tdma_event_observer.state == TDMA_EVENT_ACTIVE && count != 0u) {
+        /* Retain the whole validated batch, after the final sticky-fault
+         * check. Sequence lookup remains diagnostic; no packet identity or
+         * physical-clock qualification follows from retaining these words. */
+        (void)tdma_event_history_append(&s_tdma_event_history, s_tdma_event_records,
+            count, s_tdma_event_observer.joined);
         const tdma_event_record_t *last = &s_tdma_event_records[count - 1u];
         s->published = count > UINT32_MAX - s->published ? UINT32_MAX :
                        s->published + (uint32_t)count;
@@ -298,8 +313,10 @@ static void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys)
         s->rx_elapsed_cycles = last->rx_elapsed_cycles;
         s->tx_elapsed_cycles = last->tx_elapsed_cycles;
     }
-    if (s_tdma_event_observer.state == TDMA_EVENT_INVALID)
+    if (s_tdma_event_observer.state == TDMA_EVENT_INVALID) {
+        tdma_event_history_retire(&s_tdma_event_history);
         pio_set_sm_mask_enabled(pio, TDMA_EVENT_SM_MASK, false);
+    }
     const uint64_t duration = time_us_64() - entered;
     if (duration > s->service_max_us) s->service_max_us = duration > UINT32_MAX ? UINT32_MAX : (uint32_t)duration;
     tdma_event_publish_state(phys);

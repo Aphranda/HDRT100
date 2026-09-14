@@ -51,6 +51,7 @@ PREFIX = r'''
 #include <stdio.h>
 #include <string.h>
 #include "tdma_event_observer.h"
+#include "tdma_event_history.h"
 typedef unsigned uint;
 '''
 
@@ -98,6 +99,7 @@ static tdma_pio_spi_phys_t s_tdma_pio_spi_phys;
 static tdma_pio_spi_ring_adapter_t adapter;
 static tdma_rx_prepare_t job;
 static tdma_event_observer_t s_tdma_event_observer;
+static tdma_event_history_t s_tdma_event_history;
 static tdma_pio_spi_event_snapshot_t s_tdma_event_snapshot;
 static tdma_event_batch_t s_tdma_event_batch;
 static tdma_event_record_t s_tdma_event_records[TDMA_EVENT_MAX_RECORDS];
@@ -109,6 +111,7 @@ static int s_tdma_pio_spi_tx_dma_channel=-1, service_instance;
 static int *s_vdc_tdma_service=&service_instance;
 static unsigned fifo_reads, fifo_level_reads, capture_calls, queue_calls, accept_calls;
 static unsigned owner_lifetimes, observer_disable_calls, refmem_calls, training_calls;
+static unsigned hz_reads, fault_at_hz_read;
 static bool ota_active, skip_phase;
 static uint64_t time_us_64(void) { return now_us; }
 static uint64_t vdc_dpll_manager_now_ns(void) { return now_us*1000u; }
@@ -118,7 +121,10 @@ static void tdma_service_timing_record(unsigned phase, uint64_t start) { (void)p
 static void tdma_service_timing_rx_station(uint32_t state, uint64_t now, uint64_t captured) {
     (void)state; (void)now; (void)captured;
 }
-static uint32_t clock_get_hz(unsigned clock) { (void)clock; return s_tdma_event_hz; }
+static uint32_t clock_get_hz(unsigned clock) {
+    (void)clock; ++hz_reads;
+    return s_tdma_event_hz + (fault_at_hz_read != 0u && hz_reads == fault_at_hz_read ? 1u : 0u);
+}
 static uint32_t pio_sm_get_pc(PIO pio, uint sm) { return pio->pc[sm]; }
 static uint pio_sm_get_rx_fifo_level(PIO pio, uint sm) {
     assert(sm>0u); ++fifo_level_reads; return pio->level[sm];
@@ -195,6 +201,7 @@ static void reset(void) {
     now_us=s_tdma_event_base_us=s_tdma_event_last_service_us=0u;
     fifo_reads=fifo_level_reads=capture_calls=queue_calls=accept_calls=0u;
     owner_lifetimes=observer_disable_calls=refmem_calls=training_calls=0u;
+    hz_reads=fault_at_hz_read=0u;
     ota_active=skip_phase=s_tdma_event_waiting=false;
     s_tdma_pio_spi_program_persona=TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER;
     s_tdma_runtime_owner_initialized=true;
@@ -205,6 +212,8 @@ static void reset(void) {
     const tdma_event_config_t cfg={.pio_hz=125000000u,.epoch_limit_cycles=UINT64_C(7500000000),
         .join_timeout_cycles=750000u,.min_frame_cycles=30000u,.max_tx_delay_cycles=8u};
     assert(tdma_event_observer_start(&s_tdma_event_observer,&cfg,1u,(tdma_event_interval_t){0u,0u},0u));
+    tdma_event_history_init(&s_tdma_event_history);
+    assert(tdma_event_history_start(&s_tdma_event_history,1u,cfg.pio_hz,(tdma_event_interval_t){0u,0u}));
     adapter.rx_preparation=&job; adapter.phys_rx=capture; adapter.phys_context=&s_tdma_pio_spi_phys;
     job.state=TDMA_RX_PREPARE_BUILDING;
 }
@@ -234,6 +243,20 @@ static void test_rx_preparation_and_queue_cannot_starve_observer(void) {
         tdma_component_core1_service();
         assert(s_tdma_event_observer.state==TDMA_EVENT_ACTIVE);
         assert(s_tdma_event_snapshot.published==emitted);
+        /* Every retained event is queried, including earlier entries in a
+         * multi-event harvest. Never substitute the latest snapshot. */
+        for(uint32_t ordinal=0u;ordinal<emitted;++ordinal) {
+            tdma_event_record_t raw;
+            const bool retained=tdma_event_history_lookup(&s_tdma_event_history,1u,ordinal+1u,&raw);
+            assert(retained == (emitted-ordinal<=TDMA_EVENT_HISTORY_CAPACITY));
+            if(retained) {
+                assert(raw.ordinal==ordinal && raw.sequence==ordinal+1u);
+                assert(raw.raw_rx==UINT32_MAX-31250u-62517u*ordinal);
+                assert(raw.tx_elapsed_cycles-raw.rx_elapsed_cycles==2u);
+                assert(raw.diagnostic_only && raw.identity_unproved && raw.physical_first_unproved);
+                assert(!raw.timestamp_valid && !raw.dpll_eligible);
+            }
+        }
         assert(s_tdma_event_snapshot.service_count==phase);
         assert(s_tdma_event_observer.reads_last<=24u && fifo_reads-read_before<=24u);
         assert(bank.level[1]==0u && bank.level[2]==0u && bank.level[3]==0u && bank.fdebug==0u);
@@ -284,11 +307,24 @@ static void test_stall_remains_permanent_failure(void) {
     now_us=6000u; tdma_component_core1_service();
     assert(fifo_reads==21u && s_tdma_event_observer.state==TDMA_EVENT_INVALID);
 }
+static void test_final_fault_retires_prior_and_whole_new_batch(void) {
+    reset(); event(0u); now_us=1500u; tdma_component_core1_service();
+    tdma_event_record_t raw;
+    assert(tdma_event_history_lookup(&s_tdma_event_history,1u,1u,&raw));
+    event(1u); event(2u); now_us=3000u;
+    fault_at_hz_read=hz_reads+3u; /* final sticky-fault check after feed */
+    tdma_component_core1_service();
+    assert(s_tdma_event_observer.state==TDMA_EVENT_INVALID);
+    assert(s_tdma_event_snapshot.published==1u);
+    for(uint seq=1u;seq<=3u;++seq)
+        assert(!tdma_event_history_lookup(&s_tdma_event_history,1u,seq,&raw));
+}
 int main(void) {
     test_rx_preparation_and_queue_cannot_starve_observer();
     test_capture_has_no_second_harvest();
     test_not_armed_master_and_uninitialized_are_noops();
     test_stall_remains_permanent_failure();
+    test_final_fault_retires_prior_and_whole_new_batch();
     puts("production TDMA owner: 24 phases, busy RX/queue, single bounded harvest, permanent faults passed");
     return 0;
 }
@@ -302,7 +338,8 @@ def test_owner_phase_services_observer_independently_of_rx_capture(tmp_path: Pat
     executable = tmp_path / "event_service.exe"
     commands = [[gcc, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
                  "-I" + str(ROOT / "components/tdma/inc"), str(unit),
-                 str(ROOT / "components/tdma/src/tdma_event_observer.c"), "-o", str(executable)],
+                 str(ROOT / "components/tdma/src/tdma_event_observer.c"),
+                 str(ROOT / "components/tdma/src/tdma_event_history.c"), "-o", str(executable)],
                 [str(executable)]]
     for index, command in enumerate(commands):
         result = subprocess.run(command, capture_output=True, text=True)
