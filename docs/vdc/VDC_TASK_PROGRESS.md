@@ -39,6 +39,43 @@ Last updated: 2026-09-14
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
 
+### VDC-PROGRESS-20260914-012 — quick 验收目录扫描加速
+
+- TODO task ID：`VDC-TIME-002`、`VDC-VERIFY-001` 的快速迭代支撑切片。
+- 状态：扫描加速和当前四板 quick 验收完成；`VDC-TIME-002` 保持 IN PROGRESS，
+  长期锁相目标未完成。
+- 日期：2026-09-14。
+- 证据根：`out/HardwareAcceptance/20260914/p3-quick-scan/`，对照前序
+  `dpll-raw-capacity/p3-r1/timing.json`。以下时间和数量均为快照，非事实源。
+- 原因与变更：此前已经使用 QUICK_DIAGNOSTIC；主要开销来自 USB 命名空间和
+  Flash 清单检查先遍历历史产物再过滤，文档锚点扫描也进入历史目录。改为
+  `os.walk` 下行前剪枝，保留源码违规规则；文档的 `SCAN_EXCLUDE_DIRS` 排除
+  `out/`，其构建或测试副本不能补足真实源码缺失的锚点。未改 P3 采集数量、超时
+  门限、OTA 块大小或短帧判据，未操作 NO5。
+- 软件验证：旧实现的三处目录遍历由负测复现；改后相关 28 项测试通过，覆盖忽略
+  目录不进入、真实违规检出、Windows C 扩展名匹配和仅旧产物存在的锚点拒绝。
+  USB 检查为 0.453 s、Flash 清单为 0.531 s；文档回归从上一切片 139.250 s
+  降到 0.546 s。Flash 清单结果与之前完全一致。检查器和 skill 副本通过
+  `--skill-sync`，登记表模板同步现有 canonical；没有变更契约登记状态。
+- 构建身份：源码指纹
+  `87e98c7fef8e30d2607079b3d2c9946ec98c1eeb9f1bfcb1f99299bbc225aea2`，build
+  `20260914084228`。新容量 6 首次完整构建为 93.469 s，A/B RAM、PIO 程序和
+  Flash 清单与前序一致。package 与 map 绑定见 `source-checkpoint-r2.json`。
+- 同类 quick 对照：增量构建复核由 326.346 s 降到 3.190 s；含该构建复核、四板
+  OTA、复位、拓扑、校准与短帧的 P3 内部总时长由 513.447 s 降到 185.790 s，
+  缩短 327.657 s，约 63.8%。外部命令总耗时为 186.062 s，四板 OTA 占 105.978 s。
+  首次完整构建另计，两段实测合计约 280 s；不能把有 cache 的 quick 耗时当作
+  从空目录首次编译的耗时。各阶段明细见 `review-final-r2.json`；初版 review 对
+  重复阶段名称取最后一项，复核版已改为累计，原件保留。
+- 硬件结果：当前源码 quick receipt 的 `strict_gates_passed=true`、失败列表为空，
+  短帧 passed/closed_loop_passed/realtime_gate_passed 均为 true。四板各 14 条
+  原生 SRAM 记录完整、无漏采，全部 STOP 后 SD 字节一致，最终 config ACK、
+  临时许可证 inactive。该 quick 范围的门禁通过不代表 DPLL 命令、共同时间或
+  正式锁相已完成。
+- 下一 gate：返回 `VDC-TIME-002` 的剩余目标容量和硬件配置，再按既有顺序处理
+  全窗切换连续性、边沿误差和同圈输入。快速迭代复用同配置构建目录，各轮验收
+  证据另存；源码改变后仍运行当前指纹的 P3，不能用旧 receipt 或 replay 放行。
+
 ### VDC-PROGRESS-20260914-011 — 目标容量 RAM 缺口与 UI 状态副本收敛
 
 - TODO task ID：`VDC-TIME-002`、`VDC-CONFIG-001`、`VDC-TDMA-001`、`VDC-EVID-001`。

@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_REGRESSION_REVIEW.md`
 Related: `docs/check/DOCS_REGRESSION_PLAN.md`, `docs/check/DOCS_REGRESSION_TODO.md`
-Last updated: 2026-08-24
+Last updated: 2026-09-14
 
 > 本文件总结 2026-08-19 实施 T1-T13 过程中发现的全部问题与解法，供后续维护和 skill 复用。
 
@@ -78,3 +78,16 @@ Last updated: 2026-08-24
 当一个域同时维护架构、实施清单和实施证据时，三份标准文件必须分工明确：Architecture 维护稳定
 语义，TODO 维护状态和退出门禁，Task Progress 维护提交/构建/HIL/阻塞证据。实施快照不能回填到
 Architecture，TODO 只保留证据索引；契约登记仍以 `DOCS_REGISTRY.md` 为唯一事实源。
+
+## 9. 历史产物扫描与快速验收
+
+`Path.rglob()` 之后再过滤目录仍会先进入历史产物树。USB 命名空间、Flash 裸调用和
+文档锚点检查改用遍历前剪枝；排除规则分别由 `SKIP_DIRS`、`EXCLUDED_PARTS` 和
+`SCAN_EXCLUDE_DIRS` 定义。文档锚点和常量索引不使用 `out/` 中的构建、测试或旧源码
+副本，防止它们误补一个已经从真实源码删除的锚点。
+
+验证必须同时证明目录没有被遍历，以及真实源码中的违规仍会被拒绝。对应回归见
+`tests/python/test_build_scan_pruning.py`；Flash 清单须与原有效结果一致。修改文档
+检查器后继续执行 `--skill-sync`，登记表模板只是当前 canonical 登记表的同步副本，
+不表示新增或批准契约。各次耗时和完整 quick P3 结果见
+`out/HardwareAcceptance/20260914/p3-quick-scan/`，数字仅为该次环境快照。
