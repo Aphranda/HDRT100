@@ -43,13 +43,54 @@ Last updated: 2026-09-14
 `VDC-PROGRESS-20260914-021`；RX 同相位补充捕获的失败与回退见
 `VDC-PROGRESS-20260914-022`；RX/TX latch 直接初始化及四板对照见
 `VDC-PROGRESS-20260914-023`；RX 消费能力和缓冲余量的离线审计见
-`VDC-PROGRESS-20260914-024`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
+`VDC-PROGRESS-20260914-024`；TDMA review 06 的证据口径复核见
+`VDC-PROGRESS-20260914-025`。当前入口仍为 `VDC-TIME-002`，补齐硬件配置、交接时延
 及调度失败证据后，才开放全窗计时验收。按 `VDC-TIME-001` 至 `VDC-TIME-004` 补齐
 `VDC-TDMA-001` / `VDC-EVID-001` 的自主时间戳输入，再推进 `VDC-SCHED-001`、
 `VDC-ROLE-001`；全表 WCET 和正式锁相仍未闭合，
 命令接线须等待契约独立审核。`VDC-TDMA-001`、
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
+
+### VDC-PROGRESS-20260914-025 — TDMA review 06 的模式、身份及窗口复核
+
+- TODO task ID：`VDC-TIME-002`、`VDC-EVID-001`、`VDC-VERIFY-001`。
+- 状态：IN PROGRESS。完成用户指定 review 的只读证据复核；没有固件或板端操作，
+  不改变 review 的 C11 状态、契约登记或正式时间输入门禁。
+- 日期：2026-09-14。
+- 证据：`out/HardwareAcceptance/20260914/dpll-review06-audit/review06-audit-r1.json`。
+  原 review 单独归档；复核绑定其引用的 latch-direct-seed/handoff-r2 summary、
+  origin 原生记录、完整逐槽报告、源码和上一封存。以下数字为该轮快照，非事实源。
+- P1/P2 的主因判断与原件不符：summary 的 25 个相邻区间中，origin 的
+  receive_rejected、bitmap_incomplete 和 receive_missing 增量全部为零，25 次
+  可比较的 feedback identity 全部匹配。实际区间错误为
+  `physical_flight_persona_mismatch` 25 次、`adapter_tx_not_growing` 24 次，来自
+  旧检查器对普通 persona 和软件 TX 增量的假设；已由进度 021 的离线工具区分，
+  原 TRN03 gate 继续保留 false。不能因此推导为本窗持续 bitmap 故障并直接修复。
+- 身份与时刻混用：review 引用的不等 identity 属于 `runtime_before`，当时是普通
+  origin persona 11，TX/RX sequence 为 276/275；相差 4,540,504 ns 的时间戳也来自
+  该快照，且 ring_last_error 为零。它们没有同圈前提，不能据此证明自主模式持续
+  关联倒置。`runtime_after` 已是自主 persona 16，TX/RX sequence 均 6369、identity
+  均 191664741；运输身份一致仍不等于已获得有效的同圈物理时间戳。
+- “时间戳前提闭合”未被证明：flags=2/resolution=8 ns 来自普通模式 before；自主
+  after 是 flags=1（DIAGNOSTIC_ONLY）、resolution=0，reference TX 和 feedback RX
+  时间戳均为零。origin 原生 slot 6–33 的 legacy latch_count 恒为 318，不能用
+  切换前增长证明自主时间输入连续。`tdma_pio_spi_phys_origin.inc` 明确清除 CPU
+  latch armed，由自主 graph 拥有 raw capture/rearm；量化分辨率不能替代实际边沿
+  精度、逐圈关联或 formal qualification。
+- WCET 与整窗边界：四板 DPLL cumulative max 在 summary 的 before/after 均相同；
+  该 summary 覆盖期 NO1 新增 overrun/deadline 为 3/3，从板均零，不能写成四板本轮
+  新增超限。完整原生窗口另保留启动 reject/bitmap 5/4/4/2 和 RX ring overrun
+  0/6/3/0；解码错误为零不证明无观察覆盖、物理零误码或全窗已通过。摘要窗口与
+  原生完整窗口、历史最大值与本窗增量必须分别引用。
+- 采纳与下一 gate：保留 review 关于关联、共同时间、DPLL 实际更新预算和严格
+  准入分别验收的检查清单；不采纳其未经模式/身份区分的 P1/P2 根因判断及物理层
+  闭合结论。当前仍为 `VDC-TIME-002`：先补站台等待、DMA 初次观察间隔及 drop
+  原因，完成 raw 身份/保持量和同圈计时前置条件；`VDC-TIME-003/004` 保持 PENDING。
+  不提前接通命令、去除临时许可证、隔离健康节点或声明四板锁相。
+- 工作区：外来 review 05/06 与索引更新保留；本轮 RX diagnostics 初始化在检查到
+  外来文档散列变化时终止，尚未创建基线副本或修改固件，随后优先完成本次用户
+  指定复核。终止记录与外来新散列已归档，下轮从新的工作区快照继续实现。
 
 ### VDC-PROGRESS-20260914-024 — RX 单站台吞吐与观察缓冲余量审计
 
