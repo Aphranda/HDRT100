@@ -69,6 +69,25 @@ Last updated: 2026-09-15
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
 
+### VDC-PROGRESS-20260915-015 — RX scan/drop 根因审计与验证基线复核
+
+- TODO task ID：`VDC-TIME-002`；状态 IN PROGRESS。本条只记录当前源码审计和软件验证
+  基线，不改变 TDMA/VDC 契约，也不授予 observer、首帧或锁相资格。
+- `tdma_pio_spi_phys_rx_scan.inc` 当前在 `produced - scan_produced > keep` 时将游标前移
+  并递增 `rx_observation_drop_count`；`keep` 由调用方 `max_words` 加观察扫描余量构成，
+  因而在两帧已完成而单次请求上限小于物理帧跨度时，会把“为保护环形覆盖而丢弃旧前缀”
+  与“首帧交接丢失”合并计数。该计数不能直接解释为物理首帧丢失，下一切片必须先把
+  backlog/clamp、scan cursor 和 observer 首 ordinal 分开记录，再评估是否需要增大保留窗口；
+  不放宽 sequence 或身份门禁。
+- 当前全量 host/real-C 回归基线为 1655 passed、1 skipped、2 failed、15 errors。失败/错误
+  集中在已有的 event-service/fixture 提取和 latch/origin 组合测试（例如 fixture 未提供
+  `tdma_rx_start_cut_monitor`、`tdma_pio_spi_phys_event_selected`），未形成新的生产硬件证据；
+  该结果保留在 `out/pytest/runs/`，不能用来替代本轮 52 项专项通过结果。代码切片未提交，
+  不覆盖另一设备的单板修改。
+- 下一 gate：继续 `VDC-TIME-002`，先为 scan backlog 建立不增加实时等待的分层计数和真实 C
+  负测，再回到“STOP 完整退休后冻结 geometry、下一 ARM 显式 generation 选择”的 observer
+  预启动实现；`VDC-TIME-003/004`、DPLL 正式锁相仍保持 PENDING。
+
 ### VDC-PROGRESS-20260915-014 — 板端有限发帧与最早原始前缀保留
 
 - TODO task ID：`VDC-TIME-002`；状态 IN PROGRESS。证据根为
