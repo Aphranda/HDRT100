@@ -22,9 +22,10 @@ def production(directory: Path) -> str:
     end = header.index("} tdma_pio_spi_event_snapshot_t;") + len("} tdma_pio_spi_event_snapshot_t;")
     start = header.rfind("typedef struct {", 0, end)
     snapshot = header[start:end]
-    tap_end = header.index("} tdma_pio_spi_event_tap_snapshot_t;") + len("} tdma_pio_spi_event_tap_snapshot_t;")
+    tap_end = header.index("} tdma_pio_spi_event_recovery_snapshot_t;") + len("} tdma_pio_spi_event_recovery_snapshot_t;")
     tap_types = header[header.index("#define TDMA_PIO_SPI_EVENT_TAP_MAX_DELAY_CYCLES"):tap_end]
     tap_storage = source[source.index("/* EVENT_TAP_STORAGE_BEGIN"):source.index("/* EVENT_TAP_STORAGE_END */")]
+    tap_storage += source[source.index("/* EVENT_RECOVERY_STORAGE_BEGIN"):source.index("/* EVENT_RECOVERY_STORAGE_END */")]
     atomic_hooks = FIXTURE[FIXTURE.index("#define __atomic_load_n"):FIXTURE.index("#define __dmb")]
     # Tap payload atomics have their own tests. Preserve the existing event
     # snapshot/first-window injection hooks around the new production block.
@@ -71,9 +72,11 @@ def production(directory: Path) -> str:
         ("uint32_t", "tdma_event_faults", "tdma_pio_spi_phys_t *phys"),
         ("void", "tdma_event_publish_state", "tdma_pio_spi_phys_t *phys"),
         ("bool", "tdma_pio_spi_phys_event_copy", "const tdma_pio_spi_phys_t *phys, tdma_pio_spi_event_snapshot_t *out"),
+        ("void", "tdma_event_recovery_record_failure", "tdma_pio_spi_phys_t *phys, const tdma_event_batch_t *batch, uint32_t final_faults"),
         ("void", "tdma_pio_spi_phys_event_stop", "tdma_pio_spi_phys_t *phys"),
         ("void", "tdma_pio_spi_phys_event_prepare", "tdma_pio_spi_phys_t *phys, const tdma_ring_runtime_config_t *config"),
         ("void", "tdma_event_start", "tdma_pio_spi_phys_t *phys"),
+        ("void __attribute__((unused))", "tdma_event_recovery_step", "tdma_pio_spi_phys_t *phys"),
     ]
     for result, name, arguments in signatures:
         routines.append(f"static {result} {name}({arguments}) {{" + c_definition_body(source, name) + "}\n")

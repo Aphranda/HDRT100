@@ -51,6 +51,31 @@ scpi_result_t scpi_cmd_tdma_event_tap_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_tdma_event_recovery_q(scpi_t *context)
+{
+    tdma_pio_spi_event_recovery_snapshot_t snapshot;
+    if (!tdma_runtime_owner_get_event_recovery(&snapshot)) return SCPI_RES_ERR;
+    SCPI_ResultUInt32(context, snapshot.pending);
+    SCPI_ResultUInt32(context, snapshot.failure_count);
+    SCPI_ResultUInt32(context, snapshot.attempt_count);
+    SCPI_ResultUInt32(context, snapshot.enable_count);
+    SCPI_ResultUInt32(context, snapshot.deferral_count);
+    SCPI_ResultUInt32(context, snapshot.cancel_count);
+    SCPI_ResultUInt32(context, snapshot.cancel_reason);
+    SCPI_ResultUInt32(context, snapshot.service_max_us);
+    SCPI_ResultUInt32(context, snapshot.last_failure_epoch);
+    SCPI_ResultUInt32(context, snapshot.last_failure_reason);
+    SCPI_ResultUInt32(context, snapshot.last_failure_fault_bits);
+    SCPI_ResultUInt32(context, snapshot.last_accepted_sequence);
+    SCPI_ResultUInt32(context, snapshot.last_accepted_ordinal);
+    SCPI_ResultUInt32(context, snapshot.last_batch_sequence_first);
+    SCPI_ResultUInt32(context, snapshot.last_batch_sequence_valid);
+    SCPI_ResultUInt32(context, snapshot.binding_tap_generation);
+    SCPI_ResultUInt32(context, snapshot.binding_arm_epoch_lo);
+    SCPI_ResultUInt32(context, snapshot.binding_arm_epoch_hi);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_tdma_opmode_catalog_q(scpi_t *context)
 {
     SCPI_ResultUInt32(context, TDMA_OPERATING_PROFILE_COUNT);

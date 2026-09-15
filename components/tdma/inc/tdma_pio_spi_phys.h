@@ -204,6 +204,8 @@ typedef enum {
     TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN
 
 /* Diagnostic snapshot published through its own versioned double buffer.
+ * Sample/service counters and maxima describe the current observer epoch;
+ * recovery's cumulative timing/failures are exported separately below.
  * Neither raw cycles nor the first wire sequence confer timestamp identity. */
 typedef struct {
     uint32_t state, reason, epoch, waiting, pio_hz, prefix_bits;
@@ -230,6 +232,33 @@ typedef struct {
     uint32_t applied_valid, actual_valid;
     uint32_t actual_prefix_bits, actual_sample_delay_cycles;
 } tdma_pio_spi_event_tap_snapshot_t;
+
+enum {
+    TDMA_EVENT_RECOVERY_NONE = 0u,
+    TDMA_EVENT_RECOVERY_RESET_PENDING = 1u,
+    TDMA_EVENT_RECOVERY_WAIT_IDLE = 2u,
+};
+enum {
+    TDMA_EVENT_RECOVERY_CANCEL_NONE = 0u,
+    TDMA_EVENT_RECOVERY_CANCEL_STOP = 1u,
+    TDMA_EVENT_RECOVERY_CANCEL_BINDING = 2u,
+    TDMA_EVENT_RECOVERY_CANCEL_CLOCK = 3u,
+    TDMA_EVENT_RECOVERY_CANCEL_EPOCH = 4u,
+    TDMA_EVENT_RECOVERY_CANCEL_START = 5u,
+};
+/* Independent diagnostic readback; native EVENT recording layout is stable.
+ * Counters and last failure survive recovery, STOP and ARM until reboot.
+ * enable_count counts ACTIVE starts, not validated later samples. The batch
+ * word is a harvested first word, not necessarily the offending sequence.
+ * UINT32_MAX last_accepted_ordinal means this epoch published no record. */
+typedef struct {
+    uint32_t pending, failure_count, attempt_count, enable_count;
+    uint32_t deferral_count, cancel_count, cancel_reason, service_max_us;
+    uint32_t last_failure_epoch, last_failure_reason, last_failure_fault_bits;
+    uint32_t last_accepted_sequence, last_accepted_ordinal;
+    uint32_t last_batch_sequence_first, last_batch_sequence_valid;
+    uint32_t binding_tap_generation, binding_arm_epoch_lo, binding_arm_epoch_hi;
+} tdma_pio_spi_event_recovery_snapshot_t;
 
 typedef enum {
     TDMA_PIO_SPI_DATA_TRAIN_IDLE = 0u,
@@ -994,6 +1023,10 @@ bool tdma_pio_spi_phys_event_tap_set(tdma_pio_spi_phys_t *phys,
     uint32_t enabled, uint32_t prefix_bits, uint32_t sample_delay_cycles);
 bool tdma_pio_spi_phys_event_tap_get(const tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_event_tap_snapshot_t *out);
+/* Core1 is the sole writer. Bounded historical copy, no MMIO or recovery
+ * action. False (including feature disabled) leaves *out unchanged. */
+bool tdma_pio_spi_phys_event_recovery_get(const tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_event_recovery_snapshot_t *out);
 /* Core1-only station handoff. Pin after a successful private RX delivery,
  * before REQUESTED publication. Zero means unavailable, never use latest. */
 uint32_t tdma_pio_spi_phys_rx_event_pin(void *context,

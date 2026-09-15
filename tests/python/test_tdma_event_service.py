@@ -19,6 +19,9 @@ def source_fixture() -> str:
     header = (ROOT / "components/tdma/inc/tdma_pio_spi_phys.h").read_text(encoding="utf-8")
     end = header.index("} tdma_pio_spi_event_snapshot_t;") + len("} tdma_pio_spi_event_snapshot_t;")
     snapshot = header[header.rfind("typedef struct {", 0, end):end]
+    recovery_start = header.index("enum {\n    TDMA_EVENT_RECOVERY_NONE")
+    recovery_end = header.index("} tdma_pio_spi_event_recovery_snapshot_t;") + len("} tdma_pio_spi_event_recovery_snapshot_t;")
+    snapshot += "\n" + header[recovery_start:recovery_end]
     job_header = (ROOT / "components/tdma/inc/tdma_rx_prepare.h").read_text(encoding="utf-8")
     states = re.search(r"typedef enum \{.*?\} tdma_rx_prepare_state_t;", job_header, re.S).group(0)
     return PREFIX + snapshot + "\n" + states + FIXTURE
@@ -171,6 +174,14 @@ static void pio_set_sm_mask_enabled(PIO pio, uint mask, bool enabled) {
     assert(mask==TDMA_EVENT_SM_MASK && !enabled); pio->ctrl &= ~mask; ++observer_disable_calls;
 }
 static void tdma_event_start(tdma_pio_spi_phys_t *phys) { (void)phys; assert(false); }
+/* Recovery runs through the full production adapter in its dedicated tests.
+ * This fixture remains an ordinary observer with no explicit tap configured. */
+static tdma_pio_spi_event_recovery_snapshot_t s_tdma_event_recovery;
+static void tdma_event_recovery_cancel(uint32_t reason) { (void)reason; assert(false); }
+static void tdma_event_recovery_step(tdma_pio_spi_phys_t *phys) { (void)phys; assert(false); }
+static void tdma_event_recovery_publish(void) { assert(false); }
+static void tdma_event_recovery_record_failure(tdma_pio_spi_phys_t *phys,
+    const tdma_event_batch_t *batch, uint32_t faults) { (void)phys; (void)batch; (void)faults; }
 /* Archive storage/retirement is executed by the prelaunch/candidate tests.
  * This fixture retains its ordinary-service boundary with no selected archive. */
 static void tdma_rx_first_window_words(const tdma_event_batch_t *batch) { (void)batch; }

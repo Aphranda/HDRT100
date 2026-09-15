@@ -46,6 +46,8 @@ bool tdma_runtime_owner_set_ring_geometry_generation(uint32_t generation);
 bool tdma_runtime_owner_set_event_tap(uint32_t enabled, uint32_t prefix_bits,
     uint32_t sample_delay_cycles);
 bool tdma_runtime_owner_get_event_tap(tdma_pio_spi_event_tap_snapshot_t *snapshot);
+/* Retained observer-only recovery diagnostics; no hardware access. */
+bool tdma_runtime_owner_get_event_recovery(tdma_pio_spi_event_recovery_snapshot_t *snapshot);
 
 /* Core0 data-plane facade.  These functions only access the cross-core
  * software FIFO.  Core1 remains the sole PIO/SM/DMA and hardware-FIFO owner. */

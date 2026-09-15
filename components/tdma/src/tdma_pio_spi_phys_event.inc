@@ -247,6 +247,67 @@ static void tdma_event_tap_loaded(uint32_t prefix, uint32_t delay)
 }
 /* EVENT_TAP_STORAGE_END */
 
+/* EVENT_RECOVERY_STORAGE_BEGIN -- Core1 state and atomic readback only. */
+static tdma_pio_spi_event_recovery_snapshot_t s_tdma_event_recovery;
+static uint32_t s_tdma_event_recovery_words[18];
+static uint32_t s_tdma_event_recovery_guard;
+_Static_assert(sizeof(tdma_pio_spi_event_recovery_snapshot_t) ==
+    sizeof(s_tdma_event_recovery_words), "Recovery readback contains only u32 words");
+_Static_assert(sizeof(s_tdma_event_recovery) + sizeof(s_tdma_event_recovery_words) +
+    sizeof(s_tdma_event_recovery_guard) <= 160u, "Recovery storage is bounded");
+
+static void tdma_event_recovery_increment(uint32_t *value)
+{
+    if (*value != UINT32_MAX) ++*value;
+}
+
+static void tdma_event_recovery_publish(void)
+{
+    uint32_t words[18];
+    memcpy(words, &s_tdma_event_recovery, sizeof(words));
+    (void)__atomic_add_fetch(&s_tdma_event_recovery_guard, 1u, __ATOMIC_ACQ_REL);
+    for (uint i = 0u; i < 18u; ++i)
+        __atomic_store_n(&s_tdma_event_recovery_words[i], words[i], __ATOMIC_RELAXED);
+    (void)__atomic_add_fetch(&s_tdma_event_recovery_guard, 1u, __ATOMIC_RELEASE);
+}
+
+bool tdma_pio_spi_phys_event_recovery_get(const tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_event_recovery_snapshot_t *out)
+{
+    if (phys == NULL || out == NULL) return false;
+    const uint32_t interrupts = save_and_disable_interrupts();
+    const uint64_t before = time_us_64();
+    bool copied = false;
+    for (uint attempt = 0u; attempt < 3u; ++attempt) {
+        const uint32_t guard = __atomic_load_n(&s_tdma_event_recovery_guard, __ATOMIC_ACQUIRE);
+        if ((guard & 1u) != 0u) continue;
+        uint32_t words[18];
+        for (uint i = 0u; i < 18u; ++i)
+            words[i] = __atomic_load_n(&s_tdma_event_recovery_words[i], __ATOMIC_RELAXED);
+        __atomic_thread_fence(__ATOMIC_ACQ_REL);
+        const uint32_t after_guard = __atomic_load_n(&s_tdma_event_recovery_guard, __ATOMIC_ACQUIRE);
+        const uint64_t after = time_us_64();
+        if (after < before || after - before > 1000u) break;
+        if (guard == after_guard) {
+            memcpy(out, words, sizeof(words));
+            copied = true;
+            break;
+        }
+    }
+    restore_interrupts(interrupts);
+    return copied;
+}
+
+static void tdma_event_recovery_cancel(uint32_t reason)
+{
+    if (s_tdma_event_recovery.pending == TDMA_EVENT_RECOVERY_NONE) return;
+    s_tdma_event_recovery.pending = TDMA_EVENT_RECOVERY_NONE;
+    s_tdma_event_recovery.cancel_reason = reason;
+    tdma_event_recovery_increment(&s_tdma_event_recovery.cancel_count);
+    tdma_event_recovery_publish();
+}
+/* EVENT_RECOVERY_STORAGE_END */
+
 #define TDMA_EVENT_RX_SM BOARD_TDMA_TX_RTT_EVIDENCE_SM
 #define TDMA_EVENT_TX_SM BOARD_TDMA_TX_CLOCK_LATCH_SM
 #define TDMA_EVENT_SEQUENCE_SM BOARD_TDMA_TX_DATA_CAPTURE_SM
@@ -928,8 +989,41 @@ static void tdma_event_publish_state(tdma_pio_spi_phys_t *phys)
     tdma_event_publish_snapshot(phys);
 }
 
+static void tdma_event_recovery_record_failure(tdma_pio_spi_phys_t *phys,
+    const tdma_event_batch_t *batch, uint32_t final_faults)
+{
+    const tdma_event_observer_t *o = &s_tdma_event_observer;
+    tdma_pio_spi_event_recovery_snapshot_t *r = &s_tdma_event_recovery;
+    if (o->state != TDMA_EVENT_INVALID || o->epoch == 0u ||
+        r->last_failure_epoch == o->epoch || !s_tdma_event_tap_applied.enabled ||
+        s_tdma_event_prelaunch) return;
+    tdma_event_recovery_increment(&r->failure_count);
+    r->last_failure_epoch = o->epoch;
+    r->last_failure_reason = o->reason;
+    /* SEQUENCE may invalidate feed before the final sticky-fault check; that
+     * final fault must still forbid recovery even if o->fault_bits is zero. */
+    r->last_failure_fault_bits = o->fault_bits | final_faults;
+    r->last_accepted_sequence = s_tdma_event_snapshot.sequence;
+    r->last_accepted_ordinal = s_tdma_event_snapshot.published != 0u
+        ? s_tdma_event_snapshot.ordinal : UINT32_MAX;
+    r->last_batch_sequence_valid = batch != NULL && batch->count[2] != 0u;
+    r->last_batch_sequence_first = r->last_batch_sequence_valid ? batch->words[2][0] : 0u;
+    if (o->reason == TDMA_EVENT_SEQUENCE && r->last_failure_fault_bits == 0u &&
+        phys->armed && tdma_pio_spi_phys_event_selected(phys) &&
+        s_tdma_event_tap_applied_valid && s_tdma_pio_spi_rx_arm_valid &&
+        s_tdma_event_arm_epoch == s_tdma_pio_spi_rx_arm_epoch) {
+        r->binding_tap_generation = s_tdma_event_tap_applied.generation;
+        r->binding_arm_epoch_lo = (uint32_t)s_tdma_event_arm_epoch;
+        r->binding_arm_epoch_hi = (uint32_t)(s_tdma_event_arm_epoch >> 32u);
+        r->pending = TDMA_EVENT_RECOVERY_RESET_PENDING;
+        r->cancel_reason = TDMA_EVENT_RECOVERY_CANCEL_NONE;
+    }
+    tdma_event_recovery_publish();
+}
+
 static void tdma_pio_spi_phys_event_stop(tdma_pio_spi_phys_t *phys)
 {
+    if (phys != NULL) tdma_event_recovery_cancel(TDMA_EVENT_RECOVERY_CANCEL_STOP);
     /* Retire the installed persona even if configure has already changed the
      * requested role. Do this before a maintenance owner can reuse the SMs. */
     if (phys == NULL || s_tdma_pio_spi_program_persona !=
@@ -971,6 +1065,7 @@ static void tdma_pio_spi_phys_event_prepare(tdma_pio_spi_phys_t *phys,
                                             const tdma_ring_runtime_config_t *config)
 {
     if (phys == NULL) return;
+    tdma_event_recovery_cancel(TDMA_EVENT_RECOVERY_CANCEL_STOP);
     tdma_rx_start_cut_arm_begin();
     s_tdma_event_prelaunch = false;
     s_tdma_event_prelaunch_reason = TDMA_GEOMETRY_OBSERVER_OK;
@@ -995,6 +1090,7 @@ static void tdma_pio_spi_phys_event_prepare(tdma_pio_spi_phys_t *phys,
 
 static void tdma_event_start(tdma_pio_spi_phys_t *phys)
 {
+    const bool recovering = s_tdma_event_recovery.pending == TDMA_EVENT_RECOVERY_WAIT_IDLE;
     if (!s_tdma_event_waiting || !s_tdma_event_tap_applied_valid ||
         (!s_tdma_event_tap_applied.enabled && !s_tdma_event_prelaunch &&
         (!phys->flight_overlay_alignment_locked || phys->flight_overlay_alignment_samples <
@@ -1073,8 +1169,11 @@ static void tdma_event_start(tdma_pio_spi_phys_t *phys)
     tdma_pio_spi_event_snapshot_t *s = &s_tdma_event_snapshot;
     s->prefix_bits = (uint32_t)bits - 32u;
     tdma_event_tap_loaded(s->prefix_bits, sample_delay);
-    tdma_rx_dma_counter_t cut_counter = s_tdma_pio_spi_rx_sequence;
-    tdma_rx_start_cut_before(phys);
+    tdma_rx_dma_counter_t cut_counter = {0};
+    if (!recovering) {
+        cut_counter = s_tdma_pio_spi_rx_sequence;
+        tdma_rx_start_cut_before(phys);
+    }
     s->start_pad_before = gpio_get_all();
     /* Configuration/seed work can outlive the earlier idle observation. Do
      * not enable into a frame already in progress; leave the disabled SMs
@@ -1089,7 +1188,8 @@ static void tdma_event_start(tdma_pio_spi_phys_t *phys)
     pio_enable_sm_mask_in_sync(pio, TDMA_EVENT_SM_MASK);
     const uint64_t after = time_us_64();
     s->start_pad_after = gpio_get_all();
-    tdma_rx_start_cut_after(phys, &cut_counter, s->start_pad_before, s->start_pad_after);
+    if (!recovering)
+        tdma_rx_start_cut_after(phys, &cut_counter, s->start_pad_before, s->start_pad_after);
     uint32_t faults = tdma_event_faults(phys);
     if ((s->start_pad_before & cs_mask) != cs_mask ||
         (s->start_pad_after & cs_mask) != cs_mask)
@@ -1121,7 +1221,9 @@ static void tdma_event_start(tdma_pio_spi_phys_t *phys)
     s_tdma_event_waiting = false;
     if (s_tdma_event_observer.state != TDMA_EVENT_ACTIVE)
         pio_set_sm_mask_enabled(pio, TDMA_EVENT_SM_MASK, false);
-    tdma_rx_start_cut_monitor(phys);
+    if (!recovering) tdma_rx_start_cut_monitor(phys);
+    if (s_tdma_event_observer.state == TDMA_EVENT_INVALID)
+        tdma_event_recovery_record_failure(phys, NULL, faults);
     tdma_event_publish_state(phys);
 }
 
@@ -1230,12 +1332,107 @@ static uint32_t tdma_event_prelaunch_observe(tdma_pio_spi_phys_t *phys)
         ? TDMA_GEOMETRY_OBSERVER_FAULT : TDMA_GEOMETRY_OBSERVER_OK;
 }
 
+/* One reset transition or one idle/start attempt per existing owner phase.
+ * This does not call physical ARM/prepare/STOP or consume a DMA candidate. */
+static void tdma_event_recovery_step(tdma_pio_spi_phys_t *phys)
+{
+    tdma_pio_spi_event_recovery_snapshot_t *r = &s_tdma_event_recovery;
+    const uint64_t arm_epoch = ((uint64_t)r->binding_arm_epoch_hi << 32u) |
+        r->binding_arm_epoch_lo;
+    uint32_t cancel = TDMA_EVENT_RECOVERY_CANCEL_NONE;
+    if (!phys->armed || !tdma_pio_spi_phys_event_selected(phys) ||
+        s_tdma_event_prelaunch || !s_tdma_event_tap_applied_valid ||
+        !s_tdma_event_tap_applied.enabled ||
+        r->binding_tap_generation != s_tdma_event_tap_applied.generation ||
+        !s_tdma_pio_spi_rx_arm_valid || arm_epoch != s_tdma_pio_spi_rx_arm_epoch)
+        cancel = TDMA_EVENT_RECOVERY_CANCEL_BINDING;
+    else if (clock_get_hz(clk_sys) != s_tdma_event_hz)
+        cancel = TDMA_EVENT_RECOVERY_CANCEL_CLOCK;
+    else if (s_tdma_event_epoch == UINT32_MAX)
+        cancel = TDMA_EVENT_RECOVERY_CANCEL_EPOCH;
+    else {
+        /* A sticky hardware fault can arrive after the failure phase's last
+         * observation. Recheck before clearing/resetting any observer state;
+         * the intentional disabled SM mask is not a hardware failure here. */
+        const PIO pio = phys->flight_resources.tx_pio;
+        uint32_t faults = (pio->fdebug & (TDMA_EVENT_SM_MASK << PIO_FDEBUG_RXSTALL_LSB)) != 0u
+            ? TDMA_EVENT_FAULT_STALL : 0u;
+        if (pio_sm_get_pc(pio, TDMA_EVENT_SEQUENCE_SM) ==
+            s_tdma_event_sequence_offset + tdma_event_sequence_offset_bad)
+            faults |= TDMA_EVENT_FAULT_SEQUENCE;
+        if (faults != 0u) {
+            r->last_failure_fault_bits |= faults;
+            cancel = TDMA_EVENT_RECOVERY_CANCEL_START;
+        }
+    }
+    if (cancel != TDMA_EVENT_RECOVERY_CANCEL_NONE) {
+        s_tdma_event_waiting = false;
+        tdma_event_recovery_cancel(cancel);
+        tdma_event_publish_state(phys);
+        return;
+    }
+    if (r->pending == TDMA_EVENT_RECOVERY_RESET_PENDING) {
+        tdma_event_observer_stop(&s_tdma_event_observer);
+        tdma_event_history_retire(&s_tdma_event_history);
+        tdma_event_candidate_retire();
+        s_tdma_event_arm_epoch = 0u;
+        const PIO pio = phys->flight_resources.tx_pio;
+        pio_set_sm_mask_enabled(pio, TDMA_EVENT_SM_MASK, false);
+        for (uint sm = TDMA_EVENT_RX_SM; sm <= TDMA_EVENT_SEQUENCE_SM; ++sm) {
+            pio_sm_clear_fifos(pio, sm);
+            pio_sm_restart(pio, sm);
+        }
+        pio_interrupt_clear(pio, TDMA_EVENT_RX_SM);
+        pio_interrupt_clear(pio, TDMA_EVENT_TX_SM);
+        /* Preserve the first physical-ARM cut's raw body; its observer epoch
+         * is historical. A recovered epoch never overwrites this archive. */
+        tdma_rx_start_cut_retire(TDMA_RX_START_CUT_OBSERVER);
+        memset(&s_tdma_event_snapshot, 0, offsetof(tdma_pio_spi_event_snapshot_t, candidate));
+        s_tdma_event_snapshot.pio_hz = s_tdma_event_hz;
+        s_tdma_event_last_service_us = 0u;
+        s_tdma_event_waiting = true;
+        r->pending = TDMA_EVENT_RECOVERY_WAIT_IDLE;
+        tdma_event_recovery_publish();
+        tdma_event_publish_state(phys);
+        return;
+    }
+    tdma_event_recovery_increment(&r->attempt_count);
+    s_tdma_event_prelaunch_reason = TDMA_GEOMETRY_OBSERVER_OK;
+    tdma_event_start(phys);
+    if (s_tdma_event_observer.state == TDMA_EVENT_ACTIVE) {
+        tdma_event_recovery_increment(&r->enable_count);
+        r->pending = TDMA_EVENT_RECOVERY_NONE;
+    } else if (s_tdma_event_waiting && s_tdma_event_prelaunch_reason == TDMA_GEOMETRY_OBSERVER_CS) {
+        tdma_event_recovery_increment(&r->deferral_count);
+    } else {
+        s_tdma_event_waiting = false;
+        tdma_event_recovery_cancel(TDMA_EVENT_RECOVERY_CANCEL_START);
+    }
+    tdma_event_recovery_publish();
+    tdma_event_publish_state(phys);
+}
+
 static void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys)
 {
-    if (!tdma_pio_spi_phys_event_selected(phys) || !phys->armed) return;
+    if (!tdma_pio_spi_phys_event_selected(phys) || !phys->armed) {
+        if (s_tdma_event_recovery.pending != TDMA_EVENT_RECOVERY_NONE) {
+            s_tdma_event_waiting = false;
+            tdma_event_recovery_cancel(TDMA_EVENT_RECOVERY_CANCEL_BINDING);
+        }
+        return;
+    }
     uint64_t stage_start = tdma_service_timing_now();
     const uint64_t entered = time_us_64();
     tdma_pio_spi_event_snapshot_t *s = &s_tdma_event_snapshot;
+    if (s_tdma_event_recovery.pending != TDMA_EVENT_RECOVERY_NONE) {
+        tdma_event_recovery_step(phys);
+        const uint64_t duration = time_us_64() - entered;
+        if (duration > s_tdma_event_recovery.service_max_us)
+            s_tdma_event_recovery.service_max_us = duration > UINT32_MAX ? UINT32_MAX : (uint32_t)duration;
+        tdma_event_recovery_publish();
+        tdma_service_timing_record(TDMA_TIMING_EVENT_ENTRY, stage_start);
+        return;
+    }
     if (s_tdma_event_prelaunch && s_tdma_event_observer.state == TDMA_EVENT_ACTIVE) {
         const uint32_t reason = tdma_event_prelaunch_observe(phys);
         if (reason != TDMA_GEOMETRY_OBSERVER_OK) {
@@ -1332,6 +1529,7 @@ static void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys)
         s->tx_elapsed_cycles = last->tx_elapsed_cycles;
     }
     if (s_tdma_event_observer.state == TDMA_EVENT_INVALID) {
+        tdma_event_recovery_record_failure(phys, batch, final_faults);
         tdma_rx_first_window_retire(TDMA_RX_FIRST_OBSERVER_FAILED, false);
         tdma_event_prelaunch_mark(TDMA_GEOMETRY_OBSERVER_RETIRED, TDMA_GEOMETRY_OBSERVER_FAULT);
         tdma_event_history_retire(&s_tdma_event_history);
@@ -1476,6 +1674,12 @@ void tdma_pio_spi_phys_rx_event_query(void *context,
         s_tdma_event_observer.state != TDMA_EVENT_ACTIVE) tdma_event_publish_state(phys);
 }
 #else
+bool tdma_pio_spi_phys_event_recovery_get(const tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_event_recovery_snapshot_t *out)
+{
+    (void)phys; (void)out;
+    return false;
+}
 bool tdma_pio_spi_phys_event_tap_set(tdma_pio_spi_phys_t *phys,
     uint32_t enabled, uint32_t prefix_bits, uint32_t sample_delay_cycles)
 {

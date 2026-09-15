@@ -562,6 +562,12 @@ bool tdma_runtime_owner_get_event_tap(tdma_pio_spi_event_tap_snapshot_t *snapsho
         tdma_pio_spi_phys_event_tap_get(&s_tdma_pio_spi_phys, snapshot);
 }
 
+bool tdma_runtime_owner_get_event_recovery(tdma_pio_spi_event_recovery_snapshot_t *snapshot)
+{
+    return s_tdma_runtime_owner_initialized &&
+        tdma_pio_spi_phys_event_recovery_get(&s_tdma_pio_spi_phys, snapshot);
+}
+
 bool tdma_runtime_owner_set_ring_diagnostic_burst(uint32_t limit)
 {
     return s_tdma_runtime_owner_initialized &&

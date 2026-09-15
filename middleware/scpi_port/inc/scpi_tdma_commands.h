@@ -9,8 +9,11 @@ scpi_result_t scpi_cmd_tdma_opmode_stage(scpi_t *context);
 scpi_result_t scpi_cmd_tdma_opmode_apply(scpi_t *context);
 scpi_result_t scpi_cmd_tdma_event_tap(scpi_t *context);
 scpi_result_t scpi_cmd_tdma_event_tap_q(scpi_t *context);
+scpi_result_t scpi_cmd_tdma_event_recovery_q(scpi_t *context);
 
 #define SCPI_TDMA_COMMANDS \
+    {.pattern = "SYSTem:TDMA:EVENt:RECovery?", \
+     .callback = scpi_cmd_tdma_event_recovery_q}, \
     {.pattern = "SYSTem:TDMA:EVENt:TAP", \
      .callback = scpi_cmd_tdma_event_tap}, \
     {.pattern = "SYSTem:TDMA:EVENt:TAP?", \

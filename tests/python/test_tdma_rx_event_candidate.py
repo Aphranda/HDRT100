@@ -404,7 +404,7 @@ def test_disabled_observer_is_explicitly_unavailable(tmp_path: Path) -> None:
     header = (ROOT / "components/tdma/inc/tdma_pio_spi_phys.h").read_text(encoding="utf-8")
     end = header.index("} tdma_pio_spi_event_snapshot_t;") + len("} tdma_pio_spi_event_snapshot_t;")
     start = header.rfind("typedef struct {", 0, end)
-    tap_end = header.index("} tdma_pio_spi_event_tap_snapshot_t;") + len("} tdma_pio_spi_event_tap_snapshot_t;")
+    tap_end = header.index("} tdma_pio_spi_event_recovery_snapshot_t;") + len("} tdma_pio_spi_event_recovery_snapshot_t;")
     tap_types = header[header.index("#define TDMA_PIO_SPI_EVENT_TAP_MAX_DELAY_CYCLES"):tap_end]
     source = r'''
 #include <assert.h>
@@ -443,6 +443,11 @@ int main(void) {
     assert(!tdma_pio_spi_phys_event_tap_set(&phys, 0u, 0u, 0u));
     assert(!tdma_pio_spi_phys_event_tap_get(&phys, &tap));
     assert(memcmp(&tap, &unchanged_tap, sizeof(tap)) == 0);
+    tdma_pio_spi_event_recovery_snapshot_t recovery;
+    memset(&recovery, 0xa5, sizeof(recovery));
+    const tdma_pio_spi_event_recovery_snapshot_t unchanged_recovery = recovery;
+    assert(!tdma_pio_spi_phys_event_recovery_get(&phys, &recovery));
+    assert(memcmp(&recovery, &unchanged_recovery, sizeof(recovery)) == 0);
     tdma_rx_start_cut_t cut;
     memset(&cut, 0xff, sizeof(cut));
     tdma_rx_start_cut_arm_begin();
