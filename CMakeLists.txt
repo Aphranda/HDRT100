@@ -542,6 +542,7 @@ set(PROJECT_APP_SOURCES
         components/tdma/src/tdma_rx_prepare.c
         components/tdma/src/tdma_rx_scan.c
         components/tdma/src/tdma_origin_plan.c
+        components/tdma/src/tdma_origin_reference.c
         components/tdma/src/tdma_event_observer.c
         components/tdma/src/tdma_event_history.c
         components/tdma/src/tdma_origin_build_job.c
@@ -574,6 +575,7 @@ set(PROJECT_APP_SOURCES
         components/vdc_domain/src/vdc_timestamp.c
         components/vdc_dpll_manager/src/vdc_dpll_manager.c
         components/vdc_dpll_manager/src/vdc_time_mapping.c
+        components/vdc_dpll_manager/src/vdc_feedback_match.c
         drivers/mcu/spi/src/drv_spi.c
         drivers/mcu/i2c/src/drv_i2c.c
         drivers/mcu/uart/src/drv_uart.c

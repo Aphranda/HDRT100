@@ -320,6 +320,7 @@ typedef struct {
     uint32_t adapter_started;
     uint32_t ring_seq;
     uint32_t applied_config_seq;
+    uint32_t data_enabled;
     tdma_ring_clock_observation_t clock_observation;
 } tdma_ring_clock_snapshot_t;
 

@@ -51,11 +51,12 @@ static vdc_dpll_manager_refmem_snapshot_t profile;
 static tdma_pio_spi_event_live_snapshot_t live;
 static tdma_pio_spi_event_tap_snapshot_t tap;
 static uint32_t now_ms=100, s_service_count=123;
+static unsigned full_ring_reads;
 static uint32_t *race_guard;
 static bool binding_available=true, live_available=true, tap_available=true;
 static tdma_service_service_t *tdma_runtime_owner_get(void) { return &owner; }
 bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *r, tdma_ring_runtime_snapshot_t *out)
-{ assert(r==&owner.ring_runtime); *out=ring; return binding_available; }
+{ assert(r==&owner.ring_runtime); ++full_ring_reads; *out=ring; return binding_available; }
 bool vdc_dpll_manager_get_refmem_snapshot(vdc_dpll_manager_refmem_snapshot_t *out)
 { *out=profile; if(race_guard) *race_guard+=2; return binding_available; }
 static bool tdma_runtime_owner_get_event_live_snapshot(tdma_pio_spi_event_live_snapshot_t *out)
@@ -230,12 +231,20 @@ int main(int argc,char **argv)
             assert(s_tdma_flight_sync.context.mirror[s].value_u32==223+i);
             assert(s_tdma_flight_sync.last_vdc_phase_offset_ns==0 && s_tdma_flight_sync.last_vdc_rate_adjust_ppb==0);
         }
-        for(unsigned s=1;s<=3;s++) assert(rxread(s).active && !memcmp(rxread(s).record,records[s-1],64));
+        for(unsigned s=1;s<=3;s++) {
+            const distributed_refmem_vdc_feedback_rx_snapshot_t retained=rxread(s);
+            refmem_sync_vdc_feedback_record_t decoded;
+            assert(retained.active && !memcmp(retained.record,records[s-1],64));
+            assert(refmem_sync_vdc_feedback_decode(records[s-1],6,s,0,&decoded));
+            assert(!memcmp(&retained.sample,&decoded,sizeof(decoded)));
+            assert(retained.sample.measurement_sequence==10+s && retained.sample.source_slot==s);
+        }
     } else if(!strcmp(test,"rx_duplicate")) {
         refmem_sync_vdc_feedback_record_t r=record(1,10); assert(refmem_sync_vdc_feedback_encode(&r,6,wire));
         receive_group(wire,1,100); distributed_refmem_vdc_feedback_rx_snapshot_t before=rxread(1);
         receive_group(wire,1,200); distributed_refmem_vdc_feedback_rx_snapshot_t after=rxread(1);
         assert(after.receive_count==1 && after.duplicate_count==1 && before.last_rx_ms==after.last_rx_ms && before.last_transport_seq==after.last_transport_seq);
+        assert(!memcmp(&after.sample,&before.sample,sizeof(before.sample)));
     } else if(!strcmp(test,"rx_follower")) {
         refmem_sync_vdc_feedback_record_t r=record(1,10); assert(refmem_sync_vdc_feedback_encode(&r,6,wire));
         receive_group(wire,1,100); assert(rxread(1).receive_count==0);
@@ -253,6 +262,8 @@ int main(int argc,char **argv)
         r.source_slot=2; assert(refmem_sync_vdc_feedback_encode(&r,6,wire)); receive_group(wire,1,400);
         r.source_slot=1; r.target_slot=2; assert(refmem_sync_vdc_feedback_encode(&r,6,wire)); receive_group(wire,1,500);
         assert(rxread(1).receive_count==1 && !memcmp(rxread(1).record,before.record,64));
+        const distributed_refmem_vdc_feedback_rx_snapshot_t rejected=rxread(1);
+        assert(!memcmp(&rejected.sample,&before.sample,sizeof(before.sample)));
         assert(rxread(2).receive_count==0);
     } else if(!strcmp(test,"rx_lifecycle")) {
         refmem_sync_vdc_feedback_record_t r=record(1,10); assert(refmem_sync_vdc_feedback_encode(&r,6,wire));
@@ -265,13 +276,32 @@ int main(int argc,char **argv)
         assert(!rxread(1).active && rxread(1).receive_count==1);
         r.observer_epoch++; assert(refmem_sync_vdc_feedback_encode(&r,6,wire)); receive_group(wire,1,1);
         assert(rxread(1).active && rxread(1).receive_count==2);
+        const distributed_refmem_vdc_feedback_rx_snapshot_t latest=rxread(1);
         ring.data_enabled=0; distributed_refmem_feedback_refresh(&owner); assert(!rxread(1).active && rxread(1).retained);
+        ring.enabled=0; distributed_refmem_feedback_refresh(&owner);
+        const distributed_refmem_vdc_feedback_rx_snapshot_t stopped=rxread(1);
+        assert(!stopped.active && stopped.retained && !memcmp(stopped.record,latest.record,sizeof(latest.record)));
+        assert(!memcmp(&stopped.sample,&latest.sample,sizeof(latest.sample)));
     } else if(!strcmp(test,"rx_expiry")) {
         refmem_sync_vdc_feedback_record_t r=record(1,10); assert(refmem_sync_vdc_feedback_encode(&r,6,wire));
         enqueue(wire,1,100,0,0); receive(); now_ms+=REFMEM_VDC_FEEDBACK_ASSEMBLY_TIMEOUT_MS;
         distributed_refmem_feedback_refresh(&owner); assert(rxread(1).timeout_count==1 && !rxread(1).retained);
         distributed_refmem_feedback_refresh(&owner); assert(rxread(1).timeout_count==1);
         receive_group(wire,1,200); assert(rxread(1).receive_count==1);
+    } else if(!strcmp(test,"rx_copy_getter")) {
+        refmem_sync_vdc_feedback_record_t r=record(1,10); assert(refmem_sync_vdc_feedback_encode(&r,6,wire));
+        receive_group(wire,1,100);
+        const unsigned before_reads=full_ring_reads;
+        distributed_refmem_vdc_feedback_rx_snapshot_t out,sentinel;memset(&sentinel,0xa5,sizeof(sentinel));out=sentinel;
+        assert(distributed_refmem_copy_vdc_feedback_rx(1,&out));
+        assert(out.active && out.retained && out.sample.measurement_sequence==10 && !memcmp(out.record,wire,64));
+        assert(full_ring_reads==before_reads);
+        binding_available=false;assert(distributed_refmem_copy_vdc_feedback_rx(1,&out));
+        assert(out.active && out.retained && full_ring_reads==before_reads);
+        out=sentinel;s_feedback_rx[1].guard=1;
+        assert(!distributed_refmem_copy_vdc_feedback_rx(1,&out));assert(!memcmp(&out,&sentinel,sizeof(out)));
+        assert(!distributed_refmem_copy_vdc_feedback_rx(REFMEM_SYNC_NODE_COUNT,&out));
+        assert(!distributed_refmem_copy_vdc_feedback_rx(1,NULL));assert(full_ring_reads==before_reads);
     } else if(!strcmp(test,"rx_getter")) {
         distributed_refmem_vdc_feedback_rx_snapshot_t out; memset(&out,0xa5,sizeof(out));
         const distributed_refmem_vdc_feedback_rx_snapshot_t sentinel=out;
@@ -300,7 +330,7 @@ int main(int argc,char **argv)
 
 @pytest.mark.parametrize("case", [
     "tx_freeze", "tx_backpressure", "tx_busy", "tx_cancel", "tx_identity_history",
-    "rx_interleaved", "rx_duplicate", "rx_follower", "rx_bad", "rx_lifecycle", "rx_expiry", "rx_getter",
+    "rx_interleaved", "rx_duplicate", "rx_follower", "rx_bad", "rx_lifecycle", "rx_expiry", "rx_getter", "rx_copy_getter",
 ])
 def test_feedback_transport(feedback_executable, case):
     result = subprocess.run([str(feedback_executable), case], capture_output=True, text=True, timeout=5)

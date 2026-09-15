@@ -29,6 +29,7 @@
 #include "tdma_runtime_owner.h"
 #include "tdma_rx_start_cut.h"
 #include "tdma_service_timing.h"
+#include "vdc_dpll_manager.h"
 
 #define SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS 10000u
 #define SCPI_TDMA_FIFO_RESET_WAIT_LOOPS 100u
@@ -2358,6 +2359,53 @@ scpi_result_t scpi_cmd_refmem_vdc_feedback_tx_q(scpi_t *context)
     SCPI_ResultUInt32(context, s.clock_run_id);
     scpi_feedback_record(context, s.history[0]);
     scpi_feedback_record(context, s.history[1]);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_feedback_match_q(scpi_t *context)
+{
+    uint32_t source;
+    vdc_dpll_manager_feedback_match_status_t s;
+    if (!scpi_port_read_u32(context, &source) ||
+        !vdc_dpll_manager_get_feedback_match(source, &s)) return SCPI_RES_ERR;
+    SCPI_ResultUInt32(context, s.schema);
+    SCPI_ResultUInt32(context, s.active);
+    SCPI_ResultUInt32(context, s.source_slot);
+    SCPI_ResultUInt32(context, s.target_slot);
+    SCPI_ResultUInt32(context, s.ring_config_seq);
+    SCPI_ResultUInt32(context, s.role_generation);
+    SCPI_ResultUInt32(context, s.schedule_crc32);
+    SCPI_ResultUInt32(context, s.clock_epoch_id);
+    SCPI_ResultUInt32(context, s.clock_run_id);
+    SCPI_ResultUInt32(context, s.receive_count);
+    SCPI_ResultUInt32(context, s.baseline_count);
+    SCPI_ResultUInt32(context, s.match_count);
+    SCPI_ResultUInt32(context, s.miss_count);
+    SCPI_ResultUInt32(context, s.stale_count);
+    SCPI_ResultUInt32(context, s.invalid_count);
+    SCPI_ResultUInt32(context, s.last_result);
+    SCPI_ResultUInt32(context, s.cache_insert_count);
+    SCPI_ResultUInt32(context, s.cache_reject_count);
+    SCPI_ResultUInt32(context, s.cache_latest_sequence);
+    SCPI_ResultUInt32(context, s.last_age_ticks);
+    SCPI_ResultUInt32(context, s.max_age_ticks);
+    SCPI_ResultUInt32(context, s.result.has_pair);
+    SCPI_ResultUInt32(context, s.result.reference_epoch);
+    SCPI_ResultUInt32(context, s.result.reference_generation);
+    SCPI_ResultUInt64(context, s.result.source.source_arm_epoch);
+    SCPI_ResultUInt32(context, s.result.source.source_clock_epoch_id);
+    SCPI_ResultUInt32(context, s.result.source.source_clock_run_id);
+    SCPI_ResultUInt32(context, s.result.source.observer_epoch);
+    SCPI_ResultUInt32(context, s.result.source.tick_hz);
+    SCPI_ResultInt64(context, s.result.raw_ppb_lo);
+    SCPI_ResultInt64(context, s.result.raw_ppb_hi);
+    for (uint32_t i = 0; i < 2u; ++i) {
+        SCPI_ResultUInt32(context, s.result.pairs[i].measurement_sequence);
+        SCPI_ResultUInt32(context, s.result.pairs[i].reference_identity_crc32);
+        SCPI_ResultUInt64(context, s.result.pairs[i].rx_elapsed_cycles);
+        SCPI_ResultUInt64(context, s.result.pairs[i].reference_tx_lo);
+        SCPI_ResultUInt64(context, s.result.pairs[i].reference_tx_hi);
+    }
     return SCPI_RES_OK;
 }
 

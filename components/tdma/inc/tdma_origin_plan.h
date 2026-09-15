@@ -108,6 +108,17 @@ typedef struct {
     tdma_origin_record_frozen_t sample;
 } tdma_origin_live_snapshot_t;
 
+/* Arithmetic coordinates from the captured enable bracket and latch count.
+ * GPIO synchronizer/detection bias is not included: these are NOT qualified
+ * bounds on a physical edge, nor an absolute/common-time input. */
+typedef struct {
+    uint64_t timer_lower, timer_upper;
+    uint32_t epoch, sequence, identity, published_version, tick_hz;
+} tdma_origin_raw_reference_t;
+
+bool tdma_origin_raw_reference(const tdma_origin_live_snapshot_t *live,
+    uint32_t latch_sm, uint32_t csn_pin, tdma_origin_raw_reference_t *out);
+
 typedef struct {
     uint32_t remaining_snapshot;
     uint32_t polls_left;

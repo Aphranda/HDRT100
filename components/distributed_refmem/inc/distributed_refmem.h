@@ -64,6 +64,7 @@
 #include "refmem_command.h"
 #include "refmem_realtime_tdma.h"
 #include "refmem_sync.h"
+#include "refmem_sync_vdc_feedback.h"
 #include "refmem_vdc_vector.h"
 
 typedef bool (*distributed_refmem_node_load_owner_t)(uint32_t instance_id,
@@ -344,6 +345,8 @@ typedef struct {
     uint32_t receive_count, reject_count, duplicate_count, timeout_count;
     uint32_t last_transport_seq, first_rx_ms, last_rx_ms;
     uint8_t record[64];
+    /* Decoded by the sole Core0 publisher. Core1 never parses wire bytes. */
+    refmem_sync_vdc_feedback_record_t sample;
 } distributed_refmem_vdc_feedback_rx_snapshot_t;
 
 typedef struct {
@@ -355,6 +358,10 @@ typedef struct {
 } distributed_refmem_vdc_feedback_tx_snapshot_t;
 
 bool distributed_refmem_get_vdc_feedback_rx(uint32_t source_slot,
+    distributed_refmem_vdc_feedback_rx_snapshot_t *snapshot);
+/* One atomic SRAM copy; caller must validate local current ring/role/clock
+ * binding. Intended for the Core1 owner without a full runtime snapshot. */
+bool distributed_refmem_copy_vdc_feedback_rx(uint32_t source_slot,
     distributed_refmem_vdc_feedback_rx_snapshot_t *snapshot);
 bool distributed_refmem_get_vdc_feedback_tx(
     distributed_refmem_vdc_feedback_tx_snapshot_t *snapshot);

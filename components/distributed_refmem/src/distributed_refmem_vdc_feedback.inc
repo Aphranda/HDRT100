@@ -20,11 +20,11 @@ static bool s_feedback_ready;
 static uint8_t s_feedback_tx_record[REFMEM_VDC_FEEDBACK_RECORD_SIZE];
 static uint32_t s_feedback_tx_index;
 static bool s_feedback_tx_active, s_feedback_ordinary_due;
-_Static_assert(sizeof(distributed_refmem_feedback_source_t) <= 224u,
+_Static_assert(sizeof(distributed_refmem_feedback_source_t) <= 288u,
                "feedback per-source storage must remain bounded");
 _Static_assert(sizeof(s_feedback_rx) + sizeof(s_feedback_tx_words) +
     sizeof(s_feedback_tx_record) + sizeof(s_feedback_binding) + 32u <=
-    224u * PROJECT_NODE_CAPACITY + 352u, "capacity-sized feedback storage");
+    288u * PROJECT_NODE_CAPACITY + 352u, "capacity-sized feedback storage");
 _Static_assert(sizeof(((distributed_refmem_vdc_feedback_rx_snapshot_t *)0)->record) ==
     REFMEM_VDC_FEEDBACK_RECORD_SIZE, "feedback diagnostic record ABI");
 
@@ -266,6 +266,7 @@ static void distributed_refmem_feedback_receive(tdma_service_service_t *owner, u
         if (!feedback_read_binding(owner, &after) || !feedback_same_binding(&after, &s_feedback_binding)) return;
         if (order == REFMEM_VDC_FEEDBACK_ORDER_FIRST || order == REFMEM_VDC_FEEDBACK_ORDER_NEW_NAMESPACE ||
             order == REFMEM_VDC_FEEDBACK_ORDER_NEWER) {
+            if (!refmem_sync_vdc_feedback_decode(wire, after.node_count, source, after.local, &rx.sample)) return;
             memcpy(rx.record, wire, sizeof(wire));
             rx.retained = 1u; rx.active = 1u;
             rx.ring_config_seq = after.ring_config_seq; rx.role_generation = after.role_generation;
@@ -324,5 +325,20 @@ bool distributed_refmem_get_vdc_feedback_tx(distributed_refmem_vdc_feedback_tx_s
     __atomic_thread_fence(__ATOMIC_ACQ_REL);
     if (guard != __atomic_load_n(&s_feedback_tx_guard, __ATOMIC_ACQUIRE)) return false;
     *out = tx;
+    return true;
+}
+
+bool distributed_refmem_copy_vdc_feedback_rx(uint32_t source,
+    distributed_refmem_vdc_feedback_rx_snapshot_t *out)
+{
+    if (out == NULL || source >= REFMEM_SYNC_NODE_COUNT) return false;
+    distributed_refmem_feedback_source_t *state = &s_feedback_rx[source];
+    const uint32_t guard = __atomic_load_n(&state->guard, __ATOMIC_ACQUIRE);
+    if (guard & 1u) return false;
+    distributed_refmem_vdc_feedback_rx_snapshot_t rx;
+    feedback_load(state->words, &rx, sizeof(rx));
+    __atomic_thread_fence(__ATOMIC_ACQ_REL);
+    if (guard != __atomic_load_n(&state->guard, __ATOMIC_ACQUIRE)) return false;
+    *out = rx;
     return true;
 }

@@ -8,6 +8,23 @@
 #include "tdma_service.h"
 #include "calibration_path_snapshot.h"
 #include "vdc_domain.h"
+#include "vdc_feedback_match.h"
+
+/* Raw-clock diagnostics, never a qualified control input. Core1 publishes
+ * the last reproducible pair; SCPI reads only before START or after STOP. */
+typedef struct {
+    uint32_t schema, active, source_slot, target_slot;
+    uint32_t ring_config_seq, role_generation, schedule_crc32;
+    uint32_t clock_epoch_id, clock_run_id;
+    uint32_t receive_count, baseline_count, match_count, miss_count;
+    uint32_t stale_count, invalid_count, last_result;
+    uint32_t cache_insert_count, cache_reject_count, cache_latest_sequence;
+    uint32_t last_age_ticks, max_age_ticks, reserved;
+    vdc_feedback_match_snapshot_t result;
+} vdc_dpll_manager_feedback_match_status_t;
+
+bool vdc_dpll_manager_get_feedback_match(uint32_t source_slot,
+    vdc_dpll_manager_feedback_match_status_t *out);
 
 #define VDC_DPLL_MANAGER_PLAN_NOW_NS UINT64_MAX
 #define VDC_DPLL_MANAGER_SYNC_IO_MAX_BATCH_WORDS 32u

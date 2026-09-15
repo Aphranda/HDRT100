@@ -23,6 +23,7 @@
 #include "vdc_ring_observer.h"
 #include "vdc_sync_io_adapter.h"
 #include "vdc_tdma_payload.h"
+#include "vdc_timestamp_clock.h"
 
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #include "pico.h"
@@ -2974,6 +2975,8 @@ static void vdc_dpll_manager_waveform_capture_service(void)
     }
 }
 
+#include "vdc_dpll_feedback_match.inc"
+
 void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_fb_service)(void)
 {
     /* Debug admission is a control-plane policy, not a local-servo action.
@@ -2987,12 +2990,14 @@ void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_fb_service)(void)
      * required for FOLLOWER -> MASTER promotion; otherwise the follower
      * early return below would hide the pending promotion forever. */
     if (vdc_dpll_manager_apply_pending_dpll_role()) {
+        vdc_dpll_manager_feedback_match_retire();
         vdc_dpll_manager_publish_runtime_snapshot_locked();
         return;
     }
     vdc_dpll_manager_dpll_role_status_t role_status;
     vdc_dpll_manager_get_dpll_role_status(&role_status);
     if (role_status.pending) {
+        vdc_dpll_manager_feedback_match_retire();
         /* A persisted/requested role is held until TDMA topology makes the
          * follower source unambiguous. Never run the old local PI meanwhile. */
         vdc_dpll_manager_publish_runtime_snapshot_locked();
@@ -3001,6 +3006,7 @@ void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_fb_service)(void)
     /* FOLLOWER consumes only a verified, absolutely scheduled command.  The
      * local TDMA evidence path still runs for observability, but Domain marks
      * it as diagnostic-only and never feeds the local PI/DCO path. */
+    vdc_dpll_manager_feedback_match_service();
     vdc_dpll_manager_consume_follower_command();
     /* Complete already-admitted domain work before accepting another ring
      * sample. This keeps one bounded four-beat pipeline at the 4 ms evidence

@@ -840,15 +840,34 @@ bool tdma_pio_spi_phys_origin_get_live_snapshot(const tdma_pio_spi_phys_t *phys,
     tdma_origin_live_snapshot_t *out)
 {
     if (phys == NULL || out == NULL) return false;
-    const uint64_t before = vdc_timestamp_clock_read_ticks64();
+    /* This first word is only a candidate clock rate. The complete guarded
+     * copy must match it. The try reader samples TIMER1 without lazy init or
+     * a retry loop; this facade never reads DMA/PIO or collects a record. */
+    const uint32_t expected_hz = __atomic_load_n(
+        &phys->flight_origin_live.sample.record.raw_time.tick_hz, __ATOMIC_ACQUIRE);
+    if (expected_hz == 0u) {
+        /* Preserve the pre-acquisition diagnostic response without starting
+         * TIMER1. This branch can return only an inactive, empty snapshot. */
+        const uint32_t guard = __atomic_load_n(&phys->flight_origin_record_guard, __ATOMIC_ACQUIRE);
+        if ((guard & 1u) != 0u) return false;
+        const tdma_origin_live_snapshot_t empty = phys->flight_origin_live;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        if (guard != __atomic_load_n(&phys->flight_origin_record_guard, __ATOMIC_ACQUIRE) ||
+            empty.retained != 0u || empty.active != 0u ||
+            empty.sample.record.raw_time.tick_hz != 0u) return false;
+        *out = empty;
+        return true;
+    }
+    uint64_t before, after;
+    if (!vdc_timestamp_clock_try_read_ticks64(expected_hz, &before)) return false;
     const uint32_t guard = __atomic_load_n(&phys->flight_origin_record_guard, __ATOMIC_ACQUIRE);
     if ((guard & 1u) != 0u) return false;
     const tdma_origin_live_snapshot_t snapshot = phys->flight_origin_live;
     __atomic_thread_fence(__ATOMIC_ACQUIRE);
     const uint32_t after_guard = __atomic_load_n(&phys->flight_origin_record_guard, __ATOMIC_ACQUIRE);
-    const uint64_t after = vdc_timestamp_clock_read_ticks64();
-    if (guard != after_guard || after < before ||
-        after - before > (uint64_t)vdc_timestamp_clock_tick_hz() *
+    if (!vdc_timestamp_clock_try_read_ticks64(expected_hz, &after) ||
+        guard != after_guard || snapshot.sample.record.raw_time.tick_hz != expected_hz ||
+        after < before || after - before > (uint64_t)expected_hz *
             TDMA_ORIGIN_RECORD_COPY_MAX_US / 1000000u) return false;
     *out = snapshot;
     return true;
@@ -868,6 +887,17 @@ bool tdma_pio_spi_phys_origin_grant_tx(void *context, tdma_overlay_prepare_t *jo
         .local_slot_id = phys->flight_local_slot_id,
     };
     return true;
+}
+
+bool tdma_pio_spi_phys_origin_get_raw_reference(const tdma_pio_spi_phys_t *phys,
+    tdma_origin_raw_reference_t *out)
+{
+    tdma_origin_live_snapshot_t live;
+    return phys != NULL && out != NULL &&
+        tdma_pio_spi_phys_origin_get_live_snapshot(phys, &live) &&
+        live.sample.epoch == phys->flight_origin_record_epoch &&
+        tdma_origin_raw_reference(&live, phys->flight_resources.tx_clock_latch_sm,
+            phys->tx_csn_pin, out);
 }
 
 bool tdma_pio_spi_phys_origin_commit_tx(void *context, tdma_overlay_prepare_t *job, uint32_t *generation)

@@ -1048,6 +1048,7 @@ bool tdma_ring_runtime_get_clock_snapshot(
         snapshot->adapter_started = runtime->adapter_started;
         snapshot->ring_seq = runtime->ring_seq;
         snapshot->applied_config_seq = runtime->applied_config_seq;
+        snapshot->data_enabled = tdma_ring_runtime_load(&runtime->data_enabled);
         snapshot->clock_observation = runtime->clock_observation;
         __atomic_thread_fence(__ATOMIC_ACQUIRE);
         const uint32_t result_end =

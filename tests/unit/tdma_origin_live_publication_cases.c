@@ -17,11 +17,22 @@ static struct {
     tdma_origin_record_t record[TDMA_ORIGIN_RECORD_COUNT];
 } s_tdma_origin;
 static unsigned tick_calls, fence_mode;
+static unsigned try_calls, fail_try_call;
+static bool rate_change_on_first;
+static uint32_t current_hz = 250000000u;
 static uint64_t finish_tick;
 static bool healthy;
 static uint64_t vdc_timestamp_clock_read_ticks64(void)
 { return tick_calls++ ? finish_tick : 100u; }
 static uint32_t vdc_timestamp_clock_tick_hz(void) { return 250000000u; }
+static bool vdc_timestamp_clock_try_read_ticks64(uint32_t expected_hz,uint64_t *ticks)
+{
+    ++try_calls;
+    if(try_calls==fail_try_call || expected_hz==0u || expected_hz!=current_hz) return false;
+    *ticks=try_calls==1u?100u:finish_tick;
+    if(try_calls==1u && rate_change_on_first) phys.flight_origin_live.sample.record.raw_time.tick_hz/=2u;
+    return true;
+}
 static void __dmb(void) { __atomic_thread_fence(__ATOMIC_SEQ_CST); }
 static void test_fence(int order)
 {
@@ -52,6 +63,8 @@ static void setup(void)
 {
     memset(&phys,0,sizeof(phys));memset(&s_tdma_origin,0,sizeof(s_tdma_origin));
     tick_calls=fence_mode=0u;finish_tick=101u;healthy=true;
+    try_calls=fail_try_call=0u;current_hz=250000000u;
+    rate_change_on_first=false;
     phys.flight_origin_record_epoch=7u;
     s_tdma_origin.exchange.state=&s_tdma_origin.state;
     s_tdma_origin.state.record_epoch=7u;s_tdma_origin.state.record_published_version=2u;
@@ -102,18 +115,52 @@ int main(void)
     setup();tdma_pio_spi_phys_origin_collect_live(&phys);
     tick_calls=0;assert(tdma_pio_spi_phys_origin_get_live_snapshot(&phys,&out));
     assert(memcmp(&out,&phys.flight_origin_live,sizeof(out))==0);
+    assert(tick_calls==0u && try_calls==2u);
     memset(&sentinel,0x5a,sizeof(sentinel));
-    for(unsigned mode=0;mode<4u;++mode) {
-        setup();out=sentinel;
+    for(unsigned mode=0;mode<10u;++mode) {
+        setup();tdma_pio_spi_phys_origin_collect_live(&phys);tick_calls=0;out=sentinel;
         if(mode==0u)phys.flight_origin_record_guard=1u;
         if(mode==1u)fence_mode=1u;
         if(mode==2u)finish_tick=250101u;
         if(mode==3u)finish_tick=99u;
+        if(mode==4u)fail_try_call=1u;
+        if(mode==5u)fail_try_call=2u;
+        if(mode==6u)rate_change_on_first=true;
+        if(mode==7u)phys.flight_origin_live.sample.record.raw_time.tick_hz=0u;
+        if(mode==8u){phys.flight_origin_record_guard=UINT32_MAX-1u;fence_mode=1u;}
+        if(mode==9u)current_hz=125000000u;
         assert(!tdma_pio_spi_phys_origin_get_live_snapshot(&phys,&out));
         assert(memcmp(&out,&sentinel,sizeof(out))==0);
+        assert(tick_calls==0u && try_calls<=2u);
+        if(mode==4u)assert(try_calls==1u);
+        if(mode==5u)assert(try_calls==2u);
     }
     assert(!tdma_pio_spi_phys_origin_get_live_snapshot(NULL,&out));
     assert(!tdma_pio_spi_phys_origin_get_live_snapshot(&phys,NULL));
+    setup();out=sentinel;
+    assert(tdma_pio_spi_phys_origin_get_live_snapshot(&phys,&out));
+    assert(!out.retained && !out.active && try_calls==0u && tick_calls==0u);
+    scpi_t empty={0};
+    assert(scpi_calibration_origin_live_q(&empty)==SCPI_RES_OK);
+    assert(!strcmp(empty.label,"ORIGINLIVE") && empty.count==29u);
+    for(unsigned i=0;i<empty.count;i++)assert(empty.values[i]==0u);
+    assert(try_calls==0u && tick_calls==0u);
+    for(unsigned mode=0;mode<3;mode++) {
+        setup();out=sentinel;
+        if(mode==0)phys.flight_origin_record_guard=1u;
+        if(mode==1)fence_mode=1u;
+        if(mode==2)phys.flight_origin_live.active=1u;
+        assert(!tdma_pio_spi_phys_origin_get_live_snapshot(&phys,&out));
+        assert(!memcmp(&out,&sentinel,sizeof(out)) && try_calls==0u && tick_calls==0u);
+    }
+    setup();tdma_pio_spi_phys_origin_collect_live(&phys);tick_calls=0;finish_tick=250100u;
+    assert(tdma_pio_spi_phys_origin_get_live_snapshot(&phys,&out));
+    assert(try_calls==2u && tick_calls==0u);
+    setup();tdma_pio_spi_phys_origin_collect_live(&phys);tick_calls=0;
+    phys.flight_origin_live.sample.record.raw_time.tick_hz=current_hz=125000000u;
+    finish_tick=125100u;
+    assert(tdma_pio_spi_phys_origin_get_live_snapshot(&phys,&out));
+    assert(out.sample.record.raw_time.tick_hz==125000000u && try_calls==2u && tick_calls==0u);
     setup();tdma_pio_spi_phys_origin_collect_live(&phys);tick_calls=0;
     scpi_t live={0},old={0};
     assert(scpi_calibration_origin_live_q(&live)==SCPI_RES_OK);

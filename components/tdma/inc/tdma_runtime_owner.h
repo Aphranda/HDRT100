@@ -77,6 +77,8 @@ bool tdma_runtime_owner_get_origin_frozen_record(uint32_t age,
 /* Bounded copy of Core1-retained running observations; never reads live DMA.
  * STOP leaves diagnostic history available, with active cleared. */
 bool tdma_runtime_owner_get_origin_live_snapshot(tdma_origin_live_snapshot_t *snapshot);
+/* Diagnostic arithmetic coordinates only; never qualifies an edge timestamp. */
+bool tdma_runtime_owner_get_origin_raw_reference(tdma_origin_raw_reference_t *snapshot);
 /* Core0 diagnostic copy of the one-shot first archive, while active or STOPPED.
  * Availability grants neither physical frame identity nor VDC time validity. */
 bool tdma_runtime_owner_get_origin_first_record(tdma_origin_first_record_t *snapshot);
