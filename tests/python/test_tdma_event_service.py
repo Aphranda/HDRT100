@@ -57,6 +57,7 @@ PREFIX = r'''
 #include "tdma_rx_capture.h"
 #include "tdma_rx_event_candidate.h"
 #include "tdma_frozen_geometry.h"
+#include "tdma_rx_first_window.h"
 #define TDMA_SERVICE_TIMING_ENABLED 1
 #include "tdma_service_timing.h"
 typedef unsigned uint;
@@ -69,8 +70,7 @@ enum { TDMA_EVENT_RX_SM=1, TDMA_EVENT_TX_SM=2, TDMA_EVENT_SEQUENCE_SM=3,
     TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL=1, TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN=11,
     TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER=13, clk_sys=0,
     TDMA_PIO_SPI_PHYS_ERROR_TX_BUSY=1, TDMA_PIO_SPI_PHYS_ERROR_BAD_PACKET=2,
-    TDMA_PIO_SPI_PHYS_ERROR_NONE=0, TDMA_PIO_SPI_PACKET_HEADER_SIZE=4,
-    TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS=512, TDMA_TRANSPORT_SHORT_PACKET_MAX=512 };
+    TDMA_PIO_SPI_PHYS_ERROR_NONE=0, TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS=512 };
 typedef struct { uint32_t ctrl, fdebug, fifo[4][8], level[4], pc[4]; } bank_t;
 typedef bank_t *PIO;
 typedef struct {
@@ -171,6 +171,16 @@ static void pio_set_sm_mask_enabled(PIO pio, uint mask, bool enabled) {
     assert(mask==TDMA_EVENT_SM_MASK && !enabled); pio->ctrl &= ~mask; ++observer_disable_calls;
 }
 static void tdma_event_start(tdma_pio_spi_phys_t *phys) { (void)phys; assert(false); }
+/* Archive storage/retirement is executed by the prelaunch/candidate tests.
+ * This fixture retains its ordinary-service boundary with no selected archive. */
+static void tdma_rx_first_window_words(const tdma_event_batch_t *batch) { (void)batch; }
+static void tdma_rx_first_window_raw(tdma_pio_spi_phys_t *phys) { (void)phys; }
+static void tdma_rx_first_window_event(tdma_pio_spi_phys_t *phys, size_t count) {
+    (void)phys; (void)count;
+}
+static void tdma_rx_first_window_retire(uint32_t reason, bool stopped) {
+    assert(reason == TDMA_RX_FIRST_OBSERVER_FAILED && !stopped);
+}
 /* DMA/register start-cut semantics run in test_tdma_event_adapter.py. This
  * owner-path fixture checks that service still calls the monitor each time. */
 static void tdma_rx_start_cut_monitor(tdma_pio_spi_phys_t *phys) {

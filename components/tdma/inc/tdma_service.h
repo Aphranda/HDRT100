@@ -478,6 +478,11 @@ bool tdma_service_configure_ring_runtime(
  * STOP cancels an unclaimed request; an already claimed update completes. */
 bool tdma_service_request_stopped_update(tdma_service_service_t *service,
     uint32_t token, uint32_t *generation);
+/* Core0 diagnostic tap publication under the STOP/ARM control guard.
+ * Callback must only publish bounded SRAM intent, never access hardware.
+ * Rejects selected frozen geometry and incomplete physical STOP. */
+bool tdma_service_update_event_tap(tdma_service_service_t *service,
+    bool (*publish)(void *context), void *context);
 bool tdma_service_get_stopped_update(tdma_service_service_t *service,
     uint32_t *token, uint32_t *generation, bool *applying);
 /* Core1: one CAS attempt, no control lock, callback, clock read or hardware. */

@@ -1,5 +1,6 @@
-/* Included by the physical owner. Only Core1 mutates this state. Core0 sees
- * a versioned event double buffer; no recorder or filesystem lives here. */
+/* Included by the physical owner. Core1 owns observer/applied state; Core0
+ * alone writes the guarded STOP tap request. Core0 sees versioned readback;
+ * no recorder or filesystem lives here. */
 #include "tdma_rx_start_cut.h"
 #include "tdma_rx_first_window.h"
 static tdma_pio_spi_event_snapshot_t s_tdma_event_snapshot;
@@ -114,6 +115,137 @@ static void tdma_event_candidate_finish(tdma_rx_event_reason_t reason)
 #include "tdma_event_observer.h"
 #include "tdma_event_history.h"
 #include "tdma_event.pio.h"
+
+/* EVENT_TAP_STORAGE_BEGIN -- bounded STOP request and ARM-frozen readback. */
+static tdma_pio_spi_event_tap_config_t s_tdma_event_tap_requested;
+static uint32_t s_tdma_event_tap_requested_guard;
+static tdma_pio_spi_event_tap_config_t s_tdma_event_tap_applied;
+static uint32_t s_tdma_event_tap_applied_guard;
+static uint32_t s_tdma_event_tap_applied_valid, s_tdma_event_tap_actual_valid;
+static uint32_t s_tdma_event_tap_actual_prefix, s_tdma_event_tap_actual_delay;
+
+static tdma_pio_spi_event_tap_config_t tdma_event_tap_load(
+    const tdma_pio_spi_event_tap_config_t *source)
+{
+    const tdma_pio_spi_event_tap_config_t result = {
+        .enabled = __atomic_load_n(&source->enabled, __ATOMIC_RELAXED),
+        .prefix_bits = __atomic_load_n(&source->prefix_bits, __ATOMIC_RELAXED),
+        .sample_delay_cycles = __atomic_load_n(&source->sample_delay_cycles, __ATOMIC_RELAXED),
+        .generation = __atomic_load_n(&source->generation, __ATOMIC_RELAXED),
+    };
+    return result;
+}
+
+static void tdma_event_tap_store(tdma_pio_spi_event_tap_config_t *target,
+    const tdma_pio_spi_event_tap_config_t *value)
+{
+    __atomic_store_n(&target->enabled, value->enabled, __ATOMIC_RELAXED);
+    __atomic_store_n(&target->prefix_bits, value->prefix_bits, __ATOMIC_RELAXED);
+    __atomic_store_n(&target->sample_delay_cycles, value->sample_delay_cycles, __ATOMIC_RELAXED);
+    __atomic_store_n(&target->generation, value->generation, __ATOMIC_RELAXED);
+}
+
+static bool tdma_event_tap_requested_copy(tdma_pio_spi_event_tap_config_t *out)
+{
+    for (uint attempt = 0u; attempt < 3u; ++attempt) {
+        const uint32_t guard = __atomic_load_n(&s_tdma_event_tap_requested_guard, __ATOMIC_ACQUIRE);
+        if ((guard & 1u) != 0u) continue;
+        const tdma_pio_spi_event_tap_config_t value = tdma_event_tap_load(&s_tdma_event_tap_requested);
+        __atomic_thread_fence(__ATOMIC_ACQ_REL);
+        if (guard == __atomic_load_n(&s_tdma_event_tap_requested_guard, __ATOMIC_ACQUIRE)) {
+            *out = value;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool tdma_pio_spi_phys_event_tap_set(tdma_pio_spi_phys_t *phys,
+    uint32_t enabled, uint32_t prefix_bits, uint32_t sample_delay_cycles)
+{
+    if (phys == NULL || phys->armed || enabled > 1u ||
+        prefix_bits > UINT32_MAX - 32u ||
+        sample_delay_cycles > TDMA_PIO_SPI_EVENT_TAP_MAX_DELAY_CYCLES ||
+        (enabled == 0u && (prefix_bits != 0u || sample_delay_cycles != 0u))) return false;
+    const uint32_t guard = __atomic_load_n(&s_tdma_event_tap_requested_guard, __ATOMIC_RELAXED);
+    /* Never wrap the request guard: even a preempted ARM reader cannot see
+     * an ABA. The STOP facade supplies the sole-writer/ARM exclusion. */
+    if ((guard & 1u) != 0u || guard > UINT32_MAX - 2u ||
+        s_tdma_event_tap_requested.generation == UINT32_MAX) return false;
+    const tdma_pio_spi_event_tap_config_t value = {
+        .enabled = enabled, .prefix_bits = prefix_bits,
+        .sample_delay_cycles = sample_delay_cycles,
+        .generation = s_tdma_event_tap_requested.generation + 1u,
+    };
+    (void)__atomic_add_fetch(&s_tdma_event_tap_requested_guard, 1u, __ATOMIC_ACQ_REL);
+    tdma_event_tap_store(&s_tdma_event_tap_requested, &value);
+    __atomic_store_n(&s_tdma_event_tap_requested_guard, guard + 2u, __ATOMIC_RELEASE);
+    return true;
+}
+
+bool tdma_pio_spi_phys_event_tap_get(const tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_event_tap_snapshot_t *out)
+{
+    if (phys == NULL || out == NULL) return false;
+    /* IRQ pinning bounds the lifetime of the wrapping applied guard, as in
+     * event snapshot copy. All shared words are atomic, including payload. */
+    const uint32_t interrupts = save_and_disable_interrupts();
+    const uint64_t before = time_us_64();
+    bool copied = false;
+    for (uint attempt = 0u; attempt < 3u; ++attempt) {
+        tdma_pio_spi_event_tap_snapshot_t value;
+        const uint32_t request_guard = __atomic_load_n(&s_tdma_event_tap_requested_guard, __ATOMIC_ACQUIRE);
+        if ((request_guard & 1u) != 0u) continue;
+        value.requested = tdma_event_tap_load(&s_tdma_event_tap_requested);
+        const uint32_t guard = __atomic_load_n(&s_tdma_event_tap_applied_guard, __ATOMIC_ACQUIRE);
+        if ((guard & 1u) != 0u) continue;
+        value.applied = tdma_event_tap_load(&s_tdma_event_tap_applied);
+        value.applied_valid = __atomic_load_n(&s_tdma_event_tap_applied_valid, __ATOMIC_RELAXED);
+        value.actual_valid = __atomic_load_n(&s_tdma_event_tap_actual_valid, __ATOMIC_RELAXED);
+        value.actual_prefix_bits = __atomic_load_n(&s_tdma_event_tap_actual_prefix, __ATOMIC_RELAXED);
+        value.actual_sample_delay_cycles = __atomic_load_n(&s_tdma_event_tap_actual_delay, __ATOMIC_RELAXED);
+        __atomic_thread_fence(__ATOMIC_ACQ_REL);
+        const uint32_t after_guard = __atomic_load_n(&s_tdma_event_tap_applied_guard, __ATOMIC_ACQUIRE);
+        const uint32_t after_request = __atomic_load_n(&s_tdma_event_tap_requested_guard, __ATOMIC_ACQUIRE);
+        const uint64_t after = time_us_64();
+        if (after < before || after - before > 1000u) break;
+        if (guard == after_guard && request_guard == after_request) {
+            *out = value;
+            copied = true;
+            break;
+        }
+    }
+    restore_interrupts(interrupts);
+    return copied;
+}
+
+static bool tdma_event_tap_freeze(const tdma_pio_spi_phys_t *phys,
+    const tdma_ring_runtime_config_t *config, bool selected)
+{
+    tdma_pio_spi_event_tap_config_t value = {0};
+    const bool copied = tdma_event_tap_requested_copy(&value);
+    const bool valid = copied && config != NULL && (value.enabled == 0u ||
+        (selected && config->geometry_generation == 0u && phys->baud_hz != 0u &&
+         (uint64_t)value.prefix_bits + 32u <= (uint64_t)phys->flight_physical_byte_count * 8u));
+    (void)__atomic_add_fetch(&s_tdma_event_tap_applied_guard, 1u, __ATOMIC_ACQ_REL);
+    tdma_event_tap_store(&s_tdma_event_tap_applied, &value);
+    __atomic_store_n(&s_tdma_event_tap_applied_valid, valid, __ATOMIC_RELAXED);
+    __atomic_store_n(&s_tdma_event_tap_actual_valid, 0u, __ATOMIC_RELAXED);
+    __atomic_store_n(&s_tdma_event_tap_actual_prefix, 0u, __ATOMIC_RELAXED);
+    __atomic_store_n(&s_tdma_event_tap_actual_delay, 0u, __ATOMIC_RELAXED);
+    (void)__atomic_add_fetch(&s_tdma_event_tap_applied_guard, 1u, __ATOMIC_RELEASE);
+    return valid;
+}
+
+static void tdma_event_tap_loaded(uint32_t prefix, uint32_t delay)
+{
+    (void)__atomic_add_fetch(&s_tdma_event_tap_applied_guard, 1u, __ATOMIC_ACQ_REL);
+    __atomic_store_n(&s_tdma_event_tap_actual_prefix, prefix, __ATOMIC_RELAXED);
+    __atomic_store_n(&s_tdma_event_tap_actual_delay, delay, __ATOMIC_RELAXED);
+    __atomic_store_n(&s_tdma_event_tap_actual_valid, 1u, __ATOMIC_RELAXED);
+    (void)__atomic_add_fetch(&s_tdma_event_tap_applied_guard, 1u, __ATOMIC_RELEASE);
+}
+/* EVENT_TAP_STORAGE_END */
 
 #define TDMA_EVENT_RX_SM BOARD_TDMA_TX_RTT_EVIDENCE_SM
 #define TDMA_EVENT_TX_SM BOARD_TDMA_TX_CLOCK_LATCH_SM
@@ -843,6 +975,8 @@ static void tdma_pio_spi_phys_event_prepare(tdma_pio_spi_phys_t *phys,
     s_tdma_event_prelaunch = false;
     s_tdma_event_prelaunch_reason = TDMA_GEOMETRY_OBSERVER_OK;
     memset(&s_tdma_event_geometry, 0, sizeof(s_tdma_event_geometry));
+    const bool tap_valid = tdma_event_tap_freeze(phys, config,
+        tdma_pio_spi_phys_event_selected(phys));
     if (!tdma_pio_spi_phys_event_selected(phys)) return;
     tdma_event_history_retire(&s_tdma_event_history);
     s_tdma_event_arm_epoch = 0u;
@@ -851,17 +985,18 @@ static void tdma_pio_spi_phys_event_prepare(tdma_pio_spi_phys_t *phys,
     /* Candidate counters and the last historical result survive new ARM. */
     memset(&s_tdma_event_snapshot, 0, offsetof(tdma_pio_spi_event_snapshot_t, candidate));
     s_tdma_event_hz = clock_get_hz(clk_sys);
-    s_tdma_event_period_ns = config->cycle_period_ns;
+    s_tdma_event_period_ns = config != NULL ? config->cycle_period_ns : 0u;
     s_tdma_event_base_us = time_us_64();
     s_tdma_event_last_service_us = 0u;
-    s_tdma_event_waiting = true;
+    s_tdma_event_waiting = tap_valid;
     s_tdma_event_snapshot.pio_hz = s_tdma_event_hz;
     tdma_event_publish_state(phys);
 }
 
 static void tdma_event_start(tdma_pio_spi_phys_t *phys)
 {
-    if (!s_tdma_event_waiting || (!s_tdma_event_prelaunch &&
+    if (!s_tdma_event_waiting || !s_tdma_event_tap_applied_valid ||
+        (!s_tdma_event_tap_applied.enabled && !s_tdma_event_prelaunch &&
         (!phys->flight_overlay_alignment_locked || phys->flight_overlay_alignment_samples <
             TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES))) return;
     const PIO pio = phys->flight_resources.tx_pio;
@@ -871,19 +1006,29 @@ static void tdma_event_start(tdma_pio_spi_phys_t *phys)
         s_tdma_event_prelaunch_reason = TDMA_GEOMETRY_OBSERVER_CS;
         return;
     }
-    /* Ordinary startup uses live RX training. Selected startup instead tests
+    /* Explicit taps use only the independent ARM-frozen CS coordinates.
+     * Ordinary startup uses live RX training. Selected startup instead tests
      * the separately frozen DMA-offset hypothesis against the next CS frame.
      * Neither coordinate is promoted to a qualified physical identity. */
-    const uint32_t byte_shift = s_tdma_event_prelaunch
-        ? s_tdma_event_geometry.dma_byte_shift : phys->flight_alignment_byte_shift;
-    const uint32_t bit_shift = s_tdma_event_prelaunch
-        ? s_tdma_event_geometry.dma_bit_shift : phys->flight_alignment_bit_shift;
-    const uint64_t bits = ((uint64_t)byte_shift +
-        TDMA_PIO_SPI_PACKET_HEADER_SIZE + TDMA_TRANSPORT_FRAME_SEQUENCE_OFFSET +
-        sizeof(uint32_t)) * 8u +
-        bit_shift;
+    uint64_t bits;
+    uint32_t bit_shift = 0u;
+    uint32_t sample_delay;
+    if (s_tdma_event_tap_applied.enabled != 0u) {
+        bits = (uint64_t)s_tdma_event_tap_applied.prefix_bits + 32u;
+        sample_delay = s_tdma_event_tap_applied.sample_delay_cycles;
+    } else {
+        const uint32_t byte_shift = s_tdma_event_prelaunch
+            ? s_tdma_event_geometry.dma_byte_shift : phys->flight_alignment_byte_shift;
+        bit_shift = s_tdma_event_prelaunch
+            ? s_tdma_event_geometry.dma_bit_shift : phys->flight_alignment_bit_shift;
+        bits = ((uint64_t)byte_shift + TDMA_PIO_SPI_PACKET_HEADER_SIZE +
+            TDMA_TRANSPORT_FRAME_SEQUENCE_OFFSET + sizeof(uint32_t)) * 8u + bit_shift;
+        sample_delay = phys->flight_data_phase_delay_cycles;
+    }
     if (bits < 32u || bits > (uint64_t)phys->flight_physical_byte_count * 8u ||
-        bit_shift >= 8u || s_tdma_event_hz == 0u ||
+        bits > UINT32_MAX || bit_shift >= 8u ||
+        sample_delay > TDMA_PIO_SPI_EVENT_TAP_MAX_DELAY_CYCLES ||
+        phys->baud_hz == 0u || s_tdma_event_hz == 0u ||
         s_tdma_event_epoch == UINT32_MAX) {
         s_tdma_event_prelaunch_reason = TDMA_GEOMETRY_OBSERVER_GEOMETRY;
         return;
@@ -903,7 +1048,7 @@ static void tdma_event_start(tdma_pio_spi_phys_t *phys)
         pio_encode_wait_gpio(false, phys->rx_csn_pin);
     pio->instr_mem[s_tdma_event_sequence_offset + tdma_event_sequence_offset_sample] =
         pio_encode_wait_gpio(true, phys->rx_sck_pin) |
-        pio_encode_delay(phys->flight_data_phase_delay_cycles);
+        pio_encode_delay(sample_delay);
     pio->instr_mem[s_tdma_event_sequence_offset + tdma_event_sequence_offset_sample_low] =
         pio_encode_wait_gpio(false, phys->rx_sck_pin);
     pio_sm_config c = tdma_event_sequence_program_get_default_config(s_tdma_event_sequence_offset);
@@ -927,6 +1072,7 @@ static void tdma_event_start(tdma_pio_spi_phys_t *phys)
     pio->fdebug = TDMA_EVENT_SM_MASK << PIO_FDEBUG_RXSTALL_LSB;
     tdma_pio_spi_event_snapshot_t *s = &s_tdma_event_snapshot;
     s->prefix_bits = (uint32_t)bits - 32u;
+    tdma_event_tap_loaded(s->prefix_bits, sample_delay);
     tdma_rx_dma_counter_t cut_counter = s_tdma_pio_spi_rx_sequence;
     tdma_rx_start_cut_before(phys);
     s->start_pad_before = gpio_get_all();
@@ -984,6 +1130,10 @@ static void tdma_event_start(tdma_pio_spi_phys_t *phys)
 static bool tdma_pio_spi_phys_event_prelaunch(tdma_pio_spi_phys_t *phys,
     const tdma_ring_runtime_config_t *config)
 {
+    /* Configuration admission is distinct from runtime sample failure. An
+     * independent tap cannot also claim the legacy DMA-first-window launch. */
+    if (!s_tdma_event_tap_applied_valid || config == NULL ||
+        (s_tdma_event_tap_applied.enabled != 0u && config->geometry_generation != 0u)) return false;
     if (config->geometry_generation == 0u) return true;
     s_tdma_event_prelaunch = true;
     uint32_t reason = TDMA_GEOMETRY_OBSERVER_BINDING;
@@ -1326,6 +1476,18 @@ void tdma_pio_spi_phys_rx_event_query(void *context,
         s_tdma_event_observer.state != TDMA_EVENT_ACTIVE) tdma_event_publish_state(phys);
 }
 #else
+bool tdma_pio_spi_phys_event_tap_set(tdma_pio_spi_phys_t *phys,
+    uint32_t enabled, uint32_t prefix_bits, uint32_t sample_delay_cycles)
+{
+    (void)phys; (void)enabled; (void)prefix_bits; (void)sample_delay_cycles;
+    return false;
+}
+bool tdma_pio_spi_phys_event_tap_get(const tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_event_tap_snapshot_t *out)
+{
+    (void)phys; (void)out;
+    return false;
+}
 static void tdma_rx_first_window_admit(const tdma_ring_runtime_config_t *config) { (void)config; }
 void tdma_pio_spi_phys_rx_first_window_persona_unload(void) { }
 static void tdma_rx_first_window_arm_failed(void) { }

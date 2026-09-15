@@ -42,6 +42,10 @@ bool tdma_runtime_owner_set_clock_evidence_enabled(bool enabled);
 bool tdma_runtime_owner_set_ring_diagnostic_mode(bool enabled);
 bool tdma_runtime_owner_set_ring_diagnostic_burst(uint32_t limit);
 bool tdma_runtime_owner_set_ring_geometry_generation(uint32_t generation);
+/* STOP-only diagnostic intent; Core1 freezes and programs the tap at ARM. */
+bool tdma_runtime_owner_set_event_tap(uint32_t enabled, uint32_t prefix_bits,
+    uint32_t sample_delay_cycles);
+bool tdma_runtime_owner_get_event_tap(tdma_pio_spi_event_tap_snapshot_t *snapshot);
 
 /* Core0 data-plane facade.  These functions only access the cross-core
  * software FIFO.  Core1 remains the sole PIO/SM/DMA and hardware-FIFO owner. */

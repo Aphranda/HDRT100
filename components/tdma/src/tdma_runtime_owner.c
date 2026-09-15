@@ -533,6 +533,35 @@ bool tdma_runtime_owner_set_ring_diagnostic_mode(bool enabled)
                &s_tdma_runtime_owner, enabled);
 }
 
+typedef struct {
+    uint32_t enabled;
+    uint32_t prefix_bits;
+    uint32_t sample_delay_cycles;
+} tdma_runtime_event_tap_request_t;
+
+static bool tdma_runtime_owner_publish_event_tap(void *context)
+{
+    const tdma_runtime_event_tap_request_t *request = context;
+    return tdma_pio_spi_phys_event_tap_set(&s_tdma_pio_spi_phys,
+        request->enabled, request->prefix_bits, request->sample_delay_cycles);
+}
+
+bool tdma_runtime_owner_set_event_tap(uint32_t enabled, uint32_t prefix_bits,
+    uint32_t sample_delay_cycles)
+{
+    tdma_runtime_event_tap_request_t request = {
+        enabled, prefix_bits, sample_delay_cycles};
+    return s_tdma_runtime_owner_initialized &&
+        tdma_service_update_event_tap(&s_tdma_runtime_owner,
+            tdma_runtime_owner_publish_event_tap, &request);
+}
+
+bool tdma_runtime_owner_get_event_tap(tdma_pio_spi_event_tap_snapshot_t *snapshot)
+{
+    return s_tdma_runtime_owner_initialized &&
+        tdma_pio_spi_phys_event_tap_get(&s_tdma_pio_spi_phys, snapshot);
+}
+
 bool tdma_runtime_owner_set_ring_diagnostic_burst(uint32_t limit)
 {
     return s_tdma_runtime_owner_initialized &&

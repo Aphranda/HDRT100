@@ -18,6 +18,39 @@ static void scpi_tdma_result_profile(
     SCPI_ResultUInt32(context, profile->profile_crc32);
 }
 
+scpi_result_t scpi_cmd_tdma_event_tap(scpi_t *context)
+{
+    uint32_t enabled, prefix_bits, sample_delay_cycles;
+    if (!scpi_port_read_u32(context, &enabled) ||
+        !scpi_port_read_u32(context, &prefix_bits) ||
+        !scpi_port_read_u32(context, &sample_delay_cycles) ||
+        !tdma_runtime_owner_set_event_tap(enabled, prefix_bits, sample_delay_cycles)) {
+        scpi_port_push_exec_error(context, "TDMA_EVENT_TAP_STOP_CONFIG_REQUIRED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_tdma_event_tap_q(scpi_t *context)
+{
+    tdma_pio_spi_event_tap_snapshot_t snapshot;
+    if (!tdma_runtime_owner_get_event_tap(&snapshot)) return SCPI_RES_ERR;
+    SCPI_ResultUInt32(context, snapshot.requested.enabled);
+    SCPI_ResultUInt32(context, snapshot.requested.prefix_bits);
+    SCPI_ResultUInt32(context, snapshot.requested.sample_delay_cycles);
+    SCPI_ResultUInt32(context, snapshot.requested.generation);
+    SCPI_ResultUInt32(context, snapshot.applied.enabled);
+    SCPI_ResultUInt32(context, snapshot.applied.prefix_bits);
+    SCPI_ResultUInt32(context, snapshot.applied.sample_delay_cycles);
+    SCPI_ResultUInt32(context, snapshot.applied.generation);
+    SCPI_ResultUInt32(context, snapshot.applied_valid);
+    SCPI_ResultUInt32(context, snapshot.actual_valid);
+    SCPI_ResultUInt32(context, snapshot.actual_prefix_bits);
+    SCPI_ResultUInt32(context, snapshot.actual_sample_delay_cycles);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_tdma_opmode_catalog_q(scpi_t *context)
 {
     SCPI_ResultUInt32(context, TDMA_OPERATING_PROFILE_COUNT);

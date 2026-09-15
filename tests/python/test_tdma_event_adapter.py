@@ -22,6 +22,14 @@ def production(directory: Path) -> str:
     end = header.index("} tdma_pio_spi_event_snapshot_t;") + len("} tdma_pio_spi_event_snapshot_t;")
     start = header.rfind("typedef struct {", 0, end)
     snapshot = header[start:end]
+    tap_end = header.index("} tdma_pio_spi_event_tap_snapshot_t;") + len("} tdma_pio_spi_event_tap_snapshot_t;")
+    tap_types = header[header.index("#define TDMA_PIO_SPI_EVENT_TAP_MAX_DELAY_CYCLES"):tap_end]
+    tap_storage = source[source.index("/* EVENT_TAP_STORAGE_BEGIN"):source.index("/* EVENT_TAP_STORAGE_END */")]
+    atomic_hooks = FIXTURE[FIXTURE.index("#define __atomic_load_n"):FIXTURE.index("#define __dmb")]
+    # Tap payload atomics have their own tests. Preserve the existing event
+    # snapshot/first-window injection hooks around the new production block.
+    tap_storage = ("\n#undef __atomic_load_n\n#undef __atomic_store_n\n#undef __atomic_thread_fence\n" +
+                   tap_storage + "\n" + atomic_hooks)
     pioasm = os.environ.get("PIOASM") or shutil.which("pioasm") or str(
         Path.home() / ".pico-sdk/tools/2.2.0/pioasm/pioasm.exe")
     generated = directory / "event.pio.h"
@@ -86,8 +94,8 @@ def production(directory: Path) -> str:
         copy.append(f"static {result} {name}({args}) {{" +
                     c_definition_body(definition if name.endswith("ring_copy") else phys, name) + "}\n")
     ring_words = re.search(r"(?m)^#define TDMA_PIO_SPI_RX_RING_WORDS\s+[^\n]+$", header).group(0)
-    return (PREFIX + snapshot + "\n" + offsets + "\n" +
-            "\n".join(contract_definitions) + "\n" + ring_words + "\n" + FIXTURE +
+    return (PREFIX + snapshot + "\n" + tap_types + "\n" + offsets + "\n" +
+            "\n".join(contract_definitions) + "\n" + ring_words + "\n" + FIXTURE + tap_storage +
             "\n".join(routines[:2]) + cut_block + ARCHIVE_FIXTURE + "\n".join(copy) +
             "#undef __dmb\n#define __dmb() archive_barrier()\n" + archive +
             "\n#undef __dmb\n#define __dmb() writer_barrier()\n" +

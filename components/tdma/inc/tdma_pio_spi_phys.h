@@ -217,6 +217,20 @@ typedef struct {
     tdma_rx_event_candidate_snapshot_t candidate;
 } tdma_pio_spi_event_snapshot_t;
 
+/* Independent diagnostic CS-relative tap. prefix_bits counts all sampled
+ * bits before the selected 32-bit word; delay is the WAIT-high PIO delay.
+ * This configuration grants no packet identity or timestamp eligibility. */
+#define TDMA_PIO_SPI_EVENT_TAP_MAX_DELAY_CYCLES 31u
+typedef struct {
+    uint32_t enabled, prefix_bits, sample_delay_cycles, generation;
+} tdma_pio_spi_event_tap_config_t;
+
+typedef struct {
+    tdma_pio_spi_event_tap_config_t requested, applied;
+    uint32_t applied_valid, actual_valid;
+    uint32_t actual_prefix_bits, actual_sample_delay_cycles;
+} tdma_pio_spi_event_tap_snapshot_t;
+
 typedef enum {
     TDMA_PIO_SPI_DATA_TRAIN_IDLE = 0u,
     TDMA_PIO_SPI_DATA_TRAIN_ARMED = 1u,
@@ -968,6 +982,18 @@ bool tdma_pio_spi_phys_take_local_tx_edge_ex(
     uint32_t expected_identity_crc32,
     tdma_ring_local_tx_edge_evidence_t *evidence);
 bool tdma_pio_spi_phys_disarm(void *context);
+/* Core0 only, under the runtime owner's completed STOP/configuration lock.
+ * The facade excludes pending ARM and requires geometry=0 for every tap
+ * request, including disable. Disabled requires prefix=delay=0. Core1
+ * freezes the request during ARM, validating the selected frame capacity.
+ * A later request never changes that historical applied/actual readback.
+ * actual_valid means instructions/OSR were loaded, not a valid timestamp.
+ * Both APIs return false when the observer feature is disabled; a failed
+ * get preserves *out. No API here controls the wire or restarts an observer. */
+bool tdma_pio_spi_phys_event_tap_set(tdma_pio_spi_phys_t *phys,
+    uint32_t enabled, uint32_t prefix_bits, uint32_t sample_delay_cycles);
+bool tdma_pio_spi_phys_event_tap_get(const tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_event_tap_snapshot_t *out);
 /* Core1-only station handoff. Pin after a successful private RX delivery,
  * before REQUESTED publication. Zero means unavailable, never use latest. */
 uint32_t tdma_pio_spi_phys_rx_event_pin(void *context,
