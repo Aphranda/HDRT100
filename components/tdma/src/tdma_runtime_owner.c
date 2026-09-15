@@ -444,6 +444,16 @@ bool tdma_runtime_owner_get_origin_first_record(tdma_origin_first_record_t *snap
         tdma_pio_spi_phys_origin_get_first_record(&s_tdma_pio_spi_phys, snapshot);
 }
 
+bool tdma_runtime_owner_get_rx_first_window(tdma_rx_first_window_t *snapshot)
+{
+    if (snapshot == NULL) return false;
+    if (!s_tdma_runtime_owner_initialized) {
+        memset(snapshot, 0, sizeof(*snapshot));
+        return false;
+    }
+    return tdma_pio_spi_phys_get_rx_first_window(snapshot);
+}
+
 bool tdma_runtime_owner_get_ring_clock_snapshot(
     tdma_ring_clock_snapshot_t *snapshot)
 {

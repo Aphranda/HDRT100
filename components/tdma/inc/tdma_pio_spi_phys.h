@@ -14,6 +14,7 @@
 #include "tdma_rx_capture.h"
 #include "tdma_rx_event_candidate.h"
 #include "tdma_frozen_geometry.h"
+#include "tdma_rx_first_window.h"
 
 /* TDMA PIO SPI resident physical layer.
  *

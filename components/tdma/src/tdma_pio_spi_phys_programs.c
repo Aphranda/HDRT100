@@ -1017,6 +1017,8 @@ static bool tdma_pio_spi_phys_load_programs(
 static void tdma_pio_spi_phys_unload_programs(
     tdma_pio_spi_program_manager_t *manager)
 {
+    /* An attempted switch that later rolls back still ends this lifetime. */
+    tdma_pio_spi_phys_rx_first_window_persona_unload();
     switch (s_tdma_pio_spi_program_persona) {
     case TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL:
         pio_remove_program(BOARD_TDMA_SPI_PIO,

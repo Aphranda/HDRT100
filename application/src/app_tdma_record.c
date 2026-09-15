@@ -56,6 +56,18 @@ static int app_record_save_result(uint32_t job)
     return result.state == STORAGE_MANAGER_JOB_STATE_DONE ? 1 : 0;
 }
 
+static uint32_t app_record_rx_word(const tdma_rx_first_window_t *archive, uint32_t word)
+{
+    uint32_t value = 0u;
+    for (uint32_t byte = 0u; byte < 4u; ++byte) {
+        const uint32_t offset = word * 4u + byte;
+        if (offset < sizeof(archive->raw)) {
+            value |= (uint32_t)archive->raw[offset] << (byte * 8u);
+        }
+    }
+    return value;
+}
+
 static uint32_t app_record_snapshot(uint32_t *words)
 {
     tdma_ring_runtime_snapshot_t ring = {0};
@@ -71,6 +83,12 @@ static uint32_t app_record_snapshot(uint32_t *words)
      * explicit unavailable group this sample, including after an older valid
      * sample, so delta encoding cannot carry retired evidence forward. */
     if (!origin_first_available) memset(&origin_first, 0, sizeof(origin_first));
+    tdma_rx_first_window_t rx_first = {0};
+    const bool rx_first_available = tdma_runtime_owner_get_rx_first_window(&rx_first);
+    if (!rx_first_available) memset(&rx_first, 0, sizeof(rx_first));
+    _Static_assert(TDMA_RX_FIRST_WINDOW_RAW_STORAGE <=
+        DIAGNOSTICS_TDMA_RECORD_RX_RAW_WORDS * sizeof(uint32_t),
+        "update native RX archive schema before raising physical capacity");
     tdma_service_service_t *owner = tdma_runtime_owner_get();
     tdma_pio_spi_ring_adapter_t *ring_adapter = tdma_runtime_owner_get_ring_adapter();
     uint32_t valid = 0u;

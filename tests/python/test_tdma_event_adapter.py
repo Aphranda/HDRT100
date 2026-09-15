@@ -73,9 +73,22 @@ def production(directory: Path) -> str:
     routines.append(f"static void {name}(tdma_pio_spi_phys_t *phys) {{" +
                     c_definition_body(phys, name) + "}\n")
     cut_block = source[source.index("/* RX_START_CUT_STORAGE_BEGIN"):source.index("/* RX_START_CUT_STORAGE_END */")]
+    archive = source[source.index("/* RX_FIRST_WINDOW_STORAGE_BEGIN"):source.index("/* RX_FIRST_WINDOW_STORAGE_END */")]
+    copy = []
+    for result, name, args in (
+        ("uint8_t", "tdma_pio_spi_phys_rx_ring_reversed_byte", "uint64_t produced"),
+        ("void", "tdma_pio_spi_phys_rx_ring_copy", "uint8_t *destination, uint64_t produced, uint32_t count, uint32_t bit_shift"),
+    ):
+        definition = phys[phys.index('__attribute__((noinline, section(".time_critical.tdma_pio_spi_phys_rx_ring_copy")))'):]
+        copy.append(f"static {result} {name}({args}) {{" +
+                    c_definition_body(definition if name.endswith("ring_copy") else phys, name) + "}\n")
+    ring_words = re.search(r"(?m)^#define TDMA_PIO_SPI_RX_RING_WORDS\s+[^\n]+$", header).group(0)
     return (PREFIX + snapshot + "\n" + offsets + "\n" +
-            "\n".join(contract_definitions) + "\n" + FIXTURE +
-            "\n".join(routines[:2]) + cut_block + "\n".join(routines[2:]) + ASSERTIONS)
+            "\n".join(contract_definitions) + "\n" + ring_words + "\n" + FIXTURE +
+            "\n".join(routines[:2]) + cut_block + ARCHIVE_FIXTURE + "\n".join(copy) +
+            "#undef __dmb\n#define __dmb() archive_barrier()\n" + archive +
+            "\n#undef __dmb\n#define __dmb() writer_barrier()\n" +
+            "\n".join(routines[2:]) + ASSERTIONS)
 
 
 PREFIX = r'''
@@ -91,6 +104,7 @@ PREFIX = r'''
 #include "tdma_rx_start_cut.h"
 #include "tdma_rx_sequence.h"
 #include "tdma_frozen_geometry.h"
+#include "tdma_rx_first_window.h"
 #define _u(x) x##u
 typedef unsigned uint;
 '''
@@ -112,7 +126,7 @@ typedef struct {
     bool flight_overlay_alignment_locked;
     uint32_t flight_overlay_alignment_samples, rx_csn_pin, tx_csn_pin;
     uint32_t flight_alignment_byte_shift, flight_alignment_bit_shift;
-    uint32_t flight_physical_byte_count, rx_sck_pin, rx_pin;
+    uint32_t flight_physical_byte_count, flight_payload_size, rx_sck_pin, rx_pin;
     uint32_t flight_data_phase_delay_cycles, flight_marker_phase_delay_cycles, baud_hz;
 } tdma_pio_spi_phys_t;
 typedef unsigned tdma_pio_spi_program_persona_t;
@@ -127,6 +141,7 @@ enum { TDMA_PIO_SPI_ROLE_MASTER = 0u, TDMA_PIO_SPI_ROLE_SLAVE = 1u,
        PIO_FIFO_JOIN_RX = 1u, STATUS_IRQ_SET = 1u, clk_sys = 0u,
        pio_x = 1u, pio_y = 2u, pio_null = 3u, pio_osr = 4u, pio_isr = 5u };
 static tdma_event_observer_t s_tdma_event_observer;
+static tdma_event_record_t s_tdma_event_records[TDMA_EVENT_MAX_RECORDS];
 static tdma_pio_spi_event_snapshot_t s_tdma_event_snapshot;
 static tdma_event_history_t s_tdma_event_history;
 static uint32_t s_tdma_event_epoch, s_tdma_event_hz, s_tdma_event_period_ns;
@@ -344,7 +359,7 @@ static void pio_sm_set_enabled(PIO pio, uint sm, bool enabled) {
 }
 #define tdma_pio_spi_phys_control_pio(phys) (&bank)
 #define tdma_pio_spi_phys_data_pio(phys) (&rx_bank)
-#define tdma_pio_spi_phys_capture_pio(phys) (&rx_bank)
+#define tdma_pio_spi_phys_capture_pio(phys) ((void)(phys), &rx_bank)
 #define tdma_pio_spi_phys_evidence_pio(phys) (&bank)
 #define tdma_pio_spi_phys_control_sm(phys) 0u
 #define tdma_pio_spi_phys_data_sm(phys) 0u
@@ -400,6 +415,34 @@ static bool tdma_pio_spi_programs_select(int *manager, tdma_pio_spi_phys_t *phys
     return true;
 }
 '''
+
+ARCHIVE_FIXTURE = r'''
+static uint32_t first_ring[TDMA_PIO_SPI_RX_RING_WORDS];
+static uint32_t first_ring_reads;
+static void (*first_copy_hook)(void);
+static uint32_t __rev(uint32_t value) {
+    uint32_t result = 0u;
+    for (unsigned bit = 0; bit < 32; ++bit) { result = (result << 1u) | (value & 1u); value >>= 1u; }
+    return result;
+}
+static uint32_t tdma_pio_spi_phys_rx_ring_word(uint64_t coordinate) {
+    assert(coordinate == first_ring_reads);
+    ++first_ring_reads;
+    const uint32_t value = ((volatile uint32_t *)first_ring)[coordinate];
+    if (first_copy_hook != NULL && first_ring_reads == physical.flight_physical_byte_count) first_copy_hook();
+    return value;
+}
+static void archive_barrier(void) { ++cut_mmio_barriers; }
+/* Base adapter regressions do not invoke prelaunch/service; derived tests
+ * exercise these unchanged production bodies instead of replacing them. */
+static void tdma_rx_first_window_admit(const tdma_ring_runtime_config_t *) __attribute__((unused));
+static void tdma_rx_first_window_arm_failed(void) __attribute__((unused));
+static void tdma_rx_first_window_prelaunch(const tdma_pio_spi_phys_t *, const tdma_ring_runtime_config_t *, uint32_t) __attribute__((unused));
+static void tdma_rx_first_window_words(const tdma_event_batch_t *) __attribute__((unused));
+static void tdma_rx_first_window_raw(tdma_pio_spi_phys_t *) __attribute__((unused));
+static void tdma_rx_first_window_event(tdma_pio_spi_phys_t *, size_t) __attribute__((unused));
+'''
+
 
 ASSERTIONS = r'''
 /* This wrapper is used only by the tests below. Extracted production reader

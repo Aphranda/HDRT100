@@ -15,7 +15,7 @@ from tools.state_machine_resource_check.state_machine_resource_check import c_de
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_production_selected_observer_prelaunch_and_arm_order(tmp_path):
+def prelaunch_source(tmp_path):
     event = (ROOT / "components/tdma/src/tdma_pio_spi_phys_event.inc").read_text(encoding="utf-8")
     phys = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(encoding="utf-8")
     arm = c_definition_body(phys, "tdma_pio_spi_phys_arm")
@@ -50,7 +50,11 @@ def test_production_selected_observer_prelaunch_and_arm_order(tmp_path):
         "disarm_prefix_sha256": hashlib.sha256(stop_prefix.encode()).hexdigest(),
         "event_observed_sha256": hashlib.sha256(event.encode()).hexdigest(),
     }, indent=2), encoding="utf-8")
-    output = run(tmp_path, source, "prelaunch", enabled=True)
+    return source
+
+
+def test_production_selected_observer_prelaunch_and_arm_order(tmp_path):
+    output = run(tmp_path, prelaunch_source(tmp_path), "prelaunch", enabled=True)
     assert "prelaunch: 18 production groups passed" in output
 
 

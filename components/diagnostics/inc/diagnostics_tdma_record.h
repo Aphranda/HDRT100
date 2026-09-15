@@ -7,7 +7,10 @@
 
 /* Debug evidence format, independent of the TDMA wire and physical clock. */
 #define DIAGNOSTICS_TDMA_RECORD_MAGIC 0x524D4454u
-#define DIAGNOSTICS_TDMA_RECORD_SCHEMA 4u
+#define DIAGNOSTICS_TDMA_RECORD_SCHEMA 5u
+/* Fixed V5 file capacity across compiled node counts; bytes beyond the local
+ * archive storage are zero. This is a diagnostic format, not wire geometry. */
+#define DIAGNOSTICS_TDMA_RECORD_RX_RAW_WORDS 77u
 #define DIAGNOSTICS_TDMA_RECORD_SAMPLE_MAGIC 0x504D4153u
 #define DIAGNOSTICS_TDMA_RECORD_END_MAGIC 0x444E4554u
 #define DIAGNOSTICS_TDMA_RECORD_VALID 0x3Fu

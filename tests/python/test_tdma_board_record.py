@@ -160,6 +160,7 @@ def test_schema_preserves_the_complete_historical_health_field_sets():
     (1, 375, "cf4955ea815ecb22a6b0b044b9aa8fe835228ef18bf701b1fbbe69a4036e0bf0"),
     (2, 410, "6218599a86dfab094ac86198e991299b2ed9a2bec8d59d4fe69ca8e6e80933b4"),
     (3, 453, "f0a2b616af635195a0dccfba72fa90d33cd29662fd6debca8683cedf1ecccf6c"),
+    (4, 477, "c187d56df41ba7944eb675f01324055724ae770510be42ccdb463ae0ae385a86"),
 ])
 def test_historical_schema_order_and_types_are_immutable(version, words, digest):
     # Frozen from c2eab9c / provenance source-r3, independently of the new
@@ -170,7 +171,7 @@ def test_historical_schema_order_and_types_are_immutable(version, words, digest)
     assert hashlib.sha256(encoded).hexdigest() == digest
 
 
-@pytest.mark.parametrize("version", [1, 2, 3, 4])
+@pytest.mark.parametrize("version", [1, 2, 3, 4, 5])
 def test_versioned_record_keeps_legacy_evidence_and_observer_values(version):
     schema = decoder.field_schema(version)
     values = []
@@ -191,6 +192,12 @@ def test_versioned_record_keeps_legacy_evidence_and_observer_values(version):
                      "flags": 0, "rtt_present": 0,
                      "arm_before_hi0": 1, "arm_before_lo": 0xFFFFFFFF,
                      "arm_before_hi1": 2}.get(name, 0)
+        if group == "rx_first":
+            value = {"available": 1, "schema": 1, "raw_count": 173,
+                     "raw_capacity": 243, "raw_reason": 5, "first_reason": 5,
+                     "arm_epoch": 0xA123456789ABCDEF, "flags": 0,
+                     "raw_word_00": 0xFEDCBA98, "raw_word_76": 0,
+                     "event_word_mask": 1, "event_word_0": 0xFFFFFFFF}.get(name, 0)
         values.append(value & 0xFFFFFFFF)
         if kind == "U64":
             values.append(value >> 32)
@@ -234,6 +241,16 @@ def test_versioned_record_keeps_legacy_evidence_and_observer_values(version):
         assert first["identity"] == 0xABCDEFFF
         assert first["flags"] == first["rtt_present"] == 0
         assert first["arm_before_hi0"] == 1 and first["arm_before_hi1"] == 2
+    if version < 5:
+        assert "rx_first" not in snapshot
+    else:
+        rx = snapshot["rx_first"]
+        assert rx["available"] == 1 and rx["flags"] == 0
+        assert rx["raw_count"] == 173 and rx["raw_capacity"] == 243
+        assert rx["arm_epoch"] == 0xA123456789ABCDEF
+        assert rx["first_reason"] == rx["raw_reason"] == 5
+        assert rx["event_word_mask"] == 1 and rx["event_word_0"] == 0xFFFFFFFF
+        assert rx["raw_word_00"] == 0xFEDCBA98 and rx["raw_word_76"] == 0
     # Merely relabelling a file cannot reinterpret a different-sized schema.
     foreign = bytearray(data)
     struct.pack_into("<I", foreign, 4, version % 3 + 1)
@@ -242,23 +259,25 @@ def test_versioned_record_keeps_legacy_evidence_and_observer_values(version):
         decoder.decode_record(foreign)
 
 
-def test_app_first_archive_retirement_is_encoded_in_native_deltas(tmp_path):
+@pytest.mark.parametrize("capacity", [6, 8])
+def test_app_first_archive_retirement_is_encoded_in_native_deltas(tmp_path, capacity):
     # Execute the actual application snapshot body plus production recorder.
     # Unrelated health getters are mocked; only their field expressions are
     # replaced with zero. The new group's expressions and raw TDMA types are
     # compiled unchanged, so a failed final guard copy must really be cleared.
     app = (ROOT / "application/src/app_tdma_record.c").read_text(encoding="utf-8")
-    start = app.index("static uint32_t app_record_snapshot(")
-    end = app.index("\n}\n", start) + 3
+    start = app.index("static uint32_t app_record_rx_word(")
+    end = app.index("\n}\n", app.index("static uint32_t app_record_snapshot(")) + 3
     snapshot_body = app[start:end].replace('"diagnostics_tdma_record_fields.def"',
                                             '"test_record_fields.def"')
     fields = decoder.FIELDS_PATH.read_text(encoding="utf-8")
     fields = re.sub(r"^(RECORD_(?:U32|I32|U64)\((\w+), \w+, ).*$",
-                    lambda m: m[0] if m[2] == "origin_first" else m[1] + "0u)",
+                    lambda m: m[0] if m[2] in ("origin_first", "rx_first") else m[1] + "0u)",
                     fields, flags=re.M)
     (tmp_path / "test_record_fields.def").write_text(fields, encoding="utf-8")
     mocks = r'''
 #include "tdma_origin_plan.h"
+#include "tdma_rx_first_window.h"
 typedef struct { unsigned unused; } tdma_ring_runtime_snapshot_t;
 typedef tdma_ring_runtime_snapshot_t tdma_pio_spi_ring_adapter_snapshot_t;
 typedef tdma_ring_runtime_snapshot_t tdma_pio_spi_phys_snapshot_t;
@@ -292,6 +311,24 @@ static bool tdma_runtime_owner_get_origin_first_record(tdma_origin_first_record_
     p->record.raw_time.arm_before[2]=2;
     return true; /* No transport/edge success: still retain this raw record. */
 }
+static bool tdma_runtime_owner_get_rx_first_window(tdma_rx_first_window_t *p) {
+    const unsigned n=reads-1u;
+    memset(p,0xA5,sizeof(*p));
+    if(n==0u || n==2u) return false;
+    memset(p,0,sizeof(*p));
+    p->schema=1u;
+    p->arm_epoch=n==1u ? UINT64_C(0x100000065) : UINT64_C(0x200000066);
+    p->observation_epoch=UINT64_C(0x123456789abcdef);
+    p->raw_count=TDMA_RX_FIRST_WINDOW_RAW_CAPACITY;
+    p->first_reason=p->raw_reason=5u; /* Failed raw copy retains attempted bytes. */
+    p->event_word_mask=7u; /* Partial tuple stays partial, even in a complete file. */
+    p->event_words[0]=UINT32_MAX;
+    p->event_words[1]=0x12345678u;
+    p->event_words[2]=0xABCDEF98u;
+    for(unsigned i=0;i<TDMA_RX_FIRST_WINDOW_RAW_CAPACITY;i++)
+        p->raw[i]=(uint8_t)(i*7u+(n==1u ? 1u : 3u));
+    return true;
+}
 '''
     old_start = HARNESS.index("static uint32_t snapshot(")
     old_end = HARNESS.index("\n}\n", old_start) + 3
@@ -305,7 +342,7 @@ static bool tdma_runtime_owner_get_origin_first_record(tdma_origin_first_record_
                 "third_party/portable_ota/include"]
     compiler = shutil.which("gcc") or "D:/Microsoft/mingw64/bin/gcc.exe"
     compiled = subprocess.run([compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
-                    "-DPROJECT_NODE_CAPACITY=6", *["-I" + str(ROOT / p) for p in includes],
+                    f"-DPROJECT_NODE_CAPACITY={capacity}", *["-I" + str(ROOT / p) for p in includes],
                     str(path), str(ROOT / "third_party/portable_ota/src/pota_crc32.c"),
                     str(ROOT / "components/diagnostics/src/diagnostics_tdma_record.c"),
                     "-o", str(exe)], capture_output=True, text=True)
@@ -314,7 +351,7 @@ static bool tdma_runtime_owner_get_origin_first_record(tdma_origin_first_record_
     subprocess.run([str(exe), "8", str(binary)], check=True, capture_output=True, text=True)
     record = decoder.decode_record(binary.read_bytes())
     assert record["collection_passed"]
-    assert record["schema"] == "HAOFV_TDMA_BOARD_RECORD_V4"
+    assert record["schema"] == "HAOFV_TDMA_BOARD_RECORD_V5"
     first = [s["snapshot"]["origin_first"] for s in [record["baseline"], *record["samples"]]]
     assert [s["available"] for s in first] == [0, 1, 0, 1, 1]
     assert all(value == 0 for i in (0, 2) for value in first[i].values())
@@ -323,6 +360,23 @@ static bool tdma_runtime_owner_get_origin_first_record(tdma_origin_first_record_
     assert first[1]["identity"] == 0xAABBCCDD
     assert first[3] == first[4] and first[3]["sequence"] == 7
     assert first[3]["flags"] == first[3]["rtt_present"] == 0
+    rx = [s["snapshot"]["rx_first"] for s in [record["baseline"], *record["samples"]]]
+    assert [s["available"] for s in rx] == [0, 1, 0, 1, 1]
+    assert all(value == 0 for i in (0, 2) for value in rx[i].values())
+    assert rx[1]["arm_epoch"] == 0x100000065
+    assert rx[3]["arm_epoch"] == 0x200000066 and rx[3] == rx[4]
+    for i, seed in ((1, 1), (3, 3)):
+        sample = rx[i]
+        assert sample["observation_epoch"] == 0x123456789ABCDEF
+        assert sample["raw_count"] == sample["raw_capacity"]
+        assert sample["first_reason"] == sample["raw_reason"] == 5
+        assert sample["flags"] == 0 and sample["event_word_mask"] == 7
+        assert [sample[f"event_word_{n}"] for n in range(5)] == [
+            0xFFFFFFFF, 0x12345678, 0xABCDEF98, 0, 0]
+        raw = struct.pack("<77I", *(sample[f"raw_word_{n:02d}"] for n in range(77)))
+        assert raw[:sample["raw_count"]] == bytes(
+            (n * 7 + seed) & 255 for n in range(sample["raw_count"]))
+        assert raw[sample["raw_count"]:] == bytes(len(raw) - sample["raw_count"])
 
 
 def test_storage_evidence_seal_keeps_crc_length_and_lease_checks(tmp_path):

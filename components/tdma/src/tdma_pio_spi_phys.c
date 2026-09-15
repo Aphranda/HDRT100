@@ -405,6 +405,8 @@ static void tdma_pio_spi_phys_origin_record_invalidate(tdma_pio_spi_phys_t *phys
     __atomic_store_n(&phys->flight_origin_record_guard, guard + 2u, __ATOMIC_RELEASE);
 }
 
+static void tdma_rx_first_window_admit(const tdma_ring_runtime_config_t *config);
+static void tdma_rx_first_window_arm_failed(void);
 #include "tdma_pio_spi_phys_geometry.inc"
 #include "tdma_pio_spi_phys_event.inc"
 
@@ -413,8 +415,9 @@ bool tdma_pio_spi_phys_select_program_persona(
     tdma_pio_spi_program_persona_t persona)
 {
     tdma_geometry_persona(persona);
-    if (persona != s_tdma_pio_spi_program_persona)
+    if (persona != s_tdma_pio_spi_program_persona) {
         tdma_pio_spi_phys_event_stop(phys);
+    }
     tdma_pio_spi_phys_origin_record_invalidate(phys);
     const bool selected = tdma_pio_spi_programs_select(
         &s_tdma_pio_spi_program_manager, phys, persona);
@@ -2531,6 +2534,9 @@ bool tdma_pio_spi_phys_disarm(void *context)
      * current. Geometry capture below does not need the observer SMs alive. */
     tdma_pio_spi_phys_event_stop(phys);
     tdma_geometry_stop_begin(phys);
+    /* Explicit STOP cancels even a sparse ARM admission. Successful cleanup
+     * below adds STOPPED only after DMA and both workers have retired. */
+    tdma_rx_first_window_retire(TDMA_RX_FIRST_STOP_BEFORE_COMPLETE, false);
     s_tdma_pio_spi_rx_arm_valid = false;
     const bool worker_retired = tdma_overlay_prepare_cancel(phys->overlay_preparation);
     const bool scanner_retired = tdma_pio_spi_phys_rx_scan_cancel(phys);
@@ -2606,6 +2612,7 @@ bool tdma_pio_spi_phys_disarm(void *context)
      * pending until ACK, so neither ARM nor the origin union can reuse it. */
     if (worker_retired && scanner_retired) {
         tdma_rx_start_cut_disarmed();
+        tdma_rx_first_window_retire(TDMA_RX_FIRST_STOP_BEFORE_COMPLETE, true);
         s_geometry_physical_stopped = true;
     }
     return worker_retired && scanner_retired;

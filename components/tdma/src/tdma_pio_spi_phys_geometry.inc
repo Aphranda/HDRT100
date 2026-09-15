@@ -74,6 +74,7 @@ static void tdma_geometry_retire(uint32_t reason)
 
 static void tdma_geometry_arm_failed(void)
 {
+    tdma_rx_first_window_arm_failed();
     tdma_geometry_retire(TDMA_GEOMETRY_ARM_FAILED);
 }
 
@@ -85,7 +86,11 @@ bool tdma_pio_spi_phys_geometry_arm_requested(void *context,
         tdma_geometry_arm_failed();
         return false;
     }
+    /* Core1 receives only admitted owner configurations here. A rejected
+     * Core0 command never reaches this boundary; retries retain first failure. */
+    tdma_rx_first_window_admit(config);
     if (s_geometry.state == TDMA_GEOMETRY_CANDIDATE) {
+        tdma_rx_first_window_arm_failed();
         s_geometry.reason = TDMA_GEOMETRY_INCOMPLETE_STOP;
         tdma_geometry_publish();
         tdma_pio_spi_phys_set_error(phys, TDMA_PIO_SPI_PHYS_ERROR_GEOMETRY);
@@ -97,6 +102,7 @@ bool tdma_pio_spi_phys_geometry_arm_requested(void *context,
         config->owner_config_seq == s_geometry_request_config &&
         (s_geometry.state == TDMA_GEOMETRY_REJECTED ||
          s_geometry.state == TDMA_GEOMETRY_RETIRED)) {
+        tdma_rx_first_window_arm_failed();
         tdma_pio_spi_phys_set_error(phys, TDMA_PIO_SPI_PHYS_ERROR_GEOMETRY);
         return false;
     }
@@ -114,7 +120,10 @@ bool tdma_pio_spi_phys_geometry_arm_requested(void *context,
         (selected ? TDMA_GEOMETRY_SELECTING : TDMA_GEOMETRY_TRAINING);
     s_geometry.reason = stale ? TDMA_GEOMETRY_STALE : TDMA_GEOMETRY_OK;
     tdma_geometry_publish();
-    if (stale) tdma_pio_spi_phys_set_error(phys, TDMA_PIO_SPI_PHYS_ERROR_GEOMETRY);
+    if (stale) {
+        tdma_rx_first_window_arm_failed();
+        tdma_pio_spi_phys_set_error(phys, TDMA_PIO_SPI_PHYS_ERROR_GEOMETRY);
+    }
     return !stale;
 }
 

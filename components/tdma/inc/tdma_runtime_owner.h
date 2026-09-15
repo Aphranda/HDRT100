@@ -11,6 +11,7 @@
 #include "tdma_service_timing.h"
 #include "tdma_origin_blackout.h"
 #include "tdma_origin_release.h"
+#include "tdma_rx_first_window.h"
 
 /* Core1 gate before all TDMA service work. Enabled only by an admitted finite
  * diagnostic trial; false runs the normal service, including STOP retirement. */
@@ -69,6 +70,8 @@ bool tdma_runtime_owner_get_origin_frozen_record(uint32_t age,
 /* Core0 diagnostic copy of the one-shot first archive, while active or STOPPED.
  * Availability grants neither physical frame identity nor VDC time validity. */
 bool tdma_runtime_owner_get_origin_first_record(tdma_origin_first_record_t *snapshot);
+/* Consistent first RX diagnostic archive; availability grants no frame/time authority. */
+bool tdma_runtime_owner_get_rx_first_window(tdma_rx_first_window_t *snapshot);
 /* Core0 read-only board/persona capability, not a resource acquisition. */
 bool tdma_runtime_owner_get_origin_capability(refmem_realtime_origin_capability_t *capability);
 /* Core1-only completion poll for the resident flight-origin PIO/DMA burst. */

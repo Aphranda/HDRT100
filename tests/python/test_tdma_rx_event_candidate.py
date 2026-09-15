@@ -59,7 +59,6 @@ EXTRA_FIXTURE = r'''
 static uint64_t s_tdma_pio_spi_rx_capture_id;
 static uint64_t s_tdma_pio_spi_rx_scan_produced;
 static tdma_event_batch_t s_tdma_event_batch;
-static tdma_event_record_t s_tdma_event_records[TDMA_EVENT_MAX_RECORDS];
 static uint32_t fifo[4][8], fifo_cursor[4];
 static unsigned fifo_reads;
 static bool pio_sm_is_rx_fifo_empty(PIO pio, uint sm) { return pio->level[sm] == 0u; }
@@ -445,6 +444,16 @@ int main(void) {
     assert(!tdma_pio_spi_phys_get_rx_start_cut(NULL));
     const tdma_rx_capture_t capture = {.capture_id = 7u, .arm_epoch = 9u};
     tdma_ring_runtime_config_t config = {0};
+    tdma_rx_first_window_t first;
+    memset(&first, 0xff, sizeof(first));
+    tdma_rx_first_window_admit(&config);
+    tdma_rx_first_window_arm_failed();
+    tdma_rx_first_window_retire(TDMA_RX_FIRST_STOP_BEFORE_COMPLETE, true);
+    tdma_pio_spi_phys_rx_first_window_persona_unload();
+    assert(!tdma_pio_spi_phys_get_rx_first_window(&first));
+    const tdma_rx_first_window_t empty_first = {0};
+    assert(memcmp(&first, &empty_first, sizeof(first)) == 0);
+    assert(!tdma_pio_spi_phys_get_rx_first_window(NULL));
     assert(tdma_pio_spi_phys_event_prelaunch(&phys, &config));
     config.geometry_generation = 1u;
     assert(!tdma_pio_spi_phys_event_prelaunch(&phys, &config));

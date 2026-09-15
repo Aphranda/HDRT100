@@ -63,6 +63,11 @@ static void tdma_pio_spi_phys_set_error(tdma_pio_spi_phys_t *phys, uint32_t erro
 { phys->snapshot.last_error = error; }
 
 /* This is the complete production include, with actual physical/header types. */
+/* Archive behavior is exercised by test_tdma_rx_first_window. These are
+ * diagnostic sinks only; geometry decisions and worker cancellation are real. */
+static void tdma_rx_first_window_admit(const tdma_ring_runtime_config_t *c) { (void)c; }
+static void tdma_rx_first_window_arm_failed(void) { }
+static void tdma_rx_first_window_retire(uint32_t reason, bool stopped) { (void)reason; (void)stopped; }
 #include "tdma_pio_spi_phys_geometry.inc"
 
 /* Register/physical cleanup boundaries only. All three worker cancellation
