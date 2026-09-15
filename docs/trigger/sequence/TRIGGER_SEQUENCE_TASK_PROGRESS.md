@@ -406,8 +406,61 @@ python tools/hardware_acceptance/sequence_trigger_acceptance.py --port COM10 --s
 - 频率调整通过外部信号源完成，序列固件无需重新编译；输入源、边沿、建立时间和完成脉宽均可在停止状态下通过SCPI重新配置。
 - 5 kHz连续IN1在PIO0后端通过上升沿、下降沿及忙时测试：10/10微秒档上升沿完成27636步、下降沿完成27830步，均无fault；200/200微秒忙时档完成5885步并记录11768次busy拒绝。暂停、继续和停止后的计数稳定，输出与租约释放。
 - 用户切至1 MHz后，使用10/10微秒档完成单板压力验证：测试期间完成115909步，无fault；暂停时接纳95171/完成95171，记录1998586次busy拒绝；继续后接纳115909/完成115909，最终停止回到IDLE并释放IO。证据文件SHA-256为`9390AC599DB749D11EA606E0473A81F834375DF29BD11539DABC1BEC0B2A92A0`（快照，非事实源）。该结果证明过载拒绝、暂停/恢复和停止恢复路径工作，不代表每个1 MHz边沿均被执行或完成波形认证。
-- 实时读回确认`READ:SEQ:NEXT?`与`READ:IO:STAT?`可用；板卡随后恢复IN1上升沿、10/10微秒、IDLE配置。新增`tools/sequence_trigger_debug_ui.py`提供纯Tk调试界面，可配置序列、选择IN1-IN4/边沿、执行启动/单步/NEXT/暂停/继续/停止并查看状态和IO读回。
+- 实时读回确认`READ:SEQ:NEXT?`与`READ:IO:STAT?`可用；板卡随后恢复IN1上升沿、10/10微秒、IDLE配置。`tools/sequence_trigger_debug_ui/sequence_trigger_debug_ui.py`提供纯Tk调试界面，可自动发现串口并通过单一后台队列串行化操作，支持序列控制、当前位置与IO读回、分级日志及导出、设备身份/自定义SCPI查询，并复用`tools/ota_multi_update/ota_multi_update.py`执行单板OTA。
 - 证据边界：频率为用户信号源设置值，未使用独立脉冲计数器或示波器；1 MHz结果用于压力与恢复验证，后续若继续提高频率应优先观察回执环溢出和拒绝计数。
+
+### NSEQ-PROGRESS-20260915-014 - START首状态预置实现
+
+- TODO：`NSEQ-063`；日期：2026-09-15；本次修改固件、验收工具、测试和域文档。
+- 用户确认运行语义：`TRIG:START`完成后处于计划首状态，第一次真实BUS/IN触发切换到第二状态，后续按计划循环。
+- 实现：PIO owner取得资源后直接驱动首状态；初始建立时间到期且executor READY前不启动外部输入counter/ingress，BUS单步也保持NOT_READY。DMA执行环按第二状态至末状态、再回首状态的顺序循环。
+- 计数边界：START预置不增加accepted/completed、不生成执行/完成回执，也不拉高完成OUT；运行状态发布current=首状态、next=第二状态。STOP仍将本persona输出拉低并释放资源。
+- 验收工具同步检查START后的首状态实际IO，并按新游标公式验证首次触发、逐步执行和回绕；旧build证据不用于证明新语义。
+- host验证：针对service、真实SCPI解析、PIO模型/生产函数和验收工具的组合回归记录160项PASS；补充初始建立deadline准入门禁后，PIO专项13项复测PASS；全部sequence/resource专项共281项PASS（当次环境快照，非产品事实源）。输出位于`out/pytest/sequence-start-prime-r3/`、`out/pytest/sequence-prime-gate/`及对应完整专项运行记录。
+- 首轮回归曾因旧游标/输出断言及host替身缺少启动计时接口出现19项失败，修正测试语义和替身后全绿；未通过删减产品检查规避失败。
+- Release构建：`pico2-release`在`out/build/sequence-start-prime/`完成772个步骤，A/B应用、Bootloader、factory UF2、OTA包及三份flash-link契约检查通过（当次构建快照，非产品事实源）。
+- 单板OTA：当前设备枚举为COM8，UID `839E1AE79EA20F31`；使用P3同源码构建产物更新至build `20260915144303`并提交成功，证据位于`out/node-sequence/sequence-start-prime-ota/`。
+- BUS单板验收：`out/node-sequence/sequence-start-prime-bus.json`记录PASS。START后为`current=0,next=1,accepted=completed=0`且IO地址为0；第一次软件触发进入状态1；第8步回到状态0，第9步再次进入状态1；全程无拒绝、取消或fault，STOP后五路IO读回均为0。
+- 证据边界：用户当前没有外部脉冲源，本轮不执行IN1-IN4验收；串口轮询未观察完成高电平，也不能证明START期间OUT4没有瞬态脉冲，该项仅由无回执实现路径和host测试覆盖，仍需示波器或逻辑分析仪形成外部波形证据。
+- P3结果：同源码P3运行在五板OTA发现阶段FAIL，仅找到上述一板，缺少4个登记序列号；未生成P3凭证，不能用单板PASS替代。
+- 下一gate：补齐五板后重跑P3，并在具备示波器或逻辑分析仪时验证START不产生OUT4完成脉冲。
+
+### NSEQ-PROGRESS-20260915-015 - 调试界面与USB运行时切换固件
+
+- 用户串口日志中`*IDN?`正常返回，但`SYST:USB:MODE USBTMC`、`SYST:USB:BOOT`和
+  `SYST:USB:MODE?`均无响应。源码与当前Release配置核对确认：CDC链路正常，当前板上固件未启用
+  `PROJECT_ENABLE_USB_RUNTIME_SWITCH`，因此没有注册上述命令；重复发送不能完成模式切换。
+- 调试界面迁入`tools/sequence_trigger_debug_ui/`，提供浅色扁平布局、串口与VISA USB仪器自动发现、
+  单一后台操作队列、当前位置/IO读回、分级日志与导出，以及Serial/USBTMC OTA入口。切换模式前先查询
+  `SYST:USB:MODE?`；响应不是`CDC`或`USBTMC`时直接报告当前固件未启用运行时切换，不再继续静默发送
+  MODE和BOOT。
+- 新增`pico2-usb-runtime-switch`专用preset，默认以CDC启动并启用
+  `PROJECT_ENABLE_USB_RUNTIME_SWITCH`。常规`pico2-release`能力不变，USB运行时切换仍是调试能力，
+  不改变产品对外接口契约。
+- 首次专用构建在链接阶段因Pico SDK libc heap保留导致RAM超出608 B（构建快照，非事实源）。
+  `CMakeLists.txt`新增可选`PROJECT_PICO_HEAP_SIZE`覆盖项，专用preset按
+  `CMakePresets.json`中的当前值覆盖SDK `PICO_HEAP_SIZE`；FreeRTOS任务内存继续以
+  `configTOTAL_HEAP_SIZE`为事实源，两者没有混用。普通Release未设置覆盖项，继续使用SDK默认值。
+- 旧build目录首次重跑仍失败，原因是自动构建脚本跳过preset配置、cache内新变量为空；显式执行
+  `cmake --preset pico2-usb-runtime-switch -B out/build/sequence-usb-runtime-switch`后，编译数据库确认
+  `crt0.S`收到覆盖定义。随后完整构建PASS，A/B应用、Bootloader、factory UF2、OTA包和三份
+  flash-link契约检查均通过；产物位于`out/build/sequence-usb-runtime-switch/`。独立配置的
+  `pico2-release`确认覆盖项为空、编译命令未定义`PICO_HEAP_SIZE`，完整Release构建及三份
+  flash-link检查同样PASS。
+- 单板OTA首次记录`out/node-sequence/sequence-usb-runtime-switch-ota/`为FAIL：数据发送完成且BOOT返回
+  OK，但设备以runtime CDC描述符从COM8重新枚举为COM4，提交工具只重开旧端口而超时。新端口随后
+  读回目标build及`SYST:USB:MODE? -> CDC`，证明这是post-reset端口变化，不是镜像启动失败；原失败未覆盖。
+- CDC侧写入USBTMC并读回后执行BOOT，NI-VISA自动发现
+  `USB0::0xCAFE::0x4030::839E1AE79EA20F31::INSTR`；TMC侧身份、build及模式查询通过。
+  `out/node-sequence/sequence-usbtmc-bus.json`记录BUS单板验收PASS：START直接选择首位置并输出首编码，
+  九次软件推进覆盖完整一轮及回绕后的下一位置，接纳/完成一致、无fault，STOP后IDLE且输出全部释放。
+  最后通过TMC写回CDC并BOOT，COM4恢复枚举，身份、目标build和CDC模式再次读回通过。
+- `open_serial_port()`清理改为与`SerialSession.close()`一致的best-effort语义：BOOT已返回后目标立即
+  断开时，不再由退出阶段的flush/close异常覆盖成功响应；命令执行阶段异常仍正常上抛。正式序列验收工具
+  增加`--visa-resource`，TMC与串口共用同一套状态、计数、回绕、实际IO和STOP判据。
+- 产品级证据边界：最终工具源码对应的P3证据位于
+  `out/HardwareAcceptance/20260915/p3-235133/`（运行快照，非事实源）：五板OTA发现仅识别到当前
+  COM8设备，缺少其余四个登记序列号，流程FAIL且未签发P3凭证；没有用单板在线或构建PASS替代五板门禁。
 
 ## 验证与证据索引
 
@@ -421,6 +474,7 @@ python tools/hardware_acceptance/sequence_trigger_acceptance.py --port COM10 --s
 | NSEQ-015/030 | NSEQ-PROGRESS-20260915-008/010与完整单板回归 | GPIO版各源双沿ARM/STOP和IO读回PASS，IN1已接线验证；其他输入激励与PIO版待验收 |
 | NSEQ-031/032 | NSEQ-PROGRESS-20260915-010、`in1-50hz-*.json` | IN1低频功能PASS；其他输入激励、独立波形/RF仍待验收 |
 | NSEQ-060/061/062 | NSEQ-A-06及进度011/012 | PIO0热加载与50Hz/1kHz功能通过；后续压力档待测 |
+| NSEQ-063 | NSEQ-PROGRESS-20260915-014/015、`out/node-sequence/sequence-start-prime-bus.json`与`out/node-sequence/sequence-usbtmc-bus.json` | START首状态、首次触发及回绕的CDC/USBTMC BUS单板验收PASS；P3与OUT4外部波形待完成 |
 | NSEQ-040 | 分布式预约和全节点裁决 | 按最新范围后续实施，本轮不执行 |
 
 ## 失败与回退
@@ -433,4 +487,5 @@ python tools/hardware_acceptance/sequence_trigger_acceptance.py --port COM10 --s
 真实SCPI控制、SP8T编码全组合及回绕、busy拒绝、暂停/停止和实际IO读回已通过。
 IN1低频双沿、暂停/恢复/停止和忙时拒绝已通过。补齐其余输入激励、独立波形及SP8T实体通路；
 PIO提速先核对SYNC资源分配，再实现并验证persona热加载，未验证项不得宣称通过。
-本轮不实施TDMA通信或全节点裁决；原始P3失败和未提交状态保留。
+START首状态预置还需当前源码P3凭证和OUT4外部波形闭环，完成前NSEQ-063保持IN PROGRESS。
+本轮不实施TDMA通信或全节点裁决；按用户确认的单板调试口径，单板验证通过后允许提交，原始P3失败保留。
