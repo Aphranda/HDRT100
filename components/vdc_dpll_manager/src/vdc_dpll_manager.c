@@ -995,22 +995,9 @@ static bool vdc_dpll_manager_dco_time_at_local_ns(
     uint64_t local_ns,
     uint64_t *dco_ns)
 {
-    if (dco == NULL || dco_ns == NULL || dco->valid == 0u ||
-        local_ns < dco->base_local_tick64) {
-        return false;
-    }
-    const uint64_t delta = local_ns - dco->base_local_tick64;
-    const int64_t rate =
-        ((int64_t)delta * (int64_t)dco->period_adjust_ppb) / 1000000000ll;
-    const int64_t adjust = rate + (int64_t)dco->phase_offset_ns;
-    const uint64_t base = dco->base_vdc_time64_ns + delta;
-    if (adjust < 0 && (uint64_t)(-adjust) > base) {
-        return false;
-    }
-    *dco_ns = adjust < 0
-        ? base - (uint64_t)(-adjust)
-        : base + (uint64_t)adjust;
-    return true;
+    /* Output scheduling and remote-feedback projection must use the same
+     * applied DCO model, including its local anchor and overflow policy. */
+    return vdc_domain_dco_local_to_output_ns(dco, local_ns, dco_ns);
 }
 
 static bool vdc_dpll_manager_compute_dco_phase_pulse_deadline(

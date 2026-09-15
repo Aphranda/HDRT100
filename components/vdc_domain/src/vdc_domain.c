@@ -2477,6 +2477,81 @@ bool vdc_domain_dco_control_validate(const vdc_tdma_schedule_profile_t *schedule
     return true;
 }
 
+bool vdc_domain_dco_local_to_output_ns(const vdc_dco_control_t *dco,
+                                       uint64_t local_ns,
+                                       uint64_t *output_ns)
+{
+    if (dco == NULL || output_ns == NULL || dco->valid == 0u ||
+        dco->nominal_period_ns == 0u || dco->lock_state > VDC_DOMAIN_LOCK_FAULT ||
+        local_ns < dco->base_local_tick64) return false;
+    const uint64_t delta = local_ns - dco->base_local_tick64;
+    const uint32_t magnitude = vdc_domain_abs_i32(dco->period_adjust_ppb);
+    const uint64_t whole = delta / 1000000000ull;
+    const uint64_t fraction = (delta % 1000000000ull) * magnitude / 1000000000ull;
+
+    /* Exact unsigned magnitude of trunc(delta * rate / 1e9), without a
+     * 96-bit multiplication or signed overflow. whole fits in 35 bits;
+     * each split product fits uint64_t, including an INT32_MIN rate. */
+    const uint64_t product_low = (uint64_t)(uint32_t)whole * magnitude;
+    const uint64_t product_high = (whole >> 32u) * magnitude;
+    uint64_t rate_low = product_low + (product_high << 32u);
+    uint32_t rate_high = (uint32_t)(product_high >> 32u) +
+        (rate_low < product_low ? 1u : 0u);
+    const uint64_t old_rate_low = rate_low;
+    rate_low += fraction;
+    rate_high += rate_low < old_rate_low ? 1u : 0u;
+
+    /* A signed high word retains carries until ALL signed terms have been
+     * added. This accepts cancellation such as base+delta overflowing before
+     * a negative rate brings the exact final result back into uint64_t. The
+     * high word remains within a few units for the full int32_t rate range. */
+    uint64_t value = dco->base_vdc_time64_ns + delta;
+    int32_t high = value < delta ? 1 : 0;
+    const uint64_t old_value = value;
+    if (dco->period_adjust_ppb < 0) {
+        value -= rate_low;
+        high -= (int32_t)rate_high + (old_value < rate_low ? 1 : 0);
+    } else {
+        value += rate_low;
+        high += (int32_t)rate_high + (value < old_value ? 1 : 0);
+    }
+    const uint32_t phase = vdc_domain_abs_i32(dco->phase_offset_ns);
+    const uint64_t before_phase = value;
+    if (dco->phase_offset_ns < 0) {
+        value -= phase;
+        high -= before_phase < phase ? 1 : 0;
+    } else {
+        value += phase;
+        high += value < before_phase ? 1 : 0;
+    }
+    if (high != 0) return false;
+    *output_ns = value;
+    return true;
+}
+
+bool vdc_domain_dco_output_phase_residual_ns(const vdc_dco_control_t *dco,
+                                             uint64_t local_rx_ns,
+                                             uint32_t reference_output_phase_ns,
+                                             uint32_t directed_delay_ns,
+                                             uint32_t period_ns,
+                                             int32_t *residual_ns)
+{
+    if (residual_ns == NULL || period_ns == 0u ||
+        reference_output_phase_ns >= period_ns) return false;
+    uint64_t output_ns;
+    if (!vdc_domain_dco_local_to_output_ns(dco, local_rx_ns, &output_ns)) return false;
+    const uint64_t expected_phase =
+        ((uint64_t)reference_output_phase_ns + directed_delay_ns) % period_ns;
+    int64_t residual = (int64_t)(output_ns % period_ns) - (int64_t)expected_phase;
+    const int64_t half = (int64_t)period_ns / 2ll;
+    /* Both phases are already reduced, so at most one correction is needed.
+     * For every uint32_t period the centered result fits int32_t. */
+    if (residual > half) residual -= period_ns;
+    else if (residual < -half) residual += period_ns;
+    *residual_ns = (int32_t)residual;
+    return true;
+}
+
 static bool vdc_domain_validate_tdma_timestamp_evidence_window(
     const vdc_tdma_schedule_profile_t *profile,
     const vdc_tdma_timestamp_evidence_t *evidence,

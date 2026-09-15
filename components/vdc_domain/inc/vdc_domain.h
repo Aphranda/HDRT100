@@ -721,6 +721,32 @@ bool vdc_domain_clock_model_local_to_vdc_ns(const vdc_clock_model_t *model,
 bool vdc_domain_dco_control_validate(const vdc_tdma_schedule_profile_t *schedule,
                                      const vdc_servo_profile_t *servo,
                                      const vdc_dco_control_t *dco);
+/* Pure, bounded projection of one immutable DCO snapshot. local_ns and the
+ * model's base_local_tick64 are nanoseconds in the same local clock domain.
+ * output = base_vdc + delta + trunc(delta * rate_ppb / 1e9) + phase_ns.
+ * Signed rate division truncates toward zero. False leaves output untouched
+ * for invalid model/time or a mathematical result outside uint64_t. This
+ * does not validate source/session ownership, freshness or lock eligibility. */
+bool vdc_domain_dco_local_to_output_ns(const vdc_dco_control_t *dco,
+                                       uint64_t local_ns,
+                                       uint64_t *output_ns);
+/* Same-event output phase residual: local projected phase minus
+ * (reference output phase + directed delay), centered modulo the period. A
+ * positive result means the local projected phase exceeds the expected
+ * phase; it does not assign the physical output-edge control polarity.
+ * The caller must correlate the actual local RX timestamp with the specified
+ * reference node's OUTPUT phase for that event, and supply its directed path
+ * delay in the same units. A raw reference counter phase is not implicitly a
+ * reference DCO phase. period_ns is the selected output comparison period.
+ * Result lies in [-floor(P/2), floor(P/2)]; an exact even-period half-cycle
+ * retains the sign of local_phase - expected_phase. False leaves residual
+ * untouched. No transport, controller, owner or lock state is changed. */
+bool vdc_domain_dco_output_phase_residual_ns(const vdc_dco_control_t *dco,
+                                             uint64_t local_rx_ns,
+                                             uint32_t reference_output_phase_ns,
+                                             uint32_t directed_delay_ns,
+                                             uint32_t period_ns,
+                                             int32_t *residual_ns);
 void vdc_domain_default_path_delay_table(
     vdc_path_delay_table_t *table,
     const vdc_tdma_schedule_profile_t *schedule);
