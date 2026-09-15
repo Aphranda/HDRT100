@@ -18,9 +18,12 @@ REFMEM = ROOT / "components/distributed_refmem/src/distributed_refmem.c"
 
 
 def function_body(source, name):
-    # Accept both ordinary and TIME_CRITICAL(name)(void) definitions while
-    # requiring the opening brace, so a forward declaration cannot match.
-    definition = re.search(rf"\b{re.escape(name)}\s*\)?\s*\([^;{{}}]*\)\s*\{{", source)
+    # Anchor a typed definition: a preceding if (name(...)) must not be
+    # mistaken for a function. Also accept the project's placement macros.
+    definition = re.search(
+        rf"(?m)^(?:static\s+)?(?:__attribute__\(\([^\n]*\)\)\s+)?"
+        rf"(?:bool|void)\s+(?:[A-Z_]+\(\s*)?{re.escape(name)}"
+        rf"\s*\)?\s*\([^;{{}}]*\)\s*\{{", source)
     assert definition, f"Missing production definition: {name}"
     opening = definition.end()
     depth = 1
@@ -40,7 +43,8 @@ def compile_executable(directory, name, text, sources=()):
     assert compiler, "A host C compiler is required for the real owner tests"
     exe = directory / (name + (".exe" if os.name == "nt" else ""))
     includes = [ROOT / f"components/{component}/inc" for component in (
-        "tdma", "vdc_domain", "vdc_dpll_manager", "distributed_refmem")]
+        "tdma", "vdc_domain", "vdc_dpll_manager", "distributed_refmem",
+        "calibration_manager", "ota_manager")]
     result = subprocess.run([
         compiler, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
         *[f"-I{path}" for path in includes], str(source),
@@ -72,14 +76,26 @@ static refmem_sync_vdc_command_snapshot_t retained_source;
 static tdma_ring_clock_snapshot_t ring_source;
 static vdc_dpll_follower_command_t last_command;
 static uint32_t reads, requested_source, ring_reads, missing, late, apply_calls, dco_writes;
+static uint32_t consumer_generation, requested_generation;
 static bool retained_available, ring_available, domain_accept;
 static uint64_t now_ns;
 
 static bool distributed_refmem_get_vdc_follower_command(uint32_t source,
-    refmem_sync_vdc_command_snapshot_t *out)
+    uint32_t expected_generation, refmem_sync_vdc_command_snapshot_t *out)
 {
-    ++reads; requested_source = source; *out = retained_source;
-    return retained_available;
+    ++reads; requested_source = source; requested_generation = expected_generation;
+    if (!retained_available || expected_generation == 0 ||
+        expected_generation != consumer_generation) return false;
+    *out = retained_source;
+    return true;
+}
+/* The real setter and guarded getter are tested by the receiver C suite.
+ * Here, model when Core0 catches up with an activated Core1 role. */
+static void core0_bind_generation(uint32_t generation)
+{
+    assert(generation != 0);
+    if (consumer_generation != generation) retained_source.valid = 0;
+    consumer_generation = generation;
 }
 static bool tdma_runtime_owner_get_ring_clock_snapshot(tdma_ring_clock_snapshot_t *out)
 {
@@ -116,6 +132,7 @@ static void reset_fixture(void)
     s_vdc_follower_last_epoch_id = s_vdc_follower_last_run_id = 0;
     s_vdc_follower_capture_kind_hint = 0;
     reads = requested_source = ring_reads = missing = late = apply_calls = dco_writes = 0;
+    consumer_generation = 9; requested_generation = 0;
     retained_available = ring_available = domain_accept = true;
     s_vdc_domain.control.profile = (vdc_dpll_control_profile_t){
         .valid = 1, .mode = VDC_DPLL_CONTROL_MODE_FOLLOWER,
@@ -147,6 +164,7 @@ static void assert_applied(uint32_t count)
 {
     assert(apply_calls == count && dco_writes == count && !missing && !late);
     assert(requested_source == s_vdc_domain.control.profile.follow_master_slot_id);
+    assert(requested_generation == s_vdc_domain.control.profile.generation);
     assert(last_command.valid == retained_source.valid);
     assert(last_command.source_slot_id == retained_source.source_slot);
     assert(last_command.control_generation == retained_source.control_generation);
@@ -182,22 +200,19 @@ int main(int argc, char **argv)
         retained_source.run_id = s_vdc_domain.clock.run_id; missing = 0;
         vdc_dpll_manager_consume_follower_command(); assert_applied(1);
     } else if (!strcmp(scenario, "epoch_restart") || !strcmp(scenario, "run_restart") ||
-               !strcmp(scenario, "both_restart") || !strcmp(scenario, "generation_restart")) {
+               !strcmp(scenario, "both_restart")) {
         retained_source.command_seq = 99;
         vdc_dpll_manager_consume_follower_command(); assert_applied(1);
         if (!strcmp(scenario, "epoch_restart") || !strcmp(scenario, "both_restart"))
             ++s_vdc_domain.clock.epoch_id;
         if (!strcmp(scenario, "run_restart") || !strcmp(scenario, "both_restart"))
             ++s_vdc_domain.clock.run_id;
-        if (!strcmp(scenario, "generation_restart")) ++s_vdc_domain.control.profile.generation;
         retained_source.command_seq = 1;
-        if (strcmp(scenario, "generation_restart")) {
-            /* Core0 has not refreshed yet: old retained command cannot set the new-session watermark. */
-            vdc_dpll_manager_consume_follower_command();
-            assert(missing == 1 && apply_calls == 1 && dco_writes == 1);
-            assert(s_vdc_follower_last_applied_seq == 0); missing = 0;
-            assert(s_vdc_domain.control.profile.generation == 9);
-        }
+        /* Core0 has not refreshed yet: old retained command cannot set the new-session watermark. */
+        vdc_dpll_manager_consume_follower_command();
+        assert(missing == 1 && apply_calls == 1 && dco_writes == 1);
+        assert(s_vdc_follower_last_applied_seq == 0); missing = 0;
+        assert(s_vdc_domain.control.profile.generation == 9);
         retained_source.epoch_id = s_vdc_domain.clock.epoch_id;
         retained_source.run_id = s_vdc_domain.clock.run_id;
         retained_source.effective_vdc_time_ns += 1000; now_ns += 1000;
@@ -218,12 +233,63 @@ int main(int argc, char **argv)
     } else if (!strcmp(scenario, "non_follower")) {
         vdc_dpll_manager_consume_follower_command(); assert_applied(1);
         s_vdc_domain.control.profile.mode = VDC_DPLL_CONTROL_MODE_MASTER;
+        ++s_vdc_domain.control.profile.generation;
         vdc_dpll_manager_consume_follower_command();
         assert(reads == 1 && apply_calls == 1 && s_vdc_follower_last_applied_seq == 0);
-        s_vdc_domain.control.profile.mode = VDC_DPLL_CONTROL_MODE_FOLLOWER;
-        vdc_dpll_manager_consume_follower_command(); assert_applied(2);
         s_vdc_domain.control.profile.valid = 0;
-        vdc_dpll_manager_consume_follower_command(); assert(reads == 2 && apply_calls == 2);
+        vdc_dpll_manager_consume_follower_command(); assert(reads == 1 && apply_calls == 1);
+    } else if (strstr(scenario, "roundtrip") != NULL) {
+        const bool future = strstr(scenario, "future") != NULL;
+        const bool skipped = strstr(scenario, "skipped") != NULL;
+        const bool master = strstr(scenario, "master") != NULL;
+        /* A's command may have run once, or still await its deadline. */
+        consumer_generation = s_vdc_domain.control.profile.generation = 2;
+        if (future) retained_source.effective_vdc_time_ns = 52000;
+        vdc_dpll_manager_consume_follower_command();
+        const uint32_t first_count = future ? 0 : 1;
+        assert(apply_calls == first_count && dco_writes == first_count);
+        s_vdc_domain.control.profile.generation = 3;
+        if (master) s_vdc_domain.control.profile.mode = VDC_DPLL_CONTROL_MODE_MASTER;
+        else s_vdc_domain.control.profile.follow_master_slot_id = 2;
+        vdc_dpll_manager_consume_follower_command();
+        assert(apply_calls == first_count);
+        if (!skipped) core0_bind_generation(3);
+        s_vdc_domain.control.profile.generation = 4;
+        s_vdc_domain.control.profile.mode = VDC_DPLL_CONTROL_MODE_FOLLOWER;
+        s_vdc_domain.control.profile.follow_master_slot_id = 0;
+        if (future) now_ns += 1000;
+        /* Even when Core0 completely missed B (g2 -> g4), A cannot revive. */
+        vdc_dpll_manager_consume_follower_command();
+        assert(apply_calls == first_count && dco_writes == first_count);
+        assert(requested_generation == 4 && s_vdc_follower_last_applied_seq == 0);
+        core0_bind_generation(4);
+        vdc_dpll_manager_consume_follower_command();
+        assert(!retained_source.valid && retained_source.command_seq == 1);
+        assert(apply_calls == first_count && dco_writes == first_count);
+        assert(s_vdc_follower_last_applied_seq == 0 && !late);
+        /* A genuinely new accepted command can reach the Domain boundary. */
+        retained_source.valid = 1; retained_source.command_seq = 2;
+        retained_source.effective_vdc_time_ns = 50000 + now_ns - 10000;
+        missing = 0;
+        vdc_dpll_manager_consume_follower_command(); assert_applied(first_count + 1);
+        vdc_dpll_manager_consume_follower_command(); assert_applied(first_count + 1);
+    } else if (!strcmp(scenario, "generation_unbound") ||
+               !strcmp(scenario, "generation_delayed")) {
+        consumer_generation = !strcmp(scenario, "generation_unbound") ? 0 : 8;
+        vdc_dpll_manager_consume_follower_command();
+        assert(missing == 1 && !apply_calls && !ring_reads && !s_vdc_follower_last_applied_seq);
+        core0_bind_generation(9);
+        vdc_dpll_manager_consume_follower_command(); assert(missing == 2 && !apply_calls);
+        retained_source.valid = 1; retained_source.command_seq = 2; missing = 0;
+        vdc_dpll_manager_consume_follower_command(); assert_applied(1);
+    } else if (!strcmp(scenario, "future_same_generation")) {
+        retained_source.effective_vdc_time_ns = 52000;
+        vdc_dpll_manager_consume_follower_command();
+        assert(!apply_calls && !s_vdc_follower_last_applied_seq);
+        core0_bind_generation(9);
+        assert(retained_source.valid && retained_source.command_seq == 1);
+        now_ns += 1000;
+        vdc_dpll_manager_consume_follower_command(); assert_applied(1);
     } else if (!strcmp(scenario, "clock_unavailable")) {
         ring_available = false; vdc_dpll_manager_consume_follower_command();
         assert(!apply_calls && !missing && !s_vdc_follower_last_applied_seq);
@@ -256,9 +322,12 @@ int main(int argc, char **argv)
 
 @pytest.mark.parametrize("scenario", [
     "unicast", "broadcast", "epoch_mismatch", "run_mismatch",
-    "epoch_restart", "run_restart", "both_restart", "generation_restart",
+    "epoch_restart", "run_restart", "both_restart",
     "wrong_source", "wrong_target", "missing", "invalid", "non_follower",
     "clock_unavailable", "not_due", "too_late", "domain_rejected",
+    "role_roundtrip", "master_roundtrip", "skipped_roundtrip", "master_skipped_roundtrip",
+    "future_roundtrip", "future_skipped_roundtrip", "future_master_skipped_roundtrip",
+    "generation_unbound", "generation_delayed", "future_same_generation",
 ])
 def test_actual_follower_command_boundary(follower_executable, scenario):
     result = subprocess.run([str(follower_executable), scenario],

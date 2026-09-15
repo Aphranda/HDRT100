@@ -600,6 +600,25 @@ bool refmem_sync_vdc_set_epoch(refmem_sync_vdc_context_t *context,
     return true;
 }
 
+bool refmem_sync_vdc_set_consumer_generation(
+    refmem_sync_vdc_context_t *context,
+    uint32_t consumer_generation)
+{
+    if (context == NULL || consumer_generation == 0u) {
+        return false;
+    }
+    if (context->consumer_generation == consumer_generation) {
+        return true;
+    }
+    const uint32_t stable_guard = refmem_sync_vdc_begin_write(context);
+    for (uint32_t source = 0u; source < REFMEM_SYNC_NODE_COUNT; source++) {
+        context->vdc_command[source].valid = 0u;
+    }
+    context->consumer_generation = consumer_generation;
+    refmem_sync_vdc_end_write(context, stable_guard);
+    return true;
+}
+
 refmem_sync_rx_result_t refmem_sync_vdc_receive_frame(
     refmem_sync_vdc_context_t *context,
     const uint8_t *frame,
@@ -727,7 +746,9 @@ refmem_sync_rx_result_t refmem_sync_vdc_receive_frame(
         return REFMEM_SYNC_RX_COMMAND_INVALID;
     }
 
-    if (previous->valid != 0u) {
+    /* A local role switch invalidates the value, but a command already seen
+     * from this source must not become fresh when retransmitted afterwards. */
+    if (previous->command_seq != 0u) {
         if (header.seq32 == previous->frame_seq32) {
             refmem_sync_fill_snapshot(snapshot,
                                       REFMEM_SYNC_RX_DUPLICATE_SEQ,
@@ -748,8 +769,7 @@ refmem_sync_rx_result_t refmem_sync_vdc_receive_frame(
                                       false);
             return REFMEM_SYNC_RX_STALE_SEQ;
         }
-        if (previous->valid != 0u &&
-            (int32_t)(command.command_seq - previous->command_seq) <= 0) {
+        if ((int32_t)(command.command_seq - previous->command_seq) <= 0) {
             const uint32_t stable_guard = refmem_sync_vdc_begin_write(context);
             previous->reject_count++;
             refmem_sync_vdc_end_write(context, stable_guard);
@@ -802,9 +822,10 @@ const refmem_sync_vdc_command_snapshot_t *refmem_sync_vdc_get_command(
     return &context->vdc_command[source_slot];
 }
 
-bool refmem_sync_vdc_copy_command(
+static bool refmem_sync_vdc_copy_command_checked(
     const refmem_sync_vdc_context_t *context,
     uint8_t source_slot,
+    uint32_t expected_consumer_generation,
     refmem_sync_vdc_command_snapshot_t *out)
 {
     if (context == NULL || out == NULL || source_slot >= REFMEM_SYNC_NODE_COUNT) {
@@ -819,15 +840,36 @@ bool refmem_sync_vdc_copy_command(
         if ((begin & 1u) != 0u) {
             continue;
         }
+        const uint32_t consumer_generation = context->consumer_generation;
         (void)memcpy(out, &context->vdc_command[source_slot], sizeof(*out));
         __atomic_thread_fence(__ATOMIC_ACQUIRE);
         const uint32_t end = __atomic_load_n(&context->vdc_command_guard,
                                              __ATOMIC_ACQUIRE);
         if (begin == end && (end & 1u) == 0u) {
-            return true;
+            return expected_consumer_generation == 0u ||
+                   consumer_generation == expected_consumer_generation;
         }
     }
     return false;
+}
+
+bool refmem_sync_vdc_copy_command(
+    const refmem_sync_vdc_context_t *context,
+    uint8_t source_slot,
+    refmem_sync_vdc_command_snapshot_t *out)
+{
+    return refmem_sync_vdc_copy_command_checked(context, source_slot, 0u, out);
+}
+
+bool refmem_sync_vdc_copy_command_for_generation(
+    const refmem_sync_vdc_context_t *context,
+    uint8_t source_slot,
+    uint32_t expected_consumer_generation,
+    refmem_sync_vdc_command_snapshot_t *out)
+{
+    return expected_consumer_generation != 0u &&
+           refmem_sync_vdc_copy_command_checked(
+               context, source_slot, expected_consumer_generation, out);
 }
 
 void refmem_sync_vdc_fragment_reset(

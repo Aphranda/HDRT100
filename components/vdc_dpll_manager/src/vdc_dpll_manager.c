@@ -1859,11 +1859,11 @@ static __attribute__((noinline)) void vdc_dpll_manager_consume_follower_command(
 
     refmem_sync_vdc_command_snapshot_t retained;
     if (!distributed_refmem_get_vdc_follower_command(
-            profile->follow_master_slot_id, &retained) ||
+            profile->follow_master_slot_id, generation, &retained) ||
         retained.valid == 0u ||
         retained.epoch_id != s_vdc_domain.clock.epoch_id ||
         retained.run_id != s_vdc_domain.clock.run_id) {
-        /* Core0 may not yet have retired the previous receiver identity.
+        /* Core0 may not yet have retired the previous receiver/role identity.
          * The sole realtime owner must reject that old session itself. */
         vdc_domain_note_follower_command_missing(&s_vdc_domain);
         return;

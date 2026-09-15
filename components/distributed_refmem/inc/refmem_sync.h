@@ -209,10 +209,13 @@ typedef struct {
     uint8_t local_slot;
     uint32_t active_epoch_id;
     uint32_t active_run_id;
-    /* Core0 publishes a complete command snapshot under this guard.  Core1
-     * must copy through refmem_sync_vdc_copy_command(); the legacy pointer
-     * getter remains only for single-threaded inspection/tests. */
+    /* Core0 publishes a complete command snapshot under this guard. Core1
+     * must use refmem_sync_vdc_copy_command_for_generation(); unbound copy is
+     * for diagnostics, and the pointer getter is for single-threaded use. */
     volatile uint32_t vdc_command_guard;
+    /* Local consumer role identity, never the remote master's generation.
+     * Protected by vdc_command_guard together with retained commands. */
+    uint32_t consumer_generation;
     refmem_sync_vdc_command_snapshot_t
         vdc_command[REFMEM_SYNC_NODE_COUNT];
 } refmem_sync_vdc_context_t;
@@ -265,7 +268,8 @@ bool refmem_sync_vdc_init(refmem_sync_vdc_context_t *context,
                           uint32_t active_run_id);
 /* Sole receive owner retires all retained commands under the existing guard.
  * Context must already be initialized or have static zero initialization.
- * Unlike init, this preserves the publication sequence across identity reset. */
+ * Unlike init, this preserves the publication sequence and consumer binding
+ * across identity reset; the receive owner can then rebind if needed. */
 bool refmem_sync_vdc_reset(refmem_sync_vdc_context_t *context,
                            uint8_t local_slot,
                            uint32_t active_epoch_id,
@@ -273,6 +277,12 @@ bool refmem_sync_vdc_reset(refmem_sync_vdc_context_t *context,
 bool refmem_sync_vdc_set_epoch(refmem_sync_vdc_context_t *context,
                                uint32_t active_epoch_id,
                                uint32_t active_run_id);
+/* Sole receiver writer binds a nonzero local role generation. A change
+ * invalidates retained values but preserves every source's ordering history;
+ * only an identity reset retires that history. Same generation is a no-op. */
+bool refmem_sync_vdc_set_consumer_generation(
+    refmem_sync_vdc_context_t *context,
+    uint32_t consumer_generation);
 refmem_sync_rx_result_t refmem_sync_vdc_receive_frame(
     refmem_sync_vdc_context_t *context,
     const uint8_t *frame,
@@ -284,6 +294,13 @@ const refmem_sync_vdc_command_snapshot_t *refmem_sync_vdc_get_command(
 bool refmem_sync_vdc_copy_command(
     const refmem_sync_vdc_context_t *context,
     uint8_t source_slot,
+    refmem_sync_vdc_command_snapshot_t *out);
+/* Core1 uses its active local role generation, checked in the same guarded
+ * read as the command. On false the caller must ignore out. */
+bool refmem_sync_vdc_copy_command_for_generation(
+    const refmem_sync_vdc_context_t *context,
+    uint8_t source_slot,
+    uint32_t expected_consumer_generation,
     refmem_sync_vdc_command_snapshot_t *out);
 void refmem_sync_vdc_fragment_reset(
     refmem_sync_vdc_fragment_context_t *context);

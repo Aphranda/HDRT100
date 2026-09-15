@@ -838,7 +838,9 @@ static void distributed_refmem_tdma_flight_parse_vdc_fragment(
     const uint8_t *mailbox,
     size_t mailbox_size)
 {
-    if (!s_vdc_command_context_ready || mailbox == NULL ||
+    if (!s_vdc_command_context_ready ||
+        s_tdma_flight_sync.vdc_command_transport_generation !=
+            s_vdc_command_context.consumer_generation || mailbox == NULL ||
         mailbox_size < DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE ||
         distributed_refmem_get_le16(&mailbox[TDMA_PROCESS_IMAGE_CRC_OFFSET]) !=
             tdma_process_image_crc16_ccitt(
@@ -3879,7 +3881,9 @@ static bool distributed_refmem_refresh_vdc_command_context_from_snapshot(
     const uint32_t epoch_id = snapshot->clock_epoch_id;
     const uint32_t run_id = snapshot->clock_run_id;
     const uint32_t schedule_epoch = snapshot->schedule.schedule_epoch;
-    if (local_slot >= REFMEM_SYNC_NODE_COUNT) {
+    if (local_slot >= REFMEM_SYNC_NODE_COUNT ||
+        snapshot->control_profile.valid != 1u ||
+        snapshot->control_profile.generation == 0u) {
         return false;
     }
 
@@ -3889,16 +3893,26 @@ static bool distributed_refmem_refresh_vdc_command_context_from_snapshot(
         s_vdc_command_context_epoch_id != epoch_id ||
         s_vdc_command_context_run_id != run_id ||
         s_vdc_command_context_schedule_epoch != schedule_epoch;
-    if (!identity_changed) {
-        return true;
-    }
-
-    if (!refmem_sync_vdc_reset(&s_vdc_command_context,
+    if (identity_changed &&
+        !refmem_sync_vdc_reset(&s_vdc_command_context,
                               local_slot,
                               epoch_id,
                               run_id)) {
         return false;
     }
+    const bool consumer_changed = s_vdc_command_context.consumer_generation !=
+                                  snapshot->control_profile.generation;
+    if (!refmem_sync_vdc_set_consumer_generation(
+            &s_vdc_command_context, snapshot->control_profile.generation)) {
+        return false;
+    }
+#if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
+    if (identity_changed || consumer_changed) {
+        refmem_sync_vdc_fragment_reset(&s_tdma_flight_sync.vdc_command_fragments);
+    }
+#else
+    (void)consumer_changed;
+#endif
     s_vdc_command_context_local_slot = local_slot;
     s_vdc_command_context_epoch_id = epoch_id;
     s_vdc_command_context_run_id = run_id;
@@ -4127,14 +4141,15 @@ void distributed_refmem_tdma_publish_service(void)
 
 bool distributed_refmem_get_vdc_follower_command(
     uint32_t source_slot,
+    uint32_t expected_consumer_generation,
     refmem_sync_vdc_command_snapshot_t *snapshot)
 {
     if (snapshot == NULL || source_slot >= REFMEM_SYNC_NODE_COUNT) {
         return false;
     }
-    return refmem_sync_vdc_copy_command(&s_vdc_command_context,
-                                        (uint8_t)source_slot,
-                                        snapshot);
+    return refmem_sync_vdc_copy_command_for_generation(
+        &s_vdc_command_context, (uint8_t)source_slot,
+        expected_consumer_generation, snapshot);
 }
 
 void distributed_refmem_get_tdma_flight_sync_quality(
