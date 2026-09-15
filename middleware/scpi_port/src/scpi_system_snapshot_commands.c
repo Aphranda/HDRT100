@@ -31,6 +31,7 @@
 #include "tdma_service_timing.h"
 
 #define SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS 10000u
+#define SCPI_TDMA_FIFO_RESET_WAIT_LOOPS 100u
 #define SCPI_REFMEM_PACKAGE_PATH "/refmem/app_model.rmtp"
 #define SCPI_REFMEM_PACKAGE_READ_CHUNK 512u
 #define SCPI_REFMEM_SYNC_FRAME_MAX (REFMEM_SYNC_FRAME_HEADER_SIZE + REFMEM_SYNC_FRAME_PAYLOAD_MAX)
@@ -2363,12 +2364,23 @@ scpi_result_t scpi_cmd_system_tdma_flight_fifo_q(scpi_t *context)
 scpi_result_t scpi_cmd_system_tdma_flight_fifo_reset(scpi_t *context)
 {
     tdma_service_service_t *owner = tdma_runtime_owner_get();
-    if (owner == NULL || !tdma_service_reset_flight_fifo(owner)) {
-        scpi_port_push_exec_error(context, "TDMA_FLIGHT_FIFO_RESET");
-        return SCPI_RES_ERR;
+    for (uint32_t attempt = 0u; attempt < SCPI_TDMA_FIFO_RESET_WAIT_LOOPS; ++attempt) {
+        const tdma_service_flight_fifo_reset_result_t result =
+            tdma_service_reset_flight_fifo_checked(owner);
+        if (result == TDMA_SERVICE_FLIGHT_FIFO_RESET_OK) {
+            SCPI_ResultText(context, "OK");
+            return SCPI_RES_OK;
+        }
+        if (result != TDMA_SERVICE_FLIGHT_FIFO_RESET_BUSY) {
+            scpi_port_push_exec_error(context, "TDMA_FLIGHT_FIFO_RESET");
+            return SCPI_RES_ERR;
+        }
+        /* The RefMem task must finish its copy/view before reset can reclaim
+         * storage. Only Core0 SCPI yields here; Core1 never takes this lock. */
+        osal_task_delay_ms(1u);
     }
-    SCPI_ResultText(context, "OK");
-    return SCPI_RES_OK;
+    scpi_port_push_exec_error(context, "TDMA_FLIGHT_FIFO_RESET_BUSY");
+    return SCPI_RES_ERR;
 }
 
 scpi_result_t scpi_cmd_system_tdma_flight_mode(scpi_t *context)

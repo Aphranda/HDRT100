@@ -546,6 +546,17 @@ bool tdma_service_get_result_frame(const tdma_service_service_t *service,
 bool tdma_service_get_flight_fifo_snapshot(
     const tdma_service_service_t *service,
     tdma_flight_fifo_snapshot_t *snapshot);
+typedef enum {
+    TDMA_SERVICE_FLIGHT_FIFO_RESET_OK = 0u,
+    TDMA_SERVICE_FLIGHT_FIFO_RESET_BUSY,
+    TDMA_SERVICE_FLIGHT_FIFO_RESET_NOT_STOPPED,
+    TDMA_SERVICE_FLIGHT_FIFO_RESET_INVALID,
+} tdma_service_flight_fifo_reset_result_t;
+/* Core0 only. Serialize against ARM/configuration, require physical STOP ACK,
+ * and respect any Core0 FIFO copy or borrowed RX view. BUSY changes no FIFO
+ * state and can be retried after yielding to its current owner. */
+tdma_service_flight_fifo_reset_result_t tdma_service_reset_flight_fifo_checked(
+    tdma_service_service_t *service);
 bool tdma_service_reset_flight_fifo(tdma_service_service_t *service);
 typedef enum {
     TDMA_SERVICE_FLIGHT_MAP_OK = 0u,

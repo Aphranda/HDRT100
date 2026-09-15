@@ -1855,23 +1855,44 @@ bool tdma_service_get_flight_fifo_snapshot(
     return tdma_flight_fifo_get_snapshot(&service->flight_fifo, snapshot);
 }
 
-bool tdma_service_reset_flight_fifo(tdma_service_service_t *service)
+tdma_service_flight_fifo_reset_result_t tdma_service_reset_flight_fifo_checked(
+    tdma_service_service_t *service)
 {
     if (service == NULL) {
-        return false;
+        return TDMA_SERVICE_FLIGHT_FIFO_RESET_INVALID;
     }
+    if (!tdma_service_ring_control_lock(service)) {
+        return TDMA_SERVICE_FLIGHT_FIFO_RESET_BUSY;
+    }
+    tdma_service_flight_fifo_reset_result_t result = TDMA_SERVICE_FLIGHT_FIFO_RESET_BUSY;
     tdma_ring_runtime_snapshot_t ring_snapshot;
     tdma_flight_engine_snapshot_t engine_snapshot;
     if (!tdma_ring_runtime_get_snapshot(&service->ring_runtime,
                                         &ring_snapshot) ||
         !tdma_flight_engine_get_snapshot(&service->flight_engine,
-                                         &engine_snapshot) ||
-        ring_snapshot.enabled != 0u ||
-        ring_snapshot.adapter_started != 0u ||
-        engine_snapshot.active != 0u) {
-        return false;
+                                         &engine_snapshot)) {
+        goto done;
     }
-    return tdma_flight_fifo_reset_stopped(&service->flight_fifo);
+    if (ring_snapshot.enabled != 0u ||
+        ring_snapshot.adapter_started != 0u ||
+        ring_snapshot.config_seq != ring_snapshot.applied_config_seq ||
+        engine_snapshot.active != 0u) {
+        result = TDMA_SERVICE_FLIGHT_FIFO_RESET_NOT_STOPPED;
+        goto done;
+    }
+    if (__atomic_load_n(&service->stopped_update, __ATOMIC_ACQUIRE) == 0u &&
+        tdma_flight_fifo_reset_stopped(&service->flight_fifo)) {
+        result = TDMA_SERVICE_FLIGHT_FIFO_RESET_OK;
+    }
+done:
+    tdma_service_ring_control_unlock(service);
+    return result;
+}
+
+bool tdma_service_reset_flight_fifo(tdma_service_service_t *service)
+{
+    return tdma_service_reset_flight_fifo_checked(service) ==
+           TDMA_SERVICE_FLIGHT_FIFO_RESET_OK;
 }
 
 bool tdma_service_configure_flight_map(

@@ -16,6 +16,9 @@ static uint8_t transmitted;
 static uint32_t ring_calls, ring_stops;
 static bool ring_stop_fails;
 static bool schedule_intent, stop_during_dispatch, tx_pending;
+static bool probe_fifo_reset;
+static uint32_t fifo_reset_probes;
+static bool interrupted_fifo_reset(tdma_flight_fifo_t *fifo);
 static tdma_traffic_scheduler_t selected_scheduler;
 static tdma_traffic_scheduler_slot_t selected_slots[TDMA_TRAFFIC_SCHEDULER_SLOT_COUNT];
 
@@ -57,8 +60,30 @@ static void *interrupted_copy(void *destination, const void *source, size_t size
  * and one memcpy are intercepted to reproduce preemption deterministically. */
 #define PICO_ON_DEVICE 1
 #define memcpy interrupted_copy
+#define tdma_flight_fifo_reset_stopped interrupted_fifo_reset
 #include "../../components/tdma/src/tdma_service.c"
+#undef tdma_flight_fifo_reset_stopped
 #undef memcpy
+
+static bool interrupted_fifo_reset(tdma_flight_fifo_t *fifo)
+{
+    if (probe_fifo_reset) {
+        probe_fifo_reset = false;
+        ++fifo_reset_probes;
+        /* An interrupting Core0 control task must not ARM or replace STOP
+         * between the stopped snapshot and actual FIFO reclamation. */
+        const uint32_t sequence = service.ring_runtime.config_seq;
+        assert(service.ring_control_guard == 1u);
+        assert(!tdma_service_ring_arm(&service));
+        const tdma_ring_runtime_config_t enabled = {.enabled = 1u};
+        assert(!tdma_service_configure_ring_runtime(&service, &enabled));
+        assert(tdma_service_reset_flight_fifo_checked(&service) ==
+            TDMA_SERVICE_FLIGHT_FIFO_RESET_BUSY);
+        assert(service.ring_runtime.config_seq == sequence);
+        assert(service.ring_control_guard == 1u);
+    }
+    return tdma_flight_fifo_reset_stopped(fifo);
+}
 
 static bool transmit(void *context, const uint8_t *frame, size_t size,
     tdma_service_role_t role, uint32_t baud, const tdma_service_pin_config_t *pins,
@@ -168,6 +193,119 @@ int main(int argc, char **argv)
 {
     assert(argc == 2);
     const char *test = argv[1];
+    if (strcmp(test, "borrowed_reset") == 0) {
+        assert(tdma_service_init(&service));
+        const uint8_t old_payload[] = {0xA1, 2, 3, 4};
+        const uint8_t new_payload[] = {0xB2, 5, 6, 7};
+        tdma_flight_rx_view_t old_view, new_view;
+        const uint32_t epoch = tdma_service_core0_advance_flight_rx_admission_epoch(&service);
+        assert(epoch != 0);
+        assert(tdma_flight_fifo_core1_publish_rx(&service.flight_fifo, old_payload,
+            sizeof(old_payload), 1, 11, 1, 100, 0));
+        assert(tdma_service_acquire_flight_rx(&service, &old_view));
+        const tdma_flight_fifo_t before = service.flight_fifo;
+        assert(tdma_service_reset_flight_fifo_checked(&service) ==
+            TDMA_SERVICE_FLIGHT_FIFO_RESET_BUSY);
+        assert(!tdma_service_reset_flight_fifo(&service));
+        assert(memcmp(&service.flight_fifo, &before, sizeof(before)) == 0);
+        assert(service.ring_control_guard == 0);
+        /* Core1 can still publish a different free slot while Core0 parses. */
+        assert(tdma_flight_fifo_core1_publish_rx(&service.flight_fifo, new_payload,
+            sizeof(new_payload), 2, 22, 1, 200, 0));
+        assert(memcmp(old_view.data, old_payload, sizeof(old_payload)) == 0);
+        assert(tdma_service_release_flight_rx(&service, old_view.slot_index));
+        assert(tdma_service_acquire_flight_rx(&service, &new_view));
+        assert(new_view.sequence == 22 && new_view.slot_index != old_view.slot_index);
+        assert(new_view.admission_epoch == epoch);
+        assert(memcmp(new_view.data, new_payload, sizeof(new_payload)) == 0);
+        assert(tdma_service_release_flight_rx(&service, new_view.slot_index));
+        assert(tdma_service_reset_flight_fifo_checked(&service) ==
+            TDMA_SERVICE_FLIGHT_FIFO_RESET_OK);
+        assert(service.flight_fifo.rx_admission_epoch == epoch);
+        assert(service.flight_fifo.rx_publish_count == 2 && service.flight_fifo.rx_release_count == 2);
+        assert(service.flight_fifo.rx_publish_drop_count == 0);
+        assert(!tdma_service_release_flight_rx(&service, old_view.slot_index));
+        puts("borrowed view survives BUSY reset; next publication/release preserved");
+        return 0;
+    }
+    if (strcmp(test, "reset_stop_ack") == 0) {
+        assert(tdma_service_reset_flight_fifo_checked(NULL) ==
+            TDMA_SERVICE_FLIGHT_FIFO_RESET_INVALID);
+        assert(!tdma_service_reset_flight_fifo(NULL));
+        assert(tdma_service_init(&service));
+        const uint8_t payload[] = {1, 2, 3, 4};
+        assert(tdma_flight_fifo_core1_publish_rx(&service.flight_fifo, payload,
+            sizeof(payload), 1, 1, 1, 100, 0));
+        const tdma_flight_fifo_t before = service.flight_fifo;
+        /* Logical STOP is insufficient until the matching Core1 ACK. */
+        service.ring_runtime.config_seq = 1;
+        assert(tdma_service_reset_flight_fifo_checked(&service) ==
+            TDMA_SERVICE_FLIGHT_FIFO_RESET_NOT_STOPPED);
+        assert(memcmp(&service.flight_fifo, &before, sizeof(before)) == 0);
+        service.ring_runtime.applied_config_seq = 1;
+        service.ring_runtime.adapter_started = 1;
+        assert(tdma_service_reset_flight_fifo_checked(&service) ==
+            TDMA_SERVICE_FLIGHT_FIFO_RESET_NOT_STOPPED);
+        service.ring_runtime.adapter_started = 0;
+        service.flight_engine.active = 1;
+        assert(tdma_service_reset_flight_fifo_checked(&service) ==
+            TDMA_SERVICE_FLIGHT_FIFO_RESET_NOT_STOPPED);
+        service.flight_engine.active = 0;
+        service.ring_runtime.enabled = 1;
+        assert(tdma_service_reset_flight_fifo_checked(&service) ==
+            TDMA_SERVICE_FLIGHT_FIFO_RESET_NOT_STOPPED);
+        service.ring_runtime.enabled = 0;
+        assert(memcmp(&service.flight_fifo, &before, sizeof(before)) == 0);
+        assert(tdma_service_reset_flight_fifo_checked(&service) ==
+            TDMA_SERVICE_FLIGHT_FIFO_RESET_OK);
+        assert(service.flight_fifo.rx_publish_count == 1);
+        tdma_flight_rx_view_t view;
+        assert(!tdma_service_acquire_flight_rx(&service, &view));
+        puts("FIFO reset requires matching physical/config STOP ACK");
+        return 0;
+    }
+    if (strcmp(test, "reset_guard") == 0) {
+        assert(tdma_service_init(&service));
+        const tdma_flight_fifo_t before = service.flight_fifo;
+        service.ring_control_guard = 1;
+        assert(tdma_service_reset_flight_fifo_checked(&service) ==
+            TDMA_SERVICE_FLIGHT_FIFO_RESET_BUSY);
+        assert(service.ring_control_guard == 1);
+        assert(memcmp(&service.flight_fifo, &before, sizeof(before)) == 0);
+        service.ring_control_guard = 0;
+        service.ring_runtime.result_guard = 1;
+        assert(tdma_service_reset_flight_fifo_checked(&service) ==
+            TDMA_SERVICE_FLIGHT_FIFO_RESET_BUSY);
+        assert(service.ring_control_guard == 0);
+        service.ring_runtime.result_guard = 0;
+        service.stopped_update = TDMA_STOPPED_UPDATE_REQUESTED | 1u;
+        assert(tdma_service_reset_flight_fifo_checked(&service) ==
+            TDMA_SERVICE_FLIGHT_FIFO_RESET_BUSY);
+        service.stopped_update = TDMA_STOPPED_UPDATE_APPLYING | 1u;
+        assert(tdma_service_reset_flight_fifo_checked(&service) ==
+            TDMA_SERVICE_FLIGHT_FIFO_RESET_BUSY);
+        assert(service.ring_control_guard == 0);
+        assert(memcmp(&service.flight_fifo, &before, sizeof(before)) == 0);
+        service.stopped_update = 0;
+        assert(tdma_service_reset_flight_fifo_checked(&service) ==
+            TDMA_SERVICE_FLIGHT_FIFO_RESET_OK);
+        return 0;
+    }
+    if (strcmp(test, "reset_arm_interleave") == 0) {
+        assert(tdma_service_init(&service));
+        tdma_foundation_profile_t profile;
+        assert(tdma_foundation_profile_default(&profile, 1u, 0u, 0u, TDMA_ADAPTER_PIO_SPI));
+        assert(tdma_service_configure_foundation_profile(&service, &profile, 7u));
+        tick(1u);
+        assert(service.ring_runtime.config_seq == service.ring_runtime.applied_config_seq);
+        probe_fifo_reset = true;
+        assert(tdma_service_reset_flight_fifo_checked(&service) ==
+            TDMA_SERVICE_FLIGHT_FIFO_RESET_OK);
+        assert(!probe_fifo_reset && fifo_reset_probes == 1 && service.ring_control_guard == 0);
+        assert(tdma_service_ring_arm(&service));
+        puts("ARM/configuration excluded throughout actual FIFO reclamation");
+        return 0;
+    }
     if (strcmp(test, "diagnostic_burst") == 0) {
         assert(tdma_service_init(&service));
         assert(!tdma_service_set_ring_diagnostic_burst(NULL, 1u));

@@ -107,6 +107,9 @@ typedef struct {
     volatile uint32_t rx_tail;
     /* Core0 RX consumer task is the only online writer. */
     volatile uint32_t rx_admission_epoch;
+    /* Serializes Core0 tasks. Successful RX acquire holds this through release;
+     * Core1 never takes or waits for it. */
+    volatile uint32_t core0_guard;
     volatile uint32_t tx_active_slot;
     volatile uint32_t tx_active_generation;
     volatile uint32_t tx_publish_count;
@@ -125,8 +128,9 @@ typedef struct {
 bool tdma_flight_fifo_init(tdma_flight_fifo_t *fifo);
 /* Reclaim all queue entries while preserving lifetime diagnostic counters.
  * The caller owns the session boundary and must ensure that core1 is stopped
- * and that no core0 FIFO operation or acquired view is in use. The consumer
- * admission epoch is preserved; this is not a command/session cancellation. */
+ * and prevent a concurrent restart. A Core0 operation or borrowed RX view
+ * makes this return false without changing FIFO state. The consumer admission
+ * epoch is preserved; this is not a command/session cancellation. */
 bool tdma_flight_fifo_reset_stopped(tdma_flight_fifo_t *fifo);
 /* Core0 RX consumer task only (RefMem in the product; not SCPI): advance a
  * local admission boundary without dropping queued data. Zero means no grant
@@ -159,6 +163,10 @@ bool tdma_flight_fifo_core1_publish_rx(tdma_flight_fifo_t *fifo,
                                        uint32_t segment_mask,
                                        uint64_t timestamp_ns,
                                        uint32_t quality_flags);
+/* Core0 tasks may borrow at most one RX view from this FIFO at a time.
+ * A successful acquire must be paired with release before another Core0
+ * acquire/publish/reset can succeed. Busy returns false without dropping data.
+ * Do not overwrite a borrowed view or access/release it after its release. */
 bool tdma_flight_fifo_core0_acquire_rx(tdma_flight_fifo_t *fifo,
                                        tdma_flight_rx_view_t *view);
 bool tdma_flight_fifo_core0_release_rx(tdma_flight_fifo_t *fifo,

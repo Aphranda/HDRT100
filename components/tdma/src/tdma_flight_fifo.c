@@ -3,6 +3,8 @@
 #include <string.h>
 
 #define TDMA_FLIGHT_NO_ACTIVE_SLOT UINT32_MAX
+#define TDMA_FLIGHT_CORE0_ACCESS 1u
+#define TDMA_FLIGHT_CORE0_BORROW_BASE 2u
 
 static uint32_t tdma_flight_load_u32(const volatile uint32_t *value)
 {
@@ -12,6 +14,21 @@ static uint32_t tdma_flight_load_u32(const volatile uint32_t *value)
 static void tdma_flight_store_u32(volatile uint32_t *value, uint32_t next)
 {
     __atomic_store_n(value, next, __ATOMIC_RELEASE);
+}
+
+static bool tdma_flight_core0_lock(tdma_flight_fifo_t *fifo)
+{
+    if (fifo == NULL) {
+        return false;
+    }
+    uint32_t expected = 0u;
+    return __atomic_compare_exchange_n(&fifo->core0_guard, &expected,
+        TDMA_FLIGHT_CORE0_ACCESS, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED);
+}
+
+static void tdma_flight_core0_unlock(tdma_flight_fifo_t *fifo)
+{
+    tdma_flight_store_u32(&fifo->core0_guard, 0u);
 }
 
 static bool tdma_flight_ring_full(uint32_t head,
@@ -47,7 +64,7 @@ bool tdma_flight_fifo_init(tdma_flight_fifo_t *fifo)
     return true;
 }
 
-bool tdma_flight_fifo_reset_stopped(tdma_flight_fifo_t *fifo)
+static bool tdma_flight_fifo_reset_stopped_locked(tdma_flight_fifo_t *fifo)
 {
     if (fifo == NULL) {
         return false;
@@ -86,6 +103,16 @@ bool tdma_flight_fifo_reset_stopped(tdma_flight_fifo_t *fifo)
     return true;
 }
 
+bool tdma_flight_fifo_reset_stopped(tdma_flight_fifo_t *fifo)
+{
+    if (!tdma_flight_core0_lock(fifo)) {
+        return false;
+    }
+    const bool reset = tdma_flight_fifo_reset_stopped_locked(fifo);
+    tdma_flight_core0_unlock(fifo);
+    return reset;
+}
+
 uint32_t tdma_flight_fifo_core0_advance_rx_admission_epoch(tdma_flight_fifo_t *fifo)
 {
     if (fifo == NULL) {
@@ -111,7 +138,7 @@ static int32_t tdma_flight_find_tx_inactive_slot(tdma_flight_fifo_t *fifo)
     return -1;
 }
 
-bool tdma_flight_fifo_core0_publish_tx(tdma_flight_fifo_t *fifo,
+static bool tdma_flight_fifo_core0_publish_tx_locked(tdma_flight_fifo_t *fifo,
                                        const uint8_t *data,
                                        size_t data_size,
                                        uint32_t generation,
@@ -159,6 +186,22 @@ bool tdma_flight_fifo_core0_publish_tx(tdma_flight_fifo_t *fifo,
     tdma_flight_store_u32(&fifo->tx_head, head + 1u);
     tdma_flight_counter_inc(&fifo->tx_publish_count);
     return true;
+}
+
+bool tdma_flight_fifo_core0_publish_tx(tdma_flight_fifo_t *fifo,
+                                       const uint8_t *data,
+                                       size_t data_size,
+                                       uint32_t generation,
+                                       uint32_t sequence,
+                                       uint32_t segment_mask)
+{
+    if (!tdma_flight_core0_lock(fifo)) {
+        return false;
+    }
+    const bool published = tdma_flight_fifo_core0_publish_tx_locked(
+        fifo, data, data_size, generation, sequence, segment_mask);
+    tdma_flight_core0_unlock(fifo);
+    return published;
 }
 
 void tdma_flight_fifo_core1_release_tx(tdma_flight_fifo_t *fifo)
@@ -348,16 +391,9 @@ bool tdma_flight_fifo_core1_publish_rx(tdma_flight_fifo_t *fifo,
     return true;
 }
 
-bool tdma_flight_fifo_core0_acquire_rx(tdma_flight_fifo_t *fifo,
+static bool tdma_flight_fifo_core0_acquire_rx_locked(tdma_flight_fifo_t *fifo,
                                        tdma_flight_rx_view_t *view)
 {
-    if (view != NULL) {
-        memset(view, 0, sizeof(*view));
-        view->slot_index = UINT32_MAX;
-    }
-    if (fifo == NULL || view == NULL) {
-        return false;
-    }
     const uint32_t head = tdma_flight_load_u32(&fifo->rx_head);
     const uint32_t tail = tdma_flight_load_u32(&fifo->rx_tail);
     if (tdma_flight_ring_empty(head, tail)) {
@@ -399,10 +435,32 @@ bool tdma_flight_fifo_core0_acquire_rx(tdma_flight_fifo_t *fifo,
     return true;
 }
 
+bool tdma_flight_fifo_core0_acquire_rx(tdma_flight_fifo_t *fifo,
+                                       tdma_flight_rx_view_t *view)
+{
+    if (view != NULL) {
+        memset(view, 0, sizeof(*view));
+        view->slot_index = UINT32_MAX;
+    }
+    if (view == NULL || !tdma_flight_core0_lock(fifo)) {
+        return false;
+    }
+    const bool acquired = tdma_flight_fifo_core0_acquire_rx_locked(fifo, view);
+    if (acquired) {
+        tdma_flight_store_u32(&fifo->core0_guard,
+            TDMA_FLIGHT_CORE0_BORROW_BASE + view->slot_index);
+    } else {
+        tdma_flight_core0_unlock(fifo);
+    }
+    return acquired;
+}
+
 bool tdma_flight_fifo_core0_release_rx(tdma_flight_fifo_t *fifo,
                                        uint32_t slot_index)
 {
     if (fifo == NULL || slot_index >= TDMA_FLIGHT_RX_FRAME_SLOT_COUNT ||
+        tdma_flight_load_u32(&fifo->core0_guard) !=
+            TDMA_FLIGHT_CORE0_BORROW_BASE + slot_index ||
         tdma_flight_load_u32(&fifo->rx_slots[slot_index].owner) !=
             TDMA_FLIGHT_RX_OWNER_CORE0_PARSE) {
         return false;
@@ -410,6 +468,9 @@ bool tdma_flight_fifo_core0_release_rx(tdma_flight_fifo_t *fifo,
     tdma_flight_store_u32(&fifo->rx_slots[slot_index].owner,
                           TDMA_FLIGHT_RX_OWNER_FREE);
     tdma_flight_counter_inc(&fifo->rx_release_count);
+    /* No slot access after owner=FREE: Core1 may already have republished it.
+     * This loan owner completes without taking another lock or losing release. */
+    tdma_flight_core0_unlock(fifo);
     return true;
 }
 
