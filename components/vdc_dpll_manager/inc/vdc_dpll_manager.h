@@ -10,6 +10,28 @@
 #include "vdc_domain.h"
 #include "vdc_feedback_match.h"
 
+/* Provisional internal feedback, enabled only by a STOP-configured session.
+ * A committed Core1 DCO is the controlled virtual output. This is not proof
+ * that a queued diagnostic GPIO pulse has consumed the same model. */
+typedef struct {
+    vdc_dco_control_t dco;
+    uint64_t valid_from_raw;
+    uint32_t token, session, role_generation, applied_command_seq;
+    uint32_t clock_epoch_id, clock_run_id, local_slot;
+} vdc_dpll_manager_committed_model_t;
+typedef struct {
+    uint64_t output_ns_lo, output_ns_hi;
+    uint32_t model_token, applied_command_seq;
+} vdc_dpll_manager_projected_event_t;
+bool vdc_dpll_manager_set_feedback_session(uint32_t session);
+uint32_t vdc_dpll_manager_feedback_session(void);
+bool vdc_dpll_manager_get_committed_model(vdc_dpll_manager_committed_model_t *out);
+bool vdc_dpll_manager_project_feedback_event(uint32_t session,
+    uint32_t role_generation, uint32_t clock_epoch_id, uint32_t clock_run_id,
+    uint32_t local_slot, uint32_t schedule_crc32, uint32_t tick_hz,
+    uint64_t raw_lo, uint64_t raw_hi,
+    vdc_dpll_manager_projected_event_t *out);
+
 /* Raw-clock diagnostics, never a qualified control input. Core0 publishes
  * the last reproducible pair under a revocable Core1 authorization. SCPI
  * reads only before START or after STOP. */
@@ -20,7 +42,7 @@ typedef struct {
     uint32_t receive_count, baseline_count, match_count, miss_count;
     uint32_t stale_count, invalid_count, last_result;
     uint32_t cache_insert_count, cache_reject_count, cache_latest_sequence;
-    uint32_t last_age_ticks, max_age_ticks, preparation_generation;
+    uint32_t last_age_ticks, max_age_ticks, preparation_generation, control_session;
     vdc_feedback_match_snapshot_t result;
 } vdc_dpll_manager_feedback_match_status_t;
 

@@ -383,6 +383,7 @@ static void distributed_refmem_vdc_follower_rx_service(void)
 static void distributed_refmem_node_load_auto_service(void)
 { assert(s_vdc_command_context_ready); ++node_load; }
 static void distributed_refmem_tdma_flight_sync_service(void) { ++flight_services; }
+static void vdc_dpll_manager_feedback_prepare_core0(void) { assert(s_initialized && !ota); }
 static void distributed_refmem_log_tdma_ring_service(void) { }
 static void distributed_refmem_service(void) {
 ''' + body + r'''

@@ -37,7 +37,7 @@ def match_executable(tmp_path_factory):
 
 
 @pytest.mark.parametrize("scenario", ["lifecycle", "sparse", "generation", "source",
-    "retention", "multiple", "arguments", "sequence"])
+    "retention", "multiple", "arguments", "sequence", "model_cache", "model_state", "model_lifetime"])
 def test_production_match_lifecycle(match_executable, scenario):
     result = subprocess.run([str(match_executable), scenario], capture_output=True,
                             text=True, timeout=10)
@@ -135,6 +135,87 @@ def test_fixed_offsets_cancel_but_variable_reference_brackets_remain(match_execu
     check_cases(match_executable, "offset_cancellation", cases)
 
 
+def model_interval(case):
+    _, old_rx, old_width, new_rx, new_width, old_lo, old_hi, new_lo, new_hi = case
+    if new_rx + new_width > U64 or new_rx <= old_rx + old_width or new_lo <= old_hi:
+        return INVALID, None
+    source_min, source_max = new_rx - old_rx - old_width, new_rx + new_width - old_rx
+    reference_min, reference_max = new_lo - old_hi, new_hi - old_lo
+    if max(source_max, reference_max) > 2_000_000_000:
+        return REBASED, None
+    return MATCHED, (math.floor((Fraction(source_min, reference_max) - 1) * 1_000_000_000),
+                     math.ceil((Fraction(source_max, reference_min) - 1) * 1_000_000_000))
+
+
+def check_model_cases(executable, name, cases):
+    source = ''.join(' '.join(map(str, case)) + '\n' for case in cases)
+    result = subprocess.run([str(executable), 'model_math'], input=source, capture_output=True,
+                            text=True, timeout=30)
+    (executable.parent / (name + '.input')).write_text(source, encoding='utf-8')
+    (executable.parent / (name + '.log')).write_text(result.stdout + result.stderr, encoding='utf-8')
+    assert result.returncode == 0, result.stdout + result.stderr
+    rows = result.stdout.splitlines()
+    assert len(rows) == len(cases)
+    for case, row in zip(cases, rows, strict=True):
+        code, found, lo, hi, domain, width0, width1, token0, token1 = map(int, row.split())
+        expected, bounds = model_interval(case)
+        assert (code, found) == (expected, int(expected == MATCHED)), (case, row)
+        if bounds is not None:
+            assert (lo, hi) == bounds, (case, row, bounds)
+            assert (domain, width0, width1, token0, token1) == (2, case[2], case[4], 11, 12)
+
+
+def test_model_interval_edges_use_nanoseconds_and_both_source_bounds(match_executable):
+    cases = [
+        (1, 0, 0, 2_000_000_000, 0, 0, 0, 1, 1),
+        (500_000_000, 0, 0, 1, 0, 0, 0, 2_000_000_000, 2_000_000_000),
+        (1, 0, 0, 2_000_000_000, 0, 0, 0, 2_000_000_000, 2_000_000_000),
+        (1, 0, 0, 2_000_000_000, 1, 0, 0, 2_000_000_000, 2_000_000_000),
+        (1, 0, 0, 2_000_000_000, 0, 0, 0, 2_000_000_000, 2_000_000_001),
+        (250_000_000, 100, 5, 105, 0, 0, 0, 100, 100),
+        (250_000_000, 100, 5, 104, 8, 0, 0, 100, 100),
+        (250_000_000, 100, 5, 106, 0, 0, 0, 100, 100),
+        (250_000_000, 100, 0, 99, 0, 0, 0, 100, 100),
+        (250_000_000, 100, 0, 110, 5, 0, 10, 10, 20),
+        (250_000_000, U64 - 10, 2, U64, 1, 10, 12, 20, 22),
+        (250_000_000, U64 - 10, 2, U64 - 1, 1, U64 - 10, U64 - 8, U64 - 1, U64),
+        (250_000_000, 1, 1, 6, 2, 0, 1, 4, 6),
+    ]
+    check_model_cases(match_executable, 'model_edges', cases)
+
+
+def test_model_arbitrary_precision_random_intervals_and_large_origins(match_executable):
+    rng = random.Random(0xDC02)
+    cases = []
+    for _ in range(5000):
+        hz = rng.choice([1, 125_000_000, 250_000_000, 500_000_000])
+        sw0, sw1, rw0, rw1 = [rng.randrange(1000) for _ in range(4)]
+        sgap, rgap = [rng.choice([1, 2_000_000_000, rng.randrange(1, 2_000_000_002)]) for _ in range(2)]
+        stotal, rtotal = sw0 + sgap + sw1, rw0 + rgap + rw1
+        sbase = rng.choice([0, U64 - stotal, rng.randrange(U64 - stotal + 1)])
+        rbase = rng.choice([0, U64 - rtotal, rng.randrange(U64 - rtotal + 1)])
+        cases.append((hz, sbase, sw0, sbase + sw0 + sgap, sw1,
+                      rbase, rbase + rw0, rbase + rw0 + rgap, rbase + rtotal))
+    check_model_cases(match_executable, 'model_random', cases)
+
+
+def test_model_constant_offsets_cancel_and_widths_widen_bounds(match_executable):
+    base = (250_000_000, 100, 2, 1_000_100, 3, 500, 2 + 500, 1_000_500, 1_000_503)
+    cases = [base]
+    for source_offset, reference_offset in [(1 << 42, 1 << 50),
+            (U64 - base[3] - base[4], U64 - base[8])]:
+        hz, s0, sw0, s1, sw1, r0, rh0, r1, rh1 = base
+        cases.append((hz, s0 + source_offset, sw0, s1 + source_offset, sw1,
+                      r0 + reference_offset, rh0 + reference_offset,
+                      r1 + reference_offset, rh1 + reference_offset))
+    assert len({model_interval(case) for case in cases}) == 1
+    wider = list(base); wider[2] += 4; wider[4] += 5
+    cases.append(tuple(wider))
+    assert model_interval(cases[-1])[1][0] < model_interval(base)[1][0]
+    assert model_interval(cases[-1])[1][1] > model_interval(base)[1][1]
+    check_model_cases(match_executable, 'model_offsets', cases)
+
+
 HARNESS = r'''
 #include <assert.h>
 #include <inttypes.h>
@@ -207,13 +288,15 @@ static snapshot_t establish_pair(cache_t *cache, peer_t *peer)
     assert(result.pairs[1].reference_tx_lo == 2000u && result.pairs[1].reference_tx_hi == 2004u);
     assert(result.pairs[0].rx_elapsed_cycles == 500u && result.pairs[1].rx_elapsed_cycles == 1500u);
     assert(result.pairs[1].reference_identity_crc32 == (11u ^ 0x12345678u));
+    assert(result.reserved==0 && result.pairs[0].rx_width_ns==0 && result.pairs[1].rx_width_ns==0);
+    assert(result.pairs[0].source_model_token==0 && result.pairs[1].source_model_token==0);
     return result;
 }
 
 static void test_lifecycle(void)
 {
     assert(sizeof(reference_t) == 32u && sizeof(cache_t) == 4120u &&
-        sizeof(snapshot_t) == 120u && sizeof(peer_t) == 192u);
+        sizeof(vdc_feedback_match_pair_t) == 40u && sizeof(snapshot_t) == 136u && sizeof(peer_t) == 216u);
     cache_t cache; peer_t peer;
     initialize(&cache, &peer);
     put(&cache, 0u, 0u, 0u);
@@ -462,6 +545,147 @@ static void test_sequence(void)
     failed_put(&cache, 1u, 1u, 2u, 2u, 2u);
 }
 
+static void model_put(cache_t *cache,uint32_t seq,uint32_t token,uint64_t lo,uint64_t hi)
+{ assert(vdc_feedback_model_cache_put(cache,seq,token,(seq+1)*2,lo,hi,seq*100)); }
+
+static snapshot_t model_pair(cache_t *cache,peer_t *peer)
+{
+    initialize(cache,peer);model_put(cache,10,71,1000,1004);
+    sample_t s=sample(10,500);
+    assert(vdc_feedback_model_update(cache,peer,&s,4,21)==VDC_FEEDBACK_MATCH_BASELINED);
+    model_put(cache,11,72,2000,2004);s=sample(11,1500);
+    assert(vdc_feedback_model_update(cache,peer,&s,4,22)==VDC_FEEDBACK_MATCH_MATCHED);
+    assert(peer->snapshot.reserved==2 && peer->reserved==2);
+    assert(peer->snapshot.pairs[0].source_model_token==21 && peer->snapshot.pairs[1].source_model_token==22);
+    assert(peer->snapshot.pairs[0].reference_identity_crc32==71 && peer->snapshot.pairs[1].reference_identity_crc32==72);
+    return peer->snapshot;
+}
+
+static void unchanged_model(cache_t *cache,peer_t *peer,sample_t s,uint32_t width,uint32_t token,unsigned expected)
+{
+    const peer_t saved=*peer;
+    assert(vdc_feedback_model_update(cache,peer,&s,width,token)==expected);
+    assert(!memcmp(&saved,peer,sizeof(saved)));
+}
+
+static void test_model_cache(void)
+{
+    cache_t cache;peer_t peer;initialize(&cache,&peer);
+    assert(vdc_feedback_model_cache_put(&cache,1,5,2,100,104,UINT32_MAX));
+    reference_t ref;assert(vdc_feedback_match_cache_lookup(&cache,1,&ref));
+    assert(ref.prepared_ms==UINT32_MAX && cache.latest_published_version==2);
+    const cache_t saved=cache;
+    assert(vdc_feedback_model_cache_put(&cache,1,5,2,100,104,0));
+    assert(!memcmp(&cache,&saved,sizeof(cache))); /* Duplicate never renews age. */
+    for(unsigned kind=0;kind<7;kind++) {
+        uint32_t seq=1,token=5,version=2;uint64_t lo=100,hi=104;
+        if(kind==0)token=0;
+        if(kind==1)token=6;
+        if(kind==2)version=4;
+        if(kind==3)lo=101;
+        if(kind==4)seq=0;
+        if(kind==5)seq=2;
+        if(kind==6){seq=2;version=3;}
+        assert(!vdc_feedback_model_cache_put(&cache,seq,token,version,lo,hi,1234));
+        assert(!memcmp(&cache,&saved,sizeof(cache)));
+    }
+    assert(vdc_feedback_model_cache_put(&cache,2,6,4,200,204,0));
+    assert(vdc_feedback_match_cache_lookup(&cache,2,&ref) && ref.prepared_ms==0);
+    assert(cache.latest_published_version==4);
+    assert(vdc_feedback_model_cache_put(&cache,129,7,6,300,304,1));
+    assert(!vdc_feedback_match_cache_lookup(&cache,1,&ref));
+    assert(vdc_feedback_match_cache_lookup(&cache,129,&ref) && ref.prepared_ms==1);
+    const cache_t before=cache;
+    vdc_feedback_match_cache_retire(&cache);
+    assert(!memcmp(cache.entries,before.entries,sizeof(cache.entries)));
+    assert(vdc_feedback_match_cache_bind(&cache,71,250000000));
+    assert(!vdc_feedback_match_cache_lookup(&cache,129,&ref));
+    assert(vdc_feedback_model_cache_put(&cache,0,1,2,0,0,0));
+    assert(!vdc_feedback_model_cache_put(NULL,0,1,2,0,0,0));
+}
+
+static void test_model_state(void)
+{
+    cache_t cache;peer_t peer;snapshot_t saved=model_pair(&cache,&peer);
+    unchanged_model(&cache,&peer,sample(11,1500),4,22,VDC_FEEDBACK_MATCH_DUPLICATE);
+    unchanged_model(&cache,&peer,sample(11,1500),5,22,VDC_FEEDBACK_MATCH_INVALID);
+    unchanged_model(&cache,&peer,sample(11,1500),4,23,VDC_FEEDBACK_MATCH_INVALID);
+    unchanged_model(&cache,&peer,sample(11,1501),4,22,VDC_FEEDBACK_MATCH_INVALID);
+    unchanged_model(&cache,&peer,sample(10,500),4,21,VDC_FEEDBACK_MATCH_STALE);
+    unchanged_model(&cache,&peer,sample(12,2500),4,22,VDC_FEEDBACK_MATCH_NO_REFERENCE);
+    model_put(&cache,12,73,3000,3004);
+    unchanged_model(&cache,&peer,sample(12,2500),4,21,VDC_FEEDBACK_MATCH_STALE);
+    unchanged_model(&cache,&peer,sample(12,2500),4,0,VDC_FEEDBACK_MATCH_INVALID);
+    unchanged_model(&cache,&peer,sample(12,UINT64_MAX),1,23,VDC_FEEDBACK_MATCH_INVALID);
+    unchanged_model(&cache,&peer,sample(12,1504),0,23,VDC_FEEDBACK_MATCH_INVALID);
+    model_put(&cache,13,71,4000,4004);
+    unchanged_model(&cache,&peer,sample(13,3500),4,23,VDC_FEEDBACK_MATCH_STALE);
+    assert(!memcmp(&saved,&peer.snapshot,sizeof(saved)));
+    model_put(&cache,139,74,5000,5004); /* Overwrites entry 11, but not peer baseline. */
+    sample_t s=sample(139,4500);
+    assert(vdc_feedback_model_update(&cache,&peer,&s,4,23)==VDC_FEEDBACK_MATCH_MATCHED);
+    assert(peer.snapshot.pairs[0].measurement_sequence==11 && peer.snapshot.pairs[1].measurement_sequence==139);
+    saved=peer.snapshot;
+    model_put(&cache,140,75,UINT64_C(3000000000),UINT64_C(3000000004));
+    s=sample(140,UINT64_C(3000000000));
+    assert(vdc_feedback_model_update(&cache,&peer,&s,4,24)==VDC_FEEDBACK_MATCH_INTERVAL_REBASED);
+    assert(!memcmp(&saved,&peer.snapshot,sizeof(saved)));
+    assert(peer.previous.measurement_sequence==140 && peer.previous.source_model_token==24);
+    model_put(&cache,141,76,UINT64_C(3000001000),UINT64_C(3000001004));s=sample(141,UINT64_C(3000001000));
+    assert(vdc_feedback_model_update(&cache,&peer,&s,4,25)==VDC_FEEDBACK_MATCH_MATCHED);
+    assert(peer.snapshot.pairs[0].measurement_sequence==140);
+}
+
+static void test_model_lifetime(void)
+{
+    for(unsigned kind=0;kind<5;kind++) {
+        cache_t cache;peer_t peer;snapshot_t saved=model_pair(&cache,&peer);
+        sample_t s=sample(12,10);
+        if(kind==0)s.source_arm_epoch++;
+        if(kind==1)s.source_clock_epoch_id++;
+        if(kind==2)s.source_clock_run_id++;
+        if(kind==3)s.observer_epoch++;
+        if(kind==4){vdc_feedback_match_cache_retire(&cache);assert(vdc_feedback_match_cache_bind(&cache,71,250000000));}
+        unchanged_model(&cache,&peer,s,0,1,VDC_FEEDBACK_MATCH_NO_REFERENCE);
+        model_put(&cache,12,1,10,10);
+        assert(vdc_feedback_model_update(&cache,&peer,&s,0,1)==VDC_FEEDBACK_MATCH_BASELINED);
+        assert(!memcmp(&saved,&peer.snapshot,sizeof(saved)));
+    }
+    cache_t cache;peer_t peer;snapshot_t saved=model_pair(&cache,&peer);
+    /* A wrong-domain caller cannot silently pair a model and raw endpoint. */
+    sample_t s=sample(11,1500);
+    assert(vdc_feedback_match_update(&cache,&peer,&s)==VDC_FEEDBACK_MATCH_BASELINED);
+    assert(peer.reserved==0 && peer.previous.source_model_token==0 && peer.previous.rx_width_ns==0);
+    assert(!memcmp(&saved,&peer.snapshot,sizeof(saved)));
+    assert(vdc_feedback_model_update(&cache,&peer,&s,4,22)==VDC_FEEDBACK_MATCH_BASELINED);
+    assert(peer.reserved==2 && peer.previous.source_model_token==22);
+    s.source_arm_epoch=0;unchanged_model(&cache,&peer,s,0,1,VDC_FEEDBACK_MATCH_INVALID);
+    s=sample(11,100);s.observer_epoch=0;unchanged_model(&cache,&peer,s,0,1,VDC_FEEDBACK_MATCH_INVALID);
+    s=sample(11,100);s.tick_hz=1;unchanged_model(&cache,&peer,s,0,1,VDC_FEEDBACK_MATCH_INVALID);
+    s=sample(11,100);unchanged_model(NULL,&peer,s,0,1,VDC_FEEDBACK_MATCH_NO_REFERENCE);
+    assert(vdc_feedback_model_update(&cache,NULL,&s,0,1)==VDC_FEEDBACK_MATCH_INVALID);
+    assert(vdc_feedback_model_update(&cache,&peer,NULL,0,1)==VDC_FEEDBACK_MATCH_INVALID);
+}
+
+static void model_math_cases(void)
+{
+    uint32_t hz,aw,bw;uint64_t a,b,alo,ahi,blo,bhi;
+    while(scanf("%"SCNu32" %"SCNu64" %"SCNu32" %"SCNu64" %"SCNu32
+        " %"SCNu64" %"SCNu64" %"SCNu64" %"SCNu64,&hz,&a,&aw,&b,&bw,&alo,&ahi,&blo,&bhi)==9) {
+        cache_t cache;peer_t peer;vdc_feedback_match_cache_init(&cache);vdc_feedback_match_peer_init(&peer);
+        assert(vdc_feedback_match_cache_bind(&cache,71,hz));
+        assert(vdc_feedback_model_cache_put(&cache,0,1,2,alo,ahi,0));
+        sample_t s=sample(0,a);s.tick_hz=hz;
+        assert(vdc_feedback_model_update(&cache,&peer,&s,aw,11)==VDC_FEEDBACK_MATCH_BASELINED);
+        assert(vdc_feedback_model_cache_put(&cache,1,2,4,blo,bhi,100));s=sample(1,b);s.tick_hz=hz;
+        unsigned result=vdc_feedback_model_update(&cache,&peer,&s,bw,12);
+        snapshot_t out={0};unsigned found=vdc_feedback_match_peer_snapshot(&peer,&out);
+        printf("%u %u %"PRId64" %"PRId64" %u %u %u %u %u\n",result,found,out.raw_ppb_lo,out.raw_ppb_hi,
+            out.reserved,out.pairs[0].rx_width_ns,out.pairs[1].rx_width_ns,
+            out.pairs[0].source_model_token,out.pairs[1].source_model_token);
+    }
+}
+
 static void math_cases(void)
 {
     uint32_t hz;
@@ -491,6 +715,7 @@ int main(int argc, char **argv)
 {
     assert(argc == 2);
     if (strcmp(argv[1], "math") == 0) { math_cases(); return 0; }
+    if (strcmp(argv[1], "model_math") == 0) { model_math_cases(); return 0; }
     if (strcmp(argv[1], "lifecycle") == 0) test_lifecycle();
     else if (strcmp(argv[1], "sparse") == 0) test_sparse();
     else if (strcmp(argv[1], "generation") == 0) test_generation();
@@ -499,6 +724,9 @@ int main(int argc, char **argv)
     else if (strcmp(argv[1], "multiple") == 0) test_multiple();
     else if (strcmp(argv[1], "arguments") == 0) test_arguments();
     else if (strcmp(argv[1], "sequence") == 0) test_sequence();
+    else if (strcmp(argv[1], "model_cache") == 0) test_model_cache();
+    else if (strcmp(argv[1], "model_state") == 0) test_model_state();
+    else if (strcmp(argv[1], "model_lifetime") == 0) test_model_lifetime();
     else assert(!"unknown scenario");
     puts("feedback match: passed");
     return 0;

@@ -30,6 +30,7 @@
 #include "tdma_rx_start_cut.h"
 #include "tdma_service_timing.h"
 #include "vdc_dpll_manager.h"
+#include "vdc_timestamp_clock.h"
 
 #define SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS 10000u
 #define SCPI_TDMA_FIFO_RESET_WAIT_LOOPS 100u
@@ -2362,6 +2363,112 @@ scpi_result_t scpi_cmd_refmem_vdc_feedback_tx_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_vdc_feedback_session(scpi_t *context)
+{
+    uint32_t session;
+    if (!scpi_port_read_u32(context, &session) ||
+        !vdc_dpll_manager_set_feedback_session(session)) {
+        scpi_port_push_exec_error(context, "VDC_FEEDBACK_SESSION_STOP_REQUIRED_OR_BUSY");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, session);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_feedback_session_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, vdc_dpll_manager_feedback_session());
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_feedback_bridge_q(scpi_t *context)
+{
+    tdma_ring_runtime_snapshot_t ring;
+    if (!tdma_runtime_owner_get_ring_snapshot(&ring) || ring.enabled || ring.adapter_started) {
+        scpi_port_push_exec_error(context, "VDC_FEEDBACK_BRIDGE_STOP_REQUIRED_OR_BUSY");
+        return SCPI_RES_ERR;
+    }
+    vdc_timestamp_clock_bridge_diagnostic_t s;
+    if (!vdc_timestamp_clock_read_bridge_diagnostic(BOARD_SYS_CLOCK_HZ, &s)) return SCPI_RES_ERR;
+    /* STOP-only configuration evidence; individual counter reads are not an
+     * accepted bridge and do not authorize a model projection. */
+    SCPI_ResultUInt32(context, s.schema);
+    SCPI_ResultUInt32(context, s.platform_supported);
+    SCPI_ResultUInt32(context, s.configuration_supported);
+    SCPI_ResultUInt32(context, s.bridge_valid);
+    SCPI_ResultUInt32(context, s.clock_ready);
+    SCPI_ResultUInt32(context, s.expected_hz);
+    SCPI_ResultUInt32(context, s.cached_hz);
+    SCPI_ResultUInt32(context, s.sdk_sys_hz);
+    SCPI_ResultUInt32(context, s.default_timer);
+    SCPI_ResultUInt32(context, s.proc_config);
+    SCPI_ResultUInt32(context, s.timer0_source);
+    SCPI_ResultUInt32(context, s.timer0_pause);
+    SCPI_ResultUInt32(context, s.timer0_dbgpause);
+    SCPI_ResultUInt32(context, s.timer1_source);
+    SCPI_ResultUInt32(context, s.timer1_pause);
+    SCPI_ResultUInt32(context, s.timer1_dbgpause);
+    SCPI_ResultUInt32(context, s.ref_ctrl);
+    SCPI_ResultUInt32(context, s.ref_div);
+    SCPI_ResultUInt32(context, s.ref_selected);
+    SCPI_ResultUInt32(context, s.sys_ctrl);
+    SCPI_ResultUInt32(context, s.sys_div);
+    SCPI_ResultUInt32(context, s.sys_selected);
+    SCPI_ResultUInt32(context, s.resus_ctrl);
+    SCPI_ResultUInt32(context, s.resus_status);
+    SCPI_ResultUInt32(context, s.pll_cs);
+    SCPI_ResultUInt32(context, s.pll_pwr);
+    SCPI_ResultUInt32(context, s.pll_fbdiv);
+    SCPI_ResultUInt32(context, s.pll_prim);
+    SCPI_ResultUInt32(context, s.tick_ctrl);
+    SCPI_ResultUInt32(context, s.tick_cycles);
+    SCPI_ResultUInt32(context, s.xosc_ctrl);
+    SCPI_ResultUInt32(context, s.xosc_status);
+    SCPI_ResultUInt32(context, s.xosc_dormant);
+    SCPI_ResultUInt32(context, s.timer0_sample_valid);
+    SCPI_ResultUInt32(context, s.timer1_sample_valid);
+    SCPI_ResultUInt64(context, s.timer0_sample_us);
+    SCPI_ResultUInt64(context, s.timer1_sample_ticks);
+    SCPI_ResultUInt64(context, s.bridge.raw_before);
+    SCPI_ResultUInt64(context, s.bridge.local_ns);
+    SCPI_ResultUInt64(context, s.bridge.raw_after);
+    SCPI_ResultUInt32(context, s.bridge.tick_hz);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_feedback_model_q(scpi_t *context)
+{
+    vdc_dpll_manager_committed_model_t model;
+    if (!vdc_dpll_manager_get_committed_model(&model)) return SCPI_RES_ERR;
+    /* Schema 1 is a retained Core1 commit, including an empty token before
+     * publication. It is not an assertion of current/GPIO output validity. */
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, model.token);
+    SCPI_ResultUInt32(context, model.session);
+    SCPI_ResultUInt32(context, model.role_generation);
+    SCPI_ResultUInt32(context, model.applied_command_seq);
+    SCPI_ResultUInt32(context, model.clock_epoch_id);
+    SCPI_ResultUInt32(context, model.clock_run_id);
+    SCPI_ResultUInt32(context, model.local_slot);
+    SCPI_ResultUInt64(context, model.valid_from_raw);
+    SCPI_ResultUInt32(context, model.dco.valid);
+    SCPI_ResultUInt32(context, model.dco.dco_update_seq);
+    SCPI_ResultUInt32(context, model.dco.source_model_seq);
+    SCPI_ResultUInt32(context, model.dco.epoch_id);
+    SCPI_ResultUInt32(context, model.dco.run_id);
+    SCPI_ResultUInt64(context, model.dco.base_local_tick64);
+    SCPI_ResultUInt64(context, model.dco.base_vdc_time64_ns);
+    SCPI_ResultUInt32(context, model.dco.nominal_period_ns);
+    SCPI_ResultInt32(context, model.dco.period_adjust_ppb);
+    SCPI_ResultInt32(context, model.dco.phase_offset_ns);
+    SCPI_ResultUInt32(context, model.dco.slew_limit_ppb);
+    SCPI_ResultUInt32(context, model.dco.lock_state);
+    SCPI_ResultUInt32(context, model.dco.tdma_schedule_crc32);
+    SCPI_ResultUInt32(context, model.dco.servo_profile_crc32);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_vdc_feedback_match_q(scpi_t *context)
 {
     uint32_t source;
@@ -2387,6 +2494,8 @@ scpi_result_t scpi_cmd_vdc_feedback_match_q(scpi_t *context)
     SCPI_ResultUInt32(context, s.cache_insert_count);
     SCPI_ResultUInt32(context, s.cache_reject_count);
     SCPI_ResultUInt32(context, s.cache_latest_sequence);
+    /* Schema 2 uses ms for these age fields and projected ns for the pair
+     * coordinates; the reference identity is then the committed model token. */
     SCPI_ResultUInt32(context, s.last_age_ticks);
     SCPI_ResultUInt32(context, s.max_age_ticks);
     SCPI_ResultUInt32(context, s.result.has_pair);
@@ -2405,6 +2514,14 @@ scpi_result_t scpi_cmd_vdc_feedback_match_q(scpi_t *context)
         SCPI_ResultUInt64(context, s.result.pairs[i].rx_elapsed_cycles);
         SCPI_ResultUInt64(context, s.result.pairs[i].reference_tx_lo);
         SCPI_ResultUInt64(context, s.result.pairs[i].reference_tx_hi);
+    }
+    if (s.schema == 2u) {
+        SCPI_ResultUInt32(context, s.control_session);
+        SCPI_ResultUInt32(context, s.result.reserved);
+        for (uint32_t i = 0; i < 2u; ++i) {
+            SCPI_ResultUInt32(context, s.result.pairs[i].rx_width_ns);
+            SCPI_ResultUInt32(context, s.result.pairs[i].source_model_token);
+        }
     }
     return SCPI_RES_OK;
 }

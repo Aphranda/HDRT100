@@ -5,9 +5,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Diagnostic raw feedback only. No controller, shared session or MMIO. */
+/* Pure feedback transport. Neither schema grants controller or GPIO
+ * consumption eligibility; model schema identifies a Core1 committed model. */
 #define REFMEM_VDC_FEEDBACK_SCHEMA 1u
 #define REFMEM_VDC_FEEDBACK_DOMAIN_FLAGS 0x07u
+#define REFMEM_VDC_FEEDBACK_MODEL_SCHEMA 2u
+#define REFMEM_VDC_FEEDBACK_MODEL_DOMAIN_FLAGS 0x0fu
 #define REFMEM_VDC_FEEDBACK_RECORD_SIZE 64u
 #define REFMEM_VDC_FEEDBACK_CRC_OFFSET 60u
 #define REFMEM_VDC_FEEDBACK_FRAGMENT_SIZE 4u
@@ -17,13 +20,26 @@
 
 /* Decoded fields; this is NOT the wire layout. The encoder stores explicit
  * little-endian fields at the reviewed offsets and derives a checked u32
- * width from before/after. Clock epoch/run are SOURCE-local identifiers. */
+ * width from before/after for schema 1. Schema 2 carries a model projection
+ * interval and provenance. Clock epoch/run are SOURCE-local identifiers. */
 typedef struct {
     uint64_t source_arm_epoch;
-    uint64_t rx_elapsed_cycles;
-    uint64_t tx_elapsed_cycles;
-    uint64_t timer1_enable_before;
-    uint64_t timer1_enable_after;
+    union {
+        struct {
+            uint64_t rx_elapsed_cycles;
+            uint64_t tx_elapsed_cycles;
+            uint64_t timer1_enable_before;
+            uint64_t timer1_enable_after;
+        };
+        struct {
+            uint64_t output_ns_lo;
+            uint64_t output_ns_hi;
+            uint32_t model_token;
+            uint32_t applied_command_seq;
+            uint32_t control_session;
+            uint32_t reserved; /* Must be zero; never serialized. */
+        } model;
+    };
     uint32_t source_clock_epoch_id;
     uint32_t source_clock_run_id;
     uint32_t observer_epoch;
@@ -90,7 +106,9 @@ uint32_t refmem_sync_vdc_feedback_next_sequence(uint32_t sequence);
 /* False preserves output. No tick-rate assumption beyond nonzero. Source
  * and target must be distinct runtime-admitted slots; epoch/run may be zero,
  * while ARM and observer epochs identify actual acquisitions and are nonzero.
- * A zero measurement sequence is allowed. */
+ * A zero measurement sequence is allowed. Schema 2 additionally requires
+ * ordered output bounds and nonzero model token/control session; a command
+ * sequence of zero denotes no command yet. Reserved must be zero. */
 bool refmem_sync_vdc_feedback_encode(
     const refmem_sync_vdc_feedback_record_t *record, uint32_t node_count,
     uint8_t output[REFMEM_VDC_FEEDBACK_RECORD_SIZE]);
@@ -121,10 +139,14 @@ refmem_sync_vdc_feedback_result_t refmem_sync_vdc_feedback_push(
 
 /* Pure ordering against caller-retained complete bytes. NULL previous means
  * no history. Different source clock epoch/run, ARM or observer epoch is a
- * different namespace, not a claim of a fresh shared session. Within one
+ * different namespace, as is a schema or model control-session change; none
+ * of these changes claims admission of a fresh shared session. Within one
  * namespace measurement_sequence strictly increases WITHOUT wrap; equal seq
- * with unequal bytes is a conflict. Clock rate and anchor must stay fixed
- * within that namespace. No retained state or freshness is changed here. */
+ * with unequal bytes is a conflict. Clock rate must stay fixed. Schema 1
+ * also requires a fixed raw anchor; schema 2 instead rejects decreasing
+ * model token or applied command sequence as STALE, without wrap. Model
+ * projection bounds need not stay fixed. No retained state, input/control
+ * eligibility or freshness is changed here. */
 refmem_sync_vdc_feedback_order_t refmem_sync_vdc_feedback_compare(
     const uint8_t candidate[REFMEM_VDC_FEEDBACK_RECORD_SIZE],
     const uint8_t previous[REFMEM_VDC_FEEDBACK_RECORD_SIZE],

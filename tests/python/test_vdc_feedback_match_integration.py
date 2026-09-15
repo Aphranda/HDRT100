@@ -27,6 +27,17 @@ static bool epoch_available=true,reference_active=true;
 static unsigned ring_calls,reference_calls,feedback_calls,clock_calls;
 static uint32_t requested_slot,*race_guard;
 static uint64_t now_ticks;
+static uint32_t session, now_ms=100;
+uint32_t vdc_dpll_manager_feedback_session(void) { return session; }
+static uint32_t board_uptime_ms(void) { return now_ms; }
+bool vdc_dpll_manager_project_feedback_event(uint32_t ses,uint32_t role,uint32_t epoch,uint32_t run,
+    uint32_t local,uint32_t schedule,uint32_t hz,uint64_t lo,uint64_t hi,
+    vdc_dpll_manager_projected_event_t *out)
+{
+    assert(ses==session && role==9 && epoch==3 && run==4 && local==0 && schedule==0xabc && hz==250000000);
+    *out=(vdc_dpll_manager_projected_event_t){.output_ns_lo=lo*4,.output_ns_hi=hi*4+999,.model_token=7};
+    return true;
+}
 static unsigned interleave_point,interleave_action;
 static void interleave(unsigned point);
 bool tdma_ring_runtime_get_clock_snapshot(const tdma_ring_runtime_t *r,tdma_ring_clock_snapshot_t *out)
@@ -62,7 +73,7 @@ static void setup(void)
     for(unsigned slot=1;slot<4;slot++) feedback[slot]=(distributed_refmem_vdc_feedback_rx_snapshot_t){
         .schema=1,.active=1,.retained=1,.source_slot=slot,.ring_config_seq=7,.role_generation=9,
         .schedule_crc32=0xabc,.clock_epoch_id=3,.clock_run_id=4,.receive_count=1,
-        .sample={.source_slot=slot,.target_slot=0,.source_arm_epoch=77,.source_clock_epoch_id=21,
+        .sample={.schema_version=REFMEM_VDC_FEEDBACK_SCHEMA,.source_slot=slot,.target_slot=0,.source_arm_epoch=77,.source_clock_epoch_id=21,
             .source_clock_run_id=22,.observer_epoch=23,.measurement_sequence=10,.tick_hz=250000000,
             .rx_elapsed_cycles=100000000}};
 }
@@ -119,7 +130,66 @@ static void establish(void)
 int main(int argc,char **argv)
 {
     assert(argc==2);const char *mode=argv[1];setup();
-    if(!strcmp(mode,"token_exhaustion")) {
+    if(!strcmp(mode,"raw_model_switch")) {
+        establish();now_ticks+=500000;
+        for(unsigned s=1;s<4;s++)feedback[s].receive_count++;
+        roundtrip();assert(status(1).max_age_ticks>120 && status(1).result.has_pair);
+        session=123;
+        for(unsigned s=1;s<4;s++) {
+            feedback[s].receive_count++;feedback[s].sample.schema_version=2;
+            feedback[s].sample.model.output_ns_lo=400000000;
+            feedback[s].sample.model.output_ns_hi=400000999;
+            feedback[s].sample.model.model_token=11;
+            feedback[s].sample.model.control_session=session;
+        }
+        roundtrip();
+        for(unsigned s=1;s<4;s++) {
+            assert(status(s).schema==2 && !status(s).active && !status(s).result.has_pair);
+            assert(status(s).max_age_ticks<=120);
+        }
+    } else if(!strncmp(mode,"model_",6)) {
+        session=123;
+        for(unsigned s=1;s<4;s++) {
+            feedback[s].sample.schema_version=REFMEM_VDC_FEEDBACK_MODEL_SCHEMA;
+            feedback[s].sample.model.output_ns_lo=400000000;
+            feedback[s].sample.model.output_ns_hi=400000999;
+            feedback[s].sample.model.model_token=11;
+            feedback[s].sample.model.control_session=session;
+        }
+        roundtrip();assert(status(1).baseline_count==1);
+        reference.sequence++;reference.published_version+=2;
+        reference.timer_lower+=25000000;reference.timer_upper+=25000000;
+        now_ticks=reference.timer_upper+100;now_ms+=100;
+        for(unsigned s=1;s<4;s++) {
+            feedback[s].receive_count++;feedback[s].sample.measurement_sequence++;
+            feedback[s].sample.model.output_ns_lo+=100004000;
+            feedback[s].sample.model.output_ns_hi+=100004000;
+            feedback[s].sample.model.model_token++;
+        }
+        if(!strcmp(mode,"model_wrong_session"))feedback[1].sample.model.control_session++;
+        if(!strcmp(mode,"model_raw_reject"))feedback[1].sample.schema_version=1;
+        roundtrip();
+        if(!strcmp(mode,"model_wrong_session") || !strcmp(mode,"model_raw_reject")) {
+            assert(!status(1).match_count && status(2).active);return 0;
+        }
+        for(unsigned s=1;s<4;s++) {
+            const vdc_dpll_manager_feedback_match_status_t out=status(s);
+            assert(out.schema==2 && out.control_session==123 && out.active && out.match_count==1);
+            assert(out.result.reserved==2 && out.result.raw_ppb_lo<40000 && out.result.raw_ppb_hi>40000);
+            assert(out.result.pairs[0].source_model_token==11 && out.result.pairs[1].source_model_token==12);
+            assert(out.result.pairs[0].rx_width_ns==999 && out.result.pairs[1].reference_identity_crc32==7);
+        }
+        if(!strcmp(mode,"model_session_retire")) {
+            session++;assert(!status(1).active);roundtrip();assert(!status(1).active);
+            for(unsigned s=1;s<4;s++){feedback[s].receive_count++;feedback[s].sample.model.control_session=session;}
+            roundtrip();assert(!status(1).active && status(1).baseline_count==2);
+        } else if(!strcmp(mode,"model_age")) {
+            now_ms+=121;for(unsigned s=1;s<4;s++)feedback[s].receive_count++;
+            roundtrip();assert(status(1).stale_count==1 && status(1).match_count==1);
+        } else if(!strcmp(mode,"model_raw_switch")) {
+            session=0;assert(!status(1).active);roundtrip();assert(!status(1).active);
+        } else assert(!strcmp(mode,"model_match"));
+    } else if(!strcmp(mode,"token_exhaustion")) {
         s_feedback_match_owner_serial=UINT32_MAX-1;
         establish();assert(s_feedback_match_owner_token==UINT32_MAX);
         core1_tick(false);assert(status(1).active && s_feedback_match_owner_token==UINT32_MAX);
@@ -303,6 +373,8 @@ int main(int argc,char **argv)
 
 
 @pytest.mark.parametrize("case", [
+    "raw_model_switch",
+    "model_match", "model_wrong_session", "model_raw_reject", "model_session_retire", "model_age", "model_raw_switch",
     "no_authorization", "core1_only", "paused_core0", "token_exhaustion",
     "reference_epoch_busy", "reference_inactive_authorization",
     "bounded", "exact", "miss", "no_cache", "age", "age_wide", "age_wide_boundary", "future", "busy", "retire", "retire_hook",

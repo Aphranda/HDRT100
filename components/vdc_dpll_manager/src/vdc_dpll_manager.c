@@ -1,5 +1,6 @@
 #include "vdc_dpll_manager.h"
 #include "vdc_time_mapping.h"
+#include "vdc_model_projection.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -851,8 +852,9 @@ static void vdc_dpll_manager_observation_self_test_service(void)
                 evidence.timestamp_flags =
                     tdma.traffic_class_timestamp_flags[
                         TDMA_TRAFFIC_VDC_REALTIME];
-                (void)vdc_domain_submit_tdma_evidence(&s_vdc_domain,
-                                                       &evidence);
+                /* Model feedback admits only the Core1 control writer. */
+                if (!vdc_dpll_manager_feedback_session())
+                    (void)vdc_domain_submit_tdma_evidence(&s_vdc_domain, &evidence);
                 s_vdc_tdma_self_test_submitted_seq = completed_seq;
             }
             if (s_observation_self_test.active &&
@@ -1615,13 +1617,15 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
             status.submitted_count++;
             status.last_event_id = compact.event_id;
             status.last_tick_l32 = compact.tick_l32;
-            if (vdc_domain_submit_compact_observation(&s_vdc_domain, &compact)) {
+            if (!vdc_dpll_manager_feedback_session() &&
+                vdc_domain_submit_compact_observation(&s_vdc_domain, &compact)) {
                 status.accepted_count++;
                 status.last_gate_reject_code =
                     VDC_DOMAIN_GATE_PASS;
             } else {
                 status.rejected_count++;
                 status.last_gate_reject_code =
+                    vdc_dpll_manager_feedback_session() ? VDC_DOMAIN_GATE_DISABLED :
                     s_vdc_domain.gate.reject_code;
             }
             osal_critical_exit();
@@ -1650,6 +1654,7 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
 
 bool vdc_dpll_manager_init(void)
 {
+    if (vdc_dpll_manager_feedback_session()) return false;
     const uint32_t now_ms = board_uptime_ms();
 
     memset(&s_vdc_status, 0, sizeof(s_vdc_status));
@@ -1802,9 +1807,9 @@ bool vdc_dpll_manager_init(void)
 void vdc_dpll_manager_set_vdc_ready(bool ready)
 {
     osal_critical_enter();
-    s_vdc_ready = ready;
+    __atomic_store_n(&s_vdc_ready, ready, __ATOMIC_RELEASE);
     s_vdc_status.ready = ready;
-    vdc_domain_set_ready(&s_vdc_domain, ready);
+    if (!vdc_dpll_manager_feedback_session()) vdc_domain_set_ready(&s_vdc_domain, ready);
     s_published_vdc_status = s_vdc_status;
     osal_critical_exit();
 }
@@ -2976,8 +2981,9 @@ static void vdc_dpll_manager_waveform_capture_service(void)
 }
 
 #include "vdc_dpll_feedback_match.inc"
+#include "vdc_model_feedback.inc"
 
-void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_fb_service)(void)
+static void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_fb_step)(void)
 {
     /* Debug admission is a control-plane policy, not a local-servo action.
      * Apply it before any role/follower early return so every node can enter
@@ -3033,6 +3039,20 @@ void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_fb_service)(void)
         return;
     }
     (void)vdc_dpll_manager_apply_ring_evidence();
+}
+
+/* Keep the small publication wrapper in XIP. The existing realtime step stays
+ * in RAM; duplicating its entry wrapper there crosses a 4 KiB BSS alignment. */
+void __attribute__((noinline)) sync_dpll_fb_service(void)
+{
+    const uint32_t session = vdc_dpll_manager_feedback_session();
+    if (session) {
+        (void)__atomic_add_fetch(&s_committed_model_guard, 1u, __ATOMIC_ACQ_REL);
+        const bool ready = __atomic_load_n(&s_vdc_ready, __ATOMIC_ACQUIRE);
+        if (s_vdc_domain.ready != (uint32_t)ready) vdc_domain_set_ready(&s_vdc_domain, ready);
+    }
+    sync_dpll_fb_step();
+    if (session) model_feedback_end_core1(session);
 }
 
 void vdc_dpll_manager_dpll_service(void)
@@ -3331,6 +3351,7 @@ bool vdc_dpll_manager_plan_tdma_ring(vdc_tdma_ring_plan_t *plan)
 bool vdc_dpll_manager_set_tdma_ring_local_slot(uint32_t local_slot_id)
 {
     osal_critical_enter();
+    if (vdc_dpll_manager_feedback_session()) { osal_critical_exit(); return false; }
     const bool changed = vdc_domain_set_schedule_ring_topology(
         &s_vdc_domain,
         local_slot_id,
@@ -3345,6 +3366,7 @@ bool vdc_dpll_manager_set_tdma_ring_topology(uint32_t local_slot_id,
                                              uint32_t node_count)
 {
     osal_critical_enter();
+    if (vdc_dpll_manager_feedback_session()) { osal_critical_exit(); return false; }
     const bool changed = vdc_domain_set_schedule_ring_topology(
         &s_vdc_domain, local_slot_id, reference_slot_id, node_count);
     osal_critical_exit();
@@ -3863,6 +3885,7 @@ bool vdc_dpll_manager_activate_tdma_calibration(
     };
 
     osal_critical_enter();
+    if (vdc_dpll_manager_feedback_session()) { osal_critical_exit(); return false; }
     vdc_tdma_schedule_profile_t schedule;
     vdc_timestamp_dictionary_t dictionary;
     vdc_path_delay_table_t path_delay;
@@ -3987,6 +4010,7 @@ bool vdc_dpll_manager_activate_tdma_provisional_training(void)
     };
 
     osal_critical_enter();
+    if (vdc_dpll_manager_feedback_session()) { osal_critical_exit(); return false; }
     vdc_tdma_schedule_profile_t schedule;
     vdc_timestamp_dictionary_t dictionary;
     vdc_path_delay_table_t path_delay;
@@ -4029,7 +4053,8 @@ bool vdc_dpll_manager_submit_compact_observation(
     }
 
     osal_critical_enter();
-    result = vdc_domain_submit_compact_observation(&s_vdc_domain, compact);
+    result = !vdc_dpll_manager_feedback_session() &&
+        vdc_domain_submit_compact_observation(&s_vdc_domain, compact);
     osal_critical_exit();
     return result;
 }

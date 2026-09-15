@@ -4,7 +4,7 @@
 #include <string.h>
 
 _Static_assert(sizeof(refmem_sync_vdc_feedback_record_t) == 64u,
-               "Decoded raw feedback remains bounded");
+               "Decoded feedback remains bounded across schemas");
 _Static_assert(sizeof(refmem_sync_vdc_feedback_assembly_t) == 80u,
                "One raw-feedback assembly uses 80 bytes");
 
@@ -39,12 +39,18 @@ static bool feedback_identity(uint32_t node_count, uint32_t source, uint32_t tar
 static bool feedback_record_valid(const refmem_sync_vdc_feedback_record_t *r,
                                   uint32_t node_count)
 {
-    return r != NULL && feedback_identity(node_count, r->source_slot, r->target_slot) &&
-        r->schema_version == REFMEM_VDC_FEEDBACK_SCHEMA &&
-        r->domain_flags == REFMEM_VDC_FEEDBACK_DOMAIN_FLAGS &&
-        r->source_arm_epoch != 0u && r->observer_epoch != 0u && r->tick_hz != 0u &&
-        r->timer1_enable_after >= r->timer1_enable_before &&
-        r->timer1_enable_after - r->timer1_enable_before <= UINT32_MAX;
+    if (r == NULL || !feedback_identity(node_count, r->source_slot, r->target_slot) ||
+        r->source_arm_epoch == 0u || r->observer_epoch == 0u || r->tick_hz == 0u) return false;
+    if (r->schema_version == REFMEM_VDC_FEEDBACK_SCHEMA)
+        return r->domain_flags == REFMEM_VDC_FEEDBACK_DOMAIN_FLAGS &&
+            r->timer1_enable_after >= r->timer1_enable_before &&
+            r->timer1_enable_after - r->timer1_enable_before <= UINT32_MAX;
+    if (r->schema_version == REFMEM_VDC_FEEDBACK_MODEL_SCHEMA)
+        return r->domain_flags == REFMEM_VDC_FEEDBACK_MODEL_DOMAIN_FLAGS &&
+            r->model.output_ns_lo <= r->model.output_ns_hi &&
+            r->model.model_token != 0u && r->model.control_session != 0u &&
+            r->model.reserved == 0u;
+    return false;
 }
 
 uint32_t refmem_sync_vdc_feedback_crc32(const uint8_t *data, size_t size)
@@ -80,11 +86,19 @@ bool refmem_sync_vdc_feedback_encode(
     feedback_put32(wire + 20u, record->observer_epoch);
     feedback_put32(wire + 24u, record->measurement_sequence);
     feedback_put32(wire + 28u, record->tick_hz);
-    feedback_put64(wire + 32u, record->rx_elapsed_cycles);
-    feedback_put64(wire + 40u, record->tx_elapsed_cycles);
-    feedback_put64(wire + 48u, record->timer1_enable_before);
-    feedback_put32(wire + 56u,
-                   (uint32_t)(record->timer1_enable_after - record->timer1_enable_before));
+    if (record->schema_version == REFMEM_VDC_FEEDBACK_SCHEMA) {
+        feedback_put64(wire + 32u, record->rx_elapsed_cycles);
+        feedback_put64(wire + 40u, record->tx_elapsed_cycles);
+        feedback_put64(wire + 48u, record->timer1_enable_before);
+        feedback_put32(wire + 56u,
+            (uint32_t)(record->timer1_enable_after - record->timer1_enable_before));
+    } else {
+        feedback_put64(wire + 32u, record->model.output_ns_lo);
+        feedback_put64(wire + 40u, record->model.output_ns_hi);
+        feedback_put32(wire + 48u, record->model.model_token);
+        feedback_put32(wire + 52u, record->model.applied_command_seq);
+        feedback_put32(wire + 56u, record->model.control_session);
+    }
     feedback_put32(wire + REFMEM_VDC_FEEDBACK_CRC_OFFSET,
         refmem_sync_vdc_feedback_crc32(wire, REFMEM_VDC_FEEDBACK_CRC_OFFSET));
     memcpy(output, wire, sizeof(wire));
@@ -103,9 +117,6 @@ bool refmem_sync_vdc_feedback_decode(
             refmem_sync_vdc_feedback_crc32(wire, REFMEM_VDC_FEEDBACK_CRC_OFFSET)) return false;
     refmem_sync_vdc_feedback_record_t value = {
         .source_arm_epoch = feedback_get64(wire + 12u),
-        .rx_elapsed_cycles = feedback_get64(wire + 32u),
-        .tx_elapsed_cycles = feedback_get64(wire + 40u),
-        .timer1_enable_before = feedback_get64(wire + 48u),
         .source_clock_epoch_id = feedback_get32(wire + 4u),
         .source_clock_run_id = feedback_get32(wire + 8u),
         .observer_epoch = feedback_get32(wire + 20u),
@@ -114,9 +125,21 @@ bool refmem_sync_vdc_feedback_decode(
         .schema_version = wire[0], .source_slot = wire[1],
         .target_slot = wire[2], .domain_flags = wire[3],
     };
-    const uint32_t width = feedback_get32(wire + 56u);
-    if (UINT64_MAX - value.timer1_enable_before < width) return false;
-    value.timer1_enable_after = value.timer1_enable_before + width;
+    if (value.schema_version == REFMEM_VDC_FEEDBACK_SCHEMA) {
+        value.rx_elapsed_cycles = feedback_get64(wire + 32u);
+        value.tx_elapsed_cycles = feedback_get64(wire + 40u);
+        value.timer1_enable_before = feedback_get64(wire + 48u);
+        const uint32_t width = feedback_get32(wire + 56u);
+        if (UINT64_MAX - value.timer1_enable_before < width) return false;
+        value.timer1_enable_after = value.timer1_enable_before + width;
+    } else if (value.schema_version == REFMEM_VDC_FEEDBACK_MODEL_SCHEMA) {
+        value.model.output_ns_lo = feedback_get64(wire + 32u);
+        value.model.output_ns_hi = feedback_get64(wire + 40u);
+        value.model.model_token = feedback_get32(wire + 48u);
+        value.model.applied_command_seq = feedback_get32(wire + 52u);
+        value.model.control_session = feedback_get32(wire + 56u);
+        value.model.reserved = 0u;
+    }
     if (!feedback_record_valid(&value, node_count)) return false;
     *record = value;
     return true;
@@ -246,16 +269,25 @@ refmem_sync_vdc_feedback_order_t refmem_sync_vdc_feedback_compare(
         return REFMEM_VDC_FEEDBACK_ORDER_INVALID;
     if (memcmp(candidate, previous, REFMEM_VDC_FEEDBACK_RECORD_SIZE) == 0)
         return REFMEM_VDC_FEEDBACK_ORDER_DUPLICATE;
-    if (next.source_clock_epoch_id != old.source_clock_epoch_id ||
+    if (next.schema_version != old.schema_version ||
+        next.source_clock_epoch_id != old.source_clock_epoch_id ||
         next.source_clock_run_id != old.source_clock_run_id ||
-        next.source_arm_epoch != old.source_arm_epoch || next.observer_epoch != old.observer_epoch)
+        next.source_arm_epoch != old.source_arm_epoch || next.observer_epoch != old.observer_epoch ||
+        (next.schema_version == REFMEM_VDC_FEEDBACK_MODEL_SCHEMA &&
+         next.model.control_session != old.model.control_session))
         return REFMEM_VDC_FEEDBACK_ORDER_NEW_NAMESPACE;
     if (next.measurement_sequence == old.measurement_sequence)
         return REFMEM_VDC_FEEDBACK_ORDER_CONFLICT;
     if (next.measurement_sequence < old.measurement_sequence)
         return REFMEM_VDC_FEEDBACK_ORDER_STALE;
-    if (next.tick_hz != old.tick_hz || next.timer1_enable_before != old.timer1_enable_before ||
-        next.timer1_enable_after != old.timer1_enable_after)
+    if (next.tick_hz != old.tick_hz)
         return REFMEM_VDC_FEEDBACK_ORDER_CONFLICT;
+    if (next.schema_version == REFMEM_VDC_FEEDBACK_SCHEMA) {
+        if (next.timer1_enable_before != old.timer1_enable_before ||
+            next.timer1_enable_after != old.timer1_enable_after)
+            return REFMEM_VDC_FEEDBACK_ORDER_CONFLICT;
+    } else if (next.model.model_token < old.model.model_token ||
+               next.model.applied_command_seq < old.model.applied_command_seq)
+        return REFMEM_VDC_FEEDBACK_ORDER_STALE;
     return REFMEM_VDC_FEEDBACK_ORDER_NEWER;
 }

@@ -1001,6 +1001,12 @@ bool tdma_service_update_event_tap(tdma_service_service_t *service,
     return ok;
 }
 
+bool tdma_service_update_stopped_metadata(tdma_service_service_t *service,
+    bool (*publish)(void *context), void *context)
+{
+    return tdma_service_update_event_tap(service, publish, context);
+}
+
 bool tdma_service_get_stopped_update(tdma_service_service_t *service,
     uint32_t *token, uint32_t *generation, bool *applying)
 {

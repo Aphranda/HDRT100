@@ -1,8 +1,8 @@
-/* Raw VDC feedback: Core0 RefMem task owns all state. No PIO/DMA or DCO use.
+/* VDC feedback: Core0 RefMem task owns preparation. No PIO/DMA or DCO writes.
  * The atomic publications are diagnostic history, never control commands. */
 typedef struct {
     uint32_t mode, local, target, node_count, role_generation;
-    uint32_t ring_config_seq, schedule_crc32, clock_epoch_id, clock_run_id;
+    uint32_t ring_config_seq, schedule_crc32, clock_epoch_id, clock_run_id, session;
 } distributed_refmem_feedback_binding_t;
 
 typedef struct {
@@ -76,7 +76,8 @@ static bool feedback_read_binding(tdma_service_service_t *owner,
         .mode = mode, .local = ring.local_slot_id, .target = ring.reference_slot_id,
         .node_count = ring.node_count, .role_generation = vdc.control_profile.generation,
         .ring_config_seq = ring.config_seq, .schedule_crc32 = ring.schedule_crc32,
-        .clock_epoch_id = vdc.clock_epoch_id, .clock_run_id = vdc.clock_run_id};
+        .clock_epoch_id = vdc.clock_epoch_id, .clock_run_id = vdc.clock_run_id,
+        .session = vdc_dpll_manager_feedback_session()};
     return true;
 }
 
@@ -160,7 +161,10 @@ static int distributed_refmem_feedback_prepare(tdma_service_service_t *owner)
         refmem_sync_vdc_feedback_record_t active;
         if (!refmem_sync_vdc_feedback_decode(s_feedback_tx_record, after.node_count,
                 after.local, after.target, &active) || active.source_arm_epoch != live.arm_epoch ||
-                active.observer_epoch != live.record.epoch || active.tick_hz != live.tick_hz) {
+                active.observer_epoch != live.record.epoch || active.tick_hz != live.tick_hz ||
+                (after.session ? (active.schema_version != REFMEM_VDC_FEEDBACK_MODEL_SCHEMA ||
+                    active.model.control_session != after.session) :
+                    active.schema_version != REFMEM_VDC_FEEDBACK_SCHEMA)) {
             feedback_cancel_tx();
             return 0;
         }
@@ -178,6 +182,25 @@ static int distributed_refmem_feedback_prepare(tdma_service_service_t *owner)
         .tx_elapsed_cycles = live.record.tx_elapsed_cycles,
         .timer1_enable_before = live.timer1_enable_before,
         .timer1_enable_after = live.timer1_enable_after};
+    if (after.session) {
+        vdc_dpll_manager_projected_event_t event;
+        if (live.timer1_enable_before > UINT64_MAX - live.record.rx_elapsed_cycles ||
+            live.timer1_enable_after > UINT64_MAX - live.record.rx_elapsed_cycles ||
+            !vdc_dpll_manager_project_feedback_event(after.session, after.role_generation,
+                after.clock_epoch_id, after.clock_run_id, after.local, after.schedule_crc32,
+                live.tick_hz, live.timer1_enable_before + live.record.rx_elapsed_cycles,
+                live.timer1_enable_after + live.record.rx_elapsed_cycles, &event)) return 0;
+        record.schema_version = REFMEM_VDC_FEEDBACK_MODEL_SCHEMA;
+        record.domain_flags = REFMEM_VDC_FEEDBACK_MODEL_DOMAIN_FLAGS;
+        memset(&record.model, 0, sizeof(record.model));
+        record.model.output_ns_lo = event.output_ns_lo;
+        record.model.output_ns_hi = event.output_ns_hi;
+        record.model.model_token = event.model_token;
+        record.model.applied_command_seq = event.applied_command_seq;
+        record.model.control_session = after.session;
+        distributed_refmem_feedback_binding_t final;
+        if (!feedback_read_binding(owner, &final) || !feedback_same_binding(&after, &final)) return -1;
+    }
     uint8_t candidate[REFMEM_VDC_FEEDBACK_RECORD_SIZE];
     distributed_refmem_vdc_feedback_tx_snapshot_t tx;
     feedback_load(s_feedback_tx_words, &tx, sizeof(tx));
@@ -198,6 +221,7 @@ static int distributed_refmem_feedback_prepare(tdma_service_service_t *owner)
     tx.source_slot = after.local; tx.target_slot = after.target;
     tx.schedule_crc32 = after.schedule_crc32;
     tx.clock_epoch_id = after.clock_epoch_id; tx.clock_run_id = after.clock_run_id;
+    tx.control_session = after.session;
     feedback_publish(s_feedback_tx_words, &s_feedback_tx_guard, &tx, sizeof(tx));
     return 1;
 }
@@ -267,6 +291,16 @@ static void distributed_refmem_feedback_receive(tdma_service_service_t *owner, u
         if (order == REFMEM_VDC_FEEDBACK_ORDER_FIRST || order == REFMEM_VDC_FEEDBACK_ORDER_NEW_NAMESPACE ||
             order == REFMEM_VDC_FEEDBACK_ORDER_NEWER) {
             if (!refmem_sync_vdc_feedback_decode(wire, after.node_count, source, after.local, &rx.sample)) return;
+            if (after.session ? (rx.sample.schema_version != REFMEM_VDC_FEEDBACK_MODEL_SCHEMA ||
+                    rx.sample.model.control_session != after.session) :
+                    rx.sample.schema_version != REFMEM_VDC_FEEDBACK_SCHEMA) {
+                rx.reject_count = feedback_inc(rx.reject_count);
+                /* Keep the previously admitted record and decoded payload together. */
+                if (rx.retained) (void)refmem_sync_vdc_feedback_decode(rx.record,
+                    after.node_count, source, after.local, &rx.sample);
+                feedback_publish(state->words, &state->guard, &rx, sizeof(rx));
+                return;
+            }
             memcpy(rx.record, wire, sizeof(wire));
             rx.retained = 1u; rx.active = 1u;
             rx.ring_config_seq = after.ring_config_seq; rx.role_generation = after.role_generation;
@@ -300,7 +334,10 @@ bool distributed_refmem_get_vdc_feedback_rx(uint32_t source,
         source < current.node_count && source != current.local &&
         rx.ring_config_seq == current.ring_config_seq && rx.role_generation == current.role_generation &&
         rx.schedule_crc32 == current.schedule_crc32 && rx.clock_epoch_id == current.clock_epoch_id &&
-        rx.clock_run_id == current.clock_run_id;
+        rx.clock_run_id == current.clock_run_id &&
+        (current.session ? (rx.sample.schema_version == REFMEM_VDC_FEEDBACK_MODEL_SCHEMA &&
+            rx.sample.model.control_session == current.session) :
+            rx.sample.schema_version == REFMEM_VDC_FEEDBACK_SCHEMA);
     __atomic_thread_fence(__ATOMIC_ACQ_REL);
     if (guard != __atomic_load_n(&state->guard, __ATOMIC_ACQUIRE)) return false;
     *out = rx;
@@ -321,7 +358,7 @@ bool distributed_refmem_get_vdc_feedback_tx(distributed_refmem_vdc_feedback_tx_s
         tx.ring_config_seq == current.ring_config_seq && tx.role_generation == current.role_generation &&
         tx.source_slot == current.local && tx.target_slot == current.target &&
         tx.schedule_crc32 == current.schedule_crc32 && tx.clock_epoch_id == current.clock_epoch_id &&
-        tx.clock_run_id == current.clock_run_id;
+        tx.clock_run_id == current.clock_run_id && tx.control_session == current.session;
     __atomic_thread_fence(__ATOMIC_ACQ_REL);
     if (guard != __atomic_load_n(&s_feedback_tx_guard, __ATOMIC_ACQUIRE)) return false;
     *out = tx;

@@ -54,6 +54,16 @@ static uint32_t now_ms=100, s_service_count=123;
 static unsigned full_ring_reads;
 static uint32_t *race_guard;
 static bool binding_available=true, live_available=true, tap_available=true;
+static uint32_t session;
+uint32_t vdc_dpll_manager_feedback_session(void) { return session; }
+bool vdc_dpll_manager_project_feedback_event(uint32_t ses,uint32_t role,uint32_t epoch,uint32_t run,
+    uint32_t local,uint32_t schedule,uint32_t hz,uint64_t lo,uint64_t hi,
+    vdc_dpll_manager_projected_event_t *out)
+{
+    assert(ses==session && role==9 && epoch==3 && run==4 && local==ring.local_slot_id && schedule==0xabc && hz==250000000);
+    *out=(vdc_dpll_manager_projected_event_t){.output_ns_lo=lo*4,.output_ns_hi=hi*4+999,.model_token=7};
+    return true;
+}
 static tdma_service_service_t *tdma_runtime_owner_get(void) { return &owner; }
 bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *r, tdma_ring_runtime_snapshot_t *out)
 { assert(r==&owner.ring_runtime); ++full_ring_reads; *out=ring; return binding_available; }
@@ -160,7 +170,30 @@ int main(int argc,char **argv)
     assert(argc==2); const char *test=argv[1];
     bool sender=!strncmp(test,"tx_",3); setup(sender || !strcmp(test,"rx_follower")?2:0);
     uint8_t wire[64], m[32];
-    if(!strcmp(test,"tx_freeze")) {
+    if(!strcmp(test,"tx_model_freeze")) {
+        session=123;distributed_refmem_feedback_refresh(&owner);
+        const uint64_t original=4*(live.timer1_enable_before+live.record.rx_elapsed_cycles);
+        publish();consume(m);memcpy(wire,m+10,4);advance_live();
+        for(unsigned i=1;i<16;i++){publish();consume(m);assert(m[8]==i);memcpy(wire+i*4,m+10,4);}
+        refmem_sync_vdc_feedback_record_t out;assert(refmem_sync_vdc_feedback_decode(wire,6,2,0,&out));
+        assert(out.schema_version==2 && out.model.control_session==123 && out.measurement_sequence==10);
+        assert(out.model.output_ns_lo==original && out.model.model_token==7);
+        publish();consume(m);publish();consume(m);assert(txread().active);
+        session=124;distributed_refmem_feedback_refresh(&owner);assert(!txread().active && txread().cancel_count==1);
+    } else if(!strcmp(test,"rx_model_session")) {
+        session=123;distributed_refmem_feedback_refresh(&owner);
+        refmem_sync_vdc_feedback_record_t r=record(1,10);
+        r.schema_version=2;r.domain_flags=15;memset(&r.model,0,sizeof(r.model));
+        r.model.output_ns_lo=123000;r.model.output_ns_hi=124000;r.model.model_token=7;r.model.control_session=123;
+        assert(refmem_sync_vdc_feedback_encode(&r,6,wire));receive_group(wire,1,1);
+        assert(rxread(1).active && rxread(1).receive_count==1);
+        r.model.control_session=124;r.measurement_sequence++;
+        assert(refmem_sync_vdc_feedback_encode(&r,6,wire));receive_group(wire,1,17);
+        assert(rxread(1).receive_count==1 && rxread(1).reject_count==1);
+        assert(rxread(1).sample.model.control_session==123 && rxread(1).active);
+        session=124;assert(!rxread(1).active);distributed_refmem_feedback_refresh(&owner);
+        receive_group(wire,1,33);assert(rxread(1).active && rxread(1).receive_count==2);
+    } else if(!strcmp(test,"tx_freeze")) {
         publish(); consume(m); memcpy(wire,m+10,4); advance_live();
         for(unsigned i=1;i<16;i++) { publish(); consume(m); assert(m[8]==i); memcpy(wire+i*4,m+10,4); }
         refmem_sync_vdc_feedback_record_t out; assert(refmem_sync_vdc_feedback_decode(wire,6,2,0,&out));
@@ -329,6 +362,7 @@ int main(int argc,char **argv)
 
 
 @pytest.mark.parametrize("case", [
+    "tx_model_freeze", "rx_model_session",
     "tx_freeze", "tx_backpressure", "tx_busy", "tx_cancel", "tx_identity_history",
     "rx_interleaved", "rx_duplicate", "rx_follower", "rx_bad", "rx_lifecycle", "rx_expiry", "rx_getter", "rx_copy_getter",
 ])

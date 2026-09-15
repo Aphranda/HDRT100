@@ -355,6 +355,7 @@ typedef struct {
     uint32_t ring_config_seq, role_generation, source_slot, target_slot;
     uint32_t schedule_crc32, clock_epoch_id, clock_run_id;
     uint8_t history[2][64]; /* Most recently completed FIFO publications first. */
+    uint32_t control_session; /* Frozen with the active fragment group. */
 } distributed_refmem_vdc_feedback_tx_snapshot_t;
 
 bool distributed_refmem_get_vdc_feedback_rx(uint32_t source_slot,

@@ -483,6 +483,9 @@ bool tdma_service_request_stopped_update(tdma_service_service_t *service,
  * Rejects selected frozen geometry and incomplete physical STOP. */
 bool tdma_service_update_event_tap(tdma_service_service_t *service,
     bool (*publish)(void *context), void *context);
+/* Same STOP/control-guard proof for bounded Core0 software metadata. */
+bool tdma_service_update_stopped_metadata(tdma_service_service_t *service,
+    bool (*publish)(void *context), void *context);
 bool tdma_service_get_stopped_update(tdma_service_service_t *service,
     uint32_t *token, uint32_t *generation, bool *applying);
 /* Core1: one CAS attempt, no control lock, callback, clock read or hardware. */

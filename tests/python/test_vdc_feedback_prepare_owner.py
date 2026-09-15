@@ -94,7 +94,7 @@ def test_feedback_prepare_owner(prepare_owner_executable, case):
 @pytest.fixture(scope="module")
 def authorization_owner_executable(tmp_path_factory):
     directory = tmp_path_factory.mktemp("feedback-authorization-owner")
-    body = function_body(MANAGER.read_text(encoding="utf-8"), "sync_dpll_fb_service")
+    body = function_body(MANAGER.read_text(encoding="utf-8"), "sync_dpll_fb_step")
     harness = r'''
 #include <assert.h>
 #include <stdio.h>

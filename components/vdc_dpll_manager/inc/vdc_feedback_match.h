@@ -10,13 +10,21 @@
 #define VDC_FEEDBACK_MATCH_CAPACITY 128u
 #define VDC_FEEDBACK_MATCH_MAX_TICK_HZ 500000000u
 #define VDC_FEEDBACK_MATCH_MAX_INTERVAL_SECONDS 2u
+#define VDC_FEEDBACK_MODEL_MAX_INTERVAL_NS UINT64_C(2000000000)
+#define VDC_FEEDBACK_MODEL_DOMAIN 2u
 
+/* Raw mode: TIMER1 tick bounds, CRC identity and publication version.
+ * Model mode: projected output-ns bounds, reference model token as identity,
+ * and Core0 preparation age. Neither mode proves physical GPIO adoption. */
 typedef struct {
     uint64_t tx_lo;
     uint64_t tx_hi;
     uint32_t measurement_sequence;
     uint32_t identity_crc32;
-    uint32_t published_version;
+    union {
+        uint32_t published_version;
+        uint32_t prepared_ms;
+    };
     uint32_t generation;
 } vdc_feedback_match_reference_t;
 
@@ -60,6 +68,8 @@ typedef struct {
     uint64_t reference_tx_hi;
     uint32_t measurement_sequence;
     uint32_t reference_identity_crc32;
+    uint32_t rx_width_ns; /* Model mode only; raw mode is zero. */
+    uint32_t source_model_token; /* Model mode only; raw mode is zero. */
 } vdc_feedback_match_pair_t;
 
 /* Last successful difference, retained across misses and baseline changes.
@@ -68,7 +78,11 @@ typedef struct {
  * Bounds use outward integer rounding in ppb, with no int32 clipping. They
  * propagate only the supplied raw reference brackets and exact RX count
  * difference. GPIO/SM detection uncertainty is NOT included: these are not
- * physical-frequency confidence bounds, output residuals or lock evidence. */
+ * physical-frequency confidence bounds, output residuals or lock evidence.
+ * reserved == VDC_FEEDBACK_MODEL_DOMAIN explicitly changes pair coordinates
+ * to model-projected ns: RX is the lower bound and rx_width_ns adds the upper
+ * bound. raw_ppb_* then bounds the committed-model interval ratio, not raw
+ * clocks or independently verified physical-output residuals. */
 typedef struct {
     vdc_feedback_match_pair_t pairs[2];
     vdc_feedback_match_lifetime_t source;
@@ -121,6 +135,15 @@ void vdc_feedback_match_cache_retire(vdc_feedback_match_cache_t *cache);
 bool vdc_feedback_match_cache_put(vdc_feedback_match_cache_t *cache,
     uint32_t measurement_sequence, uint32_t identity_crc32,
     uint32_t published_version, uint64_t tx_lo, uint64_t tx_hi);
+/* Model alias shares the same array: identity is a nonzero model token,
+ * bounds are projected ns and the entry holds prepared_ms. Publication
+ * version still orders insertions in latest_published_version. An identical
+ * latest record preserves its original preparation time. The caller MUST
+ * retire the cache when switching raw/model mode or admitted session. */
+bool vdc_feedback_model_cache_put(vdc_feedback_match_cache_t *cache,
+    uint32_t measurement_sequence, uint32_t source_model_token,
+    uint32_t published_version, uint64_t output_ns_lo, uint64_t output_ns_hi,
+    uint32_t prepared_ms);
 bool vdc_feedback_match_cache_lookup(const vdc_feedback_match_cache_t *cache,
     uint32_t measurement_sequence, vdc_feedback_match_reference_t *reference);
 
@@ -136,6 +159,17 @@ bool vdc_feedback_match_cache_lookup(const vdc_feedback_match_cache_t *cache,
 vdc_feedback_match_result_t vdc_feedback_match_update(
     const vdc_feedback_match_cache_t *cache, vdc_feedback_match_peer_t *peer,
     const vdc_feedback_match_sample_t *sample);
+
+/* Same ownership/lifetime rules, with sample.rx_elapsed_cycles interpreted
+ * as source output_ns_lo and source_width_ns forming its upper bound. The
+ * caller first checks reference.prepared_ms age and admitted model/session.
+ * Endpoints may use different nondecreasing nonzero model tokens. Both full
+ * source/reference interval differences must be positive; >2e9 ns rebases.
+ * Snapshot reserved identifies the model domain; no GPIO eligibility given. */
+vdc_feedback_match_result_t vdc_feedback_model_update(
+    const vdc_feedback_match_cache_t *cache, vdc_feedback_match_peer_t *peer,
+    const vdc_feedback_match_sample_t *sample, uint32_t source_width_ns,
+    uint32_t source_model_token);
 
 /* False preserves output. A true result returns the historical last complete
  * pair, not an assertion that a new result was produced by the latest call. */
