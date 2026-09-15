@@ -22,11 +22,13 @@ Last updated: 2026-09-16
 
 ## 当前 checkpoint
 
-最新准备迁移见 `VDC-PROGRESS-20260916-011`：缓存、配对和差分由 Core0 RefMem
-单写者准备，Core1 只发布或退休授权。当前源码四板 P3 严格通过，专项完整通过轮次
+模型关联反馈已完成当前源码四板严格 P3 与运输/配对专项，见
+`VDC-PROGRESS-20260916-012`；独立原件复核通过，代码已提交为 `6716dc5`，尚未接通从板控制。
+此前准备迁移见 `VDC-PROGRESS-20260916-011`：缓存、配对和差分由 Core0 RefMem
+单写者准备，Core1 只发布或退休授权。011 切片当时源码的四板 P3 严格通过，专项完整通过轮次
 为 r2/r4；r1/r3 的短 TX 历史缺证保留。NO1 DPLL 超限显著减少，仍未满足局部及
-完整静态表预算。各从实际 DCO 应用仍为零；下一步建立实际输出模型关联、逐从
-校正和应用，不能以诊断配对代替闭环。原始配对及运输基线分别见
+完整静态表预算。各从实际 DCO 应用仍为零；下一步接逐从专属校正和 Core1
+连续重基应用，不能以诊断配对代替闭环。原始配对及运输基线分别见
 `VDC-PROGRESS-20260916-010/009`。
 
 最新同条观测留存及本板时间锚见 `VDC-PROGRESS-20260916-008`：严格四板 P3、专项和
@@ -46,6 +48,106 @@ Last updated: 2026-09-16
 
 当前执行依赖按 `VDC-PROGRESS-20260916-002` 纠偏；此前各记录的“当前”及
 “下一 gate”保留历史含义，不将首帧可用、全窗无错或完整绝对时间映射作为运输前置。
+
+### VDC-PROGRESS-20260916-012：事件关联已提交 DCO 的模型反馈
+
+- TODO task ID：`VDC-FEEDBACK-001`、`VDC-FLIGHT-001`；日期：2026-09-16。
+  状态：IN PROGRESS。模型反馈切片硬件验收、专项及独立复核通过，代码提交为 `6716dc5`；长期目标未完成。
+  本节数字均为实验快照，非冻结契约、精度或时序资格。
+- 纠偏：内部反馈以 Core1 实际提交的 DCO 为受控对象；可选 GPIO 输出的消费确认、
+  PIO 完成和物理精度留待后续。独立边界审核原件为上一证据根目录中的
+  `control-owner-scope-review-r1.json`。不把延迟事件套入更新后的模型；事件早于
+  当前模型有效起点时跳过，不补造历史。Core1 guard 包围真实 service 和提前返回，
+  包括延后发布大快照的 servo 提交；Core0 准备采用稳定模型副本并在结束时复验。
+- 实现：STOP 配置单调非零 session，原始模式保持默认。模型模式复用原分片配额与
+  唯一稀疏缓存，冻结每事件输出区间和模型 token，NO1 同序配对；不增加第二套缓存。
+  本板时钟桥验证 TIMER0/TIMER1 时钟关系并传播采样包围及整数微秒量化，Core0 完成
+  投影和差分，Core1 不做 wire 解析。跨模型结果是坐标区间变化率，包含真实相位跳变，
+  不直接授予控制资格。后继频率应用必须连续重基或明确排除跳变贡献。
+- owner：模型 session 内禁止 Core0 自测/compact 观测直接提交 Domain，也拒绝校准
+  激活及拓扑改写；ready 请求在 Core1 guard 内应用。先完成配置，再在 ARM 前启用
+  session；禁用后旧 session 不能复用。STOP 后保留历史，但当前资格仍由运输授权、
+  参考 epoch、session 和原有 ring 生命周期复验，迟到准备不恢复旧结果。
+- 软件：`root-host-r3.xml` 为 269 pass / 1 fail；失败是旧 owner 测试未声明既有
+  Core0 准备入口。补齐测试桩后 `root-owner-regression-r5.xml` 的 29 项通过；中间
+  r4 的错误顺序断言失败原件保留。模型 owner 9 项、投影独立 14 项（含独立精确
+  算术随机验证）及桥配置相关 11 项均有原件。独立集成复核 26 项通过，并用反向
+  单行反例验证两项修复：TX getter 检查分片 session，缓存年龄覆盖毫秒量化误差。
+- Release：首次链接因小包装入口跨过 BSS 对齐边界越界；包装改放 XIP，原实时
+  step 仍在 RAM，`build-r3.log` A/B 及链接检查通过。BSS 末端 `0x2007f5b0`，较
+  上轮增加 432 B；扣除固定堆后链接余量 592 B，不等于运行时空闲 RAM。归档
+  `after-build-r3/manifest.json` 绑定 ELF/dis/map 和源码指纹。
+- 证据根目录：`out/HardwareAcceptance/20260916/dpll-model-feedback-r1/`。
+  `p3-r1` 完成四板 OTA，但 P0 缺少 NO3→NO4 边；`stopped-triage-r1.json` 四次
+  STOP 均真实应答，无 CORE1_STALL，故障读回为空。同包 `p3-r2` 在 NO3 OPMode
+  APPLY 超时且 active_level 仍为默认档时失败；四板再次 STOP 的原件为
+  `stopped-triage-r2.json`。`no3-profile-triage-r1.json` 记录 session 为零、默认档
+  与 staged 目标不一致，以及重新应用目标档后的正常应答/读回；旧 Execution error
+  原样保留。未修改 OTA 或放宽准入。同包 `p3-r3` 退出成功并生成该轮源码的
+  QUICK_DIAGNOSTIC 凭证，TDMA process-image/FIFO 闭环通过；但
+  `strict_gates_passed=false`，保留 TRN-01 SCK 训练及 TRN-03 无满足重臂余量候选
+  两项失败，不能写成严格验收通过。`root-artifact-recheck-r1.json` 的 25 项绑定检查
+  通过，源码 `54199b32ffc15ad7e9c28dbe93644582693d3f81705a123343624de8a937997c`、
+  文件数 1157，包 `815dfb5d8ae6e2cd80735588baae95fc4d87a5c25d36c532d548acb6bb14827a`。
+  后继模式迁移测试与修复改变源码指纹，该凭证不能用于后继源码验收。
+- 模式迁移修复：`domain-transition-red-r2.xml` 复现 raw 转 model 后旧 pair 被重新
+  标为 schema2、原始 tick 年龄混入毫秒字段的问题。Core0 仅在 schema/session
+  变化时清空公开 pair、active、年龄及私有基线，保留累计计数；同域历史保留规则
+  不变。`domain-transition-green-r1.xml` 的相关 host 测试 246 项通过；`build-r4.log`
+  A/B Release 与链接检查通过，静态 RAM 不变。`after-build-r4/manifest.json`
+  绑定本轮源码、ELF/dis/map 和更新包。`p3-r4` 严格通过，
+  `strict_gates_passed=true`、诊断失败为空，源码指纹为
+  `d6f322de8840ed01a55dc2a0b4a0cabf9b477572740e8a344704b2073dbdcbf7`；
+  `root-artifact-recheck-r2.json` 的 19 项构建、凭证及 TDMA STOP 绑定复核通过。
+  增量独审 `domain-transition-review-r1.json` 的 17 项双向迁移、换会话、异常首样本
+  及反向反例验证通过。
+- 专项采集器已冻结，作者组合测试 165 项、独立复核组合测试 134 项通过，分别见
+  `author-capture-handoff-r1.json` 与 `capture-model-review-r1.json`，两组存在重叠，
+  不相加计数。保持无 RUN 查询、全部 STOP 后导出及 session 清理回读；只允许
+  显式诊断准入已审核的两项校准失败，其他绑定与失败不豁免。
+- 首次模型专项 `capture-r1/input-probe.json` 失败：三从 LIVE 观测增长、已提交模型
+  有效，但反馈 TX 分片和完整组均为零，NO1 RX 也为零，MATCH 保持空 schema1。
+  工具严格 schema2 解码因此拒绝；空记录的 CRC 拒绝不能解释为线上坏帧。
+  四板 STOP 屏障、无 RUN 查询、原始导出及 session 清零回读通过。当前定位发送前
+  模型投影/时钟桥拒绝，增加仅 STOP 查询的零静态 RAM 诊断后重新验收；不得将
+  普通 TDMA P3 通过替代模型反馈专项。下一 gate 仍为模型运输及配对实测。
+- 时钟桥定位：追加 `SYSTem:VDC:FEEDback:BRIDge?`，仅在 ring STOP 时只读导出
+  配置与独立采样，不改变原准入、不增加静态 RAM。`bridge-diagnostic-root-r2.xml`
+  相关测试 24 项通过，独立复核组合 31 项通过；`build-r5.log` 构建通过。
+  `p3-r5` 诊断流程完成但严格门禁失败，保留 NO4 在 coarse CLK 阶段 OPMode APPLY
+  超时及 `-200` 原始错误，不授予模型专项准入。随后仅进行 STOP 配置诊断，
+  `bridge-hardware-r1.json` 四板真实 STOP 读回均为
+  `XOSC_STATUS=0x81001000`，包含 STABLE、ENABLED 和历史 BADWRITE；其余配置
+  匹配，原 exact-status 校验导致 configuration_supported/bridge_valid 均为零。
+  修复仅区分当前稳定状态和历史粘滞位，完整前后配置比较仍保留该位，不清 MMIO。
+  `bridge-sticky-root-r1.xml` 相关测试 25 项通过；独立
+  `bridge-sticky-review-r1.json` 用四板真实寄存器重放证明旧拒绝、新接受，其他时钟
+  故障及采样中状态变化仍拒绝。`build-r6.log` A/B 构建通过，静态 RAM 不变。
+  新源码 `p3-r6` 诊断流程完成，但 NO2 coarse CLK 阶段 OPMode APPLY 超时，
+  严格门禁仍失败；TDMA 闭环通过。`bridge-hardware-r2.json` 随后四板真实 STOP
+  读回 configuration_supported/bridge_valid 均为一，历史 BADWRITE 保持置位。
+  同包 `p3-r7` 严格通过，诊断失败为空；`root-artifact-recheck-r3.json` 的 19 项
+  当前源码、包及 TDMA STOP 绑定复核通过。当前源码指纹为
+  `fdb6e9008821e4ea4f4fdb4e58d4d37825bc4a6142142b10a215647ca04e85b7`，
+  构建归档为 `after-build-r6/manifest.json`。
+- 修复后模型专项 `capture-r2` 已实际收到三从模型反馈，NO1 完整 RX 分别为
+  103/106/92，match 分别为 68/72/47；NO2、NO4 全部专项检查通过。
+  NO3 唯一缺口是最新保留配对未落入发送端短历史，不能完成直接 wire 对账；
+  本轮整体仍判失败，不能以通过计数覆盖缺证。原始字节运输、区间独立复算、
+  无 RUN 查询和四板 STOP/session 清零均通过。`capture-r3` 在 START 前因 NO2
+  MODEL 查询返回 `<timeout>` 中止，随后 end 读回正常，未发 START；原始失败及
+  四板 STOP/session 清零保留，不把新会话中的旧 wire 当成新运输样本。
+- 同源 `capture-r4` 全部专项检查通过：本轮三从新增完整 RX 为 109/102/102，
+  新增配对为 62/53/66；逐从完整 wire 对账、至少一个保留配对端点的直接 wire
+  关联、Fraction 区间复算和会话身份一致性通过。两端均有配对记录，但短 TX 历史
+  不保证覆盖每个旧端点；不得扩大为全部历史 wire 已复核。准入时最大参考年龄
+  为 84/85/81 ms，不是 STOP 时新鲜度。无 RUN 查询、全部 STOP 后导出和四板
+  session 清零回读通过。区间仍较宽，实际 applied_command_seq 仍为零；不宣称
+  纯频偏精度、频率漂移消除或物理锁相。后继接逐从专属命令及 Core1 连续重基应用，
+  候选只读方案见 `next-control-slice-review-r1.json`，须独立实现/验收。
+- 文档独审索引：`doc-review-r3.json` 及 TODO 单行增量 `doc-review-r4.json`，仅确认模型运输/配对切片的事实与边界，不授予控制、精度或锁相资格。
+- 最终有界独立硬件审核为 `model-hardware-review-r1.json`，36 项检查通过；核对产物绑定、四板 STOP/session 清零、运行期零查询及失败原件。当前源码指纹由主控门禁复核，CRC/区间复算由已有独立报告覆盖；本报告不冒领这些重复验证，也不授予实际控制、锁相或完整 DPLL 时序资格。
+  实际逐从命令、DCO apply、漂移消除和物理锁相仍未完成；不得以本轮投影测试替代。
 
 ### VDC-PROGRESS-20260916-011：Core0 准备迁移与跨核授权退休
 
