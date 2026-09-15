@@ -438,6 +438,12 @@ bool tdma_runtime_owner_get_origin_frozen_record(uint32_t age,
         tdma_pio_spi_phys_origin_get_frozen_record(&s_tdma_pio_spi_phys, age, snapshot);
 }
 
+bool tdma_runtime_owner_get_origin_live_snapshot(tdma_origin_live_snapshot_t *snapshot)
+{
+    return s_tdma_runtime_owner_initialized &&
+        tdma_pio_spi_phys_origin_get_live_snapshot(&s_tdma_pio_spi_phys, snapshot);
+}
+
 bool tdma_runtime_owner_get_origin_first_record(tdma_origin_first_record_t *snapshot)
 {
     return s_tdma_runtime_owner_initialized &&

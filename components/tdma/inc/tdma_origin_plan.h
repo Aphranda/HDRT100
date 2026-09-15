@@ -97,6 +97,17 @@ typedef struct {
     tdma_origin_record_t record;
 } tdma_origin_record_frozen_t;
 
+/* Core1's retained copy of a completed cyclic record. active is retired by
+ * STOP/persona change; historical bytes and counters remain available. This
+ * is raw timing evidence, not a qualified timestamp or a DCO model. */
+typedef struct {
+    uint32_t retained;
+    uint32_t active;
+    uint32_t copy_count;
+    uint32_t reject_count;
+    tdma_origin_record_frozen_t sample;
+} tdma_origin_live_snapshot_t;
+
 typedef struct {
     uint32_t remaining_snapshot;
     uint32_t polls_left;

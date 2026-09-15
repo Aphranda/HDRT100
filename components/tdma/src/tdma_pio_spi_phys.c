@@ -402,6 +402,7 @@ static void tdma_pio_spi_phys_origin_record_invalidate(tdma_pio_spi_phys_t *phys
     __dmb();
     __atomic_store_n(&phys->flight_origin_record_frozen, false, __ATOMIC_RELAXED);
     __atomic_store_n(&phys->flight_origin_first_readable_epoch, 0u, __ATOMIC_RELAXED);
+    phys->flight_origin_live.active = 0u;
     __atomic_store_n(&phys->flight_origin_record_guard, guard + 2u, __ATOMIC_RELEASE);
 }
 
@@ -670,6 +671,15 @@ static bool tdma_pio_spi_phys_stop_dma_chain(uint32_t loader_mask,
 static bool tdma_pio_spi_phys_stop_command_dma(tdma_pio_spi_phys_t *phys)
 {
     if (phys == NULL) return false;
+    /* Cancel the live sample even if a later hardware STOP fails. Historical
+     * evidence stays readable; no copied record grants a running lease. */
+    if (phys->flight_origin_live.active != 0u) {
+        const uint32_t live_guard = __atomic_load_n(&phys->flight_origin_record_guard, __ATOMIC_RELAXED);
+        __atomic_store_n(&phys->flight_origin_record_guard, live_guard + 1u, __ATOMIC_RELEASE);
+        __dmb();
+        phys->flight_origin_live.active = 0u;
+        __atomic_store_n(&phys->flight_origin_record_guard, live_guard + 2u, __ATOMIC_RELEASE);
+    }
     const bool builder_retired = tdma_origin_build_job_cancel(&s_tdma_origin_build_job);
     const bool completed_origin = phys->flight_origin_workspace_owned &&
         phys->flight_origin_prepare.stage == TDMA_ORIGIN_PREPARE_COMPLETE;

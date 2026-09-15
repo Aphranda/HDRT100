@@ -25,6 +25,7 @@ typedef struct {
     struct { uint32_t armed, last_error; } snapshot;
     tdma_origin_first_record_t flight_origin_first_record;
     uint32_t flight_origin_first_readable_epoch, flight_origin_first_expected_sequence;
+    tdma_origin_live_snapshot_t flight_origin_live;
 } tdma_pio_spi_phys_t;
 static struct { struct {
     tdma_origin_plan_state_t state;
@@ -240,6 +241,20 @@ static void check_first_record_lifetime(void)
 int main(void)
 {
     tdma_origin_record_frozen_t out;
+    /* Actual successful/failed STOP and persona invalidation retire only the
+     * live permission. A copied steady-state record survives for readback. */
+    for (unsigned mode=0;mode<3;++mode) {
+        setup();
+        phys.flight_origin_live=(tdma_origin_live_snapshot_t){
+            .retained=1,.active=1,.copy_count=17,
+            .sample={.epoch=77,.published_version=20,.record={.sequence_end=100}}};
+        tdma_origin_live_snapshot_t expected=phys.flight_origin_live;
+        expected.active=0;
+        if(mode==0) assert(tdma_pio_spi_phys_stop_command_dma(&phys));
+        else if(mode==1) {stop_ok=false;assert(!tdma_pio_spi_phys_stop_command_dma(&phys));}
+        else tdma_pio_spi_phys_origin_record_invalidate(&phys);
+        assert(memcmp(&phys.flight_origin_live,&expected,sizeof(expected))==0);
+    }
     setup();
     test_builder.active = true;
     assert(tdma_origin_build_job_request(&s_tdma_origin_build_job, &test_builder));

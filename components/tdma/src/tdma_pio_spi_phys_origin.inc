@@ -799,10 +799,59 @@ bool tdma_pio_spi_phys_origin_publish(void *context,
         tdma_origin_exchange_publish(&s_tdma_origin.exchange, mailbox, generation);
 }
 
+static void tdma_pio_spi_phys_origin_collect_live(tdma_pio_spi_phys_t *phys)
+{
+    const uint64_t before = vdc_timestamp_clock_read_ticks64();
+    const uint32_t epoch = phys->flight_origin_record_epoch;
+    tdma_origin_record_frozen_t sample;
+    const bool copied = tdma_origin_exchange_copy_live_record(
+        &s_tdma_origin.exchange, s_tdma_origin.record, epoch, &sample);
+    const uint64_t after = vdc_timestamp_clock_read_ticks64();
+    const bool valid = copied && after >= before &&
+        after - before <= (uint64_t)vdc_timestamp_clock_tick_hz() *
+            TDMA_ORIGIN_RECORD_COPY_MAX_US / 1000000u &&
+        epoch == phys->flight_origin_record_epoch;
+    tdma_origin_live_snapshot_t *live = &phys->flight_origin_live;
+    if (valid && live->retained != 0u && live->active != 0u &&
+        live->sample.epoch == sample.epoch &&
+        live->sample.published_version == sample.published_version) return;
+    const uint32_t guard = __atomic_load_n(&phys->flight_origin_record_guard, __ATOMIC_RELAXED);
+    __atomic_store_n(&phys->flight_origin_record_guard, guard + 1u, __ATOMIC_RELEASE);
+    __dmb();
+    if (valid) {
+        live->sample = sample;
+        live->retained = 1u;
+        live->active = 1u;
+        if (live->copy_count != UINT32_MAX) ++live->copy_count;
+    } else if (live->reject_count != UINT32_MAX) {
+        ++live->reject_count;
+    }
+    __atomic_store_n(&phys->flight_origin_record_guard, guard + 2u, __ATOMIC_RELEASE);
+}
+
 bool tdma_pio_spi_phys_origin_observe(void *context, tdma_origin_observation_t *observation)
 {
-    return tdma_pio_spi_phys_origin_healthy(context) &&
-        tdma_origin_exchange_observe(&s_tdma_origin.exchange, observation);
+    if (observation == NULL || !tdma_pio_spi_phys_origin_healthy(context)) return false;
+    tdma_pio_spi_phys_origin_collect_live(context);
+    return tdma_origin_exchange_observe(&s_tdma_origin.exchange, observation);
+}
+
+bool tdma_pio_spi_phys_origin_get_live_snapshot(const tdma_pio_spi_phys_t *phys,
+    tdma_origin_live_snapshot_t *out)
+{
+    if (phys == NULL || out == NULL) return false;
+    const uint64_t before = vdc_timestamp_clock_read_ticks64();
+    const uint32_t guard = __atomic_load_n(&phys->flight_origin_record_guard, __ATOMIC_ACQUIRE);
+    if ((guard & 1u) != 0u) return false;
+    const tdma_origin_live_snapshot_t snapshot = phys->flight_origin_live;
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    const uint32_t after_guard = __atomic_load_n(&phys->flight_origin_record_guard, __ATOMIC_ACQUIRE);
+    const uint64_t after = vdc_timestamp_clock_read_ticks64();
+    if (guard != after_guard || after < before ||
+        after - before > (uint64_t)vdc_timestamp_clock_tick_hz() *
+            TDMA_ORIGIN_RECORD_COPY_MAX_US / 1000000u) return false;
+    *out = snapshot;
+    return true;
 }
 
 bool tdma_pio_spi_phys_origin_grant_tx(void *context, tdma_overlay_prepare_t *job)

@@ -942,6 +942,9 @@ typedef struct {
     tdma_origin_first_record_t flight_origin_first_record;
     uint32_t flight_origin_first_readable_epoch;
     uint32_t flight_origin_first_expected_sequence;
+    /* Core1-only publication under flight_origin_record_guard. No reader
+     * touches the live DMA workspace; STOP retains history with active=0. */
+    tdma_origin_live_snapshot_t flight_origin_live;
 } tdma_pio_spi_phys_t;
 
 /* Called by the ring adapter start() once the active ring config is known.
@@ -1016,6 +1019,8 @@ bool tdma_pio_spi_phys_origin_take_rx_observation(void *context,
  * False leaves output unspecified; restart/persona change invalidates it. */
 bool tdma_pio_spi_phys_origin_get_frozen_record(const tdma_pio_spi_phys_t *phys,
     uint32_t age, tdma_origin_record_frozen_t *out);
+bool tdma_pio_spi_phys_origin_get_live_snapshot(const tdma_pio_spi_phys_t *phys,
+    tdma_origin_live_snapshot_t *out);
 /* One bounded Core0 diagnostic copy, while active, after successful STOP, or
  * during a failed STOP that retains ownership of an already committed first.
  * The first completed boundary is retained even for a missing/bad return or

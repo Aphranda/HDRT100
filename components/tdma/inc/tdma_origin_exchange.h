@@ -44,4 +44,19 @@ bool tdma_origin_exchange_copy_rx_observation(tdma_origin_exchange_t *exchange,
 bool tdma_origin_exchange_observe(tdma_origin_exchange_t *exchange,
                                  tdma_origin_observation_t *observation);
 
+/* Core1 owner: copy one latest COMPLETE cyclic raw record, without consuming
+ * exchange observation/RX versions or touching the running graph. The owner
+ * must keep the exchange/record pool bound for the entire call and enforce a
+ * copy-time limit excluding a full publication-version ABA. This helper has
+ * no clock and cannot establish that lifetime bound itself.
+ * A producer advance of COUNT-1 records already permits reuse of the selected
+ * slot before the next publication; reject that boundary and version wrap.
+ * False leaves out unchanged. Success retains raw diagnostic provenance only:
+ * it does not grant a timestamp, physical event identity or DPLL eligibility. */
+bool tdma_origin_exchange_copy_live_record(
+    const tdma_origin_exchange_t *exchange,
+    const tdma_origin_record_t records[TDMA_ORIGIN_RECORD_COUNT],
+    uint32_t expected_epoch,
+    tdma_origin_record_frozen_t *out);
+
 #endif

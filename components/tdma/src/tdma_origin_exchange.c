@@ -122,3 +122,35 @@ bool tdma_origin_exchange_observe(tdma_origin_exchange_t *e,
     e->observation_version = version;
     return true;
 }
+
+bool tdma_origin_exchange_copy_live_record(
+    const tdma_origin_exchange_t *e,
+    const tdma_origin_record_t records[TDMA_ORIGIN_RECORD_COUNT],
+    uint32_t expected_epoch,
+    tdma_origin_record_frozen_t *out)
+{
+    if (e == NULL || e->state == NULL || records == NULL || out == NULL ||
+        expected_epoch == 0u) return false;
+    const tdma_origin_plan_state_t *s = e->state;
+    if (load(&s->fault) != 0u || load(&s->record_epoch) != expected_epoch) return false;
+    const uint32_t version = load(&s->record_published_version);
+    if (version == 0u || (version & 1u) != 0u) return false;
+    const uint32_t index = (version / 2u - 1u) % TDMA_ORIGIN_RECORD_COUNT;
+    tdma_origin_record_frozen_t candidate = {
+        .epoch = expected_epoch, .published_version = version, .fault = 0u,
+    };
+    /* observation_version does not guard live state.record_time: the next
+     * L_ARM writes raw fields while that version can still be even. Read only
+     * the cyclic pool, committed by L_RECORD_DONE after its complete copy. */
+    memcpy(&candidate.record, &records[index], sizeof(candidate.record));
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    const uint32_t after = load(&s->record_published_version);
+    if ((after & 1u) != 0u || after < version ||
+        after - version >= 2u * (TDMA_ORIGIN_RECORD_COUNT - 1u) ||
+        load(&s->record_epoch) != expected_epoch || load(&s->fault) != 0u ||
+        candidate.record.epoch != expected_epoch ||
+        candidate.record.format != TDMA_ORIGIN_RECORD_FORMAT_RAW_TIME ||
+        candidate.record.observation.sequence != candidate.record.sequence_end) return false;
+    *out = candidate;
+    return true;
+}

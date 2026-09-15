@@ -15,21 +15,13 @@
 
 static uint32_t s_scpi_sma_cable_capture[SCPI_SMA_CABLE_CAPTURE_MAX_WORDS];
 
-scpi_result_t scpi_calibration_origin_record_q(scpi_t *context)
+static void scpi_calibration_origin_record_fields(scpi_t *context,
+    const tdma_origin_record_frozen_t *snapshot)
 {
-    uint32_t age;
-    tdma_origin_record_frozen_t snapshot;
-    if (!SCPI_ParamUInt32(context, &age, TRUE)) return SCPI_RES_ERR;
-    if (!tdma_runtime_owner_get_origin_frozen_record(age, &snapshot)) {
-        SCPI_ResultText(context, "UNAVAILABLE");
-        return SCPI_RES_OK;
-    }
-    SCPI_ResultText(context, "ORIGINRECORD");
-    SCPI_ResultUInt32(context, age);
-    SCPI_ResultUInt32(context, snapshot.epoch);
-    SCPI_ResultUInt32(context, snapshot.published_version);
-    SCPI_ResultUInt32(context, snapshot.fault);
-    const tdma_origin_record_t *r = &snapshot.record;
+    SCPI_ResultUInt32(context, snapshot->epoch);
+    SCPI_ResultUInt32(context, snapshot->published_version);
+    SCPI_ResultUInt32(context, snapshot->fault);
+    const tdma_origin_record_t *r = &snapshot->record;
     SCPI_ResultUInt32(context, r->observation.sequence);
     SCPI_ResultUInt32(context, r->observation.identity);
     SCPI_ResultUInt32(context, r->observation.local_generation);
@@ -48,6 +40,36 @@ scpi_result_t scpi_calibration_origin_record_q(scpi_t *context)
     SCPI_ResultUInt32(context, r->raw_time.latch_fstat);
     SCPI_ResultUInt32(context, r->raw_time.arm_padout);
     SCPI_ResultUInt32(context, r->raw_time.tick_hz);
+}
+
+scpi_result_t scpi_calibration_origin_record_q(scpi_t *context)
+{
+    uint32_t age;
+    tdma_origin_record_frozen_t snapshot;
+    if (!SCPI_ParamUInt32(context, &age, TRUE)) return SCPI_RES_ERR;
+    if (!tdma_runtime_owner_get_origin_frozen_record(age, &snapshot)) {
+        SCPI_ResultText(context, "UNAVAILABLE");
+        return SCPI_RES_OK;
+    }
+    SCPI_ResultText(context, "ORIGINRECORD");
+    SCPI_ResultUInt32(context, age);
+    scpi_calibration_origin_record_fields(context, &snapshot);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_origin_live_q(scpi_t *context)
+{
+    tdma_origin_live_snapshot_t snapshot;
+    if (!tdma_runtime_owner_get_origin_live_snapshot(&snapshot)) {
+        SCPI_ResultText(context, "UNAVAILABLE");
+        return SCPI_RES_OK;
+    }
+    SCPI_ResultText(context, "ORIGINLIVE");
+    SCPI_ResultUInt32(context, snapshot.retained);
+    SCPI_ResultUInt32(context, snapshot.active);
+    SCPI_ResultUInt32(context, snapshot.copy_count);
+    SCPI_ResultUInt32(context, snapshot.reject_count);
+    scpi_calibration_origin_record_fields(context, &snapshot.sample);
     return SCPI_RES_OK;
 }
 
