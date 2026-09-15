@@ -174,6 +174,11 @@ typedef struct {
     uint32_t feedback_timeout_ns;
     uint32_t tx_dma_channel_id;
     uint32_t rx_dma_channel_id;
+    /* Explicit frozen-geometry selection for this ARM; zero trains normally. */
+    uint32_t geometry_generation;
+    /* Core1 read_config injects the guarded publication sequence. A staged
+     * caller value is never authoritative and is not stored by configure. */
+    uint32_t owner_config_seq;
 } tdma_ring_runtime_config_t;
 
 typedef struct {
@@ -340,6 +345,7 @@ typedef struct {
     volatile uint32_t feedback_timeout_ns;
     volatile uint32_t tx_dma_channel_id;
     volatile uint32_t rx_dma_channel_id;
+    volatile uint32_t geometry_generation;
     volatile uint32_t service_seq;
     volatile uint32_t applied_config_seq;
     volatile uint32_t up_configured;

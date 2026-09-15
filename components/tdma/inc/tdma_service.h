@@ -504,6 +504,10 @@ bool tdma_service_set_ring_diagnostic_mode(tdma_service_service_t *service,
  * one/two limit ordinary reference launches in the next ARM session. */
 bool tdma_service_set_ring_diagnostic_burst(tdma_service_service_t *service,
                                             uint32_t limit);
+/* Core0, complete STOP/applied only. Select an exact frozen generation for
+ * one ARM publication; zero requests ordinary training. Core1 validates it. */
+bool tdma_service_set_ring_geometry_generation(tdma_service_service_t *service,
+                                               uint32_t generation);
 bool tdma_service_stage_calibration(
     tdma_service_service_t *service,
     const tdma_ring_calibration_stage_t *stage);

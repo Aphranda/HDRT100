@@ -3080,6 +3080,69 @@ scpi_result_t scpi_cmd_system_tdma_ring_burst(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_system_tdma_ring_geometry(scpi_t *context)
+{
+    uint32_t generation = 0u;
+    if (!scpi_port_read_u32(context, &generation) ||
+        !tdma_runtime_owner_set_ring_geometry_generation(generation)) {
+        scpi_port_push_exec_error(context, "TDMA_RING_GEOMETRY");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, generation);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_ring_geometry_q(scpi_t *context)
+{
+    tdma_ring_runtime_snapshot_t before, after;
+    tdma_frozen_geometry_snapshot_t g;
+    /* Lifecycle readback at a stable config ACK. Also supports armed,
+     * non-emitting readiness; no real-time SCPI sampling is required. */
+    if (!tdma_runtime_owner_get_ring_snapshot(&before) ||
+        before.config_seq != before.applied_config_seq ||
+        !tdma_pio_spi_phys_get_frozen_geometry(&g) ||
+        !tdma_runtime_owner_get_ring_snapshot(&after) ||
+        after.config_seq != before.config_seq ||
+        after.applied_config_seq != before.applied_config_seq ||
+        after.enabled != before.enabled || after.adapter_started != before.adapter_started) {
+        scpi_port_push_exec_error(context, "TDMA_RING_GEOMETRY_QUERY");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, g.version);
+    SCPI_ResultUInt32(context, g.state);
+    SCPI_ResultUInt32(context, g.reason);
+    SCPI_ResultUInt32(context, g.generation);
+    SCPI_ResultUInt32(context, g.requested_generation);
+    SCPI_ResultUInt32(context, g.source_config_seq);
+    SCPI_ResultUInt32(context, g.bound_config_seq);
+    SCPI_ResultUInt32(context, (uint32_t)g.source_arm_epoch);
+    SCPI_ResultUInt32(context, (uint32_t)(g.source_arm_epoch >> 32u));
+    SCPI_ResultUInt32(context, (uint32_t)g.source_observation_epoch);
+    SCPI_ResultUInt32(context, (uint32_t)(g.source_observation_epoch >> 32u));
+    SCPI_ResultUInt32(context, (uint32_t)g.bound_arm_epoch);
+    SCPI_ResultUInt32(context, (uint32_t)(g.bound_arm_epoch >> 32u));
+    SCPI_ResultUInt32(context, (uint32_t)g.bound_observation_epoch);
+    SCPI_ResultUInt32(context, (uint32_t)(g.bound_observation_epoch >> 32u));
+    SCPI_ResultUInt32(context, g.physical_bytes);
+    SCPI_ResultUInt32(context, g.dma_byte_shift);
+    SCPI_ResultUInt32(context, g.dma_bit_shift);
+    SCPI_ResultUInt32(context, g.training_samples);
+    SCPI_ResultUInt32(context, g.clk_sys_hz);
+    SCPI_ResultUInt32(context, g.persona);
+    SCPI_ResultUInt32(context, g.node_count);
+    SCPI_ResultUInt32(context, g.local_slot);
+    SCPI_ResultUInt32(context, g.reference_slot);
+    SCPI_ResultUInt32(context, g.topology_generation);
+    SCPI_ResultUInt32(context, g.topology_crc32);
+    SCPI_ResultUInt32(context, g.calibration_generation);
+    SCPI_ResultUInt32(context, g.schedule_crc32);
+    SCPI_ResultUInt32(context, g.operating_profile_crc32);
+    SCPI_ResultUInt32(context, g.source_map_generation);
+    SCPI_ResultUInt32(context, g.bound_map_generation);
+    SCPI_ResultUInt32(context, after.config_seq);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_system_tdma_ring_burst_q(scpi_t *context)
 {
     tdma_service_ring_runtime_config_t config;

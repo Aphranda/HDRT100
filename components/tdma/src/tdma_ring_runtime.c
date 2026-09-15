@@ -173,6 +173,7 @@ static bool tdma_ring_runtime_read_config(
             continue;
         }
         *config_seq = tdma_ring_runtime_load(&runtime->config_seq);
+        config->owner_config_seq = *config_seq;
         config->enabled = tdma_ring_runtime_load(&runtime->enabled);
         config->node_count = tdma_ring_runtime_load(&runtime->node_count);
         config->local_slot_id =
@@ -202,6 +203,8 @@ static bool tdma_ring_runtime_read_config(
             tdma_ring_runtime_load(&runtime->tx_dma_channel_id);
         config->rx_dma_channel_id =
             tdma_ring_runtime_load(&runtime->rx_dma_channel_id);
+        config->geometry_generation =
+            tdma_ring_runtime_load(&runtime->geometry_generation);
         const uint32_t guard_end =
             tdma_ring_runtime_load(&runtime->config_guard);
         if (guard_begin == guard_end && (guard_end & 1u) == 0u) {
@@ -425,6 +428,7 @@ bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
         runtime->feedback_timeout_ns = 0u;
         runtime->tx_dma_channel_id = TDMA_RESOURCE_ID_UNUSED;
         runtime->rx_dma_channel_id = TDMA_RESOURCE_ID_UNUSED;
+        runtime->geometry_generation = 0u;
     } else {
         runtime->enabled = 1u;
         runtime->node_count = config->node_count;
@@ -443,6 +447,7 @@ bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
         runtime->feedback_timeout_ns = config->feedback_timeout_ns;
         runtime->tx_dma_channel_id = config->tx_dma_channel_id;
         runtime->rx_dma_channel_id = config->rx_dma_channel_id;
+        runtime->geometry_generation = config->geometry_generation;
     }
     tdma_ring_runtime_write_guard(&runtime->config_guard);
 

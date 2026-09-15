@@ -360,10 +360,12 @@ static void tdma_pio_spi_phys_set_error(tdma_pio_spi_phys_t *phys,
     }
 }
 
+static void tdma_geometry_arm_failed(void);
 static bool tdma_pio_spi_phys_arm_reject(
     tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_phys_error_t error)
 {
+    tdma_geometry_arm_failed();
     tdma_pio_spi_phys_set_error(phys, (uint32_t)error);
     return false;
 }
@@ -372,6 +374,7 @@ void tdma_pio_spi_phys_publish_arm_error(
     tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_phys_error_t error)
 {
+    tdma_geometry_arm_failed();
     tdma_pio_spi_phys_set_error(phys, (uint32_t)error);
 }
 
@@ -402,11 +405,13 @@ static void tdma_pio_spi_phys_origin_record_invalidate(tdma_pio_spi_phys_t *phys
 }
 
 #include "tdma_pio_spi_phys_event.inc"
+#include "tdma_pio_spi_phys_geometry.inc"
 
 bool tdma_pio_spi_phys_select_program_persona(
     tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_program_persona_t persona)
 {
+    tdma_geometry_persona(persona);
     if (persona != s_tdma_pio_spi_program_persona)
         tdma_pio_spi_phys_event_stop(phys);
     tdma_pio_spi_phys_origin_record_invalidate(phys);
@@ -1576,6 +1581,7 @@ bool tdma_pio_spi_phys_commit_overlay(void *context, tdma_overlay_prepare_t *job
      * frozen at ARM, then released READY. Resources stay owned until STOP
      * drains the lease. Only generation and publication remain on Core1. */
     if (!tdma_pio_spi_phys_start_overlay_script(phys, job->buffer_index, true)) return false;
+    if (!phys->flight_overlay_alignment_locked) tdma_geometry_trained(phys);
     phys->flight_overlay_alignment_locked = true;
     phys->snapshot.overlay_prepare_count++;
     phys->snapshot.overlay_replacement_byte_count += job->plan->replacement_byte_count;
@@ -1758,6 +1764,7 @@ bool tdma_pio_spi_phys_prepare_process_overlay(
         phys->snapshot.overlay_prepare_fail_count++;
         return false;
     }
+    if (!phys->flight_overlay_alignment_locked) tdma_geometry_trained(phys);
     phys->flight_overlay_alignment_locked = true;
     phys->snapshot.overlay_prepare_count++;
     phys->snapshot.overlay_replacement_byte_count +=
@@ -2204,6 +2211,8 @@ static bool tdma_pio_spi_phys_capture_words_ex(tdma_pio_spi_phys_t *phys,
 bool tdma_pio_spi_phys_arm(void *context,
                            const tdma_ring_runtime_config_t *config)
 {
+    if (!s_geometry_request_pending &&
+        !tdma_pio_spi_phys_geometry_arm_requested(context, config)) return false;
     s_tdma_pio_spi_rx_arm_valid = false;
     tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
     if (phys != NULL) tdma_rx_start_cut_arm_begin();
@@ -2302,6 +2311,8 @@ bool tdma_pio_spi_phys_arm(void *context,
                 phys, TDMA_PIO_SPI_PHYS_ERROR_OVERLAY_PREPARE);
         }
     }
+    if (!tdma_geometry_arm_begin(phys, config, flight_persona))
+        return tdma_pio_spi_phys_arm_reject(phys, TDMA_PIO_SPI_PHYS_ERROR_GEOMETRY);
     phys->flight_alignment_byte_shift = 0u;
     phys->flight_alignment_bit_shift = 0u;
     phys->flight_overlay_alignment_locked = false;
@@ -2417,6 +2428,10 @@ bool tdma_pio_spi_phys_arm(void *context,
                     tdma_pio_spi_phys_data_sm(phys),
                     pio_encode_wait_gpio(false, phys->rx_csn_pin));
     }
+    if (!tdma_geometry_arm_bound(phys)) {
+        (void)tdma_pio_spi_phys_disarm(phys);
+        return tdma_pio_spi_phys_arm_reject(phys, TDMA_PIO_SPI_PHYS_ERROR_GEOMETRY);
+    }
     tdma_pio_spi_phys_enable_sm_pair(phys);
 
     phys->armed = true;
@@ -2504,6 +2519,7 @@ bool tdma_pio_spi_phys_disarm(void *context)
     if (phys == NULL) {
         return false;
     }
+    tdma_geometry_stop_begin(phys);
     s_tdma_pio_spi_rx_arm_valid = false;
     tdma_pio_spi_phys_event_stop(phys);
     const bool worker_retired = tdma_overlay_prepare_cancel(phys->overlay_preparation);
@@ -2578,7 +2594,10 @@ bool tdma_pio_spi_phys_disarm(void *context)
     memset(&phys->flight_origin_prepare, 0, sizeof(phys->flight_origin_prepare));
     /* Hardware is already stopped. A cancelled Core0 writer keeps STOP
      * pending until ACK, so neither ARM nor the origin union can reuse it. */
-    if (worker_retired && scanner_retired) tdma_rx_start_cut_disarmed();
+    if (worker_retired && scanner_retired) {
+        tdma_rx_start_cut_disarmed();
+        s_geometry_physical_stopped = true;
+    }
     return worker_retired && scanner_retired;
 }
 

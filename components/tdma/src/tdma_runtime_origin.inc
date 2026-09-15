@@ -96,11 +96,16 @@ static tdma_origin_admission_result_t tdma_runtime_owner_origin_admit_impl(
     if (!calibration_manager_origin_get_timing(&trial) || !trial.enabled ||
         trial.epoch == s_origin_consumed_epoch) return TDMA_ORIGIN_ADMISSION_NONE;
     s_origin_consumed_epoch = trial.epoch;
+    /* Only the independently authorized trial sequence can supply this
+     * owner binding. Normalize the local copy after checking the input. */
+    const bool owner_sequence_matches = config != NULL &&
+        config->owner_config_seq == trial.config_seq;
+    trial.config.owner_config_seq = trial.config_seq;
     s_origin_trial = trial;
     s_origin_trial_fault = false;
     if (context != &s_tdma_pio_spi_phys || config == NULL ||
         rearm_budget_ticks == NULL || abort_poll_count == NULL ||
-        !tdma_runtime_owner_origin_authorized() ||
+        !owner_sequence_matches || !tdma_runtime_owner_origin_authorized() ||
         memcmp(config, &trial.config, sizeof(*config)) != 0 ||
         s_tdma_pio_spi_phys.flight_physical_byte_count != trial.admission.capability.physical_bytes ||
         trial.calibration_crc32 != tdma_runtime_owner_origin_stage_crc()) {

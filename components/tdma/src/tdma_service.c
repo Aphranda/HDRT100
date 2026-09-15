@@ -718,6 +718,23 @@ bool tdma_service_set_ring_diagnostic_burst(tdma_service_service_t *service,
     return ok;
 }
 
+bool tdma_service_set_ring_geometry_generation(tdma_service_service_t *service,
+                                               uint32_t generation)
+{
+    if (service == NULL || !tdma_service_ring_control_lock(service)) return false;
+    tdma_ring_runtime_snapshot_t snapshot;
+    const bool ok =
+        __atomic_load_n(&service->stopped_update, __ATOMIC_ACQUIRE) == 0u &&
+        tdma_service_ring_retire_stopped(service) &&
+        tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot) &&
+        snapshot.enabled == 0u && snapshot.adapter_started == 0u &&
+        snapshot.config_seq == snapshot.applied_config_seq &&
+        service->ring_staged_config.enabled != 0u;
+    if (ok) service->ring_staged_config.geometry_generation = generation;
+    tdma_service_ring_control_unlock(service);
+    return ok;
+}
+
 bool tdma_service_stage_calibration(
     tdma_service_service_t *service,
     const tdma_ring_calibration_stage_t *stage)
@@ -1031,6 +1048,9 @@ bool tdma_service_ring_arm(tdma_service_service_t *service)
             service, &service->ring_staged_config)) {
         goto done;
     }
+    /* The runtime owns this publication's selector. A later ARM must make
+     * another explicit choice even when this physical ARM is rejected. */
+    service->ring_staged_config.geometry_generation = 0u;
     service->ring_control_config_seq = service->ring_runtime.config_seq;
     service->ring_control_pending = TDMA_RING_CONTROL_ARM;
     accepted = true;

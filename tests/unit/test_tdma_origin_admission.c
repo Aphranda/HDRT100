@@ -59,7 +59,7 @@ static bool tdma_runtime_owner_get_phys_snapshot(tdma_pio_spi_phys_snapshot_t *s
 static bool tdma_runtime_owner_get_ring_snapshot(tdma_ring_runtime_snapshot_t *s)
 { *s = ring; return true; }
 static bool tdma_runtime_owner_get_staged_ring_config(tdma_ring_runtime_config_t *s)
-{ *s = config; return true; }
+{ *s = config; s->owner_config_seq = 0u; return true; }
 static bool tdma_runtime_owner_get_calibration_stage(tdma_ring_calibration_stage_t *s, bool *c)
 { *s = s_tdma_runtime_owner.calibration_stage; *c = complete; return true; }
 static tdma_service_service_t *tdma_runtime_owner_get(void) { return &s_tdma_runtime_owner; }
@@ -123,7 +123,7 @@ static void tdma_runtime_owner_update_training_gate(void) { full_service_calls[3
 static void setup(void)
 {
     config = (tdma_ring_runtime_config_t){.baud_hz = 10000000, .cycle_period_ns = 1000000,
-        .node_count = 4, .flags = TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE};
+        .node_count = 4, .flags = TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE, .owner_config_seq = 4};
     ring = (tdma_ring_runtime_snapshot_t){.enabled = 1, .adapter_started = 1,
         .config_seq = 4, .applied_config_seq = 4};
     s_tdma_runtime_owner.ring_runtime.enabled = 1;
@@ -201,7 +201,7 @@ int main(int argc, char **argv)
             complete = model_valid = resources_valid = true; setup();
         }
     } else if (!strcmp(argv[1], "stale")) {
-        for (unsigned bad = 0; bad < 11; bad++) {
+        for (unsigned bad = 0; bad < 12; bad++) {
             setup(); publish();
             if (bad == 0) s_tdma_runtime_owner.ring_runtime.config_seq++;
             if (bad == 1) s_origin_timing.config.baud_hz++;
@@ -214,6 +214,7 @@ int main(int argc, char **argv)
             if (bad == 8) ticks = s_origin_timing.expires_ticks;
             if (bad == 9) s_tdma_runtime_owner.calibration_stage.links[TDMA_RING_CALIBRATION_LINK_MAX - 1u].guard_cycles++;
             if (bad == 10) s_tdma_runtime_owner.foundation_profile_crc32++;
+            if (bad == 11) config.owner_config_seq++;
             assert(admit() == TDMA_ORIGIN_ADMISSION_REJECTED);
             assert(admit() == TDMA_ORIGIN_ADMISSION_NONE);
         }

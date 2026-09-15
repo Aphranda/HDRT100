@@ -13,6 +13,7 @@
 #include "tdma_rx_scan.h"
 #include "tdma_rx_capture.h"
 #include "tdma_rx_event_candidate.h"
+#include "tdma_frozen_geometry.h"
 
 /* TDMA PIO SPI resident physical layer.
  *
@@ -138,6 +139,7 @@ typedef enum {
     TDMA_PIO_SPI_PHYS_ERROR_OWNER_CALIBRATION_STAGE = 19u,
     TDMA_PIO_SPI_PHYS_ERROR_OWNER_CALIBRATION_LINK = 20u,
     TDMA_PIO_SPI_PHYS_ERROR_OWNER_FLIGHT_OFFSET = 21u,
+    TDMA_PIO_SPI_PHYS_ERROR_GEOMETRY = 22u,
 } tdma_pio_spi_phys_error_t;
 
 typedef enum {
@@ -739,6 +741,13 @@ typedef struct {
     uint32_t flight_alignment_byte_shift;
     uint32_t flight_alignment_bit_shift;
     uint32_t flight_local_slot_id;
+    /* Core1 copies calibration identity before physical ARM. */
+    uint32_t geometry_topology_generation, geometry_topology_crc32;
+    uint32_t geometry_calibration_generation;
+    uint32_t geometry_map_generation, geometry_map_crc32;
+    uint32_t geometry_stage_enabled;
+    uint32_t geometry_marker_source, geometry_marker_destination;
+    uint32_t geometry_data_source, geometry_data_destination;
     bool flight_overlay_dma_active;
     tdma_overlay_prepare_t *overlay_preparation;
     tdma_rx_scan_t *rx_scan_preparation;
@@ -881,6 +890,8 @@ typedef struct {
  * Both legs (downlink TX master + uplink RX slave) are armed together. */
 bool tdma_pio_spi_phys_arm(void *context,
                            const tdma_ring_runtime_config_t *config);
+bool tdma_pio_spi_phys_geometry_arm_requested(void *context,
+    const tdma_ring_runtime_config_t *config);
 void tdma_pio_spi_phys_publish_arm_error(
     tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_phys_error_t error);

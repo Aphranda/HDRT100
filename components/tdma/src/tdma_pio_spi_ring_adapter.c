@@ -569,6 +569,16 @@ void tdma_pio_spi_ring_adapter_set_phys_error_reader(
     }
 }
 
+void tdma_pio_spi_ring_adapter_set_phys_geometry_lifecycle(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_pio_spi_ring_phys_arm_fn arm_request,
+    void (*stopped)(void *context))
+{
+    if (adapter == NULL || adapter->started != 0u) return;
+    adapter->phys_arm_request = arm_request;
+    adapter->phys_stopped = stopped;
+}
+
 void tdma_pio_spi_ring_adapter_set_phys_tx_retryable(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_phys_tx_retryable_fn tx_retryable)
@@ -785,6 +795,17 @@ static bool tdma_pio_spi_ring_adapter_start(
         return false;
     }
     tdma_pio_spi_ring_adapter_snapshot_write_begin(adapter);
+    /* Consume geometry before any new-ARM early exit. Runtime failure
+     * cleanup retires the pending request through the physical STOP. */
+    if (adapter->phys_arm_request != NULL &&
+        !adapter->phys_arm_request(adapter->phys_ctrl_context, config)) {
+        const uint32_t error = adapter->phys_last_error != NULL
+            ? adapter->phys_last_error(adapter->phys_ctrl_context) : 0u;
+        tdma_pio_spi_ring_adapter_set_error(adapter,
+            TDMA_PIO_SPI_RING_ADAPTER_PHYS_ARM_ERROR(error));
+        tdma_pio_spi_ring_adapter_snapshot_write_end(adapter);
+        return false;
+    }
     if ((adapter->started != 0u &&
          tdma_ring_diagnostic_burst_limit(adapter->config.flags) != 0u) ||
         adapter->origin.active != 0u ||
@@ -1137,6 +1158,8 @@ static bool tdma_pio_spi_ring_adapter_stop(void *context)
            0,
            sizeof(adapter->local_tx_edge_evidence));
     memset(&adapter->clock_observation, 0, sizeof(adapter->clock_observation));
+    if (adapter->phys_stopped != NULL)
+        adapter->phys_stopped(adapter->phys_ctrl_context);
     tdma_pio_spi_ring_adapter_snapshot_write_end(adapter);
     return true;
 }

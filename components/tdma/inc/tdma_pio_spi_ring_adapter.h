@@ -389,6 +389,8 @@ typedef struct {
     uint32_t (*phys_last_error)(const void *context);
     tdma_pio_spi_ring_phys_tx_retryable_fn phys_tx_retryable;
     tdma_pio_spi_ring_phys_disarm_fn phys_disarm;
+    tdma_pio_spi_ring_phys_arm_fn phys_arm_request;
+    void (*phys_stopped)(void *context);
     tdma_pio_spi_ring_phys_timestamp_ready_fn phys_timestamp_ready;
     tdma_pio_spi_ring_phys_tx_complete_fn phys_tx_complete;
     tdma_pio_spi_ring_phys_local_tx_edge_fn phys_local_tx_edge;
@@ -597,6 +599,10 @@ void tdma_pio_spi_ring_adapter_set_phys_ctrl(
     tdma_pio_spi_ring_phys_train_fn train,
     tdma_pio_spi_ring_phys_train_service_fn train_service,
     void *phys_ctrl_context);
+void tdma_pio_spi_ring_adapter_set_phys_geometry_lifecycle(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_pio_spi_ring_phys_arm_fn arm_request,
+    void (*stopped)(void *context));
 void tdma_pio_spi_ring_adapter_set_phys_error_reader(
     tdma_pio_spi_ring_adapter_t *adapter,
     uint32_t (*last_error)(const void *context));

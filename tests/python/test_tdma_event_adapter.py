@@ -366,6 +366,8 @@ static void pio_enable_sm_mask_in_sync(PIO pio, uint mask) {
     if (cut_enable_hook != NULL) cut_enable_hook();
 }
 static void tdma_pio_spi_phys_origin_record_invalidate(tdma_pio_spi_phys_t *phys) { (void)phys; }
+/* Geometry lifecycle is executed separately by test_tdma_frozen_geometry. */
+static void tdma_geometry_persona(uint32_t persona) { (void)persona; }
 static bool tdma_pio_spi_programs_select(int *manager, tdma_pio_spi_phys_t *phys,
                                         tdma_pio_spi_program_persona_t persona) {
     (void)manager; (void)phys; ++selectors;

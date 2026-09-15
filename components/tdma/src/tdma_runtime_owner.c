@@ -83,6 +83,12 @@ static bool tdma_runtime_owner_flight_phys_arm(
         return false;
     }
 
+    phys->geometry_topology_generation = stage->topology_generation;
+    phys->geometry_topology_crc32 = stage->topology_crc32;
+    phys->geometry_calibration_generation = stage->calibration_generation;
+    phys->geometry_stage_enabled = stage->enabled;
+    phys->geometry_marker_source = phys->geometry_marker_destination = 0u;
+    phys->geometry_data_source = phys->geometry_data_destination = 0u;
     /* The adapter and PIO must agree on one fixed flight payload length.  A
      * configured ProcessImage map is available before the runtime arm and is
      * therefore the authoritative source. Verify it matches the admitted
@@ -94,6 +100,8 @@ static bool tdma_runtime_owner_flight_phys_arm(
                                         &engine_snapshot) &&
         engine_snapshot.configured != 0u &&
         engine_snapshot.payload_size != 0u;
+    phys->geometry_map_generation = have_flight_map ? engine_snapshot.map_generation : 0u;
+    phys->geometry_map_crc32 = have_flight_map ? engine_snapshot.map_crc32 : 0u;
     if (have_flight_map &&
         (engine_snapshot.payload_size != tdma_flight_payload_size(config->node_count) ||
          !tdma_pio_spi_phys_set_flight_payload_size(
@@ -151,6 +159,10 @@ static bool tdma_runtime_owner_flight_phys_arm(
     const tdma_ring_calibration_link_t *marker =
         &stage->links[marker_link];
     const tdma_ring_calibration_link_t *data = &stage->links[data_link];
+    phys->geometry_marker_source = marker->marker_source_node;
+    phys->geometry_marker_destination = marker->marker_destination_node;
+    phys->geometry_data_source = data->data_source_node;
+    phys->geometry_data_destination = data->data_destination_node;
     if (marker->valid == 0u || data->valid == 0u) {
         tdma_pio_spi_phys_publish_arm_error(
             phys, TDMA_PIO_SPI_PHYS_ERROR_OWNER_CALIBRATION_LINK);
@@ -305,6 +317,10 @@ bool tdma_runtime_owner_init(void)
         tdma_pio_spi_ring_adapter_set_phys_error_reader(
             &s_tdma_pio_spi_ring_adapter,
             tdma_pio_spi_phys_last_error);
+        tdma_pio_spi_ring_adapter_set_phys_geometry_lifecycle(
+            &s_tdma_pio_spi_ring_adapter,
+            tdma_pio_spi_phys_geometry_arm_requested,
+            tdma_pio_spi_phys_geometry_stopped);
         tdma_pio_spi_ring_adapter_set_phys_tx_retryable(
             &s_tdma_pio_spi_ring_adapter,
             tdma_pio_spi_phys_tx_retryable);
@@ -501,6 +517,12 @@ bool tdma_runtime_owner_set_ring_diagnostic_burst(uint32_t limit)
         (limit == 0u || s_tdma_pio_spi_ring_adapter.forwarding_mode ==
             TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE) &&
         tdma_service_set_ring_diagnostic_burst(&s_tdma_runtime_owner, limit);
+}
+
+bool tdma_runtime_owner_set_ring_geometry_generation(uint32_t generation)
+{
+    return s_tdma_runtime_owner_initialized &&
+        tdma_service_set_ring_geometry_generation(&s_tdma_runtime_owner, generation);
 }
 
 tdma_pio_spi_normal_capture_copy_result_t
