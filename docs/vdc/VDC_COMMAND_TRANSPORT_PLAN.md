@@ -4,16 +4,53 @@ Status: Draft
 Domain: VDC
 Canonical: `docs/vdc/VDC_COMMAND_TRANSPORT_PLAN.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/check/DOCS_REGISTRY.md`
-Last updated: 2026-09-15
+Last updated: 2026-09-16
 
 本文是 `VDC-CMD-001` 的待审方案，服务于 `VDC-LONGTERM-001`，不冻结 wire 契约，
 不允许据此启用从机控制，也不替代调度、角色、Calibration 和正式锁相门禁。
 当前证据与 host 反例见 `VDC-PROGRESS-20260914-004`；自主 origin 输入缺口及
 目标模式补测见 `VDC-PROGRESS-20260914-007`。
 
-自主时间输入的当前执行顺序以 `VDC_STABLE_INPUT_PLAN.md` 为准：首帧诊断归 TDMA
-后续优化，不阻塞 DPLL；预热后接收有效样本，偶发坏帧跳过并保持控制输出。该调整
-不改变本文命令身份、共同时间和从机定时应用的待验收边界。
+当前执行顺序以 `VDC_DOMAIN_TODO.md` 的 `VDC-FLIGHT-001` 至 `VDC-RECOVERY-001`
+为准：先接通普通特等席数据接收，再将各从 internal 反馈送回主机，由主机形成各从
+专属校正并在各板 SyncDpllFB 应用，随后调频率漂移和相位。本页完整共同时间与
+定时命令方案保留为待审路线，不作为普通数据运输的前置。复制主机自身 DCO 快照
+不等于各从闭环；现有命令原型继续默认关闭，下一控制切片须明确有效测量关联、
+目标、身份、有效期与应用边界，不能直接放宽旧原型校验。
+首帧诊断归 TDMA 后续优化，预热后从有效样本开始，偶发坏帧跳过并保持控制输出；
+样本策略见 `VDC_STABLE_INPUT_PLAN.md`。
+
+### 当前候选：各从反馈与有界校正
+
+这是 `VDC-FEEDBACK-001` 的方案入口，尚未冻结或接线。源码审计索引见
+`VDC-PROGRESS-20260916-003`，按以下最小切片逐项验证：
+
+1. 保留 NO1 准备发布的确切数据版本，与从板实际接收的同序记录对账；准备成功本身
+   不等于实际发出。复用固定邮箱，不增加独立帧，也不恢复首帧特殊前置。
+2. 在各从的同次有效 internal 观测上保留原始误差、真实测量序号、指定参考和当时
+   已应用的 DCO 版本，形成能反映输出校正效果的残差。现有
+   `vdc_domain_corrected_phase_error_ns()` 使用 `clock`，而
+   `vdc_domain_apply_follower_command()` 修改 `dco`；不能直接假定旧曲线随新命令收敛。
+   对齐 NO1 信号时，参考须对应 NO1 同次发射事件的 DCO 相位；物理 TDMA 节拍不能
+   静默替代 NO1 信号。无有效观测时保持反馈无效，数据运输仍继续。
+3. Core0 经特等席发送完整反馈，NO1 按从节点分离接收、排序和保存。NO1 的
+   SyncDpllFB 为每个从节点维护独立、定长的控制状态；先按实际有效测量间隔验证
+   频率校正，再调相位与积分。运输 publication sequence 不替代 measurement sequence。
+4. 主机在自己的 mailbox 内按有界目标轮换发送专属命令，从板 SyncDpllFB 验证后
+   在约定 service boundary 应用并返回应用身份。候选采用单独定义的边界命令，
+   不将本地 uptime 填入旧 `effective_vdc_time_ns`。更新 rate 时须明确本地锚重定基和
+   相位连续性；重复命令不能重复叠加相位步进。
+
+候选编码可复用既有固定 VDC 区并显式区分反馈/命令类型；测量关联、真实应用 ACK、
+旧会话拒绝及长周期量程必须能容纳，无法容纳时再比较小记录分片。现有普通
+phase/rate/lock/quality 语义不能暗改，RefMem 接收 ACK 不能冒充 DCO 应用 ACK。
+精确字段、版本、有效期和服务边界先完成域文档及交叉审核，再进入固件。
+
+快速验收同时保留 raw 与输出模型残差，先以可追溯的小校正证明响应方向，再看斜率。
+`vdc_dpll_manager_refresh_dco_consumer_status_core0()` 的 accepted_update_count 只表示
+Core0 读到并验证模型；实际应用须以 Core1 命令/应用序号、本地应用边界和输出模型
+版本对账。每个切片单独完成 host、Release、四板 quick P3 及专项，最终输出精度再用
+示波器复核；不要求每轮依赖外部仪器。
 
 ### 当前实现快照（仍未冻结契约）
 

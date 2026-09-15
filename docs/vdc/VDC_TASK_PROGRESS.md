@@ -22,16 +22,72 @@ Last updated: 2026-09-16
 
 ## 当前 checkpoint
 
-最新切片见 `VDC-PROGRESS-20260916-001`：单样本跳过完成软件及四板 P3 集成验证，
-自主输入复测确认数据持续但时间输入尚未接通；直接返回特等席时间样本生产与交接，
-首帧精细优化不作为前置。
+最新接收切片见 `VDC-PROGRESS-20260916-003`：当前源码 Release、四板 quick P3 和
+指定主机接收专项通过；各从已有稳定接收，实际 DCO 应用尚未接通。目标整理见
+`VDC-PROGRESS-20260916-002`，随后贯通各从反馈和专属校正，再消除漂移、收敛精度。
 
-执行顺序与任务状态统一见 `VDC_DOMAIN_TODO.md` 的“分阶段执行清单”和任务依赖表；
+执行顺序与任务状态统一见 `VDC_DOMAIN_TODO.md` 的“当前主线：四板数据运输与真实闭环”
+及其中 `VDC-FLIGHT-001` 至 `VDC-RECOVERY-001` 的任务依赖表；
 本文仅追加每个切片已经发生的验证、失败和下一 gate，不复制第二份迁移顺序。
 
-当前执行依赖按 `VDC-PROGRESS-20260915-049` 纠偏：首帧三项归 TDMA 后续精细优化，
-不阻塞 DPLL；接下来直接定位有效时间输入并收敛单次坏样本跳过。此前各记录的
-“下一 gate”保留历史含义，不再将首帧可用或全窗无错作为当前锁相前置。
+当前执行依赖按 `VDC-PROGRESS-20260916-002` 纠偏；此前各记录的“当前”及
+“下一 gate”保留历史含义，不将首帧可用、全窗无错或完整绝对时间映射作为运输前置。
+
+### VDC-PROGRESS-20260916-002：归纳四板数据运输与真实闭环长期目标
+
+- TODO task ID：`VDC-LONGTERM-001`、`VDC-FLIGHT-001`、`VDC-FEEDBACK-001`、
+  `VDC-DRIFT-001`、`VDC-PRECISION-001`、`VDC-RECOVERY-001`。
+- 状态：IN PROGRESS。用户要求优先让三从收到数据、进入真实闭环，以 internal 快速
+  判断应用和漂移，最终复核实际输出；具体任务与依赖已落入 TODO，不冻结新 wire 契约。
+- 实现快照，非已验收事实：工作区新增指定 master 的普通 mailbox 稳定接收记录及
+  `SYSTem:REFMEM:SYNC:TDMA:VDC:FLIGHT?` 只读查询；未开放命令原型、未接 DCO 应用。
+- 作者软件证据：`out/HardwareAcceptance/20260916/vdc-flight-rx-r1/host-review-summary.json`，
+  新接收与兼容测试结果待主控随实现切片复核；Release、资源差额和当前源码四板 P3
+  尚未完成，不能用旧固件证据替代。独审已报告采集 wrapper 的成功判定和失败恢复
+  问题，须修复后再用于专项验收。
+- 下一 gate：`VDC-FLIGHT-001` 的独审修正、Release/资源核算、当前源码 quick P3 及
+  指定来源/序号/数据一致专项；接收通过后进入 `VDC-FEEDBACK-001`，目标仍保持执行中。
+
+### VDC-PROGRESS-20260916-003：指定主机接收记录与四板专项
+
+- TODO task ID：`VDC-FLIGHT-001`、`VDC-FEEDBACK-001`。
+- 状态：IN PROGRESS。普通 mailbox 指定主机接收切片已完成软件、构建、四板 P3 和
+  接收专项；完整长期闭环仍未完成，以下数字均为本轮快照，非产品事实源。
+- 实现：Core0 RefMem 独占接收记录发布，校验来源槽、目标、CRC、READY 和新序列；
+  绑定当前角色及已 ACK 的 ring 配置，旧 FIFO 代际不复活。STOP 保留历史、active 清零，
+  只读 `SYSTem:REFMEM:SYNC:TDMA:VDC:FLIGHT?` 导出；不开放旧命令原型或应用 DCO。
+- 软件/独审：新接收测试 20 项、兼容测试 26 项通过；源码和作者产物 hash 已复核。
+  `vdc-flight-rx-r1/host-review-summary.json` 与
+  `dpll-flight-receive-r1/implementation-review-r2.json` 保存证据。采集脚本成功判定与
+  缺失字段恢复已修复，主控 6 项离线测试及独审 17 项纯模拟检查通过。
+- Release：A/B 链接及 Flash 检查通过；map BSS 净增 104 B，链接 RAM 剩余地址空间
+  12148 B，不能当作运行栈/堆水位。见 `dpll-flight-receive-r1/resource-review-r1.json`
+  和冻结 `after-build/`。源码指纹
+  `79069f098382b323b253cc338397f2dc41e34c294dcfea19302db37a76368586`，
+  固件包 SHA256 `f0622ddf3dc0e76e08e6debafd6b10b50f4fecc98b252f76955e286f5bf06384`。
+- P3：`dpll-flight-receive-r1/p3-r1/acceptance.json` 的 `passed` 和
+  `strict_gates_passed` 均为 true，四板均完成新包 OTA；旧 build label 未作为唯一身份。
+- 专项：`dpll-flight-receive-r1/capture-r1/input-probe.json` 无采集错误，运行期间查询数
+  为零；NO2/NO3/NO4 接收增量分别 2258/2257/2151。三从最终同源 slot 0、mailbox
+  序号 3522、CRC 59331、运输序号 6300，phase=-176 ns、rate=2260 ppb；相位/频率与
+  NO1 STOP 后 DCO 量化值一致。四板各 20 条板端记录，原生 CRC 通过，SD/RAM 逐字节
+  一致。分析见 `dpll-flight-receive-r1/receive-analysis-r1.json`。
+- 证明范围：接收增量包含 bootstrap 与自主阶段；本轮证明三从保留记录一致及与主机
+  最终相位/频率对账，没有同 mailbox 序号的主机 TX 全字段归档，不声明逐帧完整送达。
+  三从实际 DCO 应用增量为零，trace 均无新记录，不据此判断锁相或精度。
+- 下一 gate：收敛提交本接收切片；`VDC-FLIGHT-001` 的精确发送版本关联补证可与
+  `VDC-FEEDBACK-001` 的观测/命令身份设计共同准备，先完善各从反馈到专属校正的方案。
+  必须使反馈体现本从实际 DCO 校正效果；现有 internal 的 clock residual 与 DCO
+  输出模型需明确对应，不能用不会响应 DCO 的斜率驱动伪闭环。
+- 后继只读审计：`dpll-flight-receive-r1/feedback-next-audit.json` 保存字段、量纲、
+  有效条件、输出模型、候选承载、资源估算和测试映射；执行候选落入
+  `VDC_COMMAND_TRANSPORT_PLAN.md`，尚未冻结编码或新增反馈控制代码。
+- 主控/独审收敛：`dpll-flight-receive-r1/hardware-review-r1.json` 的 40 项核验通过，
+  结论为 APPROVE_RECEIVE_SLICE；原生 drop/schedule miss 记录保留，不据接收通过宣称
+  全环时序或无丢帧。实现已提交 `3e76053`，提交 hook 核验匹配 P3 凭证通过。
+- 上述相对证据路径均位于 `out/HardwareAcceptance/20260916/`，四板已 STOP，串口已关闭。
+
+### 前序实现回顾
 
 `VDC-RESOURCE-001` 当前编译容量的 compact RX 资源切片已闭合，有限采集的 STOP 后
 交接通过当前源码四板 quick P3 验证，见下方 `VDC-PROGRESS-20260914-006`。
