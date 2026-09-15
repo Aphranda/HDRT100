@@ -503,6 +503,7 @@ def update_board(args: argparse.Namespace,
                     "--timeout", str(args.timeout),
                     "--reopen-timeout", str(args.reopen_timeout),
                     "--settle", str(args.settle),
+                    "--serial-number", board.serial_number,
                     "--skip-boot",
                     "--out-dir", str(
                         out_dir / board.port / "ota_post_reset_verify"),
@@ -531,6 +532,7 @@ def update_board(args: argparse.Namespace,
             "--reopen-timeout", str(args.reopen_timeout),
             "--settle", str(args.settle),
             "--boot-wait", str(args.boot_wait),
+            "--serial-number", board.serial_number,
             "--out-dir", str(out_dir / board.port / "ota_boot_commit"),
         ]
         if expected_build:

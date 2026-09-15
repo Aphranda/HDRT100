@@ -206,7 +206,9 @@ def test_legacy_transport_keeps_separate_send_and_commit(tmp_path: Path):
 
     assert mocked.call_count == 2
     assert "ota_send.py" in mocked.call_args_list[0].args[2][1]
-    assert "ota_boot_commit.py" in mocked.call_args_list[1].args[2][1]
+    commit = mocked.call_args_list[1].args[2]
+    assert "ota_boot_commit.py" in commit[1]
+    assert commit[commit.index("--serial-number") + 1] == "NO5"
 
 
 def test_debug_legacy_reset_uses_bounded_post_reset_verification(
@@ -228,4 +230,5 @@ def test_debug_legacy_reset_uses_bounded_post_reset_verification(
     assert mocked.call_count == 2
     postcheck = mocked.call_args_list[1].args[2]
     assert "--skip-boot" in postcheck
+    assert postcheck[postcheck.index("--serial-number") + 1] == "NO5"
     assert "--expected-build" in postcheck
