@@ -56,6 +56,8 @@ PREFIX = r'''
 #include "tdma_event_history.h"
 #include "tdma_rx_capture.h"
 #include "tdma_rx_event_candidate.h"
+#define TDMA_SERVICE_TIMING_ENABLED 1
+#include "tdma_service_timing.h"
 typedef unsigned uint;
 '''
 
@@ -67,9 +69,7 @@ enum { TDMA_EVENT_RX_SM=1, TDMA_EVENT_TX_SM=2, TDMA_EVENT_SEQUENCE_SM=3,
     TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER=13, clk_sys=0,
     TDMA_PIO_SPI_PHYS_ERROR_TX_BUSY=1, TDMA_PIO_SPI_PHYS_ERROR_BAD_PACKET=2,
     TDMA_PIO_SPI_PHYS_ERROR_NONE=0, TDMA_PIO_SPI_PACKET_HEADER_SIZE=4,
-    TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS=512, TDMA_TRANSPORT_SHORT_PACKET_MAX=512,
-    TDMA_TIMING_RX_CAPTURE, TDMA_TIMING_RX_REQUEST, TDMA_TIMING_PHYS_SERVICE,
-    TDMA_TIMING_OWNER_SERVICE, TDMA_TIMING_REFMEM_PUBLISH, TDMA_TIMING_TRAINING_GATE };
+    TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS=512, TDMA_TRANSPORT_SHORT_PACKET_MAX=512 };
 typedef struct { uint32_t ctrl, fdebug, fifo[4][8], level[4], pc[4]; } bank_t;
 typedef bank_t *PIO;
 typedef struct {
@@ -124,13 +124,20 @@ static int *s_vdc_tdma_service=&service_instance;
 static unsigned fifo_reads, fifo_level_reads, capture_calls, queue_calls, accept_calls;
 static unsigned owner_lifetimes, observer_disable_calls, refmem_calls, training_calls;
 static unsigned hz_reads, fault_at_hz_read;
+static unsigned cut_monitor_calls;
 static bool ota_active, skip_phase;
 static uint64_t time_us_64(void) { return now_us; }
 static uint64_t vdc_dpll_manager_now_ns(void) { return now_us*1000u; }
 static uint64_t vdc_timestamp_clock_now_ns(void) { return now_us*1000u; }
-static uint64_t tdma_service_timing_now(void) { return now_us; }
-static void tdma_service_timing_record(unsigned phase, uint64_t start) { (void)phase; (void)start; }
-static void tdma_service_timing_rx_station(uint32_t state, uint64_t now, uint64_t captured) {
+static uint64_t probe_ticks;
+static uint32_t probe_calls[TDMA_TIMING_STAGE_COUNT];
+static uint64_t probe_elapsed[TDMA_TIMING_STAGE_COUNT];
+uint64_t tdma_service_timing_now(void) { return ++probe_ticks; }
+void tdma_service_timing_record(tdma_service_timing_stage_t phase, uint64_t start) {
+    assert(phase<TDMA_TIMING_STAGE_COUNT && start<=probe_ticks);
+    ++probe_calls[phase]; probe_elapsed[phase] += ++probe_ticks-start;
+}
+void tdma_service_timing_rx_station(uint32_t state, uint64_t now, uint64_t captured) {
     (void)state; (void)now; (void)captured;
 }
 static uint32_t clock_get_hz(unsigned clock) {
@@ -153,6 +160,11 @@ static void pio_set_sm_mask_enabled(PIO pio, uint mask, bool enabled) {
     assert(mask==TDMA_EVENT_SM_MASK && !enabled); pio->ctrl &= ~mask; ++observer_disable_calls;
 }
 static void tdma_event_start(tdma_pio_spi_phys_t *phys) { (void)phys; assert(false); }
+/* DMA/register start-cut semantics run in test_tdma_event_adapter.py. This
+ * owner-path fixture checks that service still calls the monitor each time. */
+static void tdma_rx_start_cut_monitor(tdma_pio_spi_phys_t *phys) {
+    assert(phys==&s_tdma_pio_spi_phys); ++cut_monitor_calls;
+}
 #define __dmb() __atomic_thread_fence(__ATOMIC_SEQ_CST)
 static bool tdma_pio_spi_phys_is_flight_persona(void) {
     return s_tdma_pio_spi_program_persona==TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER;
@@ -211,9 +223,12 @@ static void reset(void) {
     memset(&s_tdma_event_snapshot,0,sizeof(s_tdma_event_snapshot));
     memset(&adapter,0,sizeof(adapter)); memset(&job,0,sizeof(job));
     now_us=s_tdma_event_base_us=s_tdma_event_last_service_us=0u;
+    probe_ticks=0u;
+    memset(probe_calls,0,sizeof(probe_calls)); memset(probe_elapsed,0,sizeof(probe_elapsed));
     fifo_reads=fifo_level_reads=capture_calls=queue_calls=accept_calls=0u;
     owner_lifetimes=observer_disable_calls=refmem_calls=training_calls=0u;
     hz_reads=fault_at_hz_read=0u;
+    cut_monitor_calls=0u;
     ota_active=skip_phase=s_tdma_event_waiting=false;
     s_tdma_pio_spi_program_persona=TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER;
     s_tdma_runtime_owner_initialized=true;
@@ -270,6 +285,14 @@ static void test_rx_preparation_and_queue_cannot_starve_observer(void) {
             }
         }
         assert(s_tdma_event_snapshot.service_count==phase);
+        assert(cut_monitor_calls==phase);
+        uint64_t event_ticks=0u;
+        for(unsigned stage=TDMA_TIMING_EVENT_ENTRY; stage<=TDMA_TIMING_EVENT_PUBLISH; ++stage) {
+            assert(probe_calls[stage]==phase);
+            event_ticks+=probe_elapsed[stage];
+        }
+        assert(event_ticks<probe_elapsed[TDMA_TIMING_PHYS_SERVICE]);
+        assert(probe_calls[TDMA_TIMING_REFERENCE_TX]==0u);
         assert(s_tdma_event_observer.reads_last<=24u && fifo_reads-read_before<=24u);
         assert(bank.level[1]==0u && bank.level[2]==0u && bank.level[3]==0u && bank.fdebug==0u);
         assert(!s_tdma_pio_spi_phys.flight_tx_pending && capture_calls==0u);
@@ -302,6 +325,8 @@ static void test_not_armed_master_and_uninitialized_are_noops(void) {
     s_tdma_runtime_owner_initialized=false;
     tdma_runtime_owner_service_phys_tx(now_us*1000u);
     assert(fifo_reads==0u && fifo_level_reads==0u && s_tdma_event_snapshot.service_count==0u);
+    for(unsigned stage=TDMA_TIMING_EVENT_ENTRY; stage<=TDMA_TIMING_EVENT_PUBLISH; ++stage)
+        assert(probe_calls[stage]==0u);
     assert(bank.level[1]==2u && bank.ctrl==15u);
     s_tdma_runtime_owner_initialized=true;
     ota_active=true; tdma_component_core1_service(); ota_active=false;
@@ -318,6 +343,9 @@ static void test_stall_remains_permanent_failure(void) {
     assert(fifo_reads==21u && bank.ctrl==1u);
     now_us=6000u; tdma_component_core1_service();
     assert(fifo_reads==21u && s_tdma_event_observer.state==TDMA_EVENT_INVALID);
+    assert(probe_calls[TDMA_TIMING_EVENT_ENTRY]==2u);
+    assert(probe_calls[TDMA_TIMING_EVENT_START_CUT]==2u);
+    assert(probe_calls[TDMA_TIMING_EVENT_HARVEST]==1u);
 }
 static void test_final_fault_retires_prior_and_whole_new_batch(void) {
     reset(); event(0u); now_us=1500u; tdma_component_core1_service();
@@ -328,6 +356,7 @@ static void test_final_fault_retires_prior_and_whole_new_batch(void) {
     tdma_component_core1_service();
     assert(s_tdma_event_observer.state==TDMA_EVENT_INVALID);
     assert(s_tdma_event_snapshot.published==1u);
+    assert(probe_calls[TDMA_TIMING_EVENT_FINAL_CHECK]==2u);
     for(uint seq=1u;seq<=3u;++seq)
         assert(!tdma_event_history_lookup(&s_tdma_event_history,1u,seq,&raw));
 }

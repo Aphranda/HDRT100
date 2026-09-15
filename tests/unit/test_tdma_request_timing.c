@@ -18,6 +18,50 @@ static bool timed_origin_observe(void *context, tdma_origin_observation_t *obser
     return timed_observe_available && origin_adapter_observe(context, observation);
 }
 
+static bool timed_reference_tx(void *context, const uint8_t *packet,
+                               size_t size, uint64_t *timestamp)
+{
+    timing_ticks += 1000u;
+    return async_tx(context, packet, size, timestamp);
+}
+
+static void test_reference_service_timing(void)
+{
+    tdma_pio_spi_ring_adapter_t adapter;
+    tdma_ring_adapter_status_t status;
+    async_phys_t phys = {0};
+    const tdma_ring_runtime_config_t config = make_valid_config();
+    assert(tdma_pio_spi_ring_adapter_init(&adapter));
+    tdma_pio_spi_ring_adapter_set_phys(&adapter, timed_reference_tx, NULL, &phys);
+    tdma_pio_spi_ring_adapter_set_phys_tx_complete(&adapter, async_tx_complete);
+    assert(tdma_pio_spi_ring_adapter_ops()->start(&adapter, &config));
+    const uint64_t times[] = {1u, 2u, 3000u, 4000u};
+    for (unsigned i=0u; i<4u; ++i) {
+        if (i==3u) phys.completion_ready=true;
+        (void)tdma_service_timing_request_reset();
+        tdma_service_timing_phase_begin();
+        assert(tdma_pio_spi_ring_adapter_ops()->service(&adapter, times[i], &status));
+        tdma_service_timing_phase_end();
+        tdma_service_timing_snapshot_t snapshot;
+        assert(tdma_service_timing_try_snapshot(&snapshot));
+        const tdma_service_timing_record_t *r=&snapshot.last;
+        const unsigned attempts=(i==1u || i==3u);
+        assert(r->invalid_count==0u);
+        assert(r->calls[TDMA_TIMING_REFERENCE_TX]==attempts);
+        assert(r->calls[TDMA_TIMING_REFERENCE_SUBMIT]==attempts);
+        if (attempts) {
+            assert(r->elapsed_ticks[TDMA_TIMING_REFERENCE_SUBMIT]>=1000u);
+            assert(r->elapsed_ticks[TDMA_TIMING_REFERENCE_TX]>
+                   r->elapsed_ticks[TDMA_TIMING_REFERENCE_SUBMIT]);
+            assert(r->elapsed_ticks[TDMA_TIMING_ADAPTER]>
+                   r->elapsed_ticks[TDMA_TIMING_REFERENCE_TX]+
+                   r->elapsed_ticks[TDMA_TIMING_RX_HANDOFF]);
+        }
+    }
+    assert(phys.tx_calls==2u && phys.busy_tx_calls==0u);
+    assert(tdma_pio_spi_ring_adapter_ops()->stop(&adapter));
+}
+
 static bool timed_origin_publish(void *context, const uint8_t *mailbox, uint32_t *generation)
 {
     timing_ticks += 1000u;
@@ -108,5 +152,6 @@ int main(void)
 {
     const int failed = test_rx_prepare_cases() + test_origin_adapter();
     test_origin_service_timing();
+    test_reference_service_timing();
     return failed;
 }

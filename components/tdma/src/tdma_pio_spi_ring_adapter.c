@@ -1185,10 +1185,13 @@ static bool tdma_pio_spi_ring_adapter_launch_reference(
     if (tdma_pio_spi_ring_adapter_burst_exhausted(adapter)) {
         return true;
     }
-    if (!adapter->phys_tx(adapter->phys_context,
-                          packet,
-                          packet_size,
-                          &tx_timestamp_ns)) {
+    const uint64_t submit_start = tdma_service_timing_now();
+    const bool submitted = adapter->phys_tx(adapter->phys_context,
+                                           packet,
+                                           packet_size,
+                                           &tx_timestamp_ns);
+    tdma_service_timing_record(TDMA_TIMING_REFERENCE_SUBMIT, submit_start);
+    if (!submitted) {
         const void *error_context = adapter->phys_ctrl_context != NULL
             ? adapter->phys_ctrl_context : adapter->phys_context;
         if (adapter->phys_tx_retryable != NULL &&
@@ -2912,7 +2915,9 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
         } else if (emit_now) {
             const bool first_emission = adapter->idle_beacon_tx_count == 0u;
             bool launched = false;
+            const uint64_t tx_start = tdma_service_timing_now();
             tx_ok = tdma_pio_spi_ring_adapter_tx_beacon(adapter, &launched);
+            tdma_service_timing_record(TDMA_TIMING_REFERENCE_TX, tx_start);
             if (tx_ok && launched) {
                 /* Advance the absolute phase instead of restarting the
                  * period at the actual (jittered) service time. This avoids
@@ -2968,8 +2973,10 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
                 TDMA_PIO_SPI_RING_RESIDENT_BOOTSTRAP_RETRY_MAX &&
             now_ns >= adapter->next_tx_deadline_ns) {
             bool launched = false;
+            const uint64_t tx_start = tdma_service_timing_now();
             tx_ok = tdma_pio_spi_ring_adapter_tx_bootstrap_retry(
                 adapter, &launched);
+            tdma_service_timing_record(TDMA_TIMING_REFERENCE_TX, tx_start);
             if (tx_ok && launched) {
                 adapter->next_tx_deadline_ns = now_ns + emission_period_ns;
             }
@@ -2981,8 +2988,10 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
                 TDMA_ADAPTER_COMM_STATE_CYCLE_BOUNDARY &&
             now_ns >= adapter->next_tx_deadline_ns) {
             bool launched = false;
+            const uint64_t tx_start = tdma_service_timing_now();
             tx_ok = tdma_pio_spi_ring_adapter_tx_next_resident_cycle(
                 adapter, &launched);
+            tdma_service_timing_record(TDMA_TIMING_REFERENCE_TX, tx_start);
             if (tx_ok && launched) {
                 adapter->next_tx_deadline_ns = now_ns + emission_period_ns;
             }
@@ -2996,8 +3005,10 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
                   TDMA_PIO_SPI_RING_RESIDENT_BOOTSTRAP_RETRY_MAX) &&
             now_ns >= adapter->next_tx_deadline_ns) {
             bool launched = false;
+            const uint64_t tx_start = tdma_service_timing_now();
             tx_ok = tdma_pio_spi_ring_adapter_tx_stale_resident_cycle(
                 adapter, &launched);
+            tdma_service_timing_record(TDMA_TIMING_REFERENCE_TX, tx_start);
             if (tx_ok && launched) {
                 adapter->next_tx_deadline_ns = now_ns + emission_period_ns;
             }

@@ -591,12 +591,20 @@ static void tdma_event_start(tdma_pio_spi_phys_t *phys)
 static void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys)
 {
     if (!tdma_pio_spi_phys_event_selected(phys) || !phys->armed) return;
+    uint64_t stage_start = tdma_service_timing_now();
     const uint64_t entered = time_us_64();
     tdma_pio_spi_event_snapshot_t *s = &s_tdma_event_snapshot;
     if (s_tdma_event_waiting) tdma_event_start(phys);
     if (s_tdma_event_observer.state != TDMA_EVENT_ACTIVE) {
+        tdma_service_timing_record(TDMA_TIMING_EVENT_ENTRY, stage_start);
+        stage_start = tdma_service_timing_now();
         tdma_rx_start_cut_monitor(phys);
-        if (s_tdma_event_candidate_dirty) tdma_event_publish_state(phys);
+        tdma_service_timing_record(TDMA_TIMING_EVENT_START_CUT, stage_start);
+        if (s_tdma_event_candidate_dirty) {
+            stage_start = tdma_service_timing_now();
+            tdma_event_publish_state(phys);
+            tdma_service_timing_record(TDMA_TIMING_EVENT_PUBLISH, stage_start);
+        }
         return;
     }
     if (s_tdma_event_last_service_us != 0u) {
@@ -605,6 +613,8 @@ static void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys)
     }
     s_tdma_event_last_service_us = entered;
     ++s->service_count;
+    tdma_service_timing_record(TDMA_TIMING_EVENT_ENTRY, stage_start);
+    stage_start = tdma_service_timing_now();
     const PIO pio = phys->flight_resources.tx_pio;
     tdma_event_batch_t *batch = &s_tdma_event_batch;
     memset(batch, 0, sizeof(*batch));
@@ -625,7 +635,11 @@ static void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys)
         if (pio_sm_is_rx_fifo_empty(pio, sms[stream])) batch->empty_mask |= (uint8_t)(1u << stream);
     }
     const uint64_t after = time_us_64();
+    tdma_service_timing_record(TDMA_TIMING_EVENT_HARVEST, stage_start);
+    stage_start = tdma_service_timing_now();
     batch->observed = (tdma_event_interval_t){tdma_event_cycles(before, false), tdma_event_cycles(after, true)};
+    tdma_service_timing_record(TDMA_TIMING_EVENT_CONVERT, stage_start);
+    stage_start = tdma_service_timing_now();
     batch->post_faults = tdma_event_faults(phys);
     if (batch->count[0]) s->fifo_rx_first = batch->words[0][0];
     if (batch->count[0] > 1u) s->fifo_rx_second = batch->words[0][1];
@@ -633,6 +647,8 @@ static void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys)
     if (batch->count[1] > 1u) s->fifo_tx_second = batch->words[1][1];
     if (batch->count[2]) s->fifo_sequence_first = batch->words[2][0];
     const size_t count = tdma_event_observer_feed(&s_tdma_event_observer, batch, s_tdma_event_records);
+    tdma_service_timing_record(TDMA_TIMING_EVENT_FEED, stage_start);
+    stage_start = tdma_service_timing_now();
     /* A sticky fault occurring during CPU validation also retires this epoch
      * before any candidate is copied into the published owner snapshot. */
     const uint32_t final_faults = tdma_event_faults(phys);
@@ -643,7 +659,11 @@ static void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys)
         batch->pre_faults = final_faults;
         (void)tdma_event_observer_feed(&s_tdma_event_observer, batch, s_tdma_event_records);
     }
+    tdma_service_timing_record(TDMA_TIMING_EVENT_FINAL_CHECK, stage_start);
+    stage_start = tdma_service_timing_now();
     tdma_rx_start_cut_monitor(phys);
+    tdma_service_timing_record(TDMA_TIMING_EVENT_START_CUT, stage_start);
+    stage_start = tdma_service_timing_now();
     if (s_tdma_event_observer.state == TDMA_EVENT_ACTIVE && count != 0u) {
         /* Retain the whole validated batch, after the final sticky-fault
          * check. Sequence lookup remains diagnostic; no packet identity or
@@ -667,7 +687,10 @@ static void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys)
     }
     const uint64_t duration = time_us_64() - entered;
     if (duration > s->service_max_us) s->service_max_us = duration > UINT32_MAX ? UINT32_MAX : (uint32_t)duration;
+    tdma_service_timing_record(TDMA_TIMING_EVENT_RETAIN, stage_start);
+    stage_start = tdma_service_timing_now();
     tdma_event_publish_state(phys);
+    tdma_service_timing_record(TDMA_TIMING_EVENT_PUBLISH, stage_start);
 }
 
 /* Software-only eligibility. No MMIO access, packet decode or timestamp

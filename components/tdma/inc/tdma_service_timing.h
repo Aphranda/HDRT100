@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define TDMA_SERVICE_TIMING_VERSION 10u
+#define TDMA_SERVICE_TIMING_VERSION 11u
 #ifndef TDMA_SERVICE_TIMING_ENABLED
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #define TDMA_SERVICE_TIMING_ENABLED 1
@@ -92,6 +92,25 @@ typedef enum {
     TDMA_TIMING_ORIGIN_ADMIT,
     TDMA_TIMING_ORIGIN_CALIBRATION_CRC,
     TDMA_TIMING_ORIGIN_BEGIN,
+    /* Disjoint event-service children of PHYS_SERVICE. ENTRY includes a
+     * waiting observer's start attempt; START_CUT measures the later monitor.
+     * FEED includes the post-harvest fault check and raw diagnostic fields.
+     * FINAL_CHECK includes fault-triggered feed, not the normal FEED interval.
+     * RETAIN includes invalid-epoch retirement and service_max_us update.
+     * PUBLISH includes the final snapshot copy omitted by service_max_us. */
+    TDMA_TIMING_EVENT_ENTRY,
+    TDMA_TIMING_EVENT_HARVEST,
+    TDMA_TIMING_EVENT_CONVERT,
+    TDMA_TIMING_EVENT_FEED,
+    TDMA_TIMING_EVENT_FINAL_CHECK,
+    TDMA_TIMING_EVENT_START_CUT,
+    TDMA_TIMING_EVENT_RETAIN,
+    TDMA_TIMING_EVENT_PUBLISH,
+    /* Ordinary reference emission attempts, outside RX_HANDOFF. TX includes
+     * preparation, launch and bookkeeping for beacon/retry/next/stale paths;
+     * SUBMIT is only the nested physical callback, including backpressure. */
+    TDMA_TIMING_REFERENCE_TX,
+    TDMA_TIMING_REFERENCE_SUBMIT,
     TDMA_TIMING_STAGE_COUNT,
 } tdma_service_timing_stage_t;
 

@@ -57,7 +57,7 @@ def test_profile_wire_versions_and_inclusive_intervals(version, count):
 
 
 @pytest.mark.parametrize("raw", [
-    "2,250000000", "11,250000000,0,1,15,0,1,20,100,0",
+    "2,250000000", "12,250000000,0,1,15,0,1,20,100,0",
     "2,250000000,0,1,11,0,1,20,100,0" + ",0,0"*11,
     "1,250000000,0,1,11,0,1,20,100,0" + ",0,0"*15,
     "2,250000000,0,1,15,0,1,20,100,0" + ",0,0"*14,
@@ -78,7 +78,7 @@ def test_profile_unavailable():
     assert parse_service_timing('"UNAVAILABLE"') is None
 
 
-@pytest.mark.parametrize('version,count', [(6, 31), (7, 44), (8, 49), (9, 51), (10, 54)])
+@pytest.mark.parametrize('version,count', [(6, 31), (7, 44), (8, 49), (9, 51), (10, 54), (11, 64)])
 def test_state_profile_schema_preserves_full_interval_and_generations(version, count):
     fields = [version, 250000000, 2, 90, count, 2, 42, 2**40, 1000, 0,
               1200, 2, 4, 6, 80, 2, 4, 6, 81, 60, 30]
@@ -106,6 +106,11 @@ def test_state_profile_schema_preserves_full_interval_and_generations(version, c
         assert result['stages']['origin_admit'] == {'ticks': 151, 'calls': 52}
         assert result['stages']['origin_calibration_crc'] == {'ticks': 152, 'calls': 53}
         assert result['stages']['origin_begin'] == {'ticks': 153, 'calls': 54}
+    if version >= 11:
+        assert result['stages']['event_entry'] == {'ticks': 154, 'calls': 55}
+        assert result['stages']['event_publish'] == {'ticks': 161, 'calls': 62}
+        assert result['stages']['reference_tx'] == {'ticks': 162, 'calls': 63}
+        assert result['stages']['reference_submit'] == {'ticks': 163, 'calls': 64}
     with pytest.raises(ValueError):
         parse_service_timing(','.join(map(str, fields[:-1])))
 
