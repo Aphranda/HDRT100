@@ -1,4 +1,5 @@
 #include "sync_io_mode_seq_step.h"
+#include "sync_io_sequence.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -95,7 +96,7 @@ bool sync_io_seq_step_dma_irq_service(uint32_t ints)
     return true;
 }
 
-bool sync_io_seq_step_arm(const uint32_t *seq_table,
+static bool sync_io_seq_step_arm_unleased(const uint32_t *seq_table,
                           uint32_t seq_length,
                           uint32_t seq_width,
                           uint32_t trigger_pin,
@@ -232,7 +233,7 @@ bool sync_io_seq_step_arm(const uint32_t *seq_table,
     return true;
 }
 
-void sync_io_seq_step_disarm(void)
+static void sync_io_seq_step_disarm_unleased(void)
 {
     if (!s_seq_step.running) {
         return;
@@ -270,6 +271,22 @@ void sync_io_seq_step_disarm(void)
                        SYNC_IO_TRACE_INFO,
                        (uint32_t)s_seq_step.rollover_count,
                        s_seq_step.seq_length);
+}
+
+bool sync_io_seq_step_arm(const uint32_t *table, uint32_t length, uint32_t width,
+                          uint32_t pin, sync_io_edge_t edge, bool gate)
+{
+    if (!sync_io_sequence_legacy_begin()) return false;
+    const bool result = sync_io_seq_step_arm_unleased(table, length, width, pin, edge, gate);
+    sync_io_sequence_legacy_end();
+    return result;
+}
+
+void sync_io_seq_step_disarm(void)
+{
+    if (!sync_io_sequence_legacy_begin()) return;
+    sync_io_seq_step_disarm_unleased();
+    sync_io_sequence_legacy_end();
 }
 
 uint32_t sync_io_seq_step_get_index(void)

@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""Small Tk interface for single-board sequence-trigger SCPI debugging."""
+
+from __future__ import annotations
+
+import tkinter as tk
+from tkinter import ttk
+from tkinter.scrolledtext import ScrolledText
+import threading
+import sys
+from pathlib import Path
+
+# When launched as ``python tools/sequence_trigger_debug_ui.py`` Python adds
+# ``tools`` (the script directory) to sys.path, not the repository root.
+# Add the root explicitly so the shared SCPI helpers remain importable.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from tools.scpi_common.scpi_serial import open_serial_port
+from tools.scpi_query.scpi_query import send_command
+
+
+class SequenceUi(tk.Tk):
+    def __init__(self) -> None:
+        super().__init__()
+        self.title("DHRT100 序列触发调试")
+        self.geometry("760x560")
+        self.port = tk.StringVar(value="COM10")
+        self.backend = tk.StringVar(value="Serial")
+        self.source = tk.StringVar(value="IN1")
+        self.edge = tk.StringVar(value="RIS")
+        self.settle = tk.StringVar(value="10")
+        self.pulse = tk.StringVar(value="10")
+        self.plan = tk.StringVar(value="SP8T")
+        self.codes = tk.StringVar(value="0,1,2,3,4,5,6,7")
+        self.status = tk.StringVar(value="未连接")
+        self._build()
+
+    def _build(self) -> None:
+        cfg = ttk.LabelFrame(self, text="连接与序列配置")
+        cfg.pack(fill="x", padx=8, pady=8)
+        fields = [("端口", self.port), ("计划", self.plan), ("状态编码", self.codes),
+                  ("建立 µs", self.settle), ("完成脉冲 µs", self.pulse)]
+        for col, (label, var) in enumerate(fields):
+            ttk.Label(cfg, text=label).grid(row=0, column=col, padx=4, pady=3)
+            ttk.Entry(cfg, textvariable=var, width=16).grid(row=1, column=col, padx=4)
+        ttk.Label(cfg, text="后端").grid(row=2, column=4, padx=4, pady=3)
+        ttk.Combobox(cfg, textvariable=self.backend, values=["Serial", "USB TMC"], state="readonly", width=13).grid(row=3, column=4, padx=4)
+        ttk.Label(cfg, text="输入").grid(row=2, column=0, padx=4, pady=3)
+        ttk.Combobox(cfg, textvariable=self.source, values=["BUS", "IN1", "IN2", "IN3", "IN4"], width=13).grid(row=3, column=0, padx=4)
+        ttk.Label(cfg, text="边沿").grid(row=2, column=1, padx=4, pady=3)
+        ttk.Combobox(cfg, textvariable=self.edge, values=["RIS", "FALL"], width=13).grid(row=3, column=1, padx=4)
+        ttk.Button(cfg, text="连接/配置", command=self.configure).grid(row=3, column=4, padx=8)
+
+        ctl = ttk.LabelFrame(self, text="控制")
+        ctl.pack(fill="x", padx=8, pady=4)
+        for text, command in [("启动", "TRIG:START"), ("软件单步", "TRIG:SEQ:STEP"),
+                              ("NEXT", "CONF:SEQ:NEXT"), ("暂停", "TRIG:PAUS"),
+                              ("继续", "TRIG:CONT"), ("停止", "TRIG:STOP")]:
+            ttk.Button(ctl, text=text, command=lambda c=command: self.command(c)).pack(side="left", padx=4, pady=6)
+        ttk.Button(ctl, text="刷新状态", command=lambda: self.command("READ:SEQ:NEXT?")).pack(side="left", padx=12)
+        ttk.Label(ctl, textvariable=self.status).pack(side="right", padx=8)
+
+        self.output = ScrolledText(self, height=22, state="disabled", font=("Consolas", 10))
+        self.output.pack(fill="both", expand=True, padx=8, pady=8)
+
+    def log(self, text: str) -> None:
+        self.output.configure(state="normal")
+        self.output.insert("end", text + "\n")
+        self.output.see("end")
+        self.output.configure(state="disabled")
+
+    def run_commands(self, commands: list[str]) -> None:
+        try:
+            if self.backend.get() == "USB TMC":
+                try:
+                    import pyvisa
+                except ImportError as exc:
+                    raise RuntimeError("USB TMC 需要安装 pyvisa（例如: uv pip install pyvisa）") from exc
+                rm = pyvisa.ResourceManager()
+                instrument = rm.open_resource(self.port.get())
+                instrument.timeout = 2000
+                try:
+                    for command in commands:
+                        instrument.write(command)
+                        response = instrument.query(command) if "?" in command.split(maxsplit=1)[0] else "OK"
+                        self.after(0, self.log, f"> {command}\n< {response.strip()}")
+                        self.after(0, self.status.set, response.strip())
+                finally:
+                    instrument.close()
+                    rm.close()
+            else:
+                with open_serial_port(self.port.get(), 115200, 2, .2, read_timeout_s=.2) as ser:
+                    for command in commands:
+                        response = send_command(ser, command, 2)
+                        self.after(0, self.log, f"> {command}\n< {response}")
+                        self.after(0, self.status.set, response)
+        except Exception as exc:
+            self.after(0, self.log, f"错误: {exc}")
+            self.after(0, self.status.set, "连接错误")
+
+    def command(self, command: str) -> None:
+        threading.Thread(target=self.run_commands, args=([command],), daemon=True).start()
+
+    def configure(self) -> None:
+        try:
+            codes = [int(x.strip()) for x in self.codes.get().split(",") if x.strip()]
+            commands = ["TRIG:STOP", f"CONF:TRIG {len(codes)},0,1,1",
+                        f"CONF:SEQ {self.plan.get()}," + ",".join(map(str, codes)),
+                        f"CONF:SEQ:ACT {self.plan.get()}",
+                        f"CONF:SEQ:IO 7,OUT4,{int(self.settle.get())},{int(self.pulse.get())}"]
+            commands += [f"CONF:SEQ:CODE {i},{code}" for i, code in enumerate(codes)]
+            commands += [f"CONF:SEQ:SOUR {self.source.get()},{self.edge.get()}", "READ:SEQ:NEXT?", "READ:IO:STAT?"]
+        except ValueError as exc:
+            self.log(f"配置错误: {exc}")
+            return
+        threading.Thread(target=self.run_commands, args=(commands,), daemon=True).start()
+
+
+if __name__ == "__main__":
+    SequenceUi().mainloop()

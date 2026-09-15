@@ -48,6 +48,28 @@ static void expect_resources_unowned(uint32_t resources)
     }
 }
 
+static void test_sma_bank_reservation(void)
+{
+    const uint32_t bank = RESOURCE_ARBITER_RESOURCE_SMA_GPIO;
+    const uint32_t calibration = bank | RESOURCE_ARBITER_RESOURCE_PIO0;
+    assert(resource_arbiter_init());
+    assert(resource_arbiter_acquire_owned(TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK, "flight"));
+    assert(resource_arbiter_acquire_owned(bank, "sequence"));
+    assert(!resource_arbiter_acquire_owned(bank, "legacy-sma"));
+    assert(!resource_arbiter_acquire_owned(calibration, "calibration"));
+    expect_resources_unowned(RESOURCE_ARBITER_RESOURCE_PIO0);
+    resource_arbiter_release_owned(bank, "calibration");
+    expect_resources_owned(bank, "sequence");
+    resource_arbiter_release_owned(bank, "sequence");
+    assert(resource_arbiter_acquire_owned(calibration, "calibration"));
+    assert(!resource_arbiter_acquire_owned(bank, "sequence"));
+    resource_arbiter_release_owned(calibration, "calibration");
+    resource_arbiter_release_owned(calibration, "calibration");
+    expect_resources_unowned(calibration);
+    expect_resources_owned(TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK, "flight");
+    resource_arbiter_release_owned(TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK, "flight");
+}
+
 static void test_directional_tdma_resources(void)
 {
     const uint32_t resources = TDMA_STATE_MACHINE_FLIGHT_RESOURCE_MASK;
@@ -71,6 +93,44 @@ static void test_directional_tdma_resources(void)
 
     resource_arbiter_release_owned(resources, flight_owner);
     expect_resources_unowned(resources);
+}
+
+static void test_sma_flash_ota_exclusion(void)
+{
+    const uint32_t sma = RESOURCE_ARBITER_RESOURCE_SMA_GPIO;
+    const uint32_t flash = RESOURCE_ARBITER_RESOURCE_FLASH;
+    assert(resource_arbiter_init());
+    assert(resource_arbiter_can_begin_ota());
+    assert(resource_arbiter_acquire_owned(sma, "sequence"));
+    assert(!resource_arbiter_can_begin_ota());
+    assert(!resource_arbiter_request_ota_admission());
+    assert(!resource_arbiter_acquire_owned(flash, "flash"));
+    expect_resources_owned(sma, "sequence");
+    expect_resources_unowned(flash);
+    resource_arbiter_release_owned(sma, "wrong-owner");
+    assert(!resource_arbiter_request_ota_admission());
+    resource_arbiter_release_owned(sma, "sequence");
+    assert(resource_arbiter_request_ota_admission());
+    assert(!resource_arbiter_acquire_owned(sma, "sequence"));
+    assert(resource_arbiter_acquire_owned(flash, "flash"));
+    assert(!resource_arbiter_acquire_owned(sma, "calibration"));
+    resource_arbiter_release_owned(flash, "flash");
+    assert(!resource_arbiter_acquire_owned(sma, "sequence"));
+    resource_arbiter_release_ota_admission();
+    assert(resource_arbiter_acquire_owned(sma, "calibration"));
+    assert(!resource_arbiter_acquire_owned(flash, "flash"));
+    resource_arbiter_release_owned(sma, "calibration");
+
+    assert(resource_arbiter_acquire_owned(flash, "flash"));
+    assert(!resource_arbiter_acquire_owned(sma, "sequence"));
+    resource_arbiter_release_ota_admission();
+    assert(!resource_arbiter_acquire_owned(sma, "sequence"));
+    resource_arbiter_release_owned(flash, "flash");
+    assert(resource_arbiter_acquire_owned(sma, "sequence"));
+    resource_arbiter_release_owned(sma, "sequence");
+    assert(!resource_arbiter_acquire_owned(sma | flash, "mixed"));
+    expect_resources_unowned(sma | flash);
+    assert(resource_arbiter_can_begin_ota());
 }
 
 static void test_tdma_rx_endpoint_contract(void)
@@ -634,6 +694,8 @@ static void test_sync_io_workspace_ownership(void)
 
 int main(void)
 {
+    test_sma_bank_reservation();
+    test_sma_flash_ota_exclusion();
     test_sync_io_workspace_ownership();
     tdma_state_machine_command_dma_contract_t command = tdma_state_machine_command_dma_contract();
     assert(tdma_state_machine_command_dma_contract_valid(&command));

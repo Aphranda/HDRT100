@@ -1,4 +1,5 @@
 #include "sync_io_mode_enc_count.h"
+#include "sync_io_sequence.h"
 
 #include <stddef.h>
 
@@ -79,7 +80,7 @@ bool sync_io_enc_count_dma_irq_service(uint32_t ints)
     return true;
 }
 
-bool sync_io_enc_count_arm(uint32_t target,
+static bool sync_io_enc_count_arm_unleased(uint32_t target,
                            uint32_t in_pin_base,
                            uint32_t output_pin)
 {
@@ -192,7 +193,7 @@ bool sync_io_enc_count_arm(uint32_t target,
     return true;
 }
 
-void sync_io_enc_count_disarm(void)
+static void sync_io_enc_count_disarm_unleased(void)
 {
     if (!s_enc.running) {
         return;
@@ -224,6 +225,21 @@ void sync_io_enc_count_disarm(void)
                        SYNC_IO_TRACE_INFO,
                        s_enc.fire_count,
                        s_enc.dma_restart_count);
+}
+
+bool sync_io_enc_count_arm(uint32_t target, uint32_t input_pin, uint32_t output_pin)
+{
+    if (!sync_io_sequence_legacy_begin()) return false;
+    const bool result = sync_io_enc_count_arm_unleased(target, input_pin, output_pin);
+    sync_io_sequence_legacy_end();
+    return result;
+}
+
+void sync_io_enc_count_disarm(void)
+{
+    if (!sync_io_sequence_legacy_begin()) return;
+    sync_io_enc_count_disarm_unleased();
+    sync_io_sequence_legacy_end();
 }
 
 uint32_t sync_io_enc_count_get_count(void)

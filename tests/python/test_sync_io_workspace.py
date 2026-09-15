@@ -256,6 +256,20 @@ static uint32_t sync_io_shared_workspace[SYNC_IO_SHARED_WORKSPACE_WORDS];
 static uint32_t s_phase_observer_words[SYNC_IO_MODEL_PULSE_WORDS_PER_ENTRY];
 static bool capture_running, manager_ok = true, s_wave_output_manager_active;
 static unsigned manager_starts;
+static bool lease_allowed = true, lease_held;
+static unsigned lease_acquired, lease_released;
+static bool sync_io_sequence_legacy_begin(void) {
+    assert(!lease_held);
+    if (!lease_allowed) return false;
+    lease_held = true;
+    ++lease_acquired;
+    return true;
+}
+static void sync_io_sequence_legacy_end(void) {
+    assert(lease_held);
+    lease_held = false;
+    ++lease_released;
+}
 static pio_program_t sync_model_sched_pulse_high_program, sync_model_sched_pulse_low_program;
 #define BOARD_SYNC_PIO_FAST (&fake_pio)
 #define BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM 1u
@@ -301,12 +315,14 @@ static void sync_io_model_pulse_schedule_disarm(void) {
     s_wave_output_manager_active = false;
 }
 static bool sync_io_wave_output_manager_start(sync_io_persona_id_t id) {
+    assert(lease_held);
     (void)id;
     ++manager_starts;
     s_wave_output_manager_active = manager_ok;
     return manager_ok;
 }
 '''
+    harness += function(source, "sync_io_pulse_schedule_arm_on_pin_unleased")
     harness += function(source, "sync_io_pulse_schedule_arm_on_pin_common")
     harness += r'''
 static bool arm(unsigned count, unsigned sm, unsigned high_ns) {
@@ -338,6 +354,15 @@ int main(void) {
     assert(s_model_pulse.words == sync_io_shared_workspace);
     assert(sync_io_shared_workspace[SYNC_IO_SHARED_WORKSPACE_WORDS-1u] == 5u);
     assert(sync_io_workspace_held_by(&s_model_pulse));
+    sync_io_model_pulse_t previous = s_model_pulse;
+    unsigned previous_starts = manager_starts;
+    lease_allowed = false;
+    assert(!arm(2u, BOARD_SYNC_PIO0_WAVE_OUTPUT_SM, 700u));
+    assert(memcmp(&previous, &s_model_pulse, sizeof(previous)) == 0);
+    assert(manager_starts == previous_starts);
+    assert(sync_io_shared_workspace[SYNC_IO_SHARED_WORKSPACE_WORDS-1u] == 5u);
+    assert(sync_io_workspace_held_by(&s_model_pulse));
+    lease_allowed = true;
     sync_io_model_pulse_schedule_disarm();
     assert(sync_io_workspace_claim(&capture));
     capture_running = true;
@@ -348,6 +373,7 @@ int main(void) {
     assert(sync_io_workspace_held_by(&capture));
     assert(!arm(2u, BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM, 500u));
     assert(sync_io_workspace_release(&capture));
+    assert(!lease_held && lease_acquired == lease_released);
     return 0;
 }
 '''

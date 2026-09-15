@@ -291,10 +291,17 @@ sma_cable_delay_pio_status_t sma_cable_delay_pio_open(
     s_persona.role = config->role;
     s_persona.timing = config->timing;
     s_persona.appointment_marker_pin = config->appointment_marker_pin;
-    s_persona.resource_mask = RESOURCE_ARBITER_RESOURCE_PIO0;
+    s_persona.resource_mask = RESOURCE_ARBITER_RESOURCE_PIO0 |
+                              RESOURCE_ARBITER_RESOURCE_SMA_GPIO;
     if (sma_cable_delay_pio_role_uses_dma(config->role)) {
         s_persona.resource_mask |= RESOURCE_ARBITER_RESOURCE_DMA;
     }
+    if (!resource_arbiter_acquire_owned(s_persona.resource_mask,
+                                        SMA_CABLE_DELAY_PIO_OWNER)) {
+        sma_cable_delay_pio_close();
+        return SMA_CABLE_DELAY_PIO_RESOURCE_CONFLICT;
+    }
+    s_persona.resources_owned = true;
     if (config->timing == SMA_CABLE_DELAY_PIO_TIMING_MARK_APPOINTMENT) {
         s_persona.trigger_sm =
             pio_claim_unused_sm(SMA_CABLE_DELAY_PIO_INSTANCE, false);
@@ -303,13 +310,6 @@ sma_cable_delay_pio_status_t sma_cable_delay_pio_open(
             return SMA_CABLE_DELAY_PIO_NO_STATE_MACHINE;
         }
     }
-
-    if (!resource_arbiter_acquire_owned(s_persona.resource_mask,
-                                        SMA_CABLE_DELAY_PIO_OWNER)) {
-        sma_cable_delay_pio_close();
-        return SMA_CABLE_DELAY_PIO_RESOURCE_CONFLICT;
-    }
-    s_persona.resources_owned = true;
 
     if (sma_cable_delay_pio_role_has_source(config->role)) {
         s_persona.source_sm =

@@ -1,4 +1,5 @@
 #include "sync_io.h"
+#include "sync_io_sequence.h"
 
 #include <string.h>
 
@@ -334,6 +335,12 @@ bool sync_io_core_wave_output_persona_active(void)
     return s_wave_output_manager_active;
 }
 
+bool sync_io_core_model_output_active(void)
+{
+    return s_model_pulse.running || s_model_pulse.persona_managed ||
+           s_model_pulse.total_pulses != 0u || s_model_pulse.offset != 0u;
+}
+
 static float sync_io_model_clkdiv_for_tick_rate(uint32_t tick_hz)
 {
     if (tick_hz == 0u) {
@@ -492,7 +499,7 @@ static void sync_io_model_update_completion(void)
     }
 }
 
-static bool sync_io_pulse_schedule_arm_on_pin_common(
+static bool sync_io_pulse_schedule_arm_on_pin_unleased(
     PIO pulse_pio,
     uint pulse_sm,
     uint pulse_dreq,
@@ -722,6 +729,21 @@ static bool sync_io_pulse_schedule_arm_on_pin_common(
     return true;
 }
 
+static bool sync_io_pulse_schedule_arm_on_pin_common(
+    PIO pio, uint sm, uint dreq, uint32_t pin, uint32_t trace_index,
+    const sync_io_model_pulse_entry_t *entries_us,
+    const sync_io_model_pulse_entry_ns_t *entries_ns,
+    uint32_t first_delay, uint64_t first_deadline, uint32_t period,
+    uint32_t high, uint32_t count, bool rising, uint32_t tick)
+{
+    if (!sync_io_sequence_legacy_begin()) return false;
+    const bool result = sync_io_pulse_schedule_arm_on_pin_unleased(
+        pio, sm, dreq, pin, trace_index, entries_us, entries_ns,
+        first_delay, first_deadline, period, high, count, rising, tick);
+    sync_io_sequence_legacy_end();
+    return result;
+}
+
 static bool sync_io_pulse_schedule_arm_on_pin(
     PIO pulse_pio,
     uint pulse_sm,
@@ -916,7 +938,7 @@ bool sync_io_sma_observer_pulse_schedule_arm_periodic_at_ns(
         tick_period_ns);
 }
 
-void sync_io_model_pulse_schedule_disarm(void)
+static void sync_io_model_pulse_schedule_disarm_unleased(void)
 {
     if (s_model_pulse.persona_managed) {
         const uint32_t completed = s_model_pulse.completed_pulses;
@@ -963,6 +985,13 @@ void sync_io_model_pulse_schedule_disarm(void)
 
     (void)sync_io_workspace_release(&s_model_pulse);
     memset(&s_model_pulse, 0, sizeof(s_model_pulse));
+}
+
+void sync_io_model_pulse_schedule_disarm(void)
+{
+    if (!sync_io_sequence_legacy_begin()) return;
+    sync_io_model_pulse_schedule_disarm_unleased();
+    sync_io_sequence_legacy_end();
 }
 
 bool sync_io_model_pulse_schedule_is_running(void)

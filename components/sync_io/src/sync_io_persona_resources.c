@@ -178,6 +178,26 @@ static const sync_io_persona_descriptor_t s_sync_io_personas[] = {
                              SYNC_IO_MAIN_OUTPUT_GPIO_MASK |
                              SYNC_IO_TDMA_PAD_GPIO_MASK,
     },
+    {
+        .id = SYNC_IO_PERSONA_ID_SEQUENCE,
+        .name = "sequence",
+        .program_name = "sequence_ingress_executor_counter",
+        .implementation = SYNC_IO_PERSONA_IMPLEMENTATION_CURRENT,
+        .flags = SYNC_IO_PERSONA_FLAG_RESTORE_GPIO,
+        .pio_block_id = BOARD_TDMA_SMA_PIO_BLOCK_ID,
+        .instruction_words = SYNC_IO_SEQUENCE_INSTRUCTION_WORDS,
+        .dma_channel_count = 4u,
+        .sm_mask = 0x0Eu,
+        .gpio_read_mask = SYNC_IO_MAIN_INPUT_GPIO_MASK,
+        .gpio_write_mask = SYNC_IO_MAIN_OUTPUT_GPIO_MASK,
+        .rx_fifo_sm_mask = 0x0Cu,
+        .tx_fifo_sm_mask = 0x04u,
+        .dma_channel_mask = SYNC_IO_PERSONA_DMA_CHANNEL_MASK & ~0x01F8u,
+        .rx_dreq_sm_mask = 0x0Cu,
+        .tx_dreq_sm_mask = 0x04u,
+        .safe_low_gpio_mask = SYNC_IO_MAIN_OUTPUT_GPIO_MASK,
+        .restore_gpio_mask = SYNC_IO_MAIN_OUTPUT_GPIO_MASK,
+    },
 };
 
 static uint32_t sync_io_persona_popcount(uint32_t value)

@@ -215,7 +215,7 @@ bool resource_arbiter_can_begin_ota(void)
               !s_resource_arbiter.snapshot.calibration_training_active &&
               !resource_arbiter_tdma_clock_training_active_locked() &&
               ((s_resource_arbiter.snapshot.active_resources &
-                RESOURCE_ARBITER_RESOURCE_FLASH) == 0u) &&
+                (RESOURCE_ARBITER_RESOURCE_FLASH | RESOURCE_ARBITER_RESOURCE_SMA_GPIO)) == 0u) &&
               s_resource_arbiter.snapshot.mode != RESOURCE_ARBITER_MODE_FAULT;
     osal_critical_exit();
 
@@ -239,7 +239,8 @@ bool resource_arbiter_request_ota_admission(void)
               !snapshot->calibration_training_active &&
               !resource_arbiter_tdma_clock_training_active_locked() &&
               snapshot->mode != RESOURCE_ARBITER_MODE_FAULT &&
-              (snapshot->active_resources & RESOURCE_ARBITER_RESOURCE_FLASH) == 0u;
+              (snapshot->active_resources &
+               (RESOURCE_ARBITER_RESOURCE_FLASH | RESOURCE_ARBITER_RESOURCE_SMA_GPIO)) == 0u;
     if (allowed) {
         s_resource_arbiter.ota_admission_active = true;
         s_resource_arbiter.snapshot.mode = RESOURCE_ARBITER_MODE_OTA;
@@ -292,6 +293,28 @@ bool resource_arbiter_acquire_owned(uint32_t resources, const char *owner)
     osal_critical_enter();
     if (!s_resource_arbiter.initialized) {
         resource_arbiter_reset_locked();
+    }
+
+    /* GPIO sequences depend on live Core1 timer IRQs. Flash parking and OTA
+     * admission must exclude their lease in both acquisition orders. */
+    const uint32_t flash = RESOURCE_ARBITER_RESOURCE_FLASH;
+    const uint32_t sma = RESOURCE_ARBITER_RESOURCE_SMA_GPIO;
+    const uint32_t active = s_resource_arbiter.snapshot.active_resources;
+    const bool mixed_request = (resources & (flash | sma)) == (flash | sma);
+    const bool flash_vs_sma = (resources & flash) != 0u && (active & sma) != 0u;
+    const bool sma_vs_flash = (resources & sma) != 0u && (active & flash) != 0u;
+    const bool sma_vs_ota = (resources & sma) != 0u &&
+        (s_resource_arbiter.ota_admission_active ||
+         s_resource_arbiter.snapshot.mode == RESOURCE_ARBITER_MODE_OTA);
+    if (mixed_request || flash_vs_sma || sma_vs_flash || sma_vs_ota) {
+        const uint32_t conflict = mixed_request ? flash | sma : flash_vs_sma ? sma : flash;
+        s_resource_arbiter.snapshot.last_conflict_resources = conflict;
+        s_resource_arbiter.snapshot.last_conflict_owner = owner;
+        s_resource_arbiter.snapshot.last_conflict_holder = mixed_request ?
+            "FLASH_SMA_EXCLUSION" : sma_vs_ota && !sma_vs_flash ?
+            "OTA_ADMISSION" : resource_arbiter_first_owner_locked(conflict);
+        osal_critical_exit();
+        return false;
     }
 
     /* FlashTransaction checks policy before its ACQUIRE state. A training

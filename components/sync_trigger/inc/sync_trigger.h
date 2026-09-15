@@ -66,6 +66,7 @@ bool sync_trigger_post_event(const sync_trigger_event_t *event);
 bool sync_trigger_post(const trig_event_t *event);
 
 void sync_trigger_service(void);
+bool sync_trigger_sequence_can_start(void);
 
 /* 快照查询 */
 void sync_trigger_get_summary(sync_trigger_summary_t *summary);

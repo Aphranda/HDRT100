@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from tools.state_machine_resource_check import state_machine_resource_check
 
 
@@ -733,6 +735,48 @@ def test_sync_io_static_gate_rejects_schedule_replacement_before_disarm(
         "schedule, bind the shared workspace, then start the PIO0 persona"
         in failures
     )
+
+
+@pytest.mark.parametrize("source_name,wrapper,implementation", [
+    ("sync_io_model_sched.c", "sync_io_pulse_schedule_arm_on_pin_common",
+     "sync_io_pulse_schedule_arm_on_pin_unleased"),
+    ("sync_io_model_sched.c", "sync_io_model_pulse_schedule_disarm",
+     "sync_io_model_pulse_schedule_disarm_unleased"),
+    ("sync_io.c", "sync_io_debug_set_output_mask", "sync_io_debug_set_output_mask_unleased"),
+    ("sync_io.c", "sync_io_debug_release_output_mask", "sync_io_debug_release_output_mask_unleased"),
+    ("sync_io.c", "sync_io_sma_frequency_tx_start", "sync_io_sma_frequency_tx_start_unleased"),
+    ("sync_io.c", "sync_io_sma_frequency_tx_stop", "sync_io_sma_frequency_tx_stop_unleased"),
+    ("sync_io.c", "sync_io_sma_frequency_rx_measure", "sync_io_sma_frequency_rx_measure_unleased"),
+])
+@pytest.mark.parametrize("mutation", ["no_guard", "no_release", "early_release", "bypass"])
+def test_sync_io_static_gate_requires_sma_lease(
+    tmp_path: Path, source_name: str, wrapper: str, implementation: str,
+    mutation: str,
+) -> None:
+    source = (ROOT / "components/sync_io/src" / source_name).read_text(encoding="utf-8")
+    body = state_machine_resource_check.c_definition_body(source, wrapper)
+    if mutation == "no_guard":
+        changed = body.replace("!sync_io_sequence_legacy_begin()", "false", 1)
+    elif mutation == "no_release":
+        changed = body.replace("sync_io_sequence_legacy_end();", "", 1)
+    elif mutation == "early_release":
+        changed = "sync_io_sequence_legacy_end();\n" + body.replace(
+            "sync_io_sequence_legacy_end();", "", 1)
+    else:
+        changed = body
+        source += f"\nvoid bypass(void) {{ {implementation}(); }}\n"
+    assert changed != body or mutation == "bypass"
+    path = tmp_path / source_name
+    path.write_text(source.replace(body, changed, 1), encoding="utf-8")
+    kwargs = {"sync_model" if source_name == "sync_io_model_sched.c" else "sync_core": path}
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        ROOT / "components/tdma/src/tdma_pio_spi.pio", **kwargs,
+    )
+    expected = (f"{implementation} must only be called by its leased wrapper"
+                if mutation == "bypass"
+                else f"{wrapper} must guard its implementation with the SMA lease")
+    assert expected in failures
 
 
 def test_persona_resource_transfer_is_quiesced_and_rollback_is_owned() -> None:

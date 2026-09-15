@@ -12,6 +12,7 @@
 #include "sync_io.h"
 #include "trigger_fb.h"
 #include "trigger_resource_map.h"
+#include "trigger_sequence_service.h"
 
 #define SYNC_TRIGGER_QUEUE_LENGTH  16u
 #define TRIG_TRACE_DOMAIN_TRIGGER  2u
@@ -466,6 +467,10 @@ static bool ao_enqueue(const trig_event_t *event)
     if (event == NULL) {
         return false;
     }
+    if (trigger_sequence_service_is_active()) {
+        return event->type == TRIG_EVENT_RESET &&
+            trigger_sequence_service_stop() == TRIGGER_SEQUENCE_SERVICE_OK;
+    }
 
     s_sync_debug_stage = 10u;
     s_sync_debug_event_type = (uint32_t)event->type;
@@ -548,6 +553,7 @@ static void ao_refresh_from_io(void)
 
 bool sync_trigger_init(void)
 {
+    trigger_sequence_service_init();
     memset(&s_ao, 0, sizeof(s_ao));
     lock_init(&s_ao.queue.core, next_striped_spin_lock_num());
     s_ao.queue.data = (uint8_t *)s_ao.queue_storage;
@@ -604,6 +610,7 @@ bool sync_trigger_post(const trig_event_t *event)
 
 void sync_trigger_service(void)
 {
+    if (trigger_sequence_service_is_active()) return;
     trig_event_t event;
     if (!queue_try_remove(&s_ao.queue, &event)) {
         const bool runtime_monitoring =
@@ -667,6 +674,14 @@ void sync_trigger_get_summary(sync_trigger_summary_t *summary)
     osal_critical_enter();
     *summary = s_ao.vector;
     osal_critical_exit();
+}
+
+bool sync_trigger_sequence_can_start(void)
+{
+    osal_critical_enter();
+    const bool idle = s_ao.vector.state == TRIG_STATE_IDLE;
+    osal_critical_exit();
+    return idle && queue_is_empty(&s_ao.queue);
 }
 
 void sync_trigger_get_status(sync_trigger_status_t *status)

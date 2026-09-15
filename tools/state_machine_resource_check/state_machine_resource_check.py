@@ -142,6 +142,30 @@ def _sync_require_tokens(
             failures.append(f"{label} contains forbidden {token}")
 
 
+def _sync_leased_body(
+    text: str, wrapper: str, implementation: str, failures: list[str],
+) -> str:
+    body = c_definition_body(text, wrapper)
+    implementation_body = c_definition_body(text, implementation)
+    # These deliberately small wrappers must keep every mutation inside the lease.
+    compact = re.sub(r"/\*.*?\*/|//[^\n]*", "", body, flags=re.DOTALL)
+    compact = re.sub(r"\s+", "", compact)
+    guard = r"if\(!sync_io_sequence_legacy_begin\(\)\)"
+    call = re.escape(implementation) + r"\([^;{}]*\);"
+    boolean_wrapper = (
+        guard + r"returnfalse;constbool(?P<result>[A-Za-z_]\w*)="
+        + call + r"sync_io_sequence_legacy_end\(\);return(?P=result);"
+    )
+    void_wrapper = guard + r"return;" + call + r"sync_io_sequence_legacy_end\(\);"
+    if not (re.fullmatch(boolean_wrapper, compact)
+            or re.fullmatch(void_wrapper, compact)):
+        failures.append(f"{wrapper} must guard its implementation with the SMA lease")
+    # One private definition and one call from the guarded wrapper are permitted.
+    if len(re.findall(rf"\b{re.escape(implementation)}\b", text)) != 2:
+        failures.append(f"{implementation} must only be called by its leased wrapper")
+    return implementation_body
+
+
 def check_sync_io_runtime(
     model_text: str,
     core_text: str,
@@ -180,16 +204,27 @@ def check_sync_io_runtime(
             model_text, "sync_io_output_pulse_schedule_arm_ns")
         observer_arm = c_definition_body(
             model_text, "sync_io_sma_observer_pulse_schedule_arm_periodic_ns")
-        arm_common = c_function_body(
-            model_text, "sync_io_pulse_schedule_arm_on_pin_common")
+        arm_common = _sync_leased_body(
+            model_text, "sync_io_pulse_schedule_arm_on_pin_common",
+            "sync_io_pulse_schedule_arm_on_pin_unleased", failures)
         manager_start = c_function_body(
             model_text, "sync_io_wave_output_manager_start")
         manager_release = c_function_body(
             model_text, "sync_io_wave_output_manager_release")
         capture_start = c_function_body(core_text, "sync_io_start_capture")
-        debug_output = c_function_body(core_text, "sync_io_debug_set_output_mask")
-        frequency_start = c_function_body(
-            core_text, "sync_io_sma_frequency_tx_start")
+        debug_output = _sync_leased_body(
+            core_text, "sync_io_debug_set_output_mask",
+            "sync_io_debug_set_output_mask_unleased", failures)
+        frequency_start = _sync_leased_body(
+            core_text, "sync_io_sma_frequency_tx_start",
+            "sync_io_sma_frequency_tx_start_unleased", failures)
+        for text, name in (
+            (core_text, "sync_io_debug_release_output_mask"),
+            (core_text, "sync_io_sma_frequency_tx_stop"),
+            (core_text, "sync_io_sma_frequency_rx_measure"),
+            (model_text, "sync_io_model_pulse_schedule_disarm"),
+        ):
+            _sync_leased_body(text, name, name + "_unleased", failures)
     except ValueError as exc:
         failures.append(str(exc))
         return failures

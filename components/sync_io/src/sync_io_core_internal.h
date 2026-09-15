@@ -72,6 +72,7 @@ void sync_io_core_trace(sync_io_trace_event_t event_id,
 bool sync_io_core_initialized(void);
 bool sync_io_core_capture_is_running(void);
 bool sync_io_core_wave_output_persona_active(void);
+bool sync_io_core_model_output_active(void);
 bool sync_io_core_sm_is_enabled(PIO pio, uint sm);
 uint32_t sync_io_core_pack_runtime_flags(bool running,
                                          bool pio_enabled,

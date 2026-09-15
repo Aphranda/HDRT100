@@ -1,0 +1,61 @@
+.pio_version 1
+
+; STATUS reads this block's READY IRQ. Rejected edges are never queued.
+.program sequence_ingress
+.wrap_target
+public inactive:
+    wait 0 pin 0
+public active:
+    wait 1 pin 0
+public observed:
+    mov x, status
+public decide:
+    jmp !x inactive
+public admitted:
+    irq clear 4
+public request:
+    irq set 5
+.wrap
+
+; Each triple is {code and index tag, settle countdown, pulse countdown}.
+; OUT and SET have independent pin bases; SET owns only the completion pad.
+.program sequence_executor
+.wrap_target
+    pull block
+    mov y, osr
+    pull block
+    mov x, osr
+    pull block
+    irq set 4
+public waiting:
+    wait 1 irq 5
+public writing:
+    mov pins, y
+    mov isr, y
+public written:
+    push block
+public settling:
+    jmp x-- settling
+    set pins, 1
+    mov x, osr
+public pulsing:
+    jmp x-- pulsing
+    set pins, 0
+    mov isr, ~y
+public completed:
+    push block
+.wrap
+
+; X starts at all ones. Lost FIFO snapshots do not lose cumulative edges.
+.program sequence_counter
+.wrap_target
+public inactive:
+    wait 0 pin 0
+public active:
+    wait 1 pin 0
+public observed:
+    jmp x-- counted
+public counted:
+    mov isr, ~x
+    push noblock
+.wrap

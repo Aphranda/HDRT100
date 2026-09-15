@@ -26,6 +26,7 @@
 #include "storage_manager.h"
 #include "system_manager.h"
 #include "sync_trigger.h"
+#include "trigger_sequence_service.h"
 #include "tdma_runtime_owner.h"
 #include "tdma_service_timing.h"
 #include "sync_io.h"
@@ -805,6 +806,9 @@ static void app_realtime_tdma_phase(void)
     uint64_t timing_start = tdma_service_timing_now();
     sync_io_logic_analyzer_service_core1(8u);
     tdma_service_timing_record(TDMA_TIMING_ANALYZER, timing_start);
+    /* Mandatory intent processing follows TDMA and remains inside the
+     * measured phase, independent of optional Trigger load quarantine. */
+    trigger_sequence_service_service();
     timing_start = tdma_service_timing_now();
     drv_watchdog_mark_progress(1u, 0x0101u);
     diagnostics_record_core1_loop();
@@ -871,6 +875,7 @@ void app_realtime_run_once(void)
      * it outside the TDMA realtime phase/load-mask contract and advance one
      * bounded transition per core1 cycle. */
     if (calibration_manager_p3_offline_active_core1()) {
+        trigger_sequence_service_service();
         calibration_manager_p3_service_core1();
         drv_watchdog_mark_progress(1u, 0x0104u);
         diagnostics_record_core1_loop();
@@ -894,6 +899,7 @@ void app_realtime_run_once(void)
      * than the optional online snapshot phase, but they cannot perturb a
      * running short-frame cycle or be hidden by its quarantine mechanism. */
     if (calibration_manager_training_offline_active_core1()) {
+        trigger_sequence_service_service();
         calibration_manager_service_core1();
         drv_watchdog_mark_progress(1u, 0x0104u);
         diagnostics_record_core1_loop();

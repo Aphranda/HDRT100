@@ -1,4 +1,5 @@
 #include "sync_io.h"
+#include "sync_io_sequence.h"
 
 #include <assert.h>
 #include <string.h>
@@ -1342,7 +1343,7 @@ bool sync_io_fire_rj45_trigger_us(uint32_t high_us)
 #endif
 }
 
-bool sync_io_debug_set_output_mask(uint32_t mask)
+static bool sync_io_debug_set_output_mask_unleased(uint32_t mask)
 {
     if (!s_sync_io.initialized ||
         sync_io_core_wave_output_persona_active()) {
@@ -1362,7 +1363,7 @@ bool sync_io_debug_set_output_mask(uint32_t mask)
     return true;
 }
 
-void sync_io_debug_release_output_mask(void)
+static void sync_io_debug_release_output_mask_unleased(void)
 {
     if (!s_sync_io.initialized ||
         sync_io_core_wave_output_persona_active()) {
@@ -1452,7 +1453,7 @@ static bool sync_io_sma_frequency_choose_pwm(uint32_t frequency_hz,
     return true;
 }
 
-void sync_io_sma_frequency_tx_stop(void)
+static void sync_io_sma_frequency_tx_stop_unleased(void)
 {
     if (!s_sma_frequency_tx.running) {
         return;
@@ -1468,7 +1469,7 @@ void sync_io_sma_frequency_tx_stop(void)
     sync_io_debug_release_output_mask();
 }
 
-bool sync_io_sma_frequency_tx_start(
+static bool sync_io_sma_frequency_tx_start_unleased(
     uint32_t output_channel,
     uint32_t frequency_hz,
     sync_io_sma_frequency_tx_status_t *status)
@@ -1539,7 +1540,7 @@ void sync_io_sma_frequency_tx_get_status(
     }
 }
 
-bool sync_io_sma_frequency_rx_measure(
+static bool sync_io_sma_frequency_rx_measure_unleased(
     uint32_t input_channel,
     uint32_t gate_us,
     sync_io_sma_frequency_rx_result_t *result)
@@ -1600,6 +1601,46 @@ bool sync_io_sma_frequency_rx_measure(
         ((uint64_t)edge_count * 1000000ull + elapsed_us / 2ull) /
         elapsed_us);
     return true;
+}
+
+bool sync_io_debug_set_output_mask(uint32_t mask)
+{
+    if (!sync_io_sequence_legacy_begin()) return false;
+    const bool result = sync_io_debug_set_output_mask_unleased(mask);
+    sync_io_sequence_legacy_end();
+    return result;
+}
+
+void sync_io_debug_release_output_mask(void)
+{
+    if (!sync_io_sequence_legacy_begin()) return;
+    sync_io_debug_release_output_mask_unleased();
+    sync_io_sequence_legacy_end();
+}
+
+void sync_io_sma_frequency_tx_stop(void)
+{
+    if (!sync_io_sequence_legacy_begin()) return;
+    sync_io_sma_frequency_tx_stop_unleased();
+    sync_io_sequence_legacy_end();
+}
+
+bool sync_io_sma_frequency_tx_start(uint32_t channel, uint32_t hz,
+                                   sync_io_sma_frequency_tx_status_t *status)
+{
+    if (!sync_io_sequence_legacy_begin()) return false;
+    const bool result = sync_io_sma_frequency_tx_start_unleased(channel, hz, status);
+    sync_io_sequence_legacy_end();
+    return result;
+}
+
+bool sync_io_sma_frequency_rx_measure(uint32_t channel, uint32_t gate_us,
+                                     sync_io_sma_frequency_rx_result_t *result)
+{
+    if (!sync_io_sequence_legacy_begin()) return false;
+    const bool success = sync_io_sma_frequency_rx_measure_unleased(channel, gate_us, result);
+    sync_io_sequence_legacy_end();
+    return success;
 }
 
 bool sync_io_debug_model_set_output_mask(uint32_t enable_mask, uint32_t value_mask)

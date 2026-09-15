@@ -517,10 +517,13 @@ set(PROJECT_APP_SOURCES
         components/sync_trigger/src/biss_node_io.c
         components/sync_trigger/src/biss_protocol.c
         components/sync_trigger/src/sync_trigger.c
+        components/sync_trigger/src/trigger_sequence_config.c
+        components/sync_trigger/src/trigger_sequence_service.c
         components/sync_trigger/src/trigger_fb.c
         components/sync_trigger/src/trigger_measure.c
         components/sync_trigger/src/trigger_resource_map.c
         components/sync_io/src/sync_io.c
+        components/sync_io/src/sync_io_sequence.c
         components/sync_io/src/sync_io_logic_analyzer.c
         components/sync_io/src/sync_io_analyzer_burst.c
         components/sync_io/src/sync_io_model_sched.c
@@ -592,6 +595,7 @@ set(PROJECT_APP_SOURCES
         components/communication/rs485_modbus/src/rs485_modbus.c
         components/communication/rs485_modbus/src/rs485_communication.c
         middleware/scpi_port/src/scpi_config_commands.c
+        middleware/scpi_port/src/scpi_sequence_commands.c
         middleware/scpi_port/src/scpi_port.c
         middleware/scpi_port/src/scpi_loop_engine_commands.c
         middleware/scpi_port/src/scpi_measure_commands.c
@@ -669,6 +673,7 @@ function(project_configure_app_target target_name app_name linker_script)
     pico_set_program_version(${target_name} "0.1.0")
 
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/sync_io.pio)
+    pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/sync_io_sequence.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/seq_step.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/enc_count.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/biss_tap_rx.pio)
@@ -752,6 +757,8 @@ function(project_configure_app_target target_name app_name linker_script)
     )
 
     target_compile_definitions(${target_name} PRIVATE
+        # USB device/stdio and RS485 UART/DMA use four slots; sequence GPIO uses one.
+        PICO_MAX_SHARED_IRQ_HANDLERS=5
         PROJECT_ENABLE_USB_STDIO=$<BOOL:${PROJECT_EFFECTIVE_USB_STDIO}>
         PROJECT_ENABLE_USBTMC=$<BOOL:${PROJECT_ENABLE_USBTMC}>
         PROJECT_ENABLE_USB_RUNTIME_SWITCH=$<BOOL:${PROJECT_ENABLE_USB_RUNTIME_SWITCH}>

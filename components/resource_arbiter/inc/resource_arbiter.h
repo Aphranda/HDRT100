@@ -38,6 +38,7 @@ typedef enum {
     RESOURCE_ARBITER_RESOURCE_TDMA_DREQ = 1u << 16,
     RESOURCE_ARBITER_RESOURCE_TDMA_DMA_EXECUTOR = 1u << 17,
     RESOURCE_ARBITER_RESOURCE_DMA_SNIFFER = 1u << 18,
+    RESOURCE_ARBITER_RESOURCE_SMA_GPIO = 1u << 19,
 } resource_arbiter_resource_t;
 
 typedef struct {

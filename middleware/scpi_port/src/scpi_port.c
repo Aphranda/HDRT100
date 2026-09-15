@@ -36,6 +36,8 @@
 #include "scpi_system_snapshot_commands.h"
 #include "scpi_tdma_commands.h"
 #include "scpi_trigger_commands.h"
+#include "scpi_sequence_commands.h"
+#include "trigger_sequence_service.h"
 #include "scpi_usb_control.h"
 #include "sync_trigger.h"
 
@@ -197,6 +199,10 @@ static scpi_result_t scpi_port_control(scpi_t *context, scpi_ctrl_name_t ctrl, s
 static scpi_result_t scpi_port_reset(scpi_t *context)
 {
     (void)context;
+    if (trigger_sequence_service_is_active()) {
+        return trigger_sequence_service_stop() == TRIGGER_SEQUENCE_SERVICE_OK
+            ? SCPI_RES_OK : SCPI_RES_ERR;
+    }
     const sync_trigger_event_t event = {
         .type = SYNC_TRIGGER_EVENT_RESET,
     };
@@ -255,7 +261,7 @@ void scpi_port_push_exec_error(scpi_t *context, const char *info)
 
 bool scpi_port_reject_if_run_forbidden(scpi_t *context, uint32_t class_id)
 {
-    if (!scpi_port_trigger_is_armed()) {
+    if (!scpi_port_trigger_is_armed() && !trigger_sequence_service_is_active()) {
         return false;
     }
 
@@ -349,6 +355,7 @@ static const scpi_command_t s_scpi_commands[] = {
     SCPI_CALIBRATION_COMMANDS,
     SCPI_SYNC_COMMANDS,
     SCPI_TRIGGER_COMMANDS,
+    SCPI_SEQUENCE_COMMANDS,
     SCPI_REALTIME_COMPONENT_COMMANDS,
     SCPI_COMMUNICATION_BISS_COMMANDS,
     SCPI_COMMUNICATION_UART_COMMANDS,

@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/README.md`
 Related: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-09-14
+Last updated: 2026-09-15
 
 本文档是 `docs/` 的总入口。新文档的命名、层级、元数据和迁移规则以
 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
@@ -57,6 +57,7 @@ docs/
 | `arch/` | `arch/README.md` | 产品架构、HAOFV、RTOS 和分布式总纲 |
 | `interface/` | `interface/README.md` | SCPI、USB、USBTMC、命令表和上位机接口 |
 | `trigger/` | `trigger/README.md` | 产品触发、序列、角度、core1 实时执行 |
+| `trigger/sequence/` | `trigger/sequence/TRIGGER_SEQUENCE_ARCHITECTURE.md` | 单节点序列触发：配置、指令切步、IN1-IN4 与实际 IO 读取 |
 | `sync/` | `sync/README.md` | SYNC 动作、SYNC_IO、同步链路和硬实时 IO 落地 |
 | `calibration/` | `calibration/README.md` | CAL link、delay、参数、版本和质量 |
 | `tdma/` | `tdma/README.md` | 上行/下行 TDMA、payload registry、adapter、ring runtime 和 completion evidence 基础件 |
@@ -93,6 +94,7 @@ docs/
 | STATE_MACHINE | `state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md` | 状态机与底层实时资源域，定义 PIO SM、DMA/FIFO、上下行控制和资源仲裁边界。 |
 | WATCHDOG | `watchdog/ARCH_WATCHDOG_ARCHITECTURE.md` | Watchdog 硬件适配、唯一 feed owner、健康门禁、复位证据和 OTA/Flash 故障定位边界。 |
 | TRIGGER | `trigger/TRIGGER_SYNC_TODO.md` | 触发业务模式、生产化缺口和跨模式待办入口。 |
+| TRIGGER/SEQUENCE | `trigger/sequence/TRIGGER_SEQUENCE_ARCHITECTURE.md` | 单节点序列触发草案、SCPI、编码输出与完成脉冲边界。 |
 | BISSC | `communication/BISSC_TAP_BRIDGE_DESIGN.md` | BiSS-C 协议、TAP bridge、固件 persona 和验证边界入口。 |
 | OTA | `ota/OTA_HAOFV_ARCHITECTURE.md` | OTA 域 owner、OtaAO/OtaFB/OtaVector、BCB selection 和 Boot 交接；跨域 Flash 语义服从 `arch/HAOFV_FLASH_ARCHITECTURE.md`。 |
 | SD | `storage/SD_TODO.md` | SD、StorageAO、System Pack、快照和持久化观测入口。 |
@@ -109,6 +111,7 @@ docs/
 | RTOS | `arch/RTOS_HAOFV_TASK_PROGRESS.md` | RTOS / 双核 / 分布式触发任务闭环记录写入本文件。 |
 | Flash | `arch/HAOFV_FLASH_TASK_PROGRESS.md` | FlashMap、事务 owner、store、Boot/OTA 迁移和 HIL checkpoint 写入本文件。 |
 | SCPI | `interface/SCPI_TASK_PROGRESS.md` | SCPI 指令框架、验证脚本和接口拆分闭环记录写入本文件。 |
+| TRIGGER/SEQUENCE | `trigger/sequence/TRIGGER_SEQUENCE_TASK_PROGRESS.md` | 单节点配置、软件切步、IO 读回与外部输入验收证据。 |
 | SD | `storage/SD_TASK_PROGRESS.md` | SD / StorageAO / System Pack 新任务记录写入本文件。 |
 | Documentation | `docs/docs/DOCS_MIGRATION_TODO.md` | 文档治理和迁移记录写入本文档体系待办。 |
 | TDMA | `tdma/TDMA_TASK_PROGRESS.md` | TDMA 基础件、上/下行 runtime、adapter 和环路闭环验证记录写入本文件。 |
@@ -240,6 +243,9 @@ docs/
 | `trigger/TRIGGER_SYNC_TODO.md` | 触发系统生产化待办。 |
 | `trigger/TRIGGER_FOUR_BOARD_DISTRIBUTED_PLAN.md` | RP2350B 四板分布式触发方案。 |
 | `trigger/TRIGGER_SEQ_STEP_DESIGN.md` | 序列步进触发模式设计。 |
+| `trigger/sequence/TRIGGER_SEQUENCE_ARCHITECTURE.md` | 单节点序列触发草案，RP1200 SCPI 配置、编码及完成脉冲、真实 IO 查询。 |
+| `trigger/sequence/TRIGGER_SEQUENCE_TODO.md` | 节点序列专项分阶段任务、状态和退出门禁。 |
+| `trigger/sequence/TRIGGER_SEQUENCE_TASK_PROGRESS.md` | 节点序列源码审计、验证、构建、硬件证据与失败记录。 |
 | `trigger/TRIGGER_ENC_COUNT_DESIGN.md` | 编码器计数触发模式设计。 |
 | `trigger/TRIGGER_PULSE_COUNT_ANALYSIS.md` | 脉冲计数分析。 |
 | `trigger/TRIGGER_INDUSTRIAL_ENHANCEMENT_DESIGN.md` | 工业级触发增强方案。 |

@@ -4,7 +4,7 @@ Status: Active
 Domain: TRIGGER
 Canonical: `docs/trigger/README.md`
 Related: `docs/README.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-08-13
+Last updated: 2026-09-15
 
 本目录是产品触发、序列、角度、断点、core1 实时执行和底层 validation 的目标入口。
 
@@ -14,6 +14,9 @@ Last updated: 2026-08-13
 |---|---|
 | `TRIGGER_SYNC_TODO.md` | 触发系统产品化待办 |
 | `TRIGGER_SEQ_STEP_DESIGN.md` | 序列步进触发模式设计 |
+| `sequence/TRIGGER_SEQUENCE_ARCHITECTURE.md` | 单节点序列触发专项架构草案 |
+| `sequence/TRIGGER_SEQUENCE_TODO.md` | 配置、指令切步、实际 IO 读取与 IN1-IN4 外部输入清单 |
+| `sequence/TRIGGER_SEQUENCE_TASK_PROGRESS.md` | 节点序列专项审计、验证与失败证据 |
 | `TRIGGER_ENC_COUNT_DESIGN.md` | 编码器计数触发模式设计 |
 | `TRIGGER_PULSE_COUNT_ANALYSIS.md` | 脉冲计数分析 |
 | `TRIGGER_INDUSTRIAL_ENHANCEMENT_DESIGN.md` | 工业级触发增强方案 |
