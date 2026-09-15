@@ -69,6 +69,16 @@ actual_valid 只表示指令及 OSR 已装载，STOP 后仍作为历史保留，
 后继将保留同次有效边沿/测量序号和本板时钟锚，经固定配额发送反馈；此接口本身
 未建立反馈运输、NO1 控制器或从板 DCO 应用，也不冻结新 wire 契约。
 
+观察器自身恢复切片见 `VDC-PROGRESS-20260916-007`。显式 tap 下纯 SEQUENCE 拒绝
+会先记录失败、退休当前 epoch；后继 service 分开执行局部 reset 与一次 idle/start
+尝试，继续使用同一 ARM 冻结的采样配置。STOP、绑定/时钟变化、epoch 耗尽或硬件
+fault 取消恢复；每个新 epoch 的序号、ordinal 和整批检查仍保持严格。恢复不重新
+ARM TDMA、不修改 DMA 或转发 SM，也不重采物理 ARM 的首次 RXSTARTCUT 档案。
+`SYSTem:TDMA:EVENt:RECovery?` 只读累计失败、尝试、启用、延期和取消计数，以及
+最后失败与 ARM/tap 绑定。enable_count 表示成功启用观察器，持续观测仍须用恢复后
+同 epoch 的 joined/sequence/ordinal 增长证明；batch_sequence_first 只是该次采集批次
+首词，不能与最后发布的样本拼接成同事件记录。该切片尚不提供 DPLL 更新或输出精度。
+
 ### 当前实现快照（仍未冻结契约）
 
 当前源码已经有一个受限的 resident VDC 命令运输原型，用于验证固定 process image

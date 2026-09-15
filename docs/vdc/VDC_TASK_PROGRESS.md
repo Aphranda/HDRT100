@@ -22,9 +22,9 @@ Last updated: 2026-09-16
 
 ## 当前 checkpoint
 
-最新独立 PIO 采样配置及帧头对照见 `VDC-PROGRESS-20260916-006`：当前源码四板 P3
-和帧头对照通过；序号专项发现启动重复序号使旧观察器永久退休，稳态观察未通过。
-下一步仅恢复观察器自身 epoch，不重启健康 TDMA。NO1 运行中发射记录留存见
+最新观察器自身恢复见 `VDC-PROGRESS-20260916-007`：当前源码四板 P3 通过；首次专项
+因 NO2 START 应答超时中止，同源新轮次证明三从恢复后在新 epoch 内持续推进序号。
+下一步保留同条有效观测及本板时间锚，接通原始反馈，不重启健康 TDMA。NO1 运行中发射记录留存见
 `VDC-PROGRESS-20260916-005`：软件、Release、
 当前源码四板 quick P3 和 STOP 后同序对账已通过。输出投影准备见
 `VDC-PROGRESS-20260916-004`；反馈运输与实际 DCO 应用尚未接通。指定主机接收切片见
@@ -227,6 +227,62 @@ Last updated: 2026-09-16
   `next-feedback-measurement-plan-r1.json` 保留后续本板时钟域审计：manager 的
   time_us、TIMER1 tick、逻辑环路时间及现有 DCO 本地锚不可直接混用，不要求完整
   跨板绝对时间映射作为原始反馈运输前置。
+
+### VDC-PROGRESS-20260916-007：启动序号拒绝后的观察器自身恢复
+
+- TODO task ID：`VDC-FEEDBACK-001`。
+- 状态：IN PROGRESS。为稳态原始反馈输入增加观察器自身恢复；不接通反馈运输、
+  主机独立控制器或从板 DCO 应用。以下数字均为本轮快照，非产品事实源。
+- 实现：显式 tap 下纯 SEQUENCE 拒绝先保留失败、退休当前 epoch；后继 Core1
+  service 分开执行 RESET_PENDING、WAIT_IDLE/start，每次只做一个有界步骤。
+  保持同一 ARM 冻结的采样配置，严格递增 observer epoch，epoch 内检查不放宽。
+  只重置观察器 SM/FIFO/IRQ，不重新 ARM TDMA、不动 DMA 或转发 SM；首次
+  RXSTARTCUT 原始字段保留，当前 epoch 样本字段清空，旧候选不能跨代复用。
+- 失效边界：STOP、persona/ARM/tap 绑定或时钟变化、epoch 耗尽及硬件 fault 取消
+  恢复。既校验失败相位的 final fault，也在后继重置前复验 sticky stall/bad-PC，
+  不把主动 disabled 当故障。其他错误的恢复策略未扩展。
+- 诊断：独立 `SYSTem:TDMA:EVENt:RECovery?` 保留累计失败、尝试、启用、延期和取消
+  计数、最后失败及物理 ARM/tap 绑定；getter 有界复制，失败保留输出。enable_count
+  仅表示重新启用，不是有效样本或 DCO 应用。last_batch_sequence_first 只指向采集
+  批次首词，不能与最后发布的 sequence/ordinal 混拼为同次测量。native EVENT ABI 不变。
+- 软件：主控最终相关测试 9 项通过；作者相关事件回归 20 项通过，新恢复可执行
+  文件覆盖 13 组生产路径，包括多轮启动重复、CS 延期、dirty enable、STOP、绑定/
+  时钟/epoch 取消、晚到故障、首次档案及 DMA/转发 SM 不变。独审复跑专项、核对
+  生成的生产函数体与源码一致；采集判定 15 个模拟正负例通过。测试发现并修复
+  恢复重置前晚到 sticky fault 被清除的问题；FDEBUG W1C 注入时机的 fixture 修复
+  及前序失败保留在 `host-event-recovery-summary.json`。
+- Release：A/B 与 Flash 检查通过，BSS 净增 148 B，链接 RAM 剩余地址空间
+  11832 B，不代表运行栈/堆余量。源码指纹
+  `f4b1e5a3709e6e06168d6d23e4d740cfe6cc841e74f5cefe5d9ca830b37957ab`，
+  固件包 SHA256 `d1ad89071de8207babbb32acdde40597981cd5e89d813eca3a8c44a2d0faaca8`。
+- 四板 quick P3：`p3-r1/acceptance.json` 的 passed/strict_gates_passed 均为 true，
+  diagnostic_failures 为空；该门禁验证默认 tap 配置下的 TDMA 集成，恢复路径另做专项。
+- 专项首轮 `capture-r1` 保留失败：NO2 START 应答超时，底层 helper 返回合成的
+  `OK(no payload; verified by state readback)`，实际未执行所称的状态读回；采集器
+  拒绝该文本。NO1 尚未 START，随后四板真实 STOP ACK，因此不能据零恢复计数判断
+  恢复实现失败。独审见 `capture-r1-failure-review.json`，不将合成文本提升为成功 ACK。
+- 同源码、同采集脚本的 `capture-r2` 完成，passed/flow_completed 为 true，errors
+  为空，运行期查询为零。三从失败/尝试/启用各增加一次，从 observer epoch 3 恢复到
+  epoch 4；各有 19 个 ACTIVE 原生快照，同代 sequence/joined/published 分别推进
+  4704/4646/4587，原物理 ARM 首档仍属于旧 epoch。最后失败为 SEQUENCE 且 fault
+  为零，STOP 后 pending 为零。主机没有进入恢复，三从主机接收增量为
+  2148/2281/2283，实际 follower_apply 增量仍全零；不据此宣称反馈闭环或锁相。
+- 恢复 service 部分的累计峰值为 257/213/104 µs，采样 EVENT service 最大值为
+  245/401/328 µs；后者在恢复时重置，二者均不是完整 TDMA phase WCET。
+  原生记录是稀疏观测，不据连续序号差推断逐物理帧无损。全部 STOP 后导出，
+  requested tap 已恢复、临时许可撤销。`hardware-review-r1.json` 独立复核 111 项通过，
+  disposition 为 APPROVE_OBSERVER_ONLY_RECOVERY；主控 `main-recheck-r1.json` 再次
+  解码四板原始记录并核对 SD/SRAM 全等及恢复判据。原生窗口 TDMA overrun 增量为
+  2/1/4/1，NO3 deadline miss 增加一次，三从 RX ring overrun 增量为 30/20/13，
+  observation drop 同样保留；本切片不关闭整体时序门禁或授予逐帧无损。
+- 收敛：实现与匹配 P3 凭证提交 `dc2ee12`，staged 源码核验和提交 hook 通过；
+  文档另行提交，长期目标及逐从反馈任务保持 IN PROGRESS。
+- 证据目录：`out/HardwareAcceptance/20260916/dpll-event-recovery-r1/`；软件摘要见
+  `host-event-recovery-summary.json`，独审见 `implementation-review-r1.json`，
+  资源原件见 `resource-review-r1.json` 和独立冻结的 before-build/after-build。
+- 下一 gate：当前恢复专项已完成原件独立复核，分离提交后保留同一完整 event
+  record 及本板时间锚，接原始反馈运输，
+  不把完整跨板绝对时间映射或最终输出精度作为原始运输的前置。
 
 ### 前序实现回顾
 
