@@ -22,10 +22,13 @@ def production(directory: Path) -> str:
     end = header.index("} tdma_pio_spi_event_snapshot_t;") + len("} tdma_pio_spi_event_snapshot_t;")
     start = header.rfind("typedef struct {", 0, end)
     snapshot = header[start:end]
-    tap_end = header.index("} tdma_pio_spi_event_recovery_snapshot_t;") + len("} tdma_pio_spi_event_recovery_snapshot_t;")
+    tap_end = header.index("} tdma_pio_spi_event_live_snapshot_t;") + len("} tdma_pio_spi_event_live_snapshot_t;")
     tap_types = header[header.index("#define TDMA_PIO_SPI_EVENT_TAP_MAX_DELAY_CYCLES"):tap_end]
     tap_storage = source[source.index("/* EVENT_TAP_STORAGE_BEGIN"):source.index("/* EVENT_TAP_STORAGE_END */")]
     tap_storage += source[source.index("/* EVENT_RECOVERY_STORAGE_BEGIN"):source.index("/* EVENT_RECOVERY_STORAGE_END */")]
+    live_storage = source[source.index("/* EVENT_LIVE_STORAGE_BEGIN"):source.index("/* EVENT_LIVE_STORAGE_END */")]
+    tap_storage += live_storage.replace("static void tdma_event_live_record(",
+                                       "static void __attribute__((unused)) tdma_event_live_record(")
     atomic_hooks = FIXTURE[FIXTURE.index("#define __atomic_load_n"):FIXTURE.index("#define __dmb")]
     # Tap payload atomics have their own tests. Preserve the existing event
     # snapshot/first-window injection hooks around the new production block.
@@ -203,6 +206,19 @@ static tdma_rx_dma_counter_t s_tdma_pio_spi_rx_sequence;
 static uint64_t tick_now = 1000u, tick_step = 1u;
 static uint64_t vdc_timestamp_clock_read_ticks64(void) {
     const uint64_t result = tick_now; tick_now += tick_step; return result;
+}
+static bool live_clock_available = true;
+static uint64_t live_tick_now = UINT64_C(0x1234567800000000), live_tick_step = 5u;
+static unsigned live_clock_checks, live_tick_reads, live_tick_fail_at, live_clock_fail_at;
+static bool vdc_timestamp_clock_is_current(uint32_t hz) {
+    ++live_clock_checks;
+    if (live_clock_fail_at && live_clock_checks == live_clock_fail_at) live_clock_available = false;
+    return live_clock_available && hz == 125000000u;
+}
+static bool vdc_timestamp_clock_try_read_ticks64(uint32_t hz, uint64_t *out) {
+    ++live_tick_reads;
+    if (!vdc_timestamp_clock_is_current(hz) || live_tick_reads == live_tick_fail_at) return false;
+    *out = live_tick_now; live_tick_now += live_tick_step; return true;
 }
 static unsigned fifo_level_reads;
 static uint32_t pio_sm_get_rx_fifo_level(PIO pio, uint sm) {

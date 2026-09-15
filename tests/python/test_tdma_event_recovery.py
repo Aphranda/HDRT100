@@ -10,7 +10,7 @@ from test_tdma_observer_prelaunch import prelaunch_source
 from test_tdma_rx_event_candidate import run
 
 
-def test_bounded_observer_recovery_and_frozen_diagnostics(tmp_path: Path) -> None:
+def recovery_source(tmp_path: Path) -> str:
     source = prelaunch_source(tmp_path)
     pos = source.rindex("int main(void)")
     source = source[:pos] + source[pos:].replace("int main(void)", "int prelaunch_regression_main(void)", 1)
@@ -26,7 +26,7 @@ static uint32_t clock_get_hz(unsigned ignored) {
     source = source.replace("pio->fdebug = TDMA_EVENT_SM_MASK << PIO_FDEBUG_RXSTALL_LSB;",
                             "pio->fdebug &= ~(TDMA_EVENT_SM_MASK << PIO_FDEBUG_RXSTALL_LSB);")
     begin = source.index("/* EVENT_RECOVERY_STORAGE_BEGIN")
-    end = source.index("#define __atomic_load_n", begin)
+    end = source.index("/* EVENT_LIVE_STORAGE_BEGIN", begin)
     block = source[begin:end].replace("        __atomic_thread_fence(__ATOMIC_ACQ_REL);", "        recovery_read_fence();")
     source = source[:begin] + r'''
 static void (*recovery_read_hook)(void);
@@ -39,8 +39,12 @@ static void recovery_read_fence(void) {
 #include <stdlib.h>
 #undef assert
 #define assert(c) do { if (!(c)) { fprintf(stderr, "ASSERT %s:%d: %s\n", __FILE__, __LINE__, #c); fflush(stderr); _Exit(99); } } while (0)''', 1)
+    return source + CASES
+
+
+def test_bounded_observer_recovery_and_frozen_diagnostics(tmp_path: Path) -> None:
     assert "observer recovery: 13 production groups passed" in run(
-        tmp_path, source + CASES, "event_recovery", enabled=True)
+        tmp_path, recovery_source(tmp_path), "event_recovery", enabled=True)
 
 
 CASES = r'''

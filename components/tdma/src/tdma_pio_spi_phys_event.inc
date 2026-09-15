@@ -330,6 +330,128 @@ static uint64_t s_tdma_event_base_us;
 static uint64_t s_tdma_event_last_service_us;
 static uint64_t s_tdma_event_arm_epoch;
 static bool s_tdma_event_waiting;
+
+/* EVENT_LIVE_STORAGE_BEGIN -- one atomic publication, no second owner copy. */
+static uint32_t s_tdma_event_live_words[24];
+static uint32_t s_tdma_event_live_guard;
+static struct {
+    uint64_t before, after, arm_epoch;
+    uint32_t epoch, flags;
+} s_tdma_event_live_anchor;
+_Static_assert(sizeof(tdma_pio_spi_event_live_snapshot_t) ==
+    sizeof(s_tdma_event_live_words), "Live record snapshot has a fixed word layout");
+_Static_assert(sizeof(s_tdma_event_live_words) + sizeof(s_tdma_event_live_guard) +
+    sizeof(s_tdma_event_live_anchor) <= 160u, "Live event storage is bounded");
+enum { TDMA_EVENT_LIVE_CANCELLED = TDMA_EVENT_LIVE_STOP | TDMA_EVENT_LIVE_INVALID |
+    TDMA_EVENT_LIVE_ARM | TDMA_EVENT_LIVE_CLOCK | TDMA_EVENT_LIVE_BINDING };
+
+static void tdma_event_live_retire(uint32_t reason)
+{
+    /* Ordinary service keeps running after STOP. A later idle/clock check
+     * must not relabel an already retired historical publication. */
+    if ((reason == TDMA_EVENT_LIVE_BINDING || reason == TDMA_EVENT_LIVE_CLOCK) &&
+        (s_tdma_event_live_anchor.epoch == 0u ||
+         (s_tdma_event_live_anchor.flags & TDMA_EVENT_LIVE_CANCELLED) != 0u)) return;
+    s_tdma_event_live_anchor.flags =
+        (s_tdma_event_live_anchor.flags & ~TDMA_EVENT_LIVE_ANCHOR_VALID) | reason;
+    const uint index = offsetof(tdma_pio_spi_event_live_snapshot_t, flags) / sizeof(uint32_t);
+    const uint32_t old = __atomic_load_n(&s_tdma_event_live_words[index], __ATOMIC_RELAXED);
+    if ((old & TDMA_EVENT_LIVE_RETAINED) == 0u) return;
+    const uint32_t next = (old & ~TDMA_EVENT_LIVE_ACTIVE) | reason;
+    if (old == next) return;
+    (void)__atomic_add_fetch(&s_tdma_event_live_guard, 1u, __ATOMIC_ACQ_REL);
+    __atomic_store_n(&s_tdma_event_live_words[index], next, __ATOMIC_RELAXED);
+    (void)__atomic_add_fetch(&s_tdma_event_live_guard, 1u, __ATOMIC_RELEASE);
+}
+
+static void tdma_event_live_monitor(void)
+{
+    if (s_tdma_event_live_anchor.epoch == 0u ||
+        (s_tdma_event_live_anchor.flags & TDMA_EVENT_LIVE_CANCELLED) != 0u) return;
+    if (s_tdma_event_live_anchor.epoch != 0u &&
+        (!s_tdma_pio_spi_rx_arm_valid ||
+         s_tdma_event_live_anchor.arm_epoch != s_tdma_pio_spi_rx_arm_epoch ||
+         s_tdma_event_live_anchor.epoch != s_tdma_event_observer.epoch))
+        tdma_event_live_retire(TDMA_EVENT_LIVE_BINDING);
+    if (s_tdma_event_live_anchor.epoch != 0u &&
+        (s_tdma_event_live_anchor.flags & TDMA_EVENT_LIVE_CLOCK) == 0u &&
+        !vdc_timestamp_clock_is_current(s_tdma_event_hz))
+        tdma_event_live_retire(TDMA_EVENT_LIVE_CLOCK);
+}
+
+static void tdma_event_live_bind(uint64_t before, uint64_t after, bool sampled)
+{
+    /* Private new-epoch anchor: the old exported record keeps its own body
+     * until a complete record from this epoch survives the final check. */
+    s_tdma_event_live_anchor.before = before;
+    s_tdma_event_live_anchor.after = after;
+    s_tdma_event_live_anchor.arm_epoch = s_tdma_pio_spi_rx_arm_valid
+        ? s_tdma_pio_spi_rx_arm_epoch : 0u;
+    s_tdma_event_live_anchor.epoch = s_tdma_event_observer.epoch;
+    s_tdma_event_live_anchor.flags = sampled && after >= before
+        ? TDMA_EVENT_LIVE_ANCHOR_VALID : TDMA_EVENT_LIVE_ANCHOR_UNAVAILABLE;
+    if (!vdc_timestamp_clock_is_current(s_tdma_event_hz))
+        s_tdma_event_live_anchor.flags = TDMA_EVENT_LIVE_CLOCK;
+    if (s_tdma_event_observer.state != TDMA_EVENT_ACTIVE)
+        s_tdma_event_live_anchor.flags |= TDMA_EVENT_LIVE_INVALID;
+}
+
+static void tdma_event_live_record(const tdma_event_record_t *record)
+{
+    tdma_event_live_monitor();
+    if (record == NULL || record->epoch != s_tdma_event_live_anchor.epoch ||
+        !s_tdma_pio_spi_rx_arm_valid || s_tdma_event_live_anchor.arm_epoch == 0u ||
+        s_tdma_event_live_anchor.arm_epoch != s_tdma_pio_spi_rx_arm_epoch) {
+        tdma_event_live_retire(TDMA_EVENT_LIVE_BINDING);
+        return;
+    }
+    if ((s_tdma_event_live_anchor.flags & TDMA_EVENT_LIVE_CANCELLED) != 0u) return;
+    const union {
+        tdma_pio_spi_event_live_snapshot_t snapshot;
+        uint32_t words[24];
+    } next = {.snapshot = {
+        .record = *record,
+        .arm_epoch = s_tdma_event_live_anchor.arm_epoch,
+        .timer1_enable_before = s_tdma_event_live_anchor.before,
+        .timer1_enable_after = s_tdma_event_live_anchor.after,
+        .tick_hz = s_tdma_event_hz,
+        .flags = TDMA_EVENT_LIVE_RETAINED | TDMA_EVENT_LIVE_ACTIVE |
+            s_tdma_event_live_anchor.flags,
+    }};
+    (void)__atomic_add_fetch(&s_tdma_event_live_guard, 1u, __ATOMIC_ACQ_REL);
+    for (uint i = 0u; i < 24u; ++i)
+        __atomic_store_n(&s_tdma_event_live_words[i], next.words[i], __ATOMIC_RELAXED);
+    (void)__atomic_add_fetch(&s_tdma_event_live_guard, 1u, __ATOMIC_RELEASE);
+}
+
+bool tdma_pio_spi_phys_event_get_live_snapshot(const tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_event_live_snapshot_t *out)
+{
+    if (phys == NULL || out == NULL) return false;
+    const uint32_t interrupts = save_and_disable_interrupts();
+    const uint64_t before = time_us_64();
+    bool copied = false;
+    for (uint attempt = 0u; attempt < 3u; ++attempt) {
+        const uint32_t guard = __atomic_load_n(&s_tdma_event_live_guard, __ATOMIC_ACQUIRE);
+        if ((guard & 1u) != 0u) continue;
+        uint32_t words[24];
+        for (uint i = 0u; i < 24u; ++i)
+            words[i] = __atomic_load_n(&s_tdma_event_live_words[i], __ATOMIC_RELAXED);
+        __atomic_thread_fence(__ATOMIC_ACQ_REL);
+        const uint32_t after_guard = __atomic_load_n(&s_tdma_event_live_guard, __ATOMIC_ACQUIRE);
+        const uint64_t after = time_us_64();
+        if (after < before || after - before > 1000u) break;
+        if (guard == after_guard) {
+            memcpy(out, words, sizeof(words));
+            copied = true;
+            break;
+        }
+    }
+    restore_interrupts(interrupts);
+    return copied;
+}
+/* EVENT_LIVE_STORAGE_END */
+
 /* Separate hypothesis: never install frozen DMA offsets as live alignment. */
 static tdma_frozen_geometry_snapshot_t s_tdma_event_geometry;
 static bool s_tdma_event_prelaunch;
@@ -397,6 +519,10 @@ static void tdma_rx_start_cut_publish(void)
 
 static void tdma_rx_start_cut_arm_begin(void)
 {
+    /* The physical ARM entry calls this even before admission can fail.
+     * Retire live history independently of whether a first cut is recorded. */
+    tdma_event_live_retire(TDMA_EVENT_LIVE_ARM);
+    memset(&s_tdma_event_live_anchor, 0, sizeof(s_tdma_event_live_anchor));
     memset(&s_tdma_rx_start_cut, 0, sizeof(s_tdma_rx_start_cut));
     s_tdma_rx_start_cut.schema = TDMA_RX_START_CUT_SCHEMA;
     tdma_rx_start_cut_publish();
@@ -1023,6 +1149,7 @@ static void tdma_event_recovery_record_failure(tdma_pio_spi_phys_t *phys,
 
 static void tdma_pio_spi_phys_event_stop(tdma_pio_spi_phys_t *phys)
 {
+    if (phys != NULL) tdma_event_live_retire(TDMA_EVENT_LIVE_STOP);
     if (phys != NULL) tdma_event_recovery_cancel(TDMA_EVENT_RECOVERY_CANCEL_STOP);
     /* Retire the installed persona even if configure has already changed the
      * requested role. Do this before a maintenance owner can reuse the SMs. */
@@ -1185,7 +1312,10 @@ static void tdma_event_start(tdma_pio_spi_phys_t *phys)
         return;
     }
     const uint64_t before = time_us_64();
+    uint64_t timer_before = 0u, timer_after = 0u;
+    const bool timer_before_ok = vdc_timestamp_clock_try_read_ticks64(s_tdma_event_hz, &timer_before);
     pio_enable_sm_mask_in_sync(pio, TDMA_EVENT_SM_MASK);
+    const bool timer_after_ok = vdc_timestamp_clock_try_read_ticks64(s_tdma_event_hz, &timer_after);
     const uint64_t after = time_us_64();
     s->start_pad_after = gpio_get_all();
     if (!recovering)
@@ -1208,6 +1338,7 @@ static void tdma_event_start(tdma_pio_spi_phys_t *phys)
     s_tdma_event_arm_epoch = 0u;
     (void)tdma_event_observer_start(&s_tdma_event_observer, &config,
                                    s_tdma_event_epoch, start, faults);
+    tdma_event_live_bind(timer_before, timer_after, timer_before_ok && timer_after_ok);
     if (s_tdma_event_observer.state == TDMA_EVENT_ACTIVE) {
         (void)tdma_event_history_start(&s_tdma_event_history,
             s_tdma_event_epoch, s_tdma_event_hz, start);
@@ -1415,6 +1546,7 @@ static void tdma_event_recovery_step(tdma_pio_spi_phys_t *phys)
 static void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys)
 {
     if (!tdma_pio_spi_phys_event_selected(phys) || !phys->armed) {
+        tdma_event_live_retire(TDMA_EVENT_LIVE_BINDING);
         if (s_tdma_event_recovery.pending != TDMA_EVENT_RECOVERY_NONE) {
             s_tdma_event_waiting = false;
             tdma_event_recovery_cancel(TDMA_EVENT_RECOVERY_CANCEL_BINDING);
@@ -1423,6 +1555,7 @@ static void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys)
     }
     uint64_t stage_start = tdma_service_timing_now();
     const uint64_t entered = time_us_64();
+    tdma_event_live_monitor();
     tdma_pio_spi_event_snapshot_t *s = &s_tdma_event_snapshot;
     if (s_tdma_event_recovery.pending != TDMA_EVENT_RECOVERY_NONE) {
         tdma_event_recovery_step(phys);
@@ -1521,6 +1654,7 @@ static void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys)
             count, s_tdma_event_observer.joined);
         if (!s_tdma_event_history.active) tdma_event_candidate_retire();
         const tdma_event_record_t *last = &s_tdma_event_records[count - 1u];
+        tdma_event_live_record(last);
         s->published = count > UINT32_MAX - s->published ? UINT32_MAX :
                        s->published + (uint32_t)count;
         s->sequence = last->sequence;
@@ -1529,6 +1663,7 @@ static void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys)
         s->tx_elapsed_cycles = last->tx_elapsed_cycles;
     }
     if (s_tdma_event_observer.state == TDMA_EVENT_INVALID) {
+        tdma_event_live_retire(TDMA_EVENT_LIVE_INVALID);
         tdma_event_recovery_record_failure(phys, batch, final_faults);
         tdma_rx_first_window_retire(TDMA_RX_FIRST_OBSERVER_FAILED, false);
         tdma_event_prelaunch_mark(TDMA_GEOMETRY_OBSERVER_RETIRED, TDMA_GEOMETRY_OBSERVER_FAULT);
@@ -1674,6 +1809,12 @@ void tdma_pio_spi_phys_rx_event_query(void *context,
         s_tdma_event_observer.state != TDMA_EVENT_ACTIVE) tdma_event_publish_state(phys);
 }
 #else
+bool tdma_pio_spi_phys_event_get_live_snapshot(const tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_event_live_snapshot_t *out)
+{
+    (void)phys; (void)out;
+    return false;
+}
 bool tdma_pio_spi_phys_event_recovery_get(const tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_event_recovery_snapshot_t *out)
 {

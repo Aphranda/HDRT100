@@ -20,7 +20,7 @@ def source_fixture() -> str:
     end = header.index("} tdma_pio_spi_event_snapshot_t;") + len("} tdma_pio_spi_event_snapshot_t;")
     snapshot = header[header.rfind("typedef struct {", 0, end):end]
     recovery_start = header.index("enum {\n    TDMA_EVENT_RECOVERY_NONE")
-    recovery_end = header.index("} tdma_pio_spi_event_recovery_snapshot_t;") + len("} tdma_pio_spi_event_recovery_snapshot_t;")
+    recovery_end = header.index("} tdma_pio_spi_event_live_snapshot_t;") + len("} tdma_pio_spi_event_live_snapshot_t;")
     snapshot += "\n" + header[recovery_start:recovery_end]
     job_header = (ROOT / "components/tdma/inc/tdma_rx_prepare.h").read_text(encoding="utf-8")
     states = re.search(r"typedef enum \{.*?\} tdma_rx_prepare_state_t;", job_header, re.S).group(0)
@@ -182,6 +182,10 @@ static void tdma_event_recovery_step(tdma_pio_spi_phys_t *phys) { (void)phys; as
 static void tdma_event_recovery_publish(void) { assert(false); }
 static void tdma_event_recovery_record_failure(tdma_pio_spi_phys_t *phys,
     const tdma_event_batch_t *batch, uint32_t faults) { (void)phys; (void)batch; (void)faults; }
+/* Full live-record publication executes in test_tdma_event_live. */
+static void tdma_event_live_monitor(void) { }
+static void tdma_event_live_retire(uint32_t reason) { (void)reason; }
+static void tdma_event_live_record(const tdma_event_record_t *record) { (void)record; }
 /* Archive storage/retirement is executed by the prelaunch/candidate tests.
  * This fixture retains its ordinary-service boundary with no selected archive. */
 static void tdma_rx_first_window_words(const tdma_event_batch_t *batch) { (void)batch; }

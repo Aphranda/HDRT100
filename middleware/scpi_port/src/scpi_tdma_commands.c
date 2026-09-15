@@ -76,6 +76,41 @@ scpi_result_t scpi_cmd_tdma_event_recovery_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_tdma_event_live_q(scpi_t *context)
+{
+    tdma_pio_spi_event_live_snapshot_t snapshot;
+    if (!tdma_runtime_owner_get_event_live_snapshot(&snapshot)) return SCPI_RES_ERR;
+    /* Diagnostic schema 1: raw TIMER1 ticks, never a common-time/DCO model. */
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, snapshot.flags);
+    SCPI_ResultUInt32(context, snapshot.tick_hz);
+    SCPI_ResultUInt32(context, (uint32_t)snapshot.arm_epoch);
+    SCPI_ResultUInt32(context, (uint32_t)(snapshot.arm_epoch >> 32u));
+    SCPI_ResultUInt32(context, (uint32_t)snapshot.timer1_enable_before);
+    SCPI_ResultUInt32(context, (uint32_t)(snapshot.timer1_enable_before >> 32u));
+    SCPI_ResultUInt32(context, (uint32_t)snapshot.timer1_enable_after);
+    SCPI_ResultUInt32(context, (uint32_t)(snapshot.timer1_enable_after >> 32u));
+    SCPI_ResultUInt32(context, snapshot.record.epoch);
+    SCPI_ResultUInt32(context, snapshot.record.ordinal);
+    SCPI_ResultUInt32(context, snapshot.record.sequence);
+    SCPI_ResultUInt32(context, snapshot.record.raw_rx);
+    SCPI_ResultUInt32(context, snapshot.record.raw_tx);
+    SCPI_ResultUInt32(context, (uint32_t)snapshot.record.rx_elapsed_cycles);
+    SCPI_ResultUInt32(context, (uint32_t)(snapshot.record.rx_elapsed_cycles >> 32u));
+    SCPI_ResultUInt32(context, (uint32_t)snapshot.record.tx_elapsed_cycles);
+    SCPI_ResultUInt32(context, (uint32_t)(snapshot.record.tx_elapsed_cycles >> 32u));
+    SCPI_ResultUInt32(context, (uint32_t)snapshot.record.start_bounds.lo);
+    SCPI_ResultUInt32(context, (uint32_t)(snapshot.record.start_bounds.lo >> 32u));
+    SCPI_ResultUInt32(context, (uint32_t)snapshot.record.start_bounds.hi);
+    SCPI_ResultUInt32(context, (uint32_t)(snapshot.record.start_bounds.hi >> 32u));
+    SCPI_ResultUInt32(context, snapshot.record.diagnostic_only);
+    SCPI_ResultUInt32(context, snapshot.record.physical_first_unproved);
+    SCPI_ResultUInt32(context, snapshot.record.identity_unproved);
+    SCPI_ResultUInt32(context, snapshot.record.timestamp_valid);
+    SCPI_ResultUInt32(context, snapshot.record.dpll_eligible);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_tdma_opmode_catalog_q(scpi_t *context)
 {
     SCPI_ResultUInt32(context, TDMA_OPERATING_PROFILE_COUNT);

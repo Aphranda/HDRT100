@@ -15,6 +15,7 @@
 #include "tdma_rx_event_candidate.h"
 #include "tdma_frozen_geometry.h"
 #include "tdma_rx_first_window.h"
+#include "tdma_event_observer.h"
 
 /* TDMA PIO SPI resident physical layer.
  *
@@ -259,6 +260,34 @@ typedef struct {
     uint32_t last_batch_sequence_first, last_batch_sequence_valid;
     uint32_t binding_tap_generation, binding_arm_epoch_lo, binding_arm_epoch_hi;
 } tdma_pio_spi_event_recovery_snapshot_t;
+
+enum {
+    TDMA_EVENT_LIVE_RETAINED = 1u << 0,
+    TDMA_EVENT_LIVE_ACTIVE = 1u << 1,
+    TDMA_EVENT_LIVE_ANCHOR_VALID = 1u << 2,
+    TDMA_EVENT_LIVE_STOP = 1u << 3,
+    TDMA_EVENT_LIVE_INVALID = 1u << 4,
+    TDMA_EVENT_LIVE_ARM = 1u << 5,
+    TDMA_EVENT_LIVE_CLOCK = 1u << 6,
+    TDMA_EVENT_LIVE_ANCHOR_UNAVAILABLE = 1u << 7,
+    TDMA_EVENT_LIVE_BINDING = 1u << 8,
+};
+/* Core1's complete last good record, after the final hardware-fault check.
+ * TIMER1 ticks bracket observer enable in its own clk_sys domain; they are
+ * neither time_us_64() nor qualified edge/common time. ANCHOR_VALID records
+ * that this retained record had a coherent same-epoch bracket when created;
+ * it is historical, including after STOP. No timestamp/DPLL grant follows.
+ * ACTIVE describes the owner's latest service observation. STOP/INVALID/new
+ * ARM/clock loss clear ACTIVE, preserving the body and historical anchor bit.
+ * Current local availability requires both ACTIVE and ANCHOR_VALID. */
+typedef struct {
+    tdma_event_record_t record;
+    uint64_t arm_epoch;
+    uint64_t timer1_enable_before;
+    uint64_t timer1_enable_after;
+    uint32_t tick_hz;
+    uint32_t flags;
+} tdma_pio_spi_event_live_snapshot_t;
 
 typedef enum {
     TDMA_PIO_SPI_DATA_TRAIN_IDLE = 0u,
@@ -1027,6 +1056,11 @@ bool tdma_pio_spi_phys_event_tap_get(const tdma_pio_spi_phys_t *phys,
  * action. False (including feature disabled) leaves *out unchanged. */
 bool tdma_pio_spi_phys_event_recovery_get(const tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_event_recovery_snapshot_t *out);
+/* SRAM-only guarded copy: at most three attempts and 1000 us copy lifetime.
+ * False (including feature-disabled) preserves out. No hardware is sampled
+ * or record eligibility created by this reader. */
+bool tdma_pio_spi_phys_event_get_live_snapshot(const tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_event_live_snapshot_t *out);
 /* Core1-only station handoff. Pin after a successful private RX delivery,
  * before REQUESTED publication. Zero means unavailable, never use latest. */
 uint32_t tdma_pio_spi_phys_rx_event_pin(void *context,

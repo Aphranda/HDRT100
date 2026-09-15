@@ -1,4 +1,5 @@
 #include "vdc_timestamp_clock.h"
+#include <stddef.h>
 
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #include "pico.h"
@@ -12,6 +13,7 @@
 #define VDC_TIMESTAMP_CLOCK_DEFAULT_HZ 1000000u
 
 static bool s_vdc_timestamp_clock_initialized;
+static bool s_vdc_timestamp_clock_ready;
 static uint32_t s_vdc_timestamp_clock_tick_hz;
 static uint32_t s_vdc_timestamp_clock_resolution_ns;
 
@@ -27,9 +29,11 @@ static uint32_t vdc_timestamp_clock_resolution_from_hz(uint32_t tick_hz)
 
 bool vdc_timestamp_clock_init(void)
 {
-    if (s_vdc_timestamp_clock_initialized) {
+    if (__atomic_load_n(&s_vdc_timestamp_clock_initialized, __ATOMIC_ACQUIRE)) {
         return true;
     }
+
+    __atomic_store_n(&s_vdc_timestamp_clock_ready, false, __ATOMIC_RELEASE);
 
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
     timer1_hw->pause = 1u;
@@ -44,14 +48,16 @@ bool vdc_timestamp_clock_init(void)
 
     s_vdc_timestamp_clock_resolution_ns =
         vdc_timestamp_clock_resolution_from_hz(s_vdc_timestamp_clock_tick_hz);
-    s_vdc_timestamp_clock_initialized = true;
-    return s_vdc_timestamp_clock_tick_hz != 0u &&
-           s_vdc_timestamp_clock_resolution_ns != 0u;
+    const bool ready = s_vdc_timestamp_clock_tick_hz != 0u &&
+                       s_vdc_timestamp_clock_resolution_ns != 0u;
+    __atomic_store_n(&s_vdc_timestamp_clock_initialized, true, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_vdc_timestamp_clock_ready, ready, __ATOMIC_RELEASE);
+    return ready;
 }
 
 uint32_t vdc_timestamp_clock_tick_hz(void)
 {
-    if (!s_vdc_timestamp_clock_initialized) {
+    if (!__atomic_load_n(&s_vdc_timestamp_clock_initialized, __ATOMIC_ACQUIRE)) {
         (void)vdc_timestamp_clock_init();
     }
     return s_vdc_timestamp_clock_tick_hz;
@@ -59,7 +65,7 @@ uint32_t vdc_timestamp_clock_tick_hz(void)
 
 uint32_t vdc_timestamp_clock_resolution_ns(void)
 {
-    if (!s_vdc_timestamp_clock_initialized) {
+    if (!__atomic_load_n(&s_vdc_timestamp_clock_initialized, __ATOMIC_ACQUIRE)) {
         (void)vdc_timestamp_clock_init();
     }
     return s_vdc_timestamp_clock_resolution_ns;
@@ -67,7 +73,7 @@ uint32_t vdc_timestamp_clock_resolution_ns(void)
 
 uint64_t VDC_TIMESTAMP_TIME_CRITICAL(vdc_timestamp_clock_read_ticks64)(void)
 {
-    if (!s_vdc_timestamp_clock_initialized) {
+    if (!__atomic_load_n(&s_vdc_timestamp_clock_initialized, __ATOMIC_ACQUIRE)) {
         (void)vdc_timestamp_clock_init();
     }
 
@@ -112,4 +118,36 @@ uint64_t vdc_timestamp_clock_ticks_to_ns(uint64_t ticks)
 uint64_t vdc_timestamp_clock_now_ns(void)
 {
     return vdc_timestamp_clock_ticks_to_ns(vdc_timestamp_clock_read_ticks64());
+}
+
+/* Configuration checks follow the ordinary owner service's XIP placement.
+ * Keep the counter sampling helper below in RAM; placing this standalone
+ * check there too can push the aligned TDMA workspace into another page. */
+bool vdc_timestamp_clock_is_current(uint32_t expected_hz)
+{
+    if (!__atomic_load_n(&s_vdc_timestamp_clock_ready, __ATOMIC_ACQUIRE) ||
+        expected_hz == 0u || s_vdc_timestamp_clock_tick_hz != expected_hz) return false;
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    return timer1_hw->source == TIMER_SOURCE_CLK_SYS_VALUE_CLK_SYS &&
+           timer1_hw->pause == 0u && clock_get_hz(clk_sys) == expected_hz;
+#else
+    return false; /* There is no raw TIMER1 clock in the host fallback. */
+#endif
+}
+
+bool VDC_TIMESTAMP_TIME_CRITICAL(vdc_timestamp_clock_try_read_ticks64)(
+    uint32_t expected_hz, uint64_t *ticks)
+{
+    if (ticks == NULL || !vdc_timestamp_clock_is_current(expected_hz)) return false;
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    const uint32_t hi = timer1_hw->timerawh;
+    const uint32_t lo = timer1_hw->timerawl;
+    const uint32_t after_hi = timer1_hw->timerawh;
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    if (hi != after_hi || !vdc_timestamp_clock_is_current(expected_hz)) return false;
+    *ticks = ((uint64_t)hi << 32u) | lo;
+    return true;
+#else
+    return false;
+#endif
 }
