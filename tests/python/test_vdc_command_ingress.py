@@ -87,6 +87,11 @@ static uint32_t s_vdc_command_context_epoch_id, s_vdc_command_context_run_id;
 static uint32_t s_vdc_command_context_schedule_epoch;
 static tdma_service_service_t s_owner;
 static bool owner_available = true;
+/* Ordinary 0x10 telemetry has its own tested retention and never changes
+ * this experimental 0x11 command admission harness. */
+static void distributed_refmem_vdc_flight_rx_accept(uint32_t slot,
+    const uint8_t *mailbox, const tdma_flight_rx_view_t *view)
+{ (void)slot; (void)mailbox; (void)view; }
 static tdma_service_service_t *tdma_runtime_owner_get(void)
 { return owner_available ? &s_owner : NULL; }
 static bool tdma_runtime_owner_get_ring_clock_snapshot(tdma_ring_clock_snapshot_t *out)

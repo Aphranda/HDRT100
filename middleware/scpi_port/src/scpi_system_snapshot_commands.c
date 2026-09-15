@@ -2273,6 +2273,32 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_abort(scpi_t *context)
     return scpi_port_result_ok(context);
 }
 
+scpi_result_t scpi_cmd_refmem_sync_tdma_vdc_flight_q(scpi_t *context)
+{
+    distributed_refmem_vdc_flight_rx_snapshot_t snapshot;
+    if (!distributed_refmem_get_vdc_flight_rx(&snapshot)) {
+        SCPI_ResultText(context, "UNAVAILABLE");
+        return SCPI_RES_OK;
+    }
+    SCPI_ResultUInt32(context, snapshot.retained);
+    SCPI_ResultUInt32(context, snapshot.active);
+    SCPI_ResultUInt32(context, snapshot.source_slot);
+    SCPI_ResultUInt32(context, snapshot.local_slot);
+    SCPI_ResultUInt32(context, snapshot.control_generation);
+    SCPI_ResultUInt32(context, snapshot.ring_config_seq);
+    SCPI_ResultUInt32(context, snapshot.schedule_crc32);
+    SCPI_ResultUInt32(context, snapshot.mailbox_seq);
+    SCPI_ResultUInt32(context, snapshot.receive_count);
+    SCPI_ResultInt32(context, snapshot.phase_offset_ns);
+    SCPI_ResultInt32(context, snapshot.period_adjust_ppb);
+    SCPI_ResultUInt32(context, snapshot.lock_state);
+    SCPI_ResultUInt32(context, snapshot.quality);
+    SCPI_ResultUInt32(context, snapshot.mailbox_crc16);
+    SCPI_ResultUInt32(context, snapshot.rx_admission_epoch);
+    SCPI_ResultUInt32(context, snapshot.transport_sequence);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_refmem_sync_flight_q(scpi_t *context)
 {
     distributed_refmem_tdma_flight_sync_snapshot_t snapshot;

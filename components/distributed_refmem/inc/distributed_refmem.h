@@ -306,6 +306,35 @@ typedef struct {
     uint32_t vdc_command_last_common_time_ns_hi;
 } distributed_refmem_tdma_flight_sync_snapshot_t;
 
+/* Received ordinary 0x10 mailbox telemetry, not a DCO command or clock
+ * qualification. retained survives STOP; active additionally requires the
+ * current acknowledged ring and FOLLOWER binding. receive_count is a
+ * saturating boot-lifetime count. mailbox_seq is the sender's mailbox
+ * publication sequence, not its DPLL update sequence. */
+typedef struct {
+    uint32_t retained;
+    uint32_t active;
+    uint32_t source_slot;
+    uint32_t local_slot;
+    uint32_t control_generation;
+    uint32_t ring_config_seq;
+    uint32_t schedule_crc32;
+    uint32_t mailbox_seq;
+    uint32_t receive_count;
+    int32_t phase_offset_ns;
+    int32_t period_adjust_ppb;
+    uint32_t lock_state;
+    uint32_t quality;
+    uint32_t mailbox_crc16;
+    uint32_t rx_admission_epoch;
+    uint32_t transport_sequence;
+} distributed_refmem_vdc_flight_rx_snapshot_t;
+
+/* One bounded guarded copy. Only Core0 RefMem publishes; this slice has no
+ * Core1 consumer. A false result leaves the destination unspecified. */
+bool distributed_refmem_get_vdc_flight_rx(
+    distributed_refmem_vdc_flight_rx_snapshot_t *snapshot);
+
 /* Read-only stable copies of the core1-owned VDC/DPLL vector regions.  The
  * aliases intentionally expose the fixed wire payload without exposing the
  * mutable region/seqlock storage itself. */

@@ -278,6 +278,21 @@ typedef struct {
 } distributed_refmem_tdma_flight_sync_t;
 
 static distributed_refmem_tdma_flight_sync_t s_tdma_flight_sync;
+typedef struct {
+    uint32_t active, source_slot, local_slot, control_generation;
+    uint32_t ring_config_seq, schedule_crc32, clock_epoch_id, clock_run_id;
+    uint32_t rx_admission_epoch;
+} distributed_refmem_vdc_flight_rx_binding_t;
+
+/* Sole writer: Core0 RefMem service. SCPI only takes a bounded guarded copy.
+ * Keep history separate from the current binding so STOP cannot erase the
+ * evidence and a later ARM cannot revive it as current reception. */
+static volatile uint32_t s_vdc_flight_rx_guard;
+static distributed_refmem_vdc_flight_rx_binding_t s_vdc_flight_rx_binding;
+static distributed_refmem_vdc_flight_rx_snapshot_t s_vdc_flight_rx;
+static bool s_vdc_flight_rx_admission_ready;
+_Static_assert(sizeof(distributed_refmem_vdc_flight_rx_snapshot_t) == 64u,
+               "ordinary mailbox receive snapshot must remain compact");
 static volatile uint32_t s_tdma_ring_arm_last_result =
     DISTRIBUTED_REFMEM_TDMA_ARM_NOT_ATTEMPTED;
 
@@ -458,6 +473,135 @@ static uint32_t distributed_refmem_get_le32(const uint8_t *src)
            ((uint32_t)src[1] << 8u) |
            ((uint32_t)src[2] << 16u) |
            ((uint32_t)src[3] << 24u);
+}
+
+static bool distributed_refmem_vdc_flight_rx_read_binding(
+    distributed_refmem_vdc_flight_rx_binding_t *out)
+{
+    tdma_ring_clock_snapshot_t ring;
+    vdc_dpll_manager_refmem_snapshot_t vdc;
+    memset(out, 0, sizeof(*out));
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring) ||
+        !vdc_dpll_manager_get_refmem_snapshot(&vdc)) return false;
+    if (ring.enabled == 0u || ring.adapter_started == 0u ||
+        ring.config_seq == 0u || ring.config_seq != ring.applied_config_seq ||
+        ring.node_count < 2u || ring.node_count > REFMEM_SYNC_NODE_COUNT ||
+        ring.local_slot_id >= ring.node_count ||
+        vdc.control_profile.valid != 1u ||
+        vdc.control_profile.mode != VDC_DPLL_CONTROL_MODE_FOLLOWER ||
+        vdc.control_profile.generation == 0u ||
+        vdc.control_profile.follow_master_slot_id >= ring.node_count ||
+        vdc.control_profile.follow_master_slot_id == ring.local_slot_id ||
+        vdc.schedule.local_slot_id != ring.local_slot_id ||
+        vdc.schedule.schedule_crc32 != ring.schedule_crc32) return true;
+    out->active = 1u;
+    out->source_slot = vdc.control_profile.follow_master_slot_id;
+    out->local_slot = ring.local_slot_id;
+    out->control_generation = vdc.control_profile.generation;
+    out->ring_config_seq = ring.config_seq;
+    out->schedule_crc32 = ring.schedule_crc32;
+    out->clock_epoch_id = vdc.clock_epoch_id;
+    out->clock_run_id = vdc.clock_run_id;
+    return true;
+}
+
+static bool distributed_refmem_vdc_flight_rx_same_binding(
+    const distributed_refmem_vdc_flight_rx_binding_t *a,
+    const distributed_refmem_vdc_flight_rx_binding_t *b)
+{
+    return a->active == b->active && a->source_slot == b->source_slot &&
+        a->local_slot == b->local_slot &&
+        a->control_generation == b->control_generation &&
+        a->ring_config_seq == b->ring_config_seq &&
+        a->schedule_crc32 == b->schedule_crc32 &&
+        a->clock_epoch_id == b->clock_epoch_id && a->clock_run_id == b->clock_run_id;
+}
+
+static void distributed_refmem_vdc_flight_rx_refresh(tdma_service_service_t *owner)
+{
+    distributed_refmem_vdc_flight_rx_binding_t current;
+    s_vdc_flight_rx_admission_ready = false;
+    /* Snapshot contention skips this receive beat without deleting history. */
+    if (!distributed_refmem_vdc_flight_rx_read_binding(&current)) return;
+    if (!distributed_refmem_vdc_flight_rx_same_binding(&current, &s_vdc_flight_rx_binding)) {
+        if (current.active != 0u) {
+            current.rx_admission_epoch =
+                tdma_service_core0_advance_flight_rx_admission_epoch(owner);
+            if (current.rx_admission_epoch == 0u) return;
+        }
+        (void)__atomic_add_fetch(&s_vdc_flight_rx_guard, 1u, __ATOMIC_ACQ_REL);
+        s_vdc_flight_rx_binding = current;
+        (void)__atomic_add_fetch(&s_vdc_flight_rx_guard, 1u, __ATOMIC_RELEASE);
+    }
+    s_vdc_flight_rx_admission_ready = current.active != 0u;
+}
+
+static void distributed_refmem_vdc_flight_rx_accept(uint32_t slot,
+    const uint8_t *mailbox, const tdma_flight_rx_view_t *view)
+{
+    const distributed_refmem_vdc_flight_rx_binding_t *binding = &s_vdc_flight_rx_binding;
+    if (!s_vdc_flight_rx_admission_ready || binding->active == 0u ||
+        view == NULL || mailbox == NULL ||
+        binding->rx_admission_epoch == 0u || view->admission_epoch != binding->rx_admission_epoch ||
+        slot != binding->source_slot || mailbox[4] != slot ||
+        (mailbox[5] & (1u << binding->local_slot)) == 0u ||
+        distributed_refmem_get_le16(mailbox) != TDMA_FLIGHT_MAILBOX_MAGIC ||
+        mailbox[2] != TDMA_FLIGHT_MAILBOX_VERSION ||
+        mailbox[3] != TDMA_PROCESS_IMAGE_MESSAGE_CLASS ||
+        (mailbox[TDMA_PROCESS_IMAGE_VDC_QUALITY_OFFSET] & TDMA_PROCESS_IMAGE_VDC_QUALITY_VALID) == 0u ||
+        distributed_refmem_get_le16(mailbox + TDMA_PROCESS_IMAGE_CRC_OFFSET) !=
+            tdma_process_image_crc16_ccitt(mailbox, TDMA_PROCESS_IMAGE_CRC_OFFSET)) return;
+    const uint32_t seq = distributed_refmem_get_le32(mailbox + TDMA_PROCESS_IMAGE_REFMEM_GENERATION_OFFSET);
+    if (seq == 0u || (uint16_t)seq != distributed_refmem_get_le16(mailbox + 6u)) return;
+    if (s_vdc_flight_rx.retained != 0u &&
+        s_vdc_flight_rx.rx_admission_epoch == binding->rx_admission_epoch &&
+        (seq - s_vdc_flight_rx.mailbox_seq == 0u ||
+         seq - s_vdc_flight_rx.mailbox_seq > INT32_MAX)) return;
+    distributed_refmem_vdc_flight_rx_binding_t current;
+    if (!distributed_refmem_vdc_flight_rx_read_binding(&current) ||
+        !distributed_refmem_vdc_flight_rx_same_binding(binding, &current)) return;
+    const distributed_refmem_vdc_flight_rx_snapshot_t next = {
+        .retained = 1u, .active = 1u, .source_slot = slot,
+        .local_slot = binding->local_slot, .control_generation = binding->control_generation,
+        .ring_config_seq = binding->ring_config_seq, .schedule_crc32 = binding->schedule_crc32,
+        .mailbox_seq = seq,
+        .receive_count = s_vdc_flight_rx.receive_count == UINT32_MAX ? UINT32_MAX :
+            s_vdc_flight_rx.receive_count + 1u,
+        .phase_offset_ns = tdma_process_image_expand_i16(
+            distributed_refmem_get_i16(mailbox + TDMA_PROCESS_IMAGE_VDC_PHASE_OFFSET),
+            TDMA_PROCESS_IMAGE_VDC_PHASE_QUANTUM_NS),
+        .period_adjust_ppb = tdma_process_image_expand_i16(
+            distributed_refmem_get_i16(mailbox + TDMA_PROCESS_IMAGE_VDC_RATE_OFFSET),
+            TDMA_PROCESS_IMAGE_VDC_RATE_QUANTUM_PPB),
+        .lock_state = mailbox[TDMA_PROCESS_IMAGE_VDC_LOCK_OFFSET],
+        .quality = mailbox[TDMA_PROCESS_IMAGE_VDC_QUALITY_OFFSET],
+        .mailbox_crc16 = distributed_refmem_get_le16(mailbox + TDMA_PROCESS_IMAGE_CRC_OFFSET),
+        .rx_admission_epoch = binding->rx_admission_epoch,
+        .transport_sequence = view->sequence,
+    };
+    (void)__atomic_add_fetch(&s_vdc_flight_rx_guard, 1u, __ATOMIC_ACQ_REL);
+    s_vdc_flight_rx = next;
+    (void)__atomic_add_fetch(&s_vdc_flight_rx_guard, 1u, __ATOMIC_RELEASE);
+}
+
+bool distributed_refmem_get_vdc_flight_rx(
+    distributed_refmem_vdc_flight_rx_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) return false;
+    const uint32_t guard = __atomic_load_n(&s_vdc_flight_rx_guard, __ATOMIC_ACQUIRE);
+    if ((guard & 1u) != 0u) return false;
+    memcpy(snapshot, &s_vdc_flight_rx, sizeof(*snapshot));
+    const distributed_refmem_vdc_flight_rx_binding_t binding = s_vdc_flight_rx_binding;
+    distributed_refmem_vdc_flight_rx_binding_t current;
+    snapshot->active = snapshot->retained != 0u &&
+        distributed_refmem_vdc_flight_rx_read_binding(&current) && current.active != 0u &&
+        distributed_refmem_vdc_flight_rx_same_binding(&binding, &current) &&
+        snapshot->rx_admission_epoch == binding.rx_admission_epoch &&
+        snapshot->ring_config_seq == current.ring_config_seq &&
+        snapshot->control_generation == current.control_generation &&
+        snapshot->source_slot == current.source_slot && snapshot->local_slot == current.local_slot;
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    return guard == __atomic_load_n(&s_vdc_flight_rx_guard, __ATOMIC_ACQUIRE);
 }
 
 #if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
@@ -1235,6 +1379,7 @@ static void distributed_refmem_tdma_flight_sync_receive(
                 distributed_refmem_tdma_flight_parse_mailbox(
                     mailbox,
                     DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE);
+                distributed_refmem_vdc_flight_rx_accept(slot, mailbox, &view);
             }
         } else {
             s_tdma_flight_sync.rx_bad_mailbox_count++;
@@ -1250,6 +1395,7 @@ static void distributed_refmem_tdma_flight_sync_service(void)
         return;
     }
     tdma_service_service_t *owner = tdma_runtime_owner_get();
+    distributed_refmem_vdc_flight_rx_refresh(owner);
     if (owner == NULL ||
         __atomic_load_n(&owner->ring_runtime.enabled, __ATOMIC_ACQUIRE) == 0u) {
         return;
