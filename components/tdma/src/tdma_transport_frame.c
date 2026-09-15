@@ -2,6 +2,27 @@
 
 #include <string.h>
 
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#include "pico.h"
+#define TDMA_TRANSPORT_CRC_RAM __not_in_flash("tdma_transport_crc") __attribute__((noinline, noclone))
+#define TDMA_TRANSPORT_CRC_TABLE_RAM __scratch_y("tdma_transport_crc_table")
+#else
+#define TDMA_TRANSPORT_CRC_RAM
+#define TDMA_TRANSPORT_CRC_TABLE_RAM
+#endif
+
+/* Reflected CRC-32 polynomial residues for four bits. Keep this immutable
+ * table and the shared update kernel in SRAM: every existing identity and
+ * packet check still reads its complete original byte range. No DMA channel,
+ * lazy initialization or shared mutable checksum state is needed. Keep one
+ * kernel: constant-length clones would consume the aligned DMA RAM margin. */
+static const uint32_t TDMA_TRANSPORT_CRC_TABLE_RAM tdma_transport_crc_residues[16] = {
+    0x00000000u, 0x1db71064u, 0x3b6e20c8u, 0x26d930acu,
+    0x76dc4190u, 0x6b6b51f4u, 0x4db26158u, 0x5005713cu,
+    0xedb88320u, 0xf00f9344u, 0xd6d6a3e8u, 0xcb61b38cu,
+    0x9b64c2b0u, 0x86d3d2d4u, 0xa00ae278u, 0xbdbdf21cu,
+};
+
 enum {
     TDMA_TRANSPORT_OFFSET_MAGIC = 0u,
     TDMA_TRANSPORT_OFFSET_VERSION = 2u,
@@ -77,16 +98,14 @@ bool tdma_transport_frame_capture_hint(const uint8_t *packet, size_t size,
     return true;
 }
 
-static uint32_t tdma_transport_crc32_update(uint32_t crc,
+static uint32_t TDMA_TRANSPORT_CRC_RAM tdma_transport_crc32_update(uint32_t crc,
                                             const uint8_t *data,
                                             size_t size)
 {
     for (size_t i = 0u; i < size; i++) {
         crc ^= data[i];
-        for (uint32_t bit = 0u; bit < 8u; bit++) {
-            const uint32_t mask = 0u - (crc & 1u);
-            crc = (crc >> 1u) ^ (0xEDB88320u & mask);
-        }
+        crc = (crc >> 4u) ^ tdma_transport_crc_residues[crc & 15u];
+        crc = (crc >> 4u) ^ tdma_transport_crc_residues[crc & 15u];
     }
     return crc;
 }
