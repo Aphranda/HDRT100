@@ -65,7 +65,17 @@ Last updated: 2026-09-15
   的完整借用；同一 FIFO 同时只许一个 Core0 RX view，忙时不回收。service reset
   持控制锁并核物理 STOP ACK，SCPI 仅对 BUSY 有界让出重试；Core1 不使用该 guard。
   这解决借用中的 FIFO 回收与 Core0 任务交错，不表示命令区/session 已随 STOP
-  完整退休，后者仍需独立验证。远端
+  完整退休。`VDC-PROGRESS-20260915-034` 进一步把 resident 命令的 guarded copy
+  绑定到本地角色与已 ACK 的 TDMA config sequence：普通 STOP/ARM 即使未改变
+  VDC epoch/run，也取消旧 retained 值和待准备记录/组装；同 wire 会话的排序水位
+  保留。Core0 暂时读不到一致快照时保留状态并暂停本次准入；确认关闭或未 ACK 时
+  绑定为零，普通数据继续。所有生产命令接收入口在关闭期间拒绝写入水位，Core1
+  在 guarded copy 后、消费命令序号前复验环路配置。紧凑 clock snapshot 同时提供
+  applied ACK 并复验配置/结果的双 guard，命令时间映射及观察准入核对 ACK。
+  本地 config sequence 不等于分布式 session，零值仅关闭命令准入，不改变普通
+  TDMA 的回绕语义；最终检查之后的 STOP 在后继 Core1 owner 边界完成。
+  已进入 TX image/FIFO/PIO/DMA 的旧片段及之后完整重发的旧记录仍需协议有效期
+  与共同 session 取消，不能宣称所有旧 TX 或命令/session 已完整退休。远端
   control generation 重启以及 schedule/STOP 取消仍需端到端负测；本地 role
   generation 与远端 command generation 不能直接比较。
   `vdc_domain_publish_clock_model()` 任意换会话后的 Domain history 退休也未验收，

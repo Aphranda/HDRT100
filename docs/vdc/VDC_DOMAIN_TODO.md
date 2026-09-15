@@ -179,8 +179,13 @@ CRC、跨核一致性及可信输出保持仍有价值，不能通过关闭它�
 `VDC-PROGRESS-20260915-032`；DMA/station 尚未发布的旧输入、之后完整重发的旧记录
 和精确角色切换边界仍需协议规则。远端代际重启、Domain 任意时钟模型换会话后的
 历史退休及完整命令 STOP 取消仍待闭合；FIFO 在用 view 与 reset 的互斥补强见
-`VDC-PROGRESS-20260915-033`，不替代命令/session 退休。不能因禁用态 P3
-通过关闭全部前置；每项修复继续独立完成软件验证、四板 P3 和对应功能正反证据。
+`VDC-PROGRESS-20260915-033`，不替代命令/session 退休。本地 ring 配置绑定与
+STOP/ARM 取消补强见
+`VDC-PROGRESS-20260915-034`；该绑定不建立共同 session，也不撤回已进入
+TX image/FIFO/PIO/DMA 的旧片段。不能因禁用态 P3 或本地取消通过关闭全部前置；
+每项修复继续独立完成软件验证、四板 P3 和对应功能正反证据。
+继续增加功能前，先对 `VDC-PROGRESS-20260915-034` 中 TDMA 超预算增多做同工况
+测量对照；现有 P3 gate 未覆盖 TDMA phase WCET，不能据其通过跳过这项复核。
 普通四板收敛中出现的 SCK 候选不足、TOPology 准备拒绝及三轮失败见
 `VDC-PROGRESS-20260915-028`；针对后者的 STOP 后有界恢复及独立验收见
 `VDC-PROGRESS-20260915-029`。配置成功仍需新代际 ACK，不能由超时后的状态猜测
@@ -367,7 +372,7 @@ prepare/servo/finalize/publish 成本，区分本相位超限与上游继承迟�
 | ID | 任务 | 状态 | 依赖 | 完成或退出门禁 |
 |---|---|---|---|---|
 | `VDC-CMD-001` | 审计并冻结 resident 定时命令契约；明确 mailbox 编码、来源/目标、序列、代际、CRC、共同时间和过期行为。 | IN PROGRESS | 审计可先行；冻结与接线前闭合 `VDC-SCHED-001`、`VDC-ROLE-001` | 明确 source generation 与本地 role generation 的区别，绑定会话/拓扑/调度身份；若需跨圈组装，冻结片段关联、完整性、取消和超时规则；区分命令更新序列与运输序列；时间映射的建立者和准入证据明确；wire/RAM/WCET 预算、负测方案、Architecture 落点、登记及 C11 审核齐全，不增加独立同步帧。 |
-| `VDC-CMD-002` | 建立 RefMem 命令区的跨核一致性交接及生命周期清理。 | PENDING | `VDC-CMD-001` | 既有禁用原型的任务写者、在线 reset/读交错、已接收命令角色退休、FIFO admission 取消及借用/reset 互斥见 `VDC-PROGRESS-20260915-030/031/032/033`，不关闭本任务；上游旧输入、完整重发及命令/session 的完整 STOP 退休仍待闭合。完整门禁：单写者和按 source slot 稳定副本明确；seqlock/双缓冲/等价 guard 覆盖发布、读取、reset；Core1 有界读取，忙时保留可信输出；撕裂读取、generation 切换、STOP/reset 交错负测通过；新增静态 RAM 和代码放置经链接 map 核验。 |
+| `VDC-CMD-002` | 建立 RefMem 命令区的跨核一致性交接及生命周期清理。 | PENDING | `VDC-CMD-001` | 既有禁用原型的任务写者、在线 reset/读交错、已接收命令角色退休、FIFO admission 取消、借用/reset 互斥及本地 ring 配置取消见 `VDC-PROGRESS-20260915-030/031/032/033/034`，不关闭本任务；上游旧输入、已入站旧 TX、完整重发及命令/session 的完整 STOP 退休仍待闭合。完整门禁：单写者和按 source slot 稳定副本明确；seqlock/双缓冲/等价 guard 覆盖发布、读取、reset；Core1 有界读取，忙时保留可信输出；撕裂读取、generation 切换、STOP/reset 交错负测通过；新增静态 RAM 和代码放置经链接 map 核验。 |
 | `VDC-CMD-003` | 将已审核命令编码接入固定 process image 的 Core0 准备及接收路径。 | PENDING | `VDC-CMD-002`, TDMA mailbox receiver | 准备/解析/必要重组在实时环路外；特等席时间戳通道和 mandatory-first 分配保留；未就绪时透传上一版，解析/CRC/复制成本有预算证据；按来源的接收计数实际增长；重复、乱序、回绕、CRC 损坏、错误来源/目标、旧会话及 STOP 取消均有负测；本阶段接收成功不代表允许定时应用。 |
 | `VDC-CMD-004` | 建立代际绑定的共同时间映射、提前准备和 Core1 确定边界应用。 | PENDING | `VDC-CMD-003`，契约要求的时间锚和映射 evidence | 明确共同时间初始化，不以 clock.valid 或异步启动的本地 uptime 代替共同时间证明；校验 schedule/session/source generation 及映射 freshness；未来命令等待、过期命令拒绝、无映射时保持输出；记录目标时间、实际应用时间和偏差；不同启动时刻、延迟、时钟偏差、回绕、重启及 STOP/ARM 负测通过。 |
 | `VDC-CMD-005` | 完成一主三从的命令接收、应用和回退闭环。 | PENDING | `VDC-CMD-004` | 当前源码四板 P3/短帧及板端记录中，三块从板接收与应用增量均非零，并按 source/sequence/generation/effective time 对账；确认实际 DCO 输出采用对应命令；缺失、错误及迟到保持可信输出且无本地 PI；SCPI 仅控制，STOP 后 SD 完整性核验；不据此单独宣布正式锁相。 |
@@ -529,7 +534,7 @@ TDMA/Calibration 的训练与有向时延测量流程。
 | 缺口 | 对应任务 | 解除条件 |
 |---|---|---|
 | 自主 raw 配置/生命周期已有补测，其余准入几何、目标容量、切换连续性和边沿误差界尚未闭合 | `VDC-TIME-002/003/004` | 先补齐资源/取消与目标验收，闭合严格校准，再验收全窗和物理误差，最后才开放同圈 trailer/evidence；DMA timer 区间不直接授予有效时间戳。 |
-| 真实更新路径的 DPLL 超限、上游 TDMA 迟到和严格配置/校准验收仍待闭合 | `VDC-SCHED-001` | 用相同配置的板端窗口计数与当前源码 P3 复核，不能以无更新路径代替。 |
+| 真实更新路径的 DPLL 超限、上游 TDMA 迟到和严格配置/校准验收仍待闭合 | `VDC-SCHED-001` | 用相同配置的板端窗口计数与当前源码 P3 复核，不能以无更新路径代替；`VDC-PROGRESS-20260915-034` 记录当前 P3 通过但 TDMA 相位仍超预算，需同工况对照，不能从现有实时 gate 推断全部静态预算通过。 |
 | resident VDC 诊断字段与从机命令区尚未形成已验收交接 | `VDC-CMD-001/003/005` | 先审核协议，再证明三块从板有效接收及实际应用。 |
 | 命令快照一致性、序列回绕和会话取消需要闭合 | `VDC-CMD-002/003` | 有界跨核稳定读取和 reset/STOP/重启负测通过。 |
 | 共同生效时间与本地时钟映射尚未闭合 | `VDC-CMD-004` | 映射身份、建立过程和有效期可验证，实际应用时间可对账。 |

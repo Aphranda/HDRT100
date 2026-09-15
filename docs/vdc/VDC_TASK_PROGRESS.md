@@ -77,7 +77,76 @@ P3，详见 `VDC-PROGRESS-20260915-026`；后续非法目标位移修复和完�
 与在线 reset/读交错修复见 `VDC-PROGRESS-20260915-030`；本地角色回切时已接收
 命令的退休见 `VDC-PROGRESS-20260915-031`；FIFO 发布入站取消见
 `VDC-PROGRESS-20260915-032`；FIFO 借用与 STOP 回收互斥见
-`VDC-PROGRESS-20260915-033`。
+`VDC-PROGRESS-20260915-033`；本地 ring 配置绑定与命令取消见
+`VDC-PROGRESS-20260915-034`。
+
+### VDC-PROGRESS-20260915-034 — 本地 ring 配置绑定与 STOP/ARM 命令取消
+
+- TODO task ID：`VDC-CMD-002`、`VDC-ROLE-005`、`VDC-VERIFY-001`；状态 IN PROGRESS。
+  前一切片已分离提交为 `66919c2` / `91adaaa`，随后开始本切片；本切片代码及 P3
+  凭证已提交为 `e3d8737`，文档另行提交。
+- 反例：普通 TDMA STOP/ARM 更新 ring config sequence，却不改变 VDC epoch/run
+  或本地角色代际。冻结旧源码的真实 service STOP/ARM、RefMem receiver/getter、
+  manager 函数与完整 Domain 执行后，STOP 前已收且未来未到的命令在重新 ARM 后
+  写入 DCO；Core0 看见或漏看中间 STOP 均复现。无 STOP 正测与已应用命令不重放
+  对照通过。adapter 与硬件时钟为 host stub，不能作为已发生的实板故障归因。
+  旧紧凑 clock getter 还在 config/result 之间缺少末尾配置复验；真实 runtime
+  configure/service 插入该窗口后，getter 返回旧 config，现场 config 已变化。
+- 修复：RefMem 把 local role 与 `consumer_ring_config_seq` 一起放在命令 guard
+  内绑定；变化时作废 retained 值，保留同 wire 会话的来源排序水位。Core0 只在
+  enabled/started、config/applied ACK 及 schedule/slot 一致时绑定非零配置；
+  关闭态绑定零并取消待准备 resident 记录和组装、推进 FIFO admission epoch。
+  快照暂忙不取消原值，下次 RefMem 服务再试；普通 mailbox 仍继续。
+  `refmem_sync_vdc_receive_admitted_frame()` 覆盖 resident、node-load COMMAND
+  和遗留 follower completed 入口，关闭期间不能通过兼容路径写入大序号污染水位。
+  Core1 先读取当前配置，再 guarded copy，并在来源/目标处理及消费任何序号前
+  复验 config/applied；STOP/config 在复制中到来时退出，不调用应用端或消耗序号。
+  紧凑 clock getter 在同一次有界尝试内复验 config/result 两个 guard，并携带 ACK；
+  时间映射与 ring observer 拒绝未 ACK 配置。Core1 没有新增锁或等待。
+- 软件与构建：主控相关 Python 合跑 84 passed，文档检查器回归 18 passed
+  （本轮快照，非事实源）；Domain、RefMem、ring runtime 和 time mapping C
+  runners 均通过。新增 STOP 场景执行真实完整 Domain，包含漏看 STOP、未 ACK、
+  复制中途换配置/绑定、快照忙恢复、零代际及兼容入口大序号拒绝；关闭期普通
+  DELTA 仍更新，重新 ARM 后新命令可应用。clock getter 负测执行真实
+  configure/service 插入原子读取窗口并验证重试有界。默认双应用/Boot 构建及
+  命令开启分支 compile-only 通过；独立只读审查无阻断项，逐文件哈希核对一致。
+- 资源快照，非事实源：ARM receiver/retained command/compact clock snapshot
+  分别保持 456 B/72 B/152 B，新字段使用既有对齐空间；默认双应用 BSS 起点各移
+  后 8 B，BSS 终点、HeapLimit/StackLimit 均未变化，RAM 高水位未增加。
+- 硬件验收：源码指纹
+  `a7ddeb069eecf6968ecb4c89ce80e22a2768037805f36961b9de7b014f62626d`
+  的当前四板 P3 按既有 quick diagnostic profile 通过，凭证
+  `strict_gates_passed=true`，闭环/现有实时门禁通过、diagnostic failures 为空。
+  耗时 190.348 s，各板原生记录 14 条、记录器 missed=0（本轮快照，非事实源），身份、
+  完整性和 20 项产物哈希核对通过；导出前全部 STOP，config/applied ACK 一致，
+  FIFO_RESET 均 OK 且回收读回正常。包与双应用 map 已归档。
+- 时序复核范围：`schedule-comparison.json` 保留相邻两轮原生采样窗口的逐板对照。
+  本轮 VDC/DPLL 相位的 overrun/deadline 增量均为零，但 TDMA 相位仍有超预算：
+  主板本轮 overrun 增量为 343，上轮为 166；采样到的 last runtime 最大值分别为
+  897.536 us 与 834.508 us（窗口快照，非 WCET 事实源）。当前
+  `trn03_closed_loop.py::validate_dpll_schedule()` 不以 TDMA phase WCET 作门禁，
+  因此 P3 通过不关闭静态调度预算；本轮未做同工况 A/B，不能将该差异归因到此次
+  配置读取。该时序风险继续由 `VDC-SCHED-001` 跟踪，不修改验收工具或预算掩盖它。
+- 证据：`out/HardwareAcceptance/20260915/command-stop-r1/`；`before-stop/`
+  保存旧源码、真实完整 Domain 反例及正对照，`before-clock/` 保存旧快照交错反例。
+  `after-stop-r3-result.json`、`software-verification.json`、`source-review.json`、
+  `source/`、`build-result.json` 和 `target-layout.json` 保存测试、冻结源码与资源。
+  `p3/acceptance.json`、`p3/diagnostic.json`、`p3/tdma-process-image/`、
+  `review-final.json` 保存硬件原件及主控核验。
+- 范围与下一 gate：本切片只闭合本地 ring 生命周期的命令准入，不建立四板共同
+  session。config sequence 为零时只关闭命令准入，后续非零 ARM 可恢复，普通
+  TDMA 回绕行为不变。最终 Core1 检查之后到来的 STOP 由后继 owner 边界完成，
+  不承诺 SCPI 请求瞬间撤销。已进入 TX image/FIFO/PIO/DMA 的旧片段、上游旧输入
+  和完整旧记录重发仍需 wire 有效期与共同 session 规则；命令默认禁用，实际定时
+  应用和输出锁相未验收，`VDC-CMD-002` 仍 PENDING。继续增加功能前，先对本轮
+  TDMA 超预算增多做同工况对照，保留校准/板卡/负载配置及原始窗口，避免把随机
+  工况差异或 gate 未覆盖项当作已定位的回归。
+- 实测设备准备：用户接入
+  `USB0::0x1AB1::0x0610::HDO4A244301137::INSTR`，本轮只读 VISA 查询确认
+  RIGOL HDO4404、序列号匹配，原始设置保存在
+  `out/HardwareAcceptance/20260915/scope-connect-r1/instrument-state.json`。
+  用户确认 CH1 至 CH4 分别连接 NO1 至 NO4 的 DPLL 输出，实物探头均为 1×；
+  该连接记录不包含实际输出相位测量。
 
 ### VDC-PROGRESS-20260915-033 — Core0 FIFO 借用保护与 STOP 回收互斥
 
