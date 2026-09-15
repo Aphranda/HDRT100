@@ -2040,18 +2040,18 @@ static int test_context_accepts_samples_until_locked(void)
                           false);
     (void)vdc_domain_get_snapshot(&context, &snapshot);
     failed += expect_u32("rejected", snapshot.dpll.rejected_sample_count, 1u);
-    failed += expect_u32("accepted streak reset",
+    failed += expect_u32("accepted history retained on sample miss",
                          snapshot.dpll.accepted_sample_count,
-                         0u);
-    failed += expect_u32("quality accepted streak reset",
+                         4u);
+    failed += expect_u32("quality accepted history retained",
                          snapshot.quality.accepted_sample_count,
-                         0u);
-    failed += expect_u32("checking after reject",
+                         4u);
+    failed += expect_u32("lock retained after sample miss",
                          snapshot.dpll.state,
-                         VDC_DOMAIN_LOCK_CHECKING);
-    failed += expect_u32("dco checking after reject",
+                         VDC_DOMAIN_LOCK_LOCKED);
+    failed += expect_u32("dco lock retained after sample miss",
                          snapshot.dco.lock_state,
-                         VDC_DOMAIN_LOCK_CHECKING);
+                         VDC_DOMAIN_LOCK_LOCKED);
     failed += expect_u32("quality bad count",
                          snapshot.quality.consecutive_bad_samples,
                          1u);
@@ -2065,11 +2065,11 @@ static int test_context_accepts_samples_until_locked(void)
                           vdc_domain_submit_tdma_evidence(&context, &recovery),
                           true);
     (void)vdc_domain_get_snapshot(&context, &snapshot);
-    failed += expect_u32("recovery starts new streak",
+    failed += expect_u32("recovery continues accepted history",
                          snapshot.dpll.accepted_sample_count,
-                         1u);
-    failed += expect_bool("no immediate relock after reject",
-                          snapshot.dpll.state != VDC_DOMAIN_LOCK_LOCKED,
+                         5u);
+    failed += expect_bool("valid recovery retains control lock",
+                          snapshot.dpll.state == VDC_DOMAIN_LOCK_LOCKED,
                           true);
     return failed;
 }

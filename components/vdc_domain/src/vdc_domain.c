@@ -846,6 +846,33 @@ static void vdc_domain_init_quality(vdc_domain_context_t *context)
         VDC_DOMAIN_DEFAULT_HOLDOVER_DRIFT_BOUND_NS_S;
 }
 
+/* A rejected observation does not establish a new control context. In
+ * particular, old provenance on one sample does not invalidate the active
+ * configuration. Context activation and role/profile changes own their
+ * explicit resets; sample misses only update rejection diagnostics. */
+static bool vdc_domain_reject_requires_reacquire(uint32_t reject_code)
+{
+    switch ((vdc_domain_gate_code_t)reject_code) {
+    case VDC_DOMAIN_GATE_SCHEDULE_CRC_MISMATCH:
+    case VDC_DOMAIN_GATE_EPOCH_MISMATCH:
+    case VDC_DOMAIN_GATE_REFERENCE_MISMATCH:
+    case VDC_DOMAIN_GATE_SOURCE_OUT_OF_RANGE:
+    case VDC_DOMAIN_GATE_PAYLOAD_NOT_DPLL_SAMPLE:
+    case VDC_DOMAIN_GATE_TIMESTAMP_NOT_ELIGIBLE:
+    case VDC_DOMAIN_GATE_TIMESTAMP_RESOLUTION:
+    case VDC_DOMAIN_GATE_WINDOW_BOUND:
+    case VDC_DOMAIN_GATE_BAD_FRAME:
+    case VDC_DOMAIN_GATE_BAD_WINDOW_CLASS:
+    case VDC_DOMAIN_GATE_PAYLOAD_WINDOW_FORBIDDEN:
+    case VDC_DOMAIN_GATE_DELAY_GENERATION:
+    case VDC_DOMAIN_GATE_BIAS_GENERATION:
+    case VDC_DOMAIN_GATE_LOCAL_PHASE_UNALIGNED:
+        return false;
+    default:
+        return true;
+    }
+}
+
 static void vdc_domain_record_rejected_sample(
     vdc_domain_context_t *context,
     const vdc_tdma_timestamp_evidence_t *evidence,
@@ -857,21 +884,23 @@ static void vdc_domain_record_rejected_sample(
     context->quality.valid = 1u;
     context->quality.update_seq++;
     context->quality.rejected_sample_count = context->dpll.rejected_sample_count;
-    context->quality.consecutive_good_samples = 0u;
     context->quality.consecutive_bad_samples++;
-    context->quality.consecutive_coarse_samples = 0u;
-    context->quality.consecutive_debug_samples = 0u;
-    context->quality.consecutive_fine_samples = 0u;
     context->quality.last_reject_code = gate->reject_code;
     context->quality.gate_reject_code = gate->reject_code;
     context->quality.gate_reject_slot = gate->reject_slot;
     context->quality.gate_reject_evidence = gate->reject_evidence;
-    if (evidence != NULL) {
-        context->quality.last_sample_seq = evidence->sample_seq;
-        context->quality.last_timestamp_source = evidence->timestamp_source;
-        context->quality.last_timestamp_resolution_ns =
-            evidence->timestamp_resolution_ns;
-        context->quality.last_timestamp_flags = evidence->timestamp_flags;
+    if (vdc_domain_reject_requires_reacquire(gate->reject_code)) {
+        context->quality.consecutive_good_samples = 0u;
+        context->quality.consecutive_coarse_samples = 0u;
+        context->quality.consecutive_debug_samples = 0u;
+        context->quality.consecutive_fine_samples = 0u;
+        if (evidence != NULL) {
+            context->quality.last_sample_seq = evidence->sample_seq;
+            context->quality.last_timestamp_source = evidence->timestamp_source;
+            context->quality.last_timestamp_resolution_ns =
+                evidence->timestamp_resolution_ns;
+            context->quality.last_timestamp_flags = evidence->timestamp_flags;
+        }
     }
     vdc_domain_refresh_quality_state(context);
 }
@@ -1063,16 +1092,6 @@ static void vdc_domain_record_observation_metadata(
         evidence->local_rx_timestamp_ns;
 }
 
-static bool vdc_domain_reject_requires_reacquire(uint32_t reject_code)
-{
-    switch ((vdc_domain_gate_code_t)reject_code) {
-    case VDC_DOMAIN_GATE_WINDOW_BOUND:
-        return false;
-    default:
-        return true;
-    }
-}
-
 static uint32_t vdc_domain_lock_state_after_reject(
     const vdc_domain_context_t *context,
     bool reacquire)
@@ -1084,17 +1103,7 @@ static uint32_t vdc_domain_lock_state_after_reject(
         return VDC_DOMAIN_LOCK_CHECKING;
     }
 
-    const uint32_t reject_limit = context->servo.lock_sample_count != 0u
-        ? context->servo.lock_sample_count : 1u;
-    const uint32_t next_bad_count =
-        context->quality.consecutive_bad_samples == UINT32_MAX
-            ? UINT32_MAX
-            : context->quality.consecutive_bad_samples + 1u;
-    if (context->dpll.state == VDC_DOMAIN_LOCK_LOCKED &&
-        next_bad_count < reject_limit) {
-        return VDC_DOMAIN_LOCK_LOCKED;
-    }
-    return VDC_DOMAIN_LOCK_RELOCKING;
+    return context->dpll.state;
 }
 
 static void vdc_domain_record_accepted_sample(
@@ -2881,8 +2890,14 @@ static bool vdc_domain_expand_compact_observation_window(
         vdc_domain_gate_fail(gate, VDC_DOMAIN_GATE_BAD_ARGUMENT, 0u, 0u);
         return false;
     }
-    if (!vdc_domain_schedule_validate(profile) ||
-        !vdc_timestamp_dictionary_find(dictionary, compact->event_id, &entry)) {
+    if (!vdc_domain_schedule_validate(profile)) {
+        vdc_domain_gate_fail(gate,
+                             VDC_DOMAIN_GATE_BAD_SCHEDULE,
+                             profile->local_slot_id,
+                             compact->sample_seq);
+        return false;
+    }
+    if (!vdc_timestamp_dictionary_find(dictionary, compact->event_id, &entry)) {
         vdc_domain_gate_fail(gate,
                              VDC_DOMAIN_GATE_BAD_FRAME,
                              profile->local_slot_id,
