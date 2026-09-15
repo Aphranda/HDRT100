@@ -4,12 +4,16 @@ Status: Draft
 Domain: VDC
 Canonical: `docs/vdc/VDC_STABLE_INPUT_PLAN.md`
 Related: `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/vdc/VDC_COMMAND_TRANSPORT_PLAN.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
-Last updated: 2026-09-15
+Last updated: 2026-09-16
 
 本文服务于 `VDC-LONGTERM-001`，描述后续实现和验证顺序，不冻结新契约，不表示固件
 已经实现下述丢样本策略或已经锁相。任务状态以 `VDC_DOMAIN_TODO.md` 为准。
 
 ## 1. 当前范围
+
+DPLL/VDC 时间同步属于 TDMA 特等席负载，沿已有固定 process-image/trailer 和
+优先预算准备、装载、卸载有效时间样本；不得降为普通日志或控制消息运输。
+优先交付与消费校正分开：DPLL 只按实际有效样本更新，偶发坏帧不会阻塞飞行环路。
 
 直接复用已经跑通的四板飞行数据通路。TDMA 启动首帧允许不可用，先预热传输，再从
 当前运行代际的任意有效时间样本开始 DPLL；不要求首档可用、首序号固定、ordinal
@@ -49,14 +53,15 @@ Last updated: 2026-09-15
 
 ## 3. 可复用实现与实际差距
 
-以下为源码审计快照，非已完成实现或产品事实；具体证据见
-`VDC-PROGRESS-20260915-049`。
+以下为源码与验证状态快照，非产品事实；初始审计见
+`VDC-PROGRESS-20260915-049`，样本跳过切片及最新输入测量见
+`VDC-PROGRESS-20260916-001`。
 
 | 位置 | 已有基础 | 当前应处理的差距 |
 |---|---|---|
 | `components/tdma/src/tdma_pio_spi_phys_origin.inc`、`components/tdma/src/tdma_pio_spi_ring_origin.inc` | 自主循环、每圈记录与版本化序号；运行数据可流转。 | 自主接收仍给出零时间戳，启动清理 clock observation；原始记录不能直接冒充正式边沿时间。应补当前有效样本所需的最小时间生产与交接。 |
 | `components/vdc_dpll_manager/src/vdc_dpll_manager.c` 的 `vdc_dpll_manager_ring_observer_service()` | 无输入、暂时不可用和重复输入已有有界返回；identity/path/expand/prepare/apply 有分层状态。 | 先读取实际输入及计数，确认哪个分支阻止本轮更新。不能把 P3 的 TDMA-only 结果当作 DPLL 已测量。 |
-| `components/vdc_domain/src/vdc_domain.c` 的 `vdc_domain_reject_requires_reacquire()` 与 `vdc_domain_apply_prepared_tdma_evidence_state()` | 合格输入和拒绝输入分开，拒绝输入不执行正常 servo 校正。 | 普通拒绝默认重新捕获，随后清积分与频率锚；须将可跳过的单样本错误与真实换代/持续失效拆开。 |
+| `components/vdc_domain/src/vdc_domain.c` 的 `vdc_domain_reject_requires_reacquire()` 与 `vdc_domain_apply_prepared_tdma_evidence_state()` | 单样本拒绝跳过并保留积分/DCO/有效时间锚，已完成 host 与当前源码四板 P3 集成验证；本地无效 schedule 保持异常处理。 | 有效自主输入接通后验证实板坏样本恢复；单独 clock/path/dictionary 发布的真实换代清理与持续失效另行闭合。 |
 | 同文件 `vdc_domain_update_clock_from_evidence()` | FLL 使用有效锚之间的 `expected_delta`。 | Ki 当前使用 `servo.update_period_us`；需独立核对实际有效间隔、单位和限幅。已有 FLL 锚可跨多个样本，不能直接将它当作 Ki 的上次更新时间。 |
 | 同文件 `vdc_domain_service()` 及质量逻辑 | 已有年龄刷新、保持相关字段；从机缺命令保持输出。 | 尚未确认完整的超时进入 HOLDOVER 路径；不能写成已具备。先修单样本跳过，持续失效与恢复再独立验收。 |
 

@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
 Related: `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_ARCHITECTURE.md`
-Last updated: 2026-09-14
+Last updated: 2026-09-16
 
 本文是 HAOFV Virtual Distributed Clock（VDC）内部基础主域的稳定架构事实源。
 VDC 负责多节点共同时间、offset/rate 估计、质量 promotion 和时间快照发布；不拥有
@@ -310,8 +310,14 @@ source model sequence、lock state 和相同 CRC。
 
 ## HOLDOVER、RELOCK 与失败恢复
 
+- 单份时间样本的 CRC、来源、时间有效性或代际不匹配只拒绝该样本；在当前控制
+  配置仍有效时，保持积分、有效时间锚和可信 DCO 输出，不因这一帧直接清锁或
+  重新捕获。下一有效样本继续校正；诊断拒绝计数与有效样本历史分开，最后有效
+  时间不被坏样本刷新，quality freshness 和正式准入继续独立判定。
 - 短暂失去 evidence：冻结可信 offset/rate，按 `holdover_drift_bound_ns_s` 增长 dispersion。
-- path delay stale、source generation 变化、连续 sequence 丢失或 formal gate 失败：进入 `RELOCKING` 或 `FAULT`。
+- 当前 path delay stale、实际 source generation/控制时间基准变化、持续丢失超出
+  保持边界或正式质量失效按恢复策略处理；不能把收到一份旧代际报文解释为当前
+  时间基准已经变化，也不能仅按单帧拒绝计数触发重锁。
 - source 切换必须清空旧连续性和 promotion history，从 `CHECKING/INITIAL_SYNC` 重新开始。
 - 不得用旧 build、旧 receipt、host 时间或单向 leg 结果恢复正式 RUN。
 

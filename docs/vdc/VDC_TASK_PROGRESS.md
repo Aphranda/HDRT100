@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_TASK_PROGRESS.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
-Last updated: 2026-09-15
+Last updated: 2026-09-16
 
 本文只记录当前 VDC 迁移的实施 checkpoint 和证据闭环。任务状态以 `VDC_DOMAIN_TODO.md`
 为唯一事实源，稳定语义以 `VDC_DOMAIN_ARCHITECTURE.md` 为准。重构前的长历史记录已移入
@@ -21,6 +21,10 @@ Last updated: 2026-09-15
 | 下一 gate | 必须指向一个 TODO Task ID 或明确外部阻塞。 |
 
 ## 当前 checkpoint
+
+最新切片见 `VDC-PROGRESS-20260916-001`：单样本跳过完成软件及四板 P3 集成验证，
+自主输入复测确认数据持续但时间输入尚未接通；直接返回特等席时间样本生产与交接，
+首帧精细优化不作为前置。
 
 执行顺序与任务状态统一见 `VDC_DOMAIN_TODO.md` 的“分阶段执行清单”和任务依赖表；
 本文仅追加每个切片已经发生的验证、失败和下一 gate，不复制第二份迁移顺序。
@@ -3857,3 +3861,15 @@ P3，详见 `VDC-PROGRESS-20260915-026`；后续非法目标位移修复和完�
 - 实际控制差距已定位到 `vdc_domain_reject_requires_reacquire()`：多数输入拒绝会走 `vdc_domain_reset_lock_acquisition()`，清积分与频率锚；现有无新输入/重复输入返回已可复用。FLL 使用有效锚间隔，Ki 仍消费静态 `servo.update_period_us`；保持年龄字段存在不证明超时 HOLDOVER 迁移已实现。这些是下一可归因功能切片，不能用放行无效时间戳替代修复。
 - 本方案按项目 collaboration/doc-self-regression 流程验证，独立审查确认首帧不阻塞、无连续 K 门禁、旧样本与实际换代区分及 HAOFV owner 边界。纯文档不构建/刷机或重跑 P3；文档门禁结果存入 `out/doc-audit/20260915-dpll-stable-input-r1/`，本记录不追认旧硬件失败，不冻结新契约。
 - 下一 gate：用现有四板板端 trace 和 observer 阶段计数测量自主有效输入；TDMA native 从启动留证，DPLL trace 在计划自主阶段触发以免 bootstrap 填满。全板 STOP ACK 后顺序保存及读回，用计数增量与实际覆盖判断输入卡点，不将 STOP 后的 INACTIVE 当作 RUN 拒绝。`VDC-SAMPLE-001` 单独修复坏样本跳过，每个实际功能变化立即完成 host、当前源码构建、四板 P3 和专项，再返回时间输入及示波器锁相主线；长期目标保持 active。
+
+### VDC-PROGRESS-20260916-001 — 单样本跳过收敛与四板自主时间输入定位
+
+- TODO task ID：`VDC-SAMPLE-001`、`VDC-TIME-002`；日期：2026-09-16。关闭本次样本拒绝的软件与集成切片，实板坏样本恢复待自主有效输入接通；不关闭 `VDC-TIME-003/004`、完整 HOLDOVER 或实际锁相。用户进一步明确 DPLL/VDC 时间同步是 TDMA 特等席负载，已在执行方案中落点，继续复用固定 process-image/trailer 和优先预算。
+- `vdc_domain_reject_requires_reacquire()` 将单份样本的来源、CRC、时间有效性、窗口和代际等拒绝与本地 disabled/非法参数/无效 schedule 分开；跳过时不清积分、DCO、有效时间锚和有效样本累计，不按 bad-count 直接重锁。拒绝计数继续增加，质量年龄不刷新，正式 gate 仍拒绝坏输入。紧凑输入将本地 schedule 无效单独归为 BAD_SCHEDULE，避免被 BAD_FRAME 的跳过策略混同。既有 debug continue 仍不执行被拒绝样本的 servo 校正。
+- 没有新增时间戳、wire 字段、PIO、缓存、独立 Domain 重复过滤或 Ki 步长/HOLDOVER 功能。FOLLOWER 的本地原始观察记录保持既有行为；单独 publish clock/path/dictionary 的实际换代清理尚未闭合。set_ready(false) 保持原 OFF 语义，不宣称它清积分；紧凑配置异常的历史状态处理也没有扩大修复。当前作用范围由 `host-review-summary.json` 与独审报告列明。
+- 软件与资源快照（非产品容量或时序契约）：85 项 host 测试通过，含 72 个真实拒绝入口的启动/捕获/锁定及 strict/debug 场景、8 个显式控制或配置异常对照、既有完整 C Domain suite 和原 replay 测试。旧生产源码的来源、窗口、紧凑 BAD_FRAME、delay-generation 四项反例失败保留，debug 对照通过；两次 activation 夹具错误及修正也保留。A/B Release 和 Flash 链接通过，静态 RAM 尾端、堆及两核栈边界均不变，Flash 各增加 392 B。
+- 当前源码首次四板 quick P3 严格通过，passed/strict_gates_passed 为 true、diagnostic_failures 为空，范围为 TDMA-only，DPLL 标记 `SKIPPED_TDMA_ONLY`。源码指纹 `b06f286d6a68a3a3bc069fead718ee89ec236d682d1391a13dd42004ca2ed115`，包 SHA256 `77cf838802cda67006a00b2a80617e001b9ced1a2cc76ab3c7d023d13b82a5f5`；缓存 build 标识仍为 `20260915022619`，不能单靠该标识识别新旧固件。主控核对 source/receipt/OTA/包及原件，未修改 OTA 实现或配置、未操作 NO5。代码与匹配 P3 凭证提交为 `cf4206f`。
+- 四板自主输入定位分别在旧固件 `baseline-r1` 和本次新固件 `after-skip-r1` 执行，均先确认全板 STOP，核对 UID、角色及 load mask，再以现有普通 bootstrap/自主 TRIAL 触发。实读四板 load mask 均为 91，VDC/DPLL 已开，角色为一主三从；未因候选配置文件的 mask 数值推断实际未启用。TDMA SRAM 从启动记录，DPLL trace 在预声明自主阶段 ARM，共同观测时段约 4.5 s；期间无查询，全部 STOP ACK 后顺序保存 SD/读回。完整探测流程分别约 33.3/40.4 s，不含构建、OTA 和 P3，适用于快速输入定位。
+- 新固件正向原件快照：四板有效 RX 增量分别 1772/1745/1722/1697，坏帧及运输错误增量均为零，三从成对事件无 fault。自主主板采样点的 timestamp resolution 为零、flags 为 diagnostic-only，正式 TX/RX 时间为零；三从本地 latch 有读数，但 observer eligible 增量均为零。四板自主 trace 均为零记录、零 dropped。主板 observer accepted 增量为 162，基线对应为 160；这些计数包含 bootstrap/切换，不能当作自主持续更新。零 trace 不证明精度不合格或 PI 发散，STOP 后 last_result 也不代表 RUN 的拒绝原因。
+- 证据目录为 `out/HardwareAcceptance/20260916/dpll-sample-skip-r1/`（`host-review-summary.json`、`implementation-independent-review-r1.json`、`resource-comparison-main-r1.json`、`audit-main-r1.json`、`p3-r1/acceptance.json`）及 `out/HardwareAcceptance/20260916/dpll-input-probe-r1/`（新旧原件、`comparison-main-r1.json`）。旧包/ELF/map 已在 build 前冻结，避免同名增量产物覆盖后混淆基线。生产 API 的保持行为由 host 反例对照证明，四板原件证明当前集成与输入现状，尚未实板注入坏样本。独立原件复核重解 CRC、重组原始 SD/RAM 回复并逐字节核对；文档与源码分离提交。
+- 下一 gate：从稳定运行的有效帧直接接通自主 origin 的 reference TX 时间与接收侧时间关联，进入既有特等席及 VDC evidence 路径；确认实际 accepted/DCO 更新后再做实板坏样本保持、真实更新预算、共同时间命令应用及示波器锁相。首档成功、固定连续无错窗口、首 CS 精细证明均不是前置。既有全相位时序失败和正式精度任务保留，不能借本次 P3 通过追认；长期目标保持 active。

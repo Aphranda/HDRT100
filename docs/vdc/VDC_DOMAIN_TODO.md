@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_TODO.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/sync/SYNC_IO_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`
-Last updated: 2026-09-15
+Last updated: 2026-09-16
 
 本文只维护当前 VDC 架构迁移的任务、依赖和退出门禁。稳定语义见 Architecture，实施证据
 见 Task Progress，重构前内容已归档到 `docs/legacy/vdc/`。
@@ -26,6 +26,12 @@ Last updated: 2026-09-15
 或旧样本仅跳过本次校正，不清积分、不因单帧直接失锁或重新准入。真实时间基准换代
 与持续失效另行处理，不要求连续无错的固定样本窗口。下述早期推进回顾保留证据
 索引；其中首帧专项的旧前置安排由本段与当前执行入口覆盖，历史结果不改写。
+
+`VDC-PROGRESS-20260916-001` 已完成单样本跳过的软件切片、当前源码四板 P3 和自主
+输入复测。现有一主三从的 VDC/DPLL 相位已启用，飞行数据正常流转；自主源端尚未
+提供有效时间输入，三从没有合格输入，当前先补这条特等席时间样本生产与交接。
+`VDC-SAMPLE-001` 的实板坏样本恢复验证待该输入接通后进行，不反向阻塞时间输入工作，
+也不以无新输入的 trace 判断 PI 发散或实际相位精度。
 
 RAM 使能切片 `SYNC-RAM-001` 已闭合，当前已返回 `VDC-TIME-002` 的连续事件共同
 epoch、有界交接及失效退休。成对事件观察器的生产接入由 TDMA owner 承接，事件快照
@@ -300,7 +306,7 @@ quick P3 验证，见 `VDC-PROGRESS-20260914-005/006`。这不关闭其他容量
 | `VDC-TIME-002` | 完成 TDMA owner 内的原始计时记录原型及资源收敛。 | IN PROGRESS | 依赖 `VDC-TIME-001`。真实 builder 原型、当前容量目标链接和 raw 预采见 `VDC-PROGRESS-20260914-009`；全部 active mask/有效 local slot、选定 guard/abort/记录开关的 host 矩阵，以及 raw 复制交错、回绕、STOP/重臂和 persona 退休补测见 `VDC-PROGRESS-20260914-010`。owner 固定 PIO/DMA 下的 tail/prefix 几何和 UI 状态副本资源修复见 `VDC-PROGRESS-20260914-011`；其余编译容量的 A/B 链接、全部目标实际地址的构造矩阵和上限容量四板预采见 `VDC-PROGRESS-20260914-013`。`VDC-PROGRESS-20260915-015` 明确 scan backlog/clamp 与首帧交接计数仍需分层；目标链接缺口已补齐，对应物理节点拓扑、硬件配置和有界取消仍待验收；上限容量 quick P3 的 RefMem 调度失败保留。全部准入配置的描述符、literal、单步构造上界、记录布局、FIFO 和目标 RAM/link map 均通过后关闭；实际地址 host 构造不证明总线或边沿精度。跨字回绕、缺边沿、旧 FIFO、身份错配及覆盖分别验证，timer 读取区间不能作为实际边沿精度。 |
 | `VDC-TIME-003` | 验收四板自主模式的有效原始计时及丢样本行为。 | PENDING | 依赖 `VDC-TIME-002` 当前四板输入所需的记录/交接切片；首帧专项和其他容量覆盖不阻塞本项。当前源码构建/P3及有限采集按有效样本 epoch/sequence/identity 对账，约束实际边沿计时误差；完整保留预热、错误与恢复过程，允许跳过坏帧，不要求全窗无错或固定连续样本数。SCPI 仅控制，全部 STOP 后顺序保存 TDMA/DPLL 并核对 CRC/SD。健康 TDMA 不因局部计时拒绝而隔离。 |
 | `VDC-TIME-004` | 将已验证的有效帧计时接入 trailer 和 VDC evidence 准入。 | PENDING | 依赖 `VDC-TIME-003` 及相关契约门禁。可从预热后任意有效帧建立对应发射/接收事件关联，不依赖首档；旧数据丢弃，实际 session/映射变化撤旧。原始时间、共同时间及 formal qualification 分开；实板确实产生自主更新后验收真实更新预算，正式锁相由 Calibration/quality 和输出测量判定。 |
-| `VDC-SAMPLE-001` | 单次坏样本跳过，保持 DCO、积分及有效时间锚。 | IN PROGRESS | 复用现有无输入返回，收敛 Domain 拒绝分类；坏帧、重复及旧样本不因单次拒绝直接重锁，真实 STOP/配置与时间模型换代仍撤旧。host 正反测试、当前源码构建、四板 P3 及功能专项分开验收；本项不混改 Ki 步长或持续超时 HOLDOVER。 |
+| `VDC-SAMPLE-001` | 单次坏样本跳过，保持 DCO、积分及有效时间锚。 | IN PROGRESS | Domain 样本拒绝分类、有效历史保持及本地非法调度区分已完成 host、当前源码构建、四板 P3 和自主输入复测，见 `VDC-PROGRESS-20260916-001`；实板坏样本恢复待有效自主输入接通，不阻塞 `VDC-TIME-002/003/004`。复用 manager 重复过滤，不宣称新增独立 Domain 过期准入；既有显式 STOP/role/config 行为已回归，单独 clock/path 发布的换代清理仍待核对。本项不混改 Ki 步长或持续超时 HOLDOVER。 |
 
 RefMem 向量更新的快照收敛和当前/上限容量四板复核见 `VDC-PROGRESS-20260914-014`；
 本轮未再出现该相位自身超限，仍保留上游迟到和严格校准的失败边界。真实构造器每块
