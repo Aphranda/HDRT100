@@ -22,14 +22,19 @@ Last updated: 2026-09-16
 
 ## 当前 checkpoint
 
+最新原始反馈运输见 `VDC-PROGRESS-20260916-009`：当前源码四板 P3 严格门禁通过，
+两轮 STOP/ARM 专项均证明三从完整记录到达 NO1 且与来源发布历史逐字节一致。
+从板实际 DCO 应用仍为零；分片组装延迟、拒收、TDMA 超限及 RX 覆盖原样保留。
+下一步关联主机参考并建立逐从校正和实际应用，不能以运输通过代替闭环。
+
 最新同条观测留存及本板时间锚见 `VDC-PROGRESS-20260916-008`：严格四板 P3、专项和
 原件独立复核通过；首次专项因 NO2 START 缺少真实应答中止，同源新轮次证明三从
 恢复后持续留存完整记录，STOP 后历史不变。TDMA 完整相位超限及 RX 覆盖计数仍保留，
-不由此宣称完整时序或锁相通过。下一步接通各从原始反馈，不重启健康 TDMA。
+不由此宣称完整时序或锁相通过。该历史切片的原始反馈后继见上方当前 checkpoint。
 观察器自身恢复见 `VDC-PROGRESS-20260916-007`。NO1 运行中发射记录留存见
 `VDC-PROGRESS-20260916-005`：软件、Release、
 当前源码四板 quick P3 和 STOP 后同序对账已通过。输出投影准备见
-`VDC-PROGRESS-20260916-004`；反馈运输与实际 DCO 应用尚未接通。指定主机接收切片见
+`VDC-PROGRESS-20260916-004`；实际 DCO 应用尚未接通。指定主机接收切片见
 `VDC-PROGRESS-20260916-003`。目标整理见
 `VDC-PROGRESS-20260916-002`，随后贯通各从反馈和专属校正，再消除漂移、收敛精度。
 
@@ -39,6 +44,64 @@ Last updated: 2026-09-16
 
 当前执行依赖按 `VDC-PROGRESS-20260916-002` 纠偏；此前各记录的“当前”及
 “下一 gate”保留历史含义，不将首帧可用、全窗无错或完整绝对时间映射作为运输前置。
+
+### VDC-PROGRESS-20260916-009：三从原始反馈运输与重臂对账
+
+- TODO task ID：`VDC-FEEDBACK-001`、`VDC-FLIGHT-001`；长期目标保持 IN PROGRESS。
+- 状态：DONE，仅关闭原始反馈运输切片。软件、构建、当前源码四板 P3、两轮专项及
+  原件独审均通过。本节数字均为实验快照，非冻结协议、时序预算或产品精度事实。
+- 代码提交：`07dfda6`；提交时 staged 源码指纹与 P3 凭证匹配，pre-commit 通过。
+- 实现：Core0 将当前显式 TAP 的同条 LIVE 编成固定原始反馈记录，经既有 VDC 区
+  分片发送；组内冻结，只在 FIFO 发布成功后前进，组间保留普通 VDC 发布。
+  NO1 按来源独立重组并保留完整诊断历史；普通 RefMem/ACK/Control 字段继续处理。
+  STOP、DATA 暂停及确认绑定变化取消部分组装，竞争只跳过。未接 PI 或 DCO 应用。
+- 修复：历史记录身份比较改为内层 source/target，避免新身份首组取消后无法重试；
+  无活动反馈组时 TAP/LIVE 暂不可用仍发布普通 mailbox。补齐 RX/overlay 准备、
+  origin adapter 和物理 seed/publish 四处反馈 class 准入，保留 CRC/来源/目标校验，
+  旧命令 class 与未知 class 仍拒绝。仅 RefMem codec/parser 通过不足以证明飞行运输。
+- 软件：主控反馈与旧消费者回归 52 项通过，真实 prepare/adapter/物理容量测试
+  10 项通过；独审同范围 62 项通过，采集工具作者及独审各 70 项离线测试通过。
+  `implementation-review-r1.json` 记录 22 项检查及已修发现，SHA256
+  `b18e3c37e8a1b2960ed1eb218afe66cf8d2e5b3b246a55b5e6e695eb7b898a33`。
+- Release：`build-r2.log` 真实子进程 exit 0，A/B 链接与 Flash 检查通过；原
+  `build-r1.log` 的 PowerShell stderr wrapper 异常保留，后续子进程检查不覆盖旧日志。
+  A/B BSS 相对已验收同条留存版本均增加 1572 B，链接地址余量 10124 B；不是运行时
+  栈/堆水位。冻结 map/package 见 `after-build-r2/`、`resource-review-r2.json`。
+- 源码指纹 `6f3d22ea8a96d2443d8299828c6991e1f5fc65a51b515bb99a72f195afb75a51`，
+  文件数 1141；包 SHA256
+  `f0a90843c4f8c69c89d3cd0915ce1db2b89a05bc160c05d5c9dd3a44c7677aba`。
+  `p3-r1/acceptance.json` 的 passed 与 strict_gates_passed 均为 true，
+  diagnostic_failures 为空，四板均更新同包；不以旧 build label 单独证明版本。
+- 四板专项：`capture-r1` 与 `capture-r2` 均 passed、flow_completed，errors 为空。
+  每轮每板 20 条 TDMA native 记录、零采集 missed，SD/RAM 逐字节一致；运行区间
+  查询数为零，四 START/STOP 均真实 OK，应答完成后才导出。DPLL trace 各板均为零
+  更新记录，保留该事实；不能宣称 trace 已证明闭环响应。
+- 第一轮三从完整发布增量 124/131/132，NO1 完整接收增量 110/112/109，最终完整
+  字节对应源端历史索引 0/0/1；末次组装耗时 80/75/75 ms。普通 NO1 VDC 接收增量
+  2287/2279/2286。第二轮完整发布 123/129/130、接收 121/118/124，均匹配历史
+  索引 0，组装 86/90/75 ms，普通接收增量 2287/2249/2262。全部来源 ARM 从
+  16 推进至 17、observer epoch 从 3 至 5，每轮各源一次取消且 STOP 后 active 为零。
+  实际 follower_apply_count 均保持零。主控独立原始 CSV/CRC/native/动作复核
+  `main-recheck-r1.json` 共 59 项通过；工具仅最新 RX 记录，不提供所有接收测量序号历史。
+- 原件独审：`hardware-review-r1.json` 共 301 项通过、无遗留 finding，结论为
+  `APPROVE_DIAGNOSTIC_RAW_FEEDBACK_TRANSPORT_AND_STOP_ARM_RESTART`，SHA256
+  `840577d169fe2a403c0d7e35dfbaa804a16e537188fe04b4650e0aafd76aadfc`。
+  独立解码原始 CSV/CRC、两轮八份 native 和 SD/RAM，比对 P3 引用哈希与原始动作；
+  不授予时序、无丢失或锁相资格。
+- 限制：第一轮各源拒收增量 128/158/204、第二轮 26/94/71，重组超时均零；完整发布
+  不等于完整送达。native baseline 到末样本，第一轮 NO1–NO4 TDMA overrun 增量
+  1/188/85/50、deadline miss 1/145/54/34；第二轮 1/193/78/35、1/147/53/24。
+  三从 RX ring overrun 两轮分别 40/41/31、31/9/17，observation drop 分别
+  1504/1480/1449、1508/1488/1464。运输通过不追认完整时序、无丢失或精度通过。
+  组装耗时也不是测量年龄；source epoch/run 不是共同会话，跨重启旧记录拒绝、
+  同次主机参考与输出域换算仍属后继控制工作。
+- 证据根目录：`out/HardwareAcceptance/20260916/dpll-raw-feedback-r1/`。下一 gate：
+  分离提交后，按实测反馈延迟评估主机同序参考缓存与输出域关联，
+  接通逐从校正及实际 DCO 应用。首帧精细证明和完整绝对时间映射不作为运输前置。
+  只读后继审计 `next-control-audit-r1.json` 指出现有主机 DMA 原始池不能覆盖分片延迟，
+  需要有界保留同序参考；raw 差分可消固定偏差，但不会直接反映 DCO 校正效果。
+  缓存、采样时实际 DCO 身份和连续重定锚按后继独立审核/验收推进，不能用原始 PIO
+  斜率代替输出模型残差，也不把本审计当作控制已接通。
 
 ### VDC-PROGRESS-20260916-002：归纳四板数据运输与真实闭环长期目标
 

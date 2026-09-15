@@ -93,6 +93,56 @@ cycle 区间与 DPLL manager 的 time_us 时间原点不同，不能直接混算
 检查也不证明期间未发生 debug pause。所有记录保持 diagnostic-only，不授予
 timestamp_valid 或 dpll_eligible；反馈运输和实际控制按后继独立切片接通。
 
+### 原始反馈运输实施候选
+
+`VDC-FEEDBACK-001` 的原始反馈切片直接接通各从完整原始观测到 NO1，候选审计见
+`out/HardwareAcceptance/20260916/dpll-event-live-r1/next-feedback-audit-r1.json`。
+本节数字是诊断实现快照，非冻结 wire 契约；实际常量以
+`refmem_sync_vdc_feedback.h`、`tdma_process_image_layout.h` 为准，验收见
+`VDC-PROGRESS-20260916-009`，不授予控制或锁相资格。
+
+候选沿用固定 mailbox、广播 target mask 和全部 RefMem/ACK/Control 区，只用新的
+诊断 class `0x12` 区分 VDC 区解释。普通 class 和默认关闭的旧命令 class 不变；
+其他节点仍消费 RefMem，不能把反馈字节解析为 phase/rate，也不能因内层反馈仅给
+主机而缩窄整个 mailbox 的 target mask，破坏其他节点的 mailbox presence/WKC。
+TDMA 的 RX/overlay 准备、origin adapter 和物理 seed/publish 校验统一通过
+`tdma_process_image_transport_class_valid()` 准入普通与反馈 class；仅修改 RefMem
+parser 不足以接通飞行路径。旧命令 class 和未知 class 继续拒绝。
+
+完整记录按小端显式编码为 64 B，依次为 schema/source/target/domain_flags（各 1 B）、
+source clock epoch/run（各 4 B）、source ARM（8 B）、observer epoch/measurement
+sequence/tick_hz（各 4 B）、RX/TX elapsed（各 8 B）、TIMER1 enable before（8 B）、
+enable width（4 B）和 CRC32（4 B）。schema 为 1，flags 固定为 `0x07`：bit0 表示
+本地 TIMER1/PIO clk_sys 原始域，bit1 表示历史采集锚存在，bit2 表示仅诊断；不表示
+公共时间或当前控制资格。CRC32 采用 IEEE reflected `0xEDB88320`，初值及末异或均
+为 `0xFFFFFFFF`，覆盖前 60 B；`123456789` 校验值为 `0xCBF43926`。
+width 超出编码范围、倒序锚或不合法域必须拒绝，不截断。完整 LIVE 继续在本地保存。
+
+每个 VDC 区传 index/count 和 4 B 数据，共 16 片；Core0 在组首冻结一次完整记录，
+仅 FIFO 发布成功才推进片号及邮箱序列。组完成后成功发布一条普通 VDC mailbox，
+再捕获新的 LIVE；没有新记录时继续普通数据。输入须来自当前显式 TAP，且 LIVE
+为 ACTIVE、ANCHOR_VALID，配置/角色/时钟及 ARM 绑定在复制前后相符。
+
+NO1 按编译节点容量分配独立组装区，并按运行准入节点检查索引。片段使用 mailbox
+完整 seq32，保留现有跳过零的回绕规则；旧 index0 按半区序判旧，不得复位新组。
+重复相同片幂等，不前进或续时；冲突、缺片及乱序只取消该源部分组装，合法新组首
+可重新开始。总组装时限候选为首片后 1000 ms，空队列也检查，毫秒回绕安全；
+它是取消门限，不是交付 WCET。同 source clock epoch/run、ARM、observer epoch
+内 measurement sequence 必须递增；相同完整记录不更新 complete 或新鲜度，
+同序不同内容拒绝并保留旧完整记录。同 observer epoch 不允许测量序号回绕。
+
+唯一 Core0 RefMem writer 管理发布/取消；FIFO admission tag 在普通接收与反馈间
+统一复用，不能相互推进而失效。确认 STOP、DATA 暂停、角色/配置/绑定变化时取消
+未完成 TX/RX，保留已完成诊断历史；暂时快照竞争只跳过本次服务。各板 epoch/run
+是来源命名空间，不能与主机本地编号比较为共同会话；跨重启完整旧记录拒绝及控制
+有效期仍须后续共享会话/同次主机参考证明，不能由本诊断通路授予 DCO 应用资格。
+
+四板专项须逐源将 NO1 完整接收字节与从板完整发布历史对账，记录更新计数、测量
+序号推进、实际组装时间及 STOP/ARM 取消。短 TX 历史不保证一定覆盖接收记录，
+无法匹配时判证据不足，不能用最新 LIVE 拼造。NO1 当前原始记录缓存也不足以
+承诺延迟反馈的同序匹配；后续控制另行补齐缓存及本地输出域关联。节点容量参数化
+约束 RAM，保持 Core1 无解析等待；每切片完成软件、Release、四板 P3 与专项后再提交。
+
 ### 当前实现快照（仍未冻结契约）
 
 当前源码已经有一个受限的 resident VDC 命令运输原型，用于验证固定 process image
