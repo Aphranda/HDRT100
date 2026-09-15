@@ -82,7 +82,66 @@ P3，详见 `VDC-PROGRESS-20260915-026`；后续非法目标位移修复和完�
 `VDC-PROGRESS-20260915-035`；普通循环边界和事件观察器分段计时见
 `VDC-PROGRESS-20260915-036`；transport CRC 等价优化及同槽对照见
 `VDC-PROGRESS-20260915-037`；事件 lift 快路径及收益边界见
-`VDC-PROGRESS-20260915-038`。
+`VDC-PROGRESS-20260915-038`；从板热点 SRAM 放置与完整对照见
+`VDC-PROGRESS-20260915-039`。
+
+### VDC-PROGRESS-20260915-039 — 从板事件热点 SRAM 放置，普通运行尾延迟下降
+
+- TODO task ID：`VDC-SCHED-001`、`VDC-VERIFY-001`；状态 IN PROGRESS。
+  038 已提交为 `d238d35` / `54c6fff`。上轮算术简化未证明整体提速，本轮仅将
+  `tdma_event_observer_feed()`、`tdma_rx_start_cut_monitor()` 和
+  `tdma_rx_dma_counter_observe()` 的函数体放 SRAM；算术、身份/几何复验、
+  时间括号、DMB、局部 counter 副本及已退休后的故障累计全部保留。现有 Flash
+  helper 仍会调用，不声明关停 XIP 后可运行，也不修改 OTA、预算或命令开关。
+- 资源快照，非容量契约：A/B 三段共 4120 B（函数指令共 4118 B），加链接开销后
+  data 末端增加 4136 B，利用对齐间隙使 BSS 末端总成本为 4096 B；最终 BSS
+  末端 `0x2007c6cc`、C heap 链接跨度 14644 B，不能当实时空闲堆。FreeRTOS
+  `configTOTAL_HEAP_SIZE`、两核 scratch 栈边界不变，四板前后 RTOS 读回的
+  free/minimum 均为 20344 B。相同函数体并不保证所有外部调用成本相同。
+- 软件：85 项生产 observer/start-cut/RX/profile 回归通过，双槽 release 与
+  Flash 链接门禁通过。首轮 82 通过、1 个夹具编译失败；恢复原函数声明仍复现
+  缺 `tdma_service_timing.h`，补齐该生产头后通过，原失败保留。构建冻结时的
+  `d6400ca3…` 指纹早于此纯 host 夹具修复；最终 P3 重新构建并绑定源码 SHA
+  `2fdc1c7d9ff13c8c7a30e8a7fc89cf657a7814adf27b3d32fa89a14c2c4addfd`，
+  包 SHA 为 `3aba55b99d3be1553c82fc16e9c7d963b91b0f50a8d4e8e3b21d5ac99397239d`。
+- 验收失败与恢复分别留证：`event-hot-ram-r1/p3/` 耗时 183.282 s，四板 OTA/
+  短帧流程完成，但 SCK 候选不足、无重臂余量合格组合，`strict_gates_passed=false`。
+  使用既有 `resume` 和同一包/成功 OTA 记录重做复位、校准、闭环，
+  `p3-resume-r2/` 耗时 77.334 s，`passed/flow_completed/strict_gates_passed=true`、
+  诊断失败为空；不改门限，不覆盖首轮失败，也不把 77 s 称为完整构建/部署验收。
+  为控制槽位，验收前另用冻结的 038 包重装一次，四板通过，额外耗时 106.922 s。
+- 性能对照仍固定旧 row35/matrix、板序、完整槽元组和 START 后 RESET 协议；
+  038 两轮与新 r1/r3 比较，以下为稳定采样段快照，保留不等长窗口实际分母：
+
+  | 板卡 | 放置前 TDMA overrun/run | SRAM 放置后 TDMA overrun/run |
+  |---|---:|---:|
+  | NO1 | 0/1669 | 0/1501 |
+  | NO2 | 16/1664 | 0/1500 |
+  | NO3 | 19/1664 | 0/1498 |
+  | NO4 | 24/1666 | 0/1501 |
+
+- 三从板合计由 59/4994 变为 0/4499，支持保留本切片。新 r3 三从板普通 RUN
+  完整峰值为 807.664/804.848/796.992 µs，序号均非 RESET 首相位；这些峰值内
+  FEED 为 11.296/33.656/17.040 µs，START_CUT 为 4.720/5.268/4.672 µs，
+  子段不是独立最大值。新 r1 NO4 的 879.880 µs 为 STOP 过渡，r3 NO1 的
+  843.844 µs 为 RESET 首相位，均原样保留，不提升为稳定运行比较。
+- 新 r2 的 NO2 STOP 后 OTHER 读回为 `UNAVAILABLE`，夹具误报为 reset mismatch；
+  RESET/PEAK/RUN 实际代际一致。原始失败 summary 不改为通过，四份完整 native
+  经生产离线判据复核，稳定段无超限，但不补造缺失 profile。r3 仅对 STOP 后
+  明确 `UNAVAILABLE` 的只读导出至多重试三次，保存全部响应，完整采集通过。
+  `event-hot-ram-after-r1/r2/r3/` 均保留，完整 paired 对照使用 r1/r3。
+- 原件复核覆盖两次验收的八份、完整 paired 比较的十六份及失败导出的四份
+  native binary，CRC/身份/epoch/完整记录与归档 JSON 一致；稳定时间线逐条
+  对应板端样本，三从板 ACTIVE、无故障且 joined/published/elapsed 连续递增。
+  最终四板 STOP/config ACK、SELFtest 全零、recorder SAVED；SAVE 不表示 SD
+  与 SRAM 字节比对。证据在 `out/HardwareAcceptance/20260915/event-hot-ram-r1/`。
+- 下一 gate 回到 `VDC-TIME-002`：先在 TDMA owner 内完成 STOP 清字段前捕获
+  几何、全部退休后发布及新 ARM 显式选择，再单独处理自主准备与首次 DMA 发车
+  的从板就绪边界，补首物理事件/DMA 帧/完整身份关联。只读路线见
+  `vdc-next-time-r1/assessment.json`；未知拓扑不扩成当前四板阻断。
+  本轮仅证明普通模式短窗收益，仍为 850 µs TDMA / 1.5 ms 整表预算快照，不能
+  关闭自主更新 WCET、500 µs、`VDC-TIME-003/004`、命令应用或锁相门禁。后续
+  四路示波器继续以 NO1/CH1 上升沿触发，本轮没有新增波形或正式时间戳资格。
 
 ### VDC-PROGRESS-20260915-038 — 事件 lift 等价快路径，尾延迟仍待闭合
 
