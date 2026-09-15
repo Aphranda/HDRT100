@@ -508,6 +508,9 @@ int main(void)
         tdma_ring_runtime_service(&stop_runtime);
         failed += expect_u32("pending STOP blocks new start", stop_adapter.start_count, 1u);
         failed += expect_u32("pending STOP blocks DATA", stop_runtime.up_running, 0u);
+        failed += expect_bool("pending STOP rejects DATA request even at repeated generation",
+            tdma_ring_runtime_set_data_enabled(&stop_runtime, true), false);
+        failed += expect_u32("rejected pending STOP leaves DATA disabled", stop_runtime.data_enabled, 0u);
         stop_adapter.fail_stop = false;
         tdma_ring_runtime_configure(&stop_runtime, NULL);
         tdma_ring_runtime_service(&stop_runtime);
@@ -526,12 +529,19 @@ int main(void)
         tdma_ring_runtime_service(&stop_runtime);
         failed += expect_u32("partial ARM retains cleanup callback", stop_runtime.adapter_started, 1u);
         failed += expect_u32("partial ARM marks pending STOP", stop_runtime.adapter_stop_pending, 1u);
+        failed += expect_bool("partial ARM cleanup is not a START acknowledgement",
+            tdma_ring_runtime_set_data_enabled(&stop_runtime, true), false);
+        failed += expect_u32("partial ARM rejection leaves DATA disabled", stop_runtime.data_enabled, 0u);
         stop_adapter.fail_start = false;
         tdma_ring_runtime_service(&stop_runtime);
         failed += expect_u32("partial ARM cannot restart before cleanup", stop_adapter.start_count, 2u);
         stop_adapter.fail_stop = false;
         tdma_ring_runtime_service(&stop_runtime);
         failed += expect_u32("partial ARM restarts after cleanup", stop_adapter.start_count, 3u);
+        failed += expect_bool("completed recovery permits START",
+            tdma_ring_runtime_set_data_enabled(&stop_runtime, true), true);
+        failed += expect_bool("completed recovery permits duplicate START",
+            tdma_ring_runtime_set_data_enabled(&stop_runtime, true), true);
     }
 
     /* A STOP may supersede an ARM while the physical start callback is in

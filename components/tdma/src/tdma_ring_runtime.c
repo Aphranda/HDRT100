@@ -490,16 +490,46 @@ bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
 bool tdma_ring_runtime_set_data_enabled(tdma_ring_runtime_t *runtime,
                                         bool enabled)
 {
-    if (runtime == NULL || tdma_ring_runtime_load(&runtime->enabled) == 0u ||
+    if (runtime == NULL) return false;
+    /* adapter_started also retains resources after a failed ARM/STOP. It is
+     * not, by itself, an acknowledgement that this configuration was armed.
+     * Take one bounded observation; the Core0 caller serializes configuration
+     * and control writers through publication of the DATA request. */
+    const uint32_t config_guard = tdma_ring_runtime_load(&runtime->config_guard);
+    const uint32_t result_guard = tdma_ring_runtime_load(&runtime->result_guard);
+    if (((config_guard | result_guard) & 1u) != 0u) return false;
+    const uint32_t config_seq = tdma_ring_runtime_load(&runtime->config_seq);
+    if (tdma_ring_runtime_load(&runtime->enabled) == 0u ||
         tdma_ring_runtime_load(&runtime->adapter_started) == 0u ||
         (enabled &&
-         tdma_ring_runtime_load(&runtime->train_command_seq) !=
-             tdma_ring_runtime_load(&runtime->train_accepted_seq))) {
+         (tdma_ring_runtime_load(&runtime->adapter_stop_pending) != 0u ||
+          tdma_ring_runtime_load(&runtime->adapter_config_seq) != config_seq ||
+          tdma_ring_runtime_load(&runtime->applied_config_seq) != config_seq ||
+          tdma_ring_runtime_load(&runtime->train_command_seq) !=
+              tdma_ring_runtime_load(&runtime->train_accepted_seq)))) {
+        return false;
+    }
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    if (tdma_ring_runtime_load(&runtime->result_guard) != result_guard ||
+        tdma_ring_runtime_load(&runtime->config_guard) != config_guard ||
+        tdma_ring_runtime_load(&runtime->config_seq) != config_seq) {
         return false;
     }
     __atomic_store_n(&runtime->data_enabled,
                      enabled ? 1u : 0u,
                      __ATOMIC_RELEASE);
+    /* The autonomous lifetime owner may cancel on Core1 without the Core0
+     * control lock. Close cancellation between the last check and this store.
+     * Only configuration retirement revokes the request here: an ordinary
+     * Core1 result publication is not a cancellation. A failed postcheck does
+     * not claim that the request was never momentarily visible to Core1. */
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    if (tdma_ring_runtime_load(&runtime->config_guard) != config_guard ||
+        tdma_ring_runtime_load(&runtime->config_seq) != config_seq ||
+        tdma_ring_runtime_load(&runtime->enabled) == 0u) {
+        __atomic_store_n(&runtime->data_enabled, 0u, __ATOMIC_RELEASE);
+        return false;
+    }
     return true;
 }
 

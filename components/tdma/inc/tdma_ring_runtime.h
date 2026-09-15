@@ -441,6 +441,11 @@ bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime,
 bool tdma_ring_runtime_get_clock_snapshot(
     const tdma_ring_runtime_t *runtime,
     tdma_ring_clock_snapshot_t *snapshot);
+/* Core0 control writers must serialize this call with configure/STOP until
+ * it returns (the service control lock does so). Enabling DATA requires an
+ * observed completed ARM for the current configuration, with no pending
+ * cleanup. Success publishes a request, not an ongoing hardware-health or
+ * observer-identity guarantee; TRAIN may still require persona restoration. */
 bool tdma_ring_runtime_set_data_enabled(tdma_ring_runtime_t *runtime,
                                         bool enabled);
 bool tdma_ring_runtime_train_clock(tdma_ring_runtime_t *runtime,

@@ -1068,8 +1068,13 @@ bool tdma_service_ring_train_clock(tdma_service_service_t *service,
 
 bool tdma_service_ring_start(tdma_service_service_t *service)
 {
-    return service != NULL &&
-           tdma_ring_runtime_set_data_enabled(&service->ring_runtime, true);
+    if (service == NULL || !tdma_service_ring_control_lock(service)) return false;
+    /* Serialize the final DATA publication with Core0 STOP/ARM/configure.
+     * Core1 is never blocked by this maintenance-side control lock. */
+    const bool accepted =
+        tdma_ring_runtime_set_data_enabled(&service->ring_runtime, true);
+    tdma_service_ring_control_unlock(service);
+    return accepted;
 }
 
 static void tdma_service_ring_stop_locked(tdma_service_service_t *service)
