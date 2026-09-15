@@ -22,7 +22,10 @@ Last updated: 2026-09-16
 
 ## 当前 checkpoint
 
-最新 NO1 运行中发射记录留存见 `VDC-PROGRESS-20260916-005`：软件、Release、
+最新独立 PIO 采样配置及帧头对照见 `VDC-PROGRESS-20260916-006`：当前源码四板 P3
+和帧头对照通过；序号专项发现启动重复序号使旧观察器永久退休，稳态观察未通过。
+下一步仅恢复观察器自身 epoch，不重启健康 TDMA。NO1 运行中发射记录留存见
+`VDC-PROGRESS-20260916-005`：软件、Release、
 当前源码四板 quick P3 和 STOP 后同序对账已通过。输出投影准备见
 `VDC-PROGRESS-20260916-004`；反馈运输与实际 DCO 应用尚未接通。指定主机接收切片见
 `VDC-PROGRESS-20260916-003`。目标整理见
@@ -171,6 +174,59 @@ Last updated: 2026-09-16
   原生 drop/overrun/schedule miss 保留，不据本次通过宣称逐帧无损或所有时序已闭合。
 - 下一 gate：按 `VDC-FEEDBACK-001` 接入直接
   PIO 观测和逐从反馈，不以本地留存通过关闭反馈或锁相目标。
+
+### VDC-PROGRESS-20260916-006：独立 CS 采样配置与启动重复序号定位
+
+- TODO task ID：`VDC-FEEDBACK-001`。
+- 状态：IN PROGRESS。完成采样配置和原始帧头诊断；稳态序号专项未通过，尚未接通
+  反馈运输、独立控制器或从板 DCO 应用。以下数字均为本轮快照，非产品事实源。
+- 实现：新增 STOP-only `SYSTem:TDMA:EVENt:TAP` 和只读 `TAP?`。Core0 在既有
+  ring control guard 内检查 STOP/配置 ACK、pending、stopped update 和 geometry，
+  发布有 guard 的 SRAM intent；Core1 在 ARM 冻结 prefix/delay/generation，显式
+  路径不依赖 DMA alignment 或 overlay 训练。读回分别记录 requested/applied/actual；
+  actual_valid 仅表示 PIO/OSR 装载，STOP 后保留历史。默认关闭，PIO 程序保持原样。
+- 软件：主控最终 tap/control/geometry/adapter 共 11 项、service/candidate 兼容
+  3 项通过；作者相关事件回归 19 项及独审 3 项通过。新 tap 覆盖 160 组实际启动
+  组合与边界，service 覆盖尚未 physical start 的 ARM、失败 STOP、失败 START、
+  竞争写入及配置恢复。旧提取式 fixture 缺少已有 first-window seams 的失败与修复
+  记录保留在 `host-event-summary.json`，不作为生产故障。
+- Release：A/B 和 Flash 检查通过，BSS 净增 56 B，链接 RAM 剩余地址空间
+  11980 B，不代表运行栈/堆余量。源码指纹
+  `5066212ab27d0145de512af70b31676b5008aace9d603232c65abbb44f92bfa2`，
+  固件包 SHA256 `274b9dbcbd44c4ca68611a5806b1cb19530c658cc3af21d5110aebb2ca1bcdd7`。
+  基线使用前序不可变 after-build 的独立副本，保存逐文件 SHA 对账。
+- 四板 quick P3：`p3-r1/acceptance.json` 的 passed/strict_gates_passed 均为 true，
+  diagnostic_failures 为空；证明默认配置下四板 TDMA 集成，不代表锁相验收。
+- 帧头专项：`header-r1/input-probe.json` 通过。NO2/NO3/NO4 的 CS 相对 prefix
+  分别为 24/13/2 bit、WAIT-high delay 为 15 cycle，实际读到完整原始字
+  `0x5444A400`，对应 magic 和本次 164 B 包长。重复常量导致旧观察器以 SEQUENCE
+  拒绝并退休，符合该诊断预期；主机接收增量为 2173/2225/2198，健康运输继续。
+- 序号专项失败：`sequence-r1/input-probe.json` 的 transport_capture_passed 为 true，
+  但最终 passed 为 false。三从 requested/applied/actual 均匹配 prefix 120/109/98，
+  仅首个空快照 ACTIVE；随后均 joined=1、sequence=1、ordinal=0、fault_bits=0，
+  下一次原始序号仍为 `0x01000000`，触发 reason=SEQUENCE，之后永久保持 INVALID。
+  该原件支持启动重复序号导致旧观察器退休，不支持稳态连续观测或反馈输入已合格。
+  本轮接收增量为 2197/2184/2198，三从 DCO 实际应用增量均为零。
+- 两次采集均无流程错误，运行期间 SCPI 查询为零；所有查询/导出在 START 前或
+  全板 STOP ACK 后执行。原生记录、SD/SRAM、配置恢复与许可撤销保留原件，
+  不以帧头通过覆盖序号专项失败，不由稀疏快照推导逐帧无丢失。
+- 证据目录：`out/HardwareAcceptance/20260916/dpll-event-tap-r1/`；资源见
+  `resource-review-r1.json`，实现独审见 `implementation-review-r1.json`。
+- 收敛：`hardware-review-r1.json` 独立复核当前源码 P3、帧头、失败序号、原生 CRC、
+  SD/SRAM 原始字节及动作屏障，结论为 APPROVE_STOP_ARM_CONFIGURATION_AND_HEADER_DIAGNOSTIC_ONLY；
+  steady_sequence_observation_passed 仍为 false。实现提交 `084b42f`，匹配 staged
+  源码的 P3 凭证及提交 hook 通过。四板已 STOP，requested tap 恢复默认，应用历史
+  保留，临时许可已撤销、串口关闭；该提交不表示反馈运输或锁相已完成。
+- 下一 gate：`VDC-FEEDBACK-001` 的观察器自身有界恢复；坏样本退休后在后继 service
+  重建本地 epoch，保留失败原因，重新从任意稳态有效序列开始，不重启健康 TDMA、
+  不恢复全局首帧或 DMA 候选关联前置。完成独立软件与当前源码四板 P3 后，再接
+  同事件测量留存、本板时钟锚和反馈运输。
+- 后继只读方案：`next-observer-recovery-plan-r1.json` 优先处理显式采样下的
+  SEQUENCE 拒绝且无硬件 fault。恢复只动观察器 SM，保留物理 ARM 首次 enable 的
+  RXSTARTCUT 原件，不能复用会重读 requested 或覆盖首次档案的完整 prepare/start。
+  `next-feedback-measurement-plan-r1.json` 保留后续本板时钟域审计：manager 的
+  time_us、TIMER1 tick、逻辑环路时间及现有 DCO 本地锚不可直接混用，不要求完整
+  跨板绝对时间映射作为原始反馈运输前置。
 
 ### 前序实现回顾
 

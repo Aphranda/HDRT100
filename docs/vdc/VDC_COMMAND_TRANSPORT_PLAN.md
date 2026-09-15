@@ -59,6 +59,16 @@ Core0 读到并验证模型；实际应用须以 Core1 命令/应用序号、本
 版本对账。每个切片单独完成 host、Release、四板 quick P3 及专项，最终输出精度再用
 示波器复核；不要求每轮依赖外部仪器。
 
+独立 PIO 采样入口已增加 STOP 配置、ARM 冻结和历史读回，实施证据见
+`VDC-PROGRESS-20260916-006`。`SYSTem:TDMA:EVENt:TAP` 提交 enabled、相对 CS 的
+prefix_bits 和 WAIT-high delay；`TAP?` 分别读取 requested、applied 和实际装载值。
+Core0 发布期间持有既有 ring control guard，Core1 独占冻结与 PIO 编程；所有配置
+请求要求物理 STOP 完成且未选择 frozen geometry，显式模式不读取 DMA alignment。
+actual_valid 只表示指令及 OSR 已装载，STOP 后仍作为历史保留，不表示当前观察器
+运行或时间戳有效。帧头实验的常量序列拒绝保留为正常诊断结果，不能赋予 DPLL 资格。
+后继将保留同次有效边沿/测量序号和本板时钟锚，经固定配额发送反馈；此接口本身
+未建立反馈运输、NO1 控制器或从板 DCO 应用，也不冻结新 wire 契约。
+
 ### 当前实现快照（仍未冻结契约）
 
 当前源码已经有一个受限的 resident VDC 命令运输原型，用于验证固定 process image
