@@ -4,16 +4,70 @@ Status: Draft
 Domain: VDC
 Canonical: `docs/vdc/VDC_COMMAND_TRANSPORT_PLAN.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/check/DOCS_REGISTRY.md`
-Last updated: 2026-09-14
+Last updated: 2026-09-15
 
 本文是 `VDC-CMD-001` 的待审方案，服务于 `VDC-LONGTERM-001`，不冻结 wire 契约，
 不允许据此启用从机控制，也不替代调度、角色、Calibration 和正式锁相门禁。
 当前证据与 host 反例见 `VDC-PROGRESS-20260914-004`；自主 origin 输入缺口及
 目标模式补测见 `VDC-PROGRESS-20260914-007`。
 
+### 当前实现快照（仍未冻结契约）
+
+当前源码已经有一个受限的 resident VDC 命令运输原型，用于验证固定 process image
+上的分片、重组和跨核交接边界。它不是本方案中尚未完成的共同时间契约，也不能单独
+开放正式从机控制或锁相验收。实现边界如下：
+
+- 当前按 `VDC-PROGRESS-20260915-028` 完成编译隔离：
+  `DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED` 默认关闭，resident command
+  的构造、发片、接收分派和私有组装状态均不进入默认编译；普通 mailbox 继续发布。
+  通用命令校验和 follower 时间门禁仍保留，命令 class 在普通接收路径中被拒绝。
+  该开关不恢复 standalone VDC 窗口，不能作为从机 apply 已恢复的证据。恢复次序和
+  每项功能修改后的四板 P3 要求以 `VDC_DOMAIN_TODO.md` 当前执行入口为准。
+- `TDMA_PROCESS_IMAGE_VDC_COMMAND_MESSAGE_CLASS` 选择命令片段格式；mailbox header
+  保留 source、target mask 和 `TDMA_FLIGHT_MAILBOX_SEQ16_OFFSET` 运输序列，VDC
+  区由 `TDMA_PROCESS_IMAGE_VDC_FRAGMENT_INDEX_OFFSET`、fragment count 和固定
+  `TDMA_PROCESS_IMAGE_VDC_FRAGMENT_DATA_SIZE` 组成。
+- `refmem_sync_vdc_fragment_push()` 只允许一个活动 source，要求片段从零开始、
+  index 连续、运输序列在 `uint16_t` 回绕下连续，缺片、乱序、重复起始或 source/
+  target 改变都会清理当前组装状态。
+- 完整 payload 仍由 `refmem_sync_vdc_command_payload_validate()` 和内层 CRC
+  校验；通过后才构造现有 `REFMEM_SYNC_FRAME_COMMAND`，由
+  `refmem_sync_vdc_receive_frame()` 按 epoch/run、source、target、frame/command
+  序列再次准入。
+- 命令 payload 现在同时携带 `epoch_id` 和 `run_id`，并要求它们与接收端当前
+  context 一致；在 context 身份已正确更新且稳定的前提下，旧 ARM/STOP 会话即使
+  重新出现相同 source 或 command sequence，也会被接收校验拒绝。这不证明下述
+  跨核 reset 生命周期已经闭合。payload 尺寸和分片数量只由
+  `sizeof(refmem_sync_vdc_command_payload_t)`、`REFMEM_SYNC_VDC_FRAGMENT_COUNT`
+  和 mailbox layout symbols 决定。
+- 命令发布与复制已使用 `vdc_command_guard` 和 `refmem_sync_vdc_copy_command()`；
+  忙或撕裂时复制有界失败。当前 context identity refresh/reset 仍可由两个 core 的
+  路径触达，`refmem_sync_vdc_init()` 清零尚未闭合唯一写者与 reset guard，不能将
+  普通稳定复制的通过解释为全部生命周期符合 HAOFV。重新启用前必须补齐这项边界，
+  并验证 STOP/ARM、角色、epoch/run、schedule CRC 和 control generation 的取消。
+- resident master 在一条记录的全部片段发完前保持记录不可变；完成后重复发送当前
+  记录，直到新的 DPLL update。FOLLOWER 只接受配置的主机 source；计数器分别记录
+  fragment RX、complete、reject、command accept 和最后 command sequence。
+- `effective_vdc_time_ns` 使用 VDC owner 提供的 TDMA hardware-latched
+  `common_effective_time_ns + (local_now - local_rx_timestamp_ns)` 映射；映射必须满足
+  当前 schedule CRC、硬件时间戳、共同时间 flags 和 `feedback_timeout_ns` 新鲜度。主机
+  无有效映射时不建记录，从机无有效映射时不比较 peer deadline、不调用 DCO apply。
+
+重新启用前还须明确 payload 扩展后的 `REFMEM_SYNC_VDC_COMMAND_VERSION` 兼容决策，
+以及实际发布间隔、FIFO 背压和重复片段下的完整交付上界；仅按分片数乘周期估算
+effective time 提前量尚不足以放行。
+
+上述格式当前只完成 host/目标构建和单测验证；共同 session、local-to-common 映射、
+过期/取消上界、实际三从应用和命令启用态四板功能验收仍未闭合。因此本节是实现快照，不能作为
+`VDC-CMD-001` 的冻结条款或登记表事实源；独立交叉审核完成前不得把其状态改为
+active。
+
 ## 1. 需要解决的实际缺口
 
-| 边界 | 当前事实源 | 对后续接线的要求 |
+下表记录方案起点的源码缺口，用于解释改动动机；当前原型已加入 guarded copy、
+共同时间检查和模差序列判断，实现与仍待完成的硬件证据以本页顶部快照为准。
+
+| 边界 | 方案起点的源码与缺口 | 对后续接线的要求 |
 |---|---|---|
 | 邮箱容量 | `TDMA_PROCESS_IMAGE_VDC_SIZE`；`refmem_sync_vdc_command_payload_t` | 现有诊断区不能直接表达完整命令；必须明确编码和完整性，不能补默认代际或接收时间。 |
 | 运输到命令区 | `distributed_refmem_tdma_flight_parse_mailbox()` 与 `distributed_refmem_get_vdc_follower_command()` | resident parser 只更新诊断，getter 读取独立命令区；需要显式、受保护的交接。 |

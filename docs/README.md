@@ -139,6 +139,8 @@ docs/
 | `docs/check/submissions/TDMA_CROSS_REVIEW_02.md` | TDMA mandatory-first process image 的 HAOFV/VDC/RefMem 层间核验（pending，2026-08-28）。 |
 | `docs/check/submissions/TDMA_CROSS_REVIEW_03.md` | TDMA bounded recovery 双 buffer、原 Node offset 与实时诊断边界层间核验（pending，2026-08-28）。 |
 | `docs/check/submissions/TDMA_CROSS_REVIEW_04.md` | TDMA resident process image、单轮多 Node overlay 与状态机生命周期层间核验（pending，2026-09-02）。 |
+| `docs/check/submissions/TDMA_CROSS_REVIEW_05.md` | TDMA Core1 phase 预算归因：500 µs 目标下未达（实测 667–692 µs），缺口归因到 adapter RX 路径并建立优化队列；2026-09-14 判据修订（预算升至 850 µs）后改判 `MET`（有限窗口快照，非事实源；C11 pending）。 |
+| `docs/check/submissions/TDMA_CROSS_REVIEW_06.md` | TDMA 对 DPLL 的支撑能力核验：`PARTIAL_SUPPORT`——硬件 latch 8 ns/非 diagnostic/链路零误码已成立，同圈关联与生产准入未闭合；给出 P1–P5 优先任务（有限窗口快照，非事实源；C11 pending，2026-09-14）。 |
 | `docs/check/submissions/ARCH_FLASH_CROSS_REVIEW_01.md` | Flash v2 首次层间核验：硬件/构建/实现/域文档一致性与当前 v1 偏差。 |
 | `docs/check/submissions/ARCH_FLASH_CROSS_REVIEW_02.md` | Flash canonical 结构重构核验：契约语义迁移、M0-M6 工作板和 v1 偏差复查。 |
 | `docs/check/submissions/ARCH_FLASH_CROSS_REVIEW_03.md` | Direct A/B slot/vector/hash/signature/compatibility fault matrix 与 Recovery 只读投影 C11 核验。 |
@@ -210,6 +212,7 @@ docs/
 | `arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md` | HAOFV 实施补充、示例和历史迁移说明；不作为硬件资源 canonical。 |
 | `arch/HAOFV_PORTABILITY_EVALUATION.md` | HAOFV 可移植性评估快照，用于识别平台耦合和迁移风险。 |
 | `arch/HAOFV_ARCHITECTURE_RISK_EVALUATION.md` | HAOFV 顶层架构独立风险评估快照，记录 S0-S3 分级风险、事实校正和处置去向。 |
+| `arch/ARCH_RAM_REVIEW.md` | 面向 DPLL/VDC 调试的 SRAM **余量建议条目**集（RAM-01～RAM-10）：近期回收、观测链路、一致性修正、暂缓与已排除对象；目标为腾余量而非满足 release 门禁。不含分析过程，不作为冻结契约或代码事实源。 |
 | `reports/distributed-trigger/RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html` | 0614 分布式触发完整原始报告，已从外部 DOC 迁入。 |
 | `arch/RTOS_HAOFV_ARCHITECTURE.md` | 基于 HAOFV 的 RTOS + 双核 AMP 架构，整合任务划分、OSAL 移植、双核边界和 0614 摘要。 |
 | `arch/RTOS_HAOFV_TODO.md` | 基于 HAOFV 的 RTOS 实施待办事项。 |

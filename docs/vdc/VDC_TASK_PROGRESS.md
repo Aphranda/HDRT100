@@ -69,6 +69,404 @@ Last updated: 2026-09-15
 `VDC-CAL-001` 和 `VDC-EVID-001` 继续提供正式 evidence；`VDC-SERVO-001/002` 在
 正式 evidence 未闭环前的 host/replay 或板端诊断不得用于发布板端目标锁。
 
+本轮按用户要求完成未提交改动对账，先隔离 resident 命令发送并通过普通四板 quick
+P3，详见 `VDC-PROGRESS-20260915-026`；后续非法目标位移修复和完整 resident 编译
+隔离分别见 `VDC-PROGRESS-20260915-027/028`。每项功能修改后立即 P3；基础流程的
+复核不改变上述时间输入、命令应用和正式锁相的未完成状态。隔离验收中重复出现的
+粗校准配置拒绝及准备流程有界恢复见 `VDC-PROGRESS-20260915-029`。
+
+### VDC-PROGRESS-20260915-029 — 粗校准 STOP 后配置拒绝的有界恢复
+
+- TODO task ID：`VDC-TDMA-001`、`VDC-VERIFY-001`；状态 IN PROGRESS。028 的三轮
+  验收原件均已复核，短帧闭环通过但严格校准仍有失败；本切片仅处理已重复出现的
+  TOPology 准备拒绝，不开放新的 VDC 命令功能。
+- 诊断：两轮失败前已读回 `ring_enabled=0`、`ring_adapter_started=0`，且当前
+  config generation 与 applied generation 相等。TOPology handler 失败推入
+  execution error 而不返回结果 tuple，主机因等待结果显示 timeout。这不是固件
+  执行耗时，也不是 quick action timeout 太短。STOP ACK 不能证明 Core0 控制锁、
+  队列退休、intent completion 以及所有快照读同时可用；当前通用错误未区分具体
+  拒绝点，不能声称已经定位某个 seqlock 或锁为实测根因。
+- 修复：`calibration_clk_train.py::_set_stopped_topology()` 仅在无结果且 error
+  queue 明确返回 execution error 时，按 `TOPOLOGY_ATTEMPT_LIMIT` 有界重发同一
+  配置；每次先重新核验 STOP 与当前代际 ACK。错误 tuple、其他错误及 STOP 失效
+  不放行。成功必须收到正确 tuple，再等待新的 config generation 与 applied
+  generation 相等，全部板完成后才 ARM；ARM 后继续校验实际 topology。STOP 的
+  runtime topology 会被 owner 清空，不用这些零字段校验 staged topology。
+- 所有者边界：相同参数的重复配置可收敛到同一目标，但 setter 并非无副作用事务，
+  成功会发布新 STOP/config generation，失败前也可能已更新部分配置。因此保留
+  每次拒绝原件、重新确认停止并等待新代际，不复用配置前 ACK，不在固件增加等待。
+- 软件反例：已有 `arm_training_persona()` 在临时拒绝后中止的反例先失败；修复后
+  覆盖重试成功、固定上界、错误 payload/错误码、STOP 丢失、旧代际及新代际未 ACK
+  的正反验证通过。与 coarse/coded/topology/TRN-03 相关 Python 回归共 159 passed
+  （本轮快照，非事实源）；双应用/Boot 目标构建及 flash link 检查通过。
+- 证据：`out/HardwareAcceptance/20260915/coarse-topology-recovery-r1/` 保存修复前
+  工具/测试副本、当前源文件、diff 和 `software-verification.json`。当前源码指纹为
+  `a05085436c36d50903646f27cfb3e490f3fbf1b7719adf055514993b6bf9dc03`；随后独立
+  执行正式 `p3_hardware_acceptance.py run --tdma-only`，包含当前构建与四板部署。
+- 硬件结果：该目录 `p3/acceptance.json` 与 `diagnostic.json` 的
+  `passed/flow_completed/strict_gates_passed` 均为真，失败列表为空；coarse CLK、
+  SCK training、replay matrix 和 TDMA closed-loop/realtime 均通过。四板全部
+  STOP，原生记录交接通过。以下为本轮快照，非事实源：总预算计时 184.344 s，
+  每板 14 条记录，四种 reference 配置共 16 次 TOPology_APPLIED 均复核新代际
+  ACK。本轮没有实板重试，重试分支的恢复和拒绝边界由 host 反例覆盖，不能声称
+  已在硬件上复现并消除某个具体锁冲突。
+- 主控复核：`review-final.json` 核对当前源码指纹、当前凭证、20 项引用原件散列、
+  每次 topology 前后代际及四板 STOP 记录；固件包另存切片目录。此前三轮失败均
+  保留，后来的通过不追认旧结果。当前完成普通四板 quick 诊断基线收敛，不提升为
+  命令启用态或 DPLL 锁相验收。
+- 独立只读复核：`command_gate_audit` 确认拒绝不提升为成功、新代际 ACK 和全板
+  ARM 屏障成立。底层具体暂态拒绝点及 SCK 候选稳定性仍需单独诊断，不由有限恢复
+  或一次通过追认历史失败。下一 gate 保持 `VDC-VERIFY-001` 与既有命令前置依赖。
+
+### VDC-PROGRESS-20260915-028 — resident 命令编译隔离与四板收敛
+
+- TODO task ID：`VDC-CMD-001`、`VDC-CMD-002`、`VDC-CMD-003`、`VDC-VERIFY-001`；
+  状态 IN PROGRESS。前序 027 完成独立 P3 后才开始本切片。
+- 变更：`DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED` 默认关闭，使用条件
+  编译隔离 resident 命令 prepare、TX 编码/游标、RX fragment 分派、identity 同步
+  及私有 record/组装状态。普通 compact mailbox 继续处理，command class 在普通
+  RX 中被拒绝。诊断 snapshot 字段保持存在且清零；通用命令校验、共同时间准入和
+  follower 时间门禁保留。旧 standalone 排他条件仍在，不能称为旧 VDC 功能恢复。
+- 软件与资源：`pico2-release` 双应用及 Boot 构建通过；host runner 38/38 通过；
+  文档检查器和 DPLL capture Python 回归 36 passed。使用真实目标编译命令分别
+  覆盖开关关闭/开启，均可编译；预处理原件确认 prepare/parser/identity helper 和
+  私有 record/fragment 状态只存在于开启分支。开启分支仅做编译验证，没有部署。
+  以下为目标对象快照，非事实源：`s_tdma_flight_sync` 从 1280 B 降至 1104 B，
+  释放 176 B。数据及命令见 `compile-isolation.json`，不把局部 RAM 回收当成 WCET
+  或全表调度收敛证据。
+- 当前源码指纹为
+  `742074468a80d50a6bfdb8a0c38e1daf15e3da6f3ce978873f26ddeeacf9a652`。
+  增量构建沿用 build `20260915022619`，必须同时核对 source/package SHA-256；
+  build ID 相同不代表两切片固件相同。完整证据根为
+  `out/HardwareAcceptance/20260915/command-isolation-r1/`。
+- 首轮 `p3/` 已完成正式 `run --tdma-only`，四板部署和短帧 closed-loop/realtime
+  通过、全部 STOP；但 `strict_gates_passed=false`，保留 SCK training 和 replay
+  row selection 两项失败。以下为本轮原件快照，非事实源：17 次 SCK 测量全部有效，
+  NO2→NO3 的 8 次结果只有一个偏移候选，不满足候选覆盖；四组候选均未满足重臂
+  预算，最小从板余量为 -1 sample。`[1,0,1,0]` 是偏移值，不是缺样数量。
+  `p3-failure-review.json` 保存分析；基础流通过不抵消校准失败。
+- 恢复范围：源码及固件包 SHA-256 与首轮部署一致，随后使用受支持的 `resume
+  --tdma-only` 入口，仅复用该轮成功 OTA 原件，重新核验 live build、软件复位、
+  校准及 TDMA。恢复原件单独写入 `p3-resume-r2/`，不覆盖首轮失败。
+- 第二轮 `p3-resume-r2/` 的 SCK training 与 replay matrix 均通过，短帧闭环、
+  实时检查及 STOP 后记录交接通过；但粗 CLK 校准准备阶段 NO4 的
+  `SYSTem:TDMA:RING:TOPology 4,3,0` 返回 timeout，伴随 SCPI execution error，
+  `strict_gates_passed` 仍为假。它是本轮原始控制流程失败，不能推定为前一轮
+  SCK 候选不足的同一原因，也不能据此归因到 resident 隔离代码。
+- 第三轮 `p3-resume-r3/` 在 NO2 再次出现同一 TOPology 准备拒绝，其余校准及
+  短帧通过；三轮 `strict_gates_passed` 均为假。四板每轮均 STOP，原生记录交接
+  通过；`review-final.json` 复核三轮源码、包及引用原件 SHA-256。以下为本轮
+  `acceptance.budget` 快照，非事实源：首轮含 build/OTA 为 185.410 s，两轮同源码
+  恢复为 75.078 s、71.510 s；不把嵌套 timing duration 累加为总耗时。停止盲目
+  复测后，准备流程修复转入 029；本条不能单独声称严格 P3 已通过。
+- 独立只读复核：`command_gate_audit` 检查开关两态、私有字段引用、普通 builder
+  和旧排他条件，未发现需追加的隔离修复。TDMA TODO 同时清理重复任务行和悬空
+  引用，稳定 Task ID 保留，未提升任务或契约状态。
+- 下一 gate：重新启用前须闭合 context reset 的唯一写者/guard、payload 版本
+  兼容，以及发布间隔/FIFO 背压/重复片段下的交付上界。它们作为原型待办保留；
+  每项修改单独做 host、目标构建、四板 P3 和对应功能验收。命令 apply、DCO 跟随、
+  全表 WCET 及 formal lock 仍未完成，OTA 实现与配置不变。
+
+### VDC-PROGRESS-20260915-027 — 非法命令目标位移修复及四板验收
+
+- TODO task ID：`VDC-CMD-001`、`VDC-CMD-003`、`VDC-VERIFY-001`；状态 IN PROGRESS。
+- 已确认缺陷：`refmem_sync_vdc_receive_frame()` 在校验 unicast target 范围前计算
+  `1u << command.target_slot`，外层及 payload CRC 正确的非法目标也会触发未定义
+  位移。现在先用 `REFMEM_SYNC_NODE_COUNT` 判断范围，再以短路表达式计算 mask；
+  广播及正常目标继续沿原校验路径。
+- 反例：新增 `test_vdc_invalid_targets_preserve_retained_command()`，先保留一条
+  有效命令，再输入越界、位宽边界及接近整数上限的目标，核验逐次拒绝、原命令序号
+  和 accepted count 不变。`-fsanitize=shift -fsanitize-undefined-trap-on-error`
+  在修复前触发 trap，修复后退出成功；原始结果见 `target-before.json` 与
+  `target-after.json`，早期测试构建失败日志也保留。这证明真实健壮性缺陷，不能
+  倒推它就是历史零分片/prepare 拒绝的原因。
+- 独立验收：完成相关 host 和 `pico2-release` 构建后，单独运行
+  `python tools/hardware_acceptance/p3_hardware_acceptance.py run --tdma-only
+  --build-dir out/build-after-command-gate --out-dir
+  out/HardwareAcceptance/20260915/command-target-fix-r1/p3`。
+  `passed/flow_completed/strict_gates_passed` 均为真，无 diagnostic failures；
+  TDMA closed-loop/realtime gate 通过，`left_running=false`，四板 STOP 后原生
+  记录交接通过。凭证源码指纹为
+  `c23d0f0990585231fba103f3c8a8d7daf63c87bce75750d6835027e422426253`。
+- 证据：`out/HardwareAcceptance/20260915/command-target-fix-r1/` 保存反例、源码
+  副本、diff 与 P3 原件。通过后才进入下一项 resident 编译隔离；没有合并两项代码
+  变化共用一轮 P3。命令启用态及锁相未验收，OTA 实现/配置和 NO5 未改动。
+- 下一 gate：`VDC-CMD-002/003` 先保持隔离，关闭普通四板基线收敛切片；后续按
+  TODO 依赖逐项补齐所有者、时间输入与交付证据。
+
+### VDC-PROGRESS-20260915-026 — 未提交改动对账与普通四板基线隔离
+
+- TODO task ID：`VDC-TDMA-001`、`VDC-CMD-001`、`VDC-CMD-002`、`VDC-CMD-003`、
+  `VDC-CMD-004`、`VDC-CMD-005`、`VDC-VERIFY-001`；状态 IN PROGRESS。
+- 用户要求：先列清未提交修改和实际阻塞，评估收益；低收益增量记录后局部回退或
+  隔离。先保证四板基础流程，再逐项加回，每次功能变化必须先跑 P3，避免错误累计。
+- 审计基点为 `7fa834dfe531a902380f4c842f2cf5013c9acb47`。以下数量为本轮快照，
+  非事实源：开始时有内容差异的 tracked 文件为 28 个，增加 1440 行、删除 951 行；
+  另有 7 个 status 显示修改但 Git 内容 diff 为空，8 个 untracked 文件。不能从 diff
+  判断每块代码来自哪台设备或哪位作者，也不能把这些增量全部视为同一个 patch。
+- 逐文件路径、类别、行数、SHA-256、完整 diff 和工作区副本保存在
+  `out/HardwareAcceptance/20260915/uncommitted-audit-r1/`。其 `inventory.json`
+  在本次发送隔离增加 6 行之后、本文更新之前生成；`before-switch-reconstructed/`
+  仅移除本轮精确加入的开关和条件，按 LF 保存两份源文件，可复核隔离前后差异。
+  未知 HTML 仅登记路径/散列，没有清理或修改；OTA 配置、另一设备单板成果均保留。
+
+| 改动组 | 实际内容 | 处置及证据边界 |
+|---|---|---|
+| RefMem 命令 wire 与副本 | `refmem_sync_frame.h/.c` 增加 epoch/run、广播目标，payload 由旧版尺寸扩展；`refmem_sync.h/.c` 增加顺序分片重组、guard 和有界稳定复制。 | 保留实现及负测。wire 仍是待审原型，混用旧固件的兼容性不能由同版本四板 P3 推定。 |
+| resident 发送/接收接线 | `distributed_refmem.h/.c` 新增 MASTER record prepare、分片发片、FOLLOWER 重组、会话清理和诊断；resident enabled 时抑制旧 standalone TX/RX。 | 本轮只禁用新发送选择；普通 compact TDMA 继续，不恢复旧 standalone VDC 命令。 |
+| TDMA 元数据 | `tdma_process_image_layout.h` 增加命令 message class/fragment 布局；`tdma_ring_runtime.h/.c` 的 clock snapshot 增加周期、超时和 ring sequence。 | 保留；status 中其余 PIO/flight/adapter 文件无 Git 内容差异，不能归因为本轮新 PIO 行为。 |
+| VDC/DPLL 时间应用 | `vdc_time_mapping.h/.c` 新增共同时间映射、新鲜度、到期/迟到、序列回绕函数；manager follower 消費由原 uptime 比较改为共同时间检查；domain 新增 late 计数。 | 这些正确性约束有价值；运输和映射尚未闭合，不能以关掉时间校验来取得 apply。 |
+| 构建、SCPI、工具与测试 | CMake 加入时间映射文件；SCPI 和两个解析工具扩展诊断字段；RefMem、VDC、时间映射及 Python 测试同步。 | 双应用/Boot 构建通过，host 脚本 38/38；诊断字段本身不能证明新功能成功。 |
+| 文档、凭证与外部文件 | TDMA TODO 大幅整理；VDC 方案/进度及索引变更；新增 RAM/review 文档；P3 receipt 更新；未知 HTML。 | 文档行数变化不等于运行路径变化。原始 P3 成败按各轮目录保留，未知文件不动。 |
+
+- 已确认的第一处断点是 MASTER prepare 到 record/fragment 的交接；prepare 失败会
+  回落普通 mailbox，不直接停止 TDMA。旧 `four-board-clock-diag/command-clock-readback.json`
+  为 prepare 尝试/拒绝均 1228、reason 5；`four-board-clock-diag-r3/direct-window-readback.json`
+  的 MASTER 为 1787/1787、reason 16；`four-board-clock-map-r5/direct-window.json`
+  为 1785/1785、reason 15。对应四板 fragment/complete/accept 均为零。以上为历史
+  原始读回快照，数字和枚举解释须绑定当轮源码，不将旧元组套用到新增字段后的布局。
+- 原因边界：已有摘要把 reason 15 概括为“窗口已开始”；当前源码的 reason 15
+  实际用于 `local_now_ns < local_rx_timestamp_ns`。窗口顺延和 fresh-now 映射虽已在
+  原型中修改，但缺少最新版本的命令成功原件，不能据此宣称根因已修复，也不能从
+  零分片推定 CRC 或接收器已有故障。此前独立启动 barrier 超时同样保留为未解决事实。
+- 价值判断：共同时间身份、新鲜度、CRC、会话取消及有界跨核读取必须保留。当前低
+  收益做法是把尚未完成的定时应用依赖与发送准备同时接入，再反复运行只覆盖 TDMA
+  基础流的 P3；P3 通过无法定位命令层错误。当前隔离该原型，后续每步除 P3 外还需
+  对应的正向功能读回，首先证明完整接收，再证明定时应用。
+- 单项代码变化：在 `distributed_refmem.h` 加入
+  `DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED`，当前关闭；在
+  `distributed_refmem_tdma_flight_sync_publish()` 的 `resident_master` 条件中短路。
+  校验和旧会话保护继续存在，未绕过 HAOFV owner，未启用从板本地 PI。该变化是
+  发送功能隔离，不是对 HEAD 的全量源码回滚，更不是四板锁相完成。
+- 软件验证：`python tools/cmake_build_auto/cmake_build_auto.py --preset pico2-release
+  --build-dir out/build-after-command-gate` 通过，build `20260915022619`；编译容量
+  `PROJECT_NODE_CAPACITY` 保持当前配置，实板使用四节点。`powershell -NoProfile
+  -ExecutionPolicy Bypass -File tools/tests/run_host_unit_tests.ps1` 通过 38/38。
+  使用 Windows PowerShell 是因为该 host runner 为 `.ps1` 且环境无 `pwsh`。
+- 已复核的隔离前 P3：`four-board-clock-map-r5/` 及
+  `four-board-command-map-r6/diagnostic.json` 的四板 quick 结果通过；r6 为
+  `passed=true`、`strict_gates_passed=true`。这已经说明基础 TDMA 可以通过，不能把
+  禁用命令之后的成功反过来当作“命令代码曾造成基础 TDMA 故障”的因果证据。
+- 本次隔离的 P3：`python tools/hardware_acceptance/p3_hardware_acceptance.py run
+  --tdma-only --build-dir out/build-after-command-gate --out-dir
+  out/HardwareAcceptance/20260915/four-board-baseline-command-disabled-r1` 通过。
+  `acceptance.json` 的 source tree SHA-256 为
+  `bf2f19e9ad51f0a062accd5ebd6ae9a423bf785737b6eebc08a9477e6163a15f`；
+  `diagnostic.json` 为 `passed=true`、`flow_completed=true`、
+  `strict_gates_passed=true`、`failures=[]`。保留 quick profile 的
+  `diagnostic_continue=true` 事实，不提升为产品验收或 formal lock。
+  TRN-03 的 realtime/closed-loop/diagnostic/startup barrier/soak 均通过，
+  `left_running=false`，四板 STOP 后原生记录均可读；原件与散列见
+  `tdma-stopped-handoff.json`。`timing.json` 的总预算计时约 188.5 s（快照，
+  非事实源），含四板部署；NO5 未参与。
+- 文档及工具验证：docs_check 的 strict names、doc_regression 均通过；文档检查器
+  与 DPLL capture Python 回归合计 36 passed。原有 `TDMA-FLIGHT-BITMAP-01` 格式
+  WARN 保留。`check-staged` 当前返回 no staged code change，只表示本轮没有暂存
+  源码，不冒充提交指纹验收；本轮未提交。
+- 独立只读复核：`command_gate_audit` 认可该变更作为普通四板 TDMA 发送隔离，
+  不认可将它描述为完整 VDC 回退。还指出恢复时须核对
+  `(REFMEM_SYNC_VDC_FRAGMENT_COUNT + 2u) * schedule.period_ns` 的提前量是否
+  覆盖实际发布间隔和 FIFO 背压；这是待验证风险，尚不是实测首个阻塞。
+- 下一 gate：沿 TODO 的时间输入/角色/契约前置条件推进；每个后续增量分别完成
+  P3 和功能证据，不一次重新打开全部命令逻辑。命令 apply 与锁相继续未完成。
+
+### VDC-PROGRESS-20260915-025 — common-time/command-record 阻塞诊断贯通
+
+- TODO task ID：`VDC-CMD-001`、`VDC-CMD-002`、`VDC-TDMA-001`；状态 IN PROGRESS。
+- 变更：将 TDMA adapter 的 observation/build 计数与最近拒绝原因贯通到 runtime
+  snapshot，并新增只读 `SYSTem:TDMA:RING:CLOCK:DIAGnostic?`；将 MASTER
+  command-record 的 prepare 尝试、拒绝原因、record 活跃/分片位置和最近 effective
+  common time 加入 `SYSTem:REFMEM:SYNC:FLIGHT?` 尾部字段。运行时仍只在既有
+  Core1/TDMA 边界更新，SCPI 只在 STOP 后读取。
+- 软件验证：`pico2-release` 固件双应用、Boot、USB namespace、flash map/link 检查
+  全部通过；build identity 为 `20260915012243`。本切片未改变 OTA 配置。
+- 当前解释：四板上一轮 `vdc_command_fragment_rx/complete/accept=0` 只能说明
+  command record 尚未发车；下一次四板短窗应先读取 prepare last reason，再区分
+  common-time mapping 拒绝、window/identity 拒绝和实际 fragment transport 缺口。
+- 硬件状态：尚未用本次 build 重做四板 P3；不得据此宣称 command apply、DCO 跟随或
+  formal lock。下一 gate：当前源码指纹下重新完成四板 quick P3，再用新增字段定位
+  首个真实拒绝原因。
+
+### VDC-PROGRESS-20260915-016 — resident VDC command fragments and current-source P3
+
+- TODO task ID：`VDC-CMD-001`、`VDC-CMD-002`、`VDC-CMD-003`；状态 IN PROGRESS。该切片
+  只验证固定 process image 上的受限 resident 运输原型，不冻结共同时间、过期策略或
+  正式 follower application 契约。
+- 实现：新增 `TDMA_PROCESS_IMAGE_VDC_COMMAND_MESSAGE_CLASS`。Core0 将完整 VDC
+  command payload 按 `REFMEM_SYNC_VDC_FRAGMENT_COUNT` 分片，mailbox 保留 source、
+  target mask、`uint16_t` transport sequence、fragment index/count 和固定数据区；
+  follower 逐片校验 CRC、source、target、index/count 与回绕连续序列，完整重组后再
+  通过既有 frame/payload CRC、epoch/run 和 command sequence 准入。完整命令由
+  `vdc_command_guard` 保护，Core1 经 `refmem_sync_vdc_copy_command()` 有界复制。
+  STOP/ARM、role、epoch/run、schedule CRC 和 control generation 变化会清理组装状态。
+- 读回：`SYSTem:REFMEM:SYNC:FLIGHT?` 末尾追加 fragment RX/complete/reject、command
+  accept 和最后 command sequence；`tools/tdma_ring_monitor/flight_bitmap_validate.py`
+  已同步字段表，供 STOP 后统一读回，不用于实时采样。
+- 软件验证：`powershell -ExecutionPolicy Bypass -File tools/tests/run_refmem_sync_tests.ps1`
+  通过；host fragment/seqlock/负测共 21 项通过。目标构建
+  `cmake --build out/verify/vdc_resident_fragment` 通过双应用、Boot、USB namespace、
+  flash map/link 检查；随后 `powershell -ExecutionPolicy Bypass -File
+  tools/tests/run_host_unit_tests.ps1` 的 37/37 host unit test scripts 通过。
+- P3：加入 SCPI 只读计数后按当前源码重新运行
+  `python tools/hardware_acceptance/p3_hardware_acceptance.py run`，build `20260915001009`
+  仍在五板 OTA 阶段因缺失序列号 `839E1AE79EA20F31` 失败；本轮原始证据保留于
+  `out/HardwareAcceptance/20260915/p3-081003/`，前一轮 `p3-080313` 也保留，不能以旧
+  receipt 替代当前源码验收。
+- 边界：当前四板实际 fragment RX/complete/accept、effective time 对账和 DCO 输出
+  跟随尚未取得；不能据此宣称共同时间、正式 LOCKED 或四板锁相。另一设备的单板改动
+  保持未提交，OTA 保持不变。
+- 下一 gate：恢复缺失板卡后重跑当前源码 P3；随后在四板 STOP 后读取 fragment
+  receive/complete/reject、command accept、source/generation/schedule CRC/sequence
+  和 DCO application 计数，再决定 `VDC-CMD-001` 是否具备独立交叉审核和登记条件。
+
+### VDC-PROGRESS-20260915-017 — common-time deadline mapping and session fence
+
+- TODO task ID：`VDC-CMD-001`、`VDC-CMD-003`、`VDC-CMD-004`；状态 IN PROGRESS。本条
+  仍是实现切片，不改变 `VDC-CMD-001` 的独立审核状态。
+- 命令 payload 增加 `epoch_id`/`run_id`，接收端同时校验 frame header 与 payload 的
+  session identity；旧 session 即使 source、schedule 或 command sequence 重用也会被
+  拒绝。payload 尺寸变化由 `sizeof(refmem_sync_vdc_command_payload_t)` 驱动分片计数，
+  没有新增独立同步帧。
+- VDC owner 新增有界 `vdc_dpll_manager_map_local_to_common_time()`：只接受当前
+  schedule CRC 下的 hardware-latched、COMMON_TIME/CYCLE_PHASE observation，并以
+  `feedback_timeout_ns` 限制 anchor age。MASTER 先将本地 TDMA window 映射到共同时间
+  再生成命令；FOLLOWER 以同一映射比较 deadline，映射无效时保持上一可信 DCO 输出。
+- 验证：`cmake --build out/verify/vdc_resident_fragment` 通过双应用、Boot、flash
+  map/link 检查；`run_refmem_sync_tests.ps1` 通过，并新增旧 session 拒绝负测。全量
+  `run_host_unit_tests.ps1` 为 37/37 通过。当前源码 P3 build `20260915002136` 已重跑，
+  仍在五板 OTA 阶段因缺失序列号 `839E1AE79EA20F31` 失败，原始证据在
+  `out/HardwareAcceptance/20260915/p3-082128/`。
+- 下一 gate：补齐 mapping 的 C/host 边界负测（无锚、过期锚、schedule/session mismatch、
+  overflow），然后恢复缺失板卡重跑 P3；四板上对账 common deadline、实际 apply 时间和
+  DCO 读回后，才进入 `VDC-CMD-001` C11 交叉审核。
+
+### VDC-PROGRESS-20260915-018 — latest-source validation rerun
+
+- TODO task ID：`VDC-CMD-001`、`VDC-CMD-003`、`VDC-CMD-004`；状态 IN PROGRESS。本条只
+  记录验证结果，不改变 wire 契约、锁相状态或 C11 审核状态。
+- 软件验证：重新执行 `cmake --build out/verify/vdc_resident_fragment`、
+  `run_refmem_sync_tests.ps1` 和 `run_host_unit_tests.ps1`；构建检查通过，refmem sync
+  通过，全量 host unit 为 37/37。
+- 当前源码 P3 已再次运行，build `20260915002546` 在五板 OTA 阶段失败，唯一报告为
+  `missing_serial_numbers=839E1AE79EA20F31`；原始证据保留于
+  `out/HardwareAcceptance/20260915/p3-082540/`。该结果不能替代缺失单板恢复后的五板
+  验收，也不能推导四板锁相或 `FORMAL_LOCKED`。
+- 下一 gate：补齐 mapping 的 C/host 边界负测（无锚、过期锚、schedule/session mismatch、
+  overflow），恢复缺失板卡后重跑当前源码 P3，再执行四板 STOP 后 fragment/command/DCO
+  对账；在此之前 `VDC-CMD-001` 继续等待独立 C11 交叉审核。
+
+### VDC-PROGRESS-20260915-019 — stateless common-time mapping boundary gate
+
+- TODO task ID：`VDC-CMD-001`、`VDC-CMD-003`、`VDC-CMD-004`；状态 IN PROGRESS。本条只
+  记录边界验证切片，不改变 wire 契约、锁相状态或 C11 审核状态。
+- 实现：新增 `vdc_time_mapping_map_local_to_common_time()` 无状态映射模块。VDC owner
+  先复制 TDMA ring clock snapshot，再调用该函数；函数拒绝空快照、未启用/未启动环路、
+  无效周期或反馈超时、schedule CRC 不匹配、无关联硬件 latch、时间倒退、过期 anchor
+  和共同时间加法溢出。Core1 的调用仍保持有界，不增加解析、存储或等待。
+- 软件验证：新增 `run_vdc_time_mapping_tests.ps1`，覆盖有效映射和上述拒绝边界；专项
+  测试通过。固件 `cmake --build out/verify/vdc_resident_fragment` 通过双应用、Boot、
+  USB namespace、flash map/link；全量 host unit 为 38/38；`test_dpll_vdc_monitor.py`
+  为 24/24。
+- 当前源码 P3 已重新运行，build `20260915003253` 仍在五板 OTA 阶段因缺失序列号
+  `839E1AE79EA20F31` 失败，原始证据保留于
+  `out/HardwareAcceptance/20260915/p3-083247/`。这不是四板共同时间或锁相证据。
+- 下一 gate：缺失单板恢复后重跑当前源码 P3；随后四板 STOP 后对账 fragment、command、
+  common deadline、实际 DCO apply 和输出记录，才进入 `VDC-CMD-001` C11 交叉审核。
+
+### VDC-PROGRESS-20260915-020 — receiver-owned late command retirement
+
+- TODO task ID：`VDC-CMD-001`、`VDC-CMD-003`、`VDC-CMD-004`；状态 IN PROGRESS。本条只
+  记录定时应用的迟到处理切片，不改变 wire 契约、锁相状态或 C11 审核状态。
+- 实现：新增 `vdc_time_mapping_classify_effective_time()`。FOLLOWER 在同一份 TDMA
+  snapshot 上先完成共同时间映射，再按当前激活的 `cycle_period_ns` 判定命令为提前、
+  窗口内到达或超过最大迟到窗口。提前命令继续保留等待；窗口内命令进入唯一 DCO
+  应用者；超过一个周期的命令以非法命令退休、记录计数并保持上一可信输出，发送端无法
+  通过 wire 字段放宽该门禁。该边界随 STOP 后周期配置变化，不增加 mailbox 字段。
+- 软件验证：映射专项测试通过，新增提前/准时/迟到/非法输入边界；全量 host unit 为
+  38/38，固件双应用、Boot、USB namespace、flash map/link 构建通过。
+- 当前源码 P3 已重新运行，build `20260915003820` 仍在五板 OTA 阶段因缺失序列号
+  `839E1AE79EA20F31` 失败，原始证据保留于
+  `out/HardwareAcceptance/20260915/p3-083813/`。该结果不构成四板实际应用或锁相证据。
+- 下一 gate：恢复缺失单板后重跑当前源码 P3；四板运行时需对账提前、准时和迟到命令的
+  接收/退休计数、common deadline、DCO apply 及实际输出，再进入 `VDC-CMD-001` C11
+  交叉审核。
+
+### VDC-PROGRESS-20260915-021 — command sequence wrap continuity
+
+- TODO task ID：`VDC-CMD-001`、`VDC-CMD-003`；状态 IN PROGRESS。本条只记录命令序列
+  回绕切片，不改变 wire 契约、锁相状态或 C11 审核状态。
+- 实现：FOLLOWER 的实时命令准入改用有界 signed-difference 序列比较，避免
+  `UINT32_MAX -> 1` 回绕后的新命令被简单数值比较误判为陈旧；零序列、重复和真正倒退
+  仍拒绝。逻辑位于无状态映射/准入辅助模块，未增加 Core1 等待或 mailbox 字段。
+- 软件验证：新增 sequence 首值、重复、倒退、回绕和零值负测；映射专项测试通过，固件
+  构建通过，全量 host unit 为 38/38。
+- 当前源码 P3 已重新运行，build `20260915004220` 仍在五板 OTA 阶段因缺失序列号
+  `839E1AE79EA20F31` 失败，原始证据保留于
+  `out/HardwareAcceptance/20260915/p3-084212/`。该结果不能替代四板命令接收或锁相
+  证据。
+- 下一 gate：恢复缺失单板后重跑当前源码 P3；四板需在实际序列回绕、迟到和 STOP/ARM
+  场景下读回接收/退休/apply 计数及 DCO 输出，再进入 `VDC-CMD-001` C11 交叉审核。
+
+### VDC-PROGRESS-20260915-022 — resident transport wrap regression
+
+- TODO task ID：`VDC-CMD-001`、`VDC-CMD-002`；状态 IN PROGRESS。本条只补充运输层回绕
+  证据，不改变 wire 契约或审核状态。
+- 测试：`test_refmem_sync.c` 新增独立 VDC context 的命令序列回绕负测，先接受
+  `UINT32_MAX - 1`，再接受 `1`，确认完整帧、payload CRC、session、来源和目标校验均
+  通过且最新命令被保留；重复/倒退规则仍由既有测试覆盖。
+- 验证：`run_refmem_sync_tests.ps1` 通过。该切片只改 host/real-C 测试，不替代板端
+  resident 接收和三从 DCO apply 证据；上一条当前源码 P3 原件仍为
+  `out/HardwareAcceptance/20260915/p3-084212/`。
+- 下一 gate：缺失单板恢复后，以当前固件重跑 P3，并在四板实际 transport sequence
+  回绕和 command apply 场景中完成 STOP 后计数对账，再推进 `VDC-CMD-001` C11 审核。
+
+### VDC-PROGRESS-20260915-023 — explicit late-command readback
+
+- TODO task ID：`VDC-CMD-001`、`VDC-CMD-003`、`VDC-VERIFY-001`；状态 IN PROGRESS。本条
+  只增加迟到处理的板端可观测性，不改变 wire 契约、锁相状态或 C11 审核状态。
+- 实现：Domain 新增 `follower_late_command_count`，仅由 Core1 的超过最大迟到窗口
+  分支递增；`SYSTem:SYNC:VDC:DPLL:ROLE:STATus?` 在原字段末尾追加该计数。离线
+  `dpll_observation_capture` 解析器和回归测试同步更新，因此 STOP 后可以区分非法命令、
+  陈旧命令与明确的迟到退休。
+- 软件验证：`run_vdc_domain_tests.ps1`、`run_host_unit_tests.ps1`（38/38）以及
+  DPLL/VDC Python 回归（42/42）通过；固件双应用、Boot、USB namespace、flash map/link
+  构建通过。
+- 当前源码 P3 已重新运行，build `20260915005037` 仍在五板 OTA 阶段因缺失序列号
+  `839E1AE79EA20F31` 失败，原始证据保留于
+  `out/HardwareAcceptance/20260915/p3-085031/`。该结果不构成四板计数或锁相证据。
+- 下一 gate：恢复缺失单板后重跑当前源码 P3；四板 STOP 后必须读回 late/invalid/stale/
+  apply 与 resident fragment/command 计数，再进行 `VDC-CMD-001` C11 交叉审核。
+
+### VDC-PROGRESS-20260915-024 — 四板当前源码 P3 与 resident command apply 对账
+
+- TODO task ID：`VDC-CMD-001`、`VDC-CMD-003`、`VDC-CMD-004`、`VDC-VERIFY-001`；状态
+  IN PROGRESS。本条只记录四板真实验证和阻塞定位，不改变命令契约、registry 状态或
+  锁相结论。
+- 四板 P3：使用当前源码 build `20260915005602`，四块板为
+  `0010071E65B5CB38`、`FB276192BEF9CCE1`、`2BD5090FE009FA2A`、`A1E549202D18ED6A`。
+  `run --tdma-only` 完成四板 OTA、P0T、校准、TRN-00/01/02/03、process-image/FIFO
+  和 STOP 后冻结记录；receipt 的 `strict_gates_passed=true`、`failures=[]`，不含 NO5
+  DPLL 观测。原始证据：
+  `out/HardwareAcceptance/20260915/four-board-tdma/`；该 receipt 属于
+  `FOUR_NODE_TDMA_QUICK_DIAGNOSTIC`，不能提升为正式锁相。
+- 四板命令应用试验：复用同一 TRN-03 矩阵，以一主三从启动短运行窗口；运行期间未做
+  串口采样，STOP 后统一读回。证据位于
+  `out/HardwareAcceptance/20260915/four-board-command-apply-r2/`，原始对账为
+  `command-apply-readback.json`。NO1 读回 MASTER，NO2--NO4 读回 FOLLOWER/source
+  slot 0，四板 STOP 响应均为 `OK`。
+- 结果：TDMA resident process-image 的普通 transport 计数继续增长且没有 transport
+  reject；但四板 `vdc_command_fragment_rx_count`、`vdc_command_fragment_complete_count`、
+  `vdc_command_accept_count` 均保持为零，三块从板的 `follower_apply_count` 也未增长，
+  DCO follower 快照保持无有效更新。该结果说明当前共同时间/窗口准入尚未让 MASTER
+  生成并发车 resident VDC command，不能把普通 TDMA 通过误称为命令应用通过。
+- 失败边界：TRN-03 独立短窗的 startup barrier 仍超时，但 `left_running=true`；随后已
+  由主控发送四板 STOP 并完成读回。该诊断失败和所有原始快照保留，未修改 OTA、未操作
+  NO5、未清理另一设备的单板修改。
+- 下一 gate：先从 `vdc_dpll_manager_map_local_to_common_time()` 的 hardware-latched
+  observation/anchor 失败路径入手，补充运行态 TDMA status 的 common-time、correlation
+  flags 和 resident command-record 是否建立的 STOP 后证据；修复或证明该准入后，再重跑
+  四板 fragment/command/apply/DCO 对账，随后才提交 `VDC-CMD-001` 独立 C11 交叉审核。
+
 ### VDC-PROGRESS-20260915-015 — RX scan/drop 根因审计与验证基线复核
 
 - TODO task ID：`VDC-TIME-002`；状态 IN PROGRESS。本条只记录当前源码审计和软件验证
