@@ -454,6 +454,16 @@ bool vdc_dpll_manager_get_snapshot(vdc_domain_snapshot_t *snapshot);
 /* Lock-free, seqlock-consistent publication for the RefMem Core1 path. */
 bool vdc_dpll_manager_get_refmem_snapshot(
     vdc_dpll_manager_refmem_snapshot_t *snapshot);
+/* Convert a local monotonic timestamp into the current TDMA common time
+ * domain. The mapping is valid only while a fresh hardware-latched,
+ * schedule-bound observation exists; callers retain their fallback behavior
+ * when this function returns false. */
+bool vdc_dpll_manager_map_local_to_common_time(uint64_t local_time_ns,
+                                               uint64_t *common_time_ns);
+/* Read the same monotonic local time base used by the TDMA observation
+ * mapper. Callers use it to anchor a fresh sample before extrapolating a
+ * bounded future schedule deadline. */
+uint64_t vdc_dpll_manager_local_time_ns(void);
 bool vdc_dpll_manager_get_vector_snapshot(
     vdc_dpll_manager_vector_snapshot_t *snapshot);
 uint32_t vdc_dpll_manager_published_update_seq(void);

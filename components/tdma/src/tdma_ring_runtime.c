@@ -1002,6 +1002,8 @@ bool tdma_ring_runtime_get_clock_snapshot(
         snapshot->local_slot_id = runtime->local_slot_id;
         snapshot->reference_slot_id = runtime->reference_slot_id;
         snapshot->schedule_crc32 = runtime->schedule_crc32;
+        snapshot->cycle_period_ns = runtime->cycle_period_ns;
+        snapshot->feedback_timeout_ns = runtime->feedback_timeout_ns;
         const uint32_t guard_end =
             tdma_ring_runtime_load(&runtime->config_guard);
         if (guard_begin == guard_end && (guard_end & 1u) == 0u) {
@@ -1022,6 +1024,7 @@ bool tdma_ring_runtime_get_clock_snapshot(
             continue;
         }
         snapshot->adapter_started = runtime->adapter_started;
+        snapshot->ring_seq = runtime->ring_seq;
         snapshot->clock_observation = runtime->clock_observation;
         const uint32_t guard_end =
             tdma_ring_runtime_load(&runtime->result_guard);

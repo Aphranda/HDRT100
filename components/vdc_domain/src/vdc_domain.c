@@ -2092,6 +2092,14 @@ void vdc_domain_note_follower_command_missing(vdc_domain_context_t *context)
     }
 }
 
+void vdc_domain_note_follower_command_late(vdc_domain_context_t *context)
+{
+    if (vdc_domain_is_follower(context)) {
+        vdc_domain_increment_saturating(
+            &context->control.follower_late_command_count);
+    }
+}
+
 uint32_t vdc_domain_path_delay_table_crc32(
     const vdc_path_delay_table_t *table)
 {

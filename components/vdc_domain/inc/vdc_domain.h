@@ -247,6 +247,7 @@ typedef struct {
     uint32_t follower_stale_command_count;
     uint32_t follower_invalid_command_count;
     uint32_t follower_local_evidence_bypass_count;
+    uint32_t follower_late_command_count;
     uint32_t last_follower_source_slot_id;
     uint32_t last_follower_control_generation;
     uint32_t last_follower_command_seq;
@@ -703,6 +704,7 @@ bool vdc_domain_apply_follower_command(
     vdc_domain_context_t *context,
     const vdc_dpll_follower_command_t *command);
 void vdc_domain_note_follower_command_missing(vdc_domain_context_t *context);
+void vdc_domain_note_follower_command_late(vdc_domain_context_t *context);
 void vdc_domain_default_oscillator_discipline_profile(
     vdc_oscillator_discipline_profile_t *profile);
 bool vdc_domain_set_oscillator_discipline_profile(

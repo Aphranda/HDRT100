@@ -240,6 +240,34 @@ typedef struct {
     uint32_t last_control_seq8;
     uint32_t last_optional_diagnostic;
     uint32_t last_mailbox_crc16;
+    uint32_t vdc_command_fragment_rx_count;
+    uint32_t vdc_command_fragment_complete_count;
+    uint32_t vdc_command_fragment_reject_count;
+    uint32_t vdc_command_accept_count;
+    uint32_t vdc_command_last_seq;
+    uint32_t vdc_command_prepare_attempt_count;
+    uint32_t vdc_command_prepare_reject_count;
+    uint32_t vdc_command_prepare_last_reason;
+    uint32_t vdc_command_prepare_last_gate_code;
+    uint32_t vdc_command_prepare_last_gate_slot;
+    uint32_t vdc_command_prepare_last_gate_evidence;
+    uint64_t vdc_command_last_common_time_ns;
+    uint32_t vdc_command_record_active;
+    uint8_t vdc_command_record_fragment_index;
+    uint32_t vdc_command_record_source_update_seq;
+#if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
+    uint32_t next_command_seq;
+    uint32_t vdc_command_frame_seq;
+    uint32_t vdc_command_transport_valid;
+    uint32_t vdc_command_transport_mode;
+    uint32_t vdc_command_transport_source_slot;
+    uint32_t vdc_command_transport_generation;
+    uint32_t vdc_command_transport_schedule_crc32;
+    uint32_t vdc_command_transport_epoch_id;
+    uint32_t vdc_command_transport_run_id;
+    uint8_t vdc_command_record[sizeof(refmem_sync_vdc_command_payload_t)];
+    refmem_sync_vdc_fragment_context_t vdc_command_fragments;
+#endif
     uint32_t last_error;
     refmem_sync_delta_context_t context;
     uint8_t tx_image[DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_PAYLOAD_SIZE];
@@ -258,6 +286,57 @@ static uint32_t distributed_refmem_flight_publish_mask_for_slot(uint32_t slot)
 {
     return slot < TDMA_PROCESS_IMAGE_SEGMENT_COUNT ? (1u << slot) : 0u;
 }
+
+static void distributed_refmem_tdma_reset_resident_command_state(void)
+{
+    s_tdma_flight_sync.vdc_command_record_active = 0u;
+    s_tdma_flight_sync.vdc_command_record_fragment_index = 0u;
+#if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
+    refmem_sync_vdc_fragment_reset(&s_tdma_flight_sync.vdc_command_fragments);
+#endif
+}
+
+#if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
+static void distributed_refmem_tdma_sync_resident_command_identity(
+    const vdc_dpll_manager_refmem_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) {
+        return;
+    }
+    const uint32_t source_slot =
+        snapshot->control_profile.mode == VDC_DPLL_CONTROL_MODE_FOLLOWER
+            ? snapshot->control_profile.follow_master_slot_id
+            : snapshot->schedule.local_slot_id;
+    if (s_tdma_flight_sync.vdc_command_transport_valid !=
+            snapshot->control_profile.valid ||
+        s_tdma_flight_sync.vdc_command_transport_mode !=
+            snapshot->control_profile.mode ||
+        s_tdma_flight_sync.vdc_command_transport_source_slot != source_slot ||
+        s_tdma_flight_sync.vdc_command_transport_generation !=
+            snapshot->control_profile.generation ||
+        s_tdma_flight_sync.vdc_command_transport_schedule_crc32 !=
+            snapshot->schedule.schedule_crc32 ||
+        s_tdma_flight_sync.vdc_command_transport_epoch_id !=
+            snapshot->clock_epoch_id ||
+        s_tdma_flight_sync.vdc_command_transport_run_id !=
+            snapshot->clock_run_id) {
+        distributed_refmem_tdma_reset_resident_command_state();
+        s_tdma_flight_sync.vdc_command_transport_valid =
+            snapshot->control_profile.valid;
+        s_tdma_flight_sync.vdc_command_transport_mode =
+            snapshot->control_profile.mode;
+        s_tdma_flight_sync.vdc_command_transport_source_slot = source_slot;
+        s_tdma_flight_sync.vdc_command_transport_generation =
+            snapshot->control_profile.generation;
+        s_tdma_flight_sync.vdc_command_transport_schedule_crc32 =
+            snapshot->schedule.schedule_crc32;
+        s_tdma_flight_sync.vdc_command_transport_epoch_id =
+            snapshot->clock_epoch_id;
+        s_tdma_flight_sync.vdc_command_transport_run_id =
+            snapshot->clock_run_id;
+    }
+}
+#endif
 
 static tdma_process_image_map_t distributed_refmem_default_flight_map(uint32_t node_count)
 {
@@ -297,6 +376,10 @@ static void distributed_refmem_tdma_flight_sync_init(void)
     s_tdma_flight_sync.publish_interval_ms =
         DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_INTERVAL_MS;
     s_tdma_flight_sync.next_seq32 = 1u;
+#if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
+    s_tdma_flight_sync.next_command_seq = 1u;
+    s_tdma_flight_sync.vdc_command_frame_seq = 1u;
+#endif
     (void)refmem_sync_delta_init(&s_tdma_flight_sync.context,
                            (uint8_t)s_tdma_flight_sync.local_slot,
                            DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_DEFAULT_EPOCH,
@@ -329,6 +412,7 @@ static void distributed_refmem_tdma_flight_sync_update_ring(
     memset(s_tdma_flight_sync.rx_last_seq_by_source,
            0,
            sizeof(s_tdma_flight_sync.rx_last_seq_by_source));
+    distributed_refmem_tdma_reset_resident_command_state();
     (void)refmem_sync_delta_init(&s_tdma_flight_sync.context,
                            (uint8_t)s_tdma_flight_sync.local_slot,
                            DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_DEFAULT_EPOCH,
@@ -372,11 +456,200 @@ static uint32_t distributed_refmem_get_le32(const uint8_t *src)
            ((uint32_t)src[3] << 24u);
 }
 
+#if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
+static bool distributed_refmem_tdma_prepare_vdc_command_record(
+    const tdma_ring_runtime_snapshot_t *ring)
+{
+    s_tdma_flight_sync.vdc_command_prepare_attempt_count++;
+    if (ring == NULL || ring->local_slot_id >= REFMEM_SYNC_NODE_COUNT) {
+        s_tdma_flight_sync.vdc_command_prepare_reject_count++;
+        s_tdma_flight_sync.vdc_command_prepare_last_reason =
+            DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_BAD_ARGUMENT;
+        return false;
+    }
+
+    vdc_dpll_manager_refmem_snapshot_t snapshot;
+    const bool snapshot_ok = vdc_dpll_manager_get_refmem_snapshot(&snapshot);
+    if (!snapshot_ok ||
+        snapshot.control_profile.valid != 1u ||
+        snapshot.control_profile.mode != VDC_DPLL_CONTROL_MODE_MASTER ||
+        snapshot.schedule.local_slot_id != ring->local_slot_id ||
+        snapshot.schedule.schedule_crc32 == 0u ||
+        snapshot.clock_epoch_id == 0u || snapshot.clock_run_id == 0u) {
+        s_tdma_flight_sync.vdc_command_prepare_reject_count++;
+        s_tdma_flight_sync.vdc_command_prepare_last_reason =
+            snapshot_ok ? DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_IDENTITY
+                         : DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_SNAPSHOT;
+        return false;
+    }
+
+    /* A resident record is immutable while its fragments are in flight.  A
+     * newer DPLL update waits until the current record restarts. */
+    if (s_tdma_flight_sync.vdc_command_record_active != 0u &&
+        s_tdma_flight_sync.vdc_command_record_source_update_seq ==
+            snapshot.dpll_update_seq) {
+        return true;
+    }
+    if (s_tdma_flight_sync.vdc_command_record_active != 0u &&
+        s_tdma_flight_sync.vdc_command_record_fragment_index != 0u) {
+        return true;
+    }
+
+    const uint64_t local_now_ns = vdc_dpll_manager_local_time_ns();
+    vdc_tdma_window_plan_t plan;
+    vdc_gate_result_t gate;
+    if (!vdc_dpll_manager_plan_published_tdma_window(
+            &snapshot,
+            VDC_DOMAIN_WINDOW_REFMEM_DATA,
+            local_now_ns,
+            &plan,
+            &gate)) {
+        s_tdma_flight_sync.vdc_command_prepare_reject_count++;
+        s_tdma_flight_sync.vdc_command_prepare_last_reason =
+            DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_WINDOW;
+        s_tdma_flight_sync.vdc_command_prepare_last_gate_code = gate.reject_code;
+        s_tdma_flight_sync.vdc_command_prepare_last_gate_slot = gate.reject_slot;
+        s_tdma_flight_sync.vdc_command_prepare_last_gate_evidence =
+            gate.reject_evidence;
+        return false;
+    }
+    if (plan.valid == 0u || plan.window_start_ns == 0u) {
+        s_tdma_flight_sync.vdc_command_prepare_reject_count++;
+        s_tdma_flight_sync.vdc_command_prepare_last_reason =
+            DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_WINDOW;
+        return false;
+    }
+    if (plan.schedule_crc32 != snapshot.schedule.schedule_crc32) {
+        s_tdma_flight_sync.vdc_command_prepare_reject_count++;
+        s_tdma_flight_sync.vdc_command_prepare_last_reason =
+            DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_CLOCK_SCHEDULE;
+        return false;
+    }
+
+    uint64_t local_window_start_ns = plan.window_start_ns;
+    if (local_window_start_ns < local_now_ns) {
+        if (UINT64_MAX - local_window_start_ns <
+            (uint64_t)snapshot.schedule.period_ns) {
+            s_tdma_flight_sync.vdc_command_prepare_reject_count++;
+            s_tdma_flight_sync.vdc_command_prepare_last_reason =
+                DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_OVERFLOW;
+            return false;
+        }
+        local_window_start_ns += snapshot.schedule.period_ns;
+    }
+
+    uint64_t common_now_ns = 0u;
+    if (!vdc_dpll_manager_map_local_to_common_time(
+        local_now_ns, &common_now_ns)) {
+        /* A local window is not a distributable command deadline until the
+         * TDMA owner has published a fresh hardware-latched common-time
+         * anchor. Keep the resident record absent and retry next cycle. */
+        s_tdma_flight_sync.vdc_command_prepare_reject_count++;
+        tdma_ring_clock_snapshot_t clock;
+        uint32_t reason =
+            DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_COMMON_TIME;
+        if (!tdma_runtime_owner_get_ring_clock_snapshot(&clock)) {
+            reason = DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_CLOCK_SNAPSHOT;
+        } else if (clock.enabled == 0u || clock.adapter_started == 0u ||
+                   clock.cycle_period_ns == 0u ||
+                   clock.feedback_timeout_ns == 0u) {
+            reason = DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_CLOCK_INACTIVE;
+        } else if (clock.schedule_crc32 != snapshot.schedule.schedule_crc32) {
+            reason = DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_CLOCK_SCHEDULE;
+        } else if (clock.clock_observation.valid == 0u) {
+            reason = DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_CLOCK_INVALID;
+        } else if (clock.clock_observation.correlated_frame_evidence == 0u) {
+            reason = DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_CLOCK_UNCORRELATED;
+        } else if ((clock.clock_observation.correlation_flags &
+                    (TDMA_RING_CLOCK_OBSERVATION_FLAG_CYCLE_PHASE |
+                     TDMA_RING_CLOCK_OBSERVATION_FLAG_COMMON_TIME)) !=
+                   (TDMA_RING_CLOCK_OBSERVATION_FLAG_CYCLE_PHASE |
+                    TDMA_RING_CLOCK_OBSERVATION_FLAG_COMMON_TIME)) {
+            reason = DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_CLOCK_FLAGS;
+        } else if ((clock.clock_observation.timestamp_flags &
+                    TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED) == 0u) {
+            reason = DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_CLOCK_TIMESTAMP;
+        } else if (clock.clock_observation.local_rx_timestamp_ns == 0u) {
+            reason = DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_CLOCK_TIMESTAMP;
+        } else if (clock.clock_observation.common_effective_time_ns == 0u) {
+            reason = DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_CLOCK_EFFECTIVE;
+        } else if (local_now_ns <
+                   clock.clock_observation.local_rx_timestamp_ns) {
+            reason = DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_CLOCK_ORDER;
+        } else if (local_now_ns -
+                       clock.clock_observation.local_rx_timestamp_ns >
+                   (uint64_t)clock.feedback_timeout_ns) {
+            reason = DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_CLOCK_STALE;
+        }
+        s_tdma_flight_sync.vdc_command_prepare_last_reason = reason;
+        return false;
+    }
+
+    const uint64_t local_window_delta_ns =
+        local_window_start_ns - local_now_ns;
+    if (UINT64_MAX - common_now_ns < local_window_delta_ns) {
+        s_tdma_flight_sync.vdc_command_prepare_reject_count++;
+        s_tdma_flight_sync.vdc_command_prepare_last_reason =
+            DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_OVERFLOW;
+        return false;
+    }
+    const uint64_t common_window_start_ns =
+        common_now_ns + local_window_delta_ns;
+
+    refmem_sync_vdc_command_payload_t command;
+    memset(&command, 0, sizeof(command));
+    command.version = REFMEM_SYNC_VDC_COMMAND_VERSION;
+    command.source_slot = snapshot.schedule.local_slot_id;
+    command.target_slot = REFMEM_SYNC_VDC_TARGET_BROADCAST;
+    command.control_generation = snapshot.control_profile.generation;
+    command.command_seq = distributed_refmem_next_nonzero_sequence(
+        &s_tdma_flight_sync.next_command_seq);
+    command.schedule_crc32 = snapshot.schedule.schedule_crc32;
+    command.epoch_id = snapshot.clock_epoch_id;
+    command.run_id = snapshot.clock_run_id;
+    const uint64_t lead_ns =
+        (uint64_t)(REFMEM_SYNC_VDC_FRAGMENT_COUNT + 2u) *
+        (uint64_t)snapshot.schedule.period_ns;
+    if (UINT64_MAX - common_window_start_ns < lead_ns) {
+        s_tdma_flight_sync.vdc_command_prepare_reject_count++;
+        s_tdma_flight_sync.vdc_command_prepare_last_reason =
+            DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_OVERFLOW;
+        return false;
+    }
+    command.effective_vdc_time_ns = common_window_start_ns + lead_ns;
+    s_tdma_flight_sync.vdc_command_last_common_time_ns =
+        command.effective_vdc_time_ns;
+    command.period_adjust_ppb = snapshot.dco_period_adjust_ppb;
+    command.phase_offset_ns = snapshot.dco_phase_offset_ns;
+    command.lock_state = snapshot.dpll_state;
+    command.quality = snapshot.quality_health_state;
+    command.payload_crc32 = refmem_sync_vdc_command_payload_crc32(&command);
+
+    memcpy(s_tdma_flight_sync.vdc_command_record,
+           &command,
+           sizeof(command));
+    s_tdma_flight_sync.vdc_command_record_active = 1u;
+    s_tdma_flight_sync.vdc_command_record_fragment_index = 0u;
+    s_tdma_flight_sync.vdc_command_record_source_update_seq =
+        snapshot.dpll_update_seq;
+    s_tdma_flight_sync.vdc_command_prepare_last_reason =
+        DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_NONE;
+    s_tdma_flight_sync.vdc_command_prepare_last_gate_code =
+        VDC_DOMAIN_GATE_PASS;
+    s_tdma_flight_sync.vdc_command_prepare_last_gate_slot =
+        snapshot.schedule.local_slot_id;
+    s_tdma_flight_sync.vdc_command_prepare_last_gate_evidence =
+        snapshot.schedule.schedule_epoch;
+    return true;
+}
+#endif
+
 static bool distributed_refmem_tdma_flight_build_compact_mailbox(
     uint8_t source_slot,
     uint8_t target_mask,
     uint32_t seq32,
     uint32_t value,
+    uint8_t message_class,
     uint8_t *mailbox,
     size_t mailbox_size)
 {
@@ -388,14 +661,29 @@ static bool distributed_refmem_tdma_flight_build_compact_mailbox(
     distributed_refmem_put_le16(&mailbox[0],
                                 DISTRIBUTED_REFMEM_TDMA_FLIGHT_COMPACT_MAGIC);
     mailbox[2] = DISTRIBUTED_REFMEM_TDMA_FLIGHT_COMPACT_VERSION;
-    mailbox[3] = TDMA_PROCESS_IMAGE_MESSAGE_CLASS;
+    mailbox[3] = message_class;
     mailbox[4] = source_slot;
     mailbox[5] = target_mask;
     distributed_refmem_put_le16(&mailbox[6], (uint16_t)(seq32 & 0xFFFFu));
 
-    vdc_domain_snapshot_t vdc;
-    memset(&vdc, 0, sizeof(vdc));
-    if (vdc_dpll_manager_get_snapshot(&vdc)) {
+#if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
+    if (message_class == TDMA_PROCESS_IMAGE_VDC_COMMAND_MESSAGE_CLASS) {
+        const uint32_t offset =
+            (uint32_t)s_tdma_flight_sync.vdc_command_record_fragment_index *
+            REFMEM_SYNC_VDC_FRAGMENT_DATA_SIZE;
+        mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_INDEX_OFFSET] =
+            s_tdma_flight_sync.vdc_command_record_fragment_index;
+        mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_COUNT_OFFSET] =
+            (uint8_t)REFMEM_SYNC_VDC_FRAGMENT_COUNT;
+        memcpy(&mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_DATA_OFFSET],
+               &s_tdma_flight_sync.vdc_command_record[offset],
+               REFMEM_SYNC_VDC_FRAGMENT_DATA_SIZE);
+    } else
+#endif
+    {
+        vdc_domain_snapshot_t vdc;
+        memset(&vdc, 0, sizeof(vdc));
+        if (vdc_dpll_manager_get_snapshot(&vdc)) {
         distributed_refmem_put_i16(
             &mailbox[TDMA_PROCESS_IMAGE_VDC_PHASE_OFFSET],
             tdma_process_image_quantize_i16(
@@ -417,6 +705,7 @@ static bool distributed_refmem_tdma_flight_build_compact_mailbox(
                       (vdc.ready != 0u
                            ? TDMA_PROCESS_IMAGE_VDC_QUALITY_VALID
                            : 0u));
+        }
     }
 
     distributed_refmem_put_le32(
@@ -541,6 +830,120 @@ static bool distributed_refmem_tdma_flight_expand_compact_delta(
                                     frame_size);
 }
 
+#if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
+static void distributed_refmem_tdma_flight_parse_vdc_fragment(
+    const uint8_t *mailbox,
+    size_t mailbox_size)
+{
+    if (mailbox == NULL ||
+        mailbox_size < DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE ||
+        distributed_refmem_get_le16(&mailbox[TDMA_PROCESS_IMAGE_CRC_OFFSET]) !=
+            tdma_process_image_crc16_ccitt(
+                mailbox, TDMA_PROCESS_IMAGE_CRC_OFFSET) ||
+        mailbox[4] >= REFMEM_SYNC_NODE_COUNT || mailbox[5] == 0u) {
+        s_tdma_flight_sync.vdc_command_fragment_reject_count++;
+        refmem_sync_vdc_fragment_reset(&s_tdma_flight_sync.vdc_command_fragments);
+        return;
+    }
+    if (s_tdma_flight_sync.vdc_command_transport_valid != 1u ||
+        s_tdma_flight_sync.vdc_command_transport_mode !=
+            VDC_DPLL_CONTROL_MODE_FOLLOWER ||
+        mailbox[4] != s_tdma_flight_sync.vdc_command_transport_source_slot) {
+        s_tdma_flight_sync.vdc_command_fragment_reject_count++;
+        return;
+    }
+
+    refmem_sync_vdc_command_payload_t command;
+    const refmem_sync_vdc_fragment_result_t fragment_result =
+        refmem_sync_vdc_fragment_push(
+            &s_tdma_flight_sync.vdc_command_fragments,
+            mailbox[4],
+            mailbox[5],
+            distributed_refmem_get_le16(&mailbox[TDMA_FLIGHT_MAILBOX_SEQ16_OFFSET]),
+            mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_INDEX_OFFSET],
+            mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_COUNT_OFFSET],
+            &mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_DATA_OFFSET],
+            &command);
+    if (fragment_result == REFMEM_SYNC_VDC_FRAGMENT_REJECTED) {
+        s_tdma_flight_sync.vdc_command_fragment_reject_count++;
+        s_tdma_flight_sync.last_error = 10u;
+        return;
+    }
+    s_tdma_flight_sync.vdc_command_fragment_rx_count++;
+    if (fragment_result != REFMEM_SYNC_VDC_FRAGMENT_COMPLETE) {
+        return;
+    }
+    s_tdma_flight_sync.vdc_command_fragment_complete_count++;
+
+    if (!s_vdc_command_context_initialized ||
+        !refmem_sync_vdc_command_payload_validate(&command, sizeof(command)) ||
+        command.source_slot != mailbox[4] ||
+        command.epoch_id != s_vdc_command_context_epoch_id ||
+        command.run_id != s_vdc_command_context_run_id ||
+        (command.target_slot < REFMEM_SYNC_NODE_COUNT
+            ? mailbox[5] != (uint8_t)(1u << command.target_slot)
+            : (command.target_slot != REFMEM_SYNC_VDC_TARGET_BROADCAST ||
+               (mailbox[5] & (uint8_t)(1u << s_tdma_flight_sync.local_slot)) == 0u))) {
+        s_tdma_flight_sync.vdc_command_fragment_reject_count++;
+        s_tdma_flight_sync.last_error = 11u;
+        return;
+    }
+
+    uint8_t frame[REFMEM_SYNC_FRAME_HEADER_SIZE +
+                  sizeof(refmem_sync_vdc_command_payload_t)];
+    size_t frame_size = 0u;
+    const uint32_t frame_seq = distributed_refmem_next_nonzero_sequence(
+        &s_tdma_flight_sync.vdc_command_frame_seq);
+    refmem_sync_frame_header_t header;
+    if (!refmem_sync_frame_header_init(
+            &header,
+            REFMEM_SYNC_FRAME_COMMAND,
+            0u,
+            mailbox[4],
+            mailbox[5],
+            s_vdc_command_context_epoch_id,
+            s_vdc_command_context_run_id,
+            frame_seq,
+            0u,
+            0u,
+            &command,
+            (uint16_t)sizeof(command)) ||
+        !refmem_sync_frame_encode(&header,
+                                  &command,
+                                  (uint16_t)sizeof(command),
+                                  frame,
+                                  sizeof(frame),
+                                  &frame_size)) {
+        s_tdma_flight_sync.vdc_command_fragment_reject_count++;
+        s_tdma_flight_sync.last_error = 12u;
+        return;
+    }
+
+    refmem_sync_rx_snapshot_t rx;
+    const refmem_sync_rx_result_t result =
+        refmem_sync_vdc_receive_frame(&s_vdc_command_context,
+                                       frame,
+                                       frame_size,
+                                       &rx);
+    s_tdma_flight_sync.last_rx_result = result;
+    s_tdma_flight_sync.last_frame_type = rx.header.frame_type;
+    s_tdma_flight_sync.last_source_slot = rx.source_slot;
+    s_tdma_flight_sync.last_seq32 = rx.header.seq32;
+    if (result == REFMEM_SYNC_RX_ACCEPTED) {
+        s_tdma_flight_sync.vdc_command_accept_count++;
+        s_tdma_flight_sync.vdc_command_last_seq = command.command_seq;
+        s_tdma_flight_sync.last_vdc_phase_offset_ns = command.phase_offset_ns;
+        s_tdma_flight_sync.last_vdc_rate_adjust_ppb = command.period_adjust_ppb;
+        s_tdma_flight_sync.last_vdc_lock_state = command.lock_state;
+        s_tdma_flight_sync.last_vdc_quality = command.quality;
+        s_tdma_flight_sync.last_error = 0u;
+    } else if (result != REFMEM_SYNC_RX_DUPLICATE_SEQ) {
+        s_tdma_flight_sync.vdc_command_fragment_reject_count++;
+        s_tdma_flight_sync.last_error = 13u;
+    }
+}
+#endif
+
 static void distributed_refmem_tdma_flight_parse_mailbox(
     const uint8_t *mailbox,
     size_t mailbox_size)
@@ -553,6 +956,17 @@ static void distributed_refmem_tdma_flight_parse_mailbox(
     if (distributed_refmem_get_le16(&mailbox[0]) !=
         DISTRIBUTED_REFMEM_TDMA_FLIGHT_COMPACT_MAGIC) {
         s_tdma_flight_sync.rx_empty_count++;
+        return;
+    }
+#if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
+    if (mailbox[3] == TDMA_PROCESS_IMAGE_VDC_COMMAND_MESSAGE_CLASS) {
+        distributed_refmem_tdma_flight_parse_vdc_fragment(mailbox, mailbox_size);
+        return;
+    }
+#endif
+    if (mailbox[3] != TDMA_PROCESS_IMAGE_MESSAGE_CLASS) {
+        s_tdma_flight_sync.rx_bad_mailbox_count++;
+        s_tdma_flight_sync.last_error = 14u;
         return;
     }
 
@@ -684,11 +1098,36 @@ static void distributed_refmem_tdma_flight_sync_publish(
     if (s_tdma_flight_sync.next_seq32 == 0u) {
         s_tdma_flight_sync.next_seq32 = 1u;
     }
+#if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
+    vdc_dpll_manager_refmem_snapshot_t refmem_snapshot;
+    const bool resident_master =
+        vdc_dpll_manager_get_refmem_snapshot(&refmem_snapshot) &&
+        refmem_snapshot.control_profile.valid == 1u &&
+        refmem_snapshot.control_profile.mode ==
+            VDC_DPLL_CONTROL_MODE_MASTER &&
+        distributed_refmem_tdma_prepare_vdc_command_record(ring);
+    if (!resident_master &&
+        (!vdc_dpll_manager_get_refmem_snapshot(&refmem_snapshot) ||
+         refmem_snapshot.control_profile.mode != VDC_DPLL_CONTROL_MODE_MASTER)) {
+        s_tdma_flight_sync.vdc_command_record_active = 0u;
+        s_tdma_flight_sync.vdc_command_record_fragment_index = 0u;
+    }
+#else
+    const bool resident_master = false;
+#endif
+    const uint8_t message_class = resident_master
+        ? TDMA_PROCESS_IMAGE_VDC_COMMAND_MESSAGE_CLASS
+        : TDMA_PROCESS_IMAGE_MESSAGE_CLASS;
+    const uint32_t target_mask = resident_master
+        ? (s_tdma_flight_sync.active_mask &
+           ~(1u << ring->local_slot_id))
+        : s_tdma_flight_sync.active_mask;
     if (!distributed_refmem_tdma_flight_build_compact_mailbox(
             (uint8_t)ring->local_slot_id,
-            (uint8_t)s_tdma_flight_sync.active_mask,
+            (uint8_t)target_mask,
             seq32,
             s_service_count,
+            message_class,
             frame,
             sizeof(frame))) {
         s_tdma_flight_sync.tx_reject_count++;
@@ -710,6 +1149,17 @@ static void distributed_refmem_tdma_flight_sync_publish(
             distributed_refmem_flight_publish_mask_for_slot(
                 ring->local_slot_id))) {
         s_tdma_flight_sync.tx_publish_count++;
+#if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
+        if (resident_master) {
+            s_tdma_flight_sync.vdc_command_record_fragment_index =
+                (uint8_t)(s_tdma_flight_sync.vdc_command_record_fragment_index +
+                          1u);
+            if (s_tdma_flight_sync.vdc_command_record_fragment_index >=
+                REFMEM_SYNC_VDC_FRAGMENT_COUNT) {
+                s_tdma_flight_sync.vdc_command_record_fragment_index = 0u;
+            }
+        }
+#endif
     } else {
         s_tdma_flight_sync.tx_reject_count++;
         s_tdma_flight_sync.last_error = 5u;
@@ -786,6 +1236,12 @@ static void distributed_refmem_tdma_flight_sync_service(void)
         return;
     }
     distributed_refmem_tdma_flight_sync_update_ring(&ring);
+#if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
+    vdc_dpll_manager_refmem_snapshot_t refmem_snapshot;
+    if (vdc_dpll_manager_get_refmem_snapshot(&refmem_snapshot)) {
+        distributed_refmem_tdma_sync_resident_command_identity(&refmem_snapshot);
+    }
+#endif
     distributed_refmem_tdma_flight_sync_receive(owner, &ring);
     distributed_refmem_tdma_flight_sync_publish(owner, &ring);
 }
@@ -1875,12 +2331,12 @@ static void distributed_refmem_vdc_follower_rx_process_completed(
                 s_vdc_follower_rx.last_error =
                     rx.source_slot == expected_source_slot ? 0u : 6u;
                 if (rx.source_slot == expected_source_slot) {
-                    const refmem_sync_vdc_command_snapshot_t *command =
-                        refmem_sync_vdc_get_command(&s_vdc_command_context,
-                                                    (uint8_t)rx.source_slot);
-                    if (command != NULL) {
-                        s_vdc_follower_rx.last_command_seq =
-                            command->command_seq;
+                    refmem_sync_vdc_command_snapshot_t command;
+                    if (refmem_sync_vdc_copy_command(
+                            &s_vdc_command_context,
+                            (uint8_t)rx.source_slot,
+                            &command)) {
+                        s_vdc_follower_rx.last_command_seq = command.command_seq;
                     }
                 }
             } else {
@@ -1906,6 +2362,15 @@ static void distributed_refmem_vdc_follower_rx_process_completed(
 static void distributed_refmem_vdc_follower_rx_service(void)
 {
     if (board_identity_get_no() == 5u) {
+        return;
+    }
+
+    /* Resident process-image fragments are the product command path.  Do not
+     * also submit the legacy standalone VDC window: a late frame from that
+     * path could race the resident source/sequence retention and overwrite a
+     * newer command.  The standalone service remains available to explicit
+     * diagnostics when resident flight sync is disabled. */
+    if (s_tdma_flight_sync.enabled != 0u) {
         return;
     }
 
@@ -2205,7 +2670,7 @@ void DISTRIBUTED_REFMEM_TIME_CRITICAL(
     const bool master_profile =
         snapshot.control_profile.valid == 1u &&
         snapshot.control_profile.mode == VDC_DPLL_CONTROL_MODE_MASTER;
-    if (master_profile) {
+    if (master_profile && s_tdma_flight_sync.enabled == 0u) {
         /* RefMem only freezes MASTER output fields in this phase.  The TDMA
          * owner later selects the common future window and admits one target
          * to its single scheduler. */
@@ -3317,6 +3782,37 @@ void distributed_refmem_get_tdma_flight_sync(
     snapshot->last_optional_diagnostic =
         s_tdma_flight_sync.last_optional_diagnostic;
     snapshot->last_mailbox_crc16 = s_tdma_flight_sync.last_mailbox_crc16;
+    snapshot->vdc_command_fragment_rx_count =
+        s_tdma_flight_sync.vdc_command_fragment_rx_count;
+    snapshot->vdc_command_fragment_complete_count =
+        s_tdma_flight_sync.vdc_command_fragment_complete_count;
+    snapshot->vdc_command_fragment_reject_count =
+        s_tdma_flight_sync.vdc_command_fragment_reject_count;
+    snapshot->vdc_command_accept_count =
+        s_tdma_flight_sync.vdc_command_accept_count;
+    snapshot->vdc_command_last_seq = s_tdma_flight_sync.vdc_command_last_seq;
+    snapshot->vdc_command_prepare_attempt_count =
+        s_tdma_flight_sync.vdc_command_prepare_attempt_count;
+    snapshot->vdc_command_prepare_reject_count =
+        s_tdma_flight_sync.vdc_command_prepare_reject_count;
+    snapshot->vdc_command_prepare_last_reason =
+        s_tdma_flight_sync.vdc_command_prepare_last_reason;
+    snapshot->vdc_command_prepare_last_gate_code =
+        s_tdma_flight_sync.vdc_command_prepare_last_gate_code;
+    snapshot->vdc_command_prepare_last_gate_slot =
+        s_tdma_flight_sync.vdc_command_prepare_last_gate_slot;
+    snapshot->vdc_command_prepare_last_gate_evidence =
+        s_tdma_flight_sync.vdc_command_prepare_last_gate_evidence;
+    snapshot->vdc_command_record_active =
+        s_tdma_flight_sync.vdc_command_record_active;
+    snapshot->vdc_command_record_fragment_index =
+        s_tdma_flight_sync.vdc_command_record_fragment_index;
+    snapshot->vdc_command_record_source_update_seq =
+        s_tdma_flight_sync.vdc_command_record_source_update_seq;
+    snapshot->vdc_command_last_common_time_ns_lo =
+        (uint32_t)s_tdma_flight_sync.vdc_command_last_common_time_ns;
+    snapshot->vdc_command_last_common_time_ns_hi =
+        (uint32_t)(s_tdma_flight_sync.vdc_command_last_common_time_ns >> 32u);
 }
 
 bool distributed_refmem_get_tdma_flight_sync_peer(
@@ -3612,7 +4108,8 @@ static bool distributed_refmem_publish_vdc_command_once(
 
 void distributed_refmem_tdma_publish_service(void)
 {
-    if (!s_initialized || s_vdc_command_batch.active == 0u) {
+    if (!s_initialized || s_tdma_flight_sync.enabled != 0u ||
+        s_vdc_command_batch.active == 0u) {
         return;
     }
     vdc_dpll_manager_refmem_snapshot_t snapshot;
@@ -3629,14 +4126,9 @@ bool distributed_refmem_get_vdc_follower_command(
     if (snapshot == NULL || source_slot >= REFMEM_SYNC_NODE_COUNT) {
         return false;
     }
-    const refmem_sync_vdc_command_snapshot_t *command =
-        refmem_sync_vdc_get_command(&s_vdc_command_context,
-                                    (uint8_t)source_slot);
-    if (command == NULL) {
-        return false;
-    }
-    *snapshot = *command;
-    return true;
+    return refmem_sync_vdc_copy_command(&s_vdc_command_context,
+                                        (uint8_t)source_slot,
+                                        snapshot);
 }
 
 void distributed_refmem_get_tdma_flight_sync_quality(

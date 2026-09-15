@@ -3584,6 +3584,7 @@ static int test_dpll_role_boundary_and_oscillator_discipline(void)
                           vdc_domain_apply_follower_command(&context, &command),
                           false);
     vdc_domain_note_follower_command_missing(&context);
+    vdc_domain_note_follower_command_late(&context);
     (void)vdc_domain_get_snapshot(&context, &snapshot);
     failed += expect_u32("wrong source counted",
                          snapshot.control.follower_wrong_source_count,
@@ -3596,6 +3597,9 @@ static int test_dpll_role_boundary_and_oscillator_discipline(void)
                          2u);
     failed += expect_u32("missing command counted",
                          snapshot.control.follower_no_command_count,
+                         1u);
+    failed += expect_u32("late command counted",
+                         snapshot.control.follower_late_command_count,
                          1u);
     failed += expect_i32("bad follower commands retain DCO rate",
                          snapshot.dco.period_adjust_ppb,

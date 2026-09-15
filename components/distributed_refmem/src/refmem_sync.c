@@ -2,6 +2,30 @@
 
 #include <string.h>
 
+#define REFMEM_SYNC_VDC_COPY_ATTEMPTS 3u
+
+static uint32_t refmem_sync_vdc_begin_write(
+    refmem_sync_vdc_context_t *context)
+{
+    uint32_t current = __atomic_load_n(&context->vdc_command_guard,
+                                       __ATOMIC_ACQUIRE);
+    current &= ~1u;
+    if (current > (UINT32_MAX - 2u)) {
+        current = 0u;
+    }
+    const uint32_t odd = current + 1u;
+    const uint32_t even = current + 2u;
+    __atomic_store_n(&context->vdc_command_guard, odd, __ATOMIC_RELEASE);
+    return even;
+}
+
+static void refmem_sync_vdc_end_write(refmem_sync_vdc_context_t *context,
+                                      uint32_t stable_guard)
+{
+    __atomic_store_n(&context->vdc_command_guard, stable_guard,
+                     __ATOMIC_RELEASE);
+}
+
 /* Stack-only view: each receiver owns its storage. No cast between context
  * layouts or heap allocation is needed to share validation and ordering. */
 typedef struct {
@@ -548,9 +572,15 @@ bool refmem_sync_vdc_set_epoch(refmem_sync_vdc_context_t *context,
         return false;
     }
 
-    if (context->active_epoch_id != active_epoch_id ||
-        context->active_run_id != active_run_id) {
+    const bool changed = context->active_epoch_id != active_epoch_id ||
+                         context->active_run_id != active_run_id;
+    if (changed) {
+        const uint32_t stable_guard = refmem_sync_vdc_begin_write(context);
         memset(context->vdc_command, 0, sizeof(context->vdc_command));
+        context->active_epoch_id = active_epoch_id;
+        context->active_run_id = active_run_id;
+        refmem_sync_vdc_end_write(context, stable_guard);
+        return true;
     }
     context->active_epoch_id = active_epoch_id;
     context->active_run_id = active_run_id;
@@ -652,13 +682,28 @@ refmem_sync_rx_result_t refmem_sync_vdc_receive_frame(
     (void)memcpy(&command, payload, sizeof(command));
     refmem_sync_vdc_command_snapshot_t *previous =
         &context->vdc_command[header.source_slot];
+    const bool command_target_valid =
+        command.target_slot < REFMEM_SYNC_NODE_COUNT ||
+        command.target_slot == REFMEM_SYNC_VDC_TARGET_BROADCAST;
+    const uint8_t valid_target_mask =
+        (uint8_t)((1u << REFMEM_SYNC_NODE_COUNT) - 1u);
+    const bool header_target_valid =
+        command.target_slot == REFMEM_SYNC_VDC_TARGET_BROADCAST
+            ? (header.target_mask != 0u &&
+               (header.target_mask & (uint8_t)~valid_target_mask) == 0u &&
+               (header.target_mask & (uint8_t)(1u << context->local_slot)) != 0u)
+            : (command.target_slot < REFMEM_SYNC_NODE_COUNT &&
+               header.target_mask == (uint8_t)(1u << command.target_slot));
     const bool command_valid =
         refmem_sync_vdc_command_payload_validate(&command, sizeof(command)) &&
         command.source_slot == header.source_slot &&
-        command.target_slot < REFMEM_SYNC_NODE_COUNT &&
-        header.target_mask == (uint8_t)(1u << command.target_slot);
+        command.epoch_id == context->active_epoch_id &&
+        command.run_id == context->active_run_id &&
+        command_target_valid && header_target_valid;
     if (!command_valid) {
+        const uint32_t stable_guard = refmem_sync_vdc_begin_write(context);
         previous->reject_count++;
+        refmem_sync_vdc_end_write(context, stable_guard);
         refmem_sync_fill_snapshot(snapshot,
                                   REFMEM_SYNC_RX_COMMAND_INVALID,
                                   frame_result,
@@ -692,7 +737,9 @@ refmem_sync_rx_result_t refmem_sync_vdc_receive_frame(
         }
         if (previous->valid != 0u &&
             (int32_t)(command.command_seq - previous->command_seq) <= 0) {
+            const uint32_t stable_guard = refmem_sync_vdc_begin_write(context);
             previous->reject_count++;
+            refmem_sync_vdc_end_write(context, stable_guard);
             refmem_sync_fill_snapshot(snapshot,
                                       REFMEM_SYNC_RX_STALE_SEQ,
                                       frame_result,
@@ -704,12 +751,15 @@ refmem_sync_rx_result_t refmem_sync_vdc_receive_frame(
         }
     }
 
+    const uint32_t stable_guard = refmem_sync_vdc_begin_write(context);
     previous->valid = 1u;
     previous->source_slot = command.source_slot;
     previous->target_slot = command.target_slot;
     previous->control_generation = command.control_generation;
     previous->command_seq = command.command_seq;
     previous->schedule_crc32 = command.schedule_crc32;
+    previous->epoch_id = command.epoch_id;
+    previous->run_id = command.run_id;
     previous->effective_vdc_time_ns = command.effective_vdc_time_ns;
     previous->period_adjust_ppb = command.period_adjust_ppb;
     previous->phase_offset_ns = command.phase_offset_ns;
@@ -718,6 +768,7 @@ refmem_sync_rx_result_t refmem_sync_vdc_receive_frame(
     previous->payload_crc32 = command.payload_crc32;
     previous->frame_seq32 = header.seq32;
     previous->received_count++;
+    refmem_sync_vdc_end_write(context, stable_guard);
     refmem_sync_fill_snapshot(snapshot,
                               REFMEM_SYNC_RX_ACCEPTED,
                               frame_result,
@@ -736,6 +787,115 @@ const refmem_sync_vdc_command_snapshot_t *refmem_sync_vdc_get_command(
         return NULL;
     }
     return &context->vdc_command[source_slot];
+}
+
+bool refmem_sync_vdc_copy_command(
+    const refmem_sync_vdc_context_t *context,
+    uint8_t source_slot,
+    refmem_sync_vdc_command_snapshot_t *out)
+{
+    if (context == NULL || out == NULL || source_slot >= REFMEM_SYNC_NODE_COUNT) {
+        return false;
+    }
+
+    for (uint32_t attempt = 0u;
+         attempt < REFMEM_SYNC_VDC_COPY_ATTEMPTS;
+         attempt++) {
+        const uint32_t begin = __atomic_load_n(&context->vdc_command_guard,
+                                               __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) {
+            continue;
+        }
+        (void)memcpy(out, &context->vdc_command[source_slot], sizeof(*out));
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        const uint32_t end = __atomic_load_n(&context->vdc_command_guard,
+                                             __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void refmem_sync_vdc_fragment_reset(
+    refmem_sync_vdc_fragment_context_t *context)
+{
+    if (context == NULL) {
+        return;
+    }
+    const uint32_t accepted = context->accepted_fragment_count;
+    const uint32_t completed = context->completed_count;
+    const uint32_t rejected = context->rejected_count;
+    memset(context, 0, sizeof(*context));
+    context->accepted_fragment_count = accepted;
+    context->completed_count = completed;
+    context->rejected_count = rejected;
+}
+
+refmem_sync_vdc_fragment_result_t refmem_sync_vdc_fragment_push(
+    refmem_sync_vdc_fragment_context_t *context,
+    uint8_t source_slot,
+    uint8_t target_mask,
+    uint16_t transport_seq16,
+    uint8_t fragment_index,
+    uint8_t fragment_count,
+    const uint8_t data[REFMEM_SYNC_VDC_FRAGMENT_DATA_SIZE],
+    refmem_sync_vdc_command_payload_t *complete_payload)
+{
+    if (complete_payload != NULL) {
+        memset(complete_payload, 0, sizeof(*complete_payload));
+    }
+    if (context == NULL || data == NULL || source_slot >= REFMEM_SYNC_NODE_COUNT ||
+        target_mask == 0u || fragment_count != REFMEM_SYNC_VDC_FRAGMENT_COUNT ||
+        fragment_index >= fragment_count) {
+        if (context != NULL) {
+            context->rejected_count++;
+            refmem_sync_vdc_fragment_reset(context);
+        }
+        return REFMEM_SYNC_VDC_FRAGMENT_REJECTED;
+    }
+
+    if (fragment_index == 0u) {
+        if (context->active != 0u) {
+            context->rejected_count++;
+            refmem_sync_vdc_fragment_reset(context);
+            return REFMEM_SYNC_VDC_FRAGMENT_REJECTED;
+        }
+        refmem_sync_vdc_fragment_reset(context);
+        context->active = 1u;
+        context->source_slot = source_slot;
+        context->target_mask = target_mask;
+        context->fragment_count = fragment_count;
+        context->first_transport_seq16 = transport_seq16;
+    } else if (context->active == 0u ||
+               context->source_slot != source_slot ||
+               context->target_mask != target_mask ||
+               context->fragment_count != fragment_count ||
+               context->next_fragment != fragment_index ||
+               (uint16_t)(context->first_transport_seq16 + fragment_index) !=
+                   transport_seq16) {
+        context->rejected_count++;
+        refmem_sync_vdc_fragment_reset(context);
+        return REFMEM_SYNC_VDC_FRAGMENT_REJECTED;
+    }
+
+    memcpy(&context->payload[(size_t)fragment_index *
+                             REFMEM_SYNC_VDC_FRAGMENT_DATA_SIZE],
+           data,
+           REFMEM_SYNC_VDC_FRAGMENT_DATA_SIZE);
+    context->accepted_fragment_count++;
+    context->next_fragment = (uint8_t)(fragment_index + 1u);
+    if (context->next_fragment < fragment_count) {
+        return REFMEM_SYNC_VDC_FRAGMENT_PROGRESS;
+    }
+
+    if (complete_payload != NULL) {
+        memcpy(complete_payload, context->payload, sizeof(*complete_payload));
+    }
+    context->completed_count++;
+    context->active = 0u;
+    context->next_fragment = 0u;
+    return REFMEM_SYNC_VDC_FRAGMENT_COMPLETE;
 }
 
 const refmem_sync_peer_state_t *refmem_sync_get_peer(

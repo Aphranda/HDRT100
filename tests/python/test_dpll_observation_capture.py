@@ -123,9 +123,9 @@ def test_board_parser_keeps_physical_no_identity() -> None:
 
 def test_follower_status_is_complete_and_counter_delta_is_wrap_safe() -> None:
     before = parse_role_status(
-        "1,0,7,7,0,4294967295,3,4,5,6,7,0,7,9,10,11,12"
+        "1,0,7,7,0,4294967295,3,4,5,6,7,0,7,9,10,11,12,0"
     )
-    after = parse_role_status("1,0,7,7,0,1,5,4,6,6,7,0,7,10,10,11,12")
+    after = parse_role_status("1,0,7,7,0,1,5,4,6,6,7,0,7,10,10,11,12,2")
     delta = role_status_delta(before, after)
     assert before["mode"] == 1
     assert delta["follower_apply_count"] == 2
@@ -154,7 +154,7 @@ def test_refmem_follower_rx_snapshot_is_fixed_and_wrap_safe() -> None:
 
 
 def test_follower_transport_requires_refmem_acceptance_and_expected_source() -> None:
-    role = parse_role_status("1,2,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0")
+    role = parse_role_status("1,2,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0,0")
     before = parse_refmem_vdc_follower_rx(
         "1,7,99,98,10,10,10,0,0,0,0,0,0,0,2,99"
     )
@@ -196,6 +196,7 @@ def test_follower_observation_requires_ordered_multi_point_apply_records() -> No
         "follower_stale_command_count": 0,
         "follower_invalid_command_count": 0,
         "follower_local_evidence_bypass_count": 0,
+        "follower_late_command_count": 0,
     }
     samples = [
         {"capture_kind": "follower_applied_command", "follower_command": {
@@ -222,6 +223,7 @@ def test_follower_observation_requires_ordered_local_evidence_records() -> None:
         "follower_stale_command_count": 0,
         "follower_invalid_command_count": 0,
         "follower_local_evidence_bypass_count": 2,
+        "follower_late_command_count": 0,
     }
     samples = [
         {"capture_kind": "follower_local_evidence", "follower_observation": {
@@ -252,7 +254,7 @@ def test_capture_tool_is_explicitly_off_realtime_path() -> None:
 def test_zero_sample_master_keeps_all_node_evidence_and_writes_failure_summary(
         monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A diagnostic reject must not make NO2--NO4 evidence disappear."""
-    role = "0,0,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0"
+    role = "0,0,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0,0"
     refmem = "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0"
     status = "0,0,0,0,0,0,0,0"
     queries: list[tuple[str, str]] = []

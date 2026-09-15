@@ -131,6 +131,8 @@ typedef struct {
     uint32_t control_generation;
     uint32_t command_seq;
     uint32_t schedule_crc32;
+    uint32_t epoch_id;
+    uint32_t run_id;
     uint64_t effective_vdc_time_ns;
     int32_t period_adjust_ppb;
     int32_t phase_offset_ns;
@@ -141,6 +143,38 @@ typedef struct {
     uint32_t received_count;
     uint32_t reject_count;
 } refmem_sync_vdc_command_snapshot_t;
+
+#define REFMEM_SYNC_VDC_FRAGMENT_DATA_SIZE 4u
+#define REFMEM_SYNC_VDC_FRAGMENT_COUNT \
+    ((sizeof(refmem_sync_vdc_command_payload_t) + \
+      REFMEM_SYNC_VDC_FRAGMENT_DATA_SIZE - 1u) / \
+     REFMEM_SYNC_VDC_FRAGMENT_DATA_SIZE)
+
+_Static_assert(sizeof(refmem_sync_vdc_command_payload_t) %
+                   REFMEM_SYNC_VDC_FRAGMENT_DATA_SIZE == 0u,
+               "VDC command payload must fill complete resident fragments");
+
+typedef enum {
+    REFMEM_SYNC_VDC_FRAGMENT_PROGRESS = 0u,
+    REFMEM_SYNC_VDC_FRAGMENT_COMPLETE = 1u,
+    REFMEM_SYNC_VDC_FRAGMENT_REJECTED = 2u,
+} refmem_sync_vdc_fragment_result_t;
+
+/* One active source is assembled at a time.  This is the bounded first
+ * resident-command implementation; source switching resets the assembly and
+ * future multi-master work can expand the state by source after review. */
+typedef struct {
+    uint8_t active;
+    uint8_t source_slot;
+    uint8_t target_mask;
+    uint8_t fragment_count;
+    uint8_t next_fragment;
+    uint16_t first_transport_seq16;
+    uint8_t payload[sizeof(refmem_sync_vdc_command_payload_t)];
+    uint32_t accepted_fragment_count;
+    uint32_t completed_count;
+    uint32_t rejected_count;
+} refmem_sync_vdc_fragment_context_t;
 
 typedef struct {
     uint8_t local_slot;
@@ -175,6 +209,10 @@ typedef struct {
     uint8_t local_slot;
     uint32_t active_epoch_id;
     uint32_t active_run_id;
+    /* Core0 publishes a complete command snapshot under this guard.  Core1
+     * must copy through refmem_sync_vdc_copy_command(); the legacy pointer
+     * getter remains only for single-threaded inspection/tests. */
+    volatile uint32_t vdc_command_guard;
     refmem_sync_vdc_command_snapshot_t
         vdc_command[REFMEM_SYNC_NODE_COUNT];
 } refmem_sync_vdc_context_t;
@@ -235,6 +273,21 @@ refmem_sync_rx_result_t refmem_sync_vdc_receive_frame(
 const refmem_sync_vdc_command_snapshot_t *refmem_sync_vdc_get_command(
     const refmem_sync_vdc_context_t *context,
     uint8_t source_slot);
+bool refmem_sync_vdc_copy_command(
+    const refmem_sync_vdc_context_t *context,
+    uint8_t source_slot,
+    refmem_sync_vdc_command_snapshot_t *out);
+void refmem_sync_vdc_fragment_reset(
+    refmem_sync_vdc_fragment_context_t *context);
+refmem_sync_vdc_fragment_result_t refmem_sync_vdc_fragment_push(
+    refmem_sync_vdc_fragment_context_t *context,
+    uint8_t source_slot,
+    uint8_t target_mask,
+    uint16_t transport_seq16,
+    uint8_t fragment_index,
+    uint8_t fragment_count,
+    const uint8_t data[REFMEM_SYNC_VDC_FRAGMENT_DATA_SIZE],
+    refmem_sync_vdc_command_payload_t *complete_payload);
 const refmem_sync_peer_state_t *refmem_sync_get_peer(
     const refmem_sync_context_t *context,
     uint8_t source_slot);

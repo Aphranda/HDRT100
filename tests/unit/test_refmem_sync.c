@@ -99,6 +99,8 @@ static bool make_vdc_command_frame(uint8_t source_slot,
     command.control_generation = control_generation;
     command.command_seq = command_seq;
     command.schedule_crc32 = schedule_crc32;
+    command.epoch_id = 7u;
+    command.run_id = 8u;
     command.effective_vdc_time_ns = 1000000u + frame_seq;
     command.period_adjust_ppb = (int32_t)frame_seq;
     command.phase_offset_ns = -(int32_t)frame_seq;
@@ -662,6 +664,18 @@ static int test_vdc_command_retention_and_rejection(void)
         failed += expect_u32("source one sequence", source_one->command_seq, 1u);
     }
 
+    refmem_sync_vdc_command_snapshot_t copied;
+    failed += expect_bool("guarded command copy",
+                          refmem_sync_vdc_copy_command(&context, 0u, &copied),
+                          true);
+    failed += expect_u32("guarded command schedule", copied.schedule_crc32,
+                         0xA5A5u);
+    context.vdc_command_guard |= 1u;
+    failed += expect_bool("odd guard rejects copy",
+                          refmem_sync_vdc_copy_command(&context, 0u, &copied),
+                          false);
+    context.vdc_command_guard &= ~1u;
+
     failed += expect_bool("source zero update",
                           make_vdc_command_frame(0u, 2u, 101u, 2u, 3u,
                                                   0xC7C7u, frame, sizeof(frame),
@@ -688,6 +702,32 @@ static int test_vdc_command_retention_and_rejection(void)
     failed += expect_u32("stale payload not retained",
                          source_zero->schedule_crc32, 0xC7C7u);
 
+    refmem_sync_vdc_command_payload_t old_session;
+    (void)memcpy(&old_session, &frame[REFMEM_SYNC_FRAME_HEADER_SIZE],
+                 sizeof(old_session));
+    old_session.epoch_id = 6u;
+    old_session.payload_crc32 =
+        refmem_sync_vdc_command_payload_crc32(&old_session);
+    failed += expect_bool("old session frame",
+                          make_frame(REFMEM_SYNC_FRAME_COMMAND,
+                                     0u,
+                                     0x04u,
+                                     7u,
+                                     8u,
+                                     106u,
+                                     &old_session,
+                                     sizeof(old_session),
+                                     frame,
+                                     sizeof(frame),
+                                     &frame_size),
+                          true);
+    failed += expect_u32("old session rejected",
+                         refmem_sync_vdc_receive_frame(&context,
+                                                       frame,
+                                                       frame_size,
+                                                       NULL),
+                         REFMEM_SYNC_RX_COMMAND_INVALID);
+
     failed += expect_bool("generic context init",
                           refmem_sync_init(&generic_context, 2u, 7u, 8u),
                           true);
@@ -711,6 +751,8 @@ static int test_vdc_command_retention_and_rejection(void)
     malformed.control_generation = 3u;
     malformed.command_seq = 3u;
     malformed.schedule_crc32 = 0xFAFAu;
+    malformed.epoch_id = 7u;
+    malformed.run_id = 8u;
     malformed.effective_vdc_time_ns = 1000103u;
     malformed.payload_crc32 =
         refmem_sync_vdc_command_payload_crc32(&malformed);
@@ -771,6 +813,118 @@ static int test_vdc_command_retention_and_rejection(void)
     source_zero = refmem_sync_vdc_get_command(&context, 0u);
     failed += expect_u32("outer crc not retained",
                          source_zero->schedule_crc32, 0xC7C7u);
+
+    refmem_sync_vdc_command_payload_t broadcast;
+    (void)memset(&broadcast, 0, sizeof(broadcast));
+    broadcast.version = REFMEM_SYNC_VDC_COMMAND_VERSION;
+    broadcast.source_slot = 0u;
+    broadcast.target_slot = REFMEM_SYNC_VDC_TARGET_BROADCAST;
+    broadcast.control_generation = 3u;
+    broadcast.command_seq = 4u;
+    broadcast.schedule_crc32 = 0xF1F1u;
+    broadcast.epoch_id = 7u;
+    broadcast.run_id = 8u;
+    broadcast.effective_vdc_time_ns = 1000200u;
+    broadcast.payload_crc32 =
+        refmem_sync_vdc_command_payload_crc32(&broadcast);
+    failed += expect_bool("broadcast command frame",
+                          make_frame(REFMEM_SYNC_FRAME_COMMAND,
+                                     0u,
+                                     0x0Fu,
+                                     7u,
+                                     8u,
+                                     300u,
+                                     &broadcast,
+                                     sizeof(broadcast),
+                                     frame,
+                                     sizeof(frame),
+                                     &frame_size),
+                          true);
+    failed += expect_u32("broadcast command accepted",
+                         refmem_sync_vdc_receive_frame(&context,
+                                                       frame,
+                                                       frame_size,
+                                                       NULL),
+                         REFMEM_SYNC_RX_ACCEPTED);
+
+    refmem_sync_vdc_context_t wrap_context;
+    failed += expect_bool("wrap command context init",
+                          refmem_sync_vdc_init(&wrap_context, 2u, 7u, 8u),
+                          true);
+    failed += expect_bool("wrap command before rollover",
+                          make_vdc_command_frame(
+                              0u, 2u, 400u, UINT32_MAX - 1u, 9u, 0xDADAu,
+                              frame, sizeof(frame), &frame_size),
+                          true);
+    failed += expect_u32("wrap command before rollover accepted",
+                         refmem_sync_vdc_receive_frame(&wrap_context, frame,
+                                                       frame_size, NULL),
+                         REFMEM_SYNC_RX_ACCEPTED);
+    failed += expect_bool("wrap command after rollover",
+                          make_vdc_command_frame(
+                              0u, 2u, 401u, 1u, 9u, 0xDADAu,
+                              frame, sizeof(frame), &frame_size),
+                          true);
+    failed += expect_u32("wrap command after rollover accepted",
+                         refmem_sync_vdc_receive_frame(&wrap_context, frame,
+                                                       frame_size, NULL),
+                         REFMEM_SYNC_RX_ACCEPTED);
+    const refmem_sync_vdc_command_snapshot_t *wrapped =
+        refmem_sync_vdc_get_command(&wrap_context, 0u);
+    failed += expect_bool("wrapped command retained", wrapped != NULL, true);
+    if (wrapped != NULL) {
+        failed += expect_u32("wrapped command sequence", wrapped->command_seq,
+                             1u);
+    }
+    return failed;
+}
+
+static int test_vdc_invalid_targets_preserve_retained_command(void)
+{
+    int failed = 0;
+    refmem_sync_vdc_context_t context;
+    uint8_t frame[REFMEM_SYNC_FRAME_HEADER_SIZE +
+                  sizeof(refmem_sync_vdc_command_payload_t)];
+    size_t frame_size = 0u;
+    failed += expect_bool("target test init",
+                          refmem_sync_vdc_init(&context, 2u, 7u, 8u), true);
+    failed += expect_bool("target test seed frame",
+                          make_vdc_command_frame(0u, 2u, 100u, 1u, 3u,
+                                                 0xA5A5u, frame, sizeof(frame),
+                                                 &frame_size), true);
+    failed += expect_u32("target test seed accepted",
+                         refmem_sync_vdc_receive_frame(&context, frame,
+                                                       frame_size, NULL),
+                         REFMEM_SYNC_RX_ACCEPTED);
+    refmem_sync_vdc_command_payload_t command;
+    memcpy(&command, &frame[REFMEM_SYNC_FRAME_HEADER_SIZE], sizeof(command));
+    const uint32_t invalid_targets[] = {
+        REFMEM_SYNC_NODE_COUNT, 31u, 32u, 255u, UINT32_MAX - 1u,
+    };
+    for (size_t i = 0u; i < sizeof(invalid_targets) / sizeof(invalid_targets[0]);
+         i++) {
+        command.target_slot = invalid_targets[i];
+        command.command_seq = 2u;
+        command.payload_crc32 = refmem_sync_vdc_command_payload_crc32(&command);
+        failed += expect_bool("invalid target valid CRC frame",
+                              make_frame(REFMEM_SYNC_FRAME_COMMAND, 0u, 0x04u,
+                                         7u, 8u, 101u, &command, sizeof(command),
+                                         frame, sizeof(frame), &frame_size), true);
+        failed += expect_u32("invalid target rejected",
+                             refmem_sync_vdc_receive_frame(&context, frame,
+                                                           frame_size, NULL),
+                             REFMEM_SYNC_RX_COMMAND_INVALID);
+        refmem_sync_vdc_command_snapshot_t retained;
+        failed += expect_bool("invalid target retained copy",
+                              refmem_sync_vdc_copy_command(&context, 0u,
+                                                           &retained), true);
+        failed += expect_u32("invalid target preserves sequence",
+                             retained.command_seq, 1u);
+        failed += expect_u32("invalid target preserves accepted count",
+                             retained.received_count, 1u);
+        failed += expect_u32("invalid target counts rejection",
+                             retained.reject_count, (uint32_t)i + 1u);
+    }
     return failed;
 }
 
@@ -920,6 +1074,73 @@ static int test_delta_receiver_rejects_other_frame_types(void)
     return failed;
 }
 
+static int test_vdc_fragment_assembly(void)
+{
+    int failed = 0;
+    refmem_sync_vdc_fragment_context_t context;
+    refmem_sync_vdc_command_payload_t expected;
+    refmem_sync_vdc_command_payload_t assembled;
+    uint8_t *expected_bytes = (uint8_t *)&expected;
+    (void)memset(&expected, 0, sizeof(expected));
+    for (size_t i = 0u; i < sizeof(expected); i++) {
+        expected_bytes[i] = (uint8_t)(0x30u + i);
+    }
+    (void)memset(&context, 0, sizeof(context));
+    for (uint8_t index = 0u;
+         index < (uint8_t)REFMEM_SYNC_VDC_FRAGMENT_COUNT;
+         index++) {
+        const uint8_t *data = expected_bytes +
+            (size_t)index * REFMEM_SYNC_VDC_FRAGMENT_DATA_SIZE;
+        const refmem_sync_vdc_fragment_result_t result =
+            refmem_sync_vdc_fragment_push(
+                &context, 0u, 0x0Eu, (uint16_t)(0xFFFEu + index), index,
+                (uint8_t)REFMEM_SYNC_VDC_FRAGMENT_COUNT, data, &assembled);
+        failed += expect_u32("fragment progress/complete",
+                             result,
+                             index + 1u == REFMEM_SYNC_VDC_FRAGMENT_COUNT
+                                 ? REFMEM_SYNC_VDC_FRAGMENT_COMPLETE
+                                 : REFMEM_SYNC_VDC_FRAGMENT_PROGRESS);
+    }
+    failed += expect_bool("fragment payload assembled",
+                          memcmp(&assembled, &expected, sizeof(expected)) == 0,
+                          true);
+    failed += expect_u32("fragment accepted count",
+                         context.accepted_fragment_count,
+                         REFMEM_SYNC_VDC_FRAGMENT_COUNT);
+    failed += expect_u32("fragment complete count", context.completed_count, 1u);
+
+    refmem_sync_vdc_fragment_reset(&context);
+    uint8_t data[REFMEM_SYNC_VDC_FRAGMENT_DATA_SIZE] = {0u};
+    failed += expect_u32("fragment first accepted",
+                         refmem_sync_vdc_fragment_push(
+                             &context, 1u, 0x0Du, 10u, 0u,
+                             (uint8_t)REFMEM_SYNC_VDC_FRAGMENT_COUNT,
+                             data, &assembled),
+                         REFMEM_SYNC_VDC_FRAGMENT_PROGRESS);
+    failed += expect_u32("fragment gap rejected",
+                         refmem_sync_vdc_fragment_push(
+                             &context, 1u, 0x0Du, 12u, 2u,
+                             (uint8_t)REFMEM_SYNC_VDC_FRAGMENT_COUNT,
+                             data, &assembled),
+                         REFMEM_SYNC_VDC_FRAGMENT_REJECTED);
+    failed += expect_u32("fragment reject count", context.rejected_count, 1u);
+
+    refmem_sync_vdc_fragment_reset(&context);
+    failed += expect_u32("fragment duplicate start",
+                         refmem_sync_vdc_fragment_push(
+                             &context, 1u, 0x0Du, 20u, 0u,
+                             (uint8_t)REFMEM_SYNC_VDC_FRAGMENT_COUNT,
+                             data, &assembled),
+                         REFMEM_SYNC_VDC_FRAGMENT_PROGRESS);
+    failed += expect_u32("fragment duplicate start rejected",
+                         refmem_sync_vdc_fragment_push(
+                             &context, 1u, 0x0Du, 21u, 0u,
+                             (uint8_t)REFMEM_SYNC_VDC_FRAGMENT_COUNT,
+                             data, &assembled),
+                         REFMEM_SYNC_VDC_FRAGMENT_REJECTED);
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -932,8 +1153,10 @@ int main(void)
     failed += test_quality_commit();
     failed += test_frame_error_quality();
     failed += test_vdc_command_retention_and_rejection();
+    failed += test_vdc_invalid_targets_preserve_retained_command();
     failed += test_delta_receiver_lifecycle_and_ordering();
     failed += test_delta_receiver_rejects_other_frame_types();
+    failed += test_vdc_fragment_assembly();
 
     if (failed != 0) {
         (void)printf("refmem_sync tests failed: %d\n", failed);

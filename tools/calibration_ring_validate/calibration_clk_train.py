@@ -56,6 +56,7 @@ STATE_ERROR = 4
 RESULT_FORWARD_ARMED = 1
 RESULT_RETURN_OVERLAP = 2
 RESULT_NO_OVERLAP = 3
+TOPOLOGY_ATTEMPT_LIMIT = 3
 
 LOOPBACK_FIELDS = (
     "armed", "complete", "sample_hz", "sample_period_ns",
@@ -137,7 +138,8 @@ def _control_command(board, command, args, actions, *, expected=None,
         record["elapsed_s"] = time.monotonic() - started
 
 
-def _wait_ring_state(board, args, *, started, topology=None):
+def _wait_ring_state(board, args, *, started, topology=None,
+                     after_config_seq=None):
     deadline = time.monotonic() + args.arm_wait
     last: dict[str, int] = {}
     last_error = ""
@@ -155,18 +157,57 @@ def _wait_ring_state(board, args, *, started, topology=None):
         applied = last and last["ring_config_seq"] == last["ring_applied_config_seq"]
         matched = topology is None or (last and tuple(last[key] for key in (
             "ring_node_count", "ring_local_slot_id", "ring_reference_slot_id")) == topology)
-        if (applied and matched and last["ring_enabled"] == int(started) and
+        advanced = (after_config_seq is None or
+                    (last and last["ring_config_seq"] != after_config_seq))
+        if (applied and matched and advanced and last["ring_enabled"] == int(started) and
                 last["ring_adapter_started"] == int(started)):
             return last
         time.sleep(min(args.idle_poll_interval, max(0., deadline-time.monotonic())))
     raise RuntimeError(
-        f"{board.address}: ring state deadline started={started} topology={topology}, "
+        f"{board.address}: ring state deadline started={started} topology={topology} "
+        f"after_config_seq={after_config_seq}, "
         f"last={last}, last_error={last_error}")
 
 
 def wait_ring_stopped(board, args: argparse.Namespace) -> dict[str, int]:
     """Wait for physical adapter STOP and its applied configuration."""
     return _wait_ring_state(board, args, started=False)
+
+
+def _set_stopped_topology(board, topology, args, actions):
+    """Recover bounded owner admission refusals without promoting a timeout.
+
+    STOP/config ACK does not prove that Core0 has retired every queue/lock.
+    Only resend the same parameters after a fresh STOP proof.  A successful
+    setter advances STOP generation; runtime topology stays empty until ARM.
+    """
+    command = "SYSTem:TDMA:RING:TOPology " + ','.join(map(str, topology))
+    for attempt in range(1, TOPOLOGY_ATTEMPT_LIMIT + 1):
+        stopped = wait_ring_stopped(board, args)
+        actions.append({"board": board.address, "command": "TOPOLOGY_STOPPED",
+                        "attempt": attempt, "readback": stopped})
+        attempt_actions = []
+        try:
+            values = _control_command(board, command, args, attempt_actions,
+                                      expected=topology)
+        except RuntimeError:
+            record = attempt_actions[0]
+            error_code = record.get("error_after", "").split(',', 1)[0].strip()
+            if (attempt == TOPOLOGY_ATTEMPT_LIMIT or
+                    record.get("response") != "<timeout>" or error_code != "-200"):
+                raise
+            time.sleep(args.idle_poll_interval)
+            continue
+        finally:
+            for record in attempt_actions:
+                record["attempt"] = attempt
+            actions.extend(attempt_actions)
+        applied = _wait_ring_state(board, args, started=False,
+                                  after_config_seq=stopped["ring_config_seq"])
+        actions.append({"board": board.address, "command": "TOPOLOGY_APPLIED",
+                        "attempt": attempt, "response": values,
+                        "readback": applied})
+        return values
 
 
 def parse_args() -> argparse.Namespace:
@@ -287,8 +328,8 @@ def arm_training_persona(ordered, reference_node: int,
             f"SYSTem:TDMA:RING:TOPology "
             f"{node_count},{node},{reference_node}")
         return {"board": board.address, "command": command,
-                "response": _control_command(board, command, args, actions,
-                    expected=(node_count, node, reference_node))}
+                "response": _set_stopped_topology(board,
+                    (node_count, node, reference_node), args, actions)}
 
     with ThreadPoolExecutor(max_workers=node_count) as executor:
         actions.extend(executor.map(set_topology, enumerate(ordered)))

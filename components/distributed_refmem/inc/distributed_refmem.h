@@ -10,6 +10,13 @@
 #define DISTRIBUTED_REFMEM_NODE_COUNT       8u
 #define DISTRIBUTED_REFMEM_LOCAL_NODE_ID    0u
 
+/* Keep the unaccepted resident command prototype outside the ordinary TDMA
+ * build, including RX dispatch and private assembly state.  An enabled build
+ * is experimental and needs its own command evidence as well as P3. */
+#ifndef DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
+#define DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED 0u
+#endif
+
 #define DISTRIBUTED_REFMEM_NODE_FLAG_VIRTUAL 0x00000001u
 
 #define DISTRIBUTED_REFMEM_OWNER_CORE0       0u
@@ -225,6 +232,26 @@ typedef struct {
     uint32_t last_command_seq;
 } distributed_refmem_vdc_follower_rx_snapshot_t;
 
+typedef enum {
+    DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_NONE = 0u,
+    DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_BAD_ARGUMENT = 1u,
+    DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_SNAPSHOT = 2u,
+    DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_IDENTITY = 3u,
+    DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_WINDOW = 4u,
+    DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_COMMON_TIME = 5u,
+    DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_OVERFLOW = 6u,
+    DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_CLOCK_SNAPSHOT = 7u,
+    DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_CLOCK_INACTIVE = 8u,
+    DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_CLOCK_SCHEDULE = 9u,
+    DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_CLOCK_INVALID = 10u,
+    DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_CLOCK_UNCORRELATED = 11u,
+    DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_CLOCK_FLAGS = 12u,
+    DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_CLOCK_TIMESTAMP = 13u,
+    DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_CLOCK_EFFECTIVE = 14u,
+    DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_CLOCK_ORDER = 15u,
+    DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_CLOCK_STALE = 16u,
+} distributed_refmem_vdc_command_prepare_reason_t;
+
 typedef struct {
     uint32_t enabled;
     uint32_t local_slot;
@@ -261,6 +288,22 @@ typedef struct {
     uint32_t last_control_seq8;
     uint32_t last_optional_diagnostic;
     uint32_t last_mailbox_crc16;
+    uint32_t vdc_command_fragment_rx_count;
+    uint32_t vdc_command_fragment_complete_count;
+    uint32_t vdc_command_fragment_reject_count;
+    uint32_t vdc_command_accept_count;
+    uint32_t vdc_command_last_seq;
+    uint32_t vdc_command_prepare_attempt_count;
+    uint32_t vdc_command_prepare_reject_count;
+    uint32_t vdc_command_prepare_last_reason;
+    uint32_t vdc_command_prepare_last_gate_code;
+    uint32_t vdc_command_prepare_last_gate_slot;
+    uint32_t vdc_command_prepare_last_gate_evidence;
+    uint32_t vdc_command_record_active;
+    uint32_t vdc_command_record_fragment_index;
+    uint32_t vdc_command_record_source_update_seq;
+    uint32_t vdc_command_last_common_time_ns_lo;
+    uint32_t vdc_command_last_common_time_ns_hi;
 } distributed_refmem_tdma_flight_sync_snapshot_t;
 
 /* Read-only stable copies of the core1-owned VDC/DPLL vector regions.  The

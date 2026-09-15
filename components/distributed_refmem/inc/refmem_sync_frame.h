@@ -10,6 +10,7 @@
 #define REFMEM_SYNC_FRAME_HEADER_SIZE 36u
 #define REFMEM_SYNC_FRAME_PAYLOAD_MAX 256u
 #define REFMEM_SYNC_VDC_COMMAND_VERSION 1u
+#define REFMEM_SYNC_VDC_TARGET_BROADCAST UINT32_MAX
 
 typedef enum {
     REFMEM_SYNC_FRAME_HELLO = 1u,
@@ -117,6 +118,8 @@ typedef struct __attribute__((packed)) {
     uint32_t control_generation;
     uint32_t command_seq;
     uint32_t schedule_crc32;
+    uint32_t epoch_id;
+    uint32_t run_id;
     uint64_t effective_vdc_time_ns;
     int32_t period_adjust_ppb;
     int32_t phase_offset_ns;
@@ -125,7 +128,7 @@ typedef struct __attribute__((packed)) {
     uint32_t payload_crc32;
 } refmem_sync_vdc_command_payload_t;
 
-_Static_assert(sizeof(refmem_sync_vdc_command_payload_t) == 52u,
+_Static_assert(sizeof(refmem_sync_vdc_command_payload_t) == 60u,
                "VDC command payload wire size must remain stable");
 
 typedef struct {

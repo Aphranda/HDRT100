@@ -2312,6 +2312,22 @@ scpi_result_t scpi_cmd_refmem_sync_flight_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.last_control_seq8);
     SCPI_ResultUInt32(context, snapshot.last_optional_diagnostic);
     SCPI_ResultUInt32(context, snapshot.last_mailbox_crc16);
+    SCPI_ResultUInt32(context, snapshot.vdc_command_fragment_rx_count);
+    SCPI_ResultUInt32(context, snapshot.vdc_command_fragment_complete_count);
+    SCPI_ResultUInt32(context, snapshot.vdc_command_fragment_reject_count);
+    SCPI_ResultUInt32(context, snapshot.vdc_command_accept_count);
+    SCPI_ResultUInt32(context, snapshot.vdc_command_last_seq);
+    SCPI_ResultUInt32(context, snapshot.vdc_command_prepare_attempt_count);
+    SCPI_ResultUInt32(context, snapshot.vdc_command_prepare_reject_count);
+    SCPI_ResultUInt32(context, snapshot.vdc_command_prepare_last_reason);
+    SCPI_ResultUInt32(context, snapshot.vdc_command_prepare_last_gate_code);
+    SCPI_ResultUInt32(context, snapshot.vdc_command_prepare_last_gate_slot);
+    SCPI_ResultUInt32(context, snapshot.vdc_command_prepare_last_gate_evidence);
+    SCPI_ResultUInt32(context, snapshot.vdc_command_record_active);
+    SCPI_ResultUInt32(context, snapshot.vdc_command_record_fragment_index);
+    SCPI_ResultUInt32(context, snapshot.vdc_command_record_source_update_seq);
+    SCPI_ResultUInt32(context, snapshot.vdc_command_last_common_time_ns_lo);
+    SCPI_ResultUInt32(context, snapshot.vdc_command_last_common_time_ns_hi);
     return SCPI_RES_OK;
 }
 
@@ -3038,6 +3054,7 @@ scpi_result_t scpi_cmd_system_tdma_ring_diagnostic_q(scpi_t *context)
         (config.flags & TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE) != 0u ? 1u : 0u);
     return SCPI_RES_OK;
 }
+
 
 scpi_result_t scpi_cmd_system_tdma_ring_burst(scpi_t *context)
 {

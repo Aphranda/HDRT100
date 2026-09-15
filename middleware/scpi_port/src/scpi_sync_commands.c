@@ -354,6 +354,7 @@ scpi_result_t scpi_cmd_sync_vdc_dpll_role_status_q(scpi_t *context)
         snapshot.control.last_follower_effective_vdc_time_ns & UINT32_MAX));
     SCPI_ResultUInt32(context, (uint32_t)(
         snapshot.control.last_follower_effective_vdc_time_ns >> 32u));
+    SCPI_ResultUInt32(context, snapshot.control.follower_late_command_count);
     return SCPI_RES_OK;
 }
 

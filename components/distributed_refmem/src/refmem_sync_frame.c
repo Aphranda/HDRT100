@@ -101,7 +101,10 @@ bool refmem_sync_vdc_command_payload_validate(
         (const refmem_sync_vdc_command_payload_t *)payload;
     return command->version == REFMEM_SYNC_VDC_COMMAND_VERSION &&
            command->source_slot < 8u &&
-           command->target_slot < 8u &&
+           (command->target_slot < 8u ||
+            command->target_slot == REFMEM_SYNC_VDC_TARGET_BROADCAST) &&
+           command->epoch_id != 0u &&
+           command->run_id != 0u &&
            command->command_seq != 0u &&
            command->effective_vdc_time_ns != 0u &&
            command->payload_crc32 ==
@@ -129,7 +132,8 @@ bool refmem_sync_vdc_command_frame_build(
 {
     if (source_slot >= 8u || target_slot >= 8u ||
         source_slot == target_slot || frame_seq32 == 0u ||
-        command_seq == 0u || effective_vdc_time_ns == 0u ||
+        epoch_id == 0u || run_id == 0u || command_seq == 0u ||
+        effective_vdc_time_ns == 0u ||
         frame == NULL || frame_size == NULL) {
         if (frame_size != NULL) {
             *frame_size = 0u;
@@ -145,6 +149,8 @@ bool refmem_sync_vdc_command_frame_build(
     payload.control_generation = control_generation;
     payload.command_seq = command_seq;
     payload.schedule_crc32 = schedule_crc32;
+    payload.epoch_id = epoch_id;
+    payload.run_id = run_id;
     payload.effective_vdc_time_ns = effective_vdc_time_ns;
     payload.period_adjust_ppb = period_adjust_ppb;
     payload.phase_offset_ns = phase_offset_ns;

@@ -12,6 +12,7 @@
  * all mandatory regions and the mailbox CRC already fit. */
 #define TDMA_PROCESS_IMAGE_LAYOUT_VERSION 1u
 #define TDMA_PROCESS_IMAGE_MESSAGE_CLASS 0x10u
+#define TDMA_PROCESS_IMAGE_VDC_COMMAND_MESSAGE_CLASS 0x11u
 
 #define TDMA_PROCESS_IMAGE_VDC_OFFSET 8u
 #define TDMA_PROCESS_IMAGE_VDC_SIZE 6u
@@ -69,6 +70,18 @@
 #define TDMA_PROCESS_IMAGE_VDC_QUALITY_TIER_SHIFT 4u
 #define TDMA_PROCESS_IMAGE_VDC_QUALITY_TIER_MASK 0x70u
 #define TDMA_PROCESS_IMAGE_VDC_QUALITY_VALID (1u << 7u)
+
+/* Resident VDC command transport.  The mailbox header keeps the source,
+ * target mask and transport sequence; the six-byte VDC region carries a
+ * fragment index/count and exactly four command bytes.  The complete command
+ * is validated only after all fragments have been assembled. */
+#define TDMA_PROCESS_IMAGE_VDC_FRAGMENT_INDEX_OFFSET \
+    TDMA_PROCESS_IMAGE_VDC_OFFSET
+#define TDMA_PROCESS_IMAGE_VDC_FRAGMENT_COUNT_OFFSET \
+    (TDMA_PROCESS_IMAGE_VDC_OFFSET + 1u)
+#define TDMA_PROCESS_IMAGE_VDC_FRAGMENT_DATA_OFFSET \
+    (TDMA_PROCESS_IMAGE_VDC_OFFSET + 2u)
+#define TDMA_PROCESS_IMAGE_VDC_FRAGMENT_DATA_SIZE 4u
 
 /* Global process-image trailer.  It is owned by the TDMA reference Node,
  * not by any per-Node mailbox.  Frame N carries the reference TX latch for

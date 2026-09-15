@@ -95,6 +95,17 @@ REFMEM_FIELDS = (
     "last_vdc_rate_adjust_ppb", "last_vdc_lock_state", "last_vdc_quality",
     "last_ack_seq16", "last_ack_flags", "last_control_opcode",
     "last_control_seq8", "last_optional_diagnostic", "last_mailbox_crc16",
+    "vdc_command_fragment_rx_count", "vdc_command_fragment_complete_count",
+    "vdc_command_fragment_reject_count", "vdc_command_accept_count",
+    "vdc_command_last_seq", "vdc_command_prepare_attempt_count",
+    "vdc_command_prepare_reject_count", "vdc_command_prepare_last_reason",
+    "vdc_command_prepare_last_gate_code",
+    "vdc_command_prepare_last_gate_slot",
+    "vdc_command_prepare_last_gate_evidence",
+    "vdc_command_record_active", "vdc_command_record_fragment_index",
+    "vdc_command_record_source_update_seq",
+    "vdc_command_last_common_time_ns_lo",
+    "vdc_command_last_common_time_ns_hi",
 )
 
 

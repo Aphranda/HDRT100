@@ -55,12 +55,14 @@ ROLE_STATUS_FIELDS = (
     "last_follower_control_generation", "last_follower_command_seq",
     "last_follower_quality", "last_follower_effective_vdc_time_lo",
     "last_follower_effective_vdc_time_hi",
+    "follower_late_command_count",
 )
 FOLLOWER_MODE = 1
 FOLLOWER_COUNTER_FIELDS = (
     "follower_apply_count", "follower_no_command_count",
     "follower_wrong_source_count", "follower_stale_command_count",
     "follower_invalid_command_count", "follower_local_evidence_bypass_count",
+    "follower_late_command_count",
 )
 REFMEM_VDC_FOLLOWER_RX_FIELDS = (
     "active", "active_intent_seq", "next_window_seq",

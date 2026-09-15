@@ -310,7 +310,10 @@ typedef struct {
     uint32_t local_slot_id;
     uint32_t reference_slot_id;
     uint32_t schedule_crc32;
+    uint32_t cycle_period_ns;
+    uint32_t feedback_timeout_ns;
     uint32_t adapter_started;
+    uint32_t ring_seq;
     tdma_ring_clock_observation_t clock_observation;
 } tdma_ring_clock_snapshot_t;
 

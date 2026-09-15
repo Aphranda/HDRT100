@@ -1,4 +1,5 @@
 #include "vdc_dpll_manager.h"
+#include "vdc_time_mapping.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -13,6 +14,7 @@
 #include "ota_ao.h"
 #include "storage_manager.h"
 #include "product_config.h"
+#include "refmem_sync_frame.h"
 #include "sync_io.h"
 #include "tdma_runtime_owner.h"
 #include "tdma_service.h"
@@ -1343,6 +1345,11 @@ static void vdc_dpll_manager_phase_observe_word(
     }
 }
 
+uint64_t vdc_dpll_manager_local_time_ns(void)
+{
+    return vdc_dpll_manager_now_ns();
+}
+
 static void vdc_dpll_manager_sync_io_observer_service(void)
 {
     sync_io_capture_latched_word_t words[VDC_DPLL_MANAGER_SYNC_IO_MAX_BATCH_WORDS];
@@ -1852,9 +1859,11 @@ static __attribute__((noinline)) void vdc_dpll_manager_consume_follower_command(
         return;
     }
 
-    /* RefMem accepts only a single target bit for VDC commands.  Keep this
-     * explicit check at the DPLL owner boundary as a second identity guard. */
-    if (retained.target_slot != local_slot_id ||
+    /* RefMem admits either this node's unicast target or the resident
+     * broadcast command. Keep the source check at the DPLL owner boundary as
+     * a second identity guard. */
+    if ((retained.target_slot != REFMEM_SYNC_VDC_TARGET_BROADCAST &&
+         retained.target_slot != local_slot_id) ||
         retained.source_slot != profile->follow_master_slot_id) {
         if (retained.command_seq != s_vdc_follower_last_applied_seq) {
             vdc_dpll_follower_command_t invalid = {0};
@@ -1869,11 +1878,43 @@ static __attribute__((noinline)) void vdc_dpll_manager_consume_follower_command(
         return;
     }
 
-    if (retained.command_seq == 0u ||
-        retained.command_seq <= s_vdc_follower_last_applied_seq) {
+    if (!vdc_time_mapping_sequence_is_newer(
+            retained.command_seq, s_vdc_follower_last_applied_seq)) {
         return;
     }
-    if (retained.effective_vdc_time_ns > vdc_dpll_manager_now_ns()) {
+    tdma_ring_clock_snapshot_t ring;
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring)) {
+        /* Do not compare a peer's common deadline with this board's raw
+         * uptime. Until a fresh TDMA anchor is available, retain the command
+         * and leave the previous trusted DCO output in place. */
+        return;
+    }
+    uint64_t common_now_ns = 0u;
+    if (!vdc_time_mapping_map_local_to_common_time(
+            &ring, s_vdc_domain.schedule.schedule_crc32,
+            vdc_dpll_manager_now_ns(), &common_now_ns)) {
+        /* Do not compare a peer's common deadline with this board's raw
+         * uptime. Until a fresh TDMA anchor is available, retain the command
+         * and leave the previous trusted DCO output in place. */
+        return;
+    }
+    uint64_t late_ns = 0u;
+    const vdc_time_mapping_effective_time_result_t timing =
+        vdc_time_mapping_classify_effective_time(
+            common_now_ns, retained.effective_vdc_time_ns,
+            (uint64_t)ring.cycle_period_ns, &late_ns);
+    if (timing == VDC_TIME_MAPPING_EFFECTIVE_TIME_NOT_DUE) {
+        return;
+    }
+    if (timing != VDC_TIME_MAPPING_EFFECTIVE_TIME_DUE) {
+        vdc_domain_note_follower_command_late(&s_vdc_domain);
+        vdc_dpll_follower_command_t invalid = {0};
+        invalid.source_slot_id = retained.source_slot;
+        invalid.command_seq = retained.command_seq;
+        (void)vdc_domain_apply_follower_command(&s_vdc_domain, &invalid);
+        s_vdc_follower_last_applied_seq = retained.command_seq;
+        s_vdc_follower_capture_kind_hint =
+            VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_STATE;
         return;
     }
 
@@ -3173,6 +3214,19 @@ bool VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_dpll_manager_get_refmem_snapshot)(
         }
     }
     return false;
+}
+
+bool VDC_DPLL_MANAGER_TIME_CRITICAL(
+    vdc_dpll_manager_map_local_to_common_time)(uint64_t local_time_ns,
+                                                uint64_t *common_time_ns)
+{
+    tdma_ring_clock_snapshot_t ring;
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring)) {
+        return false;
+    }
+    return vdc_time_mapping_map_local_to_common_time(
+        &ring, s_vdc_domain.schedule.schedule_crc32, local_time_ns,
+        common_time_ns);
 }
 
 bool VDC_DPLL_MANAGER_TIME_CRITICAL(

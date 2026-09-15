@@ -126,3 +126,107 @@ def test_failed_error_readback_does_not_hide_original_control_failure(monkeypatc
         coarse._control_command(Board('P','A','',''), 'SYSTem:TDMA:RING:STOP', options(), actions, ack=True)
     assert actions[0]['response'] == '<timeout>'
     assert actions[0]['error_readback_failure'] == 'OSError: disconnected'
+
+
+def test_transient_topology_rejection_rechecks_stop_and_applies_before_arm(monkeypatch):
+    boards = [Board('P0', 'A', '', ''), Board('P1', 'B', '', '')]
+    events = []
+    attempts = {'A': 0, 'B': 0}
+
+    def command(board, text, _args):
+        events.append((board.address, text))
+        if 'TOPology ' in text:
+            attempts[board.address] += 1
+            if board.address == 'A' and attempts['A'] == 1:
+                return '<timeout>'
+            return text.split(' ', 1)[1]
+        if text == 'SYSTem:ERRor?':
+            return '-200,"Execution error"'
+        if text in {'SYSTem:TDMA:RING:ARM:STATus?', 'SYSTem:TDMA:RING:TRAIN 1'}:
+            return '1'
+        return 'OK'
+
+    def state(board, _args, *, started, topology=None, after_config_seq=None):
+        events.append((board.address, 'STATE', started, topology, after_config_seq))
+        node = boards.index(board)
+        return dict(ring_node_count=2, ring_local_slot_id=node,
+                    ring_reference_slot_id=0, ring_enabled=int(started),
+                    ring_adapter_started=int(started),
+                    ring_config_seq=8 if after_config_seq is None else 9,
+                    ring_applied_config_seq=8 if after_config_seq is None else 9)
+
+    monkeypatch.setattr(coarse, 'board_command', command)
+    monkeypatch.setattr(coarse, '_wait_ring_state', state)
+    monkeypatch.setattr(coarse, 'wait_calibration_idle', lambda *args: {})
+    monkeypatch.setattr(coarse, 'train_status', lambda *args: {'request_seq': 0})
+    monkeypatch.setattr(coarse, 'wait_train', lambda *args: {
+        'state': coarse.STATE_FORWARDING, 'result': coarse.RESULT_FORWARD_ARMED})
+    actions = []
+    coarse.arm_training_persona(boards, 0, options(), actions)
+    assert attempts == {'A': 2, 'B': 1}
+    a_topology = [i for i, event in enumerate(events)
+                  if event == ('A', 'SYSTem:TDMA:RING:TOPology 2,0,0')]
+    assert any(event[:3] == ('A', 'STATE', False)
+               for event in events[a_topology[0] + 1:a_topology[1]])
+    first_arm = next(i for i, event in enumerate(events)
+                     if event[1] == 'SYSTem:TDMA:RING:ARM')
+    for node, board in enumerate(boards):
+        assert (board.address, 'STATE', False, None, 8) in events[:first_arm]
+    assert any(row.get('response') == '<timeout>' and
+               row.get('error_after') == '-200,"Execution error"'
+               for row in actions)
+
+
+def test_topology_apply_wait_requires_new_acknowledged_generation(monkeypatch):
+    responses = deque([runtime(), runtime(requested=8, applied=7),
+                       runtime(requested=8, applied=8)])
+    monkeypatch.setattr(coarse, 'board_command', lambda *args: responses.popleft())
+    monkeypatch.setattr(coarse.time, 'sleep', lambda _: None)
+    result = coarse._wait_ring_state(Board('P', 'A', '', ''), options(),
+                                    started=False, after_config_seq=7)
+    assert result['ring_applied_config_seq'] == 8 and not responses
+
+
+@pytest.mark.parametrize('reply,error_reply,expected_attempts', [
+    ('<timeout>', '-200,"Execution error"', coarse.TOPOLOGY_ATTEMPT_LIMIT),
+    ('<timeout>', '0,"No error"', 1),
+    ('<timeout>', '-222,"Data out of range"', 1),
+    ('2,1,0', '-200,"Execution error"', 1),
+])
+def test_topology_retries_are_bounded_and_only_for_owner_refusal(
+        monkeypatch, reply, error_reply, expected_attempts):
+    commands = []
+    def command(_board, text, _args):
+        commands.append(text)
+        return error_reply if text == 'SYSTem:ERRor?' else reply
+    monkeypatch.setattr(coarse, 'board_command', command)
+    monkeypatch.setattr(coarse, 'wait_ring_stopped', lambda *args: {
+        'ring_config_seq': 7, 'ring_applied_config_seq': 7})
+    actions = []
+    with pytest.raises(RuntimeError, match='TOPology'):
+        coarse._set_stopped_topology(Board('P', 'A', '', ''), (2, 0, 0),
+                                     options(), actions)
+    assert commands.count('SYSTem:TDMA:RING:TOPology 2,0,0') == expected_attempts
+    assert len([row for row in actions if 'error' in row]) == expected_attempts
+    assert not any(row['command'] == 'TOPOLOGY_APPLIED' for row in actions)
+
+
+def test_topology_does_not_retry_when_fresh_stop_proof_fails(monkeypatch):
+    commands = []
+    stop_proofs = []
+    def stopped(*args):
+        stop_proofs.append(True)
+        if len(stop_proofs) > 1:
+            raise RuntimeError('STOP not acknowledged')
+        return {'ring_config_seq': 7, 'ring_applied_config_seq': 7}
+    def command(_board, text, _args):
+        commands.append(text)
+        return '-200,"Execution error"' if text == 'SYSTem:ERRor?' else '<timeout>'
+    monkeypatch.setattr(coarse, 'board_command', command)
+    monkeypatch.setattr(coarse, 'wait_ring_stopped', stopped)
+    actions = []
+    with pytest.raises(RuntimeError, match='STOP not acknowledged'):
+        coarse._set_stopped_topology(Board('P', 'A', '', ''), (2, 0, 0),
+                                     options(), actions)
+    assert commands.count('SYSTem:TDMA:RING:TOPology 2,0,0') == 1
+    assert len(stop_proofs) == 2
