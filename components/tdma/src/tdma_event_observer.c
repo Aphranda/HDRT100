@@ -37,6 +37,15 @@ tdma_event_reason_t tdma_event_observer_lift(uint32_t previous, uint32_t current
     if (upper < base) {
         return TDMA_EVENT_LIFT_NO_CANDIDATE;
     }
+    /* If the window cannot reach base + one full period, q=0 is the only
+     * possible lift. Keep the general path for longer/ambiguous windows. */
+    if (upper - base < TDMA_EVENT_WRAP_PERIOD) {
+        if (lower > base) {
+            return TDMA_EVENT_LIFT_NO_CANDIDATE;
+        }
+        *elapsed = base;
+        return TDMA_EVENT_OK;
+    }
     const uint64_t distance = nonnegative_difference(lower, base);
     const uint64_t qlo = distance / TDMA_EVENT_WRAP_PERIOD +
                          (distance % TDMA_EVENT_WRAP_PERIOD != 0u ? 1u : 0u);

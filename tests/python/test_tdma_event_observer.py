@@ -12,6 +12,8 @@ SOURCE = ROOT / "components/tdma/src/tdma_event_observer.c"
 INCLUDE = ROOT / "components/tdma/inc"
 PERIOD = 2 * (1 << 32) + 1
 U64 = (1 << 64) - 1
+OK, BAD_ARGUMENT, NO_CANDIDATE, AMBIGUOUS = 0, 1, 10, 11
+SENTINEL = 0xA55AA55AA55AA55A
 
 
 def compile_c(arguments: list[str]) -> None:
@@ -72,7 +74,40 @@ def test_lift_uint64_boundaries_against_bigint_oracle(lift) -> None:
         qmin = max(0, -((base - lo) // PERIOD))
         qmax = (hi - base) // PERIOD
         expected = base + qmin * PERIOD if qmin == qmax and qmax >= 0 else None
-        result = ctypes.c_uint64(0xA55AA55AA55AA55A)
+        reason = NO_CANDIDATE if qmax < qmin else AMBIGUOUS if qmax > qmin else OK
+        result = ctypes.c_uint64(SENTINEL)
         status = lift(previous, current, lo, hi, overhead, ctypes.byref(result))
-        assert (status == 0) == (expected is not None), (previous, current, lo, hi, status)
-        assert result.value == (expected if expected is not None else 0xA55AA55AA55AA55A)
+        assert status == reason, (previous, current, lo, hi, status)
+        assert result.value == (expected if expected is not None else SENTINEL)
+
+
+def test_lift_first_period_threshold_and_rejection_priority(lift) -> None:
+    # Enumerate q directly: all these windows end no later than base + P + 1.
+    # This independently checks both sides of the fast/general path boundary,
+    # including base > P, a raw wrap, and intervals that exclude q=0.
+    values = [0, 1, 2, (1 << 31), (1 << 32) - 2, (1 << 32) - 1]
+    pairs = [(a, b) for a in values for b in values]
+    rng = random.Random(0xFA57)
+    pairs += [(rng.getrandbits(32), rng.getrandbits(32)) for _ in range(512)]
+    for previous, current in pairs:
+        for overhead in (1, 5):
+            base = 2 * ((previous - current) % (1 << 32)) + overhead + (current > previous)
+            bounds = [0, base - 1, base, base + 1,
+                      base + PERIOD - 1, base + PERIOD, base + PERIOD + 1]
+            for lo in bounds:
+                for hi in bounds:
+                    candidates = [base + q * PERIOD for q in (0, 1)
+                                  if lo <= base + q * PERIOD <= hi]
+                    expected = (BAD_ARGUMENT if lo > hi else
+                                NO_CANDIDATE if not candidates else
+                                AMBIGUOUS if len(candidates) > 1 else OK)
+                    result = ctypes.c_uint64(SENTINEL)
+                    status = lift(previous, current, lo, hi, overhead, ctypes.byref(result))
+                    assert status == expected, (previous, current, overhead, lo, hi, status)
+                    assert result.value == (candidates[0] if expected == OK else SENTINEL)
+            for overhead_bad in (0, 2, 4, 6, (1 << 32) - 1):
+                result = ctypes.c_uint64(SENTINEL)
+                assert lift(previous, current, base, base, overhead_bad,
+                            ctypes.byref(result)) == BAD_ARGUMENT
+                assert result.value == SENTINEL
+            assert lift(previous, current, base, base, overhead, None) == BAD_ARGUMENT
