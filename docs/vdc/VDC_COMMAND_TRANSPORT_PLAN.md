@@ -50,8 +50,18 @@ Last updated: 2026-09-15
   guarded copy 绑定到 Core1 当前实际本地 role generation；Core0 观察到角色变化
   时只作废 retained 值并取消组装，保留各来源已接收的 command/frame 序号水位。
   同代际重绑定不取消待执行命令；parser 要求 transport 与接收 context 的本地
-  generation 一致。该边界阻止已接收命令在 A→B→A 后复活，但尚未接收的旧未来
-  命令可能在切换后才入站，仍需传输入站 fence 与明确的切换生效规则。远端
+  generation 一致。该边界阻止已接收命令在 A→B→A 后复活。后继 FIFO 入站取消
+  实现及证据见 `VDC-PROGRESS-20260915-032`：Core0 RefMem 在身份刷新时通过
+  `tdma_service_core0_advance_flight_rx_admission_epoch()` 推进独立本地代际，
+  Core1 在复制 RX payload 前捕获该值，slot/view 保留原值；接收端只取消旧代际的
+  command mailbox，同 view 普通数据继续处理。同身份刷新不推进；推进失败时不
+  提交新绑定，命令准入保持无效，代际耗尽不回绕复用。该字段不改变 wire，也不是
+  map generation、本地 role generation 或远端 command generation。
+  这只覆盖 producer 已捕获旧 tag 的 FIFO 发布，含排队及复制中途；DMA/station
+  尚未进入该发布边界的旧输入和之后完整重发的旧记录仍需协议有效期/切换生效规则。
+  边界是 Core0 观察并刷新身份，不能宣称精确等于 Core1 角色激活瞬间。
+  `tdma_flight_fifo_reset_stopped()` 保留 admission epoch；调用者仍须保证无在用
+  view，当前 SCPI reset 与 RefMem 持有 view 的端到端协调尚未验收。远端
   control generation 重启以及 schedule/STOP 取消仍需端到端负测；本地 role
   generation 与远端 command generation 不能直接比较。
   `vdc_domain_publish_clock_model()` 任意换会话后的 Domain history 退休也未验收，

@@ -75,7 +75,56 @@ P3，详见 `VDC-PROGRESS-20260915-026`；后续非法目标位移修复和完�
 复核不改变上述时间输入、命令应用和正式锁相的未完成状态。隔离验收中重复出现的
 粗校准配置拒绝及准备流程有界恢复见 `VDC-PROGRESS-20260915-029`；命令区任务写者
 与在线 reset/读交错修复见 `VDC-PROGRESS-20260915-030`；本地角色回切时已接收
-命令的退休见 `VDC-PROGRESS-20260915-031`。
+命令的退休见 `VDC-PROGRESS-20260915-031`；FIFO 发布入站取消见
+`VDC-PROGRESS-20260915-032`。
+
+### VDC-PROGRESS-20260915-032 — RX FIFO 发布代际与旧命令入站取消
+
+- TODO task ID：`VDC-CMD-002`、`VDC-CMD-003`、`VDC-ROLE-005`、`VDC-VERIFY-001`；
+  状态 IN PROGRESS。031 已分离提交为 `e333da5` / `85cde62`，随后开始本切片。
+  本切片代码与当前 P3 凭证已提交为 `3a42dcc`，文档单独提交。
+- 反例：实际 FIFO 中旧命令的起始片在角色 A→B→A 后才被解析，随后同一记录的后续
+  片段使旧未来命令获得新角色绑定；Core0 漏过中间 B 时也会发生。以下为反例快照，
+  非事实源：两次旧版执行均接收 command sequence 41，ordinary mailbox 更新
+  15 次，最终拒绝断言失败；同代对照通过。完整 payload 分片数超过 FIFO 容量，
+  测试按真实容量排队起始片再送后续片，不伪造同 source 多邮箱。
+- 修复：TDMA FIFO 新增独立 `rx_admission_epoch`，只由 Core0 RefMem 接收任务
+  在线推进；Core1 在 RX payload 复制前捕获，slot/view 原样携带。Core0 身份或
+  角色刷新先取得新 grant，再 reset/bind/cache；同身份不推进，owner 不可用或
+  代际耗尽时返回无效 grant 并保持拒绝，禁止回绕复用。接收只过滤旧代际 command
+  mailbox，保留同 view 普通 RefMem 更新与正常 release。使用已有片段拒绝计数，
+  不增加实时解析、wire 字段、PIO/DMA 操作或 OTA 改动。
+- 软件与构建：真实 FIFO、RefMem、TDMA service scheduler 和 adapter C runners
+  通过；主控 Python 合跑 41 passed（本轮快照，非事实源）。完整 ingress 测试执行
+  实际 refresh、receive、mailbox parser、分片、frame CRC 与接收保留，owner 查询
+  为 stub；覆盖已排队片段、复制中途实际刷新、同代半组装保留、身份变化、grant
+  失败重试及新完整命令恢复。独立 FIFO 测试另覆盖 acquired view、head/transport
+  回绕、合法 STOP reset 和耗尽后普通数据连续。独立只读审查无阻断项。
+  默认双应用/Boot 构建及命令开启分支 compile-only 通过，开启分支未部署。
+- 资源快照，非事实源：目标 ARM ABI 的 FIFO、RX slot、RX view 分别保持
+  1888 B、296 B、40 B；新增字段使用已有 padding，默认双应用 BSS、HeapLimit、
+  StackLimit 均未改变。原件见 `target-layout.json` 与目标 map。
+- 硬件验收：当前源码指纹
+  `b540c4bd4ac225faa0aed0ed55b117d7f79292407baa7fa749b141f44b248124` 的独立
+  `p3_hardware_acceptance.py run --tdma-only` 严格通过；acceptance/diagnostic 的
+  strict gates 均通过且失败列表为空，TDMA closed-loop/realtime 通过。
+  以下为本轮快照，非事实源：耗时 181.704 s，四板各 14 条原生记录，missed=0；
+  四板全部 STOP，配置代际 ACK 一致。`review-final.json` 核对当前源码与凭证指纹、
+  20 项原件散列、板端记录身份及 STOP 交接；包和双应用 map 已封存。
+  本轮验收的是默认禁用命令的四板基线，不能提升为命令启用态或硬件 DCO 验收。
+- 证据：`out/HardwareAcceptance/20260915/command-ingress-epoch-r1/`；
+  `before-ingress/` 保存旧源码 SHA、原始 harness/exe、断言失败和同代对照；
+  `after-ingress-result.json`、`ingress-final-result.json`、各 C runner result、
+  `build-result.json`、`source-review.json`、`source/` 及 `independent-review.json`
+  保存软件、构建与主控冻结证据。最终测试 fixture 要求新增 admission API，旧版
+  反例须使用冻结的旧 harness，不能混入新 fixture 后声称重跑旧源码。
+- 范围与下一 gate：取消的是 producer 已捕获旧 tag 的 FIFO 发布，含排队和复制
+  中途；边界是 Core0 刷新，不是精确的 Core1 角色激活时刻。DMA/station 尚未进入
+  发布的旧输入、之后完整重发的旧记录仍须协议有效期与切换规则。
+  `reset_stopped()` 保留 admission epoch，仅回收队列；它要求无在用 view，
+  SCPI reset 与 RefMem 借用的端到端协调仍未验收，不据此宣称完整 STOP 取消。
+  命令保持默认禁用；共同 session、远端重启、版本兼容、实际交付上界、共同时间
+  及主从定时应用仍需闭合，四板实际输出锁相未验收。
 
 ### VDC-PROGRESS-20260915-031 — 角色代际绑定与已接收命令防重放
 
