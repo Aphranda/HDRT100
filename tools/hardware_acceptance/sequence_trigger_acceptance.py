@@ -191,7 +191,7 @@ class Bench:
         require(self.command("SYST:ERR?").startswith('0,'), "pre-existing SCPI error; inspect error queue")
         for command in (
             "CONF:TRIG 8,0,1,1", "CONF:SEQ SP8T,0,1,2,3,4,5,6,7", "CONF:SEQ:ACT SP8T",
-            f"CONF:SEQ:IO 7,OUT4,{self.args.settle_us},{self.args.pulse_us}",
+            f"CONF:SEQ:OUTPUT 7,8,PULSE,{self.args.settle_us},{self.args.pulse_us}",
             *(f"CONF:SEQ:CODE {code},{code}" for code in range(8)),
             f"CONF:SEQ:SOUR {self.args.source},{self.args.edge}",
         ):
@@ -203,8 +203,9 @@ class Bench:
         source = next(csv.reader([self.command("READ:SEQ:SOUR?")]))
         require(source == [self.args.source, "RISING" if self.args.edge == "RIS" else "FALLING"],
                 "input source readback mismatch")
-        io = self.command("READ:SEQ:IO?").split(",")
-        require(io[:4] == ["7", "4", str(self.args.settle_us), str(self.args.pulse_us)] and
+        io = next(csv.reader([self.command("READ:SEQ:OUTPUT?")]))
+        require(io[:5] == ["7", "8", "PULSE", str(self.args.settle_us),
+                           str(self.args.pulse_us)] and
                 io[-1] == "1", "IO configuration readback mismatch")
 
     def sample_output(self, row: dict) -> None:

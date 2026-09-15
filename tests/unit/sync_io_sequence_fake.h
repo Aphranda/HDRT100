@@ -15,6 +15,6 @@ static struct {
     uint32_t last_edges, paused_edges, pause_started;
     bool paused;
 } s_sequence;
-static uint32_t s_plan[SYNC_IO_SEQUENCE_PLAN_MAX * 3u];
+static uint32_t s_plan[SYNC_IO_SEQUENCE_PLAN_MAX * SYNC_IO_SEQUENCE_PLAN_WORDS];
 static void fail(uint32_t reason) { s_sequence.status.fault = reason; }
 #endif

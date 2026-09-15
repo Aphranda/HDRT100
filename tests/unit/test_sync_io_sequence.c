@@ -6,13 +6,14 @@ static void reset(void)
     s_sequence.status.completed_index = UINT32_MAX;
     for (uint i = 0u; i < 3u; ++i) {
         const uint32_t logical = logical_index_for_transfer(i, 3u);
-        s_plan[i * 3u] = (logical << 4u) | logical;
+        s_plan[i * SYNC_IO_SEQUENCE_PLAN_WORDS] = (logical << 4u) | logical;
     }
 }
 
 int main(void)
 {
-    sync_io_sequence_config_t config = {1u, false, 7u, 4u, 20u, 10u};
+    sync_io_sequence_config_t config = {
+        1u, false, 7u, 8u, SYNC_IO_SEQUENCE_STATUS_PULSE, 20u, 10u};
     assert(config_valid(&config));
     for (uint input = 0u; input <= 4u; ++input) {
         config.input_channel = input;
@@ -29,7 +30,13 @@ int main(void)
     config.pulse_us = 0u;
     assert(!config_valid(&config));
     config.pulse_us = 1u;
-    config.output_mask = 15u;
+    config.sequence_output_mask = 15u;
+    assert(!config_valid(&config));
+    config.sequence_output_mask = 7u;
+    config.status_mode = SYNC_IO_SEQUENCE_STATUS_LEVEL;
+    config.pulse_us = 0u;
+    assert(config_valid(&config));
+    config.pulse_us = 1u;
     assert(!config_valid(&config));
     assert(!config_valid(NULL));
     assert(logical_index_for_transfer(0u, 3u) == 1u);
@@ -39,7 +46,7 @@ int main(void)
 
     reset();
     for (uint i = 0u; i < 17u; ++i) {
-        uint32_t tag = s_plan[(i % 3u) * 3u];
+        uint32_t tag = s_plan[(i % 3u) * SYNC_IO_SEQUENCE_PLAN_WORDS];
         assert(receive_word(tag));
         assert(s_sequence.status.written == i + 1u);
         assert(s_sequence.status.accepted == i + 1u);

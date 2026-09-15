@@ -118,17 +118,35 @@ trigger_sequence_service_result_t trigger_sequence_service_set_io(
 {
     if (!configuration_available()) return TRIGGER_SEQUENCE_SERVICE_FROZEN;
     if (!s_store.configured) return TRIGGER_SEQUENCE_SERVICE_CONFIG;
-    if (!output_mask || output_mask > 15u || completion_channel < 1u ||
-        completion_channel > 4u ||
-        (output_mask & (1u << (completion_channel - 1u))) ||
-        pulse_us == 0u || pulse_us > SYNC_IO_SEQUENCE_TIME_MAX_US ||
-        settle_us > SYNC_IO_SEQUENCE_TIME_MAX_US)
+    if (completion_channel < 1u || completion_channel > 4u)
+        return TRIGGER_SEQUENCE_SERVICE_INVALID;
+    return trigger_sequence_service_set_outputs(
+        output_mask, 1u << (completion_channel - 1u),
+        TRIGGER_SEQUENCE_STATUS_PULSE, settle_us, pulse_us);
+}
+
+trigger_sequence_service_result_t trigger_sequence_service_set_outputs(
+    uint32_t sequence_output_mask, uint32_t status_output_mask,
+    trigger_sequence_status_mode_t status_mode,
+    uint32_t settle_us, uint32_t pulse_us)
+{
+    if (!configuration_available()) return TRIGGER_SEQUENCE_SERVICE_FROZEN;
+    if (!s_store.configured) return TRIGGER_SEQUENCE_SERVICE_CONFIG;
+    if (!sequence_output_mask || !status_output_mask ||
+        (sequence_output_mask | status_output_mask) > 15u ||
+        (sequence_output_mask & status_output_mask) != 0u ||
+        status_mode > TRIGGER_SEQUENCE_STATUS_PULSE ||
+        settle_us > SYNC_IO_SEQUENCE_TIME_MAX_US ||
+        (status_mode == TRIGGER_SEQUENCE_STATUS_PULSE &&
+         (pulse_us == 0u || pulse_us > SYNC_IO_SEQUENCE_TIME_MAX_US)) ||
+        (status_mode == TRIGGER_SEQUENCE_STATUS_LEVEL && pulse_us != 0u))
         return TRIGGER_SEQUENCE_SERVICE_INVALID;
     /* Existing mappings survive timing changes, but not output-lane changes. */
-    if (s_io.output_mask != output_mask)
+    if (s_io.sequence_output_mask != sequence_output_mask)
         memset(s_code_valid, 0, sizeof(s_code_valid));
-    s_io.output_mask = output_mask;
-    s_io.completion_channel = completion_channel;
+    s_io.sequence_output_mask = sequence_output_mask;
+    s_io.status_output_mask = status_output_mask;
+    s_io.status_mode = status_mode;
     s_io.settle_us = settle_us;
     s_io.pulse_us = pulse_us;
     s_io.valid = true;
@@ -141,7 +159,7 @@ trigger_sequence_service_result_t trigger_sequence_service_set_code(
     if (!configuration_available()) return TRIGGER_SEQUENCE_SERVICE_FROZEN;
     if (!s_io.valid) return TRIGGER_SEQUENCE_SERVICE_IO_CONFIG;
     if (state_id >= s_store.state_count || state_id >= TRIGGER_SEQUENCE_STATE_MAX ||
-        (value & ~s_io.output_mask)) return TRIGGER_SEQUENCE_SERVICE_INVALID;
+        (value & ~s_io.sequence_output_mask)) return TRIGGER_SEQUENCE_SERVICE_INVALID;
     s_codes[state_id] = (uint8_t)value;
     s_code_valid[state_id] = true;
     return TRIGGER_SEQUENCE_SERVICE_OK;
@@ -377,8 +395,9 @@ void trigger_sequence_service_service(void)
         s_run_armed = false;
         sync_io_sequence_config_t config = {
             .input_channel = s_run.io.source, .falling = s_run.io.falling,
-            .output_mask = s_run.io.output_mask,
-            .completion_channel = s_run.io.completion_channel,
+            .sequence_output_mask = s_run.io.sequence_output_mask,
+            .status_output_mask = s_run.io.status_output_mask,
+            .status_mode = (sync_io_sequence_status_mode_t)s_run.io.status_mode,
             .settle_us = s_run.io.settle_us, .pulse_us = s_run.io.pulse_us
         };
         if (!sync_io_sequence_arm_plan(&config, s_run.values, s_run.count)) {

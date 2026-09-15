@@ -8,12 +8,19 @@
 #define SYNC_IO_SEQUENCE_PLAN_MAX 256u
 #define SYNC_IO_SEQUENCE_TICK_NS 100u
 #define SYNC_IO_SEQUENCE_TIMING_PIO0 1u
+#define SYNC_IO_SEQUENCE_PLAN_WORDS 3u
+
+typedef enum {
+    SYNC_IO_SEQUENCE_STATUS_LEVEL = 0,
+    SYNC_IO_SEQUENCE_STATUS_PULSE = 1,
+} sync_io_sequence_status_mode_t;
 
 typedef struct {
     uint32_t input_channel;
     bool falling;
-    uint32_t output_mask;
-    uint32_t completion_channel;
+    uint32_t sequence_output_mask;
+    uint32_t status_output_mask;
+    sync_io_sequence_status_mode_t status_mode;
     uint32_t settle_us;
     uint32_t pulse_us;
 } sync_io_sequence_config_t;

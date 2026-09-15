@@ -55,7 +55,7 @@ def programs(tmp_path_factory):
     for name in ("ingress", "executor", "counter"):
         body = text.split(f"sequence_{name}_program_instructions[] = {{", 1)[1].split("};", 1)[0]
         parsed[name] = [int(word, 16) for word in re.findall(r"0x([0-9a-fA-F]{4}),", body)]
-    assert [len(parsed[name]) for name in parsed] == [6, 17, 5]
+    assert [len(parsed[name]) for name in parsed] == [6, 19, 5]
     assert sum(map(len, parsed.values())) + 1 <= 32
     return parsed
 
@@ -67,6 +67,7 @@ def test_production_hot_load_and_pause_boundaries(tmp_path):
         "stop_hook", "read_sm_register", "stop_counter", "finish_ingress",
         "produced_receipts", "stop_receipt_dma", "resume_receipt_dma", "logical_index_for_transfer",
         "receive_word", "drain_receipts", "pending_request", "drain_idle_executor", "account_input",
+        "mark_initial_status_ready",
         "sync_io_sequence_service",
         "sync_io_sequence_pause"))
     template = (ROOT / "tests/unit/test_sync_io_sequence_resources.c").read_text(encoding="utf-8")
@@ -141,6 +142,20 @@ class Machine:
                 else:
                     self.rx.append(self.isr)
                 self.isr = 0
+        elif major == 3:
+            dest, count = arg >> 5, arg & 31
+            count = count or 32
+            value = self.osr & ((1 << count) - 1)
+            self.osr >>= count
+            if dest == 0:
+                before = self.owner.pads
+                self.owner.pads = value & 15
+                if not (before & self.owner.status_mask) and (self.owner.pads & self.owner.status_mask):
+                    self.owner.rises.append(self.owner.time)
+                if (before & self.owner.status_mask) and not (self.owner.pads & self.owner.status_mask):
+                    self.owner.falls.append(self.owner.time)
+            elif dest != 3:
+                raise AssertionError(("OUT", dest))
         elif major == 5:
             dest, operation, source = arg >> 5, (arg >> 3) & 3, arg & 7
             value = {1: self.x, 2: self.y, 3: 0, 5: UINT32 if flags & 16 else 0,
@@ -149,14 +164,22 @@ class Machine:
             if operation:
                 value ^= UINT32
             if dest == 0:
+                before = self.owner.pads
                 self.owner.pads = value & 15
-                self.owner.writes.append((self.owner.time, value))
+                if self.name == "executor" and self.pc == 6:
+                    self.owner.writes.append((self.owner.time, value))
+                if not (before & self.owner.status_mask) and (self.owner.pads & self.owner.status_mask):
+                    self.owner.rises.append(self.owner.time)
+                if (before & self.owner.status_mask) and not (self.owner.pads & self.owner.status_mask):
+                    self.owner.falls.append(self.owner.time)
             elif dest == 1:
                 self.x = value
             elif dest == 2:
                 self.y = value
             elif dest == 6:
                 self.isr = value
+            elif dest == 7:
+                self.osr = value
             else:
                 raise AssertionError(("MOV", dest))
         elif major == 6:
@@ -164,15 +187,6 @@ class Machine:
                 self.owner.clear_flags |= 1 << (arg & 7)
             else:
                 self.owner.set_flags |= 1 << (arg & 7)
-        elif major == 7:
-            assert arg >> 5 == 0
-            value = arg & 31
-            if value:
-                self.owner.pads |= 1 << self.owner.completion
-                self.owner.rises.append(self.owner.time)
-            else:
-                self.owner.pads &= ~(1 << self.owner.completion)
-                self.owner.falls.append(self.owner.time)
         else:
             raise AssertionError(hex(instruction))
         if not injected or major == 0:
@@ -184,15 +198,19 @@ class Machine:
 
 
 class Sequence:
-    def __init__(self, programs, values, *, settle=2, pulse=1, falling=False, completion=3):
+    def __init__(self, programs, values, *, settle=2, pulse=1, falling=False,
+                 status_mask=8, mode="PULSE"):
         self.time, self.flags, self.pads = 0, 0, values[0]
         self.input = falling
-        self.completion = completion
+        self.status_mask = status_mask
         self.writes, self.rises, self.falls, self.receipts = [], [], [], []
         self.ingress = Machine(programs["ingress"], self, "ingress")
         self.executor = Machine(programs["executor"], self, "executor")
         self.counter = Machine(programs["counter"], self, "counter")
         self.counter.x = UINT32
+        if mode == "LEVEL":
+            self.executor.words[14] = 17
+            self.pads |= status_mask
         if falling:
             for sm in (self.ingress, self.counter):
                 sm.words[0] ^= 128
@@ -201,8 +219,9 @@ class Sequence:
         for transfer in range(len(values)):
             index = (transfer + 1) % len(values)
             value = values[index]
-            self.words += [value | (index << 4), 0 if settle == 0 else settle * 10 - 4,
-                           pulse * 10 - 3]
+            self.words += [value | (index << 4) | ((value | status_mask) << 12),
+                           0 if settle == 0 else settle * 10 - 6,
+                           pulse * 10 - 4 if mode == "PULSE" else 0]
         self.cursor = 0
         self.latest_edge = 0
         self.drain = True
@@ -246,8 +265,11 @@ def test_full_plan_runs_without_cpu_steps(programs, values, falling):
     machine.tick(20)
     for _ in range(len(values) * 3 + 1):
         machine.edge(falling=falling)
-    expected = [values[(i + 1) % len(values)] | (((i + 1) % len(values)) << 4)
-                for i in range(len(values) * 3 + 1)]
+    expected = [
+        values[(i + 1) % len(values)] |
+        (((i + 1) % len(values)) << 4) |
+        ((values[(i + 1) % len(values)] | machine.status_mask) << 12)
+        for i in range(len(values) * 3 + 1)]
     assert [value for _, value in machine.writes] == expected
     assert machine.receipts == [word for tag in expected for word in (tag, tag ^ UINT32)]
     assert machine.latest_edge == len(expected)
@@ -316,9 +338,31 @@ def test_counter_snapshot_drop_keeps_count_and_pause_push_restore(programs):
 @pytest.mark.parametrize("completion", range(4))
 def test_completion_pad_does_not_leak_plan_tag(programs, completion):
     value = 15 ^ (1 << completion)
-    machine = Sequence(programs, [value, value], completion=completion)
+    machine = Sequence(programs, [value, value], status_mask=1 << completion)
     machine.tick(20)
     machine.edge()
     machine.edge()
     assert machine.pads == value
-    assert machine.receipts == [value | 16, (value | 16) ^ UINT32, value, value ^ UINT32]
+    first = value | 16 | (15 << 12)
+    second = value | (15 << 12)
+    assert machine.receipts == [first, first ^ UINT32, second, second ^ UINT32]
+
+
+def test_multiple_status_outputs_pulse_together(programs):
+    machine = Sequence(programs, [0, 1, 2], status_mask=12)
+    machine.tick(20)
+    machine.edge()
+    assert machine.pads == 1
+    assert machine.rises == [machine.writes[0][0] + 20]
+    assert machine.falls == [machine.rises[0] + 10]
+
+
+def test_level_status_stays_high_until_next_switch(programs):
+    machine = Sequence(programs, [0, 1, 2], status_mask=12, mode="LEVEL")
+    machine.tick(20)
+    machine.edge(gap=80)
+    assert machine.pads == 13
+    assert machine.falls[0] == machine.writes[0][0]
+    assert machine.rises[-1] == machine.writes[0][0] + 20
+    tag = 17 | (13 << 12)
+    assert machine.receipts == [tag, tag ^ UINT32]

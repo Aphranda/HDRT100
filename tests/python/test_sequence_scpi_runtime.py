@@ -65,7 +65,7 @@ def run(parser, commands, setup=True):
 
 def test_configuration_start_and_ordered_bus_cycle(parser):
     rows = run(parser, [
-        "READ:SEQ:SOUR?", "READ:SEQ:IO?", "READ:SEQ:CODE? 2", "TRIG:START",
+        "READ:SEQ:SOUR?", "READ:SEQ:IO?", "READ:SEQ:OUTPUT?", "READ:SEQ:CODE? 2", "TRIG:START",
         "READ:SEQ:STATE?", "@service", "READ:SEQ:STATE?", "READ:IO:STATE?",
         "TRIG:SEQ:STEP", "@service", "READ:SEQ:STATE?", "READ:IO:OUTP?",
         "@rise", "READ:IO:OUTP? 4", "READ:IO:OUTP?", "@complete", "@service",
@@ -78,23 +78,43 @@ def test_configuration_start_and_ordered_bus_cycle(parser):
     assert all(row["errors"] == 0 for row in rows), rows
     assert rows[0]["fields"] == ["BUS", "RISING"]
     assert rows[1]["fields"] == ["7", "4", "10", "5", "1", "1"]
-    assert rows[2]["fields"] == ["2", "4"]
-    assert rows[4]["fields"][0] == "STARTING"
-    assert rows[5]["fields"][:7] == ["READY", "1", "1", "3", "0", "2", "1"]
-    assert rows[6]["fields"] == ["0", "4", "15", "1", "0"]
-    assert rows[8]["fields"][:14] == ["BUSY", "1", "1", "3", "1", "0", "1", "1", "0", NO_INDEX, NO_INDEX, "0", "1", "0"]
-    assert rows[8]["fields"][19:22] == ["0", "0", "0"]
-    assert rows[9]["fields"] == ["1"]
-    assert rows[10]["fields"] == ["1"] and rows[11]["fields"] == ["9"]
-    assert rows[12]["fields"][6:14] == ["2", "1", "0", "1", "0", "0", "1", "1"]
-    assert rows[12]["fields"][19:22] == ["0", "0", "0"]
-    assert rows[13]["fields"] == ["0"]
-    assert rows[15]["fields"] == ["2"] and rows[17]["fields"] == ["4"]
-    assert rows[18]["fields"][6:14] == ["1", "0", "2", "0", "2", "1", "3", "3"]
-    assert rows[20]["fields"][4:14] == ["1", "0", "1", "1", "0", "0", "2", "1", "4", "3"]
-    assert rows[20]["fields"][19:22] == ["0", "0", "0"]
-    assert rows[21]["fields"][:4] == ["TRIG", "BUSY", "1", "A"]
-    assert rows[23]["fields"] == ["0", "0", "0", "0", "0"]
+    assert rows[2]["fields"] == ["7", "8", "PULSE", "10", "5", "1", "1"]
+    assert rows[3]["fields"] == ["2", "4"]
+    assert rows[5]["fields"][0] == "STARTING"
+    assert rows[6]["fields"][:7] == ["READY", "1", "1", "3", "0", "2", "1"]
+    assert rows[7]["fields"] == ["0", "4", "15", "1", "0"]
+    assert rows[9]["fields"][:14] == ["BUSY", "1", "1", "3", "1", "0", "1", "1", "0", NO_INDEX, NO_INDEX, "0", "1", "0"]
+    assert rows[9]["fields"][19:22] == ["0", "0", "0"]
+    assert rows[10]["fields"] == ["1"]
+    assert rows[11]["fields"] == ["1"] and rows[12]["fields"] == ["9"]
+    assert rows[13]["fields"][6:14] == ["2", "1", "0", "1", "0", "0", "1", "1"]
+    assert rows[13]["fields"][19:22] == ["0", "0", "0"]
+    assert rows[14]["fields"] == ["0"]
+    assert rows[16]["fields"] == ["2"] and rows[18]["fields"] == ["4"]
+    assert rows[19]["fields"][6:14] == ["1", "0", "2", "0", "2", "1", "3", "3"]
+    assert rows[21]["fields"][4:14] == ["1", "0", "1", "1", "0", "0", "2", "1", "4", "3"]
+    assert rows[21]["fields"][19:22] == ["0", "0", "0"]
+    assert rows[22]["fields"][:4] == ["TRIG", "BUSY", "1", "A"]
+    assert rows[24]["fields"] == ["0", "0", "0", "0", "0"]
+
+
+def test_level_status_and_multi_output_roles(parser):
+    rows = run(parser, [
+        "CONF:SEQ:OUTPUT 7,8,LEVEL,10,0", "READ:SEQ:OUTPUT?", "TRIG:START",
+        "@service", "READ:IO:OUTP?", "TRIG:SEQ:STEP", "@service",
+        "READ:IO:OUTP?", "@rise", "READ:IO:OUTP?", "@complete", "@service",
+        "READ:IO:OUTP?", "TRIG:STOP", "@service",
+        "CONF:SEQ:OUTPUT 3,12,PULSE,10,5",
+        "CONF:SEQ:CODE 0,1", "CONF:SEQ:CODE 1,2", "CONF:SEQ:CODE 2,0",
+        "READ:SEQ:OUTPUT?",
+    ])
+    assert all(row["errors"] == 0 for row in rows), rows
+    assert rows[1]["fields"] == ["7", "8", "LEVEL", "10", "0", "1", "1"]
+    assert rows[3]["fields"] == ["12"]
+    assert rows[5]["fields"] == ["1"]
+    assert rows[6]["fields"] == ["9"]
+    assert rows[7]["fields"] == ["9"]
+    assert rows[-1]["fields"] == ["3", "12", "PULSE", "10", "5", "1", "1"]
 
 
 @pytest.mark.parametrize("channel", range(1, 5))
@@ -149,6 +169,10 @@ def test_busy_pause_stop_and_restart(parser):
     "CONF:SEQ:IO 7,OUT5,10,5", "CONF:SEQ:IO 7,OUT4,10,0",
     "CONF:SEQ:IO -4294967289,OUT4,10,5", "CONF:SEQ:IO 7,OUT4,-1,5",
     "CONF:SEQ:IO 7,OUT4,2147483648,5", "CONF:SEQ:IO 7,OUT4,10,2147483648",
+    "CONF:SEQ:OUTPUT 0,8,PULSE,10,5", "CONF:SEQ:OUTPUT 7,0,PULSE,10,5",
+    "CONF:SEQ:OUTPUT 7,8,LEVEL,10,5", "CONF:SEQ:OUTPUT 7,8,PULSE,10,0",
+    "CONF:SEQ:OUTPUT 3,3,PULSE,10,5", "CONF:SEQ:OUTPUT 3,16,PULSE,10,5",
+    "CONF:SEQ:OUTPUT 3,12,READY,10,5", "READ:SEQ:OUTPUT? 1",
     "CONF:SEQ:CODE 0", "CONF:SEQ:CODE 0,3,", "CONF:SEQ:CODE 0,3,1",
     "CONF:SEQ:CODE 0,8", "CONF:SEQ:CODE 3,1", "CONF:SEQ:CODE -4294967296,1",
     "CONF:SEQ:CODE 0,4294967297", "CONF:SEQ:CODE 0,1.0", "CONF:SEQ:CODE 0,#H1",

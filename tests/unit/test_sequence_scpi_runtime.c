@@ -45,8 +45,10 @@ bool sync_io_sequence_arm_plan(const sync_io_sequence_config_t *config,
     hw.timing_kind = TRIGGER_SEQUENCE_TIMING_PIO0;
     hw.armed = hw.ready = arm_ok;
     hw.rejection_counts_pending = config->input_channel != 0;
-    hw.output_ownership_mask = config->output_mask | (1u << (config->completion_channel - 1u));
-    outputs = (outputs & ~config->output_mask) | values[0];
+    hw.output_ownership_mask = config->sequence_output_mask | config->status_output_mask;
+    outputs = (outputs & ~hw.output_ownership_mask) | values[0];
+    if (config->status_mode == SYNC_IO_SEQUENCE_STATUS_LEVEL)
+        outputs |= config->status_output_mask;
     if (!arm_ok) {
         hw.fault = SYNC_IO_SEQUENCE_FAULT_RESOURCE;
         outputs &= ~hw.output_ownership_mask;
@@ -60,7 +62,7 @@ static bool physical_step(void)
     hw.current_index = (hw.accepted + 1u) % hw.plan_count;
     ++hw.accepted;
     uint32_t value = hw_values[hw.current_index];
-    outputs = (outputs & ~hw_config.output_mask) | value;
+    outputs = (outputs & ~hw.output_ownership_mask) | value;
     ++hw.written;
     ++writes;
     hw.busy = true;
@@ -149,11 +151,12 @@ int main(void)
             if (strcmp(line, "@service\n") == 0) trigger_sequence_service_service();
             else if (strcmp(line, "@rise\n") == 0) {
                 assert(hw.busy);
-                outputs |= 1u << (hw_config.completion_channel - 1u);
+                outputs |= hw_config.status_output_mask;
             } else if (strcmp(line, "@complete\n") == 0) {
                 assert(hw.busy);
                 hw.busy = false;
-                outputs &= ~(1u << (hw_config.completion_channel - 1u));
+                if (hw_config.status_mode == SYNC_IO_SEQUENCE_STATUS_PULSE)
+                    outputs &= ~hw_config.status_output_mask;
                 ++hw.completed;
                 hw.completed_index = hw.current_index;
                 hw.ready = !hw.paused;

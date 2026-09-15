@@ -8,6 +8,8 @@ scpi_result_t scpi_sequence_source(scpi_t *context);
 scpi_result_t scpi_sequence_source_q(scpi_t *context);
 scpi_result_t scpi_sequence_io(scpi_t *context);
 scpi_result_t scpi_sequence_io_q(scpi_t *context);
+scpi_result_t scpi_sequence_output_config(scpi_t *context);
+scpi_result_t scpi_sequence_output_config_q(scpi_t *context);
 scpi_result_t scpi_sequence_code(scpi_t *context);
 scpi_result_t scpi_sequence_code_q(scpi_t *context);
 scpi_result_t scpi_sequence_status_q(scpi_t *context);
@@ -25,6 +27,8 @@ scpi_result_t scpi_sequence_io_state_q(scpi_t *context);
     {.pattern = "READ:SEQuence:SOURce?", .callback = scpi_sequence_source_q}, \
     {.pattern = "CONFigure:SEQuence:IO", .callback = scpi_sequence_io}, \
     {.pattern = "READ:SEQuence:IO?", .callback = scpi_sequence_io_q}, \
+    {.pattern = "CONFigure:SEQuence:OUTPut", .callback = scpi_sequence_output_config}, \
+    {.pattern = "READ:SEQuence:OUTPut?", .callback = scpi_sequence_output_config_q}, \
     {.pattern = "CONFigure:SEQuence:CODE", .callback = scpi_sequence_code}, \
     {.pattern = "READ:SEQuence:CODE?", .callback = scpi_sequence_code_q}, \
     {.pattern = "READ:SEQuence:STATe?", .callback = scpi_sequence_status_q}, \

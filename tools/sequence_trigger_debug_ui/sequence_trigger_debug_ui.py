@@ -29,6 +29,9 @@ from tools.scpi_query.scpi_query import send_command
 
 
 MAX_LOG_LINES = 3000
+TIME_MAX_US = 0xffffffff // 10
+ROLE_SEQUENCE = "序列编码"
+ROLE_STATUS = "状态输出"
 
 
 def discover_serial_ports(candidates=None) -> list[str]:
@@ -78,18 +81,36 @@ def build_ota_command(image: Path, resource: str, out_dir: Path,
 
 def build_configuration_commands(plan: str, codes: list[int], source: str,
                                  edge: str, settle_us: int,
-                                 pulse_us: int) -> list[str]:
+                                 pulse_us: int,
+                                 sequence_output_mask: int = 7,
+                                 status_output_mask: int = 8,
+                                 status_mode: str = "PULSE") -> list[str]:
+    mode = {"电平": "LEVEL", "脉冲": "PULSE"}.get(
+        status_mode, status_mode.upper())
+    if (not sequence_output_mask or not status_output_mask or
+            (sequence_output_mask | status_output_mask) & ~15 or
+            sequence_output_mask & status_output_mask):
+        raise ValueError("序列编码与状态输出必须各占至少一个且互不重叠的 OUT")
+    if mode not in {"LEVEL", "PULSE"}:
+        raise ValueError("状态输出形式必须是电平或脉冲")
+    if not 0 <= settle_us <= TIME_MAX_US:
+        raise ValueError("建立时间超出固件范围")
+    if mode == "PULSE" and not 0 < pulse_us <= TIME_MAX_US:
+        raise ValueError("脉冲宽度必须大于 0 且不超出固件范围")
+    configured_pulse = pulse_us if mode == "PULSE" else 0
     if not codes:
         raise ValueError("至少需要一个输出编码")
-    if any(code < 0 or code > 7 for code in codes):
-        raise ValueError("输出编码必须在 0..7 之间")
+    if any(code < 0 or code & ~sequence_output_mask for code in codes):
+        raise ValueError(
+            f"输出编码只能使用序列编码 OUT（掩码 0x{sequence_output_mask:X}）")
     states = list(range(len(codes)))
     commands = [
         "TRIG:STOP",
         f"CONF:TRIG {len(states)},0,1,1",
         f"CONF:SEQ {plan}," + ",".join(map(str, states)),
         f"CONF:SEQ:ACT {plan}",
-        f"CONF:SEQ:IO 7,OUT4,{settle_us},{pulse_us}",
+        f"CONF:SEQ:OUTPUT {sequence_output_mask},{status_output_mask},"
+        f"{mode},{settle_us},{configured_pulse}",
     ]
     commands += [f"CONF:SEQ:CODE {state},{code}"
                  for state, code in zip(states, codes)]
@@ -125,8 +146,8 @@ class SequenceUi(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("DHRT100 序列触发调试")
-        self.geometry("1180x860")
-        self.minsize(1080, 760)
+        self.geometry("1380x900")
+        self.minsize(1220, 800)
         super().configure(bg="#f3f4f6")
         self._configure_style()
         self.port = tk.StringVar()
@@ -135,6 +156,10 @@ class SequenceUi(tk.Tk):
         self.edge = tk.StringVar(value="RIS")
         self.settle = tk.StringVar(value="10")
         self.pulse = tk.StringVar(value="10")
+        self.status_mode = tk.StringVar(value="脉冲")
+        self.out_enabled = [tk.BooleanVar(value=True) for _ in range(4)]
+        self.out_roles = [tk.StringVar(value=ROLE_SEQUENCE) for _ in range(3)] + [
+            tk.StringVar(value=ROLE_STATUS)]
         self.plan = tk.StringVar(value="SP8T")
         self.codes = tk.StringVar(value="0,1,2,3,4,5,6,7")
         self.status = tk.StringVar(value="未连接")
@@ -152,6 +177,7 @@ class SequenceUi(tk.Tk):
         self.output_lamps: list[tk.Label] = []
         self.port_box: ttk.Combobox | None = None
         self.step_button: ttk.Button | None = None
+        self.pulse_entry: ttk.Entry | None = None
         self.ota_progress: ttk.Progressbar | None = None
         self._ota_running = False
         self._transport_switching = False
@@ -259,14 +285,35 @@ class SequenceUi(tk.Tk):
                                       state="readonly", width=width)
             else:
                 widget = ttk.Entry(cfg, textvariable=var, width=width)
+                if var is self.pulse:
+                    self.pulse_entry = widget
             widget.grid(row=2, column=col, sticky="ew", padx=(0, 8))
         assert source_box is not None
         source_box.bind("<<ComboboxSelected>>", lambda _event: self.update_mode_hint())
+        roles = ttk.Frame(cfg, style="Panel.TFrame")
+        roles.grid(row=3, column=0, columnspan=6, sticky="w", pady=(12, 0))
+        ttk.Label(roles, text="OUT 角色", style="Field.TLabel").pack(
+            side="left", padx=(0, 10))
+        for index in range(4):
+            ttk.Checkbutton(roles, text=f"OUT{index + 1}",
+                            variable=self.out_enabled[index]).pack(side="left")
+            ttk.Combobox(roles, textvariable=self.out_roles[index],
+                         values=[ROLE_SEQUENCE, ROLE_STATUS], state="readonly",
+                         width=9).pack(side="left", padx=(2, 10))
+        ttk.Label(roles, text="状态形式", style="Field.TLabel").pack(
+            side="left", padx=(4, 4))
+        status_mode = ttk.Combobox(
+            roles, textvariable=self.status_mode, values=["电平", "脉冲"],
+            state="readonly", width=7)
+        status_mode.pack(side="left")
+        status_mode.bind("<<ComboboxSelected>>",
+                         lambda _event: self._update_status_mode())
+        self._update_status_mode()
         ttk.Button(cfg, text="扫描串口", command=self.refresh_ports).grid(
-            row=3, column=5, sticky="e", pady=(10, 0), padx=(0, 8))
+            row=4, column=5, sticky="e", pady=(10, 0), padx=(0, 8))
         ttk.Button(cfg, text="连接并配置", command=self.configure,
                    style="Primary.TButton").grid(
-                       row=3, column=6, columnspan=2, sticky="e",
+                       row=4, column=6, columnspan=2, sticky="e",
                        pady=(10, 0), padx=(0, 8))
 
         notebook = ttk.Notebook(self)
@@ -552,6 +599,29 @@ class SequenceUi(tk.Tk):
             if self.step_button is not None:
                 self.step_button.state(["disabled"])
 
+    def _update_status_mode(self) -> None:
+        if self.pulse_entry is None:
+            return
+        if self.status_mode.get() == "电平":
+            self.pulse_entry.state(["disabled"])
+        else:
+            self.pulse_entry.state(["!disabled"])
+
+    def _output_role_masks(self) -> tuple[int, int]:
+        sequence_mask = 0
+        status_mask = 0
+        for index, (enabled, role) in enumerate(
+                zip(self.out_enabled, self.out_roles)):
+            if not enabled.get():
+                continue
+            if role.get() == ROLE_SEQUENCE:
+                sequence_mask |= 1 << index
+            elif role.get() == ROLE_STATUS:
+                status_mask |= 1 << index
+            else:
+                raise ValueError(f"OUT{index + 1} 角色无效")
+        return sequence_mask, status_mask
+
     def run_commands(self, backend: str, resource: str,
                      commands: list[str]) -> None:
         try:
@@ -767,15 +837,18 @@ class SequenceUi(tk.Tk):
             if not self.port.get().strip():
                 raise ValueError("请先扫描或输入串口")
             codes = [int(x.strip()) for x in self.codes.get().split(",") if x.strip()]
+            sequence_mask, status_mask = self._output_role_masks()
             commands = build_configuration_commands(
                 self.plan.get(), codes, self.source.get(), self.edge.get(),
-                int(self.settle.get()), int(self.pulse.get()))
+                int(self.settle.get()), int(self.pulse.get()),
+                sequence_mask, status_mask, self.status_mode.get())
         except ValueError as exc:
             self.log(f"配置错误: {exc}")
             return
         self.log(
             f"配置 {len(codes)} 个位置；TRIG:START 将直接输出首项编码 "
-            f"{codes[0]}（OUT1 为其最低位）。")
+            f"{codes[0]}；序列掩码 0x{sequence_mask:X}，"
+            f"状态掩码 0x{status_mask:X}（{self.status_mode.get()}）。")
         self.enqueue_commands(commands)
 
 

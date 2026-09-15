@@ -34,7 +34,14 @@
 #define RX_TRANSFERS 0x0FFFFFFFu
 #define TICK_HZ (1000000000u / SYNC_IO_SEQUENCE_TICK_NS)
 #define NO_INDEX UINT32_MAX
+#define PLAN_INDEX_SHIFT 4u
+#define ACTIVE_VALUE_SHIFT 12u
 
+_Static_assert(BOARD_SYNC_OUTPUT_PIN_COUNT <= PLAN_INDEX_SHIFT,
+               "sequence receipt reserves four output bits");
+_Static_assert(SYNC_IO_SEQUENCE_PLAN_MAX <=
+               (1u << (ACTIVE_VALUE_SHIFT - PLAN_INDEX_SHIFT)),
+               "sequence receipt reserves eight index bits");
 _Static_assert(sequence_ingress_wrap + 1u + sequence_executor_wrap + 1u +
                sequence_counter_wrap + 1u == SYNC_IO_SEQUENCE_INSTRUCTION_WORDS,
                "sequence PIO instruction budget changed");
@@ -72,7 +79,7 @@ static struct {
 } s_sequence;
 static sync_io_persona_manager_t s_manager;
 static sync_io_persona_manager_handle_t s_handle;
-static uint32_t s_plan[SYNC_IO_SEQUENCE_PLAN_MAX * 3u];
+static uint32_t s_plan[SYNC_IO_SEQUENCE_PLAN_MAX * SYNC_IO_SEQUENCE_PLAN_WORDS];
 static uint32_t s_receipts[RECEIPT_WORDS] __attribute__((aligned(1u << RECEIPT_BITS)));
 static volatile uint32_t s_edge_latest;
 
@@ -219,8 +226,8 @@ static void clear_owned_flags(void)
 
 static void safe_low(void)
 {
-    const uint32_t owned = s_sequence.config.output_mask |
-        (1u << (s_sequence.config.completion_channel - 1u));
+    const uint32_t owned = s_sequence.config.sequence_output_mask |
+        s_sequence.config.status_output_mask;
     const uint32_t mask = owned << BOARD_SYNC_OUTPUT_BASE_PIN;
     gpio_put_masked(mask, 0u);
     for (uint i = 0u; i < BOARD_SYNC_OUTPUT_PIN_COUNT; ++i) {
@@ -265,8 +272,8 @@ static void cleanup(void *context, const sync_io_persona_descriptor_t *descripto
         s_sequence.dma[i] = -1;
     }
     if (s_sequence.pins_saved) {
-        const uint32_t owned = s_sequence.config.output_mask |
-            (1u << (s_sequence.config.completion_channel - 1u));
+        const uint32_t owned = s_sequence.config.sequence_output_mask |
+            s_sequence.config.status_output_mask;
         for (uint i = 0u; i < BOARD_SYNC_OUTPUT_PIN_COUNT; ++i) {
             if ((owned & (1u << i)) == 0u) continue;
             const uint pin = BOARD_SYNC_OUTPUT_BASE_PIN + i;
@@ -344,15 +351,18 @@ static bool arm_hardware(void *context, const sync_io_persona_descriptor_t *desc
     }
     pio_sm_config executor = sequence_executor_program_get_default_config(s_sequence.offset[1]);
     sm_config_set_out_pins(&executor, BOARD_SYNC_OUTPUT_BASE_PIN, BOARD_SYNC_OUTPUT_PIN_COUNT);
-    sm_config_set_set_pins(&executor, BOARD_SYNC_OUTPUT_BASE_PIN + s_sequence.config.completion_channel - 1u, 1u);
     sm_config_set_out_shift(&executor, true, false, 32u);
     sm_config_set_clkdiv(&executor, (float)(hz / TICK_HZ));
     pio_sm_init(pio, EXECUTOR_SM, s_sequence.offset[1], &executor);
-    const uint32_t owned = s_sequence.config.output_mask |
-        (1u << (s_sequence.config.completion_channel - 1u));
+    if (s_sequence.config.status_mode == SYNC_IO_SEQUENCE_STATUS_LEVEL) {
+        pio->instr_mem[s_sequence.offset[1] + sequence_executor_offset_status_mode] =
+            pio_encode_jmp(s_sequence.offset[1] + sequence_executor_offset_status_active);
+    }
+    const uint32_t owned = s_sequence.config.sequence_output_mask |
+        s_sequence.config.status_output_mask;
     pio_sm_set_pins_with_mask(
         pio, EXECUTOR_SM,
-        (s_sequence.initial_output & s_sequence.config.output_mask) << BOARD_SYNC_OUTPUT_BASE_PIN,
+        (s_sequence.initial_output & s_sequence.config.sequence_output_mask) << BOARD_SYNC_OUTPUT_BASE_PIN,
         owned << BOARD_SYNC_OUTPUT_BASE_PIN);
     for (uint i = 0u; i < BOARD_SYNC_OUTPUT_PIN_COUNT; ++i) {
         if ((owned & (1u << i)) != 0u) {
@@ -370,7 +380,7 @@ static bool arm_hardware(void *context, const sync_io_persona_descriptor_t *desc
     channel_config_set_dreq(&c, pio_get_dreq(pio, EXECUTOR_SM, true));
     channel_config_set_chain_to(&c, reload);
     dma_channel_configure(tx, &c, &pio->txf[EXECUTOR_SM], s_plan,
-                         s_sequence.status.plan_count * 3u, false);
+                         s_sequence.status.plan_count * SYNC_IO_SEQUENCE_PLAN_WORDS, false);
     s_sequence.read_address = (uint32_t)(uintptr_t)s_plan;
     c = dma_channel_get_default_config(reload);
     channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
@@ -428,11 +438,14 @@ static void fail(uint32_t reason)
 static bool config_valid(const sync_io_sequence_config_t *config)
 {
     return config != NULL && config->input_channel <= BOARD_SYNC_INPUT_PIN_COUNT &&
-        config->output_mask != 0u && (config->output_mask & ~SMA_MASK) == 0u &&
-        config->completion_channel != 0u && config->completion_channel <= BOARD_SYNC_OUTPUT_PIN_COUNT &&
-        (config->output_mask & (1u << (config->completion_channel - 1u))) == 0u &&
-        config->settle_us <= SYNC_IO_SEQUENCE_TIME_MAX_US && config->pulse_us != 0u &&
-        config->pulse_us <= SYNC_IO_SEQUENCE_TIME_MAX_US;
+        config->sequence_output_mask != 0u && config->status_output_mask != 0u &&
+        ((config->sequence_output_mask | config->status_output_mask) & ~SMA_MASK) == 0u &&
+        (config->sequence_output_mask & config->status_output_mask) == 0u &&
+        config->status_mode <= SYNC_IO_SEQUENCE_STATUS_PULSE &&
+        config->settle_us <= SYNC_IO_SEQUENCE_TIME_MAX_US &&
+        ((config->status_mode == SYNC_IO_SEQUENCE_STATUS_PULSE &&
+          config->pulse_us != 0u && config->pulse_us <= SYNC_IO_SEQUENCE_TIME_MAX_US) ||
+         (config->status_mode == SYNC_IO_SEQUENCE_STATUS_LEVEL && config->pulse_us == 0u));
 }
 
 static uint32_t logical_index_for_transfer(uint32_t transfer, uint32_t count)
@@ -457,14 +470,17 @@ bool sync_io_sequence_arm_plan(const sync_io_sequence_config_t *config,
         goto rejected;
     }
     for (uint i = 0u; i < count; ++i) {
-        if ((values[i] & ~config->output_mask) != 0u) {
+        if ((values[i] & ~config->sequence_output_mask) != 0u) {
             s_sequence.status.fault = SYNC_IO_SEQUENCE_FAULT_CONFIG;
             goto rejected;
         }
         const uint32_t logical = logical_index_for_transfer(i, count);
-        s_plan[i * 3u] = values[logical] | (logical << 4u);
-        s_plan[i * 3u + 1u] = config->settle_us == 0u ? 0u : config->settle_us * 10u - 4u;
-        s_plan[i * 3u + 2u] = config->pulse_us * 10u - 3u;
+        const uint32_t base = i * SYNC_IO_SEQUENCE_PLAN_WORDS;
+        s_plan[base] = values[logical] | (logical << PLAN_INDEX_SHIFT) |
+            ((values[logical] | config->status_output_mask) << ACTIVE_VALUE_SHIFT);
+        s_plan[base + 1u] = config->settle_us == 0u ? 0u : config->settle_us * 10u - 6u;
+        s_plan[base + 2u] = config->status_mode == SYNC_IO_SEQUENCE_STATUS_PULSE ?
+            config->pulse_us * 10u - 4u : 0u;
     }
     if (__atomic_load_n(&s_reserved, __ATOMIC_ACQUIRE) == 0u || !outputs_available()) {
         s_sequence.status.fault = SYNC_IO_SEQUENCE_FAULT_RESOURCE;
@@ -506,7 +522,10 @@ bool sync_io_sequence_arm_plan(const sync_io_sequence_config_t *config,
     }
     s_sequence.status.armed = true;
     s_sequence.status.current_index = 0u;
-    s_sequence.status.output_ownership_mask = SMA_MASK;
+    s_sequence.status.output_ownership_mask = config->sequence_output_mask |
+        config->status_output_mask;
+    __atomic_store_n(&s_owned_mask, s_sequence.status.output_ownership_mask,
+                     __ATOMIC_RELEASE);
     __atomic_store_n(&s_armed, 1u, __ATOMIC_RELEASE);
     publish();
     return true;
@@ -562,7 +581,7 @@ static bool receive_word(uint32_t word)
         s_sequence.status.plan_count;
     const uint32_t logical_index =
         logical_index_for_transfer(transfer_index, s_sequence.status.plan_count);
-    if (decoded != s_plan[transfer_index * 3u] ||
+    if (decoded != s_plan[transfer_index * SYNC_IO_SEQUENCE_PLAN_WORDS] ||
         (completion ? s_sequence.status.written != s_sequence.status.completed + 1u :
                       s_sequence.status.written != s_sequence.status.completed)) {
         fail(SYNC_IO_SEQUENCE_FAULT_RECEIPT);
@@ -659,6 +678,14 @@ static void account_input(uint32_t edges, bool settled)
     else if (!s_sequence.paused) s_sequence.status.rejection_counts_pending = true;
 }
 
+static void mark_initial_status_ready(void)
+{
+    if (s_sequence.config.status_mode != SYNC_IO_SEQUENCE_STATUS_LEVEL) return;
+    const uint32_t mask = s_sequence.config.status_output_mask <<
+        BOARD_SYNC_OUTPUT_BASE_PIN;
+    pio_sm_set_pins_with_mask(BOARD_SYNC_PIO_FAST, EXECUTOR_SM, mask, mask);
+}
+
 void sync_io_sequence_service(void)
 {
     if (get_core_num() != 1u || !s_sequence.status.armed || s_sequence.status.fault != 0u) return;
@@ -680,6 +707,7 @@ void sync_io_sequence_service(void)
         if (s_sequence.priming &&
             (BOARD_SYNC_PIO_FAST->irq & (1u << READY_IRQ)) != 0u &&
             time_us_64() >= s_sequence.prime_ready_at_us) {
+            mark_initial_status_ready();
             if (s_sequence.config.input_channel != 0u) {
                 dma_start_channel_mask(1u << (uint)s_sequence.dma[3]);
                 pio_enable_sm_mask_in_sync(BOARD_SYNC_PIO_FAST, INPUT_SM_MASK);
@@ -827,11 +855,14 @@ void sync_io_sequence_stop(void)
         if (s_sequence.status.fault == 0u && executor_pc > sequence_executor_offset_writing &&
             executor_pc <= sequence_executor_offset_written &&
             s_sequence.status.written == s_sequence.status.completed) {
-            (void)receive_word(s_plan[(s_sequence.status.written % s_sequence.status.plan_count) * 3u]);
+            (void)receive_word(s_plan[(s_sequence.status.written % s_sequence.status.plan_count) *
+                SYNC_IO_SEQUENCE_PLAN_WORDS]);
         }
-        if (s_sequence.status.fault == 0u && executor_pc >= sequence_executor_offset_completed - 1u &&
+        if (s_sequence.status.fault == 0u &&
+            executor_pc >= sequence_executor_offset_status_active &&
             s_sequence.status.written == s_sequence.status.completed + 1u) {
-            (void)receive_word(~s_plan[(s_sequence.status.completed % s_sequence.status.plan_count) * 3u]);
+            (void)receive_word(~s_plan[(s_sequence.status.completed % s_sequence.status.plan_count) *
+                SYNC_IO_SEQUENCE_PLAN_WORDS]);
         }
         if (pending && s_sequence.status.accepted == s_sequence.status.completed) {
             ++s_sequence.status.accepted;

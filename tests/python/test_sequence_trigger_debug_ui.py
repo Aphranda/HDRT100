@@ -20,6 +20,7 @@ def test_output_codes_are_mapped_to_positional_state_ids():
     assert "CONF:SEQ:CODE 0,1" in commands
     assert "CONF:SEQ:CODE 1,2" in commands
     assert "CONF:SEQ:CODE 2,4" in commands
+    assert "CONF:SEQ:OUTPUT 7,8,PULSE,10,5" in commands
     assert "CONF:SEQ PLAN,1,2,4" not in commands
 
 
@@ -27,6 +28,24 @@ def test_output_codes_are_mapped_to_positional_state_ids():
 def test_output_codes_reject_empty_or_unrepresentable_values(codes):
     with pytest.raises(ValueError):
         build_configuration_commands("PLAN", codes, "BUS", "RIS", 10, 5)
+
+
+def test_output_roles_build_level_mode_and_validate_physical_exclusion():
+    commands = build_configuration_commands(
+        "PLAN", [0, 1, 2, 3], "BUS", "RIS", 10, 99,
+        sequence_output_mask=3, status_output_mask=12, status_mode="电平")
+
+    assert "CONF:SEQ:OUTPUT 3,12,LEVEL,10,0" in commands
+
+    with pytest.raises(ValueError, match="互不重叠"):
+        build_configuration_commands(
+            "PLAN", [0, 1], "BUS", "RIS", 10, 5,
+            sequence_output_mask=3, status_output_mask=2)
+
+    with pytest.raises(ValueError, match="掩码"):
+        build_configuration_commands(
+            "PLAN", [4], "BUS", "RIS", 10, 5,
+            sequence_output_mask=3, status_output_mask=12)
 
 
 def test_switch_position_uses_one_based_operator_position():

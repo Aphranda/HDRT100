@@ -14,7 +14,7 @@ static fake_pio_t fake_pio;
 typedef fake_pio_t *PIO;
 struct pio_program { uint length; };
 static const struct pio_program sequence_ingress_program = {6u};
-static const struct pio_program sequence_executor_program = {17u};
+static const struct pio_program sequence_executor_program = {19u};
 static const struct pio_program sequence_counter_program = {5u};
 #define BOARD_SYNC_PIO_FAST (&fake_pio)
 #define BOARD_SYNC_OUTPUT_BASE_PIN 16u
@@ -45,9 +45,10 @@ static const struct pio_program sequence_counter_program = {5u};
 #define sequence_ingress_offset_decide 3u
 #define sequence_ingress_offset_admitted 4u
 #define sequence_ingress_offset_request 5u
-#define sequence_executor_offset_waiting 6u
-#define sequence_executor_offset_writing 7u
-#define sequence_executor_offset_written 9u
+#define sequence_executor_offset_waiting 5u
+#define sequence_executor_offset_writing 6u
+#define sequence_executor_offset_written 8u
+#define sequence_executor_offset_status_active 17u
 static struct { struct { uint32_t ctrl_trig, al1_ctrl, transfer_count, write_addr, reload; bool busy; } ch[16]; } fake_dma;
 #define dma_hw (&fake_dma)
 static struct {
@@ -57,13 +58,14 @@ static struct {
     int dma[4];
     uint32_t dma_mask, sm_claimed, loaded, paused_edges;
     uint32_t rx_consumed, rx_stopped_produced;
-    uint32_t last_edges, pause_started;
+    uint32_t last_edges, pause_started, initial_output;
     uint64_t prime_ready_at_us;
     gpio_function_t saved_function[4];
     bool saved_direction[4], pins_saved, rx_stopped, paused;
     bool priming;
 } s_sequence;
-static uint32_t s_receipts[RECEIPT_WORDS], s_plan[SYNC_IO_SEQUENCE_PLAN_MAX * 3u];
+static uint32_t s_receipts[RECEIPT_WORDS];
+static uint32_t s_plan[SYNC_IO_SEQUENCE_PLAN_MAX * SYNC_IO_SEQUENCE_PLAN_WORDS];
 static uint32_t abort_tail, receipt_aborts;
 static uint64_t fake_time_us;
 static void fail(uint32_t reason) { s_sequence.status.fault = reason; }
@@ -153,6 +155,9 @@ static bool gpio_get_dir(uint pin) { return directions[pin]; }
 static void gpio_set_function(uint pin, uint f) { functions[pin] = f; ++touches[pin]; }
 static void gpio_set_dir(uint pin, bool d) { directions[pin] = d; ++touches[pin]; }
 static void gpio_put_masked(uint32_t mask, uint32_t value) { pads = (pads & ~mask) | value; }
+static void pio_sm_set_pins_with_mask(PIO pio, uint sm, uint32_t value, uint32_t mask) {
+    (void)pio; (void)sm; pads = (pads & ~mask) | (value & mask);
+}
 static uint pio_encode_mov(uint dest, uint source) { return 0xa000u | (dest << 5u) | source; }
 static uint pio_encode_mov_not(uint dest, uint source) { return pio_encode_mov(dest, source) | 8u; }
 static uint pio_encode_push(bool conditional, bool block) { (void)conditional; (void)block; return 0x8000u; }
@@ -193,7 +198,8 @@ static void reset(void) {
     memset(touches, 0, sizeof(touches));
     memset(rx_valid, 0, sizeof(rx_valid));
     for (uint i = 0u; i < 4u; ++i) s_sequence.dma[i] = -1;
-    s_sequence.config = (sync_io_sequence_config_t){1u, false, 3u, 4u, 1u, 1u};
+    s_sequence.config = (sync_io_sequence_config_t){
+        1u, false, 3u, 8u, SYNC_IO_SEQUENCE_STATUS_PULSE, 1u, 1u};
     dma_claims = 0x1fbu; /* RS485, capture and TDMA survive every rollback. */
     sm_claims = enabled = 1u;
     resources = RESOURCE_ARBITER_RESOURCE_SMA_GPIO;
@@ -222,7 +228,7 @@ int main(void) {
         bool loaded = sync_io_persona_manager_load(&manager, &handle);
         if (failure >= 1u && failure <= 10u) assert(!loaded);
         if (loaded) {
-            assert(words == 29u && sm_claims == 15u);
+            assert(words == 31u && sm_claims == 15u);
             assert((s_sequence.dma_mask & 0x1fbu) == 0u);
             bool armed = sync_io_persona_manager_arm(&manager, &handle);
             assert(armed == arm_allowed);
@@ -245,6 +251,8 @@ int main(void) {
     s_sequence.status.current_index = 0u;
     s_sequence.status.completed_index = UINT32_MAX;
     s_sequence.status.rejection_counts_pending = true;
+    s_sequence.config.status_mode = SYNC_IO_SEQUENCE_STATUS_LEVEL;
+    s_sequence.config.pulse_us = 0u;
     s_sequence.priming = true;
     s_sequence.prime_ready_at_us = 10u;
     for (uint i = 0u; i < 4u; ++i) s_sequence.dma[i] = (int)i;
@@ -253,6 +261,7 @@ int main(void) {
     fake_dma.ch[2].transfer_count = RX_TRANSFERS;
     pcs[EXECUTOR_SM] = sequence_executor_offset_waiting;
     fake_pio.irq = 1u << READY_IRQ;
+    pads = 0u;
     fake_time_us = 9u;
     sync_io_sequence_service();
     assert(s_sequence.priming && !s_sequence.status.ready);
@@ -260,6 +269,7 @@ int main(void) {
     fake_time_us = 10u;
     sync_io_sequence_service();
     assert(!s_sequence.priming && s_sequence.status.ready);
+    assert((pads & (8u << BOARD_SYNC_OUTPUT_BASE_PIN)) != 0u);
     assert((enabled & INPUT_SM_MASK) == INPUT_SM_MASK && fake_dma.ch[3].busy);
     for (uint pc = 0u; pc < 5u; ++pc) {
         reset();
@@ -354,9 +364,10 @@ int main(void) {
     assert(s_sequence.status.notready_rejected == 26u);
     assert((enabled & INPUT_SM_MASK) == INPUT_SM_MASK);
     assert(!s_sequence.rx_stopped);
-    for (uint i = 0u; i < 8u; ++i) s_plan[i * 3u] = (i << 4u) | (i & 3u);
-    s_receipts[308u % RECEIPT_WORDS] = s_plan[2u * 3u];
-    s_receipts[309u % RECEIPT_WORDS] = ~s_plan[2u * 3u];
+    for (uint i = 0u; i < 8u; ++i)
+        s_plan[i * SYNC_IO_SEQUENCE_PLAN_WORDS] = (i << 4u) | (i & 3u);
+    s_receipts[308u % RECEIPT_WORDS] = s_plan[2u * SYNC_IO_SEQUENCE_PLAN_WORDS];
+    s_receipts[309u % RECEIPT_WORDS] = ~s_plan[2u * SYNC_IO_SEQUENCE_PLAN_WORDS];
     fake_dma.ch[2].transfer_count -= 2u;
     fake_dma.ch[2].write_addr += 8u;
     xs[COUNTER_SM] = ~181u;

@@ -16,6 +16,11 @@ static const scpi_choice_def_t outputs[] = {
 static const scpi_choice_def_t edges[] = {
     {"RISing", 0}, {"FALLing", 1}, SCPI_CHOICE_LIST_END
 };
+static const scpi_choice_def_t status_modes[] = {
+    {"LEVel", TRIGGER_SEQUENCE_STATUS_LEVEL},
+    {"PULSe", TRIGGER_SEQUENCE_STATUS_PULSE},
+    SCPI_CHOICE_LIST_END
+};
 
 static scpi_result_t result(scpi_t *context, trigger_sequence_service_result_t code)
 {
@@ -68,8 +73,43 @@ scpi_result_t scpi_sequence_io_q(scpi_t *context)
     if (!scpi_sequence_params_end(context)) return SCPI_RES_ERR;
     trigger_sequence_service_io_t io;
     trigger_sequence_service_get_io(&io);
-    SCPI_ResultUInt32(context, io.output_mask);
-    SCPI_ResultUInt32(context, io.completion_channel);
+    uint32_t channel = 0u;
+    for (uint32_t i = 0u; i < 4u; ++i) {
+        if (io.status_output_mask == (1u << i)) channel = i + 1u;
+    }
+    SCPI_ResultUInt32(context, io.sequence_output_mask);
+    SCPI_ResultUInt32(context, channel);
+    SCPI_ResultUInt32(context, io.settle_us);
+    SCPI_ResultUInt32(context, io.pulse_us);
+    SCPI_ResultUInt32(context, io.generation);
+    SCPI_ResultBool(context, io.valid);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_sequence_output_config(scpi_t *context)
+{
+    uint32_t sequence_mask, status_mask, settle, width;
+    int32_t mode;
+    if (!scpi_sequence_param_u32(context, &sequence_mask) ||
+        !scpi_sequence_param_u32(context, &status_mask) ||
+        !SCPI_ParamChoice(context, status_modes, &mode, TRUE) ||
+        !scpi_sequence_param_u32(context, &settle) ||
+        !scpi_sequence_param_u32(context, &width) ||
+        !scpi_sequence_params_end(context)) return SCPI_RES_ERR;
+    return result(context, trigger_sequence_service_set_outputs(
+        sequence_mask, status_mask, (trigger_sequence_status_mode_t)mode,
+        settle, width));
+}
+
+scpi_result_t scpi_sequence_output_config_q(scpi_t *context)
+{
+    if (!scpi_sequence_params_end(context)) return SCPI_RES_ERR;
+    trigger_sequence_service_io_t io;
+    trigger_sequence_service_get_io(&io);
+    SCPI_ResultUInt32(context, io.sequence_output_mask);
+    SCPI_ResultUInt32(context, io.status_output_mask);
+    SCPI_ResultText(context, io.status_mode == TRIGGER_SEQUENCE_STATUS_PULSE ?
+                    "PULSE" : "LEVEL");
     SCPI_ResultUInt32(context, io.settle_us);
     SCPI_ResultUInt32(context, io.pulse_us);
     SCPI_ResultUInt32(context, io.generation);

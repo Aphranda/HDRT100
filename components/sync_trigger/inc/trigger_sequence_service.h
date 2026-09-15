@@ -36,11 +36,17 @@ typedef enum {
     TRIGGER_SEQUENCE_SERVICE_FAULT
 } trigger_sequence_service_state_t;
 
+typedef enum {
+    TRIGGER_SEQUENCE_STATUS_LEVEL = 0,
+    TRIGGER_SEQUENCE_STATUS_PULSE = 1,
+} trigger_sequence_status_mode_t;
+
 typedef struct {
     uint32_t source; /* 0=BUS; 1..4=logical IN. */
     bool falling;
-    uint32_t output_mask;
-    uint32_t completion_channel;
+    uint32_t sequence_output_mask;
+    uint32_t status_output_mask;
+    trigger_sequence_status_mode_t status_mode;
     uint32_t settle_us;
     uint32_t pulse_us;
     uint32_t generation;
@@ -86,6 +92,10 @@ trigger_sequence_service_result_t trigger_sequence_service_set_source(
     uint32_t source, bool falling);
 trigger_sequence_service_result_t trigger_sequence_service_set_io(
     uint32_t output_mask, uint32_t completion_channel,
+    uint32_t settle_us, uint32_t pulse_us);
+trigger_sequence_service_result_t trigger_sequence_service_set_outputs(
+    uint32_t sequence_output_mask, uint32_t status_output_mask,
+    trigger_sequence_status_mode_t status_mode,
     uint32_t settle_us, uint32_t pulse_us);
 trigger_sequence_service_result_t trigger_sequence_service_set_code(
     uint32_t state_id, uint32_t value);

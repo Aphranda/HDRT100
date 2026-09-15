@@ -17,15 +17,15 @@ public request:
     irq set 5
 .wrap
 
-; Each triple is {code and index tag, settle countdown, pulse countdown}.
-; OUT and SET have independent pin bases; SET owns only the completion pad.
+; Each plan item is {packed normal/tag/active values, settle countdown, pulse
+; countdown}. The status-mode instruction is patched to skip the pulse
+; delay and low restore when the status role is configured as LEVEL.
 .program sequence_executor
 .wrap_target
     pull block
     mov y, osr
     pull block
     mov x, osr
-    pull block
     irq set 4
 public waiting:
     wait 1 irq 5
@@ -36,11 +36,16 @@ public written:
     push block
 public settling:
     jmp x-- settling
-    set pins, 1
+    mov osr, y
+    out null, 12
+    out pins, 4
+    pull block
+public status_mode:
     mov x, osr
 public pulsing:
     jmp x-- pulsing
-    set pins, 0
+    mov pins, y
+public status_active:
     mov isr, ~y
 public completed:
     push block
