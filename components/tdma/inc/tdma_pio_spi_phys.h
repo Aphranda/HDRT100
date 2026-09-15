@@ -1116,6 +1116,9 @@ bool tdma_pio_spi_phys_origin_get_live_snapshot(const tdma_pio_spi_phys_t *phys,
     tdma_origin_live_snapshot_t *out);
 bool tdma_pio_spi_phys_origin_get_raw_reference(const tdma_pio_spi_phys_t *phys,
     tdma_origin_raw_reference_t *out);
+/* SRAM-only bounded LIVE permission; true/zero means inactive, false keeps out. */
+bool tdma_pio_spi_phys_origin_get_reference_epoch(const tdma_pio_spi_phys_t *phys,
+    uint32_t *epoch);
 /* One bounded Core0 diagnostic copy, while active, after successful STOP, or
  * during a failed STOP that retains ownership of an already committed first.
  * The first completed boundary is retained even for a missing/bad return or

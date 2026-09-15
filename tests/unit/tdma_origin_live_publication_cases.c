@@ -8,20 +8,31 @@
 typedef struct {
     uint32_t flight_origin_record_epoch;
     uint32_t flight_origin_record_guard;
+    uint32_t flight_origin_first_readable_epoch;
+    uint32_t flight_origin_first_expected_sequence;
+    bool flight_origin_record_frozen;
+    tdma_origin_first_record_t flight_origin_first_record;
+    struct { uint32_t tx_clock_latch_sm; } flight_resources;
+    uint32_t tx_csn_pin;
     tdma_origin_live_snapshot_t flight_origin_live;
 } tdma_pio_spi_phys_t;
 static tdma_pio_spi_phys_t phys;
+#define s_tdma_pio_spi_phys phys
+static bool s_tdma_runtime_owner_initialized;
 static struct {
     tdma_origin_plan_state_t state;
     tdma_origin_exchange_t exchange;
     tdma_origin_record_t record[TDMA_ORIGIN_RECORD_COUNT];
 } s_tdma_origin;
-static unsigned tick_calls, fence_mode;
-static unsigned try_calls, fail_try_call;
+static unsigned tick_calls, fence_mode, fence_calls;
+static unsigned try_calls, fail_try_call, retire_try_call;
 static bool rate_change_on_first;
 static uint32_t current_hz = 250000000u;
 static uint64_t finish_tick;
 static bool healthy;
+static void tdma_pio_spi_phys_origin_record_invalidate(tdma_pio_spi_phys_t *);
+static void tdma_pio_spi_phys_origin_first_reset(tdma_pio_spi_phys_t *, uint32_t, uint32_t);
+static void tdma_pio_spi_phys_origin_collect_live(tdma_pio_spi_phys_t *);
 static uint64_t vdc_timestamp_clock_read_ticks64(void)
 { return tick_calls++ ? finish_tick : 100u; }
 static uint32_t vdc_timestamp_clock_tick_hz(void) { return 250000000u; }
@@ -31,13 +42,29 @@ static bool vdc_timestamp_clock_try_read_ticks64(uint32_t expected_hz,uint64_t *
     if(try_calls==fail_try_call || expected_hz==0u || expected_hz!=current_hz) return false;
     *ticks=try_calls==1u?100u:finish_tick;
     if(try_calls==1u && rate_change_on_first) phys.flight_origin_live.sample.record.raw_time.tick_hz/=2u;
+    if(try_calls==retire_try_call) tdma_pio_spi_phys_origin_record_invalidate(&phys);
     return true;
 }
 static void __dmb(void) { __atomic_thread_fence(__ATOMIC_SEQ_CST); }
 static void test_fence(int order)
 {
     __atomic_thread_fence(order);
+    ++fence_calls;
     if(fence_mode==1u) phys.flight_origin_record_guard+=2u;
+    if(fence_calls==2u && fence_mode==2u) tdma_pio_spi_phys_origin_record_invalidate(&phys);
+    if(fence_calls==2u && fence_mode==3u) {
+        phys.flight_origin_record_epoch=8u;
+        tdma_pio_spi_phys_origin_first_reset(&phys,8u,40u);
+    }
+    if(fence_calls==2u && fence_mode==4u) {
+        s_tdma_origin.record[1]=s_tdma_origin.record[0];
+        s_tdma_origin.record[1].observation.sequence=34u;
+        s_tdma_origin.record[1].sequence_end=34u;
+        s_tdma_origin.state.record_published_version=4u;
+        phys.flight_resources.tx_clock_latch_sm=3u;phys.tx_csn_pin=31u;
+        tick_calls=0u;
+        tdma_pio_spi_phys_origin_collect_live(&phys);
+    }
 }
 #define __atomic_thread_fence test_fence
 static bool tdma_pio_spi_phys_origin_healthy(void *context)
@@ -62,21 +89,161 @@ static void SCPI_ResultUInt32(scpi_t *c,uint32_t n)
 static void setup(void)
 {
     memset(&phys,0,sizeof(phys));memset(&s_tdma_origin,0,sizeof(s_tdma_origin));
-    tick_calls=fence_mode=0u;finish_tick=101u;healthy=true;
-    try_calls=fail_try_call=0u;current_hz=250000000u;
+    tick_calls=fence_mode=fence_calls=0u;finish_tick=101u;healthy=true;
+    try_calls=fail_try_call=retire_try_call=0u;current_hz=250000000u;
     rate_change_on_first=false;
+    s_tdma_runtime_owner_initialized=true;
     phys.flight_origin_record_epoch=7u;
+    phys.flight_resources.tx_clock_latch_sm=2u;phys.tx_csn_pin=26u;
     s_tdma_origin.exchange.state=&s_tdma_origin.state;
     s_tdma_origin.state.record_epoch=7u;s_tdma_origin.state.record_published_version=2u;
     s_tdma_origin.record[0]=(tdma_origin_record_t){
         .observation={.sequence=33u,.identity=0x1234u,.local_generation=5u},
         .epoch=7u,.format=TDMA_ORIGIN_RECORD_FORMAT_RAW_TIME,.sequence_end=33u,
+        .flags=TDMA_ORIGIN_RECORD_TRANSPORT_CHECKED,
         .raw_time={.arm_before={4u,100u,4u},.arm_after={4u,110u,4u},
-            .latch_remaining=UINT32_MAX-99u,.tick_hz=250000000u}};
+            .latch_remaining=UINT32_MAX-99u,.arm_padout=1u<<26u,.tick_hz=250000000u}};
+}
+
+static void test_raw_reference_provenance(void)
+{
+    tdma_origin_raw_reference_t out,sentinel;
+    memset(&sentinel,0xa5,sizeof(sentinel));
+    /* Two scalar provenance words; no change to the DMA record/wire body. */
+    _Static_assert(sizeof(tdma_origin_live_snapshot_t)==
+        sizeof(tdma_origin_record_frozen_t)+6u*sizeof(uint32_t),"LIVE metadata budget");
+    _Static_assert(sizeof(tdma_origin_record_t)==88u,"DMA record ABI unchanged");
+    setup();tdma_pio_spi_phys_origin_collect_live(&phys);
+    assert(phys.flight_origin_live.latch_sm==2u && phys.flight_origin_live.csn_pin==26u);
+    /* The mutable resource fields may already describe another persona.
+     * The frozen record must still be interpreted with its own provenance. */
+    phys.flight_resources.tx_clock_latch_sm=0u;phys.tx_csn_pin=25u;
+    phys.flight_origin_live.sample.record.raw_time.latch_fstat=1u<<8u;
+    tick_calls=0u;out=sentinel;
+    assert(tdma_pio_spi_phys_origin_get_raw_reference(&phys,&out));
+    assert(out.epoch==7u && out.sequence==33u && out.published_version==2u);
+    assert(out.timer_lower==0x40000012aull && out.timer_upper==0x400000134ull);
+    assert(tick_calls==0u && try_calls==2u);
+    /* Conversely, a currently nonempty SM/high pin cannot rescue a raw
+     * sample whose captured SM was empty or whose captured CS was low. */
+    for(unsigned mode=0;mode<4u;++mode) {
+        setup();
+        if(mode==0u)s_tdma_origin.record[0].raw_time.latch_fstat=1u<<(8u+2u);
+        if(mode==1u)s_tdma_origin.record[0].raw_time.arm_padout=1u<<25u;
+        if(mode==2u)phys.flight_resources.tx_clock_latch_sm=4u;
+        if(mode==3u)phys.tx_csn_pin=32u;
+        tdma_pio_spi_phys_origin_collect_live(&phys);
+        phys.flight_resources.tx_clock_latch_sm=0u;phys.tx_csn_pin=25u;
+        tick_calls=0u;out=sentinel;
+        assert(!tdma_pio_spi_phys_origin_get_raw_reference(&phys,&out));
+        assert(!memcmp(&out,&sentinel,sizeof(out)) && tick_calls==0u);
+    }
+    /* Repeated collection of the same record does not replace its resource
+     * association; only a new accepted record can publish new provenance. */
+    setup();tdma_pio_spi_phys_origin_collect_live(&phys);
+    const tdma_origin_live_snapshot_t first=phys.flight_origin_live;
+    phys.flight_resources.tx_clock_latch_sm=3u;phys.tx_csn_pin=31u;
+    tick_calls=0u;tdma_pio_spi_phys_origin_collect_live(&phys);
+    assert(!memcmp(&first,&phys.flight_origin_live,sizeof(first)));
+    s_tdma_origin.record[1]=s_tdma_origin.record[0];
+    s_tdma_origin.record[1].observation.sequence=s_tdma_origin.record[1].sequence_end=34u;
+    s_tdma_origin.record[1].raw_time.arm_padout=1u<<31u;
+    s_tdma_origin.state.record_published_version=4u;tick_calls=0u;
+    tdma_pio_spi_phys_origin_collect_live(&phys);
+    assert(phys.flight_origin_live.latch_sm==3u && phys.flight_origin_live.csn_pin==31u);
+    assert(phys.flight_origin_live.sample.record.sequence_end==34u);
+    tick_calls=0u;assert(tdma_pio_spi_phys_origin_get_raw_reference(&phys,&out));
+    assert(out.sequence==34u && tick_calls==0u);
+}
+
+static void test_raw_reference_retirement_races(void)
+{
+    tdma_origin_raw_reference_t out,sentinel;
+    memset(&sentinel,0x5a,sizeof(sentinel));
+    for(unsigned mode=0;mode<10u;++mode) {
+        setup();tdma_pio_spi_phys_origin_collect_live(&phys);
+        tick_calls=0u;out=sentinel;
+        if(mode==0u)phys.flight_origin_record_guard|=1u;
+        if(mode==1u)fence_mode=1u;
+        if(mode==2u)retire_try_call=1u;
+        if(mode==3u)retire_try_call=2u;
+        if(mode==4u)fence_mode=2u;
+        if(mode==5u)fence_mode=3u;
+        if(mode==6u)fence_mode=4u;
+        if(mode==7u){phys.flight_origin_record_guard=UINT32_MAX-1u;fence_mode=2u;}
+        if(mode==8u)tdma_pio_spi_phys_origin_record_invalidate(&phys);
+        if(mode==9u)tdma_pio_spi_phys_origin_first_reset(&phys,8u,40u);
+        assert(!tdma_pio_spi_phys_origin_get_raw_reference(&phys,&out));
+        assert(!memcmp(&out,&sentinel,sizeof(out)));
+        assert(try_calls<=2u);
+        if(mode!=6u)assert(tick_calls==0u); /* Only injected Core1 collection reads lazily. */
+    }
+    setup();out=sentinel;
+    assert(!tdma_pio_spi_phys_origin_get_raw_reference(NULL,&out));
+    assert(!tdma_pio_spi_phys_origin_get_raw_reference(&phys,NULL));
+    assert(!tdma_pio_spi_phys_origin_get_raw_reference(&phys,&out));
+    assert(!memcmp(&out,&sentinel,sizeof(out)) && tick_calls==0u && try_calls==0u);
+    /* A new ARM seed explicitly cancels permission but retains the exact
+     * old record and resources for stopped diagnostic readback. */
+    setup();tdma_pio_spi_phys_origin_collect_live(&phys);
+    tdma_origin_live_snapshot_t expected=phys.flight_origin_live;expected.active=0u;
+    tdma_pio_spi_phys_origin_first_reset(&phys,8u,40u);
+    assert(!memcmp(&phys.flight_origin_live,&expected,sizeof(expected)));
+}
+
+static void test_reference_epoch_permission(void)
+{
+    uint32_t epoch;
+    const uint32_t sentinel=0xa5a5a5a5u;
+    setup();epoch=sentinel;
+    /* Empty/confirmed inactive is available even before TIMER1 exists. */
+    current_hz=0u;fail_try_call=1u;
+    assert(tdma_runtime_owner_get_origin_reference_epoch(&epoch) && epoch==0u);
+    assert(tick_calls==0u && try_calls==0u);
+    setup();tdma_pio_spi_phys_origin_collect_live(&phys);tick_calls=0u;
+    current_hz=0u;fail_try_call=1u;
+    assert(tdma_runtime_owner_get_origin_reference_epoch(&epoch) && epoch==7u);
+    assert(tick_calls==0u && try_calls==0u);
+    tdma_pio_spi_phys_origin_record_invalidate(&phys);epoch=sentinel;
+    assert(tdma_runtime_owner_get_origin_reference_epoch(&epoch) && epoch==0u);
+    assert(phys.flight_origin_live.retained && phys.flight_origin_live.sample.epoch==7u);
+    assert(tick_calls==0u && try_calls==0u);
+    /* Only a new accepted publication supplies a new nonzero epoch. */
+    setup();tdma_pio_spi_phys_origin_collect_live(&phys);
+    tdma_pio_spi_phys_origin_first_reset(&phys,8u,40u);epoch=sentinel;
+    assert(tdma_runtime_owner_get_origin_reference_epoch(&epoch) && epoch==0u);
+    phys.flight_origin_record_epoch=8u;s_tdma_origin.state.record_epoch=8u;
+    s_tdma_origin.record[0].epoch=8u;tick_calls=0u;
+    tdma_pio_spi_phys_origin_collect_live(&phys);tick_calls=0u;
+    assert(tdma_runtime_owner_get_origin_reference_epoch(&epoch) && epoch==8u);
+    assert(tick_calls==0u && try_calls==0u);
+    for(unsigned mode=0;mode<10u;++mode) {
+        setup();tdma_pio_spi_phys_origin_collect_live(&phys);tick_calls=0u;epoch=sentinel;
+        if(mode==0u)phys.flight_origin_record_guard|=1u;
+        if(mode==1u)fence_mode=1u;
+        if(mode==2u){fence_mode=2u;fence_calls=1u;}
+        if(mode==3u){fence_mode=3u;fence_calls=1u;}
+        if(mode==4u){phys.flight_origin_record_guard=UINT32_MAX-1u;fence_mode=2u;fence_calls=1u;}
+        if(mode==5u)phys.flight_origin_live.active=2u;
+        if(mode==6u)phys.flight_origin_live.retained=2u;
+        if(mode==7u)phys.flight_origin_live.retained=0u;
+        if(mode==8u)phys.flight_origin_live.sample.epoch=0u;
+        if(mode==9u)s_tdma_runtime_owner_initialized=false;
+        assert(!tdma_runtime_owner_get_origin_reference_epoch(&epoch));
+        assert(epoch==sentinel && tick_calls==0u && try_calls==0u);
+    }
+    setup();epoch=sentinel;
+    assert(!tdma_pio_spi_phys_origin_get_reference_epoch(NULL,&epoch));
+    assert(!tdma_pio_spi_phys_origin_get_reference_epoch(&phys,NULL));
+    assert(!tdma_runtime_owner_get_origin_reference_epoch(NULL));
+    assert(epoch==sentinel && tick_calls==0u && try_calls==0u);
 }
 
 int main(void)
 {
+    test_raw_reference_provenance();
+    test_raw_reference_retirement_races();
+    test_reference_epoch_permission();
     tdma_origin_observation_t observation;
     tdma_origin_live_snapshot_t out,sentinel;
     setup();

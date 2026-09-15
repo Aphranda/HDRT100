@@ -456,6 +456,12 @@ bool tdma_runtime_owner_get_origin_raw_reference(tdma_origin_raw_reference_t *sn
         tdma_pio_spi_phys_origin_get_raw_reference(&s_tdma_pio_spi_phys, snapshot);
 }
 
+bool tdma_runtime_owner_get_origin_reference_epoch(uint32_t *epoch)
+{
+    return s_tdma_runtime_owner_initialized &&
+        tdma_pio_spi_phys_origin_get_reference_epoch(&s_tdma_pio_spi_phys, epoch);
+}
+
 bool tdma_runtime_owner_get_origin_first_record(tdma_origin_first_record_t *snapshot)
 {
     return s_tdma_runtime_owner_initialized &&

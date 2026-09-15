@@ -1,9 +1,9 @@
-/* Core1/SyncDpllFB alone owns this sparse reference cache and matcher. It
- * consumes Core0-decoded feedback and TDMA-owned normalized raw references;
- * it never reads DMA/PIO, parses wire data, or updates a control/DCO model. */
+/* The sole Core0 RefMem task owns the sparse cache and matcher. Core1 only
+ * publishes/retires a small authorization; no cache or peer state is shared
+ * for mutation. This prepares diagnostics, never a control/DCO update. */
 #define VDC_FEEDBACK_MATCH_MAX_AGE_MS 120u
 typedef struct {
-    uint32_t config, role, schedule, clock_epoch, clock_run, local, nodes;
+    uint32_t config, role, schedule, clock_epoch, clock_run, local, nodes, reference_epoch;
 } vdc_feedback_match_binding_t;
 typedef struct {
     vdc_feedback_match_peer_t peer;
@@ -15,6 +15,12 @@ static vdc_feedback_match_binding_t s_feedback_match_binding;
 static vdc_feedback_match_source_t s_feedback_matches[PROJECT_NODE_CAPACITY];
 static uint32_t s_feedback_match_cursor, s_feedback_match_insert_count, s_feedback_match_reject_count;
 static uint32_t s_feedback_match_active_generation;
+static uint32_t s_feedback_match_preparation_generation; /* Core0 private. */
+/* Core1 alone writes these words. Zero token revokes authorization; every
+ * reauthorization uses a fresh token, including an identical binding. */
+static uint32_t s_feedback_match_owner_words[sizeof(vdc_feedback_match_binding_t) / 4u];
+static uint32_t s_feedback_match_owner_token;
+static uint32_t s_feedback_match_owner_serial;
 _Static_assert(sizeof(vdc_dpll_manager_feedback_match_status_t) % 4u == 0u, "atomic match words");
 
 static uint32_t match_inc(uint32_t value) { return value == UINT32_MAX ? value : value + 1u; }
@@ -39,20 +45,22 @@ static void match_publish(vdc_feedback_match_source_t *source,
     (void)__atomic_add_fetch(&source->guard, 1u, __ATOMIC_RELEASE);
 }
 
-/* Keep these additions in XIP: inlining into the RAM-resident service can
- * advance the aligned BSS start by an entire page on this target. */
+/* Keep authorization in XIP: inlining into the RAM-resident service can
+ * advance the aligned BSS start by an entire page on this target. Core1
+ * retirement never mutates a cache/peer that Core0 may be preparing. */
 static __attribute__((noinline)) void vdc_dpll_manager_feedback_match_retire(void)
 {
-    if (s_feedback_match_cache.reference_epoch) vdc_feedback_match_cache_retire(&s_feedback_match_cache);
-    __atomic_store_n(&s_feedback_match_active_generation, 0u, __ATOMIC_RELEASE);
-    s_feedback_match_binding = (vdc_feedback_match_binding_t){0};
+    __atomic_store_n(&s_feedback_match_owner_token, 0u, __ATOMIC_RELEASE);
 }
 
 static __attribute__((noinline)) void vdc_dpll_manager_feedback_match_service(void)
 {
     tdma_ring_clock_snapshot_t ring;
-    if (s_vdc_tdma_service == NULL ||
-        !tdma_ring_runtime_get_clock_snapshot(&s_vdc_tdma_service->ring_runtime, &ring)) return;
+    if (s_vdc_tdma_service == NULL) {
+        vdc_dpll_manager_feedback_match_retire();
+        return;
+    }
+    if (!tdma_ring_runtime_get_clock_snapshot(&s_vdc_tdma_service->ring_runtime, &ring)) return;
     const vdc_dpll_control_profile_t *role = &s_vdc_domain.control.profile;
     const bool admitted = ring.enabled && ring.data_enabled && ring.adapter_started &&
         ring.config_seq && ring.config_seq == ring.applied_config_seq &&
@@ -61,20 +69,70 @@ static __attribute__((noinline)) void vdc_dpll_manager_feedback_match_service(vo
         role->valid == 1u && role->mode == VDC_DPLL_CONTROL_MODE_MASTER && role->generation &&
         ring.local_slot_id == s_vdc_domain.schedule.local_slot_id &&
         ring.schedule_crc32 == s_vdc_domain.schedule.schedule_crc32;
-    const vdc_feedback_match_binding_t binding = admitted ? (vdc_feedback_match_binding_t){
+    if (!admitted) {
+        vdc_dpll_manager_feedback_match_retire();
+        return;
+    }
+    uint32_t reference_epoch;
+    if (!tdma_runtime_owner_get_origin_reference_epoch(&reference_epoch)) return;
+    if (!reference_epoch) {
+        vdc_dpll_manager_feedback_match_retire();
+        return;
+    }
+    const vdc_feedback_match_binding_t binding = {
         .config = ring.config_seq, .role = role->generation, .schedule = ring.schedule_crc32,
         .clock_epoch = s_vdc_domain.clock.epoch_id, .clock_run = s_vdc_domain.clock.run_id,
-        .local = ring.local_slot_id, .nodes = ring.node_count} : (vdc_feedback_match_binding_t){0};
-    if (memcmp(&binding, &s_feedback_match_binding, sizeof(binding)) != 0) {
+        .local = ring.local_slot_id, .nodes = ring.node_count, .reference_epoch = reference_epoch};
+    vdc_feedback_match_binding_t previous;
+    match_load_words(s_feedback_match_owner_words, &previous, sizeof(previous));
+    if (__atomic_load_n(&s_feedback_match_owner_token, __ATOMIC_RELAXED) &&
+        memcmp(&binding, &previous, sizeof(binding)) == 0) return;
+    /* The acq_rel exchange orders payload writes after revocation. Readers
+     * accept only identical nonzero tokens around their bounded word copy. */
+    (void)__atomic_exchange_n(&s_feedback_match_owner_token, 0u, __ATOMIC_ACQ_REL);
+    if (s_feedback_match_owner_serial == UINT32_MAX) return;
+    for (size_t i = 0; i < sizeof(binding) / 4u; ++i) {
+        uint32_t word;
+        memcpy(&word, (const uint8_t *)&binding + i * 4u, 4u);
+        __atomic_store_n(s_feedback_match_owner_words + i, word, __ATOMIC_RELAXED);
+    }
+    __atomic_store_n(&s_feedback_match_owner_token, ++s_feedback_match_owner_serial, __ATOMIC_RELEASE);
+}
+
+/* One bounded authorization copy. Never consult Core1's mutable domain
+ * context from this Core0 path. The token also covers pending-role retire. */
+static uint32_t match_owner_binding(vdc_feedback_match_binding_t *binding)
+{
+    const uint32_t token = __atomic_load_n(&s_feedback_match_owner_token, __ATOMIC_ACQUIRE);
+    if (!token) return 0u;
+    match_load_words(s_feedback_match_owner_words, binding, sizeof(*binding));
+    __atomic_thread_fence(__ATOMIC_ACQ_REL);
+    return token == __atomic_load_n(&s_feedback_match_owner_token, __ATOMIC_ACQUIRE) ? token : 0u;
+}
+
+void vdc_dpll_manager_feedback_prepare_core0(void)
+{
+    vdc_feedback_match_binding_t binding;
+    const uint32_t token = match_owner_binding(&binding);
+    tdma_ring_clock_snapshot_t ring;
+    if (!token || s_vdc_tdma_service == NULL ||
+        !tdma_ring_runtime_get_clock_snapshot(&s_vdc_tdma_service->ring_runtime, &ring)) return;
+    if (!ring.enabled || !ring.data_enabled || !ring.adapter_started ||
+        ring.config_seq != binding.config || ring.applied_config_seq != binding.config ||
+        ring.local_slot_id != binding.local || ring.reference_slot_id != binding.local ||
+        ring.node_count != binding.nodes || ring.schedule_crc32 != binding.schedule) return;
+    if (token != s_feedback_match_preparation_generation ||
+        memcmp(&binding, &s_feedback_match_binding, sizeof(binding)) != 0) {
         vdc_feedback_match_cache_retire(&s_feedback_match_cache);
         __atomic_store_n(&s_feedback_match_active_generation, 0u, __ATOMIC_RELEASE);
         s_feedback_match_binding = binding;
+        s_feedback_match_preparation_generation = token;
         for (uint32_t i = 0; i < PROJECT_NODE_CAPACITY; ++i) s_feedback_matches[i].consumed = 0u;
     }
-    if (!admitted) return;
 
     tdma_origin_raw_reference_t ref;
     if (tdma_runtime_owner_get_origin_raw_reference(&ref)) {
+        if (ref.epoch != binding.reference_epoch) return;
         const uint32_t old_version = s_feedback_match_cache.latest_published_version;
         const uint32_t old_generation = s_feedback_match_cache.generation;
         if (vdc_feedback_match_cache_bind(&s_feedback_match_cache, ref.epoch, ref.tick_hz) &&
@@ -108,6 +166,7 @@ static __attribute__((noinline)) void vdc_dpll_manager_feedback_match_service(vo
     status.ring_config_seq = binding.config; status.role_generation = binding.role;
     status.schedule_crc32 = binding.schedule; status.clock_epoch_id = binding.clock_epoch;
     status.clock_run_id = binding.clock_run; status.receive_count = rx.receive_count;
+    status.preparation_generation = token;
     status.cache_insert_count = s_feedback_match_insert_count;
     status.cache_reject_count = s_feedback_match_reject_count;
     status.cache_latest_sequence = s_feedback_match_cache.latest_sequence;
@@ -154,6 +213,13 @@ static __attribute__((noinline)) void vdc_dpll_manager_feedback_match_service(vo
             status.active = 0u;
         } else if (result != VDC_FEEDBACK_MATCH_DUPLICATE) status.invalid_count = match_inc(status.invalid_count);
     }
+    /* A paused Core0 worker may finish after STOP or a role transition. Its
+     * result can remain as history, but cannot acquire the new authorization.
+     * The getter repeats this check after publication as well. */
+    uint32_t current_reference_epoch;
+    if (!tdma_runtime_owner_get_origin_reference_epoch(&current_reference_epoch) ||
+        current_reference_epoch != binding.reference_epoch ||
+        token != __atomic_load_n(&s_feedback_match_owner_token, __ATOMIC_ACQUIRE)) status.active = 0u;
     match_publish(source, &status);
 }
 
@@ -183,11 +249,17 @@ bool vdc_dpll_manager_get_feedback_match(uint32_t slot,
         vdc.control_profile.valid == 1u && vdc.control_profile.mode == VDC_DPLL_CONTROL_MODE_MASTER &&
         vdc.control_profile.generation == result.role_generation &&
         vdc.clock_epoch_id == result.clock_epoch_id && vdc.clock_run_id == result.clock_run_id;
-    result.active = current && result.active && result.result.has_pair &&
+    const uint32_t token = __atomic_load_n(&s_feedback_match_owner_token, __ATOMIC_ACQUIRE);
+    result.active = current && token && result.preparation_generation == token &&
+        result.active && result.result.has_pair &&
         result.result.reference_generation ==
             __atomic_load_n(&s_feedback_match_active_generation, __ATOMIC_ACQUIRE);
     __atomic_thread_fence(__ATOMIC_ACQ_REL);
     if (guard != __atomic_load_n(&source->guard, __ATOMIC_ACQUIRE)) return false;
+    uint32_t reference_epoch;
+    if (!tdma_runtime_owner_get_origin_reference_epoch(&reference_epoch) || !reference_epoch ||
+        reference_epoch != result.result.reference_epoch ||
+        token != __atomic_load_n(&s_feedback_match_owner_token, __ATOMIC_ACQUIRE)) result.active = 0u;
     *out = result;
     return true;
 }

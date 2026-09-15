@@ -2983,6 +2983,7 @@ void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_fb_service)(void)
      * Apply it before any role/follower early return so every node can enter
      * QUICK_DIAGNOSTIC even when its DPLL role is already FOLLOWER. */
     if (vdc_dpll_manager_apply_pending_debug_continue()) {
+        vdc_dpll_manager_feedback_match_retire();
         vdc_dpll_manager_publish_runtime_snapshot_locked();
         return;
     }

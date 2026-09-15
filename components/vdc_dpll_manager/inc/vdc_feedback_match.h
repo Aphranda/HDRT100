@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* Pure Core1-owned diagnostic matching. No MMIO, wire parsing, CRC, dynamic
+/* Pure single-owner diagnostic matching. No MMIO, wire parsing, CRC, dynamic
  * memory, controller or DCO application. All calls require one serialized
  * owner; cross-core snapshot publication belongs to the caller. */
 #define VDC_FEEDBACK_MATCH_CAPACITY 128u

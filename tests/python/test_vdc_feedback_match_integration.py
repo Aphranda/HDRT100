@@ -1,4 +1,4 @@
-"""Execute Core1 matcher service with real cache, matching and public structs."""
+"""Execute Core1 authorization and Core0 preparation with real matching state."""
 import subprocess
 
 import pytest
@@ -23,22 +23,27 @@ static tdma_ring_clock_snapshot_t ring;
 static tdma_origin_raw_reference_t reference;
 static distributed_refmem_vdc_feedback_rx_snapshot_t feedback[PROJECT_NODE_CAPACITY];
 static bool ring_available=true,reference_available=true,feedback_available=true,clock_available=true;
+static bool epoch_available=true,reference_active=true;
 static unsigned ring_calls,reference_calls,feedback_calls,clock_calls;
 static uint32_t requested_slot,*race_guard;
 static uint64_t now_ticks;
+static unsigned interleave_point,interleave_action;
+static void interleave(unsigned point);
 bool tdma_ring_runtime_get_clock_snapshot(const tdma_ring_runtime_t *r,tdma_ring_clock_snapshot_t *out)
 { assert(r==&owner.ring_runtime);++ring_calls;*out=ring;return ring_available; }
 bool vdc_dpll_manager_get_refmem_snapshot(vdc_dpll_manager_refmem_snapshot_t *out)
 { memset(out,0,sizeof(*out));out->control_profile=s_vdc_domain.control.profile;out->schedule=s_vdc_domain.schedule;
   out->clock_epoch_id=s_vdc_domain.clock.epoch_id;out->clock_run_id=s_vdc_domain.clock.run_id;return true; }
 static bool tdma_runtime_owner_get_origin_raw_reference(tdma_origin_raw_reference_t *out)
-{ ++reference_calls;*out=reference;return reference_available; }
+{ ++reference_calls;*out=reference;interleave(1);return reference_available; }
+static bool tdma_runtime_owner_get_origin_reference_epoch(uint32_t *out)
+{ if(!epoch_available)return false;*out=reference_active?reference.epoch:0;return true; }
 bool distributed_refmem_copy_vdc_feedback_rx(uint32_t slot,distributed_refmem_vdc_feedback_rx_snapshot_t *out)
-{ ++feedback_calls;requested_slot=slot;assert(slot<PROJECT_NODE_CAPACITY);*out=feedback[slot];return feedback_available; }
+{ ++feedback_calls;requested_slot=slot;assert(slot<PROJECT_NODE_CAPACITY);*out=feedback[slot];interleave(2);return feedback_available; }
 static bool vdc_timestamp_clock_try_read_ticks64(uint32_t expected,uint64_t *out)
-{ ++clock_calls;assert(expected==250000000u);*out=now_ticks;return clock_available; }
+{ ++clock_calls;assert(expected==250000000u);*out=now_ticks;interleave(3);return clock_available; }
 static void controlled_fence(int order)
-{ __atomic_thread_fence(order);if(race_guard)*race_guard+=2; }
+{ __atomic_thread_fence(order);if(race_guard)*race_guard+=2;interleave(4); }
 #define __atomic_thread_fence controlled_fence
 ''' + (ROOT / "components/vdc_dpll_manager/src/vdc_dpll_feedback_match.inc").read_text(encoding="utf-8") + r'''
 #undef __atomic_thread_fence
@@ -61,12 +66,37 @@ static void setup(void)
             .source_clock_run_id=22,.observer_epoch=23,.measurement_sequence=10,.tick_hz=250000000,
             .rx_elapsed_cycles=100000000}};
 }
-static void service(void)
+static void core1_tick(bool retire)
 {
     const unsigned old_ref=reference_calls,old_rx=feedback_calls;
-    vdc_dpll_manager_feedback_match_service();
+    const unsigned old_clock=clock_calls;
+    const vdc_feedback_match_cache_t saved_cache=s_feedback_match_cache;
+    vdc_feedback_match_source_t saved_sources[PROJECT_NODE_CAPACITY];
+    memcpy(saved_sources,s_feedback_matches,sizeof(saved_sources));
+    const uint32_t cursor=s_feedback_match_cursor,insert=s_feedback_match_insert_count,reject=s_feedback_match_reject_count;
+    const uint32_t active=s_feedback_match_active_generation;
+    if(retire)vdc_dpll_manager_feedback_match_retire();
+    else vdc_dpll_manager_feedback_match_service();
+    assert(reference_calls==old_ref && feedback_calls==old_rx && clock_calls==old_clock);
+    assert(!memcmp(&saved_cache,&s_feedback_match_cache,sizeof(saved_cache)));
+    assert(!memcmp(saved_sources,s_feedback_matches,sizeof(saved_sources)));
+    assert(cursor==s_feedback_match_cursor && insert==s_feedback_match_insert_count && reject==s_feedback_match_reject_count);
+    assert(active==s_feedback_match_active_generation);
+}
+static void interleave(unsigned point)
+{
+    if(point!=interleave_point || !interleave_action)return;
+    unsigned action=interleave_action;interleave_action=0;interleave_point=0;
+    core1_tick(true);
+    if(action==2)core1_tick(false);
+}
+static void prepare(void)
+{
+    const unsigned old_ref=reference_calls,old_rx=feedback_calls;
+    vdc_dpll_manager_feedback_prepare_core0();
     assert(reference_calls-old_ref<=1 && feedback_calls-old_rx<=1);
 }
+static void service(void) { core1_tick(false);prepare(); }
 static void roundtrip(void) { for(unsigned i=0;i<4;i++)service(); }
 static void next(void)
 {
@@ -89,7 +119,65 @@ static void establish(void)
 int main(int argc,char **argv)
 {
     assert(argc==2);const char *mode=argv[1];setup();
-    if(!strcmp(mode,"bounded")) {
+    if(!strcmp(mode,"token_exhaustion")) {
+        s_feedback_match_owner_serial=UINT32_MAX-1;
+        establish();assert(s_feedback_match_owner_token==UINT32_MAX);
+        core1_tick(false);assert(status(1).active && s_feedback_match_owner_token==UINT32_MAX);
+        const vdc_dpll_manager_feedback_match_status_t before=status(1);
+        core1_tick(true);core1_tick(false);
+        assert(!s_feedback_match_owner_token && s_feedback_match_owner_serial==UINT32_MAX);
+        for(unsigned i=0;i<8;i++)service();
+        const vdc_dpll_manager_feedback_match_status_t after=status(1);
+        assert(!after.active && after.preparation_generation==before.preparation_generation);
+        assert(!memcmp(&before.result,&after.result,sizeof(before.result)));
+    } else if(!strcmp(mode,"reference_epoch_busy")) {
+        establish();const uint32_t token=s_feedback_match_owner_token;
+        const vdc_dpll_manager_feedback_match_status_t before=status(1);
+        epoch_available=false;core1_tick(false);
+        assert(s_feedback_match_owner_token==token && !status(1).active);
+        epoch_available=true;assert(status(1).active && s_feedback_match_owner_token==token);
+        assert(status(1).match_count==before.match_count);
+    } else if(!strcmp(mode,"reference_inactive_authorization")) {
+        reference_active=false;roundtrip();
+        assert(!s_feedback_match_owner_token && !reference_calls && !feedback_calls && !clock_calls);
+        reference_active=true;establish();
+    } else if(!strcmp(mode,"no_authorization")) {
+        for(unsigned i=0;i<4;i++)prepare();
+        assert(!reference_calls && !feedback_calls && !clock_calls && !status(1).active);
+        core1_tick(false);assert(!reference_calls && !feedback_calls && !clock_calls);
+        for(unsigned i=0;i<4;i++)prepare();
+        assert(status(1).baseline_count==1);
+    } else if(!strcmp(mode,"core1_only")) {
+        establish();const vdc_dpll_manager_feedback_match_status_t before=status(1);
+        next();for(unsigned i=0;i<8;i++)core1_tick(false);
+        assert(status(1).match_count==before.match_count && s_feedback_match_cache.latest_sequence==11);
+        for(unsigned i=0;i<4;i++)prepare();
+        assert(status(1).match_count==before.match_count+1);
+    } else if(!strcmp(mode,"paused_core0")) {
+        establish();const vdc_dpll_manager_feedback_match_status_t before=status(1);
+        core1_tick(true);assert(!status(1).active);
+        core1_tick(false);assert(!status(1).active);
+        const vdc_dpll_manager_feedback_match_status_t inactive=status(1);
+        assert(!memcmp(&before.result,&inactive.result,sizeof(before.result)));
+        for(unsigned i=0;i<4;i++)prepare();
+        assert(!status(1).active && status(1).baseline_count==before.baseline_count+1);
+        assert(status(1).preparation_generation!=before.preparation_generation);
+        next();for(unsigned i=0;i<4;i++)prepare();assert(status(1).active);
+    } else if(!strncmp(mode,"worker_race_",12)) {
+        unsigned point,action;assert(sscanf(mode,"worker_race_%u_%u",&point,&action)==2);
+        establish();const vdc_dpll_manager_feedback_match_status_t before=status(1);
+        next();core1_tick(false);prepare(); // local-source quota turn
+        interleave_point=point;interleave_action=action;prepare();
+        assert(!interleave_action && !status(1).active);
+        if(action==1)core1_tick(false);
+        assert(!status(1).active);
+        for(unsigned i=0;i<4;i++)prepare();
+        assert(!status(1).active && status(1).preparation_generation!=before.preparation_generation);
+        const uint32_t count=status(1).match_count;
+        next();for(unsigned i=0;i<4;i++)prepare();
+        assert(status(1).active && status(1).match_count==count+1);
+        assert(status(1).result.pairs[0].measurement_sequence==12 && status(1).result.pairs[1].measurement_sequence==13);
+    } else if(!strcmp(mode,"bounded")) {
         service();assert(reference_calls==1 && feedback_calls==0);
         service();assert(reference_calls==2 && feedback_calls==1 && requested_slot==1);
         service();assert(reference_calls==3 && feedback_calls==2 && requested_slot==2);
@@ -134,7 +222,7 @@ int main(int argc,char **argv)
         next();roundtrip();assert(status(1).active && status(1).result.reference_generation!=generation);
     } else if(!strcmp(mode,"retire_hook")) {
         establish();const vdc_feedback_match_snapshot_t before=status(1).result;
-        vdc_dpll_manager_feedback_match_retire();
+        core1_tick(true);
         const vdc_dpll_manager_feedback_match_status_t after=status(1);
         assert(!after.active && !memcmp(&before,&after.result,sizeof(before)));
         reference_available=false;roundtrip();assert(!status(1).active);
@@ -194,6 +282,8 @@ int main(int argc,char **argv)
         else if(!strcmp(mode,"getter_binding_role"))s_vdc_domain.control.profile.mode=VDC_DPLL_CONTROL_MODE_FOLLOWER;
         else if(!strcmp(mode,"getter_binding_nodes"))ring.node_count=PROJECT_NODE_CAPACITY+1;
         else if(!strcmp(mode,"getter_binding_config"))ring.config_seq++;
+        else if(!strcmp(mode,"getter_binding_reference_epoch"))reference.epoch++;
+        else if(!strcmp(mode,"getter_binding_reference_inactive"))reference_active=false;
         else assert(!"unknown getter binding");
         const vdc_dpll_manager_feedback_match_status_t after=status(1);
         assert(!after.active && !memcmp(&before,&after.result,sizeof(before)));
@@ -213,14 +303,18 @@ int main(int argc,char **argv)
 
 
 @pytest.mark.parametrize("case", [
+    "no_authorization", "core1_only", "paused_core0", "token_exhaustion",
+    "reference_epoch_busy", "reference_inactive_authorization",
     "bounded", "exact", "miss", "no_cache", "age", "age_wide", "age_wide_boundary", "future", "busy", "retire", "retire_hook",
     "cancel_data", "cancel_role", "cancel_config", "cancel_generation", "cancel_epoch", "cancel_run",
     "cancel_reference_epoch", "wrong_binding", "getter",
     "getter_binding_reference", "getter_binding_schedule_local", "getter_binding_schedule_crc",
     "getter_binding_data", "getter_binding_role",
     "getter_binding_nodes", "getter_binding_config",
+    "getter_binding_reference_epoch", "getter_binding_reference_inactive",
 ] + [f"namespace_{kind}_{stale}_{restore}" for kind in range(4) for stale in range(2) for restore in range(2)]
-  + [f"namespace_4_{stale}_1" for stale in range(2)])
+  + [f"namespace_4_{stale}_1" for stale in range(2)]
+  + [f"worker_race_{point}_{action}" for point in range(1,5) for action in range(1,3)])
 def test_match_integration(matcher_executable, case):
     result = subprocess.run([str(matcher_executable), case], capture_output=True, text=True, timeout=5)
     assert result.returncode == 0, result.stdout + result.stderr

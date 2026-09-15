@@ -22,6 +22,7 @@ static void tdma_pio_spi_phys_origin_first_reset(tdma_pio_spi_phys_t *phys,
     const uint32_t guard = __atomic_load_n(&phys->flight_origin_record_guard, __ATOMIC_RELAXED);
     __atomic_store_n(&phys->flight_origin_record_guard, guard + 1u, __ATOMIC_RELEASE);
     __dmb();
+    phys->flight_origin_live.active = 0u;
     __atomic_store_n(&phys->flight_origin_first_readable_epoch, 0u, __ATOMIC_RELAXED);
     memset(&phys->flight_origin_first_record, 0, sizeof(phys->flight_origin_first_record));
     __atomic_store_n(&phys->flight_origin_first_expected_sequence, expected_sequence, __ATOMIC_RELAXED);
@@ -820,6 +821,8 @@ static void tdma_pio_spi_phys_origin_collect_live(tdma_pio_spi_phys_t *phys)
     __dmb();
     if (valid) {
         live->sample = sample;
+        live->latch_sm = phys->flight_resources.tx_clock_latch_sm;
+        live->csn_pin = phys->tx_csn_pin;
         live->retained = 1u;
         live->active = 1u;
         if (live->copy_count != UINT32_MAX) ++live->copy_count;
@@ -892,12 +895,36 @@ bool tdma_pio_spi_phys_origin_grant_tx(void *context, tdma_overlay_prepare_t *jo
 bool tdma_pio_spi_phys_origin_get_raw_reference(const tdma_pio_spi_phys_t *phys,
     tdma_origin_raw_reference_t *out)
 {
+    if (phys == NULL || out == NULL) return false;
+    const uint32_t guard = __atomic_load_n(&phys->flight_origin_record_guard, __ATOMIC_ACQUIRE);
+    if ((guard & 1u) != 0u) return false;
     tdma_origin_live_snapshot_t live;
-    return phys != NULL && out != NULL &&
-        tdma_pio_spi_phys_origin_get_live_snapshot(phys, &live) &&
-        live.sample.epoch == phys->flight_origin_record_epoch &&
-        tdma_origin_raw_reference(&live, phys->flight_resources.tx_clock_latch_sm,
-            phys->tx_csn_pin, out);
+    tdma_origin_raw_reference_t candidate;
+    if (!tdma_pio_spi_phys_origin_get_live_snapshot(phys, &live) ||
+        !tdma_origin_raw_reference(&live, live.latch_sm, live.csn_pin, &candidate)) return false;
+    /* Core0 interprets only Core1's retained SRAM publication. Revalidate
+     * across the clock checks and arithmetic as STOP/re-ARM can retire it
+     * after the inner copy. Do not read current phys epoch, pins or SM here. */
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    if (guard != __atomic_load_n(&phys->flight_origin_record_guard, __ATOMIC_ACQUIRE)) return false;
+    *out = candidate;
+    return true;
+}
+
+bool tdma_pio_spi_phys_origin_get_reference_epoch(const tdma_pio_spi_phys_t *phys,
+    uint32_t *epoch)
+{
+    if (phys == NULL || epoch == NULL) return false;
+    const uint32_t guard = __atomic_load_n(&phys->flight_origin_record_guard, __ATOMIC_ACQUIRE);
+    if ((guard & 1u) != 0u) return false;
+    const uint32_t active = __atomic_load_n(&phys->flight_origin_live.active, __ATOMIC_RELAXED);
+    const uint32_t retained = __atomic_load_n(&phys->flight_origin_live.retained, __ATOMIC_RELAXED);
+    const uint32_t sample_epoch = __atomic_load_n(&phys->flight_origin_live.sample.epoch, __ATOMIC_RELAXED);
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    if (guard != __atomic_load_n(&phys->flight_origin_record_guard, __ATOMIC_ACQUIRE) ||
+        active > 1u || retained > 1u || (active != 0u && (retained == 0u || sample_epoch == 0u))) return false;
+    *epoch = active != 0u ? sample_epoch : 0u;
+    return true;
 }
 
 bool tdma_pio_spi_phys_origin_commit_tx(void *context, tdma_overlay_prepare_t *job, uint32_t *generation)

@@ -99,13 +99,17 @@ typedef struct {
 
 /* Core1's retained copy of a completed cyclic record. active is retired by
  * STOP/persona change; historical bytes and counters remain available. This
- * is raw timing evidence, not a qualified timestamp or a DCO model. */
+ * is raw timing evidence, not a qualified timestamp or a DCO model. The
+ * interpretation pins/SM and sample epoch share the same publication guard;
+ * readers must never substitute resources from a later physical persona. */
 typedef struct {
     uint32_t retained;
     uint32_t active;
     uint32_t copy_count;
     uint32_t reject_count;
     tdma_origin_record_frozen_t sample;
+    uint32_t latch_sm;
+    uint32_t csn_pin;
 } tdma_origin_live_snapshot_t;
 
 /* Arithmetic coordinates from the captured enable bracket and latch count.

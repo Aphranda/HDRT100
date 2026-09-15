@@ -2948,6 +2948,10 @@ void distributed_refmem_service(void)
     if (ota_ao_is_active()) {
         return;
     }
+    /* The sole RefMem task prepares at most one reference/peer outside the
+     * critical section and before any RX drain/borrow window. Core1 owns
+     * authorization and eventual control, not this cache or arithmetic. */
+    vdc_dpll_manager_feedback_prepare_core0();
     s_vdc_command_context_ready = distributed_refmem_refresh_vdc_command_context();
     if (s_vdc_command_context_ready) {
         distributed_refmem_vdc_follower_rx_service();

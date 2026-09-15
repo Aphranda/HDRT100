@@ -77,6 +77,10 @@ bool tdma_runtime_owner_get_origin_frozen_record(uint32_t age,
 /* Bounded copy of Core1-retained running observations; never reads live DMA.
  * STOP leaves diagnostic history available, with active cleared. */
 bool tdma_runtime_owner_get_origin_live_snapshot(tdma_origin_live_snapshot_t *snapshot);
+/* One guarded SRAM-only permission read, without TIMER/PIO/DMA access.
+ * True with zero confirms inactive; false preserves output on contention or
+ * unavailable/inconsistent owner state. A nonzero epoch is not time validity. */
+bool tdma_runtime_owner_get_origin_reference_epoch(uint32_t *epoch);
 /* Diagnostic arithmetic coordinates only; never qualifies an edge timestamp. */
 bool tdma_runtime_owner_get_origin_raw_reference(tdma_origin_raw_reference_t *snapshot);
 /* Core0 diagnostic copy of the one-shot first archive, while active or STOPPED.
