@@ -80,7 +80,70 @@ P3，详见 `VDC-PROGRESS-20260915-026`；后续非法目标位移修复和完�
 `VDC-PROGRESS-20260915-033`；本地 ring 配置绑定与命令取消见
 `VDC-PROGRESS-20260915-034`；固定校准配置复测与示波器诊断链路见
 `VDC-PROGRESS-20260915-035`；普通循环边界和事件观察器分段计时见
-`VDC-PROGRESS-20260915-036`。
+`VDC-PROGRESS-20260915-036`；transport CRC 等价优化及同槽对照见
+`VDC-PROGRESS-20260915-037`。
+
+### VDC-PROGRESS-20260915-037 — transport CRC 等价优化与同槽四板对照
+
+- TODO task ID：`VDC-SCHED-001`、`VDC-VERIFY-001`；状态 IN PROGRESS。
+  036 已提交为 `385a9ff` / `cb3cff5`，本轮只优化
+  `tdma_transport_crc32_update()`：用反射多项式的半字节表替换逐位循环，保持
+  任意初值、增量结果、取反约定，以及全部 identity/transport 校验调用、字节
+  范围和拒绝顺序。不可变表与单一内核放 SRAM，不借用 DMA 或增加跨核可变状态。
+  命令运输、PIO、调度预算、配置和 OTA 实现均未改变。
+- 软件：实际生产内核对全部单字节、初值各位、空输入、非对齐、不同长度及分块
+  连续计算进行多项式/zlib 差分；29 项 Python 回归通过，完整 transport 与
+  adapter C suite 通过。release 双槽构建和 Flash 链接检查通过。
+- 资源快照，非容量契约：初次 `noinline` 构建仍生成常量长度克隆，内核占
+  356 B，BSS 对齐导致主 RAM 末端增加 4096 B；该构建未部署，日志保留。
+  增加 `noclone` 后最终内核为 56 B、SCRATCH_Y 常量表为 64 B；内核利用已有
+  BSS 对齐间隙，主 RAM 末端与 036 相同。SCRATCH_Y 到启动栈底剩 536 B，
+  BSS 末端到 HeapLimit 的范围为 18740 B，不等同 RTOS 实时空闲堆。
+- 当前源码四板 P3：`tdma-crc-r1/p3/` 耗时 177.459 s，
+  `passed/flow_completed/strict_gates_passed=true`、诊断失败为空；四板 OTA、
+  校准与普通 process-image 闭环通过。源码 SHA 为
+  `91c29728498960a5841b3fa9c07b24bd25f8f36e85c49a613ae5fdb3db53b949`，
+  包 SHA 为 `7901b4020c2ab08e7963ff8f9bc2b3d6395551b8f0dca35fb0f7e99cd79b936c`。
+  双槽 ELF/map/反汇编及包已固化，不能按复用的 build ID 区分代码。
+- 对照控制：保留 036 原始 profile，并在改代码前补测一次；为了让新 P3 部署后
+  回到同一应用槽，先用既有 OTA 重装一次冻结的原固件到另一槽，四板通过，耗时
+  104.031 s（本轮比较准备，不计入新 P3 耗时）。新源码 P3 使用本轮校准矩阵，
+  其后的比较采集显式恢复固定的旧 matrix、row35 和板序；前后槽位读回均为
+  NO1/NO2/NO3 槽 2、NO4 槽 1。两轮新采集仍采用 START 后 RESET、SRAM 记录、
+  全部 STOP 后导出和 SAVE，每轮约 16 s，四板闭环均通过。
+- 下表为同配置、同槽位下主板短窗测量快照，非 WCET 上界。完整峰值均来自
+  普通 CYCLE_BOUNDARY 到 RUNNING，选中序号非 RESET 首相位：
+
+  本次板端快照中 TDMA 预算为 850 µs、整表周期为 1.5 ms，取自静态调度快照；
+  本切片未修改 `app_realtime_profile.c`，不表示已经达到先前的 500 µs 目标。
+
+  | 轮次 | 完整 OTHER 峰值 µs | 稳定采样段 TDMA overrun/run | deadline 增量 |
+  |---|---:|---:|---:|
+  | 036 原固件 | 1014.576 | 139/832 | 101 |
+  | 本轮原固件补测 | 1014.480 | 100/832 | 92 |
+  | CRC 优化 r1 | 775.940 | 0/667 | 0 |
+  | CRC 优化 r2 | 787.224 | 0/835 | 0 |
+
+- 原两轮主板合计 239/1664 次超限，新两轮为 0/1502，支持保留本切片。
+  新 r1 更早通过 startup，稳定采样段短于其余轮次，因此保留实际分母，未当作
+  相同长度采样；整个 profile 和稳定采样段也是不同窗口。所选完整峰值中的
+  TX 子阶段不构成所有 TX 尝试的最大值，不能据其差值认定 CRC 独占多少时间。
+- 从板仍有超限：新两轮稳定段合计 NO2 为 18/1503、NO3 为 23/1504、NO4 为
+  18/1505。新 r1 的 NO2/NO3 OTHER 峰值属于 STOP 过渡，分别保留为
+  1007.176/961.396 µs，不与旧普通运行峰值拼接比较。未关闭身份检查或观察器，
+  未宣称整张静态表、长期 WCET、所有从板预算或原先较短预算达成。
+- 证据：`out/HardwareAcceptance/20260915/tdma-crc-r1/` 保存源码范围、构建发现、
+  P3、固化包、profile 分解和独立审核；`tdma-crc-before-r1/`、
+  `tdma-crc-after-r1/`、`tdma-crc-after-r2/` 保存固定配置原件，与 036 的
+  `tdma-detail-profile-r1/` 对照。native binary 的 CRC/身份/完整记录与归档
+  JSON 一致，各轮 SAVE 确认 SAVED；最终四板 STOP/config ACK、selftest 全零，
+  无新电气关闭采集或 SD 字节对比。未新增契约登记或提升 DPLL lock。
+- 下一 gate：主板短窗收益已复现，继续 `VDC-SCHED-001` 的从板事件 FEED 热点。
+  优先评估无额外持久 RAM 的计数回绕 lift 等价快路径，保持多回绕歧义、边界、
+  错误原因及整批故障退休；独立软件/P3 后再比较。只读模型和 SRAM 放置评估在
+  `tdma-opt-candidates-r1/event-placement.json`，不代表候选已实现或有硬件收益。
+  完成时序与时间输入后继续共同 session、命令接收/应用和实际四板锁相；示波器
+  沿用 NO1/CH1 触发配置，当前未用本轮 TDMA 数据替代输出锁相证明。
 
 ### VDC-PROGRESS-20260915-036 — 普通发帧与从板事件服务耗时归因
 
