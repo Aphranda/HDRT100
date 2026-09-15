@@ -54,6 +54,7 @@ EXTRA_FIXTURE = r'''
 #include "tdma_rx_capture.h"
 #include "tdma_rx_sequence.h"
 #include "tdma_transport_frame.h"
+#include "tdma_service_timing.h"
 static uint64_t s_tdma_pio_spi_rx_capture_id;
 static tdma_event_batch_t s_tdma_event_batch;
 static tdma_event_record_t s_tdma_event_records[TDMA_EVENT_MAX_RECORDS];

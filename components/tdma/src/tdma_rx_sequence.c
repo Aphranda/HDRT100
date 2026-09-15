@@ -2,6 +2,13 @@
 
 #include <stddef.h>
 
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#include "pico.h"
+#define TDMA_RX_COUNTER_RAM __not_in_flash("tdma_rx_counter") __attribute__((noinline, noclone))
+#else
+#define TDMA_RX_COUNTER_RAM
+#endif
+
 bool tdma_rx_dma_counter_reset(tdma_rx_dma_counter_t *counter,
                                uint32_t physical_frame_words, uint64_t now_ticks)
 {
@@ -14,7 +21,7 @@ bool tdma_rx_dma_counter_reset(tdma_rx_dma_counter_t *counter,
     return true;
 }
 
-bool tdma_rx_dma_counter_observe(tdma_rx_dma_counter_t *counter,
+bool TDMA_RX_COUNTER_RAM tdma_rx_dma_counter_observe(tdma_rx_dma_counter_t *counter,
                                  uint32_t remaining_words,
                                  uint64_t before_ticks,
                                  uint64_t after_ticks,

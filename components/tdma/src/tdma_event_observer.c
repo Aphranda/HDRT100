@@ -3,6 +3,13 @@
 #include <limits.h>
 #include <string.h>
 
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#include "pico.h"
+#define TDMA_EVENT_FEED_RAM __not_in_flash("tdma_event_feed") __attribute__((noinline, noclone))
+#else
+#define TDMA_EVENT_FEED_RAM
+#endif
+
 #define TDMA_EVENT_WRAP_PERIOD UINT64_C(8589934593)
 
 static bool interval_valid(tdma_event_interval_t interval)
@@ -186,7 +193,7 @@ static tdma_event_reason_t lift_sample(tdma_event_observer_t *observer,
     return TDMA_EVENT_OK;
 }
 
-size_t tdma_event_observer_feed(tdma_event_observer_t *observer,
+size_t TDMA_EVENT_FEED_RAM tdma_event_observer_feed(tdma_event_observer_t *observer,
                                 const tdma_event_batch_t *batch,
                                 tdma_event_record_t out[TDMA_EVENT_MAX_RECORDS])
 {

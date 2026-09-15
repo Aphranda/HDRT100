@@ -136,6 +136,12 @@ static uint64_t s_tdma_event_arm_epoch;
 static bool s_tdma_event_waiting;
 
 /* RX_START_CUT_STORAGE_BEGIN: independent of the general event snapshot. */
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#define TDMA_START_CUT_RAM __not_in_flash("tdma_start_cut") __attribute__((noinline, noclone))
+#else
+#define TDMA_START_CUT_RAM
+#endif
+
 static tdma_rx_start_cut_t s_tdma_rx_start_cut;
 static tdma_rx_start_cut_t s_tdma_rx_start_cut_slots[2];
 static uint32_t s_tdma_rx_start_cut_guard;
@@ -322,7 +328,7 @@ static void tdma_rx_start_cut_after(tdma_pio_spi_phys_t *phys,
     tdma_rx_start_cut_publish();
 }
 
-static void tdma_rx_start_cut_monitor(tdma_pio_spi_phys_t *phys)
+static void TDMA_START_CUT_RAM tdma_rx_start_cut_monitor(tdma_pio_spi_phys_t *phys)
 {
     const tdma_rx_start_cut_t *cut = &s_tdma_rx_start_cut;
     if ((cut->flags & TDMA_RX_START_CUT_RECORDED) == 0u ||
