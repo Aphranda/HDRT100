@@ -25,6 +25,10 @@ Last updated: 2026-09-15
 执行顺序与任务状态统一见 `VDC_DOMAIN_TODO.md` 的“分阶段执行清单”和任务依赖表；
 本文仅追加每个切片已经发生的验证、失败和下一 gate，不复制第二份迁移顺序。
 
+当前执行依赖按 `VDC-PROGRESS-20260915-049` 纠偏：首帧三项归 TDMA 后续精细优化，
+不阻塞 DPLL；接下来直接定位有效时间输入并收敛单次坏样本跳过。此前各记录的
+“下一 gate”保留历史含义，不再将首帧可用或全窗无错作为当前锁相前置。
+
 `VDC-RESOURCE-001` 当前编译容量的 compact RX 资源切片已闭合，有限采集的 STOP 后
 交接通过当前源码四板 quick P3 验证，见下方 `VDC-PROGRESS-20260914-006`。
 自主 origin 补测发现时间输入尚未接通，见 `VDC-PROGRESS-20260914-007`；事件与资源
@@ -3842,3 +3846,14 @@ P3，详见 `VDC-PROGRESS-20260915-026`；后续非法目标位移修复和完�
 - 时序快照（非 WCET 契约）：正向完整相位 peak 为 NO1 715.648 µs、三从 918.316/932.768/990.988 µs；NO1 包含 STOP 清理，三从为数据处理相位。baseline 至末样本的 TDMA overrun 增量为 0/45/30/44，deadline miss 为 0/31/17/27。当前 `app_realtime_profile.c` 对应预算的全相位门禁仍 FAIL；该入口检查不改变预算，也不证明总体提速，不隔离仍健康的 TDMA 节点。
 - 证据目录：`out/HardwareAcceptance/20260915/physical-frame-identity-r1/`，入口为 `event-core-handoff.json`、`software-summary-main-r1.json`、`implementation-independent-review-r1.json`、`hardware-independent-observations-r1.json`、`start-gate-self-test-r3.json`、`start-gate-positive-r1.json`、`start-gate-cancel-r1.json`、`audit-main-r1.json`、`p3-r2/acceptance.json` 及各原始目录。代码提交 `30b5335`。
 - 下一 gate：按 `physical-identity-next-evidence.json` 优先闭合实际 origin 唯一发车/首描述符与首档、首 CS 完整时钟数、capture/sequence/control 同位采样及无丢样，再合成首窗口不跨 CS 拼接证明。实际分频的周期量化和跨板同步相位必须计入；已有固定周期模型不能直接推广。之后依次验收 TIME-003 完整自主窗口、TIME-004 正式输入、真实更新调度/角色、命令运输和共同时间定时应用、FLL/PI 与质量、示波器输出锁相及恢复长稳；长期目标保持 active。
+
+### VDC-PROGRESS-20260915-049 — 首帧优化退出锁相前置，有效样本驱动推进
+
+- TODO task ID：`VDC-TIME-002/003/004`、`VDC-SAMPLE-001`；旁路任务为 `TDMA-REFINE-001/002/003`；日期：2026-09-15。本记录只关闭执行方案收敛，不关闭正式时间输入、调度、命令运输或实际锁相。
+- 用户明确：启动首帧可以不可用，稳定传输后开始 DPLL；飞行数据已可流转，错误帧丢弃只减少更新机会，不直接干扰锁定。因此首发/首档对应、精细采样与首窗口不跨 CS 的三项完整证明归 TDMA 后续优化，均不作为 DPLL 推进前置。新增 `VDC_STABLE_INPUT_PLAN.md`，调整 TODO 依赖，保留已有代码及全部首帧成功/失败原件。
+- 待实现语义为：任意合格稳态样本可以建立当前代际时间锚；偶发坏帧、缺帧、重复和旧样本跳过本次更新，保持积分、有效时间锚和可信 DCO，不要求连续无错固定样本数。收到旧代际数据与当前基准实际换代分开；持续缺失按年龄与保持误差处理，不能把过去锁定状态永久当作当前精度保证。下一有效更新核对真实时间间隔，Ki 步长与完整 HOLDOVER 分开切片。
+- 只读源端审计原件位于 `out/HardwareAcceptance/20260915/first-frame-coordinate-r1/`：`origin-n1-proof.json` 保留实际 builder/PIO/记录顺序的局部因果结果；旧 repository 测试夹具缺 retirement seam 的失败仍保留，仅 out 副本补 seam 后的运行通过，不称为仓库原测试已通过。`capture-stall-lifetime-review.json` 只证明所观察 capture 生命周期内无对应 stall，不证明精度或完整物理身份。`origin-stable-window-reuse.json` 中连续无错窗口及 loss 立即撤销的早期建议由 `dpll-valid-sample-semantics-addendum.json` 和用户最新指令覆盖，不扩展为新门禁。
+- 四板已有数据流转可直接复用：上一正向原件的 baseline 至末样本有效 RX 均增长，三从候选查询均匹配；这些事实不等于正式时间输入已接通。源码 `tdma_pio_spi_phys_origin_rx()` 自主时间戳仍为零，原始时间记录只供诊断。此前 P3 明确为 `SKIPPED_TDMA_ONLY`，尚无本轮 DPLL 输入阶段计数或 trace 实测结论。
+- 实际控制差距已定位到 `vdc_domain_reject_requires_reacquire()`：多数输入拒绝会走 `vdc_domain_reset_lock_acquisition()`，清积分与频率锚；现有无新输入/重复输入返回已可复用。FLL 使用有效锚间隔，Ki 仍消费静态 `servo.update_period_us`；保持年龄字段存在不证明超时 HOLDOVER 迁移已实现。这些是下一可归因功能切片，不能用放行无效时间戳替代修复。
+- 本方案按项目 collaboration/doc-self-regression 流程验证，独立审查确认首帧不阻塞、无连续 K 门禁、旧样本与实际换代区分及 HAOFV owner 边界。纯文档不构建/刷机或重跑 P3；文档门禁结果存入 `out/doc-audit/20260915-dpll-stable-input-r1/`，本记录不追认旧硬件失败，不冻结新契约。
+- 下一 gate：用现有四板板端 trace 和 observer 阶段计数测量自主有效输入；TDMA native 从启动留证，DPLL trace 在计划自主阶段触发以免 bootstrap 填满。全板 STOP ACK 后顺序保存及读回，用计数增量与实际覆盖判断输入卡点，不将 STOP 后的 INACTIVE 当作 RUN 拒绝。`VDC-SAMPLE-001` 单独修复坏样本跳过，每个实际功能变化立即完成 host、当前源码构建、四板 P3 和专项，再返回时间输入及示波器锁相主线；长期目标保持 active。

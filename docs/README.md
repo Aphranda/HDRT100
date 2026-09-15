@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/README.md`
 Related: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-09-14
+Last updated: 2026-09-15
 
 本文档是 `docs/` 的总入口。新文档的命名、层级、元数据和迁移规则以
 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
@@ -171,6 +171,7 @@ docs/
 | `vdc/VDC_DOMAIN_ARCHITECTURE.md` | VDC 内部主域架构，定义共同时间、DPLL、timestamp、HOLDOVER 和质量门禁。 |
 | `vdc/VDC_DOMAIN_TODO.md` | VDC 内部主域待办，跟踪数据契约、DPLL、RefMem 映射、组件化和验证。 |
 | `vdc/VDC_COMMAND_TRANSPORT_PLAN.md` | VDC 定时命令与共同时间传输待审方案，含原函数反例、固定邮箱候选及资源/负测门禁。 |
+| `vdc/VDC_STABLE_INPUT_PLAN.md` | VDC 稳定时间输入与丢样本处理方案；首帧优化退出锁相前置，有效样本驱动更新。 |
 | `vdc/VDC_TASK_PROGRESS.md` | VDC 内部主域任务进度。 |
 | `vdc/VDC_DOMAIN_RISK_REVIEW.md` | VDC/DPLL 主域风险评审，记录共同时间、DPLL、硬实时 capture/fire 和文档漂移风险。 |
 | `communication/README.md` | 通信域 README。 |
