@@ -268,6 +268,7 @@ typedef struct {
     uint32_t vdc_command_transport_schedule_crc32;
     uint32_t vdc_command_transport_epoch_id;
     uint32_t vdc_command_transport_run_id;
+    uint32_t vdc_command_rx_admission_epoch;
     uint8_t vdc_command_record[sizeof(refmem_sync_vdc_command_payload_t)];
     refmem_sync_vdc_fragment_context_t vdc_command_fragments;
 #endif
@@ -1213,6 +1214,20 @@ static void distributed_refmem_tdma_flight_sync_receive(
                     (mailbox[5] & (1u << ring->local_slot_id)) == 0u) {
                     continue;
                 }
+#if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
+                /* Role/session refresh cancels command fragments which began
+                 * FIFO publication under an older admission. Ordinary RefMem
+                 * mailboxes in this same view must still be consumed. */
+                if (mailbox[3] == TDMA_PROCESS_IMAGE_VDC_COMMAND_MESSAGE_CLASS &&
+                    (s_tdma_flight_sync.vdc_command_rx_admission_epoch == 0u ||
+                     view.admission_epoch !=
+                         s_tdma_flight_sync.vdc_command_rx_admission_epoch)) {
+                    s_tdma_flight_sync.vdc_command_fragment_reject_count++;
+                    refmem_sync_vdc_fragment_reset(
+                        &s_tdma_flight_sync.vdc_command_fragments);
+                    continue;
+                }
+#endif
                 distributed_refmem_tdma_flight_parse_mailbox(
                     mailbox,
                     DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE);
@@ -3893,6 +3908,22 @@ static bool distributed_refmem_refresh_vdc_command_context_from_snapshot(
         s_vdc_command_context_epoch_id != epoch_id ||
         s_vdc_command_context_run_id != run_id ||
         s_vdc_command_context_schedule_epoch != schedule_epoch;
+    const bool consumer_changed = s_vdc_command_context.consumer_generation !=
+                                  snapshot->control_profile.generation;
+#if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
+    if (identity_changed || consumer_changed ||
+        s_tdma_flight_sync.vdc_command_rx_admission_epoch == 0u) {
+        refmem_sync_vdc_fragment_reset(&s_tdma_flight_sync.vdc_command_fragments);
+        s_tdma_flight_sync.vdc_command_rx_admission_epoch =
+            tdma_service_core0_advance_flight_rx_admission_epoch(
+                tdma_runtime_owner_get());
+        if (s_tdma_flight_sync.vdc_command_rx_admission_epoch == 0u) {
+            return false;
+        }
+    }
+#else
+    (void)consumer_changed;
+#endif
     if (identity_changed &&
         !refmem_sync_vdc_reset(&s_vdc_command_context,
                               local_slot,
@@ -3900,19 +3931,10 @@ static bool distributed_refmem_refresh_vdc_command_context_from_snapshot(
                               run_id)) {
         return false;
     }
-    const bool consumer_changed = s_vdc_command_context.consumer_generation !=
-                                  snapshot->control_profile.generation;
     if (!refmem_sync_vdc_set_consumer_generation(
             &s_vdc_command_context, snapshot->control_profile.generation)) {
         return false;
     }
-#if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
-    if (identity_changed || consumer_changed) {
-        refmem_sync_vdc_fragment_reset(&s_tdma_flight_sync.vdc_command_fragments);
-    }
-#else
-    (void)consumer_changed;
-#endif
     s_vdc_command_context_local_slot = local_slot;
     s_vdc_command_context_epoch_id = epoch_id;
     s_vdc_command_context_run_id = run_id;

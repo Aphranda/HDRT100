@@ -1932,6 +1932,14 @@ bool tdma_service_publish_flight_tx(tdma_service_service_t *service,
                                              segment_mask);
 }
 
+uint32_t tdma_service_core0_advance_flight_rx_admission_epoch(
+    tdma_service_service_t *service)
+{
+    return service != NULL
+        ? tdma_flight_fifo_core0_advance_rx_admission_epoch(&service->flight_fifo)
+        : 0u;
+}
+
 bool tdma_service_acquire_flight_rx(tdma_service_service_t *service,
                                     tdma_flight_rx_view_t *view)
 {

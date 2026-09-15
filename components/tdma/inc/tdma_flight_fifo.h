@@ -44,6 +44,9 @@ typedef struct {
     uint32_t quality_flags;
     const uint8_t *data;
     uint32_t slot_index;
+    /* Local consumer boundary captured before the producer copies the RX
+     * payload. Independent of transport generation/sequence and wire time. */
+    uint32_t admission_epoch;
 } tdma_flight_rx_view_t;
 
 typedef struct {
@@ -81,6 +84,7 @@ typedef struct {
     volatile uint32_t sequence;
     volatile uint32_t segment_mask;
     volatile uint32_t data_size;
+    volatile uint32_t admission_epoch;
     volatile uint64_t timestamp_ns;
     volatile uint32_t quality_flags;
     uint8_t data[TDMA_FLIGHT_PAYLOAD_CAPACITY];
@@ -101,6 +105,8 @@ typedef struct {
     volatile uint32_t tx_tail;
     volatile uint32_t rx_head;
     volatile uint32_t rx_tail;
+    /* Core0 RX consumer task is the only online writer. */
+    volatile uint32_t rx_admission_epoch;
     volatile uint32_t tx_active_slot;
     volatile uint32_t tx_active_generation;
     volatile uint32_t tx_publish_count;
@@ -119,8 +125,16 @@ typedef struct {
 bool tdma_flight_fifo_init(tdma_flight_fifo_t *fifo);
 /* Reclaim all queue entries while preserving lifetime diagnostic counters.
  * The caller owns the session boundary and must ensure that core1 is stopped
- * and that no core0 FIFO operation is in progress. */
+ * and that no core0 FIFO operation or acquired view is in use. The consumer
+ * admission epoch is preserved; this is not a command/session cancellation. */
 bool tdma_flight_fifo_reset_stopped(tdma_flight_fifo_t *fifo);
+/* Core0 RX consumer task only (RefMem in the product; not SCPI): advance a
+ * local admission boundary without dropping queued data. Zero means no grant
+ * (null FIFO or exhausted epoch); epochs never wrap/reuse within this cold
+ * FIFO lifetime. Only cold init, before concurrent use, restarts the namespace.
+ * Consumers filter selected payload classes by view.admission_epoch. This
+ * does not fence upstream DMA/station work or records retransmitted later. */
+uint32_t tdma_flight_fifo_core0_advance_rx_admission_epoch(tdma_flight_fifo_t *fifo);
 bool tdma_flight_fifo_core0_publish_tx(tdma_flight_fifo_t *fifo,
                                        const uint8_t *data,
                                        size_t data_size,

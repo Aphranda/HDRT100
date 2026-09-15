@@ -69,6 +69,7 @@ bool tdma_flight_fifo_reset_stopped(tdma_flight_fifo_t *fifo)
         tdma_flight_store_u32(&fifo->rx_slots[i].sequence, 0u);
         tdma_flight_store_u32(&fifo->rx_slots[i].segment_mask, 0u);
         tdma_flight_store_u32(&fifo->rx_slots[i].data_size, 0u);
+        tdma_flight_store_u32(&fifo->rx_slots[i].admission_epoch, 0u);
         __atomic_store_n(&fifo->rx_slots[i].timestamp_ns,
                          0ull,
                          __ATOMIC_RELEASE);
@@ -83,6 +84,20 @@ bool tdma_flight_fifo_reset_stopped(tdma_flight_fifo_t *fifo)
     tdma_flight_store_u32(&fifo->tx_active_slot,
                           TDMA_FLIGHT_NO_ACTIVE_SLOT);
     return true;
+}
+
+uint32_t tdma_flight_fifo_core0_advance_rx_admission_epoch(tdma_flight_fifo_t *fifo)
+{
+    if (fifo == NULL) {
+        return 0u;
+    }
+    const uint32_t current = tdma_flight_load_u32(&fifo->rx_admission_epoch);
+    if (current == UINT32_MAX) {
+        return 0u;
+    }
+    const uint32_t next = current + 1u;
+    tdma_flight_store_u32(&fifo->rx_admission_epoch, next);
+    return next;
 }
 
 static int32_t tdma_flight_find_tx_inactive_slot(tdma_flight_fifo_t *fifo)
@@ -289,6 +304,10 @@ bool tdma_flight_fifo_core1_publish_rx(tdma_flight_fifo_t *fifo,
         return false;
     }
 
+    /* Snapshot before payload copy. A consumer rebind during publication must
+     * not relabel this already admitted input with the new epoch. */
+    const uint32_t admission_epoch =
+        tdma_flight_load_u32(&fifo->rx_admission_epoch);
     const uint32_t head = tdma_flight_load_u32(&fifo->rx_head);
     const uint32_t tail = tdma_flight_load_u32(&fifo->rx_tail);
     if (tdma_flight_ring_full(head,
@@ -317,6 +336,7 @@ bool tdma_flight_fifo_core1_publish_rx(tdma_flight_fifo_t *fifo,
     slot->segment_mask = segment_mask;
     slot->timestamp_ns = timestamp_ns;
     slot->quality_flags = quality_flags;
+    slot->admission_epoch = admission_epoch;
 
     const uint32_t ring_index = head % TDMA_FLIGHT_RX_FRAME_SLOT_COUNT;
     fifo->rx_ring[ring_index].slot_index = (uint32_t)slot_index;
@@ -372,6 +392,7 @@ bool tdma_flight_fifo_core0_acquire_rx(tdma_flight_fifo_t *fifo,
     view->data_size = tdma_flight_load_u32(&slot->data_size);
     view->timestamp_ns = __atomic_load_n(&slot->timestamp_ns, __ATOMIC_ACQUIRE);
     view->quality_flags = tdma_flight_load_u32(&slot->quality_flags);
+    view->admission_epoch = tdma_flight_load_u32(&slot->admission_epoch);
     view->data = slot->data;
     view->slot_index = slot_index;
     tdma_flight_counter_inc(&fifo->rx_acquire_count);
