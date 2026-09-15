@@ -40,11 +40,17 @@ Last updated: 2026-09-15
   跨核 reset 生命周期已经闭合。payload 尺寸和分片数量只由
   `sizeof(refmem_sync_vdc_command_payload_t)`、`REFMEM_SYNC_VDC_FRAGMENT_COUNT`
   和 mailbox layout symbols 决定。
-- 命令发布与复制已使用 `vdc_command_guard` 和 `refmem_sync_vdc_copy_command()`；
-  忙或撕裂时复制有界失败。当前 context identity refresh/reset 仍可由两个 core 的
-  路径触达，`refmem_sync_vdc_init()` 清零尚未闭合唯一写者与 reset guard，不能将
-  普通稳定复制的通过解释为全部生命周期符合 HAOFV。重新启用前必须补齐这项边界，
-  并验证 STOP/ARM、角色、epoch/run、schedule CRC 和 control generation 的取消。
+- 命令发布与复制使用 `vdc_command_guard` 和 `refmem_sync_vdc_copy_command()`；
+  忙或撕裂时复制有界失败。`VDC-PROGRESS-20260915-030` 将接收 context 的刷新和
+  退休收敛到 Core0 RefMem 任务，Core1 与 SCPI 任务不再直接清空；在线
+  `refmem_sync_vdc_reset()` 保留发布序列，清空及身份更新都在 guard 内完成，
+  `refmem_sync_vdc_init()` 只供并发读取开始前冷初始化。RefMem 快照读取失败时
+  暂停命令准入，普通 flight 服务继续。Core1 在消费序号前独立拒绝 epoch/run
+  错配，并在本地会话变化时重置序号水位。该切片不证明全部生命周期已闭合：
+  同会话角色/来源 A→B→A、远端 control generation 重启以及 schedule/STOP 取消
+  仍需端到端负测；本地 role generation 与远端 command generation 不能直接比较。
+  `vdc_domain_publish_clock_model()` 任意换会话后的 Domain history 退休也未验收，
+  manager 测试中的 Domain 应用 stub 不能代替该证据。
 - resident master 在一条记录的全部片段发完前保持记录不可变；完成后重复发送当前
   记录，直到新的 DPLL update。FOLLOWER 只接受配置的主机 source；计数器分别记录
   fragment RX、complete、reject、command accept 和最后 command sequence。

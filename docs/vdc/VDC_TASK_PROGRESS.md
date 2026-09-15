@@ -73,7 +73,46 @@ Last updated: 2026-09-15
 P3，详见 `VDC-PROGRESS-20260915-026`；后续非法目标位移修复和完整 resident 编译
 隔离分别见 `VDC-PROGRESS-20260915-027/028`。每项功能修改后立即 P3；基础流程的
 复核不改变上述时间输入、命令应用和正式锁相的未完成状态。隔离验收中重复出现的
-粗校准配置拒绝及准备流程有界恢复见 `VDC-PROGRESS-20260915-029`。
+粗校准配置拒绝及准备流程有界恢复见 `VDC-PROGRESS-20260915-029`；命令区任务写者
+与在线 reset/读交错修复见 `VDC-PROGRESS-20260915-030`。
+
+### VDC-PROGRESS-20260915-030 — 命令区唯一写者与在线 reset 一致性
+
+- TODO task ID：`VDC-CMD-002`、`VDC-CMD-003`、`VDC-VERIFY-001`；状态 IN PROGRESS。
+  普通四板基线已分离提交为 `d01c824`（代码）和 `9f62d1e`（文档）；本切片继续
+  保持 `DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED` 默认关闭。
+- 原因与收益：原接收区可由 Core1 及 Core0 的 SCPI/RefMem 不同任务触达，在线
+  调用冷 `init` 还会归零 guard。真实 reader copy 中途 reset 再发布的反例接受了
+  旧 command sequence 与新 phase 的混合副本。这是可复现的数据一致性缺陷，
+  有修复价值，不通过隔离命令运输而将其永久搁置。
+- 修复：仅 Core0 RefMem 任务刷新/退休命令区，service 入口先取得可信身份再
+  接收；Core1 和 SCPI 不再直接清空。snapshot 失败只暂停命令准入，普通 flight
+  继续。在线 `refmem_sync_vdc_reset()` 在原 guard 内清空并更新身份，保留发布
+  序列；忙标记后增加写屏障。Core1 在序号消费前拒绝旧 epoch/run，并在会话变化
+  时重置本地序号水位；未更改 wire、OTA 或 DCO 使能。
+- 软件证据：`out/HardwareAcceptance/20260915/command-lifecycle-r1/` 保存旧源文件、
+  当前源码副本、diff、编译命令、失败/成功原件和独立审查。以下为本轮快照，非事实源：
+  旧实现反例产生 `seq=11, phase=-22` 后断言失败，修复后交错/身份/回绕测试通过；
+  host runner 38/38 通过，生产 manager/service 函数体测试 20 passed。首次 host
+  运行曾因临时 CRC 链接缺失 `portable_ota_port.h` 失败；测试改用既有 CRC fixture
+  后完整重跑通过，旧失败另存 `host-unit-r1-failure.log`。
+- 构建与边界：默认 release 双应用/Boot 构建及 flash link 通过，启用 command
+  的 RefMem 分支另做 ARM compile-only 验证且未部署；最终独立只读审查未发现本
+  切片阻断项。双应用 link map 与 `target-symbols.json` 保留新增会话水位及 reset/
+  copy 的实际地址和符号尺寸，不从单个符号推算总 RAM 变化。Python 测试使用真实
+  时间映射，但 Domain actuator 是观测 stub，
+  只证明 manager 的准入及应用尝试，不能证明真实 DCO 或完整 Domain 换会话行为。
+- 硬件结果：独立执行 `p3_hardware_acceptance.py run --tdma-only`，当前源码指纹为
+  `43fe95f0777f4b97fa58f35f7391c8f8a4537874c2c06b7347dff2aca4ec28b6`，build
+  `20260915022619`。`p3/acceptance.json` 与 `diagnostic.json` 的严格门禁均通过，
+  失败列表为空；四板短帧 closed-loop/realtime 通过，四板全部 STOP 后交接原生记录。
+  以下为本轮快照，非事实源：预算计时 194.015 s，每板 14 条样本且 missed=0。
+  `review-final.json` 复核当前源码/凭证指纹、20 项原件散列、记录 build/身份和 STOP
+  代际 ACK；本轮固件包另存切片目录。通过范围是默认命令禁用态的四板 P3。
+- 下一 gate：`VDC-CMD-002/003` 继续保留同会话角色/来源 A→B→A、远端 generation
+  重启、`vdc_domain_publish_clock_model()` 任意换会话后的 Domain history 退休、
+  schedule 与完整 STOP 取消；payload 版本、共同 session 和交付上界仍是启用前置。
+  不将本切片提升为命令启用态、三从应用或正式锁相完成。
 
 ### VDC-PROGRESS-20260915-029 — 粗校准 STOP 后配置拒绝的有界恢复
 
