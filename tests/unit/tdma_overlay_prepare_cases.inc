@@ -224,7 +224,11 @@ static int test_overlay_runtime_sizes(void)
 static int test_origin_prepare_worker(void)
 {
     int failed = 0;
+    const uint8_t classes[] = {TDMA_PROCESS_IMAGE_MESSAGE_CLASS,
+        TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS,
+        TDMA_PROCESS_IMAGE_VDC_COMMAND_MESSAGE_CLASS, 0x13u};
     for (uint32_t nodes = 4u; nodes <= 6u; ++nodes) {
+        for (uint32_t kind = 0u; kind < sizeof(classes); ++kind) {
         for (uint32_t fault = 0u; fault <= 8u; ++fault) {
             tdma_overlay_prepare_t job = {0};
             const uint32_t slot = nodes - 1u, packet_size = TDMA_TRANSPORT_FRAME_HEADER_SIZE + nodes * 32u + 4u;
@@ -235,6 +239,11 @@ static int test_origin_prepare_worker(void)
             job.tx = (tdma_flight_tx_view_t){.generation = 0x10001u, .sequence = 0x20001u,
                 .segment_mask = 1u << slot, .data_size = sizeof(job.tx_data)};
             fill_test_process_mailbox(job.tx_data, slot, 1u, 0x38u);
+            job.tx_data[3] = classes[kind];
+            const uint16_t class_crc = tdma_process_image_crc16_ccitt(job.tx_data, TDMA_PROCESS_IMAGE_CRC_OFFSET);
+            job.tx_data[TDMA_PROCESS_IMAGE_CRC_OFFSET] = (uint8_t)class_crc;
+            job.tx_data[TDMA_PROCESS_IMAGE_CRC_OFFSET + 1u] = (uint8_t)(class_crc >> 8u);
+            const bool accepted = fault == 0u && kind < 2u;
             if (fault == 1u) job.tx_data[20] ^= 1u;
             if (fault == 2u || fault == 3u) {
                 job.tx_data[fault == 2u ? TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET : TDMA_FLIGHT_MAILBOX_TARGET_MASK_OFFSET] =
@@ -251,10 +260,10 @@ static int test_origin_prepare_worker(void)
             if (fault == 8u) job.kind = UINT32_MAX;
             tdma_overlay_prepare_core0_service(&job);
             failed += expect_u32("origin worker valid or rejected", tdma_overlay_prepare_state(&job),
-                fault == 0u ? TDMA_OVERLAY_PREPARE_READY : TDMA_OVERLAY_PREPARE_FAILED);
+                accepted ? TDMA_OVERLAY_PREPARE_READY : TDMA_OVERLAY_PREPARE_FAILED);
             failed += expect_bool("origin admission requires valid worker result",
-                tdma_overlay_prepare_origin_current(&job, packet_size, slot), fault == 0u);
-            if (fault == 0u) {
+                tdma_overlay_prepare_origin_current(&job, packet_size, slot), accepted);
+            if (accepted) {
                 failed += expect_u32("origin worker bounded accounting", job.applied.output_bytes, TDMA_FLIGHT_SHORT_SLOT_SIZE);
                 failed += expect_bool("origin foreign physical slot rejected", tdma_overlay_prepare_origin_current(&job, packet_size, 0u), false);
                 failed += expect_bool("origin foreign physical size rejected", tdma_overlay_prepare_origin_current(&job, packet_size + 32u, slot), false);
@@ -265,6 +274,7 @@ static int test_origin_prepare_worker(void)
             failed += expect_bool("origin cancellation before claim request", tdma_overlay_prepare_origin_request(&job), true);
             failed += expect_bool("origin cancellation before claim completes", tdma_overlay_prepare_cancel(&job), true);
             failed += expect_bool("origin cancelled request cannot be claimed", tdma_overlay_prepare_core0_claim(&job), false);
+        }
         }
     }
     return failed;

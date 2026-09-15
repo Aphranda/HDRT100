@@ -92,6 +92,10 @@ static bool owner_available = true;
 static void distributed_refmem_vdc_flight_rx_accept(uint32_t slot,
     const uint8_t *mailbox, const tdma_flight_rx_view_t *view)
 { (void)slot; (void)mailbox; (void)view; }
+/* Raw feedback transport has its own production/FIFO integration harness. */
+static void distributed_refmem_feedback_receive(tdma_service_service_t *owner, uint32_t slot,
+    const uint8_t *mailbox, const tdma_flight_rx_view_t *view)
+{ (void)owner; (void)slot; (void)mailbox; (void)view; }
 static tdma_service_service_t *tdma_runtime_owner_get(void)
 { return owner_available ? &s_owner : NULL; }
 static bool tdma_runtime_owner_get_ring_clock_snapshot(tdma_ring_clock_snapshot_t *out)

@@ -44,6 +44,10 @@ bool vdc_dpll_manager_get_refmem_snapshot(vdc_dpll_manager_refmem_snapshot_t *ou
 { *out = profile; return profile_available; }
 static void distributed_refmem_tdma_flight_parse_mailbox(const uint8_t *data, size_t size)
 { assert(data && size == TDMA_FLIGHT_SHORT_SLOT_SIZE); ++ordinary_parse_count; }
+/* Raw feedback has separate production/FIFO integration coverage. */
+static void distributed_refmem_feedback_receive(tdma_service_service_t *service, uint32_t slot,
+    const uint8_t *mailbox, const tdma_flight_rx_view_t *view)
+{ (void)service; (void)slot; (void)mailbox; (void)view; }
 ''' + binding.group(0) + "\n" + state.group(0) + r'''
 static distributed_refmem_tdma_flight_sync_t s_tdma_flight_sync;
 static volatile uint32_t s_vdc_flight_rx_guard;

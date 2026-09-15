@@ -2299,6 +2299,68 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_vdc_flight_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+static void scpi_feedback_record(scpi_t *context, const uint8_t record[64])
+{
+    static const char digits[] = "0123456789abcdef";
+    char encoded[129];
+    for (size_t i = 0; i < 64u; ++i) {
+        encoded[i * 2u] = digits[record[i] >> 4u];
+        encoded[i * 2u + 1u] = digits[record[i] & 15u];
+    }
+    encoded[128] = '\0';
+    SCPI_ResultText(context, encoded);
+}
+
+scpi_result_t scpi_cmd_refmem_vdc_feedback_rx_q(scpi_t *context)
+{
+    uint32_t source;
+    if (!SCPI_ParamUInt32(context, &source, TRUE)) return SCPI_RES_ERR;
+    distributed_refmem_vdc_feedback_rx_snapshot_t s;
+    if (!distributed_refmem_get_vdc_feedback_rx(source, &s)) return SCPI_RES_ERR;
+    SCPI_ResultUInt32(context, s.schema);
+    SCPI_ResultUInt32(context, s.active);
+    SCPI_ResultUInt32(context, s.retained);
+    SCPI_ResultUInt32(context, s.source_slot);
+    SCPI_ResultUInt32(context, s.ring_config_seq);
+    SCPI_ResultUInt32(context, s.role_generation);
+    SCPI_ResultUInt32(context, s.schedule_crc32);
+    SCPI_ResultUInt32(context, s.clock_epoch_id);
+    SCPI_ResultUInt32(context, s.clock_run_id);
+    SCPI_ResultUInt32(context, s.receive_count);
+    SCPI_ResultUInt32(context, s.reject_count);
+    SCPI_ResultUInt32(context, s.duplicate_count);
+    SCPI_ResultUInt32(context, s.timeout_count);
+    SCPI_ResultUInt32(context, s.last_transport_seq);
+    SCPI_ResultUInt32(context, s.first_rx_ms);
+    SCPI_ResultUInt32(context, s.last_rx_ms);
+    scpi_feedback_record(context, s.record);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_vdc_feedback_tx_q(scpi_t *context)
+{
+    distributed_refmem_vdc_feedback_tx_snapshot_t s;
+    if (!distributed_refmem_get_vdc_feedback_tx(&s)) return SCPI_RES_ERR;
+    SCPI_ResultUInt32(context, s.schema);
+    SCPI_ResultUInt32(context, s.active);
+    SCPI_ResultUInt32(context, s.fragment_index);
+    SCPI_ResultUInt32(context, s.fragments_published);
+    SCPI_ResultUInt32(context, s.groups_published);
+    SCPI_ResultUInt32(context, s.cancel_count);
+    SCPI_ResultUInt32(context, s.reject_count);
+    SCPI_ResultUInt32(context, s.history_count);
+    SCPI_ResultUInt32(context, s.ring_config_seq);
+    SCPI_ResultUInt32(context, s.role_generation);
+    SCPI_ResultUInt32(context, s.source_slot);
+    SCPI_ResultUInt32(context, s.target_slot);
+    SCPI_ResultUInt32(context, s.schedule_crc32);
+    SCPI_ResultUInt32(context, s.clock_epoch_id);
+    SCPI_ResultUInt32(context, s.clock_run_id);
+    scpi_feedback_record(context, s.history[0]);
+    scpi_feedback_record(context, s.history[1]);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_refmem_sync_flight_q(scpi_t *context)
 {
     distributed_refmem_tdma_flight_sync_snapshot_t snapshot;

@@ -335,6 +335,30 @@ typedef struct {
 bool distributed_refmem_get_vdc_flight_rx(
     distributed_refmem_vdc_flight_rx_snapshot_t *snapshot);
 
+/* Diagnostic raw feedback only. These records are not DCO commands or
+ * qualified timestamps. Core0 RefMem publishes; readers take bounded copies. */
+typedef struct {
+    uint32_t schema, active, retained, source_slot;
+    uint32_t ring_config_seq, role_generation, schedule_crc32;
+    uint32_t clock_epoch_id, clock_run_id;
+    uint32_t receive_count, reject_count, duplicate_count, timeout_count;
+    uint32_t last_transport_seq, first_rx_ms, last_rx_ms;
+    uint8_t record[64];
+} distributed_refmem_vdc_feedback_rx_snapshot_t;
+
+typedef struct {
+    uint32_t schema, active, fragment_index, fragments_published;
+    uint32_t groups_published, cancel_count, reject_count, history_count;
+    uint32_t ring_config_seq, role_generation, source_slot, target_slot;
+    uint32_t schedule_crc32, clock_epoch_id, clock_run_id;
+    uint8_t history[2][64]; /* Most recently completed FIFO publications first. */
+} distributed_refmem_vdc_feedback_tx_snapshot_t;
+
+bool distributed_refmem_get_vdc_feedback_rx(uint32_t source_slot,
+    distributed_refmem_vdc_feedback_rx_snapshot_t *snapshot);
+bool distributed_refmem_get_vdc_feedback_tx(
+    distributed_refmem_vdc_feedback_tx_snapshot_t *snapshot);
+
 /* Read-only stable copies of the core1-owned VDC/DPLL vector regions.  The
  * aliases intentionally expose the fixed wire payload without exposing the
  * mutable region/seqlock storage itself. */

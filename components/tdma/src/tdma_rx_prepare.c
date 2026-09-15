@@ -78,7 +78,7 @@ static bool tdma_rx_prepare_origin_mailboxes(const tdma_rx_prepare_t *job)
         const uint8_t *p = job->view.payload + slot * TDMA_FLIGHT_SHORT_SLOT_SIZE;
         if (((uint32_t)p[0] | ((uint32_t)p[1] << 8u)) != TDMA_FLIGHT_MAILBOX_MAGIC ||
             p[TDMA_FLIGHT_MAILBOX_VERSION_OFFSET] != TDMA_FLIGHT_MAILBOX_VERSION ||
-            p[3] != TDMA_PROCESS_IMAGE_MESSAGE_CLASS ||
+            !tdma_process_image_transport_class_valid(p[3]) ||
             p[TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET] != slot ||
             (p[TDMA_FLIGHT_MAILBOX_TARGET_MASK_OFFSET] & ~mask) != 0u ||
             tdma_process_image_crc16_ccitt(p, TDMA_PROCESS_IMAGE_CRC_OFFSET) !=

@@ -9,7 +9,7 @@ static bool tdma_pio_spi_ring_origin_mailbox_valid(const uint8_t *mailbox,
     return mailbox != NULL &&
         ((uint32_t)mailbox[0] | ((uint32_t)mailbox[1] << 8u)) == TDMA_FLIGHT_MAILBOX_MAGIC &&
         mailbox[TDMA_FLIGHT_MAILBOX_VERSION_OFFSET] == TDMA_FLIGHT_MAILBOX_VERSION &&
-        mailbox[3] == TDMA_PROCESS_IMAGE_MESSAGE_CLASS &&
+        tdma_process_image_transport_class_valid(mailbox[3]) &&
         mailbox[TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET] == slot &&
         (mailbox[TDMA_FLIGHT_MAILBOX_TARGET_MASK_OFFSET] & ~mask) == 0u &&
         tdma_process_image_crc16_ccitt(mailbox, TDMA_PROCESS_IMAGE_CRC_OFFSET) ==

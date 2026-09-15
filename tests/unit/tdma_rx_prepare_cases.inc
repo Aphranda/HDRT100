@@ -438,6 +438,36 @@ static int test_rx_prepare_origin(void)
     service->service(&adapter, 53u, &status);
     failed += expect_u32("bad mailbox cannot advance origin", adapter.origin.returned.sequence, sequence);
     failed += expect_u32("bad mailbox rejection fact", adapter.origin.rejected_observation_count, 1u);
+    /* Execute the real worker on ordinary and mixed raw-feedback frames.
+     * Transport permits mutable remote bodies; each mailbox remains checked
+     * for class, ownership, runtime target range and its independent CRC. */
+    for (uint32_t kind = 0u; kind < 5u; ++kind) {
+        for (uint32_t fault = 0u; fault < 4u; ++fault) {
+            tdma_rx_prepare_t candidate = {0};
+            memcpy(candidate.packet, p.seed, sizeof(p.seed));
+            candidate.packet_size = sizeof(p.seed);
+            candidate.node_count = config.node_count;
+            candidate.origin_active = true;
+            for (uint32_t slot = 1u; slot < config.node_count; ++slot) {
+                uint8_t *remote = candidate.packet + TDMA_TRANSPORT_FRAME_HEADER_SIZE + slot * TDMA_FLIGHT_SHORT_SLOT_SIZE;
+                if (kind == 2u || (slot == 1u && kind == 1u)) remote[3] = TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS;
+                if (slot == 1u && kind == 3u) remote[3] = TDMA_PROCESS_IMAGE_VDC_COMMAND_MESSAGE_CLASS;
+                if (slot == 1u && kind == 4u) remote[3] = 0x13u;
+                if (slot == 1u && fault == 2u) remote[TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET] = 2u;
+                if (slot == 1u && fault == 3u) remote[TDMA_FLIGHT_MAILBOX_TARGET_MASK_OFFSET] = (uint8_t)(1u << config.node_count);
+                const uint16_t crc = tdma_process_image_crc16_ccitt(remote, TDMA_PROCESS_IMAGE_CRC_OFFSET);
+                remote[TDMA_PROCESS_IMAGE_CRC_OFFSET] = (uint8_t)crc;
+                remote[TDMA_PROCESS_IMAGE_CRC_OFFSET + 1u] = (uint8_t)(crc >> 8u);
+                if (slot == 1u && fault == 1u) remote[10] ^= 1u;
+            }
+            failed += expect_bool("raw feedback RX worker request", tdma_rx_prepare_request(&candidate), true);
+            tdma_rx_prepare_core0_service(&candidate);
+            failed += expect_bool("raw feedback mutation retains transport validity", candidate.decoded, true);
+            failed += expect_bool("raw feedback RX per-mailbox admission", candidate.origin_mailboxes_valid, kind < 3u && fault == 0u);
+            failed += expect_u32("raw feedback RX worker bounded completion", tdma_rx_prepare_state(&candidate), TDMA_RX_PREPARE_READY);
+            tdma_rx_prepare_release(&candidate);
+        }
+    }
     failed += expect_bool("async origin STOP", service->stop(&adapter), true);
     return failed;
 }

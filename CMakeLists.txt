@@ -477,6 +477,7 @@ set(PROJECT_APP_SOURCES
         components/distributed_refmem/src/refmem_spi_physical_adapter.c
         components/distributed_refmem/src/refmem_slot_claim.c
         components/distributed_refmem/src/refmem_sync.c
+        components/distributed_refmem/src/refmem_sync_vdc_feedback.c
         components/distributed_refmem/src/refmem_sync_frame.c
         components/distributed_refmem/src/refmem_sync_hello.c
         components/distributed_refmem/src/refmem_table_registry.c

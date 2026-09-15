@@ -428,6 +428,14 @@ static int test_origin_adapter(void)
         failed += expect_u32("origin real bootstrap boundary", adapter.comm_fsm.state, TDMA_ADAPTER_COMM_STATE_CYCLE_BOUNDARY);
         failed += expect_bool("origin zero budget rejected", tdma_pio_spi_ring_adapter_start_origin(&adapter, 0u, 2u), false);
         const tdma_ring_adapter_status_t bootstrap_status = status;
+        if (scenario == 0u) {
+            /* The completed bootstrap may already carry follower raw feedback. */
+            uint8_t *remote = adapter.last_rx_packet + TDMA_TRANSPORT_FRAME_HEADER_SIZE + TDMA_FLIGHT_SHORT_SLOT_SIZE;
+            remote[3] = TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS;
+            const uint16_t crc = tdma_process_image_crc16_ccitt(remote, TDMA_PROCESS_IMAGE_CRC_OFFSET);
+            remote[TDMA_PROCESS_IMAGE_CRC_OFFSET] = (uint8_t)crc;
+            remote[TDMA_PROCESS_IMAGE_CRC_OFFSET + 1u] = (uint8_t)(crc >> 8u);
+        }
         if (scenario >= 6u) {
             const uint32_t tx_before = p.bootstrap.tx_calls;
             p.admission = scenario == 7u ? TDMA_ORIGIN_ADMISSION_REJECTED : TDMA_ORIGIN_ADMISSION_READY;
@@ -526,7 +534,7 @@ static int test_origin_adapter(void)
             failed += expect_u32("origin one subsequent publication", p.publications, 2u);
             const uint32_t accepted = adapter.origin.observed_return_count;
             const uint32_t rx_head = fifo.rx_head;
-            for (uint32_t bad = 0u; bad < 8u; ++bad) {
+            for (uint32_t bad = 0u; bad < 10u; ++bad) {
                 origin_adapter_enqueue(&p, 12u, 3u);
                 if (bad == 0u) p.observation.sequence++;
                 if (bad == 1u) p.observation.identity ^= 1u;
@@ -536,11 +544,18 @@ static int test_origin_adapter(void)
                 if (bad == 5u) origin_adapter_enqueue(&p, 11u, 3u);
                 if (bad == 6u) p.packet[TDMA_TRANSPORT_FRAME_HEADER_SIZE + TDMA_FLIGHT_SHORT_SLOT_SIZE + 12u] ^= 1u;
                 if (bad == 7u) fill_test_process_mailbox(p.packet + TDMA_TRANSPORT_FRAME_HEADER_SIZE, 0u, 4u, 0x33u);
+                if (bad >= 8u) {
+                    uint8_t *remote = p.packet + TDMA_TRANSPORT_FRAME_HEADER_SIZE + TDMA_FLIGHT_SHORT_SLOT_SIZE;
+                    remote[3] = bad == 8u ? TDMA_PROCESS_IMAGE_VDC_COMMAND_MESSAGE_CLASS : 0x13u;
+                    const uint16_t crc = tdma_process_image_crc16_ccitt(remote, TDMA_PROCESS_IMAGE_CRC_OFFSET);
+                    remote[TDMA_PROCESS_IMAGE_CRC_OFFSET] = (uint8_t)crc;
+                    remote[TDMA_PROCESS_IMAGE_CRC_OFFSET + 1u] = (uint8_t)(crc >> 8u);
+                }
                 failed += expect_bool("origin rejects pair without stopping wire", tdma_pio_spi_ring_adapter_ops()->service(
                     &adapter, 1000003ull + bad, &status), true);
                 p.omit_pair = false;
             }
-            failed += expect_u32("origin bad pair count", adapter.origin.rejected_observation_count, 8u);
+            failed += expect_u32("origin bad pair count", adapter.origin.rejected_observation_count, 10u);
             failed += expect_u32("origin bad pair no accepted progress", adapter.origin.observed_return_count, accepted);
             failed += expect_u32("origin bad pair not published", fifo.rx_head, rx_head);
             p.fault = true;
