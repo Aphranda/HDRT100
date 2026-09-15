@@ -8,16 +8,17 @@ static bool tdma_pio_spi_phys_rx_scan_cancel(tdma_pio_spi_phys_t *phys)
     return tdma_rx_scan_cancel(phys->rx_scan_preparation);
 }
 
-static bool tdma_pio_spi_phys_rx_scan_request(tdma_pio_spi_phys_t *phys,
-    uint64_t produced, uint32_t max_words)
+static bool tdma_pio_spi_phys_rx_scan_request_window(tdma_pio_spi_phys_t *phys,
+    uint64_t produced, uint32_t max_words, uint64_t start, uint32_t count,
+    bool retire_cursor_on_failure)
 {
     tdma_rx_scan_t *job = phys->rx_scan_preparation;
     if (tdma_rx_scan_state(job) != TDMA_RX_SCAN_IDLE) return false;
-    const uint64_t start = s_tdma_pio_spi_rx_scan_produced;
-    if (produced < start || produced - start < TDMA_PIO_SPI_PACKET_HEADER_SIZE ||
-        produced - start > sizeof(job->bytes)) return false;
+    if (produced < start || count < TDMA_PIO_SPI_PACKET_HEADER_SIZE ||
+        count > sizeof(job->bytes) || count > produced - start ||
+        produced - start >= TDMA_PIO_SPI_RX_RING_WORDS) return false;
     job->window_start = start;
-    job->byte_count = (uint32_t)(produced - start);
+    job->byte_count = count;
     job->max_frame_words = max_words;
     job->physical_frame_words = phys->flight_physical_byte_count;
     job->tail_words = phys->flight_tail_bytes;
@@ -35,10 +36,71 @@ static bool tdma_pio_spi_phys_rx_scan_request(tdma_pio_spi_phys_t *phys,
         after < produced || after - start >= TDMA_PIO_SPI_RX_RING_WORDS) {
         tdma_service_timing_rx_drop(TDMA_RX_DROP_DISCOVERY_COPY, 0u);
         phys->snapshot.rx_observation_drop_count++;
-        s_tdma_pio_spi_rx_scan_produced = after >= produced ? after : produced;
+        if (retire_cursor_on_failure)
+            s_tdma_pio_spi_rx_scan_produced = after >= produced ? after : produced;
         return false;
     }
     return tdma_rx_scan_request(job);
+}
+
+static bool tdma_pio_spi_phys_rx_scan_request(tdma_pio_spi_phys_t *phys,
+    uint64_t produced, uint32_t max_words)
+{
+    const uint64_t start = s_tdma_pio_spi_rx_scan_produced;
+    if (produced < start || produced - start > TDMA_RX_SCAN_WINDOW_BYTES) return false;
+    return tdma_pio_spi_phys_rx_scan_request_window(phys, produced, max_words,
+        start, (uint32_t)(produced - start), true);
+}
+
+/* A one-frame hint can keep receiving while decimation skips every adjacent
+ * station delivery. Re-discover two completed neighbours in a private copy;
+ * selecting their predicted location does not grant live alignment. Core0
+ * must still decode both frames. This never moves the ordinary RX cursor. */
+__attribute__((noinline, noclone))
+static bool tdma_pio_spi_phys_rx_scan_refresh(tdma_pio_spi_phys_t *phys,
+    uint64_t produced, uint32_t max_words)
+{
+    const tdma_rx_scan_hint_t *hint = &phys->rx_scan_hint;
+    if (!hint->valid || hint->stable_frames >= TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES ||
+        hint->stride_words != phys->flight_physical_byte_count ||
+        tdma_rx_scan_state(phys->rx_scan_preparation) != TDMA_RX_SCAN_IDLE) return false;
+    const uint64_t count = (uint64_t)hint->stride_words + hint->frame_words + (hint->bit_shift != 0u);
+    if (count > TDMA_RX_SCAN_WINDOW_BYTES || produced < count || hint->stride_words == 0u) return false;
+    const uint64_t limit = produced - count;
+    const uint64_t back = hint->stride_words - 1u;
+    const uint64_t cursor = limit >= back ? limit - back : 0u;
+    uint64_t start;
+    if (!tdma_rx_scan_locate(hint, produced, cursor, &start) || start > limit) return false;
+    (void)tdma_pio_spi_phys_rx_scan_request_window(phys, produced, max_words,
+        start, (uint32_t)count, false);
+    /* Even a rejected copy consumes this call's discovery allowance. */
+    return true;
+}
+
+/* Worker result admission is outside the steady locked receive path. Keep
+ * it in flash, along with training refresh, rather than growing the aligned
+ * DMA workspace's SRAM allocation through cold control-code inlining. */
+__attribute__((noinline, noclone))
+static void tdma_pio_spi_phys_rx_scan_accept_ready(tdma_pio_spi_phys_t *phys,
+    uint32_t max_words, uint64_t observation_epoch)
+{
+    tdma_rx_scan_t *job = phys->rx_scan_preparation;
+    tdma_rx_scan_hint_t *hint = &phys->rx_scan_hint;
+    if (job->request_epoch == job->epoch && job->observation_epoch == observation_epoch &&
+        job->persona == s_tdma_pio_spi_program_persona && job->max_frame_words == max_words &&
+        job->physical_frame_words == phys->flight_physical_byte_count &&
+        job->tail_words == phys->flight_tail_bytes) {
+        if (job->result.valid || !hint->valid) *hint = job->result;
+        if (!job->result.valid) {
+            phys->snapshot.rx_magic_fail_count++;
+            phys->snapshot.rx_scan_yield_count++;
+        }
+    } else {
+        hint->valid = false;
+        tdma_service_timing_rx_drop(TDMA_RX_DROP_STALE_HINT, 0u);
+        phys->snapshot.rx_observation_drop_count++;
+    }
+    tdma_rx_scan_release(job);
 }
 
 /* Format only the already-validated private-copy coordinates. This bounded
@@ -98,23 +160,8 @@ static bool tdma_pio_spi_phys_capture_words_async_ex(tdma_pio_spi_phys_t *phys,
     tdma_rx_scan_t *job = phys->rx_scan_preparation;
     tdma_rx_scan_hint_t *hint = &phys->rx_scan_hint;
     if (hint->observation_epoch != observation_epoch) hint->valid = false;
-    if (tdma_rx_scan_state(job) == TDMA_RX_SCAN_READY) {
-        if (job->request_epoch == job->epoch && job->observation_epoch == observation_epoch &&
-            job->persona == s_tdma_pio_spi_program_persona && job->max_frame_words == max_words &&
-            job->physical_frame_words == phys->flight_physical_byte_count &&
-            job->tail_words == phys->flight_tail_bytes) {
-            *hint = job->result;
-            if (!hint->valid) {
-                phys->snapshot.rx_magic_fail_count++;
-                phys->snapshot.rx_scan_yield_count++;
-            }
-        } else {
-            hint->valid = false;
-            tdma_service_timing_rx_drop(TDMA_RX_DROP_STALE_HINT, 0u);
-            phys->snapshot.rx_observation_drop_count++;
-        }
-        tdma_rx_scan_release(job);
-    }
+    if (tdma_rx_scan_state(job) == TDMA_RX_SCAN_READY)
+        tdma_pio_spi_phys_rx_scan_accept_ready(phys, (uint32_t)max_words, observation_epoch);
     if (produced <= s_tdma_pio_spi_rx_scan_produced) return false;
     if (produced - s_tdma_pio_spi_rx_scan_produced > TDMA_PIO_SPI_RX_RING_WORDS)
         phys->snapshot.rx_ring_overrun_count++;
@@ -129,6 +176,10 @@ static bool tdma_pio_spi_phys_capture_words_async_ex(tdma_pio_spi_phys_t *phys,
         (void)tdma_pio_spi_phys_rx_scan_request(phys, produced, (uint32_t)max_words);
         return false;
     }
+    const bool refresh_attempted = phys->process_image_enabled &&
+        !phys->flight_overlay_alignment_locked &&
+        phys->flight_overlay_alignment_samples < TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES &&
+        tdma_pio_spi_phys_rx_scan_refresh(phys, produced, (uint32_t)max_words);
     uint64_t candidate;
     const uint64_t locate_start = tdma_service_timing_now();
     const bool located = tdma_rx_scan_locate(
@@ -173,7 +224,8 @@ static bool tdma_pio_spi_phys_capture_words_async_ex(tdma_pio_spi_phys_t *phys,
     tdma_service_timing_record(TDMA_TIMING_RX_HEADER_CHECK, header_start);
     if (header_invalid) {
         hint->valid = false;
-        (void)tdma_pio_spi_phys_rx_scan_request(phys, after, (uint32_t)max_words);
+        if (!refresh_attempted)
+            (void)tdma_pio_spi_phys_rx_scan_request(phys, after, (uint32_t)max_words);
         return false;
     }
     s_tdma_pio_spi_rx_scan_produced = candidate + hint->frame_words;

@@ -31,6 +31,9 @@ def build_scanner(directory, asynchronous=False, instrumented=False, physical=Fa
 static void tdma_pio_spi_phys_rx_ring_copy(uint8_t *out, uint64_t p, uint32_t n, uint32_t s) {
     copy_phase = true;
     real_ring_copy(out, p, n, s);
+#ifdef TDMA_TEST_RX_COPY_AFTER
+    TDMA_TEST_RX_COPY_AFTER(p, n, s);
+#endif
 }
 """
     if physical:
@@ -115,6 +118,17 @@ def test_real_scanner_dma_interleavings(scanner, case):
     "persona", "config", "false_magic", "capacity", "private_header"])
 def test_async_discovery_and_live_dma_copy(async_scanner, case):
     result = subprocess.run([str(async_scanner), case], capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout+result.stderr
+
+
+@pytest.mark.parametrize("case", ["refresh_high_rate", "refresh_busy", "refresh_incomplete",
+    "refresh_bad_pair", "refresh_epoch", "refresh_stop", "refresh_copy_recheck",
+    "refresh_retry_bound", "refresh_metadata", "refresh_maximum", "refresh_no_candidate"])
+def test_async_unlocked_training_refresh(async_scanner, case):
+    command = [str(async_scanner), case]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=10)
+    (async_scanner.parent/f"{case}.log").write_text(result.stdout+result.stderr, encoding="utf-8")
+    (async_scanner.parent/f"{case}.json").write_text(json.dumps({"command":command, "returncode":result.returncode}, indent=2), encoding="utf-8")
     assert result.returncode == 0, result.stdout+result.stderr
 
 

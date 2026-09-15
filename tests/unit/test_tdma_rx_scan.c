@@ -1,4 +1,7 @@
 /* Reuse the advancing DMA bus, with the real asynchronous capture routines. */
+#include <stdint.h>
+static void refresh_copy_after(uint64_t start, uint32_t count, uint32_t shift);
+#define TDMA_TEST_RX_COPY_AFTER(start, count, shift) refresh_copy_after(start, count, shift)
 #define main legacy_scanner_main
 #include "test_tdma_rx_observation.c"
 #undef main
@@ -38,6 +41,312 @@ static void request(tdma_pio_spi_phys_t *phys, tdma_rx_scan_t *job)
     phys->rx_scan_preparation=job;
     assert(!tdma_pio_spi_phys_capture_words(phys,TDMA_PIO_SPI_RX_DMA_WORD_MAX,&received));
     assert(received==0 && tdma_rx_scan_state(job)==TDMA_RX_SCAN_REQUESTED);
+}
+
+/* Use the four-node wire size from the failed selected-prelaunch run. The
+ * existing full-capacity fixture spans 301 words and cannot model three
+ * short frames inside a single 1024-word live DMA ring. */
+enum { REFRESH_PACKET_WORDS = 168u, REFRESH_FRAME_WORDS = 173u };
+static unsigned refresh_copy_count, refresh_copy_sizes[4], refresh_fault;
+static uint64_t refresh_copy_starts[4];
+
+static void refresh_copy_after(uint64_t start, uint32_t count, uint32_t shift)
+{
+    (void)shift;
+    if (refresh_copy_count < 4u) {
+        refresh_copy_sizes[refresh_copy_count] = count;
+        refresh_copy_starts[refresh_copy_count] = start;
+    }
+    ++refresh_copy_count;
+    if (refresh_fault == 0u || (count != 341u && count != 342u)) return;
+    if (refresh_fault == 3u) tick += s_tdma_pio_spi_rx_sequence.reload_words;
+    else {
+        const uint64_t after = start + (refresh_fault == 1u ? 1024u : 1023u);
+        assert(after >= completed);
+        tick += after - completed;
+        completed = after;
+        publish_count();
+    }
+    refresh_fault = 0u;
+}
+
+static void refresh_install(uint64_t start, unsigned shift, uint32_t sequence)
+{
+    uint8_t payload[132]; memset(payload, 0x45, sizeof(payload));
+    uint8_t packet[REFRESH_PACKET_WORDS] = {0x54, 0x44};
+    size_t size; tdma_transport_result_t result;
+    const tdma_transport_frame_build_t build = {
+        .frame_class = TDMA_TRANSPORT_FRAME_CLASS_SHORT, .origin_slot_id = 0u,
+        .transport_sequence = sequence, .payload_class = 1u, .flags = 1u,
+        .schedule_crc32 = 0x12345678u, .ring_profile_crc32 = 0x87654321u,
+        .hop_limit = 3u, .payload = payload, .payload_size = sizeof(payload)};
+    assert(tdma_transport_frame_encode(&build, packet + 4u, sizeof(packet) - 4u,
+                                       &size, &result));
+    assert(size + 4u == REFRESH_PACKET_WORDS);
+    packet[2] = (uint8_t)size; packet[3] = (uint8_t)(size >> 8u);
+    for (unsigned i = 0u; i < REFRESH_FRAME_WORDS; ++i) ring[(start + i) & 1023u] = 0u;
+    for (unsigned i = 0u; i < sizeof(packet); ++i) {
+        ring[(start + i) & 1023u] |= packet[i] >> shift;
+        if (shift != 0u) ring[(start + i + 1u) & 1023u] |= (packet[i] << (8u - shift)) & 255u;
+    }
+}
+
+static void refresh_publish(uint64_t produced)
+{
+    assert(produced >= completed);
+    tick += produced - completed;
+    completed = produced;
+    publish_count();
+}
+
+static bool refresh_receive(tdma_pio_spi_phys_t *phys)
+{
+    refresh_copy_count = 0u;
+    size_t received = 0u;
+    const bool ok = tdma_pio_spi_phys_capture_words(phys, TDMA_PIO_SPI_RX_DMA_WORD_MAX, &received);
+    if (ok) {
+        tdma_transport_frame_view_t view; tdma_transport_result_t result;
+        assert(received == REFRESH_PACKET_WORDS);
+        assert(tdma_transport_frame_decode(s_tdma_pio_spi_rx_frame + 4u, received - 4u,
+                                           &view, &result));
+    } else assert(received == 0u);
+    assert(refresh_copy_count <= 2u);
+    for (unsigned i = 0u; i < refresh_copy_count; ++i)
+        assert(refresh_copy_sizes[i] <= TDMA_RX_SCAN_WINDOW_BYTES);
+    return ok;
+}
+
+static tdma_pio_spi_phys_t refresh_setup_variant(tdma_rx_scan_t *job, unsigned shift,
+                                               bool delayed, unsigned bad_second)
+{
+    refresh_fault = refresh_copy_count = 0u;
+    tdma_pio_spi_phys_t phys = setup(shift, 0u, 0u);
+    memset(ring, 0, sizeof(ring));
+    assert(tdma_rx_dma_counter_reset(&s_tdma_pio_spi_rx_sequence, REFRESH_FRAME_WORDS, tick));
+    phys.flight_physical_byte_count = REFRESH_FRAME_WORDS;
+    phys.flight_overlay_alignment_locked = false;
+    phys.flight_overlay_alignment_samples = 0u;
+    phys.flight_overlay_alignment_candidate = 0u;
+    phys.rx_scan_preparation = job;
+    refresh_install(3u, shift, 1u);
+    refresh_publish(3u + REFRESH_PACKET_WORDS + (shift != 0u));
+    request(&phys, job);
+    /* Hold the initial one-frame private discovery while three more wire
+     * frames arrive. Its later delivery must not accidentally give the live
+     * scanner two adjacent station captures before the high-rate case starts. */
+    if (delayed) {
+        for (unsigned frame = 1u; frame <= 3u; ++frame)
+            refresh_install(3u + frame * REFRESH_FRAME_WORDS, shift, frame + 1u);
+        refresh_publish(3u + 3u * REFRESH_FRAME_WORDS + REFRESH_PACKET_WORDS + (shift != 0u));
+        if (bad_second != 0u) {
+            const uint64_t second = 3u + 3u * REFRESH_FRAME_WORDS;
+            /* Damage either the outer marker or the stable identity CRC. */
+            ring[(second + (bad_second == 2u ? 28u : 0u)) & 1023u] ^= 0x80u >> shift;
+            if (bad_second == 3u) ring[(second - REFRESH_FRAME_WORDS) & 1023u] ^= 0x80u >> shift;
+        }
+    }
+    const uint32_t reads = word_reads;
+    tdma_rx_scan_core0_service(job);
+    assert(word_reads == reads); /* Only Core1 touches the live DMA ring. */
+    assert(job->result.valid && job->result.stable_frames == 1u);
+    assert(refresh_receive(&phys));
+    assert(phys.rx_scan_hint.valid && phys.flight_overlay_alignment_samples == 1u);
+    return phys;
+}
+
+static tdma_pio_spi_phys_t refresh_setup(tdma_rx_scan_t *job, unsigned shift)
+{
+    return refresh_setup_variant(job, shift, true, 0u);
+}
+
+static void refresh_advance(unsigned latest, unsigned shift)
+{
+    for (unsigned frame = latest - 2u; frame <= latest; ++frame)
+        refresh_install(3u + frame * REFRESH_FRAME_WORDS, shift, frame + 1u);
+    refresh_publish(3u + latest * REFRESH_FRAME_WORDS + REFRESH_PACKET_WORDS + (shift != 0u));
+}
+
+static void refresh_worker(tdma_rx_scan_t *job)
+{
+    const uint32_t reads = word_reads;
+    tdma_rx_scan_core0_service(job);
+    assert(word_reads == reads);
+}
+
+static bool test_refresh_case(const char *name)
+{
+    if (!strcmp(name, "refresh_high_rate")) for (unsigned shift = 0u; shift < 8u; ++shift) {
+        tdma_rx_scan_t job = {0};
+        tdma_pio_spi_phys_t phys = refresh_setup(&job, shift);
+        unsigned accepted = 0u;
+        for (unsigned iteration = 1u; iteration <= 8u; ++iteration) {
+            const unsigned latest = 3u + 3u * iteration;
+            refresh_advance(latest, shift);
+            accepted += refresh_receive(&phys);
+            refresh_worker(&job);
+        }
+        printf("refresh shift=%u accepted=%u samples=%u hint_stable=%u drops=%u\n",
+               shift, accepted, phys.flight_overlay_alignment_samples,
+               phys.rx_scan_hint.stable_frames, phys.snapshot.rx_observation_drop_count);
+        fflush(stdout);
+        assert(accepted != 0u && phys.rx_scan_hint.valid);
+        assert(phys.flight_overlay_alignment_samples == TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES);
+        assert(phys.flight_alignment_byte_shift == 3u && phys.flight_alignment_bit_shift == shift);
+        /* Obtaining sufficient proof stops refresh even before the overlay
+         * consumer marks its successful commit as locked. */
+        assert(tdma_rx_scan_state(&job) == TDMA_RX_SCAN_IDLE);
+        for (unsigned locked = 0u; locked < 2u; ++locked) {
+            phys.flight_overlay_alignment_locked = locked != 0u;
+            refresh_advance(30u + 3u * locked, shift);
+            assert(refresh_receive(&phys));
+            assert(refresh_copy_count == 1u && refresh_copy_sizes[0] == REFRESH_PACKET_WORDS);
+            assert(tdma_rx_scan_state(&job) == TDMA_RX_SCAN_IDLE);
+        }
+    } else if (!strcmp(name, "refresh_busy")) for (unsigned building = 0u; building < 2u; ++building) {
+        tdma_rx_scan_t job = {0}; tdma_pio_spi_phys_t phys = refresh_setup(&job, 5u);
+        assert(tdma_rx_scan_state(&job) == TDMA_RX_SCAN_REQUESTED);
+        if (building) assert(tdma_rx_scan_core0_claim(&job));
+        tdma_rx_scan_t saved = job;
+        for (unsigned iteration = 1u; iteration <= 3u; ++iteration) {
+            refresh_advance(3u + 3u * iteration, 5u);
+            assert(refresh_receive(&phys) && phys.rx_scan_hint.valid);
+            assert(refresh_copy_count == 1u && refresh_copy_sizes[0] == REFRESH_PACKET_WORDS);
+            assert(memcmp(&job, &saved, sizeof(job)) == 0);
+            assert(phys.flight_overlay_alignment_samples == 1u);
+        }
+        /* The captured pair has now left SRAM. The worker still owns its
+         * unchanged private copy and must not touch the advancing DMA bus. */
+        const uint32_t reads = word_reads;
+        if (building) tdma_rx_scan_core0_build_claimed(&job); else refresh_worker(&job);
+        assert(word_reads == reads && job.result.valid && job.result.stable_frames == 2u);
+        refresh_advance(15u, 5u);
+        assert(refresh_receive(&phys) && phys.flight_overlay_alignment_samples == 2u);
+    } else if (!strcmp(name, "refresh_incomplete")) for (unsigned shift = 0u; shift < 8u; ++shift) {
+        tdma_rx_scan_t job = {0};
+        tdma_pio_spi_phys_t phys = refresh_setup_variant(&job, shift, false, 0u);
+        assert(tdma_rx_scan_state(&job) == TDMA_RX_SCAN_IDLE);
+        assert(!refresh_receive(&phys) && refresh_copy_count == 0u);
+        refresh_install(3u + REFRESH_FRAME_WORDS, shift, 2u);
+        refresh_publish(3u + REFRESH_FRAME_WORDS + REFRESH_PACKET_WORDS + (shift != 0u) - 1u);
+        assert(!refresh_receive(&phys));
+        assert(refresh_copy_count == 0u && tdma_rx_scan_state(&job) == TDMA_RX_SCAN_IDLE);
+        assert(phys.rx_scan_hint.valid && phys.flight_overlay_alignment_samples == 1u);
+    } else if (!strcmp(name, "refresh_bad_pair")) for (unsigned shift = 0u; shift < 8u; ++shift)
+        for (unsigned bad = 1u; bad <= 3u; ++bad) {
+        tdma_rx_scan_t job = {0};
+        tdma_pio_spi_phys_t phys = refresh_setup_variant(&job, shift, true, bad);
+        assert(tdma_rx_scan_state(&job) == TDMA_RX_SCAN_REQUESTED);
+        assert(refresh_copy_count == 2u);
+        assert(refresh_copy_sizes[0] == REFRESH_FRAME_WORDS + REFRESH_PACKET_WORDS + (shift != 0u));
+        assert(refresh_copy_starts[0] == 3u + 2u * REFRESH_FRAME_WORDS);
+        refresh_worker(&job);
+        assert(job.result.valid == (bad != 3u));
+        assert(job.result.stable_frames < 2u);
+        refresh_advance(6u, shift);
+        assert(refresh_receive(&phys));
+        assert(phys.rx_scan_hint.valid && phys.flight_overlay_alignment_samples == 1u);
+    } else if (!strcmp(name, "refresh_epoch")) for (unsigned changed = 0u; changed < 2u; ++changed) {
+        tdma_rx_scan_t job = {0}; tdma_pio_spi_phys_t phys = refresh_setup(&job, 5u);
+        refresh_worker(&job); assert(job.result.stable_frames == 2u);
+        refresh_advance(6u, 5u);
+        if (changed) tick += s_tdma_pio_spi_rx_sequence.reload_words;
+        else ++job.observation_epoch;
+        (void)refresh_receive(&phys);
+        assert(phys.flight_overlay_alignment_samples < 2u);
+        assert(phys.snapshot.rx_observation_drop_count != 0u);
+    } else if (!strcmp(name, "refresh_stop")) for (unsigned state = 0u; state < 3u; ++state) {
+        tdma_rx_scan_t job = {0}; tdma_pio_spi_phys_t phys = refresh_setup(&job, 0u);
+        if (state == 1u) assert(tdma_rx_scan_core0_claim(&job));
+        if (state == 2u) refresh_worker(&job);
+        const uint32_t epoch = job.epoch;
+        assert(tdma_pio_spi_phys_rx_scan_cancel(&phys) == (state != 1u));
+        phys.rx_capture_active = false;
+        assert(job.epoch == epoch + 1u && !phys.rx_scan_hint.valid);
+        if (state == 1u) {
+            assert(tdma_rx_scan_state(&job) == TDMA_RX_SCAN_CANCELLED);
+            tdma_rx_scan_t saved = job;
+            assert(!refresh_receive(&phys) && memcmp(&job, &saved, sizeof(job)) == 0);
+            assert(!tdma_rx_scan_request(&job));
+            tdma_rx_scan_core0_build_claimed(&job);
+        }
+        assert(tdma_rx_scan_state(&job) == TDMA_RX_SCAN_IDLE);
+        assert(!refresh_receive(&phys) && refresh_copy_count == 0u);
+        assert(phys.flight_overlay_alignment_samples < 2u);
+    } else if (!strcmp(name, "refresh_copy_recheck")) for (unsigned fault = 1u; fault <= 3u; ++fault) {
+        tdma_rx_scan_t job = {0}; tdma_pio_spi_phys_t phys = refresh_setup(&job, 5u);
+        /* Withdraw the unclaimed refresh only; ordinary geometry remains. */
+        assert(tdma_rx_scan_cancel(&job) && phys.rx_scan_hint.valid);
+        refresh_advance(6u, 5u); refresh_fault = fault;
+        (void)refresh_receive(&phys);
+        assert(refresh_fault == 0u && refresh_copy_count <= 2u);
+        assert(phys.flight_overlay_alignment_samples < 2u);
+        assert(tdma_rx_scan_state(&job) == (fault == 2u ? TDMA_RX_SCAN_REQUESTED : TDMA_RX_SCAN_IDLE));
+        if (fault == 2u) { refresh_worker(&job); assert(job.result.stable_frames == 2u); }
+    } else if (!strcmp(name, "refresh_retry_bound")) {
+        tdma_rx_scan_t job = {0}; tdma_pio_spi_phys_t phys = refresh_setup(&job, 5u);
+        assert(tdma_rx_scan_cancel(&job));
+        refresh_advance(6u, 5u);
+        /* A caught-up ordinary cursor may be newer than the two-frame
+         * refresh start. Expire that refresh while the ordinary frame stays
+         * in range, then damage its marker: no third discovery copy here. */
+        s_tdma_pio_spi_rx_scan_produced = 3u + 6u * REFRESH_FRAME_WORDS;
+        ring[s_tdma_pio_spi_rx_scan_produced & 1023u] ^= 0x80u >> 5u;
+        refresh_fault = 1u;
+        assert(!refresh_receive(&phys));
+        assert(refresh_copy_count == 2u && !phys.rx_scan_hint.valid);
+        assert(tdma_rx_scan_state(&job) == TDMA_RX_SCAN_IDLE);
+        assert(!refresh_receive(&phys));
+        assert(refresh_copy_count == 1u && tdma_rx_scan_state(&job) == TDMA_RX_SCAN_REQUESTED);
+    } else if (!strcmp(name, "refresh_metadata")) for (unsigned changed = 0u; changed < 6u; ++changed) {
+        tdma_rx_scan_t job = {0}; tdma_pio_spi_phys_t phys = refresh_setup(&job, 0u);
+        refresh_worker(&job); assert(job.result.stable_frames == 2u);
+        if (changed == 0u) ++job.request_epoch;
+        if (changed == 1u) ++job.persona;
+        if (changed == 2u) --job.max_frame_words;
+        if (changed == 3u) ++job.physical_frame_words;
+        if (changed == 4u) ++job.tail_words;
+        if (changed == 5u) ++job.observation_epoch;
+        refresh_advance(6u, 0u);
+        assert(!refresh_receive(&phys));
+        assert(!phys.rx_scan_hint.valid && phys.flight_overlay_alignment_samples < 2u);
+        assert(phys.snapshot.rx_observation_drop_count != 0u);
+    } else if (!strcmp(name, "refresh_maximum")) for (unsigned shift = 0u; shift < 8u; ++shift) {
+        tdma_rx_scan_t job = {0}; tdma_pio_spi_phys_t phys = setup(shift, 3u, 299u + (shift != 0u));
+        phys.flight_physical_byte_count = 307u; phys.flight_tail_bytes = 11u;
+        phys.flight_overlay_alignment_locked = false;
+        assert(tdma_rx_dma_counter_reset(&s_tdma_pio_spi_rx_sequence, 307u, tick));
+        publish_count(); request(&phys, &job);
+        for (unsigned frame = 1u; frame <= 3u; ++frame) install(3u + frame * 307u, shift, frame + 1u);
+        refresh_publish(3u + 3u * 307u + TDMA_PIO_SPI_RX_DMA_WORD_MAX + (shift != 0u));
+        refresh_worker(&job); assert(job.result.stable_frames == 1u);
+        refresh_copy_count = 0u;
+        const uint32_t reads = word_reads;
+        size_t received = 0u;
+        assert(tdma_pio_spi_phys_capture_words(&phys, TDMA_PIO_SPI_RX_DMA_WORD_MAX, &received));
+        assert_packet(3u, received);
+        assert(refresh_copy_count == 2u && refresh_copy_sizes[0] == 603u + (shift != 0u));
+        assert(refresh_copy_sizes[1] == TDMA_PIO_SPI_RX_DMA_WORD_MAX);
+        assert(word_reads - reads == 603u + TDMA_PIO_SPI_RX_DMA_WORD_MAX + 2u * (shift != 0u));
+        assert(tdma_rx_scan_state(&job) == TDMA_RX_SCAN_REQUESTED);
+        assert(phys.flight_overlay_alignment_samples == 1u);
+        refresh_worker(&job); assert(job.result.valid && job.result.stable_frames == 2u);
+    } else if (!strcmp(name, "refresh_no_candidate")) {
+        /* Direct coordinate fixtures cover arithmetic boundaries that cannot
+         * be reached by billions of physical DMA iterations in a host test. */
+        const uint64_t anchors[] = {3u, 3u, 400u, UINT64_MAX, UINT64_MAX - 100u};
+        const uint64_t produced[] = {0u, 341u, 741u, UINT64_MAX, UINT64_MAX};
+        for (unsigned i = 0u; i < sizeof(anchors) / sizeof(anchors[0]); ++i) {
+            tdma_rx_scan_t job = {0}; tdma_pio_spi_phys_t phys = refresh_setup_variant(&job, 5u, false, 0u);
+            phys.rx_scan_hint.candidate = anchors[i];
+            const uint64_t cursor = s_tdma_pio_spi_rx_scan_produced;
+            refresh_copy_count = 0u;
+            tdma_pio_spi_phys_rx_scan_refresh(&phys, produced[i], TDMA_PIO_SPI_RX_DMA_WORD_MAX);
+            assert(refresh_copy_count == 0u && tdma_rx_scan_state(&job) == TDMA_RX_SCAN_IDLE);
+            assert(s_tdma_pio_spi_rx_scan_produced == cursor && phys.flight_overlay_alignment_samples == 1u);
+        }
+    } else return false;
+    printf("training refresh %s passed\n", name);
+    return true;
 }
 
 #if TDMA_TEST_PHYSICAL_RX
@@ -231,6 +540,7 @@ static bool test_capture_case(const char *name)
 int main(int argc,char **argv)
 {
     assert(argc==2);
+    if (test_refresh_case(argv[1])) return 0;
 #if TDMA_TEST_PHYSICAL_RX
     if (test_capture_case(argv[1])) return 0;
 #endif

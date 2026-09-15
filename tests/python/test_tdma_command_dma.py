@@ -4,6 +4,7 @@ The host bus models AL3 triggers, descriptor gaps and abort completion. Timing
 on RP2350 and DMA arbitration still require HIL; this checks pool ownership.
 """
 import os
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -222,6 +223,16 @@ typedef struct {
     volatile uint32_t flight_overlay_selected_generation, flight_overlay_next_address;
     Snapshot snapshot;
 } tdma_pio_spi_phys_t;
+/* Geometry publication has separate ARM/epoch tests. This DMA fixture only
+ * records the real commit's notification, after verified alignment and before
+ * its first lock; it must not manufacture eligibility or touch the DMA bus. */
+static unsigned geometry_trained_calls;
+static void tdma_geometry_trained(const tdma_pio_spi_phys_t *phys) {
+    assert(phys != NULL && phys->armed && phys->process_image_enabled);
+    assert(!phys->flight_overlay_alignment_locked);
+    assert(phys->flight_overlay_alignment_samples >= TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES);
+    ++geometry_trained_calls;
+}
 static struct { struct { tdma_origin_plan_state_t state; } origin; } s_tdma_pio_spi_workspace;
 static tdma_origin_build_job_t s_tdma_origin_build_job;
 /* This follower fixture never leases an origin builder. Execute the real
@@ -501,7 +512,9 @@ int main(void) {
     ++phys.flight_alignment_bit_shift;
     assert(!tdma_pio_spi_phys_commit_overlay(&phys, &job));
     --phys.flight_alignment_bit_shift;
+    assert(geometry_trained_calls == 0 && !phys.flight_overlay_alignment_locked);
     assert(tdma_pio_spi_phys_commit_overlay(&phys, &job));
+    assert(geometry_trained_calls == 1 && phys.flight_overlay_alignment_locked);
     assert(memcmp(job.plan->run, ready.run, sizeof(ready.run)) == 0);
     assert(memcmp(job.plan->token, ready.token, sizeof(ready.token)) == 0);
     assert(job.plan->generation != 0); /* Owner publishes; it never rebinds READY. */
@@ -528,6 +541,7 @@ int main(void) {
     hang_abort = false;
     assert(tdma_pio_spi_phys_stop_command_dma(&phys));
     assert(!busy[4] && !busy[5] && !phys.flight_overlay_dma_active);
+    assert(geometry_trained_calls == 1);
     puts("DMA: 200 autonomous plans, 48 publication phases, pool retirement, wrap, late triggers, bounded STOP/retry passed");
 }
 '''
@@ -535,16 +549,24 @@ int main(void) {
     unit.write_text(fixture + routines + assertions, encoding="utf-8")
     gcc = os.environ.get("HOST_CC") or shutil.which("gcc") or "D:/Microsoft/mingw64/bin/gcc.exe"
     exe = tmp_path / "command_dma.exe"
-    subprocess.run([gcc, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
+    command = [gcc, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
                     "-I" + str(ROOT / "components/tdma/inc"), str(unit),
                     str(ROOT / "components/tdma/src/tdma_flight_overlay.c"),
                     str(ROOT / "components/tdma/src/tdma_overlay_prepare.c"),
                     str(ROOT / "components/tdma/src/tdma_origin_build_job.c"),
                     str(ROOT / "components/tdma/src/tdma_flight_engine.c"),
                     str(ROOT / "components/tdma/src/tdma_process_image_map.c"),
-                    str(ROOT / "components/tdma/src/tdma_transport_frame.c"), "-o", str(exe)],
-                   check=True, capture_output=True)
-    subprocess.run([str(exe)], check=True, capture_output=True)
+                    str(ROOT / "components/tdma/src/tdma_transport_frame.c"), "-o", str(exe)]
+    build = subprocess.run(command, capture_output=True, text=True)
+    (tmp_path / "compile.log").write_text(build.stdout + build.stderr, encoding="utf-8")
+    (tmp_path / "compile.json").write_text(json.dumps(
+        {"command": command, "returncode": build.returncode}, indent=2), encoding="utf-8")
+    assert build.returncode == 0, f"Command: {command!r}\n{build.stdout}{build.stderr}"
+    run = subprocess.run([str(exe)], capture_output=True, text=True, timeout=10)
+    (tmp_path / "run.log").write_text(run.stdout + run.stderr, encoding="utf-8")
+    (tmp_path / "run.json").write_text(json.dumps(
+        {"command": [str(exe)], "returncode": run.returncode}, indent=2), encoding="utf-8")
+    assert run.returncode == 0, run.stdout + run.stderr
 
 
 def test_persona_release_retains_all_resources_until_capture_abort_retires(tmp_path):
