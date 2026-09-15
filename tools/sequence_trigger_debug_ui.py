@@ -79,9 +79,9 @@ class SequenceUi(tk.Tk):
         ttk.Label(self, textvariable=self.mode_hint, foreground="#155e75").pack(anchor="w", padx=12)
         io = ttk.LabelFrame(self, text="实时 IO")
         io.pack(fill="x", padx=8, pady=4)
-        in_frame = ttk.LabelFrame(io, text="输入")
+        in_frame = ttk.LabelFrame(io, text="输入脉冲（按边沿推进）")
         in_frame.pack(side="left", padx=6, pady=3)
-        out_frame = ttk.LabelFrame(io, text="输出")
+        out_frame = ttk.LabelFrame(io, text="输出电平（OUT1–OUT3编码，OUT4完成脉冲）")
         out_frame.pack(side="left", padx=6, pady=3)
         for index in range(4):
             lamp = tk.Label(in_frame, text=f"IN{index + 1}\n低", width=7, height=2, bg="#d1d5db", relief="groove")
@@ -170,7 +170,10 @@ class SequenceUi(tk.Tk):
         if command == "TRIG:SEQ:STEP" and self.source.get() != "BUS":
             self.log("当前为外部脉冲模式，软件单步已禁用；请使用“启动/等待触发”。")
             return
-        threading.Thread(target=self.run_commands, args=([command],), daemon=True).start()
+        commands = [command]
+        if not command.endswith("?"):
+            commands.append("READ:IO:STAT?")
+        threading.Thread(target=self.run_commands, args=(commands,), daemon=True).start()
 
     def configure(self) -> None:
         try:
