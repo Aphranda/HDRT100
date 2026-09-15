@@ -40,6 +40,8 @@ class SequenceUi(tk.Tk):
         self.io_outputs = tk.StringVar(value="输出：—")
         self.io_owned = tk.StringVar(value="占用：—")
         self.io_state = tk.StringVar(value="IO状态：—")
+        self.input_lamps: list[tk.Label] = []
+        self.output_lamps: list[tk.Label] = []
         self.step_button: ttk.Button | None = None
         self._build()
 
@@ -77,8 +79,17 @@ class SequenceUi(tk.Tk):
         ttk.Label(self, textvariable=self.mode_hint, foreground="#155e75").pack(anchor="w", padx=12)
         io = ttk.LabelFrame(self, text="实时 IO")
         io.pack(fill="x", padx=8, pady=4)
-        ttk.Label(io, textvariable=self.io_inputs).pack(side="left", padx=10)
-        ttk.Label(io, textvariable=self.io_outputs).pack(side="left", padx=10)
+        in_frame = ttk.LabelFrame(io, text="输入")
+        in_frame.pack(side="left", padx=6, pady=3)
+        out_frame = ttk.LabelFrame(io, text="输出")
+        out_frame.pack(side="left", padx=6, pady=3)
+        for index in range(4):
+            lamp = tk.Label(in_frame, text=f"IN{index + 1}\n低", width=7, height=2, bg="#d1d5db", relief="groove")
+            lamp.pack(side="left", padx=2, pady=2)
+            self.input_lamps.append(lamp)
+            lamp = tk.Label(out_frame, text=f"OUT{index + 1}\n低", width=7, height=2, bg="#d1d5db", relief="groove")
+            lamp.pack(side="left", padx=2, pady=2)
+            self.output_lamps.append(lamp)
         ttk.Label(io, textvariable=self.io_owned).pack(side="left", padx=10)
         ttk.Label(io, textvariable=self.io_state).pack(side="left", padx=10)
         self.update_mode_hint()
@@ -148,6 +159,12 @@ class SequenceUi(tk.Tk):
             self.io_outputs.set(f"输出：0x{values[1]:X}")
             self.io_owned.set(f"占用：0x{values[2]:X}")
             self.io_state.set(f"已武装={values[3]} 忙={values[4]}")
+            for index, lamp in enumerate(self.input_lamps):
+                high = bool(values[0] & (1 << index))
+                lamp.configure(text=f"IN{index + 1}\n{'高' if high else '低'}", bg="#4ade80" if high else "#d1d5db")
+            for index, lamp in enumerate(self.output_lamps):
+                high = bool(values[1] & (1 << index))
+                lamp.configure(text=f"OUT{index + 1}\n{'高' if high else '低'}", bg="#4ade80" if high else "#d1d5db")
 
     def command(self, command: str) -> None:
         if command == "TRIG:SEQ:STEP" and self.source.get() != "BUS":
