@@ -3740,3 +3740,13 @@ P3，详见 `VDC-PROGRESS-20260915-026`；后续非法目标位移修复和完�
 - 新 ARM 通过受保护 runtime config 选择精确 generation，并绑定新 config、ARM epoch、observation epoch 和 map generation；同一代际重复使用被拒绝。训练完成时记录 observation epoch，避免把 ARM 前空闲等待误当作训练来源。
 - 软件 84 项回归、双槽 release 构建和 Flash 链接门禁通过；BSS 增加 792 B，FreeRTOS 堆和两核栈边界未变（资源快照，非容量契约）。当前源码四板 quick P3 严格通过，板端记录与 SD 下载逐字节一致；NO2–NO4 的冻结→选择→退休→陈旧拒绝 HIL 通过，NO1 保持 origin。证据位于 `out/HardwareAcceptance/20260915/frozen-geometry-r1/`。
 - 仍未证明 CS 相对首帧坐标、完整自主身份关联、VDC 时间输入、命令应用或示波器正式锁相；下一步继续 TIME-002 的自主首次发车与 observer 就绪边界。
+
+### VDC-PROGRESS-20260915-041 — 新 ARM 初始 observation epoch 的候选准入
+
+- TODO task ID：`VDC-TIME-002`；状态 IN PROGRESS；日期：2026-09-15。
+- 代码提交：`d0a1efe`，本修复独立验收完成，父任务继续推进。
+- 真实 `tdma_rx_dma_counter_reset()` 在每次 ARM 将 observation epoch 初始化为零；候选关联曾将这个合法初值无条件判为陈旧。本切片仅移除零值的额外拒绝，仍先验证非零 ARM/capture 身份、当前 ARM 有效性和 capture ID，再比较当前 observation epoch。observer/history/pin、复制范围及全部诊断资格标记保持原语义。
+- 新增真实 counter reset/observe 回归：合法初值可以关联；计数不动但超过观测期限时旧候选被拒绝；STOP 后新 ARM 同样从零开始也不能复活旧 token。红测编译成功并在新 pin 断言失败，修复后相关软件回归通过，独立源码复核无阻断项。双槽 release 构建、Flash 链接检查和当前源码四板 quick P3 严格通过；全部 STOP 后的 SD 读回与 SRAM 原件逐字节一致，链接 RAM、堆和两核栈边界未变化。
+- 本轮证据快照（非容量或时序契约）：软件回归 60 项通过，候选 harness 含 8 组、68 次查询；4 份原生记录及 37 项 hash 复核通过。源码指纹 `97899839f4ca72ec5f249aa3a5e80438c7d3cfd5145fb2253cf99cd5367f2560`，增量构建标识 `20260915022619`；构建标识沿用缓存，实际源码与 package hash 由本轮 receipt 核验。原件位于 `out/HardwareAcceptance/20260915/initial-observation-epoch/`，汇总为 `audit.json`。零初值的正反行为由真实生产函数 host harness 验证，普通 P3 只覆盖集成回归。
+- 下一 gate：把 selected geometry 接入独立的 observer 预启动绑定与 START 前有界 DMA 观察。普通 origin 限发单帧先验证首条原始记录，随后再独立拆自主 origin 的非发射准备和显式首发；不通过单帧 sequence 相等授予物理身份，不放宽连续序列、配置、到期或取消检查。
+- 范围：本修复不实现 observer prelaunch、CS 相对首帧坐标、自主正式时间输入、主从命令应用或 DPLL 锁相。只读后继设计与源码复核分别保存在该目录的 `next-slice-review.json` 和 `source-review.json`。
