@@ -11,6 +11,7 @@
 #include "hardware/pio.h"
 #include "hardware/sync.h"
 #include "pico/platform.h"
+#include "pico/time.h"
 #include "resource_arbiter.h"
 #include "sync_io.h"
 #include "sync_io_persona_manager.h"
@@ -59,12 +60,15 @@ static struct {
     uint32_t pause_started;
     uint32_t read_address;
     uint32_t input_pin;
+    uint32_t initial_output;
+    uint64_t prime_ready_at_us;
     gpio_function_t saved_function[BOARD_SYNC_OUTPUT_PIN_COUNT];
     bool saved_direction[BOARD_SYNC_OUTPUT_PIN_COUNT];
     bool pins_saved;
     bool paused;
     bool manager_claimed;
     bool rx_stopped;
+    bool priming;
 } s_sequence;
 static sync_io_persona_manager_t s_manager;
 static sync_io_persona_manager_handle_t s_handle;
@@ -346,7 +350,10 @@ static bool arm_hardware(void *context, const sync_io_persona_descriptor_t *desc
     pio_sm_init(pio, EXECUTOR_SM, s_sequence.offset[1], &executor);
     const uint32_t owned = s_sequence.config.output_mask |
         (1u << (s_sequence.config.completion_channel - 1u));
-    pio_sm_set_pins_with_mask(pio, EXECUTOR_SM, 0u, owned << BOARD_SYNC_OUTPUT_BASE_PIN);
+    pio_sm_set_pins_with_mask(
+        pio, EXECUTOR_SM,
+        (s_sequence.initial_output & s_sequence.config.output_mask) << BOARD_SYNC_OUTPUT_BASE_PIN,
+        owned << BOARD_SYNC_OUTPUT_BASE_PIN);
     for (uint i = 0u; i < BOARD_SYNC_OUTPUT_PIN_COUNT; ++i) {
         if ((owned & (1u << i)) != 0u) {
             pio_sm_set_consecutive_pindirs(pio, EXECUTOR_SM, BOARD_SYNC_OUTPUT_BASE_PIN + i, 1u, true);
@@ -385,6 +392,8 @@ static bool arm_hardware(void *context, const sync_io_persona_descriptor_t *desc
     channel_config_set_dreq(&c, pio_get_dreq(pio, COUNTER_SM, false));
     dma_channel_configure(edges, &c, &s_edge_latest, &pio->rxf[COUNTER_SM],
                          dma_encode_endless_transfer_count(), false);
+    s_sequence.prime_ready_at_us = time_us_64() + s_sequence.config.settle_us;
+    s_sequence.priming = true;
     return true;
 }
 
@@ -393,11 +402,8 @@ static bool start_hardware(void *context, const sync_io_persona_descriptor_t *de
 {
     (void)context; (void)descriptor; (void)dma_mask;
     dma_start_channel_mask((1u << (uint)s_sequence.dma[0]) |
-                           (1u << (uint)s_sequence.dma[2]) |
-                           (1u << (uint)s_sequence.dma[3]));
-    const uint32_t enabled = (1u << EXECUTOR_SM) |
-        (s_sequence.config.input_channel == 0u ? 0u : INPUT_SM_MASK);
-    pio_enable_sm_mask_in_sync(BOARD_SYNC_PIO_FAST, enabled);
+                           (1u << (uint)s_sequence.dma[2]));
+    pio_enable_sm_mask_in_sync(BOARD_SYNC_PIO_FAST, 1u << EXECUTOR_SM);
     return true;
 }
 
@@ -429,6 +435,11 @@ static bool config_valid(const sync_io_sequence_config_t *config)
         config->pulse_us <= SYNC_IO_SEQUENCE_TIME_MAX_US;
 }
 
+static uint32_t logical_index_for_transfer(uint32_t transfer, uint32_t count)
+{
+    return (transfer % count + 1u) % count;
+}
+
 bool sync_io_sequence_arm_plan(const sync_io_sequence_config_t *config,
                                const uint32_t *values, uint32_t count)
 {
@@ -450,7 +461,8 @@ bool sync_io_sequence_arm_plan(const sync_io_sequence_config_t *config,
             s_sequence.status.fault = SYNC_IO_SEQUENCE_FAULT_CONFIG;
             goto rejected;
         }
-        s_plan[i * 3u] = values[i] | (i << 4u);
+        const uint32_t logical = logical_index_for_transfer(i, count);
+        s_plan[i * 3u] = values[logical] | (logical << 4u);
         s_plan[i * 3u + 1u] = config->settle_us == 0u ? 0u : config->settle_us * 10u - 4u;
         s_plan[i * 3u + 2u] = config->pulse_us * 10u - 3u;
     }
@@ -459,6 +471,7 @@ bool sync_io_sequence_arm_plan(const sync_io_sequence_config_t *config,
         goto rejected;
     }
     s_sequence.config = *config;
+    s_sequence.initial_output = values[0];
     s_sequence.status.plan_count = count;
     s_sequence.input_pin = BOARD_SYNC_INPUT_BASE_PIN;
     if (config->input_channel != 0u) {
@@ -492,6 +505,7 @@ bool sync_io_sequence_arm_plan(const sync_io_sequence_config_t *config,
         goto rejected;
     }
     s_sequence.status.armed = true;
+    s_sequence.status.current_index = 0u;
     s_sequence.status.output_ownership_mask = SMA_MASK;
     __atomic_store_n(&s_armed, 1u, __ATOMIC_RELEASE);
     publish();
@@ -543,9 +557,12 @@ static bool receive_word(uint32_t word)
 {
     const bool completion = (word & 0x80000000u) != 0u;
     const uint32_t decoded = completion ? ~word : word;
-    const uint32_t index = (completion ? s_sequence.status.completed : s_sequence.status.written) %
-                           s_sequence.status.plan_count;
-    if (decoded != s_plan[index * 3u] ||
+    const uint32_t transfer_index =
+        (completion ? s_sequence.status.completed : s_sequence.status.written) %
+        s_sequence.status.plan_count;
+    const uint32_t logical_index =
+        logical_index_for_transfer(transfer_index, s_sequence.status.plan_count);
+    if (decoded != s_plan[transfer_index * 3u] ||
         (completion ? s_sequence.status.written != s_sequence.status.completed + 1u :
                       s_sequence.status.written != s_sequence.status.completed)) {
         fail(SYNC_IO_SEQUENCE_FAULT_RECEIPT);
@@ -553,12 +570,12 @@ static bool receive_word(uint32_t word)
     }
     if (completion) {
         ++s_sequence.status.completed;
-        s_sequence.status.completed_index = index;
+        s_sequence.status.completed_index = logical_index;
     } else {
         ++s_sequence.status.written;
         if (s_sequence.status.accepted < s_sequence.status.written)
             s_sequence.status.accepted = s_sequence.status.written;
-        s_sequence.status.current_index = index;
+        s_sequence.status.current_index = logical_index;
     }
     return true;
 }
@@ -660,6 +677,15 @@ void sync_io_sequence_service(void)
     } else if (!drain_receipts()) {
         /* drain_receipts owns the fault reason. */
     } else {
+        if (s_sequence.priming &&
+            (BOARD_SYNC_PIO_FAST->irq & (1u << READY_IRQ)) != 0u &&
+            time_us_64() >= s_sequence.prime_ready_at_us) {
+            if (s_sequence.config.input_channel != 0u) {
+                dma_start_channel_mask(1u << (uint)s_sequence.dma[3]);
+                pio_enable_sm_mask_in_sync(BOARD_SYNC_PIO_FAST, INPUT_SM_MASK);
+            }
+            s_sequence.priming = false;
+        }
         const bool settled = s_sequence.paused && drain_idle_executor();
         if (s_sequence.status.fault != 0u) {
             publish();
@@ -668,11 +694,12 @@ void sync_io_sequence_service(void)
         const bool pending = pending_request();
         if (pending && s_sequence.status.accepted == s_sequence.status.completed) {
             ++s_sequence.status.accepted;
-            s_sequence.status.current_index = s_sequence.status.written % s_sequence.status.plan_count;
+            s_sequence.status.current_index = logical_index_for_transfer(
+                s_sequence.status.written, s_sequence.status.plan_count);
         }
         s_sequence.status.pending = s_sequence.status.accepted > s_sequence.status.written;
         s_sequence.status.busy = s_sequence.status.accepted > s_sequence.status.completed;
-        s_sequence.status.ready = !s_sequence.paused && !s_sequence.status.busy &&
+        s_sequence.status.ready = !s_sequence.priming && !s_sequence.paused && !s_sequence.status.busy &&
             (BOARD_SYNC_PIO_FAST->irq & (1u << READY_IRQ)) != 0u;
         if (s_sequence.config.input_channel != 0u) {
             const uint32_t edges = s_edge_latest;
@@ -692,7 +719,8 @@ bool sync_io_sequence_software_step(void)
     pio_interrupt_clear(BOARD_SYNC_PIO_FAST, READY_IRQ);
     BOARD_SYNC_PIO_FAST->irq_force = 1u << REQUEST_IRQ;
     ++s_sequence.status.accepted;
-    s_sequence.status.current_index = s_sequence.status.written % s_sequence.status.plan_count;
+    s_sequence.status.current_index = logical_index_for_transfer(
+        s_sequence.status.written, s_sequence.status.plan_count);
     s_sequence.status.ready = false;
     s_sequence.status.pending = true;
     s_sequence.status.busy = true;
@@ -807,7 +835,8 @@ void sync_io_sequence_stop(void)
         }
         if (pending && s_sequence.status.accepted == s_sequence.status.completed) {
             ++s_sequence.status.accepted;
-            s_sequence.status.current_index = s_sequence.status.written % s_sequence.status.plan_count;
+            s_sequence.status.current_index = logical_index_for_transfer(
+                s_sequence.status.written, s_sequence.status.plan_count);
         }
         if (s_sequence.status.accepted > s_sequence.status.completed)
             s_sequence.status.cancelled = s_sequence.status.accepted - s_sequence.status.completed;
@@ -823,6 +852,7 @@ void sync_io_sequence_stop(void)
     s_sequence.status.pending = false;
     s_sequence.status.busy = false;
     s_sequence.status.paused = false;
+    s_sequence.priming = false;
     s_sequence.status.output_ownership_mask = 0u;
     __atomic_store_n(&s_armed, 0u, __ATOMIC_RELEASE);
     publish();

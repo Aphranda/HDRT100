@@ -145,6 +145,17 @@
         "PROJECT_USE_FREERTOS": "ON",
         "PROJECT_USE_MULTICORE": "ON"
       }
+    },
+    {
+      "name": "pico2-usb-runtime-switch",
+      "inherits": "pico2-release",
+      "displayName": "Pico 2 USB CDC/USBTMC Runtime Switch",
+      "binaryDir": "${sourceDir}/out/build/pico2-usb-runtime-switch",
+      "cacheVariables": {
+        "PROJECT_ENABLE_USB_RUNTIME_SWITCH": "ON",
+        "PROJECT_USB_DEFAULT_MODE": "CDC",
+        "PROJECT_PICO_HEAP_SIZE": "0x400"
+      }
     }
   ],
   "buildPresets": [
@@ -175,6 +186,10 @@
     {
       "name": "pico2-rtos-multicore-smoke",
       "configurePreset": "pico2-rtos-multicore-smoke"
+    },
+    {
+      "name": "pico2-usb-runtime-switch",
+      "configurePreset": "pico2-usb-runtime-switch"
     }
   ]
 }

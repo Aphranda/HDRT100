@@ -39,20 +39,25 @@ bool sync_io_sequence_arm_plan(const sync_io_sequence_config_t *config,
     hw_config = *config;
     memcpy(hw_values, values, count * sizeof(*values));
     hw.plan_count = count;
-    hw.current_index = hw.completed_index = UINT32_MAX;
+    hw.current_index = 0u;
+    hw.completed_index = UINT32_MAX;
     hw.tick_ns = 100;
     hw.timing_kind = TRIGGER_SEQUENCE_TIMING_PIO0;
     hw.armed = hw.ready = arm_ok;
     hw.rejection_counts_pending = config->input_channel != 0;
     hw.output_ownership_mask = config->output_mask | (1u << (config->completion_channel - 1u));
-    if (!arm_ok) hw.fault = SYNC_IO_SEQUENCE_FAULT_RESOURCE;
+    outputs = (outputs & ~config->output_mask) | values[0];
+    if (!arm_ok) {
+        hw.fault = SYNC_IO_SEQUENCE_FAULT_RESOURCE;
+        outputs &= ~hw.output_ownership_mask;
+    }
     return arm_ok;
 }
 static bool physical_step(void)
 {
     assert(!locked && hw.armed && !hw.pending && !hw.busy);
     if (!submit_ok) { hw.fault = SYNC_IO_SEQUENCE_FAULT_RESOURCE; return false; }
-    hw.current_index = hw.accepted % hw.plan_count;
+    hw.current_index = (hw.accepted + 1u) % hw.plan_count;
     ++hw.accepted;
     uint32_t value = hw_values[hw.current_index];
     outputs = (outputs & ~hw_config.output_mask) | value;

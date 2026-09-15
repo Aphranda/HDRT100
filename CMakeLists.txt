@@ -30,6 +30,8 @@ set(PROJECT_ENABLE_USB_STDIO ON CACHE BOOL "Enable stdio over USB CDC")
 set(PROJECT_ENABLE_USBTMC OFF CACHE BOOL "Enable USBTMC/USB488 SCPI device interface")
 set(PROJECT_ENABLE_USB_RUNTIME_SWITCH OFF CACHE BOOL "Enable flash-configured USB CDC/USBTMC mode selection at boot")
 set(PROJECT_USB_DEFAULT_MODE CDC CACHE STRING "Default USB mode when product config is blank: CDC or USBTMC")
+set(PROJECT_PICO_HEAP_SIZE "" CACHE STRING
+    "Optional Pico SDK libc heap reservation override (for example 0x400)")
 set(PROJECT_ENABLE_UART_STDIO OFF CACHE BOOL "Enable product debug stdio over UART0 GPIO0/1")
 set(PROJECT_ENABLE_LOG_UART_OUTPUT ON CACHE BOOL "Route live diagnostic LOG output to the product debug UART")
 set(PROJECT_WARNINGS_AS_ERRORS OFF CACHE BOOL "Treat compiler warnings as errors")
@@ -787,6 +789,12 @@ function(project_configure_app_target target_name app_name linker_script)
         SCPI_USER_CONFIG=1
         PICO_TARGET_NAME="${target_name}"
     )
+
+    if(PROJECT_PICO_HEAP_SIZE)
+        target_compile_definitions(${target_name} PRIVATE
+            PICO_HEAP_SIZE=${PROJECT_PICO_HEAP_SIZE}
+        )
+    endif()
 
     add_dependencies(${target_name} project_source_length_check)
     add_dependencies(${target_name} project_build_info)

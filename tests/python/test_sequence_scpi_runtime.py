@@ -80,18 +80,18 @@ def test_configuration_start_and_ordered_bus_cycle(parser):
     assert rows[1]["fields"] == ["7", "4", "10", "5", "1", "1"]
     assert rows[2]["fields"] == ["2", "4"]
     assert rows[4]["fields"][0] == "STARTING"
-    assert rows[5]["fields"][:7] == ["READY", "1", "1", "3", NO_INDEX, NO_INDEX, "0"]
-    assert rows[6]["fields"] == ["0", "0", "15", "1", "0"]
-    assert rows[8]["fields"][:14] == ["BUSY", "1", "1", "3", "0", "2", "0", "0", "2", NO_INDEX, NO_INDEX, "0", "1", "0"]
+    assert rows[5]["fields"][:7] == ["READY", "1", "1", "3", "0", "2", "1"]
+    assert rows[6]["fields"] == ["0", "4", "15", "1", "0"]
+    assert rows[8]["fields"][:14] == ["BUSY", "1", "1", "3", "1", "0", "1", "1", "0", NO_INDEX, NO_INDEX, "0", "1", "0"]
     assert rows[8]["fields"][19:22] == ["0", "0", "0"]
-    assert rows[9]["fields"] == ["4"]
-    assert rows[10]["fields"] == ["1"] and rows[11]["fields"] == ["12"]
-    assert rows[12]["fields"][6:14] == ["1", "0", "2", "0", "2", "0", "1", "1"]
+    assert rows[9]["fields"] == ["1"]
+    assert rows[10]["fields"] == ["1"] and rows[11]["fields"] == ["9"]
+    assert rows[12]["fields"][6:14] == ["2", "1", "0", "1", "0", "0", "1", "1"]
     assert rows[12]["fields"][19:22] == ["0", "0", "0"]
     assert rows[13]["fields"] == ["0"]
-    assert rows[15]["fields"] == ["1"] and rows[17]["fields"] == ["2"]
-    assert rows[18]["fields"][6:14] == ["0", "2", "1", "2", "1", "0", "3", "3"]
-    assert rows[20]["fields"][4:14] == ["0", "2", "0", "0", "2", "2", "1", "1", "4", "3"]
+    assert rows[15]["fields"] == ["2"] and rows[17]["fields"] == ["4"]
+    assert rows[18]["fields"][6:14] == ["1", "0", "2", "0", "2", "1", "3", "3"]
+    assert rows[20]["fields"][4:14] == ["1", "0", "1", "1", "0", "0", "2", "1", "4", "3"]
     assert rows[20]["fields"][19:22] == ["0", "0", "0"]
     assert rows[21]["fields"][:4] == ["TRIG", "BUSY", "1", "A"]
     assert rows[23]["fields"] == ["0", "0", "0", "0", "0"]
@@ -114,10 +114,10 @@ def test_selectable_input_and_edge(parser, channel, edge, falling):
     assert rows[3]["errors"] and rows[3]["reason"] == "SOURCE_MISMATCH"
     assert rows[4]["writes"] == 0 and rows[4]["fields"][0] == "READY"
     assert rows[5]["fields"][0] == "BUSY" and rows[5]["fields"][14] == "1"
-    assert rows[6]["fields"] == ["4"]
-    assert rows[7]["fields"][6] == "1" and rows[7]["fields"][13] == "1"
+    assert rows[6]["fields"] == ["1"]
+    assert rows[7]["fields"][6] == "2" and rows[7]["fields"][13] == "1"
     assert rows[9]["fields"][0] == "PAUSED" and rows[9]["fields"][15] == "2"
-    assert rows[11]["fields"] == ["1"]
+    assert rows[11]["fields"] == ["2"]
 
 
 def test_busy_pause_stop_and_restart(parser):
@@ -225,7 +225,7 @@ def test_rejection_query_marks_running_and_settled_counts(parser):
 def test_running_configuration_is_frozen(parser, command):
     rows = run(parser, ["TRIG:START", "@service", command, "TRIG:SEQ:STEP", "@service", "READ:IO:OUTP?"])
     assert rows[1]["errors"] > 0
-    assert rows[2]["errors"] == 0 and rows[3]["fields"] == ["4"]
+    assert rows[2]["errors"] == 0 and rows[3]["fields"] == ["1"]
 
 
 def test_failed_start_and_generation_require_reconfiguration(parser):

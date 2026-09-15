@@ -260,8 +260,8 @@ static bool record_receipts(const sync_io_sequence_snapshot_t *io)
         io->accepted - io->completed > 1u ||
         io->accepted < s_runtime.accepted || io->completed < s_runtime.completed ||
         io->written < s_written_receipts ||
-        io->current_index != (io->accepted ? (io->accepted - 1u) % s_run.count : UINT32_MAX) ||
-        io->completed_index != (io->completed ? (io->completed - 1u) % s_run.count : UINT32_MAX))
+        io->current_index != io->accepted % s_run.count ||
+        io->completed_index != (io->completed ? io->completed % s_run.count : UINT32_MAX))
         return false;
     s_written_receipts = io->written;
     s_runtime.accepted = io->accepted;
@@ -278,20 +278,18 @@ static bool record_receipts(const sync_io_sequence_snapshot_t *io)
     s_runtime.completion_rise_at_us = 0;
     s_runtime.completed_at_us = 0;
     s_runtime.alarm_late_us = 0;
-    if (io->accepted) {
-        s_runtime.current_index = (io->accepted - 1u) % s_run.count;
-        s_runtime.current_state = s_run.ids[s_runtime.current_index];
-        s_runtime.cycles = (io->accepted - 1u) / s_run.count;
-    }
+    s_runtime.current_index = io->accepted % s_run.count;
+    s_runtime.current_state = s_run.ids[s_runtime.current_index];
+    s_runtime.cycles = io->accepted / s_run.count;
     if (io->written) {
-        s_runtime.executed_index = (io->written - 1u) % s_run.count;
+        s_runtime.executed_index = io->written % s_run.count;
         s_runtime.executed_state = s_run.ids[s_runtime.executed_index];
     }
     if (io->completed) {
-        s_runtime.completed_index = (io->completed - 1u) % s_run.count;
+        s_runtime.completed_index = io->completed % s_run.count;
         s_runtime.completed_state = s_run.ids[s_runtime.completed_index];
     }
-    s_runtime.next_index = io->completed % s_run.count;
+    s_runtime.next_index = (io->completed % s_run.count + 1u) % s_run.count;
     bool busy = io->busy || io->pending || io->accepted != io->completed;
     s_runtime.state = (s_pause_requested || io->paused) ?
         (busy ? TRIGGER_SEQUENCE_SERVICE_PAUSING : TRIGGER_SEQUENCE_SERVICE_PAUSED) :

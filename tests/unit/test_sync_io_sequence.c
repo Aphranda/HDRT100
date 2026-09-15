@@ -2,9 +2,12 @@ static void reset(void)
 {
     memset(&s_sequence, 0, sizeof(s_sequence));
     s_sequence.status.plan_count = 3u;
-    s_sequence.status.current_index = UINT32_MAX;
+    s_sequence.status.current_index = 0u;
     s_sequence.status.completed_index = UINT32_MAX;
-    for (uint i = 0u; i < 3u; ++i) s_plan[i * 3u] = (i << 4u) | i;
+    for (uint i = 0u; i < 3u; ++i) {
+        const uint32_t logical = logical_index_for_transfer(i, 3u);
+        s_plan[i * 3u] = (logical << 4u) | logical;
+    }
 }
 
 int main(void)
@@ -29,6 +32,10 @@ int main(void)
     config.output_mask = 15u;
     assert(!config_valid(&config));
     assert(!config_valid(NULL));
+    assert(logical_index_for_transfer(0u, 3u) == 1u);
+    assert(logical_index_for_transfer(1u, 3u) == 2u);
+    assert(logical_index_for_transfer(2u, 3u) == 0u);
+    assert(logical_index_for_transfer(UINT32_MAX, 1u) == 0u);
 
     reset();
     for (uint i = 0u; i < 17u; ++i) {
@@ -37,10 +44,10 @@ int main(void)
         assert(s_sequence.status.written == i + 1u);
         assert(s_sequence.status.accepted == i + 1u);
         assert(s_sequence.status.completed == i);
-        assert(s_sequence.status.current_index == i % 3u);
+        assert(s_sequence.status.current_index == (i + 1u) % 3u);
         assert(receive_word(~tag));
         assert(s_sequence.status.completed == i + 1u);
-        assert(s_sequence.status.completed_index == i % 3u);
+        assert(s_sequence.status.completed_index == (i + 1u) % 3u);
     }
     assert(s_sequence.status.written_at_us == 0u);
     assert(s_sequence.status.completion_rise_at_us == 0u);

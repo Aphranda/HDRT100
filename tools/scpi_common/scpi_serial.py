@@ -130,8 +130,12 @@ def open_serial_port(port: str,
     finally:
         try:
             ser.flush()
-        finally:
+        except Exception:
+            pass
+        try:
             ser.close()
+        except Exception:
+            pass
 
 
 class SerialSession:

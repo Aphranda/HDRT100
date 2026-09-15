@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
 import json
 import math
@@ -45,6 +46,31 @@ def require(condition: bool, message: str) -> None:
         raise AcceptanceError(message)
 
 
+@contextmanager
+def open_visa_resource(resource: str, timeout_s: float):
+    try:
+        import pyvisa
+    except ImportError as exc:
+        raise RuntimeError("USBTMC acceptance requires pyvisa") from exc
+    manager = pyvisa.ResourceManager()
+    instrument = manager.open_resource(resource)
+    instrument.timeout = int(timeout_s * 1000)
+    instrument.write_termination = "\n"
+    instrument.read_termination = "\n"
+    try:
+        yield instrument
+    finally:
+        try:
+            instrument.close()
+        finally:
+            manager.close()
+
+
+def visa_command(instrument, command: str, timeout_s: float) -> str:
+    instrument.timeout = int(timeout_s * 1000)
+    return instrument.query(command).strip()
+
+
 def parse_status(response: str) -> dict:
     try:
         values = next(csv.reader([response], strict=True))
@@ -74,16 +100,15 @@ def validate_sample(row: dict, baseline: dict, previous: int) -> int:
     completed = row["completed"]
     require(previous <= completed <= previous + 1, "completion regressed or sampling missed a state")
     require(completed <= row["accepted"] <= completed + 1, "accepted/completed accounting mismatch")
-    require(row["next_index"] == completed % 8, "incorrect next SP8T index")
-    require(row["cycles"] == max(0, (row["accepted"] - 1) // 8), "incorrect wrap count")
+    require(row["next_index"] == (completed % 8 + 1) % 8, "incorrect next SP8T index")
+    require(row["cycles"] == row["accepted"] // 8, "incorrect wrap count")
     if completed:
-        code = (completed - 1) % 8
+        code = completed % 8
         require(row["completed_index"] == code and row["completed_state"] == code,
                 "incorrect completed SP8T address")
-    if row["accepted"]:
-        code = (row["accepted"] - 1) % 8
-        require(row["current_index"] == code and row["current_state"] == code,
-                "incorrect selected SP8T address")
+    code = row["accepted"] % 8
+    require(row["current_index"] == code and row["current_state"] == code,
+            "incorrect selected SP8T address")
     if row["state"] == "READY":
         require(row["accepted"] == completed, "READY with unfinished accepted step")
     return completed
@@ -114,14 +139,17 @@ def validate_totals(row: dict, steps: int, busy: int, input_events: int | None) 
 
 
 class Bench:
-    def __init__(self, serial_port, args, report):
+    def __init__(self, serial_port, args, report, exchange=None):
         self.serial = serial_port
         self.args = args
         self.report = report
+        self.exchange = exchange or (
+            lambda command, timeout: send_command(self.serial, command, timeout))
 
     def command(self, command: str, timeout: float | None = None) -> str:
         start = time.monotonic()
-        response = send_command(self.serial, command, self.args.timeout if timeout is None else timeout)
+        response = self.exchange(
+            command, self.args.timeout if timeout is None else timeout)
         self.report["transcript"].append({"command": command, "response": response,
                                            "at": start, "elapsed": time.monotonic() - start})
         require(response != "<timeout>", f"SCPI timeout: {command}")
@@ -181,7 +209,7 @@ class Bench:
 
     def sample_output(self, row: dict) -> None:
         require(row["state"] == "READY", "completion could not be sampled before the next event")
-        code = (row["completed"] - 1) % 8
+        code = row["completed"] % 8
         require(row["executed_index"] == code and row["executed_state"] == code,
                 "executed address mismatch")
         require(self.report.get("timing", {}).get("backend") == "PIO0", "missing timing metadata")
@@ -198,6 +226,12 @@ class Bench:
         baseline = self.wait_state("READY")
         self.report["timing"] = parse_timing(self.command("READ:SEQ:TIM?"))
         require(baseline["accepted"] == 0 and baseline["completed"] == 0, "START executed without a new event")
+        require(baseline["current_index"] == 0 and baseline["current_state"] == 0 and
+                baseline["next_index"] == 1, "START did not select the first SP8T address")
+        initial_output = int(self.command("READ:IO:OUTP?"))
+        require(self.status() == baseline, "state changed while checking the START position")
+        require(initial_output == 0, "START output differs from the first SP8T address")
+        self.report["initial_state"] = {"status": baseline, "output": initial_output}
         previous = 0
         row = baseline
         if self.args.source == "BUS":
@@ -247,7 +281,9 @@ class Bench:
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", required=True)
+    transport = parser.add_mutually_exclusive_group(required=True)
+    transport.add_argument("--port")
+    transport.add_argument("--visa-resource")
     parser.add_argument("--serial-number", required=True)
     parser.add_argument("--build", required=True)
     parser.add_argument("--out", type=Path, required=True)
@@ -291,8 +327,19 @@ def main(argv=None) -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("x", encoding="utf-8") as evidence:
         try:
-            with open_serial_port(args.port, 115200, args.timeout, .1, read_timeout_s=.02) as serial_port:
-                bench = Bench(serial_port, args, report)
+            with ExitStack() as stack:
+                if args.port:
+                    serial_port = stack.enter_context(open_serial_port(
+                        args.port, 115200, args.timeout, .1,
+                        read_timeout_s=.02))
+                    bench = Bench(serial_port, args, report)
+                else:
+                    instrument = stack.enter_context(open_visa_resource(
+                        args.visa_resource, args.timeout))
+                    bench = Bench(
+                        instrument, args, report,
+                        lambda command, timeout: visa_command(
+                            instrument, command, timeout))
                 bench.identity()
                 try:
                     bench.configure()

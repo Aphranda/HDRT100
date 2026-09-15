@@ -52,13 +52,16 @@ bool sync_io_sequence_arm_plan(const sync_io_sequence_config_t *config,
     hw.plan_count = count;
     hw.tick_ns = 100;
     hw.timing_kind = TRIGGER_SEQUENCE_TIMING_PIO0;
-    hw.current_index = hw.completed_index = UINT32_MAX;
+    hw.current_index = 0u;
+    hw.completed_index = UINT32_MAX;
     hw.armed = hw.ready = arm_success;
     hw.rejection_counts_pending = config->input_channel != 0;
+    output = hw_values[0];
     if (!arm_success) {
         if (preserve_failed_arm_receipts) hw = previous;
         reserved = false;
         hw.fault = 1;
+        output = 0;
     }
     if (stop_during_arm) {
         stop_during_arm = false;
@@ -71,7 +74,7 @@ static void accept(void)
 {
     assert(hw.armed && hw.ready && !hw.busy && !hw.pending && !hw.paused);
     if (hw.accepted == UINT32_MAX) { hw.fault = 1; hw.ready = false; return; }
-    hw.current_index = hw.accepted % hw.plan_count;
+    hw.current_index = (hw.accepted + 1u) % hw.plan_count;
     ++hw.accepted;
     hw.ready = false;
     hw.pending = true;
@@ -186,6 +189,9 @@ static void start(void)
     trigger_sequence_service_service();
     assert(status().state == TRIGGER_SEQUENCE_SERVICE_READY && hw.armed);
     assert(status().tick_ns == 100 && status().timing_kind == TRIGGER_SEQUENCE_TIMING_PIO0);
+    assert(status().current_index == 0u &&
+           status().next_index == (status().count == 1u ? 0u : 1u));
+    assert(status().accepted == 0u && status().completed == 0u);
 }
 
 static void stop(void)
@@ -202,7 +208,7 @@ static void test_bus_receipt_lifecycle(void)
 {
     setup();
     start();
-    assert(writes == 0 && status().current_index == UINT32_MAX);
+    assert(writes == 0 && output == 2 && status().current_state == 1);
     assert(trigger_sequence_service_step() == TRIGGER_SEQUENCE_SERVICE_OK);
     assert(trigger_sequence_service_step() == TRIGGER_SEQUENCE_SERVICE_BUSY);
     trigger_sequence_service_service();
@@ -210,12 +216,12 @@ static void test_bus_receipt_lifecycle(void)
     assert(trigger_sequence_service_step() == TRIGGER_SEQUENCE_SERVICE_BUSY);
     physical_write();
     trigger_sequence_service_service();
-    assert(status().executed_state == 1 && output == 2 && status().completed == 0);
+    assert(status().executed_state == 0 && output == 1 && status().completed == 0);
     assert(trigger_sequence_service_pause() == TRIGGER_SEQUENCE_SERVICE_OK);
     trigger_sequence_service_service();
     assert(status().state == TRIGGER_SEQUENCE_SERVICE_PAUSING);
     complete();
-    assert(status().state == TRIGGER_SEQUENCE_SERVICE_PAUSED && status().completed_state == 1);
+    assert(status().state == TRIGGER_SEQUENCE_SERVICE_PAUSED && status().completed_state == 0);
     assert(trigger_sequence_service_step() == TRIGGER_SEQUENCE_SERVICE_NOT_READY);
     assert(trigger_sequence_service_continue() == TRIGGER_SEQUENCE_SERVICE_OK);
     trigger_sequence_service_service();
@@ -223,7 +229,7 @@ static void test_bus_receipt_lifecycle(void)
     assert(trigger_sequence_service_step() == TRIGGER_SEQUENCE_SERVICE_OK);
     trigger_sequence_service_service();
     complete();
-    assert(status().next_index == 0 && status().cycles == 0 && output == 1);
+    assert(status().next_index == 1 && status().cycles == 1 && output == 2);
     assert(trigger_sequence_service_step() == TRIGGER_SEQUENCE_SERVICE_OK);
     trigger_sequence_service_service();
     assert(status().cycles == 1);
@@ -252,7 +258,7 @@ static void test_external_autonomous_batches(void)
         assert(status().accepted == 0);
         trigger_sequence_service_service();
         assert(status().accepted == 7 && status().completed == 7 && status().cycles == 3);
-        assert(status().current_state == 1 && status().executed_state == 1 && status().completed_state == 1);
+        assert(status().current_state == 0 && status().executed_state == 0 && status().completed_state == 0);
         assert(status().written_at_us == 0 && status().completed_at_us == 0);
         edge();
         assert(trigger_sequence_service_pause() == TRIGGER_SEQUENCE_SERVICE_OK);
@@ -297,7 +303,7 @@ static void test_configuration_faults_stop_priority(void)
     hw.fault = 2;
     trigger_sequence_service_service();
     assert(status().state == TRIGGER_SEQUENCE_SERVICE_FAULT);
-    assert(status().executed_state == 1 && status().completed == 0 && status().cancelled == 1);
+    assert(status().executed_state == 0 && status().completed == 0 && status().cancelled == 1);
     stop();
 
     setup();
@@ -332,7 +338,7 @@ static void test_counter_and_corrupt_receipts(void)
     trigger_sequence_service_service();
     assert(status().busy_rejected == 1);
     hw.accepted = hw.written = hw.completed = UINT32_MAX;
-    hw.current_index = hw.completed_index = 0;
+    hw.current_index = hw.completed_index = 1;
     trigger_sequence_service_service();
     assert(status().accepted == UINT32_MAX);
     assert(trigger_sequence_service_step() == TRIGGER_SEQUENCE_SERVICE_EXHAUSTED);
@@ -376,13 +382,13 @@ static void test_receipt_index_and_written_regressions(void)
         trigger_sequence_service_service();
         physical_write();
         trigger_sequence_service_service();
-        assert(status().accepted == 1 && status().executed_index == 0);
-        if (corruption == 0) hw.current_index = 1;
-        if (corruption == 1) { physical_complete(); hw.completed_index = 1; }
+        assert(status().accepted == 1 && status().executed_index == 1);
+        if (corruption == 0) hw.current_index = 0;
+        if (corruption == 1) { physical_complete(); hw.completed_index = 0; }
         if (corruption == 2) hw.written = 0;
         trigger_sequence_service_service();
         assert(status().state == TRIGGER_SEQUENCE_SERVICE_FAULT);
-        assert(status().completed == 0 && status().executed_index == 0);
+        assert(status().completed == 0 && status().executed_index == 1);
         stop();
     }
 }

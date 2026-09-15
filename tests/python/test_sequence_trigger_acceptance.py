@@ -11,12 +11,15 @@ from tools.hardware_acceptance import sequence_trigger_acceptance as target
 
 def sample(completed=1):
     row = dict.fromkeys(target.STATUS_FIELDS, 0)
-    code = (completed - 1) % 8
+    code = completed % 8
     row.update(state="READY", error="NONE", run_id=5, generation=3, count=8,
                current_index=code, current_state=code, executed_index=code, executed_state=code,
-               completed_index=code, completed_state=code, next_index=completed % 8,
-               cycles=(completed - 1) // 8, accepted=completed, completed=completed,
+               completed_index=code, completed_state=code, next_index=(completed + 1) % 8,
+               cycles=completed // 8, accepted=completed, completed=completed,
                written_us=0, rise_us=0, completed_us=0)
+    if completed == 0:
+        row.update(executed_index=(1 << 32) - 1, executed_state=(1 << 32) - 1,
+                   completed_index=(1 << 32) - 1, completed_state=(1 << 32) - 1)
     return row
 
 
@@ -30,27 +33,27 @@ def encoded(row):
 def test_valid_sequence_wrap(count):
     row = sample(count)
     assert target.parse_status(encoded(row)) == row
-    assert target.validate_sample(row, sample(), count - 1) == count
+    assert target.validate_sample(row, sample(0), count - 1) == count
     target.validate_totals(row, count, 0, count)
 
 
 @pytest.mark.parametrize("field,value", [
     ("run_id", 0), ("generation", 4), ("count", 2), ("state", "FAULT"),
-    ("accepted", 3), ("completed_index", 1), ("completed_state", 1),
-    ("current_index", 1), ("next_index", 2), ("cycles", 1),
+    ("accepted", 3), ("completed_index", 0), ("completed_state", 0),
+    ("current_index", 0), ("next_index", 0), ("cycles", 1),
     ("faults", 1), ("backend_fault", 1), ("cancelled", 1), ("error", "RESOURCE_BUSY"),
 ])
 def test_inconsistent_state_is_not_accepted(field, value):
-    row = sample()
+    row = sample(1)
     row[field] = value
     with pytest.raises(target.AcceptanceError):
-        target.validate_sample(row, sample(), 0)
+        target.validate_sample(row, sample(0), 0)
 
 
 @pytest.mark.parametrize("previous,current", [(0, 2), (3, 1)])
 def test_cannot_skip_or_regress_completions(previous, current):
     with pytest.raises(target.AcceptanceError):
-        target.validate_sample(sample(current), sample(), previous)
+        target.validate_sample(sample(current), sample(0), previous)
 
 
 @pytest.mark.parametrize("response", ["<timeout>", '"READY",1', '"READY', "", "," * 24])
@@ -84,6 +87,35 @@ def cli(tmp_path, *extra):
             "--out", str(tmp_path / "evidence.json"), *extra]
 
 
+def test_cli_accepts_usbtmc_resource(tmp_path):
+    args = target.parse_args([
+        "--visa-resource", "USB0::INSTR", "--serial-number", "UID",
+        "--build", "BUILD", "--out", str(tmp_path / "evidence.json")])
+    assert args.port is None
+    assert args.visa_resource == "USB0::INSTR"
+
+
+@pytest.mark.parametrize("transport", [[], ["--port", "COM4", "--visa-resource", "USB0::INSTR"]])
+def test_cli_requires_exactly_one_transport(tmp_path, transport):
+    with pytest.raises(SystemExit):
+        target.parse_args([
+            *transport, "--serial-number", "UID", "--build", "BUILD",
+            "--out", str(tmp_path / "evidence.json")])
+
+
+def test_visa_command_uses_per_command_timeout():
+    class Instrument:
+        timeout = 0
+
+        def query(self, command):
+            assert command == "*IDN?"
+            return "  DEVICE  \n"
+
+    instrument = Instrument()
+    assert target.visa_command(instrument, "*IDN?", 2.5) == "DEVICE"
+    assert instrument.timeout == 2500
+
+
 @pytest.mark.parametrize("extra", [
     ["--source", "IN1"], ["--source", "IN2", "--input-events", "8"],
     ["--input-events", "9"], ["--steps", "8"], ["--busy", "1"],
@@ -104,7 +136,7 @@ def test_pad_read_race_cannot_certify_wrong_step():
     bench.command = lambda cmd: "0"
     bench.status = lambda: sample(2)
     with pytest.raises(target.AcceptanceError, match="state changed"):
-        bench.sample_output(sample())
+        bench.sample_output(sample(1))
     assert report["steps"] == []
 
 
@@ -164,8 +196,7 @@ def test_external_mode_never_sends_software_step(tmp_path, monkeypatch):
     bench = target.Bench(None, args, report)
     writes = []
     bench.write = writes.append
-    baseline = sample()
-    baseline.update(accepted=0, completed=0, cycles=0, next_index=0)
+    baseline = sample(0)
     def wait_state(state):
         if state == "READY":
             return baseline
@@ -173,12 +204,13 @@ def test_external_mode_never_sends_software_step(tmp_path, monkeypatch):
         row["state"] = "PAUSED"
         return row
     bench.wait_state = wait_state
-    rows = iter(sample(n) for n in range(1, 10))
+    rows = iter([baseline, *(sample(n) for n in range(1, 10))])
     bench.status = lambda: next(rows)
     bench.sample_output = lambda row: report["steps"].append(row)
     bench.identity = lambda: None
     bench.command = lambda command: {
         "READ:SEQ:TIM?": "PIO0,100,0", "READ:SEQ:REJ?": "5,3,0,0,0",
+        "READ:IO:OUTP?": "0",
     }.get(command, '0,"No error"')
     clock = iter([0, *range(10)])
     monkeypatch.setattr(target.time, "monotonic", lambda: next(clock))

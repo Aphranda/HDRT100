@@ -58,13 +58,17 @@ static struct {
     uint32_t dma_mask, sm_claimed, loaded, paused_edges;
     uint32_t rx_consumed, rx_stopped_produced;
     uint32_t last_edges, pause_started;
+    uint64_t prime_ready_at_us;
     gpio_function_t saved_function[4];
     bool saved_direction[4], pins_saved, rx_stopped, paused;
+    bool priming;
 } s_sequence;
 static uint32_t s_receipts[RECEIPT_WORDS], s_plan[SYNC_IO_SEQUENCE_PLAN_MAX * 3u];
 static uint32_t abort_tail, receipt_aborts;
+static uint64_t fake_time_us;
 static void fail(uint32_t reason) { s_sequence.status.fault = reason; }
 static uint get_core_num(void) { return 1u; }
+static uint64_t time_us_64(void) { return fake_time_us; }
 static void publish(void) {}
 static uint32_t dma_encode_endless_transfer_count(void) { return 0xf0000000u; }
 static volatile uint32_t s_edge_latest;
@@ -110,6 +114,17 @@ static void pio_remove_program(PIO pio, const struct pio_program *program, uint 
 }
 static void pio_set_sm_mask_enabled(PIO pio, uint32_t mask, bool on) {
     (void)pio; assert(!(mask & 1u)); if (on) enabled |= mask; else enabled &= ~mask;
+}
+static void pio_enable_sm_mask_in_sync(PIO pio, uint32_t mask) {
+    pio_set_sm_mask_enabled(pio, mask, true);
+}
+static void dma_start_channel_mask(uint32_t mask) {
+    for (uint ch = 0u; ch < NUM_DMA_CHANNELS; ++ch) {
+        if ((mask & (1u << ch)) == 0u) continue;
+        fake_dma.ch[ch].ctrl_trig |= DMA_CH0_CTRL_TRIG_EN_BITS;
+        fake_dma.ch[ch].al1_ctrl = fake_dma.ch[ch].ctrl_trig;
+        fake_dma.ch[ch].busy = true;
+    }
 }
 static void pio_sm_clear_fifos(PIO pio, uint sm) { (void)pio; rx_valid[sm] = false; }
 static uint pio_sm_get_pc(PIO pio, uint sm) { (void)pio; return pcs[sm]; }
@@ -186,6 +201,7 @@ static void reset(void) {
     pads = 0xffff0000u;
     for (uint i = 0u; i < 32u; ++i) { functions[i] = 5u; directions[i] = i & 1u; }
     checkpoint = fail_at = abort_tail = receipt_aborts = 0u;
+    fake_time_us = 0u;
     arm_allowed = start_allowed = true;
 }
 int main(void) {
@@ -221,6 +237,30 @@ int main(void) {
         assert(words == 1u && dma_claims == 0x1fbu);
         assert(sync_io_persona_manager_deinit(&manager));
     }
+    /* START exposes state zero immediately, but no input is admitted until
+     * its initial settle interval has elapsed and the executor is ready. */
+    reset();
+    s_sequence.status.armed = true;
+    s_sequence.status.plan_count = 3u;
+    s_sequence.status.current_index = 0u;
+    s_sequence.status.completed_index = UINT32_MAX;
+    s_sequence.status.rejection_counts_pending = true;
+    s_sequence.priming = true;
+    s_sequence.prime_ready_at_us = 10u;
+    for (uint i = 0u; i < 4u; ++i) s_sequence.dma[i] = (int)i;
+    dma_claims = 15u;
+    fake_dma.ch[2].ctrl_trig = DMA_CH0_CTRL_TRIG_EN_BITS;
+    fake_dma.ch[2].transfer_count = RX_TRANSFERS;
+    pcs[EXECUTOR_SM] = sequence_executor_offset_waiting;
+    fake_pio.irq = 1u << READY_IRQ;
+    fake_time_us = 9u;
+    sync_io_sequence_service();
+    assert(s_sequence.priming && !s_sequence.status.ready);
+    assert((enabled & INPUT_SM_MASK) == 0u && !fake_dma.ch[3].busy);
+    fake_time_us = 10u;
+    sync_io_sequence_service();
+    assert(!s_sequence.priming && s_sequence.status.ready);
+    assert((enabled & INPUT_SM_MASK) == INPUT_SM_MASK && fake_dma.ch[3].busy);
     for (uint pc = 0u; pc < 5u; ++pc) {
         reset();
         s_sequence.dma[3] = 0;

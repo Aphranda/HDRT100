@@ -22,7 +22,7 @@ def function(source, name):
 def test_sequence_backend_receipts_and_admission(tmp_path):
     backend = (ROOT / "components/sync_io/src/sync_io_sequence.c").read_text(encoding="utf-8")
     harness = '#include "sync_io_sequence_fake.h"\n'
-    for name in ("config_valid", "receive_word", "account_input"):
+    for name in ("config_valid", "logical_index_for_transfer", "receive_word", "account_input"):
         harness += function(backend, name)
     harness += (ROOT / "tests/unit/test_sync_io_sequence.c").read_text(encoding="utf-8")
     path = tmp_path / "sequence.c"
@@ -65,8 +65,9 @@ def test_production_hot_load_and_pause_boundaries(tmp_path):
     production = "\n".join(function(backend, name) for name in (
         "sm_pc", "clear_owned_flags", "safe_low", "stop_hardware", "cleanup", "load_hardware",
         "stop_hook", "read_sm_register", "stop_counter", "finish_ingress",
-        "produced_receipts", "stop_receipt_dma", "resume_receipt_dma", "receive_word", "drain_receipts",
-        "pending_request", "drain_idle_executor", "account_input", "sync_io_sequence_service",
+        "produced_receipts", "stop_receipt_dma", "resume_receipt_dma", "logical_index_for_transfer",
+        "receive_word", "drain_receipts", "pending_request", "drain_idle_executor", "account_input",
+        "sync_io_sequence_service",
         "sync_io_sequence_pause"))
     template = (ROOT / "tests/unit/test_sync_io_sequence_resources.c").read_text(encoding="utf-8")
     harness = tmp_path / "resources.c"
@@ -184,7 +185,7 @@ class Machine:
 
 class Sequence:
     def __init__(self, programs, values, *, settle=2, pulse=1, falling=False, completion=3):
-        self.time, self.flags, self.pads = 0, 0, 0
+        self.time, self.flags, self.pads = 0, 0, values[0]
         self.input = falling
         self.completion = completion
         self.writes, self.rises, self.falls, self.receipts = [], [], [], []
@@ -197,7 +198,9 @@ class Sequence:
                 sm.words[0] ^= 128
                 sm.words[1] ^= 128
         self.words = []
-        for index, value in enumerate(values):
+        for transfer in range(len(values)):
+            index = (transfer + 1) % len(values)
+            value = values[index]
             self.words += [value | (index << 4), 0 if settle == 0 else settle * 10 - 4,
                            pulse * 10 - 3]
         self.cursor = 0
@@ -243,7 +246,7 @@ def test_full_plan_runs_without_cpu_steps(programs, values, falling):
     machine.tick(20)
     for _ in range(len(values) * 3 + 1):
         machine.edge(falling=falling)
-    expected = [values[i % len(values)] | ((i % len(values)) << 4)
+    expected = [values[(i + 1) % len(values)] | (((i + 1) % len(values)) << 4)
                 for i in range(len(values) * 3 + 1)]
     assert [value for _, value in machine.writes] == expected
     assert machine.receipts == [word for tag in expected for word in (tag, tag ^ UINT32)]
@@ -272,13 +275,14 @@ def test_busy_edges_not_replayed_and_pause_finishes_current_step(programs):
     machine.input = False
     machine.tick(10)
     machine.edge(gap=300)
-    assert [tag & 15 for _, tag in machine.writes] == [1, 2]
+    assert [tag & 15 for _, tag in machine.writes] == [2, 3]
 
 
 def test_preload_is_not_execution_and_receipt_backpressure_is_visible(programs):
     machine = Sequence(programs, [1, 2, 3])
     machine.tick(1000)
     assert machine.cursor != 0
+    assert machine.pads == 1
     assert not machine.writes and not machine.receipts
     machine.drain = False
     for _ in range(6):
@@ -317,4 +321,4 @@ def test_completion_pad_does_not_leak_plan_tag(programs, completion):
     machine.edge()
     machine.edge()
     assert machine.pads == value
-    assert machine.receipts == [value, value ^ UINT32, value | 16, (value | 16) ^ UINT32]
+    assert machine.receipts == [value | 16, (value | 16) ^ UINT32, value, value ^ UINT32]
