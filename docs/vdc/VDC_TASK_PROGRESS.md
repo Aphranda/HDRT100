@@ -74,7 +74,50 @@ P3，详见 `VDC-PROGRESS-20260915-026`；后续非法目标位移修复和完�
 隔离分别见 `VDC-PROGRESS-20260915-027/028`。每项功能修改后立即 P3；基础流程的
 复核不改变上述时间输入、命令应用和正式锁相的未完成状态。隔离验收中重复出现的
 粗校准配置拒绝及准备流程有界恢复见 `VDC-PROGRESS-20260915-029`；命令区任务写者
-与在线 reset/读交错修复见 `VDC-PROGRESS-20260915-030`。
+与在线 reset/读交错修复见 `VDC-PROGRESS-20260915-030`；本地角色回切时已接收
+命令的退休见 `VDC-PROGRESS-20260915-031`。
+
+### VDC-PROGRESS-20260915-031 — 角色代际绑定与已接收命令防重放
+
+- TODO task ID：`VDC-CMD-002`、`VDC-CMD-003`、`VDC-ROLE-005`、`VDC-VERIFY-001`；
+  状态 IN PROGRESS。030 已分离提交为 `8f530ed` / `50588c0`，随后才开始本切片。
+- 反例：旧实际 manager 函数体在 A→B→A 及 FOLLOWER→MASTER→FOLLOWER 后均重复
+  提交旧 retained 命令。`out/HardwareAcceptance/20260915/command-role-fence-r1/`
+  的 `before-owner/` 保存旧函数来源 SHA、可执行 harness、两次断言失败及原始输出。
+  Domain 应用为观测 stub，因此它证明重复提交路径，不冒充物理 DCO 的波形反例。
+- 修复：Core1 将当前实际 `control.profile.generation` 传给命令 getter，
+  `refmem_sync_vdc_copy_command_for_generation()` 在同一 guard 内核对 context
+  的本地 consumer generation 与完整副本。Core0 RefMem 任务在本地角色代际变化时
+  作废所有 retained 值并取消当前片段组装，保留各来源 command/frame 序号水位；
+  排序依据不再使用 `valid`。已见旧命令换新 transport sequence 也不能恢复有效。
+  同代际调用无副作用；epoch/run 等接收身份 reset 才退休历史。parser 在组装前
+  要求 transport/context 本地 generation 一致，避免两次快照跨代消耗新命令。
+- HAOFV 与资源：角色身份由 Core1 拥有，接收状态仍由 Core0 RefMem 任务唯一写入；
+  不比较本地 role generation 和远端 command generation，不改 wire 或 OTA。
+  默认 release 双应用/Boot 和 command 开启分支 compile-only 通过，开启分支未部署。
+  以下为目标 map 快照，非事实源：接收 context 从 448 B 增至 456 B，双应用 BSS
+  均增加 8 B，Heap/Stack limit 不变；原件见 `target-layout.json` 和 link map。
+- 软件结果：真实 receiver/binding/copy 的 C runner 通过；角色、待执行命令、Core0
+  延迟/漏代际与复制交错均有正反验证。以下为本轮快照，非事实源：owner/ingress
+  Python 合跑 30 passed，C 测试包含 4 次复制中途写入。新增 ingress harness
+  执行实际 refresh 函数及 parser 准入前缀，使用真实 RefMem 库和 mailbox CRC，
+  不覆盖后续全片交付。该测试曾暴露函数提取器误匹配更早的 `if (refresh(...))`；
+  修正为行首有类型的定义后全绿，失败原件见 `ingress-extractor-before.json`。
+  最终独立只读审查通过，仍明确 manager 的 Domain 应用端是观测 stub。
+- 硬件结果：当前源码指纹
+  `14f00d1d4131e4987addf7189bd7121454f33f8e34e0c33a62f292d4375bb759` 的独立
+  `p3_hardware_acceptance.py run --tdma-only` 通过；`p3/acceptance.json` 与
+  `diagnostic.json` 均为 strict gates passed，失败列表为空，短帧 closed-loop/
+  realtime 通过。以下为本轮快照，非事实源：总计 198.460 s，每板 14 条原生记录，
+  missed=0；四板全部 STOP，配置代际均已 ACK。`review-final.json` 核对当前源码
+  与凭证指纹、20 项原件散列及板端记录身份，固件包及双应用 map 已另存本切片目录。
+  本轮部署并验收的是命令默认禁用态，不提升为角色切换的实板命令功能验收。
+- 范围与下一 gate：本切片只关闭已接收/已见命令在角色回切后的重放，不关闭完整
+  角色切换协议。切换前已准备或排队、切换后才首次完整收到且序号更大的未来命令，
+  仍可能满足本地新 tag；必须继续建立 TDMA ingress fence 及切换生效定义，不能
+  靠清组装、丢首帧或随意增加本地 run 代替。远端 generation 重启、共同 session、
+  Domain clock/oscillator 请求历史、版本兼容和交付上界仍是命令启用前置。
+  命令运输保持默认禁用，不据此宣布三从应用或正式锁相完成。
 
 ### VDC-PROGRESS-20260915-030 — 命令区唯一写者与在线 reset 一致性
 

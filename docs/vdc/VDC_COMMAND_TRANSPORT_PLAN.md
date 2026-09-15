@@ -46,9 +46,14 @@ Last updated: 2026-09-15
   `refmem_sync_vdc_reset()` 保留发布序列，清空及身份更新都在 guard 内完成，
   `refmem_sync_vdc_init()` 只供并发读取开始前冷初始化。RefMem 快照读取失败时
   暂停命令准入，普通 flight 服务继续。Core1 在消费序号前独立拒绝 epoch/run
-  错配，并在本地会话变化时重置序号水位。该切片不证明全部生命周期已闭合：
-  同会话角色/来源 A→B→A、远端 control generation 重启以及 schedule/STOP 取消
-  仍需端到端负测；本地 role generation 与远端 command generation 不能直接比较。
+  错配，并在本地会话变化时重置序号水位。`VDC-PROGRESS-20260915-031` 进一步把
+  guarded copy 绑定到 Core1 当前实际本地 role generation；Core0 观察到角色变化
+  时只作废 retained 值并取消组装，保留各来源已接收的 command/frame 序号水位。
+  同代际重绑定不取消待执行命令；parser 要求 transport 与接收 context 的本地
+  generation 一致。该边界阻止已接收命令在 A→B→A 后复活，但尚未接收的旧未来
+  命令可能在切换后才入站，仍需传输入站 fence 与明确的切换生效规则。远端
+  control generation 重启以及 schedule/STOP 取消仍需端到端负测；本地 role
+  generation 与远端 command generation 不能直接比较。
   `vdc_domain_publish_clock_model()` 任意换会话后的 Domain history 退休也未验收，
   manager 测试中的 Domain 应用 stub 不能代替该证据。
 - resident master 在一条记录的全部片段发完前保持记录不可变；完成后重复发送当前
