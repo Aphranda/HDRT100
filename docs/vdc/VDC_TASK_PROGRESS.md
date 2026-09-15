@@ -3732,3 +3732,11 @@ P3，详见 `VDC-PROGRESS-20260915-026`；后续非法目标位移修复和完�
 
 诊断 replay、host 单测、TDMA short-frame、NO5 外环观测和正式 VDC lock 是不同证据等级，
 不得相互替代。formal promotion 失败时保留失败证据，不修改为成功状态。
+
+### VDC-PROGRESS-20260915-040 — STOP 后几何冻结与新 ARM 显式选择
+
+- TODO task ID：`VDC-TIME-002`；状态 IN PROGRESS。
+- TDMA owner 保存训练几何的拓扑、定向端点、PIO/DMA、引脚、相位、物理长度及 map 代际；完整 adapter STOP（含 RX station ACK）后才发布 `FROZEN`。部分取消、ARM 早退、persona/clock/资源变化和代际耗尽会退休描述符。
+- 新 ARM 通过受保护 runtime config 选择精确 generation，并绑定新 config、ARM epoch、observation epoch 和 map generation；同一代际重复使用被拒绝。训练完成时记录 observation epoch，避免把 ARM 前空闲等待误当作训练来源。
+- 软件 84 项回归、双槽 release 构建和 Flash 链接门禁通过；BSS 增加 792 B，FreeRTOS 堆和两核栈边界未变（资源快照，非容量契约）。当前源码四板 quick P3 严格通过，板端记录与 SD 下载逐字节一致；NO2–NO4 的冻结→选择→退休→陈旧拒绝 HIL 通过，NO1 保持 origin。证据位于 `out/HardwareAcceptance/20260915/frozen-geometry-r1/`。
+- 仍未证明 CS 相对首帧坐标、完整自主身份关联、VDC 时间输入、命令应用或示波器正式锁相；下一步继续 TIME-002 的自主首次发车与 observer 就绪边界。
