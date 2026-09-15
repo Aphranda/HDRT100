@@ -81,7 +81,62 @@ P3，详见 `VDC-PROGRESS-20260915-026`；后续非法目标位移修复和完�
 `VDC-PROGRESS-20260915-034`；固定校准配置复测与示波器诊断链路见
 `VDC-PROGRESS-20260915-035`；普通循环边界和事件观察器分段计时见
 `VDC-PROGRESS-20260915-036`；transport CRC 等价优化及同槽对照见
-`VDC-PROGRESS-20260915-037`。
+`VDC-PROGRESS-20260915-037`；事件 lift 快路径及收益边界见
+`VDC-PROGRESS-20260915-038`。
+
+### VDC-PROGRESS-20260915-038 — 事件 lift 等价快路径，尾延迟仍待闭合
+
+- TODO task ID：`VDC-SCHED-001`、`VDC-VERIFY-001`；状态 IN PROGRESS。
+  037 已提交为 `aa6c988` / `cd51d8f`。本切片仅在
+  `tdma_event_observer_lift()` 参数校验及 `upper < base` 拒绝之后，增加
+  `upper - base < TDMA_EVENT_WRAP_PERIOD` 的唯一候选快路径：`lower <= base`
+  时输出 `base`，否则保留 NO_CANDIDATE。这里 `q=0` 表示无需额外完整周期，
+  原始计数器跨零的补偿仍在 `base` 中；等号边界和多周期窗口继续走通用路径。
+  错误优先级、拒绝时不写输出、溢出检查、整批失败退休及诊断身份均保持。
+- 软件与资源快照，非容量契约：生产 C 生命周期和 bigint 差分等 36 项回归
+  通过，新增精确错误码、边界两侧、非法参数与输出 sentinel 检查；双槽 release
+  构建和 Flash 链接门禁通过。目标反汇编中 RX/TX 的 lift 命中 `q=0` 条件时
+  各绕过三次软件 64 位除法，运行命中率未记录；内联后的 FEED 从 3436 B
+  降为 3296 B，入口地址不变，主 BSS、
+  SCRATCH_Y 与栈底链接末端不变。不把指令变化换算为实测微秒收益。
+- 当前源码四板 P3 为 `tdma-event-lift-r1/p3/`，耗时快照 187.310 s；
+  `passed/flow_completed/strict_gates_passed=true`，诊断失败为空，四板普通
+  process-image/FIFO 闭环通过。源码 SHA 为
+  `e59738382c51178a5f0056d049d0bcfd23b88845b348491e09f563bda201c8cd`，
+  包 SHA 为 `4b8245caf28e2a99bbc4f0dfda36df5c0e64d3ed9870a87cabea67e4506b0882`。
+  为控制槽位，先用既有 OTA 重装冻结的 CRC 固件一次，四板成功，额外耗时
+  113.532 s，不计入 P3。OTA 实现、配置及命令运输开关未改。
+- 同槽比较沿用 037 两轮 CRC 基线；新两轮约 16 s，使用同一 row35/matrix、
+  板序和 NO1/NO2/NO3 槽 2、NO4 槽 1，均在 START 后 RESET、SRAM 记录，
+  STOP 后导出并 SAVE。下表为稳定采样段快照；旧 r1 窗口较短，保留实际分母：
+
+  | 板卡 | CRC 基线合计 TDMA overrun/run | lift 快路径合计 TDMA overrun/run |
+  |---|---:|---:|
+  | NO1 | 0/1502 | 0/1669 |
+  | NO2 | 18/1503 | 16/1664 |
+  | NO3 | 23/1504 | 19/1664 |
+  | NO4 | 18/1505 | 24/1666 |
+
+- **未证明从板整体提速或尾延迟问题解决**：NO4 比例未改善，完整峰值内的
+  FEED 子段仍有明显波动。新 r1 三从板普通 RUN 峰值为
+  914.572/905.044/903.912 µs；新 r2 NO2 的 964.792 µs 属于 STOP 过渡
+  `256→0`，不与普通 RUN 相比，NO3/NO4 普通 RUN 峰值为
+  915.020/905.624 µs。这些是各轮完整相位峰值，FEED 子段不是独立 FEED 最大值。
+  保留快路径的依据是等价算术简化、代码缩小、无新增持久 RAM 和功能验收通过；
+  不能据此关闭 `VDC-SCHED-001` 或宣称稳定超限率已下降。
+- 原件复核：P3 的四份及前后比较的十六份 native binary 均通过 CRC/身份/
+  epoch/JSON 比对，记录完整且 missed/reason 为零；稳定时间线逐条对应 native
+  样本。新两轮三从板观察器均 ACTIVE、reason/fault 为零，joined 与 published
+  同步递增，RX/TX elapsed 递增。最终四板 STOP、config ACK、SELFtest 全零且
+  recorder SAVED；SAVE 只证明状态/epoch/长度，不声称 SD 与 SRAM 字节比对。
+  证据根目录 `out/HardwareAcceptance/20260915/tdma-event-lift-r1/`；两轮比较
+  原件分别在 `tdma-event-lift-after-r1/`、`tdma-event-lift-after-r2/`。
+- 下一 gate：分解 `event_start_cut` 的身份/几何复验、MMIO、时间读取和发布开销，
+  结合 Flash 放置评估收益；保留已退休后继续累计故障原因及 observer guard。
+  当前仍为 850 µs TDMA / 1.5 ms 整表预算快照，本切片未修改预算，不表示达到
+  500 µs 或整表 WCET。随后按既有依赖补共同 session、命令交接/应用与实际锁相。
+  示波器继续用 NO1/CH1 上升沿触发、四路 DPLL 输出及 1× 探头；本轮未新增
+  波形或锁相结论，未变更契约登记或 HAOFV owner 边界。
 
 ### VDC-PROGRESS-20260915-037 — transport CRC 等价优化与同槽四板对照
 
