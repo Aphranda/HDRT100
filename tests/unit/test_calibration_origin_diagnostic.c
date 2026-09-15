@@ -239,7 +239,7 @@ static request_t configure(unsigned id)
     switch (id) {
     case CASE_GOOD: break;
     case CASE_FLAGS_MIX: request.flags = 3u; REJECT(ARGUMENT, 0u, 0u); break;
-    case CASE_FLAGS_UNKNOWN: request.flags = 8u; REJECT(ARGUMENT, 0u, 0u); break;
+    case CASE_FLAGS_UNKNOWN: request.flags = 16u; REJECT(ARGUMENT, 0u, 0u); break;
     case CASE_TRIAL_ZERO: request.trial = 0u; REJECT(ARGUMENT, 0u, 0u); break;
     case CASE_REARM_ZERO: request.rearm = 0u; REJECT(ARGUMENT, 0u, 0u); break;
     case CASE_POLLS_ZERO: request.polls = 0u; REJECT(ARGUMENT, 0u, 0u); break;

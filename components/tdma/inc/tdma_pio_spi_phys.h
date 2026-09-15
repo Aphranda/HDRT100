@@ -714,14 +714,65 @@ typedef struct {
 #include "tdma_origin_build_job.h"
 #include "tdma_origin_handoff.h"
 
+/* First physical preparation/release rejection, Core1 owner only. Code uses
+ * reason in bits 31:16 and detail in bits 15:0. PIO detail is bank (TX=0,
+ * RX=1) << 8 | SM << 1 | FIFO direction (TX=0, RX=1). DMA/GPIO detail is
+ * channel/pin; other details are the explicitly numbered checks below.
+ * Observed/expected retain the compared value (low 32 bits for addresses or
+ * wider config/timestamp values). FIFO retains full FSTAT and the required
+ * EMPTY mask; DMA retains full CTRL/ABORT and the required zero invalid bits.
+ * The owner archives this before common STOP; existing STOP/BEGIN reset it. */
+typedef enum {
+    TDMA_ORIGIN_REJECT_NONE = 0,
+    TDMA_ORIGIN_REJECT_CONFIG = 1,
+    TDMA_ORIGIN_REJECT_RESOURCE_LEASE = 2,
+    TDMA_ORIGIN_REJECT_PERSONA = 3,
+    TDMA_ORIGIN_REJECT_DMA_CONTRACT = 4,
+    TDMA_ORIGIN_REJECT_RX_CONTRACT = 5,
+    TDMA_ORIGIN_REJECT_DMA_BINDING = 6,
+    TDMA_ORIGIN_REJECT_BOARD_BINDING = 7,
+    TDMA_ORIGIN_REJECT_PHYSICAL_BINDING = 8,
+    TDMA_ORIGIN_REJECT_DMA_CLAIM = 9,
+    TDMA_ORIGIN_REJECT_SM_CLAIM = 10,
+    TDMA_ORIGIN_REJECT_SOFTWARE = 11,
+    TDMA_ORIGIN_REJECT_BUILDER = 12,
+    TDMA_ORIGIN_REJECT_SM_ENABLED = 13,
+    TDMA_ORIGIN_REJECT_DRIVER = 14,
+    TDMA_ORIGIN_REJECT_PAD = 15,
+    TDMA_ORIGIN_REJECT_IRQ = 16,
+    TDMA_ORIGIN_REJECT_FAULT = 17,
+    TDMA_ORIGIN_REJECT_DMA_ABORT = 18,
+    TDMA_ORIGIN_REJECT_DMA_CONTROL = 19,
+    TDMA_ORIGIN_REJECT_FIFO = 20,
+    TDMA_ORIGIN_REJECT_PC = 21,
+    TDMA_ORIGIN_REJECT_PLAN_STORAGE = 22,
+    TDMA_ORIGIN_REJECT_PLAN_COUNT = 23,
+    TDMA_ORIGIN_REJECT_PLAN_ENTRY = 24,
+    TDMA_ORIGIN_REJECT_LOADER = 25,
+    TDMA_ORIGIN_REJECT_STAGE = 26,
+    TDMA_ORIGIN_REJECT_AUTHORITY = 27,
+    TDMA_ORIGIN_REJECT_EXPIRY = 28,
+    TDMA_ORIGIN_REJECT_RELEASE_CLOCK = 29,
+    TDMA_ORIGIN_REJECT_PREPARE_STAGE = 30
+} tdma_origin_reject_reason_t;
+#define TDMA_ORIGIN_REJECT_CODE(reason, detail) \
+    (((uint32_t)(reason) << 16u) | ((uint32_t)(detail) & 0xffffu))
+#define TDMA_ORIGIN_REJECT_PIO_DETAIL(bank, sm, rx) \
+    (((uint32_t)(bank) << 8u) | ((uint32_t)(sm) << 1u) | (uint32_t)(rx))
+
 typedef struct {
     tdma_ring_runtime_config_t config;
     const tdma_ring_runtime_config_t *live_config;
     const uint8_t *seed;
     uint32_t stage, mailbox, prefix_bits, abort_poll_count, clk_sys_hz;
     uint32_t packet_size;
+    /* Survives builder scratch reuse. Fixed PIO/SM/pins are checked against
+     * the board contract; these admitted physical values may vary by trial. */
+    tdma_origin_cadence_t cadence;
+    uint32_t physical_bytes, marker_phase, sck_phase, data_phase, capture_phase;
     bool diagnostic_skip_records;
     uint32_t diagnostic_build_probe_epoch, diagnostic_build_probe_config_seq;
+    uint32_t reject_code, reject_observed, reject_expected;
 } tdma_origin_prepare_t;
 
 /* Core0 preparation only: consumes a Core1-authorized unpublished graph,
@@ -931,6 +982,12 @@ bool tdma_pio_spi_phys_origin_begin(
     const uint8_t *returned_packet, size_t packet_size,
     uint32_t rearm_budget_ticks, uint32_t abort_poll_count);
 tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *context);
+/* Core1 only. READY never starts itself. The owner revalidates its exact
+ * trial/config authority before release and supplies its original deadline.
+ * A failed release consumes no new grant and requires the existing STOP. */
+bool tdma_pio_spi_phys_origin_prepare_ready(void *context);
+bool tdma_pio_spi_phys_origin_release(void *context, uint64_t expires_ticks,
+    bool (*authorized)(void));
 bool tdma_pio_spi_phys_origin_active(const void *context);
 bool tdma_pio_spi_phys_origin_healthy(const void *context);
 /* Sole Core1 owner, read-only archive publication watermark. No FIFO read,

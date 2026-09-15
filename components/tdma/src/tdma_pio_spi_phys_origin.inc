@@ -1,5 +1,7 @@
 /* Included in the physical owner: all SRAM/MMIO addresses and resources are
  * bound here. The exchange API never arms hardware or claims a wire event. */
+#include "hardware/structs/dma_debug.h"
+
 #define s_tdma_origin (s_tdma_pio_spi_workspace.origin)
 
 void tdma_pio_spi_phys_origin_core0_prepare_service(void)
@@ -105,6 +107,350 @@ static void tdma_pio_spi_phys_origin_configure_sms(tdma_pio_spi_phys_t *phys,
     pio_interrupt_clear(tx, 1u);
 }
 
+static bool tdma_pio_spi_phys_origin_reject(tdma_pio_spi_phys_t *phys,
+    tdma_origin_reject_reason_t reason, uint32_t detail,
+    uint64_t observed, uint64_t expected)
+{
+    tdma_origin_prepare_t *request = &phys->flight_origin_prepare;
+    if (request->reject_code == TDMA_ORIGIN_REJECT_NONE) {
+        request->reject_observed = (uint32_t)observed;
+        request->reject_expected = (uint32_t)expected;
+        request->reject_code = TDMA_ORIGIN_REJECT_CODE(reason, detail);
+    }
+    return false;
+}
+
+static bool tdma_pio_spi_phys_origin_expect(tdma_pio_spi_phys_t *phys,
+    tdma_origin_reject_reason_t reason, uint32_t detail,
+    uint64_t observed, uint64_t expected)
+{
+    return observed == expected ||
+        tdma_pio_spi_phys_origin_reject(phys, reason, detail, observed, expected);
+}
+
+static bool tdma_pio_spi_phys_origin_config_current(tdma_pio_spi_phys_t *phys)
+{
+    const tdma_origin_prepare_t *request = &phys->flight_origin_prepare;
+    const tdma_ring_runtime_config_t *config = &request->config;
+    const tdma_origin_cadence_t *cadence = &phys->flight_origin_cadence;
+#define TDMA_ORIGIN_CONFIG(detail, observed, expected) \
+    tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_CONFIG, detail, observed, expected)
+    return TDMA_ORIGIN_CONFIG(1u, request->live_config != NULL, true) &&
+        TDMA_ORIGIN_CONFIG(2u, memcmp(request->live_config, config, sizeof(*config)) == 0, true) &&
+        TDMA_ORIGIN_CONFIG(3u, clock_get_hz(clk_sys), request->clk_sys_hz) &&
+        TDMA_ORIGIN_CONFIG(4u, vdc_timestamp_clock_tick_hz(), request->clk_sys_hz) &&
+        TDMA_ORIGIN_CONFIG(5u, config->enabled != 0u, true) &&
+        TDMA_ORIGIN_CONFIG(6u, phys->process_image_enabled, true) &&
+        TDMA_ORIGIN_CONFIG(7u, phys->role, TDMA_PIO_SPI_ROLE_MASTER) &&
+        TDMA_ORIGIN_CONFIG(8u, phys->baud_hz, config->baud_hz) &&
+        TDMA_ORIGIN_CONFIG(9u, phys->node_count, config->node_count) &&
+        TDMA_ORIGIN_CONFIG(10u, phys->flight_local_slot_id, config->local_slot_id) &&
+        TDMA_ORIGIN_CONFIG(11u, request->packet_size, TDMA_TRANSPORT_FRAME_HEADER_SIZE + phys->flight_payload_size) &&
+        TDMA_ORIGIN_CONFIG(12u, phys->flight_physical_byte_count, request->physical_bytes) &&
+        TDMA_ORIGIN_CONFIG(13u, phys->flight_marker_phase_delay_cycles, request->marker_phase) &&
+        TDMA_ORIGIN_CONFIG(14u, phys->flight_sck_phase_delay_cycles, request->sck_phase) &&
+        TDMA_ORIGIN_CONFIG(15u, phys->flight_data_phase_delay_cycles, request->data_phase) &&
+        TDMA_ORIGIN_CONFIG(16u, phys->flight_origin_capture_phase_delay_cycles, request->capture_phase) &&
+        TDMA_ORIGIN_CONFIG(17u, phys->flight_alignment_bit_shift < 8u, true) &&
+        TDMA_ORIGIN_CONFIG(18u,
+            ((uint64_t)phys->flight_alignment_byte_shift + TDMA_PIO_SPI_PACKET_HEADER_SIZE) * 8u +
+                phys->flight_alignment_bit_shift, request->prefix_bits) &&
+        TDMA_ORIGIN_CONFIG(19u, cadence->divider256, request->cadence.divider256) &&
+        TDMA_ORIGIN_CONFIG(20u, cadence->guard_count, request->cadence.guard_count) &&
+        TDMA_ORIGIN_CONFIG(21u, cadence->period_floor_ticks, request->cadence.period_floor_ticks) &&
+        TDMA_ORIGIN_CONFIG(22u, cadence->period_ceiling_ticks, request->cadence.period_ceiling_ticks) &&
+        TDMA_ORIGIN_CONFIG(23u, cadence->guard_floor_ticks, request->cadence.guard_floor_ticks);
+#undef TDMA_ORIGIN_CONFIG
+}
+
+static void tdma_pio_spi_phys_origin_pause(void)
+{
+    /* Rejection may mean a bad projected PIO/SM. Disable only the two
+     * board-owned flight banks, never a mismatched projection's peripheral. */
+    for (uint sm = 0u; sm < 4u; ++sm) {
+        pio_sm_set_enabled(BOARD_TDMA_TX_PIO, sm, false);
+        pio_sm_set_enabled(BOARD_TDMA_RX_PIO, sm, false);
+    }
+}
+
+static bool tdma_pio_spi_phys_origin_resources_current(tdma_pio_spi_phys_t *phys)
+{
+    const tdma_state_machine_resource_contract_t *r = &phys->flight_resources;
+    const tdma_state_machine_resource_contract_t board = tdma_state_machine_resource_contract();
+    const tdma_state_machine_origin_dma_contract_t dma = tdma_state_machine_origin_dma_contract();
+    /* The two flags are the sole physical owner's retained arbiter leases.
+     * Reading an arbiter snapshot here would take the shared OSAL lock. */
+    if (!tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_RESOURCE_LEASE, 1u,
+            phys->flight_origin_workspace_owned, true) ||
+        !tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_RESOURCE_LEASE, 2u,
+            phys->flight_origin_resource_claimed, true) ||
+        !tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_RESOURCE_LEASE, 3u,
+            phys->flight_resource_claimed, true) ||
+        !tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_RESOURCE_LEASE, 4u,
+            s_tdma_pio_spi_flight_sms_claimed, true) ||
+        !tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_PERSONA, 0u,
+            s_tdma_pio_spi_program_persona, TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN) ||
+        !tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_DMA_CONTRACT, 0u,
+            tdma_state_machine_origin_dma_contract_valid(&dma), true) ||
+        !tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_RX_CONTRACT, 0u,
+            tdma_state_machine_rx_endpoint_contract_valid(&r->rx_endpoints), true) ||
+        !tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_DMA_BINDING, dma.output_dma,
+            (uint32_t)s_tdma_pio_spi_tx_dma_channel, dma.output_dma) ||
+        !tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_DMA_BINDING, dma.capture_dma,
+            (uint32_t)s_tdma_pio_spi_rx_dma_channel, dma.capture_dma) ||
+        !tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_DMA_BINDING, dma.loader_dma,
+            (uint32_t)s_tdma_pio_spi_command_dma_channel, dma.loader_dma) ||
+        !tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_DMA_BINDING, dma.executor_dma,
+            (uint32_t)s_tdma_pio_spi_executor_dma_channel, dma.executor_dma)) return false;
+    /* Compare fields, not structure padding. Graph MMIO uses board addresses,
+     * while SM installation uses this physical projection: both must agree. */
+#define TDMA_ORIGIN_BOARD_FIELD(detail, field) \
+    if (!tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_BOARD_BINDING, detail, \
+        (uintptr_t)r->field, (uintptr_t)board.field)) return false
+    TDMA_ORIGIN_BOARD_FIELD(1u, tx_pio);
+    TDMA_ORIGIN_BOARD_FIELD(2u, rx_pio);
+    TDMA_ORIGIN_BOARD_FIELD(3u, tx_control_out_sm);
+    TDMA_ORIGIN_BOARD_FIELD(4u, tx_rtt_evidence_sm);
+    TDMA_ORIGIN_BOARD_FIELD(5u, tx_clock_latch_sm);
+    TDMA_ORIGIN_BOARD_FIELD(6u, tx_data_capture_sm);
+    TDMA_ORIGIN_BOARD_FIELD(7u, rx_reserved_control_sm);
+    TDMA_ORIGIN_BOARD_FIELD(8u, rx_reserved_evidence_sm);
+    TDMA_ORIGIN_BOARD_FIELD(9u, rx_data_flight_sm);
+    TDMA_ORIGIN_BOARD_FIELD(10u, rx_clock_latch_sm);
+    TDMA_ORIGIN_BOARD_FIELD(11u, data_in_capture_dma);
+    TDMA_ORIGIN_BOARD_FIELD(12u, data_out_dma);
+    TDMA_ORIGIN_BOARD_FIELD(13u, data_in_forward_dma);
+    TDMA_ORIGIN_BOARD_FIELD(14u, sync_edge_dma);
+    TDMA_ORIGIN_BOARD_FIELD(15u, tx_clk_out_pin);
+    TDMA_ORIGIN_BOARD_FIELD(16u, tx_sync_out_pin);
+    TDMA_ORIGIN_BOARD_FIELD(17u, tx_data_in_pin);
+    TDMA_ORIGIN_BOARD_FIELD(18u, rx_clk_in_pin);
+    TDMA_ORIGIN_BOARD_FIELD(19u, rx_sync_in_pin);
+    TDMA_ORIGIN_BOARD_FIELD(20u, rx_data_out_pin);
+#undef TDMA_ORIGIN_BOARD_FIELD
+#define TDMA_ORIGIN_PHYSICAL_FIELD(detail, field, expected) \
+    if (!tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_PHYSICAL_BINDING, detail, \
+        phys->field, expected)) return false
+    TDMA_ORIGIN_PHYSICAL_FIELD(1u, tx_sm, r->rx_endpoints.data_output.sm);
+    TDMA_ORIGIN_PHYSICAL_FIELD(2u, rx_sm, r->tx_data_capture_sm);
+    TDMA_ORIGIN_PHYSICAL_FIELD(3u, tx_sck_pin, r->tx_clk_out_pin);
+    TDMA_ORIGIN_PHYSICAL_FIELD(4u, tx_csn_pin, r->tx_sync_out_pin);
+    TDMA_ORIGIN_PHYSICAL_FIELD(5u, tx_pin, r->rx_data_out_pin);
+    TDMA_ORIGIN_PHYSICAL_FIELD(6u, rx_pin, r->tx_data_in_pin);
+    TDMA_ORIGIN_PHYSICAL_FIELD(7u, rx_sck_pin, r->rx_clk_in_pin);
+    TDMA_ORIGIN_PHYSICAL_FIELD(8u, rx_csn_pin, r->rx_sync_in_pin);
+#undef TDMA_ORIGIN_PHYSICAL_FIELD
+    const uint channels[] = {dma.loader_dma, dma.executor_dma, dma.output_dma, dma.capture_dma};
+    for (uint i = 0u; i < sizeof(channels) / sizeof(channels[0]); ++i)
+        if (!tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_DMA_CLAIM,
+                channels[i], dma_channel_is_claimed(channels[i]), true)) return false;
+    for (uint sm = 0u; sm < 4u; ++sm)
+        if (!tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_SM_CLAIM,
+                TDMA_ORIGIN_REJECT_PIO_DETAIL(0u, sm, 0u), pio_sm_is_claimed(r->tx_pio, sm), true) ||
+            !tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_SM_CLAIM,
+                TDMA_ORIGIN_REJECT_PIO_DETAIL(1u, sm, 0u), pio_sm_is_claimed(r->rx_pio, sm), true)) return false;
+    return true;
+}
+
+static dma_channel_config tdma_pio_spi_phys_origin_loader_config(
+    const tdma_state_machine_origin_dma_contract_t *dma)
+{
+    dma_channel_config loader = dma_channel_get_default_config(dma->loader_dma);
+    channel_config_set_transfer_data_size(&loader, DMA_SIZE_32);
+    channel_config_set_read_increment(&loader, true);
+    channel_config_set_write_increment(&loader, true);
+    channel_config_set_ring(&loader, true, dma->descriptor_write_ring_log2);
+    channel_config_set_high_priority(&loader, true);
+    channel_config_set_chain_to(&loader, dma->loader_dma);
+    channel_config_set_enable(&loader, false);
+    return loader;
+}
+
+static bool tdma_pio_spi_phys_origin_quiescent(tdma_pio_spi_phys_t *phys)
+{
+    const tdma_state_machine_resource_contract_t *r = &phys->flight_resources;
+    const tdma_state_machine_origin_dma_contract_t dma = tdma_state_machine_origin_dma_contract();
+#define TDMA_ORIGIN_QUIET(reason, detail, observed, expected) \
+    tdma_pio_spi_phys_origin_expect(phys, reason, detail, observed, expected)
+    if (!TDMA_ORIGIN_QUIET(TDMA_ORIGIN_REJECT_SOFTWARE, 1u, phys->armed, false) ||
+        !TDMA_ORIGIN_QUIET(TDMA_ORIGIN_REJECT_SOFTWARE, 2u, phys->flight_overlay_dma_active, false) ||
+        !TDMA_ORIGIN_QUIET(TDMA_ORIGIN_REJECT_SOFTWARE, 3u, phys->rx_capture_active, false) ||
+        !TDMA_ORIGIN_QUIET(TDMA_ORIGIN_REJECT_SOFTWARE, 4u, phys->flight_tx_pending, false) ||
+        !TDMA_ORIGIN_QUIET(TDMA_ORIGIN_REJECT_SOFTWARE, 5u, phys->flight_tx_completion_pending, false) ||
+        !TDMA_ORIGIN_QUIET(TDMA_ORIGIN_REJECT_BUILDER, 0u,
+            tdma_origin_build_job_state(&s_tdma_origin_build_job), TDMA_ORIGIN_JOB_IDLE) ||
+        !TDMA_ORIGIN_QUIET(TDMA_ORIGIN_REJECT_SM_ENABLED, TDMA_ORIGIN_REJECT_PIO_DETAIL(0u, 0u, 0u),
+            r->tx_pio->ctrl & 0xfu, 0u) ||
+        !TDMA_ORIGIN_QUIET(TDMA_ORIGIN_REJECT_SM_ENABLED, TDMA_ORIGIN_REJECT_PIO_DETAIL(1u, 0u, 0u),
+            r->rx_pio->ctrl & 0xfu, 0u) ||
+        !TDMA_ORIGIN_QUIET(TDMA_ORIGIN_REJECT_DRIVER, BOARD_UP_BISS_DE_PIN,
+            gpio_get_out_level(BOARD_UP_BISS_DE_PIN), false) ||
+        !TDMA_ORIGIN_QUIET(TDMA_ORIGIN_REJECT_DRIVER, BOARD_DN_BISS_DE_PIN,
+            gpio_get_out_level(BOARD_DN_BISS_DE_PIN), false) ||
+        !TDMA_ORIGIN_QUIET(TDMA_ORIGIN_REJECT_DRIVER, BOARD_TRIG_DE_PIN,
+            gpio_get_out_level(BOARD_TRIG_DE_PIN), false) ||
+        !TDMA_ORIGIN_QUIET(TDMA_ORIGIN_REJECT_PAD, phys->tx_csn_pin, gpio_get(phys->tx_csn_pin), true) ||
+        !TDMA_ORIGIN_QUIET(TDMA_ORIGIN_REJECT_PAD, phys->tx_sck_pin, gpio_get(phys->tx_sck_pin), false) ||
+        !TDMA_ORIGIN_QUIET(TDMA_ORIGIN_REJECT_PAD, phys->rx_csn_pin, gpio_get(phys->rx_csn_pin), true) ||
+        !TDMA_ORIGIN_QUIET(TDMA_ORIGIN_REJECT_IRQ, 1u, pio_interrupt_get(r->tx_pio, 1u), false) ||
+        !TDMA_ORIGIN_QUIET(TDMA_ORIGIN_REJECT_FAULT, 0u, s_tdma_origin.state.fault, 0u)) return false;
+    const uint channels[] = {dma.loader_dma, dma.executor_dma, dma.output_dma, dma.capture_dma};
+    for (uint i = 0u; i < sizeof(channels) / sizeof(channels[0]); ++i) {
+        const uint channel = channels[i];
+        const uint32_t abort = dma_hw->abort;
+        if ((abort & (1u << channel)) != 0u)
+            return tdma_pio_spi_phys_origin_reject(phys, TDMA_ORIGIN_REJECT_DMA_ABORT, channel, abort, 0u);
+        const uint32_t ctrl = dma_hw->ch[channel].ctrl_trig;
+        if ((ctrl & (DMA_CH0_CTRL_TRIG_EN_BITS | DMA_CH0_CTRL_TRIG_BUSY_BITS)) != 0u)
+            return tdma_pio_spi_phys_origin_reject(phys, TDMA_ORIGIN_REJECT_DMA_CONTROL, channel, ctrl, 0u);
+    }
+    for (uint sm = 0u; sm < 4u; ++sm) {
+#define TDMA_ORIGIN_FIFO(bank, pio, direction, is_rx) \
+        if (!pio_sm_is_##direction##_fifo_empty(pio, sm)) \
+            return tdma_pio_spi_phys_origin_reject(phys, TDMA_ORIGIN_REJECT_FIFO, \
+                TDMA_ORIGIN_REJECT_PIO_DETAIL(bank, sm, is_rx), (pio)->fstat, \
+                1u << ((is_rx ? PIO_FSTAT_RXEMPTY_LSB : PIO_FSTAT_TXEMPTY_LSB) + sm))
+        TDMA_ORIGIN_FIFO(0u, r->tx_pio, tx, 0u);
+        TDMA_ORIGIN_FIFO(0u, r->tx_pio, rx, 1u);
+        TDMA_ORIGIN_FIFO(1u, r->rx_pio, tx, 0u);
+        TDMA_ORIGIN_FIFO(1u, r->rx_pio, rx, 1u);
+#undef TDMA_ORIGIN_FIFO
+    }
+#define TDMA_ORIGIN_PC(bank, pio, sm, expected) \
+    TDMA_ORIGIN_QUIET(TDMA_ORIGIN_REJECT_PC, TDMA_ORIGIN_REJECT_PIO_DETAIL(bank, sm, 0u), \
+        pio_sm_get_pc(pio, sm), expected)
+    return TDMA_ORIGIN_PC(0u, r->tx_pio, r->tx_control_out_sm, TDMA_ORIGIN_CONTROL_PC) &&
+        TDMA_ORIGIN_PC(0u, r->tx_pio, r->tx_data_capture_sm, TDMA_ORIGIN_CAPTURE_PC) &&
+        TDMA_ORIGIN_PC(0u, r->tx_pio, r->tx_rtt_evidence_sm, TDMA_ORIGIN_RTT_PC) &&
+        TDMA_ORIGIN_PC(0u, r->tx_pio, r->tx_clock_latch_sm, TDMA_ORIGIN_LATCH_PC) &&
+        TDMA_ORIGIN_PC(1u, r->rx_pio, r->rx_endpoints.data_output.sm, TDMA_ORIGIN_DATA_PC) &&
+        TDMA_ORIGIN_PC(1u, r->rx_pio, dma.helper_sm, TDMA_ORIGIN_HELPER_PC);
+#undef TDMA_ORIGIN_PC
+#undef TDMA_ORIGIN_QUIET
+}
+
+static bool tdma_pio_spi_phys_origin_plan_ready(tdma_pio_spi_phys_t *phys)
+{
+    const tdma_origin_plan_t *plan = &s_tdma_origin.plan;
+    if (!tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_PLAN_STORAGE, 1u,
+            (uintptr_t)plan->runs, (uintptr_t)s_tdma_origin.runs) ||
+        !tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_PLAN_STORAGE, 2u,
+            (uintptr_t)plan->literals, (uintptr_t)s_tdma_origin.literals) ||
+        !tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_PLAN_STORAGE, 3u,
+            plan->run_capacity, TDMA_PIO_SPI_ORIGIN_RUN_CAPACITY) ||
+        !tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_PLAN_STORAGE, 4u,
+            plan->literal_capacity, TDMA_PIO_SPI_ORIGIN_LITERAL_CAPACITY)) return false;
+    if (plan->run_count == 0u || plan->run_count > plan->run_capacity)
+        return tdma_pio_spi_phys_origin_reject(phys, TDMA_ORIGIN_REJECT_PLAN_COUNT,
+            1u, plan->run_count, plan->run_capacity);
+    if (plan->literal_count == 0u || plan->literal_count > plan->literal_capacity)
+        return tdma_pio_spi_phys_origin_reject(phys, TDMA_ORIGIN_REJECT_PLAN_COUNT,
+            2u, plan->literal_count, plan->literal_capacity);
+    const uint32_t base = (uint32_t)(uintptr_t)plan->runs;
+    const uint32_t bytes = plan->run_count * sizeof(plan->runs[0]);
+    const uint32_t entries[] = {plan->seed_entry, plan->boundary_entry, plan->local_entry[0],
+        plan->local_entry[1], plan->fault_entry, plan->record_entry};
+    const uint count = phys->flight_origin_prepare.diagnostic_skip_records ? 5u : 6u;
+    if (count == 5u && plan->record_entry != 0u)
+        return tdma_pio_spi_phys_origin_reject(phys, TDMA_ORIGIN_REJECT_PLAN_ENTRY,
+            6u, plan->record_entry, 0u);
+    for (uint i = 0u; i < count; ++i)
+        if (entries[i] < base || entries[i] - base >= bytes ||
+            (entries[i] - base) % sizeof(plan->runs[0]) != 0u)
+            return tdma_pio_spi_phys_origin_reject(phys, TDMA_ORIGIN_REJECT_PLAN_ENTRY,
+                i, entries[i], base);
+    return true;
+}
+
+bool tdma_pio_spi_phys_origin_prepare_ready(void *context)
+{
+    tdma_pio_spi_phys_t *phys = context;
+    if (phys == NULL) return false;
+    if (!tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_STAGE, 0u,
+            phys->flight_origin_prepare.stage, TDMA_ORIGIN_PREPARE_READY) ||
+        !tdma_pio_spi_phys_origin_config_current(phys) ||
+        !tdma_pio_spi_phys_origin_resources_current(phys) ||
+        !tdma_pio_spi_phys_origin_quiescent(phys) || !tdma_pio_spi_phys_origin_plan_ready(phys)) return false;
+    const tdma_state_machine_origin_dma_contract_t dma = tdma_state_machine_origin_dma_contract();
+    const dma_channel_config loader = tdma_pio_spi_phys_origin_loader_config(&dma);
+    /* LOADER detail: 1=CTRL, 2=READ_ADDR, 3=WRITE_ADDR, 4=DBG_TCR.
+     * RP2350 TRANS_COUNT writes set RELOAD; the live remaining count is only
+     * loaded on a trigger. DBG_TCR reads the next transfer length without
+     * triggering. Compare all 32 bits, including MODE, so self-trigger/endless
+     * encodings cannot pass as a normal descriptor_words transfer. */
+    return tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_LOADER, 1u,
+            dma_hw->ch[dma.loader_dma].ctrl_trig, loader.ctrl) &&
+        tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_LOADER, 2u,
+            dma_hw->ch[dma.loader_dma].read_addr, s_tdma_origin.plan.seed_entry) &&
+        tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_LOADER, 3u,
+            dma_hw->ch[dma.loader_dma].write_addr, (uint32_t)(uintptr_t)&dma_hw->ch[dma.executor_dma].al3_ctrl) &&
+        tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_LOADER, 4u,
+            dma_debug_hw->ch[dma.loader_dma].dbg_tcr, dma.descriptor_words);
+}
+
+bool tdma_pio_spi_phys_origin_release(void *context, uint64_t expires_ticks,
+    bool (*authorized)(void))
+{
+    tdma_pio_spi_phys_t *phys = context;
+    if (phys == NULL) return false;
+    if (!tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_STAGE, 1u,
+            phys->flight_origin_prepare.stage, TDMA_ORIGIN_PREPARE_READY)) return false;
+    const tdma_state_machine_origin_dma_contract_t dma = tdma_state_machine_origin_dma_contract();
+    if (!tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_AUTHORITY, 0u, authorized != NULL, true) ||
+        !tdma_pio_spi_phys_origin_prepare_ready(phys)) goto failed;
+    if (expires_ticks == 0u) {
+        (void)tdma_pio_spi_phys_origin_reject(phys, TDMA_ORIGIN_REJECT_EXPIRY, 0u, 0u, 1u);
+        goto failed;
+    }
+    const uint64_t initial_ticks = vdc_timestamp_clock_read_ticks64();
+    if (initial_ticks >= expires_ticks) {
+        (void)tdma_pio_spi_phys_origin_reject(phys, TDMA_ORIGIN_REJECT_EXPIRY, 1u, initial_ticks, expires_ticks);
+        goto failed;
+    }
+    /* Consume this READY once before enabling anything. No queued or duplicate
+     * release may start a later ARM. The owner, not this deadline, grants it. */
+    phys->flight_origin_prepare.stage = TDMA_ORIGIN_PREPARE_FAILED;
+    phys->flight_normal_capture_copy_stage = 0u;
+    phys->flight_overlay_alignment_locked = true;
+    __dmb();
+    pio_sm_set_enabled(phys->flight_resources.rx_pio, dma.helper_sm, true);
+    pio_sm_set_enabled(phys->flight_resources.tx_pio, phys->flight_resources.tx_control_out_sm, true);
+    tdma_pio_spi_phys_set_line_drivers(true);
+    dma_channel_config loader = tdma_pio_spi_phys_origin_loader_config(&dma);
+    channel_config_set_enable(&loader, true);
+    /* CTRL_TRIG writes can start a channel. Use the SDK's non-triggering
+     * AL1_CTRL alias so the explicit start below is the sole launch. */
+    dma_channel_set_config(dma.loader_dma, &loader, false);
+    /* The parked empty FIFOs cannot emit before this trigger. Time may have
+     * advanced during the checks/enables, so check the original expiry again. */
+    if (!tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_RELEASE_CLOCK, 1u,
+            clock_get_hz(clk_sys), phys->flight_origin_prepare.clk_sys_hz) ||
+        !tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_RELEASE_CLOCK, 2u,
+            vdc_timestamp_clock_tick_hz(), phys->flight_origin_prepare.clk_sys_hz) ||
+        !tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_AUTHORITY, 1u, authorized(), true)) goto failed;
+    const uint64_t final_ticks = vdc_timestamp_clock_read_ticks64();
+    if (final_ticks >= expires_ticks) {
+        (void)tdma_pio_spi_phys_origin_reject(phys, TDMA_ORIGIN_REJECT_EXPIRY, 2u, final_ticks, expires_ticks);
+        goto failed;
+    }
+    dma_start_channel_mask(1u << dma.loader_dma);
+    phys->flight_overlay_dma_active = true;
+    phys->rx_capture_active = true;
+    phys->armed = true;
+    phys->flight_origin_prepare.stage = TDMA_ORIGIN_PREPARE_COMPLETE;
+    phys->flight_origin_prepare.live_config = NULL;
+    tdma_pio_spi_phys_fill_static_snapshot(phys);
+    return true;
+failed:
+    tdma_pio_spi_phys_disable_dma_mask(1u << dma.loader_dma);
+    tdma_pio_spi_phys_origin_pause();
+    tdma_pio_spi_phys_set_line_drivers(false);
+    phys->armed = false;
+    phys->flight_origin_prepare.stage = TDMA_ORIGIN_PREPARE_FAILED;
+    /* Retain workspace/leases and any foreign DMA state for common STOP. */
+    return false;
+}
+
 bool tdma_pio_spi_phys_origin_begin(
     void *context, const tdma_ring_runtime_config_t *config,
     const uint8_t *returned_packet, size_t packet_size,
@@ -178,7 +524,12 @@ bool tdma_pio_spi_phys_origin_begin(
         .packet_size = (uint32_t)packet_size,
         .live_config = config, .seed = returned_packet,
         .stage = TDMA_ORIGIN_PREPARE_MAILBOX, .prefix_bits = (uint32_t)prefix,
-        .abort_poll_count = abort_poll_count, .clk_sys_hz = clock_get_hz(clk_sys)};
+        .abort_poll_count = abort_poll_count, .clk_sys_hz = clock_get_hz(clk_sys),
+        .cadence = cadence, .physical_bytes = phys->flight_physical_byte_count,
+        .marker_phase = phys->flight_marker_phase_delay_cycles,
+        .sck_phase = phys->flight_sck_phase_delay_cycles,
+        .data_phase = phys->flight_data_phase_delay_cycles,
+        .capture_phase = phys->flight_origin_capture_phase_delay_cycles};
     memcpy(&phys->flight_origin_prepare.config, config, sizeof(*config));
     phys->flight_origin_cadence = cadence;
     return true;
@@ -194,10 +545,7 @@ tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *context)
         return TDMA_ORIGIN_BUILD_FAILED;
     /* The owner cannot replace accepted config/clock facts in the middle of
      * preparation. Check again in the installation poll, before the trigger. */
-    if (request->live_config == NULL ||
-        request->packet_size != TDMA_TRANSPORT_FRAME_HEADER_SIZE + phys->flight_payload_size ||
-        memcmp(request->live_config, &request->config, sizeof(request->config)) != 0 ||
-        clock_get_hz(clk_sys) != request->clk_sys_hz) goto failed;
+    if (!tdma_pio_spi_phys_origin_config_current(phys)) goto failed;
     const tdma_ring_runtime_config_t *config = &request->config;
     const uint32_t active_mask = (1u << config->node_count) - 1u;
     const tdma_state_machine_origin_dma_contract_t dma = tdma_state_machine_origin_dma_contract();
@@ -354,44 +702,33 @@ tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *context)
     request->stage = TDMA_ORIGIN_PREPARE_INSTALL;
     return TDMA_ORIGIN_BUILD_BUSY;
     case TDMA_ORIGIN_PREPARE_INSTALL: {
-    if (!phys->flight_origin_workspace_owned || !phys->flight_origin_resource_claimed ||
-        !phys->flight_resource_claimed || phys->armed ||
-        s_tdma_pio_spi_program_persona != TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN ||
-        !tdma_state_machine_origin_dma_contract_valid(&dma) ||
-        s_tdma_pio_spi_tx_dma_channel != dma.output_dma || s_tdma_pio_spi_rx_dma_channel != dma.capture_dma ||
-        s_tdma_pio_spi_command_dma_channel != dma.loader_dma ||
-        s_tdma_pio_spi_executor_dma_channel != dma.executor_dma) goto failed;
-    phys->flight_normal_capture_copy_stage = 0u;
-    phys->flight_overlay_alignment_locked = true;
-    phys->flight_overlay_dma_active = true;
-    phys->rx_capture_active = true;
+    if (!tdma_pio_spi_phys_origin_resources_current(phys) ||
+        !tdma_pio_spi_phys_origin_quiescent(phys) || !tdma_pio_spi_phys_origin_plan_ready(phys)) goto failed;
     __dmb();
-    dma_channel_config loader = dma_channel_get_default_config(dma.loader_dma);
-    channel_config_set_transfer_data_size(&loader, DMA_SIZE_32);
-    channel_config_set_read_increment(&loader, true);
-    channel_config_set_write_increment(&loader, true);
-    channel_config_set_ring(&loader, true, dma.descriptor_write_ring_log2);
-    channel_config_set_high_priority(&loader, true);
-    channel_config_set_chain_to(&loader, dma.loader_dma);
+    const dma_channel_config loader = tdma_pio_spi_phys_origin_loader_config(&dma);
     /* AL3's final write triggers the executor; CHAIN_TO must not trigger it
      * a second time. The graph alone supplies all later child/launch words. */
     dma_channel_configure(dma.loader_dma, &loader, &dma_hw->ch[dma.executor_dma].al3_ctrl,
         (const void *)(uintptr_t)s_tdma_origin.plan.seed_entry, dma.descriptor_words, false);
-    pio_sm_set_enabled(phys->flight_resources.rx_pio, dma.helper_sm, true);
-    pio_sm_set_enabled(phys->flight_resources.tx_pio, phys->flight_resources.tx_control_out_sm, true);
-    tdma_pio_spi_phys_set_line_drivers(true);
-    dma_start_channel_mask(1u << dma.loader_dma);
-    phys->armed = true;
-    request->stage = TDMA_ORIGIN_PREPARE_COMPLETE;
-    request->live_config = NULL;
+    request->stage = TDMA_ORIGIN_PREPARE_READY;
+    if (!tdma_pio_spi_phys_origin_prepare_ready(phys)) goto failed;
     tdma_pio_spi_phys_fill_static_snapshot(phys);
-    return TDMA_ORIGIN_BUILD_DONE;
+    return TDMA_ORIGIN_BUILD_BUSY;
     }
+    case TDMA_ORIGIN_PREPARE_READY:
+        /* Recheck on every owner service; waiting never renews the grant or
+         * starts the graph, even when the same poll is called repeatedly. */
+        if (!tdma_pio_spi_phys_origin_prepare_ready(phys)) goto failed;
+        return TDMA_ORIGIN_BUILD_BUSY;
     default:
         break;
     }
 failed:
-    tdma_pio_spi_phys_pause_sm_pair(phys);
+    /* Earlier preparation stages retain their original failure path; expose
+     * the failing stage when no more specific INSTALL/READY predicate ran. */
+    (void)tdma_pio_spi_phys_origin_reject(phys, TDMA_ORIGIN_REJECT_PREPARE_STAGE,
+        request->stage, request->stage, 0u);
+    tdma_pio_spi_phys_origin_pause();
     tdma_pio_spi_phys_set_line_drivers(false);
     phys->armed = false;
     request->stage = TDMA_ORIGIN_PREPARE_FAILED;

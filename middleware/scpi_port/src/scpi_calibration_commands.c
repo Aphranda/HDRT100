@@ -115,6 +115,56 @@ scpi_result_t scpi_calibration_origin_trial_build_cancel(scpi_t *context)
     return scpi_calibration_origin_trial_flags(context, CALIBRATION_ORIGIN_DIAGNOSTIC_BUILD_CANCEL);
 }
 
+scpi_result_t scpi_calibration_origin_trial_ready(scpi_t *context)
+{
+    return scpi_calibration_origin_trial_flags(context, CALIBRATION_ORIGIN_DIAGNOSTIC_DEFER_RELEASE);
+}
+
+scpi_result_t scpi_calibration_origin_release(scpi_t *context)
+{
+    uint32_t trial_epoch, config_seq, request_seq;
+    if (!SCPI_ParamUInt32(context, &trial_epoch, TRUE) ||
+        !SCPI_ParamUInt32(context, &config_seq, TRUE)) return SCPI_RES_ERR;
+    if (!tdma_runtime_owner_request_origin_release(trial_epoch, config_seq, &request_seq)) {
+        scpi_port_push_exec_error(context, "CAL_ORIGIN_RELEASE_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, request_seq); /* Accepted intent, not emitted. */
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_origin_release_q(scpi_t *context)
+{
+    tdma_origin_release_snapshot_t s;
+    if (!tdma_runtime_owner_get_origin_release(&s)) {
+        SCPI_ResultText(context, "UNAVAILABLE");
+        return SCPI_RES_OK;
+    }
+    SCPI_ResultText(context, "ORIGINRELEASE");
+    SCPI_ResultUInt32(context, 2u);
+    SCPI_ResultUInt32(context, s.result.state);
+    SCPI_ResultUInt32(context, s.result.trial_epoch);
+    SCPI_ResultUInt32(context, s.result.config_seq);
+    SCPI_ResultUInt32(context, s.result.seed_sequence);
+    SCPI_ResultUInt32(context, s.result.seed_identity);
+    SCPI_ResultUInt32(context, s.result.record_epoch);
+    SCPI_ResultUInt32(context, s.result.ready_checks);
+    SCPI_ResultUInt32(context, s.result.request_seq);
+    SCPI_ResultUInt64(context, s.result.ready_ticks);
+    SCPI_ResultUInt64(context, s.result.last_ready_ticks);
+    SCPI_ResultUInt64(context, s.result.release_ticks);
+    SCPI_ResultUInt32(context, s.attempt.attempts);
+    SCPI_ResultUInt32(context, s.attempt.rejected);
+    SCPI_ResultUInt32(context, s.attempt.reason);
+    SCPI_ResultUInt32(context, s.attempt.trial_epoch);
+    SCPI_ResultUInt32(context, s.attempt.config_seq);
+    SCPI_ResultUInt32(context, s.attempt.request_seq);
+    SCPI_ResultUInt32(context, s.result.physical_reject);
+    SCPI_ResultUInt32(context, s.result.physical_observed);
+    SCPI_ResultUInt32(context, s.result.physical_expected);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_calibration_origin_build_cancel_q(scpi_t *context)
 {
     tdma_origin_build_probe_t s;

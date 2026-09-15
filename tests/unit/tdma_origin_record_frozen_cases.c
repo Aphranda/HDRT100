@@ -15,6 +15,7 @@ void tdma_origin_plan_cancel(tdma_origin_plan_builder_t *b)
 
 typedef unsigned int uint;
 typedef int tdma_pio_spi_program_persona_t;
+static tdma_pio_spi_program_persona_t s_tdma_pio_spi_program_persona;
 typedef struct {
     volatile uint32_t flight_origin_record_guard;
     uint32_t flight_origin_record_epoch, flight_origin_record_published_version, flight_origin_record_fault;
@@ -44,6 +45,11 @@ static uint64_t tdma_pio_spi_phys_now_us(void) { return 100; }
 static void __dmb(void) { __atomic_thread_fence(__ATOMIC_SEQ_CST); }
 static void tdma_pio_spi_phys_pause_sm_pair(tdma_pio_spi_phys_t *p) { (void)p; }
 static void tdma_pio_spi_phys_set_line_drivers(bool enabled) { (void)enabled; }
+/* Persona selection also retires independent geometry/event diagnostics.
+ * Their lifecycle is covered separately; archive STOP must still compile the
+ * complete current selector instead of an obsolete copy of its body. */
+static void tdma_geometry_persona(tdma_pio_spi_program_persona_t persona) { (void)persona; }
+static void tdma_pio_spi_phys_event_stop(tdma_pio_spi_phys_t *p) { (void)p; }
 static bool tdma_pio_spi_phys_stop_dma_chain(uint32_t l,uint32_t e,uint32_t c,uint64_t d)
 { assert(l==64 && e==256 && c==48 && d==1100);return stop_ok; }
 static bool tdma_pio_spi_phys_stop_command_dma(tdma_pio_spi_phys_t *p);

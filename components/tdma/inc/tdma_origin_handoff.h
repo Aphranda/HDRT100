@@ -15,10 +15,12 @@ typedef enum {
     TDMA_ORIGIN_PREPARE_INSTALL,
     TDMA_ORIGIN_PREPARE_COMPLETE,
     TDMA_ORIGIN_PREPARE_FAILED,
+    /* Appended to preserve historical stage numbers. Prepared, non-emitting. */
+    TDMA_ORIGIN_PREPARE_READY,
 } tdma_origin_prepare_stage_t;
 
-#define TDMA_ORIGIN_HANDOFF_SCHEMA 1u
-#define TDMA_ORIGIN_HANDOFF_STAGES (TDMA_ORIGIN_PREPARE_FAILED + 1u)
+#define TDMA_ORIGIN_HANDOFF_SCHEMA 2u
+#define TDMA_ORIGIN_HANDOFF_STAGES (TDMA_ORIGIN_PREPARE_READY + 1u)
 
 /* Software preparation boundaries, NOT physical edges. first_ticks is valid
  * only when the corresponding calls is nonzero. Work sums measured poll

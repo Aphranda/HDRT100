@@ -10,6 +10,7 @@
 #include "refmem_realtime_contract.h"
 #include "tdma_service_timing.h"
 #include "tdma_origin_blackout.h"
+#include "tdma_origin_release.h"
 
 /* Core1 gate before all TDMA service work. Enabled only by an admitted finite
  * diagnostic trial; false runs the normal service, including STOP retirement. */
@@ -18,6 +19,10 @@ bool tdma_runtime_owner_get_origin_blackout(tdma_origin_blackout_snapshot_t *out
 /* Stopped/ACK only; no reads of the retired shared persona workspace. */
 bool tdma_runtime_owner_get_origin_build_probe(tdma_origin_build_probe_t *out);
 bool tdma_runtime_owner_get_origin_handoff(tdma_origin_handoff_snapshot_t *out);
+/* Serialized Core0 intent only; acceptance does not mean DMA has started. */
+bool tdma_runtime_owner_request_origin_release(uint32_t trial_epoch, uint32_t config_seq,
+    uint32_t *request_seq);
+bool tdma_runtime_owner_get_origin_release(tdma_origin_release_snapshot_t *out);
 
 /* Core1-only direct owner facts for phase attribution; no hardware access. */
 tdma_service_timing_context_t tdma_runtime_owner_timing_context(void);

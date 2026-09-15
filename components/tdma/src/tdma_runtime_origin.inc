@@ -1,6 +1,7 @@
 /* The sole TDMA owner consumes Calibration's explicit diagnostic trial.
  * This file never constructs a product timing grant. */
 #include "tdma_origin_calibration_crc.h"
+#include "tdma_origin_release.h"
 #include "project_config.h"
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #include "pico.h"
@@ -14,6 +15,89 @@ static uint32_t s_origin_consumed_epoch;
 static bool s_origin_trial_fault;
 static tdma_origin_blackout_t s_origin_blackout;
 static tdma_origin_handoff_t s_origin_handoff;
+
+/* One writer per object: Core0 publishes request/attempt, Core1 publishes
+ * READY/result and retires requests. Request sequence IS its seqlock guard;
+ * it never wraps, so even a delayed old publication cannot authorize reuse. */
+static struct { uint32_t sequence, trial_epoch, config_seq; } s_origin_release_request;
+static tdma_origin_release_attempt_t s_origin_release_attempt;
+static uint32_t s_origin_release_ready_epoch, s_origin_release_consumed_seq;
+static uint32_t s_origin_release_terminal_epoch;
+static tdma_origin_release_result_t s_origin_release_result;
+
+static bool tdma_runtime_owner_origin_release_reject(tdma_origin_release_attempt_reason_t reason)
+{
+    s_origin_release_attempt.reason = reason;
+    if (s_origin_release_attempt.rejected != UINT32_MAX) ++s_origin_release_attempt.rejected;
+    return false;
+}
+
+bool tdma_runtime_owner_request_origin_release(uint32_t trial_epoch, uint32_t config_seq,
+    uint32_t *request_seq)
+{
+    tdma_origin_release_attempt_t *attempt = &s_origin_release_attempt;
+    if (attempt->attempts != UINT32_MAX) ++attempt->attempts;
+    attempt->trial_epoch = trial_epoch;
+    attempt->config_seq = config_seq;
+    attempt->request_seq = 0u;
+    if (request_seq == NULL || trial_epoch == 0u || (trial_epoch & 1u) || config_seq == 0u)
+        return tdma_runtime_owner_origin_release_reject(TDMA_ORIGIN_RELEASE_ATTEMPT_ARGUMENT);
+    *request_seq = 0u;
+    const uint32_t sequence = __atomic_load_n(&s_origin_release_request.sequence, __ATOMIC_ACQUIRE);
+    if ((sequence & 1u) || sequence >= UINT32_MAX - 1u)
+        return tdma_runtime_owner_origin_release_reject(TDMA_ORIGIN_RELEASE_ATTEMPT_EXHAUSTED);
+    if (sequence && __atomic_load_n(&s_origin_release_request.trial_epoch, __ATOMIC_RELAXED) == trial_epoch)
+        return tdma_runtime_owner_origin_release_reject(TDMA_ORIGIN_RELEASE_ATTEMPT_DUPLICATE);
+    calibration_origin_timing_t trial;
+    tdma_ring_runtime_snapshot_t ring;
+    if (!calibration_manager_origin_get_timing(&trial) || !trial.enabled || trial.epoch != trial_epoch ||
+        trial.config_seq != config_seq || trial.diagnostic_flags != CALIBRATION_ORIGIN_DIAGNOSTIC_DEFER_RELEASE ||
+        !tdma_runtime_owner_get_ring_snapshot(&ring) || !ring.enabled || !ring.adapter_started ||
+        ring.config_seq != config_seq || ring.applied_config_seq != config_seq)
+        return tdma_runtime_owner_origin_release_reject(TDMA_ORIGIN_RELEASE_ATTEMPT_STALE);
+    if (vdc_timestamp_clock_read_ticks64() >= trial.expires_ticks)
+        return tdma_runtime_owner_origin_release_reject(TDMA_ORIGIN_RELEASE_ATTEMPT_EXPIRED);
+    if (__atomic_load_n(&s_origin_release_ready_epoch, __ATOMIC_ACQUIRE) != trial_epoch)
+        return tdma_runtime_owner_origin_release_reject(TDMA_ORIGIN_RELEASE_ATTEMPT_NOT_READY);
+    /* Publication is intent only. STOP/revoke can race this final read; the
+     * owner revalidates again next phase and immediately before DMA trigger. */
+    (void)__atomic_exchange_n(&s_origin_release_request.sequence, sequence + 1u, __ATOMIC_ACQ_REL);
+    __atomic_store_n(&s_origin_release_request.trial_epoch, trial_epoch, __ATOMIC_RELAXED);
+    __atomic_store_n(&s_origin_release_request.config_seq, config_seq, __ATOMIC_RELAXED);
+    __atomic_store_n(&s_origin_release_request.sequence, sequence + 2u, __ATOMIC_RELEASE);
+    attempt->reason = TDMA_ORIGIN_RELEASE_ATTEMPT_ACCEPTED;
+    attempt->request_seq = *request_seq = sequence + 2u;
+    return true;
+}
+
+static bool tdma_runtime_owner_origin_take_release(void)
+{
+    const uint32_t sequence = __atomic_load_n(&s_origin_release_request.sequence, __ATOMIC_ACQUIRE);
+    if (sequence == 0u || (sequence & 1u) || sequence == s_origin_release_consumed_seq) return false;
+    const uint32_t epoch = __atomic_load_n(&s_origin_release_request.trial_epoch, __ATOMIC_RELAXED);
+    const uint32_t config = __atomic_load_n(&s_origin_release_request.config_seq, __ATOMIC_RELAXED);
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    if (__atomic_load_n(&s_origin_release_request.sequence, __ATOMIC_ACQUIRE) != sequence) return false;
+    s_origin_release_consumed_seq = sequence;
+    if (epoch != s_origin_trial.epoch || config != s_origin_trial.config_seq) return false;
+    s_origin_release_result.request_seq = sequence;
+    return true;
+}
+
+static void tdma_runtime_owner_origin_cancel_release(void)
+{
+    __atomic_store_n(&s_origin_release_ready_epoch, 0u, __ATOMIC_RELEASE);
+    if (s_origin_release_result.state != TDMA_ORIGIN_RELEASE_PREPARING &&
+        s_origin_release_result.state != TDMA_ORIGIN_RELEASE_READY) return;
+    /* Never wait for an interrupted Core0 publication, or write its mailbox.
+     * Any later even old request remains bound to its non-reusable trial. */
+    (void)tdma_runtime_owner_origin_take_release();
+    s_origin_release_result.state = TDMA_ORIGIN_RELEASE_CANCELLED;
+    const uint64_t now = vdc_timestamp_clock_read_ticks64();
+    tdma_origin_handoff_record(&s_origin_handoff, s_tdma_pio_spi_phys.flight_origin_prepare.stage,
+        now, now, TDMA_ORIGIN_BUILD_FAILED);
+    __atomic_store_n(&s_origin_release_terminal_epoch, s_origin_release_result.trial_epoch, __ATOMIC_RELEASE);
+}
 
 static bool tdma_runtime_owner_origin_capability_matches(
     const refmem_realtime_origin_capability_t *capability)
@@ -143,6 +227,11 @@ static bool tdma_runtime_owner_origin_begin_impl(void *context,
         tdma_pio_spi_phys_origin_begin(context, config, packet, size,
                                        rearm_budget_ticks, abort_poll_count);
     if (started) {
+        (void)__atomic_exchange_n(&s_origin_release_terminal_epoch, 0u, __ATOMIC_ACQ_REL);
+        __atomic_store_n(&s_origin_release_ready_epoch, 0u, __ATOMIC_RELEASE);
+        s_origin_release_result = (tdma_origin_release_result_t){
+            .state = TDMA_ORIGIN_RELEASE_PREPARING, .trial_epoch = s_origin_trial.epoch,
+            .config_seq = s_origin_trial.config_seq};
         tdma_origin_handoff_begin(&s_origin_handoff, s_origin_trial.epoch,
             s_origin_trial.config_seq, s_origin_trial.admission.capability.clk_sys_hz,
             vdc_timestamp_clock_read_ticks64());
@@ -197,12 +286,54 @@ static tdma_origin_build_result_t tdma_runtime_owner_origin_poll(void *context)
         const uint64_t started = vdc_timestamp_clock_read_ticks64();
         /* A revoke, STOP, epoch or clock change between merged stages must
          * stop the next physical operation, including the final DMA trigger. */
-        const tdma_origin_build_result_t result = context == &s_tdma_pio_spi_phys &&
+        tdma_origin_build_result_t result = context == &s_tdma_pio_spi_phys &&
             tdma_runtime_owner_origin_authorized()
             ? tdma_pio_spi_phys_origin_poll(context) : TDMA_ORIGIN_BUILD_FAILED;
+        if (result == TDMA_ORIGIN_BUILD_BUSY &&
+            s_tdma_pio_spi_phys.flight_origin_prepare.stage == TDMA_ORIGIN_PREPARE_READY) {
+            /* poll has checked actual disabled DMA/SMs, parked FIFO/PCs,
+             * drivers, configuration, clocks and the installed loader. */
+            tdma_origin_release_result_t *release = &s_origin_release_result;
+            const uint64_t now = vdc_timestamp_clock_read_ticks64();
+            if (release->state == TDMA_ORIGIN_RELEASE_PREPARING) {
+                release->seed_sequence = s_tdma_pio_spi_ring_adapter.origin.returned.sequence;
+                release->seed_identity = s_tdma_pio_spi_ring_adapter.origin.returned.identity;
+                release->record_epoch = s_tdma_pio_spi_phys.flight_origin_record_epoch;
+                release->ready_ticks = now;
+                release->state = TDMA_ORIGIN_RELEASE_READY;
+                if (s_origin_trial.diagnostic_flags == CALIBRATION_ORIGIN_DIAGNOSTIC_DEFER_RELEASE)
+                    __atomic_store_n(&s_origin_release_ready_epoch, s_origin_trial.epoch, __ATOMIC_RELEASE);
+            }
+            if (release->ready_checks != UINT32_MAX) ++release->ready_checks;
+            release->last_ready_ticks = now;
+            /* INSTALL always returns through the scheduler before release.
+             * The legacy trial also uses this one physical release path. */
+            if (stage == TDMA_ORIGIN_PREPARE_READY &&
+                (s_origin_trial.diagnostic_flags != CALIBRATION_ORIGIN_DIAGNOSTIC_DEFER_RELEASE ||
+                 tdma_runtime_owner_origin_take_release())) {
+                __atomic_store_n(&s_origin_release_ready_epoch, 0u, __ATOMIC_RELEASE);
+                const bool released = tdma_runtime_owner_origin_authorized() &&
+                    tdma_pio_spi_phys_origin_release(context, s_origin_trial.expires_ticks,
+                        tdma_runtime_owner_origin_authorized);
+                release->state = released ? TDMA_ORIGIN_RELEASED : TDMA_ORIGIN_RELEASE_FAILED;
+                if (released) release->release_ticks = vdc_timestamp_clock_read_ticks64();
+                result = released ? TDMA_ORIGIN_BUILD_DONE : TDMA_ORIGIN_BUILD_FAILED;
+            }
+        }
         const uint64_t ended = vdc_timestamp_clock_read_ticks64();
         tdma_origin_handoff_record(&s_origin_handoff, stage, started, ended, result);
-        if (result == TDMA_ORIGIN_BUILD_FAILED) s_origin_trial_fault = true;
+        if (result == TDMA_ORIGIN_BUILD_FAILED) {
+            s_origin_trial_fault = true;
+            if (__atomic_load_n(&s_origin_release_terminal_epoch, __ATOMIC_RELAXED) == 0u) {
+                s_origin_release_result.physical_reject = s_tdma_pio_spi_phys.flight_origin_prepare.reject_code;
+                s_origin_release_result.physical_observed = s_tdma_pio_spi_phys.flight_origin_prepare.reject_observed;
+                s_origin_release_result.physical_expected = s_tdma_pio_spi_phys.flight_origin_prepare.reject_expected;
+            }
+            tdma_runtime_owner_origin_cancel_release();
+        }
+        if (s_origin_release_result.state == TDMA_ORIGIN_RELEASED ||
+            s_origin_release_result.state == TDMA_ORIGIN_RELEASE_FAILED)
+            __atomic_store_n(&s_origin_release_terminal_epoch, s_origin_release_result.trial_epoch, __ATOMIC_RELEASE);
         if (result != TDMA_ORIGIN_BUILD_BUSY || ended < batch_started ||
             ended - batch_started >= TDMA_ORIGIN_PREPARE_BATCH_YIELD_CYCLES ||
             !tdma_runtime_owner_origin_follow_ready(stage,
@@ -221,6 +352,13 @@ static bool tdma_runtime_owner_origin_healthy(const void *context)
 
 static void tdma_runtime_owner_origin_lifetime_core1(void)
 {
+    if (s_origin_release_result.state == TDMA_ORIGIN_RELEASE_PREPARING ||
+        s_origin_release_result.state == TDMA_ORIGIN_RELEASE_READY) {
+        if (!tdma_runtime_owner_origin_authorized() ||
+            s_tdma_pio_spi_ring_adapter.origin.active == 0u ||
+            s_tdma_pio_spi_ring_adapter.comm_fsm.state == TDMA_ADAPTER_COMM_STATE_FAULT)
+            tdma_runtime_owner_origin_cancel_release();
+    }
     if (s_tdma_pio_spi_ring_adapter.origin.active != 0u &&
         (!tdma_runtime_owner_origin_authorized() ||
          s_tdma_pio_spi_ring_adapter.comm_fsm.state == TDMA_ADAPTER_COMM_STATE_FAULT) &&
@@ -286,5 +424,30 @@ bool tdma_runtime_owner_get_origin_handoff(tdma_origin_handoff_snapshot_t *out)
         !tdma_origin_handoff_get(&s_origin_handoff, out)) return false;
     __atomic_thread_fence(__ATOMIC_ACQUIRE);
     return tdma_runtime_owner_get_ring_snapshot(&after) && !after.enabled && !after.adapter_started &&
+        after.config_seq == before.config_seq && after.applied_config_seq == before.applied_config_seq;
+}
+
+bool tdma_runtime_owner_get_origin_release(tdma_origin_release_snapshot_t *out)
+{
+    tdma_ring_runtime_snapshot_t before, after;
+    /* STOP ACK can precede next-phase cancellation. A distinct terminal
+     * publication is required; after it Core1 leaves this result immutable
+     * until a new begin first invalidates the non-reusable epoch token. */
+    const uint32_t terminal = __atomic_load_n(&s_origin_release_terminal_epoch, __ATOMIC_ACQUIRE);
+    if (out == NULL || !tdma_runtime_owner_get_ring_snapshot(&before) || before.enabled ||
+        before.adapter_started || before.config_seq != before.applied_config_seq ||
+        __atomic_load_n(&s_origin_release_ready_epoch, __ATOMIC_ACQUIRE) != 0u) return false;
+    const bool never_begun = terminal == 0u && s_origin_release_result.state == TDMA_ORIGIN_RELEASE_NONE &&
+        s_origin_release_result.trial_epoch == 0u;
+    if (!never_begun && (terminal == 0u || terminal != s_origin_release_result.trial_epoch)) return false;
+    /* A fresh boot has an explicit NONE result, but may have real rejected
+     * Core0 attempts. Report those counters; never infer zero from UNAVAILABLE. */
+    out->result = never_begun ? (tdma_origin_release_result_t){0} : s_origin_release_result;
+    out->attempt = s_origin_release_attempt;
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    return __atomic_load_n(&s_origin_release_terminal_epoch, __ATOMIC_ACQUIRE) == terminal &&
+        (!never_begun || (s_origin_release_result.state == TDMA_ORIGIN_RELEASE_NONE &&
+                         s_origin_release_result.trial_epoch == 0u)) &&
+        tdma_runtime_owner_get_ring_snapshot(&after) && !after.enabled && !after.adapter_started &&
         after.config_seq == before.config_seq && after.applied_config_seq == before.applied_config_seq;
 }

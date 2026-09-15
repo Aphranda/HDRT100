@@ -8,6 +8,9 @@ scpi_result_t scpi_calibration_origin_trial(scpi_t *context);
 scpi_result_t scpi_calibration_origin_trial_no_record(scpi_t *context);
 scpi_result_t scpi_calibration_origin_trial_blackout(scpi_t *context);
 scpi_result_t scpi_calibration_origin_trial_build_cancel(scpi_t *context);
+scpi_result_t scpi_calibration_origin_trial_ready(scpi_t *context);
+scpi_result_t scpi_calibration_origin_release(scpi_t *context);
+scpi_result_t scpi_calibration_origin_release_q(scpi_t *context);
 scpi_result_t scpi_calibration_origin_build_cancel_q(scpi_t *context);
 scpi_result_t scpi_calibration_origin_handoff_q(scpi_t *context);
 scpi_result_t scpi_calibration_origin_blackout_q(scpi_t *context);
@@ -89,6 +92,9 @@ scpi_result_t scpi_calibration_sma_cable_rtt_responder_q(scpi_t *context);
     {.pattern = "CALibration:ORIGin:TRIAL:NORECord", .callback = scpi_calibration_origin_trial_no_record}, \
     {.pattern = "CALibration:ORIGin:TRIAL:BLACKout", .callback = scpi_calibration_origin_trial_blackout}, \
     {.pattern = "CALibration:ORIGin:TRIAL:BUILDCancel", .callback = scpi_calibration_origin_trial_build_cancel}, \
+    {.pattern = "CALibration:ORIGin:TRIAL:READY", .callback = scpi_calibration_origin_trial_ready}, \
+    {.pattern = "CALibration:ORIGin:RELease", .callback = scpi_calibration_origin_release}, \
+    {.pattern = "READ:CALibration:ORIGin:RELease?", .callback = scpi_calibration_origin_release_q}, \
     {.pattern = "READ:CALibration:ORIGin:BUILDCancel?", .callback = scpi_calibration_origin_build_cancel_q}, \
     {.pattern = "READ:CALibration:ORIGin:HANDoff?", .callback = scpi_calibration_origin_handoff_q}, \
     {.pattern = "READ:CALibration:ORIGin:BLACKout?", .callback = scpi_calibration_origin_blackout_q}, \

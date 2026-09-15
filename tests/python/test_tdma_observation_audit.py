@@ -117,6 +117,22 @@ def handoff():
     return ','.join(map(str, ["ORIGINHANDOFF", 1, 9, 7, 250000000, 2, 0, 90, 100, 11] + stages))
 
 
+def test_handoff_ready_schema_preserves_history_and_requires_release_stage():
+    kwargs = dict(trial_epoch=9, config_seq=7, clock_hz=250000000)
+    assert audit.handoff_context(handoff(), **kwargs)
+    fields = handoff().split(',')
+    fields[1], fields[7], fields[9] = '2', '120', '12'
+    fields += ['90', '2', '2']
+    assert audit.handoff_context(','.join(fields), **kwargs)['elapsed_ticks'] == 120
+    for position, value in [(1, '1'), (9, '11'), (45, '0'), (43, '79'), (44, '31')]:
+        bad = fields.copy()
+        bad[position] = value
+        with pytest.raises(ValueError):
+            audit.handoff_context(','.join(bad), **kwargs)
+    with pytest.raises(ValueError):
+        audit.handoff_context(','.join(fields[:-1]), **kwargs)
+
+
 def run(encoder, samples=None, **overrides):
     kwargs = dict(expected_build=1, expected_board=2, expected_epoch=123, config_seq=7,
                   node_index=0, node_count=4, interval_us=1000, sample_count=4,

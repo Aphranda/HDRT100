@@ -24,21 +24,25 @@ ORIGIN, FOLLOWER, AUTONOMOUS, INSTALLED = 11, 13, 16, 5
 def handoff_context(raw, *, trial_epoch, config_seq, clock_hz):
     """Bind a STOP-frozen HANDoff response to independently captured controls."""
     fields = next(csv.reader([raw]))
-    if len(fields) != 43 or fields[0] != "ORIGINHANDOFF":
+    if len(fields) < 10 or fields[0] != "ORIGINHANDOFF":
         raise ValueError("handoff schema mismatch")
     values = list(map(int, fields[1:]))
     schema, epoch, config, hz, result, invalid, elapsed, begin, count = values[:9]
-    if (schema != 1 or count != 11 or epoch != trial_epoch or epoch <= 0 or
+    expected_count = {1: 11, 2: 12}.get(schema)
+    if expected_count is None or count != expected_count or len(fields) != 10 + count * 3:
+        raise ValueError("handoff schema mismatch")
+    if (epoch != trial_epoch or epoch <= 0 or
             config != config_seq or config <= 0 or hz != clock_hz or hz <= 0 or
             result != 2 or invalid != 0 or elapsed <= 0 or begin <= 0):
         raise ValueError("handoff identity/result mismatch")
     stages = [values[i:i + 3] for i in range(9, len(values), 3)]
-    if ([i for i, (_, _, calls) in enumerate(stages) if calls] != list(range(1, 9)) or
+    order = list(range(1, 9)) + ([11] if schema == 2 else [])
+    if ([i for i, (_, _, calls) in enumerate(stages) if calls] != order or
             any(min(stage) < 0 for stage in stages)):
         raise ValueError("handoff stages incomplete")
-    for i in range(1, 9):
+    for index, i in enumerate(order):
         first, work, _ = stages[i]
-        end = stages[i + 1][0] if i < 8 else elapsed
+        end = stages[order[index + 1]][0] if index + 1 < len(order) else elapsed
         if not 0 <= first <= end <= elapsed or work > end - first:
             raise ValueError("handoff stage clock mismatch")
     return dict(trial_epoch=epoch, config_seq=config, clock_hz=hz,

@@ -46,10 +46,18 @@ bool calibration_manager_origin_get_timing(calibration_origin_timing_t *timing)
 
 void calibration_manager_origin_revoke(void)
 {
-    (void)__atomic_add_fetch(&s_origin_timing_guard, 1u, __ATOMIC_ACQ_REL);
+    const uint32_t guard = calibration_manager_origin_epoch();
+    /* Core0 is the sole writer. Once exhausted, stay permanently odd and
+     * unavailable until reboot; a historical trial must never become live. */
+    if ((guard & 1u) != 0u || guard >= UINT32_MAX - 1u) {
+        __atomic_store_n(&s_origin_timing_guard, UINT32_MAX, __ATOMIC_RELEASE);
+        s_origin_timing.enabled = 0u;
+        return;
+    }
+    (void)__atomic_exchange_n(&s_origin_timing_guard, guard + 1u, __ATOMIC_ACQ_REL);
     s_origin_timing.enabled = 0u;
-    s_origin_timing.epoch = s_origin_timing_guard + 1u;
-    (void)__atomic_add_fetch(&s_origin_timing_guard, 1u, __ATOMIC_RELEASE);
+    s_origin_timing.epoch = guard + 2u;
+    __atomic_store_n(&s_origin_timing_guard, guard + 2u, __ATOMIC_RELEASE);
 }
 
 bool calibration_manager_origin_trial(uint32_t trial_id, uint32_t rearm_budget_ticks,
@@ -73,6 +81,8 @@ bool calibration_manager_origin_trial_configured(uint32_t trial_id, uint32_t rea
         .requested_abort_polls = abort_poll_count,
         .requested_flags = diagnostic_flags,
         .requested_duration_ticks = duration_ticks};
+    if (calibration_manager_origin_epoch() >= UINT32_MAX - 1u)
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_EPOCH_EXHAUSTED, 0u, 0u);
     tdma_ring_runtime_snapshot_t ring;
     tdma_ring_calibration_stage_t stage;
     tdma_service_ring_runtime_config_t config;
@@ -83,7 +93,8 @@ bool calibration_manager_origin_trial_configured(uint32_t trial_id, uint32_t rea
     if ((diagnostic_flags != 0u &&
          diagnostic_flags != CALIBRATION_ORIGIN_DIAGNOSTIC_SKIP_RECORDS &&
          diagnostic_flags != CALIBRATION_ORIGIN_DIAGNOSTIC_SERVICE_BLACKOUT &&
-         diagnostic_flags != CALIBRATION_ORIGIN_DIAGNOSTIC_BUILD_CANCEL) ||
+         diagnostic_flags != CALIBRATION_ORIGIN_DIAGNOSTIC_BUILD_CANCEL &&
+         diagnostic_flags != CALIBRATION_ORIGIN_DIAGNOSTIC_DEFER_RELEASE) ||
         trial_id == 0u || rearm_budget_ticks == 0u || abort_poll_count == 0u ||
         abort_poll_count > UINT16_MAX || duration_ticks == 0u || duration_ticks > INT64_MAX)
         return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_ARGUMENT, 0u, 0u);
@@ -166,10 +177,13 @@ bool calibration_manager_origin_trial_configured(uint32_t trial_id, uint32_t rea
     if (record.admission.model_epoch != s_origin_attempt.observed_model_epoch)
         return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_MODEL_CHANGED,
             s_origin_attempt.observed_model_epoch, record.admission.model_epoch);
-    (void)__atomic_add_fetch(&s_origin_timing_guard, 1u, __ATOMIC_ACQ_REL);
-    record.epoch = s_origin_timing_guard + 1u;
+    const uint32_t guard = calibration_manager_origin_epoch();
+    if ((guard & 1u) != 0u || guard >= UINT32_MAX - 1u)
+        return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_EPOCH_EXHAUSTED, 0u, 0u);
+    (void)__atomic_exchange_n(&s_origin_timing_guard, guard + 1u, __ATOMIC_ACQ_REL);
+    record.epoch = guard + 2u;
     s_origin_timing = record;
-    (void)__atomic_add_fetch(&s_origin_timing_guard, 1u, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_origin_timing_guard, guard + 2u, __ATOMIC_RELEASE);
     s_origin_attempt.trial_epoch = record.epoch;
     s_origin_attempt.reason = CALIBRATION_ORIGIN_ATTEMPT_ACCEPTED;
     return true;

@@ -36,6 +36,16 @@ def admission_exe(tmp_path_factory):
     (build / 'tdma_component_service.inc').write_text('void tdma_component_core1_service(void) {' +
         c_definition_body(wrapper, 'tdma_component_core1_service') + '}\n', encoding='utf-8')
     command += ['-I' + str(build)]
+    scpi_source = (ROOT / 'middleware/scpi_port/src/scpi_calibration_commands.c').read_text(encoding='utf-8')
+    callbacks = [
+        ('scpi_calibration_origin_trial_flags', 'scpi_t *context, uint32_t flags'),
+        ('scpi_calibration_origin_trial_ready', 'scpi_t *context'),
+        ('scpi_calibration_origin_release', 'scpi_t *context'),
+        ('scpi_calibration_origin_release_q', 'scpi_t *context'),
+    ]
+    (build / 'origin_release_scpi.inc').write_text('\n'.join(
+        f'static scpi_result_t {name}({args}) {{' + c_definition_body(scpi_source, name) + '}\n'
+        for name, args in callbacks), encoding='utf-8')
     command += [str(ROOT / "tests/unit/test_tdma_origin_admission.c"),
                 str(ROOT / 'components/tdma/src/tdma_origin_handoff.c'),
                 str(ROOT / 'components/tdma/src/tdma_origin_calibration_crc.c'),
@@ -47,7 +57,9 @@ def admission_exe(tmp_path_factory):
 
 @pytest.mark.parametrize("case", ["publish", "stale", "expiry", "prepare", "fault", "record-mode",
     'build-cancel', 'handoff', 'batch', 'batch-yield', 'batch-revoke', 'batch-failure',
-    'blackout', 'blackout-cancel', 'blackout-deadline', 'blackout-invalid'])
+    'blackout', 'blackout-cancel', 'blackout-deadline', 'blackout-invalid',
+    'release', 'release-cancel', 'release-expiry', 'release-exhaustion', 'release-scpi', 'release-mixed',
+    'release-stop-race', 'release-physical-reject'])
 def test_origin_trial_lifecycle(admission_exe, case):
     result = subprocess.run([str(admission_exe), case], capture_output=True,
                             text=True, timeout=3)

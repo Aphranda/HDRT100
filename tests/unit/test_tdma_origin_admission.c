@@ -25,9 +25,10 @@ static tdma_service_service_t s_tdma_runtime_owner;
 static tdma_pio_spi_ring_adapter_t s_tdma_pio_spi_ring_adapter;
 static struct {
     uint32_t flight_physical_byte_count;
+    uint32_t flight_origin_record_epoch;
     struct { bool diagnostic_skip_records;
         uint32_t diagnostic_build_probe_epoch, diagnostic_build_probe_config_seq;
-        uint32_t stage;
+        uint32_t stage, reject_code, reject_observed, reject_expected;
     } flight_origin_prepare;
 } s_tdma_pio_spi_phys;
 static uint32_t model_epoch = 2, clock_hz = 150000000, begins, polls, stops;
@@ -35,7 +36,9 @@ static uint64_t ticks = 100;
 static bool complete = true, model_valid = true, resources_valid = true, begin_ok = true;
 static tdma_origin_build_result_t poll_result = TDMA_ORIGIN_BUILD_BUSY;
 static bool scripted_poll, builder_ready;
-static uint32_t poll_trace[TDMA_ORIGIN_PREPARE_FAILED + 1u], poll_trace_count;
+static uint32_t poll_trace[TDMA_ORIGIN_HANDOFF_STAGES], poll_trace_count;
+static uint32_t releases;
+static bool release_ok = true, revoke_at_release;
 static uint32_t poll_cost, fail_stage, mutate_stage, mutate_kind;
 static tdma_ring_runtime_snapshot_t ring;
 static tdma_ring_runtime_config_t config;
@@ -77,7 +80,11 @@ bool refmem_realtime_contract_admit_origin_trial(const refmem_realtime_origin_ca
 }
 static bool tdma_pio_spi_phys_origin_begin(void *ctx, const tdma_ring_runtime_config_t *c,
     const uint8_t *p, size_t n, uint32_t r, uint32_t a)
-{ (void)ctx; (void)c; (void)p; (void)n; (void)r; (void)a; begins++; return begin_ok; }
+{ (void)ctx; (void)c; (void)p; (void)n; (void)r; (void)a; begins++;
+  s_tdma_pio_spi_phys.flight_origin_prepare.reject_code = 0u;
+  s_tdma_pio_spi_phys.flight_origin_prepare.reject_observed = 0u;
+  s_tdma_pio_spi_phys.flight_origin_prepare.reject_expected = 0u;
+  return begin_ok; }
 static tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *ctx)
 {
     (void)ctx; polls++;
@@ -97,15 +104,64 @@ static tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *ctx)
     if (stage == fail_stage) return TDMA_ORIGIN_BUILD_FAILED;
     if (stage == TDMA_ORIGIN_PREPARE_BUILD_STEP && !builder_ready)
         return TDMA_ORIGIN_BUILD_BUSY;
-    ++s_tdma_pio_spi_phys.flight_origin_prepare.stage;
-    return stage == TDMA_ORIGIN_PREPARE_INSTALL ? TDMA_ORIGIN_BUILD_DONE : TDMA_ORIGIN_BUILD_BUSY;
+    if (stage == TDMA_ORIGIN_PREPARE_INSTALL)
+        s_tdma_pio_spi_phys.flight_origin_prepare.stage = TDMA_ORIGIN_PREPARE_READY;
+    else if (stage != TDMA_ORIGIN_PREPARE_READY)
+        ++s_tdma_pio_spi_phys.flight_origin_prepare.stage;
+    return TDMA_ORIGIN_BUILD_BUSY;
+}
+static bool tdma_pio_spi_phys_origin_release(void *ctx, uint64_t expires, bool (*authorized)(void))
+{
+    (void)ctx;
+    assert(s_tdma_pio_spi_phys.flight_origin_prepare.stage == TDMA_ORIGIN_PREPARE_READY);
+    if (revoke_at_release) calibration_manager_origin_revoke();
+    if (!release_ok || !authorized() || ticks >= expires) return false;
+    ++releases;
+    s_tdma_pio_spi_phys.flight_origin_prepare.stage = TDMA_ORIGIN_PREPARE_COMPLETE;
+    return true;
 }
 static bool tdma_pio_spi_phys_origin_healthy(const void *ctx) { (void)ctx; return true; }
 bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime, const tdma_ring_runtime_config_t *c)
 { assert(c == NULL); stops++; runtime->enabled = 0; return true; }
 
+static void admission_snapshot_fence(int order);
+#define __atomic_thread_fence(order) admission_snapshot_fence(order)
 #include "../../components/tdma/src/tdma_runtime_origin.inc"
 #include "../../components/calibration_manager/src/calibration_origin_timing.inc"
+#undef __atomic_thread_fence
+
+static bool tear_request;
+static void admission_snapshot_fence(int order)
+{
+    __atomic_thread_fence(order);
+    if (tear_request) {
+        tear_request = false;
+        s_origin_release_request.sequence += 2u;
+        s_origin_release_request.trial_epoch += 2u;
+    }
+}
+
+typedef int scpi_result_t;
+enum { SCPI_RES_OK = 1, SCPI_RES_ERR = -1, TRUE = 1 };
+typedef struct {
+    uint64_t parameters[4], results[24];
+    unsigned count, position, result_count;
+    char text[32], error[64];
+} scpi_t;
+static bool SCPI_ParamUInt32(scpi_t *ctx, uint32_t *out, bool required)
+{ (void)required; if (ctx->position >= ctx->count || ctx->parameters[ctx->position] > UINT32_MAX) return false;
+  *out = (uint32_t)ctx->parameters[ctx->position++]; return true; }
+static bool SCPI_ParamUInt64(scpi_t *ctx, uint64_t *out, bool required)
+{ (void)required; if (ctx->position >= ctx->count) return false; *out = ctx->parameters[ctx->position++]; return true; }
+static void SCPI_ResultUInt32(scpi_t *ctx, uint32_t value)
+{ assert(ctx->result_count < 24u); ctx->results[ctx->result_count++] = value; }
+static void SCPI_ResultUInt64(scpi_t *ctx, uint64_t value)
+{ assert(ctx->result_count < 24u); ctx->results[ctx->result_count++] = value; }
+static void SCPI_ResultText(scpi_t *ctx, const char *text)
+{ snprintf(ctx->text, sizeof(ctx->text), "%s", text); }
+static void scpi_port_push_exec_error(scpi_t *ctx, const char *text)
+{ snprintf(ctx->error, sizeof(ctx->error), "%s", text); }
+#include "origin_release_scpi.inc"
 
 static tdma_service_service_t *s_vdc_tdma_service = &s_tdma_runtime_owner;
 static uint32_t full_service_calls[4];
@@ -148,12 +204,33 @@ static void batch_setup(uint32_t stage)
     poll_trace_count = 0u; poll_cost = 10u;
     fail_stage = mutate_stage = UINT32_MAX;
     s_tdma_pio_spi_phys.flight_origin_prepare.stage = stage;
+    s_tdma_pio_spi_phys.flight_origin_record_epoch = 31u;
+    s_tdma_pio_spi_ring_adapter.origin.active = 1u;
+    s_tdma_pio_spi_ring_adapter.comm_fsm.state = TDMA_ADAPTER_COMM_STATE_RESIDENT_PREPARING;
+    s_tdma_pio_spi_ring_adapter.origin.returned.sequence = 345u;
+    s_tdma_pio_spi_ring_adapter.origin.returned.identity = 0x12345678u;
 }
 
 static tdma_origin_build_result_t batch_poll(void)
 {
     poll_trace_count = 0u;
     return tdma_runtime_owner_origin_poll(&s_tdma_pio_spi_phys);
+}
+
+static void deferred_setup(void)
+{
+    batch_setup(TDMA_ORIGIN_PREPARE_INSTALL);
+    assert(calibration_manager_origin_trial_configured(7, 100, 8, 1000000,
+        CALIBRATION_ORIGIN_DIAGNOSTIC_DEFER_RELEASE));
+    assert(admit() == TDMA_ORIGIN_ADMISSION_READY);
+    assert(tdma_runtime_owner_origin_begin(&s_tdma_pio_spi_phys, &config, NULL, 0, 100, 8));
+}
+
+static void stop_ack(void)
+{
+    s_tdma_runtime_owner.ring_runtime.enabled = 0u;
+    tdma_runtime_owner_origin_lifetime_core1();
+    ring.enabled = ring.adapter_started = 0u;
 }
 
 static void blackout_start(void)
@@ -253,7 +330,7 @@ int main(int argc, char **argv)
             assert(tdma_runtime_owner_origin_poll(&s_tdma_pio_spi_phys) == TDMA_ORIGIN_BUILD_FAILED);
         }
         assert(!calibration_manager_origin_trial_configured(5, 100, 8, 1000000, 3));
-        assert(!calibration_manager_origin_trial_configured(5, 100, 8, 1000000, 8));
+        assert(!calibration_manager_origin_trial_configured(5, 100, 8, 1000000, 16));
         assert(!s_origin_timing.enabled);
         publish();
         assert(s_origin_timing.diagnostic_flags == 0);
@@ -327,9 +404,11 @@ int main(int argc, char **argv)
         assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY && poll_trace_count == 1u);
         assert(s_tdma_pio_spi_phys.flight_origin_prepare.stage == TDMA_ORIGIN_PREPARE_BUILD_STEP);
         builder_ready = true;
-        assert(batch_poll() == TDMA_ORIGIN_BUILD_DONE && poll_trace_count == 4u);
+        assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY && poll_trace_count == 4u);
         for (uint32_t i = 0u; i < poll_trace_count; ++i)
             assert(poll_trace[i] == TDMA_ORIGIN_PREPARE_BUILD_STEP + i);
+        assert(releases == 0u && s_origin_release_ready_epoch == 0u);
+        assert(batch_poll() == TDMA_ORIGIN_BUILD_DONE && poll_trace_count == 1u && releases == 1u);
         tdma_origin_handoff_snapshot_t out;
         ring.enabled = ring.adapter_started = 0u;
         assert(tdma_runtime_owner_get_origin_handoff(&out));
@@ -350,7 +429,220 @@ int main(int argc, char **argv)
         poll_cost = 0u;
         assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY && poll_trace_count == 1u);
         assert(s_tdma_pio_spi_phys.flight_origin_prepare.stage == TDMA_ORIGIN_PREPARE_BUILD_STEP);
-        assert(batch_poll() == TDMA_ORIGIN_BUILD_DONE && poll_trace_count == TDMA_ORIGIN_PREPARE_BATCH_MAX_STEPS);
+        assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY && poll_trace_count == TDMA_ORIGIN_PREPARE_BATCH_MAX_STEPS);
+        assert(batch_poll() == TDMA_ORIGIN_BUILD_DONE && releases == 1u);
+    } else if (!strcmp(argv[1], "release")) {
+        tdma_origin_release_snapshot_t out;
+        uint32_t seq;
+        deferred_setup();
+        const uint32_t epoch = s_origin_trial.epoch;
+        assert(!tdma_runtime_owner_request_origin_release(epoch, ring.config_seq, &seq));
+        assert(s_origin_release_attempt.reason == TDMA_ORIGIN_RELEASE_ATTEMPT_NOT_READY);
+        assert(s_origin_release_request.sequence == 0u);
+        assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY && s_origin_release_ready_epoch == epoch);
+        for (unsigned i = 0; i < 20; ++i) assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY);
+        assert(releases == 0u && s_origin_release_result.ready_checks == 21u);
+        assert(!tdma_runtime_owner_get_origin_release(&out));
+        assert(!tdma_runtime_owner_request_origin_release(epoch, ring.config_seq + 1u, &seq));
+        assert(!tdma_runtime_owner_request_origin_release(epoch + 2u, ring.config_seq, &seq));
+        assert(tdma_runtime_owner_request_origin_release(epoch, ring.config_seq, &seq));
+        assert(seq == 2u && releases == 0u);
+        assert(!tdma_runtime_owner_request_origin_release(epoch, ring.config_seq, &seq));
+        assert(s_origin_release_attempt.reason == TDMA_ORIGIN_RELEASE_ATTEMPT_DUPLICATE);
+        assert(batch_poll() == TDMA_ORIGIN_BUILD_DONE && releases == 1u);
+        assert(s_origin_release_consumed_seq == 2u && s_origin_release_ready_epoch == 0u);
+        assert(s_origin_release_result.state == TDMA_ORIGIN_RELEASED);
+        assert(s_origin_release_result.seed_sequence == 345u && s_origin_release_result.seed_identity == 0x12345678u);
+        assert(s_origin_release_result.record_epoch == 31u && s_origin_release_result.request_seq == 2u);
+        assert(s_origin_release_result.release_ticks >= s_origin_release_result.last_ready_ticks);
+        stop_ack(); assert(tdma_runtime_owner_get_origin_release(&out));
+        assert(out.result.state == TDMA_ORIGIN_RELEASED && out.result.request_seq == 2u);
+        assert(!tdma_runtime_owner_request_origin_release(epoch, 4u, &seq));
+        deferred_setup(); assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY);
+        assert(!tdma_runtime_owner_request_origin_release(epoch, 4u, &seq));
+        assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY && releases == 1u);
+        assert(tdma_runtime_owner_request_origin_release(s_origin_trial.epoch, 4u, &seq) && seq == 4u);
+        assert(batch_poll() == TDMA_ORIGIN_BUILD_DONE && releases == 2u);
+    } else if (!strcmp(argv[1], "release-cancel")) {
+        for (unsigned bad = 0u; bad < 8u; ++bad) {
+            deferred_setup(); assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY);
+            uint32_t seq; const uint32_t epoch = s_origin_trial.epoch;
+            assert(tdma_runtime_owner_request_origin_release(epoch, 4u, &seq));
+            if (bad == 0u) calibration_manager_origin_revoke();
+            if (bad == 1u) s_tdma_runtime_owner.ring_runtime.enabled = 0u;
+            if (bad == 2u) ticks = s_origin_trial.expires_ticks;
+            if (bad == 3u) model_epoch += 2u;
+            if (bad == 4u) s_tdma_runtime_owner.ring_runtime.config_seq++;
+            if (bad == 5u) clock_hz++;
+            if (bad == 6u) revoke_at_release = true;
+            if (bad == 7u) release_ok = false;
+            assert(batch_poll() == TDMA_ORIGIN_BUILD_FAILED && releases == 0u);
+            assert(s_origin_release_ready_epoch == 0u && s_origin_release_consumed_seq == seq);
+            stop_ack(); tdma_origin_release_snapshot_t out;
+            assert(tdma_runtime_owner_get_origin_release(&out) && out.result.release_ticks == 0u);
+            assert(out.result.request_seq == seq);
+            assert(out.result.state == TDMA_ORIGIN_RELEASE_CANCELLED || out.result.state == TDMA_ORIGIN_RELEASE_FAILED);
+            assert(!tdma_runtime_owner_request_origin_release(epoch, 4u, &seq));
+            revoke_at_release = false; release_ok = true;
+        }
+        deferred_setup(); assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY);
+        /* Interrupted Core0 publication cannot hold up STOP. When the old
+         * publication completes after STOP it cannot release a new trial. */
+        s_origin_release_request.sequence += 1u;
+        const uint32_t old_epoch = s_origin_trial.epoch;
+        stop_ack();
+        s_origin_release_request.trial_epoch = old_epoch;
+        s_origin_release_request.config_seq = 4u;
+        ++s_origin_release_request.sequence;
+        deferred_setup(); assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY);
+        assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY && releases == 0u);
+        assert(s_origin_release_consumed_seq == s_origin_release_request.sequence);
+    } else if (!strcmp(argv[1], "release-expiry")) {
+        deferred_setup(); assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY);
+        uint32_t seq; ticks = s_origin_trial.expires_ticks;
+        assert(!tdma_runtime_owner_request_origin_release(s_origin_trial.epoch, 4u, &seq));
+        assert(s_origin_release_attempt.reason == TDMA_ORIGIN_RELEASE_ATTEMPT_EXPIRED);
+        tdma_runtime_owner_origin_lifetime_core1();
+        assert(stops == 1u && s_origin_release_ready_epoch == 0u && releases == 0u);
+        assert(s_origin_release_result.state == TDMA_ORIGIN_RELEASE_CANCELLED);
+        assert(s_origin_handoff.snapshot.result == TDMA_ORIGIN_BUILD_FAILED);
+    } else if (!strcmp(argv[1], "release-scpi")) {
+        batch_setup(TDMA_ORIGIN_PREPARE_INSTALL);
+        scpi_t ctx = {.parameters = {8u, 100u, 8u, 1000000u}, .count = 4u};
+        assert(scpi_calibration_origin_trial_ready(&ctx) == SCPI_RES_OK);
+        const uint32_t epoch = (uint32_t)ctx.results[0];
+        assert(epoch == calibration_manager_origin_epoch());
+        assert(admit() == TDMA_ORIGIN_ADMISSION_READY);
+        assert(s_origin_trial.diagnostic_flags == CALIBRATION_ORIGIN_DIAGNOSTIC_DEFER_RELEASE);
+        assert(tdma_runtime_owner_origin_begin(&s_tdma_pio_spi_phys, &config, NULL, 0, 100, 8));
+        assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY);
+        ctx = (scpi_t){.parameters = {epoch}, .count = 1u};
+        assert(scpi_calibration_origin_release(&ctx) == SCPI_RES_ERR);
+        assert(s_origin_release_request.sequence == 0u);
+        ctx = (scpi_t){.parameters = {epoch, 4u}, .count = 2u};
+        assert(scpi_calibration_origin_release(&ctx) == SCPI_RES_OK && ctx.results[0] == 2u);
+        assert(releases == 0u);
+        ctx = (scpi_t){0};
+        assert(scpi_calibration_origin_release_q(&ctx) == SCPI_RES_OK);
+        assert(!strcmp(ctx.text, "UNAVAILABLE") && ctx.result_count == 0u);
+        assert(batch_poll() == TDMA_ORIGIN_BUILD_DONE); stop_ack();
+        ctx = (scpi_t){0};
+        assert(scpi_calibration_origin_release_q(&ctx) == SCPI_RES_OK);
+        assert(!strcmp(ctx.text, "ORIGINRELEASE") && ctx.result_count == 21u);
+        assert(ctx.results[0] == 2u && ctx.results[1] == TDMA_ORIGIN_RELEASED);
+        assert(ctx.results[18] == 0u && ctx.results[19] == 0u && ctx.results[20] == 0u);
+        assert(ctx.results[2] == epoch && ctx.results[3] == 4u && ctx.results[8] == 2u);
+        assert(ctx.results[12] == 1u && ctx.results[14] == TDMA_ORIGIN_RELEASE_ATTEMPT_ACCEPTED);
+        ctx = (scpi_t){.parameters = {epoch, 4u}, .count = 2u};
+        assert(scpi_calibration_origin_release(&ctx) == SCPI_RES_ERR);
+        assert(!strcmp(ctx.error, "CAL_ORIGIN_RELEASE_REJECTED"));
+    } else if (!strcmp(argv[1], "release-mixed")) {
+        deferred_setup(); assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY);
+        uint32_t seq;
+        assert(tdma_runtime_owner_request_origin_release(s_origin_trial.epoch, 4u, &seq));
+        tear_request = true;
+        assert(!tdma_runtime_owner_origin_take_release());
+        assert(s_origin_release_consumed_seq == 0u && s_origin_release_result.request_seq == 0u);
+        assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY && releases == 0u);
+        assert(s_origin_release_consumed_seq == seq + 2u);
+    } else if (!strcmp(argv[1], "release-stop-race")) {
+        tdma_origin_release_snapshot_t out;
+        uint32_t seq;
+        assert(!tdma_runtime_owner_request_origin_release(0u, 4u, &seq));
+        ring.enabled = ring.adapter_started = 0u;
+        assert(tdma_runtime_owner_get_origin_release(&out));
+        assert(out.result.state == TDMA_ORIGIN_RELEASE_NONE && out.result.trial_epoch == 0u);
+        assert(out.attempt.attempts == 1u && out.attempt.rejected == 1u);
+        for (unsigned ready = 0u; ready < 2u; ++ready) {
+            batch_setup(TDMA_ORIGIN_PREPARE_INSTALL);
+            if (ready) assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY);
+            assert(s_origin_release_ready_epoch == 0u); /* legacy trial */
+            tdma_runtime_owner_origin_lifetime_core1();
+            /* STOP arrives AFTER lifetime service, before runtime ACK. */
+            s_tdma_runtime_owner.ring_runtime.enabled = 0u;
+            ring.enabled = ring.adapter_started = 0u;
+            assert(!tdma_runtime_owner_get_origin_release(&out));
+            tdma_runtime_owner_origin_lifetime_core1();
+            assert(tdma_runtime_owner_get_origin_release(&out));
+            assert(out.result.state == TDMA_ORIGIN_RELEASE_CANCELLED);
+            const tdma_origin_release_result_t frozen = out.result;
+            /* A late old request cannot mutate the published terminal. */
+            s_origin_release_request.sequence += 2u;
+            s_origin_release_request.trial_epoch = s_origin_trial.epoch;
+            s_origin_release_request.config_seq = 4u;
+            tdma_runtime_owner_origin_cancel_release();
+            assert(tdma_runtime_owner_get_origin_release(&out));
+            assert(!memcmp(&frozen, &out.result, sizeof(frozen)));
+        }
+    } else if (!strcmp(argv[1], "release-physical-reject")) {
+        for (unsigned failure = 0u; failure < 3u; ++failure) {
+            deferred_setup();
+            tdma_origin_release_snapshot_t out;
+            assert(s_origin_release_result.physical_reject == 0u);
+            if (failure != 0u) assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY);
+            if (failure == 2u) {
+                uint32_t seq;
+                assert(tdma_runtime_owner_request_origin_release(s_origin_trial.epoch, 4u, &seq));
+                release_ok = false;
+            } else {
+                fail_stage = failure == 0u ? TDMA_ORIGIN_PREPARE_INSTALL : TDMA_ORIGIN_PREPARE_READY;
+            }
+            /* The physical seam supplies a first rejection. Exercise the real
+             * owner publication and STOP-only SCPI path independently. */
+            const uint32_t code = (13u << 16) | (failure + 1u);
+            s_tdma_pio_spi_phys.flight_origin_prepare.reject_code = code;
+            s_tdma_pio_spi_phys.flight_origin_prepare.reject_observed = 0x80000005u;
+            s_tdma_pio_spi_phys.flight_origin_prepare.reject_expected = 5u;
+            assert(batch_poll() == TDMA_ORIGIN_BUILD_FAILED && releases == 0u);
+            assert(!tdma_runtime_owner_get_origin_release(&out));
+            stop_ack();
+            assert(tdma_runtime_owner_get_origin_release(&out));
+            assert(out.result.physical_reject == code);
+            assert(out.result.physical_observed == 0x80000005u);
+            assert(out.result.physical_expected == 5u && out.result.release_ticks == 0u);
+            const tdma_origin_release_result_t frozen = out.result;
+            /* Cleanup/late polling must not rewrite a published terminal,
+             * even if physical workspace has since changed. */
+            s_tdma_pio_spi_phys.flight_origin_prepare.reject_code = UINT32_MAX;
+            s_tdma_pio_spi_phys.flight_origin_prepare.reject_observed = 0u;
+            s_tdma_pio_spi_phys.flight_origin_prepare.reject_expected = UINT32_MAX;
+            assert(batch_poll() == TDMA_ORIGIN_BUILD_FAILED);
+            tdma_runtime_owner_origin_lifetime_core1();
+            assert(tdma_runtime_owner_get_origin_release(&out));
+            assert(!memcmp(&frozen, &out.result, sizeof(frozen)));
+            scpi_t query = {0};
+            assert(scpi_calibration_origin_release_q(&query) == SCPI_RES_OK);
+            assert(query.result_count == 21u && query.results[0] == 2u);
+            assert(query.results[18] == code && query.results[19] == 0x80000005u && query.results[20] == 5u);
+            release_ok = true;
+        }
+        deferred_setup();
+        stop_ack();
+        tdma_origin_release_snapshot_t out;
+        assert(tdma_runtime_owner_get_origin_release(&out));
+        assert(out.result.state == TDMA_ORIGIN_RELEASE_CANCELLED);
+        assert(out.result.physical_reject == 0u && out.result.physical_observed == 0u && out.result.physical_expected == 0u);
+    } else if (!strcmp(argv[1], "release-exhaustion")) {
+        deferred_setup(); assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY);
+        uint32_t seq;
+        s_origin_release_request.sequence = UINT32_MAX - 1u;
+        assert(!tdma_runtime_owner_request_origin_release(s_origin_trial.epoch, 4u, &seq));
+        assert(s_origin_release_attempt.reason == TDMA_ORIGIN_RELEASE_ATTEMPT_EXHAUSTED);
+        s_origin_release_request.sequence = UINT32_MAX;
+        assert(!tdma_runtime_owner_request_origin_release(s_origin_trial.epoch, 4u, &seq));
+        assert(batch_poll() == TDMA_ORIGIN_BUILD_BUSY && releases == 0u);
+        s_origin_timing_guard = UINT32_MAX - 3u;
+        assert(!calibration_manager_origin_trial_configured(7, 100, 8, 1000000, 8u));
+        assert(s_origin_attempt.reason == CALIBRATION_ORIGIN_ATTEMPT_EPOCH_EXHAUSTED);
+        calibration_manager_origin_revoke();
+        assert(s_origin_timing_guard == UINT32_MAX);
+        for (unsigned i = 0u; i < 3u; ++i) {
+            calibration_manager_origin_revoke();
+            assert(!calibration_manager_origin_trial(1, 100, 8, 1000000));
+            assert(s_origin_timing_guard == UINT32_MAX);
+            calibration_origin_timing_t timing;
+            assert(!calibration_manager_origin_get_timing(&timing));
+        }
     } else if (!strcmp(argv[1], "batch-revoke")) {
         const uint32_t stages[] = {TDMA_ORIGIN_PREPARE_STOP, TDMA_ORIGIN_PREPARE_PERSONA,
             TDMA_ORIGIN_PREPARE_BUILD_STEP, TDMA_ORIGIN_PREPARE_SEED, TDMA_ORIGIN_PREPARE_SMS};
