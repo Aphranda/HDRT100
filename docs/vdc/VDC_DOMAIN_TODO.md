@@ -185,9 +185,11 @@ STOP/ARM 取消补强见
 TX image/FIFO/PIO/DMA 的旧片段。不能因禁用态 P3 或本地取消通过关闭全部前置；
 每项修复继续独立完成软件验证、四板 P3 和对应功能正反证据。
 继续增加功能前，先闭合 TDMA 涨时归因。`VDC-PROGRESS-20260915-035` 已固定
-校准配置完成当前固件重复测量，下一步补同 reset generation 的完整 phase profile，
-再按校准配置和应用槽位控制旧/新固件 A/B；现有 P3 gate 未覆盖 TDMA phase WCET，
-不能据其通过跳过这项复核。
+校准配置完成当前固件重复测量；`VDC-PROGRESS-20260915-036` 已补同 reset generation
+的完整 profile，并将普通发帧与从板事件服务分段。下一步优先定位发帧准备/校验/记账
+及事件 FEED/START_CUT，按收益选择单项等价或有界优化；保留身份、数据准入和故障
+复验。新增探针与应用槽位影响测量，仍需控制校准配置和槽位后评估前后收益。
+现有 P3 gate 未覆盖 TDMA phase WCET，不能据其通过跳过这项复核。
 普通四板收敛中出现的 SCK 候选不足、TOPology 准备拒绝及三轮失败见
 `VDC-PROGRESS-20260915-028`；针对后者的 STOP 后有界恢复及独立验收见
 `VDC-PROGRESS-20260915-029`。配置成功仍需新代际 ACK，不能由超时后的状态猜测

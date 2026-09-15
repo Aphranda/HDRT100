@@ -79,7 +79,67 @@ P3，详见 `VDC-PROGRESS-20260915-026`；后续非法目标位移修复和完�
 `VDC-PROGRESS-20260915-032`；FIFO 借用与 STOP 回收互斥见
 `VDC-PROGRESS-20260915-033`；本地 ring 配置绑定与命令取消见
 `VDC-PROGRESS-20260915-034`；固定校准配置复测与示波器诊断链路见
-`VDC-PROGRESS-20260915-035`。
+`VDC-PROGRESS-20260915-035`；普通循环边界和事件观察器分段计时见
+`VDC-PROGRESS-20260915-036`。
+
+### VDC-PROGRESS-20260915-036 — 普通发帧与从板事件服务耗时归因
+
+- TODO task ID：`VDC-SCHED-001`、`VDC-VERIFY-001`；状态 IN PROGRESS。
+  本切片只扩展 `TDMA_SERVICE_TIMING_VERSION` 的计时记录和离线解析，不改变命令
+  启用、收发算法、PIO、预算或 OTA。事件观察继续由 Core1 物理 owner 有界服务；
+  Core0 负责原生记录，SCPI 仅触发，全部 STOP 后导出及顺序 SAVE。
+- 先用 035 的当前固件和固定校准配置补完整 profile：r1 在 START 前 RESET，主板
+  OTHER 峰值包含 ARMED 到 RUNNING；r2 在四板 START 后等待再 RESET，仍测得
+  CYCLE_BOUNDARY 到 RUNNING 的高耗时。两轮四板闭环通过，说明问题不只出现在
+  首次启动。RESET 由 Core1 在下一相位消费；两轮选中的峰值均非首个 RESET 相位，
+  各自 reset generation 一致、invalid 为零，未把空的自主 RUN 组当普通运行数据。
+- 新探针：事件服务分 ENTRY、HARVEST、CONVERT、FEED、FINAL_CHECK、START_CUT、
+  RETAIN、PUBLISH；FEED 包含读取后的故障复验和诊断字段复制，FINAL_CHECK 包含
+  最终故障触发的二次 feed。ENTRY 包含等待状态下的启动尝试，START_CUT 只计随后
+  的 monitor；RETAIN 包含退休和旧 `service_max_us` 更新，最后快照复制另计 PUBLISH。
+  普通 reference 发帧四条入口累计到 REFERENCE_TX，物理 callback 计为其子段
+  REFERENCE_SUBMIT。父子不重复相加，完整峰值不跨 sequence 拼接。
+- 软件与资源：相关测试共 30 项通过，包含真实 owner 路径、永久故障/最终复验、
+  start-cut 硬件模型、普通发帧及异步 pending 的计时归属、旧版本解析。
+  首次测试因证据目录父路径缺失失败；随后发现旧 owner 测试夹具缺少已有
+  start-cut monitor 替身，补齐调用检查后通过；失败日志均保留。
+  release 双应用槽构建及 Flash 链接门禁通过。目标 map 中计时静态区增加
+  320 B，SCPI 局部 snapshot 增加 256 B（本轮构建快照，非 RAM 容量契约）。
+- 当前源码四板 P3：`tdma-detail-r1/p3/` 耗时 203.115 s，
+  `passed/flow_completed/strict_gates_passed=true`，诊断失败为空；四板 OTA 和
+  普通 process-image 闭环通过。源码 SHA 为
+  `b248a154ebc5286fea255b3c8e2a489cf10a948c320f7616502797e6995b07ee`，
+  包 SHA 为 `9fdcba5c400de65294152b7e9f3ea0c7b18b7051e2b543a8675aa787f47f4764`。
+  固化双槽 ELF/map/反汇编和包；复用的 build ID 不作为版本区分依据。
+- 新分段复测仍用固定的旧校准配置、START 后 RESET，四板约 16.2 s 完成闭环。
+  下表为同条 OTHER 峰值的测量快照，非 WCET 上界或产品事实源，单位 µs：
+
+  | 板 | 完整相位 | 物理服务 | 时间换算 | 事件 FEED | START_CUT |
+  |---|---:|---:|---:|---:|---:|
+  | NO1 | 1014.576 | 6.456 | 0 | 0 | 0 |
+  | NO2 | 926.684 | 237.116 | 15.348 | 57.104 | 52.140 |
+  | NO3 | 967.636 | 373.192 | 16.536 | 127.568 | 54.108 |
+  | NO4 | 978.928 | 381.096 | 26.964 | 140.212 | 59.492 |
+
+- 主板该相位为 CYCLE_BOUNDARY 到 RUNNING，REFERENCE_TX 占 651.768 µs，其中
+  SUBMIT 占 105.556 µs，其余 546.212 µs 包含构造、校验和提交后的记账，尚不能
+  全部称为 CRC 或复制。三从原生窗口的首条样本尚未启用观察器，随后样本 ACTIVE、
+  published 持续增长且无 fault；换算只占事件服务一部分，不能按四次除法推算
+  回收数百微秒。
+  算术等价快路径的只读分析可以作为候选，尚未实施或声称硬件收益。
+- 证据与复核：均位于 `out/HardwareAcceptance/20260915/` 下，旧固件 profile 在
+  `tdma-phase-profile-r1/`、`tdma-phase-profile-r2/`，新固件在
+  `tdma-detail-profile-r1/`，构建/P3/分析和独立审查在 `tdma-detail-r1/`。
+  主控重解 P3 四份及 profile 十二份 native binary，CRC、身份、完整记录及
+  归档 JSON 一致；profile 原始响应重新解析、嵌套余量非负。各轮 SAVE 确认 SAVED，
+  不扩称为 SD 字节对比。最终四板 STOP，诊断输出关闭。
+- 限制与下一 gate：profile 在 STOP 后仍更新，覆盖 RUN、STOP/idle 和导出服务，
+  不等同隔离的稳定窗口 WCET；新增探针、快照复制及 OTA 槽位改变影响时间，不能
+  将旧/新峰值差当算法收益。现有 P3 不约束 TDMA phase WCET，全表时序仍未闭合。
+  `VDC-SCHED-001` 下一步优先定位普通发帧准备/校验/记账及从板 FEED/START_CUT，
+  按收益选择一个等价或有界优化并独立 P3，保留身份与故障复验。共同 session、
+  可信时间映射、命令实际应用和正式锁相继续未完成；示波器按 035 的 NO1/CH1
+  触发配置用于后续同窗输出验证，本轮未新增波形或提升 lock 结论。
 
 ### VDC-PROGRESS-20260915-035 — 固定配置快速复测与四通道触发采集
 
