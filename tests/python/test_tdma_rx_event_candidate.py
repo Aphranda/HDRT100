@@ -204,6 +204,42 @@ static void test_lifetime_mismatches_and_unavailable(void) {
     setup_candidate(true); retain(11u);
     query_with(&old, good_pin, 11u, 64u, TDMA_RX_EVENT_ARM_STALE);
 }
+static void test_initial_observation_epoch_and_loss(void) {
+    setup_candidate(true); retain(1u);
+    /* Execute the real counter reset used by RX ARM. Zero belongs to this
+     * nonzero ARM, rather than denoting an absent capture or observer. */
+    assert(tdma_rx_dma_counter_reset(&s_tdma_pio_spi_rx_sequence,
+        physical.flight_physical_byte_count, 100u));
+    capture.observation_epoch = s_tdma_pio_spi_rx_sequence.observation_epoch;
+    assert(capture.observation_epoch == 0u);
+    pin = tdma_pio_spi_phys_rx_event_pin(&physical, &capture);
+    assert(pin == s_tdma_event_observer.epoch && pin != 0u);
+    query(1u, TDMA_RX_EVENT_MATCHED);
+    assert(last()->observation_epoch == 0u && last()->event_ordinal == 0u);
+    const tdma_rx_capture_t old = capture;
+    const uint32_t old_pin = pin;
+    uint64_t produced;
+    bool lost;
+    const uint32_t reload = s_tdma_pio_spi_rx_sequence.reload_words;
+    /* An unchanged count after a full possible wrap cannot preserve epoch 0. */
+    assert(tdma_rx_dma_counter_observe(&s_tdma_pio_spi_rx_sequence, reload,
+        100u + reload, 100u + reload, &produced, &lost));
+    assert(lost && s_tdma_pio_spi_rx_sequence.observation_epoch == 1u);
+    assert(tdma_pio_spi_phys_rx_event_pin(&physical, &capture) == 0u);
+    query(1u, TDMA_RX_EVENT_OBSERVATION_STALE);
+    require_retired = true; tdma_pio_spi_phys_event_stop(&physical); require_retired = false;
+    assert(tdma_pio_spi_phys_rx_event_pin(&physical, &capture) == 0u);
+    setup_candidate(true); retain(1u);
+    assert(tdma_rx_dma_counter_reset(&s_tdma_pio_spi_rx_sequence,
+        physical.flight_physical_byte_count, 200u));
+    /* A later ARM also starts at zero; equality cannot revive the old ARM. */
+    capture.observation_epoch = 0u;
+    assert(tdma_pio_spi_phys_rx_event_pin(&physical, &old) == 0u);
+    query_with(&old, old_pin, 1u, 64u, TDMA_RX_EVENT_ARM_STALE);
+    pin = tdma_pio_spi_phys_rx_event_pin(&physical, &capture);
+    assert(pin != 0u && pin != old_pin);
+    query(1u, TDMA_RX_EVENT_MATCHED);
+}
 static void test_envelope_boundaries(void) {
     setup_candidate(true); retain(12u);
     for (uint32_t shift = 0u; shift < 8u; ++shift) {
@@ -324,11 +360,12 @@ int main(void) {
     test_independent_record_and_wrapping_sequence();
     test_pin_does_not_borrow_latest_or_invent_frame_identity();
     test_lifetime_mismatches_and_unavailable();
+    test_initial_observation_epoch_and_loss();
     test_envelope_boundaries();
     test_history_loss_does_not_become_latest();
     test_real_service_final_fault_and_deferred_publication();
     test_counters_saturate_and_prepare_preserves_history();
-    printf("physical candidate: 7 case groups, %u query oracles; snapshot=%zu; no query MMIO\n",
+    printf("physical candidate: 8 case groups, %u query oracles; snapshot=%zu; no query MMIO\n",
         query_cases, sizeof(tdma_rx_event_candidate_snapshot_t));
     return 0;
 }
@@ -358,7 +395,7 @@ def run(directory: Path, source: str, name: str, *, enabled: bool) -> str:
 
 def test_real_physical_candidate_epoch_history_and_fault_boundaries(tmp_path: Path) -> None:
     output = run(tmp_path, enabled_source(tmp_path), "candidate", enabled=True)
-    assert "physical candidate: 7 case groups" in output
+    assert "physical candidate: 8 case groups" in output
     assert "snapshot=176; no query MMIO" in output
 
 

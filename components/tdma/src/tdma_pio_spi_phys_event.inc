@@ -717,7 +717,10 @@ static tdma_rx_event_reason_t tdma_event_capture_current(
      * extend an older token's query eligibility under the same ARM. */
     if (capture->capture_id != s_tdma_pio_spi_rx_capture_id)
         return TDMA_RX_EVENT_CAPTURE_STALE;
-    if (capture->observation_epoch == 0u || capture->observation_epoch !=
+    /* RX ARM resets the DMA observation epoch to zero. Its lifetime is
+     * scoped by the nonzero ARM and capture identities checked above;
+     * only a mismatch denotes observation loss within that ARM. */
+    if (capture->observation_epoch !=
             s_tdma_pio_spi_rx_sequence.observation_epoch)
         return TDMA_RX_EVENT_OBSERVATION_STALE;
     return TDMA_RX_EVENT_NONE;
