@@ -1,5 +1,5 @@
-/* Included only by the physical owner. No allocation, peripheral write or
- * per-frame service. The exact key is private; the bounded snapshot is read
+/* Included only by the physical owner. No allocation or peripheral write.
+ * The exact key is private; the bounded snapshot is read
  * with a seqlock. No consumer can turn a historical descriptor into a lease. */
 typedef struct {
     uint32_t config[18];
@@ -33,7 +33,7 @@ static void tdma_geometry_publish(void)
     }
     __atomic_store_n(&s_geometry_guard, guard + 1u, __ATOMIC_RELEASE);
     __dmb();
-    s_geometry.version = 1u;
+    s_geometry.version = 2u;
     s_geometry_published = s_geometry;
     __atomic_store_n(&s_geometry_guard, guard + 2u, __ATOMIC_RELEASE);
 }
@@ -202,6 +202,9 @@ static bool tdma_geometry_arm_begin(tdma_pio_spi_phys_t *phys,
     s_geometry.bound_config_seq = 0u;
     s_geometry.bound_arm_epoch = 0u;
     s_geometry.bound_observation_epoch = 0u;
+    s_geometry.observer_epoch = s_geometry.observer_prefix_bits = 0u;
+    s_geometry.observer_state = TDMA_GEOMETRY_OBSERVER_NONE;
+    s_geometry.observer_reason = TDMA_GEOMETRY_OBSERVER_OK;
     tdma_geometry_publish();
     return true;
 }
@@ -266,6 +269,71 @@ static void tdma_geometry_trained(const tdma_pio_spi_phys_t *phys)
     s_geometry_training_valid = true;
 }
 
+/* Core1-local lifecycle check. Config is immutable within this physical ARM;
+ * map, calibrated endpoints/phases and installed resources are checked again
+ * independently of any subsequently trained live alignment. */
+static inline bool tdma_geometry_observer_current(const tdma_pio_spi_phys_t *p,
+    const tdma_frozen_geometry_snapshot_t *g)
+{
+    const tdma_geometry_key_t *k = &s_geometry_active_key;
+    return p != NULL && s_geometry_guard < UINT32_MAX - 2u &&
+        s_geometry_active && s_geometry.state == TDMA_GEOMETRY_SELECTED &&
+        g->generation != 0u && s_geometry.generation == g->generation &&
+        s_geometry.requested_generation == g->generation &&
+        s_geometry_active_config == g->bound_config_seq &&
+        s_geometry_active_map == g->bound_map_generation &&
+        p->geometry_map_generation == g->bound_map_generation &&
+        p->geometry_map_crc32 == k->config[17] &&
+        s_tdma_pio_spi_rx_arm_valid && s_tdma_pio_spi_rx_arm_epoch == g->bound_arm_epoch &&
+        s_tdma_pio_spi_rx_sequence.observation_epoch == g->bound_observation_epoch &&
+        s_tdma_pio_spi_program_persona == g->persona &&
+        p->role == TDMA_PIO_SPI_ROLE_SLAVE && p->flight_resource_claimed &&
+        p->flight_physical_byte_count == g->physical_bytes &&
+        p->flight_payload_size == k->payload_bytes && p->flight_tail_bytes == k->tail_bytes &&
+        p->baud_hz == k->config[10] && p->node_count == g->node_count &&
+        p->flight_local_slot_id == g->local_slot &&
+        p->geometry_topology_generation == k->topology_generation &&
+        p->geometry_topology_crc32 == k->topology_crc32 &&
+        p->geometry_calibration_generation == k->calibration_generation &&
+        p->geometry_stage_enabled == k->stage_enabled &&
+        p->geometry_marker_source == k->marker_source && p->geometry_marker_destination == k->marker_destination &&
+        p->geometry_data_source == k->data_source && p->geometry_data_destination == k->data_destination &&
+        p->flight_marker_offset_sample_count == k->marker_offset &&
+        p->flight_sck_offset_sample_count == k->sck_offset && p->flight_data_offset_sample_count == k->data_offset &&
+        p->flight_marker_phase_delay_cycles == k->marker_phase &&
+        p->flight_sck_phase_delay_cycles == k->sck_phase && p->flight_data_phase_delay_cycles == k->data_phase &&
+        p->flight_origin_capture_phase_delay_cycles == k->origin_phase &&
+        pio_get_index(p->flight_resources.tx_pio) == k->tx_pio &&
+        pio_get_index(p->flight_resources.rx_pio) == k->rx_pio &&
+        p->flight_resources.tx_data_capture_sm == k->capture_sm &&
+        p->flight_resources.rx_data_flight_sm == k->forward_sm &&
+        p->flight_resources.data_in_capture_dma == k->capture_dma &&
+        p->flight_resources.data_out_dma == k->output_dma &&
+        p->tx_sck_pin == k->tx_pins[0] && p->tx_csn_pin == k->tx_pins[1] && p->tx_pin == k->tx_pins[2] &&
+        p->rx_sck_pin == k->rx_pins[0] && p->rx_csn_pin == k->rx_pins[1] && p->rx_pin == k->rx_pins[2];
+}
+
+static inline void tdma_geometry_observer_record(uint32_t generation, uint32_t epoch,
+    uint32_t state, uint32_t reason, uint32_t prefix_bits)
+{
+    if (generation == 0u || generation != s_geometry.generation ||
+        generation != s_geometry.requested_generation ||
+        s_geometry.observer_state == TDMA_GEOMETRY_OBSERVER_RETIRED ||
+        s_geometry.observer_state == TDMA_GEOMETRY_OBSERVER_REJECTED) return;
+    s_geometry.observer_epoch = epoch;
+    s_geometry.observer_state = state;
+    s_geometry.observer_reason = reason;
+    s_geometry.observer_prefix_bits = prefix_bits;
+    tdma_geometry_publish();
+}
+
+static inline bool tdma_geometry_observer_select(const tdma_pio_spi_phys_t *phys,
+    tdma_frozen_geometry_snapshot_t *out)
+{
+    *out = s_geometry;
+    return tdma_geometry_observer_current(phys, out);
+}
+
 static void tdma_geometry_stop_begin(const tdma_pio_spi_phys_t *phys)
 {
     /* First call owns the capture. Subsequent partial cleanup must retain it. */
@@ -290,6 +358,9 @@ static void tdma_geometry_stop_begin(const tdma_pio_spi_phys_t *phys)
     }
     s_geometry_frozen_key = s_geometry_active_key;
     s_geometry.generation = ++s_geometry_next_generation;
+    s_geometry.observer_epoch = s_geometry.observer_prefix_bits = 0u;
+    s_geometry.observer_state = TDMA_GEOMETRY_OBSERVER_NONE;
+    s_geometry.observer_reason = TDMA_GEOMETRY_OBSERVER_OK;
     s_geometry.source_config_seq = s_geometry_active_config;
     s_geometry.source_arm_epoch = s_geometry_active_arm;
     s_geometry.source_observation_epoch = s_geometry_training_observation;

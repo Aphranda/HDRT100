@@ -56,6 +56,7 @@ PREFIX = r'''
 #include "tdma_event_history.h"
 #include "tdma_rx_capture.h"
 #include "tdma_rx_event_candidate.h"
+#include "tdma_frozen_geometry.h"
 #define TDMA_SERVICE_TIMING_ENABLED 1
 #include "tdma_service_timing.h"
 typedef unsigned uint;
@@ -118,6 +119,16 @@ static tdma_event_record_t s_tdma_event_records[TDMA_EVENT_MAX_RECORDS];
 static uint32_t s_tdma_event_hz=125000000u, s_tdma_event_sequence_offset=20u;
 static uint64_t s_tdma_event_base_us, s_tdma_event_last_service_us, now_us;
 static bool s_tdma_event_waiting, s_tdma_runtime_owner_initialized;
+/* This regression exercises the unchanged ordinary path. Selected geometry
+ * and its real counter are executed by test_tdma_observer_prelaunch. */
+static bool s_tdma_event_prelaunch;
+static uint32_t tdma_event_prelaunch_observe(tdma_pio_spi_phys_t *p) {
+    (void)p; assert(false); return TDMA_GEOMETRY_OBSERVER_OK;
+}
+static void tdma_event_prelaunch_mark(uint32_t state, uint32_t reason) {
+    (void)state; (void)reason; assert(!s_tdma_event_prelaunch);
+}
+static void tdma_pio_spi_phys_event_stop(tdma_pio_spi_phys_t *p) { (void)p; assert(false); }
 static unsigned s_tdma_pio_spi_program_persona;
 static int s_tdma_pio_spi_tx_dma_channel=-1, service_instance;
 static int *s_vdc_tdma_service=&service_instance;

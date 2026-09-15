@@ -51,6 +51,8 @@ def production(directory: Path) -> str:
         contract_definitions.append(definition.group(0))
     routines = []
     signatures = [
+        ("void", "tdma_event_prelaunch_mark", "uint32_t state, uint32_t reason"),
+        ("uint32_t", "tdma_event_prelaunch_geometry", "const tdma_pio_spi_phys_t *phys"),
         ("void", "tdma_event_publish_snapshot", "tdma_pio_spi_phys_t *phys"),
         ("void", "tdma_event_candidate_retire", "void"),
         ("bool", "tdma_pio_spi_phys_event_selected", "const tdma_pio_spi_phys_t *phys"),
@@ -72,7 +74,8 @@ def production(directory: Path) -> str:
                     c_definition_body(phys, name) + "}\n")
     cut_block = source[source.index("/* RX_START_CUT_STORAGE_BEGIN"):source.index("/* RX_START_CUT_STORAGE_END */")]
     return (PREFIX + snapshot + "\n" + offsets + "\n" +
-            "\n".join(contract_definitions) + "\n" + FIXTURE + cut_block + "\n".join(routines) + ASSERTIONS)
+            "\n".join(contract_definitions) + "\n" + FIXTURE +
+            "\n".join(routines[:2]) + cut_block + "\n".join(routines[2:]) + ASSERTIONS)
 
 
 PREFIX = r'''
@@ -87,6 +90,7 @@ PREFIX = r'''
 #include "tdma_rx_event_candidate.h"
 #include "tdma_rx_start_cut.h"
 #include "tdma_rx_sequence.h"
+#include "tdma_frozen_geometry.h"
 #define _u(x) x##u
 typedef unsigned uint;
 '''
@@ -101,7 +105,7 @@ typedef struct { uint unused; } pio_sm_config;
 typedef struct {
     unsigned role;
     struct { PIO tx_pio, rx_pio; } flight_resources;
-    struct { tdma_pio_spi_event_snapshot_t event; } snapshot;
+    struct { tdma_pio_spi_event_snapshot_t event; uint32_t rx_observation_drop_count; } snapshot;
     tdma_pio_spi_event_snapshot_t flight_event_alternate;
     uint32_t flight_event_guard;
     bool armed, rx_capture_active;
@@ -112,7 +116,7 @@ typedef struct {
     uint32_t flight_data_phase_delay_cycles, flight_marker_phase_delay_cycles, baud_hz;
 } tdma_pio_spi_phys_t;
 typedef unsigned tdma_pio_spi_program_persona_t;
-typedef struct { uint32_t cycle_period_ns; } tdma_ring_runtime_config_t;
+typedef struct { uint32_t cycle_period_ns, geometry_generation, owner_config_seq; } tdma_ring_runtime_config_t;
 enum { TDMA_PIO_SPI_ROLE_MASTER = 0u, TDMA_PIO_SPI_ROLE_SLAVE = 1u,
        TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL = 1u,
        TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN = 11u,
@@ -130,6 +134,23 @@ static uint64_t s_tdma_event_base_us, s_tdma_event_last_service_us;
 static uint64_t s_tdma_event_arm_epoch, s_tdma_pio_spi_rx_arm_epoch;
 static bool s_tdma_pio_spi_rx_arm_valid, s_tdma_event_candidate_dirty;
 static bool s_tdma_event_waiting;
+static bool s_tdma_event_prelaunch;
+static uint32_t s_tdma_event_prelaunch_reason;
+static tdma_frozen_geometry_snapshot_t s_tdma_event_geometry, geometry_fixture;
+static bool geometry_binding_valid = true;
+static bool tdma_geometry_observer_current(const tdma_pio_spi_phys_t *phys,
+    const tdma_frozen_geometry_snapshot_t *g) {
+    (void)phys;
+    return geometry_binding_valid && g->generation == geometry_fixture.generation &&
+        g->bound_arm_epoch == s_tdma_pio_spi_rx_arm_epoch;
+}
+static void tdma_geometry_observer_record(uint32_t generation, uint32_t epoch,
+    uint32_t state, uint32_t reason, uint32_t prefix) {
+    if (generation != geometry_fixture.generation ||
+        geometry_fixture.observer_state >= TDMA_GEOMETRY_OBSERVER_RETIRED) return;
+    geometry_fixture.observer_epoch = epoch; geometry_fixture.observer_state = state;
+    geometry_fixture.observer_reason = reason; geometry_fixture.observer_prefix_bits = prefix;
+}
 static uint s_tdma_event_counter_offset = 10u, s_tdma_event_sequence_offset = 20u;
 static tdma_pio_spi_program_persona_t s_tdma_pio_spi_program_persona;
 static int s_tdma_pio_spi_program_manager;

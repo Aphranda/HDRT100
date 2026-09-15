@@ -41,6 +41,7 @@ def enabled_source(directory: Path) -> str:
         ("bool", "tdma_event_capture_envelope", "const tdma_rx_capture_t *capture, size_t packet_size"),
         ("void", "tdma_event_candidate_history_state", "void"),
         ("void", "tdma_pio_spi_phys_rx_event_query", "void *context, const tdma_rx_capture_t *capture, uint32_t capture_observer_epoch, uint32_t sequence, size_t packet_size, uint64_t station_age_ns"),
+        ("uint32_t", "tdma_event_prelaunch_observe", "tdma_pio_spi_phys_t *phys"),
         ("void", "tdma_pio_spi_phys_event_service", "tdma_pio_spi_phys_t *phys"),
     ]:
         routines.append(f"static {result} {name}({arguments}) {{" + c_definition_body(source, name) + "}\n")
@@ -56,6 +57,7 @@ EXTRA_FIXTURE = r'''
 #include "tdma_transport_frame.h"
 #include "tdma_service_timing.h"
 static uint64_t s_tdma_pio_spi_rx_capture_id;
+static uint64_t s_tdma_pio_spi_rx_scan_produced;
 static tdma_event_batch_t s_tdma_event_batch;
 static tdma_event_record_t s_tdma_event_records[TDMA_EVENT_MAX_RECORDS];
 static uint32_t fifo[4][8], fifo_cursor[4];
@@ -412,6 +414,7 @@ def test_disabled_observer_is_explicitly_unavailable(tmp_path: Path) -> None:
 #include <string.h>
 #include "tdma_rx_capture.h"
 #include "tdma_rx_event_candidate.h"
+#include "tdma_frozen_geometry.h"
 typedef unsigned uint;
 ''' + header[start:end] + r'''
 typedef struct {
@@ -419,7 +422,11 @@ typedef struct {
     tdma_pio_spi_event_snapshot_t flight_event_alternate;
     uint32_t flight_event_guard;
 } tdma_pio_spi_phys_t;
-typedef struct { uint32_t cycle_period_ns; } tdma_ring_runtime_config_t;
+typedef struct { uint32_t cycle_period_ns, geometry_generation; } tdma_ring_runtime_config_t;
+static void tdma_geometry_observer_record(uint32_t generation, uint32_t epoch,
+    uint32_t state, uint32_t reason, uint32_t prefix) {
+    (void)generation; (void)epoch; (void)state; (void)reason; (void)prefix;
+}
 static uint64_t time_us_64(void) { return 1u; }
 static uint32_t save_and_disable_interrupts(void) { return 0u; }
 static void restore_interrupts(uint32_t saved) { assert(saved == 0u); }
@@ -437,6 +444,10 @@ int main(void) {
     assert(memcmp(&cut, &empty_cut, sizeof(cut)) == 0);
     assert(!tdma_pio_spi_phys_get_rx_start_cut(NULL));
     const tdma_rx_capture_t capture = {.capture_id = 7u, .arm_epoch = 9u};
+    tdma_ring_runtime_config_t config = {0};
+    assert(tdma_pio_spi_phys_event_prelaunch(&phys, &config));
+    config.geometry_generation = 1u;
+    assert(!tdma_pio_spi_phys_event_prelaunch(&phys, &config));
     assert(!tdma_pio_spi_phys_event_selected(&phys));
     assert(tdma_pio_spi_phys_rx_event_pin(&phys, &capture) == 0u);
     tdma_pio_spi_phys_rx_event_query(&phys, &capture, 0u, 0u, 64u, 8u);

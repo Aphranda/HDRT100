@@ -48,6 +48,7 @@ PREFIX = r'''
 #include "tdma_rx_start_cut.h"
 #include "tdma_rx_sequence.h"
 #include "tdma_event_observer.h"
+#include "tdma_frozen_geometry.h"
 #define _u(value) value##u
 typedef unsigned uint;
 '''
@@ -73,6 +74,11 @@ static bool s_tdma_pio_spi_rx_arm_valid=true;
 static uint32_t s_tdma_event_epoch=8, s_tdma_event_hz=125000000;
 static unsigned s_tdma_pio_spi_program_persona=13;
 static tdma_event_observer_t s_tdma_event_observer;
+static bool s_tdma_event_prelaunch;
+static tdma_frozen_geometry_snapshot_t s_tdma_event_geometry;
+static uint32_t tdma_event_prelaunch_geometry(const tdma_pio_spi_phys_t *p) {
+    (void)p; return TDMA_GEOMETRY_OBSERVER_OK;
+}
 static uint64_t ticks=200, us=100, us_delay;
 static uint32_t hz=125000000, irq_mask;
 static unsigned irq_saves, irq_restores, bank_reads, reads, acquire_hooks;

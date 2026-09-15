@@ -16,6 +16,19 @@ enum {
     TDMA_GEOMETRY_ARM_FAILED, TDMA_GEOMETRY_PERSONA,
     TDMA_GEOMETRY_CLOCK, TDMA_GEOMETRY_EXHAUSTED, TDMA_GEOMETRY_STOPPED
 };
+enum {
+    TDMA_GEOMETRY_OBSERVER_NONE, TDMA_GEOMETRY_OBSERVER_ARMING,
+    TDMA_GEOMETRY_OBSERVER_ACTIVE, TDMA_GEOMETRY_OBSERVER_RETIRED,
+    TDMA_GEOMETRY_OBSERVER_REJECTED
+};
+enum {
+    TDMA_GEOMETRY_OBSERVER_OK, TDMA_GEOMETRY_OBSERVER_BINDING,
+    TDMA_GEOMETRY_OBSERVER_CS, TDMA_GEOMETRY_OBSERVER_DIRTY_START,
+    TDMA_GEOMETRY_OBSERVER_FIFO, TDMA_GEOMETRY_OBSERVER_DMA_PROGRESS,
+    TDMA_GEOMETRY_OBSERVER_OBSERVATION, TDMA_GEOMETRY_OBSERVER_GEOMETRY,
+    TDMA_GEOMETRY_OBSERVER_CLOCK, TDMA_GEOMETRY_OBSERVER_FAULT,
+    TDMA_GEOMETRY_OBSERVER_STOP, TDMA_GEOMETRY_OBSERVER_DISABLED
+};
 typedef struct {
     uint32_t version, state, reason, generation, requested_generation;
     uint32_t source_config_seq, bound_config_seq;
@@ -26,6 +39,9 @@ typedef struct {
     uint32_t topology_generation, topology_crc32, calibration_generation;
     uint32_t schedule_crc32, operating_profile_crc32;
     uint32_t source_map_generation, bound_map_generation;
+    /* Diagnostic hypothesis only, bound to the generation and bound tuple
+     * above. No physical-first, identity or timestamp validity is granted. */
+    uint32_t observer_epoch, observer_state, observer_reason, observer_prefix_bits;
 } tdma_frozen_geometry_snapshot_t;
 
 bool tdma_pio_spi_phys_get_frozen_geometry(tdma_frozen_geometry_snapshot_t *out);

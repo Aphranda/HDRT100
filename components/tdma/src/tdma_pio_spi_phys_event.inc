@@ -134,6 +134,38 @@ static uint64_t s_tdma_event_base_us;
 static uint64_t s_tdma_event_last_service_us;
 static uint64_t s_tdma_event_arm_epoch;
 static bool s_tdma_event_waiting;
+/* Separate hypothesis: never install frozen DMA offsets as live alignment. */
+static tdma_frozen_geometry_snapshot_t s_tdma_event_geometry;
+static bool s_tdma_event_prelaunch;
+static uint32_t s_tdma_event_prelaunch_reason;
+_Static_assert(sizeof(s_tdma_event_geometry) + sizeof(s_tdma_event_prelaunch) +
+    sizeof(s_tdma_event_prelaunch_reason) <= 192u, "prelaunch storage is bounded");
+
+static void tdma_event_prelaunch_mark(uint32_t state, uint32_t reason)
+{
+    if (!s_tdma_event_prelaunch) return;
+    tdma_geometry_observer_record(s_tdma_event_geometry.generation,
+        s_tdma_event_observer.epoch, state, reason, s_tdma_event_snapshot.prefix_bits);
+}
+
+static uint32_t tdma_event_prelaunch_geometry(const tdma_pio_spi_phys_t *phys)
+{
+    if (clock_get_hz(clk_sys) != s_tdma_event_geometry.clk_sys_hz)
+        return TDMA_GEOMETRY_OBSERVER_CLOCK;
+    if (s_tdma_pio_spi_rx_sequence.observation_epoch !=
+        s_tdma_event_geometry.bound_observation_epoch)
+        return TDMA_GEOMETRY_OBSERVER_OBSERVATION;
+    if (!tdma_geometry_observer_current(phys, &s_tdma_event_geometry))
+        return TDMA_GEOMETRY_OBSERVER_BINDING;
+    /* Training is still allowed to govern the live overlay. It may disprove
+     * this observer hypothesis, but cannot silently move its sequence tap. */
+    if ((phys->flight_overlay_alignment_locked || phys->flight_overlay_alignment_samples >=
+            TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES) &&
+        (phys->flight_alignment_byte_shift != s_tdma_event_geometry.dma_byte_shift ||
+         phys->flight_alignment_bit_shift != s_tdma_event_geometry.dma_bit_shift))
+        return TDMA_GEOMETRY_OBSERVER_GEOMETRY;
+    return TDMA_GEOMETRY_OBSERVER_OK;
+}
 
 /* RX_START_CUT_STORAGE_BEGIN: independent of the general event snapshot. */
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
@@ -237,8 +269,10 @@ static void tdma_rx_start_cut_before(tdma_pio_spi_phys_t *phys)
     cut->observer_epoch = s_tdma_event_epoch + 1u;
     cut->pio_hz = s_tdma_event_hz;
     cut->physical_frame_words = phys->flight_physical_byte_count;
-    cut->alignment_byte_shift = phys->flight_alignment_byte_shift;
-    cut->alignment_bit_shift = phys->flight_alignment_bit_shift;
+    cut->alignment_byte_shift = s_tdma_event_prelaunch
+        ? s_tdma_event_geometry.dma_byte_shift : phys->flight_alignment_byte_shift;
+    cut->alignment_bit_shift = s_tdma_event_prelaunch
+        ? s_tdma_event_geometry.dma_bit_shift : phys->flight_alignment_bit_shift;
     cut->dma_channel = tdma_rx_start_cut_dma_available()
         ? (uint32_t)s_tdma_pio_spi_rx_dma_channel : UINT32_MAX;
     s_tdma_rx_start_cut_data_phase = phys->flight_data_phase_delay_cycles;
@@ -346,12 +380,14 @@ static void TDMA_START_CUT_RAM tdma_rx_start_cut_monitor(tdma_pio_spi_phys_t *ph
         reasons |= TDMA_RX_START_CUT_ARM;
     if (s_tdma_pio_spi_rx_sequence.observation_epoch != cut->observation_epoch_after)
         reasons |= TDMA_RX_START_CUT_OBSERVATION_EPOCH;
-    if (!phys->flight_overlay_alignment_locked ||
+    if (s_tdma_event_prelaunch ?
+        tdma_event_prelaunch_geometry(phys) != TDMA_GEOMETRY_OBSERVER_OK :
+        (!phys->flight_overlay_alignment_locked ||
         phys->flight_physical_byte_count != cut->physical_frame_words ||
         phys->flight_alignment_byte_shift != cut->alignment_byte_shift ||
         phys->flight_alignment_bit_shift != cut->alignment_bit_shift ||
         phys->flight_data_phase_delay_cycles != s_tdma_rx_start_cut_data_phase ||
-        phys->flight_marker_phase_delay_cycles != s_tdma_rx_start_cut_marker_phase)
+        phys->flight_marker_phase_delay_cycles != s_tdma_rx_start_cut_marker_phase))
         reasons |= TDMA_RX_START_CUT_GEOMETRY;
     if (clock_get_hz(clk_sys) != cut->pio_hz) reasons |= TDMA_RX_START_CUT_CLOCK;
     const PIO capture_pio = tdma_pio_spi_phys_capture_pio(phys);
@@ -447,6 +483,16 @@ static void tdma_pio_spi_phys_event_stop(tdma_pio_spi_phys_t *phys)
     if (phys == NULL || s_tdma_pio_spi_program_persona !=
         TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER) return;
     tdma_rx_start_cut_monitor(phys);
+    uint32_t stop_reason = TDMA_GEOMETRY_OBSERVER_STOP;
+    if (s_tdma_event_prelaunch) {
+        const uint32_t reason = tdma_event_prelaunch_geometry(phys);
+        if (reason != TDMA_GEOMETRY_OBSERVER_OK) stop_reason = reason;
+        else if ((s_tdma_rx_start_cut.retire_reasons & TDMA_RX_START_CUT_OBSERVATION_EPOCH) != 0u)
+            stop_reason = TDMA_GEOMETRY_OBSERVER_OBSERVATION;
+        else if ((s_tdma_rx_start_cut.retire_reasons & ~TDMA_RX_START_CUT_STOP) != 0u)
+            stop_reason = TDMA_GEOMETRY_OBSERVER_FAULT;
+    }
+    tdma_event_prelaunch_mark(TDMA_GEOMETRY_OBSERVER_RETIRED, stop_reason);
     tdma_rx_start_cut_retire(TDMA_RX_START_CUT_STOP);
     tdma_event_observer_stop(&s_tdma_event_observer);
     tdma_event_history_retire(&s_tdma_event_history);
@@ -469,6 +515,9 @@ static void tdma_pio_spi_phys_event_prepare(tdma_pio_spi_phys_t *phys,
 {
     if (phys == NULL) return;
     tdma_rx_start_cut_arm_begin();
+    s_tdma_event_prelaunch = false;
+    s_tdma_event_prelaunch_reason = TDMA_GEOMETRY_OBSERVER_OK;
+    memset(&s_tdma_event_geometry, 0, sizeof(s_tdma_event_geometry));
     if (!tdma_pio_spi_phys_event_selected(phys)) return;
     tdma_event_history_retire(&s_tdma_event_history);
     s_tdma_event_arm_epoch = 0u;
@@ -487,23 +536,33 @@ static void tdma_pio_spi_phys_event_prepare(tdma_pio_spi_phys_t *phys,
 
 static void tdma_event_start(tdma_pio_spi_phys_t *phys)
 {
-    if (!s_tdma_event_waiting || !phys->flight_overlay_alignment_locked ||
-        phys->flight_overlay_alignment_samples <
-            TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES) return;
+    if (!s_tdma_event_waiting || (!s_tdma_event_prelaunch &&
+        (!phys->flight_overlay_alignment_locked || phys->flight_overlay_alignment_samples <
+            TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES))) return;
     const PIO pio = phys->flight_resources.tx_pio;
     const uint32_t cs_mask = (1u << phys->rx_csn_pin) | (1u << phys->tx_csn_pin);
     if ((pio->dbg_padout & (1u << phys->tx_csn_pin)) == 0u ||
-        (gpio_get_all() & cs_mask) != cs_mask) return;
-    /* The process RX sampler already established the physical frame offset.
-     * Add the transport's sequence field offset and width, not a guessed
-     * per-node header size. This remains diagnostic until wire qualification. */
-    const uint64_t bits = ((uint64_t)phys->flight_alignment_byte_shift +
+        (gpio_get_all() & cs_mask) != cs_mask) {
+        s_tdma_event_prelaunch_reason = TDMA_GEOMETRY_OBSERVER_CS;
+        return;
+    }
+    /* Ordinary startup uses live RX training. Selected startup instead tests
+     * the separately frozen DMA-offset hypothesis against the next CS frame.
+     * Neither coordinate is promoted to a qualified physical identity. */
+    const uint32_t byte_shift = s_tdma_event_prelaunch
+        ? s_tdma_event_geometry.dma_byte_shift : phys->flight_alignment_byte_shift;
+    const uint32_t bit_shift = s_tdma_event_prelaunch
+        ? s_tdma_event_geometry.dma_bit_shift : phys->flight_alignment_bit_shift;
+    const uint64_t bits = ((uint64_t)byte_shift +
         TDMA_PIO_SPI_PACKET_HEADER_SIZE + TDMA_TRANSPORT_FRAME_SEQUENCE_OFFSET +
         sizeof(uint32_t)) * 8u +
-        phys->flight_alignment_bit_shift;
+        bit_shift;
     if (bits < 32u || bits > (uint64_t)phys->flight_physical_byte_count * 8u ||
-        phys->flight_alignment_bit_shift >= 8u || s_tdma_event_hz == 0u ||
-        s_tdma_event_epoch == UINT32_MAX) return;
+        bit_shift >= 8u || s_tdma_event_hz == 0u ||
+        s_tdma_event_epoch == UINT32_MAX) {
+        s_tdma_event_prelaunch_reason = TDMA_GEOMETRY_OBSERVER_GEOMETRY;
+        return;
+    }
     pio_set_sm_mask_enabled(pio, TDMA_EVENT_SM_MASK, false);
     for (uint sm = TDMA_EVENT_RX_SM; sm <= TDMA_EVENT_TX_SM; ++sm) {
         pio_sm_config c = tdma_event_counter_program_get_default_config(s_tdma_event_counter_offset);
@@ -551,6 +610,7 @@ static void tdma_event_start(tdma_pio_spi_phys_t *phys)
      * waiting for a later owner phase without consuming an event epoch.
      * Edges after this check still face the post-enable dirty-start check. */
     if ((s->start_pad_before & cs_mask) != cs_mask) {
+        s_tdma_event_prelaunch_reason = TDMA_GEOMETRY_OBSERVER_CS;
         tdma_event_publish_state(phys);
         return;
     }
@@ -594,12 +654,105 @@ static void tdma_event_start(tdma_pio_spi_phys_t *phys)
     tdma_event_publish_state(phys);
 }
 
+/* Exactly one synchronous attempt after RX ARM, final injected WAIT and SM
+ * enable. Failure is an ARM rejection; service must never retry it later. */
+static bool tdma_pio_spi_phys_event_prelaunch(tdma_pio_spi_phys_t *phys,
+    const tdma_ring_runtime_config_t *config)
+{
+    if (config->geometry_generation == 0u) return true;
+    s_tdma_event_prelaunch = true;
+    uint32_t reason = TDMA_GEOMETRY_OBSERVER_BINDING;
+    if (!tdma_geometry_observer_select(phys, &s_tdma_event_geometry) ||
+        s_tdma_event_geometry.generation != config->geometry_generation ||
+        s_tdma_event_geometry.bound_config_seq != config->owner_config_seq ||
+        !phys->armed || !phys->rx_capture_active || !s_tdma_event_waiting ||
+        !tdma_pio_spi_phys_event_selected(phys)) goto rejected;
+    tdma_event_prelaunch_mark(TDMA_GEOMETRY_OBSERVER_ARMING, TDMA_GEOMETRY_OBSERVER_OK);
+    reason = tdma_event_prelaunch_geometry(phys);
+    if (reason != TDMA_GEOMETRY_OBSERVER_OK) goto rejected;
+    reason = TDMA_GEOMETRY_OBSERVER_FIFO;
+    const PIO pio = phys->flight_resources.tx_pio;
+    for (uint sm = TDMA_EVENT_RX_SM; sm <= TDMA_EVENT_SEQUENCE_SM; ++sm)
+        if (pio_sm_get_rx_fifo_level(pio, sm) != 0u) goto rejected;
+    const PIO capture = tdma_pio_spi_phys_capture_pio(phys);
+    const uint capture_sm = tdma_pio_spi_phys_capture_sm(phys);
+    if (pio_sm_get_rx_fifo_level(capture, capture_sm) != 0u ||
+        (capture->fdebug & (1u << (capture_sm + PIO_FDEBUG_RXSTALL_LSB))) != 0u ||
+        (pio->fdebug & (TDMA_EVENT_SM_MASK << PIO_FDEBUG_RXSTALL_LSB)) != 0u) goto rejected;
+    reason = TDMA_GEOMETRY_OBSERVER_DMA_PROGRESS;
+    if (!tdma_rx_start_cut_dma_available() || s_tdma_pio_spi_rx_sequence.produced_words != 0u ||
+        s_tdma_pio_spi_rx_sequence.position != 0u ||
+        dma_hw->ch[s_tdma_pio_spi_rx_dma_channel].transfer_count !=
+            ((DMA_CH0_TRANS_COUNT_MODE_VALUE_TRIGGER_SELF << DMA_CH0_TRANS_COUNT_MODE_LSB) |
+             s_tdma_pio_spi_rx_sequence.reload_words)) goto rejected;
+    tdma_event_start(phys);
+    reason = s_tdma_event_prelaunch_reason;
+    if (s_tdma_event_waiting) goto rejected;
+    reason = TDMA_GEOMETRY_OBSERVER_DIRTY_START;
+    if ((s_tdma_event_observer.fault_bits & TDMA_EVENT_FAULT_DIRTY_START) != 0u) goto rejected;
+    reason = tdma_event_prelaunch_geometry(phys);
+    if (reason != TDMA_GEOMETRY_OBSERVER_OK) goto rejected;
+    reason = TDMA_GEOMETRY_OBSERVER_FAULT;
+    if (s_tdma_event_observer.state != TDMA_EVENT_ACTIVE) goto rejected;
+    reason = TDMA_GEOMETRY_OBSERVER_DMA_PROGRESS;
+    if ((s_tdma_rx_start_cut.retire_reasons & TDMA_RX_START_CUT_OBSERVATION_EPOCH) != 0u) {
+        reason = TDMA_GEOMETRY_OBSERVER_OBSERVATION;
+        goto rejected;
+    }
+    if (s_tdma_rx_start_cut.produced_before != 0u || s_tdma_rx_start_cut.produced_after != 0u ||
+        s_tdma_rx_start_cut.capture_fifo_before != 0u || s_tdma_rx_start_cut.capture_fifo_after != 0u ||
+        (s_tdma_rx_start_cut.flags & TDMA_RX_START_CUT_RETIRED) != 0u) goto rejected;
+    tdma_event_prelaunch_mark(TDMA_GEOMETRY_OBSERVER_ACTIVE, TDMA_GEOMETRY_OBSERVER_OK);
+    return true;
+rejected:
+    tdma_event_prelaunch_mark(TDMA_GEOMETRY_OBSERVER_REJECTED, reason);
+    tdma_pio_spi_phys_event_stop(phys);
+    return false;
+}
+
+/* One real count observation per owner phase keeps a pre-START ARM honest.
+ * It never resets coordinates or infers zero progress from idle GPIOs. */
+static uint32_t tdma_event_prelaunch_observe(tdma_pio_spi_phys_t *phys)
+{
+    if (!tdma_rx_start_cut_dma_available()) return TDMA_GEOMETRY_OBSERVER_OBSERVATION;
+    const uint64_t before = vdc_timestamp_clock_read_ticks64();
+    const uint32_t count = dma_hw->ch[s_tdma_pio_spi_rx_dma_channel].transfer_count;
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    const uint64_t after = vdc_timestamp_clock_read_ticks64();
+    uint64_t produced;
+    bool lost;
+    if ((count & DMA_CH0_TRANS_COUNT_MODE_BITS) !=
+        (DMA_CH0_TRANS_COUNT_MODE_VALUE_TRIGGER_SELF << DMA_CH0_TRANS_COUNT_MODE_LSB) ||
+        !tdma_rx_dma_counter_observe(&s_tdma_pio_spi_rx_sequence,
+            count & DMA_CH0_TRANS_COUNT_COUNT_BITS, before, after, &produced, &lost))
+        return TDMA_GEOMETRY_OBSERVER_OBSERVATION;
+    if (lost) {
+        phys->snapshot.rx_observation_drop_count++;
+        tdma_service_timing_rx_drop(TDMA_RX_DROP_EPOCH, 0u);
+        s_tdma_pio_spi_rx_scan_produced = produced;
+        if (!phys->flight_overlay_alignment_locked) phys->flight_overlay_alignment_samples = 0u;
+        return TDMA_GEOMETRY_OBSERVER_OBSERVATION;
+    }
+    const uint32_t reason = tdma_event_prelaunch_geometry(phys);
+    if (reason != TDMA_GEOMETRY_OBSERVER_OK) return reason;
+    tdma_rx_start_cut_monitor(phys);
+    return (s_tdma_rx_start_cut.flags & TDMA_RX_START_CUT_RETIRED) != 0u
+        ? TDMA_GEOMETRY_OBSERVER_FAULT : TDMA_GEOMETRY_OBSERVER_OK;
+}
+
 static void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys)
 {
     if (!tdma_pio_spi_phys_event_selected(phys) || !phys->armed) return;
     uint64_t stage_start = tdma_service_timing_now();
     const uint64_t entered = time_us_64();
     tdma_pio_spi_event_snapshot_t *s = &s_tdma_event_snapshot;
+    if (s_tdma_event_prelaunch && s_tdma_event_observer.state == TDMA_EVENT_ACTIVE) {
+        const uint32_t reason = tdma_event_prelaunch_observe(phys);
+        if (reason != TDMA_GEOMETRY_OBSERVER_OK) {
+            tdma_event_prelaunch_mark(TDMA_GEOMETRY_OBSERVER_RETIRED, reason);
+            tdma_pio_spi_phys_event_stop(phys);
+        }
+    }
     if (s_tdma_event_waiting) tdma_event_start(phys);
     if (s_tdma_event_observer.state != TDMA_EVENT_ACTIVE) {
         tdma_service_timing_record(TDMA_TIMING_EVENT_ENTRY, stage_start);
@@ -686,6 +839,7 @@ static void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys)
         s->tx_elapsed_cycles = last->tx_elapsed_cycles;
     }
     if (s_tdma_event_observer.state == TDMA_EVENT_INVALID) {
+        tdma_event_prelaunch_mark(TDMA_GEOMETRY_OBSERVER_RETIRED, TDMA_GEOMETRY_OBSERVER_FAULT);
         tdma_event_history_retire(&s_tdma_event_history);
         s_tdma_event_arm_epoch = 0u;
         tdma_event_candidate_retire();
@@ -828,6 +982,15 @@ void tdma_pio_spi_phys_rx_event_query(void *context,
         s_tdma_event_observer.state != TDMA_EVENT_ACTIVE) tdma_event_publish_state(phys);
 }
 #else
+static bool tdma_pio_spi_phys_event_prelaunch(tdma_pio_spi_phys_t *phys,
+    const tdma_ring_runtime_config_t *config)
+{
+    (void)phys;
+    if (config->geometry_generation == 0u) return true;
+    tdma_geometry_observer_record(config->geometry_generation, 0u,
+        TDMA_GEOMETRY_OBSERVER_REJECTED, TDMA_GEOMETRY_OBSERVER_DISABLED, 0u);
+    return false;
+}
 static void tdma_rx_start_cut_arm_begin(void) { }
 static void tdma_rx_start_cut_disarmed(void) { }
 bool tdma_pio_spi_phys_get_rx_start_cut(tdma_rx_start_cut_t *out)

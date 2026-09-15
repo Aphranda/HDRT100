@@ -404,8 +404,8 @@ static void tdma_pio_spi_phys_origin_record_invalidate(tdma_pio_spi_phys_t *phys
     __atomic_store_n(&phys->flight_origin_record_guard, guard + 2u, __ATOMIC_RELEASE);
 }
 
-#include "tdma_pio_spi_phys_event.inc"
 #include "tdma_pio_spi_phys_geometry.inc"
+#include "tdma_pio_spi_phys_event.inc"
 
 bool tdma_pio_spi_phys_select_program_persona(
     tdma_pio_spi_phys_t *phys,
@@ -2509,6 +2509,12 @@ bool tdma_pio_spi_phys_arm(void *context,
         ? TDMA_PIO_SPI_PHYS_ERROR_PHASE_ADMISSION
         : TDMA_PIO_SPI_PHYS_ERROR_NONE;
     tdma_pio_spi_phys_clk_train_reset(phys);
+    /* Selected geometry must finish its one-shot observer launch inside this
+     * ARM. A later service may never turn a rejected first prefix into READY. */
+    if (!tdma_pio_spi_phys_event_prelaunch(phys, config)) {
+        (void)tdma_pio_spi_phys_disarm(phys);
+        return tdma_pio_spi_phys_arm_reject(phys, TDMA_PIO_SPI_PHYS_ERROR_GEOMETRY);
+    }
     tdma_pio_spi_phys_fill_static_snapshot(phys);
     return true;
 }
@@ -2519,9 +2525,11 @@ bool tdma_pio_spi_phys_disarm(void *context)
     if (phys == NULL) {
         return false;
     }
+    /* Record the observer's normal STOP while its selected binding is still
+     * current. Geometry capture below does not need the observer SMs alive. */
+    tdma_pio_spi_phys_event_stop(phys);
     tdma_geometry_stop_begin(phys);
     s_tdma_pio_spi_rx_arm_valid = false;
-    tdma_pio_spi_phys_event_stop(phys);
     const bool worker_retired = tdma_overlay_prepare_cancel(phys->overlay_preparation);
     const bool scanner_retired = tdma_pio_spi_phys_rx_scan_cancel(phys);
     /* Process-image followers keep the overlay TX DMA blocked on the PIO TX

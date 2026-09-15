@@ -73,7 +73,7 @@ def geometry_exe(tmp_path_factory):
 
 
 CASES = [
-    "cancel_ack", "select", "idle_before_training", "missing", "wrong_generation", "same_config", "zero_config",
+    "cancel_ack", "select", "observer_binding", "idle_before_training", "missing", "wrong_generation", "same_config", "zero_config",
     "adapter_early", "physical_early", "physical_late", "persona", "clock_training",
     "clock_binding", "clock_stopped", "arm_epoch", "observation_epoch", "untrained",
     "bit_shift", "byte_shift", "generation_exhaustion", "publication_exhaustion",

@@ -106,7 +106,7 @@ static tdma_frozen_geometry_snapshot_t snapshot(void)
 {
     tdma_frozen_geometry_snapshot_t result;
     assert(tdma_pio_spi_phys_get_frozen_geometry(&result));
-    assert(result.version == 1u && !irq_depth && irq_saves == irq_restores);
+    assert(result.version == 2u && !irq_depth && irq_saves == irq_restores);
     return result;
 }
 
@@ -180,6 +180,7 @@ static void setup(void)
         .operating_profile_crc32 = 17u, .baud_hz = 10000000u,
         .cycle_period_ns = 1500000u, .feedback_timeout_ns = 6000000u,
         .tx_dma_channel_id = 3u, .rx_dma_channel_id = 4u, .owner_config_seq = 10u};
+    physical.baud_hz = config.baud_hz;
     assert(tdma_pio_spi_ring_adapter_init(&adapter));
     adapter.rx_preparation = &station;
     tdma_pio_spi_ring_adapter_set_phys_ctrl(&adapter, arm_backend,
@@ -275,6 +276,50 @@ static void case_select(void)
     ++config.owner_config_seq;
     assert(!start()); /* consumed generation cannot be used again */
     assert(snapshot().state == TDMA_GEOMETRY_REJECTED);
+}
+
+static void case_observer_binding(void)
+{
+    const uint32_t generation = freeze();
+    assert(start());
+    tdma_frozen_geometry_snapshot_t g;
+    assert(tdma_geometry_observer_select(&physical, &g));
+    assert(g.observer_state == TDMA_GEOMETRY_OBSERVER_NONE);
+    const tdma_pio_spi_phys_t saved = physical;
+    for (unsigned which = 0u; which < 16u; ++which) {
+        tdma_frozen_geometry_snapshot_t wrong = g;
+        if (which == 0u) ++wrong.generation;
+        if (which == 1u) ++wrong.bound_config_seq;
+        if (which == 2u) ++wrong.bound_map_generation;
+        if (which == 3u) ++wrong.bound_arm_epoch;
+        if (which == 4u) ++wrong.bound_observation_epoch;
+        if (which == 5u) ++physical.geometry_map_generation;
+        if (which == 6u) ++physical.geometry_map_crc32;
+        if (which == 7u) ++physical.geometry_marker_source;
+        if (which == 8u) ++physical.geometry_data_destination;
+        if (which == 9u) ++physical.flight_data_phase_delay_cycles;
+        if (which == 10u) ++physical.flight_marker_offset_sample_count;
+        if (which == 11u) ++physical.flight_resources.data_in_capture_dma;
+        if (which == 12u) physical.flight_resource_claimed = false;
+        if (which == 13u) ++physical.tx_csn_pin;
+        if (which == 14u) ++physical.flight_physical_byte_count;
+        if (which == 15u) ++physical.baud_hz;
+        assert(!tdma_geometry_observer_current(&physical, &wrong));
+        physical = saved;
+        assert(tdma_geometry_observer_current(&physical, &g));
+    }
+    tdma_geometry_observer_record(generation, 19u, TDMA_GEOMETRY_OBSERVER_ACTIVE,
+        TDMA_GEOMETRY_OBSERVER_OK, 105u);
+    assert(snapshot().observer_epoch == 19u && snapshot().observer_prefix_bits == 105u);
+    tdma_geometry_observer_record(generation, 19u, TDMA_GEOMETRY_OBSERVER_REJECTED,
+        TDMA_GEOMETRY_OBSERVER_DIRTY_START, 105u);
+    tdma_geometry_observer_record(generation, 0u, TDMA_GEOMETRY_OBSERVER_RETIRED,
+        TDMA_GEOMETRY_OBSERVER_STOP, 0u);
+    assert(snapshot().observer_state == TDMA_GEOMETRY_OBSERVER_REJECTED);
+    assert(snapshot().observer_reason == TDMA_GEOMETRY_OBSERVER_DIRTY_START);
+    assert(stop());
+    assert(!tdma_geometry_observer_current(&physical, &g));
+    assert(snapshot().observer_epoch == 19u);
 }
 
 static void case_stale(const char *name)
@@ -501,6 +546,7 @@ int main(int argc, char **argv)
     if (!strcmp(name, "cancel_ack")) case_cancel_ack();
     else if (!strcmp(name, "idle_before_training")) case_idle_before_training();
     else if (!strcmp(name, "select")) case_select();
+    else if (!strcmp(name, "observer_binding")) case_observer_binding();
     else if (!strncmp(name, "key_", 4u)) case_key((unsigned)strtoul(name + 4, NULL, 10));
     else if (!strcmp(name, "missing") || !strcmp(name, "wrong_generation") ||
              !strcmp(name, "same_config") || !strcmp(name, "zero_config")) case_stale(name);

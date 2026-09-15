@@ -3140,6 +3140,10 @@ scpi_result_t scpi_cmd_system_tdma_ring_geometry_q(scpi_t *context)
     SCPI_ResultUInt32(context, g.source_map_generation);
     SCPI_ResultUInt32(context, g.bound_map_generation);
     SCPI_ResultUInt32(context, after.config_seq);
+    SCPI_ResultUInt32(context, g.observer_epoch);
+    SCPI_ResultUInt32(context, g.observer_state);
+    SCPI_ResultUInt32(context, g.observer_reason);
+    SCPI_ResultUInt32(context, g.observer_prefix_bits);
     return SCPI_RES_OK;
 }
 
