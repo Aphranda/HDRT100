@@ -22,10 +22,11 @@ Last updated: 2026-09-16
 
 ## 当前 checkpoint
 
-最新原始反馈运输见 `VDC-PROGRESS-20260916-009`：当前源码四板 P3 严格门禁通过，
-两轮 STOP/ARM 专项均证明三从完整记录到达 NO1 且与来源发布历史逐字节一致。
-从板实际 DCO 应用仍为零；分片组装延迟、拒收、TDMA 超限及 RX 覆盖原样保留。
-下一步关联主机参考并建立逐从校正和实际应用，不能以运输通过代替闭环。
+最新原始反馈与稀疏主机参考配对见 `VDC-PROGRESS-20260916-010`：当前源码四板
+P3 严格门禁及同次启动内两轮 STOP/ARM 专项通过，逐源配对和原始差分可独立复算。
+从板实际 DCO 应用仍为零；NO1 DPLL 局部预算超限、TDMA 超限及 RX 覆盖原样保留。
+下一步降低实时准备成本，建立输出模型关联、逐从校正和实际应用；不能以诊断配对
+通过代替闭环。原始反馈运输基线见 `VDC-PROGRESS-20260916-009`。
 
 最新同条观测留存及本板时间锚见 `VDC-PROGRESS-20260916-008`：严格四板 P3、专项和
 原件独立复核通过；首次专项因 NO2 START 缺少真实应答中止，同源新轮次证明三从
@@ -44,6 +45,72 @@ Last updated: 2026-09-16
 
 当前执行依赖按 `VDC-PROGRESS-20260916-002` 纠偏；此前各记录的“当前”及
 “下一 gate”保留历史含义，不将首帧可用、全窗无错或完整绝对时间映射作为运输前置。
+
+### VDC-PROGRESS-20260916-010：稀疏主机参考配对与原始差分
+
+- TODO task ID：`VDC-FEEDBACK-001`、`VDC-FLIGHT-001`；长期目标保持 IN PROGRESS。
+- 状态：DONE，仅关闭诊断参考配对切片；未接控制或 DCO 应用，DPLL 局部及完整
+  静态调度预算均未通过。本节数字是实验快照，非协议、容量、时序或精度契约。
+- 代码提交：`6345dae`。Core0 在原有完整反馈快照内发布已解码字段；Core1 每次至多
+  获取一条既有 LIVE 主机参考、轮询一个来源。固定稀疏缓存按完整测量序号和参考
+  代际精确查询，缺项跳过，不插值。按来源保留两条配对证据并向外取整计算原始
+  频差区间；源 ARM/clock/observer 换代在缺项和陈旧分支前先退休旧基线。
+- TDMA owner 将保留的 raw latch 和 TIMER1 enable 前后区间转换为参考区间；其
+  LIVE getter 有界读取 TIMER1、无懒初始化，不是纯 SRAM 读取。当前 facade 还在
+  LIVE guard 外读取同核 phys epoch/SM/CS；不能原样迁移为 Core0 跨核调用。
+  `SYSTem:VDC:FEEDback:MATCh?` 仅导出诊断历史及当前有效性，STOP 不抹除历史。
+- 软件：`root-host-r1.xml` 120 项、`independent-host-r1.xml` 102 项通过；纯算法
+  包含 5021 个 Fraction 对照，集成覆盖换代缺项/陈旧、回到旧命名空间、宽年龄
+  括号及 getter 取消。采集工具作者与独审各 110 项离线回归通过。实现/资源复核
+  `implementation-resource-review-r1.json`、工具复核 `capture-tool-review-r1.json`
+  保留已修问题及边界，不以测试替代硬件。
+- Release 与资源：`build-r1.log` 缺少 SCPI 头文件、`build-r2.log` RAM 溢出均保留。
+  BSS 增加 6996 B；原先少量 RAM 代码使对齐额外占用一页，显式 noinline 留在 XIP
+  后 `build-r3.log` A/B 链接通过。A/B BSS 末端为 `0x2007f3c8`，链接剩余 3128 B，
+  扣除固定堆 2048 B 后为 1080 B；不是运行时栈/堆余量。已检查常规 Core1 调用链
+  约 1340/2048 B，尚非含中断的最坏栈证明。完整恢复 ELF/dis/map/package 存于
+  `restored-build-r5/`；早期资源报告指向的可变构建目录不能充当冻结二进制。
+- 当前源码 SHA256 `5757fa763833457dc8c2c5c9420246699870bd4c092f9aa39cf2338b1c5f5b40`，
+  文件数 1149；包 SHA256
+  `4fd62db14ed1488a3cb1e3d341a2b6d3695fcbc6d4ff81dc2cd4e382e3d04c43`。
+  恢复时执行 `p3-r4` 的 run 并更新四板同包，流程通过但严格校准失败；`p3-r5`
+  使用同包成功 OTA 记录 resume，重新执行校准、回放及环路后 passed、strict 均为
+  true、diagnostic_failures 为空。当前凭证与 staged 源码一致，pre-commit 通过。
+- 四板专项：恢复后同次启动内 `capture-r4/r5` 均 passed、flow_completed，errors
+  为空；各轮各板 20 条 native 记录、零 recorder missed、SD/RAM 相同，全部真实
+  START/STOP OK，运行期查询为零。三从匹配增量分别为 82/79/74、63/78/66，
+  缺参考增量 26/31/38、34/33/42，陈旧为零。第二轮各源累计最大准入年龄
+  79.256344/76.415376/71.636376 ms。ARM 从 16 到 17，observer 从 3 到 5，
+  主机参考 epoch 从 1 到 2、generation 从 1 到 3；STOP 后历史保留但 inactive。
+  最新完整 RX 字节与源端短历史对账；较早匹配对已不在线帧短历史内时明确为未覆盖，
+  不虚构逐条线帧证明。两轮从机实际应用计数及各板 DPLL trace 记录数均为零。
+- 主控原始 CSV/CRC/native/动作复核 `main-recheck-r1.json` 88 项通过；独审
+  `restored-hardware-review-r1.json` 520 项通过，SHA256
+  `d74357d97d277a61f147aebf7a910a31e4e8a465494fd053fa8275d9f2a1880e`。
+  原始区间只传播给定的参考括号，未包含 GPIO/SM 检测误差，不是物理频率置信区间
+  或输出域残差，不能用它宣称锁相。
+- 时序限制：native baseline 到末样本，两轮 NO1 DPLL overrun 分别 +537/+551、
+  deadline +506/+523，预算 136 us、累计峰值 299.528 us；第二轮峰值未再增加。
+  首样本到末样本窗口分别约 5.700/5.704 s，DPLL 调用 3795/3798 次；不与
+  baseline 窗口的调用分母混算。第一轮 NO2 DPLL 新增 1/1，其他从板及第二轮三从
+  新增零。baseline 到末样本 TDMA overrun 为 3/83/70/54 和 3/63/94/55，deadline
+  为 3/59/49/31 和 2/38/51/33；三从 RX overrun 为 56/49/16 和 40/21/19，
+  observation drop 为 1504/1488/1468 和 1493/1470/1449。各板读回最小 FreeRTOS
+  heap 为 20352 B。原件全部保留；DPLL 局部超限不新增健康 TDMA 隔离。
+- 失败与回退：原实现 `p3-r1/capture-r1` 通过，但已暴露 NO1 DPLL 超时；
+  `capture-r2` 因 NO3 START 仅有合成应答被工具中止，真实 STOP 完成，不算重臂通过。
+  scratch-X 放置实验 `after-build-r4/` 构建通过，`p3-r2/r3` 拓扑读取失败；
+  `stopped-triage-r1.json` 记录 NO1/NO2 CORE1_STALL、最后进度 DPLL entry，
+  该进度不是故障 PC，静态布局不能证明根因。已撤回该放置实验并恢复原源码和原包；
+  `scratch-experiment-review-r1.json` 保留审计，不宣称性能收益。恢复 `p3-r4`
+  的 TRN01 候选覆盖、TRN03 margin 和 startup barrier 失败导致 strict=false，
+  `capture-r3` 在操作硬件前拒绝；后续成功不追认这些失败。
+- 证据根目录：`out/HardwareAcceptance/20260916/dpll-feedback-match-r1/`。
+  下一 gate：继续 `VDC-FEEDBACK-001`，优先将参考缓存、配对和差分准备整体迁至
+  Core0 单写者，复用现有发布区；先冻结 LIVE 硬件来源并建立 Core1 独立退休代际，
+  实测 Core0 覆盖和 CPU 成本。只读成本审计见
+  `out/dpll-feedback-match-r1/next-match-cost-audit-r1.json`。随后关联实际输出模型、
+  接通逐从校正与连续 DCO 应用；完整绝对映射和首帧证明仍不作运输前置。
 
 ### VDC-PROGRESS-20260916-009：三从原始反馈运输与重臂对账
 
