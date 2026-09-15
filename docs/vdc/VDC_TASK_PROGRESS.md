@@ -22,9 +22,11 @@ Last updated: 2026-09-16
 
 ## 当前 checkpoint
 
-最新观察器自身恢复见 `VDC-PROGRESS-20260916-007`：当前源码四板 P3 通过；首次专项
-因 NO2 START 应答超时中止，同源新轮次证明三从恢复后在新 epoch 内持续推进序号。
-下一步保留同条有效观测及本板时间锚，接通原始反馈，不重启健康 TDMA。NO1 运行中发射记录留存见
+最新同条观测留存及本板时间锚见 `VDC-PROGRESS-20260916-008`：严格四板 P3、专项和
+原件独立复核通过；首次专项因 NO2 START 缺少真实应答中止，同源新轮次证明三从
+恢复后持续留存完整记录，STOP 后历史不变。TDMA 完整相位超限及 RX 覆盖计数仍保留，
+不由此宣称完整时序或锁相通过。下一步接通各从原始反馈，不重启健康 TDMA。
+观察器自身恢复见 `VDC-PROGRESS-20260916-007`。NO1 运行中发射记录留存见
 `VDC-PROGRESS-20260916-005`：软件、Release、
 当前源码四板 quick P3 和 STOP 后同序对账已通过。输出投影准备见
 `VDC-PROGRESS-20260916-004`；反馈运输与实际 DCO 应用尚未接通。指定主机接收切片见
@@ -283,6 +285,78 @@ Last updated: 2026-09-16
 - 下一 gate：当前恢复专项已完成原件独立复核，分离提交后保留同一完整 event
   record 及本板时间锚，接原始反馈运输，
   不把完整跨板绝对时间映射或最终输出精度作为原始运输的前置。
+
+### VDC-PROGRESS-20260916-008：同条观测留存与本板 TIMER1 锚
+
+- TODO task ID：`VDC-FEEDBACK-001`。
+- 状态：DONE（仅同条诊断观测留存切片）。在已验收的观察器恢复基础上，为反馈准备完整本地原始记录；
+  反馈运输、主机专属控制与从机 DCO 应用仍未接通，不关闭父任务。
+- 实现范围：最终 fault 复验后取同条完整 event，配合同 epoch 的 TIMER1 enable
+  前后区间、物理 ARM 身份和频率一次发布。Core1 独占发布与退休，Core0 getter
+  有界读取独立 atomic SRAM 副本；新 epoch 私有锚与旧发布记录分离。
+- 生命周期：ANCHOR_VALID 是所留存记录的历史采集属性；STOP/INVALID/ARM/clock
+  失效清 ACTIVE 并保留原件。时钟入口不初始化或写 TIMER1，无循环读取；高字变化、
+  未初始化或配置不符返回失败，不能因此重启健康 TDMA。TIMER1 raw、ARM 相对
+  cycles 和 manager 的 time_us 时间域分别保留，不授予正式时间或控制资格。
+- 软件快照：主控最终组合回归 15 项通过。完整 LIVE 生产路径覆盖 10 组：批内最后
+  同条记录、首序号为零、最终 fault、不完整批次、恢复换锚、STOP/ARM、时钟取消、
+  缺锚、空队列时绑定变化及 getter 竞争/读取期限。TIMER1 device/no-device 用例
+  覆盖初始化前拒绝、真实高低高读取变化、source/pause/hz 变化、空输出及 host 拒绝。
+  SCPI/owner 真实函数体覆盖非零高字、低字回绕、无记录和诊断资格位。
+- 失败保留：独审发现正常 STOP 后反复 service 给旧记录追加 BINDING；现只退休仍
+  有效的候选，重复 STOP 后完整历史保持。空队列时 ARM 变化也须主动退休，不等
+  下一批记录。作者广回归曾为 24 通过、1 个 disabled fixture 漏头文件失败，修正
+  后定向通过；主控最终回归包含该 disabled 路径。早期 clock/LIVE fixture 失败
+  原件保留，不把修正前结果追认为成功。
+- Release：初版 A/B 链接通过，但新增 RAM 函数使 data 末尾跨过工作区对齐页，
+  RAM 总占用增加 4232 B，原件保留于 `after-build/`、`resource-review-r1.json`。
+  随后仅将配置检查 `vdc_timestamp_clock_is_current()` 放回常规 XIP，计数器采样
+  `try_read_ticks64()` 仍驻 RAM；原调用链本就使用 XIP 的 clock_get_hz，不改变
+  Flash 操作的 Core1 park 边界。调整后的相关 host 5 项通过，A/B 与 Flash 检查通过。
+  `after-build-r2/`、`resource-review-r2.json` 显示 RAM 净增 136 B，链接余量
+  11696 B，不代表运行栈/堆水位；没有修改 PIO 程序、缓冲区对齐或 OTA 实现。
+- 独审：r2 实现审核 53 项及独立 host 8 项通过，见
+  `implementation-review-r2.json`。r1 审核产出时恰逢主控调整函数放置，源码指纹与
+  旧独审 host 不同而未通过；旧报告保留，不将该绑定失败当作生产逻辑错误。
+- P3 首轮 `p3-r1` 在拓扑识别失败：相邻 NO1→NO2→NO3→NO4 已检测到数据，
+  NO4→NO1 未检测到 RX，未进入留存专项。四板 OTA 及初始化阶段已完成；
+  `topology.log` 与 `p0t-topology/summary.json` 保留，不能由该结果定位为 LIVE 故障。
+  r1 的拓扑清理仅有 best-effort 代码路径，缺少原始 ACK，不能声称已由该轮证据
+  证明四板 STOP。独立失败归类见 `p3-r1-failure-review.json`。
+- 同源 `p3-r2` 流程完成但 strict_gates_passed 为 false。TRN-01 的 22 次测量均
+  accepted、身份失败为空；NO2/NO3 各自 8 次均只取得偏移 1，未满足两候选覆盖，
+  NO4 则已有 0/1 两候选。TRN-03 未找到满足重装预算的组合行，最小余量为负。
+  后继 TDMA startup barrier 超时；四板 START 均真实 OK，NO1 的运输坏帧/reject
+  增长，不能简化为 ACK 丢失或没有发车。STOP_BEFORE_EXPORT 与 STOP_FINAL 均有
+  四板真实 ACK 和 stopped 读回，失败原件全部保留。同源 `p3-r3` 严格通过，
+  strict_gates_passed=true、diagnostic_failures 为空；三从均有实测 SCK 两候选，
+  组合矩阵选出满足重装预算的行。该结果不追认前两轮，也没有放宽门禁。
+- 专项：`capture-r1` 在 NO2 START 缺少真实 ACK 处中止，NO1 尚未 START；底层返回
+  合成字符串不能代替实际状态验证，旧 LIVE 历史不是本轮观测。随后四板 STOP ACK
+  及关闭读回均有效，失败独审保留于 `capture-r1-failure-review.json`。
+  同源 `capture-r2` 完成，四板 START/STOP 均真实 OK，采集期间查询数为零；
+  四板各 20 条 native 原件，SD 与 RAM 字节相同。三从恢复各一次，新 epoch 内
+  19 个 ACTIVE 快照的序号/ordinal 增量为 4706/4643/4579；最终 LIVE 序号均为
+  6325、epoch 为 4、flags 为 13，保留完整记录与同 epoch 的本板时间锚，
+  与最后 native 摘要的推进一致，STOP 后两次 LIVE 读取完全一致。
+- 数字均为本轮证据快照，非事实源：TIMER1 锚区间宽度为 284/839/286 ticks，
+  对应 1136/3356/1144 ns；这是观察器启用的包围区间，不是边沿误差或输出精度。
+  当前不能把区间中点当作已达目标的时间戳。指定主机接收增量为 2257/2264/2229，
+  三从实际 DCO 应用增量均为零。反馈运输与控制接线仍待后继完成。
+- 时序与丢样保留：native baseline 到最后样本的 TDMA overrun 增量为
+  2/20/30/20、deadline miss 为 1/11/11/12；三从 RX ring overrun 为
+  34/25/62、observation drop 为 1503/1476/1447。这不是全相位 WCET 或无丢样
+  验收，亦不能仅比较不同轮次摘要就归因于新留存代码；后续运输负载继续记录此项。
+- 独立硬件审核 `hardware-review-r1.json` 共 125 项通过，批准范围仅诊断 LIVE
+  留存；SHA 为 `fbf520748b219cba105b2c055c62724da1c620efdea51b1a65d491cb3c5815fd`。
+  主控另行重解四板 native、核对 SD=RAM、STOP 与 LIVE，见 `main-recheck-r1.json`。
+  软件验证完整记录关联；稀疏 native 只证明后继摘要一致性，不能单独证明每条原始
+  RX/TX 的物理对应。代码提交 `cb91cec`，staged P3 指纹门禁通过。
+- 证据目录：`out/HardwareAcceptance/20260916/dpll-event-live-r1/`。构建前已从前序
+  不可变 after-build 冻结本轮 before-build，逐文件 SHA 见 `baseline-binding-r1.json`。
+- 下一 gate：`VDC-FEEDBACK-001` 按固定特等席配额运输各从原始反馈，逐来源重组、
+  取消旧会话并核对完整记录；随后接通 NO1 专属校正与从板实际应用。
+  不恢复首帧或完整绝对时间映射前置，长期目标保持 IN PROGRESS。
 
 ### 前序实现回顾
 

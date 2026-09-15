@@ -79,6 +79,20 @@ ARM TDMA、不修改 DMA 或转发 SM，也不重采物理 ARM 的首次 RXSTART
 同 epoch 的 joined/sequence/ordinal 增长证明；batch_sequence_first 只是该次采集批次
 首词，不能与最后发布的样本拼接成同事件记录。该切片尚不提供 DPLL 更新或输出精度。
 
+同条观测留存切片见 `VDC-PROGRESS-20260916-008`。Core1 只在最终 fault 复验成功后
+保留 batch 的最后一条完整 `tdma_event_record_t`，并将其与同 observer epoch 的
+TIMER1 enable 前后区间、ARM 身份和 tick_hz 一起发布。新 epoch 锚先存入私有候选，
+不能在新记录形成前覆盖旧历史记录的锚。Core0 经独立有界 getter 取得 SRAM 副本，
+`SYSTem:TDMA:EVENt:LIVE?` 导出原始字段，不扩大 native EVENT ABI 或 wire 格式。
+
+`ANCHOR_VALID` 表示所保留记录生成时本板锚获取成功；STOP、INVALID、新 ARM 或
+时钟配置失效撤销 `ACTIVE` 并保留原因，历史 record/锚不被改写。当前候选消费须同时
+检查 `ACTIVE`、`ANCHOR_VALID`、来源与生命周期。锚读取无懒初始化、无等待循环，
+读取失败或时钟不可用不阻塞 TDMA。这里的 TIMER1 raw tick、record 的 ARM 相对
+cycle 区间与 DPLL manager 的 time_us 时间原点不同，不能直接混算；当前寄存器
+检查也不证明期间未发生 debug pause。所有记录保持 diagnostic-only，不授予
+timestamp_valid 或 dpll_eligible；反馈运输和实际控制按后继独立切片接通。
+
 ### 当前实现快照（仍未冻结契约）
 
 当前源码已经有一个受限的 resident VDC 命令运输原型，用于验证固定 process image
