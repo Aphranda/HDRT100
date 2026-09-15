@@ -38,6 +38,9 @@ def production(directory: Path) -> str:
                    "DMA_CH0_TRANS_COUNT_MODE_VALUE_TRIGGER_SELF", "DMA_CH0_TRANS_COUNT_MODE_LSB",
                    "DMA_CH0_TRANS_COUNT_MODE_BITS", "DMA_CH0_TRANS_COUNT_COUNT_BITS"):
         contract_definitions.append(re.search(rf"(?m)^#define {symbol}\s+[^\n]+$", dma_registers).group(0))
+    pio_registers = sdk_dma.with_name("pio.h").read_text(encoding="utf-8")
+    contract_definitions.append(re.search(
+        r"(?m)^#define PIO_SM0_EXECCTRL_EXEC_STALLED_BITS\s+[^\n]+$", pio_registers).group(0))
     for file, symbol in (("tdma_transport_frame.h", "TDMA_TRANSPORT_FRAME_SEQUENCE_OFFSET"),
                          ("tdma_rx_scan.h", "TDMA_PIO_SPI_PACKET_HEADER_SIZE")):
         contract = (ROOT / "components/tdma/inc" / file).read_text(encoding="utf-8")
@@ -112,7 +115,7 @@ typedef unsigned uint;
 FIXTURE = r'''
 typedef struct {
     uint32_t ctrl, fdebug, dbg_padout, instr_mem[32];
-    uint32_t level[4], pc[4], restarts[4], clears[4];
+    uint32_t level[4], pc[4], restarts[4], clears[4], execctrl[4];
 } bank_t;
 typedef bank_t *PIO;
 typedef struct { uint unused; } pio_sm_config;
@@ -331,6 +334,9 @@ static uint32_t gpio_get_all(void) {
     return gpio_script[gpio_script_index++];
 }
 static uint32_t pio_sm_get_pc(PIO pio, uint sm) { return pio->pc[sm]; }
+static bool __attribute__((unused)) pio_sm_is_exec_stalled(PIO pio, uint sm) {
+    return (pio->execctrl[sm] & PIO_SM0_EXECCTRL_EXEC_STALLED_BITS) != 0u;
+}
 static void check_retired(void) {
     if (!require_retired) return;
     assert(s_tdma_event_observer.state == TDMA_EVENT_STOPPED);

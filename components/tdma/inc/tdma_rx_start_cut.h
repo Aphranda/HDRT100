@@ -14,7 +14,9 @@ enum {
     TDMA_RX_START_CUT_PRESTART_BACKLOG_UNEXCLUDED = 1u << 4,
     TDMA_RX_START_CUT_RETIRED = 1u << 5,
     TDMA_RX_START_CUT_STOPPED = 1u << 6,
-    TDMA_RX_START_CUT_COUNT_WRAP = 1u << 7
+    TDMA_RX_START_CUT_COUNT_WRAP = 1u << 7,
+    TDMA_RX_START_CUT_CAPTURE_ENTRY_WAIT_BEFORE = 1u << 8,
+    TDMA_RX_START_CUT_CAPTURE_ENTRY_WAIT_AFTER = 1u << 9
 };
 
 /* Sticky reasons retire this diagnostic cut, never the healthy wire path or
@@ -42,6 +44,9 @@ enum {
  * are not a physical-frame anchor. A changed observation epoch, even with no
  * count advance, invalidates their comparison with an older capture token.
  * FIFO/PC are raw observations of the process-follower data capture SM.
+ * ENTRY_WAIT bits sample EXECCTRL.EXEC_STALLED, not SM_INSTR. They witness
+ * the last injected RXCS wait only under the ARM owner's no-replacement and
+ * no-restart lifetime; selected prelaunch also requires the actual entry PC.
  * Equal counts and empty FIFOs always retain INFLIGHT_UNKNOWN/UNRESOLVED.
  * Raw fields never change after capture; only flags/reasons may accumulate. */
 typedef struct {

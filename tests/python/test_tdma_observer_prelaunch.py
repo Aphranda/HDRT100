@@ -9,6 +9,8 @@ import json
 from pathlib import Path
 import re
 
+import pytest
+
 from test_tdma_rx_event_candidate import enabled_source, run
 from tools.state_machine_resource_check.state_machine_resource_check import c_definition_body
 
@@ -37,9 +39,16 @@ def prelaunch_source(tmp_path):
                         " ".join(f"uint64_t {name};" for name in sorted(fields)))
     base = base.replace("bool armed, rx_capture_active;", "uint32_t flight_tx_edge_capture_generation; bool armed, rx_capture_active, process_image_enabled;")
     base = base.replace("#undef main\n", "#undef main\n#define main candidate_regression_main\n", 1)
-    base = base.replace("static uint64_t clock_us =", "static bool arm_tail_active;\nstatic unsigned final_wait_count;\nstatic uint64_t clock_us =")
+    base = base.replace("static uint64_t clock_us =", "static bool arm_tail_active, final_gate_released;\nstatic unsigned final_wait_count;\nstatic uint64_t clock_us =")
+    # The process follower DATA TXF and capture RXF belong to the same RX SM.
+    base = base.replace("#define tdma_pio_spi_phys_data_sm(phys) 0u",
+                        "#define tdma_pio_spi_phys_data_sm(phys) 2u")
     base = base.replace("(void)pio; (void)instruction; assert(sm != 0u);",
-                        "(void)pio; (void)instruction; assert(sm != 0u || arm_tail_active); if(sm == 0u) ++final_wait_count;")
+                        """if (pio == &rx_bank) {
+        assert(arm_tail_active && sm == 2u && instruction == physical.rx_csn_pin);
+        ++final_wait_count;
+        pio->execctrl[sm] = final_gate_released ? 0u : PIO_SM0_EXECCTRL_EXEC_STALLED_BITS;
+    } else { assert(sm != 0u); }""")
     prelaunch = "static bool tdma_pio_spi_phys_event_prelaunch(tdma_pio_spi_phys_t *phys, const tdma_ring_runtime_config_t *config) {" + c_definition_body(event, "tdma_pio_spi_phys_event_prelaunch") + "}\n"
     source = (base + "\n#undef main\n" + SEAMS.replace("/* DISARM_PREFIX */", stop_prefix) +
               prelaunch + "static bool arm_finish(tdma_pio_spi_phys_t *phys, const tdma_ring_runtime_config_t *config) {\n" +
@@ -56,6 +65,24 @@ def prelaunch_source(tmp_path):
 def test_production_selected_observer_prelaunch_and_arm_order(tmp_path):
     output = run(tmp_path, prelaunch_source(tmp_path), "prelaunch", enabled=True)
     assert "prelaunch: 18 production groups passed" in output
+
+
+@pytest.mark.parametrize("scenario", range(7), ids=[
+    "released-before-enable", "released-during-enable", "wrong-entry-before",
+    "wrong-entry-after", "wrong-entry-before-restored-after", "held-entry-and-stop",
+    "ordinary-without-entry-wait",
+])
+def test_selected_prelaunch_requires_capture_entry_wait(tmp_path, scenario):
+    source = prelaunch_source(tmp_path)
+    pos = source.rindex("int main(void)")
+    source = source[:pos] + source[pos:].replace("int main(void)", "int original_prelaunch_main(void)", 1)
+    source += f"\n#define ENTRY_SCENARIO {scenario}u\n" + ENTRY_CASES
+    # Preserve a runtime assertion and exit code instead of a Windows CRT dialog.
+    source = source.replace('#include <assert.h>', '''#include <assert.h>
+#include <stdlib.h>
+#undef assert
+#define assert(c) do { if (!(c)) { fprintf(stderr, "ASSERT %s:%d: %s\\n", __FILE__, __LINE__, #c); fflush(stderr); _Exit(99); } } while (0)''', 1)
+    assert "capture entry witness: passed" in run(tmp_path, source, "entry_wait", enabled=True)
 
 
 def test_geometry_query_preserves_prefix_and_appends_observer_tuple(tmp_path):
@@ -128,7 +155,77 @@ static void tdma_pio_spi_phys_fill_static_snapshot(tdma_pio_spi_phys_t *p) { (vo
 #define TDMA_PIO_SPI_PHYS_ERROR_GEOMETRY 22u
 #define TDMA_PIO_SPI_PHYS_ERROR_NONE 0u
 #define TDMA_PIO_SPI_PHYS_ERROR_PHASE_ADMISSION 1u
-static uint32_t s_tdma_pio_spi_flight_process_follower_offset;
+static uint32_t s_tdma_pio_spi_flight_process_follower_offset = 4u;
+'''
+
+
+ENTRY_CASES = r'''
+static void release_entry_wait(void) { rx_bank.execctrl[2] = 0u; }
+static void move_entry_pc(void) { ++rx_bank.pc[2]; }
+static void restore_entry_pc(void) { rx_bank.pc[2] = s_tdma_pio_spi_flight_process_follower_offset; }
+int main(void) {
+    prelaunch_setup();
+    const uint32_t held = TDMA_RX_START_CUT_CAPTURE_ENTRY_WAIT_BEFORE |
+                          TDMA_RX_START_CUT_CAPTURE_ENTRY_WAIT_AFTER;
+    if (ENTRY_SCENARIO == 0u) final_gate_released = true;
+    if (ENTRY_SCENARIO == 1u) cut_enable_hook = release_entry_wait;
+    if (ENTRY_SCENARIO == 2u || ENTRY_SCENARIO == 4u) ++rx_bank.pc[2];
+    if (ENTRY_SCENARIO == 3u) cut_enable_hook = move_entry_pc;
+    if (ENTRY_SCENARIO == 4u) cut_enable_hook = restore_entry_pc;
+    tdma_rx_first_window_admit(&selected_config);
+    if (ENTRY_SCENARIO < 5u) {
+        const bool accepted = finish();
+        assert(!accepted); /* Old production accepts a released gate with zero DMA/FIFO. */
+        assert(final_wait_count == 1u && rx_bank.restarts[2] == 0u);
+        assert(s_tdma_rx_start_cut.produced_before == 0u && s_tdma_rx_start_cut.produced_after == 0u);
+        assert(s_tdma_rx_start_cut.capture_fifo_before == 0u && s_tdma_rx_start_cut.capture_fifo_after == 0u);
+        require_rejected(TDMA_GEOMETRY_OBSERVER_CAPTURE_ENTRY);
+        assert(s_tdma_rx_first_window.prelaunch_reason == TDMA_GEOMETRY_OBSERVER_CAPTURE_ENTRY);
+        assert(s_tdma_rx_first_window.flags & TDMA_RX_FIRST_COLLECTION_TERMINAL);
+        assert(!(s_tdma_rx_first_window.flags & TDMA_RX_FIRST_PRELAUNCH_ACTIVE));
+        const uint32_t expected = ENTRY_SCENARIO == 0u ? 0u :
+            ENTRY_SCENARIO == 1u ? TDMA_RX_START_CUT_CAPTURE_ENTRY_WAIT_BEFORE : held;
+        assert((s_tdma_rx_start_cut.flags & held) == expected);
+        const tdma_rx_start_cut_t failed_cut = s_tdma_rx_start_cut;
+        const uint32_t epoch = s_tdma_event_epoch, enables = enabled_masks;
+        /* Even a caller mistake and later clean gate/frame cannot restart the
+         * rejected generation, rewrite its cut or substitute a later frame. */
+        rx_bank.execctrl[2] = PIO_SM0_EXECCTRL_EXEC_STALLED_BITS;
+        restore_entry_pc(); cut_enable_hook = NULL;
+        push_first_event();
+        tdma_pio_spi_phys_event_service(&physical);
+        assert(epoch == s_tdma_event_epoch && enables == enabled_masks);
+        assert(final_wait_count == 1u && rx_bank.restarts[2] == 0u);
+        assert(memcmp(&failed_cut, &s_tdma_rx_start_cut, sizeof(failed_cut)) == 0);
+        assert(s_tdma_rx_first_window.raw_count == 0u);
+        assert(!(s_tdma_rx_first_window.flags & TDMA_RX_FIRST_EVENT_VALID));
+    } else if (ENTRY_SCENARIO == 5u) {
+        assert(finish()); require_active();
+        assert((s_tdma_rx_start_cut.flags & held) == held);
+        assert(s_tdma_rx_start_cut.capture_pc_before == 4u && s_tdma_rx_start_cut.capture_pc_after == 4u);
+        const uint32_t unknown = TDMA_RX_START_CUT_DIAGNOSTIC | TDMA_RX_START_CUT_UNRESOLVED |
+            TDMA_RX_START_CUT_INFLIGHT_UNKNOWN | TDMA_RX_START_CUT_PRESTART_BACKLOG_UNEXCLUDED;
+        assert((s_tdma_rx_start_cut.flags & unknown) == unknown);
+        assert(tdma_pio_spi_phys_disarm(&physical));
+        tdma_rx_start_cut_disarmed();
+        assert((s_tdma_rx_start_cut.flags & held) == held);
+        assert(s_tdma_rx_start_cut.flags & TDMA_RX_START_CUT_STOPPED);
+        assert(s_tdma_rx_start_cut.retire_reasons == TDMA_RX_START_CUT_STOP);
+        assert(geometry_fixture.observer_reason == TDMA_GEOMETRY_OBSERVER_STOP);
+        assert(sizeof(tdma_rx_start_cut_t) == 128u && s_tdma_rx_start_cut.schema == 1u);
+    } else {
+        selected_config.geometry_generation = 0u;
+        final_gate_released = true; ++rx_bank.pc[2];
+        assert(finish()); assert(!s_tdma_event_prelaunch && s_tdma_event_waiting);
+        physical.flight_overlay_alignment_locked = true;
+        physical.flight_overlay_alignment_samples = TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES;
+        tdma_event_start(&physical);
+        assert(s_tdma_event_observer.state == TDMA_EVENT_ACTIVE);
+        assert(!(s_tdma_rx_start_cut.flags & held));
+        assert(final_wait_count == 1u);
+    }
+    puts("capture entry witness: passed"); return 0;
+}
 '''
 
 
@@ -143,6 +240,7 @@ static void prelaunch_setup(void) {
     physical.flight_overlay_alignment_samples = 0u;
     physical.flight_alignment_byte_shift = physical.flight_alignment_bit_shift = 0u;
     memset(&rx_bank, 0, sizeof(rx_bank));
+    rx_bank.pc[2] = s_tdma_pio_spi_flight_process_follower_offset;
     assert(tdma_rx_dma_counter_reset(&s_tdma_pio_spi_rx_sequence,
         physical.flight_physical_byte_count, tick_now));
     dma_bank.ch[4].ctrl_trig = DMA_CH0_CTRL_TRIG_EN_BITS;
@@ -156,7 +254,7 @@ static void prelaunch_setup(void) {
         .bound_arm_epoch=s_tdma_pio_spi_rx_arm_epoch, .bound_observation_epoch=0u,
         .clk_sys_hz=125000000u, .physical_bytes=physical.flight_physical_byte_count,
         .dma_byte_shift=3u, .dma_bit_shift=1u};
-    final_wait_count = 0u; arm_tail_active = true;
+    final_wait_count = 0u; arm_tail_active = true; final_gate_released = false;
 }
 static bool finish(void) {
     const bool result = arm_finish(&physical, &selected_config);

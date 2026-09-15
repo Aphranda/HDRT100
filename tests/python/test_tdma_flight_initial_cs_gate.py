@@ -24,6 +24,11 @@ def production_gate(source):
         r"pio_sm_exec\(tdma_pio_spi_phys_data_pio\(phys\),\s*"
         r"tdma_pio_spi_phys_data_sm\(phys\),\s*"
         r"pio_encode_wait_gpio\(false, phys->rx_csn_pin\)\);\s*\}\s*"
+        # Geometry binding is software-only on the successful ARM path. Its
+        # failure branch returns after disarm and never reaches this enable.
+        r"(?:if \(!tdma_geometry_arm_bound\(phys\)\)\s*\{\s*"
+        r"\(void\)tdma_pio_spi_phys_disarm\(phys\);\s*"
+        r"return tdma_pio_spi_phys_arm_reject\(phys,\s*TDMA_PIO_SPI_PHYS_ERROR_GEOMETRY\);\s*\}\s*)?"
         r"tdma_pio_spi_phys_enable_sm_pair\(phys\);\s*phys->armed = true;",
         arm,
     )
@@ -130,5 +135,17 @@ def test_cs_already_low_does_not_recover_first_frame(engine):
 def test_wrong_guard_instruction_is_rejected(replacement):
     source = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(encoding="utf-8")
     mutated = source.replace("pio_encode_wait_gpio(false, phys->rx_csn_pin)", replacement)
+    with pytest.raises(AssertionError, match="initial CS wait"):
+        production_gate(mutated)
+
+
+@pytest.mark.parametrize("replacement", [
+    "pio_sm_exec(tdma_pio_spi_phys_data_pio(phys), tdma_pio_spi_phys_data_sm(phys), 0u);",
+    "pio_sm_restart(tdma_pio_spi_phys_capture_pio(phys), tdma_pio_spi_phys_capture_sm(phys));",
+])
+def test_capture_mutation_between_gate_and_enable_is_rejected(replacement):
+    source = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    mutated = source.replace("    if (!tdma_geometry_arm_bound(phys)) {",
+                             "    " + replacement + "\n    if (!tdma_geometry_arm_bound(phys)) {")
     with pytest.raises(AssertionError, match="initial CS wait"):
         production_gate(mutated)

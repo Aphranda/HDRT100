@@ -290,6 +290,8 @@ static void tdma_rx_start_cut_before(tdma_pio_spi_phys_t *phys)
     cut->capture_fdebug_before = capture_pio->fdebug;
     cut->capture_fifo_before = (uint8_t)pio_sm_get_rx_fifo_level(capture_pio, capture_sm);
     cut->capture_pc_before = (uint8_t)pio_sm_get_pc(capture_pio, capture_sm);
+    if (pio_sm_is_exec_stalled(capture_pio, capture_sm))
+        cut->flags |= TDMA_RX_START_CUT_CAPTURE_ENTRY_WAIT_BEFORE;
     __atomic_thread_fence(__ATOMIC_SEQ_CST); /* DMB: completed MMIO before enable. */
 }
 
@@ -339,9 +341,11 @@ static void tdma_rx_start_cut_after(tdma_pio_spi_phys_t *phys,
     cut->capture_fdebug_after = capture_pio->fdebug;
     cut->capture_fifo_after = (uint8_t)pio_sm_get_rx_fifo_level(capture_pio, capture_sm);
     cut->capture_pc_after = (uint8_t)pio_sm_get_pc(capture_pio, capture_sm);
+    if (pio_sm_is_exec_stalled(capture_pio, capture_sm))
+        cut->flags |= TDMA_RX_START_CUT_CAPTURE_ENTRY_WAIT_AFTER;
     __atomic_thread_fence(__ATOMIC_SEQ_CST); /* DMB before the closing tick read. */
     cut->sample_after_ticks = vdc_timestamp_clock_read_ticks64();
-    cut->flags = TDMA_RX_START_CUT_DIAGNOSTIC | TDMA_RX_START_CUT_RECORDED |
+    cut->flags |= TDMA_RX_START_CUT_DIAGNOSTIC | TDMA_RX_START_CUT_RECORDED |
         TDMA_RX_START_CUT_UNRESOLVED | TDMA_RX_START_CUT_INFLIGHT_UNKNOWN |
         TDMA_RX_START_CUT_PRESTART_BACKLOG_UNEXCLUDED;
     cut->observation_epoch_before = cut->observation_epoch_after = counter->observation_epoch;
@@ -1023,6 +1027,19 @@ static bool tdma_pio_spi_phys_event_prelaunch(tdma_pio_spi_phys_t *phys,
     if (s_tdma_rx_start_cut.produced_before != 0u || s_tdma_rx_start_cut.produced_after != 0u ||
         s_tdma_rx_start_cut.capture_fifo_before != 0u || s_tdma_rx_start_cut.capture_fifo_after != 0u ||
         (s_tdma_rx_start_cut.flags & TDMA_RX_START_CUT_RETIRED) != 0u) goto rejected;
+    /* Zero completed DMA writes and empty FIFOs cannot exclude a partial ISR
+     * or an in-flight word. The final ARM injection is WAIT 0 RXCS; no owner
+     * SM_INSTR write or restart may replace it before these observations.
+     * EXEC_STALLED witnesses that same injection, while SM_INSTR reads only
+     * the program instruction at PC. Never repair/reinject or retry a failed
+     * selected generation, and retain all diagnostic/identity-unproved flags. */
+    reason = TDMA_GEOMETRY_OBSERVER_CAPTURE_ENTRY;
+    const uint32_t entry_wait = TDMA_RX_START_CUT_CAPTURE_ENTRY_WAIT_BEFORE |
+                                TDMA_RX_START_CUT_CAPTURE_ENTRY_WAIT_AFTER;
+    if ((s_tdma_rx_start_cut.flags & entry_wait) != entry_wait ||
+        s_tdma_rx_start_cut.capture_pc_before != s_tdma_pio_spi_flight_process_follower_offset ||
+        s_tdma_rx_start_cut.capture_pc_after != s_tdma_pio_spi_flight_process_follower_offset)
+        goto rejected;
     tdma_event_prelaunch_mark(TDMA_GEOMETRY_OBSERVER_ACTIVE, TDMA_GEOMETRY_OBSERVER_OK);
     tdma_rx_first_window_prelaunch(phys, config, TDMA_GEOMETRY_OBSERVER_OK);
     return true;
