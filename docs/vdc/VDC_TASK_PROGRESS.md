@@ -22,8 +22,9 @@ Last updated: 2026-09-16
 
 ## 当前 checkpoint
 
-最新接收切片见 `VDC-PROGRESS-20260916-003`：当前源码 Release、四板 quick P3 和
-指定主机接收专项通过；各从已有稳定接收，实际 DCO 应用尚未接通。目标整理见
+最新输出投影准备见 `VDC-PROGRESS-20260916-004`：软件、Release 和当前源码四板
+quick P3 已通过，反馈运输与实际 DCO 应用尚未接通。指定主机接收切片见
+`VDC-PROGRESS-20260916-003`。目标整理见
 `VDC-PROGRESS-20260916-002`，随后贯通各从反馈和专属校正，再消除漂移、收敛精度。
 
 执行顺序与任务状态统一见 `VDC_DOMAIN_TODO.md` 的“当前主线：四板数据运输与真实闭环”
@@ -86,6 +87,43 @@ Last updated: 2026-09-16
   结论为 APPROVE_RECEIVE_SLICE；原生 drop/schedule miss 记录保留，不据接收通过宣称
   全环时序或无丢帧。实现已提交 `3e76053`，提交 hook 核验匹配 P3 凭证通过。
 - 上述相对证据路径均位于 `out/HardwareAcceptance/20260916/`，四板已 STOP，串口已关闭。
+
+### VDC-PROGRESS-20260916-004：统一 DCO 输出投影与诊断脉冲计算
+
+- TODO task ID：`VDC-FEEDBACK-001`、`VDC-FLIGHT-001`。
+- 状态：IN PROGRESS。本切片准备能反映实际 DCO 校正的输出域残差，尚未接通
+  各从反馈、主机独立控制器、专属命令或实际应用；以下数字均为本轮快照，非产品事实源。
+- 实现：Domain 新增不可变 DCO 的纯投影和同事件取模相位残差；现有 manager 的
+  phase-only 诊断脉冲 deadline 复用该投影，旧 clock 映射保持。调用者仍须提供
+  真实本地 RX 时间、对应事件的 NO1 输出相位和当时 DCO 模型，函数不授予样本资格。
+- 软件：新增投影与原 Domain 入口共 13 项测试通过，批量覆盖 20433 场景；既有
+  manager/replay 兼容 85 项通过。独审以独立大整数 oracle 执行 7404 场景均通过。
+  测试范围内诊断 deadline 对应输出整周期的计算误差不超过 1 ns；phase 增加
+  300 ns 使计算 deadline 提前 300 ns。这不是 GPIO 精度或实板锁相证据。
+- Release：A/B 及 Flash 链接检查通过，BSS 净增零，链接 RAM 剩余地址空间
+  12148 B，不代表运行栈/堆水位。源码指纹
+  `f4e2a8d6195f966cb82f254acddaf4f14945c47ddc37f8c2d84f426c200408fd`；
+  固件包 SHA256 `a81dce6244bfc70397369b0b3e14aef70e24f49d2c8c8fb3df0ae58363b165ba`。
+- 四板 quick P3：`p3-r1/acceptance.json` 的 `passed`、`strict_gates_passed`
+  均为 true，诊断失败列表为空，耗时 186.343 s；验收范围是四板 TDMA 集成，未验收锁相。
+- 接收补测：`capture-r1/input-probe.json` 与 `receive-analysis-r1.json` 均通过；
+  NO2/NO3/NO4 接收增量 2190/2244/2208，最终同源 slot 0、mailbox 序号 3506、
+  CRC 52363、运输序号 6323，phase=-172 ns、rate=2160 ppb，与 NO1 最终 DCO
+  量化值一致。四板各 20 条原生记录通过 CRC，SD 与 SRAM 逐字节一致，运行期间
+  查询为零。三从实际 DCO 应用增量仍为零，trace 无新记录，不声明闭环或精度。
+- 前序固件的 STOP 后只读尾部诊断：`transport-tail-r1/input-probe.json` 记录
+  NO1 准备尾序号 3524，三从最后保留 3522；“最新准备值”不能代替同序发送版本。
+  此诊断绑定前序接收固件，与本切片 P3 安装的新包分开，不据一次尾差推导通用历史容量。
+- 证据目录：`out/HardwareAcceptance/20260916/dpll-output-projection-r1/`，其中
+  `host-review-summary.json`、`implementation-review-r1.json`、`resource-review-r1.json`
+  和冻结 `after-build/` 保存原件。命令采用当前 Windows 环境的原生 Python/PowerShell
+  入口；提交 hook 使用项目 Git Bash。
+- 主控/独审收敛：`hardware-review-r1.json` 的 42 项核验通过，结论为
+  APPROVE_OUTPUT_PROJECTION_SLICE；源码已提交 `2e014e1`，匹配 staged 源码的
+  P3 凭证及提交 hook 通过。板端 drop/schedule miss 原件保留，不声明逐帧完整送达
+  或整表 WCET 已全部闭合；四板已 STOP，采集流程恢复配置并撤销临时许可，串口关闭。
+- 下一 gate：推进 `VDC-FEEDBACK-001`
+  的真实有效观测、反馈运输和专属校正/应用，精确版本身份随接线闭合。
 
 ### 前序实现回顾
 

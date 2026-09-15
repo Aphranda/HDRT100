@@ -308,6 +308,18 @@ source model sequence、lock state 和相同 CRC。
 - core1 只接受完整且稳定的 snapshot；失败时保留上一稳定值并上报 stale/late。
 - snapshot 不改变 TDMA wire timing；它只决定本地事件如何映射到共同时间。
 
+信号输出的本地时间投影由 `vdc_domain_dco_local_to_output_ns()` 统一计算：消费同一
+份不可变 `VdcDcoControl` 及与其本地锚同域的时间，包含锚、phase 和 rate。现有
+phase-only 诊断脉冲 deadline 与输出域残差接口共用该投影，避免输出已经采用 `dco`
+而反馈仍套用另一个 `clock`
+模型。投影必须有界；模型/时间无效或最终结果越界时返回失败，不改写调用者结果。
+
+`vdc_domain_dco_output_phase_residual_ns()` 比较本地实际 RX 事件处的 DCO 输出相位，
+与指定参考同事件的输出相位及有向路径时延。调用者负责验证来源、事件对应、时间单位、
+模型代际和新鲜度；raw reference counter phase 不能隐式当作 reference DCO phase。
+残差正负号是归中后的本地模型相位减期望相位，不单独授予物理引脚提前/滞后结论。
+这两个纯计算接口不写 PI、DCO、lock 或 quality，也不建立共同时间映射或授予正式准入。
+
 ## HOLDOVER、RELOCK 与失败恢复
 
 - 单份时间样本的 CRC、来源、时间有效性或代际不匹配只拒绝该样本；在当前控制
