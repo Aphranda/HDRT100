@@ -78,7 +78,60 @@ P3，详见 `VDC-PROGRESS-20260915-026`；后续非法目标位移修复和完�
 命令的退休见 `VDC-PROGRESS-20260915-031`；FIFO 发布入站取消见
 `VDC-PROGRESS-20260915-032`；FIFO 借用与 STOP 回收互斥见
 `VDC-PROGRESS-20260915-033`；本地 ring 配置绑定与命令取消见
-`VDC-PROGRESS-20260915-034`。
+`VDC-PROGRESS-20260915-034`；固定校准配置复测与示波器诊断链路见
+`VDC-PROGRESS-20260915-035`。
+
+### VDC-PROGRESS-20260915-035 — 固定配置快速复测与四通道触发采集
+
+- TODO task ID：`VDC-SCHED-001`、`VDC-VERIFY-001`；状态 IN PROGRESS。
+  前一切片已分离提交为 `e3d8737` / `4164b11`。本轮使用其已部署固件和既有
+  工具进行测量，没有增加生产功能、改变预算或重新宣称命令启用态通过。
+- 前后归因复核：033/034 两轮不仅源码不同，校准偏移行、部分有向链路延迟、
+  实际应用槽位也不同；相同 build ID 不能替代源码/包 SHA。原 166/343 是含启动
+  的记录 baseline 至末样本计数，稳定窗分别为 71/833 与 148/833 次 TDMA 超限。
+  因此不根据这两轮直接归因或回退本地 STOP 取消修复。
+- 快速流程：固定 034 的 matrix、偏移行和板序，直接运行既有
+  `trn03_closed_loop.py`，SCPI 只触发，板端 SRAM 定时记录，全部 STOP 后导出。
+  前两次复测因上轮记录仍 FROZEN 而拒绝 ARM，失败原件保留；按既有
+  `diagnostics_tdma_record_save()` 保存至 SD、确认 SAVED 后再 ARM，恢复成功，
+  未放松生命周期保护。随后每轮导出完再 SAVE，使下一轮可重复执行。
+- 测量快照，非事实源：r3/r4/r5 分别耗时 15.125/14.984/15.031 s，闭环和既有
+  实时 gate 均通过。各板每轮 14 个样本，记录器 missed/reason 均零；独立重解
+  十二份 binary，终结 CRC、身份及 JSON 副本一致，STOP/config ACK 和 SAVED
+  读回通过。本轮未做 SD 文件逐字节回读，不能把 SAVED 扩称为 SD/SRAM 一致。
+  主板稳定窗 TDMA overrun/run 分别为 117/834、153/832、104/833，deadline
+  增量为 85/112/76，超限率范围 12.48% 至 18.39%，合计 374/2499。
+  034 的稳定窗比例落在本次范围内，只能说明当前固件仍有时序压力；稀疏
+  last-runtime 不是逐周期分布，现有 gate 仍未覆盖 TDMA WCET。
+  采样配置固定不等于完全相同启动历史，尚未进行受控旧/新固件 A/B。
+- 外部观测：用户确认 RIGOL HDO4404 的 CH1 至 CH4 对应 NO1 至 NO4 DPLL 输出，
+  探头均为 1×，以 NO1/CH1 正沿为触发源。本轮实际确认 SING 后 WAIT、armed
+  时 SING/CH1 读回、随后自动 STOP，在同次 STOP 中导出四路 RAW BYTE。
+  每路完整 block、preamble、请求/读回范围、SHA 和触发状态序列均保留。
+  四路共同时间轴为 20 ns 采样、每路一百万点，窗口约 20 ms；上升沿数量为
+  3/3/4/3，均有真实脉冲（本轮诊断快照，非精度或稳定性事实源）。
+- 采集失败与修正记录：r1 在 SING 后立即读到旧 STOP，后续复验发现 WAIT，
+  未导出；r2 观察到 WAIT 但等待内无触发，也未导出。r3 完成新触发后，仪器
+  sweep 自动读回 NORM，保守检查拒绝；原件保留，随后只补读其冻结帧，未冒称
+  新采集。该帧只有 NO1 输出，诊断启动顺序调整为从板先于 NO1 后，r4 四路均
+  有脉冲。r3 输出关闭的短 ACK 等待超时，后续原始查询确认四板已关闭；r4
+  控制响应及最终 selftest 全零、TDMA STOP/config ACK 均闭合。
+- 范围：本次输出是 TDMA STOP 下既有 phase-only 诊断 persona，不是正常
+  resident 命令驱动的产品输出。其 DCO 过旧时可回退本地 monotonic deadline，
+  每次 service 只排一个脉冲，不能按配置周期补出未采到的脉冲、强行按同周期
+  配对或宣称连续锁相。最终关闭是软件读回，未补测关闭后的电气波形。既有
+  `scope_dpll_capture.py` 的默认滚动采集、缩放和原始数据保留仍需独立工具
+  切片修正；本轮 `out/` 中诊断采集不代表该工具已验收。
+- 证据：`out/HardwareAcceptance/20260915/command-stop-timing-baseline-r1/`
+  至 `command-stop-timing-baseline-r5/`、`command-stop-timing-save/` 保存原生记录、
+  失败、SAVE 读回和 `timing-review.json`；`scope-trigger-r1/` 至
+  `scope-trigger-r4/` 保存各次原件、板控和波形。示波器后续用于相对 NO1 的
+  相位、漂移、缺脉冲和恢复观测，需与同窗板端命令应用、角色、会话和可信时间
+  映射对账；探头/通道延迟及最终门限仍待验证，不能单靠内部 LOCKED 或单帧判断。
+- 下一 gate：`VDC-SCHED-001` 先补同 reset generation 的完整 TDMA phase profile，
+  区分 outer、adapter、RX、overlay 和 owner 成本，嵌套阶段不重复相加；按校准
+  配置与应用槽位受控后再做代码 A/B。命令会话、定时应用及正式输出锁相任务
+  继续保持未完成，不因测量链路可用而提升状态。
 
 ### VDC-PROGRESS-20260915-034 — 本地 ring 配置绑定与 STOP/ARM 命令取消
 

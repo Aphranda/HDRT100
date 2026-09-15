@@ -184,8 +184,10 @@ STOP/ARM 取消补强见
 `VDC-PROGRESS-20260915-034`；该绑定不建立共同 session，也不撤回已进入
 TX image/FIFO/PIO/DMA 的旧片段。不能因禁用态 P3 或本地取消通过关闭全部前置；
 每项修复继续独立完成软件验证、四板 P3 和对应功能正反证据。
-继续增加功能前，先对 `VDC-PROGRESS-20260915-034` 中 TDMA 超预算增多做同工况
-测量对照；现有 P3 gate 未覆盖 TDMA phase WCET，不能据其通过跳过这项复核。
+继续增加功能前，先闭合 TDMA 涨时归因。`VDC-PROGRESS-20260915-035` 已固定
+校准配置完成当前固件重复测量，下一步补同 reset generation 的完整 phase profile，
+再按校准配置和应用槽位控制旧/新固件 A/B；现有 P3 gate 未覆盖 TDMA phase WCET，
+不能据其通过跳过这项复核。
 普通四板收敛中出现的 SCK 候选不足、TOPology 准备拒绝及三轮失败见
 `VDC-PROGRESS-20260915-028`；针对后者的 STOP 后有界恢复及独立验收见
 `VDC-PROGRESS-20260915-029`。配置成功仍需新代际 ACK，不能由超时后的状态猜测
@@ -385,6 +387,13 @@ prepare/servo/finalize/publish 成本，区分本相位超限与上游继承迟�
 使用既有 SRAM/STOP 后 SD 路径；NO5 外部观测和分段流式存储另行按对应资源准入推进，
 不能阻塞命令交接或替代 TDMA/Calibration/formal timestamp evidence。
 
+当前只有四板，外部输出改由已接入示波器观测：CH1 至 CH4 对应 NO1 至 NO4，
+用户指定 NO1/CH1 为触发源。`VDC-PROGRESS-20260915-035` 仅验证四路诊断输出和
+同次停止帧 RAW 导出；后续需校验触发身份、完整共同时间轴、探头/通道延迟及
+同窗板端应用记录，持续分析相位差、漂移、缺脉冲和恢复后再按评审门限判断锁相。
+既有滚动采集工具仍需独立修正和验收，单帧、诊断 fallback 或内部 LOCKED 均不能
+关闭正式锁相任务；无需为当前四板验证等待 NO5。
+
 目标数据链路固定为：
 
 ```text
@@ -393,7 +402,7 @@ PIO/DMA EDGE_TIMESTAMP producer
   -> Core0 bounded drain
   -> StorageAO segmented SD writer
   -> decoder/drop-interval/SVG analysis
-  -> NO1-NO4 internal DPLL + NO5 external same-window correlation
+  -> NO1-NO4 internal DPLL + external same-window correlation (scope now; NO5 separately)
   -> STOP/readback and next-run SCPI parameter tuning
   -> convergence/formal-lock decision
 ```
@@ -406,8 +415,9 @@ PIO/DMA EDGE_TIMESTAMP producer
   drop interval、segment gap 和恢复点写入证据。
 - `EDGE_TIMESTAMP` 只保存边沿上下文；实时 phase decoder 仍消费全部必要采样字，观测
   压缩不得改变 DPLL 输入或控制路径。
-- NO1--NO4 内部 DPLL 是收敛判定的主要数据源，NO5 只做外部只读相关观测；二者必须
-  具备同窗、sequence/time anchor 和数据完整性标记。
+- NO1--NO4 内部 DPLL 与外部实际输出共同用于收敛判定；当前示波器和后续 NO5
+  都只做外部观测，不参与控制。关联证据必须具备同窗、sequence/time anchor 和
+  数据完整性标记，不能用内部状态替代物理相位证明。
 - DPLL 失锁、残差振荡或调参反馈不能屏蔽节点；只要 TDMA 基础收发连续，节点继续参与
   环路。调试参数可通过 SCPI 小步试探、等待新样本、评分并回退。
 - 快速验收默认不采 T0--T3 SD waveform；只有显式全量验收或异常诊断路径才启用原始
