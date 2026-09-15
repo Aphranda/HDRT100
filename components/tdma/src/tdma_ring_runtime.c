@@ -986,7 +986,8 @@ bool tdma_ring_runtime_get_clock_snapshot(
         return false;
     }
 
-    bool config_copied = false;
+    /* Configuration and its Core1 acknowledgement form one snapshot. A
+     * configuration change during either copy invalidates this attempt. */
     for (uint32_t attempt = 0u;
          attempt < TDMA_RING_RUNTIME_SNAPSHOT_RETRY_LIMIT;
          attempt++) {
@@ -1004,31 +1005,22 @@ bool tdma_ring_runtime_get_clock_snapshot(
         snapshot->schedule_crc32 = runtime->schedule_crc32;
         snapshot->cycle_period_ns = runtime->cycle_period_ns;
         snapshot->feedback_timeout_ns = runtime->feedback_timeout_ns;
-        const uint32_t guard_end =
-            tdma_ring_runtime_load(&runtime->config_guard);
-        if (guard_begin == guard_end && (guard_end & 1u) == 0u) {
-            config_copied = true;
-            break;
-        }
-    }
-    if (!config_copied) {
-        return false;
-    }
-
-    for (uint32_t attempt = 0u;
-         attempt < TDMA_RING_RUNTIME_SNAPSHOT_RETRY_LIMIT;
-         attempt++) {
-        const uint32_t guard_begin =
+        const uint32_t result_begin =
             tdma_ring_runtime_load(&runtime->result_guard);
-        if ((guard_begin & 1u) != 0u) {
+        if ((result_begin & 1u) != 0u) {
             continue;
         }
         snapshot->adapter_started = runtime->adapter_started;
         snapshot->ring_seq = runtime->ring_seq;
+        snapshot->applied_config_seq = runtime->applied_config_seq;
         snapshot->clock_observation = runtime->clock_observation;
-        const uint32_t guard_end =
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        const uint32_t result_end =
             tdma_ring_runtime_load(&runtime->result_guard);
-        if (guard_begin == guard_end && (guard_end & 1u) == 0u) {
+        const uint32_t guard_end =
+            tdma_ring_runtime_load(&runtime->config_guard);
+        if (guard_begin == guard_end && (guard_end & 1u) == 0u &&
+            result_begin == result_end && (result_end & 1u) == 0u) {
             return true;
         }
     }

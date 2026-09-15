@@ -426,6 +426,7 @@ bool distributed_refmem_get_tdma_flight_sync_mirror(
 bool distributed_refmem_get_vdc_follower_command(
     uint32_t source_slot,
     uint32_t expected_consumer_generation,
+    uint32_t expected_ring_config_seq,
     refmem_sync_vdc_command_snapshot_t *snapshot);
 void distributed_refmem_get_tdma_flight_sync_quality(
     refmem_sync_quality_counters_t *snapshot);

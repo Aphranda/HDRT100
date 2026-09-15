@@ -209,13 +209,16 @@ typedef struct {
     uint8_t local_slot;
     uint32_t active_epoch_id;
     uint32_t active_run_id;
-    /* Core0 publishes a complete command snapshot under this guard. Core1
-     * must use refmem_sync_vdc_copy_command_for_generation(); unbound copy is
-     * for diagnostics, and the pointer getter is for single-threaded use. */
+    /* Core0 publishes a complete command snapshot under this guard. Resident
+     * Core1 uses refmem_sync_vdc_copy_command_for_binding(); weaker copies
+     * are diagnostic-only, and the pointer getter is single-threaded only. */
     volatile uint32_t vdc_command_guard;
     /* Local consumer role identity, never the remote master's generation.
      * Protected by vdc_command_guard together with retained commands. */
     uint32_t consumer_generation;
+    /* Local TDMA configuration, not a distributed session or wire sequence.
+     * Zero closes command admission; protected by the same command guard. */
+    uint32_t consumer_ring_config_seq;
     refmem_sync_vdc_command_snapshot_t
         vdc_command[REFMEM_SYNC_NODE_COUNT];
 } refmem_sync_vdc_context_t;
@@ -283,7 +286,20 @@ bool refmem_sync_vdc_set_epoch(refmem_sync_vdc_context_t *context,
 bool refmem_sync_vdc_set_consumer_generation(
     refmem_sync_vdc_context_t *context,
     uint32_t consumer_generation);
+/* Receiver-owned role/TDMA binding. A change retires retained values while
+ * preserving same-session source ordering. A zero ring sequence closes it. */
+bool refmem_sync_vdc_set_consumer_binding(
+    refmem_sync_vdc_context_t *context,
+    uint32_t consumer_generation,
+    uint32_t ring_config_seq);
 refmem_sync_rx_result_t refmem_sync_vdc_receive_frame(
+    refmem_sync_vdc_context_t *context,
+    const uint8_t *frame,
+    size_t frame_size,
+    refmem_sync_rx_snapshot_t *snapshot);
+/* Production receiver owner only: closed local binding cannot publish a
+ * command or advance source watermarks. The unbound API above is diagnostic. */
+refmem_sync_rx_result_t refmem_sync_vdc_receive_admitted_frame(
     refmem_sync_vdc_context_t *context,
     const uint8_t *frame,
     size_t frame_size,
@@ -295,12 +311,20 @@ bool refmem_sync_vdc_copy_command(
     const refmem_sync_vdc_context_t *context,
     uint8_t source_slot,
     refmem_sync_vdc_command_snapshot_t *out);
-/* Core1 uses its active local role generation, checked in the same guarded
- * read as the command. On false the caller must ignore out. */
+/* Role-only diagnostic copy; does not prove TDMA lifecycle admission.
+ * On false the caller must ignore out. */
 bool refmem_sync_vdc_copy_command_for_generation(
     const refmem_sync_vdc_context_t *context,
     uint8_t source_slot,
     uint32_t expected_consumer_generation,
+    refmem_sync_vdc_command_snapshot_t *out);
+/* Realtime resident consumer: both local identities must match in the same
+ * guarded copy. Both expected values must be nonzero. Ignore out on false. */
+bool refmem_sync_vdc_copy_command_for_binding(
+    const refmem_sync_vdc_context_t *context,
+    uint8_t source_slot,
+    uint32_t expected_consumer_generation,
+    uint32_t expected_ring_config_seq,
     refmem_sync_vdc_command_snapshot_t *out);
 void refmem_sync_vdc_fragment_reset(
     refmem_sync_vdc_fragment_context_t *context);

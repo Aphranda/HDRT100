@@ -31,6 +31,7 @@ static tdma_ring_clock_snapshot_t valid_snapshot(void)
     memset(&ring, 0, sizeof(ring));
     ring.enabled = 1u;
     ring.adapter_started = 1u;
+    ring.config_seq = ring.applied_config_seq = 9u;
     ring.cycle_period_ns = 1000000u;
     ring.feedback_timeout_ns = 500000u;
     ring.schedule_crc32 = 0x12345678u;
@@ -68,6 +69,16 @@ int main(void)
                               NULL), false);
 
     tdma_ring_clock_snapshot_t rejected = ring;
+    rejected.applied_config_seq--;
+    failed += expect_bool("new ARM has no owner ACK", vdc_time_mapping_map_local_to_common_time(
+                              &rejected, ring.schedule_crc32, 1000000000ull,
+                              &common), false);
+    rejected = ring;
+    rejected.config_seq = rejected.applied_config_seq = 0u;
+    failed += expect_bool("zero generation closes command time admission", vdc_time_mapping_map_local_to_common_time(
+                              &rejected, ring.schedule_crc32, 1000000000ull,
+                              &common), false);
+    rejected = ring;
     rejected.enabled = 0u;
     failed += expect_bool("disabled ring", vdc_time_mapping_map_local_to_common_time(
                               &rejected, ring.schedule_crc32, 1000000000ull,

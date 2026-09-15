@@ -465,7 +465,10 @@ static bool distributed_refmem_tdma_prepare_vdc_command_record(
     const tdma_ring_runtime_snapshot_t *ring)
 {
     s_tdma_flight_sync.vdc_command_prepare_attempt_count++;
-    if (ring == NULL || ring->local_slot_id >= REFMEM_SYNC_NODE_COUNT) {
+    if (ring == NULL || ring->local_slot_id >= REFMEM_SYNC_NODE_COUNT ||
+        !s_vdc_command_context_ready || ring->config_seq == 0u ||
+        ring->config_seq != ring->applied_config_seq ||
+        ring->config_seq != s_vdc_command_context.consumer_ring_config_seq) {
         s_tdma_flight_sync.vdc_command_prepare_reject_count++;
         s_tdma_flight_sync.vdc_command_prepare_last_reason =
             DISTRIBUTED_REFMEM_VDC_COMMAND_PREPARE_BAD_ARGUMENT;
@@ -840,6 +843,7 @@ static void distributed_refmem_tdma_flight_parse_vdc_fragment(
     size_t mailbox_size)
 {
     if (!s_vdc_command_context_ready ||
+        s_vdc_command_context.consumer_ring_config_seq == 0u ||
         s_tdma_flight_sync.vdc_command_transport_generation !=
             s_vdc_command_context.consumer_generation || mailbox == NULL ||
         mailbox_size < DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE ||
@@ -927,7 +931,7 @@ static void distributed_refmem_tdma_flight_parse_vdc_fragment(
 
     refmem_sync_rx_snapshot_t rx;
     const refmem_sync_rx_result_t result =
-        refmem_sync_vdc_receive_frame(&s_vdc_command_context,
+        refmem_sync_vdc_receive_admitted_frame(&s_vdc_command_context,
                                        frame,
                                        frame_size,
                                        &rx);
@@ -2127,7 +2131,7 @@ static void distributed_refmem_node_load_auto_process_completed(
                 command_payload_size == sizeof(refmem_sync_vdc_command_payload_t);
             refmem_sync_rx_snapshot_t rx;
             const refmem_sync_rx_result_t result = is_vdc_command
-                ? refmem_sync_vdc_receive_frame(&s_vdc_command_context,
+                ? refmem_sync_vdc_receive_admitted_frame(&s_vdc_command_context,
                                             frame,
                                             frame_size,
                                             &rx)
@@ -2339,7 +2343,7 @@ static void distributed_refmem_vdc_follower_rx_process_completed(
         } else {
             refmem_sync_rx_snapshot_t rx;
             const refmem_sync_rx_result_t result =
-                refmem_sync_vdc_receive_frame(&s_vdc_command_context,
+                refmem_sync_vdc_receive_admitted_frame(&s_vdc_command_context,
                                                frame,
                                                frame_size,
                                                &rx);
@@ -3902,6 +3906,19 @@ static bool distributed_refmem_refresh_vdc_command_context_from_snapshot(
         return false;
     }
 
+    tdma_ring_clock_snapshot_t ring;
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring)) {
+        /* A busy snapshot is not a STOP. Preserve retained values and retry
+         * next RefMem turn; ordinary mailbox processing still proceeds. */
+        return false;
+    }
+    const uint32_t ring_config_seq =
+        ring.enabled != 0u && ring.adapter_started != 0u &&
+        ring.config_seq != 0u && ring.config_seq == ring.applied_config_seq &&
+        ring.local_slot_id == local_slot &&
+        ring.schedule_crc32 == snapshot->schedule.schedule_crc32
+            ? ring.config_seq : 0u;
+
     const bool identity_changed =
         !s_vdc_command_context_initialized ||
         s_vdc_command_context_local_slot != local_slot ||
@@ -3910,10 +3927,12 @@ static bool distributed_refmem_refresh_vdc_command_context_from_snapshot(
         s_vdc_command_context_schedule_epoch != schedule_epoch;
     const bool consumer_changed = s_vdc_command_context.consumer_generation !=
                                   snapshot->control_profile.generation;
+    const bool ring_changed = s_vdc_command_context.consumer_ring_config_seq !=
+                             ring_config_seq;
 #if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
-    if (identity_changed || consumer_changed ||
+    if (identity_changed || consumer_changed || ring_changed ||
         s_tdma_flight_sync.vdc_command_rx_admission_epoch == 0u) {
-        refmem_sync_vdc_fragment_reset(&s_tdma_flight_sync.vdc_command_fragments);
+        distributed_refmem_tdma_reset_resident_command_state();
         s_tdma_flight_sync.vdc_command_rx_admission_epoch =
             tdma_service_core0_advance_flight_rx_admission_epoch(
                 tdma_runtime_owner_get());
@@ -3923,6 +3942,7 @@ static bool distributed_refmem_refresh_vdc_command_context_from_snapshot(
     }
 #else
     (void)consumer_changed;
+    (void)ring_changed;
 #endif
     if (identity_changed &&
         !refmem_sync_vdc_reset(&s_vdc_command_context,
@@ -3931,8 +3951,9 @@ static bool distributed_refmem_refresh_vdc_command_context_from_snapshot(
                               run_id)) {
         return false;
     }
-    if (!refmem_sync_vdc_set_consumer_generation(
-            &s_vdc_command_context, snapshot->control_profile.generation)) {
+    if (!refmem_sync_vdc_set_consumer_binding(
+            &s_vdc_command_context, snapshot->control_profile.generation,
+            ring_config_seq)) {
         return false;
     }
     s_vdc_command_context_local_slot = local_slot;
@@ -4164,14 +4185,15 @@ void distributed_refmem_tdma_publish_service(void)
 bool distributed_refmem_get_vdc_follower_command(
     uint32_t source_slot,
     uint32_t expected_consumer_generation,
+    uint32_t expected_ring_config_seq,
     refmem_sync_vdc_command_snapshot_t *snapshot)
 {
     if (snapshot == NULL || source_slot >= REFMEM_SYNC_NODE_COUNT) {
         return false;
     }
-    return refmem_sync_vdc_copy_command_for_generation(
+    return refmem_sync_vdc_copy_command_for_binding(
         &s_vdc_command_context, (uint8_t)source_slot,
-        expected_consumer_generation, snapshot);
+        expected_consumer_generation, expected_ring_config_seq, snapshot);
 }
 
 void distributed_refmem_get_tdma_flight_sync_quality(

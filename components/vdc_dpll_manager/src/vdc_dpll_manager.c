@@ -522,6 +522,7 @@ static bool VDC_DPLL_MANAGER_TIME_CRITICAL(
     status.snapshot_count++;
     status.last_config_seq = ring.config_seq;
     if (ring.enabled == 0u || ring.adapter_started == 0u ||
+        ring.config_seq != ring.applied_config_seq ||
         ring.clock_observation.valid == 0u) {
         status.last_result =
             VDC_DPLL_MANAGER_RING_OBSERVER_INACTIVE;
@@ -1857,15 +1858,35 @@ static __attribute__((noinline)) void vdc_dpll_manager_consume_follower_command(
         s_vdc_follower_last_applied_seq = 0u;
     }
 
+    tdma_ring_clock_snapshot_t ring;
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring) ||
+        ring.enabled == 0u || ring.adapter_started == 0u ||
+        ring.config_seq == 0u || ring.config_seq != ring.applied_config_seq ||
+        ring.local_slot_id != local_slot_id ||
+        ring.schedule_crc32 != s_vdc_domain.schedule.schedule_crc32) {
+        return;
+    }
+    const uint32_t command_ring_config_seq = ring.config_seq;
     refmem_sync_vdc_command_snapshot_t retained;
     if (!distributed_refmem_get_vdc_follower_command(
-            profile->follow_master_slot_id, generation, &retained) ||
+            profile->follow_master_slot_id, generation,
+            command_ring_config_seq, &retained) ||
         retained.valid == 0u ||
         retained.epoch_id != s_vdc_domain.clock.epoch_id ||
         retained.run_id != s_vdc_domain.clock.run_id) {
         /* Core0 may not yet have retired the previous receiver/role identity.
          * The sole realtime owner must reject that old session itself. */
         vdc_domain_note_follower_command_missing(&s_vdc_domain);
+        return;
+    }
+
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring) ||
+        ring.enabled == 0u || ring.adapter_started == 0u ||
+        ring.config_seq != command_ring_config_seq ||
+        ring.applied_config_seq != command_ring_config_seq) {
+        /* STOP/configuration can arrive while Core0's command is copied.
+         * Revalidate before consuming any sequence, including rejected
+         * commands. A later STOP completes at the next Core1 TDMA boundary. */
         return;
     }
 
@@ -1890,13 +1911,6 @@ static __attribute__((noinline)) void vdc_dpll_manager_consume_follower_command(
 
     if (!vdc_time_mapping_sequence_is_newer(
             retained.command_seq, s_vdc_follower_last_applied_seq)) {
-        return;
-    }
-    tdma_ring_clock_snapshot_t ring;
-    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring)) {
-        /* Do not compare a peer's common deadline with this board's raw
-         * uptime. Until a fresh TDMA anchor is available, retain the command
-         * and leave the previous trusted DCO output in place. */
         return;
     }
     uint64_t common_now_ns = 0u;

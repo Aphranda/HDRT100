@@ -89,6 +89,15 @@ static tdma_service_service_t s_owner;
 static bool owner_available = true;
 static tdma_service_service_t *tdma_runtime_owner_get(void)
 { return owner_available ? &s_owner : NULL; }
+static bool tdma_runtime_owner_get_ring_clock_snapshot(tdma_ring_clock_snapshot_t *out)
+{
+    *out = (tdma_ring_clock_snapshot_t){.enabled = 1, .adapter_started = 1,
+        .config_seq = 9, .applied_config_seq = 9, .local_slot_id = 2,
+        .schedule_crc32 = 0xA5A5};
+    /* This fixture loses owner access at epoch publication, after a copied
+     * ring snapshot. Snapshot contention is tested by the STOP harness. */
+    return true;
+}
 ''' + state.group(0) + "\nstatic distributed_refmem_tdma_flight_sync_t s_tdma_flight_sync;\n"
     # The old refresh did not discover the owner; expose that harmless stub
     # in fixture setup too so both baseline and current builds use it.
@@ -380,6 +389,12 @@ static uint32_t s_vdc_command_context_epoch_id, s_vdc_command_context_run_id;
 static uint32_t s_vdc_command_context_schedule_epoch, admitted;
 static tdma_service_service_t s_owner;
 static tdma_service_service_t *tdma_runtime_owner_get(void) { return &s_owner; }
+static bool tdma_runtime_owner_get_ring_clock_snapshot(tdma_ring_clock_snapshot_t *out)
+{
+    *out = (tdma_ring_clock_snapshot_t){.enabled = 1, .adapter_started = 1,
+        .config_seq = 9, .applied_config_seq = 9, .local_slot_id = 2};
+    return true;
+}
 static struct {
     uint32_t vdc_command_transport_generation, vdc_command_transport_valid;
     uint32_t vdc_command_transport_mode, vdc_command_transport_source_slot;
@@ -387,6 +402,8 @@ static struct {
     uint32_t vdc_command_rx_admission_epoch;
     refmem_sync_vdc_fragment_context_t vdc_command_fragments;
 } s_tdma_flight_sync;
+static void distributed_refmem_tdma_reset_resident_command_state(void)
+{ refmem_sync_vdc_fragment_reset(&s_tdma_flight_sync.vdc_command_fragments); }
 /* Frame CRC32 is outside this harness; fail if unexpectedly invoked. */
 uint32_t ota_crc32_update(uint32_t crc, const uint8_t *data, size_t length)
 { (void)crc; (void)data; (void)length; assert(!"unexpected frame CRC"); return 0; }

@@ -11,6 +11,7 @@ bool vdc_time_mapping_map_local_to_common_time(
     if (ring == NULL || common_time_ns == NULL ||
         expected_schedule_crc32 == 0u ||
         ring->enabled == 0u || ring->adapter_started == 0u ||
+        ring->config_seq == 0u || ring->config_seq != ring->applied_config_seq ||
         ring->cycle_period_ns == 0u || ring->feedback_timeout_ns == 0u ||
         ring->schedule_crc32 == 0u ||
         ring->schedule_crc32 != expected_schedule_crc32) {

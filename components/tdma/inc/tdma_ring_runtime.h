@@ -314,6 +314,7 @@ typedef struct {
     uint32_t feedback_timeout_ns;
     uint32_t adapter_started;
     uint32_t ring_seq;
+    uint32_t applied_config_seq;
     tdma_ring_clock_observation_t clock_observation;
 } tdma_ring_clock_snapshot_t;
 
@@ -429,6 +430,8 @@ void tdma_ring_runtime_service_with_stop_gate(tdma_ring_runtime_t *runtime,
                                              bool allow_stop);
 bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime,
                                     tdma_ring_runtime_snapshot_t *snapshot);
+/* Coherent configuration/result copy. Consumers admitting clock evidence
+ * must also require config_seq == applied_config_seq; pending ACK is readable. */
 bool tdma_ring_runtime_get_clock_snapshot(
     const tdma_ring_runtime_t *runtime,
     tdma_ring_clock_snapshot_t *snapshot);

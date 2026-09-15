@@ -81,9 +81,11 @@ static bool retained_available, ring_available, domain_accept;
 static uint64_t now_ns;
 
 static bool distributed_refmem_get_vdc_follower_command(uint32_t source,
-    uint32_t expected_generation, refmem_sync_vdc_command_snapshot_t *out)
+    uint32_t expected_generation, uint32_t expected_ring_config_seq,
+    refmem_sync_vdc_command_snapshot_t *out)
 {
     ++reads; requested_source = source; requested_generation = expected_generation;
+    assert(expected_ring_config_seq == ring_source.config_seq);
     if (!retained_available || expected_generation == 0 ||
         expected_generation != consumer_generation) return false;
     *out = retained_source;
@@ -150,6 +152,8 @@ static void reset_fixture(void)
         .lock_state = VDC_DOMAIN_LOCK_FREQ_LOCK, .quality = 1};
     now_ns = 11000;
     ring_source.enabled = ring_source.adapter_started = 1;
+    ring_source.config_seq = ring_source.applied_config_seq = 7;
+    ring_source.local_slot_id = s_vdc_domain.schedule.local_slot_id;
     ring_source.cycle_period_ns = 2000; ring_source.feedback_timeout_ns = 8000;
     ring_source.schedule_crc32 = s_vdc_domain.schedule.schedule_crc32;
     ring_source.clock_observation.valid = 1;
@@ -187,12 +191,12 @@ int main(int argc, char **argv)
         vdc_dpll_manager_consume_follower_command(); assert_applied(1);
         /* MASTER's generation is intentionally different from local FOLLOWER generation. */
         assert(last_command.control_generation != s_vdc_domain.control.profile.generation);
-        vdc_dpll_manager_consume_follower_command(); assert_applied(1); assert(ring_reads == 1);
+        vdc_dpll_manager_consume_follower_command(); assert_applied(1); assert(ring_reads == 4);
     } else if (!strcmp(scenario, "epoch_mismatch") || !strcmp(scenario, "run_mismatch")) {
         if (!strcmp(scenario, "epoch_mismatch")) ++retained_source.epoch_id;
         else ++retained_source.run_id;
         vdc_dpll_manager_consume_follower_command();
-        assert(missing == 1 && apply_calls == 0 && dco_writes == 0 && ring_reads == 0);
+        assert(missing == 1 && apply_calls == 0 && dco_writes == 0 && ring_reads == 1);
         assert(s_vdc_follower_last_applied_seq == 0 && s_vdc_follower_capture_kind_hint == 0);
         assert(s_vdc_domain.dco.period_adjust_ppb == -700 && s_vdc_domain.dco.phase_offset_ns == -800);
         /* Repair context, retaining the very same command sequence: it must remain eligible. */
@@ -222,14 +226,14 @@ int main(int argc, char **argv)
         else retained_source.target_slot = 2;
         vdc_dpll_manager_consume_follower_command();
         assert(reads == 1 && requested_source == 0 && apply_calls == 1 && !last_command.valid);
-        assert(dco_writes == 0 && ring_reads == 0 && s_vdc_follower_last_applied_seq == 1);
+        assert(dco_writes == 0 && ring_reads == 2 && s_vdc_follower_last_applied_seq == 1);
         assert(s_vdc_follower_capture_kind_hint == VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_STATE);
         vdc_dpll_manager_consume_follower_command(); assert(apply_calls == 1);
     } else if (!strcmp(scenario, "missing") || !strcmp(scenario, "invalid")) {
         if (!strcmp(scenario, "missing")) retained_available = false;
         else retained_source.valid = 0;
         vdc_dpll_manager_consume_follower_command();
-        assert(missing == 1 && !apply_calls && !ring_reads && !dco_writes);
+        assert(missing == 1 && !apply_calls && ring_reads == 1 && !dco_writes);
     } else if (!strcmp(scenario, "non_follower")) {
         vdc_dpll_manager_consume_follower_command(); assert_applied(1);
         s_vdc_domain.control.profile.mode = VDC_DPLL_CONTROL_MODE_MASTER;
@@ -277,7 +281,7 @@ int main(int argc, char **argv)
                !strcmp(scenario, "generation_delayed")) {
         consumer_generation = !strcmp(scenario, "generation_unbound") ? 0 : 8;
         vdc_dpll_manager_consume_follower_command();
-        assert(missing == 1 && !apply_calls && !ring_reads && !s_vdc_follower_last_applied_seq);
+        assert(missing == 1 && !apply_calls && ring_reads == 1 && !s_vdc_follower_last_applied_seq);
         core0_bind_generation(9);
         vdc_dpll_manager_consume_follower_command(); assert(missing == 2 && !apply_calls);
         retained_source.valid = 1; retained_source.command_seq = 2; missing = 0;
