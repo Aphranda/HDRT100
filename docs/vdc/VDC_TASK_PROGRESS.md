@@ -22,11 +22,12 @@ Last updated: 2026-09-16
 
 ## 当前 checkpoint
 
-最新原始反馈与稀疏主机参考配对见 `VDC-PROGRESS-20260916-010`：当前源码四板
-P3 严格门禁及同次启动内两轮 STOP/ARM 专项通过，逐源配对和原始差分可独立复算。
-从板实际 DCO 应用仍为零；NO1 DPLL 局部预算超限、TDMA 超限及 RX 覆盖原样保留。
-下一步降低实时准备成本，建立输出模型关联、逐从校正和实际应用；不能以诊断配对
-通过代替闭环。原始反馈运输基线见 `VDC-PROGRESS-20260916-009`。
+最新准备迁移见 `VDC-PROGRESS-20260916-011`：缓存、配对和差分由 Core0 RefMem
+单写者准备，Core1 只发布或退休授权。当前源码四板 P3 严格通过，专项完整通过轮次
+为 r2/r4；r1/r3 的短 TX 历史缺证保留。NO1 DPLL 超限显著减少，仍未满足局部及
+完整静态表预算。各从实际 DCO 应用仍为零；下一步建立实际输出模型关联、逐从
+校正和应用，不能以诊断配对代替闭环。原始配对及运输基线分别见
+`VDC-PROGRESS-20260916-010/009`。
 
 最新同条观测留存及本板时间锚见 `VDC-PROGRESS-20260916-008`：严格四板 P3、专项和
 原件独立复核通过；首次专项因 NO2 START 缺少真实应答中止，同源新轮次证明三从
@@ -45,6 +46,76 @@ P3 严格门禁及同次启动内两轮 STOP/ARM 专项通过，逐源配对和�
 
 当前执行依赖按 `VDC-PROGRESS-20260916-002` 纠偏；此前各记录的“当前”及
 “下一 gate”保留历史含义，不将首帧可用、全窗无错或完整绝对时间映射作为运输前置。
+
+### VDC-PROGRESS-20260916-011：Core0 准备迁移与跨核授权退休
+
+- TODO task ID：`VDC-FEEDBACK-001`、`VDC-FLIGHT-001`；父任务和长期目标保持 IN PROGRESS。
+- 状态：DONE，仅关闭诊断准备迁移切片；实际控制未接通，时序及锁相均未验收。
+  本节数字为实验快照，非协议、容量、时序或精度契约。代码提交：`f415bea`。
+- 变更：唯一 Core0 RefMem task 在真实 `distributed_refmem_service()` 内准备稀疏
+  参考、逐源配对及原始差分，每次至多一条参考和一个来源，复用既有数组及发布区。
+  Core1 只发布紧凑授权或撤权；同绑定重新授权使用新 token，耗尽保持撤权。
+  Core0 私有 preparation generation 控制缓存退休；发布及 getter 复验当前 token
+  和参考 epoch，迟到 worker 不能复活 STOP 前结果。debug_continue 应用、角色应用
+  或待应用分支提前返回前撤权；正常 tune/domain/finalize 分支可保持授权。未增加
+  DCO/控制应用。
+- TDMA 来源：LIVE 的 latch SM/CS 与 sample epoch 在同一 guard 下冻结，raw getter
+  末尾再复验。first reset 显式退休 LIVE.active；轻量 epoch facade 是 SRAM-only、
+  单次有界尝试，忙时跳过，确认 inactive 才撤权。原始参考 getter 仍有有界 TIMER1
+  读取。LIVE 元数据增加 8 B，DMA 记录及既有 SCPI 字段数量不变。
+- 软件与源码独审：主控 `root-host-r1.xml` 140 项通过后，真实 service 的 debug+
+  pending-role 反例暴露撤权遗漏，红测 `authorization-owner-red-r2.log` 为 1 fail /
+  11 pass；修复后作者关联集 87 项通过。独立测试累计 73+41+12 项通过，前两组在
+  单行早退修复前完成，最终 12 项覆盖真实 service 边界；
+  `source-resource-review-r1.json` 的 56 项复核无遗留源码发现，SHA256
+  `5971fb9313dac6b668e211f29b7f176f8423daab2ecda6bb2c822373eb5014b4`。
+  覆盖实际 RefMem/SyncDpllFB 分支、token ABA/耗尽、暂停 worker、参考换代和取消。
+- Release：`build-r2.log/json` 通过，最终 A/B ELF、dis、map、manifest 与 package
+  冻结于 `after-build-r2/`。A/B BSS 增加 56 B，末端 `0x2007f400`，链接剩余
+  3072 B，扣除固定堆 2048 B 后为 1024 B；不是运行时余量。ScratchX 未增加，
+  Core1 stack 未改变。静态链估计 Core1 授权约 520 B、Core0 准备约 1388 B，
+  后者在既有 8192 B RefMem 栈内；均不是包含中断的最坏栈证明。
+- 源码 SHA256 `ced34b16520dac5e87a98bcd8d19384ac03cb0afdcacae2137d72db99eb17c6f`，
+  文件数 1150；包 SHA256
+  `9d8434f289d7da4bd2d9ca581e6903d8403489c418c22df3ac78a14d5b416b81`。
+  必跑 `p3-r1` 的 run 完成四板 OTA，但 P0 未发现 NO2→NO3 边；该失败保留。
+  `stopped-triage-r1.json` 四板真实 STOP、SOFTWARE_REBOOT、无 CORE1_STALL，
+  FAULT:LAST 均空。同包 OTA 记录 resume 的 `p3-r2` passed/strict 均 true，
+  diagnostic_failures 为空；未改源码或放宽门禁。提交前 staged 指纹与凭证一致。
+- 专项原件：r1–r4 都完成流程，errors 为空；完整 passed 的轮次是 r2/r4。
+  r1 NO1 最新 NO4 RX 序号 6207 不在源端 [6362,6309] 短 TX 历史中；r3 NO3 RX
+  6319 不在 [6457,6392] 中，两次均判缺证，不能据此断言字节损坏或追认为成功。
+  r1/r3 的算术、年龄、生命周期及原生记录检查通过，原件不删除。
+- 采集修正：旧工具逐板等待 STOP ACK，r1/r2/r3 首末派发差为 235/219/234 ms。
+  out-only `capture_parallel_stop.py` 仅覆盖 stop_all，四独立既有 session 并发发
+  STOP，主线程记录原始 ACK/时间；全 ACK 后才做 runtime 读回，全读回通过才导出。
+  无重开/IDN 或合成 ACK，限次只重试失败板，原错保留。作者及独审各 31 项离线
+  测试通过，工具独审 `parallel-stop-review-r1.json` SHA256
+  `bcf56aa0068d21e3442a05bd14bd6dfae6e858e6c515e60a3f5533636429126d`。
+  r4 首末派发在主机时间戳分辨率内相同，全 ACK 为 94 ms；r2 为 281 ms。
+  一轮通过只支持减少主机停止间隔，不能证明物理同时 STOP 或旧缺证的唯一根因。
+- 完整验收 r2/r4：三从匹配增量 63/62/58 与 61/60/58，缺参考 29/36/42 与
+  32/29/27，陈旧为零；全部最新完整 RX 与源历史逐字节匹配。每轮每板 20 条 native、
+  零 recorder missed、SD/RAM 一致，全部真实 START/STOP，RUN 查询为零；各从实际
+  apply 和各板 DPLL trace 记录仍为零。四轮相邻 ARM 为 16→17→18→19，observer
+  为 3→5→7→9，主机 reference epoch 为 1→2→3→4、generation 为 1→3→5→7。
+- 主控 `main-recheck-r1.json` 88 项通过。独审 `hardware-review-r2.json` 共 1023 项，
+  仅保留 r1/r3 对账缺证及其终态共 4 项失败，没有新增发现；45 项相邻生命周期
+  检查通过，明确批准保留并提交此诊断准备切片，不代表全部历史采集全绿。SHA256
+  `cdf77d485f9ec27754209c598304d9641c0ca77cd622cb85e38934cd38360326`。
+- 时序：`timing-comparison-r1.json` 统一使用首末 native 样本窗口；NO1 四轮调用
+  3793/3793/3793/3792 次，DPLL overrun 为 13/15/9/10、deadline 为 12/15/7/10，
+  旧版本为 537/551、506/523。累计峰值 203.808 us、预算 136 us，仍未达标；累计
+  峰值不是当前 RUN 窗口 WCET。r4 NO3/NO4 各新增 DPLL overrun/deadline 2/2。
+  r2/r4 四板 TDMA overrun 为 3/82/82/85 与 3/79/97/82，deadline 为 3/55/50/65
+  与 2/58/60/62；三从 RX overrun 为 60/50/46 与 66/53/44。旧对照为 56/49/16
+  与 40/21/19，保留不利观察但不归因为 Core0 迁移。各板最小 heap 20352 B、
+  RefMem watermark 1230 words，不证明 Core0 CPU 有余量；独占准备 CPU 时间未测。
+- 证据根目录：`out/HardwareAcceptance/20260916/dpll-feedback-core0-r1/`。当前四板
+  已 STOP，未改 OTA、未操作 NO5。下一 gate：继续 `VDC-FEEDBACK-001`，将有效
+  原始区间关联实际输出消费的 DCO 模型，再接逐从命令和连续重基的频率校正。
+  同模型时间差路线见上一切片 `next-frequency-control-audit-r1.json`；完整绝对
+  时间映射不作为初期频率闭环前置。局部超限继续记录，不隔离健康 TDMA。
 
 ### VDC-PROGRESS-20260916-010：稀疏主机参考配对与原始差分
 
