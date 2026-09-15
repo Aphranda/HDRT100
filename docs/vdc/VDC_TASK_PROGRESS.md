@@ -76,7 +76,58 @@ P3，详见 `VDC-PROGRESS-20260915-026`；后续非法目标位移修复和完�
 粗校准配置拒绝及准备流程有界恢复见 `VDC-PROGRESS-20260915-029`；命令区任务写者
 与在线 reset/读交错修复见 `VDC-PROGRESS-20260915-030`；本地角色回切时已接收
 命令的退休见 `VDC-PROGRESS-20260915-031`；FIFO 发布入站取消见
-`VDC-PROGRESS-20260915-032`。
+`VDC-PROGRESS-20260915-032`；FIFO 借用与 STOP 回收互斥见
+`VDC-PROGRESS-20260915-033`。
+
+### VDC-PROGRESS-20260915-033 — Core0 FIFO 借用保护与 STOP 回收互斥
+
+- TODO task ID：`VDC-CMD-002`、`VDC-ROLE-005`、`VDC-VERIFY-001`；状态 IN PROGRESS。
+  032 已分离提交为 `3a42dcc` / `34aa9fc`，随后开始本切片；本切片代码与 P3
+  凭证已提交为 `66919c2`，文档另行提交。
+- 反例：旧 service 仅核 enabled/adapter/engine 状态后直接清 FIFO；已 acquire 的
+  RX view 仍持旧 slot 指针，后续 Core1 发布可覆盖它，旧 release 又能释放新 slot。
+  真实旧 service/FIFO harness 输出 `reset=1, old_pointer_overwritten=1,
+  old_release=1, acquired_new=0, drops=1` 后断言失败（本轮快照，非事实源）。
+  这是 API 允许交错的反例；当前 RefMem 任务优先级高于 SCPI，不能把低优先级
+  SCPI 抢占 RefMem 当作已测实板故障根因。SCPI raw TX/RX 与 RefMem 共用 FIFO
+  也需要任务间互斥，因此单纯把 reset 移至 RefMem 末尾不足以关闭所有借用窗口。
+- 修复：`core0_guard` 串行化 Core0 FIFO publish/reset，成功 acquire 持有按 slot
+  编码的 guard，release 先归还 slot 再解锁，避免归还因第二次 try-lock BUSY 丢失。
+  Core1 不读、不取新 guard；可在旧 release 解锁前重新发布已 FREE 的 slot，旧
+  release 此后不再写该 slot。错误 slot、未借用或重复 release 被拒绝。
+  API 现在要求同一 FIFO 同时最多一个 Core0 RX view；两个实际接收 caller 均逐个
+  acquire/parse/release，忙时保留数据等下次服务，不清理别人的 view。
+  `tdma_service_reset_flight_fifo_checked()` 持 `ring_control_guard` 核物理 STOP、
+  config/applied ACK、engine inactive 与停止态更新空闲，防 ARM/config 与回收交错。
+  SCPI 仅对 BUSY 按 `SCPI_TDMA_FIFO_RESET_WAIT_LOOPS` 有界让出后重试，真正完成
+  才返回既有 OK；NOT_STOPPED/INVALID 立即拒绝。未改 OTA 或命令使能。
+- 软件与构建：主控 Python 合跑 64 passed（本轮快照，非事实源）；FIFO、service
+  scheduler、adapter C runners 均通过。测试执行生产 FIFO memcpy 中途的 Core0
+  竞争、owner FREE 后的 Core1 重发、借用期间拒绝、失败恢复、STOP ACK 未到及
+  真实 service reset 边界中的 ARM/config 竞争；SCPI handler 执行真实函数，但
+  reset 返回和 RTOS 调度为观测 stub，不冒充实板强制交错。
+  默认双应用/Boot 构建、命令开启分支 compile-only 通过，独立只读审查无阻断项。
+- 资源快照，非事实源：ARM FIFO 从 1888 B 增至 1896 B，RX slot/view 保持
+  296 B/40 B；默认双应用 BSS 各增加 8 B，HeapLimit/StackLimit 不变。
+- 硬件验收：当前源码指纹
+  `db0ae540cf417d02801fe57d712bb2056f81abb1f718ed86cb01a4710d2a2be1`
+  的四板 P3 严格通过，闭环、实时门禁与诊断均通过，无强制放行；耗时
+  188.407 s（本轮快照，非事实源）。四板 `FIFO_RESET` 均返回 `OK`，回收后
+  队列/活动 TX 读回通过；各板原生记录 14 条、missed=0，身份与完整性核对通过。
+  导出前四板均 STOP，config/applied generation ACK 一致。主控复核凭证与源码
+  一致及 20 项产物哈希，并归档包与双应用 map；本轮仅验收命令禁用态四板基线，
+  不作为实板强制交错、命令定时应用或实际输出锁相的证明。
+- 证据：`out/HardwareAcceptance/20260915/fifo-core0-reset-r1/`；`before-reset/`
+  保存冻结输入与旧版反例；`after-service-result.json`、`pytest-final-result.json`、
+  `pytest-final-completion.json`、各 C runner result、`build-result.json`、
+  `target-layout.json`、`source-review.json`、`source/` 及 `independent-review.json`
+  保存软件、目标资源和冻结指纹；`p3/acceptance.json`、`p3/diagnostic.json`、
+  `p3/tdma-process-image/` 与 `review-final.json` 保存严格验收与主控原件复核。
+- 范围与下一 gate：本切片保护 FIFO 借用与回收，不关闭完整命令 STOP/session
+  取消。`reset_stopped()` 仍保留 admission epoch；Core1 正确停机仍由 service
+  与调用方提供，底层 FIFO 不操作 PIO/DMA。上游旧输入、完整旧记录重发、共同
+  session、远端重启、payload 版本及交付上界仍需闭合；命令默认禁用，实际输出
+  锁相未验收。
 
 ### VDC-PROGRESS-20260915-032 — RX FIFO 发布代际与旧命令入站取消
 

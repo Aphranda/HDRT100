@@ -60,8 +60,12 @@ Last updated: 2026-09-15
   这只覆盖 producer 已捕获旧 tag 的 FIFO 发布，含排队及复制中途；DMA/station
   尚未进入该发布边界的旧输入和之后完整重发的旧记录仍需协议有效期/切换生效规则。
   边界是 Core0 观察并刷新身份，不能宣称精确等于 Core1 角色激活瞬间。
-  `tdma_flight_fifo_reset_stopped()` 保留 admission epoch；调用者仍须保证无在用
-  view，当前 SCPI reset 与 RefMem 持有 view 的端到端协调尚未验收。远端
+  `tdma_flight_fifo_reset_stopped()` 保留 admission epoch。后继借用保护见
+  `VDC-PROGRESS-20260915-033`：Core0 FIFO guard 覆盖 publish 及 acquire 到 release
+  的完整借用；同一 FIFO 同时只许一个 Core0 RX view，忙时不回收。service reset
+  持控制锁并核物理 STOP ACK，SCPI 仅对 BUSY 有界让出重试；Core1 不使用该 guard。
+  这解决借用中的 FIFO 回收与 Core0 任务交错，不表示命令区/session 已随 STOP
+  完整退休，后者仍需独立验证。远端
   control generation 重启以及 schedule/STOP 取消仍需端到端负测；本地 role
   generation 与远端 command generation 不能直接比较。
   `vdc_domain_publish_clock_model()` 任意换会话后的 Domain history 退休也未验收，
