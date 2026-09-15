@@ -22,8 +22,9 @@ Last updated: 2026-09-16
 
 ## 当前 checkpoint
 
-最新输出投影准备见 `VDC-PROGRESS-20260916-004`：软件、Release 和当前源码四板
-quick P3 已通过，反馈运输与实际 DCO 应用尚未接通。指定主机接收切片见
+最新 NO1 运行中发射记录留存见 `VDC-PROGRESS-20260916-005`：软件、Release、
+当前源码四板 quick P3 和 STOP 后同序对账已通过。输出投影准备见
+`VDC-PROGRESS-20260916-004`；反馈运输与实际 DCO 应用尚未接通。指定主机接收切片见
 `VDC-PROGRESS-20260916-003`。目标整理见
 `VDC-PROGRESS-20260916-002`，随后贯通各从反馈和专属校正，再消除漂移、收敛精度。
 
@@ -124,6 +125,52 @@ quick P3 已通过，反馈运输与实际 DCO 应用尚未接通。指定主机
   或整表 WCET 已全部闭合；四板已 STOP，采集流程恢复配置并撤销临时许可，串口关闭。
 - 下一 gate：推进 `VDC-FEEDBACK-001`
   的真实有效观测、反馈运输和专属校正/应用，精确版本身份随接线闭合。
+
+### VDC-PROGRESS-20260916-005：NO1 运行中原始发射记录留存
+
+- TODO task ID：`VDC-FEEDBACK-001`。
+- 状态：IN PROGRESS。新增主机本地观测承载，为后续匹配各从反馈提供来源；
+  未接远端反馈、控制器或 DCO 应用。以下数字均为本轮快照，非产品事实源。
+- 实现：Core1 在既有自主 origin service 内，从已完成的 cyclic raw record 作
+  一次有界复制；不读仍由 ARM 改写的 state raw 字段，不消耗原 adapter 观察游标。
+  复验发布推进量、epoch/fault/format 和首尾 sequence，物理 owner 核对复制时间界；
+  Core0 只读受 guard 保护的独立稳定副本。成功/失败 STOP、persona 或 ARM 退休
+  active，历史保留。`READ:CALibration:ORIGin:LIVE?` 在全部 STOP 后读取。
+- 软件：helper 六项测试覆盖 16531 场景（含 16020 次逐字节 DMA 交错），通过；
+  原 STOP 生命周期及实际 collector/getter/SCPI 序列化共两项通过。独审重跑 helper
+  场景和两个集成可执行文件均通过；旧冻结查询输出格式不变。
+- Release：A/B 和 Flash 检查通过，BSS 净增 112 B，链接 RAM 剩余地址空间
+  12036 B，不代表运行栈/堆水位。源码指纹
+  `ca6cdd472cef9f50db9351eaa112e911d631a516f58683941cad15f26847ed40`；
+  固件包 SHA256 `91e622b4d52995305ed6d565ca3bc96f55dd2799dbdedbd8769b3ea57bf4cdc2`。
+- 四板 quick P3：`p3-r1/acceptance.json` 的 passed/strict_gates_passed 均为 true，
+  诊断失败列表为空，耗时 181.162 s。P3 范围为四板 TDMA 集成，不含输出锁相。
+- 专项：`capture-r1/input-probe.json` 通过，错误列表为空、运行期间查询为零。
+  NO1 运行中 copy_count 从零增加到 4051，reject_count 为零，STOP 后 retained=1、
+  active=0。最后保留 epoch=1、published_version=12150、sequence=6319、
+  identity=753201517；原始记录全部字段与冻结池 age=1 的同序记录相同，冻结尾版本
+  12152 减去该 age 对应的版本步数也等于保留版本。三从普通指定主机接收增量
+  2199/2254/2179，未产生 origin live 副本或从机 DCO 应用。
+- 范围：本轮证明运行中取得完整本地发射记录，不证明它是合格边沿点时间；
+  单槽会跳过物理圈次，不构成延迟反馈的同序历史缓存，也不代表特等席反馈已接通。
+- 后继路线独审：`../dpll-feedback-event-r1/route-review-r1.json` 支持直接使用各从
+  独立 PIO 边沿/线上序列。该入口不消费 DMA packet，因此 DMA 候选到边沿关联不再
+  作为前置；真正待接线的是相对 CS 的序列采样配置、内部同事件配对、observer 自身
+  退休/恢复、本板时钟锚，以及 NO1 对应事件留存。首样可跳过，不要求全局首帧证明。
+- 证据异常：主控误将前序投影基线复制到已存在的 `before-build/`，覆盖旧映射和包。
+  全 out 按原 SHA 搜索未找到旧映射副本；旧接收切片报告中的 before-map 原件现在
+  不可复核，未改写旧报告或声称恢复。`baseline-path-collision-r1.json` 保留详情。
+  本轮资源比较使用独立 `before-current-r1/`，与前序投影 `after-build/` 的 SHA 相符；
+  新包、旧硬件采样和本轮验收原件不受该路径碰撞影响。
+- 证据目录：`out/HardwareAcceptance/20260916/dpll-origin-live-r1/`；helper 和
+  集成证据分别见 `host-review-summary.json`、`host-integration-r1.xml`，实现独审见
+  `implementation-review-r1.json`，资源比较见 `resource-review-r1.json`。
+- 收敛：`hardware-review-r1.json` 的 54 项检查通过，结论为
+  APPROVE_LIVE_ORIGIN_COPY_SLICE；实现提交 `b91ac8c`，staged 源码 P3 凭证和
+  提交 hook 通过。四板已 STOP，原始应答确认配置恢复及临时许可撤销，串口关闭；
+  原生 drop/overrun/schedule miss 保留，不据本次通过宣称逐帧无损或所有时序已闭合。
+- 下一 gate：按 `VDC-FEEDBACK-001` 接入直接
+  PIO 观测和逐从反馈，不以本地留存通过关闭反馈或锁相目标。
 
 ### 前序实现回顾
 

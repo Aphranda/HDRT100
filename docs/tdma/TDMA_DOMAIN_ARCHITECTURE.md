@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-09-14
+Last updated: 2026-09-16
 
 本文档定义 TDMA 在 HAOFV 下的基础件主域。TDMA 是分布式硬实时系统的确定性通讯骨架，负责在 core1/PIO/DMA 侧按窗口执行上行、下行、payload、timestamp 和 completion；VDC、RefMem、OTA、诊断等域只挂载 payload 或消费 evidence，不能拥有 TDMA 物理环路。
 
@@ -1185,6 +1185,18 @@ owner 已绑定异步回调。engine 接受计数仍不等于物理 SENT、接�
 该有限诊断档案会覆盖旧记录，尚无生产态逐圈消费者；它不等同于完整特等席无损
 交付。当前实现和验收范围由 `TDMA-PROGRESS-20260913-056` 记录，连续边沿计数与
 VDC 时钟域映射仍须独立闭合。
+
+运行中的原始记录由 `tdma_origin_exchange_copy_live_record()` 作一次有界复制：
+只选固定池最新已发布的完整槽，复验发布推进量、epoch、fault、格式及首尾 sequence，
+排除下一圈可能已开始覆盖的窗口。不能用 `observation_version` 代替该复验，因为
+下一圈 ARM 会在该版本为偶数时继续改写 state 内的 raw 字段。复制的时间上限由
+物理 owner 执行，复制失败不阻塞发车，也不改动已有 adapter 观察游标。
+Core1 将成功副本保留在 `tdma_origin_live_snapshot_t`，经原 record guard 发布；
+Core0 只读这个副本，不访问活动 DMA 池。STOP（包括失败的停止尝试）、persona 切换
+或重新 ARM 取消 active，但保留历史及计数；active 只表示尚未显式退休，不授予当前
+硬件健康、时间戳或 DCO 控制资格。`READ:CALibration:ORIGin:LIVE?` 供 STOP 后读回，
+字段顺序以 `scpi_calibration_origin_live_q()` 为事实源。该单槽可能跳过物理圈次，
+后继反馈必须按实际测量序列找到对应记录，不能以“最新”替代同事件关联。
 
 为隔离记录写入对运行耗时的影响，Calibration 的有限诊断许可证支持
 `CALIBRATION_ORIGIN_DIAGNOSTIC_SKIP_RECORDS`。普通 `CALibration:ORIGin:TRIAL`
