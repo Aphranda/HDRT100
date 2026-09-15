@@ -3750,3 +3750,14 @@ P3，详见 `VDC-PROGRESS-20260915-026`；后续非法目标位移修复和完�
 - 本轮证据快照（非容量或时序契约）：软件回归 60 项通过，候选 harness 含 8 组、68 次查询；4 份原生记录及 37 项 hash 复核通过。源码指纹 `97899839f4ca72ec5f249aa3a5e80438c7d3cfd5145fb2253cf99cd5367f2560`，增量构建标识 `20260915022619`；构建标识沿用缓存，实际源码与 package hash 由本轮 receipt 核验。原件位于 `out/HardwareAcceptance/20260915/initial-observation-epoch/`，汇总为 `audit.json`。零初值的正反行为由真实生产函数 host harness 验证，普通 P3 只覆盖集成回归。
 - 下一 gate：把 selected geometry 接入独立的 observer 预启动绑定与 START 前有界 DMA 观察。普通 origin 限发单帧先验证首条原始记录，随后再独立拆自主 origin 的非发射准备和显式首发；不通过单帧 sequence 相等授予物理身份，不放宽连续序列、配置、到期或取消检查。
 - 范围：本修复不实现 observer prelaunch、CS 相对首帧坐标、自主正式时间输入、主从命令应用或 DPLL 锁相。只读后继设计与源码复核分别保存在该目录的 `next-slice-review.json` 和 `source-review.json`。
+
+### VDC-PROGRESS-20260915-042 — 所选几何观察器预启动与普通首帧专项
+
+- TODO task ID：`VDC-TIME-002`；父任务保持 IN PROGRESS；日期：2026-09-15。本次只关闭所选几何预启动和普通 origin 限发单帧切片。
+- TDMA owner 在 RX ARM、最终 capture WAIT、几何绑定及 SM 使能后，ARM 返回前同步尝试一次 observer 启动；失败走公共 STOP，不允许晚启。START 前的独立物理服务有界维护真实 DMA counter；冻结 A/b 保持独立诊断假设，不恢复或伪造 live alignment。配置、ARM/observation/map、时钟、训练不一致或观察器故障会退休诊断，不因局部计时失败隔离仍健康的数据面。GEOMetry 诊断读回追加 observer 生命周期；实际字段以 `scpi_cmd_system_tdma_ring_geometry_q()` 为准。
+- 主控复核发现正常 disarm 先取消几何再停止 observer 会误记几何失效；上板前已改为先退休 observer，再冻结/退休几何并撤销 RX ARM。测试执行真实 ARM 末段和 disarm 前缀，覆盖正常 STOP 及 STOP 前已有故障，保留同代首个拒绝原因；新训练产生的新 FROZEN 代际清理其 observer 尾字段，不嫁接旧绑定。
+- 验证快照（非容量或时序契约）：最终相关软件回归 77 项通过；双槽 release 构建、Flash 链接检查和当前源码四板 quick P3 严格通过。链接静态 RAM 增加 180 B，堆及两核栈边界未变。独立源码复核无阻断；主控审计核对 8 份 P3/专项原生记录与对应 SD 下载逐字节一致，以及 69 项文件 hash。当前源码指纹 `048e2507c0a74792e61e3510064aed5f84abab2e30dc6b095d9b82b53cb56977`；增量 build 标识仍为 `20260915022619`，版本由本轮源码、package 与 OTA receipt 共同绑定。
+- 普通限发专项 `hil-r3`：三从所选 observer 在 START 前均为 ACTIVE，跨过空闲等待后 ARM/observer/observation 绑定不变，实时 alignment 和 RX 完成计数仍为零。板端 baseline 尚无已发布事件；首发后每从板仅发布一条 `sequence=1, ordinal=0` 的成对事件，epoch 不变。主板重复 START 未增加限发配额；STOP 后 CUT 仅含正常 STOP 退休原因，未决身份/在途/积压标记保持。SCPI 查询计数来自实际调用审计，采集区间为零；全部 STOP ACK 后顺序保存 SD。
+- 失败原件：`hil-r1/r2` 在 ARM/START 前的 source seed 发布被拒绝；后继读回保留两次发布拒绝计数，四板 FIFO 均有一个 ready 槽和一个 active 槽。专项补齐既有 STOP 后 FIFO RESET，验证队列清空、冻结几何完全不变后再发布；另用真实主机响应解析器复现并修正专项脚本未识别 `FLIGHT:TX` 复合应答的问题。诊断时误用未定义的 `FLIGHT:STATus?` 及错误队列原件也保留。没有通过增加超时、复用已消费几何或放宽首帧判据追认失败；受 P3 指纹约束的源码未因脚本修正再次变更。
+- 证据目录：`out/HardwareAcceptance/20260915/observer-prelaunch-r1/`，入口为 `audit.json`、`software-summary.json`、`source-review.json`、`p3/acceptance.json`、`hil-r3/hil.json` 及两组 SD 保存报告。最终四板 STOP、配置 ACK，主板限发恢复为关闭，各板选择几何清零；未操作 NO5、未修改 OTA。
+- 下一 gate：独立实现自主 origin 非发射 READY 与显式首发，再证明首物理边界、唯一 packet/event 坐标及自主完整窗口。当前单帧序列相等不授予物理身份、正式时间戳或 DPLL qualification；所选路径的实际 WCET、TIME-003/004、主从命令、共同时间应用及示波器锁相均未关闭。
