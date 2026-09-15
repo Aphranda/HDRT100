@@ -16,6 +16,8 @@ static uint32_t refmem_sync_vdc_begin_write(
     const uint32_t odd = current + 1u;
     const uint32_t even = current + 2u;
     __atomic_store_n(&context->vdc_command_guard, odd, __ATOMIC_RELEASE);
+    /* Publish the busy marker before any following payload/identity write. */
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
     return even;
 }
 
@@ -564,6 +566,23 @@ bool refmem_sync_vdc_init(refmem_sync_vdc_context_t *context,
     return true;
 }
 
+bool refmem_sync_vdc_reset(refmem_sync_vdc_context_t *context,
+                           uint8_t local_slot,
+                           uint32_t active_epoch_id,
+                           uint32_t active_run_id)
+{
+    if (context == NULL || local_slot >= REFMEM_SYNC_NODE_COUNT) {
+        return false;
+    }
+    const uint32_t stable_guard = refmem_sync_vdc_begin_write(context);
+    memset(context->vdc_command, 0, sizeof(context->vdc_command));
+    context->local_slot = local_slot;
+    context->active_epoch_id = active_epoch_id;
+    context->active_run_id = active_run_id;
+    refmem_sync_vdc_end_write(context, stable_guard);
+    return true;
+}
+
 bool refmem_sync_vdc_set_epoch(refmem_sync_vdc_context_t *context,
                                uint32_t active_epoch_id,
                                uint32_t active_run_id)
@@ -575,15 +594,9 @@ bool refmem_sync_vdc_set_epoch(refmem_sync_vdc_context_t *context,
     const bool changed = context->active_epoch_id != active_epoch_id ||
                          context->active_run_id != active_run_id;
     if (changed) {
-        const uint32_t stable_guard = refmem_sync_vdc_begin_write(context);
-        memset(context->vdc_command, 0, sizeof(context->vdc_command));
-        context->active_epoch_id = active_epoch_id;
-        context->active_run_id = active_run_id;
-        refmem_sync_vdc_end_write(context, stable_guard);
-        return true;
+        return refmem_sync_vdc_reset(context, context->local_slot,
+                                      active_epoch_id, active_run_id);
     }
-    context->active_epoch_id = active_epoch_id;
-    context->active_run_id = active_run_id;
     return true;
 }
 

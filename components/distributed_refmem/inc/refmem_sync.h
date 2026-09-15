@@ -258,10 +258,18 @@ const refmem_sync_mirror_snapshot_t *refmem_sync_delta_get_mirror(
     uint8_t source_slot);
 void refmem_sync_delta_get_quality(const refmem_sync_delta_context_t *context,
                                    refmem_sync_quality_counters_t *quality);
+/* Cold initialization only, before any concurrent reader can access context. */
 bool refmem_sync_vdc_init(refmem_sync_vdc_context_t *context,
                           uint8_t local_slot,
                           uint32_t active_epoch_id,
                           uint32_t active_run_id);
+/* Sole receive owner retires all retained commands under the existing guard.
+ * Context must already be initialized or have static zero initialization.
+ * Unlike init, this preserves the publication sequence across identity reset. */
+bool refmem_sync_vdc_reset(refmem_sync_vdc_context_t *context,
+                           uint8_t local_slot,
+                           uint32_t active_epoch_id,
+                           uint32_t active_run_id);
 bool refmem_sync_vdc_set_epoch(refmem_sync_vdc_context_t *context,
                                uint32_t active_epoch_id,
                                uint32_t active_run_id);

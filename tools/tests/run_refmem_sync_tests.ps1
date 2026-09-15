@@ -11,6 +11,7 @@ $refmemInclude = Join-Path $repo "components\distributed_refmem\inc"
 $tdmaInclude = Join-Path $repo "components\tdma\inc"
 $otaInclude = Join-Path $repo "components\ota_manager\inc"
 $testSource = Join-Path $repo "tests\unit\test_refmem_sync.c"
+$lifecycleSource = Join-Path $repo "tests\unit\test_refmem_vdc_lifecycle.c"
 $syncSource = Join-Path $repo "components\distributed_refmem\src\refmem_sync.c"
 $syncFrameSource = Join-Path $repo "components\distributed_refmem\src\refmem_sync_frame.c"
 
@@ -72,6 +73,11 @@ if ($hostCc) {
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
+    $lifecycleExe = Join-Path $build "test_refmem_vdc_lifecycle.exe"
+    & $hostCc -std=c11 -O2 -Wall -Wextra -Werror "-Dmemcpy=refmem_vdc_test_memcpy" "-I$refmemInclude" "-I$tdmaInclude" "-I$otaInclude" $lifecycleSource $syncSource $syncFrameSource -o $lifecycleExe
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    & $lifecycleExe
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     Write-Host "refmem_sync host unit tests passed"
     exit 0
 }
@@ -84,7 +90,7 @@ if (-not (Test-Path $ArmGcc)) {
     throw "No host C compiler found and ARM GCC not found at $ArmGcc"
 }
 
-foreach ($source in @($testSource, $syncSource, $syncFrameSource)) {
+foreach ($source in @($testSource, $lifecycleSource, $syncSource, $syncFrameSource)) {
     $object = Join-Path $build ((Split-Path -Leaf $source) + ".o")
     & $ArmGcc -std=c11 -Wall -Wextra -Werror "-I$refmemInclude" "-I$tdmaInclude" "-I$otaInclude" -c $source -o $object
     if ($LASTEXITCODE -ne 0) {

@@ -175,6 +175,9 @@ static uint32_t s_vdc_command_context_epoch_id;
 static uint32_t s_vdc_command_context_run_id;
 static uint32_t s_vdc_command_context_schedule_epoch;
 static bool s_vdc_command_context_initialized;
+/* Core0-only admission state; transient snapshot failure must not retire a
+ * valid command or stop ordinary resident mailbox service. */
+static bool s_vdc_command_context_ready;
 
 static void distributed_refmem_vdc_follower_rx_service(void);
 
@@ -835,7 +838,7 @@ static void distributed_refmem_tdma_flight_parse_vdc_fragment(
     const uint8_t *mailbox,
     size_t mailbox_size)
 {
-    if (mailbox == NULL ||
+    if (!s_vdc_command_context_ready || mailbox == NULL ||
         mailbox_size < DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE ||
         distributed_refmem_get_le16(&mailbox[TDMA_PROCESS_IMAGE_CRC_OFFSET]) !=
             tdma_process_image_crc16_ccitt(
@@ -2661,11 +2664,8 @@ void DISTRIBUTED_REFMEM_TIME_CRITICAL(
         return;
     }
 
-    /* Context identity follows the active clock/run/schedule identity.  A
-     * normal refresh preserves source-separated retained commands; only an
-     * actual identity change reinitializes that receiver state. */
-    (void)distributed_refmem_refresh_vdc_command_context_from_snapshot(
-        &snapshot);
+    /* Command retention and identity retirement belong to Core0. Core1
+     * consumes a guarded copy and validates its epoch/run at application. */
 
     const bool master_profile =
         snapshot.control_profile.valid == 1u &&
@@ -2767,8 +2767,11 @@ void distributed_refmem_service(void)
     if (ota_ao_is_active()) {
         return;
     }
-    distributed_refmem_vdc_follower_rx_service();
-    distributed_refmem_node_load_auto_service();
+    s_vdc_command_context_ready = distributed_refmem_refresh_vdc_command_context();
+    if (s_vdc_command_context_ready) {
+        distributed_refmem_vdc_follower_rx_service();
+        distributed_refmem_node_load_auto_service();
+    }
     distributed_refmem_tdma_flight_sync_service();
     distributed_refmem_log_tdma_ring_service();
 }
@@ -3694,7 +3697,10 @@ bool distributed_refmem_configure_node_load_auto_sync(
                           s_node_load_auto_sync.run_id)) {
         return false;
     }
-    return distributed_refmem_refresh_vdc_command_context();
+    /* SCPI and RefMem are separate Core0 tasks. Only the RefMem service may
+     * retire/write the dedicated command receiver; configuration leaves it
+     * for the next service boundary. */
+    return true;
 }
 
 void distributed_refmem_get_node_load_auto_sync(
@@ -3887,7 +3893,7 @@ static bool distributed_refmem_refresh_vdc_command_context_from_snapshot(
         return true;
     }
 
-    if (!refmem_sync_vdc_init(&s_vdc_command_context,
+    if (!refmem_sync_vdc_reset(&s_vdc_command_context,
                               local_slot,
                               epoch_id,
                               run_id)) {

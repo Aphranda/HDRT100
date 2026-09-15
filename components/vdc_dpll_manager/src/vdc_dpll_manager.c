@@ -111,6 +111,8 @@ static vdc_dpll_manager_sync_io_observer_config_t s_sync_io_observer_config;
 static vdc_dpll_manager_sync_io_observer_status_t s_sync_io_observer_status;
 static uint32_t s_vdc_follower_last_applied_seq;
 static uint32_t s_vdc_follower_last_generation;
+static uint32_t s_vdc_follower_last_epoch_id;
+static uint32_t s_vdc_follower_last_run_id;
 static vdc_dpll_manager_vdc_status_t s_published_vdc_status;
 static vdc_dpll_manager_dpll_status_t s_published_dpll_status;
 static vdc_dpll_manager_dco_consumer_status_t s_dco_consumer_status;
@@ -1846,15 +1848,23 @@ static __attribute__((noinline)) void vdc_dpll_manager_consume_follower_command(
     }
 
     const uint32_t generation = profile->generation;
-    if (generation != s_vdc_follower_last_generation) {
+    if (generation != s_vdc_follower_last_generation ||
+        s_vdc_domain.clock.epoch_id != s_vdc_follower_last_epoch_id ||
+        s_vdc_domain.clock.run_id != s_vdc_follower_last_run_id) {
         s_vdc_follower_last_generation = generation;
+        s_vdc_follower_last_epoch_id = s_vdc_domain.clock.epoch_id;
+        s_vdc_follower_last_run_id = s_vdc_domain.clock.run_id;
         s_vdc_follower_last_applied_seq = 0u;
     }
 
     refmem_sync_vdc_command_snapshot_t retained;
     if (!distributed_refmem_get_vdc_follower_command(
             profile->follow_master_slot_id, &retained) ||
-        retained.valid == 0u) {
+        retained.valid == 0u ||
+        retained.epoch_id != s_vdc_domain.clock.epoch_id ||
+        retained.run_id != s_vdc_domain.clock.run_id) {
+        /* Core0 may not yet have retired the previous receiver identity.
+         * The sole realtime owner must reject that old session itself. */
         vdc_domain_note_follower_command_missing(&s_vdc_domain);
         return;
     }
