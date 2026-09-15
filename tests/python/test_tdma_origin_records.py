@@ -21,6 +21,10 @@ def test_origin_record_frozen_lifetime(tmp_path):
          'bool tdma_pio_spi_phys_select_program_persona(tdma_pio_spi_phys_t *phys, tdma_pio_spi_program_persona_t persona)'),
         (origin,'tdma_pio_spi_phys_origin_get_frozen_record',
          'bool tdma_pio_spi_phys_origin_get_frozen_record(const tdma_pio_spi_phys_t *phys, uint32_t age, tdma_origin_record_frozen_t *out)'),
+        (origin,'tdma_pio_spi_phys_origin_first_reset',
+         'static void tdma_pio_spi_phys_origin_first_reset(tdma_pio_spi_phys_t *phys, uint32_t epoch, uint32_t expected_sequence)'),
+        (origin,'tdma_pio_spi_phys_origin_get_first_record',
+         'bool tdma_pio_spi_phys_origin_get_first_record(const tdma_pio_spi_phys_t *phys, tdma_origin_first_record_t *out)'),
     ]
     source = ''.join(signature+'{'+c_definition_body(text,name)+'}\n'
                      for text,name,signature in functions)
@@ -32,6 +36,11 @@ def test_origin_record_frozen_lifetime(tmp_path):
                '-I'+str(ROOT/'components/tdma/inc'),'-I'+str(tmp_path),
                str(ROOT/'tests/unit/tdma_origin_record_frozen_cases.c'),
                str(ROOT/'components/tdma/src/tdma_origin_build_job.c'),'-o',str(exe)]
-    subprocess.run(command,check=True,capture_output=True,text=True,timeout=60)
+    compiled=subprocess.run(command,capture_output=True,text=True,timeout=60)
+    (tmp_path/'compile.stdout.txt').write_text(compiled.stdout,encoding='utf-8')
+    (tmp_path/'compile.stderr.txt').write_text(compiled.stderr,encoding='utf-8')
+    assert compiled.returncode==0,compiled.stdout+compiled.stderr
     result = subprocess.run([str(exe)],capture_output=True,text=True,timeout=5)
+    (tmp_path/'run.stdout.txt').write_text(result.stdout,encoding='utf-8')
+    (tmp_path/'run.stderr.txt').write_text(result.stderr,encoding='utf-8')
     assert result.returncode==0,result.stdout+result.stderr

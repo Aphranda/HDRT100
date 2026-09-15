@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "diagnostics_tdma_record.h"
 #include "project_build_info.h"
 #include "storage_manager.h"
@@ -63,6 +64,13 @@ static uint32_t app_record_snapshot(uint32_t *words)
     tdma_pio_spi_ring_adapter_snapshot_t adapter = {0};
     tdma_pio_spi_phys_snapshot_t phys = {0};
     app_realtime_schedule_snapshot_t schedule = {0};
+    tdma_origin_first_record_t origin_first = {0};
+    const bool origin_first_available =
+        tdma_runtime_owner_get_origin_first_record(&origin_first);
+    /* A rejected guarded copy may have touched the destination. Publish an
+     * explicit unavailable group this sample, including after an older valid
+     * sample, so delta encoding cannot carry retired evidence forward. */
+    if (!origin_first_available) memset(&origin_first, 0, sizeof(origin_first));
     tdma_service_service_t *owner = tdma_runtime_owner_get();
     tdma_pio_spi_ring_adapter_t *ring_adapter = tdma_runtime_owner_get_ring_adapter();
     uint32_t valid = 0u;

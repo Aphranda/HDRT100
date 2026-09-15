@@ -13,6 +13,7 @@
 #define TDMA_ORIGIN_PLAN_LITERAL_MAX 160u
 #define TDMA_ORIGIN_PLAN_BANK_COUNT 2u
 #define TDMA_ORIGIN_RECORD_COUNT 8u
+#define TDMA_ORIGIN_FIRST_RECORD_VERSION 2u
 #define TDMA_ORIGIN_RECORD_FORMAT_RTT 1u
 #define TDMA_ORIGIN_RECORD_FORMAT_RAW_TIME 2u
 #define TDMA_ORIGIN_RECORD_TRANSPORT_CHECKED 1u
@@ -82,6 +83,13 @@ typedef struct {
     uint32_t sequence_end;
 } tdma_origin_record_t;
 
+/* A dedicated first-boundary copy. DMA writes the complete body before the
+ * aligned commit word; later cyclic writers cannot target this object. */
+typedef struct {
+    tdma_origin_record_t record;
+    uint32_t published_version;
+} tdma_origin_first_record_t;
+
 typedef struct {
     uint32_t epoch;
     uint32_t published_version;
@@ -135,6 +143,7 @@ typedef struct {
     uint32_t runs;
     uint32_t literals;
     uint32_t records;
+    uint32_t first_record;
 } tdma_origin_plan_addresses_t;
 
 /* Addresses must be derived from owner-owned SRAM. Binding to actual CPU

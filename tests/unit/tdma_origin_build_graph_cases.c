@@ -240,9 +240,23 @@ static void check_origin_copy_extent(uint32_t nodes)
 static void check_dma_extents(const tdma_origin_plan_config_t *c, const tdma_origin_plan_t *p)
 {
     unsigned copies = 0u, stages = 0u, captures = 0u, padding = 0u, trailers = 0u;
+    unsigned first_copies = 0u, first_commits = 0u;
     const uint32_t packet_size = c->packet_size;
     for (uint32_t i = 0u; i < p->run_count; ++i) {
         const tdma_flight_overlay_dma_run_t *r = &p->runs[i];
+        if (r->write_address == c->address.first_record) {
+            assert(r->read_address == c->address.state + offsetof(tdma_origin_plan_state_t,observation_sequence));
+            assert(r->transfer_count == sizeof(tdma_origin_record_t)/sizeof(uint32_t));
+            assert(p->record_entry == c->address.runs+i*sizeof(*r));
+            ++first_copies;
+        }
+        if (r->write_address == c->address.first_record + offsetof(tdma_origin_first_record_t,published_version)) {
+            assert(first_copies==1u && r->transfer_count==1u);
+            assert(i>0u && p->runs[i-1u].write_address==c->address.first_record);
+            const uint32_t literal=(r->read_address-c->address.literals)/sizeof(uint32_t);
+            assert(literal<p->literal_count && p->literals[literal]==TDMA_ORIGIN_FIRST_RECORD_VERSION);
+            ++first_commits;
+        }
         if (r->read_address == c->address.rx_packet + packet_size - 4u) ++trailers;
         if (r->write_address == c->address.rx_packet) {
             assert(r->transfer_count == packet_size);
@@ -271,6 +285,8 @@ static void check_dma_extents(const tdma_origin_plan_config_t *c, const tdma_ori
     }
     assert(copies == 2u && stages == 2u && captures == 2u && padding == 1u);
     assert(trailers == (c->diagnostic_skip_records ? 0u : 1u));
+    assert(first_copies==(c->diagnostic_skip_records?0u:1u));
+    assert(first_commits==first_copies);
 }
 
 int main(void)
@@ -285,7 +301,8 @@ int main(void)
                     .stage = 0x20001000, .tx_header = 0x20002000,
                     .rx_packet = 0x20003000, .state = 0x20004000,
                     .local_shadow = {0x20005000, 0x20005800}, .scratch = 0x20006000,
-                    .runs = 0x20008000, .literals = 0x2000a000, .records = 0x2000b000},
+                    .runs = 0x20008000, .literals = 0x2000a000, .records = 0x2000b000,
+                    .first_record = 0x2000c000},
                 .physical_bytes = nodes * 32u + 4u + 32u + 15u,
                 .packet_size = nodes * 32u + 4u + 32u,
                 .outer_header_bytes = 4, .capture_prefix_bits = 36,
@@ -336,6 +353,19 @@ int main(void)
             ++invalid.packet_size;
             assert(!tdma_origin_plan_build(&invalid, &actual));
             assert(actual.seed_entry == 0u);
+            /* Dedicated first storage is a whole SRAM extent, including its
+             * commit word, and cannot alias any live/cyclic graph region. */
+            const uint32_t invalid_first[] = {0u, 0x2000c002u, SRAM_END - 88u,
+                c.address.state, c.address.records,
+                c.address.records + TDMA_ORIGIN_RECORD_COUNT * sizeof(tdma_origin_record_t) - 4u,
+                c.address.runs, c.address.literals, c.address.capture_bank[0],
+                c.address.stage, c.address.tx_header, c.address.rx_packet,
+                c.address.local_shadow[0], c.address.scratch};
+            for(size_t bad=0u;bad<sizeof(invalid_first)/sizeof(invalid_first[0]);++bad) {
+                invalid=c;invalid.address.first_record=invalid_first[bad];
+                assert(!tdma_origin_plan_build(&invalid,&actual));
+                assert(actual.seed_entry==0u && actual.record_entry==0u);
+            }
             ++cases;
         }
     }

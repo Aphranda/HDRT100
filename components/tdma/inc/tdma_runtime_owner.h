@@ -66,6 +66,9 @@ bool tdma_runtime_owner_get_staged_ring_config(
 bool tdma_runtime_owner_get_phys_snapshot(tdma_pio_spi_phys_snapshot_t *snapshot);
 bool tdma_runtime_owner_get_origin_frozen_record(uint32_t age,
     tdma_origin_record_frozen_t *snapshot);
+/* Core0 diagnostic copy of the one-shot first archive, while active or STOPPED.
+ * Availability grants neither physical frame identity nor VDC time validity. */
+bool tdma_runtime_owner_get_origin_first_record(tdma_origin_first_record_t *snapshot);
 /* Core0 read-only board/persona capability, not a resource acquisition. */
 bool tdma_runtime_owner_get_origin_capability(refmem_realtime_origin_capability_t *capability);
 /* Core1-only completion poll for the resident flight-origin PIO/DMA burst. */

@@ -401,6 +401,7 @@ static void tdma_pio_spi_phys_origin_record_invalidate(tdma_pio_spi_phys_t *phys
     __atomic_store_n(&phys->flight_origin_record_guard, guard + 1u, __ATOMIC_RELEASE);
     __dmb();
     __atomic_store_n(&phys->flight_origin_record_frozen, false, __ATOMIC_RELAXED);
+    __atomic_store_n(&phys->flight_origin_first_readable_epoch, 0u, __ATOMIC_RELAXED);
     __atomic_store_n(&phys->flight_origin_record_guard, guard + 2u, __ATOMIC_RELEASE);
 }
 
@@ -2313,6 +2314,7 @@ bool tdma_pio_spi_phys_arm(void *context,
     }
     if (!tdma_geometry_arm_begin(phys, config, flight_persona))
         return tdma_pio_spi_phys_arm_reject(phys, TDMA_PIO_SPI_PHYS_ERROR_GEOMETRY);
+    tdma_pio_spi_phys_origin_record_invalidate(phys);
     phys->flight_alignment_byte_shift = 0u;
     phys->flight_alignment_bit_shift = 0u;
     phys->flight_overlay_alignment_locked = false;

@@ -935,6 +935,12 @@ typedef struct {
     volatile uint32_t data_train_guard;
     tdma_pio_spi_data_train_snapshot_t data_train;
     uint64_t data_train_deadline_ns;
+    /* First autonomous raw record survives the cyclic workspace. Core1
+     * revokes readable_epoch under record_guard before reset/persona reuse;
+     * only the startup DMA writer publishes first_record while running. */
+    tdma_origin_first_record_t flight_origin_first_record;
+    uint32_t flight_origin_first_readable_epoch;
+    uint32_t flight_origin_first_expected_sequence;
 } tdma_pio_spi_phys_t;
 
 /* Called by the ring adapter start() once the active ring config is known.
@@ -1009,6 +1015,13 @@ bool tdma_pio_spi_phys_origin_take_rx_observation(void *context,
  * False leaves output unspecified; restart/persona change invalidates it. */
 bool tdma_pio_spi_phys_origin_get_frozen_record(const tdma_pio_spi_phys_t *phys,
     uint32_t age, tdma_origin_record_frozen_t *out);
+/* One bounded Core0 diagnostic copy, while active, after successful STOP, or
+ * during a failed STOP that retains ownership of an already committed first.
+ * The first completed boundary is retained even for a missing/bad return or
+ * raw timing observation. False leaves output unspecified. No VDC validity,
+ * PIO/FIFO access, rearm or latest-record fallback is provided. */
+bool tdma_pio_spi_phys_origin_get_first_record(const tdma_pio_spi_phys_t *phys,
+    tdma_origin_first_record_t *out);
 bool tdma_pio_spi_phys_set_process_image_mode(
     tdma_pio_spi_phys_t *phys,
     bool enabled,

@@ -17,6 +17,9 @@ import pytest
 ROOT=Path(__file__).resolve().parents[2]
 U32=(1<<32)-1
 
+class FirstRecordStopped(Exception):
+    """The controlled DMA model was interrupted at a first-record word."""
+
 
 @pytest.fixture(scope='module',params=(2,3,4,5,6,7,8))
 def graph_exe(request,tmp_path_factory):
@@ -36,7 +39,8 @@ def graph_exe(request,tmp_path_factory):
 
 
 class Model:
-    def __init__(self,graph,*,missing_edge=False,bad_mailbox=False,missing_return=False,torn=False):
+    def __init__(self,graph,*,missing_edge=False,bad_mailbox=False,missing_return=False,torn=False,
+                 stop_after_first_words=None,seed_sequence=U32-2):
         self.g=graph
         self.r=graph['registers']
         self.o=graph['offsets']
@@ -53,6 +57,9 @@ class Model:
         self.sniff_bytes=bytearray()
         self.launches=0
         self.completed=[]
+        self.first_writes=0
+        self.first_commits=0
+        self.stop_after_first_words=stop_after_first_words
         self.latch_enabled=False
         self.latch_x=None
         self.missing_edge=missing_edge
@@ -74,7 +81,7 @@ class Model:
         n=graph['nodes']
         packet=bytearray(n*32+36)
         struct.pack_into('<HBBHBBIBBBBII',packet,0,0x5444,1,1,len(packet),32,graph['local'],
-                         U32-2,2,5,0,graph['mask'].bit_count()-1,0x123,0x456)
+                         seed_sequence,2,5,0,graph['mask'].bit_count()-1,0x123,0x456)
         self.fix_crc(packet)
         for slot in range(n):
             mailbox=bytes((i+slot)&255 for i in range(30))
@@ -135,7 +142,20 @@ class Model:
 
     def write(self,address,value,size):
         if 0x20000000<=address<0x20010000:
+            first=self.g['entries']['first_record']
+            commit=self.g['entries']['first_commit']
+            is_first=first<=address<=commit
+            if is_first and self.stop_after_first_words==0:
+                raise FirstRecordStopped
             self.store(address,value,size)
+            if is_first:
+                assert size==4
+                self.first_writes+=1
+                if address==commit:
+                    assert self.first_writes==23 and value==2
+                    self.first_commits+=1
+                if self.first_writes==self.stop_after_first_words:
+                    raise FirstRecordStopped
             if address==0x20004000+self.o['record_published_version']:
                 index=(value//2-1)%8
                 start=0xb000+index*self.g['record_size']
@@ -215,6 +235,10 @@ class Model:
             self.pc=self.next_pc
         raise AssertionError('graph failed to retire bounded cycles')
 
+    def first_record(self):
+        start=self.g['entries']['first_record']-0x20000000
+        return bytes(self.mem[start:start+self.g['record_size']])
+
 
 def graph(exe,nodes,*config):
     result=subprocess.run([str(exe),str(nodes),*map(str,config)],capture_output=True,text=True,timeout=5)
@@ -273,7 +297,52 @@ def test_raw_records_follow_real_graph(graph_exe):
             before,after=m.timer_reads[i*6:(i+1)*6:3]
             assert words[11]==before[2] and words[14]==after[2]
         assert seq==[(U32-1+i)&U32 for i in range(12)]
+        assert m.first_record()==m.completed[0]
+        assert m.first_commits==1 and m.first_writes==23
         assert m.state('fault')==0
+
+
+def test_first_record_is_one_shot_through_sequence_and_version_wrap(graph_exe):
+    exe,capacity=graph_exe
+    m=Model(graph(exe,capacity),seed_sequence=U32).run(7)
+    first=m.first_record()
+    assert struct.unpack_from('<I',first)[0]==0
+    # The next writer is ring7, matching publication0 across wrap. Keep that
+    # mapping while crossing0 and2; neither may reopen the startup entry.
+    m.state('observation_version',U32-1)
+    m.run(80)
+    assert m.first_record()==first
+    assert m.first_commits==1 and m.first_writes==23
+    assert [struct.unpack('<22I',raw)[0] for raw in m.completed]==list(range(80))
+    assert all(struct.unpack('<22I',raw)[0]==struct.unpack('<22I',raw)[-1] for raw in m.completed)
+    assert m.state('fault')==0
+
+
+@pytest.mark.parametrize('mode',('missing_edge','bad_mailbox','missing_return','torn'))
+def test_first_bad_observation_cannot_be_replaced_by_recovery(graph_exe,mode):
+    exe,capacity=graph_exe
+    m=Model(graph(exe,capacity),**{mode:True}).run(1)
+    first=m.first_record()
+    assert first==m.completed[0]
+    m.missing_edge=m.bad_mailbox=m.missing_return=False
+    m.run(12)
+    assert m.first_record()==first and m.first_commits==1
+    assert all(struct.unpack('<22I',raw)[9]==1 for raw in m.completed[1:])
+
+
+def test_stop_at_each_first_record_word_keeps_partial_unpublished(graph_exe):
+    exe,capacity=graph_exe
+    g=graph(exe,capacity)
+    complete=Model(g).run(1).first_record()
+    for cut in range(24):
+        m=Model(g,stop_after_first_words=cut)
+        with pytest.raises(FirstRecordStopped):m.run(1)
+        assert m.first_writes==cut and not m.completed
+        commit=m.read(g['entries']['first_commit'],4)
+        if cut<23:
+            assert commit==0 and m.first_commits==0
+        else:
+            assert commit==2 and m.first_record()==complete and m.first_commits==1
 
 
 @pytest.mark.parametrize('mode',('missing_edge','bad_mailbox','missing_return','torn'))

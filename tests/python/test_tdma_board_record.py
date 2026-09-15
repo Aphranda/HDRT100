@@ -2,6 +2,7 @@
 import importlib.util
 import hashlib
 import json
+import re
 from pathlib import Path
 import shutil
 import struct
@@ -158,6 +159,7 @@ def test_schema_preserves_the_complete_historical_health_field_sets():
 @pytest.mark.parametrize("version,words,digest", [
     (1, 375, "cf4955ea815ecb22a6b0b044b9aa8fe835228ef18bf701b1fbbe69a4036e0bf0"),
     (2, 410, "6218599a86dfab094ac86198e991299b2ed9a2bec8d59d4fe69ca8e6e80933b4"),
+    (3, 453, "f0a2b616af635195a0dccfba72fa90d33cd29662fd6debca8683cedf1ecccf6c"),
 ])
 def test_historical_schema_order_and_types_are_immutable(version, words, digest):
     # Frozen from c2eab9c / provenance source-r3, independently of the new
@@ -168,7 +170,7 @@ def test_historical_schema_order_and_types_are_immutable(version, words, digest)
     assert hashlib.sha256(encoded).hexdigest() == digest
 
 
-@pytest.mark.parametrize("version", [1, 2, 3])
+@pytest.mark.parametrize("version", [1, 2, 3, 4])
 def test_versioned_record_keeps_legacy_evidence_and_observer_values(version):
     schema = decoder.field_schema(version)
     values = []
@@ -182,6 +184,13 @@ def test_versioned_record_keeps_legacy_evidence_and_observer_values(version):
                      "matched_count": 7, "reason": 1, "flags": 0xFF,
                      "event_sequence": 0, "event_ordinal": 23,
                      "start_hi_cycles": 0x123456789ABCDEF}.get(name, 0)
+        if group == "origin_first":
+            value = {"available": 1, "published_version": 2,
+                     "epoch": 42, "sequence": 0, "sequence_end": 0,
+                     "identity": 0xABCDEFFF, "format": 2,
+                     "flags": 0, "rtt_present": 0,
+                     "arm_before_hi0": 1, "arm_before_lo": 0xFFFFFFFF,
+                     "arm_before_hi1": 2}.get(name, 0)
         values.append(value & 0xFFFFFFFF)
         if kind == "U64":
             values.append(value >> 32)
@@ -215,12 +224,105 @@ def test_versioned_record_keeps_legacy_evidence_and_observer_values(version):
         assert candidate["event_sequence"] == 0 and candidate["event_ordinal"] == 23
         assert candidate["start_hi_cycles"] == 0x123456789ABCDEF
         assert candidate["flags"] == 0xFF  # Retired historical match, no authority bits.
+    if version < 4:
+        assert "origin_first" not in snapshot
+    else:
+        first = snapshot["origin_first"]
+        assert first["available"] == 1 and first["epoch"] == 42
+        assert first["published_version"] == 2 and first["format"] == 2
+        assert first["sequence"] == first["sequence_end"] == 0
+        assert first["identity"] == 0xABCDEFFF
+        assert first["flags"] == first["rtt_present"] == 0
+        assert first["arm_before_hi0"] == 1 and first["arm_before_hi1"] == 2
     # Merely relabelling a file cannot reinterpret a different-sized schema.
     foreign = bytearray(data)
     struct.pack_into("<I", foreign, 4, version % 3 + 1)
     struct.pack_into("<I", foreign, len(body) + 44, zlib.crc32(foreign[:len(body)]))
     with pytest.raises(ValueError, match="unknown record schema"):
         decoder.decode_record(foreign)
+
+
+def test_app_first_archive_retirement_is_encoded_in_native_deltas(tmp_path):
+    # Execute the actual application snapshot body plus production recorder.
+    # Unrelated health getters are mocked; only their field expressions are
+    # replaced with zero. The new group's expressions and raw TDMA types are
+    # compiled unchanged, so a failed final guard copy must really be cleared.
+    app = (ROOT / "application/src/app_tdma_record.c").read_text(encoding="utf-8")
+    start = app.index("static uint32_t app_record_snapshot(")
+    end = app.index("\n}\n", start) + 3
+    snapshot_body = app[start:end].replace('"diagnostics_tdma_record_fields.def"',
+                                            '"test_record_fields.def"')
+    fields = decoder.FIELDS_PATH.read_text(encoding="utf-8")
+    fields = re.sub(r"^(RECORD_(?:U32|I32|U64)\((\w+), \w+, ).*$",
+                    lambda m: m[0] if m[2] == "origin_first" else m[1] + "0u)",
+                    fields, flags=re.M)
+    (tmp_path / "test_record_fields.def").write_text(fields, encoding="utf-8")
+    mocks = r'''
+#include "tdma_origin_plan.h"
+typedef struct { unsigned unused; } tdma_ring_runtime_snapshot_t;
+typedef tdma_ring_runtime_snapshot_t tdma_pio_spi_ring_adapter_snapshot_t;
+typedef tdma_ring_runtime_snapshot_t tdma_pio_spi_phys_snapshot_t;
+typedef tdma_ring_runtime_snapshot_t app_realtime_schedule_snapshot_t;
+typedef tdma_ring_runtime_snapshot_t tdma_service_service_t;
+typedef tdma_ring_runtime_snapshot_t tdma_pio_spi_ring_adapter_t;
+enum { APP_REALTIME_PHASE_COUNT=10 };
+static tdma_service_service_t owner;
+static tdma_pio_spi_ring_adapter_t adapter;
+static tdma_service_service_t *tdma_runtime_owner_get(void) { return &owner; }
+static tdma_pio_spi_ring_adapter_t *tdma_runtime_owner_get_ring_adapter(void) { return &adapter; }
+static bool tdma_runtime_owner_get_ring_snapshot(void *p) { (void)p; return true; }
+static bool tdma_service_get_flight_engine_snapshot(void *p,void *v) { (void)p;(void)v;return true; }
+static bool tdma_service_get_flight_fifo_snapshot(void *p,void *v) { (void)p;(void)v;return true; }
+static bool tdma_runtime_owner_get_phys_snapshot(void *p) { (void)p;return true; }
+static bool tdma_pio_spi_ring_adapter_get_snapshot(void *p,void *v) { (void)p;(void)v;return true; }
+static bool app_realtime_get_schedule_snapshot(void *p) { (void)p;return true; }
+static bool tdma_runtime_owner_get_origin_first_record(tdma_origin_first_record_t *p) {
+    unsigned n=reads++; now+=10u;
+    memset(p,0xA5,sizeof(*p));
+    if(n==0 || n==2) return false; /* Output touched before failed revalidation. */
+    memset(p,0,sizeof(*p));
+    p->published_version=2;
+    p->record.epoch=n==1 ? 101 : 102;
+    p->record.observation.sequence=n==1 ? 0 : 7;
+    p->record.sequence_end=p->record.observation.sequence;
+    p->record.observation.identity=n==1 ? 0xAABBCCDD : 0x11223344;
+    p->record.format=TDMA_ORIGIN_RECORD_FORMAT_RAW_TIME;
+    p->record.raw_time.arm_before[0]=1;
+    p->record.raw_time.arm_before[1]=UINT32_MAX;
+    p->record.raw_time.arm_before[2]=2;
+    return true; /* No transport/edge success: still retain this raw record. */
+}
+'''
+    old_start = HARNESS.index("static uint32_t snapshot(")
+    old_end = HARNESS.index("\n}\n", old_start) + 3
+    source = HARNESS[:old_start] + mocks + snapshot_body + HARNESS[old_end:]
+    source = source.replace("save,result,snapshot,clock_now", "save,result,app_record_snapshot,clock_now")
+    path = tmp_path / "app_record.c"
+    path.write_text(source, encoding="utf-8")
+    exe = tmp_path / "app_record.exe"
+    includes = ["boards/rp2350_trig/inc", "components/tdma/inc",
+                "components/diagnostics/inc", "components/ota_manager/inc",
+                "third_party/portable_ota/include"]
+    compiler = shutil.which("gcc") or "D:/Microsoft/mingw64/bin/gcc.exe"
+    compiled = subprocess.run([compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
+                    "-DPROJECT_NODE_CAPACITY=6", *["-I" + str(ROOT / p) for p in includes],
+                    str(path), str(ROOT / "third_party/portable_ota/src/pota_crc32.c"),
+                    str(ROOT / "components/diagnostics/src/diagnostics_tdma_record.c"),
+                    "-o", str(exe)], capture_output=True, text=True)
+    assert compiled.returncode == 0, compiled.stderr
+    binary = tmp_path / "native.bin"
+    subprocess.run([str(exe), "8", str(binary)], check=True, capture_output=True, text=True)
+    record = decoder.decode_record(binary.read_bytes())
+    assert record["collection_passed"]
+    assert record["schema"] == "HAOFV_TDMA_BOARD_RECORD_V4"
+    first = [s["snapshot"]["origin_first"] for s in [record["baseline"], *record["samples"]]]
+    assert [s["available"] for s in first] == [0, 1, 0, 1, 1]
+    assert all(value == 0 for i in (0, 2) for value in first[i].values())
+    assert [s["epoch"] for s in first] == [0, 101, 0, 102, 102]
+    assert first[1]["sequence"] == first[1]["sequence_end"] == 0
+    assert first[1]["identity"] == 0xAABBCCDD
+    assert first[3] == first[4] and first[3]["sequence"] == 7
+    assert first[3]["flags"] == first[3]["rtt_present"] == 0
 
 
 def test_storage_evidence_seal_keeps_crc_length_and_lease_checks(tmp_path):

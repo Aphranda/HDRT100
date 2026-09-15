@@ -33,6 +33,9 @@ _Static_assert(sizeof(tdma_origin_record_t) == 22u * sizeof(uint32_t) &&
         offsetof(tdma_origin_plan_state_t, observation_sequence) == sizeof(tdma_origin_record_t),
     "Record transfer must cover prefix and final sequence with the complete body");
 _Static_assert(TDMA_ORIGIN_RECORD_COUNT == 8u, "Immutable record writer catalog has eight entries");
+_Static_assert(offsetof(tdma_origin_first_record_t, published_version) == sizeof(tdma_origin_record_t) &&
+    sizeof(tdma_origin_first_record_t) == sizeof(tdma_origin_record_t) + sizeof(uint32_t),
+    "First record commit must follow the complete aligned DMA body");
 
 enum {
     L_SEED, L_BOUNDARY, L_RTT_PRESENT, L_RTT_DONE, L_LATCH_PRESENT, L_LATCH_DONE,
@@ -41,7 +44,7 @@ enum {
     L_PUBLISH_SELECT, L_PUBLISH_A, L_PUBLISH_B, L_CHECK_COUNT, L_PACK_SELECT,
     L_PACK_A, L_PACK_B, L_IDENTITY, L_MATCH, L_TRANSPORT, L_ROUTE,
     L_MAILBOX, L_MAILBOX_NEXT_0, L_MAILBOX_NEXT_7 = L_MAILBOX_NEXT_0 + 7,
-    L_ACCEPT_SELECT, L_ACCEPT_A, L_ACCEPT_B, L_RECORD_SELECT,
+    L_ACCEPT_SELECT, L_ACCEPT_A, L_ACCEPT_B, L_RECORD_SELECT, L_RECORD_FIRST,
     L_RECORD_0, L_RECORD_7 = L_RECORD_0 + 7, L_RECORD_DONE, L_PREPARE_SELECT,
     L_PREPARE_A, L_PREPARE_B, L_HEADER, L_LOCAL_A, L_LOCAL_B, L_STAGE, L_LATCH_ARM,
     L_ARM_A, L_ARM_B, L_ARM_OUTPUT, L_FAULT, L_COUNT
@@ -136,12 +139,12 @@ static bool config_valid(const tdma_origin_plan_config_t *c, const tdma_origin_p
     const uint32_t starts[] = {c->address.capture_bank[0], c->address.capture_bank[1],
         c->address.stage, c->address.tx_header, c->address.rx_packet, c->address.state,
         c->address.local_shadow[0], c->address.local_shadow[1], c->address.scratch,
-        c->address.runs, c->address.literals, c->address.records};
+        c->address.runs, c->address.literals, c->address.records, c->address.first_record};
     const uint32_t sizes[] = {c->packet_size, c->packet_size,
         c->physical_bytes * 2u, TDMA_TRANSPORT_FRAME_HEADER_SIZE, c->packet_size,
         sizeof(tdma_origin_plan_state_t), TDMA_ORIGIN_PLAN_SHADOW_BYTES, TDMA_ORIGIN_PLAN_SHADOW_BYTES,
         8u, p->run_capacity * sizeof(p->runs[0]), p->literal_capacity * sizeof(uint32_t),
-        TDMA_ORIGIN_RECORD_COUNT * sizeof(tdma_origin_record_t)};
+        TDMA_ORIGIN_RECORD_COUNT * sizeof(tdma_origin_record_t), sizeof(tdma_origin_first_record_t)};
     for (size_t i = 0u; i < sizeof(starts) / sizeof(starts[0]); ++i) {
         if (!interval(starts[i], sizes[i], i == 9u ? 16u : 4u)) return false;
         for (size_t j = 0u; j < i; ++j)
@@ -472,6 +475,18 @@ static void emit(builder_t *b)
     copy(b, STATE(record_next_address), dma_reg(loader, DMA_CH0_AL3_READ_ADDR_TRIG_OFFSET),
          1u, 4u, 63u, 0u, c->executor_dma);
     break;
+    case L_RECORD_FIRST:
+    if (c->diagnostic_skip_records) break;
+    mark(b, L_RECORD_FIRST);
+    /* SEED alone selects this entry. Retain the first boundary, including a
+     * missing/bad return, then keep the original ring/version mapping. None
+     * of the eight cyclic successors may return here, even at version wrap. */
+    copy(b, STATE(observation_sequence), a->first_record,
+        sizeof(tdma_origin_record_t) / sizeof(uint32_t), 4u, 63u, READ | WRITE, loader);
+    put(b, TDMA_ORIGIN_FIRST_RECORD_VERSION,
+        a->first_record + offsetof(tdma_origin_first_record_t, published_version));
+    jump(b, L_RECORD_0);
+    break;
     case L_RECORD_0: case L_RECORD_0 + 1: case L_RECORD_0 + 2: case L_RECORD_0 + 3:
     case L_RECORD_0 + 4: case L_RECORD_0 + 5: case L_RECORD_0 + 6: case L_RECORD_7: {
         if (c->diagnostic_skip_records) break;
@@ -720,7 +735,7 @@ tdma_origin_build_result_t tdma_origin_plan_step(builder_t *b)
     p->fault_entry = b->label[L_FAULT];
     p->local_entry[0] = b->label[L_LOCAL_A];
     p->local_entry[1] = b->label[L_LOCAL_B];
-    p->record_entry = b->c->diagnostic_skip_records ? 0u : b->label[L_RECORD_0];
+    p->record_entry = b->c->diagnostic_skip_records ? 0u : b->label[L_RECORD_FIRST];
     return TDMA_ORIGIN_BUILD_DONE;
 }
 

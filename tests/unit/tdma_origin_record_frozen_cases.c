@@ -23,6 +23,8 @@ typedef struct {
     bool flight_origin_workspace_owned, flight_origin_rx_observation_ready;
     struct { uint32_t stage; } flight_origin_prepare;
     struct { uint32_t armed, last_error; } snapshot;
+    tdma_origin_first_record_t flight_origin_first_record;
+    uint32_t flight_origin_first_readable_epoch, flight_origin_first_expected_sequence;
 } tdma_pio_spi_phys_t;
 static struct { struct {
     tdma_origin_plan_state_t state;
@@ -62,7 +64,15 @@ static void controlled_copy(void *to,const void *from,size_t size)
         memcpy(to,from,copy_split);
         phys.flight_origin_record_guard+=2;
         phys.flight_origin_record_frozen=false;
+        phys.flight_origin_first_readable_epoch=0u;
         memset(&s_tdma_origin.record,0xaa,sizeof(s_tdma_origin.record));
+        memset(&phys.flight_origin_first_record,0xaa,sizeof(phys.flight_origin_first_record));
+        memcpy((uint8_t *)to+copy_split,(const uint8_t *)from+copy_split,size-copy_split);
+    } else if (copy_mode==2 || copy_mode==3) {
+        assert(copy_split<size);
+        memcpy(to,from,copy_split);
+        if(copy_mode==2)phys.flight_origin_first_record.published_version=0u;
+        else phys.flight_origin_first_readable_epoch=0u;
         memcpy((uint8_t *)to+copy_split,(const uint8_t *)from+copy_split,size-copy_split);
     } else memcpy(to,from,size);
 }
@@ -90,6 +100,13 @@ static void setup(void)
     // Next DMA target may have been stopped halfway through overwriting.
     s_tdma_origin.record[2].observation.sequence=12345;
     s_tdma_origin.record[2].sequence_end=67890;
+    phys.flight_origin_first_record.record=s_tdma_origin.record[1];
+    phys.flight_origin_first_record.record.observation.sequence=42u;
+    phys.flight_origin_first_record.record.sequence_end=42u;
+    phys.flight_origin_first_record.record.raw_time.arm_before[1]=777u;
+    phys.flight_origin_first_record.published_version=TDMA_ORIGIN_FIRST_RECORD_VERSION;
+    phys.flight_origin_first_readable_epoch=77u;
+    phys.flight_origin_first_expected_sequence=42u;
     stop_ok=select_ok=true;clock_calls=copy_mode=0;end_tick=101;
     copy_split=sizeof(tdma_origin_record_t)/2;
 }
@@ -141,6 +158,83 @@ static void check_raw_retirement(void)
     setup();assert(tdma_pio_spi_phys_stop_command_dma(&phys));
     s_tdma_origin.record[1].epoch=phys.flight_origin_record_epoch-1;
     assert(!tdma_pio_spi_phys_origin_get_frozen_record(&phys,0,&out));
+}
+
+static void check_first_record_lifetime(void)
+{
+    tdma_origin_first_record_t out;
+    assert(!tdma_pio_spi_phys_origin_get_first_record(NULL,&out));
+    setup();assert(!tdma_pio_spi_phys_origin_get_first_record(&phys,NULL));
+    assert(tdma_pio_spi_phys_origin_get_first_record(&phys,&out));
+    assert(out.published_version==2u && out.record.observation.sequence==42u);
+    assert(out.record.raw_time.arm_before[1]==777u);
+    /* First commit can precede ring0 publication. STOP and later faults must
+     * preserve it without pretending a later successful return was first. */
+    setup();s_tdma_origin.state.record_published_version=0u;
+    memset(s_tdma_origin.record,0,sizeof(s_tdma_origin.record));
+    phys.flight_origin_first_record.record.flags=0u;
+    phys.flight_origin_first_record.record.raw_time.latch_remaining=0u;
+    phys.flight_origin_first_record.record.raw_time.latch_fstat=1u<<10;
+    phys.flight_origin_first_record.record.raw_time.arm_after[2]++;
+    s_tdma_origin.state.fault=9u;
+    assert(tdma_pio_spi_phys_stop_command_dma(&phys));
+    assert(tdma_pio_spi_phys_origin_get_first_record(&phys,&out));
+    assert(out.record.flags==0u && out.record.raw_time.latch_remaining==0u);
+    assert(out.record.raw_time.arm_after[0]!=out.record.raw_time.arm_after[2]);
+    setup();stop_ok=false;assert(!tdma_pio_spi_phys_stop_command_dma(&phys));
+    assert(phys.flight_origin_workspace_owned);
+    assert(tdma_pio_spi_phys_origin_get_first_record(&phys,&out));
+
+    for(uint32_t mode=1u;mode<=3u;++mode)for(size_t split=1;split<sizeof(out.record);++split) {
+        setup();copy_mode=mode;copy_split=split;
+        assert(!tdma_pio_spi_phys_origin_get_first_record(&phys,&out));
+    }
+    setup();phys.flight_origin_record_guard=UINT32_MAX-1u;copy_mode=1;
+    assert(!tdma_pio_spi_phys_origin_get_first_record(&phys,&out));
+    assert(phys.flight_origin_record_guard==0u);
+    for(uint32_t mode=0u;mode<10u;++mode) {
+        setup();
+        switch(mode) {
+        case 0:phys.flight_origin_first_record.published_version=0u;break;
+        case 1:phys.flight_origin_first_record.published_version=4u;break;
+        case 2:phys.flight_origin_first_readable_epoch=0u;break;
+        case 3:phys.flight_origin_first_readable_epoch++;break;
+        case 4:phys.flight_origin_first_record.record.epoch++;break;
+        case 5:phys.flight_origin_first_record.record.format=TDMA_ORIGIN_RECORD_FORMAT_RTT;break;
+        case 6:phys.flight_origin_first_record.record.observation.sequence++;break;
+        case 7:phys.flight_origin_first_record.record.sequence_end++;break;
+        case 8:end_tick=99u;break;
+        case 9:end_tick=250101u;break;
+        }
+        assert(!tdma_pio_spi_phys_origin_get_first_record(&phys,&out));
+    }
+    setup();assert(tdma_pio_spi_phys_stop_command_dma(&phys));
+    const tdma_origin_first_record_t prior=phys.flight_origin_first_record;
+    assert(tdma_pio_spi_phys_select_program_persona(&phys,s_tdma_pio_spi_program_persona));
+    assert(phys.flight_origin_first_record.published_version==2u);
+    assert(!tdma_pio_spi_phys_origin_get_first_record(&phys,&out));
+    assert(tdma_pio_spi_phys_stop_command_dma(&phys));
+    assert(!tdma_pio_spi_phys_origin_get_first_record(&phys,&out));
+    setup();select_ok=false;assert(!tdma_pio_spi_phys_select_program_persona(&phys,1));
+    assert(!tdma_pio_spi_phys_origin_get_first_record(&phys,&out));
+
+    /* Actual SEED reset clears the whole old body/commit. A new epoch may
+     * wrap and the expected sequence may be zero; neither revives old data. */
+    setup();phys.flight_origin_record_epoch=1u;
+    tdma_pio_spi_phys_origin_first_reset(&phys,1u,0u);
+    for(size_t i=0;i<sizeof(phys.flight_origin_first_record);++i)
+        assert(((uint8_t *)&phys.flight_origin_first_record)[i]==0u);
+    assert(phys.flight_origin_first_expected_sequence==0u);
+    assert(!tdma_pio_spi_phys_origin_get_first_record(&phys,&out));
+    phys.flight_origin_first_record=prior;clock_calls=0;
+    assert(!tdma_pio_spi_phys_origin_get_first_record(&phys,&out));
+    phys.flight_origin_first_record.record.epoch=1u;
+    phys.flight_origin_first_record.record.observation.sequence=0u;
+    phys.flight_origin_first_record.record.sequence_end=0u;clock_calls=0;
+    assert(tdma_pio_spi_phys_origin_get_first_record(&phys,&out));
+    tdma_pio_spi_phys_origin_first_reset(&phys,0u,1u);clock_calls=0;
+    phys.flight_origin_first_record=prior;
+    assert(!tdma_pio_spi_phys_origin_get_first_record(&phys,&out));
 }
 
 int main(void)
@@ -200,6 +294,7 @@ int main(void)
     setup();select_ok=false;assert(!tdma_pio_spi_phys_select_program_persona(&phys,1));
     assert(!phys.flight_origin_record_frozen);
     check_raw_retirement();
+    check_first_record_lifetime();
     puts("stopped origin archive, pending STOP, persona reuse and bounded copy passed");
     return 0;
 }

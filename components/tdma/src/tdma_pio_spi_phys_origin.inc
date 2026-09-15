@@ -14,6 +14,21 @@ bool tdma_pio_spi_phys_get_origin_build_probe(tdma_origin_build_probe_t *out)
     return tdma_origin_build_job_get_stopped_probe(&s_tdma_origin_build_job, out);
 }
 
+static void tdma_pio_spi_phys_origin_first_reset(tdma_pio_spi_phys_t *phys,
+    uint32_t epoch, uint32_t expected_sequence)
+{
+    /* The complete DMA tree and builder have retired before SEED. Revoke the
+     * old lifetime before changing either the DMA body or its commit word. */
+    const uint32_t guard = __atomic_load_n(&phys->flight_origin_record_guard, __ATOMIC_RELAXED);
+    __atomic_store_n(&phys->flight_origin_record_guard, guard + 1u, __ATOMIC_RELEASE);
+    __dmb();
+    __atomic_store_n(&phys->flight_origin_first_readable_epoch, 0u, __ATOMIC_RELAXED);
+    memset(&phys->flight_origin_first_record, 0, sizeof(phys->flight_origin_first_record));
+    __atomic_store_n(&phys->flight_origin_first_expected_sequence, expected_sequence, __ATOMIC_RELAXED);
+    __atomic_store_n(&phys->flight_origin_first_readable_epoch, epoch, __ATOMIC_RELAXED);
+    __atomic_store_n(&phys->flight_origin_record_guard, guard + 2u, __ATOMIC_RELEASE);
+}
+
 static bool tdma_pio_spi_phys_origin_mailbox_valid(const uint8_t *mailbox,
                                                  uint32_t slot,
                                                  uint32_t active_mask)
@@ -618,6 +633,7 @@ tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *context)
             .runs = (uint32_t)(uintptr_t)s_tdma_origin.runs,
             .literals = (uint32_t)(uintptr_t)s_tdma_origin.literals,
             .records = (uint32_t)(uintptr_t)s_tdma_origin.record,
+            .first_record = (uint32_t)(uintptr_t)&phys->flight_origin_first_record,
         },
         .physical_bytes = phys->flight_physical_byte_count,
         .packet_size = request->packet_size,
@@ -690,6 +706,8 @@ tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *context)
         .record_epoch = record_epoch,
         .record_format = TDMA_ORIGIN_RECORD_FORMAT_RAW_TIME,
         .record_time = {.tick_hz = vdc_timestamp_clock_tick_hz()}};
+    tdma_pio_spi_phys_origin_first_reset(phys,
+        request->diagnostic_skip_records ? 0u : record_epoch, sequence + 1u);
     if (!tdma_origin_exchange_bind(&s_tdma_origin.exchange, &s_tdma_origin.state,
             s_tdma_origin.capture[0], s_tdma_origin.capture[1],
             s_tdma_origin.local_shadow[0], s_tdma_origin.local_shadow[1],
@@ -851,6 +869,34 @@ bool tdma_pio_spi_phys_origin_get_frozen_record(const tdma_pio_spi_phys_t *phys,
         (out->published_version & 1u) == 0u && out->epoch != 0u &&
         out->record.epoch == out->epoch && out->record.format == TDMA_ORIGIN_RECORD_FORMAT_RAW_TIME &&
         out->record.observation.sequence == out->record.sequence_end;
+}
+
+bool tdma_pio_spi_phys_origin_get_first_record(const tdma_pio_spi_phys_t *phys,
+    tdma_origin_first_record_t *out)
+{
+    if (phys == NULL || out == NULL) return false;
+    const uint64_t before = vdc_timestamp_clock_read_ticks64();
+    const uint32_t guard = __atomic_load_n(&phys->flight_origin_record_guard, __ATOMIC_ACQUIRE);
+    const uint32_t epoch = __atomic_load_n(&phys->flight_origin_first_readable_epoch, __ATOMIC_ACQUIRE);
+    const uint32_t expected = __atomic_load_n(&phys->flight_origin_first_expected_sequence, __ATOMIC_RELAXED);
+    const uint32_t commit = __atomic_load_n(&phys->flight_origin_first_record.published_version, __ATOMIC_ACQUIRE);
+    if ((guard & 1u) != 0u || epoch == 0u || commit != TDMA_ORIGIN_FIRST_RECORD_VERSION ||
+        epoch != __atomic_load_n(&phys->flight_origin_record_epoch, __ATOMIC_ACQUIRE)) return false;
+    memcpy(&out->record, &phys->flight_origin_first_record.record, sizeof(out->record));
+    out->published_version = commit;
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    const uint32_t after_commit = __atomic_load_n(&phys->flight_origin_first_record.published_version, __ATOMIC_ACQUIRE);
+    const uint32_t after_epoch = __atomic_load_n(&phys->flight_origin_first_readable_epoch, __ATOMIC_ACQUIRE);
+    const uint32_t after_guard = __atomic_load_n(&phys->flight_origin_record_guard, __ATOMIC_ACQUIRE);
+    const uint64_t after = vdc_timestamp_clock_read_ticks64();
+    /* This body is immutable after commit. STOP may retain it before ring0
+     * publishes; later faults and rejected returns do not replace the first
+     * sample with a better one. Raw timing remains unqualified evidence. */
+    return guard == after_guard && epoch == after_epoch && commit == after_commit &&
+        after >= before && after - before <= (uint64_t)vdc_timestamp_clock_tick_hz() *
+            TDMA_ORIGIN_RECORD_COPY_MAX_US / 1000000u &&
+        out->record.epoch == epoch && out->record.format == TDMA_ORIGIN_RECORD_FORMAT_RAW_TIME &&
+        out->record.observation.sequence == expected && out->record.sequence_end == expected;
 }
 
 static bool tdma_pio_spi_phys_origin_rx(tdma_pio_spi_phys_t *phys, uint8_t *packet,

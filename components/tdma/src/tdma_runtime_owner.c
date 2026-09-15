@@ -438,6 +438,12 @@ bool tdma_runtime_owner_get_origin_frozen_record(uint32_t age,
         tdma_pio_spi_phys_origin_get_frozen_record(&s_tdma_pio_spi_phys, age, snapshot);
 }
 
+bool tdma_runtime_owner_get_origin_first_record(tdma_origin_first_record_t *snapshot)
+{
+    return s_tdma_runtime_owner_initialized &&
+        tdma_pio_spi_phys_origin_get_first_record(&s_tdma_pio_spi_phys, snapshot);
+}
+
 bool tdma_runtime_owner_get_ring_clock_snapshot(
     tdma_ring_clock_snapshot_t *snapshot)
 {

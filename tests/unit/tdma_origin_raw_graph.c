@@ -19,7 +19,7 @@ static tdma_origin_plan_config_t make_config(unsigned nodes,unsigned mask,unsign
         .address = {.capture_bank={0x20000000,0x20000800},.stage=0x20001000,
             .tx_header=0x20002000,.rx_packet=0x20003000,.state=0x20004000,
             .local_shadow={0x20005000,0x20005800},.scratch=0x20006000,
-            .runs=0x20008000,.literals=0x2000a000,.records=0x2000b000},
+            .runs=0x20008000,.literals=0x2000a000,.records=0x2000b000,.first_record=0x2000c000},
         .physical_bytes=nodes*32+51,.packet_size=nodes*32+36,
         .outer_header_bytes=4,.capture_prefix_bits=36,.guard_count=guard,.abort_poll_count=8,
         .local_slot=local,.active_slot_mask=mask,
@@ -127,6 +127,8 @@ int main(int argc, char **argv)
     printf("\"end\":0},\"entries\":{");
     VALUE("seed",p.seed_entry); VALUE("boundary",p.boundary_entry); VALUE("record",p.record_entry);
     VALUE("local",p.local_entry[0]); VALUE("record_done",b.label[L_RECORD_DONE]);
+    VALUE("record_ring0",b.label[L_RECORD_0]); VALUE("first_record",c.address.first_record);
+    VALUE("first_commit",c.address.first_record+offsetof(tdma_origin_first_record_t,published_version));
     printf("\"end\":0},\"runs\":[");
     for (unsigned i=0;i<p.run_count;++i) printf("%s[%u,%u,%u,%u]",i?",":"",
         runs[i].control,runs[i].write_address,runs[i].transfer_count,runs[i].read_address);
