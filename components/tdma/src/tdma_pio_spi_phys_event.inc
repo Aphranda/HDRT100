@@ -323,6 +323,160 @@ static tdma_event_observer_t s_tdma_event_observer;
 static tdma_event_history_t s_tdma_event_history;
 static tdma_event_batch_t s_tdma_event_batch;
 static tdma_event_record_t s_tdma_event_records[TDMA_EVENT_MAX_RECORDS];
+
+/* The Core1 dispatcher is deliberately allowed to spend a whole static
+ * phase on another owner.  A PIO RX FIFO is only eight words deep, so a
+ * delayed observer service used to turn an ordinary scheduler gap into a
+ * sticky RXSTALL.  DMA drains each observer SM continuously into an SRAM
+ * ring; Core1 consumes the ring at the existing service boundary.  The ring
+ * is large enough for the bounded scheduler gap while keeping the PIO and
+ * timestamp paths unchanged. */
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#define TDMA_EVENT_DMA_RING_WORDS 64u
+#define TDMA_EVENT_DMA_RING_BYTES \
+    (TDMA_EVENT_DMA_RING_WORDS * sizeof(uint32_t))
+#define TDMA_EVENT_DMA_RING_BITS 8u
+#define TDMA_EVENT_DMA_TRANSFERS DMA_CH0_TRANS_COUNT_COUNT_BITS
+static bool tdma_pio_spi_phys_stop_dma_level(uint32_t mask, uint64_t deadline);
+typedef struct {
+    int channel;
+    uint32_t produced;
+    uint32_t consumed;
+    bool running;
+} tdma_event_dma_stream_t;
+static volatile uint32_t __attribute__((aligned(TDMA_EVENT_DMA_RING_BYTES)))
+    s_tdma_event_dma_ring[TDMA_EVENT_STREAMS][TDMA_EVENT_DMA_RING_WORDS];
+static tdma_event_dma_stream_t s_tdma_event_dma[TDMA_EVENT_STREAMS] = {
+    {-1, 0u, 0u, false}, {-1, 0u, 0u, false},
+    {-1, 0u, 0u, false}};
+static bool s_tdma_event_dma_active;
+
+static uint32_t tdma_event_dma_produced(uint stream)
+{
+    tdma_event_dma_stream_t *state = &s_tdma_event_dma[stream];
+    if (!state->running || state->channel < 0) return state->produced;
+    const uint32_t transfer_count = dma_hw->ch[(uint)state->channel].transfer_count;
+    const uint32_t ctrl = dma_hw->ch[(uint)state->channel].ctrl_trig;
+    const uint32_t required = DMA_CH0_CTRL_TRIG_EN_BITS | DMA_CH0_CTRL_TRIG_BUSY_BITS;
+    const uint32_t errors = DMA_CH0_CTRL_TRIG_READ_ERROR_BITS |
+                            DMA_CH0_CTRL_TRIG_WRITE_ERROR_BITS;
+    /* NORMAL mode decrements only after each SRAM write completes. Unlike
+     * ENDLESS or a modulo write pointer, it exposes complete ring overruns.
+     * Exhaustion retires this epoch; never reload underneath the consumer. */
+    if ((transfer_count & DMA_CH0_TRANS_COUNT_MODE_BITS) != 0u ||
+        transfer_count == 0u || transfer_count > TDMA_EVENT_DMA_TRANSFERS ||
+        (ctrl & required) != required || (ctrl & errors) != 0u ||
+        TDMA_EVENT_DMA_TRANSFERS - transfer_count < state->produced) {
+        state->running = false;
+        return state->produced;
+    }
+    state->produced = TDMA_EVENT_DMA_TRANSFERS - transfer_count;
+    return state->produced;
+}
+
+static bool tdma_event_dma_stop(void)
+{
+    uint32_t mask = 0u;
+    for (uint stream = 0u; stream < TDMA_EVENT_STREAMS; ++stream)
+        if (s_tdma_event_dma[stream].channel >= 0)
+            mask |= 1u << (uint)s_tdma_event_dma[stream].channel;
+    if (!tdma_pio_spi_phys_stop_dma_level(mask,
+            time_us_64() + TDMA_PIO_SPI_COMMAND_STOP_TIMEOUT_US)) return false;
+    __dmb();
+    for (uint stream = 0u; stream < TDMA_EVENT_STREAMS; ++stream) {
+        tdma_event_dma_stream_t *state = &s_tdma_event_dma[stream];
+        if (state->channel >= 0)
+            dma_channel_unclaim((uint)state->channel);
+        *state = (tdma_event_dma_stream_t){-1, 0u, 0u, false};
+    }
+    s_tdma_event_dma_active = false;
+    return true;
+}
+
+static bool tdma_event_dma_start(const PIO pio)
+{
+    if (s_tdma_event_dma_active) return false;
+    const uint sms[TDMA_EVENT_STREAMS] = {
+        TDMA_EVENT_RX_SM, TDMA_EVENT_TX_SM, TDMA_EVENT_SEQUENCE_SM};
+    int claimed[TDMA_EVENT_STREAMS] = {-1, -1, -1};
+    for (uint stream = 0u; stream < TDMA_EVENT_STREAMS; ++stream) {
+        claimed[stream] = dma_claim_unused_channel(false);
+        if (claimed[stream] < 0) {
+            for (uint i = 0u; i < stream; ++i)
+                dma_channel_unclaim((uint)claimed[i]);
+            return false;
+        }
+    }
+    for (uint stream = 0u; stream < TDMA_EVENT_STREAMS; ++stream) {
+        tdma_event_dma_stream_t *state = &s_tdma_event_dma[stream];
+        state->channel = claimed[stream];
+        state->produced = 0u;
+        state->consumed = 0u;
+        state->running = true;
+        dma_channel_config config = dma_channel_get_default_config(
+            (uint)state->channel);
+        channel_config_set_transfer_data_size(&config, DMA_SIZE_32);
+        channel_config_set_read_increment(&config, false);
+        channel_config_set_write_increment(&config, true);
+        channel_config_set_ring(&config, true, TDMA_EVENT_DMA_RING_BITS);
+        channel_config_set_dreq(&config, pio_get_dreq(pio, sms[stream], false));
+        dma_channel_configure((uint)state->channel, &config,
+            s_tdma_event_dma_ring[stream], &pio->rxf[sms[stream]],
+            TDMA_EVENT_DMA_TRANSFERS, false);
+    }
+    dma_start_channel_mask((1u << (uint)claimed[0]) |
+                           (1u << (uint)claimed[1]) |
+                           (1u << (uint)claimed[2]));
+    s_tdma_event_dma_active = true;
+    return true;
+}
+
+static uint32_t tdma_event_dma_available(uint stream, bool *overrun)
+{
+    tdma_event_dma_stream_t *state = &s_tdma_event_dma[stream];
+    const uint32_t produced = tdma_event_dma_produced(stream);
+    const uint32_t available = produced - state->consumed;
+    if (overrun != NULL) *overrun = !state->running ||
+        available >= TDMA_EVENT_DMA_RING_WORDS;
+    return available;
+}
+
+static void tdma_event_dma_harvest(tdma_event_batch_t *batch,
+    const tdma_event_observer_t *observer, uint32_t *maxima[TDMA_EVENT_STREAMS])
+{
+    for (uint stream = 0u; stream < TDMA_EVENT_STREAMS; ++stream) {
+        tdma_event_dma_stream_t *state = &s_tdma_event_dma[stream];
+        bool overrun = false;
+        const uint32_t available = tdma_event_dma_available(stream, &overrun);
+        if (available > *maxima[stream]) *maxima[stream] = available;
+        if (overrun || observer->pending_count[stream] > TDMA_EVENT_FIFO_WORDS) {
+            batch->pre_faults |= TDMA_EVENT_FAULT_OVERFLOW;
+            continue;
+        }
+        const uint32_t free = TDMA_EVENT_FIFO_WORDS - observer->pending_count[stream];
+        const uint32_t count = available > free ? free : available;
+        const uint32_t consumed = state->consumed;
+        __dmb();
+        for (uint i = 0u; i < count; ++i)
+            batch->words[stream][i] = s_tdma_event_dma_ring[stream][
+                (consumed + i) & (TDMA_EVENT_DMA_RING_WORDS - 1u)];
+        __dmb();
+        (void)tdma_event_dma_available(stream, &overrun);
+        if (overrun) {
+            batch->post_faults |= TDMA_EVENT_FAULT_OVERFLOW;
+            continue;
+        }
+        state->consumed = consumed + count;
+        batch->count[stream] = (uint8_t)count;
+        /* Never assert FIFO empty from a DMA count/address observation: an
+         * older FIFO word may still be in flight to SRAM. Keep the age lower
+         * bound conservative; an ambiguous long epoch is rejected by lift. */
+    }
+}
+#else
+static bool s_tdma_event_dma_active;
+static void tdma_event_dma_stop(void) { s_tdma_event_dma_active = false; }
+#endif
 static uint32_t s_tdma_event_epoch;
 static uint32_t s_tdma_event_hz;
 static uint32_t s_tdma_event_period_ns;
@@ -1377,6 +1531,23 @@ static void tdma_pio_spi_phys_event_stop(tdma_pio_spi_phys_t *phys)
 {
     if (phys != NULL) tdma_event_live_retire(TDMA_EVENT_LIVE_STOP);
     if (phys != NULL) tdma_event_recovery_cancel(TDMA_EVENT_RECOVERY_CANCEL_STOP);
+    /* DMA owns the three observer RX FIFOs for the whole follower lifetime.
+     * Abort and release those channels before the PIO program can be reused
+     * by a maintenance persona. */
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    if (phys != NULL && s_tdma_pio_spi_program_persona ==
+            TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER)
+        pio_set_sm_mask_enabled(phys->flight_resources.tx_pio, TDMA_EVENT_SM_MASK, false);
+    if (!tdma_event_dma_stop()) {
+        s_tdma_event_waiting = false;
+        tdma_event_observer_stop(&s_tdma_event_observer);
+        tdma_event_history_retire(&s_tdma_event_history);
+        tdma_event_candidate_retire();
+        s_tdma_event_arm_epoch = 0u;
+        if (phys != NULL) tdma_event_publish_state(phys);
+        return;
+    }
+#endif
     /* Retire the installed persona even if configure has already changed the
      * requested role. Do this before a maintenance owner can reuse the SMs. */
     if (phys == NULL || s_tdma_pio_spi_program_persona !=
@@ -1483,6 +1654,14 @@ static void tdma_event_start(tdma_pio_spi_phys_t *phys)
         return;
     }
     pio_set_sm_mask_enabled(pio, TDMA_EVENT_SM_MASK, false);
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    /* Quiesce any deferred start before resetting FIFOs or PIO registers. */
+    if (!tdma_event_dma_stop()) {
+        s_tdma_event_prelaunch_reason = TDMA_GEOMETRY_OBSERVER_FIFO;
+        tdma_event_publish_state(phys);
+        return;
+    }
+#endif
     for (uint sm = TDMA_EVENT_RX_SM; sm <= TDMA_EVENT_TX_SM; ++sm) {
         pio_sm_config c = tdma_event_counter_program_get_default_config(s_tdma_event_counter_offset);
         sm_config_set_jmp_pin(&c, sm == TDMA_EVENT_RX_SM ? phys->rx_csn_pin : phys->tx_csn_pin);
@@ -1519,6 +1698,16 @@ static void tdma_event_start(tdma_pio_spi_phys_t *phys)
     pio_interrupt_clear(pio, TDMA_EVENT_RX_SM);
     pio_interrupt_clear(pio, TDMA_EVENT_TX_SM);
     pio->fdebug = TDMA_EVENT_SM_MASK << PIO_FDEBUG_RXSTALL_LSB;
+    /* Start the drain before enabling the PIO state machines. A failed
+     * allocation leaves this observer stopped; a new ARM may retry it. */
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    if (!tdma_event_dma_start(pio)) {
+        s_tdma_event_prelaunch_reason = TDMA_GEOMETRY_OBSERVER_FIFO;
+        s_tdma_event_waiting = false;
+        tdma_event_publish_state(phys);
+        return;
+    }
+#endif
     tdma_pio_spi_event_snapshot_t *s = &s_tdma_event_snapshot;
     s->prefix_bits = (uint32_t)bits - 32u;
     tdma_event_tap_loaded(s->prefix_bits, sample_delay);
@@ -1550,10 +1739,17 @@ static void tdma_event_start(tdma_pio_spi_phys_t *phys)
     if ((s->start_pad_before & cs_mask) != cs_mask ||
         (s->start_pad_after & cs_mask) != cs_mask)
         faults |= TDMA_EVENT_FAULT_DIRTY_START;
+    uint32_t join_window_frames = TDMA_EVENT_FIFO_WORDS / 2u;
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    /* Two counter words per frame: tolerate the DMA ring's bounded backlog,
+     * but never discard partial tuples or resume the same epoch after loss. */
+    join_window_frames = TDMA_EVENT_DMA_RING_WORDS / 2u;
+#endif
     const tdma_event_config_t config = {
         .pio_hz = s_tdma_event_hz,
         .epoch_limit_cycles = (uint64_t)s_tdma_event_hz * 60u,
-        .join_timeout_cycles = (uint64_t)s_tdma_event_hz * s_tdma_event_period_ns / 250000000u,
+        .join_timeout_cycles = (uint64_t)s_tdma_event_hz * s_tdma_event_period_ns /
+                               1000000000u * join_window_frames,
         .min_frame_cycles = (uint64_t)phys->flight_physical_byte_count * 8u *
                             s_tdma_event_hz / phys->baud_hz,
         .min_tx_delay_cycles = 0u,
@@ -1729,6 +1925,10 @@ static void tdma_event_recovery_step(tdma_pio_spi_phys_t *phys)
         return;
     }
     if (r->pending == TDMA_EVENT_RECOVERY_RESET_PENDING) {
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+        pio_set_sm_mask_enabled(phys->flight_resources.tx_pio, TDMA_EVENT_SM_MASK, false);
+        if (!tdma_event_dma_stop()) return;
+#endif
         tdma_event_observer_stop(&s_tdma_event_observer);
         tdma_event_history_retire(&s_tdma_event_history);
         tdma_event_candidate_retire();
@@ -1828,16 +2028,23 @@ static void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys)
     const uint64_t before = time_us_64();
     const uint sms[] = {TDMA_EVENT_RX_SM, TDMA_EVENT_TX_SM, TDMA_EVENT_SEQUENCE_SM};
     uint32_t *maxima[] = {&s->rx_level_max, &s->tx_level_max, &s->sequence_level_max};
-    for (uint stream = 0u; stream < TDMA_EVENT_STREAMS; ++stream) {
-        uint count = pio_sm_get_rx_fifo_level(pio, sms[stream]);
-        if (count > *maxima[stream]) *maxima[stream] = count;
-        if (count > TDMA_EVENT_FIFO_WORDS) {
-            batch->pre_faults |= TDMA_EVENT_FAULT_OVERFLOW;
-            count = 0u;
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    if (s_tdma_event_dma_active) {
+        tdma_event_dma_harvest(batch, &s_tdma_event_observer, maxima);
+    } else
+#endif
+    {
+        for (uint stream = 0u; stream < TDMA_EVENT_STREAMS; ++stream) {
+            uint count = pio_sm_get_rx_fifo_level(pio, sms[stream]);
+            if (count > *maxima[stream]) *maxima[stream] = count;
+            if (count > TDMA_EVENT_FIFO_WORDS) {
+                batch->pre_faults |= TDMA_EVENT_FAULT_OVERFLOW;
+                count = 0u;
+            }
+            batch->count[stream] = (uint8_t)count;
+            for (uint i = 0u; i < count; ++i) batch->words[stream][i] = pio_sm_get(pio, sms[stream]);
+            if (pio_sm_is_rx_fifo_empty(pio, sms[stream])) batch->empty_mask |= (uint8_t)(1u << stream);
         }
-        batch->count[stream] = (uint8_t)count;
-        for (uint i = 0u; i < count; ++i) batch->words[stream][i] = pio_sm_get(pio, sms[stream]);
-        if (pio_sm_is_rx_fifo_empty(pio, sms[stream])) batch->empty_mask |= (uint8_t)(1u << stream);
     }
     const uint64_t after = time_us_64();
     tdma_service_timing_record(TDMA_TIMING_EVENT_HARVEST, stage_start);
@@ -1845,7 +2052,7 @@ static void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys)
     batch->observed = (tdma_event_interval_t){tdma_event_cycles(before, false), tdma_event_cycles(after, true)};
     tdma_service_timing_record(TDMA_TIMING_EVENT_CONVERT, stage_start);
     stage_start = tdma_service_timing_now();
-    batch->post_faults = tdma_event_faults(phys);
+    batch->post_faults |= tdma_event_faults(phys);
     if (batch->count[0]) s->fifo_rx_first = batch->words[0][0];
     if (batch->count[0] > 1u) s->fifo_rx_second = batch->words[0][1];
     if (batch->count[1]) s->fifo_tx_first = batch->words[1][0];

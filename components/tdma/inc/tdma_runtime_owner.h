@@ -16,6 +16,7 @@
 /* Core1 gate before all TDMA service work. Enabled only by an admitted finite
  * diagnostic trial; false runs the normal service, including STOP retirement. */
 bool tdma_runtime_owner_skip_tdma_service(void);
+void tdma_runtime_owner_service_observer(void);
 bool tdma_runtime_owner_get_origin_blackout(tdma_origin_blackout_snapshot_t *out);
 /* Stopped/ACK only; no reads of the retired shared persona workspace. */
 bool tdma_runtime_owner_get_origin_build_probe(tdma_origin_build_probe_t *out);
@@ -63,6 +64,7 @@ bool tdma_runtime_owner_get_event_tap(tdma_pio_spi_event_tap_snapshot_t *snapsho
 /* Retained observer-only recovery diagnostics; no hardware access. */
 bool tdma_runtime_owner_get_event_recovery(tdma_pio_spi_event_recovery_snapshot_t *snapshot);
 bool tdma_runtime_owner_get_event_live_snapshot(tdma_pio_spi_event_live_snapshot_t *snapshot);
+bool tdma_runtime_owner_get_event_snapshot(tdma_pio_spi_event_snapshot_t *snapshot);
 /* One bounded read attempt, no hardware access. expected_observer_epoch == 0
  * binds the current epoch and requires next_ordinal == 0. A nonzero old epoch
  * returns EPOCH_CHANGED. All failures leave *out unchanged. */

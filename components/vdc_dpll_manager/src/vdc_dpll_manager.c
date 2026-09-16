@@ -3092,6 +3092,10 @@ void tdma_component_core1_service(void)
     /* Explicit finite TDMA-owner diagnostic, independent of OTA. The entire
      * physical/owner/RefMem/training service body is omitted on these calls. */
     if (tdma_runtime_owner_skip_tdma_service()) {
+        /* Origin blackout suppresses flight TX/DMA advancement, but the
+         * observer FIFO is still a Core1-owned realtime input.  Harvest it
+         * separately so JOIN_RX cannot stall while the blackout is active. */
+        tdma_runtime_owner_service_observer();
         return;
     }
     /* The PIO/DMA flight origin is submitted without waiting for wire

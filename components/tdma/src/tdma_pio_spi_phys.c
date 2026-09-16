@@ -418,6 +418,17 @@ static void tdma_rx_first_window_arm_failed(void);
 #include "tdma_pio_spi_phys_geometry.inc"
 #include "tdma_pio_spi_phys_event.inc"
 
+void tdma_pio_spi_phys_service_observer(tdma_pio_spi_phys_t *phys)
+{
+    tdma_pio_spi_phys_event_service(phys);
+}
+
+bool tdma_pio_spi_phys_get_event_snapshot(
+    const tdma_pio_spi_phys_t *phys, tdma_pio_spi_event_snapshot_t *snapshot)
+{
+    return tdma_pio_spi_phys_event_copy(phys, snapshot);
+}
+
 bool tdma_pio_spi_phys_select_program_persona(
     tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_program_persona_t persona)
@@ -426,6 +437,9 @@ bool tdma_pio_spi_phys_select_program_persona(
     if (persona != s_tdma_pio_spi_program_persona) {
         tdma_priority_stop();
         tdma_pio_spi_phys_event_stop(phys);
+#if PROJECT_TDMA_EVENT_OBSERVER && defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+        if (s_tdma_event_dma_active) return false;
+#endif
     }
     tdma_pio_spi_phys_origin_record_invalidate(phys);
     const bool selected = tdma_pio_spi_programs_select(
@@ -563,6 +577,9 @@ static uint32_t tdma_pio_spi_phys_flight_tail_bytes(
 static void tdma_pio_spi_phys_prepare_sm_pair(tdma_pio_spi_phys_t *phys)
 {
     tdma_pio_spi_phys_event_stop(phys);
+#if PROJECT_TDMA_EVENT_OBSERVER && defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    if (s_tdma_event_dma_active) return;
+#endif
     const PIO control_pio = tdma_pio_spi_phys_control_pio(phys);
     const PIO data_pio = tdma_pio_spi_phys_data_pio(phys);
     const PIO capture_pio = tdma_pio_spi_phys_capture_pio(phys);
@@ -744,6 +761,9 @@ static void tdma_pio_spi_phys_release_flight_resources(
         return;
     }
     tdma_pio_spi_phys_event_stop(phys);
+#if PROJECT_TDMA_EVENT_OBSERVER && defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    if (s_tdma_event_dma_active) return;
+#endif
     if (!tdma_pio_spi_phys_stop_command_dma(phys)) return;
     /* Release the persona that is actually selected.  Hard-coding ORIGIN
      * leaves follower/process-follower programs resident and makes the next
@@ -1254,6 +1274,12 @@ static bool tdma_pio_spi_phys_configure_flight(
     if (phys == NULL || config == NULL) {
         return false;
     }
+#if PROJECT_TDMA_EVENT_OBSERVER && defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    if (s_tdma_event_dma_active) {
+        tdma_pio_spi_phys_event_stop(phys);
+        if (s_tdma_event_dma_active) return false;
+    }
+#endif
     phys->flight_resources = tdma_state_machine_resource_contract();
     if (!tdma_state_machine_rx_endpoint_contract_valid(
             &phys->flight_resources.rx_endpoints)) {
@@ -2550,6 +2576,16 @@ bool tdma_pio_spi_phys_disarm(void *context)
     /* Record the observer's normal STOP while its selected binding is still
      * current. Geometry capture below does not need the observer SMs alive. */
     tdma_pio_spi_phys_event_stop(phys);
+#if PROJECT_TDMA_EVENT_OBSERVER && defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    if (s_tdma_event_dma_active) {
+        tdma_pio_spi_phys_set_line_drivers(false);
+        tdma_pio_spi_phys_pause_sm_pair(phys);
+        phys->armed = false;
+        phys->snapshot.armed = 0u;
+        phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_PERSONA_BUSY;
+        return false;
+    }
+#endif
     tdma_geometry_stop_begin(phys);
     /* Explicit STOP cancels even a sparse ARM admission. Successful cleanup
      * below adds STOPPED only after DMA and both workers have retired. */

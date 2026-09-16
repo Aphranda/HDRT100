@@ -111,6 +111,31 @@ scpi_result_t scpi_cmd_tdma_event_live_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_tdma_event_snapshot_q(scpi_t *context)
+{
+    tdma_pio_spi_event_snapshot_t s;
+    if (!tdma_runtime_owner_get_event_snapshot(&s)) return SCPI_RES_ERR;
+    /* Diagnostic snapshot schema 1. Values are valid only as a stopped/run
+     * observation and do not grant timestamp or DPLL admission. */
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, s.state);
+    SCPI_ResultUInt32(context, s.reason);
+    SCPI_ResultUInt32(context, s.epoch);
+    SCPI_ResultUInt32(context, s.joined);
+    SCPI_ResultUInt32(context, s.published);
+    SCPI_ResultUInt32(context, s.fault_bits);
+    SCPI_ResultUInt32(context, s.rx_level_max);
+    SCPI_ResultUInt32(context, s.tx_level_max);
+    SCPI_ResultUInt32(context, s.sequence_level_max);
+    SCPI_ResultUInt32(context, s.service_count);
+    SCPI_ResultUInt32(context, s.service_gap_max_us);
+    SCPI_ResultUInt32(context, s.service_max_us);
+    SCPI_ResultUInt32(context, s.pending_rx);
+    SCPI_ResultUInt32(context, s.pending_tx);
+    SCPI_ResultUInt32(context, s.pending_sequence);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_tdma_opmode_catalog_q(scpi_t *context)
 {
     SCPI_ResultUInt32(context, TDMA_OPERATING_PROFILE_COUNT);

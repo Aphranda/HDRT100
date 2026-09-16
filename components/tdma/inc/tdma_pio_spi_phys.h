@@ -1256,6 +1256,9 @@ bool tdma_pio_spi_phys_commit_overlay(void *context, tdma_overlay_prepare_t *job
  * account the hardware launch and completion in distinct bounded passes.
  * A zero timestamp reports an aborted/recovered burst and is not evidence. */
 void tdma_pio_spi_phys_service_tx(void *context, uint64_t now_ns);
+void tdma_pio_spi_phys_service_observer(tdma_pio_spi_phys_t *phys);
+bool tdma_pio_spi_phys_get_event_snapshot(
+    const tdma_pio_spi_phys_t *phys, tdma_pio_spi_event_snapshot_t *snapshot);
 bool tdma_pio_spi_phys_take_tx_completion(void *context,
                                           uint64_t *tx_timestamp_ns);
 /* Submit first-stage SPI CLK training on the TDMA owner/core1 path. A forward

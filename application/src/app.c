@@ -1087,12 +1087,14 @@ static void app_realtime_tdma_phase(void)
 
 static void app_realtime_vdc_phase(void)
 {
+    tdma_runtime_owner_service_observer();
     vdc_sync_ao_service();
     drv_watchdog_mark_progress(1u, 0x0111u);
 }
 
 static void app_realtime_dpll_phase(void)
 {
+    tdma_runtime_owner_service_observer();
     drv_watchdog_mark_progress(1u, 0x0102u);
     sync_dpll_fb_service();
     drv_watchdog_mark_progress(1u, 0x0112u);

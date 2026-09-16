@@ -51,6 +51,12 @@ static uint32_t s_tdma_topology_probe_phase_delay_cycles;
 #include "tdma_runtime_origin.inc"
 
 TDMA_ORIGIN_OWNER_RAM
+void tdma_runtime_owner_service_observer(void)
+{
+    tdma_pio_spi_phys_service_observer(&s_tdma_pio_spi_phys);
+}
+
+TDMA_ORIGIN_OWNER_RAM
 tdma_service_timing_context_t tdma_runtime_owner_timing_context(void)
 {
     const tdma_pio_spi_ring_adapter_t *a = &s_tdma_pio_spi_ring_adapter;
@@ -493,6 +499,12 @@ bool tdma_runtime_owner_get_event_live_snapshot(tdma_pio_spi_event_live_snapshot
 {
     return s_tdma_runtime_owner_initialized && snapshot != NULL &&
         tdma_pio_spi_phys_event_get_live_snapshot(&s_tdma_pio_spi_phys, snapshot);
+}
+
+bool tdma_runtime_owner_get_event_snapshot(tdma_pio_spi_event_snapshot_t *snapshot)
+{
+    return s_tdma_runtime_owner_initialized && snapshot != NULL &&
+        tdma_pio_spi_phys_get_event_snapshot(&s_tdma_pio_spi_phys, snapshot);
 }
 
 tdma_event_window_result_t tdma_runtime_owner_copy_event_history_window(
