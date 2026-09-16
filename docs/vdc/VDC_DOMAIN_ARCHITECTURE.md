@@ -596,6 +596,34 @@ typed 成功/拒绝、相邻重复和不同事件；后两者不证明历史全�
 本地 delay，不能把载荷圈序号当成记录事件序号，不能把陈旧记录视作新参考。
 SCPI 仅配置/触发；TX 与 RX 明细在 STOP 后读回，不在实时路径采样。
 
+Core1 DPLL 服务在 committed-model 写 guard 开启前，通过
+`vdc_priority_rx_copy_live` 有界取得仍有效的 typed 记录。独立 MATCH 请求在 STOP
+配置，非零 generation 严格递增并锁存当前 feedback session；成功绑定后检测到
+ring、role、clock、ARM、observer、路径绑定或 RX epoch 改变即退休。RX 交接不可用
+时不采用，等待后续有效快照。首次有效事件前允许
+等待启动与模型就绪，但不能迁入另一 session。普通 NO1 模型修订不改变远端运行
+授权；接收方不虚构远端 model token。
+
+`tdma_runtime_owner_copy_event_history_exact` 只供 Core1 前景按 body 中完整
+source event sequence 直接定位已有历史槽位，并复验完整序号、ordinal、observer
+与 ARM epoch。最多读取一条候选，无历史遍历、重试或 IRQ 屏蔽；LIVE 只提供同一
+生命周期的 TIMER1 enable bracket，不提供另一事件的身份。源事件暂未收齐可重试，
+被覆盖则跳过；失败不改写输出。已成功匹配事件至多采用一次，不将 carrier sequence
+或重复参考视为新事件。
+
+本地 RX elapsed 与 enable bracket 相加后，经实际 committed DCO 投影得到 local
+output-ns 区间；早于模型有效边界的事件跳过。当前已装载矩阵声明 reverse DATA
+方向，匹配器核实该来源后转置查询，复用其标量作为 provisional forward-CS delay；
+不得盲目转置原生 forward 矩阵。该估计尚不包含中继驻留、端点偏差和非对称校准，
+不授予精度。expected 区间为远端区间加 delay，residual 为
+`[local_lo - expected_hi, local_hi - expected_lo]`，加减与有符号边界均检查溢出。
+投影后再次核对本地生命周期、模型和远端 generation/source/target；暂忙不产生采用。
+
+`SYSTem:VDC:PRIORity:MATCH` 安装匹配请求，`MATCH?` 读取请求，
+`MATCH:STATus?` 仅在 ring STOP 后读取 `vdc_priority_match_snapshot_t`。区间与身份
+表示最后一次成功匹配，计数和最后原因表示后续尝试；active 是最后 Core1 服务状态，
+不替代 STOP 判定。当前 matcher 只形成误差观测，不发 DCO 命令、ACK 或锁相声明。
+
 验证覆盖普通类型隔离、全邮箱 CRC、上下界溢出、代际/模型/STOP 生命周期、
 Core0 工位不阻塞、DMA bank 退休与四板实际 typed 记录。新增调用链须复核目标
 栈/内存并测量静态调度预算；单圈送达、事件年龄、DCO 生效分别验收。

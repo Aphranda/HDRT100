@@ -48,7 +48,21 @@ PI 或取得 PIO/DMA 所有权；原轮询诊断与新入口分离。热链迁�
 代码/资源/实板审核分别见同目录 `code-review.json`、`resource-review.json`、
 `hardware-review.json`。IRQ 候选预算仍未满足，P3 严格失败保留于 Task Progress。
 
-## 核验结论
+## 精确匹配增补（v3 pending）
+
+`VDC-PRIORITY-01` v3 增加 Core1 live handoff、源事件直接索引、STOP 请求会话
+绑定、实际 committed DCO 投影和带暂定正向 CS delay 的残差区间。匹配器不发
+DCO 命令或 ACK，不授予物理精度与单圈期限。已有 reverse-DATA 矩阵只在方向
+来源明确时转置；中继驻留和端点校准留至后续精度任务。
+
+独立方 `p0_root_review` 对照源码、负测、资源与三份契约文档复核，指出并闭合
+首次匹配前未锁存 session 的实现缺口，以及 RX 交接暂不可用与 epoch 退休的
+文字差异。C11 结论 `APPROVE_PENDING_REGISTRATION`，仍不批准 active。
+原件为 `out/HardwareAcceptance/20260917/dpll-priority-match-r1/c11-review.json`；
+代码及资源复核见同目录 `code-review.json`、`resource-review.json`。本次硬件
+判定由 Task Progress 引用原始专项，不以本增补替代。
+
+## 最终核验结论
 
 ACCEPT_WITH_DEVIATION。P3、资源和 typed 实板专项的实际结果只记录在 VDC Task Progress，
 不能以 pending 登记代替验收。

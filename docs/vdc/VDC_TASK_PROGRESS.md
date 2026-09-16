@@ -32,6 +32,46 @@ Last updated: 2026-09-17
 已由真实 pre-commit 硬件门禁核验，见 `VDC-PROGRESS-20260917-001`。严格质量告警仍保留，
 不授予单圈同步编码、三从闭环或锁相完成。
 
+### VDC-PROGRESS-20260917-006：精确源事件匹配与本地观测 FIFO 阻塞
+
+- TODO task ID：`VDC-FAST-002`、`VDC-FAST-003`。
+- 状态：IN PROGRESS。Core1 已在 committed-model guard 前接入 typed live handoff：按完整
+  source event sequence 直接索引历史槽位，复验 ARM/observer epoch、ordinal、完整序号、
+  TIMER1 enable bracket、模型生存期和 RX 代际；用实际 committed DCO 投影计算 local 区间，
+  加已装载 reverse-DATA 矩阵转置得到的暂定正向 CS delay，输出 signed residual。此切片不发
+  DCO、ACK 或锁相命令。
+- 软件/资源：exact、matcher、SCPI、wrapper fixture 相关独立回归分别通过；Release A/B/Boot
+  通过。独立资源复核记录主 RAM 余量约 40140 B、matcher 完整 DPLL 相位栈约 1204/3072 B，
+  既有最坏 follower/NO1 路径无回归。精确查找不扫描历史、不动态分配、不屏蔽 IRQ；matcher
+  workspace 和快照静态分配。`next-dco-plan.json` 仅为后续只读方案，未接入 DCO。
+- 四板基础 P3 使用 `QUICK_DIAGNOSTIC`、固定 P0/P3/T3/TDMA 范围完成
+  `PASS_WITH_WARNINGS`，INFO/WARN/ERROR/FATAL 为 25/15/0/0；严格调度告警保留。证据根为
+  `out/HardwareAcceptance/20260917/dpll-priority-match-r1/p3/`，源码 build 为
+  `20260916191056`，不能把基础 P3 结果写成匹配专项通过。
+- 匹配专项首轮 `match-short-r1` 保留失败：三从 typed 接收约 3037 条且末条邮箱/CRC 一致，
+  但默认 TAP 未启用时本地 observer 分别在 source event 64/57/55 后 INVALID；RECOVERY
+  零计数只表示该配置下不记录恢复，不能据此断言具体硬件原因。NO2 成功配对一次，source
+  event 64/carrier 66、delay 82 ns 和 residual 算术独立复核；NO3/NO4 未匹配。
+- 使用已验收显式 TAP（NO2/NO3/NO4 prefix 120/109/98、delay 15）复测，保留
+  `match-short-r2` 与 `match-short-r3` 原始 actions 和 STOP 后诊断。r2 中 observer 均按
+  既有恢复路径推进，但 NO1 未形成有效 offer（TX encoded=0），三从只收到约 80 个早期载荷；
+  r3 在同源码复位、复用当前矩阵与显式 TAP 后，NO1 形成有效 typed 候选约 605 个，NO2/NO3
+  各成功匹配 source event 149，carrier 152，delay 分别 82/164 ns；NO4 未匹配。三从仍
+  出现 `TDMA_EVENT_FAULT_STALL`，该位来自 observer SM1–SM3 的 RXSTALL 合并，只能证明
+  观测器组至少一 SM 溢出，不能归因 DATA RX DMA。r3 recovery reason=SEQUENCE、fault=1
+  的原始证据保留，专项仍 FAIL。
+- 根因方向已收窄：每帧 observer RX/TX 计数器写两个字，JOIN_RX 8-word FIFO 约容纳四帧；
+  TDMA phase 之间服务间隔过长时 FIFO RXSTALL，继续使用会破坏时间轴，observer 正确退休。
+  下一切片评估在 TDMA owner 内固定容量的原始 batch 暂存/前景单写者消费，或缩短观测服务
+  间隔；必须保留溢出、epoch 失效和固定容量证据，不能清 sticky 后冒充连续时间。不要把
+  载荷持续接收误判为本地事件观测或 DCO 闭环完成。
+- 后续只读 DCO 设计见 `next-dco-plan.json`：typed 输出无 remote model token，不能把
+  generation/event sequence 伪造成 token；须先完成三从稳定 residual，再增加互斥 typed-follow
+  mode、Core1 rate estimator 和有界本地 DCO commit。首帧/P0T/100 ns 精度不是当前 FIFO
+  阻塞的前置条件。
+- 下一 gate：`VDC-FAST-002`，独立设计/资源审查后实现 observer raw harvest 或等价有界
+  服务修复，重新编译并运行匹配源码 quick P3；之后才重跑三从匹配专项并进入 `VDC-FAST-003`。
+
 ### VDC-PROGRESS-20260917-005：同步记录直接交接与 IRQ 热路径收敛
 
 - 代码与匹配四板 P3 凭证已提交为 `c144ad8`，`check-staged` 与真实 pre-commit
