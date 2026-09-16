@@ -53,6 +53,9 @@ scpi_result_t scpi_cmd_vdc_priority_sync_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_match(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_match_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_match_status_q(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_priority_follow(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_priority_follow_q(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_priority_follow_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_tx_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_probe(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_auto(scpi_t *context);
@@ -201,6 +204,9 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:VDC:PRIORity:MATCH", .callback = scpi_cmd_vdc_priority_match}, \
     {.pattern = "SYSTem:VDC:PRIORity:MATCH?", .callback = scpi_cmd_vdc_priority_match_q}, \
     {.pattern = "SYSTem:VDC:PRIORity:MATCH:STATus?", .callback = scpi_cmd_vdc_priority_match_status_q}, \
+    {.pattern = "SYSTem:VDC:PRIORity:FOLLow", .callback = scpi_cmd_vdc_priority_follow}, \
+    {.pattern = "SYSTem:VDC:PRIORity:FOLLow?", .callback = scpi_cmd_vdc_priority_follow_q}, \
+    {.pattern = "SYSTem:VDC:PRIORity:FOLLow:STATus?", .callback = scpi_cmd_vdc_priority_follow_status_q}, \
     {.pattern = "SYSTem:VDC:PRIORity:TX?", .callback = scpi_cmd_vdc_priority_tx_q}, \
     {.pattern = "SYSTem:VDC:PRIORity:RX?", .callback = scpi_cmd_vdc_priority_rx_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:PROBe", .callback = scpi_cmd_vdc_feedback_probe}, \

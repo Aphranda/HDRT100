@@ -1835,8 +1835,9 @@ void vdc_dpll_manager_set_dpll_ready(bool ready)
  * service moves the following aligned DMA BSS region by a whole page. */
 static __attribute__((noinline)) void vdc_dpll_manager_consume_follower_command(void)
 {
-    bool local_follow;
-    if (!vdc_dpll_manager_try_local_follow_enabled(&local_follow) || local_follow) return;
+    bool local_follow, priority_follow;
+    if (!vdc_dpll_manager_try_local_follow_enabled(&local_follow) || local_follow ||
+        !vdc_dpll_manager_try_priority_follow_enabled(&priority_follow) || priority_follow) return;
     /* This function runs only at the Core1 DPLL owner boundary, after role
      * activation and before the next evidence beat. The owner needs only the
      * active control profile and local slot; copying the complete domain here
@@ -2998,6 +2999,7 @@ static void vdc_dpll_manager_waveform_capture_service(void)
 #include "vdc_priority_ingress.inc"
 #include "vdc_priority_rx.inc"
 #include "vdc_priority_match.inc"
+#include "vdc_priority_follow.inc"
 
 /* Section placement alone does not prevent GCC from moving this whole RAM
  * step into the XIP service wrapper when that wrapper gains another call. */
@@ -3064,6 +3066,7 @@ static __attribute__((noinline)) void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_f
 void __attribute__((noinline)) sync_dpll_fb_service(void)
 {
     vdc_priority_match_core1();
+    priority_follow_prepare_core1();
     vdc_priority_ingress_core1();
     const uint32_t session = vdc_dpll_manager_feedback_session();
     if (session) {
@@ -3073,6 +3076,7 @@ void __attribute__((noinline)) sync_dpll_fb_service(void)
     }
     sync_dpll_fb_step();
     vdc_boundary_service_core1();
+    priority_follow_apply_core1();
     if (session) model_feedback_end_core1(session);
 }
 

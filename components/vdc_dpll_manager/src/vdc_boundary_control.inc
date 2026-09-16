@@ -22,6 +22,7 @@ static uint32_t s_boundary_meta_words[sizeof(vdc_boundary_meta_t) / 4u];
 static uint32_t s_boundary_guard, s_boundary_request, s_boundary_request_session;
 static int32_t s_boundary_request_delta;
 static uint32_t s_boundary_request_mode;
+static uint32_t s_boundary_request_priority_generation;
 static uint32_t s_boundary_tx_done;
 _Static_assert(sizeof(vdc_boundary_peer_t) == 48u, "bounded peer history");
 _Static_assert(VDC_BOUNDARY_PROBE_MAX_DELTA_PPB <= INT16_MAX &&
@@ -60,7 +61,7 @@ static bool boundary_request(uint32_t *generation, uint32_t *session, int32_t *d
     return true;
 }
 
-typedef struct { int32_t delta; uint32_t mode; } vdc_boundary_request_t;
+typedef struct { int32_t delta; uint32_t mode, priority_generation; } vdc_boundary_request_t;
 
 static bool boundary_set_stopped(void *context)
 {
@@ -73,6 +74,7 @@ static bool boundary_set_stopped(void *context)
     __atomic_store_n(&s_boundary_request_session, session, __ATOMIC_RELAXED);
     __atomic_store_n(&s_boundary_request_delta, request->delta, __ATOMIC_RELAXED);
     __atomic_store_n(&s_boundary_request_mode, request->mode, __ATOMIC_RELAXED);
+    __atomic_store_n(&s_boundary_request_priority_generation, request->priority_generation, __ATOMIC_RELAXED);
     (void)__atomic_add_fetch(&s_boundary_request, 1u, __ATOMIC_RELEASE);
     return true;
 }
@@ -103,6 +105,20 @@ bool vdc_dpll_manager_set_local_follow(bool enabled)
     vdc_boundary_request_t request = {
         .mode = enabled ? VDC_BOUNDARY_MODE_LOCAL_FOLLOW : VDC_BOUNDARY_MODE_PROBE};
     return tdma_service_update_stopped_metadata(s_vdc_tdma_service, boundary_set_stopped, &request);
+}
+
+bool vdc_dpll_manager_try_priority_follow_enabled(bool *enabled)
+{
+    if (!enabled) return false;
+    uint32_t request, session, mode;
+    int32_t delta;
+    if (!boundary_request(&request, &session, &delta, &mode)) return false;
+    const uint32_t current = vdc_dpll_manager_feedback_session();
+    __atomic_thread_fence(__ATOMIC_ACQ_REL);
+    if (request != __atomic_load_n(&s_boundary_request, __ATOMIC_ACQUIRE) ||
+        current != vdc_dpll_manager_feedback_session()) return false;
+    *enabled = request && mode == VDC_BOUNDARY_MODE_TYPED_FOLLOW && session && session == current;
+    return true;
 }
 
 bool vdc_dpll_manager_try_local_follow_enabled(bool *enabled)
@@ -175,7 +191,8 @@ static void boundary_command(const vdc_boundary_meta_t *m, const vdc_boundary_pe
     uint32_t slot, refmem_sync_vdc_boundary_command_t *out)
 {
     *out = (refmem_sync_vdc_boundary_command_t){0};
-    if (!p->command || m->mode == VDC_BOUNDARY_MODE_LOCAL_FOLLOW) return;
+    if (!p->command || m->mode == VDC_BOUNDARY_MODE_LOCAL_FOLLOW ||
+        m->mode == VDC_BOUNDARY_MODE_TYPED_FOLLOW) return;
     *out = (refmem_sync_vdc_boundary_command_t){
         .target_arm_epoch = p->arm, .basis_source_output_ns_lo = p->source_output_lo,
         .control_session = m->session, .command_seq = p->command,
@@ -694,6 +711,11 @@ static __attribute__((noinline)) void boundary_local_follow(vdc_boundary_meta_t 
 static __attribute__((noinline)) void boundary_service_step(vdc_boundary_meta_t *m,
     uint32_t request, uint32_t session, int32_t delta, uint32_t mode)
 {
+    /* The typed controller owns the local DCO in this mode; old peer offers,
+     * old LOCAL_FOLLOW candidates and remote boundary commands are inert. */
+    if (mode == VDC_BOUNDARY_MODE_TYPED_FOLLOW) {
+        m->halted = 1u; m->offer = 0u; return;
+    }
     if (request != m->probe) {
         /* Only an explicit nonzero STOP probe opens a new diagnostic round.
          * Disabling preserves command history for post-STOP inspection. */

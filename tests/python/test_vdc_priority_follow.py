@@ -1,0 +1,526 @@
+"""Typed Core1 follow: production controller and real Domain rate commit.
+
+Only external owner publications and clocks are simulated. Python Fraction
+provides an independent exact rational oracle; the controller algorithm is
+never copied into the test harness. Internal DCO adoption does not prove GPIO
+lock, timestamp endpoint calibration, real-time deadlines or hardware precision.
+"""
+from fractions import Fraction
+import json
+import math
+from pathlib import Path
+import random
+import re
+import subprocess
+
+import pytest
+
+from test_vdc_command_ingress import ingress_definition
+from test_vdc_command_owner import ROOT, compile_executable
+from test_vdc_follower_rate_boundary import HARNESS as DOMAIN_HARNESS
+from test_vdc_boundary_owner import PRELUDE as OWNER_PRELUDE, MATCH_STORAGE, TESTS as OWNER_TESTS
+
+U64 = (1 << 64) - 1
+I64_MIN, I64_MAX = -(1 << 63), (1 << 63) - 1
+
+
+def domain_sources():
+    return [ROOT / f"components/vdc_domain/src/{name}.c" for name in (
+        "vdc_domain", "vdc_timestamp", "vdc_ring_observer", "vdc_sync_io_adapter", "vdc_tdma_payload")
+    ] + [ROOT / f"components/tdma/src/{name}.c" for name in (
+        "tdma_service", "tdma_profile", "tdma_operating_profile", "tdma_payload_registry",
+        "tdma_flight_fifo", "tdma_flight_engine", "tdma_process_image_map", "tdma_ring_runtime",
+        "tdma_traffic_scheduler", "tdma_service_timing")]
+
+
+def ratio_oracle(local_lower, local_upper, reference_lower, reference_upper):
+    """Extrema of (local/reference - 1) * 1e9 over positive intervals."""
+    if not (0 < local_lower <= local_upper <= U64 and
+            0 < reference_lower <= reference_upper <= U64):
+        return None
+    low = math.floor((Fraction(local_lower, reference_upper) - 1) * 10**9)
+    high = math.ceil((Fraction(local_upper, reference_lower) - 1) * 10**9)
+    if not I64_MIN <= low <= high <= I64_MAX:
+        return None
+    return low, high
+
+
+def run_case(executable, case, data=None):
+    command = [str(executable), case]
+    result = subprocess.run(command, input=data, text=True, capture_output=True, timeout=30)
+    (executable.parent / f"run-{case}.json").write_text(json.dumps(dict(
+        command=command, input=data, returncode=result.returncode,
+        stdout=result.stdout, stderr=result.stderr), indent=2), encoding="utf-8")
+    assert result.returncode == 0, result.stdout + result.stderr
+    return result.stdout
+
+
+@pytest.fixture(scope="module")
+def follow_executable(tmp_path_factory):
+    manager = ROOT / "components/vdc_dpll_manager/src"
+    physical = (ROOT / "components/tdma/inc/tdma_pio_spi_phys.h").read_text(encoding="utf-8")
+    begin = physical.index("enum {\n    TDMA_EVENT_LIVE_RETAINED")
+    end = physical.index("} tdma_pio_spi_event_exact_t;", begin) + len("} tdma_pio_spi_event_exact_t;")
+    event_types = '#include "tdma_event_history.h"\n' + physical[begin:end]
+    matcher = (manager / "vdc_dpll_feedback_match.inc").read_text(encoding="utf-8")
+    source_type = re.search(r'typedef struct \{\s*uint64_t next_ordinal.*?\} vdc_feedback_match_source_t;', matcher, re.S)
+    assert source_type
+    helpers = matcher[matcher.index("static uint32_t match_inc"):matcher.index("/* Keep authorization")]
+    prelude = OWNER_PRELUDE.replace("EVENT_TYPES", event_types).replace(
+        '#include <assert.h>', '#include <assert.h>\n#include <inttypes.h>\n#include "vdc_priority_follow.h"\n'
+        '#include "vdc_priority_rx.h"\n#include "vdc_priority_match.h"\n'
+        'static unsigned core;\nstatic unsigned get_core_num(void) { return core; }')
+    old_bridge = "{ (void)hz;(void)out;return false; }"
+    assert old_bridge in prelude
+    prelude = prelude.replace(old_bridge,
+        '{ assert(hz==BOARD_SYS_CLOCK_HZ);*out=(vdc_timestamp_clock_bridge_t){'
+        '.tick_hz=hz,.raw_before=raw_now,.raw_after=raw_now+1,.local_ns=now_ns};return true; }')
+    harness = prelude + EXTERNAL_INPUTS + source_type.group(0) + MATCH_STORAGE + helpers
+    for name in ("vdc_model_feedback.inc", "vdc_boundary_control.inc", "vdc_priority_match.inc", "vdc_priority_follow.inc"):
+        harness += "\n" + (manager / name).read_text(encoding="utf-8")
+    harness += "\n" + ingress_definition(DOMAIN_HARNESS, "fixture") + SCENARIOS.replace(
+        "OWNER_REMOTE_INPUT", ingress_definition(OWNER_TESTS, "follower_input"))
+    sources = domain_sources() + [
+        manager / "vdc_feedback_match.c",
+        ROOT / "components/distributed_refmem/src/refmem_sync_vdc_feedback.c"]
+    return compile_executable(tmp_path_factory.mktemp("priority-follow"), "priority_follow", harness, sources)
+
+
+def test_exact_outward_ratio_oracle(follow_executable):
+    limit = int(run_case(follow_executable, "interval_limit").strip())
+    cases = [
+        (1, 1, 3, 3), (3, 3, 1, 1), (999_999_999, 1_000_000_001, 10**9, 10**9),
+        (10**9, 10**9, 999_999_999, 1_000_000_001),
+        (U64, U64, U64, U64), (1, 1, U64, U64), (U64, U64, 1, 1),
+        (0, 1, 1, 1), (1, 0, 1, 1), (1, 1, 0, 1), (1, 1, 2, 1),
+    ]
+    rng = random.Random(0x51C0D)
+    for _ in range(500):
+        local = rng.randrange(1, limit + 1)
+        reference = rng.randrange(1, limit + 1)
+        cases.append((local, rng.randrange(local, limit + 1), reference, rng.randrange(reference, limit + 1)))
+    for _ in range(500):
+        local = rng.randrange(1, U64 + 1)
+        reference = rng.randrange(1, U64 + 1)
+        cases.append((local, rng.randrange(local, U64 + 1), reference, rng.randrange(reference, U64 + 1)))
+    for _ in range(200):
+        local = rng.randrange(1, 10**15)
+        reference = rng.randrange(1, 10**4)
+        cases.append((local, local + 1, reference, reference + 1))
+    output = run_case(follow_executable, "ratio", "\n".join(" ".join(map(str, row)) for row in cases) + "\n")
+    rows = [tuple(map(int, row.split())) for row in output.splitlines()]
+    assert len(rows) == len(cases)
+    for case, (reason, lo, hi) in zip(cases, rows, strict=True):
+        expected = ratio_oracle(*case) if max(case) <= limit else None
+        if expected is None:
+            assert reason != 0, (case, reason, lo, hi)
+        else:
+            assert (reason, lo, hi) == (0, *expected), (case, reason, lo, hi, expected)
+
+
+@pytest.mark.parametrize("case", ["fast", "slow", "uncertain", "duplicate", "pending", "busy", "missing"])
+def test_real_match_to_continuous_domain_commit(follow_executable, case):
+    output = run_case(follow_executable, case)
+    rows = [tuple(map(int, line.split()[1:])) for line in output.splitlines() if line.startswith("DECISION ")]
+    assert len(rows) == 1
+    llo, lhi, rlo, rhi, lo, hi, delta, before, after = rows[0]
+    assert (lo, hi) == ratio_oracle(llo, lhi, rlo, rhi)
+    assert after == before + delta
+
+
+@pytest.mark.parametrize("stage", ["baseline", "pending", "at_apply"])
+@pytest.mark.parametrize("change", ["stop", "session", "arm", "observer", "rx_epoch", "path", "role", "config", "clock_run"])
+def test_owner_lifetime_changes_cancel(follow_executable, stage, change):
+    run_case(follow_executable, f"cancel_{stage}_{change}")
+
+
+@pytest.mark.parametrize("case", ["model_revision", "apply_dco_changed", "apply_model_changed",
+                                 "apply_role_request", "apply_age", "domain_rejection", "mode_exclusive",
+                                 "remote_command_control"])
+def test_model_validity_and_mode_exclusion(follow_executable, case):
+    run_case(follow_executable, case)
+
+
+def test_negative_feedback_bounded_delta(follow_executable):
+    # Explicit policy examples plus extreme intervals. This checks observable
+    # sign, deadband, per-step clamp and total-limit behavior independently.
+    cases = [
+        (800, 1200, 0, 10_000, -200), (-1200, -800, 0, 10_000, 200),
+        (0, 2000, 0, 10_000, 0), (-2000, 0, 0, 10_000, 0),
+        (-2000, 2000, 0, 10_000, 0), (10, 20, 0, 10_000, 0),
+        (-20, -10, 0, 10_000, 0), (11, 100, 0, 10_000, -2),
+        (-100, -11, 0, 10_000, 2), (I64_MAX, I64_MAX, 0, 10_000, -1000),
+        (I64_MIN, I64_MIN, 0, 10_000, 1000),
+        (800, 1200, -9950, 10_000, -50), (-1200, -800, 9950, 10_000, 50),
+        (800, 1200, -10_000, 10_000, 0), (-1200, -800, 10_000, 10_000, 0),
+        (800, 1200, 0, 0, 0), (800, 1200, 0, 100, -100),
+    ]
+    output = run_case(follow_executable, "delta", "\n".join(" ".join(map(str, row[:4])) for row in cases) + "\n")
+    assert [int(row) for row in output.splitlines()] == [row[-1] for row in cases]
+
+
+@pytest.mark.parametrize("case", ["pending_busy_retry", "stop_rx_busy", "age_rx_busy", "observer_rx_busy",
+                                 "raw_age", "unguarded_apply", "domain_owner_rejection",
+                                 "request_authorization", "snapshot_busy"])
+def test_contention_does_not_hide_cancellation(follow_executable, case):
+    run_case(follow_executable, case)
+
+
+EXTERNAL_INPUTS = r'''
+/* Avoid Windows crash reporting dialogs for a failed host expectation. */
+#undef assert
+#define assert(condition) do { if(!(condition)) { \
+    fprintf(stderr,"assertion failed at %s:%d: %s\n",__FILE__,__LINE__,#condition);exit(1); \
+} } while(0)
+static tdma_pio_spi_event_exact_t exact;
+static vdc_priority_rx_snapshot_t priority_rx;
+static tdma_event_exact_result_t exact_result=TDMA_EVENT_EXACT_OK;
+static bool priority_rx_available=true;
+bool tdma_runtime_owner_get_ring_clock_snapshot(tdma_ring_clock_snapshot_t *out)
+{ if(!ring_available)return false;*out=ring;return true; }
+bool vdc_priority_rx_copy_live(vdc_priority_rx_snapshot_t *out)
+{ if(!priority_rx_available || !priority_rx.active || !priority_rx.have_record)return false;
+  *out=priority_rx;return true; }
+tdma_event_exact_result_t tdma_runtime_owner_copy_event_history_exact(uint64_t arm,
+    uint32_t observer,uint32_t sequence,tdma_pio_spi_event_exact_t *out)
+{
+    assert(arm==live.arm_epoch && observer==live.record.epoch);
+    assert(sequence==priority_rx.typed_record.event_sequence);
+    if(exact_result!=TDMA_EVENT_EXACT_OK)return exact_result;
+    *out=exact;return TDMA_EVENT_EXACT_OK;
+}
+'''
+
+
+SCENARIOS = r'''
+static vdc_priority_follow_snapshot_t status(void)
+{
+    vdc_priority_follow_snapshot_t result;
+    assert(vdc_dpll_manager_get_priority_follow(&result));
+    return result;
+}
+static vdc_dpll_manager_committed_model_t model(void)
+{
+    vdc_dpll_manager_committed_model_t result;
+    assert(vdc_dpll_manager_get_committed_model(&result));
+    return result;
+}
+OWNER_REMOTE_INPUT
+static void publish(void)
+{
+    assert(!(s_committed_model_guard&1u));
+    ++s_committed_model_guard;
+    model_feedback_end_core1(vdc_dpll_manager_feedback_session());
+}
+static void prepare(void)
+{
+    vdc_priority_match_core1();
+    priority_follow_prepare_core1();
+}
+static void apply(void)
+{
+    assert(!(s_committed_model_guard&1u));
+    ++s_committed_model_guard;
+    vdc_boundary_service_core1();
+    priority_follow_apply_core1();
+    model_feedback_end_core1(vdc_dpll_manager_feedback_session());
+}
+static void tick(void) { prepare();apply(); }
+static void event(uint32_t sequence,uint64_t elapsed_ns)
+{
+    now_ns=UINT64_C(3000000000)+elapsed_ns;
+    now_ms=(uint32_t)(now_ns/1000000u);
+    raw_now=now_ns/4u;
+    exact=(tdma_pio_spi_event_exact_t){.arm_epoch=live.arm_epoch,.tick_hz=live.tick_hz,
+        .observer_epoch=live.record.epoch,.flags=live.flags,
+        .timer1_enable_before=live.timer1_enable_before,.timer1_enable_after=live.timer1_enable_after,
+        .record={.sequence=sequence,.rx_elapsed_cycles=raw_now-live.timer1_enable_before-100u}};
+    live.record.sequence=sequence;live.record.epoch=exact.observer_epoch;
+    priority_rx.typed_record.event_sequence=sequence;
+    priority_rx.typed_record.event_time_lower=UINT64_C(12000000000)+elapsed_ns;
+    priority_rx.carrier_sequence=sequence+3u;
+}
+static void setup(int32_t rate)
+{
+    fixture(&s_vdc_domain);
+    for(uint32_t i=0;i<s_vdc_domain.path_delay.entry_count;++i)
+        s_vdc_domain.path_delay.entries[i].direction=VDC_PATH_DELAY_DIRECTION_TDMA_DATA_REVERSE;
+    assert(vdc_domain_load_observation_path_matrix(&s_vdc_domain.path_delay,4u));
+    s_vdc_domain.path_delay.table_crc32=vdc_domain_path_delay_table_crc32(&s_vdc_domain.path_delay);
+    s_vdc_domain.dco.period_adjust_ppb=rate;
+    s_vdc_domain.control.last_follower_command_seq=19u;
+    s_vdc_domain.control.follower_apply_count=7u;
+    s_dpll_role_requested_generation=s_dpll_role_applied_generation=s_vdc_domain.control.profile.generation;
+    ring=(tdma_ring_clock_snapshot_t){.config_seq=7,.applied_config_seq=7,.node_count=4,
+        .local_slot_id=1,.reference_slot_id=0,.schedule_crc32=s_vdc_domain.schedule.schedule_crc32};
+    owner.ring_runtime.ring_profile_crc32=0x456u;
+    live=(tdma_pio_spi_event_live_snapshot_t){.flags=TDMA_EVENT_LIVE_RETAINED|TDMA_EVENT_LIVE_ACTIVE|
+        TDMA_EVENT_LIVE_ANCHOR_VALID,.arm_epoch=77,.tick_hz=BOARD_SYS_CLOCK_HZ,
+        .timer1_enable_before=1000,.timer1_enable_after=1001,.record={.epoch=8}};
+    priority_rx=(vdc_priority_rx_snapshot_t){.schema=1,.active=1,.epoch=5,.have_record=1,
+        .source_slot=0,.target_mask=14,.typed_record={.binding_generation=101,.uncertainty_width=7}};
+    core=0;stopped=true;
+    assert(vdc_dpll_manager_set_feedback_session(123));
+    assert(vdc_dpll_manager_set_priority_match(101));
+    assert(vdc_dpll_manager_set_priority_follow(true));
+    ring.enabled=ring.adapter_started=ring.data_enabled=1;stopped=false;core=1;
+    raw_now=500000000;publish();
+    event(100,0);
+}
+static void assert_remote_metadata(void)
+{
+    assert(s_vdc_domain.control.last_follower_command_seq==19u);
+    assert(s_vdc_domain.control.follower_apply_count==7u);
+    assert(s_vdc_domain.control.last_follower_control_generation==17u);
+    assert(s_vdc_domain.control.last_follower_quality==3u);
+    assert(s_vdc_domain.control.last_follower_effective_vdc_time_ns==987654321u);
+}
+static void flow_test(const char *name)
+{
+    const int32_t rate=!strcmp(name,"slow")?-6000:!strcmp(name,"uncertain")?0:6000;
+    setup(rate);
+    vdc_domain_context_t before=s_vdc_domain;
+    tick();
+    fprintf(stderr,"baseline state=%u reason=%u baselines=%u matchreason=%u matched=%u domain_change=%d\n",
+        status().state,status().last_reason,status().baselines,s_priority_match_work.status.last_reason,
+        s_priority_match_work.status.matched,memcmp(&before,&s_vdc_domain,sizeof(before)));
+    assert(status().baselines==1u && !status().applied && !memcmp(&before,&s_vdc_domain,sizeof(before)));
+    /* A gap of 100 source events is intentional; no invented consecutive
+     * sample or remote model token is needed to compute the output secant. */
+    if(!strcmp(name,"pending") || !strcmp(name,"busy") || !strcmp(name,"missing")) {
+        /* A recent valid waiting ticket preserves the one-second baseline.
+         * A wholly missing 1.5s publication would correctly age out instead. */
+        event(150,990000000u);tick();assert(!status().applied);
+        event(200,1050000000u);
+        if(!strcmp(name,"pending"))exact_result=TDMA_EVENT_EXACT_PENDING;
+        if(!strcmp(name,"busy"))exact_result=TDMA_EVENT_EXACT_BUSY;
+        if(!strcmp(name,"missing"))priority_rx_available=false;
+        tick();assert(!status().applied && !memcmp(&before,&s_vdc_domain,sizeof(before)));
+        exact_result=TDMA_EVENT_EXACT_OK;priority_rx_available=true;
+    } else event(200,1500000000u);
+    const vdc_dpll_manager_committed_model_t old_model=model();
+    uint64_t continuity;
+    assert(vdc_domain_dco_local_to_output_ns(&before.dco,now_ns,&continuity));
+    tick();
+    vdc_priority_follow_snapshot_t s=status();
+    fprintf(stderr,"state=%u reason=%u prepared=%u applied=%u delta=%d error=%" PRId64 "..%" PRId64 "\n",
+        s.state,s.last_reason,s.prepared,s.applied,s.selected_delta_ppb,s.error_lo_ppb,s.error_hi_ppb);
+    printf("DECISION %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRId64 " %" PRId64 " %d %d %d\n",
+        s.local_interval_lo,s.local_interval_hi,s.interval_lo,s.interval_hi,
+        s.error_lo_ppb,s.error_hi_ppb,s.selected_delta_ppb,s.before_ppb,s.after_ppb);
+    if(!strcmp(name,"uncertain")) {
+        assert(s.no_adjust==1 && !s.applied && !s.selected_delta_ppb);
+        assert(!memcmp(&before,&s_vdc_domain,sizeof(before)));
+    } else {
+        assert(s.applied==1u && s.selected_delta_ppb && (int64_t)s.selected_delta_ppb*rate<0);
+        assert(s_vdc_domain.dco.dco_update_seq==before.dco.dco_update_seq+1u);
+        assert(s_vdc_domain.dco.period_adjust_ppb==rate+s.selected_delta_ppb);
+        assert(s_vdc_domain.dco.lock_state==before.dco.lock_state);
+        uint64_t after;
+        assert(vdc_domain_dco_local_to_output_ns(&s_vdc_domain.dco,now_ns,&after));
+        assert(after==continuity && s_vdc_domain.dco.base_local_tick64==now_ns);
+        assert(model().token!=old_model.token && model().valid_from_raw==raw_now);
+        assert(s.before_dco_seq==before.dco.dco_update_seq && s.after_dco_seq==s_vdc_domain.dco.dco_update_seq);
+        assert(s.before_ppb==rate && s.after_ppb==s_vdc_domain.dco.period_adjust_ppb);
+    }
+    assert_remote_metadata();
+    if(!strcmp(name,"duplicate")) {
+        before=s_vdc_domain;
+        for(unsigned i=0;i<8;++i)tick();
+        assert(status().applied==1u && !memcmp(&before,&s_vdc_domain,sizeof(before)));
+    }
+}
+static const char *change_kind;
+static void change_owner(void)
+{
+    if(!strcmp(change_kind,"stop"))ring.enabled=0u;
+    else if(!strcmp(change_kind,"session"))++s_model_feedback_session;
+    else if(!strcmp(change_kind,"arm"))++live.arm_epoch;
+    else if(!strcmp(change_kind,"observer"))++live.record.epoch;
+    else if(!strcmp(change_kind,"rx_epoch"))++priority_rx.epoch;
+    else if(!strcmp(change_kind,"path"))++s_vdc_domain.path_delay.table_crc32;
+    else if(!strcmp(change_kind,"role"))++s_vdc_domain.control.profile.generation;
+    else if(!strcmp(change_kind,"config"))++ring.config_seq;
+    else if(!strcmp(change_kind,"clock_run"))++s_vdc_domain.clock.run_id;
+    else assert(0);
+}
+static void cancellation_test(const char *name)
+{
+    setup(6000);tick();
+    const char *stage=name+7;
+    bool pending=!strncmp(stage,"pending_",8),at_apply=!strncmp(stage,"at_apply_",9);
+    change_kind=stage+(pending?8:at_apply?9:9);
+    event(200,1500000000u);
+    if(pending || at_apply) {
+        prepare();assert(status().prepared==1u && !status().applied);
+    }
+    vdc_dco_control_t dco_before=s_vdc_domain.dco;
+    if(at_apply)now_hook=change_owner;else change_owner();
+    if(pending || at_apply)apply();else tick();
+    assert(!status().applied && !memcmp(&dco_before,&s_vdc_domain.dco,sizeof(dco_before)));
+    assert_remote_metadata();
+    /* Restoring the apparent owner values must not resurrect the old ticket. */
+    if(!strcmp(change_kind,"stop"))ring.enabled=1;
+    else if(!strcmp(change_kind,"session"))--s_model_feedback_session;
+    else if(!strcmp(change_kind,"arm"))--live.arm_epoch;
+    else if(!strcmp(change_kind,"observer"))--live.record.epoch;
+    else if(!strcmp(change_kind,"rx_epoch"))--priority_rx.epoch;
+    else if(!strcmp(change_kind,"path"))--s_vdc_domain.path_delay.table_crc32;
+    else if(!strcmp(change_kind,"role"))--s_vdc_domain.control.profile.generation;
+    else if(!strcmp(change_kind,"config"))--ring.config_seq;
+    else if(!strcmp(change_kind,"clock_run"))--s_vdc_domain.clock.run_id;
+    event(300,1800000000u);tick();
+    assert(!status().applied);
+}
+static void validity_test(const char *name)
+{
+    setup(6000);tick();
+    event(200,1500000000u);
+    if(!strcmp(name,"model_revision")) {
+        ++s_vdc_domain.dco.period_adjust_ppb;publish();
+        tick();assert(!status().applied);
+        event(300,1600000000u);tick();
+        assert(!status().applied && status().baselines>=2u);
+        event(400,3100000000u);tick();assert(status().applied==1u);
+        assert(priority_rx.typed_record.binding_generation==101u);
+        return;
+    }
+    if(!strcmp(name,"domain_rejection")) {
+        const vdc_dpll_manager_committed_model_t m=model();
+        vdc_dpll_local_rate_delta_t cmd={.source_slot_id=0,.target_slot_id=1,
+            .expected_control_generation=m.role_generation,.schedule_crc32=ring.schedule_crc32,
+            .servo_profile_crc32=s_vdc_domain.servo.servo_profile_crc32,
+            .clock_epoch_id=m.clock_epoch_id,.clock_run_id=m.clock_run_id,
+            .expected_dco_update_seq=m.dco.dco_update_seq,.delta_rate_ppb=-100};
+        /* A real invalid Domain ticket must reject without changing any byte. */
+        ++cmd.expected_dco_update_seq;
+        vdc_domain_context_t before=s_vdc_domain;
+        assert(!vdc_domain_apply_local_follow_rate_delta(&s_vdc_domain,&cmd,now_ns));
+        assert(!memcmp(&before,&s_vdc_domain,sizeof(before)));
+        return;
+    }
+    if(!strcmp(name,"remote_command_control")) {
+        core=0;stopped=true;assert(vdc_dpll_manager_set_boundary_probe(-17));core=1;stopped=false;
+        follower_input();const vdc_dco_control_t before=s_vdc_domain.dco;
+        ++s_committed_model_guard;vdc_boundary_service_core1();model_feedback_end_core1(123);
+        assert(s_vdc_domain.dco.dco_update_seq==before.dco_update_seq+1u);
+        assert(s_vdc_domain.dco.period_adjust_ppb==before.period_adjust_ppb-17);
+        return;
+    }
+    if(!strcmp(name,"mode_exclusive")) {
+        bool typed=false,old=true,automatic=true;
+        assert(vdc_dpll_manager_try_priority_follow_enabled(&typed) && typed);
+        assert(vdc_dpll_manager_try_local_follow_enabled(&old) && !old);
+        assert(vdc_dpll_manager_try_boundary_auto_enabled(&automatic) && !automatic);
+        assert(!vdc_dpll_manager_set_priority_follow(false));
+        core=0;stopped=true;
+        assert(vdc_dpll_manager_set_local_follow(true));
+        assert(vdc_dpll_manager_try_priority_follow_enabled(&typed) && !typed);
+        assert(vdc_dpll_manager_try_local_follow_enabled(&old) && old);
+        assert(vdc_dpll_manager_set_boundary_auto(true));
+        assert(vdc_dpll_manager_try_local_follow_enabled(&old) && !old);
+        assert(vdc_dpll_manager_try_boundary_auto_enabled(&automatic) && automatic);
+        assert(vdc_dpll_manager_set_priority_follow(true));
+        assert(vdc_dpll_manager_try_boundary_auto_enabled(&automatic) && !automatic);
+        core=1;stopped=false;
+        vdc_domain_context_t before=s_vdc_domain;
+        /* An old candidate/remote command cannot be adopted by the real
+         * boundary owner while this mode owns the local DCO. */
+        local_candidate_available=true;local_candidate.active=1;
+        follower_input();
+        ++s_committed_model_guard;vdc_boundary_service_core1();model_feedback_end_core1(123);
+        assert(!memcmp(&before,&s_vdc_domain,sizeof(before)) && !captured_applies);
+        return;
+    }
+    prepare();assert(status().prepared==1u);
+    if(!strcmp(name,"apply_dco_changed"))++s_vdc_domain.dco.period_adjust_ppb;
+    else if(!strcmp(name,"apply_model_changed")){++s_vdc_domain.dco.dco_update_seq;publish();}
+    else if(!strcmp(name,"apply_role_request"))++s_dpll_role_requested_generation;
+    else if(!strcmp(name,"apply_age"))now_ms+=VDC_PRIORITY_FOLLOW_MAX_AGE_MS+1u;
+    else assert(0);
+    vdc_domain_context_t before=s_vdc_domain;
+    apply();assert(!status().applied && !memcmp(&before,&s_vdc_domain,sizeof(before)));
+}
+static void contention_test(const char *name)
+{
+    setup(6000);
+    if(!strcmp(name,"request_authorization")) {
+        core=0;stopped=true;
+        assert(vdc_dpll_manager_set_priority_follow(false));
+        assert(vdc_dpll_manager_set_priority_match(0));
+        assert(!vdc_dpll_manager_set_priority_follow(true));
+        assert(vdc_dpll_manager_set_priority_match(102));
+        assert(vdc_dpll_manager_set_priority_follow(true));
+        assert(vdc_dpll_manager_set_feedback_session(124));
+        assert(!vdc_dpll_manager_set_priority_follow(true));
+        return;
+    }
+    if(!strcmp(name,"domain_owner_rejection")) {
+        s_vdc_domain.dco.dco_update_seq=UINT32_MAX;
+        raw_now=500000000;publish();event(100,0);
+    }
+    tick();event(200,1500000000u);prepare();
+    assert(status().prepared==1u && !status().applied);
+    const vdc_domain_context_t before=s_vdc_domain;
+    if(!strcmp(name,"snapshot_busy")) {
+        vdc_priority_follow_snapshot_t sentinel;
+        memset(&sentinel,0xa5,sizeof(sentinel));
+        vdc_priority_follow_snapshot_t out=sentinel;
+        ++s_priority_follow_guard;
+        assert(!vdc_dpll_manager_get_priority_follow(&out) && !memcmp(&out,&sentinel,sizeof(out)));
+        --s_priority_follow_guard;
+        assert(!vdc_dpll_manager_get_priority_follow(NULL));
+        bool enabled=true;
+        ++s_boundary_request;
+        assert(!vdc_dpll_manager_try_priority_follow_enabled(&enabled) && enabled);
+        --s_boundary_request;
+        return;
+    }
+    if(!strcmp(name,"pending_busy_retry"))ring_available=false;
+    else if(!strcmp(name,"stop_rx_busy")){ring.enabled=0;priority_rx_available=false;}
+    else if(!strcmp(name,"age_rx_busy")){now_ms+=VDC_PRIORITY_FOLLOW_MAX_AGE_MS+1u;priority_rx_available=false;}
+    else if(!strcmp(name,"observer_rx_busy")){++live.record.epoch;priority_rx_available=false;}
+    else if(!strcmp(name,"raw_age"))raw_now+=(uint64_t)(VDC_PRIORITY_FOLLOW_MAX_AGE_MS+1u)*BOARD_SYS_CLOCK_HZ/1000u;
+    else if(strcmp(name,"unguarded_apply") && strcmp(name,"domain_owner_rejection"))assert(0);
+    if(!strcmp(name,"unguarded_apply"))priority_follow_apply_core1();else apply();
+    assert(!status().applied && !memcmp(&before,&s_vdc_domain,sizeof(before)));
+    if(!strcmp(name,"pending_busy_retry")) {
+        assert(status().last_reason==VDC_PRIORITY_FOLLOW_BUSY);
+        ring_available=true;apply();assert(status().applied==1u);
+    } else if(!strcmp(name,"stop_rx_busy"))assert(status().last_reason==VDC_PRIORITY_FOLLOW_STOP);
+    else if(!strcmp(name,"age_rx_busy") || !strcmp(name,"raw_age"))assert(status().last_reason==VDC_PRIORITY_FOLLOW_AGE);
+    else if(!strcmp(name,"observer_rx_busy"))assert(status().last_reason==VDC_PRIORITY_FOLLOW_BINDING);
+    else if(!strcmp(name,"unguarded_apply"))assert(status().last_reason==VDC_PRIORITY_FOLLOW_MODE);
+    else assert(status().last_reason==VDC_PRIORITY_FOLLOW_DOMAIN && status().rejected==1u);
+}
+int main(int argc,char **argv)
+{
+    (void)match_publish;
+    assert(argc==2);
+    if(!strcmp(argv[1],"sizes"))printf("%zu %zu %zu\n",sizeof(vdc_priority_follow_work_t),
+        sizeof(vdc_priority_follow_snapshot_t),sizeof(vdc_priority_follow_ticket_t));
+    else if(!strcmp(argv[1],"interval_limit"))printf("%" PRIu64 "\n",VDC_PRIORITY_FOLLOW_MAX_INTERVAL_NS);
+    else if(!strcmp(argv[1],"ratio")) {
+        uint64_t llo,lhi,rlo,rhi;
+        while(scanf("%" SCNu64 " %" SCNu64 " %" SCNu64 " %" SCNu64,&llo,&lhi,&rlo,&rhi)==4) {
+            int64_t lo=123,hi=456;
+            uint32_t reason=priority_follow_rate_interval(llo,lhi,rlo,rhi,&lo,&hi);
+            printf("%u %" PRId64 " %" PRId64 "\n",reason,lo,hi);
+        }
+    } else if(!strcmp(argv[1],"delta")) {
+        int64_t lo,hi;int32_t current;uint32_t limit;
+        while(scanf("%" SCNd64 " %" SCNd64 " %" SCNd32 " %" SCNu32,&lo,&hi,&current,&limit)==4)
+            printf("%" PRId32 "\n",priority_follow_delta(lo,hi,current,limit));
+    } else if(!strncmp(argv[1],"cancel_",7))cancellation_test(argv[1]);
+    else if(!strncmp(argv[1],"apply_",6) || !strcmp(argv[1],"model_revision") ||
+            !strcmp(argv[1],"domain_rejection") || !strcmp(argv[1],"mode_exclusive") ||
+            !strcmp(argv[1],"remote_command_control"))validity_test(argv[1]);
+    else if(!strcmp(argv[1],"pending_busy_retry") || !strcmp(argv[1],"stop_rx_busy") ||
+            !strcmp(argv[1],"age_rx_busy") || !strcmp(argv[1],"observer_rx_busy") ||
+            !strcmp(argv[1],"raw_age") || !strcmp(argv[1],"unguarded_apply") ||
+            !strcmp(argv[1],"domain_owner_rejection") || !strcmp(argv[1],"request_authorization") ||
+            !strcmp(argv[1],"snapshot_busy"))contention_test(argv[1]);
+    else flow_test(argv[1]);
+    return 0;
+}
+'''

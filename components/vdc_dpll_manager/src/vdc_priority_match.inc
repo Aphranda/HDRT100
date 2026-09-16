@@ -19,6 +19,8 @@ typedef struct {
     uint64_t raw_lo, raw_hi, remote_hi, expected_lo, expected_hi;
     int64_t residual_lo, residual_hi;
     uint32_t profile_crc32, session, bound, unresolved, candidate_sequence, path_checked_crc;
+    /* Private, one-service Core1 ticket. Historical snapshot reads never set it. */
+    uint32_t fresh;
 } vdc_priority_match_work_t;
 static vdc_priority_match_work_t s_priority_match_work;
 _Static_assert(sizeof(vdc_priority_match_snapshot_t) % 4u == 0u,
@@ -157,6 +159,7 @@ void __attribute__((noinline)) vdc_priority_match_core1(void)
     if (get_core_num() != 1u) return;
     vdc_priority_match_work_t *w = &s_priority_match_work;
     vdc_priority_match_snapshot_t *s = &w->status;
+    w->fresh = 0u;
     const uint32_t request = vdc_dpll_manager_priority_match_generation();
     if (!request) {
         if (s->generation && !s->retired) priority_match_skip(VDC_PRIORITY_MATCH_DISABLED, true);
@@ -319,5 +322,6 @@ void __attribute__((noinline)) vdc_priority_match_core1(void)
     s->residual_lo = w->residual_lo; s->residual_hi = w->residual_hi;
     s->matched = priority_match_inc(s->matched); s->have_match = s->active = w->bound = 1u;
     s->last_reason = VDC_PRIORITY_MATCH_OK; w->unresolved = 0u;
+    w->fresh = 1u;
     priority_match_publish();
 }

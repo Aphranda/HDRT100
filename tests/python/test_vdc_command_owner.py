@@ -80,6 +80,13 @@ static uint32_t consumer_generation, requested_generation;
 static bool retained_available, ring_available, domain_accept;
 static uint64_t now_ns;
 static bool local_follow_enabled, local_follow_busy;
+static bool priority_follow_enabled, priority_follow_busy;
+static bool vdc_dpll_manager_try_priority_follow_enabled(bool *out)
+{
+    if (priority_follow_busy) return false;
+    *out = priority_follow_enabled;
+    return true;
+}
 static bool vdc_dpll_manager_try_local_follow_enabled(bool *out)
 {
     if (local_follow_busy) return false;
@@ -241,13 +248,17 @@ int main(int argc, char **argv)
         else retained_source.valid = 0;
         vdc_dpll_manager_consume_follower_command();
         assert(missing == 1 && !apply_calls && ring_reads == 1 && !dco_writes);
-    } else if (!strcmp(scenario, "local_follow") || !strcmp(scenario, "local_busy")) {
+    } else if (!strcmp(scenario, "local_follow") || !strcmp(scenario, "local_busy") ||
+               !strcmp(scenario, "priority_follow") || !strcmp(scenario, "priority_busy")) {
         local_follow_enabled = !strcmp(scenario, "local_follow");
         local_follow_busy = !strcmp(scenario, "local_busy");
+        priority_follow_enabled = !strcmp(scenario, "priority_follow");
+        priority_follow_busy = !strcmp(scenario, "priority_busy");
         vdc_dpll_manager_consume_follower_command();
         assert(!reads && !ring_reads && !apply_calls && !dco_writes);
         assert(s_vdc_domain.dco.period_adjust_ppb == -700);
         local_follow_enabled = local_follow_busy = false;
+        priority_follow_enabled = priority_follow_busy = false;
         vdc_dpll_manager_consume_follower_command(); assert_applied(1);
     } else if (!strcmp(scenario, "non_follower")) {
         vdc_dpll_manager_consume_follower_command(); assert_applied(1);
@@ -343,7 +354,7 @@ int main(int argc, char **argv)
     "unicast", "broadcast", "epoch_mismatch", "run_mismatch",
     "epoch_restart", "run_restart", "both_restart",
     "wrong_source", "wrong_target", "missing", "invalid", "non_follower",
-    "local_follow", "local_busy",
+    "local_follow", "local_busy", "priority_follow", "priority_busy",
     "clock_unavailable", "not_due", "too_late", "domain_rejected",
     "role_roundtrip", "master_roundtrip", "skipped_roundtrip", "master_skipped_roundtrip",
     "future_roundtrip", "future_skipped_roundtrip", "future_master_skipped_roundtrip",

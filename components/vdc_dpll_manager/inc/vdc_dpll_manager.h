@@ -10,6 +10,7 @@
 #include "vdc_domain.h"
 #include "vdc_feedback_match.h"
 #include "vdc_local_follow.h"
+#include "vdc_priority_follow.h"
 #include "refmem_sync_vdc_feedback.h"
 
 /* Explicit STOP-authorized one-shot bring-up; not an automatic servo. */
@@ -17,7 +18,8 @@
 #define VDC_BOUNDARY_AUTO_MAX_DELTA_PPB 1000
 #define VDC_BOUNDARY_AUTO_DEADBAND_PPB 10
 enum { VDC_BOUNDARY_MODE_PROBE = 0u, VDC_BOUNDARY_MODE_AUTO = 1u,
-       VDC_BOUNDARY_MODE_REFERENCE = 2u, VDC_BOUNDARY_MODE_LOCAL_FOLLOW = 3u };
+       VDC_BOUNDARY_MODE_REFERENCE = 2u, VDC_BOUNDARY_MODE_LOCAL_FOLLOW = 3u,
+       VDC_BOUNDARY_MODE_TYPED_FOLLOW = 4u };
 #define VDC_BOUNDARY_COMMAND_MAX_AGE_NS UINT64_C(500000000)
 #define VDC_BOUNDARY_ACK_TIMEOUT_MS 1000u
 enum {

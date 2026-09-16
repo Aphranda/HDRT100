@@ -836,6 +836,86 @@ scpi_result_t scpi_cmd_system_tdma_priority_rx_timing_q(scpi_t *context)
 #include "vdc_priority_tx.h"
 #include "vdc_priority_rx.h"
 #include "vdc_priority_match.h"
+#include "vdc_priority_follow.h"
+
+scpi_result_t scpi_cmd_vdc_priority_follow(scpi_t *context)
+{
+    uint32_t enabled;
+    if (!SCPI_ParamUInt32(context, &enabled, TRUE) || enabled > 1u ||
+        !vdc_dpll_manager_set_priority_follow(enabled != 0u)) {
+        scpi_port_push_exec_error(context, "Priority follow configuration rejected");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, enabled);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_priority_follow_q(scpi_t *context)
+{
+    bool enabled;
+    if (!vdc_dpll_manager_try_priority_follow_enabled(&enabled)) {
+        scpi_port_push_exec_error(context, "Priority follow configuration busy");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, enabled ? 1u : 0u);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_priority_follow_status_q(scpi_t *context)
+{
+    tdma_ring_clock_snapshot_t ring;
+    vdc_priority_follow_snapshot_t s;
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring) || ring.enabled ||
+        ring.adapter_started || !vdc_dpll_manager_get_priority_follow(&s)) {
+        scpi_port_push_exec_error(context, "Priority follow evidence requires STOP");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, s.schema);
+    SCPI_ResultUInt32(context, s.active);
+    SCPI_ResultUInt32(context, s.mode);
+    SCPI_ResultUInt32(context, s.state);
+    SCPI_ResultUInt32(context, s.last_reason);
+    SCPI_ResultUInt32(context, s.request);
+    SCPI_ResultUInt32(context, s.session);
+    SCPI_ResultUInt32(context, s.generation);
+    SCPI_ResultUInt32(context, s.calls);
+    SCPI_ResultUInt32(context, s.tickets);
+    SCPI_ResultUInt32(context, s.baselines);
+    SCPI_ResultUInt32(context, s.waits);
+    SCPI_ResultUInt32(context, s.prepared);
+    SCPI_ResultUInt32(context, s.applied);
+    SCPI_ResultUInt32(context, s.no_adjust);
+    SCPI_ResultUInt32(context, s.rejected);
+    SCPI_ResultUInt32(context, s.cancelled);
+    SCPI_ResultUInt32(context, s.repeated);
+    SCPI_ResultUInt32(context, s.baseline_sequence);
+    SCPI_ResultUInt32(context, s.event_sequence);
+    SCPI_ResultUInt32(context, s.carrier_sequence);
+    SCPI_ResultUInt32(context, s.observer_epoch);
+    SCPI_ResultUInt32(context, s.rx_epoch);
+    SCPI_ResultUInt32(context, s.model_token);
+    SCPI_ResultUInt32(context, s.expected_dco_seq);
+    SCPI_ResultUInt32(context, s.before_dco_seq);
+    SCPI_ResultUInt32(context, s.after_dco_seq);
+    SCPI_ResultUInt32(context, s.local_slot);
+    SCPI_ResultUInt32(context, s.reference_slot);
+    SCPI_ResultUInt32(context, s.reserved);
+    SCPI_ResultUInt32(context, (uint32_t)s.before_ppb);
+    SCPI_ResultUInt32(context, (uint32_t)s.after_ppb);
+    SCPI_ResultUInt32(context, (uint32_t)s.selected_delta_ppb);
+    SCPI_ResultUInt32(context, (uint32_t)s.reserved_signed);
+    scpi_sync_result_u64_parts(context, s.arm_epoch);
+    scpi_sync_result_u64_parts(context, s.baseline_raw);
+    scpi_sync_result_u64_parts(context, s.raw_lo);
+    scpi_sync_result_u64_parts(context, s.raw_hi);
+    scpi_sync_result_u64_parts(context, s.interval_lo);
+    scpi_sync_result_u64_parts(context, s.interval_hi);
+    scpi_sync_result_u64_parts(context, s.local_interval_lo);
+    scpi_sync_result_u64_parts(context, s.local_interval_hi);
+    scpi_sync_result_u64_parts(context, (uint64_t)s.error_lo_ppb);
+    scpi_sync_result_u64_parts(context, (uint64_t)s.error_hi_ppb);
+    return SCPI_RES_OK;
+}
 
 scpi_result_t scpi_cmd_vdc_priority_match(scpi_t *context)
 {
