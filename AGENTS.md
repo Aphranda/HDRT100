@@ -34,9 +34,12 @@
 4. 登记契约不可物理删除（只能 `superseded`）
 5. 修改任何文档 → 必须更新 `Last updated`
 6. 临时内容（评审快照/草稿）**不得**登记为契约
-7. 修改任何固件、PIO、构建、工具、测试或 hook 实现后，提交前必须执行
-   `python tools/hardware_acceptance/p3_hardware_acceptance.py run`；pre-commit 按 staged
-   源码指纹核验 P3 硬件验收凭证，旧凭证、手工报告和 replay 不能放行
+7. 修改任何固件、PIO、构建、工具、测试或 hook 实现后，提交前必须执行硬件验收。
+   默认执行 `python tools/hardware_acceptance/p3_hardware_acceptance.py run`；仅当全部 staged
+   源码属于 `sequence_single_board_gate.py` 的逐文件白名单时，允许执行该工具的 `run`
+   作为单板功能替代。pre-commit 按 staged 源码指纹分流并核验对应凭证；旧凭证、手工报告、
+   replay 或白名单外变更不能由单板凭证放行。单板凭证不表示 P3、多板、波形、RF、独立边沿计数
+   或严格 TDMA 稳定性通过
 
 ## 3. 修改文档的标准流程
 
@@ -61,8 +64,15 @@ python tools/doc_regression_check.py
 python -m pytest tests/python/test_doc_regression.py tests/python/test_docs_check.py -p no:cacheprovider
 sh .githooks/pre-commit
 python tools/doc_regression_check.py --log-check   # 逃生门审计（建议每周）
+python tools/hardware_acceptance/sequence_single_board_gate.py check-staged
 python tools/hardware_acceptance/p3_hardware_acceptance.py check-staged
 ```
+
+> 两个硬件凭证检查按 staged 范围二选一；sequence 单板工具超出白名单时必须回到 P3，
+> 不能以单板检查失败后跳过硬件门禁。
+> 单板路径先完成构建和单板 OTA，再执行
+> `python tools/hardware_acceptance/sequence_single_board_gate.py run --serial-number <UID> --build <BUILD> --package <PKG> --ota-summary <JSON> --port <PORT>`；
+> 工具固定运行验收 profile 并生成待暂存的 receipt。
 
 > **门禁接线**：pre-commit 依赖 `git config core.hooksPath .githooks`（本地配置，clone/迁移后**必须重配**，否则 commit 不触发检查器）。`sh .githooks/pre-commit` 可手动验证。
 

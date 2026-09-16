@@ -4,7 +4,7 @@ Status: Active
 Domain: TRIGGER
 Canonical: `docs/trigger/sequence/TRIGGER_SEQUENCE_TASK_PROGRESS.md`
 Related: `docs/trigger/sequence/TRIGGER_SEQUENCE_ARCHITECTURE.md`, `docs/trigger/sequence/TRIGGER_SEQUENCE_TODO.md`, `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`, `docs/reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.html`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
-Last updated: 2026-09-16
+Last updated: 2026-09-17
 
 ## 文档接口
 
@@ -380,7 +380,7 @@ python tools/hardware_acceptance/sequence_trigger_acceptance.py --port COM10 --s
   `pio-in1-50hz-rising-r1.json`未收到脉冲，用户随后确认此前源输出未开启；
   开源后`pio-in1-50hz-rising-r2.json`已接纳并完成154步，但PAUSE返回OVERFLOW，仍待修复。
   因此不能将这轮外部PIO测试写成通过，当前设备STOP后输出及租约已释放。
-- 用户新增并修正接口为`CONFigure:SEQuence:NEXT`、`READ:SEQuence:NEXT?`。
+- 用户当时新增并修正接口为`CONFigure:SEQuence:NEXT`、`READ:SEQuence:NEXT?`（历史命名，进度029已合并移除）。
   写入共用软件STEP，查询共用运行状态块且不推进；`next-tests-r1.log`记录真实SCPI
   解析84项PASS，`next-docs-check-r1.log`与`next-doc-regression-r1.log`通过。
   新命令已落源码，当前板端上述build尚未包含，待下一次构建/OTA验证。
@@ -408,7 +408,7 @@ python tools/hardware_acceptance/sequence_trigger_acceptance.py --port COM10 --s
   `pio-in1-1khz-controls-r1.json`PASS，覆盖未选输入隔离、外部模式拒绝软件STEP、
   在途STOP取消、再次START首状态以及暂停完成在途工作。
 - `pio-hotload-r2.json`记录同build重复热加载、双沿换源及资源释放PASS；
-  `next-bus-r2.json`使用新`CONF:SEQ:NEXT`/`READ:SEQ:NEXT?`完成SP8T九步与停止，PASS。
+  `next-bus-r2.json`使用当时的`CONF:SEQ:NEXT`/`READ:SEQ:NEXT?`完成SP8T九步与停止，PASS；该历史证据中的命令名不改写，当前接口见进度029。
   `1khz-final-idle-r1.txt`确认恢复IN1上升沿、100us+100us，IDLE、输出和租约为零。
 - 证据边界：上述外部测试使用SCPI间隔观察及暂停后稳定pad读回，不是每边沿独立波形认证；
   运行时拒绝数待结算，只有暂停/停止后的最终结果用于判定。IN2-IN4实际激励尚未完成。
@@ -420,7 +420,7 @@ python tools/hardware_acceptance/sequence_trigger_acceptance.py --port COM10 --s
 - 频率调整通过外部信号源完成，序列固件无需重新编译；输入源、边沿、建立时间和完成脉宽均可在停止状态下通过SCPI重新配置。
 - 5 kHz连续IN1在PIO0后端通过上升沿、下降沿及忙时测试：10/10微秒档上升沿完成27636步、下降沿完成27830步，均无fault；200/200微秒忙时档完成5885步并记录11768次busy拒绝。暂停、继续和停止后的计数稳定，输出与租约释放。
 - 用户切至1 MHz后，使用10/10微秒档完成单板压力验证：测试期间完成115909步，无fault；暂停时接纳95171/完成95171，记录1998586次busy拒绝；继续后接纳115909/完成115909，最终停止回到IDLE并释放IO。证据文件SHA-256为`9390AC599DB749D11EA606E0473A81F834375DF29BD11539DABC1BEC0B2A92A0`（快照，非事实源）。该结果证明过载拒绝、暂停/恢复和停止恢复路径工作，不代表每个1 MHz边沿均被执行或完成波形认证。
-- 实时读回确认`READ:SEQ:NEXT?`与`READ:IO:STAT?`可用；板卡随后恢复IN1上升沿、10/10微秒、IDLE配置。`tools/sequence_trigger_debug_ui/sequence_trigger_debug_ui.py`提供纯Tk调试界面，可自动发现串口并通过单一后台队列串行化操作，支持序列控制、当前位置与IO读回、分级日志及导出、设备身份/自定义SCPI查询，并复用`tools/ota_multi_update/ota_multi_update.py`执行单板OTA。
+- 实时读回确认当时的`READ:SEQ:NEXT?`与`READ:IO:STAT?`可用（前者已由进度029替换为`TRIG:SEQ:NEXT?`）；板卡随后恢复IN1上升沿、10/10微秒、IDLE配置。`tools/sequence_trigger_debug_ui/sequence_trigger_debug_ui.py`提供纯Tk调试界面，可自动发现串口并通过单一后台队列串行化操作，支持序列控制、当前位置与IO读回、分级日志及导出、设备身份/自定义SCPI查询，并复用`tools/ota_multi_update/ota_multi_update.py`执行单板OTA。
 - 证据边界：频率为用户信号源设置值，未使用独立脉冲计数器或示波器；1 MHz结果用于压力与恢复验证，后续若继续提高频率应优先观察回执环溢出和拒绝计数。
 
 ### NSEQ-PROGRESS-20260915-014 - START首状态预置实现
@@ -631,6 +631,27 @@ python tools/hardware_acceptance/sequence_feedback_validate.py --serial-number 8
 - 换机接续：拉取 `origin/feature/node-sequence-reservation-trigger`，先读TODO的risk表；配置 `git config core.hooksPath .githooks`。GUI入口为 `python tools/sequence_trigger_debug_ui/sequence_trigger_debug_ui.py`，需要Python/Tk、pyserial，USBTMC另需pyvisa和可用VISA后端。固件构建使用 `pico2-usb-runtime-switch` preset，需要Pico SDK与ARM工具链；本机路径不能照搬。
 - 当前板端为进度026的build `20260916124155`、UID `839E1AE79EA20F31`，序列/TDMA已停止、输出零、错误队列空。换机端口号可能变化，应重新枚举并按UID选设备；配置保存在RAM，重启后重新下发。已固化的 `sequence_tdma_cycle_validate.py` 支持 `--gui-control --repeat 10` 或 `--repeat 0 --pause-resume`，必须显式给实际 `--build`、`--serial-number` 与新的 `--out` 路径；接线/源频率仍需与当前实物一致。
 
+### NSEQ-PROGRESS-20260916-028 - risk 软件闭合与单板凭证门禁
+
+- TODO：`NSEQ-085`；日期：2026-09-16。按用户最新口径只做单板功能验收，不执行 P3。以下测试数和构建结果均为本次工作区快照，非产品事实源；当前源码尚未 OTA 或执行新单板 HIL，不写成硬件通过。
+- `NSEQ-RISK-01`：TDMA local-return 增加 `tdma_local_return_snapshot_quality_t` 和独立一致缓存；SCPI TRANSPORT 查询始终返回 typed quality。单板工具在每项清理诊断前后读取错误队列，`UNAVAILABLE`、解析失败、遗留错误或本查询产生错误均令报告失败。
+- `NSEQ-RISK-02`：sequence service 增加共享配置事务门，START 从校验、LINK guard、运行快照/store 冻结到命令入队保持同一门；参数、IO/code、轮次、LINK、RefMem自动RX/角色/通用装载/激活及模型 staging 使用同一门，LINK 内部锁顺序固定。
+- `NSEQ-RISK-03`：LINK wire 以 `TRIGGER_SEQUENCE_LINK_WIRE_SIZE` 为准加入 `exchange_id`；每个 LINK_APPLIED 分配非零新 identity，READY_NEXT 必须回显。暂停恢复、超时停止后重启和旧 exchange 注入测试确认旧消息不产生额外 fire/step。
+- 相关 sequence、RefMem 和 TDMA 软件回归共 564 passed；Release `pico2-release` 在 `out/build-risk-closure/` 构建通过，A/B application、bootloader、UF2、OTA package 和 flash link contract 均完成。`git diff --check` 通过。以上只表示软件与构建闭合。
+- 在用户收窄范围前曾启动 P3，因配置中的全部板卡均未枚举而在硬件测试前失败；该失败仅作为台架不可用记录，不作为本次单板门禁阻塞，也不重跑或写成 P3 通过。
+- 新增 `sequence_single_board_gate.py`：仅接受 `SOURCE_ALLOWLIST` 中逐文件列出的 sequence 风险源码/测试/工具，固定执行 `FINITE_REPEAT` 有限 profile 和连续 PAUSE/CONT profile，绑定 staged 源码指纹、固件包、单板 OTA 摘要、validator 及两份原始报告摘要。任一白名单外源码回到 P3；`check-staged` 不访问硬件且不能生成凭证。
+- 门禁自回归首轮 136 passed，覆盖匹配凭证、陈旧源码、证据篡改、白名单外固件、snapshot unavailable、未轮换 exchange、OTA 包不匹配及 pre-commit 分流；合并后的 sequence/RefMem/TDMA/门禁相关套件最终 612 passed。当前源码的单板 `run` 尚未执行，因此未生成 `sequence_single_board_receipt.json`；NSEQ-RISK-01/02/03 为软件修复完成、板端验证待完成，`NSEQ-085` 保持 IN PROGRESS。
+
+### NSEQ-PROGRESS-20260916-029 - SCPI NEXT 合并与无 IN1 单板验收
+
+- TODO：`NSEQ-079/081/085`；日期：2026-09-16。按用户要求使用软件触发模拟外部 READY，保持 RJ45 发收物理回环，不执行 P3。以下 build、计数和摘要均为本次验收快照，非产品事实源。
+- SCPI 软件推进合并为 `TRIGger:SEQuence:NEXT` 与 `TRIGger:SEQuence:NEXT?`；旧 `TRIGger:SEQuence:STEP`、`CONFigure:SEQuence:NEXT`、`READ:SEQuence:NEXT?` 从注册表移除。独立 BUS 模式仍直接请求一步；LOOPBACK 模式只向 Core1 owner 提交当前 gateway READY，随后由 READY_NEXT 经真实 RJ45 发送、接收和完整 identity 校验后请求 DUT 切步，不允许 SCPI 直达 DUT cycle step。
+- host 回归 `617 passed`；新的 `pico2-release` 完整构建位于 `out/build-sequence-scpi-next/`，build `20260916155106`，A/B application、bootloader、factory UF2、OTA package 和 flash link contract 均通过。
+- 严格单板 OTA 证据为 `out/HardwareAcceptance/20260916/sequence-scpi-next-ota/summary.json`：限定 UID `839E1AE79EA20F31` 和单板数量，目标 build 读回一致，OTA 提交后错误队列为空。应用态串口复位产生的 reset 关闭提示保留在原始输出，重枚举、build、slot、result 和 commit 检查均通过，未使用 diagnostic continue。
+- 有限 profile `sequence-scpi-next-single-board/finite.json` PASS：十轮 SP8T 共记录 80 个唯一 `(run,generation,step,exchange_id)` SCPI NEXT，最终 trigger/READY 为 80、completed 为 79、phase DONE，轮次读回 `10,10,1`；TDMA adapter TX/RX 计数分别增长 14832/6759。
+- 连续 profile `sequence-scpi-next-single-board/pause-resume.json` PASS：记录 20 个唯一 SCPI NEXT，PAUSE 静默检查通过，CONT 后 exchange identity 轮换并恢复推进至 completed 19；STOP 后序列、输出、租约与 TDMA 均清理，`cleanup_failures` 为空。
+- `config/hardware_acceptance/sequence_single_board_receipt.json` 已生成并经 `check-staged` 通过，绑定 staged 源码指纹、当前 package、OTA 摘要、两份原始报告、UID 和 build。该结果只关闭单板 RJ45 功能 risk，不证明独立 IN1 边沿、外部波形、RF、多板、P3 或严格 TDMA 稳定性。
+
 ## 验证与证据索引
 
 | 关联任务 | 证据 | 状态 |
@@ -653,6 +674,8 @@ python tools/hardware_acceptance/sequence_feedback_validate.py --serial-number 8
 | NSEQ-081/084 | NSEQ-PROGRESS-20260916-024、`sequence-loopback-diag-hil-r1/r2.json`、`out/pytest/sequence-async-proof-final/`、`sequence-rx-proof-build-r1.log` | 异步证据覆盖复现/修复及构建通过；设备未枚举，候选固件未 OTA，硬件闭环未验证 |
 | NSEQ-079/081/082/084 | NSEQ-PROGRESS-20260916-025、`sequence-loopback-probe-ota-r1/summary.json`、`sequence-loopback-probe-*.json`、`sequence-probe-independent-*.json`、`sequence-probe-manual-sp8t-r1.json` | 新固件单轮/十轮/连续STOP真实RJ45组合通过；同固件独立BUS/IN1与手动SP8T通过，历史失败保留 |
 | NSEQ-079/081/082 | NSEQ-PROGRESS-20260916-026、`sequence-start-view-ota-r1/summary.json`、`sequence-start-view-*.json`、`sequence-start-view-final-stopped-r1.txt` | START读视图修复及当前固件组合十轮、连续PAUSE/CONT/STOP、独立BUS/IN1/手动SP8T通过；诊断超时失败仍保留 |
+| NSEQ-085 | NSEQ-PROGRESS-20260916-028、`out/pytest/sequence-single-board-gate-r1/`、`out/build-risk-closure/` | risk软件修复、Release与受限单板门禁完成；当前源码单板OTA/HIL及staged凭证待执行，不代表P3通过 |
+| NSEQ-079/081/085 | NSEQ-PROGRESS-20260916-029、`sequence-scpi-next-ota/summary.json`、`sequence-scpi-next-single-board/finite.json`、`pause-resume.json`、`config/hardware_acceptance/sequence_single_board_receipt.json` | SCPI NEXT 软件 READY、真实 RJ45 回环有限/连续单板验收及 staged 凭证通过；不代表 P3、多板、波形、RF、独立输入或严格 TDMA 稳定性 |
 
 ## 失败与回退
 
@@ -664,6 +687,7 @@ python tools/hardware_acceptance/sequence_feedback_validate.py --serial-number 8
 按最新用户优先级推进 NSEQ-081/082：保留短暂掉落的严格失败，将其优化延后，
 真实 RJ45 角色递交、VNA 首次至末次测量及有限/持续协作已在进度025通过。
 保留独立 SP8T、DUT-only BUS/IN 的回归；组合角色需在统一 PIO0 owner 下管理 SMA 租约。
-补齐 PAUSE 安全释放/恢复、READY 超时及旧帧/重复帧拒绝，最后以固化工具和 GUI 做单板功能验收。
+当前源码已由受限门禁固定 profile 补齐 typed snapshot、PAUSE/CONT exchange 轮换、STOP 资源回收
+和 GUI 命令构造路径单板证据；后续变更仍须重新生成匹配 staged 指纹的凭证，旧报告不能替代。
 其他输入独立激励、外部波形、SP8T 射频通路和多板同步仍按未验收项记录，不从汇总计数推断通过。
 用户单板功能验收口径保持；不宣称 P3 或全节点裁决通过，提交仍服从实际门禁，历史失败保留。

@@ -4,14 +4,14 @@ Status: Active
 Domain: TRIGGER
 Canonical: `docs/trigger/sequence/TRIGGER_SEQUENCE_TODO.md`
 Related: `docs/trigger/sequence/TRIGGER_SEQUENCE_ARCHITECTURE.md`, `docs/trigger/sequence/TRIGGER_SEQUENCE_TASK_PROGRESS.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
-Last updated: 2026-09-16
+Last updated: 2026-09-17
 
 ## 当前范围
 
 按用户最新确认，本次最小测试系统由 DUT_LINK_CONTROL 和 VNA_GATEWAY 组成。
 保留两种运行模式：独立 SP8T 由软件或所选 IN1-IN4 逐状态推进，可配置 PULSE/LEVEL 状态反馈
 或 NONE 纯编码；组合模式的 DUT 只输出 SP8T 编码，VNA 网关输出测量触发并接收 READY。
-组合模式按 START 首状态建立 → RJ45 TDMA LINK_APPLIED → VNA 触发 → READY 输入网关 →
+组合模式按 START 首状态建立 → RJ45 TDMA LINK_APPLIED → VNA 触发 → READY 输入或 SCPI NEXT 网关 →
 RJ45 TDMA READY_NEXT → DUT 后继状态循环；同一 READY 不再直接进入 DUT 外部准入。
 START 预置不计触发；首次有效反馈进入第二状态。轮次默认值、有限结束和显式持续运行
 语义见 NSEQ-A-01/A-03；DONE 不自动推进。有限轮次未耗尽或显式持续时才允许末状态回绕。
@@ -35,13 +35,13 @@ START 预置不计触发；首次有效反馈进入第二状态。轮次默认�
 
 | 风险 ID | 当前风险与证据 | 下一代码提交的关闭条件 |
 |---|---|---|
-| NSEQ-RISK-01 | TDMA运行期间诊断快照偶发读取失败，SCPI无正常响应；旧错误在STOP时才读出造成归因混淆。进度025/026与归档失败报告保留 | 明确snapshot失败的有界处理及SCPI错误归因；持续运行中反复查询、启动/停止回归和失败注入通过，不靠扩大超时或盲重发掩盖 |
-| NSEQ-RISK-02 | START已发布视图只解决运行锁竞争；guard至入队并非完整原子事务，内部自动RX配置入口仍有owner冻结缺口 | 在配置/运行owner边界封闭冲突窗口，覆盖USB/RS485并发意图和内部RX装载，旧generation不得更改运行资源 |
-| NSEQ-RISK-03 | 组合故障恢复、READY超时及暂停安全资源策略未完成系统验证；当前PAUSE保留编码/租约 | 固化异常注入和恢复工具，验证超时/停止/重启无旧READY重放、无额外推进、资源按声明回收；保留现有暂停行为或明确变更后的验收 |
+| NSEQ-RISK-01 | typed snapshot quality、一致缓存及逐查询 SCPI 错误归因已由当前 build 的单板凭证验证；旧失败保留 | 已关闭：两种固定 profile 的诊断均取得一致快照且错误队列为空；`UNAVAILABLE`、解析失败或遗留错误仍由门禁拒绝 |
+| NSEQ-RISK-02 | 共享配置事务门覆盖 START 校验至入队及 SCPI/RefMem/model mutation，锁顺序已固化 | 已关闭：相关 host 并发/内部装载测试、当前 build 有限和连续板测均绑定同一 staged 指纹通过 |
+| NSEQ-RISK-03 | 非零 `exchange_id`、暂停恢复和重启轮换、旧 exchange 拒绝已实现 | 已关闭：连续 profile 证明 PAUSE 静默、CONT 后 exchange 轮换并继续推进，STOP 后输出和 TDMA owner 归零；旧帧/超时恢复由确定性注入测试覆盖 |
 
 完整动态claim/多板分配、外部波形、射频通路及严格TDMA稳定性仍在原任务中待完成，
 当前受限提交仅准许同板物理回环调试，不把这些能力纳入可用范围。
-进度027记录换机入口、可随Git获取的报告及本次单板不执行P3的显式例外。
+进度027记录换机入口和旧报告；进度028记录受限单板凭证门禁及本次不执行P3的明确范围。
 
 ### 已验证范围
 
@@ -53,7 +53,7 @@ START 预置不计触发；首次有效反馈进入第二状态。轮次默认�
 | 独立 SP8T 与轮次 | 已进入受限代码提交，已有单板通过证据 | 进度026当前固件BUS/IN1/手动回归通过；进度021保留百轮及持续证据。最大轮次仅配置读回，万轮推进为PIO仿真，不能写成硬件执行通过 |
 | 节点 SCPI 配置 | ROLE staging/ACT 与读回已有历史单板证据 | `sequence-role-stage-hil-r2.json` 对应 build `20260916071550`；完整动态槽位路由、claim/epoch 与租约仍待接入 |
 | RJ45 + VNA 组合 | 单板主线已通过，见进度025/026 | 已有单轮、十轮、连续与STOP证据；当前固件复测十轮和连续PAUSE/CONT/STOP通过。真实GUI命令路径、物理TX/RX与角色回执均有证据；历史失败保留，波形与多板未验收 |
-| 当前板端 | 已 OTA build `20260916124155` | 见进度026及`sequence-start-view-ota-r1/summary.json`；组合十轮、连续PAUSE/CONT/STOP及独立BUS、IN1十轮、手动SP8T复测通过；最终序列/TDMA停止、输出零 |
+| 当前板端 | 已 OTA build `20260916155106` | 见进度029及 `sequence-scpi-next-ota/summary.json`；使用 SCPI NEXT 模拟 READY 的有限十轮、连续 PAUSE/CONT/STOP 通过，最终序列/TDMA停止、输出零 |
 | 本轮通信调试 | 回包证据、probe启动与START只读争锁已修复；诊断快照偶发失败待处理 | 见进度024/025/026；probe只递交真实TX字节证明的本地回包，不生成远端health/WKC；START已发布视图测试/构建/独立审核和板测通过，未合并real-flight整体分支 |
 | 调试 GUI | 分页及命令路径已板测，已进入受限代码提交 | 见进度023/025/026；独立序列、RJ45/VNA、手动开关和维护分开，Tk布局回归通过；当前固件组合模式直接执行GUI命令通过，人工Tk点击仍未确认 |
 
@@ -76,8 +76,8 @@ GUI 分页批次已完成；用户已要求继续调试，并参考 real-flight 
 - 每个函数块动作必须立即返回；资源忙、generation 失配、IO 冲突和 READY 超时通过状态与错误码发布，不得在实时动作中阻塞等待。
 - PIO0 是序列触发专用资源，PIO1/PIO2 不得被此功能改写；停止或故障时由资源所有者统一释放并拉低输出。
 四节点缺失不阻塞单节点开发和验收；历史 P3 失败事实保留，不能写成通过。
-用户最新明确单板调试只做功能确认，不执行 P3；本次提交按该授权范围进行，
-保留软件、构建与对应功能证据，不生成 P3 凭证，也不修改仓库常设门禁。
+用户最新明确单板调试只做功能确认，不执行 P3；本次提交使用逐文件白名单的 sequence
+单板凭证门禁。白名单外源码仍要求 P3；单板凭证不扩展为多板、波形、RF或稳定性结论。
 
 ## 状态规则
 
@@ -133,7 +133,7 @@ GUI 分页批次已完成；用户已要求继续调试，并参考 real-flight 
 | NSEQ-082 | 独立与组合有限轮次 | DONE | REP配置、PIO配额和BUS上限测试通过；进度021独立有限/持续、进度025组合单轮/十轮末次测量后结束及连续STOP通过，同固件独立回归通过；GUI构造/执行路径已板测，超长轮次不外推为硬件执行通过 |
 | NSEQ-083 | GUI 按模式分页与配置分组 | DONE | 独立序列、RJ45/VNA、手动开关、设备维护分开；独立草稿、切页不发指令、公共连接/IO/日志、设备模式与草稿分离及启动配置失效保护完成；真实 Tk 布局与命令/工具回归通过，见进度023，当前固件硬件联调仍随 NSEQ-081/082 验收 |
 | NSEQ-084 | 异步 RX 的本地回环 TX 证据保留 | DONE | 捕获后覆盖复现及RX job.expected修复通过；进度025补probe process/无拓扑启动与远端抑制，容量矩阵、Release、独立复核和新固件真实组合回环通过；捕获前过期仍拒收，不将本地回包计入远端通信成功 |
-| NSEQ-085 | 受限提交后关闭当前risk | PENDING | 下一代码提交优先关闭NSEQ-RISK-01/02/03，逐项附软件与板端证据；未关闭不能宣称正式验收或继续扩展功能 |
+| NSEQ-085 | 受限提交后关闭当前risk | DONE | 当前源码已完成单板 OTA、SCPI NEXT 有限十轮、连续 PAUSE/CONT 和匹配 staged 凭证，见进度029；只关闭单板功能 risk，不表示 P3、多板、波形、RF、独立输入边沿或严格 TDMA 稳定性通过 |
 
 NSEQ-081 的后续完整性检查如下；当前实施顺序以“当前交付快照与接续顺序”为准，
 先完成单板角色主线，再扩展动态 claim/租约。不将基础环路计数代替角色请求/回执证据：
@@ -170,9 +170,9 @@ DUT 使用 BUS/NONE，禁止直接复用同一 READY 输入推进。READY/DONE �
 `READ:SEQ:NODE:LOAD?`，复用 RefMem 事务；运行期间拒绝修改。
 `CONF:SEQ:NODE:ROLE slot_id,instance_id,DUT或VNA` 联合暂存装载行与实际 FB 声明，
 `READ:SEQ:NODE:ROLE? instance_id` 分别读 active/staging；不能用普通 NODE:LOAD 的 enabled
-代替真实 FB 启用。原始 RefMem SCPI、SCPI SYNC delta 和模型转台载入已增加序列运行期冻结；
-内部自动 RX 的 `distributed_refmem_apply_node_load_sync_payload_internal()` 仍直接调用模型 staging，
-该 owner 入口的统一冻结待补，不能把 SCPI 冻结测试视为自动同步路径闭合。
+代替真实 FB 启用。原始 RefMem SCPI、SCPI SYNC delta、模型转台载入及内部自动 RX 的
+`distributed_refmem_apply_node_load_sync_payload_internal()` 均已接入共享配置事务门；
+运行快照冻结不再只依赖 SCPI 外层检查。
 完整动态 claim/lease 生命周期及多板重新分配仍未验证。
 LINK 入口已提供同板角色/IO 绑定与运行状态，完整动态 claim/lease 快照仍未接入；
 这些包装入口不等于后续多板动态分配已完成。
@@ -195,6 +195,6 @@ LINK 入口已提供同板角色/IO 绑定与运行状态，完整动态 claim/l
 - IN2-IN4实际脉冲、独立测量波形及SP8T实体射频通路尚缺证据，NSEQ-031不能关闭。
 - PIO低频及首档提速功能已通过，后续压力档与证据边界见进度012；保持停止后再调整参数。
 - START 首状态的 host、构建及单板 IO 已通过；外部源现已接通，见进度018/021。独立波形仍未取得，本次按用户要求不执行 P3。
-- 双角色本地绑定、真实RJ45首末测量、有限/持续及PAUSE/CONT已有进度025/026板端证据；START只读争锁已修，诊断快照偶发失败仍保留，完整动态claim resolver未接入。当前PAUSE保留租约与编码电平，安全释放与恢复策略仍未完成。
+- 双角色本地绑定、真实RJ45首末测量、有限/持续及PAUSE/CONT已有进度025/026旧固件证据；本次 typed snapshot、配置事务、exchange identity 和 SCPI NEXT 已在进度029由当前固件单板凭证验证，完整动态claim resolver仍未接入。当前PAUSE保留租约与编码电平。
 - 每个实现批次完成对应host测试、受影响构建和单节点硬件验证。
-- 本地回环 TDMA 角色控制按 NSEQ-081 推进；本次按用户明确授权仅做单板功能确认、不执行 P3，保留历史失败及软件/构建/功能证据，不生成替代凭证。
+- 本地回环 TDMA 角色控制按 NSEQ-081 推进；本次按用户明确授权仅做单板功能确认、不执行 P3。受限替代凭证须由 `sequence_single_board_gate.py run` 对当前 staged 源码和当前固件重新生成，旧报告不能放行。

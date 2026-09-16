@@ -4,7 +4,7 @@ Status: Active
 Domain: SCPI
 Canonical: `docs/interface/SCPI_COMMANDS.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/storage/SD_TODO.md`, `docs/interface/SCPI_USB_INTERFACE_DESIGN.md`
-Last updated: 2026-09-13
+Last updated: 2026-09-17
 
 成品默认 SCPI 服务通过 USBTMC/USB488 接入。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
 
@@ -237,6 +237,11 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 | `READ:SEQuence? [id]` | 查询任意已配置序列或当前默认序列。 |
 | `READ:SEQuence:ACTive?` | 查询活动序列摘要。 |
 | `READ:SEQuence:CHECK?` | 维护/验证命令：检查序列长度、状态范围、SWITCH1/SWITCH2 组合和 CRC，返回逐项预检结果。 |
+| `TRIGger:SEQuence:NEXT` | 无参数。独立 BUS 模式请求下一步；LOOPBACK 模式只提交当前网关软件 READY，DUT 仍须收到经过真实 RJ45 回环和身份校验的 READY_NEXT 后才切步。外部 IN 模式拒绝软件推进。 |
+| `TRIGger:SEQuence:NEXT?` | 无参数。返回与 `READ:SEQuence:STATe?` 相同的运行状态块，不推进序列。 |
+
+旧的 `TRIGger:SEQuence:STEP`、`CONFigure:SEQuence:NEXT` 和
+`READ:SEQuence:NEXT?` 已合并并移除，不作为兼容别名继续注册。
 
 ## 断点与分段运行
 

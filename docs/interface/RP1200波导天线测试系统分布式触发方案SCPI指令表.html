@@ -2086,7 +2086,7 @@ READ:SYNC:STATe?</code></pre>
 <div class="page">
   <div class="page-header">
     <div><h1>单节点序列调试补充</h1><div class="subtitle">TRIG 输入、编码输出、完成脉冲与 IO 读回</div></div>
-    <div class="doc-meta"><strong>2026-09-15</strong><br>Last updated: 2026-09-15<br>实施与实测状态见 Trigger Sequence 三件套</div>
+    <div class="doc-meta"><strong>2026-09-17</strong><br>Last updated: 2026-09-17<br>实施与实测状态见 Trigger Sequence 三件套</div>
   </div>
   <div class="main">
     <div class="note-box">本补充用于独立节点：一个被接纳的事件执行一个序列状态，写出本地编码、等待建立时间、输出完成脉冲。末步之后的下一事件回到首状态；忙时拒绝并计数。TDMA 与全节点裁决仅预留接口；不改变正文角度点整序列的后续业务定义。</div>
@@ -2099,9 +2099,8 @@ READ:SYNC:STATe?</code></pre>
         <tr><td><code>READ:SEQuence:IO?</code></td><td><code>output_mask,completion_channel,settle_us,pulse_us,generation,valid</code></td><td>真实本地动作配置。</td></tr>
         <tr><td><code>CONFigure:SEQuence:CODE</code></td><td><code>state_id,value</code></td><td>本节点状态编码；value只能设置output_mask内的位。</td></tr>
         <tr><td><code>READ:SEQuence:CODE?</code></td><td><code>state_id</code> → <code>state_id,value</code></td><td>缺失或参数generation失效时返回错误。</td></tr>
-        <tr><td><code>TRIGger:SEQuence:STEP</code></td><td><code>1</code> / error</td><td>仅BUS且READY时接纳一个单步；START只准备，不自动执行首步。</td></tr>
-        <tr><td><code>CONFigure:SEQuence:NEXT</code></td><td>无参数；<code>1</code> / error</td><td>软件推进一步，与TRIGger:SEQuence:STEP共用入口；接纳不等于完成。</td></tr>
-        <tr><td><code>READ:SEQuence:NEXT?</code></td><td>无参数；本地运行状态块</td><td>与READ:SEQuence:STATe?响应一致，查询单步执行结果，不推进序列。</td></tr>
+        <tr><td><code>TRIGger:SEQuence:NEXT</code></td><td>无参数；<code>1</code> / error</td><td>独立BUS模式请求下一步；LOOPBACK模式提交网关软件READY，DUT仍须收到真实RJ45回环并校验通过的READY_NEXT后才切步；外部IN模式拒绝。</td></tr>
+        <tr><td><code>TRIGger:SEQuence:NEXT?</code></td><td>无参数；本地运行状态块</td><td>与READ:SEQuence:STATe?响应一致，不推进序列。旧STEP、CONF:NEXT和READ:NEXT?不再注册。</td></tr>
         <tr><td><code>READ:SEQuence:STATe?</code></td><td>本地运行状态块</td><td>分别读取所选、已写出、已完成游标、循环、接纳/拒绝/中止计数及时间/错误；具体字段顺序见专项架构。</td></tr>
         <tr><td><code>READ:SEQuence:TIMing?</code></td><td><code>backend,tick_ns,physical_timestamps_valid</code></td><td>PIO迁移版：运行后backend为PIO0，valid为false；兼容时间字段为零，不把CPU收取回执时间作为物理操作时间。</td></tr>
         <tr><td><code>READ:SEQuence:REJections?</code></td><td><code>run_id,generation,busy_rejected,notready_rejected,pending</code></td><td>外部运行中拒绝数保留最近稳定结算，pending为true；暂停或停止后完成结算。未结算的零值不能证明无拒绝。</td></tr>
@@ -2119,7 +2118,7 @@ READ:SYNC:STATe?</code></pre>
     <p>channel取逻辑通道1至4，第一通道为掩码最低位。参数、计划和IO/code需在START前完成；参数重配使旧计划与本地code失效。STOP取消在途定时并将占用输出拉低；PAUSE允许已接纳步骤完成，CONTINUE等待新的事件。</p>
     <p>快速序列后端迁移至PIO0，PIO1/PIO2保持既有TDMA职责；按SYNC_IO生命周期热加载。此前GPIO IRQ/alarm版低频验收不替代PIO版验收，实施和验证状态见专项三件套。PIO回执确认执行和完成，但不提供物理时间戳；短脉冲和精确时序需独立输入/输出波形验证。</p>
   </div>
-  <div class="page-footer"><span>单节点调试附录</span><span>2026-09-15</span></div>
+  <div class="page-footer"><span>单节点调试附录</span><span>2026-09-17</span></div>
 </div>
 </body>
 </html>

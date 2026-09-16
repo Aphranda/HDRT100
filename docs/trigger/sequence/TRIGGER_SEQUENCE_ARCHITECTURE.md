@@ -4,7 +4,7 @@ Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/sequence/TRIGGER_SEQUENCE_ARCHITECTURE.md`
 Related: `docs/trigger/sequence/TRIGGER_SEQUENCE_TODO.md`, `docs/trigger/sequence/TRIGGER_SEQUENCE_TASK_PROGRESS.md`, `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`, `docs/reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.html`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-09-16
+Last updated: 2026-09-17
 
 ## 文档接口与范围
 
@@ -16,7 +16,7 @@ TDMA（RJ45 发收物理回环），使用专门的 LOOPBACK 模式，复用现�
 独立 `CONF:SWITCH# N` 的 SP8T 控制及 DUT-only 的 BUS/IN 序列能力保留，不依赖 VNA 装载。
 组合运行、独立序列与手动开关共用资源准入，不能互相抢占引脚；手动切换要求序列停止且资源空闲。
 DUT 链路为：配置序列 -> START 预置首状态并等待初始建立时间 ->
-软件 STEP 或所选 IN 的外部边沿推进到后继状态 -> 输出连接 SP8T 的编码电平 ->
+SCPI NEXT 或所选 IN 的外部边沿推进到后继状态 -> 输出连接 SP8T 的编码电平 ->
 等待建立时间 -> 发布本地链路完成事实 -> 等待下一事件。DUT 不需要额外状态输出。
 组合模式下，VNA 网关在收到 LINK_APPLIED 后输出测量触发、接收 READY 并发布测量事实；
 READY 只接入网关选定输入，经 TDMA 的 READY_NEXT 请求推进 DUT，不能再由 DUT 直接消费同一输入。
@@ -49,6 +49,14 @@ BOTH展开H/V；状态顺序为channel -> polarization -> frequency -> wave。
 包括相同参数重写；耗尽时拒绝，不回绕。旧计划保留查询但CHECK/激活返回stale。
 重写活动计划撤销激活。子集和重复引用合法，CHECK只报告覆盖诊断，不改变active。
 
+所有会改变序列配置、IO/code、轮次、LINK、角色装载和模型 staging 的生产入口共享
+`trigger_sequence_service_configuration_begin()` / `trigger_sequence_service_configuration_end()`
+配置事务门。START 从校验配置、检查 LINK 准入、复制 `s_run` 快照、冻结 store 到
+`COMMAND_START` 入队始终持有同一事务门；运行快照不会混入事务中途发布的 generation。
+LINK 配置需要同时写自身状态时，锁顺序固定为“service 配置事务门 -> LINK writer guard”，
+禁止反向取得。RefMem 自动 RX、通用节点装载、角色 staging/activation 和模型转台 staging
+也必须经过同一事务门，不能只冻结 SCPI 外层入口。
+
 CRC按 `TRIGGER_SEQUENCE_CRC_SCHEMA`，复用 `pota_crc32_update`，显式LE32编码。
 参数CRC字段chan/pol/freq/wave；映射CRC为所有状态行state_id/switch1_ch/
 switch2_sel/pol/freq_idx/wave_idx；计划CRC为parameter_crc/map_crc/count/state_ids。
@@ -79,9 +87,11 @@ code 只允许设置编码掩码内的位；编码掩码与可选状态掩码必
 | CONFigure:SEQuence:CODE state_id,value | 配置本节点状态编码；READ:SEQuence:CODE? state_id读回 |
 | CONFigure:SEQuence:REPeat count / READ:SEQuence:REPeat? | 停止时配置完整计划轮次；零显式持续；查询 configured_repeat,active_repeat,finished；START 校验 `plan.count * count <= UINT32_MAX` |
 | CONFigure:SEQuence:LINK OFF或LOOPBACK,dut_slot,vna_slot,IN通道,OUT通道,pulse_us,timeout_ms,RIS或FALL | 在序列和 TDMA 均停止后配置专门的同板 RJ45 物理回环与网关 IO；RJ45 仅作兼容别名；组合模式要求 BUS/NONE，网关输出不能重叠编码输出 |
-| READ:SEQuence:LINK? | 返回 `scpi_sequence_link_q` 的 enabled、phase、error、binding/model epoch、run/generation、step、收发/拒绝/触发/READY/完成计数、角色/IO/时序及活动轮次；字段顺序以该处理函数为准 |
+| READ:SEQuence:LINK? | 返回 `scpi_sequence_link_q` 的 enabled、phase、error、binding/model epoch、run/generation、step、收发/拒绝/触发/READY/完成计数、角色/IO/时序、活动轮次及当前 exchange identity；字段顺序以该处理函数为准 |
+| READ:SEQuence:LINK:TRANsport? | 返回 local-return 诊断和 `tdma_local_return_snapshot_quality_t` 质量；`FRESH`/`CACHED` 均为一致快照，`UNAVAILABLE` 是显式可观测状态，不通过 SCPI 失败或遗留错误队列表示 |
 | TRIGger:STARt [plan_id] / STOP / ABORt / PAUSe / CONTinue | 真实owner控制；STOP/ABORt取消未完成步骤并安全输出 |
-| TRIGger:SEQuence:STEP | 仅BUS模式推进一次；外部模式拒绝软件STEP，防止混源 |
+| TRIGger:SEQuence:NEXT | 独立 BUS 模式直接请求一步；LOOPBACK 模式只在 `LINK_WAIT_READY` 提交软件 READY，随后仍须由真实 RJ45 回环的 READY_NEXT 回帧请求 DUT 切步；外部 IN 模式拒绝，防止混源 |
+| TRIGger:SEQuence:NEXT? | 返回与 READ:SEQuence:STATe? 相同的运行状态块，不推进序列 |
 | READ:SEQuence:STATe? | 本地完整状态、游标、计数、时间与错误 |
 | READ:TRIGger:STATe? | 保留指令表字段排列；未实施角度流程的字段不伪造角度进度 |
 | READ:IO:INPut? / OUTPut? [channel] | 无参数返回实际逻辑位掩码，有通道返回该通道实际电平 |
@@ -98,9 +108,11 @@ SD staging 替换 inline 事务时废弃其缓存，不能把先前角色覆盖�
 `refmem_slot_claim_derive_proposals()` 按显式 slot→physical board 提案及非零 claim epoch 派生
 配置候选，能力和 UUID 从真实 board 表取得；同板多槽须由对应槽位 policy 允许。
 该纯派生 API 不申请租约、不覆盖活动 claim；生产 owner 仍须完成当前租约冲突校验与原子发布。
-`CONFigure:SEQuence:NEXT`与`TRIGger:SEQuence:STEP`共用单步入口，BUS且READY时接纳一步。
-`READ:SEQuence:NEXT?`返回与`READ:SEQuence:STATe?`相同的运行状态块，供查询单步结果；
-查询无执行副作用。两者均不带参数，不提供`CONFigure:SEQuence:NEXT?`。
+软件推进只保留 `TRIGger:SEQuence:NEXT` 和 `TRIGger:SEQuence:NEXT?`。写命令不带参数：
+独立 BUS 模式在 READY 时接纳一步；LOOPBACK 模式在等待 READY 时结束当前网关等待，发布
+READY_NEXT，并且只有该消息经过真实 RJ45 发送、接收和完整 identity 校验后才请求 DUT 切步。
+查询命令返回与 `READ:SEQuence:STATe?` 相同的运行状态块且无执行副作用。旧的
+`TRIGger:SEQuence:STEP`、`CONFigure:SEQuence:NEXT` 和 `READ:SEQuence:NEXT?` 不再注册。
 输入映射引用board的TRIG/ARM/EXT_CLK/GATE四个输入宏，遵守反序板级布线。
 输出pad读取必须取实际引脚电平；code映射和期望值不得冒充实际IO。
 
@@ -140,7 +152,9 @@ PIO外部运行期间输入计数与执行回执来自异步DMA，拒绝数保�
 建立时间以及所配置状态动作结束前均视为 BUSY；NONE 没有额外脉冲等待。
 外部发送方不得用内部 completed 冒充网分测量 READY，是否接纳由实时入口的就绪状态决定。
 启动时已有电平不作为新边沿；输入切换只能在停止边界，旧事件不得重放。
-运行、暂停、故障或待处理START/STOP期间配置冻结；owner停止完成后才允许配置。
+运行、暂停、故障或待处理START/STOP期间配置冻结；owner停止完成后才允许配置。PAUSE 取消
+当前网关等待，CONT 为当前步骤建立新的 exchange；STOP、超时和故障关闭 TX、取消待处理测量并
+经 owner 清理输出/租约。恢复或再次 START 不接受旧 exchange 的 READY。
 
 ## NSEQ-A-04 Owner与硬件
 
@@ -192,16 +206,22 @@ LOOPBACK 本身不表示远端多板模式已实现或验证。
 显式携带请求/回执身份并处理重复、旧代际、缺片、溢出与超时，不覆盖 VDC 或绕过 admission。
 报告中的A0编排、A1链路、A2馈源、A3测量分工仍作为后续背景；
 本地 completed 只表示配置的编码/建立/可选状态动作，不能声明 VNA 测量或全节点完成。
-组合协议以 `trigger_sequence_link_protocol.h` 的消息和分片符号为准，携带完整
-run/generation/binding epoch/step 及源/目标逻辑槽位；LINK_APPLIED 和 READY_NEXT
-通过既有 CONTROL mailbox 分片传送，重发保留身份，缺片、重复和旧身份不能额外推进。
+组合协议以 `trigger_sequence_link_protocol.h` 的消息、`TRIGGER_SEQUENCE_LINK_WIRE_SIZE`
+和分片符号为准，携带完整 run/generation/binding epoch/step、源/目标逻辑槽位及
+`exchange_id`。每个新 LINK_APPLIED，包括暂停恢复和重启，分配新的非零 exchange；READY_NEXT
+必须回显该 identity。通过既有 CONTROL mailbox 分片传送时，重发保留身份，缺片、重复、旧
+run/generation/step 或旧 exchange 均不能额外推进。
 本次同板绑定以真实启用的角色装载行和 model epoch 为边界；完整动态 claim/lease 路由的
 目标仍按 TODO 推进，不能将这一本地绑定等同于多板 claim resolver 已全面接入。
 
 本轮逐层验证：纯C模型、真实libscpi解析、运行时与IRQ模拟、Release构建、
 单板SCPI与实际IO读回、接线后的IN1-IN4脉冲与波形。
 外部验证按实际接线逐输入推进，不用SCPI汇总计数替代独立输入/输出波形证据。
-旧P3缺板失败和提交门禁结果如实保留，不修改验收工具或伪造凭证放行。
+旧P3缺板失败和提交门禁结果如实保留。sequence 单板替代门禁由
+`sequence_single_board_gate.py` 的 `SOURCE_ALLOWLIST` 限定，`run` 固定执行有限轮次和连续
+PAUSE/CONT profile，并绑定 staged 源码、固件包、OTA 摘要和原始报告摘要；`check-staged`
+只读核验。任何白名单外源码仍使用 P3。该凭证只表示单板 RJ45 功能，不表示 P3、多板、
+外部波形、RF、独立边沿计数或严格 TDMA 稳定性通过。
 
 ## NSEQ-A-06 后续PIO执行与热加载边界
 
