@@ -11,6 +11,7 @@
 #include "tdma_overlay_prepare.h"
 #include "tdma_rx_prepare.h"
 #include "tdma_origin_plan.h"
+#include "tdma_priority_tx.h"
 #include "tdma_receive_health.h"
 #include "tdma_ring_runtime.h"
 #include "tdma_transport_frame.h"
@@ -405,6 +406,7 @@ typedef struct {
     tdma_pio_spi_ring_phys_overlay_job_fn phys_grant_overlay;
     tdma_pio_spi_ring_phys_overlay_job_fn phys_commit_overlay;
     tdma_pio_spi_ring_origin_ops_t phys_origin;
+    tdma_priority_tx_provider_t priority_tx_provider;
     tdma_pio_spi_ring_origin_status_t origin;
     struct {
         uint32_t generation;

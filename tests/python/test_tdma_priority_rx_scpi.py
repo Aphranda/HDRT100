@@ -44,7 +44,7 @@ def test_snapshot_and_record_stop_identity_guards(reader, mode):
 
 def test_commands_are_query_only_and_registered_once():
     source = (ROOT / 'middleware/scpi_port/inc/scpi_system_snapshot_commands.h').read_text(encoding='utf-8')
-    commands = re.findall(r'\.pattern = "([^"]*PRIORity[^\"]*)"', source)
+    commands = re.findall(r'\.pattern = "(SYSTem:TDMA:FLIGHT:PRIORity[^\"]*)"', source)
     assert commands == ['SYSTem:TDMA:FLIGHT:PRIORity?',
                         'SYSTem:TDMA:FLIGHT:PRIORity:BUDGet?',
                         'SYSTem:TDMA:FLIGHT:PRIORity:TIMing?',

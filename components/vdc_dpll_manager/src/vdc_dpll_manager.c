@@ -1,6 +1,7 @@
 #include "vdc_dpll_manager.h"
 #include "vdc_time_mapping.h"
 #include "vdc_model_projection.h"
+#include "vdc_priority_tx.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -1793,7 +1794,8 @@ bool vdc_dpll_manager_init(void)
     s_dpll_role_applied_generation = 0u;
     s_vdc_tdma_service = tdma_runtime_owner_get();
     if (s_vdc_tdma_service == NULL ||
-        !vdc_tdma_payload_register(s_vdc_tdma_service)) {
+        !vdc_tdma_payload_register(s_vdc_tdma_service) ||
+        !tdma_runtime_owner_set_priority_tx_provider(vdc_priority_tx_core1)) {
         return false;
     }
     s_vdc_tdma_registered = true;
@@ -2987,6 +2989,7 @@ static void vdc_dpll_manager_waveform_capture_service(void)
 
 #include "vdc_dpll_feedback_match.inc"
 #include "vdc_model_feedback.inc"
+#include "vdc_priority_tx.inc"
 #include "vdc_boundary_capture.inc"
 #include "vdc_boundary_control.inc"
 #include "vdc_priority_ingress.inc"

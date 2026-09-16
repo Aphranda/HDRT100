@@ -51,6 +51,7 @@ static bool valid_record(const vdc_priority_codec_record_t *record)
 {
     return record != NULL && record->binding_generation != 0u &&
         record->uncertainty_width != 0u &&
+        record->event_time_lower <= UINT64_MAX - record->uncertainty_width &&
         (record->flags & (uint16_t)~VDC_PRIORITY_CODEC_KNOWN_FLAGS) == 0u;
 }
 

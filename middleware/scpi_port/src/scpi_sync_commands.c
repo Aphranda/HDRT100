@@ -833,6 +833,54 @@ scpi_result_t scpi_cmd_system_tdma_priority_rx_timing_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+#include "vdc_priority_tx.h"
+
+scpi_result_t scpi_cmd_vdc_priority_sync(scpi_t *context)
+{
+    uint32_t generation;
+    if (!SCPI_ParamUInt32(context, &generation, TRUE) ||
+        !vdc_dpll_manager_set_priority_sync(generation)) {
+        scpi_port_push_exec_error(context, "VDC_PRIORITY_SYNC_STOP_SESSION_OR_GENERATION");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, generation);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_priority_sync_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, vdc_dpll_manager_priority_sync_generation());
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_priority_tx_q(scpi_t *context)
+{
+    tdma_ring_clock_snapshot_t ring;
+    vdc_priority_tx_snapshot_t s;
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring) || ring.enabled ||
+        ring.adapter_started || !vdc_dpll_manager_get_priority_tx(&s)) {
+        scpi_port_push_exec_error(context, "VDC_PRIORITY_TX_REQUIRES_STOP");
+        return SCPI_RES_ERR;
+    }
+    const uint32_t fields[] = {s.schema, s.generation, s.active, s.retired, s.have_offer,
+        s.calls, s.encoded, s.repeated, s.rejected, s.last_reject, s.source_epoch,
+        s.event_sequence, s.source_identity, s.published_version, s.model_token,
+        s.session, s.role_generation, s.clock_epoch, s.clock_run, s.local_slot,
+        s.node_count, s.schedule_crc32, s.profile_crc32, s.uncertainty_width};
+    for (size_t i = 0u; i < sizeof(fields) / sizeof(fields[0]); ++i)
+        SCPI_ResultUInt32(context, fields[i]);
+    scpi_sync_result_u64_parts(context, s.event_time_lower);
+    static const char digits[] = "0123456789abcdef";
+    char hex[TDMA_FLIGHT_SHORT_SLOT_SIZE * 2u + 1u];
+    for (size_t i = 0u; i < TDMA_FLIGHT_SHORT_SLOT_SIZE; ++i) {
+        hex[2u * i] = digits[s.mailbox[i] >> 4u];
+        hex[2u * i + 1u] = digits[s.mailbox[i] & 15u];
+    }
+    hex[sizeof(hex) - 1u] = '\0';
+    SCPI_ResultText(context, hex);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_system_tdma_priority_rx_consumer_q(scpi_t *context)
 {
     tdma_ring_clock_snapshot_t ring;

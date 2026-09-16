@@ -48,6 +48,9 @@ scpi_result_t scpi_cmd_refmem_vdc_feedback_tx_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_vdc_reference_proof_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_session(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_session_q(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_priority_sync(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_priority_sync_q(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_priority_tx_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_probe(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_auto(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_auto_q(scpi_t *context);
@@ -189,6 +192,9 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:REFMEM:SYNC:TDMA:VDC:FEEDback:PROof?", .callback = scpi_cmd_refmem_vdc_reference_proof_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:SESSion", .callback = scpi_cmd_vdc_feedback_session}, \
     {.pattern = "SYSTem:VDC:FEEDback:SESSion?", .callback = scpi_cmd_vdc_feedback_session_q}, \
+    {.pattern = "SYSTem:VDC:PRIORity:SYNC", .callback = scpi_cmd_vdc_priority_sync}, \
+    {.pattern = "SYSTem:VDC:PRIORity:SYNC?", .callback = scpi_cmd_vdc_priority_sync_q}, \
+    {.pattern = "SYSTem:VDC:PRIORity:TX?", .callback = scpi_cmd_vdc_priority_tx_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:PROBe", .callback = scpi_cmd_vdc_feedback_probe}, \
     {.pattern = "SYSTem:VDC:FEEDback:AUTO", .callback = scpi_cmd_vdc_feedback_auto}, \
     {.pattern = "SYSTem:VDC:FEEDback:AUTO?", .callback = scpi_cmd_vdc_feedback_auto_q}, \

@@ -9,7 +9,8 @@ static bool tdma_pio_spi_ring_origin_mailbox_valid(const uint8_t *mailbox,
     return mailbox != NULL &&
         ((uint32_t)mailbox[0] | ((uint32_t)mailbox[1] << 8u)) == TDMA_FLIGHT_MAILBOX_MAGIC &&
         mailbox[TDMA_FLIGHT_MAILBOX_VERSION_OFFSET] == TDMA_FLIGHT_MAILBOX_VERSION &&
-        tdma_process_image_transport_class_valid(mailbox[3]) &&
+        (tdma_process_image_transport_class_valid(mailbox[3]) ||
+         tdma_process_image_typed_sync_class_valid(mailbox[3])) &&
         mailbox[TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET] == slot &&
         (mailbox[TDMA_FLIGHT_MAILBOX_TARGET_MASK_OFFSET] & ~mask) == 0u &&
         tdma_process_image_crc16_ccitt(mailbox, TDMA_PROCESS_IMAGE_CRC_OFFSET) ==
@@ -263,8 +264,65 @@ static bool tdma_pio_spi_ring_origin_publish_async(tdma_pio_spi_ring_adapter_t *
     return tdma_overlay_prepare_origin_request(job);
 }
 
+/* Separate frame keeps the provider/projection stack out of the ordinary
+ * FIFO builder's frame. Both branches still have the same sole Core1 owner. */
+static __attribute__((noinline)) bool tdma_pio_spi_ring_origin_publish_priority(
+    tdma_pio_spi_ring_adapter_t *adapter, bool *handled)
+{
+    uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE];
+    const tdma_priority_tx_result_t offered =
+        adapter->priority_tx_provider(&adapter->config, mailbox);
+    *handled = offered != TDMA_PRIORITY_TX_DISABLED;
+    if (!*handled) return true;
+    /* A worker may finish a previously granted ordinary offer. Cancel its
+     * lease before direct publication; never select it after priority owns
+     * this slot, and never wait for Core0 to acknowledge cancellation. */
+    const uint32_t station_state = tdma_overlay_prepare_state(adapter->overlay_preparation);
+    if (station_state != TDMA_OVERLAY_PREPARE_IDLE) {
+        if (adapter->overlay_preparation->kind != TDMA_OVERLAY_PREPARE_ORIGIN ||
+            adapter->overlay_preparation->plan != NULL) return false;
+        if (station_state != TDMA_OVERLAY_PREPARE_CANCELLED)
+            (void)tdma_overlay_prepare_cancel(adapter->overlay_preparation);
+        /* Origin's worker owns only private SRAM, not an exchange/DMA bank.
+         * Leave its cancelled station untouched until ACK; direct publication
+         * uses separate owner shadows and has no Core0 completion dependency. */
+    }
+    if (offered == TDMA_PRIORITY_TX_EMPTY) return true;
+    if (offered != TDMA_PRIORITY_TX_READY ||
+        !tdma_process_image_typed_sync_class_valid(mailbox[3]) ||
+        !tdma_pio_spi_ring_origin_mailbox_valid(mailbox, adapter->config.local_slot_id,
+            (1u << adapter->config.node_count) - 1u)) return false;
+    for (uint32_t i = 0u; i < TDMA_ORIGIN_PLAN_BANK_COUNT; ++i) {
+        if (adapter->origin_shadow[i].generation == adapter->origin.published_generation &&
+            memcmp(adapter->origin_shadow[i].mailbox, mailbox, sizeof(mailbox)) == 0)
+            return true;
+    }
+    if (!adapter->phys_origin.ready(adapter->phys_ctrl_context)) return true;
+    tdma_flight_tx_layout_t layout;
+    if (!tdma_flight_engine_copy_tx_layout(adapter->flight_engine, &layout) ||
+        layout.local_slot_id != adapter->config.local_slot_id ||
+        layout.output_segment_mask != (1u << layout.local_slot_id)) return false;
+    uint32_t generation = 0u;
+    if (!adapter->phys_origin.publish(adapter->phys_ctrl_context, mailbox, &generation)) return true;
+    if (!generation || generation == adapter->origin.published_generation) return false;
+    const tdma_flight_engine_apply_t applied = {
+        .output_segment_mask = layout.output_segment_mask,
+        .output_bytes = TDMA_FLIGHT_SHORT_SLOT_SIZE,
+    };
+    (void)tdma_flight_engine_accept_tx(adapter->flight_engine, &layout, &applied, false);
+    /* Not a Core0 FIFO offer: do not credit its generation or SENT/ACK. */
+    const tdma_flight_tx_view_t tx = {0};
+    tdma_pio_spi_ring_origin_commit_owner(adapter, &tx, mailbox, generation);
+    return true;
+}
+
 static bool tdma_pio_spi_ring_origin_publish(tdma_pio_spi_ring_adapter_t *adapter)
 {
+    if (adapter->priority_tx_provider != NULL) {
+        bool handled;
+        const bool valid = tdma_pio_spi_ring_origin_publish_priority(adapter, &handled);
+        if (handled) return valid;
+    }
     if (adapter->overlay_preparation != NULL && adapter->phys_origin.grant_tx != NULL)
         return tdma_pio_spi_ring_origin_publish_async(adapter);
     if (!adapter->phys_origin.ready(adapter->phys_ctrl_context) || adapter->flight_fifo == NULL)
@@ -288,7 +346,8 @@ static bool tdma_pio_spi_ring_origin_publish(tdma_pio_spi_ring_adapter_t *adapte
         if (tx.data_size < offset + TDMA_FLIGHT_SHORT_SLOT_SIZE) return false;
         mailbox += offset;
     }
-    if (!tdma_pio_spi_ring_origin_mailbox_valid(mailbox, adapter->config.local_slot_id,
+    if (!tdma_process_image_transport_class_valid(mailbox[3]) ||
+        !tdma_pio_spi_ring_origin_mailbox_valid(mailbox, adapter->config.local_slot_id,
             (1u << adapter->config.node_count) - 1u)) return false;
     const tdma_flight_engine_apply_t applied = {
         .output_segment_mask = layout.output_segment_mask,

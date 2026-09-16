@@ -498,6 +498,20 @@ bool tdma_runtime_owner_get_origin_raw_reference(tdma_origin_raw_reference_t *sn
         tdma_pio_spi_phys_origin_get_raw_reference(&s_tdma_pio_spi_phys, snapshot);
 }
 
+static bool tdma_runtime_owner_priority_provider_stopped(void *context)
+{
+    if (s_tdma_pio_spi_ring_adapter.started ||
+        s_tdma_pio_spi_ring_adapter.origin.active) return false;
+    s_tdma_pio_spi_ring_adapter.priority_tx_provider = *(tdma_priority_tx_provider_t *)context;
+    return true;
+}
+
+bool tdma_runtime_owner_set_priority_tx_provider(tdma_priority_tx_provider_t provider)
+{
+    return s_tdma_runtime_owner_initialized && tdma_service_update_stopped_metadata(
+        &s_tdma_runtime_owner, tdma_runtime_owner_priority_provider_stopped, &provider);
+}
+
 bool tdma_runtime_owner_get_origin_reference_epoch(uint32_t *epoch)
 {
     return s_tdma_runtime_owner_initialized &&

@@ -271,6 +271,98 @@ static bool origin_adapter_commit_tx(void *context, tdma_overlay_prepare_t *job,
         p->adapter->config.local_slot_id) && origin_adapter_publish(p, job->tx_data, generation);
 }
 
+static tdma_priority_tx_result_t priority_offer_result;
+static uint8_t priority_offer_mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE];
+static uint32_t priority_stop_calls;
+static tdma_priority_tx_result_t priority_offer(const tdma_ring_runtime_config_t *config,
+    uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE])
+{
+    if (!config) { ++priority_stop_calls; return TDMA_PRIORITY_TX_EMPTY; }
+    if (priority_offer_result == TDMA_PRIORITY_TX_READY)
+        memcpy(mailbox, priority_offer_mailbox, sizeof(priority_offer_mailbox));
+    return priority_offer_result;
+}
+
+static int test_origin_priority_mailbox(void)
+{
+    int failed = 0;
+    for (uint32_t scenario = 0u; scenario < 7u; ++scenario) {
+        tdma_pio_spi_ring_adapter_t adapter;
+        tdma_flight_engine_t engine;
+        tdma_flight_fifo_t fifo;
+        tdma_overlay_prepare_t job = {0};
+        tdma_ring_adapter_status_t status;
+        origin_adapter_phys_t p = {.active = true, .generation = 1u, .adapter = &adapter, .job = &job};
+        const tdma_process_image_map_t map = make_eight_slot_flight_map();
+        failed += expect_bool("priority fixture", tdma_pio_spi_ring_adapter_init(&adapter) &&
+            tdma_flight_engine_init(&engine) && tdma_flight_fifo_init(&fifo) &&
+            tdma_flight_engine_configure(&engine, &map) && tdma_flight_engine_activate(&engine, 0u), true);
+        tdma_pio_spi_ring_adapter_set_flight_engine(&adapter, &engine);
+        tdma_pio_spi_ring_adapter_set_flight_fifo(&adapter, &fifo);
+        tdma_pio_spi_ring_adapter_set_phys(&adapter, origin_adapter_tx, origin_adapter_rx, &p);
+        tdma_pio_spi_ring_adapter_set_phys_ctrl(&adapter, NULL, origin_adapter_stop, NULL, NULL, &p);
+        const tdma_pio_spi_ring_origin_ops_t origin_ops = {
+            .begin = origin_adapter_start, .poll = origin_adapter_poll, .healthy = origin_adapter_healthy,
+            .ready = origin_adapter_ready, .publish = origin_adapter_publish,
+            .observe = origin_adapter_observe, .take_rx_observation = origin_adapter_take_pair,
+            .grant_tx = origin_adapter_grant_tx, .commit_tx = origin_adapter_commit_tx};
+        failed += expect_bool("priority callbacks", tdma_pio_spi_ring_adapter_set_phys_origin(&adapter, &origin_ops), true);
+        adapter.overlay_preparation = &job;
+        adapter.config = make_valid_config();
+        adapter.config.node_count = TDMA_FLIGHT_SHORT_SLOT_COUNT;
+        adapter.config.local_slot_id = adapter.config.reference_slot_id = 0u;
+        adapter.started = 1u;
+        adapter.configured = true;
+        adapter.origin.active = adapter.origin.published_generation = 1u;
+        adapter.comm_fsm.state = TDMA_ADAPTER_COMM_STATE_AUTONOMOUS;
+        adapter.priority_tx_provider = priority_offer;
+        priority_stop_calls = 0u;
+        uint8_t ordinary[TDMA_FLIGHT_SHORT_SLOT_SIZE];
+        fill_test_process_mailbox(ordinary, 0u, 1u, 0x31u);
+        failed += expect_bool("ordinary waiting", tdma_flight_fifo_core0_publish_tx(&fifo,
+            ordinary, sizeof(ordinary), 5u, 9u, 1u), true);
+        memcpy(priority_offer_mailbox, ordinary, sizeof(ordinary));
+        priority_offer_mailbox[3] = TDMA_PROCESS_IMAGE_VDC_PRIORITY_SYNC_MESSAGE_CLASS;
+        const uint16_t crc = tdma_process_image_crc16_ccitt(priority_offer_mailbox, 30u);
+        priority_offer_mailbox[30] = (uint8_t)crc;
+        priority_offer_mailbox[31] = (uint8_t)(crc >> 8u);
+        priority_offer_result = scenario == 0u ? TDMA_PRIORITY_TX_DISABLED :
+            scenario == 1u ? TDMA_PRIORITY_TX_EMPTY : TDMA_PRIORITY_TX_READY;
+        if (scenario == 3u) p.pending = true;
+        if (scenario == 4u) priority_offer_mailbox[31] ^= 1u;
+        if (scenario == 5u || scenario == 6u) job.kind = TDMA_OVERLAY_PREPARE_ORIGIN;
+        if (scenario == 5u) job.state = TDMA_OVERLAY_PREPARE_READY;
+        if (scenario == 6u) job.state = TDMA_OVERLAY_PREPARE_BUILDING;
+        const uint32_t tail = fifo.tx_tail;
+        failed += expect_bool("priority service bounded", tdma_pio_spi_ring_adapter_ops()->service(
+            &adapter, 1000u, &status), true);
+        const bool published = scenario == 2u || scenario == 5u || scenario == 6u;
+        failed += expect_u32("priority submits only valid available offer", p.publications, published ? 1u : 0u);
+        if (scenario == 0u) {
+            failed += expect_u32("disabled follows ordinary worker", job.state, TDMA_OVERLAY_PREPARE_REQUESTED);
+        } else {
+            failed += expect_u32("priority does not consume ordinary FIFO", fifo.tx_tail, tail);
+            if (published) {
+                failed += expect_u32("priority no FIFO generation credit", adapter.origin.published_owner_generation, 0u);
+                p.pending = false;
+                failed += expect_bool("repeat offer bounded", tdma_pio_spi_ring_adapter_ops()->service(
+                    &adapter, 2000u, &status), true);
+                failed += expect_u32("identical offer not republished", p.publications, 1u);
+            }
+            if (scenario == 6u) {
+                failed += expect_u32("building lease cancelled", job.state, TDMA_OVERLAY_PREPARE_CANCELLED);
+                tdma_overlay_prepare_core0_build_claimed(&job);
+                failed += expect_bool("retry after cancellation ACK", tdma_pio_spi_ring_adapter_ops()->service(
+                    &adapter, 2000u, &status), true);
+                failed += expect_u32("ACK does not republish prior offer", p.publications, 1u);
+            }
+        }
+        failed += expect_bool("priority STOP", tdma_pio_spi_ring_adapter_ops()->stop(&adapter), true);
+        failed += expect_u32("priority STOP retirement", priority_stop_calls, 1u);
+    }
+    return failed;
+}
+
 static int test_origin_async_mailbox(void)
 {
     int failed = 0;
@@ -382,7 +474,7 @@ static int test_origin_async_mailbox(void)
 
 static int test_origin_adapter(void)
 {
-    int failed = test_origin_mailbox_selection() + test_origin_async_mailbox();
+    int failed = test_origin_mailbox_selection() + test_origin_async_mailbox() + test_origin_priority_mailbox();
     const tdma_pio_spi_ring_origin_ops_t ops = {
         .admit = origin_adapter_admit,
         .begin = origin_adapter_start, .poll = origin_adapter_poll, .healthy = origin_adapter_healthy,

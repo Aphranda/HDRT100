@@ -1065,6 +1065,8 @@ static bool tdma_pio_spi_ring_adapter_stop(void *context)
     }
     tdma_pio_spi_ring_adapter_snapshot_write_begin(adapter);
     const bool rx_retired = tdma_rx_prepare_cancel(adapter->rx_preparation);
+    if (adapter->origin.active && adapter->priority_tx_provider != NULL)
+        (void)adapter->priority_tx_provider(NULL, NULL);
     if (adapter->phys_disarm != NULL &&
         !adapter->phys_disarm(adapter->phys_ctrl_context)) {
         const uint32_t error = adapter->phys_last_error != NULL

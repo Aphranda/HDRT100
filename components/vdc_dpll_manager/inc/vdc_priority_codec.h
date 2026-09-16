@@ -16,6 +16,9 @@
 typedef struct {
     uint32_t binding_generation;
     uint32_t event_sequence;
+    /* Committed-model output nanoseconds. The inclusive arithmetic interval
+     * [lower, lower + width] preserves projection uncertainty; it is not a
+     * guarantee of physical GPIO edge accuracy or common-time lock. */
     uint64_t event_time_lower;
     uint32_t uncertainty_width;
     uint16_t flags;
