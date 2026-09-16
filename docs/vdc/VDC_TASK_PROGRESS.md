@@ -22,16 +22,25 @@ Last updated: 2026-09-16
 
 ## 当前 checkpoint
 
-连续重基调频原语已完成软件独审、Release 和当前源码四板严格 P3，见
-`VDC-PROGRESS-20260916-013`。原语尚无生产调用；三从命令运输、实际应用及反馈
-确认仍待下一切片接入，不能以本次 P3 或 host 数学验证宣称从板闭环。
+当前源码已完成同命令有界重复运输，软件、双槽构建和本轮严格四板 P3 通过。
+同轮专项中 NO2/NO3/NO4 均实际应用一次并返回精确 ACK，重复接收未重复应用；
+原始证据独立复核通过，见 `VDC-PROGRESS-20260916-018`。自动频率控制尚未接入，
+后继方案分析已开始，单次成功不能证明持续锁相。
+前轮 017 已修复 TDMA 重配置遗漏继承 active servo CRC，当轮 NO3/NO4 应用及 ACK
+成功，NO2 未收到完整命令，该失败原件保留，不由本轮通过追认。
+前一诊断切片 016 严格四板 P3 通过：当轮 NO2/NO3 首次拒绝于 APPLY，NO4 没有完整
+命令 RX，三从应用均为零。两轮未完整接收的节点不同，运输可靠性继续独立跟踪。
+逐从接线见 014，历史三从接收成功见 015；014 的严格校准失败原件继续保留，
+不能套用于不同源码的当前状态。自动频率控制未接入。
+连续重基原语本身的历史严格验收见 `VDC-PROGRESS-20260916-013`，不能用该原语
+当时无生产调用的 P3 或 host 数学验证宣称从板闭环。
 
-模型关联反馈已完成当前源码四板严格 P3 与运输/配对专项，见
-`VDC-PROGRESS-20260916-012`；独立原件复核通过，代码已提交为 `6716dc5`，尚未接通从板控制。
+模型关联反馈已完成当时源码四板严格 P3 与运输/配对专项，见
+`VDC-PROGRESS-20260916-012`；独立原件复核通过，代码已提交为 `6716dc5`，当时尚未接通从板控制。
 此前准备迁移见 `VDC-PROGRESS-20260916-011`：缓存、配对和差分由 Core0 RefMem
 单写者准备，Core1 只发布或退休授权。011 切片当时源码的四板 P3 严格通过，专项完整通过轮次
 为 r2/r4；r1/r3 的短 TX 历史缺证保留。NO1 DPLL 超限显著减少，仍未满足局部及
-完整静态表预算。各从实际 DCO 应用仍为零；下一步接逐从专属校正和 Core1
+完整静态表预算。当时各从实际 DCO 应用仍为零；后继接逐从专属校正和 Core1
 连续重基应用，不能以诊断配对代替闭环。原始配对及运输基线分别见
 `VDC-PROGRESS-20260916-010/009`。
 
@@ -42,7 +51,7 @@ Last updated: 2026-09-16
 观察器自身恢复见 `VDC-PROGRESS-20260916-007`。NO1 运行中发射记录留存见
 `VDC-PROGRESS-20260916-005`：软件、Release、
 当前源码四板 quick P3 和 STOP 后同序对账已通过。输出投影准备见
-`VDC-PROGRESS-20260916-004`；实际 DCO 应用尚未接通。指定主机接收切片见
+`VDC-PROGRESS-20260916-004`；当时实际 DCO 应用尚未接通。指定主机接收切片见
 `VDC-PROGRESS-20260916-003`。目标整理见
 `VDC-PROGRESS-20260916-002`，随后贯通各从反馈和专属校正，再消除漂移、收敛精度。
 
@@ -52,6 +61,213 @@ Last updated: 2026-09-16
 
 当前执行依赖按 `VDC-PROGRESS-20260916-002` 纠偏；此前各记录的“当前”及
 “下一 gate”保留历史含义，不将首帧可用、全窗无错或完整绝对时间映射作为运输前置。
+
+### VDC-PROGRESS-20260916-018：同命令有界重复与同轮三从实际应用
+
+- TODO task ID：`VDC-FEEDBACK-003`；日期：2026-09-16；自动控制父任务保持 IN PROGRESS。
+  修复单组 FIFO 发布完成即退休、缺片后没有再次完整接收机会的问题；不把聚合计数
+  当作某次丢片位置证明。Core0 复用不可变 offer 和原记录，按
+  `REFMEM_VDC_BOUNDARY_COMMAND_MAX_GROUPS` 限制完整组总数，组间普通 mailbox 成功
+  后才继续，逐片复验原身份及年龄；取消和组间同 ID 换字节均不可恢复。
+- Core1 精确 ACK 退休匹配 offer，保留已用额度和命令。TX-done 只在整个有限批次
+  发布完成时通知；ACK 提前退休不伪造完成，在途重复靠从板去重与应用序号保持
+  至多一次。契约修订及 C11 见 `VDC_CROSS_REVIEW_02.md`，登记保持 pending。
+- 本轮证据根目录：`out/HardwareAcceptance/20260916/dpll-command-delivery-r1/`。
+  以下数量为本轮测试/硬件快照，非产品门限。`host-author-r2.xml` 的 115 项专项及
+  `host-adjacent-r1.xml` 的 55 项相邻回归通过；覆盖真实分片丢失/乱序后的重复恢复、
+  重复应用拒绝、普通帧交接、FIFO 失败、快照争用、STOP 和原有效期，不代表任意
+  丢包模式均可交付。双槽 Release/Flash 检查通过，冻结于 `after-build-r1/manifest.json`。
+  源码指纹为 `e48095e7df0d532c46f6b9fc41f69951fd58e0d136bf998efe7892e8df8d5fdc`。
+- `resource-review-root-r1.json`：双槽新增 BSS 4 B，扣除保留 CRT heap 后链接余量
+  180 B；已检查的 Core1 主/从路径分别为 1408/1152 B，RAM step 放置不变。
+  这不是完整 IRQ 嵌套、运行期栈高水位或整表 WCET 合格证明。
+- `p3-r1/acceptance.json` passed/strict_gates_passed 均为 true，diagnostic_failures
+  为空，四板 OTA 和 TDMA 门禁通过。`oneshot-r1/input-probe.json` 为同轮实板专项：
+  NO2/NO3/NO4 完整命令接收均为一次，实际应用均为一次，模型 token 均从 1 到 2，
+  applied sequence 从 0 到 1，rate 从 0 到 +100 ppb，NO1 三个 peer 均精确 ACKED。
+  重复接收分别为 1/1/2，未重复应用。主端发布 8 个完整组、138 个片段，保留一次
+  取消，批次完成计数为 2；不能由这些聚合计数独自推断某片的物理丢失位置。
+- 主端两槽原始 TX 历史仅覆盖本轮 NO2 的重复记录，不声称覆盖 NO3/NO4 原始 TX；
+  三从均有实际完整 RX、保留应用命令及原始返回 ACK，命令身份和实际模型逐项对账。
+  四份当前原生 RAM 记录各 20 点且完整，运行中无 SCPI 查询，errors 与 SD 失败均
+  为空，四板 STOP、probe/session 撤权及读回通过。
+- 继承的 MODEL 配对专项仍为 false：NO4 的 `direct_pair_wire_association` 缺证，
+  保留历史窗口与原始字节覆盖不足，不以当前命令应用通过改写该结果。本轮四板
+  旧 DPLL TRACE 为零更新记录；原生 TDMA 记录完整不能替代 internal 残差收敛证据。
+  当前专项只确认本轮单次命令实际应用及精确 ACK。
+- 新入口 `capture_delivery.py` 继承既有流程，仅修正早 ACK 时不要求批次完成计数
+  非零的评估语义；改查真实 Core0 完整组与本会话原始 TX 历史，保留全部精确
+  RX/实际应用/模型/ACK 条件。6 项离线评估测试通过，旧轮 NO2 失败仍保持失败。
+  独立评估器/owner 补测 34 项通过，源码与 C11 审核为
+  `source-capture-c11-independent-review-r1.json`，结论 ACCEPT_WITH_DEVIATION。
+- 硬件独审 `p3-independent-review-r2.json` 重算源码、包、原件绑定和链接资源；
+  r1 审核器曾按系统 GBK 读取 UTF-8 JSON 失败，错误报告保留，r2 修正读取方式，
+  未修改硬件原件。`oneshot-independent-review-r1.json` 的 87 项检查通过：独立
+  CRC/字段解码、实际模型、连续重基算术、四份原生记录、全部 STOP 及撤权。
+  主控最终同源核验为 `root-final-binding-r1.json`。实现代码已提交为 `dd8cba1`；
+  提交前 check-staged 及 pre-commit 已按完整 staged 源码指纹核验当前 P3 凭证，
+  不以先前无 staged 源码时的跳过替代本次提交门禁。
+- 后继只读设计为 `automatic-frequency-readonly-design.json`：固定 RX 锚点的误差
+  可在同生命周期差分中消除，但每次时钟桥读取及参考逐帧重读的误差不能直接抹去。
+  候选是在明确新反馈语义下准备频率观测坐标，复用既有缓存和逐从状态，保留命令
+  原始年龄检查；该候选未实现、未冻结，也未授予自动控制许可。
+- 下一 gate：`VDC-FEEDBACK-003` 已完成，进入 `VDC-FEEDBACK-004` 的自动频率控制。
+  固定单次增量不证明估计方向、自动调频、internal 斜率收敛或物理精度；后继须按
+  各从独立测量窗口生成校正，并在实际应用后等待新模型窗口。
+
+### VDC-PROGRESS-20260916-017：重配置继承当前伺服参数身份
+
+- TODO task ID：`VDC-FEEDBACK-002/003`；日期：2026-09-16；父任务保持 IN PROGRESS。
+  根因不是命令 CRC 错误：启动已加载非默认伺服参数，TDMA 激活却通过 default clock
+  model 把 clock/DCO 内的 servo CRC 恢复为默认值。模型运输保留该不一致，最终
+  Domain 候选校验正确拒绝，所以 NO1 默认参数正常而使用非默认参数的从板无法应用。
+- 修复只在 `vdc_domain_activate_tdma_configuration_checked()` 继承当前 active servo
+  CRC，再由现有路径派生 DCO。正常/临时 TDMA 配置共用该修复，保留原始参数、
+  FOLLOWER 本地 PI 旁路、CRC 校验、连续重基和所有命令准入条件。
+- 以下为本轮测试快照，非产品门限：修复前真实 Domain 的普通/临时配置回归均失败；
+  修复后相关 Domain/owner/model-feedback 共 95 项通过，独立重跑 Domain 6 项通过。
+  回归使用实板参数，覆盖初始化后调参、激活、重复重臂、实际频率应用及同点连续；
+  人为污染候选 CRC 仍须原子拒绝。软件通过不代替实板实际应用。
+- 失败复现与前后测试在 `out/HardwareAcceptance/20260916/dpll-boundary-command-r1/`
+  的 `domain-servo-crc-repro-r1/report.json`、`servo-crc-before-r1.xml`、
+  `servo-crc-after-r1.xml`。独审为 `dpll-boundary-reject-r1/source-review-servo-crc-r1.json`。
+- 本轮构建/硬件证据根目录：`out/HardwareAcceptance/20260916/dpll-servo-rearm-r1/`。
+  双槽 Release/Flash 链接通过，冻结在 `after-build-r1/manifest.json`；
+  `resource-review-root-r1.json` 确认静态布局、RAM step 放置及已检查的调用路径栈
+  与 016 相同，不新增持久状态。源码指纹为
+  `d73ea00a6b3eb762d6e49b50ab9810c2906eb75d84848c2fa4419b0389c97683`。
+- 当前源码 `p3-r1/acceptance.json` passed/strict_gates_passed 均为 true，
+  diagnostic_failures 为空；`oneshot-r1/input-probe.json` 完成单次诊断及终态导出。
+  NO3/NO4 的边界 apply_count 均为 1，模型 token 从 1 到 2、应用序号从 0 到 1、
+  rate 从 0 到 +100 ppb，NO1 对应目标进入 ACKED；各自专项逐条检查通过。三从
+  模型 servo CRC 均保持实际参数身份。NO2 本轮完整命令 RX 为零，应用仍为零，
+  主端该命令为 EXPIRED_UNRESOLVED，故整个专项 passed=false，不冒充全从板通过。
+- 四份本轮原生 RAM 记录完整，运行中无 SCPI 查询，errors 为空，四板 STOP、
+  probe/session 撤权和读回通过。单次固定增量只证明执行/反馈链路，自动误差控制、
+  internal 斜率收敛、物理输出及精度仍未验收。016 中 NO4 的运输失败继续保留，
+  不以本轮该板通过追认历史；当前 NO2 缺失表明完整命令交付仍需改善。
+- 独立硬件复核：`p3-r1-independent-binding-review-r1.json` 与
+  `oneshot-r1-independent-review-r2.json`。专项审计 r1 曾误用上轮 TRIAL job 值作常量，
+  r2 按本轮原始 ACK 及记录身份纠正；旧审计原件保留，不修改原采集结果。
+- 下一 gate：`VDC-FEEDBACK-003` 补齐命令可靠交付及所有从板的实际应用/ACK。
+  缺片与普通帧插入会取消当前分片组，但现有聚合计数不能定位具体丢片；不得把
+  无 ACK 当作未应用而叠加新校正，也不把再次盲跑完整 P3 当作运输问题的修复。
+
+### VDC-PROGRESS-20260916-016：运行期拒绝历史留存
+
+- TODO task ID：`VDC-FEEDBACK-002`；日期：2026-09-16；保持 IN PROGRESS。
+  本切片只增加诊断，不改变命令选择、身份、新鲜度或实际 DCO 应用条件。
+  下述数量均为本次源码及目标产物快照，非容量、精度或完整 WCET 契约。
+- `boundary_reject()` 留存当前显式 probe 的首个拒绝和分支位图，STOP、probe/session
+  撤权后仍可读；新的非零 probe 清零。它是板级历史，不是逐命令的时间线，后继
+  分析须区分广播中的其他目标命令与本板命令。STOP-only `BOUNDary?` 诊断状态升级，
+  保留原字段并追加历史；TDMA 命令 wire 不变。原最后拒绝码及累计计数行为不变。
+- owner/SCPI 软件回归共 99 项通过，模型及命令编解码/运输相邻回归 37 项通过。
+  双槽 Release 与 Flash 链接通过，meta 增加 8 B；扣除保留 CRT heap 后链接余量
+  184 B，RAM data end 保持不变，主/从新路径栈分别为 1408/1152 B。完整 IRQ 嵌套
+  和静态表 WCET 仍未证明。独审通过对新增诊断逆向去除，恢复上轮已审源码 hash，
+  证明既有控制判断未改变。
+- 新专项入口仅在 all-board STOP 后导出；独立字段查询失败保留原始响应及错误，
+  继续尝试其余字段和原始 TX/RX，不把部分导出转为成功。schema 解析、RUN 拒绝、
+  查询失败继续取证及 check-only 由 80 项离线测试和独审覆盖。旧采集器及旧失败保留。
+- 证据根目录：`out/HardwareAcceptance/20260916/dpll-boundary-reject-r1/`；构建为
+  `after-build-r1/manifest.json`，资源为 `resource-review-root-r1.json`，相邻测试为
+  `host-adjacent-r1.xml`，采集器审核为 `source-review-capture-rejections-r1.json`。
+  owner/SCPI 测试原件在前一证据根目录 `reject-history-host-tests-r1.xml`。
+- 当前源码四板 quick P3 `p3-r1/acceptance.json` 的 passed/strict_gates_passed
+  均为 true，diagnostic_failures 为空；源码指纹为
+  `24ed746c9be1caf4254653151c5363e1e6c8f07c6c219b07c1a3d0ae1b6f8258`。
+  独立源码/资源复核为前一证据根目录的 `reject-history-independent-review-r1.json`，
+  四板凭证、包、UID 和 STOP 原件复核为本目录的 `p3-r1-independent-binding-review-r1.json`。
+- `oneshot-r1` 已完成单次诊断及终态导出，四份本轮 RAM 记录完整，errors 为空，
+  唯一未通过的 RAM 专项检查是逐从实际应用与 ACK。NO2/NO3 的首次拒绝均为 APPLY，
+  后继才有 AGE/IDENTITY；NO4 未保留完整命令 RX，仅有 BINDING 拒绝，不能把上一轮
+  三从接收成功外推到本轮。全板 STOP、probe/session 撤权与读回完成，应用仍为零。
+- 随后在 STOP 下只读核对参数：`stopped-servo-COM4.txt`、`stopped-servo-COM3.txt`、
+  `stopped-servo-COM6.txt` 中三从 active servo CRC 均为 3148516704，而已提交 DCO
+  模型中的 servo CRC 为默认值 755336680；NO1 参数与默认一致。源码重配置路径调用
+  default clock model 后只继承 active slew，没有继承 active servo CRC，造成候选 DCO
+  校验拒绝。下一 gate 为该具体重配置缺陷的 host 复现、最小修复及当前源码四板 P3；
+  NO4 的接收/绑定问题保持独立跟踪，不能由参数 CRC 不一致概括全部失败。
+
+### VDC-PROGRESS-20260916-015：长期目标归纳与实际应用缺口
+
+- TODO task ID：`VDC-LONGTERM-001`、`VDC-FEEDBACK-001/002/003/004`；日期：2026-09-16。
+  长期目标保持 IN PROGRESS。本次整理只更新 TODO 和进度文档，不新增控制实现、
+  不重新启动硬件、不改变已有契约状态。下述数量和命令参数均为实验快照，非产品门限。
+- 将目标归纳为实际应用与确认、自动消除频偏、相位精度、恢复四个里程碑；internal
+  用于快速观测各从实际应用与残差斜率，四路输出用于最终物理精度复核。首帧精细
+  优化仍归 TDMA，完整绝对时间映射不阻塞内部调频应用。节点/主机/长周期扩展后置。
+- 依据 `oneshot-r4/input-probe.json`，显式单次 +100 ppb 诊断完成运行及 STOP 窗口，
+  NO1 发出三条专属命令，NO2–NO4 均留存完整命令 RX；三从边界实际应用计数和
+  模型应用序号仍为零，不能宣称闭环已接入或已消除频偏。STOP 可覆盖最后拒绝码，
+  不能以该码解释整个 RUN 期间的累计拒绝，实际拒绝分支仍待定位。
+- 原始报告 passed=false；NO1 对目标槽的末次 STOP 后边界查询超时，原始主机
+  TX 导出未完成；SD 写入失败及其他导出缺口分别保留，不与从板应用失败混为一因。
+  四份本轮原生 RAM 记录完整，运行窗口内无 SCPI 查询；末尾四板 STOP、probe/session
+  清零及读回留证。受限诊断不提升严格 P3、自动控制、锁相或物理精度资格。
+- 证据根目录：`out/HardwareAcceptance/20260916/dpll-boundary-command-r1/`；
+  原件为 `oneshot-r4/input-probe.json`、`oneshot-r4/actions.jsonl` 及关联 native 文件。
+  当前源码构建和 P3 仍见 014；此次文档整理不代表新固件或新的 P3 通过。
+- 下一 gate：`VDC-FEEDBACK-002` 定位并复现拒绝，再以最小修复完成
+  `VDC-FEEDBACK-003` 的实际应用与精确 ACK，随后开放自动频率控制。
+
+### VDC-PROGRESS-20260916-014：逐从边界命令接线与单次应用验收
+
+- TODO task ID：`VDC-FEEDBACK-001`；日期：2026-09-16；父任务保持 IN PROGRESS。
+  本切片按 pending 契约 `VDC-BOUNDARY-01` 接入生产命令运输和实际 Domain 调用，
+  当前改动尚未提交。以下数字均为实验及资源快照，非产品容量、WCET 或锁相契约。
+- 复用既有特等席分片和主机未使用的反馈发送记录，增加独立命令解码；普通负载
+  路径保留。Core0 准备和发布，Core1 唯一 owner 逐从绑定测量、模型、会话与 ARM
+  生命周期，在每次发布和最终应用边界重新检查新鲜度及取消条件。仅显式 STOP
+  授权开启单次诊断额度，超时未决不自动重发，返回新模型与精确应用序号才确认。
+- 软件反例覆盖单次额度、过期、模型/角色/STOP 变化、晚到 ACK 和域内连续重基。
+  最终 owner 测试 77 项、SCPI 19 项及相邻回归 163 项通过；RAM 放置修正后
+  owner/model 86 项通过。证据为 `owner-r3.xml`、`scpi-tests-r3.xml`、
+  `regression-r1.xml`、`placement-host-r1.xml` 和 `source-review-owner-r4.json`。
+  初始夹具、旧运输测试及对照失败均保留，不以新通过追认。
+- 双槽 Release 和 Flash 链接通过。增加 hook 后曾发生旧 RAM step 被编译器内联
+  到 XIP 的放置回归，已用显式 noinline 恢复；`after-build-r1` 不用于当前验收，
+  最终产物冻结为 `after-build-r2/manifest.json`。BSS 增加 400 B，扣除保留 CRT
+  heap 后静态链接余量为 192 B，不是运行时空闲 RAM；RAM text/data 对齐前仅余
+  8 B。新主机调用路径 1400 B，Core1 栈余 648 B；完整中断嵌套及 WCET 尚未证明。
+  原件为 `resource-placement-correction-r1.json`、`resource-review-independent-r4.json`。
+- 最终源码指纹 `8fe68066ea1f2b15b1af6e520f757308a317f5d5d377b2f7074d0e18a54696f9`，
+  包 SHA256 `3b60f1b9131cddecd7ffa768d59626054b261cfec5b2830c05e3b65505164fe5`。
+  `p3-r5` 完成四板 OTA 和 TDMA 短帧流程，TDMA passed、closed_loop_passed、
+  realtime_gate_passed 均为 true，四板 STOP 原生记录完整。strict_gates_passed
+  为 false：coded level 7、TRN-01 和 TRN-03 分别失败；所选 SCK 行的最小余量
+  为负，不能声明正式校准及时序合格。此前 r1 至 r4 的超时、拓扑/校准失败及错误
+  放置版本结果原样保留；定向复测通过不替代正式凭证，也不追认旧失败。
+- `oneshot-r1` 被严格预检拒绝，hardware_started 为 false，未发送校正。
+  独立报告 `p3-r5-diagnostic-admission-review-r1.json` 仅准许基于该确切源码、包、
+  四板和三项保留失败，显式进行一次受限内部校正诊断；默认严格入口不改，当前
+  尚待该专项实际应用及 ACK 原件。不会因该授权提升正式 P3、自动控制或物理锁相资格。
+- `oneshot-r2` 在配置前导出旧 P3 记录时，NO3 的 SD SAVE 从 BUSY 进入 FAILED，
+  未发送任何 ARM、START、非零 session 或非零 probe；这不是 DCO 应用失败。
+  SAVE 前三板 RAM 原件已经保留，并与 r5 原生记录逐字节一致；NO4 尚未轮到导出。
+  清理时主板无模型会话的旧 MATCH 格式被新格式解析器拒绝，该次生效前失败亦保留。
+  四板最终 STOP 的配置均已应用，PROBe 0、SESSION 0 及零会话读回齐全。
+  独立核验见 `oneshot-r2-failure-review-data.json`。后继诊断改用 STOP 后原生 RAM
+  作为 TDMA 数据载体，并单独核对存储任务及写缓冲退休，不把 SD 失败改为保存成功。
+- `oneshot-r3` 已验证旧记录的 RAM/写缓冲退休路径，随后在首次 START 前中止：
+  采集器把 STOP-only 的 `BOUNDary?` 基线放在 ARM 后，实际 enabled/adapter_started
+  均已置位，固件正确拒绝；不能把该拒绝归为随机串口超时而盲重试。三从原始边界、
+  Domain 应用计数及模型应用序号均为零，四板已 STOP 并撤销授权。NO1 记录仅 ARM
+  未 START，取消后原生 CRC/身份完整但无采样点，须保留为失败，不能作为当前成功
+  记录。新诊断入口将边界基线移到所有 probe ACK 后、首次 ARM 前，并逐条核对真实
+  动作时间；原有模型基线仍在首次 START 前读取。历史取消记录仅允许结构保留和
+  写缓冲退休，本轮成功采样条件不放宽。
+- 证据根目录：`out/HardwareAcceptance/20260916/dpll-boundary-command-r1/`。
+  下一 gate：先证明逐从命令实际应用一次和精确反馈确认，再改善同模型频率观测
+  窗口并接自动校正。现有区间跨零不证明校正方向，不能把单次固定扰动视为消除漂移。
+  首帧优化和完整绝对时间映射不作为内部应用前置，OTA 实现保持不变。
+- 后继只读观测方案见 `frequency-next-analysis-r1.json` 和
+  `frequency-common-anchor-analysis-r1.json`：现有 matcher 每次成功都会移动基线，
+  单纯延长采集不会自动形成长窗口；逐事件 TIMER0/TIMER1 桥接也扩大频率区间。
+  可评估同模型长窗口，或显式区分的 raw TIMER1 按实际 DCO rate 缩放的频率坐标。
+  后者不能混入当前命令的 output-time 新鲜度字段，尚未实现或验证，不新增当前
+  单次应用前置，也不宣称物理路径误差已消除。
 
 ### VDC-PROGRESS-20260916-013：从板连续重基调频原语
 

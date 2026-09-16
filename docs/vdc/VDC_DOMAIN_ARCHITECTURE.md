@@ -382,10 +382,20 @@ TDMA class 为 `0x13`，schema 为 `3`，flags 固定为 `0x01`（仅 rate delta
   实际 FIFO 发布成功才推进片号；组完成或取消后先成功发布普通 mailbox。重复片
   不续时，冲突/乱序/超时取消当前部分组；空 RX 队列也执行有界到期处理。复用接收
   槽时显式校验记录类型，不能把命令作为反馈或普通 phase/rate 解读。
+- 同一 offer 允许有界重复完整组，总组数上限由
+  `REFMEM_VDC_BOUNDARY_COMMAND_MAX_GROUPS` 定义，包含首次发送。重复使用完全相同的
+  命令字节、序号、测量依据和原有效期，每片重新验证当前 owner 与原模型年龄；
+  不续 TTL、不生成新校正、不恢复诊断额度。组间必须成功发布普通 mailbox，
+  FIFO 发布失败或快照争用不推进片号及组预算。取消、身份变化或过期在组间空档
+  也退休该 offer；相同 ID 不得恢复或换字节，只有新的单调 ID 可获得新发送预算。
 - Core1/SyncDpllFB 唯一拥有逐从控制状态、命令选择与实际应用。一个有界 service
   最多检查一个从板或应用一条本地命令；不进行 wire 解析、CRC、存储或等待。出站
-  offer 有单调不复用身份，Core0 返回的 TX-done 只证明该 offer 的 FIFO 分片发布
-  完成。过期 TX-done 不能完成新 offer，更不能充当 DCO 应用 ACK。
+  offer 有单调不复用身份，Core0 返回的 TX-done 只证明该 offer 的整个有限发送
+  批次已完成 FIFO 发布；逐组发布数量由 Core0 运输计数记录。精确 ACK 提前到达时
+  Core1 退休匹配 offer，保留原命令及已用额度，允许后继从板推进；此时不伪造
+  TX-done，Core1 批次完成计数可为零。过期 TX-done 不能完成新 offer，更不能
+  充当 DCO 应用 ACK。Core0 观察到退休后停止新增发布，已进入 FIFO 或正在完成
+  单次发布的片段仍可能在途；从板重复检测和应用序号保证至多应用一次。
 - 来源与目标必须属于当前准入拓扑且不同；从板仅接受指定主机。命令必须绑定当前
   session、schedule、目标自身 clock epoch/run、ARM、observer、DCO model token
   及 expected applied sequence；序号非零、严格递增、不静默回绕。各板本地 epoch
@@ -416,11 +426,13 @@ TDMA class 为 `0x13`，schema 为 `3`，flags 固定为 `0x01`（仅 rate delta
   观测绑定一次受限测试增量，用于证明应用/回传，不把区间跨零说成校正方向已确定。
   四板分别授权同一测试增量，从板应用还须与自己的授权值相同；非零 feedback
   session 本身不是应用许可。主机在 offer 时消耗该从板额度，重复反馈、ACK、到期
-  和重 ARM 都不补发；下一轮须四板重新显式授权新的 probe。probe 绑定配置时的
+  和重 ARM 都不生成新命令或补充额度；同一 offer 内仅允许上述有界重复运输，
+  退休后不重启。下一轮须四板重新显式授权新的 probe。probe 绑定配置时的
   session，变更 session 本身不续发或恢复额度。
   自动模式另行验证估计策略及频率收敛，不能由单次命令成功自动提升质量。
 
-验证须覆盖类型/CRC/乱序/取消、精确测量关联、年龄与模型变化、outbox ABA、未决
+验证须覆盖类型/CRC/乱序/取消、丢片后重复恢复、重复应用拒绝、组间普通帧、发送
+上限和 ACK 提前退休、精确测量关联、年龄与模型变化、outbox ABA、未决
 到期和迟到 ACK、连续重基、资源/栈及当前源码四板 P3；逐从真实应用与反馈对账另有
 专项原件。完整物理精度和长稳恢复保持后续门禁。
 

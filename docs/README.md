@@ -143,6 +143,7 @@ docs/
 | `docs/check/submissions/TDMA_CROSS_REVIEW_06.md` | TDMA 对 DPLL 的支撑能力核验：`PARTIAL_SUPPORT`——硬件 latch 8 ns/非 diagnostic/链路零误码已成立，同圈关联与生产准入未闭合；给出 P1–P5 优先任务（有限窗口快照，非事实源；C11 pending，2026-09-14）。 |
 | `docs/check/submissions/ARCH_FLASH_CROSS_REVIEW_01.md` | Flash v2 首次层间核验：硬件/构建/实现/域文档一致性与当前 v1 偏差。 |
 | `docs/check/submissions/VDC_CROSS_REVIEW_01.md` | VDC 服务边界频率命令的 wire、owner、实际应用 ACK 及取消规则 C11 核验。 |
+| `docs/check/submissions/VDC_CROSS_REVIEW_02.md` | VDC 同命令原有效期内有界重复运输、ACK 退休与至多一次应用 C11 核验。 |
 | `docs/check/submissions/ARCH_FLASH_CROSS_REVIEW_02.md` | Flash canonical 结构重构核验：契约语义迁移、M0-M6 工作板和 v1 偏差复查。 |
 | `docs/check/submissions/ARCH_FLASH_CROSS_REVIEW_03.md` | Direct A/B slot/vector/hash/signature/compatibility fault matrix 与 Recovery 只读投影 C11 核验。 |
 | `README.md` | 本索引文件，提供当前 `docs/` 文件归属。 |
