@@ -60,7 +60,7 @@ Last updated: 2026-09-16
 
 | ID | 任务 | 状态 | 退出门禁 |
 |---|---|---|---|
-| NSEQ-070 | RefMem 槽位角色模型 | PENDING | 明确 `physical_board_id`、`logical_node_id`、`slot_id`、`instance_id`、`role_mask`、`persona_mask`、`resource_claim`、`io_claim` 和 generation 的关系；同板多槽位使用现有 `REFMEM_APP_CLAIM_ALLOW_SAME_BOARD_MULTI_SLOT` |
+| NSEQ-070 | RefMem 槽位角色模型 | IN PROGRESS | 角色绑定校验及显式槽位候选推导已独立验证，见进度022；同板多槽遵守 `REFMEM_APP_CLAIM_ALLOW_SAME_BOARD_MULTI_SLOT`；生产运行绑定、资源租约与激活仍待接入 |
 | NSEQ-071 | DUT 链路控制槽位 | PENDING | 槽位负责 `DUT_LINK_CONTROL`；发布 requested/applied link code、SP8T/SP2T 目标与实际值、link sequence index、settle 状态和 fault；OUT 电平只能由该槽位写入 |
 | NSEQ-072 | 网分/VNA 槽位 | PENDING | 槽位负责 VNA trigger、READY、DONE、测量状态和质量；READY/DONE 只写测量事实，不直接推进序列游标 |
 | NSEQ-073 | 同板资源冲突校验 | PENDING | 同一物理设备的多个槽位允许共存，但 PIO、DMA、SMA、输出位、输入位和 RefMem 写权限不得重叠；冲突在 CONFIG_VALIDATE 阶段拒绝 |

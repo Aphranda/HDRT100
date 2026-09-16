@@ -4,7 +4,7 @@ Status: Active
 Domain: TRIGGER
 Canonical: `docs/trigger/sequence/TRIGGER_SEQUENCE_TASK_PROGRESS.md`
 Related: `docs/trigger/sequence/TRIGGER_SEQUENCE_ARCHITECTURE.md`, `docs/trigger/sequence/TRIGGER_SEQUENCE_TODO.md`, `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`, `docs/reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.html`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
-Last updated: 2026-09-15
+Last updated: 2026-09-16
 
 ## 文档接口
 
@@ -462,6 +462,15 @@ python tools/hardware_acceptance/sequence_trigger_acceptance.py --port COM10 --s
   `out/HardwareAcceptance/20260915/p3-235133/`（运行快照，非事实源）：五板OTA发现仅识别到当前
   COM8设备，缺少其余四个登记序列号，流程FAIL且未签发P3凭证；没有用单板在线或构建PASS替代五板门禁。
 
+### NSEQ-PROGRESS-20260916-022 - 已验证模型的独立提交
+
+- 用户要求先提交已验证部分，并明确单板调试只做功能确认、不执行 P3。本次仅以临时提交 hook 保留文档检查、按该授权豁免 P3；仓库常设 hook 不改，不生成或宣称 P3 凭证。
+- 提交范围为 `refmem_sequence_roles`、`refmem_slot_claim_derive_proposals()`、对应测试及 CMake 的模型源项。角色解析检查真实实例 ID、claim epoch、物理板身份、能力及 IO 冲突；槽位提案引用真实能力表，支持按策略同板多槽，拒绝无效输入时不覆盖已有结果。
+- 两个新 API 是纯模型基础，尚未接入生产运行态调用，不代表角色激活、资源租约、VNA 触发或 RJ45 闭环完成。SCPI、PIO、轮次、GUI 与回环的其他在研改动保留在工作区，不混入模型提交。
+- 隔离验证使用 `out/node-sequence/verified-model-slice/`：以原 HEAD 加本批模型文件构成独立快照，使用原版 application model，证明不依赖其他未提交改动。主机测试覆盖不同容量、稀疏实例、失败原子性以及旧 claim/protocol；七项通过（本次运行快照，非事实源）。构建与测试原始记录保存在该目录的 `out/`。
+- 独立只读复核确认失败路径不修改输出、实例按 ID 查找、claim epoch 独立、输入与输出分别判冲突；未发现阻塞项。代码和文档分离提交，未推送。
+- 精确切片的 `pico2-release` 构建通过，A/B/BOOT 的 flash-link 检查通过；build `20260916085327`（构建快照，未烧录）。代码提交为 `b61c612e`，仅包含本批模型与测试。
+
 ## 验证与证据索引
 
 | 关联任务 | 证据 | 状态 |
@@ -487,5 +496,5 @@ python tools/hardware_acceptance/sequence_trigger_acceptance.py --port COM10 --s
 真实SCPI控制、SP8T编码全组合及回绕、busy拒绝、暂停/停止和实际IO读回已通过。
 IN1低频双沿、暂停/恢复/停止和忙时拒绝已通过。补齐其余输入激励、独立波形及SP8T实体通路；
 PIO提速先核对SYNC资源分配，再实现并验证persona热加载，未验证项不得宣称通过。
-START首状态预置还需当前源码P3凭证和OUT4外部波形闭环，完成前NSEQ-063保持IN PROGRESS。
+START首状态预置的OUT4外部波形仍待闭环，完成前NSEQ-063保持IN PROGRESS；本次按用户明确的单板功能确认口径，不执行P3。
 本轮不实施TDMA通信或全节点裁决；按用户确认的单板调试口径，单板验证通过后允许提交，原始P3失败保留。
