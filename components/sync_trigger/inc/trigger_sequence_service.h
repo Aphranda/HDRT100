@@ -103,6 +103,10 @@ typedef struct {
  * service() alone owns runtime and hardware on Core1. Queries copy snapshots.
  * Configuration pointers must never cross cores or outlive a configuration call. */
 void trigger_sequence_service_init(void);
+/* Serializes every configuration/model mutation against START. The gate is
+ * non-reentrant and must be held until a complete mutation is committed. */
+bool trigger_sequence_service_configuration_begin(void);
+void trigger_sequence_service_configuration_end(void);
 trigger_sequence_store_t *trigger_sequence_service_config(void);
 trigger_sequence_service_result_t trigger_sequence_service_set_source(
     uint32_t source, bool falling);
@@ -130,7 +134,12 @@ uint32_t trigger_sequence_service_get_repeat(void);
 /* Core0 orchestration submits actions; Core1 remains the IO/runtime owner. */
 trigger_sequence_service_result_t trigger_sequence_service_set_gateway(
     const trigger_sequence_gateway_config_t *config, bool (*start_guard)(void));
+/* Caller must hold the configuration gate. */
+trigger_sequence_service_result_t trigger_sequence_service_set_gateway_locked(
+    const trigger_sequence_gateway_config_t *config, bool (*start_guard)(void));
 trigger_sequence_service_result_t trigger_sequence_service_gateway_fire(
+    uint32_t run, uint32_t generation, uint32_t step);
+trigger_sequence_service_result_t trigger_sequence_service_gateway_ready(
     uint32_t run, uint32_t generation, uint32_t step);
 trigger_sequence_service_result_t trigger_sequence_service_cycle_step(
     uint32_t run, uint32_t generation, uint32_t step);

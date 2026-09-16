@@ -110,7 +110,8 @@ static bool configure(const trigger_sequence_link_config_t *config)
         (config->trigger_output_mask & (config->trigger_output_mask - 1u)) != 0u ||
         config->pulse_us == 0u || config->pulse_us > UINT32_MAX / 10u)) return false;
     if (!tdma_runtime_owner_set_local_return_delivery(config->enabled)) return false;
-    if (trigger_sequence_service_set_gateway(&gateway, start_guard) != TRIGGER_SEQUENCE_SERVICE_OK) {
+    if (trigger_sequence_service_set_gateway_locked(&gateway, start_guard) !=
+        TRIGGER_SEQUENCE_SERVICE_OK) {
         (void)tdma_runtime_owner_set_local_return_delivery(s_link.config.enabled);
         return false;
     }
@@ -135,11 +136,14 @@ static void fail(uint32_t error)
 
 static void publish_message(uint32_t kind)
 {
+    if (kind == TRIGGER_SEQUENCE_LINK_LINK_APPLIED && ++s_link.exchange_id == 0u)
+        ++s_link.exchange_id;
     trigger_sequence_link_message_t message = {
         .kind = kind, .run_id = s_link.run_id, .generation = s_link.generation,
         .binding_epoch = s_link.binding_epoch, .step_ordinal = s_link.step,
         .source_slot = kind == TRIGGER_SEQUENCE_LINK_LINK_APPLIED ? s_link.config.dut_slot : s_link.config.vna_slot,
-        .target_slot = kind == TRIGGER_SEQUENCE_LINK_LINK_APPLIED ? s_link.config.vna_slot : s_link.config.dut_slot
+        .target_slot = kind == TRIGGER_SEQUENCE_LINK_LINK_APPLIED ? s_link.config.vna_slot : s_link.config.dut_slot,
+        .exchange_id = s_link.exchange_id
     };
     if (++s_token == 0u) ++s_token; /* Assembly hint only; full identity guards execution. */
     if (!trigger_sequence_link_tx_begin(&s_tx, &message, s_token)) { fail(LINK_PROTOCOL); return; }
@@ -215,7 +219,8 @@ static void rx_fragment(uint32_t physical_source,
     if (result != TRIGGER_SEQUENCE_LINK_RX_MESSAGE) return;
     ++s_link.rx_messages;
     if (!model_valid() || message.run_id != s_link.run_id || message.generation != s_link.generation ||
-        message.binding_epoch != s_link.binding_epoch || message.step_ordinal != s_link.step) {
+        message.binding_epoch != s_link.binding_epoch || message.step_ordinal != s_link.step ||
+        message.exchange_id != s_link.exchange_id) {
         ++s_link.rejected; return;
     }
     trigger_sequence_service_status_t owner;
@@ -255,7 +260,11 @@ void trigger_sequence_link_get_status(trigger_sequence_link_status_t *status)
 }
 bool trigger_sequence_link_configure(const trigger_sequence_link_config_t *config)
 {
-    if (!take()) return false;
+    if (!trigger_sequence_service_configuration_begin()) return false;
+    if (!take()) {
+        trigger_sequence_service_configuration_end();
+        return false;
+    }
     __atomic_store_n(&s_configuring, 1u, __ATOMIC_RELEASE);
     bool result = configure(config);
     publish();
@@ -263,6 +272,17 @@ bool trigger_sequence_link_configure(const trigger_sequence_link_config_t *confi
      * configure cannot have its in-progress flag cleared by this call. */
     __atomic_store_n(&s_configuring, 0u, __ATOMIC_RELEASE);
     __atomic_store_n(&s_guard, 0u, __ATOMIC_RELEASE);
+    trigger_sequence_service_configuration_end();
+    return result;
+}
+trigger_sequence_service_result_t trigger_sequence_link_next(void)
+{
+    if (!take()) return TRIGGER_SEQUENCE_SERVICE_BUSY;
+    trigger_sequence_service_result_t result = TRIGGER_SEQUENCE_SERVICE_NOT_READY;
+    if (s_link.config.enabled && s_link.phase == LINK_WAIT_READY && s_link.error == LINK_OK)
+        result = trigger_sequence_service_gateway_ready(
+            s_link.run_id, s_link.generation, s_link.step);
+    release();
     return result;
 }
 void trigger_sequence_link_service(void)

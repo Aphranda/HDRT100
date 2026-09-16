@@ -159,7 +159,7 @@ class Bench:
         require(self.command(command) == "1", f"SCPI command rejected: {command}")
 
     def status(self) -> dict:
-        return parse_status(self.command("READ:SEQ:NEXT?"))
+        return parse_status(self.command("TRIG:SEQ:NEXT?"))
 
     def settled_rejections(self, row: dict) -> None:
         fields = next(csv.reader([self.command("READ:SEQ:REJ?")]))
@@ -237,7 +237,7 @@ class Bench:
         row = baseline
         if self.args.source == "BUS":
             for _ in range(self.args.steps):
-                self.write("CONF:SEQ:NEXT")
+                self.write("TRIG:SEQ:NEXT")
                 row = self.wait_state("READY")
                 completed = validate_sample(row, baseline, previous)
                 require(completed == previous + 1, "STEP failed to advance exactly once")

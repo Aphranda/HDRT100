@@ -148,7 +148,7 @@ def test_next_query_reads_without_advance():
         return encoded(sample())
     bench.command = command
     assert bench.status() == sample()
-    assert commands == ["READ:SEQ:NEXT?"]
+    assert commands == ["TRIG:SEQ:NEXT?"]
 
 
 def test_primary_failure_and_cleanup_failure_both_preserved(tmp_path, monkeypatch):

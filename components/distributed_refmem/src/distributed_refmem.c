@@ -1610,13 +1610,12 @@ static bool distributed_refmem_apply_node_load_sync_payload_internal(
         return false;
     }
 
-    return refmem_application_model_stage_scpi_node_config(entry.node_id,
-                                                           entry.instance_id,
-                                                           entry.role_mask,
-                                                           entry.persona_mask,
-                                                           entry.enabled,
-                                                           entry.required,
-                                                           entry.load_order);
+    if (!trigger_sequence_service_configuration_begin()) return false;
+    const bool staged = refmem_application_model_stage_scpi_node_config(
+        entry.node_id, entry.instance_id, entry.role_mask, entry.persona_mask,
+        entry.enabled, entry.required, entry.load_order);
+    trigger_sequence_service_configuration_end();
+    return staged;
 }
 
 static void distributed_refmem_node_load_auto_process_completed(
@@ -2633,9 +2632,9 @@ bool distributed_refmem_stage_sequence_role(uint32_t node_id,
                                              uint32_t role_mask,
                                              uint32_t realtime_idle)
 {
-    if (trigger_sequence_service_is_active()) return false;
     if (!distributed_refmem_can_accept_node_load_intent(realtime_idle) ||
         node_id >= DISTRIBUTED_REFMEM_NODE_COUNT) return false;
+    if (!trigger_sequence_service_configuration_begin()) return false;
     /* A local full-package transaction: the NODE_LOAD-only delta transport
      * cannot carry the accompanying FB resource/IO declarations. */
     const uint32_t fields[] = {1u, node_id, instance_id, role_mask};
@@ -2652,12 +2651,18 @@ bool distributed_refmem_stage_sequence_role(uint32_t node_id,
         .payload_ref = instance_id, .payload_size = sizeof(fields),
         .payload_crc32 = crc, .timeout_us = 50000u,
     };
-    if (!distributed_refmem_post_command_replacing_complete(&request, osal_tick_ms())) return false;
+    if (!distributed_refmem_post_command_replacing_complete(&request, osal_tick_ms())) {
+        trigger_sequence_service_configuration_end();
+        return false;
+    }
     osal_critical_enter();
     const refmem_command_take_result_t take = refmem_command_try_take(
         &s_refmem_command_slot, local, 0u, 0u, crc, REFMEM_VECTOR_REGION_ACK_CMD);
     osal_critical_exit();
-    if (take != REFMEM_COMMAND_TAKE_TAKEN) return false;
+    if (take != REFMEM_COMMAND_TAKE_TAKEN) {
+        trigger_sequence_service_configuration_end();
+        return false;
+    }
     const bool staged = refmem_application_model_stage_sequence_role(node_id, instance_id, role_mask);
     if (staged) {
         (void)distributed_refmem_command_ack(local, REFMEM_VECTOR_REGION_ACK_CMD);
@@ -2665,6 +2670,7 @@ bool distributed_refmem_stage_sequence_role(uint32_t node_id,
         (void)distributed_refmem_command_nack(local, REFMEM_COMMAND_REASON_CONFIG_CRC_MISMATCH,
                                               REFMEM_VECTOR_REGION_ACK_CMD);
     }
+    trigger_sequence_service_configuration_end();
     return staged;
 }
 
@@ -2681,13 +2687,11 @@ bool distributed_refmem_stage_node_load(uint32_t node_id,
     }
 
     if (node_id >= DISTRIBUTED_REFMEM_NODE_COUNT) {
-        (void)refmem_application_model_stage_scpi_node_config(node_id,
-                                                              instance_id,
-                                                              role_mask,
-                                                              persona_mask,
-                                                              enabled,
-                                                              required,
-                                                              load_order);
+        if (trigger_sequence_service_configuration_begin()) {
+            (void)refmem_application_model_stage_scpi_node_config(
+                node_id, instance_id, role_mask, persona_mask, enabled, required, load_order);
+            trigger_sequence_service_configuration_end();
+        }
         return false;
     }
 
@@ -2738,6 +2742,11 @@ bool distributed_refmem_stage_node_load(uint32_t node_id,
         return false;
     }
 
+    if (!trigger_sequence_service_configuration_begin()) {
+        (void)distributed_refmem_command_nack(
+            node_id, REFMEM_COMMAND_REASON_RUN_STATE_DENIED, REFMEM_VECTOR_REGION_ACK_CMD);
+        return false;
+    }
     const bool staged =
         refmem_application_model_stage_scpi_node_config(node_id,
                                                         instance_id,
@@ -2746,6 +2755,7 @@ bool distributed_refmem_stage_node_load(uint32_t node_id,
                                                         enabled,
                                                         required,
                                                         load_order);
+    trigger_sequence_service_configuration_end();
     if (staged) {
         (void)distributed_refmem_node_load_auto_enqueue(instance_id);
         (void)distributed_refmem_command_ack(node_id, REFMEM_VECTOR_REGION_ACK_CMD);
@@ -2877,7 +2887,7 @@ bool distributed_refmem_stage_sd_system_pack(const char *path,
     return false;
 }
 
-bool distributed_refmem_activate_staging(uint32_t realtime_idle)
+static bool distributed_refmem_activate_staging_locked(uint32_t realtime_idle)
 {
     if (!s_initialized) {
         return false;
@@ -3029,6 +3039,14 @@ bool distributed_refmem_activate_staging(uint32_t realtime_idle)
     return false;
 }
 
+bool distributed_refmem_activate_staging(uint32_t realtime_idle)
+{
+    if (!trigger_sequence_service_configuration_begin()) return false;
+    const bool activated = distributed_refmem_activate_staging_locked(realtime_idle);
+    trigger_sequence_service_configuration_end();
+    return activated;
+}
+
 bool distributed_refmem_stage_board_capability(uint32_t board_id,
                                                uint32_t board_uuid_crc32,
                                                uint32_t capability_mask,
@@ -3157,6 +3175,11 @@ bool distributed_refmem_stage_model_turntable_load(uint32_t slot_id,
         return false;
     }
 
+    if (!trigger_sequence_service_configuration_begin()) {
+        (void)distributed_refmem_command_nack(
+            slot_id, REFMEM_COMMAND_REASON_RUN_STATE_DENIED, REFMEM_VECTOR_REGION_ACK_CMD);
+        return false;
+    }
     const bool staged =
         refmem_application_model_stage_scpi_node_config(
             slot_id,
@@ -3172,6 +3195,7 @@ bool distributed_refmem_stage_model_turntable_load(uint32_t slot_id,
             REFMEM_APP_INSTANCE_TEMPLATE_MODEL_TURNTABLE,
             slot_id,
             output_index);
+    trigger_sequence_service_configuration_end();
     if (loaded) {
         (void)distributed_refmem_node_load_auto_enqueue(
             REFMEM_APP_INSTANCE_TEMPLATE_MODEL_TURNTABLE);

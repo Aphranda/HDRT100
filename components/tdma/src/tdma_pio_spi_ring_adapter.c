@@ -662,6 +662,16 @@ static void tdma_pio_spi_ring_adapter_snapshot_write_begin(
 static void tdma_pio_spi_ring_adapter_snapshot_write_end(
     tdma_pio_spi_ring_adapter_t *adapter)
 {
+    (void)__atomic_add_fetch(&adapter->local_return_snapshot_guard, 1u, __ATOMIC_RELEASE);
+    adapter->local_return_snapshot[0] =
+        __atomic_load_n(&adapter->local_return_delivery, __ATOMIC_ACQUIRE);
+    adapter->local_return_snapshot[1] = adapter->local_return_seen ? 1u : 0u;
+    adapter->local_return_snapshot[2] = adapter->local_return_seq16;
+    adapter->local_return_snapshot[3] = adapter->local_return_last_reject;
+    adapter->local_return_snapshot[4] = adapter->local_return_matches;
+    adapter->local_return_snapshot[5] = adapter->local_return_published;
+    adapter->local_return_snapshot_valid = 1u;
+    (void)__atomic_add_fetch(&adapter->local_return_snapshot_guard, 1u, __ATOMIC_RELEASE);
     (void)__atomic_add_fetch(&adapter->snapshot_guard, 1u, __ATOMIC_RELEASE);
 }
 
@@ -3464,10 +3474,10 @@ bool tdma_pio_spi_ring_adapter_get_snapshot(
     return true;
 }
 
-bool tdma_pio_spi_ring_adapter_get_local_return_status(
+tdma_local_return_snapshot_quality_t tdma_pio_spi_ring_adapter_get_local_return_snapshot(
     const tdma_pio_spi_ring_adapter_t *adapter, uint32_t values[6])
 {
-    if (adapter == NULL || values == NULL) return false;
+    if (adapter == NULL || values == NULL) return TDMA_LOCAL_RETURN_SNAPSHOT_UNAVAILABLE;
     for (uint32_t attempt = 0u; attempt < TDMA_FLIGHT_MAP_SNAPSHOT_RETRY_MAX; ++attempt) {
         const uint32_t begin = __atomic_load_n(&adapter->snapshot_guard, __ATOMIC_ACQUIRE);
         if ((begin & 1u) != 0u) continue;
@@ -3478,10 +3488,28 @@ bool tdma_pio_spi_ring_adapter_get_local_return_status(
         values[4] = adapter->local_return_matches;
         values[5] = adapter->local_return_published;
         __atomic_thread_fence(__ATOMIC_ACQUIRE);
-        if (begin == __atomic_load_n(&adapter->snapshot_guard, __ATOMIC_ACQUIRE)) return true;
+        if (begin == __atomic_load_n(&adapter->snapshot_guard, __ATOMIC_ACQUIRE))
+            return TDMA_LOCAL_RETURN_SNAPSHOT_FRESH;
+    }
+    for (uint32_t attempt = 0u; attempt < TDMA_FLIGHT_MAP_SNAPSHOT_RETRY_MAX; ++attempt) {
+        const uint32_t begin = __atomic_load_n(
+            &adapter->local_return_snapshot_guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u || adapter->local_return_snapshot_valid == 0u) continue;
+        memcpy(values, adapter->local_return_snapshot, 6u * sizeof(*values));
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        if (begin == __atomic_load_n(
+                &adapter->local_return_snapshot_guard, __ATOMIC_ACQUIRE))
+            return TDMA_LOCAL_RETURN_SNAPSHOT_CACHED;
     }
     memset(values, 0, 6u * sizeof(*values));
-    return false;
+    return TDMA_LOCAL_RETURN_SNAPSHOT_UNAVAILABLE;
+}
+
+bool tdma_pio_spi_ring_adapter_get_local_return_status(
+    const tdma_pio_spi_ring_adapter_t *adapter, uint32_t values[6])
+{
+    return tdma_pio_spi_ring_adapter_get_local_return_snapshot(adapter, values) !=
+        TDMA_LOCAL_RETURN_SNAPSHOT_UNAVAILABLE;
 }
 
 bool tdma_pio_spi_ring_adapter_read_accepted_image(

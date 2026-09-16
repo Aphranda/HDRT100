@@ -283,7 +283,7 @@ def test_executor_waits_for_stopped_ack_and_rejects_unactivated_roles():
     with pytest.raises(RuntimeError, match="未激活"):
         execute_command_batch(["TRIG:STOP", "CONF:SEQ:NODE:ACT", "TRIG:START"], exchange,
                               lambda *_: None, sleep=lambda _: None)
-    assert calls[:4] == ["TRIG:STOP", "SYST:ERR?", "READ:SEQ:NEXT?", "READ:SEQ:NEXT?"]
+    assert calls[:4] == ["TRIG:STOP", "SYST:ERR?", "TRIG:SEQ:NEXT?", "TRIG:SEQ:NEXT?"]
     assert "TRIG:START" not in calls
 
 
@@ -322,8 +322,8 @@ def test_executor_ring_ack_only_requires_verified_state_and_never_exempts_trigge
     execute_command_batch(["SYST:TDMA:RING:STOP"], exchange, lambda *_: None, sleep=lambda _: None)
     assert calls == ["SYST:TDMA:RING:STOP", "SYST:ERR?", RING_STATUS_QUERY, RING_STATUS_QUERY]
     with pytest.raises(RuntimeError, match="超时"):
-        execute_command_batch(["TRIG:START", "CONF:SEQ:NEXT"], exchange, lambda *_: None)
-    assert "CONF:SEQ:NEXT" not in calls
+        execute_command_batch(["TRIG:START", "TRIG:SEQ:NEXT"], exchange, lambda *_: None)
+    assert "TRIG:SEQ:NEXT" not in calls
 
 
 def test_visa_sequence_setter_reads_its_numeric_response(monkeypatch):
@@ -342,15 +342,14 @@ def test_visa_sequence_setter_reads_its_numeric_response(monkeypatch):
     manager = SimpleNamespace(open_resource=lambda _: instrument, close=lambda: None)
     monkeypatch.setitem(sys.modules, "pyvisa", SimpleNamespace(ResourceManager=lambda: manager))
     ui = SimpleNamespace(_ui_events=queue.Queue())
-    assert SequenceUi.run_commands(ui, "USB TMC", "USB::test", ["CONF:SEQ:NEXT"])
-    assert calls == [("query", "CONF:SEQ:NEXT"), ("query", "SYST:ERR?")]
+    assert SequenceUi.run_commands(ui, "USB TMC", "USB::test", ["TRIG:SEQ:NEXT"])
+    assert calls == [("query", "TRIG:SEQ:NEXT"), ("query", "SYST:ERR?")]
 
 
-@pytest.mark.parametrize("command", ["CONF:SEQ:NEXT", "TRIG:SEQ:STEP"])
-def test_combined_buttons_never_send_manual_step(command):
+def test_combined_next_sends_unified_command():
     sent = []
     ui = SimpleNamespace(run_mode=SimpleNamespace(get=lambda: MODE_RJ45),
-        source=SimpleNamespace(get=lambda: "BUS"), log=lambda *args: None,
-        enqueue_commands=sent.append)
-    SequenceUi.command(ui, command)
-    assert not sent
+        source=SimpleNamespace(get=lambda: "BUS"), _device_mode=MODE_RJ45,
+        log=lambda *args: None, enqueue_commands=sent.append)
+    SequenceUi.command(ui, "TRIG:SEQ:NEXT")
+    assert sent and sent[0][0] == "TRIG:SEQ:NEXT"

@@ -67,12 +67,12 @@ def test_configuration_start_and_ordered_bus_cycle(parser):
     rows = run(parser, [
         "READ:SEQ:SOUR?", "READ:SEQ:IO?", "READ:SEQ:OUTPUT?", "READ:SEQ:CODE? 2", "TRIG:START",
         "READ:SEQ:STATE?", "@service", "READ:SEQ:STATE?", "READ:IO:STATE?",
-        "TRIG:SEQ:STEP", "@service", "READ:SEQ:STATE?", "READ:IO:OUTP?",
+        "TRIG:SEQ:NEXT", "@service", "READ:SEQ:STATE?", "READ:IO:OUTP?",
         "@rise", "READ:IO:OUTP? 4", "READ:IO:OUTP?", "@complete", "@service",
         "READ:SEQ:STATE?", "READ:IO:OUTP? 4",
-        "TRIG:SEQ:STEP", "@service", "READ:IO:OUTP?", "@complete", "@service",
-        "TRIG:SEQ:STEP", "@service", "READ:IO:OUTP?", "@complete", "@service",
-        "READ:SEQ:STATE?", "TRIG:SEQ:STEP", "@service", "READ:SEQ:STATE?",
+        "TRIG:SEQ:NEXT", "@service", "READ:IO:OUTP?", "@complete", "@service",
+        "TRIG:SEQ:NEXT", "@service", "READ:IO:OUTP?", "@complete", "@service",
+        "READ:SEQ:STATE?", "TRIG:SEQ:NEXT", "@service", "READ:SEQ:STATE?",
         "READ:TRIG:STATE?", "TRIG:STOP", "@service", "READ:IO:STATE?",
     ])
     assert all(row["errors"] == 0 for row in rows), rows
@@ -132,7 +132,7 @@ def test_repeat_uint32_total_state_boundary(parser):
 def test_level_status_and_multi_output_roles(parser):
     rows = run(parser, [
         "CONF:SEQ:OUTPUT 7,8,LEVEL,10,0", "READ:SEQ:OUTPUT?", "TRIG:START",
-        "@service", "READ:IO:OUTP?", "TRIG:SEQ:STEP", "@service",
+        "@service", "READ:IO:OUTP?", "TRIG:SEQ:NEXT", "@service",
         "READ:IO:OUTP?", "@rise", "READ:IO:OUTP?", "@complete", "@service",
         "READ:IO:OUTP?", "TRIG:STOP", "@service",
         "CONF:SEQ:OUTPUT 3,12,PULSE,10,5",
@@ -151,8 +151,8 @@ def test_level_status_and_multi_output_roles(parser):
 def test_dut_only_has_no_status_output(parser):
     rows = run(parser, [
         "CONF:SEQ:OUTPUT 7,0,NONE,10,0", "READ:SEQ:OUTPUT?", "TRIG:START", "@service",
-        "READ:IO:STATE?", "CONF:SEQ:NEXT", "@service", "@rise", "READ:IO:OUTP?",
-        "@complete", "@service", "READ:SEQ:NEXT?", "READ:IO:STATE?",
+        "READ:IO:STATE?", "TRIG:SEQ:NEXT", "@service", "@rise", "READ:IO:OUTP?",
+        "@complete", "@service", "TRIG:SEQ:NEXT?", "READ:IO:STATE?",
         "CONF:SEQ:OUTPUT 7,8,PULSE,10,5", "TRIG:STOP", "@service", "READ:IO:STATE?",
     ])
     assert all(row["errors"] == 0 for row in rows[:8]), rows
@@ -180,7 +180,7 @@ def test_bad_dut_only_config_preserves_previous_outputs(parser, command):
 def test_selectable_input_and_edge(parser, channel, edge, falling):
     rows = run(parser, [
         f"CONF:SEQ:SOUR IN{channel},{edge}", "READ:SEQ:SOUR?", "TRIG:START", "@service",
-        "TRIG:SEQ:STEP", f"@edge {channel % 4 + 1} {falling}", "@service",
+        "TRIG:SEQ:NEXT", f"@edge {channel % 4 + 1} {falling}", "@service",
         f"@edge {channel} {1 - falling}", "@service", "READ:SEQ:STATE?",
         f"@edge {channel} {falling}", f"@edge {channel} {falling}", "@service",
         "READ:SEQ:STATE?", "READ:IO:OUTP?", "@complete", "@service",
@@ -200,10 +200,10 @@ def test_selectable_input_and_edge(parser, channel, edge, falling):
 
 def test_busy_pause_stop_and_restart(parser):
     rows = run(parser, [
-        "TRIG:START", "TRIG:SEQ:STEP", "@service", "TRIG:SEQ:STEP",
-        "TRIG:SEQ:STEP", "@service", "TRIG:PAUSE", "@service", "READ:SEQ:STATE?",
-        "@complete", "@service", "READ:SEQ:STATE?", "TRIG:SEQ:STEP",
-        "TRIG:CONT", "@service", "READ:SEQ:STATE?", "TRIG:SEQ:STEP",
+        "TRIG:START", "TRIG:SEQ:NEXT", "@service", "TRIG:SEQ:NEXT",
+        "TRIG:SEQ:NEXT", "@service", "TRIG:PAUSE", "@service", "READ:SEQ:STATE?",
+        "@complete", "@service", "READ:SEQ:STATE?", "TRIG:SEQ:NEXT",
+        "TRIG:CONT", "@service", "READ:SEQ:STATE?", "TRIG:SEQ:NEXT",
         "TRIG:STOP", "@service", "READ:SEQ:STATE?", "TRIG:START", "@service",
         "READ:SEQ:STATE?", "TRIG:ABOR", "@service", "READ:IO:STATE?",
     ])
@@ -235,7 +235,7 @@ def test_busy_pause_stop_and_restart(parser):
     "CONF:SEQ:CODE 0,8", "CONF:SEQ:CODE 3,1", "CONF:SEQ:CODE -4294967296,1",
     "CONF:SEQ:CODE 0,4294967297", "CONF:SEQ:CODE 0,1.0", "CONF:SEQ:CODE 0,#H1",
     "TRIG:START A,", "TRIG:START A,1", "TRIG:START ,", "TRIG:START UNKNOWN",
-    "TRIG:SEQ:STEP 1", "TRIG:PAUSE 1", "TRIG:CONT 1", "TRIG:STOP 1", "TRIG:ABOR 1",
+    "TRIG:SEQ:NEXT 1", "TRIG:PAUSE 1", "TRIG:CONT 1", "TRIG:STOP 1", "TRIG:ABOR 1",
     "READ:SEQ:CODE?", "READ:SEQ:CODE? 0,", "READ:SEQ:CODE? 3",
     "READ:SEQ:IO? 1", "READ:SEQ:SOUR? 1", "READ:SEQ:STATE? 1", "READ:IO:STATE? 1",
     "READ:IO:INP? 0", "READ:IO:INP? 5", "READ:IO:INP? -1", "READ:IO:INP? 1,",
@@ -253,13 +253,14 @@ def test_bad_commands_do_not_change_configuration_or_start(parser, bad):
 
 
 @pytest.mark.parametrize("advance,query", [
-    ("CONF:SEQ:NEXT", "READ:SEQ:NEXT?"),
-    ("CONFigure:SEQuence:NEXT", "READ:SEQuence:NEXT?"),
+    ("TRIG:SEQ:NEXT", "TRIG:SEQ:NEXT?"),
+    ("TRIGger:SEQuence:NEXT", "TRIGger:SEQuence:NEXT?"),
 ])
 def test_next_command_and_read_query(parser, advance, query):
     rows = run(parser, ["TRIG:START", "@service", query, advance, "@service",
                         query, advance, "@complete", "@service", query, query,
-                        "READ:SEQ:STAT?", "CONF:SEQ:NEXT?", query + " 1", advance + " 1"])
+                        "READ:SEQ:STAT?", "CONF:SEQ:NEXT", "READ:SEQ:NEXT?",
+                        "TRIG:SEQ:STEP", query + " 1", advance + " 1"])
     assert rows[1]["fields"][12:14] == ["0", "0"]
     assert rows[2]["errors"] == 0 and rows[2]["fields"] == ["1"]
     assert rows[3]["fields"][12:14] == ["1", "0"]
@@ -278,7 +279,7 @@ def test_io_levels_are_logical_masks_and_channels(parser):
 
 def test_pio_timing_query_has_no_fabricated_physical_timestamps(parser):
     rows = run(parser, ["READ:SEQ:TIM?", "TRIG:START", "@service", "READ:SEQ:TIM?",
-                        "TRIG:SEQ:STEP", "@service", "@rise", "@complete", "@service",
+                        "TRIG:SEQ:NEXT", "@service", "@rise", "@complete", "@service",
                         "READ:SEQ:STATE?", "READ:SEQ:TIM?", "TRIG:STOP", "@service",
                         "READ:SEQ:TIM?", "READ:SEQ:TIM? 1"])
     assert rows[0]["fields"] == ["NONE", "0", "0"]
@@ -305,7 +306,7 @@ def test_rejection_query_marks_running_and_settled_counts(parser):
                                     "CONF:SEQ:SOUR IN4,FALLING", "CONF:SEQ:IO 3,OUT4,20,5",
                                     "CONF:SEQ:CODE 0,3", "TRIG:START", "TRIG:MODE 2"])
 def test_running_configuration_is_frozen(parser, command):
-    rows = run(parser, ["TRIG:START", "@service", command, "TRIG:SEQ:STEP", "@service", "READ:IO:OUTP?"])
+    rows = run(parser, ["TRIG:START", "@service", command, "TRIG:SEQ:NEXT", "@service", "READ:IO:OUTP?"])
     assert rows[1]["errors"] > 0
     assert rows[2]["errors"] == 0 and rows[3]["fields"] == ["1"]
 
@@ -325,7 +326,7 @@ def test_failed_start_and_generation_require_reconfiguration(parser):
 def test_backend_fault_is_reported_and_stop_releases_outputs(parser, control):
     commands = [control, "TRIG:START", "@service"]
     if "submit" in control:
-        commands += ["TRIG:SEQ:STEP", "@service"]
+        commands += ["TRIG:SEQ:NEXT", "@service"]
     rows = run(parser, commands + ["READ:SEQ:STATE?", "TRIG:STOP", "@service", "READ:IO:STATE?"])
     assert rows[-3]["fields"][0] == "FAULT"
     assert int(rows[-3]["fields"][23]) != 0

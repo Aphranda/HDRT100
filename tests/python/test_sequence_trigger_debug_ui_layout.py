@@ -57,7 +57,7 @@ def test_tabs_separate_mode_controls_and_keep_common_io(ui):
     select(ui, ui.loopback_page)
     texts = [widget.cget("text") for widget in descendants(ui.loopback_page)
              if isinstance(widget, ttk.Button)]
-    assert "NEXT" not in texts and "软件单步" not in texts
+    assert "下一步" in texts and "软件单步" not in texts
     assert ui.gateway_group.winfo_ismapped()
     assert not ui.source_box.winfo_ismapped()
     assert not ui.status_mode_box.winfo_ismapped()
@@ -119,10 +119,11 @@ def test_tab_change_retains_device_mode_for_stop_refresh_and_step_rejection(ui):
     complete_configuration(ui, MODE_RJ45)
     select(ui, ui.independent_page)
     ui.source.set("BUS")
-    ui.command("CONF:SEQ:NEXT")
+    ui.command("TRIG:SEQ:NEXT")
+    assert "TRIG:SEQ:NEXT" in ui._operations.get_nowait()[1][2]
     ui.command("TRIG:START")
     assert ui._operations.empty()
-    ui.command("READ:SEQ:NEXT?")
+    ui.command("TRIG:SEQ:NEXT?")
     assert "READ:SEQ:LINK?" in ui._operations.get_nowait()[1][2]
     ui.command("TRIG:STOP")
     assert "SYST:TDMA:RING:STOP" in ui._operations.get_nowait()[1][2]
@@ -200,9 +201,9 @@ def test_manual_mutation_revokes_start_permission(ui, command):
 
 def test_manual_query_keeps_start_permission(ui):
     complete_configuration(ui, MODE_INDEPENDENT)
-    ui.manual_command.set("READ:SEQ:NEXT?")
+    ui.manual_command.set("TRIG:SEQ:NEXT?")
     ui.send_manual_command()
-    assert "READ:SEQ:NEXT?" in ui._operations.get_nowait()[1][2]
+    assert "TRIG:SEQ:NEXT?" in ui._operations.get_nowait()[1][2]
     assert ui._configured_mode == MODE_INDEPENDENT
 
 

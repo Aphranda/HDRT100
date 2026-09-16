@@ -3,7 +3,7 @@
 
 #include "scpi/scpi.h"
 
-scpi_result_t scpi_sequence_step(scpi_t *context);
+scpi_result_t scpi_sequence_next(scpi_t *context);
 scpi_result_t scpi_sequence_source(scpi_t *context);
 scpi_result_t scpi_sequence_source_q(scpi_t *context);
 scpi_result_t scpi_sequence_io(scpi_t *context);
@@ -24,9 +24,8 @@ scpi_result_t scpi_sequence_repeat_q(scpi_t *context);
 #define SCPI_SEQUENCE_COMMANDS \
     {.pattern = "CONFigure:SEQuence:REPeat", .callback = scpi_sequence_repeat}, \
     {.pattern = "READ:SEQuence:REPeat?", .callback = scpi_sequence_repeat_q}, \
-    {.pattern = "TRIGger:SEQuence:STEP", .callback = scpi_sequence_step}, \
-    {.pattern = "CONFigure:SEQuence:NEXT", .callback = scpi_sequence_step}, \
-    {.pattern = "READ:SEQuence:NEXT?", .callback = scpi_sequence_status_q}, \
+    {.pattern = "TRIGger:SEQuence:NEXT", .callback = scpi_sequence_next}, \
+    {.pattern = "TRIGger:SEQuence:NEXT?", .callback = scpi_sequence_status_q}, \
     {.pattern = "CONFigure:SEQuence:SOURce", .callback = scpi_sequence_source}, \
     {.pattern = "READ:SEQuence:SOURce?", .callback = scpi_sequence_source_q}, \
     {.pattern = "CONFigure:SEQuence:IO", .callback = scpi_sequence_io}, \

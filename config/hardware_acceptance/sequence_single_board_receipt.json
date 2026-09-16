@@ -1,0 +1,77 @@
+{
+  "schema": "HAOFV_SEQUENCE_SINGLE_BOARD_RECEIPT_V1",
+  "passed": true,
+  "acceptance_scope": "SEQUENCE_SINGLE_BOARD_RJ45_FUNCTIONAL",
+  "limitations": [
+    "no_p3",
+    "no_multi_board",
+    "no_waveform",
+    "no_rf",
+    "no_independent_edge_count",
+    "no_tdma_stability"
+  ],
+  "created_at": "2026-09-16T15:57:32.363252+00:00",
+  "serial_number": "839E1AE79EA20F31",
+  "build_id": "20260916155106",
+  "source_tree_sha256": "b7dc5cad2e29c40593b5ef9585aadc32958327dd097ce4fff847fcc69cf0dc0a",
+  "source_file_count": 1159,
+  "changed_sources": [
+    ".githooks/pre-commit",
+    "components/distributed_refmem/src/distributed_refmem.c",
+    "components/sync_io/inc/sync_io_sequence.h",
+    "components/sync_io/src/sync_io_sequence.c",
+    "components/sync_trigger/inc/trigger_sequence_link.h",
+    "components/sync_trigger/inc/trigger_sequence_link_protocol.h",
+    "components/sync_trigger/inc/trigger_sequence_service.h",
+    "components/sync_trigger/src/trigger_sequence_link.c",
+    "components/sync_trigger/src/trigger_sequence_link_protocol.c",
+    "components/sync_trigger/src/trigger_sequence_service.c",
+    "components/tdma/inc/tdma_pio_spi_ring_adapter.h",
+    "components/tdma/src/tdma_pio_spi_ring_adapter.c",
+    "middleware/scpi_port/inc/scpi_sequence_commands.h",
+    "middleware/scpi_port/src/scpi_config_commands.c",
+    "middleware/scpi_port/src/scpi_sequence_commands.c",
+    "middleware/scpi_port/src/scpi_sequence_node_commands.c",
+    "tests/python/test_refmem_sequence_role_scpi.py",
+    "tests/python/test_sequence_repeat_validate.py",
+    "tests/python/test_sequence_scpi_runtime.py",
+    "tests/python/test_sequence_single_board_gate.py",
+    "tests/python/test_sequence_tdma_cycle_validate.py",
+    "tests/python/test_sequence_trigger_acceptance.py",
+    "tests/python/test_sequence_trigger_debug_ui.py",
+    "tests/python/test_sequence_trigger_debug_ui_layout.py",
+    "tests/python/test_sync_io_sequence.py",
+    "tests/python/test_trigger_sequence_link.py",
+    "tests/unit/test_refmem_sequence_role_scpi.c",
+    "tests/unit/test_sequence_scpi_config.c",
+    "tests/unit/test_sequence_scpi_runtime.c",
+    "tests/unit/test_sync_io_sequence_resources.c",
+    "tests/unit/test_tdma_local_return.c",
+    "tests/unit/test_trigger_sequence_link.c",
+    "tests/unit/test_trigger_sequence_link_protocol.c",
+    "tests/unit/test_trigger_sequence_service.c",
+    "tools/hardware_acceptance/sequence_feedback_validate.py",
+    "tools/hardware_acceptance/sequence_repeat_validate.py",
+    "tools/hardware_acceptance/sequence_single_board_gate.py",
+    "tools/hardware_acceptance/sequence_tdma_cycle_validate.py",
+    "tools/hardware_acceptance/sequence_trigger_acceptance.py",
+    "tools/sequence_trigger_debug_ui/sequence_trigger_debug_ui.py"
+  ],
+  "validator_sha256": "3a69f8b44c8371425c0664c7e00761bc13cc857fe9c1461d5c47148907be129a",
+  "firmware_package": {
+    "path": "out/build-sequence-scpi-next/DHRT100_UPDATE.pkg",
+    "sha256": "ae9122c36451a0a847225024af65db71b048db955ae01d4c6440d941258eed43"
+  },
+  "ota_summary": {
+    "path": "out/HardwareAcceptance/20260916/sequence-scpi-next-ota/summary.json",
+    "sha256": "1de1a0d781447bb7458401530a98f162aac9e3c5123691769d22590cc3c6f9dc"
+  },
+  "finite_report": {
+    "path": "out/HardwareAcceptance/20260916/sequence-scpi-next-single-board/finite.json",
+    "sha256": "859f8cdacbcbe4dae25aeed083548d90c336e966ae78a618b0cc4d62362cac98"
+  },
+  "pause_resume_report": {
+    "path": "out/HardwareAcceptance/20260916/sequence-scpi-next-single-board/pause-resume.json",
+    "sha256": "2708d4708c7935a3333965a19b9b77cfeed3372efe440d2887ff52f691261797"
+  }
+}

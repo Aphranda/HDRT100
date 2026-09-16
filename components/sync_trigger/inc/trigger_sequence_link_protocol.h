@@ -7,7 +7,7 @@
 /* Versioned application tag; transport owns header/VDC/ACK and verifies the
  * physical source before dispatching these opaque RefMem-region fragments. */
 #define TRIGGER_SEQUENCE_LINK_CONTROL_OPCODE 0x53u
-#define TRIGGER_SEQUENCE_LINK_WIRE_SIZE 32u
+#define TRIGGER_SEQUENCE_LINK_WIRE_SIZE 36u
 #define TRIGGER_SEQUENCE_LINK_FRAGMENT_SIZE 10u
 #define TRIGGER_SEQUENCE_LINK_FRAGMENT_DATA_SIZE 6u
 #define TRIGGER_SEQUENCE_LINK_FRAGMENT_COUNT 6u
@@ -25,6 +25,7 @@ typedef struct {
     uint32_t step_ordinal;
     uint32_t source_slot;
     uint32_t target_slot;
+    uint32_t exchange_id;
 } trigger_sequence_link_message_t;
 
 typedef struct {

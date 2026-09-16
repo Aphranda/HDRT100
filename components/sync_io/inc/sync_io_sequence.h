@@ -97,6 +97,10 @@ bool sync_io_sequence_software_step(void);
 /* Core1 only. Arm fresh PIO READY capture and emit exactly one PIO pulse.
  * READY is a receipt only: it never directly requests a sequence step. */
 bool sync_io_sequence_gateway_fire(void);
+/* Core1 only. Complete the active gateway READY wait from the serialized
+ * software command path. The subsequent DUT step still requires the TDMA
+ * READY_NEXT return message. */
+bool sync_io_sequence_gateway_ready(void);
 bool sync_io_sequence_pause(bool paused);
 void sync_io_sequence_stop(void);
 void sync_io_sequence_service(void);

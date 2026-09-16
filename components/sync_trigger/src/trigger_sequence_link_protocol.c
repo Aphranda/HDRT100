@@ -36,7 +36,7 @@ static bool valid_message(const trigger_sequence_link_message_t *message)
            (message->kind == TRIGGER_SEQUENCE_LINK_LINK_APPLIED ||
             message->kind == TRIGGER_SEQUENCE_LINK_READY_NEXT) &&
            message->run_id != 0u && message->generation != 0u &&
-           message->binding_epoch != 0u &&
+           message->binding_epoch != 0u && message->exchange_id != 0u &&
            message->source_slot != UINT32_MAX && message->target_slot != UINT32_MAX &&
            message->source_slot != message->target_slot;
 }
@@ -54,7 +54,8 @@ bool trigger_sequence_link_tx_begin(trigger_sequence_link_tx_t *tx,
     write_u32(next.wire + 16u, message->step_ordinal);
     write_u32(next.wire + 20u, message->source_slot);
     write_u32(next.wire + 24u, message->target_slot);
-    write_u32(next.wire + 28u, crc32(next.wire, 28u));
+    write_u32(next.wire + 28u, message->exchange_id);
+    write_u32(next.wire + 32u, crc32(next.wire, 32u));
     next.token = token;
     next.active = true;
     *tx = next;
@@ -124,13 +125,13 @@ trigger_sequence_link_rx_result_t trigger_sequence_link_rx_feed(
     if (rx->received_mask != (1u << TRIGGER_SEQUENCE_LINK_FRAGMENT_COUNT) - 1u)
         return TRIGGER_SEQUENCE_LINK_RX_INCOMPLETE;
     rx->received_mask = 0u;
-    if (read_u32(rx->wire + 28u) != crc32(rx->wire, 28u))
+    if (read_u32(rx->wire + 32u) != crc32(rx->wire, 32u))
         return TRIGGER_SEQUENCE_LINK_RX_REJECTED;
     const trigger_sequence_link_message_t parsed = {
         .kind = read_u32(rx->wire + 0u), .run_id = read_u32(rx->wire + 4u),
         .generation = read_u32(rx->wire + 8u), .binding_epoch = read_u32(rx->wire + 12u),
         .step_ordinal = read_u32(rx->wire + 16u), .source_slot = read_u32(rx->wire + 20u),
-        .target_slot = read_u32(rx->wire + 24u),
+        .target_slot = read_u32(rx->wire + 24u), .exchange_id = read_u32(rx->wire + 28u),
     };
     if (!valid_message(&parsed)) return TRIGGER_SEQUENCE_LINK_RX_REJECTED;
     if (rx->last_message_valid &&

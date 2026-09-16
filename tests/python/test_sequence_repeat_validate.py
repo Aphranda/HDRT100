@@ -43,7 +43,7 @@ class FakeBench:
         elif command == "TRIG:STOP":
             self.started = False
             self.current["state"] = "IDLE"
-        elif command == "CONF:SEQ:NEXT":
+        elif command == "TRIG:SEQ:NEXT":
             self.advance()
 
     def advance(self):
@@ -94,7 +94,7 @@ def test_complete_finite_rounds_without_source_stop(tmp_path, no_hardware, sourc
     assert report["repeat_result"]["finished"] == 1
     assert report["idle_after_quiet"]["sequence"]["completed"] == repeat * 8 - 1
     assert report["idle_after_quiet"]["io"]["inputs"] == 1
-    assert bench.commands.count("CONF:SEQ:NEXT") == (repeat * 8 - 1 if source == "BUS" else 0)
+    assert bench.commands.count("TRIG:SEQ:NEXT") == (repeat * 8 - 1 if source == "BUS" else 0)
     assert bench.commands.count("TRIG:STOP") == 1  # no host stop caused finite completion
     assert bench.commands.index("CONF:SEQ:LINK OFF") < bench.commands.index("TRIG:START")
 

@@ -153,7 +153,7 @@ def execute(bench, port, report):
             require(row["accepted"] == row["completed"] == sent,
                     "BUS step advanced without a NEXT command")
             if target is None or sent < target:
-                bench.write("CONF:SEQ:NEXT")
+                bench.write("TRIG:SEQ:NEXT")
                 sent += 1
         time.sleep(args.poll)
     require(report.get("functional_execution_verified", False), "sequence repeat verification timed out")

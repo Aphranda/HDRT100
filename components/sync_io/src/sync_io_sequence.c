@@ -946,6 +946,28 @@ bool sync_io_sequence_gateway_fire(void)
     return true;
 }
 
+bool sync_io_sequence_gateway_ready(void)
+{
+    if (get_core_num() != 1u || !s_sequence.status.armed || s_sequence.paused ||
+        s_sequence.status.fault != 0u || s_sequence.config.gateway_input_channel == 0u)
+        return false;
+    sync_io_sequence_service();
+    if (!s_sequence.status.gateway_waiting ||
+        s_sequence.status.gateway_ready_count == UINT32_MAX) return false;
+
+    PIO pio = BOARD_SYNC_PIO_FAST;
+    pio_set_sm_mask_enabled(pio, 1u << COUNTER_SM, false);
+    const uint channel = (uint)s_sequence.dma[3];
+    hw_clear_bits(&dma_hw->ch[channel].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+    dma_channel_abort(channel);
+    pio_sm_clear_fifos(pio, COUNTER_SM);
+    s_edge_latest = 0u;
+    s_sequence.status.gateway_waiting = false;
+    ++s_sequence.status.gateway_ready_count;
+    publish();
+    return true;
+}
+
 static void finish_ingress(void)
 {
     PIO pio = BOARD_SYNC_PIO_FAST;

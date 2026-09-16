@@ -19,7 +19,8 @@ def snapshot(completed=0, phase=3, repeat=1, **changes):
                generation=19, step=completed, txfragments=6 * (completed + 1),
                rxmessages=2 * completed + 1, triggers=completed + 1,
                ready=completed, completed=completed, dutslot=2, vnaslot=3,
-               input=1, outputmask=8, pulseus=1000, timeoutms=5000, repeat=repeat)
+               input=1, outputmask=8, pulseus=1000, timeoutms=5000, repeat=repeat,
+               exchange_id=completed + 1)
     row.update(changes)
     return row
 
@@ -28,8 +29,8 @@ def wire(row):
     return ",".join(str(row[name]) for name in target.LINK_FIELDS)
 
 
-@pytest.mark.parametrize("bad", ["", "1,2", ",".join(["0"] * 21),
-    ",".join(["0"] * 23), wire(snapshot()).replace("1,", "-1,", 1),
+@pytest.mark.parametrize("bad", ["", "1,2", ",".join(["0"] * 22),
+    ",".join(["0"] * 24), wire(snapshot()).replace("1,", "-1,", 1),
     wire(snapshot()).replace("1,", "１,", 1), wire(snapshot(phase=9)),
     wire(snapshot(enabled=2)), wire(snapshot(run=2**32)), wire(snapshot(input=5)),
     wire(snapshot(outputmask=16)), wire(snapshot(falling=2))])
@@ -38,7 +39,7 @@ def test_link_parser_rejects_invalid_or_truncated(bad):
         target.parse_link(bad)
 
 
-def test_link_parser_retains_all_22_fields():
+def test_link_parser_retains_all_23_fields():
     row = snapshot(repeat=2)
     assert target.parse_link(wire(row)) == row
 
@@ -46,14 +47,15 @@ def test_link_parser_retains_all_22_fields():
 @pytest.mark.parametrize("reason,name", [(0, "NONE"), (5, "TX_SEQUENCE_IDENTITY_OR_SIZE"),
     (6, "MAILBOX_BYTES"), (9, "STALE_MAILBOX_SEQUENCE"), (10, "UNKNOWN")])
 def test_transport_diagnostics_preserve_facts_without_claiming_root_cause(reason, name):
-    row = target.parse_transport(f"1,1,65535,{reason},20,18")
+    row = target.parse_transport(f"1,1,65535,{reason},20,18,1")
     assert row == dict(enabled=1, seen=1, mailbox_seq16=65535, last_reject=reason,
-                      matches=20, published=18, last_reject_name=name)
+                      matches=20, published=18, snapshot_quality=1,
+                      last_reject_name=name, snapshot_quality_name="FRESH")
 
 
-@pytest.mark.parametrize("bad", ["", "1,0,0,5,0", "1,0,0,5,0,0,0", "1,0,0,-1,0,0",
-    "１,0,0,0,0,0", "2,0,0,0,0,0", "1,2,0,0,0,0", "1,0,65536,0,0,0",
-    "1,0,0,4294967296,0,0"])
+@pytest.mark.parametrize("bad", ["", "1,0,0,5,0,0", "1,0,0,5,0,0,0,0",
+    "1,0,0,-1,0,0,1", "１,0,0,0,0,0,1", "2,0,0,0,0,0,1", "1,2,0,0,0,0,1",
+    "1,0,65536,0,0,0,1", "1,0,0,4294967296,0,0,1", "1,0,0,0,0,0,3"])
 def test_transport_diagnostics_reject_malformed_values(bad):
     with pytest.raises(AcceptanceError):
         target.parse_transport(bad)
@@ -105,6 +107,8 @@ class FakeBench:
             return wire(self.current)
         if text == "READ:SEQ:REP?":
             return f"{self.args.repeat},{self.args.repeat},1"
+        if text == "TRIG:SEQ:NEXT":
+            return "1"
         raise AssertionError(text)
 
     def status(self):
@@ -135,6 +139,35 @@ def execute_fixture(tmp_path, monkeypatch, rows, repeat=1):
     monkeypatch.setattr(target.ring, "sample", ring_sample)
     bench = FakeBench(args, rows)
     return bench, {}
+
+
+def test_scpi_next_is_attributed_once_per_exchange(tmp_path):
+    args = target.parse_args(cli(tmp_path, "--scpi-next"))
+    bench = FakeBench(args, [])
+    report = {}
+    first = snapshot(exchange_id=7)
+    second = snapshot(exchange_id=8)
+
+    target.drive_scpi_next(bench, report, first)
+    target.drive_scpi_next(bench, report, first)
+    target.drive_scpi_next(bench, report, second)
+
+    assert bench.commands == ["TRIG:SEQ:NEXT", "TRIG:SEQ:NEXT"]
+    assert [record["identity"] for record in report["scpi_next"]] == [
+        [11, 19, 0, 7], [11, 19, 0, 8]]
+
+
+def test_scpi_next_rejection_is_preserved_and_fails(tmp_path):
+    args = target.parse_args(cli(tmp_path, "--scpi-next"))
+    bench = FakeBench(args, [])
+    bench.command = lambda command: "0"
+    report = {}
+
+    with pytest.raises(AcceptanceError, match="was not accepted"):
+        target.drive_scpi_next(bench, report, snapshot(exchange_id=7))
+
+    assert report["scpi_next"] == [{
+        "identity": [11, 19, 0, 7], "response": "0"}]
 
 
 @pytest.mark.parametrize("repeat", [1, 2])
@@ -246,7 +279,7 @@ def gui_bench(tmp_path, fail_command=None, fail_response="0"):
         if command == gui.RING_STATUS_QUERY:
             fields = dict.fromkeys(gui.RUNTIME_FIELDS, 0)
             return ",".join(str(fields[k]) for k in gui.RUNTIME_FIELDS)
-        if command == "READ:SEQ:NEXT?":
+        if command == "TRIG:SEQ:NEXT?":
             return '"IDLE"'
         if command == "READ:SEQ:LINK?":
             return wire(snapshot(phase=1, repeat=2))
@@ -402,7 +435,8 @@ def test_pause_resume_accepts_cancelled_measurement_and_verifies_new_cycles(tmp_
     bench, report = pause_fixture(tmp_path, monkeypatch)
     target.execute(bench, object(), report)
     evidence = report["pause_resume"]
-    assert evidence["passed"] and report["functional_cycle_verified"]
+    assert evidence["passed"] and evidence["exchange_rotated"]
+    assert report["functional_cycle_verified"]
     assert evidence["paused"]["link"]["completed"] == 10
     assert evidence["quiet_samples"] and evidence["quiet_elapsed_s"] >= bench.args.quiet
     assert all(sample["io"]["outputs"] & 8 == 0 for sample in evidence["quiet_samples"])
@@ -470,3 +504,30 @@ def test_cleanup_requires_actual_ring_stopped_readback(tmp_path, monkeypatch, st
     if not stopped:
         assert "readback did not confirm" in failures[0]
     assert actions[-1] == "CALibration:TOPology:PROBe 0"
+
+
+def test_cleanup_attributes_scpi_error_to_transport_query(tmp_path, monkeypatch):
+    bench, report = execute_fixture(tmp_path, monkeypatch, [snapshot(phase=1)], repeat=0)
+    bench.current = bench.rows.pop(0)
+    original = bench.command
+    error_queries = [0]
+
+    def command(text):
+        if text == "SYST:ERR?":
+            error_queries[0] += 1
+            return '-200,"transport snapshot"' if error_queries[0] == 2 else '0,"No error"'
+        if text == "READ:SEQ:LINK:TRANSPORT?":
+            return "1,0,0,0,0,0,1"
+        if text.startswith("SYST:"):
+            return "0"
+        return original(text)
+
+    bench.command = command
+    monkeypatch.setattr(target, "read_io",
+        lambda b: dict(inputs=0, outputs=0, owned=0, armed=0, busy=0))
+    monkeypatch.setattr(target.ring, "checked_action", lambda *a: {"response": "OK"})
+    target.cleanup(bench, object(), report)
+    record = report["transport_before_cleanup"]["READ:SEQ:LINK:TRANSPORT?"]
+    assert record["error_before"].startswith("0,")
+    assert record["error_after"].startswith("-200,")
+    assert "SCPI error from READ:SEQ:LINK:TRANSPORT?" in report["cleanup_failures"][0]

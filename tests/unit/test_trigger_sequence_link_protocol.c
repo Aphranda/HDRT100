@@ -7,7 +7,7 @@
 typedef uint8_t fragments_t[TRIGGER_SEQUENCE_LINK_FRAGMENT_COUNT][TRIGGER_SEQUENCE_LINK_FRAGMENT_SIZE];
 
 static const trigger_sequence_link_message_t baseline = {
-    TRIGGER_SEQUENCE_LINK_LINK_APPLIED, 0x12345678u, 9u, 13u, 0u, 2u, 3u,
+    TRIGGER_SEQUENCE_LINK_LINK_APPLIED, 0x12345678u, 9u, 13u, 0u, 2u, 3u, 17u,
 };
 
 static void encode(const trigger_sequence_link_message_t *message, uint16_t token,
@@ -37,10 +37,10 @@ static trigger_sequence_link_rx_result_t feed_all(trigger_sequence_link_rx_t *rx
 
 static void golden_wire(void)
 {
-    /* Independently computed via Python struct.pack('<7I', ...) + zlib.crc32. */
-    const uint8_t expected[32] = {
+    /* Independently computed via Python struct.pack('<8I', ...) + zlib.crc32. */
+    const uint8_t expected[36] = {
         1,0,0,0, 0x78,0x56,0x34,0x12, 9,0,0,0, 13,0,0,0,
-        0,0,0,0, 2,0,0,0, 3,0,0,0, 0x93,0x7f,0x54,0x6e,
+        0,0,0,0, 2,0,0,0, 3,0,0,0, 17,0,0,0, 0xce,0x5a,0x64,0x4d,
     };
     trigger_sequence_link_tx_t tx = {0};
     assert(trigger_sequence_link_tx_begin(&tx, &baseline, 0xBE01u));
@@ -50,8 +50,8 @@ static void golden_wire(void)
     for (uint32_t i = 0u; i < 6u; ++i) {
         assert(f[i][0] == 1u && f[i][1] == 0xBEu && f[i][2] == i && f[i][3] == 6u);
     }
-    assert(f[5][4] == 0x54u && f[5][5] == 0x6Eu);
-    assert(f[5][6] == 0u && f[5][9] == 0u);
+    assert(f[5][4] == 0u && f[5][5] == 0u);
+    assert(f[5][6] == 0xCEu && f[5][9] == 0x4Du);
 }
 
 static void reordered_lost_repeated(void)
@@ -141,7 +141,7 @@ static void invalid_arguments(void)
     assert(!trigger_sequence_link_tx_begin(&tx, &baseline, 0u));
     assert(!trigger_sequence_link_tx_begin(NULL, &baseline, 1u));
     assert(!trigger_sequence_link_tx_begin(&tx, NULL, 1u));
-    for (uint32_t field = 0u; field < 6u; ++field) {
+    for (uint32_t field = 0u; field < 7u; ++field) {
         trigger_sequence_link_message_t bad = baseline;
         if (field == 0u) bad.kind = 3u;
         if (field == 1u) bad.run_id = 0u;
@@ -149,6 +149,7 @@ static void invalid_arguments(void)
         if (field == 3u) bad.binding_epoch = 0u;
         if (field == 4u) bad.source_slot = UINT32_MAX;
         if (field == 5u) bad.target_slot = bad.source_slot;
+        if (field == 6u) bad.exchange_id = 0u;
         assert(!trigger_sequence_link_tx_begin(&tx, &bad, 1u));
         assert(memcmp(&tx, &before, sizeof(tx)) == 0);
     }

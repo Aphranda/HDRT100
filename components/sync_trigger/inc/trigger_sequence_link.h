@@ -17,11 +17,13 @@ typedef struct {
     uint32_t run_id, generation, step, tx_fragments, rx_messages, rejected;
     uint32_t triggers, ready, completed;
     uint32_t repeat_count;
+    uint32_t exchange_id;
 } trigger_sequence_link_status_t;
 /* Core0-only; called by RefMem owner and SCPI on the serialized data plane.
  * This first implementation binds two local roles; physical topology addresses
  * remain transport-owned and are not confused with RefMem logical role slots. */
 bool trigger_sequence_link_configure(const trigger_sequence_link_config_t *config);
+trigger_sequence_service_result_t trigger_sequence_link_next(void);
 void trigger_sequence_link_get_status(trigger_sequence_link_status_t *status);
 void trigger_sequence_link_service(void);
 bool trigger_sequence_link_tx_fragment(uint8_t fragment[TRIGGER_SEQUENCE_LINK_FRAGMENT_SIZE]);

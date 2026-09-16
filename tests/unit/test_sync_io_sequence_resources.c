@@ -472,20 +472,30 @@ int main(void) {
     assert(s_sequence.status.gateway_ready_count == 1u);
     assert(sync_io_sequence_gateway_fire());
     assert(s_sequence.status.gateway_trigger_count == 2u && s_edge_latest == 0u);
+    assert(sync_io_sequence_gateway_ready());
+    assert(!s_sequence.status.gateway_waiting &&
+           s_sequence.status.gateway_ready_count == 2u);
+    assert(!sync_io_sequence_gateway_ready());
+    pcs[INGRESS_SM] = s_sequence.offset[0];
+    rx_valid[INGRESS_SM] = true;
+    sync_io_sequence_service();
+    assert(!s_sequence.status.gateway_pulse_busy);
+    assert(sync_io_sequence_gateway_fire());
+    assert(s_sequence.status.gateway_trigger_count == 3u);
     assert(sync_io_sequence_pause(true));
     assert(s_sequence.status.gateway_cancelled == 1u);
     assert(!s_sequence.status.gateway_waiting && !s_sequence.status.gateway_pulse_busy);
     assert((pads & (8u << BOARD_SYNC_OUTPUT_BASE_PIN)) == 0u);
     assert(!sync_io_sequence_gateway_fire());
     assert(sync_io_sequence_pause(false));
-    assert(s_sequence.status.gateway_trigger_count == 2u); /* resume never self-fires */
+    assert(s_sequence.status.gateway_trigger_count == 3u); /* resume never self-fires */
     assert(sync_io_sequence_gateway_fire());
     s_edge_latest = 1u;
     tx_valid[INGRESS_SM] = false;
     pcs[INGRESS_SM] = s_sequence.offset[0];
     rx_valid[INGRESS_SM] = true;
     sync_io_sequence_service();
-    assert(s_sequence.status.gateway_ready_count == 2u);
+    assert(s_sequence.status.gateway_ready_count == 3u);
     assert(sync_io_sequence_software_step());
     assert(s_sequence.status.accepted == 1u);
     assert(!sync_io_sequence_gateway_fire());

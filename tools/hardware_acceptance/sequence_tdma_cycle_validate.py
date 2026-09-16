@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Exercise the single-board RJ45 DUT/VNA cycle with an independent READY source.
+"""Exercise the single-board RJ45 DUT/VNA cycle through the physical RJ45 return.
 
-IN1 receives the signal generator (nominally 50 Hz); OUT4 is the VNA trigger.
-RJ45 output must be cabled to RJ45 input. This is functional cycle evidence,
+READY may come from IN1 or the explicit SCPI NEXT command; OUT4 is the VNA
+trigger. RJ45 output must be cabled to RJ45 input. This is functional evidence,
 not a multi-board, source-edge-count, pulse-width, RF or TDMA stability receipt.
 """
 from __future__ import annotations
@@ -32,10 +32,12 @@ from tools.hardware_acceptance.sequence_trigger_acceptance import AcceptanceErro
 LINK_FIELDS = ("enabled", "phase", "error", "binding_epoch", "model_epoch", "run",
                "generation", "step", "txfragments", "rxmessages", "rejected", "triggers",
                "ready", "completed", "dutslot", "vnaslot", "input", "outputmask",
-               "pulseus", "timeoutms", "falling", "repeat")
+               "pulseus", "timeoutms", "falling", "repeat", "exchange_id")
 IDENTITY_FIELDS = ("binding_epoch", "model_epoch", "run", "generation")
 COUNTERS = ("step", "txfragments", "rxmessages", "rejected", "triggers", "ready", "completed")
-TRANSPORT_FIELDS = ("enabled", "seen", "mailbox_seq16", "last_reject", "matches", "published")
+TRANSPORT_FIELDS = ("enabled", "seen", "mailbox_seq16", "last_reject", "matches", "published",
+                    "snapshot_quality")
+TRANSPORT_SNAPSHOT_QUALITIES = ("UNAVAILABLE", "FRESH", "CACHED")
 TRANSPORT_REJECTIONS = (
     "NONE", "DISABLED", "LAYOUT", "ROUTE", "MAILBOX",
     "TX_SEQUENCE_IDENTITY_OR_SIZE", "MAILBOX_BYTES", "HEADER_BYTES",
@@ -52,10 +54,12 @@ def parse_transport(response: str) -> dict:
     values = list(map(int, parts))
     require(all(value <= 0xffffffff for value in values), "LINK transport field overflow")
     row = dict(zip(TRANSPORT_FIELDS, values))
-    require(row["enabled"] <= 1 and row["seen"] <= 1 and row["mailbox_seq16"] <= 0xffff,
+    require(row["enabled"] <= 1 and row["seen"] <= 1 and row["mailbox_seq16"] <= 0xffff and
+            row["snapshot_quality"] < len(TRANSPORT_SNAPSHOT_QUALITIES),
             "LINK transport field outside range")
     reason = row["last_reject"]
     row["last_reject_name"] = TRANSPORT_REJECTIONS[reason] if reason < len(TRANSPORT_REJECTIONS) else "UNKNOWN"
+    row["snapshot_quality_name"] = TRANSPORT_SNAPSHOT_QUALITIES[row["snapshot_quality"]]
     return row
 
 
@@ -206,7 +210,8 @@ def configure_gui(bench: Bench, report):
 def check_progress(row: dict, previous: dict | None, accounting_base: dict | None = None):
     require(row["enabled"] == 1 and row["phase"] in (2, 3, 4, 5, 8) and row["error"] == 0,
             "LINK did not enter a healthy running phase")
-    require(row["run"] != 0 and row["generation"] != 0, "missing sequence run identity")
+    require(row["run"] != 0 and row["generation"] != 0 and row["exchange_id"] != 0,
+            "missing sequence run or exchange identity")
     counts = {k: row[k] - (accounting_base[k] if accounting_base else 0)
               for k in ("completed", "ready", "triggers")}
     require(0 <= counts["completed"] <= counts["ready"] <= counts["triggers"] <= counts["completed"] + 1,
@@ -221,6 +226,18 @@ def check_sequence_status(status, row, states):
             status["faults"] == status["backend_fault"] == 0, "sequence runtime fault")
     require((status["run_id"], status["generation"]) == (row["run"], row["generation"]),
             "sequence and LINK identities disagree")
+
+
+def drive_scpi_next(bench: Bench, report: dict, row: dict) -> None:
+    if not bench.args.scpi_next or row["phase"] != 3:
+        return
+    identity = [row[key] for key in ("run", "generation", "step", "exchange_id")]
+    records = report.setdefault("scpi_next", [])
+    if any(record.get("identity") == identity for record in records):
+        return
+    response = bench.command("TRIG:SEQ:NEXT")
+    records.append({"identity": identity, "response": response})
+    require(response == "1", "TRIG:SEQ:NEXT was not accepted")
 
 
 def pause_resume(bench: Bench, report, before: dict) -> tuple[dict, dict]:
@@ -280,14 +297,18 @@ def pause_resume(bench: Bench, report, before: dict) -> tuple[dict, dict]:
     while True:
         row, status = link(bench), bench.status()
         record["resume_samples"].append({"link": row, "sequence": status})
+        drive_scpi_next(bench, report, row)
         require(all(row[k] == paused[k] for k in IDENTITY_FIELDS), "LINK run or binding changed on resume")
         require(row["repeat"] == 0, "run repeat configuration changed on resume")
         if row["phase"] != 6:
+            require(row["exchange_id"] != paused["exchange_id"],
+                    "LINK exchange identity did not rotate on resume")
             check_progress(row, previous, paused)
             require(row["phase"] != 8, "continuous run unexpectedly ended on resume")
             check_sequence_status(status, row, ("READY", "BUSY"))
             previous = row
             if all(row[k] > paused[k] for k in ("completed", "ready", "triggers")):
+                record["exchange_rotated"] = True
                 record["passed"] = True
                 return paused, row
         else:
@@ -320,6 +341,7 @@ def execute(bench: Bench, port, report):
             require(row["error"] == 0, "LINK start error")
             time.sleep(args.poll)
             continue
+        drive_scpi_next(bench, report, row)
         check_progress(row, previous, accounting_base)
         require(row["repeat"] == args.repeat, "run repeat configuration mismatch")
         require(args.repeat != 0 or row["phase"] != 8, "continuous run unexpectedly ended")
@@ -361,10 +383,18 @@ def cleanup(bench, port, report):
     for command in ("READ:SEQ:LINK:TRANSPORT?", "SYST:TDMA:FLIGHT:PROCESS?",
                     "SYST:TDMA:FLIGHT:FIFO?", "SYST:REFMEM:SYNC:FLIGHT?"):
         try:
-            record = diagnostics[command] = {"response": bench.command(command)}
+            record = diagnostics[command] = {"error_before": bench.command("SYST:ERR?")}
+            record["response"] = bench.command(command)
+            record["error_after"] = bench.command("SYST:ERR?")
+            if not record["error_before"].lstrip().startswith("0,"):
+                failures.append(f"SCPI error pending before {command}: {record['error_before']}")
+            if not record["error_after"].lstrip().startswith("0,"):
+                failures.append(f"SCPI error from {command}: {record['error_after']}")
             if command == "READ:SEQ:LINK:TRANSPORT?":
                 try:
                     record["parsed"] = parse_transport(record["response"])
+                    if record["parsed"]["snapshot_quality"] == 0:
+                        failures.append("LINK transport snapshot unavailable")
                 except AcceptanceError as exc:
                     record["parse_failure"] = str(exc)
         except (Exception, KeyboardInterrupt) as exc:
@@ -425,6 +455,8 @@ def parse_args(argv=None):
                         help="verify PAUSE/CONT quiet state and resumed cycles; requires --repeat 0")
     parser.add_argument("--gui-control", action="store_true",
                         help="execute the actual GUI RJ45 configuration/start builders and batch executor")
+    parser.add_argument("--scpi-next", action="store_true",
+                        help="supply each READY event with TRIG:SEQ:NEXT instead of an external input")
     parser.add_argument("--timeout", type=float, default=3)
     parser.add_argument("--poll", type=float, default=.05)
     parser.add_argument("--quiet", type=float, default=.2)

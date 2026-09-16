@@ -135,6 +135,13 @@ void sync_io_sequence_stop(void)
 }
 void sync_io_sequence_service(void) { assert(!locked); }
 bool sync_io_sequence_gateway_fire(void) { return false; }
+bool sync_io_sequence_gateway_ready(void)
+{
+    if (!hw_config.gateway_input_channel || !hw.gateway_waiting) return false;
+    hw.gateway_waiting = false;
+    ++hw.gateway_ready_count;
+    return true;
+}
 void sync_io_sequence_get_snapshot(sync_io_sequence_snapshot_t *snapshot)
 { assert(!locked); *snapshot = hw; }
 
@@ -203,7 +210,10 @@ static void stop(void)
     assert(status().state == TRIGGER_SEQUENCE_SERVICE_STOPPING);
     assert(trigger_sequence_service_config()->frozen);
     trigger_sequence_service_service();
+    assert(trigger_sequence_service_config()->frozen);
+    assert(trigger_sequence_service_configuration_begin());
     assert(!trigger_sequence_service_config()->frozen);
+    trigger_sequence_service_configuration_end();
     assert(status().state == TRIGGER_SEQUENCE_SERVICE_IDLE && !reserved);
 }
 
@@ -511,6 +521,58 @@ static void test_repeat_limits(void)
     assert(!reserved);
 }
 
+static void test_configuration_transaction_excludes_start(void)
+{
+    setup();
+    assert(trigger_sequence_service_configuration_begin());
+    assert(trigger_sequence_service_start(NULL) == TRIGGER_SEQUENCE_SERVICE_FROZEN);
+    assert(trigger_sequence_service_set_repeat(2u) == TRIGGER_SEQUENCE_SERVICE_FROZEN);
+    assert(!reserved);
+    trigger_sequence_service_configuration_end();
+    assert(trigger_sequence_service_start(NULL) == TRIGGER_SEQUENCE_SERVICE_OK);
+    trigger_sequence_service_service();
+    assert(status().repeat_count == 0u);
+    stop();
+}
+
+static bool gateway_start_guard(void) { return true; }
+
+static void test_gateway_ready_mailbox(void)
+{
+    setup();
+    assert(trigger_sequence_service_set_outputs(
+        3u, 0u, TRIGGER_SEQUENCE_STATUS_NONE, 10u, 0u) ==
+        TRIGGER_SEQUENCE_SERVICE_OK);
+    const trigger_sequence_gateway_config_t gateway = {
+        .enabled = true, .ready_input = 1u, .trigger_output_mask = 8u,
+        .pulse_us = 10u};
+    assert(trigger_sequence_service_set_gateway(&gateway, gateway_start_guard) ==
+           TRIGGER_SEQUENCE_SERVICE_OK);
+    start();
+    trigger_sequence_service_status_t before = status();
+    assert(trigger_sequence_service_gateway_ready(
+        before.run_id, before.generation, before.completed) ==
+        TRIGGER_SEQUENCE_SERVICE_NOT_READY);
+    hw.gateway_waiting = true;
+    hw.gateway_pulse_busy = true;
+    hw.gateway_trigger_count = 1u;
+    trigger_sequence_service_service();
+    before = status();
+    assert(before.gateway_waiting && before.gateway_ready_count == 0u);
+    assert(trigger_sequence_service_gateway_ready(
+        before.run_id, before.generation, before.completed) ==
+        TRIGGER_SEQUENCE_SERVICE_OK);
+    assert(trigger_sequence_service_gateway_ready(
+        before.run_id, before.generation, before.completed) ==
+        TRIGGER_SEQUENCE_SERVICE_BUSY);
+    trigger_sequence_service_service();
+    assert(!status().gateway_waiting && status().gateway_ready_count == 1u);
+    assert(trigger_sequence_service_gateway_ready(
+        before.run_id, before.generation, before.completed) ==
+        TRIGGER_SEQUENCE_SERVICE_NOT_READY);
+    stop();
+}
+
 int main(void)
 {
     test_bus_receipt_lifecycle();
@@ -524,6 +586,8 @@ int main(void)
     test_one_snapshot_mailbox_lifetime();
     test_compact_code_bounds_without_truncation();
     test_repeat_limits();
+    test_configuration_transaction_excludes_start();
+    test_gateway_ready_mailbox();
     puts("sequence service lifecycle passed");
     return 0;
 }

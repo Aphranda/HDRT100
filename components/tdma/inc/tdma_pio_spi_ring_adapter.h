@@ -372,6 +372,12 @@ typedef struct {
     tdma_pio_spi_ring_origin_status_t origin;
 } tdma_pio_spi_ring_adapter_snapshot_t;
 
+typedef enum {
+    TDMA_LOCAL_RETURN_SNAPSHOT_UNAVAILABLE = 0u,
+    TDMA_LOCAL_RETURN_SNAPSHOT_FRESH = 1u,
+    TDMA_LOCAL_RETURN_SNAPSHOT_CACHED = 2u,
+} tdma_local_return_snapshot_quality_t;
+
 typedef struct {
     uint32_t valid;
     uint32_t node_count;
@@ -430,6 +436,9 @@ typedef struct {
     tdma_pio_spi_ring_topology_t topology;
     uint32_t topology_probe_mode;
     volatile uint32_t snapshot_guard;
+    volatile uint32_t local_return_snapshot_guard;
+    uint32_t local_return_snapshot[6];
+    uint32_t local_return_snapshot_valid;
     tdma_pio_spi_ring_role_t role;
     tdma_pio_spi_ring_forwarding_mode_t forwarding_mode;
     uint32_t started;
@@ -647,6 +656,8 @@ bool tdma_pio_spi_ring_adapter_set_local_return_delivery(
     tdma_pio_spi_ring_adapter_t *adapter, bool enabled);
 
 bool tdma_pio_spi_ring_adapter_get_local_return_status(
+    const tdma_pio_spi_ring_adapter_t *adapter, uint32_t values[6]);
+tdma_local_return_snapshot_quality_t tdma_pio_spi_ring_adapter_get_local_return_snapshot(
     const tdma_pio_spi_ring_adapter_t *adapter, uint32_t values[6]);
 void tdma_pio_spi_ring_adapter_set_flight_engine(
     tdma_pio_spi_ring_adapter_t *adapter,

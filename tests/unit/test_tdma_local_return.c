@@ -388,8 +388,19 @@ int main(void)
     assert(tdma_pio_spi_ring_adapter_init(&snapshot_adapter));
     assert(!tdma_pio_spi_ring_adapter_get_local_return_status(NULL, facts));
     assert(!tdma_pio_spi_ring_adapter_get_local_return_status(&snapshot_adapter, NULL));
+    assert(tdma_pio_spi_ring_adapter_get_local_return_snapshot(&snapshot_adapter, facts) ==
+           TDMA_LOCAL_RETURN_SNAPSHOT_FRESH);
     snapshot_adapter.snapshot_guard = 1u;
     assert(!tdma_pio_spi_ring_adapter_get_local_return_status(&snapshot_adapter, facts));
+    for (uint32_t i = 0u; i < 6u; ++i) assert(facts[i] == 0u);
+    for (uint32_t i = 0u; i < 6u; ++i) snapshot_adapter.local_return_snapshot[i] = i + 10u;
+    snapshot_adapter.local_return_snapshot_valid = 1u;
+    assert(tdma_pio_spi_ring_adapter_get_local_return_snapshot(&snapshot_adapter, facts) ==
+           TDMA_LOCAL_RETURN_SNAPSHOT_CACHED);
+    for (uint32_t i = 0u; i < 6u; ++i) assert(facts[i] == i + 10u);
+    snapshot_adapter.local_return_snapshot_guard = 1u;
+    assert(tdma_pio_spi_ring_adapter_get_local_return_snapshot(&snapshot_adapter, facts) ==
+           TDMA_LOCAL_RETURN_SNAPSHOT_UNAVAILABLE);
     for (uint32_t i = 0u; i < 6u; ++i) assert(facts[i] == 0u);
 #if PROJECT_NODE_CAPACITY == 8
     assert(tdma_existing_adapter_tests() == 0);

@@ -9,8 +9,10 @@
 #include "sync_trigger.h"
 #include "pota_types.h"
 #include "trigger_sequence_link.h"
+#include "tdma_pio_spi_ring_adapter.h"
 
 static bool frozen, legacy_busy;
+static bool configuration_gate;
 static bool link_rejected;
 static trigger_sequence_link_status_t link_status;
 static unsigned errors;
@@ -30,6 +32,14 @@ bool distributed_refmem_command_nack(uint32_t node, refmem_command_reason_t reas
 uint32_t ota_crc32_update(uint32_t crc, const uint8_t *data, size_t length)
 { return pota_crc32_update(crc, data, length); }
 bool trigger_sequence_service_is_active(void) { return frozen; }
+bool trigger_sequence_service_configuration_begin(void)
+{
+    if (frozen || configuration_gate) return false;
+    configuration_gate = true;
+    return true;
+}
+void trigger_sequence_service_configuration_end(void)
+{ assert(configuration_gate); configuration_gate = false; }
 bool sync_trigger_sequence_can_start(void) { return !legacy_busy; }
 void sync_trigger_get_vector(trigger_vector_t *vector)
 { memset(vector, 0, sizeof(*vector)); vector->state = legacy_busy ? TRIG_STATE_FAULT : TRIG_STATE_IDLE; }
@@ -45,6 +55,14 @@ bool trigger_sequence_link_configure(const trigger_sequence_link_config_t *confi
 }
 void trigger_sequence_link_get_status(trigger_sequence_link_status_t *status)
 { *status = link_status; }
+tdma_pio_spi_ring_adapter_t *tdma_runtime_owner_get_ring_adapter(void) { return NULL; }
+tdma_local_return_snapshot_quality_t tdma_pio_spi_ring_adapter_get_local_return_snapshot(
+    const tdma_pio_spi_ring_adapter_t *adapter, uint32_t values[6])
+{
+    assert(adapter == NULL);
+    memset(values, 0, 6u * sizeof(*values));
+    return TDMA_LOCAL_RETURN_SNAPSHOT_UNAVAILABLE;
+}
 #include "sequence_role_scpi_handlers.inc"
 
 static const scpi_command_t commands[] = {
@@ -52,6 +70,7 @@ static const scpi_command_t commands[] = {
     {.pattern="READ:SEQuence:NODE:ROLE?", .callback=scpi_sequence_node_role_q},
     {.pattern="CONFigure:SEQuence:LINK", .callback=scpi_sequence_link_config},
     {.pattern="READ:SEQuence:LINK?", .callback=scpi_sequence_link_q},
+    {.pattern="READ:SEQuence:LINK:TRANsport?", .callback=scpi_sequence_link_transport_q},
     SCPI_CMD_LIST_END
 };
 static size_t output(scpi_t *context, const char *data, size_t size)
@@ -88,7 +107,8 @@ int main(void)
                 link_status = (trigger_sequence_link_status_t){
                     .config=config, .phase=8u, .error=0u, .binding_epoch=101u, .model_epoch=102u,
                     .run_id=103u, .generation=104u, .step=7u, .tx_fragments=48u, .rx_messages=16u,
-                    .rejected=2u, .triggers=8u, .ready=8u, .completed=7u, .repeat_count=1u};
+                    .rejected=2u, .triggers=8u, .ready=8u, .completed=7u, .repeat_count=1u,
+                    .exchange_id=105u};
             }
             else if (strncmp(line,"@command_busy",13)==0) {
                 const refmem_command_request_t request = {

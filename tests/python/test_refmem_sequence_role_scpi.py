@@ -40,7 +40,7 @@ def parser(tmp_path_factory):
         "scpi_sequence_params_end"]]
     functions += [production_function(node, name) for name in [
         "sequence_node_config_allowed", "scpi_sequence_node_role", "scpi_sequence_node_role_q",
-        "scpi_sequence_link_config", "scpi_sequence_link_q"]]
+        "scpi_sequence_link_config", "scpi_sequence_link_q", "scpi_sequence_link_transport_q"]]
     (directory / "sequence_role_scpi_handlers.inc").write_text("\n\n".join(functions), encoding="utf-8")
     library = ROOT / "third_party/scpi-parser/libscpi"
     includes = [directory, ROOT / "tests/unit/host_stubs", ROOT / "config", ROOT / "osal/inc",
@@ -135,7 +135,7 @@ def test_link_physical_loopback_alias_and_off_use_real_parser(parser, mode):
                         "READ:SEQ:LINK?", "CONF:SEQ:LINK OFF", "READ:SEQ:LINK?"])
     assert rows[0] == rows[2] == (0, ["1"])
     assert rows[1][0] == rows[3][0] == 0
-    assert len(rows[1][1]) == len(rows[3][1]) == 22
+    assert len(rows[1][1]) == len(rows[3][1]) == 23
     assert rows[1][1][0] == "1"
     assert rows[1][1][14:21] == ["2", "3", "4", "2", "25", "5000", "1"]
     assert rows[3][1][0] == "0"
@@ -176,9 +176,15 @@ def test_link_frozen_or_owner_rejected_preserves_configuration(parser, busy):
     assert rows[5][1][0] == "0"
 
 
-def test_link_query_exact_22_field_wire_order(parser):
+def test_link_query_exact_23_field_wire_order(parser):
     rows = run(parser, ["CONF:SEQ:LINK LOOPBACK,2,3,IN1,OUT4,10,5000,RIS",
                         "@link_status", "READ:SEQ:LINK?"])
     assert rows[1] == (0, ["1", "8", "0", "101", "102", "103", "104", "7",
                            "48", "16", "2", "8", "8", "7", "2", "3", "1", "8",
-                           "10", "5000", "0", "1"])
+                           "10", "5000", "0", "1", "105"])
+
+
+def test_transport_query_unavailable_is_typed_response_not_scpi_error(parser):
+    assert run(parser, ["READ:SEQ:LINK:TRANSPORT?"]) == [
+        (0, ["0", "0", "0", "0", "0", "0", "0"])
+    ]

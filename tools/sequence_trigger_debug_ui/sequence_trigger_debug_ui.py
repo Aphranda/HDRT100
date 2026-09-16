@@ -72,7 +72,7 @@ def build_mode_configuration(mode: str, plan: str, codes: list[int], source: str
                      "SYST:TDMA:FLIGHT:MODE 1",
                      f"CONF:SEQ:LINK LOOPBACK,2,3,{ready_input},OUT4,{pulse_us},{timeout_ms},{edge}",
                      "READ:SEQ:LINK?"]
-    return commands + ["READ:SEQ:REPEAT?", "READ:SEQ:NEXT?", "READ:IO:STAT?"]
+    return commands + ["READ:SEQ:REPEAT?", "TRIG:SEQ:NEXT?", "READ:IO:STAT?"]
 
 
 def build_start_commands(mode: str) -> list[str]:
@@ -133,7 +133,7 @@ def execute_command_batch(commands, exchange, emit, *, monotonic=time.monotonic,
             elif response != "1":
                 raise RuntimeError(f"{command} 未确认执行：{response}")
         if header == "TRIG:STOP":
-            wait_until("READ:SEQ:NEXT?", lambda value: next(csv.reader([value]))[0] == "IDLE")
+            wait_until("TRIG:SEQ:NEXT?", lambda value: next(csv.reader([value]))[0] == "IDLE")
         elif header in RING_ACK_ONLY:
             def ready(value):
                 fields = [int(field) for field in next(csv.reader([value], strict=True))]
@@ -235,7 +235,7 @@ def build_configuration_commands(plan: str, codes: list[int], source: str,
     commands += [f"CONF:SEQ:CODE {state},{code}"
                  for state, code in zip(states, codes)]
     commands += [f"CONF:SEQ:SOUR {source},{edge}",
-                 "READ:SEQ:NEXT?", "READ:IO:STAT?"]
+                 "TRIG:SEQ:NEXT?", "READ:IO:STAT?"]
     return commands
 
 
@@ -322,7 +322,6 @@ class SequenceUi(tk.Tk):
         self.input_lamps: list[tk.Label] = []
         self.output_lamps: list[tk.Label] = []
         self.port_box: ttk.Combobox | None = None
-        self.step_button: ttk.Button | None = None
         self.next_button: ttk.Button | None = None
         self.pulse_entry: ttk.Entry | None = None
         self.out_checkbuttons: list[ttk.Checkbutton] = []
@@ -440,7 +439,7 @@ class SequenceUi(tk.Tk):
         headline = ttk.Frame(self.io_panel)
         headline.pack(fill="x")
         ttk.Label(headline, textvariable=self.switch_position, style="Position.TLabel").pack(side="left")
-        ttk.Button(headline, text="刷新状态", command=lambda: self.command("READ:SEQ:NEXT?")).pack(side="right")
+        ttk.Button(headline, text="刷新状态", command=lambda: self.command("TRIG:SEQ:NEXT?")).pack(side="right")
         levels = ttk.Frame(self.io_panel)
         levels.pack(fill="x", pady=(6, 0))
         for heading, prefix, lamps in (("输入", "IN", self.input_lamps), ("输出", "OUT", self.output_lamps)):
@@ -546,18 +545,14 @@ class SequenceUi(tk.Tk):
         controls.pack(fill="x", pady=(2, 6))
         ttk.Button(controls, text="配置此模式", style="Primary.TButton",
             command=lambda m=mode: self.configure_mode(m)).pack(side="left", padx=(0, 8))
-        actions = [("启动", "TRIG:START")]
-        if not combined:
-            actions += [("软件单步", "TRIG:SEQ:STEP"), ("NEXT", "CONF:SEQ:NEXT")]
+        actions = [("启动", "TRIG:START"), ("下一步", "TRIG:SEQ:NEXT")]
         actions += [("暂停", "TRIG:PAUS"), ("继续", "TRIG:CONT"), ("停止", "TRIG:STOP")]
         for label, command in actions:
             button = ttk.Button(controls, text=label,
                 style="Danger.TButton" if command == "TRIG:STOP" else "TButton",
                 command=lambda c=command, m=mode: self.command_mode(m, c))
             button.pack(side="left", padx=(0, 6))
-            if command == "TRIG:SEQ:STEP":
-                self.step_button = button
-            elif command == "CONF:SEQ:NEXT":
+            if command == "TRIG:SEQ:NEXT":
                 self.next_button = button
         if combined:
             ttk.Label(page, textvariable=self.link_status, wraplength=1040).pack(anchor="w")
@@ -873,21 +868,16 @@ class SequenceUi(tk.Tk):
 
     def update_mode_hint(self) -> None:
         combined = self.run_mode.get() == MODE_RJ45
-        can_step = not combined and self.source.get() == "BUS"
-        for button in (self.step_button, self.next_button):
-            if button is not None:
-                button.state(["!disabled"] if can_step else ["disabled"])
+        can_step = combined or self.source.get() == "BUS"
+        if self.next_button is not None:
+            self.next_button.state(["!disabled"] if can_step else ["disabled"])
         if combined:
-            self.mode_hint.set("RJ45 物理回环：启动首编码 → TDMA → OUT4 触发采样 → READY → TDMA → 下一编码；有限次数完成后停止。")
+            self.mode_hint.set("RJ45 物理回环：启动首编码 → TDMA → OUT4 触发 → SCPI NEXT → TDMA → 下一编码；有限次数完成后停止。")
             return
         if self.source.get() == "BUS":
-            self.mode_hint.set("BUS 软件触发模式：可使用“软件单步”或 NEXT")
-            if self.step_button is not None:
-                self.step_button.state(["!disabled"])
+            self.mode_hint.set("BUS 软件触发模式：使用“下一步”推进")
         else:
             self.mode_hint.set(f"启动先输出首项编码；随后 {self.source.get()} 每个 {self.edge.get()} 沿推进一步。")
-            if self.step_button is not None:
-                self.step_button.state(["disabled"])
 
     def _update_run_mode(self) -> None:
         self._configured_mode = None
@@ -1146,7 +1136,7 @@ class SequenceUi(tk.Tk):
             except (ValueError, IndexError):
                 self.independent_switch_status.set("独立 SP8T：读回失败")
             return
-        if command.upper().startswith("READ:SEQ:NEXT?"):
+        if command.upper().startswith("TRIG:SEQ:NEXT?"):
             try:
                 self.sequence_state.set(next(csv.reader([response]))[0].strip('"'))
                 self.switch_position.set(format_switch_position(response))
@@ -1173,9 +1163,9 @@ class SequenceUi(tk.Tk):
 
     def command(self, command: str) -> None:
         combined = self.run_mode.get() == MODE_RJ45
-        if command in {"TRIG:SEQ:STEP", "CONF:SEQ:NEXT"} and (
-                combined or self.source.get() != "BUS" or self._device_mode == MODE_RJ45):
-            self.log("当前模式由外部事件推进，软件单步和 NEXT 已禁用。")
+        if command == "TRIG:SEQ:NEXT" and (
+                not combined and self.source.get() != "BUS" and self._device_mode != MODE_RJ45):
+            self.log("当前独立模式由外部输入推进，SCPI NEXT 已禁用。")
             return
         if command == "TRIG:START" and (self._configured_mode != self.run_mode.get() or
                                         self._configured_resource != self._resource_key()):
@@ -1186,8 +1176,8 @@ class SequenceUi(tk.Tk):
         if command == "TRIG:STOP" and (device_combined or self._device_mode is None):
             commands.append("SYST:TDMA:RING:STOP")
         commands += ["READ:SEQ:REPEAT?", "READ:IO:STAT?"]
-        if command != "READ:SEQ:NEXT?":
-            commands.append("READ:SEQ:NEXT?")
+        if command != "TRIG:SEQ:NEXT?":
+            commands.append("TRIG:SEQ:NEXT?")
         if device_combined or self._device_mode is None or (command == "TRIG:START" and combined):
             commands.append("READ:SEQ:LINK?")
         self.enqueue_commands(commands)

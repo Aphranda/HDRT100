@@ -7,10 +7,14 @@ needs_docs=0
 needs_firmware_gate=0
 while IFS= read -r path; do
     case "$path" in
-        docs/*|tools/docs_check/*|tools/doc_regression_check.py|.githooks/*|AGENTS.md)
+        docs/*|AGENTS.md)
             needs_docs=1
             ;;
-        CMakeLists.txt|application/*|boards/*|components/*|drivers/*|middleware/*|config/hardware_acceptance/*)
+        tools/docs_check/*|tools/doc_regression_check.py|.githooks/*)
+            needs_docs=1
+            needs_firmware_gate=1
+            ;;
+        CMakeLists.txt|application/*|boards/*|components/*|drivers/*|middleware/*|config/hardware_acceptance/*|tools/*|tests/*)
             needs_firmware_gate=1
             ;;
     esac
@@ -33,12 +37,21 @@ echo "[pre-commit] doc gates OK"
 fi
 
 if [ "$needs_firmware_gate" -eq 1 ]; then
-    echo "[pre-commit] P3 hardware acceptance..."
-    python tools/hardware_acceptance/p3_hardware_acceptance.py check-staged || {
-        echo "P3 hardware acceptance FAILED - run the mandatory build/OTA/P3 gate"
-        exit 1
-    }
-    echo "[pre-commit] P3 hardware acceptance OK"
+    if python tools/hardware_acceptance/sequence_single_board_gate.py covers-staged >/dev/null 2>&1; then
+        echo "[pre-commit] sequence single-board hardware acceptance..."
+        python tools/hardware_acceptance/sequence_single_board_gate.py check-staged || {
+            echo "Sequence single-board acceptance FAILED - run the scoped build/OTA/single-board gate"
+            exit 1
+        }
+        echo "[pre-commit] sequence single-board hardware acceptance OK (not P3)"
+    else
+        echo "[pre-commit] P3 hardware acceptance..."
+        python tools/hardware_acceptance/p3_hardware_acceptance.py check-staged || {
+            echo "P3 hardware acceptance FAILED - staged source is outside the single-board allowlist"
+            exit 1
+        }
+        echo "[pre-commit] P3 hardware acceptance OK"
+    fi
 else
     echo "[pre-commit] P3 hardware gate skipped (no firmware-scope changes)"
 fi

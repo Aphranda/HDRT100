@@ -10,10 +10,11 @@ static trigger_sequence_service_status_t owner;
 static refmem_node_load_table_t loads;
 static refmem_fb_instance_table_t instances;
 static tdma_ring_runtime_snapshot_t ring;
-static uint32_t tick, model_epoch = 7u, fire_count, step_count, stop_count;
+static uint32_t tick, model_epoch = 7u, fire_count, ready_count, step_count, stop_count;
 static bool transport_enabled, transport_accept = true, gateway_accept = true;
 static bool probe_service_guard, probe_config_guard, snapshot_accept = true;
 static bool reconfigure_in_snapshot, model_change_in_snapshot;
+static bool configuration_gate;
 static uint32_t service_guard_calls, config_guard_calls;
 static bool (*guard)(void);
 static const trigger_sequence_link_config_t config = {
@@ -49,6 +50,14 @@ bool tdma_runtime_owner_set_local_return_delivery(bool enabled)
     return true;
 }
 bool trigger_sequence_service_is_active(void) { return owner.state != TRIGGER_SEQUENCE_SERVICE_IDLE; }
+bool trigger_sequence_service_configuration_begin(void)
+{
+    if (configuration_gate || trigger_sequence_service_is_active()) return false;
+    configuration_gate = true;
+    return true;
+}
+void trigger_sequence_service_configuration_end(void)
+{ assert(configuration_gate); configuration_gate = false; }
 void trigger_sequence_service_get_status(trigger_sequence_service_status_t *out)
 {
     if (probe_service_guard) {
@@ -59,9 +68,10 @@ void trigger_sequence_service_get_status(trigger_sequence_service_status_t *out)
     }
     *out = owner;
 }
-trigger_sequence_service_result_t trigger_sequence_service_set_gateway(
+trigger_sequence_service_result_t trigger_sequence_service_set_gateway_locked(
     const trigger_sequence_gateway_config_t *gateway, bool (*start_guard)(void))
 {
+    assert(configuration_gate);
     (void)gateway;
     if (!gateway_accept) return TRIGGER_SEQUENCE_SERVICE_IO_CONFIG;
     if (probe_config_guard) {
@@ -89,6 +99,16 @@ trigger_sequence_service_result_t trigger_sequence_service_gateway_fire(uint32_t
     if (!valid_action(run, generation, step)) return TRIGGER_SEQUENCE_SERVICE_NOT_READY;
     ++fire_count; ++owner.gateway_trigger_count;
     owner.gateway_waiting = owner.gateway_pulse_busy = true;
+    return TRIGGER_SEQUENCE_SERVICE_OK;
+}
+trigger_sequence_service_result_t trigger_sequence_service_gateway_ready(
+    uint32_t run, uint32_t generation, uint32_t step)
+{
+    if (!valid_action(run, generation, step) || !owner.gateway_waiting)
+        return TRIGGER_SEQUENCE_SERVICE_NOT_READY;
+    ++ready_count;
+    ++owner.gateway_ready_count;
+    owner.gateway_waiting = false;
     return TRIGGER_SEQUENCE_SERVICE_OK;
 }
 trigger_sequence_service_result_t trigger_sequence_service_cycle_step(uint32_t run, uint32_t generation, uint32_t step)
@@ -213,6 +233,7 @@ static void workflow(void)
     outgoing(link);
     trigger_sequence_link_message_t message = decode(link);
     assert(message.kind == TRIGGER_SEQUENCE_LINK_LINK_APPLIED && message.step_ordinal == 0u);
+    assert(message.exchange_id != 0u);
     assert(message.source_slot == 2u && message.target_slot == 3u);
     for (uint32_t i = 0u; i < 20u; ++i) trigger_sequence_link_service();
     assert(fire_count == 0u && step_count == 0u); /* Publishing is not physical RX. */
@@ -242,11 +263,30 @@ static void workflow(void)
     receive(link); assert(fire_count == 1u && step_count == 1u);
     receive(next); assert(fire_count == 2u && step_count == 1u);
 }
+static void software_next(void)
+{
+    assert(trigger_sequence_link_next() == TRIGGER_SEQUENCE_SERVICE_NOT_READY);
+    start();
+    fragments_t link, ready;
+    outgoing(link);
+    assert(trigger_sequence_link_next() == TRIGGER_SEQUENCE_SERVICE_NOT_READY);
+    receive(link);
+    assert(fire_count == 1u && owner.gateway_waiting);
+    assert(trigger_sequence_link_next() == TRIGGER_SEQUENCE_SERVICE_OK);
+    assert(ready_count == 1u && owner.gateway_ready_count == 1u);
+    assert(trigger_sequence_link_next() == TRIGGER_SEQUENCE_SERVICE_NOT_READY);
+    owner.gateway_pulse_busy = false;
+    trigger_sequence_link_service();
+    outgoing(ready);
+    assert(decode(ready).kind == TRIGGER_SEQUENCE_LINK_READY_NEXT);
+    receive(ready);
+    assert(step_count == 1u);
+}
 static void stale_messages(void)
 {
     start(); fragments_t f; outgoing(f);
     const trigger_sequence_link_message_t correct = decode(f);
-    for (uint32_t field = 0u; field < 6u; ++field) {
+    for (uint32_t field = 0u; field < 7u; ++field) {
         trigger_sequence_link_message_t bad = correct;
         if (field == 0u) --bad.run_id;
         if (field == 1u) ++bad.generation;
@@ -254,6 +294,7 @@ static void stale_messages(void)
         if (field == 3u) ++bad.step_ordinal;
         if (field == 4u) { bad.source_slot = 3u; bad.target_slot = 2u; }
         if (field == 5u) bad.kind = TRIGGER_SEQUENCE_LINK_READY_NEXT;
+        if (field == 6u) ++bad.exchange_id;
         inject(bad, (uint16_t)(100u + field));
         assert(fire_count == 0u && step_count == 0u);
     }
@@ -274,7 +315,8 @@ static void stopped(void)
 }
 static void paused(void)
 {
-    start(); fragments_t f; outgoing(f); receive(f);
+    start(); fragments_t f, old; outgoing(f); memcpy(old, f, sizeof(old)); receive(f);
+    const uint32_t old_exchange = decode(old).exchange_id;
     owner.state = TRIGGER_SEQUENCE_SERVICE_PAUSED;
     trigger_sequence_link_service(); tick += 1000u;
     trigger_sequence_link_service(); receive(f);
@@ -284,7 +326,9 @@ static void paused(void)
     owner.gateway_waiting = owner.gateway_pulse_busy = false;
     trigger_sequence_link_service(); outgoing(f);
     assert(decode(f).step_ordinal == 0u);
+    assert(decode(f).exchange_id != old_exchange);
     assert(fire_count == 1u);
+    receive(old); assert(fire_count == 1u);
     receive(f); assert(fire_count == 2u && step_count == 0u);
 }
 static void timeout(void)
@@ -295,6 +339,17 @@ static void timeout(void)
     assert(status.error != 0u && stop_count == 1u);
     receive(f); assert(fire_count == 0u && step_count == 0u);
     uint8_t fragment[10]; assert(!trigger_sequence_link_tx_fragment(fragment));
+    owner.state = TRIGGER_SEQUENCE_SERVICE_IDLE;
+    trigger_sequence_link_service();
+    owner.state = TRIGGER_SEQUENCE_SERVICE_READY;
+    ++owner.run_id;
+    owner.accepted = owner.completed = 0u;
+    tick = 102u;
+    trigger_sequence_link_service();
+    fragments_t restarted; outgoing(restarted);
+    assert(decode(restarted).exchange_id != decode(f).exchange_id);
+    receive(f); assert(fire_count == 0u && step_count == 0u);
+    receive(restarted); assert(fire_count == 1u && step_count == 0u);
 }
 static void model_changed(void)
 {
@@ -402,6 +457,7 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[1], "continuous")) repetitions(0u);
     else if (!strcmp(argv[1], "start_view")) start_published_view();
     else if (!strcmp(argv[1], "start_publication")) start_configuration_publication();
+    else if (!strcmp(argv[1], "software_next")) software_next();
     else assert(0);
     puts("sequence link orchestrator passed"); return 0;
 }

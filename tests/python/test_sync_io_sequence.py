@@ -71,10 +71,11 @@ def test_production_hot_load_and_pause_boundaries(tmp_path):
         "produced_receipts", "stop_receipt_dma", "resume_receipt_dma", "logical_index_for_transfer",
         "receive_word", "drain_receipts", "pending_request", "drain_idle_executor", "account_input",
         "mark_initial_status_ready",
-        "gateway_service", "gateway_cancel",
-        "sync_io_sequence_service",
-        "sync_io_sequence_gateway_fire", "sync_io_sequence_software_step",
-        "sync_io_sequence_pause"))
+            "gateway_service", "gateway_cancel",
+            "sync_io_sequence_service",
+            "sync_io_sequence_gateway_fire", "sync_io_sequence_gateway_ready",
+            "sync_io_sequence_software_step",
+            "sync_io_sequence_pause"))
     template = (ROOT / "tests/unit/test_sync_io_sequence_resources.c").read_text(encoding="utf-8")
     harness = tmp_path / "resources.c"
     harness.write_text(template.replace("/* PRODUCTION_FUNCTIONS */", production), encoding="utf-8")

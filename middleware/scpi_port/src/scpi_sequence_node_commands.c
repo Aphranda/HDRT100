@@ -154,15 +154,18 @@ scpi_result_t scpi_sequence_link_q(scpi_t *context)
     SCPI_ResultUInt32(context, s.config.timeout_ms);
     SCPI_ResultBool(context, s.config.falling);
     SCPI_ResultUInt32(context, s.repeat_count);
+    SCPI_ResultUInt32(context, s.exchange_id);
     return SCPI_RES_OK;
 }
 
 scpi_result_t scpi_sequence_link_transport_q(scpi_t *context)
 {
     uint32_t values[6];
-    if (!scpi_sequence_params_end(context) ||
-        !tdma_pio_spi_ring_adapter_get_local_return_status(
-            tdma_runtime_owner_get_ring_adapter(), values)) return SCPI_RES_ERR;
+    if (!scpi_sequence_params_end(context)) return SCPI_RES_ERR;
+    const tdma_local_return_snapshot_quality_t quality =
+        tdma_pio_spi_ring_adapter_get_local_return_snapshot(
+            tdma_runtime_owner_get_ring_adapter(), values);
     for (uint32_t i = 0; i < 6u; ++i) SCPI_ResultUInt32(context, values[i]);
+    SCPI_ResultUInt32(context, (uint32_t)quality);
     return SCPI_RES_OK;
 }

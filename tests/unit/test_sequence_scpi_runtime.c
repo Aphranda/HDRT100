@@ -9,6 +9,7 @@
 #include "scpi_trigger_commands.h"
 #include "sync_io_sequence.h"
 #include "sync_trigger.h"
+#include "trigger_sequence_link.h"
 #include "trigger_sequence_service.h"
 
 static sync_io_sequence_snapshot_t hw;
@@ -72,6 +73,7 @@ static bool physical_step(void)
 bool sync_io_sequence_software_step(void)
 { return !hw_config.input_channel && !hw.paused && hw.ready && physical_step(); }
 bool sync_io_sequence_gateway_fire(void) { return false; }
+bool sync_io_sequence_gateway_ready(void) { return false; }
 void sync_io_sequence_stop(void)
 {
     assert(!locked);
@@ -97,6 +99,11 @@ bool sync_io_sequence_is_armed(void) { return hw.armed; }
 uint32_t sync_io_sequence_read_inputs(void) { return inputs; }
 uint32_t sync_io_sequence_read_outputs(void) { return outputs; }
 uint32_t sync_io_sequence_owned_mask(void) { return hw.output_ownership_mask; }
+
+void trigger_sequence_link_get_status(trigger_sequence_link_status_t *status)
+{ memset(status, 0, sizeof(*status)); }
+trigger_sequence_service_result_t trigger_sequence_link_next(void)
+{ return TRIGGER_SEQUENCE_SERVICE_NOT_READY; }
 
 scpi_result_t scpi_port_result_accepted(scpi_t *context)
 { SCPI_ResultUInt32(context, 1); return SCPI_RES_OK; }

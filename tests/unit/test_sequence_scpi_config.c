@@ -11,8 +11,20 @@ static char output[32768];
 static size_t output_size;
 static unsigned error_count;
 static bool legacy_running;
+static bool configuration_gate;
 
 trigger_sequence_store_t *trigger_sequence_service_config(void) { return &store; }
+bool trigger_sequence_service_configuration_begin(void)
+{
+    if (configuration_gate || store.frozen) return false;
+    configuration_gate = true;
+    return true;
+}
+void trigger_sequence_service_configuration_end(void)
+{
+    assert(configuration_gate);
+    configuration_gate = false;
+}
 
 scpi_result_t scpi_port_result_accepted(scpi_t *context)
 {

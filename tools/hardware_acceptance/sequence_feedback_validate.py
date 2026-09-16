@@ -148,7 +148,7 @@ def bus_loopback(bench: Bench, phase: dict) -> None:
     phase["timing"] = parse_timing(bench.command("READ:SEQ:TIM?"))
     phase["steps"] = []
     for count in range(1, 10):
-        bench.write("CONF:SEQ:NEXT")
+        bench.write("TRIG:SEQ:NEXT")
         code = count % 8
         deadline = time.monotonic() + bench.args.timeout
         high = None
@@ -192,7 +192,7 @@ def dut_only(bench: Bench, phase: dict) -> None:
     phase["timing"] = parse_timing(bench.command("READ:SEQ:TIM?"))
     phase["steps"] = []
     for count in range(1, 10):
-        bench.write("CONF:SEQ:NEXT")
+        bench.write("TRIG:SEQ:NEXT")
         row = bench.wait_state("READY")
         require(validate_sample(row, baseline, count - 1) == count, "DUT NEXT did not advance once")
         io = read_io(bench)

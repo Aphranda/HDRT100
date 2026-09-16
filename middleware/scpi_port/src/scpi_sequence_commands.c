@@ -3,6 +3,7 @@
 #include "scpi_config_commands.h"
 #include "scpi_port_internal.h"
 #include "sync_io_sequence.h"
+#include "trigger_sequence_link.h"
 #include "trigger_sequence_service.h"
 
 static const scpi_choice_def_t sources[] = {
@@ -32,10 +33,13 @@ static scpi_result_t result(scpi_t *context, trigger_sequence_service_result_t c
     return scpi_port_result_accepted(context);
 }
 
-scpi_result_t scpi_sequence_step(scpi_t *context)
+scpi_result_t scpi_sequence_next(scpi_t *context)
 {
     if (!scpi_sequence_params_end(context)) return SCPI_RES_ERR;
-    return result(context, trigger_sequence_service_step());
+    trigger_sequence_link_status_t link;
+    trigger_sequence_link_get_status(&link);
+    return result(context, link.config.enabled ? trigger_sequence_link_next() :
+                  trigger_sequence_service_step());
 }
 
 scpi_result_t scpi_sequence_repeat(scpi_t *context)

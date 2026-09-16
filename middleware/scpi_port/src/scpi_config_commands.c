@@ -100,6 +100,13 @@ static scpi_result_t sequence_result(scpi_t *context, trigger_sequence_result_t 
     return scpi_port_result_accepted(context);
 }
 
+static bool sequence_configuration_begin(scpi_t *context)
+{
+    if (trigger_sequence_service_configuration_begin()) return true;
+    scpi_port_push_exec_error(context, "SEQUENCE_CONFIGURATION_BUSY");
+    return false;
+}
+
 bool scpi_sequence_param_u32(scpi_t *context, uint32_t *value)
 {
     return sequence_read_u32(context, value, true);
@@ -129,8 +136,11 @@ scpi_result_t scpi_config_trigger_parameter(scpi_t *context)
         !sequence_read_u32(context, &params.freq_count, true) ||
         !sequence_read_u32(context, &params.wave_count, true) ||
         !scpi_sequence_params_end(context)) return SCPI_RES_ERR;
-    return sequence_result(context,
-        trigger_sequence_configure(trigger_sequence_service_config(), &params));
+    if (!sequence_configuration_begin(context)) return SCPI_RES_ERR;
+    const trigger_sequence_result_t result =
+        trigger_sequence_configure(trigger_sequence_service_config(), &params);
+    trigger_sequence_service_configuration_end();
+    return sequence_result(context, result);
 }
 
 scpi_result_t scpi_config_trigger_parameter_q(scpi_t *context)
@@ -217,8 +227,11 @@ scpi_result_t scpi_config_sequence(scpi_t *context)
         ++count;
     } while (count < TRIGGER_SEQUENCE_STATE_MAX);
     if (!sequence_end_parameters(context)) return SCPI_RES_ERR;
-    return sequence_result(context,
-        trigger_sequence_write_plan(trigger_sequence_service_config(), id, ids, count));
+    if (!sequence_configuration_begin(context)) return SCPI_RES_ERR;
+    const trigger_sequence_result_t result =
+        trigger_sequence_write_plan(trigger_sequence_service_config(), id, ids, count);
+    trigger_sequence_service_configuration_end();
+    return sequence_result(context, result);
 }
 
 scpi_result_t scpi_config_sequence_q(scpi_t *context)
@@ -294,7 +307,11 @@ scpi_result_t scpi_config_sequence_active(scpi_t *context)
     }
     char id[TRIGGER_SEQUENCE_PLAN_ID_MAX + 1u];
     if (!sequence_read_id(context, id, true) || !sequence_end_parameters(context)) return SCPI_RES_ERR;
-    return sequence_result(context, trigger_sequence_activate(trigger_sequence_service_config(), id));
+    if (!sequence_configuration_begin(context)) return SCPI_RES_ERR;
+    const trigger_sequence_result_t result =
+        trigger_sequence_activate(trigger_sequence_service_config(), id);
+    trigger_sequence_service_configuration_end();
+    return sequence_result(context, result);
 }
 
 scpi_result_t scpi_config_sequence_active_q(scpi_t *context)
