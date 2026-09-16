@@ -22,7 +22,7 @@ def production(directory: Path) -> str:
     end = header.index("} tdma_pio_spi_event_snapshot_t;") + len("} tdma_pio_spi_event_snapshot_t;")
     start = header.rfind("typedef struct {", 0, end)
     snapshot = header[start:end]
-    tap_end = header.index("} tdma_pio_spi_event_live_snapshot_t;") + len("} tdma_pio_spi_event_live_snapshot_t;")
+    tap_end = header.index("} tdma_pio_spi_event_window_t;") + len("} tdma_pio_spi_event_window_t;")
     tap_types = header[header.index("#define TDMA_PIO_SPI_EVENT_TAP_MAX_DELAY_CYCLES"):tap_end]
     tap_storage = source[source.index("/* EVENT_TAP_STORAGE_BEGIN"):source.index("/* EVENT_TAP_STORAGE_END */")]
     tap_storage += source[source.index("/* EVENT_RECOVERY_STORAGE_BEGIN"):source.index("/* EVENT_RECOVERY_STORAGE_END */")]

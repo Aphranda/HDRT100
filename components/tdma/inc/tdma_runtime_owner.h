@@ -49,6 +49,12 @@ bool tdma_runtime_owner_get_event_tap(tdma_pio_spi_event_tap_snapshot_t *snapsho
 /* Retained observer-only recovery diagnostics; no hardware access. */
 bool tdma_runtime_owner_get_event_recovery(tdma_pio_spi_event_recovery_snapshot_t *snapshot);
 bool tdma_runtime_owner_get_event_live_snapshot(tdma_pio_spi_event_live_snapshot_t *snapshot);
+/* One bounded read attempt, no hardware access. expected_observer_epoch == 0
+ * binds the current epoch and requires next_ordinal == 0. A nonzero old epoch
+ * returns EPOCH_CHANGED. All failures leave *out unchanged. */
+tdma_event_window_result_t tdma_runtime_owner_copy_event_history_window(
+    uint32_t expected_observer_epoch, uint64_t next_ordinal,
+    tdma_pio_spi_event_window_t *out);
 
 /* Core0 data-plane facade.  These functions only access the cross-core
  * software FIFO.  Core1 remains the sole PIO/SM/DMA and hardware-FIFO owner. */

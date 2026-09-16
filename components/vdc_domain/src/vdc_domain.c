@@ -2095,9 +2095,9 @@ bool vdc_domain_apply_follower_command(
 
 /* Keep this bounded, infrequent control operation in XIP, including when its
  * caller lives in RAM. The Core1 outer owner guard covers the final commit. */
-bool __attribute__((noinline)) vdc_domain_apply_follower_rate_delta(
+static bool __attribute__((noinline)) vdc_domain_commit_rate_delta(
     vdc_domain_context_t *context,
-    const vdc_dpll_follower_rate_delta_t *command,
+    const vdc_dpll_local_rate_delta_t *command,
     uint64_t local_now_ns)
 {
     if (context == NULL || command == NULL || context->ready == 0u ||
@@ -2125,10 +2125,6 @@ bool __attribute__((noinline)) vdc_domain_apply_follower_rate_delta(
         context->dco.dco_update_seq == 0u ||
         context->dco.dco_update_seq == UINT32_MAX ||
         command->expected_dco_update_seq != context->dco.dco_update_seq ||
-        command->expected_applied_command_seq !=
-            context->control.last_follower_command_seq ||
-        command->command_seq == 0u ||
-        command->command_seq <= context->control.last_follower_command_seq ||
         local_now_ns < context->dco.base_local_tick64 ||
         context->dco.period_adjust_ppb <= -1000000000) {
         return false;
@@ -2164,11 +2160,38 @@ bool __attribute__((noinline)) vdc_domain_apply_follower_rate_delta(
         return false;
     }
 
-    const uint32_t applied_seq = command->command_seq;
-    const uint32_t source_slot_id = command->source_slot_id;
     context->dco = candidate;
-    context->control.last_follower_source_slot_id = source_slot_id;
-    context->control.last_follower_command_seq = applied_seq;
+    return true;
+}
+
+bool __attribute__((noinline)) vdc_domain_apply_local_follow_rate_delta(
+    vdc_domain_context_t *context,
+    const vdc_dpll_local_rate_delta_t *candidate,
+    uint64_t local_now_ns)
+{
+    return vdc_domain_commit_rate_delta(context, candidate, local_now_ns);
+}
+
+bool __attribute__((noinline)) vdc_domain_apply_follower_rate_delta(
+    vdc_domain_context_t *context,
+    const vdc_dpll_follower_rate_delta_t *command,
+    uint64_t local_now_ns)
+{
+    if (context == NULL || command == NULL ||
+        command->expected_applied_command_seq != context->control.last_follower_command_seq ||
+        command->command_seq == 0u ||
+        command->command_seq <= context->control.last_follower_command_seq) return false;
+    const vdc_dpll_local_rate_delta_t candidate = {
+        .source_slot_id = command->source_slot_id, .target_slot_id = command->target_slot_id,
+        .expected_control_generation = command->expected_control_generation,
+        .schedule_crc32 = command->schedule_crc32,
+        .servo_profile_crc32 = command->servo_profile_crc32,
+        .clock_epoch_id = command->clock_epoch_id, .clock_run_id = command->clock_run_id,
+        .expected_dco_update_seq = command->expected_dco_update_seq,
+        .delta_rate_ppb = command->delta_rate_ppb};
+    if (!vdc_domain_commit_rate_delta(context, &candidate, local_now_ns)) return false;
+    context->control.last_follower_source_slot_id = command->source_slot_id;
+    context->control.last_follower_command_seq = command->command_seq;
     context->control.last_follower_control_generation = 0u;
     context->control.last_follower_quality = 0u;
     context->control.last_follower_effective_vdc_time_ns = 0u;

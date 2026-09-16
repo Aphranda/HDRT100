@@ -277,9 +277,55 @@ static uint32_t feedback_sequence_at(uint32_t first, uint8_t index)
     return value;
 }
 
-static bool feedback_schema_matches(uint8_t schema, bool command)
+bool refmem_sync_vdc_receipt_ack_encode(const uint8_t reference[64],
+    uint32_t node_count, uint8_t receipt[64])
 {
-    return command ? schema == REFMEM_VDC_BOUNDARY_COMMAND_SCHEMA :
+    if (reference == NULL || receipt == NULL ||
+        reference[0] != REFMEM_VDC_FEEDBACK_MODEL_SCHEMA) return false;
+    refmem_sync_vdc_feedback_record_t decoded;
+    if (!refmem_sync_vdc_feedback_decode(reference, node_count,
+            reference[1], reference[2], &decoded)) return false;
+    uint8_t wire[64];
+    memcpy(wire, reference, sizeof(wire));
+    wire[0] = REFMEM_VDC_RECEIPT_ACK_SCHEMA;
+    wire[1] = reference[2]; wire[2] = reference[1];
+    wire[3] = REFMEM_VDC_RECEIPT_ACK_FLAGS;
+    feedback_put32(wire + REFMEM_VDC_FEEDBACK_CRC_OFFSET,
+        refmem_sync_vdc_feedback_crc32(wire, REFMEM_VDC_FEEDBACK_CRC_OFFSET));
+    memcpy(receipt, wire, sizeof(wire));
+    return true;
+}
+
+bool refmem_sync_vdc_receipt_ack_restore(const uint8_t receipt[64],
+    uint32_t node_count, uint32_t expected_source, uint32_t expected_target,
+    uint8_t reference[64])
+{
+    if (receipt == NULL || reference == NULL ||
+        !feedback_identity(node_count, expected_source, expected_target) ||
+        receipt[0] != REFMEM_VDC_RECEIPT_ACK_SCHEMA ||
+        receipt[1] != expected_source || receipt[2] != expected_target ||
+        receipt[3] != REFMEM_VDC_RECEIPT_ACK_FLAGS ||
+        feedback_get32(receipt + REFMEM_VDC_FEEDBACK_CRC_OFFSET) !=
+            refmem_sync_vdc_feedback_crc32(receipt, REFMEM_VDC_FEEDBACK_CRC_OFFSET)) return false;
+    uint8_t wire[64];
+    memcpy(wire, receipt, sizeof(wire));
+    wire[0] = REFMEM_VDC_FEEDBACK_MODEL_SCHEMA;
+    wire[1] = (uint8_t)expected_target; wire[2] = (uint8_t)expected_source;
+    wire[3] = REFMEM_VDC_FEEDBACK_MODEL_DOMAIN_FLAGS;
+    feedback_put32(wire + REFMEM_VDC_FEEDBACK_CRC_OFFSET,
+        refmem_sync_vdc_feedback_crc32(wire, REFMEM_VDC_FEEDBACK_CRC_OFFSET));
+    refmem_sync_vdc_feedback_record_t decoded;
+    if (!refmem_sync_vdc_feedback_decode(wire, node_count,
+            expected_target, expected_source, &decoded)) return false;
+    memcpy(reference, wire, sizeof(wire));
+    return true;
+}
+
+/* kind 0: feedback, 1: command, 2: receipt. No cross-type continuation. */
+static bool feedback_schema_matches(uint8_t schema, uint32_t kind)
+{
+    if (kind == 2u) return schema == REFMEM_VDC_RECEIPT_ACK_SCHEMA;
+    return kind == 1u ? schema == REFMEM_VDC_BOUNDARY_COMMAND_SCHEMA :
         (schema == REFMEM_VDC_FEEDBACK_SCHEMA || schema == REFMEM_VDC_FEEDBACK_MODEL_SCHEMA ||
          schema == REFMEM_VDC_FEEDBACK_RATE_SCHEMA);
 }
@@ -289,7 +335,7 @@ static refmem_sync_vdc_feedback_result_t feedback_typed_push(
     uint32_t source_slot, uint32_t target_slot, uint32_t node_count,
     uint32_t transport_sequence, uint8_t fragment_index, uint8_t fragment_count,
     const uint8_t data[REFMEM_VDC_FEEDBACK_FRAGMENT_SIZE], uint32_t now_ms,
-    uint8_t complete_wire[REFMEM_VDC_FEEDBACK_RECORD_SIZE], bool command)
+    uint8_t complete_wire[REFMEM_VDC_FEEDBACK_RECORD_SIZE], uint32_t kind)
 {
     if (assembly == NULL) return REFMEM_VDC_FEEDBACK_BAD_ARGUMENT;
     const bool expired = refmem_sync_vdc_feedback_expire(assembly, now_ms);
@@ -303,9 +349,9 @@ static refmem_sync_vdc_feedback_result_t feedback_typed_push(
     else if (fragment_count != REFMEM_VDC_FEEDBACK_FRAGMENT_COUNT ||
              fragment_index >= REFMEM_VDC_FEEDBACK_FRAGMENT_COUNT)
         rejected = REFMEM_VDC_FEEDBACK_BAD_FRAGMENT;
-    else if ((fragment_index == 0u && !feedback_schema_matches(data[0], command)) ||
+    else if ((fragment_index == 0u && !feedback_schema_matches(data[0], kind)) ||
         ((assembly->state & REFMEM_VDC_FEEDBACK_ASSEMBLY_ACTIVE) != 0u &&
-         !feedback_schema_matches(assembly->payload[0], command)))
+         !feedback_schema_matches(assembly->payload[0], kind)))
         rejected = REFMEM_VDC_FEEDBACK_BAD_RECORD;
     if (rejected != REFMEM_VDC_FEEDBACK_PROGRESS) {
         feedback_cancel(assembly);
@@ -355,8 +401,12 @@ static refmem_sync_vdc_feedback_result_t feedback_typed_push(
     union {
         refmem_sync_vdc_feedback_record_t feedback;
         refmem_sync_vdc_boundary_command_t command;
+        uint8_t reference[64];
     } decoded;
-    const bool valid = command
+    const bool valid = kind == 2u
+        ? refmem_sync_vdc_receipt_ack_restore(assembly->payload, node_count,
+            source_slot, target_slot, decoded.reference)
+        : kind == 1u
         ? refmem_sync_vdc_boundary_command_decode(assembly->payload, node_count,
             source_slot, target_slot, &decoded.command)
         : refmem_sync_vdc_feedback_decode(assembly->payload, node_count,
@@ -378,7 +428,7 @@ refmem_sync_vdc_feedback_result_t refmem_sync_vdc_feedback_push(
     uint8_t complete_wire[REFMEM_VDC_FEEDBACK_RECORD_SIZE])
 {
     return feedback_typed_push(assembly, source_slot, target_slot, node_count,
-        transport_sequence, fragment_index, fragment_count, data, now_ms, complete_wire, false);
+        transport_sequence, fragment_index, fragment_count, data, now_ms, complete_wire, 0u);
 }
 
 refmem_sync_vdc_feedback_result_t refmem_sync_vdc_boundary_command_push(
@@ -389,7 +439,18 @@ refmem_sync_vdc_feedback_result_t refmem_sync_vdc_boundary_command_push(
     uint8_t complete_wire[REFMEM_VDC_FEEDBACK_RECORD_SIZE])
 {
     return feedback_typed_push(assembly, source_slot, target_slot, node_count,
-        transport_sequence, fragment_index, fragment_count, data, now_ms, complete_wire, true);
+        transport_sequence, fragment_index, fragment_count, data, now_ms, complete_wire, 1u);
+}
+
+refmem_sync_vdc_feedback_result_t refmem_sync_vdc_receipt_ack_push(
+    refmem_sync_vdc_feedback_assembly_t *assembly,
+    uint32_t source_slot, uint32_t target_slot, uint32_t node_count,
+    uint32_t transport_sequence, uint8_t fragment_index, uint8_t fragment_count,
+    const uint8_t data[REFMEM_VDC_FEEDBACK_FRAGMENT_SIZE], uint32_t now_ms,
+    uint8_t complete_wire[REFMEM_VDC_FEEDBACK_RECORD_SIZE])
+{
+    return feedback_typed_push(assembly, source_slot, target_slot, node_count,
+        transport_sequence, fragment_index, fragment_count, data, now_ms, complete_wire, 2u);
 }
 
 refmem_sync_vdc_feedback_order_t refmem_sync_vdc_feedback_compare(

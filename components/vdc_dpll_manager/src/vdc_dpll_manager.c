@@ -1830,6 +1830,8 @@ void vdc_dpll_manager_set_dpll_ready(bool ready)
  * service moves the following aligned DMA BSS region by a whole page. */
 static __attribute__((noinline)) void vdc_dpll_manager_consume_follower_command(void)
 {
+    bool local_follow;
+    if (!vdc_dpll_manager_try_local_follow_enabled(&local_follow) || local_follow) return;
     /* This function runs only at the Core1 DPLL owner boundary, after role
      * activation and before the next evidence beat. The owner needs only the
      * active control profile and local slot; copying the complete domain here
@@ -3163,6 +3165,24 @@ void vdc_dpll_manager_get_dco_consumer_status(
     memset(status, 0, sizeof(*status));
 }
 
+bool vdc_dpll_manager_copy_local_follow_path(uint32_t local, uint32_t reference,
+    uint32_t schedule_crc32, uint32_t *delay_ns, uint32_t *table_crc32)
+{
+    if (delay_ns == NULL || table_crc32 == NULL) return false;
+    const uint32_t guard = __atomic_load_n(&s_published_snapshot_guard, __ATOMIC_ACQUIRE);
+    if (guard & 1u) return false;
+    const vdc_path_delay_table_t *table = &s_published_snapshot.path_delay;
+    vdc_path_delay_entry_t entry;
+    const bool valid = s_published_snapshot_valid && schedule_crc32 &&
+        s_published_snapshot.schedule.schedule_crc32 == schedule_crc32 &&
+        table->schedule_crc32 == schedule_crc32 &&
+        vdc_domain_active_observation_path_delay_lookup(table, local, reference, &entry);
+    __atomic_thread_fence(__ATOMIC_ACQ_REL);
+    if (!valid || guard != __atomic_load_n(&s_published_snapshot_guard, __ATOMIC_ACQUIRE)) return false;
+    *delay_ns = entry.delay_ns; *table_crc32 = entry.cal_crc32;
+    return true;
+}
+
 bool VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_dpll_manager_get_snapshot)(
     vdc_domain_snapshot_t *snapshot)
 {
@@ -3437,9 +3457,10 @@ bool vdc_dpll_manager_dpll_capture_arm(void)
 {
     bool accepted = false;
     osal_critical_enter();
-    bool automatic;
+    bool automatic, local_follow;
     if (!s_dpll_capture_armed &&
-        vdc_dpll_manager_try_boundary_auto_enabled(&automatic)) {
+        vdc_dpll_manager_try_boundary_auto_enabled(&automatic) &&
+        vdc_dpll_manager_try_local_follow_enabled(&local_follow)) {
         memset(s_dpll_capture_records, 0, sizeof(s_dpll_capture_records));
         s_dpll_capture_complete = false;
         s_dpll_capture_count = 0u;
@@ -3449,7 +3470,7 @@ bool vdc_dpll_manager_dpll_capture_arm(void)
         s_dpll_capture_start_ms = 0u;
         s_dpll_capture_end_ms = 0u;
         s_vdc_follower_capture_kind_hint = 0u;
-        s_dpll_capture_auto_only = automatic;
+        s_dpll_capture_auto_only = automatic || local_follow;
         s_dpll_capture_armed = true;
         accepted = true;
     }
@@ -3482,6 +3503,58 @@ void vdc_dpll_manager_get_dpll_capture_status(
     status->start_ms = s_dpll_capture_start_ms;
     status->end_ms = s_dpll_capture_end_ms;
     osal_critical_exit();
+}
+
+bool vdc_dpll_manager_dpll_capture_read(uint32_t offset, uint8_t *data,
+    uint32_t size, uint32_t *total_bytes, uint32_t *file_crc32)
+{
+    tdma_ring_runtime_snapshot_t ring;
+    vdc_dpll_manager_dpll_capture_header_t header;
+    if (data == NULL || total_bytes == NULL || file_crc32 == NULL ||
+        size == 0u || size > VDC_DPLL_MANAGER_DPLL_CAPTURE_READ_MAX_BYTES ||
+        !tdma_runtime_owner_get_ring_snapshot(&ring) || ring.enabled != 0u ||
+        ring.adapter_started != 0u || ring.config_seq != ring.applied_config_seq) {
+        return false;
+    }
+    const uint32_t stopped_config = ring.config_seq;
+    /* Core0 SCPI is the sole serialized caller of capture ARM/STOP/read.
+     * Acknowledged STOP retires Core1's producer, and !armed prevents further
+     * writes. CRC runs on Core0 without holding the cross-core OSAL lock. */
+    if (s_dpll_capture_armed || !s_dpll_capture_complete ||
+        s_dpll_capture_count > VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES) {
+        return false;
+    }
+    const uint32_t payload_bytes = s_dpll_capture_count *
+        (uint32_t)sizeof(vdc_dpll_manager_dpll_capture_record_t);
+    const uint32_t total = (uint32_t)sizeof(header) + payload_bytes;
+    if (offset > total || size > total - offset) return false;
+    header.magic = VDC_DPLL_MANAGER_DPLL_CAPTURE_MAGIC;
+    header.schema = VDC_DPLL_MANAGER_DPLL_CAPTURE_SCHEMA;
+    header.record_size = (uint16_t)sizeof(vdc_dpll_manager_dpll_capture_record_t);
+    header.record_count = s_dpll_capture_count;
+    header.dropped_count = s_dpll_capture_dropped;
+    header.start_ms = s_dpll_capture_start_ms;
+    header.end_ms = s_dpll_capture_end_ms;
+    header.payload_crc32 = ota_crc32_compute((const uint8_t *)s_dpll_capture_records,
+                                           payload_bytes);
+    uint32_t crc = ota_crc32_update(0u, (const uint8_t *)&header, sizeof(header));
+    crc = ota_crc32_update(crc, (const uint8_t *)s_dpll_capture_records, payload_bytes);
+    if (!tdma_runtime_owner_get_ring_snapshot(&ring) || ring.enabled != 0u ||
+        ring.adapter_started != 0u || ring.config_seq != stopped_config ||
+        ring.applied_config_seq != stopped_config) return false;
+    uint32_t copied = 0u;
+    if (offset < sizeof(header)) {
+        copied = (uint32_t)sizeof(header) - offset;
+        if (copied > size) copied = size;
+        memcpy(data, (const uint8_t *)&header + offset, copied);
+    }
+    if (copied < size) {
+        memcpy(data + copied, (const uint8_t *)s_dpll_capture_records +
+               offset + copied - sizeof(header), size - copied);
+    }
+    *total_bytes = total;
+    *file_crc32 = crc;
+    return true;
 }
 
 bool vdc_dpll_manager_dpll_capture_save(uint32_t *job_id,

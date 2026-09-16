@@ -83,7 +83,7 @@ def bridge_executable(tmp_path_factory):
                                   "bounded-rollover", "unavailable", "limits",
                                   "diagnostic-success", "diagnostic-rejection",
                                   "diagnostic-rollover", "diagnostic-uninitialized",
-                                  "sticky-badwrite"])
+                                  "sticky-badwrite", "tight-bracket", "preempted-bracket"])
 def test_actual_device_bridge(bridge_executable, case):
     result = subprocess.run([str(bridge_executable["device"]), case], capture_output=True,
                             text=True, timeout=10)
@@ -140,6 +140,7 @@ HARNESS = r'''
 #define CHECK(c) do { if (!(c)) { fprintf(stderr,"FAIL line %d: %s\n",__LINE__,#c); return 1; } } while(0)
 timer_t banks[2]; clocks_t clocks; pll_t pll; ticks_t ticks; xosc_t xosc; syscfg_t syscfg;
 static unsigned timer_reads[2], clock_reads, mutation, trigger_bank, trigger_read;
+static unsigned clock_reads_at_local_sample;
 static uint32_t hz;
 static bool stop_raw;
 static void mutate(unsigned code) {
@@ -192,10 +193,12 @@ static void mutate(unsigned code) {
 }
 timer_t *fake_timer(unsigned bank) {
     ++timer_reads[bank];
+    if (bank==0 && timer_reads[0]==6) clock_reads_at_local_sample=clock_reads;
     if (bank==1 && !stop_raw) ++banks[1].timerawl;
     if (bank==trigger_bank && timer_reads[bank]==trigger_read) {
         if (mutation==100) { ++banks[bank].timerawh; banks[bank].timerawl=0; }
         else if (mutation==101) banks[bank].timerawl=0;
+        else if (mutation==102) banks[1].timerawl+=100000;
         else mutate(mutation);
     }
     return &banks[bank];
@@ -206,7 +209,7 @@ static void clean(void) {
     memset(&pll,0,sizeof(pll)); memset(&ticks,0,sizeof(ticks));
     memset(&xosc,0,sizeof(xosc)); memset(&syscfg,0,sizeof(syscfg));
     memset(timer_reads,0,sizeof(timer_reads)); clock_reads=0;
-    mutation=trigger_bank=trigger_read=0; stop_raw=false;
+    mutation=trigger_bank=trigger_read=clock_reads_at_local_sample=0; stop_raw=false;
     hz=125000000; banks[0].timerawl=1234567; banks[1].timerawl=1000;
     banks[1].source=1; banks[0].dbgpause=banks[1].dbgpause=6;
     clocks.clk[4]=(clock_slice_t){2,65536,4};
@@ -222,7 +225,7 @@ static int rejects(uint32_t expected) {
     memset(&out,0xA5,sizeof(out)); memcpy(&before,&out,sizeof(out));
     CHECK(!vdc_timestamp_clock_try_read_bridge(expected,&out));
     CHECK(memcmp(&before,&out,sizeof(out))==0);
-    CHECK(timer_reads[0]<=11 && timer_reads[1]<=20 && clock_reads<=6);
+    CHECK(timer_reads[0]<=11 && timer_reads[1]<=12 && clock_reads<=2);
     return 0;
 }
 int main(int argc,char **argv) {
@@ -247,11 +250,24 @@ int main(int argc,char **argv) {
             s_vdc_timestamp_clock_tick_hz=hz;
             vdc_timestamp_clock_bridge_t out;
             CHECK(vdc_timestamp_clock_try_read_bridge(hz,&out));
-            CHECK(out.raw_before==1007 && out.raw_after==1014);
+            CHECK(out.raw_before==1005 && out.raw_after==1008);
             CHECK(out.local_ns==1234567000 && out.tick_hz==hz);
-            CHECK(timer_reads[0]==11 && timer_reads[1]==20 && clock_reads==6);
+            CHECK(timer_reads[0]==11 && timer_reads[1]==12 && clock_reads==2);
             CHECK(banks[0].pause==0 && banks[1].pause==0 && banks[1].source==1);
         }
+    } else if (!strcmp(argv[1],"tight-bracket")) {
+        vdc_timestamp_clock_bridge_t out;
+        CHECK(vdc_timestamp_clock_try_read_bridge(hz,&out));
+        /* Clock/config validation belongs outside the raw timestamp bracket. */
+        CHECK(clock_reads_at_local_sample==1);
+        CHECK(clock_reads==2);
+        CHECK(out.raw_after-out.raw_before==3);
+    } else if (!strcmp(argv[1],"preempted-bracket")) {
+        trigger_bank=0; trigger_read=6; mutation=102;
+        vdc_timestamp_clock_bridge_t out;
+        CHECK(vdc_timestamp_clock_try_read_bridge(hz,&out));
+        /* A delay inside sampling is real uncertainty and must not be clipped. */
+        CHECK(out.raw_after-out.raw_before>=100000);
     } else if (!strcmp(argv[1],"unsupported-config")) {
         for (unsigned code=1; code<=40; ++code) {
             if (code==33 || code==34 || code==39) continue;
@@ -263,12 +279,22 @@ int main(int argc,char **argv) {
             CHECK(rejects(125000000)==0);
         }
     } else if (!strcmp(argv[1],"bounded-rollover")) {
-        const unsigned cases[][3]={{0,6,100},{1,7,100},{1,14,100},{1,11,100},{1,11,101}};
+        /* Each hi/lo/hi must be coherent, including rollover between the
+         * two raw triplets. Reset/backward raw samples also reject. */
+        const unsigned cases[][3]={
+            {0,6,100},{0,7,100},
+            {1,5,100},{1,6,100},{1,7,100},{1,8,100},{1,9,100},
+            {1,7,101},{1,8,101}};
         for (unsigned i=0; i<sizeof(cases)/sizeof(cases[0]); ++i) {
             clean(); trigger_bank=cases[i][0]; trigger_read=cases[i][1]; mutation=cases[i][2];
             CHECK(rejects(hz)==0);
         }
         clean(); stop_raw=true; CHECK(rejects(hz)==0);
+        /* A rollover before the first high word is a coherent new epoch. */
+        clean(); trigger_bank=1; trigger_read=4; mutation=100;
+        vdc_timestamp_clock_bridge_t out;
+        CHECK(vdc_timestamp_clock_try_read_bridge(hz,&out));
+        CHECK((out.raw_before>>32)==1 && (out.raw_after>>32)==1);
     } else if (!strcmp(argv[1],"unavailable")) {
         s_vdc_timestamp_clock_initialized=s_vdc_timestamp_clock_ready=false;
         CHECK(rejects(hz)==0);

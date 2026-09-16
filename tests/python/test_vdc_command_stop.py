@@ -68,6 +68,9 @@ static uint32_t s_vdc_follower_last_applied_seq, s_vdc_follower_last_generation;
 static uint32_t s_vdc_follower_last_epoch_id, s_vdc_follower_last_run_id;
 static uint32_t s_vdc_follower_capture_kind_hint;
 static uint64_t now_ns = 11000;
+/* These legacy transport scenarios run with LOCAL_FOLLOW disabled. */
+bool vdc_dpll_manager_try_local_follow_enabled(bool *out)
+{ *out = false; return true; }
 static uint32_t starts, stops;
 static refmem_realtime_tdma_service_t s_refmem_realtime_tdma;
 static refmem_sync_context_t s_refmem_sync_context;

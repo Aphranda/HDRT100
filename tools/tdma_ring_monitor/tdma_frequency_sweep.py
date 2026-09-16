@@ -142,16 +142,16 @@ def snapshot(board: Board, timeout_s: float) -> dict:
         identity = parse_idn_response(command(ser, "*IDN?", timeout_s))
         if identity.address != board.address:
             raise RuntimeError(f"{board.port}: identity changed to {identity.address}")
-        tdma_values = parse_ints(command(
-            ser, "SYSTem:REFMEM:SYNC:TDMA:STATus?", timeout_s))
-        phys_values = parse_ints(command(
-            ser, "SYSTem:SYNC:VDC:TDMA:PHYS?", timeout_s))
+        tdma_raw = command(ser, "SYSTem:REFMEM:SYNC:TDMA:STATus?", timeout_s)
+        phys_raw = command(ser, "SYSTem:SYNC:VDC:TDMA:PHYS?", timeout_s)
+        tdma_values = parse_ints(tdma_raw)
+        phys_values = parse_ints(phys_raw)
     tdma = {name: tdma_values[index] if index < len(tdma_values) else -1
             for index, name in enumerate(TDMA_FIELDS)}
     phys = {name: phys_values[index] if index < len(phys_values) else -1
             for index, name in enumerate(PHYS_FIELDS)}
     return {"address": board.address, "port": board.port, "build": board.build,
-            "tdma": tdma, "phys": phys}
+            "tdma": tdma, "phys": phys, "raw": {"tdma": tdma_raw, "phys": phys_raw}}
 
 
 def snapshot_pair(a: Board, b: Board, timeout_s: float) -> tuple[dict, dict]:

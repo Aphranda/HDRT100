@@ -105,6 +105,7 @@ bool vdc_dpll_manager_try_boundary_auto_enabled(bool *out) {
     if(!mode_available) return false;
     *out=auto_requested; return true;
 }
+bool vdc_dpll_manager_try_local_follow_enabled(bool *out) { *out=false;return true; }
 static void osal_critical_enter(void) {}
 static void osal_critical_exit(void) {}
 #define VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_MASTER 1u
@@ -121,6 +122,7 @@ static uint32_t board_uptime_ms(void) { return 100u; }
 
 CASES = r'''
 int main(int argc, char **argv) {
+    (void)vdc_boundary_capture_local_core1;
     assert(argc==2);
     refmem_sync_vdc_boundary_command_t c = {.target_arm_epoch=0x123456789abcdefULL,
         .basis_source_output_ns_lo=12345678900ULL,.control_session=99,.command_seq=1,

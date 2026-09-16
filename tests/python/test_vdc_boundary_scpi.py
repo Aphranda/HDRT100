@@ -15,7 +15,8 @@ def executable(tmp_path_factory):
     definitions = "\n".join(ingress_definition(source, name) for name in (
         "scpi_feedback_record", "scpi_cmd_vdc_feedback_probe", "scpi_cmd_vdc_feedback_auto",
         "scpi_cmd_vdc_feedback_auto_q", "scpi_cmd_vdc_feedback_reference",
-        "scpi_cmd_vdc_feedback_reference_q", "scpi_cmd_vdc_feedback_boundary_q"))
+        "scpi_cmd_vdc_feedback_reference_q", "scpi_cmd_vdc_feedback_boundary_q",
+        "scpi_cmd_vdc_feedback_local_follow", "scpi_cmd_vdc_feedback_local_follow_q"))
     return compile_executable(tmp_path_factory.mktemp("boundary-scpi"), "boundary_scpi",
         PREAMBLE + definitions + CASES,
         [ROOT / "components/distributed_refmem/src/refmem_sync_vdc_feedback.c"])
@@ -37,6 +38,10 @@ def test_auto_requires_explicit_boolean_and_owner_acceptance(executable):
 
 def test_reference_requires_explicit_owner_ack_and_busy_query_fails(executable):
     run(executable, "reference")
+
+
+def test_local_follow_boolean_owner_refusal_and_busy_readback(executable):
+    run(executable, "local")
 
 
 @pytest.mark.parametrize("case", ["missing", "enabled", "adapter", "unapplied", "busy",
@@ -72,6 +77,8 @@ def test_commands_registered_once():
         ("SYSTem:VDC:FEEDback:REFerence", "scpi_cmd_vdc_feedback_reference"),
         ("SYSTem:VDC:FEEDback:REFerence?", "scpi_cmd_vdc_feedback_reference_q"),
         ("SYSTem:VDC:FEEDback:BOUNDary?", "scpi_cmd_vdc_feedback_boundary_q"),
+        ("SYSTem:VDC:FEEDback:LOCALfollow", "scpi_cmd_vdc_feedback_local_follow"),
+        ("SYSTem:VDC:FEEDback:LOCALfollow?", "scpi_cmd_vdc_feedback_local_follow_q"),
     ):
         assert header.count(f'.pattern = "{pattern}", .callback = {callback}') == 1
         assert f"scpi_result_t {callback}(scpi_t *context);" in header
@@ -110,6 +117,10 @@ bool vdc_dpll_manager_set_reference_publish(bool enabled)
 { ++setters;if(!setter_ok)return false;reference_enabled=enabled;return true; }
 bool vdc_dpll_manager_try_reference_publish_enabled(bool *enabled)
 { if(!available)return false;*enabled=reference_enabled;return true; }
+bool vdc_dpll_manager_set_local_follow(bool enabled)
+{ ++setters;if(!setter_ok)return false;reference_enabled=enabled;return true; }
+bool vdc_dpll_manager_try_local_follow_enabled(bool *enabled)
+{ if(!available)return false;*enabled=reference_enabled;return true; }
 bool vdc_dpll_manager_get_boundary_status(uint32_t value,vdc_dpll_boundary_status_t *out)
 { ++getters;if(!available||value>=4)return false;*out=status;return true; }
 static bool tdma_runtime_owner_get_ring_snapshot(tdma_ring_runtime_snapshot_t *out)
@@ -139,6 +150,23 @@ CASES = r'''
 int main(int argc,char **argv)
 {
     assert(argc==2);scenario=argv[1];scpi_t ctx=0;
+    if(!strcmp(scenario,"local")) {
+        parameter_ok=false;slot=1;
+        assert(scpi_cmd_vdc_feedback_local_follow(&ctx)==SCPI_RES_ERR && !setters);
+        parameter_ok=true;slot=2;
+        assert(scpi_cmd_vdc_feedback_local_follow(&ctx)==SCPI_RES_ERR && !setters);
+        slot=1;setter_ok=false;
+        assert(scpi_cmd_vdc_feedback_local_follow(&ctx)==SCPI_RES_ERR && !reference_enabled);
+        setter_ok=true;
+        assert(scpi_cmd_vdc_feedback_local_follow(&ctx)==SCPI_RES_OK && reference_enabled);
+        count=texts=0;available=false;
+        assert(scpi_cmd_vdc_feedback_local_follow_q(&ctx)==SCPI_RES_ERR && !count);
+        available=true;
+        assert(scpi_cmd_vdc_feedback_local_follow_q(&ctx)==SCPI_RES_OK && values[0]==1);
+        slot=0;
+        assert(scpi_cmd_vdc_feedback_local_follow(&ctx)==SCPI_RES_OK && !reference_enabled);
+        assert(!reads && !getters);return 0;
+    }
     if(!strcmp(scenario,"reference")) {
         parameter_ok=false;slot=1;
         assert(scpi_cmd_vdc_feedback_reference(&ctx)==SCPI_RES_ERR && !setters && !count && !texts);

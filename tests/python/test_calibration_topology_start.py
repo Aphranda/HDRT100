@@ -6,12 +6,20 @@ import json
 import pytest
 
 from tools.calibration_ring_validate import calibration_ring_topology as topology
-from tools.tdma_ring_monitor.tdma_field_parse import RUNTIME_FIELDS
+from tools.tdma_ring_monitor.tdma_field_parse import FIELDS as TDMA_FIELDS, PHYS_FIELDS, RUNTIME_FIELDS
 from tools.tdma_ring_monitor.tdma_start_ring import Board
 
 
 DRIVER = Board("P", "A", "", "BUILD")
 RECEIVER = Board("Q", "B", "", "BUILD")
+
+
+def snapshot_with_raw(board, tdma, phys):
+    return {"address": board.address, "port": board.port, "build": board.build,
+            "tdma": tdma, "phys": phys,
+            "raw": {plane: ",".join(str(values[name]) for name in fields)
+                    for plane, fields, values in (("tdma", TDMA_FIELDS, tdma),
+                                                   ("phys", PHYS_FIELDS, phys))}}
 
 
 def options(tmp_path):
@@ -32,6 +40,7 @@ class Bench:
         self.snapshots = 0
         self.hook = None
         self.trains = []
+        self.profile_applies = defaultdict(int)
         for board, slot in ((DRIVER, 0), (RECEIVER, 1)):
             state = dict.fromkeys(RUNTIME_FIELDS, 0)
             state.update(ring_node_count=2, ring_local_slot_id=slot,
@@ -75,8 +84,16 @@ class Bench:
             if isinstance(outcome, Exception):
                 raise outcome
             return outcome
+        if command == "SYSTem:TDMA:OPMode?":
+            profile = "7,10000000,1000000,4096,0,123"
+            return f"{profile},{profile},1,{self.profile_applies[board.address]},0,0"
+        if command == "SYSTem:TDMA:OPMode:APPLy":
+            self.profile_applies[board.address] += 1
+            return "7,10000000,1000000,4096,0,123"
         if command.startswith("SYSTem:TDMA:OPMode"):
             return "7,10000000,1000000,4096,0,123"
+        if command.startswith("CALibration:TOPology:PROBe 1,"):
+            return command.split()[1]
         if command == "CALibration:TOPology:PROBe 0":
             return "0,0"
         if command.startswith("CALibration:"):
@@ -89,13 +106,16 @@ class Bench:
         # Counters may rise even when START was refused: activity alone must
         # never turn an unknown command acknowledgment into an accepted pair.
         count = self.snapshots * 100
-        state = dict(self.states[board.address])
+        state = dict.fromkeys(TDMA_FIELDS, 0)
+        state.update(self.states[board.address])
         state.update(ring_adapter_rx_count=count, ring_adapter_tx_count=count)
-        return {"tdma": state, "phys": dict(rx_dma_produced_words=count,
-            rx_edge_count=count, rx_magic_fail_count=0)}
+        phys = dict.fromkeys(PHYS_FIELDS, 0)
+        phys.update(rx_dma_produced_words=count, rx_edge_count=count)
+        return snapshot_with_raw(board, state, phys)
 
     def install(self, monkeypatch):
         monkeypatch.setattr(topology, "board_command", self.command)
+        monkeypatch.setattr(topology.stopped_profile, "board_command", self.command)
         monkeypatch.setattr(topology, "snapshot", self.snapshot)
         monkeypatch.setattr(topology, "wait_started", lambda board, args: dict(self.states[board.address]))
         monkeypatch.setattr(topology, "close_persistent_connections", lambda: None)
@@ -260,6 +280,7 @@ def test_main_activity_from_new_lifetime_never_forms_edge(monkeypatch, tmp_path,
         result = bench.snapshot(board, timeout)
         if bench.snapshots == 2:
             result["tdma"][key] += 1
+            result = snapshot_with_raw(board, result["tdma"], result["phys"])
         return result
     monkeypatch.setattr(topology, "snapshot", changed)
     monkeypatch.setattr(topology, "parse_args", lambda: options(tmp_path))
@@ -306,3 +327,179 @@ def test_successful_main_retains_ack_actions_and_exact_probe_readback(monkeypatc
     assert report["passed"] and len(report["pair_actions"]) == 2
     assert all(row["passed"] for row in report["pair_actions"])
     assert all(row["probe_response"] == "0,0" for row in report["cleanup"])
+
+
+@pytest.mark.parametrize("outcome", ["service_busy", "entry_busy", "unknown", "lost_success"])
+def test_profile_uses_attributed_refusal_and_preserves_each_attempt(monkeypatch, tmp_path, outcome):
+    from test_calibration_stopped_opmode import Bench as ProfileBench, PROFILE
+
+    bench = ProfileBench((outcome, "success"))
+    bench.active = (0,) * 6
+    bench.apply_count = bench.reject_count = bench.last = 0
+    calls = []
+
+    def command(board, text, args):
+        calls.append(text)
+        if text == "SYSTem:TDMA:RING:STOP":
+            return "OK"
+        if text == "SYSTem:TDMA:OPMode:STAGe 7":
+            return ",".join(map(str, PROFILE))
+        if text == "CALibration:TOPology:PROBe 1,10":
+            return "1,10"
+        return bench.command(board, text, args)
+
+    monkeypatch.setattr(topology.stopped_profile, "board_command", command)
+    args = options(tmp_path)
+    before_args = vars(args).copy()
+    result = topology.apply_profile(DRIVER, args)
+    attempts = [row for row in result["actions"] if row["command"].endswith(":APPLy")]
+    accepted = outcome in {"service_busy", "entry_busy"}
+    assert result["passed"] == accepted
+    assert bench.applies == (2 if accepted else 1)
+    assert len(attempts) == bench.applies and not attempts[0]["passed"]
+    assert attempts[0]["response"] == "<timeout>"
+    assert ("CALibration:TOPology:PROBe 1,10" in calls) == accepted
+    assert calls.count("SYSTem:TDMA:OPMode:STAGe 7") == 1
+    assert vars(args) == before_args
+    if accepted:
+        assert attempts[0]["disposition"] == "EXPLICIT_REFUSAL_STOPPED_PROFILE_UNCHANGED"
+        assert attempts[-1]["passed"] and result["active_level"] == 7
+    else:
+        assert "error" in result and "error" in attempts[0]
+
+
+def test_main_retains_failed_profile_actions_and_other_board_success(monkeypatch, tmp_path):
+    bench = Bench()
+    bench.hook = lambda b, board, command: "<timeout>" if (
+        board.address == "A" and command == "SYSTem:TDMA:OPMode:APPLy") else None
+    bench.install(monkeypatch)
+    monkeypatch.setattr(topology, "parse_args", lambda: options(tmp_path))
+    monkeypatch.setattr(topology, "discover", lambda _: {"A": DRIVER, "B": RECEIVER})
+    assert topology.main() == 1
+    report = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
+    profiles = {row["address"]: row for row in report["profile_apply"]}
+    assert not profiles["A"]["passed"] and profiles["B"]["passed"]
+    failed = [row for row in profiles["A"]["actions"] if row["command"].endswith(":APPLy")]
+    assert len(failed) == 1 and failed[0]["response"] == "<timeout>"
+    assert failed[0]["error_after"] == '0,"No error"'
+    assert report["pair_actions"] == [] and len(report["cleanup"]) == 2
+
+
+@pytest.mark.parametrize("plane", ["tdma", "phys"])
+@pytest.mark.parametrize("phase", ["baseline", "activity"])
+def test_malformed_snapshot_recovers_once_without_resending_control(monkeypatch, tmp_path, plane, phase):
+    bench = Bench()
+    bench.install(monkeypatch)
+    bad_index = 1 if phase == "baseline" else 2
+
+    def read(board, timeout):
+        result = bench.snapshot(board, timeout)
+        if bench.snapshots == bad_index:
+            result[plane] = dict.fromkeys(result[plane], -1)
+            result["raw"][plane] = "<timeout>"
+        return result
+
+    monkeypatch.setattr(topology, "snapshot", read)
+    monkeypatch.setattr(topology, "parse_args", lambda: options(tmp_path))
+    monkeypatch.setattr(topology, "discover", lambda _: {"A": DRIVER, "B": RECEIVER})
+    assert topology.main() == 0
+    report = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
+    rows = (report["pair_actions"][0]["baseline_observations"] if phase == "baseline"
+            else report["pair_preparation"][0]["activity_observations"])
+    assert [row["classification"] for row in rows] == ["MALFORMED", "VALID"]
+    assert rows[0]["snapshot"]["raw"][plane] == "<timeout>"
+    assert sum(command.endswith(":ARM") for _, command in bench.calls) == 4
+    assert sum(command.endswith(":START") for _, command in bench.calls) == 4
+
+
+@pytest.mark.parametrize("kind", ["timeout", "missing", "extra", "negative_counter",
+                                  "overflow_counter", "bool_counter", "raw_disagrees"])
+def test_bad_snapshot_has_only_two_observations_and_never_starts(monkeypatch, tmp_path, kind):
+    bench = Bench()
+    bench.install(monkeypatch)
+
+    def read(board, timeout):
+        result = bench.snapshot(board, timeout)
+        if kind == "timeout":
+            result["raw"]["tdma"] = "<timeout>"
+        elif kind == "missing":
+            del result["phys"]["rx_edge_count"]
+        elif kind == "extra":
+            result["raw"]["tdma"] += ",0"
+        elif kind == "raw_disagrees":
+            result["tdma"]["ring_adapter_rx_count"] += 1
+        else:
+            result["phys"]["rx_edge_count"] = {
+                "negative_counter": -1, "overflow_counter": 0x100000000,
+                "bool_counter": True}[kind]
+        return result
+
+    monkeypatch.setattr(topology, "snapshot", read)
+    actions = []
+    with pytest.raises(RuntimeError, match="malformed"):
+        topology.start_pair(DRIVER, RECEIVER, options(tmp_path), actions, [])
+    assert bench.snapshots == 2
+    assert len(actions[0]["baseline_observations"]) == 2
+    assert not any(command.endswith(":START") for _, command in bench.calls)
+
+
+@pytest.mark.parametrize("kind", ["lifetime", "lifetime_and_bad_phys", "address", "build", "port"])
+def test_valid_lifetime_or_identity_change_never_retries_snapshot(monkeypatch, tmp_path, kind):
+    bench = Bench()
+    bench.install(monkeypatch)
+
+    def read(board, timeout):
+        result = bench.snapshot(board, timeout)
+        if kind.startswith("lifetime"):
+            result["tdma"]["ring_config_seq"] += 1
+            result = snapshot_with_raw(board, result["tdma"], result["phys"])
+            if kind == "lifetime_and_bad_phys":
+                result["raw"]["phys"] = "<timeout>"
+            return result
+        result[kind] = "different"
+        return result
+
+    monkeypatch.setattr(topology, "snapshot", read)
+    actions = []
+    with pytest.raises(RuntimeError):
+        topology.start_pair(DRIVER, RECEIVER, options(tmp_path), actions, [])
+    assert bench.snapshots == 1 and len(actions[0]["baseline_observations"]) == 1
+    assert not any(command.endswith(":START") for _, command in bench.calls)
+
+
+def test_valid_no_activity_is_a_negative_pair_and_scan_continues(monkeypatch, tmp_path):
+    bench = Bench()
+    bench.install(monkeypatch)
+
+    def read(board, timeout):
+        result = bench.snapshot(board, timeout)
+        for key in ("ring_adapter_rx_count", "ring_adapter_tx_count"):
+            result["tdma"][key] = 0
+        for key in ("rx_dma_produced_words", "rx_edge_count"):
+            result["phys"][key] = 0
+        return snapshot_with_raw(board, result["tdma"], result["phys"])
+
+    monkeypatch.setattr(topology, "snapshot", read)
+    monkeypatch.setattr(topology, "parse_args", lambda: options(tmp_path))
+    monkeypatch.setattr(topology, "discover", lambda _: {"A": DRIVER, "B": RECEIVER})
+    assert topology.main() == 1  # Both pairs measured; no complete ring exists.
+    report = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
+    assert report["error"] == "" and len(report["pair_results"]) == 2
+    assert not any(row["detected"] for row in report["pair_results"])
+    assert all(row["passed"] for row in report["pair_actions"])
+
+
+def test_frequency_snapshot_keeps_original_queries_without_changing_named_values(monkeypatch):
+    from contextlib import nullcontext
+    import importlib
+
+    sweep = importlib.import_module(topology.snapshot.__module__)
+    raw = {"*IDN?": "identity", "SYSTem:REFMEM:SYNC:TDMA:STATus?": "<timeout>",
+           "SYSTem:SYNC:VDC:TDMA:PHYS?": ",".join("0" for _ in PHYS_FIELDS)}
+    monkeypatch.setattr(sweep, "open_serial_port", lambda *a, **kw: nullcontext(None))
+    monkeypatch.setattr(sweep, "command", lambda ser, command, timeout: raw[command])
+    monkeypatch.setattr(sweep, "parse_idn_response", lambda _: Namespace(address=DRIVER.address))
+    result = sweep.snapshot(DRIVER, .01)
+    assert result["raw"]["tdma"] == "<timeout>"
+    assert result["raw"]["phys"] == raw["SYSTem:SYNC:VDC:TDMA:PHYS?"]
+    assert set(result["tdma"].values()) == {-1} and set(result["phys"].values()) == {0}

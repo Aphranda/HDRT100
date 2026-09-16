@@ -40,6 +40,7 @@ scpi_result_t scpi_cmd_sync_vdc_dpll_provisional_q(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_dpll_trace_arm(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_dpll_trace_stop(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_dpll_trace_status_q(scpi_t *context);
+scpi_result_t scpi_cmd_sync_vdc_dpll_trace_read_q(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_dpll_trace_save(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_observer_waveform_arm(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_observer_waveform_stop(scpi_t *context);
@@ -92,6 +93,7 @@ scpi_result_t scpi_cmd_sync_vdc_observer_phase_q(scpi_t *context);
     {.pattern = "SYSTem:SYNC:VDC:DPLL:TRACe:ARM", .callback = scpi_cmd_sync_vdc_dpll_trace_arm}, \
     {.pattern = "SYSTem:SYNC:VDC:DPLL:TRACe:STOP", .callback = scpi_cmd_sync_vdc_dpll_trace_stop}, \
     {.pattern = "SYSTem:SYNC:VDC:DPLL:TRACe:STATus?", .callback = scpi_cmd_sync_vdc_dpll_trace_status_q}, \
+    {.pattern = "SYSTem:SYNC:VDC:DPLL:TRACe:READ?", .callback = scpi_cmd_sync_vdc_dpll_trace_read_q}, \
     {.pattern = "SYSTem:SYNC:VDC:DPLL:TRACe:SAVE", .callback = scpi_cmd_sync_vdc_dpll_trace_save}, \
     {.pattern = "SYSTem:SYNC:VDC:OBServer:WAVEform:ARM", .callback = scpi_cmd_sync_vdc_observer_waveform_arm}, \
     {.pattern = "SYSTem:SYNC:VDC:OBServer:WAVEform:STOP", .callback = scpi_cmd_sync_vdc_observer_waveform_stop}, \

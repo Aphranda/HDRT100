@@ -248,16 +248,26 @@ bool vdc_timestamp_clock_try_read_bridge(uint32_t expected_hz,
     PICO_DEFAULT_TIMER == 0 && XOSC_HZ == 12000000u
     vdc_timestamp_bridge_config_t before, after;
     vdc_timestamp_clock_bridge_t candidate = {0};
-    if (out == NULL || !vdc_timestamp_bridge_config(&before, expected_hz) ||
-        !vdc_timestamp_clock_try_read_ticks64(expected_hz, &candidate.raw_before)) return false;
+    if (out == NULL || !vdc_timestamp_bridge_config(&before, expected_hz)) return false;
+    /* Bracket TIMER0 with read-only TIMER1 samples. Keep configuration work,
+     * helper calls and arithmetic outside this window. Interrupts remain
+     * enabled: any preemption is part of the measured uncertainty. */
+    const uint32_t raw_before_hi = timer1_hw->timerawh;
+    const uint32_t raw_before_lo = timer1_hw->timerawl;
+    const uint32_t raw_before_after_hi = timer1_hw->timerawh;
     const uint32_t hi = timer0_hw->timerawh;
     const uint32_t lo = timer0_hw->timerawl;
     const uint32_t after_hi = timer0_hw->timerawh;
-    if (hi != after_hi) return false;
-    const uint64_t local_us = ((uint64_t)hi << 32u) | lo;
+    const uint32_t raw_after_hi = timer1_hw->timerawh;
+    const uint32_t raw_after_lo = timer1_hw->timerawl;
+    const uint32_t raw_after_after_hi = timer1_hw->timerawh;
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    if (raw_before_hi != raw_before_after_hi || hi != after_hi ||
+        raw_after_hi != raw_after_after_hi) return false;
+    candidate.raw_before = ((uint64_t)raw_before_hi << 32u) | raw_before_lo;
+    candidate.raw_after = ((uint64_t)raw_after_hi << 32u) | raw_after_lo;
+    const uint64_t local_us = ((uint64_t)hi << 32u) | lo;
     if (local_us > (UINT64_MAX - 999u) / 1000u ||
-        !vdc_timestamp_clock_try_read_ticks64(expected_hz, &candidate.raw_after) ||
         candidate.raw_after <= candidate.raw_before ||
         (candidate.raw_after >> 32u) != (candidate.raw_before >> 32u) ||
         !vdc_timestamp_bridge_config(&after, expected_hz) ||

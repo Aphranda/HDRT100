@@ -20,7 +20,7 @@ def boundary_owner_executable(tmp_path_factory):
     live = re.search(r'typedef struct \{[^}]*\} tdma_pio_spi_event_live_snapshot_t;', physical, re.S)
     flags = re.search(r'enum \{\s*TDMA_EVENT_LIVE_RETAINED[^}]*\};', physical, re.S)
     matcher = (ROOT / 'components/vdc_dpll_manager/src/vdc_dpll_feedback_match.inc').read_text(encoding='utf-8')
-    source_type = re.search(r'typedef struct \{[^}]*\} vdc_feedback_match_source_t;', matcher, re.S)
+    source_type = re.search(r'typedef struct \{\s*uint64_t next_ordinal.*?\} vdc_feedback_match_source_t;', matcher, re.S)
     assert live and flags and source_type
     helpers = matcher[matcher.index('static uint32_t match_inc'):matcher.index('/* Keep authorization')]
     harness = PRELUDE.replace('EVENT_TYPES', live.group(0) + '\n' + flags.group(0))
@@ -28,9 +28,9 @@ def boundary_owner_executable(tmp_path_factory):
     harness += '\n' + (ROOT / 'components/vdc_dpll_manager/src/vdc_model_feedback.inc').read_text(encoding='utf-8')
     harness += '\n' + (ROOT / 'components/vdc_dpll_manager/src/vdc_boundary_control.inc').read_text(encoding='utf-8')
     harness += '\n' + ingress_definition(DOMAIN_HARNESS, 'fixture') + TESTS.replace(
-        'int main(int argc,char **argv)', AUTO_TESTS + '\nint main(int argc,char **argv)').replace(
+        'int main(int argc,char **argv)', LOCAL_TESTS + AUTO_TESTS + '\nint main(int argc,char **argv)').replace(
         'if(!strncmp(test,"follower_reject_",16))',
-        'if(!strncmp(test,"auto_",5))auto_test(test);\n    else if(!strncmp(test,"follower_reject_",16))')
+        'if(!strncmp(test,"local_",6))local_test(test);\n    else if(!strncmp(test,"auto_",5))auto_test(test);\n    else if(!strncmp(test,"follower_reject_",16))')
     sources = [ROOT / f'components/vdc_domain/src/{name}.c' for name in (
         'vdc_domain', 'vdc_timestamp', 'vdc_ring_observer', 'vdc_sync_io_adapter', 'vdc_tdma_payload')]
     sources += [ROOT / f'components/tdma/src/{name}.c' for name in (
@@ -51,6 +51,10 @@ def boundary_owner_executable(tmp_path_factory):
     'reject_history_stop_withdraw_reset', 'reject_history_after_success', 'reject_history_saturation',
     'follower_repeated_delivery_once', 'follower_retry_original_age', 'offer_retry_original_age',
     'reference_owner_master', 'reference_owner_follower',
+    'local_apply_fast', 'local_apply_slow', 'local_hold', 'local_once',
+    'local_stop', 'local_model', 'local_dco', 'local_age', 'local_path',
+    'local_owner', 'local_remote_unchanged', 'local_domain_stale', 'local_switch',
+    'local_stop_at_apply', 'local_role_at_apply', 'local_observer_at_apply',
     *[f'follower_reject_{i}' for i in range(28)],
     *[f'master_reject_{i}' for i in range(25)],
     *[f'ack_reject_{i}' for i in range(7)],
@@ -164,11 +168,98 @@ static void vdc_boundary_capture_ack_core1(const uint8_t *wire,uint32_t seq,uint
 static void vdc_boundary_capture_hold_core1(uint32_t session,uint32_t source,uint32_t reference,
     const vdc_feedback_match_snapshot_t *match)
 { assert(session && source!=reference && match); }
+static vdc_local_follow_candidate_t local_candidate;
+static bool local_candidate_available;
+bool vdc_dpll_manager_get_local_follow_candidate(vdc_local_follow_candidate_t *out)
+{ if(!local_candidate_available)return false;*out=local_candidate;return true; }
+static void vdc_boundary_capture_local_core1(const vdc_local_follow_candidate_t *c,
+    int32_t delta,int32_t before_rate,uint32_t before_seq,int32_t after_rate,
+    uint32_t after_seq,uint32_t remote_seq,bool applied)
+{ assert(c);(void)remote_seq;if(applied){assert(after_seq==before_seq+1);
+  assert(after_rate==before_rate+delta);++captured_applies;} }
 '''
 
 MATCH_STORAGE = r'''
 static vdc_feedback_match_source_t s_feedback_matches[PROJECT_NODE_CAPACITY];
 static uint32_t s_feedback_match_owner_token=17,s_feedback_match_active_generation=17;
+'''
+
+LOCAL_TESTS = r'''
+static void local_test(const char *test)
+{
+    setup(false);
+    ring.enabled=ring.adapter_started=ring.data_enabled=0;stopped=true;
+    assert(vdc_dpll_manager_set_local_follow(true));
+    uint32_t request;bool enabled;
+    assert(vdc_dpll_manager_try_local_follow_request(&request) && request);
+    assert(vdc_dpll_manager_try_reference_publish_enabled(&enabled) && enabled);
+    assert(vdc_dpll_manager_try_boundary_auto_enabled(&enabled) && !enabled);
+    ring.enabled=ring.adapter_started=ring.data_enabled=1;stopped=false;
+    assert(!vdc_dpll_manager_set_local_follow(false));
+    s_vdc_domain.control.last_follower_command_seq=19;
+    s_vdc_domain.control.follower_apply_count=7;
+    s_vdc_domain.path_delay.table_crc32=1234;
+    s_vdc_domain.path_delay.flags|=VDC_PATH_DELAY_FLAG_OBSERVATION_MATRIX_VALID;
+    s_vdc_domain.path_delay.observation_matrix.valid=1;
+    s_vdc_domain.path_delay.observation_matrix.node_count=4;
+    unsigned index=s_vdc_domain.schedule.local_slot_id*VDC_DOMAIN_NODE_COUNT;
+    s_vdc_domain.path_delay.observation_matrix.valid_bitmap[index/32]|=1u<<(index%32);
+    s_vdc_domain.path_delay.observation_matrix.delay_ns[index]=242;
+    ++s_committed_model_guard;model_feedback_end_core1(123);
+    vdc_dpll_manager_committed_model_t before=model();
+    local_candidate=(vdc_local_follow_candidate_t){.tag=4,.serial=2,.owner_token=17,.session=123,
+        .role_generation=before.role_generation,.schedule_crc32=ring.schedule_crc32,
+        .ring_config_seq=ring.config_seq,.local_slot=ring.local_slot_id,.reference_slot=0,
+        .local_model_token=before.token,.expected_dco_update_seq=before.dco.dco_update_seq,
+        .reference_model_token=9,.reference_receive_count=4,.prepared_ms=now_ms,.local_event_ms=now_ms,
+        .active=1,.directed_delay_ns=242,.path_table_crc32=1234,
+        .result={.has_pair=1,.reserved=VDC_FEEDBACK_LOCAL_FOLLOW_DOMAIN,.raw_ppb_lo=800,.raw_ppb_hi=1200,
+            .source={.source_arm_epoch=live.arm_epoch,.observer_epoch=live.record.epoch,
+                .source_clock_epoch_id=before.clock_epoch_id,.source_clock_run_id=before.clock_run_id},
+            .pairs={{.measurement_sequence=10},{.measurement_sequence=20,
+                .source_model_token=before.token,.reference_identity_crc32=9}}}};
+    local_candidate_available=true;
+    if(!strcmp(test,"local_apply_slow")){local_candidate.result.raw_ppb_lo=-1200;local_candidate.result.raw_ppb_hi=-800;}
+    if(!strcmp(test,"local_hold")){local_candidate.result.raw_ppb_lo=-2;local_candidate.result.raw_ppb_hi=2;}
+    if(!strcmp(test,"local_stop"))ring.enabled=0;
+    if(!strcmp(test,"local_model"))local_candidate.local_model_token++;
+    if(!strcmp(test,"local_dco"))local_candidate.expected_dco_update_seq++;
+    if(!strcmp(test,"local_age"))local_candidate.local_event_ms-=VDC_LOCAL_FOLLOW_MAX_AGE_MS+1;
+    if(!strcmp(test,"local_path"))local_candidate.directed_delay_ns++;
+    if(!strcmp(test,"local_owner"))local_candidate.owner_token++;
+    if(!strcmp(test,"local_stop_at_apply"))now_hook=stop_during_age;
+    if(!strcmp(test,"local_role_at_apply"))now_hook=request_role_change;
+    if(!strcmp(test,"local_observer_at_apply"))now_hook=recover_observer_during_age;
+    if(!strcmp(test,"local_switch")){
+        stopped=true;assert(vdc_dpll_manager_set_reference_publish(true));stopped=false;
+    }
+    uint64_t continuity;
+    assert(vdc_domain_dco_local_to_output_ns(&before.dco,now_ns,&continuity));
+    tick();
+    bool apply=!strcmp(test,"local_apply_fast") || !strcmp(test,"local_apply_slow") ||
+        !strcmp(test,"local_once") || !strcmp(test,"local_remote_unchanged") || !strcmp(test,"local_domain_stale");
+    if(apply){
+        assert(s_vdc_domain.dco.dco_update_seq==before.dco.dco_update_seq+1);
+        assert(s_vdc_domain.dco.period_adjust_ppb==before.dco.period_adjust_ppb+
+            (!strcmp(test,"local_apply_slow")?200:-200));
+        uint64_t after;assert(vdc_domain_dco_local_to_output_ns(&s_vdc_domain.dco,now_ns,&after));
+        assert(after==continuity && model().token!=before.token && status(ring.local_slot_id).apply_count==1);
+        assert(!status(ring.local_slot_id).command.command_seq && captured_applies==1);
+    }else assert(!memcmp(&before.dco,&s_vdc_domain.dco,sizeof(before.dco)));
+    assert(s_vdc_domain.control.last_follower_command_seq==19 && s_vdc_domain.control.follower_apply_count==7);
+    if(!strcmp(test,"local_once")){
+        uint32_t seq=s_vdc_domain.dco.dco_update_seq;roundtrip();assert(s_vdc_domain.dco.dco_update_seq==seq);
+    }
+    if(!strcmp(test,"local_domain_stale")){
+        vdc_dpll_local_rate_delta_t c={.source_slot_id=0,.target_slot_id=ring.local_slot_id,
+            .expected_control_generation=before.role_generation,.schedule_crc32=ring.schedule_crc32,
+            .servo_profile_crc32=s_vdc_domain.servo.servo_profile_crc32,.clock_epoch_id=before.clock_epoch_id,
+            .clock_run_id=before.clock_run_id,.expected_dco_update_seq=before.dco.dco_update_seq,.delta_rate_ppb=1};
+        vdc_domain_context_t saved=s_vdc_domain;
+        assert(!vdc_domain_apply_local_follow_rate_delta(&s_vdc_domain,&c,now_ns));
+        assert(!memcmp(&saved,&s_vdc_domain,sizeof(saved)));
+    }
+}
 '''
 
 TESTS = r'''

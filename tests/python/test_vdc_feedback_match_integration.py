@@ -16,6 +16,20 @@ def matcher_executable(tmp_path_factory):
 #include "distributed_refmem.h"
 #include "vdc_dpll_manager.h"
 #include "tdma_origin_plan.h"
+#include "tdma_event_history.h"
+TDMA_LOCAL_FOLLOW_TYPES
+#include "vdc_local_follow.h"
+bool vdc_dpll_manager_try_local_follow_request(uint32_t *out) { *out=0u;return true; }
+bool tdma_runtime_owner_get_event_live_snapshot(tdma_pio_spi_event_live_snapshot_t *out)
+{ (void)out;return false; }
+tdma_event_window_result_t tdma_runtime_owner_copy_event_history_window(uint32_t epoch,uint64_t next,
+    tdma_pio_spi_event_window_t *out)
+{ (void)epoch;(void)next;(void)out;return TDMA_EVENT_WINDOW_UNAVAILABLE; }
+bool vdc_dpll_manager_get_committed_model(vdc_dpll_manager_committed_model_t *out)
+{ (void)out;return false; }
+bool vdc_dpll_manager_copy_local_follow_path(uint32_t local,uint32_t reference,uint32_t schedule,
+    uint32_t *delay,uint32_t *crc)
+{ (void)local;(void)reference;(void)schedule;(void)delay;(void)crc;return false; }
 static tdma_service_service_t owner;
 static tdma_service_service_t *s_vdc_tdma_service=&owner;
 static vdc_domain_context_t s_vdc_domain;
@@ -36,6 +50,7 @@ bool vdc_dpll_manager_try_boundary_auto_enabled(bool *out)
 bool vdc_dpll_manager_boundary_auto_enabled(void) { return auto_mode; }
 uint32_t vdc_dpll_manager_feedback_session(void) { return session; }
 static uint32_t board_uptime_ms(void) { return now_ms; }
+uint32_t osal_tick_ms(void) { return now_ms; }
 bool vdc_dpll_manager_project_feedback_event(uint32_t ses,uint32_t role,uint32_t epoch,uint32_t run,
     uint32_t local,uint32_t schedule,uint32_t hz,uint64_t lo,uint64_t hi,
     vdc_dpll_manager_projected_event_t *out)
@@ -440,6 +455,10 @@ int main(int argc,char **argv)
     printf("feedback match service %s passed\n",mode);return 0;
 }
 '''
+    physical = (ROOT / "components/tdma/inc/tdma_pio_spi_phys.h").read_text(encoding="utf-8")
+    begin = physical.rfind("enum {", 0, physical.index("TDMA_EVENT_LIVE_RETAINED"))
+    end = physical.index("} tdma_pio_spi_event_window_t;") + len("} tdma_pio_spi_event_window_t;")
+    harness = harness.replace("TDMA_LOCAL_FOLLOW_TYPES", physical[begin:end])
     return compile_executable(directory, "match_integration", harness,
                               [ROOT / "components/vdc_dpll_manager/src/vdc_feedback_match.c"])
 

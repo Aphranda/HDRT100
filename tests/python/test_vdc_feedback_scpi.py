@@ -7,6 +7,9 @@ from test_vdc_command_owner import ROOT, compile_executable
 
 def test_feedback_scpi_readback(tmp_path):
     source = (ROOT / "middleware/scpi_port/src/scpi_system_snapshot_commands.c").read_text(encoding="utf-8")
+    header = (ROOT / "middleware/scpi_port/inc/scpi_system_snapshot_commands.h").read_text(encoding="utf-8")
+    assert 'SYSTem:REFMEM:SYNC:TDMA:VDC:FEEDback:PROof?' in header
+    assert '.callback = scpi_cmd_refmem_vdc_reference_proof_q' in header
     harness = r'''
 #include <assert.h>
 #include <string.h>
@@ -27,24 +30,30 @@ bool distributed_refmem_get_vdc_feedback_rx(uint32_t source, distributed_refmem_
 { ++calls; if (!available || source >= REFMEM_SYNC_NODE_COUNT) return false; *out=rx; return true; }
 bool distributed_refmem_get_vdc_feedback_tx(distributed_refmem_vdc_feedback_tx_snapshot_t *out)
 { ++calls; if (!available) return false; *out=tx; return true; }
+bool distributed_refmem_get_vdc_reference_proof(uint32_t source, distributed_refmem_vdc_feedback_rx_snapshot_t *out)
+{ ++calls; if (!available || source >= REFMEM_SYNC_NODE_COUNT) return false; *out=rx; return true; }
 static void SCPI_ResultUInt32(scpi_t *ctx, uint32_t value)
 { (void)ctx; assert(count<32); numbers[count++]=value; }
 static void SCPI_ResultText(scpi_t *ctx, const char *value)
 { (void)ctx; assert(texts<2 && strlen(value)==128); strcpy(strings[texts++],value); }
 ''' + "\n".join(ingress_definition(source, name) for name in (
-        "scpi_feedback_record", "scpi_cmd_refmem_vdc_feedback_rx_q", "scpi_cmd_refmem_vdc_feedback_tx_q")) + r'''
+        "scpi_feedback_record", "scpi_cmd_refmem_vdc_feedback_rx_q", "scpi_cmd_refmem_vdc_feedback_tx_q",
+        "scpi_cmd_refmem_vdc_reference_proof_q")) + r'''
 int main(void)
 {
     scpi_t ctx=0;
     parameter_ok=false;
     assert(scpi_cmd_refmem_vdc_feedback_rx_q(&ctx)==SCPI_RES_ERR && calls==0);
+    assert(scpi_cmd_refmem_vdc_reference_proof_q(&ctx)==SCPI_RES_ERR && calls==0);
     parameter_ok=true; parameter=REFMEM_SYNC_NODE_COUNT;
     assert(scpi_cmd_refmem_vdc_feedback_rx_q(&ctx)==SCPI_RES_ERR);
+    assert(scpi_cmd_refmem_vdc_reference_proof_q(&ctx)==SCPI_RES_ERR);
     parameter=UINT32_MAX;
     assert(scpi_cmd_refmem_vdc_feedback_rx_q(&ctx)==SCPI_RES_ERR);
     parameter=REFMEM_SYNC_NODE_COUNT-1; available=false;
     assert(scpi_cmd_refmem_vdc_feedback_rx_q(&ctx)==SCPI_RES_ERR);
     assert(scpi_cmd_refmem_vdc_feedback_tx_q(&ctx)==SCPI_RES_ERR);
+    assert(scpi_cmd_refmem_vdc_reference_proof_q(&ctx)==SCPI_RES_ERR);
     assert(count==0 && texts==0);
     available=true;
     const uint32_t rxvalues[]={1,0,1,5,0xabcdef01,9,0xff112233,0,UINT32_MAX,12,13,14,15,16,17,18};
@@ -55,6 +64,10 @@ int main(void)
     assert(scpi_cmd_refmem_vdc_feedback_rx_q(&ctx)==SCPI_RES_OK);
     assert(count==16 && texts==1 && !memcmp(numbers,rxvalues,sizeof(rxvalues)));
     const char *hex="0123456789abcdef";
+    for(unsigned i=0;i<64;i++) assert(strings[0][2*i]==hex[rx.record[i]>>4] && strings[0][2*i+1]==hex[rx.record[i]&15]);
+    count=texts=0;
+    assert(scpi_cmd_refmem_vdc_reference_proof_q(&ctx)==SCPI_RES_OK);
+    assert(count==16 && texts==1 && !memcmp(numbers,rxvalues,sizeof(rxvalues)));
     for(unsigned i=0;i<64;i++) assert(strings[0][2*i]==hex[rx.record[i]>>4] && strings[0][2*i+1]==hex[rx.record[i]&15]);
     count=texts=0;
     assert(scpi_cmd_refmem_vdc_feedback_tx_q(&ctx)==SCPI_RES_OK);

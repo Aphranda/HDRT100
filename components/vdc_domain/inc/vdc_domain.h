@@ -256,6 +256,19 @@ typedef struct {
     int32_t delta_rate_ppb;
 } vdc_dpll_follower_rate_delta_t;
 
+/* Local estimator input. No remote-command sequence or receipt namespace. */
+typedef struct {
+    uint32_t source_slot_id;
+    uint32_t target_slot_id;
+    uint32_t expected_control_generation;
+    uint32_t schedule_crc32;
+    uint32_t servo_profile_crc32;
+    uint32_t clock_epoch_id;
+    uint32_t clock_run_id;
+    uint32_t expected_dco_update_seq;
+    int32_t delta_rate_ppb;
+} vdc_dpll_local_rate_delta_t;
+
 typedef struct {
     vdc_dpll_control_profile_t profile;
     uint32_t follower_apply_count;
@@ -734,6 +747,13 @@ bool vdc_domain_apply_follower_command(
 bool vdc_domain_apply_follower_rate_delta(
     vdc_domain_context_t *context,
     const vdc_dpll_follower_rate_delta_t *command,
+    uint64_t local_now_ns);
+/* Same continuous DCO commit and identity checks, without changing any
+ * remote follower-command metadata. Caller owns local candidate/session/ARM
+ * eligibility, mode exclusion, freshness and at-most-once accounting. */
+bool vdc_domain_apply_local_follow_rate_delta(
+    vdc_domain_context_t *context,
+    const vdc_dpll_local_rate_delta_t *candidate,
     uint64_t local_now_ns);
 void vdc_domain_note_follower_command_missing(vdc_domain_context_t *context);
 void vdc_domain_note_follower_command_late(vdc_domain_context_t *context);

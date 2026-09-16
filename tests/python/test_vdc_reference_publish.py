@@ -8,8 +8,7 @@ from test_vdc_command_owner import compile_executable
 from test_vdc_feedback_transport import FEEDBACK_SOURCES, make_feedback_harness
 
 
-@pytest.fixture(scope='module')
-def reference_executable(tmp_path_factory):
+def make_reference_harness():
     harness = make_feedback_harness(MANAGER).replace(
         'int main(int argc,char **argv)', 'int feedback_existing_main(int argc,char **argv)')
     harness = harness.replace('static tdma_service_service_t owner;', FIFO_SEAM +
@@ -24,8 +23,13 @@ def reference_executable(tmp_path_factory):
         'return binding_available && ordinary_available;\n}\nbool vdc_dpll_manager_get_snapshot')
     harness += TESTS.replace('int main(int argc,char **argv)',
                             'int boundary_existing_main(int argc,char **argv)')
+    return harness + REFERENCE_TESTS
+
+
+@pytest.fixture(scope='module')
+def reference_executable(tmp_path_factory):
     return compile_executable(tmp_path_factory.mktemp('reference-publish'), 'reference_publish',
-                              harness + REFERENCE_TESTS, FEEDBACK_SOURCES)
+                              make_reference_harness(), FEEDBACK_SOURCES)
 
 
 @pytest.mark.parametrize('case', [

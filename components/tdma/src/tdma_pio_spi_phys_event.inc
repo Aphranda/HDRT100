@@ -452,6 +452,109 @@ bool tdma_pio_spi_phys_event_get_live_snapshot(const tdma_pio_spi_phys_t *phys,
 }
 /* EVENT_LIVE_STORAGE_END */
 
+/* EVENT_HISTORY_WINDOW_BEGIN -- no second static history or hardware reads. */
+tdma_event_window_result_t tdma_pio_spi_phys_event_copy_history_window(
+    const tdma_pio_spi_phys_t *phys, uint32_t expected_observer_epoch,
+    uint64_t next_ordinal, tdma_pio_spi_event_window_t *out)
+{
+    const uint64_t ordinal_end = (uint64_t)UINT32_MAX + 1u;
+    if (phys == NULL || out == NULL || next_ordinal > ordinal_end ||
+        (expected_observer_epoch == 0u && next_ordinal != 0u))
+        return TDMA_EVENT_WINDOW_BAD_ARGUMENT;
+    const uint32_t interrupts = save_and_disable_interrupts();
+    const uint64_t before = time_us_64();
+    const uint32_t history_guard = __atomic_load_n(
+        &s_tdma_event_history.publication_guard, __ATOMIC_ACQUIRE);
+    const uint32_t live_guard = __atomic_load_n(&s_tdma_event_live_guard, __ATOMIC_ACQUIRE);
+    tdma_event_window_result_t result = TDMA_EVENT_WINDOW_BUSY;
+    tdma_pio_spi_event_window_t candidate = {0};
+    if (((history_guard | live_guard) & 1u) == 0u) {
+        do {
+            const bool active = __atomic_load_n(&s_tdma_event_history.active, __ATOMIC_RELAXED);
+            const uint32_t epoch = __atomic_load_n(&s_tdma_event_history.epoch, __ATOMIC_RELAXED);
+            const uint32_t hz = __atomic_load_n(&s_tdma_event_history.pio_hz, __ATOMIC_RELAXED);
+            const uint32_t count = __atomic_load_n(&s_tdma_event_history.count, __ATOMIC_RELAXED);
+            const uint32_t next = __atomic_load_n(&s_tdma_event_history.next, __ATOMIC_RELAXED);
+            const uint32_t oldest = __atomic_load_n(&s_tdma_event_history.oldest_ordinal, __ATOMIC_RELAXED);
+            if (expected_observer_epoch != 0u && expected_observer_epoch != epoch) {
+                result = TDMA_EVENT_WINDOW_EPOCH_CHANGED; break;
+            }
+            if (!active) { result = TDMA_EVENT_WINDOW_UNAVAILABLE; break; }
+            if (epoch == 0u || hz == 0u || count > TDMA_EVENT_HISTORY_CAPACITY ||
+                next >= TDMA_EVENT_HISTORY_CAPACITY ||
+                (count == 0u && (oldest != UINT32_MAX || next != 0u))) {
+                result = TDMA_EVENT_WINDOW_BAD_STATE; break;
+            }
+            union { tdma_pio_spi_event_live_snapshot_t snapshot; uint32_t words[24]; } live;
+            for (uint i = 0u; i < 24u; ++i)
+                live.words[i] = __atomic_load_n(&s_tdma_event_live_words[i], __ATOMIC_RELAXED);
+            const uint32_t required = TDMA_EVENT_LIVE_RETAINED |
+                TDMA_EVENT_LIVE_ACTIVE | TDMA_EVENT_LIVE_ANCHOR_VALID;
+            /* The LIVE record may precede this history batch; only its immutable
+             * same-epoch enable anchor is borrowed, never its event identity. */
+            if (live.snapshot.record.epoch != epoch || live.snapshot.tick_hz != hz ||
+                live.snapshot.arm_epoch == 0u || (live.snapshot.flags & required) != required ||
+                (live.snapshot.flags & (TDMA_EVENT_LIVE_CANCELLED | TDMA_EVENT_LIVE_ANCHOR_UNAVAILABLE)) != 0u ||
+                live.snapshot.timer1_enable_before > live.snapshot.timer1_enable_after) {
+                result = TDMA_EVENT_WINDOW_ANCHOR_UNAVAILABLE; break;
+            }
+            const uint64_t end = count != 0u ? (uint64_t)oldest + count : 0u;
+            if (end > ordinal_end) { result = TDMA_EVENT_WINDOW_BAD_STATE; break; }
+            if (next_ordinal > end) { result = TDMA_EVENT_WINDOW_BAD_ARGUMENT; break; }
+            const uint64_t first = count != 0u && next_ordinal < oldest ? oldest : next_ordinal;
+            candidate.arm_epoch = live.snapshot.arm_epoch;
+            candidate.timer1_enable_before = live.snapshot.timer1_enable_before;
+            candidate.timer1_enable_after = live.snapshot.timer1_enable_after;
+            candidate.observer_epoch = epoch;
+            candidate.tick_hz = hz;
+            candidate.oldest_ordinal = oldest;
+            candidate.available_end_ordinal = end;
+            candidate.lost_count = (uint32_t)(first - next_ordinal);
+            candidate.count = (uint32_t)(end - first);
+            if (candidate.count > TDMA_EVENT_HISTORY_WINDOW_CAPACITY)
+                candidate.count = TDMA_EVENT_HISTORY_WINDOW_CAPACITY;
+            candidate.next_ordinal = first + candidate.count;
+            candidate.flags = live.snapshot.flags;
+            candidate.diagnostic_only = true;
+            candidate.physical_first_unproved = true;
+            candidate.identity_unproved = true;
+            result = TDMA_EVENT_WINDOW_OK;
+            const uint32_t ring_oldest = (next + TDMA_EVENT_HISTORY_CAPACITY - count) &
+                (TDMA_EVENT_HISTORY_CAPACITY - 1u);
+            for (uint32_t i = 0u; i < candidate.count; ++i) {
+                const uint32_t index = (ring_oldest + (uint32_t)(first - oldest) + i) &
+                    (TDMA_EVENT_HISTORY_CAPACITY - 1u);
+                tdma_event_history_record_t *record = &candidate.records[i];
+                for (uint32_t j = 0u; j < 8u; ++j)
+                    record->words[j] = __atomic_load_n(
+                        &s_tdma_event_history.records[index].words[j], __ATOMIC_RELAXED);
+                if ((uint64_t)record->ordinal != first + i ||
+                    record->rx_elapsed_cycles == 0u ||
+                    record->tx_elapsed_cycles < record->rx_elapsed_cycles ||
+                    candidate.timer1_enable_after > UINT64_MAX - record->tx_elapsed_cycles ||
+                    (i != 0u && (record->sequence != (uint32_t)(candidate.records[i - 1u].sequence + 1u) ||
+                        record->rx_elapsed_cycles <= candidate.records[i - 1u].rx_elapsed_cycles ||
+                        record->tx_elapsed_cycles <= candidate.records[i - 1u].tx_elapsed_cycles))) {
+                    result = TDMA_EVENT_WINDOW_BAD_STATE; break;
+                }
+            }
+        } while (false);
+        __atomic_thread_fence(__ATOMIC_ACQ_REL);
+        const uint32_t history_after = __atomic_load_n(
+            &s_tdma_event_history.publication_guard, __ATOMIC_ACQUIRE);
+        const uint32_t live_after = __atomic_load_n(&s_tdma_event_live_guard, __ATOMIC_ACQUIRE);
+        const uint64_t after = time_us_64();
+        /* Like LIVE, exclude a full uint32 guard ABA within one copy. Local
+         * IRQ masking bounds preemption; > 1000 us is rejected, never waited. */
+        if (history_guard != history_after || live_guard != live_after ||
+            after < before || after - before > 1000u) result = TDMA_EVENT_WINDOW_BUSY;
+        if (result == TDMA_EVENT_WINDOW_OK) *out = candidate;
+    }
+    restore_interrupts(interrupts);
+    return result;
+}
+/* EVENT_HISTORY_WINDOW_END */
+
 /* Separate hypothesis: never install frozen DMA offsets as live alignment. */
 static tdma_frozen_geometry_snapshot_t s_tdma_event_geometry;
 static bool s_tdma_event_prelaunch;
@@ -1809,6 +1912,13 @@ void tdma_pio_spi_phys_rx_event_query(void *context,
         s_tdma_event_observer.state != TDMA_EVENT_ACTIVE) tdma_event_publish_state(phys);
 }
 #else
+tdma_event_window_result_t tdma_pio_spi_phys_event_copy_history_window(
+    const tdma_pio_spi_phys_t *phys, uint32_t expected_observer_epoch,
+    uint64_t next_ordinal, tdma_pio_spi_event_window_t *out)
+{
+    (void)phys; (void)expected_observer_epoch; (void)next_ordinal; (void)out;
+    return TDMA_EVENT_WINDOW_UNAVAILABLE;
+}
 bool tdma_pio_spi_phys_event_get_live_snapshot(const tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_event_live_snapshot_t *out)
 {

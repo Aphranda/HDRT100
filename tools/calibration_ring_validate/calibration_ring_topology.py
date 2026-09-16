@@ -28,12 +28,15 @@ from tdma_start_ring import (  # noqa: E402
     wait_started,
 )
 from tdma_frequency_sweep import snapshot  # noqa: E402
-from tdma_field_parse import RUNTIME_FIELDS  # noqa: E402
+from tdma_field_parse import (  # noqa: E402
+    FIELDS as TDMA_FIELDS, PHYS_FIELDS, RUNTIME_FIELDS, parse_status_fields,
+)
 from calibration_ring_validate.calibration_timeout_config import (  # noqa: E402
     DEFAULT_ACTION_TIMEOUT_S,
     DEFAULT_PHASE_GAP_S,
     DEFAULT_SERIAL_SETTLE_S,
 )
+from calibration_ring_validate import calibration_clk_train as stopped_profile  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -214,6 +217,71 @@ def _start_pair_board(board, args, actions):
         raise RuntimeError(f"{board.address}: START failed: {record}") from exc
 
 
+def _snapshot_format_errors(candidate):
+    errors = {}
+    if not isinstance(candidate, dict):
+        return {"snapshot": "snapshot is not an object"}
+    for plane, fields in (("tdma", TDMA_FIELDS), ("phys", PHYS_FIELDS)):
+        try:
+            values = candidate[plane]
+            raw = candidate["raw"][plane]
+            if not isinstance(values, dict) or not isinstance(raw, str):
+                raise ValueError("missing object/raw response")
+            if plane == "tdma":
+                parsed = tuple(parse_status_fields(raw))
+            else:
+                parts = next(csv.reader([raw], strict=True))
+                if len(parts) != len(fields):
+                    raise ValueError(f"field count {len(parts)} != {len(fields)}")
+                parsed = tuple(int(value.strip().strip('"'), 0) for value in parts)
+            if any(value < 0 or value > 0xffffffff for value in parsed):
+                raise ValueError("raw field outside uint32 range")
+            if any(type(values.get(name)) is not int or values[name] != value
+                   for name, value in zip(fields, parsed)):
+                raise ValueError("missing, invalid or inconsistent decoded field")
+        except (KeyError, TypeError, ValueError, csv.Error, StopIteration) as exc:
+            errors[plane] = str(exc)
+    return errors
+
+
+def _pair_snapshot(board, args, armed, observations, *, phase):
+    """Retry malformed read-only evidence once; valid lifetime drift is final."""
+    for attempt in (1, 2):
+        row = {"board": board.address, "phase": phase, "attempt": attempt}
+        observations.append(row)
+        try:
+            close_persistent_connections()
+            candidate = snapshot(board, args.timeout)
+            row["snapshot"] = candidate
+            if not isinstance(candidate, dict) or any(candidate.get(key) != getattr(board, key)
+                    for key in ("address", "port", "build")):
+                row["classification"] = "IDENTITY_MISMATCH"
+                raise RuntimeError("snapshot board identity missing or changed")
+            errors = _snapshot_format_errors(candidate)
+            changed = {} if "tdma" in errors else {
+                key: {"expected": armed[key], "observed": candidate["tdma"][key]}
+                for key in ("ring_config_seq", "ring_node_count", "ring_local_slot_id",
+                            "ring_reference_slot_id", "ring_enabled", "ring_adapter_started")
+                if candidate["tdma"][key] != armed[key]}
+            if changed:
+                row["classification"] = "LIFETIME_CHANGED"
+                row["changed"] = changed
+                row["format_errors"] = errors
+                raise RuntimeError("snapshot crossed the admitted ARM lifetime")
+            if errors:
+                row["classification"] = "MALFORMED"
+                row["format_errors"] = errors
+                if attempt == 1:
+                    continue
+                raise RuntimeError("snapshot malformed after two read-only observations")
+            row["classification"] = "VALID"
+            return candidate
+        except Exception as exc:
+            row["error"] = f"{type(exc).__name__}: {exc}"
+            raise
+    raise AssertionError("unreachable")
+
+
 def start_pair(driver, receiver, args, actions, recoveries):
     """At most two ARM lifetimes; no naked retry of an unknown START."""
     for attempt in (1, 2):
@@ -232,16 +300,12 @@ def start_pair(driver, receiver, args, actions, recoveries):
                     train_record = {"board": board.address}
                     record.setdefault("training", []).append(train_record)
                     train_record["result"] = train(board, args)
-            close_persistent_connections()
-            before = snapshot(receiver, args.timeout)
-            record["before"] = before
             # Snapshot is a separate serial owner; do not reuse an old
             # lifetime's counter baseline if preparation has changed it.
             armed = record["armed"][0]["snapshot"]
-            if any(before["tdma"][key] != armed[key] for key in (
-                    "ring_config_seq", "ring_node_count", "ring_local_slot_id",
-                    "ring_reference_slot_id", "ring_enabled", "ring_adapter_started")):
-                raise RuntimeError("receiver baseline no longer matches armed pair")
+            before = _pair_snapshot(receiver, args, armed,
+                record.setdefault("baseline_observations", []), phase="baseline")
+            record["before"] = before
             for board in (receiver, driver):
                 _start_pair_board(board, args, record["start"])
             record["passed"] = True
@@ -337,6 +401,43 @@ def compact_pair_results(pair_results: list[dict[str, object]]) -> list[dict[str
     return rows
 
 
+def apply_profile(board, args: argparse.Namespace) -> dict[str, object]:
+    """Keep every attempt and reuse the stopped APPLY attribution barrier."""
+    profile_args = argparse.Namespace(**vars(args))
+    profile_args.idle_poll_interval = getattr(args, "idle_poll_interval", .02)
+    actions = []
+    result = {"address": board.address, "requested_level": args.level,
+              "active_level": None, "passed": False, "actions": actions}
+    try:
+        stopped_profile._control_command(
+            board, "SYSTem:TDMA:RING:STOP", profile_args, actions, ack=True)
+        result["stopped"] = stopped_profile.wait_ring_stopped(board, profile_args)
+        staged = stopped_profile._control_command(board,
+            f"SYSTem:TDMA:OPMode:STAGe {args.level}", profile_args, actions, fields=6)
+        result["stage_response"] = actions[-1]["response"]
+        if staged[0] != args.level:
+            raise RuntimeError(f"staged level mismatch: {staged}")
+        applied = stopped_profile._apply_stopped_opmode(
+            board, staged, profile_args, actions)
+        result["active_level"] = applied[0]
+        stopped_profile._control_command(board,
+            f"CALibration:TOPology:PROBe 1,{args.probe_phase_cycles}",
+            profile_args, actions, expected=(1, args.probe_phase_cycles))
+        result["probe_response"] = actions[-1]["response"]
+        result["passed"] = True
+    except Exception as exc:
+        result["error"] = f"{type(exc).__name__}: {exc}"
+    finally:
+        attempts = [row for row in actions
+                    if row["command"] == "SYSTem:TDMA:OPMode:APPLy"]
+        if attempts:
+            result["apply_response"] = attempts[-1].get("response")
+            observed = attempts[-1].get("opmode_after")
+            if observed is not None:
+                result["active_level"] = observed[0]
+    return result
+
+
 def main() -> int:
     args = parse_args()
     args.keep_open = not args.short_open
@@ -372,43 +473,6 @@ def main() -> int:
         if wrong:
             raise SystemExit(f"build mismatch: {wrong}")
 
-    def apply_profile(address: str) -> dict[str, object]:
-        board = boards[address]
-        _ = board_command(board, "SYSTem:TDMA:RING:STOP", args)
-        stage_response = board_command(
-            board, f"SYSTem:TDMA:OPMode:STAGe {args.level}", args)
-        apply_response = board_command(
-            board, "SYSTem:TDMA:OPMode:APPLy", args)
-        # OPMode APPLY is an owner transition and its bare ACK may be lost
-        # during USB settle.  Poll the read-only snapshot instead of treating
-        # one immediate level=0 observation as a permanent profile failure.
-        active_level = 0
-        profile_deadline = time.monotonic() + args.timeout
-        active_response = ""
-        while time.monotonic() < profile_deadline:
-            active_response = board_command(
-                board, "SYSTem:TDMA:OPMode?", args)
-            try:
-                active_level = int(
-                    active_response.split(",", 1)[0].strip().strip('"'), 0)
-            except (ValueError, IndexError):
-                active_level = 0
-            if active_level == args.level:
-                break
-            time.sleep(0.02)
-        probe_response = board_command(
-            board,
-            f"CALibration:TOPology:PROBe 1,{args.probe_phase_cycles}", args)
-        return {
-            "address": address,
-            "requested_level": args.level,
-            "active_level": active_level,
-            "stage_response": stage_response,
-            "apply_response": apply_response,
-            "probe_response": probe_response,
-            "passed": active_level == args.level,
-        }
-
     profile_apply: list[dict[str, object]] = []
     pair_results: list[dict[str, object]] = []
     pair_actions: list[dict[str, object]] = []
@@ -420,7 +484,8 @@ def main() -> int:
     try:
         with ThreadPoolExecutor(max_workers=len(board_ids)) as executor:
             # Retain completed peers even if another profile action fails.
-            futures = [executor.submit(apply_profile, address) for address in board_ids]
+            futures = [executor.submit(apply_profile, boards[address], args)
+                       for address in board_ids]
             for future in futures:
                 try:
                     profile_apply.append(future.result())
@@ -476,13 +541,8 @@ def main() -> int:
                 deadline = time.monotonic() + args.pair_wait
                 after = None
                 while time.monotonic() < deadline:
-                    close_persistent_connections()
-                    candidate = snapshot(receiver, args.timeout)
-                    if any(candidate["tdma"][key] != before["tdma"][key] for key in (
-                            "ring_config_seq", "ring_node_count", "ring_local_slot_id",
-                            "ring_reference_slot_id", "ring_enabled", "ring_adapter_started")):
-                        preparation["failed_activity_snapshot"] = candidate
-                        raise RuntimeError("pair activity crossed the admitted ARM lifetime")
+                    candidate = _pair_snapshot(receiver, args, before["tdma"],
+                        preparation.setdefault("activity_observations", []), phase="activity")
                     rx_delta = counter_delta(
                         before["tdma"]["ring_adapter_rx_count"],
                         candidate["tdma"]["ring_adapter_rx_count"])

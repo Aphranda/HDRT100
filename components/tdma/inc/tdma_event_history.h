@@ -5,16 +5,20 @@
 
 #define TDMA_EVENT_HISTORY_CAPACITY 16u
 
-/* One owner-local diagnostic history, shared by all compiled node counts.
- * Neither this history nor a copied query result is a cross-core mailbox or
- * a retained capture lease. No expected identity is accepted by this API. */
-typedef struct {
-    uint64_t rx_elapsed_cycles;
-    uint64_t tx_elapsed_cycles;
-    uint32_t raw_rx;
-    uint32_t raw_tx;
-    uint32_t sequence;
-    uint32_t ordinal;
+/* One Core1-owned diagnostic history, shared by all compiled node counts.
+ * The physical owner exports a bounded guarded read-only window; readers
+ * acquire neither ownership nor a retained capture lease. No expected
+ * physical identity is accepted by this API. */
+typedef union {
+    struct {
+        uint64_t rx_elapsed_cycles;
+        uint64_t tx_elapsed_cycles;
+        uint32_t raw_rx;
+        uint32_t raw_tx;
+        uint32_t sequence;
+        uint32_t ordinal;
+    };
+    uint32_t words[8]; /* Runtime publication/copy uses atomic words. */
 } tdma_event_history_record_t;
 
 typedef enum {
@@ -51,8 +55,12 @@ typedef struct {
     tdma_event_history_reason_t reason;
     tdma_event_history_reason_t query_reason;
     bool active;
+    /* Occupies existing tail padding. Core1 alone writes; never reset by
+     * runtime start/retire. Shared readers bound time to exclude guard ABA. */
+    uint32_t publication_guard;
 } tdma_event_history_t;
 
+/* Cold initialization only; no concurrent reader may exist. */
 void tdma_event_history_init(tdma_event_history_t *history);
 /* Clears ALL available records. Preserves highest started epoch and prior
  * rejection reason. STOP, prepare, or observer INVALID must call this. */

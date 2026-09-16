@@ -2339,6 +2339,32 @@ scpi_result_t scpi_cmd_refmem_vdc_feedback_rx_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_refmem_vdc_reference_proof_q(scpi_t *context)
+{
+    uint32_t source;
+    if (!SCPI_ParamUInt32(context, &source, TRUE)) return SCPI_RES_ERR;
+    distributed_refmem_vdc_feedback_rx_snapshot_t s;
+    if (!distributed_refmem_get_vdc_reference_proof(source, &s)) return SCPI_RES_ERR;
+    SCPI_ResultUInt32(context, s.schema);
+    SCPI_ResultUInt32(context, s.active);
+    SCPI_ResultUInt32(context, s.retained);
+    SCPI_ResultUInt32(context, s.source_slot);
+    SCPI_ResultUInt32(context, s.ring_config_seq);
+    SCPI_ResultUInt32(context, s.role_generation);
+    SCPI_ResultUInt32(context, s.schedule_crc32);
+    SCPI_ResultUInt32(context, s.clock_epoch_id);
+    SCPI_ResultUInt32(context, s.clock_run_id);
+    SCPI_ResultUInt32(context, s.receive_count);
+    SCPI_ResultUInt32(context, s.reject_count);
+    SCPI_ResultUInt32(context, s.duplicate_count);
+    SCPI_ResultUInt32(context, s.timeout_count);
+    SCPI_ResultUInt32(context, s.last_transport_seq);
+    SCPI_ResultUInt32(context, s.first_rx_ms);
+    SCPI_ResultUInt32(context, s.last_rx_ms);
+    scpi_feedback_record(context, s.record);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_refmem_vdc_feedback_tx_q(scpi_t *context)
 {
     distributed_refmem_vdc_feedback_tx_snapshot_t s;
@@ -2434,6 +2460,30 @@ scpi_result_t scpi_cmd_vdc_feedback_reference_q(scpi_t *context)
     bool enabled;
     if (!vdc_dpll_manager_try_reference_publish_enabled(&enabled)) {
         scpi_port_push_exec_error(context, "VDC_FEEDBACK_REFERENCE_BUSY");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, enabled ? 1u : 0u);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_feedback_local_follow(scpi_t *context)
+{
+    uint32_t enabled;
+    if (!scpi_port_read_u32(context, &enabled) || enabled > 1u ||
+        !vdc_dpll_manager_set_local_follow(enabled != 0u)) {
+        scpi_port_push_exec_error(context, "VDC_FEEDBACK_LOCAL_FOLLOW_STOP_SESSION_OR_RANGE");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, enabled);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_feedback_local_follow_q(scpi_t *context)
+{
+    bool enabled;
+    if (!vdc_dpll_manager_try_local_follow_enabled(&enabled)) {
+        scpi_port_push_exec_error(context, "VDC_FEEDBACK_LOCAL_FOLLOW_BUSY");
         return SCPI_RES_ERR;
     }
     SCPI_ResultUInt32(context, enabled ? 1u : 0u);

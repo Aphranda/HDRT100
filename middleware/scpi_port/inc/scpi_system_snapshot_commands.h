@@ -45,6 +45,7 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_vdc_rx_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_tdma_vdc_flight_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_vdc_feedback_rx_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_vdc_feedback_tx_q(scpi_t *context);
+scpi_result_t scpi_cmd_refmem_vdc_reference_proof_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_session(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_session_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_probe(scpi_t *context);
@@ -53,6 +54,8 @@ scpi_result_t scpi_cmd_vdc_feedback_auto_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_reference(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_reference_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_boundary_q(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_feedback_local_follow(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_feedback_local_follow_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_model_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_bridge_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_match_q(scpi_t *context);
@@ -178,6 +181,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:REFMEM:SYNC:TDMA:VDC:FLIGHT?", .callback = scpi_cmd_refmem_sync_tdma_vdc_flight_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:TDMA:VDC:FEEDback:RX?", .callback = scpi_cmd_refmem_vdc_feedback_rx_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:TDMA:VDC:FEEDback:TX?", .callback = scpi_cmd_refmem_vdc_feedback_tx_q}, \
+    {.pattern = "SYSTem:REFMEM:SYNC:TDMA:VDC:FEEDback:PROof?", .callback = scpi_cmd_refmem_vdc_reference_proof_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:SESSion", .callback = scpi_cmd_vdc_feedback_session}, \
     {.pattern = "SYSTem:VDC:FEEDback:SESSion?", .callback = scpi_cmd_vdc_feedback_session_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:PROBe", .callback = scpi_cmd_vdc_feedback_probe}, \
@@ -186,6 +190,8 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:VDC:FEEDback:REFerence", .callback = scpi_cmd_vdc_feedback_reference}, \
     {.pattern = "SYSTem:VDC:FEEDback:REFerence?", .callback = scpi_cmd_vdc_feedback_reference_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:BOUNDary?", .callback = scpi_cmd_vdc_feedback_boundary_q}, \
+    {.pattern = "SYSTem:VDC:FEEDback:LOCALfollow", .callback = scpi_cmd_vdc_feedback_local_follow}, \
+    {.pattern = "SYSTem:VDC:FEEDback:LOCALfollow?", .callback = scpi_cmd_vdc_feedback_local_follow_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:MODel?", .callback = scpi_cmd_vdc_feedback_model_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:BRIDge?", .callback = scpi_cmd_vdc_feedback_bridge_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:MATCh?", .callback = scpi_cmd_vdc_feedback_match_q}, \

@@ -882,6 +882,31 @@ scpi_result_t scpi_cmd_sync_vdc_dpll_trace_status_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_sync_vdc_dpll_trace_read_q(scpi_t *context)
+{
+    uint32_t offset, size, total_bytes, crc32;
+    uint8_t data[VDC_DPLL_MANAGER_DPLL_CAPTURE_READ_MAX_BYTES];
+    char hex[sizeof(data) * 2u + 1u];
+    static const char digits[] = "0123456789abcdef";
+    if (!scpi_port_read_u32(context, &offset) || !scpi_port_read_u32(context, &size) ||
+        size == 0u || size > sizeof(data) ||
+        !vdc_dpll_manager_dpll_capture_read(offset, data, size, &total_bytes, &crc32)) {
+        scpi_port_push_exec_error(context, "VDC_DPLL_TRACE_READ_STOP_FROZEN_OR_RANGE");
+        return SCPI_RES_ERR;
+    }
+    for (uint32_t i = 0u; i < size; ++i) {
+        hex[i * 2u] = digits[data[i] >> 4u];
+        hex[i * 2u + 1u] = digits[data[i] & 15u];
+    }
+    hex[size * 2u] = '\0';
+    SCPI_ResultUInt32(context, offset);
+    SCPI_ResultUInt32(context, size);
+    SCPI_ResultUInt32(context, total_bytes);
+    SCPI_ResultUInt32(context, crc32);
+    SCPI_ResultText(context, hex);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_sync_vdc_dpll_trace_save(scpi_t *context)
 {
     uint32_t job_id = 0u;

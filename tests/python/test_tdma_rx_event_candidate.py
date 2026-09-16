@@ -404,7 +404,7 @@ def test_disabled_observer_is_explicitly_unavailable(tmp_path: Path) -> None:
     header = (ROOT / "components/tdma/inc/tdma_pio_spi_phys.h").read_text(encoding="utf-8")
     end = header.index("} tdma_pio_spi_event_snapshot_t;") + len("} tdma_pio_spi_event_snapshot_t;")
     start = header.rfind("typedef struct {", 0, end)
-    tap_end = header.index("} tdma_pio_spi_event_live_snapshot_t;") + len("} tdma_pio_spi_event_live_snapshot_t;")
+    tap_end = header.index("} tdma_pio_spi_event_window_t;") + len("} tdma_pio_spi_event_window_t;")
     tap_types = header[header.index("#define TDMA_PIO_SPI_EVENT_TAP_MAX_DELAY_CYCLES"):tap_end]
     source = r'''
 #include <assert.h>
@@ -417,6 +417,7 @@ def test_disabled_observer_is_explicitly_unavailable(tmp_path: Path) -> None:
 #include "tdma_rx_event_candidate.h"
 #include "tdma_frozen_geometry.h"
 #include "tdma_event_observer.h"
+#include "tdma_event_history.h"
 typedef unsigned uint;
 ''' + header[start:end] + "\n" + tap_types + r'''
 typedef struct {
@@ -453,6 +454,12 @@ int main(void) {
     const tdma_pio_spi_event_live_snapshot_t unchanged_live = live;
     assert(!tdma_pio_spi_phys_event_get_live_snapshot(&phys, &live));
     assert(memcmp(&live, &unchanged_live, sizeof(live)) == 0);
+    tdma_pio_spi_event_window_t window;
+    memset(&window, 0x72, sizeof(window));
+    const tdma_pio_spi_event_window_t unchanged_window = window;
+    assert(tdma_pio_spi_phys_event_copy_history_window(&phys, 0u, 0u, &window) ==
+           TDMA_EVENT_WINDOW_UNAVAILABLE);
+    assert(memcmp(&window, &unchanged_window, sizeof(window)) == 0);
     assert(memcmp(&recovery, &unchanged_recovery, sizeof(recovery)) == 0);
     tdma_rx_start_cut_t cut;
     memset(&cut, 0xff, sizeof(cut));

@@ -148,16 +148,88 @@ static bool same_source(const vdc_feedback_match_lifetime_t *a,
 }
 
 static void baseline(vdc_feedback_match_peer_t *peer,
-    const vdc_feedback_match_cache_t *cache,
+    uint32_t reference_epoch, uint32_t reference_generation,
     const vdc_feedback_match_lifetime_t *source,
     const vdc_feedback_match_pair_t *pair, uint32_t domain)
 {
     peer->previous = *pair;
     peer->source = *source;
-    peer->reference_epoch = cache->reference_epoch;
-    peer->reference_generation = cache->generation;
+    peer->reference_epoch = reference_epoch;
+    peer->reference_generation = reference_generation;
     peer->has_baseline = 1u;
     peer->reserved = domain;
+}
+
+static vdc_feedback_match_result_t pair_update(vdc_feedback_match_peer_t *peer,
+    uint32_t reference_epoch, uint32_t reference_generation,
+    const vdc_feedback_match_lifetime_t source,
+    const vdc_feedback_match_pair_t pair, uint32_t domain)
+{
+    if (peer->has_baseline == 0u || peer->reserved != domain ||
+        peer->reference_epoch != reference_epoch ||
+        peer->reference_generation != reference_generation || !same_source(&peer->source, &source)) {
+        baseline(peer, reference_epoch, reference_generation, &source, &pair, domain);
+        return VDC_FEEDBACK_MATCH_BASELINED;
+    }
+    const vdc_feedback_match_pair_t *previous = &peer->previous;
+    if (pair.measurement_sequence < previous->measurement_sequence)
+        return VDC_FEEDBACK_MATCH_STALE;
+    if (pair.measurement_sequence == previous->measurement_sequence) {
+        return pair.rx_elapsed_cycles == previous->rx_elapsed_cycles &&
+            pair.reference_tx_lo == previous->reference_tx_lo &&
+            pair.reference_tx_hi == previous->reference_tx_hi &&
+            pair.reference_identity_crc32 == previous->reference_identity_crc32 &&
+            pair.rx_width_ns == previous->rx_width_ns &&
+            pair.source_model_token == previous->source_model_token
+                ? VDC_FEEDBACK_MATCH_DUPLICATE : VDC_FEEDBACK_MATCH_INVALID;
+    }
+    if (domain != 0u &&
+        (pair.source_model_token < previous->source_model_token ||
+         pair.reference_identity_crc32 < previous->reference_identity_crc32))
+        return VDC_FEEDBACK_MATCH_STALE;
+    if ((domain == VDC_FEEDBACK_RATE_DOMAIN || domain == VDC_FEEDBACK_LOCAL_FOLLOW_DOMAIN) &&
+        (pair.source_model_token != previous->source_model_token ||
+         pair.reference_identity_crc32 != previous->reference_identity_crc32)) {
+        baseline(peer, reference_epoch, reference_generation, &source, &pair, domain);
+        return VDC_FEEDBACK_MATCH_BASELINED;
+    }
+    if (pair.rx_elapsed_cycles <= previous->rx_elapsed_cycles + previous->rx_width_ns ||
+        pair.reference_tx_lo <= previous->reference_tx_hi)
+        return VDC_FEEDBACK_MATCH_INVALID;
+    const uint64_t source_delta_lo = pair.rx_elapsed_cycles -
+        (previous->rx_elapsed_cycles + previous->rx_width_ns);
+    const uint64_t source_delta_hi = pair.rx_elapsed_cycles + pair.rx_width_ns -
+        previous->rx_elapsed_cycles;
+    const uint64_t reference_delta_lo = pair.reference_tx_lo - previous->reference_tx_hi;
+    const uint64_t reference_delta_hi = pair.reference_tx_hi - previous->reference_tx_lo;
+    const uint64_t max_delta = domain != 0u ?
+        VDC_FEEDBACK_MODEL_MAX_INTERVAL_NS : (uint64_t)source.tick_hz *
+            VDC_FEEDBACK_MATCH_MAX_INTERVAL_SECONDS;
+    if (source_delta_hi > max_delta || reference_delta_hi > max_delta) {
+        baseline(peer, reference_epoch, reference_generation, &source, &pair, domain);
+        return VDC_FEEDBACK_MATCH_INTERVAL_REBASED;
+    }
+    if ((domain == VDC_FEEDBACK_RATE_DOMAIN || domain == VDC_FEEDBACK_LOCAL_FOLLOW_DOMAIN) &&
+        reference_delta_lo < VDC_FEEDBACK_RATE_MIN_INTERVAL_NS)
+        return VDC_FEEDBACK_MATCH_WAIT_WINDOW;
+    /* Deltas are positive and at most 1e9 raw ticks or 2e9 model ns. The
+     * product is at most 2e18, below INT64_MAX and UINT64_MAX. Rounding is
+     * performed on the positive ratio before subtracting exactly 1e9. */
+    const uint64_t numerator_lo = source_delta_lo * UINT64_C(1000000000);
+    const uint64_t numerator_hi = source_delta_hi * UINT64_C(1000000000);
+    const uint64_t lower = numerator_lo / reference_delta_hi;
+    const uint64_t upper = numerator_hi / reference_delta_lo +
+        (numerator_hi % reference_delta_lo != 0u ? 1u : 0u);
+    const vdc_feedback_match_snapshot_t snapshot = {
+        .pairs = {*previous, pair}, .source = source,
+        .raw_ppb_lo = (int64_t)lower - INT64_C(1000000000),
+        .raw_ppb_hi = (int64_t)upper - INT64_C(1000000000),
+        .reference_epoch = reference_epoch,
+        .reference_generation = reference_generation, .has_pair = 1u, .reserved = domain,
+    };
+    peer->snapshot = snapshot;
+    baseline(peer, reference_epoch, reference_generation, &source, &pair, domain);
+    return VDC_FEEDBACK_MATCH_MATCHED;
 }
 
 static vdc_feedback_match_result_t match_update(
@@ -190,71 +262,23 @@ static vdc_feedback_match_result_t match_update(
         .reference_identity_crc32 = reference.identity_crc32,
         .rx_width_ns = width_ns, .source_model_token = model_token,
     };
-    if (peer->has_baseline == 0u || peer->reserved != domain ||
-        peer->reference_epoch != cache->reference_epoch ||
-        peer->reference_generation != cache->generation || !same_source(&peer->source, &source)) {
-        baseline(peer, cache, &source, &pair, domain);
-        return VDC_FEEDBACK_MATCH_BASELINED;
-    }
-    const vdc_feedback_match_pair_t *previous = &peer->previous;
-    if (pair.measurement_sequence < previous->measurement_sequence)
-        return VDC_FEEDBACK_MATCH_STALE;
-    if (pair.measurement_sequence == previous->measurement_sequence) {
-        return pair.rx_elapsed_cycles == previous->rx_elapsed_cycles &&
-            pair.reference_tx_lo == previous->reference_tx_lo &&
-            pair.reference_tx_hi == previous->reference_tx_hi &&
-            pair.reference_identity_crc32 == previous->reference_identity_crc32 &&
-            pair.rx_width_ns == previous->rx_width_ns &&
-            pair.source_model_token == previous->source_model_token
-                ? VDC_FEEDBACK_MATCH_DUPLICATE : VDC_FEEDBACK_MATCH_INVALID;
-    }
-    if (domain != 0u &&
-        (pair.source_model_token < previous->source_model_token ||
-         pair.reference_identity_crc32 < previous->reference_identity_crc32))
-        return VDC_FEEDBACK_MATCH_STALE;
-    if (domain == VDC_FEEDBACK_RATE_DOMAIN &&
-        (pair.source_model_token != previous->source_model_token ||
-         pair.reference_identity_crc32 != previous->reference_identity_crc32)) {
-        baseline(peer, cache, &source, &pair, domain);
-        return VDC_FEEDBACK_MATCH_BASELINED;
-    }
-    if (pair.rx_elapsed_cycles <= previous->rx_elapsed_cycles + previous->rx_width_ns ||
-        pair.reference_tx_lo <= previous->reference_tx_hi)
+    return pair_update(peer, cache->reference_epoch, cache->generation, source, pair, domain);
+}
+
+vdc_feedback_match_result_t vdc_feedback_local_follow_update(
+    vdc_feedback_match_peer_t *peer, uint32_t local_observer_epoch,
+    uint32_t cache_generation, const vdc_feedback_match_lifetime_t *local,
+    const vdc_feedback_match_pair_t *pair)
+{
+    if (peer == NULL || local == NULL || pair == NULL || !local_observer_epoch ||
+        !cache_generation || local->observer_epoch != local_observer_epoch ||
+        !local->source_arm_epoch || !valid_hz(local->tick_hz) ||
+        !pair->source_model_token || !pair->reference_identity_crc32 ||
+        pair->reference_tx_lo > pair->reference_tx_hi ||
+        pair->rx_elapsed_cycles > UINT64_MAX - pair->rx_width_ns)
         return VDC_FEEDBACK_MATCH_INVALID;
-    const uint64_t source_delta_lo = pair.rx_elapsed_cycles -
-        (previous->rx_elapsed_cycles + previous->rx_width_ns);
-    const uint64_t source_delta_hi = pair.rx_elapsed_cycles + pair.rx_width_ns -
-        previous->rx_elapsed_cycles;
-    const uint64_t reference_delta_lo = pair.reference_tx_lo - previous->reference_tx_hi;
-    const uint64_t reference_delta_hi = pair.reference_tx_hi - previous->reference_tx_lo;
-    const uint64_t max_delta = domain != 0u ?
-        VDC_FEEDBACK_MODEL_MAX_INTERVAL_NS : (uint64_t)sample->tick_hz *
-            VDC_FEEDBACK_MATCH_MAX_INTERVAL_SECONDS;
-    if (source_delta_hi > max_delta || reference_delta_hi > max_delta) {
-        baseline(peer, cache, &source, &pair, domain);
-        return VDC_FEEDBACK_MATCH_INTERVAL_REBASED;
-    }
-    if (domain == VDC_FEEDBACK_RATE_DOMAIN &&
-        reference_delta_lo < VDC_FEEDBACK_RATE_MIN_INTERVAL_NS)
-        return VDC_FEEDBACK_MATCH_WAIT_WINDOW;
-    /* Deltas are positive and at most 1e9 raw ticks or 2e9 model ns. The
-     * product is at most 2e18, below INT64_MAX and UINT64_MAX. Rounding is
-     * performed on the positive ratio before subtracting exactly 1e9. */
-    const uint64_t numerator_lo = source_delta_lo * UINT64_C(1000000000);
-    const uint64_t numerator_hi = source_delta_hi * UINT64_C(1000000000);
-    const uint64_t lower = numerator_lo / reference_delta_hi;
-    const uint64_t upper = numerator_hi / reference_delta_lo +
-        (numerator_hi % reference_delta_lo != 0u ? 1u : 0u);
-    const vdc_feedback_match_snapshot_t snapshot = {
-        .pairs = {*previous, pair}, .source = source,
-        .raw_ppb_lo = (int64_t)lower - INT64_C(1000000000),
-        .raw_ppb_hi = (int64_t)upper - INT64_C(1000000000),
-        .reference_epoch = cache->reference_epoch,
-        .reference_generation = cache->generation, .has_pair = 1u, .reserved = domain,
-    };
-    peer->snapshot = snapshot;
-    baseline(peer, cache, &source, &pair, domain);
-    return VDC_FEEDBACK_MATCH_MATCHED;
+    return pair_update(peer, local_observer_epoch, cache_generation, *local, *pair,
+        VDC_FEEDBACK_LOCAL_FOLLOW_DOMAIN);
 }
 
 vdc_feedback_match_result_t vdc_feedback_match_update(

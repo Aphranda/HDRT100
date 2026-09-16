@@ -38,6 +38,7 @@ CAPTURE_KIND_FOLLOWER_STATE = 3
 CAPTURE_KIND_FOLLOWER_EVIDENCE = 4
 AUTO_KINDS = {5: "auto_offer", 6: "auto_apply", 7: "auto_ack",
               8: "auto_hold", 9: "auto_observation"}
+LOCAL_KINDS = {10: "local_observation", 11: "local_commit"}
 DECODED_COMMAND = struct.Struct("<QQIIIIIIIIIiIBBBB")
 
 
@@ -140,6 +141,97 @@ def _validate_auto_observations(samples: list[dict[str, Any]]) -> None:
                 raise ValueError("AUTO offer/observation identity mismatch")
 
 
+def _decode_local(data: bytes, board: str, start_ms: int, index: int) -> dict[str, Any]:
+    def u32(offset): return struct.unpack_from("<I", data, offset)[0]
+    def i32(offset): return struct.unpack_from("<i", data, offset)[0]
+    def u64(offset): return struct.unpack_from("<Q", data, offset)[0]
+    def i64(offset): return struct.unpack_from("<q", data, offset)[0]
+    context = u32(20)
+    kind = context & 255
+    if kind not in LOCAL_KINDS or u32(0) != index + 1 or context >> 25:
+        raise ValueError("invalid LOCAL capture kind/index/context")
+    e = dict(capture_index=u32(0), timestamp_ms=u32(4), control_session=u32(16),
+             source_slot=(context >> 8) & 255, reference_slot=(context >> 16) & 255)
+    if not e['control_session'] or e['source_slot'] == e['reference_slot']:
+        raise ValueError("invalid LOCAL source/session")
+    if kind == 10:
+        if context >> 24 or u32(96) != 4:
+            raise ValueError("invalid LOCAL observation domain")
+        e.update(error_ppb_lo=i64(8), error_ppb_hi=i64(24),
+                 source_first_ns=u64(32), source_last_ns=u64(40),
+                 reference_first_lo=u64(48), reference_first_hi=u64(56),
+                 reference_last_lo=u64(64), reference_last_hi=u64(72),
+                 source_model_token=u32(80), reference_model_token=u32(84),
+                 first_measurement_sequence=u32(88), last_measurement_sequence=u32(92),
+                 coordinate_domain=u32(96))
+    else:
+        e.update(applied=bool(context & (1 << 24)), before_rate_ppb=i32(8), before_dco_seq=u32(12),
+                 after_rate_ppb=i32(24), after_dco_seq=u32(28), owner_token=u32(32),
+                 candidate_serial=u32(36), role_generation=u32(40), ring_config_seq=u32(44),
+                 schedule_crc32=u32(48), source_model_token=u32(52), reference_model_token=u32(56),
+                 reference_receive_count=u32(60), source_first_width_ns=u32(64), source_last_width_ns=u32(68),
+                 delta_rate_ppb=i32(72), remote_command_seq=u32(76), path_table_crc32=u32(80),
+                 directed_delay_ns=u32(84), local_arm_epoch=u64(88), local_observer_epoch=u32(96))
+    return dict(board=board, port="SD", capture_kind=LOCAL_KINDS[kind],
+                elapsed_s=((u32(4) - start_ms) & 0xffffffff) / 1000, local_control=e)
+
+
+def _validate_local_observations(samples: list[dict[str, Any]]) -> None:
+    used = set()
+    previous = {}
+    for index, sample in enumerate(samples):
+        kind = sample['capture_kind']
+        if kind == 'local_observation':
+            if index + 1 == len(samples) or samples[index + 1]['capture_kind'] != 'local_commit':
+                raise ValueError('orphan LOCAL observation')
+        if kind != 'local_commit':
+            continue
+        if not index or samples[index - 1]['capture_kind'] != 'local_observation':
+            raise ValueError('orphan LOCAL commit')
+        e, o = sample['local_control'], samples[index - 1]['local_control']
+        for key in ('timestamp_ms', 'control_session', 'source_slot', 'reference_slot',
+                    'source_model_token', 'reference_model_token'):
+            if e[key] != o[key]:
+                raise ValueError('LOCAL pair identity mismatch')
+        for key in ('owner_token', 'candidate_serial', 'role_generation', 'ring_config_seq',
+                    'schedule_crc32', 'source_model_token', 'reference_model_token',
+                    'reference_receive_count', 'path_table_crc32', 'local_arm_epoch',
+                    'local_observer_epoch', 'before_dco_seq'):
+            if not e[key]:
+                raise ValueError('LOCAL identity missing')
+        delta = o['source_last_ns'] - o['source_first_ns']
+        slo, shi = delta - e['source_first_width_ns'], delta + e['source_last_width_ns']
+        rlo = o['reference_last_lo'] - o['reference_first_hi']
+        rhi = o['reference_last_hi'] - o['reference_first_lo']
+        if (slo <= 0 or rlo <= 0 or rhi < rlo or
+                o['reference_first_hi'] < o['reference_first_lo'] or
+                o['reference_last_hi'] < o['reference_last_lo'] or
+                o['last_measurement_sequence'] <= o['first_measurement_sequence']):
+            raise ValueError('invalid LOCAL interval')
+        lo, hi = slo * 10**9 // rhi - 10**9, -(-shi * 10**9 // rlo) - 10**9
+        if (lo, hi) != (o['error_ppb_lo'], o['error_ppb_hi']):
+            raise ValueError('LOCAL interval disagrees with endpoints')
+        key = (e['control_session'], e['owner_token'], e['candidate_serial'])
+        if key in used:
+            raise ValueError('LOCAL candidate consumed twice')
+        used.add(key)
+        if e['applied']:
+            if (e['after_dco_seq'] != e['before_dco_seq'] + 1 or
+                    e['after_rate_ppb'] - e['before_rate_ppb'] != e['delta_rate_ppb'] or
+                    not ((lo > 0 and e['delta_rate_ppb'] < 0) or (hi < 0 and e['delta_rate_ppb'] > 0))):
+                raise ValueError('LOCAL commit lacks negative feedback or actual adoption')
+        elif (e['after_dco_seq'], e['after_rate_ppb']) != (e['before_dco_seq'], e['before_rate_ppb']):
+            raise ValueError('LOCAL non-applied record changed DCO')
+        lifetime = (e['control_session'], e['owner_token'], e['local_arm_epoch'])
+        if lifetime in previous:
+            prior = previous[lifetime]
+            if (prior['remote_command_seq'] != e['remote_command_seq'] or
+                    (prior['after_dco_seq'], prior['after_rate_ppb']) !=
+                    (e['before_dco_seq'], e['before_rate_ppb'])):
+                raise ValueError('LOCAL history has an unrecorded or remote DCO change')
+        previous[lifetime] = e
+
+
 def _decode_capture_kind(value: int) -> str:
     return {
         CAPTURE_KIND_MASTER: "master_local_evidence",
@@ -185,6 +277,9 @@ def decode(path: Path, board: str) -> dict[str, Any]:
             kind = struct.unpack_from("<I", raw_record, 20)[0] & 255
             if kind in AUTO_KINDS:
                 samples.append(_decode_auto(raw_record, board_name, start_ms, index))
+                continue
+            if kind in LOCAL_KINDS:
+                samples.append(_decode_local(raw_record, board_name, start_ms, index))
                 continue
             if kind not in (1, 2, 3, 4):
                 raise ValueError(f"unknown schema6 capture kind {kind}")
@@ -381,6 +476,7 @@ def decode(path: Path, board: str) -> dict[str, Any]:
         samples.append(sample)
     if schema == SCHEMA_V6:
         _validate_auto_observations(samples)
+        _validate_local_observations(samples)
     return {
         "schema": "HAOFV_DPLL_OBSERVATION_CAPTURE_V2",
         "binary_schema": schema,

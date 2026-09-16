@@ -260,8 +260,9 @@ static void test_ordinal_limit_without_four_billion_iterations(void)
     for (uint32_t i = 0u; i < TDMA_EVENT_HISTORY_CAPACITY; ++i) {
         const tdma_event_record_t source = record(history.oldest_ordinal + i, i);
         history.records[i] = (tdma_event_history_record_t){
-            source.rx_elapsed_cycles, source.tx_elapsed_cycles, source.raw_rx, source.raw_tx,
-            source.sequence, source.ordinal
+            .rx_elapsed_cycles = source.rx_elapsed_cycles, .tx_elapsed_cycles = source.tx_elapsed_cycles,
+            .raw_rx = source.raw_rx, .raw_tx = source.raw_tx,
+            .sequence = source.sequence, .ordinal = source.ordinal
         };
     }
     tdma_event_record_t terminal = record(UINT32_MAX, 16u), out;

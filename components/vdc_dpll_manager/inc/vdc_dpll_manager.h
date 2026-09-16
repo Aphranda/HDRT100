@@ -9,6 +9,7 @@
 #include "calibration_path_snapshot.h"
 #include "vdc_domain.h"
 #include "vdc_feedback_match.h"
+#include "vdc_local_follow.h"
 #include "refmem_sync_vdc_feedback.h"
 
 /* Explicit STOP-authorized one-shot bring-up; not an automatic servo. */
@@ -16,7 +17,7 @@
 #define VDC_BOUNDARY_AUTO_MAX_DELTA_PPB 1000
 #define VDC_BOUNDARY_AUTO_DEADBAND_PPB 10
 enum { VDC_BOUNDARY_MODE_PROBE = 0u, VDC_BOUNDARY_MODE_AUTO = 1u,
-       VDC_BOUNDARY_MODE_REFERENCE = 2u };
+       VDC_BOUNDARY_MODE_REFERENCE = 2u, VDC_BOUNDARY_MODE_LOCAL_FOLLOW = 3u };
 #define VDC_BOUNDARY_COMMAND_MAX_AGE_NS UINT64_C(500000000)
 #define VDC_BOUNDARY_ACK_TIMEOUT_MS 1000u
 enum {
@@ -41,10 +42,12 @@ bool vdc_dpll_manager_boundary_auto_enabled(void);
 /* False means concurrent publication; preserves *enabled. Core0 mode/domain
  * selection must pause on false, never interpret contention as PROBE mode. */
 bool vdc_dpll_manager_try_boundary_auto_enabled(bool *enabled);
-/* STOP-only reference transport, mutually exclusive with PROBE/AUTO. This
- * authorizes publication/retention only, never follower PI or DCO updates. */
+/* STOP-only transport-only configuration, mutually exclusive with other
+ * modes. The transport predicate also admits explicit LOCAL_FOLLOW. */
 bool vdc_dpll_manager_set_reference_publish(bool enabled);
 bool vdc_dpll_manager_try_reference_publish_enabled(bool *enabled);
+bool vdc_dpll_manager_set_local_follow(bool enabled);
+bool vdc_dpll_manager_try_local_follow_enabled(bool *enabled);
 bool vdc_dpll_manager_get_boundary_status(uint32_t slot, vdc_dpll_boundary_status_t *out);
 /* Core0 only. -1 contention, 0 withdrawn, 1 immutable current offer. */
 int vdc_dpll_manager_copy_boundary_command_offer(uint32_t ring_config_seq,
@@ -540,6 +543,11 @@ void vdc_dpll_manager_get_ring_observer_status(
     vdc_dpll_manager_ring_observer_status_t *status);
 bool vdc_dpll_manager_dpll_capture_arm(void);
 bool vdc_dpll_manager_dpll_capture_stop(void);
+/* Core0 maintenance only: frozen native header + records, no SD transaction.
+ * Requires acknowledged TDMA STOP and a disarmed complete capture. */
+#define VDC_DPLL_MANAGER_DPLL_CAPTURE_READ_MAX_BYTES 128u
+bool vdc_dpll_manager_dpll_capture_read(uint32_t offset, uint8_t *data,
+    uint32_t size, uint32_t *total_bytes, uint32_t *file_crc32);
 void vdc_dpll_manager_get_dpll_capture_status(
     vdc_dpll_manager_dpll_capture_status_t *status);
 bool vdc_dpll_manager_dpll_capture_save(uint32_t *job_id,

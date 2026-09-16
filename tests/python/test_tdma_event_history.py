@@ -4,15 +4,17 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_production_event_history_batch_lifetime_and_eviction(tmp_path: Path) -> None:
+@pytest.mark.parametrize("enum_flags", [[], ["-fshort-enums"]], ids=["host-enums", "short-enums"])
+def test_production_event_history_batch_lifetime_and_eviction(tmp_path: Path, enum_flags: list[str]) -> None:
     gcc = os.environ.get("HOST_CC") or shutil.which("gcc") or "D:/Microsoft/mingw64/bin/gcc.exe"
     executable = tmp_path / "event_history.exe"
     commands = [
-        [gcc, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pedantic",
+        [gcc, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pedantic", *enum_flags,
          "-I" + str(ROOT / "components/tdma/inc"),
          str(ROOT / "components/tdma/src/tdma_event_history.c"),
          str(ROOT / "tests/unit/test_tdma_event_history.c"), "-o", str(executable)],

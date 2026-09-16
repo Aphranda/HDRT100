@@ -1,12 +1,20 @@
 /* The sole Core0 RefMem task owns the sparse cache and matcher. Core1 only
  * publishes/retires a small authorization; no cache or peer state is shared
- * for mutation. This prepares diagnostics, never a control/DCO update. */
+ * for mutation. Core0 prepares diagnostic or explicitly admitted LOCAL_FOLLOW
+ * candidates. Only Core1 may consume a candidate and update the DCO. */
+#include "vdc_local_follow.h"
 #define VDC_FEEDBACK_MATCH_MAX_AGE_MS 120u
 typedef struct {
     uint32_t config, role, schedule, clock_epoch, clock_run, local, nodes, reference_epoch, session, rate_mode;
 } vdc_feedback_match_binding_t;
 typedef struct {
-    vdc_feedback_match_peer_t peer;
+    uint64_t next_ordinal, arm_epoch;
+    vdc_feedback_match_lifetime_t reference;
+    uint32_t insertion_serial, serial, latest_sequence, has_sequence;
+    uint32_t delay_ns, path_crc, missed, projection_rejects;
+} vdc_local_follow_cursor_t;
+typedef struct {
+    union { vdc_feedback_match_peer_t peer; vdc_local_follow_cursor_t local; };
     uint32_t words[sizeof(vdc_dpll_manager_feedback_match_status_t) / 4u];
     uint32_t guard, consumed;
 } vdc_feedback_match_source_t;
@@ -22,6 +30,9 @@ static uint32_t s_feedback_match_owner_words[sizeof(vdc_feedback_match_binding_t
 static uint32_t s_feedback_match_owner_token;
 static uint32_t s_feedback_match_owner_serial;
 _Static_assert(sizeof(vdc_dpll_manager_feedback_match_status_t) % 4u == 0u, "atomic match words");
+_Static_assert(sizeof(vdc_local_follow_cursor_t) <= sizeof(vdc_feedback_match_peer_t), "local cursor reuses peer");
+_Static_assert(sizeof(vdc_local_follow_candidate_t) == sizeof(vdc_dpll_manager_feedback_match_status_t),
+    "local candidate exactly reuses match publication");
 
 static uint32_t match_inc(uint32_t value) { return value == UINT32_MAX ? value : value + 1u; }
 
@@ -61,12 +72,19 @@ static __attribute__((noinline)) void vdc_dpll_manager_feedback_match_service(vo
         return;
     }
     if (!tdma_ring_runtime_get_clock_snapshot(&s_vdc_tdma_service->ring_runtime, &ring)) return;
+    uint32_t local_request;
+    if (!vdc_dpll_manager_try_local_follow_request(&local_request)) return;
     const vdc_dpll_control_profile_t *role = &s_vdc_domain.control.profile;
     const bool admitted = ring.enabled && ring.data_enabled && ring.adapter_started &&
         ring.config_seq && ring.config_seq == ring.applied_config_seq &&
         ring.node_count >= 2u && ring.node_count <= PROJECT_NODE_CAPACITY &&
-        ring.local_slot_id < ring.node_count && ring.local_slot_id == ring.reference_slot_id &&
-        role->valid == 1u && role->mode == VDC_DPLL_CONTROL_MODE_MASTER && role->generation &&
+        ring.local_slot_id < ring.node_count && ring.reference_slot_id < ring.node_count &&
+        (local_request ? (ring.local_slot_id != ring.reference_slot_id &&
+            role->mode == VDC_DPLL_CONTROL_MODE_FOLLOWER &&
+            role->follow_master_slot_id == ring.reference_slot_id &&
+            vdc_dpll_manager_feedback_session() != 0u) :
+            (ring.local_slot_id == ring.reference_slot_id && role->mode == VDC_DPLL_CONTROL_MODE_MASTER)) &&
+        role->valid == 1u && role->generation &&
         ring.local_slot_id == s_vdc_domain.schedule.local_slot_id &&
         ring.schedule_crc32 == s_vdc_domain.schedule.schedule_crc32;
     if (!admitted) {
@@ -74,7 +92,12 @@ static __attribute__((noinline)) void vdc_dpll_manager_feedback_match_service(vo
         return;
     }
     uint32_t reference_epoch;
-    if (!tdma_runtime_owner_get_origin_reference_epoch(&reference_epoch)) return;
+    if (local_request) {
+        tdma_pio_spi_event_live_snapshot_t live;
+        if (!tdma_runtime_owner_get_event_live_snapshot(&live)) return;
+        const uint32_t required = TDMA_EVENT_LIVE_RETAINED | TDMA_EVENT_LIVE_ACTIVE | TDMA_EVENT_LIVE_ANCHOR_VALID;
+        reference_epoch = (live.flags & required) == required && live.arm_epoch ? live.record.epoch : 0u;
+    } else if (!tdma_runtime_owner_get_origin_reference_epoch(&reference_epoch)) return;
     if (!reference_epoch) {
         vdc_dpll_manager_feedback_match_retire();
         return;
@@ -86,7 +109,7 @@ static __attribute__((noinline)) void vdc_dpll_manager_feedback_match_service(vo
         .clock_epoch = s_vdc_domain.clock.epoch_id, .clock_run = s_vdc_domain.clock.run_id,
         .local = ring.local_slot_id, .nodes = ring.node_count, .reference_epoch = reference_epoch,
         .session = vdc_dpll_manager_feedback_session(),
-        .rate_mode = rate_mode ? 1u : 0u};
+        .rate_mode = local_request ? local_request : (rate_mode ? 1u : 0u)};
     vdc_feedback_match_binding_t previous;
     match_load_words(s_feedback_match_owner_words, &previous, sizeof(previous));
     if (__atomic_load_n(&s_feedback_match_owner_token, __ATOMIC_RELAXED) &&
@@ -114,6 +137,238 @@ static uint32_t match_owner_binding(vdc_feedback_match_binding_t *binding)
     return token == __atomic_load_n(&s_feedback_match_owner_token, __ATOMIC_ACQUIRE) ? token : 0u;
 }
 
+static bool local_follow_current(const vdc_feedback_match_binding_t *binding,
+    uint32_t token, tdma_ring_clock_snapshot_t *ring, tdma_pio_spi_event_live_snapshot_t *live)
+{
+    uint32_t request;
+    const uint32_t required = TDMA_EVENT_LIVE_RETAINED | TDMA_EVENT_LIVE_ACTIVE | TDMA_EVENT_LIVE_ANCHOR_VALID;
+    return token && binding->rate_mode >= 2u && s_vdc_tdma_service != NULL &&
+        vdc_dpll_manager_try_local_follow_request(&request) && request == binding->rate_mode &&
+        token == __atomic_load_n(&s_feedback_match_owner_token, __ATOMIC_ACQUIRE) &&
+        binding->session && binding->session == vdc_dpll_manager_feedback_session() &&
+        tdma_ring_runtime_get_clock_snapshot(&s_vdc_tdma_service->ring_runtime, ring) &&
+        ring->enabled && ring->data_enabled && ring->adapter_started &&
+        ring->config_seq == binding->config && ring->applied_config_seq == binding->config &&
+        ring->local_slot_id == binding->local && ring->node_count == binding->nodes &&
+        ring->reference_slot_id < ring->node_count && ring->reference_slot_id != binding->local &&
+        ring->schedule_crc32 == binding->schedule &&
+        tdma_runtime_owner_get_event_live_snapshot(live) &&
+        (live->flags & required) == required &&
+        live->arm_epoch && live->record.epoch == binding->reference_epoch && live->tick_hz;
+}
+
+static void local_follow_publish(vdc_feedback_match_source_t *source,
+    const vdc_local_follow_candidate_t *candidate)
+{
+    (void)__atomic_add_fetch(&source->guard, 1u, __ATOMIC_ACQ_REL);
+    for (size_t i = 0u; i < sizeof(*candidate) / 4u; ++i) {
+        uint32_t word;
+        memcpy(&word, (const uint8_t *)candidate + i * 4u, 4u);
+        __atomic_store_n(source->words + i, word, __ATOMIC_RELAXED);
+    }
+    (void)__atomic_add_fetch(&source->guard, 1u, __ATOMIC_RELEASE);
+}
+
+static bool local_follow_reference(const vdc_feedback_match_binding_t *b, uint32_t slot,
+    distributed_refmem_vdc_feedback_rx_snapshot_t *rx)
+{
+    return distributed_refmem_copy_vdc_feedback_rx(slot, rx) && rx->active && rx->retained &&
+        rx->source_slot == slot && rx->ring_config_seq == b->config && rx->role_generation == b->role &&
+        rx->schedule_crc32 == b->schedule && rx->clock_epoch_id == b->clock_epoch &&
+        rx->clock_run_id == b->clock_run && rx->sample.source_slot == slot &&
+        rx->sample.target_slot == b->local && rx->sample.schema_version == REFMEM_VDC_FEEDBACK_MODEL_SCHEMA &&
+        rx->sample.model.control_session == b->session && rx->sample.source_arm_epoch &&
+        rx->sample.observer_epoch && rx->sample.tick_hz && rx->sample.model.model_token &&
+        rx->sample.model.output_ns_lo <= rx->sample.model.output_ns_hi && rx->receive_count;
+}
+
+static void local_follow_prepare(const vdc_feedback_match_binding_t *binding, uint32_t token)
+{
+    tdma_ring_clock_snapshot_t ring;
+    tdma_pio_spi_event_live_snapshot_t live;
+    if (!local_follow_current(binding, token, &ring, &live)) return;
+    if (token != s_feedback_match_preparation_generation ||
+        memcmp(binding, &s_feedback_match_binding, sizeof(*binding)) != 0) {
+        vdc_feedback_match_cache_retire(&s_feedback_match_cache);
+        __atomic_store_n(&s_feedback_match_active_generation, 0u, __ATOMIC_RELEASE);
+        s_feedback_match_binding = *binding;
+        s_feedback_match_preparation_generation = token;
+        for (uint32_t i = 0u; i < PROJECT_NODE_CAPACITY; ++i) {
+            memset(&s_feedback_matches[i].peer, 0, sizeof(s_feedback_matches[i].peer));
+            s_feedback_matches[i].consumed = 0u;
+        }
+    }
+    vdc_local_follow_cursor_t *cursor = &s_feedback_matches[binding->local].local;
+    vdc_feedback_match_source_t *source = &s_feedback_matches[ring.reference_slot_id];
+    if (cursor->arm_epoch && cursor->arm_epoch != live.arm_epoch) return;
+    cursor->arm_epoch = live.arm_epoch;
+    tdma_pio_spi_event_window_t window;
+    if (tdma_runtime_owner_copy_event_history_window(binding->reference_epoch, cursor->next_ordinal,
+            &window) != TDMA_EVENT_WINDOW_OK || window.arm_epoch != cursor->arm_epoch ||
+        window.observer_epoch != binding->reference_epoch || window.tick_hz != live.tick_hz) return;
+    if (!vdc_feedback_match_cache_bind(&s_feedback_match_cache, binding->reference_epoch, window.tick_hz)) return;
+    cursor->missed = UINT32_MAX - cursor->missed < window.lost_count ? UINT32_MAX : cursor->missed + window.lost_count;
+    for (uint32_t i = 0u; i < window.count; ++i) {
+        const tdma_event_history_record_t *record = &window.records[i];
+        /* Numeric sequence wrap opens a new cache generation; an old reference
+         * cannot join entries left behind in the same sparse index. */
+        if (cursor->has_sequence && record->sequence < cursor->latest_sequence) {
+            vdc_feedback_match_cache_retire(&s_feedback_match_cache);
+            if (!vdc_feedback_match_cache_bind(&s_feedback_match_cache, binding->reference_epoch, window.tick_hz)) return;
+            source->peer.has_baseline = 0u;
+            source->consumed = 0u;
+            cursor->insertion_serial = 0u;
+        }
+        cursor->has_sequence = 1u; cursor->latest_sequence = record->sequence;
+        const uint64_t lo = window.timer1_enable_before + record->rx_elapsed_cycles;
+        const uint64_t hi = window.timer1_enable_after + record->rx_elapsed_cycles;
+        vdc_dpll_manager_projected_event_t projected;
+        uint64_t now;
+        const uint32_t prepared = board_uptime_ms();
+        bool inserted = false;
+        if (cursor->insertion_serial <= UINT32_MAX - 2u &&
+            lo >= window.timer1_enable_before && hi >= window.timer1_enable_after &&
+            vdc_dpll_manager_project_feedback_event(binding->session, binding->role,
+                binding->clock_epoch, binding->clock_run, binding->local, binding->schedule,
+                window.tick_hz, lo, hi, &projected) &&
+            vdc_timestamp_clock_try_read_ticks64(window.tick_hz, &now) && now >= hi &&
+            now - lo <= (uint64_t)window.tick_hz * VDC_LOCAL_FOLLOW_MAX_AGE_MS / 1000u) {
+            const uint32_t age = (uint32_t)(((now - lo) * 1000u + window.tick_hz - 1u) / window.tick_hz);
+            cursor->insertion_serial += 2u;
+            inserted = vdc_feedback_model_cache_put(&s_feedback_match_cache, record->sequence,
+                projected.model_token, cursor->insertion_serial, projected.output_ns_lo,
+                projected.output_ns_hi, prepared - age - 1u);
+        }
+        if (inserted) s_feedback_match_insert_count = match_inc(s_feedback_match_insert_count);
+        else {
+            cursor->projection_rejects = match_inc(cursor->projection_rejects);
+            s_feedback_match_reject_count = match_inc(s_feedback_match_reject_count);
+        }
+    }
+    cursor->next_ordinal = window.next_ordinal;
+    __atomic_store_n(&s_feedback_match_active_generation, s_feedback_match_cache.generation, __ATOMIC_RELEASE);
+    distributed_refmem_vdc_feedback_rx_snapshot_t rx;
+    if (!local_follow_reference(binding, ring.reference_slot_id, &rx) || source->consumed == rx.receive_count) return;
+    const vdc_feedback_match_lifetime_t remote_lifetime = {
+        .source_arm_epoch = rx.sample.source_arm_epoch,
+        .source_clock_epoch_id = rx.sample.source_clock_epoch_id, .source_clock_run_id = rx.sample.source_clock_run_id,
+        .observer_epoch = rx.sample.observer_epoch, .tick_hz = rx.sample.tick_hz};
+    /* Retirement precedes lookup: a first record in a new remote lifetime
+     * may miss the local cache; that miss must still discard the old baseline. */
+    if (memcmp(&cursor->reference, &remote_lifetime, sizeof(remote_lifetime)) != 0 ||
+        (source->peer.has_baseline && source->peer.previous.reference_identity_crc32 != rx.sample.model.model_token))
+        source->peer.has_baseline = 0u;
+    cursor->reference = remote_lifetime;
+    vdc_feedback_match_reference_t local;
+    if (!vdc_feedback_match_cache_lookup(&s_feedback_match_cache, rx.sample.measurement_sequence, &local)) {
+        /* Core0 prepares before draining transport. A reference can be visible
+         * before this bounded harvest reaches it: keep it pending while fresh.
+         * RefMem stamps last_rx_ms with osal_tick_ms(), whose epoch/rate need
+         * not match board_uptime_ms(). Use the producer's clock for this age. */
+        if ((!cursor->has_sequence || cursor->latest_sequence < rx.sample.measurement_sequence) &&
+            (uint32_t)(osal_tick_ms() - rx.last_rx_ms) <= VDC_LOCAL_FOLLOW_MAX_AGE_MS) return;
+        source->consumed = rx.receive_count;
+        cursor->missed = match_inc(cursor->missed);
+        return;
+    }
+    if (cursor->serial == UINT32_MAX) return;
+    vdc_dpll_manager_committed_model_t model;
+    /* Contended snapshots are retryable with the same retained reference.
+     * Never mark it consumed merely because Core1 is publishing its model. */
+    uint32_t delay, path_crc;
+    if (!vdc_dpll_manager_get_committed_model(&model) ||
+        !vdc_dpll_manager_copy_local_follow_path(binding->local, ring.reference_slot_id, binding->schedule,
+            &delay, &path_crc)) return;
+    source->consumed = rx.receive_count;
+    vdc_local_follow_candidate_t candidate = {
+        .tag = VDC_LOCAL_FOLLOW_CANDIDATE_TAG, .serial = ++cursor->serial, .owner_token = token,
+        .session = binding->session, .role_generation = binding->role, .schedule_crc32 = binding->schedule,
+        .ring_config_seq = binding->config, .local_slot = binding->local, .reference_slot = ring.reference_slot_id,
+        .local_model_token = local.identity_crc32, .reference_model_token = rx.sample.model.model_token,
+        .reference_receive_count = rx.receive_count, .prepared_ms = board_uptime_ms(), .local_event_ms = local.prepared_ms,
+        .reference = remote_lifetime, .directed_delay_ns = delay, .path_table_crc32 = path_crc,
+    };
+    if ((uint32_t)(candidate.prepared_ms - local.prepared_ms) > VDC_LOCAL_FOLLOW_MAX_AGE_MS ||
+        model.token != local.identity_crc32 ||
+        model.session != binding->session || model.role_generation != binding->role ||
+        model.clock_epoch_id != binding->clock_epoch || model.clock_run_id != binding->clock_run ||
+        model.local_slot != binding->local || model.dco.tdma_schedule_crc32 != binding->schedule ||
+        local.tx_hi < local.tx_lo || local.tx_hi - local.tx_lo > UINT32_MAX ||
+        rx.sample.model.output_ns_hi > UINT64_MAX - candidate.directed_delay_ns) {
+        local_follow_publish(source, &candidate); return;
+    }
+    candidate.expected_dco_update_seq = model.dco.dco_update_seq;
+    if (cursor->path_crc != candidate.path_table_crc32 || cursor->delay_ns != candidate.directed_delay_ns) {
+        source->peer.has_baseline = 0u;
+        cursor->path_crc = candidate.path_table_crc32; cursor->delay_ns = candidate.directed_delay_ns;
+    }
+    const vdc_feedback_match_lifetime_t lifetime = {.source_arm_epoch = cursor->arm_epoch,
+        .source_clock_epoch_id = binding->clock_epoch, .source_clock_run_id = binding->clock_run,
+        .observer_epoch = binding->reference_epoch, .tick_hz = window.tick_hz};
+    const vdc_feedback_match_pair_t pair = {.rx_elapsed_cycles = local.tx_lo,
+        .reference_tx_lo = rx.sample.model.output_ns_lo + candidate.directed_delay_ns,
+        .reference_tx_hi = rx.sample.model.output_ns_hi + candidate.directed_delay_ns,
+        .measurement_sequence = rx.sample.measurement_sequence,
+        .reference_identity_crc32 = rx.sample.model.model_token,
+        .rx_width_ns = (uint32_t)(local.tx_hi - local.tx_lo), .source_model_token = local.identity_crc32};
+    if (vdc_feedback_local_follow_update(&source->peer, binding->reference_epoch,
+            s_feedback_match_cache.generation, &lifetime, &pair) == VDC_FEEDBACK_MATCH_MATCHED) {
+        candidate.result = source->peer.snapshot;
+        candidate.active = 1u;
+    }
+    if (!local_follow_current(binding, token, &ring, &live) || live.arm_epoch != cursor->arm_epoch ||
+        !vdc_dpll_manager_get_committed_model(&model) || model.token != candidate.local_model_token ||
+        model.dco.dco_update_seq != candidate.expected_dco_update_seq) candidate.active = 0u;
+    local_follow_publish(source, &candidate);
+}
+
+bool vdc_dpll_manager_get_local_follow_candidate(vdc_local_follow_candidate_t *out)
+{
+    if (out == NULL) return false;
+    vdc_feedback_match_binding_t binding;
+    const uint32_t token = match_owner_binding(&binding);
+    tdma_ring_clock_snapshot_t ring;
+    tdma_pio_spi_event_live_snapshot_t live;
+    if (!local_follow_current(&binding, token, &ring, &live)) return false;
+    vdc_feedback_match_source_t *source = &s_feedback_matches[ring.reference_slot_id];
+    const uint32_t guard = __atomic_load_n(&source->guard, __ATOMIC_ACQUIRE);
+    if (guard & 1u) return false;
+    vdc_local_follow_candidate_t candidate;
+    match_load_words(source->words, &candidate, sizeof(candidate));
+    if (candidate.tag != VDC_LOCAL_FOLLOW_CANDIDATE_TAG) return false;
+    distributed_refmem_vdc_feedback_rx_snapshot_t rx;
+    candidate.active = candidate.active && candidate.owner_token == token &&
+        candidate.session == binding.session && candidate.role_generation == binding.role &&
+        candidate.ring_config_seq == binding.config && candidate.schedule_crc32 == binding.schedule &&
+        candidate.local_slot == binding.local && candidate.reference_slot == ring.reference_slot_id &&
+        candidate.result.reserved == VDC_FEEDBACK_LOCAL_FOLLOW_DOMAIN && candidate.result.has_pair &&
+        candidate.result.source.source_arm_epoch == live.arm_epoch &&
+        candidate.result.source.observer_epoch == live.record.epoch &&
+        candidate.result.source.tick_hz == live.tick_hz &&
+        candidate.result.source.source_clock_epoch_id == binding.clock_epoch &&
+        candidate.result.source.source_clock_run_id == binding.clock_run &&
+        candidate.result.reference_generation == __atomic_load_n(&s_feedback_match_active_generation, __ATOMIC_ACQUIRE) &&
+        (uint32_t)(board_uptime_ms() - candidate.local_event_ms) <= VDC_LOCAL_FOLLOW_MAX_AGE_MS &&
+        local_follow_reference(&binding, candidate.reference_slot, &rx) &&
+        rx.receive_count == candidate.reference_receive_count &&
+        rx.sample.source_arm_epoch == candidate.reference.source_arm_epoch &&
+        rx.sample.observer_epoch == candidate.reference.observer_epoch &&
+        rx.sample.source_clock_epoch_id == candidate.reference.source_clock_epoch_id &&
+        rx.sample.source_clock_run_id == candidate.reference.source_clock_run_id &&
+        rx.sample.tick_hz == candidate.reference.tick_hz &&
+        rx.sample.measurement_sequence == candidate.result.pairs[1].measurement_sequence &&
+        rx.sample.model.model_token == candidate.reference_model_token &&
+        rx.sample.model.output_ns_hi <= UINT64_MAX - candidate.directed_delay_ns &&
+        rx.sample.model.output_ns_lo + candidate.directed_delay_ns == candidate.result.pairs[1].reference_tx_lo &&
+        rx.sample.model.output_ns_hi + candidate.directed_delay_ns == candidate.result.pairs[1].reference_tx_hi;
+    __atomic_thread_fence(__ATOMIC_ACQ_REL);
+    if (guard != __atomic_load_n(&source->guard, __ATOMIC_ACQUIRE)) return false;
+    if (!local_follow_current(&binding, token, &ring, &live) ||
+        live.arm_epoch != candidate.result.source.source_arm_epoch) candidate.active = 0u;
+    *out = candidate;
+    return true;
+}
+
 void vdc_dpll_manager_feedback_prepare_core0(void)
 {
     vdc_feedback_match_binding_t binding;
@@ -121,6 +376,9 @@ void vdc_dpll_manager_feedback_prepare_core0(void)
     tdma_ring_clock_snapshot_t ring;
     if (!token || s_vdc_tdma_service == NULL ||
         !tdma_ring_runtime_get_clock_snapshot(&s_vdc_tdma_service->ring_runtime, &ring)) return;
+    if (binding.rate_mode >= 2u) { local_follow_prepare(&binding, token); return; }
+    uint32_t local_request;
+    if (!vdc_dpll_manager_try_local_follow_request(&local_request) || local_request) return;
     bool rate_mode;
     if (!vdc_dpll_manager_try_boundary_auto_enabled(&rate_mode)) return;
     if (!ring.enabled || !ring.data_enabled || !ring.adapter_started ||
@@ -208,6 +466,7 @@ void vdc_dpll_manager_feedback_prepare_core0(void)
     source->consumed = rx.receive_count;
     vdc_dpll_manager_feedback_match_status_t status;
     match_load_words(source->words, &status, sizeof(status));
+    if (status.schema == VDC_LOCAL_FOLLOW_CANDIDATE_TAG) memset(&status, 0, sizeof(status));
     const uint32_t schema = binding.rate_mode ? 3u : (binding.session ? 2u : 1u);
     if (status.schema != schema || status.control_session != binding.session) {
         /* Retained coordinates and age units belong to their original domain
@@ -309,6 +568,7 @@ bool vdc_dpll_manager_get_feedback_match(uint32_t slot,
     if (guard & 1u) return false;
     vdc_dpll_manager_feedback_match_status_t result;
     match_load_words(source->words, &result, sizeof(result));
+    if (result.schema == VDC_LOCAL_FOLLOW_CANDIDATE_TAG) return false;
     if (!result.schema) result.schema = 1u;
     result.source_slot = slot;
     tdma_ring_clock_snapshot_t ring;

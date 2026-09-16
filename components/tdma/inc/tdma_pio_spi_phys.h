@@ -16,6 +16,7 @@
 #include "tdma_frozen_geometry.h"
 #include "tdma_rx_first_window.h"
 #include "tdma_event_observer.h"
+#include "tdma_event_history.h"
 
 /* TDMA PIO SPI resident physical layer.
  *
@@ -288,6 +289,34 @@ typedef struct {
     uint32_t tick_hz;
     uint32_t flags;
 } tdma_pio_spi_event_live_snapshot_t;
+
+#define TDMA_EVENT_HISTORY_WINDOW_CAPACITY 4u
+typedef enum {
+    TDMA_EVENT_WINDOW_OK = 0,
+    TDMA_EVENT_WINDOW_BUSY,
+    TDMA_EVENT_WINDOW_UNAVAILABLE,
+    TDMA_EVENT_WINDOW_BAD_ARGUMENT,
+    TDMA_EVENT_WINDOW_EPOCH_CHANGED,
+    TDMA_EVENT_WINDOW_ANCHOR_UNAVAILABLE,
+    TDMA_EVENT_WINDOW_BAD_STATE
+} tdma_event_window_result_t;
+
+/* A copied diagnostic window, not a retained lease or timestamp/DPLL grant.
+ * Success cannot prevent a subsequent STOP/retire. Any future consumer must
+ * revalidate its revocable owner authorization before using copied data.
+ * TIMER1 enable endpoints come from the same observer epoch's EVENT LIVE
+ * publication; history.initial_start is in a different coordinate domain.
+ * next_ordinal and available_end_ordinal can represent UINT32_MAX + 1.
+ * lost_count reports eviction before the requested cursor. */
+typedef struct {
+    tdma_event_history_record_t records[TDMA_EVENT_HISTORY_WINDOW_CAPACITY];
+    uint64_t arm_epoch;
+    uint64_t timer1_enable_before, timer1_enable_after;
+    uint64_t next_ordinal, available_end_ordinal;
+    uint32_t observer_epoch, tick_hz, oldest_ordinal, count, lost_count, flags;
+    bool diagnostic_only, physical_first_unproved, identity_unproved;
+    bool timestamp_valid, dpll_eligible;
+} tdma_pio_spi_event_window_t;
 
 typedef enum {
     TDMA_PIO_SPI_DATA_TRAIN_IDLE = 0u,
@@ -1061,6 +1090,10 @@ bool tdma_pio_spi_phys_event_recovery_get(const tdma_pio_spi_phys_t *phys,
  * or record eligibility created by this reader. */
 bool tdma_pio_spi_phys_event_get_live_snapshot(const tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_event_live_snapshot_t *out);
+/* Same cursor/failure rules as the owner facade; one bounded SRAM copy. */
+tdma_event_window_result_t tdma_pio_spi_phys_event_copy_history_window(
+    const tdma_pio_spi_phys_t *phys, uint32_t expected_observer_epoch,
+    uint64_t next_ordinal, tdma_pio_spi_event_window_t *out);
 /* Core1-only station handoff. Pin after a successful private RX delivery,
  * before REQUESTED publication. Zero means unavailable, never use latest. */
 uint32_t tdma_pio_spi_phys_rx_event_pin(void *context,

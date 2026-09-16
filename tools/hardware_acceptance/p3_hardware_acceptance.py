@@ -1030,6 +1030,7 @@ def _validate_evidence(root: Path, record: dict[str, Any], *,
         names += ("sma_observer_wiring", "dpll_summary")
     for name in names:
         _validate_evidence_file(root, record.get(name), name)
+    validate_topology_reuse_evidence(root, record)
     timing = record.get("timing_probe")
     if timing is not None:
         if not isinstance(timing, dict):
@@ -1987,6 +1988,140 @@ def acceptance_output_path(root: Path, requested: Path | None,
     return root / "out" / "HardwareAcceptance" / default_day / Path(*parts)
 
 
+def validate_known_topology(value: dict[str, Any], board_ids: list[str],
+                            anchor: str) -> None:
+    """Admit only an original passing directed-wiring measurement."""
+    if (len(board_ids) != 4 or len(set(board_ids)) != 4 or
+            anchor != board_ids[0] or value.get("passed") is not True or
+            value.get("mode") == "REUSED_KNOWN_TOPOLOGY" or
+            value.get("error", "") != "" or
+            value.get("measurement_domain") != "calibration" or
+            value.get("measurement_phase") != "link_adjacency_and_ring_topology" or
+            value.get("ring_order") != board_ids or value.get("anchor_id") != anchor):
+        raise AcceptanceError("known topology measurement identity is invalid")
+    expected = {uid: [board_ids[(i + 1) % len(board_ids)]]
+                for i, uid in enumerate(board_ids)}
+    if value.get("adjacency") != expected:
+        raise AcceptanceError("known topology directed adjacency differs")
+    if (value.get("node_map") != [
+            {"node": i, "no": i + 1, "address": uid} for i, uid in enumerate(board_ids)] or
+            value.get("node_discovery", {}).get("committed") is not True):
+        raise AcceptanceError("known topology committed node map differs")
+    boards = value.get("boards", {})
+    rows = value.get("assignments", [])
+    if (not isinstance(boards, dict) or set(boards) != set(board_ids) or
+            not isinstance(rows, list) or len(rows) != len(board_ids)):
+        raise AcceptanceError("known topology board/NO evidence is incomplete")
+    for index, (uid, row) in enumerate(zip(board_ids, rows), 1):
+        if (not isinstance(row, dict) or not isinstance(boards[uid], dict) or
+                boards[uid].get("address") != uid or
+                row.get("address") != uid or row.get("no") != index or
+                row.get("readback") != str(index) or row.get("passed") is not True):
+            raise AcceptanceError("known topology NO evidence differs")
+
+
+def freeze_known_topology(root: Path, source: Path, out_dir: Path,
+                          board_ids: list[str], anchor: str) -> dict[str, Any]:
+    # Read once: validation and the retained artifact cover identical bytes.
+    raw = (root / source).read_bytes()
+    value = json.loads(raw.decode("utf-8-sig"))
+    if not isinstance(value, dict):
+        raise AcceptanceError("known topology must be an object")
+    validate_known_topology(value, board_ids, anchor)
+    frozen = out_dir / "known-topology-source.json"
+    frozen.parent.mkdir(parents=True, exist_ok=True)
+    with frozen.open("xb") as handle:
+        handle.write(raw)
+    return evidence_entry(root, frozen)
+
+
+def validate_known_topology_readback(value: dict[str, Any], board_ids: list[str],
+                                     build_id: str) -> None:
+    if (value.get("passed") is not True or
+            value.get("mode") != "REUSED_KNOWN_TOPOLOGY" or
+            value.get("remeasured") is not False or
+            value.get("ring_order") != board_ids or
+            value.get("build_id") != build_id):
+        raise AcceptanceError("known topology current readback failed")
+    rows = value.get("assignments", [])
+    boards = value.get("boards", {})
+    if (not isinstance(rows, list) or len(rows) != len(board_ids) or
+            not isinstance(boards, dict) or set(boards) != set(board_ids)):
+        raise AcceptanceError("known topology current board evidence incomplete")
+    for index, (uid, row) in enumerate(zip(board_ids, rows), 1):
+        if (not isinstance(row, dict) or not isinstance(boards[uid], dict) or
+                row.get("address") != uid or row.get("no") != index or
+                row.get("readback") != str(index) or row.get("passed") is not True or
+                str(row.get("raw", "")).strip().strip('"') != str(index) or
+                boards[uid].get("address") != uid or boards[uid].get("build") != build_id):
+            raise AcceptanceError("known topology current UID/build/NO differs")
+
+
+def verify_known_topology(root: Path, source: dict[str, Any], board_ids: list[str],
+                          build_id: str, timing: dict[str, float]) -> dict[str, Any]:
+    """After reset, read current identities without probing or rewriting NOs."""
+    sys.path.insert(0, str(ROOT / "tools" / "tdma_ring_monitor"))
+    from tdma_start_ring import (
+        board_command, close_persistent_connections, discover)
+    result: dict[str, Any] = {
+        "mode": "REUSED_KNOWN_TOPOLOGY", "remeasured": False,
+        "measurement_phase": "known_topology_identity_readback",
+        "passed": False, "ring_order": list(board_ids), "build_id": build_id,
+        "source_topology": source, "boards": {}, "assignments": [], "error": "",
+    }
+    args = argparse.Namespace(
+        board_ids=board_ids, baud=115200, keep_open=True,
+        timeout=timing["serial_timeout_s"], settle=timing["serial_settle_s"])
+    try:
+        source_path = _validate_evidence_file(root, source, "known topology")
+        validate_known_topology(json.loads(source_path.read_text(encoding="utf-8-sig")),
+                                board_ids, board_ids[0])
+        boards = discover(args)
+        result["boards"] = {
+            uid: {"address": board.address, "idn": board.idn,
+                  "build": board.build, "port": board.port}
+            for uid, board in boards.items()}
+        validate_online_builds({uid: board.build for uid, board in boards.items()},
+                               board_ids, build_id)
+        for index, uid in enumerate(board_ids, 1):
+            raw = board_command(boards[uid], "SYSTem:BOARD:NO?", args)
+            readback = raw.strip().strip('"')
+            result["assignments"].append({
+                "address": uid, "no": index, "raw": raw, "readback": readback,
+                "passed": readback == str(index)})
+        result["passed"] = True
+        validate_known_topology_readback(result, board_ids, build_id)
+    except (AcceptanceError, OSError, ValueError, KeyError, TypeError, RuntimeError) as exc:
+        result.update(passed=False, error=f"{type(exc).__name__}: {exc}")
+    finally:
+        close_persistent_connections()
+    return result
+
+
+def validate_topology_reuse_evidence(root: Path, record: dict[str, Any]) -> None:
+    path = _validate_evidence_file(root, record.get("topology_summary"), "topology_summary")
+    summary = json.loads(path.read_text(encoding="utf-8"))
+    source = record.get("topology_reuse_source")
+    if source is None and summary.get("mode") != "REUSED_KNOWN_TOPOLOGY":
+        return  # Preserve existing measured-topology receipts.
+    board_ids = record.get("tdma_board_ids", [])
+    if (record.get("acceptance_profile") != "QUICK_DIAGNOSTIC" or
+            record.get("ota_board_ids") != board_ids or not board_ids or
+            summary.get("source_topology") != source):
+        raise AcceptanceError("known topology receipt provenance differs")
+    original = _validate_evidence_file(root, source, "topology_reuse_source")
+    validate_known_topology(json.loads(original.read_text(encoding="utf-8-sig")),
+                            board_ids, board_ids[0])
+    validate_known_topology_readback(summary, board_ids, record.get("build_id", ""))
+    reset_path = _validate_evidence_file(root, record.get("initialization_reset"),
+                                         "initialization_reset")
+    reset = json.loads(reset_path.read_text(encoding="utf-8"))
+    if (reset.get("passed") is not True or reset.get("board_ids") != board_ids or
+            reset.get("expected_build") != record.get("build_id") or
+            reset.get("builds_after") != {uid: record.get("build_id") for uid in board_ids}):
+        raise AcceptanceError("known topology post-reset identity differs")
+
+
 def run_acceptance(args: argparse.Namespace) -> None:
     acceptance_started = time.perf_counter()
     root = args.root.resolve()
@@ -2068,6 +2203,13 @@ def run_acceptance(args: argparse.Namespace) -> None:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     out_dir = acceptance_output_path(root, args.out_dir, stamp)
     out_dir.mkdir(parents=True, exist_ok=True)
+    topology_reuse_source = None
+    if getattr(args, "reuse_topology", None) is not None:
+        if not (tdma_only and quick_diagnostic):
+            raise AcceptanceError("known topology reuse requires four-board quick acceptance")
+        topology_reuse_source = freeze_known_topology(
+            root, args.reuse_topology, out_dir, board_ids,
+            str(config["topology_anchor_board_id"]))
     timing_probe_path = out_dir / "timing.json"
     _start_timing_probe(timing_probe_path)
 
@@ -2164,7 +2306,6 @@ def run_acceptance(args: argparse.Namespace) -> None:
         common_boards.extend(["--board-id", board_id])
 
     topology_dir = out_dir / "p0t-topology"
-    print("Hardware acceptance: P0T line order and NO assignment", flush=True)
     topology_command = [
         sys.executable,
         str(root / "tools/calibration_ring_validate/calibration_ring_topology.py"),
@@ -2178,9 +2319,18 @@ def run_acceptance(args: argparse.Namespace) -> None:
         "--pair-wait", str(config["topology_pair_wait_s"]),
         "--adjacency-only", "--out-dir", str(topology_dir),
     ]
-    add_serial_timing(topology_command, timing, action=True, gap=True)
-    _run_step(topology_command, root, out_dir / "topology.log")
     topology_summary_path = topology_dir / "summary.json"
+    if topology_reuse_source is None:
+        print("Hardware acceptance: P0T line order and NO assignment", flush=True)
+        add_serial_timing(topology_command, timing, action=True, gap=True)
+        _run_step(topology_command, root, out_dir / "topology.log")
+    else:
+        print("Hardware acceptance: reuse measured line order; read current UID/build/NO", flush=True)
+        topology_summary = verify_known_topology(
+            root, topology_reuse_source, board_ids, build_id, timing)
+        topology_dir.mkdir(parents=True, exist_ok=True)
+        topology_summary_path.write_text(
+            json.dumps(topology_summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     topology_summary = json.loads(
         topology_summary_path.read_text(encoding="utf-8"))
     validate_pass_summary(topology_summary, "P0T topology")
@@ -2925,6 +3075,8 @@ def run_acceptance(args: argparse.Namespace) -> None:
         }
         if dpll_summary_path is not None:
             value["dpll_summary"] = evidence_entry(root, dpll_summary_path)
+        if topology_reuse_source is not None:
+            value["topology_reuse_source"] = topology_reuse_source
         if stopped_handoff_path is not None:
             value["tdma_stopped_handoff"] = evidence_entry(root, stopped_handoff_path)
         if internal_dpll_summary_path is not None:
@@ -3082,6 +3234,8 @@ def parse_args() -> argparse.Namespace:
     run.add_argument("--receipt", type=Path, default=DEFAULT_RECEIPT)
     run.add_argument("--build-dir", type=Path)
     run.add_argument("--out-dir", type=Path)
+    run.add_argument("--reuse-topology", type=Path,
+                     help="reuse an original passing P0T summary; quick four-board mode only")
     run.add_argument(
         "--tdma-only", action="store_true",
         help="run calibration and four-node TDMA acceptance without NO5/DPLL")
@@ -3103,6 +3257,8 @@ def parse_args() -> argparse.Namespace:
     resume.add_argument("--ota-summary", required=True, type=Path,
                         help="existing successful OTA summary for the selected scope")
     resume.add_argument("--out-dir", type=Path)
+    resume.add_argument("--reuse-topology", type=Path,
+                        help="reuse an original passing P0T summary; quick four-board mode only")
     resume.add_argument(
         "--tdma-only", action="store_true",
         help="resume four-node TDMA acceptance without NO5/DPLL")

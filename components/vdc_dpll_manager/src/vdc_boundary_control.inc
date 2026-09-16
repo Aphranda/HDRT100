@@ -98,6 +98,36 @@ bool vdc_dpll_manager_set_reference_publish(bool enabled)
     return tdma_service_update_stopped_metadata(s_vdc_tdma_service, boundary_set_stopped, &request);
 }
 
+bool vdc_dpll_manager_set_local_follow(bool enabled)
+{
+    vdc_boundary_request_t request = {
+        .mode = enabled ? VDC_BOUNDARY_MODE_LOCAL_FOLLOW : VDC_BOUNDARY_MODE_PROBE};
+    return tdma_service_update_stopped_metadata(s_vdc_tdma_service, boundary_set_stopped, &request);
+}
+
+bool vdc_dpll_manager_try_local_follow_enabled(bool *enabled)
+{
+    if (enabled == NULL) return false;
+    uint32_t generation;
+    if (!vdc_dpll_manager_try_local_follow_request(&generation)) return false;
+    *enabled = generation != 0u;
+    return true;
+}
+
+bool vdc_dpll_manager_try_local_follow_request(uint32_t *generation)
+{
+    if (generation == NULL) return false;
+    uint32_t request, session, mode;
+    int32_t delta;
+    if (!boundary_request(&request, &session, &delta, &mode)) return false;
+    const uint32_t current = vdc_dpll_manager_feedback_session();
+    __atomic_thread_fence(__ATOMIC_ACQ_REL);
+    if (request != __atomic_load_n(&s_boundary_request, __ATOMIC_ACQUIRE) ||
+        current != vdc_dpll_manager_feedback_session()) return false;
+    *generation = mode == VDC_BOUNDARY_MODE_LOCAL_FOLLOW && session && session == current ? request : 0u;
+    return true;
+}
+
 bool vdc_dpll_manager_try_reference_publish_enabled(bool *enabled)
 {
     if (enabled == NULL) return false;
@@ -108,7 +138,8 @@ bool vdc_dpll_manager_try_reference_publish_enabled(bool *enabled)
     __atomic_thread_fence(__ATOMIC_ACQ_REL);
     if (request != __atomic_load_n(&s_boundary_request, __ATOMIC_ACQUIRE) ||
         current != vdc_dpll_manager_feedback_session()) return false;
-    *enabled = request && mode == VDC_BOUNDARY_MODE_REFERENCE && session && session == current;
+    *enabled = request && (mode == VDC_BOUNDARY_MODE_REFERENCE ||
+        mode == VDC_BOUNDARY_MODE_LOCAL_FOLLOW) && session && session == current;
     return true;
 }
 
@@ -144,7 +175,7 @@ static void boundary_command(const vdc_boundary_meta_t *m, const vdc_boundary_pe
     uint32_t slot, refmem_sync_vdc_boundary_command_t *out)
 {
     *out = (refmem_sync_vdc_boundary_command_t){0};
-    if (!p->command) return;
+    if (!p->command || m->mode == VDC_BOUNDARY_MODE_LOCAL_FOLLOW) return;
     *out = (refmem_sync_vdc_boundary_command_t){
         .target_arm_epoch = p->arm, .basis_source_output_ns_lo = p->source_output_lo,
         .control_session = m->session, .command_seq = p->command,
@@ -174,7 +205,8 @@ static bool boundary_running(const tdma_ring_clock_snapshot_t *r)
 
 static bool boundary_request_current(const vdc_boundary_meta_t *m)
 {
-    return m->probe && !m->halted && (m->delta || m->mode == VDC_BOUNDARY_MODE_AUTO) &&
+    return m->probe && !m->halted && (m->delta || m->mode == VDC_BOUNDARY_MODE_AUTO ||
+        m->mode == VDC_BOUNDARY_MODE_LOCAL_FOLLOW) &&
         m->probe == __atomic_load_n(&s_boundary_request, __ATOMIC_ACQUIRE) &&
         m->session == vdc_dpll_manager_feedback_session();
 }
@@ -255,7 +287,8 @@ bool vdc_dpll_manager_get_boundary_status(uint32_t slot, vdc_dpll_boundary_statu
     tdma_ring_clock_snapshot_t ring;
     if (!boundary_ring(&ring)) return false;
     vdc_dpll_boundary_status_t status = {
-        .schema = m.mode == VDC_BOUNDARY_MODE_AUTO ? 3u : 2u,
+        .schema = m.mode == VDC_BOUNDARY_MODE_LOCAL_FOLLOW ? 4u :
+            m.mode == VDC_BOUNDARY_MODE_AUTO ? 3u : 2u,
         .active = boundary_request_current(&m) && boundary_running(&ring) &&
             ring.config_seq == m.config && ring.schedule_crc32 == m.schedule,
         .requested_probe_generation = request, .requested_delta_ppb = delta,
@@ -563,13 +596,110 @@ static __attribute__((noinline)) void boundary_follower(vdc_boundary_meta_t *m, 
     vdc_dpll_manager_publish_runtime_snapshot_locked();
 }
 
+/* Keep final owner snapshots out of the caller's frame while it obtains the
+ * separately guarded candidate. Core1 has a fixed, small stack. */
+static __attribute__((noinline)) bool boundary_local_current(
+    const vdc_boundary_meta_t *m, const vdc_local_follow_candidate_t *c)
+{
+    tdma_ring_clock_snapshot_t ring;
+    tdma_pio_spi_event_live_snapshot_t live;
+    const uint32_t flags = TDMA_EVENT_LIVE_RETAINED | TDMA_EVENT_LIVE_ACTIVE | TDMA_EVENT_LIVE_ANCHOR_VALID;
+    uint32_t request;
+    return boundary_ring(&ring) && boundary_owner_current(m, &ring) &&
+        vdc_dpll_manager_try_local_follow_request(&request) && request == m->probe &&
+        c->owner_token == __atomic_load_n(&s_feedback_match_owner_token, __ATOMIC_ACQUIRE) &&
+        tdma_runtime_owner_get_event_live_snapshot(&live) && (live.flags & flags) == flags &&
+        live.arm_epoch == c->result.source.source_arm_epoch &&
+        live.record.epoch == c->result.source.observer_epoch;
+}
+
+static __attribute__((noinline)) void boundary_local_apply(vdc_boundary_meta_t *m,
+    uint32_t slot, const vdc_local_follow_candidate_t *c)
+{
+    vdc_dpll_manager_committed_model_t model;
+    if (!boundary_model(&model, m)) return;
+    const vdc_feedback_match_snapshot_t *pair = &c->result;
+    vdc_path_delay_entry_t path;
+    if (!c->owner_token || !c->serial || !pair->has_pair ||
+        pair->reserved != VDC_FEEDBACK_LOCAL_FOLLOW_DOMAIN ||
+        c->session != m->session || c->role_generation != m->role ||
+        c->ring_config_seq != m->config || c->schedule_crc32 != m->schedule ||
+        c->local_slot != slot || c->reference_slot != m->source || slot == m->source ||
+        c->local_model_token != model.token || c->expected_dco_update_seq != model.dco.dco_update_seq ||
+        pair->source.source_clock_epoch_id != model.clock_epoch_id ||
+        pair->source.source_clock_run_id != model.clock_run_id ||
+        pair->pairs[1].source_model_token != model.token ||
+        pair->pairs[1].reference_identity_crc32 != c->reference_model_token ||
+        !vdc_domain_active_observation_path_delay_lookup(&s_vdc_domain.path_delay, slot, m->source, &path) ||
+        path.cal_crc32 != c->path_table_crc32 || path.delay_ns != c->directed_delay_ns) {
+        boundary_reject(m, BOUNDARY_REJECT_IDENTITY); return;
+    }
+    const uint32_t now_ms = board_uptime_ms();
+    if ((uint32_t)(now_ms - c->local_event_ms) > VDC_LOCAL_FOLLOW_MAX_AGE_MS ||
+        (uint32_t)(now_ms - c->prepared_ms) > VDC_LOCAL_FOLLOW_MAX_AGE_MS) {
+        boundary_reject(m, BOUNDARY_REJECT_AGE); return;
+    }
+    const int64_t lo = pair->raw_ppb_lo, hi = pair->raw_ppb_hi;
+    if (lo > hi) { boundary_reject(m, BOUNDARY_REJECT_PAIR); return; }
+    /* Positive local/NO1 error means local model fast: reduce its rate. */
+    int64_t step = lo > VDC_BOUNDARY_AUTO_DEADBAND_PPB ? -(lo / 4) :
+        hi < -VDC_BOUNDARY_AUTO_DEADBAND_PPB ? -(hi / 4) : 0;
+    if (step > VDC_BOUNDARY_AUTO_MAX_DELTA_PPB) step = VDC_BOUNDARY_AUTO_MAX_DELTA_PPB;
+    if (step < -VDC_BOUNDARY_AUTO_MAX_DELTA_PPB) step = -VDC_BOUNDARY_AUTO_MAX_DELTA_PPB;
+    const uint64_t now = vdc_dpll_manager_now_ns();
+    if (!boundary_local_current(m, c)) {
+        boundary_reject(m, BOUNDARY_REJECT_CANCELLED); return;
+    }
+    const int32_t before_rate = model.dco.period_adjust_ppb;
+    const uint32_t before_seq = model.dco.dco_update_seq;
+    m->authorization = c->owner_token; m->cursor = c->serial;
+    m->delta = (int32_t)step;
+    bool applied = false;
+    if (step) {
+        const vdc_dpll_local_rate_delta_t command = {
+            .source_slot_id = m->source, .target_slot_id = slot,
+            .expected_control_generation = m->role, .schedule_crc32 = m->schedule,
+            .servo_profile_crc32 = s_vdc_domain.servo.servo_profile_crc32,
+            .clock_epoch_id = model.clock_epoch_id, .clock_run_id = model.clock_run_id,
+            .expected_dco_update_seq = before_seq, .delta_rate_ppb = (int32_t)step};
+        applied = vdc_domain_apply_local_follow_rate_delta(&s_vdc_domain, &command, now);
+        if (!applied) boundary_reject(m, BOUNDARY_REJECT_APPLY);
+    }
+    if (applied) {
+        m->apply_count = match_inc(m->apply_count); m->last_reject = BOUNDARY_REJECT_NONE;
+        m->consumed |= 1u << slot;
+        const vdc_boundary_peer_t p = {.arm = pair->source.source_arm_epoch,
+            .source_output_lo = pair->pairs[1].rx_elapsed_cycles,
+            .clock_epoch = model.clock_epoch_id, .clock_run = model.clock_run_id,
+            .observer = pair->source.observer_epoch, .model = model.token,
+            .measurement = pair->pairs[1].measurement_sequence, .state = VDC_BOUNDARY_APPLIED,
+            .offered_ms = now_ms, .delta = (int16_t)step};
+        boundary_store(s_boundary_peer_words[slot], &p, sizeof(p));
+    }
+    vdc_boundary_capture_local_core1(c, (int32_t)step, before_rate, before_seq,
+        s_vdc_domain.dco.period_adjust_ppb, s_vdc_domain.dco.dco_update_seq,
+        s_vdc_domain.control.last_follower_command_seq, applied);
+    if (applied) vdc_dpll_manager_publish_runtime_snapshot_locked();
+}
+
+/* Do not keep apply-time model/path locals alive during the guarded copy. */
+static __attribute__((noinline)) void boundary_local_follow(vdc_boundary_meta_t *m, uint32_t slot)
+{
+    vdc_local_follow_candidate_t candidate;
+    if (!vdc_dpll_manager_get_local_follow_candidate(&candidate) || !candidate.active ||
+        (m->authorization == candidate.owner_token && m->cursor == candidate.serial)) return;
+    boundary_local_apply(m, slot, &candidate);
+}
+
 static __attribute__((noinline)) void boundary_service_step(vdc_boundary_meta_t *m,
     uint32_t request, uint32_t session, int32_t delta, uint32_t mode)
 {
     if (request != m->probe) {
         /* Only an explicit nonzero STOP probe opens a new diagnostic round.
          * Disabling preserves command history for post-STOP inspection. */
-        if (!delta && mode != VDC_BOUNDARY_MODE_AUTO) { m->halted = 1u; m->offer = 0u; return; }
+        if (!delta && mode != VDC_BOUNDARY_MODE_AUTO && mode != VDC_BOUNDARY_MODE_LOCAL_FOLLOW) {
+            m->halted = 1u; m->offer = 0u; return;
+        }
         const uint32_t serial = m->serial;
         *m = (vdc_boundary_meta_t){.session = session, .probe = request,
             .delta = delta, .serial = serial, .mode = mode};
@@ -604,7 +734,9 @@ static __attribute__((noinline)) void boundary_service_step(vdc_boundary_meta_t 
     if (m->offer && m->offer == __atomic_load_n(&s_boundary_tx_done, __ATOMIC_ACQUIRE)) {
         m->offer = 0u; m->tx_count = match_inc(m->tx_count);
     }
-    if (ring.local_slot_id == m->source) {
+    if (m->mode == VDC_BOUNDARY_MODE_LOCAL_FOLLOW) {
+        if (ring.local_slot_id != m->source) boundary_local_follow(m, ring.local_slot_id);
+    } else if (ring.local_slot_id == m->source) {
         const uint32_t slot = m->cursor;
         m->cursor = slot + 1u == m->nodes ? 0u : slot + 1u;
         boundary_master(m, slot);

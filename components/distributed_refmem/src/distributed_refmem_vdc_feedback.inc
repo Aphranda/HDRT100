@@ -28,8 +28,11 @@ static uint32_t s_boundary_offer_groups;
 /* One selected MASTER can feed a FOLLOWER. Completed bytes remain in that
  * source's existing assembly until Core0 can validate the final handoff. */
 #define BOUNDARY_ASSEMBLY_COMPLETE_PENDING 4u
+/* Snapshot tag only; public diagnostics retain schema 1. No new storage. */
+#define FEEDBACK_REFERENCE_PROOF_ARM 2u
 static uint32_t s_boundary_pending_admission, s_boundary_pending_completed_ms;
 static void distributed_refmem_boundary_service_pending(tdma_service_service_t *owner);
+static void distributed_refmem_receipt_service_pending(tdma_service_service_t *owner);
 _Static_assert(REFMEM_VDC_BOUNDARY_COMMAND_MAX_GROUPS > 0u,
                "an immutable boundary offer has a finite nonzero group budget");
 _Static_assert(sizeof(distributed_refmem_vdc_feedback_rx_snapshot_t) == 192u,
@@ -47,6 +50,13 @@ _Static_assert(sizeof(((distributed_refmem_vdc_feedback_rx_snapshot_t *)0)->reco
     REFMEM_VDC_FEEDBACK_RECORD_SIZE, "feedback diagnostic record ABI");
 
 static uint32_t feedback_inc(uint32_t value) { return value == UINT32_MAX ? value : value + 1u; }
+
+static void receipt_restore_first_sequence(refmem_sync_vdc_feedback_assembly_t *assembly)
+{
+    const uint32_t steps = REFMEM_VDC_FEEDBACK_FRAGMENT_COUNT - 1u;
+    assembly->first_sequence = assembly->last_sequence > steps
+        ? assembly->last_sequence - steps : assembly->last_sequence + UINT32_MAX - steps;
+}
 
 static void feedback_load(const uint32_t *words, void *output, size_t size)
 {
@@ -151,13 +161,17 @@ static bool distributed_refmem_feedback_refresh(tdma_service_service_t *owner)
         const bool pending_expired = (assembly->state & BOUNDARY_ASSEMBLY_COMPLETE_PENDING) &&
             (uint32_t)(now - assembly->first_ms) >= REFMEM_VDC_FEEDBACK_ASSEMBLY_TIMEOUT_MS;
         if (pending_expired) {
+            if (s_feedback_binding.mode == VDC_DPLL_CONTROL_MODE_MASTER &&
+                s_feedback_binding.rate_mode == VDC_BOUNDARY_MODE_REFERENCE)
+                receipt_restore_first_sequence(assembly);
             assembly->state &= (uint8_t)~BOUNDARY_ASSEMBLY_COMPLETE_PENDING;
             s_boundary_pending_admission = s_boundary_pending_completed_ms = 0u;
         }
         if (pending_expired || refmem_sync_vdc_feedback_expire(assembly, now)) {
             distributed_refmem_vdc_feedback_rx_snapshot_t rx;
             feedback_load(s_feedback_rx[i].words, &rx, sizeof(rx));
-            rx.schema = 1u; rx.source_slot = i;
+            if (rx.schema != FEEDBACK_REFERENCE_PROOF_ARM) rx.schema = 1u;
+            rx.source_slot = i;
             rx.timeout_count = feedback_inc(rx.timeout_count);
             feedback_publish(s_feedback_rx[i].words, &s_feedback_rx[i].guard, &rx, sizeof(rx));
         }
@@ -178,7 +192,8 @@ static bool distributed_refmem_feedback_refresh(tdma_service_service_t *owner)
             refmem_sync_vdc_feedback_reset(&s_feedback_rx[i].assembly);
             distributed_refmem_vdc_feedback_rx_snapshot_t rx;
             feedback_load(s_feedback_rx[i].words, &rx, sizeof(rx));
-            rx.schema = 1u; rx.active = 0u; rx.source_slot = i;
+            if (rx.schema != FEEDBACK_REFERENCE_PROOF_ARM) rx.schema = 1u;
+            rx.active = 0u; rx.source_slot = i;
             feedback_publish(s_feedback_rx[i].words, &s_feedback_rx[i].guard, &rx, sizeof(rx));
         }
         s_boundary_pending_admission = s_boundary_pending_completed_ms = 0u;
@@ -189,6 +204,7 @@ static bool distributed_refmem_feedback_refresh(tdma_service_service_t *owner)
     /* Exactly one deferred attempt per Core0 service, including empty FIFO.
      * The receive path below never retries an already-pending transaction. */
     distributed_refmem_boundary_service_pending(owner);
+    distributed_refmem_receipt_service_pending(owner);
     return true;
 }
 
@@ -253,6 +269,75 @@ static int distributed_refmem_boundary_prepare(tdma_service_service_t *owner)
     return 2;
 }
 
+static bool feedback_rx_binding_current(const distributed_refmem_vdc_feedback_rx_snapshot_t *rx,
+    const distributed_refmem_feedback_binding_t *binding)
+{
+    return rx->ring_config_seq == binding->ring_config_seq &&
+        rx->role_generation == binding->role_generation && rx->schedule_crc32 == binding->schedule_crc32 &&
+        rx->clock_epoch_id == binding->clock_epoch_id && rx->clock_run_id == binding->clock_run_id;
+}
+
+/* A retained reference is already queued only if these exact bytes are in
+ * the frozen TX group or were fully published under the current binding. */
+static bool reference_receipt_covered(const uint8_t reference[64])
+{
+    uint8_t receipt[64];
+    if (!refmem_sync_vdc_receipt_ack_encode(reference, s_feedback_binding.node_count, receipt)) return false;
+    distributed_refmem_vdc_feedback_tx_snapshot_t tx;
+    feedback_load(s_feedback_tx_words, &tx, sizeof(tx));
+    if (tx.ring_config_seq != s_feedback_binding.ring_config_seq ||
+        tx.role_generation != s_feedback_binding.role_generation ||
+        tx.schedule_crc32 != s_feedback_binding.schedule_crc32 ||
+        tx.clock_epoch_id != s_feedback_binding.clock_epoch_id ||
+        tx.clock_run_id != s_feedback_binding.clock_run_id ||
+        tx.control_session != s_feedback_binding.session) return false;
+    return (s_feedback_tx_active && !memcmp(receipt, s_feedback_tx_record, sizeof(receipt))) ||
+        (tx.history_count && !memcmp(receipt, tx.history[0], sizeof(receipt)));
+}
+
+static int distributed_refmem_receipt_prepare(tdma_service_service_t *owner)
+{
+    distributed_refmem_feedback_binding_t after;
+    if (!feedback_read_binding(owner, &after)) return s_feedback_tx_active ? -1 : 0;
+    if (!feedback_same_binding(&after, &s_feedback_binding)) return -1;
+    if (!after.session || after.target >= after.node_count) return 0;
+    distributed_refmem_vdc_feedback_rx_snapshot_t rx;
+    feedback_load(s_feedback_rx[after.target].words, &rx, sizeof(rx));
+    if (s_feedback_tx_active) {
+        uint8_t original[64];
+        refmem_sync_vdc_feedback_record_t frozen;
+        if (rx.schema == FEEDBACK_REFERENCE_PROOF_ARM || !rx.active || !rx.retained ||
+            !feedback_rx_binding_current(&rx, &after) ||
+            !refmem_sync_vdc_receipt_ack_restore(s_feedback_tx_record, after.node_count,
+                after.local, after.target, original) ||
+            !refmem_sync_vdc_feedback_decode(original, after.node_count, after.target, after.local, &frozen) ||
+            frozen.source_arm_epoch != rx.sample.source_arm_epoch ||
+            frozen.observer_epoch != rx.sample.observer_epoch ||
+            frozen.source_clock_epoch_id != rx.sample.source_clock_epoch_id ||
+            frozen.source_clock_run_id != rx.sample.source_clock_run_id ||
+            frozen.model.control_session != after.session) {
+            feedback_cancel_tx();
+            return 0;
+        }
+        return 1; /* Later events in this namespace cannot mutate the group. */
+    }
+    if (s_feedback_ordinary_due) return 0;
+    if (rx.schema == FEEDBACK_REFERENCE_PROOF_ARM || !rx.active || !rx.retained ||
+        !feedback_rx_binding_current(&rx, &after) || !feedback_record_binding(&rx.sample, &after) ||
+        reference_receipt_covered(rx.record) ||
+        !refmem_sync_vdc_receipt_ack_encode(rx.record, after.node_count, s_feedback_tx_record)) return 0;
+    distributed_refmem_vdc_feedback_tx_snapshot_t tx;
+    feedback_load(s_feedback_tx_words, &tx, sizeof(tx));
+    s_feedback_tx_index = 0u; s_feedback_tx_active = true;
+    tx.schema = 1u; tx.active = 1u; tx.fragment_index = 0u;
+    tx.ring_config_seq = after.ring_config_seq; tx.role_generation = after.role_generation;
+    tx.source_slot = after.local; tx.target_slot = after.target; tx.schedule_crc32 = after.schedule_crc32;
+    tx.clock_epoch_id = after.clock_epoch_id; tx.clock_run_id = after.clock_run_id;
+    tx.control_session = after.session;
+    feedback_publish(s_feedback_tx_words, &s_feedback_tx_guard, &tx, sizeof(tx));
+    return 1;
+}
+
 /* REFERENCE is transport only. Project a fresh NO1 origin event once using
  * its committed DCO, then freeze all 16 fragments. Origin's single acquisition
  * epoch supplies both source ARM and observer namespaces (zero-extended into
@@ -260,6 +345,8 @@ static int distributed_refmem_boundary_prepare(tdma_service_service_t *owner)
  * completed TX header, so FIFO backpressure cannot skip a target. */
 static int distributed_refmem_reference_prepare(tdma_service_service_t *owner)
 {
+    if (s_feedback_binding.mode == VDC_DPLL_CONTROL_MODE_FOLLOWER)
+        return distributed_refmem_receipt_prepare(owner);
     distributed_refmem_feedback_binding_t after;
     uint32_t epoch;
     if (!feedback_read_binding(owner, &after) ||
@@ -332,8 +419,7 @@ static int distributed_refmem_feedback_prepare(tdma_service_service_t *owner)
 {
     if (!s_feedback_ready) return s_feedback_tx_active || boundary_offer_pending() ? -1 : 0;
     if (s_feedback_binding.rate_mode == VDC_BOUNDARY_MODE_REFERENCE)
-        return s_feedback_binding.mode == VDC_DPLL_CONTROL_MODE_MASTER
-            ? distributed_refmem_reference_prepare(owner) : 0;
+        return distributed_refmem_reference_prepare(owner);
     if (s_feedback_binding.mode == VDC_DPLL_CONTROL_MODE_MASTER)
         return distributed_refmem_boundary_prepare(owner);
     if (s_feedback_binding.mode != VDC_DPLL_CONTROL_MODE_FOLLOWER) return 0;
@@ -456,6 +542,29 @@ static void distributed_refmem_feedback_published(bool feedback, uint32_t sequen
     tx.fragments_published = feedback_inc(tx.fragments_published);
     ++s_feedback_tx_index;
     if (s_feedback_tx_index == REFMEM_VDC_FEEDBACK_FRAGMENT_COUNT) {
+        if (s_feedback_binding.rate_mode == VDC_BOUNDARY_MODE_REFERENCE &&
+            s_feedback_binding.mode == VDC_DPLL_CONTROL_MODE_MASTER &&
+            s_feedback_tx_record[0] == REFMEM_VDC_FEEDBACK_MODEL_SCHEMA &&
+            s_feedback_tx_record[2] < s_feedback_binding.node_count) {
+            const uint32_t source = s_feedback_tx_record[2];
+            distributed_refmem_feedback_source_t *state = &s_feedback_rx[source];
+            distributed_refmem_vdc_feedback_rx_snapshot_t rx;
+            feedback_load(state->words, &rx, sizeof(rx));
+            /* The decoded union is idle on a REFERENCE master. This proof
+             * denotes a completed FIFO publication, never physical delivery. */
+            if (rx.schema != FEEDBACK_REFERENCE_PROOF_ARM ||
+                !feedback_rx_binding_current(&rx, &s_feedback_binding)) {
+                rx.retained = 0u;
+                memset(rx.record, 0, sizeof(rx.record));
+            }
+            rx.schema = FEEDBACK_REFERENCE_PROOF_ARM; rx.source_slot = source; rx.active = 1u;
+            rx.ring_config_seq = s_feedback_binding.ring_config_seq;
+            rx.role_generation = s_feedback_binding.role_generation;
+            rx.schedule_crc32 = s_feedback_binding.schedule_crc32;
+            rx.clock_epoch_id = s_feedback_binding.clock_epoch_id; rx.clock_run_id = s_feedback_binding.clock_run_id;
+            memcpy(rx.reference_proof, s_feedback_tx_record, sizeof(rx.reference_proof));
+            feedback_publish(state->words, &state->guard, &rx, sizeof(rx));
+        }
         memcpy(tx.history[1], tx.history[0], REFMEM_VDC_FEEDBACK_RECORD_SIZE);
         memcpy(tx.history[0], s_feedback_tx_record, REFMEM_VDC_FEEDBACK_RECORD_SIZE);
         if (tx.history_count < 2u) ++tx.history_count;
@@ -513,10 +622,14 @@ static void distributed_refmem_boundary_service_pending(tdma_service_service_t *
 
     distributed_refmem_vdc_feedback_rx_snapshot_t rx;
     feedback_load(state->words, &rx, sizeof(rx));
-    rx.schema = 1u; rx.source_slot = source;
+    if (rx.schema != FEEDBACK_REFERENCE_PROOF_ARM) rx.schema = 1u;
+    rx.source_slot = source;
     refmem_sync_vdc_boundary_command_t command;
     const uint8_t *wire = state->assembly.payload;
     if (!cancelled && after.rate_mode == VDC_BOUNDARY_MODE_REFERENCE) {
+        /* One retained unscheduled reference plus one complete assembly may
+         * wait behind the immutable ACK in TX. Never silently overwrite an
+         * unscheduled receipt, and never require an EVENT/DCO match. */
         refmem_sync_vdc_feedback_record_t sample;
         const bool decoded = refmem_sync_vdc_feedback_decode(wire, after.node_count,
             source, after.local, &sample);
@@ -530,6 +643,9 @@ static void distributed_refmem_boundary_service_pending(tdma_service_service_t *
             if (order == REFMEM_VDC_FEEDBACK_ORDER_FIRST ||
                 order == REFMEM_VDC_FEEDBACK_ORDER_NEW_NAMESPACE ||
                 order == REFMEM_VDC_FEEDBACK_ORDER_NEWER) {
+                if (rx.active && rx.retained && feedback_rx_binding_current(&rx, &after) &&
+                    !reference_receipt_covered(rx.record)) return;
+                rx.schema = 1u;
                 rx.sample = sample;
                 memcpy(rx.record, wire, REFMEM_VDC_FEEDBACK_RECORD_SIZE);
                 rx.retained = 1u; rx.active = 1u;
@@ -575,6 +691,7 @@ static void distributed_refmem_boundary_service_pending(tdma_service_service_t *
                 rx.duplicate_count = feedback_inc(rx.duplicate_count);
             else rx.reject_count = feedback_inc(rx.reject_count);
         } else {
+            rx.schema = 1u;
             rx.command = command;
             memcpy(rx.record, wire, REFMEM_VDC_FEEDBACK_RECORD_SIZE);
             rx.retained = 1u; rx.active = 1u;
@@ -600,10 +717,19 @@ static void distributed_refmem_boundary_receive(tdma_service_service_t *owner, u
     distributed_refmem_feedback_source_t *state = &s_feedback_rx[source];
     /* Do not overwrite complete bytes or retry once for every incoming mail.
      * Ordinary RefMem parsing and FIFO release remain with the caller. */
-    if (state->assembly.state & BOUNDARY_ASSEMBLY_COMPLETE_PENDING) return;
+    if (state->assembly.state & BOUNDARY_ASSEMBLY_COMPLETE_PENDING) {
+        if (s_feedback_binding.rate_mode == VDC_BOUNDARY_MODE_REFERENCE) {
+            distributed_refmem_vdc_feedback_rx_snapshot_t blocked;
+            feedback_load(state->words, &blocked, sizeof(blocked));
+            blocked.reject_count = feedback_inc(blocked.reject_count);
+            feedback_publish(state->words, &state->guard, &blocked, sizeof(blocked));
+        }
+        return;
+    }
     distributed_refmem_vdc_feedback_rx_snapshot_t rx;
     feedback_load(state->words, &rx, sizeof(rx));
-    rx.schema = 1u; rx.source_slot = source;
+    if (rx.schema != FEEDBACK_REFERENCE_PROOF_ARM) rx.schema = 1u;
+    rx.source_slot = source;
     const uint32_t seq = distributed_refmem_get_le32(mailbox + TDMA_PROCESS_IMAGE_REFMEM_GENERATION_OFFSET);
     if (mailbox[4] != source || !seq || (uint16_t)seq != distributed_refmem_get_le16(mailbox + 6u) ||
         !(mailbox[5] & (1u << s_feedback_binding.local)) ||
@@ -652,11 +778,119 @@ static void distributed_refmem_boundary_receive(tdma_service_service_t *owner, u
     feedback_publish(state->words, &state->guard, &rx, sizeof(rx));
 }
 
+static bool reference_proof_current(const distributed_refmem_vdc_feedback_rx_snapshot_t *rx,
+    uint32_t source, const distributed_refmem_feedback_binding_t *binding, uint32_t epoch)
+{
+    refmem_sync_vdc_feedback_record_t record;
+    return rx->schema == FEEDBACK_REFERENCE_PROOF_ARM && rx->active && epoch && binding->session &&
+        binding->rate_mode == VDC_BOUNDARY_MODE_REFERENCE && binding->mode == VDC_DPLL_CONTROL_MODE_MASTER &&
+        feedback_rx_binding_current(rx, binding) &&
+        refmem_sync_vdc_feedback_decode(rx->reference_proof, binding->node_count,
+            binding->local, source, &record) && feedback_record_binding(&record, binding) &&
+        record.source_arm_epoch == epoch && record.observer_epoch == epoch &&
+        record.source_clock_epoch_id == binding->clock_epoch_id && record.source_clock_run_id == binding->clock_run_id;
+}
+
+static void receipt_finish_pending(tdma_service_service_t *owner, uint32_t source)
+{
+    distributed_refmem_feedback_source_t *state = &s_feedback_rx[source];
+    if (!(state->assembly.state & BOUNDARY_ASSEMBLY_COMPLETE_PENDING)) return;
+    distributed_refmem_feedback_binding_t after;
+    uint32_t epoch;
+    if (!feedback_read_binding(owner, &after) ||
+        !tdma_runtime_owner_get_origin_reference_epoch(&epoch)) return;
+    distributed_refmem_vdc_feedback_rx_snapshot_t rx;
+    feedback_load(state->words, &rx, sizeof(rx));
+    uint8_t original[64];
+    const bool valid = feedback_same_binding(&after, &s_feedback_binding) &&
+        s_feedback_admission && state->assembly.first_sequence == s_feedback_admission &&
+        reference_proof_current(&rx, source, &after, epoch) &&
+        refmem_sync_vdc_receipt_ack_restore(state->assembly.payload, after.node_count,
+            source, after.local, original) && !memcmp(original, rx.reference_proof, sizeof(original));
+    if (!valid) {
+        /* Includes a valid but evicted proof. Never infer an old publication
+         * from a matching sequence or count an unmatched receipt as accepted. */
+        rx.reject_count = feedback_inc(rx.reject_count);
+    } else if (rx.retained && !memcmp(rx.record, state->assembly.payload, sizeof(rx.record))) {
+        rx.duplicate_count = feedback_inc(rx.duplicate_count);
+    } else {
+        memcpy(rx.record, state->assembly.payload, sizeof(rx.record));
+        rx.retained = 1u;
+        rx.receive_count = feedback_inc(rx.receive_count);
+        rx.last_transport_seq = state->assembly.last_sequence;
+        rx.first_rx_ms = state->assembly.first_ms;
+        rx.last_rx_ms = osal_tick_ms(); /* Acceptance time, never an event timestamp. */
+    }
+    state->assembly.state &= (uint8_t)~BOUNDARY_ASSEMBLY_COMPLETE_PENDING;
+    /* Restore the fragment-start watermark after the temporary admission
+     * token, including the wire sequence's wrap that skips zero. */
+    receipt_restore_first_sequence(&state->assembly);
+    feedback_publish(state->words, &state->guard, &rx, sizeof(rx));
+}
+
+static void distributed_refmem_receipt_service_pending(tdma_service_service_t *owner)
+{
+    if (!s_feedback_ready || s_feedback_binding.mode != VDC_DPLL_CONTROL_MODE_MASTER ||
+        s_feedback_binding.rate_mode != VDC_BOUNDARY_MODE_REFERENCE) return;
+    for (uint32_t source = 0; source < s_feedback_binding.node_count; ++source)
+        if (source != s_feedback_binding.local) receipt_finish_pending(owner, source);
+}
+
+static void distributed_refmem_receipt_receive(tdma_service_service_t *owner, uint32_t source,
+    const uint8_t *mailbox, const tdma_flight_rx_view_t *view)
+{
+    if (!s_feedback_ready || !view || !s_feedback_admission ||
+        view->admission_epoch != s_feedback_admission || source >= s_feedback_binding.node_count ||
+        source == s_feedback_binding.local) return;
+    distributed_refmem_feedback_source_t *state = &s_feedback_rx[source];
+    if (state->assembly.state & BOUNDARY_ASSEMBLY_COMPLETE_PENDING) return;
+    distributed_refmem_vdc_feedback_rx_snapshot_t rx;
+    feedback_load(state->words, &rx, sizeof(rx));
+    const uint32_t seq = distributed_refmem_get_le32(mailbox + TDMA_PROCESS_IMAGE_REFMEM_GENERATION_OFFSET);
+    if (mailbox[4] != source || !seq || (uint16_t)seq != distributed_refmem_get_le16(mailbox + 6u) ||
+        !(mailbox[5] & (1u << s_feedback_binding.local)) ||
+        distributed_refmem_get_le16(mailbox + TDMA_PROCESS_IMAGE_CRC_OFFSET) !=
+            tdma_process_image_crc16_ccitt(mailbox, TDMA_PROCESS_IMAGE_CRC_OFFSET)) {
+        state->assembly.state &= (uint8_t)~REFMEM_VDC_FEEDBACK_ASSEMBLY_ACTIVE;
+        rx.reject_count = feedback_inc(rx.reject_count);
+    } else if (mailbox[3] != TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS) {
+        if (!(state->assembly.state & REFMEM_VDC_FEEDBACK_ASSEMBLY_ACTIVE)) return;
+        state->assembly.state &= (uint8_t)~REFMEM_VDC_FEEDBACK_ASSEMBLY_ACTIVE;
+        rx.reject_count = feedback_inc(rx.reject_count);
+    } else {
+        uint8_t complete[64];
+        const refmem_sync_vdc_feedback_result_t result = refmem_sync_vdc_receipt_ack_push(
+            &state->assembly, source, s_feedback_binding.local, s_feedback_binding.node_count, seq,
+            mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_INDEX_OFFSET],
+            mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_COUNT_OFFSET],
+            mailbox + TDMA_PROCESS_IMAGE_VDC_FRAGMENT_DATA_OFFSET, osal_tick_ms(), complete);
+        if (result == REFMEM_VDC_FEEDBACK_COMPLETE) {
+            /* After assembly completes, first_sequence is no longer needed
+             * for fragment joining. Reuse it as this pending admission token. */
+            state->assembly.first_sequence = view->admission_epoch;
+            state->assembly.state |= BOUNDARY_ASSEMBLY_COMPLETE_PENDING;
+            receipt_finish_pending(owner, source);
+            return;
+        }
+        if (result == REFMEM_VDC_FEEDBACK_DUPLICATE) rx.duplicate_count = feedback_inc(rx.duplicate_count);
+        else if (result == REFMEM_VDC_FEEDBACK_EXPIRED || result == REFMEM_VDC_FEEDBACK_EXPIRED_RESTARTED)
+            rx.timeout_count = feedback_inc(rx.timeout_count);
+        else if (result != REFMEM_VDC_FEEDBACK_PROGRESS && result != REFMEM_VDC_FEEDBACK_RESTARTED)
+            rx.reject_count = feedback_inc(rx.reject_count);
+    }
+    feedback_publish(state->words, &state->guard, &rx, sizeof(rx));
+}
+
 static void distributed_refmem_feedback_receive(tdma_service_service_t *owner, uint32_t source,
     const uint8_t *mailbox, const tdma_flight_rx_view_t *view)
 {
     if (s_feedback_binding.mode == VDC_DPLL_CONTROL_MODE_FOLLOWER) {
         distributed_refmem_boundary_receive(owner, source, mailbox, view);
+        return;
+    }
+    if (s_feedback_binding.mode == VDC_DPLL_CONTROL_MODE_MASTER &&
+        s_feedback_binding.rate_mode == VDC_BOUNDARY_MODE_REFERENCE) {
+        distributed_refmem_receipt_receive(owner, source, mailbox, view);
         return;
     }
     if (!s_feedback_ready || s_feedback_binding.rate_mode == VDC_BOUNDARY_MODE_REFERENCE ||
@@ -667,7 +901,8 @@ static void distributed_refmem_feedback_receive(tdma_service_service_t *owner, u
     distributed_refmem_feedback_source_t *state = &s_feedback_rx[source];
     distributed_refmem_vdc_feedback_rx_snapshot_t rx;
     feedback_load(state->words, &rx, sizeof(rx));
-    rx.schema = 1u; rx.source_slot = source;
+    if (rx.schema != FEEDBACK_REFERENCE_PROOF_ARM) rx.schema = 1u;
+    rx.source_slot = source;
     const uint32_t seq = distributed_refmem_get_le32(mailbox + TDMA_PROCESS_IMAGE_REFMEM_GENERATION_OFFSET);
     if (mailbox[4] != source || !seq || (uint16_t)seq != distributed_refmem_get_le16(mailbox + 6u) ||
         !(mailbox[5] & (1u << s_feedback_binding.local)) ||
@@ -687,21 +922,24 @@ static void distributed_refmem_feedback_receive(tdma_service_service_t *owner, u
         mailbox + TDMA_PROCESS_IMAGE_VDC_FRAGMENT_DATA_OFFSET, now, wire);
     if (result == REFMEM_VDC_FEEDBACK_COMPLETE) {
         const refmem_sync_vdc_feedback_order_t order = refmem_sync_vdc_feedback_compare(wire,
-            rx.retained && rx.record[1] == source && rx.record[2] == s_feedback_binding.local
+            rx.retained && rx.schema != FEEDBACK_REFERENCE_PROOF_ARM &&
+                (rx.record[0] == REFMEM_VDC_FEEDBACK_SCHEMA ||
+                 rx.record[0] == REFMEM_VDC_FEEDBACK_MODEL_SCHEMA ||
+                 rx.record[0] == REFMEM_VDC_FEEDBACK_RATE_SCHEMA) &&
+                rx.record[1] == source && rx.record[2] == s_feedback_binding.local
                 ? rx.record : NULL, s_feedback_binding.node_count, source, s_feedback_binding.local);
         distributed_refmem_feedback_binding_t after;
         if (!feedback_read_binding(owner, &after) || !feedback_same_binding(&after, &s_feedback_binding)) return;
         if (order == REFMEM_VDC_FEEDBACK_ORDER_FIRST || order == REFMEM_VDC_FEEDBACK_ORDER_NEW_NAMESPACE ||
             order == REFMEM_VDC_FEEDBACK_ORDER_NEWER) {
-            if (!refmem_sync_vdc_feedback_decode(wire, after.node_count, source, after.local, &rx.sample)) return;
-            if (!feedback_record_binding(&rx.sample, &after)) {
+            refmem_sync_vdc_feedback_record_t sample;
+            if (!refmem_sync_vdc_feedback_decode(wire, after.node_count, source, after.local, &sample)) return;
+            if (!feedback_record_binding(&sample, &after)) {
                 rx.reject_count = feedback_inc(rx.reject_count);
-                /* Keep the previously admitted record and decoded payload together. */
-                if (rx.retained) (void)refmem_sync_vdc_feedback_decode(rx.record,
-                    after.node_count, source, after.local, &rx.sample);
                 feedback_publish(state->words, &state->guard, &rx, sizeof(rx));
                 return;
             }
+            rx.schema = 1u; rx.sample = sample;
             memcpy(rx.record, wire, sizeof(wire));
             rx.retained = 1u; rx.active = 1u;
             rx.ring_config_seq = after.ring_config_seq; rx.role_generation = after.role_generation;
@@ -730,6 +968,23 @@ bool distributed_refmem_get_vdc_feedback_rx(uint32_t source,
     feedback_load(state->words, &rx, sizeof(rx));
     distributed_refmem_feedback_binding_t current;
     const bool known = feedback_read_binding(tdma_runtime_owner_get(), &current);
+    if (rx.schema == FEEDBACK_REFERENCE_PROOF_ARM) {
+        uint32_t epoch = 0u;
+        uint8_t original[64];
+        refmem_sync_vdc_feedback_record_t reference;
+        rx.active = rx.retained && known &&
+            tdma_runtime_owner_get_origin_reference_epoch(&epoch) &&
+            reference_proof_current(&rx, source, &current, epoch) &&
+            refmem_sync_vdc_receipt_ack_restore(rx.record, current.node_count, source, current.local, original) &&
+            refmem_sync_vdc_feedback_decode(original, current.node_count, current.local, source, &reference) &&
+            reference.model.control_session == current.session && reference.source_arm_epoch == epoch;
+        rx.schema = 1u; rx.source_slot = source;
+        memset(&rx.sample, 0, sizeof(rx.sample)); /* This getter never relabels proof as decoded feedback. */
+        __atomic_thread_fence(__ATOMIC_ACQ_REL);
+        if (guard != __atomic_load_n(&state->guard, __ATOMIC_ACQUIRE)) return false;
+        *out = rx;
+        return true;
+    }
     rx.schema = 1u; rx.source_slot = source;
     const bool feedback_role = current.mode == VDC_DPLL_CONTROL_MODE_MASTER &&
         current.rate_mode != VDC_BOUNDARY_MODE_REFERENCE &&
@@ -751,6 +1006,32 @@ bool distributed_refmem_get_vdc_feedback_rx(uint32_t source,
         rx.schedule_crc32 == current.schedule_crc32 && rx.clock_epoch_id == current.clock_epoch_id &&
         rx.clock_run_id == current.clock_run_id &&
         (command_role || feedback_record_binding(&rx.sample, &current));
+    __atomic_thread_fence(__ATOMIC_ACQ_REL);
+    if (guard != __atomic_load_n(&state->guard, __ATOMIC_ACQUIRE)) return false;
+    *out = rx;
+    return true;
+}
+
+bool distributed_refmem_get_vdc_reference_proof(uint32_t source,
+    distributed_refmem_vdc_feedback_rx_snapshot_t *out)
+{
+    if (out == NULL || source >= REFMEM_SYNC_NODE_COUNT) return false;
+    distributed_refmem_feedback_source_t *state = &s_feedback_rx[source];
+    const uint32_t guard = __atomic_load_n(&state->guard, __ATOMIC_ACQUIRE);
+    if (guard & 1u) return false;
+    distributed_refmem_vdc_feedback_rx_snapshot_t rx;
+    feedback_load(state->words, &rx, sizeof(rx));
+    distributed_refmem_feedback_binding_t current;
+    const bool known = feedback_read_binding(tdma_runtime_owner_get(), &current);
+    uint32_t epoch = 0u;
+    const bool retained = rx.schema == FEEDBACK_REFERENCE_PROOF_ARM &&
+        rx.reference_proof[0] == REFMEM_VDC_FEEDBACK_MODEL_SCHEMA;
+    rx.active = retained && known && tdma_runtime_owner_get_origin_reference_epoch(&epoch) &&
+        reference_proof_current(&rx, source, &current, epoch);
+    if (retained) memcpy(rx.record, rx.reference_proof, sizeof(rx.record));
+    else memset(rx.record, 0, sizeof(rx.record));
+    rx.schema = 1u; rx.source_slot = source; rx.retained = retained;
+    memset(&rx.sample, 0, sizeof(rx.sample));
     __atomic_thread_fence(__ATOMIC_ACQ_REL);
     if (guard != __atomic_load_n(&state->guard, __ATOMIC_ACQUIRE)) return false;
     *out = rx;
@@ -790,6 +1071,9 @@ bool distributed_refmem_copy_vdc_feedback_rx(uint32_t source,
     if (guard & 1u) return false;
     distributed_refmem_vdc_feedback_rx_snapshot_t rx;
     feedback_load(state->words, &rx, sizeof(rx));
+    /* The old diagnostic matcher consumes decoded feedback only. An ACK's
+     * otherwise-idle union carries raw publication proof, never sample. */
+    if (rx.schema == FEEDBACK_REFERENCE_PROOF_ARM) return false;
     __atomic_thread_fence(__ATOMIC_ACQ_REL);
     if (guard != __atomic_load_n(&state->guard, __ATOMIC_ACQUIRE)) return false;
     *out = rx;

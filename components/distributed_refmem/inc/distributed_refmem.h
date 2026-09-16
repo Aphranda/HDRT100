@@ -349,6 +349,10 @@ typedef struct {
     union {
         refmem_sync_vdc_feedback_record_t sample;
         refmem_sync_vdc_boundary_command_t command;
+        /* Internal schema 2 is the REFERENCE MASTER arm. The most recent
+         * successful full FIFO publication for this follower; record[] is
+         * its received receipt ACK. Never interpret this arm as sample. */
+        uint8_t reference_proof[64];
     };
 } distributed_refmem_vdc_feedback_rx_snapshot_t;
 
@@ -374,6 +378,11 @@ typedef struct {
 } distributed_refmem_vdc_feedback_tx_snapshot_t;
 
 bool distributed_refmem_get_vdc_feedback_rx(uint32_t source_slot,
+    distributed_refmem_vdc_feedback_rx_snapshot_t *snapshot);
+/* Same scalar layout as RX, but retained/active describe reference_proof and
+ * record[] returns that original MODEL wire. One coherent guarded copy;
+ * STOP preserves the proof as inactive history. Counters describe receipts. */
+bool distributed_refmem_get_vdc_reference_proof(uint32_t follower_slot,
     distributed_refmem_vdc_feedback_rx_snapshot_t *snapshot);
 /* One atomic SRAM copy; caller must validate local current ring/role/clock
  * binding. Intended for the Core1 owner without a full runtime snapshot. */

@@ -16,6 +16,8 @@
 #define REFMEM_VDC_BOUNDARY_COMMAND_SCHEMA 3u
 #define REFMEM_VDC_BOUNDARY_COMMAND_FLAGS 0x01u
 #define REFMEM_VDC_BOUNDARY_COMMAND_AUTO_FLAGS 0x03u
+#define REFMEM_VDC_RECEIPT_ACK_SCHEMA 5u
+#define REFMEM_VDC_RECEIPT_ACK_FLAGS 0x01u
 /* Total complete groups for one immutable offer, including the first send.
  * Repetition never refreshes its command sequence, measurement basis or TTL. */
 #define REFMEM_VDC_BOUNDARY_COMMAND_MAX_GROUPS 3u
@@ -157,6 +159,17 @@ bool refmem_sync_vdc_feedback_decode(
     uint32_t expected_source, uint32_t expected_target,
     refmem_sync_vdc_feedback_record_t *record);
 
+/* Receipt only: header direction is reversed, bytes 4..59 echo the complete
+ * admitted MODEL record. These clock/model fields remain reference-local;
+ * applied_command_seq is echoed data, never a follower application ACK.
+ * Restore reconstructs the byte-exact canonical MODEL record, including CRC.
+ * False preserves output; input/output may alias. Other schemas are refused. */
+bool refmem_sync_vdc_receipt_ack_encode(const uint8_t reference[64],
+    uint32_t node_count, uint8_t receipt[64]);
+bool refmem_sync_vdc_receipt_ack_restore(const uint8_t receipt[64],
+    uint32_t node_count, uint32_t expected_source, uint32_t expected_target,
+    uint8_t reference[64]);
+
 /* Explicit little-endian schema3, CRC32 at byte60. False preserves output.
  * Source and target must differ; session, command, ARM, observer and model
  * token are nonzero. command_seq > expected_applied_command_seq without wrap.
@@ -193,6 +206,14 @@ refmem_sync_vdc_feedback_result_t refmem_sync_vdc_feedback_push(
  * wrong typed push for an active group cancels it without clearing sequence
  * watermarks. feedback_push never accepts a command. */
 refmem_sync_vdc_feedback_result_t refmem_sync_vdc_boundary_command_push(
+    refmem_sync_vdc_feedback_assembly_t *assembly,
+    uint32_t source_slot, uint32_t target_slot, uint32_t node_count,
+    uint32_t transport_sequence, uint8_t fragment_index, uint8_t fragment_count,
+    const uint8_t data[REFMEM_VDC_FEEDBACK_FRAGMENT_SIZE], uint32_t now_ms,
+    uint8_t complete_wire[REFMEM_VDC_FEEDBACK_RECORD_SIZE]);
+
+/* Separate typed entry: ordinary feedback and command push reject ACKs. */
+refmem_sync_vdc_feedback_result_t refmem_sync_vdc_receipt_ack_push(
     refmem_sync_vdc_feedback_assembly_t *assembly,
     uint32_t source_slot, uint32_t target_slot, uint32_t node_count,
     uint32_t transport_sequence, uint8_t fragment_index, uint8_t fragment_count,

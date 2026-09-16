@@ -13,6 +13,7 @@
 #define VDC_FEEDBACK_MODEL_MAX_INTERVAL_NS UINT64_C(2000000000)
 #define VDC_FEEDBACK_MODEL_DOMAIN 2u
 #define VDC_FEEDBACK_RATE_DOMAIN 3u
+#define VDC_FEEDBACK_LOCAL_FOLLOW_DOMAIN 4u
 #define VDC_FEEDBACK_RATE_MIN_INTERVAL_NS UINT64_C(1000000000)
 
 /* Raw mode: TIMER1 tick bounds, CRC identity and publication version.
@@ -186,6 +187,16 @@ vdc_feedback_match_result_t vdc_feedback_model_update(
 vdc_feedback_match_result_t vdc_feedback_rate_update(
     const vdc_feedback_match_cache_t *cache, vdc_feedback_match_peer_t *peer,
     const vdc_feedback_match_sample_t *sample, uint32_t source_model_token);
+
+/* Local-output / reference-output frequency with both full MODEL bounds.
+ * The caller binds both lifetimes and supplies the local cache generation.
+ * Same model tokens are held across the RATE minimum observation window.
+ * No lookup or second cache: pair is already joined by measurement sequence.
+ * Invalid input preserves peer. This never grants DCO/physical eligibility. */
+vdc_feedback_match_result_t vdc_feedback_local_follow_update(
+    vdc_feedback_match_peer_t *peer, uint32_t local_observer_epoch,
+    uint32_t cache_generation, const vdc_feedback_match_lifetime_t *local,
+    const vdc_feedback_match_pair_t *pair);
 
 /* False preserves output. A true result returns the historical last complete
  * pair, not an assertion that a new result was produced by the latest call. */
