@@ -22,6 +22,10 @@ Last updated: 2026-09-16
 
 ## 当前 checkpoint
 
+连续重基调频原语已完成软件独审、Release 和当前源码四板严格 P3，见
+`VDC-PROGRESS-20260916-013`。原语尚无生产调用；三从命令运输、实际应用及反馈
+确认仍待下一切片接入，不能以本次 P3 或 host 数学验证宣称从板闭环。
+
 模型关联反馈已完成当前源码四板严格 P3 与运输/配对专项，见
 `VDC-PROGRESS-20260916-012`；独立原件复核通过，代码已提交为 `6716dc5`，尚未接通从板控制。
 此前准备迁移见 `VDC-PROGRESS-20260916-011`：缓存、配对和差分由 Core0 RefMem
@@ -48,6 +52,56 @@ Last updated: 2026-09-16
 
 当前执行依赖按 `VDC-PROGRESS-20260916-002` 纠偏；此前各记录的“当前”及
 “下一 gate”保留历史含义，不将首帧可用、全窗无错或完整绝对时间映射作为运输前置。
+
+### VDC-PROGRESS-20260916-013：从板连续重基调频原语
+
+- TODO task ID：`VDC-FEEDBACK-001`；日期：2026-09-16；父任务保持 IN PROGRESS。
+  代码及匹配 P3 凭证已提交为 `a159f5a`。
+  本切片只实现 Domain 数学应用原语，不新增 wire、manager 接线、自动控制器或锁相
+  资格。下述数字均为本次验证快照，非容量、时序或精度契约。
+- 新增 `vdc_domain_apply_follower_rate_delta()`：Core1 外层 guard 下，校验指定主机、
+  本地目标、角色代际、schedule/servo CRC、clock/DCO epoch/run、旧 DCO 和应用序号。
+  在实际本地服务时刻计算旧输出，再以该输出重建时间锚并吸收旧 phase，受检加法
+  更新 rate；候选验证和同点完全相等后才提交。旧/新 rate 保持前向，序号耗尽不回绕，
+  拒绝保持整个 context 字节不变。成功只更新 DCO 及应用元数据，旧绝对时间专属
+  元数据清零，不触发 oscillator trim、不改本地 PI、lock 或 quality。
+- 外层责任未混入 Domain：session、ARM、observer、model token、新鲜度、单次 step
+  限额与 STOP 取消仍由未来 Core1 命令 owner 准入；不能把这里的测试当作外层并发
+  或运输证明。旧绝对生效时间 API 未改动，不将本地时间填入其共同时间字段。
+- 软件：新增定向 pytest 四项通过，含 138 个显式边界和 800 个确定性随机整数
+  oracle 案例；测试执行完整生产 Domain。现有投影、replay、命令 owner 和模型 owner
+  共 135 项回归通过。独立 Fraction oracle 1680 例通过，覆盖应用点及未来时刻映射、
+  正负频率、phase、长 uptime 和溢出；复用作者夹具的全 context 比较，独立补充数学
+  预期。旧 API 在同一对照中产生 -369 ns 同点跳变，新原语保持连续。原件为
+  `author-tests-r1.xml`、`root-regression-r1.xml`、`domain-review-r1.json` 及独审附件。
+- Release/资源：A/B 和 Flash 链接检查通过，`after-build-r1/manifest.json` 冻结
+  产物。没有新持久缓冲或 context 字段；BSS、CRT heap 及两核栈边界均未改变，扣除
+  CRT heap 后静态链接余量仍为 592 B，不是运行时 free RAM。原语 ARM 对象自身栈
+  帧为 152 B、text 为 492 B；未包括调用者、callee、IRQ/FPU 开销，不宣称完整调用
+  链已验收。当前无生产调用，两槽链接器均剔除该原语，P3 不会实际执行新 API。
+- 当前源码首次四板 quick P3 严格通过：`p3-r1/acceptance.json` 的 passed/
+  strict_gates_passed 均为 true，diagnostic_failures 为空；范围是 TDMA-only，
+  DPLL 为 `SKIPPED_TDMA_ONLY`。指纹
+  `9c41906b277ee859e1a132519a45e374773ea5c8fb3ab0f0f734e8c2533d3c59`，1159 个源码文件，
+  包 SHA256 `bfca51b9cb9455e1bdb8a5914f50d527189fc669e43712e2cd9275fc948be93d`；
+  缓存 build 标识仍为 `20260915204256`，以源码、包及 OTA receipt 联合绑定。
+  主控 `p3-r1-binding-review-root.json` 的 27 项产物/当前源码绑定检查通过。
+- 独立硬件复核 `hardware-review-r1.json` 的 62 项通过：四板 UID/OTA、源码及产物
+  hash 一致，四份 native 原件各 14 点、CRC/长度/epoch 完整。四板真实 STOP 应答
+  后从冻结 RAM 导出，末尾再次 STOP 并核对运行态归零；本轮没有 SD 写读证明。
+  NO1 DPLL 诊断 overrun/deadline 增量仍为 41/40，NO2 历史 peak 超预算也保留，
+  不把 TDMA-only 严格通过扩大为完整 DPLL 调度通过。未操作 NO5，未改 OTA。
+- 证据根目录：`out/HardwareAcceptance/20260916/dpll-boundary-apply-r1/`。
+  作者交付为 `author-domain-handoff-r1.json`，独立源码/方案审核为
+  `domain-review-r1.json`，资源边界为 `resource-review-root-r1.json`，文档独审为
+  `doc-review-r1.json`；其后只补入真实代码提交及硬件复核结果。
+- 下一 gate：按 `control-design-review-r1.json` 审核并接入专属服务边界命令，先做
+  受限单次诊断校正，逐从证明实际应用和回传 ACK；到期未决命令保留身份，不在
+  未知是否已应用时叠加下一次校正。随后用稳态观测窗口评估自动频率控制。
+  上轮 r4 区间跨零不授予方向确定性；NO1 最终模型有效起点在自主切换前，不能把
+  baseline/end 间的模型变化解释为自主段持续换模，也无需先新增 NO1 保持功能。
+  首帧证明、完整绝对时间和 GPIO 精度不阻塞这个内部应用切片；最终物理锁相、
+  完整 DPLL 静态预算及恢复仍未完成。
 
 ### VDC-PROGRESS-20260916-012：事件关联已提交 DCO 的模型反馈
 
