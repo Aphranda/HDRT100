@@ -169,6 +169,8 @@ class SequenceUi(tk.Tk):
         self.io_owned = tk.StringVar(value="占用：—")
         self.io_state = tk.StringVar(value="IO状态：—")
         self.switch_position = tk.StringVar(value="当前开关：未运行")
+        self.independent_switch = tk.StringVar(value="1")
+        self.independent_switch_status = tk.StringVar(value="独立 SP8T：未读取")
         self.ota_file = tk.StringVar()
         self.ota_status = tk.StringVar(value="未选择固件")
         self.manual_command = tk.StringVar()
@@ -382,6 +384,16 @@ class SequenceUi(tk.Tk):
         metrics.pack(side="left", fill="x", expand=True)
         ttk.Label(metrics, textvariable=self.io_owned, style="Status.TLabel").pack(anchor="w")
         ttk.Label(metrics, textvariable=self.io_state, style="Status.TLabel").pack(anchor="w", pady=(5, 0))
+        switch_box = ttk.Frame(io, style="Panel.TFrame")
+        switch_box.pack(fill="x", pady=(10, 0))
+        ttk.Label(switch_box, text="独立 SP8T（OUT1–OUT3）", style="Field.TLabel").pack(side="left")
+        ttk.Combobox(switch_box, textvariable=self.independent_switch,
+                     values=[str(i) for i in range(1, 9)], state="readonly",
+                     width=5).pack(side="left", padx=6)
+        ttk.Button(switch_box, text="切换", command=self.set_independent_switch).pack(side="left")
+        ttk.Button(switch_box, text="读取", command=self.read_independent_switch).pack(side="left", padx=5)
+        ttk.Label(switch_box, textvariable=self.independent_switch_status,
+                  style="Status.TLabel").pack(side="left", padx=10)
         self.update_mode_hint()
 
         self._build_maintenance(maintenance_page)
@@ -457,6 +469,16 @@ class SequenceUi(tk.Tk):
         entry.bind("<Return>", lambda _event: self.send_manual_command())
         ttk.Button(custom, text="发送", command=self.send_manual_command).pack(
             side="right")
+
+    def set_independent_switch(self) -> None:
+        if self.source.get() != "BUS" or self.status.get() not in {"未连接", "IDLE"}:
+            self.log("独立 SP8T 只能在序列未运行且资源空闲时切换。", "WARN")
+            return
+        value = self.independent_switch.get()
+        self.enqueue_commands([f"CONF:SWITCH1 {value}", "READ:SWITCH1?"])
+
+    def read_independent_switch(self) -> None:
+        self.enqueue_commands(["READ:SWITCH1?"])
 
     def refresh_ports(self, log_result: bool = True) -> None:
         backend = self.backend.get()
@@ -799,6 +821,14 @@ class SequenceUi(tk.Tk):
             self.enqueue_commands([command])
 
     def update_io(self, command: str, response: str) -> None:
+        if command.upper().startswith("READ:SWITCH1?"):
+            try:
+                fields = [int(value) for value in response.split(",")]
+                self.independent_switch.set(str(fields[1]))
+                self.independent_switch_status.set(f"独立 SP8T：第 {fields[1]} 位")
+            except (ValueError, IndexError):
+                self.independent_switch_status.set("独立 SP8T：读回失败")
+            return
         if command.upper().startswith("READ:SEQ:NEXT?"):
             try:
                 self.switch_position.set(format_switch_position(response))
