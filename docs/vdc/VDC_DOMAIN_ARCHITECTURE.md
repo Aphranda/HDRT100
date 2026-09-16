@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
 Related: `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_ARCHITECTURE.md`
-Last updated: 2026-09-16
+Last updated: 2026-09-17
 
 本文是 HAOFV Virtual Distributed Clock（VDC）内部基础主域的稳定架构事实源。
 VDC 负责多节点共同时间、offset/rate 估计、质量 promotion 和时间快照发布；不拥有
@@ -544,6 +544,50 @@ ACK 缺失不阻塞 TDMA 发车或 NO1 本地 PI；该确认也不作为本地�
 证明、错内容同序、重复/迟到、proof arm 消费隔离与取消。当前源码的资源、P3 和
 逐从接收/确认专项各自留证；两条 TX 历史不足以同时证明所有目标的最终记录逐字节一致，
 未匹配记录须如实标记，不以模型一致替代原始发布证据。本条登记保持 pending。
+
+### VDC-PRIORITY-01：Core1 预编码同步邮箱与运行绑定
+
+本条约束特等席同步记录的格式和发送边界；登记为 pending，不授予单圈期限、
+本地 DCO 采用、共同时间有效性或物理锁相。旧 `VDC-REFERENCE-01` 分片路线保留
+既有证据，新同步类不得进入普通 RefMem/VDC fragment parser。
+
+布局事实源为 `tdma_process_image_layout.h` 的
+`TDMA_PROCESS_IMAGE_VDC_PRIORITY_SYNC_MESSAGE_CLASS` 和 `PRIORITY_SYNC_*` 偏移，
+编解码事实源为 `vdc_priority_codec.h/c`。沿用固定邮箱 header 的 magic、version、
+source slot、target bitmap 和源事件序号低位（完整载荷圈序号仍由 transport header
+携带）；body 为小端完整 binding
+generation、完整 event sequence、output-ns 下界、区间宽度及 flags。邮箱 CRC 覆盖
+header 与 body 至 `TDMA_PROCESS_IMAGE_CRC_OFFSET`；codec 的 body CRC helper
+不能替代外层邮箱校验。generation 非零，width 非零且 lower+width 不溢出，
+flags 必须在 `VDC_PRIORITY_CODEC_KNOWN_FLAGS` 内；失败保持输出不变。
+
+时间值是源事件在实际 committed DCO 模型中的纳秒算术区间，保留完整上下界和
+取整不确定度。它不是裸 RATE 仿射坐标，也不是对 GPIO 边沿精度的保证；原始
+origin bracket 未包含的同步器/检测偏差须在后续精度任务校准。源事件早于当前
+模型 `valid_from_raw` 时跳过，不能用新模型重新解释旧事件。正常模型修订不强制
+变更运行 generation；同一事件首次成功编码后冻结字节，模型已变时不重新投影。
+
+`SYSTem:VDC:PRIORity:SYNC` 是 Core0 STOP-only 意图，非零值必须严格递增且已有
+feedback session；零禁用。generation 不替代 feedback session、origin epoch
+或 model token。Core1 首次绑定完整 ring config、source epoch/tick rate、session、
+role generation、clock epoch/run；绑定改变、STOP、序号回绕或反序时退休，必须
+安装新 generation 才能再次绑定。模型/快照暂忙和单次无效事件只返回 EMPTY。
+
+VDC provider 只在 TDMA Core1 origin owner 的固定服务边界生成一次候选；
+DISABLED 允许普通发送，EMPTY/READY 保留特等席所有权。TDMA 保留 PIO/DMA 所有权，
+READY 记录在本地槽位/header/CRC/布局复验后交给既有 origin exchange 双缓冲。
+旧普通 origin overlay 仅租用独立私有 SRAM，可取消而不等待 Core0 ACK；其私有
+工位在 ACK 前不得复用，也不得覆盖同步记录。硬件 selection 退休旧 DMA bank
+后才允许下一次提交；软件 offer、双缓冲提交、实际选中和线上送达分别留证。
+
+从板独立 priority RX 在普通队列之前保全完整 header/mailbox，Core1 有界解码；
+解码成功仅授予记录保留。控制仍须核对预安装绑定、完整事件序号、事件年龄和
+本地 delay，不能把载荷圈序号当成记录事件序号，不能把陈旧记录视作新参考。
+SCPI 仅配置/触发；TX 与 RX 明细在 STOP 后读回，不在实时路径采样。
+
+验证覆盖普通类型隔离、全邮箱 CRC、上下界溢出、代际/模型/STOP 生命周期、
+Core0 工位不阻塞、DMA bank 退休与四板实际 typed 记录。新增调用链须复核目标
+栈/内存并测量静态调度预算；单圈送达、事件年龄、DCO 生效分别验收。
 
 ## 验证映射
 

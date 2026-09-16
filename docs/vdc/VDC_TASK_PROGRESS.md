@@ -32,6 +32,64 @@ Last updated: 2026-09-17
 已由真实 pre-commit 硬件门禁核验，见 `VDC-PROGRESS-20260917-001`。严格质量告警仍保留，
 不授予单圈同步编码、三从闭环或锁相完成。
 
+### VDC-PROGRESS-20260917-004：Core1 同步发布与三从真实接收
+
+- 代码与匹配 P3 凭证已提交为 `686e2db`，暂存源码指纹已由 `check-staged` 和
+  真实 pre-commit 核验通过。文档分离提交；文档检查器与 18 项自回归通过，既有
+  `TDMA-FLIGHT-BITMAP-01` 登记格式 WARN 保留。
+- 对应 `VDC-FAST-001/002`。本轮代码把已提交 DCO 的真实 origin 事件区间在 Core1
+  编成 typed 邮箱，TDMA owner 直接交给既有 DMA exchange 双缓冲；不经过普通
+  FIFO/overlay 的 Core0 每事件准备。STOP-only generation、完整运行绑定、模型
+  生效时间、重复事件冻结和区间溢出均检查；普通异步工位可取消但不等待其 ACK
+  才发送，工位 ACK 前不复用。物理 bank 仍由真实 selection 退休。
+- 字段及边界登记为 `VDC-PRIORITY-01` pending，独立方 `p0_root_review` 完成 C11，
+  见 `VDC_CROSS_REVIEW_04.md`。先前“等待普通取消 ACK”、STOP 注册竞争和普通同步
+  fallback 类型放开三项发现均已修复；同期修正 codec 区间溢出检查和旧测试中
+  已启用 class 被误列为 forbidden 的断言。失败原件保留，不追认为测试通过。
+- 以下数值均为本轮快照，非事实源。provider 的实际生产函数 host 252 项通过，
+  codec+provider 合计 253 项通过；集成 priority RX/ingress、物理邮箱、SCPI 共
+  110 项通过，完整 adapter C 回归通过。A/B/Boot Release 与 Flash link 检查通过。
+  独立资源复核绑定最终 ELF/map/dis：主 RAM 保留 heap 后 45956 B（比上一切片少
+  772 B），scratch gap 24 B；新 provider 链含 IRQ/异常最大 1776/3072 B，原 NO1/
+  follower 最大路径仍为 2872/2716 B。仅覆盖已审四板 persona，不授予全局栈或 WCET。
+- 证据根 `out/HardwareAcceptance/20260917/dpll-priority-tx-r1/`。首轮 `p3/` 在
+  TRN-00 发车前的 NO3 `TOPology 4,2,0` 返回 `<timeout>`/`-200`，没有训练观测；
+  失败仍保留。用相同固件与 OTA 原件 `resume` 后 `p3-resume/` 固定范围
+  `PASS_WITH_WARNINGS`，INFO/WARN/ERROR/FATAL 为 24/27/0/0；严格质量未通过，
+  DPLL 专项在该 P3 中 SKIPPED。复用确认线序，没有重跑 P0 扫描或更改 OTA。
+  build `20260916181047`，1205 个源文件，指纹
+  `f30660c864bd307471a08c8a689b04c80f64140742baa466b7f5b73ca3ab6b18`。
+- 短时实板专项首轮 `typed-short-r1/` 在 START 前被旧采集 helper 的 LOAD:MASK
+  复合 ACK 过滤阻断。仅修 out 采集脚本的 ACK 注册后，`typed-short-r2/` 成功；
+  复用当前板上矩阵，四板 STOP/UID/build 屏障、显式 session/generation、ARM/START、
+  有限自主 trial、静默运行及最终 STOP 后读回全有原始 actions，未在 RUN 查询采样。
+  最终四板停止，开关禁用并恢复原 load/diagnostic/burst，trial 已撤销。
+- NO1 生成 684 份编码候选；该计数不是物理提交或送达总数。三从 Core1 原始记录
+  消费累计分别为 270/269/267，包含启动普通记录，不能称全部为 typed 次数。
+  三从末条均为 class `0x14`，完整载荷圈序号 2648；body 指向源事件 2645、运行
+  generation 1789582893，纳秒下界 142840259535，width 1687。三从末条 32 B
+  邮箱均与 NO1 保留候选逐字节一致，header 身份 CRC 与邮箱 CRC 独立校验通过。
+  载荷圈与事件相差不等于测得运输延迟；本轮尚无逐圈最晚到站证明。
+- NO1 已提交 DCO 序号从 456 至 543、model token 从 1 至 88；此为主板模型确实
+  在更新的快照，不代表 typed 从板控制已经接入。当前新通道只运输/解码保留，
+  NO2–NO4 尚未在此路径按同事件、本地 delay 应用 DCO。width 保留投影与计数
+  不确定度，不能宣称 100 ns 或共同时间锁相。
+- 主要原件：`provider-delivery.json`、`provider-host-r1.log`（旧失败）、
+  `provider-host-r2.log`、`integrated-host.log`、`build-final.log`、
+  `owner-review.json`、`priority-tx-resource-review.json`、`c11-review.json`、
+  `hardware-review.json`、
+  `p3-resume/acceptance.json`、`typed-short-r2/input-probe.json` 和 `actions.jsonl`。
+  硬件辅助入口 `capture_typed_tx.py` 由主控审阅后以 Windows 原生 Python 执行，
+  复用既有串口 helper；旧脚本保存为 `capture_typed_tx_r1.py`。
+- 独立硬件复核为 `PASS_SCOPED_FOUR_BOARD_TYPED_TRANSPORT`，无本切片提交阻断：
+  核对 37 处引用哈希、源码指纹、四板 UID/build 及 196 条操作记录；三从 transport
+  CRC32、immutable identity CRC32 和 mailbox CRC16 均独立重算通过。四板 STOP
+  有确认，运行采集期间没有查询；结论仅覆盖本次真实 typed 运输，不提升为严格
+  P3 质量、单圈截止时间、从板 DCO 应用或锁相通过。
+- 下一 gate：继续 `VDC-FAST-001/002` 的单圈期限、消费者能力和接收端运行绑定；
+  再按 `VDC-FAST-003` 直接索引同一源事件、加本地已测 delay 并实际应用 DCO。
+  三从收到真实同步数据这一缺口已闭合；不回到 RefMem 分片作为实时前置。
+
 ### VDC-PROGRESS-20260917-003：P0 瞬态拒绝恢复与 typed 同步接收切片
 
 - 代码与匹配凭证已提交为 `e6861f8`；`check-staged` 和真实 pre-commit 均核对本轮
