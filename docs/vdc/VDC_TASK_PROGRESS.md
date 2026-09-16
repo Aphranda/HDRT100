@@ -32,6 +32,45 @@ Last updated: 2026-09-17
 已由真实 pre-commit 硬件门禁核验，见 `VDC-PROGRESS-20260917-001`。严格质量告警仍保留，
 不授予单圈同步编码、三从闭环或锁相完成。
 
+### VDC-PROGRESS-20260917-008：typed 本地频率控制与真实 DCO 采用
+
+- TODO task ID：`VDC-FAST-003`；父任务仍 IN PROGRESS。以下数值为本轮证据快照，非产品
+  容量、时序或精度契约。完成互斥 typed 本地频率控制切片，不代表三从锁相。
+- 代码、测试和对应四板凭证提交为 `6261640`；暂存源码指纹及真实 commit hook 均核验通过。
+- STOP 配置 `VDC_BOUNDARY_MODE_TYPED_FOLLOW`；MATCH generation 与 mode/session 在同一
+  请求元组发布。Core1 只消费本服务真正匹配的新事件，在 committed-model guard 外准备
+  同生命周期、同本地模型的两个事件区间，guard 内复验身份、年龄、实际模型与 DCO 后，
+  调用既有 Domain 连续调频入口。频率误差从时间间隔比计算并向外取整，负反馈按
+  `vdc_priority_follow.h` 的窗口/死区和既有单步/Domain 总限幅执行；零跨越区间不强制调节。
+  自身更新后重新建立基线；STOP、换代及陈旧取消，BUSY/缺帧不制造样本。
+- 最终相关 host 回归 498 项通过；Release A/B/Boot 与 Flash link 检查通过。独立资源
+  审核静态 RAM 增加 960 B，主 RAM 余 38408 B；新增 prepare/apply 完整调用链含 IRQ/异常
+  帧 544/768 B，既有最大启用路径 2872/3072 B 未增加，可选 TRIGGER_MEASURE 保持关闭。
+  `VDC-PRIORITY-01` v4 经 C11 独审批准，保持 pending；不据资源审核宣称 WCET 达标。
+- 同源码四板 quick P3 位于 `out/HardwareAcceptance/20260917/dpll-priority-follow-r1/p3/`：
+  `PASS_WITH_WARNINGS`，INFO/WARN/ERROR/FATAL=25/12/0/0，复用既有线序，固定范围不扩大。
+  build_id=`20260916232405`；源码指纹
+  `526b8ff77416c3ca8972b90c17bc7de61c29b2795025ba0fdc42cba84bd2670e`，包 SHA256
+  `5e33501aafa0f94e4767a9e411915e6d4b298962841ca2b141d4188c880a40d9`。严格质量告警仍保留。
+- 首次专项 `follow-short-r1/` 在 START 前 FOLLOW 查询超时：临时脚本只登记无符号标量，
+  公共串口读取器仍把独立 `1` 当 ACK 丢弃。真实读取器离线复现此行为后，以独立
+  `capture_follow_r2.py` 登记布尔响应；原脚本、失败报告不改写，固件和 P3 指纹不变。
+- `follow-short-r2/` 八秒静默专项通过。NO2/NO3 各完成 7 次合法零调整，实际 DCO 序号
+  仍为 1、rate 为零；末次频率区间分别为 [-8175,4291]、[-6443,3112] ppb。跨零区间
+  只能支持“不确定修正方向”，不能支持“无需同步”或已经锁定。NO4 完成 6 次真实采用、
+  1 次零调整，末态 DCO 序号 7、rate +545 ppb；末次区间 [-8731,-216] ppb，修正 +54 ppb，
+  序号 6→7、rate +491→+545 ppb，与 Domain 末态一致。独立整数重算与原始快照一致。
+  运行零查询，全部 STOP 后读回并恢复 FOLLOW/SYNC/MATCH、TAP、会话和原有负载配置。
+- 证据入口：上述目录中的 `acceptance-plan.json`、`code-review.json`、`c11-review.json`、
+  `resource-review.json`、两轮 `input-probe.json` 及 `actions.jsonl`；软件日志为同日
+  `priority-follow-host-final.log`，构建目录 `out/build-priority-follow-r1/`。
+  独立 `hardware-review.json` 的 72 项原件复核通过，含源码/包/凭证、四区间任意精度
+  重算、实际 DCO、运行零查询、STOP 及恢复；补录 wrapper 与 observer helper 的 SHA。
+- 下一 gate：继续 `VDC-FAST-003`，观测实际漂移并缩小频率估计不确定性。现有 internal
+  capture 按 `dpll.update_seq` 变化取样，typed 控制更新的是 `dco_update_seq`，不能据旧
+  trace 推断新路径未执行或全程收敛；先复用四通道触发波形或独立完善板端记录。
+  GPIO 模型采用、斜率改善、ACK、相位控制、单圈期限、100 ns 精度及 VDC 正式发布仍未验收。
+
 ### VDC-PROGRESS-20260917-007：observer DMA 排水修复与三从有限窗口持续匹配
 
 - TODO task ID：`VDC-FAST-002`、`VDC-FAST-003`；父任务仍 IN PROGRESS。以下数值均为本轮

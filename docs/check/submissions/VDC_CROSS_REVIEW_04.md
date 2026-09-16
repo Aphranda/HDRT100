@@ -62,6 +62,21 @@ DCO 命令或 ACK，不授予物理精度与单圈期限。已有 reverse-DATA �
 代码及资源复核见同目录 `code-review.json`、`resource-review.json`。本次硬件
 判定由 Task Progress 引用原始专项，不以本增补替代。
 
+## 本地频率控制增补（v4 pending）
+
+`VDC-PRIORITY-01` v4 增加 STOP 显式互斥 typed-follow 模式、Core1 私有 fresh
+匹配票据、两个实际输出区间形成的 ppb 估计，以及 committed-model guard 内再次
+核对生命周期和实际本地 DCO 后的连续调频。NO1 的正常模型修订不伪造远端 token；
+自身模型更新后重建本地估计基线，旧 RefMem/remote command 不同时控制 DCO。
+
+独立方 `priority_review` 完成只读源码、契约/登记/顶层及 ARM linked 资源复核，
+C11 结论 `APPROVE_PENDING_CONTRACT_EXTENSION`，同意 v4 保持 pending，不批准 active。
+审查日期 2026-09-17；原件为
+`out/HardwareAcceptance/20260917/dpll-priority-follow-r1/c11-review.json`，
+源码和资源分别见同目录 `code-review.json` 与 `resource-review.json`。
+死区零调整与 sanity 总限幅导致的零步长须分别解释；DCO 更新不代表 GPIO 模型采用、
+相位捕获、ACK、单圈期限或锁相。软件及实板结果由 Task Progress 留证。
+
 ## 最终核验结论
 
 ACCEPT_WITH_DEVIATION。P3、资源和 typed 实板专项的实际结果只记录在 VDC Task Progress，

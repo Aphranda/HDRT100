@@ -547,8 +547,9 @@ ACK 缺失不阻塞 TDMA 发车或 NO1 本地 PI；该确认也不作为本地�
 
 ### VDC-PRIORITY-01：Core1 预编码同步邮箱与运行绑定
 
-本条约束特等席同步记录的格式、发送与接收交接边界；登记为 pending，不授予单圈期限、
-本地 DCO 采用、共同时间有效性或物理锁相。旧 `VDC-REFERENCE-01` 分片路线保留
+本条约束特等席同步记录的格式、发送、接收交接与显式本地频率跟踪边界；登记为 pending，
+不授予单圈期限、共同时间有效性或物理锁相。DCO 更新须由下述独立控制准入授予，
+不能由解码或匹配成功直接推定。旧 `VDC-REFERENCE-01` 分片路线保留
 既有证据，新同步类不得进入普通 RefMem/VDC fragment parser。
 
 布局事实源为 `tdma_process_image_layout.h` 的
@@ -623,6 +624,37 @@ output-ns 区间；早于模型有效边界的事件跳过。当前已装载矩�
 `MATCH:STATus?` 仅在 ring STOP 后读取 `vdc_priority_match_snapshot_t`。区间与身份
 表示最后一次成功匹配，计数和最后原因表示后续尝试；active 是最后 Core1 服务状态，
 不替代 STOP 判定。当前 matcher 只形成误差观测，不发 DCO 命令、ACK 或锁相声明。
+
+显式 `SYSTem:VDC:PRIORity:FOLLow` 仅在 STOP 后通过 owner metadata 门禁选择
+`VDC_BOUNDARY_MODE_TYPED_FOLLOW`，与原 boundary probe/auto、RefMem LOCAL_FOLLOW
+及远端 follower command 互斥。默认关闭；开启仍须已有 feedback session 和独立
+MATCH 请求。Core1 在 committed-model 写 guard 外取得本拍成功匹配的内部票据，
+不能用 STOP 诊断快照、重复事件或较新 carrier 替代控制授权。
+
+本地控制器保留同一运行生命周期、同一本地 committed 模型下的两个有效源事件，
+间隔窗口与年龄界以 `vdc_priority_follow.h` 的 `VDC_PRIORITY_FOLLOW_*` 符号为准。
+记本地 output-ns 区间为 L，远端区间加定向 delay 后为 E，则
+`dL=[L1.lo-L0.hi,L1.hi-L0.lo]`，`dE=[E1.lo-E0.hi,E1.hi-E0.lo]`；
+两者下界须为正，频差区间为
+`[floor(dL.lo*10^9/dE.hi)-10^9,ceil(dL.hi*10^9/dE.lo)-10^9] ppb`。
+整数算术向外取整并检查溢出。常量启动偏移和固定 delay 在差分中抵消；ns residual
+不直接作为 ppb。NO1 正常模型修订仍在原 wire generation 下，其跨事件区间只表示
+实际输出的平均跟踪误差，不构造不存在的远端 model token 或假定远端模型不变。
+
+频差整个区间越过 `VDC_BOUNDARY_AUTO_DEADBAND_PPB` 时才产生反向有界频率修正，
+步长上限沿用 `VDC_BOUNDARY_AUTO_MAX_DELTA_PPB`；区间跨越死区时记录不调整决策。
+提案须在 Core1 committed-model guard 内，于既有服务之后复验显式模式、session、
+ring/role/clock/ARM/observer/RX/path 绑定、事件年龄和实际本地 DCO 更新身份，再调用
+`vdc_domain_apply_local_follow_rate_delta`。Domain 在实际服务时刻连续重基，只改本地
+频率；拒绝不得改变 DCO。一次有效事件对至多消费一次，自己的 DCO 更新后使用新模型
+有效边界之后的事件重新建立基线，不能重新投影先前事件来延续旧窗口。
+
+单帧无效、缺失或暂忙不制造控制输入，允许后续有效事件继续。STOP、模式/会话切换
+或真实绑定换代取消基线与未决提案；跨生命周期旧票据不得复活。
+`FOLLow?` 只读取配置，`FOLLow:STATus?` 仅在 ring STOP 后读取
+`vdc_priority_follow_snapshot_t`，分别保留估计、零调整、拒绝和实际应用计数，以及
+完成决策的事件身份、频差区间和真实 DCO 前后值。不调整不等于已经锁相；DCO 更新
+也不证明 GPIO 已采用该模型。ACK、相位捕获、物理输出精度和完整 VDC 发布分别验收。
 
 验证覆盖普通类型隔离、全邮箱 CRC、上下界溢出、代际/模型/STOP 生命周期、
 Core0 工位不阻塞、DMA bank 退休与四板实际 typed 记录。新增调用链须复核目标
