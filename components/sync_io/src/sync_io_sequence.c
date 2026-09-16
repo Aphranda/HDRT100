@@ -152,7 +152,10 @@ bool sync_io_sequence_set_switch(uint32_t switch_number, uint32_t value)
 
 uint32_t sync_io_sequence_get_switch(uint32_t switch_number)
 {
-    if (switch_number == 1u) return s_switch1;
+    if (switch_number == 1u) {
+        /* Report the physical SP8T position, not only the last command. */
+        return (sync_io_sequence_read_outputs() & 0x7u) + 1u;
+    }
     if (switch_number == 2u) return s_switch2;
     return 0u;
 }
