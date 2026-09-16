@@ -18,7 +18,7 @@ START 预置不计触发；首次有效反馈进入第二状态。轮次默认�
 新增 SCPI IO 读取实际引脚电平。按最新要求，两角色控制接入本地回环 TDMA；
 采用专门的 LOOPBACK 模式走已接线的 RJ45 发收物理回环；RJ45 仅保留为兼容命令别名。
 复用现有 TDMA owner、调度和消息校验，不将单板回环声明为跨板通信或全节点裁决。
-保留独立 `CONF:SWITCH# N` SP8T 控制和 DUT-only 的 BUS/外部脉冲序列，组合模式不抢占独立模式资源。
+保留独立 `CONF:SWITCH# N` SP8T 控制和 DUT-only 的 MANUAL/外部脉冲序列，组合模式不抢占独立模式资源。
 当前先按用户指定的SP8T地址序列验证：OUT1-OUT3构成地址，逐状态从全低至全高，
 下一事件回绕。板端IO通过不代表开关本体射频通路已验收。
 
@@ -62,7 +62,7 @@ GUI 分页批次已完成；用户已要求继续调试，并参考 real-flight 
 
 1. 组合首状态测量、READY 后继切换、末次测量后有限结束和显式持续 STOP 已闭合；
    暂停/CONT和START只读争锁修复已有当前固件证据；接着定位诊断快照间歇失败并补异常恢复，不扩大缓存窗口或超时，不伪造 hop/WKC，不绕过 RJ45。
-2. 同一固件身份下独立 BUS/IN1 和手动 SP8T 已回归；继续检查未覆盖的故障/配置冻结入口。
+2. 同一固件身份下独立 MANUAL/IN1 和手动 SP8T 需回归；继续检查未覆盖的故障/配置冻结入口。
 3. 新版 GUI 命令构造器与批处理执行器已直接用于板端验证；人工 Tk 点击和外部波形仍未确认。
    通过的代码和文档后续按授权分别提交。短暂 `down_running` 掉落按用户要求后续优化，原失败保留。
 4. 活动 claim/租约、多板动态分配、其他输入独立激励、波形与射频通路继续保留为未完成项，
@@ -134,6 +134,7 @@ GUI 分页批次已完成；用户已要求继续调试，并参考 real-flight 
 | NSEQ-083 | GUI 按模式分页与配置分组 | DONE | 独立序列、RJ45/VNA、手动开关、设备维护分开；独立草稿、切页不发指令、公共连接/IO/日志、设备模式与草稿分离及启动配置失效保护完成；真实 Tk 布局与命令/工具回归通过，见进度023，当前固件硬件联调仍随 NSEQ-081/082 验收 |
 | NSEQ-084 | 异步 RX 的本地回环 TX 证据保留 | DONE | 捕获后覆盖复现及RX job.expected修复通过；进度025补probe process/无拓扑启动与远端抑制，容量矩阵、Release、独立复核和新固件真实组合回环通过；捕获前过期仍拒收，不将本地回包计入远端通信成功 |
 | NSEQ-085 | 受限提交后关闭当前risk | DONE | 当前源码已完成单板 OTA、SCPI NEXT 有限十轮、连续 PAUSE/CONT 和匹配 staged 凭证，见进度029；只关闭单板功能 risk，不表示 P3、多板、波形、RF、独立输入边沿或严格 TDMA 稳定性通过 |
+| NSEQ-086 | MANUAL 来源统一与 RJ45 READY 分流 | DONE | 对外移除 BUS；独立 MANUAL 直接 NEXT，LOOPBACK 的 MANUAL 仅代替 VNA READY 且不启动输入捕获/READY 超时，真实 READY_NEXT 回环仍为 DUT 切步门禁；host、Release、严格单板 OTA、有限十轮及连续 PAUSE/CONT gate 均通过，见进度030；不外推为 P3、多板、波形、RF、独立输入边沿或严格 TDMA 稳定性通过 |
 
 NSEQ-081 的后续完整性检查如下；当前实施顺序以“当前交付快照与接续顺序”为准，
 先完成单板角色主线，再扩展动态 claim/租约。不将基础环路计数代替角色请求/回执证据：
@@ -149,7 +150,7 @@ NSEQ-081 的后续完整性检查如下；当前实施顺序以“当前交付�
    验证回程、断线、重帧和旧帧，不使用 TX 成功或函数直达伪造接收。
 4. 统一 PIO0/SMA owner 接入 DUT 编码、VNA trigger/READY，验证首次测量和唯一事件推进，
    验证现有 PAUSE 保留编码/租约并取消网关测量的行为，以及 STOP、故障及 GUI；
-   PAUSE 安全释放/重取留作后续完善。独立 SP8T、DUT-only BUS/IN 必须保持可用。
+   PAUSE 安全释放/重取留作后续完善。独立 SP8T、DUT-only MANUAL/IN 必须保持可用。
 
 ### 角色和数据边界
 
@@ -165,7 +166,7 @@ NSEQ-081 的后续完整性检查如下；当前实施顺序以“当前交付�
 
 独立模式下 `DUT_LINK_CONTROL` 接收推进脉冲并输出 SP8T 编码电平和可选状态反馈。
 组合模式下 `VNA_GATEWAY` 接收网分 READY，经过真实 RJ45 TDMA 回程请求 DUT 后继状态；
-DUT 使用 BUS/NONE，禁止直接复用同一 READY 输入推进。READY/DONE 事实不能在消费方重复推进。
+DUT 使用 MANUAL/NONE，禁止直接复用同一 READY 输入推进。READY/DONE 事实不能在消费方重复推进。
 节点装载包装入口为 `CONF:SEQ:NODE:LOAD`、`CONF:SEQ:NODE:ACT` 和
 `READ:SEQ:NODE:LOAD?`，复用 RefMem 事务；运行期间拒绝修改。
 `CONF:SEQ:NODE:ROLE slot_id,instance_id,DUT或VNA` 联合暂存装载行与实际 FB 声明，
@@ -178,7 +179,7 @@ LINK 入口已提供同板角色/IO 绑定与运行状态，完整动态 claim/l
 这些包装入口不等于后续多板动态分配已完成。
 
 当前接线的可复现基础验证使用 `tools/hardware_acceptance/sequence_feedback_validate.py`：
-信号源模拟 READY 接 IN1，OUT4 回接 IN2；先检查 BUS 编码全组合及回接，再观察持续 IN1 输入、
+信号源模拟 READY 接 IN1，OUT4 回接 IN2；先检查 MANUAL 编码全组合及回接，再观察持续 IN1 输入、
 暂停和恢复。该工具不把旧 status pulse 路径升级为 VNA 角色执行事实；原始证据见进度017。
 
 ## 后续接口预留
@@ -191,7 +192,7 @@ LINK 入口已提供同板角色/IO 绑定与运行状态，完整动态 claim/l
 ## 验证与阻塞
 
 - 最新设备身份、build、端口和单板结果见 Task Progress 进度025及后续记录；历史 COM10 记录仅对应进度008。
-- IN1 已接信号源；DUT-only NONE 模式的 BUS 与持续输入、暂停恢复及 STOP 在历史对应 build 通过，验收结束时 IDLE、输出低；不作为当前诊断 build 的实时读回。配置在 RAM 中，重启后需重新下发。
+- IN1 已接信号源；DUT-only NONE 模式的软件来源与持续输入、暂停恢复及 STOP 在历史对应 build 通过；旧报告中的 BUS 是历史命名，当前接口只接受 MANUAL。验收结束时 IDLE、输出低；不作为当前诊断 build 的实时读回。配置在 RAM 中，重启后需重新下发。
 - IN2-IN4实际脉冲、独立测量波形及SP8T实体射频通路尚缺证据，NSEQ-031不能关闭。
 - PIO低频及首档提速功能已通过，后续压力档与证据边界见进度012；保持停止后再调整参数。
 - START 首状态的 host、构建及单板 IO 已通过；外部源现已接通，见进度018/021。独立波形仍未取得，本次按用户要求不执行 P3。

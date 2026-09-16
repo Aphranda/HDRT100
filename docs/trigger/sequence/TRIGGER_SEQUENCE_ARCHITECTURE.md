@@ -13,7 +13,7 @@ Last updated: 2026-09-17
 
 目标为单板承载 DUT_LINK_CONTROL 与 VNA_GATEWAY 的最小测试系统。两角色协同控制接入本地回环
 TDMA（RJ45 发收物理回环），使用专门的 LOOPBACK 模式，复用现有 TDMA owner、消息身份、调度与资源边界；本地结果不宣称跨板链路或全节点裁决通过。
-独立 `CONF:SWITCH# N` 的 SP8T 控制及 DUT-only 的 BUS/IN 序列能力保留，不依赖 VNA 装载。
+独立 `CONF:SWITCH# N` 的 SP8T 控制及 DUT-only 的 MANUAL/IN 序列能力保留，不依赖 VNA 装载。
 组合运行、独立序列与手动开关共用资源准入，不能互相抢占引脚；手动切换要求序列停止且资源空闲。
 DUT 链路为：配置序列 -> START 预置首状态并等待初始建立时间 ->
 SCPI NEXT 或所选 IN 的外部边沿推进到后继状态 -> 输出连接 SP8T 的编码电平 ->
@@ -81,16 +81,16 @@ code 只允许设置编码掩码内的位；编码掩码与可选状态掩码必
 | CONFigure:SEQuence / READ:SEQuence? [plan_id[,index]] | 完整计划替换、全量引用或单项查询；无plan选择active |
 | READ:SEQuence:MAP? / CHECK? [plan_id] | 实际状态映射、校验诊断；stale不得映射成新参数 |
 | CONFigure:SEQuence:ACTive / READ:SEQuence:ACTive? | 真实激活和有效性；CHECK不隐式激活 |
-| CONFigure:SEQuence:SOURce BUS或IN1-IN4,RISING或FALLING | 选择软件或外部入口；READ:SEQuence:SOURce?读回 |
+| CONFigure:SEQuence:SOURce MANUAL或IN1-IN4,RISING或FALLING | 选择软件或外部入口；READ:SEQuence:SOURce?读回；旧 BUS 拼写拒绝，不保留兼容别名 |
 | CONFigure:SEQuence:IO mask,OUT通道,settle_us,pulse_us | 原子配置本地动作输出；READ:SEQuence:IO?读回 |
 | CONFigure:SEQuence:OUTPut code_mask,status_mask,NONE或PULSE或LEVEL,settle_us,pulse_us | 显式输出角色配置；NONE 只输出 DUT 编码；READ:SEQuence:OUTPut? 返回掩码、模式、时间、generation、valid |
 | CONFigure:SEQuence:CODE state_id,value | 配置本节点状态编码；READ:SEQuence:CODE? state_id读回 |
 | CONFigure:SEQuence:REPeat count / READ:SEQuence:REPeat? | 停止时配置完整计划轮次；零显式持续；查询 configured_repeat,active_repeat,finished；START 校验 `plan.count * count <= UINT32_MAX` |
-| CONFigure:SEQuence:LINK OFF或LOOPBACK,dut_slot,vna_slot,IN通道,OUT通道,pulse_us,timeout_ms,RIS或FALL | 在序列和 TDMA 均停止后配置专门的同板 RJ45 物理回环与网关 IO；RJ45 仅作兼容别名；组合模式要求 BUS/NONE，网关输出不能重叠编码输出 |
+| CONFigure:SEQuence:LINK OFF或LOOPBACK,dut_slot,vna_slot,MANUAL或IN通道,OUT通道,pulse_us,timeout_ms,RIS或FALL | 在序列和 TDMA 均停止后配置专门的同板 RJ45 物理回环与网关 IO；RJ45 仅作 LOOPBACK 模式兼容别名；组合 DUT source 固定为 MANUAL/NONE，网关输出不能重叠编码输出 |
 | READ:SEQuence:LINK? | 返回 `scpi_sequence_link_q` 的 enabled、phase、error、binding/model epoch、run/generation、step、收发/拒绝/触发/READY/完成计数、角色/IO/时序、活动轮次及当前 exchange identity；字段顺序以该处理函数为准 |
 | READ:SEQuence:LINK:TRANsport? | 返回 local-return 诊断和 `tdma_local_return_snapshot_quality_t` 质量；`FRESH`/`CACHED` 均为一致快照，`UNAVAILABLE` 是显式可观测状态，不通过 SCPI 失败或遗留错误队列表示 |
 | TRIGger:STARt [plan_id] / STOP / ABORt / PAUSe / CONTinue | 真实owner控制；STOP/ABORt取消未完成步骤并安全输出 |
-| TRIGger:SEQuence:NEXT | 独立 BUS 模式直接请求一步；LOOPBACK 模式只在 `LINK_WAIT_READY` 提交软件 READY，随后仍须由真实 RJ45 回环的 READY_NEXT 回帧请求 DUT 切步；外部 IN 模式拒绝，防止混源 |
+| TRIGger:SEQuence:NEXT | 独立 MANUAL 模式直接请求一步；LOOPBACK 仅在 READY 来源为 MANUAL 且处于 `LINK_WAIT_READY` 时提交软件 READY，随后仍须由真实 RJ45 回环的 READY_NEXT 回帧请求 DUT 切步；外部 IN 模式拒绝，防止混源 |
 | TRIGger:SEQuence:NEXT? | 返回与 READ:SEQuence:STATe? 相同的运行状态块，不推进序列 |
 | READ:SEQuence:STATe? | 本地完整状态、游标、计数、时间与错误 |
 | READ:TRIGger:STATe? | 保留指令表字段排列；未实施角度流程的字段不伪造角度进度 |
@@ -109,8 +109,11 @@ SD staging 替换 inline 事务时废弃其缓存，不能把先前角色覆盖�
 配置候选，能力和 UUID 从真实 board 表取得；同板多槽须由对应槽位 policy 允许。
 该纯派生 API 不申请租约、不覆盖活动 claim；生产 owner 仍须完成当前租约冲突校验与原子发布。
 软件推进只保留 `TRIGger:SEQuence:NEXT` 和 `TRIGger:SEQuence:NEXT?`。写命令不带参数：
-独立 BUS 模式在 READY 时接纳一步；LOOPBACK 模式在等待 READY 时结束当前网关等待，发布
+独立 MANUAL 模式在 READY 时接纳一步；LOOPBACK 的 MANUAL READY 模式在等待 READY 时结束当前网关等待，发布
 READY_NEXT，并且只有该消息经过真实 RJ45 发送、接收和完整 identity 校验后才请求 DUT 切步。
+MANUAL 只代替 VNA READY 输入，不代替 LINK_APPLIED 或 READY_NEXT 的物理回环。该 READY 等待不受
+外部输入超时限制；LINK 的其他阶段仍使用配置的有界超时。选择 IN1-IN4 时只允许真实输入完成
+READY，`TRIGger:SEQuence:NEXT` 必须拒绝。
 查询命令返回与 `READ:SEQuence:STATe?` 相同的运行状态块且无执行副作用。旧的
 `TRIGger:SEQuence:STEP`、`CONFigure:SEQuence:NEXT` 和 `READ:SEQuence:NEXT?` 不再注册。
 输入映射引用board的TRIG/ARM/EXT_CLK/GATE四个输入宏，遵守反序板级布线。
@@ -176,7 +179,7 @@ START成功取得资源后由PIO owner预置首状态，初始建立时间到期
 counter/ingress；DMA循环从第二状态开始，末状态后回到首状态。该预置不伪造执行回执。
 有限外部模式由 `sequence_finite_ingress` 的 Y 寄存器执行步数配额；忙时不扣配额，
 最后一枚接纳事件后进入 parked，不依赖 CPU 轮询停机。暂停边界结算尚未扣除的接纳事件，
-恢复不能清空配额或重启已 parked 的 ingress。BUS 模式由 owner 检查同一上限。
+恢复不能清空配额或重启已 parked 的 ingress。MANUAL 模式由 owner 检查同一上限。
 零推进运行仍建立 START 首状态并等待 settle，随后发布 finished。
 executor 使用 `IN Y,32` autopush 产生 written 回执；completed 仍在建立和可选脉冲结束后发布。
 倒计数补偿与指令数以 `sync_io_sequence.c/.pio` 为准，不通过修改主机延时模拟硬件边界。
@@ -247,7 +250,8 @@ PAUSE/CONT profile，并绑定 staged 源码、固件包、OTA 摘要和原始�
   不使用DMA预填数量冒充切换完成。提速结果需输入/输出共同波形及吞吐证据。
 
 当前实现使用 `sync_io_sequence.pio` 的 ingress 或 finite_ingress、executor、counter 程序。
-组合模式把未使用的 BUS ingress 替换成 gateway 脉冲程序，counter 捕获网关 READY；
+组合模式把未使用的 MANUAL ingress 替换成 gateway 脉冲程序。IN1-IN4 READY 使用 counter/DMA
+捕获；MANUAL READY 不启动输入 counter 或边沿 DMA，只经序列命令槽完成当前 READY 等待；
 每次 fire 先排空旧 DMA/FIFO 后重新设定捕获边界，已为有效电平的输入不冒充新边沿。
 单次触发最多发布一枚 READY 回执，脉冲拉低后由 PIO FIFO 发布独立完成凭证，
 READY 和脉冲完成前均不得切换 DUT。PAUSE 取消网关等待/脉冲，恢复由协调器重建当前测量；

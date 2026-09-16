@@ -237,7 +237,9 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 | `READ:SEQuence? [id]` | 查询任意已配置序列或当前默认序列。 |
 | `READ:SEQuence:ACTive?` | 查询活动序列摘要。 |
 | `READ:SEQuence:CHECK?` | 维护/验证命令：检查序列长度、状态范围、SWITCH1/SWITCH2 组合和 CRC，返回逐项预检结果。 |
-| `TRIGger:SEQuence:NEXT` | 无参数。独立 BUS 模式请求下一步；LOOPBACK 模式只提交当前网关软件 READY，DUT 仍须收到经过真实 RJ45 回环和身份校验的 READY_NEXT 后才切步。外部 IN 模式拒绝软件推进。 |
+| `CONFigure:SEQuence:SOURce MANUAL|IN1|IN2|IN3|IN4,RISING|FALLING` | 停止态选择独立序列推进来源；`MANUAL` 使用 `TRIGger:SEQuence:NEXT`。旧 `BUS` 拼写拒绝，不保留兼容别名。 |
+| `CONFigure:SEQuence:LINK OFF|LOOPBACK,dut_slot,vna_slot,MANUAL|IN1|IN2|IN3|IN4,OUT1|OUT2|OUT3|OUT4,pulse_us,timeout_ms,RISING|FALLING` | 配置 RJ45 物理回环。`MANUAL` 仅代替 VNA READY 输入，不代替 READY_NEXT 物理回环；IN 来源只接受真实输入。 |
+| `TRIGger:SEQuence:NEXT` | 无参数。独立 MANUAL 模式请求下一步；LOOPBACK 仅在 READY 来源为 MANUAL 时提交当前网关软件 READY，DUT 仍须收到经过真实 RJ45 回环和身份校验的 READY_NEXT 后才切步。外部 IN 模式拒绝软件推进。 |
 | `TRIGger:SEQuence:NEXT?` | 无参数。返回与 `READ:SEQuence:STATe?` 相同的运行状态块，不推进序列。 |
 
 旧的 `TRIGger:SEQuence:STEP`、`CONFigure:SEQuence:NEXT` 和

@@ -2094,12 +2094,13 @@ READ:SYNC:STATe?</code></pre>
     <table class="compact">
       <thead><tr><th>指令</th><th>参数 / 响应</th><th>说明</th></tr></thead>
       <tbody>
-        <tr><td><code>CONFigure:SEQuence:SOURce</code></td><td><code>BUS|IN1|IN2|IN3|IN4,RISING|FALLING</code></td><td>停止态选择来源和边沿；对应 <code>READ:SEQuence:SOURce?</code> 读回。</td></tr>
+        <tr><td><code>CONFigure:SEQuence:SOURce</code></td><td><code>MANUAL|IN1|IN2|IN3|IN4,RISING|FALLING</code></td><td>停止态选择来源和边沿；对应 <code>READ:SEQuence:SOURce?</code> 读回。旧 <code>BUS</code> 拼写拒绝。</td></tr>
         <tr><td><code>CONFigure:SEQuence:IO</code></td><td><code>output_mask,OUT1|OUT2|OUT3|OUT4,settle_us,pulse_us</code></td><td>编码输出掩码、独立完成通道、建立时间及完成脉宽；编码与完成通道不得重叠。</td></tr>
         <tr><td><code>READ:SEQuence:IO?</code></td><td><code>output_mask,completion_channel,settle_us,pulse_us,generation,valid</code></td><td>真实本地动作配置。</td></tr>
         <tr><td><code>CONFigure:SEQuence:CODE</code></td><td><code>state_id,value</code></td><td>本节点状态编码；value只能设置output_mask内的位。</td></tr>
         <tr><td><code>READ:SEQuence:CODE?</code></td><td><code>state_id</code> → <code>state_id,value</code></td><td>缺失或参数generation失效时返回错误。</td></tr>
-        <tr><td><code>TRIGger:SEQuence:NEXT</code></td><td>无参数；<code>1</code> / error</td><td>独立BUS模式请求下一步；LOOPBACK模式提交网关软件READY，DUT仍须收到真实RJ45回环并校验通过的READY_NEXT后才切步；外部IN模式拒绝。</td></tr>
+        <tr><td><code>CONFigure:SEQuence:LINK</code></td><td><code>OFF</code> 或 <code>LOOPBACK,dut_slot,vna_slot,MANUAL|IN1|IN2|IN3|IN4,OUT1|OUT2|OUT3|OUT4,pulse_us,timeout_ms,RISING|FALLING</code></td><td>配置RJ45物理回环；MANUAL只代替VNA READY输入，READY_NEXT仍须经过真实回环。</td></tr>
+        <tr><td><code>TRIGger:SEQuence:NEXT</code></td><td>无参数；<code>1</code> / error</td><td>独立MANUAL模式请求下一步；LOOPBACK仅在READY来源为MANUAL时提交网关软件READY，DUT仍须收到真实RJ45回环并校验通过的READY_NEXT后才切步；外部IN模式拒绝。</td></tr>
         <tr><td><code>TRIGger:SEQuence:NEXT?</code></td><td>无参数；本地运行状态块</td><td>与READ:SEQuence:STATe?响应一致，不推进序列。旧STEP、CONF:NEXT和READ:NEXT?不再注册。</td></tr>
         <tr><td><code>READ:SEQuence:STATe?</code></td><td>本地运行状态块</td><td>分别读取所选、已写出、已完成游标、循环、接纳/拒绝/中止计数及时间/错误；具体字段顺序见专项架构。</td></tr>
         <tr><td><code>READ:SEQuence:TIMing?</code></td><td><code>backend,tick_ns,physical_timestamps_valid</code></td><td>PIO迁移版：运行后backend为PIO0，valid为false；兼容时间字段为零，不把CPU收取回执时间作为物理操作时间。</td></tr>

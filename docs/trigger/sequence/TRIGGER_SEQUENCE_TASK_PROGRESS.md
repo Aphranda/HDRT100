@@ -652,6 +652,17 @@ python tools/hardware_acceptance/sequence_feedback_validate.py --serial-number 8
 - 连续 profile `sequence-scpi-next-single-board/pause-resume.json` PASS：记录 20 个唯一 SCPI NEXT，PAUSE 静默检查通过，CONT 后 exchange identity 轮换并恢复推进至 completed 19；STOP 后序列、输出、租约与 TDMA 均清理，`cleanup_failures` 为空。
 - `config/hardware_acceptance/sequence_single_board_receipt.json` 已生成并经 `check-staged` 通过，绑定 staged 源码指纹、当前 package、OTA 摘要、两份原始报告、UID 和 build。该结果只关闭单板 RJ45 功能 risk，不证明独立 IN1 边沿、外部波形、RF、多板、P3 或严格 TDMA 稳定性。
 
+### NSEQ-PROGRESS-20260917-030 - MANUAL 来源统一与 RJ45 手动 READY
+
+- TODO：`NSEQ-086`；日期：2026-09-17。用户确认序列对外来源统一改为 `MANUAL`，不保留 `BUS` SCPI 兼容别名；本次继续使用单板功能门禁，不执行 P3。
+- 独立模式的数值来源零改名为 `MANUAL`，仍由 `TRIGger:SEQuence:NEXT` 直接请求一步。LOOPBACK 的 READY 来源扩展为 `MANUAL` 或 IN1-IN4；只有 MANUAL 可以接受 SCPI NEXT，外部输入模式拒绝软件 READY。
+- sync_io gateway 使用显式 enable 与输入通道分离。MANUAL 仍由 PIO 输出 VNA trigger pulse，但不启用 READY counter、输入 SM 或边沿 DMA；软件 READY 只结束当前 gateway 等待。READY_NEXT 仍须经过真实 RJ45 发送、接收及 run/generation/binding/step/exchange identity 校验后，Core1 才请求 DUT 切步。
+- MANUAL 的 `LINK_WAIT_READY` 不应用外部 READY 等待超时；WAIT_APPLIED、WAIT_RETURN、WAIT_STEP 等其他阶段保持有界超时。GUI 在发送 NEXT 前读取 23 字段 LINK 状态，来源、phase 或 error 不满足时不发送 setter，避免把固件拒绝误报为普通串口超时。
+- host 全量 sequence/role/P3 gate 相关回归 `620 passed`；`pico2-release` 完整构建位于 `out/build-sequence-manual/`，build `20260916164200`，A/B application、bootloader、factory UF2、OTA package 和 flash link contract 均通过。以上计数和 build 均为本次验收快照，非产品事实源。
+- 严格单板 OTA 证据为 `out/HardwareAcceptance/20260917/sequence-manual-ota/summary.json`：限定 UID `839E1AE79EA20F31` 和单板数量，目标 build 读回一致，send、boot、slot apply、commit 及错误队列检查通过，未使用 diagnostic continue。
+- 有限 profile `sequence-manual-single-board/finite.json` PASS：十轮读回 `10,10,1`，记录 80 个具有唯一 exchange identity 的 SCPI NEXT；连续 profile `pause-resume.json` PASS：记录 20 个 SCPI NEXT，PAUSE 静默及 CONT 后 exchange identity 轮换通过。两组清理后 IO 输出、租约、armed 和 busy 均为零，`cleanup_failures` 为空。
+- `config/hardware_acceptance/sequence_single_board_receipt.json` 已生成并经 `check-staged` 通过，绑定 staged 源码指纹、build、package、OTA 摘要及两份原始报告。`NSEQ-086` 关闭；历史报告和命令行中的 BUS 仅代表当时接口名称，不改写原始证据。本次不执行 P3，结果不证明多板、波形、RF、独立输入边沿或严格 TDMA 稳定性。
+
 ## 验证与证据索引
 
 | 关联任务 | 证据 | 状态 |
@@ -676,6 +687,7 @@ python tools/hardware_acceptance/sequence_feedback_validate.py --serial-number 8
 | NSEQ-079/081/082 | NSEQ-PROGRESS-20260916-026、`sequence-start-view-ota-r1/summary.json`、`sequence-start-view-*.json`、`sequence-start-view-final-stopped-r1.txt` | START读视图修复及当前固件组合十轮、连续PAUSE/CONT/STOP、独立BUS/IN1/手动SP8T通过；诊断超时失败仍保留 |
 | NSEQ-085 | NSEQ-PROGRESS-20260916-028、`out/pytest/sequence-single-board-gate-r1/`、`out/build-risk-closure/` | risk软件修复、Release与受限单板门禁完成；当前源码单板OTA/HIL及staged凭证待执行，不代表P3通过 |
 | NSEQ-079/081/085 | NSEQ-PROGRESS-20260916-029、`sequence-scpi-next-ota/summary.json`、`sequence-scpi-next-single-board/finite.json`、`pause-resume.json`、`config/hardware_acceptance/sequence_single_board_receipt.json` | SCPI NEXT 软件 READY、真实 RJ45 回环有限/连续单板验收及 staged 凭证通过；不代表 P3、多板、波形、RF、独立输入或严格 TDMA 稳定性 |
+| NSEQ-086 | NSEQ-PROGRESS-20260917-030、`out/build-sequence-manual/`、`sequence-manual-ota/summary.json`、`sequence-manual-single-board/finite.json`、`pause-resume.json`、`config/hardware_acceptance/sequence_single_board_receipt.json` | MANUAL 统一、gateway 输入分流、host/Release、严格单板 OTA、有限十轮及连续 PAUSE/CONT gate 通过；不代表 P3、多板、波形、RF、独立输入或严格 TDMA 稳定性 |
 
 ## 失败与回退
 
