@@ -91,6 +91,12 @@ code 只允许设置编码掩码内的位；编码掩码与可选状态掩码必
 | READ:SEQuence:LINK:TRANsport? | 返回 local-return 诊断和 `tdma_local_return_snapshot_quality_t` 质量；`FRESH`/`CACHED` 均为一致快照，`UNAVAILABLE` 是显式可观测状态，不通过 SCPI 失败或遗留错误队列表示 |
 | TRIGger:STARt [plan_id] / STOP / ABORt / PAUSe / CONTinue | 真实owner控制；STOP/ABORt取消未完成步骤并安全输出 |
 | TRIGger:SEQuence:NEXT | 独立 MANUAL 模式直接请求一步；LOOPBACK 仅在 READY 来源为 MANUAL 且处于 `LINK_WAIT_READY` 时提交软件 READY，随后仍须由真实 RJ45 回环的 READY_NEXT 回帧请求 DUT 切步；外部 IN 模式拒绝，防止混源 |
+
+调试 GUI 的独立 SP8T 与 RJ45 物理回环页面都必须显式配置 OUT1-OUT4 属性，不得由
+界面构造器暗含固定 mask。独立模式允许每路选择编码或状态；RJ45 模式允许每路选择编码
+或 VNA 触发，并要求恰好一路启用为 VNA 触发、至少一路启用为编码，两者不得重叠。
+界面显示可以使用短标签，但生成的 `CONFigure:SEQuence:OUTPut` 与
+`CONFigure:SEQuence:LINK` 必须携带完整 mask 和实际 `OUTx`。
 | TRIGger:SEQuence:NEXT? | 返回与 READ:SEQuence:STATe? 相同的运行状态块，不推进序列 |
 | READ:SEQuence:STATe? | 本地完整状态、游标、计数、时间与错误 |
 | READ:TRIGger:STATe? | 保留指令表字段排列；未实施角度流程的字段不伪造角度进度 |

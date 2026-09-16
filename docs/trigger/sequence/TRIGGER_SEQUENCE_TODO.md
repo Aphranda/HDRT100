@@ -11,6 +11,7 @@ Last updated: 2026-09-17
 按用户最新确认，本次最小测试系统由 DUT_LINK_CONTROL 和 VNA_GATEWAY 组成。
 保留两种运行模式：独立 SP8T 由软件或所选 IN1-IN4 逐状态推进，可配置 PULSE/LEVEL 状态反馈
 或 NONE 纯编码；组合模式的 DUT 只输出 SP8T 编码，VNA 网关输出测量触发并接收 READY。
+两种 GUI 模式均显式配置每路 OUT 属性；组合模式不再由界面固定编码 mask 或 VNA 触发 OUT。
 组合模式按 START 首状态建立 → RJ45 TDMA LINK_APPLIED → VNA 触发 → READY 输入或 SCPI NEXT 网关 →
 RJ45 TDMA READY_NEXT → DUT 后继状态循环；同一 READY 不再直接进入 DUT 外部准入。
 START 预置不计触发；首次有效反馈进入第二状态。轮次默认值、有限结束和显式持续运行
@@ -135,6 +136,7 @@ GUI 分页批次已完成；用户已要求继续调试，并参考 real-flight 
 | NSEQ-084 | 异步 RX 的本地回环 TX 证据保留 | DONE | 捕获后覆盖复现及RX job.expected修复通过；进度025补probe process/无拓扑启动与远端抑制，容量矩阵、Release、独立复核和新固件真实组合回环通过；捕获前过期仍拒收，不将本地回包计入远端通信成功 |
 | NSEQ-085 | 受限提交后关闭当前risk | DONE | 当前源码已完成单板 OTA、SCPI NEXT 有限十轮、连续 PAUSE/CONT 和匹配 staged 凭证，见进度029；只关闭单板功能 risk，不表示 P3、多板、波形、RF、独立输入边沿或严格 TDMA 稳定性通过 |
 | NSEQ-086 | MANUAL 来源统一与 RJ45 READY 分流 | DONE | 对外移除 BUS；独立 MANUAL 直接 NEXT，LOOPBACK 的 MANUAL 仅代替 VNA READY 且不启动输入捕获/READY 超时，真实 READY_NEXT 回环仍为 DUT 切步门禁；host、Release、严格单板 OTA、有限十轮及连续 PAUSE/CONT gate 均通过，见进度030；不外推为 P3、多板、波形、RF、独立输入边沿或严格 TDMA 稳定性通过 |
+| NSEQ-087 | RJ45 显式 OUT 属性与紧凑布局 | DONE | RJ45 与独立页均显示四路 OUT 属性；RJ45 恰好一路 VNA 触发且与编码 mask 互斥，生成实际 `OUTx`；短标签和紧凑下拉保持四路同排，命令负向测试、双尺寸 Tk 布局及当前 build 单板 gate 通过，见进度031；未对非默认物理接线作波形或 RF 验收 |
 
 NSEQ-081 的后续完整性检查如下；当前实施顺序以“当前交付快照与接续顺序”为准，
 先完成单板角色主线，再扩展动态 claim/租约。不将基础环路计数代替角色请求/回执证据：

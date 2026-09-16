@@ -663,6 +663,13 @@ python tools/hardware_acceptance/sequence_feedback_validate.py --serial-number 8
 - 有限 profile `sequence-manual-single-board/finite.json` PASS：十轮读回 `10,10,1`，记录 80 个具有唯一 exchange identity 的 SCPI NEXT；连续 profile `pause-resume.json` PASS：记录 20 个 SCPI NEXT，PAUSE 静默及 CONT 后 exchange identity 轮换通过。两组清理后 IO 输出、租约、armed 和 busy 均为零，`cleanup_failures` 为空。
 - `config/hardware_acceptance/sequence_single_board_receipt.json` 已生成并经 `check-staged` 通过，绑定 staged 源码指纹、build、package、OTA 摘要及两份原始报告。`NSEQ-086` 关闭；历史报告和命令行中的 BUS 仅代表当时接口名称，不改写原始证据。本次不执行 P3，结果不证明多板、波形、RF、独立输入边沿或严格 TDMA 稳定性。
 
+### NSEQ-PROGRESS-20260917-031 - RJ45 显式 OUT 属性与紧凑布局
+
+- TODO：`NSEQ-087`；日期：2026-09-17。用户要求 RJ45 物理回环与独立 SP8T 一样显式配置 OUT 属性，并缩短输出/状态属性下拉框，使四路保持在边框内同一行。
+- RJ45 页面新增独立草稿的 OUT1-OUT4 属性行，默认快照仍为三路编码和一路触发，但命令构造不再写死 mask 或 OUT4。配置时从勾选和角色生成编码 mask 与实际 VNA `OUTx`；必须恰好一路启用为 VNA 触发，且不得与编码输出重叠。独立页保持编码/状态语义，两页下拉显示缩短为“编码/状态/触发”。
+- host 定向回归 `150 passed`，随后 sequence/role/gate 全量相关回归 `626 passed`；包含将 VNA 触发改到 OUT3、编码改用 OUT1/OUT2/OUT4 的命令验证，以及非法 OUT、重叠、多个或缺少触发输出的拒绝。真实 Tk 在两种窗口尺寸下验证四路选择器位于边框内且同排；以上数量为本次测试快照，非产品事实源。
+- 当前 build `20260916164200` 未改变固件。复用其严格 OTA 摘要后执行 `out/HardwareAcceptance/20260917/rj45-explicit-out-single-board/`：有限十轮与连续 PAUSE/CONT 均 PASS，分别记录 80/20 次 SCPI NEXT，exchange 轮换通过，清理后 IO 和租约全零；新 receipt 经 `check-staged` 通过。本次硬件使用默认物理接线，只证明新 GUI 构造器的显式默认分配可运行，不证明非默认 OUT 接线的外部波形或 RF 通路。
+
 ## 验证与证据索引
 
 | 关联任务 | 证据 | 状态 |
@@ -688,6 +695,7 @@ python tools/hardware_acceptance/sequence_feedback_validate.py --serial-number 8
 | NSEQ-085 | NSEQ-PROGRESS-20260916-028、`out/pytest/sequence-single-board-gate-r1/`、`out/build-risk-closure/` | risk软件修复、Release与受限单板门禁完成；当前源码单板OTA/HIL及staged凭证待执行，不代表P3通过 |
 | NSEQ-079/081/085 | NSEQ-PROGRESS-20260916-029、`sequence-scpi-next-ota/summary.json`、`sequence-scpi-next-single-board/finite.json`、`pause-resume.json`、`config/hardware_acceptance/sequence_single_board_receipt.json` | SCPI NEXT 软件 READY、真实 RJ45 回环有限/连续单板验收及 staged 凭证通过；不代表 P3、多板、波形、RF、独立输入或严格 TDMA 稳定性 |
 | NSEQ-086 | NSEQ-PROGRESS-20260917-030、`out/build-sequence-manual/`、`sequence-manual-ota/summary.json`、`sequence-manual-single-board/finite.json`、`pause-resume.json`、`config/hardware_acceptance/sequence_single_board_receipt.json` | MANUAL 统一、gateway 输入分流、host/Release、严格单板 OTA、有限十轮及连续 PAUSE/CONT gate 通过；不代表 P3、多板、波形、RF、独立输入或严格 TDMA 稳定性 |
+| NSEQ-087 | NSEQ-PROGRESS-20260917-031、`out/pytest/rj45-out-final-r2/`、`rj45-explicit-out-single-board/finite.json`、`pause-resume.json`、`config/hardware_acceptance/sequence_single_board_receipt.json` | RJ45 显式 OUT 属性、紧凑同排布局、命令负向回归及默认接线单板 gate 通过；非默认 OUT 仅验证命令构造，不代表外部波形或 RF 验收 |
 
 ## 失败与回退
 
