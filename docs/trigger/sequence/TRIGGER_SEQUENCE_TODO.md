@@ -4,7 +4,7 @@ Status: Active
 Domain: TRIGGER
 Canonical: `docs/trigger/sequence/TRIGGER_SEQUENCE_TODO.md`
 Related: `docs/trigger/sequence/TRIGGER_SEQUENCE_ARCHITECTURE.md`, `docs/trigger/sequence/TRIGGER_SEQUENCE_TASK_PROGRESS.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
-Last updated: 2026-09-15
+Last updated: 2026-09-16
 
 ## 当前范围
 
@@ -51,6 +51,36 @@ Last updated: 2026-09-15
 | NSEQ-061 | 序列PIO执行与热加载 | DONE | 生产失败回滚测试、重复装卸、暂停/恢复及STOP单板验证通过；进度012，按用户要求不以P3前置 |
 | NSEQ-062 | PIO提速验收 | IN PROGRESS | 进度012完成首档提速功能，后续按用户设置继续压力测试；独立波形、单步延迟和极限吞吐仍需另测 |
 | NSEQ-063 | START首状态预置与后继循环 | IN PROGRESS | START取得资源后输出首状态，初始建立期间禁止准入且不计数/不发完成脉冲；首次触发进入第二状态，末状态后回绕；host、Release及BUS单板IO通过，P3与OUT4外部波形待验收 |
+
+## RefMem 动态槽位与同板双角色规划
+
+目标是允许一台物理设备动态承载“DUT 链路控制节点”和“网分/VNA 节点”，
+角色通过 RefMem 槽位装载和激活决定，不把逻辑角色永久绑定到固定板号。
+本节先定义实施顺序和验收边界；具体字段冻结前须与 RefMem canonical 文档及登记表交叉审核。
+
+| ID | 任务 | 状态 | 退出门禁 |
+|---|---|---|---|
+| NSEQ-070 | RefMem 槽位角色模型 | PENDING | 明确 `physical_board_id`、`logical_node_id`、`slot_id`、`instance_id`、`role_mask`、`persona_mask`、`resource_claim`、`io_claim` 和 generation 的关系；同板多槽位使用现有 `REFMEM_APP_CLAIM_ALLOW_SAME_BOARD_MULTI_SLOT` |
+| NSEQ-071 | DUT 链路控制槽位 | PENDING | 槽位负责 `DUT_LINK_CONTROL`；发布 requested/applied link code、SP8T/SP2T 目标与实际值、link sequence index、settle 状态和 fault；OUT 电平只能由该槽位写入 |
+| NSEQ-072 | 网分/VNA 槽位 | PENDING | 槽位负责 VNA trigger、READY、DONE、测量状态和质量；READY/DONE 只写测量事实，不直接推进序列游标 |
+| NSEQ-073 | 同板资源冲突校验 | PENDING | 同一物理设备的多个槽位允许共存，但 PIO、DMA、SMA、输出位、输入位和 RefMem 写权限不得重叠；冲突在 CONFIG_VALIDATE 阶段拒绝 |
+| NSEQ-074 | 动态槽位装载事务 | PENDING | `CONFIG_STAGE` 扫描空闲槽位并生成 load plan；校验通过后 `CONFIG_ACTIVATE` 原子发布；失败回滚不影响当前 active generation |
+| NSEQ-075 | 序列与槽位绑定 | PENDING | START 绑定 `run_id`、sequence generation、plan CRC 和槽位清单；运行期间槽位清单冻结，STOP 后才允许重新分配 |
+| NSEQ-076 | 链路切换事件链 | PENDING | 每步按“请求链路电平→等待 settle→发布 LINK_APPLIED→触发 VNA→接收 READY/DONE”执行；DONE 不自动推进下一状态 |
+| NSEQ-077 | 槽位回收与旧事件隔离 | PENDING | STOP、FAULT 或重新装载时回收 lease，清除旧 generation 的事件和数据写权限；旧槽位事件不能污染新运行 |
+| NSEQ-078 | RefMem/SCPI/GUI 读回 | PENDING | 提供活动槽位、角色、资源租约、generation、requested/applied 值和 READY/DONE 状态的只读检查；GUI 显示物理设备与逻辑槽位关系 |
+| NSEQ-079 | 同板单板验收 | PENDING | 一台设备加载 DUT_LINK_CONTROL + VNA_MEASUREMENT 两个槽位，完成首步、后继步、暂停、停止、故障恢复和槽位回收；保留原始 RefMem 快照 |
+| NSEQ-080 | 多板动态分配验收 | PENDING | 多设备按不同槽位组合装载同一角色模型，验证 generation、资源冲突、ACK/NACK、回滚和重新分配；不把单板结果升级为全局裁决通过 |
+
+### 角色和数据边界
+
+| 区域 | 唯一写者 | 主要内容 |
+|---|---|---|
+| `TriggerRegion` | 序列触发节点 | run、generation、plan CRC、current/next、accepted/completed、运行状态 |
+| `IoRegion` | DUT_LINK_CONTROL 槽位 | requested/applied link code、SP8T/SP2T 值、link state、settle、fault |
+| `MeasurementRegion` | VNA_MEASUREMENT 槽位 | trigger sequence、READY/DONE sequence、时间戳、测量状态和质量 |
+| `AckCommandRegion` | 配置/网关节点 | stage、validate、activate、ACK/NACK、回滚原因 |
+| `RoleRegion` | 配置阶段 | 槽位角色、persona、资源和 IO 声明；RUN 后冻结 |
 
 ## 后续接口预留
 
