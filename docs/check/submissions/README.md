@@ -61,6 +61,7 @@ Last updated: <YYYY-MM-DD>
 |---|---|---|
 | `VDC_CROSS_REVIEW_01.md` | VDC 本地服务边界频率命令、实际应用 ACK 与诊断 probe 授权 | `ACCEPT_WITH_DEVIATION`；契约 pending，接线及硬件待验 |
 | `VDC_CROSS_REVIEW_02.md` | VDC 同命令有界重复运输与 ACK 退休 | `ACCEPT_WITH_DEVIATION`；修订通过 C11，契约 pending |
+| `VDC_CROSS_REVIEW_03.md` | VDC 独立 RATE 与显式自动频率闭环 | `ACCEPT_WITH_DEVIATION`；C11 通过，契约 pending |
 | `TDMA_CROSS_REVIEW_01.md` | TDMA seqlock 与顶层 HAOFV | `ACCEPT_WITH_DEVIATION` |
 | `TDMA_CROSS_REVIEW_02.md` | TDMA mandatory-first process image 与 HAOFV/VDC/RefMem | `ACCEPT_WITH_DEVIATION` |
 | `TDMA_CROSS_REVIEW_03.md` | TDMA bounded recovery 双 buffer、原 Node offset 与实时诊断边界 | `ACCEPT_WITH_DEVIATION` |

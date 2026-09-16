@@ -352,8 +352,9 @@ timestamp、LOCKED、物理 GPIO 连续性或正式 RUN 资格。实现及硬件
 登记为 pending 不表示已经完成实际应用。以下数字是本条款登记的 wire ABI；实现
 比对入口为 `refmem_sync_vdc_feedback.h` 与 `tdma_process_image_layout.h`。
 
-TDMA class 为 `0x13`，schema 为 `3`，flags 固定为 `0x01`（仅 rate delta，下一次
-合格 Core1 service boundary）。完整记录为 64 B，使用现有 VDC 区的 16 个 4 B
+TDMA class 为 `0x13`，schema 为 `3`，flags 为 `REFMEM_VDC_BOUNDARY_COMMAND_FLAGS`
+（单次 probe）或 `REFMEM_VDC_BOUNDARY_COMMAND_AUTO_FLAGS`（显式 AUTO）；二者均仅
+申请 rate delta，在下一次合格 Core1 service boundary 应用。完整记录为 64 B，使用现有 VDC 区的 16 个 4 B
 片段；不改变 Node mailbox 长度、其他业务区或外层广播 target mask。小端编码如下：
 
 | 字节偏移 | 长度 | 字段 |
@@ -382,6 +383,15 @@ TDMA class 为 `0x13`，schema 为 `3`，flags 固定为 `0x01`（仅 rate delta
   实际 FIFO 发布成功才推进片号；组完成或取消后先成功发布普通 mailbox。重复片
   不续时，冲突/乱序/超时取消当前部分组；空 RX 队列也执行有界到期处理。复用接收
   槽时显式校验记录类型，不能把命令作为反馈或普通 phase/rate 解读。
+  完整命令在最终绑定快照暂不可得时保留在 Core0 原组装缓冲，后续 service 有界
+  重验；它尚未获得 Core1 应用资格。保存原接收 admission 与真实完成时刻，后续
+  mailbox 不得覆盖待交接字节；已知换代、STOP/重新准入或原组装期限到期则退休。
+  延后提交不得刷新测量依据、完成时刻或命令有效期；Core1 仍执行全部身份及年龄校验。
+  Core0 在获取 RX FIFO 租约前分别刷新普通 VDC 和反馈绑定；任一绑定暂不可得时，
+  本拍不 acquire/release RX，避免未准入的中间分片被静默消费。已知 inactive 与
+  unknown 分开处理：前者正常退休相关状态并允许普通接收；已知 STOP 不等待无关
+  VDC 快照。到期处理仍运行，TX 发布保留原有准入规则。此机制复用有界 FIFO，
+  同一 view 中的普通数据也会延后；持续暂忙可能耗尽既有容量，不承诺无损运输。
 - 同一 offer 允许有界重复完整组，总组数上限由
   `REFMEM_VDC_BOUNDARY_COMMAND_MAX_GROUPS` 定义，包含首次发送。重复使用完全相同的
   命令字节、序号、测量依据和原有效期，每片重新验证当前 owner 与原模型年龄；
@@ -403,8 +413,10 @@ TDMA class 为 `0x13`，schema 为 `3`，flags 固定为 `0x01`（仅 rate delta
   `vdc_domain_apply_follower_rate_delta()`；成功才发布新模型与 applied sequence。
 - 作为命令依据的观测必须精确关联测量序号、源生命周期、源模型及 NO1 同序参考。
   不能把历史 MATCH 的 active 当作新测量，不能用最新 RX 元数据修补旧 pair。
-  主机选择和发布前须在当前同 reference token 的 NO1 DCO 输出坐标重新计算
+  主机选择和发布前须在当前同 reference token 的 NO1 对应观测坐标重新计算
   pair 最新参考 lower bound 的年龄；保留的 last_age_ticks 不提供当前新鲜度。
+  probe 使用绝对输出坐标，AUTO 使用 raw-now 按当前 DCO rate 缩放的 RATE 坐标，
+  两种坐标不能相减；从板命令年龄仍使用回送的绝对输出 lower bound。
   首期同模型端点必须分别同 token；跨 token 区间只有具备额外连续性证明才可用于
   自动频差控制。模型 guard 为奇数时，Core1 writer 仅使用自己的最后发布副本并
   比对当前 Domain，不能调用必然拒绝的公共 reader 或把旧 token 贴给已改变的 DCO。
@@ -431,10 +443,107 @@ TDMA class 为 `0x13`，schema 为 `3`，flags 固定为 `0x01`（仅 rate delta
   session，变更 session 本身不续发或恢复额度。
   自动模式另行验证估计策略及频率收敛，不能由单次命令成功自动提升质量。
 
+#### 显式 AUTO 与 RATE 观测
+
+AUTO 只在 STOP 后由 `SYSTem:VDC:FEEDback:AUTO` 显式授权，并绑定当时的非零
+feedback session；与单次 probe 互斥。AUTO 关闭、probe 关闭、session 清零及
+运行态 STOP/owner 换代都撤权，重 ARM 不恢复旧授权。跨核 mode 读取争用表示
+“本拍暂不可得”，Core0 暂停准备，不能把它解释成关闭、切域或退休现有窗口。
+
+RATE 反馈采用独立的 `REFMEM_VDC_FEEDBACK_RATE_SCHEMA` 与
+`REFMEM_VDC_FEEDBACK_RATE_FLAGS`，完整大小及分片配额复用已有反馈，旧 raw/MODEL
+格式保持独立。下面偏移属于 `VDC-BOUNDARY-01` 的登记 ABI，代码以
+`refmem_sync_vdc_feedback.h/.c` 为比对入口。
+
+| 反馈字节偏移 | RATE 含义 |
+|---|---|
+| 0–31 | 独立 schema/flags、来源/目标及源自身 clock/ARM/observer/measurement/tick_hz 身份，布局与既有反馈头一致。 |
+| 32–39 | 绝对投影输出 lower bound，仅作为从板命令年龄依据。 |
+| 40–47 | observer 相对计数按当前 committed DCO rate 缩放的频率坐标 lower bound；算术 upper 为 lower 加一个 ns，不包含物理检测不确定度。 |
+| 48–59 | model token、applied command sequence、control session。 |
+| 60–63 | 原反馈 CRC32 规则。 |
+
+Core0 调用 VDC 投影接口准备 RATE 坐标及配对；主端参考使用 raw TX 括号分别向外
+取整，不删除逐发参考括号宽度。源相对锚点仅在同 ARM/observer、同源模型差分中
+消除；时钟桥读取仍校验时钟比例、年龄与 raw 模型切点，不能收窄旧 MODEL 语义。
+配对 `reserved` 必须为 `VDC_FEEDBACK_RATE_DOMAIN`。固定缓存与每从 baseline
+持有至 `VDC_FEEDBACK_RATE_MIN_INTERVAL_NS`；未成熟返回 WAIT，不增加成功配对或
+错误计数。最大窗口遵守 `VDC_FEEDBACK_MODEL_MAX_INTERVAL_NS`，源或参考模型换代
+重新建立 baseline；窗口末端仍单独检查新鲜度。
+
+Core1 逐从读取有界准备结果，以误差区间靠近零的端点决定负反馈方向：源更快时
+减小 rate；采用四分之一增益（当前控制策略快照，非永久调参事实源），deadband
+与单步限幅分别由 `VDC_BOUNDARY_AUTO_DEADBAND_PPB` 和
+`VDC_BOUNDARY_AUTO_MAX_DELTA_PPB` 定义。区间跨零或进入 deadband 则 HOLD，不能把
+deadband 当成测量分辨率。每个 peer 保存自身不可变增量，每次实际应用至多一次。
+精确 ACK 对账后才允许下一命令，其完整测量窗口必须属于应用后的新源模型；
+窗口允许在 ACK 运输过程中积累，不声称等待 ACK 才开始采样。未知应用结果保持
+UNRESOLVED，不叠加命令；late ACK 可对账，仍须新模型窗口。模型变化或总 rate
+范围拒绝后的完整自动恢复另验，不由本切片授予。
+
+板端维护记录复用 `VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES` 缓冲；版本由
+`VDC_DPLL_MANAGER_DPLL_CAPTURE_SCHEMA` 定义。AUTO 观测/offer/apply/ACK/HOLD
+使用独立 kind，不伪造旧 DPLL update_seq 或相位残差。TRACE ARM 成功时冻结本次
+AUTO-only/legacy 记录模式；mode 读取争用则不 ARM，已 ARM 不被重新配置。AUTO-only
+抑制旧 DPLL 记录追加，但不改变实际 DPLL 更新或发布；运行中撤权不切换本次记录
+模式，STOP 后下一 ARM 再选择。offer 的端点记录与命令记录
+成对预留，保存两端模型身份；命令保存 decoded 语义字段，不能称为原始 TX/RX
+wire，ACK 保存真实收到的反馈字节。Core1 不做 CRC 或存储，全部 STOP 后由 Core0
+导出。缓冲达到容量即停止，dropped 为零不等于全窗口完整；验收必须核查容量、
+多轮实际应用、精确 ACK、独立区间复算与曲线变化。仅 HOLD 或一次测试增量不能
+通过自动收敛验收。
+
 验证须覆盖类型/CRC/乱序/取消、丢片后重复恢复、重复应用拒绝、组间普通帧、发送
 上限和 ACK 提前退休、精确测量关联、年龄与模型变化、outbox ABA、未决
 到期和迟到 ACK、连续重基、资源/栈及当前源码四板 P3；逐从真实应用与反馈对账另有
 专项原件。完整物理精度和长稳恢复保持后续门禁。
+
+### VDC-REFERENCE-01：显式参考事件时间戳运输
+
+参考运输由 STOP 后的 `SYSTem:VDC:FEEDback:REFerence` 显式选择，复用
+`VDC_BOUNDARY_MODE_REFERENCE` 和非零 feedback session，与 PROBE/AUTO 互斥。
+该模式承载参考事件及其接收确认，不改变既有 MASTER/FOLLOWER 的 DCO 写入权限；本地跟踪
+控制另行接入。session 清零、代际不匹配或 STOP 使旧数据失去当前准入资格。
+
+MASTER 的 Core0 从 TDMA owner 稳定快照取 origin TX 事件，以事件发生时已提交的
+DCO 模型做 `vdc_dpll_manager_project_feedback_event()` 投影，保留完整上下界、
+model token、源 clock epoch/run、origin acquisition epoch、事件 sequence 和 session。
+源 ARM/observer 两字段均绑定 origin acquisition epoch，不能解释为从板 EVENT tap
+的代际；不使用 RATE 相对坐标或 phase/rate 补偿量替代输出事件时间戳。该投影仍为
+内部模型时间区间，不授予已校准 pad 时间、物理精度或主板持续 PI 更新资格。
+
+运输复用 `REFMEM_VDC_FEEDBACK_MODEL_SCHEMA`、`REFMEM_VDC_FEEDBACK_RECORD_SIZE`
+及既有固定 VDC 分片配额，不改变 mailbox 长度、PIO 程序或帧节拍。MASTER 根据
+上次完整发布的目标轮询其他节点，每组冻结一个事件和明确目标；组间保留普通帧。
+组内每次准备检查绑定及 origin epoch，FIFO 未发布不得推进分片；不同目标可收到
+不同的新事件，不能假定这一版本是同帧广播或每周期全从交付。
+
+FOLLOWER 只接收显式指定主机、目标为本地且 session 相符的完整 MODEL 记录。
+Core0 完成 CRC、类型、身份和顺序校验，再以 guarded snapshot 发布；远端 clock
+身份留在 sample 中，接收者本地配置身份留在外层绑定中。完整组在绑定读取暂忙时
+留待下一服务拍，已知 STOP、admission 变化或超时则退休，不能跨新会话重新采用。
+收到参考、接收 ACK 和 DCO 采用分别判定，不能把 received 当作 applied。
+
+接收确认使用 `REFMEM_VDC_RECEIPT_ACK_SCHEMA` 的独立类型，与原参考共用固定分片
+通道；仅在完整校验并保留指定主机参考后准备，不等待本地同序观测、delay 校准或
+DCO 采用。ACK 将来源/目标反转，回显原 MODEL 的身份及投影内容并重算 CRC；
+恢复原 MODEL 后必须可逐字节对账。回显的 `applied_command_seq` 仍描述主机原模型，
+不代表从板采用。ACK 组内不可被新参考改写，交接暂忙有界保留，取消沿既有准入退休。
+
+MASTER 复用每来源 RX 快照的显式 `reference_proof` union arm 保存对应从板最近
+完整 FIFO 发布的原参考，仅最后分片成功发布才更新证明；原 `record` 保存返回
+的 ACK。旧反馈控制读取入口不得将此 arm 当作 decoded sample。恢复 ACK 的原参考
+与当前证明完全相同时才增加接收确认计数；重复或证明已被较新发布淘汰时分别
+计数，不扩大为所有组必达。`SYSTem:REFMEM:SYNC:TDMA:VDC:FEEDback:PROof?`
+提供带绑定的有界快照，STOP 后仅保留历史，不授予当前资格。最后发送证明、最后
+ACK 和最后从板参考可能不同步，离线分析须分别报告精确匹配，不能推断相等。
+ACK 缺失不阻塞 TDMA 发车或 NO1 本地 PI；该确认也不作为本地跟踪的运行时前置。
+
+验证覆盖发布内容冻结、目标轮询、跨核暂忙、FIFO 拒绝、STOP/代际撤销、错误来源/
+目标/session/CRC、完整组暂忙保留，以及旧命令控制互斥。接收确认另覆盖完整发布
+证明、错内容同序、重复/迟到、proof arm 消费隔离与取消。当前源码的资源、P3 和
+逐从接收/确认专项各自留证；两条 TX 历史不足以同时证明所有目标的最终记录逐字节一致，
+未匹配记录须如实标记，不以模型一致替代原始发布证据。本条登记保持 pending。
 
 ## 验证映射
 
