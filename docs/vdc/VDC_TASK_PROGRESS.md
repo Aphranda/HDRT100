@@ -31,6 +31,38 @@ Last updated: 2026-09-17
 四板 quick P3 凭证；暂存源码指纹 `fb2b46871987abe1426a52207966c93942b75fea1a58a53adb396be2d8589a52`
 已由真实 pre-commit 硬件门禁核验，见 `VDC-PROGRESS-20260917-001`。严格质量告警仍保留，
 不授予单圈同步编码、三从闭环或锁相完成。
+
+### VDC-PROGRESS-20260917-002：Core1 priority RX 原始记录消费接通
+
+- 对应 `VDC-FAST-002`；本切片只闭合“TDMA priority RX 保全 → Core1 读取”的入站边界。
+  `sync_dpll_fb_service()` 在既有 Core1 服务边界执行一次最新候选快照和一次
+  `tdma_priority_rx_copy_live()`，使用完整 carrier sequence、epoch、retained 位图和
+  guard 复验；失败不退休候选，下一次服务重试。latest-only 的跳过数单独记录，不能解释成 FIFO 丢帧。
+- 新增 stopped-only `SYST:TDMA:FLIGHT:PRIOR:CONSumed?` 读回，输出 Core1
+  服务/消费/重试/重复/序列间隔/时钟无效计数、有效 body 计时及最后原始记录。
+  普通 class（本轮实板读回为 `0x10`）只保留原始字节，不进入 VDC residual、时间戳、ACK、
+  DCO 或锁相控制。原 priority `REC?` 的 STOP 诊断读取保持不变。
+- live-copy host 组合及 Core1 ingress 组合共 108 项通过、无跳过；覆盖 6/8 节点、
+  short-enum、STOP/ARM/rebase、换代、同槽覆盖、guard 竞争、序号回绕、时钟失效和
+  普通/未知 class。资源独审绑定 build `20260916162422`、源码指纹
+  `2d2163a96166a8f9a7d2faae26fba502d27e02c6db40d27b7451ff9b594772bb`、1197 个源文件；
+  A/B/Boot Release 和 Flash link 检查通过。当前 persona 资源快照：主 RAM 保留堆后
+  46792 B，follower Core1 路径余 356 B，NO1 路径余 200 B；均为本构建快照，非全负载保证。
+- 四板 `QUICK_DIAGNOSTIC` P3 已完成，固定范围结果为 `PASS_WITH_WARNINGS`，TDMA
+  原始过程结果和严格质量失败均保留；本轮未执行 DPLL 观察，不能宣称严格 P3 或锁相。
+  STOP/UID/build 屏障后，NO2/NO3/NO4 分别出现 244/239/240 次 Core1 原始记录消费，
+  最新 mailbox class 均为普通过程类；NO1 未安装 follower priority consumer。消费 body
+  最大值和 IRQ-entry→read 最大值见 `consumer-readback-r1.json`，均为当前板端快照，
+  不是 WCET 或物理飞行/相位时间。三从读回的 retained record 与 producer exact record
+  在仍保留时逐字一致；不在槽位时只保留独立 CRC 结果并明确标记。
+- 证据目录：`out/HardwareAcceptance/20260917/dpll-priority-sync-r1/`，包括
+  `ingress-test-delivery.json`、`independent-review/linked-ingress-review.json`、
+  `p3-r1/acceptance.json`、`p3-r1/alarms.json`、`consumer-readback-r1.json` 和
+  `measured-build-r1/manifest.json`。严格门限仍为 false；本切片只证明 Core1 原始
+  运输记录消费，未证明同事件关联、预编码时间戳、DCO 更新、100 ns 精度或锁相。
+- 下一 gate：继续 `VDC-FAST-002/003`，增加独立 typed synchronization class 和
+  NO1 origin 事件发布；随后在同一 Core1 固定索引入口完成完整 event identity、时间区间、
+  本地 delay 和 DCO 应用。不得把本轮 `0x10` 普通邮箱记录重新解释为特等席同步记录。
 此前 `22a22b5` 已提交参考发布节奏切片与匹配 quick P3 凭证，源码指纹
 `3dd87e9aee4b3899f3592c47fb30df3b899dcda290531d4b32514a615785ef98`，
 见 `VDC-PROGRESS-20260916-037`。此前 `6530114` 已提交 029–034 的接收 ACK、历史事件桥、本地跟踪、RAM 导出、

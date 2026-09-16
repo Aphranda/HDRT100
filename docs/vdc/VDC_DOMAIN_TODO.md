@@ -16,10 +16,10 @@ Last updated: 2026-09-17
 [当前验收优化进度](VDC_TASK_PROGRESS.md#vdc-progress-20260917-001阶段告警分级与固定验收范围)及
 [RAM 进度 043](VDC_TASK_PROGRESS.md#vdc-progress-20260916-043refmem-缩容专项完成与主线接续)。
 
-**当前状态：** 独立原始接收入口、栈修复、空通道调度减负及 STOP 后分段计时已实现，
+**当前状态：** 独立原始接收入口、Core1 单次 exact-sequence 消费、栈修复、空通道调度减负及 STOP 后分段计时已实现，
 相关 host/Release 已验证；四板最新 quick P3 的调度和运输连续性仍失败。
 VDC 从不执行恢复为可执行是已测收益，不能据此宣称三从已闭环或锁相。
-当前独立入口保留的仍是普通邮箱记录，最小同步编码的确定性发送、Core1 事件匹配
+当前独立入口已在 Core1 读取并保留普通邮箱记录，但它仍是 transport-only；最小同步编码的确定性发送、Core1 事件匹配
 及该路径上的实际 DCO 更新尚未接通。
 
 **当前插入任务：** 用户已授权优先做 REFMEM 静态缩容，为 TDMA/DPLL/VDC 调试释放
