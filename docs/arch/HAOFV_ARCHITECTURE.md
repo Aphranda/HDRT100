@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-09-14
+Last updated: 2026-09-16
 Version: 5
 
 本文档定义 Distributed Hard Real-Time Trigger System 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
@@ -188,6 +188,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | `DOCS-FLASH-01` | Flash 域架构、TODO、任务进度三类文档的事实边界与变更接口 | `docs/arch/HAOFV_FLASH_ARCHITECTURE.md` | pending |
 | `DOCS-TRIPLETFORMAT-01` | 域文档 Architecture、TODO、Task Progress 三件套的最小格式、稳定 ID、状态词汇和文件接口 | `docs/check/DOCS_REGRESSION_PLAN.md` | pending |
 | `VDC-PATHMATRIX-01` | Calibration load 生成完整 source/reference observation path matrix；DPLL 运行态只做矩阵索引，禁止沿环推断 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md` | pending |
+| `VDC-BOUNDARY-01` | 特等席固定配额承载逐从本地服务边界频率命令；Core0 稳定交接、Core1 连续应用、精确 ACK 和取消，显式单次诊断不授予锁相 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-BOUNDARY-01` | pending |
 
 ## 分层职责
 

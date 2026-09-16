@@ -345,6 +345,85 @@ phase-only 诊断脉冲 deadline 与输出域残差接口共用该投影，避�
 | T2/READY/FIRE_LOAD | Trigger/Measure | 绑定 map generation 和 quality；formal gate 失败时 fail-closed。 |
 | SCPI | System/maintenance | 只写 staging/command slot 或读取 snapshot。 |
 
+### VDC-BOUNDARY-01：本地服务边界频率增量命令
+
+本条款独立于旧共同绝对时间命令；它定义内部 DCO 的受限频率应用，不授予 formal
+timestamp、LOCKED、物理 GPIO 连续性或正式 RUN 资格。实现及硬件退出状态见 TODO，
+登记为 pending 不表示已经完成实际应用。以下数字是本条款登记的 wire ABI；实现
+比对入口为 `refmem_sync_vdc_feedback.h` 与 `tdma_process_image_layout.h`。
+
+TDMA class 为 `0x13`，schema 为 `3`，flags 固定为 `0x01`（仅 rate delta，下一次
+合格 Core1 service boundary）。完整记录为 64 B，使用现有 VDC 区的 16 个 4 B
+片段；不改变 Node mailbox 长度、其他业务区或外层广播 target mask。小端编码如下：
+
+| 字节偏移 | 长度 | 字段 |
+|---|---|---|
+| 0 | 4 | schema、source_slot、target_slot、flags，各一字节 |
+| 4 | 4 | control_session |
+| 8 | 4 | command_seq |
+| 12 | 4 | schedule_crc32 |
+| 16 | 4 | target_clock_epoch_id |
+| 20 | 4 | target_clock_run_id |
+| 24 | 8 | target_arm_epoch |
+| 32 | 4 | target_observer_epoch |
+| 36 | 4 | basis_measurement_sequence |
+| 40 | 4 | expected_target_model_token |
+| 44 | 4 | expected_applied_command_seq |
+| 48 | 4 | signed_delta_rate_ppb，二进制补码 |
+| 52 | 8 | basis_source_output_ns_lo |
+| 60 | 4 | 前 60 B 的 IEEE reflected CRC32，polynomial `0xEDB88320`，初值及末异或 `0xFFFFFFFF` |
+
+本地 decoded struct 与 wire 布局分离：两个 uint64 字段前置、十个四字节字段、
+一个清零且不序列化的 reserved word、四个单字节头字段；大小保持 64 B。Core0
+显式编码/解码，禁止把结构体 memcpy 当作 wire。旧反馈 schema 与旧绝对命令继续
+使用自己的解码器，新类型不得借旧字段改变语义。
+
+- Core0/RefMem 唯一拥有准备、CRC、分片/组装及稳定副本。组内数据不可改写，只有
+  实际 FIFO 发布成功才推进片号；组完成或取消后先成功发布普通 mailbox。重复片
+  不续时，冲突/乱序/超时取消当前部分组；空 RX 队列也执行有界到期处理。复用接收
+  槽时显式校验记录类型，不能把命令作为反馈或普通 phase/rate 解读。
+- Core1/SyncDpllFB 唯一拥有逐从控制状态、命令选择与实际应用。一个有界 service
+  最多检查一个从板或应用一条本地命令；不进行 wire 解析、CRC、存储或等待。出站
+  offer 有单调不复用身份，Core0 返回的 TX-done 只证明该 offer 的 FIFO 分片发布
+  完成。过期 TX-done 不能完成新 offer，更不能充当 DCO 应用 ACK。
+- 来源与目标必须属于当前准入拓扑且不同；从板仅接受指定主机。命令必须绑定当前
+  session、schedule、目标自身 clock epoch/run、ARM、observer、DCO model token
+  及 expected applied sequence；序号非零、严格递增、不静默回绕。各板本地 epoch
+  不相互比较为公共代际。外层 Core1 guard 内复验上述身份及取消，随后调用
+  `vdc_domain_apply_follower_rate_delta()`；成功才发布新模型与 applied sequence。
+- 作为命令依据的观测必须精确关联测量序号、源生命周期、源模型及 NO1 同序参考。
+  不能把历史 MATCH 的 active 当作新测量，不能用最新 RX 元数据修补旧 pair。
+  主机选择和发布前须在当前同 reference token 的 NO1 DCO 输出坐标重新计算
+  pair 最新参考 lower bound 的年龄；保留的 last_age_ticks 不提供当前新鲜度。
+  首期同模型端点必须分别同 token；跨 token 区间只有具备额外连续性证明才可用于
+  自动频差控制。模型 guard 为奇数时，Core1 writer 仅使用自己的最后发布副本并
+  比对当前 Domain，不能调用必然拒绝的公共 reader 或把旧 token 贴给已改变的 DCO。
+- 有效期在目标当前同一 DCO 模型的输出坐标检查：按当前本地时间上界计算输出，
+  与回送的源观测 lower bound 作差，拒绝未来或超龄依据；不以接收时刻刷新 TTL，
+  不要求跨板绝对时间映射。Core1 接纳时还须确认当前模型尚未被本拍其他服务改变。
+  TTL、单次 step 限额和 ACK 等待是命名配置，必须按实际周期/片间交付验证，不能
+  将一次配置的实测能力外推到其他周期。
+- 每从至多一个未决命令；到期进入 EXPIRED_UNRESOLVED 并保留完整身份，停止重发。
+  后续精确 ACK 必须匹配 session、目标生命周期、command_seq，并来自更新的模型
+  和测量；较大的无关应用序号不是 ACK。未决不能被默认为“未应用”而再叠加校正，
+  其他从板仍可推进。下一次自动校正还需新的应用后观测窗口。
+  单次诊断命令序号取精确匹配反馈的 applied sequence 加一；耗尽拒绝，不从一重新
+  起算。迟到精确 ACK 仅登记 late-applied，不在同一 probe 内恢复已用额度。
+- STOP 请求接受与 owner 已停止分开判定。确认 disabled、adapter 停止及配置已应用
+  后才允许配置；运行中 STOP/角色/会话/配置换代立即撤销应用授权，跨核复制前后
+  复验。重 ARM 的旧字节、旧 offer、迟到准备不能恢复授权；失败保持可信输出。
+- 诊断单次校正与自动闭环分开启用。前者只能在 STOP 后显式配置，每个从板按新鲜
+  观测绑定一次受限测试增量，用于证明应用/回传，不把区间跨零说成校正方向已确定。
+  四板分别授权同一测试增量，从板应用还须与自己的授权值相同；非零 feedback
+  session 本身不是应用许可。主机在 offer 时消耗该从板额度，重复反馈、ACK、到期
+  和重 ARM 都不补发；下一轮须四板重新显式授权新的 probe。probe 绑定配置时的
+  session，变更 session 本身不续发或恢复额度。
+  自动模式另行验证估计策略及频率收敛，不能由单次命令成功自动提升质量。
+
+验证须覆盖类型/CRC/乱序/取消、精确测量关联、年龄与模型变化、outbox ABA、未决
+到期和迟到 ACK、连续重基、资源/栈及当前源码四板 P3；逐从真实应用与反馈对账另有
+专项原件。完整物理精度和长稳恢复保持后续门禁。
+
 ## 验证映射
 
 | 验证层 | 必须证明 |

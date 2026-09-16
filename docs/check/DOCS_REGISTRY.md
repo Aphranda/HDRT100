@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_REGISTRY.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`
-Last updated: 2026-09-13
+Last updated: 2026-09-16
 
 > 注：本文件必须满足 `tools/docs_check/docs_check.py` 的元数据要求（5 字段齐全），否则自回归门禁自相矛盾。
 
@@ -20,6 +20,7 @@ Last updated: 2026-09-13
 | TDMA-HOP-01 | tdma | hop_limit 归属 ring profile | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_profile.h | 符号存在性 | 2026-08-19 | active |
 | REFMEM-260B-01 | refmem | critical delta ≤260B | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | refmem_sync.h | 常量比对 | 2026-08-19 | active |
 | VDC-DPLL-01 | vdc | DPLL 准入 resolution≤100ns | 1 | docs/vdc/VDC_DOMAIN_ARCHITECTURE.md | vdc_timestamp_clock.h | 符号存在性 | 2026-08-19 | active |
+| VDC-BOUNDARY-01 | vdc | 独立类型的本地服务边界频率增量命令，固定配额、目标模型年龄、逐从未决/实际应用 ACK 与连续重基；诊断 probe 显式授权 | 1 | docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-BOUNDARY-01 | refmem_sync_vdc_feedback.h | typed codec/取消/身份/连续性 host、资源与四板 P3、实际 apply/ACK 专项 | 2026-09-16 | pending |
 | VDC-PATHMATRIX-01 | vdc | calibration load 生成完整 observation path matrix，运行态禁止 ring path inference | 1 | docs/vdc/VDC_DOMAIN_ARCHITECTURE.md | vdc_domain.h | C/host matrix completeness and lookup tests | 2026-08-28 | pending |
 | VDC-OBSALIGN-01 | vdc | 跨板 observation 必须声明 local phase 与共同 TDMA 时间的同钟或映射关系；raw local phase 不得进入 MASTER PI 或可信 jitter | 1 | docs/vdc/VDC_DOMAIN_ARCHITECTURE.md | vdc_domain.c | VDC phase-domain gate、TDMA adapter flag 与 host/P3 replay | 2026-09-10 | pending |
 | TDMA-FLIGHT-BITMAP-01 | tdma | SHORT process image 固定 8×32B，slot 前 8B 由 core1 生成 RX 位图（旧 ID 不符合检查器单段主题格式，由 TDMA-FLIGHTBITMAP-01 接替） | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_flight_engine.h | 常量与单测比对 | 2026-08-20 | superseded |
