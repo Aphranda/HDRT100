@@ -30,6 +30,11 @@ static uint32_t s_boundary_offer_groups;
 #define BOUNDARY_ASSEMBLY_COMPLETE_PENDING 4u
 /* Snapshot tag only; public diagnostics retain schema 1. No new storage. */
 #define FEEDBACK_REFERENCE_PROOF_ARM 2u
+/* Core0 publication spacing, not a DMA delivery acknowledgement. Keep the
+ * final fragment through the ordinary separator too. Sixteen fragments span
+ * nominally 90 ms in OSAL ticks; LOCAL_FOLLOW still rejects events older
+ * than its unchanged freshness limit. No extra FIFO or per-node storage. */
+#define DISTRIBUTED_REFMEM_REFERENCE_PUBLISH_INTERVAL_MS 6u
 static uint32_t s_boundary_pending_admission, s_boundary_pending_completed_ms;
 static void distributed_refmem_boundary_service_pending(tdma_service_service_t *owner);
 static void distributed_refmem_receipt_service_pending(tdma_service_service_t *owner);

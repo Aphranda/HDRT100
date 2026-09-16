@@ -172,7 +172,12 @@ static distributed_refmem_vdc_feedback_tx_snapshot_t txread(void)
 { distributed_refmem_vdc_feedback_tx_snapshot_t out; assert(distributed_refmem_get_vdc_feedback_tx(&out)); return out; }
 static distributed_refmem_vdc_feedback_rx_snapshot_t rxread(uint32_t source)
 { distributed_refmem_vdc_feedback_rx_snapshot_t out; assert(distributed_refmem_get_vdc_feedback_rx(source,&out)); return out; }
-static void publish(void) { now_ms++; distributed_refmem_tdma_flight_sync_publish(&owner,&ring); }
+/* Existing codec/lifecycle cases explicitly advance one eligible publication.
+ * Spacing boundary tests call the production publisher without this helper. */
+static void publish(void) {
+    now_ms += reference_mode ? DISTRIBUTED_REFMEM_REFERENCE_PUBLISH_INTERVAL_MS : 1u;
+    distributed_refmem_tdma_flight_sync_publish(&owner,&ring);
+}
 static void consume(uint8_t *mailbox)
 {
     tdma_flight_tx_view_t view; assert(tdma_flight_fifo_core1_acquire_tx(&owner.flight_fifo,&view));

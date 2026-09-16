@@ -1237,6 +1237,18 @@ static void distributed_refmem_tdma_flight_sync_publish(
 
     const uint32_t now_ms = osal_tick_ms();
     uint32_t publish_interval_ms = s_tdma_flight_sync.publish_interval_ms;
+    int feedback = -2;
+    if (s_feedback_binding.rate_mode == VDC_BOUNDARY_MODE_REFERENCE) {
+        /* Binding refresh/STOP cancellation already ran in the service.
+         * Revalidate an active group's ARM before any pacing/backpressure
+         * return; do not freeze a new event until publication is due. */
+        if (s_feedback_tx_active) {
+            feedback = distributed_refmem_feedback_prepare(owner);
+            if (feedback < 0) return;
+        }
+        if (publish_interval_ms < DISTRIBUTED_REFMEM_REFERENCE_PUBLISH_INTERVAL_MS)
+            publish_interval_ms = DISTRIBUTED_REFMEM_REFERENCE_PUBLISH_INTERVAL_MS;
+    }
     const uint32_t ring_interval_ms =
         (ring->feedback_timeout_ns + 999999u) / 1000000u;
     if (ring_interval_ms > publish_interval_ms) {
@@ -1256,7 +1268,7 @@ static void distributed_refmem_tdma_flight_sync_publish(
         fifo.tx_ready_count != 0u) {
         return;
     }
-    const int feedback = distributed_refmem_feedback_prepare(owner);
+    if (feedback == -2) feedback = distributed_refmem_feedback_prepare(owner);
     if (feedback < 0) return; /* Busy snapshot: do not splice an ordinary frame. */
     s_tdma_flight_sync.last_publish_ms = now_ms;
 
