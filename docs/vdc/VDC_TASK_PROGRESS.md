@@ -32,6 +32,63 @@ Last updated: 2026-09-17
 已由真实 pre-commit 硬件门禁核验，见 `VDC-PROGRESS-20260917-001`。严格质量告警仍保留，
 不授予单圈同步编码、三从闭环或锁相完成。
 
+### VDC-PROGRESS-20260917-005：同步记录直接交接与 IRQ 热路径收敛
+
+- 代码与匹配四板 P3 凭证已提交为 `c144ad8`，`check-staged` 与真实 pre-commit
+  已核对本轮源码指纹通过；文档分离提交。
+- 对应 `VDC-FAST-001/002`。本轮先复核上一实板原件：三从 priority RX 已发布
+  2644/2644/2646 条，而 DPLL phase 的 latest-only 诊断仅复制 270/269/267 条。
+  主要缺口在消费者节拍，不能称为物理链路丢帧。STOP 后读取旧固件的分段计时，
+  确认复制、校验、发布多段都有成本；CRC 内核和环形复制原本已在 RAM。
+  以下计数、时长、资源均为本次快照，非产品事实源。
+- 新增 STOP 配置门禁注册的固定 RX sink。TDMA 在成功校验/发布后，立即在 Core1
+  IRQ 同步交给 typed 定长解码入口；不等待 DPLL phase，不执行 PI、通用解析、
+  存储或 RTOS。保留原慢速轮询作对照，独立状态避免 IRQ/前景多写者。载荷圈回绕
+  交接使用发布后 epoch；STOP、DMA 坐标退休和 epoch 耗尽撤销入口。同身份却
+  时间区间不同拒绝为冲突，普通启动载荷、typed 成功、重复、相邻不同事件分开计数。
+- IRQ glue、候选定位、验证、发布、CRC 外层、小型 codec/sink 和 watchdog 标记
+  迁至主 SRAM；保留全部 CRC 与身份检查，消除随后会被完整覆盖的工作记录清零。
+  未扩大候选 IRQ 预算，未修改 OTA 实现。新明细 `SYSTem:VDC:PRIORity:RX?`
+  只在 STOP 且入口已退休时读回；该诊断 getter 不授予实时控制消费资格。
+- Host：owner/原 ingress/codec 89 项、SCPI/发送回归 267 项、直接 sink 92 项通过；
+  后续 owner 4 项复核通过。独立方另复核 97 项。A/B/Boot Release 与 Flash link
+  检查通过。独立 A/B map/dis/ELF 核验：主 RAM 扣预留 heap 后 41828 B，较上一
+  切片减少 4128 B；scratch gap 仍 24 B。新 IRQ 最深软件栈 200 B，follower 完整
+  前景加 IRQ/异常帧 2708/3072 B，NO1 2872/3072 B。此为已审四板 persona，
+  不是全局栈或运行水位证明。VDC-PRIORITY-01 v2 保持 pending，独立 C11 已批准该范围。
+- 四板固定范围 quick P3 一轮完成，耗时约 192 s，`PASS_WITH_WARNINGS`；
+  INFO/WARN/ERROR/FATAL 为 23/20/0/0，DPLL 专项 SKIPPED。严格质量仍未通过：
+  TRN-01/SCK re-arm 裕量及 TDMA startup stable barrier 失败原件保留。复用已确认
+  线序，没有重新 P0 寻序。build `20260916183948`，1208 个源码文件，指纹
+  `2cc7f6ea4af4d49ef27d9e414bf657f2fd410754d6fd1ae3a750a7641224049a`。
+- `direct-short-r1` 三秒静默专项 PASS，零 RUN 查询，最终四板 STOP 并恢复
+  load/diagnostic/burst，禁用同步与 session，撤销临时 trial。三从直接入口收到
+  2961/2963/2963 条，与各自同 epoch 的 TDMA 成功发布数严格相等；其中 typed
+  各 2902 条、普通启动 59/61/61 条，typed 拒绝和冲突均零。相邻不同源事件各
+  749 个、重复各 2153 次；NO1 本轮生成候选 749 个，计数一致不替代完整逐事件
+  线上追踪。三从末条 typed 与 NO1 同事件 2947、carrier 2965，区间和 CRC 均对应。
+- IRQ body 的三从平均 cycles 从约 28103/28324/28117 降至
+  3787/4140/4115；最大从 50706/48485/46334 降至 4496/5187/4724。
+  按 `BOARD_SYS_CLOCK_HZ` 换算，平均约 112–113 us 降至 15–17 us，最大约
+  185–203 us 降至 18–21 us。四段 maxima 不相加，body 之外仍有 IRQ 进出与
+  finish/accounting tail；不同轮次不能作为硬 WCET 证明。仍超过
+  `PROJECT_CORE1_PRIORITY_RX_IRQ_CYCLES` 候选预算，严格相位预算与物理同圈
+  截止时间未闭合。原 poll 本轮仅复制 185/179/120 条，不再代表直接入口数量。
+- 证据根 `out/HardwareAcceptance/20260917/dpll-priority-rx-direct-r1/`：
+  `stopped-baseline.json`、`irq-cost-review.json`、`implementation-host-r1.json`、
+  `owner-host-r1.log`、`owner-final.log`、`integration-host-r1.log`、`build-r1.log`、
+  `code-review.json`、`resource-review.json`、`c11-review.json`、`hardware-review.json`、
+  `p3/acceptance.json`、`direct-short-r1/input-probe.json` 与 `actions.jsonl`。
+  `capture_direct_rx.py` 经主控审阅后用 Windows 原生 Python 串口入口执行，
+  复用已有配置/STOP/helper；未改变验收程序或当前源码指纹。
+- 独立实板结论 `PASS_SCOPED_FOUR_BOARD_DIRECT_TYPED_RX`：54 处证据/源码哈希、
+  最终 A/B ELF/map/dis、P3 分级及 211 条原始操作记录核对通过；三从原始 header
+  身份/transport CRC32 与 mailbox CRC16 均重算通过，无本切片提交阻断。
+- 下一 gate：直接入口已消除已准入记录等待 DPLL phase 的交接缺口；继续核对
+  物理帧到入口期限及 IRQ 预算；`VDC-FAST-003` 已整理按 source event
+  精确索引与本地 delay/模型残差方案。不得把原 poll 诊断当作新通道丢帧，也不得
+  把收到/解码当作从板 DCO、ACK 或锁相完成。计划见 `next-event-match-plan.json`。
+
 ### VDC-PROGRESS-20260917-004：Core1 同步发布与三从真实接收
 
 - 代码与匹配 P3 凭证已提交为 `686e2db`，暂存源码指纹已由 `check-staged` 和

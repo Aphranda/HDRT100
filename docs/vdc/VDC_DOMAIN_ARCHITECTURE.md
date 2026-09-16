@@ -547,7 +547,7 @@ ACK 缺失不阻塞 TDMA 发车或 NO1 本地 PI；该确认也不作为本地�
 
 ### VDC-PRIORITY-01：Core1 预编码同步邮箱与运行绑定
 
-本条约束特等席同步记录的格式和发送边界；登记为 pending，不授予单圈期限、
+本条约束特等席同步记录的格式、发送与接收交接边界；登记为 pending，不授予单圈期限、
 本地 DCO 采用、共同时间有效性或物理锁相。旧 `VDC-REFERENCE-01` 分片路线保留
 既有证据，新同步类不得进入普通 RefMem/VDC fragment parser。
 
@@ -580,7 +580,18 @@ READY 记录在本地槽位/header/CRC/布局复验后交给既有 origin exchan
 工位在 ACK 前不得复用，也不得覆盖同步记录。硬件 selection 退休旧 DMA bank
 后才允许下一次提交；软件 offer、双缓冲提交、实际选中和线上送达分别留证。
 
-从板独立 priority RX 在普通队列之前保全完整 header/mailbox，Core1 有界解码；
+从板独立 priority RX 在普通队列之前保全完整 header/mailbox。STOP 配置门禁注册
+固定 `tdma_priority_rx_sink_t`；Core1 捕获 IRQ 在外层校验和成功发布后同步交给
+`vdc_priority_rx_core1`，不等待 DPLL phase、Core0 或普通负载队列。承载帧完整序号回绕时
+交接使用发布后的本地 RX epoch；STOP、DMA 坐标退休和 epoch 耗尽以空记录退休
+入口。回调只借用记录指针，不操作 FIFO/PIO/DMA、不执行完整 PI 服务。其耗时
+计入 IRQ body，预算仍须实测闭合，不能以移至中断代替时限证明。
+
+直接入口解码固定 body 并复验事件低位；同一相邻 source/generation/完整 event
+身份而时间区间不同视为冲突。`vdc_priority_rx_snapshot_t` 分别报告 carrier、
+typed 成功/拒绝、相邻重复和不同事件；后两者不证明历史全局单调性。最后成功
+记录与最新回调状态分别保留，无效 body 不刷新成功记录。原 DPLL phase 中
+`vdc_priority_ingress` 的 latest-only 副本仅作对照诊断，不代表本入口接收数量。
 解码成功仅授予记录保留。控制仍须核对预安装绑定、完整事件序号、事件年龄和
 本地 delay，不能把载荷圈序号当成记录事件序号，不能把陈旧记录视作新参考。
 SCPI 仅配置/触发；TX 与 RX 明细在 STOP 后读回，不在实时路径采样。

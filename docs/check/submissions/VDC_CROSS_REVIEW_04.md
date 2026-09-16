@@ -34,6 +34,20 @@ Last updated: 2026-09-17
   的文字歧义。审核日期 2026-09-17，原件为 `c11-review.json`。
 - 证据根：`out/HardwareAcceptance/20260917/dpll-priority-tx-r1/`。
 
+## 接收交接增补（v2 pending）
+
+`VDC-PRIORITY-01` v2 增加 STOP 注册固定接收入口、发布后同步交接、承载帧完整
+序号回绕后的 epoch、退休及重复/冲突语义。IRQ 只执行定长解码和留存，不执行
+PI 或取得 PIO/DMA 所有权；原轮询诊断与新入口分离。热链迁入主 RAM 不替代
+实测预算或单圈期限证明。
+
+独立方 `p0_root_review` 完成源码、负测、A/B 资源及 C11 复核，结论
+`APPROVE_PENDING_REGISTRATION`；修正“载荷回绕”为“承载帧完整序号回绕”。
+仍不批准 active、DCO 或锁相。原件在
+`out/HardwareAcceptance/20260917/dpll-priority-rx-direct-r1/c11-review.json`，
+代码/资源/实板审核分别见同目录 `code-review.json`、`resource-review.json`、
+`hardware-review.json`。IRQ 候选预算仍未满足，P3 严格失败保留于 Task Progress。
+
 ## 核验结论
 
 ACCEPT_WITH_DEVIATION。P3、资源和 typed 实板专项的实际结果只记录在 VDC Task Progress，
