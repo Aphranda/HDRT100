@@ -84,7 +84,7 @@ def no_hardware(monkeypatch):
     monkeypatch.setattr(tool.time, "sleep", lambda *unused: None)
 
 
-@pytest.mark.parametrize("source", ["BUS", "IN1"])
+@pytest.mark.parametrize("source", ["MANUAL", "IN1"])
 @pytest.mark.parametrize("repeat", [1, 10, 100])
 def test_complete_finite_rounds_without_source_stop(tmp_path, no_hardware, source, repeat):
     bench = FakeBench(args(tmp_path, "--source", source, "--repeat", str(repeat)))
@@ -94,13 +94,13 @@ def test_complete_finite_rounds_without_source_stop(tmp_path, no_hardware, sourc
     assert report["repeat_result"]["finished"] == 1
     assert report["idle_after_quiet"]["sequence"]["completed"] == repeat * 8 - 1
     assert report["idle_after_quiet"]["io"]["inputs"] == 1
-    assert bench.commands.count("TRIG:SEQ:NEXT") == (repeat * 8 - 1 if source == "BUS" else 0)
+    assert bench.commands.count("TRIG:SEQ:NEXT") == (repeat * 8 - 1 if source == "MANUAL" else 0)
     assert bench.commands.count("TRIG:STOP") == 1  # no host stop caused finite completion
     assert bench.commands.index("CONF:SEQ:LINK OFF") < bench.commands.index("TRIG:START")
 
 
 def test_continuous_requires_explicit_stop(tmp_path, no_hardware):
-    bench = FakeBench(args(tmp_path, "--source", "BUS", "--repeat", "0"))
+    bench = FakeBench(args(tmp_path, "--source", "MANUAL", "--repeat", "0"))
     report = {}
     tool.execute(bench, object(), report)
     assert report["continuous_observation"]["completed"] == 9
@@ -119,7 +119,7 @@ def test_large_configuration_does_not_claim_execution(tmp_path, no_hardware):
 
 
 def test_idle_without_finished_receipt_is_failure(tmp_path, no_hardware):
-    bench = FakeBench(args(tmp_path, "--source", "BUS"))
+    bench = FakeBench(args(tmp_path, "--source", "MANUAL"))
     bench.forge_finished = True
     report = {}
     with pytest.raises(RuntimeError, match="finished receipt"):

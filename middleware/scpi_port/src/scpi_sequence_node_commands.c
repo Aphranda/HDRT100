@@ -99,7 +99,8 @@ scpi_result_t scpi_sequence_link_config(scpi_t *context)
     static const scpi_choice_def_t modes[] = {
         {"OFF", 0}, {"LOOPBACK", 1}, {"RJ45", 1}, SCPI_CHOICE_LIST_END};
     static const scpi_choice_def_t inputs[] = {
-        {"IN1", 1}, {"IN2", 2}, {"IN3", 3}, {"IN4", 4}, SCPI_CHOICE_LIST_END};
+        {"MANUAL", 0}, {"IN1", 1}, {"IN2", 2}, {"IN3", 3}, {"IN4", 4},
+        SCPI_CHOICE_LIST_END};
     static const scpi_choice_def_t outputs[] = {
         {"OUT1", 1}, {"OUT2", 2}, {"OUT3", 4}, {"OUT4", 8}, SCPI_CHOICE_LIST_END};
     static const scpi_choice_def_t edges[] = {{"RISing", 0}, {"FALLing", 1}, SCPI_CHOICE_LIST_END};

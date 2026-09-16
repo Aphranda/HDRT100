@@ -43,7 +43,7 @@ typedef enum {
 } trigger_sequence_status_mode_t;
 
 typedef struct {
-    uint32_t source; /* 0=BUS; 1..4=logical IN. */
+    uint32_t source; /* 0=MANUAL; 1..4=logical IN. */
     bool falling;
     uint32_t sequence_output_mask;
     uint32_t status_output_mask;
@@ -56,7 +56,7 @@ typedef struct {
 
 typedef struct {
     bool enabled;
-    uint32_t ready_input;
+    uint32_t ready_input; /* 0=MANUAL; 1..4=logical IN. */
     bool falling;
     uint32_t trigger_output_mask;
     uint32_t pulse_us;

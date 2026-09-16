@@ -376,7 +376,7 @@ trigger_sequence_service_result_t trigger_sequence_service_set_gateway_locked(
 {
     if (!configuration_available_locked()) return TRIGGER_SEQUENCE_SERVICE_FROZEN;
     if (config == NULL || (config->enabled &&
-        (config->ready_input < 1u || config->ready_input > 4u ||
+        (config->ready_input > 4u ||
          config->trigger_output_mask == 0u || config->trigger_output_mask > 15u ||
          (config->trigger_output_mask & (config->trigger_output_mask - 1u)) != 0u ||
          config->pulse_us == 0u || config->pulse_us > SYNC_IO_SEQUENCE_TIME_MAX_US ||
@@ -582,6 +582,7 @@ void trigger_sequence_service_service(void)
             .status_output_mask = s_run.io.status_output_mask,
             .status_mode = (sync_io_sequence_status_mode_t)s_run.io.status_mode,
             .settle_us = s_run.io.settle_us, .pulse_us = s_run.io.pulse_us,
+            .gateway_enabled = s_run.gateway.enabled,
             .gateway_input_channel = s_run.gateway.enabled ? s_run.gateway.ready_input : 0u,
             .gateway_output_mask = s_run.gateway.enabled ? s_run.gateway.trigger_output_mask : 0u,
             .gateway_pulse_us = s_run.gateway.enabled ? s_run.gateway.pulse_us : 0u,

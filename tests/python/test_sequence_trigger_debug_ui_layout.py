@@ -100,7 +100,7 @@ def test_configuration_does_not_validate_hidden_mode_draft(ui, mode):
     assert ui._configured_mode == mode
     if mode == MODE_RJ45:
         assert "CONF:SEQ:OUTPUT 7,0,NONE,10,0" in commands
-        assert "CONF:SEQ:LINK LOOPBACK,2,3,IN1,OUT4,10,5000,RIS" in commands
+        assert "CONF:SEQ:LINK LOOPBACK,2,3,MANUAL,OUT4,10,5000,RIS" in commands
 
 
 def test_start_requires_completed_configuration_and_draft_edits_invalidate_it(ui):
@@ -118,7 +118,7 @@ def test_tab_change_retains_device_mode_for_stop_refresh_and_step_rejection(ui):
     select(ui, ui.loopback_page)
     complete_configuration(ui, MODE_RJ45)
     select(ui, ui.independent_page)
-    ui.source.set("BUS")
+    ui.source.set("MANUAL")
     ui.command("TRIG:SEQ:NEXT")
     assert "TRIG:SEQ:NEXT" in ui._operations.get_nowait()[1][2]
     ui.command("TRIG:START")

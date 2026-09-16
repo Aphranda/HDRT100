@@ -45,7 +45,7 @@ LINK_PHASES = {0: "未启用", 1: "等待启动", 2: "等待链路通知回环",
 def build_mode_configuration(mode: str, plan: str, codes: list[int], source: str,
                              edge: str, settle_us: int, pulse_us: int,
                              sequence_mask: int, status_mask: int, status_mode: str,
-                             ready_input: str = "IN1", timeout_ms: int = 5000,
+                             ready_input: str = "MANUAL", timeout_ms: int = 5000,
                              repeat_count: int = 1) -> list[str]:
     if mode not in {MODE_INDEPENDENT, MODE_RJ45}:
         raise ValueError("请选择运行模式")
@@ -54,11 +54,11 @@ def build_mode_configuration(mode: str, plan: str, codes: list[int], source: str
     if repeat_count and len(codes) * repeat_count > 0xffffffff:
         raise ValueError("循环次数与序列长度的乘积超出固件计数范围")
     combined = mode == MODE_RJ45
-    if combined and (ready_input not in {"IN1", "IN2", "IN3", "IN4"} or
+    if combined and (ready_input not in {"MANUAL", "IN1", "IN2", "IN3", "IN4"} or
                      edge not in {"RIS", "FALL"} or not 1 <= timeout_ms <= 0x7fffffff or
                      not 0 < pulse_us <= TIME_MAX_US):
         raise ValueError("请检查 READY 输入、边沿、触发脉宽和等待超时")
-    base = build_configuration_commands(plan, codes, "BUS" if combined else source,
+    base = build_configuration_commands(plan, codes, "MANUAL" if combined else source,
         edge, settle_us, 0 if combined else pulse_us,
         7 if combined else sequence_mask, 0 if combined else status_mask,
         "NONE" if combined else status_mode)
@@ -84,14 +84,15 @@ def build_start_commands(mode: str) -> list[str]:
 
 def format_link_status(response: str, plan_count: int) -> str:
     values = [int(field) for field in next(csv.reader([response], strict=True))]
-    if len(values) != 22 or any(value < 0 or value > 0xffffffff for value in values):
+    if len(values) != 23 or any(value < 0 or value > 0xffffffff for value in values):
         raise ValueError("RJ45 网关状态字段不匹配")
     enabled, phase, error = values[:3]
     target = "持续" if values[21] == 0 else str(values[21])
     rounds = values[12] // plan_count if plan_count > 0 else 0
     return (f"RJ45 物理回环：{LINK_PHASES.get(phase, f'阶段 {phase}')} · 启用={enabled} · 错误={error} · "
             f"测量触发 {values[11]} / READY {values[12]} / 切换完成 {values[13]} · "
-            f"轮次 {rounds}/{target} · TDMA 发送 {values[8]} / 接收 {values[9]} / 拒绝 {values[10]}")
+            f"轮次 {rounds}/{target} · TDMA 发送 {values[8]} / 接收 {values[9]} / 拒绝 {values[10]} · "
+            f"交换 {values[22]}")
 
 
 def execute_command_batch(commands, exchange, emit, *, monotonic=time.monotonic, sleep=time.sleep):
@@ -114,6 +115,17 @@ def execute_command_batch(commands, exchange, emit, *, monotonic=time.monotonic,
 
     for command in commands:
         header = command.split(maxsplit=1)[0].upper()
+        if header == "TRIG:SEQ:NEXT":
+            fields = [int(field) for field in next(
+                csv.reader([query("READ:SEQ:LINK?")], strict=True))]
+            if len(fields) != 23:
+                raise RuntimeError("RJ45 状态字段不匹配，未发送 NEXT")
+            enabled, phase, error, ready_input = fields[0], fields[1], fields[2], fields[16]
+            if enabled and ready_input != 0:
+                raise RuntimeError("RJ45 READY 来源不是 MANUAL，未发送 NEXT")
+            if enabled and (phase != 3 or error != 0):
+                raise RuntimeError(
+                    f"RJ45 尚不能接受 NEXT：phase={phase}, error={error}")
         response = exchange(command)
         emit(command, response)
         if response == "<timeout>" and header not in RING_ACK_ONLY:
@@ -273,7 +285,7 @@ class SequenceUi(tk.Tk):
         self.port = tk.StringVar()
         self.backend = tk.StringVar(value="Serial")
         self.run_mode = tk.StringVar(value=MODE_INDEPENDENT)
-        self.ready_input = tk.StringVar(value="IN1")
+        self.ready_input = tk.StringVar(value="MANUAL")
         self.ready_timeout = tk.StringVar(value="5000")
         self.repeat_count = tk.StringVar(value="1")
         self.link_status = tk.StringVar(value="独立模式：输入脉冲 → 编码切换 → 状态反馈")
@@ -498,8 +510,11 @@ class SequenceUi(tk.Tk):
         if combined:
             self.gateway_group = ttk.LabelFrame(page, text="VNA 网关", padding=10)
             self.gateway_group.pack(fill="x", pady=(0, 8))
-            self._field(self.gateway_group, 0, "READY 输入", self.gateway_ready_input,
-                        values=["IN1", "IN2", "IN3", "IN4"], width=9)
+            self.gateway_ready_box = self._field(
+                self.gateway_group, 0, "READY 输入", self.gateway_ready_input,
+                values=["MANUAL", "IN1", "IN2", "IN3", "IN4"], width=9)
+            self.gateway_ready_box.bind(
+                "<<ComboboxSelected>>", lambda _event: self.update_mode_hint())
             self._field(self.gateway_group, 1, "READY 边沿", self.gateway_edge, values=["RIS", "FALL"], width=9)
             self._field(self.gateway_group, 2, "触发脉宽 µs", self.gateway_pulse, width=12)
             self._field(self.gateway_group, 3, "READY 超时 ms", self.gateway_timeout, width=12)
@@ -512,7 +527,7 @@ class SequenceUi(tk.Tk):
             self.independent_input_group = ttk.LabelFrame(groups, text="推进事件", padding=10)
             self.independent_input_group.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
             self.source_box = self._field(self.independent_input_group, 0, "输入", self.source,
-                values=["BUS", "IN1", "IN2", "IN3", "IN4"], width=8)
+                values=["MANUAL", "IN1", "IN2", "IN3", "IN4"], width=8)
             self.source_box.bind("<<ComboboxSelected>>", lambda _event: self.update_mode_hint())
             self._field(self.independent_input_group, 1, "边沿", self.edge, values=["RIS", "FALL"], width=7)
             self.independent_output_group = ttk.LabelFrame(groups, text="输出分配与状态反馈", padding=10)
@@ -868,14 +883,17 @@ class SequenceUi(tk.Tk):
 
     def update_mode_hint(self) -> None:
         combined = self.run_mode.get() == MODE_RJ45
-        can_step = combined or self.source.get() == "BUS"
+        can_step = (combined and self.gateway_ready_input.get() == "MANUAL") or (
+            not combined and self.source.get() == "MANUAL")
         if self.next_button is not None:
             self.next_button.state(["!disabled"] if can_step else ["disabled"])
         if combined:
-            self.mode_hint.set("RJ45 物理回环：启动首编码 → TDMA → OUT4 触发 → SCPI NEXT → TDMA → 下一编码；有限次数完成后停止。")
+            ready = ("SCPI NEXT" if self.gateway_ready_input.get() == "MANUAL" else
+                     f"{self.gateway_ready_input.get()} READY")
+            self.mode_hint.set(f"RJ45 物理回环：启动首编码 → TDMA → OUT4 触发 → {ready} → TDMA → 下一编码；有限次数完成后停止。")
             return
-        if self.source.get() == "BUS":
-            self.mode_hint.set("BUS 软件触发模式：使用“下一步”推进")
+        if self.source.get() == "MANUAL":
+            self.mode_hint.set("MANUAL 软件触发模式：使用“下一步”推进")
         else:
             self.mode_hint.set(f"启动先输出首项编码；随后 {self.source.get()} 每个 {self.edge.get()} 沿推进一步。")
 
@@ -1163,15 +1181,16 @@ class SequenceUi(tk.Tk):
 
     def command(self, command: str) -> None:
         combined = self.run_mode.get() == MODE_RJ45
-        if command == "TRIG:SEQ:NEXT" and (
-                not combined and self.source.get() != "BUS" and self._device_mode != MODE_RJ45):
-            self.log("当前独立模式由外部输入推进，SCPI NEXT 已禁用。")
+        device_combined = self._device_mode == MODE_RJ45
+        if command == "TRIG:SEQ:NEXT" and (((combined or device_combined) and
+                self.gateway_ready_input.get() != "MANUAL") or
+                (not combined and not device_combined and self.source.get() != "MANUAL")):
+            self.log("当前模式由外部输入推进，SCPI NEXT 已禁用。")
             return
         if command == "TRIG:START" and (self._configured_mode != self.run_mode.get() or
                                         self._configured_resource != self._resource_key()):
             self.log("请先点击“配置此模式”，确认当前参数和通信资源配置成功后再启动。", "WARN")
             return
-        device_combined = self._device_mode == MODE_RJ45
         commands = build_start_commands(self.run_mode.get()) if command == "TRIG:START" else [command]
         if command == "TRIG:STOP" and (device_combined or self._device_mode is None):
             commands.append("SYST:TDMA:RING:STOP")
@@ -1190,7 +1209,7 @@ class SequenceUi(tk.Tk):
             combined = mode == MODE_RJ45
             if combined:
                 plan, codes_text = self.gateway_plan.get(), self.gateway_codes.get()
-                source, edge = "BUS", self.gateway_edge.get()
+                source, edge = "MANUAL", self.gateway_edge.get()
                 settle, pulse = int(self.gateway_settle.get()), int(self.gateway_pulse.get())
                 repeat = int(self.gateway_repeat_count.get())
                 ready, timeout = self.gateway_ready_input.get(), int(self.gateway_timeout.get())

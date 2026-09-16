@@ -266,12 +266,25 @@ static void workflow(void)
 static void software_next(void)
 {
     assert(trigger_sequence_link_next() == TRIGGER_SEQUENCE_SERVICE_NOT_READY);
-    start();
+    trigger_sequence_link_config_t manual = config;
+    manual.ready_input = 0u;
+    assert(trigger_sequence_link_configure(&manual));
+    ring.enabled = ring.adapter_started = ring.data_enabled = ring.up_running = 1u;
+    ring.local_slot_id = 0u;
+    owner.state = TRIGGER_SEQUENCE_SERVICE_READY;
+    owner.run_id = 11u; owner.generation = 19u; owner.count = 8u;
+    owner.accepted = owner.completed = 0u;
+    trigger_sequence_link_service();
     fragments_t link, ready;
     outgoing(link);
     assert(trigger_sequence_link_next() == TRIGGER_SEQUENCE_SERVICE_NOT_READY);
     receive(link);
     assert(fire_count == 1u && owner.gateway_waiting);
+    tick = manual.timeout_ms + 1u;
+    trigger_sequence_link_service();
+    trigger_sequence_link_status_t status;
+    trigger_sequence_link_get_status(&status);
+    assert(status.phase == 3u && status.error == 0u && stop_count == 0u);
     assert(trigger_sequence_link_next() == TRIGGER_SEQUENCE_SERVICE_OK);
     assert(ready_count == 1u && owner.gateway_ready_count == 1u);
     assert(trigger_sequence_link_next() == TRIGGER_SEQUENCE_SERVICE_NOT_READY);
@@ -281,6 +294,16 @@ static void software_next(void)
     assert(decode(ready).kind == TRIGGER_SEQUENCE_LINK_READY_NEXT);
     receive(ready);
     assert(step_count == 1u);
+}
+static void external_next_rejected(void)
+{
+    start();
+    fragments_t link;
+    outgoing(link);
+    receive(link);
+    assert(fire_count == 1u && owner.gateway_waiting);
+    assert(trigger_sequence_link_next() == TRIGGER_SEQUENCE_SERVICE_NOT_READY);
+    assert(ready_count == 0u && owner.gateway_ready_count == 0u);
 }
 static void stale_messages(void)
 {
@@ -458,6 +481,7 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[1], "start_view")) start_published_view();
     else if (!strcmp(argv[1], "start_publication")) start_configuration_publication();
     else if (!strcmp(argv[1], "software_next")) software_next();
+    else if (!strcmp(argv[1], "external_next")) external_next_rejected();
     else assert(0);
     puts("sequence link orchestrator passed"); return 0;
 }

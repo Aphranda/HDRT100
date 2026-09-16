@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Reproducible single-board SP8T/IN1 and OUT4->IN2 bench checks.
 
-The BUS phase stretches OUT4 pulses for pad readback and covers all SP8T codes.
+The MANUAL phase stretches OUT4 pulses for pad readback and covers all SP8T codes.
 The continuous phase observes an independent generator, then pauses to reconcile
 counters. It does not invent a sent-pulse count or certify VNA role execution,
 pulse timing, RF switching, or lossless input capture. Every run saves raw SCPI.
@@ -134,8 +134,8 @@ def check_stop(stopped: dict, before: dict | None) -> None:
             require(stopped[key] == before[key], f"STOP changed {key} after settled phase")
 
 
-def bus_loopback(bench: Bench, phase: dict) -> None:
-    bench.args.source = "BUS"
+def manual_loopback(bench: Bench, phase: dict) -> None:
+    bench.args.source = "MANUAL"
     bench.args.settle_us = 10
     bench.args.pulse_us = bench.args.loopback_pulse_us
     bench.configure()
@@ -172,7 +172,7 @@ def bus_loopback(bench: Bench, phase: dict) -> None:
 
 def dut_only(bench: Bench, phase: dict) -> None:
     """Check NONE on real pads; no claim about unsampled transient pulses."""
-    bench.args.source = "BUS"
+    bench.args.source = "MANUAL"
     bench.args.settle_us = 10
     bench.args.pulse_us = bench.args.loopback_pulse_us
     bench.configure()
@@ -336,9 +336,9 @@ def role_config(bench: Bench, phase: dict) -> None:
 
 
 def run_phases(bench: Bench, report: dict) -> None:
-    phases = {"bus-loopback": bus_loopback, "continuous": continuous, "dut-only": dut_only,
+    phases = {"manual-loopback": manual_loopback, "continuous": continuous, "dut-only": dut_only,
               "role-config": role_config, "standalone-sp8t": standalone_sp8t}
-    selected = {key: phases[key] for key in ("bus-loopback", "continuous")} \
+    selected = {key: phases[key] for key in ("manual-loopback", "continuous")} \
         if bench.args.mode == "all" else {bench.args.mode: phases[bench.args.mode]}
     for name, execute in selected.items():
         phase = {"passed": False, "failure": None, "cleanup_failure": None}
@@ -380,8 +380,8 @@ def run_phases(bench: Bench, report: dict) -> None:
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mode", choices=("discover", "bus-loopback", "continuous", "dut-only", "role-config", "standalone-sp8t", "all"),
-                        default="all", help="all checks legacy bus-loopback and continuous; dut-only requires NONE firmware")
+    parser.add_argument("--mode", choices=("discover", "manual-loopback", "continuous", "dut-only", "role-config", "standalone-sp8t", "all"),
+                        default="all", help="all checks MANUAL loopback and continuous; dut-only requires NONE firmware")
     transport = parser.add_mutually_exclusive_group()
     transport.add_argument("--port")
     transport.add_argument("--visa-resource")

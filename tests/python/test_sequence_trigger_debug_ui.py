@@ -23,7 +23,7 @@ from tools.sequence_trigger_debug_ui.sequence_trigger_debug_ui import (
 
 
 def test_output_codes_are_mapped_to_positional_state_ids():
-    commands = build_configuration_commands("PLAN", [1, 2, 4], "BUS", "RIS", 10, 5)
+    commands = build_configuration_commands("PLAN", [1, 2, 4], "MANUAL", "RIS", 10, 5)
 
     assert "CONF:TRIG 3,0,1,1" in commands
     assert "CONF:SEQ PLAN,0,1,2" in commands
@@ -37,24 +37,24 @@ def test_output_codes_are_mapped_to_positional_state_ids():
 @pytest.mark.parametrize("codes", [[], [-1], [8]])
 def test_output_codes_reject_empty_or_unrepresentable_values(codes):
     with pytest.raises(ValueError):
-        build_configuration_commands("PLAN", codes, "BUS", "RIS", 10, 5)
+        build_configuration_commands("PLAN", codes, "MANUAL", "RIS", 10, 5)
 
 
 def test_output_roles_build_level_mode_and_validate_physical_exclusion():
     commands = build_configuration_commands(
-        "PLAN", [0, 1, 2, 3], "BUS", "RIS", 10, 99,
+        "PLAN", [0, 1, 2, 3], "MANUAL", "RIS", 10, 99,
         sequence_output_mask=3, status_output_mask=12, status_mode="电平")
 
     assert "CONF:SEQ:OUTPUT 3,12,LEVEL,10,0" in commands
 
     with pytest.raises(ValueError, match="互不重叠"):
         build_configuration_commands(
-            "PLAN", [0, 1], "BUS", "RIS", 10, 5,
+            "PLAN", [0, 1], "MANUAL", "RIS", 10, 5,
             sequence_output_mask=3, status_output_mask=2)
 
     with pytest.raises(ValueError, match="掩码"):
         build_configuration_commands(
-            "PLAN", [4], "BUS", "RIS", 10, 5,
+            "PLAN", [4], "MANUAL", "RIS", 10, 5,
             sequence_output_mask=3, status_output_mask=12)
 
 
@@ -74,7 +74,7 @@ def test_dut_only_commands_do_not_claim_status_output(mode):
 def test_dut_only_rejects_contradictory_status_mask(mask):
     with pytest.raises(ValueError, match="状态掩码必须为 0"):
         build_configuration_commands(
-            "SP8T", [0], "BUS", "RIS", 10, 0,
+            "SP8T", [0], "MANUAL", "RIS", 10, 0,
             status_output_mask=mask, status_mode="NONE")
 
 
@@ -82,7 +82,7 @@ def test_dut_only_rejects_contradictory_status_mask(mask):
 def test_legacy_status_modes_require_output_assignment(mode):
     with pytest.raises(ValueError, match="至少一个状态输出"):
         build_configuration_commands(
-            "SP8T", [0], "BUS", "RIS", 10, 5,
+            "SP8T", [0], "MANUAL", "RIS", 10, 5,
             status_output_mask=0, status_mode=mode)
 
 
@@ -90,7 +90,7 @@ def test_legacy_status_modes_require_output_assignment(mode):
 def test_dut_only_rejects_invalid_sequence_mask(mask):
     with pytest.raises(ValueError, match="OUT1–OUT4"):
         build_configuration_commands(
-            "SP8T", [0], "BUS", "RIS", 10, 0,
+            "SP8T", [0], "MANUAL", "RIS", 10, 0,
             sequence_output_mask=mask, status_output_mask=0, status_mode="NONE")
 
 
@@ -228,7 +228,7 @@ def test_two_modes_preserve_explicit_repeat_and_do_not_start_during_configuratio
         assert not any(command.endswith(":START") for command in commands)
     assert "CONF:SEQ:SOUR IN3,FALL" in independent
     assert "CONF:SEQ:OUTPUT 7,8,PULSE,10,20" in independent
-    assert "CONF:SEQ:SOUR BUS,FALL" in combined
+    assert "CONF:SEQ:SOUR MANUAL,FALL" in combined
     assert "CONF:SEQ:OUTPUT 7,0,NONE,10,0" in combined
     dut = combined.index("CONF:SEQ:NODE:ROLE 2,5,DUT")
     vna = combined.index("CONF:SEQ:NODE:ROLE 3,7,VNA")
@@ -266,9 +266,9 @@ def test_maximum_eight_state_repeat_count_is_accepted():
 
 
 def test_link_display_counts_all_measurements_including_first_and_done():
-    row = [1, 8, 0, 1, 2, 3, 4, 7, 48, 16, 0, 8, 8, 7, 2, 3, 1, 8, 10, 5000, 0, 1]
+    row = [1, 8, 0, 1, 2, 3, 4, 7, 48, 16, 0, 8, 8, 7, 2, 3, 0, 8, 10, 5000, 0, 1, 99]
     text = format_link_status(",".join(map(str, row)), 8)
-    assert "已完成" in text and "轮次 1/1" in text and "切换完成 7" in text
+    assert "已完成" in text and "轮次 1/1" in text and "切换完成 7" in text and "交换 99" in text
     with pytest.raises(ValueError):
         format_link_status("1,8,0", 8)
 
@@ -326,6 +326,22 @@ def test_executor_ring_ack_only_requires_verified_state_and_never_exempts_trigge
     assert "TRIG:SEQ:NEXT" not in calls
 
 
+@pytest.mark.parametrize("link_row,message", [
+    ([1, 3, 0, *([0] * 13), 1, *([0] * 6)], "不是 MANUAL"),
+    ([1, 7, 2, *([0] * 20)], "尚不能接受 NEXT"),
+])
+def test_executor_preflights_link_before_next(link_row, message):
+    calls = []
+    def exchange(command):
+        calls.append(command)
+        if command == "READ:SEQ:LINK?":
+            return ",".join(map(str, link_row))
+        return "1"
+    with pytest.raises(RuntimeError, match=message):
+        execute_command_batch(["TRIG:SEQ:NEXT"], exchange, lambda *_: None)
+    assert calls == ["READ:SEQ:LINK?"]
+
+
 def test_visa_sequence_setter_reads_its_numeric_response(monkeypatch):
     import queue
     import sys
@@ -333,7 +349,11 @@ def test_visa_sequence_setter_reads_its_numeric_response(monkeypatch):
     class Instrument:
         def query(self, command):
             calls.append(("query", command))
-            return '0,"No error"' if command == "SYST:ERR?" else "1"
+            if command == "SYST:ERR?":
+                return '0,"No error"'
+            if command == "READ:SEQ:LINK?":
+                return "0," + ",".join("0" for _ in range(22))
+            return "1"
         def write(self, command):
             calls.append(("write", command))
         def close(self):
@@ -343,13 +363,15 @@ def test_visa_sequence_setter_reads_its_numeric_response(monkeypatch):
     monkeypatch.setitem(sys.modules, "pyvisa", SimpleNamespace(ResourceManager=lambda: manager))
     ui = SimpleNamespace(_ui_events=queue.Queue())
     assert SequenceUi.run_commands(ui, "USB TMC", "USB::test", ["TRIG:SEQ:NEXT"])
-    assert calls == [("query", "TRIG:SEQ:NEXT"), ("query", "SYST:ERR?")]
+    assert calls == [("query", "READ:SEQ:LINK?"), ("query", "TRIG:SEQ:NEXT"),
+                     ("query", "SYST:ERR?")]
 
 
 def test_combined_next_sends_unified_command():
     sent = []
     ui = SimpleNamespace(run_mode=SimpleNamespace(get=lambda: MODE_RJ45),
-        source=SimpleNamespace(get=lambda: "BUS"), _device_mode=MODE_RJ45,
+        source=SimpleNamespace(get=lambda: "MANUAL"),
+        gateway_ready_input=SimpleNamespace(get=lambda: "MANUAL"), _device_mode=MODE_RJ45,
         log=lambda *args: None, enqueue_commands=sent.append)
     SequenceUi.command(ui, "TRIG:SEQ:NEXT")
     assert sent and sent[0][0] == "TRIG:SEQ:NEXT"

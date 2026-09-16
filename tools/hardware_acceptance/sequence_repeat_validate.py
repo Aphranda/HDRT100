@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate independent SP8T finite rounds using BUS or a continuing IN1 source.
+"""Validate independent SP8T finite rounds using MANUAL or a continuing IN1 source.
 
 Each round contains eight states including START's first state: N rounds admit
 exactly 8*N-1 advances. OUT1..3 carry the code and OUT4 carries status pulses.
@@ -128,8 +128,8 @@ def execute(bench, port, report):
         if previous is None:
             report["first_observation"] = row
             report["first_state_observed"] = row["accepted"] == 0 and row["current_index"] == 0
-            if args.source == "BUS":
-                require(report["first_state_observed"], "BUS START did not expose the first state")
+            if args.source == "MANUAL":
+                require(report["first_state_observed"], "MANUAL START did not expose the first state")
         previous = row
         if args.repeat and row["state"] == "IDLE":
             result = parse_repeat(bench.command("READ:SEQ:REP?"))
@@ -149,9 +149,9 @@ def execute(bench, port, report):
             verify_quiet(bench, report)
             report["functional_execution_verified"] = True
             break
-        if args.source == "BUS" and row["state"] == "READY":
+        if args.source == "MANUAL" and row["state"] == "READY":
             require(row["accepted"] == row["completed"] == sent,
-                    "BUS step advanced without a NEXT command")
+                    "MANUAL step advanced without a NEXT command")
             if target is None or sent < target:
                 bench.write("TRIG:SEQ:NEXT")
                 sent += 1
@@ -183,7 +183,7 @@ def parse_args(argv=None):
     parser.add_argument("--serial-number", required=True)
     parser.add_argument("--build", required=True)
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--source", choices=("IN1", "BUS"), default="IN1")
+    parser.add_argument("--source", choices=("IN1", "MANUAL"), default="IN1")
     parser.add_argument("--repeat", type=int, default=1, help="complete rounds; 0 explicitly continuous")
     parser.add_argument("--configure-only", action="store_true", help="verify configuration without START")
     parser.add_argument("--duration", type=float, default=30)

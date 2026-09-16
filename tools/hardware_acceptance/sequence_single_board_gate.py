@@ -32,9 +32,11 @@ FINITE_REPEAT = 10
 MINIMUM_EVENTS = 9
 
 PRODUCTION_ALLOWLIST = frozenset({
+    "components/distributed_refmem/inc/refmem_sequence_roles.h",
     "components/distributed_refmem/src/distributed_refmem.c",
     "components/sync_io/inc/sync_io_sequence.h",
     "components/sync_io/src/sync_io_sequence.c",
+    "components/sync_io/src/sync_io_sequence.pio",
     "components/sync_trigger/inc/trigger_sequence_link.h",
     "components/sync_trigger/inc/trigger_sequence_link_protocol.h",
     "components/sync_trigger/inc/trigger_sequence_service.h",
@@ -53,6 +55,7 @@ SUPPORT_ALLOWLIST = frozenset({
     ".githooks/pre-commit",
     "tests/python/test_p3_hardware_acceptance.py",
     "tests/python/test_refmem_sequence_role_scpi.py",
+    "tests/python/test_sequence_feedback_validate.py",
     "tests/python/test_sequence_repeat_validate.py",
     "tests/python/test_sequence_scpi_runtime.py",
     "tests/python/test_sequence_single_board_gate.py",
@@ -63,9 +66,11 @@ SUPPORT_ALLOWLIST = frozenset({
     "tests/python/test_sync_io_sequence.py",
     "tests/python/test_trigger_sequence_link.py",
     "tests/unit/test_refmem_sequence_role_scpi.c",
+    "tests/unit/test_refmem_sequence_roles.c",
     "tests/unit/test_sequence_scpi_config.c",
     "tests/unit/test_sequence_scpi_runtime.c",
     "tests/unit/test_sync_io_sequence_resources.c",
+    "tests/unit/test_sync_io_sequence.c",
     "tests/unit/test_tdma_local_return.c",
     "tests/unit/test_trigger_sequence_link.c",
     "tests/unit/test_trigger_sequence_link_protocol.c",

@@ -81,7 +81,7 @@ static void valid_bindings(void)
     assert(b.dut_instance_id == 5u && b.vna_instance_id == 7u);
     assert(b.dut_trigger_input_mask == 1u && b.dut_link_output_mask == 7u);
     assert(b.vna_trigger_output_mask == 8u && b.vna_ready_input_mask == 2u);
-    /* BUS accepts no external DUT input and needs no capture capability. */
+    /* MANUAL accepts no external DUT input and needs no capture capability. */
     f.request.dut_trigger_input_mask = 0u;
     f.claims.slot[f.request.dut_slot].capability_mask &= ~REFMEM_APP_CAP_SMA_IN;
     f.claims.slot[f.request.dut_slot].io_constraint_mask &= ~REFMEM_APP_IO_SMA_IN;

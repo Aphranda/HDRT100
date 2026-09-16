@@ -105,7 +105,7 @@ static bool configure(const trigger_sequence_link_config_t *config)
         .pulse_us = config->pulse_us
     };
     /* Validate before changing the transport's stopped configuration. */
-    if (config->enabled && (config->ready_input < 1u || config->ready_input > 4u ||
+    if (config->enabled && (config->ready_input > 4u ||
         config->trigger_output_mask == 0u || config->trigger_output_mask > 15u ||
         (config->trigger_output_mask & (config->trigger_output_mask - 1u)) != 0u ||
         config->pulse_us == 0u || config->pulse_us > UINT32_MAX / 10u)) return false;
@@ -194,7 +194,11 @@ static void service(void)
         s_link.phase = LINK_WAIT_APPLIED;
         publish_message(TRIGGER_SEQUENCE_LINK_LINK_APPLIED);
     }
-    if ((uint32_t)(osal_tick_ms() - s_phase_at) > s_link.config.timeout_ms) fail(LINK_TIMEOUT);
+    const bool manual_ready_wait =
+        s_link.phase == LINK_WAIT_READY && s_link.config.ready_input == 0u;
+    if (!manual_ready_wait &&
+        (uint32_t)(osal_tick_ms() - s_phase_at) > s_link.config.timeout_ms)
+        fail(LINK_TIMEOUT);
 }
 
 static bool tx_fragment(uint8_t fragment[TRIGGER_SEQUENCE_LINK_FRAGMENT_SIZE])
@@ -279,7 +283,8 @@ trigger_sequence_service_result_t trigger_sequence_link_next(void)
 {
     if (!take()) return TRIGGER_SEQUENCE_SERVICE_BUSY;
     trigger_sequence_service_result_t result = TRIGGER_SEQUENCE_SERVICE_NOT_READY;
-    if (s_link.config.enabled && s_link.phase == LINK_WAIT_READY && s_link.error == LINK_OK)
+    if (s_link.config.enabled && s_link.config.ready_input == 0u &&
+        s_link.phase == LINK_WAIT_READY && s_link.error == LINK_OK)
         result = trigger_sequence_service_gateway_ready(
             s_link.run_id, s_link.generation, s_link.step);
     release();

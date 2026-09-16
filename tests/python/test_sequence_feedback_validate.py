@@ -153,19 +153,19 @@ def test_wrong_identity_does_not_send_writes(tmp_path, monkeypatch):
 
 def test_phase_failure_always_stops_and_preserves_both_errors(monkeypatch):
     class Bench:
-        args = Namespace(mode="bus-loopback")
+        args = Namespace(mode="manual-loopback")
         stopped = False
         def stop(self):
             self.stopped = True
             raise RuntimeError("stop lost connection")
     def fail(*args):
         raise RuntimeError("loopback disconnected")
-    monkeypatch.setattr(target, "bus_loopback", fail)
+    monkeypatch.setattr(target, "manual_loopback", fail)
     bench = Bench()
     report = {"phases": {}}
     with pytest.raises(AcceptanceError):
         target.run_phases(bench, report)
-    phase = report["phases"]["bus-loopback"]
+    phase = report["phases"]["manual-loopback"]
     assert bench.stopped and not phase["passed"]
     assert phase["failure"] == "loopback disconnected"
     assert phase["cleanup_failure"] == "stop lost connection"

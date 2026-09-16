@@ -13,7 +13,8 @@ static void reset(void)
 int main(void)
 {
     sync_io_sequence_config_t config = {
-        1u, false, 7u, 8u, SYNC_IO_SEQUENCE_STATUS_PULSE, 20u, 10u, 0u, 0u, 0u, false, false, 0u};
+        1u, false, 7u, 8u, SYNC_IO_SEQUENCE_STATUS_PULSE, 20u, 10u,
+        false, 0u, 0u, 0u, false, false, 0u};
     assert(config_valid(&config));
     for (uint input = 0u; input <= 4u; ++input) {
         config.input_channel = input;
@@ -60,6 +61,7 @@ int main(void)
     assert(config_valid(&config));
     config = (sync_io_sequence_config_t){
         .sequence_output_mask = 7u, .status_mode = SYNC_IO_SEQUENCE_STATUS_NONE,
+        .gateway_enabled = true,
         .gateway_input_channel = 1u, .gateway_output_mask = 8u, .gateway_pulse_us = 10u};
     for (uint channel = 1u; channel <= 4u; ++channel) {
         config.gateway_input_channel = channel;
@@ -84,8 +86,14 @@ int main(void)
     assert(!config_valid(&config));
     config.gateway_pulse_us = SYNC_IO_SEQUENCE_TIME_MAX_US + 1u;
     assert(!config_valid(&config));
+    config.gateway_pulse_us = 10u;
     config.gateway_input_channel = 0u;
+    assert(config_valid(&config));
+    config.gateway_enabled = false;
     assert(!config_valid(&config));
+    config.gateway_output_mask = config.gateway_pulse_us = 0u;
+    config.gateway_falling = false;
+    assert(config_valid(&config));
     assert(logical_index_for_transfer(0u, 3u) == 1u);
     assert(logical_index_for_transfer(1u, 3u) == 2u);
     assert(logical_index_for_transfer(2u, 3u) == 0u);

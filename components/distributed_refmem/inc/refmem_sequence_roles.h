@@ -38,7 +38,7 @@ typedef struct {
     uint32_t claim_epoch; /* Independent of active/sequence configuration generation. */
     uint32_t dut_slot;
     uint32_t vna_slot; /* SLOT_NONE means DUT-only; no automatic allocation. */
-    uint32_t dut_trigger_input_mask; /* Zero permits BUS software stepping. */
+    uint32_t dut_trigger_input_mask; /* Zero permits MANUAL software stepping. */
     uint32_t dut_link_output_mask;
     uint32_t vna_trigger_output_mask;
     uint32_t vna_ready_input_mask;

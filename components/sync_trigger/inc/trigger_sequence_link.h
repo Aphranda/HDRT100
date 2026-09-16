@@ -8,7 +8,8 @@
 typedef struct {
     bool enabled;
     uint32_t dut_slot, vna_slot;
-    uint32_t ready_input, trigger_output_mask, pulse_us, timeout_ms;
+    uint32_t ready_input; /* 0=MANUAL; 1..4=logical IN. */
+    uint32_t trigger_output_mask, pulse_us, timeout_ms;
     bool falling;
 } trigger_sequence_link_config_t;
 typedef struct {

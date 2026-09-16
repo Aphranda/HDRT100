@@ -266,7 +266,8 @@ def test_gui_rejects_cli_settings_not_represented_by_builders(tmp_path, option, 
 
 def gui_bench(tmp_path, fail_command=None, fail_response="0"):
     from tools.sequence_trigger_debug_ui import sequence_trigger_debug_ui as gui
-    args = target.parse_args(cli(tmp_path, "--gui-control", "--repeat", "2"))
+    args = target.parse_args(cli(
+        tmp_path, "--gui-control", "--scpi-next", "--repeat", "2"))
     report = {"transcript": []}
     commands = []
 
@@ -282,7 +283,7 @@ def gui_bench(tmp_path, fail_command=None, fail_response="0"):
         if command == "TRIG:SEQ:NEXT?":
             return '"IDLE"'
         if command == "READ:SEQ:LINK?":
-            return wire(snapshot(phase=1, repeat=2))
+            return wire(snapshot(phase=1, repeat=2, input=0))
         if command == "SYST:TDMA:FLIGHT:MODE?":
             return "2"
         if command == "READ:SEQ? SP8T":
@@ -291,7 +292,7 @@ def gui_bench(tmp_path, fail_command=None, fail_response="0"):
             code = command.split()[1]
             return f"{code},{code}"
         if command == "READ:SEQ:SOUR?":
-            return '"BUS","RISING"'
+            return '"MANUAL","RISING"'
         if command == "READ:SEQ:OUTPUT?":
             return '7,0,"NONE",10,0,1'
         if command == "READ:SEQ:NODE:ROLE? 5":
@@ -313,7 +314,7 @@ def test_gui_configure_runs_real_builders_executor_and_readbacks(tmp_path, monke
     monkeypatch.setattr(target, "prepare_ring", lambda *a, **k: pytest.fail("non-GUI ring setup"))
     target.configure(bench, object(), report)
     expected = gui.build_mode_configuration(gui.MODE_RJ45, "SP8T", list(range(8)),
-        "BUS", "RIS", 10, 1000, 7, 0, "NONE", "IN1", 5000, 2)
+        "MANUAL", "RIS", 10, 1000, 7, 0, "NONE", "MANUAL", 5000, 2)
     record = report["gui_control"]["configure"]
     assert record["commands"] == expected and record["completed"]
     assert record["exchanges"] and len(report["gui_control"]["module_sha256"]) == 64

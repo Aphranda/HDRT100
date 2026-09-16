@@ -12,7 +12,7 @@ NO_INDEX = str(0xFFFFFFFF)
 SETUP = [
     "CONF:SEQ:REP 0", "CONF:TRIG 3,0,1,1", "CONF:SEQ A,2,0,1", "CONF:SEQ:ACT A",
     "CONF:SEQ:IO 7,OUT4,10,5", "CONF:SEQ:CODE 0,1",
-    "CONF:SEQ:CODE 1,2", "CONF:SEQ:CODE 2,4", "CONF:SEQ:SOUR BUS,RISING",
+    "CONF:SEQ:CODE 1,2", "CONF:SEQ:CODE 2,4", "CONF:SEQ:SOUR MANUAL,RISING",
 ]
 
 
@@ -76,7 +76,7 @@ def test_configuration_start_and_ordered_bus_cycle(parser):
         "READ:TRIG:STATE?", "TRIG:STOP", "@service", "READ:IO:STATE?",
     ])
     assert all(row["errors"] == 0 for row in rows), rows
-    assert rows[0]["fields"] == ["BUS", "RISING"]
+    assert rows[0]["fields"] == ["MANUAL", "RISING"]
     assert rows[1]["fields"] == ["7", "4", "10", "5", "1", "1"]
     assert rows[2]["fields"] == ["7", "8", "PULSE", "10", "5", "1", "1"]
     assert rows[3]["fields"] == ["2", "4"]
@@ -220,7 +220,8 @@ def test_busy_pause_stop_and_restart(parser):
 
 
 @pytest.mark.parametrize("bad", [
-    "CONF:SEQ:SOUR", "CONF:SEQ:SOUR IN0,RISING", "CONF:SEQ:SOUR IN5,RISING",
+    "CONF:SEQ:SOUR", "CONF:SEQ:SOUR BUS,RISING", "CONF:SEQ:SOUR IN0,RISING",
+    "CONF:SEQ:SOUR IN5,RISING",
     "CONF:SEQ:SOUR IN1,BOTH", "CONF:SEQ:SOUR IN1,RISING,", "CONF:SEQ:SOUR IN1,RISING,1",
     "CONF:SEQ:IO 7,OUT4,10", "CONF:SEQ:IO 7,OUT4,10,5,", "CONF:SEQ:IO 7,OUT4,10,5,0",
     "CONF:SEQ:IO 8,OUT4,10,5", "CONF:SEQ:IO 0,OUT4,10,5", "CONF:SEQ:IO 16,OUT4,10,5",

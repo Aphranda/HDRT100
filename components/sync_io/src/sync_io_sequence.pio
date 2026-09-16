@@ -87,7 +87,7 @@ public counted:
     push noblock
 .wrap
 
-; Replaces ingress in combined BUS/NONE mode. SET maps only the gateway pin;
+; Replaces ingress in combined MANUAL/NONE mode. SET maps only the gateway pin;
 ; the independent executor is idle for the complete pulse. At 10 MHz the
 ; high interval is countdown + 2 ticks. READY counter runs concurrently.
 .program sequence_gateway

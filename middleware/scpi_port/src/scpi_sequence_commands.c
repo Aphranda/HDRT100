@@ -7,7 +7,7 @@
 #include "trigger_sequence_service.h"
 
 static const scpi_choice_def_t sources[] = {
-    {"BUS", 0}, {"IN1", 1}, {"IN2", 2}, {"IN3", 3}, {"IN4", 4},
+    {"MANUAL", 0}, {"IN1", 1}, {"IN2", 2}, {"IN3", 3}, {"IN4", 4},
     SCPI_CHOICE_LIST_END
 };
 static const scpi_choice_def_t outputs[] = {

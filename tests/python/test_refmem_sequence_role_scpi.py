@@ -142,6 +142,15 @@ def test_link_physical_loopback_alias_and_off_use_real_parser(parser, mode):
     assert rows[3][1][14:21] == ["0"] * 7
 
 
+def test_link_manual_ready_source_uses_zero_wire_value(parser):
+    rows = run(parser, [
+        "CONF:SEQ:LINK LOOPBACK,2,3,MANUAL,OUT4,10,5000,RIS",
+        "READ:SEQ:LINK?",
+    ])
+    assert rows[0] == (0, ["1"])
+    assert rows[1][0] == 0 and rows[1][1][16] == "0"
+
+
 @pytest.mark.parametrize("bad", [
     "CONF:SEQ:LINK", "CONF:SEQ:LINK SOFTWARE,2,3,IN1,OUT4,10,5000,RIS",
     "CONF:SEQ:LINK OFF,1", "CONF:SEQ:LINK OFF,",
@@ -152,6 +161,7 @@ def test_link_physical_loopback_alias_and_off_use_real_parser(parser, mode):
     "CONF:SEQ:LINK LOOPBACK,2.0,3,IN1,OUT4,10,5000,RIS",
     "CONF:SEQ:LINK LOOPBACK,2,4294967296,IN1,OUT4,10,5000,RIS",
     "CONF:SEQ:LINK LOOPBACK,2,3,IN5,OUT4,10,5000,RIS",
+    "CONF:SEQ:LINK LOOPBACK,2,3,BUS,OUT4,10,5000,RIS",
     "CONF:SEQ:LINK LOOPBACK,2,3,IN1,OUT5,10,5000,RIS",
     "CONF:SEQ:LINK LOOPBACK,2,3,IN1,OUT4,10,4294967296,RIS",
     "CONF:SEQ:LINK LOOPBACK,2,3,IN1,OUT4,10,5000,BOTH",

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Verify SP8T sequence control and pad readback on one identified board.
 
-BUS mode sends software NEXT commands. IN1..IN4 mode only observes a separately
+MANUAL mode sends software NEXT commands. IN1..IN4 mode only observes a separately
 generated, finite pulse burst during --duration; --input-events is the count
 from that source. Use a period longer than settle+pulse+SCPI polling latency.
 This report does not certify external waveforms, RF paths, or the P3 gate.
@@ -235,7 +235,7 @@ class Bench:
         self.report["initial_state"] = {"status": baseline, "output": initial_output}
         previous = 0
         row = baseline
-        if self.args.source == "BUS":
+        if self.args.source == "MANUAL":
             for _ in range(self.args.steps):
                 self.write("TRIG:SEQ:NEXT")
                 row = self.wait_state("READY")
@@ -288,7 +288,7 @@ def parse_args(argv=None):
     parser.add_argument("--serial-number", required=True)
     parser.add_argument("--build", required=True)
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--source", choices=("BUS", "IN1", "IN2", "IN3", "IN4"), default="BUS")
+    parser.add_argument("--source", choices=("MANUAL", "IN1", "IN2", "IN3", "IN4"), default="MANUAL")
     parser.add_argument("--edge", choices=("RIS", "FALL"), default="RIS")
     parser.add_argument("--steps", type=int, default=9)
     parser.add_argument("--input-events", type=int)
@@ -302,9 +302,9 @@ def parse_args(argv=None):
     args = parser.parse_args(argv)
     if args.steps < 9 or args.busy < 0:
         parser.error("--steps must cover all eight states and wrap (>=9); --busy must be nonnegative")
-    if args.source == "BUS" and (args.input_events is not None or args.busy):
-        parser.error("BUS mode does not accept --input-events or --busy")
-    if args.source != "BUS" and args.input_events != args.steps + args.busy:
+    if args.source == "MANUAL" and (args.input_events is not None or args.busy):
+        parser.error("MANUAL mode does not accept --input-events or --busy")
+    if args.source != "MANUAL" and args.input_events != args.steps + args.busy:
         parser.error("external mode requires --input-events equal to --steps plus --busy")
     if not (0 <= args.settle_us <= TIME_MAX_US and 0 < args.pulse_us <= TIME_MAX_US):
         parser.error("timing must fit the firmware range")
@@ -318,7 +318,7 @@ def parse_args(argv=None):
 
 def main(argv=None) -> int:
     args = parse_args(argv)
-    report = {"passed": False, "scope": "software_sp8t" if args.source == "BUS" else "external_scpi_observation",
+    report = {"passed": False, "scope": "software_sp8t" if args.source == "MANUAL" else "external_scpi_observation",
               "external_waveform_verified": False, "rf_path_verified": False, "p3_receipt": False,
               "completion_high_observed": False,
               "started_at": datetime.now(timezone.utc).isoformat(),

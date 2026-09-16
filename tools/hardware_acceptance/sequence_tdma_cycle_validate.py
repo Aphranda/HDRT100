@@ -136,7 +136,7 @@ def configure(bench: Bench, port, report):
     bench.wait_state("IDLE")
     report["initial_ring_stop"] = ring.checked_action(port, "SYSTem:TDMA:RING:STOP", args.timeout)
     role_config(bench, report.setdefault("roles", {}))
-    args.source, args.edge, args.settle_us, args.pulse_us = "BUS", "RIS", 10, 10
+    args.source, args.edge, args.settle_us, args.pulse_us = "MANUAL", "RIS", 10, 10
     bench.configure()
     bench.write("CONF:SEQ:OUTPUT 7,0,NONE,10,0")
     bench.write(f"CONF:SEQ:REPEAT {args.repeat}")
@@ -144,7 +144,8 @@ def configure(bench: Bench, port, report):
         report["flight_mode"] = ring.checked_action(port, "SYST:TDMA:FLIGHT:MODE 1", args.timeout)
         report["flight_mode_readback"] = ring.query(port, "SYST:TDMA:FLIGHT:MODE?", args.timeout)
         require(report["flight_mode_readback"] == "2", "TDMA process-image forwarding mode not active")
-        bench.write(f"CONF:SEQ:LINK LOOPBACK,{args.dut_slot},{args.vna_slot},IN1,OUT4,"
+        ready_source = "MANUAL" if args.scpi_next else "IN1"
+        bench.write(f"CONF:SEQ:LINK LOOPBACK,{args.dut_slot},{args.vna_slot},{ready_source},OUT4,"
                     f"{args.gateway_pulse_us},{args.gateway_timeout_ms},RIS")
     prepare_ring(port, args, report, before_arm=bind_link)
     verify_link_configuration(bench, report)
@@ -156,7 +157,8 @@ def verify_link_configuration(bench: Bench, report):
     report["link_configuration"] = row
     require(row["enabled"] == 1 and row["phase"] == 1 and row["error"] == 0 and
             [row[k] for k in ("dutslot", "vnaslot", "input", "outputmask", "pulseus", "timeoutms", "falling")] ==
-            [args.dut_slot, args.vna_slot, 1, 8, args.gateway_pulse_us, args.gateway_timeout_ms, 0],
+            [args.dut_slot, args.vna_slot, 0 if args.scpi_next else 1, 8,
+             args.gateway_pulse_us, args.gateway_timeout_ms, 0],
             "LINK configuration readback mismatch")
 
 
@@ -186,15 +188,16 @@ def configure_gui(bench: Bench, report):
     from tools.sequence_trigger_debug_ui import sequence_trigger_debug_ui as gui
     args = bench.args
     gui_batch(bench, report, "configure", gui.build_mode_configuration(
-        gui.MODE_RJ45, "SP8T", list(range(8)), "BUS", "RIS", 10,
-        args.gateway_pulse_us, 7, 0, "NONE", "IN1", args.gateway_timeout_ms, args.repeat))
+        gui.MODE_RJ45, "SP8T", list(range(8)), "MANUAL", "RIS", 10,
+        args.gateway_pulse_us, 7, 0, "NONE",
+        "MANUAL" if args.scpi_next else "IN1", args.gateway_timeout_ms, args.repeat))
     report["flight_mode_readback"] = bench.command("SYST:TDMA:FLIGHT:MODE?")
     require(report["flight_mode_readback"] == "2", "TDMA process-image forwarding mode not active")
     plan = next(csv.reader([bench.command("READ:SEQ? SP8T")]))
     require(plan[-8:] == [str(code) for code in range(8)], "SP8T plan readback mismatch")
     for code in range(8):
         require(bench.command(f"READ:SEQ:CODE? {code}") == f"{code},{code}", "code readback mismatch")
-    require(next(csv.reader([bench.command("READ:SEQ:SOUR?")])) == ["BUS", "RISING"],
+    require(next(csv.reader([bench.command("READ:SEQ:SOUR?")])) == ["MANUAL", "RISING"],
             "input source readback mismatch")
     io = next(csv.reader([bench.command("READ:SEQ:OUTPUT?")]))
     require(io[:5] == ["7", "0", "NONE", "10", "0"] and io[-1] == "1",

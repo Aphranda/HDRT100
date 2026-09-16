@@ -221,7 +221,8 @@ static void reset(void) {
     memset(tx_valid, 0, sizeof(tx_valid));
     for (uint i = 0u; i < 4u; ++i) s_sequence.dma[i] = -1;
     s_sequence.config = (sync_io_sequence_config_t){
-        1u, false, 3u, 8u, SYNC_IO_SEQUENCE_STATUS_PULSE, 1u, 1u, 0u, 0u, 0u, false, false, 0u};
+        1u, false, 3u, 8u, SYNC_IO_SEQUENCE_STATUS_PULSE, 1u, 1u,
+        false, 0u, 0u, 0u, false, false, 0u};
     dma_claims = 0x1fbu; /* RS485, capture and TDMA survive every rollback. */
     sm_claims = enabled = 1u;
     resources = RESOURCE_ARBITER_RESOURCE_SMA_GPIO;
@@ -349,7 +350,7 @@ int main(void) {
             assert(ys[INGRESS_SM] == (admitted && remaining > 0u ? remaining - 1u : remaining));
         }
     }
-    /* STOP after nine complete BUS steps: hardware abort clears TRANS_COUNT. */
+    /* STOP after nine complete MANUAL steps: hardware abort clears TRANS_COUNT. */
     reset();
     s_sequence.dma[2] = 0;
     s_sequence.status.plan_count = 1u;
@@ -438,6 +439,7 @@ int main(void) {
     reset();
     s_sequence.config = (sync_io_sequence_config_t){
         .sequence_output_mask = 7u, .status_mode = SYNC_IO_SEQUENCE_STATUS_NONE,
+        .gateway_enabled = true,
         .gateway_input_channel = 1u, .gateway_output_mask = 8u, .gateway_pulse_us = 10u};
     assert(load_hardware(NULL, sync_io_persona_descriptor(SYNC_IO_PERSONA_ID_SEQUENCE),
                          (1u << 2u) | (1u << 9u) | (1u << 10u) | (1u << 11u)));
@@ -472,9 +474,10 @@ int main(void) {
     assert(s_sequence.status.gateway_ready_count == 1u);
     assert(sync_io_sequence_gateway_fire());
     assert(s_sequence.status.gateway_trigger_count == 2u && s_edge_latest == 0u);
-    assert(sync_io_sequence_gateway_ready());
-    assert(!s_sequence.status.gateway_waiting &&
-           s_sequence.status.gateway_ready_count == 2u);
+    assert(!sync_io_sequence_gateway_ready());
+    s_edge_latest = 1u;
+    sync_io_sequence_service();
+    assert(!s_sequence.status.gateway_waiting && s_sequence.status.gateway_ready_count == 2u);
     assert(!sync_io_sequence_gateway_ready());
     pcs[INGRESS_SM] = s_sequence.offset[0];
     rx_valid[INGRESS_SM] = true;
@@ -502,6 +505,35 @@ int main(void) {
     cleanup(NULL, NULL, 0u);
     assert(words == 1u && sm_claims == 1u && dma_claims == 0x1fbu);
     assert((pads & (15u << BOARD_SYNC_OUTPUT_BASE_PIN)) == 0u);
+    /* MANUAL READY still emits the VNA trigger pulse, but never starts the
+     * external counter SM or its edge DMA channel. */
+    reset();
+    s_sequence.config = (sync_io_sequence_config_t){
+        .sequence_output_mask = 7u, .status_mode = SYNC_IO_SEQUENCE_STATUS_NONE,
+        .gateway_enabled = true, .gateway_output_mask = 8u, .gateway_pulse_us = 10u};
+    assert(load_hardware(NULL, sync_io_persona_descriptor(SYNC_IO_PERSONA_ID_SEQUENCE),
+                         (1u << 2u) | (1u << 9u) | (1u << 10u) | (1u << 11u)));
+    s_sequence.status.armed = s_sequence.status.ready = true;
+    s_sequence.status.plan_count = 8u;
+    const uint manual_receipt_ch = (uint)s_sequence.dma[2];
+    const uint manual_edge_ch = (uint)s_sequence.dma[3];
+    fake_dma.ch[manual_receipt_ch].ctrl_trig = DMA_CH0_CTRL_TRIG_EN_BITS;
+    fake_dma.ch[manual_receipt_ch].transfer_count = RX_TRANSFERS;
+    pcs[EXECUTOR_SM] = s_sequence.offset[1] + sequence_executor_offset_waiting;
+    fake_pio.irq = 1u << READY_IRQ;
+    assert(sync_io_sequence_gateway_fire());
+    assert(s_sequence.status.gateway_waiting && s_sequence.status.gateway_pulse_busy);
+    assert((enabled & (1u << INGRESS_SM)) != 0u);
+    assert((enabled & (1u << COUNTER_SM)) == 0u);
+    assert((fake_dma.ch[manual_edge_ch].ctrl_trig & DMA_CH0_CTRL_TRIG_EN_BITS) == 0u);
+    assert(sync_io_sequence_gateway_ready());
+    assert(!s_sequence.status.gateway_waiting && s_sequence.status.gateway_ready_count == 1u);
+    s_edge_latest = 1u;
+    sync_io_sequence_service();
+    assert(s_sequence.status.gateway_ready_count == 1u);
+    assert(!sync_io_sequence_gateway_ready());
+    cleanup(NULL, NULL, 0u);
+    assert(words == 1u && sm_claims == 1u && dma_claims == 0x1fbu);
     /* A finite ingress parked at its last debit stays parked across resume. */
     reset();
     s_sequence.config.step_limit_enabled = true;

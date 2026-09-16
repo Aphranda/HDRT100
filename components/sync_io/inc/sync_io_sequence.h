@@ -24,8 +24,9 @@ typedef struct {
     sync_io_sequence_status_mode_t status_mode;
     uint32_t settle_us;
     uint32_t pulse_us;
-    /* Optional gateway, sharing this owner's SMA lease. Requires BUS/NONE.
-     * A zero input disables it. Output is one non-overlapping logical bit. */
+    /* Optional gateway, sharing this owner's SMA lease. Requires MANUAL/NONE.
+     * Input zero selects software READY; 1..4 select external READY capture. */
+    bool gateway_enabled;
     uint32_t gateway_input_channel;
     uint32_t gateway_output_mask;
     uint32_t gateway_pulse_us;
