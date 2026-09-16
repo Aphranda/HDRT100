@@ -32,8 +32,9 @@ from tools.tdma_ring_monitor.tdma_field_parse import RUNTIME_FIELDS
 
 MAX_LOG_LINES = 3000
 TIME_MAX_US = 0xffffffff // 10
-ROLE_SEQUENCE = "序列编码"
-ROLE_STATUS = "状态输出"
+ROLE_SEQUENCE = "编码"
+ROLE_STATUS = "状态"
+ROLE_GATEWAY = "触发"
 MODE_INDEPENDENT = "独立 SP8T 序列"
 MODE_RJ45 = "RJ45 物理回环 · SP8T + VNA 网关"
 RING_STATUS_QUERY = "SYST:TDMA:RING:STAT?"
@@ -46,7 +47,8 @@ def build_mode_configuration(mode: str, plan: str, codes: list[int], source: str
                              edge: str, settle_us: int, pulse_us: int,
                              sequence_mask: int, status_mask: int, status_mode: str,
                              ready_input: str = "MANUAL", timeout_ms: int = 5000,
-                             repeat_count: int = 1) -> list[str]:
+                             repeat_count: int = 1,
+                             gateway_output: str = "OUT4") -> list[str]:
     if mode not in {MODE_INDEPENDENT, MODE_RJ45}:
         raise ValueError("请选择运行模式")
     if not 0 <= repeat_count <= 0xffffffff:
@@ -54,14 +56,19 @@ def build_mode_configuration(mode: str, plan: str, codes: list[int], source: str
     if repeat_count and len(codes) * repeat_count > 0xffffffff:
         raise ValueError("循环次数与序列长度的乘积超出固件计数范围")
     combined = mode == MODE_RJ45
+    normalized_status_mode = {"无": "NONE", "电平": "LEVEL", "脉冲": "PULSE"}.get(
+        status_mode, status_mode.upper())
+    gateway_masks = {f"OUT{index}": 1 << (index - 1) for index in range(1, 5)}
     if combined and (ready_input not in {"MANUAL", "IN1", "IN2", "IN3", "IN4"} or
                      edge not in {"RIS", "FALL"} or not 1 <= timeout_ms <= 0x7fffffff or
-                     not 0 < pulse_us <= TIME_MAX_US):
-        raise ValueError("请检查 READY 输入、边沿、触发脉宽和等待超时")
+                     not 0 < pulse_us <= TIME_MAX_US or gateway_output not in gateway_masks or
+                     status_mask != 0 or normalized_status_mode != "NONE" or
+                     sequence_mask & gateway_masks.get(gateway_output, 0)):
+        raise ValueError("请检查 READY、OUT 属性、触发脉宽和等待超时")
     base = build_configuration_commands(plan, codes, "MANUAL" if combined else source,
         edge, settle_us, 0 if combined else pulse_us,
-        7 if combined else sequence_mask, 0 if combined else status_mask,
-        "NONE" if combined else status_mode)
+        sequence_mask, 0 if combined else status_mask,
+        "NONE" if combined else normalized_status_mode)
     commands = ["TRIG:STOP", "SYST:TDMA:RING:STOP", "CONF:SEQ:LINK OFF", *base[1:-2],
                 f"CONF:SEQ:REPEAT {repeat_count}"]
     if combined:
@@ -70,7 +77,8 @@ def build_mode_configuration(mode: str, plan: str, codes: list[int], source: str
                      "SYST:TDMA:OPMODE:STAGE 7", "SYST:TDMA:OPMODE:APPLY",
                      "SYST:TDMA:RING:TOPOLOGY 2,0,0", "CAL:TOPOLOGY:PROBE 1,10",
                      "SYST:TDMA:FLIGHT:MODE 1",
-                     f"CONF:SEQ:LINK LOOPBACK,2,3,{ready_input},OUT4,{pulse_us},{timeout_ms},{edge}",
+                     f"CONF:SEQ:LINK LOOPBACK,2,3,{ready_input},{gateway_output},"
+                     f"{pulse_us},{timeout_ms},{edge}",
                      "READ:SEQ:LINK?"]
     return commands + ["READ:SEQ:REPEAT?", "TRIG:SEQ:NEXT?", "READ:IO:STAT?"]
 
@@ -315,6 +323,9 @@ class SequenceUi(tk.Tk):
         self.gateway_repeat_count = tk.StringVar(value="1")
         self.gateway_edge = tk.StringVar(value="RIS")
         self.gateway_pulse = tk.StringVar(value="10")
+        self.gateway_out_enabled = [tk.BooleanVar(value=True) for _ in range(4)]
+        self.gateway_out_roles = [tk.StringVar(value=ROLE_SEQUENCE) for _ in range(3)] + [
+            tk.StringVar(value=ROLE_GATEWAY)]
         self.gateway_ready_input = self.ready_input
         self.gateway_timeout = self.ready_timeout
         self.status = tk.StringVar(value="未连接")
@@ -338,6 +349,8 @@ class SequenceUi(tk.Tk):
         self.pulse_entry: ttk.Entry | None = None
         self.out_checkbuttons: list[ttk.Checkbutton] = []
         self.out_role_boxes: list[ttk.Combobox] = []
+        self.gateway_out_checkbuttons: list[ttk.Checkbutton] = []
+        self.gateway_out_role_boxes: list[ttk.Combobox] = []
         self.status_mode_box: ttk.Combobox | None = None
         self.source_box: ttk.Combobox | None = None
         self.ota_progress: ttk.Progressbar | None = None
@@ -493,8 +506,25 @@ class SequenceUi(tk.Tk):
         widget = (ttk.Combobox(parent, textvariable=variable, values=values, state="readonly", width=width)
                   if values is not None else ttk.Entry(parent, textvariable=variable, width=width))
         widget.grid(row=1, column=column, sticky="ew", padx=(0, 10))
-        parent.columnconfigure(column, weight=1)
+        parent.columnconfigure(column, weight=1, uniform="fields")
         return widget
+
+    def _build_output_assignment(self, parent, enabled_vars, role_vars, role_values,
+                                 checkbuttons, role_boxes, on_select=None):
+        for index in range(4):
+            cell = ttk.Frame(parent)
+            cell.pack(side="left", padx=(0, 8 if index < 3 else 0))
+            check = ttk.Checkbutton(
+                cell, text=f"OUT{index + 1}", variable=enabled_vars[index])
+            check.pack(side="left")
+            checkbuttons.append(check)
+            box = ttk.Combobox(
+                cell, textvariable=role_vars[index], values=role_values,
+                state="readonly", width=4)
+            box.pack(side="left", padx=(4, 0))
+            if on_select is not None:
+                box.bind("<<ComboboxSelected>>", on_select)
+            role_boxes.append(box)
 
     def _build_sequence_page(self, page, mode):
         combined = mode == MODE_RJ45
@@ -503,11 +533,18 @@ class SequenceUi(tk.Tk):
         plan_group = ttk.LabelFrame(page, text="序列配置", padding=10)
         plan_group.pack(fill="x", pady=(0, 8))
         self._field(plan_group, 0, "计划", plan, width=10)
-        self._field(plan_group, 1, "编码（首项为启动状态）", codes, width=30)
+        self._field(plan_group, 1, "编码（首项为启动状态）", codes, width=22)
         self._field(plan_group, 2, "建立时间 µs", settle, width=10)
         self._field(plan_group, 3, "循环次数（0=持续）", repeat, width=10)
 
         if combined:
+            self.gateway_output_group = ttk.LabelFrame(page, text="OUT 属性", padding=8)
+            self.gateway_output_group.pack(fill="x", pady=(0, 8))
+            self._build_output_assignment(
+                self.gateway_output_group, self.gateway_out_enabled,
+                self.gateway_out_roles, [ROLE_SEQUENCE, ROLE_GATEWAY],
+                self.gateway_out_checkbuttons, self.gateway_out_role_boxes,
+                lambda _event: self.update_mode_hint())
             self.gateway_group = ttk.LabelFrame(page, text="VNA 网关", padding=10)
             self.gateway_group.pack(fill="x", pady=(0, 8))
             self.gateway_ready_box = self._field(
@@ -518,8 +555,7 @@ class SequenceUi(tk.Tk):
             self._field(self.gateway_group, 1, "READY 边沿", self.gateway_edge, values=["RIS", "FALL"], width=9)
             self._field(self.gateway_group, 2, "触发脉宽 µs", self.gateway_pulse, width=12)
             self._field(self.gateway_group, 3, "READY 超时 ms", self.gateway_timeout, width=12)
-            ttk.Label(page, text="固定分配：OUT1–OUT3 为 SP8T 编码电平，OUT4 为 VNA 触发脉冲。").pack(anchor="w", pady=(0, 5))
-            ttk.Label(page, text="流程：首编码 → RJ45 TDMA → 触发采样 → READY → RJ45 TDMA → 下一编码。").pack(anchor="w", pady=(0, 5))
+            ttk.Label(page, text="流程：首编码 → RJ45 TDMA → VNA 触发 → READY → RJ45 TDMA → 下一编码。").pack(anchor="w", pady=(0, 5))
         else:
             groups = ttk.Frame(page, style="Panel.TFrame")
             groups.pack(fill="x", pady=(0, 8))
@@ -534,17 +570,10 @@ class SequenceUi(tk.Tk):
             self.independent_output_group.grid(row=0, column=1, sticky="nsew")
             roles = ttk.Frame(self.independent_output_group)
             roles.pack(fill="x")
-            for index in range(4):
-                cell = ttk.Frame(roles)
-                cell.pack(side="left", fill="x", expand=True, padx=(0, 8))
-                check = ttk.Checkbutton(cell, text=f"OUT{index + 1}", variable=self.out_enabled[index])
-                check.pack(anchor="w")
-                self.out_checkbuttons.append(check)
-                box = ttk.Combobox(cell, textvariable=self.out_roles[index],
-                    values=[ROLE_SEQUENCE, ROLE_STATUS], state="readonly", width=9)
-                box.pack(fill="x")
-                box.bind("<<ComboboxSelected>>", lambda _event: self._update_status_mode())
-                self.out_role_boxes.append(box)
+            self._build_output_assignment(
+                roles, self.out_enabled, self.out_roles,
+                [ROLE_SEQUENCE, ROLE_STATUS], self.out_checkbuttons,
+                self.out_role_boxes, lambda _event: self._update_status_mode())
             feedback = ttk.Frame(self.independent_output_group)
             feedback.pack(fill="x", pady=(8, 0))
             ttk.Label(feedback, text="状态形式").pack(side="left")
@@ -615,7 +644,8 @@ class SequenceUi(tk.Tk):
         independent = [self.plan, self.codes, self.settle, self.repeat_count, self.source,
                        self.edge, self.pulse, self.status_mode, *self.out_enabled, *self.out_roles]
         gateway = [self.gateway_plan, self.gateway_codes, self.gateway_settle, self.gateway_repeat_count,
-                   self.gateway_ready_input, self.gateway_edge, self.gateway_pulse, self.gateway_timeout]
+                   self.gateway_ready_input, self.gateway_edge, self.gateway_pulse,
+                   self.gateway_timeout, *self.gateway_out_enabled, *self.gateway_out_roles]
         for mode, variables in ((MODE_INDEPENDENT, independent), (MODE_RJ45, gateway)):
             for variable in variables:
                 variable.trace_add("write", lambda *_args, m=mode: self._draft_changed(m))
@@ -890,7 +920,13 @@ class SequenceUi(tk.Tk):
         if combined:
             ready = ("SCPI NEXT" if self.gateway_ready_input.get() == "MANUAL" else
                      f"{self.gateway_ready_input.get()} READY")
-            self.mode_hint.set(f"RJ45 物理回环：启动首编码 → TDMA → OUT4 触发 → {ready} → TDMA → 下一编码；有限次数完成后停止。")
+            try:
+                _, gateway_output = self._gateway_output_assignment()
+            except ValueError:
+                gateway_output = "所选 OUT"
+            self.mode_hint.set(
+                f"RJ45 物理回环：启动首编码 → TDMA → {gateway_output} 触发 → "
+                f"{ready} → TDMA → 下一编码；有限次数完成后停止。")
             return
         if self.source.get() == "MANUAL":
             self.mode_hint.set("MANUAL 软件触发模式：使用“下一步”推进")
@@ -920,20 +956,32 @@ class SequenceUi(tk.Tk):
             "脉冲": "兼容状态脉冲输出；请显式勾选状态 OUT，此模式不配置 VNA 网关。",
         }[mode])
 
-    def _output_role_masks(self) -> tuple[int, int]:
+    @staticmethod
+    def _role_masks(enabled_vars, role_vars, secondary_role: str) -> tuple[int, int]:
         sequence_mask = 0
-        status_mask = 0
+        secondary_mask = 0
         for index, (enabled, role) in enumerate(
-                zip(self.out_enabled, self.out_roles)):
+                zip(enabled_vars, role_vars)):
             if not enabled.get():
                 continue
             if role.get() == ROLE_SEQUENCE:
                 sequence_mask |= 1 << index
-            elif role.get() == ROLE_STATUS:
-                status_mask |= 1 << index
+            elif role.get() == secondary_role:
+                secondary_mask |= 1 << index
             else:
                 raise ValueError(f"OUT{index + 1} 角色无效")
-        return sequence_mask, status_mask
+        return sequence_mask, secondary_mask
+
+    def _output_role_masks(self) -> tuple[int, int]:
+        return SequenceUi._role_masks(
+            self.out_enabled, self.out_roles, ROLE_STATUS)
+
+    def _gateway_output_assignment(self) -> tuple[int, str]:
+        sequence_mask, gateway_mask = SequenceUi._role_masks(
+            self.gateway_out_enabled, self.gateway_out_roles, ROLE_GATEWAY)
+        if gateway_mask == 0 or gateway_mask & (gateway_mask - 1):
+            raise ValueError("RJ45 模式必须启用且仅启用一路 VNA 触发 OUT")
+        return sequence_mask, f"OUT{gateway_mask.bit_length()}"
 
     def run_commands(self, backend: str, resource: str,
                      commands: list[str]) -> bool:
@@ -1213,7 +1261,8 @@ class SequenceUi(tk.Tk):
                 settle, pulse = int(self.gateway_settle.get()), int(self.gateway_pulse.get())
                 repeat = int(self.gateway_repeat_count.get())
                 ready, timeout = self.gateway_ready_input.get(), int(self.gateway_timeout.get())
-                sequence_mask, status_mask, status_mode = 7, 0, "NONE"
+                sequence_mask, gateway_output = self._gateway_output_assignment()
+                status_mask, status_mode = 0, "NONE"
             else:
                 plan, codes_text = self.plan.get(), self.codes.get()
                 source, edge = self.source.get(), self.edge.get()
@@ -1223,10 +1272,12 @@ class SequenceUi(tk.Tk):
                 repeat = int(self.repeat_count.get())
                 sequence_mask, status_mask = self._output_role_masks()
                 ready, timeout = "IN1", 5000
+                gateway_output = "OUT4"
             codes = [int(x.strip()) for x in codes_text.split(",") if x.strip()]
             commands = build_mode_configuration(
                 mode, plan, codes, source, edge, settle, pulse,
-                sequence_mask, status_mask, status_mode, ready, timeout, repeat)
+                sequence_mask, status_mask, status_mode, ready, timeout, repeat,
+                gateway_output)
         except ValueError as exc:
             self.log(f"配置错误: {exc}")
             return
@@ -1235,7 +1286,9 @@ class SequenceUi(tk.Tk):
             f"{codes[0]}；序列掩码 0x{sequence_mask:X}，"
             f"状态掩码 0x{status_mask:X}（{status_mode}）。")
         if combined:
-            self.log(f"VNA 网关：{ready} {edge} READY，OUT4 触发 {pulse} µs，等待超时 {timeout} ms。")
+            self.log(
+                f"VNA 网关：{ready} {edge} READY，{gateway_output} 触发 "
+                f"{pulse} µs，等待超时 {timeout} ms。")
         else:
             self.log(self.output_hint.get())
         if self._ota_running or self._transport_switching:

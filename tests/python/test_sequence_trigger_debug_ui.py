@@ -5,6 +5,7 @@ import pytest
 from tools.sequence_trigger_debug_ui.sequence_trigger_debug_ui import (
     ROLE_SEQUENCE,
     ROLE_STATUS,
+    ROLE_GATEWAY,
     MODE_INDEPENDENT,
     MODE_RJ45,
     RING_STATUS_QUERY,
@@ -221,7 +222,7 @@ def test_two_modes_preserve_explicit_repeat_and_do_not_start_during_configuratio
     independent = build_mode_configuration(MODE_INDEPENDENT, "SP8T", list(range(8)),
         "IN3", "FALL", 10, 20, 7, 8, "PULSE", repeat_count=repeat)
     combined = build_mode_configuration(MODE_RJ45, "SP8T", list(range(8)),
-        "IN3", "FALL", 10, 20, 7, 8, "PULSE", "IN4", 6000, repeat)
+        "IN3", "FALL", 10, 20, 7, 0, "NONE", "IN4", 6000, repeat, "OUT4")
     for commands in [independent, combined]:
         assert commands[:3] == ["TRIG:STOP", "SYST:TDMA:RING:STOP", "CONF:SEQ:LINK OFF"]
         assert f"CONF:SEQ:REPEAT {repeat}" in commands
@@ -254,9 +255,29 @@ def test_combined_start_arms_and_trains_tdma_before_first_sequence_state():
     dict(repeat_count=0x100000000), dict(repeat_count=536870912)])
 def test_combined_invalid_configuration_rejected_before_any_io(changes):
     args = dict(mode=MODE_RJ45, plan="SP8T", codes=list(range(8)), source="IN1",
-        edge="RIS", settle_us=10, pulse_us=10, sequence_mask=7, status_mask=8, status_mode="PULSE")
+        edge="RIS", settle_us=10, pulse_us=10, sequence_mask=7, status_mask=0,
+        status_mode="NONE", gateway_output="OUT4")
     with pytest.raises(ValueError):
         build_mode_configuration(**(args | changes))
+
+
+@pytest.mark.parametrize("changes", [dict(gateway_output="OUT5"), dict(status_mask=8),
+    dict(status_mode="PULSE"), dict(sequence_mask=15)])
+def test_combined_rejects_invalid_or_overlapping_out_attributes(changes):
+    args = dict(mode=MODE_RJ45, plan="SP8T", codes=list(range(8)), source="MANUAL",
+        edge="RIS", settle_us=10, pulse_us=10, sequence_mask=7, status_mask=0,
+        status_mode="NONE", gateway_output="OUT4")
+    with pytest.raises(ValueError, match="OUT 属性"):
+        build_mode_configuration(**(args | changes))
+
+
+def test_combined_uses_explicit_out_attributes_for_encoding_and_vna_trigger():
+    commands = build_mode_configuration(
+        MODE_RJ45, "SP8T", [0, 1, 2, 3, 8, 9, 10, 11], "MANUAL", "RIS",
+        25, 30, 11, 0, "NONE", "MANUAL", 5000, 1, "OUT3")
+
+    assert "CONF:SEQ:OUTPUT 11,0,NONE,25,0" in commands
+    assert "CONF:SEQ:LINK LOOPBACK,2,3,MANUAL,OUT3,30,5000,RIS" in commands
 
 
 def test_maximum_eight_state_repeat_count_is_accepted():

@@ -6,7 +6,7 @@ from tkinter import ttk
 import pytest
 
 from tools.sequence_trigger_debug_ui.sequence_trigger_debug_ui import (
-    MODE_INDEPENDENT, MODE_RJ45, SequenceUi,
+    MODE_INDEPENDENT, MODE_RJ45, ROLE_GATEWAY, ROLE_SEQUENCE, SequenceUi,
 )
 
 
@@ -59,6 +59,19 @@ def test_tabs_separate_mode_controls_and_keep_common_io(ui):
              if isinstance(widget, ttk.Button)]
     assert "下一步" in texts and "软件单步" not in texts
     assert ui.gateway_group.winfo_ismapped()
+    assert ui.gateway_output_group.winfo_ismapped()
+    assert len(ui.gateway_out_role_boxes) == 4
+    assert all(int(box.cget("width")) <= 4 for box in
+               [*ui.out_role_boxes, *ui.gateway_out_role_boxes])
+    for group, widgets in (
+            (ui.gateway_output_group,
+             [*ui.gateway_out_checkbuttons, *ui.gateway_out_role_boxes]),
+            (ui.independent_output_group,
+             [*ui.out_checkbuttons, *ui.out_role_boxes])):
+        assert all(widget.winfo_rootx() + widget.winfo_width() <=
+                   group.winfo_rootx() + group.winfo_width() for widget in widgets)
+        assert max(widget.winfo_rooty() for widget in widgets) - \
+            min(widget.winfo_rooty() for widget in widgets) <= 5
     assert not ui.source_box.winfo_ismapped()
     assert not ui.status_mode_box.winfo_ismapped()
     for page in (ui.independent_page, ui.loopback_page, ui.manual_switch_page, ui.maintenance_page):
@@ -89,6 +102,7 @@ def test_configuration_does_not_validate_hidden_mode_draft(ui, mode):
         ui.gateway_codes.set("invalid")
         ui.gateway_timeout.set("invalid")
         ui.gateway_pulse.set("invalid")
+        ui.gateway_out_roles[0].set("invalid")
     else:
         select(ui, ui.loopback_page)
         ui.codes.set("invalid")
@@ -101,6 +115,18 @@ def test_configuration_does_not_validate_hidden_mode_draft(ui, mode):
     if mode == MODE_RJ45:
         assert "CONF:SEQ:OUTPUT 7,0,NONE,10,0" in commands
         assert "CONF:SEQ:LINK LOOPBACK,2,3,MANUAL,OUT4,10,5000,RIS" in commands
+
+
+def test_loopback_out_attributes_drive_both_sequence_mask_and_gateway_output(ui):
+    select(ui, ui.loopback_page)
+    ui.gateway_codes.set("0,1,2,3,8,9,10,11")
+    ui.gateway_out_roles[2].set(ROLE_GATEWAY)
+    ui.gateway_out_roles[3].set(ROLE_SEQUENCE)
+
+    commands = complete_configuration(ui, MODE_RJ45)
+
+    assert "CONF:SEQ:OUTPUT 11,0,NONE,10,0" in commands
+    assert "CONF:SEQ:LINK LOOPBACK,2,3,MANUAL,OUT3,10,5000,RIS" in commands
 
 
 def test_start_requires_completed_configuration_and_draft_edits_invalidate_it(ui):
