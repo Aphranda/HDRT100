@@ -30,6 +30,9 @@ bool tdma_runtime_owner_priority_rx_counters_core1(tdma_priority_rx_counters_t *
 bool tdma_runtime_owner_get_priority_rx_timing(tdma_priority_rx_timing_t *out);
 bool tdma_runtime_owner_copy_priority_rx(uint32_t epoch, uint32_t sequence,
     tdma_priority_rx_record_t *out);
+/* Bounded exact copy from the live lane; STOP rejects, output unchanged. */
+bool tdma_runtime_owner_copy_priority_rx_live(uint32_t epoch, uint32_t sequence,
+    tdma_priority_rx_record_t *out);
 void tdma_runtime_owner_priority_rx_window_core1(bool enable, uint32_t remaining_entries,
     uint32_t window_deadline_tick_low);
 

@@ -20,7 +20,8 @@ def reader(tmp_path_factory):
     source = (ROOT / 'middleware/scpi_port/src/scpi_sync_commands.c').read_text(encoding='utf-8')
     body = '\n'.join(callback(source, name) for name in (
         'scpi_cmd_system_tdma_priority_rx_q', 'scpi_cmd_system_tdma_priority_rx_record_q',
-        'scpi_cmd_system_tdma_priority_rx_budget_q', 'scpi_cmd_system_tdma_priority_rx_timing_q'))
+        'scpi_cmd_system_tdma_priority_rx_budget_q', 'scpi_cmd_system_tdma_priority_rx_timing_q',
+        'scpi_cmd_system_tdma_priority_rx_consumer_q'))
     directory = tmp_path_factory.mktemp('priority-scpi')
     source = directory / 'reader.c'
     source.write_text('#include "app.h"\n' + HARNESS + body + MAIN, encoding='utf-8')
@@ -28,13 +29,14 @@ def reader(tmp_path_factory):
     assert compiler, 'A host C compiler is required'
     exe = directory / ('reader.exe' if os.name == 'nt' else 'reader')
     result = subprocess.run([compiler, '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
-        *['-I' + str(ROOT / path) for path in ('application/inc', 'config', 'components/tdma/inc')],
+        *['-I' + str(ROOT / path) for path in ('application/inc', 'config', 'components/tdma/inc',
+                                              'components/vdc_dpll_manager/inc')],
         str(source), '-o', str(exe)], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stdout + result.stderr
     return exe
 
 
-@pytest.mark.parametrize('mode', range(11))
+@pytest.mark.parametrize('mode', range(13))
 def test_snapshot_and_record_stop_identity_guards(reader, mode):
     result = subprocess.run([str(reader), str(mode)], capture_output=True, text=True, timeout=3)
     assert result.returncode == 0, result.stdout + result.stderr
@@ -46,7 +48,8 @@ def test_commands_are_query_only_and_registered_once():
     assert commands == ['SYSTem:TDMA:FLIGHT:PRIORity?',
                         'SYSTem:TDMA:FLIGHT:PRIORity:BUDGet?',
                         'SYSTem:TDMA:FLIGHT:PRIORity:TIMing?',
-                        'SYSTem:TDMA:FLIGHT:PRIORity:RECord?']
+                        'SYSTem:TDMA:FLIGHT:PRIORity:RECord?',
+                        'SYSTem:TDMA:FLIGHT:PRIORity:CONSumed?']
 
 
 HARNESS = r'''
@@ -54,6 +57,7 @@ HARNESS = r'''
 #include <stdlib.h>
 #include <string.h>
 #include "tdma_priority_rx.h"
+#include "vdc_priority_ingress.h"
 typedef int scpi_result_t;
 typedef struct { int unused; } scpi_t;
 typedef struct { bool enabled, adapter_started; } tdma_ring_clock_snapshot_t;
@@ -68,7 +72,7 @@ static void SCPI_ResultText(scpi_t *c, const char *value)
 {
     (void)c; ++results;
     assert(strlen(value) == 64);
-    for (uint32_t i = 0; i < 64; ++i) assert(value[i] == (results == 7 ? 'a' : 'b'));
+    for (uint32_t i = 0; i < 64; ++i) assert(value[i] == ((results == 7 || results == 27) ? 'a' : 'b'));
 }
 static void scpi_port_push_exec_error(scpi_t *c, const char *s)
 { (void)c; (void)s; ++error_count; }
@@ -90,6 +94,17 @@ static bool tdma_runtime_owner_copy_priority_rx(uint32_t epoch, uint32_t seq, td
 }
 static uint32_t budget_reads;
 static uint32_t timing_reads;
+static uint32_t consumer_reads;
+bool vdc_dpll_manager_get_priority_ingress(vdc_priority_ingress_snapshot_t *s)
+{
+    ++consumer_reads; memset(s, 0, sizeof(*s));
+    s->schema = 1u; s->active = mode == 12; s->epoch = 7u; s->have_record = 1u;
+    s->record.epoch = 7u; s->record.sequence = 65536u;
+    s->arrival_last_cycles = UINT64_C(0x123456789abcdef0);
+    memset(s->record.header, 0xaa, sizeof(s->record.header));
+    memset(s->record.mailbox, 0xbb, sizeof(s->record.mailbox));
+    return mode != 11;
+}
 static bool tdma_runtime_owner_get_priority_rx_timing(tdma_priority_rx_timing_t *s)
 {
     ++timing_reads; s->samples = 42u;
@@ -119,7 +134,7 @@ int main(int argc, char **argv)
     rejected = (mode >= 1 && mode <= 6) || mode == 8;
     assert(result == (rejected ? SCPI_RES_ERR : SCPI_RES_OK));
     assert(results == (rejected ? 0u : 8u));
-    assert(reads == ((mode == 0 || mode == 6 || mode == 7 || mode == 9 || mode == 10) ? 1u : 0u));
+    assert(reads == (((mode >= 1 && mode <= 5) || mode == 8) ? 0u : 1u));
     results = error_count = 0;
     result = scpi_cmd_system_tdma_priority_rx_budget_q(&context);
     rejected = (mode >= 1 && mode <= 5) || mode == 9;
@@ -137,6 +152,22 @@ int main(int argc, char **argv)
     if (!rejected) {
         assert(values[0] == 1u && values[1] == 42u);
         for (uint32_t i = 0; i < 4; ++i) assert(values[i + 2u] == 100u + i);
+    }
+    results = error_count = 0;
+    const uint32_t original_raw_reads = reads;
+    result = scpi_cmd_system_tdma_priority_rx_consumer_q(&context);
+    rejected = (mode >= 1 && mode <= 5) || mode == 11;
+    assert(result == (rejected ? SCPI_RES_ERR : SCPI_RES_OK));
+    assert(results == (rejected ? 0u : 28u));
+    assert(error_count == (rejected ? 1u : 0u));
+    assert(consumer_reads == ((mode >= 1 && mode <= 5) ? 0u : 1u));
+    assert(reads == original_raw_reads); /* Readback never consumes the RX lane. */
+    if (!rejected) {
+        assert(values[0] == 1u && values[1] == (mode == 12) && values[2] == 7u);
+        assert(values[3] == 1u && values[16] == 0x9abcdef0u && values[17] == 0x12345678u);
+        assert(values[20] == 7u && values[21] == 65536u);
+        /* STOP may be acknowledged before another DPLL phase retires its
+         * published active flag. Query preserves this discrepancy as evidence. */
     }
     return 0;
 }

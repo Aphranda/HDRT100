@@ -451,6 +451,11 @@ bool tdma_runtime_owner_copy_priority_rx(uint32_t epoch, uint32_t sequence,
 {
     return s_tdma_runtime_owner_initialized && tdma_pio_spi_phys_copy_priority_rx(epoch, sequence, out);
 }
+bool tdma_runtime_owner_copy_priority_rx_live(uint32_t epoch, uint32_t sequence,
+    tdma_priority_rx_record_t *out)
+{
+    return s_tdma_runtime_owner_initialized && tdma_pio_spi_phys_copy_priority_rx_live(epoch, sequence, out);
+}
 
 void tdma_runtime_owner_priority_rx_window_core1(bool enable, uint32_t remaining_entries,
     uint32_t window_deadline_tick_low)

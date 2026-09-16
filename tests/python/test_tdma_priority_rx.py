@@ -34,7 +34,7 @@ def test_priority_ingress_and_irq_lifetime(tmp_path: Path, short_enums: bool, no
             "stdout": result.stdout, "stderr": result.stderr,
         }, indent=2), encoding="utf-8")
         assert result.returncode == 0, result.stdout + result.stderr
-    assert "priority ingress: 23 case groups passed" in result.stdout
+    assert "priority ingress: 24 case groups passed" in result.stdout
 
 
 HARNESS = r'''
@@ -283,6 +283,81 @@ static tdma_priority_rx_record_t sequence_record(uint32_t epoch, uint32_t sequen
     return record;
 }
 
+static void live_copy_lifetime_tests(void) {
+    tdma_priority_rx_t lane={0};
+    tdma_priority_rx_record_t sentinel;
+    memset(&sentinel,0xa5,sizeof(sentinel));
+    tdma_priority_rx_record_t out=sentinel;
+    assert(!tdma_priority_rx_copy_live(NULL,1u,0u,&out));
+    assert(!memcmp(&out,&sentinel,sizeof(out)));
+    assert(tdma_priority_rx_start(&lane));
+    uint32_t epoch=lane.status.epoch;
+    assert(!tdma_priority_rx_copy_live(&lane,epoch,0u,&out));
+    assert(!memcmp(&out,&sentinel,sizeof(out)));
+    tdma_priority_rx_record_t record=sequence_record(epoch,7u);
+    assert(tdma_priority_rx_publish(&lane,&record));
+    assert(tdma_priority_rx_copy_live(&lane,epoch,7u,&out));
+    assert(!memcmp(&out,&record,sizeof(out)));
+    const tdma_priority_rx_t before=lane;
+    assert(tdma_priority_rx_copy_live(&lane,epoch,7u,&out));
+    assert(!memcmp(&lane,&before,sizeof(lane))); /* Read, never dequeue. */
+    out=sentinel;
+    assert(!tdma_priority_rx_copy_live(&lane,0u,7u,&out));
+    assert(!tdma_priority_rx_copy_live(&lane,epoch+1u,7u,&out));
+    assert(!tdma_priority_rx_copy_live(&lane,epoch,7u,NULL));
+    assert(!memcmp(&out,&sentinel,sizeof(out)));
+
+    /* STOP preserves diagnostics but revokes the same exact live record. */
+    tdma_priority_rx_stop(&lane);
+    assert(!tdma_priority_rx_copy_live(&lane,epoch,7u,&out));
+    assert(!memcmp(&out,&sentinel,sizeof(out)));
+    assert(tdma_priority_rx_copy(&lane,epoch,7u,&out));
+    assert(!memcmp(&out,&record,sizeof(out)));
+    assert(tdma_priority_rx_start(&lane));
+    out=sentinel;
+    assert(!tdma_priority_rx_copy_live(&lane,epoch,7u,&out));
+    assert(!memcmp(&out,&sentinel,sizeof(out)));
+    epoch=lane.status.epoch;
+    record=sequence_record(epoch,7u);
+    assert(tdma_priority_rx_publish(&lane,&record));
+    assert(tdma_priority_rx_copy_live(&lane,epoch,7u,&out));
+
+    /* A later carrier in the same modulo slot is not the requested record. */
+    record=sequence_record(epoch,7u+TDMA_PRIORITY_RX_CAPACITY);
+    assert(tdma_priority_rx_publish(&lane,&record));
+    out=sentinel;
+    assert(!tdma_priority_rx_copy_live(&lane,epoch,7u,&out));
+    assert(!memcmp(&out,&sentinel,sizeof(out)));
+    assert(tdma_priority_rx_copy_live(&lane,epoch,record.sequence,&out));
+    assert(!memcmp(&out,&record,sizeof(out)));
+    const uint32_t stable_guard=lane.guard;
+    lane.guard|=1u;
+    out=sentinel;
+    assert(!tdma_priority_rx_copy_live(&lane,epoch,record.sequence,&out));
+    assert(!memcmp(&out,&sentinel,sizeof(out)));
+    lane.guard=stable_guard;
+    assert(tdma_priority_rx_copy_live(&lane,epoch,record.sequence,&out));
+
+    /* Observer rebase retires every old ID without requiring STOP. */
+    assert(tdma_priority_rx_rebase(&lane));
+    out=sentinel;
+    assert(!tdma_priority_rx_copy_live(&lane,epoch,record.sequence,&out));
+    assert(!tdma_priority_rx_copy_live(&lane,lane.status.epoch,record.sequence,&out));
+    assert(!memcmp(&out,&sentinel,sizeof(out)));
+    epoch=lane.status.epoch;
+    record=sequence_record(epoch,UINT32_MAX);
+    assert(tdma_priority_rx_publish(&lane,&record));
+    assert(tdma_priority_rx_copy_live(&lane,epoch,UINT32_MAX,&out));
+    record=sequence_record(epoch,0u);
+    assert(tdma_priority_rx_publish(&lane,&record));
+    out=sentinel;
+    assert(!tdma_priority_rx_copy_live(&lane,epoch,UINT32_MAX,&out));
+    assert(!tdma_priority_rx_copy_live(&lane,epoch,0u,&out));
+    assert(!memcmp(&out,&sentinel,sizeof(out)));
+    assert(tdma_priority_rx_copy_live(&lane,lane.status.epoch,0u,&out));
+    assert(out.epoch==epoch+1u && out.sequence==0u);
+}
+
 static void wrap_lifetime_tests(void) {
     tdma_priority_rx_t lane={0}; tdma_priority_rx_snapshot_t snapshot;
     tdma_priority_rx_record_t out, record;
@@ -341,6 +416,9 @@ static void wrap_lifetime_tests(void) {
     assert(tdma_priority_rx_snapshot(&exhausted,&snapshot));
     assert(!snapshot.active && snapshot.last_reject==TDMA_PRIORITY_RX_EXHAUSTED && snapshot.epoch==UINT32_MAX);
     assert(tdma_priority_rx_copy(&exhausted,UINT32_MAX,UINT32_MAX,&out));
+    const tdma_priority_rx_record_t retained=out;
+    assert(!tdma_priority_rx_copy_live(&exhausted,UINT32_MAX,UINT32_MAX,&out));
+    assert(!memcmp(&out,&retained,sizeof(out)));
     assert(!tdma_priority_rx_start(&exhausted));
     /* The physical producer acquires the new epoch on the next IRQ. */
     tdma_pio_spi_phys_t phys={.armed=true,.flight_payload_size=132u,
@@ -485,6 +563,7 @@ int main(void) {
     write_wire(179u,10u,0u); produced(352u); invoke();
     assert(tdma_pio_spi_phys_get_priority_rx_snapshot(&snap)); assert(snap.publish_count==1u && snap.latest_sequence==10u);
     assert(tdma_pio_spi_phys_copy_priority_rx(snap.epoch,10u,&record));
+    assert(tdma_pio_spi_phys_copy_priority_rx_live(snap.epoch,10u,&record));
     assert(!memcmp(record.header,packet,32u) && !memcmp(record.mailbox,packet+32u,32u));
     assert(record.irq_entry_ticks && record.candidate_word==179u);
     assert(s_tdma_pio_spi_rx_sequence.produced_words==0u); /* Private ISR counter. */
@@ -507,9 +586,14 @@ int main(void) {
     const uint32_t old_epoch=snap.epoch; tdma_priority_stop(); assert(!irq_enabled && !handler && !pio_instance.inte0);
     assert(tdma_pio_spi_phys_get_priority_rx_snapshot(&snap)); assert(!snap.active && snap.latest_sequence==16u);
     assert(tdma_pio_spi_phys_copy_priority_rx(old_epoch,16u,&record));
+    const tdma_priority_rx_record_t retained=record;
+    assert(!tdma_pio_spi_phys_copy_priority_rx_live(old_epoch,16u,&record));
+    assert(!memcmp(&record,&retained,sizeof(record)));
     assert(tdma_rx_dma_counter_reset(&s_tdma_pio_spi_rx_sequence,176u,timer1_hw->timerawl)); produced(0u);
     phys.flight_alignment_bit_shift=3u; assert(tdma_priority_start(&phys,&config)); open_irq(); tdma_priority_boundary_service(&phys);
     assert(!tdma_pio_spi_phys_copy_priority_rx(old_epoch,16u,&record));
+    assert(!tdma_pio_spi_phys_copy_priority_rx_live(old_epoch,16u,&record));
+    assert(!memcmp(&record,&retained,sizeof(record)));
     write_wire(3u,20u,3u); produced(176u); invoke();
     assert(tdma_pio_spi_phys_get_priority_rx_snapshot(&snap)); assert(snap.publish_count==1u && snap.latest_sequence==20u);
     tdma_pio_spi_phys_priority_rx_window_core1(true,1u,timer1_hw->timerawl+10000u); invoke(); assert(!irq_enabled);
@@ -528,6 +612,7 @@ int main(void) {
     record.header[24]^=1u; uint32_t crc; assert(tdma_transport_frame_calculate_transport_crc32(record.header,32u,&crc)); put32(record.header+28u,crc);
     assert(tdma_priority_rx_validate(&binding,&record)==TDMA_PRIORITY_RX_HEADER_CRC); record.header[24]^=1u;
     assert(tdma_priority_rx_publish(&pure,&record));
+    live_copy_lifetime_tests();
     wrap_lifetime_tests();
     uint64_t candidate; assert(!tdma_priority_rx_candidate(67u,176u,68u,0u,0u,1024u,&candidate));
     assert(tdma_priority_rx_candidate(200000176u,176u,68u,3u,0u,1024u,&candidate));
@@ -536,7 +621,7 @@ int main(void) {
     breadcrumb_tests();
     counters_tests();
     timing_tests();
-    printf("priority ingress: 23 case groups passed; lane=%zu record=%zu snapshot=%zu\n",sizeof(pure),sizeof(record),sizeof(snap));
+    printf("priority ingress: 24 case groups passed; lane=%zu record=%zu snapshot=%zu\n",sizeof(pure),sizeof(record),sizeof(snap));
     return 0;
 }
 '''

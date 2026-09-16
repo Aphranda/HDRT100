@@ -344,3 +344,8 @@ bool tdma_pio_spi_phys_copy_priority_rx(uint32_t epoch, uint32_t sequence,
 {
     return tdma_priority_rx_copy(&s_tdma_priority_rx, epoch, sequence, out);
 }
+bool tdma_pio_spi_phys_copy_priority_rx_live(uint32_t epoch, uint32_t sequence,
+    tdma_priority_rx_record_t *out)
+{
+    return tdma_priority_rx_copy_live(&s_tdma_priority_rx, epoch, sequence, out);
+}

@@ -214,12 +214,15 @@ bool tdma_priority_rx_snapshot(const tdma_priority_rx_t *lane, tdma_priority_rx_
     *out = value;
     return true;
 }
-bool tdma_priority_rx_copy(const tdma_priority_rx_t *lane, uint32_t epoch,
-    uint32_t sequence, tdma_priority_rx_record_t *out)
+static bool copy_record(const tdma_priority_rx_t *lane, uint32_t epoch,
+    uint32_t sequence, tdma_priority_rx_record_t *out, bool require_active)
 {
     if (!lane || !out || !epoch) return false;
     const uint32_t before = __atomic_load_n(&lane->guard, __ATOMIC_ACQUIRE);
     if (before & 1u) return false;
+    if (require_active && __atomic_load_n(lane->published +
+            offsetof(tdma_priority_rx_snapshot_t, active) / 4u, __ATOMIC_RELAXED) != 1u)
+        return false;
     const uint32_t active_epoch = __atomic_load_n(lane->published +
         offsetof(tdma_priority_rx_snapshot_t, epoch) / 4u, __ATOMIC_RELAXED);
     const uint32_t mask = __atomic_load_n(lane->published +
@@ -233,4 +236,14 @@ bool tdma_priority_rx_copy(const tdma_priority_rx_t *lane, uint32_t epoch,
         value.epoch != epoch || value.sequence != sequence) return false;
     *out = value;
     return true;
+}
+bool tdma_priority_rx_copy(const tdma_priority_rx_t *lane, uint32_t epoch,
+    uint32_t sequence, tdma_priority_rx_record_t *out)
+{
+    return copy_record(lane, epoch, sequence, out, false);
+}
+bool tdma_priority_rx_copy_live(const tdma_priority_rx_t *lane, uint32_t epoch,
+    uint32_t sequence, tdma_priority_rx_record_t *out)
+{
+    return copy_record(lane, epoch, sequence, out, true);
 }

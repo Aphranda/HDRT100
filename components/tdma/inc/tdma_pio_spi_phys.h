@@ -24,6 +24,10 @@
 bool tdma_pio_spi_phys_get_priority_rx_snapshot(tdma_priority_rx_snapshot_t *out);
 bool tdma_pio_spi_phys_copy_priority_rx(uint32_t epoch, uint32_t sequence,
     tdma_priority_rx_record_t *out);
+/* Same exact copy with active required under the record guard; no consumption.
+ * STOP revokes this read. All failures leave *out unchanged. */
+bool tdma_pio_spi_phys_copy_priority_rx_live(uint32_t epoch, uint32_t sequence,
+    tdma_priority_rx_record_t *out);
 /* Core1-only direct accounting read. The caller must already have disabled
  * this CPU IRQ; an enabled IRQ or wrong core is rejected without changing out.
  * Reads the serialized producer status without publishing or consuming data. */

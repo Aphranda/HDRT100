@@ -89,7 +89,12 @@ bool tdma_priority_rx_publish(tdma_priority_rx_t *lane, const tdma_priority_rx_r
  * Carrier wrap advances epoch atomically and retires earlier records while
  * preserving cumulative counters. Epoch exhaustion stops the lane until reboot. */
 bool tdma_priority_rx_snapshot(const tdma_priority_rx_t *lane, tdma_priority_rx_snapshot_t *out);
+/* Diagnostic exact copy remains readable after STOP while retained. */
 bool tdma_priority_rx_copy(const tdma_priority_rx_t *lane, uint32_t epoch,
+    uint32_t sequence, tdma_priority_rx_record_t *out);
+/* One bounded exact copy that also requires active in the same guard window.
+ * STOP revokes this read; all failures leave *out unchanged. No consumption. */
+bool tdma_priority_rx_copy_live(const tdma_priority_rx_t *lane, uint32_t epoch,
     uint32_t sequence, tdma_priority_rx_record_t *out);
 
 #endif

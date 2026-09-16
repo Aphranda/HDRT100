@@ -4,6 +4,7 @@
 #include "project_config.h"
 #include "tdma_runtime_owner.h"
 #include "vdc_dpll_manager.h"
+#include "vdc_priority_ingress.h"
 
 scpi_result_t scpi_sync_state_q(scpi_t *context)
 {
@@ -829,6 +830,53 @@ scpi_result_t scpi_cmd_system_tdma_priority_rx_timing_q(scpi_t *context)
     SCPI_ResultUInt32(context, timing.samples);
     for (uint32_t i = 0u; i < 4u; ++i)
         SCPI_ResultUInt32(context, timing.max_cycles[i]);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_priority_rx_consumer_q(scpi_t *context)
+{
+    tdma_ring_clock_snapshot_t ring;
+    tdma_priority_rx_snapshot_t lane;
+    vdc_priority_ingress_snapshot_t s;
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring) || ring.enabled ||
+        ring.adapter_started || !tdma_runtime_owner_get_priority_rx_snapshot(&lane) ||
+        lane.active || !vdc_dpll_manager_get_priority_ingress(&s)) {
+        scpi_port_push_exec_error(context, "VDC_PRIORITY_CONSUMER_REQUIRES_STOP");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, s.schema);
+    SCPI_ResultUInt32(context, s.active);
+    SCPI_ResultUInt32(context, s.epoch);
+    SCPI_ResultUInt32(context, s.have_record);
+    SCPI_ResultUInt32(context, s.service_count);
+    SCPI_ResultUInt32(context, s.copied_count);
+    SCPI_ResultUInt32(context, s.skipped_carrier_count);
+    SCPI_ResultUInt32(context, s.duplicate_polls);
+    SCPI_ResultUInt32(context, s.copy_retries);
+    SCPI_ResultUInt32(context, s.empty_polls);
+    SCPI_ResultUInt32(context, s.order_rejects);
+    SCPI_ResultUInt32(context, s.clock_failures);
+    SCPI_ResultUInt32(context, s.last_class);
+    SCPI_ResultUInt32(context, s.body_last_cycles);
+    SCPI_ResultUInt32(context, s.body_max_cycles);
+    SCPI_ResultUInt32(context, s.timing_samples);
+    scpi_sync_result_u64_parts(context, s.arrival_last_cycles);
+    scpi_sync_result_u64_parts(context, s.arrival_max_cycles);
+    SCPI_ResultUInt32(context, s.record.epoch);
+    SCPI_ResultUInt32(context, s.record.sequence);
+    scpi_sync_result_u64_parts(context, s.record.irq_entry_ticks);
+    scpi_sync_result_u64_parts(context, s.record.candidate_word);
+    static const char digits[] = "0123456789abcdef";
+    char hex[TDMA_PRIORITY_RX_MAILBOX_BYTES * 2u + 1u];
+    for (uint32_t field = 0u; field < 2u; ++field) {
+        const uint8_t *bytes = field ? s.record.mailbox : s.record.header;
+        for (uint32_t i = 0u; i < TDMA_PRIORITY_RX_MAILBOX_BYTES; ++i) {
+            hex[2u * i] = digits[bytes[i] >> 4u];
+            hex[2u * i + 1u] = digits[bytes[i] & 15u];
+        }
+        hex[sizeof(hex) - 1u] = '\0';
+        SCPI_ResultText(context, hex);
+    }
     return SCPI_RES_OK;
 }
 
