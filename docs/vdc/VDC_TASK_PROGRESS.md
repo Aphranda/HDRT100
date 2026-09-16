@@ -32,6 +32,60 @@ Last updated: 2026-09-17
 已由真实 pre-commit 硬件门禁核验，见 `VDC-PROGRESS-20260917-001`。严格质量告警仍保留，
 不授予单圈同步编码、三从闭环或锁相完成。
 
+### VDC-PROGRESS-20260917-003：P0 瞬态拒绝恢复与 typed 同步接收切片
+
+- 代码与匹配凭证已提交为 `e6861f8`；`check-staged` 和真实 pre-commit 均核对本轮
+  源码指纹通过。文档独立提交，文档检查器与 18 项自回归通过；既有
+  `TDMA-FLIGHT-BITMAP-01` 登记格式 WARN 保留。独立代码审查记录为
+  `typed-ingress-code-review.json`，限定本轮 body 解码保留范围，无提交前阻塞。
+- 对应 `VDC-FAST-001/002`；用户要求先修 P0，再回到同步特等席。以下次数、资源、
+  build 和统计均为本轮快照，非产品事实源。未修改物理接线或 OTA 实现。
+- 纠正前述故障归因：r1/r2 均在下一候选的 `SYST:TDMA:RING:TOPology` 配置阶段
+  收到 `<timeout>` 和错误队列 `-200`，尚未开始该候选发送；不是最后显示的成功边失效。
+  P0 邻接判据采用 DMA 活动，探测流 `rx_frames=0`/`magic_fail>0` 不等于该判据失败。
+  NO2→NO3 原样定段复测 16 轮中 15 轮成功，失败轮反馈 session 为零且 STOP
+  config/applied 均为 154；因此不能归因于活动反馈会话或 RJ45 被移动。
+  具体固件拒绝分支（快照、锁、待处理意图或 STOP 退休等）仍未知。
+- `configure_pair_topology()` 复用 `_set_stopped_topology()` 的既有有界恢复：
+  清楚记录错误队列基线与 session，只有已知瞬态拒绝可有限重试，每次重新证明 STOP，
+  必须收到精确 topology tuple 和新的 applied generation 后才 ARM。未知超时、
+  持续拒绝、活动 session、旧 generation 均失败；原快速等待参数和邻接判据不变。
+  已移除早期逐对清 session 的尝试；该命令的 `"OK",0` 被通用读取器拆成 `,0`，
+  不能把当时记录的 `<timeout>` 当成有效 ACK，也不据此宣称板端拒绝清会话。
+- 修复后同段 16/16 轮成功，其中一次真实首尝试拒绝经有界恢复成功，四板清理均通过。
+  修复前后原件分别在 `out/HardwareAcceptance/20260917/p0-pair-repeat.json` 和
+  `p0-pair-repeat-fixed.json`。完整失败保留在 `dpll-typed-sync-r1/p3/p0t-topology/`
+  与 `dpll-typed-sync-r2/p3/p0t-topology/`；本次恢复不能追认旧轮通过。
+- 主线新增独立同步类 `TDMA_PROCESS_IMAGE_VDC_PRIORITY_SYNC_MESSAGE_CLASS`、
+  定长 `VDC_PRIORITY_CODEC_BODY_SIZE` body 编解码及 Core1 有界 typed 解码保留。
+  普通 process-image whitelist 不变；真实邮箱外层 source/target/header/CRC
+  仍由 TDMA priority validator 检查。codec 的 CRC helper 仅覆盖 body，不替代邮箱 CRC。
+  成功/拒绝计数保留在内部快照，未新增 SCPI 输出；无效 body 不覆盖上次解码记录，
+  重复 carrier 不重复解码，换 ARM epoch 清理状态。记录未用于匹配或 DCO 授权。
+- Host：P0/calibration 三组 97 项通过；codec/priority RX/Core1 ingress 三组 89 项通过。
+  本轮修复了 ingress 测试夹具漏链接生产 codec 的错误，并增加 typed 成功、拒绝、重复、
+  普通类隔离及 STOP/ARM 用例。A/B/Boot Release 与 Flash link 检查通过。
+  独立 A/B 资源复核：主 RAM 保留 heap 后 46728 B（比前一切片少 64 B），scratch gap
+  24 B；既有 follower/NO1/DPLL Core1 路径分别为 2716/2872/2012 B，未增长。
+  仅为已审正常 persona 的静态路径分析，不代表全局栈、运行时水位或 WCET 证明。
+- 当前源码四板 P3：build `20260916174836`，1200 个源文件，指纹
+  `b928dbe4460a4ee49493438a016e5caa3ddeb7cb46caee2431196b9047ed95ef`。
+  固定 `QUICK_DIAGNOSTIC` 范围 `PASS_WITH_WARNINGS`，P0/P1/P2/P3/T0 为 PASS，
+  T1/T2/T3/TDMA 为 PASS_WITH_WARNINGS，DPLL 为 SKIPPED；INFO/WARN/ERROR/FATAL
+  分别为 30/24/0/0。完整环序仍为 NO1→NO2→NO3→NO4→NO1，P0 清理和最终四板
+  stopped handoff 有效。原 TDMA `passed/closed_loop_passed/realtime_gate_passed`
+  均 false，`diagnostic_passed` true；`strict_gates_passed` false，严格失败保留。
+- 证据根 `out/HardwareAcceptance/20260917/dpll-typed-sync-r3/`：
+  `p3/acceptance.json`、`p3/alarms.json`、`p3/diagnostic.json`、
+  `p3/p0t-topology/summary.json`、`p3/tdma-process-image/summary.json`、
+  `p3/tdma-stopped-handoff.json`、`typed-sync-resource-review.json`。
+  本轮硬件命令从既有 Windows 原生 Python/PowerShell 会话继续执行，以保留串口流程：
+  `python tools/hardware_acceptance/p3_hardware_acceptance.py run --tdma-only --diagnostic-continue --out-dir out/HardwareAcceptance/20260917/dpll-typed-sync-r3/p3`。
+- 下一 gate：P0 编排缺口已闭合，回到 `VDC-FAST-001/002` 的 NO1 确定性 typed 发布，
+  先明确时间单位、绑定代际的预安装/失效和完整邮箱验证。后续 `VDC-FAST-003` 接入
+  Core1 完整事件匹配、本地 delay 与 DCO。当前没有实板 typed TX 数据，不能把
+  普通邮箱回归、body 解码或快速 P3 凭证说成同步单圈交付、三从闭环或锁相。
+
 ### VDC-PROGRESS-20260917-002：Core1 priority RX 原始记录消费接通
 
 - 对应 `VDC-FAST-002`；本切片只闭合“TDMA priority RX 保全 → Core1 读取”的入站边界。
