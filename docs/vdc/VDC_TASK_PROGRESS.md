@@ -32,6 +32,51 @@ Last updated: 2026-09-17
 已由真实 pre-commit 硬件门禁核验，见 `VDC-PROGRESS-20260917-001`。严格质量告警仍保留，
 不授予单圈同步编码、三从闭环或锁相完成。
 
+### VDC-PROGRESS-20260917-007：observer DMA 排水修复与三从有限窗口持续匹配
+
+- TODO task ID：`VDC-FAST-002`、`VDC-FAST-003`；父任务仍 IN PROGRESS。以下数值均为本轮
+  快照，非产品事实源。本切片解除本地事件 FIFO 排水阻塞，尚未接入 typed 本地 DCO。
+- 代码、测试及对应四板凭证已提交为 `102bbd7`；`check-staged`、手动及真实 commit hook
+  均核验通过。独立资源、软件和两轮硬件证据复核未发现本切片阻断；文档分离提交。
+- TDMA owner 为三路 observer 配置固定 SRAM DMA ring，Core1 在既有 TDMA/VDC/DPLL
+  边界有界消费；history/feed 仍由 Core1 前景单写。DMA 使用 NORMAL 有限完成计数，
+  不使用 RP2350 ENDLESS 模式下不会递减的 `TRANS_COUNT`；整圈覆盖、复制后覆盖、
+  总线/计数异常均使 epoch 失效。STOP 先停 SM，再有界停 DMA；超时保留 channel/ring，
+  阻止 persona/FIFO 复用并允许重试。DMA 不凭空 FIFO 或稳定计数声明无在途旧词。
+- 中间写指针版本在 `observer-dma-fix-p3-r2/` 通过基础 quick P3，专项
+  `observer-dma-pointer-match/` 三从匹配 53/28/6 次后退休；不能作为持续性成功。
+  最终版本改用完整完成计数并按 DMA 容量设置 join 等待窗口，保留严格超时退休，
+  未采用同 epoch 清 pending 后继续的方式。原失败和中间证据不删除、不追认为最终凭证。
+- 软件：真实 device DMA block/STOP helper 提取并链接真实 observer 的 28 项通过，
+  覆盖 full/multi-wrap、复制竞争、计数模式/耗尽、claim 回滚、STOP 超时/重试及在途旧词；
+  observer 回归 24 项、matcher/priority RX 回归 264 项通过。Release A/B/Boot 与 Flash
+  link 检查通过。资源复核主 RAM 余 39368 B，净减少 772 B；observer 最深整合栈
+  2592/3072 B，既有 follower/NO1 路径无新增超限，可选 TRIGGER_MEASURE 仍禁用。
+- 当前源码四板 quick P3：`out/HardwareAcceptance/20260917/observer-dma-normal-p3/`，
+  固定 P0/P3/T3/TDMA，复用既有线序并核对 UID/build；耗时约 200 s，
+  `PASS_WITH_WARNINGS`，INFO/WARN/ERROR/FATAL=25/15/0/0。原严格 TDMA
+  `passed/closed_loop_passed/realtime_gate_passed=false`、启动 barrier 超时与诊断继续
+  原件保留；快速分级通过不等于严格质量通过。build_id 仍为 `20260916224543`，
+  新包 SHA256 为 `e6c5041cac94dfad21d01c422a5229147487ae8d706085c9fa35d558ee6cc759`，
+  当前源码指纹 `bab6480d7031cdbe3c0d98e7958fa1b1f2020ee0a13d302cb292d855cd3c17b8`；
+  必须用当前 receipt，不能仅以相同 build_id 复用中间版凭证。
+- 同源码静默专项 `observer-dma-normal-match-r1/`（3 s）和 `-r2/`（8 s）均通过；
+  运行查询数均为零，全部 STOP 后读取并恢复配置。三从成功匹配数分别为
+  103/99/68 与 237/273/198。第二轮 observer joined 为 8094/8094/8095，末态
+  reason/fault 均零；三从最后成功匹配事件均为 8093，与最新 retained RX 相同。
+  matcher reason=STOP 是正常停止退休，不是运行中失效。启动 SEQUENCE 恢复记录仍保留，
+  不能宣称全程无错、每帧匹配或单圈期限已达标。
+- 证据：`observer-dma-resource/resource-review-final.json`、`match-continuity.json`
+  与两轮 `input-probe.json`；测试原件 `out/pytest/event-dma-main-r1/`、
+  `out/pytest/observer-dma-final-main/` 及同日 `observer-dma-*-host.log`。实测最大服务
+  间隔/耗时仍需后继预算优化；保守 age 下界也未证明长期 epoch 无限存活。本轮残差含
+  本地未闭环绝对偏移，不应当作链路 delay 或锁相误差结论。
+- 下一 gate：进入 `VDC-FAST-003` 的独立 typed 本地 rate estimator/DCO 切片，复用
+  `dpll-priority-match-r1/next-dco-plan.json`。从两个同生命周期有效事件形成带单位的
+  ppb 区间，以互斥模式在 Core1 committed guard 内复验并应用真实本地 DCO；不将 ns
+  residual 直接当 ppb，也不伪造远端 model token。随后独立测试、Release、四板 quick P3
+  和真实 DCO/斜率专项；不重做 P0T，不将启动首帧和 100 ns 精度反向设为当前前置。
+
 ### VDC-PROGRESS-20260917-006：精确源事件匹配与本地观测 FIFO 阻塞
 
 - TODO task ID：`VDC-FAST-002`、`VDC-FAST-003`。

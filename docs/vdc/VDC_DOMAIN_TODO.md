@@ -9,11 +9,11 @@ Last updated: 2026-09-17
 本文只维护当前 VDC 架构迁移的任务、依赖和退出门禁。稳定语义见 Architecture，实施证据
 见 Task Progress，重构前内容已归档到 `docs/legacy/vdc/`。
 
-## 下次接续入口：精确匹配已接入，先解决本地事件 FIFO 溢出
+## 下次接续入口：三从有限窗口持续匹配通过，接入本地 DCO
 
 本节为用户要求保留的执行断点；长期目标仍是 `VDC-LONGTERM-001`，不缩减为原始
 邮箱接收或单次 DCO 更新。下一次“继续”从本节开始，详细实测见
-[当前匹配进度](VDC_TASK_PROGRESS.md#vdc-progress-20260917-006精确源事件匹配与本地观测-fifo-阻塞)及
+[当前匹配进度](VDC_TASK_PROGRESS.md#vdc-progress-20260917-007observer-dma-排水修复与三从有限窗口持续匹配)及
 [RAM 进度 043](VDC_TASK_PROGRESS.md#vdc-progress-20260916-043refmem-缩容专项完成与主线接续)。
 
 **当前状态：** 独立原始接收入口、Core1 单次 exact-sequence 消费、栈修复、空通道调度减负及 STOP 后分段计时已实现，
@@ -29,11 +29,11 @@ VDC 从不执行恢复为可执行是已测收益，不能据此宣称三从已�
 
 **最新接续点：** Core1 live handoff、完整源事件直接查表、生命周期复验、带暂定
 正向 CS delay 的 residual 区间已实现，软件/资源和当前源码固定范围 quick P3
-通过；四板匹配专项未通过，父任务不标 DONE。已证明参考载荷持续送达，但本地
-事件计数器 FIFO 出现 RXSTALL，observer 拒绝失真时间轴后不再提供匹配输入。
-下一步先在 TDMA owner 内解决原始事件取出与前景消费的服务间隔问题，保留
-FIFO 溢出/epoch 失效，不清 sticky 后冒充同一时间轴。只有三从稳定得到匹配
-残差后才接 DCO；该阻塞不是线序扫描或首帧精度问题。
+通过；后继 observer DMA 排水、完成计数和 STOP 生命周期修复已完成同源码
+quick P3 与三从有限窗口匹配专项。三从匹配已延续到运行末段，父任务仍不标 DONE。
+下一步接独立 typed 本地频率估计和真实 DCO 应用；保留溢出/epoch 失效，
+不清 sticky 后冒充同一时间轴。匹配通过不代表逐帧必达、DCO 闭环或锁相，
+调度预算和长时间连续性继续作为主线质量跟踪。
 
 **当前插入任务：** RefMem 缩容、兼容迁移及固定范围快速 P3 调试验收已完成，见
 [REFMEM 执行待办](../refmem/REFMEM_DOMAIN_TODO.md#当前优先插入任务refmem-静态缩容)。
@@ -48,27 +48,28 @@ FIFO 溢出/epoch 失效，不清 sticky 后冒充同一时间轴。只有三从
 | 执行顺序 | 任务/状态 | 完成判据与下一动作 |
 |---|---|---|
 | 已完成切片 | `REFMEM-RAM-001/002/003/004`，DONE | 缩容、兼容工具、四板布局专项及固定范围快速 P3 调试验收完成；严格质量失败保留至下项，不继续扩大 RAM 完成条件。见 RefMem TODO 与 `REFMEM-TASK-20260916-001`。 |
-| 当前下一步 | 收敛 `VDC-FAST-002/003`，IN PROGRESS | 直接接收、完整运行绑定与同事件 residual 已实现；先修本地 observer FIFO 取出服务间隔，复用已验收显式 TAP 和已装载 delay，完成三从持续匹配专项。运输与本地事件历史分别验收。 |
+| 当前下一步 | 收敛 `VDC-FAST-003`，IN PROGRESS | 直接接收、完整运行绑定、同事件 residual 和 observer DMA 修复已通过有限窗口专项；接入互斥 typed 本地频率估计与有界 DCO commit，证明三从真实采用与斜率改善。复用显式 TAP 和已装载 delay。 |
 | 随后 | 完成 `VDC-FAST-001/002` | 补齐同圈保全/消费与资源预算实测，继续区分 offer、DMA selection、线上记录与 Core1 消费；不能用 IRQ-entry→read 代替物理边沿测量。配置、delay 和上下文提前安装，无普通解析、RefMem 分片或 RTOS 前置。 |
 | 随后 | `VDC-FAST-003` | 事件序号直接索引，复验完整序号/代际，计算时间差和本地 delay，实际应用 DCO；NO1 本地 PI 并发布参考，三从本地跟踪，ACK 关联收到/采用事件。 |
 | 最后 | 精度、恢复与 VDC 发布 | internal 先证明持续斜率收敛，再以四路实际波形验证用户精度目标；验证坏帧跳过、失联/恢复，以及 VDC 时间、质量、有效性和代际的一致发布。 |
 
 恢复工作时按以下顺序操作：
 
-1. 阅读本节和 `VDC-PROGRESS-20260917-005/006`；检查 `git status` 与实际 diff，
+1. 阅读本节和 `VDC-PROGRESS-20260917-007`；检查 `git status` 与实际 diff，
    保留另一设备合入的单板工作及后继改动。最新提交与源码指纹以进度和真实凭证为准。
 2. P0 失败和修复前后定段原始证据均保留；不以恢复成功推定固件内部拒绝原因，
    不再把普通探测流的 magic/帧统计当成邻接失败原因，也不清除反馈会话绕过准入。
 3. RefMem 缩容不重复进行；P0 修复闭合后继续复用已知线序和 delay，不重复寻优，不修改 OTA。
 4. 已实现专用 live handoff、绑定和 `TDMA_EVENT_HISTORY_CAPACITY` 内源事件直接定位；
-   不重复实现，不把载荷圈改作源事件。先解决前景来不及读取有限 observer FIFO 的问题，
-   若采用 IRQ 原始暂存，须保持 history/feed 的 Core1 前景单写者、固定容量与生命周期隔离。
+   不重复实现，不把载荷圈改作源事件。observer FIFO 已由 TDMA-owned DMA 排水，
+   保持有限完成计数、复制后覆盖复验、history/feed 前景单写与 STOP 超时资源保护。
    显式 TAP 配置沿用已验收原件，默认关闭不会记录/恢复纯 SEQUENCE 故障；不得由 recovery
    零计数推定未失败。当前 reverse-DATA 矩阵转置后只作暂定正向 CS delay，不能错用反向索引。
    delay 加在远端区间，实际 DCO 模型投影保留上下界；基础闭环
    从稳定有效样本开始，启动首帧精细证明不重新成为前置。正常 NO1 连续模型修订
    不要求固定远端 model token，候选须采用 typed 路线自身的跨代授权语义。
-5. 补齐期限、同事件残差后接本地 DCO；
+5. 基于已验收同事件残差接本地 DCO；从事件间隔计算 ppb 区间，不能将 ns 直接当 ppb，
+   不伪造远端 model token；期限质量继续独立跟踪。
    每个功能切片独立测试、构建、四板 P3 及专项。严格运输/调度失败继续单独记录，
    不把其自动加入无关切片范围，也不能宣称严格通过或锁相。
 
@@ -84,7 +85,7 @@ DATA FIFO 仍只有 DMA 读取。SCPI 只触发运行流程，板端记录、全
 P0–P3、T0–T3、TDMA 和 DPLL 的分级实现及说明见
 `tools/hardware_acceptance/p3_alarm_policy.py` 与
 `docs/check/DOCS_EXECUTION_CONSTRAINTS.md` 的 `EXE-ACCEPT-01`；
-最新验证状态由 `VDC-PROGRESS-20260917-006` 承接，固件主线方向不变。
+最新验证状态由 `VDC-PROGRESS-20260917-007` 承接，固件主线方向不变。
 
 ## 状态规则
 
@@ -274,7 +275,7 @@ TDMA/PIO/DMA 承担数据运输，DPLL 承担时钟校正；从板接收不依�
 |---|---|---|---|
 | `VDC-FAST-001` | IN PROGRESS | 收敛锁相最小预编码记录及确定性运输方案：逐字段说明来源、动态性和必要性；优先复用现有固定同步字段，配置/会话/路径等上下文提前安装；明确事件序号、时间值、有效性、代际及误差界的最小表示，禁止用截断或取中点隐藏不确定度。给出逐事件生成、发送、到站保全、匹配与回收的 owner/期限/容量及旧路径迁移点。退出须有可实施的布局、资源预算及独立审查；不能只改 OSAL 时钟或把整组预备误称逐圈保全。 | 已有 TDMA 特等席架构与四板通路；沿用从板本地跟踪。 |
 | `VDC-FAST-002` | IN PROGRESS | 接入预编码时间戳的确定性装载与独立接收保全。硬件/TDMA owner 按事件和授权边界填充、选择固定记录，不依赖 RTOS 每片发布或普通 overlay worker 每事件重建；在通用 RX 工位和可丢弃镜像 FIFO 之前保全记录。证明 DMA 覆盖期限、固定队列容量与消费能力；缺口、无效和溢出显式记录，过期数据不得伪装为新样本。每个实现切片单独通过软件、资源、当前源码四板 quick P3 和运输专项。 | `VDC-FAST-001`；NO1 Core1 typed 发布、三从真实接收与 IRQ 同步入口见 `VDC-PROGRESS-20260917-004/005`，wire/owner 边界以 `VDC-PRIORITY-01` pending 登记。单圈期限、实时匹配消费与严格运输/调度质量尚未闭合，不能据交接计数标 DONE。 |
-| `VDC-FAST-003` | IN PROGRESS | 将最小同事件配对接入 Core1/SyncDpllFB：按固定偏移读取已编码字段，以事件序号直接索引本地记录并复验完整序号/代际，再执行有界差值、delay 与控制更新；不遍历历史、不等待 Core0、不进行通用分片重组。Core0 保留配置、低频元数据和诊断；迁移缓存明确唯一 writer。实测新增及完整 Core1 WCET，验证重复、缺失、回绕、代际切换、STOP/ARM，并以三从实际 DCO 与 internal 残差闭环验收。 | `VDC-FAST-002`；观测型匹配实现与专项失败见 `VDC-PROGRESS-20260917-006`，先闭合本地事件 FIFO 保全；未接 DCO，不标完成。 |
+| `VDC-FAST-003` | IN PROGRESS | 将最小同事件配对接入 Core1/SyncDpllFB：按固定偏移读取已编码字段，以事件序号直接索引本地记录并复验完整序号/代际，再执行有界差值、delay 与控制更新；不遍历历史、不等待 Core0、不进行通用分片重组。Core0 保留配置、低频元数据和诊断；迁移缓存明确唯一 writer。实测新增及完整 Core1 WCET，验证重复、缺失、回绕、代际切换、STOP/ARM，并以三从实际 DCO 与 internal 残差闭环验收。 | `VDC-FAST-002`；observer DMA 修复与三从有限窗口持续匹配见 `VDC-PROGRESS-20260917-007`，下一切片接入 typed 本地频率估计和真实 DCO 应用；不标完成。 |
 | `VDC-FLIGHT-001` | IN PROGRESS | NO1 发布闭环事件时间戳，各从保留指定主机的新数据；当前源码四板证明来源、会话、事件序号、编码后数据一致及持续接收，其他来源不能覆盖。 | 现有四板 TDMA 通路；由 `VDC-LOCAL-001/002` 具体落地。 |
 | `VDC-FEEDBACK-001` | IN PROGRESS | 改按本地跟踪路线闭合：各从收到 NO1 时间戳并返回 ACK，使用本地路径 delay 和对应事件观测，由 SyncDpllFB 实际更新 DCO。集中式旧反馈/命令成果见历史进度，不能替代新路线验收。 | `VDC-LOCAL-001/002/003/004`；不依赖集中式 AUTO 完成。 |
 | `VDC-DRIFT-001` | PENDING | 先验证频率校正的方向、量纲、限幅和更新间隔；各从 internal 残差的持续斜率趋近零，并与自身实际 DCO 更新对应。 | `VDC-FEEDBACK-001`。 |
