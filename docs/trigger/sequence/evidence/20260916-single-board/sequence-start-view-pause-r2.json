@@ -1,0 +1,5874 @@
+{
+  "passed": true,
+  "scope": "single_board_rj45_dut_vna_functional_cycle",
+  "functional_cycle_verified": true,
+  "tdma_stability_verified": false,
+  "known_down_running_optimization_deferred": true,
+  "multi_board_verified": false,
+  "independent_input_count_verified": false,
+  "waveform_verified": false,
+  "rf_path_verified": false,
+  "p3_receipt": false,
+  "deferred_observations": [],
+  "started_at": "2026-09-16T13:02:47.701321+00:00",
+  "tool_sha256": "88c7b4ef1fd3a0f4716c77f16e63d6fd769c6e4777cf6d0e2d077dc1a22632a1",
+  "settings": {
+    "port": null,
+    "visa_resource": null,
+    "serial_number": "839E1AE79EA20F31",
+    "build": "20260916124155",
+    "out": "out\\node-sequence\\sequence-start-view-pause-r2.json",
+    "duration": 30,
+    "minimum_events": 9,
+    "repeat": 0,
+    "pause_resume": true,
+    "gui_control": true,
+    "timeout": 3,
+    "poll": 0.05,
+    "quiet": 0.2,
+    "source_hz": 50.0,
+    "gateway_pulse_us": 1000,
+    "gateway_timeout_ms": 5000,
+    "dut_slot": 2,
+    "dut_instance": 5,
+    "vna_slot": 3,
+    "vna_instance": 7,
+    "operating_level": 7,
+    "node_count": 2,
+    "local_slot": 0,
+    "reference_slot": 0,
+    "probe_phase_cycles": 10,
+    "train_cycles": 4096,
+    "arm_wait": 3,
+    "start_wait": 2
+  },
+  "transcript": [
+    {
+      "command": "*IDN?",
+      "response": "NO.1,DHRT100,839E1AE79EA20F31,0.1.0",
+      "at": 7772.187,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:FW:BUILD?",
+      "response": "\"20260916124155\"",
+      "at": 7772.187,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "TRIG:STOP",
+      "response": "1",
+      "at": 7772.25,
+      "elapsed": 0.06199999999989814
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7772.312,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"IDLE\",4,4,8,7,7,0,7,7,7,7,9,79,79,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7772.312,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:RING:STOP",
+      "response": "\"OK\"",
+      "at": 7772.328,
+      "elapsed": 0.06199999999989814
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7772.39,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:RING:STAT?",
+      "response": "0,0,0,0,0,0,12080,0,0,13070,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,18,18",
+      "at": 7772.39,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:LINK OFF",
+      "response": "1",
+      "at": 7772.39,
+      "elapsed": 0.07799999999951979
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7772.468,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:TRIG 8,0,1,1",
+      "response": "1",
+      "at": 7772.468,
+      "elapsed": 0.06300000000010186
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7772.531,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ SP8T,0,1,2,3,4,5,6,7",
+      "response": "1",
+      "at": 7772.531,
+      "elapsed": 0.06199999999989814
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7772.593,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:ACT SP8T",
+      "response": "1",
+      "at": 7772.593,
+      "elapsed": 0.06300000000010186
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7772.656,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:OUTPUT 7,0,NONE,10,0",
+      "response": "1",
+      "at": 7772.656,
+      "elapsed": 0.06199999999989814
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7772.718,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:CODE 0,0",
+      "response": "1",
+      "at": 7772.718,
+      "elapsed": 0.06300000000010186
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7772.781,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:CODE 1,1",
+      "response": "1",
+      "at": 7772.781,
+      "elapsed": 0.06199999999989814
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7772.843,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:CODE 2,2",
+      "response": "1",
+      "at": 7772.843,
+      "elapsed": 0.06300000000010186
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7772.906,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:CODE 3,3",
+      "response": "1",
+      "at": 7772.906,
+      "elapsed": 0.06199999999989814
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7772.968,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:CODE 4,4",
+      "response": "1",
+      "at": 7772.968,
+      "elapsed": 0.06300000000010186
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7773.031,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:CODE 5,5",
+      "response": "1",
+      "at": 7773.031,
+      "elapsed": 0.06199999999989814
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7773.093,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:CODE 6,6",
+      "response": "1",
+      "at": 7773.093,
+      "elapsed": 0.06300000000010186
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7773.156,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:CODE 7,7",
+      "response": "1",
+      "at": 7773.156,
+      "elapsed": 0.06199999999989814
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7773.218,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:SOUR BUS,RIS",
+      "response": "1",
+      "at": 7773.218,
+      "elapsed": 0.06300000000010186
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7773.281,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:REPEAT 0",
+      "response": "1",
+      "at": 7773.281,
+      "elapsed": 0.06199999999989814
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7773.343,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:NODE:ROLE 2,5,DUT",
+      "response": "\"STAGED\"",
+      "at": 7773.343,
+      "elapsed": 0.07800000000042928
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7773.421,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:NODE:ROLE 3,7,VNA",
+      "response": "\"STAGED\"",
+      "at": 7773.421,
+      "elapsed": 0.07899999999972351
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7773.5,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:NODE:ACT",
+      "response": "\"ACTIVE\",1,10,1023,0,3849125392,0,1,0,4,1023,3376094980,4,0,0,10,1,1,0,0,0,0,0,0,10,1,2,5,1023,3376094980,3,0,0,10",
+      "at": 7773.5,
+      "elapsed": 0.07800000000042928
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7773.578,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:OPMODE:STAGE 7",
+      "response": "7,10000000,1000000,4096,0,1383759744",
+      "at": 7773.578,
+      "elapsed": 0.06199999999989814
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7773.64,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:OPMODE:APPLY",
+      "response": "7,10000000,1000000,4096,0,1383759744",
+      "at": 7773.64,
+      "elapsed": 0.06300000000010186
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7773.703,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:RING:TOPOLOGY 2,0,0",
+      "response": "2,0,0",
+      "at": 7773.703,
+      "elapsed": 0.06199999999989814
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7773.765,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CAL:TOPOLOGY:PROBE 1,10",
+      "response": "1,10",
+      "at": 7773.765,
+      "elapsed": 0.07799999999951979
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7773.843,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "SYST:TDMA:FLIGHT:MODE 1",
+      "response": "\"OK\",1",
+      "at": 7773.859,
+      "elapsed": 0.07799999999951979
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7773.937,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "CONF:SEQ:LINK LOOPBACK,2,3,IN1,OUT4,1000,5000,RIS",
+      "response": "1",
+      "at": 7773.953,
+      "elapsed": 0.07799999999951979
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7774.031,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,1,0,8,10,0,0,0,0,0,0,0,0,79,2,3,1,8,1000,5000,0,0",
+      "at": 7774.046,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:REPEAT?",
+      "response": "0,10,1",
+      "at": 7774.046,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"IDLE\",4,4,8,7,7,0,7,7,7,7,9,79,79,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7774.062,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "response": "0,0,0,0,0",
+      "at": 7774.062,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "SYST:TDMA:FLIGHT:MODE?",
+      "response": "2",
+      "at": 7774.078,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ? SP8T",
+      "response": "\"SP8T\",4294967295,2876574461,8,0,0,1,2,3,4,5,6,7",
+      "at": 7774.078,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:CODE? 0",
+      "response": "0,0",
+      "at": 7774.078,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:CODE? 1",
+      "response": "1,1",
+      "at": 7774.078,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "READ:SEQ:CODE? 2",
+      "response": "2,2",
+      "at": 7774.093,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:CODE? 3",
+      "response": "3,3",
+      "at": 7774.093,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:CODE? 4",
+      "response": "4,4",
+      "at": 7774.109,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:CODE? 5",
+      "response": "5,5",
+      "at": 7774.109,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:CODE? 6",
+      "response": "6,6",
+      "at": 7774.125,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:CODE? 7",
+      "response": "7,7",
+      "at": 7774.125,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:SOUR?",
+      "response": "\"BUS\",\"RISING\"",
+      "at": 7774.14,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:OUTPUT?",
+      "response": "7,0,\"NONE\",10,0,5,1",
+      "at": 7774.14,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:NODE:ROLE? 5",
+      "response": "5,\"DUT\",1,1,152,11,5,152,11,5",
+      "at": 7774.14,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NODE:ROLE? 7",
+      "response": "7,\"VNA\",1,1,152,3,3,152,3,3",
+      "at": 7774.156,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,1,0,8,10,0,0,0,0,0,0,0,0,79,2,3,1,8,1000,5000,0,0",
+      "at": 7774.171,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:RING:STOP",
+      "response": "\"OK\"",
+      "at": 7774.203,
+      "elapsed": 0.06199999999989814
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7774.265,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "SYST:TDMA:RING:STAT?",
+      "response": "0,0,0,0,0,0,12080,0,0,13070,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,21,21",
+      "at": 7774.281,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:RING:ARM",
+      "response": "\"OK\"",
+      "at": 7774.281,
+      "elapsed": 0.06199999999989814
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7774.343,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:RING:STAT?",
+      "response": "1,2,0,0,0,0,12080,0,1,13070,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,22,22",
+      "at": 7774.343,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "SYST:TDMA:RING:TRAIN 4096",
+      "response": "4096",
+      "at": 7774.359,
+      "elapsed": 0.06199999999989814
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7774.421,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:RING:START",
+      "response": "\"OK\"",
+      "at": 7774.625,
+      "elapsed": 0.06199999999989814
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7774.687,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "SYST:TDMA:RING:STAT?",
+      "response": "1,2,0,0,1,1,12122,0,1,13116,34,28,601185486,33678698,34,0,56,8,2,497564520,164,486008348,164,0,34,15,0,0,0,0,0,0,0,0,0,4294967295,0,0,22,22",
+      "at": 7774.703,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "TRIG:START",
+      "response": "1",
+      "at": 7774.718,
+      "elapsed": 0.06300000000010186
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7774.781,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,8,10,5,5,0,43,1,0,1,1,0,2,3,1,8,1000,5000,0,0",
+      "at": 7774.796,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,0,0,1,4294967295,4294967295,4294967295,4294967295,0,0,0,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7774.812,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,8,10,5,5,1,88,2,0,1,1,1,2,3,1,8,1000,5000,0,0",
+      "at": 7774.89,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,1,1,2,1,1,1,1,0,1,1,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7774.906,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,8,10,5,5,2,127,4,0,2,2,2,2,3,1,8,1000,5000,0,0",
+      "at": 7774.968,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,2,2,3,2,2,2,2,0,2,2,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7774.984,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,8,10,5,5,2,165,5,0,3,3,2,2,3,1,8,1000,5000,0,0",
+      "at": 7775.046,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,2,2,3,2,2,2,2,0,2,2,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7775.062,
+      "elapsed": 0.03099999999994907
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,8,10,5,5,2,207,5,0,3,3,2,2,3,1,8,1000,5000,0,0",
+      "at": 7775.14,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,2,2,3,2,2,2,2,0,2,2,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7775.156,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,8,10,5,5,2,247,5,0,3,3,2,2,3,1,8,1000,5000,0,0",
+      "at": 7775.218,
+      "elapsed": 0.032000000000152795
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,3,3,4,3,3,3,3,0,3,3,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7775.25,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,8,10,5,5,3,288,7,0,4,4,3,2,3,1,8,1000,5000,0,0",
+      "at": 7775.312,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,3,3,4,3,3,3,3,0,3,3,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7775.328,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,8,10,5,5,4,327,8,0,4,4,4,2,3,1,8,1000,5000,0,0",
+      "at": 7775.406,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,4,4,5,4,4,4,4,0,4,4,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7775.421,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,8,10,5,5,4,369,9,0,5,5,4,2,3,1,8,1000,5000,0,0",
+      "at": 7775.484,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,4,4,5,4,4,4,4,0,4,4,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7775.5,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,8,10,5,5,5,410,10,0,5,5,5,2,3,1,8,1000,5000,0,0",
+      "at": 7775.578,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,5,5,6,5,5,5,5,0,5,5,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7775.593,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,8,10,5,5,5,453,11,0,6,6,5,2,3,1,8,1000,5000,0,0",
+      "at": 7775.671,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,5,5,6,5,5,5,5,0,5,5,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7775.687,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,8,10,5,5,6,496,12,0,6,6,6,2,3,1,8,1000,5000,0,0",
+      "at": 7775.75,
+      "elapsed": 0.03099999999994907
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,6,6,7,6,6,6,6,0,6,6,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7775.781,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,8,10,5,5,6,535,13,0,7,7,6,2,3,1,8,1000,5000,0,0",
+      "at": 7775.843,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,6,6,7,6,6,6,6,0,6,6,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7775.859,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,8,10,5,5,7,575,14,0,7,7,7,2,3,1,8,1000,5000,0,0",
+      "at": 7775.937,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,7,7,0,7,7,7,7,0,7,7,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7775.953,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,8,10,5,5,7,618,15,0,8,8,7,2,3,1,8,1000,5000,0,0",
+      "at": 7776.031,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,7,7,0,7,7,7,7,0,7,7,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7776.046,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,8,10,5,5,8,662,16,0,8,8,8,2,3,1,8,1000,5000,0,0",
+      "at": 7776.109,
+      "elapsed": 0.03099999999994907
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,0,0,1,0,0,0,0,1,8,8,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7776.14,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,8,10,5,5,8,699,17,0,9,9,8,2,3,1,8,1000,5000,0,0",
+      "at": 7776.203,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,1,1,2,1,1,1,1,1,9,9,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7776.218,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,8,10,5,5,9,736,19,0,10,10,9,2,3,1,8,1000,5000,0,0",
+      "at": 7776.281,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,1,1,2,1,1,1,1,1,9,9,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7776.296,
+      "elapsed": 0.032000000000152795
+    },
+    {
+      "command": "TRIG:PAUS",
+      "response": "1",
+      "at": 7776.328,
+      "elapsed": 0.06199999999989814
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"PAUSED\",5,5,8,1,1,2,1,1,1,1,1,9,9,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7776.39,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,6,0,8,10,5,5,9,749,19,0,10,10,9,2,3,1,8,1000,5000,0,0",
+      "at": 7776.406,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "response": "1,1,15,1,0",
+      "at": 7776.421,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"PAUSED\",5,5,8,1,1,2,1,1,1,1,1,9,9,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7776.5,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,6,0,8,10,5,5,9,749,19,0,10,10,9,2,3,1,8,1000,5000,0,0",
+      "at": 7776.515,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "response": "0,1,15,1,0",
+      "at": 7776.531,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"PAUSED\",5,5,8,1,1,2,1,1,1,1,1,9,9,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7776.593,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,6,0,8,10,5,5,9,749,19,0,10,10,9,2,3,1,8,1000,5000,0,0",
+      "at": 7776.609,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "response": "0,1,15,1,0",
+      "at": 7776.625,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "TRIG:CONT",
+      "response": "1",
+      "at": 7776.64,
+      "elapsed": 0.07799999999951979
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,3,0,8,10,5,5,9,785,20,0,11,10,9,2,3,1,8,1000,5000,0,0",
+      "at": 7776.718,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,1,1,2,1,1,1,1,1,9,9,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7776.734,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,5,0,8,10,5,5,9,827,21,0,11,11,9,2,3,1,8,1000,5000,0,0",
+      "at": 7776.796,
+      "elapsed": 0.032000000000152795
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,2,2,3,2,2,2,2,1,10,10,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7776.828,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,8,10,5,5,10,867,22,0,12,12,10,2,3,1,8,1000,5000,0,0",
+      "at": 7776.89,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,2,2,3,2,2,2,2,1,10,10,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7776.906,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,8,10,5,5,10,881,22,0,12,12,10,2,3,1,8,1000,5000,0,0",
+      "at": 7776.921,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,2,2,3,2,2,2,2,1,10,10,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7776.937,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,8,10,5,5,11,921,23,0,12,12,11,2,3,1,8,1000,5000,0,0",
+      "at": 7777.015,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,3,3,4,3,3,3,3,1,11,11,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7777.031,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,8,10,5,5,12,961,25,0,13,13,12,2,3,1,8,1000,5000,0,0",
+      "at": 7777.093,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,4,4,5,4,4,4,4,1,12,12,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7777.109,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,8,10,5,5,12,1000,26,0,14,14,12,2,3,1,8,1000,5000,0,0",
+      "at": 7777.171,
+      "elapsed": 0.032000000000152795
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,4,4,5,4,4,4,4,1,12,12,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7777.203,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,8,10,5,5,13,1040,27,0,14,14,13,2,3,1,8,1000,5000,0,0",
+      "at": 7777.265,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,5,5,6,5,5,5,5,1,13,13,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7777.281,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,8,10,5,5,13,1085,28,0,15,15,13,2,3,1,8,1000,5000,0,0",
+      "at": 7777.343,
+      "elapsed": 0.032000000000152795
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,5,5,6,5,5,5,5,1,13,13,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7777.375,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,3,0,8,10,5,5,14,1128,30,0,15,15,14,2,3,1,8,1000,5000,0,0",
+      "at": 7777.437,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,6,6,7,6,6,6,6,1,14,14,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7777.453,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,8,10,5,5,14,1169,30,0,16,16,14,2,3,1,8,1000,5000,0,0",
+      "at": 7777.531,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,6,6,7,6,6,6,6,1,14,14,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7777.546,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,8,10,5,5,15,1210,31,0,16,16,15,2,3,1,8,1000,5000,0,0",
+      "at": 7777.609,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,7,7,0,7,7,7,7,1,15,15,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7777.625,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,8,10,5,5,15,1249,32,0,17,17,15,2,3,1,8,1000,5000,0,0",
+      "at": 7777.703,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,7,7,0,7,7,7,7,1,15,15,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7777.718,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,8,10,5,5,16,1291,33,0,17,17,16,2,3,1,8,1000,5000,0,0",
+      "at": 7777.781,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,0,0,1,0,0,0,0,2,16,16,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7777.796,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,8,10,5,5,16,1329,34,0,18,18,16,2,3,1,8,1000,5000,0,0",
+      "at": 7777.875,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,0,0,1,0,0,0,0,2,16,16,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7777.875,
+      "elapsed": 0.03099999999994907
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,8,10,5,5,17,1369,35,0,18,18,17,2,3,1,8,1000,5000,0,0",
+      "at": 7777.953,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,1,1,2,1,1,1,1,2,17,17,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7777.968,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,8,10,5,5,17,1410,36,0,19,19,17,2,3,1,8,1000,5000,0,0",
+      "at": 7778.031,
+      "elapsed": 0.03099999999994907
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,2,2,3,2,2,2,2,2,18,18,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7778.062,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,8,10,5,5,18,1452,37,0,19,19,18,2,3,1,8,1000,5000,0,0",
+      "at": 7778.125,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",5,5,8,2,2,3,2,2,2,2,2,18,18,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7778.14,
+      "elapsed": 0.03099999999994907
+    },
+    {
+      "command": "*IDN?",
+      "response": "NO.1,DHRT100,839E1AE79EA20F31,0.1.0",
+      "at": 7778.234,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:FW:BUILD?",
+      "response": "\"20260916124155\"",
+      "at": 7778.234,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:LINK:TRANSPORT?",
+      "response": "1,1,11302,0,703,703",
+      "at": 7778.234,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "SYST:TDMA:FLIGHT:PROCESS?",
+      "response": "4,1,1,0,3564777010,3,68,1,12062,0,385984,748,0,0,0,5021,0,0,0,5021,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,5,1807,852736668,20,127,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0",
+      "at": 7778.25,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "SYST:TDMA:FLIGHT:FIFO?",
+      "response": "2,11323,0,11322,748,748,11321,1,1,11322,4864,0,0,4864,4864,0,0",
+      "at": 7778.265,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "SYST:REFMEM:SYNC:FLIGHT?",
+      "response": "1,0,2,3,0,1,68,32,1,11328,11327,0,4865,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0",
+      "at": 7778.281,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "TRIG:STOP",
+      "response": "1",
+      "at": 7778.343,
+      "elapsed": 0.09400000000005093
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"IDLE\",5,5,8,3,3,4,3,3,3,3,2,19,19,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7778.437,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,1,0,8,10,5,5,19,1550,39,0,20,20,19,2,3,1,8,1000,5000,0,0",
+      "at": 7778.453,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "response": "0,0,0,0,0",
+      "at": 7778.468,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,1,0,8,10,5,5,19,1550,39,0,20,20,19,2,3,1,8,1000,5000,0,0",
+      "at": 7778.687,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "response": "1,0,0,0,0",
+      "at": 7778.703,
+      "elapsed": 0.014999999999417923
+    }
+  ],
+  "transport_transcript": [
+    {
+      "command": "*IDN?",
+      "timestamp": "2026-09-16T21:02:48.488543",
+      "response": "NO.1,DHRT100,839E1AE79EA20F31,0.1.0"
+    },
+    {
+      "command": "SYST:FW:BUILD?",
+      "timestamp": "2026-09-16T21:02:48.489858",
+      "response": "\"20260916124155\""
+    },
+    {
+      "command": "TRIG:STOP",
+      "timestamp": "2026-09-16T21:02:48.540973",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:48.605788",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:48.607134",
+      "response": "\"IDLE\",4,4,8,7,7,0,7,7,7,7,9,79,79,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "SYST:TDMA:RING:STOP",
+      "timestamp": "2026-09-16T21:02:48.616785",
+      "response": "\"OK\""
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:48.683702",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:RING:STAT?",
+      "timestamp": "2026-09-16T21:02:48.685710",
+      "response": "0,0,0,0,0,0,12080,0,0,13070,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,18,18"
+    },
+    {
+      "command": "CONF:SEQ:LINK OFF",
+      "timestamp": "2026-09-16T21:02:48.693343",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:48.760202",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:TRIG 8,0,1,1",
+      "timestamp": "2026-09-16T21:02:48.762203",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:48.822304",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ SP8T,0,1,2,3,4,5,6,7",
+      "timestamp": "2026-09-16T21:02:48.824256",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:48.883686",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:ACT SP8T",
+      "timestamp": "2026-09-16T21:02:48.885693",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:48.946267",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:OUTPUT 7,0,NONE,10,0",
+      "timestamp": "2026-09-16T21:02:48.948264",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:49.008986",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:CODE 0,0",
+      "timestamp": "2026-09-16T21:02:49.011572",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:49.072107",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:CODE 1,1",
+      "timestamp": "2026-09-16T21:02:49.074694",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:49.135420",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:CODE 2,2",
+      "timestamp": "2026-09-16T21:02:49.137428",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:49.198132",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:CODE 3,3",
+      "timestamp": "2026-09-16T21:02:49.200178",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:49.259747",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:CODE 4,4",
+      "timestamp": "2026-09-16T21:02:49.261932",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:49.321946",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:CODE 5,5",
+      "timestamp": "2026-09-16T21:02:49.323929",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:49.383267",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:CODE 6,6",
+      "timestamp": "2026-09-16T21:02:49.384780",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:49.445112",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:CODE 7,7",
+      "timestamp": "2026-09-16T21:02:49.447119",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:49.508847",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:SOUR BUS,RIS",
+      "timestamp": "2026-09-16T21:02:49.511417",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:49.570496",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:REPEAT 0",
+      "timestamp": "2026-09-16T21:02:49.572497",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:49.632441",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:NODE:ROLE 2,5,DUT",
+      "timestamp": "2026-09-16T21:02:49.634437",
+      "response": "\"STAGED\""
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:49.711129",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:NODE:ROLE 3,7,VNA",
+      "timestamp": "2026-09-16T21:02:49.713174",
+      "response": "\"STAGED\""
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:49.789236",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:NODE:ACT",
+      "timestamp": "2026-09-16T21:02:49.791236",
+      "response": "\"ACTIVE\",1,10,1023,0,3849125392,0,1,0,4,1023,3376094980,4,0,0,10,1,1,0,0,0,0,0,0,10,1,2,5,1023,3376094980,3,0,0,10"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:49.867035",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:OPMODE:STAGE 7",
+      "timestamp": "2026-09-16T21:02:49.870050",
+      "response": "7,10000000,1000000,4096,0,1383759744"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:49.928426",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:OPMODE:APPLY",
+      "timestamp": "2026-09-16T21:02:49.930466",
+      "response": "7,10000000,1000000,4096,0,1383759744"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:49.990961",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:RING:TOPOLOGY 2,0,0",
+      "timestamp": "2026-09-16T21:02:49.992921",
+      "response": "2,0,0"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:50.052836",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CAL:TOPOLOGY:PROBE 1,10",
+      "timestamp": "2026-09-16T21:02:50.055824",
+      "response": "1,10"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:50.144608",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:FLIGHT:MODE 1",
+      "timestamp": "2026-09-16T21:02:50.146858",
+      "response": "\"OK\",1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:50.238948",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:LINK LOOPBACK,2,3,IN1,OUT4,1000,5000,RIS",
+      "timestamp": "2026-09-16T21:02:50.240931",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:50.333915",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:50.335879",
+      "response": "1,1,0,8,10,0,0,0,0,0,0,0,0,79,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:REPEAT?",
+      "timestamp": "2026-09-16T21:02:50.344430",
+      "response": "0,10,1"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:50.350823",
+      "response": "\"IDLE\",4,4,8,7,7,0,7,7,7,7,9,79,79,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "timestamp": "2026-09-16T21:02:50.358869",
+      "response": "0,0,0,0,0"
+    },
+    {
+      "command": "SYST:TDMA:FLIGHT:MODE?",
+      "timestamp": "2026-09-16T21:02:50.366341",
+      "response": "2"
+    },
+    {
+      "command": "READ:SEQ? SP8T",
+      "timestamp": "2026-09-16T21:02:50.369342",
+      "response": "\"SP8T\",4294967295,2876574461,8,0,0,1,2,3,4,5,6,7"
+    },
+    {
+      "command": "READ:SEQ:CODE? 0",
+      "timestamp": "2026-09-16T21:02:50.373343",
+      "response": "0,0"
+    },
+    {
+      "command": "READ:SEQ:CODE? 1",
+      "timestamp": "2026-09-16T21:02:50.380614",
+      "response": "1,1"
+    },
+    {
+      "command": "READ:SEQ:CODE? 2",
+      "timestamp": "2026-09-16T21:02:50.388207",
+      "response": "2,2"
+    },
+    {
+      "command": "READ:SEQ:CODE? 3",
+      "timestamp": "2026-09-16T21:02:50.395162",
+      "response": "3,3"
+    },
+    {
+      "command": "READ:SEQ:CODE? 4",
+      "timestamp": "2026-09-16T21:02:50.400868",
+      "response": "4,4"
+    },
+    {
+      "command": "READ:SEQ:CODE? 5",
+      "timestamp": "2026-09-16T21:02:50.408357",
+      "response": "5,5"
+    },
+    {
+      "command": "READ:SEQ:CODE? 6",
+      "timestamp": "2026-09-16T21:02:50.415099",
+      "response": "6,6"
+    },
+    {
+      "command": "READ:SEQ:CODE? 7",
+      "timestamp": "2026-09-16T21:02:50.421733",
+      "response": "7,7"
+    },
+    {
+      "command": "READ:SEQ:SOUR?",
+      "timestamp": "2026-09-16T21:02:50.428686",
+      "response": "\"BUS\",\"RISING\""
+    },
+    {
+      "command": "READ:SEQ:OUTPUT?",
+      "timestamp": "2026-09-16T21:02:50.435672",
+      "response": "7,0,\"NONE\",10,0,5,1"
+    },
+    {
+      "command": "READ:SEQ:NODE:ROLE? 5",
+      "timestamp": "2026-09-16T21:02:50.442915",
+      "response": "5,\"DUT\",1,1,152,11,5,152,11,5"
+    },
+    {
+      "command": "READ:SEQ:NODE:ROLE? 7",
+      "timestamp": "2026-09-16T21:02:50.451043",
+      "response": "7,\"VNA\",1,1,152,3,3,152,3,3"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:50.460063",
+      "response": "1,1,0,8,10,0,0,0,0,0,0,0,0,79,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "SYSTem:REFMEM:SYNC:TDMA:STATus?",
+      "timestamp": "2026-09-16T21:02:50.468229",
+      "response": "1,1,0,469124,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3801409129,11,1,1022,0,20,0,0,0,0,0,0,0,0,0,12080,0,0,7,5,5,0,0,0,0,0,1,0,0,0,0,0,4294967295,0,0,0,0,0,0,0,4,4,13070,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,128,2,1,0,0,0,0,0,0,0,0"
+    },
+    {
+      "command": "SYSTem:SYNC:VDC:TDMA:PHYS?",
+      "timestamp": "2026-09-16T21:02:50.482660",
+      "response": "0,0,10000000,3432,1958,0,0,0,0,0,0,100,25,29,28,24,0,0,0,0,0,0,1,0,0,0,0,0,1958,0,26,27,0,367224,366579,632,4,3432,1958,2920206744,57,2921062028,57,2921199652,57,2921282852,57,11,5,0,0,0,0,10,10,10,4,50331652,21,21,0,0,0,0,58,3432,0,0,0,0,0,0,0,0,0,107,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,3432,0,5,11,2,27,0,0,0,0,0,1233,1,268435456,10"
+    },
+    {
+      "command": "SYST:TDMA:RING:STOP",
+      "timestamp": "2026-09-16T21:02:50.501927",
+      "response": "\"OK\""
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:50.566889",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:RING:STAT?",
+      "timestamp": "2026-09-16T21:02:50.568850",
+      "response": "0,0,0,0,0,0,12080,0,0,13070,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,21,21"
+    },
+    {
+      "command": "SYST:TDMA:RING:ARM",
+      "timestamp": "2026-09-16T21:02:50.575889",
+      "response": "\"OK\""
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:50.645303",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:RING:STAT?",
+      "timestamp": "2026-09-16T21:02:50.646347",
+      "response": "1,2,0,0,0,0,12080,0,1,13070,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,22,22"
+    },
+    {
+      "command": "SYST:TDMA:RING:TRAIN 4096",
+      "timestamp": "2026-09-16T21:02:50.655026",
+      "response": "4096"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:50.722029",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:RING:START",
+      "timestamp": "2026-09-16T21:02:50.924020",
+      "response": "\"OK\""
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:50.987854",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:RING:STAT?",
+      "timestamp": "2026-09-16T21:02:50.990900",
+      "response": "1,2,0,0,1,1,12122,0,1,13116,34,28,601185486,33678698,34,0,56,8,2,497564520,164,486008348,164,0,34,15,0,0,0,0,0,0,0,0,0,4294967295,0,0,22,22"
+    },
+    {
+      "command": "TRIG:START",
+      "timestamp": "2026-09-16T21:02:51.005967",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T21:02:51.081001",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:51.085504",
+      "response": "1,4,0,8,10,5,5,0,43,1,0,1,1,0,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:51.107633",
+      "response": "\"READY\",5,5,8,0,0,1,4294967295,4294967295,4294967295,4294967295,0,0,0,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:51.178128",
+      "response": "1,2,0,8,10,5,5,1,88,2,0,1,1,1,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:51.196285",
+      "response": "\"READY\",5,5,8,1,1,2,1,1,1,1,0,1,1,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:51.262866",
+      "response": "1,2,0,8,10,5,5,2,127,4,0,2,2,2,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:51.281954",
+      "response": "\"READY\",5,5,8,2,2,3,2,2,2,2,0,2,2,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:51.348426",
+      "response": "1,4,0,8,10,5,5,2,165,5,0,3,3,2,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:51.361993",
+      "response": "\"READY\",5,5,8,2,2,3,2,2,2,2,0,2,2,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:51.432965",
+      "response": "1,4,0,8,10,5,5,2,207,5,0,3,3,2,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:51.452880",
+      "response": "\"READY\",5,5,8,2,2,3,2,2,2,2,0,2,2,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:51.518948",
+      "response": "1,4,0,8,10,5,5,2,247,5,0,3,3,2,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:51.537694",
+      "response": "\"READY\",5,5,8,3,3,4,3,3,3,3,0,3,3,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:51.608369",
+      "response": "1,4,0,8,10,5,5,3,288,7,0,4,4,3,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:51.628548",
+      "response": "\"READY\",5,5,8,3,3,4,3,3,3,3,0,3,3,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:51.696326",
+      "response": "1,2,0,8,10,5,5,4,327,8,0,4,4,4,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:51.713682",
+      "response": "\"READY\",5,5,8,4,4,5,4,4,4,4,0,4,4,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:51.785466",
+      "response": "1,4,0,8,10,5,5,4,369,9,0,5,5,4,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:51.802386",
+      "response": "\"READY\",5,5,8,4,4,5,4,4,4,4,0,4,4,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:51.866845",
+      "response": "1,2,0,8,10,5,5,5,410,10,0,5,5,5,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:51.892024",
+      "response": "\"READY\",5,5,8,5,5,6,5,5,5,5,0,5,5,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:51.961734",
+      "response": "1,4,0,8,10,5,5,5,453,11,0,6,6,5,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:51.979195",
+      "response": "\"READY\",5,5,8,5,5,6,5,5,5,5,0,5,5,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:52.051653",
+      "response": "1,2,0,8,10,5,5,6,496,12,0,6,6,6,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:52.073886",
+      "response": "\"READY\",5,5,8,6,6,7,6,6,6,6,0,6,6,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:52.142735",
+      "response": "1,4,0,8,10,5,5,6,535,13,0,7,7,6,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:52.159951",
+      "response": "\"READY\",5,5,8,6,6,7,6,6,6,6,0,6,6,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:52.227205",
+      "response": "1,2,0,8,10,5,5,7,575,14,0,7,7,7,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:52.250780",
+      "response": "\"READY\",5,5,8,7,7,0,7,7,7,7,0,7,7,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:52.320925",
+      "response": "1,4,0,8,10,5,5,7,618,15,0,8,8,7,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:52.341959",
+      "response": "\"READY\",5,5,8,7,7,0,7,7,7,7,0,7,7,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:52.410929",
+      "response": "1,2,0,8,10,5,5,8,662,16,0,8,8,8,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:52.430558",
+      "response": "\"READY\",5,5,8,0,0,1,0,0,0,0,1,8,8,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:52.499418",
+      "response": "1,4,0,8,10,5,5,8,699,17,0,9,9,8,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:52.515652",
+      "response": "\"READY\",5,5,8,1,1,2,1,1,1,1,1,9,9,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:52.580500",
+      "response": "1,4,0,8,10,5,5,9,736,19,0,10,10,9,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:52.596710",
+      "response": "\"READY\",5,5,8,1,1,2,1,1,1,1,1,9,9,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "TRIG:PAUS",
+      "timestamp": "2026-09-16T21:02:52.616456",
+      "response": "1"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:52.684553",
+      "response": "\"PAUSED\",5,5,8,1,1,2,1,1,1,1,1,9,9,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:52.703970",
+      "response": "1,6,0,8,10,5,5,9,749,19,0,10,10,9,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "timestamp": "2026-09-16T21:02:52.721023",
+      "response": "1,1,15,1,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:52.787476",
+      "response": "\"PAUSED\",5,5,8,1,1,2,1,1,1,1,1,9,9,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:52.804623",
+      "response": "1,6,0,8,10,5,5,9,749,19,0,10,10,9,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "timestamp": "2026-09-16T21:02:52.823985",
+      "response": "0,1,15,1,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:52.889380",
+      "response": "\"PAUSED\",5,5,8,1,1,2,1,1,1,1,1,9,9,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:52.906003",
+      "response": "1,6,0,8,10,5,5,9,749,19,0,10,10,9,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "timestamp": "2026-09-16T21:02:52.923637",
+      "response": "0,1,15,1,0"
+    },
+    {
+      "command": "TRIG:CONT",
+      "timestamp": "2026-09-16T21:02:52.941134",
+      "response": "1"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:53.009947",
+      "response": "1,3,0,8,10,5,5,9,785,20,0,11,10,9,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:53.029304",
+      "response": "\"READY\",5,5,8,1,1,2,1,1,1,1,1,9,9,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:53.096901",
+      "response": "1,5,0,8,10,5,5,9,827,21,0,11,11,9,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:53.116344",
+      "response": "\"READY\",5,5,8,2,2,3,2,2,2,2,1,10,10,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:53.185879",
+      "response": "1,4,0,8,10,5,5,10,867,22,0,12,12,10,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:53.200636",
+      "response": "\"READY\",5,5,8,2,2,3,2,2,2,2,1,10,10,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:53.217795",
+      "response": "1,4,0,8,10,5,5,10,881,22,0,12,12,10,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:53.236654",
+      "response": "\"READY\",5,5,8,2,2,3,2,2,2,2,1,10,10,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:53.303830",
+      "response": "1,2,0,8,10,5,5,11,921,23,0,12,12,11,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:53.319468",
+      "response": "\"READY\",5,5,8,3,3,4,3,3,3,3,1,11,11,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:53.388221",
+      "response": "1,2,0,8,10,5,5,12,961,25,0,13,13,12,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:53.406438",
+      "response": "\"READY\",5,5,8,4,4,5,4,4,4,4,1,12,12,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:53.473635",
+      "response": "1,4,0,8,10,5,5,12,1000,26,0,14,14,12,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:53.490352",
+      "response": "\"READY\",5,5,8,4,4,5,4,4,4,4,1,12,12,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:53.556588",
+      "response": "1,2,0,8,10,5,5,13,1040,27,0,14,14,13,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:53.574347",
+      "response": "\"READY\",5,5,8,5,5,6,5,5,5,5,1,13,13,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:53.646006",
+      "response": "1,4,0,8,10,5,5,13,1085,28,0,15,15,13,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:53.664748",
+      "response": "\"READY\",5,5,8,5,5,6,5,5,5,5,1,13,13,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:53.735033",
+      "response": "1,3,0,8,10,5,5,14,1128,30,0,15,15,14,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:53.754072",
+      "response": "\"READY\",5,5,8,6,6,7,6,6,6,6,1,14,14,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:53.820965",
+      "response": "1,4,0,8,10,5,5,14,1169,30,0,16,16,14,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:53.838232",
+      "response": "\"READY\",5,5,8,6,6,7,6,6,6,6,1,14,14,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:53.903578",
+      "response": "1,2,0,8,10,5,5,15,1210,31,0,16,16,15,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:53.923622",
+      "response": "\"READY\",5,5,8,7,7,0,7,7,7,7,1,15,15,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:53.992284",
+      "response": "1,4,0,8,10,5,5,15,1249,32,0,17,17,15,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:54.006443",
+      "response": "\"READY\",5,5,8,7,7,0,7,7,7,7,1,15,15,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:54.076583",
+      "response": "1,2,0,8,10,5,5,16,1291,33,0,17,17,16,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:54.093897",
+      "response": "\"READY\",5,5,8,0,0,1,0,0,0,0,2,16,16,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:54.162965",
+      "response": "1,4,0,8,10,5,5,16,1329,34,0,18,18,16,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:54.177374",
+      "response": "\"READY\",5,5,8,0,0,1,0,0,0,0,2,16,16,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:54.244664",
+      "response": "1,2,0,8,10,5,5,17,1369,35,0,18,18,17,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:54.263377",
+      "response": "\"READY\",5,5,8,1,1,2,1,1,1,1,2,17,17,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:54.331374",
+      "response": "1,4,0,8,10,5,5,17,1410,36,0,19,19,17,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:54.352579",
+      "response": "\"READY\",5,5,8,2,2,3,2,2,2,2,2,18,18,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:54.421544",
+      "response": "1,2,0,8,10,5,5,18,1452,37,0,19,19,18,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:54.440652",
+      "response": "\"READY\",5,5,8,2,2,3,2,2,2,2,2,18,18,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "SYSTem:REFMEM:SYNC:TDMA:STATus?",
+      "timestamp": "2026-09-16T21:02:54.462898",
+      "response": "1,1,0,471683,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3801409129,11,1,1022,1,22,2,0,0,1,2,2614010132,2281719261,1,1,14156,0,1,7,5,5,0,0,0,0,0,1,0,0,0,0,9,4294967295,0,0,0,0,0,2000000,1,6,5,15325,1770,1764,2430750777,2106673228,8,2,1770,0,56,3968948232,164,3959142320,164,0,1770,712,0,0,0,0,0,0,0,0,0,4294967295,0,0,1,2,0,0,1763,3868215126,2281719261,8,2,1,7,589652,589708,1763589652,0,0,0,3955953164,164,128,2,1,0,0,0,0,0,0,0,0"
+    },
+    {
+      "command": "SYSTem:SYNC:VDC:TDMA:PHYS?",
+      "timestamp": "2026-09-16T21:02:54.495236",
+      "response": "1,0,10000000,1789,998,0,0,0,0,0,0,100,25,29,28,24,0,0,0,0,0,0,1,0,0,0,0,0,998,0,26,27,0,191316,190671,852,4,1789,998,4008678700,164,4009433688,164,4006506660,164,4006589860,164,11,7,0,0,0,0,10,10,10,4,50331652,21,21,0,0,0,0,18,1789,0,0,0,0,0,0,0,0,0,107,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,1789,0,5,11,2,39,0,0,0,0,0,639,1,275256385,10"
+    },
+    {
+      "command": "*IDN?",
+      "timestamp": "2026-09-16T21:02:54.527925",
+      "response": "NO.1,DHRT100,839E1AE79EA20F31,0.1.0"
+    },
+    {
+      "command": "SYST:FW:BUILD?",
+      "timestamp": "2026-09-16T21:02:54.530387",
+      "response": "\"20260916124155\""
+    },
+    {
+      "command": "READ:SEQ:LINK:TRANSPORT?",
+      "timestamp": "2026-09-16T21:02:54.531391",
+      "response": "1,1,11302,0,703,703"
+    },
+    {
+      "command": "SYST:TDMA:FLIGHT:PROCESS?",
+      "timestamp": "2026-09-16T21:02:54.547945",
+      "response": "4,1,1,0,3564777010,3,68,1,12062,0,385984,748,0,0,0,5021,0,0,0,5021,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,5,1807,852736668,20,127,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0"
+    },
+    {
+      "command": "SYST:TDMA:FLIGHT:FIFO?",
+      "timestamp": "2026-09-16T21:02:54.565528",
+      "response": "2,11323,0,11322,748,748,11321,1,1,11322,4864,0,0,4864,4864,0,0"
+    },
+    {
+      "command": "SYST:REFMEM:SYNC:FLIGHT?",
+      "timestamp": "2026-09-16T21:02:54.576408",
+      "response": "1,0,2,3,0,1,68,32,1,11328,11327,0,4865,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0"
+    },
+    {
+      "command": "SYSTem:REFMEM:SYNC:TDMA:STATus?",
+      "timestamp": "2026-09-16T21:02:54.586728",
+      "response": "1,1,0,471763,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3801409129,11,1,1022,1,22,2,0,0,1,2,2614010132,2281719261,1,1,14223,5,0,7,5,5,0,0,0,0,0,1,0,0,0,0,9,4294967295,0,0,0,0,0,2000000,1,6,5,15405,1831,1824,1973373061,4003350431,8,2,1831,0,0,4091438040,164,4078266012,164,0,1831,730,0,0,0,0,0,0,0,0,0,4294967295,0,0,1,2,0,0,1823,1991321043,2281719261,8,2,1,7,289360,289416,1823289360,0,0,0,4076652872,164,128,2,1,0,0,0,0,0,0,0,0"
+    },
+    {
+      "command": "SYSTem:SYNC:VDC:TDMA:PHYS?",
+      "timestamp": "2026-09-16T21:02:54.613792",
+      "response": "1,0,10000000,1849,1029,0,0,0,0,0,0,100,25,29,28,24,0,0,0,0,0,0,1,0,0,0,0,0,1029,0,26,27,0,197843,197198,211,4,1849,1029,4128039700,164,4128736320,164,4128819572,164,4128902772,164,11,7,0,0,0,0,10,10,10,4,50331652,21,21,0,0,0,0,18,1849,0,0,0,0,0,0,0,0,0,107,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,1849,0,5,11,2,39,0,0,0,0,0,660,1,275249965,10"
+    },
+    {
+      "command": "TRIG:STOP",
+      "timestamp": "2026-09-16T21:02:54.641286",
+      "response": "1"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T21:02:54.736720",
+      "response": "\"IDLE\",5,5,8,3,3,4,3,3,3,3,2,19,19,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:54.749874",
+      "response": "1,1,0,8,10,5,5,19,1550,39,0,20,20,19,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "timestamp": "2026-09-16T21:02:54.765928",
+      "response": "0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T21:02:54.978328",
+      "response": "1,1,0,8,10,5,5,19,1550,39,0,20,20,19,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "timestamp": "2026-09-16T21:02:54.993456",
+      "response": "1,0,0,0,0"
+    },
+    {
+      "command": "SYSTem:TDMA:RING:STOP",
+      "timestamp": "2026-09-16T21:02:55.006837",
+      "response": "\"OK\""
+    },
+    {
+      "command": "SYSTem:ERR?",
+      "timestamp": "2026-09-16T21:02:55.096417",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYSTem:REFMEM:SYNC:TDMA:STATus?",
+      "timestamp": "2026-09-16T21:02:55.098416",
+      "response": "1,1,0,472095,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3801409129,11,1,1022,0,23,0,0,0,0,0,0,0,0,0,14473,0,0,7,5,5,0,0,0,0,0,1,0,0,0,0,9,4294967295,0,0,0,0,0,0,0,6,6,15676,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,128,2,1,0,0,0,0,0,0,0,0"
+    },
+    {
+      "command": "SYSTem:SYNC:VDC:TDMA:PHYS?",
+      "timestamp": "2026-09-16T21:02:55.114664",
+      "response": "0,0,10000000,2040,1139,0,0,0,0,0,0,100,25,29,28,24,0,0,0,0,0,0,1,0,0,0,0,0,1139,0,26,27,0,218153,217528,61,4,2040,1139,214990008,165,215511584,165,213437780,165,213520980,165,11,7,0,0,0,0,10,10,10,4,50331652,21,21,0,0,0,0,58,2040,0,0,0,0,0,0,0,0,0,107,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,2040,0,5,11,2,39,0,0,0,0,0,729,1,268435456,10"
+    },
+    {
+      "command": "CALibration:TOPology:PROBe 0",
+      "timestamp": "2026-09-16T21:02:55.133264",
+      "response": "0,0"
+    },
+    {
+      "command": "SYSTem:ERR?",
+      "timestamp": "2026-09-16T21:02:55.221497",
+      "response": "0,\"No error\""
+    }
+  ],
+  "failure": null,
+  "cleanup_failures": [],
+  "devices": {
+    "serial": [
+      {
+        "port": "COM3",
+        "serial_number": "839E1AE79EA20F31",
+        "vid": 51966,
+        "pid": 16431,
+        "description": "USB \u4e32\u884c\u8bbe\u5907 (COM3)"
+      }
+    ],
+    "visa": [],
+    "visa_error": null
+  },
+  "transport": "COM3",
+  "identity": {
+    "idn": [
+      "NO.1",
+      "DHRT100",
+      "839E1AE79EA20F31",
+      "0.1.0"
+    ],
+    "build": "20260916124155"
+  },
+  "gui_control": {
+    "path": "GUI command builders and batch executor",
+    "mode": "RJ45 \u7269\u7406\u56de\u73af \u00b7 SP8T + VNA \u7f51\u5173",
+    "module_sha256": "dbd92b7a41e8532b0320ec637b5bf82e1cf8738072f9606d8466af4dd63402c1",
+    "configure": {
+      "commands": [
+        "TRIG:STOP",
+        "SYST:TDMA:RING:STOP",
+        "CONF:SEQ:LINK OFF",
+        "CONF:TRIG 8,0,1,1",
+        "CONF:SEQ SP8T,0,1,2,3,4,5,6,7",
+        "CONF:SEQ:ACT SP8T",
+        "CONF:SEQ:OUTPUT 7,0,NONE,10,0",
+        "CONF:SEQ:CODE 0,0",
+        "CONF:SEQ:CODE 1,1",
+        "CONF:SEQ:CODE 2,2",
+        "CONF:SEQ:CODE 3,3",
+        "CONF:SEQ:CODE 4,4",
+        "CONF:SEQ:CODE 5,5",
+        "CONF:SEQ:CODE 6,6",
+        "CONF:SEQ:CODE 7,7",
+        "CONF:SEQ:SOUR BUS,RIS",
+        "CONF:SEQ:REPEAT 0",
+        "CONF:SEQ:NODE:ROLE 2,5,DUT",
+        "CONF:SEQ:NODE:ROLE 3,7,VNA",
+        "CONF:SEQ:NODE:ACT",
+        "SYST:TDMA:OPMODE:STAGE 7",
+        "SYST:TDMA:OPMODE:APPLY",
+        "SYST:TDMA:RING:TOPOLOGY 2,0,0",
+        "CAL:TOPOLOGY:PROBE 1,10",
+        "SYST:TDMA:FLIGHT:MODE 1",
+        "CONF:SEQ:LINK LOOPBACK,2,3,IN1,OUT4,1000,5000,RIS",
+        "READ:SEQ:LINK?",
+        "READ:SEQ:REPEAT?",
+        "READ:SEQ:NEXT?",
+        "READ:IO:STAT?"
+      ],
+      "exchanges": [
+        {
+          "command": "TRIG:STOP",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "READ:SEQ:NEXT?",
+          "response": "\"IDLE\",4,4,8,7,7,0,7,7,7,7,9,79,79,0,0,0,0,\"NONE\",0,0,0,0,0"
+        },
+        {
+          "command": "SYST:TDMA:RING:STOP",
+          "response": "\"OK\""
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:RING:STAT?",
+          "response": "0,0,0,0,0,0,12080,0,0,13070,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,18,18"
+        },
+        {
+          "command": "CONF:SEQ:LINK OFF",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:TRIG 8,0,1,1",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ SP8T,0,1,2,3,4,5,6,7",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:ACT SP8T",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:OUTPUT 7,0,NONE,10,0",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:CODE 0,0",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:CODE 1,1",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:CODE 2,2",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:CODE 3,3",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:CODE 4,4",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:CODE 5,5",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:CODE 6,6",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:CODE 7,7",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:SOUR BUS,RIS",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:REPEAT 0",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:NODE:ROLE 2,5,DUT",
+          "response": "\"STAGED\""
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:NODE:ROLE 3,7,VNA",
+          "response": "\"STAGED\""
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:NODE:ACT",
+          "response": "\"ACTIVE\",1,10,1023,0,3849125392,0,1,0,4,1023,3376094980,4,0,0,10,1,1,0,0,0,0,0,0,10,1,2,5,1023,3376094980,3,0,0,10"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:OPMODE:STAGE 7",
+          "response": "7,10000000,1000000,4096,0,1383759744"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:OPMODE:APPLY",
+          "response": "7,10000000,1000000,4096,0,1383759744"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:RING:TOPOLOGY 2,0,0",
+          "response": "2,0,0"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CAL:TOPOLOGY:PROBE 1,10",
+          "response": "1,10"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:FLIGHT:MODE 1",
+          "response": "\"OK\",1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:LINK LOOPBACK,2,3,IN1,OUT4,1000,5000,RIS",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "READ:SEQ:LINK?",
+          "response": "1,1,0,8,10,0,0,0,0,0,0,0,0,79,2,3,1,8,1000,5000,0,0"
+        },
+        {
+          "command": "READ:SEQ:REPEAT?",
+          "response": "0,10,1"
+        },
+        {
+          "command": "READ:SEQ:NEXT?",
+          "response": "\"IDLE\",4,4,8,7,7,0,7,7,7,7,9,79,79,0,0,0,0,\"NONE\",0,0,0,0,0"
+        },
+        {
+          "command": "READ:IO:STAT?",
+          "response": "0,0,0,0,0"
+        }
+      ],
+      "completed": true
+    },
+    "start": {
+      "commands": [
+        "SYST:TDMA:RING:STOP",
+        "SYST:TDMA:RING:ARM",
+        "SYST:TDMA:RING:TRAIN 4096",
+        "SYST:TDMA:RING:START",
+        "TRIG:START"
+      ],
+      "exchanges": [
+        {
+          "command": "SYST:TDMA:RING:STOP",
+          "response": "\"OK\""
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:RING:STAT?",
+          "response": "0,0,0,0,0,0,12080,0,0,13070,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,21,21"
+        },
+        {
+          "command": "SYST:TDMA:RING:ARM",
+          "response": "\"OK\""
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:RING:STAT?",
+          "response": "1,2,0,0,0,0,12080,0,1,13070,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,22,22"
+        },
+        {
+          "command": "SYST:TDMA:RING:TRAIN 4096",
+          "response": "4096"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:RING:START",
+          "response": "\"OK\""
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:RING:STAT?",
+          "response": "1,2,0,0,1,1,12122,0,1,13116,34,28,601185486,33678698,34,0,56,8,2,497564520,164,486008348,164,0,34,15,0,0,0,0,0,0,0,0,0,4294967295,0,0,22,22"
+        },
+        {
+          "command": "TRIG:START",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        }
+      ],
+      "completed": true
+    }
+  },
+  "flight_mode_readback": "2",
+  "roles": {
+    "after": {
+      "DUT": {
+        "active_enabled": 1,
+        "staged_enabled": 1,
+        "active_resource": 152,
+        "active_io": 11,
+        "active_ip": 5,
+        "staged_resource": 152,
+        "staged_io": 11,
+        "staged_ip": 5
+      },
+      "VNA": {
+        "active_enabled": 1,
+        "staged_enabled": 1,
+        "active_resource": 152,
+        "active_io": 3,
+        "active_ip": 3,
+        "staged_resource": 152,
+        "staged_io": 3,
+        "staged_ip": 3
+      }
+    }
+  },
+  "link_configuration": {
+    "enabled": 1,
+    "phase": 1,
+    "error": 0,
+    "binding_epoch": 8,
+    "model_epoch": 10,
+    "run": 0,
+    "generation": 0,
+    "step": 0,
+    "txfragments": 0,
+    "rxmessages": 0,
+    "rejected": 0,
+    "triggers": 0,
+    "ready": 0,
+    "completed": 79,
+    "dutslot": 2,
+    "vnaslot": 3,
+    "input": 1,
+    "outputmask": 8,
+    "pulseus": 1000,
+    "timeoutms": 5000,
+    "falling": 0,
+    "repeat": 0
+  },
+  "ring_before": {
+    "tdma": [
+      1,
+      1,
+      0,
+      469124,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3801409129,
+      11,
+      1,
+      1022,
+      0,
+      20,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      12080,
+      0,
+      0,
+      7,
+      5,
+      5,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      4294967295,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      4,
+      4,
+      13070,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      128,
+      2,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "phys": {
+      "armed": 0,
+      "role": 0,
+      "baud_hz": 10000000,
+      "tx_count": 3432,
+      "rx_count": 1958,
+      "rx_bad_count": 0,
+      "tx_busy_count": 0,
+      "rx_partial_count": 0,
+      "rx_stall_count": 0,
+      "tx_timeout_count": 0,
+      "last_error": 0,
+      "last_rx_size": 100,
+      "tx_sck_pin": 25,
+      "tx_pin": 29,
+      "rx_sck_pin": 28,
+      "rx_pin": 24,
+      "last_bad_header0": 0,
+      "last_bad_header1": 0,
+      "last_bad_header2": 0,
+      "last_bad_header3": 0,
+      "last_bad_words": 0,
+      "rx_busy_count": 0,
+      "rx_magic_fail_count": 1,
+      "rx_busy_word0": 0,
+      "rx_busy_word1": 0,
+      "rx_busy_word2": 0,
+      "rx_busy_word3": 0,
+      "rx_busy_moved": 0,
+      "rx_magic_at_zero": 1958,
+      "rx_magic_at_shift": 0,
+      "tx_csn_pin": 26,
+      "rx_csn_pin": 27,
+      "rx_ring_overrun_count": 0,
+      "rx_dma_produced_words": 367224,
+      "rx_scan_produced_words": 366579,
+      "rx_dma_write_index": 632,
+      "rx_dma_channel": 4,
+      "tx_edge_count": 3432,
+      "rx_edge_count": 1958,
+      "last_tx_edge_timestamp_ns_lo": 2920206744,
+      "last_tx_edge_timestamp_ns_hi": 57,
+      "last_tx_done_timestamp_ns_lo": 2921062028,
+      "last_tx_done_timestamp_ns_hi": 57,
+      "last_rx_edge_timestamp_ns_lo": 2921199652,
+      "last_rx_edge_timestamp_ns_hi": 57,
+      "last_rx_extract_timestamp_ns_lo": 2921282852,
+      "last_rx_extract_timestamp_ns_hi": 57,
+      "program_persona": 11,
+      "program_switch_count": 5,
+      "program_switch_fail_count": 0,
+      "flight_marker_offset_sample_count": 0,
+      "flight_sck_offset_sample_count": 0,
+      "flight_data_offset_sample_count": 0,
+      "flight_marker_phase_delay_cycles": 10,
+      "flight_sck_phase_delay_cycles": 10,
+      "flight_data_phase_delay_cycles": 10,
+      "pio_irq_flags": 4,
+      "pio_fdebug": 50331652,
+      "tx_sm_pc": 21,
+      "rx_sm_pc": 21,
+      "tx_sm_tx_fifo_level": 0,
+      "tx_sm_rx_fifo_level": 0,
+      "rx_sm_tx_fifo_level": 0,
+      "rx_sm_rx_fifo_level": 0,
+      "gpio_input_levels": 58,
+      "origin_done_irq_count": 3432,
+      "origin_done_txstall_count": 0,
+      "origin_clock_timeout_count": 0,
+      "origin_data_timeout_count": 0,
+      "origin_recovery_count": 0,
+      "overlay_prepare_count": 0,
+      "overlay_prepare_fail_count": 0,
+      "overlay_replacement_byte_count": 0,
+      "overlay_alignment_byte_shift": 0,
+      "overlay_alignment_bit_shift": 0,
+      "overlay_physical_byte_count": 107,
+      "overlay_last_error": 0,
+      "overlay_tx_dma_remaining": 0,
+      "overlay_tx_dma_busy": 0,
+      "overlay_tx_fifo_level_at_fail": 0,
+      "overlay_prepare_wait_us": 0,
+      "overlay_program_offset": 0,
+      "overlay_tx_dma_read_index": 0,
+      "overlay_tx_dma_ctrl": 0,
+      "overlay_sm_shiftctrl": 0,
+      "overlay_sm_execctrl": 0,
+      "overlay_sm_pc_at_fail": 0,
+      "overlay_pio_ctrl_at_fail": 0,
+      "overlay_pio_fstat_at_fail": 0,
+      "overlay_pio_fdebug_at_fail": 0,
+      "overlay_frame_boundary_count": 0,
+      "overlay_pass_recovery_count": 0,
+      "overlay_late_coalesce_count": 0,
+      "clock_latch_resolution_ns": 8,
+      "clock_latch_count": 3432,
+      "clock_latch_miss_count": 0,
+      "program_lifecycle_state": 5,
+      "program_target_persona": 11,
+      "program_previous_persona": 2,
+      "program_transition_seq": 27,
+      "program_lifecycle_error": 0,
+      "overlay_published_generation": 0,
+      "overlay_selected_generation": 0,
+      "overlay_selection_pending": 0,
+      "overlay_reuse_observation_count": 0,
+      "rx_observation_drop_count": 1233,
+      "rx_scan_yield_count": 1,
+      "rx_dma_transfer_count": 268435456,
+      "flight_origin_capture_phase_delay_cycles": 10
+    },
+    "raw_tdma": "1,1,0,469124,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3801409129,11,1,1022,0,20,0,0,0,0,0,0,0,0,0,12080,0,0,7,5,5,0,0,0,0,0,1,0,0,0,0,0,4294967295,0,0,0,0,0,0,0,4,4,13070,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,128,2,1,0,0,0,0,0,0,0,0",
+    "raw_phys": "0,0,10000000,3432,1958,0,0,0,0,0,0,100,25,29,28,24,0,0,0,0,0,0,1,0,0,0,0,0,1958,0,26,27,0,367224,366579,632,4,3432,1958,2920206744,57,2921062028,57,2921199652,57,2921282852,57,11,5,0,0,0,0,10,10,10,4,50331652,21,21,0,0,0,0,58,3432,0,0,0,0,0,0,0,0,0,107,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,3432,0,5,11,2,27,0,0,0,0,0,1233,1,268435456,10"
+  },
+  "samples": [
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 0,
+        "txfragments": 43,
+        "rxmessages": 1,
+        "rejected": 0,
+        "triggers": 1,
+        "ready": 1,
+        "completed": 0,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 0,
+        "current_state": 0,
+        "next_index": 1,
+        "executed_index": 4294967295,
+        "executed_state": 4294967295,
+        "completed_index": 4294967295,
+        "completed_state": 4294967295,
+        "cycles": 0,
+        "accepted": 0,
+        "completed": 0,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 1,
+        "txfragments": 88,
+        "rxmessages": 2,
+        "rejected": 0,
+        "triggers": 1,
+        "ready": 1,
+        "completed": 1,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 1,
+        "current_state": 1,
+        "next_index": 2,
+        "executed_index": 1,
+        "executed_state": 1,
+        "completed_index": 1,
+        "completed_state": 1,
+        "cycles": 0,
+        "accepted": 1,
+        "completed": 1,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 2,
+        "txfragments": 127,
+        "rxmessages": 4,
+        "rejected": 0,
+        "triggers": 2,
+        "ready": 2,
+        "completed": 2,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 2,
+        "current_state": 2,
+        "next_index": 3,
+        "executed_index": 2,
+        "executed_state": 2,
+        "completed_index": 2,
+        "completed_state": 2,
+        "cycles": 0,
+        "accepted": 2,
+        "completed": 2,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 2,
+        "txfragments": 165,
+        "rxmessages": 5,
+        "rejected": 0,
+        "triggers": 3,
+        "ready": 3,
+        "completed": 2,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 2,
+        "current_state": 2,
+        "next_index": 3,
+        "executed_index": 2,
+        "executed_state": 2,
+        "completed_index": 2,
+        "completed_state": 2,
+        "cycles": 0,
+        "accepted": 2,
+        "completed": 2,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 2,
+        "txfragments": 207,
+        "rxmessages": 5,
+        "rejected": 0,
+        "triggers": 3,
+        "ready": 3,
+        "completed": 2,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 2,
+        "current_state": 2,
+        "next_index": 3,
+        "executed_index": 2,
+        "executed_state": 2,
+        "completed_index": 2,
+        "completed_state": 2,
+        "cycles": 0,
+        "accepted": 2,
+        "completed": 2,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 2,
+        "txfragments": 247,
+        "rxmessages": 5,
+        "rejected": 0,
+        "triggers": 3,
+        "ready": 3,
+        "completed": 2,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 3,
+        "current_state": 3,
+        "next_index": 4,
+        "executed_index": 3,
+        "executed_state": 3,
+        "completed_index": 3,
+        "completed_state": 3,
+        "cycles": 0,
+        "accepted": 3,
+        "completed": 3,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 3,
+        "txfragments": 288,
+        "rxmessages": 7,
+        "rejected": 0,
+        "triggers": 4,
+        "ready": 4,
+        "completed": 3,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 3,
+        "current_state": 3,
+        "next_index": 4,
+        "executed_index": 3,
+        "executed_state": 3,
+        "completed_index": 3,
+        "completed_state": 3,
+        "cycles": 0,
+        "accepted": 3,
+        "completed": 3,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 4,
+        "txfragments": 327,
+        "rxmessages": 8,
+        "rejected": 0,
+        "triggers": 4,
+        "ready": 4,
+        "completed": 4,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 4,
+        "current_state": 4,
+        "next_index": 5,
+        "executed_index": 4,
+        "executed_state": 4,
+        "completed_index": 4,
+        "completed_state": 4,
+        "cycles": 0,
+        "accepted": 4,
+        "completed": 4,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 4,
+        "txfragments": 369,
+        "rxmessages": 9,
+        "rejected": 0,
+        "triggers": 5,
+        "ready": 5,
+        "completed": 4,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 4,
+        "current_state": 4,
+        "next_index": 5,
+        "executed_index": 4,
+        "executed_state": 4,
+        "completed_index": 4,
+        "completed_state": 4,
+        "cycles": 0,
+        "accepted": 4,
+        "completed": 4,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 5,
+        "txfragments": 410,
+        "rxmessages": 10,
+        "rejected": 0,
+        "triggers": 5,
+        "ready": 5,
+        "completed": 5,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 5,
+        "current_state": 5,
+        "next_index": 6,
+        "executed_index": 5,
+        "executed_state": 5,
+        "completed_index": 5,
+        "completed_state": 5,
+        "cycles": 0,
+        "accepted": 5,
+        "completed": 5,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 5,
+        "txfragments": 453,
+        "rxmessages": 11,
+        "rejected": 0,
+        "triggers": 6,
+        "ready": 6,
+        "completed": 5,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 5,
+        "current_state": 5,
+        "next_index": 6,
+        "executed_index": 5,
+        "executed_state": 5,
+        "completed_index": 5,
+        "completed_state": 5,
+        "cycles": 0,
+        "accepted": 5,
+        "completed": 5,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 6,
+        "txfragments": 496,
+        "rxmessages": 12,
+        "rejected": 0,
+        "triggers": 6,
+        "ready": 6,
+        "completed": 6,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 6,
+        "current_state": 6,
+        "next_index": 7,
+        "executed_index": 6,
+        "executed_state": 6,
+        "completed_index": 6,
+        "completed_state": 6,
+        "cycles": 0,
+        "accepted": 6,
+        "completed": 6,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 6,
+        "txfragments": 535,
+        "rxmessages": 13,
+        "rejected": 0,
+        "triggers": 7,
+        "ready": 7,
+        "completed": 6,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 6,
+        "current_state": 6,
+        "next_index": 7,
+        "executed_index": 6,
+        "executed_state": 6,
+        "completed_index": 6,
+        "completed_state": 6,
+        "cycles": 0,
+        "accepted": 6,
+        "completed": 6,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 7,
+        "txfragments": 575,
+        "rxmessages": 14,
+        "rejected": 0,
+        "triggers": 7,
+        "ready": 7,
+        "completed": 7,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 7,
+        "current_state": 7,
+        "next_index": 0,
+        "executed_index": 7,
+        "executed_state": 7,
+        "completed_index": 7,
+        "completed_state": 7,
+        "cycles": 0,
+        "accepted": 7,
+        "completed": 7,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 7,
+        "txfragments": 618,
+        "rxmessages": 15,
+        "rejected": 0,
+        "triggers": 8,
+        "ready": 8,
+        "completed": 7,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 7,
+        "current_state": 7,
+        "next_index": 0,
+        "executed_index": 7,
+        "executed_state": 7,
+        "completed_index": 7,
+        "completed_state": 7,
+        "cycles": 0,
+        "accepted": 7,
+        "completed": 7,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 8,
+        "txfragments": 662,
+        "rxmessages": 16,
+        "rejected": 0,
+        "triggers": 8,
+        "ready": 8,
+        "completed": 8,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 0,
+        "current_state": 0,
+        "next_index": 1,
+        "executed_index": 0,
+        "executed_state": 0,
+        "completed_index": 0,
+        "completed_state": 0,
+        "cycles": 1,
+        "accepted": 8,
+        "completed": 8,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 8,
+        "txfragments": 699,
+        "rxmessages": 17,
+        "rejected": 0,
+        "triggers": 9,
+        "ready": 9,
+        "completed": 8,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 1,
+        "current_state": 1,
+        "next_index": 2,
+        "executed_index": 1,
+        "executed_state": 1,
+        "completed_index": 1,
+        "completed_state": 1,
+        "cycles": 1,
+        "accepted": 9,
+        "completed": 9,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 9,
+        "txfragments": 736,
+        "rxmessages": 19,
+        "rejected": 0,
+        "triggers": 10,
+        "ready": 10,
+        "completed": 9,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 1,
+        "current_state": 1,
+        "next_index": 2,
+        "executed_index": 1,
+        "executed_state": 1,
+        "completed_index": 1,
+        "completed_state": 1,
+        "cycles": 1,
+        "accepted": 9,
+        "completed": 9,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 10,
+        "txfragments": 881,
+        "rxmessages": 22,
+        "rejected": 0,
+        "triggers": 12,
+        "ready": 12,
+        "completed": 10,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 2,
+        "current_state": 2,
+        "next_index": 3,
+        "executed_index": 2,
+        "executed_state": 2,
+        "completed_index": 2,
+        "completed_state": 2,
+        "cycles": 1,
+        "accepted": 10,
+        "completed": 10,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 11,
+        "txfragments": 921,
+        "rxmessages": 23,
+        "rejected": 0,
+        "triggers": 12,
+        "ready": 12,
+        "completed": 11,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 3,
+        "current_state": 3,
+        "next_index": 4,
+        "executed_index": 3,
+        "executed_state": 3,
+        "completed_index": 3,
+        "completed_state": 3,
+        "cycles": 1,
+        "accepted": 11,
+        "completed": 11,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 12,
+        "txfragments": 961,
+        "rxmessages": 25,
+        "rejected": 0,
+        "triggers": 13,
+        "ready": 13,
+        "completed": 12,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 4,
+        "current_state": 4,
+        "next_index": 5,
+        "executed_index": 4,
+        "executed_state": 4,
+        "completed_index": 4,
+        "completed_state": 4,
+        "cycles": 1,
+        "accepted": 12,
+        "completed": 12,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 12,
+        "txfragments": 1000,
+        "rxmessages": 26,
+        "rejected": 0,
+        "triggers": 14,
+        "ready": 14,
+        "completed": 12,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 4,
+        "current_state": 4,
+        "next_index": 5,
+        "executed_index": 4,
+        "executed_state": 4,
+        "completed_index": 4,
+        "completed_state": 4,
+        "cycles": 1,
+        "accepted": 12,
+        "completed": 12,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 13,
+        "txfragments": 1040,
+        "rxmessages": 27,
+        "rejected": 0,
+        "triggers": 14,
+        "ready": 14,
+        "completed": 13,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 5,
+        "current_state": 5,
+        "next_index": 6,
+        "executed_index": 5,
+        "executed_state": 5,
+        "completed_index": 5,
+        "completed_state": 5,
+        "cycles": 1,
+        "accepted": 13,
+        "completed": 13,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 13,
+        "txfragments": 1085,
+        "rxmessages": 28,
+        "rejected": 0,
+        "triggers": 15,
+        "ready": 15,
+        "completed": 13,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 5,
+        "current_state": 5,
+        "next_index": 6,
+        "executed_index": 5,
+        "executed_state": 5,
+        "completed_index": 5,
+        "completed_state": 5,
+        "cycles": 1,
+        "accepted": 13,
+        "completed": 13,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 3,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 14,
+        "txfragments": 1128,
+        "rxmessages": 30,
+        "rejected": 0,
+        "triggers": 15,
+        "ready": 15,
+        "completed": 14,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 6,
+        "current_state": 6,
+        "next_index": 7,
+        "executed_index": 6,
+        "executed_state": 6,
+        "completed_index": 6,
+        "completed_state": 6,
+        "cycles": 1,
+        "accepted": 14,
+        "completed": 14,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 14,
+        "txfragments": 1169,
+        "rxmessages": 30,
+        "rejected": 0,
+        "triggers": 16,
+        "ready": 16,
+        "completed": 14,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 6,
+        "current_state": 6,
+        "next_index": 7,
+        "executed_index": 6,
+        "executed_state": 6,
+        "completed_index": 6,
+        "completed_state": 6,
+        "cycles": 1,
+        "accepted": 14,
+        "completed": 14,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 15,
+        "txfragments": 1210,
+        "rxmessages": 31,
+        "rejected": 0,
+        "triggers": 16,
+        "ready": 16,
+        "completed": 15,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 7,
+        "current_state": 7,
+        "next_index": 0,
+        "executed_index": 7,
+        "executed_state": 7,
+        "completed_index": 7,
+        "completed_state": 7,
+        "cycles": 1,
+        "accepted": 15,
+        "completed": 15,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 15,
+        "txfragments": 1249,
+        "rxmessages": 32,
+        "rejected": 0,
+        "triggers": 17,
+        "ready": 17,
+        "completed": 15,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 7,
+        "current_state": 7,
+        "next_index": 0,
+        "executed_index": 7,
+        "executed_state": 7,
+        "completed_index": 7,
+        "completed_state": 7,
+        "cycles": 1,
+        "accepted": 15,
+        "completed": 15,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 16,
+        "txfragments": 1291,
+        "rxmessages": 33,
+        "rejected": 0,
+        "triggers": 17,
+        "ready": 17,
+        "completed": 16,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 0,
+        "current_state": 0,
+        "next_index": 1,
+        "executed_index": 0,
+        "executed_state": 0,
+        "completed_index": 0,
+        "completed_state": 0,
+        "cycles": 2,
+        "accepted": 16,
+        "completed": 16,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 16,
+        "txfragments": 1329,
+        "rxmessages": 34,
+        "rejected": 0,
+        "triggers": 18,
+        "ready": 18,
+        "completed": 16,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 0,
+        "current_state": 0,
+        "next_index": 1,
+        "executed_index": 0,
+        "executed_state": 0,
+        "completed_index": 0,
+        "completed_state": 0,
+        "cycles": 2,
+        "accepted": 16,
+        "completed": 16,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 17,
+        "txfragments": 1369,
+        "rxmessages": 35,
+        "rejected": 0,
+        "triggers": 18,
+        "ready": 18,
+        "completed": 17,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 1,
+        "current_state": 1,
+        "next_index": 2,
+        "executed_index": 1,
+        "executed_state": 1,
+        "completed_index": 1,
+        "completed_state": 1,
+        "cycles": 2,
+        "accepted": 17,
+        "completed": 17,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 17,
+        "txfragments": 1410,
+        "rxmessages": 36,
+        "rejected": 0,
+        "triggers": 19,
+        "ready": 19,
+        "completed": 17,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 2,
+        "current_state": 2,
+        "next_index": 3,
+        "executed_index": 2,
+        "executed_state": 2,
+        "completed_index": 2,
+        "completed_state": 2,
+        "cycles": 2,
+        "accepted": 18,
+        "completed": 18,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 18,
+        "txfragments": 1452,
+        "rxmessages": 37,
+        "rejected": 0,
+        "triggers": 19,
+        "ready": 19,
+        "completed": 18,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 2,
+        "current_state": 2,
+        "next_index": 3,
+        "executed_index": 2,
+        "executed_state": 2,
+        "completed_index": 2,
+        "completed_state": 2,
+        "cycles": 2,
+        "accepted": 18,
+        "completed": 18,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    }
+  ],
+  "pause_resume": {
+    "passed": true,
+    "before": {
+      "enabled": 1,
+      "phase": 4,
+      "error": 0,
+      "binding_epoch": 8,
+      "model_epoch": 10,
+      "run": 5,
+      "generation": 5,
+      "step": 9,
+      "txfragments": 736,
+      "rxmessages": 19,
+      "rejected": 0,
+      "triggers": 10,
+      "ready": 10,
+      "completed": 9,
+      "dutslot": 2,
+      "vnaslot": 3,
+      "input": 1,
+      "outputmask": 8,
+      "pulseus": 1000,
+      "timeoutms": 5000,
+      "falling": 0,
+      "repeat": 0
+    },
+    "pause_command": "TRIG:PAUS",
+    "resume_command": "TRIG:CONT",
+    "pulse_stop_evidence": "stable trigger count and sampled OUT4 low; not waveform capture",
+    "settling": [
+      {
+        "sequence": {
+          "state": "PAUSED",
+          "run_id": 5,
+          "generation": 5,
+          "count": 8,
+          "current_index": 1,
+          "current_state": 1,
+          "next_index": 2,
+          "executed_index": 1,
+          "executed_state": 1,
+          "completed_index": 1,
+          "completed_state": 1,
+          "cycles": 1,
+          "accepted": 9,
+          "completed": 9,
+          "busy_rejected": 0,
+          "notready_rejected": 0,
+          "cancelled": 0,
+          "faults": 0,
+          "error": "NONE",
+          "written_us": 0,
+          "rise_us": 0,
+          "completed_us": 0,
+          "late_us": 0,
+          "backend_fault": 0
+        },
+        "link": {
+          "enabled": 1,
+          "phase": 6,
+          "error": 0,
+          "binding_epoch": 8,
+          "model_epoch": 10,
+          "run": 5,
+          "generation": 5,
+          "step": 9,
+          "txfragments": 749,
+          "rxmessages": 19,
+          "rejected": 0,
+          "triggers": 10,
+          "ready": 10,
+          "completed": 9,
+          "dutslot": 2,
+          "vnaslot": 3,
+          "input": 1,
+          "outputmask": 8,
+          "pulseus": 1000,
+          "timeoutms": 5000,
+          "falling": 0,
+          "repeat": 0
+        }
+      }
+    ],
+    "quiet_samples": [
+      {
+        "sequence": {
+          "state": "PAUSED",
+          "run_id": 5,
+          "generation": 5,
+          "count": 8,
+          "current_index": 1,
+          "current_state": 1,
+          "next_index": 2,
+          "executed_index": 1,
+          "executed_state": 1,
+          "completed_index": 1,
+          "completed_state": 1,
+          "cycles": 1,
+          "accepted": 9,
+          "completed": 9,
+          "busy_rejected": 0,
+          "notready_rejected": 0,
+          "cancelled": 0,
+          "faults": 0,
+          "error": "NONE",
+          "written_us": 0,
+          "rise_us": 0,
+          "completed_us": 0,
+          "late_us": 0,
+          "backend_fault": 0
+        },
+        "link": {
+          "enabled": 1,
+          "phase": 6,
+          "error": 0,
+          "binding_epoch": 8,
+          "model_epoch": 10,
+          "run": 5,
+          "generation": 5,
+          "step": 9,
+          "txfragments": 749,
+          "rxmessages": 19,
+          "rejected": 0,
+          "triggers": 10,
+          "ready": 10,
+          "completed": 9,
+          "dutslot": 2,
+          "vnaslot": 3,
+          "input": 1,
+          "outputmask": 8,
+          "pulseus": 1000,
+          "timeoutms": 5000,
+          "falling": 0,
+          "repeat": 0
+        },
+        "io": {
+          "inputs": 0,
+          "outputs": 1,
+          "owned": 15,
+          "armed": 1,
+          "busy": 0
+        }
+      },
+      {
+        "sequence": {
+          "state": "PAUSED",
+          "run_id": 5,
+          "generation": 5,
+          "count": 8,
+          "current_index": 1,
+          "current_state": 1,
+          "next_index": 2,
+          "executed_index": 1,
+          "executed_state": 1,
+          "completed_index": 1,
+          "completed_state": 1,
+          "cycles": 1,
+          "accepted": 9,
+          "completed": 9,
+          "busy_rejected": 0,
+          "notready_rejected": 0,
+          "cancelled": 0,
+          "faults": 0,
+          "error": "NONE",
+          "written_us": 0,
+          "rise_us": 0,
+          "completed_us": 0,
+          "late_us": 0,
+          "backend_fault": 0
+        },
+        "link": {
+          "enabled": 1,
+          "phase": 6,
+          "error": 0,
+          "binding_epoch": 8,
+          "model_epoch": 10,
+          "run": 5,
+          "generation": 5,
+          "step": 9,
+          "txfragments": 749,
+          "rxmessages": 19,
+          "rejected": 0,
+          "triggers": 10,
+          "ready": 10,
+          "completed": 9,
+          "dutslot": 2,
+          "vnaslot": 3,
+          "input": 1,
+          "outputmask": 8,
+          "pulseus": 1000,
+          "timeoutms": 5000,
+          "falling": 0,
+          "repeat": 0
+        },
+        "io": {
+          "inputs": 0,
+          "outputs": 1,
+          "owned": 15,
+          "armed": 1,
+          "busy": 0
+        }
+      }
+    ],
+    "resume_samples": [
+      {
+        "link": {
+          "enabled": 1,
+          "phase": 3,
+          "error": 0,
+          "binding_epoch": 8,
+          "model_epoch": 10,
+          "run": 5,
+          "generation": 5,
+          "step": 9,
+          "txfragments": 785,
+          "rxmessages": 20,
+          "rejected": 0,
+          "triggers": 11,
+          "ready": 10,
+          "completed": 9,
+          "dutslot": 2,
+          "vnaslot": 3,
+          "input": 1,
+          "outputmask": 8,
+          "pulseus": 1000,
+          "timeoutms": 5000,
+          "falling": 0,
+          "repeat": 0
+        },
+        "sequence": {
+          "state": "READY",
+          "run_id": 5,
+          "generation": 5,
+          "count": 8,
+          "current_index": 1,
+          "current_state": 1,
+          "next_index": 2,
+          "executed_index": 1,
+          "executed_state": 1,
+          "completed_index": 1,
+          "completed_state": 1,
+          "cycles": 1,
+          "accepted": 9,
+          "completed": 9,
+          "busy_rejected": 0,
+          "notready_rejected": 0,
+          "cancelled": 0,
+          "faults": 0,
+          "error": "NONE",
+          "written_us": 0,
+          "rise_us": 0,
+          "completed_us": 0,
+          "late_us": 0,
+          "backend_fault": 0
+        }
+      },
+      {
+        "link": {
+          "enabled": 1,
+          "phase": 5,
+          "error": 0,
+          "binding_epoch": 8,
+          "model_epoch": 10,
+          "run": 5,
+          "generation": 5,
+          "step": 9,
+          "txfragments": 827,
+          "rxmessages": 21,
+          "rejected": 0,
+          "triggers": 11,
+          "ready": 11,
+          "completed": 9,
+          "dutslot": 2,
+          "vnaslot": 3,
+          "input": 1,
+          "outputmask": 8,
+          "pulseus": 1000,
+          "timeoutms": 5000,
+          "falling": 0,
+          "repeat": 0
+        },
+        "sequence": {
+          "state": "READY",
+          "run_id": 5,
+          "generation": 5,
+          "count": 8,
+          "current_index": 2,
+          "current_state": 2,
+          "next_index": 3,
+          "executed_index": 2,
+          "executed_state": 2,
+          "completed_index": 2,
+          "completed_state": 2,
+          "cycles": 1,
+          "accepted": 10,
+          "completed": 10,
+          "busy_rejected": 0,
+          "notready_rejected": 0,
+          "cancelled": 0,
+          "faults": 0,
+          "error": "NONE",
+          "written_us": 0,
+          "rise_us": 0,
+          "completed_us": 0,
+          "late_us": 0,
+          "backend_fault": 0
+        }
+      },
+      {
+        "link": {
+          "enabled": 1,
+          "phase": 4,
+          "error": 0,
+          "binding_epoch": 8,
+          "model_epoch": 10,
+          "run": 5,
+          "generation": 5,
+          "step": 10,
+          "txfragments": 867,
+          "rxmessages": 22,
+          "rejected": 0,
+          "triggers": 12,
+          "ready": 12,
+          "completed": 10,
+          "dutslot": 2,
+          "vnaslot": 3,
+          "input": 1,
+          "outputmask": 8,
+          "pulseus": 1000,
+          "timeoutms": 5000,
+          "falling": 0,
+          "repeat": 0
+        },
+        "sequence": {
+          "state": "READY",
+          "run_id": 5,
+          "generation": 5,
+          "count": 8,
+          "current_index": 2,
+          "current_state": 2,
+          "next_index": 3,
+          "executed_index": 2,
+          "executed_state": 2,
+          "completed_index": 2,
+          "completed_state": 2,
+          "cycles": 1,
+          "accepted": 10,
+          "completed": 10,
+          "busy_rejected": 0,
+          "notready_rejected": 0,
+          "cancelled": 0,
+          "faults": 0,
+          "error": "NONE",
+          "written_us": 0,
+          "rise_us": 0,
+          "completed_us": 0,
+          "late_us": 0,
+          "backend_fault": 0
+        }
+      }
+    ],
+    "paused": {
+      "sequence": {
+        "state": "PAUSED",
+        "run_id": 5,
+        "generation": 5,
+        "count": 8,
+        "current_index": 1,
+        "current_state": 1,
+        "next_index": 2,
+        "executed_index": 1,
+        "executed_state": 1,
+        "completed_index": 1,
+        "completed_state": 1,
+        "cycles": 1,
+        "accepted": 9,
+        "completed": 9,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      },
+      "link": {
+        "enabled": 1,
+        "phase": 6,
+        "error": 0,
+        "binding_epoch": 8,
+        "model_epoch": 10,
+        "run": 5,
+        "generation": 5,
+        "step": 9,
+        "txfragments": 749,
+        "rxmessages": 19,
+        "rejected": 0,
+        "triggers": 10,
+        "ready": 10,
+        "completed": 9,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "io": {
+        "inputs": 1,
+        "outputs": 1,
+        "owned": 15,
+        "armed": 1,
+        "busy": 0
+      }
+    },
+    "quiet_duration_requested_s": 0.2,
+    "quiet_elapsed_s": 0.20300000000042928
+  },
+  "ring_after": {
+    "tdma": [
+      1,
+      1,
+      0,
+      471683,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3801409129,
+      11,
+      1,
+      1022,
+      1,
+      22,
+      2,
+      0,
+      0,
+      1,
+      2,
+      2614010132,
+      2281719261,
+      1,
+      1,
+      14156,
+      0,
+      1,
+      7,
+      5,
+      5,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      9,
+      4294967295,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2000000,
+      1,
+      6,
+      5,
+      15325,
+      1770,
+      1764,
+      2430750777,
+      2106673228,
+      8,
+      2,
+      1770,
+      0,
+      56,
+      3968948232,
+      164,
+      3959142320,
+      164,
+      0,
+      1770,
+      712,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      4294967295,
+      0,
+      0,
+      1,
+      2,
+      0,
+      0,
+      1763,
+      3868215126,
+      2281719261,
+      8,
+      2,
+      1,
+      7,
+      589652,
+      589708,
+      1763589652,
+      0,
+      0,
+      0,
+      3955953164,
+      164,
+      128,
+      2,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "phys": {
+      "armed": 1,
+      "role": 0,
+      "baud_hz": 10000000,
+      "tx_count": 1789,
+      "rx_count": 998,
+      "rx_bad_count": 0,
+      "tx_busy_count": 0,
+      "rx_partial_count": 0,
+      "rx_stall_count": 0,
+      "tx_timeout_count": 0,
+      "last_error": 0,
+      "last_rx_size": 100,
+      "tx_sck_pin": 25,
+      "tx_pin": 29,
+      "rx_sck_pin": 28,
+      "rx_pin": 24,
+      "last_bad_header0": 0,
+      "last_bad_header1": 0,
+      "last_bad_header2": 0,
+      "last_bad_header3": 0,
+      "last_bad_words": 0,
+      "rx_busy_count": 0,
+      "rx_magic_fail_count": 1,
+      "rx_busy_word0": 0,
+      "rx_busy_word1": 0,
+      "rx_busy_word2": 0,
+      "rx_busy_word3": 0,
+      "rx_busy_moved": 0,
+      "rx_magic_at_zero": 998,
+      "rx_magic_at_shift": 0,
+      "tx_csn_pin": 26,
+      "rx_csn_pin": 27,
+      "rx_ring_overrun_count": 0,
+      "rx_dma_produced_words": 191316,
+      "rx_scan_produced_words": 190671,
+      "rx_dma_write_index": 852,
+      "rx_dma_channel": 4,
+      "tx_edge_count": 1789,
+      "rx_edge_count": 998,
+      "last_tx_edge_timestamp_ns_lo": 4008678700,
+      "last_tx_edge_timestamp_ns_hi": 164,
+      "last_tx_done_timestamp_ns_lo": 4009433688,
+      "last_tx_done_timestamp_ns_hi": 164,
+      "last_rx_edge_timestamp_ns_lo": 4006506660,
+      "last_rx_edge_timestamp_ns_hi": 164,
+      "last_rx_extract_timestamp_ns_lo": 4006589860,
+      "last_rx_extract_timestamp_ns_hi": 164,
+      "program_persona": 11,
+      "program_switch_count": 7,
+      "program_switch_fail_count": 0,
+      "flight_marker_offset_sample_count": 0,
+      "flight_sck_offset_sample_count": 0,
+      "flight_data_offset_sample_count": 0,
+      "flight_marker_phase_delay_cycles": 10,
+      "flight_sck_phase_delay_cycles": 10,
+      "flight_data_phase_delay_cycles": 10,
+      "pio_irq_flags": 4,
+      "pio_fdebug": 50331652,
+      "tx_sm_pc": 21,
+      "rx_sm_pc": 21,
+      "tx_sm_tx_fifo_level": 0,
+      "tx_sm_rx_fifo_level": 0,
+      "rx_sm_tx_fifo_level": 0,
+      "rx_sm_rx_fifo_level": 0,
+      "gpio_input_levels": 18,
+      "origin_done_irq_count": 1789,
+      "origin_done_txstall_count": 0,
+      "origin_clock_timeout_count": 0,
+      "origin_data_timeout_count": 0,
+      "origin_recovery_count": 0,
+      "overlay_prepare_count": 0,
+      "overlay_prepare_fail_count": 0,
+      "overlay_replacement_byte_count": 0,
+      "overlay_alignment_byte_shift": 0,
+      "overlay_alignment_bit_shift": 0,
+      "overlay_physical_byte_count": 107,
+      "overlay_last_error": 0,
+      "overlay_tx_dma_remaining": 0,
+      "overlay_tx_dma_busy": 0,
+      "overlay_tx_fifo_level_at_fail": 0,
+      "overlay_prepare_wait_us": 0,
+      "overlay_program_offset": 0,
+      "overlay_tx_dma_read_index": 0,
+      "overlay_tx_dma_ctrl": 0,
+      "overlay_sm_shiftctrl": 0,
+      "overlay_sm_execctrl": 0,
+      "overlay_sm_pc_at_fail": 0,
+      "overlay_pio_ctrl_at_fail": 0,
+      "overlay_pio_fstat_at_fail": 0,
+      "overlay_pio_fdebug_at_fail": 0,
+      "overlay_frame_boundary_count": 0,
+      "overlay_pass_recovery_count": 0,
+      "overlay_late_coalesce_count": 0,
+      "clock_latch_resolution_ns": 8,
+      "clock_latch_count": 1789,
+      "clock_latch_miss_count": 0,
+      "program_lifecycle_state": 5,
+      "program_target_persona": 11,
+      "program_previous_persona": 2,
+      "program_transition_seq": 39,
+      "program_lifecycle_error": 0,
+      "overlay_published_generation": 0,
+      "overlay_selected_generation": 0,
+      "overlay_selection_pending": 0,
+      "overlay_reuse_observation_count": 0,
+      "rx_observation_drop_count": 639,
+      "rx_scan_yield_count": 1,
+      "rx_dma_transfer_count": 275256385,
+      "flight_origin_capture_phase_delay_cycles": 10
+    },
+    "raw_tdma": "1,1,0,471683,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3801409129,11,1,1022,1,22,2,0,0,1,2,2614010132,2281719261,1,1,14156,0,1,7,5,5,0,0,0,0,0,1,0,0,0,0,9,4294967295,0,0,0,0,0,2000000,1,6,5,15325,1770,1764,2430750777,2106673228,8,2,1770,0,56,3968948232,164,3959142320,164,0,1770,712,0,0,0,0,0,0,0,0,0,4294967295,0,0,1,2,0,0,1763,3868215126,2281719261,8,2,1,7,589652,589708,1763589652,0,0,0,3955953164,164,128,2,1,0,0,0,0,0,0,0,0",
+    "raw_phys": "1,0,10000000,1789,998,0,0,0,0,0,0,100,25,29,28,24,0,0,0,0,0,0,1,0,0,0,0,0,998,0,26,27,0,191316,190671,852,4,1789,998,4008678700,164,4009433688,164,4006506660,164,4006589860,164,11,7,0,0,0,0,10,10,10,4,50331652,21,21,0,0,0,0,18,1789,0,0,0,0,0,0,0,0,0,107,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,1789,0,5,11,2,39,0,0,0,0,0,639,1,275256385,10"
+  },
+  "transport_before_cleanup": {
+    "READ:SEQ:LINK:TRANSPORT?": {
+      "response": "1,1,11302,0,703,703",
+      "parsed": {
+        "enabled": 1,
+        "seen": 1,
+        "mailbox_seq16": 11302,
+        "last_reject": 0,
+        "matches": 703,
+        "published": 703,
+        "last_reject_name": "NONE"
+      }
+    },
+    "SYST:TDMA:FLIGHT:PROCESS?": {
+      "response": "4,1,1,0,3564777010,3,68,1,12062,0,385984,748,0,0,0,5021,0,0,0,5021,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,5,1807,852736668,20,127,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0"
+    },
+    "SYST:TDMA:FLIGHT:FIFO?": {
+      "response": "2,11323,0,11322,748,748,11321,1,1,11322,4864,0,0,4864,4864,0,0"
+    },
+    "SYST:REFMEM:SYNC:FLIGHT?": {
+      "response": "1,0,2,3,0,1,68,32,1,11328,11327,0,4865,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0"
+    }
+  },
+  "ring_before_cleanup": {
+    "tdma": [
+      1,
+      1,
+      0,
+      471763,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3801409129,
+      11,
+      1,
+      1022,
+      1,
+      22,
+      2,
+      0,
+      0,
+      1,
+      2,
+      2614010132,
+      2281719261,
+      1,
+      1,
+      14223,
+      5,
+      0,
+      7,
+      5,
+      5,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      9,
+      4294967295,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2000000,
+      1,
+      6,
+      5,
+      15405,
+      1831,
+      1824,
+      1973373061,
+      4003350431,
+      8,
+      2,
+      1831,
+      0,
+      0,
+      4091438040,
+      164,
+      4078266012,
+      164,
+      0,
+      1831,
+      730,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      4294967295,
+      0,
+      0,
+      1,
+      2,
+      0,
+      0,
+      1823,
+      1991321043,
+      2281719261,
+      8,
+      2,
+      1,
+      7,
+      289360,
+      289416,
+      1823289360,
+      0,
+      0,
+      0,
+      4076652872,
+      164,
+      128,
+      2,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "phys": {
+      "armed": 1,
+      "role": 0,
+      "baud_hz": 10000000,
+      "tx_count": 1849,
+      "rx_count": 1029,
+      "rx_bad_count": 0,
+      "tx_busy_count": 0,
+      "rx_partial_count": 0,
+      "rx_stall_count": 0,
+      "tx_timeout_count": 0,
+      "last_error": 0,
+      "last_rx_size": 100,
+      "tx_sck_pin": 25,
+      "tx_pin": 29,
+      "rx_sck_pin": 28,
+      "rx_pin": 24,
+      "last_bad_header0": 0,
+      "last_bad_header1": 0,
+      "last_bad_header2": 0,
+      "last_bad_header3": 0,
+      "last_bad_words": 0,
+      "rx_busy_count": 0,
+      "rx_magic_fail_count": 1,
+      "rx_busy_word0": 0,
+      "rx_busy_word1": 0,
+      "rx_busy_word2": 0,
+      "rx_busy_word3": 0,
+      "rx_busy_moved": 0,
+      "rx_magic_at_zero": 1029,
+      "rx_magic_at_shift": 0,
+      "tx_csn_pin": 26,
+      "rx_csn_pin": 27,
+      "rx_ring_overrun_count": 0,
+      "rx_dma_produced_words": 197843,
+      "rx_scan_produced_words": 197198,
+      "rx_dma_write_index": 211,
+      "rx_dma_channel": 4,
+      "tx_edge_count": 1849,
+      "rx_edge_count": 1029,
+      "last_tx_edge_timestamp_ns_lo": 4128039700,
+      "last_tx_edge_timestamp_ns_hi": 164,
+      "last_tx_done_timestamp_ns_lo": 4128736320,
+      "last_tx_done_timestamp_ns_hi": 164,
+      "last_rx_edge_timestamp_ns_lo": 4128819572,
+      "last_rx_edge_timestamp_ns_hi": 164,
+      "last_rx_extract_timestamp_ns_lo": 4128902772,
+      "last_rx_extract_timestamp_ns_hi": 164,
+      "program_persona": 11,
+      "program_switch_count": 7,
+      "program_switch_fail_count": 0,
+      "flight_marker_offset_sample_count": 0,
+      "flight_sck_offset_sample_count": 0,
+      "flight_data_offset_sample_count": 0,
+      "flight_marker_phase_delay_cycles": 10,
+      "flight_sck_phase_delay_cycles": 10,
+      "flight_data_phase_delay_cycles": 10,
+      "pio_irq_flags": 4,
+      "pio_fdebug": 50331652,
+      "tx_sm_pc": 21,
+      "rx_sm_pc": 21,
+      "tx_sm_tx_fifo_level": 0,
+      "tx_sm_rx_fifo_level": 0,
+      "rx_sm_tx_fifo_level": 0,
+      "rx_sm_rx_fifo_level": 0,
+      "gpio_input_levels": 18,
+      "origin_done_irq_count": 1849,
+      "origin_done_txstall_count": 0,
+      "origin_clock_timeout_count": 0,
+      "origin_data_timeout_count": 0,
+      "origin_recovery_count": 0,
+      "overlay_prepare_count": 0,
+      "overlay_prepare_fail_count": 0,
+      "overlay_replacement_byte_count": 0,
+      "overlay_alignment_byte_shift": 0,
+      "overlay_alignment_bit_shift": 0,
+      "overlay_physical_byte_count": 107,
+      "overlay_last_error": 0,
+      "overlay_tx_dma_remaining": 0,
+      "overlay_tx_dma_busy": 0,
+      "overlay_tx_fifo_level_at_fail": 0,
+      "overlay_prepare_wait_us": 0,
+      "overlay_program_offset": 0,
+      "overlay_tx_dma_read_index": 0,
+      "overlay_tx_dma_ctrl": 0,
+      "overlay_sm_shiftctrl": 0,
+      "overlay_sm_execctrl": 0,
+      "overlay_sm_pc_at_fail": 0,
+      "overlay_pio_ctrl_at_fail": 0,
+      "overlay_pio_fstat_at_fail": 0,
+      "overlay_pio_fdebug_at_fail": 0,
+      "overlay_frame_boundary_count": 0,
+      "overlay_pass_recovery_count": 0,
+      "overlay_late_coalesce_count": 0,
+      "clock_latch_resolution_ns": 8,
+      "clock_latch_count": 1849,
+      "clock_latch_miss_count": 0,
+      "program_lifecycle_state": 5,
+      "program_target_persona": 11,
+      "program_previous_persona": 2,
+      "program_transition_seq": 39,
+      "program_lifecycle_error": 0,
+      "overlay_published_generation": 0,
+      "overlay_selected_generation": 0,
+      "overlay_selection_pending": 0,
+      "overlay_reuse_observation_count": 0,
+      "rx_observation_drop_count": 660,
+      "rx_scan_yield_count": 1,
+      "rx_dma_transfer_count": 275249965,
+      "flight_origin_capture_phase_delay_cycles": 10
+    },
+    "raw_tdma": "1,1,0,471763,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3801409129,11,1,1022,1,22,2,0,0,1,2,2614010132,2281719261,1,1,14223,5,0,7,5,5,0,0,0,0,0,1,0,0,0,0,9,4294967295,0,0,0,0,0,2000000,1,6,5,15405,1831,1824,1973373061,4003350431,8,2,1831,0,0,4091438040,164,4078266012,164,0,1831,730,0,0,0,0,0,0,0,0,0,4294967295,0,0,1,2,0,0,1823,1991321043,2281719261,8,2,1,7,289360,289416,1823289360,0,0,0,4076652872,164,128,2,1,0,0,0,0,0,0,0,0",
+    "raw_phys": "1,0,10000000,1849,1029,0,0,0,0,0,0,100,25,29,28,24,0,0,0,0,0,0,1,0,0,0,0,0,1029,0,26,27,0,197843,197198,211,4,1849,1029,4128039700,164,4128736320,164,4128819572,164,4128902772,164,11,7,0,0,0,0,10,10,10,4,50331652,21,21,0,0,0,0,18,1849,0,0,0,0,0,0,0,0,0,107,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,1849,0,5,11,2,39,0,0,0,0,0,660,1,275249965,10"
+  },
+  "stopped": {
+    "sequence": {
+      "state": "IDLE",
+      "run_id": 5,
+      "generation": 5,
+      "count": 8,
+      "current_index": 3,
+      "current_state": 3,
+      "next_index": 4,
+      "executed_index": 3,
+      "executed_state": 3,
+      "completed_index": 3,
+      "completed_state": 3,
+      "cycles": 2,
+      "accepted": 19,
+      "completed": 19,
+      "busy_rejected": 0,
+      "notready_rejected": 0,
+      "cancelled": 0,
+      "faults": 0,
+      "error": "NONE",
+      "written_us": 0,
+      "rise_us": 0,
+      "completed_us": 0,
+      "late_us": 0,
+      "backend_fault": 0
+    },
+    "link": {
+      "enabled": 1,
+      "phase": 1,
+      "error": 0,
+      "binding_epoch": 8,
+      "model_epoch": 10,
+      "run": 5,
+      "generation": 5,
+      "step": 19,
+      "txfragments": 1550,
+      "rxmessages": 39,
+      "rejected": 0,
+      "triggers": 20,
+      "ready": 20,
+      "completed": 19,
+      "dutslot": 2,
+      "vnaslot": 3,
+      "input": 1,
+      "outputmask": 8,
+      "pulseus": 1000,
+      "timeoutms": 5000,
+      "falling": 0,
+      "repeat": 0
+    },
+    "io": {
+      "inputs": 0,
+      "outputs": 0,
+      "owned": 0,
+      "armed": 0,
+      "busy": 0
+    }
+  },
+  "after_stop_quiet": {
+    "link": {
+      "enabled": 1,
+      "phase": 1,
+      "error": 0,
+      "binding_epoch": 8,
+      "model_epoch": 10,
+      "run": 5,
+      "generation": 5,
+      "step": 19,
+      "txfragments": 1550,
+      "rxmessages": 39,
+      "rejected": 0,
+      "triggers": 20,
+      "ready": 20,
+      "completed": 19,
+      "dutslot": 2,
+      "vnaslot": 3,
+      "input": 1,
+      "outputmask": 8,
+      "pulseus": 1000,
+      "timeoutms": 5000,
+      "falling": 0,
+      "repeat": 0
+    },
+    "io": {
+      "inputs": 1,
+      "outputs": 0,
+      "owned": 0,
+      "armed": 0,
+      "busy": 0
+    }
+  },
+  "ring_stop": {
+    "command": "SYSTem:TDMA:RING:STOP",
+    "response": "\"OK\"",
+    "error": "0,\"No error\""
+  },
+  "ring_stop_readbacks": [
+    {
+      "tdma": [
+        1,
+        1,
+        0,
+        472095,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        3801409129,
+        11,
+        1,
+        1022,
+        0,
+        23,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        14473,
+        0,
+        0,
+        7,
+        5,
+        5,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        9,
+        4294967295,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        6,
+        6,
+        15676,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        128,
+        2,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "phys": {
+        "armed": 0,
+        "role": 0,
+        "baud_hz": 10000000,
+        "tx_count": 2040,
+        "rx_count": 1139,
+        "rx_bad_count": 0,
+        "tx_busy_count": 0,
+        "rx_partial_count": 0,
+        "rx_stall_count": 0,
+        "tx_timeout_count": 0,
+        "last_error": 0,
+        "last_rx_size": 100,
+        "tx_sck_pin": 25,
+        "tx_pin": 29,
+        "rx_sck_pin": 28,
+        "rx_pin": 24,
+        "last_bad_header0": 0,
+        "last_bad_header1": 0,
+        "last_bad_header2": 0,
+        "last_bad_header3": 0,
+        "last_bad_words": 0,
+        "rx_busy_count": 0,
+        "rx_magic_fail_count": 1,
+        "rx_busy_word0": 0,
+        "rx_busy_word1": 0,
+        "rx_busy_word2": 0,
+        "rx_busy_word3": 0,
+        "rx_busy_moved": 0,
+        "rx_magic_at_zero": 1139,
+        "rx_magic_at_shift": 0,
+        "tx_csn_pin": 26,
+        "rx_csn_pin": 27,
+        "rx_ring_overrun_count": 0,
+        "rx_dma_produced_words": 218153,
+        "rx_scan_produced_words": 217528,
+        "rx_dma_write_index": 61,
+        "rx_dma_channel": 4,
+        "tx_edge_count": 2040,
+        "rx_edge_count": 1139,
+        "last_tx_edge_timestamp_ns_lo": 214990008,
+        "last_tx_edge_timestamp_ns_hi": 165,
+        "last_tx_done_timestamp_ns_lo": 215511584,
+        "last_tx_done_timestamp_ns_hi": 165,
+        "last_rx_edge_timestamp_ns_lo": 213437780,
+        "last_rx_edge_timestamp_ns_hi": 165,
+        "last_rx_extract_timestamp_ns_lo": 213520980,
+        "last_rx_extract_timestamp_ns_hi": 165,
+        "program_persona": 11,
+        "program_switch_count": 7,
+        "program_switch_fail_count": 0,
+        "flight_marker_offset_sample_count": 0,
+        "flight_sck_offset_sample_count": 0,
+        "flight_data_offset_sample_count": 0,
+        "flight_marker_phase_delay_cycles": 10,
+        "flight_sck_phase_delay_cycles": 10,
+        "flight_data_phase_delay_cycles": 10,
+        "pio_irq_flags": 4,
+        "pio_fdebug": 50331652,
+        "tx_sm_pc": 21,
+        "rx_sm_pc": 21,
+        "tx_sm_tx_fifo_level": 0,
+        "tx_sm_rx_fifo_level": 0,
+        "rx_sm_tx_fifo_level": 0,
+        "rx_sm_rx_fifo_level": 0,
+        "gpio_input_levels": 58,
+        "origin_done_irq_count": 2040,
+        "origin_done_txstall_count": 0,
+        "origin_clock_timeout_count": 0,
+        "origin_data_timeout_count": 0,
+        "origin_recovery_count": 0,
+        "overlay_prepare_count": 0,
+        "overlay_prepare_fail_count": 0,
+        "overlay_replacement_byte_count": 0,
+        "overlay_alignment_byte_shift": 0,
+        "overlay_alignment_bit_shift": 0,
+        "overlay_physical_byte_count": 107,
+        "overlay_last_error": 0,
+        "overlay_tx_dma_remaining": 0,
+        "overlay_tx_dma_busy": 0,
+        "overlay_tx_fifo_level_at_fail": 0,
+        "overlay_prepare_wait_us": 0,
+        "overlay_program_offset": 0,
+        "overlay_tx_dma_read_index": 0,
+        "overlay_tx_dma_ctrl": 0,
+        "overlay_sm_shiftctrl": 0,
+        "overlay_sm_execctrl": 0,
+        "overlay_sm_pc_at_fail": 0,
+        "overlay_pio_ctrl_at_fail": 0,
+        "overlay_pio_fstat_at_fail": 0,
+        "overlay_pio_fdebug_at_fail": 0,
+        "overlay_frame_boundary_count": 0,
+        "overlay_pass_recovery_count": 0,
+        "overlay_late_coalesce_count": 0,
+        "clock_latch_resolution_ns": 8,
+        "clock_latch_count": 2040,
+        "clock_latch_miss_count": 0,
+        "program_lifecycle_state": 5,
+        "program_target_persona": 11,
+        "program_previous_persona": 2,
+        "program_transition_seq": 39,
+        "program_lifecycle_error": 0,
+        "overlay_published_generation": 0,
+        "overlay_selected_generation": 0,
+        "overlay_selection_pending": 0,
+        "overlay_reuse_observation_count": 0,
+        "rx_observation_drop_count": 729,
+        "rx_scan_yield_count": 1,
+        "rx_dma_transfer_count": 268435456,
+        "flight_origin_capture_phase_delay_cycles": 10
+      },
+      "raw_tdma": "1,1,0,472095,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3801409129,11,1,1022,0,23,0,0,0,0,0,0,0,0,0,14473,0,0,7,5,5,0,0,0,0,0,1,0,0,0,0,9,4294967295,0,0,0,0,0,0,0,6,6,15676,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,128,2,1,0,0,0,0,0,0,0,0",
+      "raw_phys": "0,0,10000000,2040,1139,0,0,0,0,0,0,100,25,29,28,24,0,0,0,0,0,0,1,0,0,0,0,0,1139,0,26,27,0,218153,217528,61,4,2040,1139,214990008,165,215511584,165,213437780,165,213520980,165,11,7,0,0,0,0,10,10,10,4,50331652,21,21,0,0,0,0,58,2040,0,0,0,0,0,0,0,0,0,107,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,2040,0,5,11,2,39,0,0,0,0,0,729,1,268435456,10"
+    }
+  ],
+  "probe_disable": {
+    "command": "CALibration:TOPology:PROBe 0",
+    "response": "0,0",
+    "error": "0,\"No error\""
+  }
+}

@@ -1,0 +1,5434 @@
+{
+  "passed": false,
+  "scope": "single_board_rj45_dut_vna_functional_cycle",
+  "functional_cycle_verified": true,
+  "tdma_stability_verified": false,
+  "known_down_running_optimization_deferred": true,
+  "multi_board_verified": false,
+  "independent_input_count_verified": false,
+  "waveform_verified": false,
+  "rf_path_verified": false,
+  "p3_receipt": false,
+  "deferred_observations": [],
+  "started_at": "2026-09-16T12:55:03.262916+00:00",
+  "tool_sha256": "88c7b4ef1fd3a0f4716c77f16e63d6fd769c6e4777cf6d0e2d077dc1a22632a1",
+  "settings": {
+    "port": null,
+    "visa_resource": null,
+    "serial_number": "839E1AE79EA20F31",
+    "build": "20260916124155",
+    "out": "out\\node-sequence\\sequence-start-view-pause-r1.json",
+    "duration": 30,
+    "minimum_events": 9,
+    "repeat": 0,
+    "pause_resume": true,
+    "gui_control": true,
+    "timeout": 3,
+    "poll": 0.05,
+    "quiet": 0.2,
+    "source_hz": 50.0,
+    "gateway_pulse_us": 1000,
+    "gateway_timeout_ms": 5000,
+    "dut_slot": 2,
+    "dut_instance": 5,
+    "vna_slot": 3,
+    "vna_instance": 7,
+    "operating_level": 7,
+    "node_count": 2,
+    "local_slot": 0,
+    "reference_slot": 0,
+    "probe_phase_cycles": 10,
+    "train_cycles": 4096,
+    "arm_wait": 3,
+    "start_wait": 2
+  },
+  "transcript": [
+    {
+      "command": "*IDN?",
+      "response": "NO.1,DHRT100,839E1AE79EA20F31,0.1.0",
+      "at": 7307.734,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:FW:BUILD?",
+      "response": "\"20260916124155\"",
+      "at": 7307.734,
+      "elapsed": 0.0
+    },
+    {
+      "command": "TRIG:STOP",
+      "response": "1",
+      "at": 7307.781,
+      "elapsed": 0.06199999999989814
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7307.843,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"IDLE\",1,1,8,7,7,0,7,7,7,7,9,79,79,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7307.843,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "SYST:TDMA:RING:STOP",
+      "response": "\"OK\"",
+      "at": 7307.859,
+      "elapsed": 0.06199999999989814
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7307.921,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:RING:STAT?",
+      "response": "0,0,0,0,0,0,7949,0,0,8692,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,8",
+      "at": 7307.921,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "CONF:SEQ:LINK OFF",
+      "response": "1",
+      "at": 7307.937,
+      "elapsed": 0.06300000000010186
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7308.0,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:TRIG 8,0,1,1",
+      "response": "1",
+      "at": 7308.0,
+      "elapsed": 0.06199999999989814
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7308.062,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ SP8T,0,1,2,3,4,5,6,7",
+      "response": "1",
+      "at": 7308.062,
+      "elapsed": 0.06300000000010186
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7308.125,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:ACT SP8T",
+      "response": "1",
+      "at": 7308.125,
+      "elapsed": 0.06199999999989814
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7308.187,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:OUTPUT 7,0,NONE,10,0",
+      "response": "1",
+      "at": 7308.187,
+      "elapsed": 0.09400000000005093
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7308.281,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:CODE 0,0",
+      "response": "1",
+      "at": 7308.281,
+      "elapsed": 0.09400000000005093
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7308.375,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:CODE 1,1",
+      "response": "1",
+      "at": 7308.375,
+      "elapsed": 0.0929999999998472
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7308.468,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:CODE 2,2",
+      "response": "1",
+      "at": 7308.468,
+      "elapsed": 0.09400000000005093
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7308.562,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:CODE 3,3",
+      "response": "1",
+      "at": 7308.562,
+      "elapsed": 0.09400000000005093
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7308.656,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:CODE 4,4",
+      "response": "1",
+      "at": 7308.656,
+      "elapsed": 0.09400000000005093
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7308.75,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:CODE 5,5",
+      "response": "1",
+      "at": 7308.75,
+      "elapsed": 0.0929999999998472
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7308.843,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:CODE 6,6",
+      "response": "1",
+      "at": 7308.843,
+      "elapsed": 0.09400000000005093
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7308.937,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:CODE 7,7",
+      "response": "1",
+      "at": 7308.937,
+      "elapsed": 0.09400000000005093
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7309.031,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:SOUR BUS,RIS",
+      "response": "1",
+      "at": 7309.031,
+      "elapsed": 0.09400000000005093
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7309.125,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:REPEAT 0",
+      "response": "1",
+      "at": 7309.125,
+      "elapsed": 0.0929999999998472
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7309.218,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "CONF:SEQ:NODE:ROLE 2,5,DUT",
+      "response": "\"STAGED\"",
+      "at": 7309.234,
+      "elapsed": 0.09400000000005093
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7309.328,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:NODE:ROLE 3,7,VNA",
+      "response": "\"STAGED\"",
+      "at": 7309.328,
+      "elapsed": 0.10899999999946886
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7309.437,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:NODE:ACT",
+      "response": "\"ACTIVE\",1,10,1023,0,3849125392,0,1,0,4,1023,3376094980,3,0,0,10,1,1,0,0,0,0,0,0,10,1,2,5,1023,3376094980,2,0,0,10",
+      "at": 7309.437,
+      "elapsed": 0.07800000000042928
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7309.515,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:OPMODE:STAGE 7",
+      "response": "7,10000000,1000000,4096,0,1383759744",
+      "at": 7309.515,
+      "elapsed": 0.09400000000005093
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7309.609,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:OPMODE:APPLY",
+      "response": "7,10000000,1000000,4096,0,1383759744",
+      "at": 7309.609,
+      "elapsed": 0.09400000000005093
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7309.703,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "SYST:TDMA:RING:TOPOLOGY 2,0,0",
+      "response": "2,0,0",
+      "at": 7309.718,
+      "elapsed": 0.07800000000042928
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7309.796,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CAL:TOPOLOGY:PROBE 1,10",
+      "response": "1,10",
+      "at": 7309.796,
+      "elapsed": 0.09400000000005093
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7309.89,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "SYST:TDMA:FLIGHT:MODE 1",
+      "response": "\"OK\",1",
+      "at": 7309.906,
+      "elapsed": 0.07800000000042928
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7309.984,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:LINK LOOPBACK,2,3,IN1,OUT4,1000,5000,RIS",
+      "response": "1",
+      "at": 7310.0,
+      "elapsed": 0.07800000000042928
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7310.078,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,1,0,4,8,0,0,0,0,0,0,80,80,79,2,3,1,8,1000,5000,0,0",
+      "at": 7310.093,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:REPEAT?",
+      "response": "0,10,1",
+      "at": 7310.093,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"IDLE\",1,1,8,7,7,0,7,7,7,7,9,79,79,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7310.109,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "response": "1,0,0,0,0",
+      "at": 7310.109,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "SYST:TDMA:FLIGHT:MODE?",
+      "response": "2",
+      "at": 7310.125,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ? SP8T",
+      "response": "\"SP8T\",4294967295,2876574461,8,0,0,1,2,3,4,5,6,7",
+      "at": 7310.125,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:CODE? 0",
+      "response": "0,0",
+      "at": 7310.125,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:CODE? 1",
+      "response": "1,1",
+      "at": 7310.14,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:CODE? 2",
+      "response": "2,2",
+      "at": 7310.14,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:CODE? 3",
+      "response": "3,3",
+      "at": 7310.14,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:CODE? 4",
+      "response": "4,4",
+      "at": 7310.156,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:CODE? 5",
+      "response": "5,5",
+      "at": 7310.156,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:CODE? 6",
+      "response": "6,6",
+      "at": 7310.171,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:CODE? 7",
+      "response": "7,7",
+      "at": 7310.171,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:SOUR?",
+      "response": "\"BUS\",\"RISING\"",
+      "at": 7310.187,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:OUTPUT?",
+      "response": "7,0,\"NONE\",10,0,2,1",
+      "at": 7310.187,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:NODE:ROLE? 5",
+      "response": "5,\"DUT\",1,1,152,11,5,152,11,5",
+      "at": 7310.187,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:NODE:ROLE? 7",
+      "response": "7,\"VNA\",1,1,152,3,3,152,3,3",
+      "at": 7310.203,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,1,0,4,8,0,0,0,0,0,0,80,80,79,2,3,1,8,1000,5000,0,0",
+      "at": 7310.218,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:RING:STOP",
+      "response": "\"OK\"",
+      "at": 7310.25,
+      "elapsed": 0.07800000000042928
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7310.328,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:RING:STAT?",
+      "response": "0,0,0,0,0,0,7949,0,0,8692,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,11,11",
+      "at": 7310.328,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:RING:ARM",
+      "response": "\"OK\"",
+      "at": 7310.328,
+      "elapsed": 0.07799999999951979
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7310.406,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:RING:STAT?",
+      "response": "1,2,0,0,0,0,7949,0,1,8692,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,12,12",
+      "at": 7310.406,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:RING:TRAIN 4096",
+      "response": "4096",
+      "at": 7310.406,
+      "elapsed": 0.09400000000005093
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7310.5,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "SYST:TDMA:RING:START",
+      "response": "\"OK\"",
+      "at": 7310.703,
+      "elapsed": 0.07799999999951979
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7310.781,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:RING:STAT?",
+      "response": "1,2,0,0,1,1,7992,0,1,8739,35,30,2586740518,2860995835,35,0,56,8,2,411766304,56,411766360,56,0,35,16,0,0,0,0,0,0,0,0,0,4294967295,0,0,12,12",
+      "at": 7310.781,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "TRIG:START",
+      "response": "1",
+      "at": 7310.796,
+      "elapsed": 0.07899999999972351
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 7310.875,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,4,8,2,2,0,38,0,0,0,0,0,2,3,1,8,1000,5000,0,0",
+      "at": 7310.875,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,0,0,1,4294967295,4294967295,4294967295,4294967295,0,0,0,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7310.89,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,4,8,2,2,0,84,1,0,1,1,0,2,3,1,8,1000,5000,0,0",
+      "at": 7310.968,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,0,0,1,4294967295,4294967295,4294967295,4294967295,0,0,0,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7310.984,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,4,8,2,2,1,128,2,0,1,1,1,2,3,1,8,1000,5000,0,0",
+      "at": 7311.046,
+      "elapsed": 0.032000000000152795
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,1,1,2,1,1,1,1,0,1,1,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7311.078,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,4,8,2,2,1,167,3,0,2,2,1,2,3,1,8,1000,5000,0,0",
+      "at": 7311.14,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,1,1,2,1,1,1,1,0,1,1,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7311.156,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,4,8,2,2,2,209,4,0,2,2,2,2,3,1,8,1000,5000,0,0",
+      "at": 7311.218,
+      "elapsed": 0.032000000000152795
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,2,2,3,2,2,2,2,0,2,2,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7311.25,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,3,0,4,8,2,2,2,253,5,0,3,2,2,2,3,1,8,1000,5000,0,0",
+      "at": 7311.312,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,2,2,3,2,2,2,2,0,2,2,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7311.328,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,4,8,2,2,3,290,6,0,3,3,3,2,3,1,8,1000,5000,0,0",
+      "at": 7311.406,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,3,3,4,3,3,3,3,0,3,3,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7311.406,
+      "elapsed": 0.03099999999994907
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,4,8,2,2,3,331,7,0,4,4,3,2,3,1,8,1000,5000,0,0",
+      "at": 7311.484,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,3,3,4,3,3,3,3,0,3,3,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7311.5,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,4,8,2,2,4,369,8,0,4,4,4,2,3,1,8,1000,5000,0,0",
+      "at": 7311.562,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,4,4,5,4,4,4,4,0,4,4,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7311.578,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,4,8,2,2,4,410,9,0,5,5,4,2,3,1,8,1000,5000,0,0",
+      "at": 7311.656,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,4,4,5,4,4,4,4,0,4,4,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7311.671,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,4,8,2,2,5,451,10,0,5,5,5,2,3,1,8,1000,5000,0,0",
+      "at": 7311.734,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,5,5,6,5,5,5,5,0,5,5,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7311.75,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,4,8,2,2,5,488,11,0,6,6,5,2,3,1,8,1000,5000,0,0",
+      "at": 7311.828,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,6,6,7,6,6,6,6,0,6,6,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7311.843,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,4,8,2,2,6,531,12,0,6,6,6,2,3,1,8,1000,5000,0,0",
+      "at": 7311.906,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,6,6,7,6,6,6,6,0,6,6,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7311.921,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,4,8,2,2,6,568,13,0,7,7,6,2,3,1,8,1000,5000,0,0",
+      "at": 7312.0,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,7,7,0,7,7,7,7,0,7,7,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7312.015,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,4,8,2,2,7,608,14,0,7,7,7,2,3,1,8,1000,5000,0,0",
+      "at": 7312.078,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,7,7,0,7,7,7,7,0,7,7,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7312.093,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,4,8,2,2,8,652,16,0,8,8,8,2,3,1,8,1000,5000,0,0",
+      "at": 7312.171,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,0,0,1,0,0,0,0,1,8,8,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7312.187,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,4,8,2,2,8,693,17,0,9,9,8,2,3,1,8,1000,5000,0,0",
+      "at": 7312.265,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,0,0,1,0,0,0,0,1,8,8,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7312.281,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,4,8,2,2,9,733,18,0,9,9,9,2,3,1,8,1000,5000,0,0",
+      "at": 7312.343,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,1,1,2,1,1,1,1,1,9,9,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7312.359,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "TRIG:PAUS",
+      "response": "1",
+      "at": 7312.375,
+      "elapsed": 0.07800000000042928
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"PAUSED\",2,2,8,1,1,2,1,1,1,1,1,9,9,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7312.453,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,6,0,4,8,2,2,9,748,19,0,10,10,9,2,3,1,8,1000,5000,0,0",
+      "at": 7312.468,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "response": "1,1,15,1,0",
+      "at": 7312.484,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"PAUSED\",2,2,8,1,1,2,1,1,1,1,1,9,9,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7312.546,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,6,0,4,8,2,2,9,748,19,0,10,10,9,2,3,1,8,1000,5000,0,0",
+      "at": 7312.562,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "response": "1,1,15,1,0",
+      "at": 7312.578,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"PAUSED\",2,2,8,1,1,2,1,1,1,1,1,9,9,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7312.64,
+      "elapsed": 0.03099999999994907
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,6,0,4,8,2,2,9,748,19,0,10,10,9,2,3,1,8,1000,5000,0,0",
+      "at": 7312.671,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "response": "1,1,15,1,0",
+      "at": 7312.687,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "TRIG:CONT",
+      "response": "1",
+      "at": 7312.703,
+      "elapsed": 0.06199999999989814
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,4,8,2,2,9,781,20,0,11,11,9,2,3,1,8,1000,5000,0,0",
+      "at": 7312.765,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,1,1,2,1,1,1,1,1,9,9,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7312.781,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,4,8,2,2,10,818,21,0,11,11,10,2,3,1,8,1000,5000,0,0",
+      "at": 7312.843,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,2,2,3,2,2,2,2,1,10,10,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7312.859,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,4,8,2,2,10,833,22,0,12,12,10,2,3,1,8,1000,5000,0,0",
+      "at": 7312.875,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,2,2,3,2,2,2,2,1,10,10,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7312.89,
+      "elapsed": 0.03099999999994907
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,4,8,2,2,11,875,23,0,12,12,11,2,3,1,8,1000,5000,0,0",
+      "at": 7312.968,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,3,3,4,3,3,3,3,1,11,11,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7312.984,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,4,8,2,2,11,916,24,0,13,13,11,2,3,1,8,1000,5000,0,0",
+      "at": 7313.062,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,3,3,4,3,3,3,3,1,11,11,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7313.078,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,4,8,2,2,12,959,25,0,13,13,12,2,3,1,8,1000,5000,0,0",
+      "at": 7313.14,
+      "elapsed": 0.03099999999994907
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,4,4,5,4,4,4,4,1,12,12,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7313.171,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,4,8,2,2,12,998,26,0,14,14,12,2,3,1,8,1000,5000,0,0",
+      "at": 7313.234,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,4,4,5,4,4,4,4,1,12,12,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7313.25,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,4,8,2,2,13,1042,27,0,14,14,13,2,3,1,8,1000,5000,0,0",
+      "at": 7313.328,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,5,5,6,5,5,5,5,1,13,13,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7313.343,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,4,8,2,2,13,1085,28,0,15,15,13,2,3,1,8,1000,5000,0,0",
+      "at": 7313.406,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,5,5,6,5,5,5,5,1,13,13,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7313.421,
+      "elapsed": 0.032000000000152795
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,4,8,2,2,14,1126,29,0,15,15,14,2,3,1,8,1000,5000,0,0",
+      "at": 7313.5,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,6,6,7,6,6,6,6,1,14,14,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7313.515,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,4,8,2,2,14,1169,30,0,16,16,14,2,3,1,8,1000,5000,0,0",
+      "at": 7313.578,
+      "elapsed": 0.03099999999994907
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,6,6,7,6,6,6,6,1,14,14,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7313.609,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,4,8,2,2,15,1207,32,0,17,17,15,2,3,1,8,1000,5000,0,0",
+      "at": 7313.671,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,7,7,0,7,7,7,7,1,15,15,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7313.687,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,4,8,2,2,16,1249,34,0,18,18,16,2,3,1,8,1000,5000,0,0",
+      "at": 7313.765,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,0,0,1,0,0,0,0,2,16,16,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7313.781,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,2,0,4,8,2,2,17,1286,35,0,18,18,17,2,3,1,8,1000,5000,0,0",
+      "at": 7313.843,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,1,1,2,1,1,1,1,2,17,17,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7313.859,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,4,0,4,8,2,2,17,1325,36,0,19,19,17,2,3,1,8,1000,5000,0,0",
+      "at": 7313.921,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,2,2,3,2,2,2,2,2,18,18,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7313.937,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,3,0,4,8,2,2,18,1365,38,0,20,19,18,2,3,1,8,1000,5000,0,0",
+      "at": 7314.015,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"READY\",2,2,8,2,2,3,2,2,2,2,2,18,18,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7314.031,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "*IDN?",
+      "response": "NO.1,DHRT100,839E1AE79EA20F31,0.1.0",
+      "at": 7314.109,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:FW:BUILD?",
+      "response": "\"20260916124155\"",
+      "at": 7314.109,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:LINK:TRANSPORT?",
+      "response": "<timeout>",
+      "at": 7314.109,
+      "elapsed": 3.0159999999996217
+    },
+    {
+      "command": "SYST:TDMA:FLIGHT:PROCESS?",
+      "response": "4,1,1,0,3564777010,2,68,1,10028,0,320896,626,0,0,0,4199,0,0,0,4199,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,5,3206,1159620261,20,127,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0",
+      "at": 7317.125,
+      "elapsed": 0.03099999999994907
+    },
+    {
+      "command": "SYST:TDMA:FLIGHT:FIFO?",
+      "response": "2,9411,0,9411,626,626,9410,0,0,9411,4065,0,0,4065,4065,0,0",
+      "at": 7317.156,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:REFMEM:SYNC:FLIGHT?",
+      "response": "1,0,2,3,0,1,68,32,1,9417,9416,0,4068,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0",
+      "at": 7317.156,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "TRIG:STOP",
+      "response": "1",
+      "at": 7317.234,
+      "elapsed": 0.06199999999989814
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"IDLE\",2,2,8,1,1,2,1,1,1,1,5,41,41,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 7317.296,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,1,0,4,8,2,2,41,2894,84,0,43,43,41,2,3,1,8,1000,5000,0,0",
+      "at": 7317.312,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "response": "0,0,0,0,0",
+      "at": 7317.328,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,1,0,4,8,2,2,41,2894,84,0,43,43,41,2,3,1,8,1000,5000,0,0",
+      "at": 7317.546,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "response": "1,0,0,0,0",
+      "at": 7317.562,
+      "elapsed": 0.016000000000531145
+    }
+  ],
+  "transport_transcript": [
+    {
+      "command": "*IDN?",
+      "timestamp": "2026-09-16T20:55:04.024753",
+      "response": "NO.1,DHRT100,839E1AE79EA20F31,0.1.0"
+    },
+    {
+      "command": "SYST:FW:BUILD?",
+      "timestamp": "2026-09-16T20:55:04.026759",
+      "response": "\"20260916124155\""
+    },
+    {
+      "command": "TRIG:STOP",
+      "timestamp": "2026-09-16T20:55:04.076425",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:04.141470",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:04.143739",
+      "response": "\"IDLE\",1,1,8,7,7,0,7,7,7,7,9,79,79,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "SYST:TDMA:RING:STOP",
+      "timestamp": "2026-09-16T20:55:04.152506",
+      "response": "\"OK\""
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:04.218871",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:RING:STAT?",
+      "timestamp": "2026-09-16T20:55:04.220176",
+      "response": "0,0,0,0,0,0,7949,0,0,8692,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,8"
+    },
+    {
+      "command": "CONF:SEQ:LINK OFF",
+      "timestamp": "2026-09-16T20:55:04.228162",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:04.295752",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:TRIG 8,0,1,1",
+      "timestamp": "2026-09-16T20:55:04.297318",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:04.358996",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ SP8T,0,1,2,3,4,5,6,7",
+      "timestamp": "2026-09-16T20:55:04.359992",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:04.421053",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:ACT SP8T",
+      "timestamp": "2026-09-16T20:55:04.422738",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:04.484714",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:OUTPUT 7,0,NONE,10,0",
+      "timestamp": "2026-09-16T20:55:04.486494",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:04.579608",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:CODE 0,0",
+      "timestamp": "2026-09-16T20:55:04.581608",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:04.674165",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:CODE 1,1",
+      "timestamp": "2026-09-16T20:55:04.676380",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:04.767750",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:CODE 2,2",
+      "timestamp": "2026-09-16T20:55:04.769458",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:04.861221",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:CODE 3,3",
+      "timestamp": "2026-09-16T20:55:04.863767",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:04.955380",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:CODE 4,4",
+      "timestamp": "2026-09-16T20:55:04.957146",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:05.048097",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:CODE 5,5",
+      "timestamp": "2026-09-16T20:55:05.049761",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:05.140730",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:CODE 6,6",
+      "timestamp": "2026-09-16T20:55:05.142890",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:05.236355",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:CODE 7,7",
+      "timestamp": "2026-09-16T20:55:05.238020",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:05.330925",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:SOUR BUS,RIS",
+      "timestamp": "2026-09-16T20:55:05.333432",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:05.424447",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:REPEAT 0",
+      "timestamp": "2026-09-16T20:55:05.425785",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:05.518862",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:NODE:ROLE 2,5,DUT",
+      "timestamp": "2026-09-16T20:55:05.521575",
+      "response": "\"STAGED\""
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:05.627203",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:NODE:ROLE 3,7,VNA",
+      "timestamp": "2026-09-16T20:55:05.629071",
+      "response": "\"STAGED\""
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:05.737423",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:NODE:ACT",
+      "timestamp": "2026-09-16T20:55:05.739430",
+      "response": "\"ACTIVE\",1,10,1023,0,3849125392,0,1,0,4,1023,3376094980,3,0,0,10,1,1,0,0,0,0,0,0,10,1,2,5,1023,3376094980,2,0,0,10"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:05.815394",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:OPMODE:STAGE 7",
+      "timestamp": "2026-09-16T20:55:05.817434",
+      "response": "7,10000000,1000000,4096,0,1383759744"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:05.908893",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:OPMODE:APPLY",
+      "timestamp": "2026-09-16T20:55:05.911264",
+      "response": "7,10000000,1000000,4096,0,1383759744"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:06.004291",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:RING:TOPOLOGY 2,0,0",
+      "timestamp": "2026-09-16T20:55:06.006451",
+      "response": "2,0,0"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:06.098636",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CAL:TOPOLOGY:PROBE 1,10",
+      "timestamp": "2026-09-16T20:55:06.099566",
+      "response": "1,10"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:06.192090",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:FLIGHT:MODE 1",
+      "timestamp": "2026-09-16T20:55:06.194608",
+      "response": "\"OK\",1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:06.285875",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:LINK LOOPBACK,2,3,IN1,OUT4,1000,5000,RIS",
+      "timestamp": "2026-09-16T20:55:06.287877",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:06.379975",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:06.382333",
+      "response": "1,1,0,4,8,0,0,0,0,0,0,80,80,79,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:REPEAT?",
+      "timestamp": "2026-09-16T20:55:06.391169",
+      "response": "0,10,1"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:06.397764",
+      "response": "\"IDLE\",1,1,8,7,7,0,7,7,7,7,9,79,79,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "timestamp": "2026-09-16T20:55:06.405763",
+      "response": "1,0,0,0,0"
+    },
+    {
+      "command": "SYST:TDMA:FLIGHT:MODE?",
+      "timestamp": "2026-09-16T20:55:06.412793",
+      "response": "2"
+    },
+    {
+      "command": "READ:SEQ? SP8T",
+      "timestamp": "2026-09-16T20:55:06.416312",
+      "response": "\"SP8T\",4294967295,2876574461,8,0,0,1,2,3,4,5,6,7"
+    },
+    {
+      "command": "READ:SEQ:CODE? 0",
+      "timestamp": "2026-09-16T20:55:06.421076",
+      "response": "0,0"
+    },
+    {
+      "command": "READ:SEQ:CODE? 1",
+      "timestamp": "2026-09-16T20:55:06.428477",
+      "response": "1,1"
+    },
+    {
+      "command": "READ:SEQ:CODE? 2",
+      "timestamp": "2026-09-16T20:55:06.435047",
+      "response": "2,2"
+    },
+    {
+      "command": "READ:SEQ:CODE? 3",
+      "timestamp": "2026-09-16T20:55:06.442568",
+      "response": "3,3"
+    },
+    {
+      "command": "READ:SEQ:CODE? 4",
+      "timestamp": "2026-09-16T20:55:06.449258",
+      "response": "4,4"
+    },
+    {
+      "command": "READ:SEQ:CODE? 5",
+      "timestamp": "2026-09-16T20:55:06.456877",
+      "response": "5,5"
+    },
+    {
+      "command": "READ:SEQ:CODE? 6",
+      "timestamp": "2026-09-16T20:55:06.463923",
+      "response": "6,6"
+    },
+    {
+      "command": "READ:SEQ:CODE? 7",
+      "timestamp": "2026-09-16T20:55:06.470472",
+      "response": "7,7"
+    },
+    {
+      "command": "READ:SEQ:SOUR?",
+      "timestamp": "2026-09-16T20:55:06.476768",
+      "response": "\"BUS\",\"RISING\""
+    },
+    {
+      "command": "READ:SEQ:OUTPUT?",
+      "timestamp": "2026-09-16T20:55:06.484377",
+      "response": "7,0,\"NONE\",10,0,2,1"
+    },
+    {
+      "command": "READ:SEQ:NODE:ROLE? 5",
+      "timestamp": "2026-09-16T20:55:06.490251",
+      "response": "5,\"DUT\",1,1,152,11,5,152,11,5"
+    },
+    {
+      "command": "READ:SEQ:NODE:ROLE? 7",
+      "timestamp": "2026-09-16T20:55:06.498483",
+      "response": "7,\"VNA\",1,1,152,3,3,152,3,3"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:06.506474",
+      "response": "1,1,0,4,8,0,0,0,0,0,0,80,80,79,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "SYSTem:REFMEM:SYNC:TDMA:STATus?",
+      "timestamp": "2026-09-16T20:55:06.516158",
+      "response": "1,1,0,159812,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3801409129,11,1,1022,0,10,0,0,0,0,0,0,0,0,0,7949,0,0,5,5,5,0,0,0,0,0,1,0,0,0,0,0,4294967295,0,0,0,0,0,0,0,2,2,8692,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,128,2,1,0,0,0,0,0,0,0,0"
+    },
+    {
+      "command": "SYSTem:SYNC:VDC:TDMA:PHYS?",
+      "timestamp": "2026-09-16T20:55:06.530637",
+      "response": "0,0,10000000,6817,3818,0,0,0,0,0,0,100,25,29,28,24,0,0,0,0,0,0,1,0,0,0,0,0,3818,0,26,27,0,729310,728667,224,4,6817,3818,2505118108,19,2505957444,19,2503888440,19,2503971640,19,11,3,0,0,0,0,10,10,10,4,50331652,21,21,0,0,0,0,58,6817,0,0,0,0,0,0,0,0,0,107,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,6817,0,5,11,2,15,0,0,0,0,0,2464,1,268435456,10"
+    },
+    {
+      "command": "SYST:TDMA:RING:STOP",
+      "timestamp": "2026-09-16T20:55:06.549410",
+      "response": "\"OK\""
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:06.617705",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:RING:STAT?",
+      "timestamp": "2026-09-16T20:55:06.619417",
+      "response": "0,0,0,0,0,0,7949,0,0,8692,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,11,11"
+    },
+    {
+      "command": "SYST:TDMA:RING:ARM",
+      "timestamp": "2026-09-16T20:55:06.627904",
+      "response": "\"OK\""
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:06.695939",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:RING:STAT?",
+      "timestamp": "2026-09-16T20:55:06.697958",
+      "response": "1,2,0,0,0,0,7949,0,1,8692,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,12,12"
+    },
+    {
+      "command": "SYST:TDMA:RING:TRAIN 4096",
+      "timestamp": "2026-09-16T20:55:06.706309",
+      "response": "4096"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:06.801923",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:RING:START",
+      "timestamp": "2026-09-16T20:55:07.003737",
+      "response": "\"OK\""
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:07.070033",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:RING:STAT?",
+      "timestamp": "2026-09-16T20:55:07.074007",
+      "response": "1,2,0,0,1,1,7992,0,1,8739,35,30,2586740518,2860995835,35,0,56,8,2,411766304,56,411766360,56,0,35,16,0,0,0,0,0,0,0,0,0,4294967295,0,0,12,12"
+    },
+    {
+      "command": "TRIG:START",
+      "timestamp": "2026-09-16T20:55:07.088525",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:55:07.164106",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:07.166165",
+      "response": "1,2,0,4,8,2,2,0,38,0,0,0,0,0,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:07.186065",
+      "response": "\"READY\",2,2,8,0,0,1,4294967295,4294967295,4294967295,4294967295,0,0,0,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:07.258067",
+      "response": "1,4,0,4,8,2,2,0,84,1,0,1,1,0,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:07.278107",
+      "response": "\"READY\",2,2,8,0,0,1,4294967295,4294967295,4294967295,4294967295,0,0,0,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:07.349055",
+      "response": "1,2,0,4,8,2,2,1,128,2,0,1,1,1,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:07.365942",
+      "response": "\"READY\",2,2,8,1,1,2,1,1,1,1,0,1,1,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:07.432733",
+      "response": "1,4,0,4,8,2,2,1,167,3,0,2,2,1,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:07.450728",
+      "response": "\"READY\",2,2,8,1,1,2,1,1,1,1,0,1,1,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:07.520261",
+      "response": "1,2,0,4,8,2,2,2,209,4,0,2,2,2,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:07.537660",
+      "response": "\"READY\",2,2,8,2,2,3,2,2,2,2,0,2,2,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:07.608721",
+      "response": "1,3,0,4,8,2,2,2,253,5,0,3,2,2,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:07.626621",
+      "response": "\"READY\",2,2,8,2,2,3,2,2,2,2,0,2,2,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:07.693540",
+      "response": "1,2,0,4,8,2,2,3,290,6,0,3,3,3,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:07.707566",
+      "response": "\"READY\",2,2,8,3,3,4,3,3,3,3,0,3,3,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:07.778555",
+      "response": "1,4,0,4,8,2,2,3,331,7,0,4,4,3,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:07.794151",
+      "response": "\"READY\",2,2,8,3,3,4,3,3,3,3,0,3,3,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:07.860150",
+      "response": "1,2,0,4,8,2,2,4,369,8,0,4,4,4,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:07.875501",
+      "response": "\"READY\",2,2,8,4,4,5,4,4,4,4,0,4,4,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:07.944251",
+      "response": "1,4,0,4,8,2,2,4,410,9,0,5,5,4,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:07.960885",
+      "response": "\"READY\",2,2,8,4,4,5,4,4,4,4,0,4,4,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:08.027290",
+      "response": "1,2,0,4,8,2,2,5,451,10,0,5,5,5,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:08.050743",
+      "response": "\"READY\",2,2,8,5,5,6,5,5,5,5,0,5,5,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:08.118552",
+      "response": "1,4,0,4,8,2,2,5,488,11,0,6,6,5,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:08.135779",
+      "response": "\"READY\",2,2,8,6,6,7,6,6,6,6,0,6,6,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:08.202817",
+      "response": "1,2,0,4,8,2,2,6,531,12,0,6,6,6,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:08.224294",
+      "response": "\"READY\",2,2,8,6,6,7,6,6,6,6,0,6,6,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:08.289198",
+      "response": "1,4,0,4,8,2,2,6,568,13,0,7,7,6,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:08.307078",
+      "response": "\"READY\",2,2,8,7,7,0,7,7,7,7,0,7,7,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:08.372878",
+      "response": "1,2,0,4,8,2,2,7,608,14,0,7,7,7,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:08.390118",
+      "response": "\"READY\",2,2,8,7,7,0,7,7,7,7,0,7,7,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:08.459631",
+      "response": "1,2,0,4,8,2,2,8,652,16,0,8,8,8,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:08.482330",
+      "response": "\"READY\",2,2,8,0,0,1,0,0,0,0,1,8,8,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:08.553023",
+      "response": "1,4,0,4,8,2,2,8,693,17,0,9,9,8,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:08.569010",
+      "response": "\"READY\",2,2,8,0,0,1,0,0,0,0,1,8,8,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:08.637934",
+      "response": "1,2,0,4,8,2,2,9,733,18,0,9,9,9,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:08.654557",
+      "response": "\"READY\",2,2,8,1,1,2,1,1,1,1,1,9,9,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "TRIG:PAUS",
+      "timestamp": "2026-09-16T20:55:08.673158",
+      "response": "1"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:08.746087",
+      "response": "\"PAUSED\",2,2,8,1,1,2,1,1,1,1,1,9,9,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:08.764066",
+      "response": "1,6,0,4,8,2,2,9,748,19,0,10,10,9,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "timestamp": "2026-09-16T20:55:08.782760",
+      "response": "1,1,15,1,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:08.845255",
+      "response": "\"PAUSED\",2,2,8,1,1,2,1,1,1,1,1,9,9,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:08.862623",
+      "response": "1,6,0,4,8,2,2,9,748,19,0,10,10,9,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "timestamp": "2026-09-16T20:55:08.880622",
+      "response": "1,1,15,1,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:08.942983",
+      "response": "\"PAUSED\",2,2,8,1,1,2,1,1,1,1,1,9,9,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:08.961542",
+      "response": "1,6,0,4,8,2,2,9,748,19,0,10,10,9,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "timestamp": "2026-09-16T20:55:08.978079",
+      "response": "1,1,15,1,0"
+    },
+    {
+      "command": "TRIG:CONT",
+      "timestamp": "2026-09-16T20:55:08.991864",
+      "response": "1"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:09.059432",
+      "response": "1,4,0,4,8,2,2,9,781,20,0,11,11,9,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:09.072194",
+      "response": "\"READY\",2,2,8,1,1,2,1,1,1,1,1,9,9,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:09.139423",
+      "response": "1,2,0,4,8,2,2,10,818,21,0,11,11,10,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:09.156833",
+      "response": "\"READY\",2,2,8,2,2,3,2,2,2,2,1,10,10,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:09.174494",
+      "response": "1,4,0,4,8,2,2,10,833,22,0,12,12,10,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:09.192530",
+      "response": "\"READY\",2,2,8,2,2,3,2,2,2,2,1,10,10,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:09.264446",
+      "response": "1,2,0,4,8,2,2,11,875,23,0,12,12,11,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:09.280494",
+      "response": "\"READY\",2,2,8,3,3,4,3,3,3,3,1,11,11,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:09.353440",
+      "response": "1,4,0,4,8,2,2,11,916,24,0,13,13,11,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:09.373646",
+      "response": "\"READY\",2,2,8,3,3,4,3,3,3,3,1,11,11,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:09.440027",
+      "response": "1,2,0,4,8,2,2,12,959,25,0,13,13,12,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:09.459770",
+      "response": "\"READY\",2,2,8,4,4,5,4,4,4,4,1,12,12,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:09.525358",
+      "response": "1,4,0,4,8,2,2,12,998,26,0,14,14,12,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:09.544133",
+      "response": "\"READY\",2,2,8,4,4,5,4,4,4,4,1,12,12,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:09.616114",
+      "response": "1,2,0,4,8,2,2,13,1042,27,0,14,14,13,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:09.634360",
+      "response": "\"READY\",2,2,8,5,5,6,5,5,5,5,1,13,13,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:09.703977",
+      "response": "1,4,0,4,8,2,2,13,1085,28,0,15,15,13,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:09.722417",
+      "response": "\"READY\",2,2,8,5,5,6,5,5,5,5,1,13,13,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:09.792989",
+      "response": "1,2,0,4,8,2,2,14,1126,29,0,15,15,14,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:09.811208",
+      "response": "\"READY\",2,2,8,6,6,7,6,6,6,6,1,14,14,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:09.880628",
+      "response": "1,4,0,4,8,2,2,14,1169,30,0,16,16,14,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:09.900435",
+      "response": "\"READY\",2,2,8,6,6,7,6,6,6,6,1,14,14,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:09.970531",
+      "response": "1,4,0,4,8,2,2,15,1207,32,0,17,17,15,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:09.986667",
+      "response": "\"READY\",2,2,8,7,7,0,7,7,7,7,1,15,15,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:10.053283",
+      "response": "1,4,0,4,8,2,2,16,1249,34,0,18,18,16,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:10.073648",
+      "response": "\"READY\",2,2,8,0,0,1,0,0,0,0,2,16,16,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:10.139505",
+      "response": "1,2,0,4,8,2,2,17,1286,35,0,18,18,17,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:10.154039",
+      "response": "\"READY\",2,2,8,1,1,2,1,1,1,1,2,17,17,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:10.220852",
+      "response": "1,4,0,4,8,2,2,17,1325,36,0,19,19,17,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:10.235453",
+      "response": "\"READY\",2,2,8,2,2,3,2,2,2,2,2,18,18,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:10.305647",
+      "response": "1,3,0,4,8,2,2,18,1365,38,0,20,19,18,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:10.324519",
+      "response": "\"READY\",2,2,8,2,2,3,2,2,2,2,2,18,18,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "SYSTem:REFMEM:SYNC:TDMA:STATus?",
+      "timestamp": "2026-09-16T20:55:10.338865",
+      "response": "1,1,0,162259,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3801409129,11,1,1022,1,12,2,0,0,1,2,2614010132,2281719261,1,1,9887,0,1,5,5,5,0,0,0,0,0,1,0,0,0,0,9,4294967295,0,0,0,0,0,2000000,1,4,3,10814,1668,1662,1068436911,276519598,8,2,1668,0,56,3676444760,56,3676444816,56,0,1668,664,0,0,0,0,0,0,0,0,0,4294967295,0,0,1,2,0,0,1661,17182935,2281719261,8,2,1,7,299884,299940,1661299884,0,0,0,3673131364,56,128,2,1,0,0,0,0,0,0,0,0"
+    },
+    {
+      "command": "SYSTem:SYNC:VDC:TDMA:PHYS?",
+      "timestamp": "2026-09-16T20:55:10.366758",
+      "response": "1,0,10000000,1685,935,0,0,0,0,0,0,100,25,29,28,24,0,0,0,0,0,0,1,0,0,0,0,0,935,0,26,27,0,180246,179650,41,4,1685,935,3721686036,56,3722547836,56,3721698384,56,3721781584,56,11,5,0,0,0,0,10,10,10,4,50331652,21,21,0,0,0,0,18,1685,0,0,0,0,0,0,0,0,0,107,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,1685,0,5,11,2,27,0,0,0,0,0,614,1,275267513,10"
+    },
+    {
+      "command": "*IDN?",
+      "timestamp": "2026-09-16T20:55:10.396975",
+      "response": "NO.1,DHRT100,839E1AE79EA20F31,0.1.0"
+    },
+    {
+      "command": "SYST:FW:BUILD?",
+      "timestamp": "2026-09-16T20:55:10.398977",
+      "response": "\"20260916124155\""
+    },
+    {
+      "command": "READ:SEQ:LINK:TRANSPORT?",
+      "timestamp": "2026-09-16T20:55:10.399975",
+      "response": "<timeout>"
+    },
+    {
+      "command": "SYST:TDMA:FLIGHT:PROCESS?",
+      "timestamp": "2026-09-16T20:55:13.425756",
+      "response": "4,1,1,0,3564777010,2,68,1,10028,0,320896,626,0,0,0,4199,0,0,0,4199,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,5,3206,1159620261,20,127,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0"
+    },
+    {
+      "command": "SYST:TDMA:FLIGHT:FIFO?",
+      "timestamp": "2026-09-16T20:55:13.444761",
+      "response": "2,9411,0,9411,626,626,9410,0,0,9411,4065,0,0,4065,4065,0,0"
+    },
+    {
+      "command": "SYST:REFMEM:SYNC:FLIGHT?",
+      "timestamp": "2026-09-16T20:55:13.451909",
+      "response": "1,0,2,3,0,1,68,32,1,9417,9416,0,4068,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0"
+    },
+    {
+      "command": "SYSTem:REFMEM:SYNC:TDMA:STATus?",
+      "timestamp": "2026-09-16T20:55:13.464185",
+      "response": "1,1,0,164255,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3801409129,11,1,1022,1,12,2,0,0,1,2,2614010132,2281719261,1,1,11826,5,0,5,5,5,0,0,0,0,0,1,0,0,0,0,9,4294967295,0,0,0,0,0,2000000,1,4,3,12809,3231,3225,1997467269,1442069111,8,2,3231,0,0,2518599392,57,2506306288,57,0,3231,1413,0,0,0,0,0,0,0,0,0,4294967295,0,0,1,2,0,0,3224,3960463775,2281719261,8,2,1,7,24168,24224,3224024168,0,0,0,2504888352,57,128,2,1,0,0,0,0,0,0,0,0"
+    },
+    {
+      "command": "SYSTem:SYNC:VDC:TDMA:PHYS?",
+      "timestamp": "2026-09-16T20:55:13.497473",
+      "response": "1,0,10000000,3249,1850,0,0,0,0,0,0,100,25,29,28,24,0,0,0,0,0,0,1,0,0,0,0,0,1850,0,26,27,0,347485,346784,369,4,3249,1850,2554606016,57,2555442948,57,2553038460,57,2553121660,57,11,5,0,0,0,0,10,10,10,6,50331652,21,21,0,0,0,0,18,3249,0,0,0,0,0,0,0,0,0,107,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,3249,0,5,11,2,27,0,0,0,0,0,1166,1,275100058,10"
+    },
+    {
+      "command": "TRIG:STOP",
+      "timestamp": "2026-09-16T20:55:13.524095",
+      "response": "1"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:55:13.597520",
+      "response": "\"IDLE\",2,2,8,1,1,2,1,1,1,1,5,41,41,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:13.612272",
+      "response": "1,1,0,4,8,2,2,41,2894,84,0,43,43,41,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "timestamp": "2026-09-16T20:55:13.626973",
+      "response": "0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:55:13.839054",
+      "response": "1,1,0,4,8,2,2,41,2894,84,0,43,43,41,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "timestamp": "2026-09-16T20:55:13.854498",
+      "response": "1,0,0,0,0"
+    },
+    {
+      "command": "SYSTem:TDMA:RING:STOP",
+      "timestamp": "2026-09-16T20:55:13.869126",
+      "response": "\"OK\""
+    },
+    {
+      "command": "SYSTem:ERR?",
+      "timestamp": "2026-09-16T20:55:13.940852",
+      "response": "-200,\"Execution error\""
+    },
+    {
+      "command": "CALibration:TOPology:PROBe 0",
+      "timestamp": "2026-09-16T20:55:13.942898",
+      "response": "0,0"
+    },
+    {
+      "command": "SYSTem:ERR?",
+      "timestamp": "2026-09-16T20:55:14.032791",
+      "response": "0,\"No error\""
+    }
+  ],
+  "failure": "AcceptanceError: cleanup verification failed",
+  "cleanup_failures": [
+    "TDMA stop: RuntimeError: SYSTem:TDMA:RING:STOP failed: response=\"OK\"; error=-200,\"Execution error\""
+  ],
+  "devices": {
+    "serial": [
+      {
+        "port": "COM3",
+        "serial_number": "839E1AE79EA20F31",
+        "vid": 51966,
+        "pid": 16431,
+        "description": "USB \u4e32\u884c\u8bbe\u5907 (COM3)"
+      }
+    ],
+    "visa": [],
+    "visa_error": null
+  },
+  "transport": "COM3",
+  "identity": {
+    "idn": [
+      "NO.1",
+      "DHRT100",
+      "839E1AE79EA20F31",
+      "0.1.0"
+    ],
+    "build": "20260916124155"
+  },
+  "gui_control": {
+    "path": "GUI command builders and batch executor",
+    "mode": "RJ45 \u7269\u7406\u56de\u73af \u00b7 SP8T + VNA \u7f51\u5173",
+    "module_sha256": "dbd92b7a41e8532b0320ec637b5bf82e1cf8738072f9606d8466af4dd63402c1",
+    "configure": {
+      "commands": [
+        "TRIG:STOP",
+        "SYST:TDMA:RING:STOP",
+        "CONF:SEQ:LINK OFF",
+        "CONF:TRIG 8,0,1,1",
+        "CONF:SEQ SP8T,0,1,2,3,4,5,6,7",
+        "CONF:SEQ:ACT SP8T",
+        "CONF:SEQ:OUTPUT 7,0,NONE,10,0",
+        "CONF:SEQ:CODE 0,0",
+        "CONF:SEQ:CODE 1,1",
+        "CONF:SEQ:CODE 2,2",
+        "CONF:SEQ:CODE 3,3",
+        "CONF:SEQ:CODE 4,4",
+        "CONF:SEQ:CODE 5,5",
+        "CONF:SEQ:CODE 6,6",
+        "CONF:SEQ:CODE 7,7",
+        "CONF:SEQ:SOUR BUS,RIS",
+        "CONF:SEQ:REPEAT 0",
+        "CONF:SEQ:NODE:ROLE 2,5,DUT",
+        "CONF:SEQ:NODE:ROLE 3,7,VNA",
+        "CONF:SEQ:NODE:ACT",
+        "SYST:TDMA:OPMODE:STAGE 7",
+        "SYST:TDMA:OPMODE:APPLY",
+        "SYST:TDMA:RING:TOPOLOGY 2,0,0",
+        "CAL:TOPOLOGY:PROBE 1,10",
+        "SYST:TDMA:FLIGHT:MODE 1",
+        "CONF:SEQ:LINK LOOPBACK,2,3,IN1,OUT4,1000,5000,RIS",
+        "READ:SEQ:LINK?",
+        "READ:SEQ:REPEAT?",
+        "READ:SEQ:NEXT?",
+        "READ:IO:STAT?"
+      ],
+      "exchanges": [
+        {
+          "command": "TRIG:STOP",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "READ:SEQ:NEXT?",
+          "response": "\"IDLE\",1,1,8,7,7,0,7,7,7,7,9,79,79,0,0,0,0,\"NONE\",0,0,0,0,0"
+        },
+        {
+          "command": "SYST:TDMA:RING:STOP",
+          "response": "\"OK\""
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:RING:STAT?",
+          "response": "0,0,0,0,0,0,7949,0,0,8692,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,8"
+        },
+        {
+          "command": "CONF:SEQ:LINK OFF",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:TRIG 8,0,1,1",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ SP8T,0,1,2,3,4,5,6,7",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:ACT SP8T",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:OUTPUT 7,0,NONE,10,0",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:CODE 0,0",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:CODE 1,1",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:CODE 2,2",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:CODE 3,3",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:CODE 4,4",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:CODE 5,5",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:CODE 6,6",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:CODE 7,7",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:SOUR BUS,RIS",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:REPEAT 0",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:NODE:ROLE 2,5,DUT",
+          "response": "\"STAGED\""
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:NODE:ROLE 3,7,VNA",
+          "response": "\"STAGED\""
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:NODE:ACT",
+          "response": "\"ACTIVE\",1,10,1023,0,3849125392,0,1,0,4,1023,3376094980,3,0,0,10,1,1,0,0,0,0,0,0,10,1,2,5,1023,3376094980,2,0,0,10"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:OPMODE:STAGE 7",
+          "response": "7,10000000,1000000,4096,0,1383759744"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:OPMODE:APPLY",
+          "response": "7,10000000,1000000,4096,0,1383759744"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:RING:TOPOLOGY 2,0,0",
+          "response": "2,0,0"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CAL:TOPOLOGY:PROBE 1,10",
+          "response": "1,10"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:FLIGHT:MODE 1",
+          "response": "\"OK\",1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:LINK LOOPBACK,2,3,IN1,OUT4,1000,5000,RIS",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "READ:SEQ:LINK?",
+          "response": "1,1,0,4,8,0,0,0,0,0,0,80,80,79,2,3,1,8,1000,5000,0,0"
+        },
+        {
+          "command": "READ:SEQ:REPEAT?",
+          "response": "0,10,1"
+        },
+        {
+          "command": "READ:SEQ:NEXT?",
+          "response": "\"IDLE\",1,1,8,7,7,0,7,7,7,7,9,79,79,0,0,0,0,\"NONE\",0,0,0,0,0"
+        },
+        {
+          "command": "READ:IO:STAT?",
+          "response": "1,0,0,0,0"
+        }
+      ],
+      "completed": true
+    },
+    "start": {
+      "commands": [
+        "SYST:TDMA:RING:STOP",
+        "SYST:TDMA:RING:ARM",
+        "SYST:TDMA:RING:TRAIN 4096",
+        "SYST:TDMA:RING:START",
+        "TRIG:START"
+      ],
+      "exchanges": [
+        {
+          "command": "SYST:TDMA:RING:STOP",
+          "response": "\"OK\""
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:RING:STAT?",
+          "response": "0,0,0,0,0,0,7949,0,0,8692,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,11,11"
+        },
+        {
+          "command": "SYST:TDMA:RING:ARM",
+          "response": "\"OK\""
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:RING:STAT?",
+          "response": "1,2,0,0,0,0,7949,0,1,8692,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,12,12"
+        },
+        {
+          "command": "SYST:TDMA:RING:TRAIN 4096",
+          "response": "4096"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:RING:START",
+          "response": "\"OK\""
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:RING:STAT?",
+          "response": "1,2,0,0,1,1,7992,0,1,8739,35,30,2586740518,2860995835,35,0,56,8,2,411766304,56,411766360,56,0,35,16,0,0,0,0,0,0,0,0,0,4294967295,0,0,12,12"
+        },
+        {
+          "command": "TRIG:START",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        }
+      ],
+      "completed": true
+    }
+  },
+  "flight_mode_readback": "2",
+  "roles": {
+    "after": {
+      "DUT": {
+        "active_enabled": 1,
+        "staged_enabled": 1,
+        "active_resource": 152,
+        "active_io": 11,
+        "active_ip": 5,
+        "staged_resource": 152,
+        "staged_io": 11,
+        "staged_ip": 5
+      },
+      "VNA": {
+        "active_enabled": 1,
+        "staged_enabled": 1,
+        "active_resource": 152,
+        "active_io": 3,
+        "active_ip": 3,
+        "staged_resource": 152,
+        "staged_io": 3,
+        "staged_ip": 3
+      }
+    }
+  },
+  "link_configuration": {
+    "enabled": 1,
+    "phase": 1,
+    "error": 0,
+    "binding_epoch": 4,
+    "model_epoch": 8,
+    "run": 0,
+    "generation": 0,
+    "step": 0,
+    "txfragments": 0,
+    "rxmessages": 0,
+    "rejected": 0,
+    "triggers": 80,
+    "ready": 80,
+    "completed": 79,
+    "dutslot": 2,
+    "vnaslot": 3,
+    "input": 1,
+    "outputmask": 8,
+    "pulseus": 1000,
+    "timeoutms": 5000,
+    "falling": 0,
+    "repeat": 0
+  },
+  "ring_before": {
+    "tdma": [
+      1,
+      1,
+      0,
+      159812,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3801409129,
+      11,
+      1,
+      1022,
+      0,
+      10,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      7949,
+      0,
+      0,
+      5,
+      5,
+      5,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      4294967295,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2,
+      2,
+      8692,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      128,
+      2,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "phys": {
+      "armed": 0,
+      "role": 0,
+      "baud_hz": 10000000,
+      "tx_count": 6817,
+      "rx_count": 3818,
+      "rx_bad_count": 0,
+      "tx_busy_count": 0,
+      "rx_partial_count": 0,
+      "rx_stall_count": 0,
+      "tx_timeout_count": 0,
+      "last_error": 0,
+      "last_rx_size": 100,
+      "tx_sck_pin": 25,
+      "tx_pin": 29,
+      "rx_sck_pin": 28,
+      "rx_pin": 24,
+      "last_bad_header0": 0,
+      "last_bad_header1": 0,
+      "last_bad_header2": 0,
+      "last_bad_header3": 0,
+      "last_bad_words": 0,
+      "rx_busy_count": 0,
+      "rx_magic_fail_count": 1,
+      "rx_busy_word0": 0,
+      "rx_busy_word1": 0,
+      "rx_busy_word2": 0,
+      "rx_busy_word3": 0,
+      "rx_busy_moved": 0,
+      "rx_magic_at_zero": 3818,
+      "rx_magic_at_shift": 0,
+      "tx_csn_pin": 26,
+      "rx_csn_pin": 27,
+      "rx_ring_overrun_count": 0,
+      "rx_dma_produced_words": 729310,
+      "rx_scan_produced_words": 728667,
+      "rx_dma_write_index": 224,
+      "rx_dma_channel": 4,
+      "tx_edge_count": 6817,
+      "rx_edge_count": 3818,
+      "last_tx_edge_timestamp_ns_lo": 2505118108,
+      "last_tx_edge_timestamp_ns_hi": 19,
+      "last_tx_done_timestamp_ns_lo": 2505957444,
+      "last_tx_done_timestamp_ns_hi": 19,
+      "last_rx_edge_timestamp_ns_lo": 2503888440,
+      "last_rx_edge_timestamp_ns_hi": 19,
+      "last_rx_extract_timestamp_ns_lo": 2503971640,
+      "last_rx_extract_timestamp_ns_hi": 19,
+      "program_persona": 11,
+      "program_switch_count": 3,
+      "program_switch_fail_count": 0,
+      "flight_marker_offset_sample_count": 0,
+      "flight_sck_offset_sample_count": 0,
+      "flight_data_offset_sample_count": 0,
+      "flight_marker_phase_delay_cycles": 10,
+      "flight_sck_phase_delay_cycles": 10,
+      "flight_data_phase_delay_cycles": 10,
+      "pio_irq_flags": 4,
+      "pio_fdebug": 50331652,
+      "tx_sm_pc": 21,
+      "rx_sm_pc": 21,
+      "tx_sm_tx_fifo_level": 0,
+      "tx_sm_rx_fifo_level": 0,
+      "rx_sm_tx_fifo_level": 0,
+      "rx_sm_rx_fifo_level": 0,
+      "gpio_input_levels": 58,
+      "origin_done_irq_count": 6817,
+      "origin_done_txstall_count": 0,
+      "origin_clock_timeout_count": 0,
+      "origin_data_timeout_count": 0,
+      "origin_recovery_count": 0,
+      "overlay_prepare_count": 0,
+      "overlay_prepare_fail_count": 0,
+      "overlay_replacement_byte_count": 0,
+      "overlay_alignment_byte_shift": 0,
+      "overlay_alignment_bit_shift": 0,
+      "overlay_physical_byte_count": 107,
+      "overlay_last_error": 0,
+      "overlay_tx_dma_remaining": 0,
+      "overlay_tx_dma_busy": 0,
+      "overlay_tx_fifo_level_at_fail": 0,
+      "overlay_prepare_wait_us": 0,
+      "overlay_program_offset": 0,
+      "overlay_tx_dma_read_index": 0,
+      "overlay_tx_dma_ctrl": 0,
+      "overlay_sm_shiftctrl": 0,
+      "overlay_sm_execctrl": 0,
+      "overlay_sm_pc_at_fail": 0,
+      "overlay_pio_ctrl_at_fail": 0,
+      "overlay_pio_fstat_at_fail": 0,
+      "overlay_pio_fdebug_at_fail": 0,
+      "overlay_frame_boundary_count": 0,
+      "overlay_pass_recovery_count": 0,
+      "overlay_late_coalesce_count": 0,
+      "clock_latch_resolution_ns": 8,
+      "clock_latch_count": 6817,
+      "clock_latch_miss_count": 0,
+      "program_lifecycle_state": 5,
+      "program_target_persona": 11,
+      "program_previous_persona": 2,
+      "program_transition_seq": 15,
+      "program_lifecycle_error": 0,
+      "overlay_published_generation": 0,
+      "overlay_selected_generation": 0,
+      "overlay_selection_pending": 0,
+      "overlay_reuse_observation_count": 0,
+      "rx_observation_drop_count": 2464,
+      "rx_scan_yield_count": 1,
+      "rx_dma_transfer_count": 268435456,
+      "flight_origin_capture_phase_delay_cycles": 10
+    },
+    "raw_tdma": "1,1,0,159812,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3801409129,11,1,1022,0,10,0,0,0,0,0,0,0,0,0,7949,0,0,5,5,5,0,0,0,0,0,1,0,0,0,0,0,4294967295,0,0,0,0,0,0,0,2,2,8692,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,128,2,1,0,0,0,0,0,0,0,0",
+    "raw_phys": "0,0,10000000,6817,3818,0,0,0,0,0,0,100,25,29,28,24,0,0,0,0,0,0,1,0,0,0,0,0,3818,0,26,27,0,729310,728667,224,4,6817,3818,2505118108,19,2505957444,19,2503888440,19,2503971640,19,11,3,0,0,0,0,10,10,10,4,50331652,21,21,0,0,0,0,58,6817,0,0,0,0,0,0,0,0,0,107,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,6817,0,5,11,2,15,0,0,0,0,0,2464,1,268435456,10"
+  },
+  "samples": [
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 0,
+        "txfragments": 38,
+        "rxmessages": 0,
+        "rejected": 0,
+        "triggers": 0,
+        "ready": 0,
+        "completed": 0,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 0,
+        "current_state": 0,
+        "next_index": 1,
+        "executed_index": 4294967295,
+        "executed_state": 4294967295,
+        "completed_index": 4294967295,
+        "completed_state": 4294967295,
+        "cycles": 0,
+        "accepted": 0,
+        "completed": 0,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 0,
+        "txfragments": 84,
+        "rxmessages": 1,
+        "rejected": 0,
+        "triggers": 1,
+        "ready": 1,
+        "completed": 0,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 0,
+        "current_state": 0,
+        "next_index": 1,
+        "executed_index": 4294967295,
+        "executed_state": 4294967295,
+        "completed_index": 4294967295,
+        "completed_state": 4294967295,
+        "cycles": 0,
+        "accepted": 0,
+        "completed": 0,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 1,
+        "txfragments": 128,
+        "rxmessages": 2,
+        "rejected": 0,
+        "triggers": 1,
+        "ready": 1,
+        "completed": 1,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 1,
+        "current_state": 1,
+        "next_index": 2,
+        "executed_index": 1,
+        "executed_state": 1,
+        "completed_index": 1,
+        "completed_state": 1,
+        "cycles": 0,
+        "accepted": 1,
+        "completed": 1,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 1,
+        "txfragments": 167,
+        "rxmessages": 3,
+        "rejected": 0,
+        "triggers": 2,
+        "ready": 2,
+        "completed": 1,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 1,
+        "current_state": 1,
+        "next_index": 2,
+        "executed_index": 1,
+        "executed_state": 1,
+        "completed_index": 1,
+        "completed_state": 1,
+        "cycles": 0,
+        "accepted": 1,
+        "completed": 1,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 2,
+        "txfragments": 209,
+        "rxmessages": 4,
+        "rejected": 0,
+        "triggers": 2,
+        "ready": 2,
+        "completed": 2,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 2,
+        "current_state": 2,
+        "next_index": 3,
+        "executed_index": 2,
+        "executed_state": 2,
+        "completed_index": 2,
+        "completed_state": 2,
+        "cycles": 0,
+        "accepted": 2,
+        "completed": 2,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 3,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 2,
+        "txfragments": 253,
+        "rxmessages": 5,
+        "rejected": 0,
+        "triggers": 3,
+        "ready": 2,
+        "completed": 2,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 2,
+        "current_state": 2,
+        "next_index": 3,
+        "executed_index": 2,
+        "executed_state": 2,
+        "completed_index": 2,
+        "completed_state": 2,
+        "cycles": 0,
+        "accepted": 2,
+        "completed": 2,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 3,
+        "txfragments": 290,
+        "rxmessages": 6,
+        "rejected": 0,
+        "triggers": 3,
+        "ready": 3,
+        "completed": 3,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 3,
+        "current_state": 3,
+        "next_index": 4,
+        "executed_index": 3,
+        "executed_state": 3,
+        "completed_index": 3,
+        "completed_state": 3,
+        "cycles": 0,
+        "accepted": 3,
+        "completed": 3,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 3,
+        "txfragments": 331,
+        "rxmessages": 7,
+        "rejected": 0,
+        "triggers": 4,
+        "ready": 4,
+        "completed": 3,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 3,
+        "current_state": 3,
+        "next_index": 4,
+        "executed_index": 3,
+        "executed_state": 3,
+        "completed_index": 3,
+        "completed_state": 3,
+        "cycles": 0,
+        "accepted": 3,
+        "completed": 3,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 4,
+        "txfragments": 369,
+        "rxmessages": 8,
+        "rejected": 0,
+        "triggers": 4,
+        "ready": 4,
+        "completed": 4,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 4,
+        "current_state": 4,
+        "next_index": 5,
+        "executed_index": 4,
+        "executed_state": 4,
+        "completed_index": 4,
+        "completed_state": 4,
+        "cycles": 0,
+        "accepted": 4,
+        "completed": 4,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 4,
+        "txfragments": 410,
+        "rxmessages": 9,
+        "rejected": 0,
+        "triggers": 5,
+        "ready": 5,
+        "completed": 4,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 4,
+        "current_state": 4,
+        "next_index": 5,
+        "executed_index": 4,
+        "executed_state": 4,
+        "completed_index": 4,
+        "completed_state": 4,
+        "cycles": 0,
+        "accepted": 4,
+        "completed": 4,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 5,
+        "txfragments": 451,
+        "rxmessages": 10,
+        "rejected": 0,
+        "triggers": 5,
+        "ready": 5,
+        "completed": 5,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 5,
+        "current_state": 5,
+        "next_index": 6,
+        "executed_index": 5,
+        "executed_state": 5,
+        "completed_index": 5,
+        "completed_state": 5,
+        "cycles": 0,
+        "accepted": 5,
+        "completed": 5,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 5,
+        "txfragments": 488,
+        "rxmessages": 11,
+        "rejected": 0,
+        "triggers": 6,
+        "ready": 6,
+        "completed": 5,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 6,
+        "current_state": 6,
+        "next_index": 7,
+        "executed_index": 6,
+        "executed_state": 6,
+        "completed_index": 6,
+        "completed_state": 6,
+        "cycles": 0,
+        "accepted": 6,
+        "completed": 6,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 6,
+        "txfragments": 531,
+        "rxmessages": 12,
+        "rejected": 0,
+        "triggers": 6,
+        "ready": 6,
+        "completed": 6,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 6,
+        "current_state": 6,
+        "next_index": 7,
+        "executed_index": 6,
+        "executed_state": 6,
+        "completed_index": 6,
+        "completed_state": 6,
+        "cycles": 0,
+        "accepted": 6,
+        "completed": 6,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 6,
+        "txfragments": 568,
+        "rxmessages": 13,
+        "rejected": 0,
+        "triggers": 7,
+        "ready": 7,
+        "completed": 6,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 7,
+        "current_state": 7,
+        "next_index": 0,
+        "executed_index": 7,
+        "executed_state": 7,
+        "completed_index": 7,
+        "completed_state": 7,
+        "cycles": 0,
+        "accepted": 7,
+        "completed": 7,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 7,
+        "txfragments": 608,
+        "rxmessages": 14,
+        "rejected": 0,
+        "triggers": 7,
+        "ready": 7,
+        "completed": 7,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 7,
+        "current_state": 7,
+        "next_index": 0,
+        "executed_index": 7,
+        "executed_state": 7,
+        "completed_index": 7,
+        "completed_state": 7,
+        "cycles": 0,
+        "accepted": 7,
+        "completed": 7,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 8,
+        "txfragments": 652,
+        "rxmessages": 16,
+        "rejected": 0,
+        "triggers": 8,
+        "ready": 8,
+        "completed": 8,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 0,
+        "current_state": 0,
+        "next_index": 1,
+        "executed_index": 0,
+        "executed_state": 0,
+        "completed_index": 0,
+        "completed_state": 0,
+        "cycles": 1,
+        "accepted": 8,
+        "completed": 8,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 8,
+        "txfragments": 693,
+        "rxmessages": 17,
+        "rejected": 0,
+        "triggers": 9,
+        "ready": 9,
+        "completed": 8,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 0,
+        "current_state": 0,
+        "next_index": 1,
+        "executed_index": 0,
+        "executed_state": 0,
+        "completed_index": 0,
+        "completed_state": 0,
+        "cycles": 1,
+        "accepted": 8,
+        "completed": 8,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 9,
+        "txfragments": 733,
+        "rxmessages": 18,
+        "rejected": 0,
+        "triggers": 9,
+        "ready": 9,
+        "completed": 9,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 1,
+        "current_state": 1,
+        "next_index": 2,
+        "executed_index": 1,
+        "executed_state": 1,
+        "completed_index": 1,
+        "completed_state": 1,
+        "cycles": 1,
+        "accepted": 9,
+        "completed": 9,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 10,
+        "txfragments": 833,
+        "rxmessages": 22,
+        "rejected": 0,
+        "triggers": 12,
+        "ready": 12,
+        "completed": 10,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 2,
+        "current_state": 2,
+        "next_index": 3,
+        "executed_index": 2,
+        "executed_state": 2,
+        "completed_index": 2,
+        "completed_state": 2,
+        "cycles": 1,
+        "accepted": 10,
+        "completed": 10,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 11,
+        "txfragments": 875,
+        "rxmessages": 23,
+        "rejected": 0,
+        "triggers": 12,
+        "ready": 12,
+        "completed": 11,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 3,
+        "current_state": 3,
+        "next_index": 4,
+        "executed_index": 3,
+        "executed_state": 3,
+        "completed_index": 3,
+        "completed_state": 3,
+        "cycles": 1,
+        "accepted": 11,
+        "completed": 11,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 11,
+        "txfragments": 916,
+        "rxmessages": 24,
+        "rejected": 0,
+        "triggers": 13,
+        "ready": 13,
+        "completed": 11,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 3,
+        "current_state": 3,
+        "next_index": 4,
+        "executed_index": 3,
+        "executed_state": 3,
+        "completed_index": 3,
+        "completed_state": 3,
+        "cycles": 1,
+        "accepted": 11,
+        "completed": 11,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 12,
+        "txfragments": 959,
+        "rxmessages": 25,
+        "rejected": 0,
+        "triggers": 13,
+        "ready": 13,
+        "completed": 12,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 4,
+        "current_state": 4,
+        "next_index": 5,
+        "executed_index": 4,
+        "executed_state": 4,
+        "completed_index": 4,
+        "completed_state": 4,
+        "cycles": 1,
+        "accepted": 12,
+        "completed": 12,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 12,
+        "txfragments": 998,
+        "rxmessages": 26,
+        "rejected": 0,
+        "triggers": 14,
+        "ready": 14,
+        "completed": 12,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 4,
+        "current_state": 4,
+        "next_index": 5,
+        "executed_index": 4,
+        "executed_state": 4,
+        "completed_index": 4,
+        "completed_state": 4,
+        "cycles": 1,
+        "accepted": 12,
+        "completed": 12,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 13,
+        "txfragments": 1042,
+        "rxmessages": 27,
+        "rejected": 0,
+        "triggers": 14,
+        "ready": 14,
+        "completed": 13,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 5,
+        "current_state": 5,
+        "next_index": 6,
+        "executed_index": 5,
+        "executed_state": 5,
+        "completed_index": 5,
+        "completed_state": 5,
+        "cycles": 1,
+        "accepted": 13,
+        "completed": 13,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 13,
+        "txfragments": 1085,
+        "rxmessages": 28,
+        "rejected": 0,
+        "triggers": 15,
+        "ready": 15,
+        "completed": 13,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 5,
+        "current_state": 5,
+        "next_index": 6,
+        "executed_index": 5,
+        "executed_state": 5,
+        "completed_index": 5,
+        "completed_state": 5,
+        "cycles": 1,
+        "accepted": 13,
+        "completed": 13,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 14,
+        "txfragments": 1126,
+        "rxmessages": 29,
+        "rejected": 0,
+        "triggers": 15,
+        "ready": 15,
+        "completed": 14,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 6,
+        "current_state": 6,
+        "next_index": 7,
+        "executed_index": 6,
+        "executed_state": 6,
+        "completed_index": 6,
+        "completed_state": 6,
+        "cycles": 1,
+        "accepted": 14,
+        "completed": 14,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 14,
+        "txfragments": 1169,
+        "rxmessages": 30,
+        "rejected": 0,
+        "triggers": 16,
+        "ready": 16,
+        "completed": 14,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 6,
+        "current_state": 6,
+        "next_index": 7,
+        "executed_index": 6,
+        "executed_state": 6,
+        "completed_index": 6,
+        "completed_state": 6,
+        "cycles": 1,
+        "accepted": 14,
+        "completed": 14,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 15,
+        "txfragments": 1207,
+        "rxmessages": 32,
+        "rejected": 0,
+        "triggers": 17,
+        "ready": 17,
+        "completed": 15,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 7,
+        "current_state": 7,
+        "next_index": 0,
+        "executed_index": 7,
+        "executed_state": 7,
+        "completed_index": 7,
+        "completed_state": 7,
+        "cycles": 1,
+        "accepted": 15,
+        "completed": 15,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 16,
+        "txfragments": 1249,
+        "rxmessages": 34,
+        "rejected": 0,
+        "triggers": 18,
+        "ready": 18,
+        "completed": 16,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 0,
+        "current_state": 0,
+        "next_index": 1,
+        "executed_index": 0,
+        "executed_state": 0,
+        "completed_index": 0,
+        "completed_state": 0,
+        "cycles": 2,
+        "accepted": 16,
+        "completed": 16,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 2,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 17,
+        "txfragments": 1286,
+        "rxmessages": 35,
+        "rejected": 0,
+        "triggers": 18,
+        "ready": 18,
+        "completed": 17,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 1,
+        "current_state": 1,
+        "next_index": 2,
+        "executed_index": 1,
+        "executed_state": 1,
+        "completed_index": 1,
+        "completed_state": 1,
+        "cycles": 2,
+        "accepted": 17,
+        "completed": 17,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 4,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 17,
+        "txfragments": 1325,
+        "rxmessages": 36,
+        "rejected": 0,
+        "triggers": 19,
+        "ready": 19,
+        "completed": 17,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 2,
+        "current_state": 2,
+        "next_index": 3,
+        "executed_index": 2,
+        "executed_state": 2,
+        "completed_index": 2,
+        "completed_state": 2,
+        "cycles": 2,
+        "accepted": 18,
+        "completed": 18,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    },
+    {
+      "link": {
+        "enabled": 1,
+        "phase": 3,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 18,
+        "txfragments": 1365,
+        "rxmessages": 38,
+        "rejected": 0,
+        "triggers": 20,
+        "ready": 19,
+        "completed": 18,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "sequence": {
+        "state": "READY",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 2,
+        "current_state": 2,
+        "next_index": 3,
+        "executed_index": 2,
+        "executed_state": 2,
+        "completed_index": 2,
+        "completed_state": 2,
+        "cycles": 2,
+        "accepted": 18,
+        "completed": 18,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      }
+    }
+  ],
+  "pause_resume": {
+    "passed": true,
+    "before": {
+      "enabled": 1,
+      "phase": 2,
+      "error": 0,
+      "binding_epoch": 4,
+      "model_epoch": 8,
+      "run": 2,
+      "generation": 2,
+      "step": 9,
+      "txfragments": 733,
+      "rxmessages": 18,
+      "rejected": 0,
+      "triggers": 9,
+      "ready": 9,
+      "completed": 9,
+      "dutslot": 2,
+      "vnaslot": 3,
+      "input": 1,
+      "outputmask": 8,
+      "pulseus": 1000,
+      "timeoutms": 5000,
+      "falling": 0,
+      "repeat": 0
+    },
+    "pause_command": "TRIG:PAUS",
+    "resume_command": "TRIG:CONT",
+    "pulse_stop_evidence": "stable trigger count and sampled OUT4 low; not waveform capture",
+    "settling": [
+      {
+        "sequence": {
+          "state": "PAUSED",
+          "run_id": 2,
+          "generation": 2,
+          "count": 8,
+          "current_index": 1,
+          "current_state": 1,
+          "next_index": 2,
+          "executed_index": 1,
+          "executed_state": 1,
+          "completed_index": 1,
+          "completed_state": 1,
+          "cycles": 1,
+          "accepted": 9,
+          "completed": 9,
+          "busy_rejected": 0,
+          "notready_rejected": 0,
+          "cancelled": 0,
+          "faults": 0,
+          "error": "NONE",
+          "written_us": 0,
+          "rise_us": 0,
+          "completed_us": 0,
+          "late_us": 0,
+          "backend_fault": 0
+        },
+        "link": {
+          "enabled": 1,
+          "phase": 6,
+          "error": 0,
+          "binding_epoch": 4,
+          "model_epoch": 8,
+          "run": 2,
+          "generation": 2,
+          "step": 9,
+          "txfragments": 748,
+          "rxmessages": 19,
+          "rejected": 0,
+          "triggers": 10,
+          "ready": 10,
+          "completed": 9,
+          "dutslot": 2,
+          "vnaslot": 3,
+          "input": 1,
+          "outputmask": 8,
+          "pulseus": 1000,
+          "timeoutms": 5000,
+          "falling": 0,
+          "repeat": 0
+        }
+      }
+    ],
+    "quiet_samples": [
+      {
+        "sequence": {
+          "state": "PAUSED",
+          "run_id": 2,
+          "generation": 2,
+          "count": 8,
+          "current_index": 1,
+          "current_state": 1,
+          "next_index": 2,
+          "executed_index": 1,
+          "executed_state": 1,
+          "completed_index": 1,
+          "completed_state": 1,
+          "cycles": 1,
+          "accepted": 9,
+          "completed": 9,
+          "busy_rejected": 0,
+          "notready_rejected": 0,
+          "cancelled": 0,
+          "faults": 0,
+          "error": "NONE",
+          "written_us": 0,
+          "rise_us": 0,
+          "completed_us": 0,
+          "late_us": 0,
+          "backend_fault": 0
+        },
+        "link": {
+          "enabled": 1,
+          "phase": 6,
+          "error": 0,
+          "binding_epoch": 4,
+          "model_epoch": 8,
+          "run": 2,
+          "generation": 2,
+          "step": 9,
+          "txfragments": 748,
+          "rxmessages": 19,
+          "rejected": 0,
+          "triggers": 10,
+          "ready": 10,
+          "completed": 9,
+          "dutslot": 2,
+          "vnaslot": 3,
+          "input": 1,
+          "outputmask": 8,
+          "pulseus": 1000,
+          "timeoutms": 5000,
+          "falling": 0,
+          "repeat": 0
+        },
+        "io": {
+          "inputs": 1,
+          "outputs": 1,
+          "owned": 15,
+          "armed": 1,
+          "busy": 0
+        }
+      },
+      {
+        "sequence": {
+          "state": "PAUSED",
+          "run_id": 2,
+          "generation": 2,
+          "count": 8,
+          "current_index": 1,
+          "current_state": 1,
+          "next_index": 2,
+          "executed_index": 1,
+          "executed_state": 1,
+          "completed_index": 1,
+          "completed_state": 1,
+          "cycles": 1,
+          "accepted": 9,
+          "completed": 9,
+          "busy_rejected": 0,
+          "notready_rejected": 0,
+          "cancelled": 0,
+          "faults": 0,
+          "error": "NONE",
+          "written_us": 0,
+          "rise_us": 0,
+          "completed_us": 0,
+          "late_us": 0,
+          "backend_fault": 0
+        },
+        "link": {
+          "enabled": 1,
+          "phase": 6,
+          "error": 0,
+          "binding_epoch": 4,
+          "model_epoch": 8,
+          "run": 2,
+          "generation": 2,
+          "step": 9,
+          "txfragments": 748,
+          "rxmessages": 19,
+          "rejected": 0,
+          "triggers": 10,
+          "ready": 10,
+          "completed": 9,
+          "dutslot": 2,
+          "vnaslot": 3,
+          "input": 1,
+          "outputmask": 8,
+          "pulseus": 1000,
+          "timeoutms": 5000,
+          "falling": 0,
+          "repeat": 0
+        },
+        "io": {
+          "inputs": 1,
+          "outputs": 1,
+          "owned": 15,
+          "armed": 1,
+          "busy": 0
+        }
+      }
+    ],
+    "resume_samples": [
+      {
+        "link": {
+          "enabled": 1,
+          "phase": 4,
+          "error": 0,
+          "binding_epoch": 4,
+          "model_epoch": 8,
+          "run": 2,
+          "generation": 2,
+          "step": 9,
+          "txfragments": 781,
+          "rxmessages": 20,
+          "rejected": 0,
+          "triggers": 11,
+          "ready": 11,
+          "completed": 9,
+          "dutslot": 2,
+          "vnaslot": 3,
+          "input": 1,
+          "outputmask": 8,
+          "pulseus": 1000,
+          "timeoutms": 5000,
+          "falling": 0,
+          "repeat": 0
+        },
+        "sequence": {
+          "state": "READY",
+          "run_id": 2,
+          "generation": 2,
+          "count": 8,
+          "current_index": 1,
+          "current_state": 1,
+          "next_index": 2,
+          "executed_index": 1,
+          "executed_state": 1,
+          "completed_index": 1,
+          "completed_state": 1,
+          "cycles": 1,
+          "accepted": 9,
+          "completed": 9,
+          "busy_rejected": 0,
+          "notready_rejected": 0,
+          "cancelled": 0,
+          "faults": 0,
+          "error": "NONE",
+          "written_us": 0,
+          "rise_us": 0,
+          "completed_us": 0,
+          "late_us": 0,
+          "backend_fault": 0
+        }
+      },
+      {
+        "link": {
+          "enabled": 1,
+          "phase": 2,
+          "error": 0,
+          "binding_epoch": 4,
+          "model_epoch": 8,
+          "run": 2,
+          "generation": 2,
+          "step": 10,
+          "txfragments": 818,
+          "rxmessages": 21,
+          "rejected": 0,
+          "triggers": 11,
+          "ready": 11,
+          "completed": 10,
+          "dutslot": 2,
+          "vnaslot": 3,
+          "input": 1,
+          "outputmask": 8,
+          "pulseus": 1000,
+          "timeoutms": 5000,
+          "falling": 0,
+          "repeat": 0
+        },
+        "sequence": {
+          "state": "READY",
+          "run_id": 2,
+          "generation": 2,
+          "count": 8,
+          "current_index": 2,
+          "current_state": 2,
+          "next_index": 3,
+          "executed_index": 2,
+          "executed_state": 2,
+          "completed_index": 2,
+          "completed_state": 2,
+          "cycles": 1,
+          "accepted": 10,
+          "completed": 10,
+          "busy_rejected": 0,
+          "notready_rejected": 0,
+          "cancelled": 0,
+          "faults": 0,
+          "error": "NONE",
+          "written_us": 0,
+          "rise_us": 0,
+          "completed_us": 0,
+          "late_us": 0,
+          "backend_fault": 0
+        }
+      }
+    ],
+    "paused": {
+      "sequence": {
+        "state": "PAUSED",
+        "run_id": 2,
+        "generation": 2,
+        "count": 8,
+        "current_index": 1,
+        "current_state": 1,
+        "next_index": 2,
+        "executed_index": 1,
+        "executed_state": 1,
+        "completed_index": 1,
+        "completed_state": 1,
+        "cycles": 1,
+        "accepted": 9,
+        "completed": 9,
+        "busy_rejected": 0,
+        "notready_rejected": 0,
+        "cancelled": 0,
+        "faults": 0,
+        "error": "NONE",
+        "written_us": 0,
+        "rise_us": 0,
+        "completed_us": 0,
+        "late_us": 0,
+        "backend_fault": 0
+      },
+      "link": {
+        "enabled": 1,
+        "phase": 6,
+        "error": 0,
+        "binding_epoch": 4,
+        "model_epoch": 8,
+        "run": 2,
+        "generation": 2,
+        "step": 9,
+        "txfragments": 748,
+        "rxmessages": 19,
+        "rejected": 0,
+        "triggers": 10,
+        "ready": 10,
+        "completed": 9,
+        "dutslot": 2,
+        "vnaslot": 3,
+        "input": 1,
+        "outputmask": 8,
+        "pulseus": 1000,
+        "timeoutms": 5000,
+        "falling": 0,
+        "repeat": 0
+      },
+      "io": {
+        "inputs": 1,
+        "outputs": 1,
+        "owned": 15,
+        "armed": 1,
+        "busy": 0
+      }
+    },
+    "quiet_duration_requested_s": 0.2,
+    "quiet_elapsed_s": 0.20300000000042928
+  },
+  "ring_after": {
+    "tdma": [
+      1,
+      1,
+      0,
+      162259,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3801409129,
+      11,
+      1,
+      1022,
+      1,
+      12,
+      2,
+      0,
+      0,
+      1,
+      2,
+      2614010132,
+      2281719261,
+      1,
+      1,
+      9887,
+      0,
+      1,
+      5,
+      5,
+      5,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      9,
+      4294967295,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2000000,
+      1,
+      4,
+      3,
+      10814,
+      1668,
+      1662,
+      1068436911,
+      276519598,
+      8,
+      2,
+      1668,
+      0,
+      56,
+      3676444760,
+      56,
+      3676444816,
+      56,
+      0,
+      1668,
+      664,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      4294967295,
+      0,
+      0,
+      1,
+      2,
+      0,
+      0,
+      1661,
+      17182935,
+      2281719261,
+      8,
+      2,
+      1,
+      7,
+      299884,
+      299940,
+      1661299884,
+      0,
+      0,
+      0,
+      3673131364,
+      56,
+      128,
+      2,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "phys": {
+      "armed": 1,
+      "role": 0,
+      "baud_hz": 10000000,
+      "tx_count": 1685,
+      "rx_count": 935,
+      "rx_bad_count": 0,
+      "tx_busy_count": 0,
+      "rx_partial_count": 0,
+      "rx_stall_count": 0,
+      "tx_timeout_count": 0,
+      "last_error": 0,
+      "last_rx_size": 100,
+      "tx_sck_pin": 25,
+      "tx_pin": 29,
+      "rx_sck_pin": 28,
+      "rx_pin": 24,
+      "last_bad_header0": 0,
+      "last_bad_header1": 0,
+      "last_bad_header2": 0,
+      "last_bad_header3": 0,
+      "last_bad_words": 0,
+      "rx_busy_count": 0,
+      "rx_magic_fail_count": 1,
+      "rx_busy_word0": 0,
+      "rx_busy_word1": 0,
+      "rx_busy_word2": 0,
+      "rx_busy_word3": 0,
+      "rx_busy_moved": 0,
+      "rx_magic_at_zero": 935,
+      "rx_magic_at_shift": 0,
+      "tx_csn_pin": 26,
+      "rx_csn_pin": 27,
+      "rx_ring_overrun_count": 0,
+      "rx_dma_produced_words": 180246,
+      "rx_scan_produced_words": 179650,
+      "rx_dma_write_index": 41,
+      "rx_dma_channel": 4,
+      "tx_edge_count": 1685,
+      "rx_edge_count": 935,
+      "last_tx_edge_timestamp_ns_lo": 3721686036,
+      "last_tx_edge_timestamp_ns_hi": 56,
+      "last_tx_done_timestamp_ns_lo": 3722547836,
+      "last_tx_done_timestamp_ns_hi": 56,
+      "last_rx_edge_timestamp_ns_lo": 3721698384,
+      "last_rx_edge_timestamp_ns_hi": 56,
+      "last_rx_extract_timestamp_ns_lo": 3721781584,
+      "last_rx_extract_timestamp_ns_hi": 56,
+      "program_persona": 11,
+      "program_switch_count": 5,
+      "program_switch_fail_count": 0,
+      "flight_marker_offset_sample_count": 0,
+      "flight_sck_offset_sample_count": 0,
+      "flight_data_offset_sample_count": 0,
+      "flight_marker_phase_delay_cycles": 10,
+      "flight_sck_phase_delay_cycles": 10,
+      "flight_data_phase_delay_cycles": 10,
+      "pio_irq_flags": 4,
+      "pio_fdebug": 50331652,
+      "tx_sm_pc": 21,
+      "rx_sm_pc": 21,
+      "tx_sm_tx_fifo_level": 0,
+      "tx_sm_rx_fifo_level": 0,
+      "rx_sm_tx_fifo_level": 0,
+      "rx_sm_rx_fifo_level": 0,
+      "gpio_input_levels": 18,
+      "origin_done_irq_count": 1685,
+      "origin_done_txstall_count": 0,
+      "origin_clock_timeout_count": 0,
+      "origin_data_timeout_count": 0,
+      "origin_recovery_count": 0,
+      "overlay_prepare_count": 0,
+      "overlay_prepare_fail_count": 0,
+      "overlay_replacement_byte_count": 0,
+      "overlay_alignment_byte_shift": 0,
+      "overlay_alignment_bit_shift": 0,
+      "overlay_physical_byte_count": 107,
+      "overlay_last_error": 0,
+      "overlay_tx_dma_remaining": 0,
+      "overlay_tx_dma_busy": 0,
+      "overlay_tx_fifo_level_at_fail": 0,
+      "overlay_prepare_wait_us": 0,
+      "overlay_program_offset": 0,
+      "overlay_tx_dma_read_index": 0,
+      "overlay_tx_dma_ctrl": 0,
+      "overlay_sm_shiftctrl": 0,
+      "overlay_sm_execctrl": 0,
+      "overlay_sm_pc_at_fail": 0,
+      "overlay_pio_ctrl_at_fail": 0,
+      "overlay_pio_fstat_at_fail": 0,
+      "overlay_pio_fdebug_at_fail": 0,
+      "overlay_frame_boundary_count": 0,
+      "overlay_pass_recovery_count": 0,
+      "overlay_late_coalesce_count": 0,
+      "clock_latch_resolution_ns": 8,
+      "clock_latch_count": 1685,
+      "clock_latch_miss_count": 0,
+      "program_lifecycle_state": 5,
+      "program_target_persona": 11,
+      "program_previous_persona": 2,
+      "program_transition_seq": 27,
+      "program_lifecycle_error": 0,
+      "overlay_published_generation": 0,
+      "overlay_selected_generation": 0,
+      "overlay_selection_pending": 0,
+      "overlay_reuse_observation_count": 0,
+      "rx_observation_drop_count": 614,
+      "rx_scan_yield_count": 1,
+      "rx_dma_transfer_count": 275267513,
+      "flight_origin_capture_phase_delay_cycles": 10
+    },
+    "raw_tdma": "1,1,0,162259,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3801409129,11,1,1022,1,12,2,0,0,1,2,2614010132,2281719261,1,1,9887,0,1,5,5,5,0,0,0,0,0,1,0,0,0,0,9,4294967295,0,0,0,0,0,2000000,1,4,3,10814,1668,1662,1068436911,276519598,8,2,1668,0,56,3676444760,56,3676444816,56,0,1668,664,0,0,0,0,0,0,0,0,0,4294967295,0,0,1,2,0,0,1661,17182935,2281719261,8,2,1,7,299884,299940,1661299884,0,0,0,3673131364,56,128,2,1,0,0,0,0,0,0,0,0",
+    "raw_phys": "1,0,10000000,1685,935,0,0,0,0,0,0,100,25,29,28,24,0,0,0,0,0,0,1,0,0,0,0,0,935,0,26,27,0,180246,179650,41,4,1685,935,3721686036,56,3722547836,56,3721698384,56,3721781584,56,11,5,0,0,0,0,10,10,10,4,50331652,21,21,0,0,0,0,18,1685,0,0,0,0,0,0,0,0,0,107,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,1685,0,5,11,2,27,0,0,0,0,0,614,1,275267513,10"
+  },
+  "transport_before_cleanup": {
+    "READ:SEQ:LINK:TRANSPORT?": {
+      "failure": "AcceptanceError: SCPI timeout: READ:SEQ:LINK:TRANSPORT?"
+    },
+    "SYST:TDMA:FLIGHT:PROCESS?": {
+      "response": "4,1,1,0,3564777010,2,68,1,10028,0,320896,626,0,0,0,4199,0,0,0,4199,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,5,3206,1159620261,20,127,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0"
+    },
+    "SYST:TDMA:FLIGHT:FIFO?": {
+      "response": "2,9411,0,9411,626,626,9410,0,0,9411,4065,0,0,4065,4065,0,0"
+    },
+    "SYST:REFMEM:SYNC:FLIGHT?": {
+      "response": "1,0,2,3,0,1,68,32,1,9417,9416,0,4068,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0"
+    }
+  },
+  "ring_before_cleanup": {
+    "tdma": [
+      1,
+      1,
+      0,
+      164255,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3801409129,
+      11,
+      1,
+      1022,
+      1,
+      12,
+      2,
+      0,
+      0,
+      1,
+      2,
+      2614010132,
+      2281719261,
+      1,
+      1,
+      11826,
+      5,
+      0,
+      5,
+      5,
+      5,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      9,
+      4294967295,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2000000,
+      1,
+      4,
+      3,
+      12809,
+      3231,
+      3225,
+      1997467269,
+      1442069111,
+      8,
+      2,
+      3231,
+      0,
+      0,
+      2518599392,
+      57,
+      2506306288,
+      57,
+      0,
+      3231,
+      1413,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      4294967295,
+      0,
+      0,
+      1,
+      2,
+      0,
+      0,
+      3224,
+      3960463775,
+      2281719261,
+      8,
+      2,
+      1,
+      7,
+      24168,
+      24224,
+      3224024168,
+      0,
+      0,
+      0,
+      2504888352,
+      57,
+      128,
+      2,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "phys": {
+      "armed": 1,
+      "role": 0,
+      "baud_hz": 10000000,
+      "tx_count": 3249,
+      "rx_count": 1850,
+      "rx_bad_count": 0,
+      "tx_busy_count": 0,
+      "rx_partial_count": 0,
+      "rx_stall_count": 0,
+      "tx_timeout_count": 0,
+      "last_error": 0,
+      "last_rx_size": 100,
+      "tx_sck_pin": 25,
+      "tx_pin": 29,
+      "rx_sck_pin": 28,
+      "rx_pin": 24,
+      "last_bad_header0": 0,
+      "last_bad_header1": 0,
+      "last_bad_header2": 0,
+      "last_bad_header3": 0,
+      "last_bad_words": 0,
+      "rx_busy_count": 0,
+      "rx_magic_fail_count": 1,
+      "rx_busy_word0": 0,
+      "rx_busy_word1": 0,
+      "rx_busy_word2": 0,
+      "rx_busy_word3": 0,
+      "rx_busy_moved": 0,
+      "rx_magic_at_zero": 1850,
+      "rx_magic_at_shift": 0,
+      "tx_csn_pin": 26,
+      "rx_csn_pin": 27,
+      "rx_ring_overrun_count": 0,
+      "rx_dma_produced_words": 347485,
+      "rx_scan_produced_words": 346784,
+      "rx_dma_write_index": 369,
+      "rx_dma_channel": 4,
+      "tx_edge_count": 3249,
+      "rx_edge_count": 1850,
+      "last_tx_edge_timestamp_ns_lo": 2554606016,
+      "last_tx_edge_timestamp_ns_hi": 57,
+      "last_tx_done_timestamp_ns_lo": 2555442948,
+      "last_tx_done_timestamp_ns_hi": 57,
+      "last_rx_edge_timestamp_ns_lo": 2553038460,
+      "last_rx_edge_timestamp_ns_hi": 57,
+      "last_rx_extract_timestamp_ns_lo": 2553121660,
+      "last_rx_extract_timestamp_ns_hi": 57,
+      "program_persona": 11,
+      "program_switch_count": 5,
+      "program_switch_fail_count": 0,
+      "flight_marker_offset_sample_count": 0,
+      "flight_sck_offset_sample_count": 0,
+      "flight_data_offset_sample_count": 0,
+      "flight_marker_phase_delay_cycles": 10,
+      "flight_sck_phase_delay_cycles": 10,
+      "flight_data_phase_delay_cycles": 10,
+      "pio_irq_flags": 6,
+      "pio_fdebug": 50331652,
+      "tx_sm_pc": 21,
+      "rx_sm_pc": 21,
+      "tx_sm_tx_fifo_level": 0,
+      "tx_sm_rx_fifo_level": 0,
+      "rx_sm_tx_fifo_level": 0,
+      "rx_sm_rx_fifo_level": 0,
+      "gpio_input_levels": 18,
+      "origin_done_irq_count": 3249,
+      "origin_done_txstall_count": 0,
+      "origin_clock_timeout_count": 0,
+      "origin_data_timeout_count": 0,
+      "origin_recovery_count": 0,
+      "overlay_prepare_count": 0,
+      "overlay_prepare_fail_count": 0,
+      "overlay_replacement_byte_count": 0,
+      "overlay_alignment_byte_shift": 0,
+      "overlay_alignment_bit_shift": 0,
+      "overlay_physical_byte_count": 107,
+      "overlay_last_error": 0,
+      "overlay_tx_dma_remaining": 0,
+      "overlay_tx_dma_busy": 0,
+      "overlay_tx_fifo_level_at_fail": 0,
+      "overlay_prepare_wait_us": 0,
+      "overlay_program_offset": 0,
+      "overlay_tx_dma_read_index": 0,
+      "overlay_tx_dma_ctrl": 0,
+      "overlay_sm_shiftctrl": 0,
+      "overlay_sm_execctrl": 0,
+      "overlay_sm_pc_at_fail": 0,
+      "overlay_pio_ctrl_at_fail": 0,
+      "overlay_pio_fstat_at_fail": 0,
+      "overlay_pio_fdebug_at_fail": 0,
+      "overlay_frame_boundary_count": 0,
+      "overlay_pass_recovery_count": 0,
+      "overlay_late_coalesce_count": 0,
+      "clock_latch_resolution_ns": 8,
+      "clock_latch_count": 3249,
+      "clock_latch_miss_count": 0,
+      "program_lifecycle_state": 5,
+      "program_target_persona": 11,
+      "program_previous_persona": 2,
+      "program_transition_seq": 27,
+      "program_lifecycle_error": 0,
+      "overlay_published_generation": 0,
+      "overlay_selected_generation": 0,
+      "overlay_selection_pending": 0,
+      "overlay_reuse_observation_count": 0,
+      "rx_observation_drop_count": 1166,
+      "rx_scan_yield_count": 1,
+      "rx_dma_transfer_count": 275100058,
+      "flight_origin_capture_phase_delay_cycles": 10
+    },
+    "raw_tdma": "1,1,0,164255,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3801409129,11,1,1022,1,12,2,0,0,1,2,2614010132,2281719261,1,1,11826,5,0,5,5,5,0,0,0,0,0,1,0,0,0,0,9,4294967295,0,0,0,0,0,2000000,1,4,3,12809,3231,3225,1997467269,1442069111,8,2,3231,0,0,2518599392,57,2506306288,57,0,3231,1413,0,0,0,0,0,0,0,0,0,4294967295,0,0,1,2,0,0,3224,3960463775,2281719261,8,2,1,7,24168,24224,3224024168,0,0,0,2504888352,57,128,2,1,0,0,0,0,0,0,0,0",
+    "raw_phys": "1,0,10000000,3249,1850,0,0,0,0,0,0,100,25,29,28,24,0,0,0,0,0,0,1,0,0,0,0,0,1850,0,26,27,0,347485,346784,369,4,3249,1850,2554606016,57,2555442948,57,2553038460,57,2553121660,57,11,5,0,0,0,0,10,10,10,6,50331652,21,21,0,0,0,0,18,3249,0,0,0,0,0,0,0,0,0,107,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,3249,0,5,11,2,27,0,0,0,0,0,1166,1,275100058,10"
+  },
+  "stopped": {
+    "sequence": {
+      "state": "IDLE",
+      "run_id": 2,
+      "generation": 2,
+      "count": 8,
+      "current_index": 1,
+      "current_state": 1,
+      "next_index": 2,
+      "executed_index": 1,
+      "executed_state": 1,
+      "completed_index": 1,
+      "completed_state": 1,
+      "cycles": 5,
+      "accepted": 41,
+      "completed": 41,
+      "busy_rejected": 0,
+      "notready_rejected": 0,
+      "cancelled": 0,
+      "faults": 0,
+      "error": "NONE",
+      "written_us": 0,
+      "rise_us": 0,
+      "completed_us": 0,
+      "late_us": 0,
+      "backend_fault": 0
+    },
+    "link": {
+      "enabled": 1,
+      "phase": 1,
+      "error": 0,
+      "binding_epoch": 4,
+      "model_epoch": 8,
+      "run": 2,
+      "generation": 2,
+      "step": 41,
+      "txfragments": 2894,
+      "rxmessages": 84,
+      "rejected": 0,
+      "triggers": 43,
+      "ready": 43,
+      "completed": 41,
+      "dutslot": 2,
+      "vnaslot": 3,
+      "input": 1,
+      "outputmask": 8,
+      "pulseus": 1000,
+      "timeoutms": 5000,
+      "falling": 0,
+      "repeat": 0
+    },
+    "io": {
+      "inputs": 0,
+      "outputs": 0,
+      "owned": 0,
+      "armed": 0,
+      "busy": 0
+    }
+  },
+  "after_stop_quiet": {
+    "link": {
+      "enabled": 1,
+      "phase": 1,
+      "error": 0,
+      "binding_epoch": 4,
+      "model_epoch": 8,
+      "run": 2,
+      "generation": 2,
+      "step": 41,
+      "txfragments": 2894,
+      "rxmessages": 84,
+      "rejected": 0,
+      "triggers": 43,
+      "ready": 43,
+      "completed": 41,
+      "dutslot": 2,
+      "vnaslot": 3,
+      "input": 1,
+      "outputmask": 8,
+      "pulseus": 1000,
+      "timeoutms": 5000,
+      "falling": 0,
+      "repeat": 0
+    },
+    "io": {
+      "inputs": 1,
+      "outputs": 0,
+      "owned": 0,
+      "armed": 0,
+      "busy": 0
+    }
+  },
+  "probe_disable": {
+    "command": "CALibration:TOPology:PROBe 0",
+    "response": "0,0",
+    "error": "0,\"No error\""
+  }
+}

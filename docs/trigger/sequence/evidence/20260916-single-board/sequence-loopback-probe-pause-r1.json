@@ -1,0 +1,2218 @@
+{
+  "passed": false,
+  "scope": "single_board_rj45_dut_vna_functional_cycle",
+  "functional_cycle_verified": false,
+  "tdma_stability_verified": false,
+  "known_down_running_optimization_deferred": true,
+  "multi_board_verified": false,
+  "independent_input_count_verified": false,
+  "waveform_verified": false,
+  "rf_path_verified": false,
+  "p3_receipt": false,
+  "deferred_observations": [],
+  "started_at": "2026-09-16T12:33:13.642661+00:00",
+  "tool_sha256": "88c7b4ef1fd3a0f4716c77f16e63d6fd769c6e4777cf6d0e2d077dc1a22632a1",
+  "settings": {
+    "port": null,
+    "visa_resource": null,
+    "serial_number": "839E1AE79EA20F31",
+    "build": "20260916121654",
+    "out": "out\\node-sequence\\sequence-loopback-probe-pause-r1.json",
+    "duration": 30,
+    "minimum_events": 9,
+    "repeat": 0,
+    "pause_resume": true,
+    "gui_control": true,
+    "timeout": 3,
+    "poll": 0.05,
+    "quiet": 0.2,
+    "source_hz": 50.0,
+    "gateway_pulse_us": 1000,
+    "gateway_timeout_ms": 5000,
+    "dut_slot": 2,
+    "dut_instance": 5,
+    "vna_slot": 3,
+    "vna_instance": 7,
+    "operating_level": 7,
+    "node_count": 2,
+    "local_slot": 0,
+    "reference_slot": 0,
+    "probe_phase_cycles": 10,
+    "train_cycles": 4096,
+    "arm_wait": 3,
+    "start_wait": 2
+  },
+  "transcript": [
+    {
+      "command": "*IDN?",
+      "response": "NO.1,DHRT100,839E1AE79EA20F31,0.1.0",
+      "at": 5998.125,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:FW:BUILD?",
+      "response": "\"20260916121654\"",
+      "at": 5998.125,
+      "elapsed": 0.0
+    },
+    {
+      "command": "TRIG:STOP",
+      "response": "1",
+      "at": 5998.171,
+      "elapsed": 0.07899999999972351
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 5998.25,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"IDLE\",5,5,8,7,7,0,7,7,7,7,9,79,79,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 5998.265,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:RING:STOP",
+      "response": "\"OK\"",
+      "at": 5998.265,
+      "elapsed": 0.06300000000010186
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 5998.328,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "SYST:TDMA:RING:STAT?",
+      "response": "0,0,0,0,0,0,10615,0,0,11454,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,24,24",
+      "at": 5998.343,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:LINK OFF",
+      "response": "1",
+      "at": 5998.343,
+      "elapsed": 0.06300000000010186
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 5998.406,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:TRIG 8,0,1,1",
+      "response": "1",
+      "at": 5998.406,
+      "elapsed": 0.09400000000005093
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 5998.5,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ SP8T,0,1,2,3,4,5,6,7",
+      "response": "1",
+      "at": 5998.5,
+      "elapsed": 0.0929999999998472
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 5998.593,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "CONF:SEQ:ACT SP8T",
+      "response": "1",
+      "at": 5998.609,
+      "elapsed": 0.07799999999951979
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 5998.687,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "CONF:SEQ:OUTPUT 7,0,NONE,10,0",
+      "response": "1",
+      "at": 5998.703,
+      "elapsed": 0.07799999999951979
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 5998.781,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:CODE 0,0",
+      "response": "1",
+      "at": 5998.781,
+      "elapsed": 0.09400000000005093
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 5998.875,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "CONF:SEQ:CODE 1,1",
+      "response": "1",
+      "at": 5998.89,
+      "elapsed": 0.07799999999951979
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 5998.968,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:CODE 2,2",
+      "response": "1",
+      "at": 5998.968,
+      "elapsed": 0.07800000000042928
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 5999.046,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:CODE 3,3",
+      "response": "1",
+      "at": 5999.046,
+      "elapsed": 0.07899999999972351
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 5999.125,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:CODE 4,4",
+      "response": "1",
+      "at": 5999.125,
+      "elapsed": 0.0929999999998472
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 5999.218,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:CODE 5,5",
+      "response": "1",
+      "at": 5999.218,
+      "elapsed": 0.09400000000005093
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 5999.312,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:CODE 6,6",
+      "response": "1",
+      "at": 5999.312,
+      "elapsed": 0.09400000000005093
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 5999.406,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:CODE 7,7",
+      "response": "1",
+      "at": 5999.406,
+      "elapsed": 0.09400000000005093
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 5999.5,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:SOUR BUS,RIS",
+      "response": "1",
+      "at": 5999.5,
+      "elapsed": 0.0929999999998472
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 5999.593,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "CONF:SEQ:REPEAT 0",
+      "response": "1",
+      "at": 5999.609,
+      "elapsed": 0.07799999999951979
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 5999.687,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "CONF:SEQ:NODE:ROLE 2,5,DUT",
+      "response": "\"STAGED\"",
+      "at": 5999.703,
+      "elapsed": 0.10899999999946886
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 5999.812,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:NODE:ROLE 3,7,VNA",
+      "response": "\"STAGED\"",
+      "at": 5999.812,
+      "elapsed": 0.07800000000042928
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 5999.89,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:NODE:ACT",
+      "response": "\"ACTIVE\",1,10,1023,0,3849125392,0,1,0,4,1023,3376094980,5,0,0,10,1,1,0,0,0,0,0,0,10,1,2,5,1023,3376094980,4,0,0,10",
+      "at": 5999.89,
+      "elapsed": 0.07799999999951979
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 5999.968,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:OPMODE:STAGE 7",
+      "response": "7,10000000,1000000,4096,0,1383759744",
+      "at": 5999.968,
+      "elapsed": 0.06300000000010186
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 6000.031,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:OPMODE:APPLY",
+      "response": "7,10000000,1000000,4096,0,1383759744",
+      "at": 6000.031,
+      "elapsed": 0.06199999999989814
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 6000.093,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:RING:TOPOLOGY 2,0,0",
+      "response": "2,0,0",
+      "at": 6000.093,
+      "elapsed": 0.06300000000010186
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 6000.156,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CAL:TOPOLOGY:PROBE 1,10",
+      "response": "1,10",
+      "at": 6000.156,
+      "elapsed": 0.06199999999989814
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 6000.218,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:FLIGHT:MODE 1",
+      "response": "\"OK\",1",
+      "at": 6000.218,
+      "elapsed": 0.06300000000010186
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 6000.281,
+      "elapsed": 0.0
+    },
+    {
+      "command": "CONF:SEQ:LINK LOOPBACK,2,3,IN1,OUT4,1000,5000,RIS",
+      "response": "1",
+      "at": 6000.281,
+      "elapsed": 0.06199999999989814
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 6000.343,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,1,0,10,12,0,0,0,0,0,0,0,0,79,2,3,1,8,1000,5000,0,0",
+      "at": 6000.343,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:REPEAT?",
+      "response": "0,10,1",
+      "at": 6000.343,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"IDLE\",5,5,8,7,7,0,7,7,7,7,9,79,79,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 6000.359,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "response": "1,0,0,0,0",
+      "at": 6000.359,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "SYST:TDMA:FLIGHT:MODE?",
+      "response": "2",
+      "at": 6000.375,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ? SP8T",
+      "response": "\"SP8T\",4294967295,2876574461,8,0,0,1,2,3,4,5,6,7",
+      "at": 6000.375,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:CODE? 0",
+      "response": "0,0",
+      "at": 6000.375,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:CODE? 1",
+      "response": "1,1",
+      "at": 6000.39,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:CODE? 2",
+      "response": "2,2",
+      "at": 6000.39,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:CODE? 3",
+      "response": "3,3",
+      "at": 6000.406,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:CODE? 4",
+      "response": "4,4",
+      "at": 6000.406,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "READ:SEQ:CODE? 5",
+      "response": "5,5",
+      "at": 6000.421,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:CODE? 6",
+      "response": "6,6",
+      "at": 6000.421,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:CODE? 7",
+      "response": "7,7",
+      "at": 6000.437,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:SOUR?",
+      "response": "\"BUS\",\"RISING\"",
+      "at": 6000.437,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:OUTPUT?",
+      "response": "7,0,\"NONE\",10,0,6,1",
+      "at": 6000.437,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:SEQ:NODE:ROLE? 5",
+      "response": "5,\"DUT\",1,1,152,11,5,152,11,5",
+      "at": 6000.453,
+      "elapsed": 0.0
+    },
+    {
+      "command": "READ:SEQ:NODE:ROLE? 7",
+      "response": "7,\"VNA\",1,1,152,3,3,152,3,3",
+      "at": 6000.453,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,1,0,10,12,0,0,0,0,0,0,0,0,79,2,3,1,8,1000,5000,0,0",
+      "at": 6000.468,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:RING:STOP",
+      "response": "\"OK\"",
+      "at": 6000.515,
+      "elapsed": 0.06300000000010186
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 6000.578,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:RING:STAT?",
+      "response": "0,0,0,0,0,0,10615,0,0,11454,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,27,27",
+      "at": 6000.578,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:RING:ARM",
+      "response": "\"OK\"",
+      "at": 6000.578,
+      "elapsed": 0.07799999999951979
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 6000.656,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:RING:STAT?",
+      "response": "1,2,0,0,0,0,10615,0,1,11454,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,28,28",
+      "at": 6000.656,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:RING:TRAIN 4096",
+      "response": "4096",
+      "at": 6000.656,
+      "elapsed": 0.07800000000042928
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 6000.734,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:RING:START",
+      "response": "\"OK\"",
+      "at": 6000.937,
+      "elapsed": 0.06300000000010186
+    },
+    {
+      "command": "SYST:ERR?",
+      "response": "0,\"No error\"",
+      "at": 6001.0,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:TDMA:RING:STAT?",
+      "response": "1,2,0,0,1,1,10658,0,1,11501,35,30,2586740518,2860995835,35,0,56,8,2,915418980,192,915419036,192,0,35,16,0,0,0,0,0,0,0,0,0,4294967295,0,0,28,28",
+      "at": 6001.0,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "TRIG:START",
+      "response": "<timeout>",
+      "at": 6001.015,
+      "elapsed": 3.0
+    },
+    {
+      "command": "READ:SEQ:LINK:TRANSPORT?",
+      "response": "1,1,9910,0,844,844",
+      "at": 6004.015,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "SYST:TDMA:FLIGHT:PROCESS?",
+      "response": "4,1,1,0,3564777010,4,68,1,10504,0,336128,587,0,0,0,4651,0,0,0,4651,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,5,1541,3369281276,20,127,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0",
+      "at": 6004.031,
+      "elapsed": 0.015000000000327418
+    },
+    {
+      "command": "SYST:TDMA:FLIGHT:FIFO?",
+      "response": "2,9926,0,9925,587,587,9924,1,0,9925,4554,0,0,4554,4554,0,0",
+      "at": 6004.046,
+      "elapsed": 0.0
+    },
+    {
+      "command": "SYST:REFMEM:SYNC:FLIGHT?",
+      "response": "1,0,2,3,0,1,68,32,1,9931,9930,0,4557,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0",
+      "at": 6004.046,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "TRIG:STOP",
+      "response": "1",
+      "at": 6004.125,
+      "elapsed": 0.07800000000042928
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "response": "\"IDLE\",5,5,8,7,7,0,7,7,7,7,9,79,79,0,0,0,0,\"NONE\",0,0,0,0,0",
+      "at": 6004.203,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,1,0,10,12,0,0,0,0,0,0,0,0,79,2,3,1,8,1000,5000,0,0",
+      "at": 6004.218,
+      "elapsed": 0.016000000000531145
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "response": "0,0,0,0,0",
+      "at": 6004.234,
+      "elapsed": 0.01599999999962165
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "response": "1,1,0,10,12,0,0,0,0,0,0,0,0,79,2,3,1,8,1000,5000,0,0",
+      "at": 6004.453,
+      "elapsed": 0.014999999999417923
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "response": "1,0,0,0,0",
+      "at": 6004.468,
+      "elapsed": 0.0
+    }
+  ],
+  "transport_transcript": [
+    {
+      "command": "*IDN?",
+      "timestamp": "2026-09-16T20:33:14.416459",
+      "response": "NO.1,DHRT100,839E1AE79EA20F31,0.1.0"
+    },
+    {
+      "command": "SYST:FW:BUILD?",
+      "timestamp": "2026-09-16T20:33:14.417026",
+      "response": "\"20260916121654\""
+    },
+    {
+      "command": "TRIG:STOP",
+      "timestamp": "2026-09-16T20:33:14.464152",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:14.552370",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:33:14.555005",
+      "response": "\"IDLE\",5,5,8,7,7,0,7,7,7,7,9,79,79,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "SYST:TDMA:RING:STOP",
+      "timestamp": "2026-09-16T20:33:14.563173",
+      "response": "\"OK\""
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:14.630057",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:RING:STAT?",
+      "timestamp": "2026-09-16T20:33:14.632666",
+      "response": "0,0,0,0,0,0,10615,0,0,11454,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,24,24"
+    },
+    {
+      "command": "CONF:SEQ:LINK OFF",
+      "timestamp": "2026-09-16T20:33:14.640289",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:14.707613",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:TRIG 8,0,1,1",
+      "timestamp": "2026-09-16T20:33:14.708587",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:14.800106",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ SP8T,0,1,2,3,4,5,6,7",
+      "timestamp": "2026-09-16T20:33:14.801068",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:14.896200",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:ACT SP8T",
+      "timestamp": "2026-09-16T20:33:14.897706",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:14.989039",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:OUTPUT 7,0,NONE,10,0",
+      "timestamp": "2026-09-16T20:33:14.990628",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:15.082057",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:CODE 0,0",
+      "timestamp": "2026-09-16T20:33:15.083062",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:15.176437",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:CODE 1,1",
+      "timestamp": "2026-09-16T20:33:15.178463",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:15.269054",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:CODE 2,2",
+      "timestamp": "2026-09-16T20:33:15.271056",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:15.334092",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:CODE 3,3",
+      "timestamp": "2026-09-16T20:33:15.335137",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:15.425668",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:CODE 4,4",
+      "timestamp": "2026-09-16T20:33:15.427465",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:15.519317",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:CODE 5,5",
+      "timestamp": "2026-09-16T20:33:15.521310",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:15.613535",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:CODE 6,6",
+      "timestamp": "2026-09-16T20:33:15.615199",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:15.706504",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:CODE 7,7",
+      "timestamp": "2026-09-16T20:33:15.707924",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:15.800977",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:SOUR BUS,RIS",
+      "timestamp": "2026-09-16T20:33:15.802667",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:15.894948",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:REPEAT 0",
+      "timestamp": "2026-09-16T20:33:15.896939",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:15.989884",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:NODE:ROLE 2,5,DUT",
+      "timestamp": "2026-09-16T20:33:15.990554",
+      "response": "\"STAGED\""
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:16.100183",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:NODE:ROLE 3,7,VNA",
+      "timestamp": "2026-09-16T20:33:16.102180",
+      "response": "\"STAGED\""
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:16.178524",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:NODE:ACT",
+      "timestamp": "2026-09-16T20:33:16.180932",
+      "response": "\"ACTIVE\",1,10,1023,0,3849125392,0,1,0,4,1023,3376094980,5,0,0,10,1,1,0,0,0,0,0,0,10,1,2,5,1023,3376094980,4,0,0,10"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:16.258021",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:OPMODE:STAGE 7",
+      "timestamp": "2026-09-16T20:33:16.260197",
+      "response": "7,10000000,1000000,4096,0,1383759744"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:16.320270",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:OPMODE:APPLY",
+      "timestamp": "2026-09-16T20:33:16.322271",
+      "response": "7,10000000,1000000,4096,0,1383759744"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:16.382408",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:RING:TOPOLOGY 2,0,0",
+      "timestamp": "2026-09-16T20:33:16.384753",
+      "response": "2,0,0"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:16.444093",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CAL:TOPOLOGY:PROBE 1,10",
+      "timestamp": "2026-09-16T20:33:16.445109",
+      "response": "1,10"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:16.506488",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:FLIGHT:MODE 1",
+      "timestamp": "2026-09-16T20:33:16.508505",
+      "response": "\"OK\",1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:16.569293",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "CONF:SEQ:LINK LOOPBACK,2,3,IN1,OUT4,1000,5000,RIS",
+      "timestamp": "2026-09-16T20:33:16.571748",
+      "response": "1"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:16.632161",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:33:16.634660",
+      "response": "1,1,0,10,12,0,0,0,0,0,0,0,0,79,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:SEQ:REPEAT?",
+      "timestamp": "2026-09-16T20:33:16.643532",
+      "response": "0,10,1"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:33:16.650982",
+      "response": "\"IDLE\",5,5,8,7,7,0,7,7,7,7,9,79,79,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "timestamp": "2026-09-16T20:33:16.658988",
+      "response": "1,0,0,0,0"
+    },
+    {
+      "command": "SYST:TDMA:FLIGHT:MODE?",
+      "timestamp": "2026-09-16T20:33:16.666848",
+      "response": "2"
+    },
+    {
+      "command": "READ:SEQ? SP8T",
+      "timestamp": "2026-09-16T20:33:16.670740",
+      "response": "\"SP8T\",4294967295,2876574461,8,0,0,1,2,3,4,5,6,7"
+    },
+    {
+      "command": "READ:SEQ:CODE? 0",
+      "timestamp": "2026-09-16T20:33:16.675754",
+      "response": "0,0"
+    },
+    {
+      "command": "READ:SEQ:CODE? 1",
+      "timestamp": "2026-09-16T20:33:16.682996",
+      "response": "1,1"
+    },
+    {
+      "command": "READ:SEQ:CODE? 2",
+      "timestamp": "2026-09-16T20:33:16.690145",
+      "response": "2,2"
+    },
+    {
+      "command": "READ:SEQ:CODE? 3",
+      "timestamp": "2026-09-16T20:33:16.697400",
+      "response": "3,3"
+    },
+    {
+      "command": "READ:SEQ:CODE? 4",
+      "timestamp": "2026-09-16T20:33:16.704189",
+      "response": "4,4"
+    },
+    {
+      "command": "READ:SEQ:CODE? 5",
+      "timestamp": "2026-09-16T20:33:16.709680",
+      "response": "5,5"
+    },
+    {
+      "command": "READ:SEQ:CODE? 6",
+      "timestamp": "2026-09-16T20:33:16.718040",
+      "response": "6,6"
+    },
+    {
+      "command": "READ:SEQ:CODE? 7",
+      "timestamp": "2026-09-16T20:33:16.724862",
+      "response": "7,7"
+    },
+    {
+      "command": "READ:SEQ:SOUR?",
+      "timestamp": "2026-09-16T20:33:16.731929",
+      "response": "\"BUS\",\"RISING\""
+    },
+    {
+      "command": "READ:SEQ:OUTPUT?",
+      "timestamp": "2026-09-16T20:33:16.739050",
+      "response": "7,0,\"NONE\",10,0,6,1"
+    },
+    {
+      "command": "READ:SEQ:NODE:ROLE? 5",
+      "timestamp": "2026-09-16T20:33:16.746228",
+      "response": "5,\"DUT\",1,1,152,11,5,152,11,5"
+    },
+    {
+      "command": "READ:SEQ:NODE:ROLE? 7",
+      "timestamp": "2026-09-16T20:33:16.754289",
+      "response": "7,\"VNA\",1,1,152,3,3,152,3,3"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:33:16.762839",
+      "response": "1,1,0,10,12,0,0,0,0,0,0,0,0,79,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "SYSTem:REFMEM:SYNC:TDMA:STATus?",
+      "timestamp": "2026-09-16T20:33:16.770932",
+      "response": "1,1,0,549581,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3801409129,11,1,1022,0,26,0,0,0,0,0,0,0,0,0,10615,0,0,9,5,5,0,0,0,0,0,1,0,0,0,0,0,4294967295,0,0,0,0,0,0,0,6,6,11454,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,128,2,1,0,0,0,0,0,0,0,0"
+    },
+    {
+      "command": "SYSTem:SYNC:VDC:TDMA:PHYS?",
+      "timestamp": "2026-09-16T20:33:16.787551",
+      "response": "0,0,10000000,1007,571,0,0,0,0,0,0,100,25,29,28,24,0,0,0,0,0,0,0,0,0,0,0,0,571,0,26,27,0,107703,107104,202,4,1007,571,2284677588,27,2285392760,27,2284693452,27,2284776652,27,11,7,0,0,0,0,10,10,10,4,50331652,21,21,0,0,0,0,58,1007,0,0,0,0,0,0,0,0,0,107,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,1007,0,5,11,2,39,0,0,0,0,0,355,0,268435456,10"
+    },
+    {
+      "command": "SYST:TDMA:RING:STOP",
+      "timestamp": "2026-09-16T20:33:16.807246",
+      "response": "\"OK\""
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:16.866684",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:RING:STAT?",
+      "timestamp": "2026-09-16T20:33:16.868704",
+      "response": "0,0,0,0,0,0,10615,0,0,11454,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,27,27"
+    },
+    {
+      "command": "SYST:TDMA:RING:ARM",
+      "timestamp": "2026-09-16T20:33:16.877780",
+      "response": "\"OK\""
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:16.945229",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:RING:STAT?",
+      "timestamp": "2026-09-16T20:33:16.946783",
+      "response": "1,2,0,0,0,0,10615,0,1,11454,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,28,28"
+    },
+    {
+      "command": "SYST:TDMA:RING:TRAIN 4096",
+      "timestamp": "2026-09-16T20:33:16.955261",
+      "response": "4096"
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:17.022838",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:RING:START",
+      "timestamp": "2026-09-16T20:33:17.225461",
+      "response": "\"OK\""
+    },
+    {
+      "command": "SYST:ERR?",
+      "timestamp": "2026-09-16T20:33:17.289763",
+      "response": "0,\"No error\""
+    },
+    {
+      "command": "SYST:TDMA:RING:STAT?",
+      "timestamp": "2026-09-16T20:33:17.293725",
+      "response": "1,2,0,0,1,1,10658,0,1,11501,35,30,2586740518,2860995835,35,0,56,8,2,915418980,192,915419036,192,0,35,16,0,0,0,0,0,0,0,0,0,4294967295,0,0,28,28"
+    },
+    {
+      "command": "TRIG:START",
+      "timestamp": "2026-09-16T20:33:17.309881",
+      "response": "<timeout>"
+    },
+    {
+      "command": "READ:SEQ:LINK:TRANSPORT?",
+      "timestamp": "2026-09-16T20:33:20.304341",
+      "response": "1,1,9910,0,844,844"
+    },
+    {
+      "command": "SYST:TDMA:FLIGHT:PROCESS?",
+      "timestamp": "2026-09-16T20:33:20.319118",
+      "response": "4,1,1,0,3564777010,4,68,1,10504,0,336128,587,0,0,0,4651,0,0,0,4651,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,5,1541,3369281276,20,127,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0"
+    },
+    {
+      "command": "SYST:TDMA:FLIGHT:FIFO?",
+      "timestamp": "2026-09-16T20:33:20.337057",
+      "response": "2,9926,0,9925,587,587,9924,1,0,9925,4554,0,0,4554,4554,0,0"
+    },
+    {
+      "command": "SYST:REFMEM:SYNC:FLIGHT?",
+      "timestamp": "2026-09-16T20:33:20.345057",
+      "response": "1,0,2,3,0,1,68,32,1,9931,9930,0,4557,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0"
+    },
+    {
+      "command": "SYSTem:REFMEM:SYNC:TDMA:STATus?",
+      "timestamp": "2026-09-16T20:33:20.358476",
+      "response": "1,1,0,551940,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3801409129,11,1,1022,1,28,2,0,0,1,2,2614010132,2281719261,1,1,12656,5,0,9,5,5,0,0,0,0,0,1,0,0,0,0,9,4294967295,0,0,0,0,0,2000000,1,8,7,13510,1566,1559,1380261709,607586338,8,2,1566,0,0,3986459128,192,3972965704,192,0,1566,860,0,0,0,0,0,0,0,0,0,4294967295,0,0,1,2,0,0,1556,894067291,2281719261,8,2,1,7,4320,4376,1556004320,0,0,0,3967283544,192,128,2,1,0,0,0,0,0,0,0,0"
+    },
+    {
+      "command": "SYSTem:SYNC:VDC:TDMA:PHYS?",
+      "timestamp": "2026-09-16T20:33:20.386875",
+      "response": "1,0,10000000,1584,982,0,0,0,0,0,0,100,25,29,28,24,0,0,0,0,0,0,1,0,0,0,0,0,982,0,26,27,0,169381,168736,421,4,1584,982,4023239032,192,4024085604,192,4021653820,192,4021737020,192,11,9,0,0,0,0,10,10,10,4,50331652,21,21,0,0,0,0,18,1584,0,0,0,0,0,0,0,0,0,107,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,1584,0,5,11,2,51,0,0,0,0,0,557,1,275278320,10"
+    },
+    {
+      "command": "TRIG:STOP",
+      "timestamp": "2026-09-16T20:33:20.417097",
+      "response": "1"
+    },
+    {
+      "command": "READ:SEQ:NEXT?",
+      "timestamp": "2026-09-16T20:33:20.491691",
+      "response": "\"IDLE\",5,5,8,7,7,0,7,7,7,7,9,79,79,0,0,0,0,\"NONE\",0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:33:20.510404",
+      "response": "1,1,0,10,12,0,0,0,0,0,0,0,0,79,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "timestamp": "2026-09-16T20:33:20.527413",
+      "response": "0,0,0,0,0"
+    },
+    {
+      "command": "READ:SEQ:LINK?",
+      "timestamp": "2026-09-16T20:33:20.741431",
+      "response": "1,1,0,10,12,0,0,0,0,0,0,0,0,79,2,3,1,8,1000,5000,0,0"
+    },
+    {
+      "command": "READ:IO:STAT?",
+      "timestamp": "2026-09-16T20:33:20.758486",
+      "response": "1,0,0,0,0"
+    },
+    {
+      "command": "SYSTem:TDMA:RING:STOP",
+      "timestamp": "2026-09-16T20:33:20.771057",
+      "response": "\"OK\""
+    },
+    {
+      "command": "SYSTem:ERR?",
+      "timestamp": "2026-09-16T20:33:20.861510",
+      "response": "-200,\"Execution error\""
+    },
+    {
+      "command": "CALibration:TOPology:PROBe 0",
+      "timestamp": "2026-09-16T20:33:20.863866",
+      "response": "0,0"
+    },
+    {
+      "command": "SYSTem:ERR?",
+      "timestamp": "2026-09-16T20:33:20.955872",
+      "response": "0,\"No error\""
+    }
+  ],
+  "failure": "AcceptanceError: SCPI timeout: TRIG:START",
+  "cleanup_failures": [
+    "TDMA stop: RuntimeError: SYSTem:TDMA:RING:STOP failed: response=\"OK\"; error=-200,\"Execution error\""
+  ],
+  "devices": {
+    "serial": [
+      {
+        "port": "COM3",
+        "serial_number": "839E1AE79EA20F31",
+        "vid": 51966,
+        "pid": 16431,
+        "description": "USB \u4e32\u884c\u8bbe\u5907 (COM3)"
+      }
+    ],
+    "visa": [],
+    "visa_error": null
+  },
+  "transport": "COM3",
+  "identity": {
+    "idn": [
+      "NO.1",
+      "DHRT100",
+      "839E1AE79EA20F31",
+      "0.1.0"
+    ],
+    "build": "20260916121654"
+  },
+  "gui_control": {
+    "path": "GUI command builders and batch executor",
+    "mode": "RJ45 \u7269\u7406\u56de\u73af \u00b7 SP8T + VNA \u7f51\u5173",
+    "module_sha256": "dbd92b7a41e8532b0320ec637b5bf82e1cf8738072f9606d8466af4dd63402c1",
+    "configure": {
+      "commands": [
+        "TRIG:STOP",
+        "SYST:TDMA:RING:STOP",
+        "CONF:SEQ:LINK OFF",
+        "CONF:TRIG 8,0,1,1",
+        "CONF:SEQ SP8T,0,1,2,3,4,5,6,7",
+        "CONF:SEQ:ACT SP8T",
+        "CONF:SEQ:OUTPUT 7,0,NONE,10,0",
+        "CONF:SEQ:CODE 0,0",
+        "CONF:SEQ:CODE 1,1",
+        "CONF:SEQ:CODE 2,2",
+        "CONF:SEQ:CODE 3,3",
+        "CONF:SEQ:CODE 4,4",
+        "CONF:SEQ:CODE 5,5",
+        "CONF:SEQ:CODE 6,6",
+        "CONF:SEQ:CODE 7,7",
+        "CONF:SEQ:SOUR BUS,RIS",
+        "CONF:SEQ:REPEAT 0",
+        "CONF:SEQ:NODE:ROLE 2,5,DUT",
+        "CONF:SEQ:NODE:ROLE 3,7,VNA",
+        "CONF:SEQ:NODE:ACT",
+        "SYST:TDMA:OPMODE:STAGE 7",
+        "SYST:TDMA:OPMODE:APPLY",
+        "SYST:TDMA:RING:TOPOLOGY 2,0,0",
+        "CAL:TOPOLOGY:PROBE 1,10",
+        "SYST:TDMA:FLIGHT:MODE 1",
+        "CONF:SEQ:LINK LOOPBACK,2,3,IN1,OUT4,1000,5000,RIS",
+        "READ:SEQ:LINK?",
+        "READ:SEQ:REPEAT?",
+        "READ:SEQ:NEXT?",
+        "READ:IO:STAT?"
+      ],
+      "exchanges": [
+        {
+          "command": "TRIG:STOP",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "READ:SEQ:NEXT?",
+          "response": "\"IDLE\",5,5,8,7,7,0,7,7,7,7,9,79,79,0,0,0,0,\"NONE\",0,0,0,0,0"
+        },
+        {
+          "command": "SYST:TDMA:RING:STOP",
+          "response": "\"OK\""
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:RING:STAT?",
+          "response": "0,0,0,0,0,0,10615,0,0,11454,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,24,24"
+        },
+        {
+          "command": "CONF:SEQ:LINK OFF",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:TRIG 8,0,1,1",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ SP8T,0,1,2,3,4,5,6,7",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:ACT SP8T",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:OUTPUT 7,0,NONE,10,0",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:CODE 0,0",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:CODE 1,1",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:CODE 2,2",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:CODE 3,3",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:CODE 4,4",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:CODE 5,5",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:CODE 6,6",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:CODE 7,7",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:SOUR BUS,RIS",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:REPEAT 0",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:NODE:ROLE 2,5,DUT",
+          "response": "\"STAGED\""
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:NODE:ROLE 3,7,VNA",
+          "response": "\"STAGED\""
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:NODE:ACT",
+          "response": "\"ACTIVE\",1,10,1023,0,3849125392,0,1,0,4,1023,3376094980,5,0,0,10,1,1,0,0,0,0,0,0,10,1,2,5,1023,3376094980,4,0,0,10"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:OPMODE:STAGE 7",
+          "response": "7,10000000,1000000,4096,0,1383759744"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:OPMODE:APPLY",
+          "response": "7,10000000,1000000,4096,0,1383759744"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:RING:TOPOLOGY 2,0,0",
+          "response": "2,0,0"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CAL:TOPOLOGY:PROBE 1,10",
+          "response": "1,10"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:FLIGHT:MODE 1",
+          "response": "\"OK\",1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "CONF:SEQ:LINK LOOPBACK,2,3,IN1,OUT4,1000,5000,RIS",
+          "response": "1"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "READ:SEQ:LINK?",
+          "response": "1,1,0,10,12,0,0,0,0,0,0,0,0,79,2,3,1,8,1000,5000,0,0"
+        },
+        {
+          "command": "READ:SEQ:REPEAT?",
+          "response": "0,10,1"
+        },
+        {
+          "command": "READ:SEQ:NEXT?",
+          "response": "\"IDLE\",5,5,8,7,7,0,7,7,7,7,9,79,79,0,0,0,0,\"NONE\",0,0,0,0,0"
+        },
+        {
+          "command": "READ:IO:STAT?",
+          "response": "1,0,0,0,0"
+        }
+      ],
+      "completed": true
+    },
+    "start": {
+      "commands": [
+        "SYST:TDMA:RING:STOP",
+        "SYST:TDMA:RING:ARM",
+        "SYST:TDMA:RING:TRAIN 4096",
+        "SYST:TDMA:RING:START",
+        "TRIG:START"
+      ],
+      "exchanges": [
+        {
+          "command": "SYST:TDMA:RING:STOP",
+          "response": "\"OK\""
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:RING:STAT?",
+          "response": "0,0,0,0,0,0,10615,0,0,11454,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,27,27"
+        },
+        {
+          "command": "SYST:TDMA:RING:ARM",
+          "response": "\"OK\""
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:RING:STAT?",
+          "response": "1,2,0,0,0,0,10615,0,1,11454,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,28,28"
+        },
+        {
+          "command": "SYST:TDMA:RING:TRAIN 4096",
+          "response": "4096"
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:RING:START",
+          "response": "\"OK\""
+        },
+        {
+          "command": "SYST:ERR?",
+          "response": "0,\"No error\""
+        },
+        {
+          "command": "SYST:TDMA:RING:STAT?",
+          "response": "1,2,0,0,1,1,10658,0,1,11501,35,30,2586740518,2860995835,35,0,56,8,2,915418980,192,915419036,192,0,35,16,0,0,0,0,0,0,0,0,0,4294967295,0,0,28,28"
+        }
+      ],
+      "completed": false
+    }
+  },
+  "flight_mode_readback": "2",
+  "roles": {
+    "after": {
+      "DUT": {
+        "active_enabled": 1,
+        "staged_enabled": 1,
+        "active_resource": 152,
+        "active_io": 11,
+        "active_ip": 5,
+        "staged_resource": 152,
+        "staged_io": 11,
+        "staged_ip": 5
+      },
+      "VNA": {
+        "active_enabled": 1,
+        "staged_enabled": 1,
+        "active_resource": 152,
+        "active_io": 3,
+        "active_ip": 3,
+        "staged_resource": 152,
+        "staged_io": 3,
+        "staged_ip": 3
+      }
+    }
+  },
+  "link_configuration": {
+    "enabled": 1,
+    "phase": 1,
+    "error": 0,
+    "binding_epoch": 10,
+    "model_epoch": 12,
+    "run": 0,
+    "generation": 0,
+    "step": 0,
+    "txfragments": 0,
+    "rxmessages": 0,
+    "rejected": 0,
+    "triggers": 0,
+    "ready": 0,
+    "completed": 79,
+    "dutslot": 2,
+    "vnaslot": 3,
+    "input": 1,
+    "outputmask": 8,
+    "pulseus": 1000,
+    "timeoutms": 5000,
+    "falling": 0,
+    "repeat": 0
+  },
+  "ring_before": {
+    "tdma": [
+      1,
+      1,
+      0,
+      549581,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3801409129,
+      11,
+      1,
+      1022,
+      0,
+      26,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      10615,
+      0,
+      0,
+      9,
+      5,
+      5,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      4294967295,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      6,
+      6,
+      11454,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      128,
+      2,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "phys": {
+      "armed": 0,
+      "role": 0,
+      "baud_hz": 10000000,
+      "tx_count": 1007,
+      "rx_count": 571,
+      "rx_bad_count": 0,
+      "tx_busy_count": 0,
+      "rx_partial_count": 0,
+      "rx_stall_count": 0,
+      "tx_timeout_count": 0,
+      "last_error": 0,
+      "last_rx_size": 100,
+      "tx_sck_pin": 25,
+      "tx_pin": 29,
+      "rx_sck_pin": 28,
+      "rx_pin": 24,
+      "last_bad_header0": 0,
+      "last_bad_header1": 0,
+      "last_bad_header2": 0,
+      "last_bad_header3": 0,
+      "last_bad_words": 0,
+      "rx_busy_count": 0,
+      "rx_magic_fail_count": 0,
+      "rx_busy_word0": 0,
+      "rx_busy_word1": 0,
+      "rx_busy_word2": 0,
+      "rx_busy_word3": 0,
+      "rx_busy_moved": 0,
+      "rx_magic_at_zero": 571,
+      "rx_magic_at_shift": 0,
+      "tx_csn_pin": 26,
+      "rx_csn_pin": 27,
+      "rx_ring_overrun_count": 0,
+      "rx_dma_produced_words": 107703,
+      "rx_scan_produced_words": 107104,
+      "rx_dma_write_index": 202,
+      "rx_dma_channel": 4,
+      "tx_edge_count": 1007,
+      "rx_edge_count": 571,
+      "last_tx_edge_timestamp_ns_lo": 2284677588,
+      "last_tx_edge_timestamp_ns_hi": 27,
+      "last_tx_done_timestamp_ns_lo": 2285392760,
+      "last_tx_done_timestamp_ns_hi": 27,
+      "last_rx_edge_timestamp_ns_lo": 2284693452,
+      "last_rx_edge_timestamp_ns_hi": 27,
+      "last_rx_extract_timestamp_ns_lo": 2284776652,
+      "last_rx_extract_timestamp_ns_hi": 27,
+      "program_persona": 11,
+      "program_switch_count": 7,
+      "program_switch_fail_count": 0,
+      "flight_marker_offset_sample_count": 0,
+      "flight_sck_offset_sample_count": 0,
+      "flight_data_offset_sample_count": 0,
+      "flight_marker_phase_delay_cycles": 10,
+      "flight_sck_phase_delay_cycles": 10,
+      "flight_data_phase_delay_cycles": 10,
+      "pio_irq_flags": 4,
+      "pio_fdebug": 50331652,
+      "tx_sm_pc": 21,
+      "rx_sm_pc": 21,
+      "tx_sm_tx_fifo_level": 0,
+      "tx_sm_rx_fifo_level": 0,
+      "rx_sm_tx_fifo_level": 0,
+      "rx_sm_rx_fifo_level": 0,
+      "gpio_input_levels": 58,
+      "origin_done_irq_count": 1007,
+      "origin_done_txstall_count": 0,
+      "origin_clock_timeout_count": 0,
+      "origin_data_timeout_count": 0,
+      "origin_recovery_count": 0,
+      "overlay_prepare_count": 0,
+      "overlay_prepare_fail_count": 0,
+      "overlay_replacement_byte_count": 0,
+      "overlay_alignment_byte_shift": 0,
+      "overlay_alignment_bit_shift": 0,
+      "overlay_physical_byte_count": 107,
+      "overlay_last_error": 0,
+      "overlay_tx_dma_remaining": 0,
+      "overlay_tx_dma_busy": 0,
+      "overlay_tx_fifo_level_at_fail": 0,
+      "overlay_prepare_wait_us": 0,
+      "overlay_program_offset": 0,
+      "overlay_tx_dma_read_index": 0,
+      "overlay_tx_dma_ctrl": 0,
+      "overlay_sm_shiftctrl": 0,
+      "overlay_sm_execctrl": 0,
+      "overlay_sm_pc_at_fail": 0,
+      "overlay_pio_ctrl_at_fail": 0,
+      "overlay_pio_fstat_at_fail": 0,
+      "overlay_pio_fdebug_at_fail": 0,
+      "overlay_frame_boundary_count": 0,
+      "overlay_pass_recovery_count": 0,
+      "overlay_late_coalesce_count": 0,
+      "clock_latch_resolution_ns": 8,
+      "clock_latch_count": 1007,
+      "clock_latch_miss_count": 0,
+      "program_lifecycle_state": 5,
+      "program_target_persona": 11,
+      "program_previous_persona": 2,
+      "program_transition_seq": 39,
+      "program_lifecycle_error": 0,
+      "overlay_published_generation": 0,
+      "overlay_selected_generation": 0,
+      "overlay_selection_pending": 0,
+      "overlay_reuse_observation_count": 0,
+      "rx_observation_drop_count": 355,
+      "rx_scan_yield_count": 0,
+      "rx_dma_transfer_count": 268435456,
+      "flight_origin_capture_phase_delay_cycles": 10
+    },
+    "raw_tdma": "1,1,0,549581,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3801409129,11,1,1022,0,26,0,0,0,0,0,0,0,0,0,10615,0,0,9,5,5,0,0,0,0,0,1,0,0,0,0,0,4294967295,0,0,0,0,0,0,0,6,6,11454,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,128,2,1,0,0,0,0,0,0,0,0",
+    "raw_phys": "0,0,10000000,1007,571,0,0,0,0,0,0,100,25,29,28,24,0,0,0,0,0,0,0,0,0,0,0,0,571,0,26,27,0,107703,107104,202,4,1007,571,2284677588,27,2285392760,27,2284693452,27,2284776652,27,11,7,0,0,0,0,10,10,10,4,50331652,21,21,0,0,0,0,58,1007,0,0,0,0,0,0,0,0,0,107,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,1007,0,5,11,2,39,0,0,0,0,0,355,0,268435456,10"
+  },
+  "transport_before_cleanup": {
+    "READ:SEQ:LINK:TRANSPORT?": {
+      "response": "1,1,9910,0,844,844",
+      "parsed": {
+        "enabled": 1,
+        "seen": 1,
+        "mailbox_seq16": 9910,
+        "last_reject": 0,
+        "matches": 844,
+        "published": 844,
+        "last_reject_name": "NONE"
+      }
+    },
+    "SYST:TDMA:FLIGHT:PROCESS?": {
+      "response": "4,1,1,0,3564777010,4,68,1,10504,0,336128,587,0,0,0,4651,0,0,0,4651,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,5,1541,3369281276,20,127,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0"
+    },
+    "SYST:TDMA:FLIGHT:FIFO?": {
+      "response": "2,9926,0,9925,587,587,9924,1,0,9925,4554,0,0,4554,4554,0,0"
+    },
+    "SYST:REFMEM:SYNC:FLIGHT?": {
+      "response": "1,0,2,3,0,1,68,32,1,9931,9930,0,4557,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0"
+    }
+  },
+  "ring_before_cleanup": {
+    "tdma": [
+      1,
+      1,
+      0,
+      551940,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3801409129,
+      11,
+      1,
+      1022,
+      1,
+      28,
+      2,
+      0,
+      0,
+      1,
+      2,
+      2614010132,
+      2281719261,
+      1,
+      1,
+      12656,
+      5,
+      0,
+      9,
+      5,
+      5,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      9,
+      4294967295,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2000000,
+      1,
+      8,
+      7,
+      13510,
+      1566,
+      1559,
+      1380261709,
+      607586338,
+      8,
+      2,
+      1566,
+      0,
+      0,
+      3986459128,
+      192,
+      3972965704,
+      192,
+      0,
+      1566,
+      860,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      4294967295,
+      0,
+      0,
+      1,
+      2,
+      0,
+      0,
+      1556,
+      894067291,
+      2281719261,
+      8,
+      2,
+      1,
+      7,
+      4320,
+      4376,
+      1556004320,
+      0,
+      0,
+      0,
+      3967283544,
+      192,
+      128,
+      2,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "phys": {
+      "armed": 1,
+      "role": 0,
+      "baud_hz": 10000000,
+      "tx_count": 1584,
+      "rx_count": 982,
+      "rx_bad_count": 0,
+      "tx_busy_count": 0,
+      "rx_partial_count": 0,
+      "rx_stall_count": 0,
+      "tx_timeout_count": 0,
+      "last_error": 0,
+      "last_rx_size": 100,
+      "tx_sck_pin": 25,
+      "tx_pin": 29,
+      "rx_sck_pin": 28,
+      "rx_pin": 24,
+      "last_bad_header0": 0,
+      "last_bad_header1": 0,
+      "last_bad_header2": 0,
+      "last_bad_header3": 0,
+      "last_bad_words": 0,
+      "rx_busy_count": 0,
+      "rx_magic_fail_count": 1,
+      "rx_busy_word0": 0,
+      "rx_busy_word1": 0,
+      "rx_busy_word2": 0,
+      "rx_busy_word3": 0,
+      "rx_busy_moved": 0,
+      "rx_magic_at_zero": 982,
+      "rx_magic_at_shift": 0,
+      "tx_csn_pin": 26,
+      "rx_csn_pin": 27,
+      "rx_ring_overrun_count": 0,
+      "rx_dma_produced_words": 169381,
+      "rx_scan_produced_words": 168736,
+      "rx_dma_write_index": 421,
+      "rx_dma_channel": 4,
+      "tx_edge_count": 1584,
+      "rx_edge_count": 982,
+      "last_tx_edge_timestamp_ns_lo": 4023239032,
+      "last_tx_edge_timestamp_ns_hi": 192,
+      "last_tx_done_timestamp_ns_lo": 4024085604,
+      "last_tx_done_timestamp_ns_hi": 192,
+      "last_rx_edge_timestamp_ns_lo": 4021653820,
+      "last_rx_edge_timestamp_ns_hi": 192,
+      "last_rx_extract_timestamp_ns_lo": 4021737020,
+      "last_rx_extract_timestamp_ns_hi": 192,
+      "program_persona": 11,
+      "program_switch_count": 9,
+      "program_switch_fail_count": 0,
+      "flight_marker_offset_sample_count": 0,
+      "flight_sck_offset_sample_count": 0,
+      "flight_data_offset_sample_count": 0,
+      "flight_marker_phase_delay_cycles": 10,
+      "flight_sck_phase_delay_cycles": 10,
+      "flight_data_phase_delay_cycles": 10,
+      "pio_irq_flags": 4,
+      "pio_fdebug": 50331652,
+      "tx_sm_pc": 21,
+      "rx_sm_pc": 21,
+      "tx_sm_tx_fifo_level": 0,
+      "tx_sm_rx_fifo_level": 0,
+      "rx_sm_tx_fifo_level": 0,
+      "rx_sm_rx_fifo_level": 0,
+      "gpio_input_levels": 18,
+      "origin_done_irq_count": 1584,
+      "origin_done_txstall_count": 0,
+      "origin_clock_timeout_count": 0,
+      "origin_data_timeout_count": 0,
+      "origin_recovery_count": 0,
+      "overlay_prepare_count": 0,
+      "overlay_prepare_fail_count": 0,
+      "overlay_replacement_byte_count": 0,
+      "overlay_alignment_byte_shift": 0,
+      "overlay_alignment_bit_shift": 0,
+      "overlay_physical_byte_count": 107,
+      "overlay_last_error": 0,
+      "overlay_tx_dma_remaining": 0,
+      "overlay_tx_dma_busy": 0,
+      "overlay_tx_fifo_level_at_fail": 0,
+      "overlay_prepare_wait_us": 0,
+      "overlay_program_offset": 0,
+      "overlay_tx_dma_read_index": 0,
+      "overlay_tx_dma_ctrl": 0,
+      "overlay_sm_shiftctrl": 0,
+      "overlay_sm_execctrl": 0,
+      "overlay_sm_pc_at_fail": 0,
+      "overlay_pio_ctrl_at_fail": 0,
+      "overlay_pio_fstat_at_fail": 0,
+      "overlay_pio_fdebug_at_fail": 0,
+      "overlay_frame_boundary_count": 0,
+      "overlay_pass_recovery_count": 0,
+      "overlay_late_coalesce_count": 0,
+      "clock_latch_resolution_ns": 8,
+      "clock_latch_count": 1584,
+      "clock_latch_miss_count": 0,
+      "program_lifecycle_state": 5,
+      "program_target_persona": 11,
+      "program_previous_persona": 2,
+      "program_transition_seq": 51,
+      "program_lifecycle_error": 0,
+      "overlay_published_generation": 0,
+      "overlay_selected_generation": 0,
+      "overlay_selection_pending": 0,
+      "overlay_reuse_observation_count": 0,
+      "rx_observation_drop_count": 557,
+      "rx_scan_yield_count": 1,
+      "rx_dma_transfer_count": 275278320,
+      "flight_origin_capture_phase_delay_cycles": 10
+    },
+    "raw_tdma": "1,1,0,551940,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3801409129,11,1,1022,1,28,2,0,0,1,2,2614010132,2281719261,1,1,12656,5,0,9,5,5,0,0,0,0,0,1,0,0,0,0,9,4294967295,0,0,0,0,0,2000000,1,8,7,13510,1566,1559,1380261709,607586338,8,2,1566,0,0,3986459128,192,3972965704,192,0,1566,860,0,0,0,0,0,0,0,0,0,4294967295,0,0,1,2,0,0,1556,894067291,2281719261,8,2,1,7,4320,4376,1556004320,0,0,0,3967283544,192,128,2,1,0,0,0,0,0,0,0,0",
+    "raw_phys": "1,0,10000000,1584,982,0,0,0,0,0,0,100,25,29,28,24,0,0,0,0,0,0,1,0,0,0,0,0,982,0,26,27,0,169381,168736,421,4,1584,982,4023239032,192,4024085604,192,4021653820,192,4021737020,192,11,9,0,0,0,0,10,10,10,4,50331652,21,21,0,0,0,0,18,1584,0,0,0,0,0,0,0,0,0,107,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,1584,0,5,11,2,51,0,0,0,0,0,557,1,275278320,10"
+  },
+  "stopped": {
+    "sequence": {
+      "state": "IDLE",
+      "run_id": 5,
+      "generation": 5,
+      "count": 8,
+      "current_index": 7,
+      "current_state": 7,
+      "next_index": 0,
+      "executed_index": 7,
+      "executed_state": 7,
+      "completed_index": 7,
+      "completed_state": 7,
+      "cycles": 9,
+      "accepted": 79,
+      "completed": 79,
+      "busy_rejected": 0,
+      "notready_rejected": 0,
+      "cancelled": 0,
+      "faults": 0,
+      "error": "NONE",
+      "written_us": 0,
+      "rise_us": 0,
+      "completed_us": 0,
+      "late_us": 0,
+      "backend_fault": 0
+    },
+    "link": {
+      "enabled": 1,
+      "phase": 1,
+      "error": 0,
+      "binding_epoch": 10,
+      "model_epoch": 12,
+      "run": 0,
+      "generation": 0,
+      "step": 0,
+      "txfragments": 0,
+      "rxmessages": 0,
+      "rejected": 0,
+      "triggers": 0,
+      "ready": 0,
+      "completed": 79,
+      "dutslot": 2,
+      "vnaslot": 3,
+      "input": 1,
+      "outputmask": 8,
+      "pulseus": 1000,
+      "timeoutms": 5000,
+      "falling": 0,
+      "repeat": 0
+    },
+    "io": {
+      "inputs": 0,
+      "outputs": 0,
+      "owned": 0,
+      "armed": 0,
+      "busy": 0
+    }
+  },
+  "after_stop_quiet": {
+    "link": {
+      "enabled": 1,
+      "phase": 1,
+      "error": 0,
+      "binding_epoch": 10,
+      "model_epoch": 12,
+      "run": 0,
+      "generation": 0,
+      "step": 0,
+      "txfragments": 0,
+      "rxmessages": 0,
+      "rejected": 0,
+      "triggers": 0,
+      "ready": 0,
+      "completed": 79,
+      "dutslot": 2,
+      "vnaslot": 3,
+      "input": 1,
+      "outputmask": 8,
+      "pulseus": 1000,
+      "timeoutms": 5000,
+      "falling": 0,
+      "repeat": 0
+    },
+    "io": {
+      "inputs": 1,
+      "outputs": 0,
+      "owned": 0,
+      "armed": 0,
+      "busy": 0
+    }
+  },
+  "probe_disable": {
+    "command": "CALibration:TOPology:PROBe 0",
+    "response": "0,0",
+    "error": "0,\"No error\""
+  }
+}

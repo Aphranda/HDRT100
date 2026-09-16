@@ -1,0 +1,115 @@
+{
+  "passed": true,
+  "dry_run": false,
+  "image": "D:\\Work\\HDRT100\\out\\build\\sequence-rx-proof\\DHRT100_UPDATE.pkg",
+  "expected_build": "20260916124155",
+  "board_count": 1,
+  "updated_count": 1,
+  "failed_count": 0,
+  "elapsed_s": 69.53200000000015,
+  "transport": "legacy",
+  "timing": {
+    "port_discovery_s": 0.032000000000152795,
+    "candidate_ports": [
+      "COM3"
+    ],
+    "serial_probes": [
+      {
+        "port": "COM3",
+        "elapsed_s": 0.23399999999946886,
+        "matched": true
+      }
+    ],
+    "serial_probe_wall_s": 0.23399999999946886
+  },
+  "boards": [
+    {
+      "port": "COM3",
+      "idn": "NO.1,DHRT100,839E1AE79EA20F31,0.1.0",
+      "build_id": "20260916121654",
+      "serial_number": "839E1AE79EA20F31",
+      "description": "USB 串行设备 (COM3)",
+      "hwid": "USB VID:PID=CAFE:402F SER=839E1AE79EA20F31 LOCATION=1-12:x.0",
+      "map_version": 1,
+      "max_data_block_size": 4096,
+      "stream_capabilities": 0,
+      "capability_reported": true
+    }
+  ],
+  "results": [
+    {
+      "board": {
+        "port": "COM3",
+        "idn": "NO.1,DHRT100,839E1AE79EA20F31,0.1.0",
+        "build_id": "20260916121654",
+        "serial_number": "839E1AE79EA20F31",
+        "description": "USB 串行设备 (COM3)",
+        "hwid": "USB VID:PID=CAFE:402F SER=839E1AE79EA20F31 LOCATION=1-12:x.0",
+        "map_version": 1,
+        "max_data_block_size": 4096,
+        "stream_capabilities": 0,
+        "capability_reported": true
+      },
+      "passed": true,
+      "forced_continue": false,
+      "reboot": null,
+      "send": {
+        "port": "COM3",
+        "step": "ota_send",
+        "passed": true,
+        "returncode": 0,
+        "command": [
+          "D:\\Microsoft\\Miniconda\\python.exe",
+          "D:\\Work\\HDRT100\\tools\\ota_send\\ota_send.py",
+          "COM3",
+          "D:\\Work\\HDRT100\\out\\build\\sequence-rx-proof\\DHRT100_UPDATE.pkg",
+          "--baud",
+          "115200",
+          "--block-size",
+          "4096",
+          "--timeout",
+          "3.0",
+          "--begin-timeout",
+          "90.0",
+          "--expect-final-state",
+          "READY_TO_REBOOT",
+          "--out-dir",
+          "out\\node-sequence\\sequence-start-view-ota-r1\\COM3\\ota_send"
+        ],
+        "stdout": "port=COM3\nimage=D:\\Work\\HDRT100\\out\\build\\sequence-rx-proof\\DHRT100_UPDATE.pkg\nsize=1532068\ncrc32=0x10D6F13E\nblock_size=4096\nblock_count=375\nformat=unified_package\nbegin=SYST:OTA:PBEGIN 1532068,282521918\neffective_block_size=4096\neffective_block_count=375\nstatus=\"COMMITTED\",2,\"NONE\",5\nstatus=\"RECEIVING\",2,\"NONE\",1\n\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"ERASE_SLOT\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nprogress=512,1532068,0\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nprogress=66048,1532068,43\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nprogress=131584,1532068,85\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nprogress=197120,1532068,128\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nprogress=262656,1532068,171\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nprogress=328192,1532068,214\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nprogress=393728,1532068,256\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nprogress=459264,1532068,299\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nprogress=524800,1532068,342\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nprogress=590336,1532068,385\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nprogress=655872,1532068,428\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nprogress=721408,1532068,470\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nprogress=786944,1532068,513\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nprogress=852480,1532068,556\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nprogress=918016,1532068,599\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nprogress=983552,1532068,641\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nprogress=1049088,1532068,684\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nprogress=1114624,1532068,727\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nprogress=1180160,1532068,770\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nprogress=1245696,1532068,813\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nprogress=1311232,1532068,855\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nprogress=1376768,1532068,898\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nprogress=1442304,1532068,941\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nprogress=1507840,1532068,984\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\nstatus=\"RECEIVING\",2,\"NONE\",1\n\"READY_TO_REBOOT\",2,\"NONE\",2\n",
+        "stderr": "",
+        "elapsed_s": 63.46900000000005
+      },
+      "commit": {
+        "port": "COM3",
+        "step": "ota_boot_commit",
+        "passed": true,
+        "returncode": 0,
+        "command": [
+          "D:\\Microsoft\\Miniconda\\python.exe",
+          "D:\\Work\\HDRT100\\tools\\ota_boot_commit\\ota_boot_commit.py",
+          "COM3",
+          "--baud",
+          "115200",
+          "--timeout",
+          "3.0",
+          "--reopen-timeout",
+          "30.0",
+          "--settle",
+          "1.0",
+          "--boot-wait",
+          "3.0",
+          "--serial-number",
+          "839E1AE79EA20F31",
+          "--out-dir",
+          "out\\node-sequence\\sequence-start-view-ota-r1\\COM3\\ota_boot_commit",
+          "--expected-build",
+          "20260916124155"
+        ],
+        "stdout": "SYSTem:OTA:BOOT => OK\nreconnected_transport=serial endpoint=COM3 serial=839E1AE79EA20F31\nSYSTem:FW:BUILD? => \"20260916124155\"\nSYSTem:OTA:SLOT? => 2,0,1,1,1\nSYSTem:OTA:RES? => 0,\"NONE\",\"APPLIED\",2,765604,918141688\nSYSTem:OTA:TXN? => 0,0,0,0,0,0,0,0\nSYSTem:OTA:JOUR? => 0,1,0,0,0,0,0,0,0,0,0,0,0\nSYSTem:OTA:STAT? => \"IDLE\",1,\"NONE\",0\nSYSTem:OTA:COMMit => OK\nSYSTem:OTA:SLOT? => 2,0,2,0,1\nSYSTem:ERRor? => 0,\"No error\"\nsummary: passed=True failed=0 out_dir=out\\node-sequence\\sequence-start-view-ota-r1\\COM3\\ota_boot_commit\n",
+        "stderr": "",
+        "elapsed_s": 5.79700000000048
+      }
+    }
+  ]
+}
