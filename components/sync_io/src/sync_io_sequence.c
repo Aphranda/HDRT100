@@ -84,6 +84,8 @@ static uint32_t s_receipts[RECEIPT_WORDS] __attribute__((aligned(1u << RECEIPT_B
 static volatile uint32_t s_edge_latest;
 
 static uint32_t s_reserved;
+static uint32_t s_switch1 = 1u;
+static uint32_t s_switch2;
 static uint32_t s_armed;
 static uint32_t s_owned_mask;
 static uint32_t s_publish_seq;
@@ -126,6 +128,33 @@ bool sync_io_sequence_is_armed(void)
 uint32_t sync_io_sequence_owned_mask(void)
 {
     return __atomic_load_n(&s_owned_mask, __ATOMIC_ACQUIRE);
+}
+
+bool sync_io_sequence_set_switch(uint32_t switch_number, uint32_t value)
+{
+    if (switch_number < 1u || switch_number > 2u ||
+        (switch_number == 1u && (value < 1u || value > 8u)) ||
+        (switch_number == 2u && value > 1u)) return false;
+    if (!sync_io_sequence_legacy_begin()) return false;
+    const uint32_t encoded = switch_number == 1u ? value - 1u : value << 3u;
+    const uint32_t mask = switch_number == 1u ? 0x7u : 0x8u;
+    for (uint i = 0u; i < BOARD_SYNC_OUTPUT_PIN_COUNT; ++i) {
+        gpio_set_function(BOARD_SYNC_OUTPUT_BASE_PIN + i, GPIO_FUNC_SIO);
+        gpio_set_dir(BOARD_SYNC_OUTPUT_BASE_PIN + i, GPIO_OUT);
+    }
+    gpio_put_masked(mask << BOARD_SYNC_OUTPUT_BASE_PIN,
+                   encoded << BOARD_SYNC_OUTPUT_BASE_PIN);
+    if (switch_number == 1u) s_switch1 = value;
+    else s_switch2 = value;
+    sync_io_sequence_legacy_end();
+    return true;
+}
+
+uint32_t sync_io_sequence_get_switch(uint32_t switch_number)
+{
+    if (switch_number == 1u) return s_switch1;
+    if (switch_number == 2u) return s_switch2;
+    return 0u;
 }
 
 uint32_t sync_io_sequence_read_inputs(void)

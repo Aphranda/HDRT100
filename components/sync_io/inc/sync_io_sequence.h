@@ -88,6 +88,12 @@ uint32_t sync_io_sequence_read_inputs(void);
 uint32_t sync_io_sequence_read_outputs(void);
 uint32_t sync_io_sequence_owned_mask(void);
 
+/* Independent maintenance switch control.  The caller must be idle; the
+ * operation claims the same SMA GPIO resource as the sequence engine and
+ * therefore fails while a sequence (or another GPIO owner) is active. */
+bool sync_io_sequence_set_switch(uint32_t switch_number, uint32_t value);
+uint32_t sync_io_sequence_get_switch(uint32_t switch_number);
+
 /* Existing SMA mutators take this transient lease around their entire call.
  * Nesting is confined to one core; never hold it across an asynchronous call. */
 bool sync_io_sequence_legacy_begin(void);

@@ -4,6 +4,23 @@
 
 #include "distributed_config.h"
 #include "trigger_sequence_service.h"
+#include "sync_io_sequence.h"
+
+/* Host-side SCPI parser tests do not link the hardware IO backend.  Firmware
+ * provides the strong implementations from sync_io_sequence.c; these weak
+ * fallbacks keep parser tests linkable and retain the same range semantics. */
+#if defined(__GNUC__)
+static uint32_t s_host_switch1 = 1u;
+static uint32_t s_host_switch2;
+__attribute__((weak)) bool sync_io_sequence_set_switch(uint32_t number, uint32_t value)
+{
+    if (number == 1u && value >= 1u && value <= 8u) { s_host_switch1 = value; return true; }
+    if (number == 2u && value <= 1u) { s_host_switch2 = value; return true; }
+    return false;
+}
+__attribute__((weak)) uint32_t sync_io_sequence_get_switch(uint32_t number)
+{ return number == 1u ? s_host_switch1 : (number == 2u ? s_host_switch2 : 0u); }
+#endif
 
 static bool sequence_end_parameters(scpi_t *context)
 {
@@ -111,7 +128,7 @@ scpi_result_t scpi_config_trigger_parameter(scpi_t *context)
         !sequence_read_u32(context, &params.pol, true) ||
         !sequence_read_u32(context, &params.freq_count, true) ||
         !sequence_read_u32(context, &params.wave_count, true) ||
-        !sequence_end_parameters(context)) return SCPI_RES_ERR;
+        !scpi_sequence_params_end(context)) return SCPI_RES_ERR;
     return sequence_result(context,
         trigger_sequence_configure(trigger_sequence_service_config(), &params));
 }
@@ -298,11 +315,29 @@ scpi_result_t scpi_config_switch_q(scpi_t *context)
 {
     int32_t numbers[1];
     SCPI_CommandNumbers(context, numbers, 1u, 1);
+    if (numbers[0] < 1 || numbers[0] > 2) {
+        SCPI_ErrorPush(context, SCPI_ERROR_ILLEGAL_PARAMETER_VALUE);
+        return SCPI_RES_ERR;
+    }
     SCPI_ResultInt32(context, numbers[0]);
-    SCPI_ResultUInt32(context, 1u);
-    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, sync_io_sequence_get_switch((uint32_t)numbers[0]));
     SCPI_ResultBool(context, FALSE);
     SCPI_ResultUInt32(context, 0u);
     SCPI_ResultUInt32(context, 0u);
     return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_config_switch(scpi_t *context)
+{
+    int32_t numbers[1];
+    uint32_t value;
+    SCPI_CommandNumbers(context, numbers, 1u, 1);
+    if (!scpi_sequence_param_u32(context, &value) ||
+        !scpi_sequence_params_end(context)) return SCPI_RES_ERR;
+    if (numbers[0] != 1 ||
+        !sync_io_sequence_set_switch((uint32_t)numbers[0], value)) {
+        scpi_port_push_exec_error(context, "SP8T_BUSY_OR_RANGE");
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_accepted(context);
 }
