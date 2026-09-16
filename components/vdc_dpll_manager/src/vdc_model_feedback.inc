@@ -84,13 +84,16 @@ bool vdc_dpll_manager_get_committed_model(vdc_dpll_manager_committed_model_t *ou
     return true;
 }
 
-bool vdc_dpll_manager_project_feedback_event(uint32_t session,
+static bool model_feedback_project(uint32_t session,
     uint32_t role_generation, uint32_t clock_epoch_id, uint32_t clock_run_id,
     uint32_t local_slot, uint32_t schedule_crc32, uint32_t tick_hz,
-    uint64_t raw_lo, uint64_t raw_hi,
+    uint64_t raw_lo, uint64_t raw_hi, uint32_t mode, uint64_t elapsed_ticks,
     vdc_dpll_manager_projected_event_t *out)
 {
-    if (out == NULL || !session || session != vdc_dpll_manager_feedback_session()) return false;
+    bool rate_mode = false;
+    if (out == NULL || !session || session != vdc_dpll_manager_feedback_session() ||
+        (mode && (!vdc_dpll_manager_try_boundary_auto_enabled(&rate_mode) || !rate_mode)) ||
+        (mode == 1u && elapsed_ticks > raw_lo)) return false;
     const uint32_t guard = __atomic_load_n(&s_committed_model_guard, __ATOMIC_ACQUIRE);
     if (guard & 1u) return false;
     vdc_dpll_manager_committed_model_t model;
@@ -101,14 +104,66 @@ bool vdc_dpll_manager_project_feedback_event(uint32_t session,
         model.dco.tdma_schedule_crc32 != schedule_crc32) return false;
     vdc_timestamp_clock_bridge_t bridge;
     vdc_dpll_manager_projected_event_t event;
-    if (!vdc_timestamp_clock_try_read_bridge(tick_hz, &bridge) ||
-        !vdc_model_project_interval(&model.dco, &bridge, raw_lo, raw_hi,
-            &event.output_ns_lo, &event.output_ns_hi)) return false;
+    if (!vdc_timestamp_clock_try_read_bridge(tick_hz, &bridge)) return false;
+    if (mode == 2u) {
+        /* The read still qualifies the common TIMER0/TIMER1 clock ratio and
+         * raw age. Its read-placement bracket is not a RATE coordinate. */
+        if (raw_lo > raw_hi || raw_hi > bridge.raw_before ||
+            bridge.raw_after < bridge.raw_before ||
+            bridge.raw_after - raw_lo > (uint64_t)tick_hz * 2u ||
+            !vdc_model_rate_coordinate_ns(model.dco.period_adjust_ppb, tick_hz,
+                raw_lo, false, &event.output_ns_lo) ||
+            !vdc_model_rate_coordinate_ns(model.dco.period_adjust_ppb, tick_hz,
+                raw_hi, true, &event.output_ns_hi)) return false;
+    } else {
+        if (!vdc_model_project_interval(&model.dco, &bridge, raw_lo, raw_hi,
+                &event.output_ns_lo, &event.output_ns_hi)) return false;
+        if (mode == 1u &&
+            (!vdc_model_rate_coordinate_ns(model.dco.period_adjust_ppb, tick_hz,
+                elapsed_ticks, false, &event.output_ns_hi) ||
+             event.output_ns_hi == UINT64_MAX)) return false;
+    }
     event.model_token = model.token;
     event.applied_command_seq = model.applied_command_seq;
     __atomic_thread_fence(__ATOMIC_ACQ_REL);
     if (guard != __atomic_load_n(&s_committed_model_guard, __ATOMIC_ACQUIRE) ||
-        session != vdc_dpll_manager_feedback_session()) return false;
+        session != vdc_dpll_manager_feedback_session() ||
+        (mode && (!vdc_dpll_manager_try_boundary_auto_enabled(&rate_mode) || !rate_mode))) return false;
     *out = event;
     return true;
+}
+
+bool vdc_dpll_manager_project_feedback_event(uint32_t session,
+    uint32_t role_generation, uint32_t clock_epoch_id, uint32_t clock_run_id,
+    uint32_t local_slot, uint32_t schedule_crc32, uint32_t tick_hz,
+    uint64_t raw_lo, uint64_t raw_hi, vdc_dpll_manager_projected_event_t *out)
+{
+    return model_feedback_project(session, role_generation, clock_epoch_id, clock_run_id,
+        local_slot, schedule_crc32, tick_hz, raw_lo, raw_hi, 0u, 0u, out);
+}
+
+bool vdc_dpll_manager_project_rate_feedback_event(uint32_t session,
+    uint32_t role_generation, uint32_t clock_epoch_id, uint32_t clock_run_id,
+    uint32_t local_slot, uint32_t schedule_crc32, uint32_t tick_hz,
+    uint64_t raw_lo, uint64_t raw_hi, uint64_t elapsed_ticks,
+    vdc_dpll_manager_rate_event_t *out)
+{
+    if (!out) return false;
+    vdc_dpll_manager_projected_event_t event;
+    if (!model_feedback_project(session, role_generation, clock_epoch_id, clock_run_id,
+            local_slot, schedule_crc32, tick_hz, raw_lo, raw_hi, 1u, elapsed_ticks, &event))
+        return false;
+    *out = (vdc_dpll_manager_rate_event_t){.absolute_output_ns_lo = event.output_ns_lo,
+        .coordinate_ns = event.output_ns_hi, .model_token = event.model_token,
+        .applied_command_seq = event.applied_command_seq};
+    return true;
+}
+
+bool vdc_dpll_manager_project_rate_reference(uint32_t session,
+    uint32_t role_generation, uint32_t clock_epoch_id, uint32_t clock_run_id,
+    uint32_t local_slot, uint32_t schedule_crc32, uint32_t tick_hz,
+    uint64_t raw_lo, uint64_t raw_hi, vdc_dpll_manager_projected_event_t *out)
+{
+    return model_feedback_project(session, role_generation, clock_epoch_id, clock_run_id,
+        local_slot, schedule_crc32, tick_hz, raw_lo, raw_hi, 2u, 0u, out);
 }

@@ -11,8 +11,11 @@
 #define REFMEM_VDC_FEEDBACK_DOMAIN_FLAGS 0x07u
 #define REFMEM_VDC_FEEDBACK_MODEL_SCHEMA 2u
 #define REFMEM_VDC_FEEDBACK_MODEL_DOMAIN_FLAGS 0x0fu
+#define REFMEM_VDC_FEEDBACK_RATE_SCHEMA 4u
+#define REFMEM_VDC_FEEDBACK_RATE_FLAGS 0x1fu
 #define REFMEM_VDC_BOUNDARY_COMMAND_SCHEMA 3u
 #define REFMEM_VDC_BOUNDARY_COMMAND_FLAGS 0x01u
+#define REFMEM_VDC_BOUNDARY_COMMAND_AUTO_FLAGS 0x03u
 /* Total complete groups for one immutable offer, including the first send.
  * Repetition never refreshes its command sequence, measurement basis or TTL. */
 #define REFMEM_VDC_BOUNDARY_COMMAND_MAX_GROUPS 3u
@@ -44,6 +47,17 @@ typedef struct {
             uint32_t control_session;
             uint32_t reserved; /* Must be zero; never serialized. */
         } model;
+        /* Distinct coordinates: absolute lower is only the command-age
+         * basis; coordinate is observer-relative affine rate, with an
+         * implicit +1 ns arithmetic upper bound. Neither is a pad witness. */
+        struct {
+            uint64_t absolute_output_ns_lo;
+            uint64_t coordinate_ns;
+            uint32_t model_token;
+            uint32_t applied_command_seq;
+            uint32_t control_session;
+            uint32_t reserved;
+        } rate;
     };
     uint32_t source_clock_epoch_id;
     uint32_t source_clock_run_id;

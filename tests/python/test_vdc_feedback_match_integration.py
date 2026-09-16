@@ -28,6 +28,12 @@ static unsigned ring_calls,reference_calls,feedback_calls,clock_calls;
 static uint32_t requested_slot,*race_guard;
 static uint64_t now_ticks;
 static uint32_t session, now_ms=100;
+static bool auto_mode;
+static bool mode_available=true;
+static uint32_t reference_model=7;
+bool vdc_dpll_manager_try_boundary_auto_enabled(bool *out)
+{ if(!mode_available)return false;*out=auto_mode;return true; }
+bool vdc_dpll_manager_boundary_auto_enabled(void) { return auto_mode; }
 uint32_t vdc_dpll_manager_feedback_session(void) { return session; }
 static uint32_t board_uptime_ms(void) { return now_ms; }
 bool vdc_dpll_manager_project_feedback_event(uint32_t ses,uint32_t role,uint32_t epoch,uint32_t run,
@@ -37,6 +43,15 @@ bool vdc_dpll_manager_project_feedback_event(uint32_t ses,uint32_t role,uint32_t
     assert(ses==session && role==9 && epoch==3 && run==4 && local==0 && schedule==0xabc && hz==250000000);
     *out=(vdc_dpll_manager_projected_event_t){.output_ns_lo=lo*4,.output_ns_hi=hi*4+999,.model_token=7};
     return true;
+}
+bool vdc_dpll_manager_project_rate_reference(uint32_t ses,uint32_t role,uint32_t epoch,uint32_t run,
+    uint32_t local,uint32_t schedule,uint32_t hz,uint64_t lo,uint64_t hi,
+    vdc_dpll_manager_projected_event_t *out)
+{
+    assert(auto_mode);
+    assert(ses==session && role==9 && epoch==3 && run==4 && local==0 && schedule==0xabc && hz==250000000);
+    *out=(vdc_dpll_manager_projected_event_t){.output_ns_lo=lo*4,.output_ns_hi=hi*4,
+        .model_token=reference_model};return true;
 }
 static unsigned interleave_point,interleave_action;
 static void interleave(unsigned point);
@@ -127,10 +142,67 @@ static void establish(void)
         assert(out.result.source.source_clock_epoch_id==21 && out.clock_epoch_id==3);
     }
 }
+static void rate_next(uint32_t elapsed_ms)
+{
+    reference.sequence++;reference.published_version+=2;
+    reference.timer_lower+=(uint64_t)elapsed_ms*250000;
+    reference.timer_upper+=(uint64_t)elapsed_ms*250000;
+    now_ticks=reference.timer_upper+100;now_ms+=elapsed_ms;
+    for(unsigned s=1;s<4;s++) {
+        feedback[s].receive_count++;feedback[s].sample.measurement_sequence=reference.sequence;
+        feedback[s].sample.rate.coordinate_ns+=(uint64_t)elapsed_ms*1000040;
+        feedback[s].sample.rate.absolute_output_ns_lo+=(uint64_t)elapsed_ms*1000000;
+    }
+}
 int main(int argc,char **argv)
 {
     assert(argc==2);const char *mode=argv[1];setup();
-    if(!strcmp(mode,"raw_model_switch")) {
+    if(!strncmp(mode,"rate_",5)) {
+        session=123;auto_mode=true;
+        for(unsigned s=1;s<4;s++) {
+            feedback[s].sample.schema_version=4;feedback[s].sample.domain_flags=31;
+            feedback[s].sample.rate.absolute_output_ns_lo=900000000000ull;
+            feedback[s].sample.rate.coordinate_ns=400000000;
+            feedback[s].sample.rate.model_token=11;feedback[s].sample.rate.control_session=session;
+        }
+        roundtrip();assert(status(1).baseline_count==1);
+        rate_next(75);roundtrip();
+        assert(status(1).schema==3 && status(1).last_result==VDC_FEEDBACK_MATCH_WAIT_WINDOW);
+        assert(!status(1).active && !status(1).invalid_count && !status(1).match_count);
+        assert(s_feedback_matches[1].peer.previous.measurement_sequence==10);
+        if(!strcmp(mode,"rate_mode_busy")) {
+            const vdc_feedback_match_cache_t before_cache=s_feedback_match_cache;
+            const vdc_feedback_match_source_t before_source=s_feedback_matches[1];
+            const vdc_feedback_match_binding_t before_binding=s_feedback_match_binding;
+            const uint32_t before_token=s_feedback_match_owner_token;
+            mode_available=false;roundtrip();
+            assert(!memcmp(&before_cache,&s_feedback_match_cache,sizeof(before_cache)));
+            assert(!memcmp(&before_source,&s_feedback_matches[1],sizeof(before_source)));
+            assert(!memcmp(&before_binding,&s_feedback_match_binding,sizeof(before_binding)));
+            assert(before_token==s_feedback_match_owner_token);
+            vdc_dpll_manager_feedback_match_status_t out,sentinel;memset(&sentinel,0xa5,sizeof(sentinel));out=sentinel;
+            assert(!vdc_dpll_manager_get_feedback_match(1,&out));assert(!memcmp(&out,&sentinel,sizeof(out)));
+            mode_available=true;
+        }
+        if(!strcmp(mode,"rate_source_change"))feedback[1].sample.rate.model_token++;
+        if(!strcmp(mode,"rate_reference_change"))reference_model++;
+        rate_next(925);roundtrip();
+        if(!strcmp(mode,"rate_source_change") || !strcmp(mode,"rate_reference_change")) {
+            assert(!status(1).active && status(1).last_result==VDC_FEEDBACK_MATCH_BASELINED);
+            rate_next(1000);roundtrip();
+        }
+        assert(status(1).active && status(1).result.reserved==VDC_FEEDBACK_RATE_DOMAIN);
+        assert(status(1).result.raw_ppb_lo==39999 && status(1).result.raw_ppb_hi==40001);
+        assert(status(1).result.pairs[0].source_model_token==status(1).result.pairs[1].source_model_token);
+        assert(status(1).result.pairs[0].reference_identity_crc32==status(1).result.pairs[1].reference_identity_crc32);
+        const uint32_t matches=status(1).match_count;
+        rate_next(75);
+        if(!strcmp(mode,"rate_miss"))feedback[1].sample.measurement_sequence+=128;
+        roundtrip();assert(!status(1).active && status(1).match_count==matches && !status(1).invalid_count);
+        if(!strcmp(mode,"rate_miss"))assert(status(1).last_result==VDC_FEEDBACK_MATCH_NO_REFERENCE);
+        else assert(status(1).last_result==VDC_FEEDBACK_MATCH_WAIT_WINDOW);
+        auto_mode=false;assert(!status(1).active);
+    } else if(!strcmp(mode,"raw_model_switch")) {
         establish();now_ticks+=500000;
         for(unsigned s=1;s<4;s++)feedback[s].receive_count++;
         roundtrip();assert(status(1).max_age_ticks>120 && status(1).result.has_pair);
@@ -373,6 +445,7 @@ int main(int argc,char **argv)
 
 
 @pytest.mark.parametrize("case", [
+    "rate_window", "rate_source_change", "rate_reference_change", "rate_miss", "rate_mode_busy",
     "raw_model_switch",
     "model_match", "model_wrong_session", "model_raw_reject", "model_session_retire", "model_age", "model_raw_switch",
     "no_authorization", "core1_only", "paused_core0", "token_exhaustion",

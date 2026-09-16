@@ -101,7 +101,7 @@ def test_debug_admission_and_follower_observation_share_service_path() -> None:
         "components/vdc_dpll_manager/src/vdc_dpll_manager.c"
     ).read_text(encoding="utf-8")
     service_start = manager.index(
-        "void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_fb_service)(void)")
+        "void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_fb_step)(void)")
     service_end = manager.index(
         "void vdc_dpll_manager_dpll_service(void)", service_start)
     service = manager[service_start:service_end]

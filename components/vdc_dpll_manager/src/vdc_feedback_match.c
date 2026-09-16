@@ -168,14 +168,14 @@ static vdc_feedback_match_result_t match_update(
     if (peer == NULL || sample == NULL || sample->source_arm_epoch == 0u ||
         sample->observer_epoch == 0u || !valid_hz(sample->tick_hz))
         return VDC_FEEDBACK_MATCH_INVALID;
-    if (domain == VDC_FEEDBACK_MODEL_DOMAIN && (model_token == 0u ||
+    if (domain != 0u && (model_token == 0u ||
         UINT64_MAX - sample->rx_elapsed_cycles < width_ns)) return VDC_FEEDBACK_MATCH_INVALID;
     if (!cache_active(cache)) return VDC_FEEDBACK_MATCH_NO_REFERENCE;
     if (sample->tick_hz != cache->tick_hz) return VDC_FEEDBACK_MATCH_INVALID;
     vdc_feedback_match_reference_t reference;
     if (!vdc_feedback_match_cache_lookup(cache, sample->measurement_sequence, &reference))
         return VDC_FEEDBACK_MATCH_NO_REFERENCE;
-    if (domain == VDC_FEEDBACK_MODEL_DOMAIN && reference.identity_crc32 == 0u)
+    if (domain != 0u && reference.identity_crc32 == 0u)
         return VDC_FEEDBACK_MATCH_INVALID;
     const vdc_feedback_match_lifetime_t source = {
         .source_arm_epoch = sample->source_arm_epoch,
@@ -208,10 +208,16 @@ static vdc_feedback_match_result_t match_update(
             pair.source_model_token == previous->source_model_token
                 ? VDC_FEEDBACK_MATCH_DUPLICATE : VDC_FEEDBACK_MATCH_INVALID;
     }
-    if (domain == VDC_FEEDBACK_MODEL_DOMAIN &&
+    if (domain != 0u &&
         (pair.source_model_token < previous->source_model_token ||
          pair.reference_identity_crc32 < previous->reference_identity_crc32))
         return VDC_FEEDBACK_MATCH_STALE;
+    if (domain == VDC_FEEDBACK_RATE_DOMAIN &&
+        (pair.source_model_token != previous->source_model_token ||
+         pair.reference_identity_crc32 != previous->reference_identity_crc32)) {
+        baseline(peer, cache, &source, &pair, domain);
+        return VDC_FEEDBACK_MATCH_BASELINED;
+    }
     if (pair.rx_elapsed_cycles <= previous->rx_elapsed_cycles + previous->rx_width_ns ||
         pair.reference_tx_lo <= previous->reference_tx_hi)
         return VDC_FEEDBACK_MATCH_INVALID;
@@ -221,13 +227,16 @@ static vdc_feedback_match_result_t match_update(
         previous->rx_elapsed_cycles;
     const uint64_t reference_delta_lo = pair.reference_tx_lo - previous->reference_tx_hi;
     const uint64_t reference_delta_hi = pair.reference_tx_hi - previous->reference_tx_lo;
-    const uint64_t max_delta = domain == VDC_FEEDBACK_MODEL_DOMAIN ?
+    const uint64_t max_delta = domain != 0u ?
         VDC_FEEDBACK_MODEL_MAX_INTERVAL_NS : (uint64_t)sample->tick_hz *
             VDC_FEEDBACK_MATCH_MAX_INTERVAL_SECONDS;
     if (source_delta_hi > max_delta || reference_delta_hi > max_delta) {
         baseline(peer, cache, &source, &pair, domain);
         return VDC_FEEDBACK_MATCH_INTERVAL_REBASED;
     }
+    if (domain == VDC_FEEDBACK_RATE_DOMAIN &&
+        reference_delta_lo < VDC_FEEDBACK_RATE_MIN_INTERVAL_NS)
+        return VDC_FEEDBACK_MATCH_WAIT_WINDOW;
     /* Deltas are positive and at most 1e9 raw ticks or 2e9 model ns. The
      * product is at most 2e18, below INT64_MAX and UINT64_MAX. Rounding is
      * performed on the positive ratio before subtracting exactly 1e9. */
@@ -262,6 +271,13 @@ vdc_feedback_match_result_t vdc_feedback_model_update(
 {
     return match_update(cache, peer, sample, source_width_ns,
         source_model_token, VDC_FEEDBACK_MODEL_DOMAIN);
+}
+
+vdc_feedback_match_result_t vdc_feedback_rate_update(
+    const vdc_feedback_match_cache_t *cache, vdc_feedback_match_peer_t *peer,
+    const vdc_feedback_match_sample_t *sample, uint32_t source_model_token)
+{
+    return match_update(cache, peer, sample, 1u, source_model_token, VDC_FEEDBACK_RATE_DOMAIN);
 }
 
 bool vdc_feedback_match_peer_snapshot(const vdc_feedback_match_peer_t *peer,

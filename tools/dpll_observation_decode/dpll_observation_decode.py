@@ -24,6 +24,7 @@ SCHEMA = 2
 SCHEMA_V3 = 3
 SCHEMA_V4 = 4
 SCHEMA_V5 = 5
+SCHEMA_V6 = 6
 HEADER = struct.Struct("<IHHIIIII")
 RECORD_V1 = struct.Struct("<IIiiI")
 RECORD = struct.Struct("<IIiiIIIIII")
@@ -35,6 +36,108 @@ CAPTURE_KIND_MASTER = 1
 CAPTURE_KIND_FOLLOWER_COMMAND = 2
 CAPTURE_KIND_FOLLOWER_STATE = 3
 CAPTURE_KIND_FOLLOWER_EVIDENCE = 4
+AUTO_KINDS = {5: "auto_offer", 6: "auto_apply", 7: "auto_ack",
+              8: "auto_hold", 9: "auto_observation"}
+DECODED_COMMAND = struct.Struct("<QQIIIIIIIIIiIBBBB")
+
+
+def _decode_auto(data: bytes, board: str, start_ms: int, index: int) -> dict[str, Any]:
+    def u32(offset: int) -> int:
+        return struct.unpack_from("<I", data, offset)[0]
+
+    def u64(offset: int) -> int:
+        return struct.unpack_from("<Q", data, offset)[0]
+
+    def i64(offset: int) -> int:
+        return struct.unpack_from("<q", data, offset)[0]
+
+    kind = u32(20) & 255
+    if kind not in AUTO_KINDS or u32(0) != index + 1:
+        raise ValueError("invalid AUTO capture kind/index")
+    event: dict[str, Any] = {"capture_index": u32(0), "timestamp_ms": u32(4)}
+    if kind in (5, 6):
+        names = ("target_arm_epoch", "basis_source_output_ns_lo", "control_session",
+                 "command_seq", "schedule_crc32", "target_clock_epoch_id",
+                 "target_clock_run_id", "target_observer_epoch", "basis_measurement_sequence",
+                 "expected_target_model_token", "expected_applied_command_seq",
+                 "signed_delta_rate_ppb", "reserved", "schema_version", "source_slot",
+                 "target_slot", "flags")
+        command = dict(zip(names, DECODED_COMMAND.unpack_from(data, 32)))
+        if command["schema_version"] != 3 or command["flags"] != 3 or command["reserved"]:
+            raise ValueError("invalid AUTO decoded command identity")
+        event.update(command=command, command_representation="decoded_semantic_fields_not_wire")
+        if kind == 5:
+            event.update(error_ppb_lo=i64(8), error_ppb_hi=i64(24),
+                         first_source_model_token=u32(16), first_reference_model_token=u32(96))
+        else:
+            event.update(actual_rate_ppb=struct.unpack_from("<i", data, 8)[0],
+                         dco_update_seq=u32(12))
+    elif kind == 7:
+        wire = data[32:96]
+        if wire[0] != 4 or wire[3] != 0x1f or zlib.crc32(wire[:60]) != u32(92):
+            raise ValueError("invalid AUTO ACK schema/CRC")
+        # Explicit RATE wire offsets; this is the original received feedback.
+        event.update(command_seq=u32(8), prior_model_token=u32(12), raw_feedback_hex=wire.hex(),
+                     feedback={"source_slot": wire[1], "target_slot": wire[2],
+                               "clock_epoch_id": u32(36), "clock_run_id": u32(40),
+                               "observer_epoch": u32(52), "measurement_sequence": u32(56),
+                               "tick_hz": u32(60), "source_arm_epoch": u64(44),
+                               "absolute_output_ns_lo": u64(64), "coordinate_ns": u64(72),
+                               "model_token": u32(80), "applied_command_seq": u32(84),
+                               "control_session": u32(88)})
+    else:
+        event.update(control_session=u32(16), source_slot=(u32(20) >> 8) & 255,
+                     reference_slot=(u32(20) >> 16) & 255,
+                     error_ppb_lo=i64(8), error_ppb_hi=i64(24),
+                     source_first_ns=u64(32), source_last_ns=u64(40),
+                     reference_first_lo=u64(48), reference_first_hi=u64(56),
+                     reference_last_lo=u64(64), reference_last_hi=u64(72),
+                     source_model_token=u32(80), reference_model_token=u32(84),
+                     first_measurement_sequence=u32(88), last_measurement_sequence=u32(92),
+                     coordinate_domain=u32(96), source_endpoint_width_ns=1)
+        if event["coordinate_domain"] != 3:
+            raise ValueError("AUTO observation must use RATE coordinates")
+    return {"board": board, "port": "SD", "capture_kind": AUTO_KINDS[kind],
+            "elapsed_s": ((u32(4) - start_ms) & 0xffffffff) / 1000,
+            "auto_control": event}
+
+
+def _validate_auto_observations(samples: list[dict[str, Any]]) -> None:
+    """Check retained endpoints independently, without replaying controller code."""
+    for index, sample in enumerate(samples):
+        kind = sample["capture_kind"]
+        if kind in ("auto_observation", "auto_hold"):
+            e = sample["auto_control"]
+            source_delta = e["source_last_ns"] - e["source_first_ns"]
+            ref_lo = e["reference_last_lo"] - e["reference_first_hi"]
+            ref_hi = e["reference_last_hi"] - e["reference_first_lo"]
+            if (source_delta <= 1 or ref_lo <= 0 or ref_hi < ref_lo or
+                    e["reference_first_hi"] < e["reference_first_lo"] or
+                    e["reference_last_hi"] < e["reference_last_lo"] or
+                    e["last_measurement_sequence"] <= e["first_measurement_sequence"]):
+                raise ValueError("invalid AUTO observation endpoints")
+            expected_lo = (source_delta - 1) * 10**9 // ref_hi - 10**9
+            expected_hi = -(-(source_delta + 1) * 10**9 // ref_lo) - 10**9
+            if (e["error_ppb_lo"], e["error_ppb_hi"]) != (expected_lo, expected_hi):
+                raise ValueError("AUTO observation interval disagrees with endpoints")
+            if kind == "auto_observation" and (index + 1 == len(samples) or
+                    samples[index + 1]["capture_kind"] != "auto_offer"):
+                raise ValueError("orphan AUTO observation")
+        if kind == "auto_offer":
+            if not index or samples[index - 1]["capture_kind"] != "auto_observation":
+                raise ValueError("orphan AUTO offer")
+            e = sample["auto_control"]
+            o = samples[index - 1]["auto_control"]
+            c = e["command"]
+            if not (o["timestamp_ms"] == e["timestamp_ms"] and
+                    o["control_session"] == c["control_session"] and
+                    o["source_slot"] == c["target_slot"] and
+                    o["reference_slot"] == c["source_slot"] and
+                    o["last_measurement_sequence"] == c["basis_measurement_sequence"] and
+                    o["source_model_token"] == c["expected_target_model_token"] == e["first_source_model_token"] and
+                    o["reference_model_token"] == e["first_reference_model_token"] and
+                    (o["error_ppb_lo"], o["error_ppb_hi"]) == (e["error_ppb_lo"], e["error_ppb_hi"])):
+                raise ValueError("AUTO offer/observation identity mismatch")
 
 
 def _decode_capture_kind(value: int) -> str:
@@ -55,10 +158,10 @@ def decode(path: Path, board: str) -> dict[str, Any]:
     )
     if magic != MAGIC:
         raise ValueError(f"unexpected capture magic 0x{magic:08X}")
-    if schema not in (SCHEMA_V1, SCHEMA, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5):
+    if schema not in (SCHEMA_V1, SCHEMA, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6):
         raise ValueError(f"unsupported capture schema {schema}")
     expected_record = (RECORD_V1 if schema == SCHEMA_V1 else
-                       RECORD_V5 if schema == SCHEMA_V5 else
+                       RECORD_V5 if schema in (SCHEMA_V5, SCHEMA_V6) else
                        RECORD_V4 if schema == SCHEMA_V4 else
                        RECORD_V3 if schema == SCHEMA_V3 else RECORD)
     if record_size != expected_record.size:
@@ -77,6 +180,14 @@ def decode(path: Path, board: str) -> dict[str, Any]:
     board_name = board.upper()
     samples: list[dict[str, Any]] = []
     for index in range(record_count):
+        if schema == SCHEMA_V6:
+            raw_record = payload[index * record_size:(index + 1) * record_size]
+            kind = struct.unpack_from("<I", raw_record, 20)[0] & 255
+            if kind in AUTO_KINDS:
+                samples.append(_decode_auto(raw_record, board_name, start_ms, index))
+                continue
+            if kind not in (1, 2, 3, 4):
+                raise ValueError(f"unknown schema6 capture kind {kind}")
         observation_source = 0
         observation_reference = 0
         observation_delay = 0
@@ -196,7 +307,7 @@ def decode(path: Path, board: str) -> dict[str, Any]:
         if kind == CAPTURE_KIND_FOLLOWER_EVIDENCE:
             sample["follower_observation"] = {
                 "source_slot_id": (observation_source
-                                    if schema in (SCHEMA_V3, SCHEMA_V4, SCHEMA_V5)
+                                    if schema in (SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6)
                                     else source_slot),
                 "sample_seq": update_seq,
                 "phase_error_ns": phase_ns,
@@ -205,7 +316,7 @@ def decode(path: Path, board: str) -> dict[str, Any]:
                 "quality": quality,
                 "gate_reject_code": gate,
             }
-            if schema in (SCHEMA_V3, SCHEMA_V4, SCHEMA_V5):
+            if schema in (SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6):
                 sample["follower_observation"].update({
                     "reference_slot_id": observation_reference,
                     "follow_master_slot_id": source_slot,
@@ -218,12 +329,12 @@ def decode(path: Path, board: str) -> dict[str, Any]:
                     "jitter_ns": observation_jitter,
                     "raw_phase_error_ns": raw_phase,
                 }
-                if schema in (SCHEMA_V4, SCHEMA_V5):
+                if schema in (SCHEMA_V4, SCHEMA_V5, SCHEMA_V6):
                     sample["observation"].update({
                         "delay_generation": observation_delay_generation,
                         "bias_generation": observation_bias_generation,
                     })
-                if schema == SCHEMA_V5:
+                if schema in (SCHEMA_V5, SCHEMA_V6):
                     sample["observation"].update({
                         "correlation_flags": observation_correlation_flags,
                         "reference_tx_phase_ns": observation_reference_tx_phase,
@@ -232,7 +343,7 @@ def decode(path: Path, board: str) -> dict[str, Any]:
                         "expected_window_start_ns": observation_expected_window_start,
                         "observed_time_ns": observation_observed_time,
                     })
-        elif schema in (SCHEMA_V3, SCHEMA_V4, SCHEMA_V5) and kind == CAPTURE_KIND_MASTER:
+        elif schema in (SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6) and kind == CAPTURE_KIND_MASTER:
             sample["observation"] = {
                 "source_slot_id": observation_source,
                 "reference_slot_id": observation_reference,
@@ -240,12 +351,12 @@ def decode(path: Path, board: str) -> dict[str, Any]:
                 "jitter_ns": observation_jitter,
                 "raw_phase_error_ns": raw_phase,
             }
-            if schema in (SCHEMA_V4, SCHEMA_V5):
+            if schema in (SCHEMA_V4, SCHEMA_V5, SCHEMA_V6):
                 sample["observation"].update({
                     "delay_generation": observation_delay_generation,
                     "bias_generation": observation_bias_generation,
                 })
-            if schema == SCHEMA_V5:
+            if schema in (SCHEMA_V5, SCHEMA_V6):
                 sample["observation"].update({
                     "correlation_flags": observation_correlation_flags,
                     "reference_tx_phase_ns": observation_reference_tx_phase,
@@ -268,8 +379,11 @@ def decode(path: Path, board: str) -> dict[str, Any]:
                 "applied": kind == CAPTURE_KIND_FOLLOWER_COMMAND,
             }
         samples.append(sample)
+    if schema == SCHEMA_V6:
+        _validate_auto_observations(samples)
     return {
         "schema": "HAOFV_DPLL_OBSERVATION_CAPTURE_V2",
+        "binary_schema": schema,
         "board": board_name,
         "source": str(path),
         "record_count": record_count,

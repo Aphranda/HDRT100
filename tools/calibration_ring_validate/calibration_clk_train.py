@@ -57,6 +57,7 @@ RESULT_FORWARD_ARMED = 1
 RESULT_RETURN_OVERLAP = 2
 RESULT_NO_OVERLAP = 3
 TOPOLOGY_ATTEMPT_LIMIT = 3
+OPMODE_APPLY_ATTEMPT_LIMIT = 3
 
 LOOPBACK_FIELDS = (
     "armed", "complete", "sample_hz", "sample_period_ns",
@@ -208,6 +209,119 @@ def _set_stopped_topology(board, topology, args, actions):
                         "attempt": attempt, "response": values,
                         "readback": applied})
         return values
+
+
+def _opmode_values(raw, count):
+    values = tuple(int(value.strip().strip('"'), 0)
+                   for value in next(csv.reader([raw]), []))
+    if len(values) != count or any(value < 0 or value > 0xffffffff for value in values):
+        raise ValueError(f"expected {count} uint32 fields")
+    return values
+
+
+def _opmode_error_code(raw):
+    row = next(csv.reader([raw]), [])
+    if len(row) != 2 or not row[1].strip():
+        raise ValueError("invalid SCPI error response")
+    return int(row[0].strip(), 10)
+
+
+def _apply_stopped_opmode(board, staged, args, actions):
+    """Reapply one fixed profile after an attributable maintenance refusal.
+
+    Caller owns this board's serial stream throughout preparation. Unknown
+    application is never promoted to success or retried. APPLY does not advance
+    ring config_seq; its own apply_count and profile identify completion.
+    """
+    expected = tuple(staged)
+    if len(expected) != 6 or any(type(v) is not int or not 0 <= v <= 0xffffffff
+                                 for v in expected) or not expected[-1]:
+        raise RuntimeError("OPMode APPLy requires one complete staged profile/CRC")
+    previous = None
+    config_seq = None
+    for attempt in range(1, OPMODE_APPLY_ATTEMPT_LIMIT + 1):
+        started = time.monotonic()
+        record = {"board": board.address, "command": "SYSTem:TDMA:OPMode:APPLy",
+                  "attempt": attempt, "expected_profile": expected,
+                  "started_at": datetime.now().astimezone().isoformat(),
+                  "passed": False, "errors_drained_before": []}
+        actions.append(record)
+        try:
+            stopped = wait_ring_stopped(board, args)
+            record["stopped_before"] = stopped
+            if (stopped["ring_enabled"] != 0 or stopped["ring_adapter_started"] != 0 or
+                    stopped["ring_config_seq"] != stopped["ring_applied_config_seq"]):
+                raise RuntimeError("STOP/config acknowledgement invalid")
+            if config_seq is not None and stopped["ring_config_seq"] != config_seq:
+                raise RuntimeError("STOP configuration drift between attempts")
+            config_seq = stopped["ring_config_seq"]
+            raw = board_command(board, "SYSTem:TDMA:OPMode?", args)
+            record["opmode_before_raw"] = raw
+            before = _opmode_values(raw, 16)
+            record["opmode_before"] = before
+            if before[6:12] != expected or (previous is not None and before != previous):
+                raise RuntimeError("staged profile or counters drift before APPLY")
+            for _ in range(16):
+                raw = board_command(board, "SYSTem:ERRor?", args)
+                record["errors_drained_before"].append(raw)
+                if _opmode_error_code(raw) == 0:
+                    break
+            else:
+                raise RuntimeError("error queue did not drain before APPLY")
+
+            response = board_command(board, record["command"], args)
+            record["response"] = response
+            error = board_command(board, "SYSTem:ERRor?", args)
+            record["error_after"] = error
+            code = _opmode_error_code(error)
+            refused = response == "<timeout>" and code == -200
+            if refused:
+                tail = board_command(board, "SYSTem:ERRor?", args)
+                record["error_tail"] = tail
+                if _opmode_error_code(tail) != 0:
+                    raise RuntimeError("multiple errors: APPLY refusal attribution unknown")
+            elif code != 0 or _opmode_values(response, 6) != expected:
+                raise RuntimeError("APPLY response missing, mismatched or rejected")
+
+            raw = board_command(board, "SYSTem:TDMA:OPMode?", args)
+            record["opmode_after_raw"] = raw
+            after = _opmode_values(raw, 16)
+            record["opmode_after"] = after
+            stopped = wait_ring_stopped(board, args)
+            record["stopped_after"] = stopped
+            if (stopped["ring_enabled"] != 0 or stopped["ring_adapter_started"] != 0 or
+                    stopped["ring_config_seq"] != config_seq or
+                    stopped["ring_applied_config_seq"] != config_seq):
+                raise RuntimeError("STOP/configuration changed during APPLY")
+            if after[6:13] != before[6:13]:
+                raise RuntimeError("staged profile or stage_count drift during APPLY")
+            if refused:
+                # Entry snapshot busy leaves counters unchanged; a service
+                # refusal increments reject_count and reports BAD_ARGUMENT.
+                # BUSY/RUN and other reasons are not retried under this rule.
+                unchanged = after == before
+                service_refusal = (after[:14] == before[:14] and
+                    after[14] == ((before[14] + 1) & 0xffffffff) and after[15] == 1)
+                if not (unchanged or service_refusal):
+                    raise RuntimeError("APPLY failure has counter/profile drift or unknown application")
+                record["disposition"] = "EXPLICIT_REFUSAL_STOPPED_PROFILE_UNCHANGED"
+                record["retry_allowed"] = attempt < OPMODE_APPLY_ATTEMPT_LIMIT
+                if not record["retry_allowed"]:
+                    raise RuntimeError("bounded APPLY refusal limit reached")
+                previous = after
+                time.sleep(args.idle_poll_interval)
+                continue
+            if (after[:6] != expected or after[13] != ((before[13] + 1) & 0xffffffff) or
+                    after[14] != before[14] or after[15] != 0):
+                raise RuntimeError("APPLY completion profile/counters not confirmed")
+            record["passed"] = True
+            record["disposition"] = "APPLIED_AND_READ_BACK_WHILE_STOPPED"
+            return expected
+        except Exception as exc:
+            record["error"] = f"{type(exc).__name__}: {exc}"
+            raise RuntimeError(f"{board.address}: OPMode APPLy failed: {record}") from exc
+        finally:
+            record["elapsed_s"] = time.monotonic() - started
 
 
 def parse_args() -> argparse.Namespace:
@@ -602,8 +716,7 @@ def main() -> int:
             f"SYSTem:TDMA:OPMode:STAGe {args.level}", args, preparation_actions, fields=6)
         if staged[0] != args.level:
             raise RuntimeError(f"{board.address}: staged profile mismatch: {staged}")
-        _control_command(board, "SYSTem:TDMA:OPMode:APPLy", args,
-                         preparation_actions, expected=staged)
+        _apply_stopped_opmode(board, staged, args, preparation_actions)
 
     reference_nodes: list[dict[str, object]] = []
     passed = False

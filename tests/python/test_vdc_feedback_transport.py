@@ -45,6 +45,7 @@ def make_feedback_harness(manager_stubs=DEFAULT_MANAGER_STUBS):
 #include "refmem_sync_vdc_feedback.h"
 #include "vdc_dpll_manager.h"
 #include "tdma_event_observer.h"
+#include "tdma_origin_plan.h"
 #include "tdma_process_image_layout.h"
 #define DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED 0u
 #define DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE TDMA_FLIGHT_SHORT_SLOT_SIZE
@@ -64,6 +65,19 @@ static unsigned full_ring_reads;
 static uint32_t *race_guard;
 static bool binding_available=true, live_available=true, tap_available=true;
 static uint32_t session;
+static bool auto_mode;
+static bool reference_mode, origin_available=true;
+static tdma_origin_raw_reference_t origin_reference;
+static bool mode_available=true;
+bool vdc_dpll_manager_try_boundary_auto_enabled(bool *out)
+{ if(!mode_available)return false;*out=auto_mode;return true; }
+bool vdc_dpll_manager_boundary_auto_enabled(void) { return auto_mode; }
+bool vdc_dpll_manager_try_reference_publish_enabled(bool *out)
+{ if(!mode_available)return false;*out=reference_mode;return true; }
+static bool tdma_runtime_owner_get_origin_reference_epoch(uint32_t *out)
+{ if(!origin_available)return false;*out=origin_reference.epoch;return true; }
+static bool tdma_runtime_owner_get_origin_raw_reference(tdma_origin_raw_reference_t *out)
+{ if(!origin_available)return false;*out=origin_reference;return true; }
 uint32_t vdc_dpll_manager_feedback_session(void) { return session; }
 bool vdc_dpll_manager_project_feedback_event(uint32_t ses,uint32_t role,uint32_t epoch,uint32_t run,
     uint32_t local,uint32_t schedule,uint32_t hz,uint64_t lo,uint64_t hi,
@@ -72,6 +86,16 @@ bool vdc_dpll_manager_project_feedback_event(uint32_t ses,uint32_t role,uint32_t
     assert(ses==session && role==9 && epoch==3 && run==4 && local==ring.local_slot_id && schedule==0xabc && hz==250000000);
     *out=(vdc_dpll_manager_projected_event_t){.output_ns_lo=lo*4,.output_ns_hi=hi*4+999,.model_token=7};
     return true;
+}
+bool vdc_dpll_manager_project_rate_feedback_event(uint32_t ses,uint32_t role,uint32_t epoch,uint32_t run,
+    uint32_t local,uint32_t schedule,uint32_t hz,uint64_t lo,uint64_t hi,uint64_t elapsed,
+    vdc_dpll_manager_rate_event_t *out)
+{
+    vdc_dpll_manager_projected_event_t event;
+    assert(auto_mode);
+    if(!vdc_dpll_manager_project_feedback_event(ses,role,epoch,run,local,schedule,hz,lo,hi,&event))return false;
+    *out=(vdc_dpll_manager_rate_event_t){.absolute_output_ns_lo=event.output_ns_lo,
+        .coordinate_ns=elapsed*4,.model_token=event.model_token,.applied_command_seq=0};return true;
 }
 static tdma_service_service_t *tdma_runtime_owner_get(void) { return &owner; }
 bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *r, tdma_ring_runtime_snapshot_t *out)
@@ -196,7 +220,46 @@ int main(int argc,char **argv)
     assert(argc==2); const char *test=argv[1];
     bool sender=!strncmp(test,"tx_",3); setup(sender || !strcmp(test,"rx_follower")?2:0);
     uint8_t wire[64], m[32];
-    if(!strcmp(test,"tx_model_freeze")) {
+    if(!strcmp(test,"tx_rate_mode_busy")) {
+        session=123;auto_mode=true;distributed_refmem_feedback_refresh(&owner);
+        publish();consume(m);assert(m[8]==0);memcpy(wire,m+10,4);
+        const distributed_refmem_feedback_binding_t binding=s_feedback_binding;
+        const uint32_t cancel=txread().cancel_count;
+        const uint32_t next_sequence=s_tdma_flight_sync.next_seq32;
+        mode_available=false;distributed_refmem_feedback_refresh(&owner);publish();
+        assert(s_feedback_tx_active && s_feedback_tx_index==1 && !s_feedback_ready);
+        assert(s_tdma_flight_sync.next_seq32==next_sequence);
+        tdma_flight_tx_view_t pending;assert(!tdma_flight_fifo_core1_acquire_tx(&owner.flight_fifo,&pending));
+        assert(!memcmp(&binding,&s_feedback_binding,sizeof(binding)));
+        assert(s_feedback_tx_record[0]==4);
+        mode_available=true;distributed_refmem_feedback_refresh(&owner);
+        assert(txread().cancel_count==cancel && txread().fragment_index==1);
+        for(unsigned i=1;i<16;i++){publish();consume(m);assert(m[8]==i);memcpy(wire+i*4,m+10,4);}
+        refmem_sync_vdc_feedback_record_t out;assert(refmem_sync_vdc_feedback_decode(wire,6,2,0,&out));
+        assert(out.schema_version==4 && txread().groups_published==1);
+    } else if(!strcmp(test,"tx_rate_freeze")) {
+        session=123;auto_mode=true;distributed_refmem_feedback_refresh(&owner);
+        const uint64_t absolute=4*(live.timer1_enable_before+live.record.rx_elapsed_cycles);
+        const uint64_t coordinate=4*live.record.rx_elapsed_cycles;
+        publish();consume(m);memcpy(wire,m+10,4);advance_live();
+        for(unsigned i=1;i<16;i++){publish();consume(m);assert(m[8]==i);memcpy(wire+i*4,m+10,4);}
+        refmem_sync_vdc_feedback_record_t out;assert(refmem_sync_vdc_feedback_decode(wire,6,2,0,&out));
+        assert(out.schema_version==4 && out.domain_flags==31 && out.rate.control_session==123);
+        assert(out.rate.absolute_output_ns_lo==absolute && out.rate.coordinate_ns==coordinate);
+        publish();consume(m);publish();consume(m);assert(txread().active);
+        auto_mode=false;distributed_refmem_feedback_refresh(&owner);assert(!txread().active);
+    } else if(!strcmp(test,"rx_rate_session")) {
+        session=123;auto_mode=true;distributed_refmem_feedback_refresh(&owner);
+        refmem_sync_vdc_feedback_record_t r=record(1,10);
+        r.schema_version=4;r.domain_flags=31;memset(&r.rate,0,sizeof(r.rate));
+        r.rate.absolute_output_ns_lo=123000;r.rate.coordinate_ns=20;r.rate.model_token=7;r.rate.control_session=123;
+        assert(refmem_sync_vdc_feedback_encode(&r,6,wire));receive_group(wire,1,1);
+        assert(rxread(1).active && rxread(1).sample.rate.coordinate_ns==20);
+        r.rate.control_session=124;r.measurement_sequence++;
+        assert(refmem_sync_vdc_feedback_encode(&r,6,wire));receive_group(wire,1,17);
+        assert(rxread(1).receive_count==1 && rxread(1).reject_count==1);
+        auto_mode=false;assert(!rxread(1).active);distributed_refmem_feedback_refresh(&owner);
+    } else if(!strcmp(test,"tx_model_freeze")) {
         session=123;distributed_refmem_feedback_refresh(&owner);
         const uint64_t original=4*(live.timer1_enable_before+live.record.rx_elapsed_cycles);
         publish();consume(m);memcpy(wire,m+10,4);advance_live();
@@ -399,7 +462,7 @@ def feedback_executable(tmp_path_factory):
 
 
 @pytest.mark.parametrize("case", [
-    "tx_model_freeze", "rx_model_session",
+    "tx_model_freeze", "rx_model_session", "tx_rate_freeze", "rx_rate_session", "tx_rate_mode_busy",
     "tx_freeze", "tx_backpressure", "tx_busy", "tx_cancel", "tx_identity_history",
     "rx_interleaved", "rx_duplicate", "rx_follower", "rx_bad", "rx_lifecycle", "rx_expiry", "rx_getter", "rx_copy_getter",
 ])

@@ -25,6 +25,11 @@ static tdma_service_service_t *s_vdc_tdma_service=&owner;
 static bool s_vdc_ready=true, stopped=true, clock_ok=true, bridge_ok=true;
 static uint64_t raw_now=1000000;
 static unsigned action;
+static bool auto_mode;
+static bool mode_available=true;
+bool vdc_dpll_manager_try_boundary_auto_enabled(bool *out)
+{ if(!mode_available)return false;*out=auto_mode;return true; }
+bool vdc_dpll_manager_boundary_auto_enabled(void) { return auto_mode; }
 static vdc_timestamp_clock_bridge_t bridge={.raw_before=1001000,.raw_after=1001004,
     .local_ns=10000000,.tick_hz=250000000};
 bool tdma_service_update_stopped_metadata(tdma_service_service_t *p,bool(*publish)(void*),void *c)
@@ -63,7 +68,29 @@ int main(int argc,char **argv)
     vdc_dpll_manager_committed_model_t model;assert(vdc_dpll_manager_get_committed_model(&model));
     assert(model.token==1 && model.session==123 && model.valid_from_raw==raw_now);
     vdc_dpll_manager_projected_event_t event,sentinel;memset(&sentinel,0xa5,sizeof(sentinel));event=sentinel;
-    if(!strcmp(mode,"actual_commit")) {
+    if(!strcmp(mode,"rate_coordinates")) {
+        auto_mode=true;
+        vdc_dpll_manager_rate_event_t rate;
+        assert(vdc_dpll_manager_project_rate_feedback_event(123,9,3,4,2,0xabc,250000000,
+            1000400,1000500,400,&rate));
+        assert(rate.coordinate_ns==1600 && rate.model_token==1);
+        assert(project(1000400,&event) && rate.absolute_output_ns_lo==event.output_ns_lo);
+        assert(vdc_dpll_manager_project_rate_reference(123,9,3,4,2,0xabc,250000000,
+            1000400,1000500,&event));
+        assert(event.output_ns_lo==4001600 && event.output_ns_hi==4002000);
+        const vdc_dpll_manager_rate_event_t saved=rate;
+        mode_available=false;
+        assert(!vdc_dpll_manager_project_rate_feedback_event(123,9,3,4,2,0xabc,250000000,
+            1000400,1000500,400,&rate));
+        assert(!memcmp(&rate,&saved,sizeof(rate)));mode_available=true;
+        bridge.raw_after+=500;bridge.local_ns+=777;
+        assert(vdc_dpll_manager_project_rate_feedback_event(123,9,3,4,2,0xabc,250000000,
+            1000400,1000500,400,&rate));
+        assert(rate.coordinate_ns==saved.coordinate_ns && rate.absolute_output_ns_lo!=saved.absolute_output_ns_lo);
+        auto_mode=false;
+        assert(!vdc_dpll_manager_project_rate_reference(123,9,3,4,2,0xabc,250000000,
+            1000400,1000500,&event));
+    } else if(!strcmp(mode,"actual_commit")) {
         assert(project(1000400,&event));const uint64_t old=event.output_ns_lo;
         raw_now=1000300;action=1;sync_dpll_fb_service();assert(project(1000400,&event));
         assert(event.output_ns_lo==old+100 && event.model_token==2);
@@ -101,7 +128,7 @@ int main(int argc,char **argv)
 
 
 @pytest.mark.parametrize("case", ["actual_commit", "stable_model", "session", "epoch", "role",
-                                 "clock_failure", "exhaustion", "bridge_failure", "old_event"])
+                                 "clock_failure", "exhaustion", "bridge_failure", "old_event", "rate_coordinates"])
 def test_model_owner(owner_executable, case):
     result = subprocess.run([str(owner_executable), case], capture_output=True, text=True, timeout=5)
     assert result.returncode == 0, result.stdout + result.stderr

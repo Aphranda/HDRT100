@@ -482,13 +482,14 @@ static bool distributed_refmem_vdc_flight_rx_read_binding(
     tdma_ring_clock_snapshot_t ring;
     vdc_dpll_manager_refmem_snapshot_t vdc;
     memset(out, 0, sizeof(*out));
-    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring) ||
-        !vdc_dpll_manager_get_refmem_snapshot(&vdc)) return false;
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring)) return false;
     if (ring.enabled == 0u || ring.adapter_started == 0u ||
         ring.config_seq == 0u || ring.config_seq != ring.applied_config_seq ||
         ring.node_count < 2u || ring.node_count > REFMEM_SYNC_NODE_COUNT ||
-        ring.local_slot_id >= ring.node_count ||
-        vdc.control_profile.valid != 1u ||
+        ring.local_slot_id >= ring.node_count) return true;
+    /* Known STOP/inactive admission must not wait for an unrelated VDC read. */
+    if (!vdc_dpll_manager_get_refmem_snapshot(&vdc)) return false;
+    if (vdc.control_profile.valid != 1u ||
         vdc.control_profile.mode != VDC_DPLL_CONTROL_MODE_FOLLOWER ||
         vdc.control_profile.generation == 0u ||
         vdc.control_profile.follow_master_slot_id >= ring.node_count ||
@@ -518,23 +519,25 @@ static bool distributed_refmem_vdc_flight_rx_same_binding(
         a->clock_epoch_id == b->clock_epoch_id && a->clock_run_id == b->clock_run_id;
 }
 
-static void distributed_refmem_vdc_flight_rx_refresh(tdma_service_service_t *owner)
+/* True means known, including inactive; false defers FIFO acquisition. */
+static bool distributed_refmem_vdc_flight_rx_refresh(tdma_service_service_t *owner)
 {
     distributed_refmem_vdc_flight_rx_binding_t current;
     s_vdc_flight_rx_admission_ready = false;
     /* Snapshot contention skips this receive beat without deleting history. */
-    if (!distributed_refmem_vdc_flight_rx_read_binding(&current)) return;
+    if (!distributed_refmem_vdc_flight_rx_read_binding(&current)) return false;
     if (!distributed_refmem_vdc_flight_rx_same_binding(&current, &s_vdc_flight_rx_binding)) {
         if (current.active != 0u) {
             current.rx_admission_epoch =
                 tdma_service_core0_advance_flight_rx_admission_epoch(owner);
-            if (current.rx_admission_epoch == 0u) return;
+            if (current.rx_admission_epoch == 0u) return false;
         }
         (void)__atomic_add_fetch(&s_vdc_flight_rx_guard, 1u, __ATOMIC_ACQ_REL);
         s_vdc_flight_rx_binding = current;
         (void)__atomic_add_fetch(&s_vdc_flight_rx_guard, 1u, __ATOMIC_RELEASE);
     }
     s_vdc_flight_rx_admission_ready = current.active != 0u;
+    return true;
 }
 
 static void distributed_refmem_vdc_flight_rx_accept(uint32_t slot,
@@ -1408,8 +1411,10 @@ static void distributed_refmem_tdma_flight_sync_service(void)
         return;
     }
     tdma_service_service_t *owner = tdma_runtime_owner_get();
-    distributed_refmem_vdc_flight_rx_refresh(owner);
-    distributed_refmem_feedback_refresh(owner);
+    /* Run both refreshes even when one is unknown: expiry and cancellation
+     * still belong to this service invocation. No RX lease is held while busy. */
+    const bool ordinary_binding_known = distributed_refmem_vdc_flight_rx_refresh(owner);
+    const bool feedback_binding_known = distributed_refmem_feedback_refresh(owner);
     if (owner == NULL ||
         __atomic_load_n(&owner->ring_runtime.enabled, __ATOMIC_ACQUIRE) == 0u) {
         return;
@@ -1426,7 +1431,9 @@ static void distributed_refmem_tdma_flight_sync_service(void)
         distributed_refmem_tdma_sync_resident_command_identity(&refmem_snapshot);
     }
 #endif
-    distributed_refmem_tdma_flight_sync_receive(owner, &ring);
+    if (ordinary_binding_known && feedback_binding_known) {
+        distributed_refmem_tdma_flight_sync_receive(owner, &ring);
+    }
     distributed_refmem_tdma_flight_sync_publish(owner, &ring);
 }
 

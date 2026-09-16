@@ -5,6 +5,7 @@ internal application and acknowledgement policy, not physical lock or HIL.
 """
 import re
 import subprocess
+from fractions import Fraction
 
 import pytest
 
@@ -26,13 +27,18 @@ def boundary_owner_executable(tmp_path_factory):
     harness += '\n' + source_type.group(0) + MATCH_STORAGE + helpers
     harness += '\n' + (ROOT / 'components/vdc_dpll_manager/src/vdc_model_feedback.inc').read_text(encoding='utf-8')
     harness += '\n' + (ROOT / 'components/vdc_dpll_manager/src/vdc_boundary_control.inc').read_text(encoding='utf-8')
-    harness += '\n' + ingress_definition(DOMAIN_HARNESS, 'fixture') + TESTS
+    harness += '\n' + ingress_definition(DOMAIN_HARNESS, 'fixture') + TESTS.replace(
+        'int main(int argc,char **argv)', AUTO_TESTS + '\nint main(int argc,char **argv)').replace(
+        'if(!strncmp(test,"follower_reject_",16))',
+        'if(!strncmp(test,"auto_",5))auto_test(test);\n    else if(!strncmp(test,"follower_reject_",16))')
     sources = [ROOT / f'components/vdc_domain/src/{name}.c' for name in (
         'vdc_domain', 'vdc_timestamp', 'vdc_ring_observer', 'vdc_sync_io_adapter', 'vdc_tdma_payload')]
     sources += [ROOT / f'components/tdma/src/{name}.c' for name in (
         'tdma_service', 'tdma_profile', 'tdma_operating_profile', 'tdma_payload_registry',
         'tdma_flight_fifo', 'tdma_flight_engine', 'tdma_process_image_map', 'tdma_ring_runtime',
         'tdma_traffic_scheduler', 'tdma_service_timing')]
+    sources += [ROOT / 'components/vdc_dpll_manager/src/vdc_feedback_match.c',
+                ROOT / 'components/distributed_refmem/src/refmem_sync_vdc_feedback.c']
     return compile_executable(tmp_path_factory.mktemp('boundary-owner'), 'boundary_owner', harness, sources)
 
 
@@ -44,6 +50,7 @@ def boundary_owner_executable(tmp_path_factory):
     'follower_stop_at_apply', 'follower_config_at_apply', 'follower_observer_at_apply',
     'reject_history_stop_withdraw_reset', 'reject_history_after_success', 'reject_history_saturation',
     'follower_repeated_delivery_once', 'follower_retry_original_age', 'offer_retry_original_age',
+    'reference_owner_master', 'reference_owner_follower',
     *[f'follower_reject_{i}' for i in range(28)],
     *[f'master_reject_{i}' for i in range(25)],
     *[f'ack_reject_{i}' for i in range(7)],
@@ -54,6 +61,36 @@ def test_boundary_owner(boundary_owner_executable, scenario):
     (boundary_owner_executable.parent / (scenario + '.log')).write_text(
         result.stdout + result.stderr, encoding='utf-8')
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize('scenario', [
+    'auto_closed_loop', 'auto_loss_and_reconcile', 'auto_uncertain', 'auto_revoke',
+    'auto_reference_change', 'auto_stale_window', 'auto_age_domains',
+    'auto_disable_modes', 'auto_delta_limits', 'auto_pending_immutable',
+    'auto_wrong_domain',
+    'auto_mode_contention',
+])
+def test_automatic_owner_actual_roundtrips(boundary_owner_executable, scenario):
+    result = subprocess.run([str(boundary_owner_executable), scenario], text=True,
+                            capture_output=True, timeout=10)
+    (boundary_owner_executable.parent / (scenario + '.log')).write_text(
+        result.stdout + result.stderr, encoding='utf-8')
+    assert result.returncode == 0, result.stdout + result.stderr
+    if scenario == 'auto_closed_loop':
+        rows = [list(map(int, line.split()[1:])) for line in result.stdout.splitlines()
+                if line.startswith('UPDATE ')]
+        assert {row[0] for row in rows} == {1, 2, 3}
+        for slot, oscillator in ((1, 4500), (2, -3500), (3, 1700)):
+            selected = [row for row in rows if row[0] == slot]
+            assert len(selected) >= 3
+            previous_rate = 0
+            for _, sequence, rate, delta in selected:
+                before = Fraction((10**9 + oscillator) * (10**9 + previous_rate), 10**9) - 10**9
+                after = Fraction((10**9 + oscillator) * (10**9 + rate), 10**9) - 10**9
+                assert delta * before < 0 and abs(after) < abs(before)
+                assert rate == previous_rate + delta and sequence >= 1
+                previous_rate = rate
+            assert abs(after) < 300  # Independently computed plant; 252 ns bracket floor remains.
 
 
 PRELUDE = r'''
@@ -115,6 +152,18 @@ bool distributed_refmem_copy_vdc_boundary_command(uint32_t source,distributed_re
     return true;
 }
 static void vdc_dpll_manager_publish_runtime_snapshot_locked(void) { ++publication_count; }
+static uint32_t captured_offers,captured_applies,captured_acks;
+static void vdc_boundary_capture_offer_core1(const refmem_sync_vdc_boundary_command_t *c,
+    const vdc_feedback_match_snapshot_t *m)
+{ assert(c && m);++captured_offers; }
+static void vdc_boundary_capture_apply_core1(const refmem_sync_vdc_boundary_command_t *c,
+    int32_t rate,uint32_t seq)
+{ assert(c && seq);(void)rate;++captured_applies; }
+static void vdc_boundary_capture_ack_core1(const uint8_t *wire,uint32_t seq,uint32_t token)
+{ assert(wire && seq && token);++captured_acks; }
+static void vdc_boundary_capture_hold_core1(uint32_t session,uint32_t source,uint32_t reference,
+    const vdc_feedback_match_snapshot_t *match)
+{ assert(session && source!=reference && match); }
 '''
 
 MATCH_STORAGE = r'''
@@ -322,6 +371,39 @@ int main(int argc,char **argv)
     if(!strncmp(test,"follower_reject_",16))follower_reject((unsigned)atoi(test+16));
     else if(!strncmp(test,"master_reject_",14))master_reject((unsigned)atoi(test+14));
     else if(!strncmp(test,"ack_reject_",11))ack_reject((unsigned)atoi(test+11));
+    else if(!strncmp(test,"reference_owner_",16)) {
+        const bool master=!strcmp(test,"reference_owner_master");setup(master);
+        if(master)master_input(1);else follower_input();
+        assert(!vdc_dpll_manager_set_reference_publish(true)); /* RUN refuses write. */
+        ring.enabled=0;stopped=true;
+        assert(vdc_dpll_manager_set_reference_publish(true));
+        bool enabled=false;
+        assert(vdc_dpll_manager_try_reference_publish_enabled(&enabled) && enabled);
+        assert(!vdc_dpll_manager_boundary_auto_enabled());
+        ring.enabled=1;stopped=false;
+        const vdc_dco_control_t before=s_vdc_domain.dco;
+        for(unsigned i=0;i<20;i++)tick();
+        assert(!memcmp(&before,&s_vdc_domain.dco,sizeof(before)));
+        assert(!status(1).apply_count && !status(1).offer_id && !captured_offers && !captured_applies);
+        ring.enabled=0;stopped=true;
+        assert(vdc_dpll_manager_set_boundary_auto(true));
+        assert(vdc_dpll_manager_try_reference_publish_enabled(&enabled) && !enabled);
+        assert(vdc_dpll_manager_boundary_auto_enabled());
+        assert(vdc_dpll_manager_set_reference_publish(true));
+        assert(!vdc_dpll_manager_boundary_auto_enabled());
+        assert(vdc_dpll_manager_set_boundary_probe(-1));
+        assert(vdc_dpll_manager_try_reference_publish_enabled(&enabled) && !enabled);
+        assert(vdc_dpll_manager_set_reference_publish(true));
+        ++s_boundary_request;enabled=true;
+        assert(!vdc_dpll_manager_try_reference_publish_enabled(&enabled) && enabled);
+        ++s_boundary_request;
+        assert(!vdc_dpll_manager_try_reference_publish_enabled(NULL));
+        assert(vdc_dpll_manager_set_reference_publish(false));
+        assert(vdc_dpll_manager_try_reference_publish_enabled(&enabled) && !enabled);
+        assert(vdc_dpll_manager_set_feedback_session(0));
+        assert(!vdc_dpll_manager_set_reference_publish(true));
+        assert(vdc_dpll_manager_set_reference_publish(false));
+    }
     else if(!strcmp(test,"follower_role_at_apply") || !strcmp(test,"follower_stop_at_apply") ||
             !strcmp(test,"follower_config_at_apply") || !strcmp(test,"follower_observer_at_apply")) {
         setup(false);follower_input();vdc_domain_context_t before;
@@ -481,5 +563,302 @@ int main(int argc,char **argv)
         } else assert(0);
     }
     puts("boundary owner passed");return 0;
+}
+'''
+
+
+AUTO_TESTS = r'''
+/* Each simulated board runs the actual same owner/Domain code with its own
+ * static state; only external clocks, ring, live input and transport delivery
+ * are controlled. The pure production matcher creates the frequency bounds. */
+typedef struct {
+    vdc_domain_context_t domain;
+    tdma_ring_clock_snapshot_t ring;
+    tdma_pio_spi_event_live_snapshot_t live;
+    uint32_t model_words[sizeof(s_committed_model_words)/4u];
+    uint32_t model_guard,model_serial,session,last_session;
+    uint32_t meta_words[sizeof(s_boundary_meta_words)/4u];
+    uint32_t peer_words[PROJECT_NODE_CAPACITY][sizeof(vdc_boundary_peer_t)/4u];
+    uint32_t guard,request,request_session,request_mode,tx_done;
+    int32_t request_delta;
+} auto_board_t;
+static auto_board_t auto_boards[4];
+static int32_t oscillator[4]={0,4500,-3500,1700};
+static uint64_t physical_ns=3000000000ull;
+static uint32_t auto_measurement=1000,transport_sequence=1;
+static refmem_sync_vdc_feedback_assembly_t command_assembly[4];
+
+static uint64_t local_at(unsigned slot,uint64_t physical)
+{ return (uint64_t)(((__uint128_t)physical*(uint64_t)(1000000000ll+oscillator[slot]))/1000000000u); }
+static void auto_save(unsigned slot)
+{
+    auto_board_t *b=&auto_boards[slot];b->domain=s_vdc_domain;b->ring=ring;b->live=live;
+    memcpy(b->model_words,s_committed_model_words,sizeof(b->model_words));
+    b->model_guard=s_committed_model_guard;b->model_serial=s_committed_model_serial;
+    b->session=s_model_feedback_session;b->last_session=s_model_feedback_last_session;
+    memcpy(b->meta_words,s_boundary_meta_words,sizeof(b->meta_words));
+    memcpy(b->peer_words,s_boundary_peer_words,sizeof(b->peer_words));
+    b->guard=s_boundary_guard;b->request=s_boundary_request;b->request_session=s_boundary_request_session;
+    b->request_mode=s_boundary_request_mode;b->request_delta=s_boundary_request_delta;b->tx_done=s_boundary_tx_done;
+}
+static void auto_load(unsigned slot)
+{
+    const auto_board_t *b=&auto_boards[slot];s_vdc_domain=b->domain;ring=b->ring;live=b->live;
+    memcpy(s_committed_model_words,b->model_words,sizeof(b->model_words));
+    s_committed_model_guard=b->model_guard;s_committed_model_serial=b->model_serial;
+    s_model_feedback_session=b->session;s_model_feedback_last_session=b->last_session;
+    memcpy(s_boundary_meta_words,b->meta_words,sizeof(b->meta_words));
+    memcpy(s_boundary_peer_words,b->peer_words,sizeof(b->peer_words));
+    s_boundary_guard=b->guard;s_boundary_request=b->request;s_boundary_request_session=b->request_session;
+    s_boundary_request_mode=b->request_mode;s_boundary_request_delta=b->request_delta;s_boundary_tx_done=b->tx_done;
+    s_dpll_role_requested_generation=s_dpll_role_applied_generation=s_vdc_domain.control.profile.generation;
+    now_ns=local_at(slot,physical_ns);raw_now=now_ns/4u;now_ms=(uint32_t)(now_ns/1000000u);
+    stopped=false;ring_available=live_available=true;
+}
+static void auto_initialize(void)
+{
+    for(unsigned slot=0;slot<4;slot++) {
+        memset(s_committed_model_words,0,sizeof(s_committed_model_words));
+        memset(s_boundary_meta_words,0,sizeof(s_boundary_meta_words));
+        memset(s_boundary_peer_words,0,sizeof(s_boundary_peer_words));
+        s_model_feedback_session=s_model_feedback_last_session=s_committed_model_guard=s_committed_model_serial=0;
+        s_boundary_guard=s_boundary_request=s_boundary_request_session=s_boundary_request_mode=s_boundary_tx_done=0;
+        s_boundary_request_delta=0;stopped=true;setup(slot==0);
+        if(slot>1) {vdc_domain_set_schedule_local_slot(&s_vdc_domain,slot);ring.local_slot_id=slot;}
+        s_vdc_domain.dco.period_adjust_ppb=0;
+        s_vdc_domain.dco.base_local_tick64=0;s_vdc_domain.dco.base_vdc_time64_ns=0;
+        s_vdc_domain.dco.phase_offset_ns=0;
+        ++s_committed_model_guard;model_feedback_end_core1(123);
+        ring.enabled=0;stopped=true;assert(vdc_dpll_manager_set_boundary_auto(true));
+        ring.enabled=1;stopped=false;tick();assert(vdc_dpll_manager_boundary_auto_enabled());
+        assert(status(slot?slot:1).schema==3);auto_save(slot);
+    }
+    memset(feedback,0,sizeof(feedback));memset(s_feedback_matches,0,sizeof(s_feedback_matches));
+    memset(&incoming,0,sizeof(incoming));
+    captured_offers=captured_applies=captured_acks=0;auto_load(0);
+}
+static vdc_dpll_manager_committed_model_t auto_model(unsigned slot)
+{
+    vdc_dpll_manager_committed_model_t m;
+    memcpy(&m,auto_boards[slot].model_words,sizeof(m));return m;
+}
+static uint64_t ideal_coordinate(unsigned slot,uint64_t physical)
+{
+    const int64_t rate=auto_boards[slot].domain.dco.period_adjust_ppb;
+    return (uint64_t)(((__uint128_t)physical*(uint64_t)(1000000000ll+oscillator[slot])*
+        (uint64_t)(1000000000ll+rate))/((__uint128_t)1000000000u*1000000000u));
+}
+static void auto_feedback(unsigned slot,uint32_t seq,uint64_t sample_time)
+{
+    const vdc_dpll_manager_committed_model_t m=auto_model(slot);uint64_t absolute;
+    assert(vdc_domain_dco_local_to_output_ns(&m.dco,local_at(slot,sample_time),&absolute));
+    distributed_refmem_vdc_feedback_rx_snapshot_t *rx=&feedback[slot];
+    const uint32_t count=rx->receive_count+1u;
+    *rx=(distributed_refmem_vdc_feedback_rx_snapshot_t){.schema=1,.active=1,.retained=1,
+        .source_slot=slot,.ring_config_seq=ring.config_seq,.role_generation=s_vdc_domain.control.profile.generation,
+        .schedule_crc32=ring.schedule_crc32,.clock_epoch_id=s_vdc_domain.clock.epoch_id,
+        .clock_run_id=s_vdc_domain.clock.run_id,.receive_count=count,
+        .sample={.source_arm_epoch=77,.source_clock_epoch_id=m.clock_epoch_id,.source_clock_run_id=m.clock_run_id,
+            .observer_epoch=8,.measurement_sequence=seq,.tick_hz=BOARD_SYS_CLOCK_HZ,
+            .schema_version=REFMEM_VDC_FEEDBACK_RATE_SCHEMA,.source_slot=(uint8_t)slot,.target_slot=0,
+            .domain_flags=REFMEM_VDC_FEEDBACK_RATE_FLAGS,.rate={.absolute_output_ns_lo=absolute,
+                .coordinate_ns=ideal_coordinate(slot,sample_time),.model_token=m.token,
+                .applied_command_seq=m.applied_command_seq,.control_session=123}}};
+    assert(refmem_sync_vdc_feedback_encode(&rx->sample,4,rx->record));
+    refmem_sync_vdc_feedback_record_t decoded;
+    assert(refmem_sync_vdc_feedback_decode(rx->record,4,slot,0,&decoded));rx->sample=decoded;
+}
+static void auto_window(unsigned slot,int64_t force_lo,int64_t force_hi)
+{
+    auto_load(0);const vdc_dpll_manager_committed_model_t master=model(),peer=auto_model(slot);
+    vdc_feedback_match_cache_t cache;vdc_feedback_match_peer_t match_peer;
+    vdc_feedback_match_cache_init(&cache);vdc_feedback_match_peer_init(&match_peer);
+    assert(vdc_feedback_match_cache_bind(&cache,origin_epoch,BOARD_SYS_CLOCK_HZ));
+    const uint64_t start=physical_ns;uint32_t seq=auto_measurement;
+    for(unsigned endpoint=0;endpoint<3;endpoint++) {
+        const uint64_t at=start+(endpoint==0?0:endpoint==1?70000000ull:1100000000ull);
+        const uint64_t ref=ideal_coordinate(0,at);
+        assert(vdc_feedback_model_cache_put(&cache,seq,master.token,2u*(endpoint+1),ref-126,ref+126,now_ms));
+        const vdc_feedback_match_sample_t input={.source_arm_epoch=77,
+            .rx_elapsed_cycles=ideal_coordinate(slot,at),.source_clock_epoch_id=peer.clock_epoch_id,
+            .source_clock_run_id=peer.clock_run_id,.observer_epoch=8,.measurement_sequence=seq,.tick_hz=BOARD_SYS_CLOCK_HZ};
+        const vdc_feedback_match_result_t result=vdc_feedback_rate_update(&cache,&match_peer,&input,peer.token);
+        assert(result==(endpoint==0?VDC_FEEDBACK_MATCH_BASELINED:endpoint==1?VDC_FEEDBACK_MATCH_WAIT_WINDOW:VDC_FEEDBACK_MATCH_MATCHED));
+        if(endpoint==2) {
+            physical_ns=at+40000000u;auto_load(0);auto_feedback(slot,seq,at);
+            vdc_dpll_manager_feedback_match_status_t matched={.schema=3,.active=1,.source_slot=slot,
+                .target_slot=0,.ring_config_seq=ring.config_seq,.role_generation=master.role_generation,
+                .schedule_crc32=ring.schedule_crc32,.clock_epoch_id=master.clock_epoch_id,
+                .clock_run_id=master.clock_run_id,.receive_count=feedback[slot].receive_count,
+                .last_result=VDC_FEEDBACK_MATCH_MATCHED,.preparation_generation=17,.control_session=123};
+            assert(vdc_feedback_match_peer_snapshot(&match_peer,&matched.result));
+            matched.result.reference_generation=17;
+            if(force_lo<=force_hi) {matched.result.raw_ppb_lo=force_lo;matched.result.raw_ppb_hi=force_hi;}
+            match_publish(&s_feedback_matches[slot],&matched);
+        }
+        seq++;
+    }
+    auto_measurement=seq+1;auto_save(0);
+}
+static refmem_sync_vdc_boundary_command_t auto_offer(unsigned slot)
+{
+    auto_load(0);roundtrip();const vdc_dpll_boundary_status_t s=status(slot);
+    assert(s.offer_id && s.peer_state==VDC_BOUNDARY_PENDING && s.command.flags==REFMEM_VDC_BOUNDARY_COMMAND_AUTO_FLAGS);
+    refmem_sync_vdc_boundary_command_t command;uint32_t id;
+    assert(vdc_dpll_manager_copy_boundary_command_offer(ring.config_seq,
+        s_vdc_domain.control.profile.generation,0,ring.schedule_crc32,123,&command,&id)==1);
+    assert(id==s.offer_id && command.command_seq==auto_model(slot).applied_command_seq+1u);
+    auto_save(0);return command;
+}
+static bool auto_fragments(unsigned slot,const refmem_sync_vdc_boundary_command_t *cmd,bool drop)
+{
+    uint8_t wire[64],complete[64];assert(refmem_sync_vdc_boundary_command_encode(cmd,4,wire));bool done=false;
+    for(unsigned i=0;i<16;i++) {
+        if(drop && i==7) {transport_sequence++;continue;}
+        const refmem_sync_vdc_feedback_result_t result=refmem_sync_vdc_boundary_command_push(
+            &command_assembly[slot],0,slot,4,transport_sequence++,(uint8_t)i,16,wire+4*i,now_ms+i,complete);
+        if(result==REFMEM_VDC_FEEDBACK_COMPLETE)done=true;
+    }
+    if(!done)return false;
+    refmem_sync_vdc_boundary_command_t decoded;assert(refmem_sync_vdc_boundary_command_decode(complete,4,0,slot,&decoded));
+    auto_load(slot);const vdc_dpll_manager_committed_model_t m=model();
+    incoming=(distributed_refmem_vdc_boundary_view_t){.active=1,.ring_config_seq=ring.config_seq,
+        .role_generation=m.role_generation,.schedule_crc32=ring.schedule_crc32,
+        .clock_epoch_id=m.clock_epoch_id,.clock_run_id=m.clock_run_id,.command=decoded};
+    live.record.sequence=cmd->basis_measurement_sequence+1u;
+    uint64_t before,after;assert(vdc_domain_dco_local_to_output_ns(&s_vdc_domain.dco,now_ns,&before));
+    const uint32_t count=s_vdc_domain.control.follower_apply_count;
+    tick();assert(vdc_domain_dco_local_to_output_ns(&s_vdc_domain.dco,now_ns,&after));assert(before==after);
+    assert(s_vdc_domain.control.follower_apply_count==count+(m.applied_command_seq<cmd->command_seq?1u:0u));
+    assert(model().applied_command_seq==cmd->command_seq);auto_save(slot);return true;
+}
+static void auto_ack(unsigned slot)
+{
+    auto_load(0);auto_feedback(slot,auto_measurement++,physical_ns);roundtrip();
+    assert(status(slot).peer_state==VDC_BOUNDARY_ACKED || status(slot).peer_state==VDC_BOUNDARY_LATE_APPLIED);
+    assert(!(status(slot).consumed_mask&(1u<<slot)));auto_save(0);
+}
+static void auto_test(const char *name)
+{
+    auto_initialize();
+    if(!strcmp(name,"auto_closed_loop")) {
+        for(unsigned round=0;round<24;round++)for(unsigned slot=1;slot<4;slot++) {
+            auto_window(slot,1,0);auto_load(0);roundtrip();
+            if(!status(slot).offer_id) {auto_save(0);continue;}
+            auto_save(0);const refmem_sync_vdc_boundary_command_t cmd=auto_offer(slot);
+            assert(auto_fragments(slot,&cmd,false));auto_ack(slot);
+            printf("UPDATE %u %u %d %d\n",slot,cmd.command_seq,
+                auto_boards[slot].domain.dco.period_adjust_ppb,cmd.signed_delta_rate_ppb);
+        }
+        assert(captured_applies==captured_acks && captured_offers==captured_applies && captured_applies>=9);
+    } else if(!strcmp(name,"auto_loss_and_reconcile")) {
+        auto_window(1,1,0);const refmem_sync_vdc_boundary_command_t cmd=auto_offer(1);
+        assert(!auto_fragments(1,&cmd,true));assert(auto_fragments(1,&cmd,false));
+        const uint32_t applied=auto_boards[1].domain.control.follower_apply_count;
+        assert(auto_fragments(1,&cmd,false));assert(auto_boards[1].domain.control.follower_apply_count==applied);
+        auto_load(0);now_ms+=VDC_BOUNDARY_ACK_TIMEOUT_MS;roundtrip();
+        assert(status(1).peer_state==VDC_BOUNDARY_EXPIRED_UNRESOLVED && !status(1).offer_id);auto_save(0);
+        auto_window(2,1,0);const refmem_sync_vdc_boundary_command_t other=auto_offer(2);
+        assert(auto_fragments(2,&other,false));auto_ack(2);
+        auto_ack(1);auto_window(1,1,0);const refmem_sync_vdc_boundary_command_t next=auto_offer(1);
+        assert(next.command_seq==cmd.command_seq+1 && next.expected_target_model_token>cmd.expected_target_model_token);
+        assert(auto_fragments(1,&next,false));auto_ack(1);
+    } else if(!strcmp(name,"auto_uncertain")) {
+        auto_window(1,-100,100);auto_load(0);roundtrip();
+        assert(!status(1).offer_id && !status(1).consumed_mask && !captured_offers);
+        auto_save(0);auto_window(1,10,10);auto_load(0);roundtrip();assert(!status(1).offer_id);
+    } else if(!strcmp(name,"auto_revoke")) {
+        auto_window(1,1,0);(void)auto_offer(1);auto_load(0);
+        assert(!vdc_dpll_manager_set_boundary_auto(false));ring.enabled=0;stopped=true;tick();
+        assert(!vdc_dpll_manager_boundary_auto_enabled() && !status(1).offer_id);
+        ring.enabled=1;ring.config_seq++;ring.applied_config_seq++;stopped=false;roundtrip();assert(!status(1).offer_id);
+        ring.enabled=0;stopped=true;assert(vdc_dpll_manager_set_boundary_auto(false));tick();
+        assert(!vdc_dpll_manager_boundary_auto_enabled());assert(vdc_dpll_manager_set_feedback_session(0));
+        assert(!vdc_dpll_manager_set_boundary_auto(true));
+    } else if(!strcmp(name,"auto_reference_change")) {
+        auto_window(1,1,0);(void)auto_offer(1);auto_load(0);
+        s_vdc_domain.dco.period_adjust_ppb++;
+        ++s_committed_model_guard;model_feedback_end_core1(123);
+        refmem_sync_vdc_boundary_command_t out;uint32_t id;
+        assert(vdc_dpll_manager_copy_boundary_command_offer(ring.config_seq,
+            s_vdc_domain.control.profile.generation,0,ring.schedule_crc32,123,&out,&id)==0);
+        now_ms+=VDC_BOUNDARY_ACK_TIMEOUT_MS;roundtrip();assert(status(1).peer_state==VDC_BOUNDARY_EXPIRED_UNRESOLVED);
+    } else if(!strcmp(name,"auto_stale_window")) {
+        auto_window(1,1,0);const refmem_sync_vdc_boundary_command_t first=auto_offer(1);
+        assert(auto_fragments(1,&first,false));auto_ack(1);auto_load(0);
+        const uint32_t serial=status(1).offer_serial;roundtrip();
+        assert(!status(1).offer_id && status(1).offer_serial==serial);auto_save(0);
+        auto_window(1,1,0);auto_load(0);vdc_dpll_manager_feedback_match_status_t m;
+        match_load_words(s_feedback_matches[1].words,&m,sizeof(m));
+        m.result.pairs[0].source_model_token=first.expected_target_model_token;
+        match_publish(&s_feedback_matches[1],&m);roundtrip();assert(!status(1).offer_id);
+    } else if(!strcmp(name,"auto_age_domains")) {
+        auto_window(1,1,0);const refmem_sync_vdc_boundary_command_t c=auto_offer(1);
+        auto_load(0);uint64_t rate_now;
+        assert(vdc_model_rate_coordinate_ns(s_vdc_domain.dco.period_adjust_ppb,BOARD_SYS_CLOCK_HZ,raw_now,true,&rate_now));
+        assert(rate_now>c.basis_source_output_ns_lo-1000000000ull);
+        physical_ns+=VDC_BOUNDARY_COMMAND_MAX_AGE_NS;auto_load(0);
+        refmem_sync_vdc_boundary_command_t out;uint32_t id;
+        assert(vdc_dpll_manager_copy_boundary_command_offer(ring.config_seq,
+            s_vdc_domain.control.profile.generation,0,ring.schedule_crc32,123,&out,&id)==0);
+        assert(!auto_fragments(1,&c,true));
+        auto_load(1);const vdc_domain_context_t before=s_vdc_domain;follower_input();
+        incoming.command=c;incoming.command.flags=REFMEM_VDC_BOUNDARY_COMMAND_AUTO_FLAGS;
+        live.record.sequence=c.basis_measurement_sequence+1;tick();
+        assert(!memcmp(&before,&s_vdc_domain,sizeof(before)) && status(1).last_reject==BOUNDARY_REJECT_AGE);
+    } else if(!strcmp(name,"auto_mode_contention")) {
+        auto_load(0);bool enabled=false;
+        assert(vdc_dpll_manager_try_boundary_auto_enabled(&enabled) && enabled);
+        ++s_boundary_guard;
+        assert(!vdc_dpll_manager_try_boundary_auto_enabled(&enabled) && enabled);
+        ++s_boundary_guard;++s_boundary_request;
+        assert(!vdc_dpll_manager_try_boundary_auto_enabled(&enabled) && enabled);
+        ++s_boundary_request;ring.enabled=0;stopped=true;
+        assert(vdc_dpll_manager_set_boundary_auto(false));tick();
+        assert(vdc_dpll_manager_try_boundary_auto_enabled(&enabled) && !enabled);
+    } else if(!strcmp(name,"auto_disable_modes")) {
+        auto_window(1,1,0);const refmem_sync_vdc_boundary_command_t c=auto_offer(1);
+        auto_load(1);ring.enabled=0;stopped=true;assert(vdc_dpll_manager_set_boundary_probe(0));tick();
+        assert(!vdc_dpll_manager_boundary_auto_enabled());auto_save(1);
+        auto_load(1);ring.enabled=1;stopped=false;incoming=(distributed_refmem_vdc_boundary_view_t){
+            .active=1,.ring_config_seq=ring.config_seq,.role_generation=s_vdc_domain.control.profile.generation,
+            .schedule_crc32=ring.schedule_crc32,.clock_epoch_id=s_vdc_domain.clock.epoch_id,
+            .clock_run_id=s_vdc_domain.clock.run_id,.command=c};
+        live.record.sequence=c.basis_measurement_sequence+1;tick();assert(!status(1).apply_count);
+        auto_load(0);ring.enabled=0;stopped=true;assert(vdc_dpll_manager_set_feedback_session(0));tick();
+        assert(!vdc_dpll_manager_boundary_auto_enabled() && !status(1).offer_id);
+        assert(vdc_dpll_manager_set_feedback_session(124));ring.enabled=1;stopped=false;roundtrip();
+        assert(!status(1).offer_id && !vdc_dpll_manager_boundary_auto_enabled());
+    } else if(!strcmp(name,"auto_delta_limits")) {
+        auto_window(1,INT64_MAX,INT64_MAX);const refmem_sync_vdc_boundary_command_t c=auto_offer(1);
+        assert(c.signed_delta_rate_ppb==-VDC_BOUNDARY_AUTO_MAX_DELTA_PPB);
+        assert(auto_fragments(1,&c,false));auto_ack(1);
+        auto_window(2,INT64_MIN,INT64_MIN);const refmem_sync_vdc_boundary_command_t p=auto_offer(2);
+        assert(p.signed_delta_rate_ppb==VDC_BOUNDARY_AUTO_MAX_DELTA_PPB);
+        auto_load(2);follower_input();incoming.command=p;incoming.command.signed_delta_rate_ppb=1001;
+        incoming.command.target_slot=2;live.record.sequence=p.basis_measurement_sequence+1;
+        vdc_domain_context_t before=s_vdc_domain;tick();assert(!memcmp(&before,&s_vdc_domain,sizeof(before)));
+        incoming.command.signed_delta_rate_ppb=0;tick();assert(!memcmp(&before,&s_vdc_domain,sizeof(before)));
+    } else if(!strcmp(name,"auto_pending_immutable")) {
+        auto_window(1,1,0);const refmem_sync_vdc_boundary_command_t c=auto_offer(1);
+        auto_load(0);const uint32_t serial=status(1).offer_serial;
+        vdc_dpll_manager_feedback_match_status_t pair;
+        match_load_words(s_feedback_matches[1].words,&pair,sizeof(pair));
+        pair.result.raw_ppb_lo=-2000;pair.result.raw_ppb_hi=-1000;
+        match_publish(&s_feedback_matches[1],&pair);roundtrip();
+        assert(status(1).offer_serial==serial);
+        const vdc_dpll_boundary_status_t unchanged=status(1);assert(!memcmp(&unchanged.command,&c,sizeof(c)));
+        auto_save(0);assert(auto_fragments(1,&c,false));auto_ack(1);
+        auto_load(0);roundtrip();
+        assert(!status(1).offer_id && status(1).offer_serial==serial);
+    } else if(!strcmp(name,"auto_wrong_domain")) {
+        auto_window(1,1,0);auto_load(0);
+        feedback[1].sample.schema_version=REFMEM_VDC_FEEDBACK_MODEL_SCHEMA;roundtrip();assert(!status(1).offer_id);
+        feedback[1].sample.schema_version=REFMEM_VDC_FEEDBACK_RATE_SCHEMA;
+        vdc_dpll_manager_feedback_match_status_t pair;
+        match_load_words(s_feedback_matches[1].words,&pair,sizeof(pair));
+        pair.result.reserved=VDC_FEEDBACK_MODEL_DOMAIN;match_publish(&s_feedback_matches[1],&pair);
+        roundtrip();assert(!status(1).offer_id && !status(1).consumed_mask);
+    } else assert(0);
 }
 '''

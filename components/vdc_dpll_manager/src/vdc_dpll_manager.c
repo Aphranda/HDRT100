@@ -36,7 +36,7 @@
 
 #define VDC_DPLL_MANAGER_SELF_TEST_CLEANUP_MARGIN_MS 250u
 #define VDC_DPLL_MANAGER_DPLL_CAPTURE_MAGIC 0x4C504444u /* DDPL */
-#define VDC_DPLL_MANAGER_DPLL_CAPTURE_SCHEMA 5u
+#define VDC_DPLL_MANAGER_DPLL_CAPTURE_SCHEMA 6u
 #define VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_MASTER 1u
 #define VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_COMMAND 2u
 #define VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_STATE 3u
@@ -172,6 +172,8 @@ static vdc_dpll_manager_dpll_capture_record_t
     s_dpll_capture_records[VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES];
 static bool s_dpll_capture_armed;
 static bool s_dpll_capture_complete;
+/* Selected once at ARM. An AUTO trace must not be filled by legacy PI events. */
+static bool s_dpll_capture_auto_only;
 static uint32_t s_dpll_capture_count;
 static uint32_t s_dpll_capture_dropped;
 static uint32_t s_dpll_capture_first_update_seq;
@@ -298,7 +300,7 @@ static void vdc_dpll_manager_publish_runtime_snapshot_locked(void)
      * allocation, formatting, or diagnostic interpretation is allowed on
      * the Core1/DPLL path.  The record is frozen and persisted only after
      * the maintenance caller stops the capture. */
-    if (s_dpll_capture_armed && s_vdc_domain.dpll.update_seq != 0u &&
+    if (s_dpll_capture_armed && !s_dpll_capture_auto_only && s_vdc_domain.dpll.update_seq != 0u &&
         s_vdc_domain.dpll.update_seq != s_dpll_capture_last_update_seq) {
         if (s_dpll_capture_count <
             VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES) {
@@ -1710,6 +1712,7 @@ bool vdc_dpll_manager_init(void)
     memset(s_dpll_capture_records, 0, sizeof(s_dpll_capture_records));
     s_dpll_capture_armed = false;
     s_dpll_capture_complete = false;
+    s_dpll_capture_auto_only = false;
     s_dpll_capture_count = 0u;
     s_dpll_capture_dropped = 0u;
     s_dpll_capture_first_update_seq = 0u;
@@ -2982,6 +2985,7 @@ static void vdc_dpll_manager_waveform_capture_service(void)
 
 #include "vdc_dpll_feedback_match.inc"
 #include "vdc_model_feedback.inc"
+#include "vdc_boundary_capture.inc"
 #include "vdc_boundary_control.inc"
 
 /* Section placement alone does not prevent GCC from moving this whole RAM
@@ -3433,7 +3437,9 @@ bool vdc_dpll_manager_dpll_capture_arm(void)
 {
     bool accepted = false;
     osal_critical_enter();
-    if (!s_dpll_capture_armed) {
+    bool automatic;
+    if (!s_dpll_capture_armed &&
+        vdc_dpll_manager_try_boundary_auto_enabled(&automatic)) {
         memset(s_dpll_capture_records, 0, sizeof(s_dpll_capture_records));
         s_dpll_capture_complete = false;
         s_dpll_capture_count = 0u;
@@ -3443,6 +3449,7 @@ bool vdc_dpll_manager_dpll_capture_arm(void)
         s_dpll_capture_start_ms = 0u;
         s_dpll_capture_end_ms = 0u;
         s_vdc_follower_capture_kind_hint = 0u;
+        s_dpll_capture_auto_only = automatic;
         s_dpll_capture_armed = true;
         accepted = true;
     }

@@ -4,6 +4,26 @@
 #include "vdc_domain.h"
 #include "vdc_timestamp_clock.h"
 
+/* An affine rate coordinate, deliberately independent of model base/phase
+ * and of each timestamp bridge's read-placement uncertainty. Split first:
+ * ticks*q can overflow even when the exact quotient fits uint64_t. */
+static inline bool vdc_model_rate_coordinate_ns(int32_t rate_ppb,
+    uint32_t tick_hz, uint64_t ticks, bool round_up, uint64_t *out)
+{
+    if (!out || !tick_hz || tick_hz > 500000000u || rate_ppb <= -1000000000)
+        return false;
+    const uint64_t q = (uint64_t)(INT64_C(1000000000) + rate_ppb);
+    const uint64_t whole = ticks / tick_hz;
+    const uint64_t remainder = (ticks % tick_hz) * q;
+    if (whole > UINT64_MAX / q) return false;
+    const uint64_t base = whole * q;
+    const uint64_t fraction = remainder / tick_hz +
+        (round_up && remainder % tick_hz != 0u ? 1u : 0u);
+    if (base > UINT64_MAX - fraction) return false;
+    *out = base + fraction;
+    return true;
+}
+
 /* Pure Core0 preparation. The bridge observes an integer-us TIMER0 reading
  * somewhere between two raw TIMER1 readings. Preserve the full quantization
  * envelope; this is internal model evidence, not a qualified pad timestamp.

@@ -3,7 +3,7 @@
  * for mutation. This prepares diagnostics, never a control/DCO update. */
 #define VDC_FEEDBACK_MATCH_MAX_AGE_MS 120u
 typedef struct {
-    uint32_t config, role, schedule, clock_epoch, clock_run, local, nodes, reference_epoch, session;
+    uint32_t config, role, schedule, clock_epoch, clock_run, local, nodes, reference_epoch, session, rate_mode;
 } vdc_feedback_match_binding_t;
 typedef struct {
     vdc_feedback_match_peer_t peer;
@@ -79,11 +79,14 @@ static __attribute__((noinline)) void vdc_dpll_manager_feedback_match_service(vo
         vdc_dpll_manager_feedback_match_retire();
         return;
     }
+    bool rate_mode;
+    if (!vdc_dpll_manager_try_boundary_auto_enabled(&rate_mode)) return;
     const vdc_feedback_match_binding_t binding = {
         .config = ring.config_seq, .role = role->generation, .schedule = ring.schedule_crc32,
         .clock_epoch = s_vdc_domain.clock.epoch_id, .clock_run = s_vdc_domain.clock.run_id,
         .local = ring.local_slot_id, .nodes = ring.node_count, .reference_epoch = reference_epoch,
-        .session = vdc_dpll_manager_feedback_session()};
+        .session = vdc_dpll_manager_feedback_session(),
+        .rate_mode = rate_mode ? 1u : 0u};
     vdc_feedback_match_binding_t previous;
     match_load_words(s_feedback_match_owner_words, &previous, sizeof(previous));
     if (__atomic_load_n(&s_feedback_match_owner_token, __ATOMIC_RELAXED) &&
@@ -118,11 +121,14 @@ void vdc_dpll_manager_feedback_prepare_core0(void)
     tdma_ring_clock_snapshot_t ring;
     if (!token || s_vdc_tdma_service == NULL ||
         !tdma_ring_runtime_get_clock_snapshot(&s_vdc_tdma_service->ring_runtime, &ring)) return;
+    bool rate_mode;
+    if (!vdc_dpll_manager_try_boundary_auto_enabled(&rate_mode)) return;
     if (!ring.enabled || !ring.data_enabled || !ring.adapter_started ||
         ring.config_seq != binding.config || ring.applied_config_seq != binding.config ||
         ring.local_slot_id != binding.local || ring.reference_slot_id != binding.local ||
         ring.node_count != binding.nodes || ring.schedule_crc32 != binding.schedule ||
-        binding.session != vdc_dpll_manager_feedback_session()) return;
+        binding.session != vdc_dpll_manager_feedback_session() ||
+        binding.rate_mode != (rate_mode ? 1u : 0u)) return;
     if (token != s_feedback_match_preparation_generation ||
         memcmp(&binding, &s_feedback_match_binding, sizeof(binding)) != 0) {
         vdc_feedback_match_cache_retire(&s_feedback_match_cache);
@@ -150,9 +156,14 @@ void vdc_dpll_manager_feedback_prepare_core0(void)
                 vdc_dpll_manager_projected_event_t event;
                 uint64_t raw_now;
                 const uint32_t prepared_ms = board_uptime_ms();
-                if (vdc_dpll_manager_project_feedback_event(binding.session, binding.role,
+                const bool projected = binding.rate_mode ?
+                    vdc_dpll_manager_project_rate_reference(binding.session, binding.role,
                         binding.clock_epoch, binding.clock_run, binding.local, binding.schedule,
-                        ref.tick_hz, ref.timer_lower, ref.timer_upper, &event) &&
+                        ref.tick_hz, ref.timer_lower, ref.timer_upper, &event) :
+                    vdc_dpll_manager_project_feedback_event(binding.session, binding.role,
+                        binding.clock_epoch, binding.clock_run, binding.local, binding.schedule,
+                        ref.tick_hz, ref.timer_lower, ref.timer_upper, &event);
+                if (projected &&
                     vdc_timestamp_clock_try_read_ticks64(ref.tick_hz, &raw_now) &&
                     raw_now >= ref.timer_upper && raw_now - ref.timer_lower <=
                         (uint64_t)ref.tick_hz * VDC_FEEDBACK_MATCH_MAX_AGE_MS / 1000u) {
@@ -184,7 +195,9 @@ void vdc_dpll_manager_feedback_prepare_core0(void)
         rx.schedule_crc32 != binding.schedule || rx.clock_epoch_id != binding.clock_epoch ||
         rx.clock_run_id != binding.clock_run || rx.sample.source_slot != slot ||
         rx.sample.target_slot != ring.local_slot_id ||
-        (binding.session ? (rx.sample.schema_version != REFMEM_VDC_FEEDBACK_MODEL_SCHEMA ||
+        (binding.rate_mode ? (rx.sample.schema_version != REFMEM_VDC_FEEDBACK_RATE_SCHEMA ||
+            rx.sample.rate.control_session != binding.session) :
+         binding.session ? (rx.sample.schema_version != REFMEM_VDC_FEEDBACK_MODEL_SCHEMA ||
             rx.sample.model.control_session != binding.session) :
             rx.sample.schema_version != REFMEM_VDC_FEEDBACK_SCHEMA)) return;
     vdc_feedback_match_source_t *source = &s_feedback_matches[slot];
@@ -195,7 +208,7 @@ void vdc_dpll_manager_feedback_prepare_core0(void)
     source->consumed = rx.receive_count;
     vdc_dpll_manager_feedback_match_status_t status;
     match_load_words(source->words, &status, sizeof(status));
-    const uint32_t schema = binding.session ? 2u : 1u;
+    const uint32_t schema = binding.rate_mode ? 3u : (binding.session ? 2u : 1u);
     if (status.schema != schema || status.control_session != binding.session) {
         /* Retained coordinates and age units belong to their original domain
          * and session. Keep lifetime counters, never relabel an old pair. */
@@ -206,6 +219,8 @@ void vdc_dpll_manager_feedback_prepare_core0(void)
         source->peer.has_baseline = 0u;
     }
     status.schema = schema;
+    /* A RATE wait/miss cannot keep the previous estimate eligible. */
+    if (binding.rate_mode) status.active = 0u;
     status.control_session = binding.session;
     status.source_slot = slot; status.target_slot = ring.local_slot_id;
     status.ring_config_seq = binding.config; status.role_generation = binding.role;
@@ -245,14 +260,17 @@ void vdc_dpll_manager_feedback_prepare_core0(void)
         if (status.last_age_ticks > status.max_age_ticks) status.max_age_ticks = status.last_age_ticks;
         const vdc_feedback_match_sample_t sample = {
             .source_arm_epoch = rx.sample.source_arm_epoch,
-            .rx_elapsed_cycles = binding.session ? rx.sample.model.output_ns_lo : rx.sample.rx_elapsed_cycles,
+            .rx_elapsed_cycles = binding.rate_mode ? rx.sample.rate.coordinate_ns :
+                (binding.session ? rx.sample.model.output_ns_lo : rx.sample.rx_elapsed_cycles),
             .source_clock_epoch_id = rx.sample.source_clock_epoch_id,
             .source_clock_run_id = rx.sample.source_clock_run_id,
             .observer_epoch = rx.sample.observer_epoch,
             .measurement_sequence = rx.sample.measurement_sequence, .tick_hz = rx.sample.tick_hz};
-        const uint64_t width = binding.session ?
+        const uint64_t width = binding.rate_mode ? 1u : binding.session ?
             rx.sample.model.output_ns_hi - rx.sample.model.output_ns_lo : 0u;
-        const vdc_feedback_match_result_t result = binding.session ?
+        const vdc_feedback_match_result_t result = binding.rate_mode ?
+            vdc_feedback_rate_update(&s_feedback_match_cache, &source->peer, &sample,
+                rx.sample.rate.model_token) : binding.session ?
             (width > UINT32_MAX ? VDC_FEEDBACK_MATCH_INVALID :
                 vdc_feedback_model_update(&s_feedback_match_cache, &source->peer, &sample,
                     (uint32_t)width, rx.sample.model.model_token)) :
@@ -265,16 +283,20 @@ void vdc_dpll_manager_feedback_prepare_core0(void)
         } else if (result == VDC_FEEDBACK_MATCH_BASELINED || result == VDC_FEEDBACK_MATCH_INTERVAL_REBASED) {
             status.baseline_count = match_inc(status.baseline_count);
             status.active = 0u;
-        } else if (result != VDC_FEEDBACK_MATCH_DUPLICATE) status.invalid_count = match_inc(status.invalid_count);
+        } else if (result != VDC_FEEDBACK_MATCH_DUPLICATE &&
+                   result != VDC_FEEDBACK_MATCH_WAIT_WINDOW)
+            status.invalid_count = match_inc(status.invalid_count);
     }
     /* A paused Core0 worker may finish after STOP or a role transition. Its
      * result can remain as history, but cannot acquire the new authorization.
      * The getter repeats this check after publication as well. */
     uint32_t current_reference_epoch;
+    if (!vdc_dpll_manager_try_boundary_auto_enabled(&rate_mode)) return;
     if (!tdma_runtime_owner_get_origin_reference_epoch(&current_reference_epoch) ||
         current_reference_epoch != binding.reference_epoch ||
         token != __atomic_load_n(&s_feedback_match_owner_token, __ATOMIC_ACQUIRE) ||
-        binding.session != vdc_dpll_manager_feedback_session()) status.active = 0u;
+        binding.session != vdc_dpll_manager_feedback_session() ||
+        binding.rate_mode != (rate_mode ? 1u : 0u)) status.active = 0u;
     match_publish(source, &status);
 }
 
@@ -306,18 +328,23 @@ bool vdc_dpll_manager_get_feedback_match(uint32_t slot,
         vdc.control_profile.generation == result.role_generation &&
         vdc.clock_epoch_id == result.clock_epoch_id && vdc.clock_run_id == result.clock_run_id;
     const uint32_t token = __atomic_load_n(&s_feedback_match_owner_token, __ATOMIC_ACQUIRE);
+    bool rate_mode;
+    if (!vdc_dpll_manager_try_boundary_auto_enabled(&rate_mode)) return false;
     result.active = current && token && result.preparation_generation == token &&
         result.control_session == vdc_dpll_manager_feedback_session() &&
+        (result.schema == 3u) == rate_mode &&
         result.active && result.result.has_pair &&
         result.result.reference_generation ==
             __atomic_load_n(&s_feedback_match_active_generation, __ATOMIC_ACQUIRE);
     __atomic_thread_fence(__ATOMIC_ACQ_REL);
     if (guard != __atomic_load_n(&source->guard, __ATOMIC_ACQUIRE)) return false;
+    if (!vdc_dpll_manager_try_boundary_auto_enabled(&rate_mode)) return false;
     uint32_t reference_epoch;
     if (!tdma_runtime_owner_get_origin_reference_epoch(&reference_epoch) || !reference_epoch ||
         reference_epoch != result.result.reference_epoch ||
         token != __atomic_load_n(&s_feedback_match_owner_token, __ATOMIC_ACQUIRE) ||
-        result.control_session != vdc_dpll_manager_feedback_session()) result.active = 0u;
+        result.control_session != vdc_dpll_manager_feedback_session() ||
+        (result.schema == 3u) != rate_mode) result.active = 0u;
     *out = result;
     return true;
 }

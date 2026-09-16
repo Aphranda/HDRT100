@@ -2397,6 +2397,49 @@ scpi_result_t scpi_cmd_vdc_feedback_probe(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_vdc_feedback_auto(scpi_t *context)
+{
+    uint32_t enabled;
+    if (!scpi_port_read_u32(context, &enabled) || enabled > 1u ||
+        !vdc_dpll_manager_set_boundary_auto(enabled != 0u)) {
+        scpi_port_push_exec_error(context, "VDC_FEEDBACK_AUTO_STOP_SESSION_OR_RANGE");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, enabled);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_feedback_auto_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, vdc_dpll_manager_boundary_auto_enabled() ? 1u : 0u);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_feedback_reference(scpi_t *context)
+{
+    uint32_t enabled;
+    if (!scpi_port_read_u32(context, &enabled) || enabled > 1u ||
+        !vdc_dpll_manager_set_reference_publish(enabled != 0u)) {
+        scpi_port_push_exec_error(context, "VDC_FEEDBACK_REFERENCE_STOP_SESSION_OR_RANGE");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, enabled);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_feedback_reference_q(scpi_t *context)
+{
+    bool enabled;
+    if (!vdc_dpll_manager_try_reference_publish_enabled(&enabled)) {
+        scpi_port_push_exec_error(context, "VDC_FEEDBACK_REFERENCE_BUSY");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, enabled ? 1u : 0u);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_vdc_feedback_boundary_q(scpi_t *context)
 {
     uint32_t slot;
@@ -2560,8 +2603,8 @@ scpi_result_t scpi_cmd_vdc_feedback_match_q(scpi_t *context)
     SCPI_ResultUInt32(context, s.cache_insert_count);
     SCPI_ResultUInt32(context, s.cache_reject_count);
     SCPI_ResultUInt32(context, s.cache_latest_sequence);
-    /* Schema 2 uses ms for these age fields and projected ns for the pair
-     * coordinates; the reference identity is then the committed model token. */
+    /* Schemas 2/3 use ms ages and model-token identities. Schema 2 carries
+     * projected absolute output intervals; schema 3 carries rate coordinates. */
     SCPI_ResultUInt32(context, s.last_age_ticks);
     SCPI_ResultUInt32(context, s.max_age_ticks);
     SCPI_ResultUInt32(context, s.result.has_pair);
@@ -2581,7 +2624,7 @@ scpi_result_t scpi_cmd_vdc_feedback_match_q(scpi_t *context)
         SCPI_ResultUInt64(context, s.result.pairs[i].reference_tx_lo);
         SCPI_ResultUInt64(context, s.result.pairs[i].reference_tx_hi);
     }
-    if (s.schema == 2u) {
+    if (s.schema == 2u || s.schema == 3u) {
         SCPI_ResultUInt32(context, s.control_session);
         SCPI_ResultUInt32(context, s.result.reserved);
         for (uint32_t i = 0; i < 2u; ++i) {

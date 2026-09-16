@@ -89,6 +89,10 @@ static void wire_test(void)
     memset(&decoded,0xa5,sizeof(decoded));
     assert(refmem_sync_vdc_boundary_command_decode(wire,6,0,1,&decoded));
     assert(memcmp(&cmd,&decoded,sizeof(cmd))==0);
+    cmd.flags=REFMEM_VDC_BOUNDARY_COMMAND_AUTO_FLAGS;
+    assert(refmem_sync_vdc_boundary_command_encode(&cmd,6,wire));
+    assert(wire[3]==3u && refmem_sync_vdc_boundary_command_decode(wire,6,0,1,&decoded));
+    assert(memcmp(&cmd,&decoded,sizeof(cmd))==0);
     const int32_t rates[]={INT32_MIN,-1,0,1,INT32_MAX};
     for(unsigned i=0;i<sizeof(rates)/sizeof(rates[0]);++i) {
         cmd.signed_delta_rate_ppb=rates[i];
@@ -114,7 +118,7 @@ static void invalid_test(void)
     INVALID(cmd.schema_version=2u);
     INVALID(cmd.schema_version=4u);
     INVALID(cmd.flags=0u);
-    INVALID(cmd.flags=3u);
+    INVALID(cmd.flags=2u);
     INVALID(cmd.source_slot=6u);
     INVALID(cmd.target_slot=6u);
     INVALID(cmd.target_slot=cmd.source_slot);

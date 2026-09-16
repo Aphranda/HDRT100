@@ -82,6 +82,10 @@ def test_prepare_failure_is_written_and_all_boards_are_cleaned(monkeypatch,tmp_p
             return '1,2'
         if 'OPMode:STAGe' in text:
             return '7,10000000,1000000,4096,0,123'
+        if text == 'SYSTem:TDMA:OPMode?':
+            return '7,10000000,1000000,4096,0,123,7,10000000,1000000,4096,0,123,1,1,0,0'
+        if text == 'SYSTem:ERRor?':
+            return '0,"No error"'
         if text == 'SYSTem:TDMA:OPMode:APPLy':
             return '<timeout>'
         if text == 'CALibration:TOPology:PROBe 0':
@@ -90,7 +94,8 @@ def test_prepare_failure_is_written_and_all_boards_are_cleaned(monkeypatch,tmp_p
     monkeypatch.setattr(coarse,'parse_args',lambda:args)
     monkeypatch.setattr(coarse,'discover',lambda _: {b.address:b for b in boards})
     monkeypatch.setattr(coarse,'board_command',command)
-    monkeypatch.setattr(coarse,'wait_ring_stopped',lambda *args:{'ring_config_seq':7,'ring_applied_config_seq':7})
+    monkeypatch.setattr(coarse,'wait_ring_stopped',lambda *args:{
+        'ring_config_seq':7,'ring_applied_config_seq':7,'ring_enabled':0,'ring_adapter_started':0})
     assert coarse.main() == 1
     report = json.loads((tmp_path/'summary.json').read_text(encoding='utf-8'))
     assert not report['passed'] and 'APPLy' in report['error']

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import sys
 import time
@@ -27,6 +28,7 @@ from tdma_start_ring import (  # noqa: E402
     wait_started,
 )
 from tdma_frequency_sweep import snapshot  # noqa: E402
+from tdma_field_parse import RUNTIME_FIELDS  # noqa: E402
 from calibration_ring_validate.calibration_timeout_config import (  # noqa: E402
     DEFAULT_ACTION_TIMEOUT_S,
     DEFAULT_PHASE_GAP_S,
@@ -99,26 +101,167 @@ def counter_regressed(before: int, after: int) -> bool:
             not (before >= 0xF0000000 and after <= 0x0FFFFFFF))
 
 
-def arm_pair_board(board, args: argparse.Namespace) -> None:
+def arm_pair_board(board, args: argparse.Namespace, actions=None) -> None:
     """Submit ARM only after the previous STOP/TOPOLOGY intent is consumed."""
     last_result = None
     for attempt in range(1, 4):
         if attempt > 1:
             time.sleep(args.gap)
-        board_command(board, "SYSTem:TDMA:RING:ARM", args)
+        record = {"board": board.address, "attempt": attempt}
+        if actions is not None:
+            actions.append(record)
+        response = board_command(board, "SYSTem:TDMA:RING:ARM", args)
+        record["response"] = response
         raw = board_command(board, "SYSTem:TDMA:RING:ARM:STATus?", args)
+        record["status_response"] = raw
         try:
             last_result = int(raw.strip().strip('"'), 0)
         except ValueError as exc:
             raise RuntimeError(
                 f"{board.address}: invalid ARM status {raw!r}") from exc
-        if last_result == 1:
+        if last_result == 1 and response.strip().strip('"') == "OK":
             return
+        if response.strip().strip('"') != "OK":
+            raise RuntimeError(f"{board.address}: ARM acknowledgment unknown: {record}")
         # Result 8 is the firmware's bounded transition rejection.  The
         # next attempt is safe after the explicit handoff gap; other results
         # are also retried once so transient CDC/owner races remain diagnosable.
     raise RuntimeError(
         f"{board.address}: ARM rejected with result={last_result}")
+
+
+def _error_code(raw: str) -> int:
+    fields = next(csv.reader([raw], strict=True))
+    if len(fields) != 2 or not fields[1].strip():
+        raise ValueError(f"invalid error response {raw!r}")
+    return int(fields[0].strip(), 10)
+
+
+def _wait_pair_state(board, args, record, *, started, slot=None):
+    """Fresh physical state plus consumed configuration, never a cached ACK."""
+    deadline = time.monotonic() + args.arm_wait
+    observations = record.setdefault("state_observations", [])
+    while time.monotonic() < deadline:
+        row = {}
+        observations.append(row)
+        try:
+            raw = board_command(board, "SYSTem:TDMA:RING:STATus?", args)
+            row["response"] = raw
+            values = [int(field.strip().strip('"'), 0) for field in raw.split(",")]
+            if len(values) != len(RUNTIME_FIELDS) or any(v < 0 or v > 0xffffffff for v in values):
+                raise ValueError("invalid runtime fields")
+            state = dict(zip(RUNTIME_FIELDS, values))
+            row["snapshot"] = state
+            applied = state["ring_config_seq"] == state["ring_applied_config_seq"]
+            matched = slot is None or tuple(state[key] for key in (
+                "ring_node_count", "ring_local_slot_id", "ring_reference_slot_id")) == (2, slot, 0)
+            if (time.monotonic() < deadline and applied and matched and
+                    state["ring_enabled"] == int(started) and
+                    state["ring_adapter_started"] == int(started)):
+                return state
+        except Exception as exc:
+            row["error"] = f"{type(exc).__name__}: {exc}"
+        time.sleep(min(.02, max(0., deadline - time.monotonic())))
+    raise RuntimeError(f"{board.address}: unconfirmed {'ARM' if started else 'STOP'}: {observations}")
+
+
+def _stop_pair_board(board, args):
+    record = {"board": board.address, "passed": False}
+    try:
+        record["response"] = board_command(board, "SYSTem:TDMA:RING:STOP", args)
+    except Exception as exc:
+        record["command_error"] = f"{type(exc).__name__}: {exc}"
+    try:
+        record["stopped"] = _wait_pair_state(board, args, record, started=False)
+        record["passed"] = record.get("response", "").strip().strip('"') == "OK"
+        if not record["passed"]:
+            record["error"] = "STOP acknowledgment refused or unknown despite stopped readback"
+    except Exception as exc:
+        record["error"] = f"{type(exc).__name__}: {exc}"
+    return record
+
+
+def _start_pair_board(board, args, actions):
+    """Exclusive per-board transaction; only a real ACK and clean ERR pass."""
+    record = {"board": board.address, "passed": False, "errors_before": []}
+    actions.append(record)
+    try:
+        for _ in range(16):
+            raw = board_command(board, "SYSTem:ERRor?", args)
+            record["errors_before"].append(raw)
+            if _error_code(raw) == 0:
+                break
+        else:
+            raise RuntimeError("error queue did not reach a clean baseline")
+        record["attempted"] = True
+        try:
+            response = board_command(board, "SYSTem:TDMA:RING:START", args)
+            record["response"] = response
+        finally:
+            # A missing or negative reply can occur after data was enabled.
+            # Keep the device reason, but never infer START success from it.
+            try:
+                record["error_after"] = board_command(board, "SYSTem:ERRor?", args)
+            except Exception as exc:
+                record["error_readback_failure"] = f"{type(exc).__name__}: {exc}"
+        if response.strip().strip('"') != "OK":
+            raise RuntimeError("START acknowledgment is refused or unknown")
+        if "error_after" not in record or _error_code(record["error_after"]) != 0:
+            raise RuntimeError("START error queue is not clear")
+        record["passed"] = True
+    except Exception as exc:
+        record["error"] = f"{type(exc).__name__}: {exc}"
+        raise RuntimeError(f"{board.address}: START failed: {record}") from exc
+
+
+def start_pair(driver, receiver, args, actions, recoveries):
+    """At most two ARM lifetimes; no naked retry of an unknown START."""
+    for attempt in (1, 2):
+        record = {"driver": driver.address, "receiver": receiver.address,
+                  "attempt": attempt, "passed": False, "arm": [], "start": []}
+        actions.append(record)
+        try:
+            for board, slot in ((receiver, 1), (driver, 0)):
+                arm_pair_board(board, args, record["arm"])
+                state_record = {"board": board.address}
+                record.setdefault("armed", []).append(state_record)
+                state_record["snapshot"] = _wait_pair_state(
+                    board, args, state_record, started=True, slot=slot)
+            if not args.adjacency_only:
+                for board in (receiver, driver):
+                    train_record = {"board": board.address}
+                    record.setdefault("training", []).append(train_record)
+                    train_record["result"] = train(board, args)
+            close_persistent_connections()
+            before = snapshot(receiver, args.timeout)
+            record["before"] = before
+            # Snapshot is a separate serial owner; do not reuse an old
+            # lifetime's counter baseline if preparation has changed it.
+            armed = record["armed"][0]["snapshot"]
+            if any(before["tdma"][key] != armed[key] for key in (
+                    "ring_config_seq", "ring_node_count", "ring_local_slot_id",
+                    "ring_reference_slot_id", "ring_enabled", "ring_adapter_started")):
+                raise RuntimeError("receiver baseline no longer matches armed pair")
+            for board in (receiver, driver):
+                _start_pair_board(board, args, record["start"])
+            record["passed"] = True
+            return before
+        except Exception as exc:
+            record["error"] = f"{type(exc).__name__}: {exc}"
+            if not any(row.get("attempted") for row in record["start"]):
+                raise
+            # Attempt every STOP even if one transport fails. Re-ARM is
+            # forbidden until both fresh stopped/config barriers are proven.
+            record["recovery_stop"] = [_stop_pair_board(board, args)
+                                       for board in (receiver, driver)]
+            if not all(row["passed"] for row in record["recovery_stop"]):
+                raise RuntimeError(f"pair recovery STOP unconfirmed: {record}") from exc
+            if attempt == 2:
+                raise RuntimeError(f"pair START failed after two lifetimes: {record}") from exc
+            recoveries.append({"phase": f"{driver.address}->{receiver.address}",
+                "action": "STOP_CONFIRMED_REARM_PAIR", "failed_attempt": attempt,
+                "reason": record["error"]})
+    raise AssertionError("unreachable")
 
 
 def wait_started_with_transport_recovery(
@@ -266,15 +409,25 @@ def main() -> int:
             "passed": active_level == args.level,
         }
 
-    with ThreadPoolExecutor(max_workers=len(board_ids)) as executor:
-        profile_apply = list(executor.map(apply_profile, board_ids))
-    if not all(item["passed"] for item in profile_apply):
-        raise RuntimeError(f"Calibration profile apply failed: {profile_apply}")
-
+    profile_apply: list[dict[str, object]] = []
     pair_results: list[dict[str, object]] = []
+    pair_actions: list[dict[str, object]] = []
+    pair_preparation: list[dict[str, object]] = []
     transport_recoveries: list[dict[str, object]] = []
+    cleanup_results: list[dict[str, object]] = []
+    error = ""
     adjacency = {address: [] for address in board_ids}
     try:
+        with ThreadPoolExecutor(max_workers=len(board_ids)) as executor:
+            # Retain completed peers even if another profile action fails.
+            futures = [executor.submit(apply_profile, address) for address in board_ids]
+            for future in futures:
+                try:
+                    profile_apply.append(future.result())
+                except Exception as exc:
+                    profile_apply.append({"passed": False, "error": f"{type(exc).__name__}: {exc}"})
+        if not all(item["passed"] for item in profile_apply):
+            raise RuntimeError(f"Calibration profile apply failed: {profile_apply}")
         # P0T uses temporary two-node topologies. Clear any persisted formal
         # training stage once before the matrix scan; later pairs do not add a
         # stage, so repeating this action only adds serial timeout latency.
@@ -287,39 +440,36 @@ def main() -> int:
             for receiver_id in board_ids:
                 if receiver_id == driver_id:
                     continue
+                preparation = {"driver": driver_id, "receiver": receiver_id, "topology": []}
+                pair_preparation.append(preparation)
                 with ThreadPoolExecutor(max_workers=len(board_ids)) as executor:
-                    list(executor.map(
-                        lambda address: board_command(
-                            boards[address], "SYSTem:TDMA:RING:STOP", args),
+                    preparation["stop"] = list(executor.map(
+                        lambda address: _stop_pair_board(boards[address], args),
                         board_ids))
+                if not all(row["passed"] for row in preparation["stop"]):
+                    raise RuntimeError(f"pair preparation STOP unconfirmed: {preparation}")
                 time.sleep(args.gap)
 
                 driver = boards[driver_id]
                 receiver = boards[receiver_id]
-                with ThreadPoolExecutor(max_workers=2) as executor:
-                    list(executor.map(
-                        lambda item: board_command(item[0], item[1], args),
-                        ((driver, "SYSTem:TDMA:RING:TOPology 2,0,0"),
-                         (receiver, "SYSTem:TDMA:RING:TOPology 2,1,0"))))
+                for board, slot in ((driver, 0), (receiver, 1)):
+                    row = {"board": board.address, "slot": slot}
+                    preparation["topology"].append(row)
+                    try:
+                        row["response"] = board_command(
+                            board, f"SYSTem:TDMA:RING:TOPology 2,{slot},0", args)
+                        values = tuple(int(v.strip().strip('"'), 0) for v in row["response"].split(","))
+                        if values != (2, slot, 0):
+                            raise RuntimeError(f"pair topology acknowledgment mismatch: {row}")
+                    except Exception as exc:
+                        row["error"] = f"{type(exc).__name__}: {exc}"
+                        try:
+                            row["error_after"] = board_command(board, "SYSTem:ERRor?", args)
+                        except Exception as readback_exc:
+                            row["error_readback_failure"] = f"{type(readback_exc).__name__}: {readback_exc}"
+                        raise
                 time.sleep(args.gap)
-                for board in (receiver, driver):
-                    arm_pair_board(board, args)
-                    _ = wait_started_with_transport_recovery(
-                        board, args, transport_recoveries,
-                        f"{driver_id}->{receiver_id}")
-                if not args.adjacency_only:
-                    for board in (receiver, driver):
-                        _ = train(board, args)
-
-                # ``board_command`` uses a persistent CDC session by default,
-                # while the frequency-sweep snapshot helper owns a separate
-                # serial handle. Release the former before opening the
-                # latter; Windows rejects concurrent opens of the same COM
-                # port and turns a valid probe into a false failure.
-                close_persistent_connections()
-                before = snapshot(receiver, args.timeout)
-                _ = board_command(receiver, "SYSTem:TDMA:RING:START", args)
-                _ = board_command(driver, "SYSTem:TDMA:RING:START", args)
+                before = start_pair(driver, receiver, args, pair_actions, transport_recoveries)
                 # START is an intent.  Use the receiver's counters as the
                 # completion query and return as soon as activity is visible;
                 # pair_wait is only the bounded failure timeout.
@@ -328,6 +478,11 @@ def main() -> int:
                 while time.monotonic() < deadline:
                     close_persistent_connections()
                     candidate = snapshot(receiver, args.timeout)
+                    if any(candidate["tdma"][key] != before["tdma"][key] for key in (
+                            "ring_config_seq", "ring_node_count", "ring_local_slot_id",
+                            "ring_reference_slot_id", "ring_enabled", "ring_adapter_started")):
+                        preparation["failed_activity_snapshot"] = candidate
+                        raise RuntimeError("pair activity crossed the admitted ARM lifetime")
                     rx_delta = counter_delta(
                         before["tdma"]["ring_adapter_rx_count"],
                         candidate["tdma"]["ring_adapter_rx_count"])
@@ -384,64 +539,74 @@ def main() -> int:
                     "receiver_status": after["tdma"],
                     "receiver_phys": after["phys"],
                 })
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
     finally:
-        def cleanup(address: str) -> None:
+        def cleanup(address: str):
+            record = _stop_pair_board(boards[address], args)
             try:
-                _ = board_command(
-                    boards[address], "SYSTem:TDMA:RING:STOP", args)
-                _ = board_command(
+                record["probe_response"] = board_command(
                     boards[address], "CALibration:TOPology:PROBe 0", args)
-            except Exception:  # pragma: no cover - best effort bench cleanup
-                pass
+                if tuple(int(v.strip().strip('"'), 0) for v in record["probe_response"].split(",")) != (0, 0):
+                    raise RuntimeError("probe cleanup acknowledgment unknown")
+            except Exception as exc:
+                record["probe_error"] = f"{type(exc).__name__}: {exc}"
+                record["passed"] = False
+            return record
         with ThreadPoolExecutor(max_workers=len(board_ids)) as executor:
-            list(executor.map(cleanup, board_ids))
-        # The topology process is a phase boundary. Do not leave persistent
-        # CDC handles alive for the next calibration subprocess.
+            cleanup_results = list(executor.map(cleanup, board_ids))
         close_persistent_connections()
 
     anchor = args.anchor_id or board_ids[0]
     ring_order = render_ring_order(adjacency, anchor, len(board_ids))
-    passed = len(ring_order) == len(board_ids)
+    passed = (not error and len(ring_order) == len(board_ids) and
+              all(row["passed"] for row in cleanup_results))
     assignments: list[dict[str, object]] = []
     reboot_readback: list[dict[str, object]] = []
-    if passed and not args.no_assign:
-        for index, address in enumerate(ring_order):
-            write_response = board_command(
-                boards[address], f"SYSTem:BOARD:NO {index + 1}", args)
-            readback = board_command(
-                boards[address], "SYSTem:BOARD:NO?", args).strip().strip('"')
-            assignment_passed = readback == str(index + 1)
-            assignments.append({
-                "no": index + 1,
-                "address": address,
-                "write_response": write_response,
-                "readback": readback,
-                "passed": assignment_passed,
-            })
-            passed = passed and assignment_passed
-        if passed and args.reboot_verify_no:
-            for address in ring_order:
-                _ = board_command(
-                    boards[address], "SYSTem:BOOT:RESet", args)
-            time.sleep(max(args.reboot_wait, 3.0))
-            rebooted = discover(args)
-            missing_after_reboot = set(board_ids) - set(rebooted)
-            if missing_after_reboot:
-                raise RuntimeError(
-                    "boards missing after reboot: " +
-                    ", ".join(sorted(missing_after_reboot)))
+    try:
+        if passed and not args.no_assign:
             for index, address in enumerate(ring_order):
+                write_response = board_command(
+                    boards[address], f"SYSTem:BOARD:NO {index + 1}", args)
                 readback = board_command(
-                    rebooted[address], "SYSTem:BOARD:NO?", args
-                ).strip().strip('"')
-                readback_passed = readback == str(index + 1)
-                reboot_readback.append({
+                    boards[address], "SYSTem:BOARD:NO?", args).strip().strip('"')
+                assignment_passed = readback == str(index + 1)
+                assignments.append({
                     "no": index + 1,
                     "address": address,
+                    "write_response": write_response,
                     "readback": readback,
-                    "passed": readback_passed,
+                    "passed": assignment_passed,
                 })
-                passed = passed and readback_passed
+                passed = passed and assignment_passed
+            if passed and args.reboot_verify_no:
+                for address in ring_order:
+                    _ = board_command(
+                        boards[address], "SYSTem:BOOT:RESet", args)
+                time.sleep(max(args.reboot_wait, 3.0))
+                rebooted = discover(args)
+                missing_after_reboot = set(board_ids) - set(rebooted)
+                if missing_after_reboot:
+                    raise RuntimeError(
+                        "boards missing after reboot: " +
+                        ", ".join(sorted(missing_after_reboot)))
+                for index, address in enumerate(ring_order):
+                    readback = board_command(
+                        rebooted[address], "SYSTem:BOARD:NO?", args
+                    ).strip().strip('"')
+                    readback_passed = readback == str(index + 1)
+                    reboot_readback.append({
+                        "no": index + 1,
+                        "address": address,
+                        "readback": readback,
+                        "passed": readback_passed,
+                    })
+                    passed = passed and readback_passed
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
+        passed = False
+    finally:
+        close_persistent_connections()
     result = {
         "measurement_domain": "calibration",
         "measurement_phase": "link_adjacency_and_ring_topology",
@@ -463,6 +628,10 @@ def main() -> int:
         "adjacency": adjacency,
         "boards": {address: asdict(boards[address]) for address in board_ids},
         "pair_results": pair_results,
+        "pair_actions": pair_actions,
+        "pair_preparation": pair_preparation,
+        "cleanup": cleanup_results,
+        "error": error,
         "transport_recoveries": transport_recoveries,
         "adjacency_only": args.adjacency_only,
         "probe_phase_cycles": args.probe_phase_cycles,

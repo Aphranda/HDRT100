@@ -1,10 +1,12 @@
-/* Core1 owns commands and per-peer one-shot budgets. Core0 owns only the
+/* Core1 owns commands and per-peer application state. Core0 owns only the
  * STOP request and TX-done mailbox. All shared payload accesses are atomic
  * words; neither reader retries nor the realtime owner waits for transport. */
 typedef struct {
     uint64_t arm, source_output_lo;
     uint32_t clock_epoch, clock_run, observer, model;
-    uint32_t command, measurement, state, offered_ms;
+    uint32_t command, measurement, offered_ms;
+    uint16_t state;
+    int16_t delta;
 } vdc_boundary_peer_t;
 typedef struct {
     uint64_t offer_reference_lo;
@@ -13,14 +15,19 @@ typedef struct {
     uint32_t offer, serial, offer_slot, authorization;
     uint32_t tx_count, apply_count, reject_count, last_reject, cursor, halted;
     uint32_t offer_reference_model;
-    uint32_t first_reject, reject_mask;
+    uint32_t first_reject, reject_mask, mode;
 } vdc_boundary_meta_t;
 static uint32_t s_boundary_peer_words[PROJECT_NODE_CAPACITY][sizeof(vdc_boundary_peer_t) / 4u];
 static uint32_t s_boundary_meta_words[sizeof(vdc_boundary_meta_t) / 4u];
 static uint32_t s_boundary_guard, s_boundary_request, s_boundary_request_session;
 static int32_t s_boundary_request_delta;
+static uint32_t s_boundary_request_mode;
 static uint32_t s_boundary_tx_done;
 _Static_assert(sizeof(vdc_boundary_peer_t) == 48u, "bounded peer history");
+_Static_assert(VDC_BOUNDARY_PROBE_MAX_DELTA_PPB <= INT16_MAX &&
+               VDC_BOUNDARY_AUTO_MAX_DELTA_PPB <= INT16_MAX,
+               "immutable peer delta fits its signed storage");
+_Static_assert(VDC_BOUNDARY_APPLIED <= UINT16_MAX, "peer state fits storage");
 _Static_assert(sizeof(vdc_boundary_meta_t) % 4u == 0u, "atomic boundary words");
 
 enum {
@@ -39,27 +46,33 @@ static void boundary_store(uint32_t *words, const void *input, size_t size)
     }
 }
 
-static bool boundary_request(uint32_t *generation, uint32_t *session, int32_t *delta)
+static bool boundary_request(uint32_t *generation, uint32_t *session, int32_t *delta,
+    uint32_t *mode)
 {
     const uint32_t before = __atomic_load_n(&s_boundary_request, __ATOMIC_ACQUIRE);
     if (before & 1u) return false;
     *session = __atomic_load_n(&s_boundary_request_session, __ATOMIC_RELAXED);
     *delta = __atomic_load_n(&s_boundary_request_delta, __ATOMIC_RELAXED);
+    *mode = __atomic_load_n(&s_boundary_request_mode, __ATOMIC_RELAXED);
     __atomic_thread_fence(__ATOMIC_ACQ_REL);
     if (before != __atomic_load_n(&s_boundary_request, __ATOMIC_ACQUIRE)) return false;
     *generation = before;
     return true;
 }
 
+typedef struct { int32_t delta; uint32_t mode; } vdc_boundary_request_t;
+
 static bool boundary_set_stopped(void *context)
 {
-    const int32_t delta = *(const int32_t *)context;
+    const vdc_boundary_request_t *request = context;
     const uint32_t session = vdc_dpll_manager_feedback_session();
     const uint32_t generation = __atomic_load_n(&s_boundary_request, __ATOMIC_RELAXED);
-    if ((!session && delta) || generation > UINT32_MAX - 2u || (generation & 1u)) return false;
+    if ((!session && (request->delta || request->mode != VDC_BOUNDARY_MODE_PROBE)) ||
+        generation > UINT32_MAX - 2u || (generation & 1u)) return false;
     (void)__atomic_add_fetch(&s_boundary_request, 1u, __ATOMIC_ACQ_REL);
     __atomic_store_n(&s_boundary_request_session, session, __ATOMIC_RELAXED);
-    __atomic_store_n(&s_boundary_request_delta, delta, __ATOMIC_RELAXED);
+    __atomic_store_n(&s_boundary_request_delta, request->delta, __ATOMIC_RELAXED);
+    __atomic_store_n(&s_boundary_request_mode, request->mode, __ATOMIC_RELAXED);
     (void)__atomic_add_fetch(&s_boundary_request, 1u, __ATOMIC_RELEASE);
     return true;
 }
@@ -68,10 +81,64 @@ bool vdc_dpll_manager_set_boundary_probe(int32_t delta_ppb)
 {
     if (delta_ppb < -VDC_BOUNDARY_PROBE_MAX_DELTA_PPB ||
         delta_ppb > VDC_BOUNDARY_PROBE_MAX_DELTA_PPB) return false;
-    return tdma_service_update_stopped_metadata(s_vdc_tdma_service, boundary_set_stopped, &delta_ppb);
+    vdc_boundary_request_t request = {.delta = delta_ppb, .mode = VDC_BOUNDARY_MODE_PROBE};
+    return tdma_service_update_stopped_metadata(s_vdc_tdma_service, boundary_set_stopped, &request);
 }
 
-/* Peer storage keeps every wire field not shared by the immutable probe.
+bool vdc_dpll_manager_set_boundary_auto(bool enabled)
+{
+    vdc_boundary_request_t request = {.mode = enabled ? VDC_BOUNDARY_MODE_AUTO : VDC_BOUNDARY_MODE_PROBE};
+    return tdma_service_update_stopped_metadata(s_vdc_tdma_service, boundary_set_stopped, &request);
+}
+
+bool vdc_dpll_manager_set_reference_publish(bool enabled)
+{
+    vdc_boundary_request_t request = {
+        .mode = enabled ? VDC_BOUNDARY_MODE_REFERENCE : VDC_BOUNDARY_MODE_PROBE};
+    return tdma_service_update_stopped_metadata(s_vdc_tdma_service, boundary_set_stopped, &request);
+}
+
+bool vdc_dpll_manager_try_reference_publish_enabled(bool *enabled)
+{
+    if (enabled == NULL) return false;
+    uint32_t request, session, mode;
+    int32_t delta;
+    if (!boundary_request(&request, &session, &delta, &mode)) return false;
+    const uint32_t current = vdc_dpll_manager_feedback_session();
+    __atomic_thread_fence(__ATOMIC_ACQ_REL);
+    if (request != __atomic_load_n(&s_boundary_request, __ATOMIC_ACQUIRE) ||
+        current != vdc_dpll_manager_feedback_session()) return false;
+    *enabled = request && mode == VDC_BOUNDARY_MODE_REFERENCE && session && session == current;
+    return true;
+}
+
+bool vdc_dpll_manager_try_boundary_auto_enabled(bool *enabled)
+{
+    if (enabled == NULL) return false;
+    uint32_t request, session, mode;
+    int32_t delta;
+    if (!boundary_request(&request, &session, &delta, &mode)) return false;
+    const uint32_t guard = __atomic_load_n(&s_boundary_guard, __ATOMIC_ACQUIRE);
+    if (guard & 1u) return false;
+    const uint32_t live_session = vdc_dpll_manager_feedback_session();
+    vdc_boundary_meta_t m;
+    match_load_words(s_boundary_meta_words, &m, sizeof(m));
+    __atomic_thread_fence(__ATOMIC_ACQ_REL);
+    if (guard != __atomic_load_n(&s_boundary_guard, __ATOMIC_ACQUIRE) ||
+        request != __atomic_load_n(&s_boundary_request, __ATOMIC_ACQUIRE) ||
+        live_session != vdc_dpll_manager_feedback_session()) return false;
+    *enabled = request && mode == VDC_BOUNDARY_MODE_AUTO && session &&
+        session == live_session && (m.probe != request || !m.halted);
+    return true;
+}
+
+bool vdc_dpll_manager_boundary_auto_enabled(void)
+{
+    bool enabled;
+    return vdc_dpll_manager_try_boundary_auto_enabled(&enabled) && enabled;
+}
+
+/* Peer storage keeps every wire field not shared by the immutable request.
  * expected_applied is losslessly command-1: only that succession is issued. */
 static void boundary_command(const vdc_boundary_meta_t *m, const vdc_boundary_peer_t *p,
     uint32_t slot, refmem_sync_vdc_boundary_command_t *out)
@@ -84,10 +151,11 @@ static void boundary_command(const vdc_boundary_meta_t *m, const vdc_boundary_pe
         .schedule_crc32 = m->schedule, .target_clock_epoch_id = p->clock_epoch,
         .target_clock_run_id = p->clock_run, .target_observer_epoch = p->observer,
         .basis_measurement_sequence = p->measurement, .expected_target_model_token = p->model,
-        .expected_applied_command_seq = p->command - 1u, .signed_delta_rate_ppb = m->delta,
+        .expected_applied_command_seq = p->command - 1u, .signed_delta_rate_ppb = p->delta,
         .schema_version = REFMEM_VDC_BOUNDARY_COMMAND_SCHEMA,
         .source_slot = (uint8_t)m->source, .target_slot = (uint8_t)slot,
-        .flags = REFMEM_VDC_BOUNDARY_COMMAND_FLAGS};
+        .flags = m->mode == VDC_BOUNDARY_MODE_AUTO ? REFMEM_VDC_BOUNDARY_COMMAND_AUTO_FLAGS :
+            REFMEM_VDC_BOUNDARY_COMMAND_FLAGS};
 }
 
 static bool boundary_ring(tdma_ring_clock_snapshot_t *ring)
@@ -106,7 +174,7 @@ static bool boundary_running(const tdma_ring_clock_snapshot_t *r)
 
 static bool boundary_request_current(const vdc_boundary_meta_t *m)
 {
-    return m->probe && !m->halted && m->delta &&
+    return m->probe && !m->halted && (m->delta || m->mode == VDC_BOUNDARY_MODE_AUTO) &&
         m->probe == __atomic_load_n(&s_boundary_request, __ATOMIC_ACQUIRE) &&
         m->session == vdc_dpll_manager_feedback_session();
 }
@@ -119,6 +187,8 @@ static bool boundary_role_current(const vdc_boundary_meta_t *m)
 }
 
 static bool boundary_fresh(const vdc_dco_control_t *dco, uint64_t lower, uint64_t now);
+static bool boundary_reference_fresh(const vdc_boundary_meta_t *m,
+    const vdc_dco_control_t *dco, uint64_t lower);
 
 /* Core0 validates its independently copied local binding as well. The
  * matcher authorization prevents an old offer surviving STOP/role ABA. */
@@ -151,7 +221,7 @@ int vdc_dpll_manager_copy_boundary_command_offer(uint32_t config, uint32_t role,
     if (model.token != m.offer_reference_model || model.session != session ||
         model.role_generation != role || model.local_slot != source ||
         model.dco.tdma_schedule_crc32 != schedule ||
-        !boundary_fresh(&model.dco, m.offer_reference_lo, vdc_dpll_manager_now_ns())) return 0;
+        !boundary_reference_fresh(&m, &model.dco, m.offer_reference_lo)) return 0;
     refmem_sync_vdc_boundary_command_t command;
     boundary_command(&m, &p, m.offer_slot, &command);
     __atomic_thread_fence(__ATOMIC_ACQ_REL);
@@ -179,13 +249,14 @@ bool vdc_dpll_manager_get_boundary_status(uint32_t slot, vdc_dpll_boundary_statu
     vdc_boundary_peer_t p;
     match_load_words(s_boundary_meta_words, &m, sizeof(m));
     match_load_words(s_boundary_peer_words[slot], &p, sizeof(p));
-    uint32_t request, session;
+    uint32_t request, session, mode;
     int32_t delta;
-    if (!boundary_request(&request, &session, &delta)) return false;
+    if (!boundary_request(&request, &session, &delta, &mode)) return false;
     tdma_ring_clock_snapshot_t ring;
     if (!boundary_ring(&ring)) return false;
     vdc_dpll_boundary_status_t status = {
-        .schema = 2u, .active = boundary_request_current(&m) && boundary_running(&ring) &&
+        .schema = m.mode == VDC_BOUNDARY_MODE_AUTO ? 3u : 2u,
+        .active = boundary_request_current(&m) && boundary_running(&ring) &&
             ring.config_seq == m.config && ring.schedule_crc32 == m.schedule,
         .requested_probe_generation = request, .requested_delta_ppb = delta,
         .control_session = m.session, .probe_generation = m.probe, .consumed_mask = m.consumed,
@@ -250,6 +321,17 @@ static bool boundary_fresh(const vdc_dco_control_t *dco, uint64_t lower, uint64_
         upper >= lower && upper - lower <= VDC_BOUNDARY_COMMAND_MAX_AGE_NS;
 }
 
+static bool boundary_reference_fresh(const vdc_boundary_meta_t *m,
+    const vdc_dco_control_t *dco, uint64_t lower)
+{
+    if (m->mode != VDC_BOUNDARY_MODE_AUTO)
+        return boundary_fresh(dco, lower, vdc_dpll_manager_now_ns());
+    uint64_t raw, upper;
+    return vdc_timestamp_clock_try_read_ticks64(BOARD_SYS_CLOCK_HZ, &raw) &&
+        vdc_model_rate_coordinate_ns(dco->period_adjust_ppb, BOARD_SYS_CLOCK_HZ, raw, true, &upper) &&
+        upper >= lower && upper - lower <= VDC_BOUNDARY_COMMAND_MAX_AGE_NS;
+}
+
 static bool boundary_feedback(const vdc_boundary_meta_t *m, uint32_t slot,
     distributed_refmem_vdc_feedback_rx_snapshot_t *rx)
 {
@@ -257,9 +339,14 @@ static bool boundary_feedback(const vdc_boundary_meta_t *m, uint32_t slot,
         rx->source_slot == slot && rx->ring_config_seq == m->config && rx->role_generation == m->role &&
         rx->schedule_crc32 == m->schedule && rx->clock_epoch_id == s_vdc_domain.clock.epoch_id &&
         rx->clock_run_id == s_vdc_domain.clock.run_id &&
-        rx->sample.schema_version == REFMEM_VDC_FEEDBACK_MODEL_SCHEMA &&
+        (m->mode == VDC_BOUNDARY_MODE_AUTO ?
+            (rx->sample.schema_version == REFMEM_VDC_FEEDBACK_RATE_SCHEMA &&
+             rx->sample.domain_flags == REFMEM_VDC_FEEDBACK_RATE_FLAGS &&
+             rx->sample.rate.control_session == m->session) :
+            (rx->sample.schema_version == REFMEM_VDC_FEEDBACK_MODEL_SCHEMA &&
+             rx->sample.model.control_session == m->session)) &&
         rx->sample.source_slot == slot && rx->sample.target_slot == m->source &&
-        rx->sample.model.control_session == m->session;
+        rx->sample.tick_hz == BOARD_SYS_CLOCK_HZ;
 }
 
 static bool boundary_lifetime(const vdc_boundary_peer_t *p, const refmem_sync_vdc_feedback_record_t *r)
@@ -305,62 +392,104 @@ static __attribute__((noinline)) void boundary_master(vdc_boundary_meta_t *m, ui
     distributed_refmem_vdc_feedback_rx_snapshot_t rx;
     if (!boundary_feedback(m, slot, &rx)) return;
     const refmem_sync_vdc_feedback_record_t *r = &rx.sample;
-    if (m->consumed & (1u << slot)) {
-        if ((p.state == VDC_BOUNDARY_PENDING || p.state == VDC_BOUNDARY_EXPIRED_UNRESOLVED) &&
-            boundary_lifetime(&p, r) && r->model.applied_command_seq == p.command &&
-            r->model.model_token > p.model && r->measurement_sequence > p.measurement) {
+    const bool automatic = m->mode == VDC_BOUNDARY_MODE_AUTO;
+    const uint32_t applied_sequence = automatic ? r->rate.applied_command_seq : r->model.applied_command_seq;
+    const uint32_t source_model = automatic ? r->rate.model_token : r->model.model_token;
+    if (p.state == VDC_BOUNDARY_PENDING || p.state == VDC_BOUNDARY_EXPIRED_UNRESOLVED) {
+        if (boundary_lifetime(&p, r) && applied_sequence == p.command &&
+            source_model > p.model && r->measurement_sequence > p.measurement) {
             p.state = p.state == VDC_BOUNDARY_PENDING ? VDC_BOUNDARY_ACKED : VDC_BOUNDARY_LATE_APPLIED;
             /* Exact application ACK withdraws any unsent/partial repeats.
-             * The peer stays consumed; delayed TX-done cannot retire a later offer. */
+             * The immutable old peer remains available until a qualified new window. */
             if (m->offer && m->offer_slot == slot) m->offer = 0u;
+            if (automatic) {
+                m->consumed &= ~(1u << slot);
+                vdc_boundary_capture_ack_core1(rx.record, p.command, p.model);
+            }
             boundary_store(s_boundary_peer_words[slot], &p, sizeof(p));
         }
         return;
     }
+    if (!automatic && (m->consumed & (1u << slot))) return;
     if (m->offer) return;
     vdc_dpll_manager_feedback_match_status_t match;
     vdc_dpll_manager_committed_model_t model;
     if (!boundary_model(&model, m)) { boundary_reject(m, BOUNDARY_REJECT_MODEL); return; }
-    if (!boundary_match(slot, m, &match) || match.schema != 2u ||
+    if (!boundary_match(slot, m, &match) || match.schema != (automatic ? 3u : 2u) ||
         match.control_session != m->session || match.ring_config_seq != m->config ||
         match.role_generation != m->role || match.schedule_crc32 != m->schedule ||
         match.receive_count != rx.receive_count || match.last_result != VDC_FEEDBACK_MATCH_MATCHED ||
-        !match.result.has_pair || match.result.reserved != VDC_FEEDBACK_MODEL_DOMAIN) {
+        !match.result.has_pair || match.result.reserved !=
+            (automatic ? VDC_FEEDBACK_RATE_DOMAIN : VDC_FEEDBACK_MODEL_DOMAIN)) {
         boundary_reject(m, BOUNDARY_REJECT_PAIR); return;
     }
     const vdc_feedback_match_pair_t *first = &match.result.pairs[0], *last = &match.result.pairs[1];
     const vdc_feedback_match_lifetime_t *life = &match.result.source;
     if (first->source_model_token != last->source_model_token ||
         first->reference_identity_crc32 != last->reference_identity_crc32 ||
-        last->reference_identity_crc32 != model.token || last->source_model_token != r->model.model_token ||
+        last->reference_identity_crc32 != model.token || last->source_model_token != source_model ||
         last->measurement_sequence != r->measurement_sequence ||
-        last->rx_elapsed_cycles != r->model.output_ns_lo || r->model.output_ns_hi < r->model.output_ns_lo ||
-        r->model.output_ns_hi - r->model.output_ns_lo != last->rx_width_ns ||
+        (automatic ? (last->rx_elapsed_cycles != r->rate.coordinate_ns || last->rx_width_ns != 1u ||
+            r->rate.reserved != 0u) :
+            (last->rx_elapsed_cycles != r->model.output_ns_lo || r->model.output_ns_hi < r->model.output_ns_lo ||
+             r->model.output_ns_hi - r->model.output_ns_lo != last->rx_width_ns)) ||
         life->source_arm_epoch != r->source_arm_epoch || life->observer_epoch != r->observer_epoch ||
         life->source_clock_epoch_id != r->source_clock_epoch_id ||
         life->source_clock_run_id != r->source_clock_run_id || life->tick_hz != r->tick_hz) {
         boundary_reject(m, BOUNDARY_REJECT_IDENTITY); return;
     }
-    if (!boundary_fresh(&model.dco, last->reference_tx_lo, vdc_dpll_manager_now_ns())) {
+    /* A completed automatic command only releases a new observation window
+     * of the applied model. Old pre-apply pairs never integrate twice. */
+    if (automatic && p.command &&
+        (!boundary_lifetime(&p, r) || applied_sequence != p.command || source_model <= p.model ||
+         first->measurement_sequence <= p.measurement)) return;
+    if (!boundary_reference_fresh(m, &model.dco, last->reference_tx_lo)) {
         boundary_reject(m, BOUNDARY_REJECT_AGE); return;
     }
-    if (r->model.applied_command_seq == UINT32_MAX || m->serial == UINT32_MAX) {
+    if (applied_sequence == UINT32_MAX || m->serial == UINT32_MAX) {
         boundary_reject(m, BOUNDARY_REJECT_EXHAUSTED); return;
     }
     tdma_ring_clock_snapshot_t final_ring;
     if (!boundary_ring(&final_ring) || !boundary_owner_current(m, &final_ring) ||
         match.preparation_generation != __atomic_load_n(&s_feedback_match_owner_token, __ATOMIC_ACQUIRE) ||
         !match.preparation_generation) { boundary_reject(m, BOUNDARY_REJECT_CANCELLED); return; }
-    p = (vdc_boundary_peer_t){.arm = r->source_arm_epoch, .source_output_lo = r->model.output_ns_lo,
+    int32_t delta = m->delta;
+    if (automatic) {
+        /* The nearest-to-zero certified bound selects negative feedback.
+         * Divide before clamping; no INT64_MIN negation or narrowing wrap. */
+        const int64_t lo = match.result.raw_ppb_lo, hi = match.result.raw_ppb_hi;
+        if (lo > hi) { boundary_reject(m, BOUNDARY_REJECT_PAIR); return; }
+        int64_t step;
+        if (lo > VDC_BOUNDARY_AUTO_DEADBAND_PPB) step = -(lo / 4);
+        else if (hi < -VDC_BOUNDARY_AUTO_DEADBAND_PPB) step = -(hi / 4);
+        else {
+            vdc_boundary_capture_hold_core1(m->session, slot, m->source, &match.result);
+            return;
+        }
+        if (step > VDC_BOUNDARY_AUTO_MAX_DELTA_PPB) step = VDC_BOUNDARY_AUTO_MAX_DELTA_PPB;
+        if (step < -VDC_BOUNDARY_AUTO_MAX_DELTA_PPB) step = -VDC_BOUNDARY_AUTO_MAX_DELTA_PPB;
+        if (!step) {
+            vdc_boundary_capture_hold_core1(m->session, slot, m->source, &match.result);
+            return;
+        }
+        delta = (int32_t)step;
+    }
+    p = (vdc_boundary_peer_t){.arm = r->source_arm_epoch,
+        .source_output_lo = automatic ? r->rate.absolute_output_ns_lo : r->model.output_ns_lo,
         .clock_epoch = r->source_clock_epoch_id, .clock_run = r->source_clock_run_id,
-        .observer = r->observer_epoch, .model = r->model.model_token,
-        .command = r->model.applied_command_seq + 1u, .measurement = r->measurement_sequence,
-        .state = VDC_BOUNDARY_PENDING, .offered_ms = now_ms};
+        .observer = r->observer_epoch, .model = source_model,
+        .command = applied_sequence + 1u, .measurement = r->measurement_sequence,
+        .state = VDC_BOUNDARY_PENDING, .offered_ms = now_ms, .delta = (int16_t)delta};
     m->consumed |= 1u << slot;
     m->offer = ++m->serial; m->offer_slot = slot; m->authorization = match.preparation_generation;
     m->offer_reference_lo = last->reference_tx_lo; m->offer_reference_model = model.token;
     m->last_reject = BOUNDARY_REJECT_NONE;
     boundary_store(s_boundary_peer_words[slot], &p, sizeof(p));
+    if (automatic) {
+        refmem_sync_vdc_boundary_command_t command;
+        boundary_command(m, &p, slot, &command);
+        vdc_boundary_capture_offer_core1(&command, &match.result);
+    }
 }
 
 static bool boundary_live(const refmem_sync_vdc_boundary_command_t *command)
@@ -374,21 +503,30 @@ static bool boundary_live(const refmem_sync_vdc_boundary_command_t *command)
 
 static __attribute__((noinline)) void boundary_follower(vdc_boundary_meta_t *m, uint32_t slot)
 {
-    if (m->consumed & (1u << slot)) return;
+    const bool automatic = m->mode == VDC_BOUNDARY_MODE_AUTO;
+    if (!automatic && (m->consumed & (1u << slot))) return;
     distributed_refmem_vdc_boundary_view_t view;
     if (!distributed_refmem_copy_vdc_boundary_command(m->source, &view) || !view.active) return;
     const refmem_sync_vdc_boundary_command_t *c = &view.command;
     vdc_dpll_manager_committed_model_t model;
     if (!boundary_model(&model, m)) { boundary_reject(m, BOUNDARY_REJECT_MODEL); return; }
+    /* A retained already-applied command is routinely visible for many beats.
+     * Its sequence cannot cause another application or rejection-counter flood. */
+    if (automatic && c->control_session == m->session && c->source_slot == m->source &&
+        c->target_slot == slot && c->command_seq <= model.applied_command_seq) return;
     if (view.ring_config_seq != m->config || view.role_generation != m->role ||
         view.schedule_crc32 != m->schedule || view.clock_epoch_id != model.clock_epoch_id ||
         view.clock_run_id != model.clock_run_id || c->schema_version != REFMEM_VDC_BOUNDARY_COMMAND_SCHEMA ||
-        c->flags != REFMEM_VDC_BOUNDARY_COMMAND_FLAGS || c->reserved || c->source_slot != m->source ||
+        c->flags != (automatic ? REFMEM_VDC_BOUNDARY_COMMAND_AUTO_FLAGS :
+            REFMEM_VDC_BOUNDARY_COMMAND_FLAGS) || c->reserved || c->source_slot != m->source ||
         c->target_slot != slot || c->control_session != m->session || c->schedule_crc32 != m->schedule ||
         c->target_clock_epoch_id != model.clock_epoch_id || c->target_clock_run_id != model.clock_run_id ||
         c->expected_target_model_token != model.token || c->expected_applied_command_seq != model.applied_command_seq ||
         model.applied_command_seq == UINT32_MAX || c->command_seq != model.applied_command_seq + 1u ||
-        c->signed_delta_rate_ppb != m->delta || !boundary_live(c)) {
+        (automatic ? (!c->signed_delta_rate_ppb ||
+            c->signed_delta_rate_ppb < -VDC_BOUNDARY_AUTO_MAX_DELTA_PPB ||
+            c->signed_delta_rate_ppb > VDC_BOUNDARY_AUTO_MAX_DELTA_PPB) :
+            c->signed_delta_rate_ppb != m->delta) || !boundary_live(c)) {
         boundary_reject(m, BOUNDARY_REJECT_IDENTITY); return;
     }
     tdma_ring_clock_snapshot_t final_ring;
@@ -415,22 +553,26 @@ static __attribute__((noinline)) void boundary_follower(vdc_boundary_meta_t *m, 
         .clock_epoch = c->target_clock_epoch_id, .clock_run = c->target_clock_run_id,
         .observer = c->target_observer_epoch, .model = c->expected_target_model_token,
         .command = c->command_seq, .measurement = c->basis_measurement_sequence,
-        .state = VDC_BOUNDARY_APPLIED, .offered_ms = board_uptime_ms()};
+        .state = VDC_BOUNDARY_APPLIED, .offered_ms = board_uptime_ms(),
+        .delta = (int16_t)c->signed_delta_rate_ppb};
     boundary_store(s_boundary_peer_words[slot], &p, sizeof(p));
     m->consumed |= 1u << slot; m->apply_count = match_inc(m->apply_count);
     m->last_reject = BOUNDARY_REJECT_NONE;
+    if (automatic) vdc_boundary_capture_apply_core1(c, s_vdc_domain.dco.period_adjust_ppb,
+        s_vdc_domain.dco.dco_update_seq);
     vdc_dpll_manager_publish_runtime_snapshot_locked();
 }
 
 static __attribute__((noinline)) void boundary_service_step(vdc_boundary_meta_t *m,
-    uint32_t request, uint32_t session, int32_t delta)
+    uint32_t request, uint32_t session, int32_t delta, uint32_t mode)
 {
     if (request != m->probe) {
         /* Only an explicit nonzero STOP probe opens a new diagnostic round.
          * Disabling preserves command history for post-STOP inspection. */
-        if (!delta) { m->halted = 1u; m->offer = 0u; return; }
+        if (!delta && mode != VDC_BOUNDARY_MODE_AUTO) { m->halted = 1u; m->offer = 0u; return; }
         const uint32_t serial = m->serial;
-        *m = (vdc_boundary_meta_t){.session = session, .probe = request, .delta = delta, .serial = serial};
+        *m = (vdc_boundary_meta_t){.session = session, .probe = request,
+            .delta = delta, .serial = serial, .mode = mode};
         const vdc_boundary_peer_t empty = {0};
         for (uint32_t i = 0; i < PROJECT_NODE_CAPACITY; ++i)
             boundary_store(s_boundary_peer_words[i], &empty, sizeof(empty));
@@ -473,13 +615,13 @@ static __attribute__((noinline)) void boundary_service_step(vdc_boundary_meta_t 
  * section. Even with feedback disabled, a STOP/config change retires offers. */
 static __attribute__((noinline)) void vdc_boundary_service_core1(void)
 {
-    uint32_t request, session;
+    uint32_t request, session, mode;
     int32_t delta;
-    if (!boundary_request(&request, &session, &delta) || !request) return;
+    if (!boundary_request(&request, &session, &delta, &mode) || !request) return;
     (void)__atomic_add_fetch(&s_boundary_guard, 1u, __ATOMIC_ACQ_REL);
     vdc_boundary_meta_t m;
     match_load_words(s_boundary_meta_words, &m, sizeof(m));
-    boundary_service_step(&m, request, session, delta);
+    boundary_service_step(&m, request, session, delta, mode);
     boundary_store(s_boundary_meta_words, &m, sizeof(m));
     (void)__atomic_add_fetch(&s_boundary_guard, 1u, __ATOMIC_RELEASE);
 }

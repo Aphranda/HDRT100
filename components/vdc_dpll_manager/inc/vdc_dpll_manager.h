@@ -13,6 +13,10 @@
 
 /* Explicit STOP-authorized one-shot bring-up; not an automatic servo. */
 #define VDC_BOUNDARY_PROBE_MAX_DELTA_PPB 1000
+#define VDC_BOUNDARY_AUTO_MAX_DELTA_PPB 1000
+#define VDC_BOUNDARY_AUTO_DEADBAND_PPB 10
+enum { VDC_BOUNDARY_MODE_PROBE = 0u, VDC_BOUNDARY_MODE_AUTO = 1u,
+       VDC_BOUNDARY_MODE_REFERENCE = 2u };
 #define VDC_BOUNDARY_COMMAND_MAX_AGE_NS UINT64_C(500000000)
 #define VDC_BOUNDARY_ACK_TIMEOUT_MS 1000u
 enum {
@@ -32,6 +36,15 @@ typedef struct {
     refmem_sync_vdc_boundary_command_t command;
 } vdc_dpll_boundary_status_t;
 bool vdc_dpll_manager_set_boundary_probe(int32_t delta_ppb);
+bool vdc_dpll_manager_set_boundary_auto(bool enabled);
+bool vdc_dpll_manager_boundary_auto_enabled(void);
+/* False means concurrent publication; preserves *enabled. Core0 mode/domain
+ * selection must pause on false, never interpret contention as PROBE mode. */
+bool vdc_dpll_manager_try_boundary_auto_enabled(bool *enabled);
+/* STOP-only reference transport, mutually exclusive with PROBE/AUTO. This
+ * authorizes publication/retention only, never follower PI or DCO updates. */
+bool vdc_dpll_manager_set_reference_publish(bool enabled);
+bool vdc_dpll_manager_try_reference_publish_enabled(bool *enabled);
 bool vdc_dpll_manager_get_boundary_status(uint32_t slot, vdc_dpll_boundary_status_t *out);
 /* Core0 only. -1 contention, 0 withdrawn, 1 immutable current offer. */
 int vdc_dpll_manager_copy_boundary_command_offer(uint32_t ring_config_seq,
@@ -53,6 +66,10 @@ typedef struct {
     uint64_t output_ns_lo, output_ns_hi;
     uint32_t model_token, applied_command_seq;
 } vdc_dpll_manager_projected_event_t;
+typedef struct {
+    uint64_t absolute_output_ns_lo, coordinate_ns;
+    uint32_t model_token, applied_command_seq;
+} vdc_dpll_manager_rate_event_t;
 bool vdc_dpll_manager_set_feedback_session(uint32_t session);
 uint32_t vdc_dpll_manager_feedback_session(void);
 bool vdc_dpll_manager_get_committed_model(vdc_dpll_manager_committed_model_t *out);
@@ -61,6 +78,18 @@ bool vdc_dpll_manager_project_feedback_event(uint32_t session,
     uint32_t local_slot, uint32_t schedule_crc32, uint32_t tick_hz,
     uint64_t raw_lo, uint64_t raw_hi,
     vdc_dpll_manager_projected_event_t *out);
+/* RATE source keeps an absolute age basis and a separate observer-relative
+ * coordinate, admitted under the same committed-model guard. */
+bool vdc_dpll_manager_project_rate_feedback_event(uint32_t session,
+    uint32_t role_generation, uint32_t clock_epoch_id, uint32_t clock_run_id,
+    uint32_t local_slot, uint32_t schedule_crc32, uint32_t tick_hz,
+    uint64_t raw_lo, uint64_t raw_hi, uint64_t elapsed_ticks,
+    vdc_dpll_manager_rate_event_t *out);
+/* Both returned bounds are affine RATE coordinates, not absolute output. */
+bool vdc_dpll_manager_project_rate_reference(uint32_t session,
+    uint32_t role_generation, uint32_t clock_epoch_id, uint32_t clock_run_id,
+    uint32_t local_slot, uint32_t schedule_crc32, uint32_t tick_hz,
+    uint64_t raw_lo, uint64_t raw_hi, vdc_dpll_manager_projected_event_t *out);
 
 /* Raw-clock diagnostics, never a qualified control input. Core0 publishes
  * the last reproducible pair under a revocable Core1 authorization. SCPI

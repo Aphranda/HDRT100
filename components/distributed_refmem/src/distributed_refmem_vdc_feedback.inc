@@ -2,7 +2,7 @@
  * Core1 separately admits decoded boundary commands. No PIO/DMA or DCO writes. */
 typedef struct {
     uint32_t mode, local, target, node_count, role_generation;
-    uint32_t ring_config_seq, schedule_crc32, clock_epoch_id, clock_run_id, session;
+    uint32_t ring_config_seq, schedule_crc32, clock_epoch_id, clock_run_id, session, rate_mode;
 } distributed_refmem_feedback_binding_t;
 
 typedef struct {
@@ -25,6 +25,11 @@ static uint32_t s_boundary_offer_id;
 /* Completed groups while pending; MAX also retires a cancelled offer. Only
  * the successful publication path may turn real completion into TX-done. */
 static uint32_t s_boundary_offer_groups;
+/* One selected MASTER can feed a FOLLOWER. Completed bytes remain in that
+ * source's existing assembly until Core0 can validate the final handoff. */
+#define BOUNDARY_ASSEMBLY_COMPLETE_PENDING 4u
+static uint32_t s_boundary_pending_admission, s_boundary_pending_completed_ms;
+static void distributed_refmem_boundary_service_pending(tdma_service_service_t *owner);
 _Static_assert(REFMEM_VDC_BOUNDARY_COMMAND_MAX_GROUPS > 0u,
                "an immutable boundary offer has a finite nonzero group budget");
 _Static_assert(sizeof(distributed_refmem_vdc_feedback_rx_snapshot_t) == 192u,
@@ -35,8 +40,9 @@ _Static_assert(sizeof(distributed_refmem_feedback_source_t) <= 288u,
                "feedback per-source storage must remain bounded");
 _Static_assert(sizeof(s_feedback_rx) + sizeof(s_feedback_tx_words) +
     sizeof(s_feedback_tx_record) + sizeof(s_feedback_binding) + 32u +
-    sizeof(s_boundary_offer_groups) <=
-    288u * PROJECT_NODE_CAPACITY + 352u, "capacity-sized feedback storage");
+    sizeof(s_boundary_offer_groups) + sizeof(s_boundary_pending_admission) +
+    sizeof(s_boundary_pending_completed_ms) <=
+    288u * PROJECT_NODE_CAPACITY + 360u, "capacity-sized feedback storage");
 _Static_assert(sizeof(((distributed_refmem_vdc_feedback_rx_snapshot_t *)0)->record) ==
     REFMEM_VDC_FEEDBACK_RECORD_SIZE, "feedback diagnostic record ABI");
 
@@ -68,13 +74,14 @@ static bool feedback_read_binding(tdma_service_service_t *owner,
     if (owner == NULL) return true;
     tdma_ring_runtime_snapshot_t ring;
     vdc_dpll_manager_refmem_snapshot_t vdc;
-    if (!tdma_ring_runtime_get_snapshot(&owner->ring_runtime, &ring) ||
-        !vdc_dpll_manager_get_refmem_snapshot(&vdc)) return false;
+    if (!tdma_ring_runtime_get_snapshot(&owner->ring_runtime, &ring)) return false;
     if (!ring.enabled || !ring.adapter_started || !ring.data_enabled ||
         !ring.config_seq || ring.config_seq != ring.applied_config_seq ||
         ring.node_count < 2u || ring.node_count > REFMEM_SYNC_NODE_COUNT ||
-        ring.local_slot_id >= ring.node_count || ring.reference_slot_id >= ring.node_count ||
-        vdc.control_profile.valid != 1u || !vdc.control_profile.generation ||
+        ring.local_slot_id >= ring.node_count || ring.reference_slot_id >= ring.node_count) return true;
+    /* Known STOP cancels typed state even when the VDC snapshot is busy. */
+    if (!vdc_dpll_manager_get_refmem_snapshot(&vdc)) return false;
+    if (vdc.control_profile.valid != 1u || !vdc.control_profile.generation ||
         vdc.schedule.local_slot_id != ring.local_slot_id ||
         vdc.schedule.schedule_crc32 != ring.schedule_crc32) return true;
     const uint32_t mode = vdc.control_profile.mode;
@@ -84,18 +91,35 @@ static bool feedback_read_binding(tdma_service_service_t *owner,
         if (vdc.control_profile.follow_master_slot_id != ring.reference_slot_id ||
             ring.local_slot_id == ring.reference_slot_id) return true;
     } else return true;
+    bool rate_mode, reference_mode;
+    if (!vdc_dpll_manager_try_boundary_auto_enabled(&rate_mode) ||
+        !vdc_dpll_manager_try_reference_publish_enabled(&reference_mode) ||
+        (rate_mode && reference_mode)) return false;
     *out = (distributed_refmem_feedback_binding_t){
         .mode = mode, .local = ring.local_slot_id, .target = ring.reference_slot_id,
         .node_count = ring.node_count, .role_generation = vdc.control_profile.generation,
         .ring_config_seq = ring.config_seq, .schedule_crc32 = ring.schedule_crc32,
         .clock_epoch_id = vdc.clock_epoch_id, .clock_run_id = vdc.clock_run_id,
-        .session = vdc_dpll_manager_feedback_session()};
+        .session = vdc_dpll_manager_feedback_session(),
+        /* Reuse the existing word; no new per-node transport storage. */
+        .rate_mode = reference_mode ? VDC_BOUNDARY_MODE_REFERENCE : (rate_mode ? 1u : 0u)};
     return true;
 }
 
 static bool feedback_same_binding(const distributed_refmem_feedback_binding_t *a,
     const distributed_refmem_feedback_binding_t *b)
 { return memcmp(a, b, sizeof(*a)) == 0; }
+
+static bool feedback_record_binding(const refmem_sync_vdc_feedback_record_t *r,
+    const distributed_refmem_feedback_binding_t *binding)
+{
+    if (!binding->session) return r->schema_version == REFMEM_VDC_FEEDBACK_SCHEMA;
+    if (binding->rate_mode == VDC_BOUNDARY_MODE_AUTO)
+        return r->schema_version == REFMEM_VDC_FEEDBACK_RATE_SCHEMA &&
+        r->rate.control_session == binding->session;
+    return r->schema_version == REFMEM_VDC_FEEDBACK_MODEL_SCHEMA &&
+        r->model.control_session == binding->session;
+}
 
 static bool boundary_offer_pending(void)
 {
@@ -117,12 +141,20 @@ static void feedback_cancel_tx(void)
     feedback_publish(s_feedback_tx_words, &s_feedback_tx_guard, &tx, sizeof(tx));
 }
 
-static void distributed_refmem_feedback_refresh(tdma_service_service_t *owner)
+/* Known inactive still permits ordinary RX; unavailable admission does not. */
+static bool distributed_refmem_feedback_refresh(tdma_service_service_t *owner)
 {
     const uint32_t now = osal_tick_ms();
     /* Even an empty RX FIFO must release an expired partial assembly. */
     for (uint32_t i = 0; i < REFMEM_SYNC_NODE_COUNT; ++i) {
-        if (refmem_sync_vdc_feedback_expire(&s_feedback_rx[i].assembly, now)) {
+        refmem_sync_vdc_feedback_assembly_t *assembly = &s_feedback_rx[i].assembly;
+        const bool pending_expired = (assembly->state & BOUNDARY_ASSEMBLY_COMPLETE_PENDING) &&
+            (uint32_t)(now - assembly->first_ms) >= REFMEM_VDC_FEEDBACK_ASSEMBLY_TIMEOUT_MS;
+        if (pending_expired) {
+            assembly->state &= (uint8_t)~BOUNDARY_ASSEMBLY_COMPLETE_PENDING;
+            s_boundary_pending_admission = s_boundary_pending_completed_ms = 0u;
+        }
+        if (pending_expired || refmem_sync_vdc_feedback_expire(assembly, now)) {
             distributed_refmem_vdc_feedback_rx_snapshot_t rx;
             feedback_load(s_feedback_rx[i].words, &rx, sizeof(rx));
             rx.schema = 1u; rx.source_slot = i;
@@ -132,14 +164,14 @@ static void distributed_refmem_feedback_refresh(tdma_service_service_t *owner)
     }
     s_feedback_ready = false;
     distributed_refmem_feedback_binding_t current;
-    if (!feedback_read_binding(owner, &current)) return;
+    if (!feedback_read_binding(owner, &current)) return false;
     if (!feedback_same_binding(&current, &s_feedback_binding)) {
         uint32_t admission = 0u;
         /* Ordinary follower RX already owns its admission refresh. Only the
          * mutually exclusive MASTER receiver advances the FIFO here. */
         if (current.ring_config_seq && current.mode == VDC_DPLL_CONTROL_MODE_MASTER) {
             admission = tdma_service_core0_advance_flight_rx_admission_epoch(owner);
-            if (!admission) return;
+            if (!admission) return false;
         }
         feedback_cancel_tx();
         for (uint32_t i = 0; i < REFMEM_SYNC_NODE_COUNT; ++i) {
@@ -149,10 +181,15 @@ static void distributed_refmem_feedback_refresh(tdma_service_service_t *owner)
             rx.schema = 1u; rx.active = 0u; rx.source_slot = i;
             feedback_publish(s_feedback_rx[i].words, &s_feedback_rx[i].guard, &rx, sizeof(rx));
         }
+        s_boundary_pending_admission = s_boundary_pending_completed_ms = 0u;
         s_feedback_binding = current;
         s_feedback_admission = admission;
     }
     s_feedback_ready = current.ring_config_seq != 0u;
+    /* Exactly one deferred attempt per Core0 service, including empty FIFO.
+     * The receive path below never retries an already-pending transaction. */
+    distributed_refmem_boundary_service_pending(owner);
+    return true;
 }
 
 /* Master reuses the otherwise idle feedback TX record across bounded repeats.
@@ -181,6 +218,8 @@ static int distributed_refmem_boundary_prepare(tdma_service_service_t *owner)
     uint8_t candidate[REFMEM_VDC_FEEDBACK_RECORD_SIZE];
     if (command.source_slot != after.local || command.target_slot == after.local ||
         command.control_session != after.session || !after.session ||
+        command.flags != (after.rate_mode ? REFMEM_VDC_BOUNDARY_COMMAND_AUTO_FLAGS :
+            REFMEM_VDC_BOUNDARY_COMMAND_FLAGS) ||
         command.schedule_crc32 != after.schedule_crc32 ||
         !refmem_sync_vdc_boundary_command_encode(&command, after.node_count, candidate)) {
         if (s_feedback_tx_active || boundary_offer_pending()) feedback_cancel_tx();
@@ -214,10 +253,87 @@ static int distributed_refmem_boundary_prepare(tdma_service_service_t *owner)
     return 2;
 }
 
+/* REFERENCE is transport only. Project a fresh NO1 origin event once using
+ * its committed DCO, then freeze all 16 fragments. Origin's single acquisition
+ * epoch supplies both source ARM and observer namespaces (zero-extended into
+ * schema2); it is not the follower EVENT observer. Targets rotate by the last
+ * completed TX header, so FIFO backpressure cannot skip a target. */
+static int distributed_refmem_reference_prepare(tdma_service_service_t *owner)
+{
+    distributed_refmem_feedback_binding_t after;
+    uint32_t epoch;
+    if (!feedback_read_binding(owner, &after) ||
+        !tdma_runtime_owner_get_origin_reference_epoch(&epoch)) return s_feedback_tx_active ? -1 : 0;
+    if (!feedback_same_binding(&after, &s_feedback_binding)) return -1;
+    if (!epoch || !after.session) {
+        if (s_feedback_tx_active) feedback_cancel_tx();
+        return 0;
+    }
+    if (s_feedback_tx_active) {
+        refmem_sync_vdc_feedback_record_t active;
+        if (!refmem_sync_vdc_feedback_decode(s_feedback_tx_record, after.node_count,
+                after.local, s_feedback_tx_record[2], &active) ||
+            active.source_arm_epoch != epoch || active.observer_epoch != epoch ||
+            !feedback_record_binding(&active, &after)) {
+            feedback_cancel_tx();
+            return 0;
+        }
+        return 1;
+    }
+    if (s_feedback_ordinary_due) return 0;
+    tdma_origin_raw_reference_t reference;
+    if (!tdma_runtime_owner_get_origin_raw_reference(&reference) || reference.epoch != epoch) return 0;
+    distributed_refmem_vdc_feedback_tx_snapshot_t tx;
+    feedback_load(s_feedback_tx_words, &tx, sizeof(tx));
+    uint32_t target = after.local;
+    if (tx.history_count && tx.history[0][0] == REFMEM_VDC_FEEDBACK_MODEL_SCHEMA &&
+        tx.history[0][1] == after.local && tx.history[0][2] < after.node_count) {
+        refmem_sync_vdc_feedback_record_t previous;
+        if (!refmem_sync_vdc_feedback_decode(tx.history[0], after.node_count,
+                after.local, tx.history[0][2], &previous)) return 0;
+        target = previous.target_slot;
+        if (previous.model.control_session == after.session &&
+            previous.source_arm_epoch == epoch &&
+            reference.sequence <= previous.measurement_sequence) return 0;
+    }
+    target = target + 1u == after.node_count ? 0u : target + 1u;
+    if (target == after.local) target = target + 1u == after.node_count ? 0u : target + 1u;
+    vdc_dpll_manager_projected_event_t event;
+    if (!vdc_dpll_manager_project_feedback_event(after.session, after.role_generation,
+        after.clock_epoch_id, after.clock_run_id, after.local, after.schedule_crc32,
+        reference.tick_hz, reference.timer_lower, reference.timer_upper, &event)) return 0;
+    distributed_refmem_feedback_binding_t final;
+    uint32_t final_epoch;
+    if (!feedback_read_binding(owner, &final) || !feedback_same_binding(&after, &final) ||
+        !tdma_runtime_owner_get_origin_reference_epoch(&final_epoch) || final_epoch != epoch) return -1;
+    const refmem_sync_vdc_feedback_record_t record = {
+        .schema_version = REFMEM_VDC_FEEDBACK_MODEL_SCHEMA,
+        .domain_flags = REFMEM_VDC_FEEDBACK_MODEL_DOMAIN_FLAGS,
+        .source_slot = (uint8_t)after.local, .target_slot = (uint8_t)target,
+        .source_clock_epoch_id = after.clock_epoch_id, .source_clock_run_id = after.clock_run_id,
+        .source_arm_epoch = epoch, .observer_epoch = epoch,
+        .measurement_sequence = reference.sequence, .tick_hz = reference.tick_hz,
+        .model = {.output_ns_lo = event.output_ns_lo, .output_ns_hi = event.output_ns_hi,
+            .model_token = event.model_token, .applied_command_seq = event.applied_command_seq,
+            .control_session = after.session}};
+    if (!refmem_sync_vdc_feedback_encode(&record, after.node_count, s_feedback_tx_record)) return 0;
+    s_feedback_tx_index = 0u; s_feedback_tx_active = true;
+    tx.schema = 1u; tx.active = 1u; tx.fragment_index = 0u;
+    tx.ring_config_seq = after.ring_config_seq; tx.role_generation = after.role_generation;
+    tx.source_slot = after.local; tx.target_slot = target; tx.schedule_crc32 = after.schedule_crc32;
+    tx.clock_epoch_id = after.clock_epoch_id; tx.clock_run_id = after.clock_run_id;
+    tx.control_session = after.session;
+    feedback_publish(s_feedback_tx_words, &s_feedback_tx_guard, &tx, sizeof(tx));
+    return 1;
+}
+
 /* -1 = contention, 0 = ordinary, 1 = feedback fragment, 2 = boundary command. */
 static int distributed_refmem_feedback_prepare(tdma_service_service_t *owner)
 {
     if (!s_feedback_ready) return s_feedback_tx_active || boundary_offer_pending() ? -1 : 0;
+    if (s_feedback_binding.rate_mode == VDC_BOUNDARY_MODE_REFERENCE)
+        return s_feedback_binding.mode == VDC_DPLL_CONTROL_MODE_MASTER
+            ? distributed_refmem_reference_prepare(owner) : 0;
     if (s_feedback_binding.mode == VDC_DPLL_CONTROL_MODE_MASTER)
         return distributed_refmem_boundary_prepare(owner);
     if (s_feedback_binding.mode != VDC_DPLL_CONTROL_MODE_FOLLOWER) return 0;
@@ -244,9 +360,7 @@ static int distributed_refmem_feedback_prepare(tdma_service_service_t *owner)
         if (!refmem_sync_vdc_feedback_decode(s_feedback_tx_record, after.node_count,
                 after.local, after.target, &active) || active.source_arm_epoch != live.arm_epoch ||
                 active.observer_epoch != live.record.epoch || active.tick_hz != live.tick_hz ||
-                (after.session ? (active.schema_version != REFMEM_VDC_FEEDBACK_MODEL_SCHEMA ||
-                    active.model.control_session != after.session) :
-                    active.schema_version != REFMEM_VDC_FEEDBACK_SCHEMA)) {
+                !feedback_record_binding(&active, &after)) {
             feedback_cancel_tx();
             return 0;
         }
@@ -265,21 +379,37 @@ static int distributed_refmem_feedback_prepare(tdma_service_service_t *owner)
         .timer1_enable_before = live.timer1_enable_before,
         .timer1_enable_after = live.timer1_enable_after};
     if (after.session) {
-        vdc_dpll_manager_projected_event_t event;
         if (live.timer1_enable_before > UINT64_MAX - live.record.rx_elapsed_cycles ||
-            live.timer1_enable_after > UINT64_MAX - live.record.rx_elapsed_cycles ||
-            !vdc_dpll_manager_project_feedback_event(after.session, after.role_generation,
+            live.timer1_enable_after > UINT64_MAX - live.record.rx_elapsed_cycles) return 0;
+        memset(&record.model, 0, sizeof(record.model));
+        if (after.rate_mode) {
+            vdc_dpll_manager_rate_event_t event;
+            if (!vdc_dpll_manager_project_rate_feedback_event(after.session, after.role_generation,
+                    after.clock_epoch_id, after.clock_run_id, after.local, after.schedule_crc32,
+                    live.tick_hz, live.timer1_enable_before + live.record.rx_elapsed_cycles,
+                    live.timer1_enable_after + live.record.rx_elapsed_cycles,
+                    live.record.rx_elapsed_cycles, &event)) return 0;
+            record.schema_version = REFMEM_VDC_FEEDBACK_RATE_SCHEMA;
+            record.domain_flags = REFMEM_VDC_FEEDBACK_RATE_FLAGS;
+            record.rate.absolute_output_ns_lo = event.absolute_output_ns_lo;
+            record.rate.coordinate_ns = event.coordinate_ns;
+            record.rate.model_token = event.model_token;
+            record.rate.applied_command_seq = event.applied_command_seq;
+            record.rate.control_session = after.session;
+        } else {
+            vdc_dpll_manager_projected_event_t event;
+            if (!vdc_dpll_manager_project_feedback_event(after.session, after.role_generation,
                 after.clock_epoch_id, after.clock_run_id, after.local, after.schedule_crc32,
                 live.tick_hz, live.timer1_enable_before + live.record.rx_elapsed_cycles,
                 live.timer1_enable_after + live.record.rx_elapsed_cycles, &event)) return 0;
-        record.schema_version = REFMEM_VDC_FEEDBACK_MODEL_SCHEMA;
-        record.domain_flags = REFMEM_VDC_FEEDBACK_MODEL_DOMAIN_FLAGS;
-        memset(&record.model, 0, sizeof(record.model));
-        record.model.output_ns_lo = event.output_ns_lo;
-        record.model.output_ns_hi = event.output_ns_hi;
-        record.model.model_token = event.model_token;
-        record.model.applied_command_seq = event.applied_command_seq;
-        record.model.control_session = after.session;
+            record.schema_version = REFMEM_VDC_FEEDBACK_MODEL_SCHEMA;
+            record.domain_flags = REFMEM_VDC_FEEDBACK_MODEL_DOMAIN_FLAGS;
+            record.model.output_ns_lo = event.output_ns_lo;
+            record.model.output_ns_hi = event.output_ns_hi;
+            record.model.model_token = event.model_token;
+            record.model.applied_command_seq = event.applied_command_seq;
+            record.model.control_session = after.session;
+        }
         distributed_refmem_feedback_binding_t final;
         if (!feedback_read_binding(owner, &final) || !feedback_same_binding(&after, &final)) return -1;
     }
@@ -342,12 +472,12 @@ static void distributed_refmem_feedback_published(bool feedback, uint32_t sequen
 }
 
 static bool distributed_refmem_boundary_admitted(uint32_t source,
-    const tdma_flight_rx_view_t *view)
+    uint32_t admission_epoch)
 {
     const distributed_refmem_vdc_flight_rx_binding_t *b = &s_vdc_flight_rx_binding;
     return s_feedback_ready && s_feedback_binding.mode == VDC_DPLL_CONTROL_MODE_FOLLOWER &&
         s_vdc_flight_rx_admission_ready && b->active && b->rx_admission_epoch &&
-        view != NULL && view->admission_epoch == b->rx_admission_epoch &&
+        admission_epoch == b->rx_admission_epoch &&
         source == b->source_slot && source == s_feedback_binding.target &&
         b->local_slot == s_feedback_binding.local &&
         b->control_generation == s_feedback_binding.role_generation &&
@@ -357,12 +487,120 @@ static bool distributed_refmem_boundary_admitted(uint32_t source,
         b->clock_run_id == s_feedback_binding.clock_run_id;
 }
 
+static void distributed_refmem_boundary_service_pending(tdma_service_service_t *owner)
+{
+    const uint32_t source = s_feedback_binding.target;
+    if (s_feedback_binding.mode != VDC_DPLL_CONTROL_MODE_FOLLOWER ||
+        source >= REFMEM_SYNC_NODE_COUNT) return;
+    distributed_refmem_feedback_source_t *state = &s_feedback_rx[source];
+    if (!(state->assembly.state & BOUNDARY_ASSEMBLY_COMPLETE_PENDING)) return;
+    distributed_refmem_feedback_binding_t after;
+    distributed_refmem_vdc_flight_rx_binding_t ordinary;
+    /* Unavailable snapshots leave the complete bytes private to Core0. A
+     * known lifecycle change retires them, even if another getter is busy. */
+    bool cancelled = s_boundary_pending_admission != s_vdc_flight_rx_binding.rx_admission_epoch;
+    if (!cancelled) {
+        if (!feedback_read_binding(owner, &after)) return;
+        cancelled = !feedback_same_binding(&after, &s_feedback_binding);
+    }
+    if (!cancelled) {
+        if (!distributed_refmem_vdc_flight_rx_read_binding(&ordinary)) return;
+        cancelled = !distributed_refmem_vdc_flight_rx_same_binding(
+            &ordinary, &s_vdc_flight_rx_binding);
+    }
+    if (!cancelled && !distributed_refmem_boundary_admitted(source, s_boundary_pending_admission))
+        return; /* Refresh could not establish current admission this beat. */
+
+    distributed_refmem_vdc_feedback_rx_snapshot_t rx;
+    feedback_load(state->words, &rx, sizeof(rx));
+    rx.schema = 1u; rx.source_slot = source;
+    refmem_sync_vdc_boundary_command_t command;
+    const uint8_t *wire = state->assembly.payload;
+    if (!cancelled && after.rate_mode == VDC_BOUNDARY_MODE_REFERENCE) {
+        refmem_sync_vdc_feedback_record_t sample;
+        const bool decoded = refmem_sync_vdc_feedback_decode(wire, after.node_count,
+            source, after.local, &sample);
+        if (!decoded || !after.session || !feedback_record_binding(&sample, &after)) {
+            rx.reject_count = feedback_inc(rx.reject_count);
+        } else {
+            const refmem_sync_vdc_feedback_order_t order = refmem_sync_vdc_feedback_compare(wire,
+                rx.retained && rx.record[0] == REFMEM_VDC_FEEDBACK_MODEL_SCHEMA &&
+                    rx.record[1] == source && rx.record[2] == after.local ? rx.record : NULL,
+                after.node_count, source, after.local);
+            if (order == REFMEM_VDC_FEEDBACK_ORDER_FIRST ||
+                order == REFMEM_VDC_FEEDBACK_ORDER_NEW_NAMESPACE ||
+                order == REFMEM_VDC_FEEDBACK_ORDER_NEWER) {
+                rx.sample = sample;
+                memcpy(rx.record, wire, REFMEM_VDC_FEEDBACK_RECORD_SIZE);
+                rx.retained = 1u; rx.active = 1u;
+                rx.ring_config_seq = after.ring_config_seq; rx.role_generation = after.role_generation;
+                rx.schedule_crc32 = after.schedule_crc32;
+                /* These are receiver-local binding fields. Remote clock
+                 * identifiers stay untouched inside sample/record. */
+                rx.clock_epoch_id = after.clock_epoch_id; rx.clock_run_id = after.clock_run_id;
+                rx.receive_count = feedback_inc(rx.receive_count);
+                rx.last_transport_seq = state->assembly.last_sequence;
+                rx.first_rx_ms = state->assembly.first_ms;
+                rx.last_rx_ms = s_boundary_pending_completed_ms;
+            } else if (order == REFMEM_VDC_FEEDBACK_ORDER_DUPLICATE)
+                rx.duplicate_count = feedback_inc(rx.duplicate_count);
+            else rx.reject_count = feedback_inc(rx.reject_count);
+        }
+        state->assembly.state &= (uint8_t)~BOUNDARY_ASSEMBLY_COMPLETE_PENDING;
+        s_boundary_pending_admission = s_boundary_pending_completed_ms = 0u;
+        feedback_publish(state->words, &state->guard, &rx, sizeof(rx));
+        return;
+    }
+    if (cancelled ||
+        !refmem_sync_vdc_boundary_command_decode(wire, after.node_count, source, after.local, &command) ||
+        !after.session || command.control_session != after.session ||
+        command.flags != (after.rate_mode ? REFMEM_VDC_BOUNDARY_COMMAND_AUTO_FLAGS :
+            REFMEM_VDC_BOUNDARY_COMMAND_FLAGS) ||
+        command.schedule_crc32 != after.schedule_crc32 ||
+        command.target_clock_epoch_id != after.clock_epoch_id ||
+        command.target_clock_run_id != after.clock_run_id) {
+        rx.reject_count = feedback_inc(rx.reject_count);
+    } else {
+        const bool same_namespace = rx.retained &&
+            rx.record[0] == REFMEM_VDC_BOUNDARY_COMMAND_SCHEMA &&
+            rx.ring_config_seq == after.ring_config_seq && rx.role_generation == after.role_generation &&
+            rx.command.control_session == command.control_session &&
+            rx.command.target_clock_epoch_id == command.target_clock_epoch_id &&
+            rx.command.target_clock_run_id == command.target_clock_run_id &&
+            rx.command.target_arm_epoch == command.target_arm_epoch &&
+            rx.command.target_observer_epoch == command.target_observer_epoch;
+        if (same_namespace && command.command_seq <= rx.command.command_seq) {
+            if (command.command_seq == rx.command.command_seq &&
+                !memcmp(rx.record, wire, REFMEM_VDC_FEEDBACK_RECORD_SIZE))
+                rx.duplicate_count = feedback_inc(rx.duplicate_count);
+            else rx.reject_count = feedback_inc(rx.reject_count);
+        } else {
+            rx.command = command;
+            memcpy(rx.record, wire, REFMEM_VDC_FEEDBACK_RECORD_SIZE);
+            rx.retained = 1u; rx.active = 1u;
+            rx.ring_config_seq = after.ring_config_seq; rx.role_generation = after.role_generation;
+            rx.schedule_crc32 = after.schedule_crc32;
+            rx.clock_epoch_id = after.clock_epoch_id; rx.clock_run_id = after.clock_run_id;
+            rx.receive_count = feedback_inc(rx.receive_count);
+            rx.last_transport_seq = state->assembly.last_sequence;
+            rx.first_rx_ms = state->assembly.first_ms;
+            rx.last_rx_ms = s_boundary_pending_completed_ms;
+        }
+    }
+    state->assembly.state &= (uint8_t)~BOUNDARY_ASSEMBLY_COMPLETE_PENDING;
+    s_boundary_pending_admission = s_boundary_pending_completed_ms = 0u;
+    feedback_publish(state->words, &state->guard, &rx, sizeof(rx));
+}
+
 static void distributed_refmem_boundary_receive(tdma_service_service_t *owner, uint32_t source,
     const uint8_t *mailbox, const tdma_flight_rx_view_t *view)
 {
-    if (source >= s_feedback_binding.node_count ||
-        !distributed_refmem_boundary_admitted(source, view)) return;
+    if (source >= s_feedback_binding.node_count || view == NULL ||
+        !distributed_refmem_boundary_admitted(source, view->admission_epoch)) return;
     distributed_refmem_feedback_source_t *state = &s_feedback_rx[source];
+    /* Do not overwrite complete bytes or retry once for every incoming mail.
+     * Ordinary RefMem parsing and FIFO release remain with the caller. */
+    if (state->assembly.state & BOUNDARY_ASSEMBLY_COMPLETE_PENDING) return;
     distributed_refmem_vdc_feedback_rx_snapshot_t rx;
     feedback_load(state->words, &rx, sizeof(rx));
     rx.schema = 1u; rx.source_slot = source;
@@ -376,7 +614,9 @@ static void distributed_refmem_boundary_receive(tdma_service_service_t *owner, u
         feedback_publish(state->words, &state->guard, &rx, sizeof(rx));
         return;
     }
-    if (mailbox[3] != TDMA_PROCESS_IMAGE_VDC_BOUNDARY_COMMAND_MESSAGE_CLASS) {
+    const bool reference = s_feedback_binding.rate_mode == VDC_BOUNDARY_MODE_REFERENCE;
+    if (mailbox[3] != (reference ? TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS :
+                                 TDMA_PROCESS_IMAGE_VDC_BOUNDARY_COMMAND_MESSAGE_CLASS)) {
         /* A typed or ordinary group boundary cancels an unfinished command;
          * its VDC bytes must never be assembled as command continuation. */
         if (state->assembly.state & REFMEM_VDC_FEEDBACK_ASSEMBLY_ACTIVE) {
@@ -387,50 +627,23 @@ static void distributed_refmem_boundary_receive(tdma_service_service_t *owner, u
         return;
     }
     const uint32_t now = osal_tick_ms();
-    uint8_t wire[REFMEM_VDC_FEEDBACK_RECORD_SIZE];
-    const refmem_sync_vdc_feedback_result_t result = refmem_sync_vdc_boundary_command_push(
-        &state->assembly, source, s_feedback_binding.local, s_feedback_binding.node_count, seq,
-        mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_INDEX_OFFSET],
-        mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_COUNT_OFFSET],
-        mailbox + TDMA_PROCESS_IMAGE_VDC_FRAGMENT_DATA_OFFSET, now, wire);
+    const refmem_sync_vdc_feedback_result_t result = reference
+        ? refmem_sync_vdc_feedback_push(&state->assembly, source, s_feedback_binding.local,
+            s_feedback_binding.node_count, seq,
+            mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_INDEX_OFFSET],
+            mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_COUNT_OFFSET],
+            mailbox + TDMA_PROCESS_IMAGE_VDC_FRAGMENT_DATA_OFFSET, now, rx.record)
+        : refmem_sync_vdc_boundary_command_push(&state->assembly, source, s_feedback_binding.local,
+            s_feedback_binding.node_count, seq,
+            mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_INDEX_OFFSET],
+            mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_COUNT_OFFSET],
+            mailbox + TDMA_PROCESS_IMAGE_VDC_FRAGMENT_DATA_OFFSET, now, rx.record);
     if (result == REFMEM_VDC_FEEDBACK_COMPLETE) {
-        refmem_sync_vdc_boundary_command_t command;
-        distributed_refmem_feedback_binding_t after;
-        distributed_refmem_vdc_flight_rx_binding_t ordinary;
-        if (!feedback_read_binding(owner, &after) || !feedback_same_binding(&after, &s_feedback_binding) ||
-            !distributed_refmem_vdc_flight_rx_read_binding(&ordinary) ||
-            !distributed_refmem_vdc_flight_rx_same_binding(&ordinary, &s_vdc_flight_rx_binding) ||
-            !distributed_refmem_boundary_admitted(source, view)) return;
-        if (!refmem_sync_vdc_boundary_command_decode(wire, after.node_count, source, after.local, &command) ||
-            !after.session || command.control_session != after.session ||
-            command.schedule_crc32 != after.schedule_crc32 ||
-            command.target_clock_epoch_id != after.clock_epoch_id ||
-            command.target_clock_run_id != after.clock_run_id) {
-            rx.reject_count = feedback_inc(rx.reject_count);
-        } else {
-            const bool same_namespace = rx.retained &&
-                rx.record[0] == REFMEM_VDC_BOUNDARY_COMMAND_SCHEMA &&
-                rx.ring_config_seq == after.ring_config_seq && rx.role_generation == after.role_generation &&
-                rx.command.control_session == command.control_session &&
-                rx.command.target_clock_epoch_id == command.target_clock_epoch_id &&
-                rx.command.target_clock_run_id == command.target_clock_run_id &&
-                rx.command.target_arm_epoch == command.target_arm_epoch &&
-                rx.command.target_observer_epoch == command.target_observer_epoch;
-            if (same_namespace && command.command_seq <= rx.command.command_seq) {
-                if (command.command_seq == rx.command.command_seq && !memcmp(rx.record, wire, sizeof(wire)))
-                    rx.duplicate_count = feedback_inc(rx.duplicate_count);
-                else rx.reject_count = feedback_inc(rx.reject_count);
-            } else {
-                rx.command = command;
-                memcpy(rx.record, wire, sizeof(wire));
-                rx.retained = 1u; rx.active = 1u;
-                rx.ring_config_seq = after.ring_config_seq; rx.role_generation = after.role_generation;
-                rx.schedule_crc32 = after.schedule_crc32;
-                rx.clock_epoch_id = after.clock_epoch_id; rx.clock_run_id = after.clock_run_id;
-                rx.receive_count = feedback_inc(rx.receive_count);
-                rx.last_transport_seq = seq; rx.first_rx_ms = state->assembly.first_ms; rx.last_rx_ms = now;
-            }
-        }
+        s_boundary_pending_admission = view->admission_epoch;
+        s_boundary_pending_completed_ms = now;
+        state->assembly.state |= BOUNDARY_ASSEMBLY_COMPLETE_PENDING;
+        distributed_refmem_boundary_service_pending(owner);
+        return;
     } else if (result == REFMEM_VDC_FEEDBACK_DUPLICATE) rx.duplicate_count = feedback_inc(rx.duplicate_count);
     else if (result == REFMEM_VDC_FEEDBACK_EXPIRED || result == REFMEM_VDC_FEEDBACK_EXPIRED_RESTARTED)
         rx.timeout_count = feedback_inc(rx.timeout_count);
@@ -446,7 +659,8 @@ static void distributed_refmem_feedback_receive(tdma_service_service_t *owner, u
         distributed_refmem_boundary_receive(owner, source, mailbox, view);
         return;
     }
-    if (!s_feedback_ready || s_feedback_binding.mode != VDC_DPLL_CONTROL_MODE_MASTER ||
+    if (!s_feedback_ready || s_feedback_binding.rate_mode == VDC_BOUNDARY_MODE_REFERENCE ||
+        s_feedback_binding.mode != VDC_DPLL_CONTROL_MODE_MASTER ||
         !s_feedback_admission || view->admission_epoch != s_feedback_admission ||
         source >= s_feedback_binding.node_count || source == s_feedback_binding.local ||
         mailbox[3] != TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS) return;
@@ -480,9 +694,7 @@ static void distributed_refmem_feedback_receive(tdma_service_service_t *owner, u
         if (order == REFMEM_VDC_FEEDBACK_ORDER_FIRST || order == REFMEM_VDC_FEEDBACK_ORDER_NEW_NAMESPACE ||
             order == REFMEM_VDC_FEEDBACK_ORDER_NEWER) {
             if (!refmem_sync_vdc_feedback_decode(wire, after.node_count, source, after.local, &rx.sample)) return;
-            if (after.session ? (rx.sample.schema_version != REFMEM_VDC_FEEDBACK_MODEL_SCHEMA ||
-                    rx.sample.model.control_session != after.session) :
-                    rx.sample.schema_version != REFMEM_VDC_FEEDBACK_SCHEMA) {
+            if (!feedback_record_binding(&rx.sample, &after)) {
                 rx.reject_count = feedback_inc(rx.reject_count);
                 /* Keep the previously admitted record and decoded payload together. */
                 if (rx.retained) (void)refmem_sync_vdc_feedback_decode(rx.record,
@@ -520,19 +732,25 @@ bool distributed_refmem_get_vdc_feedback_rx(uint32_t source,
     const bool known = feedback_read_binding(tdma_runtime_owner_get(), &current);
     rx.schema = 1u; rx.source_slot = source;
     const bool feedback_role = current.mode == VDC_DPLL_CONTROL_MODE_MASTER &&
+        current.rate_mode != VDC_BOUNDARY_MODE_REFERENCE &&
         (rx.record[0] == REFMEM_VDC_FEEDBACK_SCHEMA ||
-         rx.record[0] == REFMEM_VDC_FEEDBACK_MODEL_SCHEMA);
+         rx.record[0] == REFMEM_VDC_FEEDBACK_MODEL_SCHEMA ||
+         rx.record[0] == REFMEM_VDC_FEEDBACK_RATE_SCHEMA);
     const bool command_role = current.mode == VDC_DPLL_CONTROL_MODE_FOLLOWER &&
+        current.rate_mode != VDC_BOUNDARY_MODE_REFERENCE &&
         source == current.target && rx.record[0] == REFMEM_VDC_BOUNDARY_COMMAND_SCHEMA &&
-        rx.command.control_session == current.session;
-    rx.active = rx.active && known && (feedback_role || command_role) &&
+        rx.command.control_session == current.session &&
+        rx.command.flags == (current.rate_mode ? REFMEM_VDC_BOUNDARY_COMMAND_AUTO_FLAGS :
+            REFMEM_VDC_BOUNDARY_COMMAND_FLAGS);
+    const bool reference_role = current.mode == VDC_DPLL_CONTROL_MODE_FOLLOWER &&
+        current.rate_mode == VDC_BOUNDARY_MODE_REFERENCE && source == current.target &&
+        rx.record[0] == REFMEM_VDC_FEEDBACK_MODEL_SCHEMA;
+    rx.active = rx.active && known && (feedback_role || command_role || reference_role) &&
         source < current.node_count && source != current.local &&
         rx.ring_config_seq == current.ring_config_seq && rx.role_generation == current.role_generation &&
         rx.schedule_crc32 == current.schedule_crc32 && rx.clock_epoch_id == current.clock_epoch_id &&
         rx.clock_run_id == current.clock_run_id &&
-        (command_role || (current.session ? (rx.sample.schema_version == REFMEM_VDC_FEEDBACK_MODEL_SCHEMA &&
-            rx.sample.model.control_session == current.session) :
-            rx.sample.schema_version == REFMEM_VDC_FEEDBACK_SCHEMA));
+        (command_role || feedback_record_binding(&rx.sample, &current));
     __atomic_thread_fence(__ATOMIC_ACQ_REL);
     if (guard != __atomic_load_n(&state->guard, __ATOMIC_ACQUIRE)) return false;
     *out = rx;

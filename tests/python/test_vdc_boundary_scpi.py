@@ -13,7 +13,9 @@ from test_vdc_command_owner import ROOT, compile_executable
 def executable(tmp_path_factory):
     source = (ROOT / "middleware/scpi_port/src/scpi_system_snapshot_commands.c").read_text(encoding="utf-8")
     definitions = "\n".join(ingress_definition(source, name) for name in (
-        "scpi_feedback_record", "scpi_cmd_vdc_feedback_probe", "scpi_cmd_vdc_feedback_boundary_q"))
+        "scpi_feedback_record", "scpi_cmd_vdc_feedback_probe", "scpi_cmd_vdc_feedback_auto",
+        "scpi_cmd_vdc_feedback_auto_q", "scpi_cmd_vdc_feedback_reference",
+        "scpi_cmd_vdc_feedback_reference_q", "scpi_cmd_vdc_feedback_boundary_q"))
     return compile_executable(tmp_path_factory.mktemp("boundary-scpi"), "boundary_scpi",
         PREAMBLE + definitions + CASES,
         [ROOT / "components/distributed_refmem/src/refmem_sync_vdc_feedback.c"])
@@ -27,6 +29,14 @@ def run(executable, case):
 
 def test_probe_signed_parameter_range_and_owner_rejection(executable):
     run(executable, "probe")
+
+
+def test_auto_requires_explicit_boolean_and_owner_acceptance(executable):
+    run(executable, "auto")
+
+
+def test_reference_requires_explicit_owner_ack_and_busy_query_fails(executable):
+    run(executable, "reference")
 
 
 @pytest.mark.parametrize("case", ["missing", "enabled", "adapter", "unapplied", "busy",
@@ -57,6 +67,10 @@ def test_commands_registered_once():
     header = (ROOT / "middleware/scpi_port/inc/scpi_system_snapshot_commands.h").read_text(encoding="utf-8")
     for pattern, callback in (
         ("SYSTem:VDC:FEEDback:PROBe", "scpi_cmd_vdc_feedback_probe"),
+        ("SYSTem:VDC:FEEDback:AUTO", "scpi_cmd_vdc_feedback_auto"),
+        ("SYSTem:VDC:FEEDback:AUTO?", "scpi_cmd_vdc_feedback_auto_q"),
+        ("SYSTem:VDC:FEEDback:REFerence", "scpi_cmd_vdc_feedback_reference"),
+        ("SYSTem:VDC:FEEDback:REFerence?", "scpi_cmd_vdc_feedback_reference_q"),
         ("SYSTem:VDC:FEEDback:BOUNDary?", "scpi_cmd_vdc_feedback_boundary_q"),
     ):
         assert header.count(f'.pattern = "{pattern}", .callback = {callback}') == 1
@@ -74,7 +88,8 @@ typedef int scpi_result_t;
 #define SCPI_RES_OK 1
 #define SCPI_RES_ERR -1
 static tdma_ring_runtime_snapshot_t ring={.config_seq=7,.applied_config_seq=7,.node_count=4};
-static bool parameter_ok=true,setter_ok=true,available=true;
+static bool parameter_ok=true,setter_ok=true,available=true,auto_enabled;
+static bool reference_enabled;
 static uint32_t slot=3,reads,getters,setters,errors,count,texts;
 static int32_t delta,current_delta;
 static uint64_t values[17];
@@ -87,6 +102,14 @@ static bool scpi_port_read_u32(scpi_t *c,uint32_t *out)
 { (void)c;*out=slot;return parameter_ok; }
 bool vdc_dpll_manager_set_boundary_probe(int32_t value)
 { ++setters;if(!setter_ok)return false;current_delta=value;return true; }
+bool vdc_dpll_manager_set_boundary_auto(bool enabled)
+{ ++setters;if(!setter_ok)return false;auto_enabled=enabled;return true; }
+bool vdc_dpll_manager_boundary_auto_enabled(void)
+{ return auto_enabled; }
+bool vdc_dpll_manager_set_reference_publish(bool enabled)
+{ ++setters;if(!setter_ok)return false;reference_enabled=enabled;return true; }
+bool vdc_dpll_manager_try_reference_publish_enabled(bool *enabled)
+{ if(!available)return false;*enabled=reference_enabled;return true; }
 bool vdc_dpll_manager_get_boundary_status(uint32_t value,vdc_dpll_boundary_status_t *out)
 { ++getters;if(!available||value>=4)return false;*out=status;return true; }
 static bool tdma_runtime_owner_get_ring_snapshot(tdma_ring_runtime_snapshot_t *out)
@@ -116,6 +139,43 @@ CASES = r'''
 int main(int argc,char **argv)
 {
     assert(argc==2);scenario=argv[1];scpi_t ctx=0;
+    if(!strcmp(scenario,"reference")) {
+        parameter_ok=false;slot=1;
+        assert(scpi_cmd_vdc_feedback_reference(&ctx)==SCPI_RES_ERR && !setters && !count && !texts);
+        parameter_ok=true;slot=2;
+        assert(scpi_cmd_vdc_feedback_reference(&ctx)==SCPI_RES_ERR && !setters && !count && !texts);
+        slot=1;setter_ok=false;
+        assert(scpi_cmd_vdc_feedback_reference(&ctx)==SCPI_RES_ERR && setters==1 && !reference_enabled);
+        setter_ok=true;
+        assert(scpi_cmd_vdc_feedback_reference(&ctx)==SCPI_RES_OK && reference_enabled);
+        assert(count==1 && values[0]==1 && texts==1 && !strcmp(last_text,"OK"));
+        count=texts=0;available=false;
+        assert(scpi_cmd_vdc_feedback_reference_q(&ctx)==SCPI_RES_ERR && !count && !texts);
+        available=true;
+        assert(scpi_cmd_vdc_feedback_reference_q(&ctx)==SCPI_RES_OK && count==1 && values[0]==1);
+        count=texts=0;slot=0;
+        assert(scpi_cmd_vdc_feedback_reference(&ctx)==SCPI_RES_OK && !reference_enabled);
+        assert(count==1 && values[0]==0 && texts==1 && !strcmp(last_text,"OK"));
+        assert(setters==3 && !reads && !getters);return 0;
+    }
+    if(!strcmp(scenario,"auto")) {
+        parameter_ok=false;slot=1;
+        assert(scpi_cmd_vdc_feedback_auto(&ctx)==SCPI_RES_ERR && !setters && !count && !texts);
+        parameter_ok=true;slot=2;
+        assert(scpi_cmd_vdc_feedback_auto(&ctx)==SCPI_RES_ERR && !setters && !count && !texts);
+        slot=1;setter_ok=false;
+        assert(scpi_cmd_vdc_feedback_auto(&ctx)==SCPI_RES_ERR && setters==1 && !auto_enabled);
+        assert(!count && !texts);
+        setter_ok=true;
+        assert(scpi_cmd_vdc_feedback_auto(&ctx)==SCPI_RES_OK && auto_enabled);
+        assert(count==1 && values[0]==1 && texts==1 && !strcmp(last_text,"OK"));
+        count=texts=0;
+        assert(scpi_cmd_vdc_feedback_auto_q(&ctx)==SCPI_RES_OK && count==1 && values[0]==1 && !texts);
+        count=0;slot=0;
+        assert(scpi_cmd_vdc_feedback_auto(&ctx)==SCPI_RES_OK && !auto_enabled);
+        assert(count==1 && values[0]==0 && texts==1);
+        assert(setters==3 && !reads && !getters);return 0;
+    }
     if(!strcmp(scenario,"probe")) {
         parameter_ok=false;delta=7;current_delta=99;
         assert(scpi_cmd_vdc_feedback_probe(&ctx)==SCPI_RES_ERR && !setters && !count && !texts);

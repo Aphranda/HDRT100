@@ -12,10 +12,13 @@
 #define VDC_FEEDBACK_MATCH_MAX_INTERVAL_SECONDS 2u
 #define VDC_FEEDBACK_MODEL_MAX_INTERVAL_NS UINT64_C(2000000000)
 #define VDC_FEEDBACK_MODEL_DOMAIN 2u
+#define VDC_FEEDBACK_RATE_DOMAIN 3u
+#define VDC_FEEDBACK_RATE_MIN_INTERVAL_NS UINT64_C(1000000000)
 
 /* Raw mode: TIMER1 tick bounds, CRC identity and publication version.
  * Model mode: projected output-ns bounds, reference model token as identity,
- * and Core0 preparation age. Neither mode proves physical GPIO adoption. */
+ * and Core0 preparation age. RATE mode uses affine ns with the same token
+ * and age representation. No mode proves physical GPIO adoption. */
 typedef struct {
     uint64_t tx_lo;
     uint64_t tx_hi;
@@ -68,8 +71,8 @@ typedef struct {
     uint64_t reference_tx_hi;
     uint32_t measurement_sequence;
     uint32_t reference_identity_crc32;
-    uint32_t rx_width_ns; /* Model mode only; raw mode is zero. */
-    uint32_t source_model_token; /* Model mode only; raw mode is zero. */
+    uint32_t rx_width_ns; /* MODEL/RATE modes; raw mode is zero. */
+    uint32_t source_model_token; /* MODEL/RATE modes; raw mode is zero. */
 } vdc_feedback_match_pair_t;
 
 /* Last successful difference, retained across misses and baseline changes.
@@ -82,7 +85,11 @@ typedef struct {
  * reserved == VDC_FEEDBACK_MODEL_DOMAIN explicitly changes pair coordinates
  * to model-projected ns: RX is the lower bound and rx_width_ns adds the upper
  * bound. raw_ppb_* then bounds the committed-model interval ratio, not raw
- * clocks or independently verified physical-output residuals. */
+ * clocks or independently verified physical-output residuals.
+ * reserved == VDC_FEEDBACK_RATE_DOMAIN uses affine RATE ns, source width
+ * 1 ns, and one unchanged source/reference model across a held window.
+ * Its interval ratio excludes constant observer anchors and fresh bridge
+ * read errors, but still is not a physical-output or phase-lock witness. */
 typedef struct {
     vdc_feedback_match_pair_t pairs[2];
     vdc_feedback_match_lifetime_t source;
@@ -112,6 +119,7 @@ typedef enum {
     VDC_FEEDBACK_MATCH_STALE,
     VDC_FEEDBACK_MATCH_INTERVAL_REBASED,
     VDC_FEEDBACK_MATCH_MATCHED,
+    VDC_FEEDBACK_MATCH_WAIT_WINDOW,
 } vdc_feedback_match_result_t;
 
 /* Cold initialization only. Reinitializing a cache also requires initializing
@@ -170,6 +178,14 @@ vdc_feedback_match_result_t vdc_feedback_model_update(
     const vdc_feedback_match_cache_t *cache, vdc_feedback_match_peer_t *peer,
     const vdc_feedback_match_sample_t *sample, uint32_t source_width_ns,
     uint32_t source_model_token);
+
+/* RATE uses source affine-coordinate lower + implicit 1 ns upper and held
+ * same-source/reference-model endpoints. WAIT preserves the baseline;
+ * model changes rebaseline. The absolute command-age basis is not a pair
+ * coordinate and is retained separately by the transport owner. */
+vdc_feedback_match_result_t vdc_feedback_rate_update(
+    const vdc_feedback_match_cache_t *cache, vdc_feedback_match_peer_t *peer,
+    const vdc_feedback_match_sample_t *sample, uint32_t source_model_token);
 
 /* False preserves output. A true result returns the historical last complete
  * pair, not an assertion that a new result was produced by the latest call. */
