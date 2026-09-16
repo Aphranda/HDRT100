@@ -32,6 +32,7 @@ typedef enum {
     REFMEM_SLOT_CLAIM_REASON_STALE = 8u,
     REFMEM_SLOT_CLAIM_REASON_CLAIM_CRC = 9u,
     REFMEM_SLOT_CLAIM_REASON_MAP_CRC = 10u,
+    REFMEM_SLOT_CLAIM_REASON_CAPABILITY_MISMATCH = 11u,
 } refmem_slot_claim_reason_t;
 
 typedef struct {
@@ -49,6 +50,13 @@ typedef struct {
     uint32_t claim_policy;
     uint32_t claim_priority;
 } refmem_slot_claim_proposal_t;
+
+/* Reference a physical board in the authoritative capability table. A binding
+ * cannot supply replacement UUID/capability/IO/IP values. */
+typedef struct {
+    uint32_t slot_id;
+    uint32_t board_id;
+} refmem_slot_binding_proposal_t;
 
 typedef struct {
     uint32_t slot_id;
@@ -116,6 +124,21 @@ bool refmem_slot_claim_derive_map(const refmem_generic_node_table_t *node_table,
                                   const refmem_node_load_table_t *node_load_table,
                                   const refmem_fb_instance_table_t *instance_table,
                                   refmem_slot_claim_map_t *map);
+/* Pure complete reconstruction, not a lease acquisition or an active-map overlay.
+ * An empty proposal list is valid. Same-board distinct slots must ALL opt into
+ * ALLOW_SAME_BOARD_MULTI_SLOT. Invalid arguments/identity/policy leave map intact.
+ * true means a map was derived: duplicate, disabled, missing or incompatible
+ * slots remain explicit facts and callers must evaluate the gate before use.
+ * The owner supplies a nonzero epoch and arbitrates against existing leases. */
+bool refmem_slot_claim_derive_proposals(
+    const refmem_generic_node_table_t *node_table,
+    const refmem_board_capability_table_t *board_table,
+    const refmem_node_load_table_t *node_load_table,
+    const refmem_fb_instance_table_t *instance_table,
+    const refmem_slot_binding_proposal_t *proposals,
+    uint32_t proposal_count,
+    uint32_t claim_epoch,
+    refmem_slot_claim_map_t *map);
 const refmem_slot_claim_assignment_t *refmem_slot_claim_find_assignment(
     const refmem_slot_claim_map_t *map,
     uint32_t slot_id);

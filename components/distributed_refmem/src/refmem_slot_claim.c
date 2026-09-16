@@ -15,7 +15,9 @@ static uint32_t refmem_slot_claim_loaded_instance_mask(
     const refmem_fb_instance_table_t *instance_table)
 {
     uint32_t mask = 0u;
-    if (node_load_table == NULL || instance_table == NULL) {
+    if (node_load_table == NULL || instance_table == NULL ||
+        node_load_table->load_count > REFMEM_APP_MODEL_NODE_LOAD_COUNT ||
+        instance_table->instance_count > REFMEM_APP_MODEL_INSTANCE_COUNT) {
         return mask;
     }
 
@@ -23,15 +25,23 @@ static uint32_t refmem_slot_claim_loaded_instance_mask(
         const refmem_node_load_entry_t *load = &node_load_table->load[i];
         if (load->enabled == 0u ||
             load->node_id != slot_id ||
-            load->instance_id >= instance_table->instance_count ||
+            load->instance_id >= REFMEM_APP_MODEL_INSTANCE_COUNT ||
             load->instance_id >= 32u) {
             continue;
         }
 
-        const refmem_fb_instance_entry_t *instance =
-            &instance_table->instance[load->instance_id];
-        if (instance->instance_id == load->instance_id &&
-            instance->enable_condition != 0u) {
+        const refmem_fb_instance_entry_t *instance = NULL;
+        bool duplicate = false;
+        for (uint32_t j = 0u; j < instance_table->instance_count; ++j) {
+            if (instance_table->instance[j].instance_id != load->instance_id)
+                continue;
+            if (instance != NULL) {
+                duplicate = true;
+                break;
+            }
+            instance = &instance_table->instance[j];
+        }
+        if (!duplicate && instance != NULL && instance->enable_condition != 0u) {
             mask |= (1u << load->instance_id);
         }
     }
@@ -114,6 +124,7 @@ static bool refmem_slot_claim_add_candidate(refmem_slot_claim_map_t *map,
                                             const refmem_app_node_entry_t *node,
                                             const refmem_board_capability_entry_t *board,
                                             uint32_t candidate_id,
+                                            uint32_t target_slot,
                                             const refmem_node_load_table_t *node_load_table,
                                             const refmem_fb_instance_table_t *instance_table)
 {
@@ -135,19 +146,19 @@ static bool refmem_slot_claim_add_candidate(refmem_slot_claim_map_t *map,
     }
 
     map->candidate_count++;
-    if (board->active_default_slot >= map->slot_count ||
-        board->active_default_slot >= REFMEM_APP_MODEL_NODE_COUNT) {
+    if (target_slot >= map->slot_count ||
+        target_slot >= REFMEM_APP_MODEL_NODE_COUNT) {
         map->overflow_count++;
         return true;
     }
 
-    refmem_slot_claim_assignment_t *slot = &map->slot[board->active_default_slot];
+    refmem_slot_claim_assignment_t *slot = &map->slot[target_slot];
     if (slot->claim_state == REFMEM_SLOT_CLAIM_DISABLED) {
         slot->reason = REFMEM_SLOT_CLAIM_REASON_DISABLED_SLOT;
         refmem_slot_claim_record_evidence(map,
                                           board,
                                           candidate_id,
-                                          board->active_default_slot,
+                                          target_slot,
                                           REFMEM_SLOT_CLAIM_DISABLED,
                                           REFMEM_SLOT_CLAIM_REASON_DISABLED_SLOT,
                                           slot->claim_policy,
@@ -277,6 +288,7 @@ bool refmem_slot_claim_derive_map(const refmem_generic_node_table_t *node_table,
                                               node,
                                               board,
                                               i,
+                                              board->active_default_slot,
                                               node_load_table,
                                               instance_table);
     }
@@ -286,6 +298,165 @@ bool refmem_slot_claim_derive_map(const refmem_generic_node_table_t *node_table,
         slot->claim_crc32 = refmem_slot_claim_assignment_crc32(slot);
     }
     map->map_crc32 = refmem_slot_claim_map_crc32(map);
+    return true;
+}
+
+static const refmem_board_capability_entry_t *refmem_slot_claim_board_by_id(
+    const refmem_board_capability_table_t *boards, uint32_t board_id)
+{
+    for (uint32_t i = 0u; i < boards->board_count; ++i) {
+        if (boards->board[i].board_id == board_id)
+            return &boards->board[i];
+    }
+    return NULL;
+}
+
+static bool refmem_slot_claim_proposal_tables_valid(
+    const refmem_generic_node_table_t *nodes,
+    const refmem_board_capability_table_t *boards,
+    const refmem_node_load_table_t *loads,
+    const refmem_fb_instance_table_t *instances)
+{
+    if (nodes == NULL || boards == NULL || loads == NULL || instances == NULL ||
+        nodes->version != REFMEM_APP_MODEL_VERSION ||
+        boards->version != REFMEM_APP_MODEL_VERSION ||
+        loads->version != REFMEM_APP_MODEL_VERSION ||
+        instances->version != REFMEM_APP_MODEL_VERSION ||
+        nodes->node_count == 0u || nodes->node_count > REFMEM_APP_MODEL_NODE_COUNT ||
+        boards->board_count > REFMEM_APP_MODEL_BOARD_CAPABILITY_COUNT ||
+        loads->load_count > REFMEM_APP_MODEL_NODE_LOAD_COUNT ||
+        instances->instance_count > REFMEM_APP_MODEL_INSTANCE_COUNT)
+        return false;
+    for (uint32_t i = 0u; i < nodes->node_count; ++i) {
+        if (nodes->node[i].node_id != i ||
+            nodes->node[i].claim_policy > REFMEM_APP_CLAIM_DISABLED ||
+            nodes->node[i].online_required > 1u)
+            return false;
+    }
+    for (uint32_t i = 0u; i < boards->board_count; ++i) {
+        const refmem_board_capability_entry_t *board = &boards->board[i];
+        if (board->board_id >= REFMEM_APP_MODEL_BOARD_CAPABILITY_COUNT ||
+            board->active_default_slot >= nodes->node_count || board->online_required > 1u)
+            return false;
+        for (uint32_t j = 0u; j < i; ++j) {
+            if (boards->board[j].board_id == board->board_id ||
+                (board->board_uuid_crc32 != 0u &&
+                 boards->board[j].board_uuid_crc32 == board->board_uuid_crc32))
+                return false;
+        }
+    }
+    for (uint32_t i = 0u; i < instances->instance_count; ++i) {
+        if (instances->instance[i].instance_id >= REFMEM_APP_MODEL_INSTANCE_COUNT ||
+            instances->instance[i].instance_id >= 32u ||
+            instances->instance[i].enable_condition > 1u)
+            return false;
+        for (uint32_t j = 0u; j < i; ++j) {
+            if (instances->instance[j].instance_id == instances->instance[i].instance_id)
+                return false;
+        }
+    }
+    uint32_t loaded = 0u;
+    for (uint32_t i = 0u; i < loads->load_count; ++i) {
+        const refmem_node_load_entry_t *load = &loads->load[i];
+        if (load->node_id >= nodes->node_count ||
+            load->instance_id >= REFMEM_APP_MODEL_INSTANCE_COUNT || load->instance_id >= 32u ||
+            load->enabled > 1u || load->required > 1u)
+            return false;
+        bool found = false;
+        for (uint32_t j = 0u; j < instances->instance_count; ++j)
+            found |= instances->instance[j].instance_id == load->instance_id;
+        if (!found)
+            return false;
+        if (load->enabled != 0u) {
+            const uint32_t bit = 1u << load->instance_id;
+            if ((loaded & bit) != 0u)
+                return false;
+            loaded |= bit;
+        }
+    }
+    return true;
+}
+
+bool refmem_slot_claim_derive_proposals(
+    const refmem_generic_node_table_t *node_table,
+    const refmem_board_capability_table_t *board_table,
+    const refmem_node_load_table_t *node_load_table,
+    const refmem_fb_instance_table_t *instance_table,
+    const refmem_slot_binding_proposal_t *proposals,
+    uint32_t proposal_count,
+    uint32_t claim_epoch,
+    refmem_slot_claim_map_t *map)
+{
+    if (map == NULL || claim_epoch == 0u ||
+        proposal_count > REFMEM_APP_MODEL_CLAIM_CANDIDATE_MAX ||
+        (proposal_count != 0u && proposals == NULL) ||
+        !refmem_slot_claim_proposal_tables_valid(node_table, board_table,
+                                                node_load_table, instance_table))
+        return false;
+    for (uint32_t i = 0u; i < proposal_count; ++i) {
+        const refmem_slot_binding_proposal_t *p = &proposals[i];
+        if (p->slot_id >= node_table->node_count ||
+            refmem_slot_claim_board_by_id(board_table, p->board_id) == NULL)
+            return false;
+        for (uint32_t j = 0u; j < i; ++j) {
+            if (proposals[j].board_id == p->board_id && proposals[j].slot_id != p->slot_id &&
+                (node_table->node[p->slot_id].claim_policy != REFMEM_APP_CLAIM_ALLOW_SAME_BOARD_MULTI_SLOT ||
+                 node_table->node[proposals[j].slot_id].claim_policy != REFMEM_APP_CLAIM_ALLOW_SAME_BOARD_MULTI_SLOT))
+                return false;
+        }
+    }
+
+    refmem_slot_claim_map_t candidate;
+    memset(&candidate, 0, sizeof(candidate));
+    candidate.version = REFMEM_SLOT_CLAIM_VERSION;
+    candidate.claim_epoch = claim_epoch;
+    candidate.slot_count = node_table->node_count;
+    for (uint32_t i = 0u; i < candidate.slot_count; ++i) {
+        refmem_slot_claim_assignment_t *slot = &candidate.slot[i];
+        const refmem_app_node_entry_t *node = &node_table->node[i];
+        slot->slot_id = i;
+        slot->board_id = UINT32_MAX;
+        slot->claim_epoch = claim_epoch;
+        slot->claim_policy = node->claim_policy;
+        slot->claim_priority = node->claim_priority;
+        slot->online_required = node->online_required;
+        if (node->claim_policy == REFMEM_APP_CLAIM_DISABLED) {
+            slot->claim_state = REFMEM_SLOT_CLAIM_DISABLED;
+            slot->reason = REFMEM_SLOT_CLAIM_REASON_DISABLED_SLOT;
+            candidate.disabled_count++;
+        }
+    }
+    for (uint32_t i = 0u; i < proposal_count; ++i) {
+        const refmem_slot_binding_proposal_t *p = &proposals[i];
+        const refmem_app_node_entry_t *node = &node_table->node[p->slot_id];
+        const refmem_board_capability_entry_t *board =
+            refmem_slot_claim_board_by_id(board_table, p->board_id);
+        (void)refmem_slot_claim_add_candidate(&candidate, node, board, i, p->slot_id,
+                                              node_load_table, instance_table);
+        refmem_slot_claim_assignment_t *slot = &candidate.slot[p->slot_id];
+        if (slot->claim_state != REFMEM_SLOT_CLAIM_CLAIMED)
+            continue;
+        uint32_t reason = REFMEM_SLOT_CLAIM_REASON_OK;
+        if (node->claim_policy == REFMEM_APP_CLAIM_STRICT_UUID &&
+            node->node_uuid_crc32 != 0u && node->node_uuid_crc32 != board->board_uuid_crc32)
+            reason = REFMEM_SLOT_CLAIM_REASON_UUID_MISMATCH;
+        else if (node->hw_profile_crc32 != 0u && node->hw_profile_crc32 != board->hw_profile_crc32)
+            reason = REFMEM_SLOT_CLAIM_REASON_HW_PROFILE_MISMATCH;
+        else if ((node->capability_mask & ~board->capability_mask) != 0u)
+            reason = REFMEM_SLOT_CLAIM_REASON_CAPABILITY_MISMATCH;
+        if (reason != REFMEM_SLOT_CLAIM_REASON_OK) {
+            slot->claim_state = REFMEM_SLOT_CLAIM_MISMATCH;
+            slot->reason = reason;
+            candidate.conflict_count++;
+        }
+        refmem_slot_claim_record_evidence(&candidate, board, i, p->slot_id,
+                                          slot->claim_state, slot->reason,
+                                          slot->claim_policy, slot->claim_priority);
+    }
+    for (uint32_t i = 0u; i < candidate.slot_count; ++i)
+        candidate.slot[i].claim_crc32 = refmem_slot_claim_assignment_crc32(&candidate.slot[i]);
+    candidate.map_crc32 = refmem_slot_claim_map_crc32(&candidate);
+    *map = candidate;
     return true;
 }
 
