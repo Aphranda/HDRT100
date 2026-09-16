@@ -65,7 +65,11 @@ class Bench:
             values = tuple(map(int, command.split()[1].split(",")))
             for key, value in zip(("ring_node_count", "ring_local_slot_id", "ring_reference_slot_id"), values):
                 state[key] = value
+            state["ring_config_seq"] += 1
+            state["ring_applied_config_seq"] = state["ring_config_seq"]
             return command.split()[1]
+        if command == "SYSTem:VDC:FEEDback:SESSion?":
+            return "0"
         if command == "SYSTem:TDMA:RING:ARM":
             state.update(ring_enabled=1, ring_adapter_started=1)
             state["ring_config_seq"] += 1
@@ -132,6 +136,74 @@ def test_main_rejected_start_is_not_a_successful_adjacency(monkeypatch, tmp_path
     assert not report["passed"] and report["error"]
     assert report["pair_actions"]
     assert len(report["cleanup"]) == 2
+
+
+def test_pair_topology_recovers_explicit_refusal_with_new_stopped_generation(monkeypatch, tmp_path):
+    bench = Bench()
+    attempts = []
+    def hook(b, board, command):
+        if command.startswith("SYSTem:TDMA:RING:TOPology "):
+            attempts.append(command)
+            if len(attempts) == 1:
+                b.errors[board.address].append('-200,"Execution error"')
+                return "<timeout>"
+    bench.hook = hook
+    bench.install(monkeypatch)
+    actions = []
+    result = topology.configure_pair_topology(DRIVER, 0, options(tmp_path), actions)
+    assert result["passed"] and result["session_before"] == "0"
+    assert attempts == ["SYSTem:TDMA:RING:TOPology 2,0,0"] * 2
+    failed = [r for r in result["actions"] if r.get("error_after")]
+    assert failed[0]["response"] == "<timeout>"
+    assert failed[0]["error_after"] == '-200,"Execution error"'
+    applied = result["actions"][-1]
+    assert applied["command"] == "TOPOLOGY_APPLIED" and applied["attempt"] == 2
+    assert applied["readback"]["ring_config_seq"] == 6
+    assert all(not cmd.endswith(":ARM") and "SESSion 0" not in cmd for _, cmd in bench.calls)
+
+
+@pytest.mark.parametrize("reply,error,limit", [
+    ("<timeout>", '-200,"Execution error"', 3),
+    ("<timeout>", '0,"No error"', 1),
+    ("<timeout>", '-222,"Data out of range"', 1),
+    ("2,1,0", '-200,"Execution error"', 1),
+])
+def test_pair_topology_unknown_or_persistent_refusal_never_admits(monkeypatch, tmp_path, reply, error, limit):
+    bench = Bench()
+    attempts = []
+    def hook(b, board, command):
+        if command.startswith("SYSTem:TDMA:RING:TOPology "):
+            attempts.append(command)
+            b.errors[board.address].append(error)
+            return reply
+    bench.hook = hook
+    bench.install(monkeypatch)
+    actions = []
+    with pytest.raises(RuntimeError):
+        topology.configure_pair_topology(DRIVER, 0, options(tmp_path), actions)
+    assert not actions[0]["passed"] and len(attempts) == limit
+
+
+@pytest.mark.parametrize("session", ["42", "<timeout>"])
+def test_pair_topology_preserves_session_and_refuses_unknown_owner(monkeypatch, tmp_path, session):
+    bench = Bench()
+    bench.hook = lambda b, board, cmd: session if cmd.endswith("SESSion?") else None
+    bench.install(monkeypatch)
+    with pytest.raises(RuntimeError, match="feedback session"):
+        topology.configure_pair_topology(DRIVER, 0, options(tmp_path), [])
+    assert not any("TOPology " in cmd or "SESSion 0" in cmd for _, cmd in bench.calls)
+
+
+def test_pair_topology_cannot_use_old_stopped_generation_as_apply_proof(monkeypatch, tmp_path):
+    bench = Bench()
+    bench.hook = lambda b, board, cmd: "2,0,0" if "TOPology " in cmd else None
+    bench.install(monkeypatch)
+    args = options(tmp_path)
+    args.arm_wait = .03
+    actions = []
+    with pytest.raises(RuntimeError, match="ring state deadline"):
+        topology.configure_pair_topology(DRIVER, 0, args, actions)
+    assert not actions[0]["passed"]
 
 
 def invoke(monkeypatch, tmp_path, bench, *, adjacency_only=True):

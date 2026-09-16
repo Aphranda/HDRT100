@@ -401,6 +401,43 @@ def compact_pair_results(pair_results: list[dict[str, object]]) -> list[dict[str
     return rows
 
 
+def configure_pair_topology(board, slot, args, actions):
+    """Reuse the calibration owner's bounded stopped configuration handoff.
+
+    A completed STOP query is not a lease on the next control operation.
+    Keep explicit -200 refusals and require a fresh ACK plus applied generation
+    before ARM. Never clear a DPLL session to make topology admission pass.
+    """
+    row = {"board": board.address, "slot": slot, "actions": [],
+           "errors_before": [], "passed": False}
+    actions.append(row)
+    config_args = argparse.Namespace(**vars(args))
+    config_args.idle_poll_interval = .02
+    try:
+        for _ in range(16):
+            raw = board_command(board, "SYSTem:ERRor?", args)
+            row["errors_before"].append(raw)
+            if _error_code(raw) == 0:
+                break
+        else:
+            raise RuntimeError("error queue did not reach a clean topology baseline")
+        raw = board_command(board, "SYSTem:VDC:FEEDback:SESSion?", args)
+        row["session_before"] = raw
+        if raw.strip().strip('"') != "0":
+            raise RuntimeError("topology requires an inactive feedback session")
+        values = stopped_profile._set_stopped_topology(
+            board, (2, slot, 0), config_args, row["actions"])
+        row["response"] = ','.join(map(str, values))
+        row["error_after"] = board_command(board, "SYSTem:ERRor?", args)
+        if _error_code(row["error_after"]) != 0:
+            raise RuntimeError("topology error queue is not clear")
+        row["passed"] = True
+    except Exception as exc:
+        row["error"] = f"{type(exc).__name__}: {exc}"
+        raise
+    return row
+
+
 def apply_profile(board, args: argparse.Namespace) -> dict[str, object]:
     """Keep every attempt and reuse the stopped APPLY attribution barrier."""
     profile_args = argparse.Namespace(**vars(args))
@@ -518,21 +555,7 @@ def main() -> int:
                 driver = boards[driver_id]
                 receiver = boards[receiver_id]
                 for board, slot in ((driver, 0), (receiver, 1)):
-                    row = {"board": board.address, "slot": slot}
-                    preparation["topology"].append(row)
-                    try:
-                        row["response"] = board_command(
-                            board, f"SYSTem:TDMA:RING:TOPology 2,{slot},0", args)
-                        values = tuple(int(v.strip().strip('"'), 0) for v in row["response"].split(","))
-                        if values != (2, slot, 0):
-                            raise RuntimeError(f"pair topology acknowledgment mismatch: {row}")
-                    except Exception as exc:
-                        row["error"] = f"{type(exc).__name__}: {exc}"
-                        try:
-                            row["error_after"] = board_command(board, "SYSTem:ERRor?", args)
-                        except Exception as readback_exc:
-                            row["error_readback_failure"] = f"{type(readback_exc).__name__}: {readback_exc}"
-                        raise
+                    configure_pair_topology(board, slot, args, preparation["topology"])
                 time.sleep(args.gap)
                 before = start_pair(driver, receiver, args, pair_actions, transport_recoveries)
                 # START is an intent.  Use the receiver's counters as the

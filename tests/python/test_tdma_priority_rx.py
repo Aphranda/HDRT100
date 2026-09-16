@@ -609,6 +609,15 @@ int main(void) {
     tdma_priority_rx_binding_t binding={.packet_bytes=sizeof(packet),.reference_slot=0u,.local_slot=1u,
         .node_count=4u,.schedule_crc32=0x1234u,.profile_crc32=0x5678u};
     assert(tdma_priority_rx_validate(&binding,&record)==TDMA_PRIORITY_RX_OK);
+    /* Typed synchronization is admitted by the priority ingress only; the
+     * ordinary process-image class validator still rejects it. */
+    record.mailbox[3]=TDMA_PROCESS_IMAGE_VDC_PRIORITY_SYNC_MESSAGE_CLASS;
+    put16(record.mailbox+30u,tdma_process_image_crc16_ccitt(record.mailbox,30u));
+    assert(!tdma_process_image_transport_class_valid(record.mailbox[3]));
+    assert(tdma_process_image_typed_sync_class_valid(record.mailbox[3]));
+    assert(tdma_priority_rx_validate(&binding,&record)==TDMA_PRIORITY_RX_OK);
+    record.mailbox[3]=TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS;
+    put16(record.mailbox+30u,tdma_process_image_crc16_ccitt(record.mailbox,30u));
     record.header[24]^=1u; uint32_t crc; assert(tdma_transport_frame_calculate_transport_crc32(record.header,32u,&crc)); put32(record.header+28u,crc);
     assert(tdma_priority_rx_validate(&binding,&record)==TDMA_PRIORITY_RX_HEADER_CRC); record.header[24]^=1u;
     assert(tdma_priority_rx_publish(&pure,&record));

@@ -146,7 +146,9 @@ uint32_t tdma_priority_rx_validate(const tdma_priority_rx_binding_t *b,
     if (!tdma_transport_frame_calculate_transport_crc32(h, TDMA_PRIORITY_RX_HEADER_BYTES, &crc) ||
         crc != u32(h + 28u)) return TDMA_PRIORITY_RX_HEADER_CRC;
     if (u16(m) != TDMA_FLIGHT_MAILBOX_MAGIC || m[2] != TDMA_FLIGHT_MAILBOX_VERSION ||
-        !tdma_process_image_transport_class_valid(m[3]) || m[4] != b->reference_slot ||
+        (!(tdma_process_image_transport_class_valid(m[3]) ||
+           tdma_process_image_typed_sync_class_valid(m[3]))) ||
+        m[4] != b->reference_slot ||
         !(m[5] & (1u << b->local_slot)) || (m[5] & ~((1u << b->node_count) - 1u)))
         return TDMA_PRIORITY_RX_MAILBOX;
     if (tdma_process_image_crc16_ccitt(m, TDMA_PROCESS_IMAGE_CRC_OFFSET) !=

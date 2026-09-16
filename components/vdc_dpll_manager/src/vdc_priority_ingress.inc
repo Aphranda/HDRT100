@@ -85,6 +85,19 @@ static __attribute__((noinline)) void vdc_priority_ingress_core1(void)
             s_priority_ingress.record = record;
             s_priority_ingress.have_record = 1u;
             s_priority_ingress.last_class = record.mailbox[3];
+            if (tdma_process_image_typed_sync_class_valid(record.mailbox[3])) {
+                vdc_priority_codec_record_t typed;
+                if (vdc_priority_codec_decode(
+                        record.mailbox + TDMA_PROCESS_IMAGE_PRIORITY_SYNC_BODY_OFFSET,
+                        &typed)) {
+                    s_priority_ingress.typed_record = typed;
+                    s_priority_ingress.typed_decode_count =
+                        priority_ingress_inc(s_priority_ingress.typed_decode_count);
+                } else {
+                    s_priority_ingress.typed_reject_count =
+                        priority_ingress_inc(s_priority_ingress.typed_reject_count);
+                }
+            }
             s_priority_ingress.copied_count = priority_ingress_inc(s_priority_ingress.copied_count);
             copied = true;
         }

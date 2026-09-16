@@ -15,6 +15,7 @@
 #define TDMA_PROCESS_IMAGE_VDC_COMMAND_MESSAGE_CLASS 0x11u
 #define TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS 0x12u
 #define TDMA_PROCESS_IMAGE_VDC_BOUNDARY_COMMAND_MESSAGE_CLASS 0x13u
+#define TDMA_PROCESS_IMAGE_VDC_PRIORITY_SYNC_MESSAGE_CLASS 0x14u
 
 /* Typed VDC regions are interpreted only by their Core0 consumer.
  * The old absolute-time command prototype (0x11) remains disabled. */
@@ -24,6 +25,25 @@ static inline bool tdma_process_image_transport_class_valid(uint8_t message_clas
         message_class == TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS ||
         message_class == TDMA_PROCESS_IMAGE_VDC_BOUNDARY_COMMAND_MESSAGE_CLASS;
 }
+
+/* Priority synchronization owns the complete 22-byte body for this class.
+ * Keep it out of the ordinary process-image whitelist above: legacy VDC,
+ * RefMem and overlay parsers must reject it until their typed consumer opts
+ * in explicitly. */
+static inline bool tdma_process_image_typed_sync_class_valid(uint8_t message_class)
+{
+    return message_class == TDMA_PROCESS_IMAGE_VDC_PRIORITY_SYNC_MESSAGE_CLASS;
+}
+
+#define TDMA_PROCESS_IMAGE_PRIORITY_SYNC_BODY_OFFSET 8u
+#define TDMA_PROCESS_IMAGE_PRIORITY_SYNC_BODY_SIZE 22u
+#define TDMA_PROCESS_IMAGE_PRIORITY_SYNC_GENERATION_OFFSET 8u
+#define TDMA_PROCESS_IMAGE_PRIORITY_SYNC_EVENT_SEQUENCE_OFFSET 12u
+#define TDMA_PROCESS_IMAGE_PRIORITY_SYNC_TIME_LOWER_OFFSET 16u
+#define TDMA_PROCESS_IMAGE_PRIORITY_SYNC_UNCERTAINTY_WIDTH_OFFSET 24u
+#define TDMA_PROCESS_IMAGE_PRIORITY_SYNC_FLAGS_OFFSET 28u
+#define TDMA_PROCESS_IMAGE_PRIORITY_SYNC_FLAGS_SIZE 2u
+
 
 #define TDMA_PROCESS_IMAGE_VDC_OFFSET 8u
 #define TDMA_PROCESS_IMAGE_VDC_SIZE 6u
@@ -65,6 +85,18 @@ static inline bool tdma_process_image_transport_class_valid(uint8_t message_clas
 
 #define TDMA_PROCESS_IMAGE_CRC_OFFSET 30u
 #define TDMA_PROCESS_IMAGE_CRC_SIZE 2u
+
+_Static_assert(TDMA_PROCESS_IMAGE_PRIORITY_SYNC_BODY_OFFSET +
+                   TDMA_PROCESS_IMAGE_PRIORITY_SYNC_BODY_SIZE ==
+               TDMA_PROCESS_IMAGE_CRC_OFFSET,
+               "typed priority body must end immediately before mailbox CRC");
+_Static_assert(TDMA_PROCESS_IMAGE_PRIORITY_SYNC_GENERATION_OFFSET ==
+                   TDMA_PROCESS_IMAGE_PRIORITY_SYNC_BODY_OFFSET &&
+               TDMA_PROCESS_IMAGE_PRIORITY_SYNC_EVENT_SEQUENCE_OFFSET == 12u &&
+               TDMA_PROCESS_IMAGE_PRIORITY_SYNC_TIME_LOWER_OFFSET == 16u &&
+               TDMA_PROCESS_IMAGE_PRIORITY_SYNC_UNCERTAINTY_WIDTH_OFFSET == 24u &&
+               TDMA_PROCESS_IMAGE_PRIORITY_SYNC_FLAGS_OFFSET == 28u,
+               "typed priority fields must retain the frozen little-endian layout");
 
 #define TDMA_PROCESS_IMAGE_MANDATORY_BODY_SIZE \
     (TDMA_PROCESS_IMAGE_VDC_SIZE + TDMA_PROCESS_IMAGE_REFMEM_SIZE + \

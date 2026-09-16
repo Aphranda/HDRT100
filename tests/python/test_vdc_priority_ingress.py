@@ -31,6 +31,7 @@ def ingress_executable(request, tmp_path_factory):
                    "components/tdma/inc", "components/vdc_dpll_manager/inc",
                    "components/vdc_dpll_manager/src")],
                str(source), str(ROOT / "components/tdma/src/tdma_priority_rx.c"),
+               str(ROOT / "components/vdc_dpll_manager/src/vdc_priority_codec.c"),
                str(ROOT / "components/tdma/src/tdma_transport_frame.c"), "-o", str(executable)]
     if short_enums:
         command.insert(1, "-fshort-enums")
@@ -47,7 +48,7 @@ def ingress_executable(request, tmp_path_factory):
     "order_reject", "snapshot_failure", "overwrite_retry", "stop_between_reads",
     "rebase_between_reads", "stop_and_arm", "epoch_and_wrap", "clock_failure",
     "future_irq", "clock_body_range", "clock_fail_preserves_max", "arrival_64bit", "guard_getter",
-    "ordinary_and_unknown", "counter_saturation",
+    "ordinary_and_unknown", "counter_saturation", "typed_decode_and_reject",
 ])
 def test_real_core1_priority_ingress(ingress_executable, case):
     result = subprocess.run([str(ingress_executable), case], capture_output=True, text=True, timeout=5)
@@ -73,6 +74,7 @@ static uint64_t clock_values[2] = {1000u, 1100u};
 static bool clock_valid[2] = {true, true};
 static uint32_t *collision_guard;
 static const uint32_t *collision_word;
+static bool invalid_typed;
 static void publish(uint32_t sequence, uint64_t irq_ticks, uint8_t mailbox_class);
 
 static uint32_t read_atomic(const uint32_t *p, int order)
@@ -120,6 +122,13 @@ static void publish(uint32_t sequence, uint64_t irq_ticks, uint8_t mailbox_class
     payload[2] = TDMA_FLIGHT_MAILBOX_VERSION;
     payload[3] = mailbox_class; payload[4] = 0u; payload[5] = 15u;
     put16(payload + 6u, sequence + 40u);
+    if (tdma_process_image_typed_sync_class_valid(mailbox_class)) {
+        const vdc_priority_codec_record_t typed = {.binding_generation=42u,
+            .event_sequence=sequence-1u, .event_time_lower=123456789u,
+            .uncertainty_width=7u, .flags=0u};
+        assert(vdc_priority_codec_encode(&typed, payload+8u));
+        if (invalid_typed) memset(payload+8u,0,4u);
+    }
     put16(payload + 30u, tdma_process_image_crc16_ccitt(payload, 30u));
     uint8_t packet[TDMA_TRANSPORT_FRAME_HEADER_SIZE + sizeof(payload)];
     tdma_transport_frame_build_t build = {
@@ -166,7 +175,22 @@ int main(int argc, char **argv)
     assert(argc == 2); const char *mode = argv[1];
     assert(tdma_priority_rx_start(&lane));
     vdc_priority_ingress_snapshot_t out;
-    if (!strcmp(mode, "empty")) {
+    if (!strcmp(mode, "typed_decode_and_reject")) {
+        publish(1u,900u,0x14u); out=sample();
+        assert(out.typed_decode_count==1u && out.typed_reject_count==0u);
+        assert(out.typed_record.binding_generation==42u && out.typed_record.event_sequence==0u);
+        assert(out.typed_record.event_time_lower==123456789u && out.typed_record.uncertainty_width==7u);
+        invalid_typed=true;
+        publish(2u,900u,0x14u); out=sample();
+        assert(out.typed_decode_count==1u && out.typed_reject_count==1u);
+        assert(out.typed_record.binding_generation==42u && out.typed_record.event_sequence==0u);
+        out=sample(); assert(out.typed_reject_count==1u);
+        publish(3u,900u,0x10u); out=sample();
+        assert(out.typed_decode_count==1u && out.typed_reject_count==1u);
+        tdma_priority_rx_stop(&lane); out=sample(); assert(!out.active);
+        assert(tdma_priority_rx_start(&lane)); out=sample();
+        assert(!out.typed_decode_count && !out.typed_reject_count && !out.typed_record.binding_generation);
+    } else if (!strcmp(mode, "empty")) {
         out = sample(); assert(out.schema == 1u && out.active && !out.have_record);
         assert(out.service_count == 1u && out.empty_polls == 1u && copy_calls == 0u);
     } else if (!strcmp(mode, "sequence_zero")) {
