@@ -239,6 +239,23 @@ typedef struct {
     uint32_t quality;
 } vdc_dpll_follower_command_t;
 
+/* Ephemeral Domain input, not a wire record or retained shared snapshot.
+ * expected_control_generation is this follower's local role generation;
+ * it is not the master-stream generation of the absolute-time API above. */
+typedef struct {
+    uint32_t source_slot_id;
+    uint32_t target_slot_id;
+    uint32_t expected_control_generation;
+    uint32_t schedule_crc32;
+    uint32_t servo_profile_crc32;
+    uint32_t clock_epoch_id;
+    uint32_t clock_run_id;
+    uint32_t expected_dco_update_seq;
+    uint32_t expected_applied_command_seq;
+    uint32_t command_seq;
+    int32_t delta_rate_ppb;
+} vdc_dpll_follower_rate_delta_t;
+
 typedef struct {
     vdc_dpll_control_profile_t profile;
     uint32_t follower_apply_count;
@@ -703,6 +720,21 @@ bool vdc_domain_set_dpll_control_profile(
 bool vdc_domain_apply_follower_command(
     vdc_domain_context_t *context,
     const vdc_dpll_follower_command_t *command);
+/* Core1 owner only, under its outer publication guard, with an immutable
+ * command. The caller admits transport/session/ARM/model-token/freshness and
+ * rechecks cancellation before calling. local_now_ns is the actual service
+ * application time, in the same local nanosecond domain as base_local_tick64.
+ * Success rebases continuously, absorbs old phase, and changes only the DCO
+ * rate/anchor/update sequence and follower apply metadata. It neither promotes
+ * lock/quality nor requests an oscillator trim. False leaves ALL context bytes
+ * unchanged. Sequences never wrap here: exhausted identities require an outer
+ * owner reset/fresh epoch. The DCO base records local application time; old
+ * absolute-time-only generation/quality/effective-time metadata is cleared,
+ * never assigned a new meaning. This does not relax the absolute-time API. */
+bool vdc_domain_apply_follower_rate_delta(
+    vdc_domain_context_t *context,
+    const vdc_dpll_follower_rate_delta_t *command,
+    uint64_t local_now_ns);
 void vdc_domain_note_follower_command_missing(vdc_domain_context_t *context);
 void vdc_domain_note_follower_command_late(vdc_domain_context_t *context);
 void vdc_domain_default_oscillator_discipline_profile(

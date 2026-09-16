@@ -2093,6 +2093,89 @@ bool vdc_domain_apply_follower_command(
     return true;
 }
 
+/* Keep this bounded, infrequent control operation in XIP, including when its
+ * caller lives in RAM. The Core1 outer owner guard covers the final commit. */
+bool __attribute__((noinline)) vdc_domain_apply_follower_rate_delta(
+    vdc_domain_context_t *context,
+    const vdc_dpll_follower_rate_delta_t *command,
+    uint64_t local_now_ns)
+{
+    if (context == NULL || command == NULL || context->ready == 0u ||
+        !vdc_domain_is_follower(context)) {
+        return false;
+    }
+
+    const uint32_t node_count = context->schedule.ring_binding.node_count;
+    if (context->schedule.enabled == 0u || context->servo.enabled == 0u ||
+        node_count == 0u || node_count > VDC_DOMAIN_NODE_COUNT ||
+        command->source_slot_id >= node_count ||
+        command->target_slot_id >= node_count ||
+        command->source_slot_id == command->target_slot_id ||
+        command->source_slot_id != context->control.profile.follow_master_slot_id ||
+        command->target_slot_id != context->schedule.local_slot_id ||
+        command->expected_control_generation == 0u ||
+        command->expected_control_generation != context->control.profile.generation ||
+        command->schedule_crc32 != context->schedule.schedule_crc32 ||
+        command->servo_profile_crc32 != context->servo.servo_profile_crc32 ||
+        context->clock.valid == 0u ||
+        command->clock_epoch_id != context->clock.epoch_id ||
+        command->clock_run_id != context->clock.run_id ||
+        command->clock_epoch_id != context->dco.epoch_id ||
+        command->clock_run_id != context->dco.run_id ||
+        context->dco.dco_update_seq == 0u ||
+        context->dco.dco_update_seq == UINT32_MAX ||
+        command->expected_dco_update_seq != context->dco.dco_update_seq ||
+        command->expected_applied_command_seq !=
+            context->control.last_follower_command_seq ||
+        command->command_seq == 0u ||
+        command->command_seq <= context->control.last_follower_command_seq ||
+        local_now_ns < context->dco.base_local_tick64 ||
+        context->dco.period_adjust_ppb <= -1000000000) {
+        return false;
+    }
+
+    const int64_t next_rate = (int64_t)context->dco.period_adjust_ppb +
+                              (int64_t)command->delta_rate_ppb;
+    if (next_rate < INT32_MIN || next_rate > INT32_MAX ||
+        next_rate <= -1000000000 ||
+        vdc_domain_abs_i32((int32_t)next_rate) >
+            context->servo.sanity_freq_limit_ppb) {
+        return false;
+    }
+
+    uint64_t old_output_ns = 0u;
+    if (!vdc_domain_dco_local_to_output_ns(&context->dco, local_now_ns,
+                                           &old_output_ns)) {
+        return false;
+    }
+    vdc_dco_control_t candidate = context->dco;
+    candidate.base_local_tick64 = local_now_ns;
+    candidate.base_vdc_time64_ns = old_output_ns;
+    candidate.phase_offset_ns = 0;
+    candidate.period_adjust_ppb = (int32_t)next_rate;
+    candidate.dco_update_seq++;
+
+    uint64_t new_output_ns = 0u;
+    if (!vdc_domain_dco_control_validate(&context->schedule, &context->servo,
+                                        &candidate) ||
+        !vdc_domain_dco_local_to_output_ns(&candidate, local_now_ns,
+                                           &new_output_ns) ||
+        new_output_ns != old_output_ns) {
+        return false;
+    }
+
+    const uint32_t applied_seq = command->command_seq;
+    const uint32_t source_slot_id = command->source_slot_id;
+    context->dco = candidate;
+    context->control.last_follower_source_slot_id = source_slot_id;
+    context->control.last_follower_command_seq = applied_seq;
+    context->control.last_follower_control_generation = 0u;
+    context->control.last_follower_quality = 0u;
+    context->control.last_follower_effective_vdc_time_ns = 0u;
+    vdc_domain_increment_saturating(&context->control.follower_apply_count);
+    return true;
+}
+
 void vdc_domain_note_follower_command_missing(vdc_domain_context_t *context)
 {
     if (vdc_domain_is_follower(context)) {
