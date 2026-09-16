@@ -190,7 +190,7 @@ class Bench:
         self.wait_state("IDLE")
         require(self.command("SYST:ERR?").startswith('0,'), "pre-existing SCPI error; inspect error queue")
         for command in (
-            "CONF:TRIG 8,0,1,1", "CONF:SEQ SP8T,0,1,2,3,4,5,6,7", "CONF:SEQ:ACT SP8T",
+            "CONF:SEQ:REP 0", "CONF:TRIG 8,0,1,1", "CONF:SEQ SP8T,0,1,2,3,4,5,6,7", "CONF:SEQ:ACT SP8T",
             f"CONF:SEQ:OUTPUT 7,8,PULSE,{self.args.settle_us},{self.args.pulse_us}",
             *(f"CONF:SEQ:CODE {code},{code}" for code in range(8)),
             f"CONF:SEQ:SOUR {self.args.source},{self.args.edge}",

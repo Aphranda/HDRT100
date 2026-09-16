@@ -18,8 +18,12 @@ scpi_result_t scpi_sequence_rejections_q(scpi_t *context);
 scpi_result_t scpi_sequence_input_q(scpi_t *context);
 scpi_result_t scpi_sequence_output_q(scpi_t *context);
 scpi_result_t scpi_sequence_io_state_q(scpi_t *context);
+scpi_result_t scpi_sequence_repeat(scpi_t *context);
+scpi_result_t scpi_sequence_repeat_q(scpi_t *context);
 
 #define SCPI_SEQUENCE_COMMANDS \
+    {.pattern = "CONFigure:SEQuence:REPeat", .callback = scpi_sequence_repeat}, \
+    {.pattern = "READ:SEQuence:REPeat?", .callback = scpi_sequence_repeat_q}, \
     {.pattern = "TRIGger:SEQuence:STEP", .callback = scpi_sequence_step}, \
     {.pattern = "CONFigure:SEQuence:NEXT", .callback = scpi_sequence_step}, \
     {.pattern = "READ:SEQuence:NEXT?", .callback = scpi_sequence_status_q}, \

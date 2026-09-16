@@ -522,6 +522,8 @@ set(PROJECT_APP_SOURCES
         components/sync_trigger/src/sync_trigger.c
         components/sync_trigger/src/trigger_sequence_config.c
         components/sync_trigger/src/trigger_sequence_service.c
+        components/sync_trigger/src/trigger_sequence_link_protocol.c
+        components/sync_trigger/src/trigger_sequence_link.c
         components/sync_trigger/src/trigger_fb.c
         components/sync_trigger/src/trigger_measure.c
         components/sync_trigger/src/trigger_resource_map.c
@@ -599,6 +601,7 @@ set(PROJECT_APP_SOURCES
         components/communication/rs485_modbus/src/rs485_communication.c
         middleware/scpi_port/src/scpi_config_commands.c
         middleware/scpi_port/src/scpi_sequence_commands.c
+        middleware/scpi_port/src/scpi_sequence_node_commands.c
         middleware/scpi_port/src/scpi_port.c
         middleware/scpi_port/src/scpi_loop_engine_commands.c
         middleware/scpi_port/src/scpi_measure_commands.c

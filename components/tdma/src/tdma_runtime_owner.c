@@ -446,6 +446,10 @@ bool tdma_runtime_owner_set_flight_process_image_mode(bool enabled)
     if (!s_tdma_runtime_owner_initialized) {
         return false;
     }
+    /* Reject before changing the physical layer: the active LOOPBACK intent
+     * requires process-image forwarding even while the ring is stopped. */
+    if (!enabled && __atomic_load_n(&s_tdma_pio_spi_ring_adapter.local_return_delivery,
+                                    __ATOMIC_ACQUIRE) != 0u) return false;
     tdma_ring_runtime_snapshot_t ring;
     tdma_flight_engine_snapshot_t engine;
     if (!tdma_ring_runtime_get_snapshot(&s_tdma_runtime_owner.ring_runtime,
@@ -473,6 +477,19 @@ bool tdma_runtime_owner_set_flight_process_image_mode(bool enabled)
         return false;
     }
     return true;
+}
+
+static bool tdma_runtime_owner_apply_local_return_delivery(void *context)
+{
+    return tdma_pio_spi_ring_adapter_set_local_return_delivery(
+        &s_tdma_pio_spi_ring_adapter, *(const bool *)context);
+}
+
+bool tdma_runtime_owner_set_local_return_delivery(bool enabled)
+{
+    return s_tdma_runtime_owner_initialized &&
+        tdma_service_apply_stopped_configuration(&s_tdma_runtime_owner,
+            tdma_runtime_owner_apply_local_return_delivery, &enabled);
 }
 
 bool tdma_runtime_owner_set_clock_evidence_enabled(bool enabled)

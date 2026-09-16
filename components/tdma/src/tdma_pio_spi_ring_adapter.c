@@ -665,6 +665,18 @@ static void tdma_pio_spi_ring_adapter_snapshot_write_end(
     (void)__atomic_add_fetch(&adapter->snapshot_guard, 1u, __ATOMIC_RELEASE);
 }
 
+bool tdma_pio_spi_ring_adapter_set_local_return_delivery(
+    tdma_pio_spi_ring_adapter_t *adapter, bool enabled)
+{
+    if (adapter == NULL || adapter->started != 0u || adapter->origin.active != 0u ||
+        (enabled && adapter->forwarding_mode != TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE))
+        return false;
+    /* Product Core0 callers hold the service STOP/ACK control guard. Only
+     * publish intent here; Core1 START alone resets receive freshness. */
+    __atomic_store_n(&adapter->local_return_delivery, enabled ? 1u : 0u, __ATOMIC_RELEASE);
+    return true;
+}
+
 void tdma_pio_spi_ring_adapter_set_flight_fifo(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_flight_fifo_t *fifo)
@@ -690,7 +702,9 @@ bool tdma_pio_spi_ring_adapter_set_forwarding_mode(
     tdma_pio_spi_ring_forwarding_mode_t mode)
 {
     if (adapter == NULL || adapter->started != 0u ||
-        mode > TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE) {
+        mode > TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE ||
+        (mode != TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE &&
+         __atomic_load_n(&adapter->local_return_delivery, __ATOMIC_ACQUIRE) != 0u)) {
         return false;
     }
     adapter->forwarding_mode = mode;
@@ -839,10 +853,12 @@ static bool tdma_pio_spi_ring_adapter_start(
         tdma_flight_engine_is_active(adapter->flight_engine)) {
         tdma_flight_engine_deactivate(adapter->flight_engine);
     }
-    if (adapter->topology_probe_mode != 0u &&
-        adapter->flight_engine != NULL &&
-        tdma_flight_engine_is_active(adapter->flight_engine)) {
-        tdma_flight_engine_deactivate(adapter->flight_engine);
+    /* Probe has no admitted remote topology. Explicit local delivery keeps
+     * the real process map for TX-byte proof, but never creates remote health
+     * evidence. The RX publication gate below permits only that local proof. */
+    if (adapter->topology_probe_mode != 0u) {
+        if (__atomic_load_n(&adapter->local_return_delivery, __ATOMIC_ACQUIRE) == 0u)
+            tdma_flight_engine_deactivate(adapter->flight_engine);
         tdma_receive_health_reset_stopped(&adapter->receive_health);
     } else if (adapter->flight_engine != NULL &&
         tdma_flight_engine_is_active(adapter->flight_engine)) {
@@ -937,6 +953,11 @@ static bool tdma_pio_spi_ring_adapter_start(
         return false;
     }
     adapter->started = 1u;
+    adapter->local_return_seen = false;
+    adapter->local_return_seq16 = 0u;
+    adapter->local_return_last_reject = 0u;
+    adapter->local_return_matches = 0u;
+    adapter->local_return_published = 0u;
     memset(&adapter->origin, 0, sizeof(adapter->origin));
     memset(adapter->origin_shadow, 0, sizeof(adapter->origin_shadow));
     /* These counters describe one armed ring session.  Keeping values from a
@@ -1144,7 +1165,11 @@ static bool tdma_pio_spi_ring_adapter_stop(void *context)
 static bool tdma_pio_spi_ring_adapter_resident_process_image(
     const tdma_pio_spi_ring_adapter_t *adapter)
 {
+    /* Explicit physical LOOPBACK emits fresh process images on the ordinary
+     * reference deadlines. A cable cannot acknowledge remote resident hops,
+     * so it must not enter bootstrap/handoff or await a fabricated boundary. */
     return adapter != NULL &&
+           __atomic_load_n(&adapter->local_return_delivery, __ATOMIC_ACQUIRE) == 0u &&
            adapter->role == TDMA_PIO_SPI_RING_ROLE_REFERENCE &&
            adapter->forwarding_mode ==
                TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE &&
@@ -1673,6 +1698,104 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
 
 #include "tdma_pio_spi_ring_origin.inc"
 
+/* Local delivery is a separate fact from remote presence/WKC. An explicitly
+ * enabled cable loop may return the original hop-zero frame. Correlate that
+ * physical RX with retained actual TX evidence, without asserting a remote
+ * hop or relaxing the normal receive-health gate. */
+static uint32_t tdma_pio_spi_ring_adapter_local_return_mask(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    const uint8_t *packet,
+    const tdma_transport_frame_view_t *view,
+    bool resident_feedback,
+    const tdma_rx_prepare_t *prepared,
+    uint16_t *sequence)
+{
+    tdma_flight_tx_layout_t layout;
+    if (__atomic_load_n(&adapter->local_return_delivery, __ATOMIC_ACQUIRE) == 0u) {
+        adapter->local_return_last_reject = 1u;
+        return 0u;
+    }
+    if (!tdma_flight_engine_copy_tx_layout(adapter->flight_engine, &layout) ||
+        layout.payload_size != view->payload_size ||
+        layout.local_slot_id != adapter->config.local_slot_id) {
+        adapter->local_return_last_reject = 2u;
+        return 0u;
+    }
+    if (view->origin_slot_id != layout.local_slot_id ||
+        (view->hop_count != 0u && view->hop_count != view->hop_limit)) {
+        adapter->local_return_last_reject = 3u;
+        return 0u;
+    }
+    const uint32_t offset = layout.local_slot_id * TDMA_FLIGHT_SHORT_SLOT_SIZE;
+    const uint8_t *mailbox = view->payload + offset;
+    const uint32_t target = mailbox[TDMA_FLIGHT_MAILBOX_TARGET_MASK_OFFSET];
+    if (!tdma_pio_spi_ring_origin_mailbox_valid(mailbox, layout.local_slot_id,
+            (1u << adapter->config.node_count) - 1u) ||
+        (target & (1u << layout.local_slot_id)) == 0u) {
+        adapter->local_return_last_reject = 4u;
+        return 0u;
+    }
+
+    if (adapter->origin.active == 0u) {
+        const uint32_t index = view->transport_sequence %
+            TDMA_PIO_SPI_RING_ADAPTER_TX_EVIDENCE_DEPTH;
+        const uint8_t *expected = adapter->reference_tx_evidence[index].packet;
+        size_t expected_size = adapter->reference_tx_evidence[index].packet_size;
+        uint32_t expected_sequence = adapter->reference_tx_evidence[index].sequence;
+        uint32_t expected_identity = adapter->reference_tx_evidence[index].identity_crc32;
+        if (prepared != NULL) {
+            /* Core1 pinned these exact TX bytes at physical RX admission.
+             * The evidence ring may have wrapped while Core0 decoded them.
+             * A missing capture proof cannot borrow a later ring entry. */
+            expected = prepared->expected;
+            expected_size = prepared->expected_size;
+            (void)tdma_transport_frame_capture_hint(expected, expected_size,
+                &expected_sequence, &expected_identity);
+        }
+        /* A latch is not required for message delivery. Sequence, identity
+         * and submitted mailbox bytes must all match the returned frame. */
+        if (expected_sequence != view->transport_sequence ||
+            expected_identity != view->identity_crc32 ||
+            expected_size !=
+                TDMA_TRANSPORT_FRAME_HEADER_SIZE + view->payload_size) {
+            adapter->local_return_last_reject = 5u;
+            return 0u;
+        }
+        if (memcmp(expected +
+                TDMA_TRANSPORT_FRAME_HEADER_SIZE + offset, mailbox,
+                TDMA_FLIGHT_SHORT_SLOT_SIZE) != 0) {
+            adapter->local_return_last_reject = 6u;
+            return 0u;
+        }
+        /* Only hop and transport CRC may change in a completed ring return.
+         * All reference-owned header bytes must still match the retained TX;
+         * do not rely on a CRC identity as a substitute for byte equality. */
+        const uint32_t mutable_header = tdma_transport_frame_resident_overlay_header_mask();
+        for (uint32_t byte = 0u; byte < TDMA_TRANSPORT_FRAME_HEADER_SIZE; ++byte) {
+            if ((mutable_header & (1u << byte)) == 0u &&
+                packet[byte] != expected[byte]) {
+                adapter->local_return_last_reject = 7u;
+                return 0u;
+            }
+        }
+    } else if (!resident_feedback) {
+        adapter->local_return_last_reject = 8u;
+        return 0u;
+    }
+    /* Autonomous origin has already validated the physical observation and
+     * its generation's shadow mailbox before origin_accept(). */
+    *sequence = (uint16_t)((uint16_t)mailbox[TDMA_FLIGHT_MAILBOX_SEQ16_OFFSET] |
+        ((uint16_t)mailbox[TDMA_FLIGHT_MAILBOX_SEQ16_OFFSET + 1u] << 8u));
+    const uint16_t advance = (uint16_t)(*sequence - adapter->local_return_seq16);
+    if (adapter->local_return_seen && (advance == 0u || advance > INT16_MAX)) {
+        adapter->local_return_last_reject = 9u;
+        return 0u;
+    }
+    adapter->local_return_last_reject = 0u;
+    ++adapter->local_return_matches;
+    return layout.output_segment_mask;
+}
+
 static bool tdma_pio_spi_ring_adapter_process_rx_impl(
     tdma_pio_spi_ring_adapter_t *adapter,
     const uint8_t *packet,
@@ -2092,9 +2215,16 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
                                                     view.payload_size,
                                                     &input_mask);
         }
-        if ((!receive_health_rejected ||
-             adapter->receive_health.configured == 0u ||
-             resident_feedback) &&
+        uint16_t local_sequence = 0u;
+        const uint32_t local_mask = tdma_pio_spi_ring_adapter_local_return_mask(
+            adapter, packet, &view, resident_feedback, prepared, &local_sequence);
+        const bool local_probe_only = adapter->topology_probe_mode != 0u &&
+            __atomic_load_n(&adapter->local_return_delivery, __ATOMIC_ACQUIRE) != 0u;
+        const bool remote_delivery_allowed = !local_probe_only &&
+            (!receive_health_rejected || adapter->receive_health.configured == 0u || resident_feedback);
+        if (!remote_delivery_allowed) input_mask = 0u;
+        input_mask |= local_mask;
+        if ((remote_delivery_allowed || local_mask != 0u) &&
             (input_mask != 0u ||
              adapter->flight_engine == NULL ||
              !tdma_flight_engine_is_active(adapter->flight_engine))) {
@@ -2118,7 +2248,13 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
                 rx_timestamp_ns,
                 rx_quality);
             tdma_service_timing_record(TDMA_TIMING_RX_FIFO_PUBLISH, rx_publish_start);
-            if (published && input_mask != 0u &&
+            if (published && local_mask != 0u) {
+                ++adapter->local_return_published;
+                adapter->local_return_seen = true;
+                adapter->local_return_seq16 = local_sequence;
+            }
+            const uint32_t remote_mask = input_mask & ~local_mask;
+            if (published && remote_mask != 0u &&
                 adapter->flight_engine != NULL &&
                 tdma_flight_engine_is_active(adapter->flight_engine)) {
                 const uint64_t rx_commit_start = tdma_service_timing_now();
@@ -2126,7 +2262,7 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
                     adapter->flight_engine,
                     view.payload,
                     view.payload_size,
-                    input_mask);
+                    remote_mask);
                 tdma_service_timing_record(TDMA_TIMING_RX_COMMIT, rx_commit_start);
             }
         }
@@ -3234,6 +3370,12 @@ bool tdma_pio_spi_ring_adapter_try_get_snapshot(
         snapshot->last_rx_flags = adapter->last_rx_flags;
         snapshot->last_rx_sequence = adapter->last_rx_sequence;
         snapshot->last_rx_identity_crc32 = adapter->last_rx_identity_crc32;
+        snapshot->local_return_delivery = __atomic_load_n(&adapter->local_return_delivery, __ATOMIC_ACQUIRE);
+        snapshot->local_return_seen = adapter->local_return_seen ? 1u : 0u;
+        snapshot->local_return_seq16 = adapter->local_return_seq16;
+        snapshot->local_return_last_reject = adapter->local_return_last_reject;
+        snapshot->local_return_matches = adapter->local_return_matches;
+        snapshot->local_return_published = adapter->local_return_published;
         snapshot->resident_feedback_condition_mask =
             adapter->resident_feedback_condition_mask;
         snapshot->resident_feedback_all_mask =
@@ -3320,6 +3462,26 @@ bool tdma_pio_spi_ring_adapter_get_snapshot(
      * their retry semantics; realtime/callback consumers must use try_get. */
     while (!tdma_pio_spi_ring_adapter_try_get_snapshot(adapter, snapshot)) {}
     return true;
+}
+
+bool tdma_pio_spi_ring_adapter_get_local_return_status(
+    const tdma_pio_spi_ring_adapter_t *adapter, uint32_t values[6])
+{
+    if (adapter == NULL || values == NULL) return false;
+    for (uint32_t attempt = 0u; attempt < TDMA_FLIGHT_MAP_SNAPSHOT_RETRY_MAX; ++attempt) {
+        const uint32_t begin = __atomic_load_n(&adapter->snapshot_guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) continue;
+        values[0] = __atomic_load_n(&adapter->local_return_delivery, __ATOMIC_ACQUIRE);
+        values[1] = adapter->local_return_seen ? 1u : 0u;
+        values[2] = adapter->local_return_seq16;
+        values[3] = adapter->local_return_last_reject;
+        values[4] = adapter->local_return_matches;
+        values[5] = adapter->local_return_published;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        if (begin == __atomic_load_n(&adapter->snapshot_guard, __ATOMIC_ACQUIRE)) return true;
+    }
+    memset(values, 0, 6u * sizeof(*values));
+    return false;
 }
 
 bool tdma_pio_spi_ring_adapter_read_accepted_image(

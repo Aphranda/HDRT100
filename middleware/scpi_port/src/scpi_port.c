@@ -37,6 +37,7 @@
 #include "scpi_tdma_commands.h"
 #include "scpi_trigger_commands.h"
 #include "scpi_sequence_commands.h"
+#include "scpi_sequence_node_commands.h"
 #include "trigger_sequence_service.h"
 #include "scpi_usb_control.h"
 #include "sync_trigger.h"
@@ -356,6 +357,7 @@ static const scpi_command_t s_scpi_commands[] = {
     SCPI_SYNC_COMMANDS,
     SCPI_TRIGGER_COMMANDS,
     SCPI_SEQUENCE_COMMANDS,
+    SCPI_SEQUENCE_NODE_COMMANDS,
     SCPI_REALTIME_COMPONENT_COMMANDS,
     SCPI_COMMUNICATION_BISS_COMMANDS,
     SCPI_COMMUNICATION_UART_COMMANDS,

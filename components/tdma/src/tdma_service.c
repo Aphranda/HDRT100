@@ -940,6 +940,22 @@ void tdma_service_core0_lifecycle_service(tdma_service_service_t *service)
     tdma_service_ring_control_unlock(service);
 }
 
+bool tdma_service_apply_stopped_configuration(tdma_service_service_t *service,
+    bool (*apply)(void *context), void *context)
+{
+    if (service == NULL || apply == NULL || !tdma_service_ring_control_lock(service)) return false;
+    tdma_ring_runtime_snapshot_t snapshot;
+    const bool stopped = __atomic_load_n(&service->stopped_update, __ATOMIC_ACQUIRE) == 0u &&
+        tdma_service_ring_retire_stopped(service) &&
+        service->ring_control_pending == TDMA_RING_CONTROL_NONE &&
+        tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot) &&
+        snapshot.enabled == 0u && snapshot.adapter_started == 0u && snapshot.data_enabled == 0u &&
+        snapshot.config_seq == snapshot.applied_config_seq;
+    const bool result = stopped && apply(context);
+    tdma_service_ring_control_unlock(service);
+    return result;
+}
+
 bool tdma_service_request_stopped_update(tdma_service_service_t *service,
     uint32_t token, uint32_t *generation)
 {

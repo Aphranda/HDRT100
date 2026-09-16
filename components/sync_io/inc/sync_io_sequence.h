@@ -13,6 +13,7 @@
 typedef enum {
     SYNC_IO_SEQUENCE_STATUS_LEVEL = 0,
     SYNC_IO_SEQUENCE_STATUS_PULSE = 1,
+    SYNC_IO_SEQUENCE_STATUS_NONE = 2,
 } sync_io_sequence_status_mode_t;
 
 typedef struct {
@@ -23,6 +24,16 @@ typedef struct {
     sync_io_sequence_status_mode_t status_mode;
     uint32_t settle_us;
     uint32_t pulse_us;
+    /* Optional gateway, sharing this owner's SMA lease. Requires BUS/NONE.
+     * A zero input disables it. Output is one non-overlapping logical bit. */
+    uint32_t gateway_input_channel;
+    uint32_t gateway_output_mask;
+    uint32_t gateway_pulse_us;
+    bool gateway_falling;
+    /* Finite admission quota is enforced in PIO for external inputs. Zero
+     * steps still establishes and settles START's first state. */
+    bool step_limit_enabled;
+    uint32_t max_steps;
 } sync_io_sequence_config_t;
 
 typedef enum {
@@ -67,6 +78,12 @@ typedef struct {
     uint32_t timing_kind;
     bool paused;
     bool rejection_counts_pending;
+    bool gateway_waiting;
+    bool gateway_pulse_busy;
+    uint32_t gateway_trigger_count;
+    uint32_t gateway_ready_count;
+    uint32_t gateway_cancelled;
+    bool finished;
 } sync_io_sequence_snapshot_t;
 
 /* Core0 reservation is software-only and precedes the START mailbox.
@@ -77,6 +94,9 @@ void sync_io_sequence_release(void);
 bool sync_io_sequence_arm_plan(const sync_io_sequence_config_t *config,
                                const uint32_t *values, uint32_t count);
 bool sync_io_sequence_software_step(void);
+/* Core1 only. Arm fresh PIO READY capture and emit exactly one PIO pulse.
+ * READY is a receipt only: it never directly requests a sequence step. */
+bool sync_io_sequence_gateway_fire(void);
 bool sync_io_sequence_pause(bool paused);
 void sync_io_sequence_stop(void);
 void sync_io_sequence_service(void);

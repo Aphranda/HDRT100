@@ -504,6 +504,11 @@ bool tdma_service_set_ring_diagnostic_mode(tdma_service_service_t *service,
  * one/two limit ordinary reference launches in the next ARM session. */
 bool tdma_service_set_ring_diagnostic_burst(tdma_service_service_t *service,
                                             uint32_t limit);
+/* Core0 software-only configuration at a fully acknowledged STOP boundary.
+ * The callback runs under the existing control guard, excluding ARM and
+ * stopped-update workers. It must not wait or access hardware. */
+bool tdma_service_apply_stopped_configuration(tdma_service_service_t *service,
+    bool (*apply)(void *context), void *context);
 bool tdma_service_stage_calibration(
     tdma_service_service_t *service,
     const tdma_ring_calibration_stage_t *stage);

@@ -39,6 +39,7 @@ typedef enum {
 typedef enum {
     TRIGGER_SEQUENCE_STATUS_LEVEL = 0,
     TRIGGER_SEQUENCE_STATUS_PULSE = 1,
+    TRIGGER_SEQUENCE_STATUS_NONE = 2,
 } trigger_sequence_status_mode_t;
 
 typedef struct {
@@ -52,6 +53,14 @@ typedef struct {
     uint32_t generation;
     bool valid;
 } trigger_sequence_service_io_t;
+
+typedef struct {
+    bool enabled;
+    uint32_t ready_input;
+    bool falling;
+    uint32_t trigger_output_mask;
+    uint32_t pulse_us;
+} trigger_sequence_gateway_config_t;
 
 typedef struct {
     trigger_sequence_service_state_t state;
@@ -81,6 +90,13 @@ typedef struct {
     uint32_t tick_ns;
     uint32_t timing_kind;
     bool rejection_counts_pending;
+    bool gateway_waiting;
+    bool gateway_pulse_busy;
+    uint32_t gateway_trigger_count;
+    uint32_t gateway_ready_count;
+    uint32_t gateway_cancelled;
+    uint32_t repeat_count;
+    bool finished;
 } trigger_sequence_service_status_t;
 
 /* Init and configuration/command APIs belong to Core0. Init precedes Core1.
@@ -109,6 +125,17 @@ trigger_sequence_service_result_t trigger_sequence_service_step(void);
 void trigger_sequence_service_service(void);
 void trigger_sequence_service_get_status(trigger_sequence_service_status_t *status);
 bool trigger_sequence_service_is_active(void);
+trigger_sequence_service_result_t trigger_sequence_service_set_repeat(uint32_t count);
+uint32_t trigger_sequence_service_get_repeat(void);
+/* Core0 orchestration submits actions; Core1 remains the IO/runtime owner. */
+trigger_sequence_service_result_t trigger_sequence_service_set_gateway(
+    const trigger_sequence_gateway_config_t *config, bool (*start_guard)(void));
+trigger_sequence_service_result_t trigger_sequence_service_gateway_fire(
+    uint32_t run, uint32_t generation, uint32_t step);
+trigger_sequence_service_result_t trigger_sequence_service_cycle_step(
+    uint32_t run, uint32_t generation, uint32_t step);
+trigger_sequence_service_result_t trigger_sequence_service_cycle_finish(
+    uint32_t run, uint32_t generation, uint32_t step);
 const char *trigger_sequence_service_result_name(trigger_sequence_service_result_t result);
 const char *trigger_sequence_service_state_name(trigger_sequence_service_state_t state);
 

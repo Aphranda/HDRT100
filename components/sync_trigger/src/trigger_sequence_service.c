@@ -7,15 +7,19 @@
 #include "sync_trigger.h"
 
 typedef enum { COMMAND_NONE, COMMAND_START, COMMAND_STOP, COMMAND_PAUSE,
-               COMMAND_CONTINUE, COMMAND_STEP, COMMAND_EXHAUSTED } command_t;
+               COMMAND_CONTINUE, COMMAND_STEP, COMMAND_EXHAUSTED,
+               COMMAND_GATEWAY_FIRE, COMMAND_FINISH } command_t;
 
 typedef struct {
     trigger_sequence_service_io_t io;
     uint32_t count;
     uint32_t generation;
-    uint32_t ids[TRIGGER_SEQUENCE_STATE_MAX];
+    trigger_sequence_gateway_config_t gateway;
+    uint32_t repeat_count;
+    uint8_t ids[TRIGGER_SEQUENCE_STATE_MAX];
     uint32_t values[TRIGGER_SEQUENCE_STATE_MAX];
 } run_config_t;
+_Static_assert(TRIGGER_SEQUENCE_STATE_MAX <= 256u, "compact state identifiers");
 
 static trigger_sequence_store_t s_store;
 static trigger_sequence_service_io_t s_io;
@@ -36,6 +40,9 @@ static uint32_t s_notready_rejected;
 static uint32_t s_written_receipts;
 static bool s_pause_requested;
 static bool s_run_armed;
+static trigger_sequence_gateway_config_t s_gateway;
+static bool (*s_gateway_guard)(void);
+static uint32_t s_repeat_count = 1u;
 
 static uint32_t saturated_add(uint32_t value, uint32_t add)
 {
@@ -74,6 +81,9 @@ void trigger_sequence_service_init(void)
     s_written_receipts = 0;
     s_pause_requested = false;
     s_run_armed = false;
+    memset(&s_gateway, 0, sizeof(s_gateway));
+    s_gateway_guard = NULL;
+    s_repeat_count = 1u;
 }
 
 trigger_sequence_store_t *trigger_sequence_service_config(void)
@@ -132,14 +142,17 @@ trigger_sequence_service_result_t trigger_sequence_service_set_outputs(
 {
     if (!configuration_available()) return TRIGGER_SEQUENCE_SERVICE_FROZEN;
     if (!s_store.configured) return TRIGGER_SEQUENCE_SERVICE_CONFIG;
-    if (!sequence_output_mask || !status_output_mask ||
+    if (!sequence_output_mask ||
+        ((status_mode == TRIGGER_SEQUENCE_STATUS_NONE) != (status_output_mask == 0u)) ||
         (sequence_output_mask | status_output_mask) > 15u ||
         (sequence_output_mask & status_output_mask) != 0u ||
-        status_mode > TRIGGER_SEQUENCE_STATUS_PULSE ||
+        (status_mode != TRIGGER_SEQUENCE_STATUS_PULSE &&
+         status_mode != TRIGGER_SEQUENCE_STATUS_LEVEL &&
+         status_mode != TRIGGER_SEQUENCE_STATUS_NONE) ||
         settle_us > SYNC_IO_SEQUENCE_TIME_MAX_US ||
         (status_mode == TRIGGER_SEQUENCE_STATUS_PULSE &&
          (pulse_us == 0u || pulse_us > SYNC_IO_SEQUENCE_TIME_MAX_US)) ||
-        (status_mode == TRIGGER_SEQUENCE_STATUS_LEVEL && pulse_us != 0u))
+        (status_mode != TRIGGER_SEQUENCE_STATUS_PULSE && pulse_us != 0u))
         return TRIGGER_SEQUENCE_SERVICE_INVALID;
     /* Existing mappings survive timing changes, but not output-lane changes. */
     if (s_io.sequence_output_mask != sequence_output_mask)
@@ -183,12 +196,19 @@ bool trigger_sequence_service_get_code(uint32_t state_id, uint32_t *value)
 trigger_sequence_service_result_t trigger_sequence_service_start(const char *plan_id)
 {
     if (!configuration_available()) return TRIGGER_SEQUENCE_SERVICE_FROZEN;
+    if (s_gateway.enabled &&
+        (s_io.source != 0u || s_io.status_mode != TRIGGER_SEQUENCE_STATUS_NONE ||
+         (s_io.sequence_output_mask & s_gateway.trigger_output_mask) != 0u ||
+         s_gateway_guard == NULL || !s_gateway_guard()))
+        return TRIGGER_SEQUENCE_SERVICE_CONFIG;
     trigger_sequence_check_t check;
     if (trigger_sequence_check(&s_store, plan_id, &check) != TRIGGER_SEQUENCE_OK)
         return TRIGGER_SEQUENCE_SERVICE_CONFIG;
     if (!s_io.valid) return TRIGGER_SEQUENCE_SERVICE_IO_CONFIG;
     const trigger_sequence_plan_t *plan = trigger_sequence_get_plan(&s_store, plan_id);
     if (!plan || !plan->count) return TRIGGER_SEQUENCE_SERVICE_CONFIG;
+    if (s_repeat_count != 0u && (uint64_t)plan->count * s_repeat_count > UINT32_MAX)
+        return TRIGGER_SEQUENCE_SERVICE_INVALID;
     for (uint32_t i = 0; i < plan->count; ++i) {
         if (!s_code_valid[plan->state_ids[i]]) return TRIGGER_SEQUENCE_SERVICE_CODE_MISSING;
     }
@@ -203,6 +223,8 @@ trigger_sequence_service_result_t trigger_sequence_service_start(const char *pla
         return TRIGGER_SEQUENCE_SERVICE_CONFIG;
     }
     s_run.io = s_io;
+    s_run.gateway = s_gateway;
+    s_run.repeat_count = s_repeat_count;
     s_run.count = plan->count;
     s_run.generation = s_store.generation;
     for (uint32_t i = 0; i < plan->count; ++i) {
@@ -233,7 +255,7 @@ static trigger_sequence_service_result_t request(command_t command)
         }
     } else if (s_command != COMMAND_NONE) {
         result = TRIGGER_SEQUENCE_SERVICE_BUSY;
-    } else if (command == COMMAND_STEP && s_io.source != 0u) {
+    } else if (command == COMMAND_STEP && (s_io.source != 0u || s_gateway.enabled)) {
         result = TRIGGER_SEQUENCE_SERVICE_SOURCE_MISMATCH;
     } else if (command == COMMAND_STEP && state != TRIGGER_SEQUENCE_SERVICE_READY) {
         result = (state == TRIGGER_SEQUENCE_SERVICE_RUNNING ||
@@ -271,6 +293,59 @@ trigger_sequence_service_result_t trigger_sequence_service_continue(void)
 trigger_sequence_service_result_t trigger_sequence_service_step(void)
 { return request(COMMAND_STEP); }
 
+trigger_sequence_service_result_t trigger_sequence_service_set_repeat(uint32_t count)
+{
+    if (!configuration_available()) return TRIGGER_SEQUENCE_SERVICE_FROZEN;
+    s_repeat_count = count;
+    return TRIGGER_SEQUENCE_SERVICE_OK;
+}
+uint32_t trigger_sequence_service_get_repeat(void) { return s_repeat_count; }
+
+trigger_sequence_service_result_t trigger_sequence_service_set_gateway(
+    const trigger_sequence_gateway_config_t *config, bool (*start_guard)(void))
+{
+    if (!configuration_available()) return TRIGGER_SEQUENCE_SERVICE_FROZEN;
+    if (config == NULL || (config->enabled &&
+        (config->ready_input < 1u || config->ready_input > 4u ||
+         config->trigger_output_mask == 0u || config->trigger_output_mask > 15u ||
+         (config->trigger_output_mask & (config->trigger_output_mask - 1u)) != 0u ||
+         config->pulse_us == 0u || config->pulse_us > SYNC_IO_SEQUENCE_TIME_MAX_US ||
+         start_guard == NULL))) return TRIGGER_SEQUENCE_SERVICE_INVALID;
+    s_gateway = *config;
+    s_gateway_guard = start_guard;
+    return TRIGGER_SEQUENCE_SERVICE_OK;
+}
+
+static trigger_sequence_service_result_t cycle_action(
+    command_t command, uint32_t run, uint32_t generation, uint32_t step)
+{
+    trigger_sequence_service_result_t result = TRIGGER_SEQUENCE_SERVICE_NOT_READY;
+    osal_critical_enter();
+    if (s_gateway.enabled && s_published.run_id == run &&
+        s_published.generation == generation && s_published.completed == step &&
+        s_published.accepted == step && s_published.state == TRIGGER_SEQUENCE_SERVICE_READY &&
+        !s_published.gateway_pulse_busy && !s_published.gateway_waiting) {
+        if (s_command != COMMAND_NONE || s_processing) result = TRIGGER_SEQUENCE_SERVICE_BUSY;
+        else {
+            s_command = command;
+            ++s_command_serial;
+            result = TRIGGER_SEQUENCE_SERVICE_OK;
+        }
+    }
+    osal_critical_exit();
+    return result;
+}
+
+trigger_sequence_service_result_t trigger_sequence_service_gateway_fire(
+    uint32_t run, uint32_t generation, uint32_t step)
+{ return cycle_action(COMMAND_GATEWAY_FIRE, run, generation, step); }
+trigger_sequence_service_result_t trigger_sequence_service_cycle_step(
+    uint32_t run, uint32_t generation, uint32_t step)
+{ return cycle_action(COMMAND_STEP, run, generation, step); }
+trigger_sequence_service_result_t trigger_sequence_service_cycle_finish(
+    uint32_t run, uint32_t generation, uint32_t step)
+{ return cycle_action(COMMAND_FINISH, run, generation, step); }
+
 static bool record_receipts(const sync_io_sequence_snapshot_t *io)
 {
     if (!s_run.count || io->plan_count != s_run.count ||
@@ -291,6 +366,11 @@ static bool record_receipts(const sync_io_sequence_snapshot_t *io)
     s_runtime.backend_fault = io->fault;
     s_runtime.tick_ns = io->tick_ns;
     s_runtime.timing_kind = io->timing_kind;
+    s_runtime.gateway_waiting = io->gateway_waiting;
+    s_runtime.gateway_pulse_busy = io->gateway_pulse_busy;
+    s_runtime.gateway_trigger_count = io->gateway_trigger_count;
+    s_runtime.gateway_ready_count = io->gateway_ready_count;
+    s_runtime.gateway_cancelled = io->gateway_cancelled;
     /* PIO receipts prove ordering/counts, not an absolute physical timestamp. */
     s_runtime.written_at_us = 0;
     s_runtime.completion_rise_at_us = 0;
@@ -390,6 +470,7 @@ void trigger_sequence_service_service(void)
         s_runtime.run_id = next_run;
         s_runtime.generation = s_run.generation;
         s_runtime.count = s_run.count;
+        s_runtime.repeat_count = s_run.repeat_count;
         s_written_receipts = 0;
         s_pause_requested = false;
         s_run_armed = false;
@@ -398,7 +479,13 @@ void trigger_sequence_service_service(void)
             .sequence_output_mask = s_run.io.sequence_output_mask,
             .status_output_mask = s_run.io.status_output_mask,
             .status_mode = (sync_io_sequence_status_mode_t)s_run.io.status_mode,
-            .settle_us = s_run.io.settle_us, .pulse_us = s_run.io.pulse_us
+            .settle_us = s_run.io.settle_us, .pulse_us = s_run.io.pulse_us,
+            .gateway_input_channel = s_run.gateway.enabled ? s_run.gateway.ready_input : 0u,
+            .gateway_output_mask = s_run.gateway.enabled ? s_run.gateway.trigger_output_mask : 0u,
+            .gateway_pulse_us = s_run.gateway.enabled ? s_run.gateway.pulse_us : 0u,
+            .gateway_falling = s_run.gateway.falling
+            , .step_limit_enabled = !s_run.gateway.enabled && s_run.repeat_count != 0u,
+            .max_steps = s_run.repeat_count ? s_run.count * s_run.repeat_count - 1u : 0u
         };
         if (!sync_io_sequence_arm_plan(&config, s_run.values, s_run.count)) {
             fail(TRIGGER_SEQUENCE_SERVICE_RESOURCE);
@@ -413,8 +500,9 @@ void trigger_sequence_service_service(void)
         return;
     }
 
-    if (command == COMMAND_STOP) {
+    if (command == COMMAND_STOP || command == COMMAND_FINISH) {
         abort_run();
+        if (command == COMMAND_FINISH) s_runtime.finished = true;
         publish(command, serial);
         return;
     }
@@ -433,6 +521,8 @@ void trigger_sequence_service_service(void)
     } else if (command == COMMAND_STEP) {
         if (s_runtime.accepted == UINT32_MAX) fail(TRIGGER_SEQUENCE_SERVICE_EXHAUSTED);
         else if (!sync_io_sequence_software_step()) fail(TRIGGER_SEQUENCE_SERVICE_BACKEND);
+    } else if (command == COMMAND_GATEWAY_FIRE) {
+        if (!sync_io_sequence_gateway_fire()) fail(TRIGGER_SEQUENCE_SERVICE_BACKEND);
     } else if (command == COMMAND_PAUSE || command == COMMAND_CONTINUE) {
         s_pause_requested = command == COMMAND_PAUSE;
         if (!sync_io_sequence_pause(s_pause_requested)) fail(TRIGGER_SEQUENCE_SERVICE_BACKEND);
@@ -441,6 +531,10 @@ void trigger_sequence_service_service(void)
         sync_io_sequence_service();
         sync_io_sequence_get_snapshot(&io);
         if (!record_receipts(&io) || io.fault) fail(TRIGGER_SEQUENCE_SERVICE_BACKEND);
+        else if (io.finished && !s_run.gateway.enabled) {
+            abort_run();
+            s_runtime.finished = true;
+        }
     }
     publish(command, serial);
 }
@@ -454,6 +548,7 @@ void trigger_sequence_service_get_status(trigger_sequence_service_status_t *stat
     status->notready_rejected = saturated_add(status->notready_rejected, s_notready_rejected);
     if (s_command == COMMAND_START) status->state = TRIGGER_SEQUENCE_SERVICE_STARTING;
     if (s_command == COMMAND_STOP) status->state = TRIGGER_SEQUENCE_SERVICE_STOPPING;
+    if (s_command == COMMAND_FINISH) status->state = TRIGGER_SEQUENCE_SERVICE_STOPPING;
     if (s_command == COMMAND_PAUSE) status->state = TRIGGER_SEQUENCE_SERVICE_PAUSING;
     if (s_command == COMMAND_STEP) status->state = TRIGGER_SEQUENCE_SERVICE_RUNNING;
     osal_critical_exit();

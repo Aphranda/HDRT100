@@ -19,6 +19,7 @@ static const scpi_choice_def_t edges[] = {
 static const scpi_choice_def_t status_modes[] = {
     {"LEVel", TRIGGER_SEQUENCE_STATUS_LEVEL},
     {"PULSe", TRIGGER_SEQUENCE_STATUS_PULSE},
+    {"NONE", TRIGGER_SEQUENCE_STATUS_NONE},
     SCPI_CHOICE_LIST_END
 };
 
@@ -35,6 +36,23 @@ scpi_result_t scpi_sequence_step(scpi_t *context)
 {
     if (!scpi_sequence_params_end(context)) return SCPI_RES_ERR;
     return result(context, trigger_sequence_service_step());
+}
+
+scpi_result_t scpi_sequence_repeat(scpi_t *context)
+{
+    uint32_t count;
+    if (!scpi_sequence_param_u32(context, &count) || !scpi_sequence_params_end(context)) return SCPI_RES_ERR;
+    return result(context, trigger_sequence_service_set_repeat(count));
+}
+scpi_result_t scpi_sequence_repeat_q(scpi_t *context)
+{
+    if (!scpi_sequence_params_end(context)) return SCPI_RES_ERR;
+    trigger_sequence_service_status_t status;
+    trigger_sequence_service_get_status(&status);
+    SCPI_ResultUInt32(context, trigger_sequence_service_get_repeat());
+    SCPI_ResultUInt32(context, status.repeat_count);
+    SCPI_ResultBool(context, status.finished);
+    return SCPI_RES_OK;
 }
 
 scpi_result_t scpi_sequence_source(scpi_t *context)
@@ -108,8 +126,8 @@ scpi_result_t scpi_sequence_output_config_q(scpi_t *context)
     trigger_sequence_service_get_io(&io);
     SCPI_ResultUInt32(context, io.sequence_output_mask);
     SCPI_ResultUInt32(context, io.status_output_mask);
-    SCPI_ResultText(context, io.status_mode == TRIGGER_SEQUENCE_STATUS_PULSE ?
-                    "PULSE" : "LEVEL");
+    SCPI_ResultText(context, io.status_mode == TRIGGER_SEQUENCE_STATUS_NONE ? "NONE" :
+                    (io.status_mode == TRIGGER_SEQUENCE_STATUS_PULSE ? "PULSE" : "LEVEL"));
     SCPI_ResultUInt32(context, io.settle_us);
     SCPI_ResultUInt32(context, io.pulse_us);
     SCPI_ResultUInt32(context, io.generation);

@@ -13,6 +13,7 @@ from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 import threading
 import sys
+import time
 from pathlib import Path
 
 from serial.tools import list_ports
@@ -26,12 +27,127 @@ if str(ROOT) not in sys.path:
 
 from tools.scpi_common.scpi_serial import open_serial_port
 from tools.scpi_query.scpi_query import send_command
+from tools.tdma_ring_monitor.tdma_field_parse import RUNTIME_FIELDS
 
 
 MAX_LOG_LINES = 3000
 TIME_MAX_US = 0xffffffff // 10
 ROLE_SEQUENCE = "序列编码"
 ROLE_STATUS = "状态输出"
+MODE_INDEPENDENT = "独立 SP8T 序列"
+MODE_RJ45 = "RJ45 物理回环 · SP8T + VNA 网关"
+RING_STATUS_QUERY = "SYST:TDMA:RING:STAT?"
+RING_ACK_ONLY = {"SYST:TDMA:RING:STOP", "SYST:TDMA:RING:ARM", "SYST:TDMA:RING:START"}
+LINK_PHASES = {0: "未启用", 1: "等待启动", 2: "等待链路通知回环", 3: "等待 READY",
+               4: "等待 READY 回环", 5: "等待序列切换", 6: "暂停", 7: "异常", 8: "已完成"}
+
+
+def build_mode_configuration(mode: str, plan: str, codes: list[int], source: str,
+                             edge: str, settle_us: int, pulse_us: int,
+                             sequence_mask: int, status_mask: int, status_mode: str,
+                             ready_input: str = "IN1", timeout_ms: int = 5000,
+                             repeat_count: int = 1) -> list[str]:
+    if mode not in {MODE_INDEPENDENT, MODE_RJ45}:
+        raise ValueError("请选择运行模式")
+    if not 0 <= repeat_count <= 0xffffffff:
+        raise ValueError("循环次数必须为非负整数；0 表示持续运行")
+    if repeat_count and len(codes) * repeat_count > 0xffffffff:
+        raise ValueError("循环次数与序列长度的乘积超出固件计数范围")
+    combined = mode == MODE_RJ45
+    if combined and (ready_input not in {"IN1", "IN2", "IN3", "IN4"} or
+                     edge not in {"RIS", "FALL"} or not 1 <= timeout_ms <= 0x7fffffff or
+                     not 0 < pulse_us <= TIME_MAX_US):
+        raise ValueError("请检查 READY 输入、边沿、触发脉宽和等待超时")
+    base = build_configuration_commands(plan, codes, "BUS" if combined else source,
+        edge, settle_us, 0 if combined else pulse_us,
+        7 if combined else sequence_mask, 0 if combined else status_mask,
+        "NONE" if combined else status_mode)
+    commands = ["TRIG:STOP", "SYST:TDMA:RING:STOP", "CONF:SEQ:LINK OFF", *base[1:-2],
+                f"CONF:SEQ:REPEAT {repeat_count}"]
+    if combined:
+        commands += ["CONF:SEQ:NODE:ROLE 2,5,DUT", "CONF:SEQ:NODE:ROLE 3,7,VNA",
+                     "CONF:SEQ:NODE:ACT",
+                     "SYST:TDMA:OPMODE:STAGE 7", "SYST:TDMA:OPMODE:APPLY",
+                     "SYST:TDMA:RING:TOPOLOGY 2,0,0", "CAL:TOPOLOGY:PROBE 1,10",
+                     "SYST:TDMA:FLIGHT:MODE 1",
+                     f"CONF:SEQ:LINK LOOPBACK,2,3,{ready_input},OUT4,{pulse_us},{timeout_ms},{edge}",
+                     "READ:SEQ:LINK?"]
+    return commands + ["READ:SEQ:REPEAT?", "READ:SEQ:NEXT?", "READ:IO:STAT?"]
+
+
+def build_start_commands(mode: str) -> list[str]:
+    if mode == MODE_RJ45:
+        return ["SYST:TDMA:RING:STOP", "SYST:TDMA:RING:ARM", "SYST:TDMA:RING:TRAIN 4096",
+                "SYST:TDMA:RING:START", "TRIG:START"]
+    return ["TRIG:START"]
+
+
+def format_link_status(response: str, plan_count: int) -> str:
+    values = [int(field) for field in next(csv.reader([response], strict=True))]
+    if len(values) != 22 or any(value < 0 or value > 0xffffffff for value in values):
+        raise ValueError("RJ45 网关状态字段不匹配")
+    enabled, phase, error = values[:3]
+    target = "持续" if values[21] == 0 else str(values[21])
+    rounds = values[12] // plan_count if plan_count > 0 else 0
+    return (f"RJ45 物理回环：{LINK_PHASES.get(phase, f'阶段 {phase}')} · 启用={enabled} · 错误={error} · "
+            f"测量触发 {values[11]} / READY {values[12]} / 切换完成 {values[13]} · "
+            f"轮次 {rounds}/{target} · TDMA 发送 {values[8]} / 接收 {values[9]} / 拒绝 {values[10]}")
+
+
+def execute_command_batch(commands, exchange, emit, *, monotonic=time.monotonic, sleep=time.sleep):
+    """Verify asynchronous boundaries before issuing dependent configuration."""
+    def query(command):
+        response = exchange(command)
+        emit(command, response)
+        if response == "<timeout>":
+            raise RuntimeError(f"{command} 超时")
+        return response
+
+    def wait_until(command, ready):
+        deadline = monotonic() + 5.0
+        while True:
+            if ready(query(command)):
+                return
+            if monotonic() >= deadline:
+                raise RuntimeError(f"等待设备状态超时：{command}")
+            sleep(.05)
+
+    for command in commands:
+        header = command.split(maxsplit=1)[0].upper()
+        response = exchange(command)
+        emit(command, response)
+        if response == "<timeout>" and header not in RING_ACK_ONLY:
+            raise RuntimeError(f"{command} 超时，已停止后续命令")
+        if "?" in header:
+            continue
+        error = next(csv.reader([query("SYST:ERR?")], strict=True))
+        if not error or error[0] != "0":
+            raise RuntimeError(f"{command} 被设备拒绝：{','.join(error)}")
+        if header.startswith(("CONF:SEQ", "CONF:TRIG", "TRIG:")):
+            if header == "CONF:SEQ:NODE:ROLE":
+                if next(csv.reader([response])) != ["STAGED"]:
+                    raise RuntimeError(f"角色配置未暂存：{response}")
+            elif header == "CONF:SEQ:NODE:ACT":
+                if next(csv.reader([response]))[0] != "ACTIVE":
+                    raise RuntimeError(f"角色配置未激活：{response}")
+            elif response != "1":
+                raise RuntimeError(f"{command} 未确认执行：{response}")
+        if header == "TRIG:STOP":
+            wait_until("READ:SEQ:NEXT?", lambda value: next(csv.reader([value]))[0] == "IDLE")
+        elif header in RING_ACK_ONLY:
+            def ready(value):
+                fields = [int(field) for field in next(csv.reader([value], strict=True))]
+                if len(fields) != len(RUNTIME_FIELDS):
+                    raise ValueError("TDMA 运行状态字段不匹配")
+                row = dict(zip(RUNTIME_FIELDS, fields, strict=True))
+                if header == "SYST:TDMA:RING:STOP":
+                    return (row["ring_enabled"] == row["ring_adapter_started"] == 0 and
+                            row["ring_config_seq"] == row["ring_applied_config_seq"])
+                armed = row["ring_enabled"] == row["ring_adapter_started"] == 1
+                return armed and (header.endswith(":ARM") or row["ring_up_running"] == 1)
+            wait_until(RING_STATUS_QUERY, ready)
+        elif header == "SYST:TDMA:RING:TRAIN":
+            sleep(.2)
 
 
 def discover_serial_ports(candidates=None) -> list[str]:
@@ -85,14 +201,18 @@ def build_configuration_commands(plan: str, codes: list[int], source: str,
                                  sequence_output_mask: int = 7,
                                  status_output_mask: int = 8,
                                  status_mode: str = "PULSE") -> list[str]:
-    mode = {"电平": "LEVEL", "脉冲": "PULSE"}.get(
+    mode = {"无": "NONE", "电平": "LEVEL", "脉冲": "PULSE"}.get(
         status_mode, status_mode.upper())
-    if (not sequence_output_mask or not status_output_mask or
+    if mode not in {"NONE", "LEVEL", "PULSE"}:
+        raise ValueError("状态输出形式必须是无、电平或脉冲")
+    if mode == "NONE" and status_output_mask != 0:
+        raise ValueError("无状态输出模式的状态掩码必须为 0")
+    if mode != "NONE" and not status_output_mask:
+        raise ValueError("电平或脉冲模式必须分配至少一个状态输出 OUT")
+    if (not sequence_output_mask or
             (sequence_output_mask | status_output_mask) & ~15 or
             sequence_output_mask & status_output_mask):
-        raise ValueError("序列编码与状态输出必须各占至少一个且互不重叠的 OUT")
-    if mode not in {"LEVEL", "PULSE"}:
-        raise ValueError("状态输出形式必须是电平或脉冲")
+        raise ValueError("序列编码必须占至少一个 OUT，且与状态输出互不重叠、均在 OUT1–OUT4 范围内")
     if not 0 <= settle_us <= TIME_MAX_US:
         raise ValueError("建立时间超出固件范围")
     if mode == "PULSE" and not 0 < pulse_us <= TIME_MAX_US:
@@ -146,22 +266,45 @@ class SequenceUi(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("DHRT100 序列触发调试")
-        self.geometry("1380x900")
-        self.minsize(1220, 800)
+        self.geometry("1180x860")
+        self.minsize(1120, 820)
         super().configure(bg="#f3f4f6")
         self._configure_style()
         self.port = tk.StringVar()
         self.backend = tk.StringVar(value="Serial")
-        self.source = tk.StringVar(value="BUS")
+        self.run_mode = tk.StringVar(value=MODE_INDEPENDENT)
+        self.ready_input = tk.StringVar(value="IN1")
+        self.ready_timeout = tk.StringVar(value="5000")
+        self.repeat_count = tk.StringVar(value="1")
+        self.link_status = tk.StringVar(value="独立模式：输入脉冲 → 编码切换 → 状态反馈")
+        self.repeat_status = tk.StringVar(value="循环次数：1；0 表示持续运行")
+        self._configured_mode = None
+        self._configured_plan_count = 0
+        self._configuration_generation = 0
+        self._configured_resource = None
+        self._device_configurations = {}
+        self._device_fact_generation_floor = {}
+        self._device_mode = None
+        self._device_plan_count = 0
+        self.source = tk.StringVar(value="IN1")
         self.edge = tk.StringVar(value="RIS")
         self.settle = tk.StringVar(value="10")
         self.pulse = tk.StringVar(value="10")
         self.status_mode = tk.StringVar(value="脉冲")
+        self.output_hint = tk.StringVar()
         self.out_enabled = [tk.BooleanVar(value=True) for _ in range(4)]
         self.out_roles = [tk.StringVar(value=ROLE_SEQUENCE) for _ in range(3)] + [
             tk.StringVar(value=ROLE_STATUS)]
         self.plan = tk.StringVar(value="SP8T")
         self.codes = tk.StringVar(value="0,1,2,3,4,5,6,7")
+        self.gateway_plan = tk.StringVar(value="SP8T")
+        self.gateway_codes = tk.StringVar(value="0,1,2,3,4,5,6,7")
+        self.gateway_settle = tk.StringVar(value="10")
+        self.gateway_repeat_count = tk.StringVar(value="1")
+        self.gateway_edge = tk.StringVar(value="RIS")
+        self.gateway_pulse = tk.StringVar(value="10")
+        self.gateway_ready_input = self.ready_input
+        self.gateway_timeout = self.ready_timeout
         self.status = tk.StringVar(value="未连接")
         self.sequence_state = tk.StringVar(value="UNKNOWN")
         self.mode_hint = tk.StringVar(value="外部脉冲模式：启动后等待输入脉冲")
@@ -180,7 +323,12 @@ class SequenceUi(tk.Tk):
         self.output_lamps: list[tk.Label] = []
         self.port_box: ttk.Combobox | None = None
         self.step_button: ttk.Button | None = None
+        self.next_button: ttk.Button | None = None
         self.pulse_entry: ttk.Entry | None = None
+        self.out_checkbuttons: list[ttk.Checkbutton] = []
+        self.out_role_boxes: list[ttk.Combobox] = []
+        self.status_mode_box: ttk.Combobox | None = None
+        self.source_box: ttk.Combobox | None = None
         self.ota_progress: ttk.Progressbar | None = None
         self._ota_running = False
         self._transport_switching = False
@@ -188,6 +336,7 @@ class SequenceUi(tk.Tk):
         self._ui_events: queue.Queue[tuple[str, tuple]] = queue.Queue()
         self._closing = False
         self._build()
+        self._watch_configuration_changes()
         self.refresh_ports(log_result=False)
         self._worker = threading.Thread(target=self._operation_loop, daemon=True)
         self._worker.start()
@@ -249,179 +398,277 @@ class SequenceUi(tk.Tk):
                         foreground="#4b5563")
 
     def _build(self) -> None:
-        cfg = ttk.Frame(self, style="Panel.TFrame", padding=(14, 10))
-        cfg.pack(fill="x", padx=12, pady=(12, 6))
-        ttk.Label(cfg, text="连接与序列配置", style="Section.TLabel").grid(
-            row=0, column=0, columnspan=8, sticky="w", pady=(0, 8))
-        fields = [
-            ("资源/端口", self.port, "port", 11),
-            ("通信后端", self.backend, "backend", 12),
-            ("计划", self.plan, "entry", 12),
-            ("输出编码（首项为 START）", self.codes, "entry", 24),
-            ("建立时间 µs", self.settle, "entry", 11),
-            ("完成脉冲 µs", self.pulse, "entry", 11),
-            ("输入", self.source, "source", 10),
-            ("边沿", self.edge, "edge", 10),
-        ]
-        source_box = None
-        for col, (label, var, kind, width) in enumerate(fields):
-            cfg.columnconfigure(col, weight=2 if col == 3 else 1)
-            ttk.Label(cfg, text=label, style="Field.TLabel").grid(
-                row=1, column=col, sticky="w", padx=(0, 8), pady=(0, 4))
-            if kind == "backend":
-                widget = ttk.Combobox(cfg, textvariable=var,
-                                      values=["Serial", "USB TMC"],
-                                      state="readonly", width=width)
-                widget.bind("<<ComboboxSelected>>",
-                            lambda _event: self.refresh_ports())
-            elif kind == "port":
-                widget = ttk.Combobox(cfg, textvariable=var, width=width)
-                self.port_box = widget
-            elif kind == "source":
-                widget = ttk.Combobox(cfg, textvariable=var,
-                                      values=["BUS", "IN1", "IN2", "IN3", "IN4"],
-                                      state="readonly", width=width)
-                source_box = widget
-            elif kind == "edge":
-                widget = ttk.Combobox(cfg, textvariable=var,
-                                      values=["RIS", "FALL"],
-                                      state="readonly", width=width)
-            else:
-                widget = ttk.Entry(cfg, textvariable=var, width=width)
-                if var is self.pulse:
-                    self.pulse_entry = widget
-            widget.grid(row=2, column=col, sticky="ew", padx=(0, 8))
-        assert source_box is not None
-        source_box.bind("<<ComboboxSelected>>", lambda _event: self.update_mode_hint())
-        roles = ttk.Frame(cfg, style="Panel.TFrame")
-        roles.grid(row=3, column=0, columnspan=6, sticky="w", pady=(12, 0))
-        ttk.Label(roles, text="OUT 角色", style="Field.TLabel").pack(
-            side="left", padx=(0, 10))
-        for index in range(4):
-            ttk.Checkbutton(roles, text=f"OUT{index + 1}",
-                            variable=self.out_enabled[index]).pack(side="left")
-            ttk.Combobox(roles, textvariable=self.out_roles[index],
-                         values=[ROLE_SEQUENCE, ROLE_STATUS], state="readonly",
-                         width=9).pack(side="left", padx=(2, 10))
-        ttk.Label(roles, text="状态形式", style="Field.TLabel").pack(
-            side="left", padx=(4, 4))
-        status_mode = ttk.Combobox(
-            roles, textvariable=self.status_mode, values=["电平", "脉冲"],
-            state="readonly", width=7)
-        status_mode.pack(side="left")
-        status_mode.bind("<<ComboboxSelected>>",
-                         lambda _event: self._update_status_mode())
+        self.connection_panel = ttk.Frame(self, style="Panel.TFrame", padding=(12, 10))
+        self.connection_panel.pack(fill="x", padx=12, pady=(10, 6))
+        ttk.Label(self.connection_panel, text="设备连接", style="Section.TLabel").pack(side="left", padx=(0, 14))
+        backend_box = ttk.Combobox(self.connection_panel, textvariable=self.backend,
+            values=["Serial", "USB TMC"], state="readonly", width=10)
+        backend_box.pack(side="left", padx=(0, 8))
+        backend_box.bind("<<ComboboxSelected>>", lambda _event: self.refresh_ports())
+        self.port_box = ttk.Combobox(self.connection_panel, textvariable=self.port, width=44)
+        self.port_box.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        ttk.Button(self.connection_panel, text="扫描设备", command=self.refresh_ports).pack(side="left")
+        ttk.Label(self.connection_panel, textvariable=self.status, style="Status.TLabel",
+                  width=24, anchor="e").pack(side="right", padx=(14, 0))
+
+        self.main_panes = ttk.Panedwindow(self, orient="vertical")
+        self.main_panes.pack(fill="both", expand=True, padx=12, pady=(0, 10))
+        main_panel = ttk.Frame(self.main_panes, style="App.TFrame")
+        log_panel = ttk.Frame(self.main_panes, style="App.TFrame")
+        self.main_panes.add(main_panel, weight=0)
+        self.main_panes.add(log_panel, weight=1)
+
+        self.mode_notebook = ttk.Notebook(main_panel)
+        self.mode_notebook.pack(fill="x", pady=(0, 6))
+        self.independent_page = ttk.Frame(self.mode_notebook, style="Panel.TFrame", padding=10)
+        self.loopback_page = ttk.Frame(self.mode_notebook, style="Panel.TFrame", padding=10)
+        self.manual_switch_page = ttk.Frame(self.mode_notebook, style="Panel.TFrame", padding=12)
+        self.maintenance_page = ttk.Frame(self.mode_notebook, style="App.TFrame", padding=8)
+        for page, title in ((self.independent_page, "独立 SP8T 序列"),
+                            (self.loopback_page, "RJ45 物理回环"),
+                            (self.manual_switch_page, "手动 SP8T"),
+                            (self.maintenance_page, "设备维护")):
+            self.mode_notebook.add(page, text=title)
+        self._build_sequence_page(self.independent_page, MODE_INDEPENDENT)
+        self._build_sequence_page(self.loopback_page, MODE_RJ45)
+        self._build_manual_switch(self.manual_switch_page)
+        self._build_maintenance(self.maintenance_page)
+        self.mode_notebook.bind("<<NotebookTabChanged>>", self._on_mode_tab_changed)
+
+        self.io_panel = ttk.LabelFrame(main_panel, text="公共 IO 读回", padding=(12, 8))
+        self.io_panel.pack(fill="x")
+        headline = ttk.Frame(self.io_panel)
+        headline.pack(fill="x")
+        ttk.Label(headline, textvariable=self.switch_position, style="Position.TLabel").pack(side="left")
+        ttk.Button(headline, text="刷新状态", command=lambda: self.command("READ:SEQ:NEXT?")).pack(side="right")
+        levels = ttk.Frame(self.io_panel)
+        levels.pack(fill="x", pady=(6, 0))
+        for heading, prefix, lamps in (("输入", "IN", self.input_lamps), ("输出", "OUT", self.output_lamps)):
+            bank = ttk.Frame(levels)
+            bank.pack(side="left", padx=(0, 16))
+            ttk.Label(bank, text=heading).pack(side="left", padx=(0, 5))
+            for index in range(4):
+                lamp = tk.Label(bank, text=f"{prefix}{index + 1}\n低", width=6, height=2,
+                    bg="#e5e7eb", fg="#374151", relief="flat", highlightthickness=1,
+                    highlightbackground="#d1d5db")
+                lamp.pack(side="left", padx=(0, 4))
+                lamps.append(lamp)
+        metrics = ttk.Frame(levels)
+        metrics.pack(side="left", fill="x", expand=True)
+        for variable in (self.io_owned, self.io_state):
+            ttk.Label(metrics, textvariable=variable).pack(anchor="w")
+        ttk.Label(self.io_panel, textvariable=self.repeat_status).pack(anchor="w", pady=(5, 0))
+
+        log_bar = ttk.Frame(log_panel)
+        log_bar.pack(fill="x", pady=(5, 3))
+        ttk.Label(log_bar, text="命令日志").pack(side="left")
+        ttk.Checkbutton(log_bar, text="自动滚动", variable=self.auto_scroll).pack(side="right")
+        ttk.Button(log_bar, text="导出日志", command=self.export_log).pack(side="right", padx=6)
+        ttk.Button(log_bar, text="清空", command=self.clear_log).pack(side="right")
+        self.output = ScrolledText(log_panel, height=10, state="disabled", font=("Consolas", 10),
+            bg="#ffffff", fg="#1f2937", insertbackground="#111827", selectbackground="#99f6e4",
+            selectforeground="#134e4a", relief="flat", borderwidth=0, highlightthickness=1,
+            highlightbackground="#d1d5db", highlightcolor="#0f766e", padx=10, pady=8)
+        self.output.pack(fill="both", expand=True)
+        for tag, color in (("TIME", "#6b7280"), ("CMD", "#0369a1"), ("OK", "#15803d"),
+                           ("INFO", "#374151"), ("WARN", "#a16207"), ("ERROR", "#b91c1c"), ("OTA", "#7c3aed")):
+            self.output.tag_configure(tag, foreground=color)
         self._update_status_mode()
-        ttk.Button(cfg, text="扫描串口", command=self.refresh_ports).grid(
-            row=4, column=5, sticky="e", pady=(10, 0), padx=(0, 8))
-        ttk.Button(cfg, text="连接并配置", command=self.configure,
-                   style="Primary.TButton").grid(
-                       row=4, column=6, columnspan=2, sticky="e",
-                       pady=(10, 0), padx=(0, 8))
+        self.update_mode_hint()
 
-        notebook = ttk.Notebook(self)
-        notebook.pack(fill="x", padx=12, pady=6)
-        sequence_page = ttk.Frame(notebook, style="App.TFrame")
-        maintenance_page = ttk.Frame(notebook, style="App.TFrame")
-        notebook.add(sequence_page, text="序列控制")
-        notebook.add(maintenance_page, text="设备维护")
+    @staticmethod
+    def _field(parent, column, label, variable, *, values=None, width=12):
+        ttk.Label(parent, text=label).grid(row=0, column=column, sticky="w", padx=(0, 10), pady=(0, 4))
+        widget = (ttk.Combobox(parent, textvariable=variable, values=values, state="readonly", width=width)
+                  if values is not None else ttk.Entry(parent, textvariable=variable, width=width))
+        widget.grid(row=1, column=column, sticky="ew", padx=(0, 10))
+        parent.columnconfigure(column, weight=1)
+        return widget
 
-        ctl = ttk.Frame(sequence_page, style="Panel.TFrame", padding=(14, 10))
-        ctl.pack(fill="x", pady=(0, 6))
-        ttk.Label(ctl, text="运行控制", style="Section.TLabel").pack(
-            side="left", padx=(0, 14))
-        for text, command in [("启动/等待触发", "TRIG:START"), ("软件单步", "TRIG:SEQ:STEP"),
-                              ("NEXT", "CONF:SEQ:NEXT"), ("暂停", "TRIG:PAUS"),
-                              ("继续", "TRIG:CONT"), ("停止", "TRIG:STOP")]:
-            button_style = "Primary.TButton" if command == "TRIG:START" else \
-                ("Danger.TButton" if command == "TRIG:STOP" else "TButton")
-            button = ttk.Button(ctl, text=text, style=button_style,
-                                command=lambda c=command: self.command(c))
+    def _build_sequence_page(self, page, mode):
+        combined = mode == MODE_RJ45
+        plan, codes, settle, repeat = ((self.gateway_plan, self.gateway_codes, self.gateway_settle,
+            self.gateway_repeat_count) if combined else (self.plan, self.codes, self.settle, self.repeat_count))
+        plan_group = ttk.LabelFrame(page, text="序列配置", padding=10)
+        plan_group.pack(fill="x", pady=(0, 8))
+        self._field(plan_group, 0, "计划", plan, width=10)
+        self._field(plan_group, 1, "编码（首项为启动状态）", codes, width=30)
+        self._field(plan_group, 2, "建立时间 µs", settle, width=10)
+        self._field(plan_group, 3, "循环次数（0=持续）", repeat, width=10)
+
+        if combined:
+            self.gateway_group = ttk.LabelFrame(page, text="VNA 网关", padding=10)
+            self.gateway_group.pack(fill="x", pady=(0, 8))
+            self._field(self.gateway_group, 0, "READY 输入", self.gateway_ready_input,
+                        values=["IN1", "IN2", "IN3", "IN4"], width=9)
+            self._field(self.gateway_group, 1, "READY 边沿", self.gateway_edge, values=["RIS", "FALL"], width=9)
+            self._field(self.gateway_group, 2, "触发脉宽 µs", self.gateway_pulse, width=12)
+            self._field(self.gateway_group, 3, "READY 超时 ms", self.gateway_timeout, width=12)
+            ttk.Label(page, text="固定分配：OUT1–OUT3 为 SP8T 编码电平，OUT4 为 VNA 触发脉冲。").pack(anchor="w", pady=(0, 5))
+            ttk.Label(page, text="流程：首编码 → RJ45 TDMA → 触发采样 → READY → RJ45 TDMA → 下一编码。").pack(anchor="w", pady=(0, 5))
+        else:
+            groups = ttk.Frame(page, style="Panel.TFrame")
+            groups.pack(fill="x", pady=(0, 8))
+            groups.columnconfigure(1, weight=1)
+            self.independent_input_group = ttk.LabelFrame(groups, text="推进事件", padding=10)
+            self.independent_input_group.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+            self.source_box = self._field(self.independent_input_group, 0, "输入", self.source,
+                values=["BUS", "IN1", "IN2", "IN3", "IN4"], width=8)
+            self.source_box.bind("<<ComboboxSelected>>", lambda _event: self.update_mode_hint())
+            self._field(self.independent_input_group, 1, "边沿", self.edge, values=["RIS", "FALL"], width=7)
+            self.independent_output_group = ttk.LabelFrame(groups, text="输出分配与状态反馈", padding=10)
+            self.independent_output_group.grid(row=0, column=1, sticky="nsew")
+            roles = ttk.Frame(self.independent_output_group)
+            roles.pack(fill="x")
+            for index in range(4):
+                cell = ttk.Frame(roles)
+                cell.pack(side="left", fill="x", expand=True, padx=(0, 8))
+                check = ttk.Checkbutton(cell, text=f"OUT{index + 1}", variable=self.out_enabled[index])
+                check.pack(anchor="w")
+                self.out_checkbuttons.append(check)
+                box = ttk.Combobox(cell, textvariable=self.out_roles[index],
+                    values=[ROLE_SEQUENCE, ROLE_STATUS], state="readonly", width=9)
+                box.pack(fill="x")
+                box.bind("<<ComboboxSelected>>", lambda _event: self._update_status_mode())
+                self.out_role_boxes.append(box)
+            feedback = ttk.Frame(self.independent_output_group)
+            feedback.pack(fill="x", pady=(8, 0))
+            ttk.Label(feedback, text="状态形式").pack(side="left")
+            self.status_mode_box = ttk.Combobox(feedback, textvariable=self.status_mode,
+                values=["无", "电平", "脉冲"], state="readonly", width=7)
+            self.status_mode_box.pack(side="left", padx=(5, 16))
+            self.status_mode_box.bind("<<ComboboxSelected>>", lambda _event: self._update_status_mode())
+            ttk.Label(feedback, text="状态脉宽 µs").pack(side="left")
+            self.pulse_entry = ttk.Entry(feedback, textvariable=self.pulse, width=9)
+            self.pulse_entry.pack(side="left", padx=5)
+
+        controls = ttk.Frame(page, style="Panel.TFrame")
+        controls.pack(fill="x", pady=(2, 6))
+        ttk.Button(controls, text="配置此模式", style="Primary.TButton",
+            command=lambda m=mode: self.configure_mode(m)).pack(side="left", padx=(0, 8))
+        actions = [("启动", "TRIG:START")]
+        if not combined:
+            actions += [("软件单步", "TRIG:SEQ:STEP"), ("NEXT", "CONF:SEQ:NEXT")]
+        actions += [("暂停", "TRIG:PAUS"), ("继续", "TRIG:CONT"), ("停止", "TRIG:STOP")]
+        for label, command in actions:
+            button = ttk.Button(controls, text=label,
+                style="Danger.TButton" if command == "TRIG:STOP" else "TButton",
+                command=lambda c=command, m=mode: self.command_mode(m, c))
             button.pack(side="left", padx=(0, 6))
             if command == "TRIG:SEQ:STEP":
                 self.step_button = button
-        ttk.Button(ctl, text="刷新", command=lambda: self.command("READ:SEQ:NEXT?")).pack(
-            side="left", padx=(8, 6))
-        ttk.Label(ctl, textvariable=self.status, style="Status.TLabel").pack(
-            side="right", padx=(12, 0))
-        ttk.Label(sequence_page, textvariable=self.mode_hint,
-                  style="Hint.TLabel").pack(
-                      anchor="w", padx=6, pady=(0, 4))
-        io = ttk.Frame(sequence_page, style="Panel.TFrame", padding=(14, 10))
-        io.pack(fill="x")
-        ttk.Label(io, text="实时 IO", style="Section.TLabel").pack(
-            side="top", anchor="w")
-        ttk.Label(io, textvariable=self.switch_position,
-                  style="Position.TLabel").pack(
-                      side="top", anchor="w", pady=(5, 8))
-        io_levels = ttk.Frame(io, style="Panel.TFrame")
-        io_levels.pack(fill="x")
-        in_frame = ttk.Frame(io_levels, style="Panel.TFrame")
-        in_frame.pack(side="left", padx=(0, 18))
-        ttk.Label(in_frame, text="输入脉冲", style="Field.TLabel").pack(
-            anchor="w", pady=(0, 4))
-        input_lamps = ttk.Frame(in_frame, style="Panel.TFrame")
-        input_lamps.pack()
-        out_frame = ttk.Frame(io_levels, style="Panel.TFrame")
-        out_frame.pack(side="left", padx=(0, 18))
-        ttk.Label(out_frame, text="输出电平", style="Field.TLabel").pack(
-            anchor="w", pady=(0, 4))
-        output_lamps = ttk.Frame(out_frame, style="Panel.TFrame")
-        output_lamps.pack()
-        for index in range(4):
-            lamp = tk.Label(input_lamps, text=f"IN{index + 1}\n低",
-                            width=7, height=2, bg="#e5e7eb", fg="#374151",
-                            relief="flat", highlightthickness=1,
-                            highlightbackground="#d1d5db")
-            lamp.pack(side="left", padx=(0, 4))
-            self.input_lamps.append(lamp)
-            lamp = tk.Label(output_lamps, text=f"OUT{index + 1}\n低",
-                            width=7, height=2, bg="#e5e7eb", fg="#374151",
-                            relief="flat", highlightthickness=1,
-                            highlightbackground="#d1d5db")
-            lamp.pack(side="left", padx=(0, 4))
-            self.output_lamps.append(lamp)
-        metrics = ttk.Frame(io_levels, style="Panel.TFrame")
-        metrics.pack(side="left", fill="x", expand=True)
-        ttk.Label(metrics, textvariable=self.io_owned, style="Status.TLabel").pack(anchor="w")
-        ttk.Label(metrics, textvariable=self.io_state, style="Status.TLabel").pack(anchor="w", pady=(5, 0))
-        switch_box = ttk.Frame(io, style="Panel.TFrame")
-        switch_box.pack(fill="x", pady=(10, 0))
-        ttk.Label(switch_box, text="独立 SP8T（OUT1–OUT3）", style="Field.TLabel").pack(side="left")
-        ttk.Combobox(switch_box, textvariable=self.independent_switch,
-                     values=[str(i) for i in range(1, 9)], state="readonly",
-                     width=5).pack(side="left", padx=6)
-        ttk.Button(switch_box, text="切换", command=self.set_independent_switch).pack(side="left")
-        ttk.Button(switch_box, text="读取", command=self.read_independent_switch).pack(side="left", padx=5)
-        ttk.Label(switch_box, textvariable=self.independent_switch_status,
-                  style="Status.TLabel").pack(side="left", padx=10)
-        self.update_mode_hint()
+            elif command == "CONF:SEQ:NEXT":
+                self.next_button = button
+        if combined:
+            ttk.Label(page, textvariable=self.link_status, wraplength=1040).pack(anchor="w")
+        else:
+            ttk.Label(page, textvariable=self.mode_hint).pack(anchor="w")
+            ttk.Label(page, textvariable=self.output_hint).pack(anchor="w", pady=(3, 0))
 
-        self._build_maintenance(maintenance_page)
+    def _build_manual_switch(self, page):
+        group = ttk.LabelFrame(page, text="独立开关控制", padding=16)
+        group.pack(fill="x")
+        ttk.Label(group, text="直接控制 OUT1–OUT3 的 SP8T 位置。请先停止序列并释放输出。").pack(anchor="w", pady=(0, 12))
+        row = ttk.Frame(group)
+        row.pack(fill="x")
+        ttk.Label(row, text="位置").pack(side="left")
+        self.manual_position_box = ttk.Combobox(row, textvariable=self.independent_switch,
+            values=[str(i) for i in range(1, 9)], state="readonly", width=7)
+        self.manual_position_box.pack(side="left", padx=8)
+        ttk.Button(row, text="切换", command=self.set_independent_switch).pack(side="left", padx=(0, 6))
+        ttk.Button(row, text="读取", command=self.read_independent_switch).pack(side="left")
+        ttk.Label(group, textvariable=self.independent_switch_status).pack(anchor="w", pady=(12, 0))
 
-        log_bar = ttk.Frame(self, style="App.TFrame")
-        log_bar.pack(fill="x", padx=12, pady=(6, 3))
-        ttk.Label(log_bar, text="命令日志 / 响应输出").pack(side="left")
-        ttk.Checkbutton(log_bar, text="自动滚动",
-                        variable=self.auto_scroll).pack(side="right")
-        ttk.Button(log_bar, text="导出日志", command=self.export_log).pack(
-            side="right", padx=(6, 0))
-        ttk.Button(log_bar, text="清空", command=self.clear_log).pack(side="right")
-        self.output = ScrolledText(
-            self, height=20, state="disabled", font=("Consolas", 10),
-            bg="#ffffff", fg="#1f2937", insertbackground="#111827",
-            selectbackground="#99f6e4", selectforeground="#134e4a",
-            relief="flat", borderwidth=0, highlightthickness=1,
-            highlightbackground="#d1d5db", highlightcolor="#0f766e",
-            padx=10, pady=8)
-        self.output.pack(fill="both", expand=True, padx=12, pady=(0, 12))
-        self.output.tag_configure("TIME", foreground="#6b7280")
-        self.output.tag_configure("CMD", foreground="#0369a1")
-        self.output.tag_configure("OK", foreground="#15803d")
-        self.output.tag_configure("INFO", foreground="#374151")
-        self.output.tag_configure("WARN", foreground="#a16207")
-        self.output.tag_configure("ERROR", foreground="#b91c1c")
-        self.output.tag_configure("OTA", foreground="#7c3aed")
+    def _on_mode_tab_changed(self, _event=None):
+        selected = self.mode_notebook.select()
+        mode = {str(self.independent_page): MODE_INDEPENDENT, str(self.loopback_page): MODE_RJ45}.get(selected)
+        if mode is not None and mode != self.run_mode.get():
+            self.run_mode.set(mode)
+            self._update_run_mode()
+
+    def configure_mode(self, mode):
+        if mode != self.run_mode.get():
+            self.run_mode.set(mode)
+            self._update_run_mode()
+        self.configure()
+
+    def command_mode(self, mode, command):
+        if mode != self.run_mode.get():
+            self.run_mode.set(mode)
+            self._update_run_mode()
+        self.command(command)
+
+    def _resource_key(self):
+        return self.backend.get(), self.port.get().strip()
+
+    def _watch_configuration_changes(self):
+        independent = [self.plan, self.codes, self.settle, self.repeat_count, self.source,
+                       self.edge, self.pulse, self.status_mode, *self.out_enabled, *self.out_roles]
+        gateway = [self.gateway_plan, self.gateway_codes, self.gateway_settle, self.gateway_repeat_count,
+                   self.gateway_ready_input, self.gateway_edge, self.gateway_pulse, self.gateway_timeout]
+        for mode, variables in ((MODE_INDEPENDENT, independent), (MODE_RJ45, gateway)):
+            for variable in variables:
+                variable.trace_add("write", lambda *_args, m=mode: self._draft_changed(m))
+        for variable in (self.port, self.backend):
+            variable.trace_add("write", self._connection_changed)
+
+    def _draft_changed(self, mode):
+        if mode == self.run_mode.get():
+            self._configured_mode = None
+            self._configuration_generation += 1
+            self.status.set("参数已修改，请配置此模式")
+
+    def _connection_changed(self, *_args):
+        self._configured_mode = None
+        self._configured_resource = None
+        self._configuration_generation += 1
+        self._device_mode, self._device_plan_count = self._device_configurations.get(self._resource_key(), (None, 0))
+        self._clear_device_readback()
+        self.status.set("资源已改变，请配置此模式")
+
+    def _clear_device_readback(self):
+        self.sequence_state.set("UNKNOWN")
+        self.switch_position.set("当前开关：未读取")
+        self.independent_switch_status.set("独立 SP8T：未读取")
+        self.io_inputs.set("输入：未读取")
+        self.io_outputs.set("输出：未读取")
+        self.io_owned.set("占用：未读取")
+        self.io_state.set("IO 状态：未读取")
+        self.repeat_status.set("循环次数：未读取")
+        self.link_status.set("RJ45 状态：未读取")
+        for prefix, lamps in (("IN", self.input_lamps), ("OUT", self.output_lamps)):
+            for index, lamp in enumerate(lamps):
+                lamp.configure(text=f"{prefix}{index + 1}\n未知", bg="#e5e7eb")
+
+    def _invalidate_device_configuration(self):
+        self._configured_mode = None
+        self._configured_resource = None
+        self._configured_plan_count = 0
+        self._configuration_generation += 1
+        resource_key = self._resource_key()
+        # A queued configuration predating a reset must not restore device
+        # facts. Draft edits alone intentionally retain completed device facts.
+        self._device_fact_generation_floor[resource_key] = self._configuration_generation
+        self._device_configurations[resource_key] = (None, 0)
+        self._device_mode, self._device_plan_count = None, 0
+        self._clear_device_readback()
+        self.status.set("设备配置未知，请重新配置此模式")
+
+    def _configuration_finished(self, mode, count, generation, resource_key):
+        # Device facts outlive a draft edit or a tab switch. An old resource's
+        # completed transaction cannot authorize START on another connection.
+        if generation < self._device_fact_generation_floor.get(resource_key, 0):
+            return
+        self._device_configurations[resource_key] = (mode, count)
+        if resource_key != self._resource_key():
+            return
+        self._device_mode, self._device_plan_count = mode, count
+        if generation == self._configuration_generation:
+            self._configured_mode, self._configured_plan_count = mode, count
+            self._configured_resource = resource_key if mode is not None else None
+            self.status.set("配置完成，可以启动" if mode else "配置失败，请检查日志")
+        else:
+            self.status.set("设备配置已结束；当前草稿需重新配置")
 
     def _build_maintenance(self, parent: ttk.Frame) -> None:
         device = ttk.Frame(parent, style="Panel.TFrame", padding=(14, 10))
@@ -532,14 +779,15 @@ class SequenceUi(tk.Tk):
                                   encoding="utf-8")
         self.log(f"日志已导出：{filename}")
 
-    def enqueue_commands(self, commands: list[str]) -> None:
+    def enqueue_commands(self, commands: list[str]) -> bool:
         if self._ota_running or self._transport_switching:
             owner = "OTA" if self._ota_running else "USB 模式切换"
             self.log(f"{owner} 正在独占通信资源，当前命令未加入队列。", "WARN")
-            return
+            return False
         self._operations.put((
             "commands",
             (self.backend.get(), self.port.get().strip(), list(commands))))
+        return True
 
     def _operation_loop(self) -> None:
         while True:
@@ -550,6 +798,11 @@ class SequenceUi(tk.Tk):
             if kind == "commands":
                 backend, resource, commands = payload
                 self.run_commands(backend, resource, commands)
+            elif kind == "configuration":
+                backend, resource, commands, mode, count, generation = payload
+                passed = self.run_commands(backend, resource, commands)
+                self._ui_events.put(("configured", (mode if passed else None, count if passed else 0,
+                    generation, (backend, resource))))
             elif kind == "ota":
                 image, port, backend = payload
                 self.run_ota(image, port, backend)
@@ -569,6 +822,8 @@ class SequenceUi(tk.Tk):
                 self.log_exchange(*args)
             elif kind == "status":
                 self.status.set(*args)
+            elif kind == "configured":
+                self._configuration_finished(*args)
             elif kind == "ota-finish":
                 self._finish_ota(*args)
             elif kind == "usb-switch-finish":
@@ -586,6 +841,9 @@ class SequenceUi(tk.Tk):
         self.destroy()
 
     def switch_usb_mode(self, mode: str) -> None:
+        if self._ota_running or self._transport_switching:
+            self.log("设备维护正在占用通信资源，请稍后切换 USB 模式。", "WARN")
+            return
         target = "USB TMC" if mode == "USBTMC" else "Serial"
         if not messagebox.askyesno(
                 "确认切换 USB 模式",
@@ -596,6 +854,7 @@ class SequenceUi(tk.Tk):
         if not resource:
             self.log("未选择当前通信资源，无法切换 USB 模式。", "ERROR")
             return
+        self._invalidate_device_configuration()
         self._transport_switching = True
         self.status.set(f"正在切换到 {mode}")
         self._operations.put((
@@ -613,22 +872,45 @@ class SequenceUi(tk.Tk):
             self.status.set("USB 模式切换失败")
 
     def update_mode_hint(self) -> None:
+        combined = self.run_mode.get() == MODE_RJ45
+        can_step = not combined and self.source.get() == "BUS"
+        for button in (self.step_button, self.next_button):
+            if button is not None:
+                button.state(["!disabled"] if can_step else ["disabled"])
+        if combined:
+            self.mode_hint.set("RJ45 物理回环：启动首编码 → TDMA → OUT4 触发采样 → READY → TDMA → 下一编码；有限次数完成后停止。")
+            return
         if self.source.get() == "BUS":
             self.mode_hint.set("BUS 软件触发模式：可使用“软件单步”或 NEXT")
             if self.step_button is not None:
                 self.step_button.state(["!disabled"])
         else:
-            self.mode_hint.set(f"{self.source.get()} 外部脉冲模式：点击“启动/等待触发”，每个{self.edge.get()}沿推进一步")
+            self.mode_hint.set(f"启动先输出首项编码；随后 {self.source.get()} 每个 {self.edge.get()} 沿推进一步。")
             if self.step_button is not None:
                 self.step_button.state(["disabled"])
 
+    def _update_run_mode(self) -> None:
+        self._configured_mode = None
+        self._configuration_generation += 1
+        self.status.set("页面已切换；启动前请配置此模式")
+        self.update_mode_hint()
+
     def _update_status_mode(self) -> None:
-        if self.pulse_entry is None:
-            return
-        if self.status_mode.get() == "电平":
-            self.pulse_entry.state(["disabled"])
-        else:
-            self.pulse_entry.state(["!disabled"])
+        mode = self.status_mode.get()
+        if self.pulse_entry is not None:
+            self.pulse_entry.state(
+                ["!disabled"] if mode == "脉冲" else ["disabled"])
+        for enabled, role, widget in zip(
+                self.out_enabled, self.out_roles, self.out_checkbuttons):
+            disabled = mode == "无" and role.get() == ROLE_STATUS
+            if disabled:
+                enabled.set(False)
+            widget.state(["disabled"] if disabled else ["!disabled"])
+        self.output_hint.set({
+            "无": "DUT 仅输出编码电平；不占用状态 OUT，不输出完成脉冲。",
+            "电平": "兼容状态电平输出；请显式勾选状态 OUT。",
+            "脉冲": "兼容状态脉冲输出；请显式勾选状态 OUT，此模式不配置 VNA 网关。",
+        }[mode])
 
     def _output_role_masks(self) -> tuple[int, int]:
         sequence_mask = 0
@@ -646,7 +928,9 @@ class SequenceUi(tk.Tk):
         return sequence_mask, status_mask
 
     def run_commands(self, backend: str, resource: str,
-                     commands: list[str]) -> None:
+                     commands: list[str]) -> bool:
+        def emit(command, response):
+            self._ui_events.put(("exchange", (command, response, (backend, resource))))
         try:
             if backend == "USB TMC":
                 try:
@@ -656,26 +940,35 @@ class SequenceUi(tk.Tk):
                 rm = pyvisa.ResourceManager()
                 instrument = rm.open_resource(resource)
                 instrument.timeout = 2000
+                instrument.write_termination = "\n"
+                instrument.read_termination = "\n"
                 try:
-                    for command in commands:
-                        if "?" in command.split(maxsplit=1)[0]:
-                            response = instrument.query(command).strip()
-                        else:
+                    def exchange(command):
+                        header = command.split(maxsplit=1)[0].upper()
+                        if header in {"*CLS", "*RST"}:
                             instrument.write(command)
-                            response = "OK"
-                        self._ui_events.put(("exchange", (command, response)))
+                            return "已发送，等待读回"
+                        # Sequence setters return a numeric result even though
+                        # their SCPI headers do not contain a question mark.
+                        try:
+                            return instrument.query(command).strip()
+                        except pyvisa.errors.VisaIOError as exc:
+                            if header in RING_ACK_ONLY and exc.error_code == pyvisa.constants.StatusCode.error_timeout:
+                                return "<timeout>"
+                            raise
+                    execute_command_batch(commands, exchange, emit)
                 finally:
                     instrument.close()
                     rm.close()
             else:
                 with open_serial_port(resource, 115200, 2, .2,
                                       read_timeout_s=.2) as ser:
-                    for command in commands:
-                        response = send_command(ser, command, 2)
-                        self._ui_events.put(("exchange", (command, response)))
+                    execute_command_batch(commands, lambda command: send_command(ser, command, 2), emit)
+            return True
         except Exception as exc:
-            self._ui_events.put(("log", (f"串口操作失败：{exc}", "ERROR")))
-            self._ui_events.put(("status", ("连接错误",)))
+            self._ui_events.put(("log", (f"命令执行失败：{exc}", "ERROR")))
+            self._ui_events.put(("status", ("执行失败，请检查日志",)))
+            return False
 
     def run_usb_switch(self, backend: str, resource: str, mode: str) -> None:
         target_backend = "USB TMC" if mode == "USBTMC" else "Serial"
@@ -739,11 +1032,14 @@ class SequenceUi(tk.Tk):
             self._ui_events.put((
                 "usb-switch-finish", (False, backend, str(exc))))
 
-    def log_exchange(self, command: str, response: str) -> None:
+    def log_exchange(self, command: str, response: str, resource_key=None) -> None:
         self.log(f"> {command}", "CMD")
         level = "ERROR" if response == "<timeout>" else "OK"
         self.log(f"< {response}", level)
-        self.status.set(response)
+        if resource_key is not None and resource_key != self._resource_key():
+            return
+        summary = response.replace("\n", " ")
+        self.status.set(summary if len(summary) <= 24 else summary[:21] + "…")
         self.update_io(command, response)
 
     def select_ota_file(self) -> None:
@@ -757,8 +1053,8 @@ class SequenceUi(tk.Tk):
             self.log(f"已选择 OTA 固件：{filename}", "OTA")
 
     def start_ota(self) -> None:
-        if self._ota_running:
-            self.log("OTA 已在运行。", "WARN")
+        if self._ota_running or self._transport_switching:
+            self.log("设备维护正在占用通信资源，请稍后升级。", "WARN")
             return
         image = Path(self.ota_file.get())
         port = self.port.get().strip()
@@ -772,6 +1068,7 @@ class SequenceUi(tk.Tk):
                 "确认单板 OTA",
                 f"将通过 {port} 更新当前识别到的一块 DHRT100，是否继续？"):
             return
+        self._invalidate_device_configuration()
         self._ota_running = True
         self.ota_status.set("升级中")
         if self.ota_progress is not None:
@@ -818,10 +1115,29 @@ class SequenceUi(tk.Tk):
 
     def send_manual_command(self) -> None:
         command = self.manual_command.get().strip()
-        if command:
-            self.enqueue_commands([command])
+        if command and self.enqueue_commands([command]):
+            # Inspect every header, rather than a '?' anywhere in parameters.
+            # Conservatively invalidate on a nonquery in a compound message.
+            headers = [part.strip().split()[0] for part in re.split(r"[;\r\n]", command)
+                       if part.strip()]
+            if any(not header.endswith("?") for header in headers):
+                self._invalidate_device_configuration()
 
     def update_io(self, command: str, response: str) -> None:
+        if command.upper().startswith("READ:SEQ:LINK?"):
+            try:
+                self.link_status.set(format_link_status(response, self._device_plan_count))
+            except (ValueError, csv.Error):
+                self.link_status.set("RJ45 状态解析失败，请检查固件版本和命令日志")
+            return
+        if command.upper().startswith("READ:SEQ:REPEAT?"):
+            try:
+                configured, run, finished = map(int, response.split(","))
+                self.repeat_status.set(f"循环次数：{'持续' if configured == 0 else configured} · "
+                    f"本次：{'持续' if run == 0 else run} · {'已完成并停止' if finished else '未完成'}")
+            except ValueError:
+                self.repeat_status.set("循环次数读回失败")
+            return
         if command.upper().startswith("READ:SWITCH1?"):
             try:
                 fields = [int(value) for value in response.split(",")]
@@ -856,32 +1172,70 @@ class SequenceUi(tk.Tk):
                                bg="#86efac" if high else "#e5e7eb")
 
     def command(self, command: str) -> None:
-        if command == "TRIG:SEQ:STEP" and self.source.get() != "BUS":
-            self.log("当前为外部脉冲模式，软件单步已禁用；请使用“启动/等待触发”。")
+        combined = self.run_mode.get() == MODE_RJ45
+        if command in {"TRIG:SEQ:STEP", "CONF:SEQ:NEXT"} and (
+                combined or self.source.get() != "BUS" or self._device_mode == MODE_RJ45):
+            self.log("当前模式由外部事件推进，软件单步和 NEXT 已禁用。")
             return
-        commands = [command]
-        if not command.endswith("?"):
-            commands += ["READ:SEQ:NEXT?", "READ:IO:STAT?"]
+        if command == "TRIG:START" and (self._configured_mode != self.run_mode.get() or
+                                        self._configured_resource != self._resource_key()):
+            self.log("请先点击“配置此模式”，确认当前参数和通信资源配置成功后再启动。", "WARN")
+            return
+        device_combined = self._device_mode == MODE_RJ45
+        commands = build_start_commands(self.run_mode.get()) if command == "TRIG:START" else [command]
+        if command == "TRIG:STOP" and (device_combined or self._device_mode is None):
+            commands.append("SYST:TDMA:RING:STOP")
+        commands += ["READ:SEQ:REPEAT?", "READ:IO:STAT?"]
+        if command != "READ:SEQ:NEXT?":
+            commands.append("READ:SEQ:NEXT?")
+        if device_combined or self._device_mode is None or (command == "TRIG:START" and combined):
+            commands.append("READ:SEQ:LINK?")
         self.enqueue_commands(commands)
 
     def configure(self) -> None:
         try:
             if not self.port.get().strip():
-                raise ValueError("请先扫描或输入串口")
-            codes = [int(x.strip()) for x in self.codes.get().split(",") if x.strip()]
-            sequence_mask, status_mask = self._output_role_masks()
-            commands = build_configuration_commands(
-                self.plan.get(), codes, self.source.get(), self.edge.get(),
-                int(self.settle.get()), int(self.pulse.get()),
-                sequence_mask, status_mask, self.status_mode.get())
+                raise ValueError("请先扫描或输入通信资源")
+            mode = self.run_mode.get()
+            combined = mode == MODE_RJ45
+            if combined:
+                plan, codes_text = self.gateway_plan.get(), self.gateway_codes.get()
+                source, edge = "BUS", self.gateway_edge.get()
+                settle, pulse = int(self.gateway_settle.get()), int(self.gateway_pulse.get())
+                repeat = int(self.gateway_repeat_count.get())
+                ready, timeout = self.gateway_ready_input.get(), int(self.gateway_timeout.get())
+                sequence_mask, status_mask, status_mode = 7, 0, "NONE"
+            else:
+                plan, codes_text = self.plan.get(), self.codes.get()
+                source, edge = self.source.get(), self.edge.get()
+                settle = int(self.settle.get())
+                status_mode = self.status_mode.get()
+                pulse = int(self.pulse.get()) if status_mode == "脉冲" else 0
+                repeat = int(self.repeat_count.get())
+                sequence_mask, status_mask = self._output_role_masks()
+                ready, timeout = "IN1", 5000
+            codes = [int(x.strip()) for x in codes_text.split(",") if x.strip()]
+            commands = build_mode_configuration(
+                mode, plan, codes, source, edge, settle, pulse,
+                sequence_mask, status_mask, status_mode, ready, timeout, repeat)
         except ValueError as exc:
             self.log(f"配置错误: {exc}")
             return
         self.log(
-            f"配置 {len(codes)} 个位置；TRIG:START 将直接输出首项编码 "
+            f"{mode}：配置 {len(codes)} 个位置；循环次数 {repeat}（0=持续）；启动直接输出首项编码 "
             f"{codes[0]}；序列掩码 0x{sequence_mask:X}，"
-            f"状态掩码 0x{status_mask:X}（{self.status_mode.get()}）。")
-        self.enqueue_commands(commands)
+            f"状态掩码 0x{status_mask:X}（{status_mode}）。")
+        if combined:
+            self.log(f"VNA 网关：{ready} {edge} READY，OUT4 触发 {pulse} µs，等待超时 {timeout} ms。")
+        else:
+            self.log(self.output_hint.get())
+        if self._ota_running or self._transport_switching:
+            self.log("设备维护正在占用通信资源，请稍后配置。", "WARN")
+            return
+        self._configured_mode = None
+        self._configuration_generation += 1
+        self._operations.put(("configuration", (self.backend.get(), self.port.get().strip(), commands,
+            mode, len(codes), self._configuration_generation)))
 
 
 if __name__ == "__main__":

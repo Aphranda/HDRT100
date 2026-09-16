@@ -134,6 +134,7 @@ void sync_io_sequence_stop(void)
     output = 0;
 }
 void sync_io_sequence_service(void) { assert(!locked); }
+bool sync_io_sequence_gateway_fire(void) { return false; }
 void sync_io_sequence_get_snapshot(sync_io_sequence_snapshot_t *snapshot)
 { assert(!locked); *snapshot = hw; }
 
@@ -170,6 +171,8 @@ static void setup(void)
     probe_snapshot_ownership = false;
     snapshot_probes = 0;
     trigger_sequence_service_init();
+    assert(trigger_sequence_service_get_repeat() == 1u);
+    assert(trigger_sequence_service_set_repeat(0u) == TRIGGER_SEQUENCE_SERVICE_OK);
     trigger_sequence_store_t *store = trigger_sequence_service_config();
     trigger_sequence_params_t params = {2, 0, 1, 1};
     const uint32_t ids[] = {1, 0};
@@ -486,6 +489,28 @@ static void test_compact_code_bounds_without_truncation(void)
     stop();
 }
 
+static void test_repeat_limits(void)
+{
+    setup();
+    assert(trigger_sequence_service_set_repeat(10000u) == TRIGGER_SEQUENCE_SERVICE_OK);
+    start();
+    assert(hw_config.step_limit_enabled && hw_config.max_steps == 19999u);
+    assert(status().repeat_count == 10000u && !status().finished);
+    assert(trigger_sequence_service_set_repeat(1u) == TRIGGER_SEQUENCE_SERVICE_FROZEN);
+    /* The backend proves its final receipt before the owner cleans up. */
+    hw.accepted = hw.written = hw.completed = 19999u;
+    hw.current_index = hw.completed_index = 1u;
+    hw.finished = true;
+    hw.ready = false;
+    trigger_sequence_service_service();
+    assert(status().state == TRIGGER_SEQUENCE_SERVICE_IDLE && status().finished);
+    assert(status().completed == 19999u && status().faults == 0u && !reserved && output == 0u);
+    setup();
+    assert(trigger_sequence_service_set_repeat(UINT32_MAX) == TRIGGER_SEQUENCE_SERVICE_OK);
+    assert(trigger_sequence_service_start(NULL) == TRIGGER_SEQUENCE_SERVICE_INVALID);
+    assert(!reserved);
+}
+
 int main(void)
 {
     test_bus_receipt_lifecycle();
@@ -498,6 +523,7 @@ int main(void)
     test_rejection_settlement_and_stop_fault();
     test_one_snapshot_mailbox_lifetime();
     test_compact_code_bounds_without_truncation();
+    test_repeat_limits();
     puts("sequence service lifecycle passed");
     return 0;
 }

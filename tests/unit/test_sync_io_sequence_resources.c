@@ -8,13 +8,15 @@
 #include "resource_arbiter.h"
 typedef unsigned uint;
 typedef uint gpio_function_t;
-enum pio_src_dest { pio_null = 3, pio_x = 1, pio_isr = 6 };
+enum pio_src_dest { pio_null = 3, pio_x = 1, pio_y = 2, pio_isr = 6, pio_osr = 7 };
 typedef struct { uint32_t irq, irq_force, fdebug; } fake_pio_t;
 static fake_pio_t fake_pio;
 typedef fake_pio_t *PIO;
 struct pio_program { uint length; };
 static const struct pio_program sequence_ingress_program = {6u};
-static const struct pio_program sequence_executor_program = {19u};
+static const struct pio_program sequence_finite_ingress_program = {8u};
+static const struct pio_program sequence_gateway_program = {6u};
+static const struct pio_program sequence_executor_program = {18u};
 static const struct pio_program sequence_counter_program = {5u};
 #define BOARD_SYNC_PIO_FAST (&fake_pio)
 #define BOARD_SYNC_OUTPUT_BASE_PIN 16u
@@ -45,10 +47,12 @@ static const struct pio_program sequence_counter_program = {5u};
 #define sequence_ingress_offset_decide 3u
 #define sequence_ingress_offset_admitted 4u
 #define sequence_ingress_offset_request 5u
+#define sequence_finite_ingress_offset_quota 6u
+#define sequence_finite_ingress_offset_parked 7u
 #define sequence_executor_offset_waiting 5u
 #define sequence_executor_offset_writing 6u
-#define sequence_executor_offset_written 8u
-#define sequence_executor_offset_status_active 17u
+#define sequence_executor_offset_written 7u
+#define sequence_executor_offset_status_active 16u
 static struct { struct { uint32_t ctrl_trig, al1_ctrl, transfer_count, write_addr, reload; bool busy; } ch[16]; } fake_dma;
 #define dma_hw (&fake_dma)
 static struct {
@@ -76,7 +80,10 @@ static uint32_t dma_encode_endless_transfer_count(void) { return 0xf0000000u; }
 static volatile uint32_t s_edge_latest;
 static uint32_t dma_claims, sm_claims, resources, words, pads, enabled;
 static uint32_t directions[32], functions[32], touches[32], pcs[4], xs[4], isrs[4], rx[4];
+static uint32_t ys[4], osrs[4];
 static bool rx_valid[4];
+static bool tx_valid[4];
+static uint32_t tx_value[4];
 static uint checkpoint, fail_at;
 static bool arm_allowed, start_allowed;
 static bool inject(void) { return ++checkpoint == fail_at; }
@@ -128,7 +135,11 @@ static void dma_start_channel_mask(uint32_t mask) {
         fake_dma.ch[ch].busy = true;
     }
 }
-static void pio_sm_clear_fifos(PIO pio, uint sm) { (void)pio; rx_valid[sm] = false; }
+static void pio_sm_clear_fifos(PIO pio, uint sm) { (void)pio; rx_valid[sm] = tx_valid[sm] = false; }
+static void pio_sm_restart(PIO pio, uint sm) { (void)pio; (void)sm; }
+static void pio_sm_put(PIO pio, uint sm, uint32_t value) {
+    (void)pio; assert(!tx_valid[sm]); tx_valid[sm] = true; tx_value[sm] = value;
+}
 static uint pio_sm_get_pc(PIO pio, uint sm) { (void)pio; return pcs[sm]; }
 static void pio_interrupt_clear(PIO pio, uint irq) { pio->irq &= ~(1u << irq); }
 static void dma_control_write(uint32_t *reg, uint32_t bits, bool set) {
@@ -161,15 +172,25 @@ static void pio_sm_set_pins_with_mask(PIO pio, uint sm, uint32_t value, uint32_t
 static uint pio_encode_mov(uint dest, uint source) { return 0xa000u | (dest << 5u) | source; }
 static uint pio_encode_mov_not(uint dest, uint source) { return pio_encode_mov(dest, source) | 8u; }
 static uint pio_encode_push(bool conditional, bool block) { (void)conditional; (void)block; return 0x8000u; }
+static uint pio_encode_pull(bool conditional, bool block) { (void)conditional; (void)block; return 0x80a0u; }
 static uint pio_encode_jmp(uint target) { return target; }
 static uint pio_encode_jmp_x_dec(uint target) { return 0x40u | target; }
 static void pio_sm_exec(PIO pio, uint sm, uint instruction) {
     (void)pio;
     if ((instruction >> 13u) == 5u) {
-        uint32_t value = (instruction & 7u) == pio_x ? xs[sm] : 0u;
-        isrs[sm] = (instruction & 8u) ? ~value : value;
+        const uint source = instruction & 7u;
+        uint32_t value = source == pio_x ? xs[sm] : source == pio_y ? ys[sm] :
+            source == pio_osr ? osrs[sm] : 0u;
+        value = (instruction & 8u) ? ~value : value;
+        if (((instruction >> 5u) & 7u) == pio_x) xs[sm] = value;
+        else if (((instruction >> 5u) & 7u) == pio_y) ys[sm] = value;
+        else isrs[sm] = value;
     } else if ((instruction >> 13u) == 4u) {
-        assert(!rx_valid[sm]); rx[sm] = isrs[sm]; isrs[sm] = 0u; rx_valid[sm] = true;
+        if (instruction & 0x80u) {
+            assert(tx_valid[sm]); osrs[sm] = tx_value[sm]; tx_valid[sm] = false;
+        } else {
+            assert(!rx_valid[sm]); rx[sm] = isrs[sm]; isrs[sm] = 0u; rx_valid[sm] = true;
+        }
     } else {
         if (instruction & 0x40u) --xs[sm];
         pcs[sm] = instruction & 31u;
@@ -197,9 +218,10 @@ static void reset(void) {
     for (uint i = 0u; i < NUM_DMA_CHANNELS; ++i) fake_dma.ch[i].reload = RX_TRANSFERS;
     memset(touches, 0, sizeof(touches));
     memset(rx_valid, 0, sizeof(rx_valid));
+    memset(tx_valid, 0, sizeof(tx_valid));
     for (uint i = 0u; i < 4u; ++i) s_sequence.dma[i] = -1;
     s_sequence.config = (sync_io_sequence_config_t){
-        1u, false, 3u, 8u, SYNC_IO_SEQUENCE_STATUS_PULSE, 1u, 1u};
+        1u, false, 3u, 8u, SYNC_IO_SEQUENCE_STATUS_PULSE, 1u, 1u, 0u, 0u, 0u, false, false, 0u};
     dma_claims = 0x1fbu; /* RS485, capture and TDMA survive every rollback. */
     sm_claims = enabled = 1u;
     resources = RESOURCE_ARBITER_RESOURCE_SMA_GPIO;
@@ -228,7 +250,7 @@ int main(void) {
         bool loaded = sync_io_persona_manager_load(&manager, &handle);
         if (failure >= 1u && failure <= 10u) assert(!loaded);
         if (loaded) {
-            assert(words == 31u && sm_claims == 15u);
+            assert(words == 30u && sm_claims == 15u);
             assert((s_sequence.dma_mask & 0x1fbu) == 0u);
             bool armed = sync_io_persona_manager_arm(&manager, &handle);
             assert(armed == arm_allowed);
@@ -271,6 +293,21 @@ int main(void) {
     assert(!s_sequence.priming && s_sequence.status.ready);
     assert((pads & (8u << BOARD_SYNC_OUTPUT_BASE_PIN)) != 0u);
     assert((enabled & INPUT_SM_MASK) == INPUT_SM_MASK && fake_dma.ch[3].busy);
+    /* A one-state/one-round START settles without granting any input edge. */
+    s_sequence.config.step_limit_enabled = true;
+    s_sequence.config.max_steps = 0u;
+    s_sequence.priming = true;
+    s_sequence.prime_ready_at_us = 20u;
+    enabled = 1u;
+    fake_pio.irq = 0u;
+    fake_time_us = 19u;
+    sync_io_sequence_service();
+    assert(!s_sequence.status.finished);
+    fake_time_us = 20u;
+    sync_io_sequence_service();
+    assert(s_sequence.status.finished && !s_sequence.status.ready);
+    assert((enabled & INPUT_SM_MASK) == 0u);
+    assert(!sync_io_sequence_software_step());
     for (uint pc = 0u; pc < 5u; ++pc) {
         reset();
         s_sequence.dma[3] = 0;
@@ -293,6 +330,24 @@ int main(void) {
         assert(s_sequence.paused_edges == (pc == 2u ? 1u : 0u));
         assert((fake_pio.irq_force != 0u) == (pc >= 3u));
         assert(pcs[INGRESS_SM] == 10u);
+    }
+    for (uint pc = 0u; pc < 8u; ++pc) {
+        for (uint remaining = 0u; remaining < 3u; ++remaining) {
+            reset();
+            s_sequence.config.step_limit_enabled = true;
+            s_sequence.config.max_steps = 79999u;
+            s_sequence.offset[0] = 10u;
+            pcs[INGRESS_SM] = 10u + pc;
+            xs[INGRESS_SM] = UINT32_MAX;
+            ys[INGRESS_SM] = remaining;
+            fake_pio.irq = 1u << READY_IRQ;
+            finish_ingress();
+            const bool admitted = pc >= 3u && pc <= 6u;
+            const bool parked = pc == 7u || (admitted && remaining == 0u);
+            assert(pcs[INGRESS_SM] == 10u + (parked ? 7u : 0u));
+            assert((fake_pio.irq_force != 0u) == (pc >= 3u && pc <= 5u));
+            assert(ys[INGRESS_SM] == (admitted && remaining > 0u ? remaining - 1u : remaining));
+        }
     }
     /* STOP after nine complete BUS steps: hardware abort clears TRANS_COUNT. */
     reset();
@@ -378,6 +433,85 @@ int main(void) {
     assert(!sync_io_sequence_pause(true));
     assert(s_sequence.status.fault == SYNC_IO_SEQUENCE_FAULT_COUNTER_REGRESSION);
     assert((enabled & INPUT_SM_MASK) == 0u);
+    /* Gateway uses the same lease and a smaller ingress replacement; READY
+     * reports once and cannot itself issue REQUEST_IRQ or a software step. */
+    reset();
+    s_sequence.config = (sync_io_sequence_config_t){
+        .sequence_output_mask = 7u, .status_mode = SYNC_IO_SEQUENCE_STATUS_NONE,
+        .gateway_input_channel = 1u, .gateway_output_mask = 8u, .gateway_pulse_us = 10u};
+    assert(load_hardware(NULL, sync_io_persona_descriptor(SYNC_IO_PERSONA_ID_SEQUENCE),
+                         (1u << 2u) | (1u << 9u) | (1u << 10u) | (1u << 11u)));
+    assert(words == 30u && sm_claims == 15u);
+    s_sequence.status.armed = true;
+    s_sequence.status.plan_count = 8u;
+    const uint receipt_ch = (uint)s_sequence.dma[2];
+    fake_dma.ch[receipt_ch].ctrl_trig = DMA_CH0_CTRL_TRIG_EN_BITS;
+    fake_dma.ch[receipt_ch].transfer_count = RX_TRANSFERS;
+    pcs[EXECUTOR_SM] = s_sequence.offset[1] + sequence_executor_offset_waiting;
+    fake_pio.irq = 1u << READY_IRQ;
+    s_edge_latest = 99u;  /* stale DMA snapshot must be discarded at fire */
+    assert(sync_io_sequence_gateway_fire());
+    assert(s_edge_latest == 0u && s_sequence.status.gateway_waiting);
+    assert(s_sequence.status.gateway_trigger_count == 1u);
+    assert(tx_value[INGRESS_SM] == 98u && xs[COUNTER_SM] == UINT32_MAX);
+    assert(!sync_io_sequence_gateway_fire());
+    assert(!sync_io_sequence_software_step());
+    s_edge_latest = 4u; /* READY burst while trigger remains high */
+    pcs[INGRESS_SM] = s_sequence.offset[0] + 3u;
+    tx_valid[INGRESS_SM] = false;
+    sync_io_sequence_service();
+    assert(s_sequence.status.gateway_ready_count == 1u);
+    assert(!s_sequence.status.gateway_waiting && s_sequence.status.gateway_pulse_busy);
+    assert(s_sequence.status.accepted == 0u && fake_pio.irq_force == 0u);
+    assert(!sync_io_sequence_software_step());
+    pcs[INGRESS_SM] = s_sequence.offset[0];
+    rx_valid[INGRESS_SM] = true;
+    sync_io_sequence_service();
+    assert(!s_sequence.status.gateway_pulse_busy);
+    sync_io_sequence_service();
+    assert(s_sequence.status.gateway_ready_count == 1u);
+    assert(sync_io_sequence_gateway_fire());
+    assert(s_sequence.status.gateway_trigger_count == 2u && s_edge_latest == 0u);
+    assert(sync_io_sequence_pause(true));
+    assert(s_sequence.status.gateway_cancelled == 1u);
+    assert(!s_sequence.status.gateway_waiting && !s_sequence.status.gateway_pulse_busy);
+    assert((pads & (8u << BOARD_SYNC_OUTPUT_BASE_PIN)) == 0u);
+    assert(!sync_io_sequence_gateway_fire());
+    assert(sync_io_sequence_pause(false));
+    assert(s_sequence.status.gateway_trigger_count == 2u); /* resume never self-fires */
+    assert(sync_io_sequence_gateway_fire());
+    s_edge_latest = 1u;
+    tx_valid[INGRESS_SM] = false;
+    pcs[INGRESS_SM] = s_sequence.offset[0];
+    rx_valid[INGRESS_SM] = true;
+    sync_io_sequence_service();
+    assert(s_sequence.status.gateway_ready_count == 2u);
+    assert(sync_io_sequence_software_step());
+    assert(s_sequence.status.accepted == 1u);
+    assert(!sync_io_sequence_gateway_fire());
+    cleanup(NULL, NULL, 0u);
+    assert(words == 1u && sm_claims == 1u && dma_claims == 0x1fbu);
+    assert((pads & (15u << BOARD_SYNC_OUTPUT_BASE_PIN)) == 0u);
+    /* A finite ingress parked at its last debit stays parked across resume. */
+    reset();
+    s_sequence.config.step_limit_enabled = true;
+    s_sequence.config.max_steps = 1u;
+    s_sequence.status.armed = true;
+    s_sequence.status.plan_count = 8u;
+    s_sequence.status.accepted = s_sequence.status.written = s_sequence.status.completed = 1u;
+    for (uint i = 0u; i < 4u; ++i) s_sequence.dma[i] = (int)i;
+    dma_claims = 15u;
+    fake_dma.ch[2].ctrl_trig = DMA_CH0_CTRL_TRIG_EN_BITS;
+    fake_dma.ch[2].transfer_count = RX_TRANSFERS;
+    pcs[EXECUTOR_SM] = sequence_executor_offset_waiting;
+    pcs[INGRESS_SM] = sequence_finite_ingress_offset_parked;
+    xs[COUNTER_SM] = ~1u;
+    fake_pio.irq = 1u << READY_IRQ;
+    s_edge_latest = 1u;
+    assert(sync_io_sequence_pause(true));
+    assert(sync_io_sequence_pause(false));
+    assert(pcs[INGRESS_SM] == sequence_finite_ingress_offset_parked);
+    assert(s_sequence.status.finished && !s_sequence.status.ready);
     puts("PIO production allocation rollback and pause boundaries passed");
     return 0;
 }

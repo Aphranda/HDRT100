@@ -13,7 +13,7 @@ static void reset(void)
 int main(void)
 {
     sync_io_sequence_config_t config = {
-        1u, false, 7u, 8u, SYNC_IO_SEQUENCE_STATUS_PULSE, 20u, 10u};
+        1u, false, 7u, 8u, SYNC_IO_SEQUENCE_STATUS_PULSE, 20u, 10u, 0u, 0u, 0u, false, false, 0u};
     assert(config_valid(&config));
     for (uint input = 0u; input <= 4u; ++input) {
         config.input_channel = input;
@@ -38,7 +38,54 @@ int main(void)
     assert(config_valid(&config));
     config.pulse_us = 1u;
     assert(!config_valid(&config));
+    config.status_mode = SYNC_IO_SEQUENCE_STATUS_NONE;
+    config.status_output_mask = 0u;
+    config.pulse_us = 0u;
+    assert(config_valid(&config));
+    config.status_output_mask = 8u;
+    assert(!config_valid(&config));
+    config.status_output_mask = 0u;
+    config.pulse_us = 1u;
+    assert(!config_valid(&config));
+    config.pulse_us = 0u;
+    config.status_mode = SYNC_IO_SEQUENCE_STATUS_LEVEL;
+    assert(!config_valid(&config));
     assert(!config_valid(NULL));
+    config = (sync_io_sequence_config_t){.sequence_output_mask = 7u,
+        .status_mode = SYNC_IO_SEQUENCE_STATUS_NONE, .step_limit_enabled = true};
+    assert(config_valid(&config));
+    config.max_steps = SYNC_IO_SEQUENCE_PLAN_MAX;
+    assert(config_valid(&config));
+    config.max_steps = 79999u; /* 10000 rounds of the eight-state SP8T */
+    assert(config_valid(&config));
+    config = (sync_io_sequence_config_t){
+        .sequence_output_mask = 7u, .status_mode = SYNC_IO_SEQUENCE_STATUS_NONE,
+        .gateway_input_channel = 1u, .gateway_output_mask = 8u, .gateway_pulse_us = 10u};
+    for (uint channel = 1u; channel <= 4u; ++channel) {
+        config.gateway_input_channel = channel;
+        assert(config_valid(&config));
+        config.gateway_falling = true;
+        assert(config_valid(&config));
+    }
+    config.gateway_input_channel = 5u;
+    assert(!config_valid(&config));
+    config.gateway_input_channel = 1u;
+    config.input_channel = 1u;
+    assert(!config_valid(&config));
+    config.input_channel = 0u;
+    config.gateway_output_mask = 3u;
+    assert(!config_valid(&config));
+    config.gateway_output_mask = 1u;
+    assert(!config_valid(&config));
+    config.gateway_output_mask = 16u;
+    assert(!config_valid(&config));
+    config.gateway_output_mask = 8u;
+    config.gateway_pulse_us = 0u;
+    assert(!config_valid(&config));
+    config.gateway_pulse_us = SYNC_IO_SEQUENCE_TIME_MAX_US + 1u;
+    assert(!config_valid(&config));
+    config.gateway_input_channel = 0u;
+    assert(!config_valid(&config));
     assert(logical_index_for_transfer(0u, 3u) == 1u);
     assert(logical_index_for_transfer(1u, 3u) == 2u);
     assert(logical_index_for_transfer(2u, 3u) == 0u);

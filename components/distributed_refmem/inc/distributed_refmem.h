@@ -313,6 +313,10 @@ bool distributed_refmem_register_node_load_owner(
     distributed_refmem_node_load_owner_t owner,
     void *context);
 bool distributed_refmem_can_accept_node_load_intent(uint32_t realtime_idle);
+bool distributed_refmem_stage_sequence_role(uint32_t node_id,
+                                             uint32_t instance_id,
+                                             uint32_t role_mask,
+                                             uint32_t realtime_idle);
 bool distributed_refmem_stage_node_load(uint32_t node_id,
                                         uint32_t instance_id,
                                         uint32_t role_mask,

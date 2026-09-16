@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,7 +14,7 @@ UINT32 = (1 << 32) - 1
 
 
 def function(source, name):
-    start = re.search(rf"(?m)^(?:static )?(?:bool|void|uint32_t) {name}\(", source)
+    start = re.search(rf"(?m)^(?:static )?(?:bool|void|uint32_t) {name}\([^;{{}}]*\)\s*\{{", source)
     assert start, name
     end = source.index("\n}\n", start.start()) + 3
     return source[start.start():end]
@@ -52,11 +53,13 @@ def programs(tmp_path_factory):
     assert result.returncode == 0, result.stdout + result.stderr
     text = output.read_text(encoding="utf-8")
     parsed = {}
-    for name in ("ingress", "executor", "counter"):
+    for name in ("ingress", "executor", "counter", "gateway", "finite_ingress"):
         body = text.split(f"sequence_{name}_program_instructions[] = {{", 1)[1].split("};", 1)[0]
         parsed[name] = [int(word, 16) for word in re.findall(r"0x([0-9a-fA-F]{4}),", body)]
-    assert [len(parsed[name]) for name in parsed] == [6, 19, 5]
-    assert sum(map(len, parsed.values())) + 1 <= 32
+    assert [len(parsed[name]) for name in parsed] == [6, 18, 5, 6, 8]
+    assert sum(len(parsed[name]) for name in ("ingress", "executor", "counter")) + 1 <= 32
+    assert sum(len(parsed[name]) for name in ("gateway", "executor", "counter")) + 1 <= 32
+    assert sum(len(parsed[name]) for name in ("finite_ingress", "executor", "counter")) + 1 == 32
     return parsed
 
 
@@ -68,7 +71,9 @@ def test_production_hot_load_and_pause_boundaries(tmp_path):
         "produced_receipts", "stop_receipt_dma", "resume_receipt_dma", "logical_index_for_transfer",
         "receive_word", "drain_receipts", "pending_request", "drain_idle_executor", "account_input",
         "mark_initial_status_ready",
+        "gateway_service", "gateway_cancel",
         "sync_io_sequence_service",
+        "sync_io_sequence_gateway_fire", "sync_io_sequence_software_step",
         "sync_io_sequence_pause"))
     template = (ROOT / "tests/unit/test_sync_io_sequence_resources.c").read_text(encoding="utf-8")
     harness = tmp_path / "resources.c"
@@ -118,6 +123,11 @@ class Machine:
                 self.x = (self.x - 1) & UINT32
                 if branch:
                     following = target
+            elif condition == 4:
+                branch = self.y != 0
+                self.y = (self.y - 1) & UINT32
+                if branch:
+                    following = target
             else:
                 raise AssertionError(("JMP", condition))
         elif major == 1:
@@ -142,6 +152,14 @@ class Machine:
                 else:
                     self.rx.append(self.isr)
                 self.isr = 0
+        elif major == 2:
+            source, count = arg >> 5, arg & 31
+            assert source == 2 and count == 0 and self.name == "executor"
+            if len(self.rx) >= 4:
+                self.rx_stall = True
+                return
+            self.rx.append(self.y)
+            self.isr = 0
         elif major == 3:
             dest, count = arg >> 5, arg & 31
             count = count or 32
@@ -187,6 +205,16 @@ class Machine:
                 self.owner.clear_flags |= 1 << (arg & 7)
             else:
                 self.owner.set_flags |= 1 << (arg & 7)
+        elif major == 7:
+            dest, value = arg >> 5, arg & 31
+            assert dest == 0 and self.name == "gateway"
+            before = self.owner.pads
+            mask = self.owner.status_mask
+            self.owner.pads = (before & ~mask) | (mask if value else 0)
+            if not (before & mask) and value:
+                self.owner.rises.append(self.owner.time)
+            if (before & mask) and not value:
+                self.owner.falls.append(self.owner.time)
         else:
             raise AssertionError(hex(instruction))
         if not injected or major == 0:
@@ -199,17 +227,22 @@ class Machine:
 
 class Sequence:
     def __init__(self, programs, values, *, settle=2, pulse=1, falling=False,
-                 status_mask=8, mode="PULSE"):
+                 status_mask=8, mode="PULSE", max_steps=None):
         self.time, self.flags, self.pads = 0, 0, values[0]
         self.input = falling
         self.status_mask = status_mask
         self.writes, self.rises, self.falls, self.receipts = [], [], [], []
-        self.ingress = Machine(programs["ingress"], self, "ingress")
+        self.ingress = Machine(programs["finite_ingress" if max_steps is not None else "ingress"], self, "ingress")
         self.executor = Machine(programs["executor"], self, "executor")
         self.counter = Machine(programs["counter"], self, "counter")
         self.counter.x = UINT32
+        self.ingress.y = ((max_steps or 0) - 1) & UINT32
+        if max_steps == 0:
+            self.ingress.pc = 7
+            self.executor.enabled = False
+        if mode in {"LEVEL", "NONE"}:
+            self.executor.words[13] = 16
         if mode == "LEVEL":
-            self.executor.words[14] = 17
             self.pads |= status_mask
         if falling:
             for sm in (self.ingress, self.counter):
@@ -220,7 +253,7 @@ class Sequence:
             index = (transfer + 1) % len(values)
             value = values[index]
             self.words += [value | (index << 4) | ((value | status_mask) << 12),
-                           0 if settle == 0 else settle * 10 - 6,
+                           0 if settle == 0 else settle * 10 - 5,
                            pulse * 10 - 4 if mode == "PULSE" else 0]
         self.cursor = 0
         self.latest_edge = 0
@@ -366,3 +399,87 @@ def test_level_status_stays_high_until_next_switch(programs):
     assert machine.rises[-1] == machine.writes[0][0] + 20
     tag = 17 | (13 << 12)
     assert machine.receipts == [tag, tag ^ UINT32]
+
+
+def test_dut_only_keeps_status_low_and_finishes_each_edge(programs):
+    machine = Sequence(programs, list(range(8)), status_mask=0, mode="NONE")
+    machine.tick(30)
+    assert machine.pads == 0 and machine.receipts == []
+    for index in range(1, 18):
+        machine.edge()
+        assert machine.pads == index % 8
+        assert len(machine.receipts) == index * 2
+        machine.tick(100)
+        assert len(machine.receipts) == index * 2  # no DONE-driven advance
+    assert machine.rises == machine.falls == []
+
+
+@pytest.mark.parametrize("max_steps", [0, 1, 7, 15, 256])
+@pytest.mark.parametrize("mode", ["PULSE", "NONE"])
+def test_finite_pio_quota_never_accepts_after_last_state(programs, max_steps, mode):
+    machine = Sequence(programs, list(range(8)), status_mask=8 if mode == "PULSE" else 0,
+                       mode=mode, max_steps=max_steps)
+    machine.tick(30)
+    for _ in range(max_steps + 30):
+        machine.edge()
+    assert len(machine.writes) == max_steps
+    assert len(machine.receipts) == 2 * max_steps
+    assert machine.pads == max_steps % 8
+    assert machine.flags & (1 << 5) == 0
+    assert machine.ingress.pc == 7
+    if mode == "PULSE":
+        assert len(machine.rises) == len(machine.falls) == max_steps
+    # Unlimited source activity after the final completion cannot manufacture
+    # an extra admitted request, even if Core1 never services the CPU receipt.
+    before = machine.receipts[:]
+    for _ in range(20):
+        machine.edge()
+    assert machine.receipts == before and machine.pads == max_steps % 8
+
+
+def test_finite_pio_quota_ten_thousand_rounds_without_cpu(programs):
+    steps = 8 * 10000 - 1
+    machine = Sequence(programs, list(range(8)), status_mask=0, mode="NONE", settle=0,
+                       max_steps=steps)
+    machine.tick(30)
+    for _ in range(steps + 5):
+        machine.edge(gap=16)
+    assert len(machine.writes) == steps and len(machine.receipts) == steps * 2
+    assert machine.pads == 7 and machine.ingress.pc == 7
+
+
+@pytest.mark.parametrize("output_mask", [1, 2, 4, 8])
+@pytest.mark.parametrize("falling", [False, True])
+@pytest.mark.parametrize("pulse_us", [1, 10, 100])
+def test_gateway_pio_pulse_captures_ready_without_advancing_dut(programs, output_mask, falling, pulse_us):
+    owner = SimpleNamespace(input=falling, pads=15 ^ output_mask, status_mask=output_mask,
+                            time=0, rises=[], falls=[], set_flags=0, clear_flags=0)
+    pulse = Machine(programs["gateway"], owner, "gateway")
+    counter = Machine(programs["counter"], owner, "counter")
+    counter.x = UINT32
+    if falling:
+        counter.words[0] ^= 128
+        counter.words[1] ^= 128
+    # A stale active level does not produce READY until the next full edge.
+    owner.input = not falling
+    for _ in range(10):
+        counter.tick(0)
+    assert not counter.rx
+    owner.input = falling
+    counter.tick(0)
+    pulse.tx.append(pulse_us * 10 - 2)
+    for tick in range(pulse_us * 10 + 20):
+        owner.time = tick
+        # READY can be shorter than a CPU poll interval and finish while the
+        # output pulse is still high. Counter/DMA retains its receipt.
+        owner.input = not falling if 4 <= tick < 7 else falling
+        pulse.tick(0)
+        counter.tick(0)
+        assert (owner.pads & ~output_mask) == (15 ^ output_mask)
+    assert owner.rises == [2]
+    assert owner.falls == [pulse_us * 10 + 2]
+    assert list(counter.rx) == [1]
+    assert owner.pads == 15 ^ output_mask
+    assert owner.set_flags == owner.clear_flags == 0  # no sequence IRQ request
+    assert pulse.pc == 0 and not pulse.tx
+    assert len(pulse.rx) == 1  # completion only after the physical low restore

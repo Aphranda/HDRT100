@@ -597,6 +597,14 @@ void refmem_application_model_discard_prepared_table_views(void);
 bool refmem_application_model_get_prepared_tdma_foundation_profile(
     tdma_foundation_profile_t *profile);
 const refmem_application_map_t *refmem_application_model_get_application_map(void);
+/* Core0 configuration only. Stage a real DUT/VNA function block together with
+ * its node-load row; hardware ownership is acquired separately at START. */
+bool refmem_application_model_stage_sequence_role(uint32_t node_id,
+                                                  uint32_t instance_id,
+                                                  uint32_t role_mask);
+bool refmem_application_model_get_sequence_instance(uint32_t instance_id,
+                                                     bool staging,
+                                                     refmem_fb_instance_entry_t *entry);
 const refmem_board_capability_table_t *refmem_application_model_get_board_capability_table(void);
 const refmem_generic_node_table_t *refmem_application_model_get_generic_node_table(void);
 const refmem_node_load_table_t *refmem_application_model_get_node_load_table(void);

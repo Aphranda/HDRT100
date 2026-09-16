@@ -17,9 +17,32 @@ public request:
     irq set 5
 .wrap
 
+; Finite admission preserves the quota across busy edges. Y is initialized to
+; max_steps - 1; the last admitted request falls through to a permanent park.
+.program sequence_finite_ingress
+.wrap_target
+public inactive:
+    wait 0 pin 0
+public active:
+    wait 1 pin 0
+public observed:
+    mov x, status
+public decide:
+    jmp !x inactive
+public admitted:
+    irq clear 4
+public request:
+    irq set 5
+public quota:
+    jmp y-- inactive
+public parked:
+    jmp parked
+.wrap
+
 ; Each plan item is {packed normal/tag/active values, settle countdown, pulse
-; countdown}. The status-mode instruction is patched to skip the pulse
-; delay and low restore when the status role is configured as LEVEL.
+; countdown}. LEVEL/NONE patch the status-mode instruction to skip the pulse.
+; RX autopush makes the written receipt one instruction, preserving one word
+; of space for the finite input quota and the existing capture persona.
 .program sequence_executor
 .wrap_target
     pull block
@@ -31,9 +54,8 @@ public waiting:
     wait 1 irq 5
 public writing:
     mov pins, y
-    mov isr, y
 public written:
-    push block
+    in y, 32 ; autopush, preserving receipt backpressure
 public settling:
     jmp x-- settling
     mov osr, y
@@ -62,5 +84,19 @@ public observed:
     jmp x-- counted
 public counted:
     mov isr, ~x
+    push noblock
+.wrap
+
+; Replaces ingress in combined BUS/NONE mode. SET maps only the gateway pin;
+; the independent executor is idle for the complete pulse. At 10 MHz the
+; high interval is countdown + 2 ticks. READY counter runs concurrently.
+.program sequence_gateway
+.wrap_target
+    pull block
+    mov x, osr
+    set pins, 1
+public pulsing:
+    jmp x-- pulsing
+    set pins, 0
     push noblock
 .wrap

@@ -6,6 +6,7 @@
 #include "distributed_refmem.h"
 #include "model_turntable.h"
 #include "scpi_port_internal.h"
+#include "trigger_sequence_service.h"
 
 static bool scpi_model_read_i32(scpi_t *context, int32_t *value)
 {
@@ -14,6 +15,10 @@ static bool scpi_model_read_i32(scpi_t *context, int32_t *value)
 
 scpi_result_t scpi_cmd_model_turntable_load(scpi_t *context)
 {
+    if (trigger_sequence_service_is_active()) {
+        scpi_port_push_exec_error(context, "SEQUENCE_RUNTIME_FROZEN");
+        return SCPI_RES_ERR;
+    }
     if (scpi_port_reject_if_run_forbidden(
             context,
             DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {

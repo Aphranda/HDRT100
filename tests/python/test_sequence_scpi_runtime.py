@@ -10,7 +10,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 NO_INDEX = str(0xFFFFFFFF)
 SETUP = [
-    "CONF:TRIG 3,0,1,1", "CONF:SEQ A,2,0,1", "CONF:SEQ:ACT A",
+    "CONF:SEQ:REP 0", "CONF:TRIG 3,0,1,1", "CONF:SEQ A,2,0,1", "CONF:SEQ:ACT A",
     "CONF:SEQ:IO 7,OUT4,10,5", "CONF:SEQ:CODE 0,1",
     "CONF:SEQ:CODE 1,2", "CONF:SEQ:CODE 2,4", "CONF:SEQ:SOUR BUS,RISING",
 ]
@@ -98,6 +98,37 @@ def test_configuration_start_and_ordered_bus_cycle(parser):
     assert rows[24]["fields"] == ["0", "0", "0", "0", "0"]
 
 
+def test_repeat_default_and_large_configurations(parser):
+    rows = run(parser, ["READ:SEQ:REP?", "CONF:SEQ:REP 10", "READ:SEQ:REP?",
+                        "CONF:SEQ:REP 100", "READ:SEQ:REP?", "CONF:SEQ:REP 10000",
+                        "READ:SEQ:REP?", "CONF:SEQ:REP 0", "READ:SEQ:REP?"], setup=False)
+    assert all(r["errors"] == 0 for r in rows)
+    assert [rows[i]["fields"][0] for i in (0, 2, 4, 6, 8)] == ["1", "10", "100", "10000", "0"]
+
+
+@pytest.mark.parametrize("command", ["CONF:SEQ:REP -1", "CONF:SEQ:REP 4294967296",
+    "CONF:SEQ:REP 1,2", "CONF:SEQ:REP 1.5"])
+def test_repeat_rejects_invalid_without_mutation(parser, command):
+    rows = run(parser, ["CONF:SEQ:REP 10000", command, "READ:SEQ:REP?"])
+    assert rows[1]["errors"] and rows[2]["fields"][0] == "10000"
+
+
+def test_repeat_is_frozen_during_run(parser):
+    rows = run(parser, ["TRIG:START", "CONF:SEQ:REP 1", "READ:SEQ:REP?", "TRIG:STOP", "@service"])
+    assert rows[1]["reason"] == "FROZEN" and rows[2]["fields"][0] == "0"
+
+
+def test_repeat_uint32_total_state_boundary(parser):
+    maximum = 0xffffffff // 3  # SETUP selects three states.
+    rows = run(parser, [f"CONF:SEQ:REP {maximum}", "TRIG:START", "@service",
+                        "READ:SEQ:REP?", "TRIG:STOP", "@service",
+                        f"CONF:SEQ:REP {maximum + 1}", "TRIG:START", "READ:IO:STATE?"])
+    assert all(row["errors"] == 0 for row in rows[:5])
+    assert rows[2]["fields"] == [str(maximum), str(maximum), "0"]
+    assert rows[5]["errors"] > 0
+    assert rows[6]["fields"] == ["0"] * 5
+
+
 def test_level_status_and_multi_output_roles(parser):
     rows = run(parser, [
         "CONF:SEQ:OUTPUT 7,8,LEVEL,10,0", "READ:SEQ:OUTPUT?", "TRIG:START",
@@ -115,6 +146,33 @@ def test_level_status_and_multi_output_roles(parser):
     assert rows[6]["fields"] == ["9"]
     assert rows[7]["fields"] == ["9"]
     assert rows[-1]["fields"] == ["3", "12", "PULSE", "10", "5", "1", "1"]
+
+
+def test_dut_only_has_no_status_output(parser):
+    rows = run(parser, [
+        "CONF:SEQ:OUTPUT 7,0,NONE,10,0", "READ:SEQ:OUTPUT?", "TRIG:START", "@service",
+        "READ:IO:STATE?", "CONF:SEQ:NEXT", "@service", "@rise", "READ:IO:OUTP?",
+        "@complete", "@service", "READ:SEQ:NEXT?", "READ:IO:STATE?",
+        "CONF:SEQ:OUTPUT 7,8,PULSE,10,5", "TRIG:STOP", "@service", "READ:IO:STATE?",
+    ])
+    assert all(row["errors"] == 0 for row in rows[:8]), rows
+    assert rows[1]["fields"] == ["7", "0", "NONE", "10", "0", "1", "1"]
+    assert rows[3]["fields"] == ["0", "4", "7", "1", "0"]
+    assert rows[5]["fields"] == ["1"]  # no OUT4 even at status action
+    assert rows[6]["fields"][12:14] == ["1", "1"]
+    assert rows[7]["fields"] == ["0", "1", "7", "1", "0"]
+    assert rows[8]["reason"] == "FROZEN"
+    assert rows[-1]["fields"] == ["0", "0", "0", "0", "0"]
+
+
+@pytest.mark.parametrize("command", [
+    "CONF:SEQ:OUTPUT 7,8,NONE,10,0", "CONF:SEQ:OUTPUT 7,0,NONE,10,5",
+    "CONF:SEQ:OUTPUT 7,0,LEVEL,10,0", "CONF:SEQ:OUTPUT 0,0,NONE,10,0",
+])
+def test_bad_dut_only_config_preserves_previous_outputs(parser, command):
+    rows = run(parser, [command, "READ:SEQ:OUTPUT?"])
+    assert rows[0]["errors"] and rows[0]["reason"] == "INVALID_ARGUMENT"
+    assert rows[1]["fields"] == ["7", "8", "PULSE", "10", "5", "1", "1"]
 
 
 @pytest.mark.parametrize("channel", range(1, 5))

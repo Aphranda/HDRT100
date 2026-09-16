@@ -423,6 +423,10 @@ static refmem_connection_quality_table_t s_active_connection_quality;
 static tdma_foundation_profile_t s_active_tdma_foundation_profile;
 static bool s_staging_node_load_valid;
 static bool s_staging_board_capability_valid;
+/* Only the two concrete sequence roles can override a dormant template.
+ * Avoid another complete FB table in the constrained firmware RAM. */
+static refmem_fb_instance_entry_t s_staging_sequence_instance[2];
+static bool s_staging_sequence_valid[2];
 static bool s_active_tables_from_image;
 static bool s_initialized;
 
@@ -1246,6 +1250,13 @@ static bool refmem_model_serialize_fb_instance(uint8_t *data,
     }
     for (uint32_t i = 0u; i < REFMEM_APP_MODEL_INSTANCE_COUNT; i++) {
         const refmem_fb_instance_entry_t *entry = &table->instance[i];
+        for (uint32_t role = 0u; role < 2u; ++role) {
+            if (s_staging_sequence_valid[role] &&
+                s_staging_sequence_instance[role].instance_id == entry->instance_id) {
+                entry = &s_staging_sequence_instance[role];
+                break;
+            }
+        }
         if (!refmem_model_write_u32_le(data, size, cursor, entry->instance_id) ||
             !refmem_model_write_u32_le(data, size, cursor, entry->default_node_id) ||
             !refmem_model_write_u32_le(data, size, cursor, entry->domain) ||
@@ -2418,6 +2429,10 @@ static void refmem_model_apply_parsed_tables(const refmem_model_parsed_tables_t 
     s_snapshot.first_lint_error = REFMEM_APP_LINT_OK;
     s_load_snapshot.active_package_crc32 = parsed->package_crc32;
     s_board_load_snapshot.active_crc32 = s_snapshot.board_capability_crc32;
+    /* A later inline transaction starts from the newly committed model. */
+    s_staging_node_load_valid = false;
+    s_staging_board_capability_valid = false;
+    memset(s_staging_sequence_valid, 0, sizeof(s_staging_sequence_valid));
     (void)__atomic_add_fetch(&s_origin_model_epoch, 1u, __ATOMIC_RELEASE);
 }
 
@@ -2649,6 +2664,7 @@ bool refmem_application_model_init(void)
     s_staging_node_load_valid = false;
     s_staging_board_capability_valid = false;
     s_initialized = true;
+    memset(s_staging_sequence_valid, 0, sizeof(s_staging_sequence_valid));
     refmem_table_registry_init(&s_snapshot);
     (void)__atomic_add_fetch(&s_origin_model_epoch, 1u, __ATOMIC_RELEASE);
     return s_snapshot.valid != 0u;
@@ -2677,6 +2693,11 @@ bool refmem_application_model_stage_sd_system_pack(const char *path,
     s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_LOAD_TO_STAGING;
     s_load_snapshot.load_seq++;
     s_load_snapshot.source = REFMEM_APP_LOAD_SOURCE_SD_SYSTEM_PACK;
+    /* SD staging replaces the inline transaction even if validation fails.
+     * A later inline command must not revive declarations from that old intent. */
+    s_staging_node_load_valid = false;
+    s_staging_board_capability_valid = false;
+    memset(s_staging_sequence_valid, 0, sizeof(s_staging_sequence_valid));
     s_load_snapshot.manifest_status = manifest_status;
     s_load_snapshot.manifest_schema = manifest_schema;
     s_load_snapshot.manifest_required_count = manifest_required_count;
@@ -2839,6 +2860,101 @@ bool refmem_application_model_stage_scpi_node_config(uint32_t node_id,
     s_staging_node_load_table = candidate;
     s_staging_node_load_valid = true;
     return refmem_model_stage_inline_package_image();
+}
+
+bool refmem_application_model_get_sequence_instance(uint32_t instance_id,
+                                                     bool staging,
+                                                     refmem_fb_instance_entry_t *entry)
+{
+    if (entry == NULL) return false;
+    if (staging) {
+        refmem_table_view_t view;
+        if (refmem_table_registry_access_table(REFMEM_TABLE_IMAGE_STAGING,
+                                               REFMEM_APP_TABLE_FB_INSTANCE, &view)) {
+            refmem_fb_instance_table_t table;
+            const bool parsed = refmem_model_parse_fb_instance_view(view.data, view.size, &table);
+            (void)refmem_table_registry_release_table(&view);
+            if (!parsed) return false;
+            for (uint32_t i = 0u; i < table.instance_count; ++i) {
+                if (table.instance[i].instance_id == instance_id) {
+                    *entry = table.instance[i];
+                    return true;
+                }
+            }
+            return false;
+        }
+        refmem_table_image_descriptor_t descriptor;
+        if (!refmem_table_registry_get_image_descriptor(REFMEM_TABLE_IMAGE_STAGING, &descriptor) ||
+            descriptor.state != REFMEM_TABLE_VALIDATION_EMPTY) return false;
+    }
+    const refmem_fb_instance_table_t *table = refmem_model_current_fb_instance_table();
+    for (uint32_t i = 0u; i < table->instance_count; ++i) {
+        if (table->instance[i].instance_id == instance_id) {
+            *entry = table->instance[i];
+            return true;
+        }
+    }
+    return false;
+}
+
+bool refmem_application_model_stage_sequence_role(uint32_t node_id,
+                                                  uint32_t instance_id,
+                                                  uint32_t role_mask)
+{
+    if (!s_initialized && !refmem_application_model_init()) return false;
+    if (s_load_snapshot.mode != REFMEM_APP_MODEL_MODE_IDLE ||
+        node_id >= REFMEM_APP_MODEL_NODE_COUNT ||
+        (role_mask != REFMEM_APP_ROLE_LINK_SWITCHER &&
+         role_mask != REFMEM_APP_ROLE_INSTRUMENT_CONTROLLER)) return false;
+    const bool vna = role_mask == REFMEM_APP_ROLE_INSTRUMENT_CONTROLLER;
+    const uint32_t slot = vna ? 1u : 0u;
+    refmem_fb_instance_entry_t instance;
+    if (!refmem_application_model_get_sequence_instance(instance_id, false, &instance) ||
+        instance.fb_type != (vna ? REFMEM_APP_FB_INSTRUMENT_CONTROLLER :
+                                  REFMEM_APP_FB_LINK_SWITCHER) ||
+        (s_staging_sequence_valid[slot] &&
+         s_staging_sequence_instance[slot].instance_id != instance_id)) return false;
+    refmem_node_load_table_t candidate;
+    uint32_t crc;
+    if (!refmem_model_make_staging_node_load_table(
+            node_id, instance_id, role_mask,
+            vna ? REFMEM_APP_PERSONA_GATEWAY : REFMEM_APP_PERSONA_LINK_CONTROL,
+            1u, 1u, slot, &candidate, &crc)) return false;
+    instance.default_node_id = node_id;
+    instance.enable_condition = 1u;
+    instance.resource_claim = REFMEM_APP_RESOURCE_PIO | REFMEM_APP_RESOURCE_DMA |
+                              REFMEM_APP_RESOURCE_CORE1_RT;
+    instance.io_claim = REFMEM_APP_IO_SMA_IN | REFMEM_APP_IO_SMA_OUT |
+                        (vna ? 0u : REFMEM_APP_IO_LINK_CONTROL);
+    instance.ip_core_claim = REFMEM_APP_IP_PULSE_CAPTURE |
+                             (vna ? REFMEM_APP_IP_PULSE_FIRE : REFMEM_APP_IP_LINK_SEQUENCE);
+    /* Neither role owns a separate PIO: the runtime composes them under the
+     * single sequence owner. This is a declaration, not a resource lease. */
+    const refmem_fb_instance_entry_t old_instance = s_staging_sequence_instance[slot];
+    const bool old_valid = s_staging_sequence_valid[slot];
+    const refmem_node_load_table_t old_loads = s_staging_node_load_table;
+    const bool old_load_valid = s_staging_node_load_valid;
+    s_staging_sequence_instance[slot] = instance;
+    s_staging_sequence_valid[slot] = true;
+    s_staging_node_load_table = candidate;
+    s_staging_node_load_valid = true;
+    s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_VALIDATING;
+    ++s_load_snapshot.load_seq;
+    s_load_snapshot.source = REFMEM_APP_LOAD_SOURCE_SCPI_INLINE;
+    s_load_snapshot.staging_node_id = node_id;
+    s_load_snapshot.staging_instance_id = instance_id;
+    s_load_snapshot.staging_role_mask = role_mask;
+    s_load_snapshot.staging_persona_mask =
+        vna ? REFMEM_APP_PERSONA_GATEWAY : REFMEM_APP_PERSONA_LINK_CONTROL;
+    s_load_snapshot.staging_enabled = 1u;
+    s_load_snapshot.staging_required = 1u;
+    s_load_snapshot.staging_load_order = slot;
+    if (refmem_model_stage_inline_package_image()) return true;
+    s_staging_sequence_instance[slot] = old_instance;
+    s_staging_sequence_valid[slot] = old_valid;
+    s_staging_node_load_table = old_loads;
+    s_staging_node_load_valid = old_load_valid;
+    return false;
 }
 
 bool refmem_application_model_stage_scpi_board_capability(uint32_t board_id,

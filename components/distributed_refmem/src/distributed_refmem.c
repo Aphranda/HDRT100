@@ -27,6 +27,7 @@
 #include "tdma_process_image_map.h"
 #include "tdma_profile.h"
 #include "vdc_dpll_manager.h"
+#include "trigger_sequence_link.h"
 
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #include "pico.h"
@@ -696,6 +697,11 @@ static void distributed_refmem_tdma_flight_sync_publish(
         return;
     }
     frame_size = sizeof(frame);
+    if (trigger_sequence_link_tx_fragment(&frame[TDMA_PROCESS_IMAGE_REFMEM_OFFSET])) {
+        frame[TDMA_PROCESS_IMAGE_CONTROL_OPCODE_OFFSET] = TRIGGER_SEQUENCE_LINK_CONTROL_OPCODE;
+        distributed_refmem_put_le16(&frame[TDMA_PROCESS_IMAGE_CRC_OFFSET],
+            tdma_process_image_crc16_ccitt(frame, TDMA_PROCESS_IMAGE_CRC_OFFSET));
+    }
 
     distributed_refmem_tdma_flight_sync_store_mailbox(ring->local_slot_id,
                                                       frame,
@@ -736,7 +742,6 @@ static void distributed_refmem_tdma_flight_sync_receive(
             view.data_size == tdma_flight_payload_size(ring->node_count)) {
             uint32_t scan_mask = view.segment_mask;
             scan_mask &= s_tdma_flight_sync.active_mask;
-            scan_mask &= ~(1u << ring->local_slot_id);
             for (uint32_t slot = 0u;
                  slot < DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_SLOT_COUNT;
                  slot++) {
@@ -751,6 +756,13 @@ static void distributed_refmem_tdma_flight_sync_receive(
                     mailbox[2] !=
                         DISTRIBUTED_REFMEM_TDMA_FLIGHT_COMPACT_VERSION) {
                     s_tdma_flight_sync.rx_empty_count++;
+                    continue;
+                }
+                if (mailbox[TDMA_PROCESS_IMAGE_CONTROL_OPCODE_OFFSET] == TRIGGER_SEQUENCE_LINK_CONTROL_OPCODE) {
+                    if (mailbox[4] == slot && (mailbox[5] & (1u << ring->local_slot_id)) != 0u &&
+                        distributed_refmem_get_le16(&mailbox[TDMA_PROCESS_IMAGE_CRC_OFFSET]) ==
+                        tdma_process_image_crc16_ccitt(mailbox, TDMA_PROCESS_IMAGE_CRC_OFFSET))
+                        trigger_sequence_link_rx_fragment(slot, &mailbox[TDMA_PROCESS_IMAGE_REFMEM_OFFSET]);
                     continue;
                 }
                 if (mailbox[4] == ring->local_slot_id ||
@@ -772,6 +784,7 @@ static void distributed_refmem_tdma_flight_sync_receive(
 
 static void distributed_refmem_tdma_flight_sync_service(void)
 {
+    trigger_sequence_link_service();
     if (board_identity_get_no() == 5u || s_tdma_flight_sync.enabled == 0u) {
         return;
     }
@@ -2613,6 +2626,46 @@ bool distributed_refmem_can_accept_node_load_intent(uint32_t realtime_idle)
      * realtime intent.  Node-load configuration is deferred until the
      * scheduler is idle; it must not gain permission by preempting traffic. */
     return false;
+}
+
+bool distributed_refmem_stage_sequence_role(uint32_t node_id,
+                                             uint32_t instance_id,
+                                             uint32_t role_mask,
+                                             uint32_t realtime_idle)
+{
+    if (trigger_sequence_service_is_active()) return false;
+    if (!distributed_refmem_can_accept_node_load_intent(realtime_idle) ||
+        node_id >= DISTRIBUTED_REFMEM_NODE_COUNT) return false;
+    /* A local full-package transaction: the NODE_LOAD-only delta transport
+     * cannot carry the accompanying FB resource/IO declarations. */
+    const uint32_t fields[] = {1u, node_id, instance_id, role_mask};
+    const uint32_t crc = distributed_refmem_u32_payload_crc32(fields, 4u);
+    const uint32_t local = DISTRIBUTED_REFMEM_LOCAL_NODE_ID;
+    const uint32_t mask = 1u << local;
+    refmem_command_request_t request = {
+        .source_node = local,
+        .source_instance = DISTRIBUTED_REFMEM_SOURCE_INSTANCE_REFMEM_AO,
+        .target_mask = mask, .required_mask = mask,
+        .command_type = REFMEM_COMMAND_TYPE_TABLE_PACKAGE_STAGE,
+        .command_class = REFMEM_COMMAND_CLASS_CONFIG,
+        .payload_kind = REFMEM_COMMAND_PAYLOAD_INLINE_SMALL,
+        .payload_ref = instance_id, .payload_size = sizeof(fields),
+        .payload_crc32 = crc, .timeout_us = 50000u,
+    };
+    if (!distributed_refmem_post_command_replacing_complete(&request, osal_tick_ms())) return false;
+    osal_critical_enter();
+    const refmem_command_take_result_t take = refmem_command_try_take(
+        &s_refmem_command_slot, local, 0u, 0u, crc, REFMEM_VECTOR_REGION_ACK_CMD);
+    osal_critical_exit();
+    if (take != REFMEM_COMMAND_TAKE_TAKEN) return false;
+    const bool staged = refmem_application_model_stage_sequence_role(node_id, instance_id, role_mask);
+    if (staged) {
+        (void)distributed_refmem_command_ack(local, REFMEM_VECTOR_REGION_ACK_CMD);
+    } else {
+        (void)distributed_refmem_command_nack(local, REFMEM_COMMAND_REASON_CONFIG_CRC_MISMATCH,
+                                              REFMEM_VECTOR_REGION_ACK_CMD);
+    }
+    return staged;
 }
 
 bool distributed_refmem_stage_node_load(uint32_t node_id,

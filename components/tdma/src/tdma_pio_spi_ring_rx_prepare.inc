@@ -87,8 +87,11 @@ static bool tdma_pio_spi_ring_rx_request(tdma_pio_spi_ring_adapter_t *adapter,
     job->expected_size = 0u;
     job->expected_clock = false;
     const uint32_t index = sequence % TDMA_PIO_SPI_RING_ADAPTER_TX_EVIDENCE_DEPTH;
+    /* valid qualifies the clock latch, not the submitted TX bytes. Local
+     * return delivery pins byte evidence even without a timestamp latch. */
     if (adapter->role == TDMA_PIO_SPI_RING_ROLE_REFERENCE && sequence != 0u &&
-        adapter->reference_tx_evidence[index].valid &&
+        (adapter->reference_tx_evidence[index].valid ||
+         __atomic_load_n(&adapter->local_return_delivery, __ATOMIC_ACQUIRE) != 0u) &&
         adapter->reference_tx_evidence[index].sequence == sequence &&
         adapter->reference_tx_evidence[index].packet_size <= sizeof(job->expected)) {
         job->expected_size = adapter->reference_tx_evidence[index].packet_size;

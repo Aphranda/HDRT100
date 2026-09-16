@@ -257,6 +257,12 @@ typedef struct {
     uint32_t service_count;
     uint32_t role;
     uint32_t forwarding_mode;
+    uint32_t local_return_delivery;
+    uint32_t local_return_seen;
+    uint32_t local_return_seq16;
+    uint32_t local_return_last_reject;
+    uint32_t local_return_matches;
+    uint32_t local_return_published;
     uint32_t forward_count;
     uint32_t up_sequence;
     uint32_t down_rx_sequence;
@@ -413,6 +419,13 @@ typedef struct {
     void *phys_ctrl_context;
     tdma_flight_fifo_t *flight_fifo;
     tdma_flight_engine_t *flight_engine;
+    /* Frozen at the stopped boundary. Core1 alone owns delivery freshness. */
+    uint32_t local_return_delivery;
+    bool local_return_seen;
+    uint16_t local_return_seq16;
+    uint32_t local_return_last_reject;
+    uint32_t local_return_matches;
+    uint32_t local_return_published;
     tdma_receive_health_t receive_health;
     tdma_pio_spi_ring_topology_t topology;
     uint32_t topology_probe_mode;
@@ -627,6 +640,14 @@ void tdma_pio_spi_ring_adapter_set_timestamp_metadata(
 void tdma_pio_spi_ring_adapter_set_flight_fifo(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_flight_fifo_t *fifo);
+/* Stopped owner primitive: product Core0 callers must use the runtime owner
+ * facade holding the STOP/ACK control guard. Publishes atomic intent only;
+ * Core1 START alone resets freshness. No remote station is added to WKC. */
+bool tdma_pio_spi_ring_adapter_set_local_return_delivery(
+    tdma_pio_spi_ring_adapter_t *adapter, bool enabled);
+
+bool tdma_pio_spi_ring_adapter_get_local_return_status(
+    const tdma_pio_spi_ring_adapter_t *adapter, uint32_t values[6]);
 void tdma_pio_spi_ring_adapter_set_flight_engine(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_flight_engine_t *engine);

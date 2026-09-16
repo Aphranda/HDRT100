@@ -71,6 +71,7 @@ static bool physical_step(void)
 }
 bool sync_io_sequence_software_step(void)
 { return !hw_config.input_channel && !hw.paused && hw.ready && physical_step(); }
+bool sync_io_sequence_gateway_fire(void) { return false; }
 void sync_io_sequence_stop(void)
 {
     assert(!locked);

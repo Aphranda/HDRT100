@@ -164,10 +164,44 @@ static bool ring_service(void *context, uint64_t time, tdma_ring_adapter_status_
     return true;
 }
 
+static bool stopped_configuration(void *context)
+{
+    ++*(uint32_t *)context;
+    assert(service.ring_control_guard == 1u);
+    assert(!tdma_service_ring_arm(&service));
+    assert(!tdma_service_request_stopped_update(&service, 1u, NULL));
+    assert(!tdma_service_apply_stopped_configuration(&service, stopped_configuration, context));
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     assert(argc == 2);
     const char *test = argv[1];
+    if (strcmp(test, "stopped_configuration") == 0) {
+        uint32_t calls = 0u;
+        assert(tdma_service_init(&service));
+        assert(!tdma_service_apply_stopped_configuration(NULL, stopped_configuration, &calls));
+        assert(!tdma_service_apply_stopped_configuration(&service, NULL, &calls));
+        service.ring_control_guard = 1u;
+        assert(!tdma_service_apply_stopped_configuration(&service, stopped_configuration, &calls));
+        service.ring_control_guard = 0u;
+        for (uint32_t condition = 0u; condition < 7u; ++condition) {
+            service.stopped_update = condition == 0u ? TDMA_STOPPED_UPDATE_REQUESTED | 1u :
+                condition == 1u ? TDMA_STOPPED_UPDATE_APPLYING | 1u : 0u;
+            service.ring_runtime.enabled = condition == 2u;
+            service.ring_runtime.adapter_started = condition == 3u;
+            service.ring_runtime.data_enabled = condition == 4u;
+            service.ring_runtime.config_seq = condition == 5u;
+            service.ring_control_pending = condition == 6u ? TDMA_RING_CONTROL_ARM : TDMA_RING_CONTROL_NONE;
+            assert(!tdma_service_apply_stopped_configuration(&service, stopped_configuration, &calls));
+            assert(service.ring_control_guard == 0u && calls == 0u);
+        }
+        service.ring_control_pending = TDMA_RING_CONTROL_NONE;
+        assert(tdma_service_apply_stopped_configuration(&service, stopped_configuration, &calls));
+        assert(calls == 1u && service.ring_control_guard == 0u);
+        return 0;
+    }
     if (strcmp(test, "diagnostic_burst") == 0) {
         assert(tdma_service_init(&service));
         assert(!tdma_service_set_ring_diagnostic_burst(NULL, 1u));

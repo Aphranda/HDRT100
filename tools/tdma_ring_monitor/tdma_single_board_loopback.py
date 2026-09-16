@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 import time
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -44,28 +45,49 @@ from tdma_ring_monitor import (  # noqa: E402
     RING_UP_RUNNING,
     RING_UP_TX_SEQUENCE,
     SIMULTANEOUS,
-    query,
-    sample_board,
+    query as transport_query,
+    tdma_status_fields,
 )
+
+
+class EvidencePort:
+    """Keep each attempted command and its unparsed reply, including failures."""
+
+    def __init__(self, port, transcript: list[dict]):
+        self.port = port
+        self.transcript = transcript
+
+
+def query(ser, command: str, timeout_s: float) -> str:
+    if not isinstance(ser, EvidencePort):
+        return transport_query(ser, command, timeout_s)
+    entry = {"command": command, "timestamp": datetime.now().isoformat()}
+    ser.transcript.append(entry)
+    try:
+        response = transport_query(ser.port, command, timeout_s)
+        entry["response"] = response
+        return response
+    except Exception as exc:
+        entry["exception"] = f"{type(exc).__name__}: {exc}"
+        raise
 
 
 @contextmanager
 def open_loopback_port(args: argparse.Namespace):
     last_error: Exception | None = None
-    for attempt in range(6):
-        try:
-            with open_serial_port(args.port,
-                                  args.baud,
-                                  args.timeout,
-                                  args.settle) as ser:
-                yield ser
-                return
-        except (serial.SerialException, OSError) as exc:
-            last_error = exc
-            time.sleep(0.5 * (attempt + 1))
-    if last_error is not None:
-        raise last_error
-    raise RuntimeError(f"failed to open {args.port}")
+    with ExitStack() as stack:
+        for attempt in range(6):
+            try:
+                ser = stack.enter_context(open_serial_port(
+                    args.port, args.baud, args.timeout, args.settle))
+                break
+            except (serial.SerialException, OSError) as exc:
+                last_error = exc
+                time.sleep(0.5 * (attempt + 1))
+        else:
+            raise last_error or RuntimeError(f"failed to open {args.port}")
+        # A yielded body's exception must never reopen/replay the procedure.
+        yield ser
 
 
 def parse_args() -> argparse.Namespace:
@@ -77,6 +99,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--duration-s", type=float, default=15.0)
     parser.add_argument("--poll-interval-s", type=float, default=0.5)
     parser.add_argument("--expected-build")
+    parser.add_argument("--expected-serial-number",
+                        help="require this *IDN? device UID before any mutation")
     parser.add_argument("--expected-baud-hz", type=int, default=10000000)
     parser.add_argument("--skip-ring-setup", action="store_true",
                         help="only query an already-running resident TDMA ring")
@@ -99,13 +123,20 @@ def parse_args() -> argparse.Namespace:
 
 
 def sample(ser, timeout_s: float) -> dict:
-    tdma = sample_board(ser, timeout_s)
-    phys = parse_named(query(ser, "SYSTem:SYNC:VDC:TDMA:PHYS?", timeout_s), PHYS_FIELDS)
-    return {"tdma": tdma, "phys": phys}
+    raw_tdma = query(ser, "SYSTem:REFMEM:SYNC:TDMA:STATus?", timeout_s)
+    tdma = tdma_status_fields(raw_tdma)
+    raw_phys = query(ser, "SYSTem:SYNC:VDC:TDMA:PHYS?", timeout_s)
+    phys = parse_named(raw_phys, PHYS_FIELDS)
+    if any(value < 0 for value in phys.values()):
+        raise ValueError(f"invalid physical status: {raw_phys}")
+    return {"tdma": tdma, "phys": phys,
+            "raw_tdma": raw_tdma, "raw_phys": raw_phys}
 
 
 def retryable_query(ser, command: str, timeout_s: float, attempts: int = 3) -> str:
     last_error: Exception | None = None
+    if "?" not in command.split(maxsplit=1)[0]:
+        attempts = 1  # A write may have executed before its reply was lost.
     for attempt in range(attempts):
         try:
             return query(ser, command, timeout_s)
@@ -133,8 +164,8 @@ def ring_action(ser, command: str, timeout_s: float) -> str:
 def checked_action(ser, command: str, timeout_s: float) -> dict[str, str]:
     response = ring_action(ser, command, timeout_s)
     error = retryable_query(ser, "SYSTem:ERR?", timeout_s)
-    if error != '0,"No error"':
-        raise RuntimeError(f"{command} failed: {error}")
+    if response == "<timeout>" or error != '0,"No error"':
+        raise RuntimeError(f"{command} failed: response={response}; error={error}")
     return {"command": command, "response": response, "error": error}
 
 
@@ -160,11 +191,7 @@ def wait_for_ring_state(ser,
     deadline = time.monotonic() + wait_s
     last = {"tdma": [], "phys": {}}
     while time.monotonic() < deadline:
-        try:
-            last = sample(ser, timeout_s)
-        except (serial.SerialException, serial.SerialTimeoutException, OSError):
-            time.sleep(0.25)
-            continue
+        last = sample(ser, timeout_s)
         enabled_ok = field(last, RING_ENABLED) == 1
         adapter_ok = field(last, RING_ADAPTER_STARTED) == 1
         up_ok = field(last, RING_UP_RUNNING) == 1
@@ -173,10 +200,13 @@ def wait_for_ring_state(ser,
             not data_running or (up_ok and down_ok)):
             return last
         time.sleep(0.05)
-    return last
+    raise RuntimeError(f"ring state wait expired: {last}")
 
 
-def prepare_single_board_ring(ser, args: argparse.Namespace) -> dict:
+def prepare_single_board_ring(ser, args: argparse.Namespace,
+                              result: dict | None = None, *, before_arm=None) -> dict:
+    result = result if result is not None else {}
+    result.update(enabled=True, steps=[])
     if args.operating_level < 0:
         raise SystemExit("--operating-level must be non-negative")
     if args.node_count < 2:
@@ -193,7 +223,7 @@ def prepare_single_board_ring(ser, args: argparse.Namespace) -> dict:
         raise SystemExit("--train-cycles must be 0 or an 8-cycle multiple")
 
     ring_action(ser, "*CLS", args.timeout)
-    steps: list[dict[str, str]] = []
+    steps = result["steps"]
     for command in (
         "SYSTem:TDMA:RING:STOP",
         f"SYSTem:TDMA:OPMode:STAGe {args.operating_level}",
@@ -201,10 +231,14 @@ def prepare_single_board_ring(ser, args: argparse.Namespace) -> dict:
         (f"SYSTem:TDMA:RING:TOPology {args.node_count},"
          f"{args.local_slot},{args.reference_slot}"),
         f"CALibration:TOPology:PROBe 1,{args.probe_phase_cycles}",
-        "SYSTem:TDMA:RING:ARM",
     ):
         steps.append(checked_action(ser, command, args.timeout))
         time.sleep(0.2)
+
+    if before_arm is not None:
+        before_arm()
+    steps.append(checked_action(ser, "SYSTem:TDMA:RING:ARM", args.timeout))
+    time.sleep(0.2)
 
     active_level = int(retryable_query(
         ser, "SYSTem:TDMA:OPMode?", args.timeout).split(",", 1)[0])
@@ -232,7 +266,7 @@ def prepare_single_board_ring(ser, args: argparse.Namespace) -> dict:
                                   args.start_wait,
                                   adapter_started=True,
                                   data_running=True)
-    return {
+    result.update({
         "enabled": True,
         "operating_level": args.operating_level,
         "node_count": args.node_count,
@@ -254,55 +288,91 @@ def prepare_single_board_ring(ser, args: argparse.Namespace) -> dict:
             "up_running": field(started, RING_UP_RUNNING),
             "down_running": field(started, RING_DOWN_RUNNING),
         },
-    }
+    })
+    return result
 
 
 def main() -> int:
     args = parse_args()
-    if args.duration_s <= 0.0 or args.poll_interval_s <= 0.0:
-        raise SystemExit("duration and poll interval must be positive")
+    for name in ("duration_s", "poll_interval_s", "timeout", "arm_wait", "start_wait"):
+        value = getattr(args, name)
+        if not math.isfinite(value) or value <= 0.0:
+            raise SystemExit(f"{name} must be finite and positive")
+    if not math.isfinite(args.settle) or args.settle < 0.0:
+        raise SystemExit("settle must be finite and non-negative")
 
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    out_dir = args.out_dir or ROOT / "out" / f"tdma_single_loopback_{stamp}"
+    # Refuse to replace an earlier run's evidence before touching hardware.
+    out_dir.mkdir(parents=True, exist_ok=False)
     samples: list[dict] = []
+    transcript: list[dict] = []
+    failures: list[str] = []
+    identity = None
     build = ""
     ring_setup: dict = {"enabled": False}
     cleanup_steps: list[dict[str, str]] = []
-    with open_loopback_port(args) as ser:
-        try:
-            identity = parse_idn_response(
-                retryable_query(ser, "*IDN?", args.timeout))
-            build = retryable_query(
-                ser, "SYSTem:FW:BUILD?", args.timeout).strip('"')
-            if args.expected_build and build != args.expected_build:
-                raise SystemExit(
-                    f"build mismatch: {build} != {args.expected_build}")
+    setup_attempted = False
+    phase = "open"
+    try:
+        with open_loopback_port(args) as port:
+            ser = EvidencePort(port, transcript)
+            try:
+                phase = "identity"
+                identity = parse_idn_response(
+                    retryable_query(ser, "*IDN?", args.timeout))
+                if (args.expected_serial_number and
+                        identity.serial_number != args.expected_serial_number):
+                    raise ValueError(
+                        f"device UID mismatch: {identity.serial_number} != "
+                        f"{args.expected_serial_number}")
+                build = retryable_query(
+                    ser, "SYSTem:FW:BUILD?", args.timeout).strip('"')
+                if args.expected_build and build != args.expected_build:
+                    raise ValueError(
+                        f"build mismatch: {build} != {args.expected_build}")
 
-            if not args.skip_ring_setup:
-                ring_setup = prepare_single_board_ring(ser, args)
+                if not args.skip_ring_setup:
+                    phase = "setup"
+                    setup_attempted = True
+                    prepare_single_board_ring(ser, args, ring_setup)
 
-            deadline = time.monotonic() + args.duration_s
-            while time.monotonic() < deadline:
-                try:
+                phase = "sampling"
+                deadline = time.monotonic() + args.duration_s
+                while time.monotonic() < deadline:
                     samples.append(sample(ser, args.timeout))
-                except AssertionError:
-                    pass
-                time.sleep(args.poll_interval_s)
-        finally:
-            if not args.skip_ring_setup:
-                for command in (
-                    "SYSTem:TDMA:RING:STOP",
-                    "CALibration:TOPology:PROBe 0",
-                ):
+                    time.sleep(args.poll_interval_s)
+            finally:
+                if setup_attempted:
+                    for command in (
+                        "SYSTem:TDMA:RING:STOP",
+                        "CALibration:TOPology:PROBe 0",
+                    ):
+                        try:
+                            cleanup_steps.append(
+                                checked_action(ser, command, args.timeout))
+                        except Exception as exc:
+                            detail = f"{type(exc).__name__}: {exc}"
+                            cleanup_steps.append({
+                                "command": command, "response": "", "error": detail,
+                            })
+                            failures.append(f"cleanup {command}: {detail}")
                     try:
-                        cleanup_steps.append(
-                            checked_action(ser, command, args.timeout))
+                        stopped = sample(ser, args.timeout)
+                        ring_setup["cleanup_sample"] = stopped
+                        if (field(stopped, RING_UP_RUNNING) != 0 or
+                                field(stopped, RING_DOWN_RUNNING) != 0):
+                            raise RuntimeError("ring still running after STOP")
                     except Exception as exc:
-                        cleanup_steps.append({
-                            "command": command,
-                            "response": "",
-                            "error": str(exc),
-                        })
+                        failures.append(f"cleanup readback: {type(exc).__name__}: {exc}")
+    except (Exception, KeyboardInterrupt, SystemExit) as exc:
+        failures.append(f"{phase}: {type(exc).__name__}: {exc}")
 
-    failures: list[str] = []
+    for entry in transcript:
+        if "exception" in entry:
+            failures.append(f"query {entry['command']}: {entry['exception']}")
+        elif entry.get("response") == "<timeout>" and "?" in entry["command"]:
+            failures.append(f"query {entry['command']}: <timeout>")
     if len(samples) < 2:
         failures.append(
             f"fewer than two valid {len(TDMA_FIELDS)}-field TDMA samples")
@@ -319,11 +389,6 @@ def main() -> int:
         "rx_sck_pin": 28,
         "rx_pin": 24,
     }
-    for name, expected in expected_phys.items():
-        actual = last["phys"].get(name, -1)
-        if actual != expected:
-            failures.append(f"physical {name}={actual}, expected {expected}")
-
     required_fields = {
         "ring_enabled": (RING_ENABLED, 1),
         "adapter_started": (RING_ADAPTER_STARTED, 1),
@@ -331,10 +396,21 @@ def main() -> int:
         "down_running": (RING_DOWN_RUNNING, 1),
         "adapter_last_error": (RING_ADAPTER_LAST_ERROR, 0),
     }
-    for name, (index, expected) in required_fields.items():
-        actual = field(last, index)
-        if actual != expected:
-            failures.append(f"{name}={actual}, expected {expected}")
+    for number, observed in enumerate(samples):
+        for name, expected in expected_phys.items():
+            actual = observed["phys"].get(name, -1)
+            if actual != expected:
+                failures.append(
+                    f"sample[{number}] physical {name}={actual}, expected {expected}")
+        for name, (index, expected) in required_fields.items():
+            actual = field(observed, index)
+            if actual != expected:
+                failures.append(f"sample[{number}] {name}={actual}, expected {expected}")
+        observed_error = field(observed, RING_LAST_ERROR)
+        if observed_error not in (0, 2, 5):
+            failures.append(
+                f"sample[{number}] ring_last_error={observed_error}, expected NONE(0), "
+                "EVIDENCE_MISSING(2), or TIMESTAMP_MISSING(5)")
 
     # Electrical/data loopback and formal HAOFV feedback evidence are separate
     # gates.  TIMESTAMP_MISSING is expected until reference TX and feedback RX
@@ -342,13 +418,10 @@ def main() -> int:
     # simultaneous evidence for this product-board wiring check.
     simultaneous_feedback = field(last, SIMULTANEOUS)
     ring_last_error = field(last, RING_LAST_ERROR)
-    if ring_last_error not in (0, 2, 5):
-        failures.append(
-            f"ring_last_error={ring_last_error}, expected NONE(0), "
-            "EVIDENCE_MISSING(2), or TIMESTAMP_MISSING(5)"
-        )
     formal_feedback_evidence = (
-        simultaneous_feedback == 1 and ring_last_error == 0
+        len(samples) >= 2 and all(
+            field(observed, SIMULTANEOUS) == 1 and field(observed, RING_LAST_ERROR) == 0
+            for observed in samples)
     )
     notes: list[str] = []
     if not formal_feedback_evidence:
@@ -375,7 +448,32 @@ def main() -> int:
     }
     for name, value in bad_deltas.items():
         if value != 0:
-            failures.append(f"{name} grew by {value}")
+            failures.append(f"{name} changed by {value}")
+
+    # Endpoints alone hide a mid-run failure followed by a counter reset or
+    # recovery. A decreasing counter is unqualified evidence (including wrap);
+    # this bounded bench run does not infer a new counter epoch.
+    advancing_fields = {
+        "ring_seq": RING_SEQ,
+        "up_tx_sequence": RING_UP_TX_SEQUENCE,
+        "down_rx_sequence": RING_DOWN_RX_SEQUENCE,
+        "adapter_tx_count": RING_ADAPTER_TX_COUNT,
+        "adapter_rx_count": RING_ADAPTER_RX_COUNT,
+    }
+    for number in range(1, len(samples)):
+        previous, current = samples[number - 1], samples[number]
+        for name, index in advancing_fields.items():
+            value = delta(previous, current, index)
+            if value < 0:
+                failures.append(f"sample[{number - 1}->{number}] {name} regressed by {value}")
+        adjacent_bad = {
+            "adapter_rx_bad_count": delta(previous, current, RING_ADAPTER_RX_BAD_COUNT),
+            "phys_rx_bad_count": phys_delta(previous, current, "rx_bad_count"),
+            "phys_rx_ring_overrun_count": phys_delta(previous, current, "rx_ring_overrun_count"),
+        }
+        for name, value in adjacent_bad.items():
+            if value != 0:
+                failures.append(f"sample[{number - 1}->{number}] {name} changed by {value}")
 
     # The raw DMA scanner increments magic_fail while no complete header is
     # present, including the empty logical slot in this two-node/one-board
@@ -387,8 +485,8 @@ def main() -> int:
 
     summary = {
         "port": args.port,
-        "idn": identity.idn,
-        "board_address": identity.address,
+        "idn": identity.idn if identity else "",
+        "board_address": identity.address if identity else "",
         "build": build,
         "duration_s": args.duration_s,
         "valid_sample_count": len(samples),
@@ -397,6 +495,8 @@ def main() -> int:
         "formal_feedback_evidence": formal_feedback_evidence,
         "ring_setup": ring_setup,
         "cleanup_steps": cleanup_steps,
+        "samples": samples,
+        "transcript": transcript,
         "last": {
             name: field(last, index)
             for name, (index, _) in required_fields.items()
@@ -411,10 +511,6 @@ def main() -> int:
         "failures": failures,
     }
 
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_dir = (args.out_dir or ROOT / "build-rtos-multicore-smoke" /
-               f"tdma_single_loopback_{stamp}")
-    out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "summary.json").write_text(
         json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     text_lines = ["PASS" if not failures else "FAIL"]

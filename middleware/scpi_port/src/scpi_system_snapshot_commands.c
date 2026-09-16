@@ -23,9 +23,11 @@
 #include "refmem_sync_hello.h"
 #include "refmem_table_registry.h"
 #include "scpi_port_internal.h"
+#include "scpi_config_commands.h"
 #include "storage_manager.h"
 #include "system_manager.h"
 #include "sync_trigger.h"
+#include "trigger_sequence_service.h"
 #include "tdma_runtime_owner.h"
 #include "tdma_rx_start_cut.h"
 #include "tdma_service_timing.h"
@@ -71,6 +73,7 @@ static bool scpi_refmem_read_package(const char *path,
                                      size_t *returned_size);
 static bool scpi_refmem_model_mode_idle(void);
 static bool scpi_refmem_realtime_idle(void);
+static bool scpi_refmem_sequence_config_allowed(scpi_t *context);
 static void scpi_refmem_result_load_snapshot(scpi_t *context,
                                              const refmem_application_model_load_snapshot_t *snapshot);
 static void scpi_refmem_result_board_load_snapshot(
@@ -368,7 +371,11 @@ scpi_result_t scpi_cmd_refmem_load_sd(scpi_t *context)
 
     const char *path = NULL;
     size_t path_len = 0u;
-    (void)SCPI_ParamCharacters(context, &path, &path_len, FALSE);
+    if ((!SCPI_ParamCharacters(context, &path, &path_len, FALSE) &&
+         SCPI_ParamErrorOccurred(context)) ||
+        !scpi_sequence_params_end(context)) {
+        return SCPI_RES_ERR;
+    }
     if (path != NULL && path_len >= 96u) {
         return SCPI_RES_ERR;
     }
@@ -516,15 +523,22 @@ scpi_result_t scpi_cmd_refmem_load_node(scpi_t *context)
     uint32_t enabled = 1u;
     uint32_t required = 0u;
     uint32_t load_order = 0u;
-    if (!scpi_port_read_u32(context, &node_id) ||
-        !scpi_port_read_u32(context, &instance_id) ||
-        !scpi_port_read_u32(context, &role_mask) ||
-        !scpi_port_read_u32(context, &persona_mask)) {
+    if (!scpi_sequence_param_u32(context, &node_id) ||
+        !scpi_sequence_param_u32(context, &instance_id) ||
+        !scpi_sequence_param_u32(context, &role_mask) ||
+        !scpi_sequence_param_u32(context, &persona_mask)) {
         return SCPI_RES_ERR;
     }
-    (void)SCPI_ParamUInt32(context, &enabled, FALSE);
-    (void)SCPI_ParamUInt32(context, &required, FALSE);
-    (void)SCPI_ParamUInt32(context, &load_order, FALSE);
+    uint32_t *const optional[] = { &enabled, &required, &load_order };
+    for (size_t i = 0u; i < sizeof(optional) / sizeof(optional[0]); ++i) {
+        if (context->input_count == context->parser_state.numberOfParameters) break;
+        if (!scpi_sequence_param_u32(context, optional[i])) return SCPI_RES_ERR;
+    }
+    if (!scpi_sequence_params_end(context)) return SCPI_RES_ERR;
+    if (enabled > 1u || required > 1u) {
+        SCPI_ErrorPush(context, SCPI_ERROR_ILLEGAL_PARAMETER_VALUE);
+        return SCPI_RES_ERR;
+    }
 
     const bool staged =
         distributed_refmem_stage_node_load(node_id,
@@ -563,15 +577,16 @@ scpi_result_t scpi_cmd_refmem_load_board(scpi_t *context)
     uint32_t hw_profile_crc32 = 0u;
     uint32_t active_default_slot = 0u;
     uint32_t online_required = 0u;
-    if (!scpi_port_read_u32(context, &board_id) ||
-        !scpi_port_read_u32(context, &board_uuid_crc32) ||
-        !scpi_port_read_u32(context, &capability_mask) ||
-        !scpi_port_read_u32(context, &io_constraint_mask) ||
-        !scpi_port_read_u32(context, &ip_core_mask) ||
-        !scpi_port_read_u32(context, &default_persona_mask) ||
-        !scpi_port_read_u32(context, &hw_profile_crc32) ||
-        !scpi_port_read_u32(context, &active_default_slot) ||
-        !scpi_port_read_u32(context, &online_required)) {
+    if (!scpi_sequence_param_u32(context, &board_id) ||
+        !scpi_sequence_param_u32(context, &board_uuid_crc32) ||
+        !scpi_sequence_param_u32(context, &capability_mask) ||
+        !scpi_sequence_param_u32(context, &io_constraint_mask) ||
+        !scpi_sequence_param_u32(context, &ip_core_mask) ||
+        !scpi_sequence_param_u32(context, &default_persona_mask) ||
+        !scpi_sequence_param_u32(context, &hw_profile_crc32) ||
+        !scpi_sequence_param_u32(context, &active_default_slot) ||
+        !scpi_sequence_param_u32(context, &online_required) ||
+        !scpi_sequence_params_end(context)) {
         return SCPI_RES_ERR;
     }
 
@@ -595,6 +610,11 @@ scpi_result_t scpi_cmd_refmem_load_board(scpi_t *context)
 
 scpi_result_t scpi_cmd_refmem_load_activate(scpi_t *context)
 {
+    if (!scpi_refmem_realtime_idle()) {
+        scpi_port_push_exec_error(context, "REFMEM_RT_NOT_IDLE");
+        return SCPI_RES_ERR;
+    }
+    if (!scpi_sequence_params_end(context)) return SCPI_RES_ERR;
     const bool activated =
         distributed_refmem_activate_staging(scpi_refmem_realtime_idle() ? 1u : 0u);
 
@@ -781,6 +801,7 @@ scpi_result_t scpi_cmd_refmem_quality_q(scpi_t *context)
 
 scpi_result_t scpi_cmd_refmem_sync_init(scpi_t *context)
 {
+    if (!scpi_refmem_sequence_config_allowed(context)) return SCPI_RES_ERR;
     uint32_t local_slot = 0u;
     uint32_t epoch_id = SCPI_REFMEM_SYNC_DEFAULT_EPOCH;
     uint32_t run_id = SCPI_REFMEM_SYNC_DEFAULT_RUN;
@@ -1162,6 +1183,7 @@ scpi_result_t scpi_cmd_refmem_sync_quality_frame_q(scpi_t *context)
 
 scpi_result_t scpi_cmd_refmem_sync_rx(scpi_t *context)
 {
+    if (!scpi_refmem_sequence_config_allowed(context)) return SCPI_RES_ERR;
     if (!scpi_refmem_sync_ensure_initialized()) {
         return SCPI_RES_ERR;
     }
@@ -1675,6 +1697,7 @@ scpi_result_t scpi_cmd_refmem_sync_adapter_q(scpi_t *context)
 
 scpi_result_t scpi_cmd_refmem_sync_auto(scpi_t *context)
 {
+    if (!scpi_refmem_sequence_config_allowed(context)) return SCPI_RES_ERR;
     uint32_t enabled = 0u;
     uint32_t local_slot = 0u;
     uint32_t target_mask = 0xFFu;
@@ -2122,6 +2145,8 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_rx(scpi_t *context)
 
 scpi_result_t scpi_cmd_refmem_sync_tdma_frame_q(scpi_t *context)
 {
+    /* This historical query also applies node-load deltas to staging. */
+    if (!scpi_refmem_sequence_config_allowed(context)) return SCPI_RES_ERR;
     if (!scpi_refmem_sync_ensure_initialized()) {
         return SCPI_RES_ERR;
     }
@@ -3355,9 +3380,19 @@ static bool scpi_refmem_model_mode_idle(void)
 
 static bool scpi_refmem_realtime_idle(void)
 {
-    trigger_vector_t vector;
-    sync_trigger_get_vector(&vector);
-    return vector.state == TRIG_STATE_IDLE;
+    /* Includes pending START/STOP, PAUSED and FAULT.  The legacy trigger
+     * vector alone remains IDLE throughout a sequence run. */
+    if (trigger_sequence_service_is_active()) return false;
+    return sync_trigger_sequence_can_start();
+}
+
+static bool scpi_refmem_sequence_config_allowed(scpi_t *context)
+{
+    if (trigger_sequence_service_is_active()) {
+        scpi_port_push_exec_error(context, "SEQUENCE_RUNTIME_FROZEN");
+        return false;
+    }
+    return true;
 }
 
 static void scpi_refmem_result_load_snapshot(scpi_t *context,
@@ -3463,7 +3498,7 @@ static bool scpi_refmem_sync_ensure_initialized(void)
 
 static void scpi_refmem_sync_apply_node_load_delta(const refmem_sync_rx_snapshot_t *rx)
 {
-    if (rx == NULL ||
+    if (trigger_sequence_service_is_active() || rx == NULL ||
         rx->accepted == 0u ||
         rx->header.frame_type != (uint8_t)REFMEM_SYNC_FRAME_DELTA) {
         return;
