@@ -2982,8 +2982,11 @@ static void vdc_dpll_manager_waveform_capture_service(void)
 
 #include "vdc_dpll_feedback_match.inc"
 #include "vdc_model_feedback.inc"
+#include "vdc_boundary_control.inc"
 
-static void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_fb_step)(void)
+/* Section placement alone does not prevent GCC from moving this whole RAM
+ * step into the XIP service wrapper when that wrapper gains another call. */
+static __attribute__((noinline)) void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_fb_step)(void)
 {
     /* Debug admission is a control-plane policy, not a local-servo action.
      * Apply it before any role/follower early return so every node can enter
@@ -3052,6 +3055,7 @@ void __attribute__((noinline)) sync_dpll_fb_service(void)
         if (s_vdc_domain.ready != (uint32_t)ready) vdc_domain_set_ready(&s_vdc_domain, ready);
     }
     sync_dpll_fb_step();
+    vdc_boundary_service_core1();
     if (session) model_feedback_end_core1(session);
 }
 

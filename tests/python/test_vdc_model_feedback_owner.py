@@ -48,6 +48,8 @@ static void sync_dpll_fb_step(void)
         if(action==2)s_vdc_domain.control.last_follower_command_seq++;
     }
 }
+/* Boundary owner is exercised separately; this fixture isolates model publication. */
+static void vdc_boundary_service_core1(void) {}
 ''' + wrapper + r'''
 static bool project(uint64_t lo,vdc_dpll_manager_projected_event_t *out)
 { return vdc_dpll_manager_project_feedback_event(123,9,3,4,2,0xabc,250000000,lo,1000500,out); }

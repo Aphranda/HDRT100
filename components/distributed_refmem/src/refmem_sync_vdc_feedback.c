@@ -7,6 +7,10 @@ _Static_assert(sizeof(refmem_sync_vdc_feedback_record_t) == 64u,
                "Decoded feedback remains bounded across schemas");
 _Static_assert(sizeof(refmem_sync_vdc_feedback_assembly_t) == 80u,
                "One raw-feedback assembly uses 80 bytes");
+_Static_assert(sizeof(refmem_sync_vdc_boundary_command_t) == 64u,
+               "Decoded boundary command must reuse feedback storage");
+_Static_assert(offsetof(refmem_sync_vdc_boundary_command_t, schema_version) == 60u,
+               "Decoded command header location");
 
 static void feedback_put32(uint8_t *out, uint32_t value)
 {
@@ -145,6 +149,79 @@ bool refmem_sync_vdc_feedback_decode(
     return true;
 }
 
+static bool boundary_command_valid(const refmem_sync_vdc_boundary_command_t *c,
+                                    uint32_t node_count)
+{
+    return c != NULL && feedback_identity(node_count, c->source_slot, c->target_slot) &&
+        c->schema_version == REFMEM_VDC_BOUNDARY_COMMAND_SCHEMA &&
+        c->flags == REFMEM_VDC_BOUNDARY_COMMAND_FLAGS && c->reserved == 0u &&
+        c->control_session != 0u && c->command_seq != 0u &&
+        c->command_seq > c->expected_applied_command_seq && c->target_arm_epoch != 0u &&
+        c->target_observer_epoch != 0u && c->expected_target_model_token != 0u;
+}
+
+bool refmem_sync_vdc_boundary_command_encode(
+    const refmem_sync_vdc_boundary_command_t *command, uint32_t node_count,
+    uint8_t output[REFMEM_VDC_FEEDBACK_RECORD_SIZE])
+{
+    if (output == NULL || !boundary_command_valid(command, node_count)) return false;
+    uint8_t wire[REFMEM_VDC_FEEDBACK_RECORD_SIZE];
+    wire[0] = command->schema_version; wire[1] = command->source_slot;
+    wire[2] = command->target_slot; wire[3] = command->flags;
+    feedback_put32(wire + 4u, command->control_session);
+    feedback_put32(wire + 8u, command->command_seq);
+    feedback_put32(wire + 12u, command->schedule_crc32);
+    feedback_put32(wire + 16u, command->target_clock_epoch_id);
+    feedback_put32(wire + 20u, command->target_clock_run_id);
+    feedback_put64(wire + 24u, command->target_arm_epoch);
+    feedback_put32(wire + 32u, command->target_observer_epoch);
+    feedback_put32(wire + 36u, command->basis_measurement_sequence);
+    feedback_put32(wire + 40u, command->expected_target_model_token);
+    feedback_put32(wire + 44u, command->expected_applied_command_seq);
+    feedback_put32(wire + 48u, (uint32_t)command->signed_delta_rate_ppb);
+    feedback_put64(wire + 52u, command->basis_source_output_ns_lo);
+    feedback_put32(wire + REFMEM_VDC_FEEDBACK_CRC_OFFSET,
+        refmem_sync_vdc_feedback_crc32(wire, REFMEM_VDC_FEEDBACK_CRC_OFFSET));
+    memcpy(output, wire, sizeof(wire));
+    return true;
+}
+
+bool refmem_sync_vdc_boundary_command_decode(
+    const uint8_t wire[REFMEM_VDC_FEEDBACK_RECORD_SIZE], uint32_t node_count,
+    uint32_t expected_source, uint32_t expected_target,
+    refmem_sync_vdc_boundary_command_t *command)
+{
+    if (wire == NULL || command == NULL ||
+        !feedback_identity(node_count, expected_source, expected_target) ||
+        wire[0] != REFMEM_VDC_BOUNDARY_COMMAND_SCHEMA ||
+        wire[1] != expected_source || wire[2] != expected_target ||
+        feedback_get32(wire + REFMEM_VDC_FEEDBACK_CRC_OFFSET) !=
+            refmem_sync_vdc_feedback_crc32(wire, REFMEM_VDC_FEEDBACK_CRC_OFFSET)) return false;
+    const uint32_t rate_bits = feedback_get32(wire + 48u);
+    /* Avoid implementation-defined u32 -> i32 conversion for negative rates. */
+    const int32_t rate = rate_bits <= INT32_MAX ? (int32_t)rate_bits :
+        -1 - (int32_t)(UINT32_MAX - rate_bits);
+    const refmem_sync_vdc_boundary_command_t value = {
+        .target_arm_epoch = feedback_get64(wire + 24u),
+        .basis_source_output_ns_lo = feedback_get64(wire + 52u),
+        .control_session = feedback_get32(wire + 4u),
+        .command_seq = feedback_get32(wire + 8u),
+        .schedule_crc32 = feedback_get32(wire + 12u),
+        .target_clock_epoch_id = feedback_get32(wire + 16u),
+        .target_clock_run_id = feedback_get32(wire + 20u),
+        .target_observer_epoch = feedback_get32(wire + 32u),
+        .basis_measurement_sequence = feedback_get32(wire + 36u),
+        .expected_target_model_token = feedback_get32(wire + 40u),
+        .expected_applied_command_seq = feedback_get32(wire + 44u),
+        .signed_delta_rate_ppb = rate, .reserved = 0u,
+        .schema_version = wire[0], .source_slot = wire[1],
+        .target_slot = wire[2], .flags = wire[3],
+    };
+    if (!boundary_command_valid(&value, node_count)) return false;
+    *command = value;
+    return true;
+}
+
 void refmem_sync_vdc_feedback_reset(refmem_sync_vdc_feedback_assembly_t *assembly)
 {
     if (assembly != NULL) memset(assembly, 0, sizeof(*assembly));
@@ -181,12 +258,18 @@ static uint32_t feedback_sequence_at(uint32_t first, uint8_t index)
     return value;
 }
 
-refmem_sync_vdc_feedback_result_t refmem_sync_vdc_feedback_push(
+static bool feedback_schema_matches(uint8_t schema, bool command)
+{
+    return command ? schema == REFMEM_VDC_BOUNDARY_COMMAND_SCHEMA :
+        (schema == REFMEM_VDC_FEEDBACK_SCHEMA || schema == REFMEM_VDC_FEEDBACK_MODEL_SCHEMA);
+}
+
+static refmem_sync_vdc_feedback_result_t feedback_typed_push(
     refmem_sync_vdc_feedback_assembly_t *assembly,
     uint32_t source_slot, uint32_t target_slot, uint32_t node_count,
     uint32_t transport_sequence, uint8_t fragment_index, uint8_t fragment_count,
     const uint8_t data[REFMEM_VDC_FEEDBACK_FRAGMENT_SIZE], uint32_t now_ms,
-    uint8_t complete_wire[REFMEM_VDC_FEEDBACK_RECORD_SIZE])
+    uint8_t complete_wire[REFMEM_VDC_FEEDBACK_RECORD_SIZE], bool command)
 {
     if (assembly == NULL) return REFMEM_VDC_FEEDBACK_BAD_ARGUMENT;
     const bool expired = refmem_sync_vdc_feedback_expire(assembly, now_ms);
@@ -200,6 +283,10 @@ refmem_sync_vdc_feedback_result_t refmem_sync_vdc_feedback_push(
     else if (fragment_count != REFMEM_VDC_FEEDBACK_FRAGMENT_COUNT ||
              fragment_index >= REFMEM_VDC_FEEDBACK_FRAGMENT_COUNT)
         rejected = REFMEM_VDC_FEEDBACK_BAD_FRAGMENT;
+    else if ((fragment_index == 0u && !feedback_schema_matches(data[0], command)) ||
+        ((assembly->state & REFMEM_VDC_FEEDBACK_ASSEMBLY_ACTIVE) != 0u &&
+         !feedback_schema_matches(assembly->payload[0], command)))
+        rejected = REFMEM_VDC_FEEDBACK_BAD_RECORD;
     if (rejected != REFMEM_VDC_FEEDBACK_PROGRESS) {
         feedback_cancel(assembly);
         return expired ? REFMEM_VDC_FEEDBACK_EXPIRED : rejected;
@@ -245,15 +332,44 @@ refmem_sync_vdc_feedback_result_t refmem_sync_vdc_feedback_push(
     assembly->next_fragment = (uint8_t)(fragment_index + 1u);
     if (assembly->next_fragment != REFMEM_VDC_FEEDBACK_FRAGMENT_COUNT) return result;
 
-    refmem_sync_vdc_feedback_record_t decoded;
-    if (!refmem_sync_vdc_feedback_decode(assembly->payload, node_count,
-                                         source_slot, target_slot, &decoded)) {
+    union {
+        refmem_sync_vdc_feedback_record_t feedback;
+        refmem_sync_vdc_boundary_command_t command;
+    } decoded;
+    const bool valid = command
+        ? refmem_sync_vdc_boundary_command_decode(assembly->payload, node_count,
+            source_slot, target_slot, &decoded.command)
+        : refmem_sync_vdc_feedback_decode(assembly->payload, node_count,
+            source_slot, target_slot, &decoded.feedback);
+    if (!valid) {
         feedback_cancel(assembly);
         return REFMEM_VDC_FEEDBACK_BAD_RECORD;
     }
     assembly->state &= (uint8_t)~REFMEM_VDC_FEEDBACK_ASSEMBLY_ACTIVE;
     memcpy(complete_wire, assembly->payload, REFMEM_VDC_FEEDBACK_RECORD_SIZE);
     return REFMEM_VDC_FEEDBACK_COMPLETE;
+}
+
+refmem_sync_vdc_feedback_result_t refmem_sync_vdc_feedback_push(
+    refmem_sync_vdc_feedback_assembly_t *assembly,
+    uint32_t source_slot, uint32_t target_slot, uint32_t node_count,
+    uint32_t transport_sequence, uint8_t fragment_index, uint8_t fragment_count,
+    const uint8_t data[REFMEM_VDC_FEEDBACK_FRAGMENT_SIZE], uint32_t now_ms,
+    uint8_t complete_wire[REFMEM_VDC_FEEDBACK_RECORD_SIZE])
+{
+    return feedback_typed_push(assembly, source_slot, target_slot, node_count,
+        transport_sequence, fragment_index, fragment_count, data, now_ms, complete_wire, false);
+}
+
+refmem_sync_vdc_feedback_result_t refmem_sync_vdc_boundary_command_push(
+    refmem_sync_vdc_feedback_assembly_t *assembly,
+    uint32_t source_slot, uint32_t target_slot, uint32_t node_count,
+    uint32_t transport_sequence, uint8_t fragment_index, uint8_t fragment_count,
+    const uint8_t data[REFMEM_VDC_FEEDBACK_FRAGMENT_SIZE], uint32_t now_ms,
+    uint8_t complete_wire[REFMEM_VDC_FEEDBACK_RECORD_SIZE])
+{
+    return feedback_typed_push(assembly, source_slot, target_slot, node_count,
+        transport_sequence, fragment_index, fragment_count, data, now_ms, complete_wire, true);
 }
 
 refmem_sync_vdc_feedback_order_t refmem_sync_vdc_feedback_compare(

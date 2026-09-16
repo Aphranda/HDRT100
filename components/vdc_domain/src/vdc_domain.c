@@ -3398,6 +3398,8 @@ static bool vdc_domain_activate_tdma_configuration_checked(
                                    schedule->schedule_crc32);
     context->clock.nominal_period_ns = schedule->period_ns;
     context->clock.slew_limit_ppb = context->servo.sanity_freq_limit_ppb;
+    /* Activation retains the active servo, including persisted/debug tuning. */
+    context->clock.servo_profile_crc32 = context->servo.servo_profile_crc32;
     context->dpll.state = ready != 0u ? VDC_DOMAIN_LOCK_CHECKING
                                      : VDC_DOMAIN_LOCK_OFF;
     context->dpll.schedule_crc32 = schedule->schedule_crc32;

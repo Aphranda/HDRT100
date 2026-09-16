@@ -9,6 +9,36 @@
 #include "calibration_path_snapshot.h"
 #include "vdc_domain.h"
 #include "vdc_feedback_match.h"
+#include "refmem_sync_vdc_feedback.h"
+
+/* Explicit STOP-authorized one-shot bring-up; not an automatic servo. */
+#define VDC_BOUNDARY_PROBE_MAX_DELTA_PPB 1000
+#define VDC_BOUNDARY_COMMAND_MAX_AGE_NS UINT64_C(500000000)
+#define VDC_BOUNDARY_ACK_TIMEOUT_MS 1000u
+enum {
+    VDC_BOUNDARY_UNTRIED = 0u, VDC_BOUNDARY_PENDING = 1u,
+    VDC_BOUNDARY_ACKED = 2u, VDC_BOUNDARY_EXPIRED_UNRESOLVED = 3u,
+    VDC_BOUNDARY_CANCELLED = 4u, VDC_BOUNDARY_LATE_APPLIED = 5u,
+    VDC_BOUNDARY_APPLIED = 6u,
+};
+typedef struct {
+    uint32_t schema, active, requested_probe_generation;
+    int32_t requested_delta_ppb;
+    uint32_t control_session, probe_generation, consumed_mask;
+    uint32_t offer_id, offer_serial, tx_count, apply_count, reject_count;
+    uint32_t last_reject, peer_state, offered_ms;
+    /* Board-wide rejection history; reset only by a new nonzero probe. */
+    uint32_t first_reject, reject_mask;
+    refmem_sync_vdc_boundary_command_t command;
+} vdc_dpll_boundary_status_t;
+bool vdc_dpll_manager_set_boundary_probe(int32_t delta_ppb);
+bool vdc_dpll_manager_get_boundary_status(uint32_t slot, vdc_dpll_boundary_status_t *out);
+/* Core0 only. -1 contention, 0 withdrawn, 1 immutable current offer. */
+int vdc_dpll_manager_copy_boundary_command_offer(uint32_t ring_config_seq,
+    uint32_t role_generation, uint32_t source_slot, uint32_t schedule_crc32,
+    uint32_t control_session, refmem_sync_vdc_boundary_command_t *out, uint32_t *offer_id);
+/* Publication completion only, never an application acknowledgement. */
+void vdc_dpll_manager_boundary_command_tx_done_core0(uint32_t offer_id);
 
 /* Provisional internal feedback, enabled only by a STOP-configured session.
  * A committed Core1 DCO is the controlled virtual output. This is not proof

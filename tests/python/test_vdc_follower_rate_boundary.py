@@ -81,6 +81,11 @@ def test_duplicate_exhaustion_role_aba_and_real_rearm(boundary_executable):
     run(boundary_executable, 'lifecycle')
 
 
+@pytest.mark.parametrize('mode', ['accepted', 'provisional'])
+def test_active_servo_identity_survives_activation_and_rearm(boundary_executable, mode):
+    run(boundary_executable, 'servo_' + mode)
+
+
 def test_signed_rates_phase_limits_and_long_uptime(boundary_executable):
     cases = [replace(Case(), rate=rate, phase=phase, delta=delta)
              for rate, phase, delta in itertools.product(
@@ -346,11 +351,77 @@ static void lifecycle(void)
     reject(&ctx, &cmd, 5000000004ull); /* Applied seq alone blocks wrap. */
 }
 
+static void activation_servo_identity(bool provisional)
+{
+    /* Reuse the validated fixture's configuration, then reproduce startup:
+     * Domain init, persisted servo application, TDMA activation, role apply. */
+    vdc_domain_context_t ctx;
+    fixture(&ctx);
+    const vdc_tdma_schedule_profile_t schedule = ctx.schedule;
+    const vdc_timestamp_dictionary_t dictionary = ctx.timestamp_dictionary;
+    vdc_path_delay_table_t path = ctx.path_delay;
+    if (provisional) {
+        path.bias_generation = 0u;
+        path.flags &= ~(VDC_PATH_DELAY_FLAG_ACCEPTED | VDC_PATH_DELAY_FLAG_BIAS_VALID |
+                        VDC_PATH_DELAY_FLAG_TOPOLOGY_FRESH);
+        path.flags |= VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY;
+        path.table_crc32 = vdc_domain_path_delay_table_crc32(&path);
+        assert(vdc_domain_path_delay_table_validate_provisional(&path));
+    }
+    assert(vdc_domain_init(&ctx));
+    vdc_servo_profile_t tuned = ctx.servo;
+    /* Parameters read from the affected stopped followers on 2026-09-16. */
+    tuned.kp_q16 = 16257;
+    tuned.ki_q16 = 268;
+    tuned.update_period_us = 1000u;
+    tuned.step_threshold_ns = 10000u;
+    tuned.sanity_freq_limit_ppb = 10000u;
+    assert(vdc_domain_apply_debug_servo_profile(&ctx, &tuned));
+    const vdc_servo_profile_t active = ctx.servo;
+    assert(active.servo_profile_crc32 == UINT32_C(3148516704));
+    assert(ctx.clock.servo_profile_crc32 == active.servo_profile_crc32);
+    assert(ctx.dco.servo_profile_crc32 == active.servo_profile_crc32);
+
+    for (unsigned round = 0; round < 2; ++round) {
+        vdc_domain_set_ready(&ctx, false);
+        const uint32_t old_run = ctx.clock.run_id;
+        assert(provisional
+            ? vdc_domain_activate_tdma_provisional_configuration(&ctx, &schedule, &dictionary, &path)
+            : vdc_domain_activate_tdma_configuration(&ctx, &schedule, &dictionary, &path));
+        assert(ctx.clock.run_id == old_run + 1u);
+        assert(memcmp(&ctx.servo, &active, sizeof(active)) == 0);
+        assert(ctx.clock.servo_profile_crc32 == active.servo_profile_crc32);
+        assert(ctx.dco.servo_profile_crc32 == active.servo_profile_crc32);
+        assert(vdc_domain_dco_control_validate(&ctx.schedule, &ctx.servo, &ctx.dco));
+        assert(ctx.control.last_follower_command_seq == 0u);
+        vdc_domain_set_ready(&ctx, true);
+        vdc_dpll_control_profile_t role = ctx.control.profile;
+        role.mode = VDC_DPLL_CONTROL_MODE_FOLLOWER;
+        role.follow_master_slot_id = 0u;
+        assert(vdc_domain_set_dpll_control_profile(&ctx, &role));
+        vdc_dpll_follower_rate_delta_t cmd = command_for(&ctx);
+        cmd.delta_rate_ppb = 100;
+        const uint64_t now = UINT64_C(175000000000) + round;
+
+        /* Preserve the final validation gate: a corrupted candidate identity
+         * must still reject atomically, even though the command is current. */
+        vdc_domain_context_t corrupted = ctx;
+        corrupted.dco.servo_profile_crc32 ^= 1u;
+        reject(&corrupted, &cmd, now);
+        assert(apply(&ctx, &cmd, now));
+        assert(ctx.control.last_follower_command_seq == 1u);
+        assert(ctx.dco.period_adjust_ppb == 100);
+        assert(memcmp(&ctx.servo, &active, sizeof(active)) == 0);
+    }
+}
+
 int main(int argc, char **argv)
 {
     assert(argc == 2);
     if (strcmp(argv[1], "gates") == 0) { gates(); return 0; }
     if (strcmp(argv[1], "lifecycle") == 0) { lifecycle(); return 0; }
+    if (strcmp(argv[1], "servo_accepted") == 0) { activation_servo_identity(false); return 0; }
+    if (strcmp(argv[1], "servo_provisional") == 0) { activation_servo_identity(true); return 0; }
     uint64_t base_local, base_output, now;
     int32_t rate, phase, delta;
     uint32_t limit;

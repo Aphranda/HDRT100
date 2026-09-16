@@ -336,8 +336,8 @@ typedef struct {
 bool distributed_refmem_get_vdc_flight_rx(
     distributed_refmem_vdc_flight_rx_snapshot_t *snapshot);
 
-/* Diagnostic raw feedback only. These records are not DCO commands or
- * qualified timestamps. Core0 RefMem publishes; readers take bounded copies. */
+/* Typed transport history. Core0 RefMem publishes; readers take bounded
+ * copies. record[0] is authoritative; reception is never an apply ACK. */
 typedef struct {
     uint32_t schema, active, retained, source_slot;
     uint32_t ring_config_seq, role_generation, schedule_crc32;
@@ -346,8 +346,23 @@ typedef struct {
     uint32_t last_transport_seq, first_rx_ms, last_rx_ms;
     uint8_t record[64];
     /* Decoded by the sole Core0 publisher. Core1 never parses wire bytes. */
-    refmem_sync_vdc_feedback_record_t sample;
+    union {
+        refmem_sync_vdc_feedback_record_t sample;
+        refmem_sync_vdc_boundary_command_t command;
+    };
 } distributed_refmem_vdc_feedback_rx_snapshot_t;
+
+/* Ephemeral compact Core1 input, not another retained buffer. All metadata
+ * and decoded command are copied under the source's single publication guard.
+ * Caller rechecks current owner admission and cancellation before applying. */
+typedef struct {
+    refmem_sync_vdc_boundary_command_t command;
+    uint32_t active, ring_config_seq, role_generation, schedule_crc32;
+    uint32_t clock_epoch_id, clock_run_id, first_rx_ms, last_rx_ms;
+} distributed_refmem_vdc_boundary_view_t;
+
+bool distributed_refmem_copy_vdc_boundary_command(
+    uint32_t source, distributed_refmem_vdc_boundary_view_t *view);
 
 typedef struct {
     uint32_t schema, active, fragment_index, fragments_published;

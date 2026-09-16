@@ -12,13 +12,22 @@ from test_vdc_command_ingress import ingress_definition
 from test_vdc_command_owner import ROOT, compile_executable
 
 
-@pytest.fixture(scope="module")
-def feedback_executable(tmp_path_factory):
-    directory = tmp_path_factory.mktemp("feedback-transport")
+DEFAULT_MANAGER_STUBS = r'''
+int vdc_dpll_manager_copy_boundary_command_offer(uint32_t config,uint32_t role,
+    uint32_t source,uint32_t schedule,uint32_t sess,
+    refmem_sync_vdc_boundary_command_t *command,uint32_t *offer_id)
+{ (void)config;(void)role;(void)source;(void)schedule;(void)sess;(void)command;(void)offer_id;return 0; }
+void vdc_dpll_manager_boundary_command_tx_done_core0(uint32_t offer_id) { (void)offer_id; }
+'''
+
+
+def make_feedback_harness(manager_stubs=DEFAULT_MANAGER_STUBS):
     source = (ROOT / "components/distributed_refmem/src/distributed_refmem.c").read_text(encoding="utf-8")
     service = (ROOT / "components/tdma/src/tdma_service.c").read_text(encoding="utf-8")
     state = re.search(r"typedef struct \{[^}]*\} distributed_refmem_tdma_flight_sync_t;", source, re.S)
     assert state
+    ordinary_binding = re.search(r"typedef struct \{[^}]*\} distributed_refmem_vdc_flight_rx_binding_t;", source, re.S)
+    assert ordinary_binding
     physical = (ROOT / "components/tdma/inc/tdma_pio_spi_phys.h").read_text(encoding="utf-8")
     event_types = []
     for name in ("tdma_pio_spi_event_tap_config_t", "tdma_pio_spi_event_tap_snapshot_t", "tdma_pio_spi_event_live_snapshot_t"):
@@ -73,6 +82,13 @@ static bool tdma_runtime_owner_get_event_live_snapshot(tdma_pio_spi_event_live_s
 { *out=live; return live_available; }
 static bool tdma_runtime_owner_get_event_tap(tdma_pio_spi_event_tap_snapshot_t *out)
 { *out=tap; return tap_available; }
+static bool tdma_runtime_owner_get_ring_clock_snapshot(tdma_ring_clock_snapshot_t *out)
+{
+    *out=(tdma_ring_clock_snapshot_t){.enabled=ring.enabled,.adapter_started=ring.adapter_started,
+        .config_seq=ring.config_seq,.applied_config_seq=ring.applied_config_seq,
+        .node_count=ring.node_count,.local_slot_id=ring.local_slot_id,.schedule_crc32=ring.schedule_crc32};
+    return binding_available;
+}
 bool vdc_dpll_manager_get_snapshot(vdc_domain_snapshot_t *out)
 { memset(out,0,sizeof(*out)); out->dco.phase_offset_ns=80; out->dco.period_adjust_ppb=-40; return true; }
 static uint32_t osal_tick_ms(void) { return now_ms; }
@@ -83,6 +99,11 @@ uint32_t ota_crc32_update(uint32_t c,const uint8_t *p,size_t n)
 static void distributed_refmem_vdc_flight_rx_accept(uint32_t slot,const uint8_t *m,const tdma_flight_rx_view_t *v)
 { (void)slot; (void)m; (void)v; }
 ''' + state.group(0) + "\nstatic distributed_refmem_tdma_flight_sync_t s_tdma_flight_sync;\n"
+    harness += ordinary_binding.group(0) + r'''
+static volatile uint32_t s_vdc_flight_rx_guard;
+static distributed_refmem_vdc_flight_rx_binding_t s_vdc_flight_rx_binding;
+static bool s_vdc_flight_rx_admission_ready;
+'''
     harness = harness.replace('#include "tdma_event_observer.h"', '#include "tdma_event_observer.h"\n' + "\n".join(event_types) + "\n" + flags.group(0))
     harness += "\n".join(ingress_definition(service, name) for name in (
         "tdma_service_core0_advance_flight_rx_admission_epoch", "tdma_service_acquire_flight_rx",
@@ -91,6 +112,10 @@ static void distributed_refmem_vdc_flight_rx_accept(uint32_t slot,const uint8_t 
         "distributed_refmem_put_le16", "distributed_refmem_put_i16", "distributed_refmem_put_le32",
         "distributed_refmem_get_le16", "distributed_refmem_get_i16", "distributed_refmem_get_le32",
         "distributed_refmem_flight_input_offset_for_slot", "distributed_refmem_flight_publish_mask_for_slot"))
+    harness += "\n" + "\n".join(ingress_definition(source, name) for name in (
+        "distributed_refmem_vdc_flight_rx_read_binding", "distributed_refmem_vdc_flight_rx_same_binding",
+        "distributed_refmem_vdc_flight_rx_refresh"))
+    harness += '\n' + manager_stubs
     harness += '\n' + (ROOT / "components/distributed_refmem/src/distributed_refmem_vdc_feedback.inc").read_text(encoding="utf-8")
     harness += "\n" + "\n".join(ingress_definition(source, name) for name in (
         "distributed_refmem_tdma_flight_build_compact_mailbox", "distributed_refmem_tdma_flight_sync_store_mailbox",
@@ -116,6 +141,7 @@ static void setup(uint32_t local)
     s_tdma_flight_sync.local_slot=local; s_tdma_flight_sync.node_count=6;
     s_tdma_flight_sync.active_mask=0x3f; s_tdma_flight_sync.next_seq32=1;
     assert(refmem_sync_delta_init(&s_tdma_flight_sync.context,local,1,1));
+    distributed_refmem_vdc_flight_rx_refresh(&owner);
     distributed_refmem_feedback_refresh(&owner); assert(s_feedback_ready);
 }
 static distributed_refmem_vdc_feedback_tx_snapshot_t txread(void)
@@ -246,6 +272,7 @@ int main(int argc,char **argv)
             profile.control_profile.mode=VDC_DPLL_CONTROL_MODE_FOLLOWER;
             live.flags=TDMA_EVENT_LIVE_RETAINED|TDMA_EVENT_LIVE_ACTIVE|TDMA_EVENT_LIVE_ANCHOR_VALID;
             distributed_refmem_feedback_refresh(&owner);
+            publish(); consume(m); assert(m[3]==TDMA_PROCESS_IMAGE_MESSAGE_CLASS);
         }
     } else if(!strcmp(test,"tx_identity_history")) {
         group(wire); publish(); consume(m); // ordinary separator
@@ -253,6 +280,7 @@ int main(int argc,char **argv)
         distributed_refmem_feedback_refresh(&owner); publish(); consume(m); assert(txread().active);
         ring.enabled=0; distributed_refmem_feedback_refresh(&owner); assert(!txread().active);
         ring.enabled=1; distributed_refmem_feedback_refresh(&owner);
+        publish(); consume(m); assert(m[3]==TDMA_PROCESS_IMAGE_MESSAGE_CLASS);
         group(wire); assert(txread().groups_published==2);
         refmem_sync_vdc_feedback_record_t out; assert(refmem_sync_vdc_feedback_decode(wire,6,3,0,&out));
     } else if(!strcmp(test,"rx_interleaved")) {
@@ -356,9 +384,18 @@ int main(int argc,char **argv)
     printf("feedback integration %s passed\n",test); return 0;
 }
 '''
-    return compile_executable(directory, "feedback_transport", harness, [ROOT / path for path in (
+    return harness
+
+
+FEEDBACK_SOURCES = [ROOT / path for path in (
         "components/tdma/src/tdma_flight_fifo.c", "components/distributed_refmem/src/refmem_sync_vdc_feedback.c",
-        "components/distributed_refmem/src/refmem_sync.c", "components/distributed_refmem/src/refmem_sync_frame.c")])
+        "components/distributed_refmem/src/refmem_sync.c", "components/distributed_refmem/src/refmem_sync_frame.c")]
+
+
+@pytest.fixture(scope="module")
+def feedback_executable(tmp_path_factory):
+    return compile_executable(tmp_path_factory.mktemp("feedback-transport"), "feedback_transport",
+                              make_feedback_harness(), FEEDBACK_SOURCES)
 
 
 @pytest.mark.parametrize("case", [

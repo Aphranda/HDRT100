@@ -820,7 +820,8 @@ static bool distributed_refmem_tdma_flight_build_compact_mailbox(
     mailbox[5] = target_mask;
     distributed_refmem_put_le16(&mailbox[6], (uint16_t)(seq32 & 0xFFFFu));
 
-    if (message_class == TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS) {
+    if (message_class == TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS ||
+        message_class == TDMA_PROCESS_IMAGE_VDC_BOUNDARY_COMMAND_MESSAGE_CLASS) {
         distributed_refmem_feedback_fragment(mailbox);
     } else
 #if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
@@ -935,8 +936,7 @@ static bool distributed_refmem_tdma_flight_expand_compact_delta(
         distributed_refmem_get_le16(&mailbox[0]) !=
             DISTRIBUTED_REFMEM_TDMA_FLIGHT_COMPACT_MAGIC ||
         mailbox[2] != DISTRIBUTED_REFMEM_TDMA_FLIGHT_COMPACT_VERSION ||
-        (mailbox[3] != TDMA_PROCESS_IMAGE_MESSAGE_CLASS &&
-         mailbox[3] != TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS) ||
+        !tdma_process_image_transport_class_valid(mailbox[3]) ||
         mailbox[4] >= REFMEM_SYNC_NODE_COUNT ||
         distributed_refmem_get_le16(
             &mailbox[TDMA_PROCESS_IMAGE_CRC_OFFSET]) !=
@@ -1125,8 +1125,7 @@ static void distributed_refmem_tdma_flight_parse_mailbox(
         return;
     }
 #endif
-    if (mailbox[3] != TDMA_PROCESS_IMAGE_MESSAGE_CLASS &&
-        mailbox[3] != TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS) {
+    if (!tdma_process_image_transport_class_valid(mailbox[3])) {
         s_tdma_flight_sync.rx_bad_mailbox_count++;
         s_tdma_flight_sync.last_error = 14u;
         return;
@@ -1280,8 +1279,9 @@ static void distributed_refmem_tdma_flight_sync_publish(
 #endif
     const uint8_t message_class = resident_master
         ? TDMA_PROCESS_IMAGE_VDC_COMMAND_MESSAGE_CLASS
-        : (feedback > 0 ? TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS
-                        : TDMA_PROCESS_IMAGE_MESSAGE_CLASS);
+        : (feedback == 2 ? TDMA_PROCESS_IMAGE_VDC_BOUNDARY_COMMAND_MESSAGE_CLASS
+            : (feedback == 1 ? TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS
+                             : TDMA_PROCESS_IMAGE_MESSAGE_CLASS));
     const uint32_t target_mask = resident_master
         ? (s_tdma_flight_sync.active_mask &
            ~(1u << ring->local_slot_id))

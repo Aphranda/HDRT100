@@ -14,13 +14,15 @@
 #define TDMA_PROCESS_IMAGE_MESSAGE_CLASS 0x10u
 #define TDMA_PROCESS_IMAGE_VDC_COMMAND_MESSAGE_CLASS 0x11u
 #define TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS 0x12u
+#define TDMA_PROCESS_IMAGE_VDC_BOUNDARY_COMMAND_MESSAGE_CLASS 0x13u
 
-/* Transport admits raw diagnostic feedback, not the disabled command prototype.
- * The VDC region is interpreted only by its Core0 consumer. */
+/* Typed VDC regions are interpreted only by their Core0 consumer.
+ * The old absolute-time command prototype (0x11) remains disabled. */
 static inline bool tdma_process_image_transport_class_valid(uint8_t message_class)
 {
     return message_class == TDMA_PROCESS_IMAGE_MESSAGE_CLASS ||
-        message_class == TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS;
+        message_class == TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS ||
+        message_class == TDMA_PROCESS_IMAGE_VDC_BOUNDARY_COMMAND_MESSAGE_CLASS;
 }
 
 #define TDMA_PROCESS_IMAGE_VDC_OFFSET 8u

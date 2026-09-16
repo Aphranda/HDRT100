@@ -2382,6 +2382,72 @@ scpi_result_t scpi_cmd_vdc_feedback_session_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_vdc_feedback_probe(scpi_t *context)
+{
+    int32_t delta;
+    if (SCPI_ParamInt32(context, &delta, TRUE) != TRUE ||
+        delta < -VDC_BOUNDARY_PROBE_MAX_DELTA_PPB ||
+        delta > VDC_BOUNDARY_PROBE_MAX_DELTA_PPB ||
+        !vdc_dpll_manager_set_boundary_probe(delta)) {
+        scpi_port_push_exec_error(context, "VDC_FEEDBACK_PROBE_STOP_SESSION_OR_RANGE");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultInt32(context, delta);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_feedback_boundary_q(scpi_t *context)
+{
+    uint32_t slot;
+    tdma_ring_runtime_snapshot_t before, after;
+    vdc_dpll_boundary_status_t s;
+    uint8_t record[REFMEM_VDC_FEEDBACK_RECORD_SIZE] = {0};
+    if (!scpi_port_read_u32(context, &slot)) return SCPI_RES_ERR;
+    /* A retained post-STOP export only. Never sample this control state while
+     * RUN or while STOP is still awaiting its Core1 application. */
+    if (!tdma_runtime_owner_get_ring_snapshot(&before) ||
+        before.enabled != 0u || before.adapter_started != 0u ||
+        before.config_seq != before.applied_config_seq ||
+        !vdc_dpll_manager_get_boundary_status(slot, &s) ||
+        !tdma_runtime_owner_get_ring_snapshot(&after) ||
+        after.enabled != 0u || after.adapter_started != 0u ||
+        after.config_seq != before.config_seq ||
+        after.applied_config_seq != before.applied_config_seq) {
+        scpi_port_push_exec_error(context, "VDC_FEEDBACK_BOUNDARY_STOP_REQUIRED_OR_BUSY");
+        return SCPI_RES_ERR;
+    }
+    /* A zero sequence means no retained command; its all-zero record is an
+     * explicit empty value, not a CRC-valid schema3 command. Encode before
+     * emitting the header so a malformed command cannot yield a partial row.
+     * STOP clears runtime node_count; retained history uses compile capacity,
+     * not the cleared runtime topology, and grants no fresh admission. */
+    if (s.command.command_seq != 0u &&
+        !refmem_sync_vdc_boundary_command_encode(&s.command, PROJECT_NODE_CAPACITY, record)) {
+        scpi_port_push_exec_error(context, "VDC_FEEDBACK_BOUNDARY_INVALID_RECORD");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, s.schema);
+    SCPI_ResultUInt32(context, s.active);
+    SCPI_ResultUInt32(context, s.requested_probe_generation);
+    SCPI_ResultInt32(context, s.requested_delta_ppb);
+    SCPI_ResultUInt32(context, s.control_session);
+    SCPI_ResultUInt32(context, s.probe_generation);
+    SCPI_ResultUInt32(context, s.consumed_mask);
+    SCPI_ResultUInt32(context, s.offer_id);
+    SCPI_ResultUInt32(context, s.offer_serial);
+    SCPI_ResultUInt32(context, s.tx_count);
+    SCPI_ResultUInt32(context, s.apply_count);
+    SCPI_ResultUInt32(context, s.reject_count);
+    SCPI_ResultUInt32(context, s.last_reject);
+    SCPI_ResultUInt32(context, s.peer_state);
+    SCPI_ResultUInt32(context, s.offered_ms);
+    SCPI_ResultUInt32(context, s.first_reject);
+    SCPI_ResultUInt32(context, s.reject_mask);
+    scpi_feedback_record(context, record);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_vdc_feedback_bridge_q(scpi_t *context)
 {
     tdma_ring_runtime_snapshot_t ring;
