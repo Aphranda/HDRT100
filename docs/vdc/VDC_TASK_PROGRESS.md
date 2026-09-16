@@ -22,11 +22,13 @@ Last updated: 2026-09-16
 
 ## 当前 checkpoint
 
-提交边界：`6530114` 已提交 029–034 的接收 ACK、历史事件桥、本地跟踪、RAM 导出、
+提交边界：`22a22b5` 已提交参考发布节奏切片与匹配 quick P3 凭证，源码指纹
+`3dd87e9aee4b3899f3592c47fb30df3b899dcda290531d4b32514a615785ef98`，
+见 `VDC-PROGRESS-20260916-037`。此前 `6530114` 已提交 029–034 的接收 ACK、历史事件桥、本地跟踪、RAM 导出、
 等待时间基与桥接窗口修复，以及显式复用已知线序的验收工具和匹配 quick P3 凭证。
-当前源码指纹为
+该阶段源码指纹为
 `f429dde66d6f732160d84930f2b11b14b5b9d853fd023788736d74346100bbeb`，
-提交与工作源码匹配，见 `VDC-PROGRESS-20260916-036`。此前 `7c46b2f` 只覆盖至
+当时提交与工作源码匹配，见 `VDC-PROGRESS-20260916-036`。此前 `7c46b2f` 只覆盖至
 028，`5a22acc`、`643d703` 分别提交后继文档；当时未提交及无新凭证的判断仍是
 对应历史事实，见 `commit-consolidation-r1/r2/r3` 的证据。本轮未绕过指纹门禁，
 quick 四板流程通过不代表所有实时相位无超限或 DPLL 锁相。
@@ -46,8 +48,10 @@ ACK 固件直接四板 TDMA 闭环通过，三从回执与发送末档逐字节�
 `VDC-PROGRESS-20260916-034`；NO2/NO3 当轮完整参考接收为零，三从持续闭环仍
 未完成。035 的停止态 FIFO/RefMem 差分未观察到镜像丢弃；036 的 PHYS 快照确认
 三从在 FIFO 前存在大量观察丢弃，并在复位后再次记录 NO4 的真实本地采用。
-下一步验证分片驻留与两阶段 RX 观察间隔的关系，再推进三从持续采用和斜率；
-观察丢弃计数不直接等于缺失分片数，不重跑 P0T 寻优。
+037 的发布节奏切片已通过当前源码 P3；两轮专项均改善三从完整参考与匹配 ACK，
+NO2/NO3 已进入本地控制判断，但误差区间跨零而保持，NO4 再次非零采用。
+下一步缩窄真实观测不确定度、提高新鲜配对连续性，并核对 OSAL 发布时基；
+观察丢弃计数不直接等于缺失分片数，发布间隔不是物理驻留保证，不重跑 P0T 寻优。
 
 以下保留前一路线 checkpoint。显式 AUTO 与 RATE 窗口已接入，初版软件、双槽构建和对应源码严格四板 P3 通过；
 自动多轮实板专项仅部分从板响应，尚未闭合。AUTO 专用采集修复的软件及构建通过，
@@ -98,6 +102,69 @@ RX acquire 的修复已完成软件、资源及构建；P0T 启动确认工具�
 当前执行依赖按 `VDC-PROGRESS-20260916-027` 纠偏；此前各记录的“当前”及
 “下一 gate”保留历史含义，不将首帧可用、全窗无错或完整绝对时间映射作为运输前置。
 
+### VDC-PROGRESS-20260916-037：参考发布节奏改善三从运输，本地保持原因可追溯
+
+- TODO task ID：`VDC-LOCAL-003/004`；日期：2026-09-16；前者保持 IN PROGRESS，
+  后者仍 PENDING。本条数字为实测或分析快照，非产品时序、容量或精度契约。
+- Core0 在 REFERENCE 模式统一使用 `DISTRIBUTED_REFMEM_REFERENCE_PUBLISH_INTERVAL_MS`
+  发布下限，覆盖参考、ACK 和末片后的普通分隔帧；只在实际到期且 FIFO 可用时冻结
+  新事件，活跃组的 ARM 复验先于节奏及背压返回。保持原片序、CRC、成功后推进、
+  STOP/config/session/role/clock 取消与唯一 owner；无新缓冲、PIO 或 Core1 等待。
+  当前值为 6 个 OSAL 名义毫秒。其首末片名义间隔为 90 个 OSAL 毫秒，不能解释为
+  已测物理驻留或本地事件年龄；`VDC_LOCAL_FOLLOW_MAX_AGE_MS` 未放宽。
+- 软件：补充最后三项前相关回归 261 项通过，最终节奏测试 16 项通过；独立运行
+  22 项通过，去掉限速的旧行为红测按预期失败。覆盖 ACK、末片、提前冻结、时钟回绕、
+  FIFO 失败/背压和 pending 期间 ARM 取消。首轮新夹具误用不存在的 codec 接口、
+  次轮投影 stub 固定旧 role/clock 的失败保留，修正只在测试夹具。
+- A/B Release 和 Flash 链接通过，BSS 尾地址和栈边界与 036 相同。首次 PowerShell
+  日志把 SDK stderr 提示包装为 NativeCommandError；后续 P3 构建实际退出为零并
+  绑定最终产物。源码指纹见 checkpoint，文件数 1183，build `20260916113003`。
+  `p3-r1` 复用已测线序，四板 OTA、8 次 P3、TDMA 四门均通过，
+  `passed/strict_gates_passed=true`、失败列表为空，耗时 197.011 s。
+  NO1 DPLL overrun/deadline 增量 103/96、NO3 1/1 保留，quick gate 不证明全相位 WCET。
+- P3 后一次记录软件复位，沿用 036 的原矩阵直接 TDMA 四门通过；两次专项使用
+  冻结 PHYS/FIFO/RefMem 采集器，运行期零查询，全部 STOP 后导出 RAM。第二轮不
+  复位，真实 baseline 保留首轮 DCO 前态，不能将已有调节当作新采用。
+
+  | 轮次 | 节点 | 完整参考增量 | 主板匹配 ACK 增量 | 本地 observation / 非零采用 |
+  |---|---|---|---|---|
+  | 8 s | NO2 | 8 | 7 | 1 / 0 |
+  | 8 s | NO3 | 13 | 13 | 1 / 0 |
+  | 8 s | NO4 | 8 | 7 | 1 / 1 |
+  | 10 s | NO2 | 11 | 11 | 2 / 0 |
+  | 10 s | NO3 | 19 | 19 | 3 / 0 |
+  | 10 s | NO4 | 16 | 16 | 3 / 0 |
+
+- 两轮逐从运输检查均通过。首轮 NO2/NO3 的原生误差区间分别为
+  [-7177,1879]/[-8101,732] ppb，Core1 记录零步长、`applied=false`，DCO 序号
+  保持 1；不是尚未进入本地控制。NO4 区间 [-9346,-826] ppb，按生产保守边界
+  计算得到 +206 ppb，DCO 序号 1→2、MODEL token 1→2，remote command 序号仍零。
+  三从记录的有向 delay 分别为 242/162/82 ns，与原矩阵一致。
+- 第二轮所有候选仍跨零，均零步长保持；NO4 保持前轮 +206 ppb/序号 2。
+  最窄接近单侧的 NO3 区间仍为 [-5723,19] ppb，不能取中点或截宽制造采用。
+  两轮原 assessment 均 `passed=false`、`errors=[]`：运输通过，但未满足三从
+  实际采用；不改写为锁相通过。PHYS 观察丢弃仍大量存在，不能把参考增长直接
+  当作逐分片无损或精确因果证明。
+- 独立原生复核重算两轮误差区间、RAM CRC、MODEL 原始端点及 ACK；零步长与
+  STOP 后 endpoint 的 BINDING 拒绝计数分开，不将后者当成零步长原因。
+  发布计数的两次停止态读取外窗也不足以支持物理 6 ms 下限。当前 ELF 显示
+  runtime 初始时钟为 150 MHz，SysTick 按调度器启动时钟配置，而任务内 board_init
+  才切换到 250 MHz；这支持 OSAL tick 加速的源码解释，但未实读 SysTick reload，
+  不将推算比例当成硬件测量。名义节奏改善与物理时基修复必须分开验收。
+- 证据根：`out/HardwareAcceptance/20260916/dpll-fragment-spacing-r1/`。
+  入口为 `software-and-resource.json`、`spacing-tests-independent-review-r1.json`、
+  `independent-design-review-r1.json`、`p3-independent-review-r1.json`、
+  `independent-capture-review-r1.json`、`independent-clock-domain-review-r1.json`、`p3-r1/`、
+  `firmware-manifest.json`、`pre-capture-reset.json`、`tdma-direct-r1/`、
+  `capture-r1/r2`、`analysis-r1/r2.json` 和 `capture-comparison.json`。
+  代码与凭证提交 `22a22b5`，文档分离；两轮末态均全板 STOP、参考/本地跟踪/会话
+  清零、临时许可证撤销。OTA 实现及 NO5 未改。
+- 下一 gate：先核对发布 OSAL 名义毫秒与真实时间的初始化关系，不能由发布计数
+  除以请求采样时长推导实际驻留；该时基核对不升级为新的全局重构前置。
+  继续 `VDC-LOCAL-003` 的真实桥接窗口缩窄和新鲜配对连续性，使 NO2/NO3 能形成
+  有可信方向的非零本地调节；每个功能切片各自 P3。三从持续收敛、NO1 自主 PI、
+  100 ns 输出及恢复尚未完成，不用重复 P0T、首帧精细证明或 SD 故障阻塞推进。
+
 ### VDC-PROGRESS-20260916-036：当前源码 quick P3、提交收敛及物理层观察缺口
 
 - TODO task ID：`VDC-LOCAL-003/004`；日期：2026-09-16；`VDC-LOCAL-003`
@@ -112,7 +179,7 @@ RX acquire 的修复已完成软件、资源及构建；P0T 启动确认工具�
   92 项通过；A/B Release 和 Flash 链接通过。原接口缺失红测、首次 pytest
   目录夹具失败及独审发现的 UID-change 留证缺口均保留。新独立构建目录为
   `out/build/p3-known-topology-r1/`，不再复用会覆盖旧凭证包的构建产物路径。
-- `p3-known-topology-r1/p3-r1` 的源码指纹为本页 checkpoint 所列，build 为
+- `p3-known-topology-r1/p3-r1` 的源码指纹为本页 checkpoint 所列 036 阶段指纹，build 为
   `20260916110233`；四板 OTA、8 次 P3 测量及 TDMA 四项 gate 全通过，
   `strict_gates_passed=true`、`diagnostic_failures=[]`，各板原生记录 14 条。
   流程耗时 325.574 s，包含冷构建和 OTA；这不是 8 s 专项采样耗时。
