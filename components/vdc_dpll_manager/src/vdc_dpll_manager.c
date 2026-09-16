@@ -3,6 +3,7 @@
 #include "vdc_model_projection.h"
 #include "vdc_priority_tx.h"
 #include "vdc_priority_rx.h"
+#include "vdc_priority_match.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -2996,6 +2997,7 @@ static void vdc_dpll_manager_waveform_capture_service(void)
 #include "vdc_boundary_control.inc"
 #include "vdc_priority_ingress.inc"
 #include "vdc_priority_rx.inc"
+#include "vdc_priority_match.inc"
 
 /* Section placement alone does not prevent GCC from moving this whole RAM
  * step into the XIP service wrapper when that wrapper gains another call. */
@@ -3061,6 +3063,7 @@ static __attribute__((noinline)) void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_f
  * in RAM; duplicating its entry wrapper there crosses a 4 KiB BSS alignment. */
 void __attribute__((noinline)) sync_dpll_fb_service(void)
 {
+    vdc_priority_match_core1();
     vdc_priority_ingress_core1();
     const uint32_t session = vdc_dpll_manager_feedback_session();
     if (session) {

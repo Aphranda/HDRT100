@@ -43,4 +43,11 @@ void vdc_priority_rx_core1(const tdma_priority_rx_record_t *record);
  * not span a full guard cycle (2^31 publications). For STOP diagnostics only. */
 bool vdc_dpll_manager_get_priority_rx(vdc_priority_rx_snapshot_t *out);
 
+/* Core1 foreground handoff: one guarded copy requiring active and a retained
+ * successful typed record. No consumption or control grant; caller must
+ * bind the local/remote lifetimes, match the source event and check age.
+ * Repeated carriers do not create a fresh source event. All failures preserve
+ * out. STOP/rebase revoke this read in the same guard window. */
+bool vdc_priority_rx_copy_live(vdc_priority_rx_snapshot_t *out);
+
 #endif

@@ -315,6 +315,29 @@ typedef struct {
     uint32_t flags;
 } tdma_pio_spi_event_live_snapshot_t;
 
+typedef enum {
+    TDMA_EVENT_EXACT_OK = 0,
+    TDMA_EVENT_EXACT_BUSY,
+    TDMA_EVENT_EXACT_PENDING,
+    TDMA_EVENT_EXACT_EVICTED,
+    TDMA_EVENT_EXACT_RETIRED,
+    TDMA_EVENT_EXACT_BAD_ARGUMENT,
+    TDMA_EVENT_EXACT_BAD_STATE
+} tdma_event_exact_result_t;
+
+/* One exact diagnostic history record, not a retained lease or timestamp /
+ * DPLL grant. flags retain the EVENT_LIVE availability bits only. The record
+ * inherits history's diagnostic_only / physical_first_unproved /
+ * identity_unproved qualification; no timestamp_valid or dpll_eligible is
+ * created by this copy. Only the same-epoch TIMER1 enable bracket is borrowed
+ * from LIVE; its event sequence/ordinal is never used as this event's identity. */
+typedef struct {
+    tdma_event_history_record_t record;
+    uint64_t arm_epoch;
+    uint64_t timer1_enable_before, timer1_enable_after;
+    uint32_t observer_epoch, tick_hz, flags;
+} tdma_pio_spi_event_exact_t;
+
 #define TDMA_EVENT_HISTORY_WINDOW_CAPACITY 4u
 typedef enum {
     TDMA_EVENT_WINDOW_OK = 0,
@@ -1119,6 +1142,14 @@ bool tdma_pio_spi_phys_event_get_live_snapshot(const tdma_pio_spi_phys_t *phys,
 tdma_event_window_result_t tdma_pio_spi_phys_event_copy_history_window(
     const tdma_pio_spi_phys_t *phys, uint32_t expected_observer_epoch,
     uint64_t next_ordinal, tdma_pio_spi_event_window_t *out);
+/* Core1 foreground only. One SRAM copy by full source sequence, no history
+ * scan, retries, IRQ masking or hardware sampling. Both expected epochs must
+ * be nonzero. Every non-OK result preserves *out, including feature-disabled
+ * RETIRED. Revalidate owner authorization before later control use. */
+tdma_event_exact_result_t tdma_pio_spi_phys_event_copy_history_exact(
+    const tdma_pio_spi_phys_t *phys, uint64_t expected_arm_epoch,
+    uint32_t expected_observer_epoch, uint32_t source_sequence,
+    tdma_pio_spi_event_exact_t *out);
 /* Core1-only station handoff. Pin after a successful private RX delivery,
  * before REQUESTED publication. Zero means unavailable, never use latest. */
 uint32_t tdma_pio_spi_phys_rx_event_pin(void *context,

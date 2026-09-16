@@ -25,7 +25,7 @@ static tdma_service_service_t *s_vdc_tdma_service=&owner;
 static bool s_vdc_ready=true, stopped=true, clock_ok=true, bridge_ok=true;
 static uint64_t raw_now=1000000;
 static unsigned action;
-static unsigned ingress_calls, step_calls;
+static unsigned match_calls, ingress_calls, step_calls;
 static bool auto_mode;
 static bool mode_available=true;
 bool vdc_dpll_manager_try_boundary_auto_enabled(bool *out)
@@ -44,16 +44,27 @@ bool vdc_domain_dco_local_to_output_ns(const vdc_dco_control_t *d,uint64_t t,uin
 { assert(d->valid);*out=t+d->phase_offset_ns;return true; }
 void vdc_domain_set_ready(vdc_domain_context_t *c,bool ready) { c->ready=ready; }
 ''' + (ROOT / "components/vdc_dpll_manager/src/vdc_model_feedback.inc").read_text(encoding="utf-8") + r'''
+static void vdc_priority_match_core1(void)
+{
+    /* Matching projects against the committed model before ingress and before
+     * the writer opens its guard, including session-disabled service beats. */
+    assert(!(s_committed_model_guard & 1u));
+    assert(match_calls == ingress_calls && ingress_calls == step_calls);
+    ++match_calls;
+}
 static void vdc_priority_ingress_core1(void)
 {
     /* Real wrapper must run ingress before opening the committed-model guard,
      * even with no feedback session or with a later role/step early return. */
-    assert(!(s_committed_model_guard & 1u)); ++ingress_calls;
+    assert(!(s_committed_model_guard & 1u));
+    assert(match_calls == ingress_calls + 1u && ingress_calls == step_calls);
+    ++ingress_calls;
 }
 static void sync_dpll_fb_step(void)
 {
-    assert(ingress_calls == step_calls + 1u); ++step_calls;
+    assert(match_calls == ingress_calls && ingress_calls == step_calls + 1u); ++step_calls;
     if(vdc_dpll_manager_feedback_session()) {
+        assert(s_committed_model_guard & 1u);
         vdc_dpll_manager_committed_model_t out;
         memset(&out,0xa5,sizeof(out));const vdc_dpll_manager_committed_model_t saved=out;
         assert(!vdc_dpll_manager_get_committed_model(&out));assert(!memcmp(&out,&saved,sizeof(out)));
@@ -73,9 +84,9 @@ int main(int argc,char **argv)
     s_vdc_domain.clock.epoch_id=3;s_vdc_domain.clock.run_id=4;
     s_vdc_domain.control.profile.generation=9;s_vdc_domain.schedule.local_slot_id=2;
     assert(!vdc_dpll_manager_feedback_session());sync_dpll_fb_service();
-    assert(ingress_calls==1u && step_calls==1u);
+    assert(match_calls==1u && ingress_calls==1u && step_calls==1u);
     assert(vdc_dpll_manager_set_feedback_session(123));sync_dpll_fb_service();
-    assert(ingress_calls==2u && step_calls==2u);
+    assert(match_calls==2u && ingress_calls==2u && step_calls==2u);
     vdc_dpll_manager_committed_model_t model;assert(vdc_dpll_manager_get_committed_model(&model));
     assert(model.token==1 && model.session==123 && model.valid_from_raw==raw_now);
     vdc_dpll_manager_projected_event_t event,sentinel;memset(&sentinel,0xa5,sizeof(sentinel));event=sentinel;

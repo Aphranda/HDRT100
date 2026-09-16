@@ -555,6 +555,129 @@ tdma_event_window_result_t tdma_pio_spi_phys_event_copy_history_window(
 }
 /* EVENT_HISTORY_WINDOW_END */
 
+/* EVENT_HISTORY_EXACT_BEGIN -- Core1 foreground; no second history/cache. */
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#define TDMA_EVENT_EXACT_RAM __not_in_flash("tdma_event_exact") __attribute__((noinline, noclone))
+#else
+#define TDMA_EVENT_EXACT_RAM
+#endif
+
+TDMA_EVENT_EXACT_RAM
+tdma_event_exact_result_t tdma_pio_spi_phys_event_copy_history_exact(
+    const tdma_pio_spi_phys_t *phys, uint64_t expected_arm_epoch,
+    uint32_t expected_observer_epoch, uint32_t source_sequence,
+    tdma_pio_spi_event_exact_t *out)
+{
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    if (get_core_num() != 1u) return TDMA_EVENT_EXACT_BAD_ARGUMENT;
+#endif
+    if (phys == NULL || out == NULL || expected_arm_epoch == 0u || expected_observer_epoch == 0u)
+        return TDMA_EVENT_EXACT_BAD_ARGUMENT;
+    /* History and LIVE are written only by the same Core1 foreground owner:
+     * service harvest, ARM, STOP and observer recovery. The capture IRQ writes
+     * only its priority lane, never these publications. It may preempt this
+     * bounded reader, but cannot advance either guard, so no IRQ mask or time
+     * sample is needed to exclude a guard ABA. Retain both guard checks to
+     * reject any inconsistent publication; this API is not a Core0 reader. */
+    const uint32_t history_guard = __atomic_load_n(
+        &s_tdma_event_history.publication_guard, __ATOMIC_ACQUIRE);
+    const uint32_t live_guard = __atomic_load_n(&s_tdma_event_live_guard, __ATOMIC_ACQUIRE);
+    if ((history_guard | live_guard) & 1u) return TDMA_EVENT_EXACT_BUSY;
+    union {
+        tdma_pio_spi_event_exact_t snapshot;
+        uint32_t words[sizeof(tdma_pio_spi_event_exact_t) / sizeof(uint32_t)];
+    } candidate = {0};
+    tdma_event_exact_result_t result = TDMA_EVENT_EXACT_RETIRED;
+    do {
+        const bool active = __atomic_load_n(&s_tdma_event_history.active, __ATOMIC_RELAXED);
+        const uint32_t epoch = __atomic_load_n(&s_tdma_event_history.epoch, __ATOMIC_RELAXED);
+        const uint32_t hz = __atomic_load_n(&s_tdma_event_history.pio_hz, __ATOMIC_RELAXED);
+        const uint32_t count = __atomic_load_n(&s_tdma_event_history.count, __ATOMIC_RELAXED);
+        const uint32_t next = __atomic_load_n(&s_tdma_event_history.next, __ATOMIC_RELAXED);
+        const uint32_t oldest = __atomic_load_n(&s_tdma_event_history.oldest_ordinal, __ATOMIC_RELAXED);
+        if (!active || epoch != expected_observer_epoch || !phys->armed ||
+            !s_tdma_pio_spi_rx_arm_valid || s_tdma_pio_spi_rx_arm_epoch != expected_arm_epoch)
+            break;
+        if (hz == 0u || count > TDMA_EVENT_HISTORY_CAPACITY || next >= TDMA_EVENT_HISTORY_CAPACITY ||
+            (count == 0u && (oldest != UINT32_MAX || next != 0u))) {
+            result = TDMA_EVENT_EXACT_BAD_STATE; break;
+        }
+        /* Read only LIVE's lifetime/anchor, not its possibly older event. */
+        const uint32_t live_epoch = __atomic_load_n(&s_tdma_event_live_words[
+            (offsetof(tdma_pio_spi_event_live_snapshot_t, record) +
+             offsetof(tdma_event_record_t, epoch)) / sizeof(uint32_t)], __ATOMIC_RELAXED);
+        const uint32_t live_hz = __atomic_load_n(&s_tdma_event_live_words[
+            offsetof(tdma_pio_spi_event_live_snapshot_t, tick_hz) / sizeof(uint32_t)], __ATOMIC_RELAXED);
+        const uint32_t flags = __atomic_load_n(&s_tdma_event_live_words[
+            offsetof(tdma_pio_spi_event_live_snapshot_t, flags) / sizeof(uint32_t)], __ATOMIC_RELAXED);
+        const uint32_t required = TDMA_EVENT_LIVE_RETAINED |
+            TDMA_EVENT_LIVE_ACTIVE | TDMA_EVENT_LIVE_ANCHOR_VALID;
+        if (live_epoch != epoch || live_hz != hz || (flags & required) != required ||
+            (flags & (TDMA_EVENT_LIVE_CANCELLED | TDMA_EVENT_LIVE_ANCHOR_UNAVAILABLE)) != 0u)
+            break;
+        _Static_assert(offsetof(tdma_pio_spi_event_live_snapshot_t, timer1_enable_after) ==
+            offsetof(tdma_pio_spi_event_live_snapshot_t, arm_epoch) + 2u * sizeof(uint64_t) &&
+            offsetof(tdma_pio_spi_event_exact_t, timer1_enable_after) ==
+            offsetof(tdma_pio_spi_event_exact_t, arm_epoch) + 2u * sizeof(uint64_t),
+            "ARM and TIMER1 anchor must be six consecutive words");
+        for (uint32_t i = 0u; i < 6u; ++i)
+            candidate.words[offsetof(tdma_pio_spi_event_exact_t, arm_epoch) / sizeof(uint32_t) + i] =
+                __atomic_load_n(&s_tdma_event_live_words[
+                    offsetof(tdma_pio_spi_event_live_snapshot_t, arm_epoch) / sizeof(uint32_t) + i],
+                    __ATOMIC_RELAXED);
+        if (candidate.snapshot.arm_epoch != expected_arm_epoch) break;
+        if (candidate.snapshot.timer1_enable_before > candidate.snapshot.timer1_enable_after) {
+            result = TDMA_EVENT_EXACT_BAD_STATE; break;
+        }
+        if (count == 0u) { result = TDMA_EVENT_EXACT_PENDING; break; }
+        const uint64_t end = (uint64_t)oldest + count;
+        if (end > (uint64_t)UINT32_MAX + 1u) {
+            result = TDMA_EVENT_EXACT_BAD_STATE; break;
+        }
+        const uint32_t newest = (next + TDMA_EVENT_HISTORY_CAPACITY - 1u) &
+            (TDMA_EVENT_HISTORY_CAPACITY - 1u);
+        const uint32_t newest_sequence = __atomic_load_n(
+            &s_tdma_event_history.records[newest].sequence, __ATOMIC_RELAXED);
+        const uint32_t newest_ordinal = __atomic_load_n(
+            &s_tdma_event_history.records[newest].ordinal, __ATOMIC_RELAXED);
+        if ((uint64_t)newest_ordinal != end - 1u || newest_sequence < count - 1u) {
+            result = TDMA_EVENT_EXACT_BAD_STATE; break;
+        }
+        /* Production observer epochs never span sequence wrap, unlike the
+         * generic history container. Never alias a future/high source word
+         * onto a retained slot through uint32 subtraction wrap. */
+        if (source_sequence > newest_sequence) { result = TDMA_EVENT_EXACT_PENDING; break; }
+        const uint32_t age = newest_sequence - source_sequence;
+        if (age >= count) {
+            result = TDMA_EVENT_EXACT_EVICTED; break;
+        }
+        if (newest_ordinal < age) { result = TDMA_EVENT_EXACT_BAD_STATE; break; }
+        const uint32_t index = (next + TDMA_EVENT_HISTORY_CAPACITY - 1u - age) &
+            (TDMA_EVENT_HISTORY_CAPACITY - 1u);
+        for (uint32_t i = 0u; i < 8u; ++i)
+            candidate.snapshot.record.words[i] = __atomic_load_n(
+                &s_tdma_event_history.records[index].words[i], __ATOMIC_RELAXED);
+        const tdma_event_history_record_t *record = &candidate.snapshot.record;
+        if (record->sequence != source_sequence || record->ordinal != newest_ordinal - age ||
+            record->rx_elapsed_cycles == 0u || record->tx_elapsed_cycles < record->rx_elapsed_cycles ||
+            candidate.snapshot.timer1_enable_after > UINT64_MAX - record->tx_elapsed_cycles) {
+            result = TDMA_EVENT_EXACT_BAD_STATE; break;
+        }
+        candidate.snapshot.observer_epoch = epoch;
+        candidate.snapshot.tick_hz = hz;
+        candidate.snapshot.flags = flags;
+        result = TDMA_EVENT_EXACT_OK;
+    } while (false);
+    __atomic_thread_fence(__ATOMIC_ACQ_REL);
+    if (history_guard != __atomic_load_n(&s_tdma_event_history.publication_guard, __ATOMIC_ACQUIRE) ||
+        live_guard != __atomic_load_n(&s_tdma_event_live_guard, __ATOMIC_ACQUIRE))
+        return TDMA_EVENT_EXACT_BUSY;
+    if (result == TDMA_EVENT_EXACT_OK) *out = candidate.snapshot;
+    return result;
+}
+#undef TDMA_EVENT_EXACT_RAM
+/* EVENT_HISTORY_EXACT_END */
+
 /* Separate hypothesis: never install frozen DMA offsets as live alignment. */
 static tdma_frozen_geometry_snapshot_t s_tdma_event_geometry;
 static bool s_tdma_event_prelaunch;
@@ -1912,6 +2035,20 @@ void tdma_pio_spi_phys_rx_event_query(void *context,
         s_tdma_event_observer.state != TDMA_EVENT_ACTIVE) tdma_event_publish_state(phys);
 }
 #else
+tdma_event_exact_result_t tdma_pio_spi_phys_event_copy_history_exact(
+    const tdma_pio_spi_phys_t *phys, uint64_t expected_arm_epoch,
+    uint32_t expected_observer_epoch, uint32_t source_sequence,
+    tdma_pio_spi_event_exact_t *out)
+{
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    if (get_core_num() != 1u) return TDMA_EVENT_EXACT_BAD_ARGUMENT;
+#endif
+    (void)source_sequence;
+    if (phys == NULL || out == NULL || expected_arm_epoch == 0u || expected_observer_epoch == 0u)
+        return TDMA_EVENT_EXACT_BAD_ARGUMENT;
+    return TDMA_EVENT_EXACT_RETIRED;
+}
+
 tdma_event_window_result_t tdma_pio_spi_phys_event_copy_history_window(
     const tdma_pio_spi_phys_t *phys, uint32_t expected_observer_epoch,
     uint64_t next_ordinal, tdma_pio_spi_event_window_t *out)

@@ -44,6 +44,7 @@ def direct_rx_executable(request, tmp_path_factory):
     "zero_generation", "zero_width", "bad_flags", "interval_overflow", "seq16_mismatch",
     "epoch_reset", "stop_retention", "zero_epoch", "guard_busy", "guard_collision",
     "counter_saturation", "adjacent_identity", "carrier_wrap_epoch", "input_immutable",
+    "live_empty", "live_read", "live_wrong_core", "live_stop", "live_collision",
 ])
 def test_direct_core1_typed_rx(direct_rx_executable, case):
     result = subprocess.run([str(direct_rx_executable), case], capture_output=True, text=True, timeout=5)
@@ -56,6 +57,8 @@ HARNESS = r'''
 #include <string.h>
 #include "vdc_priority_rx.h"
 static uint32_t *collision_guard;
+static unsigned core=1u;
+static unsigned get_core_num(void) { return core; }
 static const uint32_t *collision_word;
 static uint32_t read_atomic(const uint32_t *p, int order)
 {
@@ -107,7 +110,21 @@ int main(int argc, char **argv)
     record.epoch=5u; record.sequence=100u; record.irq_entry_ticks=UINT32_MAX+100ull;
     record.mailbox[3]=0x14u; record.mailbox[4]=0u; record.mailbox[5]=15u;
     encode(); vdc_priority_rx_snapshot_t out, saved;
-    if (!strcmp(mode,"initial_stop")) {
+    if (!strcmp(mode,"live_empty")) {
+        memset(&saved,0xa5,sizeof(saved));out=saved;
+        assert(!vdc_priority_rx_copy_live(&out) && !memcmp(&out,&saved,sizeof(out)));
+        record.mailbox[3]=0x10u;send();
+        assert(!vdc_priority_rx_copy_live(&out) && !memcmp(&out,&saved,sizeof(out)));
+    } else if (!strcmp(mode,"live_read")) {
+        saved=send();assert(vdc_priority_rx_copy_live(&out));expect_retained(&out,&saved);
+        assert(!vdc_priority_rx_copy_live(NULL));
+    } else if (!strcmp(mode,"live_wrong_core") || !strcmp(mode,"live_stop") || !strcmp(mode,"live_collision")) {
+        send();memset(&saved,0xa5,sizeof(saved));out=saved;
+        if (!strcmp(mode,"live_wrong_core")) core=0u;
+        else if (!strcmp(mode,"live_stop")) vdc_priority_rx_core1(NULL);
+        else {collision_guard=&s_priority_rx_guard;collision_word=s_priority_rx_words+3u;}
+        assert(!vdc_priority_rx_copy_live(&out) && !memcmp(&out,&saved,sizeof(out)));
+    } else if (!strcmp(mode,"initial_stop")) {
         out=get(); assert(out.schema==1u && !out.active && !out.have_record);
         vdc_priority_rx_core1(NULL); out=get();
         assert(!out.active && out.last_status==VDC_PRIORITY_RX_RETIRED);

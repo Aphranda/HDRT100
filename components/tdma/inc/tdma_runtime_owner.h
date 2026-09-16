@@ -69,6 +69,14 @@ bool tdma_runtime_owner_get_event_live_snapshot(tdma_pio_spi_event_live_snapshot
 tdma_event_window_result_t tdma_runtime_owner_copy_event_history_window(
     uint32_t expected_observer_epoch, uint64_t next_ordinal,
     tdma_pio_spi_event_window_t *out);
+/* Core1 foreground, one exact full-sequence copy with no scan or IRQ masking.
+ * Both epochs are required. BUSY/PENDING may be retried at a later service;
+ * EVICTED is outside retained history; RETIRED has no current binding/anchor.
+ * The production observer lifetime does not span sequence wrap. All failures
+ * preserve *out. Success remains diagnostic and revocable. */
+tdma_event_exact_result_t tdma_runtime_owner_copy_event_history_exact(
+    uint64_t expected_arm_epoch, uint32_t expected_observer_epoch,
+    uint32_t source_sequence, tdma_pio_spi_event_exact_t *out);
 
 /* Core0 data-plane facade.  These functions only access the cross-core
  * software FIFO.  Core1 remains the sole PIO/SM/DMA and hardware-FIFO owner. */

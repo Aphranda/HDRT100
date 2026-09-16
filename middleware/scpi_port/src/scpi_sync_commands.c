@@ -835,6 +835,89 @@ scpi_result_t scpi_cmd_system_tdma_priority_rx_timing_q(scpi_t *context)
 
 #include "vdc_priority_tx.h"
 #include "vdc_priority_rx.h"
+#include "vdc_priority_match.h"
+
+scpi_result_t scpi_cmd_vdc_priority_match(scpi_t *context)
+{
+    uint32_t generation;
+    if (!SCPI_ParamUInt32(context, &generation, TRUE) ||
+        !vdc_dpll_manager_set_priority_match(generation)) {
+        scpi_port_push_exec_error(context, "Priority match configuration rejected");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, generation);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_priority_match_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, vdc_dpll_manager_priority_match_generation());
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_priority_match_status_q(scpi_t *context)
+{
+    tdma_ring_clock_snapshot_t ring;
+    vdc_priority_match_snapshot_t s;
+    /* Ring STOP is authoritative. active describes the last Core1 service. */
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring) || ring.enabled ||
+        ring.adapter_started || !vdc_dpll_manager_get_priority_match(&s)) {
+        scpi_port_push_exec_error(context, "Priority match evidence requires STOP");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, s.schema);
+    SCPI_ResultUInt32(context, s.generation);
+    SCPI_ResultUInt32(context, s.active);
+    SCPI_ResultUInt32(context, s.retired);
+    SCPI_ResultUInt32(context, s.have_match);
+    SCPI_ResultUInt32(context, s.calls);
+    SCPI_ResultUInt32(context, s.matched);
+    SCPI_ResultUInt32(context, s.repeated);
+    SCPI_ResultUInt32(context, s.superseded);
+    SCPI_ResultUInt32(context, s.busy);
+    SCPI_ResultUInt32(context, s.pending);
+    SCPI_ResultUInt32(context, s.history_miss);
+    SCPI_ResultUInt32(context, s.rejected);
+    SCPI_ResultUInt32(context, s.last_reason);
+    SCPI_ResultUInt32(context, s.history_result);
+    SCPI_ResultUInt32(context, s.source_slot);
+    SCPI_ResultUInt32(context, s.event_sequence);
+    SCPI_ResultUInt32(context, s.carrier_sequence);
+    SCPI_ResultUInt32(context, s.rx_epoch);
+    SCPI_ResultUInt32(context, s.session);
+    SCPI_ResultUInt32(context, s.role_generation);
+    SCPI_ResultUInt32(context, s.clock_epoch);
+    SCPI_ResultUInt32(context, s.clock_run);
+    SCPI_ResultUInt32(context, s.model_token);
+    SCPI_ResultUInt32(context, s.applied_command_seq);
+    SCPI_ResultUInt32(context, s.ring_config_seq);
+    SCPI_ResultUInt32(context, s.ring_applied_seq);
+    SCPI_ResultUInt32(context, s.local_slot);
+    SCPI_ResultUInt32(context, s.reference_slot);
+    SCPI_ResultUInt32(context, s.node_count);
+    SCPI_ResultUInt32(context, s.schedule_crc32);
+    SCPI_ResultUInt32(context, s.profile_crc32);
+    SCPI_ResultUInt32(context, s.observer_epoch);
+    SCPI_ResultUInt32(context, s.tick_hz);
+    SCPI_ResultUInt32(context, s.path_crc32);
+    SCPI_ResultUInt32(context, s.delay_ns);
+    SCPI_ResultUInt32(context, s.path_direction);
+    SCPI_ResultUInt32(context, s.path_qualification);
+    scpi_sync_result_u64_parts(context, s.arm_epoch);
+    scpi_sync_result_u64_parts(context, s.valid_from_raw);
+    scpi_sync_result_u64_parts(context, s.raw_lo);
+    scpi_sync_result_u64_parts(context, s.raw_hi);
+    scpi_sync_result_u64_parts(context, s.local_lo);
+    scpi_sync_result_u64_parts(context, s.local_hi);
+    scpi_sync_result_u64_parts(context, s.remote_lo);
+    scpi_sync_result_u64_parts(context, s.remote_hi);
+    scpi_sync_result_u64_parts(context, s.expected_lo);
+    scpi_sync_result_u64_parts(context, s.expected_hi);
+    scpi_sync_result_u64_parts(context, (uint64_t)s.residual_lo);
+    scpi_sync_result_u64_parts(context, (uint64_t)s.residual_hi);
+    return SCPI_RES_OK;
+}
+
 
 scpi_result_t scpi_cmd_vdc_priority_rx_q(scpi_t *context)
 {

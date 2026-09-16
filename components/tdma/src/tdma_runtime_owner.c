@@ -505,6 +505,20 @@ tdma_event_window_result_t tdma_runtime_owner_copy_event_history_window(
         expected_observer_epoch, next_ordinal, out);
 }
 
+tdma_event_exact_result_t tdma_runtime_owner_copy_event_history_exact(
+    uint64_t expected_arm_epoch, uint32_t expected_observer_epoch,
+    uint32_t source_sequence, tdma_pio_spi_event_exact_t *out)
+{
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    if (get_core_num() != 1u) return TDMA_EVENT_EXACT_BAD_ARGUMENT;
+#endif
+    if (out == NULL || expected_arm_epoch == 0u || expected_observer_epoch == 0u)
+        return TDMA_EVENT_EXACT_BAD_ARGUMENT;
+    if (!s_tdma_runtime_owner_initialized) return TDMA_EVENT_EXACT_RETIRED;
+    return tdma_pio_spi_phys_event_copy_history_exact(&s_tdma_pio_spi_phys,
+        expected_arm_epoch, expected_observer_epoch, source_sequence, out);
+}
+
 bool tdma_runtime_owner_get_origin_raw_reference(tdma_origin_raw_reference_t *snapshot)
 {
     return s_tdma_runtime_owner_initialized &&

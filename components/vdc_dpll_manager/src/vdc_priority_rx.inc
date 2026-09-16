@@ -34,7 +34,8 @@ static void VDC_PRIORITY_RX_RAM_FUNC(priority_rx_publish)(void)
     __atomic_store_n(&s_priority_rx_guard, guard + 2u, __ATOMIC_RELEASE);
 }
 
-bool vdc_dpll_manager_get_priority_rx(vdc_priority_rx_snapshot_t *out)
+static bool VDC_PRIORITY_RX_RAM_FUNC(priority_rx_copy)(vdc_priority_rx_snapshot_t *out,
+    bool require_live)
 {
     if (!out) return false;
     const uint32_t guard = __atomic_load_n(&s_priority_rx_guard, __ATOMIC_ACQUIRE);
@@ -45,9 +46,20 @@ bool vdc_dpll_manager_get_priority_rx(vdc_priority_rx_snapshot_t *out)
         memcpy((uint8_t *)&value + 4u * i, &word, 4u);
     }
     __atomic_thread_fence(__ATOMIC_ACQUIRE);
-    if (guard != __atomic_load_n(&s_priority_rx_guard, __ATOMIC_ACQUIRE)) return false;
+    if (guard != __atomic_load_n(&s_priority_rx_guard, __ATOMIC_ACQUIRE) ||
+        (require_live && (!value.active || !value.have_record))) return false;
     *out = value;
     return true;
+}
+
+bool vdc_dpll_manager_get_priority_rx(vdc_priority_rx_snapshot_t *out)
+{
+    return priority_rx_copy(out, false);
+}
+
+bool vdc_priority_rx_copy_live(vdc_priority_rx_snapshot_t *out)
+{
+    return get_core_num() == 1u && priority_rx_copy(out, true);
 }
 
 void VDC_PRIORITY_RX_RAM_FUNC(vdc_priority_rx_core1)(const tdma_priority_rx_record_t *record)
