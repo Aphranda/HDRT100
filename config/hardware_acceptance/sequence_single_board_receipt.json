@@ -10,13 +10,12 @@
     "no_independent_edge_count",
     "no_tdma_stability"
   ],
-  "created_at": "2026-09-16T17:07:27.487859+00:00",
+  "created_at": "2026-09-16T17:29:28.495838+00:00",
   "serial_number": "839E1AE79EA20F31",
   "build_id": "20260916164200",
-  "source_tree_sha256": "31c13baba84b726d50f390c0cb22ca4687aae7b32ac987fe45f5f9e89d728e4e",
+  "source_tree_sha256": "abd6f238a5635ea1683550c9b8ddbccefab3794b62ede0a17a29285c6019c9cb",
   "source_file_count": 1159,
   "changed_sources": [
-    "tests/python/test_sequence_trigger_debug_ui.py",
     "tests/python/test_sequence_trigger_debug_ui_layout.py",
     "tools/sequence_trigger_debug_ui/sequence_trigger_debug_ui.py"
   ],
@@ -30,11 +29,11 @@
     "sha256": "89562cc7c4b9eec32fcb925c224b9bd77fe0b43a013b2e4c0eb903e232d5ef24"
   },
   "finite_report": {
-    "path": "out/HardwareAcceptance/20260917/rj45-explicit-out-single-board/finite.json",
-    "sha256": "e3d44849f0c3d237fafed0f82c4980c1d8d533538d2eaea386544434f9ad80b6"
+    "path": "out/HardwareAcceptance/20260917/sp8t-layout-single-board/finite.json",
+    "sha256": "0b04d3873de8cb1c0d46f9a08cecbbf71ea6994c1eaf6759b5a89e09e1f379e5"
   },
   "pause_resume_report": {
-    "path": "out/HardwareAcceptance/20260917/rj45-explicit-out-single-board/pause-resume.json",
-    "sha256": "48beed8540963b52944692fc464b13f716a9db39147303eac8e8fdde9ab821d3"
+    "path": "out/HardwareAcceptance/20260917/sp8t-layout-single-board/pause-resume.json",
+    "sha256": "22de3b93ec34431e16464d4fcef3b3bd3d69efce220c0c0c9472907a62b71c2f"
   }
 }

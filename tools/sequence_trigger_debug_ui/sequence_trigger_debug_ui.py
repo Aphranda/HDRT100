@@ -520,7 +520,7 @@ class SequenceUi(tk.Tk):
             checkbuttons.append(check)
             box = ttk.Combobox(
                 cell, textvariable=role_vars[index], values=role_values,
-                state="readonly", width=4)
+                state="readonly", width=7)
             box.pack(side="left", padx=(4, 0))
             if on_select is not None:
                 box.bind("<<ComboboxSelected>>", on_select)
@@ -557,33 +557,26 @@ class SequenceUi(tk.Tk):
             self._field(self.gateway_group, 3, "READY 超时 ms", self.gateway_timeout, width=12)
             ttk.Label(page, text="流程：首编码 → RJ45 TDMA → VNA 触发 → READY → RJ45 TDMA → 下一编码。").pack(anchor="w", pady=(0, 5))
         else:
-            groups = ttk.Frame(page, style="Panel.TFrame")
-            groups.pack(fill="x", pady=(0, 8))
-            groups.columnconfigure(1, weight=1)
-            self.independent_input_group = ttk.LabelFrame(groups, text="推进事件", padding=10)
-            self.independent_input_group.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+            self.independent_output_group = ttk.LabelFrame(page, text="OUT 属性", padding=8)
+            self.independent_output_group.pack(fill="x", pady=(0, 8))
+            self._build_output_assignment(
+                self.independent_output_group, self.out_enabled, self.out_roles,
+                [ROLE_SEQUENCE, ROLE_STATUS], self.out_checkbuttons,
+                self.out_role_boxes, lambda _event: self._update_status_mode())
+
+            self.independent_input_group = ttk.LabelFrame(page, text="推进事件", padding=10)
+            self.independent_input_group.pack(fill="x", pady=(0, 8))
             self.source_box = self._field(self.independent_input_group, 0, "输入", self.source,
                 values=["MANUAL", "IN1", "IN2", "IN3", "IN4"], width=8)
             self.source_box.bind("<<ComboboxSelected>>", lambda _event: self.update_mode_hint())
             self._field(self.independent_input_group, 1, "边沿", self.edge, values=["RIS", "FALL"], width=7)
-            self.independent_output_group = ttk.LabelFrame(groups, text="输出分配与状态反馈", padding=10)
-            self.independent_output_group.grid(row=0, column=1, sticky="nsew")
-            roles = ttk.Frame(self.independent_output_group)
-            roles.pack(fill="x")
-            self._build_output_assignment(
-                roles, self.out_enabled, self.out_roles,
-                [ROLE_SEQUENCE, ROLE_STATUS], self.out_checkbuttons,
-                self.out_role_boxes, lambda _event: self._update_status_mode())
-            feedback = ttk.Frame(self.independent_output_group)
-            feedback.pack(fill="x", pady=(8, 0))
-            ttk.Label(feedback, text="状态形式").pack(side="left")
-            self.status_mode_box = ttk.Combobox(feedback, textvariable=self.status_mode,
-                values=["无", "电平", "脉冲"], state="readonly", width=7)
-            self.status_mode_box.pack(side="left", padx=(5, 16))
-            self.status_mode_box.bind("<<ComboboxSelected>>", lambda _event: self._update_status_mode())
-            ttk.Label(feedback, text="状态脉宽 µs").pack(side="left")
-            self.pulse_entry = ttk.Entry(feedback, textvariable=self.pulse, width=9)
-            self.pulse_entry.pack(side="left", padx=5)
+            self.status_mode_box = self._field(
+                self.independent_input_group, 2, "状态形式", self.status_mode,
+                values=["无", "电平", "脉冲"], width=7)
+            self.status_mode_box.bind(
+                "<<ComboboxSelected>>", lambda _event: self._update_status_mode())
+            self.pulse_entry = self._field(
+                self.independent_input_group, 3, "状态脉宽 µs", self.pulse, width=9)
 
         controls = ttk.Frame(page, style="Panel.TFrame")
         controls.pack(fill="x", pady=(2, 6))

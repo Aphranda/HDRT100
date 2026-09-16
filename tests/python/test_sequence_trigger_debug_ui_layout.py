@@ -61,7 +61,7 @@ def test_tabs_separate_mode_controls_and_keep_common_io(ui):
     assert ui.gateway_group.winfo_ismapped()
     assert ui.gateway_output_group.winfo_ismapped()
     assert len(ui.gateway_out_role_boxes) == 4
-    assert all(int(box.cget("width")) <= 4 for box in
+    assert all(int(box.cget("width")) == 7 for box in
                [*ui.out_role_boxes, *ui.gateway_out_role_boxes])
     for group, widgets in (
             (ui.gateway_output_group,
@@ -79,6 +79,25 @@ def test_tabs_separate_mode_controls_and_keep_common_io(ui):
         assert ui.io_panel.winfo_ismapped() and ui.output.winfo_ismapped()
         assert ui.connection_panel.winfo_ismapped()
     assert ui._operations.empty()
+
+
+@pytest.mark.parametrize("size", ["1380x900", "1120x820"])
+def test_independent_layout_matches_loopback_groups(ui, size):
+    ui.geometry(size)
+    select(ui, ui.independent_page)
+    output_widgets = [*ui.out_checkbuttons, *ui.out_role_boxes]
+    assert max(widget.winfo_rooty() for widget in output_widgets) - \
+        min(widget.winfo_rooty() for widget in output_widgets) <= 5
+    group_right = (ui.independent_output_group.winfo_rootx() +
+                   ui.independent_output_group.winfo_width())
+    assert all(widget.winfo_rootx() + widget.winfo_width() <= group_right
+               for widget in output_widgets)
+
+    parameter_widgets = [widget for widget in descendants(ui.independent_input_group)
+                         if isinstance(widget, (ttk.Entry, ttk.Combobox))]
+    assert len(parameter_widgets) == 4
+    assert max(widget.winfo_rooty() for widget in parameter_widgets) - \
+        min(widget.winfo_rooty() for widget in parameter_widgets) <= 5
 
 
 def test_switching_tabs_preserves_independent_drafts_and_never_sends_commands(ui):
