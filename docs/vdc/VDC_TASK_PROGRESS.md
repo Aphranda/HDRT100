@@ -30,20 +30,24 @@ Last updated: 2026-09-16
 本次文档提交保留这些后继事实，不表示相关源码已提交，也不提升完整 P3 或锁相资格。
 拆分证据见 `out/HardwareAcceptance/20260916/commit-consolidation-r1/`；
 代码提交前隔离版本的软件回归与源码门禁通过，主工作区所有原文件逐字节保留。
+`5a22acc` 已单独提交 032/033 的两份进度文档；再次审计确认现有最新 P3 凭证
+对应源码均已提交，后续实现仍没有匹配凭证。证据见
+`out/HardwareAcceptance/20260916/commit-consolidation-r2/`，未绕过门禁。
 
 当前执行已按用户最新指令切换到 NO1 自主 PI/发布时间戳、NO2–NO4 接收/环路 ACK、
 加本地已测 delay 后本地跟踪，见 `VDC-PROGRESS-20260916-027/028`。
 集中式逐从 AUTO 不再作为前置，完整 delay/bias 与物理精度后续验收。
 显式 REFERENCE 发布和基础环路 ACK 均已实测，见 `VDC-PROGRESS-20260916-028/030`。
-ACK 固件直接四板 TDMA 闭环通过，三从回执与发送末档逐字节对应；当前三从 DCO
-更新仍为零，自主阶段 NO1 PI 和从板本地跟踪仍待接通。完整 P3 的 P0T 准备失败
+ACK 固件直接四板 TDMA 闭环通过，三从回执与发送末档逐字节对应；该轮三从 DCO
+更新均为零。自主阶段 NO1 PI 和三从持续本地跟踪仍待验。完整 P3 的 P0T 准备失败
 保留于 029；按用户最新指令，已知线序停止继续探测，校准/工具/SD 问题单列，
 只有 TDMA/DPLL 本身阻塞主线。本地事件历史桥的源码、Release 与直接四板 TDMA
 回归已完成，见 `VDC-PROGRESS-20260916-031`。集成本地跟踪的软件、Release 与
-直接四板 TDMA 已完成，见 `VDC-PROGRESS-20260916-032`；实板三从仍无 DCO
-更新。等待配对的时间基错配已修复并完成新源码四板 TDMA/专项采集，见
-`VDC-PROGRESS-20260916-033`；仍缺有效候选与实际采用，继续定位运输稀疏和
-投影区间，不再重跑 P0T 寻优。
+直接四板 TDMA 已完成，见 `VDC-PROGRESS-20260916-032`；该轮三从无 DCO
+更新。等待配对的时间基错配已修复，见 `VDC-PROGRESS-20260916-033`。
+桥接采样窗口缩短后，NO4 首次有可追溯的本地 DCO 采用，见
+`VDC-PROGRESS-20260916-034`；NO2/NO3 当轮完整参考接收为零，三从持续闭环仍
+未完成。下一步定位分片运输/交接缺口，再验证持续采用和斜率，不再重跑 P0T 寻优。
 
 以下保留前一路线 checkpoint。显式 AUTO 与 RATE 窗口已接入，初版软件、双槽构建和对应源码严格四板 P3 通过；
 自动多轮实板专项仅部分从板响应，尚未闭合。AUTO 专用采集修复的软件及构建通过，
@@ -93,6 +97,46 @@ RX acquire 的修复已完成软件、资源及构建；P0T 启动确认工具�
 
 当前执行依赖按 `VDC-PROGRESS-20260916-027` 纠偏；此前各记录的“当前”及
 “下一 gate”保留历史含义，不将首帧可用、全窗无错或完整绝对时间映射作为运输前置。
+
+### VDC-PROGRESS-20260916-034：缩短桥接采样窗口及 NO4 首次本地采用
+
+- TODO task ID：`VDC-LOCAL-003/004`；日期：2026-09-16。将桥接内部通用 raw
+  reader 改为直接 TIMER1/TIMER0/TIMER1 三组 hi/lo/hi 只读采样，完整配置检查
+  留在前后；保留高字一致性、严格递增、真实抢占宽度、TIMER0 量化和溢出检查。
+  不屏蔽中断，不取区间中点，不改变控制增益、wire、配对窗口或存储容量。
+- 软件快照：原 tight-bracket 反例失败，preempted-bracket 通过；修改后相关
+  56 项、rate/clock 5 项和独立 46 项通过。A/B ARM 汇编确认九次 MMIO 顺序正确，
+  夹持内还有一次 literal load 和一次 cmp，但无函数调用、乘除、分支；采样后
+  DMB 及完整配置比较保留。自身栈帧由 272 B 降至 264 B，静态 RAM 无增量，
+  预留堆后余量仍 144 B；均为当轮快照，不是系统栈/WCET 证明。
+- Release 源码指纹为
+  `95853bce494726235df2f5827a7eaa81f3f352a42e2fa19a70e41dc8121a68f6`，
+  包 SHA256 为 `9480543b56292df6298feade249668c0e9c948bb1276a66aa9d972229ee5aa43`。
+  四板 OTA 和直接 TDMA 四项 gate 通过，原生板端记录各 14 条、STOP handoff
+  通过。复用已测矩阵，无 P0T；未生成新 P3 提交凭证，源码仍未提交。
+- `local-capture-r1` 完成 8 s 运行和全部 STOP 后 RAM 导出，运行中零查询，模式、
+  会话及许可证撤销完成。NO2/NO3/NO4 完整参考接收增量为 0/0/5，LOCAL
+  记录为 0/0/2、零 dropped。冻结采集器对 NO2 的未接收全零占位记录做 decode，
+  导致 assessment 报 `record CRC mismatch`；这是缺数据的工具判定失败，不能
+  当成线上帧 CRC 损坏证据。原失败和空记录保留，整轮判定仍 FAIL。
+- NO4 原生 observation/commit 与基线/末态 MODEL 一致：事件序号 5073→6332，
+  实测有向 delay 82 ns，误差区间 -9182..-1800 ppb，按原负反馈规则采用
+  +450 ppb，DCO 序号 1→2、rate 0→450 ppb，remote command 序号保持零。
+  这是一次本地采用证据，不是三从闭环、持续收敛或物理锁相证据。
+- NO4 本地端点投影宽度为 2827/3095 ns，远端为 1687/1687 ns；此前 033 的
+  NO3 HOLD 宽度为本地 7295/7295 ns、远端 6427/6051 ns。各轮、各板采样不同，
+  不能据此给出确定改善百分比；宽度仍包含 ARM 锚点和量化误差。
+- 同源 `local-capture-r2` 尝试 10 s 复采，但 START 前 NO2 MODEL 查询超时，
+  没有发送 START；随后四板 STOP、RAM 导出、模式/会话/许可证清理完成。
+  NO3 BOUNDary 首次超时由已有有界重试处理；原日志和失败保留，无新运行结论。
+- 证据根目录：`out/HardwareAcceptance/20260916/dpll-bridge-window-r1/`；入口为
+  `after-build-r1/manifest.json`、`bridge-window-source-independent-review-r1.json`、
+  `direct-hardware-audit-r1.json`、`local-capture-r1-main-audit.json`、
+  `capture-comparison-r1.json` 及两轮 `input-probe.json`/原生 RAM。
+- 下一 gate：继续 `VDC-LOCAL-003`，以 owner 发布的停止态证据定位 NO2/NO3
+  完整参考分片缺口；现有 aggregate reject 不能区分丢分片、交接覆盖和 ACK
+  背压。保持每从独立校正、STOP 取消和真实误差资格，再证明三从持续采用；
+  当前源码 quick P3、NO1 持续 PI、漂移斜率、100 ns 与异常恢复均未闭合。
 
 ### VDC-PROGRESS-20260916-033：等待配对时间基修复及四板复验
 
